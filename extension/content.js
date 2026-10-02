@@ -1410,7 +1410,8 @@ function renderSubtitleSelect() {
       const selected = selectedById || selectedByUrl ? "selected" : "";
       const label = item.label || item.lang || "unknown";
       const isAi = item.kind !== "manual";
-      const aiTag = isAi ? " [AI自动]" : "";
+      // Translated tracks already say 机器翻译 in their label.
+      const aiTag = { ai: " [AI]", auto: " [自动]" }[item.kind] || "";
       const optionLabel = `${label}${aiTag}`;
       return `<option value="${escapeHtml(item.url)}" data-lang="${escapeHtml(
         label
