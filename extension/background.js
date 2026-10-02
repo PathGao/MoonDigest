@@ -986,13 +986,8 @@ async function migrateInitialQuickPrompts() {
   await chrome.storage.sync.remove("aiInitialQuickPrompts");
 }
 
-async function getMergedSettings() {
-  const [syncSettings, localSettings] = await Promise.all([
-    chrome.storage.sync.get(DEFAULT_SYNC_SETTINGS),
-    chrome.storage.local.get(DEFAULT_LOCAL_SETTINGS)
-  ]);
-
-  const merged = { ...DEFAULT_SYNC_SETTINGS, ...syncSettings };
+function normalizeSyncSettings(settings) {
+  const merged = { ...settings };
   merged.obsidianEnabled = merged.obsidianEnabled === true;
   merged.downloadFormat = normalizeDownloadFormat(merged.downloadFormat);
   merged.youtubeSubtitleLang = BocSites.normalizeSubtitleLang(merged.youtubeSubtitleLang);
@@ -1002,7 +997,7 @@ async function getMergedSettings() {
   merged.showBiliTriageBadges = merged.showBiliTriageBadges !== false;
   merged.readerTheme = normalizeReaderTheme(merged.readerTheme);
   merged.readerFontScale = normalizeReaderFontScale(merged.readerFontScale);
-  merged.readerLetterSpacing = normalizeReaderLetterSpacing(merged.readerLetterSpacing ?? merged.readerLineHeight);
+  merged.readerLetterSpacing = normalizeReaderLetterSpacing(merged.readerLetterSpacing);
   merged.readerLineHeight = normalizeReaderLineHeight(merged.readerLineHeight);
   merged.readerContentWidth = normalizeReaderContentWidth(merged.readerContentWidth);
   merged.readerChapterVisibility = normalizeReaderChapterVisibility(merged.readerChapterVisibility);
@@ -1011,6 +1006,16 @@ async function getMergedSettings() {
   merged.notePlaceholderSections = normalizeNotePlaceholderSections(merged.notePlaceholderSections);
   merged.aiSystemPrompt = normalizeAiSystemPrompt(merged.aiSystemPrompt);
   merged.aiPresetPrompts = normalizeAiPresetPrompts(merged.aiPresetPrompts);
+  return merged;
+}
+
+async function getMergedSettings() {
+  const [syncSettings, localSettings] = await Promise.all([
+    chrome.storage.sync.get(DEFAULT_SYNC_SETTINGS),
+    chrome.storage.local.get(DEFAULT_LOCAL_SETTINGS)
+  ]);
+
+  const merged = normalizeSyncSettings({ ...DEFAULT_SYNC_SETTINGS, ...syncSettings });
   let apiKey = normalizeApiKey(localSettings.obsidianApiKey);
   const legacySyncApiKey = normalizeApiKey(syncSettings.obsidianApiKey);
 
@@ -1026,36 +1031,16 @@ async function getMergedSettings() {
   };
 }
 
+// Callers send partial settings (the options page has no reading-view controls), so keys they omit keep their stored values.
 async function saveSettings(settings) {
   const payload = settings && typeof settings === "object" ? settings : {};
-  const syncPayload = { ...payload };
+  const stored = await chrome.storage.sync.get(DEFAULT_SYNC_SETTINGS);
+  const syncPayload = normalizeSyncSettings({ ...DEFAULT_SYNC_SETTINGS, ...stored, ...payload });
   delete syncPayload.obsidianApiKey;
-  syncPayload.obsidianEnabled = syncPayload.obsidianEnabled === true;
-  syncPayload.downloadFormat = normalizeDownloadFormat(syncPayload.downloadFormat);
-  syncPayload.youtubeSubtitleLang = BocSites.normalizeSubtitleLang(syncPayload.youtubeSubtitleLang);
-  syncPayload.includeHotCommentsInNote = normalizeIncludeHotCommentsInNote(syncPayload.includeHotCommentsInNote);
-  syncPayload.enablePlayerAiQuickAction = normalizeEnablePlayerAiQuickAction(syncPayload.enablePlayerAiQuickAction);
-  syncPayload.playerAiQuickPrompt = normalizePlayerAiQuickPrompt(syncPayload.playerAiQuickPrompt);
-  syncPayload.showBiliTriageBadges = syncPayload.showBiliTriageBadges !== false;
-  syncPayload.readerTheme = normalizeReaderTheme(syncPayload.readerTheme);
-  syncPayload.readerFontScale = normalizeReaderFontScale(syncPayload.readerFontScale);
-  syncPayload.readerLetterSpacing = normalizeReaderLetterSpacing(
-    syncPayload.readerLetterSpacing ?? syncPayload.readerLineHeight
-  );
-  syncPayload.readerLineHeight = normalizeReaderLineHeight(syncPayload.readerLineHeight);
-  syncPayload.readerContentWidth = normalizeReaderContentWidth(syncPayload.readerContentWidth);
-  syncPayload.readerChapterVisibility = normalizeReaderChapterVisibility(syncPayload.readerChapterVisibility);
-  syncPayload.readerTranscriptVisible = normalizeReaderTranscriptVisible(syncPayload.readerTranscriptVisible);
-  syncPayload.fixedFrontmatterProperties = normalizeFixedFrontmatterProperties(syncPayload.fixedFrontmatterProperties);
-  syncPayload.notePlaceholderSections = normalizeNotePlaceholderSections(syncPayload.notePlaceholderSections);
-  syncPayload.aiSystemPrompt = normalizeAiSystemPrompt(syncPayload.aiSystemPrompt);
-  syncPayload.aiPresetPrompts = normalizeAiPresetPrompts(syncPayload.aiPresetPrompts);
 
   await Promise.all([
     chrome.storage.sync.set(syncPayload),
-    chrome.storage.local.set({
-      obsidianApiKey: normalizeApiKey(payload.obsidianApiKey)
-    })
+    "obsidianApiKey" in payload && chrome.storage.local.set({ obsidianApiKey: normalizeApiKey(payload.obsidianApiKey) })
   ]);
 }
 

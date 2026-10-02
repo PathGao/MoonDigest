@@ -13,6 +13,7 @@ const ctx = vm.createContext({
   chrome, console, setTimeout, clearTimeout, AbortController, AbortSignal, TextDecoder, TextEncoder, URL, URLSearchParams,
   importScripts() {}
 });
+vm.runInContext(fs.readFileSync(path.join(__dirname, "sites.js"), "utf8"), ctx);
 vm.runInContext(fs.readFileSync(path.join(__dirname, "background.js"), "utf8"), ctx);
 ctx.loadAiProviders = async () => [{ id: "p", baseUrl: "https://ai.test", model: "m", requiresKey: false }];
 ctx.loadAiProviderKeys = async () => ({});
@@ -115,6 +116,17 @@ function chat() {
   assert.deepStrictEqual(fresh.aiPresetPrompts, JSON.parse(vm.runInContext("JSON.stringify(DEFAULT_PRESET_PROMPTS)", ctx)));
   assert.strictEqual(fresh.playerAiQuickPrompt, vm.runInContext("DEFAULT_PLAYER_AI_QUICK_PROMPT", ctx));
   assert.ok(!("aiInitialQuickPrompts" in fresh));
+
+  // Saving a partial payload (the options page has no reading-view controls) keeps every key it omits.
+  const stored = { readerTheme: "dark", readerFontScale: "l", readerTranscriptVisible: false, aiPresetPrompts: ["a"] };
+  ctx.chrome = { storage: { sync: area(stored), local: area({ obsidianApiKey: "k" }) } };
+  await ctx.saveSettings({ aiPresetPrompts: [], noteFolder: "N" });
+  assert.strictEqual(stored.readerTheme, "dark");
+  assert.strictEqual(stored.readerFontScale, "l");
+  assert.strictEqual(stored.readerTranscriptVisible, false);
+  assert.deepStrictEqual(stored.aiPresetPrompts, []);
+  assert.strictEqual(stored.noteFolder, "N");
+  assert.strictEqual((await ctx.chrome.storage.local.get("obsidianApiKey")).obsidianApiKey, "k");
 
   const systemFor = (extra) =>
     ctx.buildAiMessages({ context: { isVideoContext: true, title: "T", description: "简介", ...extra }, userPrompt: "q" })[0].content;
