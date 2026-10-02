@@ -1,7 +1,10 @@
-"use strict";
+// Static-server preview only: load the fake chrome.* before anything reads it. Never fetched inside the extension.
+if (!globalThis.chrome?.runtime?.id) await import("./dev/mock-chrome.js");
 
 // ---------- constants ----------
 const THROTTLE_MS = globalThis.__TRIAGE_THROTTLE_MS || 10 * 60 * 1000;
+// Error code -> [backoff ms, status label]. AI 429s clear far sooner than B站 risk control.
+const THROTTLES = { THROTTLED: [THROTTLE_MS, "B站限流"], AI_THROTTLED: [60 * 1000, "AI 平台限流"] };
 const GROUP_SIZE = 8;
 const SELECT_CAP = 10;
 const SYNC_MIN_GAP_MS = 60 * 1000;
@@ -69,7 +72,7 @@ const S = {
   basket: [],
   settings: {
     triageCriteria: "",
-    triageIntervalSec: 3,
+    triageIntervalSec: 8,
     triageExportFolder: "",
     triageTitleBatchSize: 30,
     triageThinking: false,
@@ -86,6 +89,7 @@ const S = {
   stage1Skip: new Set(),
   analyzing: new Set(),
   throttleUntil: 0,
+  throttleLabel: "",
   status: "",
   undo: [],
   lastSyncAt: 0,
@@ -131,8 +135,14 @@ async function storeGet(key, fallback) {
   const r = await chrome.storage.local.get(key);
   return r?.[key] ?? fallback;
 }
+let storeFailShown = false;
 function storeSet(key, value) {
-  return chrome.storage.local.set({ [key]: value });
+  return chrome.storage.local.set({ [key]: value }).catch((e) => {
+    console.error("[triage] storage write failed", key, e);
+    if (storeFailShown) return;
+    storeFailShown = true;
+    toast(`保存失败，本地存储可能已满：${e?.message || e}`, true);
+  });
 }
 
 function esc(v) {
@@ -276,7 +286,10 @@ async function init() {
   S.tags = tags;
   S.videoTags = videoTags;
   S.basket = basket;
-  const all = (await chrome.storage.local.get(null)) || {};
+  // getKeys (Chrome 130+) lets us read only override keys instead of every cached title/analysis.
+  const keys = await chrome.storage.local.getKeys?.();
+  const wanted = keys && [K.presets, K.aiHistory, ...keys.filter((k) => k.startsWith(OVERRIDE_PREFIX))];
+  const all = (await chrome.storage.local.get(wanted ?? null)) || {};
   S.presets = all[K.presets] || structuredClone(BUILTIN_PRESETS);
   if (!all[K.presets]) storeSet(K.presets, S.presets);
   S.aiHistory = all[K.aiHistory] || [];
@@ -315,7 +328,8 @@ async function loadFolders() {
 
 async function openFolder(mediaId) {
   S.folderToken++;
-  S.stage1.stop = true;
+  // The old stage-1 loop exits on the token change without touching state, so reset it here.
+  S.stage1 = { running: false, stop: true };
   if (S.group) S.group.stop = true;
   S.mediaId = mediaId;
   S.items = [];
@@ -343,9 +357,10 @@ async function openFolder(mediaId) {
 
 // ---------- sync with bilibili ----------
 async function syncFolder({ force = false } = {}) {
-  if (S.syncing || (!force && Date.now() - S.lastSyncAt < SYNC_MIN_GAP_MS)) return false;
-  S.syncing = true;
+  // S.syncing holds the token of the running sync, so a forced sync for a newly opened folder is not blocked by the old one.
+  if (S.syncing === S.folderToken || (!force && Date.now() - S.lastSyncAt < SYNC_MIN_GAP_MS)) return false;
   const token = S.folderToken;
+  S.syncing = token;
   const mediaId = S.mediaId;
   try {
     const r = await send({ type: "triage-folder-items", mediaId });
@@ -418,7 +433,7 @@ async function syncFolder({ force = false } = {}) {
     render();
     return true;
   } finally {
-    S.syncing = false;
+    if (S.syncing === token) S.syncing = false;
   }
 }
 
@@ -475,7 +490,7 @@ function renderTop() {
 function renderStatus() {
   const left = S.throttleUntil - Date.now();
   if (left > 0) {
-    el.queueStatus.textContent = `AI 限流，${fmtDuration(Math.ceil(left / 1000))} 后重试`;
+    el.queueStatus.textContent = `${S.throttleLabel}，${fmtDuration(Math.ceil(left / 1000))} 后重试`;
     el.queueStatus.classList.add("warn");
   } else {
     el.queueStatus.textContent = S.status;
@@ -665,9 +680,10 @@ const saveDecisions = () => storeSet(K.decisions(S.mediaId), S.decisions);
 const saveVideoTags = () => storeSet(K.videoTags, S.videoTags);
 const shortTitle = (it) => (it.title.length > 24 ? `${it.title.slice(0, 24)}…` : it.title);
 
+const deciding = new Set(); // bvids with an unfav request in flight
 async function decide(bvid, action) {
   const it = S.itemMap.get(bvid);
-  if (!it) return;
+  if (!it || deciding.has(bvid)) return;
   const prev = S.decisions[bvid] || null;
   if (prev?.action === action) return;
   if (prev?.action === "unfav") {
@@ -676,7 +692,9 @@ async function decide(bvid, action) {
   }
   const before = visibleItems();
   if (action === "unfav") {
+    deciding.add(bvid);
     const r = await send({ type: "triage-unfav", mediaId: S.mediaId, aids: [it.aid] });
+    deciding.delete(bvid);
     if (!r.ok) {
       toast(`取消收藏失败：${r.error}`, true);
       return;
@@ -702,8 +720,7 @@ async function undo() {
     if (entry.action === "unfav") {
       const r = await send({ type: "triage-refav", mediaId: S.mediaId, aid: it.aid });
       if (!r.ok) {
-        S.undo.push(entry);
-        toast(`撤销失败：${r.error}`, true);
+        toast(`撤销失败：${r.error}。可到 B 站手动重新收藏`, true);
         return;
       }
     }
@@ -712,6 +729,22 @@ async function undo() {
     saveDecisions();
     toast(`已撤销：${entry.action === "unfav" ? "重新收藏" : "取消保留"}《${shortTitle(it)}》`);
     S.focused = entry.bvid;
+  } else if (entry.kind === "unfavMany") {
+    const token = S.folderToken;
+    let n = 0;
+    for (const b of entry.bvids) {
+      if (n) await new Promise((r) => setTimeout(r, 300));
+      const r = await send({ type: "triage-refav", mediaId: S.mediaId, aid: S.itemMap.get(b)?.aid });
+      if (token !== S.folderToken) return;
+      if (!r.ok) {
+        toast(`撤销中断（已重新收藏 ${n} 个）：${r.error}`, true);
+        break;
+      }
+      delete S.decisions[b];
+      n++;
+    }
+    saveDecisions();
+    if (n === entry.bvids.length) toast(`已重新收藏 ${n} 个`);
   } else if (entry.kind === "keepMany") {
     for (const b of entry.bvids) delete S.decisions[b];
     saveDecisions();
@@ -768,7 +801,10 @@ async function batchUnfav(btn) {
     done += chunk.length;
     if (i + 20 < list.length) await new Promise((r2) => setTimeout(r2, 1000));
   }
-  if (done) toast(`已取消收藏 ${done} 个`);
+  if (done) {
+    pushUndo({ kind: "unfavMany", bvids: list.slice(0, done).map((it) => it.bvid) });
+    toast(`已取消收藏 ${done} 个 · 撤销(U)`);
+  }
   render();
   afterProcessedChange();
 }
@@ -943,10 +979,12 @@ function aiItem(it) {
   return { bvid: it.bvid, title: it.title, upper: it.upper, duration: it.duration, intro: it.intro };
 }
 
-async function throttleWait(keepGoing) {
-  S.throttleUntil = Date.now() + THROTTLE_MS;
+async function throttleWait(code, keepGoing) {
+  const [ms, label] = THROTTLES[code];
+  S.throttleUntil = Date.now() + ms;
+  S.throttleLabel = label;
   renderStatus();
-  await sleepWhile(THROTTLE_MS, keepGoing);
+  await sleepWhile(ms, keepGoing);
   S.throttleUntil = 0;
   renderStatus();
 }
@@ -968,8 +1006,8 @@ async function runStage1() {
     const r = await send({ type: "triage-classify-titles", items: batch.map(aiItem), tags: tagPayload() });
     if (token !== S.folderToken) break;
     if (!r.ok) {
-      if (r.code === "THROTTLED") {
-        await throttleWait(keepGoing);
+      if (THROTTLES[r.code]) {
+        await throttleWait(r.code, keepGoing);
         continue;
       }
       handleAiError(r.error);
@@ -1035,9 +1073,9 @@ async function runGroup() {
     S.status = `字幕细看 ${idx}/${group.bvids.length}`;
     const r = await analyzeOne(b);
     if (token !== S.folderToken) return;
-    if (!r.ok && r.code === "THROTTLED") {
+    if (!r.ok && THROTTLES[r.code]) {
       render();
-      await throttleWait(keepGoing);
+      await throttleWait(r.code, keepGoing);
       continue;
     }
     S.analyses[b] = r.ok ? r.data : { bvid: b, status: "error", error: r.error };
@@ -1056,7 +1094,7 @@ async function retry(bvid) {
   const r = await analyzeOne(bvid, true);
   if (!r.ok) {
     S.analyses[bvid] = { bvid, status: "error", error: r.error };
-    if (r.code === "THROTTLED") toast("AI 限流，请稍后再试", true);
+    if (THROTTLES[r.code]) toast(`${THROTTLES[r.code][1]}，请稍后再试`, true);
     else handleAiError(r.error);
   } else {
     S.analyses[bvid] = r.data;
@@ -1933,7 +1971,7 @@ function renderTokenHints() {
 
 function openSettings(scrollToAi = false) {
   el.criteriaInput.value = S.settings.triageCriteria || "";
-  el.intervalInput.value = S.settings.triageIntervalSec ?? 3;
+  el.intervalInput.value = S.settings.triageIntervalSec ?? 8;
   el.batchSizeInput.value = S.settings.triageTitleBatchSize ?? 30;
   el.exportFolderInput.value = S.settings.triageExportFolder || "";
   el.thinkingInput.checked = Boolean(S.settings.triageThinking);
