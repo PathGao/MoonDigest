@@ -1,0 +1,104 @@
+/* Shared design tokens and focus styles for every extension page. Link it before the page stylesheet. */
+* {
+  box-sizing: border-box;
+}
+
+:root {
+  color-scheme: light dark;
+
+  /* Design tokens: brand purple from the moon mascot; flat, functional colors. */
+  --bg: #f3f4f6;
+  --surface: #fff;
+  --surface-muted: #f7f8fb;
+  --field-bg: #fff;
+  --border: #e7ebf0;
+  --border-strong: #d1d5db;
+  --text: #111827;
+  --text-2: #374151;
+  --muted: #6b7280;
+  --faint: #8b929e;
+  --accent: #5b4bc4;
+  --on-accent: #fff;
+  --focus-ring: rgba(91, 75, 196, 0.25);
+  --link: #2563eb;
+  --link-hover: #1d4ed8;
+  --ok: #0f766e;
+  --ok-bg: #f2fbf5;
+  --ok-border: #b9e7c7;
+  --danger: #b91c1c;
+  --danger-bg: #fef2f2;
+  --danger-border: #efc2c2;
+  --warn: #9a3412;
+  --warn-bg: #fff4e8;
+  --warn-border: #f3dcc3;
+  --info-bg: #f6f4ff;
+  --info-border: #e4defc;
+  --secondary-bg: #f1effe;
+  --secondary-border: #d9d3fb;
+  --secondary-text: #4c3fa8;
+
+  --radius-sm: 8px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+  --fs-xs: 12px;
+  --fs-sm: 13px;
+  --fs-md: 14px;
+  --fs-lg: 15px;
+  --fs-xl: 19px;
+  --fs-2xl: 24px;
+
+  --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Helvetica Neue",
+    Arial, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0f1115;
+    --surface: #171a20;
+    --surface-muted: #1d2128;
+    --field-bg: #111318;
+    --border: #2a2f38;
+    --border-strong: #3a404b;
+    --text: #e5e7eb;
+    --text-2: #c9ced6;
+    --muted: #9aa1ad;
+    --faint: #7d8590;
+    --accent: #b7a0ff;
+    --on-accent: #1a1530;
+    --focus-ring: rgba(183, 160, 255, 0.3);
+    --link: #60a5fa;
+    --link-hover: #93c5fd;
+    --ok: #34d399;
+    --ok-bg: #0f2a20;
+    --ok-border: #1f5a42;
+    --danger: #f87171;
+    --danger-bg: #2d1618;
+    --danger-border: #5c2a2e;
+    --warn: #f0b45a;
+    --warn-bg: #2e2414;
+    --warn-border: #5a4426;
+    --info-bg: #1b1930;
+    --info-border: #2f2a4d;
+    --secondary-bg: #241f3d;
+    --secondary-border: #3d3566;
+    --secondary-text: #d4c8ff;
+  }
+}
+
+:where(input, select, textarea, button, summary, a):focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+:where(input[type="text"], input[type="password"], input[type="number"], select, textarea):focus-visible {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--focus-ring);
+}
