@@ -537,8 +537,8 @@ function bindRuntimeEvents() {
       const respond = () => sendResponse(buildSidepanelContext());
       // Mid-run the state already holds the title but no subtitles, and background.js
       // reads that as "loaded, no subtitles"; answer once the run has settled.
-      if (state.subtitleFetchState === "loading" && state.refreshPromise) {
-        state.refreshPromise.catch(() => {}).then(respond);
+      if (state.refreshPromise) {
+        waitForRefreshIdle().then(respond);
         return true;
       }
       respond();
@@ -1038,17 +1038,31 @@ function buildSidepanelContext() {
   };
 }
 
-// A refresh that lands while one is in flight joins it instead of cancelling it.
-function refreshClipShared() {
-  if (state.subtitleFetchState !== "loading" || !state.refreshPromise) {
-    state.refreshPromise = refreshClip().finally(() => {
-      state.refreshPromise = null;
-    });
+// A newer run (e.g. the video changed) may start while we wait; wait until none is in flight.
+async function waitForRefreshIdle() {
+  while (state.refreshPromise) {
+    await state.refreshPromise.catch(() => {});
   }
-  return state.refreshPromise;
 }
 
-async function refreshClip() {
+// A refresh that lands while one is in flight joins it instead of cancelling it.
+function refreshClipShared() {
+  return state.refreshPromise || refreshClip();
+}
+
+// Every run registers itself, whoever started it (popup, URL watcher, refresh button),
+// so sidepanel-get-context can wait for it.
+function refreshClip() {
+  const run = runRefreshClip().finally(() => {
+    if (state.refreshPromise === run) {
+      state.refreshPromise = null;
+    }
+  });
+  state.refreshPromise = run;
+  return run;
+}
+
+async function runRefreshClip() {
   const runId = ++state.fetchRunId;
   let metaLoaded = false;
   try {
