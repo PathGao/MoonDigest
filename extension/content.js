@@ -1484,8 +1484,6 @@ function getPopupPayload() {
   return {
     contentVersion: BOC_VERSION,
     site: currentSite()?.id || "",
-    commentsSupported: Boolean(currentSite()?.fetchComments),
-    includeHotCommentsInNote: Boolean(state.settings?.includeHotCommentsInNote),
     url: cleanVideoUrl(),
     title: state.title || "",
     author: state.author || "",

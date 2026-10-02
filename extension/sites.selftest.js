@@ -97,4 +97,116 @@ eq(S.parseJson3({ events: [
   { from: 2, to: 2, content: "no duration" }
 ]);
 
-console.log("sites selftest ok");
+// YouTube comments. Current shape: trimmed from a live /next response for
+// dQw4w9WgXcQ (2026-10-02), mutations reversed so order must come from threads.
+const ytCurrent = {
+  "onResponseReceivedEndpoints": [
+    {
+      "reloadContinuationItemsCommand": {
+        "continuationItems": [
+          {
+            "commentThreadRenderer": {
+              "commentViewModel": {
+                "commentViewModel": {
+                  "commentKey": "EhpVZ3pnZTM0MGRCZ0I3NWhXQm01NEFhQUJBZyAoKAE%3D"
+                }
+              }
+            }
+          },
+          {
+            "commentThreadRenderer": {
+              "commentViewModel": {
+                "commentViewModel": {
+                  "commentKey": "EhpVZ3lFblhmZEMtdW13dlR0OEpGNEFhQUJBZyAoKAE%3D"
+                }
+              }
+            }
+          }
+        ]
+      }
+    }
+  ],
+  "frameworkUpdates": {
+    "entityBatchUpdate": {
+      "mutations": [
+        {
+          "entityKey": "EhpVZ3lFblhmZEMtdW13dlR0OEpGNEFhQUJBZyAoKAE%3D",
+          "payload": {
+            "commentEntityPayload": {
+              "key": "EhpVZ3lFblhmZEMtdW13dlR0OEpGNEFhQUJBZyAoKAE%3D",
+              "properties": {
+                "content": {
+                  "content": "Gonna flag this for nudity so I can rick roll the YouTube staff"
+                }
+              },
+              "author": {
+                "displayName": "@Oatman69"
+              },
+              "toolbar": {
+                "likeCountNotliked": "567K",
+                "likeCountA11y": "567K likes"
+              }
+            }
+          }
+        },
+        {
+          "entityKey": "EhpVZ3pnZTM0MGRCZ0I3NWhXQm01NEFhQUJBZyAoKAE%3D",
+          "payload": {
+            "commentEntityPayload": {
+              "key": "EhpVZ3pnZTM0MGRCZ0I3NWhXQm01NEFhQUJBZyAoKAE%3D",
+              "properties": {
+                "content": {
+                  "content": "can confirm: he never gave us up"
+                }
+              },
+              "author": {
+                "displayName": "@YouTube"
+              },
+              "toolbar": {
+                "likeCountNotliked": "322K",
+                "likeCountA11y": "322K likes"
+              }
+            }
+          }
+        }
+      ]
+    }
+  }
+};
+// Older shape with the comment inlined, sorted by "Newest" to force the Top switch.
+const ytLegacy = {
+  onResponseReceivedEndpoints: [{ reloadContinuationItemsCommand: { continuationItems: [
+    { commentsHeaderRenderer: { sortMenu: { sortFilterSubMenuRenderer: { subMenuItems: [
+      { title: "Top", selected: false, serviceEndpoint: { continuationCommand: { token: "top" } } },
+      { title: "Newest", selected: true, serviceEndpoint: { continuationCommand: { token: "new" } } }
+    ] } } } },
+    { commentThreadRenderer: { comment: { commentRenderer: { authorText: { simpleText: "@a" }, contentText: { runs: [{ text: "first " }, { text: "line" }] }, voteCount: { simpleText: "1.2万" } } } } },
+    { commentThreadRenderer: { comment: { commentRenderer: { authorText: { simpleText: "@b" }, contentText: { runs: [{ text: "x" }] }, voteCount: { simpleText: "1,234" } } } } },
+    { commentThreadRenderer: { comment: { commentRenderer: { authorText: { simpleText: "@c" }, contentText: { runs: [] } } } } },
+    { continuationItemRenderer: {} }
+  ] } }]
+};
+const watchNext = (token) => ({ contents: { itemSectionRenderer: { sectionIdentifier: "comment-item-section", contents: token ? [{ continuationItemRenderer: { continuationEndpoint: { continuationCommand: { token } } } }] : [] } } });
+async function ytComments(next, byContinuation) {
+  const calls = [];
+  const io = { doc: null, postJson: async (url, body) => (calls.push(body.continuation || body.videoId), body.videoId ? next : byContinuation[body.continuation]) };
+  return { comments: await S.SITES.youtube.fetchComments({ id: "dQw4w9WgXcQ" }, {}, io, 20), calls };
+}
+(async () => {
+  let r = await ytComments(watchNext("c0"), { c0: ytCurrent });
+  eq(r.calls, ["dQw4w9WgXcQ", "c0"]);
+  eq(r.comments, [
+    { uname: "@YouTube", like: 322000, message: "can confirm: he never gave us up" },
+    { uname: "@Oatman69", like: 567000, message: "Gonna flag this for nudity so I can rick roll the YouTube staff" }
+  ]);
+  r = await ytComments(watchNext("c0"), { c0: ytLegacy, top: ytLegacy });
+  eq(r.calls, ["dQw4w9WgXcQ", "c0", "top"]);
+  eq(r.comments, [{ uname: "@a", like: 12000, message: "first line" }, { uname: "@b", like: 1234, message: "x" }]);
+  // Comments turned off: the section has no continuation.
+  r = await ytComments(watchNext(""), {});
+  eq(r, { comments: [], calls: ["dQw4w9WgXcQ"] });
+  console.log("sites selftest ok");
+})().catch((error) => {
+  console.error(error);
+  process.exit(1);
+});

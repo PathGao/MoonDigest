@@ -533,8 +533,87 @@
     return body.startsWith("{") ? parseJson3(JSON.parse(body)) : parseSrv3(body);
   }
 
+  function ytText(value) {
+    const text = typeof value === "string" ? value : value?.simpleText ?? value?.runs?.map((run) => run.text).join("");
+    return String(text ?? "").trim();
+  }
+
   function ytTrackName(track) {
-    return String(track?.name?.simpleText || track?.name?.runs?.map((run) => run.text).join("") || "").trim();
+    return ytText(track?.name);
+  }
+
+  const YT_COUNT_UNITS = { k: 1e3, m: 1e6, b: 1e9, 千: 1e3, 万: 1e4, 萬: 1e4, 亿: 1e8, 億: 1e8 };
+
+  // "322K", "1.2M", "1,234", "1.2万" -> number; anything else -> 0.
+  function ytParseCount(text) {
+    const match = String(text || "").replace(/,/g, "").match(/(\d+(?:\.\d+)?)\s*([kmb千万萬亿億])?/i);
+    return match ? Math.round(Number(match[1]) * (YT_COUNT_UNITS[String(match[2] || "").toLowerCase()] || 1)) : 0;
+  }
+
+  function ytWalk(node, visit) {
+    if (node && typeof node === "object") {
+      visit(node);
+      Object.values(node).forEach((child) => ytWalk(child, visit));
+    }
+  }
+
+  function ytCommentsToken(nextResponse) {
+    let token = "";
+    ytWalk(nextResponse, (node) => {
+      if (!token && node.itemSectionRenderer?.sectionIdentifier === "comment-item-section") {
+        ytWalk(node.itemSectionRenderer, (child) => {
+          token ||= child.continuationCommand?.token || "";
+        });
+      }
+    });
+    return token;
+  }
+
+  function ytCommentItems(response) {
+    return (response?.onResponseReceivedEndpoints || []).flatMap(
+      (item) => (item.reloadContinuationItemsCommand || item.appendContinuationItemsAction)?.continuationItems || []
+    );
+  }
+
+  // Token of the "Top" sort when the response is sorted otherwise, else "".
+  function ytTopSortToken(response) {
+    const header = ytCommentItems(response).find((item) => item.commentsHeaderRenderer)?.commentsHeaderRenderer;
+    const top = header?.sortMenu?.sortFilterSubMenuRenderer?.subMenuItems?.[0];
+    return top && !top.selected ? top.serviceEndpoint?.continuationCommand?.token || "" : "";
+  }
+
+  // Threads keep their order in continuationItems; current responses put the
+  // comment body in an entity keyed by commentViewModel.commentKey, older ones
+  // inline a commentRenderer.
+  function ytParseComments(response) {
+    const entities = new Map();
+    for (const mutation of response?.frameworkUpdates?.entityBatchUpdate?.mutations || []) {
+      const payload = mutation?.payload?.commentEntityPayload;
+      if (payload) {
+        entities.set(payload.key || mutation.entityKey, payload);
+      }
+    }
+    return ytCommentItems(response)
+      .map((item) => item.commentThreadRenderer)
+      .filter(Boolean)
+      .map((thread) => {
+        const entity = entities.get(thread.commentViewModel?.commentViewModel?.commentKey);
+        if (entity) {
+          return {
+            uname: ytText(entity.author?.displayName),
+            like: ytParseCount(entity.toolbar?.likeCountNotliked || entity.toolbar?.likeCountA11y),
+            message: ytText(entity.properties?.content?.content)
+          };
+        }
+        const legacy = thread.comment?.commentRenderer;
+        return {
+          uname: ytText(legacy?.authorText),
+          like: ytParseCount(ytText(legacy?.voteCount)),
+          message: ytText(legacy?.contentText)
+        };
+      })
+      .map((item) => ({ uname: item.uname || "匿名", like: item.like, message: item.message.slice(0, 500) }))
+      .filter((item) => item.message);
   }
 
   const youtube = {
@@ -611,6 +690,29 @@
     },
     async fetchSegments(track, io) {
       return normalizeSegments(parseYoutubeSubtitle(await io.fetchText(track.url)));
+    },
+    // Same two /next calls the watch page makes. hl is pinned to English so
+    // like counts arrive as "1.2K", which ytParseCount reads exactly.
+    async fetchComments(ref, meta, io, count = 20) {
+      if (!io.postJson || !count) {
+        return [];
+      }
+      const config = ytReadPageConfig(io.doc);
+      const next = (body) =>
+        io.postJson(`https://www.youtube.com/youtubei/v1/next?prettyPrint=false${config.apiKey ? `&key=${config.apiKey}` : ""}`, {
+          context: { client: { clientName: "WEB", clientVersion: config.webClientVersion, hl: "en" } },
+          ...body
+        });
+      const token = ytCommentsToken(await next({ videoId: ref.id }));
+      if (!token) {
+        return [];
+      }
+      let response = await next({ continuation: token });
+      const topToken = ytTopSortToken(response);
+      if (topToken) {
+        response = await next({ continuation: topToken });
+      }
+      return ytParseComments(response).slice(0, count);
     },
     embedHtml(ref) {
       return `<iframe src="https://www.youtube.com/embed/${encodeURIComponent(ref.id)}" title="YouTube video player" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowfullscreen style="height:100%;width:100%; aspect-ratio: 16 / 9;"></iframe>`;
