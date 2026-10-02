@@ -616,19 +616,37 @@ function renderSuggestions() {
 }
 
 // Follow-up chips: only once there is a reply to follow up on, and not mid-stream.
+// Long lists show the first few plus a visible toggle instead of a hidden scroll area.
+const FOLLOWUP_PREVIEW = 4;
+let followupsExpanded = false;
+
 function renderFollowups() {
   if (!els.followups) {
     return;
   }
   const show = !els.input.disabled && chatHistory.some((message) => message.role === "assistant");
   const prompts = show ? aiPrefs.aiPresetPrompts || [] : [];
+  const collapsible = prompts.length > FOLLOWUP_PREVIEW + 1;
+  const visible = collapsible && !followupsExpanded ? prompts.slice(0, FOLLOWUP_PREVIEW) : prompts;
   els.followups.hidden = !prompts.length;
-  els.followups.innerHTML = prompts
+  els.followups.innerHTML = visible
     .map((prompt) => `<button type="button" class="sp-followup-chip" title="${escapeHtml(prompt)}">${escapeHtml(prompt)}</button>`)
     .join("");
   els.followups.querySelectorAll("button").forEach((btn, index) => {
-    btn.addEventListener("click", () => sendPrompt(prompts[index]));
+    btn.addEventListener("click", () => sendPrompt(visible[index]));
   });
+  if (collapsible) {
+    const toggle = document.createElement("button");
+    toggle.type = "button";
+    toggle.className = "sp-followup-chip sp-followup-more";
+    toggle.textContent = followupsExpanded ? "收起" : `更多 ${prompts.length - FOLLOWUP_PREVIEW} 个`;
+    toggle.setAttribute("aria-expanded", String(followupsExpanded));
+    toggle.addEventListener("click", () => {
+      followupsExpanded = !followupsExpanded;
+      renderFollowups();
+    });
+    els.followups.append(toggle);
+  }
 }
 
 function sendPrompt(prompt) {

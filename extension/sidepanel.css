@@ -329,8 +329,6 @@ body {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
-  max-height: 62px;
-  overflow-y: auto;
 }
 
 .sp-followups[hidden] {
@@ -350,6 +348,11 @@ body {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.sp-followup-more {
+  border-style: dashed;
+  color: var(--accent);
 }
 
 .sp-followup-chip:hover {

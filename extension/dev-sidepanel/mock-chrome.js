@@ -65,12 +65,18 @@
     };
   };
 
+  // ?presets=N swaps in N follow-up prompts to check how long lists lay out.
+  const presetCount = Number(new URLSearchParams(location.search).get("presets")) || 0;
+  const presetPrompts = presetCount
+    ? Array.from({ length: presetCount }, (_, i) => ["用 3 句话总结这个视频", "提炼这个视频的 5 个重点", "按章节整理视频内容", "这个视频的核心论点是什么，有哪些论据支撑"][i % 4] + (i >= 4 ? ` ${i + 1}` : ""))
+    : ["用 3 句话总结这个视频", "提炼这个视频的 5 个重点", "按章节整理视频内容"];
+
   const handleMessage = (msg) => {
     switch (msg?.type) {
       case "ai-providers-list":
         return { ok: true, providers: [{ id: "p1", name: "Mock", model: "mock-model", enabled: true }] };
       case "get-settings":
-        return { ok: true, settings: { playerAiQuickPrompt: "整理这期视频的内容，输出结构化总结。", aiPresetPrompts: ["用 3 句话总结这个视频", "提炼这个视频的 5 个重点", "按章节整理视频内容"] } };
+        return { ok: true, settings: { playerAiQuickPrompt: "整理这期视频的内容，输出结构化总结。", aiPresetPrompts: presetPrompts } };
       case "save-settings":
         return { ok: true };
       case "ai-sidepanel-get-state": {
