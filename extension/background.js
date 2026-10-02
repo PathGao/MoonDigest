@@ -316,6 +316,24 @@ function createBiliHeaders(url) {
   return headers;
 }
 
+const FETCH_TIMEOUT_MS = 15000;
+const OBSIDIAN_TIMEOUT_MS = 30000;
+
+// A hung request would otherwise block the popup refresh and the side panel context forever.
+// "timeout" in the message is what content.js retryAsync treats as a retryable network error.
+async function fetchWithTimeout(url, options = {}, ms = FETCH_TIMEOUT_MS) {
+  try {
+    return await fetch(url, { ...options, signal: AbortSignal.timeout(ms) });
+  } catch (error) {
+    if (error?.name === "TimeoutError") {
+      const timeout = new Error(`请求超时（timeout）：${ms / 1000} 秒没有响应`);
+      timeout.status = 408;
+      throw timeout;
+    }
+    throw error;
+  }
+}
+
 async function fetchJsonForAi(url) {
   const headers = createBiliHeaders(url);
   const options = {
@@ -331,7 +349,7 @@ async function fetchJsonForAi(url) {
     options.referrerPolicy = "strict-origin-when-cross-origin";
   }
 
-  const response = await fetch(url, options);
+  const response = await fetchWithTimeout(url, options);
   if (!response.ok) {
     const error = new Error(`HTTP ${response.status}`);
     error.status = response.status;
@@ -670,14 +688,14 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
     linkCoverInVault(content, message.cover, { baseUrl, apiKey, filepath })
       .then((body) =>
-        fetch(vaultEndpoint(baseUrl, filepath), {
+        fetchWithTimeout(vaultEndpoint(baseUrl, filepath), {
           method: "PUT",
           headers: {
             Authorization: `Bearer ${apiKey}`,
             "Content-Type": "text/markdown; charset=utf-8"
           },
           body
-        })
+        }, OBSIDIAN_TIMEOUT_MS)
       )
       .then(async (response) => {
         if (!response.ok) {
@@ -703,14 +721,14 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       return false;
     }
 
-    fetch(vaultEndpoint(baseUrl, filepath), {
+    fetchWithTimeout(vaultEndpoint(baseUrl, filepath), {
       method: "GET",
       headers: {
         Authorization: `Bearer ${apiKey}`,
         Accept: "text/markdown, text/plain, application/json, */*"
       },
       cache: "no-store"
-    })
+    }, OBSIDIAN_TIMEOUT_MS)
       .then(async (response) => {
         if (response.status === 404) {
           sendResponse({ ok: true, exists: false });
@@ -739,14 +757,14 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     }
 
     const endpoint = `${baseUrl.replace(/\/+$/g, "")}/`;
-    fetch(endpoint, {
+    fetchWithTimeout(endpoint, {
       method: "GET",
       headers: {
         Authorization: `Bearer ${apiKey}`,
         Accept: "application/json, text/plain, */*"
       },
       cache: "no-store"
-    })
+    }, OBSIDIAN_TIMEOUT_MS)
       .then(async (response) => {
         const bodyText = await response.text().catch(() => "");
         let data = null;
@@ -1419,18 +1437,18 @@ async function linkCoverInVault(content, cover, { baseUrl, apiKey, filepath }) {
     const path = `${folder ? `${folder}/` : ""}attachments/${name}.${ext}`;
     const endpoint = vaultEndpoint(baseUrl, path);
     const auth = { Authorization: `Bearer ${apiKey}` };
-    const existing = await fetch(endpoint, { method: "GET", headers: auth, cache: "no-store" });
+    const existing = await fetchWithTimeout(endpoint, { method: "GET", headers: auth, cache: "no-store" }, OBSIDIAN_TIMEOUT_MS);
     if (existing.status === 404) {
-      const image = await fetch(url, { referrerPolicy: "no-referrer" });
+      const image = await fetchWithTimeout(url, { referrerPolicy: "no-referrer" });
       if (!image.ok) {
         throw new Error(`cover HTTP ${image.status}`);
       }
       // A non-text Content-Type makes the plugin store the body as binary.
-      const upload = await fetch(endpoint, {
+      const upload = await fetchWithTimeout(endpoint, {
         method: "PUT",
         headers: { ...auth, "Content-Type": image.headers.get("Content-Type") || "application/octet-stream" },
         body: await image.arrayBuffer()
-      });
+      }, OBSIDIAN_TIMEOUT_MS);
       if (!upload.ok) {
         throw new Error(`cover upload HTTP ${upload.status}`);
       }

@@ -173,5 +173,9 @@ function chat() {
   assert.deepStrictEqual(out.map((m) => m.type), ["token", "error"]);
   assert.strictEqual(out[1].error, "接口返回错误：quota exceeded");
 
+  // A request that never answers fails with a retryable timeout instead of hanging the caller.
+  ctx.fetch = (url, { signal }) => new Promise((_, reject) => signal.addEventListener("abort", () => reject(signal.reason)));
+  await assert.rejects(ctx.fetchWithTimeout("https://api.bilibili.com/x", {}, 30), (e) => e.status === 408 && /timeout/.test(e.message));
+
   console.log("background selftest: all passed");
 })();
