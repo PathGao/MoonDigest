@@ -116,5 +116,17 @@ function chat() {
   assert.strictEqual(fresh.playerAiQuickPrompt, vm.runInContext("DEFAULT_PLAYER_AI_QUICK_PROMPT", ctx));
   assert.ok(!("aiInitialQuickPrompts" in fresh));
 
+  const systemFor = (extra) =>
+    ctx.buildAiMessages({ context: { isVideoContext: true, title: "T", description: "简介", ...extra }, userPrompt: "q" })[0].content;
+  const none = systemFor({});
+  assert.match(none, /这个视频没有字幕/);
+  assert.doesNotMatch(none, /抓取失败/);
+  const failed = systemFor({ subtitleFailure: "字幕接口限流（429），稍后再试" });
+  assert.match(failed, /字幕抓取失败（字幕接口限流（429），稍后再试）/);
+  assert.match(failed, /以下仅基于简介和评论/);
+  assert.doesNotMatch(failed, /这个视频没有字幕/);
+  assert.match(failed, /以下是视频简介：\n\n简介/);
+  assert.doesNotMatch(systemFor({ subtitleMarkdown: "字幕", subtitleFailure: "旧失败" }), /抓取失败/);
+
   console.log("background selftest: all passed");
 })();

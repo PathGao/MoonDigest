@@ -279,6 +279,12 @@ for (const [name, c] of Object.entries(cases)) {
 }
 assert.strictEqual(N.buildNoteFilename(cases.biliSingle.meta, { includeDateInFilename: false }, CREATED), "测试视频：引号_与反斜杠_.md");
 assert.strictEqual(N.buildMarkdown(cases.biliSingle.meta, body, baseSettings, null, CREATED).includes('\nurl: "'), false, "no ref means no url");
+{
+  const c = cases.noSubtitle;
+  const md = N.buildMarkdown({ ...c.meta, subtitleFailure: "字幕接口限流（429），稍后再试" }, c.body, c.settings, refOf(c.meta), CREATED);
+  assert.ok(md.includes("> 字幕抓取失败（字幕接口限流（429），稍后再试），以下为简介与热门评论。"), "failed fetch is not reported as no subtitles");
+  assert.ok(!md.includes("本视频无字幕"), "failed fetch drops the no-subtitle line");
+}
 assert.strictEqual(N.formatCompactTimestamp(3661, true), "01:01:01");
 assert.strictEqual(N.formatCompactTimestamp(3661, false), "61:01");
 assert.strictEqual(N.formatTimestamp(1.5, true), "00:00:01,500");

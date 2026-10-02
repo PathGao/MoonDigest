@@ -59,6 +59,7 @@ const state = {
   selectedSubtitleLang: "",
   subtitleBody: [],
   subtitleFetchState: "idle",
+  subtitleFailure: "",
   chapters: [],
   hotComments: [],
   markdown: "",
@@ -559,6 +560,7 @@ function bindRuntimeEvents() {
           pageTitle: state.pageTitle || "",
           subtitleBody: body,
           subtitleMarkdown,
+          subtitleFailure: state.subtitleFailure,
           subtitleLang: state.selectedSubtitleLang || "",
           selectedSubtitleId: state.selectedSubtitleId || "",
           selectedSubtitleUrl: state.selectedSubtitleUrl || "",
@@ -1000,6 +1002,7 @@ function resetClipState() {
   state.selectedSubtitleLang = "";
   state.subtitleBody = [];
   state.subtitleFetchState = "idle";
+  state.subtitleFailure = "";
   state.chapters = [];
   state.hotComments = [];
   state.markdown = "";
@@ -1194,16 +1197,12 @@ async function refreshClip() {
     // Only the subtitle step failed: keep the video info and degrade to the no-subtitle state.
     if (metaLoaded) {
       try {
-        await showNoSubtitleState(runId);
+        await showNoSubtitleState(runId, reason);
       } catch (degradeError) {
         if (isStaleRunError(degradeError)) {
           return;
         }
         throw degradeError;
-      }
-      setStatus(`字幕抓取失败：${reason}。已保留视频信息，可导出简介与评论。`);
-      if (state.readingViewOpen) {
-        renderReadingStatus(`字幕抓取失败：${reason}。`);
       }
       return;
     }
@@ -1656,7 +1655,10 @@ function setMessage(text) {
   byId(ids.message).textContent = state.messageText;
 }
 
-async function showNoSubtitleState(runId) {
+// failure: why the subtitle fetch failed; empty when the video simply has no subtitles.
+async function showNoSubtitleState(runId, failure = "") {
+  const label = failure ? `字幕抓取失败：${failure}` : "当前视频无字幕";
+  state.subtitleFailure = failure;
   state.selectedSubtitleId = "";
   state.selectedSubtitleUrl = "";
   state.selectedSubtitleLang = "";
@@ -1668,15 +1670,15 @@ async function showNoSubtitleState(runId) {
   if (state.readingViewOpen) {
     moveReadingMainInline();
     renderReadingView();
-    renderReadingStatus("当前视频无字幕。");
+    renderReadingStatus(`${label}。`);
     startReadingViewSync();
     startReaderPlayerObserver();
     syncReadingViewPlayback(true);
   }
-  setStatus("当前视频无字幕，正在读取评论...");
+  setStatus(`${label}${failure ? "。" : "，"}正在读取评论...`);
   await refreshDerivedContent();
   ensureRunActive(runId);
-  setStatus("当前视频无字幕，可导出简介与评论。");
+  setStatus(failure ? `${label}。已保留视频信息，可导出简介与评论。` : `${label}，可导出简介与评论。`);
 }
 
 function cleanupReaderFloatingArtifacts(playerHost = state.readingPlayerHost) {
@@ -2051,7 +2053,7 @@ function getReadingTranscriptPlaceholderText() {
   if (state.subtitleFetchState === "error") {
     return "字幕加载失败，请刷新重试。";
   }
-  return "当前视频无字幕。";
+  return state.subtitleFailure ? `字幕抓取失败：${state.subtitleFailure}。` : "当前视频无字幕。";
 }
 
 function getReadingTranscriptItems(body = state.subtitleBody) {
