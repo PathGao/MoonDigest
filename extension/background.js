@@ -597,6 +597,26 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
+  // The content script's isolated world cannot reach the player API; a
+  // MAIN-world read can, and chrome.scripting is not subject to the page CSP.
+  // Only the watch page's own content script may ask, and only for its tab.
+  if (message.type === "yt-player-response") {
+    const tabId = sender?.tab?.id;
+    if (!tabId || !/^https:\/\/www\.youtube\.com\//.test(String(sender.url || ""))) {
+      sendResponse({ ok: false, error: "not a YouTube tab" });
+      return false;
+    }
+    chrome.scripting
+      .executeScript({
+        target: { tabId },
+        world: "MAIN",
+        func: () => document.getElementById("movie_player")?.getPlayerResponse?.() ?? globalThis.ytInitialPlayerResponse ?? null
+      })
+      .then((results) => sendResponse({ ok: true, data: results?.[0]?.result ?? null }))
+      .catch((error) => sendResponse({ ok: false, error: error.message }));
+    return true;
+  }
+
   if (message.type === "open-options") {
     chrome.tabs
       .create({ url: chrome.runtime.getURL("options.html") })
