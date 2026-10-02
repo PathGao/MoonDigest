@@ -258,11 +258,6 @@ async function getAiSidepanelState(tabId, { forceRefresh = false } = {}) {
 }
 
 async function openAiSidepanelForTab(tabId) {
-  if (globalThis.browser?.sidebarAction?.open) {
-    await Promise.resolve(globalThis.browser.sidebarAction.open());
-    return;
-  }
-
   if (chrome.sidePanel?.open) {
     await chrome.sidePanel.open({ tabId });
     return;
@@ -1563,25 +1558,18 @@ async function testAiConnection({ baseUrl, apiKey, model }) {
     return { ok: false, error: "请填写模型名" };
   }
 
-  const headers = { Accept: "application/json" };
-  if (apiKey) {
-    headers["Authorization"] = `Bearer ${apiKey}`;
-  }
-
   return probeAiChatCompletion({
     baseUrl: normalizedBaseUrl,
     apiKey,
-    model: normalizedModel,
-    headers
+    model: normalizedModel
   });
 }
 
-async function probeAiChatCompletion({ baseUrl, apiKey, model, headers }) {
-  const requestHeaders = headers || { Accept: "application/json" };
-  if (apiKey && !requestHeaders.Authorization) {
+async function probeAiChatCompletion({ baseUrl, apiKey, model }) {
+  const requestHeaders = { Accept: "application/json", "Content-Type": "application/json" };
+  if (apiKey) {
     requestHeaders.Authorization = `Bearer ${apiKey}`;
   }
-  requestHeaders["Content-Type"] = "application/json";
 
   let response;
   try {
