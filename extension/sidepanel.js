@@ -185,7 +185,11 @@ function bindEvents() {
   chrome.storage.onChanged.addListener((changes, areaName) => {
     if (
       (areaName === "sync" &&
-        (changes.aiProviders || changes.aiSystemPrompt || changes.aiInitialQuickPrompts || changes.aiPresetPrompts)) ||
+        (changes.aiProviders ||
+          changes.aiSystemPrompt ||
+          changes.aiInitialQuickPrompts ||
+          changes.aiPresetPrompts ||
+          changes.obsidianEnabled)) ||
       (areaName === "local" && changes.aiProviderKeys)
     ) {
       void refreshProvidersAndPrefsAfterExternalChange();
@@ -220,6 +224,7 @@ async function loadProvidersAndPrefs({ preferredProviderId = "" } = {}) {
   providers = Array.isArray(providersResp?.providers)
     ? providersResp.providers.filter((p) => p.enabled)
     : [];
+  document.body.classList.toggle("sp-obsidian-off", settingsResp?.settings?.obsidianEnabled !== true);
   aiPrefs = {
     aiSystemPrompt: String(settingsResp?.settings?.aiSystemPrompt || "").trim(),
     aiInitialQuickPrompts: normalizeInitialQuickPrompts(settingsResp?.settings?.aiInitialQuickPrompts),

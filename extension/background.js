@@ -30,6 +30,7 @@ const DEFAULT_AI_SYSTEM_PROMPT = [
 ].join("\n");
 
 const DEFAULT_SYNC_SETTINGS = {
+  obsidianEnabled: false,
   noteFolder: "Clippings/{{site}}",
   obsidianApiBaseUrl: "http://127.0.0.1:27123",
   tags: "clippings",
@@ -38,7 +39,7 @@ const DEFAULT_SYNC_SETTINGS = {
   includeDateInFilename: true,
   includeHotCommentsInNote: false,
   includeCoverInNote: true,
-  enablePlayerAiQuickAction: false,
+  enablePlayerAiQuickAction: true,
   playerAiQuickPrompt: DEFAULT_PLAYER_AI_QUICK_PROMPT,
   includeTimestampInBody: true,
   enableDebugLogs: false,
@@ -944,6 +945,8 @@ chrome.runtime.onConnect.addListener((port) => {
 });
 
 async function initializeSettingsStorage() {
+  // Read before defaults are written: a missing toggle means an upgrade from before it existed.
+  const { obsidianEnabled: storedObsidianEnabled } = await chrome.storage.sync.get("obsidianEnabled");
   const syncCurrent = await chrome.storage.sync.get(DEFAULT_SYNC_SETTINGS);
   const localCurrent = await chrome.storage.local.get(DEFAULT_LOCAL_SETTINGS);
 
@@ -961,6 +964,11 @@ async function initializeSettingsStorage() {
   if ("obsidianApiKey" in syncCurrent) {
     await chrome.storage.sync.remove("obsidianApiKey");
   }
+
+  // A configured key means the user was already writing to Obsidian.
+  if (typeof storedObsidianEnabled !== "boolean") {
+    await chrome.storage.sync.set({ obsidianEnabled: Boolean(localApiKey || legacySyncApiKey) });
+  }
 }
 
 async function getMergedSettings() {
@@ -970,6 +978,7 @@ async function getMergedSettings() {
   ]);
 
   const merged = { ...DEFAULT_SYNC_SETTINGS, ...syncSettings };
+  merged.obsidianEnabled = merged.obsidianEnabled === true;
   merged.downloadFormat = normalizeDownloadFormat(merged.downloadFormat);
   merged.youtubeSubtitleLang = BocSites.normalizeSubtitleLang(merged.youtubeSubtitleLang);
   merged.includeHotCommentsInNote = normalizeIncludeHotCommentsInNote(merged.includeHotCommentsInNote);
@@ -1006,6 +1015,7 @@ async function saveSettings(settings) {
   const payload = settings && typeof settings === "object" ? settings : {};
   const syncPayload = { ...payload };
   delete syncPayload.obsidianApiKey;
+  syncPayload.obsidianEnabled = syncPayload.obsidianEnabled === true;
   syncPayload.downloadFormat = normalizeDownloadFormat(syncPayload.downloadFormat);
   syncPayload.youtubeSubtitleLang = BocSites.normalizeSubtitleLang(syncPayload.youtubeSubtitleLang);
   syncPayload.includeHotCommentsInNote = normalizeIncludeHotCommentsInNote(syncPayload.includeHotCommentsInNote);

@@ -261,6 +261,7 @@ dialog h3 { margin: 10px 0 2px; font-size: 13px; }
 .basket-item button { height: 22px; font-size: 12px; padding: 0 6px; }
 .basket-foot { display: flex; gap: 6px; padding: 6px; border-top: 1px solid var(--border); }
 .basket-foot button { flex: 1; }
+.obsidian-off #exportBtn { display: none; }
 
 /* toast */
 .toast {

@@ -386,6 +386,7 @@ function init() {
     state.settings = settings;
     hydrateReaderStateFromSettings(settings);
     applyReadingViewPresentation();
+    syncObsidianButton();
     startPlayerAiQuickActionObserver();
     schedulePlayerAiQuickActionSync();
     if (shouldEnterReaderMode) {
@@ -650,6 +651,7 @@ function bindSettingsWatcher() {
       return;
     }
     if (
+      !changes.obsidianEnabled &&
       !changes.enablePlayerAiQuickAction &&
       !changes.playerAiQuickPrompt &&
       !changes.readerTheme &&
@@ -668,6 +670,7 @@ function bindSettingsWatcher() {
         state.settings = settings;
         hydrateReaderStateFromSettings(settings);
         applyReadingViewPresentation();
+        syncObsidianButton();
         schedulePlayerAiQuickActionSync();
       })
       .catch((error) => {
@@ -840,6 +843,7 @@ function bindUiEvents() {
   copyBtn.addEventListener("click", copyMarkdown);
   downloadBtn.addEventListener("click", downloadSubtitle);
   sendBtn.addEventListener("click", sendToObsidian);
+  syncObsidianButton();
   settingsBtn.addEventListener("click", requestOpenOptions);
   readingCloseBtn.addEventListener("click", () => {
     if (isReaderMode()) {
@@ -1546,8 +1550,19 @@ async function downloadSubtitle() {
   setMessage(`已下载：${filename}`);
 }
 
+function syncObsidianButton() {
+  const sendBtn = byId(ids.sendBtn);
+  if (sendBtn) {
+    sendBtn.hidden = state.settings?.obsidianEnabled !== true;
+  }
+}
+
 async function sendToObsidian() {
   state.settings = await getSettings();
+  if (!state.settings.obsidianEnabled) {
+    setMessage("Obsidian 写入未启用，请在设置的「进阶 2」中开启。");
+    return;
+  }
   await refreshDerivedContent();
   if (!state.markdown) {
     setMessage("没有可发送内容，请先刷新抓取。");

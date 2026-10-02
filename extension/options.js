@@ -28,6 +28,7 @@ const DEFAULT_AI_SYSTEM_PROMPT = [
 ].join("\n");
 
 const DEFAULT_SETTINGS = {
+  obsidianEnabled: false,
   noteFolder: "Clippings/{{site}}",
   obsidianApiBaseUrl: "http://127.0.0.1:27123",
   obsidianApiKey: "",
@@ -37,7 +38,7 @@ const DEFAULT_SETTINGS = {
   includeDateInFilename: true,
   includeHotCommentsInNote: false,
   includeCoverInNote: true,
-  enablePlayerAiQuickAction: false,
+  enablePlayerAiQuickAction: true,
   playerAiQuickPrompt: DEFAULT_PLAYER_AI_QUICK_PROMPT,
   includeTimestampInBody: true,
   enableDebugLogs: false,
@@ -81,7 +82,21 @@ const AI_PRESETS = [
   { id: "custom",        name: "自定义",      baseUrl: "", requiresKey: true }
 ];
 
+const TRIAGE_SETTING_KEYS = [
+  "triageCriteria",
+  "triageIntervalSec",
+  "triageExportFolder",
+  "triageTitleBatchSize",
+  "triageThinking",
+  "triageTitleMaxTokens",
+  "triageAnalyzeMaxTokens"
+];
+
 const elements = {
+  obsidianEnabled: document.getElementById("obsidianEnabled"),
+  obsidianBody: document.getElementById("obsidianBody"),
+  openTriageBtn: document.getElementById("openTriageBtn"),
+  triage: Object.fromEntries(TRIAGE_SETTING_KEYS.map((key) => [key, document.getElementById(key)])),
   noteFolder: document.getElementById("noteFolder"),
   obsidianApiBaseUrl: document.getElementById("obsidianApiBaseUrl"),
   obsidianApiKey: document.getElementById("obsidianApiKey"),
@@ -126,6 +141,10 @@ function init() {
   elements.addFixedPropertyBtn.addEventListener("click", () => addFixedPropertyRow());
   elements.addNoteSectionBtn.addEventListener("click", () => addNoteSectionRow());
   elements.addAiProviderBtn.addEventListener("click", () => addAiProviderRow());
+  elements.obsidianEnabled.addEventListener("change", syncObsidianBody);
+  elements.openTriageBtn.addEventListener("click", () => {
+    chrome.tabs.create({ url: chrome.runtime.getURL("triage/triage.html") });
+  });
   document.addEventListener("click", (event) => {
     if (!(event.target instanceof Element) || !event.target.closest(".fixed-property-type-picker")) {
       closeAllFixedPropertyMenus();
@@ -138,6 +157,8 @@ function init() {
 
 async function loadSettings() {
   const settings = await getSettings();
+  elements.obsidianEnabled.checked = settings.obsidianEnabled === true;
+  syncObsidianBody();
   elements.noteFolder.value = settings.noteFolder || "";
   elements.obsidianApiBaseUrl.value = settings.obsidianApiBaseUrl || "";
   elements.obsidianApiKey.value = settings.obsidianApiKey || "";
@@ -161,6 +182,7 @@ async function loadSettings() {
   elements.aiSystemPrompt.value = settings.aiSystemPrompt || "";
   renderInitialQuickPromptInputs(settings.aiInitialQuickPrompts);
   savedAiPresetPrompts = Array.isArray(settings.aiPresetPrompts) ? settings.aiPresetPrompts : [];
+  await loadTriageSettings();
 
   // AI 配置
   const providers = await loadAiProviders();
@@ -183,8 +205,14 @@ async function saveSettings() {
     return;
   }
 
+  const triagePayload = collectTriageSettings();
+  if (!triagePayload.ok) {
+    applyValidationError(triagePayload);
+    return;
+  }
+
   // Remote hosts are optional permissions; the save click is the user gesture that may request them.
-  const hostUrls = [payload.obsidianApiBaseUrl, ...aiProvidersPayload.map((item) => item.baseUrl)];
+  const hostUrls = [payload.obsidianEnabled ? payload.obsidianApiBaseUrl : "", ...aiProvidersPayload.map((item) => item.baseUrl)];
   const deniedHosts = await requestHostPermissions(hostUrls);
 
   setBusy(true);
@@ -196,6 +224,12 @@ async function saveSettings() {
     }
     renderFixedPropertyRows(payload.fixedFrontmatterProperties);
     renderNoteSectionRows(payload.notePlaceholderSections);
+
+    const triageResp = await sendRuntimeMessage({ type: "triage-settings-save", ...triagePayload.patch });
+    if (!triageResp?.ok) {
+      setStatus(`已保存，但分拣设置保存失败：${triageResp?.error || "未知错误"}`, true);
+      return;
+    }
 
     // AI 平台：list 走 sync、apiKey 走 local
     const aiResp = await sendRuntimeMessage({ type: "ai-providers-save", providers: aiProvidersPayload });
@@ -211,9 +245,9 @@ async function saveSettings() {
       return;
     }
     setStatus(
-      payload.obsidianApiKey
-        ? "保存成功"
-        : "保存成功（未填写 Local REST API Key，暂不可写入 Obsidian）"
+      payload.obsidianEnabled && !payload.obsidianApiKey
+        ? "保存成功（未填写 Local REST API Key，暂不可写入 Obsidian）"
+        : "保存成功"
     );
   } catch (error) {
     setStatus(error.message || "保存失败", true);
@@ -254,6 +288,7 @@ function collectFormPayload() {
   elements.obsidianApiKey.value = normalizedApiKey;
 
   return {
+    obsidianEnabled: elements.obsidianEnabled.checked,
     noteFolder: elements.noteFolder.value.trim(),
     obsidianApiBaseUrl: normalizedBaseUrl,
     obsidianApiKey: normalizedApiKey,
@@ -290,6 +325,9 @@ function collectInitialQuickPrompts() {
 }
 
 function validateSettings(payload, { requireApiKey }) {
+  if (!payload.obsidianEnabled && !requireApiKey) {
+    return validateNoteExtras();
+  }
   if (!payload.noteFolder) {
     return { ok: false, field: elements.noteFolder, message: "请填写笔记目录（例如：Clippings/{{site}}）" };
   }
@@ -338,6 +376,10 @@ function validateSettings(payload, { requireApiKey }) {
     return { ok: false, field: elements.tags, message: "默认标签请使用逗号分隔，不要换行" };
   }
 
+  return validateNoteExtras();
+}
+
+function validateNoteExtras() {
   const fixedPropertyValidation = validateFixedFrontmatterProperties(collectFixedPropertyRows({ includeRow: true }));
   if (!fixedPropertyValidation.ok) {
     return fixedPropertyValidation;
@@ -349,6 +391,57 @@ function validateSettings(payload, { requireApiKey }) {
   }
 
   return { ok: true };
+}
+
+function syncObsidianBody() {
+  elements.obsidianBody.hidden = !elements.obsidianEnabled.checked;
+}
+
+async function loadTriageSettings() {
+  const resp = await sendRuntimeMessage({ type: "triage-settings-get" }).catch(() => null);
+  if (!resp?.ok) {
+    return;
+  }
+  const t = elements.triage;
+  const d = resp.data || {};
+  t.triageCriteria.value = d.triageCriteria || "";
+  t.triageIntervalSec.value = d.triageIntervalSec ?? 8;
+  t.triageTitleBatchSize.value = d.triageTitleBatchSize ?? 30;
+  t.triageExportFolder.value = d.triageExportFolder || "";
+  t.triageThinking.checked = Boolean(d.triageThinking);
+  t.triageTitleMaxTokens.value = d.triageTitleMaxTokens || "";
+  t.triageAnalyzeMaxTokens.value = d.triageAnalyzeMaxTokens || "";
+}
+
+// Same rules as the triage page dialog: 0 or blank means auto, otherwise 200–32000.
+function parseTriageMaxTokens(value) {
+  const text = String(value ?? "").trim();
+  if (!text) return 0;
+  const n = Number(text);
+  if (!Number.isInteger(n)) return null;
+  return n === 0 || (n >= 200 && n <= 32000) ? n : null;
+}
+
+function collectTriageSettings() {
+  const t = elements.triage;
+  const titleMax = parseTriageMaxTokens(t.triageTitleMaxTokens.value);
+  const analyzeMax = parseTriageMaxTokens(t.triageAnalyzeMaxTokens.value);
+  const bad = titleMax === null ? t.triageTitleMaxTokens : analyzeMax === null ? t.triageAnalyzeMaxTokens : null;
+  if (bad) {
+    return { ok: false, field: bad, message: "输出上限需为整数：0 或留空表示自动，否则在 200–32000 之间" };
+  }
+  return {
+    ok: true,
+    patch: {
+      triageCriteria: t.triageCriteria.value,
+      triageIntervalSec: Math.max(0, Number(t.triageIntervalSec.value) || 0),
+      triageTitleBatchSize: Math.max(1, Math.min(100, Number(t.triageTitleBatchSize.value) || 30)),
+      triageExportFolder: t.triageExportFolder.value.trim(),
+      triageThinking: t.triageThinking.checked,
+      triageTitleMaxTokens: titleMax,
+      triageAnalyzeMaxTokens: analyzeMax
+    }
+  };
 }
 
 function normalizePlayerAiQuickPrompt(value) {

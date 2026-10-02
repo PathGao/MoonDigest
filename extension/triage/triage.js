@@ -73,7 +73,7 @@ const S = {
   settings: {
     triageCriteria: "",
     triageIntervalSec: 8,
-    triageExportFolder: "",
+    triageExportFolder: "raw/01-articles",
     triageTitleBatchSize: 30,
     triageThinking: false,
     triageTitleMaxTokens: 0,
@@ -306,6 +306,11 @@ async function init() {
     if (k.startsWith(OVERRIDE_PREFIX)) S.overrides[k.slice(OVERRIDE_PREFIX.length)] = v;
   }
   if (settingsResp.ok) Object.assign(S.settings, settingsResp.data);
+  const syncObsidian = ({ obsidianEnabled }) => document.body.classList.toggle("obsidian-off", obsidianEnabled !== true);
+  syncObsidian(await chrome.storage.sync.get({ obsidianEnabled: false }));
+  chrome.storage.onChanged.addListener((changes, area) => {
+    if (area === "sync" && changes.obsidianEnabled) syncObsidian({ obsidianEnabled: changes.obsidianEnabled.newValue });
+  });
   renderBasket();
   await loadFolders();
   setInterval(tick, 1000);

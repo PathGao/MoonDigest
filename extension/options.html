@@ -14,6 +14,121 @@
         <button id="hostPermissionBtn" type="button">授权</button>
       </p>
 
+      <section class="tier">
+        <h2 class="tier-title">基础 · 读字幕 + AI 总结</h2>
+        <p class="tier-desc">打开视频页就能抓字幕、复制或下载，并在侧边栏让 AI 总结和问答。</p>
+
+      <section class="field-group">
+        <h2>AI 模型平台</h2>
+        <p class="hint">支持 OpenAI 兼容协议（OpenAI / DeepSeek / 智谱 / MiniMax / Moonshot / OpenRouter / Ollama 等）。</p>
+        <div id="aiProvidersList" class="ai-providers-list"></div>
+        <p id="aiProvidersEmpty" class="ai-providers-empty">还没有配置平台，点击下方按钮添加。</p>
+        <button id="addAiProviderBtn" class="add-property-btn" type="button">+ 添加平台</button>
+      </section>
+
+      <section class="field-group field-group-tight-bottom">
+        <h2>AI 对话 - 系统提示词</h2>
+        <textarea id="aiSystemPrompt" class="settings-textarea" placeholder="例如：回答尽量简洁；优先总结视频观点；必要时引用字幕原话。"></textarea>
+      </section>
+
+      <section class="field-group field-group-tight-bottom">
+        <h2>AI 对话 - 初始问题</h2>
+        <p class="hint">新视频没有历史对话时显示，最多 4 条，留空则不显示。</p>
+        <div class="quick-prompts-grid">
+          <input class="ai-initial-quick-prompt" type="text" placeholder="快捷问题 1" />
+          <input class="ai-initial-quick-prompt" type="text" placeholder="快捷问题 2" />
+          <input class="ai-initial-quick-prompt" type="text" placeholder="快捷问题 3" />
+          <input class="ai-initial-quick-prompt" type="text" placeholder="快捷问题 4" />
+        </div>
+      </section>
+
+      <section class="field-group field-group-tight-bottom player-ai-quick-action-settings">
+        <h2>AI 按钮</h2>
+        <label class="checkbox">
+          <input id="enablePlayerAiQuickAction" type="checkbox" />
+          在视频播放器显示 AI 按钮，点击按照预设提示词调用 AI 对话，提示词可为空
+        </label>
+        <textarea
+          id="playerAiQuickPrompt"
+          class="settings-textarea"
+          placeholder="例如：整理这期视频的内容，输出结构化总结。"
+        ></textarea>
+      </section>
+
+        <section class="field-group">
+          <h2>字幕与阅读</h2>
+      <label for="youtubeSubtitleLang">YouTube 默认字幕语言</label>
+      <select id="youtubeSubtitleLang">
+        <option value="auto">自动（中文优先）</option>
+        <option value="zh-Hans">简体中文</option>
+        <option value="zh-Hant">繁體中文</option>
+        <option value="en">English</option>
+        <option value="ja">日本語</option>
+      </select>
+      <p class="hint inline-hint">没有该语言的字幕时，使用 YouTube 机器翻译。</p>
+
+          <label for="downloadFormat">下载格式</label>
+          <select id="downloadFormat">
+            <option value="srt">SRT</option>
+            <option value="txt">TXT</option>
+          </select>
+
+          <label class="checkbox">
+            <input id="includeTimestampInBody" type="checkbox" />
+            在字幕正文中保留时间戳
+          </label>
+
+          <label class="checkbox">
+            <input id="enableDebugLogs" type="checkbox" />
+            启用调试日志（仅在排查问题时开启）
+          </label>
+        </section>
+      </section>
+
+      <section class="tier">
+        <h2 class="tier-title">进阶 1 · 收藏夹批量阅览（仅 B 站）</h2>
+        <p class="tier-desc">把一个收藏夹里的视频批量交给 AI 粗分和细看，连起来读，判断哪些值得看。</p>
+        <button id="openTriageBtn" class="secondary-btn" type="button">打开收藏夹分拣台</button>
+
+        <section class="field-group">
+          <h2>分拣设置</h2>
+          <p class="hint">与分拣台里的“设置”是同一份，改哪边都一样。</p>
+          <label for="triageCriteria">判断标准</label>
+          <textarea id="triageCriteria" class="settings-textarea" placeholder="例如：我关注 AI 工程实践与产品方法，娱乐和纯资讯类不感兴趣。"></textarea>
+          <div class="field-grid">
+            <div>
+              <label for="triageIntervalSec">请求间隔（秒）</label>
+              <input id="triageIntervalSec" type="number" min="0" step="1" />
+            </div>
+            <div>
+              <label for="triageTitleBatchSize">标题粗分每批数量</label>
+              <input id="triageTitleBatchSize" type="number" min="1" max="100" step="1" />
+            </div>
+            <div>
+              <label for="triageTitleMaxTokens">粗分输出上限（每批 token）</label>
+              <input id="triageTitleMaxTokens" type="number" min="0" max="32000" step="1" placeholder="自动" />
+            </div>
+            <div>
+              <label for="triageAnalyzeMaxTokens">细看输出上限（每个 token）</label>
+              <input id="triageAnalyzeMaxTokens" type="number" min="0" max="32000" step="1" placeholder="自动" />
+            </div>
+          </div>
+          <label class="checkbox">
+            <input id="triageThinking" type="checkbox" />
+            开启思考（更细但慢约 6 倍，目前只对 DeepSeek 生效）
+          </label>
+        </section>
+      </section>
+
+      <section class="tier">
+        <h2 class="tier-title">进阶 2 · Obsidian 知识库</h2>
+        <p class="tier-desc">把字幕、AI 对话和分拣结果写进 Obsidian，可以单个写，也可以整个收藏夹批量写。</p>
+        <label class="checkbox tier-toggle">
+          <input id="obsidianEnabled" type="checkbox" />
+          启用 Obsidian 写入
+        </label>
+
+        <div id="obsidianBody">
       <section class="quick-start">
         <div class="quick-start-head">
           <h2>配置指引</h2>
@@ -45,60 +160,44 @@
         </ol>
       </section>
 
-      <label for="noteFolder">笔记目录（用于自动写入）</label>
-      <input id="noteFolder" type="text" placeholder="例如：Clippings/{{site}}" />
-      <p class="hint inline-hint">支持变量：{{created}} / {{upload_date}} / {{author}} / {{site}} / {{id}} / {{bvid}}，示例：Clippings/{{site}}/{{created}}</p>
+          <section class="field-group">
+            <h2>连接</h2>
+            <label for="obsidianApiBaseUrl">Local REST API 地址</label>
+            <input id="obsidianApiBaseUrl" type="text" placeholder="例如：http://127.0.0.1:27123" />
 
-      <label for="obsidianApiBaseUrl">Local REST API 地址</label>
-      <input id="obsidianApiBaseUrl" type="text" placeholder="例如：http://127.0.0.1:27123" />
+            <label for="obsidianApiKey">Local REST API Key</label>
+            <input id="obsidianApiKey" type="password" placeholder="填入 Obsidian Local REST API 的 Key" />
+            <button id="testConnectionBtn" class="secondary-btn" type="button">测试连接</button>
+          </section>
 
-      <label for="obsidianApiKey">Local REST API Key</label>
-      <input id="obsidianApiKey" type="password" placeholder="填入 Obsidian Local REST API 的 Key" />
-      <p class="hint inline-hint">填写完成后建议先点击下方“测试连接”。</p>
+          <section class="field-group">
+            <h2>笔记格式</h2>
+            <label for="noteFolder">笔记目录</label>
+            <input id="noteFolder" type="text" placeholder="例如：Clippings/{{site}}" />
+            <p class="hint inline-hint">支持变量：{{created}} / {{upload_date}} / {{author}} / {{site}} / {{id}} / {{bvid}}，示例：Clippings/{{site}}/{{created}}</p>
 
-      <label for="tags">默认标签（逗号分隔）</label>
-      <input id="tags" type="text" placeholder="例如：clippings,bilibili,subtitle" />
+            <label for="triageExportFolder">收藏夹批量写入目录</label>
+            <input id="triageExportFolder" type="text" placeholder="例如：raw/01-articles" />
+            <p class="hint inline-hint">分拣台的摘录篮和整个收藏夹的笔记写到这里。</p>
 
-      <label for="downloadFormat">下载格式</label>
-      <select id="downloadFormat">
-        <option value="srt">SRT</option>
-        <option value="txt">TXT</option>
-      </select>
+            <label for="tags">默认标签（逗号分隔）</label>
+            <input id="tags" type="text" placeholder="例如：clippings,bilibili,subtitle" />
 
-      <label for="youtubeSubtitleLang">YouTube 默认字幕语言</label>
-      <select id="youtubeSubtitleLang">
-        <option value="auto">自动（中文优先）</option>
-        <option value="zh-Hans">简体中文</option>
-        <option value="zh-Hant">繁體中文</option>
-        <option value="en">English</option>
-        <option value="ja">日本語</option>
-      </select>
-      <p class="hint inline-hint">没有该语言的字幕时，使用 YouTube 机器翻译。</p>
+            <label class="checkbox">
+              <input id="includeDateInFilename" type="checkbox" />
+              文件名前包含导出日期
+            </label>
 
-      <label class="checkbox">
-        <input id="includeDateInFilename" type="checkbox" />
-        文件名前包含导出日期
-      </label>
+            <label class="checkbox">
+              <input id="includeHotCommentsInNote" type="checkbox" />
+              导出前 20 条热门评论
+            </label>
 
-      <label class="checkbox">
-        <input id="includeHotCommentsInNote" type="checkbox" />
-        导出前 20 条热门评论
-      </label>
-
-      <label class="checkbox">
-        <input id="includeCoverInNote" type="checkbox" />
-        在笔记开头插入封面图
-      </label>
-
-      <label class="checkbox">
-        <input id="includeTimestampInBody" type="checkbox" />
-        在字幕正文中保留时间戳
-      </label>
-
-      <label class="checkbox">
-        <input id="enableDebugLogs" type="checkbox" />
-        启用调试日志（仅在排查问题时开启）
-      </label>
+            <label class="checkbox">
+              <input id="includeCoverInNote" type="checkbox" />
+              在笔记开头插入封面图
+            </label>
+          </section>
 
       <section class="field-group">
         <h2>笔记属性（Frontmatter）</h2>
@@ -143,46 +242,11 @@
         <button id="addNoteSectionBtn" class="add-property-btn" type="button">+ 添加段落</button>
       </section>
 
-      <section class="field-group">
-        <h2>AI 模型平台</h2>
-        <p class="hint">支持 OpenAI 兼容协议（OpenAI / DeepSeek / 智谱 / MiniMax / Moonshot / OpenRouter / Ollama 等）。</p>
-        <div id="aiProvidersList" class="ai-providers-list"></div>
-        <p id="aiProvidersEmpty" class="ai-providers-empty">还没有配置平台，点击下方按钮添加。</p>
-        <button id="addAiProviderBtn" class="add-property-btn" type="button">+ 添加平台</button>
-      </section>
-
-      <section class="field-group field-group-tight-bottom">
-        <h2>AI 对话 - 系统提示词</h2>
-        <textarea id="aiSystemPrompt" class="settings-textarea" placeholder="例如：回答尽量简洁；优先总结视频观点；必要时引用字幕原话。"></textarea>
-      </section>
-
-      <section class="field-group field-group-tight-bottom">
-        <h2>AI 对话 - 初始问题</h2>
-        <p class="hint">新视频没有历史对话时显示，最多 4 条，留空则不显示。</p>
-        <div class="quick-prompts-grid">
-          <input class="ai-initial-quick-prompt" type="text" placeholder="快捷问题 1" />
-          <input class="ai-initial-quick-prompt" type="text" placeholder="快捷问题 2" />
-          <input class="ai-initial-quick-prompt" type="text" placeholder="快捷问题 3" />
-          <input class="ai-initial-quick-prompt" type="text" placeholder="快捷问题 4" />
         </div>
-      </section>
-
-      <section class="field-group field-group-tight-bottom player-ai-quick-action-settings">
-        <h2>AI 按钮</h2>
-        <label class="checkbox">
-          <input id="enablePlayerAiQuickAction" type="checkbox" />
-          在视频播放器显示 AI 按钮，点击按照预设提示词调用 AI 对话，提示词可为空
-        </label>
-        <textarea
-          id="playerAiQuickPrompt"
-          class="settings-textarea"
-          placeholder="例如：整理这期视频的内容，输出结构化总结。"
-        ></textarea>
       </section>
 
       <div class="action-row">
         <button id="saveBtn" type="button">保存设置</button>
-        <button id="testConnectionBtn" class="secondary-btn" type="button">测试连接</button>
       </div>
       <p id="status" class="status"></p>
 

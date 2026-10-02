@@ -664,6 +664,11 @@ body {
   position: relative;
 }
 
+.sp-obsidian-off #spSaveConversationBtn,
+.sp-obsidian-off .sp-msg-save-btn {
+  display: none;
+}
+
 .sp-toolbar-btn {
   display: inline-flex;
   align-items: center;

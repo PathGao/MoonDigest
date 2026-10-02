@@ -33,6 +33,9 @@ init().catch((error) => {
 
 async function init() {
   bindEvents();
+  getSettingsFromRuntime().then((settings) => {
+    el.sendBtn.hidden = settings.obsidianEnabled !== true;
+  });
   await refreshFromTab();
 }
 
