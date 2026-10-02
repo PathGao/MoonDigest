@@ -139,6 +139,34 @@ function openFake(mediaId, items, decisions = {}) {
   assert.deepStrictEqual([...plan.keys].sort(), ["triage_analysis_BVold", "triage_decisions_9", "triage_snapshot_9", "triage_title_BVold", "triage_verdict_override_BVold"]);
   assert.deepStrictEqual([plan.videos, plan.title, plan.analysis, plan.override, plan.folders], [1, 1, 1, 1, 1]);
 
+  // verdictOf precedence: invalid > override > done analysis > title result.
+  const v = { bvid: "BVv", title: "v" };
+  Object.assign(t.S, { analyses: {}, overrides: {}, titleRes: {} });
+  assert.deepStrictEqual(plain(t.verdictOf(v)), { verdict: "none", reason: "", stage: -1, failed: "" });
+  t.S.titleRes.BVv = { verdict: "keep", reason: "标题", confidence: "low" };
+  t.S.analyses.BVv = { status: "error", error: "超时" };
+  assert.deepStrictEqual(plain(t.verdictOf(v)), { verdict: "keep", reason: "标题", stage: 1, low: true, failed: "超时" });
+  t.S.analyses.BVv = { status: "done", verdict: "drop", reason: "字幕" };
+  assert.strictEqual(t.verdictOf(v).stage, 2);
+  t.S.overrides.BVv = { verdict: "unsure", reason: "指令" };
+  assert.strictEqual(t.verdictOf(v).verdict, "unsure");
+  assert.strictEqual(t.verdictOf({ ...v, invalid: true }).reason, "视频已失效");
+
+  // Backup maps storage keys to sections and never exports secrets or unrelated keys.
+  for (const k of Object.keys(store)) delete store[k];
+  Object.assign(store, {
+    triage_tags: [{ id: "t1" }], triage_video_tags: { BVa: ["t1"] }, triage_basket: [{ bvid: "BVa" }], triage_tag_presets: [{ id: "p" }],
+    triage_snapshot_7: { bvids: ["BVa"] }, triage_decisions_7: { BVa: { action: "keep" } },
+    triage_title_BVa: { verdict: "keep" }, triage_analysis_BVa: { status: "done" }, triage_verdict_override_BVa: { verdict: "drop" },
+    triage_tab: "all", aiProviderKeys: { x: "sk-live-1" }, obsidianApiKey: "secret-token"
+  });
+  t.S.folders = [{ id: 7, title: "夹" }];
+  const backup = plain(await t.buildBackup());
+  assert.deepStrictEqual(backup.folders, { 7: { title: "夹", snapshot: { bvids: ["BVa"] }, decisions: { BVa: { action: "keep" } } } });
+  assert.deepStrictEqual([backup.tags, backup.videoTags, backup.basket, backup.tagPresets], [[{ id: "t1" }], { BVa: ["t1"] }, [{ bvid: "BVa" }], [{ id: "p" }]]);
+  assert.deepStrictEqual([backup.titleResults, backup.analyses, backup.verdictOverrides], [{ BVa: { verdict: "keep" } }, { BVa: { status: "done" } }, { BVa: { verdict: "drop" } }]);
+  assert.ok(!/sk-live-1|secret-token|triage_tab/.test(JSON.stringify(backup)), "no secrets or unrelated keys");
+
   console.log("triage selftest: all passed");
 })().catch((e) => {
   console.error(e);

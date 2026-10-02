@@ -191,6 +191,7 @@ node extension/content-tokens.selftest.js
 node extension/note.selftest.js
 node extension/sites.selftest.js
 node extension/triage/triage-bg.selftest.js
+node extension/triage/triage.selftest.js
 ```
 
 ### 不装插件预览页面
