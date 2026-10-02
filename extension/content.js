@@ -28,7 +28,7 @@ const DEFAULT_SETTINGS = {
   fixedFrontmatterProperties: [],
   notePlaceholderSections: []
 };
-const { formatCompactTimestamp, sanitizeFileName, buildSubtitlePreview, buildSrt, buildTxt, shouldShowHoursInNote } = BocNote;
+const { formatCompactTimestamp, buildSubtitlePreview, buildSrt, buildTxt, shouldShowHoursInNote } = BocNote;
 const PLAYER_AI_ICON_VARIANT = "badge";
 
 const BOC_VERSION = chrome.runtime.getManifest().version;
@@ -307,18 +307,6 @@ function installReaderDebugHelpers() {
 
 const ids = {
   root: "boc-root",
-  panel: "boc-panel",
-  status: "boc-status",
-  meta: "boc-meta",
-  subtitleSelect: "boc-subtitle-select",
-  preview: "boc-preview",
-  message: "boc-message",
-  copyBtn: "boc-copy-btn",
-  downloadBtn: "boc-download-btn",
-  sendBtn: "boc-send-btn",
-  refreshBtn: "boc-refresh-btn",
-  closeBtn: "boc-close-btn",
-  settingsBtn: "boc-settings-btn",
   readingView: "boc-reading-view",
   readingPlayerSlot: "boc-reading-player-slot",
   readingStatus: "boc-reading-status",
@@ -369,7 +357,6 @@ function init() {
     state.settings = settings;
     hydrateReaderStateFromSettings(settings);
     applyReadingViewPresentation();
-    syncObsidianButton();
     startPlayerAiQuickActionObserver();
     schedulePlayerAiQuickActionSync();
     if (shouldEnterReaderMode) {
@@ -496,7 +483,6 @@ function bindRuntimeEvents() {
       loadSubtitle(url, lang, state.fetchRunId, subtitleId)
         .then(() => {
           setStatus("字幕切换完成。");
-          renderSubtitleSelect();
           sendResponse({ ok: true, payload: getPopupPayload() });
         })
         .catch((error) =>
@@ -608,7 +594,6 @@ function bindSettingsWatcher() {
       return;
     }
     if (
-      !changes.obsidianEnabled &&
       !changes.enablePlayerAiQuickAction &&
       !changes.playerAiQuickPrompt &&
       !changes.readerTheme &&
@@ -627,7 +612,6 @@ function bindSettingsWatcher() {
         state.settings = settings;
         hydrateReaderStateFromSettings(settings);
         applyReadingViewPresentation();
-        syncObsidianButton();
         schedulePlayerAiQuickActionSync();
       })
       .catch((error) => {
@@ -638,36 +622,6 @@ function bindSettingsWatcher() {
 
 function buildUiHtml() {
   return `
-    <aside id="${ids.panel}" aria-hidden="true">
-      <header class="boc-header">
-        <strong>Default</strong>
-        <div class="boc-header-actions">
-          <button id="${ids.settingsBtn}" type="button" title="插件设置">设置</button>
-          <button id="${ids.closeBtn}" type="button" title="关闭">关闭</button>
-        </div>
-      </header>
-
-      <p id="${ids.status}" class="boc-status">准备就绪，点击“刷新抓取”开始。</p>
-      <div class="boc-props-head">属性</div>
-      <div id="${ids.meta}" class="boc-meta"></div>
-
-      <label class="boc-label" for="${ids.subtitleSelect}">字幕语言</label>
-      <select id="${ids.subtitleSelect}" disabled>
-        <option value="">暂无字幕</option>
-      </select>
-
-      <label class="boc-label" for="${ids.preview}">字幕预览</label>
-      <textarea id="${ids.preview}" readonly></textarea>
-
-      <div class="boc-actions">
-        <button id="${ids.refreshBtn}" type="button">刷新抓取</button>
-        <button id="${ids.copyBtn}" type="button">复制完整 Markdown</button>
-        <button id="${ids.downloadBtn}" type="button">下载字幕</button>
-        <button id="${ids.sendBtn}" type="button">发送到 Obsidian</button>
-      </div>
-      <p id="${ids.message}" class="boc-message"></p>
-    </aside>
-
     <section id="${ids.readingView}" aria-hidden="true" data-boc-reader-ready="0" aria-busy="true">
       <div class="boc-reading-layout">
         <aside class="boc-reading-rail">
@@ -772,14 +726,6 @@ function buildUiHtml() {
 }
 
 function bindUiEvents() {
-  const panel = byId(ids.panel);
-  const closeBtn = byId(ids.closeBtn);
-  const refreshBtn = byId(ids.refreshBtn);
-  const select = byId(ids.subtitleSelect);
-  const copyBtn = byId(ids.copyBtn);
-  const downloadBtn = byId(ids.downloadBtn);
-  const sendBtn = byId(ids.sendBtn);
-  const settingsBtn = byId(ids.settingsBtn);
   const readingView = byId(ids.readingView);
   const readingCloseBtn = byId(ids.readingCloseBtn);
   const readingAutoScroll = byId(ids.readingAutoScroll);
@@ -794,14 +740,6 @@ function bindUiEvents() {
   const chapterList = byId(ids.readingChapterList);
   const transcriptList = byId(ids.readingTranscriptList);
 
-  closeBtn.addEventListener("click", () => panel.classList.remove("open"));
-  refreshBtn.addEventListener("click", () => refreshClip().catch(() => {}));
-  select.addEventListener("change", onSubtitleChange);
-  copyBtn.addEventListener("click", copyMarkdown);
-  downloadBtn.addEventListener("click", downloadSubtitle);
-  sendBtn.addEventListener("click", sendToObsidian);
-  syncObsidianButton();
-  settingsBtn.addEventListener("click", requestOpenOptions);
   readingCloseBtn.addEventListener("click", () => {
     if (isReaderMode()) {
       replaceReaderModeUrl(stripReaderModeUrl(location.href));
@@ -991,9 +929,6 @@ function resetClipState() {
   state.readingVideoEl = null;
   stopReaderPlayerObserver();
 
-  renderMeta();
-  renderSubtitleSelect();
-  byId(ids.preview).value = "";
   setMessage("");
   if (state.readingViewOpen) {
     renderReadingView();
@@ -1068,7 +1003,6 @@ async function runRefreshClip() {
   const runId = ++state.fetchRunId;
   let metaLoaded = false;
   try {
-    setBusyState(true);
     setMessage("");
     setStatus("正在抓取视频信息...");
     state.subtitleFetchState = "loading";
@@ -1212,8 +1146,6 @@ async function runRefreshClip() {
       });
     }
     state.subtitleFetchState = "ready";
-    renderMeta();
-    renderSubtitleSelect();
     if (state.readingViewOpen) {
       moveReadingMainInline();
       renderReadingView();
@@ -1253,35 +1185,6 @@ async function runRefreshClip() {
     }
     setStatus(`抓取失败：${reason}。`);
     throw error;
-  } finally {
-    if (runId === state.fetchRunId) {
-      setBusyState(false);
-    }
-  }
-}
-
-async function onSubtitleChange(event) {
-  const value = event.target.value;
-  const option = event.target.options[event.target.selectedIndex];
-  const lang = option?.dataset.lang || "unknown";
-  const subtitleId = option?.dataset.id || "";
-  if (!value) {
-    return;
-  }
-
-  try {
-    setBusyState(true);
-    setStatus(`正在切换字幕：${lang}`);
-    setMessage("");
-    await loadSubtitle(value, lang, state.fetchRunId, subtitleId);
-    setStatus("字幕切换完成。");
-  } catch (error) {
-    if (isStaleRunError(error)) {
-      return;
-    }
-    setStatus(`切换字幕失败：${getErrorMessage(error)}`);
-  } finally {
-    setBusyState(false);
   }
 }
 
@@ -1416,27 +1319,6 @@ async function clearSubtitleCache(videoId, cid, lang) {
   }
 }
 
-function renderMeta() {
-  const meta = byId(ids.meta);
-  if (!state.videoId) {
-    meta.innerHTML = '<div class="boc-meta-item">尚未抓取视频信息</div>';
-    return;
-  }
-
-  const subtitleCount = state.subtitles.length;
-  meta.innerHTML = `
-    <div class="boc-meta-item"><strong>标题：</strong>${escapeHtml(state.title)}</div>
-    <div class="boc-meta-item"><strong>URL：</strong>${escapeHtml(cleanVideoUrl())}</div>
-    <div class="boc-meta-item"><strong>作者：</strong>${escapeHtml(state.author || "未知")}</div>
-    <div class="boc-meta-item"><strong>日期：</strong>${escapeHtml(state.uploadDate || "未知")}</div>
-    <div class="boc-meta-item"><strong>字幕轨：</strong>${subtitleCount}</div>
-  `;
-}
-
-function renderSubtitleSelect() {
-  renderSubtitleOptions(byId(ids.subtitleSelect));
-}
-
 function renderReadingSubtitleSelect() {
   renderSubtitleOptions(byId(ids.readingSubtitleSelect));
 }
@@ -1504,56 +1386,6 @@ function getPopupPayload() {
     downloadFormat: normalizeDownloadFormat(state.settings?.downloadFormat),
     subtitleOptions
   };
-}
-
-async function copyMarkdown() {
-  state.settings = await getSettings();
-  await refreshDerivedContent();
-  if (!state.markdown) {
-    setMessage("没有可复制的内容，请先刷新抓取。");
-    return;
-  }
-
-  try {
-    await navigator.clipboard.writeText(state.markdown);
-    setMessage("Markdown 已复制到剪贴板。");
-  } catch (error) {
-    setMessage(`复制失败：${getErrorMessage(error)}`);
-  }
-}
-
-async function downloadSubtitle() {
-  state.settings = await getSettings();
-  rebuildDerivedContent();
-  const format = normalizeDownloadFormat(state.settings?.downloadFormat);
-  const content = format === "txt" ? state.txt : state.srt;
-  if (!content) {
-    setMessage("没有可下载的字幕，请先刷新抓取。");
-    return;
-  }
-
-  const safeTitle = sanitizeFileName(state.title || state.videoId || "video-subtitle");
-  const langSuffix = sanitizeFileName(state.selectedSubtitleLang || "subtitle") || "subtitle";
-  const filename = `${safeTitle}.${langSuffix}.${format}`;
-  const blob = new Blob([content], { type: "text/plain;charset=utf-8" });
-  const url = URL.createObjectURL(blob);
-
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = filename;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  URL.revokeObjectURL(url);
-
-  setMessage(`已下载：${filename}`);
-}
-
-function syncObsidianButton() {
-  const sendBtn = byId(ids.sendBtn);
-  if (sendBtn) {
-    sendBtn.hidden = state.settings?.obsidianEnabled !== true;
-  }
 }
 
 async function sendToObsidian() {
@@ -1673,23 +1505,12 @@ function confirmOverwriteNote(filepath) {
   });
 }
 
-function setBusyState(disabled) {
-  byId(ids.copyBtn).disabled = disabled;
-  byId(ids.downloadBtn).disabled = disabled;
-  byId(ids.sendBtn).disabled = disabled;
-  byId(ids.refreshBtn).disabled = disabled;
-  byId(ids.settingsBtn).disabled = disabled;
-  byId(ids.subtitleSelect).disabled = disabled || state.subtitles.length === 0;
-}
-
 function setStatus(text) {
   state.statusText = String(text || "");
-  byId(ids.status).textContent = state.statusText;
 }
 
 function setMessage(text) {
   state.messageText = String(text || "");
-  byId(ids.message).textContent = state.messageText;
 }
 
 // failure: why the subtitle fetch failed; empty when the video simply has no subtitles.
@@ -1702,8 +1523,6 @@ async function showNoSubtitleState(runId, failure = "") {
   state.subtitleBody = [];
   state.subtitleFetchState = "empty";
   state.hotComments = [];
-  renderMeta();
-  renderSubtitleSelect();
   if (state.readingViewOpen) {
     moveReadingMainInline();
     renderReadingView();
@@ -4704,7 +4523,6 @@ function rebuildDerivedContent() {
   state.markdown = body.length || state.subtitleFetchState === "empty" ? BocNote.buildMarkdown(state, body, state.settings, currentRef()) : "";
   state.srt = body.length ? buildSrt(body) : "";
   state.txt = body.length ? buildTxt(body, state.settings) : "";
-  byId(ids.preview).value = body.length ? buildSubtitlePreview(body, state.settings) : "";
 }
 
 // Without subtitles the comments are most of the note, so they are fetched

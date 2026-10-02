@@ -136,50 +136,6 @@ html[data-boc-reader-mode="1"][data-boc-reader-theme="dark"] {
   box-shadow: 0 0 0 3px var(--boc-focus-ring);
 }
 
-#boc-panel {
-  position: fixed;
-  right: 16px;
-  top: 72px;
-  width: min(420px, calc(100vw - 24px));
-  height: min(820px, calc(100vh - 88px));
-  z-index: 2147483647;
-  background: var(--boc-bg);
-  border: 1px solid var(--boc-border);
-  border-radius: var(--boc-radius-lg);
-  box-shadow: 0 24px 46px rgba(0, 0, 0, 0.24);
-  padding: var(--boc-space-3);
-  box-sizing: border-box;
-  display: none;
-  flex-direction: column;
-  gap: var(--boc-space-2);
-  color: var(--boc-text);
-  font-family: var(--boc-font-sans);
-}
-
-#boc-panel.open {
-  display: flex;
-}
-
-.boc-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 0 0 4px;
-}
-
-.boc-header strong {
-  font-size: var(--boc-fs-lg);
-  font-weight: 600;
-  color: var(--boc-text);
-}
-
-.boc-header-actions {
-  display: flex;
-  gap: 6px;
-}
-
-.boc-header button,
-.boc-actions button,
 .boc-confirm-cancel {
   border: 1px solid var(--boc-border-strong);
   background: var(--boc-surface);
@@ -189,68 +145,9 @@ html[data-boc-reader-mode="1"][data-boc-reader-theme="dark"] {
   font-size: var(--boc-fs-sm);
 }
 
-.boc-header button {
-  padding: 6px 10px;
-}
-
-.boc-header button:hover,
-.boc-actions button:hover:not(:disabled),
 .boc-confirm-cancel:hover {
   background: var(--boc-surface-muted);
   border-color: var(--boc-accent);
-}
-
-.boc-status {
-  margin: 0;
-  font-size: var(--boc-fs-xs);
-  color: var(--boc-text-2);
-  background: var(--boc-info-bg);
-  border: 1px solid var(--boc-info-border);
-  border-radius: var(--boc-radius-sm);
-  padding: 7px var(--boc-space-2);
-}
-
-.boc-props-head {
-  font-size: var(--boc-fs-md);
-  font-weight: 600;
-  color: var(--boc-text-2);
-  margin-top: 0;
-}
-
-.boc-meta {
-  border: 1px solid var(--boc-border);
-  border-radius: var(--boc-radius-md);
-  padding: var(--boc-space-2) 10px;
-  background: var(--boc-surface);
-  display: grid;
-  gap: 6px;
-  font-size: var(--boc-fs-sm);
-  color: var(--boc-text-2);
-}
-
-.boc-meta-item {
-  word-break: break-word;
-}
-
-.boc-meta-item strong {
-  color: var(--boc-text);
-}
-
-.boc-label {
-  font-size: var(--boc-fs-xs);
-  font-weight: 600;
-  color: var(--boc-muted);
-  margin-top: 2px;
-}
-
-#boc-subtitle-select {
-  height: 36px;
-  border: 1px solid var(--boc-border-strong);
-  border-radius: var(--boc-radius-sm);
-  padding: 0 10px;
-  background: var(--boc-field-bg);
-  color: var(--boc-text);
-  font-size: var(--boc-fs-sm);
 }
 
 .boc-player-ai-wrap {
@@ -395,8 +292,7 @@ html[data-boc-reader-mode="1"][data-boc-reader-theme="dark"] {
   padding: 0 14px;
 }
 
-.boc-confirm-primary,
-#boc-send-btn {
+.boc-confirm-primary {
   border: 1px solid var(--boc-accent);
   border-radius: var(--boc-radius-sm);
   background: var(--boc-accent);
@@ -406,53 +302,8 @@ html[data-boc-reader-mode="1"][data-boc-reader-theme="dark"] {
   font-weight: 600;
 }
 
-.boc-confirm-primary:hover,
-#boc-send-btn:hover:not(:disabled) {
+.boc-confirm-primary:hover {
   filter: brightness(1.08);
-}
-
-#boc-preview {
-  width: 100%;
-  flex: 1;
-  min-height: 180px;
-  box-sizing: border-box;
-  border: 1px solid var(--boc-border-strong);
-  border-radius: var(--boc-radius-md);
-  padding: 10px;
-  resize: vertical;
-  font-size: var(--boc-fs-sm);
-  line-height: 1.55;
-  background: var(--boc-field-bg);
-  color: var(--boc-text);
-  font-family: var(--boc-font-mono);
-}
-
-.boc-actions {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: var(--boc-space-2);
-  margin-top: 0;
-}
-
-.boc-actions button {
-  padding: var(--boc-space-2);
-}
-
-#boc-send-btn {
-  grid-column: span 2;
-}
-
-.boc-actions button:disabled {
-  cursor: not-allowed;
-  opacity: 0.55;
-}
-
-.boc-message {
-  margin: 0;
-  font-size: var(--boc-fs-xs);
-  color: var(--boc-ok);
-  min-height: 18px;
-  padding: 0 2px;
 }
 
 #boc-reading-view {
@@ -884,10 +735,6 @@ body[data-boc-reader-mode="1"] #boc-root {
   inset: 0;
   z-index: 2147483646;
   pointer-events: none;
-}
-
-body[data-boc-reader-mode="1"] #boc-panel {
-  display: none !important;
 }
 
 body[data-boc-reader-mode="1"] #boc-reading-view {
