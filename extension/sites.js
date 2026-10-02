@@ -697,8 +697,13 @@
         videoId: ref.id
       });
       const status = data?.playabilityStatus?.status;
+      const reason = data?.playabilityStatus?.reason || status || "unknown";
+      // The ANDROID client carries no cookies, so sign-in and age gates always land here.
+      if (status === "LOGIN_REQUIRED" || /^AGE_/.test(status || "")) {
+        throw new Error(`该视频需要登录或年龄验证，暂不支持（${reason}）`);
+      }
       if (status !== "OK") {
-        throw new Error(`视频不可播放：${data?.playabilityStatus?.reason || status || "unknown"}`);
+        throw new Error(`视频不可播放：${reason}`);
       }
       const details = data.videoDetails || {};
       const renderer = data.captions?.playerCaptionsTracklistRenderer || {};

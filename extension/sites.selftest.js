@@ -245,6 +245,15 @@ async function ytComments(next, byContinuation) {
   // Comments turned off: the section has no continuation.
   r = await ytComments(watchNext(""), {});
   eq(r, { comments: [], calls: ["dQw4w9WgXcQ"] });
+  const ytPlayer = (playabilityStatus) => ({
+    doc: { querySelectorAll: () => [{ textContent: '"INNERTUBE_API_KEY":"k"' }] },
+    postJson: async () => ({ playabilityStatus })
+  });
+  const metaError = (status) =>
+    S.SITES.youtube.fetchMeta({ id: "dQw4w9WgXcQ" }, ytPlayer(status)).then(() => "", (error) => error.message);
+  eq(await metaError({ status: "LOGIN_REQUIRED", reason: "Sign in to confirm your age" }), "该视频需要登录或年龄验证，暂不支持（Sign in to confirm your age）");
+  eq(await metaError({ status: "AGE_CHECK_REQUIRED" }), "该视频需要登录或年龄验证，暂不支持（AGE_CHECK_REQUIRED）");
+  eq(await metaError({ status: "ERROR", reason: "Video unavailable" }), "视频不可播放：Video unavailable");
   console.log("sites selftest ok");
 })().catch((error) => {
   console.error(error);
