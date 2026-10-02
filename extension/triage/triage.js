@@ -1839,7 +1839,9 @@ async function buildBackup() {
 }
 
 function csvField(v) {
-  const s = String(v ?? "");
+  let s = String(v ?? "");
+  // Spreadsheets run a cell that starts with = + - @ (or tab/CR) as a formula; a leading ' keeps it text.
+  if (/^[=+\-@\t\r]/.test(s)) s = `'${s}`;
   return /[",\r\n]/.test(s) ? `"${s.replaceAll('"', '""')}"` : s;
 }
 

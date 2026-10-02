@@ -110,6 +110,16 @@ function openFake(mediaId, items, decisions = {}) {
   assert.deepStrictEqual(store[t.K.decisions("D")], {});
   assert.strictEqual(t.S.undo.length, 0);
 
+  // B11: cells that a spreadsheet would run as a formula are prefixed with '.
+  for (const s of ["=1+1", "+cmd", "-2", "@SUM(A1)", "\tx", "\rx"]) assert.ok(t.csvField(s).replace(/^"/, "").startsWith(`'${s[0]}`), s);
+  assert.strictEqual(t.csvField('=HYPERLINK("x")'), `"'=HYPERLINK(""x"")"`);
+  assert.strictEqual(t.csvField("普通 标题"), "普通 标题");
+  assert.strictEqual(t.csvField("a,b"), '"a,b"');
+  openFake("E", [{ ...item(5), title: "=cmd|' /C calc'!A0", upper: "@up" }]);
+  t.S.folders = [{ id: "E", title: "+夹" }];
+  const csvRows = t.buildCsv().replace(/^\uFEFF/, "").split("\r\n");
+  assert.ok(csvRows[1].startsWith("'+夹,BV5,'=cmd|' /C calc'!A0,'@up,"), csvRows[1]);
+
   console.log("triage selftest: all passed");
 })().catch((e) => {
   console.error(e);
