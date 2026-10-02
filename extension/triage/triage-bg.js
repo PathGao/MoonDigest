@@ -1,4 +1,4 @@
-// BiliDigest 收藏夹分拣台 background 层。classic script，由 background.js 末尾 importScripts 加载，
+// MoonDigest 收藏夹分拣台 background 层。classic script，由 background.js 末尾 importScripts 加载，
 // 与 background.js 共享全局作用域，所以顶层名字统一带 triage / TRIAGE_ 前缀。
 // 纯函数放顶部（selftest 用 vm 加载，chrome 为 undefined）。
 
@@ -471,6 +471,9 @@ async function triageCriteriaText() {
   return String(triageCriteria || "");
 }
 
+// 单次 AI 请求的超时（毫秒）。思考模式慢得多；两档都要短于 MV3 单个消息事件约 5 分钟的上限
+const TRIAGE_AI_TIMEOUT_MS = { normal: 120000, thinking: 240000 };
+
 // 非流式 chat/completions，只取 message.content（忽略 reasoning_content）
 async function triageChat(messages, maxTokens, thinking = false) {
   const provider = (await loadAiProviders()).find((p) => p.enabled !== false);
@@ -482,21 +485,42 @@ async function triageChat(messages, maxTokens, thinking = false) {
   const body = { model: provider.model, stream: false, temperature: 0.3, max_tokens: maxTokens, messages };
   // DeepSeek 思考 token 计入 max_tokens；默认关（实测 30 标题 3s/815 token，开则约 19s/4579 token）。其他平台不发该参数
   if (/api\.deepseek\.com/.test(baseUrl)) body.thinking = { type: thinking ? "enabled" : "disabled" };
-  const res = await fetch(`${baseUrl}/chat/completions`, {
-    method: "POST",
-    headers,
-    body: JSON.stringify(body)
+
+  const ms = TRIAGE_AI_TIMEOUT_MS[thinking ? "thinking" : "normal"];
+  const controller = new AbortController();
+  let timer;
+  // Racing the timer (not just aborting) also ends a fetch or body read that ignores the abort.
+  const timeout = new Promise((_, reject) => {
+    timer = setTimeout(() => {
+      controller.abort();
+      reject(triageError(`AI 超时（${ms / 1000} 秒），已跳过，可重试`, "AI_TIMEOUT"));
+    }, ms);
   });
-  if (!res.ok) {
-    const detail = await res.text().catch(() => "");
-    throw triageError(`HTTP ${res.status}: ${detail.slice(0, 200)}`);
+  const request = async () => {
+    const res = await fetch(`${baseUrl}/chat/completions`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify(body),
+      signal: controller.signal
+    }).catch(async (e) => {
+      throw triageError((await hostPermissionError(baseUrl)) || e?.message || String(e));
+    });
+    if (!res.ok) {
+      const detail = await res.text().catch(() => "");
+      throw triageError(`HTTP ${res.status}: ${detail.slice(0, 200)}`, res.status === 429 ? "AI_THROTTLED" : undefined);
+    }
+    const json = await res.json();
+    const choice = json.choices?.[0];
+    if (!choice?.message?.content && choice?.finish_reason === "length") {
+      throw triageError("模型输出被截断（思考可能用光了额度），请调大输出上限或关闭思考");
+    }
+    return { content: choice?.message?.content, model: provider.model };
+  };
+  try {
+    return await Promise.race([request(), timeout]);
+  } finally {
+    clearTimeout(timer);
   }
-  const json = await res.json();
-  const choice = json.choices?.[0];
-  if (!choice?.message?.content && choice?.finish_reason === "length") {
-    throw triageError("模型输出被截断（思考可能用光了额度），请调大输出上限或关闭思考");
-  }
-  return { content: choice?.message?.content, model: provider.model };
 }
 
 async function triageClassifyTitles({ items, tags }) {
@@ -543,7 +567,88 @@ async function triageAiCommand({ instruction, tags, items, allowNewTags, maxNewT
   return triageParseCommand(content, list, tagList, opts);
 }
 
+// The summary goes right after the frontmatter so it is the first thing read; the cover and body follow.
+function triageWithSummary(markdown, analysis) {
+  if (analysis?.status !== "done") return markdown;
+  const lines = ["## AI 总结", ""];
+  if (analysis.oneLiner) lines.push(`> ${analysis.oneLiner}`, "");
+  if (analysis.points?.length) lines.push(...analysis.points.map((p) => `- ${p}`), "");
+  const verdict = { keep: "建议留", drop: "建议删", unsure: "待定" }[analysis.verdict];
+  if (verdict) lines.push(`判断：${verdict}${analysis.reason ? `，${analysis.reason}` : ""}`, "");
+  const block = lines.join("\n");
+  const front = /^---\n[\s\S]*?\n---\n\n?/.exec(markdown)?.[0] || "";
+  return `${front}${block}\n${markdown.slice(front.length)}`;
+}
+
+// One video → one vault note built the same way the page's 发送到 Obsidian does, plus the stage-2 summary.
+// Returns { path, skipped, title, source }; skipped means the note existed and overwrite was off.
+async function triageWriteNote({ bvid, overwrite }) {
+  if (!bvid) throw triageError("缺少 bvid");
+  const settings = await getMergedSettings();
+  if (!settings.obsidianEnabled) throw triageError("Obsidian 写入未启用");
+  const baseUrl = String(settings.obsidianApiBaseUrl || "").trim();
+  const apiKey = String(settings.obsidianApiKey || "").trim();
+  if (!baseUrl || !apiKey) throw triageError("缺少 Local REST API 参数");
+
+  const site = BocSites.SITES.bilibili;
+  const io = { fetchJson: fetchJsonForAi };
+  const ref = { site: "bilibili", id: bvid, part: null, url: "" };
+  const meta = await site.fetchMeta(ref, io);
+  ref.url = site.canonicalUrl(bvid, meta.pageCount > 1 ? meta.pageIndex : 1);
+  const bundle = await site.fetchTracks(ref, meta, io).catch(() => ({ tracks: [], chapters: [] }));
+  const track = BocSites.pickPreferredTrack(BocSites.rankTracks(bundle.tracks || []), {});
+  const body = track ? await site.fetchSegments(track, io).catch(() => []) : [];
+  const hotComments =
+    settings.includeHotCommentsInNote || !body.length ? await site.fetchComments(ref, meta, io, 20).catch(() => []) : [];
+  const noteMeta = {
+    site: "bilibili",
+    videoId: bvid,
+    cid: meta.cid,
+    aid: meta.aid,
+    title: meta.title,
+    author: meta.author,
+    authorUrl: meta.authorUrl,
+    uploadDate: meta.uploadDate,
+    description: meta.description,
+    videoDuration: meta.duration,
+    cover: meta.cover,
+    videoTags: meta.tags,
+    selectedSubtitleLang: track ? track.label || track.lang : "",
+    chapters: bundle.chapters || [],
+    hotComments,
+    pageIndex: meta.pageIndex,
+    pageCount: meta.pageCount,
+    pageTitle: meta.pageTitle
+  };
+  const cacheKey = `triage_analysis_${bvid}`;
+  const analysis = (await chrome.storage.local.get(cacheKey))[cacheKey];
+  const markdown = triageWithSummary(BocNote.buildMarkdown(noteMeta, body, settings, ref), analysis);
+
+  const { triageExportFolder } = await chrome.storage.sync.get(TRIAGE_SETTINGS_DEFAULTS);
+  const folder = BocNote.normalizeFolder(triageExportFolder) || BocNote.resolveFolderTemplate(settings.noteFolder, noteMeta);
+  const filename = BocNote.buildNoteFilename(noteMeta, settings);
+  const path = folder ? `${folder}/${filename}` : filename;
+  const auth = { Authorization: `Bearer ${apiKey}` };
+  if (!overwrite) {
+    const existing = await fetch(vaultEndpoint(baseUrl, path), { method: "GET", headers: auth, cache: "no-store" });
+    if (existing.ok) return { path, skipped: true, title: meta.title };
+    if (existing.status !== 404) throw triageError(`HTTP ${existing.status}`);
+  }
+  const content = await linkCoverInVault(markdown, { url: meta.cover, name: `bilibili-${bvid}` }, { baseUrl, apiKey, filepath: path });
+  const res = await fetch(vaultEndpoint(baseUrl, path), {
+    method: "PUT",
+    headers: { ...auth, "Content-Type": "text/markdown; charset=utf-8" },
+    body: content
+  });
+  if (!res.ok) {
+    const detail = await res.text().catch(() => "");
+    throw triageError(`HTTP ${res.status}${detail ? `: ${detail.slice(0, 200)}` : ""}`);
+  }
+  return { path, skipped: false, title: meta.title, source: body.length ? "subtitle" : "meta" };
+}
+
 const TRIAGE_HANDLERS = {
+  "triage-write-note": (msg) => triageWriteNote(msg),
   "triage-folders": () => triageCreatedFolders(),
 
   "triage-folder-items": async ({ mediaId }) => {
@@ -611,7 +716,7 @@ const TRIAGE_HANDLERS = {
     const s = await chrome.storage.sync.get(TRIAGE_SETTINGS_DEFAULTS);
     return {
       triageCriteria: String(s.triageCriteria || ""),
-      triageIntervalSec: Number(s.triageIntervalSec) > 0 ? Number(s.triageIntervalSec) : 8,
+      triageIntervalSec: Number(s.triageIntervalSec) >= 0 ? Number(s.triageIntervalSec) : TRIAGE_SETTINGS_DEFAULTS.triageIntervalSec,
       triageExportFolder: String(s.triageExportFolder || TRIAGE_SETTINGS_DEFAULTS.triageExportFolder),
       triageTitleBatchSize: Number(s.triageTitleBatchSize) > 0 ? Number(s.triageTitleBatchSize) : 30,
       triageThinking: s.triageThinking === true,

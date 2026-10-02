@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16"><defs>
+<linearGradient id="pink" x1="82.3" y1="55.1" x2="174.7" y2="186.8" gradientUnits="userSpaceOnUse"><stop stop-color="#FFE4EC"/><stop offset="0.52" stop-color="#EE9DBD"/><stop offset="1" stop-color="#C45B97"/></linearGradient>
+<linearGradient id="lilac" x1="78.7" y1="120" x2="89" y2="177.5" gradientUnits="userSpaceOnUse"><stop stop-color="#EEE5FF"/><stop offset="0.52" stop-color="#B7A0FF"/><stop offset="1" stop-color="#7354D8"/></linearGradient>
+</defs>
+<rect width="16" height="16" rx="3.52" fill="#27283F"/>
+<g transform="translate(8 8) scale(0.06667) translate(-128 -128)"><path d="M49 150C20 93 191 78 207 111" stroke="#706DAB" stroke-width="24" stroke-linecap="round" fill="none"/><path d="M81 89C82.3333 68.3333 93 61 113 67C134.333 48.3333 151.333 51.6667 164 77C189.333 86.3333 195 107.333 181 140C180.333 164 167.333 177.667 142 181C116.667 197 98.6667 193.333 88 170C60.6667 166 52.6667 153 64 131C60.6667 113.667 66.3333 99.6667 81 89Z" fill="url(#pink)"/><path d="M51 145C70 179 184 153 205 120" stroke="#27283F" stroke-width="40" stroke-linecap="round" fill="none"/><path d="M51 145C70 179 184 153 205 120" stroke="url(#lilac)" stroke-width="24" stroke-linecap="round" fill="none"/></g><rect x="6" y="6" width="1" height="2" rx="0.5" fill="#6A3D61"/><rect x="9" y="6" width="1" height="2" rx="0.5" fill="#6A3D61"/>
+</svg>

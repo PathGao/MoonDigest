@@ -9,7 +9,7 @@ ROOT = Path(__file__).resolve().parent.parent
 EXTENSION_DIR = ROOT / "extension"
 RELEASE_DIR = ROOT / "release"
 MANIFEST_PATH = EXTENSION_DIR / "manifest.json"
-PACKAGE_NAME = "bilibili-obsidian-clipper"
+PACKAGE_NAME = "moondigest"
 
 
 def load_manifest():
@@ -27,7 +27,8 @@ def dump_manifest(path: Path, data: dict):
 def prepare_release_dir(path: Path):
     if path.exists():
         shutil.rmtree(path)
-    shutil.copytree(EXTENSION_DIR, path)
+    # Selftests and dev-only mocks stay out of the shipped package.
+    shutil.copytree(EXTENSION_DIR, path, ignore=shutil.ignore_patterns("*.selftest.js", "dev-sidepanel", "dev"))
 
 
 def disable_firefox_player_ai_quick_action(release_folder: Path):
@@ -71,7 +72,7 @@ def build_variant(manifest: dict, browser: str, version: str):
             variant_manifest["permissions"] = [item for item in permissions if item != "sidePanel"]
         variant_manifest.pop("side_panel", None)
         variant_manifest["sidebar_action"] = {
-            "default_title": "Bilibili Obsidian Clipper",
+            "default_title": "MoonDigest",
             "default_icon": {
                 "16": "icons/icon16.png",
                 "32": "icons/icon32.png",

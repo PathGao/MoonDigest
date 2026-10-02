@@ -4,12 +4,13 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Bilibili Clipper</title>
+    <link rel="stylesheet" href="./tokens.css" />
     <link rel="stylesheet" href="./popup.css" />
   </head>
   <body>
     <main class="popup">
       <header class="top">
-        <strong>B站字幕</strong>
+        <strong>视频字幕</strong>
         <div class="top-actions">
           <button id="aiBtn" type="button" class="ghost ghost-ai">
             <svg viewBox="0 0 24 24" focusable="false" aria-hidden="true">
@@ -24,7 +25,6 @@
       </header>
 
       <p id="status" class="status">准备就绪</p>
-      <button id="triageBtn" type="button" class="triage-entry">打开 BiliDigest 分拣台</button>
 
       <div class="section-title">属性</div>
       <section class="props">
@@ -46,10 +46,13 @@
         <button id="downloadBtn" type="button">下载</button>
         <button id="readingViewBtn" type="button">阅读</button>
       </div>
-      <button id="sendBtn" type="button" class="send">保存到 Obsidian</button>
+      <button id="summaryBtn" type="button" class="primary">AI 总结</button>
+      <button id="sendBtn" type="button" class="secondary" hidden>保存到 Obsidian</button>
       <p id="message" class="message"></p>
+      <button id="triageBtn" type="button" class="triage-link" hidden>打开 B 站收藏夹分拣台</button>
     </main>
 
+    <script src="./sites.js"></script>
     <script src="./popup.js"></script>
   </body>
 </html>

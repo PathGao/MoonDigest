@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "BiliDigest · B站收藏夹 AI 分拣台",
+  "name": "MoonDigest · 月团视频摘读",
   "version": "1.2.0",
-  "description": "用 AI 快速看懂、筛选、打标签 B 站收藏夹，把有价值的内容摘出来导出。",
+  "description": "抓取 B 站和 YouTube 字幕，用 AI 总结问答，一键存进 Obsidian；附带 B 站收藏夹 AI 分拣台。",
   
   "browser_specific_settings": {
     "gecko": {
@@ -11,18 +11,18 @@
     }
   },
   
-  "permissions": ["storage", "scripting", "sidePanel", "cookies", "declarativeNetRequest"],
+  "permissions": ["storage", "unlimitedStorage", "scripting", "sidePanel", "cookies", "declarativeNetRequest"],
   "host_permissions": [
     "https://www.bilibili.com/*",
     "https://api.bilibili.com/*",
     "https://*.hdslb.com/*",
+    "https://www.youtube.com/*",
     "http://127.0.0.1/*",
     "https://127.0.0.1/*",
     "http://localhost/*",
-    "https://localhost/*",
-    "http://*/*",
-    "https://*/*"
+    "https://localhost/*"
   ],
+  "optional_host_permissions": ["http://*/*", "https://*/*"],
   "background": {
     "service_worker": "background.js"
   },
@@ -41,15 +41,27 @@
       "matches": [
         "https://www.bilibili.com/video/*",
         "https://www.bilibili.com/list/watchlater",
-        "https://www.bilibili.com/list/watchlater/*"
+        "https://www.bilibili.com/list/watchlater/*",
+        "https://www.youtube.com/*"
       ],
-      "js": ["content.js"],
+      "js": ["sites.js", "note.js", "content.js"],
       "css": ["content.css"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://www.bilibili.com/*",
+        "https://space.bilibili.com/*",
+        "https://search.bilibili.com/*",
+        "https://t.bilibili.com/*"
+      ],
+      "js": ["badges.js"],
+      "css": ["badges.css"],
       "run_at": "document_idle"
     }
   ],
   "action": {
-    "default_title": "BiliDigest",
+    "default_title": "MoonDigest",
     "default_icon": {
       "16": "icons/icon16.png",
       "32": "icons/icon32.png"

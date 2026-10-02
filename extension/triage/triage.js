@@ -1,7 +1,10 @@
-"use strict";
+// Static-server preview only: load the fake chrome.* before anything reads it. Never fetched inside the extension.
+if (!globalThis.chrome?.runtime?.id) await import("./dev/mock-chrome.js");
 
 // ---------- constants ----------
 const THROTTLE_MS = globalThis.__TRIAGE_THROTTLE_MS || 10 * 60 * 1000;
+// Error code -> [backoff ms, status label]. AI 429s clear far sooner than B站 risk control.
+const THROTTLES = { THROTTLED: [THROTTLE_MS, "B站限流"], AI_THROTTLED: [60 * 1000, "AI 平台限流"] };
 const GROUP_SIZE = 8;
 const SELECT_CAP = 10;
 const SYNC_MIN_GAP_MS = 60 * 1000;
@@ -13,7 +16,8 @@ const TABS = [
   ["keep", "建议留"],
   ["none", "未分析"],
   ["done", "已处理"],
-  ["all", "全部"]
+  ["all", "全部"],
+  ["read", "阅览"]
 ];
 const K = {
   lastFolder: "triage_last_folder",
@@ -69,23 +73,26 @@ const S = {
   basket: [],
   settings: {
     triageCriteria: "",
-    triageIntervalSec: 3,
-    triageExportFolder: "",
+    triageIntervalSec: 8,
+    triageExportFolder: "raw/01-articles",
     triageTitleBatchSize: 30,
     triageThinking: false,
     triageTitleMaxTokens: 0,
     triageAnalyzeMaxTokens: 0
   },
   tab: "all",
+  readVerdict: "all",
   tagFilter: new Set(),
   focused: "",
   focusIndex: 0,
   selected: new Set(),
   group: null, // { bvids: [], running: bool, stop: bool }
+  write: { running: false, stop: false },
   stage1: { running: false, stop: false },
   stage1Skip: new Set(),
   analyzing: new Set(),
   throttleUntil: 0,
+  throttleLabel: "",
   status: "",
   undo: [],
   lastSyncAt: 0,
@@ -104,12 +111,13 @@ const el = {};
   "tabs", "tagFilter", "manageTagsBtn", "listHeader", "list", "basket", "basketToggle", "basketCount",
   "basketList", "copyMdBtn", "exportBtn", "toast", "settingsDialog", "criteriaInput", "intervalInput",
   "batchSizeInput", "exportFolderInput", "openOptionsBtn", "aiDebugTitle", "thinkingInput", "titleMaxInput",
-  "titleMaxHint", "analyzeMaxInput", "analyzeMaxHint", "settingsError", "backupBtn", "csvBtn", "confirmDialog",
+  "titleMaxHint", "advancedTokens", "analyzeMaxInput", "analyzeMaxHint", "settingsError", "backupBtn", "csvBtn", "confirmDialog",
   "confirmTitle", "confirmBody", "confirmOk", "pickerDialog", "pickerTitle", "pickerInput", "pickerList",
   "tagsDialog", "tagsRows", "newTagInput", "addTagBtn", "helpDialog", "presetNameInput", "savePresetBtn",
   "presetRows", "aiBtn", "aiDialog", "aiForm", "aiScope", "aiPreset", "aiScopeCount", "aiInstruction", "aiHistory",
   "aiTagsPreview", "aiAllowNew", "aiMaxNew", "aiAllowVerdict", "aiProgress", "aiCloseBtn", "aiStopBtn", "aiRunBtn",
-  "aiReview", "aiReviewSummary", "aiNotes", "aiNewTags", "aiAllBtn", "aiNoneBtn", "aiRows", "aiDiscardBtn", "aiApplyBtn"
+  "aiReview", "aiReviewSummary", "aiNotes", "aiNewTags", "aiAllBtn", "aiNoneBtn", "aiRows", "aiDiscardBtn", "aiApplyBtn",
+  "writeBtn", "writeDialog", "writeScope", "writeScopeCount", "writeOverwrite", "writeProgress", "writeFailed", "writeStopBtn", "writeRunBtn"
 ].forEach((id) => (el[id] = $(id)));
 
 // ---------- utils ----------
@@ -131,8 +139,14 @@ async function storeGet(key, fallback) {
   const r = await chrome.storage.local.get(key);
   return r?.[key] ?? fallback;
 }
+let storeFailShown = false;
 function storeSet(key, value) {
-  return chrome.storage.local.set({ [key]: value });
+  return chrome.storage.local.set({ [key]: value }).catch((e) => {
+    console.error("[triage] storage write failed", key, e);
+    if (storeFailShown) return;
+    storeFailShown = true;
+    toast(`保存失败，本地存储可能已满：${e?.message || e}`, true);
+  });
 }
 
 function esc(v) {
@@ -204,7 +218,16 @@ function showBanner(text, btnText, onClick) {
 
 function handleAiError(error) {
   const text = String(error || "AI 调用失败");
-  if (text.includes("配置 AI")) {
+  const origin = /未授权访问 (https?:\/\/[^\s，]+)/.exec(text)?.[1];
+  if (origin) {
+    // The click is the user gesture permissions.request needs; the service worker cannot ask.
+    showBanner(text, `授权访问 ${origin}`, async () => {
+      if (await chrome.permissions.request({ origins: [`${origin}/*`] }).catch(() => false)) {
+        el.banner.hidden = true;
+        toast("已授权，请重试");
+      }
+    });
+  } else if (text.includes("配置 AI")) {
     showBanner(`还没有可用的 AI 服务：${text}`, "去配置", () => send({ type: "open-options" }));
   } else if (text.includes("截断")) {
     showBanner(`${text}。建议调大输出上限或关闭思考`, "打开 AI 调试", () => openSettings(true));
@@ -242,6 +265,7 @@ function passTagFilter(bvid) {
 
 function inTab(it, tab) {
   if (tab === "all") return true;
+  if (tab === "read") return S.readVerdict === "all" || inTab(it, S.readVerdict);
   const p = isProcessed(it.bvid);
   if (tab === "done") return p;
   return !p && verdictOf(it).verdict === tab;
@@ -276,7 +300,10 @@ async function init() {
   S.tags = tags;
   S.videoTags = videoTags;
   S.basket = basket;
-  const all = (await chrome.storage.local.get(null)) || {};
+  // getKeys (Chrome 130+) lets us read only override keys instead of every cached title/analysis.
+  const keys = await chrome.storage.local.getKeys?.();
+  const wanted = keys && [K.presets, K.aiHistory, ...keys.filter((k) => k.startsWith(OVERRIDE_PREFIX))];
+  const all = (await chrome.storage.local.get(wanted ?? null)) || {};
   S.presets = all[K.presets] || structuredClone(BUILTIN_PRESETS);
   if (!all[K.presets]) storeSet(K.presets, S.presets);
   S.aiHistory = all[K.aiHistory] || [];
@@ -284,6 +311,11 @@ async function init() {
     if (k.startsWith(OVERRIDE_PREFIX)) S.overrides[k.slice(OVERRIDE_PREFIX.length)] = v;
   }
   if (settingsResp.ok) Object.assign(S.settings, settingsResp.data);
+  const syncObsidian = ({ obsidianEnabled }) => document.body.classList.toggle("obsidian-off", obsidianEnabled !== true);
+  syncObsidian(await chrome.storage.sync.get({ obsidianEnabled: false }));
+  chrome.storage.onChanged.addListener((changes, area) => {
+    if (area === "sync" && changes.obsidianEnabled) syncObsidian({ obsidianEnabled: changes.obsidianEnabled.newValue });
+  });
   renderBasket();
   await loadFolders();
   setInterval(tick, 1000);
@@ -315,7 +347,8 @@ async function loadFolders() {
 
 async function openFolder(mediaId) {
   S.folderToken++;
-  S.stage1.stop = true;
+  // The old stage-1 loop exits on the token change without touching state, so reset it here.
+  S.stage1 = { running: false, stop: true };
   if (S.group) S.group.stop = true;
   S.mediaId = mediaId;
   S.items = [];
@@ -343,9 +376,10 @@ async function openFolder(mediaId) {
 
 // ---------- sync with bilibili ----------
 async function syncFolder({ force = false } = {}) {
-  if (S.syncing || (!force && Date.now() - S.lastSyncAt < SYNC_MIN_GAP_MS)) return false;
-  S.syncing = true;
+  // S.syncing holds the token of the running sync, so a forced sync for a newly opened folder is not blocked by the old one.
+  if (S.syncing === S.folderToken || (!force && Date.now() - S.lastSyncAt < SYNC_MIN_GAP_MS)) return false;
   const token = S.folderToken;
+  S.syncing = token;
   const mediaId = S.mediaId;
   try {
     const r = await send({ type: "triage-folder-items", mediaId });
@@ -418,7 +452,7 @@ async function syncFolder({ force = false } = {}) {
     render();
     return true;
   } finally {
-    S.syncing = false;
+    if (S.syncing === token) S.syncing = false;
   }
 }
 
@@ -475,7 +509,7 @@ function renderTop() {
 function renderStatus() {
   const left = S.throttleUntil - Date.now();
   if (left > 0) {
-    el.queueStatus.textContent = `AI 限流，${fmtDuration(Math.ceil(left / 1000))} 后重试`;
+    el.queueStatus.textContent = `${S.throttleLabel}，${fmtDuration(Math.ceil(left / 1000))} 后重试`;
     el.queueStatus.classList.add("warn");
   } else {
     el.queueStatus.textContent = S.status;
@@ -496,6 +530,7 @@ function renderTabs() {
     if (isProcessed(it.bvid)) counts.done++;
     else counts[verdictOf(it).verdict]++;
   }
+  counts.read = counts.all;
   const tabs = [...TABS];
   if (S.group) {
     const done = S.group.bvids.filter(isProcessed).length;
@@ -520,7 +555,15 @@ function renderTabs() {
 
 function renderListHeader(list) {
   let html = "";
-  if (S.tab === "group" && S.group) {
+  if (S.tab === "read") {
+    const pending = list.filter((it) => needsAnalysis(it.bvid)).length;
+    const options = TABS.filter(([key]) => key !== "read")
+      .map(([key, label]) => `<option value="${key}"${S.readVerdict === key ? " selected" : ""}>${label}</option>`)
+      .join("");
+    html = `<select data-read-verdict aria-label="按判断筛选阅览">${options}</select><span class="muted">${list.length} 个</span><span class="spacer"></span>
+      <button type="button" data-head="analyze-all" aria-label="细看全部未看"${pending && !S.group?.running ? "" : " disabled"}>细看全部未看 (${pending})</button>
+      <button type="button" data-head="copy-read" aria-label="复制为 Markdown"${list.length ? "" : " disabled"}>复制为 Markdown</button>`;
+  } else if (S.tab === "group" && S.group) {
     const done = S.group.bvids.filter(isProcessed).length;
     html = `<span class="group-title">本轮细看 · 已处理 ${done} / ${S.group.bvids.length}</span><span class="spacer"></span>
       <button type="button" data-head="next-group" aria-label="下一组">下一组</button>
@@ -546,6 +589,11 @@ function renderList() {
   }
   if (!list.length) {
     el.list.innerHTML = `<p class="empty">这里没有视频</p>`;
+    return;
+  }
+  el.list.classList.toggle("reading", S.tab === "read");
+  if (S.tab === "read") {
+    el.list.innerHTML = list.map(readHtml).join("");
     return;
   }
   if (!list.some((it) => it.bvid === S.focused)) {
@@ -625,6 +673,51 @@ function cardHtml(it, expanded) {
   </article>`;
 }
 
+// ---------- reading view ----------
+function readHtml(it) {
+  const b = it.bvid;
+  const v = verdictOf(it);
+  const a = S.analyses[b];
+  const done = a?.status === "done";
+  const verdict = S.analyzing.has(b)
+    ? `<span class="badge running">分析中…</span>`
+    : `<span class="badge ${v.verdict}${v.low ? " low" : ""}">${VERDICT_LABEL[v.verdict]}</span>`;
+  const names = tagIdsOf(b).map((id) => tagById(id));
+  const suggested = done ? [] : S.titleRes[b]?.suggestedTags || [];
+  const body = [];
+  if (done && a.oneLiner) body.push(`<p class="oneliner">${esc(a.oneLiner)}</p>`);
+  if (done && a.points?.length) body.push(`<ol class="points">${a.points.map((p) => `<li>${esc(p)}</li>`).join("")}</ol>`);
+  if (suggested.length) body.push(`<p class="muted">建议标签：${suggested.map(esc).join("、")}</p>`);
+  if (names.length) body.push(`<div class="chips">${names.map((t) => `<span class="chip on" style="--c:${esc(t.color)}">${esc(t.name)}</span>`).join("")}</div>`);
+  return `<article class="read-item${isProcessed(b) ? " decided" : ""}" data-bvid="${esc(b)}">
+    <h3><a href="${videoUrl(b)}" target="_blank" rel="noopener">${esc(it.title)}</a></h3>
+    <div class="meta">${esc(it.upper)} · ${fmtDuration(it.duration)} · ${verdict}${v.reason ? ` <span class="reason">${esc(v.reason)}</span>` : ""}</div>
+    ${body.join("")}
+  </article>`;
+}
+
+function folderTitle() {
+  return S.folders.find((f) => String(f.id) === String(S.mediaId))?.title || "收藏夹";
+}
+
+function buildReadMarkdown(list, now = new Date()) {
+  const lines = [`# ${folderTitle()}`, "", `${stamp(now, false)} · ${list.length} 个视频`, ""];
+  for (const it of list) {
+    const v = verdictOf(it);
+    const a = S.analyses[it.bvid];
+    const done = a?.status === "done";
+    lines.push(`## [${mdLinkText(it.title)}](${videoUrl(it.bvid)})`, "");
+    lines.push([it.upper, fmtDuration(it.duration), v.verdict === "none" ? "未分析" : `${VERDICT_LABEL[v.verdict]}${v.reason ? `：${v.reason}` : ""}`].join(" · "), "");
+    if (done && a.oneLiner) lines.push(`> ${a.oneLiner}`, "");
+    if (done && a.points?.length) lines.push(...a.points.map((p) => `- ${p}`), "");
+    const suggested = done ? [] : S.titleRes[it.bvid]?.suggestedTags || [];
+    if (suggested.length) lines.push(`建议标签：${suggested.join("、")}`, "");
+    const names = tagIdsOf(it.bvid).map((id) => tagById(id).name);
+    if (names.length) lines.push(`标签：${names.join("、")}`, "");
+  }
+  return lines.join("\n");
+}
+
 function setFocus(bvid, scroll = true) {
   S.focused = bvid;
   const list = visibleItems();
@@ -665,9 +758,10 @@ const saveDecisions = () => storeSet(K.decisions(S.mediaId), S.decisions);
 const saveVideoTags = () => storeSet(K.videoTags, S.videoTags);
 const shortTitle = (it) => (it.title.length > 24 ? `${it.title.slice(0, 24)}…` : it.title);
 
+const deciding = new Set(); // bvids with an unfav request in flight
 async function decide(bvid, action) {
   const it = S.itemMap.get(bvid);
-  if (!it) return;
+  if (!it || deciding.has(bvid)) return;
   const prev = S.decisions[bvid] || null;
   if (prev?.action === action) return;
   if (prev?.action === "unfav") {
@@ -676,7 +770,9 @@ async function decide(bvid, action) {
   }
   const before = visibleItems();
   if (action === "unfav") {
+    deciding.add(bvid);
     const r = await send({ type: "triage-unfav", mediaId: S.mediaId, aids: [it.aid] });
+    deciding.delete(bvid);
     if (!r.ok) {
       toast(`取消收藏失败：${r.error}`, true);
       return;
@@ -702,8 +798,7 @@ async function undo() {
     if (entry.action === "unfav") {
       const r = await send({ type: "triage-refav", mediaId: S.mediaId, aid: it.aid });
       if (!r.ok) {
-        S.undo.push(entry);
-        toast(`撤销失败：${r.error}`, true);
+        toast(`撤销失败：${r.error}。可到 B 站手动重新收藏`, true);
         return;
       }
     }
@@ -712,6 +807,22 @@ async function undo() {
     saveDecisions();
     toast(`已撤销：${entry.action === "unfav" ? "重新收藏" : "取消保留"}《${shortTitle(it)}》`);
     S.focused = entry.bvid;
+  } else if (entry.kind === "unfavMany") {
+    const token = S.folderToken;
+    let n = 0;
+    for (const b of entry.bvids) {
+      if (n) await new Promise((r) => setTimeout(r, 300));
+      const r = await send({ type: "triage-refav", mediaId: S.mediaId, aid: S.itemMap.get(b)?.aid });
+      if (token !== S.folderToken) return;
+      if (!r.ok) {
+        toast(`撤销中断（已重新收藏 ${n} 个）：${r.error}`, true);
+        break;
+      }
+      delete S.decisions[b];
+      n++;
+    }
+    saveDecisions();
+    if (n === entry.bvids.length) toast(`已重新收藏 ${n} 个`);
   } else if (entry.kind === "keepMany") {
     for (const b of entry.bvids) delete S.decisions[b];
     saveDecisions();
@@ -768,7 +879,10 @@ async function batchUnfav(btn) {
     done += chunk.length;
     if (i + 20 < list.length) await new Promise((r2) => setTimeout(r2, 1000));
   }
-  if (done) toast(`已取消收藏 ${done} 个`);
+  if (done) {
+    pushUndo({ kind: "unfavMany", bvids: list.slice(0, done).map((it) => it.bvid) });
+    toast(`已取消收藏 ${done} 个 · 撤销(U)`);
+  }
   render();
   afterProcessedChange();
 }
@@ -943,10 +1057,12 @@ function aiItem(it) {
   return { bvid: it.bvid, title: it.title, upper: it.upper, duration: it.duration, intro: it.intro };
 }
 
-async function throttleWait(keepGoing) {
-  S.throttleUntil = Date.now() + THROTTLE_MS;
+async function throttleWait(code, keepGoing) {
+  const [ms, label] = THROTTLES[code];
+  S.throttleUntil = Date.now() + ms;
+  S.throttleLabel = label;
   renderStatus();
-  await sleepWhile(THROTTLE_MS, keepGoing);
+  await sleepWhile(ms, keepGoing);
   S.throttleUntil = 0;
   renderStatus();
 }
@@ -956,9 +1072,13 @@ async function runStage1() {
   S.stage1 = { running: true, stop: false };
   const keepGoing = () => !S.stage1.stop && token === S.folderToken;
   const size = Math.max(1, Number(S.settings.triageTitleBatchSize) || 30);
-  const pending = () => S.items.filter((it) => !it.invalid && !S.titleRes[it.bvid] && !isProcessed(it.bvid) && !S.stage1Skip.has(it.bvid));
+  // Timed-out batches are skipped for this run only, so clicking 标题粗分 again retries them.
+  const timedOut = new Set();
+  const pending = () =>
+    S.items.filter((it) => !it.invalid && !S.titleRes[it.bvid] && !isProcessed(it.bvid) && !S.stage1Skip.has(it.bvid) && !timedOut.has(it.bvid));
   const total = pending().length;
   let done = 0;
+  let retried = false;
   render();
   while (keepGoing()) {
     const batch = pending().slice(0, size);
@@ -968,13 +1088,22 @@ async function runStage1() {
     const r = await send({ type: "triage-classify-titles", items: batch.map(aiItem), tags: tagPayload() });
     if (token !== S.folderToken) break;
     if (!r.ok) {
-      if (r.code === "THROTTLED") {
-        await throttleWait(keepGoing);
+      if (THROTTLES[r.code]) {
+        await throttleWait(r.code, keepGoing);
+        continue;
+      }
+      if (r.code === "AI_TIMEOUT") {
+        // First timeout retries the same batch; a second one skips it and moves on.
+        retried = !retried;
+        if (retried) continue;
+        batch.forEach((it) => timedOut.add(it.bvid));
+        toast(r.error, true);
         continue;
       }
       handleAiError(r.error);
       break;
     }
+    retried = false;
     const results = r.data?.results || {};
     for (const it of batch) {
       if (results[it.bvid]) S.titleRes[it.bvid] = results[it.bvid];
@@ -986,7 +1115,9 @@ async function runStage1() {
   }
   if (token !== S.folderToken) return;
   S.stage1.running = false;
-  S.status = done ? `标题粗分完成 ${done} 个` : "";
+  S.status = timedOut.size
+    ? `标题粗分完成 ${done} 个，${timedOut.size} 个因 AI 超时跳过，再点「标题粗分」可重试`
+    : done ? `标题粗分完成 ${done} 个` : "";
   render();
 }
 
@@ -1035,15 +1166,15 @@ async function runGroup() {
     S.status = `字幕细看 ${idx}/${group.bvids.length}`;
     const r = await analyzeOne(b);
     if (token !== S.folderToken) return;
-    if (!r.ok && r.code === "THROTTLED") {
+    if (!r.ok && THROTTLES[r.code]) {
       render();
-      await throttleWait(keepGoing);
+      await throttleWait(r.code, keepGoing);
       continue;
     }
     S.analyses[b] = r.ok ? r.data : { bvid: b, status: "error", error: r.error };
     const err = S.analyses[b].status === "error" ? String(S.analyses[b].error || "") : "";
-    if (/配置 AI|截断/.test(err)) handleAiError(err);
-    if (err.includes("配置 AI")) group.stop = true;
+    if (/配置 AI|截断|未授权访问/.test(err)) handleAiError(err);
+    if (/配置 AI|未授权访问/.test(err)) group.stop = true;
     render();
     if (group.bvids.some(needsAnalysis)) await sleepWhile(S.settings.triageIntervalSec * 1000, keepGoing);
   }
@@ -1056,7 +1187,7 @@ async function retry(bvid) {
   const r = await analyzeOne(bvid, true);
   if (!r.ok) {
     S.analyses[bvid] = { bvid, status: "error", error: r.error };
-    if (r.code === "THROTTLED") toast("AI 限流，请稍后再试", true);
+    if (THROTTLES[r.code]) toast(`${THROTTLES[r.code][1]}，请稍后再试`, true);
     else handleAiError(r.error);
   } else {
     S.analyses[bvid] = r.data;
@@ -1264,7 +1395,7 @@ async function runAiCommand() {
     const r = await send({ type: "triage-ai-command", instruction, tags: sentTags, items: batch.map(aiCommandItem), ...opts });
     if (!r.ok) {
       p.errors.push(`第 ${i + 1} 批失败：${r.error}`);
-      if (/截断|配置 AI/.test(r.error || "")) handleAiError(r.error);
+      if (/截断|配置 AI|未授权访问/.test(r.error || "")) handleAiError(r.error);
     } else {
       mergeAiBatch(p, r.data, opts, scopeSet, sentTags);
     }
@@ -1522,6 +1653,77 @@ async function exportBasket() {
   }
 }
 
+// ---------- batch Obsidian write ----------
+function writeScopeItems() {
+  const scope = el.writeScope.value;
+  const list = scope === "all" ? S.items : scope === "selected" ? [...S.selected].map((b) => S.itemMap.get(b)).filter(Boolean) : visibleItems();
+  return list.filter((it) => !it.invalid);
+}
+
+function openWrite() {
+  el.writeProgress.textContent = "";
+  el.writeFailed.hidden = true;
+  el.writeFailed.innerHTML = "";
+  renderWriteScope();
+  el.writeDialog.showModal();
+}
+
+function renderWriteScope() {
+  const n = writeScopeItems().length;
+  el.writeScopeCount.textContent = `共 ${n} 个视频，间隔 ${S.settings.triageIntervalSec} 秒`;
+  el.writeRunBtn.hidden = S.write.running;
+  el.writeStopBtn.hidden = !S.write.running;
+  el.writeRunBtn.disabled = !n;
+  el.writeScope.disabled = el.writeOverwrite.disabled = S.write.running;
+}
+
+function safeNoteName(name) {
+  return String(name).replace(/[\\/:*?"<>|#^[\]]/g, "_").trim() || "收藏夹";
+}
+
+async function runWrite() {
+  const items = writeScopeItems();
+  const overwrite = el.writeOverwrite.checked;
+  const token = S.folderToken;
+  S.write = { running: true, stop: false };
+  const keepGoing = () => !S.write.stop && token === S.folderToken;
+  renderWriteScope();
+  el.writeFailed.hidden = true;
+  const written = [];
+  const failed = [];
+  for (let i = 0; i < items.length && keepGoing(); i++) {
+    const it = items[i];
+    el.writeProgress.textContent = `写入 ${i + 1}/${items.length}：${it.title}`;
+    const r = await send({ type: "triage-write-note", bvid: it.bvid, overwrite });
+    if (r.ok) written.push({ ...r.data, bvid: it.bvid });
+    else failed.push(`${it.title}：${r.error}`);
+    if (i + 1 < items.length) await sleepWhile(S.settings.triageIntervalSec * 1000, keepGoing);
+  }
+  let indexPath = "";
+  if (written.length && keepGoing()) {
+    const lines = [`# ${folderTitle()}`, "", `${stamp(new Date(), false)} · ${written.length} 篇`, ""];
+    for (const w of written) {
+      const oneLiner = S.analyses[w.bvid]?.oneLiner;
+      lines.push(`- [[${w.path.replace(/\.md$/, "")}|${w.title}]]${oneLiner ? ` ${oneLiner}` : ""}`);
+    }
+    const r = await send({ type: "triage-export", filename: `${safeNoteName(folderTitle())}.md`, markdown: lines.join("\n") });
+    if (r.ok) indexPath = r.data?.path || "";
+    else failed.push(`索引：${r.error}`);
+  }
+  S.write.running = false;
+  const skipped = written.filter((w) => w.skipped).length;
+  el.writeProgress.textContent = [
+    S.write.stop ? "已停止。" : "完成。",
+    `写入 ${written.length - skipped} 篇`,
+    skipped ? `已存在跳过 ${skipped} 篇` : "",
+    failed.length ? `失败 ${failed.length} 篇` : "",
+    indexPath ? `索引：${indexPath}` : ""
+  ].filter(Boolean).join(" · ");
+  el.writeFailed.innerHTML = failed.map((f) => `<li>${esc(f)}</li>`).join("");
+  el.writeFailed.hidden = !failed.length;
+  renderWriteScope();
+}
+
 // ---------- data export ----------
 const BACKUP_PREFIXES = ["triage_tags", "triage_video_tags", "triage_basket", "triage_snapshot_", "triage_decisions_", "triage_title_", "triage_analysis_", "triage_tag_presets", OVERRIDE_PREFIX];
 const isSecretKey = (k) => /key|token/i.test(k) || k === "aiProviderKeys" || k === "obsidianApiKey";
@@ -1667,7 +1869,17 @@ function bindEvents() {
     if (act === "batch-unfav") batchUnfav(btn);
     else if (act === "batch-keep") batchKeep();
     else if (act === "next-group") nextGroup();
-    else if (act === "clear-selected") {
+    else if (act === "analyze-all") {
+      // The existing group runner does the work; stay on the reading tab so results fill in as they land.
+      startGroup(visibleItems().filter((it) => needsAnalysis(it.bvid)).map((it) => it.bvid));
+      S.tab = "read";
+      render();
+    } else if (act === "copy-read") {
+      navigator.clipboard.writeText(buildReadMarkdown(visibleItems())).then(
+        () => toast("已复制 Markdown"),
+        (err) => toast(`复制失败：${err.message}`, true)
+      );
+    } else if (act === "clear-selected") {
       S.selected.clear();
       render();
     } else if (act === "end-group") {
@@ -1676,6 +1888,12 @@ function bindEvents() {
       S.tab = "unsure";
       render();
     }
+  });
+
+  el.listHeader.addEventListener("change", (e) => {
+    if (!e.target.matches("[data-read-verdict]")) return;
+    S.readVerdict = e.target.value;
+    render();
   });
 
   el.list.addEventListener("click", (e) => {
@@ -1700,6 +1918,7 @@ function bindEvents() {
     if (bad.length) {
       e.preventDefault();
       el.settingsError.textContent = "输出上限需为整数：0 或留空表示自动，否则在 200–32000 之间";
+      el.advancedTokens.open = true;
       bad[0].focus();
     }
   });
@@ -1722,10 +1941,20 @@ function bindEvents() {
     Object.assign(S.settings, patch);
     toast("设置已保存");
   });
+  el.writeBtn.addEventListener("click", openWrite);
+  el.writeScope.addEventListener("change", renderWriteScope);
+  el.writeRunBtn.addEventListener("click", runWrite);
+  el.writeStopBtn.addEventListener("click", () => {
+    S.write.stop = true;
+    el.writeProgress.textContent = "将在当前视频后停止…";
+  });
+  el.writeDialog.addEventListener("close", () => {
+    if (S.write.running) S.write.stop = true;
+  });
   el.openOptionsBtn.addEventListener("click", () => send({ type: "open-options" }));
   el.backupBtn.addEventListener("click", async () => {
     try {
-      downloadText(`BiliDigest备份-${stamp()}.json`, JSON.stringify(await buildBackup(), null, 2), "application/json");
+      downloadText(`MoonDigest备份-${stamp()}.json`, JSON.stringify(await buildBackup(), null, 2), "application/json");
     } catch (err) {
       toast(`导出备份失败：${err.message}`, true);
     }
@@ -1736,7 +1965,7 @@ function bindEvents() {
       return;
     }
     const title = (S.folders.find((f) => String(f.id) === S.mediaId)?.title || S.mediaId).replace(/[\\/:*?"<>|]/g, "_");
-    downloadText(`BiliDigest-${title}-${stamp(new Date(), false)}.csv`, buildCsv(), "text/csv;charset=utf-8");
+    downloadText(`MoonDigest-${title}-${stamp(new Date(), false)}.csv`, buildCsv(), "text/csv;charset=utf-8");
   });
   el.helpBtn.addEventListener("click", () => el.helpDialog.showModal());
 
@@ -1933,7 +2162,7 @@ function renderTokenHints() {
 
 function openSettings(scrollToAi = false) {
   el.criteriaInput.value = S.settings.triageCriteria || "";
-  el.intervalInput.value = S.settings.triageIntervalSec ?? 3;
+  el.intervalInput.value = S.settings.triageIntervalSec ?? 8;
   el.batchSizeInput.value = S.settings.triageTitleBatchSize ?? 30;
   el.exportFolderInput.value = S.settings.triageExportFolder || "";
   el.thinkingInput.checked = Boolean(S.settings.triageThinking);
@@ -1943,6 +2172,7 @@ function openSettings(scrollToAi = false) {
   renderTokenHints();
   el.settingsDialog.returnValue = "";
   el.settingsDialog.showModal();
+  el.advancedTokens.open = scrollToAi;
   if (scrollToAi) el.aiDebugTitle.scrollIntoView({ block: "start" });
 }
 
@@ -1979,11 +2209,12 @@ function onKey(e) {
     k: () => moveFocus(-1),
     ArrowUp: () => moveFocus(-1),
     "?": () => el.helpDialog.showModal(),
-    u: () => undo(),
     i: () => openAi()
   };
   const cardKeys = { d: "unfav", s: "keep", t: "tag", a: "accept", e: "basket", x: "select", o: "open", Enter: "open" };
   if (map[key]) map[key]();
+  else if (S.tab === "read") return;
+  else if (key === "u") undo();
   else if (cardKeys[key] && S.focused) cardAction(cardKeys[key], S.focused);
   else return;
   e.preventDefault();

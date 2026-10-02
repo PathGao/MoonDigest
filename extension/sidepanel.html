@@ -4,6 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>AI 助手</title>
+    <link rel="stylesheet" href="./tokens.css" />
     <link rel="stylesheet" href="./sidepanel.css" />
   </head>
   <body>
@@ -18,6 +19,14 @@
           <path d="M8 16H3v5"></path>
         </svg>
       </button>
+      <button id="spFollowBtn" type="button" class="sp-icon-btn sp-follow-btn" title="跟随播放：视频切换时自动切到新视频" aria-label="跟随播放：视频切换时自动切到新视频" aria-pressed="true">
+        <svg viewBox="0 0 24 24" focusable="false" aria-hidden="true">
+          <path d="M3 5h12"></path>
+          <path d="M3 12h9"></path>
+          <path d="M3 19h9"></path>
+          <path d="m16 12 5 3.5-5 3.5z"></path>
+        </svg>
+      </button>
       <button id="spSettingsBtn" type="button" class="sp-icon-btn" title="打开设置" aria-label="设置">
         <svg viewBox="0 0 24 24" focusable="false" aria-hidden="true">
           <path d="M9.671 4.136a2.34 2.34 0 0 1 4.659 0 2.34 2.34 0 0 0 3.319 1.915 2.34 2.34 0 0 1 2.33 4.033 2.34 2.34 0 0 0 0 3.831 2.34 2.34 0 0 1-2.33 4.033 2.34 2.34 0 0 0-3.319 1.915 2.34 2.34 0 0 1-4.659 0 2.34 2.34 0 0 0-3.32-1.915 2.34 2.34 0 0 1-2.33-4.033 2.34 2.34 0 0 0 0-3.831A2.34 2.34 0 0 1 6.35 6.051a2.34 2.34 0 0 0 3.319-1.915"></path>
@@ -25,6 +34,7 @@
         </svg>
       </button>
     </header>
+    <section id="spPreviousVideo" class="sp-prev" hidden></section>
     <main class="sp-messages" id="spMessages">
       <div class="sp-suggestions" id="spSuggestions"></div>
     </main>
@@ -37,8 +47,8 @@
           </svg>
           <span>开启新对话</span>
         </button>
-        <button id="spPresetBtn" type="button" class="sp-toolbar-btn" title="预设提示词">
-          <span>预设提示词</span>
+        <button id="spPresetBtn" type="button" class="sp-toolbar-btn" title="快捷追问">
+          <span>快捷追问</span>
         </button>
         <button id="spHistoryBtn" type="button" class="sp-toolbar-btn" title="历史对话">
           <span>历史对话</span>
@@ -50,7 +60,7 @@
       <div id="spPresetPopover" class="sp-preset-popover" hidden>
         <div id="spPresetList" class="sp-preset-list"></div>
         <div class="sp-preset-editor">
-          <input id="spPresetInput" class="sp-preset-input" type="text" placeholder="添加预设提示词" />
+          <input id="spPresetInput" class="sp-preset-input" type="text" placeholder="添加快捷追问" />
           <button id="spPresetAddBtn" type="button" class="sp-preset-add-btn">添加</button>
         </div>
       </div>
@@ -61,6 +71,7 @@
         </div>
         <div id="spHistoryList" class="sp-history-list"></div>
       </div>
+      <div id="spFollowups" class="sp-followups" hidden></div>
       <div class="sp-input-row">
         <textarea
           id="spInput"
@@ -71,6 +82,7 @@
         <button id="spStopBtn" type="button" class="sp-stop-btn" hidden>停止</button>
       </div>
     </footer>
+    <script src="./sites.js"></script>
     <script type="module" src="./sidepanel.js"></script>
   </body>
 </html>

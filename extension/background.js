@@ -1,17 +1,17 @@
+// Follow-up quick questions. The one-click summary lives in playerAiQuickPrompt.
 const DEFAULT_PRESET_PROMPTS = [
-  "生成视频摘要和结论",
-  "按章节整理视频内容",
-  "生成带时间轴的笔记"
-];
-const DEFAULT_INITIAL_QUICK_PROMPTS = [
   "用 3 句话总结这个视频",
   "提炼这个视频的 5 个重点",
   "按时间顺序整理这期视频的内容",
-  "根据评论总结观众的看法"
+  "根据评论总结观众的看法",
+  "按章节整理视频内容",
+  "生成带时间轴的笔记"
 ];
 const DEFAULT_PLAYER_AI_QUICK_PROMPT = "整理这期视频的内容，输出结构化总结：主题、核心观点、关键细节、结论与可执行启发。";
 const PLAYER_AI_QUICK_ACTION_STORAGE_KEY = "boc_player_ai_quick_action_v1";
-const STREAM_FIRST_TOKEN_TIMEOUT_MS = 90000;
+// Side panel stream watchdog: "first" until any SSE chunk arrives (reasoning chunks count), then "idle" between chunks.
+const STREAM_TIMEOUT_MS = { first: 90000, idle: 60000 };
+const AI_TEST_TIMEOUT_MS = 30000;
 const LEGACY_DEFAULT_AI_SYSTEM_PROMPT = [
   "你是一名专业的视频内容分析助手。基于字幕与评论提炼高价值信息，不要复述内容，不要输出思考过程或 think 标签。",
   "优先输出：主题与核心观点、关键数据与事实、逻辑链路与重要结论、可执行建议。",
@@ -30,15 +30,19 @@ const DEFAULT_AI_SYSTEM_PROMPT = [
 ].join("\n");
 
 const DEFAULT_SYNC_SETTINGS = {
-  noteFolder: "Clippings/Bilibili",
+  obsidianEnabled: false,
+  noteFolder: "Clippings/{{site}}",
   obsidianApiBaseUrl: "http://127.0.0.1:27123",
-  tags: "clippings,bilibili",
+  tags: "clippings",
   downloadFormat: "srt",
+  youtubeSubtitleLang: "auto",
   includeDateInFilename: true,
   includeHotCommentsInNote: false,
-  enablePlayerAiQuickAction: false,
+  includeCoverInNote: true,
+  enablePlayerAiQuickAction: true,
   playerAiQuickPrompt: DEFAULT_PLAYER_AI_QUICK_PROMPT,
   includeTimestampInBody: true,
+  showBiliTriageBadges: true,
   enableDebugLogs: false,
   readerTheme: "light",
   readerFontScale: "m",
@@ -50,10 +54,14 @@ const DEFAULT_SYNC_SETTINGS = {
   frontmatterFields: [
     "title",
     "url",
-    "bvid",
+    "site",
+    "video_id",
     "cid",
     "author",
+    "author_url",
     "upload_date",
+    "duration",
+    "cover",
     "subtitle_lang",
     "created",
     "tags"
@@ -61,7 +69,6 @@ const DEFAULT_SYNC_SETTINGS = {
   fixedFrontmatterProperties: [],
   notePlaceholderSections: [],
   aiSystemPrompt: DEFAULT_AI_SYSTEM_PROMPT,
-  aiInitialQuickPrompts: DEFAULT_INITIAL_QUICK_PROMPTS.slice(),
   aiPresetPrompts: DEFAULT_PRESET_PROMPTS.slice()
 };
 
@@ -129,17 +136,10 @@ async function injectReaderContent(tabId) {
     files: ["content.css"]
   });
 
-  try {
-    await chrome.scripting.executeScript({
-      target: { tabId },
-      files: ["content.js"]
-    });
-  } catch (error) {
-    const message = String(error?.message || "");
-    if (!message.includes("Identifier 'DEFAULT_SETTINGS' has already been declared")) {
-      throw error;
-    }
-  }
+  await chrome.scripting.executeScript({
+    target: { tabId },
+    files: ["sites.js", "note.js", "content.js"]
+  });
 }
 
 async function waitForTabComplete(tabId, retries = 40, delayMs = 250) {
@@ -195,22 +195,6 @@ async function triggerReaderModeInTab(tabId, readerUrl = "", retries = 12, delay
   return false;
 }
 
-function isSupportedAiTabUrl(url) {
-  try {
-    const parsed = new URL(String(url || ""));
-    if (parsed.hostname !== "www.bilibili.com") {
-      return false;
-    }
-    return (
-      parsed.pathname === "/list/watchlater" ||
-      parsed.pathname === "/list/watchlater/" ||
-      parsed.pathname.startsWith("/video/")
-    );
-  } catch {
-    return false;
-  }
-}
-
 async function getAiSidepanelState(tabId, { forceRefresh = false } = {}) {
   if (!tabId) {
     throw new Error("缺少标签页信息");
@@ -221,7 +205,7 @@ async function getAiSidepanelState(tabId, { forceRefresh = false } = {}) {
     throw new Error("找不到当前标签页。");
   }
 
-  if (!isSupportedAiTabUrl(tab.url)) {
+  if (!BocSites.matchSite(tab.url)) {
     return {
       title: String(tab.title || "").trim(),
       url: String(tab.url || "").trim(),
@@ -238,11 +222,7 @@ async function getAiSidepanelState(tabId, { forceRefresh = false } = {}) {
 
   let contextResp = await sendMessageToTab(tab.id, { type: "sidepanel-get-context" });
   const hasPayload = Boolean(contextResp?.ok && contextResp?.payload);
-  const hasLoadedClip = Boolean(
-    contextResp?.payload?.bvid ||
-    contextResp?.payload?.aid ||
-    contextResp?.payload?.title
-  );
+  const hasLoadedClip = Boolean(contextResp?.payload?.videoId || contextResp?.payload?.title);
   const needsRefresh =
     forceRefresh ||
     !hasPayload ||
@@ -308,7 +288,9 @@ function normalizeAiContextRef(ref) {
     url: String(value.url || "").trim(),
     author: String(value.author || "").trim(),
     uploadDate: String(value.uploadDate || "").trim(),
-    bvid: String(value.bvid || extractBvidFromUrl(value.url) || "").trim(),
+    // Conversations saved before the site registry carry bvid instead of site/videoId.
+    site: String(value.site || (value.bvid ? "bilibili" : BocSites.matchSite(value.url)?.id || "")).trim(),
+    videoId: String(value.videoId || value.bvid || BocSites.parseRef(value.url)?.id || "").trim(),
     cid: String(value.cid || "").trim(),
     aid: String(value.aid || "").trim(),
     pageIndex: Number(value.pageIndex) > 0 ? Number(value.pageIndex) : 1,
@@ -321,36 +303,6 @@ function normalizeAiContextRef(ref) {
   };
 }
 
-function extractBvidFromUrl(url) {
-  const text = String(url || "").trim();
-  const match = text.match(/\/video\/(BV[0-9A-Za-z]+)/i) || text.match(/[?&]bvid=(BV[0-9A-Za-z]+)/i);
-  return match?.[1] || "";
-}
-
-function formatLocalDate(value = Date.now()) {
-  const date = value instanceof Date ? new Date(value.getTime()) : new Date(value);
-  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
-}
-
-function extractPageIndexFromUrl(url) {
-  try {
-    const page = Number(new URL(String(url || "")).searchParams.get("p") || "1");
-    return Number.isFinite(page) && page > 0 ? page : 1;
-  } catch {
-    return 1;
-  }
-}
-
-function buildCanonicalVideoUrl(bvid, pageIndex = 1) {
-  const safeBvid = String(bvid || "").trim();
-  if (!safeBvid) {
-    return "";
-  }
-  if (Number(pageIndex) > 1) {
-    return `https://www.bilibili.com/video/${safeBvid}/?p=${Number(pageIndex)}`;
-  }
-  return `https://www.bilibili.com/video/${safeBvid}/`;
-}
 
 function createBiliHeaders(url) {
   const headers = new Headers();
@@ -381,257 +333,129 @@ async function fetchJsonForAi(url) {
 
   const response = await fetch(url, options);
   if (!response.ok) {
-    throw new Error(`HTTP ${response.status}`);
+    const error = new Error(`HTTP ${response.status}`);
+    error.status = response.status;
+    throw error;
   }
   return response.json();
 }
 
-async function fetchBiliVideoMetaByBvid(bvid) {
-  const payload = await fetchJsonForAi(`https://api.bilibili.com/x/web-interface/view?bvid=${encodeURIComponent(bvid)}`);
-  if (payload?.code !== 0) {
-    throw new Error(String(payload?.message || "无法获取视频信息"));
+function refFromAiContext(ref) {
+  const site = BocSites.SITES[ref.site];
+  if (!site || !ref.videoId) {
+    return null;
   }
-
-  const data = payload.data || {};
-  const pages = Array.isArray(data.pages) ? data.pages : [];
   return {
-    aid: String(data.aid || "").trim(),
-    title: String(data.title || "").trim(),
-    author: String(data.owner?.name || "").trim(),
-    uploadDate: Number(data.pubdate) > 0 ? formatLocalDate(Number(data.pubdate) * 1000) : "",
-    defaultCid: String(data.cid || "").trim(),
-    defaultDuration: Number(data.duration || 0) || 0,
-    pages: pages.map((item) => ({
-      cid: String(item?.cid || "").trim(),
-      page: Number(item?.page || 0) || 0,
-      part: String(item?.part || "").trim(),
-      duration: Number(item?.duration || 0) || 0
-    }))
+    site: site.id,
+    id: ref.videoId,
+    part: { index: ref.pageIndex, cid: ref.cid, explicit: true },
+    url: site.canonicalUrl(ref.videoId, ref.pageIndex)
   };
 }
 
-function pickPageForAiContext(pages, ref) {
-  const safePages = Array.isArray(pages) ? pages : [];
-  const targetCid = String(ref?.cid || "").trim();
-  if (targetCid) {
-    const byCid = safePages.find((item) => String(item?.cid || "") === targetCid);
-    if (byCid) {
-      return byCid;
-    }
-  }
-
-  const pageIndex = extractPageIndexFromUrl(ref?.url || "");
-  const byPage = safePages.find((item) => Number(item?.page) === pageIndex);
-  if (byPage) {
-    return byPage;
-  }
-
-  return safePages[0] || null;
-}
-
-function buildSubtitleInfoRequests({ bvid, cid, aid }) {
-  const safeBvid = encodeURIComponent(String(bvid || ""));
-  const safeCid = encodeURIComponent(String(cid || ""));
-  const safeAid = encodeURIComponent(String(aid || ""));
-  const requests = [];
-
-  if (aid) {
-    requests.push({
-      source: "player-wbi-v2",
-      url:
-        "https://api.bilibili.com/x/player/wbi/v2" +
-        `?aid=${safeAid}` +
-        `&cid=${safeCid}` +
-        (bvid ? `&bvid=${safeBvid}` : "")
-    });
-  }
-
-  requests.push({
-    source: "player-v2",
-    url:
-      "https://api.bilibili.com/x/player/v2" +
-      (bvid ? `?bvid=${safeBvid}` : "?") +
-      `${bvid ? "&" : ""}cid=${safeCid}` +
-      (aid ? `&aid=${safeAid}` : "")
-  });
-
-  return requests;
-}
-
-function mapSubtitleTracks(subtitles, source = "unknown") {
-  return (subtitles || []).map((item) => ({
-    id: item?.id === undefined || item?.id === null ? "" : String(item.id),
-    lan: item?.lan || "",
-    lanDoc: item?.lan_doc || "",
-    subtitleUrl: normalizeSubtitleUrl(item?.subtitle_url || ""),
-    source
-  }));
-}
-
-function normalizeSubtitleUrl(url) {
-  const text = String(url || "").trim();
-  if (!text) {
-    return "";
-  }
-  if (text.startsWith("//")) {
-    return `https:${text}`;
-  }
-  return text;
-}
-
-function mapChaptersFromPlayerData(data) {
-  const raw = Array.isArray(data?.view_points) ? data.view_points : [];
-  return normalizeChapters(
-    raw.map((item) => ({
-      title: String(item?.content || item?.title || item?.label || "").trim(),
-      from: normalizeChapterTime(item?.from ?? item?.start ?? item?.start_time),
-      to: normalizeChapterTime(item?.to ?? item?.end ?? item?.end_time)
-    }))
+function findTabForRef(ref) {
+  return chrome.tabs.query({}).then((tabs) =>
+    tabs.find((tab) => {
+      const parsed = BocSites.parseRef(tab.url || "");
+      return parsed && parsed.site === ref.site && parsed.id === ref.id;
+    }) || null
   );
 }
 
-function normalizeChapterTime(value) {
-  if (value === undefined || value === null || value === "") {
-    return 0;
-  }
-  const num = Number(value);
-  if (!Number.isFinite(num) || num < 0) {
-    return 0;
-  }
-  return num > 60 * 60 * 24 ? num / 1000 : num;
-}
-
-function normalizeChapters(chapters) {
-  const normalized = (chapters || [])
-    .map((item) => ({
-      title: String(item?.title || "").trim(),
-      from: Number(item?.from || 0) || 0,
-      to: Number(item?.to || 0) || 0
-    }))
-    .filter((item) => item.title && item.from >= 0)
-    .sort((a, b) => a.from - b.from);
-
-  const unique = [];
-  const seen = new Set();
-  normalized.forEach((item) => {
-    const key = `${Math.floor(item.from * 10)}|${item.title.toLowerCase()}`;
-    if (seen.has(key)) {
-      return;
-    }
-    seen.add(key);
-    unique.push(item);
-  });
-  return unique;
-}
-
-function normalizeSubtitleTracks(subtitles) {
-  return [...(subtitles || [])].sort((a, b) => {
-    const priorityGap = subtitlePriority(a) - subtitlePriority(b);
-    if (priorityGap !== 0) {
-      return priorityGap;
-    }
-    return String(a.subtitleUrl || "").localeCompare(String(b.subtitleUrl || ""));
-  });
-}
-
-function subtitlePriority(item) {
-  const lan = String(item?.lan || "").toLowerCase();
-  const label = String(item?.lanDoc || "").toLowerCase();
-  if (lan === "zh-cn" || lan === "zh-hans") return 0;
-  if (lan === "zh") return 1;
-  if (lan.includes("zh")) return 2;
-  if (label.includes("中文")) return 3;
-  if (lan === "en" || lan === "en-us" || lan === "en-gb") return 10;
-  if (lan.includes("en")) return 11;
-  if (label.includes("英文") || label.includes("英语") || label.includes("english")) return 12;
-  return 50;
-}
-
-function normalizeSubtitleUrlForCache(url) {
-  const text = String(url || "").trim();
-  if (!text) {
-    return "";
-  }
-  try {
-    const parsed = new URL(text);
-    const path = parsed.pathname.replace(/[^\w/.-]+/g, "_");
-    return `${parsed.hostname}${path}`;
-  } catch {
-    return text.replace(/[^\w/.-]+/g, "_");
-  }
-}
-
-function pickPreferredSubtitleTrack(subtitles, { previousId = "", previousUrl = "", previousLang = "" } = {}) {
-  const tracks = subtitles || [];
-  if (!tracks.length) {
-    return null;
-  }
-
-  if (previousId) {
-    const byId = tracks.find((item) => String(item.id || "") === String(previousId));
-    if (byId) {
-      return byId;
-    }
-  }
-
-  const normalizedUrl = normalizeSubtitleUrlForCache(previousUrl);
-  if (normalizedUrl) {
-    const byUrl = tracks.find((item) => normalizeSubtitleUrlForCache(item.subtitleUrl) === normalizedUrl);
-    if (byUrl) {
-      return byUrl;
-    }
-  }
-
-  const normalizedLang = String(previousLang || "").trim().toLowerCase();
-  if (normalizedLang) {
-    const byLang = tracks.find((item) => String(item.lanDoc || item.lan || "").trim().toLowerCase() === normalizedLang);
-    if (byLang) {
-      return byLang;
-    }
-  }
-
-  return tracks[0];
-}
-
-async function fetchBiliSubtitleBundle({ bvid, cid, aid }) {
-  const requests = buildSubtitleInfoRequests({ bvid, cid, aid });
-  for (const request of requests) {
-    let payload = null;
-    try {
-      payload = await fetchJsonForAi(request.url);
-    } catch {
-      continue;
-    }
-    if (payload?.code !== 0) {
-      continue;
-    }
-    const tracks = mapSubtitleTracks(payload.data?.subtitle?.subtitles || [], request.source).filter((item) => item.subtitleUrl);
+async function resolveAiSidepanelContext(contextRef) {
+  const ref = normalizeAiContextRef(contextRef);
+  const videoRef = ref.isVideoContext ? refFromAiContext(ref) : null;
+  if (!videoRef) {
     return {
-      tracks,
-      chapters: mapChaptersFromPlayerData(payload.data)
+      title: ref.title,
+      url: ref.url,
+      author: ref.author,
+      uploadDate: ref.uploadDate,
+      subtitleMarkdown: "",
+      subtitleBody: [],
+      hotComments: [],
+      isVideoContext: false
     };
   }
-  throw new Error("无法获取字幕列表");
-}
 
-async function fetchBiliSubtitleBody(url) {
-  const payload = await fetchJsonForAi(url);
-  return Array.isArray(payload?.body) ? payload.body : [];
-}
-
-async function fetchBiliHotComments(aid, count = 18) {
-  const safeAid = Number(aid || 0) || 0;
-  if (!safeAid) {
-    return [];
+  const site = BocSites.SITES[videoRef.site];
+  // Sites whose API only answers from inside the page are read through an open tab.
+  if (site.pageOnly) {
+    const tab = await findTabForRef(videoRef);
+    if (!tab?.id) {
+      throw new Error(`请先打开这个 ${site.label} 视频页，再读取历史对话的视频上下文`);
+    }
+    return getAiSidepanelState(tab.id);
   }
-  const url = `https://api.bilibili.com/x/v2/reply/main?type=1&oid=${safeAid}&mode=3&ps=${count}&pn=1`;
-  const payload = await fetchJsonForAi(url).catch(() => null);
-  const replies = Array.isArray(payload?.data?.replies) ? payload.data.replies : [];
-  return replies.slice(0, count).map((item) => ({
-    uname: item?.member?.uname || "匿名",
-    like: item?.like || 0,
-    message: String(item?.content?.message || "").slice(0, 500)
-  }));
+
+  const settings = await getMergedSettings();
+  const io = { fetchJson: fetchJsonForAi };
+  const meta = await site.fetchMeta(videoRef, io);
+  const bundle = await site.fetchTracks(videoRef, meta, io);
+  const tracks = BocSites.rankTracks(bundle.tracks || []);
+  const selectedTrack = BocSites.pickPreferredTrack(tracks, {
+    previousId: ref.selectedSubtitleId,
+    previousUrl: ref.selectedSubtitleUrl,
+    previousLang: ref.subtitleLang
+  });
+  const body = selectedTrack ? await site.fetchSegments(selectedTrack, io) : [];
+  if (selectedTrack && !body.length) {
+    throw new Error("原视频字幕为空");
+  }
+
+  const hotComments = site.fetchComments ? await site.fetchComments(videoRef, meta, io, 18).catch(() => []) : [];
+  const chapters = bundle.chapters?.length ? bundle.chapters : BocSites.parseChaptersFromDescription(meta.description);
+  const title = String(meta.title || ref.title || "").trim();
+  return {
+    title,
+    url: site.canonicalUrl(videoRef.id, meta.pageCount > 1 ? meta.pageIndex : 1),
+    author: String(meta.author || ref.author || "").trim(),
+    uploadDate: String(meta.uploadDate || ref.uploadDate || "").trim(),
+    site: site.id,
+    videoId: videoRef.id,
+    cid: String(meta.cid || ""),
+    aid: String(meta.aid || ""),
+    pageIndex: meta.pageIndex || 1,
+    pageTitle: String(meta.pageTitle || ref.pageTitle || "").trim(),
+    description: String(meta.description || ""),
+    subtitleLang: String(selectedTrack?.label || selectedTrack?.lang || "").trim(),
+    selectedSubtitleId: String(selectedTrack?.id || "").trim(),
+    selectedSubtitleUrl: String(selectedTrack?.url || "").trim(),
+    subtitleBody: body,
+    subtitleMarkdown: body.length ? buildAiConversationMarkdown({ title, chapters, videoDuration: meta.duration }, body, settings) : "",
+    subtitleOptions: tracks.map((item) => ({
+      id: String(item.id || "").trim(),
+      url: String(item.url || "").trim(),
+      lang: String(item.label || item.lang || "").trim()
+    })),
+    hotComments,
+    isVideoContext: true
+  };
+}
+
+async function resolveAiSidepanelPageRef(contextRef) {
+  const ref = normalizeAiContextRef(contextRef);
+  const videoRef = ref.isVideoContext ? refFromAiContext(ref) : null;
+  const site = videoRef ? BocSites.SITES[videoRef.site] : null;
+  const fallback = {
+    url: videoRef?.url || ref.url,
+    site: ref.site,
+    videoId: ref.videoId,
+    cid: ref.cid,
+    pageIndex: ref.pageIndex,
+    pageTitle: ref.pageTitle
+  };
+  if (!site || site.pageOnly) {
+    return fallback;
+  }
+  const meta = await site.fetchMeta(videoRef, { fetchJson: fetchJsonForAi });
+  return {
+    ...fallback,
+    url: site.canonicalUrl(videoRef.id, meta.pageCount > 1 ? meta.pageIndex : 1),
+    cid: String(meta.cid || ref.cid || ""),
+    pageIndex: meta.pageIndex || ref.pageIndex,
+    pageTitle: String(meta.pageTitle || ref.pageTitle || "")
+  };
 }
 
 function shouldShowHoursInAiNote(meta, body) {
@@ -733,106 +557,6 @@ function buildAiConversationMarkdown(meta, body, settings) {
   return lines.join("\n");
 }
 
-async function resolveAiSidepanelContext(contextRef) {
-  const ref = normalizeAiContextRef(contextRef);
-  if (!ref.isVideoContext || !ref.bvid) {
-    return {
-      title: ref.title,
-      url: ref.url,
-      author: ref.author,
-      uploadDate: ref.uploadDate,
-      subtitleMarkdown: "",
-      subtitleBody: [],
-      hotComments: [],
-      isVideoContext: false
-    };
-  }
-
-  const settings = await getMergedSettings();
-  const videoMeta = await fetchBiliVideoMetaByBvid(ref.bvid);
-  const page = pickPageForAiContext(videoMeta.pages, ref);
-  const cid = String(page?.cid || ref.cid || videoMeta.defaultCid || "").trim();
-  if (!cid) {
-    throw new Error("无法定位原视频分P");
-  }
-  const aid = String(videoMeta.aid || ref.aid || "").trim();
-  const subtitleBundle = await fetchBiliSubtitleBundle({ bvid: ref.bvid, cid, aid });
-  const tracks = normalizeSubtitleTracks(subtitleBundle.tracks || []);
-  if (!tracks.length) {
-    throw new Error("原视频暂时没有可用字幕");
-  }
-  const selectedTrack = pickPreferredSubtitleTrack(tracks, {
-    previousId: ref.selectedSubtitleId,
-    previousUrl: ref.selectedSubtitleUrl,
-    previousLang: ref.subtitleLang
-  }) || tracks[0];
-  const body = await fetchBiliSubtitleBody(selectedTrack.subtitleUrl);
-  if (!body.length) {
-    throw new Error("原视频字幕为空");
-  }
-
-  const pageIndex = Number(page?.page || extractPageIndexFromUrl(ref.url) || 1) || 1;
-  const hotComments = await fetchBiliHotComments(aid);
-  const title = String(videoMeta.title || ref.title || "").trim();
-  const author = String(videoMeta.author || ref.author || "").trim();
-  const uploadDate = String(videoMeta.uploadDate || ref.uploadDate || "").trim();
-  const pageTitle = String(page?.part || ref.pageTitle || "").trim();
-  const url = buildCanonicalVideoUrl(ref.bvid, pageIndex) || ref.url;
-  const contextMeta = {
-    title,
-    chapters: subtitleBundle.chapters || [],
-    videoDuration: Number(page?.duration || videoMeta.defaultDuration || 0) || 0
-  };
-
-  return {
-    title,
-    url,
-    author,
-    uploadDate,
-    bvid: ref.bvid,
-    cid,
-    aid,
-    pageIndex,
-    pageTitle,
-    subtitleLang: String(selectedTrack.lanDoc || selectedTrack.lan || "").trim(),
-    selectedSubtitleId: String(selectedTrack.id || "").trim(),
-    selectedSubtitleUrl: String(selectedTrack.subtitleUrl || "").trim(),
-    subtitleBody: body,
-    subtitleMarkdown: buildAiConversationMarkdown(contextMeta, body, settings),
-    subtitleOptions: tracks.map((item) => ({
-      id: String(item.id || "").trim(),
-      url: String(item.subtitleUrl || "").trim(),
-      lang: String(item.lanDoc || item.lan || "").trim()
-    })),
-    hotComments,
-    isVideoContext: true
-  };
-}
-
-async function resolveAiSidepanelPageRef(contextRef) {
-  const ref = normalizeAiContextRef(contextRef);
-  if (!ref.isVideoContext || !ref.bvid) {
-    return {
-      url: ref.url,
-      bvid: ref.bvid,
-      cid: ref.cid,
-      pageIndex: Number(ref.pageIndex) > 0 ? Number(ref.pageIndex) : 1,
-      pageTitle: ref.pageTitle
-    };
-  }
-
-  const videoMeta = await fetchBiliVideoMetaByBvid(ref.bvid);
-  const page = pickPageForAiContext(videoMeta.pages, ref);
-  const pageIndex = Number(page?.page || ref.pageIndex || extractPageIndexFromUrl(ref.url) || 1) || 1;
-  return {
-    url: buildCanonicalVideoUrl(ref.bvid, pageIndex) || ref.url,
-    bvid: ref.bvid,
-    cid: String(page?.cid || ref.cid || "").trim(),
-    pageIndex,
-    pageTitle: String(page?.part || ref.pageTitle || "").trim()
-  };
-}
-
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (!message || typeof message !== "object") {
     return false;
@@ -870,7 +594,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     const openPromise = openAiSidepanelForTab(tabId);
     getMergedSettings()
       .then(async (settings) => {
-        if (!settings.enablePlayerAiQuickAction) {
+        // The setting hides the player button; the popup's AI 总结 is always available.
+        if (message.source !== "popup" && !settings.enablePlayerAiQuickAction) {
           throw new Error("AI 按钮未开启");
         }
         await openPromise;
@@ -897,8 +622,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     let readerUrl = "";
     try {
       const parsed = new URL(url);
-      if (parsed.hostname !== "www.bilibili.com") {
-        throw new Error("当前网页不是 B 站视频页");
+      if (!BocSites.matchSite(parsed.href)) {
+        throw new Error("当前网页不是支持的视频页");
       }
       parsed.searchParams.set("boc_reader", "1");
       readerUrl = parsed.toString();
@@ -921,49 +646,14 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
   if (message.type === "fetch-json") {
     const url = typeof message.url === "string" ? message.url : "";
-    if (!url) {
-      sendResponse({ ok: false, error: "Missing subtitle URL" });
+    // The proxy carries the user's cookies, so it only serves the video sites.
+    if (!BocSites.isAllowedFetchUrl(url)) {
+      sendResponse({ ok: false, error: "URL not allowed" });
       return false;
     }
-
-    const isBiliRequest = /(?:api\.bilibili\.com|hdslb\.com)/.test(url);
-    const headers = new Headers();
-    if (isBiliRequest) {
-      headers.set("Accept", "application/json, text/plain, */*");
-      headers.set("Accept-Language", "zh-CN,zh;q=0.9,en;q=0.8");
-      headers.set("Cache-Control", "no-cache");
-      headers.set("Pragma", "no-cache");
-    }
-
-    const fetchOptions = {
-      method: "GET",
-      credentials: "include",
-      cache: "no-store"
-    };
-    if (headers.size > 0) {
-      fetchOptions.headers = headers;
-    }
-    if (isBiliRequest) {
-      fetchOptions.referrer = "https://www.bilibili.com/";
-      fetchOptions.referrerPolicy = "strict-origin-when-cross-origin";
-    }
-
-    fetch(url, fetchOptions)
-      .then(async (response) => {
-        if (!response.ok) {
-          sendResponse({ ok: false, error: `HTTP ${response.status}` });
-          return;
-        }
-
-        const text = await response.text();
-        try {
-          const data = JSON.parse(text);
-          sendResponse({ ok: true, data });
-        } catch {
-          sendResponse({ ok: false, error: "Invalid JSON response" });
-        }
-      })
-      .catch((error) => sendResponse({ ok: false, error: error.message }));
+    fetchJsonForAi(url)
+      .then((data) => sendResponse({ ok: true, data }))
+      .catch((error) => sendResponse({ ok: false, error: error.message, status: error.status }));
     return true;
   }
 
@@ -978,21 +668,17 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       return false;
     }
 
-    const encodedPath = filepath
-      .split("/")
-      .filter(Boolean)
-      .map((segment) => encodeURIComponent(segment))
-      .join("/");
-    const endpoint = `${baseUrl.replace(/\/+$/g, "")}/vault/${encodedPath}`;
-
-    fetch(endpoint, {
-      method: "PUT",
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        "Content-Type": "text/markdown; charset=utf-8"
-      },
-      body: content
-    })
+    linkCoverInVault(content, message.cover, { baseUrl, apiKey, filepath })
+      .then((body) =>
+        fetch(vaultEndpoint(baseUrl, filepath), {
+          method: "PUT",
+          headers: {
+            Authorization: `Bearer ${apiKey}`,
+            "Content-Type": "text/markdown; charset=utf-8"
+          },
+          body
+        })
+      )
       .then(async (response) => {
         if (!response.ok) {
           const bodyText = await response.text().catch(() => "");
@@ -1017,14 +703,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       return false;
     }
 
-    const encodedPath = filepath
-      .split("/")
-      .filter(Boolean)
-      .map((segment) => encodeURIComponent(segment))
-      .join("/");
-    const endpoint = `${baseUrl.replace(/\/+$/g, "")}/vault/${encodedPath}`;
-
-    fetch(endpoint, {
+    fetch(vaultEndpoint(baseUrl, filepath), {
       method: "GET",
       headers: {
         Authorization: `Bearer ${apiKey}`,
@@ -1187,23 +866,27 @@ chrome.runtime.onConnect.addListener((port) => {
 
   let activeAbortController = null;
   let activeAbortMeta = null;
-  let firstTokenTimeoutId = 0;
+  let watchdogId = 0;
+
+  const clearWatchdog = () => {
+    clearTimeout(watchdogId);
+    watchdogId = 0;
+  };
+
+  const armWatchdog = (ms, reason) => {
+    clearWatchdog();
+    watchdogId = setTimeout(() => abortActiveRequest({ type: "timeout", reason }), ms);
+  };
 
   const clearActiveRequestState = () => {
-    if (firstTokenTimeoutId) {
-      clearTimeout(firstTokenTimeoutId);
-      firstTokenTimeoutId = 0;
-    }
+    clearWatchdog();
     activeAbortController = null;
     activeAbortMeta = null;
   };
 
   const abortActiveRequest = (meta = null) => {
     activeAbortMeta = meta;
-    if (firstTokenTimeoutId) {
-      clearTimeout(firstTokenTimeoutId);
-      firstTokenTimeoutId = 0;
-    }
+    clearWatchdog();
     if (activeAbortController && !activeAbortController.signal.aborted) {
       activeAbortController.abort();
     }
@@ -1226,9 +909,7 @@ chrome.runtime.onConnect.addListener((port) => {
       abortActiveRequest({ type: "silent" });
       clearActiveRequestState();
       activeAbortController = new AbortController();
-      firstTokenTimeoutId = setTimeout(() => {
-        abortActiveRequest({ type: "timeout", reason: "请求超时（90 秒未返回），已自动中断" });
-      }, STREAM_FIRST_TOKEN_TIMEOUT_MS);
+      armWatchdog(STREAM_TIMEOUT_MS.first, `请求超时：${STREAM_TIMEOUT_MS.first / 1000} 秒没有返回，已自动中断，可重试`);
       const providers = await loadAiProviders();
       const provider = providers.find((p) => p.id === msg.providerId);
       if (!provider) {
@@ -1251,12 +932,7 @@ chrome.runtime.onConnect.addListener((port) => {
         port,
         signal: activeAbortController.signal,
         getAbortMeta: () => activeAbortMeta,
-        onFirstToken: () => {
-          if (firstTokenTimeoutId) {
-            clearTimeout(firstTokenTimeoutId);
-            firstTokenTimeoutId = 0;
-          }
-        }
+        onActivity: () => armWatchdog(STREAM_TIMEOUT_MS.idle, `回复中断：${STREAM_TIMEOUT_MS.idle / 1000} 秒没有新内容，可重试`)
       });
     } catch (e) {
       port.postMessage({ type: "error", error: String(e?.message || e) });
@@ -1267,6 +943,9 @@ chrome.runtime.onConnect.addListener((port) => {
 });
 
 async function initializeSettingsStorage() {
+  // Read before defaults are written: a missing toggle means an upgrade from before it existed.
+  const { obsidianEnabled: storedObsidianEnabled } = await chrome.storage.sync.get("obsidianEnabled");
+  await migrateInitialQuickPrompts();
   const syncCurrent = await chrome.storage.sync.get(DEFAULT_SYNC_SETTINGS);
   const localCurrent = await chrome.storage.local.get(DEFAULT_LOCAL_SETTINGS);
 
@@ -1284,6 +963,27 @@ async function initializeSettingsStorage() {
   if ("obsidianApiKey" in syncCurrent) {
     await chrome.storage.sync.remove("obsidianApiKey");
   }
+
+  // A configured key means the user was already writing to Obsidian.
+  if (typeof storedObsidianEnabled !== "boolean") {
+    await chrome.storage.sync.set({ obsidianEnabled: Boolean(localApiKey || legacySyncApiKey) });
+  }
+}
+
+// aiInitialQuickPrompts (empty-panel chips) merged into aiPresetPrompts, the single follow-up list.
+// Initial first; dedupe makes a rerun after a partial write a no-op.
+async function migrateInitialQuickPrompts() {
+  const { aiInitialQuickPrompts, aiPresetPrompts } = await chrome.storage.sync.get([
+    "aiInitialQuickPrompts",
+    "aiPresetPrompts"
+  ]);
+  if (aiInitialQuickPrompts === undefined) {
+    return;
+  }
+  const merged = [...(Array.isArray(aiInitialQuickPrompts) ? aiInitialQuickPrompts : []), ...(Array.isArray(aiPresetPrompts) ? aiPresetPrompts : [])]
+    .map((item) => toString(item).trim());
+  await chrome.storage.sync.set({ aiPresetPrompts: normalizeAiPresetPrompts([...new Set(merged)]) });
+  await chrome.storage.sync.remove("aiInitialQuickPrompts");
 }
 
 async function getMergedSettings() {
@@ -1293,10 +993,13 @@ async function getMergedSettings() {
   ]);
 
   const merged = { ...DEFAULT_SYNC_SETTINGS, ...syncSettings };
+  merged.obsidianEnabled = merged.obsidianEnabled === true;
   merged.downloadFormat = normalizeDownloadFormat(merged.downloadFormat);
+  merged.youtubeSubtitleLang = BocSites.normalizeSubtitleLang(merged.youtubeSubtitleLang);
   merged.includeHotCommentsInNote = normalizeIncludeHotCommentsInNote(merged.includeHotCommentsInNote);
   merged.enablePlayerAiQuickAction = normalizeEnablePlayerAiQuickAction(merged.enablePlayerAiQuickAction);
   merged.playerAiQuickPrompt = normalizePlayerAiQuickPrompt(merged.playerAiQuickPrompt);
+  merged.showBiliTriageBadges = merged.showBiliTriageBadges !== false;
   merged.readerTheme = normalizeReaderTheme(merged.readerTheme);
   merged.readerFontScale = normalizeReaderFontScale(merged.readerFontScale);
   merged.readerLetterSpacing = normalizeReaderLetterSpacing(merged.readerLetterSpacing ?? merged.readerLineHeight);
@@ -1307,7 +1010,6 @@ async function getMergedSettings() {
   merged.fixedFrontmatterProperties = normalizeFixedFrontmatterProperties(merged.fixedFrontmatterProperties);
   merged.notePlaceholderSections = normalizeNotePlaceholderSections(merged.notePlaceholderSections);
   merged.aiSystemPrompt = normalizeAiSystemPrompt(merged.aiSystemPrompt);
-  merged.aiInitialQuickPrompts = normalizeAiInitialQuickPrompts(merged.aiInitialQuickPrompts);
   merged.aiPresetPrompts = normalizeAiPresetPrompts(merged.aiPresetPrompts);
   let apiKey = normalizeApiKey(localSettings.obsidianApiKey);
   const legacySyncApiKey = normalizeApiKey(syncSettings.obsidianApiKey);
@@ -1328,10 +1030,13 @@ async function saveSettings(settings) {
   const payload = settings && typeof settings === "object" ? settings : {};
   const syncPayload = { ...payload };
   delete syncPayload.obsidianApiKey;
+  syncPayload.obsidianEnabled = syncPayload.obsidianEnabled === true;
   syncPayload.downloadFormat = normalizeDownloadFormat(syncPayload.downloadFormat);
+  syncPayload.youtubeSubtitleLang = BocSites.normalizeSubtitleLang(syncPayload.youtubeSubtitleLang);
   syncPayload.includeHotCommentsInNote = normalizeIncludeHotCommentsInNote(syncPayload.includeHotCommentsInNote);
   syncPayload.enablePlayerAiQuickAction = normalizeEnablePlayerAiQuickAction(syncPayload.enablePlayerAiQuickAction);
   syncPayload.playerAiQuickPrompt = normalizePlayerAiQuickPrompt(syncPayload.playerAiQuickPrompt);
+  syncPayload.showBiliTriageBadges = syncPayload.showBiliTriageBadges !== false;
   syncPayload.readerTheme = normalizeReaderTheme(syncPayload.readerTheme);
   syncPayload.readerFontScale = normalizeReaderFontScale(syncPayload.readerFontScale);
   syncPayload.readerLetterSpacing = normalizeReaderLetterSpacing(
@@ -1344,7 +1049,6 @@ async function saveSettings(settings) {
   syncPayload.fixedFrontmatterProperties = normalizeFixedFrontmatterProperties(syncPayload.fixedFrontmatterProperties);
   syncPayload.notePlaceholderSections = normalizeNotePlaceholderSections(syncPayload.notePlaceholderSections);
   syncPayload.aiSystemPrompt = normalizeAiSystemPrompt(syncPayload.aiSystemPrompt);
-  syncPayload.aiInitialQuickPrompts = normalizeAiInitialQuickPrompts(syncPayload.aiInitialQuickPrompts);
   syncPayload.aiPresetPrompts = normalizeAiPresetPrompts(syncPayload.aiPresetPrompts);
 
   await Promise.all([
@@ -1459,15 +1163,6 @@ function normalizeAiPresetPrompts(value) {
     .map((item) => toString(item).trim())
     .filter(Boolean)
     .slice(0, 12);
-}
-
-function normalizeAiInitialQuickPrompts(value) {
-  if (!Array.isArray(value)) {
-    return DEFAULT_INITIAL_QUICK_PROMPTS.slice();
-  }
-  return value
-    .map((item) => toString(item).trim())
-    .slice(0, 4);
 }
 
 function normalizeFixedPropertyType(value) {
@@ -1588,7 +1283,7 @@ function buildAiMessages({ context, userPrompt, history, systemPrompt }) {
   const hasVideoContext = Boolean(ctx.isVideoContext);
   const sections = hasVideoContext
     ? [
-        `你是一个 B 站视频助手。当前用户正在看一个视频，标题：「${ctx.title || "未知"}」`,
+        `你是一个视频助手。当前用户正在看一个视频，标题：「${ctx.title || "未知"}」`,
         `作者：${ctx.author || "未知"} | 上传日期：${ctx.uploadDate || "未知"}`
       ]
     : [
@@ -1599,7 +1294,16 @@ function buildAiMessages({ context, userPrompt, history, systemPrompt }) {
   if (ctx.subtitleMarkdown) {
     sections.push(`以下是视频的字幕全文：\n\n${ctx.subtitleMarkdown}`);
   } else if (hasVideoContext) {
-    sections.push("（暂无字幕）");
+    const failure = String(ctx.subtitleFailure || "").trim();
+    sections.push(
+      failure
+        ? `这个视频的字幕抓取失败（${failure}），视频本身可能有字幕，不要说视频没有字幕。你拿不到视频里说了什么或画面内容，以下仅基于简介和评论回答，不要假装看过视频；简介和评论回答不了的，告诉用户字幕抓取失败、可稍后刷新重试。`
+        : "这个视频没有字幕，你拿不到视频里说了什么或画面内容。只能依据下面的简介和评论回答，不要假装看过视频；简介和评论回答不了的，直接告诉用户无法确认。"
+    );
+    const description = String(ctx.description || "").trim();
+    if (description) {
+      sections.push(`以下是视频简介：\n\n${description}`);
+    }
   }
   if (hasVideoContext && Array.isArray(ctx.hotComments) && ctx.hotComments.length) {
     const block = ctx.hotComments
@@ -1622,7 +1326,7 @@ function clipAiSubtitle(markdown) {
   return String(markdown || "");
 }
 
-async function* parseOpenAISSE(response) {
+async function* parseOpenAISSE(response, onActivity) {
   if (!response || !response.body) return;
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
@@ -1630,6 +1334,7 @@ async function* parseOpenAISSE(response) {
   while (true) {
     const { value, done } = await reader.read();
     if (done) break;
+    onActivity?.();
     buffer += decoder.decode(value, { stream: true });
     const lines = buffer.split("\n");
     buffer = lines.length ? lines.pop() : "";
@@ -1648,7 +1353,69 @@ async function* parseOpenAISSE(response) {
   }
 }
 
-async function streamChat({ provider, context, userPrompt, history, port, signal, getAbortMeta, onFirstToken }) {
+function vaultEndpoint(baseUrl, filepath) {
+  const encodedPath = filepath
+    .split("/")
+    .filter(Boolean)
+    .map((segment) => encodeURIComponent(segment))
+    .join("/");
+  return `${baseUrl.replace(/\/+$/g, "")}/vault/${encodedPath}`;
+}
+
+// Obsidian requests remote images with an app://obsidian.md Referer, which hdslb.com answers with 403,
+// so the cover goes into the vault next to the note and the note links it. Any failure keeps the remote URL.
+// The two rewritten forms mirror content.js buildFrontMatter ("cover") and buildMarkdown (cover image line).
+async function linkCoverInVault(content, cover, { baseUrl, apiKey, filepath }) {
+  const url = String(cover?.url || "");
+  const name = String(cover?.name || "").replace(/[\\/:*?"<>|#^[\]]/g, "_");
+  if (!url || !name || !content.includes(url)) {
+    return content;
+  }
+  try {
+    const ext = /\.(jpe?g|png|webp|gif)$/i.exec(new URL(url).pathname)?.[1].toLowerCase() || "jpg";
+    const folder = filepath.split("/").slice(0, -1).join("/");
+    const path = `${folder ? `${folder}/` : ""}attachments/${name}.${ext}`;
+    const endpoint = vaultEndpoint(baseUrl, path);
+    const auth = { Authorization: `Bearer ${apiKey}` };
+    const existing = await fetch(endpoint, { method: "GET", headers: auth, cache: "no-store" });
+    if (existing.status === 404) {
+      const image = await fetch(url, { referrerPolicy: "no-referrer" });
+      if (!image.ok) {
+        throw new Error(`cover HTTP ${image.status}`);
+      }
+      // A non-text Content-Type makes the plugin store the body as binary.
+      const upload = await fetch(endpoint, {
+        method: "PUT",
+        headers: { ...auth, "Content-Type": image.headers.get("Content-Type") || "application/octet-stream" },
+        body: await image.arrayBuffer()
+      });
+      if (!upload.ok) {
+        throw new Error(`cover upload HTTP ${upload.status}`);
+      }
+    } else if (!existing.ok) {
+      throw new Error(`cover check HTTP ${existing.status}`);
+    }
+    const link = `[[${path}]]`;
+    return content.replace(`cover: "${url}"`, () => `cover: "${link}"`).replace(`![cover](${url})`, () => `!${link}`);
+  } catch (error) {
+    console.warn("[boc] cover not stored in vault, keeping the remote URL", error);
+    return content;
+  }
+}
+
+// Remote hosts are optional permissions since 1.2.0, so an upgraded install may lack its AI provider's origin.
+// The side panel and triage page match "未授权访问 <origin>" to offer a grant button.
+async function hostPermissionError(url) {
+  try {
+    const { protocol, hostname } = new URL(url);
+    const origin = `${protocol}//${hostname}`;
+    return (await chrome.permissions.contains({ origins: [`${origin}/*`] })) ? "" : `未授权访问 ${origin}，授权后重试`;
+  } catch {
+    return "";
+  }
+}
+
+async function streamChat({ provider, context, userPrompt, history, port, signal, getAbortMeta, onActivity }) {
   if (!port) return;
   const baseUrl = String(provider?.baseUrl || "").trim().replace(/\/+$/, "");
   if (!baseUrl) {
@@ -1686,7 +1453,11 @@ async function streamChat({ provider, context, userPrompt, history, port, signal
       })
     });
   } catch (e) {
-    port.postMessage({ type: "error", error: `网络错误：${e?.message || e}` });
+    if (signal?.aborted) {
+      postStreamAbort(port, getAbortMeta?.());
+      return;
+    }
+    port.postMessage({ type: "error", error: (await hostPermissionError(baseUrl)) || `网络错误：${e?.message || e}` });
     return;
   }
 
@@ -1698,29 +1469,24 @@ async function streamChat({ provider, context, userPrompt, history, port, signal
   }
 
   try {
-    let hasSentFirstToken = false;
-    for await (const token of parseOpenAISSE(response)) {
-      if (!hasSentFirstToken) {
-        hasSentFirstToken = true;
-        onFirstToken?.();
-      }
+    for await (const token of parseOpenAISSE(response, onActivity)) {
       port.postMessage({ type: "token", data: token });
     }
     port.postMessage({ type: "done" });
   } catch (e) {
     if (signal?.aborted) {
-      const abortMeta = typeof getAbortMeta === "function" ? getAbortMeta() : null;
-      if (abortMeta?.type === "stopped") {
-        port.postMessage({ type: "stopped", reason: abortMeta.reason || "已停止生成" });
-        return;
-      }
-      if (abortMeta?.type === "timeout") {
-        port.postMessage({ type: "error", error: abortMeta.reason || "请求超时，已自动中断" });
-        return;
-      }
+      postStreamAbort(port, getAbortMeta?.());
       return;
     }
     port.postMessage({ type: "error", error: String(e?.message || e) });
+  }
+}
+
+function postStreamAbort(port, abortMeta) {
+  if (abortMeta?.type === "stopped") {
+    port.postMessage({ type: "stopped", reason: abortMeta.reason || "已停止生成" });
+  } else if (abortMeta?.type === "timeout") {
+    port.postMessage({ type: "error", error: abortMeta.reason || "请求超时，已自动中断" });
   }
 }
 
@@ -1759,6 +1525,7 @@ async function probeAiChatCompletion({ baseUrl, apiKey, model, headers }) {
     response = await fetch(`${baseUrl}/chat/completions`, {
       method: "POST",
       headers: requestHeaders,
+      signal: AbortSignal.timeout(AI_TEST_TIMEOUT_MS),
       body: JSON.stringify({
         model,
         stream: false,
@@ -1768,6 +1535,7 @@ async function probeAiChatCompletion({ baseUrl, apiKey, model, headers }) {
       })
     });
   } catch (error) {
+    if (error?.name === "TimeoutError") return { ok: false, error: `连接超时：${AI_TEST_TIMEOUT_MS / 1000} 秒没有响应` };
     return { ok: false, error: `无法连接：${error?.message || error}` };
   }
 
@@ -1782,4 +1550,4 @@ async function probeAiChatCompletion({ baseUrl, apiKey, model, headers }) {
   return { ok: false, error: `HTTP ${response.status}${detail ? `: ${detail}` : ""}` };
 }
 
-importScripts("triage/triage-bg.js");
+importScripts("sites.js", "note.js", "triage/triage-bg.js");

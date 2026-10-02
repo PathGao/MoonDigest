@@ -1,0 +1,62 @@
+/* Injected into bilibili.com; every selector is mdg-prefixed. Neutrals use Bilibili's own theme variables (--bg1, --text1...), so they follow its dark theme. */
+.mdg-badge {
+  display: inline-flex;
+  gap: 3px;
+  margin-right: 4px;
+  vertical-align: 1px;
+  white-space: nowrap;
+  line-height: 1;
+}
+.mdg-v,
+.mdg-chip {
+  display: inline-block;
+  padding: 1px 4px;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 14px;
+  font-style: normal;
+  text-indent: 0;
+}
+.mdg-keep, .mdg-act-keep { color: #18794e; background: rgba(24, 121, 78, 0.12); }
+.mdg-drop, .mdg-act-unfav { color: #c4302b; background: rgba(196, 48, 43, 0.12); }
+.mdg-unsure { color: #9a6700; background: rgba(154, 103, 0, 0.13); }
+.mdg-s1 { background: transparent; border-style: dashed; border-color: currentColor; }
+.mdg-low { opacity: 0.7; }
+.mdg-chip { color: var(--mdg-c, var(--text2, #61666d)); border-color: currentColor; font-weight: 500; }
+.mdg-line {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 2px;
+  font-size: 13px;
+  line-height: 20px;
+  color: var(--text2, #61666d);
+  white-space: nowrap;
+  overflow: hidden;
+}
+.mdg-line .mdg-badge { margin-right: 0; }
+.mdg-one { overflow: hidden; text-overflow: ellipsis; }
+.mdg-pop {
+  position: fixed;
+  z-index: 2147483000;
+  max-width: 320px;
+  padding: 10px 12px;
+  border: 1px solid var(--line_regular, #e3e5e7);
+  border-radius: 8px;
+  background: var(--bg1_float, #fff);
+  color: var(--text1, #18191c);
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.14);
+  font: 12px/1.55 -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif;
+  pointer-events: none;
+}
+.mdg-pop-head { color: var(--text2, #61666d); margin-bottom: 4px; }
+.mdg-pop-one { font-weight: 600; font-size: 13px; margin-bottom: 4px; }
+.mdg-pop-pt { padding-left: 1em; text-indent: -1em; }
+.mdg-pop-reason { color: var(--text2, #61666d); margin-top: 4px; }
+
+html.bili_dark .mdg-keep, html.bili_dark .mdg-act-keep { color: #4ac26b; background: rgba(74, 194, 107, 0.16); }
+html.bili_dark .mdg-drop, html.bili_dark .mdg-act-unfav { color: #ff7b72; background: rgba(255, 123, 114, 0.16); }
+html.bili_dark .mdg-unsure { color: #e3b341; background: rgba(227, 179, 65, 0.16); }
+html.bili_dark .mdg-s1 { background: transparent; }

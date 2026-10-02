@@ -11,6 +11,8 @@ const el = {
   copyBtn: document.getElementById("copyBtn"),
   downloadBtn: document.getElementById("downloadBtn"),
   sendBtn: document.getElementById("sendBtn"),
+  summaryBtn: document.getElementById("summaryBtn"),
+  triageBtn: document.getElementById("triageBtn"),
   readingViewBtn: document.getElementById("readingViewBtn"),
   aiBtn: document.getElementById("aiBtn"),
   settingsBtn: document.getElementById("settingsBtn")
@@ -33,6 +35,12 @@ init().catch((error) => {
 
 async function init() {
   bindEvents();
+  getSettingsFromRuntime().then((settings) => {
+    el.sendBtn.hidden = settings.obsidianEnabled !== true;
+  });
+  getActiveTab().then((tab) => {
+    el.triageBtn.hidden = BocSites.matchSite(tab?.url || "")?.id === "youtube";
+  });
   await refreshFromTab();
 }
 
@@ -65,7 +73,7 @@ function bindEvents() {
       setMessage("没有可下载字幕。");
       return;
     }
-    const safeTitle = sanitizeFileName(payload.title || "bilibili-subtitle");
+    const safeTitle = sanitizeFileName(payload.title || "video-subtitle");
     const blob = new Blob([content], { type: "text/plain;charset=utf-8" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
@@ -91,7 +99,7 @@ function bindEvents() {
   el.readingViewBtn?.addEventListener("click", async () => {
     const tab = await getActiveTab();
     if (!isSupportedSubtitlePage(tab?.url || "")) {
-      setMessage("请先打开一个 B 站视频页。");
+      setMessage("请先打开一个支持的视频页。");
       return;
     }
 
@@ -142,7 +150,22 @@ function bindEvents() {
     await sendToRuntime({ type: "open-options" });
   });
 
-  document.getElementById("triageBtn").addEventListener("click", async () => {
+  el.summaryBtn.addEventListener("click", async () => {
+    const tab = await getActiveTab();
+    if (!isSupportedSubtitlePage(tab?.url || "")) {
+      setMessage("请先打开一个支持的视频页。");
+      return;
+    }
+    // Same path as the player AI button: background opens the side panel and queues the one-click prompt.
+    const resp = await sendToRuntime({ type: "player-ai-quick-action", tabId: tab.id, source: "popup" }).catch((error) => ({ ok: false, error: error.message }));
+    if (!resp?.ok) {
+      setMessage(`AI 总结失败：${resp?.error || "未知错误"}`);
+      return;
+    }
+    window.setTimeout(() => window.close(), 80);
+  });
+
+  el.triageBtn.addEventListener("click", async () => {
     await chrome.tabs.create({ url: chrome.runtime.getURL("triage/triage.html") });
     window.close();
   });
@@ -179,7 +202,7 @@ async function refreshFromTab() {
   setStatus("正在抓取...");
   const resp = await sendToContent({ type: "popup-refresh" });
   if (!resp?.ok) {
-    const errorText = (resp?.error || "请在 B 站视频页使用。").replace(
+    const errorText = (resp?.error || "请在支持的视频页使用。").replace(
       "请刷新浏览器网页重试，或当前网页不支持",
       "请刷新网页重试，或当前网页不支持"
     );
@@ -229,11 +252,10 @@ function render(payload, { preserveStatus = false } = {}) {
     el.subtitleSelect.innerHTML = options
       .map((item) => {
         const selected = item.selected ? "selected" : "";
-        const aiTag = item.isAi ? " [AI]" : "";
         return `<option value="${escapeHtml(item.url)}" data-id="${escapeHtml(
           item.id || ""
         )}" data-lang="${escapeHtml(item.lang || "")}" ${selected}>${escapeHtml(
-          `${item.lang || "unknown"}${aiTag}`
+          item.optionLabel || item.lang || "unknown"
         )}</option>`;
       })
       .join("");
@@ -308,7 +330,7 @@ async function sendToContent(message) {
     }
 
     const normalizedError = normalizeContentErrorMessage(error);
-    setStatus("请在 B 站视频页使用插件。");
+    setStatus("请在支持的视频页使用插件。");
     setMessage(normalizedError);
     return { ok: false, error: normalizedError, payload: latestPayload };
   }
@@ -328,17 +350,7 @@ function shouldRetryAfterInjection(error) {
 }
 
 function isSupportedSubtitlePage(url) {
-  try {
-    const parsed = new URL(String(url || ""));
-    if (parsed.hostname !== "www.bilibili.com") {
-      return false;
-    }
-    return parsed.pathname === "/list/watchlater" ||
-      parsed.pathname === "/list/watchlater/" ||
-      parsed.pathname.startsWith("/video/");
-  } catch {
-    return false;
-  }
+  return Boolean(BocSites.matchSite(url));
 }
 
 async function ensureContentScriptReady(tabId) {
@@ -356,17 +368,10 @@ async function ensureContentScriptReady(tabId) {
     files: ["content.css"]
   });
 
-  try {
-    await chrome.scripting.executeScript({
-      target: { tabId },
-      files: ["content.js"]
-    });
-  } catch (error) {
-    const message = String(error?.message || "");
-    if (!message.includes("Identifier 'DEFAULT_SETTINGS' has already been declared")) {
-      throw error;
-    }
-  }
+  await chrome.scripting.executeScript({
+    target: { tabId },
+    files: ["sites.js", "note.js", "content.js"]
+  });
 
   const reinjectedVersion = await probeContentScriptVersion(tabId);
   if (reinjectedVersion !== EXPECTED_CONTENT_SCRIPT_VERSION) {

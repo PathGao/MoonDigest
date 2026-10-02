@@ -1,13 +1,10 @@
 const DEFAULT_PRESET_PROMPTS = [
-  "生成视频摘要和结论",
-  "按章节整理视频内容",
-  "生成带时间轴的笔记"
-];
-const DEFAULT_INITIAL_QUICK_PROMPTS = [
   "用 3 句话总结这个视频",
   "提炼这个视频的 5 个重点",
   "按时间顺序整理这期视频的内容",
-  "根据评论总结观众的看法"
+  "根据评论总结观众的看法",
+  "按章节整理视频内容",
+  "生成带时间轴的笔记"
 ];
 const DEFAULT_PLAYER_AI_QUICK_PROMPT = "整理这期视频的内容，输出结构化总结：主题、核心观点、关键细节、结论与可执行启发。";
 const LEGACY_DEFAULT_AI_SYSTEM_PROMPT = [
@@ -28,24 +25,32 @@ const DEFAULT_AI_SYSTEM_PROMPT = [
 ].join("\n");
 
 const DEFAULT_SETTINGS = {
-  noteFolder: "Clippings/Bilibili",
+  obsidianEnabled: false,
+  noteFolder: "Clippings/{{site}}",
   obsidianApiBaseUrl: "http://127.0.0.1:27123",
   obsidianApiKey: "",
-  tags: "clippings,bilibili",
+  tags: "clippings",
   downloadFormat: "srt",
+  youtubeSubtitleLang: "auto",
   includeDateInFilename: true,
   includeHotCommentsInNote: false,
-  enablePlayerAiQuickAction: false,
+  includeCoverInNote: true,
+  enablePlayerAiQuickAction: true,
   playerAiQuickPrompt: DEFAULT_PLAYER_AI_QUICK_PROMPT,
   includeTimestampInBody: true,
+  showBiliTriageBadges: true,
   enableDebugLogs: false,
   frontmatterFields: [
     "title",
     "url",
-    "bvid",
+    "site",
+    "video_id",
     "cid",
     "author",
+    "author_url",
     "upload_date",
+    "duration",
+    "cover",
     "subtitle_lang",
     "created",
     "tags"
@@ -53,11 +58,9 @@ const DEFAULT_SETTINGS = {
   fixedFrontmatterProperties: [],
   notePlaceholderSections: [],
   aiSystemPrompt: DEFAULT_AI_SYSTEM_PROMPT,
-  aiInitialQuickPrompts: DEFAULT_INITIAL_QUICK_PROMPTS.slice(),
   aiPresetPrompts: DEFAULT_PRESET_PROMPTS.slice()
 };
 
-const SYSTEM_FRONTMATTER_FIELDS = new Set(DEFAULT_SETTINGS.frontmatterFields.map((field) => String(field).toLowerCase()));
 const CUSTOM_PROPERTY_KEY_PATTERN = /^[\p{L}\p{N}_\-\s]+$/u;
 const FIXED_PROPERTY_TYPES = new Set(["text", "number", "checkbox", "list", "date"]);
 const FRONTMATTER_TEMPLATE_TOKEN_RE = /\{\{\s*([a-zA-Z0-9_]+)\s*\}\}/;
@@ -76,17 +79,34 @@ const AI_PRESETS = [
   { id: "custom",        name: "自定义",      baseUrl: "", requiresKey: true }
 ];
 
+const TRIAGE_SETTING_KEYS = [
+  "triageCriteria",
+  "triageIntervalSec",
+  "triageExportFolder",
+  "triageTitleBatchSize",
+  "triageThinking",
+  "triageTitleMaxTokens",
+  "triageAnalyzeMaxTokens"
+];
+
 const elements = {
+  obsidianEnabled: document.getElementById("obsidianEnabled"),
+  obsidianBody: document.getElementById("obsidianBody"),
+  openTriageBtn: document.getElementById("openTriageBtn"),
+  triage: Object.fromEntries(TRIAGE_SETTING_KEYS.map((key) => [key, document.getElementById(key)])),
   noteFolder: document.getElementById("noteFolder"),
   obsidianApiBaseUrl: document.getElementById("obsidianApiBaseUrl"),
   obsidianApiKey: document.getElementById("obsidianApiKey"),
   tags: document.getElementById("tags"),
   downloadFormat: document.getElementById("downloadFormat"),
+  youtubeSubtitleLang: document.getElementById("youtubeSubtitleLang"),
   includeDateInFilename: document.getElementById("includeDateInFilename"),
   includeHotCommentsInNote: document.getElementById("includeHotCommentsInNote"),
+  includeCoverInNote: document.getElementById("includeCoverInNote"),
   enablePlayerAiQuickAction: document.getElementById("enablePlayerAiQuickAction"),
   playerAiQuickPrompt: document.getElementById("playerAiQuickPrompt"),
   includeTimestampInBody: document.getElementById("includeTimestampInBody"),
+  showBiliTriageBadges: document.getElementById("showBiliTriageBadges"),
   enableDebugLogs: document.getElementById("enableDebugLogs"),
   frontmatterFields: document.querySelectorAll('input[name="frontmatterField"]'),
   fixedPropertiesList: document.getElementById("fixedPropertiesList"),
@@ -99,23 +119,38 @@ const elements = {
   aiProvidersEmpty: document.getElementById("aiProvidersEmpty"),
   addAiProviderBtn: document.getElementById("addAiProviderBtn"),
   aiSystemPrompt: document.getElementById("aiSystemPrompt"),
-  aiInitialQuickPrompts: document.querySelectorAll(".ai-initial-quick-prompt"),
-  saveBtn: document.getElementById("saveBtn"),
+  aiPresetPrompts: document.getElementById("aiPresetPrompts"),
+  saveBtns: [...document.querySelectorAll(".save-btn")],
   testConnectionBtn: document.getElementById("testConnectionBtn"),
-  status: document.getElementById("status")
+  status: document.getElementById("status"),
+  hostPermissionBanner: document.getElementById("hostPermissionBanner"),
+  hostPermissionText: document.getElementById("hostPermissionText"),
+  hostPermissionBtn: document.getElementById("hostPermissionBtn")
 };
 
-let savedAiPresetPrompts = [];
+// Any edit since the last successful save; a passed provider test reminds the user to save.
+let hasUnsavedChanges = false;
 
 init();
 
 function init() {
   loadSettings();
-  elements.saveBtn.addEventListener("click", saveSettings);
+  ["input", "change"].forEach((type) => document.addEventListener(type, () => (hasUnsavedChanges = true)));
+  // Every tier has its own save button; all save everything, and the status shows under the one clicked.
+  elements.saveBtns.forEach((button) => {
+    button.addEventListener("click", () => {
+      button.closest(".action-row").after(elements.status);
+      saveSettings();
+    });
+  });
   elements.testConnectionBtn.addEventListener("click", testConnection);
   elements.addFixedPropertyBtn.addEventListener("click", () => addFixedPropertyRow());
   elements.addNoteSectionBtn.addEventListener("click", () => addNoteSectionRow());
   elements.addAiProviderBtn.addEventListener("click", () => addAiProviderRow());
+  elements.obsidianEnabled.addEventListener("change", syncObsidianBody);
+  elements.openTriageBtn.addEventListener("click", () => {
+    chrome.tabs.create({ url: chrome.runtime.getURL("triage/triage.html") });
+  });
   document.addEventListener("click", (event) => {
     if (!(event.target instanceof Element) || !event.target.closest(".fixed-property-type-picker")) {
       closeAllFixedPropertyMenus();
@@ -128,30 +163,37 @@ function init() {
 
 async function loadSettings() {
   const settings = await getSettings();
+  elements.obsidianEnabled.checked = settings.obsidianEnabled === true;
+  syncObsidianBody();
   elements.noteFolder.value = settings.noteFolder || "";
   elements.obsidianApiBaseUrl.value = settings.obsidianApiBaseUrl || "";
   elements.obsidianApiKey.value = settings.obsidianApiKey || "";
   elements.tags.value = settings.tags || "";
   elements.downloadFormat.value = normalizeDownloadFormat(settings.downloadFormat);
+  elements.youtubeSubtitleLang.value = settings.youtubeSubtitleLang || "auto";
   elements.includeDateInFilename.checked = settings.includeDateInFilename !== false;
   elements.includeHotCommentsInNote.checked = Boolean(settings.includeHotCommentsInNote);
+  elements.includeCoverInNote.checked = settings.includeCoverInNote !== false;
   elements.enablePlayerAiQuickAction.checked = Boolean(settings.enablePlayerAiQuickAction);
   elements.playerAiQuickPrompt.value = String(settings.playerAiQuickPrompt || "");
   elements.includeTimestampInBody.checked = Boolean(settings.includeTimestampInBody);
+  elements.showBiliTriageBadges.checked = settings.showBiliTriageBadges !== false;
   elements.enableDebugLogs.checked = Boolean(settings.enableDebugLogs);
-  const selectedFields = new Set(settings.frontmatterFields || DEFAULT_SETTINGS.frontmatterFields);
+  // "bvid" was the field name before the site registry.
+  const selectedFields = new Set((settings.frontmatterFields || DEFAULT_SETTINGS.frontmatterFields).map((field) => (field === "bvid" ? "video_id" : field)));
   elements.frontmatterFields.forEach((checkbox) => {
     checkbox.checked = selectedFields.has(checkbox.value);
   });
   renderFixedPropertyRows(settings.fixedFrontmatterProperties);
   renderNoteSectionRows(settings.notePlaceholderSections);
   elements.aiSystemPrompt.value = settings.aiSystemPrompt || "";
-  renderInitialQuickPromptInputs(settings.aiInitialQuickPrompts);
-  savedAiPresetPrompts = Array.isArray(settings.aiPresetPrompts) ? settings.aiPresetPrompts : [];
+  elements.aiPresetPrompts.value = (Array.isArray(settings.aiPresetPrompts) ? settings.aiPresetPrompts : []).join("\n");
+  await loadTriageSettings();
 
   // AI 配置
   const providers = await loadAiProviders();
   renderAiProviders(providers);
+  renderHostPermissionBanner(hostPermissionUrls(settings, providers));
 }
 
 async function saveSettings() {
@@ -169,6 +211,16 @@ async function saveSettings() {
     return;
   }
 
+  const triagePayload = collectTriageSettings();
+  if (!triagePayload.ok) {
+    applyValidationError(triagePayload);
+    return;
+  }
+
+  // Remote hosts are optional permissions; the save click is the user gesture that may request them.
+  const hostUrls = hostPermissionUrls(payload, aiProvidersPayload);
+  const deniedHosts = await requestHostPermissions(hostUrls);
+
   setBusy(true);
   try {
     const resp = await sendRuntimeMessage({ type: "save-settings", settings: payload });
@@ -179,6 +231,12 @@ async function saveSettings() {
     renderFixedPropertyRows(payload.fixedFrontmatterProperties);
     renderNoteSectionRows(payload.notePlaceholderSections);
 
+    const triageResp = await sendRuntimeMessage({ type: "triage-settings-save", ...triagePayload.patch });
+    if (!triageResp?.ok) {
+      setStatus(`已保存，但分拣设置保存失败：${triageResp?.error || "未知错误"}`, true);
+      return;
+    }
+
     // AI 平台：list 走 sync、apiKey 走 local
     const aiResp = await sendRuntimeMessage({ type: "ai-providers-save", providers: aiProvidersPayload });
     if (!aiResp?.ok) {
@@ -187,10 +245,16 @@ async function saveSettings() {
     }
     // 用最新列表（含 hasSavedKey）重新渲染，避免误以为 Key 丢了
     renderAiProviders(aiResp.providers || []);
+    hasUnsavedChanges = false;
+    renderHostPermissionBanner(hostUrls);
+    if (deniedHosts.length) {
+      setStatus(`已保存，但未授权访问 ${deniedHosts.join("、")}，相关请求会失败；重新保存可再次授权`, true);
+      return;
+    }
     setStatus(
-      payload.obsidianApiKey
-        ? "保存成功"
-        : "保存成功（未填写 Local REST API Key，暂不可写入 Obsidian）"
+      payload.obsidianEnabled && !payload.obsidianApiKey
+        ? "保存成功（未填写 Local REST API Key，暂不可写入 Obsidian）"
+        : "保存成功"
     );
   } catch (error) {
     setStatus(error.message || "保存失败", true);
@@ -231,42 +295,35 @@ function collectFormPayload() {
   elements.obsidianApiKey.value = normalizedApiKey;
 
   return {
+    obsidianEnabled: elements.obsidianEnabled.checked,
     noteFolder: elements.noteFolder.value.trim(),
     obsidianApiBaseUrl: normalizedBaseUrl,
     obsidianApiKey: normalizedApiKey,
     tags: elements.tags.value.trim(),
     downloadFormat: normalizeDownloadFormat(elements.downloadFormat.value),
+    youtubeSubtitleLang: elements.youtubeSubtitleLang.value,
     includeDateInFilename: elements.includeDateInFilename.checked,
     includeHotCommentsInNote: elements.includeHotCommentsInNote.checked,
+    includeCoverInNote: elements.includeCoverInNote.checked,
     enablePlayerAiQuickAction: elements.enablePlayerAiQuickAction.checked,
     playerAiQuickPrompt: normalizePlayerAiQuickPrompt(elements.playerAiQuickPrompt.value),
     includeTimestampInBody: elements.includeTimestampInBody.checked,
+    showBiliTriageBadges: elements.showBiliTriageBadges.checked,
     enableDebugLogs: elements.enableDebugLogs.checked,
     frontmatterFields: selectedFields,
     fixedFrontmatterProperties: normalizeFixedFrontmatterProperties(collectFixedPropertyRows()),
     notePlaceholderSections: normalizeNotePlaceholderSections(collectNoteSectionRows()),
     aiSystemPrompt: String(elements.aiSystemPrompt?.value || "").trim(),
-    aiInitialQuickPrompts: collectInitialQuickPrompts(),
-    aiPresetPrompts: Array.isArray(savedAiPresetPrompts) ? savedAiPresetPrompts.slice(0, 12) : []
+    aiPresetPrompts: [...new Set(elements.aiPresetPrompts.value.split("\n").map((line) => line.trim()).filter(Boolean))].slice(0, 12)
   };
 }
 
-function renderInitialQuickPromptInputs(value) {
-  const prompts = Array.isArray(value) ? value : DEFAULT_INITIAL_QUICK_PROMPTS;
-  elements.aiInitialQuickPrompts.forEach((input, index) => {
-    input.value = String(prompts[index] || "");
-  });
-}
-
-function collectInitialQuickPrompts() {
-  return Array.from(elements.aiInitialQuickPrompts || [])
-    .map((input) => String(input.value || "").trim())
-    .slice(0, 4);
-}
-
 function validateSettings(payload, { requireApiKey }) {
+  if (!payload.obsidianEnabled && !requireApiKey) {
+    return validateNoteExtras();
+  }
   if (!payload.noteFolder) {
-    return { ok: false, field: elements.noteFolder, message: "请填写笔记目录（例如：Clippings/Bilibili）" };
+    return { ok: false, field: elements.noteFolder, message: "请填写笔记目录（例如：Clippings/{{site}}）" };
   }
   if (/^[\/\\]|[\/\\]$/.test(payload.noteFolder)) {
     return { ok: false, field: elements.noteFolder, message: "笔记目录无需以 / 开头或结尾" };
@@ -313,6 +370,10 @@ function validateSettings(payload, { requireApiKey }) {
     return { ok: false, field: elements.tags, message: "默认标签请使用逗号分隔，不要换行" };
   }
 
+  return validateNoteExtras();
+}
+
+function validateNoteExtras() {
   const fixedPropertyValidation = validateFixedFrontmatterProperties(collectFixedPropertyRows({ includeRow: true }));
   if (!fixedPropertyValidation.ok) {
     return fixedPropertyValidation;
@@ -326,6 +387,57 @@ function validateSettings(payload, { requireApiKey }) {
   return { ok: true };
 }
 
+function syncObsidianBody() {
+  elements.obsidianBody.hidden = !elements.obsidianEnabled.checked;
+}
+
+async function loadTriageSettings() {
+  const resp = await sendRuntimeMessage({ type: "triage-settings-get" }).catch(() => null);
+  if (!resp?.ok) {
+    return;
+  }
+  const t = elements.triage;
+  const d = resp.data || {};
+  t.triageCriteria.value = d.triageCriteria || "";
+  t.triageIntervalSec.value = d.triageIntervalSec ?? 8;
+  t.triageTitleBatchSize.value = d.triageTitleBatchSize ?? 30;
+  t.triageExportFolder.value = d.triageExportFolder || "";
+  t.triageThinking.checked = Boolean(d.triageThinking);
+  t.triageTitleMaxTokens.value = d.triageTitleMaxTokens || "";
+  t.triageAnalyzeMaxTokens.value = d.triageAnalyzeMaxTokens || "";
+}
+
+// Same rules as the triage page dialog: 0 or blank means auto, otherwise 200–32000.
+function parseTriageMaxTokens(value) {
+  const text = String(value ?? "").trim();
+  if (!text) return 0;
+  const n = Number(text);
+  if (!Number.isInteger(n)) return null;
+  return n === 0 || (n >= 200 && n <= 32000) ? n : null;
+}
+
+function collectTriageSettings() {
+  const t = elements.triage;
+  const titleMax = parseTriageMaxTokens(t.triageTitleMaxTokens.value);
+  const analyzeMax = parseTriageMaxTokens(t.triageAnalyzeMaxTokens.value);
+  const bad = titleMax === null ? t.triageTitleMaxTokens : analyzeMax === null ? t.triageAnalyzeMaxTokens : null;
+  if (bad) {
+    return { ok: false, field: bad, message: "输出上限需为整数：0 或留空表示自动，否则在 200–32000 之间" };
+  }
+  return {
+    ok: true,
+    patch: {
+      triageCriteria: t.triageCriteria.value,
+      triageIntervalSec: Math.max(0, Number(t.triageIntervalSec.value) || 0),
+      triageTitleBatchSize: Math.max(1, Math.min(100, Number(t.triageTitleBatchSize.value) || 30)),
+      triageExportFolder: t.triageExportFolder.value.trim(),
+      triageThinking: t.triageThinking.checked,
+      triageTitleMaxTokens: titleMax,
+      triageAnalyzeMaxTokens: analyzeMax
+    }
+  };
+}
+
 function normalizePlayerAiQuickPrompt(value) {
   return String(value || "").trim();
 }
@@ -334,6 +446,8 @@ function applyValidationError(validation) {
   clearInputErrors();
   if (validation?.field) {
     validation.field.classList.add("input-error");
+    const details = validation.field.closest("details");
+    if (details) details.open = true;
     validation.field.focus();
   }
   if (validation?.row) {
@@ -682,7 +796,7 @@ function validateFixedFrontmatterProperties(items) {
     } else if (!valueText) {
       return { ok: false, row: item.row, message: "请填写固定属性的属性值" };
     }
-    if (SYSTEM_FRONTMATTER_FIELDS.has(lowerKey)) {
+    if (Array.from(elements.frontmatterFields).some((checkbox) => checkbox.value === lowerKey)) {
       return { ok: false, row: item.row, message: "该属性名与系统字段重复，请换一个名称" };
     }
     if (seenKeys.has(lowerKey)) {
@@ -898,9 +1012,11 @@ async function testConnection() {
 }
 
 function setBusy(isBusy) {
-  elements.saveBtn.disabled = isBusy;
+  elements.saveBtns.forEach((button) => {
+    button.disabled = isBusy;
+    button.textContent = isBusy ? "处理中..." : "保存设置";
+  });
   elements.testConnectionBtn.disabled = isBusy;
-  elements.saveBtn.textContent = isBusy ? "处理中..." : "保存设置";
   elements.testConnectionBtn.textContent = isBusy ? "处理中..." : "测试连接";
 }
 
@@ -1027,7 +1143,7 @@ function addAiProviderRow(item = {}) {
       model
     });
     if (resp?.ok) {
-      showAiProviderStatus(statusNode, "连接成功");
+      showAiProviderStatus(statusNode, hasUnsavedChanges ? "测试通过，记得保存设置" : "连接成功");
     } else {
       showAiProviderStatus(statusNode, `失败：${resp?.error || "未知错误"}`, true);
     }
@@ -1063,6 +1179,61 @@ function collectAiProviders() {
       hasSavedKey: row.dataset.hasSavedKey === "1"
     };
   });
+}
+
+function hostPermissionUrls(settings, providers) {
+  return [settings.obsidianEnabled === true ? settings.obsidianApiBaseUrl : "", ...providers.map((item) => item.baseUrl)];
+}
+
+// Loopback hosts are in host_permissions already; everything else is optional.
+function hostPermissionPattern(url) {
+  try {
+    const parsed = new URL(String(url || ""));
+    if (!/^https?:$/.test(parsed.protocol) || ["localhost", "127.0.0.1", "[::1]"].includes(parsed.hostname)) {
+      return "";
+    }
+    return `${parsed.protocol}//${parsed.hostname}/*`;
+  } catch {
+    return "";
+  }
+}
+
+async function missingHostPermissions(urls) {
+  const origins = [...new Set(urls.map(hostPermissionPattern).filter(Boolean))];
+  if (!chrome.permissions?.request) {
+    return [];
+  }
+  const missing = [];
+  for (const origin of origins) {
+    if (!(await chrome.permissions.contains({ origins: [origin] }))) {
+      missing.push(origin);
+    }
+  }
+  return missing;
+}
+
+// Returns the patterns the user declined (empty when everything is granted).
+async function requestHostPermissions(urls) {
+  const missing = await missingHostPermissions(urls);
+  if (!missing.length) {
+    return [];
+  }
+  const granted = await chrome.permissions.request({ origins: missing }).catch(() => false);
+  return granted ? [] : missing;
+}
+
+// Installs upgraded from before 1.2.0 never went through the save-time request.
+async function renderHostPermissionBanner(urls) {
+  const missing = await missingHostPermissions(urls);
+  elements.hostPermissionBanner.hidden = !missing.length;
+  if (!missing.length) {
+    return;
+  }
+  elements.hostPermissionText.textContent = `未授权访问 ${missing.map((pattern) => pattern.replace(/\/\*$/, "")).join("、")}，AI 与 Obsidian 请求会失败。`;
+  elements.hostPermissionBtn.onclick = async () => {
+    await chrome.permissions.request({ origins: missing }).catch(() => false);
+    renderHostPermissionBanner(urls);
+  };
 }
 
 function validateAiProviders(items) {

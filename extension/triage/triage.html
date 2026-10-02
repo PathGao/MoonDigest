@@ -3,25 +3,27 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>BiliDigest · 收藏夹分拣台</title>
+    <title>MoonDigest · B 站收藏夹分拣台</title>
+    <link rel="stylesheet" href="../tokens.css" />
     <link rel="stylesheet" href="./triage.css" />
   </head>
   <body>
     <div class="app">
       <header class="topbar">
-        <strong class="brand">BiliDigest</strong>
+        <strong class="brand">MoonDigest</strong>
         <select id="folderSelect" aria-label="选择收藏夹"></select>
         <button id="refreshBtn" type="button" aria-label="从 B 站刷新收藏夹">刷新</button>
         <span id="progress" class="progress"></span>
         <span id="queueStatus" class="queue-status" aria-live="polite"></span>
         <span class="spacer"></span>
-        <button id="stage1Btn" type="button" class="primary" aria-label="标题粗分"></button>
-        <button id="groupBtn" type="button" aria-label="字幕细看一组"></button>
+        <button id="stage1Btn" type="button" class="primary" aria-label="标题粗分" title="标题粗分：只看标题和简介，几十个一批，快、省钱，分成 建议删 / 建议留 / 待定。"></button>
+        <button id="groupBtn" type="button" aria-label="字幕细看一组" title="字幕细看：读字幕（没有字幕时读简介和评论），一次一个视频，慢一些，给出一句话总结、3 个要点、判断和建议标签。"></button>
         <button id="aiBtn" type="button" aria-label="AI 指令 (I)">AI 指令</button>
+        <button id="writeBtn" type="button" aria-label="批量写入 Obsidian">写入 Obsidian</button>
         <button id="settingsBtn" type="button" aria-label="设置">设置</button>
         <button id="helpBtn" type="button" aria-label="快捷键帮助">?</button>
       </header>
-      <p class="hint">AI 处理只在本页打开时运行，关闭页面即暂停。</p>
+      <p class="hint">粗分只看标题，快；细看读字幕，给总结和标签。AI 处理只在本页打开时运行，关闭页面即暂停。</p>
 
       <div id="banner" class="banner" hidden>
         <span id="bannerText"></span>
@@ -70,23 +72,28 @@
     <dialog id="settingsDialog" aria-label="分拣设置">
       <form method="dialog">
         <h2>分拣设置</h2>
+        <p class="dialog-hint">标题粗分：只看标题和简介，几十个一批，快、省钱，分成 建议删 / 建议留 / 待定。<br />字幕细看：读字幕（没有字幕时读简介和评论），一次一个视频，慢一些，给出一句话总结、3 个要点、判断和建议标签。</p>
         <label for="criteriaInput">判断标准</label>
         <textarea id="criteriaInput" rows="6"></textarea>
-        <label for="intervalInput">间隔秒数</label>
+        <label for="intervalInput">请求间隔（秒）</label>
         <input id="intervalInput" type="number" min="0" step="1" />
         <label for="batchSizeInput">标题粗分每批数量</label>
         <input id="batchSizeInput" type="number" min="1" max="100" step="1" />
-        <label for="exportFolderInput">导出目录</label>
+        <label for="exportFolderInput">收藏夹批量写入目录</label>
         <input id="exportFolderInput" type="text" />
         <h3 id="aiDebugTitle">AI 调试</h3>
         <label class="toggle"><input id="thinkingInput" type="checkbox" /> 开启思考</label>
         <p class="dialog-hint">关：快、省（30 个标题约 3 秒）。开：判断更细，但慢约 6 倍、费约 5 倍 token。目前只对 DeepSeek 生效。</p>
-        <label for="titleMaxInput">标题粗分输出上限（每批 token）</label>
-        <input id="titleMaxInput" type="number" min="0" max="32000" step="1" placeholder="自动" />
-        <p id="titleMaxHint" class="dialog-hint"></p>
-        <label for="analyzeMaxInput">字幕细看输出上限（每个 token）</label>
-        <input id="analyzeMaxInput" type="number" min="0" max="32000" step="1" placeholder="自动" />
-        <p id="analyzeMaxHint" class="dialog-hint"></p>
+        <details id="advancedTokens" class="advanced">
+          <summary>高级（一般不用改）</summary>
+          <p class="dialog-hint">留空就是自动。只有提示“输出被截断”时才需要调大。</p>
+          <label for="titleMaxInput">粗分输出上限（token）</label>
+          <input id="titleMaxInput" type="number" min="0" max="32000" step="1" placeholder="自动" />
+          <p id="titleMaxHint" class="dialog-hint"></p>
+          <label for="analyzeMaxInput">细看输出上限（token）</label>
+          <input id="analyzeMaxInput" type="number" min="0" max="32000" step="1" placeholder="自动" />
+          <p id="analyzeMaxHint" class="dialog-hint"></p>
+        </details>
         <p id="settingsError" class="form-error" role="alert" hidden></p>
         <h3>数据导出</h3>
         <div class="export-row">
@@ -98,6 +105,29 @@
           <span class="spacer"></span>
           <button value="cancel" type="submit" aria-label="取消">取消</button>
           <button value="save" type="submit" class="primary" aria-label="保存设置">保存</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="writeDialog" aria-label="批量写入 Obsidian">
+      <form method="dialog">
+        <h2>批量写入 Obsidian</h2>
+        <p class="dialog-hint">每个视频一篇笔记（字幕 + AI 总结），再写一篇以收藏夹命名的索引。不会改动收藏夹。</p>
+        <label for="writeScope">范围</label>
+        <select id="writeScope">
+          <option value="filter">当前筛选结果</option>
+          <option value="selected">已选中 (X)</option>
+          <option value="all">整个收藏夹</option>
+        </select>
+        <p id="writeScopeCount" class="dialog-hint"></p>
+        <label class="toggle"><input id="writeOverwrite" type="checkbox" /> 覆盖已有笔记</label>
+        <p id="writeProgress" class="dialog-hint" aria-live="polite"></p>
+        <ul id="writeFailed" class="write-failed" hidden></ul>
+        <div class="dialog-actions">
+          <span class="spacer"></span>
+          <button value="cancel" type="submit" aria-label="关闭">关闭</button>
+          <button id="writeStopBtn" type="button" aria-label="停止写入" hidden>停止</button>
+          <button id="writeRunBtn" type="button" class="primary" aria-label="开始写入">开始写入</button>
         </div>
       </form>
     </dialog>
@@ -216,7 +246,6 @@
       </form>
     </dialog>
 
-    <script src="./dev/mock-chrome.js"></script>
-    <script src="./triage.js"></script>
+    <script type="module" src="./triage.js"></script>
   </body>
 </html>

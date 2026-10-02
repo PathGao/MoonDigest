@@ -2,25 +2,26 @@ const SELECTED_PROVIDER_KEY = "boc_ai_selected_provider";
 const CONVERSATIONS_STORAGE_KEY = "boc_ai_conversations_v1";
 const PLAYER_AI_QUICK_ACTION_STORAGE_KEY = "boc_player_ai_quick_action_v1";
 const MAX_SAVED_CONVERSATIONS = 60;
-const NON_VIDEO_CONTEXT_MESSAGE = "当前页非 B 站视频页面，<br>无法获取当前页面信息作为对话上下文，<br>仅支持 AI 对话。";
+const NON_VIDEO_CONTEXT_MESSAGE = "当前页不是支持的视频页面，<br>无法获取当前页面信息作为对话上下文，<br>仅支持 AI 对话。";
 const DEFAULT_PRESET_PROMPTS = [
-  "生成视频摘要和结论",
-  "按章节整理视频内容",
-  "生成带时间轴的笔记"
-];
-const DEFAULT_INITIAL_QUICK_PROMPTS = [
   "用 3 句话总结这个视频",
   "提炼这个视频的 5 个重点",
   "按时间顺序整理这期视频的内容",
-  "根据评论总结观众的看法"
+  "根据评论总结观众的看法",
+  "按章节整理视频内容",
+  "生成带时间轴的笔记"
 ];
-const DEFAULT_PLAYER_AI_QUICK_PROMPT = "整理这期视频的内容，输出结构化总结：主题、核心观点、关键细节、结论与可执行启发。";
 const STREAM_SLOW_NOTICE_MS = 15000;
+const FOLLOW_PLAYBACK_KEY = "boc_sp_follow_playback";
+const PREVIOUS_VIDEO_CONVERSATION_KEY = "boc_sp_previous_video_conversation";
+const FOLLOWED_LIVE_VIDEO = "followed";
 
 const els = {
   header: document.querySelector(".sp-header"),
   contextChip: document.getElementById("spContextChip"),
   refreshBtn: document.getElementById("spRefreshBtn"),
+  followBtn: document.getElementById("spFollowBtn"),
+  previousVideoBar: document.getElementById("spPreviousVideo"),
   modelSelect: document.getElementById("spModelSelect"),
   settingsBtn: document.getElementById("spSettingsBtn"),
   newChatBtn: document.getElementById("spNewChatBtn"),
@@ -31,6 +32,7 @@ const els = {
   presetList: document.getElementById("spPresetList"),
   presetInput: document.getElementById("spPresetInput"),
   presetAddBtn: document.getElementById("spPresetAddBtn"),
+  followups: document.getElementById("spFollowups"),
   historyPopover: document.getElementById("spHistoryPopover"),
   historyList: document.getElementById("spHistoryList"),
   historyClearBtn: document.getElementById("spHistoryClearBtn"),
@@ -41,7 +43,7 @@ const els = {
 
 const DEFAULT_AI_PREFS = {
   aiSystemPrompt: "",
-  aiInitialQuickPrompts: DEFAULT_INITIAL_QUICK_PROMPTS.slice(),
+  playerAiQuickPrompt: "",
   aiPresetPrompts: DEFAULT_PRESET_PROMPTS.slice()
 };
 
@@ -68,6 +70,12 @@ let modelSelectMeasureCanvas = null;
 let streamSlowNoticeTimer = 0;
 let streamFirstTokenReceived = false;
 let initCompleted = false;
+let followPlayback = localStorage.getItem(FOLLOW_PLAYBACK_KEY) !== "0";
+let lastLiveVideoKey = "";
+let pendingFollowFromKey = "";
+let previousVideoConversationId = "";
+let previousVideoExpanded = false;
+let previousVideoBarSignature = "";
 
 init().catch((err) => {
   resetConversationView(`初始化失败：${escapeHtml(err?.message || err)}`);
@@ -75,8 +83,10 @@ init().catch((err) => {
 
 async function init() {
   bindEvents();
+  renderFollowButton();
   await loadProvidersAndPrefs();
   await loadSavedConversations();
+  await loadPreviousVideoConversationId();
   await loadContextState();
   await restoreLatestConversationForCurrentContext();
   renderInitialState();
@@ -104,6 +114,25 @@ function bindEvents() {
     void startNewConversation();
   });
   els.refreshBtn.addEventListener("click", () => refreshContextManually());
+  els.followBtn?.addEventListener("click", () => {
+    followPlayback = !followPlayback;
+    localStorage.setItem(FOLLOW_PLAYBACK_KEY, followPlayback ? "1" : "0");
+    renderFollowButton();
+  });
+  els.previousVideoBar?.addEventListener("click", handlePreviousVideoBarClick);
+  chrome.runtime.onMessage.addListener((message, sender) => {
+    if (message?.type !== "boc-video-changed") {
+      return false;
+    }
+    void getActiveTab()
+      .then((tab) => {
+        if (tab?.id && sender?.tab?.id === tab.id) {
+          scheduleLiveContextSync(true);
+        }
+      })
+      .catch(() => {});
+    return false;
+  });
   els.presetBtn.addEventListener("click", togglePresetPopover);
   els.historyBtn.addEventListener("click", toggleHistoryPopover);
   els.saveConversationBtn?.addEventListener("click", () => {
@@ -153,7 +182,11 @@ function bindEvents() {
   chrome.storage.onChanged.addListener((changes, areaName) => {
     if (
       (areaName === "sync" &&
-        (changes.aiProviders || changes.aiSystemPrompt || changes.aiInitialQuickPrompts || changes.aiPresetPrompts)) ||
+        (changes.aiProviders ||
+          changes.aiSystemPrompt ||
+          changes.playerAiQuickPrompt ||
+          changes.aiPresetPrompts ||
+          changes.obsidianEnabled)) ||
       (areaName === "local" && changes.aiProviderKeys)
     ) {
       void refreshProvidersAndPrefsAfterExternalChange();
@@ -173,6 +206,7 @@ function autosizeInput() {
 
 function setStreamingUiState(isStreaming, { stopping = false } = {}) {
   els.input.disabled = isStreaming;
+  renderFollowups();
   if (els.stopBtn) {
     els.stopBtn.hidden = !isStreaming;
     els.stopBtn.disabled = stopping;
@@ -188,9 +222,10 @@ async function loadProvidersAndPrefs({ preferredProviderId = "" } = {}) {
   providers = Array.isArray(providersResp?.providers)
     ? providersResp.providers.filter((p) => p.enabled)
     : [];
+  document.body.classList.toggle("sp-obsidian-off", settingsResp?.settings?.obsidianEnabled !== true);
   aiPrefs = {
     aiSystemPrompt: String(settingsResp?.settings?.aiSystemPrompt || "").trim(),
-    aiInitialQuickPrompts: normalizeInitialQuickPrompts(settingsResp?.settings?.aiInitialQuickPrompts),
+    playerAiQuickPrompt: String(settingsResp?.settings?.playerAiQuickPrompt || "").trim(),
     aiPresetPrompts: Array.isArray(settingsResp?.settings?.aiPresetPrompts)
       ? settingsResp.settings.aiPresetPrompts.map((item) => String(item || "").trim()).filter(Boolean).slice(0, 12)
       : []
@@ -201,13 +236,14 @@ async function loadProvidersAndPrefs({ preferredProviderId = "" } = {}) {
   }
   renderModelSelect(preferredProviderId);
   renderPresetPrompts();
+  renderFollowups();
 }
 
 function renderModelSelect(preferredProviderId = "") {
   if (!providers.length) {
     els.modelSelect.innerHTML = '<option value="">未配置平台</option>';
     els.modelSelect.disabled = true;
-    els.modelSelect.style.width = "96px";
+    updateModelSelectWidth();
     return;
   }
 
@@ -347,12 +383,13 @@ function getModelSelectMaxWidth() {
   const siblingWidth =
     els.contextChip.offsetWidth +
     els.refreshBtn.offsetWidth +
+    (els.followBtn?.offsetWidth || 0) +
     els.settingsBtn.offsetWidth +
-    gap * 3;
+    gap * (els.followBtn ? 4 : 3);
   return Math.max(92, Math.floor(contentWidth - siblingWidth));
 }
 
-async function loadContextState({ forceRefresh = false, silent = false } = {}) {
+async function loadContextState({ forceRefresh = false, silent = false, follow = false } = {}) {
   const hasPinnedConversation = currentConversationMeta?.pinnedContext === true;
   const tab = await getActiveTab();
   if (!tab?.id) {
@@ -393,6 +430,21 @@ async function loadContextState({ forceRefresh = false, silent = false } = {}) {
 
   liveContextData = resp.payload;
   liveContextKey = buildContextKey(resp.payload);
+  const followFromKey = lastLiveVideoKey;
+  if (resp.payload.isVideoContext !== false && liveContextKey.startsWith("video:")) {
+    lastLiveVideoKey = liveContextKey;
+  }
+  if (follow && isFollowCandidate(followFromKey)) {
+    if (activePort) {
+      // 正在生成回复：记下切换，等 done/stopped/error 后再切，不打断流
+      pendingFollowFromKey = pendingFollowFromKey || followFromKey;
+      renderHistoryList();
+      updateContextChip();
+      return true;
+    }
+    await followLiveVideo();
+    return FOLLOWED_LIVE_VIDEO;
+  }
   if (hasPinnedConversation) {
     renderHistoryList();
     updateContextChip();
@@ -429,11 +481,9 @@ function buildContextKey(payload) {
   if (!payload) {
     return "";
   }
-  const bvid = String(payload.bvid || "").trim();
-  const cid = String(payload.cid || "").trim();
-  const aid = String(payload.aid || "").trim();
-  if (bvid || cid || aid) {
-    return `video:${bvid}|${cid || aid}`;
+  const videoKey = BocSites.buildContextKey(buildConversationContextRef(payload) || {});
+  if (videoKey) {
+    return videoKey;
   }
   const normalizedUrl = normalizeContextUrlForKey(payload.url);
   return normalizedUrl ? `url:${normalizedUrl}` : "";
@@ -508,7 +558,7 @@ async function openCurrentContextUrl() {
 function renderInitialState() {
   updateSidepanelLayoutState();
   if (!contextData) {
-    resetConversationView("当前页面不是 B 站视频页，无法读取视频信息。");
+    resetConversationView("当前页面不是支持的视频页，无法读取视频信息。");
     return;
   }
   if (!providers.length) {
@@ -545,6 +595,7 @@ function resetConversationView(stateHtml = "") {
   els.messages.appendChild(suggestionsNode);
   renderSuggestions();
   renderPresetPrompts();
+  renderFollowups();
   shouldAutoScrollMessages = true;
   scrollToBottom(true);
 }
@@ -557,24 +608,51 @@ function renderSuggestions() {
     suggestionsNode.innerHTML = "";
     return;
   }
-  const prompts = normalizeInitialQuickPrompts(aiPrefs.aiInitialQuickPrompts).filter(Boolean);
-  suggestionsNode.innerHTML = prompts
-    .map((prompt) => `<button type="button" class="sp-chip">${escapeHtml(prompt)}</button>`)
-    .join("");
-  suggestionsNode.querySelectorAll(".sp-chip").forEach((btn) => {
-    btn.addEventListener("click", () => {
-      els.input.value = btn.textContent || "";
-      autosizeInput();
-      sendMessage();
-    });
-  });
+  const prompt = aiPrefs.playerAiQuickPrompt;
+  suggestionsNode.innerHTML = prompt
+    ? `<button type="button" class="sp-summary-btn" title="${escapeHtml(prompt)}">总结这期视频</button>`
+    : "";
+  suggestionsNode.querySelector("button")?.addEventListener("click", () => sendPrompt(prompt));
 }
 
-function normalizeInitialQuickPrompts(value) {
-  if (!Array.isArray(value)) {
-    return DEFAULT_INITIAL_QUICK_PROMPTS.slice();
+// Follow-up chips: only once there is a reply to follow up on, and not mid-stream.
+// Long lists show the first few plus a visible toggle instead of a hidden scroll area.
+const FOLLOWUP_PREVIEW = 4;
+let followupsExpanded = false;
+
+function renderFollowups() {
+  if (!els.followups) {
+    return;
   }
-  return value.map((item) => String(item || "").trim()).slice(0, 4);
+  const show = !els.input.disabled && chatHistory.some((message) => message.role === "assistant");
+  const prompts = show ? aiPrefs.aiPresetPrompts || [] : [];
+  const collapsible = prompts.length > FOLLOWUP_PREVIEW + 1;
+  const visible = collapsible && !followupsExpanded ? prompts.slice(0, FOLLOWUP_PREVIEW) : prompts;
+  els.followups.hidden = !prompts.length;
+  els.followups.innerHTML = visible
+    .map((prompt) => `<button type="button" class="sp-followup-chip" title="${escapeHtml(prompt)}">${escapeHtml(prompt)}</button>`)
+    .join("");
+  els.followups.querySelectorAll("button").forEach((btn, index) => {
+    btn.addEventListener("click", () => sendPrompt(visible[index]));
+  });
+  if (collapsible) {
+    const toggle = document.createElement("button");
+    toggle.type = "button";
+    toggle.className = "sp-followup-chip sp-followup-more";
+    toggle.textContent = followupsExpanded ? "收起" : `更多 ${prompts.length - FOLLOWUP_PREVIEW} 个`;
+    toggle.setAttribute("aria-expanded", String(followupsExpanded));
+    toggle.addEventListener("click", () => {
+      followupsExpanded = !followupsExpanded;
+      renderFollowups();
+    });
+    els.followups.append(toggle);
+  }
+}
+
+function sendPrompt(prompt) {
+  els.input.value = prompt;
+  autosizeInput();
+  void sendMessage();
 }
 
 function renderPresetPrompts() {
@@ -583,14 +661,14 @@ function renderPresetPrompts() {
   }
   const prompts = Array.isArray(aiPrefs.aiPresetPrompts) ? aiPrefs.aiPresetPrompts : [];
   if (!prompts.length) {
-    els.presetList.innerHTML = '<span class="sp-preset-empty">还没有预设提示词</span>';
+    els.presetList.innerHTML = '<span class="sp-preset-empty">还没有快捷追问</span>';
     return;
   }
   els.presetList.innerHTML = prompts
     .map((prompt, index) => `
       <span class="sp-preset-item">
         <button type="button" class="sp-preset-chip" data-index="${index}" title="${escapeHtml(prompt)}">${escapeHtml(prompt)}</button>
-        <button type="button" class="sp-preset-remove" data-index="${index}" aria-label="删除预设提示词">×</button>
+        <button type="button" class="sp-preset-remove" data-index="${index}" aria-label="删除快捷追问">×</button>
       </span>
     `)
     .join("");
@@ -610,6 +688,7 @@ function renderPresetPrompts() {
 }
 
 function renderHistoryList() {
+  renderPreviousVideoBar();
   if (!els.historyList) {
     return;
   }
@@ -737,7 +816,7 @@ async function hydrateConversationPageMetadata() {
   let changed = false;
   for (const conversation of candidates) {
     const contextRef = conversation.contextRef || null;
-    if (!contextRef?.bvid || !contextRef?.cid) {
+    if (!contextRef?.videoId) {
       continue;
     }
     const response = await sendRuntimeMessage({
@@ -812,7 +891,7 @@ function needsConversationPageHydration(conversation) {
   if (urlPageIndex > 1) {
     return true;
   }
-  return Boolean(conversation.contextRef?.bvid && conversation.contextRef?.cid);
+  return conversation.contextRef?.site === "bilibili" && Boolean(conversation.contextRef?.videoId && conversation.contextRef?.cid);
 }
 
 async function saveConversations() {
@@ -1018,7 +1097,10 @@ function scheduleLiveContextSync(forceRefresh = false) {
 }
 
 async function syncLiveContextState(forceRefresh = false) {
-  const ok = await loadContextState({ forceRefresh, silent: true }).catch(() => false);
+  const ok = await loadContextState({ forceRefresh, silent: true, follow: true }).catch(() => false);
+  if (ok === FOLLOWED_LIVE_VIDEO) {
+    return;
+  }
   if (currentConversationMeta?.pinnedContext || activePort || activeUserPrompt) {
     updateContextChip();
     return;
@@ -1028,6 +1110,163 @@ async function syncLiveContextState(forceRefresh = false) {
     return;
   }
   renderSuggestions();
+}
+
+// 跟随播放：只在当前对话绑定的是“刚才在播的视频”（或还没有对话）时才切走，
+// 用户主动打开的无关历史对话不动。
+function isFollowCandidate(fromKey) {
+  if (!followPlayback || !fromKey || liveContextData?.isVideoContext === false) {
+    return false;
+  }
+  if (!liveContextKey.startsWith("video:") || liveContextKey === fromKey) {
+    return false;
+  }
+  if (!currentConversationMeta && !chatHistory.length) {
+    return true;
+  }
+  return (currentConversationMeta?.contextKey || currentContextKey) === fromKey;
+}
+
+function runPendingFollowSwitch() {
+  if (!pendingFollowFromKey || activePort) {
+    return;
+  }
+  const fromKey = pendingFollowFromKey;
+  pendingFollowFromKey = "";
+  if (isFollowCandidate(fromKey)) {
+    void followLiveVideo();
+  }
+}
+
+async function followLiveVideo() {
+  const previous = currentConversationId && chatHistory.length
+    ? savedConversations.find((item) => item.id === currentConversationId)
+    : null;
+  if (previous) {
+    setPreviousVideoConversation(previous.id);
+  }
+  contextData = { ...liveContextData };
+  currentContextKey = liveContextKey;
+  const draft = els.input.value;
+  restartChat({ keepContext: true });
+  els.input.value = draft;
+  autosizeInput();
+  await restoreLatestConversationForCurrentContext();
+  renderHistoryList();
+  updateContextChip();
+  renderInitialState();
+  showConversationContextNotice(`已切换到新视频：${truncate(liveContextData?.title || "未知视频", 24)}`, 2500);
+}
+
+function renderFollowButton() {
+  if (!els.followBtn) {
+    return;
+  }
+  els.followBtn.classList.toggle("is-active", followPlayback);
+  els.followBtn.setAttribute("aria-pressed", followPlayback ? "true" : "false");
+  els.followBtn.title = `跟随播放：视频切换时自动切到新视频（${followPlayback ? "已开启" : "已关闭"}）`;
+}
+
+async function loadPreviousVideoConversationId() {
+  const data = await chrome.storage.session?.get([PREVIOUS_VIDEO_CONVERSATION_KEY]).catch(() => ({}));
+  previousVideoConversationId = String(data?.[PREVIOUS_VIDEO_CONVERSATION_KEY] || "").trim();
+  renderPreviousVideoBar();
+}
+
+function setPreviousVideoConversation(id) {
+  previousVideoConversationId = String(id || "");
+  previousVideoExpanded = false;
+  if (previousVideoConversationId) {
+    void chrome.storage.session?.set({ [PREVIOUS_VIDEO_CONVERSATION_KEY]: previousVideoConversationId }).catch(() => {});
+  } else {
+    void chrome.storage.session?.remove(PREVIOUS_VIDEO_CONVERSATION_KEY).catch(() => {});
+  }
+  renderPreviousVideoBar();
+}
+
+function renderPreviousVideoBar() {
+  const bar = els.previousVideoBar;
+  if (!bar) {
+    return;
+  }
+  const conversation = previousVideoConversationId
+    ? savedConversations.find((item) => item.id === previousVideoConversationId)
+    : null;
+  if (!conversation) {
+    previousVideoBarSignature = "";
+    bar.hidden = true;
+    if (previousVideoConversationId) {
+      setPreviousVideoConversation("");
+    }
+    return;
+  }
+  const isCurrent = conversation.id === currentConversationId;
+  const signature = [conversation.id, conversation.updatedAt, conversation.messages.length, previousVideoExpanded, isCurrent].join("|");
+  if (signature === previousVideoBarSignature) {
+    return;
+  }
+  previousVideoBarSignature = signature;
+  bar.hidden = isCurrent;
+  if (isCurrent) {
+    return;
+  }
+  const title = conversation.contextTitle || conversation.title || "未知视频";
+  const messagesHtml = previousVideoExpanded
+    ? conversation.messages
+        .map((message) =>
+          message.role === "user"
+            ? `<div class="sp-msg sp-msg-user">${escapeHtml(message.content)}</div>`
+            : `<div class="sp-msg sp-msg-assistant"><div class="sp-msg-assistant-body">${renderMarkdown(message.content)}</div></div>`
+        )
+        .join("")
+    : "";
+  bar.innerHTML = `
+    <div class="sp-prev-head">
+      <button type="button" class="sp-prev-toggle" data-action="toggle" aria-expanded="${previousVideoExpanded}" title="${escapeHtml(title)}">
+        <span class="sp-prev-label">上一个视频：</span>
+        <span class="sp-prev-title">${escapeHtml(title)}</span>
+        <span class="sp-prev-count">· ${conversation.messages.length} 条消息</span>
+        <svg class="sp-prev-chevron" viewBox="0 0 24 24" focusable="false" aria-hidden="true"><path d="m6 9 6 6 6-6"></path></svg>
+      </button>
+      <button type="button" class="sp-prev-dismiss" data-action="dismiss" aria-label="关闭上一个视频" title="关闭">×</button>
+    </div>
+    ${previousVideoExpanded ? `
+    <div class="sp-prev-body">
+      <div class="sp-prev-messages">${messagesHtml}</div>
+      <div class="sp-prev-actions">
+        <button type="button" class="sp-prev-action" data-action="resume">回到这个对话</button>
+        <button type="button" class="sp-prev-action" data-action="open">打开视频</button>
+      </div>
+    </div>` : ""}
+  `;
+}
+
+function handlePreviousVideoBarClick(event) {
+  const action = event.target instanceof Element ? event.target.closest("[data-action]")?.getAttribute("data-action") : "";
+  const conversation = savedConversations.find((item) => item.id === previousVideoConversationId);
+  if (!action || !conversation) {
+    return;
+  }
+  if (action === "toggle") {
+    previousVideoExpanded = !previousVideoExpanded;
+    renderPreviousVideoBar();
+  } else if (action === "dismiss") {
+    setPreviousVideoConversation("");
+  } else if (action === "resume") {
+    previousVideoExpanded = false;
+    loadConversationById(conversation.id);
+  } else if (action === "open") {
+    void openPreviousVideoUrl(conversation.contextUrl || conversation.contextRef?.url || "");
+  }
+}
+
+async function openPreviousVideoUrl(url) {
+  const targetUrl = String(url || "").trim();
+  const tab = await getActiveTab().catch(() => null);
+  if (!targetUrl || !tab?.id || doesTabMatchContextUrl(tab.url || "", targetUrl)) {
+    return;
+  }
+  await chrome.tabs.update(tab.id, { url: targetUrl }).catch(() => null);
 }
 
 async function addPresetPrompt() {
@@ -1043,6 +1282,7 @@ async function addPresetPrompt() {
   await persistAiPresetPrompts();
   els.presetInput.value = "";
   renderPresetPrompts();
+  renderFollowups();
 }
 
 async function removePresetPrompt(index) {
@@ -1052,6 +1292,7 @@ async function removePresetPrompt(index) {
   aiPrefs.aiPresetPrompts = (aiPrefs.aiPresetPrompts || []).filter((_, itemIndex) => itemIndex !== index);
   await persistAiPresetPrompts();
   renderPresetPrompts();
+  renderFollowups();
 }
 
 async function persistAiPresetPrompts() {
@@ -1147,6 +1388,7 @@ function renderConversationMessages() {
     });
     els.messages.appendChild(node);
   });
+  renderFollowups();
   shouldAutoScrollMessages = true;
   scrollToBottom(true);
 }
@@ -1176,7 +1418,9 @@ function buildConversationContextRef(context) {
     url: String(context.url || "").trim(),
     author: String(context.author || "").trim(),
     uploadDate: String(context.uploadDate || "").trim(),
-    bvid: String(context.bvid || "").trim(),
+    // Conversations saved before the site registry carry bvid instead of site/videoId.
+    site: String(context.site || (context.bvid ? "bilibili" : BocSites.matchSite(context.url)?.id || "")).trim(),
+    videoId: String(context.videoId || context.bvid || BocSites.parseRef(context.url)?.id || "").trim(),
     cid: String(context.cid || "").trim(),
     aid: String(context.aid || "").trim(),
     pageIndex: Number(context.pageIndex) > 0 ? Number(context.pageIndex) : 1,
@@ -1202,7 +1446,8 @@ function buildContextPlaceholder(ref) {
     url: String(ref.url || "").trim(),
     author: String(ref.author || "").trim(),
     uploadDate: String(ref.uploadDate || "").trim(),
-    bvid: String(ref.bvid || "").trim(),
+    site: String(ref.site || "").trim(),
+    videoId: String(ref.videoId || "").trim(),
     cid: String(ref.cid || "").trim(),
     aid: String(ref.aid || "").trim(),
     pageIndex: Number(ref.pageIndex) > 0 ? Number(ref.pageIndex) : 1,
@@ -1503,6 +1748,7 @@ async function sendMessage() {
     clearStreamRuntimeState();
     setStreamingUiState(false);
     activePort = null;
+    runPendingFollowSwitch();
   });
 
   activePort.postMessage({
@@ -1573,6 +1819,7 @@ function finalizeAssistant(node) {
   setStreamingUiState(false);
   els.input.focus();
   scrollToBottom();
+  runPendingFollowSwitch();
 }
 
 function showAssistantError(node, error) {
@@ -1585,6 +1832,34 @@ function showAssistantError(node, error) {
   err.className = "sp-msg-error";
   err.textContent = `错误：${error}`;
   node.appendChild(err);
+  const origin = /未授权访问 (https?:\/\/[^\s，]+)/.exec(String(error))?.[1];
+  if (origin) {
+    const grant = document.createElement("button");
+    grant.type = "button";
+    grant.className = "sp-chip sp-grant-btn";
+    grant.textContent = `授权访问 ${origin}`;
+    // The click is the user gesture permissions.request needs; the service worker cannot ask.
+    grant.addEventListener("click", async () => {
+      if (await chrome.permissions.request({ origins: [`${origin}/*`] }).catch(() => false)) {
+        err.textContent = "已授权，请重新发送";
+        grant.remove();
+      }
+    });
+    node.appendChild(grant);
+  }
+  const prompt = activeUserPrompt;
+  if (prompt) {
+    const retry = document.createElement("button");
+    retry.type = "button";
+    retry.className = "sp-chip sp-grant-btn";
+    retry.textContent = "重试";
+    retry.addEventListener("click", () => {
+      if (activePort) return;
+      els.input.value = prompt;
+      void sendMessage();
+    });
+    node.appendChild(retry);
+  }
   activeUserPrompt = "";
   if (activePort) {
     try {
@@ -1595,6 +1870,7 @@ function showAssistantError(node, error) {
   setStreamingUiState(false);
   els.input.focus();
   scrollToBottom();
+  runPendingFollowSwitch();
 }
 
 function handleAssistantStopped(node, reason) {
@@ -1632,6 +1908,7 @@ function handleAssistantStopped(node, reason) {
   setStreamingUiState(false);
   els.input.focus();
   scrollToBottom();
+  runPendingFollowSwitch();
 }
 
 function stopActiveStream() {
@@ -1909,7 +2186,7 @@ function buildQuestionSummary(prompt) {
 function buildAiNoteMarkdown({ context, prompt, answer, filename }) {
   const created = formatLocalDate();
   const sourceTitle = String(context?.title || currentConversationMeta?.contextTitle || "当前视频").trim() || "当前视频";
-  const url = buildCleanBilibiliVideoUrl(context);
+  const url = buildCleanVideoUrl(context);
   const title = filename.replace(/\.md$/i, "");
   const frontmatter = [
     "---",
@@ -1938,7 +2215,7 @@ function buildAiNoteMarkdown({ context, prompt, answer, filename }) {
 function buildAiConversationMarkdown({ context, turns, filename }) {
   const created = formatLocalDate();
   const sourceTitle = String(context?.title || currentConversationMeta?.contextTitle || "当前视频").trim() || "当前视频";
-  const url = buildCleanBilibiliVideoUrl(context);
+  const url = buildCleanVideoUrl(context);
   const title = filename.replace(/\.md$/i, "");
   const frontmatter = [
     "---",
@@ -2001,18 +2278,14 @@ function buildConversationTurns(messages) {
   return turns;
 }
 
-function buildCleanBilibiliVideoUrl(context) {
-  const bvid = String(context?.bvid || extractBvidFromUrl(context?.url) || extractBvidFromUrl(currentConversationMeta?.contextUrl) || "").trim();
-  if (bvid) {
-    return `https://www.bilibili.com/video/${bvid}/`;
+function buildCleanVideoUrl(context) {
+  const url = String(context?.url || currentConversationMeta?.contextUrl || "").trim();
+  const site = BocSites.SITES[context?.site] || BocSites.matchSite(url);
+  const videoId = String(context?.videoId || BocSites.parseRef(url)?.id || "").trim();
+  if (site && videoId) {
+    return site.canonicalUrl(videoId, 1);
   }
-  return String(context?.url || currentConversationMeta?.contextUrl || "").trim();
-}
-
-function extractBvidFromUrl(url) {
-  const text = String(url || "").trim();
-  const match = text.match(/\/video\/(BV[0-9A-Za-z]+)/i) || text.match(/[?&]bvid=(BV[0-9A-Za-z]+)/i);
-  return match?.[1] || "";
+  return url;
 }
 
 function resolveFolderTemplate(template, context) {
@@ -2021,12 +2294,14 @@ function resolveFolderTemplate(template, context) {
     return "";
   }
 
-  const allowedKeys = new Set(["created", "upload_date", "author", "bvid"]);
+  const allowedKeys = new Set(["created", "upload_date", "author", "bvid", "site", "id"]);
   const values = {
     created: sanitizeFolderTemplateValue(formatLocalDate()),
     upload_date: sanitizeFolderTemplateValue(context?.uploadDate || ""),
     author: sanitizeFolderTemplateValue(context?.author || ""),
-    bvid: sanitizeFolderTemplateValue(context?.bvid || "")
+    bvid: sanitizeFolderTemplateValue(context?.site === "bilibili" ? context?.videoId || "" : ""),
+    site: sanitizeFolderTemplateValue(context?.site || ""),
+    id: sanitizeFolderTemplateValue(context?.videoId || "")
   };
   const resolved = normalized.replace(/\{\{\s*([a-zA-Z0-9_]+)\s*\}\}/g, (_match, rawKey) => {
     const key = String(rawKey || "").trim().toLowerCase();
@@ -2306,30 +2581,12 @@ async function jumpToAssistantTimestamp(seconds, label = "") {
 }
 
 function doesTabMatchContextUrl(tabUrl, targetUrl) {
-  const current = extractVideoIdentity(tabUrl);
-  const target = extractVideoIdentity(targetUrl);
-  if (!current.bvid || !target.bvid) {
+  const current = BocSites.parseRef(tabUrl);
+  const target = BocSites.parseRef(targetUrl);
+  if (!current || !target) {
     return String(tabUrl || "").trim() === String(targetUrl || "").trim();
   }
-  return current.bvid === target.bvid && current.page === target.page;
-}
-
-function extractVideoIdentity(url) {
-  const text = String(url || "").trim();
-  const bvidMatch = text.match(/\/video\/(BV[0-9A-Za-z]+)/i) || text.match(/[?&]bvid=(BV[0-9A-Za-z]+)/i);
-  let page = 1;
-  try {
-    page = Number(new URL(text).searchParams.get("p") || "1");
-    if (!Number.isFinite(page) || page <= 0) {
-      page = 1;
-    }
-  } catch {
-    page = 1;
-  }
-  return {
-    bvid: String(bvidMatch?.[1] || "").trim(),
-    page
-  };
+  return current.site === target.site && current.id === target.id && (current.part?.index || 1) === (target.part?.index || 1);
 }
 
 async function waitForTabComplete(tabId, timeoutMs = 15000) {
@@ -2402,6 +2659,7 @@ function restartChat({ keepContext = false } = {}) {
   setStreamingUiState(false);
   els.input.value = "";
   autosizeInput();
+  renderPreviousVideoBar();
 }
 
 function removeCenteredState() {

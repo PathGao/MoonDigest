@@ -5,7 +5,7 @@ const vm = require("vm");
 const crypto = require("crypto");
 const assert = require("assert");
 
-const ctx = vm.createContext({ TextEncoder, URLSearchParams, console });
+const ctx = vm.createContext({ TextEncoder, URLSearchParams, console, setTimeout, clearTimeout, AbortController });
 vm.runInContext(fs.readFileSync(path.join(__dirname, "triage-bg.js"), "utf8"), ctx);
 const t = ctx;
 const md5 = (s) => crypto.createHash("md5").update(s).digest("hex");
@@ -178,4 +178,50 @@ assert.deepStrictEqual(plain(t.triageParseCommand('{"items":[]}', cmdItems, cmdT
 assert.throws(() => t.triageParseCommand("抱歉，没法处理", cmdItems, cmdTags, {}), /不是 JSON/);
 assert.throws(() => t.triageParseCommand('{"new_tags":[', cmdItems, cmdTags, {}), /不完整/);
 
+
+(async () => {
+  // AI HTTP 429 is its own throttle code; other HTTP errors carry none.
+  t.loadAiProviders = async () => [{ id: "p", baseUrl: "https://ai.test", model: "m" }];
+  t.loadAiProviderKeys = async () => ({});
+  t.fetch = async () => ({ ok: false, status: 429, text: async () => "slow down" });
+  await assert.rejects(t.triageChat([], 100), (e) => e.code === "AI_THROTTLED");
+  t.fetch = async () => ({ ok: false, status: 500, text: async () => "" });
+  await assert.rejects(t.triageChat([], 100), (e) => e.code === undefined);
+
+  // A request that never settles, even on abort, still ends with the retryable timeout code.
+  vm.runInContext("TRIAGE_AI_TIMEOUT_MS.normal = 30; TRIAGE_AI_TIMEOUT_MS.thinking = 60;", ctx);
+  let aborted = false;
+  t.fetch = (url, { signal }) => {
+    signal.addEventListener("abort", () => (aborted = true));
+    return new Promise(() => {});
+  };
+  await assert.rejects(t.triageChat([], 100), (e) => e.code === "AI_TIMEOUT" && e.message === "AI 超时（0.03 秒），已跳过，可重试");
+  assert.strictEqual(aborted, true);
+  const started = Date.now();
+  await assert.rejects(t.triageChat([], 100, true), (e) => e.code === "AI_TIMEOUT");
+  assert.ok(Date.now() - started >= 55, "thinking uses the longer timeout");
+
+  // Interval 0 is a valid user choice; only invalid values fall back to the default.
+  const settingsWith = async (stored) => {
+    t.chrome = { storage: { sync: { get: async (d) => ({ ...d, ...stored }) } } };
+    return (await vm.runInContext("TRIAGE_HANDLERS", ctx)["triage-settings-get"]()).triageIntervalSec;
+  };
+  assert.strictEqual(await settingsWith({ triageIntervalSec: 0 }), 0);
+  assert.strictEqual(await settingsWith({ triageIntervalSec: 5 }), 5);
+  assert.strictEqual(await settingsWith({ triageIntervalSec: -1 }), 8);
+  assert.strictEqual(await settingsWith({ triageIntervalSec: "x" }), 8);
+  assert.strictEqual(await settingsWith({}), 8);
+
+  // AI summary placement
+const front = "---\ntitle: \"x\"\n---\n\n![cover](u)\n\n## 简介\n\nhi";
+const done = { status: "done", oneLiner: "一句话", points: ["a", "b"], verdict: "keep", reason: "有用" };
+assert.strictEqual(
+  t.triageWithSummary(front, done),
+  "---\ntitle: \"x\"\n---\n\n## AI 总结\n\n> 一句话\n\n- a\n- b\n\n判断：建议留，有用\n\n![cover](u)\n\n## 简介\n\nhi"
+);
+assert.strictEqual(t.triageWithSummary("## 简介\n\nhi", { status: "done", verdict: "drop" }), "## AI 总结\n\n判断：建议删\n\n## 简介\n\nhi");
+assert.strictEqual(t.triageWithSummary(front, { status: "error" }), front);
+assert.strictEqual(t.triageWithSummary(front, undefined), front);
+
 console.log("triage-bg selftest: all passed");
+})();
