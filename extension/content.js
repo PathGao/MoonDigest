@@ -8,6 +8,7 @@ const DEFAULT_SETTINGS = {
   obsidianApiKey: "",
   tags: "clippings",
   downloadFormat: "srt",
+  youtubeSubtitleLang: "auto",
   includeDateInFilename: true,
   includeHotCommentsInNote: false,
   includeCoverInNote: true,
@@ -1103,7 +1104,7 @@ async function refreshClip() {
       500
     );
     ensureRunActive(runId);
-    state.subtitles = BocSites.rankTracks(subtitleBundle.tracks);
+    state.subtitles = BocSites.rankTracks(subtitleBundle.tracks, subtitleLangTarget());
     state.chapters = BocSites.normalizeChapters(subtitleBundle.chapters);
     logInfo(
       "[BOC] chapters",
@@ -1162,7 +1163,7 @@ async function refreshClip() {
         500
       );
       ensureRunActive(runId);
-      state.subtitles = BocSites.rankTracks(subtitleBundle.tracks);
+      state.subtitles = BocSites.rankTracks(subtitleBundle.tracks, subtitleLangTarget());
       state.chapters = BocSites.normalizeChapters(subtitleBundle.chapters);
       const retryPreferred = BocSites.pickPreferredTrack(state.subtitles, {
         previousId: preferred.id,
@@ -4242,6 +4243,11 @@ function computeCurrentClipSignature(url = location.href) {
   return ref ? [ref.site, ref.id, ref.part?.index || 1, ref.part?.oid || ""].join("|") : "";
 }
 
+// The language setting is YouTube's only; Bilibili keeps the default order.
+function subtitleLangTarget() {
+  return state.site === "youtube" ? BocSites.normalizeSubtitleLang(state.settings?.youtubeSubtitleLang) : "auto";
+}
+
 function currentSite() {
   return BocSites.matchSite(location.href);
 }
@@ -4281,6 +4287,7 @@ function queryFirst(list, root = document) {
 function siteIo() {
   return {
     doc: document,
+    subtitleLang: subtitleLangTarget(),
     fetchJson: (url) => (currentSite()?.pageOnly ? fetchJson(url) : fetchJsonInBackground(url)),
     fetchText: async (url) => {
       const response = await fetch(url, { credentials: "include", cache: "no-store" });

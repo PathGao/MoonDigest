@@ -39,6 +39,37 @@ eq(ranked.map((item) => item.id), ["3", "2", "4", "1", "5"]);
 assert.strictEqual(S.pickPreferredTrack(ranked, { previousId: "5" }).id, "5");
 assert.strictEqual(S.pickPreferredTrack(ranked, { previousUrl: "https://a.com/u4?auth=1" }).id, "3");
 assert.strictEqual(S.pickPreferredTrack(ranked, { previousLang: "english" }).id, "4");
+
+// YouTube default subtitle language: native tracks in the target first,
+// then a machine translation of a translatable (manual-first) source.
+const ytTracks = [
+  { id: "a.en", lang: "en", label: "English", url: "https://y/t?v=1&lang=en", kind: "auto", translatable: true },
+  { id: ".de", lang: "de-DE", label: "German", url: "https://y/t?v=1&lang=de", kind: "manual", isDefault: true, translatable: true },
+  { id: ".en", lang: "en", label: "English", url: "https://y/t?v=1&lang=en&m=1", kind: "manual", translatable: true },
+  { id: ".zh-TW", lang: "zh-TW", label: "中文（台灣）", url: "https://y/t?v=1&lang=zh-TW", kind: "manual", translatable: false }
+];
+const ytIds = async (target) =>
+  S.rankTracks((await S.SITES.youtube.fetchTracks({}, { tracks: ytTracks }, { subtitleLang: target })).tracks, target).map((item) => item.id);
+(async () => {
+  eq(await ytIds("auto"), [".zh-TW", ".en", "a.en", ".de"]);
+  eq(await ytIds("en"), [".en", "a.en", ".zh-TW", ".de"]);
+  eq(await ytIds("zh-Hant"), [".zh-TW", ".en", "a.en", ".de"]);
+  eq((await ytIds("zh-Hans"))[0], ".en>zh-Hans");
+  const [translated] = S.rankTracks((await S.SITES.youtube.fetchTracks({}, { tracks: ytTracks }, { subtitleLang: "zh-Hans" })).tracks, "zh-Hans");
+  eq(translated, { id: ".en>zh-Hans", lang: "zh-Hans", label: "简体中文（机器翻译，自English）", url: "https://y/t?v=1&lang=en&m=1&tlang=zh-Hans", kind: "translated", isDefault: false });
+  // A manual source beats an auto one in a higher-ranked language.
+  eq((await S.SITES.youtube.fetchTracks({}, { tracks: ytTracks.slice(0, 2) }, { subtitleLang: "ja" })).tracks[2].id, ".de>ja");
+  // Only untranslatable tracks: nothing to add.
+  eq((await S.SITES.youtube.fetchTracks({}, { tracks: [ytTracks[3]] }, { subtitleLang: "ja" })).tracks.length, 1);
+  // An auto-only video translates its auto track.
+  eq((await S.SITES.youtube.fetchTracks({}, { tracks: [ytTracks[0]] }, { subtitleLang: "ja" })).tracks[1].url, "https://y/t?v=1&lang=en&tlang=ja");
+  assert.strictEqual(S.normalizeSubtitleLang("zh-Hans"), "zh-Hans");
+  assert.strictEqual(S.normalizeSubtitleLang("fr"), "auto");
+  assert.strictEqual(S.normalizeSubtitleLang(undefined), "auto");
+})().catch((error) => {
+  console.error(error);
+  process.exit(1);
+});
 assert.strictEqual(S.pickPreferredTrack(ranked).id, "3");
 assert.strictEqual(S.trackUrlKey("https://a.com/p/x.json?auth_key=1"), "a.com/p/x.json");
 

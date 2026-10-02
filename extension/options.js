@@ -33,6 +33,7 @@ const DEFAULT_SETTINGS = {
   obsidianApiKey: "",
   tags: "clippings",
   downloadFormat: "srt",
+  youtubeSubtitleLang: "auto",
   includeDateInFilename: true,
   includeHotCommentsInNote: false,
   includeCoverInNote: true,
@@ -86,6 +87,7 @@ const elements = {
   obsidianApiKey: document.getElementById("obsidianApiKey"),
   tags: document.getElementById("tags"),
   downloadFormat: document.getElementById("downloadFormat"),
+  youtubeSubtitleLang: document.getElementById("youtubeSubtitleLang"),
   includeDateInFilename: document.getElementById("includeDateInFilename"),
   includeHotCommentsInNote: document.getElementById("includeHotCommentsInNote"),
   includeCoverInNote: document.getElementById("includeCoverInNote"),
@@ -141,6 +143,7 @@ async function loadSettings() {
   elements.obsidianApiKey.value = settings.obsidianApiKey || "";
   elements.tags.value = settings.tags || "";
   elements.downloadFormat.value = normalizeDownloadFormat(settings.downloadFormat);
+  elements.youtubeSubtitleLang.value = settings.youtubeSubtitleLang || "auto";
   elements.includeDateInFilename.checked = settings.includeDateInFilename !== false;
   elements.includeHotCommentsInNote.checked = Boolean(settings.includeHotCommentsInNote);
   elements.includeCoverInNote.checked = settings.includeCoverInNote !== false;
@@ -256,6 +259,7 @@ function collectFormPayload() {
     obsidianApiKey: normalizedApiKey,
     tags: elements.tags.value.trim(),
     downloadFormat: normalizeDownloadFormat(elements.downloadFormat.value),
+    youtubeSubtitleLang: elements.youtubeSubtitleLang.value,
     includeDateInFilename: elements.includeDateInFilename.checked,
     includeHotCommentsInNote: elements.includeHotCommentsInNote.checked,
     includeCoverInNote: elements.includeCoverInNote.checked,

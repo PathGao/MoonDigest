@@ -105,12 +105,32 @@
     return 50;
   }
 
-  const KIND_ORDER = { manual: 0, auto: 1, ai: 1 };
+  const KIND_ORDER = { manual: 0, auto: 1, ai: 1, translated: 2 };
+
+  // Targets of the youtubeSubtitleLang setting besides "auto".
+  const SUBTITLE_LANG_NAMES = { "zh-Hans": "简体中文", "zh-Hant": "繁體中文", en: "English", ja: "日本語" };
+
+  function normalizeSubtitleLang(value) {
+    return SUBTITLE_LANG_NAMES[value] ? value : "auto";
+  }
+
+  function langMatches(lang, target) {
+    const code = String(lang || "").toLowerCase();
+    const hant = /^zh-(hant|tw|hk|mo)\b/.test(code);
+    if (target === "zh-Hans") return code.startsWith("zh") && !hant;
+    if (target === "zh-Hant") return hant;
+    const want = target.toLowerCase();
+    return code === want || code.startsWith(`${want}-`);
+  }
 
   // Chinese, then English, then the rest; within a language the site's
-  // default track and human-made tracks first.
-  function rankTracks(tracks) {
+  // default track and human-made tracks first. A target other than "auto"
+  // moves its language to the front.
+  function rankTracks(tracks, target = "auto") {
+    const misses = (track) => (SUBTITLE_LANG_NAMES[target] ? Number(!langMatches(track.lang, target)) : 0);
     return [...(tracks || [])].sort((a, b) => {
+      const targetGap = misses(a) - misses(b);
+      if (targetGap !== 0) return targetGap;
       const gap = trackLanguagePriority(a) - trackLanguagePriority(b);
       if (gap !== 0) return gap;
       const defaultGap = Number(Boolean(b.isDefault)) - Number(Boolean(a.isDefault));
@@ -542,6 +562,33 @@
     return ytText(track?.name);
   }
 
+  // Without a native track in the target language, YouTube machine-translates
+  // any translatable track when its URL gets &tlang=. translationLanguages is
+  // not consulted: it never lists zh-Hans, which works. Manual sources first.
+  function ytWithTranslation(tracks, target) {
+    const name = SUBTITLE_LANG_NAMES[target];
+    if (!name || tracks.some((track) => langMatches(track.lang, target))) {
+      return tracks;
+    }
+    const source = rankTracks(tracks.filter((track) => track.translatable)).sort(
+      (a, b) => Number(a.kind !== "manual") - Number(b.kind !== "manual")
+    )[0];
+    if (!source) {
+      return tracks;
+    }
+    return [
+      ...tracks,
+      {
+        id: `${source.id}>${target}`,
+        lang: target,
+        label: `${name}（机器翻译，自${source.label}）`,
+        url: `${source.url}&tlang=${target}`,
+        kind: "translated",
+        isDefault: false
+      }
+    ];
+  }
+
   const YT_COUNT_UNITS = { k: 1e3, m: 1e6, b: 1e9, 千: 1e3, 万: 1e4, 萬: 1e4, 亿: 1e8, 億: 1e8 };
 
   // "322K", "1.2M", "1,234", "1.2万" -> number; anything else -> 0.
@@ -662,7 +709,8 @@
           label: ytTrackName(track) || String(track?.languageCode || ""),
           url: String(track?.baseUrl || ""),
           kind: track?.kind === "asr" ? "auto" : "manual",
-          isDefault: index === defaultIndex
+          isDefault: index === defaultIndex,
+          translatable: track?.isTranslatable === true
         }))
         .filter((track) => track.url);
       const thumbnails = [...(details.thumbnail?.thumbnails || [])].sort((a, b) => (Number(b.width) || 0) - (Number(a.width) || 0));
@@ -686,7 +734,7 @@
     // repeats that single call.
     async fetchTracks(ref, meta, io) {
       const tracks = Array.isArray(meta?.tracks) ? meta.tracks : (await youtube.fetchMeta(ref, io)).tracks;
-      return { tracks, chapters: [] };
+      return { tracks: ytWithTranslation(tracks, io.subtitleLang), chapters: [] };
     },
     async fetchSegments(track, io) {
       return normalizeSegments(parseYoutubeSubtitle(await io.fetchText(track.url)));
@@ -787,6 +835,7 @@
     isAllowedFetchUrl,
     buildContextKey,
     rankTracks,
+    normalizeSubtitleLang,
     pickPreferredTrack,
     trackUrlKey,
     normalizeChapters,

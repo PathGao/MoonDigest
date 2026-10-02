@@ -34,6 +34,7 @@ const DEFAULT_SYNC_SETTINGS = {
   obsidianApiBaseUrl: "http://127.0.0.1:27123",
   tags: "clippings",
   downloadFormat: "srt",
+  youtubeSubtitleLang: "auto",
   includeDateInFilename: true,
   includeHotCommentsInNote: false,
   includeCoverInNote: true,
@@ -970,6 +971,7 @@ async function getMergedSettings() {
 
   const merged = { ...DEFAULT_SYNC_SETTINGS, ...syncSettings };
   merged.downloadFormat = normalizeDownloadFormat(merged.downloadFormat);
+  merged.youtubeSubtitleLang = BocSites.normalizeSubtitleLang(merged.youtubeSubtitleLang);
   merged.includeHotCommentsInNote = normalizeIncludeHotCommentsInNote(merged.includeHotCommentsInNote);
   merged.enablePlayerAiQuickAction = normalizeEnablePlayerAiQuickAction(merged.enablePlayerAiQuickAction);
   merged.playerAiQuickPrompt = normalizePlayerAiQuickPrompt(merged.playerAiQuickPrompt);
@@ -1005,6 +1007,7 @@ async function saveSettings(settings) {
   const syncPayload = { ...payload };
   delete syncPayload.obsidianApiKey;
   syncPayload.downloadFormat = normalizeDownloadFormat(syncPayload.downloadFormat);
+  syncPayload.youtubeSubtitleLang = BocSites.normalizeSubtitleLang(syncPayload.youtubeSubtitleLang);
   syncPayload.includeHotCommentsInNote = normalizeIncludeHotCommentsInNote(syncPayload.includeHotCommentsInNote);
   syncPayload.enablePlayerAiQuickAction = normalizeEnablePlayerAiQuickAction(syncPayload.enablePlayerAiQuickAction);
   syncPayload.playerAiQuickPrompt = normalizePlayerAiQuickPrompt(syncPayload.playerAiQuickPrompt);
