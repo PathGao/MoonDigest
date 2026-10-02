@@ -239,7 +239,7 @@ function renderModelSelect(preferredProviderId = "") {
   if (!providers.length) {
     els.modelSelect.innerHTML = '<option value="">未配置平台</option>';
     els.modelSelect.disabled = true;
-    els.modelSelect.style.width = "96px";
+    updateModelSelectWidth();
     return;
   }
 
