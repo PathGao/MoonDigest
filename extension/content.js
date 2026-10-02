@@ -6,6 +6,7 @@ const DEFAULT_SETTINGS = {
   downloadFormat: "srt",
   includeDateInFilename: true,
   includeHotCommentsInNote: false,
+  includeCoverInNote: true,
   enablePlayerAiQuickAction: false,
   playerAiQuickPrompt: "整理这期视频的内容，输出结构化总结：主题、核心观点、关键细节、结论与可执行启发。",
   includeTimestampInBody: true,
@@ -20,10 +21,14 @@ const DEFAULT_SETTINGS = {
   frontmatterFields: [
     "title",
     "url",
-    "bvid",
+    "site",
+    "video_id",
     "cid",
     "author",
+    "author_url",
     "upload_date",
+    "duration",
+    "cover",
     "subtitle_lang",
     "created",
     "tags"
@@ -31,6 +36,8 @@ const DEFAULT_SETTINGS = {
   fixedFrontmatterProperties: [],
   notePlaceholderSections: []
 };
+// Every field a note can carry; DEFAULT_SETTINGS.frontmatterFields is the subset on by default.
+const FRONTMATTER_FIELDS = [...DEFAULT_SETTINGS.frontmatterFields, "video_tags"];
 const PLAYER_AI_ICON_VARIANT = "badge";
 
 const BOC_VERSION = chrome.runtime.getManifest().version;
@@ -51,6 +58,9 @@ const state = {
   description: "",
   title: "",
   author: "",
+  authorUrl: "",
+  cover: "",
+  videoTags: [],
   uploadDate: "",
   subtitles: [],
   selectedSubtitleId: "",
@@ -989,6 +999,9 @@ function resetClipState() {
   state.description = "";
   state.title = "";
   state.author = "";
+  state.authorUrl = "";
+  state.cover = "";
+  state.videoTags = [];
   state.uploadDate = "";
   state.subtitles = [];
   state.selectedSubtitleId = "";
@@ -1048,6 +1061,9 @@ async function refreshClip() {
     state.aid = meta.aid || "";
     state.title = meta.title || dom.title;
     state.author = meta.author || dom.author;
+    state.authorUrl = meta.authorUrl || "";
+    state.cover = meta.cover || "";
+    state.videoTags = Array.isArray(meta.tags) ? meta.tags : [];
     state.uploadDate = meta.uploadDate || dom.uploadDate;
     state.description = meta.description || dom.description;
     state.pageCount = Number(meta.pageCount) || 0;
@@ -4716,7 +4732,12 @@ function buildMarkdown(meta, body, settings) {
   if (frontMatter) {
     lines.push(frontMatter, "");
   }
-  lines.push(embedIframe, "");
+  if (settings.includeCoverInNote !== false && meta.cover) {
+    lines.push(`![cover](${meta.cover})`, "");
+  }
+  if (embedIframe) {
+    lines.push(embedIframe, "");
+  }
   pushOptionalLines(lines, noteSections.before_intro);
 
   if (intro) {
@@ -4765,15 +4786,21 @@ function buildFrontMatter(meta, settings, created, tagsCsv, tagsYaml) {
     return "";
   }
 
+  const quoted = (key, value) => (value ? `${key}: "${escapeYaml(value)}"` : "");
   const fieldLines = {
-    title: `title: "${escapeYaml(meta.title)}"`,
-    url: `url: "${escapeYaml(cleanVideoUrl())}"`,
-    bvid: `bvid: "${escapeYaml(meta.site === "bilibili" ? meta.videoId : "")}"`,
-    cid: `cid: "${escapeYaml(meta.cid)}"`,
-    author: `author: "${escapeYaml(meta.author || "unknown")}"`,
-    upload_date: `upload_date: "${escapeYaml(meta.uploadDate || "unknown")}"`,
-    subtitle_lang: `subtitle_lang: "${escapeYaml(meta.selectedSubtitleLang || "unknown")}"`,
-    created: `created: "${created}"`,
+    title: quoted("title", meta.title),
+    url: quoted("url", cleanVideoUrl()),
+    site: quoted("site", meta.site),
+    video_id: quoted("video_id", meta.videoId),
+    cid: quoted("cid", meta.cid),
+    author: quoted("author", meta.author || "unknown"),
+    author_url: quoted("author_url", meta.authorUrl),
+    upload_date: quoted("upload_date", meta.uploadDate || "unknown"),
+    duration: Number(meta.videoDuration) > 0 ? `duration: ${Math.round(Number(meta.videoDuration))}` : "",
+    cover: quoted("cover", meta.cover),
+    video_tags: meta.videoTags?.length ? `video_tags: ${yamlList(meta.videoTags)}` : "",
+    subtitle_lang: quoted("subtitle_lang", meta.selectedSubtitleLang || "unknown"),
+    created: quoted("created", created),
     tags: `tags: ${tagsYaml}`
   };
 
@@ -4786,15 +4813,17 @@ function buildFrontMatter(meta, settings, created, tagsCsv, tagsYaml) {
   return ["---", ...lines, "---"].join("\n");
 }
 
+function yamlList(items) {
+  return `[${items.map((item) => `"${escapeYaml(item)}"`).join(", ")}]`;
+}
+
 function getEnabledFrontmatterFields(settings) {
-  const defaultFields = Array.isArray(DEFAULT_SETTINGS.frontmatterFields)
-    ? DEFAULT_SETTINGS.frontmatterFields
-    : [];
-  const raw = Array.isArray(settings?.frontmatterFields) ? settings.frontmatterFields : defaultFields;
-  const allowed = new Set(defaultFields);
+  const raw = Array.isArray(settings?.frontmatterFields) ? settings.frontmatterFields : DEFAULT_SETTINGS.frontmatterFields;
+  const allowed = new Set(FRONTMATTER_FIELDS);
   const unique = [];
   raw.forEach((item) => {
-    const key = String(item || "").trim();
+    // "bvid" was the field name before the site registry.
+    const key = String(item || "").trim().replace(/^bvid$/, "video_id");
     if (!key || !allowed.has(key) || unique.includes(key)) {
       return;
     }
@@ -4805,11 +4834,7 @@ function getEnabledFrontmatterFields(settings) {
 
 function getFixedFrontmatterPropertyLines(settings, templateContext = {}) {
   const customPropertyKeyPattern = /^[\p{L}\p{N}_\-\s]+$/u;
-  const systemFields = new Set(
-    (Array.isArray(DEFAULT_SETTINGS.frontmatterFields) ? DEFAULT_SETTINGS.frontmatterFields : []).map((field) =>
-      String(field).toLowerCase()
-    )
-  );
+  const systemFields = new Set(FRONTMATTER_FIELDS);
   const rows = Array.isArray(settings?.fixedFrontmatterProperties) ? settings.fixedFrontmatterProperties : [];
   const seenKeys = new Set();
   const lines = [];
@@ -4851,9 +4876,14 @@ function buildFrontmatterTemplateContext(meta, created, tagsCsv, tagsYaml) {
   return {
     title: String(meta?.title || "").trim(),
     url: String(cleanVideoUrl() || "").trim(),
+    site: String(meta?.site || "").trim(),
+    video_id: String(meta?.videoId || "").trim(),
     bvid: String(meta?.site === "bilibili" ? meta?.videoId || "" : "").trim(),
     cid: String(meta?.cid || "").trim(),
     author: String(meta?.author || "unknown").trim(),
+    author_url: String(meta?.authorUrl || "").trim(),
+    cover: String(meta?.cover || "").trim(),
+    duration: Number(meta?.videoDuration) > 0 ? String(Math.round(Number(meta.videoDuration))) : "",
     upload_date: String(meta?.uploadDate || "unknown").trim(),
     subtitle_lang: String(meta?.selectedSubtitleLang || "unknown").trim(),
     created: String(created || "").trim(),
@@ -4875,7 +4905,9 @@ function buildFolderTemplateContext(meta, created = formatLocalDate()) {
     created: sanitizeFolderTemplateValue(created),
     upload_date: sanitizeFolderTemplateValue(meta?.uploadDate || ""),
     author: sanitizeFolderTemplateValue(meta?.author || ""),
-    bvid: sanitizeFolderTemplateValue(meta?.site === "bilibili" ? meta?.videoId || "" : "")
+    bvid: sanitizeFolderTemplateValue(meta?.site === "bilibili" ? meta?.videoId || "" : ""),
+    site: sanitizeFolderTemplateValue(meta?.site || ""),
+    id: sanitizeFolderTemplateValue(meta?.videoId || "")
   };
 }
 
@@ -4885,7 +4917,7 @@ function resolveFolderTemplate(template, meta) {
     return "";
   }
 
-  const allowedKeys = new Set(["created", "upload_date", "author", "bvid"]);
+  const allowedKeys = new Set(["created", "upload_date", "author", "bvid", "site", "id"]);
   const context = buildFolderTemplateContext(meta);
   const resolved = String(normalized).replace(/\{\{\s*([a-zA-Z0-9_]+)\s*\}\}/g, (_match, rawKey) => {
     const key = String(rawKey || "").trim().toLowerCase();
@@ -4907,6 +4939,10 @@ function buildNotePlaceholderTemplateContext(meta, description) {
     title: String(meta?.title || "").trim(),
     author: String(meta?.author || "").trim(),
     url: String(cleanVideoUrl() || "").trim(),
+    site: String(meta?.site || "").trim(),
+    video_id: String(meta?.videoId || "").trim(),
+    author_url: String(meta?.authorUrl || "").trim(),
+    cover: String(meta?.cover || "").trim(),
     upload_date: String(meta?.uploadDate || "").trim(),
     description: String(description || "").trim()
   };

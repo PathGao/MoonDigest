@@ -36,6 +36,7 @@ const DEFAULT_SYNC_SETTINGS = {
   downloadFormat: "srt",
   includeDateInFilename: true,
   includeHotCommentsInNote: false,
+  includeCoverInNote: true,
   enablePlayerAiQuickAction: false,
   playerAiQuickPrompt: DEFAULT_PLAYER_AI_QUICK_PROMPT,
   includeTimestampInBody: true,
@@ -50,10 +51,14 @@ const DEFAULT_SYNC_SETTINGS = {
   frontmatterFields: [
     "title",
     "url",
-    "bvid",
+    "site",
+    "video_id",
     "cid",
     "author",
+    "author_url",
     "upload_date",
+    "duration",
+    "cover",
     "subtitle_lang",
     "created",
     "tags"

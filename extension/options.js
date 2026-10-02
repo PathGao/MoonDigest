@@ -35,6 +35,7 @@ const DEFAULT_SETTINGS = {
   downloadFormat: "srt",
   includeDateInFilename: true,
   includeHotCommentsInNote: false,
+  includeCoverInNote: true,
   enablePlayerAiQuickAction: false,
   playerAiQuickPrompt: DEFAULT_PLAYER_AI_QUICK_PROMPT,
   includeTimestampInBody: true,
@@ -42,10 +43,14 @@ const DEFAULT_SETTINGS = {
   frontmatterFields: [
     "title",
     "url",
-    "bvid",
+    "site",
+    "video_id",
     "cid",
     "author",
+    "author_url",
     "upload_date",
+    "duration",
+    "cover",
     "subtitle_lang",
     "created",
     "tags"
@@ -57,7 +62,6 @@ const DEFAULT_SETTINGS = {
   aiPresetPrompts: DEFAULT_PRESET_PROMPTS.slice()
 };
 
-const SYSTEM_FRONTMATTER_FIELDS = new Set(DEFAULT_SETTINGS.frontmatterFields.map((field) => String(field).toLowerCase()));
 const CUSTOM_PROPERTY_KEY_PATTERN = /^[\p{L}\p{N}_\-\s]+$/u;
 const FIXED_PROPERTY_TYPES = new Set(["text", "number", "checkbox", "list", "date"]);
 const FRONTMATTER_TEMPLATE_TOKEN_RE = /\{\{\s*([a-zA-Z0-9_]+)\s*\}\}/;
@@ -84,6 +88,7 @@ const elements = {
   downloadFormat: document.getElementById("downloadFormat"),
   includeDateInFilename: document.getElementById("includeDateInFilename"),
   includeHotCommentsInNote: document.getElementById("includeHotCommentsInNote"),
+  includeCoverInNote: document.getElementById("includeCoverInNote"),
   enablePlayerAiQuickAction: document.getElementById("enablePlayerAiQuickAction"),
   playerAiQuickPrompt: document.getElementById("playerAiQuickPrompt"),
   includeTimestampInBody: document.getElementById("includeTimestampInBody"),
@@ -135,11 +140,13 @@ async function loadSettings() {
   elements.downloadFormat.value = normalizeDownloadFormat(settings.downloadFormat);
   elements.includeDateInFilename.checked = settings.includeDateInFilename !== false;
   elements.includeHotCommentsInNote.checked = Boolean(settings.includeHotCommentsInNote);
+  elements.includeCoverInNote.checked = settings.includeCoverInNote !== false;
   elements.enablePlayerAiQuickAction.checked = Boolean(settings.enablePlayerAiQuickAction);
   elements.playerAiQuickPrompt.value = String(settings.playerAiQuickPrompt || "");
   elements.includeTimestampInBody.checked = Boolean(settings.includeTimestampInBody);
   elements.enableDebugLogs.checked = Boolean(settings.enableDebugLogs);
-  const selectedFields = new Set(settings.frontmatterFields || DEFAULT_SETTINGS.frontmatterFields);
+  // "bvid" was the field name before the site registry.
+  const selectedFields = new Set((settings.frontmatterFields || DEFAULT_SETTINGS.frontmatterFields).map((field) => (field === "bvid" ? "video_id" : field)));
   elements.frontmatterFields.forEach((checkbox) => {
     checkbox.checked = selectedFields.has(checkbox.value);
   });
@@ -238,6 +245,7 @@ function collectFormPayload() {
     downloadFormat: normalizeDownloadFormat(elements.downloadFormat.value),
     includeDateInFilename: elements.includeDateInFilename.checked,
     includeHotCommentsInNote: elements.includeHotCommentsInNote.checked,
+    includeCoverInNote: elements.includeCoverInNote.checked,
     enablePlayerAiQuickAction: elements.enablePlayerAiQuickAction.checked,
     playerAiQuickPrompt: normalizePlayerAiQuickPrompt(elements.playerAiQuickPrompt.value),
     includeTimestampInBody: elements.includeTimestampInBody.checked,
@@ -682,7 +690,7 @@ function validateFixedFrontmatterProperties(items) {
     } else if (!valueText) {
       return { ok: false, row: item.row, message: "请填写固定属性的属性值" };
     }
-    if (SYSTEM_FRONTMATTER_FIELDS.has(lowerKey)) {
+    if (Array.from(elements.frontmatterFields).some((checkbox) => checkbox.value === lowerKey)) {
       return { ok: false, row: item.row, message: "该属性名与系统字段重复，请换一个名称" };
     }
     if (seenKeys.has(lowerKey)) {
