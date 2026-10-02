@@ -71,7 +71,6 @@ let streamFirstTokenReceived = false;
 let initCompleted = false;
 let followPlayback = localStorage.getItem(FOLLOW_PLAYBACK_KEY) !== "0";
 let lastLiveVideoKey = "";
-let pendingFollowFromKey = "";
 let previousVideoConversationId = "";
 let previousVideoExpanded = false;
 let previousVideoBarSignature = "";
@@ -434,13 +433,7 @@ async function loadContextState({ forceRefresh = false, silent = false, follow =
     lastLiveVideoKey = liveContextKey;
   }
   if (follow && isFollowCandidate(followFromKey)) {
-    if (activeStream) {
-      // 正在生成回复：记下切换，等 done/stopped/error 后再切，不打断流
-      pendingFollowFromKey = pendingFollowFromKey || followFromKey;
-      renderHistoryList();
-      updateContextChip();
-      return true;
-    }
+    await detachActiveStream();
     await followLiveVideo();
     return FOLLOWED_LIVE_VIDEO;
   }
@@ -1126,14 +1119,45 @@ function isFollowCandidate(fromKey) {
   return (currentConversationMeta?.contextKey || currentContextKey) === fromKey;
 }
 
-function runPendingFollowSwitch() {
-  if (!pendingFollowFromKey || activeStream) {
+// Switching videos mid-reply hands the reply to its saved conversation, which then becomes the previous-video bar.
+// The port stays open, so the background keeps streaming while the new video is usable at once.
+async function detachActiveStream() {
+  const stream = activeStream;
+  if (!stream) {
     return;
   }
-  const fromKey = pendingFollowFromKey;
-  pendingFollowFromKey = "";
-  if (isFollowCandidate(fromKey)) {
-    void followLiveVideo();
+  activeStream = null;
+  clearStreamRuntimeState();
+  chatHistory.push({ role: "user", content: stream.prompt });
+  // The id is assigned before the first await, so a reply ending during the save still finds its conversation.
+  const saving = persistCurrentConversation();
+  stream.conversationId = currentConversationId;
+  stream.promptIndex = chatHistory.length - 1;
+  await saving;
+}
+
+// Puts the answer after its question, or drops the question when nothing came back.
+// chatHistory gets the same patch when the user has reopened that conversation meanwhile.
+async function finishDetachedStream({ conversationId, promptIndex, prompt, raw }) {
+  const conversation = savedConversations.find((item) => item.id === conversationId);
+  if (!conversation) {
+    return;
+  }
+  const isCurrent = conversationId === currentConversationId;
+  [conversation.messages, ...(isCurrent ? [chatHistory] : [])].forEach((messages) => {
+    if (messages[promptIndex]?.role !== "user" || messages[promptIndex].content !== prompt || messages[promptIndex + 1]?.role === "assistant") {
+      return;
+    }
+    if (raw.trim()) {
+      messages.splice(promptIndex + 1, 0, { role: "assistant", content: raw });
+    } else {
+      messages.splice(promptIndex, 1);
+    }
+  });
+  conversation.updatedAt = Date.now();
+  await saveConversations();
+  if (isCurrent && !activeStream) {
+    renderConversationMessages();
   }
 }
 
@@ -1821,6 +1845,9 @@ function closeStream(stream) {
 function endStream(stream, { stopped = "", error = "" } = {}) {
   closeStream(stream);
   if (stream !== activeStream) {
+    if (stream.conversationId) {
+      void finishDetachedStream(stream);
+    }
     return;
   }
   activeStream = null;
@@ -1848,7 +1875,6 @@ function endStream(stream, { stopped = "", error = "" } = {}) {
   setStreamingUiState(false);
   els.input.focus();
   scrollToBottom();
-  runPendingFollowSwitch();
 }
 
 function appendStreamError({ node, prompt, raw }, error, saved) {
