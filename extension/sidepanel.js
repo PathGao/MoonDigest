@@ -2,7 +2,7 @@ const SELECTED_PROVIDER_KEY = "boc_ai_selected_provider";
 const CONVERSATIONS_STORAGE_KEY = "boc_ai_conversations_v1";
 const PLAYER_AI_QUICK_ACTION_STORAGE_KEY = "boc_player_ai_quick_action_v1";
 const MAX_SAVED_CONVERSATIONS = 60;
-const NON_VIDEO_CONTEXT_MESSAGE = "当前页非 B 站视频页面，<br>无法获取当前页面信息作为对话上下文，<br>仅支持 AI 对话。";
+const NON_VIDEO_CONTEXT_MESSAGE = "当前页不是支持的视频页面，<br>无法获取当前页面信息作为对话上下文，<br>仅支持 AI 对话。";
 const DEFAULT_PRESET_PROMPTS = [
   "生成视频摘要和结论",
   "按章节整理视频内容",
@@ -477,11 +477,9 @@ function buildContextKey(payload) {
   if (!payload) {
     return "";
   }
-  const bvid = String(payload.bvid || "").trim();
-  const cid = String(payload.cid || "").trim();
-  const aid = String(payload.aid || "").trim();
-  if (bvid || cid || aid) {
-    return `video:${bvid}|${cid || aid}`;
+  const videoKey = BocSites.buildContextKey(buildConversationContextRef(payload) || {});
+  if (videoKey) {
+    return videoKey;
   }
   const normalizedUrl = normalizeContextUrlForKey(payload.url);
   return normalizedUrl ? `url:${normalizedUrl}` : "";
@@ -556,7 +554,7 @@ async function openCurrentContextUrl() {
 function renderInitialState() {
   updateSidepanelLayoutState();
   if (!contextData) {
-    resetConversationView("当前页面不是 B 站视频页，无法读取视频信息。");
+    resetConversationView("当前页面不是支持的视频页，无法读取视频信息。");
     return;
   }
   if (!providers.length) {
@@ -786,7 +784,7 @@ async function hydrateConversationPageMetadata() {
   let changed = false;
   for (const conversation of candidates) {
     const contextRef = conversation.contextRef || null;
-    if (!contextRef?.bvid || !contextRef?.cid) {
+    if (!contextRef?.videoId) {
       continue;
     }
     const response = await sendRuntimeMessage({
@@ -861,7 +859,7 @@ function needsConversationPageHydration(conversation) {
   if (urlPageIndex > 1) {
     return true;
   }
-  return Boolean(conversation.contextRef?.bvid && conversation.contextRef?.cid);
+  return conversation.contextRef?.site === "bilibili" && Boolean(conversation.contextRef?.videoId && conversation.contextRef?.cid);
 }
 
 async function saveConversations() {
@@ -1385,7 +1383,9 @@ function buildConversationContextRef(context) {
     url: String(context.url || "").trim(),
     author: String(context.author || "").trim(),
     uploadDate: String(context.uploadDate || "").trim(),
-    bvid: String(context.bvid || "").trim(),
+    // Conversations saved before the site registry carry bvid instead of site/videoId.
+    site: String(context.site || (context.bvid ? "bilibili" : BocSites.matchSite(context.url)?.id || "")).trim(),
+    videoId: String(context.videoId || context.bvid || BocSites.parseRef(context.url)?.id || "").trim(),
     cid: String(context.cid || "").trim(),
     aid: String(context.aid || "").trim(),
     pageIndex: Number(context.pageIndex) > 0 ? Number(context.pageIndex) : 1,
@@ -1411,7 +1411,8 @@ function buildContextPlaceholder(ref) {
     url: String(ref.url || "").trim(),
     author: String(ref.author || "").trim(),
     uploadDate: String(ref.uploadDate || "").trim(),
-    bvid: String(ref.bvid || "").trim(),
+    site: String(ref.site || "").trim(),
+    videoId: String(ref.videoId || "").trim(),
     cid: String(ref.cid || "").trim(),
     aid: String(ref.aid || "").trim(),
     pageIndex: Number(ref.pageIndex) > 0 ? Number(ref.pageIndex) : 1,
@@ -2122,7 +2123,7 @@ function buildQuestionSummary(prompt) {
 function buildAiNoteMarkdown({ context, prompt, answer, filename }) {
   const created = formatLocalDate();
   const sourceTitle = String(context?.title || currentConversationMeta?.contextTitle || "当前视频").trim() || "当前视频";
-  const url = buildCleanBilibiliVideoUrl(context);
+  const url = buildCleanVideoUrl(context);
   const title = filename.replace(/\.md$/i, "");
   const frontmatter = [
     "---",
@@ -2151,7 +2152,7 @@ function buildAiNoteMarkdown({ context, prompt, answer, filename }) {
 function buildAiConversationMarkdown({ context, turns, filename }) {
   const created = formatLocalDate();
   const sourceTitle = String(context?.title || currentConversationMeta?.contextTitle || "当前视频").trim() || "当前视频";
-  const url = buildCleanBilibiliVideoUrl(context);
+  const url = buildCleanVideoUrl(context);
   const title = filename.replace(/\.md$/i, "");
   const frontmatter = [
     "---",
@@ -2214,18 +2215,14 @@ function buildConversationTurns(messages) {
   return turns;
 }
 
-function buildCleanBilibiliVideoUrl(context) {
-  const bvid = String(context?.bvid || extractBvidFromUrl(context?.url) || extractBvidFromUrl(currentConversationMeta?.contextUrl) || "").trim();
-  if (bvid) {
-    return `https://www.bilibili.com/video/${bvid}/`;
+function buildCleanVideoUrl(context) {
+  const url = String(context?.url || currentConversationMeta?.contextUrl || "").trim();
+  const site = BocSites.SITES[context?.site] || BocSites.matchSite(url);
+  const videoId = String(context?.videoId || BocSites.parseRef(url)?.id || "").trim();
+  if (site && videoId) {
+    return site.canonicalUrl(videoId, 1);
   }
-  return String(context?.url || currentConversationMeta?.contextUrl || "").trim();
-}
-
-function extractBvidFromUrl(url) {
-  const text = String(url || "").trim();
-  const match = text.match(/\/video\/(BV[0-9A-Za-z]+)/i) || text.match(/[?&]bvid=(BV[0-9A-Za-z]+)/i);
-  return match?.[1] || "";
+  return url;
 }
 
 function resolveFolderTemplate(template, context) {
@@ -2234,12 +2231,14 @@ function resolveFolderTemplate(template, context) {
     return "";
   }
 
-  const allowedKeys = new Set(["created", "upload_date", "author", "bvid"]);
+  const allowedKeys = new Set(["created", "upload_date", "author", "bvid", "site", "id"]);
   const values = {
     created: sanitizeFolderTemplateValue(formatLocalDate()),
     upload_date: sanitizeFolderTemplateValue(context?.uploadDate || ""),
     author: sanitizeFolderTemplateValue(context?.author || ""),
-    bvid: sanitizeFolderTemplateValue(context?.bvid || "")
+    bvid: sanitizeFolderTemplateValue(context?.site === "bilibili" ? context?.videoId || "" : ""),
+    site: sanitizeFolderTemplateValue(context?.site || ""),
+    id: sanitizeFolderTemplateValue(context?.videoId || "")
   };
   const resolved = normalized.replace(/\{\{\s*([a-zA-Z0-9_]+)\s*\}\}/g, (_match, rawKey) => {
     const key = String(rawKey || "").trim().toLowerCase();
@@ -2519,30 +2518,12 @@ async function jumpToAssistantTimestamp(seconds, label = "") {
 }
 
 function doesTabMatchContextUrl(tabUrl, targetUrl) {
-  const current = extractVideoIdentity(tabUrl);
-  const target = extractVideoIdentity(targetUrl);
-  if (!current.bvid || !target.bvid) {
+  const current = BocSites.parseRef(tabUrl);
+  const target = BocSites.parseRef(targetUrl);
+  if (!current || !target) {
     return String(tabUrl || "").trim() === String(targetUrl || "").trim();
   }
-  return current.bvid === target.bvid && current.page === target.page;
-}
-
-function extractVideoIdentity(url) {
-  const text = String(url || "").trim();
-  const bvidMatch = text.match(/\/video\/(BV[0-9A-Za-z]+)/i) || text.match(/[?&]bvid=(BV[0-9A-Za-z]+)/i);
-  let page = 1;
-  try {
-    page = Number(new URL(text).searchParams.get("p") || "1");
-    if (!Number.isFinite(page) || page <= 0) {
-      page = 1;
-    }
-  } catch {
-    page = 1;
-  }
-  return {
-    bvid: String(bvidMatch?.[1] || "").trim(),
-    page
-  };
+  return current.site === target.site && current.id === target.id && (current.part?.index || 1) === (target.part?.index || 1);
 }
 
 async function waitForTabComplete(tabId, timeoutMs = 15000) {

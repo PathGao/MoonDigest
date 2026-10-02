@@ -33,16 +33,17 @@ const DEFAULT_SETTINGS = {
 };
 const PLAYER_AI_ICON_VARIANT = "badge";
 
-const BOC_VERSION = "1.1.3";
+const BOC_VERSION = chrome.runtime.getManifest().version;
 const CACHE_KEY_PREFIX = "boc_subtitle_cache_";
 globalThis.__BOC_CONTENT_SCRIPT_LOADED__ = BOC_VERSION;
 const state = {
   currentUrl: location.href,
   fetchRunId: 0,
-  bvid: "",
+  site: "",
+  videoId: "",
   aid: "",
   cid: "",
-  cidSource: "",
+  meta: null,
   pageIndex: 1,
   pageCount: 0,
   pageTitle: "",
@@ -201,9 +202,7 @@ function clearNativeReaderFloatingStyles(playerHost = state.readingPlayerHost) {
   let depth = 0;
   while (current && current !== document.body && depth < 8) {
     if (
-      current.matches?.(
-        ".bpx-player-container, .bpx-docker, .bpx-player-video-area, .bpx-player-primary-area, #bilibili-player, #playerWrap, .player-wrap"
-      )
+      current.matches?.(sel(reader().playerLayout))
     ) {
       targets.push(current);
     }
@@ -232,12 +231,7 @@ function clearNativeReaderFloatingStyles(playerHost = state.readingPlayerHost) {
 }
 
 function getReaderPlayerWrapNode(playerHost = state.readingPlayerHost) {
-  return (
-    playerHost?.closest?.("#playerWrap") ||
-    playerHost?.closest?.(".player-wrap") ||
-    document.getElementById("playerWrap") ||
-    document.querySelector(".player-wrap")
-  );
+  return closestIn(playerHost, reader().playerWrap) || queryFirst(reader().playerWrap);
 }
 
 function hasNativeReaderPlayerLayoutIssue(playerHost = state.readingPlayerHost) {
@@ -558,7 +552,8 @@ function bindRuntimeEvents() {
           title: state.title || "",
           author: state.author || "",
           uploadDate: state.uploadDate || "",
-          bvid: state.bvid || "",
+          site: state.site || "",
+          videoId: state.videoId || "",
           cid: state.cid || "",
           aid: state.aid || "",
           pageIndex: Number(state.pageIndex) > 0 ? Number(state.pageIndex) : 1,
@@ -583,9 +578,9 @@ function bindRuntimeEvents() {
         return false;
       }
 
-      if (!getCurrentAid()) {
+      if (!currentSite()?.fetchComments || !state.videoId) {
         state.hotComments = [];
-        sendResponse({ ok: true, comments: [], note: "无法获取视频 aid" });
+        sendResponse({ ok: true, comments: [], note: "当前站点不支持评论" });
         return false;
       }
 
@@ -708,7 +703,7 @@ function buildUiHtml() {
           <header class="boc-reading-header">
             <div class="boc-reading-header-copy">
               <strong class="boc-reading-title">${escapeHtml(state.title || "B站字幕阅读")}</strong>
-              <div id="${ids.readingMeta}" class="boc-reading-meta">bilibili.com</div>
+              <div id="${ids.readingMeta}" class="boc-reading-meta">${escapeHtml(currentSite()?.domain || "")}</div>
             </div>
             <div class="boc-reading-actions">
               <button id="${ids.readingThemeSelect}" type="button" class="boc-reading-icon-btn" title="主题" aria-label="切换主题">
@@ -978,10 +973,11 @@ function startUrlWatcher() {
 }
 
 function resetClipState() {
-  state.bvid = "";
+  state.site = "";
+  state.videoId = "";
   state.aid = "";
   state.cid = "";
-  state.cidSource = "";
+  state.meta = null;
   state.pageIndex = 1;
   state.pageCount = 0;
   state.pageTitle = "";
@@ -1031,55 +1027,31 @@ async function refreshClip() {
     state.settings = await getSettings();
     ensureRunActive(runId);
 
-    state.bvid = extractBvid(location.href);
-    if (!state.bvid) {
-      throw new Error("当前页面不是标准 BV 视频地址，无法抓取字幕。");
+    const site = currentSite();
+    const ref = site?.parseRef(location.href);
+    if (!ref) {
+      throw new Error("当前页面不是支持的视频地址，无法抓取字幕。");
     }
+    state.site = ref.site;
+    state.videoId = ref.id;
 
-    const pageIndex = extractPageIndex(location.href);
-    const oid = extractOid(location.href);
-    const hasPageParam = hasExplicitPageParam(location.href);
-    const meta = await retryAsync(() => fetchVideoMeta(state.bvid), 2, 250);
+    const meta = await retryAsync(() => site.fetchMeta(ref, siteIo()), 2, 250);
     ensureRunActive(runId);
+    logInfo("[BOC] raw meta data", { meta });
 
-    // 调试：打印 API 返回的原始数据
-    logInfo("[BOC] raw meta data", {
-      meta,
-      defaultCid: meta.defaultCid,
-      pagesCount: (meta.pages || []).length
-    });
-
+    const dom = site.readDom(document);
+    state.meta = meta;
     state.aid = meta.aid || "";
-    state.title = meta.title || readVideoTitle();
-    state.author = meta.author || readVideoAuthor();
-    state.uploadDate = meta.uploadDate || readUploadDate();
-    state.description = meta.description || readVideoDescription();
-    state.pageCount = Array.isArray(meta.pages) ? meta.pages.length : 0;
+    state.title = meta.title || dom.title;
+    state.author = meta.author || dom.author;
+    state.uploadDate = meta.uploadDate || dom.uploadDate;
+    state.description = meta.description || dom.description;
+    state.pageCount = Number(meta.pageCount) || 0;
     state.currentClipSignature = computeCurrentClipSignature();
-    let resolvedPageIndex = pageIndex;
-    if ((meta.pages || []).length > 1 && !hasPageParam) {
-      const pageIndexFromOid = pickPageIndexFromOid(meta.pages, oid);
-      if (pageIndexFromOid > 0) {
-        resolvedPageIndex = pageIndexFromOid;
-        logInfo("[BOC] resolved page index from oid", {
-          oid,
-          resolvedPageIndex
-        });
-      } else {
-        // B 站多分P中，P1 常见为无 ?p= 参数；watchlater 等页面可能改用 oid 标识当前分P。
-        resolvedPageIndex = 1;
-        logInfo("[BOC] multi-page video without p param or valid oid, fallback to P1", {
-          oid
-        });
-      }
-    }
-
-    const currentPage = pickPageFromPages(meta.pages, resolvedPageIndex);
-    state.pageIndex = resolvedPageIndex;
-    state.pageTitle = currentPage?.part || "";
-    state.cid = currentPage?.cid || pickCidFromPages(meta.pages, resolvedPageIndex, meta.defaultCid);
-    state.cidSource = "meta-pages";
-    state.videoDuration = pickDurationFromPages(meta.pages, resolvedPageIndex, meta.defaultDuration);
+    state.pageIndex = Number(meta.pageIndex) > 0 ? Number(meta.pageIndex) : 1;
+    state.pageTitle = meta.pageTitle || "";
+    state.cid = meta.cid || "";
+    state.videoDuration = Number(meta.duration) || 0;
     if (!(state.videoDuration > 0)) {
       state.videoDuration = readRuntimeVideoDuration();
     }
@@ -1090,22 +1062,22 @@ async function refreshClip() {
     logInfo("[BOC] resolved video ids", {
       url: location.href,
       aid: state.aid,
-      bvid: state.bvid,
+      site: state.site,
+      videoId: state.videoId,
       cid: state.cid,
-      cidSource: state.cidSource,
-      pageIndex: resolvedPageIndex,
+      pageIndex: state.pageIndex,
       videoDuration: state.videoDuration
     });
 
     setStatus("正在获取可用字幕...");
     let subtitleBundle = await retryAsync(
-      () => fetchSubtitleBundle(state.bvid, state.cid, state.aid),
+      () => fetchSubtitleBundle(),
       3,
       500
     );
     ensureRunActive(runId);
-    state.subtitles = normalizeSubtitleTracks(subtitleBundle.tracks);
-    state.chapters = normalizeChapters(subtitleBundle.chapters);
+    state.subtitles = BocSites.rankTracks(subtitleBundle.tracks);
+    state.chapters = BocSites.normalizeChapters(subtitleBundle.chapters);
     logInfo(
       "[BOC] chapters",
       state.chapters.map((item) => ({
@@ -1118,9 +1090,10 @@ async function refreshClip() {
       "[BOC] subtitle tracks",
       state.subtitles.map((item) => ({
         id: item.id,
-        lan: item.lan,
-        lanDoc: item.lanDoc,
-        url: item.subtitleUrl
+        lang: item.lang,
+        label: item.label,
+        kind: item.kind,
+        url: item.url
       }))
     );
 
@@ -1144,7 +1117,7 @@ async function refreshClip() {
     // 显式点击“刷新抓取”时默认走网络，避免命中历史缓存导致字幕错位。
     const forceRefresh = true;
 
-    const preferred = pickPreferredSubtitle(state.subtitles, {
+    const preferred = BocSites.pickPreferredTrack(state.subtitles, {
       previousId: state.selectedSubtitleId,
       previousUrl: state.selectedSubtitleUrl,
       previousLang: state.selectedSubtitleLang
@@ -1179,17 +1152,17 @@ async function refreshClip() {
 
       // Retry because subtitle signed URLs may expire quickly or hit rate limit.
       subtitleBundle = await retryAsync(
-        () => fetchSubtitleBundle(state.bvid, state.cid, state.aid),
+        () => fetchSubtitleBundle(),
         2,
         500
       );
       ensureRunActive(runId);
-      state.subtitles = normalizeSubtitleTracks(subtitleBundle.tracks);
-      state.chapters = normalizeChapters(subtitleBundle.chapters);
-      const retryPreferred = pickPreferredSubtitle(state.subtitles, {
+      state.subtitles = BocSites.rankTracks(subtitleBundle.tracks);
+      state.chapters = BocSites.normalizeChapters(subtitleBundle.chapters);
+      const retryPreferred = BocSites.pickPreferredTrack(state.subtitles, {
         previousId: preferred.id,
-        previousUrl: preferred.subtitleUrl,
-        previousLang: preferred.lanDoc || preferred.lan || ""
+        previousUrl: preferred.url,
+        previousLang: preferred.label || preferred.lang || ""
       });
       if (!retryPreferred) {
         throw error;
@@ -1201,8 +1174,8 @@ async function refreshClip() {
     if (selected) {
       logInfo("[BOC] selected subtitle track", {
         id: selected.id,
-        lan: selected.lan,
-        lanDoc: selected.lanDoc
+        lang: selected.lang,
+        label: selected.label
       });
     }
     state.subtitleFetchState = "ready";
@@ -1270,7 +1243,7 @@ async function loadSubtitle(url, lang, runId = state.fetchRunId, subtitleId = ""
   }
 
   const cacheKey = getSubtitleCacheKey({
-    bvid: state.bvid,
+    videoId: state.videoId,
     cid: state.cid,
     subtitleId,
     subtitleUrl: url,
@@ -1307,9 +1280,9 @@ async function loadSubtitle(url, lang, runId = state.fetchRunId, subtitleId = ""
   }
 
   // 从网络获取
-  const subtitle = await fetchSubtitleBody(url);
+  logInfo("[BOC] fetch subtitle body", { url });
+  const body = await currentSite().fetchSegments({ id: subtitleId, url, lang }, siteIo());
   ensureRunActive(runId);
-  const body = Array.isArray(subtitle.body) ? subtitle.body : [];
   if (body.length === 0) {
     throw new Error("字幕文件为空。");
   }
@@ -1336,9 +1309,9 @@ async function loadSubtitle(url, lang, runId = state.fetchRunId, subtitleId = ""
   }
 }
 
-function getSubtitleCacheKey({ bvid, cid, subtitleId = "", subtitleUrl = "", lang = "" }) {
+function getSubtitleCacheKey({ videoId, cid, subtitleId = "", subtitleUrl = "", lang = "" }) {
   const sourceKey = buildSubtitleSourceKey(subtitleId, subtitleUrl, lang);
-  return `${CACHE_KEY_PREFIX}${bvid}_${cid}_${sourceKey}`;
+  return `${CACHE_KEY_PREFIX}${videoId}_${cid}_${sourceKey}`;
 }
 
 function buildSubtitleSourceKey(subtitleId, subtitleUrl, lang) {
@@ -1347,27 +1320,12 @@ function buildSubtitleSourceKey(subtitleId, subtitleUrl, lang) {
     return `id_${id}`;
   }
 
-  const normalizedUrl = normalizeSubtitleUrlForCache(subtitleUrl);
+  const normalizedUrl = BocSites.trackUrlKey(subtitleUrl);
   if (normalizedUrl) {
     return `url_${normalizedUrl}`;
   }
 
   return `lang_${String(lang || "").trim().toLowerCase() || "unknown"}`;
-}
-
-function normalizeSubtitleUrlForCache(url) {
-  const text = String(url || "").trim();
-  if (!text) {
-    return "";
-  }
-
-  try {
-    const parsed = new URL(text);
-    const path = parsed.pathname.replace(/[^\w/.-]+/g, "_");
-    return `${parsed.hostname}${path}`;
-  } catch {
-    return text.replace(/[^\w/.-]+/g, "_");
-  }
 }
 
 async function loadSubtitleFromCache(cacheKey) {
@@ -1400,8 +1358,8 @@ async function clearSubtitleCacheByKey(cacheKey) {
   }
 }
 
-async function clearSubtitleCache(bvid, cid, lang) {
-  const cacheKey = getSubtitleCacheKey({ bvid, cid, lang });
+async function clearSubtitleCache(videoId, cid, lang) {
+  const cacheKey = getSubtitleCacheKey({ videoId, cid, lang });
   try {
     await chrome.storage.local.remove(cacheKey);
     logInfo("[BOC] cleared subtitle cache", { cacheKey });
@@ -1412,7 +1370,7 @@ async function clearSubtitleCache(bvid, cid, lang) {
 
 function renderMeta() {
   const meta = byId(ids.meta);
-  if (!state.bvid) {
+  if (!state.videoId) {
     meta.innerHTML = '<div class="boc-meta-item">尚未抓取视频信息</div>';
     return;
   }
@@ -1441,13 +1399,13 @@ function renderSubtitleSelect() {
     .map((item) => {
       const selectedById =
         state.selectedSubtitleId && String(item.id) === String(state.selectedSubtitleId);
-      const selectedByUrl = item.subtitleUrl === state.selectedSubtitleUrl;
+      const selectedByUrl = item.url === state.selectedSubtitleUrl;
       const selected = selectedById || selectedByUrl ? "selected" : "";
-      const label = item.lanDoc || item.lan || "unknown";
-      const isAi = isAiSubtitle(item);
+      const label = item.label || item.lang || "unknown";
+      const isAi = item.kind !== "manual";
       const aiTag = isAi ? " [AI自动]" : "";
       const optionLabel = `${label}${aiTag}`;
-      return `<option value="${escapeHtml(item.subtitleUrl)}" data-lang="${escapeHtml(
+      return `<option value="${escapeHtml(item.url)}" data-lang="${escapeHtml(
         label
       )}" data-id="${escapeHtml(String(item.id || ""))}" data-isai="${isAi}" ${selected}>${escapeHtml(
         optionLabel
@@ -1471,13 +1429,13 @@ function renderReadingSubtitleSelect() {
     .map((item) => {
       const selectedById =
         state.selectedSubtitleId && String(item.id) === String(state.selectedSubtitleId);
-      const selectedByUrl = item.subtitleUrl === state.selectedSubtitleUrl;
+      const selectedByUrl = item.url === state.selectedSubtitleUrl;
       const selected = selectedById || selectedByUrl ? "selected" : "";
-      const label = item.lanDoc || item.lan || "unknown";
-      const isAi = isAiSubtitle(item);
+      const label = item.label || item.lang || "unknown";
+      const isAi = item.kind !== "manual";
       const aiTag = isAi ? " [AI]" : "";
       const optionLabel = `${label}${aiTag}`;
-      return `<option value="${escapeHtml(item.subtitleUrl)}" data-lang="${escapeHtml(
+      return `<option value="${escapeHtml(item.url)}" data-lang="${escapeHtml(
         label
       )}" data-id="${escapeHtml(String(item.id || ""))}" data-isai="${isAi}" ${selected}>${escapeHtml(
         optionLabel
@@ -1489,14 +1447,14 @@ function renderReadingSubtitleSelect() {
 
 function getPopupPayload() {
   const subtitleOptions = (state.subtitles || []).map((item) => {
-    const label = item.lanDoc || item.lan || "unknown";
-    const isAi = isAiSubtitle(item);
+    const label = item.label || item.lang || "unknown";
+    const isAi = item.kind !== "manual";
     const selectedById =
       state.selectedSubtitleId && String(item.id) === String(state.selectedSubtitleId);
-    const selectedByUrl = item.subtitleUrl === state.selectedSubtitleUrl;
+    const selectedByUrl = item.url === state.selectedSubtitleUrl;
     return {
       id: String(item.id || ""),
-      url: item.subtitleUrl,
+      url: item.url,
       lang: label,
       isAi,
       selected: selectedById || selectedByUrl
@@ -1547,7 +1505,7 @@ async function downloadSubtitle() {
     return;
   }
 
-  const safeTitle = sanitizeFileName(state.title || state.bvid || "bilibili-subtitle");
+  const safeTitle = sanitizeFileName(state.title || state.videoId || "video-subtitle");
   const langSuffix = sanitizeFileName(state.selectedSubtitleLang || "subtitle") || "subtitle";
   const filename = `${safeTitle}.${langSuffix}.${format}`;
   const blob = new Blob([content], { type: "text/plain;charset=utf-8" });
@@ -1939,12 +1897,7 @@ function findReaderPlayerHost(video) {
     return null;
   }
 
-  return (
-    video.closest(".bpx-player-container") ||
-    video.closest(".bpx-player-video-area") ||
-    video.closest("#bilibili-player") ||
-    video.parentElement
-  );
+  return closestIn(video, reader().playerHost) || video.parentElement;
 }
 
 function closeReadingView() {
@@ -1987,7 +1940,7 @@ function closeReadingView() {
   unbindReaderLayout();
   cleanupReaderPlayerHost();
   clearReaderPageFocus();
-  const sendingBar = document.querySelector(".bpx-player-sending-bar");
+  const sendingBar = reader().sendingBar ? document.querySelector(reader().sendingBar) : null;
   if (sendingBar) {
     sendingBar.setAttribute("data-boc-reader-hide-sending-bar", "1");
     sendingBar.style.setProperty("display", "none", "important");
@@ -2005,7 +1958,7 @@ function renderReadingView() {
   const metaNode = byId(ids.readingMeta);
   const chapterList = byId(ids.readingChapterList);
   const transcriptList = byId(ids.readingTranscriptList);
-  const chapters = normalizeChapters(state.chapters || []);
+  const chapters = BocSites.normalizeChapters(state.chapters || []);
   const body = Array.isArray(state.subtitleBody) ? state.subtitleBody : [];
   const transcriptItems = getReadingTranscriptItems();
   const withHours = shouldShowHoursInNote(state, body);
@@ -2412,7 +2365,7 @@ function buildReadingMetaLine() {
   if (state.uploadDate) {
     parts.push(state.uploadDate);
   }
-  parts.push("bilibili.com");
+  parts.push(currentSite()?.domain || "");
   if (Number(state.pageCount) > 1) {
     const pageParts = [`P${Number(state.pageIndex) > 0 ? Number(state.pageIndex) : 1}`];
     if (state.pageTitle) {
@@ -2563,17 +2516,7 @@ function createReaderDebugSnapshot(label = "manual") {
           videoHeight: Number(video.videoHeight || 0) || 0
         }
       : null,
-    nodes: [
-      "#app",
-      "#playerWrap",
-      ".player-wrap",
-      "#bilibili-player",
-      ".bpx-player-container",
-      ".bpx-player-video-area",
-      ".bpx-player-primary-area",
-      "#boc-reading-inline-host",
-      "#boc-reading-view"
-    ]
+    nodes: [...reader().playerLayout, "#boc-reading-inline-host", "#boc-reading-view"]
       .map((selector) => pickNodeSnapshot(selector))
       .filter(Boolean),
     hostChain
@@ -2789,7 +2732,7 @@ function startReaderPlayerObserver() {
     if (nextVideo && nextHost && (nextVideo !== state.readingVideoEl || nextHost !== state.readingPlayerHost)) {
       queueEnsureReaderPlayerMounted();
     }
-    if (document.querySelector(".bpx-player-mini-close, .bpx-player-mini-warp")) {
+    if (document.querySelector(sel(reader().miniPlayer))) {
       scheduleReaderMiniPlayerDismiss();
     }
   });
@@ -2889,8 +2832,7 @@ function getRuntimeVideoElement() {
       const host = findReaderPlayerHost(item);
       const inPlayer = Boolean(
         host &&
-          (host.matches?.("#bilibili-player, .bpx-player-container, .bpx-player-video-area") ||
-            host.querySelector?.(".bpx-player-video-area"))
+          (host.matches?.(sel(reader().playerHost)) || host.querySelector?.(sel(reader().playerHost)))
       );
       const area = Math.max(0, rect.width) * Math.max(0, rect.height);
       const score =
@@ -2913,22 +2855,15 @@ function isIgnoredReaderVideoCandidate(video) {
     return true;
   }
   const host = findReaderPlayerHost(video);
-  const blockedSelector = [
+  const blockedSelector = sel([
     "[data-boc-reader-hidden='1']",
-    ".bpx-player-mini-warp",
-    ".bpx-player-mini-close",
-    ".bpx-player-ending-panel",
-    ".bpx-player-ending-related",
+    ...reader().miniPlayer,
+    ...reader().endingPanel,
     "[class*='mini-player']",
     "[class*='picture-in-picture']",
     "[class*='adcard']",
-    ".ad-report",
-    "[class*='ad-report']",
-    ".video-page-card-small",
-    ".video-page-special-card-small",
-    ".feed-card",
-    ".bili-video-card"
-  ].join(", ");
+    ...reader().ignoredVideo
+  ]);
   return Boolean(video.closest(blockedSelector) || host?.closest?.(blockedSelector));
 }
 
@@ -2985,10 +2920,7 @@ function moveReadingMainInline() {
     state.readingMainOriginalParent = readingMain.parentElement;
     state.readingMainOriginalNextSibling = readingMain.nextSibling;
   }
-  const playerWrap =
-    document.getElementById("playerWrap") ||
-    state.readingPlayerHost?.closest?.("#playerWrap") ||
-    state.readingPlayerHost;
+  const playerWrap = getReaderPlayerWrapNode(state.readingPlayerHost) || state.readingPlayerHost;
   const hostParent = playerWrap?.parentElement;
   if (!playerWrap || !hostParent) {
     return;
@@ -3073,33 +3005,17 @@ function pruneReaderNonKeepBranches(node) {
 
 function hideReaderNoiseNodes(keepRoots = []) {
   const keepSet = new Set(keepRoots.filter(Boolean));
-  const selectors = [
-    ".strip-ad-inner",
-    ".inside-wrp",
-    ".inside-bg",
-    ".hinter-msg",
-    ".slide",
-    ".cover.b-img",
-    ".cover.b-img.sleepy",
-    ".b-img.clickable",
-    "[class*='activity']",
-    "[class*='adcard']"
-  ];
-
-  document.querySelectorAll(selectors.join(",")).forEach((node) => {
+  const keepSelector = sel([...reader().keepRoots, "#boc-root"]);
+  document.querySelectorAll(sel(reader().noise)).forEach((node) => {
     if (Array.from(keepSet).some((keepNode) => keepNode === node || node.contains(keepNode))) {
       return;
     }
-    if (
-      node.closest(
-        "#bilibili-player, .bpx-player-container, .bpx-player-video-area, .bpx-player-primary-area, #boc-root, h1.video-title, .video-info-detail, .video-info-meta, .video-data"
-      )
-    ) {
+    if (node.closest(keepSelector)) {
       return;
     }
     node.setAttribute("data-boc-reader-hidden", "1");
-    const card = node.closest("article, li, .card-box, .video-page-card-small, .video-page-special-card-small, .feed-card, .bili-video-card");
-    if (card && !card.closest("#bilibili-player, .bpx-player-container, .bpx-player-video-area, .bpx-player-primary-area, #boc-root")) {
+    const card = node.closest(sel(reader().cards));
+    if (card && !card.closest(keepSelector)) {
       card.setAttribute("data-boc-reader-hidden", "1");
     }
   });
@@ -3125,10 +3041,7 @@ function markReaderKeepPath(node) {
 }
 
 function findReaderTitleContainer() {
-  const title =
-    document.querySelector("h1.video-title") ||
-    document.querySelector("h1") ||
-    document.querySelector("[data-title]");
+  const title = queryFirst([...reader().title, "h1", "[data-title]"]);
   if (!title) {
     return null;
   }
@@ -3150,7 +3063,7 @@ function findReaderMetaContainer(titleNode = findReaderTitleContainer()) {
   ].filter(Boolean);
 
   for (const node of candidates) {
-    if (node.matches?.(".video-data, .video-info-detail, .video-info-meta")) {
+    if (node.matches?.(sel(reader().metaContainer))) {
       return node;
     }
     if (node.querySelector?.(".view-text")) {
@@ -3188,7 +3101,7 @@ function restoreRootMount() {
 }
 
 function dismissReaderMiniPlayer(playerHost = state.readingPlayerHost) {
-  const explicitClose = Array.from(document.querySelectorAll(".bpx-player-mini-close")).find(isVisibleReaderControl);
+  const explicitClose = Array.from(document.querySelectorAll(sel(reader().miniClose))).find(isVisibleReaderControl);
   if (explicitClose) {
     explicitClose.click();
     return true;
@@ -3208,13 +3121,13 @@ function dismissReaderMiniPlayer(playerHost = state.readingPlayerHost) {
     new Set([
       playerHost,
       playerHost.parentElement,
-      playerHost.closest("#playerWrap"),
-      playerHost.closest("#bilibili-player")
+      closestIn(playerHost, reader().playerWrap),
+      closestIn(playerHost, reader().playerHost)
     ].filter(Boolean))
   );
 
   const selectors = [
-    ".bpx-player-mini-close",
+    ...reader().miniClose,
     "[class*='mini'][class*='close']",
     "[class*='close']",
     "button[aria-label*='关闭']",
@@ -3294,7 +3207,7 @@ function scheduleReaderMiniPlayerDismiss(maxAttempts = 12, delayMs = 180) {
     }
 
     attempts += 1;
-    const miniExists = Boolean(document.querySelector(".bpx-player-mini-close, .bpx-player-mini-warp"));
+    const miniExists = Boolean(document.querySelector(sel(reader().miniPlayer)));
     const hostFixed = Boolean(host && window.getComputedStyle(host).position === "fixed");
     if (attempts < maxAttempts && (miniExists || hostFixed || closed)) {
       state.readingMiniDismissTimer = window.setTimeout(run, delayMs);
@@ -3308,17 +3221,17 @@ function scheduleReaderMiniPlayerDismiss(maxAttempts = 12, delayMs = 180) {
 
 function getReaderControlsRoot(playerHost = state.readingPlayerHost) {
   return (
-    playerHost?.closest?.("#playerWrap") ||
-    playerHost?.closest?.("#bilibili-player") ||
+    closestIn(playerHost, reader().playerWrap) ||
+    closestIn(playerHost, reader().playerHost) ||
     playerHost ||
-    document.getElementById("playerWrap") ||
-    document.getElementById("bilibili-player")
+    queryFirst(reader().playerWrap) ||
+    queryFirst(reader().playerHost)
   );
 }
 
 function getReaderPlayerControlsState(playerHost = state.readingPlayerHost) {
   const controlRoot = getReaderControlsRoot(playerHost);
-  const nodes = [".bpx-player-control-wrap", ".bpx-player-control-mask", ".bpx-player-control-entity"].map(
+  const nodes = reader().controls.map(
     (selector) => {
       const node = controlRoot?.querySelector(selector) || null;
       return {
@@ -3331,7 +3244,7 @@ function getReaderPlayerControlsState(playerHost = state.readingPlayerHost) {
 
   return {
     controlRootFound: Boolean(controlRoot),
-    hostHasNoCursor: Boolean(playerHost?.classList.contains("bpx-state-no-cursor")),
+    hostHasNoCursor: Boolean(reader().noCursorClass && playerHost?.classList.contains(reader().noCursorClass)),
     anyPresent: nodes.some((item) => item.exists),
     anyHidden: nodes.some((item) => item.exists && !item.visible),
     nodes
@@ -3403,13 +3316,8 @@ function setReaderPlayerControlsVisible(visible, playerHost = state.readingPlaye
     return;
   }
 
-  const displayMap = new Map([
-    [".bpx-player-control-wrap", "block"],
-    [".bpx-player-control-mask", "block"],
-    [".bpx-player-control-entity", "block"]
-  ]);
-
-  displayMap.forEach((displayValue, selector) => {
+  reader().controls.forEach((selector) => {
+    const displayValue = "block";
     const node = controlRoot.querySelector(selector);
     if (!node) {
       return;
@@ -3427,16 +3335,20 @@ function setReaderPlayerControlsVisible(visible, playerHost = state.readingPlaye
     }
   });
 
+  const noCursorClass = reader().noCursorClass;
+  if (!noCursorClass) {
+    return;
+  }
   if (visible) {
-    if (playerHost.classList.contains("bpx-state-no-cursor")) {
-      playerHost.classList.remove("bpx-state-no-cursor");
+    if (playerHost.classList.contains(noCursorClass)) {
+      playerHost.classList.remove(noCursorClass);
       playerHost.setAttribute("data-boc-reader-no-cursor-cleared", "1");
     }
     return;
   }
 
   if (playerHost.getAttribute("data-boc-reader-no-cursor-cleared") === "1") {
-    playerHost.classList.add("bpx-state-no-cursor");
+    playerHost.classList.add(noCursorClass);
     playerHost.removeAttribute("data-boc-reader-no-cursor-cleared");
   }
 }
@@ -3796,9 +3708,7 @@ function hasPlayerSubtitleControl() {
 
 function findPlayerSubtitleControlNode() {
   const controlRoots = Array.from(
-    document.querySelectorAll(
-      "#bilibili-player .bpx-player-control-wrap, #playerWrap .bpx-player-control-wrap, .bpx-player-container .bpx-player-control-wrap, #bilibili-player, #playerWrap, .bpx-player-container"
-    )
+    document.querySelectorAll(sel(reader().subtitleControlRoots))
   );
 
   for (const root of controlRoots) {
@@ -3833,12 +3743,7 @@ function isPlayerSubtitleControlNode(node) {
 }
 
 function findPlayerAiQuickActionHost() {
-  const candidates = [
-    document.querySelector(".bpx-player-container"),
-    document.querySelector(".bpx-player-video-area"),
-    document.getElementById("bilibili-player"),
-    document.getElementById("playerWrap")
-  ];
+  const candidates = reader().aiQuickActionHosts.map((selector) => document.querySelector(selector));
   return candidates.find((node) => node instanceof HTMLElement && isVisibleReaderControl(node)) || null;
 }
 
@@ -3970,17 +3875,15 @@ function normalizeReaderPlayerContainer(playerHost = state.readingPlayerHost) {
   while (current && current !== document.body && depth < 12) {
     const computed = window.getComputedStyle(current);
     const className = typeof current.className === "string" ? current.className : "";
-    const isPlayerLayoutNode = current.matches?.(
-      ".bpx-player-container, .bpx-player-video-area, .bpx-player-primary-area, .bpx-player-inner, .scroll-sticky, .player-wrap, #playerWrap, #bilibili-player"
-    );
+    const isPlayerLayoutNode = current.matches?.(sel(reader().playerLayout));
     const isExplicitMiniNode = current.matches?.(
-      ".bpx-player-mini-warp, .bpx-player-mini-close, [class*='mini-player'], [class*='picture-in-picture']"
+      sel([...reader().miniPlayer, "[class*='mini-player']", "[class*='picture-in-picture']"])
     );
     const hasFloatingPosition = computed.position === "fixed" || computed.position === "sticky";
     const isMiniLike =
       hasFloatingPosition ||
       /mini|picture|float|fixed-player/i.test(className) ||
-      current.matches?.(".bpx-player-mini-warp, .bpx-player-mini-close");
+      current.matches?.(sel(reader().miniPlayer));
     const shouldReset = state.readingNativePageMode
       ? Boolean(isExplicitMiniNode || (isPlayerLayoutNode && isMiniLike))
       : isPlayerLayoutNode || isMiniLike;
@@ -4128,7 +4031,7 @@ function findActiveSubtitleIndex(currentTime) {
 }
 
 function findActiveChapterIndex(currentTime) {
-  const chapters = normalizeChapters(state.chapters || []);
+  const chapters = BocSites.normalizeChapters(state.chapters || []);
   for (let index = 0; index < chapters.length; index += 1) {
     const item = chapters[index];
     const from = Number(item?.from || 0) || 0;
@@ -4301,9 +4204,107 @@ function updateReaderFollowState() {
 }
 
 function computeCurrentClipSignature(url = location.href) {
-  const bvid = extractBvid(url);
-  const page = extractPageIndex(url);
-  return [bvid, page].map((item) => String(item || "").trim()).join("|");
+  const ref = BocSites.parseRef(url);
+  return ref ? [ref.site, ref.id, ref.part?.index || 1, ref.part?.oid || ""].join("|") : "";
+}
+
+function currentSite() {
+  return BocSites.matchSite(location.href);
+}
+
+function reader() {
+  return (currentSite() || BocSites.SITES.bilibili).reader;
+}
+
+// Joins a selector list; an empty list yields a selector that matches nothing.
+function sel(list) {
+  return list.length ? list.join(", ") : ":not(*)";
+}
+
+function closestIn(node, list) {
+  for (const selector of list) {
+    const hit = node?.closest?.(selector);
+    if (hit) {
+      return hit;
+    }
+  }
+  return null;
+}
+
+function queryFirst(list, root = document) {
+  for (const selector of list) {
+    const hit = root.querySelector(selector);
+    if (hit) {
+      return hit;
+    }
+  }
+  return null;
+}
+
+// Bilibili API calls go through the background worker so they carry the
+// bilibili.com Referer; other hosts are fetched from the page directly.
+function siteIo() {
+  return {
+    doc: document,
+    fetchJson: (url) => (url.startsWith("https://api.bilibili.com/") ? fetchJsonInBackground(url) : fetchJson(url)),
+    fetchText: async (url) => {
+      const response = await fetch(url, { credentials: "include", cache: "no-store" });
+      if (!response.ok) {
+        throw new Error(`请求失败：${response.status}`);
+      }
+      return response.text();
+    },
+    postJson: async (url, body) => {
+      const response = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+        cache: "no-store"
+      });
+      if (!response.ok) {
+        throw new Error(`请求失败：${response.status}`);
+      }
+      return response.json();
+    }
+  };
+}
+
+function currentRef() {
+  const site = currentSite();
+  if (!site || !state.videoId) {
+    return null;
+  }
+  return { site: state.site, id: state.videoId, part: { index: state.pageIndex, cid: state.cid }, url: cleanVideoUrl() };
+}
+
+function cleanVideoUrl(href = location.href) {
+  const site = currentSite();
+  if (site && state.videoId && site.id === state.site) {
+    return site.canonicalUrl(state.videoId, state.pageCount > 1 ? state.pageIndex : 1);
+  }
+  return BocSites.cleanUrl(href);
+}
+
+async function fetchSubtitleBundle() {
+  const site = currentSite();
+  const ref = currentRef();
+  if (!site || !ref) {
+    throw new Error("当前页面不是支持的视频地址。");
+  }
+  const bundle = await site.fetchTracks(ref, state.meta, siteIo());
+  const chapters = bundle.chapters?.length
+    ? bundle.chapters
+    : BocSites.parseChaptersFromDescription(state.description);
+  return { tracks: bundle.tracks, chapters };
+}
+
+async function fetchHotComments(count = 20) {
+  const site = currentSite();
+  const ref = currentRef();
+  if (!site?.fetchComments || !ref) {
+    return [];
+  }
+  return site.fetchComments(ref, state.meta, siteIo(), count);
 }
 
 function toReadableText(value, fallback = "") {
@@ -4404,80 +4405,6 @@ function byId(id) {
   return node;
 }
 
-function extractBvid(url) {
-  const match = url.match(/\/video\/(BV[0-9A-Za-z]+)/);
-  if (match?.[1]) {
-    return match[1];
-  }
-
-  try {
-    const parsed = new URL(url);
-    const fromQuery = String(parsed.searchParams.get("bvid") || "").trim();
-    if (/^BV[0-9A-Za-z]+$/.test(fromQuery)) {
-      return fromQuery;
-    }
-  } catch {
-    // ignore invalid URL
-  }
-
-  return "";
-}
-
-function cleanVideoUrl(href = location.href) {
-  try {
-    const parsed = new URL(href);
-    if (parsed.hostname !== "www.bilibili.com") {
-      return href;
-    }
-
-    if (parsed.pathname === "/list/watchlater" || parsed.pathname === "/list/watchlater/") {
-      const bvid = extractBvid(href);
-      if (bvid) {
-        return `https://www.bilibili.com/video/${bvid}/`;
-      }
-      return href;
-    }
-
-    const bvid = extractBvid(href);
-    if (!bvid) {
-      return href;
-    }
-    const p = parsed.searchParams.get("p");
-    const qs = p ? `?p=${encodeURIComponent(p)}` : "";
-    return `https://www.bilibili.com/video/${bvid}/${qs}`;
-  } catch {
-    return href;
-  }
-}
-
-function extractPageIndex(url) {
-  try {
-    const page = Number(new URL(url).searchParams.get("p") || "1");
-    if (!Number.isFinite(page) || page <= 0) {
-      return 1;
-    }
-    return page;
-  } catch {
-    return 1;
-  }
-}
-
-function hasExplicitPageParam(url) {
-  try {
-    return new URL(url).searchParams.has("p");
-  } catch {
-    return false;
-  }
-}
-
-function extractOid(url) {
-  try {
-    return String(new URL(url).searchParams.get("oid") || "").trim();
-  } catch {
-    return "";
-  }
-}
-
 function ensureRunActive(runId) {
   if (runId !== state.fetchRunId) {
     const error = new Error("Stale refresh run");
@@ -4544,387 +4471,6 @@ async function sleep(ms) {
   return new Promise((resolve) => window.setTimeout(resolve, ms));
 }
 
-async function fetchVideoMeta(bvid) {
-  const url = `https://api.bilibili.com/x/web-interface/view?bvid=${encodeURIComponent(bvid)}`;
-  logInfo("[BOC] fetch video meta", { url, bvid });
-  const payload = await fetchJson(url);
-  if (payload.code !== 0) {
-    throw new Error(toReadableText(payload?.message, "无法获取视频信息"));
-  }
-
-  const data = payload.data || {};
-  const pubdate = Number(data.pubdate || 0);
-  const uploadDate = pubdate > 0 ? formatLocalDate(pubdate * 1000) : "";
-  const pages = Array.isArray(data.pages) ? data.pages : [];
-
-  return {
-    aid: data.aid ? String(data.aid) : "",
-    title: String(data.title || ""),
-    author: String(data.owner?.name || ""),
-    description: String(data.desc || ""),
-    uploadDate,
-    defaultCid: data.cid ? String(data.cid) : "",
-    defaultDuration: Number(data.duration || 0) || 0,
-    pages: pages.map((item) => ({
-      cid: String(item.cid || ""),
-      page: Number(item.page || 0) || 0,
-      part: String(item.part || "").trim(),
-      duration: Number(item.duration || 0) || 0
-    }))
-  };
-}
-
-function pickPageFromPages(pages, pageIndex) {
-  const safePageIndex = Number(pageIndex) > 0 ? Number(pageIndex) : 1;
-  const safePages = Array.isArray(pages) ? pages : [];
-  const pageByIndex = safePages[safePageIndex - 1];
-  if (pageByIndex?.cid) {
-    return pageByIndex;
-  }
-
-  const pageByNo = safePages.find((item) => Number(item.page) === safePageIndex);
-  if (pageByNo?.cid) {
-    return pageByNo;
-  }
-
-  return null;
-}
-
-function pickCidFromPages(pages, pageIndex, fallbackCid = "") {
-  const matchedPage = pickPageFromPages(pages, pageIndex);
-  if (matchedPage?.cid) {
-    return String(matchedPage.cid);
-  }
-
-  const safePages = Array.isArray(pages) ? pages : [];
-  if (safePages[0]?.cid) {
-    return String(safePages[0].cid);
-  }
-
-  if (fallbackCid) {
-    return String(fallbackCid);
-  }
-
-  throw new Error("没有找到当前分P的 CID。");
-}
-
-function pickPageIndexFromOid(pages, oid) {
-  const safeOid = String(oid || "").trim();
-  if (!safeOid) {
-    return 0;
-  }
-
-  const safePages = Array.isArray(pages) ? pages : [];
-  const pageByCid = safePages.find((item) => String(item?.cid || "") === safeOid);
-  if (pageByCid?.page) {
-    return Number(pageByCid.page) || 0;
-  }
-
-  return 0;
-}
-
-function pickDurationFromPages(pages, pageIndex, fallbackDuration = 0) {
-  const matchedPage = pickPageFromPages(pages, pageIndex);
-  if (Number(matchedPage?.duration) > 0) {
-    return Number(matchedPage.duration);
-  }
-
-  const safePages = Array.isArray(pages) ? pages : [];
-  if (Number(safePages[0]?.duration) > 0) {
-    return Number(safePages[0].duration);
-  }
-
-  return Number(fallbackDuration || 0) || 0;
-}
-
-function readVideoTitle() {
-  const h1 = document.querySelector("h1.video-title");
-  if (h1?.textContent?.trim()) {
-    return h1.textContent.trim();
-  }
-
-  const metaTitle = document.querySelector('meta[property="og:title"]');
-  if (metaTitle?.getAttribute("content")) {
-    return metaTitle.getAttribute("content").trim();
-  }
-
-  return document.title.replace(/_哔哩哔哩_bilibili/i, "").trim();
-}
-
-function readVideoAuthor() {
-  const owner = document.querySelector(".up-name");
-  if (owner?.textContent?.trim()) {
-    return owner.textContent.trim();
-  }
-
-  const author = document.querySelector('meta[name="author"]');
-  return author?.getAttribute("content")?.trim() || "";
-}
-
-function readVideoDescription() {
-  const descNode = document.querySelector(
-    ".desc-info-text, .video-desc .desc-info-text, .video-info-detail .text, .basic-desc-info"
-  );
-  return descNode?.textContent?.trim() || "";
-}
-
-function readUploadDate() {
-  const publishNode = document.querySelector('meta[itemprop="uploadDate"]');
-  if (publishNode?.getAttribute("content")) {
-    return publishNode.getAttribute("content").trim();
-  }
-
-  const dateText = document.querySelector(".pubdate-ip-text")?.textContent?.trim();
-  if (dateText) {
-    return dateText;
-  }
-
-  return formatLocalDate();
-}
-
-async function fetchSubtitleBundle(bvid, cid, aid = "") {
-  const requests = buildSubtitleInfoRequests({ bvid, cid, aid });
-  const fetchByRequest = async (request) => {
-    logInfo("[BOC] fetch subtitles list", {
-      source: request.source,
-      url: request.url,
-      bvid,
-      cid,
-      aid
-    });
-
-    const payload = await fetchJson(request.url);
-    logInfo("[BOC] subtitles API raw response", { source: request.source, payload });
-    if (payload.code !== 0) {
-      throw buildBiliApiError(payload, "无法获取字幕列表");
-    }
-
-    const chapters = mapChaptersFromPlayerData(payload.data);
-    const subtitles = mapSubtitleTracks(payload.data?.subtitle?.subtitles || [], request.source);
-    const withUrl = subtitles.filter((item) => item.subtitleUrl);
-    return { source: request.source, chapters, withUrl };
-  };
-
-  if (requests.length === 0) {
-    return { tracks: [], chapters: [] };
-  }
-
-  const primaryRequest = requests[0];
-  try {
-    const primaryResult = await fetchByRequest(primaryRequest);
-    if (primaryResult.withUrl.length > 0) {
-      return { tracks: primaryResult.withUrl, chapters: primaryResult.chapters };
-    }
-    // 主来源成功但无字幕：直接判定无字幕，不再跨源兜底。
-    return { tracks: [], chapters: primaryResult.chapters };
-  } catch (primaryError) {
-    logWarn("[BOC] subtitles API request failed", {
-      source: primaryRequest.source,
-      message: getErrorMessage(primaryError)
-    });
-
-    // 仅当主来源请求失败时才尝试次来源。
-    if (requests.length > 1) {
-      const secondaryRequest = requests[1];
-      try {
-        const secondaryResult = await fetchByRequest(secondaryRequest);
-        if (secondaryResult.withUrl.length > 0) {
-          logWarn("[BOC] primary subtitles source failed, using fallback source", {
-            primary: primaryRequest.source,
-            fallback: secondaryRequest.source
-          });
-          return { tracks: secondaryResult.withUrl, chapters: secondaryResult.chapters };
-        }
-        return { tracks: [], chapters: secondaryResult.chapters };
-      } catch (secondaryError) {
-        logWarn("[BOC] fallback subtitles source failed", {
-          source: secondaryRequest.source,
-          message: getErrorMessage(secondaryError)
-        });
-        throw secondaryError;
-      }
-    }
-
-    throw primaryError;
-  }
-}
-
-function buildSubtitleInfoRequests({ bvid, cid, aid }) {
-  const safeBvid = encodeURIComponent(String(bvid || ""));
-  const safeCid = encodeURIComponent(String(cid || ""));
-  const safeAid = encodeURIComponent(String(aid || ""));
-  const requests = [];
-
-  // 参考 SubBatch：优先用 aid+cid 的 wbi 接口作为主来源。
-  if (aid) {
-    requests.push({
-      source: "player-wbi-v2",
-      url:
-        "https://api.bilibili.com/x/player/wbi/v2" +
-        `?aid=${safeAid}` +
-        `&cid=${safeCid}` +
-        (bvid ? `&bvid=${safeBvid}` : "")
-    });
-  }
-
-  // 仅在主来源不可用时再回退到 player-v2。
-  requests.push({
-    source: "player-v2",
-    url:
-      "https://api.bilibili.com/x/player/v2" +
-      (bvid ? `?bvid=${safeBvid}` : "?") +
-      `${bvid ? "&" : ""}cid=${safeCid}` +
-      (aid ? `&aid=${safeAid}` : "")
-  });
-
-  return requests;
-}
-
-function buildBiliApiError(payload, fallbackMessage) {
-  const msg = toReadableText(payload?.message, fallbackMessage);
-  const error = new Error(msg);
-  error.code = payload?.code;
-  error.retryable = isRetryableError(payload?.code);
-  return error;
-}
-
-function mapSubtitleTracks(subtitles, source = "unknown") {
-  return (subtitles || []).map((item) => ({
-    id: item?.id === undefined || item?.id === null ? "" : String(item.id),
-    lan: item?.lan || "",
-    lanDoc: item?.lan_doc || "",
-    subtitleUrl: normalizeSubtitleUrl(item?.subtitle_url || ""),
-    source
-  }));
-}
-
-function mapChaptersFromPlayerData(data) {
-  const raw = Array.isArray(data?.view_points) ? data.view_points : [];
-  return normalizeChapters(
-    raw.map((item) => ({
-      title: String(item?.content || item?.title || item?.label || "").trim(),
-      from: normalizeChapterTime(item?.from ?? item?.start ?? item?.start_time),
-      to: normalizeChapterTime(item?.to ?? item?.end ?? item?.end_time),
-      source: "player-view-points"
-    }))
-  );
-}
-
-function normalizeChapterTime(value) {
-  if (value === undefined || value === null || value === "") {
-    return 0;
-  }
-
-  const num = Number(value);
-  if (!Number.isFinite(num) || num < 0) {
-    return 0;
-  }
-
-  // 某些接口会返回毫秒级时间戳，这里统一转换成秒。
-  return num > 60 * 60 * 24 ? num / 1000 : num;
-}
-
-function normalizeChapters(chapters) {
-  const normalized = (chapters || [])
-    .map((item) => ({
-      title: String(item?.title || "").trim(),
-      from: Number(item?.from || 0) || 0,
-      to: Number(item?.to || 0) || 0,
-      source: String(item?.source || "")
-    }))
-    .filter((item) => item.title && item.from >= 0)
-    .sort((a, b) => a.from - b.from);
-
-  const unique = [];
-  const seen = new Set();
-  normalized.forEach((item) => {
-    const key = `${Math.floor(item.from * 10)}|${item.title.toLowerCase()}`;
-    if (seen.has(key)) {
-      return;
-    }
-    seen.add(key);
-    unique.push(item);
-  });
-
-  return unique;
-}
-
-function isRetryableError(code) {
-  // -509: 请求过于频繁
-  // -3: 参数错误（可能是临时性的）
-  // 其他负数错误码也可能是临时性的
-  return code === -509 || code === -3 || code < 0;
-}
-
-function normalizeSubtitleTracks(subtitles) {
-  return [...(subtitles || [])].sort((a, b) => {
-    const p = subtitlePriority(a) - subtitlePriority(b);
-    if (p !== 0) {
-      return p;
-    }
-
-    const lanA = String(a.lanDoc || a.lan || "").toLowerCase();
-    const lanB = String(b.lanDoc || b.lan || "").toLowerCase();
-    if (lanA < lanB) {
-      return -1;
-    }
-    if (lanA > lanB) {
-      return 1;
-    }
-
-    const idA = Number.parseInt(String(a.id || "0"), 10);
-    const idB = Number.parseInt(String(b.id || "0"), 10);
-    if (Number.isFinite(idA) && Number.isFinite(idB) && idA !== idB) {
-      return idA - idB;
-    }
-
-    return String(a.subtitleUrl).localeCompare(String(b.subtitleUrl));
-  });
-}
-
-function pickPreferredSubtitle(
-  subtitles,
-  { previousId = "", previousUrl = "", previousLang = "" } = {}
-) {
-  const tracks = subtitles || [];
-  if (tracks.length === 0) {
-    return null;
-  }
-
-  // 先按轨道 id 复用，最稳定
-  if (previousId) {
-    const byId = tracks.find((item) => String(item.id || "") === String(previousId));
-    if (byId) {
-      return byId;
-    }
-  }
-
-  // 其次按 URL 路径复用（忽略 auth_key 等动态参数）
-  const prevUrlKey = normalizeSubtitleUrlForCache(previousUrl);
-  if (prevUrlKey) {
-    const byUrl = tracks.find(
-      (item) => normalizeSubtitleUrlForCache(item.subtitleUrl) === prevUrlKey
-    );
-    if (byUrl) {
-      return byUrl;
-    }
-  }
-
-  const normalizedPrevLang = String(previousLang || "").trim().toLowerCase();
-  if (normalizedPrevLang) {
-    const byLang = tracks.find((item) => {
-      const label = String(item.lanDoc || item.lan || "").trim().toLowerCase();
-      return label === normalizedPrevLang;
-    });
-    if (byLang) {
-      return byLang;
-    }
-  }
-
-  // 默认直接拿排序后的第一条：中文优先，其次英文。
-  return tracks[0];
-}
-
 function buildSubtitleCandidates(subtitles, preferred) {
   const tracks = subtitles || [];
   const seen = new Set();
@@ -4936,8 +4482,8 @@ function buildSubtitleCandidates(subtitles, preferred) {
     }
     const key =
       `${String(item.id || "").trim()}|` +
-      `${normalizeSubtitleUrlForCache(item.subtitleUrl)}|` +
-      `${String(item.lan || "").trim().toLowerCase()}`;
+      `${BocSites.trackUrlKey(item.url)}|` +
+      `${String(item.lang || "").trim().toLowerCase()}`;
     if (seen.has(key)) {
       return;
     }
@@ -4958,13 +4504,14 @@ async function tryLoadSubtitleCandidates(candidates, runId, forceRefresh) {
     try {
       logInfo("[BOC] try subtitle track", {
         id: item.id,
-        lan: item.lan,
-        lanDoc: item.lanDoc,
-        url: item.subtitleUrl
+        lang: item.lang,
+        label: item.label,
+        kind: item.kind,
+        url: item.url
       });
       await loadSubtitle(
-        item.subtitleUrl,
-        item.lanDoc || item.lan || "unknown",
+        item.url,
+        item.label || item.lang || "unknown",
         runId,
         item.id,
         forceRefresh
@@ -4976,8 +4523,8 @@ async function tryLoadSubtitleCandidates(candidates, runId, forceRefresh) {
       const reasonMessage = getErrorMessage(error, "unknown");
       const meta = {
         id: item.id,
-        lan: item.lan,
-        lanDoc: item.lanDoc,
+        lang: item.lang,
+        label: item.label,
         reason: reasonCode || reasonMessage
       };
       if (reasonCode === "SUBTITLE_DURATION_MISMATCH") {
@@ -4994,43 +4541,6 @@ async function tryLoadSubtitleCandidates(candidates, runId, forceRefresh) {
     throw lastError;
   }
   throw new Error("这个视频暂时没有可用字幕。");
-}
-
-function isAiSubtitle(item) {
-  const lan = String(item?.lan || "").toLowerCase();
-  // B站 AI 自动字幕的 lan 以 "ai-" 开头
-  return lan.startsWith("ai-");
-}
-
-function subtitlePriority(item) {
-  const lan = String(item?.lan || "").toLowerCase();
-  const label = String(item?.lanDoc || "").toLowerCase();
-
-  // 优先级：中文（包含 AI 中文）-> 英文 -> 其他
-  if (lan === "zh-cn" || lan === "zh-hans") {
-    return 0;
-  }
-  if (lan === "zh") {
-    return 1;
-  }
-  if (lan.includes("zh")) {
-    return 2;
-  }
-  if (label.includes("中文")) {
-    return 3;
-  }
-
-  if (lan === "en" || lan === "en-us" || lan === "en-gb") {
-    return 10;
-  }
-  if (lan.includes("en")) {
-    return 11;
-  }
-  if (label.includes("英文") || label.includes("英语") || label.includes("english")) {
-    return 12;
-  }
-
-  return 50;
 }
 
 function validateSubtitleByDuration(body, videoDuration) {
@@ -5085,16 +4595,7 @@ function readRuntimeVideoDuration() {
   return 0;
 }
 
-async function fetchSubtitleBody(url) {
-  logInfo("[BOC] fetch subtitle body", { url });
-  return fetchJsonInBackground(url);
-}
-
 async function fetchJson(url) {
-  if (typeof url === "string" && url.startsWith("https://api.bilibili.com/")) {
-    return fetchJsonInBackground(url);
-  }
-
   const response = await fetch(url, {
     credentials: "include",
     cache: "no-store"
@@ -5137,44 +4638,6 @@ function normalizeHotComments(comments, limit = 20) {
     .slice(0, limit);
 }
 
-function getCurrentAid() {
-  let aid = Number(state.aid) || 0;
-  if (!aid && typeof window !== "undefined") {
-    try {
-      aid = Number(window?.__INITIAL_STATE__?.aid) || 0;
-    } catch {}
-  }
-  return aid;
-}
-
-async function fetchHotComments(count = 20) {
-  const safeCount = Math.max(0, Number(count) || 0);
-  if (!safeCount) {
-    return [];
-  }
-
-  const aid = getCurrentAid();
-  if (!aid) {
-    return [];
-  }
-
-  const url = `https://api.bilibili.com/x/v2/reply/main?type=1&oid=${aid}&mode=3&ps=${safeCount}&pn=1`;
-  const resp = await sendRuntimeMessage({ type: "fetch-json", url });
-  if (!resp?.ok) {
-    throw new Error(resp?.error || "评论接口失败");
-  }
-
-  const replies = Array.isArray(resp?.data?.data?.replies) ? resp.data.data.replies : [];
-  return normalizeHotComments(
-    replies.map((item) => ({
-      uname: item?.member?.uname || "匿名",
-      like: item?.like || 0,
-      message: item?.content?.message || ""
-    })),
-    safeCount
-  );
-}
-
 function rebuildDerivedContent() {
   const body = Array.isArray(state.subtitleBody) ? state.subtitleBody : [];
   state.markdown = body.length ? buildMarkdown(state, body, state.settings) : "";
@@ -5198,22 +4661,6 @@ async function refreshDerivedContent({ refreshComments = false } = {}) {
   }
 
   rebuildDerivedContent();
-}
-
-function normalizeSubtitleUrl(url) {
-  if (!url) {
-    return "";
-  }
-
-  if (url.startsWith("//")) {
-    return `https:${url}`;
-  }
-
-  if (url.startsWith("http://") || url.startsWith("https://")) {
-    return url;
-  }
-
-  return `https://${url.replace(/^\/+/, "")}`;
 }
 
 function buildSubtitlePreview(body, settings) {
@@ -5253,8 +4700,7 @@ function buildMarkdown(meta, body, settings) {
   );
   const frontMatter = buildFrontMatter(meta, settings, created, tagsCsv, tagsYaml);
 
-  const page = extractPageIndex(location.href);
-  const embedIframe = buildBilibiliEmbedIframe(meta, page);
+  const embedIframe = currentSite()?.embedHtml(currentRef(), state.meta) || "";
   const intro = String(meta.description || "").trim();
   const noteSectionContext = buildNotePlaceholderTemplateContext(meta, intro);
   const noteSections = groupNotePlaceholderSections(settings, noteSectionContext);
@@ -5315,7 +4761,7 @@ function buildFrontMatter(meta, settings, created, tagsCsv, tagsYaml) {
   const fieldLines = {
     title: `title: "${escapeYaml(meta.title)}"`,
     url: `url: "${escapeYaml(cleanVideoUrl())}"`,
-    bvid: `bvid: "${escapeYaml(meta.bvid)}"`,
+    bvid: `bvid: "${escapeYaml(meta.site === "bilibili" ? meta.videoId : "")}"`,
     cid: `cid: "${escapeYaml(meta.cid)}"`,
     author: `author: "${escapeYaml(meta.author || "unknown")}"`,
     upload_date: `upload_date: "${escapeYaml(meta.uploadDate || "unknown")}"`,
@@ -5398,7 +4844,7 @@ function buildFrontmatterTemplateContext(meta, created, tagsCsv, tagsYaml) {
   return {
     title: String(meta?.title || "").trim(),
     url: String(cleanVideoUrl() || "").trim(),
-    bvid: String(meta?.bvid || "").trim(),
+    bvid: String(meta?.site === "bilibili" ? meta?.videoId || "" : "").trim(),
     cid: String(meta?.cid || "").trim(),
     author: String(meta?.author || "unknown").trim(),
     upload_date: String(meta?.uploadDate || "unknown").trim(),
@@ -5422,7 +4868,7 @@ function buildFolderTemplateContext(meta, created = formatLocalDate()) {
     created: sanitizeFolderTemplateValue(created),
     upload_date: sanitizeFolderTemplateValue(meta?.uploadDate || ""),
     author: sanitizeFolderTemplateValue(meta?.author || ""),
-    bvid: sanitizeFolderTemplateValue(meta?.bvid || "")
+    bvid: sanitizeFolderTemplateValue(meta?.site === "bilibili" ? meta?.videoId || "" : "")
   };
 }
 
@@ -5591,7 +5037,7 @@ function buildSubtitleSectionLines(body, chapters, settings, withHours) {
     return ["（暂无字幕）"];
   }
 
-  const chapterItems = normalizeChapters(chapters);
+  const chapterItems = BocSites.normalizeChapters(chapters);
   if (chapterItems.length === 0) {
     return subtitleItems.map((item) => formatSubtitleLine(item, settings, withHours));
   }
@@ -5663,7 +5109,7 @@ function formatSubtitleLine(item, settings, withHours) {
 }
 
 function buildChapterLines(chapters, withHours = false) {
-  const chapterItems = normalizeChapters(chapters);
+  const chapterItems = BocSites.normalizeChapters(chapters);
   if (chapterItems.length === 0) {
     return [];
   }
@@ -5672,15 +5118,6 @@ function buildChapterLines(chapters, withHours = false) {
     const fromText = formatCompactTimestamp(item.from, withHours);
     return `- \`${fromText}\` ${item.title}`;
   });
-}
-
-function buildBilibiliEmbedIframe(meta, page = 1) {
-  const safeAid = encodeURIComponent(String(meta?.aid || "").trim());
-  const safeBvid = encodeURIComponent(String(meta?.bvid || "").trim());
-  const safeCid = encodeURIComponent(String(meta?.cid || "").trim());
-  const safePage = Number(page) > 0 ? Number(page) : 1;
-
-  return `<iframe src="https://player.bilibili.com/player.html?aid=${safeAid}&bvid=${safeBvid}&cid=${safeCid}&page=${safePage}&autoplay=0" scrolling="no" border="0" frameborder="no" framespacing="0" allow="fullscreen; picture-in-picture" allowfullscreen="true" style="height:100%;width:100%; aspect-ratio: 16 / 9;"> </iframe>`;
 }
 
 function buildSrt(body) {
@@ -5724,7 +5161,7 @@ function shouldShowHoursInNote(meta, body) {
     const to = Number(item?.to || 0);
     return Number.isFinite(to) && to > max ? to : max;
   }, 0);
-  const chapterMaxTo = normalizeChapters(meta?.chapters || []).reduce((max, item) => {
+  const chapterMaxTo = BocSites.normalizeChapters(meta?.chapters || []).reduce((max, item) => {
     const from = Number(item?.from || 0) || 0;
     const to = Number(item?.to || 0) || 0;
     return Math.max(max, from, to);
@@ -5783,7 +5220,7 @@ function buildNoteFilename(meta) {
     baseParts.push(formatLocalDate());
   }
 
-  baseParts.push(meta.title || meta.bvid || "bilibili-subtitle");
+  baseParts.push(meta.title || meta.videoId || "video-subtitle");
 
   if (Number(meta.pageCount) > 1) {
     baseParts.push(`P${Number(meta.pageIndex) > 0 ? Number(meta.pageIndex) : 1}`);
@@ -5794,7 +5231,7 @@ function buildNoteFilename(meta) {
   }
 
   const baseName = sanitizeFileName(baseParts.filter(Boolean).join("-"));
-  return `${baseName || "bilibili-subtitle"}.md`;
+  return `${baseName || "video-subtitle"}.md`;
 }
 
 function normalizeFolder(input) {

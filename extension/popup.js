@@ -65,7 +65,7 @@ function bindEvents() {
       setMessage("没有可下载字幕。");
       return;
     }
-    const safeTitle = sanitizeFileName(payload.title || "bilibili-subtitle");
+    const safeTitle = sanitizeFileName(payload.title || "video-subtitle");
     const blob = new Blob([content], { type: "text/plain;charset=utf-8" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
@@ -91,7 +91,7 @@ function bindEvents() {
   el.readingViewBtn?.addEventListener("click", async () => {
     const tab = await getActiveTab();
     if (!isSupportedSubtitlePage(tab?.url || "")) {
-      setMessage("请先打开一个 B 站视频页。");
+      setMessage("请先打开一个支持的视频页。");
       return;
     }
 
@@ -179,7 +179,7 @@ async function refreshFromTab() {
   setStatus("正在抓取...");
   const resp = await sendToContent({ type: "popup-refresh" });
   if (!resp?.ok) {
-    const errorText = (resp?.error || "请在 B 站视频页使用。").replace(
+    const errorText = (resp?.error || "请在支持的视频页使用。").replace(
       "请刷新浏览器网页重试，或当前网页不支持",
       "请刷新网页重试，或当前网页不支持"
     );
@@ -308,7 +308,7 @@ async function sendToContent(message) {
     }
 
     const normalizedError = normalizeContentErrorMessage(error);
-    setStatus("请在 B 站视频页使用插件。");
+    setStatus("请在支持的视频页使用插件。");
     setMessage(normalizedError);
     return { ok: false, error: normalizedError, payload: latestPayload };
   }
@@ -328,17 +328,7 @@ function shouldRetryAfterInjection(error) {
 }
 
 function isSupportedSubtitlePage(url) {
-  try {
-    const parsed = new URL(String(url || ""));
-    if (parsed.hostname !== "www.bilibili.com") {
-      return false;
-    }
-    return parsed.pathname === "/list/watchlater" ||
-      parsed.pathname === "/list/watchlater/" ||
-      parsed.pathname.startsWith("/video/");
-  } catch {
-    return false;
-  }
+  return Boolean(BocSites.matchSite(url));
 }
 
 async function ensureContentScriptReady(tabId) {
@@ -359,7 +349,7 @@ async function ensureContentScriptReady(tabId) {
   try {
     await chrome.scripting.executeScript({
       target: { tabId },
-      files: ["content.js"]
+      files: ["sites.js", "content.js"]
     });
   } catch (error) {
     const message = String(error?.message || "");
