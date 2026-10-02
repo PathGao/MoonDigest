@@ -37,6 +37,7 @@ globalThis.__BOC_CONTENT_SCRIPT_LOADED__ = BOC_VERSION;
 const state = {
   currentUrl: location.href,
   fetchRunId: 0,
+  refreshPromise: null,
   site: "",
   videoId: "",
   aid: "",
@@ -476,7 +477,7 @@ function bindRuntimeEvents() {
     }
 
     if (message.type === "popup-refresh") {
-      refreshClip()
+      refreshClipShared()
         .then(() => sendResponse({ ok: true, payload: getPopupPayload() }))
         .catch((error) =>
           sendResponse({ ok: false, error: getErrorMessage(error), payload: getPopupPayload() })
@@ -533,42 +534,14 @@ function bindRuntimeEvents() {
     }
 
     if (message.type === "sidepanel-get-context") {
-      const settings = state.settings || DEFAULT_SETTINGS;
-      const body = state.subtitleBody || [];
-      let subtitleMarkdown = "";
-      try {
-        subtitleMarkdown = body.length
-          ? BocNote.buildMarkdown(state, body, { ...settings, includeHotCommentsInNote: false }, currentRef())
-          : "";
-      } catch (e) {
-        subtitleMarkdown = "";
-        logWarn("[BOC] sidepanel-get-context: buildMarkdown failed", e);
+      const respond = () => sendResponse(buildSidepanelContext());
+      // Mid-run the state already holds the title but no subtitles, and background.js
+      // reads that as "loaded, no subtitles"; answer once the run has settled.
+      if (state.subtitleFetchState === "loading" && state.refreshPromise) {
+        state.refreshPromise.catch(() => {}).then(respond);
+        return true;
       }
-      sendResponse({
-        ok: true,
-        payload: {
-          url: location.href,
-          title: state.title || "",
-          author: state.author || "",
-          uploadDate: state.uploadDate || "",
-          site: state.site || "",
-          videoId: state.videoId || "",
-          cid: state.cid || "",
-          aid: state.aid || "",
-          description: state.description || "",
-          pageIndex: Number(state.pageIndex) > 0 ? Number(state.pageIndex) : 1,
-          pageCount: Number(state.pageCount) > 0 ? Number(state.pageCount) : 0,
-          pageTitle: state.pageTitle || "",
-          subtitleBody: body,
-          subtitleMarkdown,
-          subtitleFailure: state.subtitleFailure,
-          subtitleLang: state.selectedSubtitleLang || "",
-          selectedSubtitleId: state.selectedSubtitleId || "",
-          selectedSubtitleUrl: state.selectedSubtitleUrl || "",
-          subtitleOptions: state.subtitles || [],
-          hotComments: []
-        }
-      });
+      respond();
       return false;
     }
 
@@ -1024,6 +997,55 @@ function resetClipState() {
     renderReadingView();
     renderReadingStatus("请先点击“刷新抓取”加载当前视频字幕。");
   }
+}
+
+function buildSidepanelContext() {
+  const settings = state.settings || DEFAULT_SETTINGS;
+  const body = state.subtitleBody || [];
+  let subtitleMarkdown = "";
+  try {
+    subtitleMarkdown = body.length
+      ? BocNote.buildMarkdown(state, body, { ...settings, includeHotCommentsInNote: false }, currentRef())
+      : "";
+  } catch (e) {
+    subtitleMarkdown = "";
+    logWarn("[BOC] sidepanel-get-context: buildMarkdown failed", e);
+  }
+  return {
+    ok: true,
+    payload: {
+      url: location.href,
+      title: state.title || "",
+      author: state.author || "",
+      uploadDate: state.uploadDate || "",
+      site: state.site || "",
+      videoId: state.videoId || "",
+      cid: state.cid || "",
+      aid: state.aid || "",
+      description: state.description || "",
+      pageIndex: Number(state.pageIndex) > 0 ? Number(state.pageIndex) : 1,
+      pageCount: Number(state.pageCount) > 0 ? Number(state.pageCount) : 0,
+      pageTitle: state.pageTitle || "",
+      subtitleBody: body,
+      subtitleMarkdown,
+      subtitleFailure: state.subtitleFailure,
+      subtitleLang: state.selectedSubtitleLang || "",
+      selectedSubtitleId: state.selectedSubtitleId || "",
+      selectedSubtitleUrl: state.selectedSubtitleUrl || "",
+      subtitleOptions: state.subtitles || [],
+      hotComments: []
+    }
+  };
+}
+
+// A refresh that lands while one is in flight joins it instead of cancelling it.
+function refreshClipShared() {
+  if (state.subtitleFetchState !== "loading" || !state.refreshPromise) {
+    state.refreshPromise = refreshClip().finally(() => {
+      state.refreshPromise = null;
+    });
+  }
+  return state.refreshPromise;
 }
 
 async function refreshClip() {
