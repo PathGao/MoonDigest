@@ -1,0 +1,287 @@
+// node extension/note.selftest.js
+// Goldens were captured from content.js buildMarkdown before it moved here (commit 45df77d);
+// a diff means the note format changed, which every existing vault note would notice.
+const fs = require("fs");
+const path = require("path");
+const vm = require("vm");
+const assert = require("assert");
+
+const ctx = vm.createContext({ URL, URLSearchParams, console });
+vm.runInContext(fs.readFileSync(path.join(__dirname, "sites.js"), "utf8"), ctx);
+vm.runInContext(fs.readFileSync(path.join(__dirname, "note.js"), "utf8"), ctx);
+const N = ctx.BocNote;
+const CREATED = "2026-10-02";
+
+const baseSettings = {
+  tags: "clippings, 视频",
+  includeDateInFilename: true,
+  includeHotCommentsInNote: false,
+  includeCoverInNote: true,
+  includeTimestampInBody: true,
+  frontmatterFields: ["title","url","site","video_id","cid","author","author_url","upload_date","duration","cover","subtitle_lang","created","tags","video_tags"],
+  fixedFrontmatterProperties: [{ key: "source", type: "text", value: "{{site}}/{{video_id}}" }, { key: "rating", type: "number", value: "5" }],
+  notePlaceholderSections: [{ title: "我的笔记", position: "before_intro", content: "来自 {{author}}" }, { title: "待办", position: "before_subtitle", content: "" }],
+  noteFolder: "Clippings/{{site}}/{{created}}"
+};
+const body = [
+  { from: 0, to: 4.5, content: "大家好，欢迎来到本期视频" },
+  { from: 4.5, to: 9, content: "今天讲三件事" },
+  { from: 65, to: 70, content: "第一件事是" },
+  { from: 130, to: 140, content: "最后总结一下" }
+];
+const comments = [
+  { uname: "观众A", like: 120, message: "讲得很清楚" },
+  { uname: "", like: 3, message: "mark" },
+  { uname: "观众C", like: 0, message: "" }
+];
+const bili = {
+  site: "bilibili", videoId: "BV1GJ411x7h7", cid: "123456", aid: "98765", pageIndex: 1, pageCount: 1, pageTitle: "",
+  title: "测试视频：引号\"与反斜杠\\", author: "UP主", authorUrl: "https://space.bilibili.com/1", uploadDate: "2026-09-30",
+  videoDuration: 150, cover: "https://i0.hdslb.com/bfs/archive/abc.jpg", videoTags: ["科技", "AI"], selectedSubtitleLang: "zh-CN",
+  description: "这是简介\n第二行", chapters: [{ from: 0, to: 60, title: "开场" }, { from: 60, to: 130, title: "正文" }], hotComments: comments
+};
+const cases = {
+    biliSingle: { meta: bili, body, settings: baseSettings },
+    biliMultiP: { meta: { ...bili, pageIndex: 2, pageCount: 3, pageTitle: "第二集" }, body, settings: baseSettings },
+    youtube: {
+      meta: { ...bili, site: "youtube", videoId: "dQw4w9WgXcQ", cid: "", aid: "", videoDuration: 4000, chapters: [], videoTags: [], cover: "https://i.ytimg.com/vi/x/hq.jpg", authorUrl: "https://www.youtube.com/@x" },
+      body: body.map((s) => ({ ...s, from: s.from + 3600, to: s.to + 3600 })),
+      settings: { ...baseSettings, includeTimestampInBody: false, includeHotCommentsInNote: true, fixedFrontmatterProperties: [], notePlaceholderSections: [] }
+    },
+    noSubtitle: { meta: { ...bili, chapters: [] }, body: [], settings: baseSettings }
+};
+
+const refOf = (meta) => {
+  const site = ctx.BocSites.SITES[meta.site];
+  const page = meta.pageCount > 1 ? meta.pageIndex : 1;
+  return { site: meta.site, id: meta.videoId, part: { index: page, cid: meta.cid }, url: site.canonicalUrl(meta.videoId, page) };
+};
+
+const golden = {
+  "biliSingle": {
+    "file": "2026-10-02-测试视频：引号_与反斜杠_.md",
+    "folder": "Clippings/bilibili/2026-10-02",
+    "md": [
+      "---",
+      "title: \"测试视频：引号\\\"与反斜杠\\\\\"",
+      "url: \"https://www.bilibili.com/video/BV1GJ411x7h7/\"",
+      "site: \"bilibili\"",
+      "video_id: \"BV1GJ411x7h7\"",
+      "cid: \"123456\"",
+      "author: \"UP主\"",
+      "author_url: \"https://space.bilibili.com/1\"",
+      "upload_date: \"2026-09-30\"",
+      "duration: 150",
+      "cover: \"https://i0.hdslb.com/bfs/archive/abc.jpg\"",
+      "subtitle_lang: \"zh-CN\"",
+      "created: \"2026-10-02\"",
+      "tags: [\"clippings\", \"视频\"]",
+      "video_tags: [\"科技\", \"AI\"]",
+      "source: \"bilibili/BV1GJ411x7h7\"",
+      "rating: 5",
+      "---",
+      "",
+      "![cover](https://i0.hdslb.com/bfs/archive/abc.jpg)",
+      "",
+      "<iframe src=\"https://player.bilibili.com/player.html?aid=98765&bvid=BV1GJ411x7h7&cid=123456&page=1&autoplay=0\" scrolling=\"no\" border=\"0\" frameborder=\"no\" framespacing=\"0\" allow=\"fullscreen; picture-in-picture\" allowfullscreen=\"true\" style=\"height:100%;width:100%; aspect-ratio: 16 / 9;\"> </iframe>",
+      "",
+      "## 我的笔记",
+      "",
+      "来自 UP主",
+      "",
+      "## 简介",
+      "",
+      "这是简介",
+      "第二行",
+      "",
+      "## 章节",
+      "",
+      "- `00:00` 开场",
+      "- `01:00` 正文",
+      "",
+      "## 待办",
+      "",
+      "## 字幕",
+      "",
+      "### 开场 `00:00`",
+      "",
+      "`00:00` 大家好，欢迎来到本期视频",
+      "`00:04` 今天讲三件事",
+      "",
+      "### 正文 `01:00`",
+      "",
+      "`01:05` 第一件事是",
+      "",
+      "### 其他片段",
+      "",
+      "`02:10` 最后总结一下"
+    ]
+  },
+  "biliMultiP": {
+    "file": "2026-10-02-测试视频：引号_与反斜杠_-P2-第二集.md",
+    "folder": "Clippings/bilibili/2026-10-02",
+    "md": [
+      "---",
+      "title: \"测试视频：引号\\\"与反斜杠\\\\\"",
+      "url: \"https://www.bilibili.com/video/BV1GJ411x7h7/?p=2\"",
+      "site: \"bilibili\"",
+      "video_id: \"BV1GJ411x7h7\"",
+      "cid: \"123456\"",
+      "author: \"UP主\"",
+      "author_url: \"https://space.bilibili.com/1\"",
+      "upload_date: \"2026-09-30\"",
+      "duration: 150",
+      "cover: \"https://i0.hdslb.com/bfs/archive/abc.jpg\"",
+      "subtitle_lang: \"zh-CN\"",
+      "created: \"2026-10-02\"",
+      "tags: [\"clippings\", \"视频\"]",
+      "video_tags: [\"科技\", \"AI\"]",
+      "source: \"bilibili/BV1GJ411x7h7\"",
+      "rating: 5",
+      "---",
+      "",
+      "![cover](https://i0.hdslb.com/bfs/archive/abc.jpg)",
+      "",
+      "<iframe src=\"https://player.bilibili.com/player.html?aid=98765&bvid=BV1GJ411x7h7&cid=123456&page=2&autoplay=0\" scrolling=\"no\" border=\"0\" frameborder=\"no\" framespacing=\"0\" allow=\"fullscreen; picture-in-picture\" allowfullscreen=\"true\" style=\"height:100%;width:100%; aspect-ratio: 16 / 9;\"> </iframe>",
+      "",
+      "## 我的笔记",
+      "",
+      "来自 UP主",
+      "",
+      "## 简介",
+      "",
+      "这是简介",
+      "第二行",
+      "",
+      "## 章节",
+      "",
+      "- `00:00` 开场",
+      "- `01:00` 正文",
+      "",
+      "## 待办",
+      "",
+      "## 字幕",
+      "",
+      "### 开场 `00:00`",
+      "",
+      "`00:00` 大家好，欢迎来到本期视频",
+      "`00:04` 今天讲三件事",
+      "",
+      "### 正文 `01:00`",
+      "",
+      "`01:05` 第一件事是",
+      "",
+      "### 其他片段",
+      "",
+      "`02:10` 最后总结一下"
+    ]
+  },
+  "youtube": {
+    "file": "2026-10-02-测试视频：引号_与反斜杠_.md",
+    "folder": "Clippings/youtube/2026-10-02",
+    "md": [
+      "---",
+      "title: \"测试视频：引号\\\"与反斜杠\\\\\"",
+      "url: \"https://www.youtube.com/watch?v=dQw4w9WgXcQ\"",
+      "site: \"youtube\"",
+      "video_id: \"dQw4w9WgXcQ\"",
+      "author: \"UP主\"",
+      "author_url: \"https://www.youtube.com/@x\"",
+      "upload_date: \"2026-09-30\"",
+      "duration: 4000",
+      "cover: \"https://i.ytimg.com/vi/x/hq.jpg\"",
+      "subtitle_lang: \"zh-CN\"",
+      "created: \"2026-10-02\"",
+      "tags: [\"clippings\", \"视频\"]",
+      "---",
+      "",
+      "![cover](https://i.ytimg.com/vi/x/hq.jpg)",
+      "",
+      "<iframe src=\"https://www.youtube.com/embed/dQw4w9WgXcQ\" title=\"YouTube video player\" frameborder=\"0\" allow=\"accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share\" allowfullscreen style=\"height:100%;width:100%; aspect-ratio: 16 / 9;\"></iframe>",
+      "",
+      "## 简介",
+      "",
+      "这是简介",
+      "第二行",
+      "",
+      "## 字幕",
+      "",
+      "大家好，欢迎来到本期视频",
+      "今天讲三件事",
+      "第一件事是",
+      "最后总结一下",
+      "",
+      "## 评论",
+      "",
+      "1. 观众A（赞 120）",
+      "讲得很清楚",
+      "",
+      "2. 匿名（赞 3）",
+      "mark"
+    ]
+  },
+  "noSubtitle": {
+    "file": "2026-10-02-测试视频：引号_与反斜杠_.md",
+    "folder": "Clippings/bilibili/2026-10-02",
+    "md": [
+      "---",
+      "title: \"测试视频：引号\\\"与反斜杠\\\\\"",
+      "url: \"https://www.bilibili.com/video/BV1GJ411x7h7/\"",
+      "site: \"bilibili\"",
+      "video_id: \"BV1GJ411x7h7\"",
+      "cid: \"123456\"",
+      "author: \"UP主\"",
+      "author_url: \"https://space.bilibili.com/1\"",
+      "upload_date: \"2026-09-30\"",
+      "duration: 150",
+      "cover: \"https://i0.hdslb.com/bfs/archive/abc.jpg\"",
+      "subtitle_lang: \"zh-CN\"",
+      "created: \"2026-10-02\"",
+      "tags: [\"clippings\", \"视频\"]",
+      "video_tags: [\"科技\", \"AI\"]",
+      "source: \"bilibili/BV1GJ411x7h7\"",
+      "rating: 5",
+      "---",
+      "",
+      "![cover](https://i0.hdslb.com/bfs/archive/abc.jpg)",
+      "",
+      "<iframe src=\"https://player.bilibili.com/player.html?aid=98765&bvid=BV1GJ411x7h7&cid=123456&page=1&autoplay=0\" scrolling=\"no\" border=\"0\" frameborder=\"no\" framespacing=\"0\" allow=\"fullscreen; picture-in-picture\" allowfullscreen=\"true\" style=\"height:100%;width:100%; aspect-ratio: 16 / 9;\"> </iframe>",
+      "",
+      "> 本视频无字幕，以下为简介与热门评论。",
+      "",
+      "## 我的笔记",
+      "",
+      "来自 UP主",
+      "",
+      "## 简介",
+      "",
+      "这是简介",
+      "第二行",
+      "",
+      "## 待办",
+      "",
+      "## 评论",
+      "",
+      "1. 观众A（赞 120）",
+      "讲得很清楚",
+      "",
+      "2. 匿名（赞 3）",
+      "mark"
+    ]
+  }
+};
+
+for (const [name, c] of Object.entries(cases)) {
+  const md = N.buildMarkdown(c.meta, c.body, c.settings, refOf(c.meta), CREATED);
+  assert.strictEqual(md, golden[name].md.join("\n"), name + " markdown");
+  assert.strictEqual(N.buildNoteFilename(c.meta, c.settings, CREATED), golden[name].file, name + " filename");
+  assert.strictEqual(N.resolveFolderTemplate(c.settings.noteFolder, c.meta, CREATED), golden[name].folder, name + " folder");
+}
+assert.strictEqual(N.buildNoteFilename(cases.biliSingle.meta, { includeDateInFilename: false }, CREATED), "测试视频：引号_与反斜杠_.md");
+assert.strictEqual(N.buildMarkdown(cases.biliSingle.meta, body, baseSettings, null, CREATED).includes('\nurl: "'), false, "no ref means no url");
+assert.strictEqual(N.formatCompactTimestamp(3661, true), "01:01:01");
+assert.strictEqual(N.formatCompactTimestamp(3661, false), "61:01");
+assert.strictEqual(N.formatTimestamp(1.5, true), "00:00:01,500");
+assert.strictEqual(N.buildSrt(body.slice(0, 1)), "1\n00:00:00,000 --> 00:00:04,500\n大家好，欢迎来到本期视频");
+assert.strictEqual(N.buildTxt(body.slice(0, 2), { includeTimestampInBody: true }), "00:00 大家好，欢迎来到本期视频\n00:04 今天讲三件事");
+console.log("note selftest ok");

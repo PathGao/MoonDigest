@@ -138,7 +138,7 @@ async function injectReaderContent(tabId) {
 
   await chrome.scripting.executeScript({
     target: { tabId },
-    files: ["sites.js", "content.js"]
+    files: ["sites.js", "note.js", "content.js"]
   });
 }
 
@@ -1539,4 +1539,4 @@ async function probeAiChatCompletion({ baseUrl, apiKey, model, headers }) {
   return { ok: false, error: `HTTP ${response.status}${detail ? `: ${detail}` : ""}` };
 }
 
-importScripts("sites.js", "triage/triage-bg.js");
+importScripts("sites.js", "note.js", "triage/triage-bg.js");

@@ -351,7 +351,7 @@ async function ensureContentScriptReady(tabId) {
 
   await chrome.scripting.executeScript({
     target: { tabId },
-    files: ["sites.js", "content.js"]
+    files: ["sites.js", "note.js", "content.js"]
   });
 
   const reinjectedVersion = await probeContentScriptVersion(tabId);
