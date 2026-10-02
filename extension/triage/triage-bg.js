@@ -336,12 +336,23 @@ function triageError(error, code) {
   return Object.assign(new Error(error), code ? { code } : {});
 }
 
-async function triageBiliGet(url) {
-  const res = await fetch(url, { credentials: "include" });
-  if (!res.ok) throw triageError(`B站请求失败 HTTP ${res.status}`);
-  const json = await res.json();
+// Risk control answers HTTP 412 with an HTML page, or code -352/-412 in JSON; both mean back off.
+async function triageBiliJson(res) {
+  if (!res.ok) throw triageError(`B站请求失败 HTTP ${res.status}`, res.status === 412 ? "THROTTLED" : undefined);
+  try {
+    return await res.json();
+  } catch {
+    throw triageError("B站返回的不是 JSON（可能被风控拦截或需要重新登录）");
+  }
+}
+
+function triageBiliData(json) {
   if (json.code !== 0) throw triageError(`B站返回 ${json.code}: ${json.message}`, json.code === -352 || json.code === -412 ? "THROTTLED" : undefined);
   return json.data;
+}
+
+async function triageBiliGet(url) {
+  return triageBiliData(await triageBiliJson(await fetch(url, { credentials: "include" })));
 }
 
 async function triageBiliPost(path, fields) {
@@ -353,16 +364,13 @@ async function triageBiliPost(path, fields) {
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body: triageForm({ ...fields, csrf: cookie.value })
   });
-  if (!res.ok) throw triageError(`B站请求失败 HTTP ${res.status}`);
-  const json = await res.json();
-  if (json.code !== 0) throw triageError(`B站返回 ${json.code}: ${json.message}`);
-  return json.data;
+  return triageBiliData(await triageBiliJson(res));
 }
 
 // nav 未登录时 code=-101 但 data.wbi_img 仍在，所以不走 triageBiliGet
 async function triageNav() {
   const res = await fetch("https://api.bilibili.com/x/web-interface/nav", { credentials: "include" });
-  return (await res.json()).data || {};
+  return (await triageBiliJson(res)).data || {};
 }
 
 async function triageMid() {

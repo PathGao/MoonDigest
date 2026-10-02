@@ -212,6 +212,22 @@ assert.throws(() => t.triageParseCommand('{"new_tags":[', cmdItems, cmdTags, {})
   assert.strictEqual(await settingsWith({ triageIntervalSec: "x" }), 8);
   assert.strictEqual(await settingsWith({}), 8);
 
+  // B站 risk control maps to THROTTLED on writes as well as reads; non-JSON answers get a clear error.
+  t.chrome = { cookies: { get: async () => ({ value: "csrf" }) } };
+  const jsonRes = (body) => async () => ({ ok: true, status: 200, json: async () => body });
+  t.fetch = jsonRes({ code: -352, message: "风控" });
+  await assert.rejects(t.triageBiliPost("/x", {}), (e) => e.code === "THROTTLED");
+  t.fetch = jsonRes({ code: -412, message: "请求被拦截" });
+  await assert.rejects(t.triageBiliGet("https://api.test"), (e) => e.code === "THROTTLED");
+  t.fetch = async () => ({ ok: false, status: 412, json: async () => ({}) });
+  await assert.rejects(t.triageBiliPost("/x", {}), (e) => e.code === "THROTTLED");
+  t.fetch = jsonRes({ code: 11010, message: "内容不存在" });
+  await assert.rejects(t.triageBiliPost("/x", {}), (e) => e.code === undefined);
+  t.fetch = async () => ({ ok: true, status: 200, json: async () => JSON.parse("<html>") });
+  await assert.rejects(t.triageNav(), /不是 JSON/);
+  t.fetch = async () => ({ ok: false, status: 502, json: async () => ({}) });
+  await assert.rejects(t.triageNav(), /HTTP 502/);
+
   // AI summary placement
 const front = "---\ntitle: \"x\"\n---\n\n![cover](u)\n\n## 简介\n\nhi";
 const done = { status: "done", oneLiner: "一句话", points: ["a", "b"], verdict: "keep", reason: "有用" };
