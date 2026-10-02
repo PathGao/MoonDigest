@@ -384,8 +384,7 @@ html[data-boc-reader-mode="1"][data-boc-reader-theme="dark"] {
   word-break: break-word;
 }
 
-.boc-reading-meta,
-.boc-reading-status {
+.boc-reading-meta {
   font-size: var(--boc-fs-md);
   line-height: 1.5;
   color: var(--boc-muted);
@@ -393,6 +392,33 @@ html[data-boc-reader-mode="1"][data-boc-reader-theme="dark"] {
 
 .boc-reading-meta {
   margin-top: 8px;
+}
+
+.boc-reading-status {
+  position: fixed;
+  left: 50%;
+  bottom: var(--boc-space-5);
+  transform: translateX(-50%);
+  z-index: 2147483647;
+  width: max-content;
+  max-width: min(560px, calc(100vw - 32px));
+  margin: 0;
+  padding: 10px var(--boc-space-4);
+  box-sizing: border-box;
+  background: var(--boc-warn-bg);
+  border: 1px solid var(--boc-warn-border);
+  border-radius: var(--boc-radius-md);
+  box-shadow: 0 12px 32px rgba(15, 23, 42, 0.18);
+  color: var(--boc-warn);
+  font-family: var(--boc-font-sans);
+  font-size: var(--boc-fs-sm);
+  line-height: 1.5;
+  pointer-events: auto;
+  cursor: pointer;
+}
+
+.boc-reading-status[hidden] {
+  display: none;
 }
 
 .boc-reading-actions {
@@ -745,8 +771,7 @@ body[data-boc-reader-mode="1"] #boc-reading-view[data-boc-reader-ready="0"] {
   pointer-events: none;
 }
 
-body[data-boc-reader-mode="1"] .boc-reading-header-copy,
-body[data-boc-reader-mode="1"] .boc-reading-status {
+body[data-boc-reader-mode="1"] .boc-reading-header-copy {
   display: none !important;
 }
 
@@ -959,7 +984,6 @@ body[data-boc-reader-mode="1"] #app {
 
 #boc-reading-view,
 #boc-reading-view .boc-reading-meta,
-#boc-reading-view .boc-reading-status,
 #boc-reading-view .boc-reading-chapter,
 #boc-reading-view .boc-reading-item,
 #boc-reading-view .boc-reading-panel,
@@ -983,7 +1007,6 @@ body[data-boc-reader-mode="1"] #app {
 }
 
 #boc-reading-view .boc-reading-meta,
-#boc-reading-view .boc-reading-status,
 #boc-reading-view .boc-reading-info-label {
   font-size: var(--boc-fs-md);
   color: var(--boc-muted);

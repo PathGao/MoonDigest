@@ -88,6 +88,7 @@ const state = {
   readingPlayerObserver: null,
   readingPlayerMountTimer: 0,
   readingPlayerRetryTimer: 0,
+  readingPlayerRetries: 0,
   readingMiniDismissTimer: 0,
   readingControlsHideTimer: 0,
   readingControlsRecoveryTimer: 0,
@@ -343,7 +344,7 @@ function init() {
     schedulePlayerAiQuickActionSync();
     if (shouldEnterReaderMode) {
       enterReaderMode().catch((error) => {
-        renderReadingStatus(`阅读视图启动失败：${getErrorMessage(error)}`);
+        setReadingNotice(`阅读视图启动失败：${getErrorMessage(error)}`);
       });
     }
   });
@@ -685,8 +686,6 @@ function buildUiHtml() {
             </section>
           </section>
 
-          <p id="${ids.readingStatus}" class="boc-reading-status">使用页面原生播放器联动章节和字幕。</p>
-
           <div class="boc-reading-player-shell">
             <div id="${ids.readingPlayerSlot}" class="boc-reading-player-slot"></div>
           </div>
@@ -697,6 +696,7 @@ function buildUiHtml() {
         </section>
       </div>
     </section>
+    <p id="${ids.readingStatus}" class="boc-reading-status" role="status" title="点击关闭" hidden></p>
   `;
 }
 
@@ -807,6 +807,7 @@ function bindUiEvents() {
   chapterList.addEventListener("wheel", handleReaderManualScroll, { passive: true });
   chapterList.addEventListener("pointerdown", () => noteManualReaderInteraction(3500));
   transcriptList.addEventListener("pointerdown", () => noteManualReaderInteraction(3500));
+  byId(ids.readingStatus).addEventListener("click", () => setReadingNotice(""));
   chapterList.addEventListener("click", onReadingChapterClick);
   transcriptList.addEventListener("click", onReadingTranscriptClick);
   readingView.addEventListener("transitionend", () => {
@@ -847,18 +848,17 @@ function checkUrlChange() {
   if (!state.readingViewOpen && shouldEnterReaderMode) {
     document.documentElement.setAttribute("data-boc-reader-mode", "1");
     document.body.setAttribute("data-boc-reader-mode", "1");
-    renderReadingStatus("检测到阅读视图跳转，正在打开阅读模式...");
     enterReaderMode().catch((error) => {
-      renderReadingStatus(`阅读视图启动失败：${getErrorMessage(error)}`);
+      setReadingNotice(`阅读视图启动失败：${getErrorMessage(error)}`);
     });
     return;
   }
   if (state.readingViewOpen || shouldEnterReaderMode) {
-    renderReadingStatus("检测到视频变化，正在自动刷新字幕...");
+    setReadingNotice("");
     waitForVideoMetadata().then(() => {
       refreshClip().catch((error) => {
         if (!isStaleRunError(error)) {
-          renderReadingStatus(`自动刷新失败：${getErrorMessage(error)}`);
+          setReadingNotice(`自动刷新失败：${getErrorMessage(error)}`);
         }
       });
     });
@@ -906,7 +906,6 @@ function resetClipState() {
   setMessage("");
   if (state.readingViewOpen) {
     renderReadingView();
-    renderReadingStatus("请先点击“刷新抓取”加载当前视频字幕。");
   }
 }
 
@@ -1120,7 +1119,7 @@ async function runRefreshClip() {
     if (state.readingViewOpen) {
       moveReadingMainInline();
       renderReadingView();
-      renderReadingStatus("抓取完成，阅读视图已同步最新字幕。");
+      setReadingNotice("");
       startReadingViewSync();
       startReaderPlayerObserver();
       syncReadingViewPlayback(true);
@@ -1487,7 +1486,6 @@ async function showNoSubtitleState(runId, failure = "") {
   if (state.readingViewOpen) {
     moveReadingMainInline();
     renderReadingView();
-    renderReadingStatus(`${label}。`);
     startReadingViewSync();
     startReaderPlayerObserver();
     syncReadingViewPlayback(true);
@@ -1512,6 +1510,7 @@ function cleanupReaderFloatingArtifacts(playerHost = state.readingPlayerHost) {
 async function enterReaderMode() {
   const readingView = byId(ids.readingView);
   state.readingViewOpen = true;
+  state.readingPlayerRetries = 0;
   document.body.setAttribute("data-boc-reading-active", "1");
   hydrateReaderStateFromSettings(state.settings);
   applyReadingViewPresentation();
@@ -1536,7 +1535,7 @@ async function enterReaderMode() {
   }
   if (!mounted) {
     // Don't throw - keep UI open and keep retrying in background
-    renderReadingStatus("正在等待视频播放器就绪...");
+    setReadingNotice("正在等待视频播放器就绪...");
     scheduleReaderPlayerRetry();
     return;
   }
@@ -1549,10 +1548,17 @@ function scheduleReaderPlayerRetry() {
     window.clearTimeout(state.readingPlayerRetryTimer);
     state.readingPlayerRetryTimer = 0;
   }
-  // Keep trying to mount player in background
+  // Keep trying to mount player in background, for about 30 seconds.
   const tryMount = async () => {
     state.readingPlayerRetryTimer = 0;
     if (!state.readingViewOpen || !isReaderMode()) return;
+    state.readingPlayerRetries += 1;
+    if (state.readingPlayerRetries > 12) {
+      replaceReaderModeUrl(stripReaderModeUrl(location.href));
+      closeReadingView();
+      setReadingNotice("视频播放器长时间未就绪，已退出阅读视图，可刷新页面后重试。");
+      return;
+    }
     const mounted = await ensureReaderPlayerMounted({ retries: 10, delayMs: 200, forceLayout: true });
     const retryHost = state.readingPlayerHost;
     if (retryHost) {
@@ -1586,7 +1592,7 @@ function openReaderViewShell(readingView = byId(ids.readingView)) {
   readingView.classList.add("open", "reader-page");
   readingView.setAttribute("aria-hidden", "false");
   setReadingViewReady(false);
-  renderReadingStatus("正在准备播放器和字幕...");
+  setReadingNotice("");
 }
 
 function maybeRefreshReaderSubtitleInBackground() {
@@ -1596,7 +1602,7 @@ function maybeRefreshReaderSubtitleInBackground() {
   waitForVideoMetadata().then(() => {
     refreshClip().catch((error) => {
       if (!isStaleRunError(error)) {
-        renderReadingStatus(`字幕加载失败：${getErrorMessage(error)}`);
+        setReadingNotice(`字幕加载失败：${getErrorMessage(error)}`);
       }
     });
   });
@@ -1630,12 +1636,13 @@ function syncReaderModeAfterMount() {
 function settleReaderModePresentation() {
   if (!isReaderPresentationStable()) {
     setReadingViewReady(false);
-    renderReadingStatus("正在稳定播放器布局...");
+    setReadingNotice("正在等待视频播放器就绪...");
     scheduleReaderPlayerRetry();
     return false;
   }
   setReadingViewReady(true);
-  renderReadingStatus("阅读视图已就绪，播放视频时字幕会自动高亮。");
+  state.readingPlayerRetries = 0;
+  setReadingNotice("");
   return true;
 }
 
@@ -1735,6 +1742,7 @@ function closeReadingView() {
   cleanupReaderFloatingArtifacts();
   state.readingViewOpen = false;
   state.readingViewReady = false;
+  setReadingNotice("");
   state.readingSettingsExpanded = false;
   state.readingManualScrollPauseUntil = 0;
   state.readingProgrammaticScrollUntil = 0;
@@ -2209,8 +2217,12 @@ function buildReadingMetaLine() {
   return parts.join(" · ");
 }
 
-function renderReadingStatus(text) {
-  byId(ids.readingStatus).textContent = String(text || "");
+// Errors and waits only; an empty text hides the notice. It sits outside the
+// reading view, which stays invisible until the player is ready.
+function setReadingNotice(text) {
+  const notice = byId(ids.readingStatus);
+  notice.textContent = text;
+  notice.hidden = !text;
 }
 
 function setReadingViewReady(ready) {
@@ -3582,7 +3594,6 @@ function syncReadingViewPlayback(forceScroll = false) {
 
   const video = bindReadingViewVideo(runtimeVideo || state.readingVideoEl);
   if (!video) {
-    renderReadingStatus("当前页面没有找到可联动的视频播放器。");
     return;
   }
 
@@ -3595,7 +3606,6 @@ function syncReadingViewPlayback(forceScroll = false) {
 
   setActiveReadingItems(subtitleIndex, chapterIndex, forceScroll || changed);
   updateReaderFollowState();
-  renderReadingStatus(`当前进度 ${formatCompactTimestamp(currentTime, currentTime >= 3600)}`);
 }
 
 function findActiveSubtitleIndex(currentTime) {
@@ -3721,7 +3731,7 @@ function scrollReadingTranscriptItemIntoView(node) {
 function jumpReadingTarget(seconds) {
   const video = bindReadingViewVideo();
   if (!video) {
-    renderReadingStatus("当前页面没有找到可联动的视频播放器。");
+    setReadingNotice("当前页面没有找到可联动的视频播放器。");
     return;
   }
 
