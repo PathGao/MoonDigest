@@ -54,7 +54,6 @@ const ytIds = async (target) =>
   eq(await ytIds("auto"), [".zh-TW", ".en", "a.en", ".de"]);
   eq(await ytIds("en"), [".en", "a.en", ".zh-TW", ".de"]);
   eq(await ytIds("zh-Hant"), [".zh-TW", ".en", "a.en", ".de"]);
-  eq(await ytIds("original"), [".de", ".zh-TW", ".en", "a.en"]);
   eq((await ytIds("zh-Hans"))[0], ".en>zh-Hans");
   const [translated] = S.rankTracks((await S.SITES.youtube.fetchTracks({}, { tracks: ytTracks }, { subtitleLang: "zh-Hans" })).tracks, "zh-Hans");
   eq(translated, { id: ".en>zh-Hans", lang: "zh-Hans", label: "简体中文（机器翻译，自English）", url: "https://y/t?v=1&lang=en&m=1&tlang=zh-Hans", kind: "translated", isDefault: false });

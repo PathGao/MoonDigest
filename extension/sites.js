@@ -107,11 +107,11 @@
 
   const KIND_ORDER = { manual: 0, auto: 1, ai: 1, translated: 2 };
 
-  // Targets of the youtubeSubtitleLang setting besides "auto" and "original".
+  // Targets of the youtubeSubtitleLang setting besides "auto".
   const SUBTITLE_LANG_NAMES = { "zh-Hans": "简体中文", "zh-Hant": "繁體中文", en: "English", ja: "日本語" };
 
   function normalizeSubtitleLang(value) {
-    return value === "original" || SUBTITLE_LANG_NAMES[value] ? value : "auto";
+    return SUBTITLE_LANG_NAMES[value] ? value : "auto";
   }
 
   function langMatches(lang, target) {
@@ -125,15 +125,10 @@
 
   // Chinese, then English, then the rest; within a language the site's
   // default track and human-made tracks first. A target other than "auto"
-  // moves its language to the front; "original" means the uploader's default
-  // track, else the auto-generated one, whose language is the spoken one.
+  // moves its language to the front.
   function rankTracks(tracks, target = "auto") {
-    const list = tracks || [];
-    const originalLang =
-      target === "original" ? (list.find((item) => item.isDefault) || list.find((item) => item.kind === "auto"))?.lang : "";
-    const misses = (track) =>
-      target === "original" ? Number(track.lang !== originalLang) : SUBTITLE_LANG_NAMES[target] ? Number(!langMatches(track.lang, target)) : 0;
-    return [...list].sort((a, b) => {
+    const misses = (track) => (SUBTITLE_LANG_NAMES[target] ? Number(!langMatches(track.lang, target)) : 0);
+    return [...(tracks || [])].sort((a, b) => {
       const targetGap = misses(a) - misses(b);
       if (targetGap !== 0) return targetGap;
       const gap = trackLanguagePriority(a) - trackLanguagePriority(b);
