@@ -343,9 +343,10 @@ async function openFolder(mediaId) {
 
 // ---------- sync with bilibili ----------
 async function syncFolder({ force = false } = {}) {
-  if (S.syncing || (!force && Date.now() - S.lastSyncAt < SYNC_MIN_GAP_MS)) return false;
-  S.syncing = true;
+  // S.syncing holds the token of the running sync, so a forced sync for a newly opened folder is not blocked by the old one.
+  if (S.syncing === S.folderToken || (!force && Date.now() - S.lastSyncAt < SYNC_MIN_GAP_MS)) return false;
   const token = S.folderToken;
+  S.syncing = token;
   const mediaId = S.mediaId;
   try {
     const r = await send({ type: "triage-folder-items", mediaId });
@@ -418,7 +419,7 @@ async function syncFolder({ force = false } = {}) {
     render();
     return true;
   } finally {
-    S.syncing = false;
+    if (S.syncing === token) S.syncing = false;
   }
 }
 
