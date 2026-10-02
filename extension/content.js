@@ -1185,10 +1185,12 @@ async function refreshClip() {
     if (isStaleRunError(error)) {
       return;
     }
-    const reason =
+    // Reasons arrive with or without a trailing full stop; strip it so the sentences below join cleanly.
+    const reason = (
       error?.code === "SUBTITLE_DURATION_MISMATCH"
-        ? "未找到与当前视频时长匹配的字幕轨，可能该视频无可用字幕。"
-        : getErrorMessage(error);
+        ? "未找到与当前视频时长匹配的字幕轨，可能该视频无可用字幕"
+        : getErrorMessage(error)
+    ).replace(/[。.！!；;，,\s]+$/u, "");
     // Only the subtitle step failed: keep the video info and degrade to the no-subtitle state.
     if (metaLoaded) {
       try {
@@ -1199,9 +1201,9 @@ async function refreshClip() {
         }
         throw degradeError;
       }
-      setStatus(`字幕抓取失败：${reason} 已保留视频信息，可导出简介与评论。`);
+      setStatus(`字幕抓取失败：${reason}。已保留视频信息，可导出简介与评论。`);
       if (state.readingViewOpen) {
-        renderReadingStatus(`字幕抓取失败：${reason}`);
+        renderReadingStatus(`字幕抓取失败：${reason}。`);
       }
       return;
     }
@@ -1211,7 +1213,7 @@ async function refreshClip() {
     if (state.readingViewOpen) {
       renderReadingView();
     }
-    setStatus(`抓取失败：${reason}`);
+    setStatus(`抓取失败：${reason}。`);
     throw error;
   } finally {
     if (runId === state.fetchRunId) {
