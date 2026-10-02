@@ -107,7 +107,10 @@ const elements = {
   aiInitialQuickPrompts: document.querySelectorAll(".ai-initial-quick-prompt"),
   saveBtn: document.getElementById("saveBtn"),
   testConnectionBtn: document.getElementById("testConnectionBtn"),
-  status: document.getElementById("status")
+  status: document.getElementById("status"),
+  hostPermissionBanner: document.getElementById("hostPermissionBanner"),
+  hostPermissionText: document.getElementById("hostPermissionText"),
+  hostPermissionBtn: document.getElementById("hostPermissionBtn")
 };
 
 let savedAiPresetPrompts = [];
@@ -159,6 +162,7 @@ async function loadSettings() {
   // AI 配置
   const providers = await loadAiProviders();
   renderAiProviders(providers);
+  renderHostPermissionBanner([settings.obsidianApiBaseUrl, ...providers.map((item) => item.baseUrl)]);
 }
 
 async function saveSettings() {
@@ -177,7 +181,8 @@ async function saveSettings() {
   }
 
   // Remote hosts are optional permissions; the save click is the user gesture that may request them.
-  const deniedHosts = await requestHostPermissions([payload.obsidianApiBaseUrl, ...aiProvidersPayload.map((item) => item.baseUrl)]);
+  const hostUrls = [payload.obsidianApiBaseUrl, ...aiProvidersPayload.map((item) => item.baseUrl)];
+  const deniedHosts = await requestHostPermissions(hostUrls);
 
   setBusy(true);
   try {
@@ -197,6 +202,7 @@ async function saveSettings() {
     }
     // 用最新列表（含 hasSavedKey）重新渲染，避免误以为 Key 丢了
     renderAiProviders(aiResp.providers || []);
+    renderHostPermissionBanner(hostUrls);
     if (deniedHosts.length) {
       setStatus(`已保存，但未授权访问 ${deniedHosts.join("、")}，相关请求会失败；重新保存可再次授权`, true);
       return;
@@ -1093,10 +1099,9 @@ function hostPermissionPattern(url) {
   }
 }
 
-// Returns the patterns the user declined (empty when everything is granted).
-async function requestHostPermissions(urls) {
+async function missingHostPermissions(urls) {
   const origins = [...new Set(urls.map(hostPermissionPattern).filter(Boolean))];
-  if (!origins.length || !chrome.permissions?.request) {
+  if (!chrome.permissions?.request) {
     return [];
   }
   const missing = [];
@@ -1105,11 +1110,28 @@ async function requestHostPermissions(urls) {
       missing.push(origin);
     }
   }
+  return missing;
+}
+
+// Returns the patterns the user declined (empty when everything is granted).
+async function requestHostPermissions(urls) {
+  const missing = await missingHostPermissions(urls);
   if (!missing.length) {
     return [];
   }
   const granted = await chrome.permissions.request({ origins: missing }).catch(() => false);
   return granted ? [] : missing;
+}
+
+// Installs upgraded from before 1.2.0 never went through the save-time request.
+async function renderHostPermissionBanner(urls) {
+  const missing = await missingHostPermissions(urls);
+  elements.hostPermissionBanner.hidden = !missing.length;
+  elements.hostPermissionText.textContent = `未授权访问 ${missing.map((pattern) => pattern.replace(/\/\*$/, "")).join("、")}，AI 与 Obsidian 请求会失败。`;
+  elements.hostPermissionBtn.onclick = async () => {
+    await chrome.permissions.request({ origins: missing }).catch(() => false);
+    renderHostPermissionBanner(urls);
+  };
 }
 
 function validateAiProviders(items) {

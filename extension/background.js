@@ -1342,6 +1342,18 @@ async function* parseOpenAISSE(response) {
   }
 }
 
+// Remote hosts are optional permissions since 1.2.0, so an upgraded install may lack its AI provider's origin.
+// The side panel and triage page match "未授权访问 <origin>" to offer a grant button.
+async function hostPermissionError(url) {
+  try {
+    const { protocol, hostname } = new URL(url);
+    const origin = `${protocol}//${hostname}`;
+    return (await chrome.permissions.contains({ origins: [`${origin}/*`] })) ? "" : `未授权访问 ${origin}，授权后重试`;
+  } catch {
+    return "";
+  }
+}
+
 async function streamChat({ provider, context, userPrompt, history, port, signal, getAbortMeta, onFirstToken }) {
   if (!port) return;
   const baseUrl = String(provider?.baseUrl || "").trim().replace(/\/+$/, "");
@@ -1380,7 +1392,7 @@ async function streamChat({ provider, context, userPrompt, history, port, signal
       })
     });
   } catch (e) {
-    port.postMessage({ type: "error", error: `网络错误：${e?.message || e}` });
+    port.postMessage({ type: "error", error: (await hostPermissionError(baseUrl)) || `网络错误：${e?.message || e}` });
     return;
   }
 

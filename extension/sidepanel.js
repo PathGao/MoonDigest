@@ -1797,6 +1797,21 @@ function showAssistantError(node, error) {
   err.className = "sp-msg-error";
   err.textContent = `错误：${error}`;
   node.appendChild(err);
+  const origin = /未授权访问 (https?:\/\/[^\s，]+)/.exec(String(error))?.[1];
+  if (origin) {
+    const grant = document.createElement("button");
+    grant.type = "button";
+    grant.className = "sp-chip sp-grant-btn";
+    grant.textContent = `授权访问 ${origin}`;
+    // The click is the user gesture permissions.request needs; the service worker cannot ask.
+    grant.addEventListener("click", async () => {
+      if (await chrome.permissions.request({ origins: [`${origin}/*`] }).catch(() => false)) {
+        err.textContent = "已授权，请重新发送";
+        grant.remove();
+      }
+    });
+    node.appendChild(grant);
+  }
   activeUserPrompt = "";
   if (activePort) {
     try {

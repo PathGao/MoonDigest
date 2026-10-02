@@ -214,7 +214,16 @@ function showBanner(text, btnText, onClick) {
 
 function handleAiError(error) {
   const text = String(error || "AI 调用失败");
-  if (text.includes("配置 AI")) {
+  const origin = /未授权访问 (https?:\/\/[^\s，]+)/.exec(text)?.[1];
+  if (origin) {
+    // The click is the user gesture permissions.request needs; the service worker cannot ask.
+    showBanner(text, `授权访问 ${origin}`, async () => {
+      if (await chrome.permissions.request({ origins: [`${origin}/*`] }).catch(() => false)) {
+        el.banner.hidden = true;
+        toast("已授权，请重试");
+      }
+    });
+  } else if (text.includes("配置 AI")) {
     showBanner(`还没有可用的 AI 服务：${text}`, "去配置", () => send({ type: "open-options" }));
   } else if (text.includes("截断")) {
     showBanner(`${text}。建议调大输出上限或关闭思考`, "打开 AI 调试", () => openSettings(true));
@@ -1080,8 +1089,8 @@ async function runGroup() {
     }
     S.analyses[b] = r.ok ? r.data : { bvid: b, status: "error", error: r.error };
     const err = S.analyses[b].status === "error" ? String(S.analyses[b].error || "") : "";
-    if (/配置 AI|截断/.test(err)) handleAiError(err);
-    if (err.includes("配置 AI")) group.stop = true;
+    if (/配置 AI|截断|未授权访问/.test(err)) handleAiError(err);
+    if (/配置 AI|未授权访问/.test(err)) group.stop = true;
     render();
     if (group.bvids.some(needsAnalysis)) await sleepWhile(S.settings.triageIntervalSec * 1000, keepGoing);
   }
@@ -1302,7 +1311,7 @@ async function runAiCommand() {
     const r = await send({ type: "triage-ai-command", instruction, tags: sentTags, items: batch.map(aiCommandItem), ...opts });
     if (!r.ok) {
       p.errors.push(`第 ${i + 1} 批失败：${r.error}`);
-      if (/截断|配置 AI/.test(r.error || "")) handleAiError(r.error);
+      if (/截断|配置 AI|未授权访问/.test(r.error || "")) handleAiError(r.error);
     } else {
       mergeAiBatch(p, r.data, opts, scopeSet, sentTags);
     }

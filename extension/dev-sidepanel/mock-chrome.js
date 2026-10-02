@@ -131,6 +131,10 @@
               return;
             }
             if (msg.action !== "chat") return;
+            if (window.__mockHostDenied) {
+              post({ type: "error", error: "未授权访问 https://api.example.com，授权后重试" });
+              return;
+            }
             window.__mockStreamLog = window.__mockStreamLog || [];
             window.__mockStreamLog.push({ prompt: msg.prompt, contextTitle: msg.context?.title });
             let i = 0;
@@ -149,6 +153,13 @@
             clearInterval(timer);
           }
         };
+      }
+    },
+    permissions: {
+      async request(req) {
+        (window.__mockPermissionRequests ||= []).push(req);
+        window.__mockHostDenied = false;
+        return true;
       }
     },
     storage: {

@@ -97,6 +97,7 @@
     "triage-classify-titles": async ({ items, tags }) => {
       await wait(400);
       if (globalThis.__mockNoAI) return noAi();
+      if (globalThis.__mockHostDenied) return { ok: false, error: "未授权访问 https://api.example.com，授权后重试" };
       const results = {};
       for (const { bvid } of items) {
         const i = findItem(bvid)._i;
@@ -241,7 +242,14 @@
         console.info("[mock] tabs.create", url);
       }
     },
-    storage: { local: makeArea(store), sync: makeArea({}) }
+    storage: { local: makeArea(store), sync: makeArea({}) },
+    permissions: {
+      async request(req) {
+        (globalThis.__mockPermissionRequests ||= []).push(req);
+        globalThis.__mockHostDenied = false;
+        return true;
+      }
+    }
   });
   console.info("[mock] chrome API mocked for triage dev");
 })();

@@ -486,6 +486,8 @@ async function triageChat(messages, maxTokens, thinking = false) {
     method: "POST",
     headers,
     body: JSON.stringify(body)
+  }).catch(async (e) => {
+    throw triageError((await hostPermissionError(baseUrl)) || e?.message || String(e));
   });
   if (!res.ok) {
     const detail = await res.text().catch(() => "");

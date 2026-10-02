@@ -604,6 +604,12 @@ body {
   font-size: 12px;
 }
 
+.sp-grant-btn {
+  margin-top: 6px;
+  padding: 6px 10px;
+  font-size: 12px;
+}
+
 .sp-center-error {
   margin: auto;
   text-align: center;
