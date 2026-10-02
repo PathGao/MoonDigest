@@ -1257,14 +1257,21 @@ async function loadSubtitleFromCache(cacheKey) {
   }
 }
 
+// The cache only serves track switches on recent videos, so it keeps the newest
+// 50 entries from the last 30 days.
 async function saveSubtitleToCache(cacheKey, body) {
   try {
-    await chrome.storage.local.set({
-      [cacheKey]: {
-        body,
-        timestamp: Date.now()
-      }
-    });
+    const now = Date.now();
+    await chrome.storage.local.set({ [cacheKey]: { body, timestamp: now } });
+    const all = await chrome.storage.local.get(null);
+    const stale = Object.entries(all)
+      .filter(([key]) => key.startsWith(CACHE_KEY_PREFIX))
+      .sort(([, a], [, b]) => (Number(b?.timestamp) || 0) - (Number(a?.timestamp) || 0))
+      .filter(([, value], index) => index >= 50 || now - (Number(value?.timestamp) || 0) > 30 * 86400000)
+      .map(([key]) => key);
+    if (stale.length) {
+      await chrome.storage.local.remove(stale);
+    }
   } catch (error) {
     logWarn("[BOC] failed to save subtitle cache", error);
   }
