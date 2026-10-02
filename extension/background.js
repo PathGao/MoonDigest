@@ -30,9 +30,9 @@ const DEFAULT_AI_SYSTEM_PROMPT = [
 ].join("\n");
 
 const DEFAULT_SYNC_SETTINGS = {
-  noteFolder: "Clippings/Bilibili",
+  noteFolder: "Clippings/{{site}}",
   obsidianApiBaseUrl: "http://127.0.0.1:27123",
-  tags: "clippings,bilibili",
+  tags: "clippings",
   downloadFormat: "srt",
   includeDateInFilename: true,
   includeHotCommentsInNote: false,

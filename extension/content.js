@@ -1,8 +1,8 @@
 const DEFAULT_SETTINGS = {
-  noteFolder: "Clippings/Bilibili",
+  noteFolder: "Clippings/{{site}}",
   obsidianApiBaseUrl: "http://127.0.0.1:27123",
   obsidianApiKey: "",
-  tags: "clippings,bilibili",
+  tags: "clippings",
   downloadFormat: "srt",
   includeDateInFilename: true,
   includeHotCommentsInNote: false,
