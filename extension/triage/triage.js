@@ -1072,9 +1072,13 @@ async function runStage1() {
   S.stage1 = { running: true, stop: false };
   const keepGoing = () => !S.stage1.stop && token === S.folderToken;
   const size = Math.max(1, Number(S.settings.triageTitleBatchSize) || 30);
-  const pending = () => S.items.filter((it) => !it.invalid && !S.titleRes[it.bvid] && !isProcessed(it.bvid) && !S.stage1Skip.has(it.bvid));
+  // Timed-out batches are skipped for this run only, so clicking 标题粗分 again retries them.
+  const timedOut = new Set();
+  const pending = () =>
+    S.items.filter((it) => !it.invalid && !S.titleRes[it.bvid] && !isProcessed(it.bvid) && !S.stage1Skip.has(it.bvid) && !timedOut.has(it.bvid));
   const total = pending().length;
   let done = 0;
+  let retried = false;
   render();
   while (keepGoing()) {
     const batch = pending().slice(0, size);
@@ -1088,9 +1092,18 @@ async function runStage1() {
         await throttleWait(r.code, keepGoing);
         continue;
       }
+      if (r.code === "AI_TIMEOUT") {
+        // First timeout retries the same batch; a second one skips it and moves on.
+        retried = !retried;
+        if (retried) continue;
+        batch.forEach((it) => timedOut.add(it.bvid));
+        toast(r.error, true);
+        continue;
+      }
       handleAiError(r.error);
       break;
     }
+    retried = false;
     const results = r.data?.results || {};
     for (const it of batch) {
       if (results[it.bvid]) S.titleRes[it.bvid] = results[it.bvid];
@@ -1102,7 +1115,9 @@ async function runStage1() {
   }
   if (token !== S.folderToken) return;
   S.stage1.running = false;
-  S.status = done ? `标题粗分完成 ${done} 个` : "";
+  S.status = timedOut.size
+    ? `标题粗分完成 ${done} 个，${timedOut.size} 个因 AI 超时跳过，再点「标题粗分」可重试`
+    : done ? `标题粗分完成 ${done} 个` : "";
   render();
 }
 

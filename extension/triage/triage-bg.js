@@ -471,6 +471,9 @@ async function triageCriteriaText() {
   return String(triageCriteria || "");
 }
 
+// 单次 AI 请求的超时（毫秒）。思考模式慢得多；两档都要短于 MV3 单个消息事件约 5 分钟的上限
+const TRIAGE_AI_TIMEOUT_MS = { normal: 120000, thinking: 240000 };
+
 // 非流式 chat/completions，只取 message.content（忽略 reasoning_content）
 async function triageChat(messages, maxTokens, thinking = false) {
   const provider = (await loadAiProviders()).find((p) => p.enabled !== false);
@@ -482,23 +485,42 @@ async function triageChat(messages, maxTokens, thinking = false) {
   const body = { model: provider.model, stream: false, temperature: 0.3, max_tokens: maxTokens, messages };
   // DeepSeek 思考 token 计入 max_tokens；默认关（实测 30 标题 3s/815 token，开则约 19s/4579 token）。其他平台不发该参数
   if (/api\.deepseek\.com/.test(baseUrl)) body.thinking = { type: thinking ? "enabled" : "disabled" };
-  const res = await fetch(`${baseUrl}/chat/completions`, {
-    method: "POST",
-    headers,
-    body: JSON.stringify(body)
-  }).catch(async (e) => {
-    throw triageError((await hostPermissionError(baseUrl)) || e?.message || String(e));
+
+  const ms = TRIAGE_AI_TIMEOUT_MS[thinking ? "thinking" : "normal"];
+  const controller = new AbortController();
+  let timer;
+  // Racing the timer (not just aborting) also ends a fetch or body read that ignores the abort.
+  const timeout = new Promise((_, reject) => {
+    timer = setTimeout(() => {
+      controller.abort();
+      reject(triageError(`AI 超时（${ms / 1000} 秒），已跳过，可重试`, "AI_TIMEOUT"));
+    }, ms);
   });
-  if (!res.ok) {
-    const detail = await res.text().catch(() => "");
-    throw triageError(`HTTP ${res.status}: ${detail.slice(0, 200)}`, res.status === 429 ? "AI_THROTTLED" : undefined);
+  const request = async () => {
+    const res = await fetch(`${baseUrl}/chat/completions`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify(body),
+      signal: controller.signal
+    }).catch(async (e) => {
+      throw triageError((await hostPermissionError(baseUrl)) || e?.message || String(e));
+    });
+    if (!res.ok) {
+      const detail = await res.text().catch(() => "");
+      throw triageError(`HTTP ${res.status}: ${detail.slice(0, 200)}`, res.status === 429 ? "AI_THROTTLED" : undefined);
+    }
+    const json = await res.json();
+    const choice = json.choices?.[0];
+    if (!choice?.message?.content && choice?.finish_reason === "length") {
+      throw triageError("模型输出被截断（思考可能用光了额度），请调大输出上限或关闭思考");
+    }
+    return { content: choice?.message?.content, model: provider.model };
+  };
+  try {
+    return await Promise.race([request(), timeout]);
+  } finally {
+    clearTimeout(timer);
   }
-  const json = await res.json();
-  const choice = json.choices?.[0];
-  if (!choice?.message?.content && choice?.finish_reason === "length") {
-    throw triageError("模型输出被截断（思考可能用光了额度），请调大输出上限或关闭思考");
-  }
-  return { content: choice?.message?.content, model: provider.model };
 }
 
 async function triageClassifyTitles({ items, tags }) {

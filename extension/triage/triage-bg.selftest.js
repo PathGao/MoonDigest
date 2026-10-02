@@ -5,7 +5,7 @@ const vm = require("vm");
 const crypto = require("crypto");
 const assert = require("assert");
 
-const ctx = vm.createContext({ TextEncoder, URLSearchParams, console });
+const ctx = vm.createContext({ TextEncoder, URLSearchParams, console, setTimeout, clearTimeout, AbortController });
 vm.runInContext(fs.readFileSync(path.join(__dirname, "triage-bg.js"), "utf8"), ctx);
 const t = ctx;
 const md5 = (s) => crypto.createHash("md5").update(s).digest("hex");
@@ -187,6 +187,19 @@ assert.throws(() => t.triageParseCommand('{"new_tags":[', cmdItems, cmdTags, {})
   await assert.rejects(t.triageChat([], 100), (e) => e.code === "AI_THROTTLED");
   t.fetch = async () => ({ ok: false, status: 500, text: async () => "" });
   await assert.rejects(t.triageChat([], 100), (e) => e.code === undefined);
+
+  // A request that never settles, even on abort, still ends with the retryable timeout code.
+  vm.runInContext("TRIAGE_AI_TIMEOUT_MS.normal = 30; TRIAGE_AI_TIMEOUT_MS.thinking = 60;", ctx);
+  let aborted = false;
+  t.fetch = (url, { signal }) => {
+    signal.addEventListener("abort", () => (aborted = true));
+    return new Promise(() => {});
+  };
+  await assert.rejects(t.triageChat([], 100), (e) => e.code === "AI_TIMEOUT" && e.message === "AI 超时（0.03 秒），已跳过，可重试");
+  assert.strictEqual(aborted, true);
+  const started = Date.now();
+  await assert.rejects(t.triageChat([], 100, true), (e) => e.code === "AI_TIMEOUT");
+  assert.ok(Date.now() - started >= 55, "thinking uses the longer timeout");
 
   // Interval 0 is a valid user choice; only invalid values fall back to the default.
   const settingsWith = async (stored) => {
