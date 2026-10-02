@@ -19,19 +19,21 @@ const defs = `<defs>
 <linearGradient id="lilac" x1="78.7" y1="120" x2="89" y2="177.5" gradientUnits="userSpaceOnUse"><stop stop-color="#EEE5FF"/><stop offset="0.52" stop-color="#B7A0FF"/><stop offset="1" stop-color="#7354D8"/></linearGradient>
 </defs>`;
 
-// Per size: tile placement in px (matches the margins of the previous icon sets), stroke weights in
-// 256-unit artwork space, an optional art zoom about the tile centre, and eyes in px so they land on whole pixels at small sizes.
+// Per size: the tile fills the canvas (Chrome draws extension icons edge to edge, so margins read as a
+// smaller icon), corner radius ~22% of size. `art` is the 256-unit artwork scale relative to size; stroke
+// weights are in artwork units; eyes are in px so they land on whole pixels at small sizes.
 const sizes = {
-  128: { m: 10, tile: 108, rx: 24, orbit: 13, play: 5, back: "loop", border: true, eyes: null },
-  48: { m: 4, tile: 40, rx: 9, orbit: 15, play: 7, back: "loop", border: false, eyes: { y: 20, h: 4, w: 2, x: [20, 25] } },
-  32: { m: 3, tile: 26, rx: 6, orbit: 19, play: 10, back: "loop", border: false, eyes: { y: 13, h: 3, w: 1, x: [14, 17] }, playScale: 1.35 },
-  16: { m: 1, tile: 14, rx: 3.5, zoom: 1.15, orbit: 24, play: 0, back: "arc", gap: 16, border: false, eyes: { y: 6, h: 2, w: 1, x: [6, 9] } },
+  128: { art: 1 / 225, orbit: 13, play: 5, back: "loop", border: true, eyes: null },
+  48: { art: 1 / 225, orbit: 15, play: 7, back: "loop", border: false, eyes: { y: 19, h: 4, w: 2, x: [20, 26] } },
+  32: { art: 1 / 225, orbit: 19, play: 10, back: "loop", border: false, eyes: { y: 13, h: 3, w: 1, x: [13, 18] }, playScale: 1.35 },
+  16: { art: 1 / 240, orbit: 24, play: 0, back: "arc", gap: 16, border: false, eyes: { y: 6, h: 2, w: 1, x: [6, 9] } },
 };
 
 function svg(size) {
   const c = sizes[size];
-  const s = (c.tile / 240) * (c.zoom ?? 1);
-  const mid = c.m + c.tile / 2;
+  const s = size * c.art;
+  const mid = size / 2;
+  const rx = +(size * 0.22).toFixed(2);
   const art = [];
   art.push(c.back === "loop"
     ? `<path d="${ORBIT_BACK}" stroke="#706DAB" stroke-width="${c.orbit}" stroke-linecap="round" stroke-linejoin="round" fill="none"/>`
@@ -49,10 +51,10 @@ function svg(size) {
     ? c.eyes.x.map((x) => `<rect x="${x}" y="${c.eyes.y}" width="${c.eyes.w}" height="${c.eyes.h}" rx="${Math.min(c.eyes.w / 2, 0.8)}" fill="#6A3D61"/>`).join("")
     : "";
   const border = c.border
-    ? `<rect x="${c.m + 0.25}" y="${c.m + 0.25}" width="${c.tile - 0.5}" height="${c.tile - 0.5}" rx="${c.rx - 0.25}" fill="none" stroke="#FFFFFF" stroke-width="0.5" opacity=".35"/>`
+    ? `<rect x="0.25" y="0.25" width="${size - 0.5}" height="${size - 0.5}" rx="${rx - 0.25}" fill="none" stroke="#FFFFFF" stroke-width="0.5" opacity=".35"/>`
     : "";
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 ${size} ${size}">${defs}
-<rect x="${c.m}" y="${c.m}" width="${c.tile}" height="${c.tile}" rx="${c.rx}" fill="#27283F"/>
+<rect width="${size}" height="${size}" rx="${rx}" fill="#27283F"/>
 <g transform="translate(${mid} ${mid}) scale(${+s.toFixed(5)}) translate(-128 -128)">${art.join("")}</g>${eyes}${border}
 </svg>
 `;
