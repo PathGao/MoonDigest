@@ -1,0 +1,39 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    env:
+      CWS_REFRESH_TOKEN: ${{ secrets.CWS_REFRESH_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check tag matches manifest version
+        run: |
+          version=$(python3 -c 'import json; print(json.load(open("extension/manifest.json"))["version"])')
+          test "v$version" = "$GITHUB_REF_NAME" || { echo "tag $GITHUB_REF_NAME != manifest v$version"; exit 1; }
+
+      - run: python3 scripts/build_release.py
+
+      - name: GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" release/moondigest-*-chrome.zip --title "MoonDigest $GITHUB_REF_NAME" --generate-notes
+
+      # Skipped until the three OAuth secrets exist. Upload also submits for review.
+      - name: Chrome Web Store
+        if: env.CWS_REFRESH_TOKEN != ''
+        env:
+          EXTENSION_ID: bnjihpbocpimaipifanfkjjpfdbigggd
+          PUBLISHER_ID: 4f572405-456e-41da-8d5d-6f86651e94b0
+          CLIENT_ID: ${{ secrets.CWS_CLIENT_ID }}
+          CLIENT_SECRET: ${{ secrets.CWS_CLIENT_SECRET }}
+          REFRESH_TOKEN: ${{ env.CWS_REFRESH_TOKEN }}
+        run: npx --yes chrome-webstore-upload-cli@4 --source release/moondigest-*-chrome.zip
