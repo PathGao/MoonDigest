@@ -11,7 +11,7 @@
     }
   },
   
-  "permissions": ["storage", "scripting", "sidePanel", "cookies", "declarativeNetRequest"],
+  "permissions": ["storage", "unlimitedStorage", "scripting", "sidePanel", "cookies", "declarativeNetRequest"],
   "host_permissions": [
     "https://www.bilibili.com/*",
     "https://api.bilibili.com/*",
@@ -20,10 +20,9 @@
     "http://127.0.0.1/*",
     "https://127.0.0.1/*",
     "http://localhost/*",
-    "https://localhost/*",
-    "http://*/*",
-    "https://*/*"
+    "https://localhost/*"
   ],
+  "optional_host_permissions": ["http://*/*", "https://*/*"],
   "background": {
     "service_worker": "background.js"
   },

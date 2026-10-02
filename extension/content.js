@@ -712,7 +712,7 @@ function buildUiHtml() {
         <section class="boc-reading-stage">
           <header class="boc-reading-header">
             <div class="boc-reading-header-copy">
-              <strong class="boc-reading-title">${escapeHtml(state.title || "B站字幕阅读")}</strong>
+              <strong class="boc-reading-title">${escapeHtml(state.title || "字幕阅读")}</strong>
               <div id="${ids.readingMeta}" class="boc-reading-meta">${escapeHtml(currentSite()?.domain || "")}</div>
             </div>
             <div class="boc-reading-actions">
@@ -1988,7 +1988,7 @@ function renderReadingView() {
   const hasChapters = chapters.length > 0;
 
   if (titleNode) {
-    titleNode.textContent = state.title || "B站字幕阅读";
+    titleNode.textContent = state.title || "字幕阅读";
   }
   if (metaNode) {
     metaNode.textContent = buildReadingMetaLine();

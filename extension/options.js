@@ -176,6 +176,9 @@ async function saveSettings() {
     return;
   }
 
+  // Remote hosts are optional permissions; the save click is the user gesture that may request them.
+  const deniedHosts = await requestHostPermissions([payload.obsidianApiBaseUrl, ...aiProvidersPayload.map((item) => item.baseUrl)]);
+
   setBusy(true);
   try {
     const resp = await sendRuntimeMessage({ type: "save-settings", settings: payload });
@@ -194,6 +197,10 @@ async function saveSettings() {
     }
     // 用最新列表（含 hasSavedKey）重新渲染，避免误以为 Key 丢了
     renderAiProviders(aiResp.providers || []);
+    if (deniedHosts.length) {
+      setStatus(`已保存，但未授权访问 ${deniedHosts.join("、")}，相关请求会失败；重新保存可再次授权`, true);
+      return;
+    }
     setStatus(
       payload.obsidianApiKey
         ? "保存成功"
@@ -1071,6 +1078,38 @@ function collectAiProviders() {
       hasSavedKey: row.dataset.hasSavedKey === "1"
     };
   });
+}
+
+// Loopback hosts are in host_permissions already; everything else is optional.
+function hostPermissionPattern(url) {
+  try {
+    const parsed = new URL(String(url || ""));
+    if (!/^https?:$/.test(parsed.protocol) || ["localhost", "127.0.0.1", "[::1]"].includes(parsed.hostname)) {
+      return "";
+    }
+    return `${parsed.protocol}//${parsed.hostname}/*`;
+  } catch {
+    return "";
+  }
+}
+
+// Returns the patterns the user declined (empty when everything is granted).
+async function requestHostPermissions(urls) {
+  const origins = [...new Set(urls.map(hostPermissionPattern).filter(Boolean))];
+  if (!origins.length || !chrome.permissions?.request) {
+    return [];
+  }
+  const missing = [];
+  for (const origin of origins) {
+    if (!(await chrome.permissions.contains({ origins: [origin] }))) {
+      missing.push(origin);
+    }
+  }
+  if (!missing.length) {
+    return [];
+  }
+  const granted = await chrome.permissions.request({ origins: missing }).catch(() => false);
+  return granted ? [] : missing;
 }
 
 function validateAiProviders(items) {

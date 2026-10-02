@@ -650,48 +650,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
   if (message.type === "fetch-json") {
     const url = typeof message.url === "string" ? message.url : "";
-    if (!url) {
-      sendResponse({ ok: false, error: "Missing subtitle URL" });
+    // The proxy carries the user's cookies, so it only serves the video sites.
+    if (!BocSites.isAllowedFetchUrl(url)) {
+      sendResponse({ ok: false, error: "URL not allowed" });
       return false;
     }
-
-    const isBiliRequest = /(?:api\.bilibili\.com|hdslb\.com)/.test(url);
-    const headers = new Headers();
-    if (isBiliRequest) {
-      headers.set("Accept", "application/json, text/plain, */*");
-      headers.set("Accept-Language", "zh-CN,zh;q=0.9,en;q=0.8");
-      headers.set("Cache-Control", "no-cache");
-      headers.set("Pragma", "no-cache");
-    }
-
-    const fetchOptions = {
-      method: "GET",
-      credentials: "include",
-      cache: "no-store"
-    };
-    if (headers.size > 0) {
-      fetchOptions.headers = headers;
-    }
-    if (isBiliRequest) {
-      fetchOptions.referrer = "https://www.bilibili.com/";
-      fetchOptions.referrerPolicy = "strict-origin-when-cross-origin";
-    }
-
-    fetch(url, fetchOptions)
-      .then(async (response) => {
-        if (!response.ok) {
-          sendResponse({ ok: false, error: `HTTP ${response.status}` });
-          return;
-        }
-
-        const text = await response.text();
-        try {
-          const data = JSON.parse(text);
-          sendResponse({ ok: true, data });
-        } catch {
-          sendResponse({ ok: false, error: "Invalid JSON response" });
-        }
-      })
+    fetchJsonForAi(url)
+      .then((data) => sendResponse({ ok: true, data }))
       .catch((error) => sendResponse({ ok: false, error: error.message }));
     return true;
   }
@@ -1317,7 +1282,7 @@ function buildAiMessages({ context, userPrompt, history, systemPrompt }) {
   const hasVideoContext = Boolean(ctx.isVideoContext);
   const sections = hasVideoContext
     ? [
-        `你是一个 B 站视频助手。当前用户正在看一个视频，标题：「${ctx.title || "未知"}」`,
+        `你是一个视频助手。当前用户正在看一个视频，标题：「${ctx.title || "未知"}」`,
         `作者：${ctx.author || "未知"} | 上传日期：${ctx.uploadDate || "未知"}`
       ]
     : [
