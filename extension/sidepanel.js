@@ -63,7 +63,7 @@ let streamSlowNoticeTimer = 0;
 let streamFirstTokenReceived = false;
 let initCompleted = false;
 let followPlayback = localStorage.getItem(FOLLOW_PLAYBACK_KEY) !== "0";
-let lastLiveVideoKey = "";
+let lastLiveVideoUrl = "";
 let previousVideoConversationId = "";
 let previousVideoExpanded = false;
 let previousVideoBarSignature = "";
@@ -402,12 +402,23 @@ async function loadContextState({ forceRefresh = false, silent = false, follow =
     return false;
   }
 
+  liveTabUrl = String(tab.url || "").trim();
+  // Subtitles and comments take seconds to load, but the tab URL already names the new video, so following
+  // switches now and the full reply below fills the context in. Watch-later URLs name the part by oid, not ?p=.
+  const tabRef = follow ? BocSites.parseRef(liveTabUrl) : null;
+  let followed = false;
+  if (tabRef && !tabRef.part?.oid && isFollowCandidate(lastLiveVideoUrl, tabRef.url)) {
+    lastLiveVideoUrl = tabRef.url;
+    await detachActiveStream();
+    await followLiveVideo(buildTabVideoPlaceholder(tab, tabRef));
+    followed = true;
+  }
+
   const resp = await sendRuntimeMessage({
     type: "ai-sidepanel-get-state",
     tabId: tab.id,
     forceRefresh
   }).catch((error) => ({ ok: false, error: error.message }));
-  liveTabUrl = String(tab.url || "").trim();
 
   if (!resp?.ok || !resp.payload) {
     liveContextData = null;
@@ -425,19 +436,20 @@ async function loadContextState({ forceRefresh = false, silent = false, follow =
 
   liveContextData = resp.payload;
   liveContextKey = buildContextKey(resp.payload);
-  const followFromKey = lastLiveVideoKey;
-  if (resp.payload.isVideoContext !== false && liveContextKey.startsWith("video:")) {
-    lastLiveVideoKey = liveContextKey;
+  const followFromUrl = lastLiveVideoUrl;
+  const liveVideoUrl = resp.payload.isVideoContext !== false && liveContextKey.startsWith("video:") ? String(resp.payload.url || "") : "";
+  if (liveVideoUrl) {
+    lastLiveVideoUrl = liveVideoUrl;
   }
-  if (follow && isFollowCandidate(followFromKey)) {
+  if (follow && isFollowCandidate(followFromUrl, liveVideoUrl)) {
     await detachActiveStream();
-    await followLiveVideo();
+    await followLiveVideo(liveContextData);
     return FOLLOWED_LIVE_VIDEO;
   }
   if (isContextBound()) {
     renderHistoryList();
     updateContextChip();
-    return true;
+    return followed ? FOLLOWED_LIVE_VIDEO : true;
   }
 
   const contextChanged = applyContextPayload(resp.payload);
@@ -446,14 +458,27 @@ async function loadContextState({ forceRefresh = false, silent = false, follow =
     await restoreLatestConversationForCurrentContext();
     renderInitialState();
   }
-  return true;
+  return followed ? FOLLOWED_LIVE_VIDEO : true;
+}
+
+// Stands in for a followed video until its subtitles load; sending always waits for the full context.
+function buildTabVideoPlaceholder(tab, ref) {
+  const title = String(tab.title || "").replace(/_哔哩哔哩_bilibili$| - YouTube$/, "").trim();
+  return {
+    ...buildContextPlaceholder({ site: ref.site, videoId: ref.id, url: ref.url, pageIndex: ref.part?.index || 1 }),
+    // Right after an in-page navigation the tab can still carry the previous video's title.
+    title: title === contextData?.title ? "" : title,
+    pending: true
+  };
 }
 
 function applyContextPayload(payload) {
   const nextContext = payload && typeof payload === "object" ? payload : null;
   const nextKey = buildContextKey(nextContext);
   // An empty key (loading or blank tab) is a different context too, so returning to a video restores its conversation.
-  const contextChanged = nextKey !== currentContextKey;
+  // A followed video's placeholder has no cid yet, so its full context is matched by URL.
+  const fillsPlaceholder = Boolean(contextData?.pending && doesTabMatchContextUrl(nextContext?.url || "", contextData.url));
+  const contextChanged = !fillsPlaceholder && nextKey !== currentContextKey;
 
   contextData = nextContext;
   currentContextKey = nextKey;
@@ -502,7 +527,7 @@ function updateContextChip() {
     return;
   }
 
-  const shortTitle = contextData.title ? truncate(contextData.title, 19) : "未知视频";
+  const shortTitle = contextData.title ? truncate(contextData.title, 19) : contextData.pending ? "加载中…" : "未知视频";
   els.contextChip.textContent = shortTitle;
   const mismatch = isBoundConversationMismatched();
   els.contextChip.classList.toggle("is-mismatch", mismatch);
@@ -895,9 +920,7 @@ async function saveConversations() {
   renderHistoryList();
 }
 
-async function restoreLatestConversationForCurrentContext() {
-  const targetContextKey = liveContextKey || currentContextKey;
-  const currentRef = liveContextData || contextData;
+async function restoreLatestConversationForCurrentContext(currentRef = liveContextData || contextData, targetContextKey = liveContextKey || currentContextKey) {
   const latest = savedConversations.find((item) => doesConversationMatchCurrentContext(item, currentRef, targetContextKey));
   if (!latest) {
     currentConversationId = "";
@@ -1108,18 +1131,15 @@ async function syncLiveContextState(forceRefresh = false) {
 }
 
 // 跟随播放：只在当前对话绑定的是“刚才在播的视频”（或还没有对话）时才切走，
-// 用户主动打开的无关历史对话不动。
-function isFollowCandidate(fromKey) {
-  if (!followPlayback || !fromKey || liveContextData?.isVideoContext === false) {
-    return false;
-  }
-  if (!liveContextKey.startsWith("video:") || liveContextKey === fromKey) {
+// 用户主动打开的无关历史对话不动。视频按 URL（站点、id、分 P）比较，标签页 URL 和完整上下文都能判断。
+function isFollowCandidate(fromUrl, toUrl) {
+  if (!followPlayback || !fromUrl || !toUrl || doesTabMatchContextUrl(toUrl, fromUrl)) {
     return false;
   }
   if (!currentConversationMeta && !chatHistory.length) {
     return true;
   }
-  return (currentConversationMeta?.contextKey || currentContextKey) === fromKey;
+  return doesTabMatchContextUrl(currentConversationMeta?.contextUrl || contextData?.url || "", fromUrl);
 }
 
 // Switching videos mid-reply hands the reply to its saved conversation, which then becomes the previous-video bar.
@@ -1164,24 +1184,24 @@ async function finishDetachedStream({ conversationId, promptIndex, prompt, raw }
   }
 }
 
-async function followLiveVideo() {
+async function followLiveVideo(context) {
   const previous = currentConversationId && chatHistory.length
     ? savedConversations.find((item) => item.id === currentConversationId)
     : null;
   if (previous) {
     setPreviousVideoConversation(previous.id);
   }
-  contextData = { ...liveContextData };
-  currentContextKey = liveContextKey;
+  contextData = { ...context };
+  currentContextKey = buildContextKey(context);
   const draft = els.input.value;
   restartChat({ keepContext: true });
   els.input.value = draft;
   autosizeInput();
-  await restoreLatestConversationForCurrentContext();
+  await restoreLatestConversationForCurrentContext(contextData, currentContextKey);
   renderHistoryList();
   updateContextChip();
   renderInitialState();
-  showConversationContextNotice(`已切换到新视频：${truncate(liveContextData?.title || "未知视频", 24)}`, 2500);
+  showConversationContextNotice(`已切换到新视频：${truncate(context.title || "未知视频", 24)}`, 2500);
 }
 
 function renderFollowButton() {
@@ -1615,8 +1635,16 @@ async function ensureCurrentContextForSend() {
     await loadContextState({ forceRefresh: false, silent: true }).catch(() => null);
     return hydratePinnedConversationContext();
   }
+  const loadingNotice = contextData?.pending;
+  if (loadingNotice) {
+    showConversationContextNotice("正在加载视频上下文...");
+  }
   const ok = await loadContextState({ forceRefresh: false, silent: true });
-  if (!ok || !contextData) {
+  if (loadingNotice) {
+    removeConversationContextNotice();
+  }
+  // A placeholder still standing means the subtitles never arrived; never answer from it.
+  if (!ok || !contextData || contextData.pending) {
     resetConversationView("当前页面上下文读取失败。");
     return false;
   }
