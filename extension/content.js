@@ -4252,12 +4252,13 @@ function queryFirst(list, root = document) {
   return null;
 }
 
-// Bilibili API calls go through the background worker so they carry the
-// bilibili.com Referer; other hosts are fetched from the page directly.
+// Sites that answer outside the page (Bilibili API and its cross-origin hdslb
+// subtitle files) are read through the background worker, as background.js
+// itself does; pageOnly sites are fetched from the page directly.
 function siteIo() {
   return {
     doc: document,
-    fetchJson: (url) => (url.startsWith("https://api.bilibili.com/") ? fetchJsonInBackground(url) : fetchJson(url)),
+    fetchJson: (url) => (currentSite()?.pageOnly ? fetchJson(url) : fetchJsonInBackground(url)),
     fetchText: async (url) => {
       const response = await fetch(url, { credentials: "include", cache: "no-store" });
       if (!response.ok) {
