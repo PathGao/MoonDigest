@@ -3,6 +3,7 @@
 // throw on redeclaration, so the body sits in this block.
 if (!globalThis.__BOC_CONTENT_SCRIPT_LOADED__) {
 const DEFAULT_SETTINGS = {
+  obsidianEnabled: false,
   noteFolder: "Clippings/{{site}}",
   obsidianApiBaseUrl: "http://127.0.0.1:27123",
   obsidianApiKey: "",
@@ -12,7 +13,7 @@ const DEFAULT_SETTINGS = {
   includeDateInFilename: true,
   includeHotCommentsInNote: false,
   includeCoverInNote: true,
-  enablePlayerAiQuickAction: false,
+  enablePlayerAiQuickAction: true,
   playerAiQuickPrompt: "整理这期视频的内容，输出结构化总结：主题、核心观点、关键细节、结论与可执行启发。",
   includeTimestampInBody: true,
   enableDebugLogs: false,
