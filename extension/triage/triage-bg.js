@@ -611,7 +611,7 @@ const TRIAGE_HANDLERS = {
     const s = await chrome.storage.sync.get(TRIAGE_SETTINGS_DEFAULTS);
     return {
       triageCriteria: String(s.triageCriteria || ""),
-      triageIntervalSec: Number(s.triageIntervalSec) > 0 ? Number(s.triageIntervalSec) : 8,
+      triageIntervalSec: Number(s.triageIntervalSec) >= 0 ? Number(s.triageIntervalSec) : TRIAGE_SETTINGS_DEFAULTS.triageIntervalSec,
       triageExportFolder: String(s.triageExportFolder || TRIAGE_SETTINGS_DEFAULTS.triageExportFolder),
       triageTitleBatchSize: Number(s.triageTitleBatchSize) > 0 ? Number(s.triageTitleBatchSize) : 30,
       triageThinking: s.triageThinking === true,

@@ -71,7 +71,7 @@ const S = {
   basket: [],
   settings: {
     triageCriteria: "",
-    triageIntervalSec: 3,
+    triageIntervalSec: 8,
     triageExportFolder: "",
     triageTitleBatchSize: 30,
     triageThinking: false,
@@ -1961,7 +1961,7 @@ function renderTokenHints() {
 
 function openSettings(scrollToAi = false) {
   el.criteriaInput.value = S.settings.triageCriteria || "";
-  el.intervalInput.value = S.settings.triageIntervalSec ?? 3;
+  el.intervalInput.value = S.settings.triageIntervalSec ?? 8;
   el.batchSizeInput.value = S.settings.triageTitleBatchSize ?? 30;
   el.exportFolderInput.value = S.settings.triageExportFolder || "";
   el.thinkingInput.checked = Boolean(S.settings.triageThinking);

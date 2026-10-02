@@ -188,5 +188,16 @@ assert.throws(() => t.triageParseCommand('{"new_tags":[', cmdItems, cmdTags, {})
   t.fetch = async () => ({ ok: false, status: 500, text: async () => "" });
   await assert.rejects(t.triageChat([], 100), (e) => e.code === undefined);
 
+  // Interval 0 is a valid user choice; only invalid values fall back to the default.
+  const settingsWith = async (stored) => {
+    t.chrome = { storage: { sync: { get: async (d) => ({ ...d, ...stored }) } } };
+    return (await vm.runInContext("TRIAGE_HANDLERS", ctx)["triage-settings-get"]()).triageIntervalSec;
+  };
+  assert.strictEqual(await settingsWith({ triageIntervalSec: 0 }), 0);
+  assert.strictEqual(await settingsWith({ triageIntervalSec: 5 }), 5);
+  assert.strictEqual(await settingsWith({ triageIntervalSec: -1 }), 8);
+  assert.strictEqual(await settingsWith({ triageIntervalSec: "x" }), 8);
+  assert.strictEqual(await settingsWith({}), 8);
+
   console.log("triage-bg selftest: all passed");
 })();
