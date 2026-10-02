@@ -27,7 +27,8 @@ def dump_manifest(path: Path, data: dict):
 def prepare_release_dir(path: Path):
     if path.exists():
         shutil.rmtree(path)
-    shutil.copytree(EXTENSION_DIR, path)
+    # Selftests and dev-only mocks stay out of the shipped package.
+    shutil.copytree(EXTENSION_DIR, path, ignore=shutil.ignore_patterns("*.selftest.js", "dev-sidepanel", "dev"))
 
 
 def disable_firefox_player_ai_quick_action(release_folder: Path):

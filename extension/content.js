@@ -1426,7 +1426,7 @@ function renderSubtitleOptions(select) {
       const label = item.label || item.lang || "unknown";
       return `<option value="${escapeHtml(item.url)}" data-lang="${escapeHtml(
         label
-      )}" data-id="${escapeHtml(String(item.id || ""))}" data-isai="${item.kind !== "manual"}" ${selected}>${escapeHtml(
+      )}" data-id="${escapeHtml(String(item.id || ""))}" ${selected}>${escapeHtml(
         subtitleOptionLabel(item)
       )}</option>`;
     })
@@ -1437,7 +1437,6 @@ function renderSubtitleOptions(select) {
 function getPopupPayload() {
   const subtitleOptions = (state.subtitles || []).map((item) => {
     const label = item.label || item.lang || "unknown";
-    const isAi = item.kind !== "manual";
     const selectedById =
       state.selectedSubtitleId && String(item.id) === String(state.selectedSubtitleId);
     const selectedByUrl = item.url === state.selectedSubtitleUrl;
@@ -1446,7 +1445,6 @@ function getPopupPayload() {
       url: item.url,
       lang: label,
       optionLabel: subtitleOptionLabel(item),
-      isAi,
       selected: selectedById || selectedByUrl
     };
   });
