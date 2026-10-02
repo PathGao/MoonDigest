@@ -127,7 +127,8 @@
   // default track and human-made tracks first. A target other than "auto"
   // moves its language to the front.
   function rankTracks(tracks, target = "auto") {
-    const misses = (track) => (SUBTITLE_LANG_NAMES[target] ? Number(!langMatches(track.lang, target)) : 0);
+    // Under "auto" a machine translation is only offered, never the default.
+    const misses = (track) => Number(SUBTITLE_LANG_NAMES[target] ? !langMatches(track.lang, target) : track.kind === "translated");
     return [...(tracks || [])].sort((a, b) => {
       const targetGap = misses(a) - misses(b);
       if (targetGap !== 0) return targetGap;
@@ -565,9 +566,11 @@
   // Without a native track in the target language, YouTube machine-translates
   // any translatable track when its URL gets &tlang=. translationLanguages is
   // not consulted: it never lists zh-Hans, which works. Manual sources first.
+  // Under "auto" a video without any Chinese track is offered zh-Hans.
   function ytWithTranslation(tracks, target) {
-    const name = SUBTITLE_LANG_NAMES[target];
-    if (!name || tracks.some((track) => langMatches(track.lang, target))) {
+    const auto = !SUBTITLE_LANG_NAMES[target];
+    const lang = auto ? "zh-Hans" : target;
+    if (tracks.some((track) => langMatches(track.lang, lang) || (auto && langMatches(track.lang, "zh-Hant")))) {
       return tracks;
     }
     const source = rankTracks(tracks.filter((track) => track.translatable)).sort(
@@ -579,10 +582,10 @@
     return [
       ...tracks,
       {
-        id: `${source.id}>${target}`,
-        lang: target,
-        label: `${name}（机器翻译，自${source.label}）`,
-        url: `${source.url}&tlang=${target}`,
+        id: `${source.id}>${lang}`,
+        lang,
+        label: `${SUBTITLE_LANG_NAMES[lang]}（机器翻译，自${source.label}）`,
+        url: `${source.url}&tlang=${lang}`,
         kind: "translated",
         isDefault: false
       }

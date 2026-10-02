@@ -63,6 +63,15 @@ const ytIds = async (target) =>
   eq((await S.SITES.youtube.fetchTracks({}, { tracks: [ytTracks[3]] }, { subtitleLang: "ja" })).tracks.length, 1);
   // An auto-only video translates its auto track.
   eq((await S.SITES.youtube.fetchTracks({}, { tracks: [ytTracks[0]] }, { subtitleLang: "ja" })).tracks[1].url, "https://y/t?v=1&lang=en&tlang=ja");
+  // Under auto a video without Chinese offers zh-Hans, ranked after every native track.
+  const noZh = ytTracks.slice(0, 3);
+  const autoNoZh = S.rankTracks((await S.SITES.youtube.fetchTracks({}, { tracks: noZh }, { subtitleLang: "auto" })).tracks, "auto");
+  eq(autoNoZh.map((item) => item.id), [".en", "a.en", ".de", ".en>zh-Hans"]);
+  eq(autoNoZh[3].url, "https://y/t?v=1&lang=en&m=1&tlang=zh-Hans");
+  eq(S.pickPreferredTrack(autoNoZh).id, ".en");
+  eq(S.rankTracks((await S.SITES.youtube.fetchTracks({}, { tracks: noZh }, {})).tracks).at(-1).id, ".en>zh-Hans");
+  // Any native Chinese track, Traditional included, means nothing is added under auto.
+  eq((await S.SITES.youtube.fetchTracks({}, { tracks: ytTracks }, { subtitleLang: "auto" })).tracks.length, ytTracks.length);
   assert.strictEqual(S.normalizeSubtitleLang("zh-Hans"), "zh-Hans");
   assert.strictEqual(S.normalizeSubtitleLang("fr"), "auto");
   assert.strictEqual(S.normalizeSubtitleLang(undefined), "auto");
