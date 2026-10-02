@@ -566,6 +566,7 @@ function bindRuntimeEvents() {
           videoId: state.videoId || "",
           cid: state.cid || "",
           aid: state.aid || "",
+          description: state.description || "",
           pageIndex: Number(state.pageIndex) > 0 ? Number(state.pageIndex) : 1,
           pageCount: Number(state.pageCount) > 0 ? Number(state.pageCount) : 0,
           pageTitle: state.pageTitle || "",
@@ -1119,18 +1120,7 @@ async function refreshClip() {
 
     // 无字幕时也允许进入阅读视图，只是字幕区域保持空态。
     if (state.subtitles.length === 0) {
-      applyNoSubtitleState();
-      renderMeta();
-      renderSubtitleSelect();
-      if (state.readingViewOpen) {
-        moveReadingMainInline();
-        renderReadingView();
-        renderReadingStatus("当前视频无字幕。");
-        startReadingViewSync();
-        startReaderPlayerObserver();
-        syncReadingViewPlayback(true);
-      }
-      setStatus("当前视频无字幕。");
+      await showNoSubtitleState(runId);
       return;
     }
 
@@ -1144,18 +1134,7 @@ async function refreshClip() {
     });
 
     if (!preferred) {
-      applyNoSubtitleState();
-      renderMeta();
-      renderSubtitleSelect();
-      if (state.readingViewOpen) {
-        moveReadingMainInline();
-        renderReadingView();
-        renderReadingStatus("当前视频无字幕。");
-        startReadingViewSync();
-        startReaderPlayerObserver();
-        syncReadingViewPlayback(true);
-      }
-      setStatus("当前视频无字幕。");
+      await showNoSubtitleState(runId);
       return;
     }
 
@@ -1675,17 +1654,27 @@ function setMessage(text) {
   byId(ids.message).textContent = state.messageText;
 }
 
-function applyNoSubtitleState() {
+async function showNoSubtitleState(runId) {
   state.selectedSubtitleId = "";
   state.selectedSubtitleUrl = "";
   state.selectedSubtitleLang = "";
   state.subtitleBody = [];
   state.subtitleFetchState = "empty";
   state.hotComments = [];
-  state.markdown = "";
-  state.srt = "";
-  state.txt = "";
-  byId(ids.preview).value = "";
+  renderMeta();
+  renderSubtitleSelect();
+  if (state.readingViewOpen) {
+    moveReadingMainInline();
+    renderReadingView();
+    renderReadingStatus("当前视频无字幕。");
+    startReadingViewSync();
+    startReaderPlayerObserver();
+    syncReadingViewPlayback(true);
+  }
+  setStatus("当前视频无字幕，正在读取评论...");
+  await refreshDerivedContent();
+  ensureRunActive(runId);
+  setStatus("当前视频无字幕，可导出简介与评论。");
 }
 
 function cleanupReaderFloatingArtifacts(playerHost = state.readingPlayerHost) {
@@ -4662,14 +4651,16 @@ function normalizeHotComments(comments, limit = 20) {
 
 function rebuildDerivedContent() {
   const body = Array.isArray(state.subtitleBody) ? state.subtitleBody : [];
-  state.markdown = body.length ? buildMarkdown(state, body, state.settings) : "";
+  state.markdown = body.length || state.subtitleFetchState === "empty" ? buildMarkdown(state, body, state.settings) : "";
   state.srt = body.length ? buildSrt(body) : "";
   state.txt = body.length ? buildTxt(body, state.settings) : "";
   byId(ids.preview).value = body.length ? buildSubtitlePreview(body, state.settings) : "";
 }
 
+// Without subtitles the comments are most of the note, so they are fetched
+// regardless of includeHotCommentsInNote.
 async function refreshDerivedContent({ refreshComments = false } = {}) {
-  if (state.settings?.includeHotCommentsInNote) {
+  if (state.settings?.includeHotCommentsInNote || state.subtitleFetchState === "empty") {
     const shouldFetchComments =
       refreshComments || !Array.isArray(state.hotComments) || state.hotComments.length === 0;
     if (shouldFetchComments) {
@@ -4737,6 +4728,10 @@ function buildMarkdown(meta, body, settings) {
   if (embedIframe) {
     lines.push(embedIframe, "");
   }
+  const hasSubtitles = subtitleSectionLines.length > 0;
+  if (!hasSubtitles) {
+    lines.push("> 本视频无字幕，以下为简介与热门评论。", "");
+  }
   pushOptionalLines(lines, noteSections.before_intro);
 
   if (intro) {
@@ -4750,16 +4745,18 @@ function buildMarkdown(meta, body, settings) {
   }
 
   pushOptionalLines(lines, noteSections.before_subtitle);
-  lines.push("## 字幕", "", ...subtitleSectionLines);
-
-  const hotCommentLines = buildHotCommentLines(
-    settings?.includeHotCommentsInNote ? meta?.hotComments || [] : []
-  );
-  if (hotCommentLines.length > 0) {
-    lines.push("", "## 评论", "", ...hotCommentLines);
+  if (hasSubtitles) {
+    lines.push("## 字幕", "", ...subtitleSectionLines, "");
   }
 
-  return lines.join("\n");
+  const hotCommentLines = buildHotCommentLines(
+    settings?.includeHotCommentsInNote || !hasSubtitles ? meta?.hotComments || [] : []
+  );
+  if (hotCommentLines.length > 0) {
+    lines.push("## 评论", "", ...hotCommentLines);
+  }
+
+  return lines.join("\n").trimEnd();
 }
 
 function buildHotCommentLines(comments) {
@@ -5076,7 +5073,7 @@ function buildSubtitleSectionLines(body, chapters, settings, withHours) {
     }))
     .filter((item) => item.text);
   if (subtitleItems.length === 0) {
-    return ["（暂无字幕）"];
+    return [];
   }
 
   const chapterItems = BocSites.normalizeChapters(chapters);

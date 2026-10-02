@@ -396,16 +396,13 @@ async function resolveAiSidepanelContext(contextRef) {
   const meta = await site.fetchMeta(videoRef, io);
   const bundle = await site.fetchTracks(videoRef, meta, io);
   const tracks = BocSites.rankTracks(bundle.tracks || []);
-  if (!tracks.length) {
-    throw new Error("原视频暂时没有可用字幕");
-  }
   const selectedTrack = BocSites.pickPreferredTrack(tracks, {
     previousId: ref.selectedSubtitleId,
     previousUrl: ref.selectedSubtitleUrl,
     previousLang: ref.subtitleLang
   });
-  const body = await site.fetchSegments(selectedTrack, io);
-  if (!body.length) {
+  const body = selectedTrack ? await site.fetchSegments(selectedTrack, io) : [];
+  if (selectedTrack && !body.length) {
     throw new Error("原视频字幕为空");
   }
 
@@ -423,11 +420,12 @@ async function resolveAiSidepanelContext(contextRef) {
     aid: String(meta.aid || ""),
     pageIndex: meta.pageIndex || 1,
     pageTitle: String(meta.pageTitle || ref.pageTitle || "").trim(),
-    subtitleLang: String(selectedTrack.label || selectedTrack.lang || "").trim(),
-    selectedSubtitleId: String(selectedTrack.id || "").trim(),
-    selectedSubtitleUrl: String(selectedTrack.url || "").trim(),
+    description: String(meta.description || ""),
+    subtitleLang: String(selectedTrack?.label || selectedTrack?.lang || "").trim(),
+    selectedSubtitleId: String(selectedTrack?.id || "").trim(),
+    selectedSubtitleUrl: String(selectedTrack?.url || "").trim(),
     subtitleBody: body,
-    subtitleMarkdown: buildAiConversationMarkdown({ title, chapters, videoDuration: meta.duration }, body, settings),
+    subtitleMarkdown: body.length ? buildAiConversationMarkdown({ title, chapters, videoDuration: meta.duration }, body, settings) : "",
     subtitleOptions: tracks.map((item) => ({
       id: String(item.id || "").trim(),
       url: String(item.url || "").trim(),
@@ -1282,7 +1280,13 @@ function buildAiMessages({ context, userPrompt, history, systemPrompt }) {
   if (ctx.subtitleMarkdown) {
     sections.push(`以下是视频的字幕全文：\n\n${ctx.subtitleMarkdown}`);
   } else if (hasVideoContext) {
-    sections.push("（暂无字幕）");
+    sections.push(
+      "这个视频没有字幕，你拿不到视频里说了什么或画面内容。只能依据下面的简介和评论回答，不要假装看过视频；简介和评论回答不了的，直接告诉用户无法确认。"
+    );
+    const description = String(ctx.description || "").trim();
+    if (description) {
+      sections.push(`以下是视频简介：\n\n${description}`);
+    }
   }
   if (hasVideoContext && Array.isArray(ctx.hotComments) && ctx.hotComments.length) {
     const block = ctx.hotComments
