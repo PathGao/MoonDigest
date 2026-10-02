@@ -2350,7 +2350,7 @@ function sanitizeFileName(value) {
 }
 
 function escapeYaml(value) {
-  return String(value || "").replaceAll("\\", "\\\\").replaceAll('"', '\\"');
+  return String(value || "").replaceAll("\\", "\\\\").replaceAll('"', '\\"').replaceAll("\n", "\\n").replaceAll("\r", "\\r").replaceAll("\t", "\\t");
 }
 
 function escapeWikiLinkTarget(value) {
