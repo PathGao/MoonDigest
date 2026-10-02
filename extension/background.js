@@ -42,6 +42,7 @@ const DEFAULT_SYNC_SETTINGS = {
   enablePlayerAiQuickAction: true,
   playerAiQuickPrompt: DEFAULT_PLAYER_AI_QUICK_PROMPT,
   includeTimestampInBody: true,
+  showBiliTriageBadges: true,
   enableDebugLogs: false,
   readerTheme: "light",
   readerFontScale: "m",
@@ -997,6 +998,7 @@ async function getMergedSettings() {
   merged.includeHotCommentsInNote = normalizeIncludeHotCommentsInNote(merged.includeHotCommentsInNote);
   merged.enablePlayerAiQuickAction = normalizeEnablePlayerAiQuickAction(merged.enablePlayerAiQuickAction);
   merged.playerAiQuickPrompt = normalizePlayerAiQuickPrompt(merged.playerAiQuickPrompt);
+  merged.showBiliTriageBadges = merged.showBiliTriageBadges !== false;
   merged.readerTheme = normalizeReaderTheme(merged.readerTheme);
   merged.readerFontScale = normalizeReaderFontScale(merged.readerFontScale);
   merged.readerLetterSpacing = normalizeReaderLetterSpacing(merged.readerLetterSpacing ?? merged.readerLineHeight);
@@ -1033,6 +1035,7 @@ async function saveSettings(settings) {
   syncPayload.includeHotCommentsInNote = normalizeIncludeHotCommentsInNote(syncPayload.includeHotCommentsInNote);
   syncPayload.enablePlayerAiQuickAction = normalizeEnablePlayerAiQuickAction(syncPayload.enablePlayerAiQuickAction);
   syncPayload.playerAiQuickPrompt = normalizePlayerAiQuickPrompt(syncPayload.playerAiQuickPrompt);
+  syncPayload.showBiliTriageBadges = syncPayload.showBiliTriageBadges !== false;
   syncPayload.readerTheme = normalizeReaderTheme(syncPayload.readerTheme);
   syncPayload.readerFontScale = normalizeReaderFontScale(syncPayload.readerFontScale);
   syncPayload.readerLetterSpacing = normalizeReaderLetterSpacing(

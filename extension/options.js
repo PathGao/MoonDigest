@@ -38,6 +38,7 @@ const DEFAULT_SETTINGS = {
   enablePlayerAiQuickAction: true,
   playerAiQuickPrompt: DEFAULT_PLAYER_AI_QUICK_PROMPT,
   includeTimestampInBody: true,
+  showBiliTriageBadges: true,
   enableDebugLogs: false,
   frontmatterFields: [
     "title",
@@ -105,6 +106,7 @@ const elements = {
   enablePlayerAiQuickAction: document.getElementById("enablePlayerAiQuickAction"),
   playerAiQuickPrompt: document.getElementById("playerAiQuickPrompt"),
   includeTimestampInBody: document.getElementById("includeTimestampInBody"),
+  showBiliTriageBadges: document.getElementById("showBiliTriageBadges"),
   enableDebugLogs: document.getElementById("enableDebugLogs"),
   frontmatterFields: document.querySelectorAll('input[name="frontmatterField"]'),
   fixedPropertiesList: document.getElementById("fixedPropertiesList"),
@@ -175,6 +177,7 @@ async function loadSettings() {
   elements.enablePlayerAiQuickAction.checked = Boolean(settings.enablePlayerAiQuickAction);
   elements.playerAiQuickPrompt.value = String(settings.playerAiQuickPrompt || "");
   elements.includeTimestampInBody.checked = Boolean(settings.includeTimestampInBody);
+  elements.showBiliTriageBadges.checked = settings.showBiliTriageBadges !== false;
   elements.enableDebugLogs.checked = Boolean(settings.enableDebugLogs);
   // "bvid" was the field name before the site registry.
   const selectedFields = new Set((settings.frontmatterFields || DEFAULT_SETTINGS.frontmatterFields).map((field) => (field === "bvid" ? "video_id" : field)));
@@ -305,6 +308,7 @@ function collectFormPayload() {
     enablePlayerAiQuickAction: elements.enablePlayerAiQuickAction.checked,
     playerAiQuickPrompt: normalizePlayerAiQuickPrompt(elements.playerAiQuickPrompt.value),
     includeTimestampInBody: elements.includeTimestampInBody.checked,
+    showBiliTriageBadges: elements.showBiliTriageBadges.checked,
     enableDebugLogs: elements.enableDebugLogs.checked,
     frontmatterFields: selectedFields,
     fixedFrontmatterProperties: normalizeFixedFrontmatterProperties(collectFixedPropertyRows()),
