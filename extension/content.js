@@ -946,6 +946,9 @@ function startUrlWatcher() {
 
     state.currentUrl = nextUrl;
     state.currentClipSignature = nextSignature;
+    try {
+      chrome.runtime.sendMessage({ type: "boc-video-changed", url: nextUrl })?.catch?.(() => {});
+    } catch {}
     enforceNormalPageStateIfNeeded(nextUrl);
     ensureUiReady();
     resetClipState();

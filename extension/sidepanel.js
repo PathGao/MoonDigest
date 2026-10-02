@@ -16,11 +16,16 @@ const DEFAULT_INITIAL_QUICK_PROMPTS = [
 ];
 const DEFAULT_PLAYER_AI_QUICK_PROMPT = "整理这期视频的内容，输出结构化总结：主题、核心观点、关键细节、结论与可执行启发。";
 const STREAM_SLOW_NOTICE_MS = 15000;
+const FOLLOW_PLAYBACK_KEY = "boc_sp_follow_playback";
+const PREVIOUS_VIDEO_CONVERSATION_KEY = "boc_sp_previous_video_conversation";
+const FOLLOWED_LIVE_VIDEO = "followed";
 
 const els = {
   header: document.querySelector(".sp-header"),
   contextChip: document.getElementById("spContextChip"),
   refreshBtn: document.getElementById("spRefreshBtn"),
+  followBtn: document.getElementById("spFollowBtn"),
+  previousVideoBar: document.getElementById("spPreviousVideo"),
   modelSelect: document.getElementById("spModelSelect"),
   settingsBtn: document.getElementById("spSettingsBtn"),
   newChatBtn: document.getElementById("spNewChatBtn"),
@@ -68,6 +73,12 @@ let modelSelectMeasureCanvas = null;
 let streamSlowNoticeTimer = 0;
 let streamFirstTokenReceived = false;
 let initCompleted = false;
+let followPlayback = localStorage.getItem(FOLLOW_PLAYBACK_KEY) !== "0";
+let lastLiveVideoKey = "";
+let pendingFollowFromKey = "";
+let previousVideoConversationId = "";
+let previousVideoExpanded = false;
+let previousVideoBarSignature = "";
 
 init().catch((err) => {
   resetConversationView(`初始化失败：${escapeHtml(err?.message || err)}`);
@@ -75,8 +86,10 @@ init().catch((err) => {
 
 async function init() {
   bindEvents();
+  renderFollowButton();
   await loadProvidersAndPrefs();
   await loadSavedConversations();
+  await loadPreviousVideoConversationId();
   await loadContextState();
   await restoreLatestConversationForCurrentContext();
   renderInitialState();
@@ -104,6 +117,25 @@ function bindEvents() {
     void startNewConversation();
   });
   els.refreshBtn.addEventListener("click", () => refreshContextManually());
+  els.followBtn?.addEventListener("click", () => {
+    followPlayback = !followPlayback;
+    localStorage.setItem(FOLLOW_PLAYBACK_KEY, followPlayback ? "1" : "0");
+    renderFollowButton();
+  });
+  els.previousVideoBar?.addEventListener("click", handlePreviousVideoBarClick);
+  chrome.runtime.onMessage.addListener((message, sender) => {
+    if (message?.type !== "boc-video-changed") {
+      return false;
+    }
+    void getActiveTab()
+      .then((tab) => {
+        if (tab?.id && sender?.tab?.id === tab.id) {
+          scheduleLiveContextSync(true);
+        }
+      })
+      .catch(() => {});
+    return false;
+  });
   els.presetBtn.addEventListener("click", togglePresetPopover);
   els.historyBtn.addEventListener("click", toggleHistoryPopover);
   els.saveConversationBtn?.addEventListener("click", () => {
@@ -347,12 +379,13 @@ function getModelSelectMaxWidth() {
   const siblingWidth =
     els.contextChip.offsetWidth +
     els.refreshBtn.offsetWidth +
+    (els.followBtn?.offsetWidth || 0) +
     els.settingsBtn.offsetWidth +
-    gap * 3;
+    gap * (els.followBtn ? 4 : 3);
   return Math.max(92, Math.floor(contentWidth - siblingWidth));
 }
 
-async function loadContextState({ forceRefresh = false, silent = false } = {}) {
+async function loadContextState({ forceRefresh = false, silent = false, follow = false } = {}) {
   const hasPinnedConversation = currentConversationMeta?.pinnedContext === true;
   const tab = await getActiveTab();
   if (!tab?.id) {
@@ -393,6 +426,21 @@ async function loadContextState({ forceRefresh = false, silent = false } = {}) {
 
   liveContextData = resp.payload;
   liveContextKey = buildContextKey(resp.payload);
+  const followFromKey = lastLiveVideoKey;
+  if (resp.payload.isVideoContext !== false && liveContextKey.startsWith("video:")) {
+    lastLiveVideoKey = liveContextKey;
+  }
+  if (follow && isFollowCandidate(followFromKey)) {
+    if (activePort) {
+      // 正在生成回复：记下切换，等 done/stopped/error 后再切，不打断流
+      pendingFollowFromKey = pendingFollowFromKey || followFromKey;
+      renderHistoryList();
+      updateContextChip();
+      return true;
+    }
+    await followLiveVideo();
+    return FOLLOWED_LIVE_VIDEO;
+  }
   if (hasPinnedConversation) {
     renderHistoryList();
     updateContextChip();
@@ -610,6 +658,7 @@ function renderPresetPrompts() {
 }
 
 function renderHistoryList() {
+  renderPreviousVideoBar();
   if (!els.historyList) {
     return;
   }
@@ -1018,7 +1067,10 @@ function scheduleLiveContextSync(forceRefresh = false) {
 }
 
 async function syncLiveContextState(forceRefresh = false) {
-  const ok = await loadContextState({ forceRefresh, silent: true }).catch(() => false);
+  const ok = await loadContextState({ forceRefresh, silent: true, follow: true }).catch(() => false);
+  if (ok === FOLLOWED_LIVE_VIDEO) {
+    return;
+  }
   if (currentConversationMeta?.pinnedContext || activePort || activeUserPrompt) {
     updateContextChip();
     return;
@@ -1028,6 +1080,163 @@ async function syncLiveContextState(forceRefresh = false) {
     return;
   }
   renderSuggestions();
+}
+
+// 跟随播放：只在当前对话绑定的是“刚才在播的视频”（或还没有对话）时才切走，
+// 用户主动打开的无关历史对话不动。
+function isFollowCandidate(fromKey) {
+  if (!followPlayback || !fromKey || liveContextData?.isVideoContext === false) {
+    return false;
+  }
+  if (!liveContextKey.startsWith("video:") || liveContextKey === fromKey) {
+    return false;
+  }
+  if (!currentConversationMeta && !chatHistory.length) {
+    return true;
+  }
+  return (currentConversationMeta?.contextKey || currentContextKey) === fromKey;
+}
+
+function runPendingFollowSwitch() {
+  if (!pendingFollowFromKey || activePort) {
+    return;
+  }
+  const fromKey = pendingFollowFromKey;
+  pendingFollowFromKey = "";
+  if (isFollowCandidate(fromKey)) {
+    void followLiveVideo();
+  }
+}
+
+async function followLiveVideo() {
+  const previous = currentConversationId && chatHistory.length
+    ? savedConversations.find((item) => item.id === currentConversationId)
+    : null;
+  if (previous) {
+    setPreviousVideoConversation(previous.id);
+  }
+  contextData = { ...liveContextData };
+  currentContextKey = liveContextKey;
+  const draft = els.input.value;
+  restartChat({ keepContext: true });
+  els.input.value = draft;
+  autosizeInput();
+  await restoreLatestConversationForCurrentContext();
+  renderHistoryList();
+  updateContextChip();
+  renderInitialState();
+  showConversationContextNotice(`已切换到新视频：${truncate(liveContextData?.title || "未知视频", 24)}`, 2500);
+}
+
+function renderFollowButton() {
+  if (!els.followBtn) {
+    return;
+  }
+  els.followBtn.classList.toggle("is-active", followPlayback);
+  els.followBtn.setAttribute("aria-pressed", followPlayback ? "true" : "false");
+  els.followBtn.title = `跟随播放：视频切换时自动切到新视频（${followPlayback ? "已开启" : "已关闭"}）`;
+}
+
+async function loadPreviousVideoConversationId() {
+  const data = await chrome.storage.session?.get([PREVIOUS_VIDEO_CONVERSATION_KEY]).catch(() => ({}));
+  previousVideoConversationId = String(data?.[PREVIOUS_VIDEO_CONVERSATION_KEY] || "").trim();
+  renderPreviousVideoBar();
+}
+
+function setPreviousVideoConversation(id) {
+  previousVideoConversationId = String(id || "");
+  previousVideoExpanded = false;
+  if (previousVideoConversationId) {
+    void chrome.storage.session?.set({ [PREVIOUS_VIDEO_CONVERSATION_KEY]: previousVideoConversationId }).catch(() => {});
+  } else {
+    void chrome.storage.session?.remove(PREVIOUS_VIDEO_CONVERSATION_KEY).catch(() => {});
+  }
+  renderPreviousVideoBar();
+}
+
+function renderPreviousVideoBar() {
+  const bar = els.previousVideoBar;
+  if (!bar) {
+    return;
+  }
+  const conversation = previousVideoConversationId
+    ? savedConversations.find((item) => item.id === previousVideoConversationId)
+    : null;
+  if (!conversation) {
+    previousVideoBarSignature = "";
+    bar.hidden = true;
+    if (previousVideoConversationId) {
+      setPreviousVideoConversation("");
+    }
+    return;
+  }
+  const isCurrent = conversation.id === currentConversationId;
+  const signature = [conversation.id, conversation.updatedAt, conversation.messages.length, previousVideoExpanded, isCurrent].join("|");
+  if (signature === previousVideoBarSignature) {
+    return;
+  }
+  previousVideoBarSignature = signature;
+  bar.hidden = isCurrent;
+  if (isCurrent) {
+    return;
+  }
+  const title = conversation.contextTitle || conversation.title || "未知视频";
+  const messagesHtml = previousVideoExpanded
+    ? conversation.messages
+        .map((message) =>
+          message.role === "user"
+            ? `<div class="sp-msg sp-msg-user">${escapeHtml(message.content)}</div>`
+            : `<div class="sp-msg sp-msg-assistant"><div class="sp-msg-assistant-body">${renderMarkdown(message.content)}</div></div>`
+        )
+        .join("")
+    : "";
+  bar.innerHTML = `
+    <div class="sp-prev-head">
+      <button type="button" class="sp-prev-toggle" data-action="toggle" aria-expanded="${previousVideoExpanded}" title="${escapeHtml(title)}">
+        <span class="sp-prev-label">上一个视频：</span>
+        <span class="sp-prev-title">${escapeHtml(title)}</span>
+        <span class="sp-prev-count">· ${conversation.messages.length} 条消息</span>
+        <svg class="sp-prev-chevron" viewBox="0 0 24 24" focusable="false" aria-hidden="true"><path d="m6 9 6 6 6-6"></path></svg>
+      </button>
+      <button type="button" class="sp-prev-dismiss" data-action="dismiss" aria-label="关闭上一个视频" title="关闭">×</button>
+    </div>
+    ${previousVideoExpanded ? `
+    <div class="sp-prev-body">
+      <div class="sp-prev-messages">${messagesHtml}</div>
+      <div class="sp-prev-actions">
+        <button type="button" class="sp-prev-action" data-action="resume">回到这个对话</button>
+        <button type="button" class="sp-prev-action" data-action="open">打开视频</button>
+      </div>
+    </div>` : ""}
+  `;
+}
+
+function handlePreviousVideoBarClick(event) {
+  const action = event.target instanceof Element ? event.target.closest("[data-action]")?.getAttribute("data-action") : "";
+  const conversation = savedConversations.find((item) => item.id === previousVideoConversationId);
+  if (!action || !conversation) {
+    return;
+  }
+  if (action === "toggle") {
+    previousVideoExpanded = !previousVideoExpanded;
+    renderPreviousVideoBar();
+  } else if (action === "dismiss") {
+    setPreviousVideoConversation("");
+  } else if (action === "resume") {
+    previousVideoExpanded = false;
+    loadConversationById(conversation.id);
+  } else if (action === "open") {
+    void openPreviousVideoUrl(conversation.contextUrl || conversation.contextRef?.url || "");
+  }
+}
+
+async function openPreviousVideoUrl(url) {
+  const targetUrl = String(url || "").trim();
+  const tab = await getActiveTab().catch(() => null);
+  if (!targetUrl || !tab?.id || doesTabMatchContextUrl(tab.url || "", targetUrl)) {
+    return;
+  }
+  await chrome.tabs.update(tab.id, { url: targetUrl }).catch(() => null);
 }
 
 async function addPresetPrompt() {
@@ -1503,6 +1712,7 @@ async function sendMessage() {
     clearStreamRuntimeState();
     setStreamingUiState(false);
     activePort = null;
+    runPendingFollowSwitch();
   });
 
   activePort.postMessage({
@@ -1573,6 +1783,7 @@ function finalizeAssistant(node) {
   setStreamingUiState(false);
   els.input.focus();
   scrollToBottom();
+  runPendingFollowSwitch();
 }
 
 function showAssistantError(node, error) {
@@ -1595,6 +1806,7 @@ function showAssistantError(node, error) {
   setStreamingUiState(false);
   els.input.focus();
   scrollToBottom();
+  runPendingFollowSwitch();
 }
 
 function handleAssistantStopped(node, reason) {
@@ -1632,6 +1844,7 @@ function handleAssistantStopped(node, reason) {
   setStreamingUiState(false);
   els.input.focus();
   scrollToBottom();
+  runPendingFollowSwitch();
 }
 
 function stopActiveStream() {
@@ -2402,6 +2615,7 @@ function restartChat({ keepContext = false } = {}) {
   setStreamingUiState(false);
   els.input.value = "";
   autosizeInput();
+  renderPreviousVideoBar();
 }
 
 function removeCenteredState() {
