@@ -765,6 +765,7 @@ function normalizeConversations(value) {
         createdAt: Number(item?.createdAt) || Date.now(),
         updatedAt: Number(item?.updatedAt) || Date.now(),
         contextRef,
+        pageHydrated: item?.pageHydrated === true,
         messages
       };
     })
@@ -806,6 +807,9 @@ async function hydrateConversationPageMetadata() {
     if (!response?.ok || !response.payload) {
       continue;
     }
+    // One successful lookup settles the page metadata; without the flag every open refetched it.
+    conversation.pageHydrated = true;
+    changed = true;
 
     const payload = response.payload;
     const nextPageIndex = Number(payload.pageIndex) > 0 ? Number(payload.pageIndex) : 1;
@@ -832,7 +836,6 @@ async function hydrateConversationPageMetadata() {
     conversation.contextUrl = nextUrl;
     conversation.contextKey = nextContextKey;
     conversation.contextRef = nextContextRef;
-    changed = true;
   }
 
   if (!changed) {
@@ -857,7 +860,7 @@ async function hydrateConversationPageMetadata() {
 }
 
 function needsConversationPageHydration(conversation) {
-  if (!conversation?.isVideoContext) {
+  if (!conversation?.isVideoContext || conversation.pageHydrated) {
     return false;
   }
   if (/-P\d+$/i.test(String(conversation.title || "").trim())) {
@@ -1583,6 +1586,7 @@ async function persistCurrentConversation() {
     createdAt: Number(currentConversationMeta?.createdAt) || now,
     updatedAt: now,
     contextRef: currentConversationMeta?.contextRef || buildConversationContextRef(contextData),
+    pageHydrated: savedConversations.find((item) => item.id === currentConversationId)?.pageHydrated === true,
     messages: chatHistory.map((item) => ({ role: item.role, content: String(item.content || "") }))
   };
   savedConversations = [

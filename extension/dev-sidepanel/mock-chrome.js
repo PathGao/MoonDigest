@@ -89,6 +89,9 @@
         const video = videos.find((v) => v.bvid === msg.contextRef?.bvid);
         return video ? { ok: true, payload: payloadFor(video) } : { ok: false, error: "not found" };
       }
+      case "ai-sidepanel-resolve-page-ref":
+        sessionStorage.setItem("__mock_resolve_page_ref", String(Number(sessionStorage.getItem("__mock_resolve_page_ref") || 0) + 1));
+        return { ok: true, payload: { url: msg.contextRef?.url, cid: msg.contextRef?.cid, pageIndex: 1 } };
       default:
         return { ok: false, error: `mock: unhandled ${msg?.type}` };
     }
