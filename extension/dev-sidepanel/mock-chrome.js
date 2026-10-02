@@ -153,7 +153,7 @@
               return;
             }
             window.__mockStreamLog = window.__mockStreamLog || [];
-            window.__mockStreamLog.push({ prompt: msg.prompt, contextTitle: msg.context?.title });
+            window.__mockStreamLog.push({ prompt: msg.prompt, contextTitle: msg.context?.title, subtitle: msg.context?.subtitleMarkdown });
             if (window.__mockNotice) {
               post({ type: "notice", text: window.__mockNotice });
             }
