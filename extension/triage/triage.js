@@ -1,4 +1,5 @@
-"use strict";
+// Static-server preview only: load the fake chrome.* before anything reads it. Never fetched inside the extension.
+if (!globalThis.chrome?.runtime?.id) await import("./dev/mock-chrome.js");
 
 // ---------- constants ----------
 const THROTTLE_MS = globalThis.__TRIAGE_THROTTLE_MS || 10 * 60 * 1000;
