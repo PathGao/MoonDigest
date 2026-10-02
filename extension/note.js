@@ -626,7 +626,8 @@
   }
 
   function sanitizeFileName(value) {
-    return value.replace(/[\\/:*?"<>|]/g, "_").replace(/\s+/g, " ").trim().slice(0, 120);
+    // Same forbidden set as Obsidian, so wiki links to the note resolve.
+    return value.replace(/[\\/:*?"<>|#^[\]]/g, "_").replace(/\s+/g, " ").trim().slice(0, 120);
   }
 
 
@@ -657,7 +658,7 @@
 
 
   function escapeYaml(value) {
-    return String(value).replaceAll("\\", "\\\\").replaceAll('"', '\\"');
+    return String(value).replaceAll("\\", "\\\\").replaceAll('"', '\\"').replaceAll("\n", "\\n").replaceAll("\r", "\\r").replaceAll("\t", "\\t");
   }
 
   globalThis.BocNote = {

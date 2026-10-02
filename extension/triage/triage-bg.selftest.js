@@ -212,6 +212,38 @@ assert.throws(() => t.triageParseCommand('{"new_tags":[', cmdItems, cmdTags, {})
   assert.strictEqual(await settingsWith({ triageIntervalSec: "x" }), 8);
   assert.strictEqual(await settingsWith({}), 8);
 
+  // B站 risk control maps to THROTTLED on writes as well as reads; non-JSON answers get a clear error.
+  t.chrome = { cookies: { get: async () => ({ value: "csrf" }) } };
+  const jsonRes = (body) => async () => ({ ok: true, status: 200, json: async () => body });
+  t.fetch = jsonRes({ code: -352, message: "风控" });
+  await assert.rejects(t.triageBiliPost("/x", {}), (e) => e.code === "THROTTLED");
+  t.fetch = jsonRes({ code: -412, message: "请求被拦截" });
+  await assert.rejects(t.triageBiliGet("https://api.test"), (e) => e.code === "THROTTLED");
+  t.fetch = async () => ({ ok: false, status: 412, json: async () => ({}) });
+  await assert.rejects(t.triageBiliPost("/x", {}), (e) => e.code === "THROTTLED");
+  t.fetch = jsonRes({ code: 11010, message: "内容不存在" });
+  await assert.rejects(t.triageBiliPost("/x", {}), (e) => e.code === undefined);
+  t.fetch = async () => ({ ok: true, status: 200, json: async () => JSON.parse("<html>") });
+  await assert.rejects(t.triageNav(), /不是 JSON/);
+  t.fetch = async () => ({ ok: false, status: 502, json: async () => ({}) });
+  await assert.rejects(t.triageNav(), /HTTP 502/);
+
+  // A folder load that fails after page 1 keeps the fetched items and says so; a page-1 failure still throws.
+  const media = (n) => ({ type: 2, bvid: `BV${n}`, id: n, title: `t${n}`, attr: 0 });
+  const folderItems = vm.runInContext("TRIAGE_HANDLERS", ctx)["triage-folder-items"];
+  t.fetch = async (url) => {
+    const pn = Number(new URL(url).searchParams.get("pn"));
+    return pn === 1 ? jsonRes({ code: 0, data: { medias: [media(1), media(2)], has_more: true } })() : jsonRes({ code: -352, message: "风控" })();
+  };
+  const partial = await folderItems({ mediaId: 1 });
+  assert.deepStrictEqual([...partial.items.map((it) => it.bvid)], ["BV1", "BV2"]);
+  assert.strictEqual(partial.partial.page, 2);
+  assert.match(partial.partial.error, /-352/);
+  t.fetch = jsonRes({ code: -352, message: "风控" });
+  await assert.rejects(folderItems({ mediaId: 1 }), (e) => e.code === "THROTTLED");
+  t.fetch = jsonRes({ code: 0, data: { medias: [media(3)], has_more: false } });
+  assert.strictEqual((await folderItems({ mediaId: 1 })).partial, undefined);
+
   // AI summary placement
 const front = "---\ntitle: \"x\"\n---\n\n![cover](u)\n\n## 简介\n\nhi";
 const done = { status: "done", oneLiner: "一句话", points: ["a", "b"], verdict: "keep", reason: "有用" };

@@ -69,7 +69,7 @@
 
 ### 平台支持
 
-- 浏览器：在 Chrome 上开发和测试，Edge 等 Chromium 内核浏览器应能使用，但没有专门测试。**不支持 Firefox**。manifest 里的 Firefox 字段是上游遗留，侧边栏和后台 service worker 在 Firefox 上不能用。
+- 浏览器：在 Chrome 上开发和测试，Edge 等 Chromium 内核浏览器应能使用，但没有专门测试。**不支持 Firefox**。manifest 里的 Firefox 字段是上游遗留，打包脚本只出 Chrome 包，并会去掉这些字段。
 - 网站：B 站视频页、稍后再看，以及 YouTube 视频页。收藏夹分拣台只支持 B 站，YouTube 播放列表暂不支持。
 
 ## 安装
@@ -152,6 +152,16 @@ YouTube 短时间内收到太多字幕请求时会拒绝服务。插件遇到 42
 
 “无字幕”是视频本身没有字幕轨，这时 AI 会用简介和热门评论来总结。“字幕抓取失败”是有字幕但请求失败了，通常是网络问题或限流，刷新后重试即可。视频信息不受影响。
 
+**YouTube 提示“该视频需要登录或年龄验证，暂不支持”**
+
+YouTube 在三种情况下要求登录：
+
+- **年龄限制视频**：需要登录确认年龄，最常见。
+- **频道会员专享视频**：只有该频道的付费会员能看。
+- **“请登录以确认你不是机器人”**：YouTube 怀疑当前网络是自动程序时，普通视频也会要求登录。换个网络或等一段时间通常就恢复了。
+
+插件用 YouTube 安卓客户端的接口取字幕地址，这个接口不认网页的登录状态，所以上面这些视频都会被当成未登录访问而拒绝。即使你在浏览器里已经登录、通过了年龄验证或是频道会员，也拿不到。改用网页身份拿到的字幕地址需要播放器现场生成的校验参数，插件无法自行生成。这类视频目前不支持，路线图里有计划中的解决办法。
+
 **为什么保存 AI 平台时浏览器会弹窗？**
 
 插件没有预先申请访问所有网站的权限。你添加一个 AI 平台时，它只申请那一个地址。拒绝后 AI 请求会失败，侧边栏会提示重新授权。
@@ -187,9 +197,11 @@ extension/
 ```bash
 node extension/background.selftest.js
 node extension/badges.selftest.js
+node extension/content-tokens.selftest.js
 node extension/note.selftest.js
 node extension/sites.selftest.js
 node extension/triage/triage-bg.selftest.js
+node extension/triage/triage.selftest.js
 ```
 
 ### 不装插件预览页面
@@ -208,10 +220,11 @@ node extension/dev-sidepanel/build.mjs
 python3 scripts/build_release.py
 ```
 
-产物在 `release/` 下。脚本也会打出一个 Firefox 包，这是上游遗留，目前不可用。
+产物在 `release/` 下，只打 Chrome 包；传一个目录参数可改输出位置。README 的版本徽章和 manifest 版本不一致时打包会失败。
 
 ## 路线图
 
+- YouTube 需要登录的视频（年龄限制、频道会员专享）：只对这类视频，在页面里接收播放器自己下载的字幕（它带着你的登录状态和校验参数）。会员专享视频仍需你本人是该频道会员。代价是要先在播放器里打开一次字幕，并且依赖播放器的内部实现
 - YouTube 播放列表的批量阅览
 - 上架 Chrome 应用商店
 
