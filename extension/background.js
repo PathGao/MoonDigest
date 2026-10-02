@@ -1,13 +1,11 @@
+// Follow-up quick questions. The one-click summary lives in playerAiQuickPrompt.
 const DEFAULT_PRESET_PROMPTS = [
-  "生成视频摘要和结论",
-  "按章节整理视频内容",
-  "生成带时间轴的笔记"
-];
-const DEFAULT_INITIAL_QUICK_PROMPTS = [
   "用 3 句话总结这个视频",
   "提炼这个视频的 5 个重点",
   "按时间顺序整理这期视频的内容",
-  "根据评论总结观众的看法"
+  "根据评论总结观众的看法",
+  "按章节整理视频内容",
+  "生成带时间轴的笔记"
 ];
 const DEFAULT_PLAYER_AI_QUICK_PROMPT = "整理这期视频的内容，输出结构化总结：主题、核心观点、关键细节、结论与可执行启发。";
 const PLAYER_AI_QUICK_ACTION_STORAGE_KEY = "boc_player_ai_quick_action_v1";
@@ -70,7 +68,6 @@ const DEFAULT_SYNC_SETTINGS = {
   fixedFrontmatterProperties: [],
   notePlaceholderSections: [],
   aiSystemPrompt: DEFAULT_AI_SYSTEM_PROMPT,
-  aiInitialQuickPrompts: DEFAULT_INITIAL_QUICK_PROMPTS.slice(),
   aiPresetPrompts: DEFAULT_PRESET_PROMPTS.slice()
 };
 
@@ -946,6 +943,7 @@ chrome.runtime.onConnect.addListener((port) => {
 async function initializeSettingsStorage() {
   // Read before defaults are written: a missing toggle means an upgrade from before it existed.
   const { obsidianEnabled: storedObsidianEnabled } = await chrome.storage.sync.get("obsidianEnabled");
+  await migrateInitialQuickPrompts();
   const syncCurrent = await chrome.storage.sync.get(DEFAULT_SYNC_SETTINGS);
   const localCurrent = await chrome.storage.local.get(DEFAULT_LOCAL_SETTINGS);
 
@@ -968,6 +966,22 @@ async function initializeSettingsStorage() {
   if (typeof storedObsidianEnabled !== "boolean") {
     await chrome.storage.sync.set({ obsidianEnabled: Boolean(localApiKey || legacySyncApiKey) });
   }
+}
+
+// aiInitialQuickPrompts (empty-panel chips) merged into aiPresetPrompts, the single follow-up list.
+// Initial first; dedupe makes a rerun after a partial write a no-op.
+async function migrateInitialQuickPrompts() {
+  const { aiInitialQuickPrompts, aiPresetPrompts } = await chrome.storage.sync.get([
+    "aiInitialQuickPrompts",
+    "aiPresetPrompts"
+  ]);
+  if (aiInitialQuickPrompts === undefined) {
+    return;
+  }
+  const merged = [...(Array.isArray(aiInitialQuickPrompts) ? aiInitialQuickPrompts : []), ...(Array.isArray(aiPresetPrompts) ? aiPresetPrompts : [])]
+    .map((item) => toString(item).trim());
+  await chrome.storage.sync.set({ aiPresetPrompts: normalizeAiPresetPrompts([...new Set(merged)]) });
+  await chrome.storage.sync.remove("aiInitialQuickPrompts");
 }
 
 async function getMergedSettings() {
@@ -993,7 +1007,6 @@ async function getMergedSettings() {
   merged.fixedFrontmatterProperties = normalizeFixedFrontmatterProperties(merged.fixedFrontmatterProperties);
   merged.notePlaceholderSections = normalizeNotePlaceholderSections(merged.notePlaceholderSections);
   merged.aiSystemPrompt = normalizeAiSystemPrompt(merged.aiSystemPrompt);
-  merged.aiInitialQuickPrompts = normalizeAiInitialQuickPrompts(merged.aiInitialQuickPrompts);
   merged.aiPresetPrompts = normalizeAiPresetPrompts(merged.aiPresetPrompts);
   let apiKey = normalizeApiKey(localSettings.obsidianApiKey);
   const legacySyncApiKey = normalizeApiKey(syncSettings.obsidianApiKey);
@@ -1032,7 +1045,6 @@ async function saveSettings(settings) {
   syncPayload.fixedFrontmatterProperties = normalizeFixedFrontmatterProperties(syncPayload.fixedFrontmatterProperties);
   syncPayload.notePlaceholderSections = normalizeNotePlaceholderSections(syncPayload.notePlaceholderSections);
   syncPayload.aiSystemPrompt = normalizeAiSystemPrompt(syncPayload.aiSystemPrompt);
-  syncPayload.aiInitialQuickPrompts = normalizeAiInitialQuickPrompts(syncPayload.aiInitialQuickPrompts);
   syncPayload.aiPresetPrompts = normalizeAiPresetPrompts(syncPayload.aiPresetPrompts);
 
   await Promise.all([
@@ -1147,15 +1159,6 @@ function normalizeAiPresetPrompts(value) {
     .map((item) => toString(item).trim())
     .filter(Boolean)
     .slice(0, 12);
-}
-
-function normalizeAiInitialQuickPrompts(value) {
-  if (!Array.isArray(value)) {
-    return DEFAULT_INITIAL_QUICK_PROMPTS.slice();
-  }
-  return value
-    .map((item) => toString(item).trim())
-    .slice(0, 4);
 }
 
 function normalizeFixedPropertyType(value) {

@@ -78,5 +78,43 @@ function chat() {
   assert.deepStrictEqual(out.map((m) => m.type), ["error"]);
   assert.match(out[0].error, /^请求超时：.* 秒没有返回/);
 
+  // Settings migration: the empty-panel chips fold into the one follow-up list, once.
+  const area = (data) => ({
+    data,
+    async get(keys) {
+      if (keys && typeof keys === "object" && !Array.isArray(keys)) {
+        return Object.fromEntries(Object.entries(keys).map(([k, d]) => [k, k in data ? data[k] : d]));
+      }
+      return Object.fromEntries([].concat(keys).filter((k) => k in data).map((k) => [k, data[k]]));
+    },
+    async set(obj) { Object.assign(data, JSON.parse(JSON.stringify(obj))); },
+    async remove(k) { [].concat(k).forEach((key) => delete data[key]); }
+  });
+  const install = (sync) => {
+    ctx.chrome = { storage: { sync: area(sync), local: area({}) } };
+    return () => ctx.initializeSettingsStorage();
+  };
+  const oldUser = {
+    obsidianEnabled: false,
+    aiInitialQuickPrompts: ["说重点", "", "列出数据", "说重点"],
+    aiPresetPrompts: ["列出数据", "我的追问"],
+    playerAiQuickPrompt: "我的总结格式"
+  };
+  let init = install(oldUser);
+  await init();
+  assert.deepStrictEqual(oldUser.aiPresetPrompts, ["说重点", "列出数据", "我的追问"]);
+  assert.ok(!("aiInitialQuickPrompts" in oldUser));
+  assert.strictEqual(oldUser.playerAiQuickPrompt, "我的总结格式");
+  const once = JSON.stringify(oldUser);
+  await init();
+  assert.strictEqual(JSON.stringify(oldUser), once);
+
+  const fresh = {};
+  init = install(fresh);
+  await init();
+  assert.deepStrictEqual(fresh.aiPresetPrompts, JSON.parse(vm.runInContext("JSON.stringify(DEFAULT_PRESET_PROMPTS)", ctx)));
+  assert.strictEqual(fresh.playerAiQuickPrompt, vm.runInContext("DEFAULT_PLAYER_AI_QUICK_PROMPT", ctx));
+  assert.ok(!("aiInitialQuickPrompts" in fresh));
+
   console.log("background selftest: all passed");
 })();
