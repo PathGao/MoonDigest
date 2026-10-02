@@ -242,7 +242,7 @@
         console.info("[mock] tabs.create", url);
       }
     },
-    storage: { local: makeArea(store), sync: makeArea({}) },
+    storage: { local: makeArea(store), sync: makeArea({}), onChanged: { addListener() {} } },
     permissions: {
       async request(req) {
         (globalThis.__mockPermissionRequests ||= []).push(req);

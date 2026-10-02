@@ -16,7 +16,8 @@ const TABS = [
   ["keep", "建议留"],
   ["none", "未分析"],
   ["done", "已处理"],
-  ["all", "全部"]
+  ["all", "全部"],
+  ["read", "阅览"]
 ];
 const K = {
   lastFolder: "triage_last_folder",
@@ -80,6 +81,7 @@ const S = {
     triageAnalyzeMaxTokens: 0
   },
   tab: "all",
+  readVerdict: "all",
   tagFilter: new Set(),
   focused: "",
   focusIndex: 0,
@@ -261,6 +263,7 @@ function passTagFilter(bvid) {
 
 function inTab(it, tab) {
   if (tab === "all") return true;
+  if (tab === "read") return S.readVerdict === "all" || inTab(it, S.readVerdict);
   const p = isProcessed(it.bvid);
   if (tab === "done") return p;
   return !p && verdictOf(it).verdict === tab;
@@ -525,6 +528,7 @@ function renderTabs() {
     if (isProcessed(it.bvid)) counts.done++;
     else counts[verdictOf(it).verdict]++;
   }
+  counts.read = counts.all;
   const tabs = [...TABS];
   if (S.group) {
     const done = S.group.bvids.filter(isProcessed).length;
@@ -549,7 +553,15 @@ function renderTabs() {
 
 function renderListHeader(list) {
   let html = "";
-  if (S.tab === "group" && S.group) {
+  if (S.tab === "read") {
+    const pending = list.filter((it) => needsAnalysis(it.bvid)).length;
+    const options = TABS.filter(([key]) => key !== "read")
+      .map(([key, label]) => `<option value="${key}"${S.readVerdict === key ? " selected" : ""}>${label}</option>`)
+      .join("");
+    html = `<select data-read-verdict aria-label="按判断筛选阅览">${options}</select><span class="muted">${list.length} 个</span><span class="spacer"></span>
+      <button type="button" data-head="analyze-all" aria-label="细看全部未看"${pending && !S.group?.running ? "" : " disabled"}>细看全部未看 (${pending})</button>
+      <button type="button" data-head="copy-read" aria-label="复制为 Markdown"${list.length ? "" : " disabled"}>复制为 Markdown</button>`;
+  } else if (S.tab === "group" && S.group) {
     const done = S.group.bvids.filter(isProcessed).length;
     html = `<span class="group-title">本轮细看 · 已处理 ${done} / ${S.group.bvids.length}</span><span class="spacer"></span>
       <button type="button" data-head="next-group" aria-label="下一组">下一组</button>
@@ -575,6 +587,11 @@ function renderList() {
   }
   if (!list.length) {
     el.list.innerHTML = `<p class="empty">这里没有视频</p>`;
+    return;
+  }
+  el.list.classList.toggle("reading", S.tab === "read");
+  if (S.tab === "read") {
+    el.list.innerHTML = list.map(readHtml).join("");
     return;
   }
   if (!list.some((it) => it.bvid === S.focused)) {
@@ -652,6 +669,51 @@ function cardHtml(it, expanded) {
       </div>
     </div>
   </article>`;
+}
+
+// ---------- reading view ----------
+function readHtml(it) {
+  const b = it.bvid;
+  const v = verdictOf(it);
+  const a = S.analyses[b];
+  const done = a?.status === "done";
+  const verdict = S.analyzing.has(b)
+    ? `<span class="badge running">分析中…</span>`
+    : `<span class="badge ${v.verdict}${v.low ? " low" : ""}">${VERDICT_LABEL[v.verdict]}</span>`;
+  const names = tagIdsOf(b).map((id) => tagById(id));
+  const suggested = done ? [] : S.titleRes[b]?.suggestedTags || [];
+  const body = [];
+  if (done && a.oneLiner) body.push(`<p class="oneliner">${esc(a.oneLiner)}</p>`);
+  if (done && a.points?.length) body.push(`<ol class="points">${a.points.map((p) => `<li>${esc(p)}</li>`).join("")}</ol>`);
+  if (suggested.length) body.push(`<p class="muted">建议标签：${suggested.map(esc).join("、")}</p>`);
+  if (names.length) body.push(`<div class="chips">${names.map((t) => `<span class="chip on" style="--c:${esc(t.color)}">${esc(t.name)}</span>`).join("")}</div>`);
+  return `<article class="read-item${isProcessed(b) ? " decided" : ""}" data-bvid="${esc(b)}">
+    <h3><a href="${videoUrl(b)}" target="_blank" rel="noopener">${esc(it.title)}</a></h3>
+    <div class="meta">${esc(it.upper)} · ${fmtDuration(it.duration)} · ${verdict}${v.reason ? ` <span class="reason">${esc(v.reason)}</span>` : ""}</div>
+    ${body.join("")}
+  </article>`;
+}
+
+function folderTitle() {
+  return S.folders.find((f) => String(f.id) === String(S.mediaId))?.title || "收藏夹";
+}
+
+function buildReadMarkdown(list, now = new Date()) {
+  const lines = [`# ${folderTitle()}`, "", `${stamp(now, false)} · ${list.length} 个视频`, ""];
+  for (const it of list) {
+    const v = verdictOf(it);
+    const a = S.analyses[it.bvid];
+    const done = a?.status === "done";
+    lines.push(`## [${mdLinkText(it.title)}](${videoUrl(it.bvid)})`, "");
+    lines.push([it.upper, fmtDuration(it.duration), v.verdict === "none" ? "未分析" : `${VERDICT_LABEL[v.verdict]}${v.reason ? `：${v.reason}` : ""}`].join(" · "), "");
+    if (done && a.oneLiner) lines.push(`> ${a.oneLiner}`, "");
+    if (done && a.points?.length) lines.push(...a.points.map((p) => `- ${p}`), "");
+    const suggested = done ? [] : S.titleRes[it.bvid]?.suggestedTags || [];
+    if (suggested.length) lines.push(`建议标签：${suggested.join("、")}`, "");
+    const names = tagIdsOf(it.bvid).map((id) => tagById(id).name);
+    if (names.length) lines.push(`标签：${names.join("、")}`, "");
+  }
+  return lines.join("\n");
 }
 
 function setFocus(bvid, scroll = true) {
@@ -1719,7 +1781,17 @@ function bindEvents() {
     if (act === "batch-unfav") batchUnfav(btn);
     else if (act === "batch-keep") batchKeep();
     else if (act === "next-group") nextGroup();
-    else if (act === "clear-selected") {
+    else if (act === "analyze-all") {
+      // The existing group runner does the work; stay on the reading tab so results fill in as they land.
+      startGroup(visibleItems().filter((it) => needsAnalysis(it.bvid)).map((it) => it.bvid));
+      S.tab = "read";
+      render();
+    } else if (act === "copy-read") {
+      navigator.clipboard.writeText(buildReadMarkdown(visibleItems())).then(
+        () => toast("已复制 Markdown"),
+        (err) => toast(`复制失败：${err.message}`, true)
+      );
+    } else if (act === "clear-selected") {
       S.selected.clear();
       render();
     } else if (act === "end-group") {
@@ -1728,6 +1800,12 @@ function bindEvents() {
       S.tab = "unsure";
       render();
     }
+  });
+
+  el.listHeader.addEventListener("change", (e) => {
+    if (!e.target.matches("[data-read-verdict]")) return;
+    S.readVerdict = e.target.value;
+    render();
   });
 
   el.list.addEventListener("click", (e) => {
@@ -2036,7 +2114,7 @@ function onKey(e) {
   };
   const cardKeys = { d: "unfav", s: "keep", t: "tag", a: "accept", e: "basket", x: "select", o: "open", Enter: "open" };
   if (map[key]) map[key]();
-  else if (cardKeys[key] && S.focused) cardAction(cardKeys[key], S.focused);
+  else if (cardKeys[key] && S.focused && S.tab !== "read") cardAction(cardKeys[key], S.focused);
   else return;
   e.preventDefault();
 }
