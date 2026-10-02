@@ -57,6 +57,16 @@ function chat() {
   });
 }
 
+// AbortSignal.timeout does not keep Node alive, so without this the run ends mid-test with exit code 0.
+const keepAlive = setInterval(() => {}, 1000);
+let finished = false;
+process.on("exit", (code) => {
+  if (!finished && code === 0) {
+    console.error("background selftest: ended before the last check");
+    process.exitCode = 1;
+  }
+});
+
 (async () => {
   // Reasoning chunks count as activity, so a long think outlasts the first-response limit.
   ctx.fetch = streamingFetch([
@@ -177,5 +187,7 @@ function chat() {
   ctx.fetch = (url, { signal }) => new Promise((_, reject) => signal.addEventListener("abort", () => reject(signal.reason)));
   await assert.rejects(ctx.fetchWithTimeout("https://api.bilibili.com/x", {}, 30), (e) => e.status === 408 && /timeout/.test(e.message));
 
+  finished = true;
+  clearInterval(keepAlive);
   console.log("background selftest: all passed");
 })();
