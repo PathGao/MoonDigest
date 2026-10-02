@@ -379,19 +379,24 @@ function getModelSelectMaxWidth() {
   return Math.max(92, Math.floor(contentWidth - siblingWidth));
 }
 
+// A conversation owns the context its first question was asked in. Tab changes only update the live context
+// (and contextData while no conversation or reply holds it), so they never relabel an existing or in-flight one.
+function isContextBound() {
+  return currentConversationMeta?.pinnedContext === true || Boolean(activeStream);
+}
+
 async function loadContextState({ forceRefresh = false, silent = false, follow = false } = {}) {
-  const hasPinnedConversation = currentConversationMeta?.pinnedContext === true;
   const tab = await getActiveTab();
   if (!tab?.id) {
     liveContextData = null;
     liveContextKey = "";
     liveTabUrl = "";
-    if (!hasPinnedConversation) {
+    if (!isContextBound()) {
       contextData = null;
       currentContextKey = "";
     }
     updateContextChip();
-    if (!silent && !hasPinnedConversation) {
+    if (!silent && !isContextBound()) {
       resetConversationView("找不到当前标签页。");
     }
     return false;
@@ -407,12 +412,12 @@ async function loadContextState({ forceRefresh = false, silent = false, follow =
   if (!resp?.ok || !resp.payload) {
     liveContextData = null;
     liveContextKey = "";
-    if (!hasPinnedConversation) {
+    if (!isContextBound()) {
       contextData = null;
       currentContextKey = "";
     }
     updateContextChip();
-    if (!silent && !hasPinnedConversation) {
+    if (!silent && !isContextBound()) {
       resetConversationView(escapeHtml(resp?.error || "当前页面上下文读取失败。"));
     }
     return false;
@@ -429,7 +434,7 @@ async function loadContextState({ forceRefresh = false, silent = false, follow =
     await followLiveVideo();
     return FOLLOWED_LIVE_VIDEO;
   }
-  if (hasPinnedConversation) {
+  if (isContextBound()) {
     renderHistoryList();
     updateContextChip();
     return true;
@@ -447,7 +452,8 @@ async function loadContextState({ forceRefresh = false, silent = false, follow =
 function applyContextPayload(payload) {
   const nextContext = payload && typeof payload === "object" ? payload : null;
   const nextKey = buildContextKey(nextContext);
-  const contextChanged = Boolean(currentContextKey && nextKey && nextKey !== currentContextKey);
+  // An empty key (loading or blank tab) is a different context too, so returning to a video restores its conversation.
+  const contextChanged = nextKey !== currentContextKey;
 
   contextData = nextContext;
   currentContextKey = nextKey;
@@ -958,11 +964,13 @@ function applyConversation(conversation) {
   renderHistoryList();
 }
 
-function loadConversationById(id) {
+async function loadConversationById(id) {
   const conversation = savedConversations.find((item) => item.id === id);
-  if (!conversation) {
+  if (!conversation || (activeStream && id === currentConversationId)) {
     return;
   }
+  // The reply in flight belongs to the conversation it was asked in, not to the one being opened.
+  await detachActiveStream();
   applyConversation(conversation);
   renderInitialState();
   if (conversation.contextKey && conversation.contextKey !== liveContextKey) {
@@ -1088,7 +1096,7 @@ async function syncLiveContextState(forceRefresh = false) {
   if (ok === FOLLOWED_LIVE_VIDEO) {
     return;
   }
-  if (currentConversationMeta?.pinnedContext || activeStream) {
+  if (isContextBound()) {
     updateContextChip();
     return;
   }
@@ -1125,7 +1133,7 @@ async function detachActiveStream() {
   clearStreamRuntimeState();
   chatHistory.push({ role: "user", content: stream.prompt });
   // The id is assigned before the first await, so a reply ending during the save still finds its conversation.
-  const saving = persistCurrentConversation();
+  const saving = persistCurrentConversation(stream);
   stream.conversationId = currentConversationId;
   stream.promptIndex = chatHistory.length - 1;
   await saving;
@@ -1548,8 +1556,9 @@ function formatConversationTimestamp(value) {
   return `${year}-${month}-${day} ${hours}:${minutes}`;
 }
 
-async function persistCurrentConversation() {
-  if (!chatHistory.length || !contextData) {
+// A new conversation takes the context its reply was asked in (the stream's), not whatever the tab shows now.
+async function persistCurrentConversation({ context = contextData, contextKey = currentContextKey } = {}) {
+  if (!chatHistory.length || !context) {
     return;
   }
   const now = Date.now();
@@ -1557,27 +1566,27 @@ async function persistCurrentConversation() {
     currentConversationId = generateConversationId();
     currentConversationMeta = {
       id: currentConversationId,
-      title: buildConversationTitle(contextData),
+      title: buildConversationTitle(context),
       createdAt: now,
-      contextKey: currentContextKey,
-      contextTitle: String(contextData.title || "").trim(),
-      contextUrl: String(contextData.url || "").trim(),
-      isVideoContext: contextData.isVideoContext !== false,
+      contextKey,
+      contextTitle: String(context.title || "").trim(),
+      contextUrl: String(context.url || "").trim(),
+      isVideoContext: context.isVideoContext !== false,
       pinnedContext: true,
-      contextRef: buildConversationContextRef(contextData),
-      resolvedContext: { ...contextData }
+      contextRef: buildConversationContextRef(context),
+      resolvedContext: { ...context }
     };
   }
   const nextConversation = {
     id: currentConversationId,
-    title: currentConversationMeta?.title || buildConversationTitle(contextData),
-    contextKey: String(currentConversationMeta?.contextKey || currentContextKey || "").trim(),
-    contextTitle: String(currentConversationMeta?.contextTitle || contextData.title || "").trim(),
-    contextUrl: String(currentConversationMeta?.contextUrl || contextData.url || "").trim(),
+    title: currentConversationMeta?.title || buildConversationTitle(context),
+    contextKey: String(currentConversationMeta?.contextKey || contextKey || "").trim(),
+    contextTitle: String(currentConversationMeta?.contextTitle || context.title || "").trim(),
+    contextUrl: String(currentConversationMeta?.contextUrl || context.url || "").trim(),
     isVideoContext: currentConversationMeta?.isVideoContext !== false,
     createdAt: Number(currentConversationMeta?.createdAt) || now,
     updatedAt: now,
-    contextRef: currentConversationMeta?.contextRef || buildConversationContextRef(contextData),
+    contextRef: currentConversationMeta?.contextRef || buildConversationContextRef(context),
     pageHydrated: savedConversations.find((item) => item.id === currentConversationId)?.pageHydrated === true,
     messages: chatHistory.map((item) => ({ role: item.role, content: String(item.content || "") }))
   };
@@ -1596,7 +1605,7 @@ async function persistCurrentConversation() {
     isVideoContext: nextConversation.isVideoContext,
     pinnedContext: true,
     contextRef: nextConversation.contextRef,
-    resolvedContext: currentConversationMeta?.resolvedContext ? { ...currentConversationMeta.resolvedContext } : { ...contextData }
+    resolvedContext: currentConversationMeta?.resolvedContext ? { ...currentConversationMeta.resolvedContext } : { ...context }
   };
   await saveConversations();
 }
@@ -1627,7 +1636,9 @@ async function hydratePinnedConversationContext({ silent = false } = {}) {
 
   if (targetKey && liveContextKey && targetKey === liveContextKey) {
     const ok = await loadContextState({ forceRefresh: false, silent: true });
-    if (ok && contextData) {
+    // contextData of a bound conversation is not refreshed from the tab; the live payload is its resolved context.
+    if (ok && liveContextData && liveContextKey === targetKey) {
+      contextData = { ...liveContextData };
       currentContextKey = targetKey;
       currentConversationMeta = {
         ...currentConversationMeta,
@@ -1725,6 +1736,8 @@ async function sendMessage() {
     port: chrome.runtime.connect({ name: "sidepanel-chat" }),
     node: appendAssistantPlaceholder(),
     prompt: text,
+    context: contextData,
+    contextKey: currentContextKey,
     raw: "",
     notice: "",
     frame: 0,
@@ -1763,7 +1776,7 @@ async function sendMessage() {
     action: "chat",
     providerId,
     context: {
-      ...contextData,
+      ...stream.context,
       aiSystemPrompt: aiPrefs.aiSystemPrompt
     },
     prompt: text,
@@ -1838,7 +1851,7 @@ function endStream(stream, { stopped = "", error = "" } = {}) {
   }
   if (saved) {
     chatHistory.push({ role: "user", content: prompt }, { role: "assistant", content: raw });
-    void persistCurrentConversation();
+    void persistCurrentConversation(stream);
   }
   [stopped, stream.notice].filter(Boolean).forEach((text) => {
     const note = document.createElement("div");
