@@ -802,6 +802,26 @@ ol {
   stroke-linejoin: round;
 }
 
+.ai-provider-clear-key {
+  grid-column: 4 / -1;
+  justify-self: start;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.ai-provider-clear-key:hover {
+  color: var(--danger);
+}
+
+.ai-provider-clear-key[hidden] {
+  display: none;
+}
+
 .ai-provider-status {
   grid-column: 1 / -1;
   margin: 0;
