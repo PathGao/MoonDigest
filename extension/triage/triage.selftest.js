@@ -120,6 +120,10 @@ function openFake(mediaId, items, decisions = {}) {
   const csvRows = t.buildCsv().replace(/^\uFEFF/, "").split("\r\n");
   assert.ok(csvRows[1].startsWith("'+夹,BV5,'=cmd|' /C calc'!A0,'@up,"), csvRows[1]);
 
+  // B12: titles with | [[ ]] or newlines cannot end the index-note link early.
+  assert.strictEqual(t.wikiLink("B站/2026-10-02-a_b.md", "a|b [[c]]\nd"), "[[B站/2026-10-02-a_b|a b c d]]");
+  assert.strictEqual(t.wikiLink("x.md", "|||"), "[[x|x]]");
+
   console.log("triage selftest: all passed");
 })().catch((e) => {
   console.error(e);

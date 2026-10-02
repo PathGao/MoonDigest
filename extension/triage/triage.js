@@ -1751,6 +1751,13 @@ function safeNoteName(name) {
   return String(name).replace(/[\\/:*?"<>|#^[\]]/g, "_").trim() || "收藏夹";
 }
 
+const oneLine = (s) => String(s ?? "").replace(/\s+/g, " ").trim();
+// | [ ] or a newline in the alias would end the link early; the path is already a safe note filename.
+function wikiLink(path, title) {
+  const target = String(path).replace(/\.md$/, "");
+  return `[[${target}|${oneLine(String(title ?? "").replace(/[|[\]]/g, " ")) || target}]]`;
+}
+
 async function runWrite() {
   const items = writeScopeItems();
   const overwrite = el.writeOverwrite.checked;
@@ -1774,7 +1781,7 @@ async function runWrite() {
     const lines = [`# ${folderTitle()}`, "", `${stamp(new Date(), false)} · ${written.length} 篇`, ""];
     for (const w of written) {
       const oneLiner = S.analyses[w.bvid]?.oneLiner;
-      lines.push(`- [[${w.path.replace(/\.md$/, "")}|${w.title}]]${oneLiner ? ` ${oneLiner}` : ""}`);
+      lines.push(`- ${wikiLink(w.path, w.title)}${oneLiner ? ` ${oneLine(oneLiner)}` : ""}`);
     }
     const r = await send({ type: "triage-export", filename: `${safeNoteName(folderTitle())}.md`, markdown: lines.join("\n") });
     if (r.ok) indexPath = r.data?.path || "";

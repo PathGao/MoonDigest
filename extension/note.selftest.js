@@ -290,4 +290,7 @@ assert.strictEqual(N.formatCompactTimestamp(3661, false), "61:01");
 assert.strictEqual(N.formatTimestamp(1.5, true), "00:00:01,500");
 assert.strictEqual(N.buildSrt(body.slice(0, 1)), "1\n00:00:00,000 --> 00:00:04,500\n大家好，欢迎来到本期视频");
 assert.strictEqual(N.buildTxt(body.slice(0, 2), { includeTimestampInBody: true }), "00:00 大家好，欢迎来到本期视频\n00:04 今天讲三件事");
+// A newline inside a double-quoted YAML value must stay escaped or the frontmatter breaks.
+assert.strictEqual(N.escapeYaml('a"b\\c\nd\r\te'), 'a\\"b\\\\c\\nd\\r\\te');
+assert.strictEqual(N.sanitizeFileName("第1集 #AI [合集] ^x|y"), "第1集 _AI _合集_ _x_y");
 console.log("note selftest ok");
