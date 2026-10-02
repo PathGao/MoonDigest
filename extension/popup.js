@@ -212,7 +212,12 @@ function render(payload, { preserveStatus = false } = {}) {
     const isErrorStatus = /失败|错误|不可用|不支持/.test(statusText);
     setStatus(statusText, isErrorStatus);
   }
-  setMessage(payload.message || "");
+  setMessage(
+    payload.message ||
+      (payload.includeHotCommentsInNote && payload.commentsSupported === false
+        ? "当前站点暂不支持导出评论，笔记里不会有评论区。"
+        : "")
+  );
 
   setText(el.propTitle, payload.title || "-");
   setText(el.propUrl, payload.url || "-");

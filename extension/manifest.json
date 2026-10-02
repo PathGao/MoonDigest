@@ -16,6 +16,7 @@
     "https://www.bilibili.com/*",
     "https://api.bilibili.com/*",
     "https://*.hdslb.com/*",
+    "https://www.youtube.com/*",
     "http://127.0.0.1/*",
     "https://127.0.0.1/*",
     "http://localhost/*",
@@ -41,7 +42,8 @@
       "matches": [
         "https://www.bilibili.com/video/*",
         "https://www.bilibili.com/list/watchlater",
-        "https://www.bilibili.com/list/watchlater/*"
+        "https://www.bilibili.com/list/watchlater/*",
+        "https://www.youtube.com/*"
       ],
       "js": ["sites.js", "content.js"],
       "css": ["content.css"],

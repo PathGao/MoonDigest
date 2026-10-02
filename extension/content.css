@@ -560,9 +560,17 @@
 .boc-reading-player-slot .bpx-player-container,
 .boc-reading-player-slot .bpx-player-video-area,
 .boc-reading-player-slot .bpx-player-primary-area,
-.boc-reading-player-slot .bpx-player-inner {
+.boc-reading-player-slot .bpx-player-inner,
+.boc-reading-player-slot #movie_player,
+.boc-reading-player-slot .html5-video-container {
   width: 100% !important;
   height: 100% !important;
+}
+
+body[data-boc-reader-mode="1"] #secondary,
+body[data-boc-reader-mode="1"] #comments,
+body[data-boc-reader-mode="1"] ytd-merch-shelf-renderer {
+  display: none !important;
 }
 
 .boc-reading-main {

@@ -403,9 +403,253 @@
     return num > 60 * 60 * 24 ? num / 1000 : num;
   }
 
+  // ----------------------------------------------------------------- YouTube
+
+  // The WEB client's caption URLs carry exp=xpe and return empty bodies; the
+  // ANDROID client's do not. Version mirrors youtube-transcript-api.
+  const YT_ANDROID_CLIENT = { clientName: "ANDROID", clientVersion: "20.10.38" };
+  const YT_HOSTS = new Set(["www.youtube.com", "youtube.com", "m.youtube.com", "music.youtube.com", "www.youtube-nocookie.com"]);
+  const YT_WEB_CLIENT_VERSION_FALLBACK = "2.20250101.00.00";
+  let ytPageConfig = null;
+
+  function ytExtractVideoId(url) {
+    const parsed = parseUrl(url);
+    if (!parsed) {
+      return "";
+    }
+    const idPattern = /^[A-Za-z0-9_-]{11}$/;
+    if (parsed.hostname === "youtu.be") {
+      const id = parsed.pathname.slice(1).split("/")[0];
+      return idPattern.test(id) ? id : "";
+    }
+    if (!YT_HOSTS.has(parsed.hostname)) {
+      return "";
+    }
+    const fromQuery = String(parsed.searchParams.get("v") || "");
+    if (idPattern.test(fromQuery)) {
+      return fromQuery;
+    }
+    const fromPath = parsed.pathname.match(/^\/(?:shorts|embed|live|v)\/([A-Za-z0-9_-]{11})(?:[/?]|$)/)?.[1] || "";
+    return idPattern.test(fromPath) ? fromPath : "";
+  }
+
+  // Both values are constant for the page's lifetime, so they are read once.
+  function ytReadPageConfig(doc) {
+    if (ytPageConfig) {
+      return ytPageConfig;
+    }
+    for (const script of doc?.querySelectorAll?.("script") || []) {
+      const text = String(script.textContent || "");
+      const apiKey = text.match(/"INNERTUBE_API_KEY"\s*:\s*"([^"]+)"/)?.[1];
+      if (apiKey) {
+        ytPageConfig = {
+          apiKey,
+          webClientVersion: text.match(/"INNERTUBE_CLIENT_VERSION"\s*:\s*"([^"]+)"/)?.[1] || YT_WEB_CLIENT_VERSION_FALLBACK
+        };
+        return ytPageConfig;
+      }
+    }
+    return { apiKey: "", webClientVersion: YT_WEB_CLIENT_VERSION_FALLBACK };
+  }
+
+  function ytIsoDate(value) {
+    const text = String(value || "");
+    return /^\d{4}-\d{2}-\d{2}/.test(text) ? text.slice(0, 10) : "";
+  }
+
+  // The page's <meta itemprop="datePublished"> is only rewritten on a full
+  // load; after SPA navigation it still describes the previous video. The
+  // ANDROID player response has no publish date, so a WEB-client call
+  // (whose caption URLs are useless) fills it in that case.
+  async function ytFetchUploadDate(ref, io, config) {
+    const doc = io.doc;
+    if (readMetaContent(doc, 'meta[itemprop="identifier"]') === ref.id) {
+      return ytIsoDate(readMetaContent(doc, 'meta[itemprop="datePublished"]') || readMetaContent(doc, 'meta[itemprop="uploadDate"]'));
+    }
+    const data = await io
+      .postJson(`https://www.youtube.com/youtubei/v1/player?key=${config.apiKey}&prettyPrint=false`, {
+        context: { client: { clientName: "WEB", clientVersion: config.webClientVersion } },
+        videoId: ref.id
+      })
+      .catch(() => null);
+    const micro = data?.microformat?.playerMicroformatRenderer;
+    return ytIsoDate(micro?.publishDate || micro?.uploadDate);
+  }
+
+  function xmlAttr(attrs, name) {
+    return new RegExp(`\\b${name}="([^"]*)"`).exec(attrs)?.[1] ?? "";
+  }
+
+  const XML_ENTITIES = { amp: "&", lt: "<", gt: ">", quot: '"', apos: "'", nbsp: " " };
+
+  // One pass, so "&amp;lt;" decodes to the literal "&lt;".
+  function decodeXmlEntities(text) {
+    return String(text).replace(/&(#x[0-9a-f]+|#\d+|amp|lt|gt|quot|apos|nbsp);/gi, (whole, body) => {
+      if (body[0] === "#") {
+        const code = body[1] === "x" || body[1] === "X" ? parseInt(body.slice(2), 16) : parseInt(body.slice(1), 10);
+        return Number.isFinite(code) ? String.fromCodePoint(code) : whole;
+      }
+      return XML_ENTITIES[body.toLowerCase()] ?? whole;
+    });
+  }
+
+  // srv3: <p t="ms" d="ms"><s>word</s><s t="offset"> next</s></p>. Tags are
+  // stripped, not trimmed, because the space between words lives inside <s>.
+  function parseSrv3(xml) {
+    const items = [];
+    for (const match of String(xml).matchAll(/<p\b([^>]*)>([\s\S]*?)<\/p>/g)) {
+      const from = Number(xmlAttr(match[1], "t"));
+      const duration = Number(xmlAttr(match[1], "d")) || 0;
+      const content = decodeXmlEntities(match[2].replace(/<br\s*\/?>/gi, " ").replace(/<[^>]+>/g, ""))
+        .replace(/\s+/g, " ")
+        .trim();
+      if (!Number.isFinite(from) || !content) {
+        continue;
+      }
+      items.push({ from: from / 1000, to: (from + duration) / 1000, content });
+    }
+    return items;
+  }
+
+  function parseJson3(data) {
+    const events = Array.isArray(data?.events) ? data.events : [];
+    return normalizeSegments(
+      events
+        // aAppend events re-time words of an earlier line; the line itself already carries them.
+        .filter((event) => Number.isFinite(event?.tStartMs) && Array.isArray(event.segs) && !event.aAppend)
+        .map((event) => ({
+          from: event.tStartMs / 1000,
+          to: (event.tStartMs + (Number(event.dDurationMs) || 0)) / 1000,
+          content: event.segs.map((seg) => String(seg?.utf8 || "")).join("").replace(/\s+/g, " ")
+        }))
+    );
+  }
+
+  function parseYoutubeSubtitle(text) {
+    const body = String(text || "").trim();
+    if (!body) {
+      return [];
+    }
+    return body.startsWith("{") ? parseJson3(JSON.parse(body)) : parseSrv3(body);
+  }
+
+  function ytTrackName(track) {
+    return String(track?.name?.simpleText || track?.name?.runs?.map((run) => run.text).join("") || "").trim();
+  }
+
+  const youtube = {
+    id: "youtube",
+    label: "YouTube",
+    domain: "youtube.com",
+    hosts: ["www.youtube.com", "youtu.be", "i.ytimg.com"],
+    // The player API answers 403 to requests carrying a chrome-extension://
+    // Origin, so meta/tracks are fetched from inside the page only.
+    pageOnly: true,
+    match(url) {
+      return Boolean(ytExtractVideoId(url));
+    },
+    parseRef(url) {
+      const id = ytExtractVideoId(url);
+      return id ? { site: "youtube", id, part: null, url: youtube.canonicalUrl(id) } : null;
+    },
+    canonicalUrl(id) {
+      return `https://www.youtube.com/watch?v=${id}`;
+    },
+    async fetchMeta(ref, io) {
+      if (!io.postJson) {
+        throw new Error("YouTube 视频信息只能在视频页内获取");
+      }
+      const config = ytReadPageConfig(io.doc);
+      const apiKey = config.apiKey;
+      if (!apiKey) {
+        throw new Error("页面里没有找到 YouTube API key，请刷新页面重试");
+      }
+      const data = await io.postJson(`https://www.youtube.com/youtubei/v1/player?key=${apiKey}&prettyPrint=false`, {
+        context: { client: YT_ANDROID_CLIENT },
+        videoId: ref.id
+      });
+      const status = data?.playabilityStatus?.status;
+      if (status !== "OK") {
+        throw new Error(`视频不可播放：${data?.playabilityStatus?.reason || status || "unknown"}`);
+      }
+      const details = data.videoDetails || {};
+      const renderer = data.captions?.playerCaptionsTracklistRenderer || {};
+      const audio = (renderer.audioTracks || [])[Number(renderer.defaultAudioTrackIndex) || 0];
+      const defaultIndex = Number(audio?.defaultCaptionTrackIndex);
+      const tracks = (renderer.captionTracks || [])
+        .map((track, index) => ({
+          id: String(track?.vssId || `${track?.languageCode || ""}#${index}`),
+          lang: String(track?.languageCode || ""),
+          label: ytTrackName(track) || String(track?.languageCode || ""),
+          url: String(track?.baseUrl || ""),
+          kind: track?.kind === "asr" ? "auto" : "manual",
+          isDefault: index === defaultIndex
+        }))
+        .filter((track) => track.url);
+      const thumbnails = [...(details.thumbnail?.thumbnails || [])].sort((a, b) => (Number(b.width) || 0) - (Number(a.width) || 0));
+      return {
+        title: String(details.title || ""),
+        author: String(details.author || ""),
+        authorUrl: details.channelId ? `https://www.youtube.com/channel/${details.channelId}` : "",
+        uploadDate: await ytFetchUploadDate(ref, io, config),
+        description: String(details.shortDescription || ""),
+        duration: Number(details.lengthSeconds) || 0,
+        cover: httpsUrl(thumbnails[0]?.url),
+        tags: (Array.isArray(details.keywords) ? details.keywords : []).map((item) => String(item).trim()).filter(Boolean),
+        chapters: [],
+        pageCount: 0,
+        pageIndex: 1,
+        pageTitle: "",
+        tracks
+      };
+    },
+    // Tracks arrive with the player response; a refetch (signed URLs expire)
+    // repeats that single call.
+    async fetchTracks(ref, meta, io) {
+      const tracks = Array.isArray(meta?.tracks) ? meta.tracks : (await youtube.fetchMeta(ref, io)).tracks;
+      return { tracks, chapters: [] };
+    },
+    async fetchSegments(track, io) {
+      return normalizeSegments(parseYoutubeSubtitle(await io.fetchText(track.url)));
+    },
+    embedHtml(ref) {
+      return `<iframe src="https://www.youtube.com/embed/${encodeURIComponent(ref.id)}" title="YouTube video player" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowfullscreen style="height:100%;width:100%; aspect-ratio: 16 / 9;"></iframe>`;
+    },
+    readDom(doc) {
+      return {
+        title:
+          readMetaContent(doc, 'meta[property="og:title"]') ||
+          readText(doc, "h1.ytd-watch-metadata") ||
+          String(doc?.title || "").replace(/ - YouTube$/, "").trim(),
+        author: readMetaContent(doc, 'meta[itemprop="author"]') || readText(doc, "ytd-watch-metadata #channel-name a"),
+        description: readMetaContent(doc, 'meta[property="og:description"]'),
+        uploadDate: ""
+      };
+    },
+    reader: {
+      playerHost: ["#movie_player", ".html5-video-player"],
+      playerLayout: ["#movie_player", ".html5-video-container", "ytd-player", "#player-container-inner", "#player-container", "#player"],
+      playerWrap: ["#player-container-outer", "#player"],
+      miniPlayer: ["ytd-miniplayer[active]"],
+      miniClose: [".ytp-miniplayer-close-button"],
+      endingPanel: [],
+      controls: [],
+      noCursorClass: "",
+      sendingBar: "",
+      title: ["h1.ytd-watch-metadata"],
+      metaContainer: ["ytd-watch-metadata #top-row"],
+      keepRoots: ["#movie_player", "#player", "ytd-watch-metadata", "h1.ytd-watch-metadata"],
+      noise: ["#secondary", "#comments", "ytd-merch-shelf-renderer", "#masthead-ad", "ytd-ad-slot-renderer"],
+      cards: ["ytd-compact-video-renderer", "ytd-rich-item-renderer"],
+      ignoredVideo: ["ytd-compact-video-renderer", "ytd-rich-item-renderer", "#inline-preview-player", "ytd-video-preview"],
+      subtitleControlRoots: ["#movie_player .ytp-chrome-bottom", "#movie_player"],
+      aiQuickActionHosts: ["#movie_player", "#player"]
+    }
+  };
+
   // ----------------------------------------------------------------- registry
 
-  const SITES = { bilibili };
+  const SITES = { bilibili, youtube };
 
   function matchSite(url) {
     return Object.values(SITES).find((site) => site.match(url)) || null;
@@ -445,6 +689,9 @@
     trackUrlKey,
     normalizeChapters,
     parseChaptersFromDescription,
-    normalizeSegments
+    normalizeSegments,
+    decodeXmlEntities,
+    parseSrv3,
+    parseJson3
   };
 })();

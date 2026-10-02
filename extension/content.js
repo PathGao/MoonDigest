@@ -932,44 +932,48 @@ function startUrlWatcher() {
   }
   state.urlWatcherStarted = true;
 
-  window.setInterval(() => {
-    const nextUrl = location.href;
-    const nextSignature = computeCurrentClipSignature();
-    if (nextSignature === state.currentClipSignature) {
-      return;
-    }
+  window.setInterval(checkUrlChange, 1200);
+  // YouTube navigates in place; its event beats the interval by up to a second.
+  document.addEventListener("yt-navigate-finish", checkUrlChange);
+}
 
-    state.currentUrl = nextUrl;
-    state.currentClipSignature = nextSignature;
-    try {
-      chrome.runtime.sendMessage({ type: "boc-video-changed", url: nextUrl })?.catch?.(() => {});
-    } catch {}
-    enforceNormalPageStateIfNeeded(nextUrl);
-    ensureUiReady();
-    resetClipState();
-    const shouldEnterReaderMode = isReaderMode(nextUrl);
-    if (!state.readingViewOpen && shouldEnterReaderMode) {
-      document.documentElement.setAttribute("data-boc-reader-mode", "1");
-      document.body.setAttribute("data-boc-reader-mode", "1");
-      renderReadingStatus("检测到阅读视图跳转，正在打开阅读模式...");
-      enterReaderMode().catch((error) => {
-        renderReadingStatus(`阅读视图启动失败：${getErrorMessage(error)}`);
+function checkUrlChange() {
+  const nextUrl = location.href;
+  const nextSignature = computeCurrentClipSignature();
+  if (nextSignature === state.currentClipSignature) {
+    return;
+  }
+
+  state.currentUrl = nextUrl;
+  state.currentClipSignature = nextSignature;
+  try {
+    chrome.runtime.sendMessage({ type: "boc-video-changed", url: nextUrl })?.catch?.(() => {});
+  } catch {}
+  enforceNormalPageStateIfNeeded(nextUrl);
+  ensureUiReady();
+  resetClipState();
+  const shouldEnterReaderMode = isReaderMode(nextUrl);
+  if (!state.readingViewOpen && shouldEnterReaderMode) {
+    document.documentElement.setAttribute("data-boc-reader-mode", "1");
+    document.body.setAttribute("data-boc-reader-mode", "1");
+    renderReadingStatus("检测到阅读视图跳转，正在打开阅读模式...");
+    enterReaderMode().catch((error) => {
+      renderReadingStatus(`阅读视图启动失败：${getErrorMessage(error)}`);
+    });
+    return;
+  }
+  if (state.readingViewOpen || shouldEnterReaderMode) {
+    renderReadingStatus("检测到视频变化，正在自动刷新字幕...");
+    waitForVideoMetadata().then(() => {
+      refreshClip().catch((error) => {
+        if (!isStaleRunError(error)) {
+          renderReadingStatus(`自动刷新失败：${getErrorMessage(error)}`);
+        }
       });
-      return;
-    }
-    if (state.readingViewOpen || shouldEnterReaderMode) {
-      renderReadingStatus("检测到视频变化，正在自动刷新字幕...");
-      waitForVideoMetadata().then(() => {
-        refreshClip().catch((error) => {
-          if (!isStaleRunError(error)) {
-            renderReadingStatus(`自动刷新失败：${getErrorMessage(error)}`);
-          }
-        });
-      });
-      return;
-    }
-    setStatus("检测到页面变化，请点击“刷新抓取”加载当前视频字幕。");
-  }, 1200);
+    });
+    return;
+  }
+  setStatus("检测到页面变化，请点击“刷新抓取”加载当前视频字幕。");
 }
 
 function resetClipState() {
@@ -1463,6 +1467,9 @@ function getPopupPayload() {
 
   return {
     contentVersion: BOC_VERSION,
+    site: currentSite()?.id || "",
+    commentsSupported: Boolean(currentSite()?.fetchComments),
+    includeHotCommentsInNote: Boolean(state.settings?.includeHotCommentsInNote),
     url: cleanVideoUrl(),
     title: state.title || "",
     author: state.author || "",

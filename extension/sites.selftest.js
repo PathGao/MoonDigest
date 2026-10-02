@@ -57,4 +57,44 @@ assert.strictEqual(S.buildContextKey({ site: "bilibili", videoId: "BV1", cid: "9
 assert.strictEqual(S.buildContextKey({ site: "youtube", videoId: "abc" }), "video:youtube:abc|");
 assert.strictEqual(S.buildContextKey({}), "");
 
+// YouTube URLs
+for (const url of [
+  "https://www.youtube.com/watch?v=dQw4w9WgXcQ&list=PL1&index=2&t=30s&si=abc&pp=xyz",
+  "https://youtu.be/dQw4w9WgXcQ?si=abc",
+  "https://www.youtube.com/shorts/dQw4w9WgXcQ",
+  "https://www.youtube.com/embed/dQw4w9WgXcQ?autoplay=1",
+  "https://m.youtube.com/watch?feature=share&v=dQw4w9WgXcQ"
+]) {
+  eq(S.parseRef(url), { site: "youtube", id: "dQw4w9WgXcQ", part: null, url: "https://www.youtube.com/watch?v=dQw4w9WgXcQ" });
+}
+assert.strictEqual(S.parseRef("https://www.youtube.com/"), null);
+assert.strictEqual(S.parseRef("https://www.youtube.com/watch?v=short"), null);
+assert.strictEqual(S.parseRef("https://www.youtube.com/@channel/videos"), null);
+assert.strictEqual(S.isAllowedFetchUrl("https://www.youtube.com/youtubei/v1/player"), true);
+
+// srv3: attribute order, spaces inside <s>, entities decoded once, numeric entities
+const srv3 = `<?xml version="1.0" encoding="utf-8" ?><timedtext format="3"><body>
+<p d="1500" t="1000"><s>hello</s><s t="500"> world</s><s t="900"> &amp;lt;tag&amp;gt;</s></p>
+<p t="3000" d="2000" w="1">it&#39;s &#x27;quoted&#x27; &amp; done<br/>next</p>
+<p t="6000" d="100"></p>
+<p t="7000" d="100" a="1"><s>Ça</s><s> va?</s></p>
+</body></timedtext>`;
+eq(S.parseSrv3(srv3), [
+  { from: 1, to: 2.5, content: "hello world &lt;tag&gt;" },
+  { from: 3, to: 5, content: "it's 'quoted' & done next" },
+  { from: 7, to: 7.1, content: "Ça va?" }
+]);
+assert.strictEqual(S.decodeXmlEntities("&amp;amp;"), "&amp;");
+
+// json3: aAppend word events skipped, newline segments collapsed
+eq(S.parseJson3({ events: [
+  { tStartMs: 0, dDurationMs: 1000, segs: [{ utf8: "first" }, { utf8: "\n" }, { utf8: "line" }] },
+  { tStartMs: 500, dDurationMs: 200, aAppend: 1, segs: [{ utf8: " line" }] },
+  { tStartMs: 1000, dDurationMs: 1000, segs: [{ utf8: "\n" }] },
+  { tStartMs: 2000, segs: [{ utf8: "no duration" }] }
+] }), [
+  { from: 0, to: 1, content: "first line" },
+  { from: 2, to: 2, content: "no duration" }
+]);
+
 console.log("sites selftest ok");
