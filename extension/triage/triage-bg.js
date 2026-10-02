@@ -664,7 +664,14 @@ const TRIAGE_HANDLERS = {
     const items = [];
     for (let pn = 1; ; pn++) {
       if (pn > 1) await new Promise((r) => setTimeout(r, 300));
-      const data = await triageBiliGet(`https://api.bilibili.com/x/v3/fav/resource/list?media_id=${mediaId}&ps=20&pn=${pn}`);
+      let data;
+      try {
+        data = await triageBiliGet(`https://api.bilibili.com/x/v3/fav/resource/list?media_id=${mediaId}&ps=20&pn=${pn}`);
+      } catch (e) {
+        // Keep what earlier pages returned; the page must not treat a partial list as the whole folder.
+        if (pn === 1) throw e;
+        return { items, partial: { page: pn, error: e.message } };
+      }
       for (const m of data?.medias || []) {
         if (m.type !== 2) continue;
         items.push({

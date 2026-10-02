@@ -90,6 +90,10 @@
       const f = folders.find((x) => String(x.id) === String(mediaId));
       if (!f) return { ok: false, error: "收藏夹不存在" };
       lastMediaId = f.id;
+      // __mockPartial = true simulates page 2 failing: only the first 20 items come back.
+      if (globalThis.__mockPartial && f.items.length > 20) {
+        return { ok: true, data: { items: f.items.slice(0, 20).map(pub), partial: { page: 2, error: "B站返回 -352: 风控校验失败" } } };
+      }
       return { ok: true, data: { items: f.items.map(pub) } };
     },
     "triage-title-get": ({ bvids }) => ({ ok: true, data: Object.fromEntries(bvids.map((b) => [b, store[`triage_title_${b}`] || null])) }),

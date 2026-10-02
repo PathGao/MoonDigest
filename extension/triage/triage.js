@@ -393,6 +393,8 @@ async function syncFolder({ force = false } = {}) {
     }
     S.lastSyncAt = Date.now();
     const remote = r.data.items || [];
+    // A partial list proves what exists, never what was removed, so it skips the removed diff and the snapshot.
+    const partial = r.data.partial ? { ...r.data.partial, count: remote.length } : null;
     const remoteSet = new Set(remote.map((it) => it.bvid));
     const snap = await storeGet(K.snapshot(mediaId), null);
     const diff = { added: [], removed: [], invalid: [], restored: [] };
@@ -412,29 +414,32 @@ async function syncFolder({ force = false } = {}) {
         if (!snapSet.has(it.bvid) && !restored.has(it.bvid)) diff.added.push(it);
         if (it.invalid && snapSet.has(it.bvid) && !snapInvalid.has(it.bvid)) diff.invalid.push(it.title);
       }
-      for (const b of snap.bvids) {
+      for (const b of partial ? [] : snap.bvids) {
         if (!remoteSet.has(b) && S.decisions[b]?.action !== "unfav") diff.removed.push(snap.titles?.[b] || b);
       }
     }
     if (restored.size) storeSet(K.decisions(mediaId), S.decisions);
 
-    // Remote order, newly added first; keep items we unfavorited this session so undo stays possible.
+    // Remote order, newly added first; keep items we unfavorited this session so undo stays possible,
+    // and after a partial load keep everything the missing pages may still hold.
     const addedSet = new Set(diff.added.map((it) => it.bvid));
     const next = [...remote.filter((it) => addedSet.has(it.bvid)), ...remote.filter((it) => !addedSet.has(it.bvid))];
     for (const it of S.items) {
-      if (!remoteSet.has(it.bvid) && S.decisions[it.bvid]?.action === "unfav") next.push(it);
+      if (!remoteSet.has(it.bvid) && (partial || S.decisions[it.bvid]?.action === "unfav")) next.push(it);
     }
     S.items = next;
     S.itemMap = new Map(next.map((it) => [it.bvid, it]));
     if (S.group) S.group.bvids = S.group.bvids.filter((b) => S.itemMap.has(b));
     for (const b of [...S.selected]) if (!S.itemMap.has(b)) S.selected.delete(b);
 
-    storeSet(K.snapshot(mediaId), {
-      bvids: remote.map((it) => it.bvid),
-      invalid: remote.filter((it) => it.invalid).map((it) => it.bvid),
-      titles: Object.fromEntries(remote.map((it) => [it.bvid, it.title])),
-      at: Date.now()
-    });
+    if (!partial) {
+      storeSet(K.snapshot(mediaId), {
+        bvids: remote.map((it) => it.bvid),
+        invalid: remote.filter((it) => it.invalid).map((it) => it.bvid),
+        titles: Object.fromEntries(remote.map((it) => [it.bvid, it.title])),
+        at: Date.now()
+      });
+    }
 
     const missing = next.map((it) => it.bvid).filter((b) => !(b in S.titleRes) && !(b in S.analyses));
     if (missing.length) {
@@ -448,7 +453,7 @@ async function syncFolder({ force = false } = {}) {
         if (a.ok && a.data?.[b]) S.analyses[b] = a.data[b];
       }
     }
-    showSyncNotice(diff);
+    showSyncNotice(diff, partial);
     render();
     return true;
   } finally {
@@ -456,12 +461,17 @@ async function syncFolder({ force = false } = {}) {
   }
 }
 
-function showSyncNotice(diff) {
+function showSyncNotice(diff, partial) {
   const { added, removed, invalid, restored } = diff;
-  if (!added.length && !removed.length && !invalid.length && !restored.length) return;
-  const parts = [`新增 ${added.length}`, `已在B站移除 ${removed.length}`, `已失效 ${invalid.length}`];
+  if (!partial && !added.length && !removed.length && !invalid.length && !restored.length) {
+    if (el.syncNotice.dataset.partial) el.syncNotice.hidden = true;
+    return;
+  }
+  el.syncNotice.dataset.partial = partial ? "1" : "";
+  const parts = [`新增 ${added.length}`, ...(partial ? [] : [`已在B站移除 ${removed.length}`]), `已失效 ${invalid.length}`];
   if (restored.length) parts.push(`恢复 ${restored.length}`);
-  el.syncText.textContent = `B站同步：${parts.join(" · ")}`;
+  const head = partial ? `只加载了前 ${partial.count} 个（第 ${partial.page} 页失败：${partial.error}），可稍后重试同步。` : "";
+  el.syncText.textContent = `${head}B站同步：${parts.join(" · ")}`;
   const section = (label, titles) =>
     titles.length ? `<div><strong>${label}</strong><ul>${titles.map((t) => `<li>${esc(t)}</li>`).join("")}</ul></div>` : "";
   el.syncDetail.innerHTML =
