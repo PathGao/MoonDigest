@@ -5,9 +5,9 @@
 // VideoRef { site, id, part: { index, cid? } | null, url }
 // Meta     { title, author, authorUrl, uploadDate, description, duration, cover,
 //            tags, chapters, pageCount, pageIndex, pageTitle, cid?, aid?, pages? }
-// Track    { id, lang, label, url, kind: "manual" | "auto" | "ai", isDefault }
+// Track    { id, lang, label, url, kind: "manual" | "auto" | "ai" | "translated" | "transcript", isDefault }
 // Segment  { from, to, content } in seconds
-// io       { fetchJson(url), fetchText?(url), postJson?(url, body), doc? }
+// io       { fetchJson(url), fetchText?(url), postJson?(url, body, headers?), doc?, subtitleLang? }
 (() => {
   if (globalThis.BocSites) {
     return;
@@ -464,12 +464,42 @@
       if (apiKey) {
         ytPageConfig = {
           apiKey,
-          webClientVersion: text.match(/"INNERTUBE_CLIENT_VERSION"\s*:\s*"([^"]+)"/)?.[1] || YT_WEB_CLIENT_VERSION_FALLBACK
+          webClientVersion: text.match(/"INNERTUBE_CLIENT_VERSION"\s*:\s*"([^"]+)"/)?.[1] || YT_WEB_CLIENT_VERSION_FALLBACK,
+          visitorData: text.match(/"VISITOR_DATA"\s*:\s*"([^"]+)"/)?.[1] || ""
         };
         return ytPageConfig;
       }
     }
-    return { apiKey: "", webClientVersion: YT_WEB_CLIENT_VERSION_FALLBACK };
+    return { apiKey: "", webClientVersion: YT_WEB_CLIENT_VERSION_FALLBACK, visitorData: "" };
+  }
+
+  // WEB-client innertube call with the headers the watch page itself sends.
+  // hl is pinned to English so counts arrive as "1.2K", which ytParseCount reads exactly.
+  function ytPost(io, endpoint, body) {
+    const config = ytReadPageConfig(io.doc);
+    return io.postJson(
+      `https://www.youtube.com/youtubei/v1/${endpoint}?prettyPrint=false${config.apiKey ? `&key=${config.apiKey}` : ""}`,
+      { context: { client: { clientName: "WEB", clientVersion: config.webClientVersion, hl: "en" } }, ...body },
+      {
+        "X-Youtube-Client-Name": "1",
+        "X-Youtube-Client-Version": config.webClientVersion,
+        ...(config.visitorData ? { "X-Goog-Visitor-Id": config.visitorData } : {})
+      }
+    );
+  }
+
+  // One /next per load, shared by chapters, comments and the transcript
+  // fallback. fetchTracks refreshes it (SPA navigation changes the video and
+  // continuation tokens age); the others reuse it.
+  let ytNext = { id: "", response: null };
+
+  async function ytNextResponse(ref, io, fresh = false) {
+    if (!fresh && ytNext.id === ref.id && ytNext.response) {
+      return ytNext.response;
+    }
+    const response = await ytPost(io, "next", { videoId: ref.id });
+    ytNext = { id: ref.id, response };
+    return response;
   }
 
   function ytIsoDate(value) {
@@ -554,7 +584,10 @@
   }
 
   function ytText(value) {
-    const text = typeof value === "string" ? value : value?.simpleText ?? value?.runs?.map((run) => run.text).join("");
+    const text =
+      typeof value === "string"
+        ? value
+        : value?.simpleText ?? (typeof value?.content === "string" ? value.content : value?.runs?.map((run) => run.text).join(""));
     return String(text ?? "").trim();
   }
 
@@ -604,6 +637,91 @@
       visit(node);
       Object.values(node).forEach((child) => ytWalk(child, visit));
     }
+  }
+
+  function ytFind(node, key) {
+    const found = [];
+    ytWalk(node, (item) => {
+      if (item[key]) found.push(item[key]);
+    });
+    return found;
+  }
+
+  // Creator chapters and auto-chapters both arrive as chapterRenderer in the
+  // player bar's markersMap; the engagement panel repeats them as
+  // macroMarkersListItemRenderer, which is only consulted when the bar is absent.
+  function ytChapters(nextResponse) {
+    const fromBar = ytFind(nextResponse, "chapterRenderer").map((item) => ({
+      title: ytText(item.title),
+      from: (Number(item.timeRangeStartMillis) || 0) / 1000,
+      to: 0
+    }));
+    if (fromBar.length) {
+      return normalizeChapters(fromBar);
+    }
+    return normalizeChapters(
+      ytFind(nextResponse, "macroMarkersListItemRenderer").map((item) => ({
+        title: ytText(item.title),
+        from: Number(item.onTap?.watchEndpoint?.startTimeSeconds ?? parseTimestamp(ytText(item.timeDescription))),
+        to: 0
+      }))
+    );
+  }
+
+  const YT_TRANSCRIPT_URL = "https://www.youtube.com/youtubei/v1/get_transcript";
+  const YT_TRANSCRIPT_MAX_PAGES = 5;
+
+  function ytTranscriptParams(nextResponse) {
+    return String(ytFind(nextResponse, "getTranscriptEndpoint")[0]?.params || "");
+  }
+
+  // Current responses list transcriptSegmentRenderer (ms as strings); the
+  // view-model and cue-group shapes are older or regional variants.
+  function ytParseTranscript(response) {
+    const items = [];
+    ytWalk(response, (node) => {
+      const segment = node.transcriptSegmentRenderer || node.transcriptSegmentViewModel;
+      if (segment) {
+        const from = Number(segment.startMs ?? segment.startTimeMs ?? segment.startOffsetMs);
+        const to = Number(segment.endMs ?? segment.endTimeMs);
+        items.push({ from: from / 1000, to: (Number.isFinite(to) ? to : from) / 1000, content: ytText(segment.snippet ?? segment.content ?? segment.text) });
+      }
+      for (const cue of node.transcriptCueGroupRenderer?.cues || []) {
+        const item = cue.transcriptCueRenderer || cue;
+        const from = Number(item.startOffsetMs ?? item.startMs) || 0;
+        items.push({ from: from / 1000, to: (from + (Number(item.durationMs) || 0)) / 1000, content: ytText(item.cue ?? item.snippet) });
+      }
+    });
+    return normalizeSegments(items.filter((item) => Number.isFinite(item.from)));
+  }
+
+  // Language-menu entries carry reloadContinuationData (a language switch);
+  // only continuationItemRenderer continues the same transcript.
+  function ytTranscriptContinuation(response) {
+    return String(ytFind(response, "continuationItemRenderer")[0]?.continuationEndpoint?.continuationCommand?.token || "");
+  }
+
+  function ytTranscriptLanguage(response) {
+    const items = ytFind(response, "transcriptFooterRenderer")[0]?.languageMenu?.sortFilterSubMenuRenderer?.subMenuItems || [];
+    return ytText(items.find((item) => item.selected)?.title);
+  }
+
+  // Resolves { segments, language }; language is "" when the footer is absent.
+  async function ytFetchTranscript(params, io) {
+    let response = await ytPost(io, "get_transcript", { params });
+    const language = ytTranscriptLanguage(response);
+    const segments = ytParseTranscript(response);
+    for (let page = 1; page < YT_TRANSCRIPT_MAX_PAGES; page += 1) {
+      const continuation = ytTranscriptContinuation(response);
+      if (!continuation) break;
+      response = await ytPost(io, "get_transcript", { continuation });
+      segments.push(...ytParseTranscript(response));
+    }
+    return { segments, language };
+  }
+
+  function ytIsTranscriptUrl(url) {
+    return String(url || "").startsWith(`${YT_TRANSCRIPT_URL}?`);
   }
 
   function ytCommentsToken(nextResponse) {
@@ -698,11 +816,14 @@
       });
       const status = data?.playabilityStatus?.status;
       const reason = data?.playabilityStatus?.reason || status || "unknown";
-      // The ANDROID client carries no cookies, so sign-in and age gates always land here.
-      if (status === "LOGIN_REQUIRED" || /^AGE_/.test(status || "")) {
-        throw new Error(`该视频需要登录或年龄验证，暂不支持（${reason}）`);
+      // The ANDROID client carries no cookies, so sign-in and age gates always
+      // land here. With videoDetails still present the meta is usable and the
+      // cookie-carrying transcript fallback gets a chance; without them nothing is.
+      const gate = status === "LOGIN_REQUIRED" || /^AGE_/.test(status || "") ? `该视频需要登录或年龄验证，暂不支持（${reason}）` : "";
+      if (gate && !data.videoDetails?.title) {
+        throw new Error(gate);
       }
-      if (status !== "OK") {
+      if (!gate && status !== "OK") {
         throw new Error(`视频不可播放：${reason}`);
       }
       const details = data.videoDetails || {};
@@ -734,38 +855,61 @@
         pageCount: 0,
         pageIndex: 1,
         pageTitle: "",
-        tracks
+        tracks,
+        gate
       };
     },
     // Tracks arrive with the player response; a refetch (signed URLs expire)
-    // repeats that single call.
+    // repeats that single call. A failed /next only costs the chapters.
     async fetchTracks(ref, meta, io) {
       const tracks = Array.isArray(meta?.tracks) ? meta.tracks : (await youtube.fetchMeta(ref, io)).tracks;
-      return { tracks: ytWithTranslation(tracks, io.subtitleLang), chapters: [] };
+      const next = io.postJson ? await ytNextResponse(ref, io, true).catch(() => null) : null;
+      return { tracks: ytWithTranslation(tracks, io.subtitleLang), chapters: ytChapters(next) };
     },
     async fetchSegments(track, io) {
+      if (ytIsTranscriptUrl(track.url)) {
+        return (await ytFetchTranscript(parseUrl(track.url).searchParams.get("params"), io)).segments;
+      }
       return normalizeSegments(parseYoutubeSubtitle(await io.fetchText(track.url)));
     },
-    // Same two /next calls the watch page makes. hl is pinned to English so
-    // like counts arrive as "1.2K", which ytParseCount reads exactly.
+    // The watch page's own transcript panel, fetched with the user's cookies.
+    // Only a fallback: it is the same endpoint family as timedtext for rate
+    // limiting, and its language is whatever YouTube picks. Resolves
+    // { track, segments }; the track re-selects through fetchSegments.
+    async fetchTranscript(ref, io) {
+      const params = ytTranscriptParams(await ytNextResponse(ref, io));
+      if (!params) {
+        throw new Error("该视频没有文字稿");
+      }
+      const { segments, language } = await ytFetchTranscript(params, io);
+      if (!segments.length) {
+        throw new Error("文字稿为空");
+      }
+      return {
+        track: {
+          id: "transcript",
+          lang: "",
+          label: language ? `${language}（文字稿）` : "文字稿（默认语言）",
+          url: `${YT_TRANSCRIPT_URL}?params=${encodeURIComponent(params)}`,
+          kind: "transcript",
+          isDefault: false
+        },
+        segments
+      };
+    },
+    // Same two /next calls the watch page makes, the first shared with fetchTracks.
     async fetchComments(ref, meta, io, count = 20) {
       if (!io.postJson || !count) {
         return [];
       }
-      const config = ytReadPageConfig(io.doc);
-      const next = (body) =>
-        io.postJson(`https://www.youtube.com/youtubei/v1/next?prettyPrint=false${config.apiKey ? `&key=${config.apiKey}` : ""}`, {
-          context: { client: { clientName: "WEB", clientVersion: config.webClientVersion, hl: "en" } },
-          ...body
-        });
-      const token = ytCommentsToken(await next({ videoId: ref.id }));
+      const token = ytCommentsToken(await ytNextResponse(ref, io));
       if (!token) {
         return [];
       }
-      let response = await next({ continuation: token });
+      let response = await ytPost(io, "next", { continuation: token });
       const topToken = ytTopSortToken(response);
       if (topToken) {
-        response = await next({ continuation: topToken });
+        response = await ytPost(io, "next", { continuation: topToken });
       }
       return ytParseComments(response).slice(0, count);
     },
@@ -849,6 +993,9 @@
     normalizeSegments,
     decodeXmlEntities,
     parseSrv3,
-    parseJson3
+    parseJson3,
+    ytChapters,
+    ytTranscriptParams,
+    ytParseTranscript
   };
 })();

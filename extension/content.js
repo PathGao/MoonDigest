@@ -1038,7 +1038,7 @@ async function runRefreshClip() {
     });
 
     setStatus("正在获取可用字幕...");
-    let subtitleBundle = await retryAsync(
+    const subtitleBundle = await retryAsync(
       () => fetchSubtitleBundle(),
       3,
       500
@@ -1065,53 +1065,40 @@ async function runRefreshClip() {
       }))
     );
 
+    let selected = null;
     // 无字幕时也允许进入阅读视图，只是字幕区域保持空态。
     if (state.subtitles.length === 0) {
-      await showNoSubtitleState(runId);
-      return;
-    }
-
-    const preferred = BocSites.pickPreferredTrack(state.subtitles, {
-      previousId: state.selectedSubtitleId,
-      previousUrl: state.selectedSubtitleUrl,
-      previousLang: state.selectedSubtitleLang
-    });
-
-    if (!preferred) {
-      await showNoSubtitleState(runId);
-      return;
-    }
-
-    const candidates = buildSubtitleCandidates(state.subtitles, preferred);
-    let selected = null;
-
-    try {
-      selected = await tryLoadSubtitleCandidates(candidates, runId);
-    } catch (error) {
-      const message = getErrorMessage(error, "");
-      if (!message.includes("HTTP") && error?.code !== "SUBTITLE_DURATION_MISMATCH") {
-        throw error;
+      if (!state.meta?.gate) {
+        await showNoSubtitleState(runId);
+        return;
       }
-
-      // Retry because subtitle signed URLs may expire quickly or hit rate limit.
-      subtitleBundle = await retryAsync(
-        () => fetchSubtitleBundle(),
-        2,
-        500
-      );
-      ensureRunActive(runId);
-      state.subtitles = BocSites.rankTracks(subtitleBundle.tracks, subtitleLangTarget());
-      state.chapters = BocSites.normalizeChapters(subtitleBundle.chapters);
-      const retryPreferred = BocSites.pickPreferredTrack(state.subtitles, {
-        previousId: preferred.id,
-        previousUrl: preferred.url,
-        previousLang: preferred.label || preferred.lang || ""
+      // Gated for the cookieless player call; the transcript runs with cookies.
+      selected = await loadTranscriptFallback(new Error(state.meta.gate), runId);
+    } else {
+      const preferred = BocSites.pickPreferredTrack(state.subtitles, {
+        previousId: state.selectedSubtitleId,
+        previousUrl: state.selectedSubtitleUrl,
+        previousLang: state.selectedSubtitleLang
       });
-      if (!retryPreferred) {
-        throw error;
+      const candidates = buildSubtitleCandidates(state.subtitles, preferred);
+      try {
+        selected = await tryLoadSubtitleCandidates(candidates, runId);
+      } catch (error) {
+        if (error?.status === 429) {
+          selected = await loadTranscriptFallback(error, runId);
+        } else {
+          const message = getErrorMessage(error, "");
+          if (!message.includes("HTTP") && error?.code !== "SUBTITLE_DURATION_MISMATCH") {
+            throw error;
+          }
+          selected = await retrySubtitleCandidates(preferred, runId).catch((retryError) => {
+            if (isStaleRunError(retryError)) {
+              throw retryError;
+            }
+            return loadTranscriptFallback(retryError, runId);
+          });
+        }
       }
-      const retryCandidates = buildSubtitleCandidates(state.subtitles, retryPreferred);
-      selected = await tryLoadSubtitleCandidates(retryCandidates, runId);
     }
     ensureRunActive(runId);
     if (selected) {
@@ -1163,6 +1150,45 @@ async function runRefreshClip() {
   }
 }
 
+// Signed subtitle URLs expire quickly, so a failed track list is fetched again once.
+async function retrySubtitleCandidates(preferred, runId) {
+  const subtitleBundle = await retryAsync(() => fetchSubtitleBundle(), 2, 500);
+  ensureRunActive(runId);
+  state.subtitles = BocSites.rankTracks(subtitleBundle.tracks, subtitleLangTarget());
+  state.chapters = BocSites.normalizeChapters(subtitleBundle.chapters);
+  const retryPreferred = BocSites.pickPreferredTrack(state.subtitles, {
+    previousId: preferred.id,
+    previousUrl: preferred.url,
+    previousLang: preferred.label || preferred.lang || ""
+  });
+  if (!retryPreferred) {
+    throw new Error("字幕列表为空。");
+  }
+  return tryLoadSubtitleCandidates(buildSubtitleCandidates(state.subtitles, retryPreferred), runId);
+}
+
+// YouTube only: the watch page's transcript panel, tried after the subtitle
+// tracks are rate-limited, all fail, or the video is gated. When it fails too
+// the original `cause` is rethrown so its message (429, gate) reaches the user.
+async function loadTranscriptFallback(cause, runId) {
+  const site = currentSite();
+  const ref = currentRef();
+  if (!site?.fetchTranscript || !ref) {
+    throw cause;
+  }
+  let result;
+  try {
+    result = await site.fetchTranscript(ref, siteIo());
+  } catch (error) {
+    logWarn("[BOC] transcript fallback failed", { cause: getErrorMessage(cause), error: getErrorMessage(error) });
+    throw cause;
+  }
+  ensureRunActive(runId);
+  state.subtitles = [result.track, ...state.subtitles.filter((item) => item.id !== result.track.id)];
+  await commitSubtitleBody(result.segments, { url: result.track.url, lang: result.track.label, subtitleId: result.track.id }, runId);
+  return result.track;
+}
+
 async function loadSubtitle(url, lang, runId = state.fetchRunId, subtitleId = "", forceRefresh = false) {
   if (!url) {
     throw new Error("字幕 URL 为空。");
@@ -1208,6 +1234,12 @@ async function loadSubtitle(url, lang, runId = state.fetchRunId, subtitleId = ""
   // 从网络获取
   logInfo("[BOC] fetch subtitle body", { url });
   const body = await currentSite().fetchSegments({ id: subtitleId, url, lang }, siteIo());
+  await commitSubtitleBody(body, { url, lang, subtitleId }, runId);
+}
+
+// Validates, caches and installs a freshly fetched body as the selected track.
+async function commitSubtitleBody(body, { url, lang, subtitleId }, runId) {
+  const cacheKey = getSubtitleCacheKey({ videoId: state.videoId, cid: state.cid, subtitleId, subtitleUrl: url, lang });
   ensureRunActive(runId);
   if (body.length === 0) {
     throw new Error("字幕文件为空。");
@@ -3849,11 +3881,12 @@ function siteIo() {
     subtitleLang: subtitleLangTarget(),
     fetchJson: (url) => (currentSite()?.pageOnly ? fetchJson(url) : fetchJsonInBackground(url)),
     fetchText: async (url) => (await fetchOk(url, { credentials: "include" })).text(),
-    postJson: async (url, body) =>
+    postJson: async (url, body, headers = {}) =>
       (
         await fetchOk(url, {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          headers: { "Content-Type": "application/json", ...headers },
           body: JSON.stringify(body)
         })
       ).json()

@@ -227,33 +227,136 @@ const ytLegacy = {
   ] } }]
 };
 const watchNext = (token) => ({ contents: { itemSectionRenderer: { sectionIdentifier: "comment-item-section", contents: token ? [{ continuationItemRenderer: { continuationEndpoint: { continuationCommand: { token } } } }] : [] } } });
-async function ytComments(next, byContinuation) {
+// io whose postJson answers /next by videoId or continuation and get_transcript
+// by params or continuation, recording every call as "endpoint:key".
+function ytIo(routes) {
   const calls = [];
-  const io = { doc: null, postJson: async (url, body) => (calls.push(body.continuation || body.videoId), body.videoId ? next : byContinuation[body.continuation]) };
-  return { comments: await S.SITES.youtube.fetchComments({ id: "dQw4w9WgXcQ" }, {}, io, 20), calls };
+  const io = {
+    doc: { querySelectorAll: () => [{ textContent: '"INNERTUBE_API_KEY":"k","INNERTUBE_CLIENT_VERSION":"2.1","VISITOR_DATA":"vd"' }] },
+    subtitleLang: "auto",
+    postJson: async (url, body, headers) => {
+      const endpoint = url.match(/\/v1\/(\w+)\?/)[1];
+      const key = body.videoId || body.continuation || body.params;
+      calls.push(`${endpoint}:${key}`);
+      assert.strictEqual(headers["X-Goog-Visitor-Id"], "vd");
+      const answer = routes[`${endpoint}:${key}`];
+      if (answer instanceof Error) throw answer;
+      return answer;
+    }
+  };
+  return { io, calls };
+}
+const yt = S.SITES.youtube;
+const ref = { id: "dQw4w9WgXcQ" };
+// A load fetches tracks first (fresh /next), then comments reuse that response.
+async function ytComments(next, byContinuation) {
+  const { io, calls } = ytIo({ "next:dQw4w9WgXcQ": next, ...Object.fromEntries(Object.entries(byContinuation).map(([k, v]) => [`next:${k}`, v])) });
+  await yt.fetchTracks(ref, { tracks: [] }, io);
+  return { comments: await yt.fetchComments(ref, {}, io, 20), calls };
 }
 (async () => {
   let r = await ytComments(watchNext("c0"), { c0: ytCurrent });
-  eq(r.calls, ["dQw4w9WgXcQ", "c0"]);
+  eq(r.calls, ["next:dQw4w9WgXcQ", "next:c0"]);
   eq(r.comments, [
     { uname: "@YouTube", like: 322000, message: "can confirm: he never gave us up" },
     { uname: "@Oatman69", like: 567000, message: "Gonna flag this for nudity so I can rick roll the YouTube staff" }
   ]);
   r = await ytComments(watchNext("c0"), { c0: ytLegacy, top: ytLegacy });
-  eq(r.calls, ["dQw4w9WgXcQ", "c0", "top"]);
+  eq(r.calls, ["next:dQw4w9WgXcQ", "next:c0", "next:top"]);
   eq(r.comments, [{ uname: "@a", like: 12000, message: "first line" }, { uname: "@b", like: 1234, message: "x" }]);
   // Comments turned off: the section has no continuation.
   r = await ytComments(watchNext(""), {});
-  eq(r, { comments: [], calls: ["dQw4w9WgXcQ"] });
-  const ytPlayer = (playabilityStatus) => ({
+  eq(r, { comments: [], calls: ["next:dQw4w9WgXcQ"] });
+  const ytPlayer = (playabilityStatus, videoDetails) => ({
     doc: { querySelectorAll: () => [{ textContent: '"INNERTUBE_API_KEY":"k"' }] },
-    postJson: async () => ({ playabilityStatus })
+    postJson: async () => ({ playabilityStatus, videoDetails })
   });
   const metaError = (status) =>
-    S.SITES.youtube.fetchMeta({ id: "dQw4w9WgXcQ" }, ytPlayer(status)).then(() => "", (error) => error.message);
+    yt.fetchMeta(ref, ytPlayer(status)).then(() => "", (error) => error.message);
   eq(await metaError({ status: "LOGIN_REQUIRED", reason: "Sign in to confirm your age" }), "该视频需要登录或年龄验证，暂不支持（Sign in to confirm your age）");
   eq(await metaError({ status: "AGE_CHECK_REQUIRED" }), "该视频需要登录或年龄验证，暂不支持（AGE_CHECK_REQUIRED）");
   eq(await metaError({ status: "ERROR", reason: "Video unavailable" }), "视频不可播放：Video unavailable");
+  // A gate that still ships videoDetails yields usable meta without tracks; the gate text travels with it.
+  const gated = await yt.fetchMeta(ref, ytPlayer({ status: "LOGIN_REQUIRED", reason: "Sign in" }, { title: "T", lengthSeconds: "10" }));
+  eq([gated.title, gated.duration, gated.tracks, gated.gate], ["T", 10, [], "该视频需要登录或年龄验证，暂不支持（Sign in）"]);
+  eq((await yt.fetchMeta(ref, ytPlayer({ status: "OK" }, { title: "T" }))).gate, "");
+
+  // Chapters and transcript params from one /next; both chapter shapes.
+  const chapterBar = (chapters) => ({ playerOverlays: { playerOverlayRenderer: { decoratedPlayerBarRenderer: { decoratedPlayerBarRenderer: { playerBar: { multiMarkersPlayerBarRenderer: { markersMap: [{ key: "DESCRIPTION_CHAPTERS", value: { chapters } }] } } } } } } });
+  const macroPanel = (items) => ({ engagementPanels: [{ engagementPanelSectionListRenderer: { content: { macroMarkersListRenderer: { contents: items } } } }] });
+  const bar = chapterBar([
+    { chapterRenderer: { title: { simpleText: "Intro" }, timeRangeStartMillis: 0 } },
+    { chapterRenderer: { title: { simpleText: "Setup" }, timeRangeStartMillis: 90000 } }
+  ]);
+  const macro = macroPanel([
+    { macroMarkersListItemRenderer: { title: { simpleText: "Intro" }, timeDescription: { simpleText: "0:00" }, onTap: { watchEndpoint: { startTimeSeconds: 0 } } } },
+    { macroMarkersListItemRenderer: { title: { runs: [{ text: "Setup" }] }, timeDescription: { simpleText: "1:30" } } },
+    { macroMarkersListItemRenderer: { title: { simpleText: "" }, timeDescription: { simpleText: "2:00" } } }
+  ]);
+  const chapters = [{ title: "Intro", from: 0, to: 0 }, { title: "Setup", from: 90, to: 0 }];
+  eq(S.ytChapters(bar), chapters);
+  eq(S.ytChapters(macro), chapters);
+  eq(S.ytChapters({ ...bar, ...macroPanel([{ macroMarkersListItemRenderer: { title: { simpleText: "Extra" }, timeDescription: { simpleText: "5:00" } } }]) }), chapters);
+  eq(S.ytChapters(null), []);
+  const transcriptPanel = (params) => ({ engagementPanels: [{ engagementPanelSectionListRenderer: { content: { continuationItemRenderer: { continuationEndpoint: { getTranscriptEndpoint: { params } } } } } }] });
+  eq(S.ytTranscriptParams({ ...bar, ...transcriptPanel("P1") }), "P1");
+  eq(S.ytTranscriptParams(bar), "");
+
+  // Transcript responses: segment renderers with a continuation and a footer,
+  // the view-model page, and the cue-group shape.
+  const page1 = {
+    actions: [{ updateEngagementPanelAction: { content: { transcriptRenderer: { content: { transcriptSearchPanelRenderer: {
+      body: { transcriptSegmentListRenderer: { initialSegments: [
+        { transcriptSegmentRenderer: { startMs: "0", endMs: "1500", snippet: { runs: [{ text: "hello " }, { text: "world" }] }, startTimeText: { simpleText: "0:00" } } },
+        { transcriptSegmentRenderer: { startMs: "1500", endMs: "2000", snippet: { runs: [{ text: " " }] } } },
+        { continuationItemRenderer: { continuationEndpoint: { continuationCommand: { token: "t2" } } } }
+      ] } },
+      footer: { transcriptFooterRenderer: { languageMenu: { sortFilterSubMenuRenderer: { subMenuItems: [
+        { title: "English (auto-generated)", selected: true, continuation: { reloadContinuationData: { continuation: "lang-en" } } },
+        { title: "Deutsch", selected: false, continuation: { reloadContinuationData: { continuation: "lang-de" } } }
+      ] } } } }
+    } } } } } }]
+  };
+  const page2 = { segments: [{ transcriptSegmentViewModel: { startTimeMs: 2000, endTimeMs: 3000, text: { content: "second page" } } }] };
+  const cueGroups = { body: [{ transcriptCueGroupRenderer: { formattedStartOffset: { simpleText: "0:04" }, cues: [
+    { transcriptCueRenderer: { cue: { simpleText: "cue one" }, startOffsetMs: "4000", durationMs: "500" } },
+    { transcriptCueRenderer: { cue: { simpleText: "cue two" }, startOffsetMs: "4500", durationMs: "0" } }
+  ] } }] };
+  eq(S.ytParseTranscript(page1), [{ from: 0, to: 1.5, content: "hello world" }]);
+  eq(S.ytParseTranscript(page2), [{ from: 2, to: 3, content: "second page" }]);
+  eq(S.ytParseTranscript(cueGroups), [{ from: 4, to: 4.5, content: "cue one" }, { from: 4.5, to: 4.5, content: "cue two" }]);
+
+  // Fallback flow: fetchTracks makes the one /next and no transcript call;
+  // fetchTranscript reuses it, follows the continuation, labels the language.
+  const next = { ...watchNext("c0"), ...bar, ...transcriptPanel("P1") };
+  let t = ytIo({ "next:dQw4w9WgXcQ": next, "get_transcript:P1": page1, "get_transcript:t2": page2 });
+  eq(await yt.fetchTracks(ref, { tracks: [ytTracks[3]] }, t.io), { tracks: [ytTracks[3]], chapters });
+  eq(t.calls, ["next:dQw4w9WgXcQ"]);
+  const fallback = await yt.fetchTranscript(ref, t.io);
+  eq(t.calls, ["next:dQw4w9WgXcQ", "get_transcript:P1", "get_transcript:t2"]);
+  eq(fallback, {
+    track: { id: "transcript", lang: "", label: "English (auto-generated)（文字稿）", url: "https://www.youtube.com/youtubei/v1/get_transcript?params=P1", kind: "transcript", isDefault: false },
+    segments: [{ from: 0, to: 1.5, content: "hello world" }, { from: 2, to: 3, content: "second page" }]
+  });
+  // Re-selecting the transcript track goes through fetchSegments.
+  eq(await yt.fetchSegments({ url: fallback.track.url }, t.io), JSON.parse(JSON.stringify(fallback.segments)));
+  eq(t.calls.length, 5);
+  // Unknown language, continuation loop capped at 5 pages.
+  const looping = { ...page2, more: { continuationItemRenderer: { continuationEndpoint: { continuationCommand: { token: "t2" } } } } };
+  t = ytIo({ "next:dQw4w9WgXcQ": next, "get_transcript:P1": looping, "get_transcript:t2": looping });
+  await yt.fetchTracks(ref, { tracks: [] }, t.io);
+  eq((await yt.fetchTranscript(ref, t.io)).track.label, "文字稿（默认语言）");
+  eq(t.calls.filter((call) => call.startsWith("get_transcript")).length, 5);
+  // 429 on the transcript stops after one call and keeps its status.
+  t = ytIo({ "next:dQw4w9WgXcQ": next, "get_transcript:P1": Object.assign(new Error("请求失败：429"), { status: 429 }) });
+  await yt.fetchTracks(ref, { tracks: [] }, t.io);
+  eq(await yt.fetchTranscript(ref, t.io).then(() => 0, (error) => error.status), 429);
+  eq(t.calls, ["next:dQw4w9WgXcQ", "get_transcript:P1"]);
+  // No transcript panel: nothing is fetched.
+  t = ytIo({ "next:dQw4w9WgXcQ": watchNext("") });
+  await yt.fetchTracks(ref, { tracks: [] }, t.io);
+  eq(await yt.fetchTranscript(ref, t.io).then(() => "", (error) => error.message), "该视频没有文字稿");
+  eq(t.calls, ["next:dQw4w9WgXcQ"]);
   console.log("sites selftest ok");
 })().catch((error) => {
   console.error(error);
