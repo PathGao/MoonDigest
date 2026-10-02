@@ -545,7 +545,88 @@ async function triageAiCommand({ instruction, tags, items, allowNewTags, maxNewT
   return triageParseCommand(content, list, tagList, opts);
 }
 
+// The summary goes right after the frontmatter so it is the first thing read; the cover and body follow.
+function triageWithSummary(markdown, analysis) {
+  if (analysis?.status !== "done") return markdown;
+  const lines = ["## AI 总结", ""];
+  if (analysis.oneLiner) lines.push(`> ${analysis.oneLiner}`, "");
+  if (analysis.points?.length) lines.push(...analysis.points.map((p) => `- ${p}`), "");
+  const verdict = { keep: "建议留", drop: "建议删", unsure: "待定" }[analysis.verdict];
+  if (verdict) lines.push(`判断：${verdict}${analysis.reason ? `，${analysis.reason}` : ""}`, "");
+  const block = lines.join("\n");
+  const front = /^---\n[\s\S]*?\n---\n\n?/.exec(markdown)?.[0] || "";
+  return `${front}${block}\n${markdown.slice(front.length)}`;
+}
+
+// One video → one vault note built the same way the page's 发送到 Obsidian does, plus the stage-2 summary.
+// Returns { path, skipped, title, source }; skipped means the note existed and overwrite was off.
+async function triageWriteNote({ bvid, overwrite }) {
+  if (!bvid) throw triageError("缺少 bvid");
+  const settings = await getMergedSettings();
+  if (!settings.obsidianEnabled) throw triageError("Obsidian 写入未启用");
+  const baseUrl = String(settings.obsidianApiBaseUrl || "").trim();
+  const apiKey = String(settings.obsidianApiKey || "").trim();
+  if (!baseUrl || !apiKey) throw triageError("缺少 Local REST API 参数");
+
+  const site = BocSites.SITES.bilibili;
+  const io = { fetchJson: fetchJsonForAi };
+  const ref = { site: "bilibili", id: bvid, part: null, url: "" };
+  const meta = await site.fetchMeta(ref, io);
+  ref.url = site.canonicalUrl(bvid, meta.pageCount > 1 ? meta.pageIndex : 1);
+  const bundle = await site.fetchTracks(ref, meta, io).catch(() => ({ tracks: [], chapters: [] }));
+  const track = BocSites.pickPreferredTrack(BocSites.rankTracks(bundle.tracks || []), {});
+  const body = track ? await site.fetchSegments(track, io).catch(() => []) : [];
+  const hotComments =
+    settings.includeHotCommentsInNote || !body.length ? await site.fetchComments(ref, meta, io, 20).catch(() => []) : [];
+  const noteMeta = {
+    site: "bilibili",
+    videoId: bvid,
+    cid: meta.cid,
+    aid: meta.aid,
+    title: meta.title,
+    author: meta.author,
+    authorUrl: meta.authorUrl,
+    uploadDate: meta.uploadDate,
+    description: meta.description,
+    videoDuration: meta.duration,
+    cover: meta.cover,
+    videoTags: meta.tags,
+    selectedSubtitleLang: track ? track.label || track.lang : "",
+    chapters: bundle.chapters || [],
+    hotComments,
+    pageIndex: meta.pageIndex,
+    pageCount: meta.pageCount,
+    pageTitle: meta.pageTitle
+  };
+  const cacheKey = `triage_analysis_${bvid}`;
+  const analysis = (await chrome.storage.local.get(cacheKey))[cacheKey];
+  const markdown = triageWithSummary(BocNote.buildMarkdown(noteMeta, body, settings, ref), analysis);
+
+  const { triageExportFolder } = await chrome.storage.sync.get(TRIAGE_SETTINGS_DEFAULTS);
+  const folder = BocNote.normalizeFolder(triageExportFolder) || BocNote.resolveFolderTemplate(settings.noteFolder, noteMeta);
+  const filename = BocNote.buildNoteFilename(noteMeta, settings);
+  const path = folder ? `${folder}/${filename}` : filename;
+  const auth = { Authorization: `Bearer ${apiKey}` };
+  if (!overwrite) {
+    const existing = await fetch(vaultEndpoint(baseUrl, path), { method: "GET", headers: auth, cache: "no-store" });
+    if (existing.ok) return { path, skipped: true, title: meta.title };
+    if (existing.status !== 404) throw triageError(`HTTP ${existing.status}`);
+  }
+  const content = await linkCoverInVault(markdown, { url: meta.cover, name: `bilibili-${bvid}` }, { baseUrl, apiKey, filepath: path });
+  const res = await fetch(vaultEndpoint(baseUrl, path), {
+    method: "PUT",
+    headers: { ...auth, "Content-Type": "text/markdown; charset=utf-8" },
+    body: content
+  });
+  if (!res.ok) {
+    const detail = await res.text().catch(() => "");
+    throw triageError(`HTTP ${res.status}${detail ? `: ${detail.slice(0, 200)}` : ""}`);
+  }
+  return { path, skipped: false, title: meta.title, source: body.length ? "subtitle" : "meta" };
+}
+
 const TRIAGE_HANDLERS = {
+  "triage-write-note": (msg) => triageWriteNote(msg),
   "triage-folders": () => triageCreatedFolders(),
 
   "triage-folder-items": async ({ mediaId }) => {

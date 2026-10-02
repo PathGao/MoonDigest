@@ -87,6 +87,7 @@ const S = {
   focusIndex: 0,
   selected: new Set(),
   group: null, // { bvids: [], running: bool, stop: bool }
+  write: { running: false, stop: false },
   stage1: { running: false, stop: false },
   stage1Skip: new Set(),
   analyzing: new Set(),
@@ -115,7 +116,8 @@ const el = {};
   "tagsDialog", "tagsRows", "newTagInput", "addTagBtn", "helpDialog", "presetNameInput", "savePresetBtn",
   "presetRows", "aiBtn", "aiDialog", "aiForm", "aiScope", "aiPreset", "aiScopeCount", "aiInstruction", "aiHistory",
   "aiTagsPreview", "aiAllowNew", "aiMaxNew", "aiAllowVerdict", "aiProgress", "aiCloseBtn", "aiStopBtn", "aiRunBtn",
-  "aiReview", "aiReviewSummary", "aiNotes", "aiNewTags", "aiAllBtn", "aiNoneBtn", "aiRows", "aiDiscardBtn", "aiApplyBtn"
+  "aiReview", "aiReviewSummary", "aiNotes", "aiNewTags", "aiAllBtn", "aiNoneBtn", "aiRows", "aiDiscardBtn", "aiApplyBtn",
+  "writeBtn", "writeDialog", "writeScope", "writeScopeCount", "writeOverwrite", "writeProgress", "writeFailed", "writeStopBtn", "writeRunBtn"
 ].forEach((id) => (el[id] = $(id)));
 
 // ---------- utils ----------
@@ -1636,6 +1638,77 @@ async function exportBasket() {
   }
 }
 
+// ---------- batch Obsidian write ----------
+function writeScopeItems() {
+  const scope = el.writeScope.value;
+  const list = scope === "all" ? S.items : scope === "selected" ? [...S.selected].map((b) => S.itemMap.get(b)).filter(Boolean) : visibleItems();
+  return list.filter((it) => !it.invalid);
+}
+
+function openWrite() {
+  el.writeProgress.textContent = "";
+  el.writeFailed.hidden = true;
+  el.writeFailed.innerHTML = "";
+  renderWriteScope();
+  el.writeDialog.showModal();
+}
+
+function renderWriteScope() {
+  const n = writeScopeItems().length;
+  el.writeScopeCount.textContent = `共 ${n} 个视频，间隔 ${S.settings.triageIntervalSec} 秒`;
+  el.writeRunBtn.hidden = S.write.running;
+  el.writeStopBtn.hidden = !S.write.running;
+  el.writeRunBtn.disabled = !n;
+  el.writeScope.disabled = el.writeOverwrite.disabled = S.write.running;
+}
+
+function safeNoteName(name) {
+  return String(name).replace(/[\\/:*?"<>|#^[\]]/g, "_").trim() || "收藏夹";
+}
+
+async function runWrite() {
+  const items = writeScopeItems();
+  const overwrite = el.writeOverwrite.checked;
+  const token = S.folderToken;
+  S.write = { running: true, stop: false };
+  const keepGoing = () => !S.write.stop && token === S.folderToken;
+  renderWriteScope();
+  el.writeFailed.hidden = true;
+  const written = [];
+  const failed = [];
+  for (let i = 0; i < items.length && keepGoing(); i++) {
+    const it = items[i];
+    el.writeProgress.textContent = `写入 ${i + 1}/${items.length}：${it.title}`;
+    const r = await send({ type: "triage-write-note", bvid: it.bvid, overwrite });
+    if (r.ok) written.push({ ...r.data, bvid: it.bvid });
+    else failed.push(`${it.title}：${r.error}`);
+    if (i + 1 < items.length) await sleepWhile(S.settings.triageIntervalSec * 1000, keepGoing);
+  }
+  let indexPath = "";
+  if (written.length && keepGoing()) {
+    const lines = [`# ${folderTitle()}`, "", `${stamp(new Date(), false)} · ${written.length} 篇`, ""];
+    for (const w of written) {
+      const oneLiner = S.analyses[w.bvid]?.oneLiner;
+      lines.push(`- [[${w.path.replace(/\.md$/, "")}|${w.title}]]${oneLiner ? ` ${oneLiner}` : ""}`);
+    }
+    const r = await send({ type: "triage-export", filename: `${safeNoteName(folderTitle())}.md`, markdown: lines.join("\n") });
+    if (r.ok) indexPath = r.data?.path || "";
+    else failed.push(`索引：${r.error}`);
+  }
+  S.write.running = false;
+  const skipped = written.filter((w) => w.skipped).length;
+  el.writeProgress.textContent = [
+    S.write.stop ? "已停止。" : "完成。",
+    `写入 ${written.length - skipped} 篇`,
+    skipped ? `已存在跳过 ${skipped} 篇` : "",
+    failed.length ? `失败 ${failed.length} 篇` : "",
+    indexPath ? `索引：${indexPath}` : ""
+  ].filter(Boolean).join(" · ");
+  el.writeFailed.innerHTML = failed.map((f) => `<li>${esc(f)}</li>`).join("");
+  el.writeFailed.hidden = !failed.length;
+  renderWriteScope();
+}
+
 // ---------- data export ----------
 const BACKUP_PREFIXES = ["triage_tags", "triage_video_tags", "triage_basket", "triage_snapshot_", "triage_decisions_", "triage_title_", "triage_analysis_", "triage_tag_presets", OVERRIDE_PREFIX];
 const isSecretKey = (k) => /key|token/i.test(k) || k === "aiProviderKeys" || k === "obsidianApiKey";
@@ -1851,6 +1924,16 @@ function bindEvents() {
     }
     Object.assign(S.settings, patch);
     toast("设置已保存");
+  });
+  el.writeBtn.addEventListener("click", openWrite);
+  el.writeScope.addEventListener("change", renderWriteScope);
+  el.writeRunBtn.addEventListener("click", runWrite);
+  el.writeStopBtn.addEventListener("click", () => {
+    S.write.stop = true;
+    el.writeProgress.textContent = "将在当前视频后停止…";
+  });
+  el.writeDialog.addEventListener("close", () => {
+    if (S.write.running) S.write.stop = true;
   });
   el.openOptionsBtn.addEventListener("click", () => send({ type: "open-options" }));
   el.backupBtn.addEventListener("click", async () => {
