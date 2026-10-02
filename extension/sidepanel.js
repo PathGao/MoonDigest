@@ -3,14 +3,6 @@ const CONVERSATIONS_STORAGE_KEY = "boc_ai_conversations_v1";
 const PLAYER_AI_QUICK_ACTION_STORAGE_KEY = "boc_player_ai_quick_action_v1";
 const MAX_SAVED_CONVERSATIONS = 60;
 const NON_VIDEO_CONTEXT_MESSAGE = "当前页不是支持的视频页面，<br>无法获取当前页面信息作为对话上下文，<br>仅支持 AI 对话。";
-const DEFAULT_PRESET_PROMPTS = [
-  "用 3 句话总结这个视频",
-  "提炼这个视频的 5 个重点",
-  "按时间顺序整理这期视频的内容",
-  "根据评论总结观众的看法",
-  "按章节整理视频内容",
-  "生成带时间轴的笔记"
-];
 const STREAM_SLOW_NOTICE_MS = 15000;
 const FOLLOW_PLAYBACK_KEY = "boc_sp_follow_playback";
 const PREVIOUS_VIDEO_CONVERSATION_KEY = "boc_sp_previous_video_conversation";
@@ -28,6 +20,7 @@ const els = {
   presetBtn: document.getElementById("spPresetBtn"),
   historyBtn: document.getElementById("spHistoryBtn"),
   saveConversationBtn: document.getElementById("spSaveConversationBtn"),
+  copyConversationBtn: document.getElementById("spCopyConversationBtn"),
   presetPopover: document.getElementById("spPresetPopover"),
   presetList: document.getElementById("spPresetList"),
   presetInput: document.getElementById("spPresetInput"),
@@ -44,15 +37,14 @@ const els = {
 const DEFAULT_AI_PREFS = {
   aiSystemPrompt: "",
   playerAiQuickPrompt: "",
-  aiPresetPrompts: DEFAULT_PRESET_PROMPTS.slice()
+  aiPresetPrompts: []
 };
 
 let contextData = null;
 let currentContextKey = "";
 let providers = [];
-let activePort = null;
-let activeAssistantNode = null;
-let activeUserPrompt = "";
+let activeStream = null;
+let sendPending = false;
 let chatHistory = [];
 let suggestionsNode = null;
 let aiPrefs = { ...DEFAULT_AI_PREFS };
@@ -72,7 +64,6 @@ let streamFirstTokenReceived = false;
 let initCompleted = false;
 let followPlayback = localStorage.getItem(FOLLOW_PLAYBACK_KEY) !== "0";
 let lastLiveVideoKey = "";
-let pendingFollowFromKey = "";
 let previousVideoConversationId = "";
 let previousVideoExpanded = false;
 let previousVideoBarSignature = "";
@@ -137,6 +128,9 @@ function bindEvents() {
   els.historyBtn.addEventListener("click", toggleHistoryPopover);
   els.saveConversationBtn?.addEventListener("click", () => {
     void saveCurrentConversationToObsidian();
+  });
+  els.copyConversationBtn?.addEventListener("click", () => {
+    void copyCurrentConversationMarkdown();
   });
   els.historyClearBtn?.addEventListener("click", () => {
     void clearAllConversations();
@@ -230,10 +224,6 @@ async function loadProvidersAndPrefs({ preferredProviderId = "" } = {}) {
       ? settingsResp.settings.aiPresetPrompts.map((item) => String(item || "").trim()).filter(Boolean).slice(0, 12)
       : []
   };
-  if (!aiPrefs.aiPresetPrompts.length) {
-    aiPrefs.aiPresetPrompts = DEFAULT_PRESET_PROMPTS.slice();
-    void persistAiPresetPrompts();
-  }
   renderModelSelect(preferredProviderId);
   renderPresetPrompts();
   renderFollowups();
@@ -264,7 +254,7 @@ function renderModelSelect(preferredProviderId = "") {
 async function refreshProvidersAndPrefsAfterExternalChange() {
   const previousProviderId = String(els.modelSelect?.value || localStorage.getItem(SELECTED_PROVIDER_KEY) || "").trim();
   await loadProvidersAndPrefs({ preferredProviderId: previousProviderId });
-  if (activePort) {
+  if (activeStream) {
     return;
   }
   renderHistoryList();
@@ -423,7 +413,7 @@ async function loadContextState({ forceRefresh = false, silent = false, follow =
     }
     updateContextChip();
     if (!silent && !hasPinnedConversation) {
-      resetConversationView(resp?.error || "当前页面上下文读取失败。");
+      resetConversationView(escapeHtml(resp?.error || "当前页面上下文读取失败。"));
     }
     return false;
   }
@@ -435,13 +425,7 @@ async function loadContextState({ forceRefresh = false, silent = false, follow =
     lastLiveVideoKey = liveContextKey;
   }
   if (follow && isFollowCandidate(followFromKey)) {
-    if (activePort) {
-      // 正在生成回复：记下切换，等 done/stopped/error 后再切，不打断流
-      pendingFollowFromKey = pendingFollowFromKey || followFromKey;
-      renderHistoryList();
-      updateContextChip();
-      return true;
-    }
+    await detachActiveStream();
     await followLiveVideo();
     return FOLLOWED_LIVE_VIDEO;
   }
@@ -785,6 +769,7 @@ function normalizeConversations(value) {
         createdAt: Number(item?.createdAt) || Date.now(),
         updatedAt: Number(item?.updatedAt) || Date.now(),
         contextRef,
+        pageHydrated: item?.pageHydrated === true,
         messages
       };
     })
@@ -826,6 +811,9 @@ async function hydrateConversationPageMetadata() {
     if (!response?.ok || !response.payload) {
       continue;
     }
+    // One successful lookup settles the page metadata; without the flag every open refetched it.
+    conversation.pageHydrated = true;
+    changed = true;
 
     const payload = response.payload;
     const nextPageIndex = Number(payload.pageIndex) > 0 ? Number(payload.pageIndex) : 1;
@@ -852,7 +840,6 @@ async function hydrateConversationPageMetadata() {
     conversation.contextUrl = nextUrl;
     conversation.contextKey = nextContextKey;
     conversation.contextRef = nextContextRef;
-    changed = true;
   }
 
   if (!changed) {
@@ -877,7 +864,7 @@ async function hydrateConversationPageMetadata() {
 }
 
 function needsConversationPageHydration(conversation) {
-  if (!conversation?.isVideoContext) {
+  if (!conversation?.isVideoContext || conversation.pageHydrated) {
     return false;
   }
   if (/-P\d+$/i.test(String(conversation.title || "").trim())) {
@@ -1101,7 +1088,7 @@ async function syncLiveContextState(forceRefresh = false) {
   if (ok === FOLLOWED_LIVE_VIDEO) {
     return;
   }
-  if (currentConversationMeta?.pinnedContext || activePort || activeUserPrompt) {
+  if (currentConversationMeta?.pinnedContext || activeStream) {
     updateContextChip();
     return;
   }
@@ -1127,14 +1114,45 @@ function isFollowCandidate(fromKey) {
   return (currentConversationMeta?.contextKey || currentContextKey) === fromKey;
 }
 
-function runPendingFollowSwitch() {
-  if (!pendingFollowFromKey || activePort) {
+// Switching videos mid-reply hands the reply to its saved conversation, which then becomes the previous-video bar.
+// The port stays open, so the background keeps streaming while the new video is usable at once.
+async function detachActiveStream() {
+  const stream = activeStream;
+  if (!stream) {
     return;
   }
-  const fromKey = pendingFollowFromKey;
-  pendingFollowFromKey = "";
-  if (isFollowCandidate(fromKey)) {
-    void followLiveVideo();
+  activeStream = null;
+  clearStreamRuntimeState();
+  chatHistory.push({ role: "user", content: stream.prompt });
+  // The id is assigned before the first await, so a reply ending during the save still finds its conversation.
+  const saving = persistCurrentConversation();
+  stream.conversationId = currentConversationId;
+  stream.promptIndex = chatHistory.length - 1;
+  await saving;
+}
+
+// Puts the answer after its question, or drops the question when nothing came back.
+// chatHistory gets the same patch when the user has reopened that conversation meanwhile.
+async function finishDetachedStream({ conversationId, promptIndex, prompt, raw }) {
+  const conversation = savedConversations.find((item) => item.id === conversationId);
+  if (!conversation) {
+    return;
+  }
+  const isCurrent = conversationId === currentConversationId;
+  [conversation.messages, ...(isCurrent ? [chatHistory] : [])].forEach((messages) => {
+    if (messages[promptIndex]?.role !== "user" || messages[promptIndex].content !== prompt || messages[promptIndex + 1]?.role === "assistant") {
+      return;
+    }
+    if (raw.trim()) {
+      messages.splice(promptIndex + 1, 0, { role: "assistant", content: raw });
+    } else {
+      messages.splice(promptIndex, 1);
+    }
+  });
+  conversation.updatedAt = Date.now();
+  await saveConversations();
+  if (isCurrent && !activeStream) {
+    renderConversationMessages();
   }
 }
 
@@ -1295,16 +1313,9 @@ async function removePresetPrompt(index) {
   renderFollowups();
 }
 
+// save-settings keeps the keys it is not sent.
 async function persistAiPresetPrompts() {
-  const settingsResp = await sendRuntimeMessage({ type: "get-settings" }).catch(() => ({ ok: false }));
-  if (!settingsResp?.ok || !settingsResp.settings) {
-    return;
-  }
-  const nextSettings = {
-    ...settingsResp.settings,
-    aiPresetPrompts: (aiPrefs.aiPresetPrompts || []).slice(0, 12)
-  };
-  await sendRuntimeMessage({ type: "save-settings", settings: nextSettings }).catch(() => null);
+  await sendRuntimeMessage({ type: "save-settings", settings: { aiPresetPrompts: (aiPrefs.aiPresetPrompts || []).slice(0, 12) } }).catch(() => null);
 }
 
 function updateSidepanelLayoutState() {
@@ -1382,7 +1393,6 @@ function renderConversationMessages() {
     }
     const node = document.createElement("div");
     node.className = "sp-msg sp-msg-assistant";
-    node.dataset.raw = String(message.content || "");
     renderAssistantMessage(node, String(message.content || ""), {
       userPrompt: findPreviousUserPrompt(index)
     });
@@ -1485,18 +1495,6 @@ function extractConversationBaseTitle(title) {
   return parts[0] || normalizedRaw;
 }
 
-function truncateConversationTitle(title, maxChars = 22) {
-  const value = String(title || "").trim();
-  const match = value.match(/^(.*?)(-P\d+)$/i);
-  if (match) {
-    const baseTitle = String(match[1] || "").trim();
-    const suffix = String(match[2] || "").trim();
-    const truncatedBase = baseTitle.length > maxChars ? `${baseTitle.slice(0, maxChars)}...` : baseTitle;
-    return `${truncatedBase}${suffix}`;
-  }
-  return value.length > maxChars ? `${value.slice(0, maxChars)}...` : value;
-}
-
 function buildConversationTitleDisplay(title, maxChars = 22) {
   const value = String(title || "").trim();
   const match = value.match(/^(.*?)(-P\d+)$/i);
@@ -1580,6 +1578,7 @@ async function persistCurrentConversation() {
     createdAt: Number(currentConversationMeta?.createdAt) || now,
     updatedAt: now,
     contextRef: currentConversationMeta?.contextRef || buildConversationContextRef(contextData),
+    pageHydrated: savedConversations.find((item) => item.id === currentConversationId)?.pageHydrated === true,
     messages: chatHistory.map((item) => ({ role: item.role, content: String(item.content || "") }))
   };
   savedConversations = [
@@ -1687,7 +1686,8 @@ async function resolveConversationContext(contextRef) {
 
 async function sendMessage() {
   const text = els.input.value.trim();
-  if (!text || activePort) {
+  // sendPending closes the window while the context loads, when a second Enter or chip click would send twice.
+  if (!text || activeStream || sendPending) {
     return;
   }
   hidePresetPopover();
@@ -1699,20 +1699,19 @@ async function sendMessage() {
     return;
   }
 
-  const hasContext = await ensureCurrentContextForSend();
-  if (!hasContext) {
+  sendPending = true;
+  let hasContext = false;
+  try {
+    hasContext = await ensureCurrentContextForSend();
+  } finally {
+    sendPending = false;
+  }
+  if (!hasContext || activeStream) {
     return;
   }
   if (!currentConversationMeta?.pinnedContext && currentConversationMeta?.contextKey && currentConversationMeta.contextKey !== currentContextKey) {
     currentConversationId = "";
     currentConversationMeta = null;
-  }
-
-  if (activePort) {
-    try {
-      activePort.disconnect();
-    } catch {}
-    activePort = null;
   }
 
   suggestionsNode?.remove();
@@ -1722,36 +1721,45 @@ async function sendMessage() {
   appendUserMessage(text);
   els.input.value = "";
   autosizeInput();
+  const stream = {
+    port: chrome.runtime.connect({ name: "sidepanel-chat" }),
+    node: appendAssistantPlaceholder(),
+    prompt: text,
+    raw: "",
+    notice: "",
+    frame: 0,
+    ended: false
+  };
+  activeStream = stream;
   setStreamingUiState(true);
-  activeUserPrompt = text;
-  activeAssistantNode = appendAssistantPlaceholder();
   startStreamSlowNoticeTimer();
-  streamFirstTokenReceived = false;
 
-  activePort = chrome.runtime.connect({ name: "sidepanel-chat" });
-  activePort.onMessage.addListener((msg) => {
-    if (!msg) {
+  stream.port.onMessage.addListener((msg) => {
+    if (!msg || stream.ended) {
       return;
     }
     if (msg.type === "token") {
       handleFirstStreamToken();
-      appendToken(activeAssistantNode, msg.data);
+      stream.raw += String(msg.data || "");
+      scheduleStreamRender(stream);
+    } else if (msg.type === "notice") {
+      stream.notice = String(msg.text || "");
     } else if (msg.type === "done") {
-      finalizeAssistant(activeAssistantNode);
+      endStream(stream);
     } else if (msg.type === "stopped") {
-      handleAssistantStopped(activeAssistantNode, msg.reason || "已停止生成");
+      endStream(stream, { stopped: msg.reason || "已停止生成" });
     } else if (msg.type === "error") {
-      showAssistantError(activeAssistantNode, msg.error || "未知错误");
+      endStream(stream, { error: msg.error || "未知错误" });
     }
   });
-  activePort.onDisconnect.addListener(() => {
-    clearStreamRuntimeState();
-    setStreamingUiState(false);
-    activePort = null;
-    runPendingFollowSwitch();
+  // Only the background end can trigger this: the extension reloaded or the service worker died mid-reply.
+  stream.port.onDisconnect.addListener(() => {
+    if (!stream.ended) {
+      endStream(stream, { error: "连接中断：扩展可能已重新加载，可重试" });
+    }
   });
 
-  activePort.postMessage({
+  stream.port.postMessage({
     action: "chat",
     providerId,
     context: {
@@ -1777,7 +1785,6 @@ function appendUserMessage(text, shouldScroll = true) {
 function appendAssistantPlaceholder() {
   const node = document.createElement("div");
   node.className = "sp-msg sp-msg-assistant";
-  node.dataset.raw = "";
   const cursor = document.createElement("span");
   cursor.className = "sp-msg-cursor";
   node.appendChild(cursor);
@@ -1787,47 +1794,67 @@ function appendAssistantPlaceholder() {
   return node;
 }
 
-function appendToken(node, token) {
-  if (!node) {
+// Rendering the whole markdown per token is quadratic in the reply length, so render at most once per frame.
+function scheduleStreamRender(stream) {
+  if (stream.frame) {
     return;
   }
-  const raw = (node.dataset.raw || "") + String(token || "");
-  node.dataset.raw = raw;
-  node.innerHTML = renderMarkdown(raw) + '<span class="sp-msg-cursor"></span>';
-  scrollToBottom();
+  stream.frame = window.requestAnimationFrame(() => {
+    stream.frame = 0;
+    if (stream.ended) {
+      return;
+    }
+    stream.node.innerHTML = renderMarkdown(stream.raw) + '<span class="sp-msg-cursor"></span>';
+    scrollToBottom();
+  });
 }
 
-function finalizeAssistant(node) {
-  if (!node) {
+function closeStream(stream) {
+  stream.ended = true;
+  window.cancelAnimationFrame(stream.frame);
+  stream.frame = 0;
+  try {
+    stream.port.disconnect();
+  } catch {}
+}
+
+// Every way a reply ends lands here. A partial answer is kept and saved, also when the stream fails.
+function endStream(stream, { stopped = "", error = "" } = {}) {
+  closeStream(stream);
+  if (stream !== activeStream) {
+    if (stream.conversationId) {
+      void finishDetachedStream(stream);
+    }
     return;
   }
+  activeStream = null;
   clearStreamRuntimeState();
-  const raw = node.dataset.raw || "";
-  renderAssistantMessage(node, raw, { userPrompt: activeUserPrompt });
-  if (activeUserPrompt && raw) {
-    chatHistory.push({ role: "user", content: activeUserPrompt });
-    chatHistory.push({ role: "assistant", content: raw });
-    activeUserPrompt = "";
+  const { node, prompt, raw } = stream;
+  const saved = Boolean(raw.trim());
+  if (saved || !(stopped || error)) {
+    renderAssistantMessage(node, raw, { userPrompt: prompt });
+  } else {
+    node.innerHTML = "";
+  }
+  if (saved) {
+    chatHistory.push({ role: "user", content: prompt }, { role: "assistant", content: raw });
     void persistCurrentConversation();
   }
-  if (activePort) {
-    try {
-      activePort.disconnect();
-    } catch {}
-    activePort = null;
+  [stopped, stream.notice].filter(Boolean).forEach((text) => {
+    const note = document.createElement("div");
+    note.className = "sp-msg-stopped";
+    note.textContent = text;
+    node.appendChild(note);
+  });
+  if (error) {
+    appendStreamError(stream, error, saved);
   }
   setStreamingUiState(false);
   els.input.focus();
   scrollToBottom();
-  runPendingFollowSwitch();
 }
 
-function showAssistantError(node, error) {
-  if (!node) {
-    return;
-  }
-  clearStreamRuntimeState();
-  node.innerHTML = "";
+function appendStreamError({ node, prompt, raw }, error, saved) {
   const err = document.createElement("div");
   err.className = "sp-msg-error";
   err.textContent = `错误：${error}`;
@@ -1847,72 +1874,29 @@ function showAssistantError(node, error) {
     });
     node.appendChild(grant);
   }
-  const prompt = activeUserPrompt;
-  if (prompt) {
-    const retry = document.createElement("button");
-    retry.type = "button";
-    retry.className = "sp-chip sp-grant-btn";
-    retry.textContent = "重试";
-    retry.addEventListener("click", () => {
-      if (activePort) return;
-      els.input.value = prompt;
-      void sendMessage();
-    });
-    node.appendChild(retry);
-  }
-  activeUserPrompt = "";
-  if (activePort) {
-    try {
-      activePort.disconnect();
-    } catch {}
-    activePort = null;
-  }
-  setStreamingUiState(false);
-  els.input.focus();
-  scrollToBottom();
-  runPendingFollowSwitch();
-}
-
-function handleAssistantStopped(node, reason) {
-  if (!node) {
-    return;
-  }
-  clearStreamRuntimeState();
-  const raw = String(node.dataset.raw || "");
-  if (raw.trim()) {
-    renderAssistantMessage(node, raw, { userPrompt: activeUserPrompt });
-    const stopped = document.createElement("div");
-    stopped.className = "sp-msg-stopped";
-    stopped.textContent = reason || "已停止生成";
-    node.appendChild(stopped);
-    if (activeUserPrompt) {
-      chatHistory.push({ role: "user", content: activeUserPrompt });
-      chatHistory.push({ role: "assistant", content: raw });
-      activeUserPrompt = "";
-      void persistCurrentConversation();
+  const retry = document.createElement("button");
+  retry.type = "button";
+  retry.className = "sp-chip sp-grant-btn";
+  retry.textContent = "重试";
+  // The retry replaces the failed turn instead of repeating the question below it.
+  retry.addEventListener("click", () => {
+    if (activeStream || sendPending) return;
+    const last = chatHistory.length - 2;
+    if (saved && chatHistory[last]?.content === prompt && chatHistory[last + 1]?.content === raw) {
+      chatHistory.splice(last, 2);
     }
-  } else {
-    node.innerHTML = "";
-    const stopped = document.createElement("div");
-    stopped.className = "sp-msg-stopped";
-    stopped.textContent = reason || "已停止生成";
-    node.appendChild(stopped);
-    activeUserPrompt = "";
-  }
-  if (activePort) {
-    try {
-      activePort.disconnect();
-    } catch {}
-    activePort = null;
-  }
-  setStreamingUiState(false);
-  els.input.focus();
-  scrollToBottom();
-  runPendingFollowSwitch();
+    if (node.previousElementSibling?.classList.contains("sp-msg-user")) {
+      node.previousElementSibling.remove();
+    }
+    node.remove();
+    els.input.value = prompt;
+    void sendMessage();
+  });
+  node.appendChild(retry);
 }
 
 function stopActiveStream() {
-  if (!activePort) {
+  if (!activeStream) {
     return;
   }
   if (els.stopBtn) {
@@ -1920,11 +1904,9 @@ function stopActiveStream() {
     els.stopBtn.textContent = "停止中...";
   }
   try {
-    activePort.postMessage({ action: "stop" });
+    activeStream.port.postMessage({ action: "stop" });
   } catch {
-    try {
-      activePort.disconnect();
-    } catch {}
+    endStream(activeStream, { stopped: "已停止生成" });
   }
 }
 
@@ -1932,7 +1914,7 @@ function startStreamSlowNoticeTimer() {
   clearStreamRuntimeState();
   streamFirstTokenReceived = false;
   streamSlowNoticeTimer = window.setTimeout(() => {
-    if (!activePort || streamFirstTokenReceived) {
+    if (!activeStream || streamFirstTokenReceived) {
       return;
     }
     showConversationContextNotice("模型响应较慢，仍在等待服务器返回...", 0);
@@ -2055,9 +2037,34 @@ async function saveAssistantReplyToObsidian({ button, userPrompt, assistantMarkd
   });
 }
 
-async function saveCurrentConversationToObsidian() {
+// The same note feeds the Obsidian save and the clipboard copy.
+function buildCurrentConversationNote() {
   const turns = buildConversationTurns(chatHistory);
   if (!turns.length) {
+    return null;
+  }
+  const context = currentConversationMeta?.resolvedContext || contextData || currentConversationMeta?.contextRef || {};
+  const filename = buildAiConversationFilename(context);
+  return { context, filename, content: buildAiConversationMarkdown({ context, turns, filename }) };
+}
+
+async function copyCurrentConversationMarkdown() {
+  const note = buildCurrentConversationNote();
+  if (!note) {
+    showConversationContextNotice("当前没有可复制的对话。", 2200);
+    return;
+  }
+  try {
+    await navigator.clipboard.writeText(note.content);
+    showConversationContextNotice("已复制对话 Markdown。", 2200);
+  } catch (error) {
+    showConversationContextNotice(`复制失败：${getErrorMessage(error)}`, 3000);
+  }
+}
+
+async function saveCurrentConversationToObsidian() {
+  const note = buildCurrentConversationNote();
+  if (!note) {
     showConversationContextNotice("当前没有可保存的历史对话。", 2200);
     return;
   }
@@ -2067,20 +2074,13 @@ async function saveCurrentConversationToObsidian() {
     return;
   }
 
-  const context = currentConversationMeta?.resolvedContext || contextData || currentConversationMeta?.contextRef || {};
-  const filename = buildAiConversationFilename(context);
-  const folder = resolveFolderTemplate(settingsBundle.settings.noteFolder || "", context);
-  const filepath = folder ? `${folder}/${filename}` : filename;
-  const noteContent = buildAiConversationMarkdown({
-    context,
-    turns,
-    filename
-  });
+  const folder = resolveFolderTemplate(settingsBundle.settings.noteFolder || "", note.context);
+  const filepath = folder ? `${folder}/${note.filename}` : note.filename;
 
   await saveMarkdownToObsidian({
     button: els.saveConversationBtn,
     filepath,
-    content: noteContent,
+    content: note.content,
     baseUrl: settingsBundle.baseUrl,
     apiKey: settingsBundle.apiKey
   });
@@ -2338,7 +2338,7 @@ function sanitizeFileName(value) {
 }
 
 function escapeYaml(value) {
-  return String(value || "").replaceAll("\\", "\\\\").replaceAll('"', '\\"');
+  return String(value || "").replaceAll("\\", "\\\\").replaceAll('"', '\\"').replaceAll("\n", "\\n").replaceAll("\r", "\\r").replaceAll("\t", "\\t");
 }
 
 function escapeWikiLinkTarget(value) {
@@ -2639,15 +2639,10 @@ function formatSecondsAsTimestamp(seconds) {
 
 function restartChat({ keepContext = false } = {}) {
   clearStreamRuntimeState();
-  if (activePort) {
-    try {
-      activePort.disconnect();
-    } catch {}
-    activePort = null;
+  if (activeStream) {
+    closeStream(activeStream);
+    activeStream = null;
   }
-
-  activeAssistantNode = null;
-  activeUserPrompt = "";
   chatHistory = [];
   currentConversationId = "";
   currentConversationMeta = null;

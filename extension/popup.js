@@ -172,12 +172,6 @@ function bindEvents() {
 
   el.aiBtn?.addEventListener("click", async () => {
     try {
-      if (globalThis.browser?.sidebarAction?.open) {
-        globalThis.browser.sidebarAction.open();
-        window.setTimeout(() => window.close(), 80);
-        return;
-      }
-
       const tab = await getActiveTab();
       if (!tab?.id) {
         setStatus("找不到当前标签页。", true);
@@ -302,11 +296,6 @@ function escapeHtml(value) {
 async function getActiveTab() {
   const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
   return tabs?.[0] || null;
-}
-
-async function getActiveTabId() {
-  const tab = await getActiveTab();
-  return tab?.id || null;
 }
 
 async function sendToContent(message) {

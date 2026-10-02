@@ -136,6 +136,11 @@ init();
 function init() {
   loadSettings();
   ["input", "change"].forEach((type) => document.addEventListener(type, () => (hasUnsavedChanges = true)));
+  window.addEventListener("beforeunload", (event) => {
+    if (hasUnsavedChanges) {
+      event.preventDefault();
+    }
+  });
   // Every tier has its own save button; all save everything, and the status shows under the one clicked.
   elements.saveBtns.forEach((button) => {
     button.addEventListener("click", () => {
@@ -1092,6 +1097,7 @@ function addAiProviderRow(item = {}) {
       </svg>
     </button>
     <p class="ai-provider-status" hidden></p>
+    <button type="button" class="ai-provider-clear-key" ${hasSavedKey ? "" : "hidden"}>清除已保存的 Key</button>
   `;
 
   row.querySelector(".ai-provider-preset").addEventListener("change", (e) => {
@@ -1119,6 +1125,21 @@ function addAiProviderRow(item = {}) {
     }
     row.remove();
     updateAiProvidersEmptyState();
+  });
+
+  const clearKeyBtn = row.querySelector(".ai-provider-clear-key");
+  clearKeyBtn.addEventListener("click", async () => {
+    if (!confirm("确定要清除这个平台已保存的 API Key 吗？")) return;
+    const resp = await sendRuntimeMessage({ type: "ai-provider-set-key", providerId: row.dataset.providerId, apiKey: "" }).catch(() => null);
+    if (!resp?.ok) {
+      showAiProviderStatus(row.querySelector(".ai-provider-status"), `清除失败：${resp?.error || "未知错误"}`, true);
+      return;
+    }
+    row.dataset.hasSavedKey = "0";
+    const preset = AI_PRESETS.find((p) => p.id === row.querySelector(".ai-provider-preset").value);
+    row.querySelector(".ai-provider-apikey").placeholder = preset?.requiresKey === false ? "API Key（可选）" : "API Key";
+    clearKeyBtn.hidden = true;
+    showAiProviderStatus(row.querySelector(".ai-provider-status"), "已清除 API Key");
   });
 
   row.querySelector(".ai-provider-test")?.addEventListener("click", async () => {

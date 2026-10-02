@@ -258,11 +258,6 @@ async function getAiSidepanelState(tabId, { forceRefresh = false } = {}) {
 }
 
 async function openAiSidepanelForTab(tabId) {
-  if (globalThis.browser?.sidebarAction?.open) {
-    await Promise.resolve(globalThis.browser.sidebarAction.open());
-    return;
-  }
-
   if (chrome.sidePanel?.open) {
     await chrome.sidePanel.open({ tabId });
     return;
@@ -316,6 +311,24 @@ function createBiliHeaders(url) {
   return headers;
 }
 
+const FETCH_TIMEOUT_MS = 15000;
+const OBSIDIAN_TIMEOUT_MS = 30000;
+
+// A hung request would otherwise block the popup refresh and the side panel context forever.
+// "timeout" in the message is what content.js retryAsync treats as a retryable network error.
+async function fetchWithTimeout(url, options = {}, ms = FETCH_TIMEOUT_MS) {
+  try {
+    return await fetch(url, { ...options, signal: AbortSignal.timeout(ms) });
+  } catch (error) {
+    if (error?.name === "TimeoutError") {
+      const timeout = new Error(`请求超时（timeout）：${ms / 1000} 秒没有响应`);
+      timeout.status = 408;
+      throw timeout;
+    }
+    throw error;
+  }
+}
+
 async function fetchJsonForAi(url) {
   const headers = createBiliHeaders(url);
   const options = {
@@ -331,7 +344,7 @@ async function fetchJsonForAi(url) {
     options.referrerPolicy = "strict-origin-when-cross-origin";
   }
 
-  const response = await fetch(url, options);
+  const response = await fetchWithTimeout(url, options);
   if (!response.ok) {
     const error = new Error(`HTTP ${response.status}`);
     error.status = response.status;
@@ -670,14 +683,14 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
     linkCoverInVault(content, message.cover, { baseUrl, apiKey, filepath })
       .then((body) =>
-        fetch(vaultEndpoint(baseUrl, filepath), {
+        fetchWithTimeout(vaultEndpoint(baseUrl, filepath), {
           method: "PUT",
           headers: {
             Authorization: `Bearer ${apiKey}`,
             "Content-Type": "text/markdown; charset=utf-8"
           },
           body
-        })
+        }, OBSIDIAN_TIMEOUT_MS)
       )
       .then(async (response) => {
         if (!response.ok) {
@@ -703,14 +716,14 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       return false;
     }
 
-    fetch(vaultEndpoint(baseUrl, filepath), {
+    fetchWithTimeout(vaultEndpoint(baseUrl, filepath), {
       method: "GET",
       headers: {
         Authorization: `Bearer ${apiKey}`,
         Accept: "text/markdown, text/plain, application/json, */*"
       },
       cache: "no-store"
-    })
+    }, OBSIDIAN_TIMEOUT_MS)
       .then(async (response) => {
         if (response.status === 404) {
           sendResponse({ ok: true, exists: false });
@@ -739,14 +752,14 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     }
 
     const endpoint = `${baseUrl.replace(/\/+$/g, "")}/`;
-    fetch(endpoint, {
+    fetchWithTimeout(endpoint, {
       method: "GET",
       headers: {
         Authorization: `Bearer ${apiKey}`,
         Accept: "application/json, text/plain, */*"
       },
       cache: "no-store"
-    })
+    }, OBSIDIAN_TIMEOUT_MS)
       .then(async (response) => {
         const bodyText = await response.text().catch(() => "");
         let data = null;
@@ -986,13 +999,8 @@ async function migrateInitialQuickPrompts() {
   await chrome.storage.sync.remove("aiInitialQuickPrompts");
 }
 
-async function getMergedSettings() {
-  const [syncSettings, localSettings] = await Promise.all([
-    chrome.storage.sync.get(DEFAULT_SYNC_SETTINGS),
-    chrome.storage.local.get(DEFAULT_LOCAL_SETTINGS)
-  ]);
-
-  const merged = { ...DEFAULT_SYNC_SETTINGS, ...syncSettings };
+function normalizeSyncSettings(settings) {
+  const merged = { ...settings };
   merged.obsidianEnabled = merged.obsidianEnabled === true;
   merged.downloadFormat = normalizeDownloadFormat(merged.downloadFormat);
   merged.youtubeSubtitleLang = BocSites.normalizeSubtitleLang(merged.youtubeSubtitleLang);
@@ -1002,7 +1010,7 @@ async function getMergedSettings() {
   merged.showBiliTriageBadges = merged.showBiliTriageBadges !== false;
   merged.readerTheme = normalizeReaderTheme(merged.readerTheme);
   merged.readerFontScale = normalizeReaderFontScale(merged.readerFontScale);
-  merged.readerLetterSpacing = normalizeReaderLetterSpacing(merged.readerLetterSpacing ?? merged.readerLineHeight);
+  merged.readerLetterSpacing = normalizeReaderLetterSpacing(merged.readerLetterSpacing);
   merged.readerLineHeight = normalizeReaderLineHeight(merged.readerLineHeight);
   merged.readerContentWidth = normalizeReaderContentWidth(merged.readerContentWidth);
   merged.readerChapterVisibility = normalizeReaderChapterVisibility(merged.readerChapterVisibility);
@@ -1011,6 +1019,16 @@ async function getMergedSettings() {
   merged.notePlaceholderSections = normalizeNotePlaceholderSections(merged.notePlaceholderSections);
   merged.aiSystemPrompt = normalizeAiSystemPrompt(merged.aiSystemPrompt);
   merged.aiPresetPrompts = normalizeAiPresetPrompts(merged.aiPresetPrompts);
+  return merged;
+}
+
+async function getMergedSettings() {
+  const [syncSettings, localSettings] = await Promise.all([
+    chrome.storage.sync.get(DEFAULT_SYNC_SETTINGS),
+    chrome.storage.local.get(DEFAULT_LOCAL_SETTINGS)
+  ]);
+
+  const merged = normalizeSyncSettings({ ...DEFAULT_SYNC_SETTINGS, ...syncSettings });
   let apiKey = normalizeApiKey(localSettings.obsidianApiKey);
   const legacySyncApiKey = normalizeApiKey(syncSettings.obsidianApiKey);
 
@@ -1026,36 +1044,16 @@ async function getMergedSettings() {
   };
 }
 
+// Callers send partial settings (the options page has no reading-view controls), so keys they omit keep their stored values.
 async function saveSettings(settings) {
   const payload = settings && typeof settings === "object" ? settings : {};
-  const syncPayload = { ...payload };
+  const stored = await chrome.storage.sync.get(DEFAULT_SYNC_SETTINGS);
+  const syncPayload = normalizeSyncSettings({ ...DEFAULT_SYNC_SETTINGS, ...stored, ...payload });
   delete syncPayload.obsidianApiKey;
-  syncPayload.obsidianEnabled = syncPayload.obsidianEnabled === true;
-  syncPayload.downloadFormat = normalizeDownloadFormat(syncPayload.downloadFormat);
-  syncPayload.youtubeSubtitleLang = BocSites.normalizeSubtitleLang(syncPayload.youtubeSubtitleLang);
-  syncPayload.includeHotCommentsInNote = normalizeIncludeHotCommentsInNote(syncPayload.includeHotCommentsInNote);
-  syncPayload.enablePlayerAiQuickAction = normalizeEnablePlayerAiQuickAction(syncPayload.enablePlayerAiQuickAction);
-  syncPayload.playerAiQuickPrompt = normalizePlayerAiQuickPrompt(syncPayload.playerAiQuickPrompt);
-  syncPayload.showBiliTriageBadges = syncPayload.showBiliTriageBadges !== false;
-  syncPayload.readerTheme = normalizeReaderTheme(syncPayload.readerTheme);
-  syncPayload.readerFontScale = normalizeReaderFontScale(syncPayload.readerFontScale);
-  syncPayload.readerLetterSpacing = normalizeReaderLetterSpacing(
-    syncPayload.readerLetterSpacing ?? syncPayload.readerLineHeight
-  );
-  syncPayload.readerLineHeight = normalizeReaderLineHeight(syncPayload.readerLineHeight);
-  syncPayload.readerContentWidth = normalizeReaderContentWidth(syncPayload.readerContentWidth);
-  syncPayload.readerChapterVisibility = normalizeReaderChapterVisibility(syncPayload.readerChapterVisibility);
-  syncPayload.readerTranscriptVisible = normalizeReaderTranscriptVisible(syncPayload.readerTranscriptVisible);
-  syncPayload.fixedFrontmatterProperties = normalizeFixedFrontmatterProperties(syncPayload.fixedFrontmatterProperties);
-  syncPayload.notePlaceholderSections = normalizeNotePlaceholderSections(syncPayload.notePlaceholderSections);
-  syncPayload.aiSystemPrompt = normalizeAiSystemPrompt(syncPayload.aiSystemPrompt);
-  syncPayload.aiPresetPrompts = normalizeAiPresetPrompts(syncPayload.aiPresetPrompts);
 
   await Promise.all([
     chrome.storage.sync.set(syncPayload),
-    chrome.storage.local.set({
-      obsidianApiKey: normalizeApiKey(payload.obsidianApiKey)
-    })
+    "obsidianApiKey" in payload && chrome.storage.local.set({ obsidianApiKey: normalizeApiKey(payload.obsidianApiKey) })
   ]);
 }
 
@@ -1278,8 +1276,49 @@ async function saveAiProviderKey(providerId, apiKey) {
 
 // ===== AI 调用（内联实现，避免 service worker 跨文件 import） =====
 
+const AI_SUBTITLE_MAX_CHARS = 60000;
+const AI_HISTORY_MAX_CHARS = 40000;
+
+// Long videos overflow small context windows. Even sampling keeps every part of the video and each kept line's timestamp.
+// ponytail: samples by line count, assumes similar line lengths; the final slice is the hard cap.
+function sampleAiSubtitle(markdown) {
+  const text = String(markdown || "");
+  if (text.length <= AI_SUBTITLE_MAX_CHARS) {
+    return { text, step: 1 };
+  }
+  const step = Math.ceil(text.length / AI_SUBTITLE_MAX_CHARS);
+  let index = 0;
+  const sampled = text
+    .split("\n")
+    .filter((line) => /^#|^\s*$/.test(line) || index++ % step === 0)
+    .join("\n")
+    .slice(0, AI_SUBTITLE_MAX_CHARS);
+  return { text: sampled, step };
+}
+
+// Keeps the newest turns within the budget, starting at a user message.
+function trimAiHistory(history) {
+  const items = (Array.isArray(history) ? history : []).filter(
+    (m) => m && (m.role === "user" || m.role === "assistant") && typeof m.content === "string"
+  );
+  let start = items.length;
+  let total = 0;
+  while (start > 0 && total + items[start - 1].content.length <= AI_HISTORY_MAX_CHARS) {
+    start -= 1;
+    total += items[start].content.length;
+  }
+  while (start < items.length && items[start].role !== "user") {
+    start += 1;
+  }
+  return { messages: items.slice(start), dropped: start };
+}
+
+// Returns the request messages plus notices for the user about what was cut to fit.
 function buildAiMessages({ context, userPrompt, history, systemPrompt }) {
   const ctx = context || {};
+  const subtitle = sampleAiSubtitle(ctx.subtitleMarkdown);
+  const trimmed = trimAiHistory(history);
+  const notices = [];
   const hasVideoContext = Boolean(ctx.isVideoContext);
   const sections = hasVideoContext
     ? [
@@ -1291,8 +1330,13 @@ function buildAiMessages({ context, userPrompt, history, systemPrompt }) {
         "当前对话没有页面上下文，请仅基于用户消息和历史对话回答。"
       ];
 
-  if (ctx.subtitleMarkdown) {
-    sections.push(`以下是视频的字幕全文：\n\n${ctx.subtitleMarkdown}`);
+  if (subtitle.step > 1) {
+    sections.push(
+      `以下是视频的字幕。全文过长，按时间均匀抽取了约 1/${subtitle.step} 的行，没抽到的内容你看不到；回答细节时说明可能有遗漏：\n\n${subtitle.text}`
+    );
+    notices.push(`字幕过长，只发送了均匀抽取的约 1/${subtitle.step}`);
+  } else if (subtitle.text) {
+    sections.push(`以下是视频的字幕全文：\n\n${subtitle.text}`);
   } else if (hasVideoContext) {
     const failure = String(ctx.subtitleFailure || "").trim();
     sections.push(
@@ -1315,15 +1359,18 @@ function buildAiMessages({ context, userPrompt, history, systemPrompt }) {
   if (customSystemPrompt) {
     sections.push(`以下是额外系统要求：\n${customSystemPrompt}`);
   }
-  return [
-    { role: "system", content: sections.join("\n\n") },
-    ...(Array.isArray(history) ? history.filter((m) => m && (m.role === "user" || m.role === "assistant") && typeof m.content === "string") : []),
-    { role: "user", content: String(userPrompt || "") }
-  ];
-}
-
-function clipAiSubtitle(markdown) {
-  return String(markdown || "");
+  if (trimmed.dropped) {
+    sections.push(`对话过长，最早的 ${trimmed.dropped} 条消息没有提供给你。`);
+    notices.push(`对话过长，最早的 ${trimmed.dropped} 条消息没有发送`);
+  }
+  return {
+    messages: [
+      { role: "system", content: sections.join("\n\n") },
+      ...trimmed.messages,
+      { role: "user", content: String(userPrompt || "") }
+    ],
+    notices
+  };
 }
 
 async function* parseOpenAISSE(response, onActivity) {
@@ -1344,11 +1391,19 @@ async function* parseOpenAISSE(response, onActivity) {
       const data = line.slice(5).trim();
       if (data === "[DONE]") return;
       if (!data) continue;
+      let json;
       try {
-        const json = JSON.parse(data);
-        const delta = json?.choices?.[0]?.delta?.content;
-        if (delta) yield String(delta);
-      } catch {}
+        json = JSON.parse(data);
+      } catch {
+        continue;
+      }
+      // Some providers report quota and moderation failures inside an HTTP 200 stream.
+      if (json?.error) {
+        const detail = typeof json.error === "string" ? json.error : json.error.message || JSON.stringify(json.error);
+        throw new Error(`接口返回错误：${detail}`);
+      }
+      const delta = json?.choices?.[0]?.delta?.content;
+      if (delta) yield String(delta);
     }
   }
 }
@@ -1377,18 +1432,18 @@ async function linkCoverInVault(content, cover, { baseUrl, apiKey, filepath }) {
     const path = `${folder ? `${folder}/` : ""}attachments/${name}.${ext}`;
     const endpoint = vaultEndpoint(baseUrl, path);
     const auth = { Authorization: `Bearer ${apiKey}` };
-    const existing = await fetch(endpoint, { method: "GET", headers: auth, cache: "no-store" });
+    const existing = await fetchWithTimeout(endpoint, { method: "GET", headers: auth, cache: "no-store" }, OBSIDIAN_TIMEOUT_MS);
     if (existing.status === 404) {
-      const image = await fetch(url, { referrerPolicy: "no-referrer" });
+      const image = await fetchWithTimeout(url, { referrerPolicy: "no-referrer" });
       if (!image.ok) {
         throw new Error(`cover HTTP ${image.status}`);
       }
       // A non-text Content-Type makes the plugin store the body as binary.
-      const upload = await fetch(endpoint, {
+      const upload = await fetchWithTimeout(endpoint, {
         method: "PUT",
         headers: { ...auth, "Content-Type": image.headers.get("Content-Type") || "application/octet-stream" },
         body: await image.arrayBuffer()
-      });
+      }, OBSIDIAN_TIMEOUT_MS);
       if (!upload.ok) {
         throw new Error(`cover upload HTTP ${upload.status}`);
       }
@@ -1427,12 +1482,15 @@ async function streamChat({ provider, context, userPrompt, history, port, signal
     return;
   }
 
-  const messages = buildAiMessages({
-    context: { ...context, subtitleMarkdown: clipAiSubtitle(context?.subtitleMarkdown) },
+  const { messages, notices } = buildAiMessages({
+    context,
     userPrompt,
     history,
     systemPrompt: context?.aiSystemPrompt || ""
   });
+  if (notices.length) {
+    port.postMessage({ type: "notice", text: notices.join("；") });
+  }
 
   const headers = { "Content-Type": "application/json" };
   if (provider.apiKey) {
@@ -1500,25 +1558,18 @@ async function testAiConnection({ baseUrl, apiKey, model }) {
     return { ok: false, error: "请填写模型名" };
   }
 
-  const headers = { Accept: "application/json" };
-  if (apiKey) {
-    headers["Authorization"] = `Bearer ${apiKey}`;
-  }
-
   return probeAiChatCompletion({
     baseUrl: normalizedBaseUrl,
     apiKey,
-    model: normalizedModel,
-    headers
+    model: normalizedModel
   });
 }
 
-async function probeAiChatCompletion({ baseUrl, apiKey, model, headers }) {
-  const requestHeaders = headers || { Accept: "application/json" };
-  if (apiKey && !requestHeaders.Authorization) {
+async function probeAiChatCompletion({ baseUrl, apiKey, model }) {
+  const requestHeaders = { Accept: "application/json", "Content-Type": "application/json" };
+  if (apiKey) {
     requestHeaders.Authorization = `Bearer ${apiKey}`;
   }
-  requestHeaders["Content-Type"] = "application/json";
 
   let response;
   try {

@@ -1,5 +1,7 @@
 // 侧边栏开发用 mock chrome：模拟 B 站视频标签页、三个视频上下文、一个 AI 平台和慢速流式回复。
 // window.__mockSwitchVideo(n) 切到第 n 个视频（改 URL + tabs.onUpdated + boc-video-changed）。
+// 流的结局：__mockStreamEnd = { after: n, error: "..." } 在第 n 个 token 后报错；{ after: n, disconnect: true } 模拟后台断开。
+// __mockNotice 先发一条 notice；__mockTokenMs 调慢流速。
 (() => {
   const makeEvent = () => {
     const listeners = [];
@@ -87,6 +89,9 @@
         const video = videos.find((v) => v.bvid === msg.contextRef?.bvid);
         return video ? { ok: true, payload: payloadFor(video) } : { ok: false, error: "not found" };
       }
+      case "ai-sidepanel-resolve-page-ref":
+        sessionStorage.setItem("__mock_resolve_page_ref", String(Number(sessionStorage.getItem("__mock_resolve_page_ref") || 0) + 1));
+        return { ok: true, payload: { url: msg.contextRef?.url, cid: msg.contextRef?.cid, pageIndex: 1 } };
       default:
         return { ok: false, error: `mock: unhandled ${msg?.type}` };
     }
@@ -143,8 +148,22 @@
             }
             window.__mockStreamLog = window.__mockStreamLog || [];
             window.__mockStreamLog.push({ prompt: msg.prompt, contextTitle: msg.context?.title });
+            if (window.__mockNotice) {
+              post({ type: "notice", text: window.__mockNotice });
+            }
+            const end = window.__mockStreamEnd;
             let i = 0;
             timer = setInterval(() => {
+              if (end && i >= end.after) {
+                clearInterval(timer);
+                if (end.disconnect) {
+                  disconnected = true;
+                  onDisconnect._fire();
+                } else {
+                  post({ type: "error", error: end.error });
+                }
+                return;
+              }
               if (i >= TOKEN_COUNT) {
                 clearInterval(timer);
                 post({ type: "done" });
@@ -152,7 +171,7 @@
               }
               post({ type: "token", data: i === 0 ? `关于「${msg.context?.title}」的回复：` : `片段${i} ` });
               i += 1;
-            }, TOKEN_MS);
+            }, window.__mockTokenMs || TOKEN_MS);
           },
           disconnect() {
             disconnected = true;
