@@ -69,7 +69,7 @@
 
 ### 平台支持
 
-- 浏览器：在 Chrome 上开发和测试，Edge 等 Chromium 内核浏览器应能使用，但没有专门测试。**不支持 Firefox**。manifest 里的 Firefox 字段是上游遗留，侧边栏和后台 service worker 在 Firefox 上不能用。
+- 浏览器：在 Chrome 上开发和测试，Edge 等 Chromium 内核浏览器应能使用，但没有专门测试。**不支持 Firefox**。manifest 里的 Firefox 字段是上游遗留，打包脚本只出 Chrome 包，并会去掉这些字段。
 - 网站：B 站视频页、稍后再看，以及 YouTube 视频页。收藏夹分拣台只支持 B 站，YouTube 播放列表暂不支持。
 
 ## 安装
@@ -187,6 +187,7 @@ extension/
 ```bash
 node extension/background.selftest.js
 node extension/badges.selftest.js
+node extension/content-tokens.selftest.js
 node extension/note.selftest.js
 node extension/sites.selftest.js
 node extension/triage/triage-bg.selftest.js
@@ -208,7 +209,7 @@ node extension/dev-sidepanel/build.mjs
 python3 scripts/build_release.py
 ```
 
-产物在 `release/` 下。脚本也会打出一个 Firefox 包，这是上游遗留，目前不可用。
+产物在 `release/` 下，只打 Chrome 包；传一个目录参数可改输出位置。README 的版本徽章和 manifest 版本不一致时打包会失败。
 
 ## 路线图
 
