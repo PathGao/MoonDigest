@@ -315,7 +315,8 @@ async function loadFolders() {
 
 async function openFolder(mediaId) {
   S.folderToken++;
-  S.stage1.stop = true;
+  // The old stage-1 loop exits on the token change without touching state, so reset it here.
+  S.stage1 = { running: false, stop: true };
   if (S.group) S.group.stop = true;
   S.mediaId = mediaId;
   S.items = [];
