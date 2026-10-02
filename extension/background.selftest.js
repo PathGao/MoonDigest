@@ -50,7 +50,7 @@ function chat() {
       onMessage: { addListener: (fn) => fn({ action: "chat", providerId: "p", prompt: "q" }) },
       postMessage: (m) => {
         out.push(m);
-        if (m.type !== "token") resolve(out);
+        if (["done", "error", "stopped"].includes(m.type)) resolve(out);
       }
     };
     onConnect(port);
@@ -129,7 +129,7 @@ function chat() {
   assert.strictEqual((await ctx.chrome.storage.local.get("obsidianApiKey")).obsidianApiKey, "k");
 
   const systemFor = (extra) =>
-    ctx.buildAiMessages({ context: { isVideoContext: true, title: "T", description: "简介", ...extra }, userPrompt: "q" })[0].content;
+    ctx.buildAiMessages({ context: { isVideoContext: true, title: "T", description: "简介", ...extra }, userPrompt: "q" }).messages[0].content;
   const none = systemFor({});
   assert.match(none, /这个视频没有字幕/);
   assert.doesNotMatch(none, /抓取失败/);
@@ -139,6 +139,39 @@ function chat() {
   assert.doesNotMatch(failed, /这个视频没有字幕/);
   assert.match(failed, /以下是视频简介：\n\n简介/);
   assert.doesNotMatch(systemFor({ subtitleMarkdown: "字幕", subtitleFailure: "旧失败" }), /抓取失败/);
+
+  // A long subtitle is sampled across the whole video and capped; the model and the user are both told.
+  const subtitleLines = Array.from({ length: 4000 }, (_, i) => `\`${i}\` ${"字".repeat(40)}`);
+  const big = ctx.buildAiMessages({
+    context: { isVideoContext: true, subtitleMarkdown: ["## 字幕", "", ...subtitleLines].join("\n") },
+    userPrompt: "q"
+  });
+  const bigSystem = big.messages[0].content;
+  assert.ok(bigSystem.length < 62000);
+  assert.match(bigSystem, /## 字幕/);
+  assert.match(bigSystem, /`0` /);
+  assert.match(bigSystem, /`3999` |`399[0-9]` /);
+  assert.match(bigSystem, /均匀抽取了约 1\/\d+ 的行/);
+  assert.match(big.notices[0], /字幕过长/);
+
+  // Old turns beyond the budget are dropped whole, oldest first, and the newest turn survives.
+  const turn = (i) => [{ role: "user", content: `问${i}` }, { role: "assistant", content: `${i}`.padEnd(15000, "答") }];
+  const longHistory = [1, 2, 3, 4].flatMap(turn);
+  const trimmedRequest = ctx.buildAiMessages({ context: {}, userPrompt: "q", history: longHistory });
+  assert.deepStrictEqual([...trimmedRequest.messages.slice(1, -1)].map((m) => m.content.slice(0, 2)), ["问3", "3答", "问4", "4答"]);
+  assert.match(trimmedRequest.messages[0].content, /最早的 4 条消息没有提供给你/);
+  assert.match(trimmedRequest.notices[0], /最早的 4 条消息没有发送/);
+  assert.strictEqual(ctx.buildAiMessages({ context: {}, userPrompt: "q", history: turn(1) }).notices.length, 0);
+
+  // An error object inside a 200 stream ends the reply with that error instead of a silent "done".
+  ctx.fetch = streamingFetch([
+    { after: 5, chunk: sse({ content: "半" }) },
+    { after: 5, chunk: new TextEncoder().encode(`data: ${JSON.stringify({ error: { message: "quota exceeded" } })}\n\n`) },
+    { after: 0, done: true }
+  ]);
+  out = await chat();
+  assert.deepStrictEqual(out.map((m) => m.type), ["token", "error"]);
+  assert.strictEqual(out[1].error, "接口返回错误：quota exceeded");
 
   console.log("background selftest: all passed");
 })();

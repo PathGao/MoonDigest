@@ -1263,8 +1263,49 @@ async function saveAiProviderKey(providerId, apiKey) {
 
 // ===== AI 调用（内联实现，避免 service worker 跨文件 import） =====
 
+const AI_SUBTITLE_MAX_CHARS = 60000;
+const AI_HISTORY_MAX_CHARS = 40000;
+
+// Long videos overflow small context windows. Even sampling keeps every part of the video and each kept line's timestamp.
+// ponytail: samples by line count, assumes similar line lengths; the final slice is the hard cap.
+function sampleAiSubtitle(markdown) {
+  const text = String(markdown || "");
+  if (text.length <= AI_SUBTITLE_MAX_CHARS) {
+    return { text, step: 1 };
+  }
+  const step = Math.ceil(text.length / AI_SUBTITLE_MAX_CHARS);
+  let index = 0;
+  const sampled = text
+    .split("\n")
+    .filter((line) => /^#|^\s*$/.test(line) || index++ % step === 0)
+    .join("\n")
+    .slice(0, AI_SUBTITLE_MAX_CHARS);
+  return { text: sampled, step };
+}
+
+// Keeps the newest turns within the budget, starting at a user message.
+function trimAiHistory(history) {
+  const items = (Array.isArray(history) ? history : []).filter(
+    (m) => m && (m.role === "user" || m.role === "assistant") && typeof m.content === "string"
+  );
+  let start = items.length;
+  let total = 0;
+  while (start > 0 && total + items[start - 1].content.length <= AI_HISTORY_MAX_CHARS) {
+    start -= 1;
+    total += items[start].content.length;
+  }
+  while (start < items.length && items[start].role !== "user") {
+    start += 1;
+  }
+  return { messages: items.slice(start), dropped: start };
+}
+
+// Returns the request messages plus notices for the user about what was cut to fit.
 function buildAiMessages({ context, userPrompt, history, systemPrompt }) {
   const ctx = context || {};
+  const subtitle = sampleAiSubtitle(ctx.subtitleMarkdown);
+  const trimmed = trimAiHistory(history);
+  const notices = [];
   const hasVideoContext = Boolean(ctx.isVideoContext);
   const sections = hasVideoContext
     ? [
@@ -1276,8 +1317,13 @@ function buildAiMessages({ context, userPrompt, history, systemPrompt }) {
         "当前对话没有页面上下文，请仅基于用户消息和历史对话回答。"
       ];
 
-  if (ctx.subtitleMarkdown) {
-    sections.push(`以下是视频的字幕全文：\n\n${ctx.subtitleMarkdown}`);
+  if (subtitle.step > 1) {
+    sections.push(
+      `以下是视频的字幕。全文过长，按时间均匀抽取了约 1/${subtitle.step} 的行，没抽到的内容你看不到；回答细节时说明可能有遗漏：\n\n${subtitle.text}`
+    );
+    notices.push(`字幕过长，只发送了均匀抽取的约 1/${subtitle.step}`);
+  } else if (subtitle.text) {
+    sections.push(`以下是视频的字幕全文：\n\n${subtitle.text}`);
   } else if (hasVideoContext) {
     const failure = String(ctx.subtitleFailure || "").trim();
     sections.push(
@@ -1300,15 +1346,18 @@ function buildAiMessages({ context, userPrompt, history, systemPrompt }) {
   if (customSystemPrompt) {
     sections.push(`以下是额外系统要求：\n${customSystemPrompt}`);
   }
-  return [
-    { role: "system", content: sections.join("\n\n") },
-    ...(Array.isArray(history) ? history.filter((m) => m && (m.role === "user" || m.role === "assistant") && typeof m.content === "string") : []),
-    { role: "user", content: String(userPrompt || "") }
-  ];
-}
-
-function clipAiSubtitle(markdown) {
-  return String(markdown || "");
+  if (trimmed.dropped) {
+    sections.push(`对话过长，最早的 ${trimmed.dropped} 条消息没有提供给你。`);
+    notices.push(`对话过长，最早的 ${trimmed.dropped} 条消息没有发送`);
+  }
+  return {
+    messages: [
+      { role: "system", content: sections.join("\n\n") },
+      ...trimmed.messages,
+      { role: "user", content: String(userPrompt || "") }
+    ],
+    notices
+  };
 }
 
 async function* parseOpenAISSE(response, onActivity) {
@@ -1329,11 +1378,19 @@ async function* parseOpenAISSE(response, onActivity) {
       const data = line.slice(5).trim();
       if (data === "[DONE]") return;
       if (!data) continue;
+      let json;
       try {
-        const json = JSON.parse(data);
-        const delta = json?.choices?.[0]?.delta?.content;
-        if (delta) yield String(delta);
-      } catch {}
+        json = JSON.parse(data);
+      } catch {
+        continue;
+      }
+      // Some providers report quota and moderation failures inside an HTTP 200 stream.
+      if (json?.error) {
+        const detail = typeof json.error === "string" ? json.error : json.error.message || JSON.stringify(json.error);
+        throw new Error(`接口返回错误：${detail}`);
+      }
+      const delta = json?.choices?.[0]?.delta?.content;
+      if (delta) yield String(delta);
     }
   }
 }
@@ -1412,12 +1469,15 @@ async function streamChat({ provider, context, userPrompt, history, port, signal
     return;
   }
 
-  const messages = buildAiMessages({
-    context: { ...context, subtitleMarkdown: clipAiSubtitle(context?.subtitleMarkdown) },
+  const { messages, notices } = buildAiMessages({
+    context,
     userPrompt,
     history,
     systemPrompt: context?.aiSystemPrompt || ""
   });
+  if (notices.length) {
+    port.postMessage({ type: "notice", text: notices.join("；") });
+  }
 
   const headers = { "Content-Type": "application/json" };
   if (provider.apiKey) {
