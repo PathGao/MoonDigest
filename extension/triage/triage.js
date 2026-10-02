@@ -134,8 +134,14 @@ async function storeGet(key, fallback) {
   const r = await chrome.storage.local.get(key);
   return r?.[key] ?? fallback;
 }
+let storeFailShown = false;
 function storeSet(key, value) {
-  return chrome.storage.local.set({ [key]: value });
+  return chrome.storage.local.set({ [key]: value }).catch((e) => {
+    console.error("[triage] storage write failed", key, e);
+    if (storeFailShown) return;
+    storeFailShown = true;
+    toast(`保存失败，本地存储可能已满：${e?.message || e}`, true);
+  });
 }
 
 function esc(v) {
@@ -279,7 +285,10 @@ async function init() {
   S.tags = tags;
   S.videoTags = videoTags;
   S.basket = basket;
-  const all = (await chrome.storage.local.get(null)) || {};
+  // getKeys (Chrome 130+) lets us read only override keys instead of every cached title/analysis.
+  const keys = await chrome.storage.local.getKeys?.();
+  const wanted = keys && [K.presets, K.aiHistory, ...keys.filter((k) => k.startsWith(OVERRIDE_PREFIX))];
+  const all = (await chrome.storage.local.get(wanted ?? null)) || {};
   S.presets = all[K.presets] || structuredClone(BUILTIN_PRESETS);
   if (!all[K.presets]) storeSet(K.presets, S.presets);
   S.aiHistory = all[K.aiHistory] || [];
