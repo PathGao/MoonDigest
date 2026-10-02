@@ -29,13 +29,11 @@ const DEFAULT_SETTINGS = {
   notePlaceholderSections: []
 };
 const { formatCompactTimestamp, buildSubtitlePreview, buildSrt, buildTxt, shouldShowHoursInNote } = BocNote;
-const PLAYER_AI_ICON_VARIANT = "badge";
 
 const BOC_VERSION = chrome.runtime.getManifest().version;
 const CACHE_KEY_PREFIX = "boc_subtitle_cache_";
 globalThis.__BOC_CONTENT_SCRIPT_LOADED__ = BOC_VERSION;
 const state = {
-  currentUrl: location.href,
   fetchRunId: 0,
   refreshPromise: null,
   site: "",
@@ -67,8 +65,6 @@ const state = {
   srt: "",
   txt: "",
   readingViewOpen: false,
-  readingNativePageMode: false,
-  readingRootOriginalParent: null,
   readingAutoScroll: true,
   readingTheme: "light",
   readingFontScale: "m",
@@ -115,7 +111,6 @@ const state = {
   playerAiQuickActionCursorHideTimer: 0,
   playerAiQuickActionSubmitting: false,
   playerAiQuickActionSuppressedUntil: 0,
-  normalPageStateObserver: null,
   readingDocumentClickBound: false,
   readingManualScrollPauseUntil: 0,
   readingProgrammaticScrollUntil: 0,
@@ -151,7 +146,6 @@ function replaceReaderModeUrl(nextUrl) {
 
   try {
     history.replaceState(history.state, "", targetUrl);
-    state.currentUrl = location.href;
     state.currentClipSignature = computeCurrentClipSignature(location.href);
   } catch (error) {
     logWarn("[BOC] failed to replace reader mode url", error);
@@ -191,7 +185,7 @@ function getReaderMainWidthLimit() {
 }
 
 function clearNativeReaderFloatingStyles(playerHost = state.readingPlayerHost) {
-  if (!state.readingNativePageMode || !playerHost) {
+  if (!state.readingViewOpen || !playerHost) {
     return;
   }
 
@@ -233,7 +227,7 @@ function getReaderPlayerWrapNode(playerHost = state.readingPlayerHost) {
 }
 
 function hasNativeReaderPlayerLayoutIssue(playerHost = state.readingPlayerHost) {
-  if (!state.readingNativePageMode || !playerHost) {
+  if (!state.readingViewOpen || !playerHost) {
     return false;
   }
 
@@ -296,22 +290,12 @@ function logWarn(...args) {
   }
 }
 
-function installReaderDebugHelpers() {
-  const snapshotReader = (label = "manual") => createReaderDebugSnapshot(label);
-  globalThis.__BOC_READER_DEBUG_SNAPSHOT__ = snapshotReader;
-  globalThis.__BOC_DEBUG__ = {
-    ...(globalThis.__BOC_DEBUG__ || {}),
-    snapshotReader
-  };
-}
-
 const ids = {
   root: "boc-root",
   readingView: "boc-reading-view",
   readingPlayerSlot: "boc-reading-player-slot",
   readingStatus: "boc-reading-status",
   readingCloseBtn: "boc-reading-close-btn",
-  readingRefreshBtn: "boc-reading-refresh-btn",
   readingAutoScroll: "boc-reading-autoscroll",
   readingTranscriptVisible: "boc-reading-transcript-visible",
   readingThemeSelect: "boc-reading-theme-select",
@@ -321,7 +305,6 @@ const ids = {
   readingLetterSpacingSelect: "boc-reading-letter-spacing-select",
   readingLineHeightSelect: "boc-reading-line-height-select",
   readingContentWidthSelect: "boc-reading-content-width-select",
-  readingChapterVisibilitySelect: "boc-reading-chapter-visibility-select",
   readingChapterVisible: "boc-reading-chapter-visible",
   readingSubtitleSelect: "boc-reading-subtitle-select",
   readingInfoSummary: "boc-reading-info-summary",
@@ -338,7 +321,6 @@ init();
 function init() {
   logInfo(`[BOC] content script loaded, version=${BOC_VERSION}`);
   ensureUiReady({ forceRecreate: true });
-  installReaderDebugHelpers();
 
   const shouldEnterReaderMode = isReaderMode();
   if (shouldEnterReaderMode) {
@@ -443,7 +425,6 @@ function bindNormalPageStateGuard() {
     attributes: true,
     attributeFilter: ["data-boc-reader-mode", "data-boc-reader-line-height", "data-boc-reading-active"]
   });
-  state.normalPageStateObserver = observer;
   enforceNormalPageStateIfNeeded();
 }
 
@@ -516,7 +497,7 @@ function bindRuntimeEvents() {
         });
       }
       sendResponse({ ok: true });
-      return true;
+      return false;
     }
 
     if (message.type === "sidepanel-get-context") {
@@ -532,19 +513,13 @@ function bindRuntimeEvents() {
     }
 
     if (message.type === "sidepanel-get-hot-comments") {
-      const count = 20; // 固定取前 20 条热门评论
-      if (!count) {
-        sendResponse({ ok: true, comments: [] });
-        return false;
-      }
-
       if (!currentSite()?.fetchComments || !state.videoId) {
         state.hotComments = [];
         sendResponse({ ok: true, comments: [], note: "当前站点不支持评论" });
         return false;
       }
 
-      fetchHotComments(count)
+      fetchHotComments(20)
         .then((hotComments) => {
           state.hotComments = hotComments;
           sendResponse({ ok: true, comments: hotComments });
@@ -859,7 +834,6 @@ function checkUrlChange() {
     return;
   }
 
-  state.currentUrl = nextUrl;
   state.currentClipSignature = nextSignature;
   try {
     chrome.runtime.sendMessage({ type: "boc-video-changed", url: nextUrl })?.catch?.(() => {});
@@ -1092,9 +1066,6 @@ async function runRefreshClip() {
       return;
     }
 
-    // 显式点击“刷新抓取”时默认走网络，避免命中历史缓存导致字幕错位。
-    const forceRefresh = true;
-
     const preferred = BocSites.pickPreferredTrack(state.subtitles, {
       previousId: state.selectedSubtitleId,
       previousUrl: state.selectedSubtitleUrl,
@@ -1110,7 +1081,7 @@ async function runRefreshClip() {
     let selected = null;
 
     try {
-      selected = await tryLoadSubtitleCandidates(candidates, runId, forceRefresh);
+      selected = await tryLoadSubtitleCandidates(candidates, runId);
     } catch (error) {
       const message = getErrorMessage(error, "");
       if (!message.includes("HTTP") && error?.code !== "SUBTITLE_DURATION_MISMATCH") {
@@ -1135,7 +1106,7 @@ async function runRefreshClip() {
         throw error;
       }
       const retryCandidates = buildSubtitleCandidates(state.subtitles, retryPreferred);
-      selected = await tryLoadSubtitleCandidates(retryCandidates, runId, forceRefresh);
+      selected = await tryLoadSubtitleCandidates(retryCandidates, runId);
     }
     ensureRunActive(runId);
     if (selected) {
@@ -1306,16 +1277,6 @@ async function clearSubtitleCacheByKey(cacheKey) {
     await chrome.storage.local.remove(cacheKey);
   } catch (error) {
     logWarn("[BOC] failed to clear subtitle cache by key", { cacheKey, error });
-  }
-}
-
-async function clearSubtitleCache(videoId, cid, lang) {
-  const cacheKey = getSubtitleCacheKey({ videoId, cid, lang });
-  try {
-    await chrome.storage.local.remove(cacheKey);
-    logInfo("[BOC] cleared subtitle cache", { cacheKey });
-  } catch (error) {
-    logWarn("[BOC] failed to clear subtitle cache", error);
   }
 }
 
@@ -1551,7 +1512,6 @@ function cleanupReaderFloatingArtifacts(playerHost = state.readingPlayerHost) {
 async function enterReaderMode() {
   const readingView = byId(ids.readingView);
   state.readingViewOpen = true;
-  state.readingNativePageMode = true;
   document.body.setAttribute("data-boc-reading-active", "1");
   hydrateReaderStateFromSettings(state.settings);
   applyReadingViewPresentation();
@@ -1699,7 +1659,7 @@ async function ensureReaderPlayerMounted({ retries = 1, delayMs = 100, forceLayo
       const activeHost = findReaderPlayerHost(video) || playerHost;
       state.readingPlayerHost = activeHost;
       normalizeReaderPlayerContainer(activeHost);
-      if (state.readingNativePageMode) {
+      if (state.readingViewOpen) {
         clearNativeReaderFloatingStyles(activeHost);
         if (hasNativeReaderPlayerLayoutIssue(activeHost)) {
           normalizeReaderPlayerContainer(activeHost);
@@ -1722,16 +1682,16 @@ async function ensureReaderPlayerMounted({ retries = 1, delayMs = 100, forceLayo
         previousHost !== activeHost ||
         attempt > 0 ||
         miniPlayerClosed ||
-        (state.readingNativePageMode && hasNativeReaderPlayerLayoutIssue(activeHost))
+        hasNativeReaderPlayerLayoutIssue(activeHost)
       ) {
         layoutReaderPlayerHost();
-        if (state.readingNativePageMode && hasNativeReaderPlayerLayoutIssue(activeHost)) {
+        if (hasNativeReaderPlayerLayoutIssue(activeHost)) {
           normalizeReaderPlayerContainer(activeHost);
           clearNativeReaderFloatingStyles(activeHost);
           layoutReaderPlayerHost();
         }
       }
-      if (state.readingNativePageMode && !isWatchlaterPage()) {
+      if (state.readingViewOpen && !isWatchlaterPage()) {
         await ensureReaderPlayerControlsRecovered(activeHost, {
           reason: attempt > 0 ? "mount-retry" : "mount"
         });
@@ -1774,7 +1734,6 @@ function findReaderPlayerHost(video) {
 function closeReadingView() {
   cleanupReaderFloatingArtifacts();
   state.readingViewOpen = false;
-  state.readingNativePageMode = false;
   state.readingViewReady = false;
   state.readingSettingsExpanded = false;
   state.readingManualScrollPauseUntil = 0;
@@ -2272,126 +2231,7 @@ function isReaderPresentationStable(playerHost = state.readingPlayerHost) {
   if (!(rect.width > 240) || !(rect.height > 120)) {
     return false;
   }
-  if (!state.readingNativePageMode) {
-    return true;
-  }
   return !hasNativeReaderPlayerLayoutIssue(playerHost);
-}
-
-function createReaderDebugSnapshot(label = "manual") {
-  const pickNodeSnapshot = (selector) => {
-    const node = document.querySelector(selector);
-    if (!node) {
-      return null;
-    }
-    const rect = node.getBoundingClientRect();
-    const style = window.getComputedStyle(node);
-    return {
-      selector,
-      tag: node.tagName,
-      id: node.id || "",
-      className: typeof node.className === "string" ? node.className : "",
-      rect: {
-        x: Math.round(rect.x),
-        y: Math.round(rect.y),
-        w: Math.round(rect.width),
-        h: Math.round(rect.height)
-      },
-      style: {
-        display: style.display,
-        position: style.position,
-        width: style.width,
-        height: style.height,
-        maxWidth: style.maxWidth,
-        maxHeight: style.maxHeight,
-        top: style.top,
-        left: style.left,
-        transform: style.transform,
-        overflow: style.overflow,
-        zIndex: style.zIndex
-      },
-      attrs: {
-        readerKeep: node.getAttribute("data-boc-reader-keep"),
-        readerHidden: node.getAttribute("data-boc-reader-hidden"),
-        readerReset: node.getAttribute("data-boc-reader-player-reset")
-      }
-    };
-  };
-
-  const playerHost = state.readingPlayerHost || findReaderPlayerHost(getRuntimeVideoElement());
-  const wrapNode = getReaderPlayerWrapNode(playerHost);
-  const video = state.readingVideoEl || getRuntimeVideoElement();
-  const hostChain = [];
-  let current = playerHost;
-  let depth = 0;
-  while (current && depth < 8) {
-    const rect = current.getBoundingClientRect();
-    const style = window.getComputedStyle(current);
-    hostChain.push({
-      tag: current.tagName,
-      id: current.id || "",
-      className: typeof current.className === "string" ? current.className : "",
-      rect: {
-        x: Math.round(rect.x),
-        y: Math.round(rect.y),
-        w: Math.round(rect.width),
-        h: Math.round(rect.height)
-      },
-      style: {
-        position: style.position,
-        width: style.width,
-        height: style.height,
-        top: style.top,
-        left: style.left,
-        transform: style.transform,
-        overflow: style.overflow,
-        zIndex: style.zIndex
-      },
-      readerReset: current.getAttribute("data-boc-reader-player-reset")
-    });
-    current = current.parentElement;
-    depth += 1;
-  }
-
-  return {
-    label: String(label || "manual"),
-    url: cleanVideoUrl(),
-    readerMode: document.documentElement.getAttribute("data-boc-reader-mode"),
-    readingActive: document.body.getAttribute("data-boc-reading-active"),
-    readingViewOpen: state.readingViewOpen,
-    readingNativePageMode: state.readingNativePageMode,
-    readingViewReady: state.readingViewReady,
-    readyStable: isReaderPresentationStable(playerHost),
-    hasLayoutIssue: hasNativeReaderPlayerLayoutIssue(playerHost),
-    hasRoot: Boolean(document.getElementById(ids.root)),
-    hasReadingView: Boolean(document.getElementById(ids.readingView)),
-    playerHost: playerHost
-      ? {
-          tag: playerHost.tagName,
-          id: playerHost.id || "",
-          className: typeof playerHost.className === "string" ? playerHost.className : ""
-        }
-      : null,
-    wrapNode: wrapNode
-      ? {
-          tag: wrapNode.tagName,
-          id: wrapNode.id || "",
-          className: typeof wrapNode.className === "string" ? wrapNode.className : ""
-        }
-      : null,
-    video: video
-      ? {
-          currentTime: Number(video.currentTime || 0) || 0,
-          paused: Boolean(video.paused),
-          videoWidth: Number(video.videoWidth || 0) || 0,
-          videoHeight: Number(video.videoHeight || 0) || 0
-        }
-      : null,
-    nodes: [...reader().playerLayout, "#boc-reading-inline-host", "#boc-reading-view"]
-      .map((selector) => pickNodeSnapshot(selector))
-      .filter(Boolean),
-    hostChain
-  };
 }
 
 function bindReaderLayout() {
@@ -2423,83 +2263,48 @@ function layoutReaderPlayerHost() {
 
   const readingView = byId(ids.readingView);
   const playerHost = state.readingPlayerHost;
-  const slot = byId(ids.readingPlayerSlot);
   if (!playerHost) {
     return;
   }
 
-  if (state.readingNativePageMode) {
-    const rect = playerHost.getBoundingClientRect();
-    if (!(rect.width > 0) || !(rect.height > 0)) {
-      return;
-    }
-
-    const video = state.readingVideoEl;
-    let renderedWidth = rect.width;
-    let renderedHeight = rect.height;
-    if (Number(video?.videoWidth) > 0 && Number(video?.videoHeight) > 0) {
-      const aspectRatio = Number(video.videoWidth) / Number(video.videoHeight);
-      if (aspectRatio > 0) {
-        const hostAspectRatio = rect.width / rect.height;
-        if (hostAspectRatio > aspectRatio) {
-          renderedHeight = rect.height;
-          renderedWidth = rect.height * aspectRatio;
-        } else {
-          renderedWidth = rect.width;
-          renderedHeight = rect.width / aspectRatio;
-        }
-      }
-    }
-
-    const widthLimit = getReaderMainWidthLimit();
-    if (renderedWidth > widthLimit) {
-      const scale = widthLimit / renderedWidth;
-      renderedWidth = widthLimit;
-      renderedHeight *= scale;
-    }
-
-    clearNativeReaderFloatingStyles(playerHost);
-    cleanupReaderPlayerHostNode(playerHost);
-    readingView.style.setProperty("--boc-reader-player-rendered-width", `${Math.round(renderedWidth)}px`);
-    readingView.style.setProperty("--boc-reader-player-rendered-height", `${Math.round(renderedHeight)}px`);
-    updateReadingTranscriptTailSpacer();
-    queueEnsureReaderPlayerControlsRecovered({
-      reason: "layout-native",
-      delayMs: 120
-    });
-    return;
-  }
-
-  if (!slot) {
-    return;
-  }
-
-  const rect = slot.getBoundingClientRect();
+  const rect = playerHost.getBoundingClientRect();
   if (!(rect.width > 0) || !(rect.height > 0)) {
     return;
   }
 
   const video = state.readingVideoEl;
-  const aspectRatio =
-    Number(video?.videoWidth) > 0 && Number(video?.videoHeight) > 0
-      ? Number(video.videoWidth) / Number(video.videoHeight)
-      : 16 / 9;
-  const targetHeight = rect.height;
-  const targetWidth = Math.min(rect.width, targetHeight * aspectRatio);
-  const left = rect.left + (rect.width - targetWidth) / 2;
+  let renderedWidth = rect.width;
+  let renderedHeight = rect.height;
+  if (Number(video?.videoWidth) > 0 && Number(video?.videoHeight) > 0) {
+    const aspectRatio = Number(video.videoWidth) / Number(video.videoHeight);
+    if (aspectRatio > 0) {
+      const hostAspectRatio = rect.width / rect.height;
+      if (hostAspectRatio > aspectRatio) {
+        renderedHeight = rect.height;
+        renderedWidth = rect.height * aspectRatio;
+      } else {
+        renderedWidth = rect.width;
+        renderedHeight = rect.width / aspectRatio;
+      }
+    }
+  }
 
-  readingView.style.setProperty("--boc-reader-player-rendered-width", `${Math.round(targetWidth)}px`);
-  readingView.style.setProperty("--boc-reader-player-rendered-height", `${Math.round(targetHeight)}px`);
-  playerHost.style.setProperty("position", "fixed", "important");
-  playerHost.style.setProperty("left", `${Math.round(left)}px`, "important");
-  playerHost.style.setProperty("top", `${Math.round(rect.top)}px`, "important");
-  playerHost.style.setProperty("width", `${Math.round(targetWidth)}px`, "important");
-  playerHost.style.setProperty("height", `${Math.round(targetHeight)}px`, "important");
-  playerHost.style.setProperty("margin", "0", "important");
-  playerHost.style.setProperty("z-index", "2147483647", "important");
-  playerHost.style.setProperty("max-width", "none", "important");
-  playerHost.style.setProperty("max-height", "none", "important");
+  const widthLimit = getReaderMainWidthLimit();
+  if (renderedWidth > widthLimit) {
+    const scale = widthLimit / renderedWidth;
+    renderedWidth = widthLimit;
+    renderedHeight *= scale;
+  }
+
+  clearNativeReaderFloatingStyles(playerHost);
+  cleanupReaderPlayerHostNode(playerHost);
+  readingView.style.setProperty("--boc-reader-player-rendered-width", `${Math.round(renderedWidth)}px`);
+  readingView.style.setProperty("--boc-reader-player-rendered-height", `${Math.round(renderedHeight)}px`);
   updateReadingTranscriptTailSpacer();
+  queueEnsureReaderPlayerControlsRecovered({
+    reason: "layout-native",
+    delayMs: 120
+  });
 }
 
 function cleanupReaderPlayerHostNode(playerHost) {
@@ -2919,58 +2724,6 @@ function findReaderTitleContainer() {
   return title;
 }
 
-function findReaderMetaContainer(titleNode = findReaderTitleContainer()) {
-  const title = titleNode?.matches?.("h1, [data-title]") ? titleNode : titleNode?.querySelector?.("h1, [data-title]");
-  if (!title) {
-    return null;
-  }
-
-  const candidates = [
-    title.nextElementSibling,
-    title.parentElement?.nextElementSibling,
-    title.parentElement,
-    title.parentElement?.parentElement,
-    ...(Array.from(title.parentElement?.parentElement?.children || []).slice(0, 6))
-  ].filter(Boolean);
-
-  for (const node of candidates) {
-    if (node.matches?.(sel(reader().metaContainer))) {
-      return node;
-    }
-    if (node.querySelector?.(".view-text")) {
-      return node;
-    }
-  }
-
-  return null;
-}
-
-function findReaderContentHost(playerHost = state.readingPlayerHost, titleNode = findReaderTitleContainer()) {
-  if (!playerHost && !titleNode) {
-    return null;
-  }
-
-  let current = titleNode || playerHost;
-  while (current && current !== document.body) {
-    const containsPlayer = playerHost ? current.contains(playerHost) : true;
-    const containsTitle = titleNode ? current.contains(titleNode) : true;
-    if (containsPlayer && containsTitle) {
-      return current;
-    }
-    current = current.parentElement;
-  }
-
-  return playerHost?.parentElement || titleNode?.parentElement || null;
-}
-
-function moveRootToReaderContentHost() {
-  return;
-}
-
-function restoreRootMount() {
-  return;
-}
-
 function dismissReaderMiniPlayer(playerHost = state.readingPlayerHost) {
   const explicitClose = Array.from(document.querySelectorAll(sel(reader().miniClose))).find(isVisibleReaderControl);
   if (explicitClose) {
@@ -3123,7 +2876,7 @@ function getReaderPlayerControlsState(playerHost = state.readingPlayerHost) {
 }
 
 function hasReaderPlayerControlsIssue(playerHost = state.readingPlayerHost) {
-  if (!state.readingNativePageMode || !playerHost || isWatchlaterPage()) {
+  if (!state.readingViewOpen || !playerHost || isWatchlaterPage()) {
     return false;
   }
 
@@ -3136,7 +2889,7 @@ function queueEnsureReaderPlayerControlsRecovered({
   delayMs = 120,
   minIntervalMs = 480
 } = {}) {
-  if (!state.readingViewOpen || !state.readingNativePageMode || isWatchlaterPage()) {
+  if (!state.readingViewOpen || isWatchlaterPage()) {
     return;
   }
   const playerHost = state.readingPlayerHost;
@@ -3154,7 +2907,7 @@ function queueEnsureReaderPlayerControlsRecovered({
 
   state.readingControlsRecoveryTimer = window.setTimeout(() => {
     state.readingControlsRecoveryTimer = 0;
-    if (!state.readingViewOpen || !state.readingNativePageMode || isWatchlaterPage()) {
+    if (!state.readingViewOpen || isWatchlaterPage()) {
       return;
     }
     const activeHost = state.readingPlayerHost;
@@ -3178,7 +2931,7 @@ function queueEnsureReaderPlayerControlsRecovered({
 }
 
 function setReaderPlayerControlsVisible(visible, playerHost = state.readingPlayerHost) {
-  if (!state.readingNativePageMode || !playerHost) {
+  if (!state.readingViewOpen || !playerHost) {
     return;
   }
 
@@ -3228,7 +2981,7 @@ async function ensureReaderPlayerControlsRecovered(
   playerHost = state.readingPlayerHost,
   { reason = "unknown", retryDelayMs = 90 } = {}
 ) {
-  if (!state.readingNativePageMode || !playerHost || isWatchlaterPage()) {
+  if (!state.readingViewOpen || !playerHost || isWatchlaterPage()) {
     return false;
   }
 
@@ -3296,7 +3049,7 @@ function scheduleReaderPlayerControlsHide(playerHost = state.readingControlsHove
 }
 
 function bindReaderPlayerControlsHover(playerHost = state.readingPlayerHost) {
-  if (!state.readingNativePageMode || !isWatchlaterPage() || !playerHost) {
+  if (!state.readingViewOpen || !isWatchlaterPage() || !playerHost) {
     return;
   }
 
@@ -3619,52 +3372,12 @@ function findPlayerAiQuickActionHost() {
 }
 
 function buildPlayerAiQuickActionIconSvg() {
-  const variants = {
-    badge: `
+  return `
       <svg viewBox="0 0 132 132" focusable="false" aria-hidden="true" data-ai-icon="badge">
         <path stroke-width="8.25" d="M22 90.7494C22 99.8618 29.3873 107.249 38.5 107.249C38.5 114.843 44.6561 120.999 52.25 120.999C59.8438 120.999 66 114.843 66 107.249C66 114.843 72.1562 120.999 79.75 120.999C87.3438 120.999 93.5 114.843 93.5 107.249C102.613 107.249 110 99.8613 110 90.7489C110 87.621 109.13 84.6967 107.618 82.2046C115.24 80.7466 121 74.0454 121 65.9989C121 57.9518 115.24 51.2507 107.618 49.7929C109.13 47.3006 110 44.3763 110 41.2487C110 32.1359 102.613 24.7487 93.5 24.7487C93.5 17.1547 87.3438 10.9987 79.75 10.9987C72.1562 10.9987 66 17.1552 66 24.7492C66 17.1552 59.8438 10.9992 52.25 10.9992C44.6561 10.9992 38.5 17.1552 38.5 24.7492C29.3873 24.7492 22 32.1365 22 41.2492C22 44.3768 22.8702 47.3012 24.3817 49.7934C16.76 51.2512 11 57.9524 11 65.9994C11 74.0459 16.76 80.7471 24.3817 82.2052C22.8702 84.6972 22 87.6216 22 90.7494Z"></path>
         <path stroke-width="8.25" d="M41.25 79.7494L51.3804 49.3582C51.8997 47.8002 53.3577 46.7493 55 46.7493C56.6423 46.7493 58.1004 47.8002 58.6196 49.3582L68.75 79.7494M85.25 46.7493V79.7494M46.75 68.7494H63.25"></path>
       </svg>
-    `,
-    sparkles: `
-      <svg viewBox="0 0 24 24" focusable="false" aria-hidden="true" data-ai-icon="sparkles">
-        <path stroke-width="1.8" d="M12 3.6l1.84 4.96 4.96 1.84-4.96 1.84L12 17.2l-1.84-4.96L5.2 10.4l4.96-1.84L12 3.6z"></path>
-        <path stroke-width="1.8" d="M18.2 3.8l.64 1.72 1.72.64-1.72.64-.64 1.72-.64-1.72-1.72-.64 1.72-.64.64-1.72z"></path>
-        <path stroke-width="1.8" d="M18 14.2l.48 1.28 1.28.48-1.28.48-.48 1.28-.48-1.28-1.28-.48 1.28-.48.48-1.28z"></path>
-      </svg>
-    `,
-    nodes: `
-      <svg viewBox="0 0 24 24" focusable="false" aria-hidden="true" data-ai-icon="nodes">
-        <circle stroke-width="1.8" cx="7" cy="8" r="2.1"></circle>
-        <circle stroke-width="1.8" cx="17" cy="7" r="2.1"></circle>
-        <circle stroke-width="1.8" cx="12" cy="16.8" r="2.1"></circle>
-        <path stroke-width="1.8" d="M8.8 8.7l2.4 5.2"></path>
-        <path stroke-width="1.8" d="M15.2 7.8l-2.2 5.8"></path>
-        <path stroke-width="1.8" d="M8.9 8.1h5.9"></path>
-      </svg>
-    `,
-    chip: `
-      <svg viewBox="0 0 24 24" focusable="false" aria-hidden="true" data-ai-icon="chip">
-        <rect stroke-width="1.8" x="7.2" y="7.2" width="9.6" height="9.6" rx="2.1"></rect>
-        <path stroke-width="1.8" d="M10 10h4"></path>
-        <path stroke-width="1.8" d="M10 12h4"></path>
-        <path stroke-width="1.8" d="M10 14h2.8"></path>
-        <path stroke-width="1.8" d="M9 4.8v2"></path>
-        <path stroke-width="1.8" d="M12 4.8v2"></path>
-        <path stroke-width="1.8" d="M15 4.8v2"></path>
-        <path stroke-width="1.8" d="M9 17.2v2"></path>
-        <path stroke-width="1.8" d="M12 17.2v2"></path>
-        <path stroke-width="1.8" d="M15 17.2v2"></path>
-        <path stroke-width="1.8" d="M4.8 9h2"></path>
-        <path stroke-width="1.8" d="M4.8 12h2"></path>
-        <path stroke-width="1.8" d="M4.8 15h2"></path>
-        <path stroke-width="1.8" d="M17.2 9h2"></path>
-        <path stroke-width="1.8" d="M17.2 12h2"></path>
-        <path stroke-width="1.8" d="M17.2 15h2"></path>
-      </svg>
-    `
-  };
-  return variants[PLAYER_AI_ICON_VARIANT] || variants.badge;
+  `;
 }
 
 function syncPlayerAiQuickActionVisuals(button) {
@@ -3755,7 +3468,7 @@ function normalizeReaderPlayerContainer(playerHost = state.readingPlayerHost) {
       hasFloatingPosition ||
       /mini|picture|float|fixed-player/i.test(className) ||
       current.matches?.(sel(reader().miniPlayer));
-    const shouldReset = state.readingNativePageMode
+    const shouldReset = state.readingViewOpen
       ? Boolean(isExplicitMiniNode || (isPlayerLayoutNode && isMiniLike))
       : isPlayerLayoutNode || isMiniLike;
 
@@ -3855,9 +3568,7 @@ function syncReadingViewPlayback(forceScroll = false) {
     return;
   }
 
-  if (state.readingNativePageMode) {
-    layoutReaderPlayerHost();
-  }
+  layoutReaderPlayerHost();
 
   const runtimeVideo = getRuntimeVideoElement();
   const runtimeHost = findReaderPlayerHost(runtimeVideo);
@@ -3986,7 +3697,7 @@ function scrollReadingTranscriptItemIntoView(node) {
   const behavior = state.readingNextScrollBehavior === "auto" ? "auto" : "smooth";
   state.readingProgrammaticScrollUntil = Date.now() + (behavior === "auto" ? 120 : 800);
   state.readingNextScrollBehavior = "smooth";
-  if (state.readingNativePageMode && inlineHost && inlineHost.scrollHeight > inlineHost.clientHeight + 8) {
+  if (inlineHost && inlineHost.scrollHeight > inlineHost.clientHeight + 8) {
     const hostRect = inlineHost.getBoundingClientRect();
     const computed = window.getComputedStyle(node);
     const lineHeight = Number.parseFloat(computed.lineHeight) || itemRect.height || 32;
@@ -3999,20 +3710,10 @@ function scrollReadingTranscriptItemIntoView(node) {
     });
     return;
   }
-  if (state.readingNativePageMode || transcriptList.scrollHeight <= transcriptList.clientHeight + 8) {
-    const desiredTop = listRect.top + Math.max(72, Math.min(listRect.height * 0.24, 220));
-    const nextTop = window.scrollY + itemRect.top - desiredTop;
-    window.scrollTo({
-      top: Math.max(0, Math.round(nextTop)),
-      behavior
-    });
-    return;
-  }
-
-  const targetScrollTop =
-    transcriptList.scrollTop + (itemRect.top - listRect.top) - Math.max(48, Math.min(listRect.height * 0.24, 180));
-  transcriptList.scrollTo({
-    top: Math.max(0, Math.round(targetScrollTop)),
+  const desiredTop = listRect.top + Math.max(72, Math.min(listRect.height * 0.24, 220));
+  const nextTop = window.scrollY + itemRect.top - desiredTop;
+  window.scrollTo({
+    top: Math.max(0, Math.round(nextTop)),
     behavior
   });
 }
@@ -4379,7 +4080,8 @@ function buildSubtitleCandidates(subtitles, preferred) {
   return list;
 }
 
-async function tryLoadSubtitleCandidates(candidates, runId, forceRefresh) {
+// A refresh always goes to the network so an old cache entry cannot misalign the subtitles.
+async function tryLoadSubtitleCandidates(candidates, runId) {
   let lastError = null;
   for (const item of candidates || []) {
     try {
@@ -4395,7 +4097,7 @@ async function tryLoadSubtitleCandidates(candidates, runId, forceRefresh) {
         item.label || item.lang || "unknown",
         runId,
         item.id,
-        forceRefresh
+        true
       );
       return item;
     } catch (error) {
