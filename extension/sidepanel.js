@@ -50,9 +50,8 @@ const DEFAULT_AI_PREFS = {
 let contextData = null;
 let currentContextKey = "";
 let providers = [];
-let activePort = null;
-let activeAssistantNode = null;
-let activeUserPrompt = "";
+let activeStream = null;
+let sendPending = false;
 let chatHistory = [];
 let suggestionsNode = null;
 let aiPrefs = { ...DEFAULT_AI_PREFS };
@@ -264,7 +263,7 @@ function renderModelSelect(preferredProviderId = "") {
 async function refreshProvidersAndPrefsAfterExternalChange() {
   const previousProviderId = String(els.modelSelect?.value || localStorage.getItem(SELECTED_PROVIDER_KEY) || "").trim();
   await loadProvidersAndPrefs({ preferredProviderId: previousProviderId });
-  if (activePort) {
+  if (activeStream) {
     return;
   }
   renderHistoryList();
@@ -423,7 +422,7 @@ async function loadContextState({ forceRefresh = false, silent = false, follow =
     }
     updateContextChip();
     if (!silent && !hasPinnedConversation) {
-      resetConversationView(resp?.error || "当前页面上下文读取失败。");
+      resetConversationView(escapeHtml(resp?.error || "当前页面上下文读取失败。"));
     }
     return false;
   }
@@ -435,7 +434,7 @@ async function loadContextState({ forceRefresh = false, silent = false, follow =
     lastLiveVideoKey = liveContextKey;
   }
   if (follow && isFollowCandidate(followFromKey)) {
-    if (activePort) {
+    if (activeStream) {
       // 正在生成回复：记下切换，等 done/stopped/error 后再切，不打断流
       pendingFollowFromKey = pendingFollowFromKey || followFromKey;
       renderHistoryList();
@@ -1101,7 +1100,7 @@ async function syncLiveContextState(forceRefresh = false) {
   if (ok === FOLLOWED_LIVE_VIDEO) {
     return;
   }
-  if (currentConversationMeta?.pinnedContext || activePort || activeUserPrompt) {
+  if (currentConversationMeta?.pinnedContext || activeStream) {
     updateContextChip();
     return;
   }
@@ -1128,7 +1127,7 @@ function isFollowCandidate(fromKey) {
 }
 
 function runPendingFollowSwitch() {
-  if (!pendingFollowFromKey || activePort) {
+  if (!pendingFollowFromKey || activeStream) {
     return;
   }
   const fromKey = pendingFollowFromKey;
@@ -1382,7 +1381,6 @@ function renderConversationMessages() {
     }
     const node = document.createElement("div");
     node.className = "sp-msg sp-msg-assistant";
-    node.dataset.raw = String(message.content || "");
     renderAssistantMessage(node, String(message.content || ""), {
       userPrompt: findPreviousUserPrompt(index)
     });
@@ -1687,7 +1685,8 @@ async function resolveConversationContext(contextRef) {
 
 async function sendMessage() {
   const text = els.input.value.trim();
-  if (!text || activePort) {
+  // sendPending closes the window while the context loads, when a second Enter or chip click would send twice.
+  if (!text || activeStream || sendPending) {
     return;
   }
   hidePresetPopover();
@@ -1699,20 +1698,19 @@ async function sendMessage() {
     return;
   }
 
-  const hasContext = await ensureCurrentContextForSend();
-  if (!hasContext) {
+  sendPending = true;
+  let hasContext = false;
+  try {
+    hasContext = await ensureCurrentContextForSend();
+  } finally {
+    sendPending = false;
+  }
+  if (!hasContext || activeStream) {
     return;
   }
   if (!currentConversationMeta?.pinnedContext && currentConversationMeta?.contextKey && currentConversationMeta.contextKey !== currentContextKey) {
     currentConversationId = "";
     currentConversationMeta = null;
-  }
-
-  if (activePort) {
-    try {
-      activePort.disconnect();
-    } catch {}
-    activePort = null;
   }
 
   suggestionsNode?.remove();
@@ -1722,36 +1720,45 @@ async function sendMessage() {
   appendUserMessage(text);
   els.input.value = "";
   autosizeInput();
+  const stream = {
+    port: chrome.runtime.connect({ name: "sidepanel-chat" }),
+    node: appendAssistantPlaceholder(),
+    prompt: text,
+    raw: "",
+    notice: "",
+    frame: 0,
+    ended: false
+  };
+  activeStream = stream;
   setStreamingUiState(true);
-  activeUserPrompt = text;
-  activeAssistantNode = appendAssistantPlaceholder();
   startStreamSlowNoticeTimer();
-  streamFirstTokenReceived = false;
 
-  activePort = chrome.runtime.connect({ name: "sidepanel-chat" });
-  activePort.onMessage.addListener((msg) => {
-    if (!msg) {
+  stream.port.onMessage.addListener((msg) => {
+    if (!msg || stream.ended) {
       return;
     }
     if (msg.type === "token") {
       handleFirstStreamToken();
-      appendToken(activeAssistantNode, msg.data);
+      stream.raw += String(msg.data || "");
+      scheduleStreamRender(stream);
+    } else if (msg.type === "notice") {
+      stream.notice = String(msg.text || "");
     } else if (msg.type === "done") {
-      finalizeAssistant(activeAssistantNode);
+      endStream(stream);
     } else if (msg.type === "stopped") {
-      handleAssistantStopped(activeAssistantNode, msg.reason || "已停止生成");
+      endStream(stream, { stopped: msg.reason || "已停止生成" });
     } else if (msg.type === "error") {
-      showAssistantError(activeAssistantNode, msg.error || "未知错误");
+      endStream(stream, { error: msg.error || "未知错误" });
     }
   });
-  activePort.onDisconnect.addListener(() => {
-    clearStreamRuntimeState();
-    setStreamingUiState(false);
-    activePort = null;
-    runPendingFollowSwitch();
+  // Only the background end can trigger this: the extension reloaded or the service worker died mid-reply.
+  stream.port.onDisconnect.addListener(() => {
+    if (!stream.ended) {
+      endStream(stream, { error: "连接中断：扩展可能已重新加载，可重试" });
+    }
   });
 
-  activePort.postMessage({
+  stream.port.postMessage({
     action: "chat",
     providerId,
     context: {
@@ -1777,7 +1784,6 @@ function appendUserMessage(text, shouldScroll = true) {
 function appendAssistantPlaceholder() {
   const node = document.createElement("div");
   node.className = "sp-msg sp-msg-assistant";
-  node.dataset.raw = "";
   const cursor = document.createElement("span");
   cursor.className = "sp-msg-cursor";
   node.appendChild(cursor);
@@ -1787,34 +1793,57 @@ function appendAssistantPlaceholder() {
   return node;
 }
 
-function appendToken(node, token) {
-  if (!node) {
+// Rendering the whole markdown per token is quadratic in the reply length, so render at most once per frame.
+function scheduleStreamRender(stream) {
+  if (stream.frame) {
     return;
   }
-  const raw = (node.dataset.raw || "") + String(token || "");
-  node.dataset.raw = raw;
-  node.innerHTML = renderMarkdown(raw) + '<span class="sp-msg-cursor"></span>';
-  scrollToBottom();
+  stream.frame = window.requestAnimationFrame(() => {
+    stream.frame = 0;
+    if (stream.ended) {
+      return;
+    }
+    stream.node.innerHTML = renderMarkdown(stream.raw) + '<span class="sp-msg-cursor"></span>';
+    scrollToBottom();
+  });
 }
 
-function finalizeAssistant(node) {
-  if (!node) {
+function closeStream(stream) {
+  stream.ended = true;
+  window.cancelAnimationFrame(stream.frame);
+  stream.frame = 0;
+  try {
+    stream.port.disconnect();
+  } catch {}
+}
+
+// Every way a reply ends lands here. A partial answer is kept and saved, also when the stream fails.
+function endStream(stream, { stopped = "", error = "" } = {}) {
+  closeStream(stream);
+  if (stream !== activeStream) {
     return;
   }
+  activeStream = null;
   clearStreamRuntimeState();
-  const raw = node.dataset.raw || "";
-  renderAssistantMessage(node, raw, { userPrompt: activeUserPrompt });
-  if (activeUserPrompt && raw) {
-    chatHistory.push({ role: "user", content: activeUserPrompt });
-    chatHistory.push({ role: "assistant", content: raw });
-    activeUserPrompt = "";
+  const { node, prompt, raw } = stream;
+  const saved = Boolean(raw.trim());
+  if (saved || !(stopped || error)) {
+    renderAssistantMessage(node, raw, { userPrompt: prompt });
+  } else {
+    node.innerHTML = "";
+  }
+  if (saved) {
+    chatHistory.push({ role: "user", content: prompt }, { role: "assistant", content: raw });
     void persistCurrentConversation();
   }
-  if (activePort) {
-    try {
-      activePort.disconnect();
-    } catch {}
-    activePort = null;
+  [stopped, stream.notice].filter(Boolean).forEach((text) => {
+    const note = document.createElement("div");
+    note.className = "sp-msg-stopped";
+    note.textContent = text;
+    node.appendChild(note);
+  });
+  if (error) {
+    appendStreamError(stream, error, saved);
   }
   setStreamingUiState(false);
   els.input.focus();
@@ -1822,12 +1851,7 @@ function finalizeAssistant(node) {
   runPendingFollowSwitch();
 }
 
-function showAssistantError(node, error) {
-  if (!node) {
-    return;
-  }
-  clearStreamRuntimeState();
-  node.innerHTML = "";
+function appendStreamError({ node, prompt, raw }, error, saved) {
   const err = document.createElement("div");
   err.className = "sp-msg-error";
   err.textContent = `错误：${error}`;
@@ -1847,72 +1871,29 @@ function showAssistantError(node, error) {
     });
     node.appendChild(grant);
   }
-  const prompt = activeUserPrompt;
-  if (prompt) {
-    const retry = document.createElement("button");
-    retry.type = "button";
-    retry.className = "sp-chip sp-grant-btn";
-    retry.textContent = "重试";
-    retry.addEventListener("click", () => {
-      if (activePort) return;
-      els.input.value = prompt;
-      void sendMessage();
-    });
-    node.appendChild(retry);
-  }
-  activeUserPrompt = "";
-  if (activePort) {
-    try {
-      activePort.disconnect();
-    } catch {}
-    activePort = null;
-  }
-  setStreamingUiState(false);
-  els.input.focus();
-  scrollToBottom();
-  runPendingFollowSwitch();
-}
-
-function handleAssistantStopped(node, reason) {
-  if (!node) {
-    return;
-  }
-  clearStreamRuntimeState();
-  const raw = String(node.dataset.raw || "");
-  if (raw.trim()) {
-    renderAssistantMessage(node, raw, { userPrompt: activeUserPrompt });
-    const stopped = document.createElement("div");
-    stopped.className = "sp-msg-stopped";
-    stopped.textContent = reason || "已停止生成";
-    node.appendChild(stopped);
-    if (activeUserPrompt) {
-      chatHistory.push({ role: "user", content: activeUserPrompt });
-      chatHistory.push({ role: "assistant", content: raw });
-      activeUserPrompt = "";
-      void persistCurrentConversation();
+  const retry = document.createElement("button");
+  retry.type = "button";
+  retry.className = "sp-chip sp-grant-btn";
+  retry.textContent = "重试";
+  // The retry replaces the failed turn instead of repeating the question below it.
+  retry.addEventListener("click", () => {
+    if (activeStream || sendPending) return;
+    const last = chatHistory.length - 2;
+    if (saved && chatHistory[last]?.content === prompt && chatHistory[last + 1]?.content === raw) {
+      chatHistory.splice(last, 2);
     }
-  } else {
-    node.innerHTML = "";
-    const stopped = document.createElement("div");
-    stopped.className = "sp-msg-stopped";
-    stopped.textContent = reason || "已停止生成";
-    node.appendChild(stopped);
-    activeUserPrompt = "";
-  }
-  if (activePort) {
-    try {
-      activePort.disconnect();
-    } catch {}
-    activePort = null;
-  }
-  setStreamingUiState(false);
-  els.input.focus();
-  scrollToBottom();
-  runPendingFollowSwitch();
+    if (node.previousElementSibling?.classList.contains("sp-msg-user")) {
+      node.previousElementSibling.remove();
+    }
+    node.remove();
+    els.input.value = prompt;
+    void sendMessage();
+  });
+  node.appendChild(retry);
 }
 
 function stopActiveStream() {
-  if (!activePort) {
+  if (!activeStream) {
     return;
   }
   if (els.stopBtn) {
@@ -1920,11 +1901,9 @@ function stopActiveStream() {
     els.stopBtn.textContent = "停止中...";
   }
   try {
-    activePort.postMessage({ action: "stop" });
+    activeStream.port.postMessage({ action: "stop" });
   } catch {
-    try {
-      activePort.disconnect();
-    } catch {}
+    endStream(activeStream, { stopped: "已停止生成" });
   }
 }
 
@@ -1932,7 +1911,7 @@ function startStreamSlowNoticeTimer() {
   clearStreamRuntimeState();
   streamFirstTokenReceived = false;
   streamSlowNoticeTimer = window.setTimeout(() => {
-    if (!activePort || streamFirstTokenReceived) {
+    if (!activeStream || streamFirstTokenReceived) {
       return;
     }
     showConversationContextNotice("模型响应较慢，仍在等待服务器返回...", 0);
@@ -2639,15 +2618,10 @@ function formatSecondsAsTimestamp(seconds) {
 
 function restartChat({ keepContext = false } = {}) {
   clearStreamRuntimeState();
-  if (activePort) {
-    try {
-      activePort.disconnect();
-    } catch {}
-    activePort = null;
+  if (activeStream) {
+    closeStream(activeStream);
+    activeStream = null;
   }
-
-  activeAssistantNode = null;
-  activeUserPrompt = "";
   chatHistory = [];
   currentConversationId = "";
   currentConversationMeta = null;
