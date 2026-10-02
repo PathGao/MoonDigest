@@ -90,13 +90,16 @@
       </section>
 
       <section class="tier">
-        <h2 class="tier-title">进阶 1 · 收藏夹批量阅览（仅 B 站）</h2>
+        <div class="tier-head">
+          <h2 class="tier-title">进阶 1 · 收藏夹批量阅览（仅 B 站）</h2>
+          <button id="openTriageBtn" class="secondary-btn" type="button">打开收藏夹分拣台</button>
+        </div>
         <p class="tier-desc">把一个收藏夹里的视频批量交给 AI 粗分和细看，连起来读，判断哪些值得看。</p>
-        <button id="openTriageBtn" class="secondary-btn" type="button">打开收藏夹分拣台</button>
 
         <section class="field-group">
           <h2>分拣设置</h2>
           <p class="hint">与分拣台里的“设置”是同一份，改哪边都一样。</p>
+          <p class="hint">标题粗分：只看标题和简介，几十个一批，快、省钱，分成 建议删 / 建议留 / 待定。<br />字幕细看：读字幕（没有字幕时读简介和评论），一次一个视频，慢一些，给出一句话总结、3 个要点、判断和建议标签。</p>
           <label for="triageCriteria">判断标准</label>
           <textarea id="triageCriteria" class="settings-textarea" placeholder="例如：我关注 AI 工程实践与产品方法，娱乐和纯资讯类不感兴趣。"></textarea>
           <div class="field-grid">
@@ -108,19 +111,26 @@
               <label for="triageTitleBatchSize">标题粗分每批数量</label>
               <input id="triageTitleBatchSize" type="number" min="1" max="100" step="1" />
             </div>
-            <div>
-              <label for="triageTitleMaxTokens">粗分输出上限（每批 token）</label>
-              <input id="triageTitleMaxTokens" type="number" min="0" max="32000" step="1" placeholder="自动" />
-            </div>
-            <div>
-              <label for="triageAnalyzeMaxTokens">细看输出上限（每个 token）</label>
-              <input id="triageAnalyzeMaxTokens" type="number" min="0" max="32000" step="1" placeholder="自动" />
-            </div>
           </div>
-          <label class="checkbox">
+          <label class="checkbox checkbox-tight">
             <input id="triageThinking" type="checkbox" />
-            开启思考（更细但慢约 6 倍，目前只对 DeepSeek 生效）
+            开启思考
           </label>
+          <p class="hint">关：快、省（30 个标题约 3 秒）。开：判断更细，但慢约 6 倍、费约 5 倍 token。目前只对 DeepSeek 生效。</p>
+          <details class="advanced">
+            <summary>高级（一般不用改）</summary>
+            <p class="hint">留空就是自动。只有提示“输出被截断”时才需要调大。</p>
+            <div class="field-grid">
+              <div>
+                <label for="triageTitleMaxTokens">粗分输出上限（token）</label>
+                <input id="triageTitleMaxTokens" type="number" min="0" max="32000" step="1" placeholder="自动" />
+              </div>
+              <div>
+                <label for="triageAnalyzeMaxTokens">细看输出上限（token）</label>
+                <input id="triageAnalyzeMaxTokens" type="number" min="0" max="32000" step="1" placeholder="自动" />
+              </div>
+            </div>
+          </details>
         </section>
 
         <div class="action-row">

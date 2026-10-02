@@ -111,7 +111,7 @@ const el = {};
   "tabs", "tagFilter", "manageTagsBtn", "listHeader", "list", "basket", "basketToggle", "basketCount",
   "basketList", "copyMdBtn", "exportBtn", "toast", "settingsDialog", "criteriaInput", "intervalInput",
   "batchSizeInput", "exportFolderInput", "openOptionsBtn", "aiDebugTitle", "thinkingInput", "titleMaxInput",
-  "titleMaxHint", "analyzeMaxInput", "analyzeMaxHint", "settingsError", "backupBtn", "csvBtn", "confirmDialog",
+  "titleMaxHint", "advancedTokens", "analyzeMaxInput", "analyzeMaxHint", "settingsError", "backupBtn", "csvBtn", "confirmDialog",
   "confirmTitle", "confirmBody", "confirmOk", "pickerDialog", "pickerTitle", "pickerInput", "pickerList",
   "tagsDialog", "tagsRows", "newTagInput", "addTagBtn", "helpDialog", "presetNameInput", "savePresetBtn",
   "presetRows", "aiBtn", "aiDialog", "aiForm", "aiScope", "aiPreset", "aiScopeCount", "aiInstruction", "aiHistory",
@@ -1918,6 +1918,7 @@ function bindEvents() {
     if (bad.length) {
       e.preventDefault();
       el.settingsError.textContent = "输出上限需为整数：0 或留空表示自动，否则在 200–32000 之间";
+      el.advancedTokens.open = true;
       bad[0].focus();
     }
   });
@@ -2171,6 +2172,7 @@ function openSettings(scrollToAi = false) {
   renderTokenHints();
   el.settingsDialog.returnValue = "";
   el.settingsDialog.showModal();
+  el.advancedTokens.open = scrollToAi;
   if (scrollToAi) el.aiDebugTitle.scrollIntoView({ block: "start" });
 }
 

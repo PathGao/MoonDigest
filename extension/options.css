@@ -764,3 +764,27 @@ ol {
     grid-column: 1 / -1;
   }
 }
+
+.tier-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 12px;
+  margin-bottom: 4px;
+}
+
+.tier-head .tier-title {
+  margin: 0;
+}
+
+.checkbox-tight {
+  margin-bottom: 2px;
+}
+
+.advanced summary {
+  cursor: pointer;
+  color: #4b5563;
+  font-size: 13px;
+  margin-bottom: 8px;
+}

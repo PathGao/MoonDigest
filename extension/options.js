@@ -458,6 +458,8 @@ function applyValidationError(validation) {
   clearInputErrors();
   if (validation?.field) {
     validation.field.classList.add("input-error");
+    const details = validation.field.closest("details");
+    if (details) details.open = true;
     validation.field.focus();
   }
   if (validation?.row) {

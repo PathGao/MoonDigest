@@ -354,3 +354,6 @@ dialog.wide { width: min(880px, calc(100% - 32px)); }
 .preset-row .row { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
 .preset-row textarea { width: 100%; resize: vertical; font-size: 12px; }
 .tag-row input[data-field="description"] { flex-basis: 100%; }
+.advanced summary { cursor: pointer; font-size: 12px; color: var(--muted); }
+.advanced > :not(summary) { display: block; margin-top: 6px; }
+.advanced input { width: 100%; box-sizing: border-box; }
