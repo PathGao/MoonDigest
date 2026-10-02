@@ -392,6 +392,7 @@ function ensureUiReady({ forceRecreate = false } = {}) {
     root.id = ids.root;
     root.innerHTML = buildUiHtml();
     document.body.appendChild(root);
+    document.documentElement.dataset.bocSite = currentSite()?.id || "";
     state.uiEventsBound = false;
   }
 
