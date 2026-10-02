@@ -20,6 +20,7 @@ const els = {
   presetBtn: document.getElementById("spPresetBtn"),
   historyBtn: document.getElementById("spHistoryBtn"),
   saveConversationBtn: document.getElementById("spSaveConversationBtn"),
+  copyConversationBtn: document.getElementById("spCopyConversationBtn"),
   presetPopover: document.getElementById("spPresetPopover"),
   presetList: document.getElementById("spPresetList"),
   presetInput: document.getElementById("spPresetInput"),
@@ -127,6 +128,9 @@ function bindEvents() {
   els.historyBtn.addEventListener("click", toggleHistoryPopover);
   els.saveConversationBtn?.addEventListener("click", () => {
     void saveCurrentConversationToObsidian();
+  });
+  els.copyConversationBtn?.addEventListener("click", () => {
+    void copyCurrentConversationMarkdown();
   });
   els.historyClearBtn?.addEventListener("click", () => {
     void clearAllConversations();
@@ -2045,9 +2049,34 @@ async function saveAssistantReplyToObsidian({ button, userPrompt, assistantMarkd
   });
 }
 
-async function saveCurrentConversationToObsidian() {
+// The same note feeds the Obsidian save and the clipboard copy.
+function buildCurrentConversationNote() {
   const turns = buildConversationTurns(chatHistory);
   if (!turns.length) {
+    return null;
+  }
+  const context = currentConversationMeta?.resolvedContext || contextData || currentConversationMeta?.contextRef || {};
+  const filename = buildAiConversationFilename(context);
+  return { context, filename, content: buildAiConversationMarkdown({ context, turns, filename }) };
+}
+
+async function copyCurrentConversationMarkdown() {
+  const note = buildCurrentConversationNote();
+  if (!note) {
+    showConversationContextNotice("当前没有可复制的对话。", 2200);
+    return;
+  }
+  try {
+    await navigator.clipboard.writeText(note.content);
+    showConversationContextNotice("已复制对话 Markdown。", 2200);
+  } catch (error) {
+    showConversationContextNotice(`复制失败：${getErrorMessage(error)}`, 3000);
+  }
+}
+
+async function saveCurrentConversationToObsidian() {
+  const note = buildCurrentConversationNote();
+  if (!note) {
     showConversationContextNotice("当前没有可保存的历史对话。", 2200);
     return;
   }
@@ -2057,20 +2086,13 @@ async function saveCurrentConversationToObsidian() {
     return;
   }
 
-  const context = currentConversationMeta?.resolvedContext || contextData || currentConversationMeta?.contextRef || {};
-  const filename = buildAiConversationFilename(context);
-  const folder = resolveFolderTemplate(settingsBundle.settings.noteFolder || "", context);
-  const filepath = folder ? `${folder}/${filename}` : filename;
-  const noteContent = buildAiConversationMarkdown({
-    context,
-    turns,
-    filename
-  });
+  const folder = resolveFolderTemplate(settingsBundle.settings.noteFolder || "", note.context);
+  const filepath = folder ? `${folder}/${note.filename}` : note.filename;
 
   await saveMarkdownToObsidian({
     button: els.saveConversationBtn,
     filepath,
-    content: noteContent,
+    content: note.content,
     baseUrl: settingsBundle.baseUrl,
     apiKey: settingsBundle.apiKey
   });
