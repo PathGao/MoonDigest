@@ -1,10 +1,18 @@
-# BiliDigest · B站收藏夹 AI 分拣台
+# MoonDigest · 月团视频摘读
 
-Chrome 插件。用 AI 快速看懂大量 B 站收藏，决定删、留还是打标签，把有价值的要点摘出来导出。
+Chrome 插件。在 B 站和 YouTube 视频页抓字幕，用 AI 总结和问答，一键存进 Obsidian。另带一个 B 站收藏夹 AI 分拣台：快速看懂大量收藏，决定删、留还是打标签，把有价值的要点摘出来导出。
+
+原名 BiliDigest，2026-10 支持 YouTube 后改名。
 
 所有数据只存在你自己的浏览器里，不经过任何第三方服务器。
 
 ## 功能
+
+- **字幕剪藏（B 站、YouTube）**：预览字幕，复制 Markdown，下载 SRT/TXT，或写入 Obsidian。笔记带清理后的原链接、封面、作者主页、时长、发布日期、视频标签和章节；写入 Obsidian 时封面会存进库里的 `attachments/`。
+- **AI 侧栏**：基于字幕对当前视频问答，切换视频时可自动跟随。
+- **阅读视图**：字幕与播放器同步滚动，点句子跳转。
+
+收藏夹分拣台（仅 B 站）：
 
 - **两段式 AI 分拣**
   - 标题粗分：一次把几十个标题交给 AI，分成建议删、建议留、待定。
@@ -30,7 +38,7 @@ Chrome 插件。用 AI 快速看懂大量 B 站收藏，决定删、留还是打
 
 ## 使用
 
-点插件图标 → "打开 BiliDigest 分拣台" → 选择收藏夹 → "标题粗分" → "细看这一组"。
+点插件图标 → "打开 B 站收藏夹分拣台" → 选择收藏夹 → "标题粗分" → "细看这一组"。
 
 | 按键 | 作用 |
 |---|---|
@@ -55,7 +63,7 @@ Chrome 插件。用 AI 快速看懂大量 B 站收藏，决定删、留还是打
 ## 来源与许可
 
 - 基于 [haixiong1997/Bilibili-Obsidian-Clipper](https://github.com/haixiong1997/Bilibili-Obsidian-Clipper)（MIT）二次开发，目前仍保留原插件的字幕面板、AI 侧边栏、阅读视图等功能。
-- 与同名项目 [JackMeds/BiliDigest](https://github.com/JackMeds/BiliDigest)（Python 命令行工具）无关，未使用其代码。
+- 原名 BiliDigest 时，与同名项目 [JackMeds/BiliDigest](https://github.com/JackMeds/BiliDigest)（Python 命令行工具）无关，未使用其代码。
 - 许可证：MIT，见 [LICENSE](LICENSE)。
 
 ## 免责声明

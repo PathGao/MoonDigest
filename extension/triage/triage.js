@@ -1772,7 +1772,7 @@ function bindEvents() {
   el.openOptionsBtn.addEventListener("click", () => send({ type: "open-options" }));
   el.backupBtn.addEventListener("click", async () => {
     try {
-      downloadText(`BiliDigest备份-${stamp()}.json`, JSON.stringify(await buildBackup(), null, 2), "application/json");
+      downloadText(`MoonDigest备份-${stamp()}.json`, JSON.stringify(await buildBackup(), null, 2), "application/json");
     } catch (err) {
       toast(`导出备份失败：${err.message}`, true);
     }
@@ -1783,7 +1783,7 @@ function bindEvents() {
       return;
     }
     const title = (S.folders.find((f) => String(f.id) === S.mediaId)?.title || S.mediaId).replace(/[\\/:*?"<>|]/g, "_");
-    downloadText(`BiliDigest-${title}-${stamp(new Date(), false)}.csv`, buildCsv(), "text/csv;charset=utf-8");
+    downloadText(`MoonDigest-${title}-${stamp(new Date(), false)}.csv`, buildCsv(), "text/csv;charset=utf-8");
   });
   el.helpBtn.addEventListener("click", () => el.helpDialog.showModal());
 

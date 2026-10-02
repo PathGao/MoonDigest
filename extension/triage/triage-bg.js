@@ -1,4 +1,4 @@
-// BiliDigest 收藏夹分拣台 background 层。classic script，由 background.js 末尾 importScripts 加载，
+// MoonDigest 收藏夹分拣台 background 层。classic script，由 background.js 末尾 importScripts 加载，
 // 与 background.js 共享全局作用域，所以顶层名字统一带 triage / TRIAGE_ 前缀。
 // 纯函数放顶部（selftest 用 vm 加载，chrome 为 undefined）。
 

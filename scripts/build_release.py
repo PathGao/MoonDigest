@@ -9,7 +9,7 @@ ROOT = Path(__file__).resolve().parent.parent
 EXTENSION_DIR = ROOT / "extension"
 RELEASE_DIR = ROOT / "release"
 MANIFEST_PATH = EXTENSION_DIR / "manifest.json"
-PACKAGE_NAME = "bilibili-obsidian-clipper"
+PACKAGE_NAME = "moondigest"
 
 
 def load_manifest():
@@ -71,7 +71,7 @@ def build_variant(manifest: dict, browser: str, version: str):
             variant_manifest["permissions"] = [item for item in permissions if item != "sidePanel"]
         variant_manifest.pop("side_panel", None)
         variant_manifest["sidebar_action"] = {
-            "default_title": "Bilibili Obsidian Clipper",
+            "default_title": "MoonDigest",
             "default_icon": {
                 "16": "icons/icon16.png",
                 "32": "icons/icon32.png",

@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "BiliDigest · B站收藏夹 AI 分拣台",
+  "name": "MoonDigest · 月团视频摘读",
   "version": "1.2.0",
-  "description": "用 AI 快速看懂、筛选、打标签 B 站收藏夹，把有价值的内容摘出来导出。",
+  "description": "抓取 B 站和 YouTube 字幕，用 AI 总结问答，一键存进 Obsidian；附带 B 站收藏夹 AI 分拣台。",
   
   "browser_specific_settings": {
     "gecko": {
@@ -50,7 +50,7 @@
     }
   ],
   "action": {
-    "default_title": "BiliDigest",
+    "default_title": "MoonDigest",
     "default_icon": {
       "16": "icons/icon16.png",
       "32": "icons/icon32.png"
