@@ -48,37 +48,52 @@ const ytTracks = [
   { id: ".en", lang: "en", label: "English", url: "https://y/t?v=1&lang=en&m=1", kind: "manual", translatable: true },
   { id: ".zh-TW", lang: "zh-TW", label: "中文（台灣）", url: "https://y/t?v=1&lang=zh-TW", kind: "manual", translatable: false }
 ];
-const ytIds = async (target) =>
-  S.rankTracks((await S.SITES.youtube.fetchTracks({}, { tracks: ytTracks }, { subtitleLang: target })).tracks, target).map((item) => item.id);
-(async () => {
+const ytRef = { id: "dQw4w9WgXcQ" };
+// A player response whose caption list is the given tracks.
+function ytPlayer(tracks, extra = {}) {
+  return {
+    videoDetails: { videoId: ytRef.id, title: "T" },
+    playabilityStatus: { status: "OK" },
+    captions: {
+      playerCaptionsTracklistRenderer: {
+        captionTracks: tracks.map((t) => ({ vssId: t.id, languageCode: t.lang, name: { simpleText: t.label }, baseUrl: t.url, kind: t.kind === "auto" ? "asr" : undefined, isTranslatable: t.translatable })),
+        audioTracks: [{ defaultCaptionTrackIndex: tracks.findIndex((t) => t.isDefault) }]
+      }
+    },
+    ...extra
+  };
+}
+const ytIds = async (target, tracks = ytTracks) =>
+  S.rankTracks((await S.SITES.youtube.fetchTracks(ytRef, {}, { subtitleLang: target, readPlayer: async () => ytPlayer(tracks) })).tracks, target).map((item) => item.id);
+const ytTracksOf = async (target, tracks) => (await S.SITES.youtube.fetchTracks(ytRef, {}, { subtitleLang: target, readPlayer: async () => ytPlayer(tracks) })).tracks;
+// The YouTube adapter keeps one video's player responses in memory, so its
+// async test blocks run one after another.
+async function ytLanguageTests() {
   eq(await ytIds("auto"), [".zh-TW", ".en", "a.en", ".de"]);
   eq(await ytIds("en"), [".en", "a.en", ".zh-TW", ".de"]);
   eq(await ytIds("zh-Hant"), [".zh-TW", ".en", "a.en", ".de"]);
   eq((await ytIds("zh-Hans"))[0], ".en>zh-Hans");
-  const [translated] = S.rankTracks((await S.SITES.youtube.fetchTracks({}, { tracks: ytTracks }, { subtitleLang: "zh-Hans" })).tracks, "zh-Hans");
-  eq(translated, { id: ".en>zh-Hans", lang: "zh-Hans", label: "简体中文（机器翻译，自English）", url: "https://y/t?v=1&lang=en&m=1&tlang=zh-Hans", kind: "translated", isDefault: false });
+  const [translated] = S.rankTracks(await ytTracksOf("zh-Hans", ytTracks), "zh-Hans");
+  eq(translated, { id: ".en>zh-Hans", lang: "zh-Hans", label: "简体中文（机器翻译，自English）", url: "https://y/t?v=1&lang=en&m=1&fmt=json3&tlang=zh-Hans", kind: "translated", isDefault: false });
   // A manual source beats an auto one in a higher-ranked language.
-  eq((await S.SITES.youtube.fetchTracks({}, { tracks: ytTracks.slice(0, 2) }, { subtitleLang: "ja" })).tracks[2].id, ".de>ja");
+  eq((await ytTracksOf("ja", ytTracks.slice(0, 2)))[2].id, ".de>ja");
   // Only untranslatable tracks: nothing to add.
-  eq((await S.SITES.youtube.fetchTracks({}, { tracks: [ytTracks[3]] }, { subtitleLang: "ja" })).tracks.length, 1);
+  eq((await ytTracksOf("ja", [ytTracks[3]])).length, 1);
   // An auto-only video translates its auto track.
-  eq((await S.SITES.youtube.fetchTracks({}, { tracks: [ytTracks[0]] }, { subtitleLang: "ja" })).tracks[1].url, "https://y/t?v=1&lang=en&tlang=ja");
+  eq((await ytTracksOf("ja", [ytTracks[0]]))[1].url, "https://y/t?v=1&lang=en&fmt=json3&tlang=ja");
   // Under auto a video without Chinese offers zh-Hans, ranked after every native track.
   const noZh = ytTracks.slice(0, 3);
-  const autoNoZh = S.rankTracks((await S.SITES.youtube.fetchTracks({}, { tracks: noZh }, { subtitleLang: "auto" })).tracks, "auto");
+  const autoNoZh = S.rankTracks(await ytTracksOf("auto", noZh), "auto");
   eq(autoNoZh.map((item) => item.id), [".en", "a.en", ".de", ".en>zh-Hans"]);
-  eq(autoNoZh[3].url, "https://y/t?v=1&lang=en&m=1&tlang=zh-Hans");
+  eq(autoNoZh[3].url, "https://y/t?v=1&lang=en&m=1&fmt=json3&tlang=zh-Hans");
   eq(S.pickPreferredTrack(autoNoZh).id, ".en");
-  eq(S.rankTracks((await S.SITES.youtube.fetchTracks({}, { tracks: noZh }, {})).tracks).at(-1).id, ".en>zh-Hans");
+  eq(S.rankTracks(await ytTracksOf(undefined, noZh)).at(-1).id, ".en>zh-Hans");
   // Any native Chinese track, Traditional included, means nothing is added under auto.
-  eq((await S.SITES.youtube.fetchTracks({}, { tracks: ytTracks }, { subtitleLang: "auto" })).tracks.length, ytTracks.length);
+  eq((await ytTracksOf("auto", ytTracks)).length, ytTracks.length);
   assert.strictEqual(S.normalizeSubtitleLang("zh-Hans"), "zh-Hans");
   assert.strictEqual(S.normalizeSubtitleLang("fr"), "auto");
   assert.strictEqual(S.normalizeSubtitleLang(undefined), "auto");
-})().catch((error) => {
-  console.error(error);
-  process.exit(1);
-});
+}
 assert.strictEqual(S.pickPreferredTrack(ranked).id, "3");
 assert.strictEqual(S.trackUrlKey("https://a.com/p/x.json?auth_key=1"), "a.com/p/x.json");
 
@@ -229,32 +244,40 @@ const ytLegacy = {
 const watchNext = (token) => ({ contents: { itemSectionRenderer: { sectionIdentifier: "comment-item-section", contents: token ? [{ continuationItemRenderer: { continuationEndpoint: { continuationCommand: { token } } } }] : [] } } });
 // io whose postJson answers /next by videoId or continuation and get_transcript
 // by params or continuation, recording every call as "endpoint:key".
-function ytIo(routes) {
+function ytIo(routes, extra = {}) {
   const calls = [];
   const io = {
     doc: { querySelectorAll: () => [{ textContent: '"INNERTUBE_API_KEY":"k","INNERTUBE_CLIENT_VERSION":"2.1","VISITOR_DATA":"vd"' }] },
     subtitleLang: "auto",
     postJson: async (url, body, headers) => {
       const endpoint = url.match(/\/v1\/(\w+)\?/)[1];
-      const key = body.videoId || body.continuation || body.params;
+      const client = body.context.client.clientName;
+      const key = endpoint === "player" ? `${client}:${body.videoId}` : body.videoId || body.continuation || body.params;
       calls.push(`${endpoint}:${key}`);
       assert.strictEqual(headers["X-Goog-Visitor-Id"], "vd");
+      assert.strictEqual(headers["X-Youtube-Client-Name"], { WEB: "1", ANDROID: "3", WEB_EMBEDDED_PLAYER: "56" }[client]);
+      if (client === "WEB_EMBEDDED_PLAYER") assert.strictEqual(body.context.thirdParty.embedUrl, `https://www.youtube.com/embed/${body.videoId}`);
+      if (client === "ANDROID") assert.strictEqual(body.context.client.clientVersion, "21.26.364");
       const answer = routes[`${endpoint}:${key}`];
       if (answer instanceof Error) throw answer;
+      if (answer === undefined) throw new Error(`unexpected call ${endpoint}:${key}`);
       return answer;
-    }
+    },
+    ...extra
   };
   return { io, calls };
 }
 const yt = S.SITES.youtube;
-const ref = { id: "dQw4w9WgXcQ" };
+const ref = ytRef;
+const pagePlayer = { readPlayer: async () => ytPlayer([ytTracks[3]]) };
 // A load fetches tracks first (fresh /next), then comments reuse that response.
 async function ytComments(next, byContinuation) {
-  const { io, calls } = ytIo({ "next:dQw4w9WgXcQ": next, ...Object.fromEntries(Object.entries(byContinuation).map(([k, v]) => [`next:${k}`, v])) });
-  await yt.fetchTracks(ref, { tracks: [] }, io);
+  const { io, calls } = ytIo({ "next:dQw4w9WgXcQ": next, ...Object.fromEntries(Object.entries(byContinuation).map(([k, v]) => [`next:${k}`, v])) }, pagePlayer);
+  await yt.fetchTracks(ref, {}, io);
   return { comments: await yt.fetchComments(ref, {}, io, 20), calls };
 }
 (async () => {
+  await ytLanguageTests();
   let r = await ytComments(watchNext("c0"), { c0: ytCurrent });
   eq(r.calls, ["next:dQw4w9WgXcQ", "next:c0"]);
   eq(r.comments, [
@@ -267,19 +290,19 @@ async function ytComments(next, byContinuation) {
   // Comments turned off: the section has no continuation.
   r = await ytComments(watchNext(""), {});
   eq(r, { comments: [], calls: ["next:dQw4w9WgXcQ"] });
-  const ytPlayer = (playabilityStatus, videoDetails) => ({
+  const metaIo = (playabilityStatus, videoDetails) => ({
     doc: { querySelectorAll: () => [{ textContent: '"INNERTUBE_API_KEY":"k"' }] },
     postJson: async () => ({ playabilityStatus, videoDetails })
   });
   const metaError = (status) =>
-    yt.fetchMeta(ref, ytPlayer(status)).then(() => "", (error) => error.message);
+    yt.fetchMeta(ref, metaIo(status)).then(() => "", (error) => error.message);
   eq(await metaError({ status: "LOGIN_REQUIRED", reason: "Sign in to confirm your age" }), "该视频需要登录或年龄验证，暂不支持（Sign in to confirm your age）");
   eq(await metaError({ status: "AGE_CHECK_REQUIRED" }), "该视频需要登录或年龄验证，暂不支持（AGE_CHECK_REQUIRED）");
   eq(await metaError({ status: "ERROR", reason: "Video unavailable" }), "视频不可播放：Video unavailable");
   // A gate that still ships videoDetails yields usable meta without tracks; the gate text travels with it.
-  const gated = await yt.fetchMeta(ref, ytPlayer({ status: "LOGIN_REQUIRED", reason: "Sign in" }, { title: "T", lengthSeconds: "10" }));
-  eq([gated.title, gated.duration, gated.tracks, gated.gate], ["T", 10, [], "该视频需要登录或年龄验证，暂不支持（Sign in）"]);
-  eq((await yt.fetchMeta(ref, ytPlayer({ status: "OK" }, { title: "T" }))).gate, "");
+  const gated = await yt.fetchMeta(ref, metaIo({ status: "LOGIN_REQUIRED", reason: "Sign in" }, { title: "T", lengthSeconds: "10" }));
+  eq([gated.title, gated.duration, gated.gate], ["T", 10, "该视频需要登录或年龄验证，暂不支持（Sign in）"]);
+  eq((await yt.fetchMeta(ref, metaIo({ status: "OK" }, { title: "T" }))).gate, "");
 
   // Chapters and transcript params from one /next; both chapter shapes.
   const chapterBar = (chapters) => ({ playerOverlays: { playerOverlayRenderer: { decoratedPlayerBarRenderer: { decoratedPlayerBarRenderer: { playerBar: { multiMarkersPlayerBarRenderer: { markersMap: [{ key: "DESCRIPTION_CHAPTERS", value: { chapters } }] } } } } } } });
@@ -329,8 +352,9 @@ async function ytComments(next, byContinuation) {
   // Fallback flow: fetchTracks makes the one /next and no transcript call;
   // fetchTranscript reuses it, follows the continuation, labels the language.
   const next = { ...watchNext("c0"), ...bar, ...transcriptPanel("P1") };
-  let t = ytIo({ "next:dQw4w9WgXcQ": next, "get_transcript:P1": page1, "get_transcript:t2": page2 });
-  eq(await yt.fetchTracks(ref, { tracks: [ytTracks[3]] }, t.io), { tracks: [ytTracks[3]], chapters });
+  let t = ytIo({ "next:dQw4w9WgXcQ": next, "get_transcript:P1": page1, "get_transcript:t2": page2 }, pagePlayer);
+  await yt.fetchMeta(ref, t.io);
+  eq(await yt.fetchTracks(ref, {}, t.io), { tracks: [{ ...ytTracks[3], url: "https://y/t?v=1&lang=zh-TW&fmt=json3", isDefault: false, source: "WEB" }], chapters });
   eq(t.calls, ["next:dQw4w9WgXcQ"]);
   const fallback = await yt.fetchTranscript(ref, t.io);
   eq(t.calls, ["next:dQw4w9WgXcQ", "get_transcript:P1", "get_transcript:t2"]);
@@ -343,20 +367,78 @@ async function ytComments(next, byContinuation) {
   eq(t.calls.length, 5);
   // Unknown language, continuation loop capped at 5 pages.
   const looping = { ...page2, more: { continuationItemRenderer: { continuationEndpoint: { continuationCommand: { token: "t2" } } } } };
-  t = ytIo({ "next:dQw4w9WgXcQ": next, "get_transcript:P1": looping, "get_transcript:t2": looping });
-  await yt.fetchTracks(ref, { tracks: [] }, t.io);
+  t = ytIo({ "next:dQw4w9WgXcQ": next, "get_transcript:P1": looping, "get_transcript:t2": looping }, pagePlayer);
+  await yt.fetchTracks(ref, {}, t.io);
   eq((await yt.fetchTranscript(ref, t.io)).track.label, "文字稿（默认语言）");
   eq(t.calls.filter((call) => call.startsWith("get_transcript")).length, 5);
   // 429 on the transcript stops after one call and keeps its status.
-  t = ytIo({ "next:dQw4w9WgXcQ": next, "get_transcript:P1": Object.assign(new Error("请求失败：429"), { status: 429 }) });
-  await yt.fetchTracks(ref, { tracks: [] }, t.io);
+  t = ytIo({ "next:dQw4w9WgXcQ": next, "get_transcript:P1": Object.assign(new Error("请求失败：429"), { status: 429 }) }, pagePlayer);
+  await yt.fetchTracks(ref, {}, t.io);
   eq(await yt.fetchTranscript(ref, t.io).then(() => 0, (error) => error.status), 429);
   eq(t.calls, ["next:dQw4w9WgXcQ", "get_transcript:P1"]);
   // No transcript panel: nothing is fetched.
-  t = ytIo({ "next:dQw4w9WgXcQ": watchNext("") });
-  await yt.fetchTracks(ref, { tracks: [] }, t.io);
+  t = ytIo({ "next:dQw4w9WgXcQ": watchNext("") }, pagePlayer);
+  await yt.fetchTracks(ref, {}, t.io);
   eq(await yt.fetchTranscript(ref, t.io).then(() => "", (error) => error.message), "该视频没有文字稿");
   eq(t.calls, ["next:dQw4w9WgXcQ"]);
+
+  // Caption URLs are built as yt-dlp builds them.
+  const base = "https://www.youtube.com/api/timedtext?v=dQw4w9WgXcQ&exp=xpe&xosf=1&lang=en&signature=s";
+  eq(S.ytCaptionUrl(base, { pot: { pot: "P", client: "WEB" } }), "https://www.youtube.com/api/timedtext?v=dQw4w9WgXcQ&exp=xpe&lang=en&signature=s&fmt=json3&pot=P&potc=1&c=WEB");
+  eq(S.ytCaptionUrl(base, { fmt: "srv3", tlang: "ja" }), "https://www.youtube.com/api/timedtext?v=dQw4w9WgXcQ&exp=xpe&lang=en&signature=s&fmt=srv3&tlang=ja");
+  eq(S.ytCaptionUrl(base, { tlang: "en" }).includes("tlang"), false);
+  // The token comes from the newest timedtext request of this video; other videos and tokenless URLs are ignored.
+  const potUrls = [
+    "https://www.youtube.com/api/timedtext?v=dQw4w9WgXcQ&lang=en&pot=OLD&potc=1&c=WEB",
+    "https://www.youtube.com/api/timedtext?v=other000000&lang=en&pot=X&c=WEB",
+    "https://www.youtube.com/api/timedtext?v=dQw4w9WgXcQ&lang=en&pot=NEW&potc=1&c=WEB",
+    "https://www.youtube.com/api/timedtext?v=dQw4w9WgXcQ&lang=de",
+    "https://evil.example/api/timedtext?v=dQw4w9WgXcQ&pot=EVIL"
+  ];
+  eq(S.ytPotFromUrls(potUrls, "dQw4w9WgXcQ"), { pot: "NEW", client: "WEB" });
+  eq(S.ytPotFromUrls(potUrls, "other000000"), { pot: "X", client: "WEB" });
+  eq(S.ytPotFromUrls(potUrls.slice(3), "dQw4w9WgXcQ"), null);
+
+  // Track sources: page player (token captured when its URLs demand one),
+  // ANDROID when the page player has nothing, the embedded player for gates.
+  const potTrack = { id: ".en", lang: "en", label: "English", url: "https://www.youtube.com/api/timedtext?v=dQw4w9WgXcQ&exp=xpe&lang=en", kind: "manual" };
+  const freeTrack = { id: ".de", lang: "de", label: "German", url: "https://www.youtube.com/api/timedtext?v=dQw4w9WgXcQ&lang=de", kind: "manual" };
+  const signIn = { videoDetails: { videoId: ref.id, title: "T" }, playabilityStatus: { status: "LOGIN_REQUIRED", reason: "Sign in" } };
+  const sourcesOf = async (routes, extra) => {
+    const t = ytIo({ "next:dQw4w9WgXcQ": watchNext(""), ...routes }, extra);
+    await yt.fetchMeta(ref, t.io);
+    const tracks = (await yt.fetchTracks(ref, {}, t.io)).tracks;
+    return { calls: t.calls.filter((call) => call.startsWith("player")), tracks: tracks.map((item) => `${item.source}:${item.id}:${new URL(item.url).searchParams.get("pot") || "-"}`) };
+  };
+  let captures = 0;
+  const capture = async (videoId) => { captures += 1; eq(videoId, ref.id); return { pot: "TOK", client: "WEB" }; };
+  // Page player with a token-free track: no capture, no other player call.
+  eq(await sourcesOf({}, { readPlayer: async () => ytPlayer([freeTrack]), capturePot: capture }), { calls: [], tracks: ["WEB:.de:-"] });
+  eq(captures, 0);
+  // Page player with exp=xpe: the token is captured once and applied to every track.
+  eq(await sourcesOf({}, { readPlayer: async () => ytPlayer([potTrack, freeTrack]), capturePot: capture }), { calls: [], tracks: ["WEB:.en:TOK", "WEB:.de:TOK"] });
+  eq(captures, 1);
+  // A second fetchTracks for the same video (expired URLs) reuses the token and re-reads the player.
+  const again = ytIo({ "next:dQw4w9WgXcQ": watchNext("") }, { readPlayer: async () => ytPlayer([potTrack]), capturePot: capture });
+  eq((await yt.fetchTracks(ref, {}, again.io)).tracks.map((item) => item.source), ["WEB"]);
+  eq(captures, 1);
+  // Capture fails: token-demanding tracks are dropped and ANDROID answers.
+  eq(await sourcesOf({ "player:ANDROID:dQw4w9WgXcQ": ytPlayer([freeTrack]) }, { readPlayer: async () => ytPlayer([potTrack]), capturePot: async () => null }), { calls: ["player:ANDROID:dQw4w9WgXcQ"], tracks: ["ANDROID:.de:-"] });
+  // Page player names another video (SPA leftovers): a WEB player call replaces it.
+  eq(await sourcesOf({ "player:WEB:dQw4w9WgXcQ": ytPlayer([freeTrack]) }, { readPlayer: async () => ({ ...ytPlayer([potTrack]), videoDetails: { videoId: "other000000" } }) }), { calls: ["player:WEB:dQw4w9WgXcQ"], tracks: ["WEB:.de:-"] });
+  // A WEB player call answering with another video is rejected, not used.
+  const wrong = ytIo({ "player:WEB:dQw4w9WgXcQ": { ...ytPlayer([freeTrack]), videoDetails: { videoId: "other000000", title: "T" } } });
+  eq(await yt.fetchMeta(ref, wrong.io).then(() => "", (error) => error.message), "播放器返回的是另一个视频，请刷新页面重试");
+  // Gated on WEB and ANDROID: the embedded player is tried, with the embed URL.
+  eq(await sourcesOf({ "player:ANDROID:dQw4w9WgXcQ": signIn, "player:WEB_EMBEDDED_PLAYER:dQw4w9WgXcQ": ytPlayer([freeTrack]) }, { readPlayer: async () => signIn }), { calls: ["player:ANDROID:dQw4w9WgXcQ", "player:WEB_EMBEDDED_PLAYER:dQw4w9WgXcQ"], tracks: ["WEB_EMBEDDED_PLAYER:.de:-"] });
+  // Nothing gated and nothing found: no embedded call, empty list for the transcript fallback.
+  eq(await sourcesOf({ "player:ANDROID:dQw4w9WgXcQ": ytPlayer([]) }, { readPlayer: async () => ytPlayer([]) }), { calls: ["player:ANDROID:dQw4w9WgXcQ"], tracks: [] });
+  // fetchMeta: gate reported with details present, thrown without; upload date from microformat.
+  let m = ytIo({}, { readPlayer: async () => ({ ...signIn, microformat: { playerMicroformatRenderer: { publishDate: "2009-10-25T00:00:00-07:00" } } }) });
+  eq((await yt.fetchMeta(ref, m.io)).gate, "该视频需要登录或年龄验证，暂不支持（Sign in）");
+  eq((await yt.fetchMeta(ref, m.io)).uploadDate, "2009-10-25");
+  m = ytIo({ "player:WEB:dQw4w9WgXcQ": { playabilityStatus: { status: "AGE_VERIFICATION_REQUIRED" } }, "player:ANDROID:dQw4w9WgXcQ": { playabilityStatus: { status: "AGE_VERIFICATION_REQUIRED" } } });
+  eq(await yt.fetchMeta(ref, m.io).then(() => "", (error) => error.message), "该视频需要登录或年龄验证，暂不支持（AGE_VERIFICATION_REQUIRED）");
   console.log("sites selftest ok");
 })().catch((error) => {
   console.error(error);
