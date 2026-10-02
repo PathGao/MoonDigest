@@ -830,7 +830,7 @@ function bindUiEvents() {
   const transcriptList = byId(ids.readingTranscriptList);
 
   closeBtn.addEventListener("click", () => panel.classList.remove("open"));
-  refreshBtn.addEventListener("click", refreshClip);
+  refreshBtn.addEventListener("click", () => refreshClip().catch(() => {}));
   select.addEventListener("change", onSubtitleChange);
   copyBtn.addEventListener("click", copyMarkdown);
   downloadBtn.addEventListener("click", downloadSubtitle);
@@ -1034,6 +1034,7 @@ function resetClipState() {
 
 async function refreshClip() {
   const runId = ++state.fetchRunId;
+  let metaLoaded = false;
   try {
     setBusyState(true);
     setMessage("");
@@ -1059,6 +1060,7 @@ async function refreshClip() {
 
     const dom = site.readDom(document);
     state.meta = meta;
+    metaLoaded = true;
     state.aid = meta.aid || "";
     state.title = meta.title || dom.title;
     state.author = meta.author || dom.author;
@@ -1193,17 +1195,34 @@ async function refreshClip() {
     if (isStaleRunError(error)) {
       return;
     }
+    const reason =
+      error?.code === "SUBTITLE_DURATION_MISMATCH"
+        ? "未找到与当前视频时长匹配的字幕轨，可能该视频无可用字幕。"
+        : getErrorMessage(error);
+    // Only the subtitle step failed: keep the video info and degrade to the no-subtitle state.
+    if (metaLoaded) {
+      try {
+        await showNoSubtitleState(runId);
+      } catch (degradeError) {
+        if (isStaleRunError(degradeError)) {
+          return;
+        }
+        throw degradeError;
+      }
+      setStatus(`字幕抓取失败：${reason} 已保留视频信息，可导出简介与评论。`);
+      if (state.readingViewOpen) {
+        renderReadingStatus(`字幕抓取失败：${reason}`);
+      }
+      return;
+    }
     state.subtitleFetchState = "error";
     resetClipState();
     state.subtitleFetchState = "error";
     if (state.readingViewOpen) {
       renderReadingView();
     }
-    if (error?.code === "SUBTITLE_DURATION_MISMATCH") {
-      setStatus("抓取失败：未找到与当前视频时长匹配的字幕轨，可能该视频无可用字幕。");
-      return;
-    }
-    setStatus(`抓取失败：${getErrorMessage(error)}`);
+    setStatus(`抓取失败：${reason}`);
+    throw error;
   } finally {
     if (runId === state.fetchRunId) {
       setBusyState(false);
