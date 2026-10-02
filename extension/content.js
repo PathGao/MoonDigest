@@ -3826,25 +3826,15 @@ function siteIo() {
     doc: document,
     subtitleLang: subtitleLangTarget(),
     fetchJson: (url) => (currentSite()?.pageOnly ? fetchJson(url) : fetchJsonInBackground(url)),
-    fetchText: async (url) => {
-      const response = await fetch(url, { credentials: "include", cache: "no-store" });
-      if (!response.ok) {
-        throw httpError(response.status);
-      }
-      return response.text();
-    },
-    postJson: async (url, body) => {
-      const response = await fetch(url, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-        cache: "no-store"
-      });
-      if (!response.ok) {
-        throw httpError(response.status);
-      }
-      return response.json();
-    }
+    fetchText: async (url) => (await fetchOk(url, { credentials: "include" })).text(),
+    postJson: async (url, body) =>
+      (
+        await fetchOk(url, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body)
+        })
+      ).json()
   };
 }
 
@@ -4045,6 +4035,7 @@ function isRetryableNetworkError(error) {
     message.includes("net::") ||
     message.includes("background fetch failed") ||
     message.includes("timeout") ||
+    message.includes("超时") ||
     message.includes("timed out")
   );
 }
@@ -4185,16 +4176,22 @@ function readRuntimeVideoDuration() {
 }
 
 async function fetchJson(url) {
-  const response = await fetch(url, {
-    credentials: "include",
-    cache: "no-store"
-  });
+  return (await fetchOk(url, { credentials: "include" })).json();
+}
 
+// A hung request would keep refreshPromise pending, and with it the popup's
+// refresh and sidepanel-get-context, so every page fetch gives up after 15s.
+async function fetchOk(url, init) {
+  let response;
+  try {
+    response = await fetch(url, { ...init, cache: "no-store", signal: AbortSignal.timeout(15000) });
+  } catch (error) {
+    throw error?.name === "TimeoutError" ? new Error("请求超时，请稍后重试") : error;
+  }
   if (!response.ok) {
     throw httpError(response.status);
   }
-
-  return response.json();
+  return response;
 }
 
 function httpError(status) {
