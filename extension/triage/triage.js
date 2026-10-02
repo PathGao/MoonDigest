@@ -112,7 +112,7 @@ const el = {};
   "tabs", "tagFilter", "manageTagsBtn", "listHeader", "list", "basket", "basketToggle", "basketCount",
   "basketList", "copyMdBtn", "exportBtn", "toast", "settingsDialog", "criteriaInput", "intervalInput",
   "batchSizeInput", "exportFolderInput", "openOptionsBtn", "aiDebugTitle", "thinkingInput", "titleMaxInput",
-  "titleMaxHint", "advancedTokens", "analyzeMaxInput", "analyzeMaxHint", "settingsError", "backupBtn", "csvBtn", "confirmDialog",
+  "titleMaxHint", "advancedTokens", "analyzeMaxInput", "analyzeMaxHint", "settingsError", "backupBtn", "csvBtn", "cleanCacheBtn", "confirmDialog",
   "confirmTitle", "confirmBody", "confirmOk", "pickerDialog", "pickerTitle", "pickerInput", "pickerList",
   "tagsDialog", "tagsRows", "newTagInput", "addTagBtn", "helpDialog", "presetNameInput", "savePresetBtn",
   "presetRows", "aiBtn", "aiDialog", "aiForm", "aiScope", "aiPreset", "aiScopeCount", "aiInstruction", "aiHistory",
@@ -1845,6 +1845,46 @@ async function buildBackup() {
   return out;
 }
 
+// Per-video AI caches for videos in no live folder's snapshot, the open list or the basket,
+// plus snapshot/decision records of folders that no longer exist. Tags, videoTags and the basket are never touched.
+function staleCacheKeys(all, folderIds, openBvids) {
+  const live = new Set(folderIds.map(String));
+  const keep = new Set([...openBvids, ...(all[K.basket] || []).map((x) => x.bvid)]);
+  for (const id of live) for (const b of all[K.snapshot(id)]?.bvids || []) keep.add(b);
+  const plan = { keys: [], videos: new Set(), title: 0, analysis: 0, override: 0, folders: new Set() };
+  for (const k of Object.keys(all)) {
+    const v = /^triage_(title|analysis|verdict_override)_(.+)$/.exec(k);
+    const f = /^triage_(snapshot|decisions)_(.+)$/.exec(k);
+    if (v && !keep.has(v[2])) {
+      plan.keys.push(k);
+      plan.videos.add(v[2]);
+      plan[v[1] === "verdict_override" ? "override" : v[1]]++;
+    } else if (f && !live.has(f[2])) {
+      plan.keys.push(k);
+      plan.folders.add(f[2]);
+    }
+  }
+  return { ...plan, videos: plan.videos.size, folders: plan.folders.size };
+}
+
+async function cleanCache() {
+  if (!S.folders.length) {
+    toast("收藏夹列表还没加载，无法判断哪些缓存已失效", true);
+    return;
+  }
+  const plan = staleCacheKeys(await chrome.storage.local.get(null), S.folders.map((f) => f.id), S.items.map((it) => it.bvid));
+  if (!plan.keys.length) {
+    toast("没有可清理的缓存");
+    return;
+  }
+  const folders = plan.folders ? `，以及 ${plan.folders} 个已删除收藏夹的同步与处理记录` : "";
+  const body = `<p>将删除 ${plan.videos} 个已不在任何收藏夹里的视频的缓存（标题判断 ${plan.title} 条、细看分析 ${plan.analysis} 条、AI 改判 ${plan.override} 条）${folders}。</p>
+    <p>这些视频的 AI 判断和摘要会一并删除，无法撤销；需要保留请先导出完整备份。标签、视频标签和待导出篮子不受影响。</p>`;
+  if (!(await askConfirm("清理缓存？", body, `删除 ${plan.keys.length} 条缓存`))) return;
+  await chrome.storage.local.remove(plan.keys);
+  toast(`已清理 ${plan.keys.length} 条缓存`);
+}
+
 function csvField(v) {
   let s = String(v ?? "");
   // Spreadsheets run a cell that starts with = + - @ (or tab/CR) as a formula; a leading ' keeps it text.
@@ -2048,6 +2088,7 @@ function bindEvents() {
     const title = (S.folders.find((f) => String(f.id) === S.mediaId)?.title || S.mediaId).replace(/[\\/:*?"<>|]/g, "_");
     downloadText(`MoonDigest-${title}-${stamp(new Date(), false)}.csv`, buildCsv(), "text/csv;charset=utf-8");
   });
+  el.cleanCacheBtn.addEventListener("click", cleanCache);
   el.helpBtn.addEventListener("click", () => el.helpDialog.showModal());
 
   el.syncViewBtn.addEventListener("click", () => (el.syncDetail.hidden = !el.syncDetail.hidden));
