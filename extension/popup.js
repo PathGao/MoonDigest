@@ -346,17 +346,10 @@ async function ensureContentScriptReady(tabId) {
     files: ["content.css"]
   });
 
-  try {
-    await chrome.scripting.executeScript({
-      target: { tabId },
-      files: ["sites.js", "content.js"]
-    });
-  } catch (error) {
-    const message = String(error?.message || "");
-    if (!message.includes("Identifier 'DEFAULT_SETTINGS' has already been declared")) {
-      throw error;
-    }
-  }
+  await chrome.scripting.executeScript({
+    target: { tabId },
+    files: ["sites.js", "content.js"]
+  });
 
   const reinjectedVersion = await probeContentScriptVersion(tabId);
   if (reinjectedVersion !== EXPECTED_CONTENT_SCRIPT_VERSION) {

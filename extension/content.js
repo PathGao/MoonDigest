@@ -1,3 +1,7 @@
+// background.js and popup.js re-inject this file when their version probe misses
+// (e.g. mid-navigation). A repeat run must be a no-op, and top-level const would
+// throw on redeclaration, so the body sits in this block.
+if (!globalThis.__BOC_CONTENT_SCRIPT_LOADED__) {
 const DEFAULT_SETTINGS = {
   noteFolder: "Clippings/{{site}}",
   obsidianApiBaseUrl: "http://127.0.0.1:27123",
@@ -5325,4 +5329,5 @@ function escapeHtml(value) {
 
 function escapeYaml(value) {
   return String(value).replaceAll("\\", "\\\\").replaceAll('"', '\\"');
+}
 }

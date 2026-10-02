@@ -134,17 +134,10 @@ async function injectReaderContent(tabId) {
     files: ["content.css"]
   });
 
-  try {
-    await chrome.scripting.executeScript({
-      target: { tabId },
-      files: ["sites.js", "content.js"]
-    });
-  } catch (error) {
-    const message = String(error?.message || "");
-    if (!message.includes("Identifier 'DEFAULT_SETTINGS' has already been declared")) {
-      throw error;
-    }
-  }
+  await chrome.scripting.executeScript({
+    target: { tabId },
+    files: ["sites.js", "content.js"]
+  });
 }
 
 async function waitForTabComplete(tabId, retries = 40, delayMs = 250) {
