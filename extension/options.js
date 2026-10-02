@@ -122,7 +122,7 @@ const elements = {
   addAiProviderBtn: document.getElementById("addAiProviderBtn"),
   aiSystemPrompt: document.getElementById("aiSystemPrompt"),
   aiInitialQuickPrompts: document.querySelectorAll(".ai-initial-quick-prompt"),
-  saveBtn: document.getElementById("saveBtn"),
+  saveBtns: [...document.querySelectorAll(".save-btn")],
   testConnectionBtn: document.getElementById("testConnectionBtn"),
   status: document.getElementById("status"),
   hostPermissionBanner: document.getElementById("hostPermissionBanner"),
@@ -136,7 +136,13 @@ init();
 
 function init() {
   loadSettings();
-  elements.saveBtn.addEventListener("click", saveSettings);
+  // Every tier has its own save button; all save everything, and the status shows under the one clicked.
+  elements.saveBtns.forEach((button) => {
+    button.addEventListener("click", () => {
+      button.closest(".action-row").after(elements.status);
+      saveSettings();
+    });
+  });
   elements.testConnectionBtn.addEventListener("click", testConnection);
   elements.addFixedPropertyBtn.addEventListener("click", () => addFixedPropertyRow());
   elements.addNoteSectionBtn.addEventListener("click", () => addNoteSectionRow());
@@ -1016,9 +1022,11 @@ async function testConnection() {
 }
 
 function setBusy(isBusy) {
-  elements.saveBtn.disabled = isBusy;
+  elements.saveBtns.forEach((button) => {
+    button.disabled = isBusy;
+    button.textContent = isBusy ? "处理中..." : "保存设置";
+  });
   elements.testConnectionBtn.disabled = isBusy;
-  elements.saveBtn.textContent = isBusy ? "处理中..." : "保存设置";
   elements.testConnectionBtn.textContent = isBusy ? "处理中..." : "测试连接";
 }
 
