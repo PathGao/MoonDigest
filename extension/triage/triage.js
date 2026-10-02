@@ -2192,12 +2192,13 @@ function onKey(e) {
     k: () => moveFocus(-1),
     ArrowUp: () => moveFocus(-1),
     "?": () => el.helpDialog.showModal(),
-    u: () => undo(),
     i: () => openAi()
   };
   const cardKeys = { d: "unfav", s: "keep", t: "tag", a: "accept", e: "basket", x: "select", o: "open", Enter: "open" };
   if (map[key]) map[key]();
-  else if (cardKeys[key] && S.focused && S.tab !== "read") cardAction(cardKeys[key], S.focused);
+  else if (S.tab === "read") return;
+  else if (key === "u") undo();
+  else if (cardKeys[key] && S.focused) cardAction(cardKeys[key], S.focused);
   else return;
   e.preventDefault();
 }
