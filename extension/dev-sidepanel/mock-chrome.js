@@ -1,5 +1,6 @@
 // 侧边栏开发用 mock chrome：模拟 B 站视频标签页、三个视频上下文、一个 AI 平台和慢速流式回复。
 // window.__mockSwitchVideo(n) 切到第 n 个视频（改 URL + tabs.onUpdated + boc-video-changed）。
+// window.__mockOpenPage(url, title) 切到非视频标签页（url 为空即加载中的标签页）；__mockStateDelayMs 模拟字幕和评论加载耗时。
 // 流的结局：__mockStreamEnd = { after: n, error: "..." } 在第 n 个 token 后报错；{ after: n, disconnect: true } 模拟后台断开。
 // __mockNotice 先发一条 notice；__mockTokenMs 调慢流速。
 (() => {
@@ -20,7 +21,8 @@
     url: `https://www.bilibili.com/video/BV1mock00000${n}/`,
     author: `UP主${n}`
   }));
-  const tab = { id: 1, active: true, status: "complete", url: videos[0].url };
+  const tabTitle = (video) => `${video.title}_哔哩哔哩_bilibili`;
+  const tab = { id: 1, active: true, status: "complete", url: videos[0].url, title: tabTitle(videos[0]) };
   const TOKEN_COUNT = 20;
   const TOKEN_MS = 80;
 
@@ -83,7 +85,10 @@
         return { ok: true };
       case "ai-sidepanel-get-state": {
         const video = findVideo(tab.url);
-        return video ? { ok: true, payload: payloadFor(video) } : { ok: false, error: "当前页面上下文读取失败" };
+        // Like background.js, an unsupported page answers with a non-video context built from the tab.
+        return video
+          ? { ok: true, payload: payloadFor(video) }
+          : { ok: true, payload: { title: tab.title || "", url: tab.url || "", subtitleMarkdown: "", hotComments: [], isVideoContext: false } };
       }
       case "ai-sidepanel-resolve-context": {
         const video = videos.find((v) => v.bvid === msg.contextRef?.bvid);
@@ -120,11 +125,12 @@
       onMessage: runtimeOnMessage,
       sendMessage(msg, cb) {
         const resp = handleMessage(msg);
+        const delay = msg?.type === "ai-sidepanel-get-state" ? window.__mockStateDelayMs || 30 : 30;
         if (typeof cb === "function") {
-          setTimeout(() => cb(resp), 30);
+          setTimeout(() => cb(resp), delay);
           return undefined;
         }
-        return new Promise((resolve) => setTimeout(() => resolve(resp), 30));
+        return new Promise((resolve) => setTimeout(() => resolve(resp), delay));
       },
       connect() {
         const onMessage = makeEvent();
@@ -147,7 +153,7 @@
               return;
             }
             window.__mockStreamLog = window.__mockStreamLog || [];
-            window.__mockStreamLog.push({ prompt: msg.prompt, contextTitle: msg.context?.title });
+            window.__mockStreamLog.push({ prompt: msg.prompt, contextTitle: msg.context?.title, subtitle: msg.context?.subtitleMarkdown });
             if (window.__mockNotice) {
               post({ type: "notice", text: window.__mockNotice });
             }
@@ -200,10 +206,15 @@
   window.__mockSwitchVideo = (n, { notify = true } = {}) => {
     const video = videos[n - 1];
     tab.url = video.url;
+    tab.title = tabTitle(video);
     onUpdated._fire(tab.id, { url: video.url }, { ...tab });
     if (notify) {
       runtimeOnMessage._fire({ type: "boc-video-changed", url: video.url }, { tab: { id: tab.id } });
     }
+  };
+  window.__mockOpenPage = (url, title = "") => {
+    Object.assign(tab, { url, title });
+    chrome.tabs.onActivated._fire({ tabId: tab.id });
   };
   window.__mockReset = () => {
     localStorage.clear();

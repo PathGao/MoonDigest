@@ -57,6 +57,16 @@ function chat() {
   });
 }
 
+// AbortSignal.timeout does not keep Node alive, so without this the run ends mid-test with exit code 0.
+const keepAlive = setInterval(() => {}, 1000);
+let finished = false;
+process.on("exit", (code) => {
+  if (!finished && code === 0) {
+    console.error("background selftest: ended before the last check");
+    process.exitCode = 1;
+  }
+});
+
 (async () => {
   // Reasoning chunks count as activity, so a long think outlasts the first-response limit.
   ctx.fetch = streamingFetch([
@@ -177,5 +187,25 @@ function chat() {
   ctx.fetch = (url, { signal }) => new Promise((_, reject) => signal.addEventListener("abort", () => reject(signal.reason)));
   await assert.rejects(ctx.fetchWithTimeout("https://api.bilibili.com/x", {}, 30), (e) => e.status === 408 && /timeout/.test(e.message));
 
+  // The side panel saves the context URL with a conversation, so reader mode and tracking params never reach it.
+  const contextFor = async (tabUrl, payload) => {
+    ctx.chrome = { tabs: { get: async () => ({ id: 1, url: tabUrl }) } };
+    ctx.ensureReaderContentReady = async () => {};
+    ctx.sendMessageToTab = async (_, { type }) =>
+      type === "sidepanel-get-context" ? { ok: true, payload: { url: tabUrl, title: "T", ...payload } } : { ok: true, comments: [] };
+    return ctx.getAiSidepanelState(1);
+  };
+  const bili = await contextFor("https://www.bilibili.com/video/BV1xx411c7mD/?p=2&boc_reader=1&spm_id_from=333.1", {
+    site: "bilibili", videoId: "BV1xx411c7mD", pageIndex: 2, pageCount: 3
+  });
+  assert.strictEqual(bili.url, "https://www.bilibili.com/video/BV1xx411c7mD/?p=2");
+  const yt = await contextFor("https://www.youtube.com/watch?v=dQw4w9WgXcQ&t=42s&boc_reader=1", { site: "youtube", videoId: "dQw4w9WgXcQ" });
+  assert.strictEqual(yt.url, "https://www.youtube.com/watch?v=dQw4w9WgXcQ");
+  // Before the page has read its video id, the URL itself is cleaned.
+  const early = await contextFor("https://www.bilibili.com/video/BV1xx411c7mD/?boc_reader=1", { videoId: "" });
+  assert.strictEqual(early.url, "https://www.bilibili.com/video/BV1xx411c7mD/");
+
+  finished = true;
+  clearInterval(keepAlive);
   console.log("background selftest: all passed");
 })();
