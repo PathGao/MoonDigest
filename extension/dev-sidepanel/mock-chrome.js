@@ -70,7 +70,7 @@
       case "ai-providers-list":
         return { ok: true, providers: [{ id: "p1", name: "Mock", model: "mock-model", enabled: true }] };
       case "get-settings":
-        return { ok: true, settings: { aiPresetPrompts: ["生成视频摘要和结论"] } };
+        return { ok: true, settings: { playerAiQuickPrompt: "整理这期视频的内容，输出结构化总结。", aiPresetPrompts: ["用 3 句话总结这个视频", "提炼这个视频的 5 个重点", "按章节整理视频内容"] } };
       case "save-settings":
         return { ok: true };
       case "ai-sidepanel-get-state": {

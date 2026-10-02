@@ -4,17 +4,13 @@ const PLAYER_AI_QUICK_ACTION_STORAGE_KEY = "boc_player_ai_quick_action_v1";
 const MAX_SAVED_CONVERSATIONS = 60;
 const NON_VIDEO_CONTEXT_MESSAGE = "当前页不是支持的视频页面，<br>无法获取当前页面信息作为对话上下文，<br>仅支持 AI 对话。";
 const DEFAULT_PRESET_PROMPTS = [
-  "生成视频摘要和结论",
-  "按章节整理视频内容",
-  "生成带时间轴的笔记"
-];
-const DEFAULT_INITIAL_QUICK_PROMPTS = [
   "用 3 句话总结这个视频",
   "提炼这个视频的 5 个重点",
   "按时间顺序整理这期视频的内容",
-  "根据评论总结观众的看法"
+  "根据评论总结观众的看法",
+  "按章节整理视频内容",
+  "生成带时间轴的笔记"
 ];
-const DEFAULT_PLAYER_AI_QUICK_PROMPT = "整理这期视频的内容，输出结构化总结：主题、核心观点、关键细节、结论与可执行启发。";
 const STREAM_SLOW_NOTICE_MS = 15000;
 const FOLLOW_PLAYBACK_KEY = "boc_sp_follow_playback";
 const PREVIOUS_VIDEO_CONVERSATION_KEY = "boc_sp_previous_video_conversation";
@@ -36,6 +32,7 @@ const els = {
   presetList: document.getElementById("spPresetList"),
   presetInput: document.getElementById("spPresetInput"),
   presetAddBtn: document.getElementById("spPresetAddBtn"),
+  followups: document.getElementById("spFollowups"),
   historyPopover: document.getElementById("spHistoryPopover"),
   historyList: document.getElementById("spHistoryList"),
   historyClearBtn: document.getElementById("spHistoryClearBtn"),
@@ -46,7 +43,7 @@ const els = {
 
 const DEFAULT_AI_PREFS = {
   aiSystemPrompt: "",
-  aiInitialQuickPrompts: DEFAULT_INITIAL_QUICK_PROMPTS.slice(),
+  playerAiQuickPrompt: "",
   aiPresetPrompts: DEFAULT_PRESET_PROMPTS.slice()
 };
 
@@ -187,7 +184,7 @@ function bindEvents() {
       (areaName === "sync" &&
         (changes.aiProviders ||
           changes.aiSystemPrompt ||
-          changes.aiInitialQuickPrompts ||
+          changes.playerAiQuickPrompt ||
           changes.aiPresetPrompts ||
           changes.obsidianEnabled)) ||
       (areaName === "local" && changes.aiProviderKeys)
@@ -209,6 +206,7 @@ function autosizeInput() {
 
 function setStreamingUiState(isStreaming, { stopping = false } = {}) {
   els.input.disabled = isStreaming;
+  renderFollowups();
   if (els.stopBtn) {
     els.stopBtn.hidden = !isStreaming;
     els.stopBtn.disabled = stopping;
@@ -227,7 +225,7 @@ async function loadProvidersAndPrefs({ preferredProviderId = "" } = {}) {
   document.body.classList.toggle("sp-obsidian-off", settingsResp?.settings?.obsidianEnabled !== true);
   aiPrefs = {
     aiSystemPrompt: String(settingsResp?.settings?.aiSystemPrompt || "").trim(),
-    aiInitialQuickPrompts: normalizeInitialQuickPrompts(settingsResp?.settings?.aiInitialQuickPrompts),
+    playerAiQuickPrompt: String(settingsResp?.settings?.playerAiQuickPrompt || "").trim(),
     aiPresetPrompts: Array.isArray(settingsResp?.settings?.aiPresetPrompts)
       ? settingsResp.settings.aiPresetPrompts.map((item) => String(item || "").trim()).filter(Boolean).slice(0, 12)
       : []
@@ -238,6 +236,7 @@ async function loadProvidersAndPrefs({ preferredProviderId = "" } = {}) {
   }
   renderModelSelect(preferredProviderId);
   renderPresetPrompts();
+  renderFollowups();
 }
 
 function renderModelSelect(preferredProviderId = "") {
@@ -596,6 +595,7 @@ function resetConversationView(stateHtml = "") {
   els.messages.appendChild(suggestionsNode);
   renderSuggestions();
   renderPresetPrompts();
+  renderFollowups();
   shouldAutoScrollMessages = true;
   scrollToBottom(true);
 }
@@ -608,24 +608,33 @@ function renderSuggestions() {
     suggestionsNode.innerHTML = "";
     return;
   }
-  const prompts = normalizeInitialQuickPrompts(aiPrefs.aiInitialQuickPrompts).filter(Boolean);
-  suggestionsNode.innerHTML = prompts
-    .map((prompt) => `<button type="button" class="sp-chip">${escapeHtml(prompt)}</button>`)
+  const prompt = aiPrefs.playerAiQuickPrompt;
+  suggestionsNode.innerHTML = prompt
+    ? `<button type="button" class="sp-summary-btn" title="${escapeHtml(prompt)}">总结这期视频</button>`
+    : "";
+  suggestionsNode.querySelector("button")?.addEventListener("click", () => sendPrompt(prompt));
+}
+
+// Follow-up chips: only once there is a reply to follow up on, and not mid-stream.
+function renderFollowups() {
+  if (!els.followups) {
+    return;
+  }
+  const show = !els.input.disabled && chatHistory.some((message) => message.role === "assistant");
+  const prompts = show ? aiPrefs.aiPresetPrompts || [] : [];
+  els.followups.hidden = !prompts.length;
+  els.followups.innerHTML = prompts
+    .map((prompt) => `<button type="button" class="sp-followup-chip" title="${escapeHtml(prompt)}">${escapeHtml(prompt)}</button>`)
     .join("");
-  suggestionsNode.querySelectorAll(".sp-chip").forEach((btn) => {
-    btn.addEventListener("click", () => {
-      els.input.value = btn.textContent || "";
-      autosizeInput();
-      sendMessage();
-    });
+  els.followups.querySelectorAll("button").forEach((btn, index) => {
+    btn.addEventListener("click", () => sendPrompt(prompts[index]));
   });
 }
 
-function normalizeInitialQuickPrompts(value) {
-  if (!Array.isArray(value)) {
-    return DEFAULT_INITIAL_QUICK_PROMPTS.slice();
-  }
-  return value.map((item) => String(item || "").trim()).slice(0, 4);
+function sendPrompt(prompt) {
+  els.input.value = prompt;
+  autosizeInput();
+  void sendMessage();
 }
 
 function renderPresetPrompts() {
@@ -634,14 +643,14 @@ function renderPresetPrompts() {
   }
   const prompts = Array.isArray(aiPrefs.aiPresetPrompts) ? aiPrefs.aiPresetPrompts : [];
   if (!prompts.length) {
-    els.presetList.innerHTML = '<span class="sp-preset-empty">还没有预设提示词</span>';
+    els.presetList.innerHTML = '<span class="sp-preset-empty">还没有快捷追问</span>';
     return;
   }
   els.presetList.innerHTML = prompts
     .map((prompt, index) => `
       <span class="sp-preset-item">
         <button type="button" class="sp-preset-chip" data-index="${index}" title="${escapeHtml(prompt)}">${escapeHtml(prompt)}</button>
-        <button type="button" class="sp-preset-remove" data-index="${index}" aria-label="删除预设提示词">×</button>
+        <button type="button" class="sp-preset-remove" data-index="${index}" aria-label="删除快捷追问">×</button>
       </span>
     `)
     .join("");
@@ -1255,6 +1264,7 @@ async function addPresetPrompt() {
   await persistAiPresetPrompts();
   els.presetInput.value = "";
   renderPresetPrompts();
+  renderFollowups();
 }
 
 async function removePresetPrompt(index) {
@@ -1264,6 +1274,7 @@ async function removePresetPrompt(index) {
   aiPrefs.aiPresetPrompts = (aiPrefs.aiPresetPrompts || []).filter((_, itemIndex) => itemIndex !== index);
   await persistAiPresetPrompts();
   renderPresetPrompts();
+  renderFollowups();
 }
 
 async function persistAiPresetPrompts() {
@@ -1359,6 +1370,7 @@ function renderConversationMessages() {
     });
     els.messages.appendChild(node);
   });
+  renderFollowups();
   shouldAutoScrollMessages = true;
   scrollToBottom(true);
 }

@@ -314,6 +314,53 @@ body {
   border-color: #d8dee6;
 }
 
+.sp-summary-btn {
+  padding: 11px 13px;
+  border: 0;
+  border-radius: 14px;
+  background: #111827;
+  color: #ffffff;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.sp-summary-btn:hover {
+  background: #1f2937;
+}
+
+.sp-followups {
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.sp-followups[hidden] {
+  display: none;
+}
+
+.sp-followup-chip {
+  flex-shrink: 0;
+  max-width: 220px;
+  padding: 5px 10px;
+  border: 1px solid #eceff3;
+  border-radius: 999px;
+  background: #fafbfc;
+  color: #4b5563;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sp-followup-chip:hover {
+  color: #111827;
+  border-color: #d8dee6;
+}
+
 .sp-msg {
   max-width: 94%;
   white-space: pre-wrap;

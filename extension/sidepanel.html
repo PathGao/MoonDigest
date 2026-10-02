@@ -46,8 +46,8 @@
           </svg>
           <span>开启新对话</span>
         </button>
-        <button id="spPresetBtn" type="button" class="sp-toolbar-btn" title="预设提示词">
-          <span>预设提示词</span>
+        <button id="spPresetBtn" type="button" class="sp-toolbar-btn" title="快捷追问">
+          <span>快捷追问</span>
         </button>
         <button id="spHistoryBtn" type="button" class="sp-toolbar-btn" title="历史对话">
           <span>历史对话</span>
@@ -59,7 +59,7 @@
       <div id="spPresetPopover" class="sp-preset-popover" hidden>
         <div id="spPresetList" class="sp-preset-list"></div>
         <div class="sp-preset-editor">
-          <input id="spPresetInput" class="sp-preset-input" type="text" placeholder="添加预设提示词" />
+          <input id="spPresetInput" class="sp-preset-input" type="text" placeholder="添加快捷追问" />
           <button id="spPresetAddBtn" type="button" class="sp-preset-add-btn">添加</button>
         </div>
       </div>
@@ -70,6 +70,7 @@
         </div>
         <div id="spHistoryList" class="sp-history-list"></div>
       </div>
+      <div id="spFollowups" class="sp-followups" hidden></div>
       <div class="sp-input-row">
         <textarea
           id="spInput"
