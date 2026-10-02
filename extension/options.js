@@ -126,10 +126,14 @@ const elements = {
   hostPermissionBtn: document.getElementById("hostPermissionBtn")
 };
 
+// Any edit since the last successful save; a passed provider test reminds the user to save.
+let hasUnsavedChanges = false;
+
 init();
 
 function init() {
   loadSettings();
+  ["input", "change"].forEach((type) => document.addEventListener(type, () => (hasUnsavedChanges = true)));
   // Every tier has its own save button; all save everything, and the status shows under the one clicked.
   elements.saveBtns.forEach((button) => {
     button.addEventListener("click", () => {
@@ -238,6 +242,7 @@ async function saveSettings() {
     }
     // 用最新列表（含 hasSavedKey）重新渲染，避免误以为 Key 丢了
     renderAiProviders(aiResp.providers || []);
+    hasUnsavedChanges = false;
     renderHostPermissionBanner(hostUrls);
     if (deniedHosts.length) {
       setStatus(`已保存，但未授权访问 ${deniedHosts.join("、")}，相关请求会失败；重新保存可再次授权`, true);
@@ -1134,7 +1139,7 @@ function addAiProviderRow(item = {}) {
       model
     });
     if (resp?.ok) {
-      showAiProviderStatus(statusNode, "连接成功");
+      showAiProviderStatus(statusNode, hasUnsavedChanges ? "测试通过，记得保存设置" : "连接成功");
     } else {
       showAiProviderStatus(statusNode, `失败：${resp?.error || "未知错误"}`, true);
     }
