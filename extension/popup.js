@@ -11,6 +11,8 @@ const el = {
   copyBtn: document.getElementById("copyBtn"),
   downloadBtn: document.getElementById("downloadBtn"),
   sendBtn: document.getElementById("sendBtn"),
+  summaryBtn: document.getElementById("summaryBtn"),
+  triageBtn: document.getElementById("triageBtn"),
   readingViewBtn: document.getElementById("readingViewBtn"),
   aiBtn: document.getElementById("aiBtn"),
   settingsBtn: document.getElementById("settingsBtn")
@@ -35,6 +37,9 @@ async function init() {
   bindEvents();
   getSettingsFromRuntime().then((settings) => {
     el.sendBtn.hidden = settings.obsidianEnabled !== true;
+  });
+  getActiveTab().then((tab) => {
+    el.triageBtn.hidden = BocSites.matchSite(tab?.url || "")?.id === "youtube";
   });
   await refreshFromTab();
 }
@@ -145,7 +150,22 @@ function bindEvents() {
     await sendToRuntime({ type: "open-options" });
   });
 
-  document.getElementById("triageBtn").addEventListener("click", async () => {
+  el.summaryBtn.addEventListener("click", async () => {
+    const tab = await getActiveTab();
+    if (!isSupportedSubtitlePage(tab?.url || "")) {
+      setMessage("请先打开一个支持的视频页。");
+      return;
+    }
+    // Same path as the player AI button: background opens the side panel and queues the one-click prompt.
+    const resp = await sendToRuntime({ type: "player-ai-quick-action", tabId: tab.id, source: "popup" }).catch((error) => ({ ok: false, error: error.message }));
+    if (!resp?.ok) {
+      setMessage(`AI 总结失败：${resp?.error || "未知错误"}`);
+      return;
+    }
+    window.setTimeout(() => window.close(), 80);
+  });
+
+  el.triageBtn.addEventListener("click", async () => {
     await chrome.tabs.create({ url: chrome.runtime.getURL("triage/triage.html") });
     window.close();
   });

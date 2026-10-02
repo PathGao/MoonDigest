@@ -172,7 +172,7 @@ button {
 }
 
 .actions button,
-.triage-entry {
+.secondary {
   border: 1px solid var(--secondary-border);
   background: var(--secondary-bg);
   border-radius: var(--radius-sm);
@@ -183,11 +183,11 @@ button {
 }
 
 .actions button:hover,
-.triage-entry:hover {
+.secondary:hover {
   border-color: var(--accent);
 }
 
-.send {
+.primary {
   border: 1px solid var(--accent);
   background: var(--accent);
   border-radius: var(--radius-sm);
@@ -197,7 +197,7 @@ button {
   color: var(--on-accent);
 }
 
-.send:hover {
+.primary:hover {
   filter: brightness(1.08);
 }
 
@@ -221,4 +221,19 @@ button:disabled {
 
 .message:empty {
   display: none;
+}
+
+.triage-link {
+  align-self: center;
+  border: 0;
+  background: none;
+  padding: 0;
+  font-size: var(--fs-xs);
+  color: var(--text-2);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.triage-link:hover {
+  color: var(--accent);
 }

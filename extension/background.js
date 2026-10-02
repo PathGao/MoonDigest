@@ -594,7 +594,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     const openPromise = openAiSidepanelForTab(tabId);
     getMergedSettings()
       .then(async (settings) => {
-        if (!settings.enablePlayerAiQuickAction) {
+        // The setting hides the player button; the popup's AI 总结 is always available.
+        if (message.source !== "popup" && !settings.enablePlayerAiQuickAction) {
           throw new Error("AI 按钮未开启");
         }
         await openPromise;
