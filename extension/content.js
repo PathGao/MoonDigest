@@ -928,6 +928,8 @@ function checkUrlChange() {
   } catch {}
   enforceNormalPageStateIfNeeded(nextUrl);
   ensureUiReady();
+  // Invalidate the previous video's run so nothing waiting on it gets its subtitles.
+  state.fetchRunId++;
   resetClipState();
   const shouldEnterReaderMode = isReaderMode(nextUrl);
   if (!state.readingViewOpen && shouldEnterReaderMode) {
