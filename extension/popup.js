@@ -232,11 +232,10 @@ function render(payload, { preserveStatus = false } = {}) {
     el.subtitleSelect.innerHTML = options
       .map((item) => {
         const selected = item.selected ? "selected" : "";
-        const aiTag = item.isAi ? " [AI]" : "";
         return `<option value="${escapeHtml(item.url)}" data-id="${escapeHtml(
           item.id || ""
         )}" data-lang="${escapeHtml(item.lang || "")}" ${selected}>${escapeHtml(
-          `${item.lang || "unknown"}${aiTag}`
+          item.optionLabel || item.lang || "unknown"
         )}</option>`;
       })
       .join("");

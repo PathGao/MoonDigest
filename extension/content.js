@@ -1393,38 +1393,19 @@ function renderMeta() {
 }
 
 function renderSubtitleSelect() {
-  const select = byId(ids.subtitleSelect);
-  const subtitles = state.subtitles || [];
-
-  if (subtitles.length === 0) {
-    select.innerHTML = '<option value="">暂无字幕</option>';
-    select.disabled = true;
-    return;
-  }
-
-  select.innerHTML = subtitles
-    .map((item) => {
-      const selectedById =
-        state.selectedSubtitleId && String(item.id) === String(state.selectedSubtitleId);
-      const selectedByUrl = item.url === state.selectedSubtitleUrl;
-      const selected = selectedById || selectedByUrl ? "selected" : "";
-      const label = item.label || item.lang || "unknown";
-      const isAi = item.kind !== "manual";
-      // Translated tracks already say 机器翻译 in their label.
-      const aiTag = { ai: " [AI]", auto: " [自动]" }[item.kind] || "";
-      const optionLabel = `${label}${aiTag}`;
-      return `<option value="${escapeHtml(item.url)}" data-lang="${escapeHtml(
-        label
-      )}" data-id="${escapeHtml(String(item.id || ""))}" data-isai="${isAi}" ${selected}>${escapeHtml(
-        optionLabel
-      )}</option>`;
-    })
-    .join("");
-  select.disabled = false;
+  renderSubtitleOptions(byId(ids.subtitleSelect));
 }
 
 function renderReadingSubtitleSelect() {
-  const select = byId(ids.readingSubtitleSelect);
+  renderSubtitleOptions(byId(ids.readingSubtitleSelect));
+}
+
+// Translated tracks already say 机器翻译 in their label.
+function subtitleOptionLabel(item) {
+  return `${item.label || item.lang || "unknown"}${{ ai: " [AI]", auto: " [自动]" }[item.kind] || ""}`;
+}
+
+function renderSubtitleOptions(select) {
   const subtitles = state.subtitles || [];
 
   if (subtitles.length === 0) {
@@ -1440,13 +1421,10 @@ function renderReadingSubtitleSelect() {
       const selectedByUrl = item.url === state.selectedSubtitleUrl;
       const selected = selectedById || selectedByUrl ? "selected" : "";
       const label = item.label || item.lang || "unknown";
-      const isAi = item.kind !== "manual";
-      const aiTag = isAi ? " [AI]" : "";
-      const optionLabel = `${label}${aiTag}`;
       return `<option value="${escapeHtml(item.url)}" data-lang="${escapeHtml(
         label
-      )}" data-id="${escapeHtml(String(item.id || ""))}" data-isai="${isAi}" ${selected}>${escapeHtml(
-        optionLabel
+      )}" data-id="${escapeHtml(String(item.id || ""))}" data-isai="${item.kind !== "manual"}" ${selected}>${escapeHtml(
+        subtitleOptionLabel(item)
       )}</option>`;
     })
     .join("");
@@ -1464,6 +1442,7 @@ function getPopupPayload() {
       id: String(item.id || ""),
       url: item.url,
       lang: label,
+      optionLabel: subtitleOptionLabel(item),
       isAi,
       selected: selectedById || selectedByUrl
     };
