@@ -3,14 +3,6 @@ const CONVERSATIONS_STORAGE_KEY = "boc_ai_conversations_v1";
 const PLAYER_AI_QUICK_ACTION_STORAGE_KEY = "boc_player_ai_quick_action_v1";
 const MAX_SAVED_CONVERSATIONS = 60;
 const NON_VIDEO_CONTEXT_MESSAGE = "当前页不是支持的视频页面，<br>无法获取当前页面信息作为对话上下文，<br>仅支持 AI 对话。";
-const DEFAULT_PRESET_PROMPTS = [
-  "用 3 句话总结这个视频",
-  "提炼这个视频的 5 个重点",
-  "按时间顺序整理这期视频的内容",
-  "根据评论总结观众的看法",
-  "按章节整理视频内容",
-  "生成带时间轴的笔记"
-];
 const STREAM_SLOW_NOTICE_MS = 15000;
 const FOLLOW_PLAYBACK_KEY = "boc_sp_follow_playback";
 const PREVIOUS_VIDEO_CONVERSATION_KEY = "boc_sp_previous_video_conversation";
@@ -44,7 +36,7 @@ const els = {
 const DEFAULT_AI_PREFS = {
   aiSystemPrompt: "",
   playerAiQuickPrompt: "",
-  aiPresetPrompts: DEFAULT_PRESET_PROMPTS.slice()
+  aiPresetPrompts: []
 };
 
 let contextData = null;
@@ -228,10 +220,6 @@ async function loadProvidersAndPrefs({ preferredProviderId = "" } = {}) {
       ? settingsResp.settings.aiPresetPrompts.map((item) => String(item || "").trim()).filter(Boolean).slice(0, 12)
       : []
   };
-  if (!aiPrefs.aiPresetPrompts.length) {
-    aiPrefs.aiPresetPrompts = DEFAULT_PRESET_PROMPTS.slice();
-    void persistAiPresetPrompts();
-  }
   renderModelSelect(preferredProviderId);
   renderPresetPrompts();
   renderFollowups();
@@ -1318,16 +1306,9 @@ async function removePresetPrompt(index) {
   renderFollowups();
 }
 
+// save-settings keeps the keys it is not sent.
 async function persistAiPresetPrompts() {
-  const settingsResp = await sendRuntimeMessage({ type: "get-settings" }).catch(() => ({ ok: false }));
-  if (!settingsResp?.ok || !settingsResp.settings) {
-    return;
-  }
-  const nextSettings = {
-    ...settingsResp.settings,
-    aiPresetPrompts: (aiPrefs.aiPresetPrompts || []).slice(0, 12)
-  };
-  await sendRuntimeMessage({ type: "save-settings", settings: nextSettings }).catch(() => null);
+  await sendRuntimeMessage({ type: "save-settings", settings: { aiPresetPrompts: (aiPrefs.aiPresetPrompts || []).slice(0, 12) } }).catch(() => null);
 }
 
 function updateSidepanelLayoutState() {
