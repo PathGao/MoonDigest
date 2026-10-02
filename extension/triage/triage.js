@@ -9,6 +9,7 @@ const GROUP_SIZE = 8;
 const SELECT_CAP = 10;
 const SYNC_MIN_GAP_MS = 60 * 1000;
 const UNDO_CAP = 20;
+const RECENT_UNFAV_CAP = 50;
 const TAG_COLORS = ["#7c62e8", "#2f8f5b", "#c9463d", "#a86a00", "#2a7ab8", "#b8428f", "#4f7a28", "#6b7180"];
 const TABS = [
   ["unsure", "待定"],
@@ -346,11 +347,14 @@ async function loadFolders() {
 }
 
 async function openFolder(mediaId) {
+  // Loaded before any state changes so S.mediaId and S.decisions always belong to the same folder.
+  const decisions = await storeGet(K.decisions(mediaId), {});
   S.folderToken++;
   // The old stage-1 loop exits on the token change without touching state, so reset it here.
   S.stage1 = { running: false, stop: true };
   if (S.group) S.group.stop = true;
   S.mediaId = mediaId;
+  S.decisions = decisions;
   S.items = [];
   S.itemMap = new Map();
   S.group = null;
@@ -364,7 +368,6 @@ async function openFolder(mediaId) {
   el.syncNotice.hidden = true;
   storeSet(K.lastFolder, mediaId);
   el.list.innerHTML = `<p class="empty">加载中…</p>`;
-  S.decisions = await storeGet(K.decisions(mediaId), {});
   const ok = await syncFolder({ force: true });
   if (!ok) return;
   const hasAi = S.items.some((it) => S.titleRes[it.bvid] || S.analyses[it.bvid]?.status === "done");
@@ -590,15 +593,55 @@ function renderListHeader(list) {
   el.listHeader.hidden = !html;
 }
 
+function recentUnfavs() {
+  return Object.entries(S.decisions)
+    .filter(([b, d]) => d.action === "unfav" && d.aid && !S.itemMap.has(b))
+    .sort((x, y) => y[1].at - x[1].at)
+    .slice(0, RECENT_UNFAV_CAP);
+}
+
+function recentUnfavHtml() {
+  const list = recentUnfavs();
+  if (!list.length) return "";
+  const rows = list
+    .map(([b, d]) => {
+      const title = esc(d.title || b);
+      return `<li><span class="recent-title">${title}</span><span class="muted">${esc(fmtTime(d.at))}</span>
+        <button type="button" data-refav="${esc(b)}" aria-label="重新收藏 ${title}">重新收藏</button></li>`;
+    })
+    .join("");
+  return `<section class="recent-unfav" aria-label="最近取消收藏"><h3>最近取消收藏 <span class="muted">${list.length}</span></h3><ul>${rows}</ul></section>`;
+}
+
+const refaving = new Set();
+async function refavRecent(bvid) {
+  const d = S.decisions[bvid];
+  if (!d?.aid || refaving.has(bvid)) return;
+  const mediaId = S.mediaId;
+  refaving.add(bvid);
+  const r = await send({ type: "triage-refav", mediaId, aid: d.aid });
+  refaving.delete(bvid);
+  if (!r.ok) {
+    toast(`重新收藏失败：${r.error}`, true);
+    return;
+  }
+  await patchDecisions(mediaId, { [bvid]: null });
+  if (mediaId !== S.mediaId) return;
+  toast(`已重新收藏《${d.title || bvid}》`);
+  render();
+  syncFolder({ force: true });
+}
+
 function renderList() {
   const list = visibleItems();
   renderListHeader(list);
+  const recent = S.tab === "done" ? recentUnfavHtml() : "";
   if (!S.items.length) {
-    el.list.innerHTML = `<p class="empty">这个收藏夹是空的</p>`;
+    el.list.innerHTML = `<p class="empty">这个收藏夹是空的</p>${recent}`;
     return;
   }
   if (!list.length) {
-    el.list.innerHTML = `<p class="empty">这里没有视频</p>`;
+    el.list.innerHTML = `<p class="empty">这里没有视频</p>${recent}`;
     return;
   }
   el.list.classList.toggle("reading", S.tab === "read");
@@ -612,7 +655,7 @@ function renderList() {
   S.focusIndex = list.findIndex((it) => it.bvid === S.focused);
   const expanded = S.tab === "group";
   const scroll = el.list.scrollTop;
-  el.list.innerHTML = list.map((it) => cardHtml(it, expanded)).join("");
+  el.list.innerHTML = list.map((it) => cardHtml(it, expanded)).join("") + recent;
   el.list.scrollTop = scroll;
 }
 
@@ -765,6 +808,17 @@ function pushUndo(entry) {
   if (S.undo.length > UNDO_CAP) S.undo.shift();
 }
 const saveDecisions = () => storeSet(K.decisions(S.mediaId), S.decisions);
+// Patch one folder's decisions even after the user switched away from it; a null value deletes.
+async function patchDecisions(mediaId, patch) {
+  const d = mediaId === S.mediaId ? S.decisions : await storeGet(K.decisions(mediaId), {});
+  for (const [b, v] of Object.entries(patch)) {
+    if (v) d[b] = v;
+    else delete d[b];
+  }
+  await storeSet(K.decisions(mediaId), d);
+}
+// aid and title let 最近取消收藏 re-favorite the video after it has left the folder list.
+const unfavRecord = (it, at) => ({ action: "unfav", at, aid: it.aid, title: it.title });
 const saveVideoTags = () => storeSet(K.videoTags, S.videoTags);
 const shortTitle = (it) => (it.title.length > 24 ? `${it.title.slice(0, 24)}…` : it.title);
 
@@ -788,7 +842,7 @@ async function decide(bvid, action) {
       return;
     }
   }
-  S.decisions[bvid] = { action, at: Date.now() };
+  S.decisions[bvid] = action === "unfav" ? unfavRecord(it, Date.now()) : { action, at: Date.now() };
   saveDecisions();
   pushUndo({ kind: "decision", bvid, action, prev });
   toast(`${action === "unfav" ? "已取消收藏" : "已保留"}《${shortTitle(it)}》 · 撤销(U)`);
@@ -805,34 +859,40 @@ async function undo() {
   }
   if (entry.kind === "decision") {
     const it = S.itemMap.get(entry.bvid);
+    const { mediaId, folderToken: token } = S;
     if (entry.action === "unfav") {
-      const r = await send({ type: "triage-refav", mediaId: S.mediaId, aid: it.aid });
+      const r = await send({ type: "triage-refav", mediaId, aid: it.aid });
       if (!r.ok) {
-        toast(`撤销失败：${r.error}。可到 B 站手动重新收藏`, true);
+        if (token === S.folderToken) toast(`撤销失败：${r.error}。可到 B 站手动重新收藏`, true);
         return;
       }
     }
-    if (entry.prev) S.decisions[entry.bvid] = entry.prev;
-    else delete S.decisions[entry.bvid];
-    saveDecisions();
+    await patchDecisions(mediaId, { [entry.bvid]: entry.prev });
+    if (token !== S.folderToken) return;
     toast(`已撤销：${entry.action === "unfav" ? "重新收藏" : "取消保留"}《${shortTitle(it)}》`);
     S.focused = entry.bvid;
   } else if (entry.kind === "unfavMany") {
-    const token = S.folderToken;
+    const { mediaId, folderToken: token } = S;
+    const rest = entry.items.slice();
     let n = 0;
-    for (const b of entry.bvids) {
+    let error = "";
+    while (rest.length && token === S.folderToken) {
       if (n) await new Promise((r) => setTimeout(r, 300));
-      const r = await send({ type: "triage-refav", mediaId: S.mediaId, aid: S.itemMap.get(b)?.aid });
-      if (token !== S.folderToken) return;
+      if (token !== S.folderToken) break;
+      const r = await send({ type: "triage-refav", mediaId, aid: rest[0].aid });
       if (!r.ok) {
-        toast(`撤销中断（已重新收藏 ${n} 个）：${r.error}`, true);
+        error = r.error;
         break;
       }
-      delete S.decisions[b];
+      await patchDecisions(mediaId, { [rest.shift().bvid]: null });
       n++;
     }
-    saveDecisions();
-    if (n === entry.bvids.length) toast(`已重新收藏 ${n} 个`);
+    // After a folder switch the rest stay listed under that folder's 最近取消收藏.
+    if (token !== S.folderToken) return;
+    if (error) {
+      pushUndo({ kind: "unfavMany", items: rest });
+      toast(`撤销中断（已重新收藏 ${n} 个，剩余 ${rest.length} 个可再按 U 重试）：${error}`, true);
+    } else toast(`已重新收藏 ${n} 个`);
   } else if (entry.kind === "keepMany") {
     for (const b of entry.bvids) delete S.decisions[b];
     saveDecisions();
@@ -871,26 +931,26 @@ async function batchUnfav(btn) {
   const more = list.length > 10 ? `<p>等 ${list.length} 个</p>` : "";
   const ok = await askConfirm(`取消收藏这 ${list.length} 个视频？`, `<ul>${titles}</ul>${more}`, `确认删除 ${list.length} 个`);
   if (!ok) return;
-  const token = S.folderToken;
+  const { mediaId, folderToken: token } = S;
   let done = 0;
   btn.disabled = true;
-  for (let i = 0; i < list.length; i += 20) {
+  for (let i = 0; i < list.length && token === S.folderToken; i += 20) {
     const chunk = list.slice(i, i + 20);
     btn.textContent = `删除中 ${done}/${list.length}`;
-    const r = await send({ type: "triage-unfav", mediaId: S.mediaId, aids: chunk.map((it) => it.aid) });
-    if (token !== S.folderToken) return;
+    const r = await send({ type: "triage-unfav", mediaId, aids: chunk.map((it) => it.aid) });
     if (!r.ok) {
-      toast(`批量取消收藏失败（已完成 ${done} 个）：${r.error}`, true);
+      if (token === S.folderToken) toast(`批量取消收藏失败（已完成 ${done} 个）：${r.error}`, true);
       break;
     }
     const at = Date.now();
-    for (const it of chunk) S.decisions[it.bvid] = { action: "unfav", at };
-    saveDecisions();
+    await patchDecisions(mediaId, Object.fromEntries(chunk.map((it) => [it.bvid, unfavRecord(it, at)])));
     done += chunk.length;
-    if (i + 20 < list.length) await new Promise((r2) => setTimeout(r2, 1000));
+    if (i + 20 < list.length && token === S.folderToken) await new Promise((r2) => setTimeout(r2, 1000));
   }
+  // After a folder switch the finished chunks are saved under their folder and listed in its 最近取消收藏.
+  if (token !== S.folderToken) return;
   if (done) {
-    pushUndo({ kind: "unfavMany", bvids: list.slice(0, done).map((it) => it.bvid) });
+    pushUndo({ kind: "unfavMany", items: list.slice(0, done).map(({ bvid, aid }) => ({ bvid, aid })) });
     toast(`已取消收藏 ${done} 个 · 撤销(U)`);
   }
   render();
@@ -1907,6 +1967,8 @@ function bindEvents() {
   });
 
   el.list.addEventListener("click", (e) => {
+    const refav = e.target.closest("[data-refav]");
+    if (refav) return refavRecent(refav.dataset.refav);
     const card = e.target.closest(".card");
     if (!card) return;
     const bvid = card.dataset.bvid;

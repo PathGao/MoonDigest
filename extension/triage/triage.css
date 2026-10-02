@@ -317,3 +317,9 @@ dialog.wide { width: min(880px, calc(100% - 32px)); }
 .advanced summary { cursor: pointer; font-size: var(--fs-xs); color: var(--muted); }
 .advanced > :not(summary) { display: block; margin-top: 6px; }
 .advanced input { width: 100%; box-sizing: border-box; }
+
+.recent-unfav { margin-top: 16px; padding-top: 8px; border-top: 1px solid var(--border); }
+.recent-unfav h3 { margin: 0 0 6px; font-size: var(--fs-sm); }
+.recent-unfav ul { margin: 0; padding: 0; list-style: none; }
+.recent-unfav li { display: flex; align-items: center; gap: 8px; padding: 4px 0; }
+.recent-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
