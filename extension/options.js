@@ -187,7 +187,7 @@ async function loadSettings() {
   // AI 配置
   const providers = await loadAiProviders();
   renderAiProviders(providers);
-  renderHostPermissionBanner([settings.obsidianApiBaseUrl, ...providers.map((item) => item.baseUrl)]);
+  renderHostPermissionBanner(hostPermissionUrls(settings, providers));
 }
 
 async function saveSettings() {
@@ -212,7 +212,7 @@ async function saveSettings() {
   }
 
   // Remote hosts are optional permissions; the save click is the user gesture that may request them.
-  const hostUrls = [payload.obsidianEnabled ? payload.obsidianApiBaseUrl : "", ...aiProvidersPayload.map((item) => item.baseUrl)];
+  const hostUrls = hostPermissionUrls(payload, aiProvidersPayload);
   const deniedHosts = await requestHostPermissions(hostUrls);
 
   setBusy(true);
@@ -1183,6 +1183,10 @@ function collectAiProviders() {
   });
 }
 
+function hostPermissionUrls(settings, providers) {
+  return [settings.obsidianEnabled === true ? settings.obsidianApiBaseUrl : "", ...providers.map((item) => item.baseUrl)];
+}
+
 // Loopback hosts are in host_permissions already; everything else is optional.
 function hostPermissionPattern(url) {
   try {
@@ -1224,6 +1228,9 @@ async function requestHostPermissions(urls) {
 async function renderHostPermissionBanner(urls) {
   const missing = await missingHostPermissions(urls);
   elements.hostPermissionBanner.hidden = !missing.length;
+  if (!missing.length) {
+    return;
+  }
   elements.hostPermissionText.textContent = `未授权访问 ${missing.map((pattern) => pattern.replace(/\/\*$/, "")).join("、")}，AI 与 Obsidian 请求会失败。`;
   elements.hostPermissionBtn.onclick = async () => {
     await chrome.permissions.request({ origins: missing }).catch(() => false);
