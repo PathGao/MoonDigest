@@ -667,9 +667,10 @@ const saveDecisions = () => storeSet(K.decisions(S.mediaId), S.decisions);
 const saveVideoTags = () => storeSet(K.videoTags, S.videoTags);
 const shortTitle = (it) => (it.title.length > 24 ? `${it.title.slice(0, 24)}…` : it.title);
 
+const deciding = new Set(); // bvids with an unfav request in flight
 async function decide(bvid, action) {
   const it = S.itemMap.get(bvid);
-  if (!it) return;
+  if (!it || deciding.has(bvid)) return;
   const prev = S.decisions[bvid] || null;
   if (prev?.action === action) return;
   if (prev?.action === "unfav") {
@@ -678,7 +679,9 @@ async function decide(bvid, action) {
   }
   const before = visibleItems();
   if (action === "unfav") {
+    deciding.add(bvid);
     const r = await send({ type: "triage-unfav", mediaId: S.mediaId, aids: [it.aid] });
+    deciding.delete(bvid);
     if (!r.ok) {
       toast(`取消收藏失败：${r.error}`, true);
       return;
@@ -704,8 +707,7 @@ async function undo() {
     if (entry.action === "unfav") {
       const r = await send({ type: "triage-refav", mediaId: S.mediaId, aid: it.aid });
       if (!r.ok) {
-        S.undo.push(entry);
-        toast(`撤销失败：${r.error}`, true);
+        toast(`撤销失败：${r.error}。可到 B 站手动重新收藏`, true);
         return;
       }
     }
