@@ -405,7 +405,6 @@
       noCursorClass: "bpx-state-no-cursor",
       sendingBar: ".bpx-player-sending-bar",
       title: ["h1.video-title"],
-      metaContainer: [".video-data", ".video-info-detail", ".video-info-meta"],
       keepRoots: ["#bilibili-player", ".bpx-player-container", ".bpx-player-video-area", ".bpx-player-primary-area", "h1.video-title", ".video-info-detail", ".video-info-meta", ".video-data"],
       noise: [".strip-ad-inner", ".inside-wrp", ".inside-bg", ".hinter-msg", ".slide", ".cover.b-img", ".cover.b-img.sleepy", ".b-img.clickable", "[class*='activity']", "[class*='adcard']"],
       cards: ["article", "li", ".card-box", ".video-page-card-small", ".video-page-special-card-small", ".feed-card", ".bili-video-card"],
@@ -698,8 +697,13 @@
         videoId: ref.id
       });
       const status = data?.playabilityStatus?.status;
+      const reason = data?.playabilityStatus?.reason || status || "unknown";
+      // The ANDROID client carries no cookies, so sign-in and age gates always land here.
+      if (status === "LOGIN_REQUIRED" || /^AGE_/.test(status || "")) {
+        throw new Error(`该视频需要登录或年龄验证，暂不支持（${reason}）`);
+      }
       if (status !== "OK") {
-        throw new Error(`视频不可播放：${data?.playabilityStatus?.reason || status || "unknown"}`);
+        throw new Error(`视频不可播放：${reason}`);
       }
       const details = data.videoDetails || {};
       const renderer = data.captions?.playerCaptionsTracklistRenderer || {};
@@ -790,7 +794,6 @@
       noCursorClass: "",
       sendingBar: "",
       title: ["h1.ytd-watch-metadata"],
-      metaContainer: ["ytd-watch-metadata #top-row"],
       keepRoots: ["#movie_player", "#player", "ytd-watch-metadata", "h1.ytd-watch-metadata"],
       noise: ["#secondary", "#comments", "ytd-merch-shelf-renderer", "#masthead-ad", "ytd-ad-slot-renderer"],
       cards: ["ytd-compact-video-renderer", "ytd-rich-item-renderer"],
