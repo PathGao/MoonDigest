@@ -716,6 +716,22 @@ async function undo() {
     saveDecisions();
     toast(`已撤销：${entry.action === "unfav" ? "重新收藏" : "取消保留"}《${shortTitle(it)}》`);
     S.focused = entry.bvid;
+  } else if (entry.kind === "unfavMany") {
+    const token = S.folderToken;
+    let n = 0;
+    for (const b of entry.bvids) {
+      if (n) await new Promise((r) => setTimeout(r, 300));
+      const r = await send({ type: "triage-refav", mediaId: S.mediaId, aid: S.itemMap.get(b)?.aid });
+      if (token !== S.folderToken) return;
+      if (!r.ok) {
+        toast(`撤销中断（已重新收藏 ${n} 个）：${r.error}`, true);
+        break;
+      }
+      delete S.decisions[b];
+      n++;
+    }
+    saveDecisions();
+    if (n === entry.bvids.length) toast(`已重新收藏 ${n} 个`);
   } else if (entry.kind === "keepMany") {
     for (const b of entry.bvids) delete S.decisions[b];
     saveDecisions();
@@ -772,7 +788,10 @@ async function batchUnfav(btn) {
     done += chunk.length;
     if (i + 20 < list.length) await new Promise((r2) => setTimeout(r2, 1000));
   }
-  if (done) toast(`已取消收藏 ${done} 个`);
+  if (done) {
+    pushUndo({ kind: "unfavMany", bvids: list.slice(0, done).map((it) => it.bvid) });
+    toast(`已取消收藏 ${done} 个 · 撤销(U)`);
+  }
   render();
   afterProcessedChange();
 }
