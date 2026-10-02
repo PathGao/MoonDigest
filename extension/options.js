@@ -1,13 +1,10 @@
 const DEFAULT_PRESET_PROMPTS = [
-  "生成视频摘要和结论",
-  "按章节整理视频内容",
-  "生成带时间轴的笔记"
-];
-const DEFAULT_INITIAL_QUICK_PROMPTS = [
   "用 3 句话总结这个视频",
   "提炼这个视频的 5 个重点",
   "按时间顺序整理这期视频的内容",
-  "根据评论总结观众的看法"
+  "根据评论总结观众的看法",
+  "按章节整理视频内容",
+  "生成带时间轴的笔记"
 ];
 const DEFAULT_PLAYER_AI_QUICK_PROMPT = "整理这期视频的内容，输出结构化总结：主题、核心观点、关键细节、结论与可执行启发。";
 const LEGACY_DEFAULT_AI_SYSTEM_PROMPT = [
@@ -60,7 +57,6 @@ const DEFAULT_SETTINGS = {
   fixedFrontmatterProperties: [],
   notePlaceholderSections: [],
   aiSystemPrompt: DEFAULT_AI_SYSTEM_PROMPT,
-  aiInitialQuickPrompts: DEFAULT_INITIAL_QUICK_PROMPTS.slice(),
   aiPresetPrompts: DEFAULT_PRESET_PROMPTS.slice()
 };
 
@@ -121,7 +117,7 @@ const elements = {
   aiProvidersEmpty: document.getElementById("aiProvidersEmpty"),
   addAiProviderBtn: document.getElementById("addAiProviderBtn"),
   aiSystemPrompt: document.getElementById("aiSystemPrompt"),
-  aiInitialQuickPrompts: document.querySelectorAll(".ai-initial-quick-prompt"),
+  aiPresetPrompts: document.getElementById("aiPresetPrompts"),
   saveBtns: [...document.querySelectorAll(".save-btn")],
   testConnectionBtn: document.getElementById("testConnectionBtn"),
   status: document.getElementById("status"),
@@ -129,8 +125,6 @@ const elements = {
   hostPermissionText: document.getElementById("hostPermissionText"),
   hostPermissionBtn: document.getElementById("hostPermissionBtn")
 };
-
-let savedAiPresetPrompts = [];
 
 init();
 
@@ -186,8 +180,7 @@ async function loadSettings() {
   renderFixedPropertyRows(settings.fixedFrontmatterProperties);
   renderNoteSectionRows(settings.notePlaceholderSections);
   elements.aiSystemPrompt.value = settings.aiSystemPrompt || "";
-  renderInitialQuickPromptInputs(settings.aiInitialQuickPrompts);
-  savedAiPresetPrompts = Array.isArray(settings.aiPresetPrompts) ? settings.aiPresetPrompts : [];
+  elements.aiPresetPrompts.value = (Array.isArray(settings.aiPresetPrompts) ? settings.aiPresetPrompts : []).join("\n");
   await loadTriageSettings();
 
   // AI 配置
@@ -312,22 +305,8 @@ function collectFormPayload() {
     fixedFrontmatterProperties: normalizeFixedFrontmatterProperties(collectFixedPropertyRows()),
     notePlaceholderSections: normalizeNotePlaceholderSections(collectNoteSectionRows()),
     aiSystemPrompt: String(elements.aiSystemPrompt?.value || "").trim(),
-    aiInitialQuickPrompts: collectInitialQuickPrompts(),
-    aiPresetPrompts: Array.isArray(savedAiPresetPrompts) ? savedAiPresetPrompts.slice(0, 12) : []
+    aiPresetPrompts: [...new Set(elements.aiPresetPrompts.value.split("\n").map((line) => line.trim()).filter(Boolean))].slice(0, 12)
   };
-}
-
-function renderInitialQuickPromptInputs(value) {
-  const prompts = Array.isArray(value) ? value : DEFAULT_INITIAL_QUICK_PROMPTS;
-  elements.aiInitialQuickPrompts.forEach((input, index) => {
-    input.value = String(prompts[index] || "");
-  });
-}
-
-function collectInitialQuickPrompts() {
-  return Array.from(elements.aiInitialQuickPrompts || [])
-    .map((input) => String(input.value || "").trim())
-    .slice(0, 4);
 }
 
 function validateSettings(payload, { requireApiKey }) {
