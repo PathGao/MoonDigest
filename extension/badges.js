@@ -143,11 +143,25 @@
     if (old && old.dataset.bvid === b && info) return;
     old?.remove();
     if (!info) return;
-    const target = a.querySelector('[class*="title"]') || (!a.querySelector("img, picture") && a);
-    if (!target || target.textContent.trim().length < 2) return;
+    const target = titleBox(a);
+    if (!target) return;
     // Favorites pages show every user tag; elsewhere a tag chip appears only when there is no verdict.
     const tags = isFavPage ? info.tags : info.label ? [] : info.tags.slice(0, 1);
-    target.prepend(badgeEl(info, b, tags));
+    const badge = badgeEl(info, b, tags);
+    // Some titles hang their opening bracket with a negative text-indent, which would clip the badge.
+    const indent = parseFloat(getComputedStyle(target).textIndent);
+    if (indent < 0) badge.style.marginLeft = `${-indent}px`;
+    target.prepend(badge);
+  }
+
+  // The block that holds the title's first text, so the badge sits inline before the title words.
+  function titleBox(a) {
+    const root = a.querySelector('[class*="title"]') || (!a.querySelector("img, picture") && a);
+    if (!root || root.textContent.trim().length < 2) return null;
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, { acceptNode: (n) => (n.data.trim() ? 1 : 3) });
+    let box = walker.nextNode()?.parentElement;
+    while (box && box !== root && getComputedStyle(box).display === "inline") box = box.parentElement;
+    return box || null;
   }
 
   function badgeEl(info, bvid, tags) {
@@ -208,11 +222,7 @@
     };
     pop.append(add("div", "mdg-pop-head", info.aria));
     if (info.oneLiner) pop.append(add("div", "mdg-pop-one", info.oneLiner));
-    if (info.points.length) {
-      const ul = add("ul", "mdg-pop-points", "");
-      for (const p of info.points) ul.append(add("li", "", p));
-      pop.append(ul);
-    }
+    for (const p of info.points) pop.append(add("div", "mdg-pop-pt", `• ${p}`));
     if (info.reason) pop.append(add("div", "mdg-pop-reason", `理由：${info.reason}`));
     document.body.append(pop);
     const r = badge.getBoundingClientRect();
