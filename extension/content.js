@@ -78,7 +78,6 @@ const state = {
   readingActiveSubtitleIndex: -1,
   readingActiveChapterIndex: -1,
   readingNextScrollBehavior: "smooth",
-  readingSyncTimer: 0,
   currentClipSignature: "",
   readingVideoEl: null,
   readingPlayerHost: null,
@@ -86,6 +85,7 @@ const state = {
   readingMainOriginalNextSibling: null,
   readingPlayerAdjustedNodes: [],
   readingPlayerObserver: null,
+  readingPlayerObserverTimer: 0,
   readingPlayerMountTimer: 0,
   readingPlayerRetryTimer: 0,
   readingPlayerRetries: 0,
@@ -1120,7 +1120,6 @@ async function runRefreshClip() {
       moveReadingMainInline();
       renderReadingView();
       setReadingNotice("");
-      startReadingViewSync();
       startReaderPlayerObserver();
       syncReadingViewPlayback(true);
     }
@@ -1486,7 +1485,6 @@ async function showNoSubtitleState(runId, failure = "") {
   if (state.readingViewOpen) {
     moveReadingMainInline();
     renderReadingView();
-    startReadingViewSync();
     startReaderPlayerObserver();
     syncReadingViewPlayback(true);
   }
@@ -1626,7 +1624,6 @@ function waitForVideoMetadata(timeoutMs = 5000) {
 }
 
 function syncReaderModeAfterMount() {
-  startReadingViewSync();
   startReaderPlayerObserver();
   layoutReaderPlayerHost();
   syncReadingViewPlayback(true);
@@ -2360,20 +2357,7 @@ function cleanupReaderPlayerHost() {
   state.readingPlayerHost = null;
 }
 
-function startReadingViewSync() {
-  if (state.readingSyncTimer) {
-    window.clearInterval(state.readingSyncTimer);
-  }
-  state.readingSyncTimer = window.setInterval(() => {
-    syncReadingViewPlayback();
-  }, 250);
-}
-
 function stopReadingViewSync() {
-  if (state.readingSyncTimer) {
-    window.clearInterval(state.readingSyncTimer);
-    state.readingSyncTimer = 0;
-  }
   if (state.readingMiniDismissTimer) {
     window.clearTimeout(state.readingMiniDismissTimer);
     state.readingMiniDismissTimer = 0;
@@ -2411,18 +2395,25 @@ function startReaderPlayerObserver() {
   if (!isReaderMode() || state.readingPlayerObserver || !document.body) {
     return;
   }
+  // Throttled, not debounced: danmaku mutate the page nonstop and would starve a debounce.
   const observer = new MutationObserver(() => {
-    if (!state.readingViewOpen) {
+    if (state.readingPlayerObserverTimer) {
       return;
     }
-    const nextVideo = getRuntimeVideoElement();
-    const nextHost = findReaderPlayerHost(nextVideo);
-    if (nextVideo && nextHost && (nextVideo !== state.readingVideoEl || nextHost !== state.readingPlayerHost)) {
-      queueEnsureReaderPlayerMounted();
-    }
-    if (document.querySelector(sel(reader().miniPlayer))) {
-      scheduleReaderMiniPlayerDismiss();
-    }
+    state.readingPlayerObserverTimer = window.setTimeout(() => {
+      state.readingPlayerObserverTimer = 0;
+      if (!state.readingViewOpen) {
+        return;
+      }
+      const nextVideo = getRuntimeVideoElement();
+      const nextHost = findReaderPlayerHost(nextVideo);
+      if (nextVideo && nextHost && (nextVideo !== state.readingVideoEl || nextHost !== state.readingPlayerHost)) {
+        queueEnsureReaderPlayerMounted();
+      }
+      if (document.querySelector(sel(reader().miniPlayer))) {
+        scheduleReaderMiniPlayerDismiss();
+      }
+    }, 150);
   });
   observer.observe(document.body, {
     childList: true,
@@ -2436,6 +2427,8 @@ function stopReaderPlayerObserver() {
     state.readingPlayerObserver.disconnect();
     state.readingPlayerObserver = null;
   }
+  window.clearTimeout(state.readingPlayerObserverTimer);
+  state.readingPlayerObserverTimer = 0;
 }
 
 function bindReadingViewVideo(video = getRuntimeVideoElement()) {
@@ -3603,23 +3596,26 @@ function syncReadingViewPlayback(forceScroll = false) {
   const changed =
     subtitleIndex !== state.readingActiveSubtitleIndex ||
     chapterIndex !== state.readingActiveChapterIndex;
-
-  setActiveReadingItems(subtitleIndex, chapterIndex, forceScroll || changed);
   updateReaderFollowState();
+  if (changed || forceScroll) {
+    setActiveReadingItems(subtitleIndex, chapterIndex, true);
+  }
 }
 
 function findActiveSubtitleIndex(currentTime) {
   const items = Array.isArray(state.subtitleBody) ? state.subtitleBody : [];
-  for (let index = 0; index < items.length; index += 1) {
-    const item = items[index];
+  const matches = (item) => {
     const from = Number(item?.from || 0) || 0;
     const rawTo = Number(item?.to || 0) || 0;
-    const to = rawTo > from ? rawTo : from + 2;
-    if (currentTime >= from && currentTime < to) {
+    return currentTime >= from && currentTime < (rawTo > from ? rawTo : from + 2);
+  };
+  // Playback mostly moves forward, so look from the active line first.
+  for (let index = Math.max(0, state.readingActiveSubtitleIndex); index < items.length; index += 1) {
+    if (matches(items[index])) {
       return index;
     }
   }
-  return -1;
+  return items.findIndex(matches);
 }
 
 function findActiveChapterIndex(currentTime) {
@@ -3782,7 +3778,9 @@ function updateReaderFollowState() {
   }
   const mode =
     !state.readingAutoScroll ? "off" : Date.now() < state.readingManualScrollPauseUntil ? "manual" : "auto";
-  readingView.setAttribute("data-boc-reader-follow", mode);
+  if (readingView.getAttribute("data-boc-reader-follow") !== mode) {
+    readingView.setAttribute("data-boc-reader-follow", mode);
+  }
 }
 
 function computeCurrentClipSignature(url = location.href) {
