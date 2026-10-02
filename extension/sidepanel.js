@@ -1817,6 +1817,19 @@ function showAssistantError(node, error) {
     });
     node.appendChild(grant);
   }
+  const prompt = activeUserPrompt;
+  if (prompt) {
+    const retry = document.createElement("button");
+    retry.type = "button";
+    retry.className = "sp-chip sp-grant-btn";
+    retry.textContent = "重试";
+    retry.addEventListener("click", () => {
+      if (activePort) return;
+      els.input.value = prompt;
+      void sendMessage();
+    });
+    node.appendChild(retry);
+  }
   activeUserPrompt = "";
   if (activePort) {
     try {

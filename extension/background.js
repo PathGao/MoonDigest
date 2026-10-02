@@ -11,7 +11,9 @@ const DEFAULT_INITIAL_QUICK_PROMPTS = [
 ];
 const DEFAULT_PLAYER_AI_QUICK_PROMPT = "整理这期视频的内容，输出结构化总结：主题、核心观点、关键细节、结论与可执行启发。";
 const PLAYER_AI_QUICK_ACTION_STORAGE_KEY = "boc_player_ai_quick_action_v1";
-const STREAM_FIRST_TOKEN_TIMEOUT_MS = 90000;
+// Side panel stream watchdog: "first" until any SSE chunk arrives (reasoning chunks count), then "idle" between chunks.
+const STREAM_TIMEOUT_MS = { first: 90000, idle: 60000 };
+const AI_TEST_TIMEOUT_MS = 30000;
 const LEGACY_DEFAULT_AI_SYSTEM_PROMPT = [
   "你是一名专业的视频内容分析助手。基于字幕与评论提炼高价值信息，不要复述内容，不要输出思考过程或 think 标签。",
   "优先输出：主题与核心观点、关键数据与事实、逻辑链路与重要结论、可执行建议。",
@@ -865,23 +867,27 @@ chrome.runtime.onConnect.addListener((port) => {
 
   let activeAbortController = null;
   let activeAbortMeta = null;
-  let firstTokenTimeoutId = 0;
+  let watchdogId = 0;
+
+  const clearWatchdog = () => {
+    clearTimeout(watchdogId);
+    watchdogId = 0;
+  };
+
+  const armWatchdog = (ms, reason) => {
+    clearWatchdog();
+    watchdogId = setTimeout(() => abortActiveRequest({ type: "timeout", reason }), ms);
+  };
 
   const clearActiveRequestState = () => {
-    if (firstTokenTimeoutId) {
-      clearTimeout(firstTokenTimeoutId);
-      firstTokenTimeoutId = 0;
-    }
+    clearWatchdog();
     activeAbortController = null;
     activeAbortMeta = null;
   };
 
   const abortActiveRequest = (meta = null) => {
     activeAbortMeta = meta;
-    if (firstTokenTimeoutId) {
-      clearTimeout(firstTokenTimeoutId);
-      firstTokenTimeoutId = 0;
-    }
+    clearWatchdog();
     if (activeAbortController && !activeAbortController.signal.aborted) {
       activeAbortController.abort();
     }
@@ -904,9 +910,7 @@ chrome.runtime.onConnect.addListener((port) => {
       abortActiveRequest({ type: "silent" });
       clearActiveRequestState();
       activeAbortController = new AbortController();
-      firstTokenTimeoutId = setTimeout(() => {
-        abortActiveRequest({ type: "timeout", reason: "请求超时（90 秒未返回），已自动中断" });
-      }, STREAM_FIRST_TOKEN_TIMEOUT_MS);
+      armWatchdog(STREAM_TIMEOUT_MS.first, `请求超时：${STREAM_TIMEOUT_MS.first / 1000} 秒没有返回，已自动中断，可重试`);
       const providers = await loadAiProviders();
       const provider = providers.find((p) => p.id === msg.providerId);
       if (!provider) {
@@ -929,12 +933,7 @@ chrome.runtime.onConnect.addListener((port) => {
         port,
         signal: activeAbortController.signal,
         getAbortMeta: () => activeAbortMeta,
-        onFirstToken: () => {
-          if (firstTokenTimeoutId) {
-            clearTimeout(firstTokenTimeoutId);
-            firstTokenTimeoutId = 0;
-          }
-        }
+        onActivity: () => armWatchdog(STREAM_TIMEOUT_MS.idle, `回复中断：${STREAM_TIMEOUT_MS.idle / 1000} 秒没有新内容，可重试`)
       });
     } catch (e) {
       port.postMessage({ type: "error", error: String(e?.message || e) });
@@ -1317,7 +1316,7 @@ function clipAiSubtitle(markdown) {
   return String(markdown || "");
 }
 
-async function* parseOpenAISSE(response) {
+async function* parseOpenAISSE(response, onActivity) {
   if (!response || !response.body) return;
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
@@ -1325,6 +1324,7 @@ async function* parseOpenAISSE(response) {
   while (true) {
     const { value, done } = await reader.read();
     if (done) break;
+    onActivity?.();
     buffer += decoder.decode(value, { stream: true });
     const lines = buffer.split("\n");
     buffer = lines.length ? lines.pop() : "";
@@ -1405,7 +1405,7 @@ async function hostPermissionError(url) {
   }
 }
 
-async function streamChat({ provider, context, userPrompt, history, port, signal, getAbortMeta, onFirstToken }) {
+async function streamChat({ provider, context, userPrompt, history, port, signal, getAbortMeta, onActivity }) {
   if (!port) return;
   const baseUrl = String(provider?.baseUrl || "").trim().replace(/\/+$/, "");
   if (!baseUrl) {
@@ -1443,6 +1443,10 @@ async function streamChat({ provider, context, userPrompt, history, port, signal
       })
     });
   } catch (e) {
+    if (signal?.aborted) {
+      postStreamAbort(port, getAbortMeta?.());
+      return;
+    }
     port.postMessage({ type: "error", error: (await hostPermissionError(baseUrl)) || `网络错误：${e?.message || e}` });
     return;
   }
@@ -1455,29 +1459,24 @@ async function streamChat({ provider, context, userPrompt, history, port, signal
   }
 
   try {
-    let hasSentFirstToken = false;
-    for await (const token of parseOpenAISSE(response)) {
-      if (!hasSentFirstToken) {
-        hasSentFirstToken = true;
-        onFirstToken?.();
-      }
+    for await (const token of parseOpenAISSE(response, onActivity)) {
       port.postMessage({ type: "token", data: token });
     }
     port.postMessage({ type: "done" });
   } catch (e) {
     if (signal?.aborted) {
-      const abortMeta = typeof getAbortMeta === "function" ? getAbortMeta() : null;
-      if (abortMeta?.type === "stopped") {
-        port.postMessage({ type: "stopped", reason: abortMeta.reason || "已停止生成" });
-        return;
-      }
-      if (abortMeta?.type === "timeout") {
-        port.postMessage({ type: "error", error: abortMeta.reason || "请求超时，已自动中断" });
-        return;
-      }
+      postStreamAbort(port, getAbortMeta?.());
       return;
     }
     port.postMessage({ type: "error", error: String(e?.message || e) });
+  }
+}
+
+function postStreamAbort(port, abortMeta) {
+  if (abortMeta?.type === "stopped") {
+    port.postMessage({ type: "stopped", reason: abortMeta.reason || "已停止生成" });
+  } else if (abortMeta?.type === "timeout") {
+    port.postMessage({ type: "error", error: abortMeta.reason || "请求超时，已自动中断" });
   }
 }
 
@@ -1516,6 +1515,7 @@ async function probeAiChatCompletion({ baseUrl, apiKey, model, headers }) {
     response = await fetch(`${baseUrl}/chat/completions`, {
       method: "POST",
       headers: requestHeaders,
+      signal: AbortSignal.timeout(AI_TEST_TIMEOUT_MS),
       body: JSON.stringify({
         model,
         stream: false,
@@ -1525,6 +1525,7 @@ async function probeAiChatCompletion({ baseUrl, apiKey, model, headers }) {
       })
     });
   } catch (error) {
+    if (error?.name === "TimeoutError") return { ok: false, error: `连接超时：${AI_TEST_TIMEOUT_MS / 1000} 秒没有响应` };
     return { ok: false, error: `无法连接：${error?.message || error}` };
   }
 
