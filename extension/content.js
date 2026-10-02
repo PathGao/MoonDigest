@@ -1061,6 +1061,7 @@ async function runRefreshClip() {
         lang: item.lang,
         label: item.label,
         kind: item.kind,
+        source: item.source,
         url: item.url
       }))
     );
@@ -3879,6 +3880,14 @@ function siteIo() {
   return {
     doc: document,
     subtitleLang: subtitleLangTarget(),
+    readPlayer: async () => {
+      const resp = await sendRuntimeMessage({ type: "yt-player-response" });
+      if (!resp?.ok) {
+        throw new Error(toReadableText(resp?.error, "player read failed"));
+      }
+      return resp.data;
+    },
+    capturePot: ytCapturePot,
     fetchJson: (url) => (currentSite()?.pageOnly ? fetchJson(url) : fetchJsonInBackground(url)),
     fetchText: async (url) => (await fetchOk(url, { credentials: "include" })).text(),
     postJson: async (url, body, headers = {}) =>
@@ -3891,6 +3900,41 @@ function siteIo() {
         })
       ).json()
   };
+}
+
+// The page player's timedtext requests carry the subtitle PO token. The
+// content script shares the document's performance timeline, so an earlier
+// request is read from it; otherwise captions are toggled (off and on, or on
+// and off) until the player fires one, and the button is left as found.
+// The token goes nowhere but youtube.com timedtext URLs.
+async function ytCapturePot(videoId) {
+  const found = () => BocSites.ytPotFromUrls(performance.getEntriesByType("resource").map((entry) => entry.name), videoId);
+  let pot = found();
+  const button = document.querySelector("#movie_player .ytp-subtitles-button");
+  if (pot || !button) {
+    return pot;
+  }
+  const seen = [];
+  const observer = new PerformanceObserver((list) => list.getEntries().forEach((entry) => seen.push(entry.name)));
+  observer.observe({ type: "resource" });
+  let clicks = 0;
+  try {
+    while (!pot && clicks < 2) {
+      button.click();
+      clicks += 1;
+      for (let waited = 0; !pot && waited < 5000; waited += 250) {
+        await sleep(250);
+        pot = BocSites.ytPotFromUrls(seen, videoId);
+      }
+    }
+  } finally {
+    observer.disconnect();
+    if (clicks % 2 === 1) {
+      button.click();
+    }
+  }
+  logInfo("[BOC] youtube pot capture", { clicks, found: Boolean(pot) });
+  return pot;
 }
 
 function currentRef() {
@@ -4129,6 +4173,7 @@ function buildSubtitleCandidates(subtitles, preferred) {
 // A refresh always goes to the network so an old cache entry cannot misalign the subtitles.
 async function tryLoadSubtitleCandidates(candidates, runId) {
   let lastError = null;
+  let backedOff = false;
   for (const item of candidates || []) {
     try {
       logInfo("[BOC] try subtitle track", {
@@ -4138,13 +4183,19 @@ async function tryLoadSubtitleCandidates(candidates, runId) {
         kind: item.kind,
         url: item.url
       });
-      await loadSubtitle(
-        item.url,
-        item.label || item.lang || "unknown",
-        runId,
-        item.id,
-        true
-      );
+      const load = () => loadSubtitle(item.url, item.label || item.lang || "unknown", runId, item.id, true);
+      try {
+        await load();
+      } catch (error) {
+        // A short burst often clears after a few seconds; one backed-off retry, then stop.
+        if (error?.status !== 429 || backedOff) {
+          throw error;
+        }
+        backedOff = true;
+        await sleep(3000 + Math.random() * 2000);
+        ensureRunActive(runId);
+        await load();
+      }
       return item;
     } catch (error) {
       // Every track hits the same endpoint, so trying the rest only extends the rate limit.

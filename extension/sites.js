@@ -7,7 +7,8 @@
 //            tags, chapters, pageCount, pageIndex, pageTitle, cid?, aid?, pages? }
 // Track    { id, lang, label, url, kind: "manual" | "auto" | "ai" | "translated" | "transcript", isDefault }
 // Segment  { from, to, content } in seconds
-// io       { fetchJson(url), fetchText?(url), postJson?(url, body, headers?), doc?, subtitleLang? }
+// io       { fetchJson(url), fetchText?(url), postJson?(url, body, headers?), doc?, subtitleLang?,
+//            readPlayer?() -> the page player's own response, capturePot?(videoId) -> { pot, client } }
 (() => {
   if (globalThis.BocSites) {
     return;
@@ -425,9 +426,14 @@
 
   // ----------------------------------------------------------------- YouTube
 
-  // The WEB client's caption URLs carry exp=xpe and return empty bodies; the
-  // ANDROID client's do not. Version mirrors youtube-transcript-api.
-  const YT_ANDROID_CLIENT = { clientName: "ANDROID", clientVersion: "20.10.38" };
+  // Innertube clients, versions from yt-dlp (2026-07). WEB takes the page's
+  // own version. fetch() cannot set User-Agent, so the ANDROID call goes out
+  // with the browser's UA; the context fields have been enough so far.
+  const YT_CLIENTS = {
+    WEB: { id: "1", client: { clientName: "WEB" } },
+    WEB_EMBEDDED_PLAYER: { id: "56", client: { clientName: "WEB_EMBEDDED_PLAYER", clientVersion: "2.20260708.00.00" } },
+    ANDROID: { id: "3", client: { clientName: "ANDROID", clientVersion: "21.26.364", androidSdkVersion: 30, osName: "Android", osVersion: "11" } }
+  };
   const YT_HOSTS = new Set(["www.youtube.com", "youtube.com", "m.youtube.com", "music.youtube.com", "www.youtube-nocookie.com"]);
   const YT_WEB_CLIENT_VERSION_FALLBACK = "2.20250101.00.00";
   let ytPageConfig = null;
@@ -473,16 +479,19 @@
     return { apiKey: "", webClientVersion: YT_WEB_CLIENT_VERSION_FALLBACK, visitorData: "" };
   }
 
-  // WEB-client innertube call with the headers the watch page itself sends.
-  // hl is pinned to English so counts arrive as "1.2K", which ytParseCount reads exactly.
-  function ytPost(io, endpoint, body) {
+  // Innertube call from the page, with the user's cookies and the headers the
+  // watch page itself sends. hl is pinned to English so counts arrive as
+  // "1.2K", which ytParseCount reads exactly.
+  function ytPost(io, endpoint, { context = {}, ...body }, clientName = "WEB") {
     const config = ytReadPageConfig(io.doc);
+    const { id, client } = YT_CLIENTS[clientName];
+    const clientVersion = client.clientVersion || config.webClientVersion;
     return io.postJson(
       `https://www.youtube.com/youtubei/v1/${endpoint}?prettyPrint=false${config.apiKey ? `&key=${config.apiKey}` : ""}`,
-      { context: { client: { clientName: "WEB", clientVersion: config.webClientVersion, hl: "en" } }, ...body },
+      { context: { client: { ...client, clientVersion, hl: "en" }, ...context }, ...body },
       {
-        "X-Youtube-Client-Name": "1",
-        "X-Youtube-Client-Version": config.webClientVersion,
+        "X-Youtube-Client-Name": id,
+        "X-Youtube-Client-Version": clientVersion,
         ...(config.visitorData ? { "X-Goog-Visitor-Id": config.visitorData } : {})
       }
     );
@@ -502,28 +511,134 @@
     return response;
   }
 
+  // Player responses by client and the subtitle PO token of the current
+  // load. The token is bound to the video id only, so one serves every
+  // client. fetchMeta starts a load and clears it.
+  let ytPlayer = { id: "", responses: {}, pot: null, resolved: false };
+
+  function ytPlayerCache(ref, fresh = false) {
+    if (fresh || ytPlayer.id !== ref.id) {
+      ytPlayer = { id: ref.id, responses: {}, pot: null, resolved: false };
+    }
+    return ytPlayer;
+  }
+
+  // WEB prefers the page player's own response: signed in and already loaded.
+  // After SPA navigation it may still describe the previous video, so a
+  // response naming another video is never used.
+  async function ytPlayerResponse(ref, io, clientName) {
+    const cache = ytPlayerCache(ref);
+    if (cache.responses[clientName]) {
+      return cache.responses[clientName];
+    }
+    let response = null;
+    if (clientName === "WEB" && io.readPlayer) {
+      const live = await io.readPlayer().catch(() => null);
+      response = live?.videoDetails?.videoId === ref.id ? live : null;
+    }
+    if (!response) {
+      const body = { videoId: ref.id };
+      if (clientName === "WEB_EMBEDDED_PLAYER") {
+        body.context = { thirdParty: { embedUrl: `https://www.youtube.com/embed/${ref.id}` } };
+      }
+      response = await ytPost(io, "player", body, clientName);
+      if (response?.videoDetails?.videoId && response.videoDetails.videoId !== ref.id) {
+        throw new Error("播放器返回的是另一个视频，请刷新页面重试");
+      }
+    }
+    cache.responses[clientName] = response || {};
+    return cache.responses[clientName];
+  }
+
+  function ytGateReason(response) {
+    const status = String(response?.playabilityStatus?.status || "");
+    return status === "LOGIN_REQUIRED" || /^AGE_/.test(status) ? String(response.playabilityStatus.reason || status) : "";
+  }
+
+  // pot and c of the newest timedtext request the page player made for this video.
+  function ytPotFromUrls(urls, videoId) {
+    for (const text of [...(urls || [])].reverse()) {
+      const parsed = parseUrl(text);
+      if (!parsed || parsed.hostname !== "www.youtube.com" || parsed.pathname !== "/api/timedtext") continue;
+      const params = parsed.searchParams;
+      if (params.get("v") !== videoId || !params.get("pot")) continue;
+      return { pot: params.get("pot"), client: params.get("c") || "WEB" };
+    }
+    return null;
+  }
+
+  // Caption URL as yt-dlp builds it: baseUrl params kept, xosf dropped (it
+  // adds position data), fmt set, pot/potc/c appended, tlang only when it
+  // differs from the source language (tlang=lang returns damaged subtitles).
+  function ytCaptionUrl(baseUrl, { pot = null, fmt = "json3", tlang = "" } = {}) {
+    const url = new URL(baseUrl, "https://www.youtube.com");
+    url.searchParams.delete("xosf");
+    url.searchParams.set("fmt", fmt);
+    if (tlang && tlang !== url.searchParams.get("lang")) {
+      url.searchParams.set("tlang", tlang);
+    }
+    if (pot?.pot) {
+      url.searchParams.set("pot", pot.pot);
+      url.searchParams.set("potc", "1");
+      url.searchParams.set("c", pot.client || "WEB");
+    }
+    return url.toString();
+  }
+
+  function ytNeedsPot(baseUrl) {
+    return /^(xpe|xpv)$/.test(parseUrl(baseUrl)?.searchParams.get("exp") || "");
+  }
+
+  // Caption tracks of a player response, URLs left as baseUrl.
+  function ytCaptionTracks(response, source) {
+    const renderer = response?.captions?.playerCaptionsTracklistRenderer || {};
+    const audio = (renderer.audioTracks || [])[Number(renderer.defaultAudioTrackIndex) || 0];
+    const defaultIndex = Number(audio?.defaultCaptionTrackIndex);
+    return (renderer.captionTracks || [])
+      .map((track, index) => ({
+        id: String(track?.vssId || `${track?.languageCode || ""}#${index}`),
+        lang: String(track?.languageCode || ""),
+        label: ytTrackName(track) || String(track?.languageCode || ""),
+        url: String(track?.baseUrl || ""),
+        kind: track?.kind === "asr" || String(track?.vssId || "").startsWith("a.") ? "auto" : "manual",
+        isDefault: index === defaultIndex,
+        translatable: track?.isTranslatable === true,
+        source
+      }))
+      .filter((track) => track.url);
+  }
+
+  // Tracks of one client with final URLs. The PO token is captured from the
+  // page player only when a track's URL demands one (exp=xpe/xpv); such
+  // tracks are dropped when no token can be had, as yt-dlp does.
+  async function ytClientTracks(ref, io, clientName) {
+    const cache = ytPlayerCache(ref);
+    const tracks = ytCaptionTracks(await ytPlayerResponse(ref, io, clientName), clientName);
+    if (!cache.pot && io.capturePot && tracks.some((track) => ytNeedsPot(track.url))) {
+      cache.pot = (await io.capturePot(ref.id).catch(() => null)) || null;
+    }
+    return tracks
+      .filter((track) => cache.pot || !ytNeedsPot(track.url))
+      .map((track) => ({ ...track, url: ytCaptionUrl(track.url, { pot: cache.pot }) }));
+  }
+
+  // Signed-in page player first, ANDROID when it yields nothing, and for a
+  // gated video the embedded player, which YouTube lets through for
+  // embeddable age-gated videos. Resolves [] when every source is dry.
+  async function ytResolveTracks(ref, io) {
+    for (const clientName of ["WEB", "ANDROID"]) {
+      const tracks = await ytClientTracks(ref, io, clientName).catch(() => []);
+      if (tracks.length) return tracks;
+    }
+    if (Object.values(ytPlayerCache(ref).responses).some(ytGateReason)) {
+      return ytClientTracks(ref, io, "WEB_EMBEDDED_PLAYER").catch(() => []);
+    }
+    return [];
+  }
+
   function ytIsoDate(value) {
     const text = String(value || "");
     return /^\d{4}-\d{2}-\d{2}/.test(text) ? text.slice(0, 10) : "";
-  }
-
-  // The page's <meta itemprop="datePublished"> is only rewritten on a full
-  // load; after SPA navigation it still describes the previous video. The
-  // ANDROID player response has no publish date, so a WEB-client call
-  // (whose caption URLs are useless) fills it in that case.
-  async function ytFetchUploadDate(ref, io, config) {
-    const doc = io.doc;
-    if (readMetaContent(doc, 'meta[itemprop="identifier"]') === ref.id) {
-      return ytIsoDate(readMetaContent(doc, 'meta[itemprop="datePublished"]') || readMetaContent(doc, 'meta[itemprop="uploadDate"]'));
-    }
-    const data = await io
-      .postJson(`https://www.youtube.com/youtubei/v1/player?key=${config.apiKey}&prettyPrint=false`, {
-        context: { client: { clientName: "WEB", clientVersion: config.webClientVersion } },
-        videoId: ref.id
-      })
-      .catch(() => null);
-    const micro = data?.microformat?.playerMicroformatRenderer;
-    return ytIsoDate(micro?.publishDate || micro?.uploadDate);
   }
 
   function xmlAttr(attrs, name) {
@@ -596,7 +711,7 @@
   }
 
   // Without a native track in the target language, YouTube machine-translates
-  // any translatable track when its URL gets &tlang=. translationLanguages is
+  // any translatable track when its URL gets tlang. translationLanguages is
   // not consulted: it never lists zh-Hans, which works. Manual sources first.
   // Under "auto" a video without any Chinese track is offered zh-Hans.
   function ytWithTranslation(tracks, target) {
@@ -617,7 +732,7 @@
         id: `${source.id}>${lang}`,
         lang,
         label: `${SUBTITLE_LANG_NAMES[lang]}（机器翻译，自${source.label}）`,
-        url: `${source.url}&tlang=${lang}`,
+        url: ytCaptionUrl(source.url, { tlang: lang }),
         kind: "translated",
         isDefault: false
       }
@@ -801,25 +916,22 @@
     canonicalUrl(id) {
       return `https://www.youtube.com/watch?v=${id}`;
     },
+    // Meta comes from the page player's own response (signed in), or the
+    // ANDROID player when that one has no videoDetails. A sign-in or age gate
+    // is reported, not thrown, while videoDetails are present: fetchTracks
+    // still has the embedded player and content.js the transcript to try.
     async fetchMeta(ref, io) {
       if (!io.postJson) {
         throw new Error("YouTube 视频信息只能在视频页内获取");
       }
-      const config = ytReadPageConfig(io.doc);
-      const apiKey = config.apiKey;
-      if (!apiKey) {
-        throw new Error("页面里没有找到 YouTube API key，请刷新页面重试");
+      ytPlayerCache(ref, true);
+      let data = await ytPlayerResponse(ref, io, "WEB");
+      if (!data.videoDetails?.title) {
+        data = await ytPlayerResponse(ref, io, "ANDROID");
       }
-      const data = await io.postJson(`https://www.youtube.com/youtubei/v1/player?key=${apiKey}&prettyPrint=false`, {
-        context: { client: YT_ANDROID_CLIENT },
-        videoId: ref.id
-      });
       const status = data?.playabilityStatus?.status;
       const reason = data?.playabilityStatus?.reason || status || "unknown";
-      // The ANDROID client carries no cookies, so sign-in and age gates always
-      // land here. With videoDetails still present the meta is usable and the
-      // cookie-carrying transcript fallback gets a chance; without them nothing is.
-      const gate = status === "LOGIN_REQUIRED" || /^AGE_/.test(status || "") ? `该视频需要登录或年龄验证，暂不支持（${reason}）` : "";
+      const gate = ytGateReason(data) ? `该视频需要登录或年龄验证，暂不支持（${reason}）` : "";
       if (gate && !data.videoDetails?.title) {
         throw new Error(gate);
       }
@@ -827,26 +939,13 @@
         throw new Error(`视频不可播放：${reason}`);
       }
       const details = data.videoDetails || {};
-      const renderer = data.captions?.playerCaptionsTracklistRenderer || {};
-      const audio = (renderer.audioTracks || [])[Number(renderer.defaultAudioTrackIndex) || 0];
-      const defaultIndex = Number(audio?.defaultCaptionTrackIndex);
-      const tracks = (renderer.captionTracks || [])
-        .map((track, index) => ({
-          id: String(track?.vssId || `${track?.languageCode || ""}#${index}`),
-          lang: String(track?.languageCode || ""),
-          label: ytTrackName(track) || String(track?.languageCode || ""),
-          url: String(track?.baseUrl || ""),
-          kind: track?.kind === "asr" ? "auto" : "manual",
-          isDefault: index === defaultIndex,
-          translatable: track?.isTranslatable === true
-        }))
-        .filter((track) => track.url);
+      const micro = data.microformat?.playerMicroformatRenderer;
       const thumbnails = [...(details.thumbnail?.thumbnails || [])].sort((a, b) => (Number(b.width) || 0) - (Number(a.width) || 0));
       return {
         title: String(details.title || ""),
         author: String(details.author || ""),
         authorUrl: details.channelId ? `https://www.youtube.com/channel/${details.channelId}` : "",
-        uploadDate: await ytFetchUploadDate(ref, io, config),
+        uploadDate: ytIsoDate(micro?.publishDate || micro?.uploadDate),
         description: String(details.shortDescription || ""),
         duration: Number(details.lengthSeconds) || 0,
         cover: httpsUrl(thumbnails[0]?.url),
@@ -855,14 +954,16 @@
         pageCount: 0,
         pageIndex: 1,
         pageTitle: "",
-        tracks,
         gate
       };
     },
-    // Tracks arrive with the player response; a refetch (signed URLs expire)
-    // repeats that single call. A failed /next only costs the chapters.
+    // The first call reuses fetchMeta's player response; a later one (signed
+    // URLs expire) refetches the responses. A failed /next only costs the chapters.
     async fetchTracks(ref, meta, io) {
-      const tracks = Array.isArray(meta?.tracks) ? meta.tracks : (await youtube.fetchMeta(ref, io)).tracks;
+      const cache = ytPlayerCache(ref);
+      if (cache.resolved) cache.responses = {};
+      cache.resolved = true;
+      const tracks = await ytResolveTracks(ref, io);
       const next = io.postJson ? await ytNextResponse(ref, io, true).catch(() => null) : null;
       return { tracks: ytWithTranslation(tracks, io.subtitleLang), chapters: ytChapters(next) };
     },
@@ -996,6 +1097,8 @@
     parseJson3,
     ytChapters,
     ytTranscriptParams,
-    ytParseTranscript
+    ytParseTranscript,
+    ytPotFromUrls,
+    ytCaptionUrl
   };
 })();
