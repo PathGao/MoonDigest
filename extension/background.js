@@ -672,21 +672,17 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       return false;
     }
 
-    const encodedPath = filepath
-      .split("/")
-      .filter(Boolean)
-      .map((segment) => encodeURIComponent(segment))
-      .join("/");
-    const endpoint = `${baseUrl.replace(/\/+$/g, "")}/vault/${encodedPath}`;
-
-    fetch(endpoint, {
-      method: "PUT",
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        "Content-Type": "text/markdown; charset=utf-8"
-      },
-      body: content
-    })
+    linkCoverInVault(content, message.cover, { baseUrl, apiKey, filepath })
+      .then((body) =>
+        fetch(vaultEndpoint(baseUrl, filepath), {
+          method: "PUT",
+          headers: {
+            Authorization: `Bearer ${apiKey}`,
+            "Content-Type": "text/markdown; charset=utf-8"
+          },
+          body
+        })
+      )
       .then(async (response) => {
         if (!response.ok) {
           const bodyText = await response.text().catch(() => "");
@@ -711,14 +707,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       return false;
     }
 
-    const encodedPath = filepath
-      .split("/")
-      .filter(Boolean)
-      .map((segment) => encodeURIComponent(segment))
-      .join("/");
-    const endpoint = `${baseUrl.replace(/\/+$/g, "")}/vault/${encodedPath}`;
-
-    fetch(endpoint, {
+    fetch(vaultEndpoint(baseUrl, filepath), {
       method: "GET",
       headers: {
         Authorization: `Bearer ${apiKey}`,
@@ -1339,6 +1328,56 @@ async function* parseOpenAISSE(response) {
         if (delta) yield String(delta);
       } catch {}
     }
+  }
+}
+
+function vaultEndpoint(baseUrl, filepath) {
+  const encodedPath = filepath
+    .split("/")
+    .filter(Boolean)
+    .map((segment) => encodeURIComponent(segment))
+    .join("/");
+  return `${baseUrl.replace(/\/+$/g, "")}/vault/${encodedPath}`;
+}
+
+// Obsidian requests remote images with an app://obsidian.md Referer, which hdslb.com answers with 403,
+// so the cover goes into the vault next to the note and the note links it. Any failure keeps the remote URL.
+// The two rewritten forms mirror content.js buildFrontMatter ("cover") and buildMarkdown (cover image line).
+async function linkCoverInVault(content, cover, { baseUrl, apiKey, filepath }) {
+  const url = String(cover?.url || "");
+  const name = String(cover?.name || "").replace(/[\\/:*?"<>|#^[\]]/g, "_");
+  if (!url || !name || !content.includes(url)) {
+    return content;
+  }
+  try {
+    const ext = /\.(jpe?g|png|webp|gif)$/i.exec(new URL(url).pathname)?.[1].toLowerCase() || "jpg";
+    const folder = filepath.split("/").slice(0, -1).join("/");
+    const path = `${folder ? `${folder}/` : ""}attachments/${name}.${ext}`;
+    const endpoint = vaultEndpoint(baseUrl, path);
+    const auth = { Authorization: `Bearer ${apiKey}` };
+    const existing = await fetch(endpoint, { method: "GET", headers: auth, cache: "no-store" });
+    if (existing.status === 404) {
+      const image = await fetch(url, { referrerPolicy: "no-referrer" });
+      if (!image.ok) {
+        throw new Error(`cover HTTP ${image.status}`);
+      }
+      // A non-text Content-Type makes the plugin store the body as binary.
+      const upload = await fetch(endpoint, {
+        method: "PUT",
+        headers: { ...auth, "Content-Type": image.headers.get("Content-Type") || "application/octet-stream" },
+        body: await image.arrayBuffer()
+      });
+      if (!upload.ok) {
+        throw new Error(`cover upload HTTP ${upload.status}`);
+      }
+    } else if (!existing.ok) {
+      throw new Error(`cover check HTTP ${existing.status}`);
+    }
+    const link = `[[${path}]]`;
+    return content.replace(`cover: "${url}"`, () => `cover: "${link}"`).replace(`![cover](${url})`, () => `!${link}`);
+  } catch (error) {
+    console.warn("[boc] cover not stored in vault, keeping the remote URL", error);
+    return content;
   }
 }
 

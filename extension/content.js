@@ -1573,7 +1573,7 @@ async function sendToObsidian() {
         return;
       }
     }
-    await writeNoteByLocalApi(baseUrl, apiKey, filepath, state.markdown);
+    await writeNoteByLocalApi(baseUrl, apiKey, filepath, state.markdown, { url: state.cover, name: `${state.site}-${state.videoId}` });
     setMessage(`已写入 Obsidian：${filepath}`);
   } catch (error) {
     if (isExtensionContextInvalidated(error)) {
@@ -1597,13 +1597,14 @@ async function checkObsidianNoteExists(baseUrl, apiKey, filepath) {
   return Boolean(resp.exists);
 }
 
-async function writeNoteByLocalApi(baseUrl, apiKey, filepath, content) {
+async function writeNoteByLocalApi(baseUrl, apiKey, filepath, content, cover) {
   const resp = await sendRuntimeMessage({
     type: "write-obsidian-note",
     baseUrl,
     apiKey,
     filepath,
-    content
+    content,
+    cover
   });
   if (!resp?.ok) {
     throw new Error(toReadableText(resp?.error, "Local API 写入失败"));
