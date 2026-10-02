@@ -47,6 +47,17 @@
       "js": ["sites.js", "note.js", "content.js"],
       "css": ["content.css"],
       "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://www.bilibili.com/*",
+        "https://space.bilibili.com/*",
+        "https://search.bilibili.com/*",
+        "https://t.bilibili.com/*"
+      ],
+      "js": ["badges.js"],
+      "css": ["badges.css"],
+      "run_at": "document_idle"
     }
   ],
   "action": {
