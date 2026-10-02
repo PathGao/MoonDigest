@@ -252,9 +252,17 @@ async function getAiSidepanelState(tabId, { forceRefresh = false } = {}) {
 
   return {
     ...contextResp.payload,
+    url: canonicalVideoUrl(contextResp.payload),
     hotComments,
     isVideoContext: true
   };
+}
+
+// The content script reports location.href, which can carry reader mode (boc_reader) and tracking params;
+// a conversation saved from this context must link the plain video page.
+function canonicalVideoUrl({ site, videoId, pageIndex, pageCount, url }) {
+  const entry = BocSites.SITES[site];
+  return entry && videoId ? entry.canonicalUrl(videoId, pageCount > 1 ? pageIndex : 1) : BocSites.cleanUrl(url);
 }
 
 async function openAiSidepanelForTab(tabId) {
@@ -421,7 +429,7 @@ async function resolveAiSidepanelContext(contextRef) {
   const title = String(meta.title || ref.title || "").trim();
   return {
     title,
-    url: site.canonicalUrl(videoRef.id, meta.pageCount > 1 ? meta.pageIndex : 1),
+    url: canonicalVideoUrl({ ...meta, site: site.id, videoId: videoRef.id }),
     author: String(meta.author || ref.author || "").trim(),
     uploadDate: String(meta.uploadDate || ref.uploadDate || "").trim(),
     site: site.id,
@@ -464,7 +472,7 @@ async function resolveAiSidepanelPageRef(contextRef) {
   const meta = await site.fetchMeta(videoRef, { fetchJson: fetchJsonForAi });
   return {
     ...fallback,
-    url: site.canonicalUrl(videoRef.id, meta.pageCount > 1 ? meta.pageIndex : 1),
+    url: canonicalVideoUrl({ ...meta, site: site.id, videoId: videoRef.id }),
     cid: String(meta.cid || ref.cid || ""),
     pageIndex: meta.pageIndex || ref.pageIndex,
     pageTitle: String(meta.pageTitle || ref.pageTitle || "")
