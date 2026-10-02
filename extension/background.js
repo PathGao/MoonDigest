@@ -338,7 +338,9 @@ async function fetchJsonForAi(url) {
 
   const response = await fetch(url, options);
   if (!response.ok) {
-    throw new Error(`HTTP ${response.status}`);
+    const error = new Error(`HTTP ${response.status}`);
+    error.status = response.status;
+    throw error;
   }
   return response.json();
 }
@@ -655,7 +657,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     }
     fetchJsonForAi(url)
       .then((data) => sendResponse({ ok: true, data }))
-      .catch((error) => sendResponse({ ok: false, error: error.message }));
+      .catch((error) => sendResponse({ ok: false, error: error.message, status: error.status }));
     return true;
   }
 

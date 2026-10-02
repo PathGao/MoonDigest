@@ -4281,7 +4281,7 @@ function siteIo() {
     fetchText: async (url) => {
       const response = await fetch(url, { credentials: "include", cache: "no-store" });
       if (!response.ok) {
-        throw new Error(`请求失败：${response.status}`);
+        throw httpError(response.status);
       }
       return response.text();
     },
@@ -4293,7 +4293,7 @@ function siteIo() {
         cache: "no-store"
       });
       if (!response.ok) {
-        throw new Error(`请求失败：${response.status}`);
+        throw httpError(response.status);
       }
       return response.json();
     }
@@ -4477,6 +4477,9 @@ async function retryAsync(task, retries = 1, delayMs = 180) {
 }
 
 function isRetryableNetworkError(error) {
+  if (error?.status === 429) {
+    return false;
+  }
   const message = getErrorMessage(error, "").toLowerCase();
   if (!message) {
     return false;
@@ -4549,6 +4552,12 @@ async function tryLoadSubtitleCandidates(candidates, runId, forceRefresh) {
       );
       return item;
     } catch (error) {
+      // Every track hits the same endpoint, so trying the rest only extends the rate limit.
+      if (error?.status === 429) {
+        const limited = new Error("字幕接口限流（429），稍后再试");
+        limited.status = 429;
+        throw limited;
+      }
       lastError = error;
       const reasonCode = toReadableText(error?.code, "");
       const reasonMessage = getErrorMessage(error, "unknown");
@@ -4633,17 +4642,25 @@ async function fetchJson(url) {
   });
 
   if (!response.ok) {
-    throw new Error(`请求失败：${response.status}`);
+    throw httpError(response.status);
   }
 
   return response.json();
+}
+
+function httpError(status) {
+  const error = new Error(`请求失败：${status}`);
+  error.status = status;
+  return error;
 }
 
 async function fetchJsonInBackground(url) {
   try {
     const resp = await sendRuntimeMessage({ type: "fetch-json", url });
     if (!resp?.ok) {
-      throw new Error(toReadableText(resp?.error, "Background fetch failed"));
+      const error = new Error(toReadableText(resp?.error, "Background fetch failed"));
+      error.status = resp?.status;
+      throw error;
     }
     return resp.data;
   } catch (error) {
