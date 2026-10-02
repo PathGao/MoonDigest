@@ -489,7 +489,7 @@ async function triageChat(messages, maxTokens, thinking = false) {
   });
   if (!res.ok) {
     const detail = await res.text().catch(() => "");
-    throw triageError(`HTTP ${res.status}: ${detail.slice(0, 200)}`);
+    throw triageError(`HTTP ${res.status}: ${detail.slice(0, 200)}`, res.status === 429 ? "AI_THROTTLED" : undefined);
   }
   const json = await res.json();
   const choice = json.choices?.[0];

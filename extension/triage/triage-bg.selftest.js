@@ -178,4 +178,15 @@ assert.deepStrictEqual(plain(t.triageParseCommand('{"items":[]}', cmdItems, cmdT
 assert.throws(() => t.triageParseCommand("抱歉，没法处理", cmdItems, cmdTags, {}), /不是 JSON/);
 assert.throws(() => t.triageParseCommand('{"new_tags":[', cmdItems, cmdTags, {}), /不完整/);
 
-console.log("triage-bg selftest: all passed");
+
+(async () => {
+  // AI HTTP 429 is its own throttle code; other HTTP errors carry none.
+  t.loadAiProviders = async () => [{ id: "p", baseUrl: "https://ai.test", model: "m" }];
+  t.loadAiProviderKeys = async () => ({});
+  t.fetch = async () => ({ ok: false, status: 429, text: async () => "slow down" });
+  await assert.rejects(t.triageChat([], 100), (e) => e.code === "AI_THROTTLED");
+  t.fetch = async () => ({ ok: false, status: 500, text: async () => "" });
+  await assert.rejects(t.triageChat([], 100), (e) => e.code === undefined);
+
+  console.log("triage-bg selftest: all passed");
+})();

@@ -2,6 +2,8 @@
 
 // ---------- constants ----------
 const THROTTLE_MS = globalThis.__TRIAGE_THROTTLE_MS || 10 * 60 * 1000;
+// Error code -> [backoff ms, status label]. AI 429s clear far sooner than B站 risk control.
+const THROTTLES = { THROTTLED: [THROTTLE_MS, "B站限流"], AI_THROTTLED: [60 * 1000, "AI 平台限流"] };
 const GROUP_SIZE = 8;
 const SELECT_CAP = 10;
 const SYNC_MIN_GAP_MS = 60 * 1000;
@@ -86,6 +88,7 @@ const S = {
   stage1Skip: new Set(),
   analyzing: new Set(),
   throttleUntil: 0,
+  throttleLabel: "",
   status: "",
   undo: [],
   lastSyncAt: 0,
@@ -477,7 +480,7 @@ function renderTop() {
 function renderStatus() {
   const left = S.throttleUntil - Date.now();
   if (left > 0) {
-    el.queueStatus.textContent = `AI 限流，${fmtDuration(Math.ceil(left / 1000))} 后重试`;
+    el.queueStatus.textContent = `${S.throttleLabel}，${fmtDuration(Math.ceil(left / 1000))} 后重试`;
     el.queueStatus.classList.add("warn");
   } else {
     el.queueStatus.textContent = S.status;
@@ -966,10 +969,12 @@ function aiItem(it) {
   return { bvid: it.bvid, title: it.title, upper: it.upper, duration: it.duration, intro: it.intro };
 }
 
-async function throttleWait(keepGoing) {
-  S.throttleUntil = Date.now() + THROTTLE_MS;
+async function throttleWait(code, keepGoing) {
+  const [ms, label] = THROTTLES[code];
+  S.throttleUntil = Date.now() + ms;
+  S.throttleLabel = label;
   renderStatus();
-  await sleepWhile(THROTTLE_MS, keepGoing);
+  await sleepWhile(ms, keepGoing);
   S.throttleUntil = 0;
   renderStatus();
 }
@@ -991,8 +996,8 @@ async function runStage1() {
     const r = await send({ type: "triage-classify-titles", items: batch.map(aiItem), tags: tagPayload() });
     if (token !== S.folderToken) break;
     if (!r.ok) {
-      if (r.code === "THROTTLED") {
-        await throttleWait(keepGoing);
+      if (THROTTLES[r.code]) {
+        await throttleWait(r.code, keepGoing);
         continue;
       }
       handleAiError(r.error);
@@ -1058,9 +1063,9 @@ async function runGroup() {
     S.status = `字幕细看 ${idx}/${group.bvids.length}`;
     const r = await analyzeOne(b);
     if (token !== S.folderToken) return;
-    if (!r.ok && r.code === "THROTTLED") {
+    if (!r.ok && THROTTLES[r.code]) {
       render();
-      await throttleWait(keepGoing);
+      await throttleWait(r.code, keepGoing);
       continue;
     }
     S.analyses[b] = r.ok ? r.data : { bvid: b, status: "error", error: r.error };
@@ -1079,7 +1084,7 @@ async function retry(bvid) {
   const r = await analyzeOne(bvid, true);
   if (!r.ok) {
     S.analyses[bvid] = { bvid, status: "error", error: r.error };
-    if (r.code === "THROTTLED") toast("AI 限流，请稍后再试", true);
+    if (THROTTLES[r.code]) toast(`${THROTTLES[r.code][1]}，请稍后再试`, true);
     else handleAiError(r.error);
   } else {
     S.analyses[bvid] = r.data;
