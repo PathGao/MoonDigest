@@ -595,7 +595,7 @@ button:active {
 .about-row {
   margin: 0;
   display: grid;
-  grid-template-columns: minmax(98px, auto) minmax(0, 1fr);
+  grid-template-columns: 98px minmax(0, 1fr);
   gap: 8px;
   align-items: center;
 }
@@ -604,6 +604,11 @@ button:active {
   margin-top: 8px;
   padding-top: 8px;
   border-top: 1px dashed var(--info-border);
+}
+
+#storageLimits .about-row {
+  grid-template-columns: 168px minmax(0, 1fr);
+  align-items: start;
 }
 
 .about-label {
