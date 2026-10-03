@@ -658,6 +658,18 @@
     });
   }
 
+  const CJK = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}　-〿＀-￯]/u;
+
+  // Line breaks inside a caption become one space, except between two CJK
+  // characters, where no separator belongs (machine-translated zh showed "我也 懂").
+  function joinCaptionLines(text) {
+    return String(text)
+      .replace(/\s*\n\s*/g, (match, offset, whole) =>
+        CJK.test(whole[offset - 1] || "") && CJK.test(whole[offset + match.length] || "") ? "" : " "
+      )
+      .replace(/\s+/g, " ");
+  }
+
   // srv3: <p t="ms" d="ms"><s>word</s><s t="offset"> next</s></p>. Tags are
   // stripped, not trimmed, because the space between words lives inside <s>.
   function parseSrv3(xml) {
@@ -665,9 +677,9 @@
     for (const match of String(xml).matchAll(/<p\b([^>]*)>([\s\S]*?)<\/p>/g)) {
       const from = Number(xmlAttr(match[1], "t"));
       const duration = Number(xmlAttr(match[1], "d")) || 0;
-      const content = decodeXmlEntities(match[2].replace(/<br\s*\/?>/gi, " ").replace(/<[^>]+>/g, ""))
-        .replace(/\s+/g, " ")
-        .trim();
+      const content = joinCaptionLines(
+        decodeXmlEntities(match[2].replace(/<br\s*\/?>/gi, "\n").replace(/<[^>]+>/g, ""))
+      ).trim();
       if (!Number.isFinite(from) || !content) {
         continue;
       }

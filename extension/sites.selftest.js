@@ -152,6 +152,21 @@ eq(S.parseJson3({ events: [
   { from: 2, to: 2, content: "no duration" }
 ]);
 
+// Line breaks: no space between CJK neighbours, a space when either side is Latin
+eq(S.parseJson3({ events: [
+  { tStartMs: 0, dDurationMs: 1000, segs: [{ utf8: "♪ 你懂规则，我也" }, { utf8: "\n" }, { utf8: "懂 ♪" }] },
+  { tStartMs: 1000, dDurationMs: 1000, segs: [{ utf8: "日本語の\nテスト" }, { utf8: "\n" }, { utf8: "한국어" }] },
+  { tStartMs: 2000, dDurationMs: 1000, segs: [{ utf8: "ABC" }, { utf8: "\n" }, { utf8: "你好" }, { utf8: "\n" }, { utf8: "DEF" }] }
+] }), [
+  { from: 0, to: 1, content: "♪ 你懂规则，我也懂 ♪" },
+  { from: 1, to: 2, content: "日本語のテスト한국어" },
+  { from: 2, to: 3, content: "ABC 你好 DEF" }
+]);
+eq(S.parseSrv3('<p t="0" d="1000">你懂规则，<br/>我也懂</p><p t="1000" d="1000">hello<br/>世界<br />world</p>'), [
+  { from: 0, to: 1, content: "你懂规则，我也懂" },
+  { from: 1, to: 2, content: "hello 世界 world" }
+]);
+
 // YouTube comments. Current shape: trimmed from a live /next response for
 // dQw4w9WgXcQ (2026-10-02), mutations reversed so order must come from threads.
 const ytCurrent = {
