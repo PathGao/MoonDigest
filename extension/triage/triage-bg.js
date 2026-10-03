@@ -589,7 +589,8 @@ function triageWithSummary(markdown, analysis) {
 }
 
 // One video → one vault note built the same way the page's 发送到 Obsidian does, plus the stage-2 summary.
-// Returns { path, skipped, title, source }; skipped means the note existed and overwrite was off.
+// Returns { path, skipped, aiUpdated, title, source }; skipped means the note existed and overwrite was off,
+// aiUpdated that its AI 问答 section was rewritten anyway.
 async function triageWriteNote({ bvid, overwrite }) {
   if (!bvid) throw triageError("缺少 bvid");
   const settings = await getMergedSettings();
@@ -629,29 +630,28 @@ async function triageWriteNote({ bvid, overwrite }) {
     pageTitle: meta.pageTitle
   };
   const cacheKey = `triage_analysis_${bvid}`;
-  const analysis = (await chrome.storage.local.get(cacheKey))[cacheKey];
+  const conversationsKey = BocLimits.KEYS.aiConversations;
+  const stored = await chrome.storage.local.get([cacheKey, conversationsKey]);
+  const analysis = stored[cacheKey];
+  noteMeta.aiTurns = BocNote.buildConversationTurns(BocNote.pickConversation(stored[conversationsKey], noteMeta)?.messages);
   const markdown = triageWithSummary(BocNote.buildMarkdown(noteMeta, body, settings, ref), analysis);
 
   const { triageExportFolder } = await chrome.storage.sync.get(TRIAGE_SETTINGS_DEFAULTS);
   const folder = BocNote.normalizeFolder(triageExportFolder) || BocNote.resolveFolderTemplate(settings.noteFolder, noteMeta);
   const filename = BocNote.buildNoteFilename(noteMeta, settings);
   const path = folder ? `${folder}/${filename}` : filename;
-  const auth = { Authorization: `Bearer ${apiKey}` };
+  const noteKey = BocSites.buildContextKey(noteMeta);
   if (!overwrite) {
-    const existing = await fetch(vaultEndpoint(baseUrl, path), { method: "GET", headers: auth, cache: "no-store" });
-    if (existing.ok) return { path, skipped: true, title: meta.title };
-    if (existing.status !== 404) throw triageError(`HTTP ${existing.status}`);
+    // An existing note keeps its body; only its marked AI 问答 section follows the conversation.
+    const section = settings.includeAiChatInNote === false ? "" : BocNote.buildAiSection(noteMeta.aiTurns);
+    const existing = section
+      ? await updateAiSectionInVault({ baseUrl, apiKey, filepath: path, section, noteKey })
+      : await readVaultNote(baseUrl, apiKey, path);
+    if (existing.exists) return { path, skipped: true, aiUpdated: existing.updated === true, title: meta.title };
   }
   const content = await linkCoverInVault(markdown, { url: meta.cover, name: `bilibili-${bvid}` }, { baseUrl, apiKey, filepath: path });
-  const res = await fetch(vaultEndpoint(baseUrl, path), {
-    method: "PUT",
-    headers: { ...auth, "Content-Type": "text/markdown; charset=utf-8" },
-    body: content
-  });
-  if (!res.ok) {
-    const detail = await res.text().catch(() => "");
-    throw triageError(`HTTP ${res.status}${detail ? `: ${detail.slice(0, 200)}` : ""}`);
-  }
+  await putVaultNote(baseUrl, apiKey, path, content);
+  await rememberObsidianNotePath(noteKey, path);
   return { path, skipped: false, title: meta.title, source: body.length ? "subtitle" : "meta" };
 }
 

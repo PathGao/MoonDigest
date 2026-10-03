@@ -1,5 +1,19 @@
 const SELECTED_PROVIDER_KEY = "boc_ai_selected_provider";
 const CONVERSATIONS_STORAGE_KEY = BocLimits.KEYS.aiConversations;
+const NOTE_PATHS_STORAGE_KEY = BocLimits.KEYS.obsidianNotePaths;
+const {
+  stripThinkBlocks,
+  normalizeMarkdownForSectionPaste,
+  isTimestampOnlyInlineCode,
+  TIMESTAMP_PATTERN,
+  buildConversationTurns,
+  sanitizeMarkdownHeadingText,
+  resolveFolderTemplate,
+  buildNoteFilename,
+  sanitizeFileName,
+  escapeYaml,
+  formatLocalDate
+} = BocNote;
 const PLAYER_AI_QUICK_ACTION_STORAGE_KEY = "boc_player_ai_quick_action_v1";
 const NON_VIDEO_CONTEXT_MESSAGE = "当前页不是支持的视频页面，<br>无法获取当前页面信息作为对话上下文，<br>仅支持 AI 对话。";
 const STREAM_SLOW_NOTICE_MS = 15000;
@@ -19,6 +33,7 @@ const els = {
   presetBtn: document.getElementById("spPresetBtn"),
   historyBtn: document.getElementById("spHistoryBtn"),
   saveConversationBtn: document.getElementById("spSaveConversationBtn"),
+  syncStatus: document.getElementById("spSyncStatus"),
   copyConversationBtn: document.getElementById("spCopyConversationBtn"),
   presetPopover: document.getElementById("spPresetPopover"),
   presetList: document.getElementById("spPresetList"),
@@ -1178,6 +1193,7 @@ async function finishDetachedStream({ conversationId, promptIndex, prompt, raw }
   });
   conversation.updatedAt = Date.now();
   await saveConversations();
+  scheduleAutoSync(conversationId);
   if (isCurrent && !activeStream) {
     renderConversationMessages();
   }
@@ -1879,6 +1895,7 @@ function endStream(stream, { stopped = "", error = "" } = {}) {
   if (saved) {
     chatHistory.push({ role: "user", content: prompt }, { role: "assistant", content: raw });
     void persistCurrentConversation(stream);
+    scheduleAutoSync(currentConversationId);
   }
   [stopped, stream.notice].filter(Boolean).forEach((text) => {
     const note = document.createElement("div");
@@ -2065,7 +2082,8 @@ async function saveAssistantReplyToObsidian({ button, userPrompt, assistantMarkd
     context,
     prompt,
     answer,
-    filename
+    filename,
+    sourcePath: videoNotePathFor(context, settingsBundle.settings)
   });
 
   await saveMarkdownToObsidian({
@@ -2077,15 +2095,112 @@ async function saveAssistantReplyToObsidian({ button, userPrompt, assistantMarkd
   });
 }
 
-// The same note feeds the Obsidian save and the clipboard copy.
-function buildCurrentConversationNote() {
+// The same note feeds the Obsidian save and the clipboard copy; only the save knows the settings
+// that place the video note, so only it gets the source backlink.
+function buildCurrentConversationNote(settings = null) {
   const turns = buildConversationTurns(chatHistory);
   if (!turns.length) {
     return null;
   }
   const context = currentConversationMeta?.resolvedContext || contextData || currentConversationMeta?.contextRef || {};
   const filename = buildAiConversationFilename(context);
-  return { context, filename, content: buildAiConversationMarkdown({ context, turns, filename }) };
+  const sourcePath = settings ? videoNotePathFor(context, settings) : "";
+  return { context, filename, content: buildAiConversationMarkdown({ context, turns, filename, sourcePath }) };
+}
+
+// Where the page's 保存到 Obsidian puts this video's note: same folder template and filename builder.
+function videoNotePathFor(context, settings) {
+  const folder = resolveFolderTemplate(settings?.noteFolder || "", context);
+  const filename = buildNoteFilename(context, settings || {});
+  return folder ? `${folder}/${filename}` : filename;
+}
+
+async function boundVideoNotePath(noteKey) {
+  const paths = (await chrome.storage.local.get(NOTE_PATHS_STORAGE_KEY))[NOTE_PATHS_STORAGE_KEY] || {};
+  return paths[noteKey]?.path || "";
+}
+
+// Rewrites the marked AI 问答 section of the video's note when that note exists; never creates one.
+// Resolves to the background result ({ exists, updated }) or null when the conversation has no video.
+async function syncVideoNoteAiSection({ context, messages, settings, baseUrl, apiKey }) {
+  const noteKey = BocSites.buildContextKey(buildConversationContextRef(context) || {});
+  if (!noteKey) {
+    return null;
+  }
+  const section = BocNote.buildAiSection(buildConversationTurns(messages));
+  if (!section) {
+    return null;
+  }
+  const filepath = (await boundVideoNotePath(noteKey)) || videoNotePathFor(context, settings);
+  const resp = await sendRuntimeMessage({ type: "update-obsidian-ai-section", baseUrl, apiKey, filepath, section, noteKey });
+  if (!resp?.ok) {
+    throw new Error(getReadableText(resp?.error, "Local API 写入失败"));
+  }
+  return resp;
+}
+
+// ---- auto-sync: after a manual save bound the video to its note, every finished answer updates the section ----
+const AUTO_SYNC_DEBOUNCE_MS = 1500;
+const autoSyncTimers = new Map();
+
+function scheduleAutoSync(conversationId) {
+  if (!conversationId) {
+    return;
+  }
+  window.clearTimeout(autoSyncTimers.get(conversationId));
+  autoSyncTimers.set(
+    conversationId,
+    window.setTimeout(() => {
+      autoSyncTimers.delete(conversationId);
+      void autoSyncConversation(conversationId);
+    }, AUTO_SYNC_DEBOUNCE_MS)
+  );
+}
+
+async function autoSyncConversation(conversationId) {
+  const conversation = savedConversations.find((item) => item.id === conversationId);
+  const noteKey = conversation?.contextRef ? BocSites.buildContextKey(conversation.contextRef) : "";
+  if (!noteKey || !(await boundVideoNotePath(noteKey))) {
+    return;
+  }
+  const settingsResp = await sendRuntimeMessage({ type: "get-settings" }).catch(() => null);
+  const settings = settingsResp?.ok ? settingsResp.settings || {} : {};
+  const baseUrl = String(settings.obsidianApiBaseUrl || "").trim();
+  const apiKey = String(settings.obsidianApiKey || "").trim();
+  if (!settings.obsidianEnabled || settings.includeAiChatInNote === false || !baseUrl || !apiKey) {
+    return;
+  }
+  try {
+    const result = await syncVideoNoteAiSection({ context: conversation.contextRef, messages: conversation.messages, settings, baseUrl, apiKey });
+    if (!result) {
+      return;
+    }
+    if (!result.exists) {
+      showSyncStatus("笔记已不存在，未同步");
+      return;
+    }
+    showSyncStatus("已同步到 Obsidian ✓", { autoHideMs: 3000 });
+  } catch (error) {
+    showSyncStatus(`同步失败 · ${getErrorMessage(error)}`, { retry: () => autoSyncConversation(conversationId) });
+  }
+}
+
+let syncStatusTimer = 0;
+function showSyncStatus(text, { autoHideMs = 0, retry = null } = {}) {
+  if (!els.syncStatus) {
+    return;
+  }
+  window.clearTimeout(syncStatusTimer);
+  els.syncStatus.querySelector("span").textContent = text;
+  const button = els.syncStatus.querySelector("button");
+  button.hidden = !retry;
+  button.onclick = retry ? () => { els.syncStatus.hidden = true; void retry(); } : null;
+  els.syncStatus.hidden = false;
+  if (autoHideMs > 0) {
+    syncStatusTimer = window.setTimeout(() => {
+      els.syncStatus.hidden = true;
+    }, autoHideMs);
+  }
 }
 
 async function copyCurrentConversationMarkdown() {
@@ -2103,27 +2218,38 @@ async function copyCurrentConversationMarkdown() {
 }
 
 async function saveCurrentConversationToObsidian() {
-  const note = buildCurrentConversationNote();
-  if (!note) {
-    showConversationContextNotice("当前没有可保存的历史对话。", 2200);
-    return;
-  }
-
   const settingsBundle = await loadObsidianSettings();
   if (!settingsBundle) {
+    return;
+  }
+  const note = buildCurrentConversationNote(settingsBundle.settings);
+  if (!note) {
+    showConversationContextNotice("当前没有可保存的历史对话。", 2200);
     return;
   }
 
   const folder = resolveFolderTemplate(settingsBundle.settings.noteFolder || "", note.context);
   const filepath = folder ? `${folder}/${note.filename}` : note.filename;
 
-  await saveMarkdownToObsidian({
+  const written = await saveMarkdownToObsidian({
     button: els.saveConversationBtn,
     filepath,
     content: note.content,
     baseUrl: settingsBundle.baseUrl,
     apiKey: settingsBundle.apiKey
   });
+  if (!written || settingsBundle.settings.includeAiChatInNote === false) {
+    return;
+  }
+  // Follow-ups saved again land in the video note's AI 问答 section too, when that note exists.
+  try {
+    const result = await syncVideoNoteAiSection({ context: note.context, messages: chatHistory, ...settingsBundle });
+    if (result?.exists) {
+      showConversationContextNotice(`已写入 Obsidian：${filepath}，视频笔记的 AI 问答已更新。`, 3200);
+    }
+  } catch (error) {
+    showConversationContextNotice(`已写入 Obsidian：${filepath}，但视频笔记的 AI 问答更新失败：${getErrorMessage(error)}`, 4000);
+  }
 }
 
 async function loadObsidianSettings() {
@@ -2159,11 +2285,12 @@ async function saveMarkdownToObsidian({ button, filepath, content, baseUrl, apiK
       const shouldOverwrite = await confirmOverwriteNote(filepath);
       if (!shouldOverwrite) {
         showConversationContextNotice("已取消保存，原笔记未被覆盖。", 2200);
-        return;
+        return false;
       }
     }
     await writeNoteByLocalApi(baseUrl, apiKey, filepath, content);
     showConversationContextNotice(`已写入 Obsidian：${filepath}`, 2600);
+    return true;
   } catch (error) {
     showConversationContextNotice(`写入失败：${getErrorMessage(error)}`, 4000);
   } finally {
@@ -2223,7 +2350,13 @@ function buildQuestionSummary(prompt) {
   return text || "AI问答";
 }
 
-function buildAiNoteMarkdown({ context, prompt, answer, filename }) {
+// source: a wiki link to the video note (path without .md), so the AI note sits under it in the graph.
+function sourceFrontmatterLine(sourcePath) {
+  const target = String(sourcePath || "").replace(/\.md$/i, "");
+  return target ? `source: "[[${escapeYaml(target)}]]"` : "";
+}
+
+function buildAiNoteMarkdown({ context, prompt, answer, filename, sourcePath = "" }) {
   const created = formatLocalDate();
   const sourceTitle = String(context?.title || currentConversationMeta?.contextTitle || "当前视频").trim() || "当前视频";
   const url = buildCleanVideoUrl(context);
@@ -2232,6 +2365,7 @@ function buildAiNoteMarkdown({ context, prompt, answer, filename }) {
     "---",
     `title: "${escapeYaml(title)}"`,
     `source_title: "${escapeYaml(sourceTitle)}"`,
+    sourceFrontmatterLine(sourcePath),
     `url: "${escapeYaml(url)}"`,
     context?.author ? `author: "${escapeYaml(context.author)}"` : "",
     `created: "${created}"`,
@@ -2252,7 +2386,7 @@ function buildAiNoteMarkdown({ context, prompt, answer, filename }) {
   return `${lines.join("\n").trim()}\n`;
 }
 
-function buildAiConversationMarkdown({ context, turns, filename }) {
+function buildAiConversationMarkdown({ context, turns, filename, sourcePath = "" }) {
   const created = formatLocalDate();
   const sourceTitle = String(context?.title || currentConversationMeta?.contextTitle || "当前视频").trim() || "当前视频";
   const url = buildCleanVideoUrl(context);
@@ -2261,6 +2395,7 @@ function buildAiConversationMarkdown({ context, turns, filename }) {
     "---",
     `title: "${escapeYaml(title)}"`,
     `source_title: "${escapeYaml(sourceTitle)}"`,
+    sourceFrontmatterLine(sourcePath),
     `url: "${escapeYaml(url)}"`,
     context?.author ? `author: "${escapeYaml(context.author)}"` : "",
     `created: "${created}"`,
@@ -2286,38 +2421,6 @@ function buildAiConversationMarkdown({ context, turns, filename }) {
   return `${lines.join("\n").trim()}\n`;
 }
 
-function sanitizeMarkdownHeadingText(value) {
-  return String(value || "")
-    .replace(/\s+/g, " ")
-    .replace(/^#+\s*/, "")
-    .trim() || "AI问答";
-}
-
-function buildConversationTurns(messages) {
-  const turns = [];
-  let pendingPrompt = "";
-  (Array.isArray(messages) ? messages : []).forEach((message) => {
-    if (!message || typeof message.content !== "string") {
-      return;
-    }
-    if (message.role === "user") {
-      pendingPrompt = message.content.trim();
-      return;
-    }
-    if (message.role === "assistant" && pendingPrompt) {
-      const answer = normalizeMarkdownForSectionPaste(stripThinkBlocks(message.content)).trim();
-      if (answer) {
-        turns.push({
-          prompt: pendingPrompt,
-          answer
-        });
-      }
-      pendingPrompt = "";
-    }
-  });
-  return turns;
-}
-
 function buildCleanVideoUrl(context) {
   const url = String(context?.url || currentConversationMeta?.contextUrl || "").trim();
   const site = BocSites.SITES[context?.site] || BocSites.matchSite(url);
@@ -2328,66 +2431,8 @@ function buildCleanVideoUrl(context) {
   return url;
 }
 
-function resolveFolderTemplate(template, context) {
-  const normalized = normalizeFolder(template);
-  if (!normalized) {
-    return "";
-  }
-
-  const allowedKeys = new Set(["created", "upload_date", "author", "bvid", "site", "id"]);
-  const values = {
-    created: sanitizeFolderTemplateValue(formatLocalDate()),
-    upload_date: sanitizeFolderTemplateValue(context?.uploadDate || ""),
-    author: sanitizeFolderTemplateValue(context?.author || ""),
-    bvid: sanitizeFolderTemplateValue(context?.site === "bilibili" ? context?.videoId || "" : ""),
-    site: sanitizeFolderTemplateValue(context?.site || ""),
-    id: sanitizeFolderTemplateValue(context?.videoId || "")
-  };
-  const resolved = normalized.replace(/\{\{\s*([a-zA-Z0-9_]+)\s*\}\}/g, (_match, rawKey) => {
-    const key = String(rawKey || "").trim().toLowerCase();
-    if (!allowedKeys.has(key)) {
-      return "";
-    }
-    return values[key] || "";
-  });
-
-  return resolved
-    .split("/")
-    .map((segment) => sanitizeFolderTemplateValue(segment))
-    .filter(Boolean)
-    .join("/");
-}
-
-function normalizeFolder(input) {
-  return String(input || "").trim().replace(/^\/+|\/+$/g, "");
-}
-
-function sanitizeFolderTemplateValue(value) {
-  return String(value || "")
-    .replace(/[\/\\:*?"<>|]/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-function sanitizeFileName(value) {
-  return String(value || "")
-    .replace(/[\\/:*?"<>|]/g, "_")
-    .replace(/\s+/g, " ")
-    .trim()
-    .slice(0, 160);
-}
-
-function escapeYaml(value) {
-  return String(value || "").replaceAll("\\", "\\\\").replaceAll('"', '\\"').replaceAll("\n", "\\n").replaceAll("\r", "\\r").replaceAll("\t", "\\t");
-}
-
 function escapeWikiLinkTarget(value) {
   return String(value || "").replace(/\]/g, "\\]");
-}
-
-function formatLocalDate(value = Date.now()) {
-  const date = value instanceof Date ? new Date(value.getTime()) : new Date(value);
-  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
 }
 
 function getReadableText(value, fallback = "") {
@@ -2453,63 +2498,6 @@ function confirmOverwriteNote(filepath) {
     document.body.appendChild(overlay);
     overlay.querySelector(".sp-confirm-primary")?.focus();
   });
-}
-
-function normalizeMarkdownForSectionPaste(raw, baseLevel = 2) {
-  const shift = Math.max(0, Number(baseLevel) || 0);
-  const lines = String(raw || "").split("\n");
-  const normalized = [];
-  let inFence = false;
-
-  lines.forEach((line) => {
-    if (/^\s*```/.test(line)) {
-      inFence = !inFence;
-      normalized.push(line);
-      return;
-    }
-
-    if (inFence) {
-      normalized.push(line);
-      return;
-    }
-
-    const pasteLine = unwrapTimestampInlineCode(line);
-    const headingMatch = pasteLine.match(/^(\s*)(#{1,3})(\s+.*)$/);
-    if (!headingMatch) {
-      normalized.push(pasteLine);
-      return;
-    }
-
-    const [, indent, hashes, suffix] = headingMatch;
-    normalized.push(`${indent}${"#".repeat(hashes.length + shift)}${suffix}`);
-  });
-
-  return normalized.join("\n");
-}
-
-const TIMESTAMP_PATTERN = /\b\d{1,3}:\d{2}(?::\d{2})?\b/g;
-const TIMESTAMP_INLINE_CODE_REST_PATTERN = /^[\s,，、;；:：\-–—~～至到]+$/;
-
-function unwrapTimestampInlineCode(text) {
-  return String(text || "").replace(/`([^`\n]+)`/g, (_, content) =>
-    isTimestampOnlyInlineCode(content) ? content : `\`${content}\``
-  );
-}
-
-function isTimestampOnlyInlineCode(value) {
-  const text = String(value || "").trim();
-  if (!text) {
-    return false;
-  }
-  TIMESTAMP_PATTERN.lastIndex = 0;
-  const hasTimestamp = TIMESTAMP_PATTERN.test(text);
-  TIMESTAMP_PATTERN.lastIndex = 0;
-  if (!hasTimestamp) {
-    return false;
-  }
-  const rest = text.replace(TIMESTAMP_PATTERN, "").trim();
-  TIMESTAMP_PATTERN.lastIndex = 0;
-  return !rest || TIMESTAMP_INLINE_CODE_REST_PATTERN.test(rest);
 }
 
 function linkifyAssistantTimestamps(root) {
@@ -2898,15 +2886,6 @@ function renderInline(text) {
       const safeUrl = /^(https?:|mailto:|#)/i.test(u) ? u : "#";
       return `<a href="${safeUrl}" target="_blank" rel="noopener noreferrer">${t}</a>`;
     });
-}
-
-function stripThinkBlocks(text) {
-  return String(text || "")
-    .replace(/<think\b[^>]*>[\s\S]*?<\/think>/gi, "")
-    .replace(/<think\b[^>]*>[\s\S]*$/gi, "")
-    .replace(/<\/think>/gi, "")
-    .replace(/^\s*<\/?think\b[^>]*>\s*$/gim, "")
-    .trim();
 }
 
 function scrollToBottom(force = false) {

@@ -818,6 +818,7 @@
     normalizeMarkdownForSectionPaste,
     buildConversationTurns,
     pickConversation,
+    sanitizeMarkdownHeadingText,
     buildAiSection,
     upsertAiSection,
     buildNoteFilename,

@@ -1787,10 +1787,12 @@ async function runWrite() {
   }
   S.write.running = false;
   const skipped = written.filter((w) => w.skipped).length;
+  const aiUpdated = written.filter((w) => w.aiUpdated).length;
   el.writeProgress.textContent = [
     S.write.stop ? "已停止。" : "完成。",
     `写入 ${written.length - skipped} 篇`,
     skipped ? `已存在跳过 ${skipped} 篇` : "",
+    aiUpdated ? `其中更新 AI 问答 ${aiUpdated} 篇` : "",
     failed.length ? `失败 ${failed.length} 篇` : "",
     indexPath ? `索引：${indexPath}` : ""
   ].filter(Boolean).join(" · ");
