@@ -1,7 +1,6 @@
 const SELECTED_PROVIDER_KEY = "boc_ai_selected_provider";
-const CONVERSATIONS_STORAGE_KEY = "boc_ai_conversations_v1";
+const CONVERSATIONS_STORAGE_KEY = BocLimits.KEYS.aiConversations;
 const PLAYER_AI_QUICK_ACTION_STORAGE_KEY = "boc_player_ai_quick_action_v1";
-const MAX_SAVED_CONVERSATIONS = 60;
 const NON_VIDEO_CONTEXT_MESSAGE = "当前页不是支持的视频页面，<br>无法获取当前页面信息作为对话上下文，<br>仅支持 AI 对话。";
 const STREAM_SLOW_NOTICE_MS = 15000;
 const FOLLOW_PLAYBACK_KEY = "boc_sp_follow_playback";
@@ -806,7 +805,7 @@ function normalizeConversations(value) {
     })
     .filter(Boolean)
     .sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0))
-    .slice(0, MAX_SAVED_CONVERSATIONS);
+    .slice(0, BocLimits.AI_CONVERSATIONS);
 }
 
 function resolveConversationStorageKey(rawKey, contextRef, contextUrl = "") {
@@ -915,7 +914,7 @@ function needsConversationPageHydration(conversation) {
 async function saveConversations() {
   savedConversations = normalizeConversations(savedConversations);
   await chrome.storage.local.set({
-    [CONVERSATIONS_STORAGE_KEY]: savedConversations.slice(0, MAX_SAVED_CONVERSATIONS)
+    [CONVERSATIONS_STORAGE_KEY]: savedConversations.slice(0, BocLimits.AI_CONVERSATIONS)
   });
   renderHistoryList();
 }

@@ -8,8 +8,6 @@ const THROTTLES = { THROTTLED: [THROTTLE_MS, "B站限流"], AI_THROTTLED: [60 * 
 const GROUP_SIZE = 8;
 const SELECT_CAP = 10;
 const SYNC_MIN_GAP_MS = 60 * 1000;
-const UNDO_CAP = 20;
-const RECENT_UNFAV_CAP = 50;
 const TAG_COLORS = ["#7c62e8", "#2f8f5b", "#c9463d", "#a86a00", "#2a7ab8", "#b8428f", "#4f7a28", "#6b7180"];
 const TABS = [
   ["unsure", "待定"],
@@ -597,7 +595,7 @@ function recentUnfavs() {
   return Object.entries(S.decisions)
     .filter(([b, d]) => d.action === "unfav" && d.aid && !S.itemMap.has(b))
     .sort((x, y) => y[1].at - x[1].at)
-    .slice(0, RECENT_UNFAV_CAP);
+    .slice(0, BocLimits.TRIAGE_RECENT_UNFAV);
 }
 
 function recentUnfavHtml() {
@@ -805,7 +803,7 @@ function advanceFrom(bvid, before) {
 // ---------- decisions ----------
 function pushUndo(entry) {
   S.undo.push(entry);
-  if (S.undo.length > UNDO_CAP) S.undo.shift();
+  if (S.undo.length > BocLimits.TRIAGE_UNDO_STEPS) S.undo.shift();
 }
 const saveDecisions = () => storeSet(K.decisions(S.mediaId), S.decisions);
 // Patch one folder's decisions even after the user switched away from it; a null value deletes.

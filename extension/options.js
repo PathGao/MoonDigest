@@ -35,6 +35,7 @@ const DEFAULT_SETTINGS = {
   includeDateInFilename: true,
   includeHotCommentsInNote: false,
   includeCoverInNote: true,
+  includeAiChatInNote: true,
   enablePlayerAiQuickAction: true,
   playerAiQuickPrompt: DEFAULT_PLAYER_AI_QUICK_PROMPT,
   includeTimestampInBody: true,
@@ -103,6 +104,8 @@ const elements = {
   includeDateInFilename: document.getElementById("includeDateInFilename"),
   includeHotCommentsInNote: document.getElementById("includeHotCommentsInNote"),
   includeCoverInNote: document.getElementById("includeCoverInNote"),
+  includeAiChatInNote: document.getElementById("includeAiChatInNote"),
+  storageLimits: document.getElementById("storageLimits"),
   enablePlayerAiQuickAction: document.getElementById("enablePlayerAiQuickAction"),
   playerAiQuickPrompt: document.getElementById("playerAiQuickPrompt"),
   includeTimestampInBody: document.getElementById("includeTimestampInBody"),
@@ -166,8 +169,27 @@ function init() {
   });
 }
 
+async function renderStorageLimits() {
+  const all = await chrome.storage.local.get(null).catch(() => ({}));
+  elements.storageLimits.replaceChildren(
+    ...BocLimits.describe(BocLimits.storageUsage(all)).map((row) => {
+      const node = document.createElement("p");
+      node.className = "about-row";
+      const label = document.createElement("span");
+      label.className = "about-label";
+      label.textContent = row.label;
+      const text = document.createElement("span");
+      text.append(document.createElement("strong"), ` ${row.rule}`);
+      text.firstChild.textContent = row.usage;
+      node.append(label, text);
+      return node;
+    })
+  );
+}
+
 async function loadSettings() {
   const settings = await getSettings();
+  void renderStorageLimits();
   elements.obsidianEnabled.checked = settings.obsidianEnabled === true;
   syncObsidianBody();
   elements.noteFolder.value = settings.noteFolder || "";
@@ -179,6 +201,7 @@ async function loadSettings() {
   elements.includeDateInFilename.checked = settings.includeDateInFilename !== false;
   elements.includeHotCommentsInNote.checked = Boolean(settings.includeHotCommentsInNote);
   elements.includeCoverInNote.checked = settings.includeCoverInNote !== false;
+  elements.includeAiChatInNote.checked = settings.includeAiChatInNote !== false;
   elements.enablePlayerAiQuickAction.checked = Boolean(settings.enablePlayerAiQuickAction);
   elements.playerAiQuickPrompt.value = String(settings.playerAiQuickPrompt || "");
   elements.includeTimestampInBody.checked = Boolean(settings.includeTimestampInBody);
@@ -310,6 +333,7 @@ function collectFormPayload() {
     includeDateInFilename: elements.includeDateInFilename.checked,
     includeHotCommentsInNote: elements.includeHotCommentsInNote.checked,
     includeCoverInNote: elements.includeCoverInNote.checked,
+    includeAiChatInNote: elements.includeAiChatInNote.checked,
     enablePlayerAiQuickAction: elements.enablePlayerAiQuickAction.checked,
     playerAiQuickPrompt: normalizePlayerAiQuickPrompt(elements.playerAiQuickPrompt.value),
     includeTimestampInBody: elements.includeTimestampInBody.checked,

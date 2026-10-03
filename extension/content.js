@@ -31,7 +31,7 @@ const DEFAULT_SETTINGS = {
 const { formatCompactTimestamp, buildSubtitlePreview, buildSrt, buildTxt, shouldShowHoursInNote } = BocNote;
 
 const BOC_VERSION = chrome.runtime.getManifest().version;
-const CACHE_KEY_PREFIX = "boc_subtitle_cache_";
+const CACHE_KEY_PREFIX = BocLimits.KEYS.subtitleCachePrefix;
 globalThis.__BOC_CONTENT_SCRIPT_LOADED__ = BOC_VERSION;
 const state = {
   fetchRunId: 0,
@@ -1313,8 +1313,7 @@ async function loadSubtitleFromCache(cacheKey) {
   }
 }
 
-// The cache only serves track switches on recent videos, so it keeps the newest
-// 50 entries from the last 30 days.
+// The cache only serves track switches on recent videos, so it keeps only recent entries.
 async function saveSubtitleToCache(cacheKey, raw) {
   try {
     const now = Date.now();
@@ -1323,7 +1322,7 @@ async function saveSubtitleToCache(cacheKey, raw) {
     const stale = Object.entries(all)
       .filter(([key]) => key.startsWith(CACHE_KEY_PREFIX))
       .sort(([, a], [, b]) => (Number(b?.timestamp) || 0) - (Number(a?.timestamp) || 0))
-      .filter(([, value], index) => index >= 50 || now - (Number(value?.timestamp) || 0) > 30 * 86400000)
+      .filter(([, value], index) => index >= BocLimits.SUBTITLE_CACHE_ENTRIES || now - (Number(value?.timestamp) || 0) > BocLimits.SUBTITLE_CACHE_DAYS * 86400000)
       .map(([key]) => key);
     if (stale.length) {
       await chrome.storage.local.remove(stale);

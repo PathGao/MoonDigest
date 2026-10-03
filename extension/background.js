@@ -1304,8 +1304,7 @@ async function saveAiProviderKey(providerId, apiKey) {
 
 // ===== AI 调用（内联实现，避免 service worker 跨文件 import） =====
 
-const AI_SUBTITLE_MAX_CHARS = 60000;
-const AI_HISTORY_MAX_CHARS = 40000;
+const { AI_SUBTITLE_MAX_CHARS, AI_HISTORY_MAX_CHARS } = BocLimits;
 
 // Long videos overflow small context windows. Even sampling keeps every part of the video and each kept line's timestamp.
 // ponytail: samples by line count, assumes similar line lengths; the final slice is the hard cap.
@@ -1629,4 +1628,4 @@ async function probeAiChatCompletion({ baseUrl, apiKey, model }) {
   return { ok: false, error: `HTTP ${response.status}${detail ? `: ${detail}` : ""}` };
 }
 
-importScripts("sites.js", "note.js", "triage/triage-bg.js");
+importScripts("limits.js", "sites.js", "note.js", "triage/triage-bg.js");

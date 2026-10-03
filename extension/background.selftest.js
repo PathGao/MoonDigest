@@ -13,6 +13,7 @@ const ctx = vm.createContext({
   chrome, console, setTimeout, clearTimeout, AbortController, AbortSignal, TextDecoder, TextEncoder, URL, URLSearchParams,
   importScripts() {}
 });
+vm.runInContext(fs.readFileSync(path.join(__dirname, "limits.js"), "utf8"), ctx);
 vm.runInContext(fs.readFileSync(path.join(__dirname, "sites.js"), "utf8"), ctx);
 vm.runInContext(fs.readFileSync(path.join(__dirname, "background.js"), "utf8"), ctx);
 ctx.loadAiProviders = async () => [{ id: "p", baseUrl: "https://ai.test", model: "m", requiresKey: false }];
