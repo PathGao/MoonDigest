@@ -60,19 +60,26 @@ Chrome 和其他 Chromium 内核浏览器（只在 Chrome 上测试过），不�
 
 ## 安装
 
-目前从源码安装。
+两种装法任选其一。
 
-1. 下载或克隆本仓库：
+1. 获取扩展文件：
+   - **zip 包**：从 [Releases](https://github.com/PathGao/MoonDigest/releases/latest) 下载 `moondigest-vX.Y.Z-chrome.zip`，解压到一个以后不会移动的文件夹。
+   - **源码**：克隆本仓库。
 
-   ```bash
-   git clone https://github.com/PathGao/MoonDigest.git
-   ```
+     ```bash
+     git clone https://github.com/PathGao/MoonDigest.git
+     ```
 
 2. 打开 `chrome://extensions`，打开右上角的“开发者模式”。
-3. 点“加载已解压的扩展程序”，选择仓库里的 `extension/` 目录。
+3. 点“加载已解压的扩展程序”，选择 zip 解压出的文件夹，或仓库里的 `extension/` 目录。
 4. 装过商店版 Bilibili Obsidian Clipper 的话，先停用它，以免视频页出现重复按钮。
 
-更新时 `git pull`，再到 `chrome://extensions` 点 MoonDigest 卡片上的刷新按钮。
+### 更新
+
+这两种装法都不会自动更新。
+
+- **zip 包**：下载新版 zip，解压后用里面的文件覆盖原文件夹，再到 `chrome://extensions` 点 MoonDigest 卡片上的刷新按钮。一定要覆盖原文件夹：换一个文件夹加载，Chrome 会当成新扩展，原来的设置全部丢失。
+- **源码**：`git pull`，再到 `chrome://extensions` 点刷新按钮。
 
 ## 快速开始
 
