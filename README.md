@@ -7,7 +7,7 @@
 在 B 站和 YouTube 视频页读字幕、让 AI 总结和问答，再把要点存进 Obsidian。
 
 [![Chrome MV3](https://img.shields.io/badge/Chrome-MV3-4285F4?logo=googlechrome&logoColor=white)](https://developer.chrome.com/docs/extensions/develop/migrate/what-is-mv3)
-[![Version](https://img.shields.io/badge/version-1.3.0-7c6cf2)](extension/manifest.json)
+[![Version](https://img.shields.io/badge/version-1.4.0-7c6cf2)](extension/manifest.json)
 [![Platforms](https://img.shields.io/badge/platforms-Bilibili%20%7C%20YouTube-fb7299)](#功能)
 [![License](https://img.shields.io/badge/license-GPL--3.0-blue)](LICENSE)
 
