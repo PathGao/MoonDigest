@@ -3915,37 +3915,41 @@ function siteIo() {
 }
 
 // The page player's timedtext requests carry the subtitle PO token. The
-// content script shares the document's performance timeline, so an earlier
-// request is read from it; otherwise captions are toggled (off and on, or on
-// and off) until the player fires one, and the button is left as found.
-// The token goes nowhere but youtube.com timedtext URLs.
+// content script shares the document's performance timeline, but YouTube
+// clears resource timings periodically, so an earlier request is rarely still
+// there; then captions are switched on (off first when already on, since only
+// the on-click fetches), the token is read from the request the observer
+// delivers, and the button is left as found. The token goes nowhere but
+// youtube.com timedtext URLs.
 async function ytCapturePot(videoId) {
-  const found = () => BocSites.ytPotFromUrls(performance.getEntriesByType("resource").map((entry) => entry.name), videoId);
-  let pot = found();
+  let pot = BocSites.ytPotFromUrls(performance.getEntriesByType("resource").map((entry) => entry.name), videoId);
   const button = document.querySelector("#movie_player .ytp-subtitles-button");
   if (pot || !button) {
     return pot;
   }
-  const seen = [];
-  const observer = new PerformanceObserver((list) => list.getEntries().forEach((entry) => seen.push(entry.name)));
-  observer.observe({ type: "resource" });
-  let clicks = 0;
-  try {
-    while (!pot && clicks < 2) {
-      button.click();
-      clicks += 1;
-      for (let waited = 0; !pot && waited < 5000; waited += 250) {
-        await sleep(250);
-        pot = BocSites.ytPotFromUrls(seen, videoId);
+  const wasOn = button.getAttribute("aria-pressed") === "true";
+  pot = await new Promise((resolve) => {
+    const observer = new PerformanceObserver((list) => {
+      const hit = BocSites.ytPotFromUrls(list.getEntries().map((entry) => entry.name), videoId);
+      if (hit) {
+        observer.disconnect();
+        resolve(hit);
       }
-    }
-  } finally {
-    observer.disconnect();
-    if (clicks % 2 === 1) {
+    });
+    observer.observe({ type: "resource" });
+    window.setTimeout(() => {
+      observer.disconnect();
+      resolve(null);
+    }, 5000);
+    if (wasOn) {
       button.click();
     }
+    button.click();
+  });
+  if (!wasOn) {
+    button.click();
   }
-  logInfo("[BOC] youtube pot capture", { clicks, found: Boolean(pot) });
+  logInfo("[BOC] youtube pot capture", { wasOn, found: Boolean(pot) });
   return pot;
 }
 
