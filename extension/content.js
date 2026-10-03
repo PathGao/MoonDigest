@@ -2631,7 +2631,7 @@ function applyReaderPageFocus() {
   const video = getRuntimeVideoElement();
   const playerHost = findReaderPlayerHost(video);
   const titleNode = findReaderTitleContainer();
-  const keepRoots = [root, playerHost, titleNode, byId("boc-reading-inline-host")].filter(Boolean);
+  const keepRoots = [root, playerHost, titleNode, document.getElementById("boc-reading-inline-host")].filter(Boolean);
 
   keepRoots.forEach((node) => {
     markReaderKeepSubtree(node);
