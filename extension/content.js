@@ -65,6 +65,7 @@ const state = {
   srt: "",
   txt: "",
   readingViewOpen: false,
+  readerMode: false,
   readingAutoScroll: true,
   readingTheme: "light",
   readingFontScale: "m",
@@ -121,12 +122,24 @@ const state = {
   settings: { ...DEFAULT_SETTINGS }
 };
 
-function isReaderMode(url = location.href) {
+// boc_reader=1 in the URL only requests reader mode; the mode itself lives in
+// state.readerMode because YouTube drops unknown query params in place during
+// its SPA boot (around 3 s after load, before document_idle on a fast load).
+function isReaderMode() {
+  return state.readerMode;
+}
+
+function hasReaderParam(url) {
   try {
     return new URL(url).searchParams.get("boc_reader") === "1";
   } catch {
     return false;
   }
+}
+
+// The navigation entry keeps the URL the document loaded with after the rewrite.
+function readerEntryRequested() {
+  return hasReaderParam(location.href) || hasReaderParam(performance.getEntriesByType("navigation")[0]?.name);
 }
 
 function stripReaderModeUrl(url = location.href) {
@@ -323,8 +336,9 @@ function init() {
   logInfo(`[BOC] content script loaded, version=${BOC_VERSION}`);
   ensureUiReady({ forceRecreate: true });
 
-  const shouldEnterReaderMode = isReaderMode();
+  const shouldEnterReaderMode = readerEntryRequested();
   if (shouldEnterReaderMode) {
+    state.readerMode = true;
     document.documentElement.setAttribute("data-boc-reader-mode", "1");
     document.body.setAttribute("data-boc-reader-mode", "1");
   } else {
@@ -388,12 +402,12 @@ function clearReaderModePageState() {
   document.body.removeAttribute("data-boc-reading-active");
 }
 
-function shouldForceNormalPageState(url = location.href) {
-  return !isReaderMode(url) && !state.readingViewOpen;
+function shouldForceNormalPageState() {
+  return !state.readerMode && !state.readingViewOpen;
 }
 
-function enforceNormalPageStateIfNeeded(url = location.href) {
-  if (!shouldForceNormalPageState(url)) {
+function enforceNormalPageStateIfNeeded() {
+  if (!shouldForceNormalPageState()) {
     return;
   }
   clearReaderModePageState();
@@ -716,9 +730,7 @@ function bindUiEvents() {
   const transcriptList = byId(ids.readingTranscriptList);
 
   readingCloseBtn.addEventListener("click", () => {
-    if (isReaderMode()) {
-      replaceReaderModeUrl(stripReaderModeUrl(location.href));
-    }
+    replaceReaderModeUrl(stripReaderModeUrl(location.href));
     closeReadingView();
   });
   readingAutoScroll.addEventListener("change", (event) => {
@@ -845,13 +857,14 @@ function checkUrlChange() {
   try {
     chrome.runtime.sendMessage({ type: "boc-video-changed", url: nextUrl })?.catch?.(() => {});
   } catch {}
-  enforceNormalPageStateIfNeeded(nextUrl);
+  enforceNormalPageStateIfNeeded();
   ensureUiReady();
   // Invalidate the previous video's run so nothing waiting on it gets its subtitles.
   state.fetchRunId++;
   resetClipState();
-  const shouldEnterReaderMode = isReaderMode(nextUrl);
+  const shouldEnterReaderMode = hasReaderParam(nextUrl);
   if (!state.readingViewOpen && shouldEnterReaderMode) {
+    state.readerMode = true;
     document.documentElement.setAttribute("data-boc-reader-mode", "1");
     document.body.setAttribute("data-boc-reader-mode", "1");
     enterReaderMode().catch((error) => {
@@ -1710,9 +1723,12 @@ async function ensureReaderPlayerMounted({ retries = 1, delayMs = 100, forceLayo
       const activeHost = findReaderPlayerHost(video) || playerHost;
       state.readingPlayerHost = activeHost;
       // YouTube moves #movie_player from the skeleton #player into
-      // ytd-watch-flexy after load, into a branch the page focus hid.
-      if (isReaderMode() && video.closest("[data-boc-reader-hidden='1']")) {
-        applyReaderPageFocus();
+      // ytd-watch-flexy after load, into a branch the page focus hid; the
+      // transcript host follows the player into its new wrap.
+      if (isReaderMode()) {
+        if (video.closest("[data-boc-reader-hidden='1']")) {
+          applyReaderPageFocus();
+        }
         moveReadingMainInline();
       }
       normalizeReaderPlayerContainer(activeHost);
@@ -1791,6 +1807,7 @@ function findReaderPlayerHost(video) {
 function closeReadingView() {
   cleanupReaderFloatingArtifacts();
   state.readingViewOpen = false;
+  state.readerMode = false;
   state.readingViewReady = false;
   setReadingNotice("");
   state.readingSettingsExpanded = false;
