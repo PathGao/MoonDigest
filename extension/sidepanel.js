@@ -2187,8 +2187,13 @@ async function autoSyncConversation(conversationId) {
     }
     showSyncStatus("已同步到 Obsidian ✓", { autoHideMs: 3000 });
   } catch (error) {
-    showSyncStatus(`同步失败 · ${getErrorMessage(error)}`, { retry: () => autoSyncConversation(conversationId) });
+    showSyncStatus(`同步失败 · ${readableObsidianError(error)}`, { retry: () => autoSyncConversation(conversationId) });
   }
+}
+
+function readableObsidianError(error) {
+  const text = getErrorMessage(error);
+  return /failed to fetch|networkerror|load failed/i.test(text) ? "连不上 Obsidian，请确认它已打开并启用了 Local REST API" : text;
 }
 
 let syncStatusTimer = 0;
@@ -2229,12 +2234,25 @@ async function saveCurrentConversationToObsidian() {
     return;
   }
   const context = currentConversationMeta?.resolvedContext || contextData || currentConversationMeta?.contextRef || {};
-  const note = buildCurrentConversationNote(await resolveVideoNotePath(context, settingsBundle.settings));
-  if (!note) {
+  if (!buildConversationTurns(chatHistory).length) {
     showConversationContextNotice("当前没有可保存的历史对话。", 2200);
     return;
   }
-
+  // Update the video note first: a 404 clears the recorded path, so the backlink below is computed afresh.
+  let videoNoteNotice = "";
+  if (settingsBundle.settings.includeAiChatInNote !== false) {
+    try {
+      const result = await syncVideoNoteAiSection({ context, messages: chatHistory, ...settingsBundle });
+      if (result?.exists) {
+        videoNoteNotice = "，视频笔记的 AI 问答已更新";
+      } else if (result && !result.exists) {
+        videoNoteNotice = "；视频笔记已不存在，已解除关联";
+      }
+    } catch (error) {
+      videoNoteNotice = `；视频笔记的 AI 问答更新失败：${readableObsidianError(error)}`;
+    }
+  }
+  const note = buildCurrentConversationNote(await resolveVideoNotePath(context, settingsBundle.settings));
   const folder = resolveFolderTemplate(settingsBundle.settings.noteFolder || "", note.context);
   const filepath = folder ? `${folder}/${note.filename}` : note.filename;
 
@@ -2245,17 +2263,8 @@ async function saveCurrentConversationToObsidian() {
     baseUrl: settingsBundle.baseUrl,
     apiKey: settingsBundle.apiKey
   });
-  if (!written || settingsBundle.settings.includeAiChatInNote === false) {
-    return;
-  }
-  // Follow-ups saved again land in the video note's AI 问答 section too, when that note exists.
-  try {
-    const result = await syncVideoNoteAiSection({ context: note.context, messages: chatHistory, ...settingsBundle });
-    if (result?.exists) {
-      showConversationContextNotice(`已写入 Obsidian：${filepath}，视频笔记的 AI 问答已更新。`, 3200);
-    }
-  } catch (error) {
-    showConversationContextNotice(`已写入 Obsidian：${filepath}，但视频笔记的 AI 问答更新失败：${getErrorMessage(error)}`, 4000);
+  if (written && videoNoteNotice) {
+    showConversationContextNotice(`已写入 Obsidian：${filepath}${videoNoteNotice}。`, 4000);
   }
 }
 
@@ -2358,6 +2367,14 @@ function buildQuestionSummary(prompt) {
 }
 
 // source: a wiki link to the video note (path without .md), so the AI note sits under it in the graph.
+// Body line: link the real video note when its path is known, else name the video without a dangling link.
+function sourceBodyLine(sourcePath, sourceTitle) {
+  const target = String(sourcePath || "").replace(/\.md$/i, "");
+  return target
+    ? `来源：[[${escapeWikiLinkTarget(target)}|${escapeWikiLinkTarget(sourceTitle)}]]`
+    : `来源：${sourceTitle}`;
+}
+
 function sourceFrontmatterLine(sourcePath) {
   const target = String(sourcePath || "").replace(/\.md$/i, "");
   return target ? `source: "[[${escapeYaml(target)}]]"` : "";
@@ -2384,7 +2401,7 @@ function buildAiNoteMarkdown({ context, prompt, answer, filename, sourcePath = "
     ...frontmatter,
     "",
     `问题：${String(prompt || "").trim()}`,
-    `来源：[[${escapeWikiLinkTarget(sourceTitle)}]]`,
+    sourceBodyLine(sourcePath, sourceTitle),
     "",
     String(answer || "").trim(),
     ""
@@ -2413,7 +2430,7 @@ function buildAiConversationMarkdown({ context, turns, filename, sourcePath = ""
   const lines = [
     ...frontmatter,
     "",
-    `来源：[[${escapeWikiLinkTarget(sourceTitle)}]]`
+    sourceBodyLine(sourcePath, sourceTitle)
   ];
 
   turns.forEach((turn) => {
