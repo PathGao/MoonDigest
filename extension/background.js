@@ -1,3 +1,6 @@
+// Shared modules must load before the top-level code below reads them (e.g. BocLimits).
+importScripts("limits.js", "sites.js", "note.js");
+
 // Follow-up quick questions. The one-click summary lives in playerAiQuickPrompt.
 const DEFAULT_PRESET_PROMPTS = [
   "用 3 句话总结这个视频",
@@ -1704,4 +1707,4 @@ async function probeAiChatCompletion({ baseUrl, apiKey, model }) {
   return { ok: false, error: `HTTP ${response.status}${detail ? `: ${detail}` : ""}` };
 }
 
-importScripts("limits.js", "sites.js", "note.js", "triage/triage-bg.js");
+importScripts("triage/triage-bg.js");

@@ -50,23 +50,25 @@ const area = (store) => ({
     for (const k of [].concat(keys)) delete store[k];
   }
 });
-let onMessage;
+const onMessageListeners = [];
 const noop = new Proxy(function () {}, { get: () => noop, apply: () => noop });
 const chrome = {
-  runtime: { onInstalled: { addListener() {} }, onConnect: { addListener() {} }, onMessage: { addListener: (fn) => (onMessage = fn) }, getManifest: () => ({ version: "test" }) },
+  runtime: { onInstalled: { addListener() {} }, onStartup: { addListener() {} }, onConnect: { addListener() {} }, onMessage: { addListener: (fn) => onMessageListeners.push(fn) }, getManifest: () => ({ version: "test" }) },
   storage: { local: area(local), sync: area(sync), onChanged: { addListener() {} } },
   permissions: noop,
   tabs: noop,
   sidePanel: noop,
   declarativeNetRequest: noop
 };
-const ctx = vm.createContext({ chrome, console, fetch, setTimeout, clearTimeout, AbortSignal, AbortController, TextDecoder, TextEncoder, URL, URLSearchParams, Headers, importScripts() {} });
-for (const file of ["limits.js", "sites.js", "note.js", "background.js"]) {
-  vm.runInContext(fs.readFileSync(path.join(__dirname, file), "utf8"), ctx);
-}
+const ctx = vm.createContext({ chrome, console, fetch, setTimeout, clearTimeout, AbortSignal, AbortController, TextDecoder, TextEncoder, URL, URLSearchParams, Headers,
+  // Loads files when background.js calls it, so the selftest sees the browser's load order.
+  importScripts: (...files) => files.forEach((file) => vm.runInContext(fs.readFileSync(path.join(__dirname, file), "utf8"), ctx))
+});
+vm.runInContext(fs.readFileSync(path.join(__dirname, "background.js"), "utf8"), ctx);
 const N = ctx.BocNote;
 // Responses are vm-realm objects, so they come back through JSON for deepStrictEqual.
-const send = (message) => new Promise((resolve) => onMessage(message, {}, (resp) => resolve(JSON.parse(JSON.stringify(resp)))));
+// Like Chrome, every listener sees the message; triage-bg.js registers one too and ignores these types.
+const send = (message) => new Promise((resolve) => onMessageListeners.forEach((fn) => fn(message, {}, (resp) => resolve(JSON.parse(JSON.stringify(resp))))));
 
 (async () => {
   await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
