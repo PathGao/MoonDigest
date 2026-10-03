@@ -2083,7 +2083,7 @@ async function saveAssistantReplyToObsidian({ button, userPrompt, assistantMarkd
     prompt,
     answer,
     filename,
-    sourcePath: videoNotePathFor(context, settingsBundle.settings)
+    sourcePath: await resolveVideoNotePath(context, settingsBundle.settings)
   });
 
   await saveMarkdownToObsidian({
@@ -2095,16 +2095,15 @@ async function saveAssistantReplyToObsidian({ button, userPrompt, assistantMarkd
   });
 }
 
-// The same note feeds the Obsidian save and the clipboard copy; only the save knows the settings
-// that place the video note, so only it gets the source backlink.
-function buildCurrentConversationNote(settings = null) {
+// The same note feeds the Obsidian save and the clipboard copy; only the save knows where the
+// video note lives, so only it passes the source backlink.
+function buildCurrentConversationNote(sourcePath = "") {
   const turns = buildConversationTurns(chatHistory);
   if (!turns.length) {
     return null;
   }
   const context = currentConversationMeta?.resolvedContext || contextData || currentConversationMeta?.contextRef || {};
   const filename = buildAiConversationFilename(context);
-  const sourcePath = settings ? videoNotePathFor(context, settings) : "";
   return { context, filename, content: buildAiConversationMarkdown({ context, turns, filename, sourcePath }) };
 }
 
@@ -2120,6 +2119,13 @@ async function boundVideoNotePath(noteKey) {
   return paths[noteKey]?.path || "";
 }
 
+// The note a manual save recorded wins over the computed path, which carries today's date when
+// includeDateInFilename is on and so only matches a note saved today.
+async function resolveVideoNotePath(context, settings) {
+  const noteKey = BocSites.buildContextKey(buildConversationContextRef(context) || {});
+  return (noteKey && (await boundVideoNotePath(noteKey))) || videoNotePathFor(context, settings);
+}
+
 // Rewrites the marked AI 问答 section of the video's note when that note exists; never creates one.
 // Resolves to the background result ({ exists, updated }) or null when the conversation has no video.
 async function syncVideoNoteAiSection({ context, messages, settings, baseUrl, apiKey }) {
@@ -2131,7 +2137,7 @@ async function syncVideoNoteAiSection({ context, messages, settings, baseUrl, ap
   if (!section) {
     return null;
   }
-  const filepath = (await boundVideoNotePath(noteKey)) || videoNotePathFor(context, settings);
+  const filepath = await resolveVideoNotePath(context, settings);
   const resp = await sendRuntimeMessage({ type: "update-obsidian-ai-section", baseUrl, apiKey, filepath, section, noteKey });
   if (!resp?.ok) {
     throw new Error(getReadableText(resp?.error, "Local API 写入失败"));
@@ -2222,7 +2228,8 @@ async function saveCurrentConversationToObsidian() {
   if (!settingsBundle) {
     return;
   }
-  const note = buildCurrentConversationNote(settingsBundle.settings);
+  const context = currentConversationMeta?.resolvedContext || contextData || currentConversationMeta?.contextRef || {};
+  const note = buildCurrentConversationNote(await resolveVideoNotePath(context, settingsBundle.settings));
   if (!note) {
     showConversationContextNotice("当前没有可保存的历史对话。", 2200);
     return;
