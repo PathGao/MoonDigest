@@ -3,6 +3,7 @@
 // window.__mockOpenPage(url, title) 切到非视频标签页（url 为空即加载中的标签页）；__mockStateDelayMs 模拟字幕和评论加载耗时。
 // 流的结局：__mockStreamEnd = { after: n, error: "..." } 在第 n 个 token 后报错；{ after: n, disconnect: true } 模拟后台断开。
 // __mockNotice 先发一条 notice；__mockTokenMs 调慢流速。
+// Obsidian：window.__mockVault 是假库（path → markdown），__mockVaultLog 记每次 GET/PUT；__mockObsidianDown = true 让写入失败。
 (() => {
   const makeEvent = () => {
     const listeners = [];
@@ -75,12 +76,48 @@
     ? Array.from({ length: presetCount }, (_, i) => ["用 3 句话总结这个视频", "提炼这个视频的 5 个重点", "按章节整理视频内容", "这个视频的核心论点是什么，有哪些论据支撑"][i % 4] + (i >= 4 ? ` ${i + 1}` : ""))
     : ["用 3 句话总结这个视频", "提炼这个视频的 5 个重点", "按章节整理视频内容"];
 
+  window.__mockVault = window.__mockVault || {};
+  window.__mockVaultLog = window.__mockVaultLog || [];
+  const vaultLog = (method, path) => window.__mockVaultLog.push(`${method} ${path}`);
+
   const handleMessage = (msg) => {
     switch (msg?.type) {
+      case "obsidian-note-exists":
+        vaultLog("GET", msg.filepath);
+        return { ok: true, exists: msg.filepath in window.__mockVault };
+      case "write-obsidian-note":
+        if (window.__mockObsidianDown) return { ok: false, error: "fetch failed" };
+        vaultLog("PUT", msg.filepath);
+        window.__mockVault[msg.filepath] = msg.content;
+        return { ok: true };
+      case "update-obsidian-ai-section": {
+        if (window.__mockObsidianDown) return { ok: false, error: "fetch failed" };
+        vaultLog("GET", msg.filepath);
+        const current = window.__mockVault[msg.filepath];
+        if (current === undefined) return { ok: true, exists: false, updated: false };
+        const next = BocNote.upsertAiSection(current, msg.section);
+        if (next !== current) {
+          vaultLog("PUT", msg.filepath);
+          window.__mockVault[msg.filepath] = next;
+        }
+        return { ok: true, exists: true, updated: next !== current };
+      }
       case "ai-providers-list":
         return { ok: true, providers: [{ id: "p1", name: "Mock", model: "mock-model", enabled: true }] };
       case "get-settings":
-        return { ok: true, settings: { playerAiQuickPrompt: "整理这期视频的内容，输出结构化总结。", aiPresetPrompts: presetPrompts } };
+        return {
+          ok: true,
+          settings: {
+            playerAiQuickPrompt: "整理这期视频的内容，输出结构化总结。",
+            aiPresetPrompts: presetPrompts,
+            obsidianEnabled: true,
+            obsidianApiBaseUrl: "http://127.0.0.1:27123",
+            obsidianApiKey: "mock",
+            noteFolder: "Clippings/{{site}}",
+            includeDateInFilename: true,
+            includeAiChatInNote: true
+          }
+        };
       case "save-settings":
         return { ok: true };
       case "ai-sidepanel-get-state": {
