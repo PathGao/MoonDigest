@@ -65,6 +65,7 @@ const state = {
   srt: "",
   txt: "",
   readingViewOpen: false,
+  readerMode: false,
   readingAutoScroll: true,
   readingTheme: "light",
   readingFontScale: "m",
@@ -121,12 +122,24 @@ const state = {
   settings: { ...DEFAULT_SETTINGS }
 };
 
-function isReaderMode(url = location.href) {
+// boc_reader=1 in the URL only requests reader mode; the mode itself lives in
+// state.readerMode because YouTube drops unknown query params in place during
+// its SPA boot (around 3 s after load, before document_idle on a fast load).
+function isReaderMode() {
+  return state.readerMode;
+}
+
+function hasReaderParam(url) {
   try {
     return new URL(url).searchParams.get("boc_reader") === "1";
   } catch {
     return false;
   }
+}
+
+// The navigation entry keeps the URL the document loaded with after the rewrite.
+function readerEntryRequested() {
+  return hasReaderParam(location.href) || hasReaderParam(performance.getEntriesByType("navigation")[0]?.name);
 }
 
 function stripReaderModeUrl(url = location.href) {
@@ -323,8 +336,9 @@ function init() {
   logInfo(`[BOC] content script loaded, version=${BOC_VERSION}`);
   ensureUiReady({ forceRecreate: true });
 
-  const shouldEnterReaderMode = isReaderMode();
+  const shouldEnterReaderMode = readerEntryRequested();
   if (shouldEnterReaderMode) {
+    state.readerMode = true;
     document.documentElement.setAttribute("data-boc-reader-mode", "1");
     document.body.setAttribute("data-boc-reader-mode", "1");
   } else {
@@ -388,12 +402,12 @@ function clearReaderModePageState() {
   document.body.removeAttribute("data-boc-reading-active");
 }
 
-function shouldForceNormalPageState(url = location.href) {
-  return !isReaderMode(url) && !state.readingViewOpen;
+function shouldForceNormalPageState() {
+  return !state.readerMode && !state.readingViewOpen;
 }
 
-function enforceNormalPageStateIfNeeded(url = location.href) {
-  if (!shouldForceNormalPageState(url)) {
+function enforceNormalPageStateIfNeeded() {
+  if (!shouldForceNormalPageState()) {
     return;
   }
   clearReaderModePageState();
@@ -716,9 +730,7 @@ function bindUiEvents() {
   const transcriptList = byId(ids.readingTranscriptList);
 
   readingCloseBtn.addEventListener("click", () => {
-    if (isReaderMode()) {
-      replaceReaderModeUrl(stripReaderModeUrl(location.href));
-    }
+    replaceReaderModeUrl(stripReaderModeUrl(location.href));
     closeReadingView();
   });
   readingAutoScroll.addEventListener("change", (event) => {
@@ -845,13 +857,14 @@ function checkUrlChange() {
   try {
     chrome.runtime.sendMessage({ type: "boc-video-changed", url: nextUrl })?.catch?.(() => {});
   } catch {}
-  enforceNormalPageStateIfNeeded(nextUrl);
+  enforceNormalPageStateIfNeeded();
   ensureUiReady();
   // Invalidate the previous video's run so nothing waiting on it gets its subtitles.
   state.fetchRunId++;
   resetClipState();
-  const shouldEnterReaderMode = isReaderMode(nextUrl);
+  const shouldEnterReaderMode = hasReaderParam(nextUrl);
   if (!state.readingViewOpen && shouldEnterReaderMode) {
+    state.readerMode = true;
     document.documentElement.setAttribute("data-boc-reader-mode", "1");
     document.body.setAttribute("data-boc-reader-mode", "1");
     enterReaderMode().catch((error) => {
@@ -1186,7 +1199,7 @@ async function loadTranscriptFallback(cause, runId) {
   }
   ensureRunActive(runId);
   state.subtitles = [result.track, ...state.subtitles.filter((item) => item.id !== result.track.id)];
-  await commitSubtitleBody(result.segments, { url: result.track.url, lang: result.track.label, subtitleId: result.track.id }, runId);
+  await commitSubtitleBody(result.raw, { url: result.track.url, lang: result.track.label, subtitleId: result.track.id }, runId);
   return result.track;
 }
 
@@ -1205,8 +1218,9 @@ async function loadSubtitle(url, lang, runId = state.fetchRunId, subtitleId = ""
 
   // 尝试从缓存读取
   if (!forceRefresh) {
-    const cachedBody = await loadSubtitleFromCache(cacheKey);
-    if (cachedBody && Array.isArray(cachedBody) && cachedBody.length > 0) {
+    const cachedRaw = await loadSubtitleFromCache(cacheKey);
+    const cachedBody = cachedRaw === null ? [] : currentSite().parseSegments(cachedRaw);
+    if (cachedBody.length > 0) {
       const cachedCheck = validateSubtitleByDuration(cachedBody, state.videoDuration);
       if (!cachedCheck.ok) {
         logWarn("[BOC] cached subtitle duration mismatch, clearing cache", {
@@ -1234,14 +1248,15 @@ async function loadSubtitle(url, lang, runId = state.fetchRunId, subtitleId = ""
 
   // 从网络获取
   logInfo("[BOC] fetch subtitle body", { url });
-  const body = await currentSite().fetchSegments({ id: subtitleId, url, lang }, siteIo());
-  await commitSubtitleBody(body, { url, lang, subtitleId }, runId);
+  const raw = await currentSite().fetchRaw({ id: subtitleId, url, lang }, siteIo());
+  await commitSubtitleBody(raw, { url, lang, subtitleId }, runId);
 }
 
-// Validates, caches and installs a freshly fetched body as the selected track.
-async function commitSubtitleBody(body, { url, lang, subtitleId }, runId) {
+// Validates, caches and installs a freshly fetched raw body as the selected track.
+async function commitSubtitleBody(raw, { url, lang, subtitleId }, runId) {
   const cacheKey = getSubtitleCacheKey({ videoId: state.videoId, cid: state.cid, subtitleId, subtitleUrl: url, lang });
   ensureRunActive(runId);
+  const body = currentSite().parseSegments(raw);
   if (body.length === 0) {
     throw new Error("字幕文件为空。");
   }
@@ -1254,7 +1269,7 @@ async function commitSubtitleBody(body, { url, lang, subtitleId }, runId) {
   }
 
   // 存入缓存
-  await saveSubtitleToCache(cacheKey, body);
+  await saveSubtitleToCache(cacheKey, raw);
 
   state.selectedSubtitleId = subtitleId ? String(subtitleId) : state.selectedSubtitleId;
   state.selectedSubtitleUrl = url;
@@ -1287,10 +1302,12 @@ function buildSubtitleSourceKey(subtitleId, subtitleUrl, lang) {
   return `lang_${String(lang || "").trim().toLowerCase() || "unknown"}`;
 }
 
+// Entries hold the raw response and are parsed on read, so a parser fix
+// applies to them; entries written before that (parsed body, no raw) miss.
 async function loadSubtitleFromCache(cacheKey) {
   try {
     const result = await chrome.storage.local.get(cacheKey);
-    return result[cacheKey]?.body || null;
+    return result[cacheKey]?.raw ?? null;
   } catch {
     return null;
   }
@@ -1298,10 +1315,10 @@ async function loadSubtitleFromCache(cacheKey) {
 
 // The cache only serves track switches on recent videos, so it keeps the newest
 // 50 entries from the last 30 days.
-async function saveSubtitleToCache(cacheKey, body) {
+async function saveSubtitleToCache(cacheKey, raw) {
   try {
     const now = Date.now();
-    await chrome.storage.local.set({ [cacheKey]: { body, timestamp: now } });
+    await chrome.storage.local.set({ [cacheKey]: { raw, timestamp: now } });
     const all = await chrome.storage.local.get(null);
     const stale = Object.entries(all)
       .filter(([key]) => key.startsWith(CACHE_KEY_PREFIX))
@@ -1562,6 +1579,7 @@ async function enterReaderMode() {
   await sleep(0);
   openReaderViewShell(readingView);
   applyReaderPageFocus();
+  startReaderPlayerObserver();
   renderReadingView();
 
   const earlyPlayerHost = findReaderPlayerHost(getRuntimeVideoElement());
@@ -1708,6 +1726,15 @@ async function ensureReaderPlayerMounted({ retries = 1, delayMs = 100, forceLayo
       }
       const activeHost = findReaderPlayerHost(video) || playerHost;
       state.readingPlayerHost = activeHost;
+      // YouTube moves #movie_player from the skeleton #player into
+      // ytd-watch-flexy after load, into a branch the page focus hid; the
+      // transcript host follows the player into its new wrap.
+      if (isReaderMode()) {
+        if (video.closest("[data-boc-reader-hidden='1']")) {
+          applyReaderPageFocus();
+        }
+        moveReadingMainInline();
+      }
       normalizeReaderPlayerContainer(activeHost);
       if (state.readingViewOpen) {
         clearNativeReaderFloatingStyles(activeHost);
@@ -1784,6 +1811,7 @@ function findReaderPlayerHost(video) {
 function closeReadingView() {
   cleanupReaderFloatingArtifacts();
   state.readingViewOpen = false;
+  state.readerMode = false;
   state.readingViewReady = false;
   setReadingNotice("");
   state.readingSettingsExpanded = false;
@@ -2454,7 +2482,13 @@ function startReaderPlayerObserver() {
       }
       const nextVideo = getRuntimeVideoElement();
       const nextHost = findReaderPlayerHost(nextVideo);
-      if (nextVideo && nextHost && (nextVideo !== state.readingVideoEl || nextHost !== state.readingPlayerHost)) {
+      if (
+        nextVideo &&
+        nextHost &&
+        (nextVideo !== state.readingVideoEl ||
+          nextHost !== state.readingPlayerHost ||
+          nextVideo.closest("[data-boc-reader-hidden='1']"))
+      ) {
         queueEnsureReaderPlayerMounted();
       }
       if (document.querySelector(sel(reader().miniPlayer))) {
@@ -2584,7 +2618,6 @@ function isIgnoredReaderVideoCandidate(video) {
   }
   const host = findReaderPlayerHost(video);
   const blockedSelector = sel([
-    "[data-boc-reader-hidden='1']",
     ...reader().miniPlayer,
     ...reader().endingPanel,
     "[class*='mini-player']",
@@ -2602,7 +2635,7 @@ function applyReaderPageFocus() {
   const video = getRuntimeVideoElement();
   const playerHost = findReaderPlayerHost(video);
   const titleNode = findReaderTitleContainer();
-  const keepRoots = [root, playerHost, titleNode].filter(Boolean);
+  const keepRoots = [root, playerHost, titleNode, document.getElementById("boc-reading-inline-host")].filter(Boolean);
 
   keepRoots.forEach((node) => {
     markReaderKeepSubtree(node);
@@ -3903,37 +3936,41 @@ function siteIo() {
 }
 
 // The page player's timedtext requests carry the subtitle PO token. The
-// content script shares the document's performance timeline, so an earlier
-// request is read from it; otherwise captions are toggled (off and on, or on
-// and off) until the player fires one, and the button is left as found.
-// The token goes nowhere but youtube.com timedtext URLs.
+// content script shares the document's performance timeline, but YouTube
+// clears resource timings periodically, so an earlier request is rarely still
+// there; then captions are switched on (off first when already on, since only
+// the on-click fetches), the token is read from the request the observer
+// delivers, and the button is left as found. The token goes nowhere but
+// youtube.com timedtext URLs.
 async function ytCapturePot(videoId) {
-  const found = () => BocSites.ytPotFromUrls(performance.getEntriesByType("resource").map((entry) => entry.name), videoId);
-  let pot = found();
+  let pot = BocSites.ytPotFromUrls(performance.getEntriesByType("resource").map((entry) => entry.name), videoId);
   const button = document.querySelector("#movie_player .ytp-subtitles-button");
   if (pot || !button) {
     return pot;
   }
-  const seen = [];
-  const observer = new PerformanceObserver((list) => list.getEntries().forEach((entry) => seen.push(entry.name)));
-  observer.observe({ type: "resource" });
-  let clicks = 0;
-  try {
-    while (!pot && clicks < 2) {
-      button.click();
-      clicks += 1;
-      for (let waited = 0; !pot && waited < 5000; waited += 250) {
-        await sleep(250);
-        pot = BocSites.ytPotFromUrls(seen, videoId);
+  const wasOn = button.getAttribute("aria-pressed") === "true";
+  pot = await new Promise((resolve) => {
+    const observer = new PerformanceObserver((list) => {
+      const hit = BocSites.ytPotFromUrls(list.getEntries().map((entry) => entry.name), videoId);
+      if (hit) {
+        observer.disconnect();
+        resolve(hit);
       }
-    }
-  } finally {
-    observer.disconnect();
-    if (clicks % 2 === 1) {
+    });
+    observer.observe({ type: "resource" });
+    window.setTimeout(() => {
+      observer.disconnect();
+      resolve(null);
+    }, 5000);
+    if (wasOn) {
       button.click();
     }
+    button.click();
+  });
+  if (!wasOn) {
+    button.click();
   }
-  logInfo("[BOC] youtube pot capture", { clicks, found: Boolean(pot) });
+  logInfo("[BOC] youtube pot capture", { wasOn, found: Boolean(pot) });
   return pot;
 }
 
