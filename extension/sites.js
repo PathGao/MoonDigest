@@ -1044,8 +1044,10 @@
       playerHost: ["#movie_player", ".html5-video-player"],
       playerLayout: ["#movie_player", ".html5-video-container", "ytd-player", "#player-container-inner", "#player-container", "#player"],
       // Theater mode and small windows (ytd-watch-flexy[full-bleed-player]) move
-      // the player into #player-full-bleed-container and leave #player empty.
-      playerWrap: ["#player-container-outer", "#player-full-bleed-container", "#player"],
+      // the player into #full-bleed-container, a flex row, and leave #player
+      // empty; the transcript host goes after the row, not inside it, or it
+      // takes the row's width from the player.
+      playerWrap: ["#player-container-outer", "#full-bleed-container", "#player"],
       miniPlayer: ["ytd-miniplayer[active]"],
       miniClose: [".ytp-miniplayer-close-button"],
       endingPanel: [],
