@@ -1562,6 +1562,7 @@ async function enterReaderMode() {
   await sleep(0);
   openReaderViewShell(readingView);
   applyReaderPageFocus();
+  startReaderPlayerObserver();
   renderReadingView();
 
   const earlyPlayerHost = findReaderPlayerHost(getRuntimeVideoElement());
@@ -1708,6 +1709,12 @@ async function ensureReaderPlayerMounted({ retries = 1, delayMs = 100, forceLayo
       }
       const activeHost = findReaderPlayerHost(video) || playerHost;
       state.readingPlayerHost = activeHost;
+      // YouTube moves #movie_player from the skeleton #player into
+      // ytd-watch-flexy after load, into a branch the page focus hid.
+      if (isReaderMode() && video.closest("[data-boc-reader-hidden='1']")) {
+        applyReaderPageFocus();
+        moveReadingMainInline();
+      }
       normalizeReaderPlayerContainer(activeHost);
       if (state.readingViewOpen) {
         clearNativeReaderFloatingStyles(activeHost);
@@ -2454,7 +2461,13 @@ function startReaderPlayerObserver() {
       }
       const nextVideo = getRuntimeVideoElement();
       const nextHost = findReaderPlayerHost(nextVideo);
-      if (nextVideo && nextHost && (nextVideo !== state.readingVideoEl || nextHost !== state.readingPlayerHost)) {
+      if (
+        nextVideo &&
+        nextHost &&
+        (nextVideo !== state.readingVideoEl ||
+          nextHost !== state.readingPlayerHost ||
+          nextVideo.closest("[data-boc-reader-hidden='1']"))
+      ) {
         queueEnsureReaderPlayerMounted();
       }
       if (document.querySelector(sel(reader().miniPlayer))) {
@@ -2584,7 +2597,6 @@ function isIgnoredReaderVideoCandidate(video) {
   }
   const host = findReaderPlayerHost(video);
   const blockedSelector = sel([
-    "[data-boc-reader-hidden='1']",
     ...reader().miniPlayer,
     ...reader().endingPanel,
     "[class*='mini-player']",
@@ -2602,7 +2614,7 @@ function applyReaderPageFocus() {
   const video = getRuntimeVideoElement();
   const playerHost = findReaderPlayerHost(video);
   const titleNode = findReaderTitleContainer();
-  const keepRoots = [root, playerHost, titleNode].filter(Boolean);
+  const keepRoots = [root, playerHost, titleNode, byId("boc-reading-inline-host")].filter(Boolean);
 
   keepRoots.forEach((node) => {
     markReaderKeepSubtree(node);

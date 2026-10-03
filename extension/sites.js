@@ -697,7 +697,7 @@
         .map((event) => ({
           from: event.tStartMs / 1000,
           to: (event.tStartMs + (Number(event.dDurationMs) || 0)) / 1000,
-          content: event.segs.map((seg) => String(seg?.utf8 || "")).join("").replace(/\s+/g, " ")
+          content: joinCaptionLines(event.segs.map((seg) => String(seg?.utf8 || "")).join(""))
         }))
     );
   }
@@ -1043,7 +1043,9 @@
     reader: {
       playerHost: ["#movie_player", ".html5-video-player"],
       playerLayout: ["#movie_player", ".html5-video-container", "ytd-player", "#player-container-inner", "#player-container", "#player"],
-      playerWrap: ["#player-container-outer", "#player"],
+      // Theater mode and small windows (ytd-watch-flexy[full-bleed-player]) move
+      // the player into #player-full-bleed-container and leave #player empty.
+      playerWrap: ["#player-container-outer", "#player-full-bleed-container", "#player"],
       miniPlayer: ["ytd-miniplayer[active]"],
       miniClose: [".ytp-miniplayer-close-button"],
       endingPanel: [],
