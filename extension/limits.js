@@ -18,6 +18,8 @@
   const KEYS = Object.freeze({
     subtitleCachePrefix: "boc_subtitle_cache_",
     aiConversations: "boc_ai_conversations_v1",
+    // videoKey → { path, lastSyncedAt } for notes the user saved; auto-sync only touches these.
+    obsidianNotePaths: "boc_obsidian_note_paths_v1",
     triageResultPrefixes: ["triage_analysis_", "triage_title_"]
   });
 

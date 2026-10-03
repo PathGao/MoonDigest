@@ -39,6 +39,7 @@ const DEFAULT_SYNC_SETTINGS = {
   includeDateInFilename: true,
   includeHotCommentsInNote: false,
   includeCoverInNote: true,
+  includeAiChatInNote: true,
   enablePlayerAiQuickAction: true,
   playerAiQuickPrompt: DEFAULT_PLAYER_AI_QUICK_PROMPT,
   includeTimestampInBody: true,
@@ -710,25 +711,26 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     }
 
     linkCoverInVault(content, message.cover, { baseUrl, apiKey, filepath })
-      .then((body) =>
-        fetchWithTimeout(vaultEndpoint(baseUrl, filepath), {
-          method: "PUT",
-          headers: {
-            Authorization: `Bearer ${apiKey}`,
-            "Content-Type": "text/markdown; charset=utf-8"
-          },
-          body
-        }, OBSIDIAN_TIMEOUT_MS)
-      )
-      .then(async (response) => {
-        if (!response.ok) {
-          const bodyText = await response.text().catch(() => "");
-          const detail = bodyText ? ` ${bodyText.slice(0, 200)}` : "";
-          sendResponse({ ok: false, error: `HTTP ${response.status}.${detail}` });
-          return;
-        }
-        sendResponse({ ok: true });
-      })
+      .then((body) => putVaultNote(baseUrl, apiKey, filepath, body))
+      .then(() => rememberObsidianNotePath(message.noteKey, filepath))
+      .then(() => sendResponse({ ok: true }))
+      .catch((error) => sendResponse({ ok: false, error: error.message }));
+
+    return true;
+  }
+
+  if (message.type === "update-obsidian-ai-section") {
+    const baseUrl = String(message.baseUrl || "").trim();
+    const apiKey = String(message.apiKey || "").trim();
+    const filepath = String(message.filepath || "").trim();
+
+    if (!baseUrl || !apiKey || !filepath) {
+      sendResponse({ ok: false, error: "缺少 Local REST API 参数" });
+      return false;
+    }
+
+    updateAiSectionInVault({ baseUrl, apiKey, filepath, section: message.section, noteKey: message.noteKey })
+      .then((result) => sendResponse({ ok: true, ...result }))
       .catch((error) => sendResponse({ ok: false, error: error.message }));
 
     return true;
@@ -1033,6 +1035,7 @@ function normalizeSyncSettings(settings) {
   merged.downloadFormat = normalizeDownloadFormat(merged.downloadFormat);
   merged.youtubeSubtitleLang = BocSites.normalizeSubtitleLang(merged.youtubeSubtitleLang);
   merged.includeHotCommentsInNote = normalizeIncludeHotCommentsInNote(merged.includeHotCommentsInNote);
+  merged.includeAiChatInNote = merged.includeAiChatInNote !== false;
   merged.enablePlayerAiQuickAction = normalizeEnablePlayerAiQuickAction(merged.enablePlayerAiQuickAction);
   merged.playerAiQuickPrompt = normalizePlayerAiQuickPrompt(merged.playerAiQuickPrompt);
   merged.showBiliTriageBadges = merged.showBiliTriageBadges !== false;
@@ -1442,6 +1445,79 @@ function vaultEndpoint(baseUrl, filepath) {
     .map((segment) => encodeURIComponent(segment))
     .join("/");
   return `${baseUrl.replace(/\/+$/g, "")}/vault/${encodedPath}`;
+}
+
+async function readVaultNote(baseUrl, apiKey, filepath) {
+  const response = await fetchWithTimeout(vaultEndpoint(baseUrl, filepath), {
+    method: "GET",
+    headers: { Authorization: `Bearer ${apiKey}`, Accept: "text/markdown, text/plain, */*" },
+    cache: "no-store"
+  }, OBSIDIAN_TIMEOUT_MS);
+  if (response.status === 404) {
+    return { exists: false, content: "" };
+  }
+  if (!response.ok) {
+    throw await httpError(response);
+  }
+  return { exists: true, content: await response.text() };
+}
+
+async function putVaultNote(baseUrl, apiKey, filepath, body) {
+  const response = await fetchWithTimeout(vaultEndpoint(baseUrl, filepath), {
+    method: "PUT",
+    headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "text/markdown; charset=utf-8" },
+    body
+  }, OBSIDIAN_TIMEOUT_MS);
+  if (!response.ok) {
+    throw await httpError(response);
+  }
+}
+
+async function httpError(response) {
+  const bodyText = await response.text().catch(() => "");
+  return new Error(`HTTP ${response.status}.${bodyText ? ` ${bodyText.slice(0, 200)}` : ""}`);
+}
+
+// Rewrites only the marked AI 问答 block of an existing note (see BocNote.upsertAiSection); a missing
+// note is reported, never created. Returns { exists, updated }; updated is false when the note already
+// held this section, so repeated syncs cost one GET.
+async function updateAiSectionInVault({ baseUrl, apiKey, filepath, section, noteKey }) {
+  const existing = await readVaultNote(baseUrl, apiKey, filepath);
+  if (!existing.exists) {
+    await forgetObsidianNotePath(noteKey);
+    return { exists: false, updated: false };
+  }
+  const next = BocNote.upsertAiSection(existing.content, String(section || ""));
+  if (next !== existing.content) {
+    await putVaultNote(baseUrl, apiKey, filepath, next);
+  }
+  await rememberObsidianNotePath(noteKey, filepath);
+  return { exists: true, updated: next !== existing.content };
+}
+
+// ponytail: read-modify-write on one storage key; writers are the user's own saves, seconds apart.
+async function rememberObsidianNotePath(noteKey, filepath) {
+  const key = String(noteKey || "").trim();
+  if (!key) {
+    return;
+  }
+  const storageKey = BocLimits.KEYS.obsidianNotePaths;
+  const paths = (await chrome.storage.local.get(storageKey))[storageKey] || {};
+  await chrome.storage.local.set({ [storageKey]: { ...paths, [key]: { path: filepath, lastSyncedAt: Date.now() } } });
+}
+
+async function forgetObsidianNotePath(noteKey) {
+  const key = String(noteKey || "").trim();
+  if (!key) {
+    return;
+  }
+  const storageKey = BocLimits.KEYS.obsidianNotePaths;
+  const paths = (await chrome.storage.local.get(storageKey))[storageKey] || {};
+  if (!(key in paths)) {
+    return;
+  }
+  const { [key]: _removed, ...rest } = paths;
+  await chrome.storage.local.set({ [storageKey]: rest });
 }
 
 // Obsidian requests remote images with an app://obsidian.md Referer, which hdslb.com answers with 403,
