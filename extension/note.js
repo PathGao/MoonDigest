@@ -8,6 +8,7 @@
 // body     Segment[] { from, to, content }
 // ref      VideoRef from sites.js, or null; ref.url is the note's canonical URL
 // settings the merged user settings (tags, frontmatterFields, include* flags, ...)
+// meta.aiTurns  optional [{ prompt, answer }] from buildConversationTurns; written as the AI 问答 section
 (() => {
   if (globalThis.BocNote) {
     return;
@@ -138,7 +139,151 @@
       lines.push("## 评论", "", ...hotCommentLines);
     }
 
-    return lines.join("\n").trimEnd();
+    const markdown = lines.join("\n").trimEnd();
+    const aiSection = settings?.includeAiChatInNote === false ? "" : buildAiSection(meta.aiTurns);
+    return aiSection ? `${markdown}\n\n${aiSection}` : markdown;
+  }
+
+  // ---- AI 问答 section: the side panel conversation inside the video note ----
+  // The markers let a later save replace just this section; Obsidian's reading view hides them.
+  const AI_SECTION_START = "<!-- moondigest:ai-start -->";
+  const AI_SECTION_END = "<!-- moondigest:ai-end -->";
+
+  function stripThinkBlocks(text) {
+    return String(text || "")
+      .replace(/<think\b[^>]*>[\s\S]*?<\/think>/gi, "")
+      .replace(/<think\b[^>]*>[\s\S]*$/gi, "")
+      .replace(/<\/think>/gi, "")
+      .replace(/^\s*<\/?think\b[^>]*>\s*$/gim, "")
+      .trim();
+  }
+
+  const TIMESTAMP_PATTERN = /\b\d{1,3}:\d{2}(?::\d{2})?\b/g;
+  const TIMESTAMP_INLINE_CODE_REST_PATTERN = /^[\s,，、;；:：\-–—~～至到]+$/;
+
+  function isTimestampOnlyInlineCode(value) {
+    const text = String(value || "").trim();
+    if (!text) {
+      return false;
+    }
+    TIMESTAMP_PATTERN.lastIndex = 0;
+    const hasTimestamp = TIMESTAMP_PATTERN.test(text);
+    TIMESTAMP_PATTERN.lastIndex = 0;
+    if (!hasTimestamp) {
+      return false;
+    }
+    const rest = text.replace(TIMESTAMP_PATTERN, "").trim();
+    TIMESTAMP_PATTERN.lastIndex = 0;
+    return !rest || TIMESTAMP_INLINE_CODE_REST_PATTERN.test(rest);
+  }
+
+  function unwrapTimestampInlineCode(text) {
+    return String(text || "").replace(/`([^`\n]+)`/g, (_, content) =>
+      isTimestampOnlyInlineCode(content) ? content : `\`${content}\``
+    );
+  }
+
+  // Shifts headings down so an answer pasted under a "## " section keeps its outline, and
+  // unwraps `09:15` so the timestamps stay plain text like the rest of the note.
+  function normalizeMarkdownForSectionPaste(raw, baseLevel = 2) {
+    const shift = Math.max(0, Number(baseLevel) || 0);
+    const normalized = [];
+    let inFence = false;
+
+    String(raw || "").split("\n").forEach((line) => {
+      if (/^\s*```/.test(line)) {
+        inFence = !inFence;
+        normalized.push(line);
+        return;
+      }
+      if (inFence) {
+        normalized.push(line);
+        return;
+      }
+      const pasteLine = unwrapTimestampInlineCode(line);
+      const headingMatch = pasteLine.match(/^(\s*)(#{1,3})(\s+.*)$/);
+      if (!headingMatch) {
+        normalized.push(pasteLine);
+        return;
+      }
+      const [, indent, hashes, suffix] = headingMatch;
+      normalized.push(`${indent}${"#".repeat(hashes.length + shift)}${suffix}`);
+    });
+
+    return normalized.join("\n");
+  }
+
+  // Pairs each user message with the assistant reply that follows it. Stored conversations hold
+  // only user/assistant turns; the system prompt and video context never reach them.
+  function buildConversationTurns(messages) {
+    const turns = [];
+    let pendingPrompt = "";
+    (Array.isArray(messages) ? messages : []).forEach((message) => {
+      if (!message || typeof message.content !== "string") {
+        return;
+      }
+      if (message.role === "user") {
+        pendingPrompt = message.content.trim();
+        return;
+      }
+      if (message.role === "assistant" && pendingPrompt) {
+        const answer = normalizeMarkdownForSectionPaste(stripThinkBlocks(message.content)).trim();
+        if (answer) {
+          turns.push({ prompt: pendingPrompt, answer });
+        }
+        pendingPrompt = "";
+      }
+    });
+    return turns;
+  }
+
+  // The newest saved conversation for this video. Bilibili parts have their own cid; a conversation
+  // without one (saved before cid was recorded) still matches the video.
+  function pickConversation(conversations, { site = "", videoId = "", cid = "" } = {}) {
+    const key = BocSites.buildContextKey({ site, videoId, cid });
+    if (!key) {
+      return null;
+    }
+    const prefix = key.slice(0, key.indexOf("|") + 1);
+    const candidates = (Array.isArray(conversations) ? conversations : [])
+      .filter((item) => item?.contextKey === key || (cid && item?.contextKey === prefix) || (!cid && String(item?.contextKey || "").startsWith(prefix)))
+      .sort((a, b) => (Number(b?.updatedAt) || 0) - (Number(a?.updatedAt) || 0));
+    return candidates[0] || null;
+  }
+
+  function sanitizeMarkdownHeadingText(value) {
+    return String(value || "")
+      .replace(/\s+/g, " ")
+      .replace(/^#+\s*/, "")
+      .trim() || "AI问答";
+  }
+
+  function buildAiTurnLines(turns) {
+    return (Array.isArray(turns) ? turns : []).flatMap((turn) => [`### 问：${sanitizeMarkdownHeadingText(turn.prompt)}`, "", String(turn.answer || "").trim(), ""]);
+  }
+
+  // "" when there is nothing to write, so callers can test for a section.
+  function buildAiSection(turns) {
+    const body = buildAiTurnLines(turns);
+    if (!body.length) {
+      return "";
+    }
+    return [AI_SECTION_START, "## AI 问答", "", ...body, AI_SECTION_END].join("\n");
+  }
+
+  // Replaces the marked section of an existing note, or appends one; bytes outside the markers
+  // are untouched, and running it twice with the same section yields the same note.
+  function upsertAiSection(note, section) {
+    const text = String(note || "");
+    const start = text.indexOf(AI_SECTION_START);
+    const end = start >= 0 ? text.indexOf(AI_SECTION_END, start + AI_SECTION_START.length) : -1;
+    if (start >= 0 && end >= 0) {
+      return `${text.slice(0, start)}${section}${text.slice(end + AI_SECTION_END.length)}`;
+    }
+    if (!section) {
+      return text;
+    }
+    return `${text}${text.endsWith("\n") ? "" : "\n"}\n${section}\n`;
   }
 
   function buildHotCommentLines(comments) {
@@ -665,6 +810,17 @@
     DEFAULT_FRONTMATTER_FIELDS,
     FRONTMATTER_FIELDS,
     buildMarkdown,
+    AI_SECTION_START,
+    AI_SECTION_END,
+    TIMESTAMP_PATTERN,
+    stripThinkBlocks,
+    isTimestampOnlyInlineCode,
+    normalizeMarkdownForSectionPaste,
+    buildConversationTurns,
+    pickConversation,
+    sanitizeMarkdownHeadingText,
+    buildAiSection,
+    upsertAiSection,
     buildNoteFilename,
     resolveFolderTemplate,
     buildSubtitlePreview,

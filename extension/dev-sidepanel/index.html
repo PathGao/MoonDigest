@@ -39,6 +39,7 @@
       <div class="sp-suggestions" id="spSuggestions"></div>
     </main>
     <footer class="sp-footer">
+      <div id="spSyncStatus" class="sp-sync-status" hidden><span></span><button type="button">重试</button></div>
       <div class="sp-toolbar">
         <button id="spNewChatBtn" type="button" class="sp-toolbar-btn" title="开启新对话">
           <svg viewBox="0 0 24 24" focusable="false" aria-hidden="true">
@@ -88,7 +89,9 @@
         <button id="spStopBtn" type="button" class="sp-stop-btn" hidden>停止</button>
       </div>
     </footer>
+    <script src="../limits.js"></script>
     <script src="../sites.js"></script>
+    <script src="../note.js"></script>
     <script src="./mock-chrome.js"></script>
     <script type="module" src="../sidepanel.js"></script>
   </body>

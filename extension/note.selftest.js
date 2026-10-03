@@ -293,4 +293,74 @@ assert.strictEqual(N.buildTxt(body.slice(0, 2), { includeTimestampInBody: true }
 // A newline inside a double-quoted YAML value must stay escaped or the frontmatter breaks.
 assert.strictEqual(N.escapeYaml('a"b\\c\nd\r\te'), 'a\\"b\\\\c\\nd\\r\\te');
 assert.strictEqual(N.sanitizeFileName("第1集 #AI [合集] ^x|y"), "第1集 _AI _合集_ _x_y");
+
+// ---- AI 问答 section ----
+const messages = [
+  { role: "user", content: "总结一下" },
+  { role: "assistant", content: "<think>想一想</think>## 要点\n\n- `01:09` 第一点\n\n```\n# not a heading\n```" },
+  { role: "user", content: "没有回答的问题" },
+  { role: "user", content: "# 第二问\n换行" },
+  { role: "assistant", content: "第二答" }
+];
+// vm objects have another realm's prototypes, so compare through JSON.
+const turns = JSON.parse(JSON.stringify(N.buildConversationTurns(messages)));
+assert.deepStrictEqual(turns, [
+  { prompt: "总结一下", answer: "## 要点\n\n- `01:09` 第一点\n\n```\n# not a heading\n```".replace("## 要点", "#### 要点").replace("`01:09`", "01:09") },
+  { prompt: "# 第二问\n换行", answer: "第二答" }
+]);
+const section = N.buildAiSection(turns);
+assert.deepStrictEqual(section.split("\n"), [
+  "<!-- moondigest:ai-start -->",
+  "## AI 问答",
+  "",
+  "### 问：总结一下",
+  "",
+  "#### 要点",
+  "",
+  "- 01:09 第一点",
+  "",
+  "```",
+  "# not a heading",
+  "```",
+  "",
+  "### 问：第二问 换行",
+  "",
+  "第二答",
+  "",
+  "<!-- moondigest:ai-end -->"
+]);
+assert.strictEqual(N.buildAiSection([]), "");
+assert.strictEqual(N.buildAiSection(undefined), "");
+
+// The video note carries the section when turns exist and the toggle is on; the body above it is unchanged.
+const plain = N.buildMarkdown(cases.biliSingle.meta, body, baseSettings, refOf(bili), CREATED);
+const withAi = N.buildMarkdown({ ...cases.biliSingle.meta, aiTurns: turns }, body, baseSettings, refOf(bili), CREATED);
+assert.strictEqual(withAi, `${plain}\n\n${section}`);
+assert.strictEqual(N.buildMarkdown({ ...cases.biliSingle.meta, aiTurns: turns }, body, { ...baseSettings, includeAiChatInNote: false }, refOf(bili), CREATED), plain);
+
+// upsert: present → replaced, absent → appended, outside bytes identical, idempotent, empty section leaves the note alone.
+const userNote = "---\ntitle: x\n---\n\n## 字幕\n\n正文  \n\n我的批注\n";
+const appended = N.upsertAiSection(userNote, section);
+assert.strictEqual(appended, `${userNote}\n${section}\n`);
+assert.strictEqual(N.upsertAiSection(appended, section), appended, "idempotent");
+const edited = `${appended}\n后记（标记之后的文字）\n`;
+const newSection = N.buildAiSection([{ prompt: "追问", answer: "新答案" }]);
+const replaced = N.upsertAiSection(edited, newSection);
+assert.strictEqual(replaced, `${userNote}\n${newSection}\n\n后记（标记之后的文字）\n`);
+assert.strictEqual(N.upsertAiSection(replaced, newSection), replaced, "idempotent after replace");
+assert.strictEqual(N.upsertAiSection(userNote, ""), userNote, "no conversation → unchanged");
+assert.strictEqual(N.upsertAiSection(appended, ""), `${userNote}\n\n`, "empty section removes the marked block only");
+assert.strictEqual(N.upsertAiSection("no trailing newline", section), `no trailing newline\n\n${section}\n`);
+// A note with only the start marker (user deleted the end) gets a fresh section appended rather than a truncated note.
+const halfMarked = `${userNote}${N.AI_SECTION_START}\n## AI 问答\n`;
+assert.strictEqual(N.upsertAiSection(halfMarked, newSection), `${halfMarked}\n${newSection}\n`);
+
+// pickConversation: exact part first, then the video without a part; newest wins; other videos never match.
+const conv = (contextKey, updatedAt) => ({ contextKey, updatedAt, messages });
+const convs = [conv("video:bilibili:BV1|", 1), conv("video:bilibili:BV1|c2", 5), conv("video:bilibili:BV1|c1", 3), conv("video:youtube:BV1|", 9)];
+assert.strictEqual(N.pickConversation(convs, { site: "bilibili", videoId: "BV1", cid: "c1" }).updatedAt, 3);
+assert.strictEqual(N.pickConversation(convs, { site: "bilibili", videoId: "BV1", cid: "c9" }).updatedAt, 1, "unknown part falls back to the partless conversation");
+assert.strictEqual(N.pickConversation(convs, { site: "bilibili", videoId: "BV1" }).updatedAt, 5, "no part → newest of any part");
+assert.strictEqual(N.pickConversation(convs, { site: "bilibili", videoId: "BV2" }), null);
+assert.strictEqual(N.pickConversation(convs, { site: "youtube", videoId: "" }), null);
 console.log("note selftest ok");

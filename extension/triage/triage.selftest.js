@@ -48,6 +48,7 @@ const ctx = vm.createContext({
     }
   }
 });
+vm.runInContext(fs.readFileSync(path.join(__dirname, "..", "limits.js"), "utf8"), ctx);
 vm.runInContext(`${source}\n;globalThis.S = S; globalThis.K = K;`, ctx);
 const t = ctx;
 const plain = (v) => JSON.parse(JSON.stringify(v));

@@ -11,9 +11,9 @@ const chrome = new Proxy({}, { get: (_, k) => (k === "runtime" ? runtime : anyth
 
 const ctx = vm.createContext({
   chrome, console, setTimeout, clearTimeout, AbortController, AbortSignal, TextDecoder, TextEncoder, URL, URLSearchParams,
-  importScripts() {}
+  // Loads files when background.js calls it, so the selftest sees the browser's load order.
+  importScripts: (...files) => files.forEach((file) => vm.runInContext(fs.readFileSync(path.join(__dirname, file), "utf8"), ctx))
 });
-vm.runInContext(fs.readFileSync(path.join(__dirname, "sites.js"), "utf8"), ctx);
 vm.runInContext(fs.readFileSync(path.join(__dirname, "background.js"), "utf8"), ctx);
 ctx.loadAiProviders = async () => [{ id: "p", baseUrl: "https://ai.test", model: "m", requiresKey: false }];
 ctx.loadAiProviderKeys = async () => ({});

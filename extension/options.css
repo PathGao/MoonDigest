@@ -606,6 +606,11 @@ button:active {
   border-top: 1px dashed var(--info-border);
 }
 
+#storageLimits .about-row {
+  grid-template-columns: 168px minmax(0, 1fr);
+  align-items: start;
+}
+
 .about-label {
   color: var(--text-2);
   font-size: 13px;

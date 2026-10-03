@@ -204,6 +204,14 @@
               <input id="includeCoverInNote" type="checkbox" />
               在笔记开头插入封面图
             </label>
+
+            <label class="checkbox">
+              <input id="includeAiChatInNote" type="checkbox" />
+              导出时附带 AI 问答
+            </label>
+            <p class="hint inline-hint">
+              把这个视频最近一段侧边栏对话写进笔记末尾的「AI 问答」段落（复制 Markdown 和下载也带）。笔记已存在时再次保存只替换这一段，其余内容不动；你在这一段标记之间改的文字会被替换。保存过一次后，这个视频每次 AI 回答完都会自动更新这一段。
+            </p>
           </section>
 
       <section class="field-group">
@@ -259,6 +267,12 @@
       <p id="status" class="status" role="status"></p>
 
       <section class="about">
+        <h2>数据与存储</h2>
+        <p class="hint">都存在浏览器本地，不上传。到了上限怎么处理，写在每一行里。</p>
+        <div id="storageLimits" class="about-card"></div>
+      </section>
+
+      <section class="about">
         <h2>项目地址</h2>
         <div class="about-card">
           <p class="about-row">
@@ -273,6 +287,7 @@
       </section>
     </main>
 
+    <script src="./limits.js"></script>
     <script src="./options.js"></script>
   </body>
 </html>

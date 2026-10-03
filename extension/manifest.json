@@ -37,7 +37,7 @@
         "https://www.bilibili.com/list/watchlater/*",
         "https://www.youtube.com/*"
       ],
-      "js": ["sites.js", "note.js", "content.js"],
+      "js": ["limits.js", "sites.js", "note.js", "content.js"],
       "css": ["content.css"],
       "run_at": "document_idle"
     },

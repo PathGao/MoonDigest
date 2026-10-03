@@ -13,6 +13,7 @@ const DEFAULT_SETTINGS = {
   includeDateInFilename: true,
   includeHotCommentsInNote: false,
   includeCoverInNote: true,
+  includeAiChatInNote: true,
   enablePlayerAiQuickAction: true,
   playerAiQuickPrompt: "整理这期视频的内容，输出结构化总结：主题、核心观点、关键细节、结论与可执行启发。",
   includeTimestampInBody: true,
@@ -31,7 +32,7 @@ const DEFAULT_SETTINGS = {
 const { formatCompactTimestamp, buildSubtitlePreview, buildSrt, buildTxt, shouldShowHoursInNote } = BocNote;
 
 const BOC_VERSION = chrome.runtime.getManifest().version;
-const CACHE_KEY_PREFIX = "boc_subtitle_cache_";
+const CACHE_KEY_PREFIX = BocLimits.KEYS.subtitleCachePrefix;
 globalThis.__BOC_CONTENT_SCRIPT_LOADED__ = BOC_VERSION;
 const state = {
   fetchRunId: 0,
@@ -582,6 +583,13 @@ function bindSettingsWatcher() {
   chrome.storage.onChanged.addListener((changes, areaName) => {
     if (areaName !== "sync" && areaName !== "local") {
       return;
+    }
+    // The popup copies state.markdown as is, so a new answer must reach it before the next refresh.
+    if (changes[BocLimits.KEYS.aiConversations] && state.markdown) {
+      loadAiTurns().then((turns) => {
+        state.aiTurns = turns;
+        rebuildDerivedContent();
+      });
     }
     if (
       !changes.enablePlayerAiQuickAction &&
@@ -1313,8 +1321,7 @@ async function loadSubtitleFromCache(cacheKey) {
   }
 }
 
-// The cache only serves track switches on recent videos, so it keeps the newest
-// 50 entries from the last 30 days.
+// The cache only serves track switches on recent videos, so it keeps only recent entries.
 async function saveSubtitleToCache(cacheKey, raw) {
   try {
     const now = Date.now();
@@ -1323,7 +1330,7 @@ async function saveSubtitleToCache(cacheKey, raw) {
     const stale = Object.entries(all)
       .filter(([key]) => key.startsWith(CACHE_KEY_PREFIX))
       .sort(([, a], [, b]) => (Number(b?.timestamp) || 0) - (Number(a?.timestamp) || 0))
-      .filter(([, value], index) => index >= 50 || now - (Number(value?.timestamp) || 0) > 30 * 86400000)
+      .filter(([, value], index) => index >= BocLimits.SUBTITLE_CACHE_ENTRIES || now - (Number(value?.timestamp) || 0) > BocLimits.SUBTITLE_CACHE_DAYS * 86400000)
       .map(([key]) => key);
     if (stale.length) {
       await chrome.storage.local.remove(stale);
@@ -1433,16 +1440,26 @@ async function sendToObsidian() {
     return;
   }
 
+  const noteKey = BocSites.buildContextKey({ site: state.site, videoId: state.videoId, cid: state.cid });
   try {
     const exists = await checkObsidianNoteExists(baseUrl, apiKey, filepath);
     if (exists) {
-      const shouldOverwrite = await confirmOverwriteNote(filepath);
-      if (!shouldOverwrite) {
-        setMessage("已取消保存，原笔记未被覆盖。");
+      const aiSection = state.settings.includeAiChatInNote === false ? "" : BocNote.buildAiSection(state.aiTurns);
+      const choice = await confirmOverwriteNote(filepath, { hasAiSection: Boolean(aiSection) });
+      if (!choice) {
+        setMessage(aiSection ? "已取消保存，原笔记未被覆盖。" : "笔记已存在，无新的 AI 问答，未改动。");
+        return;
+      }
+      if (choice === "ai") {
+        const resp = await sendRuntimeMessage({ type: "update-obsidian-ai-section", baseUrl, apiKey, filepath, section: aiSection, noteKey });
+        if (!resp?.ok) {
+          throw new Error(toReadableText(resp?.error, "Local API 写入失败"));
+        }
+        setMessage(`已更新 AI 问答：${filepath}`);
         return;
       }
     }
-    await writeNoteByLocalApi(baseUrl, apiKey, filepath, state.markdown, { url: state.cover, name: `${state.site}-${state.videoId}` });
+    await writeNoteByLocalApi(baseUrl, apiKey, filepath, state.markdown, { url: state.cover, name: `${state.site}-${state.videoId}` }, noteKey);
     setMessage(`已写入 Obsidian：${filepath}`);
   } catch (error) {
     if (isExtensionContextInvalidated(error)) {
@@ -1466,21 +1483,24 @@ async function checkObsidianNoteExists(baseUrl, apiKey, filepath) {
   return Boolean(resp.exists);
 }
 
-async function writeNoteByLocalApi(baseUrl, apiKey, filepath, content, cover) {
+async function writeNoteByLocalApi(baseUrl, apiKey, filepath, content, cover, noteKey) {
   const resp = await sendRuntimeMessage({
     type: "write-obsidian-note",
     baseUrl,
     apiKey,
     filepath,
     content,
-    cover
+    cover,
+    noteKey
   });
   if (!resp?.ok) {
     throw new Error(toReadableText(resp?.error, "Local API 写入失败"));
   }
 }
 
-function confirmOverwriteNote(filepath) {
+// Resolves "ai" (replace only the marked AI 问答 section), "full" (rewrite the note) or "" (cancel).
+// 整篇覆盖 never sits next to the default button: a slip must not turn an update into a rewrite.
+function confirmOverwriteNote(filepath, { hasAiSection = false } = {}) {
   return new Promise((resolve) => {
     const existing = document.querySelector(".boc-confirm-overlay");
     if (existing) {
@@ -1489,14 +1509,27 @@ function confirmOverwriteNote(filepath) {
 
     const overlay = document.createElement("div");
     overlay.className = "boc-confirm-overlay";
-    overlay.innerHTML = `
+    overlay.innerHTML = hasAiSection
+      ? `
       <div class="boc-confirm-dialog" role="dialog" aria-modal="true" aria-labelledby="bocConfirmTitle">
         <div id="bocConfirmTitle" class="boc-confirm-title">该笔记已存在</div>
-        <div class="boc-confirm-body">继续会覆盖原内容：</div>
+        <div class="boc-confirm-body">只更新 AI 问答：保留原笔记，只替换标记之间的「AI 问答」段落。整篇覆盖：替换全部内容。</div>
         <div class="boc-confirm-path"></div>
         <div class="boc-confirm-actions">
-          <button type="button" class="boc-confirm-cancel">取消</button>
-          <button type="button" class="boc-confirm-primary">覆盖</button>
+          <button type="button" class="boc-confirm-cancel" data-choice="full">整篇覆盖</button>
+          <button type="button" class="boc-confirm-cancel" data-choice="">取消</button>
+          <button type="button" class="boc-confirm-primary" data-choice="ai">只更新 AI 问答</button>
+        </div>
+      </div>
+    `
+      : `
+      <div class="boc-confirm-dialog" role="dialog" aria-modal="true" aria-labelledby="bocConfirmTitle">
+        <div id="bocConfirmTitle" class="boc-confirm-title">该笔记已存在</div>
+        <div class="boc-confirm-body">没有新的 AI 问答可更新。整篇覆盖会替换全部内容：</div>
+        <div class="boc-confirm-path"></div>
+        <div class="boc-confirm-actions">
+          <button type="button" class="boc-confirm-cancel" data-choice="full">整篇覆盖</button>
+          <button type="button" class="boc-confirm-primary" data-choice="">取消</button>
         </div>
       </div>
     `;
@@ -1510,17 +1543,18 @@ function confirmOverwriteNote(filepath) {
     const onKeydown = (event) => {
       if (event.key === "Escape") {
         event.preventDefault();
-        cleanup(false);
+        cleanup("");
       }
     };
 
     overlay.addEventListener("click", (event) => {
       if (event.target === overlay) {
-        cleanup(false);
+        cleanup("");
       }
     });
-    overlay.querySelector(".boc-confirm-cancel")?.addEventListener("click", () => cleanup(false));
-    overlay.querySelector(".boc-confirm-primary")?.addEventListener("click", () => cleanup(true));
+    overlay.querySelectorAll("[data-choice]").forEach((button) => {
+      button.addEventListener("click", () => cleanup(button.dataset.choice));
+    });
     document.addEventListener("keydown", onKeydown, true);
     document.body.appendChild(overlay);
     overlay.querySelector(".boc-confirm-primary")?.focus();
@@ -4360,6 +4394,18 @@ async function fetchJsonInBackground(url) {
   }
 }
 
+// The newest side panel conversation about this video, for the note's AI 问答 section.
+async function loadAiTurns() {
+  try {
+    const key = BocLimits.KEYS.aiConversations;
+    const conversation = BocNote.pickConversation((await chrome.storage.local.get(key))[key], state);
+    return BocNote.buildConversationTurns(conversation?.messages);
+  } catch (error) {
+    logWarn("[BOC] failed to load AI conversation for note export", error);
+    return [];
+  }
+}
+
 function rebuildDerivedContent() {
   const body = Array.isArray(state.subtitleBody) ? state.subtitleBody : [];
   state.markdown = body.length || state.subtitleFetchState === "empty" ? BocNote.buildMarkdown(state, body, state.settings, currentRef()) : "";
@@ -4382,6 +4428,7 @@ async function refreshDerivedContent({ refreshComments = false } = {}) {
       }
     }
   }
+  state.aiTurns = await loadAiTurns();
 
   rebuildDerivedContent();
 }
