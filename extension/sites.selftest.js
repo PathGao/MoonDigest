@@ -167,6 +167,11 @@ eq(S.parseSrv3('<p t="0" d="1000">你懂规则，<br/>我也懂</p><p t="1000" d
   { from: 1, to: 2, content: "hello 世界 world" }
 ]);
 
+// A cached raw body re-parsed with the current parser gets its fixes (CJK join).
+eq(S.SITES.youtube.parseSegments('<p t="0" d="1000">你懂规则，<br/>我也懂</p>'), [{ from: 0, to: 1, content: "你懂规则，我也懂" }]);
+eq(S.SITES.youtube.parseSegments(JSON.stringify({ events: [{ tStartMs: 0, dDurationMs: 1000, segs: [{ utf8: "日本語の" }, { utf8: "\n" }, { utf8: "テスト" }] }] })), [{ from: 0, to: 1, content: "日本語のテスト" }]);
+eq(S.SITES.bilibili.parseSegments({ body: [{ from: 1, to: 2, content: " 你好 " }, { from: 3, to: 4, content: "" }] }), [{ from: 1, to: 2, content: "你好" }]);
+
 // YouTube comments. Current shape: trimmed from a live /next response for
 // dQw4w9WgXcQ (2026-10-02), mutations reversed so order must come from threads.
 const ytCurrent = {
@@ -375,10 +380,11 @@ async function ytComments(next, byContinuation) {
   eq(t.calls, ["next:dQw4w9WgXcQ", "get_transcript:P1", "get_transcript:t2"]);
   eq(fallback, {
     track: { id: "transcript", lang: "", label: "English (auto-generated)（文字稿）", url: "https://www.youtube.com/youtubei/v1/get_transcript?params=P1", kind: "transcript", isDefault: false },
-    segments: [{ from: 0, to: 1.5, content: "hello world" }, { from: 2, to: 3, content: "second page" }]
+    raw: [page1, page2]
   });
-  // Re-selecting the transcript track goes through fetchSegments.
-  eq(await yt.fetchSegments({ url: fallback.track.url }, t.io), JSON.parse(JSON.stringify(fallback.segments)));
+  eq(yt.parseSegments(fallback.raw), [{ from: 0, to: 1.5, content: "hello world" }, { from: 2, to: 3, content: "second page" }]);
+  // Re-selecting the transcript track goes through fetchRaw.
+  eq(yt.parseSegments(await yt.fetchRaw({ url: fallback.track.url }, t.io)), JSON.parse(JSON.stringify(yt.parseSegments(fallback.raw))));
   eq(t.calls.length, 5);
   // Unknown language, continuation loop capped at 5 pages.
   const looping = { ...page2, more: { continuationItemRenderer: { continuationEndpoint: { continuationCommand: { token: "t2" } } } } };

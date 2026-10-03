@@ -360,9 +360,13 @@
         return load(requests[1]);
       }
     },
-    async fetchSegments(track, io) {
-      const payload = await io.fetchJson(track.url);
-      return normalizeSegments(payload?.body);
+    // Raw responses are what the subtitle cache stores; parseSegments runs on
+    // every read so a parser fix reaches cached entries.
+    async fetchRaw(track, io) {
+      return io.fetchJson(track.url);
+    },
+    parseSegments(raw) {
+      return normalizeSegments(raw?.body);
     },
     async fetchComments(ref, meta, io, count = 20) {
       const aid = Number(meta?.aid || 0) || 0;
@@ -833,18 +837,19 @@
     return ytText(items.find((item) => item.selected)?.title);
   }
 
-  // Resolves { segments, language }; language is "" when the footer is absent.
+  // Resolves { responses, language }: every transcript page as fetched;
+  // language is "" when the footer is absent.
   async function ytFetchTranscript(params, io) {
     let response = await ytPost(io, "get_transcript", { params });
     const language = ytTranscriptLanguage(response);
-    const segments = ytParseTranscript(response);
+    const responses = [response];
     for (let page = 1; page < YT_TRANSCRIPT_MAX_PAGES; page += 1) {
       const continuation = ytTranscriptContinuation(response);
       if (!continuation) break;
       response = await ytPost(io, "get_transcript", { continuation });
-      segments.push(...ytParseTranscript(response));
+      responses.push(response);
     }
-    return { segments, language };
+    return { responses, language };
   }
 
   function ytIsTranscriptUrl(url) {
@@ -979,23 +984,27 @@
       const next = io.postJson ? await ytNextResponse(ref, io, true).catch(() => null) : null;
       return { tracks: ytWithTranslation(tracks, io.subtitleLang), chapters: ytChapters(next) };
     },
-    async fetchSegments(track, io) {
+    // Raw is the timedtext body text, or the transcript pages as fetched.
+    async fetchRaw(track, io) {
       if (ytIsTranscriptUrl(track.url)) {
-        return (await ytFetchTranscript(parseUrl(track.url).searchParams.get("params"), io)).segments;
+        return (await ytFetchTranscript(parseUrl(track.url).searchParams.get("params"), io)).responses;
       }
-      return normalizeSegments(parseYoutubeSubtitle(await io.fetchText(track.url)));
+      return io.fetchText(track.url);
+    },
+    parseSegments(raw) {
+      return Array.isArray(raw) ? raw.flatMap(ytParseTranscript) : normalizeSegments(parseYoutubeSubtitle(raw));
     },
     // The watch page's own transcript panel, fetched with the user's cookies.
     // Only a fallback: it is the same endpoint family as timedtext for rate
     // limiting, and its language is whatever YouTube picks. Resolves
-    // { track, segments }; the track re-selects through fetchSegments.
+    // { track, raw }; the track re-selects through fetchRaw.
     async fetchTranscript(ref, io) {
       const params = ytTranscriptParams(await ytNextResponse(ref, io));
       if (!params) {
         throw new Error("该视频没有文字稿");
       }
-      const { segments, language } = await ytFetchTranscript(params, io);
-      if (!segments.length) {
+      const { responses, language } = await ytFetchTranscript(params, io);
+      if (!responses.flatMap(ytParseTranscript).length) {
         throw new Error("文字稿为空");
       }
       return {
@@ -1007,7 +1016,7 @@
           kind: "transcript",
           isDefault: false
         },
-        segments
+        raw: responses
       };
     },
     // Same two /next calls the watch page makes, the first shared with fetchTracks.

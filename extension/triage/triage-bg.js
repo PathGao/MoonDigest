@@ -605,7 +605,7 @@ async function triageWriteNote({ bvid, overwrite }) {
   ref.url = site.canonicalUrl(bvid, meta.pageCount > 1 ? meta.pageIndex : 1);
   const bundle = await site.fetchTracks(ref, meta, io).catch(() => ({ tracks: [], chapters: [] }));
   const track = BocSites.pickPreferredTrack(BocSites.rankTracks(bundle.tracks || []), {});
-  const body = track ? await site.fetchSegments(track, io).catch(() => []) : [];
+  const body = track ? await site.fetchRaw(track, io).then(site.parseSegments).catch(() => []) : [];
   const hotComments =
     settings.includeHotCommentsInNote || !body.length ? await site.fetchComments(ref, meta, io, 20).catch(() => []) : [];
   const noteMeta = {

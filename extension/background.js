@@ -419,7 +419,7 @@ async function resolveAiSidepanelContext(contextRef) {
     previousUrl: ref.selectedSubtitleUrl,
     previousLang: ref.subtitleLang
   });
-  const body = selectedTrack ? await site.fetchSegments(selectedTrack, io) : [];
+  const body = selectedTrack ? site.parseSegments(await site.fetchRaw(selectedTrack, io)) : [];
   if (selectedTrack && !body.length) {
     throw new Error("原视频字幕为空");
   }

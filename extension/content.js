@@ -1199,7 +1199,7 @@ async function loadTranscriptFallback(cause, runId) {
   }
   ensureRunActive(runId);
   state.subtitles = [result.track, ...state.subtitles.filter((item) => item.id !== result.track.id)];
-  await commitSubtitleBody(result.segments, { url: result.track.url, lang: result.track.label, subtitleId: result.track.id }, runId);
+  await commitSubtitleBody(result.raw, { url: result.track.url, lang: result.track.label, subtitleId: result.track.id }, runId);
   return result.track;
 }
 
@@ -1218,8 +1218,9 @@ async function loadSubtitle(url, lang, runId = state.fetchRunId, subtitleId = ""
 
   // 尝试从缓存读取
   if (!forceRefresh) {
-    const cachedBody = await loadSubtitleFromCache(cacheKey);
-    if (cachedBody && Array.isArray(cachedBody) && cachedBody.length > 0) {
+    const cachedRaw = await loadSubtitleFromCache(cacheKey);
+    const cachedBody = cachedRaw === null ? [] : currentSite().parseSegments(cachedRaw);
+    if (cachedBody.length > 0) {
       const cachedCheck = validateSubtitleByDuration(cachedBody, state.videoDuration);
       if (!cachedCheck.ok) {
         logWarn("[BOC] cached subtitle duration mismatch, clearing cache", {
@@ -1247,14 +1248,15 @@ async function loadSubtitle(url, lang, runId = state.fetchRunId, subtitleId = ""
 
   // 从网络获取
   logInfo("[BOC] fetch subtitle body", { url });
-  const body = await currentSite().fetchSegments({ id: subtitleId, url, lang }, siteIo());
-  await commitSubtitleBody(body, { url, lang, subtitleId }, runId);
+  const raw = await currentSite().fetchRaw({ id: subtitleId, url, lang }, siteIo());
+  await commitSubtitleBody(raw, { url, lang, subtitleId }, runId);
 }
 
-// Validates, caches and installs a freshly fetched body as the selected track.
-async function commitSubtitleBody(body, { url, lang, subtitleId }, runId) {
+// Validates, caches and installs a freshly fetched raw body as the selected track.
+async function commitSubtitleBody(raw, { url, lang, subtitleId }, runId) {
   const cacheKey = getSubtitleCacheKey({ videoId: state.videoId, cid: state.cid, subtitleId, subtitleUrl: url, lang });
   ensureRunActive(runId);
+  const body = currentSite().parseSegments(raw);
   if (body.length === 0) {
     throw new Error("字幕文件为空。");
   }
@@ -1267,7 +1269,7 @@ async function commitSubtitleBody(body, { url, lang, subtitleId }, runId) {
   }
 
   // 存入缓存
-  await saveSubtitleToCache(cacheKey, body);
+  await saveSubtitleToCache(cacheKey, raw);
 
   state.selectedSubtitleId = subtitleId ? String(subtitleId) : state.selectedSubtitleId;
   state.selectedSubtitleUrl = url;
@@ -1300,10 +1302,12 @@ function buildSubtitleSourceKey(subtitleId, subtitleUrl, lang) {
   return `lang_${String(lang || "").trim().toLowerCase() || "unknown"}`;
 }
 
+// Entries hold the raw response and are parsed on read, so a parser fix
+// applies to them; entries written before that (parsed body, no raw) miss.
 async function loadSubtitleFromCache(cacheKey) {
   try {
     const result = await chrome.storage.local.get(cacheKey);
-    return result[cacheKey]?.body || null;
+    return result[cacheKey]?.raw ?? null;
   } catch {
     return null;
   }
@@ -1311,10 +1315,10 @@ async function loadSubtitleFromCache(cacheKey) {
 
 // The cache only serves track switches on recent videos, so it keeps the newest
 // 50 entries from the last 30 days.
-async function saveSubtitleToCache(cacheKey, body) {
+async function saveSubtitleToCache(cacheKey, raw) {
   try {
     const now = Date.now();
-    await chrome.storage.local.set({ [cacheKey]: { body, timestamp: now } });
+    await chrome.storage.local.set({ [cacheKey]: { raw, timestamp: now } });
     const all = await chrome.storage.local.get(null);
     const stale = Object.entries(all)
       .filter(([key]) => key.startsWith(CACHE_KEY_PREFIX))
