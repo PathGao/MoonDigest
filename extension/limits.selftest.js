@@ -21,11 +21,12 @@ assert.ok(byLabel["分拣台最近取消收藏"].usage.includes(String(L.TRIAGE_
 assert.ok(byLabel["分拣台撤销"].usage.includes(String(L.TRIAGE_UNDO_STEPS)));
 assert.strictEqual(L.describe()[0].usage, `– / ${L.SUBTITLE_CACHE_ENTRIES} 条`, "unknown usage renders as a dash");
 assert.ok(rows.every((row) => row.label && row.usage && row.rule));
+// vm objects carry another realm's prototypes, so compare through JSON.
 assert.deepStrictEqual(
-  L.storageUsage({
+  JSON.parse(JSON.stringify(L.storageUsage({
     boc_subtitle_cache_a: {}, boc_subtitle_cache_b: {}, boc_ai_conversations_v1: [{}, {}, {}],
     triage_analysis_BV1: {}, triage_title_BV1: {}, triage_title_BV2: {}, other: 1
-  }),
+  }))),
   { subtitleCache: 2, aiConversations: 3, triageResults: 3 }
 );
 
