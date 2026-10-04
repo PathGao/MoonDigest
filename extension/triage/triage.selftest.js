@@ -466,13 +466,14 @@ function openFake(mediaId, items, decisions = {}) {
   assert.strictEqual(t.idsChanged(["BV1", "BV2"], ["BV1"]), true);
   assert.strictEqual(t.idsChanged([], []), false);
 
-  // saveSnapshot records against the other folders' snapshots.
+  // saveSnapshot records against the other folders' snapshots and keeps the id list the next check compares with.
   for (const k of Object.keys(store)) delete store[k];
   t.S.folders = [{ id: "A", count: 1 }, { id: "B", count: 1 }];
   store[t.K.snapshot("A")] = { bvids: ["BV1", "BV2"], items: [item(1), item(2)] };
   store[t.K.snapshot("B")] = { bvids: ["BV2"], items: [item(2)] };
-  await t.saveSnapshot("A", []);
+  await t.saveSnapshot("A", [], ["BVhidden"]);
   assert.deepStrictEqual(Object.keys(store[t.K.removed]), ["BV1"]);
+  assert.deepStrictEqual(plain(store[t.K.snapshot("A")].ids), ["BVhidden"], "an id the paged list leaves out stays in the check baseline");
   assert.strictEqual(t.S.removedCount, 1);
 
   // Cleaning a removed video deletes its AI results, note, tags, 保留 and basket entry, and nothing else.

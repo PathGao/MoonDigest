@@ -292,6 +292,12 @@ async function triageMid() {
   return nav.mid;
 }
 
+// type 2 = video, the only type triage-folder-items keeps.
+async function triageFolderIds(mediaId) {
+  const data = await triageBiliGet(`https://api.bilibili.com/x/v3/fav/resource/ids?media_id=${mediaId}&platform=web`);
+  return (data || []).filter((m) => m.type === 2).map((m) => m.bvid || m.bv_id);
+}
+
 async function triageCreatedFolders() {
   const mid = await triageMid();
   const data = await triageBiliGet(`https://api.bilibili.com/x/v3/fav/folder/created/list-all?up_mid=${mid}`);
@@ -594,15 +600,16 @@ const TRIAGE_HANDLERS = {
       // Page progress for the triage page's loading line; no open page to receive it is fine.
       globalThis.chrome?.runtime?.sendMessage?.({ type: "triage-folder-page", mediaId: String(mediaId), page: pn })?.catch?.(() => {});
     }
-    return { items };
+    // The id list is what 所有收藏夹 later checks against: it can hold entries the paged list leaves out, so comparing
+    // it with the items would flag the folder every time. null when it fails; the check then falls back to the items.
+    const ids = await triageFolderIds(mediaId).catch(() => null);
+    return { items, ids };
   },
 
   // Every video id of a folder in one request, no paging; 所有收藏夹 compares it with the cached list.
   "triage-folder-ids": async ({ mediaId }) => {
     if (!mediaId) throw triageError("缺少 mediaId");
-    const data = await triageBiliGet(`https://api.bilibili.com/x/v3/fav/resource/ids?media_id=${mediaId}&platform=web`);
-    // type 2 = video, the only type triage-folder-items keeps.
-    return { bvids: (data || []).filter((m) => m.type === 2).map((m) => m.bvid || m.bv_id) };
+    return { bvids: await triageFolderIds(mediaId) };
   },
 
   "triage-analysis-get": async ({ bvids }) => {

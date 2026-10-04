@@ -625,7 +625,7 @@ async function syncFolder({ force = false } = {}) {
     if (S.group) S.group.bvids = S.group.bvids.filter((b) => S.itemMap.has(b));
     for (const b of [...S.selected]) if (!S.itemMap.has(b)) S.selected.delete(b);
 
-    if (!partial) await saveSnapshot(mediaId, remote);
+    if (!partial) await saveSnapshot(mediaId, remote, r.data.ids);
     if (!(await loadResults(token))) return false;
     showSyncNotice(diff, partial);
     render();
@@ -638,7 +638,7 @@ async function syncFolder({ force = false } = {}) {
 
 // The full item list doubles as the 所有收藏夹 cache; bvids/invalid/titles drive the sync diff. Videos that left every
 // folder go to 已取消收藏.
-async function saveSnapshot(mediaId, items) {
+async function saveSnapshot(mediaId, items, ids = null) {
   const others = S.folders.map((f) => String(f.id)).filter((id) => id !== String(mediaId));
   const got = await chrome.storage.local.get([K.snapshot(mediaId), K.removed, ...others.map(K.snapshot)]);
   const old = got[K.snapshot(mediaId)];
@@ -651,6 +651,7 @@ async function saveSnapshot(mediaId, items) {
       invalid: items.filter((it) => it.invalid).map((it) => it.bvid),
       titles: Object.fromEntries(items.map((it) => [it.bvid, it.title])),
       items,
+      ids, // the folder's id list at this load; 所有收藏夹 compares the next id list with it
       at: Date.now()
     },
     [K.removed]: removed
@@ -723,7 +724,7 @@ async function openAll() {
     const id = String(f.id);
     S.folderDecisions[id] = got[K.decisions(id)] || {};
     const snap = got[K.snapshot(id)];
-    if (snap?.items) lists[id] = { items: snap.items, at: snap.at || 0 };
+    if (snap?.items) lists[id] = { items: snap.items, ids: snap.ids, at: snap.at || 0 };
     else if (!Number(f.count)) lists[id] = { items: [], at: Date.now() };
   }
   const check = ids.filter((id) => got[K.snapshot(id)]?.items);
@@ -773,7 +774,7 @@ async function runLoadAll(token) {
         break;
       }
       L.check.shift();
-      if (idsChanged(L.lists[id].items.map((it) => it.bvid), r.data.bvids)) L.queue.push(id);
+      if (idsChanged(L.lists[id].ids || L.lists[id].items.map((it) => it.bvid), r.data.bvids)) L.queue.push(id);
       render();
       if (L.check.length || L.queue.length) await sleepWhile(300, keepGoing);
       continue;
@@ -789,10 +790,10 @@ async function runLoadAll(token) {
     }
     L.queue.shift();
     const items = r.data.items || [];
-    L.lists[id] = { items, at: Date.now() };
+    L.lists[id] = { items, ids: r.data.ids, at: Date.now() };
     // A partial list is still searchable but never becomes the cache, as in syncFolder.
     if (r.data.partial) L.partial++;
-    else await saveSnapshot(id, items);
+    else await saveSnapshot(id, items, r.data.ids);
     rebuildAll();
     if (!(await loadResults(token))) return;
     render();
