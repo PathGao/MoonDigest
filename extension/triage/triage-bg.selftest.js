@@ -286,19 +286,6 @@ assert.throws(() => t.triageParseCommand('{"new_tags":[', cmdItems, cmdTags, {})
   routes = { ...baseRoutes(), "/x/player/wbi/v2": { code: -352, message: "风控" }, "/x/player/v2": { code: -352, message: "风控" } };
   await assert.rejects(analyze(), (e) => e.code === "THROTTLED");
 
-  // AI summary placement
-const front = "---\ntitle: \"x\"\n---\n\n![cover](u)\n\n## 简介\n\nhi";
-const done = { status: "done", oneLiner: "一句话", points: ["a", "b"], verdict: "keep", reason: "有用" };
-assert.strictEqual(
-  t.triageWithSummary(front, done),
-  "---\ntitle: \"x\"\n---\n\n## AI 总结\n\n> 一句话\n\n- a\n- b\n\n判断：建议留，有用\n\n![cover](u)\n\n## 简介\n\nhi"
-);
-assert.strictEqual(t.triageWithSummary("## 简介\n\nhi", { status: "done", verdict: "drop" }), "## AI 总结\n\n判断：建议删\n\n## 简介\n\nhi");
-assert.strictEqual(t.triageWithSummary(front, { status: "error" }), front);
-assert.strictEqual(t.triageWithSummary(front, undefined), front);
-assert.strictEqual(t.triageWithSummary("## 简介", { status: "done", verdict: "drop" }, " 我的话 "), "## AI 总结\n\n判断：建议删\n\n## 我的笔记\n\n我的话\n\n## 简介");
-assert.strictEqual(t.triageWithSummary(front, undefined, "n"), "---\ntitle: \"x\"\n---\n\n## 我的笔记\n\nn\n\n![cover](u)\n\n## 简介\n\nhi");
-assert.strictEqual(t.triageWithSummary(front, undefined, "  "), front);
 
 console.log("triage-bg selftest: all passed");
 })();

@@ -511,23 +511,6 @@ async function triageAiCommand({ instruction, tags, items, allowNewTags, maxNewT
   return triageParseCommand(content, list, tagList, opts);
 }
 
-// The summary and the user's basket note go right after the frontmatter so they are read first; the cover and body follow.
-function triageWithSummary(markdown, analysis, note) {
-  const lines = [];
-  if (analysis?.status === "done") {
-    lines.push("## AI 总结", "");
-    if (analysis.oneLiner) lines.push(`> ${analysis.oneLiner}`, "");
-    if (analysis.points?.length) lines.push(...analysis.points.map((p) => `- ${p}`), "");
-    const verdict = { keep: "建议留", drop: "建议删", unsure: "待定" }[analysis.verdict];
-    if (verdict) lines.push(`判断：${verdict}${analysis.reason ? `，${analysis.reason}` : ""}`, "");
-  }
-  if (note?.trim()) lines.push("## 我的笔记", "", note.trim(), "");
-  if (!lines.length) return markdown;
-  const block = lines.join("\n");
-  const front = /^---\n[\s\S]*?\n---\n\n?/.exec(markdown)?.[0] || "";
-  return `${front}${block}\n${markdown.slice(front.length)}`;
-}
-
 // One video → one note built the same way the page's 发送到 Obsidian does, plus the stage-2 summary.
 async function triageBuildNote(bvid, settings) {
   if (!bvid) throw triageError("缺少 bvid");
@@ -569,7 +552,7 @@ async function triageBuildNote(bvid, settings) {
   const analysis = stored[cacheKey];
   const basketNote = (stored.triage_basket || []).find((x) => x.bvid === bvid)?.note;
   noteMeta.aiTurns = BocNote.buildConversationTurns(BocNote.pickConversation(stored[conversationsKey], noteMeta)?.messages);
-  const markdown = triageWithSummary(BocNote.buildMarkdown(noteMeta, body, settings, ref), analysis, basketNote);
+  const markdown = BocNote.withTriageSummary(BocNote.buildMarkdown(noteMeta, body, settings, ref), analysis, basketNote);
   return { meta, noteMeta, body, markdown };
 }
 

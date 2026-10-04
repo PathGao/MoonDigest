@@ -362,6 +362,32 @@
     return `${lines.join("\n").trim()}\n`;
   }
 
+  // The triage page's per-video analysis (triage_analysis_<bvid>) as Markdown; "" until it is done.
+  function buildTriageSummary(analysis) {
+    if (analysis?.status !== "done") {
+      return "";
+    }
+    const lines = [];
+    if (analysis.oneLiner) lines.push(`> ${analysis.oneLiner}`, "");
+    const points = (analysis.points || []).filter(Boolean);
+    if (points.length) lines.push(...points.map((p) => `- ${p}`), "");
+    const verdict = { keep: "建议留", drop: "建议删", unsure: "待定" }[analysis.verdict];
+    if (verdict) lines.push(`判断：${verdict}${analysis.reason ? `，${analysis.reason}` : ""}`);
+    return lines.join("\n").trim();
+  }
+
+  // The summary and the user's basket note go right after the frontmatter so they are read first.
+  function withTriageSummary(markdown, analysis, note) {
+    const summary = buildTriageSummary(analysis);
+    const mine = String(note || "").trim();
+    const block = [summary && `## AI 总结\n\n${summary}`, mine && `## 我的笔记\n\n${mine}`].filter(Boolean).join("\n\n");
+    if (!block) {
+      return markdown;
+    }
+    const front = /^---\n[\s\S]*?\n---\n\n?/.exec(markdown)?.[0] || "";
+    return `${front}${block}\n\n${markdown.slice(front.length)}`;
+  }
+
   function buildHotCommentLines(comments) {
     const items = normalizeHotComments(comments, 20);
     if (items.length === 0) {
@@ -900,6 +926,8 @@
     buildAiConversationFilename,
     buildAiNoteMarkdown,
     buildAiConversationMarkdown,
+    buildTriageSummary,
+    withTriageSummary,
     buildNoteFilename,
     resolveFolderTemplate,
     buildSubtitlePreview,
