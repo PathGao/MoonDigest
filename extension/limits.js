@@ -20,21 +20,38 @@
     aiConversations: "boc_ai_conversations_v1",
     // videoKey → { path, lastSyncedAt } for notes the user saved; auto-sync only touches these.
     obsidianNotePaths: "boc_obsidian_note_paths_v1",
-    triageResultPrefixes: ["triage_analysis_", "triage_title_"]
+    triageResultPrefixes: ["triage_analysis_", "triage_title_"],
+    triageSnapshotPrefix: "triage_snapshot_",
+    triageRemoved: "triage_removed",
+    triageNotes: "triage_notes"
   });
+
+  // Approximate stored size: JSON length of key + value, as chrome.storage counts it (characters, not UTF-8 bytes).
+  const sizeOf = (entries) => entries.reduce((sum, [key, value]) => sum + key.length + JSON.stringify(value ?? null).length, 0);
 
   // Counts from a chrome.storage.local.get(null) snapshot, in the shape describe() takes.
   function storageUsage(all = {}) {
     const keys = Object.keys(all);
+    const snapshots = Object.entries(all).filter(([key]) => key.startsWith(KEYS.triageSnapshotPrefix));
     return {
       subtitleCache: keys.filter((key) => key.startsWith(KEYS.subtitleCachePrefix)).length,
       aiConversations: Array.isArray(all[KEYS.aiConversations]) ? all[KEYS.aiConversations].length : 0,
-      triageResults: keys.filter((key) => KEYS.triageResultPrefixes.some((prefix) => key.startsWith(prefix))).length
+      triageResults: keys.filter((key) => KEYS.triageResultPrefixes.some((prefix) => key.startsWith(prefix))).length,
+      folderSnapshots: snapshots.length,
+      folderSnapshotSize: sizeOf(snapshots),
+      triageRemoved: Object.keys(all[KEYS.triageRemoved] || {}).length,
+      triageNotes: Object.keys(all[KEYS.triageNotes] || {}).length,
+      totalSize: sizeOf(Object.entries(all))
     };
   }
 
   const count = (value) => (value == null ? "–" : String(value));
   const chars = (value) => `${value.toLocaleString("en-US")} 字`;
+  const size = (value) => {
+    if (value == null) return "–";
+    if (value < 1024 * 1024) return `${Math.max(1, Math.round(value / 1024))} KB`;
+    return `${(value / 1024 / 1024).toFixed(1)} MB`;
+  };
 
   // Rows for the options page "数据与存储" section. usage carries the counts read from storage;
   // a missing count renders as "–".
@@ -63,17 +80,27 @@
       {
         label: "分拣结果（粗分 + 细看）",
         usage: `${count(usage.triageResults)} 条`,
-        rule: "不自动删。视频离开所有收藏夹后进分拣台的「已取消收藏」，在那里查看、导出和清理。"
+        rule: "不自动删。视频离开你勾选的所有收藏夹后进分拣台的「已取消收藏」，在那里查看、导出和清理。"
       },
       {
-        label: "分拣台最近取消收藏",
-        usage: `最多 ${TRIAGE_RECENT_UNFAV} 条`,
-        rule: "只列最近的，更早的不再显示。"
+        label: "收藏夹列表缓存",
+        usage: `${count(usage.folderSnapshots)} 个收藏夹，约 ${size(usage.folderSnapshotSize)}`,
+        rule: "每次同步自动更新，取消勾选或在 B 站删掉的收藏夹会被移除。"
       },
       {
-        label: "分拣台撤销",
-        usage: `最多 ${TRIAGE_UNDO_STEPS} 步`,
-        rule: "更早的操作不能撤销。"
+        label: "已取消收藏",
+        usage: `${count(usage.triageRemoved)} 个视频`,
+        rule: "不自动删。在分拣台的「已取消收藏」里查看、导出和清理。"
+      },
+      {
+        label: "备注",
+        usage: `${count(usage.triageNotes)} 条`,
+        rule: "不自动删。在侧边栏、分拣台或视频记录页里修改。"
+      },
+      {
+        label: "本地数据合计",
+        usage: `约 ${size(usage.totalSize)}`,
+        rule: "上面各项加上设置和其他记录，都存在这台电脑的浏览器里。"
       }
     ];
   }

@@ -465,7 +465,7 @@ async function init() {
   setInterval(tick, 1000);
 }
 
-// Runs simplifyMigration once (flag key). The old scheme keys stay for rollback and are not read after this.
+// Runs simplifyMigration once (flag key), then drops the old scheme keys it read.
 async function loadTagsAndCriteria() {
   const got = await chrome.storage.local.get([K.tags, K.videoTags, K.folderCriteria, K.simplified, "triage_schemes", "triage_folder_scheme"]);
   if (got[K.simplified]) return { tags: got[K.tags] || [], videoTags: got[K.videoTags] || {}, folderCriteria: got[K.folderCriteria] || {} };
@@ -482,6 +482,8 @@ async function loadTagsAndCriteria() {
     folderCriteria: got[K.folderCriteria]
   });
   await chrome.storage.local.set({ [K.tags]: out.tags, [K.videoTags]: out.videoTags, [K.folderCriteria]: out.folderCriteria, [K.simplified]: true });
+  await chrome.storage.local.remove(["triage_schemes", "triage_folder_scheme"]);
+  await chrome.storage.sync.remove("triageCriteria");
   return out;
 }
 
@@ -493,11 +495,12 @@ async function loadKept() {
   return kept;
 }
 
-// A folder deleted on Bilibili leaves no new list to diff against, so its videos (unless still in another folder's
-// list) move to 已取消收藏 here and its records go.
-async function retireDeletedFolders() {
+// A folder that is no longer chosen (deleted on Bilibili or unticked) gets no new list to diff against, so its videos
+// (unless in a chosen folder's list) move to 已取消收藏 here and its records go. Runs once S.folders is known.
+async function retireUnchosenFolders() {
   if (!S.allFolders.length) return; // 默认收藏夹 always exists; an empty list is never "every folder deleted"
-  const live = new Set(S.allFolders.map((f) => String(f.id)));
+  if (!S.included.length) return; // nothing chosen yet (or all unticked by accident): never empty every folder into 已取消收藏
+  const live = new Set(S.folders.map((f) => String(f.id)));
   const keys = ((await chrome.storage.local.getKeys?.()) ?? Object.keys((await chrome.storage.local.get(null)) || {})).filter((k) => k.startsWith("triage_snapshot_"));
   const gone = keys.map((k) => k.slice(16)).filter((id) => !live.has(id));
   if (!gone.length) return;
@@ -548,9 +551,9 @@ async function loadFolders() {
     return;
   }
   S.allFolders = r.data.folders || [];
-  await retireDeletedFolders();
   S.included = (await loadIncluded()).map(String);
   S.folders = S.allFolders.filter((f) => S.included.includes(String(f.id)));
+  await retireUnchosenFolders();
   S.removedCount = Object.keys(await storeGet(K.removed, {})).length;
   // 所有收藏夹 and 已取消收藏 open from their own buttons; the hidden options only name them in the select while open.
   el.folderSelect.innerHTML =
@@ -681,9 +684,9 @@ async function syncFolder({ force = false } = {}) {
 }
 
 // The full item list doubles as the 所有收藏夹 cache; bvids/invalid/titles drive the sync diff. Videos that left every
-// folder go to 已取消收藏.
+// chosen folder go to 已取消收藏.
 async function saveSnapshot(mediaId, items, ids = null) {
-  const others = S.allFolders.map((f) => String(f.id)).filter((id) => id !== String(mediaId));
+  const others = S.folders.map((f) => String(f.id)).filter((id) => id !== String(mediaId));
   const got = await chrome.storage.local.get([K.snapshot(mediaId), K.removed, ...others.map(K.snapshot)]);
   const old = got[K.snapshot(mediaId)];
   const oldItems = old?.items || (old?.bvids || []).map((bvid) => ({ bvid, title: old.titles?.[bvid] || bvid }));
@@ -753,7 +756,7 @@ async function dropRemoved(bvids) {
   S.itemMap = new Map(S.items.map((it) => [it.bvid, it]));
 }
 
-// Deletes everything MoonDigest holds for these videos (AI results, 保留, note, tags, 优先看) and their record.
+// Deletes everything MoonDigest holds for these videos (AI results, 保留, note, tags, 优先看, 取消收藏 records) and their record.
 async function cleanRemoved(list) {
   if (!list.length) return;
   const one = list.length === 1 ? `《${shortTitle(list[0])}》` : `这 ${list.length} 个视频`;
@@ -766,6 +769,10 @@ async function cleanRemoved(list) {
     for (const map of [rec, S.notes, S.videoTags, S.kept, S.analyses, S.titleRes]) delete map[b];
   }
   S.basket = S.basket.filter((x) => !set.has(x.bvid));
+  const decisionKeys = ((await chrome.storage.local.getKeys?.()) ?? Object.keys((await chrome.storage.local.get(null)) || {})).filter((k) => k.startsWith("triage_decisions_"));
+  const decisions = await chrome.storage.local.get(decisionKeys);
+  for (const map of [...Object.values(decisions), S.decisions, ...Object.values(S.folderDecisions)]) for (const b of bvids) delete map[b];
+  await chrome.storage.local.set(decisions);
   await chrome.storage.local.remove(bvids.flatMap((b) => [`triage_title_${b}`, `triage_analysis_${b}`]));
   await chrome.storage.local.set({ [K.removed]: rec, [K.notes]: S.notes, [K.videoTags]: S.videoTags, [K.kept]: S.kept, [K.basket]: S.basket });
   S.removedCount = Object.keys(rec).length;

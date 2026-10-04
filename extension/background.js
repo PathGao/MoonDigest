@@ -994,6 +994,7 @@ async function initializeSettingsStorage() {
   // Read before defaults are written: a missing toggle means an upgrade from before it existed.
   const { obsidianEnabled: storedObsidianEnabled } = await chrome.storage.sync.get("obsidianEnabled");
   await migrateInitialQuickPrompts();
+  await removeDeadStorageKeys();
   const syncCurrent = await chrome.storage.sync.get(DEFAULT_SYNC_SETTINGS);
   const localCurrent = await chrome.storage.local.get(DEFAULT_LOCAL_SETTINGS);
 
@@ -1016,6 +1017,17 @@ async function initializeSettingsStorage() {
   if (typeof storedObsidianEnabled !== "boolean") {
     await chrome.storage.sync.set({ obsidianEnabled: Boolean(localApiKey || legacySyncApiKey) });
   }
+}
+
+// Keys no code reads any more; removing absent keys is a no-op, so this reruns on every install/update.
+// The old scheme keys and triageCriteria wait for triage's one-time migration (triage_simplified_v1), which drops them itself.
+async function removeDeadStorageKeys() {
+  const keys = (await chrome.storage.local.getKeys?.()) ?? Object.keys((await chrome.storage.local.get(null)) || {});
+  const { triage_simplified_v1: migrated } = await chrome.storage.local.get("triage_simplified_v1");
+  const dead = ["triage_tab", "triage_read_verdict", "triage_tag_presets", "triage_schemes_migrated"];
+  if (migrated) dead.push("triage_schemes", "triage_folder_scheme");
+  await chrome.storage.local.remove(keys.filter((k) => dead.includes(k) || k.startsWith("triage_verdict_override_")));
+  await chrome.storage.sync.remove(["triageExportFolder", "readerChapterVisibility", ...(migrated ? ["triageCriteria"] : [])]);
 }
 
 // aiInitialQuickPrompts (empty-panel chips) merged into aiPresetPrompts, the single follow-up list.
