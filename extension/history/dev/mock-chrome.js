@@ -50,6 +50,9 @@
     fetch(this.href).then((r) => r.text()).then((content) => window.__mockDownloads.push({ filename, content }));
   };
 
+  const rememberPath = (noteKey, path) => {
+    if (noteKey) store.boc_obsidian_note_paths_v1 = { ...store.boc_obsidian_note_paths_v1, [noteKey]: { path, lastSyncedAt: Date.now() } };
+  };
   const handle = (msg) => {
     switch (msg?.type) {
       case "get-settings":
@@ -58,7 +61,19 @@
         return { ok: true, exists: msg.filepath in window.__mockVault };
       case "write-obsidian-note":
         window.__mockVault[msg.filepath] = msg.content;
+        rememberPath(msg.noteKey, msg.filepath);
         return { ok: true };
+      case "update-obsidian-ai-section": {
+        const content = window.__mockVault[msg.filepath];
+        if (content == null) return { ok: true, exists: false, updated: false };
+        window.__mockVault[msg.filepath] = BocNote.upsertAiSection(content, msg.section);
+        rememberPath(msg.noteKey, msg.filepath);
+        return { ok: true, exists: true, updated: window.__mockVault[msg.filepath] !== content };
+      }
+      // Background reply shape: { ok, data }. window.__mockBuildFail makes it fail like a throttled fetch.
+      case "triage-build-note":
+        if (window.__mockBuildFail) return { ok: false, error: "mock: 请求过于频繁" };
+        return { ok: true, data: { title: `视频 ${msg.bvid}`, markdown: `---\ntitle: 视频 ${msg.bvid}\n---\n\n## 字幕\n\nmock subtitle\n` } };
       default:
         return { ok: false, error: `mock: unhandled ${msg?.type}` };
     }

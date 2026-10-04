@@ -212,8 +212,9 @@ function downloadGroups(groups) {
 }
 
 // A video already written to Obsidian gets the conversation in its note's AI 问答 section, like the side panel's
-// 导出对话 → 写入 Obsidian (newest conversation, as auto-sync does). Without a video note — this page can't read the
-// video's subtitles to create one — or for web pages, it writes the standalone AI note.
+// 导出对话 → 写入 Obsidian (newest conversation, as auto-sync does). Without a video note, a B 站 video (P1: the
+// background builds only that) first gets the full note triage builds, at the path the side panel would use and
+// recorded for it. YouTube, other parts and web pages get the standalone AI note.
 async function saveToObsidian(group, button) {
   writing.add(group.key);
   button.disabled = true;
@@ -227,16 +228,39 @@ async function saveToObsidian(group, button) {
       return;
     }
     const noteKey = BocSites.buildContextKey(group.context);
-    const boundPath = noteKey ? ((await chrome.storage.local.get(NOTE_PATHS_KEY))[NOTE_PATHS_KEY] || {})[noteKey]?.path : "";
+    let boundPath = noteKey ? ((await chrome.storage.local.get(NOTE_PATHS_KEY))[NOTE_PATHS_KEY] || {})[noteKey]?.path : "";
     const newest = group.convs.reduce((a, b) => ((b.updatedAt || 0) > (a.updatedAt || 0) ? b : a), group.convs[0]);
-    const section = boundPath && newest ? BocNote.buildAiSection(BocNote.buildConversationTurns(newest.messages)) : "";
-    if (section) {
+    const section = newest ? BocNote.buildAiSection(BocNote.buildConversationTurns(newest.messages)) : "";
+    if (section && boundPath) {
       const resp = await chrome.runtime.sendMessage({ type: "update-obsidian-ai-section", baseUrl, apiKey, filepath: boundPath, section, noteKey });
       if (!resp?.ok) throw new Error(resp?.error || "Local API 写入失败");
       if (resp.exists !== false) {
         setStatus(`已写入 Obsidian：${boundPath}（AI 问答段）`);
         return;
       }
+      boundPath = "";
+    }
+    if (!boundPath && group.context.site === "bilibili" && (Number(group.context.pageIndex) || 1) === 1) {
+      setStatus("正在生成视频笔记…");
+      const built = await chrome.runtime.sendMessage({ type: "triage-build-note", bvid: group.context.videoId });
+      if (!built?.ok) throw new Error(built?.error || "生成视频笔记失败");
+      const context = { ...group.context, title: built.data.title || group.context.title };
+      const folder = BocNote.resolveFolderTemplate(settings.noteFolder || "", context);
+      const filename = BocNote.buildNoteFilename(context, settings);
+      const filepath = folder ? `${folder}/${filename}` : filename;
+      const exists = await chrome.runtime.sendMessage({ type: "obsidian-note-exists", baseUrl, apiKey, filepath });
+      if (!exists?.ok) throw new Error(exists?.error || "Local API 检查失败");
+      const overwrite = !exists.exists || confirm(`该视频笔记已存在：${filepath}\n确定：覆盖成新生成的视频笔记。取消：保留原笔记${section ? "，只更新其中的 AI 问答段" : ""}。`);
+      if (overwrite) {
+        const written = await chrome.runtime.sendMessage({ type: "write-obsidian-note", baseUrl, apiKey, filepath, content: built.data.markdown, noteKey });
+        if (!written?.ok) throw new Error(written?.error || "Local API 写入失败");
+      }
+      if (section) {
+        const resp = await chrome.runtime.sendMessage({ type: "update-obsidian-ai-section", baseUrl, apiKey, filepath, section, noteKey });
+        if (!resp?.ok) throw new Error(resp?.error || "Local API 写入失败");
+      }
+      setStatus(overwrite || section ? `已写入 Obsidian：${filepath}（${overwrite ? "视频笔记" : "AI 问答段"}）` : `已保留原笔记：${filepath}`);
+      return;
     }
     const videoFolder = BocNote.resolveFolderTemplate(settings.noteFolder || "", group.context);
     const videoFile = BocNote.buildNoteFilename(group.context, settings);
