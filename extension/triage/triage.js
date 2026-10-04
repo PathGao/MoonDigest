@@ -5,7 +5,8 @@ if (!globalThis.chrome?.runtime?.id) await import("./dev/mock-chrome.js");
 const THROTTLE_MS = globalThis.__TRIAGE_THROTTLE_MS || 10 * 60 * 1000;
 // Error code -> [backoff ms, status label]. AI 429s clear far sooner than B站 risk control.
 const THROTTLES = { THROTTLED: [THROTTLE_MS, "B站限流"], AI_THROTTLED: [60 * 1000, "AI 平台限流"] };
-const GROUP_SIZE = 8;
+const GROUP_SIZE = 10;
+const TAG_LIMIT = 10; // tags per folder; only creating a new one is refused past it
 const SELECT_CAP = 10;
 const SYNC_MIN_GAP_MS = 60 * 1000;
 // Catppuccin Latte accents (desaturated); chips keep --text on top, so these are only borders and tints.
@@ -22,9 +23,10 @@ const STAGES = [
 const STAGE_EMPTY = { none: "都粗看过了，下一步：粗看完成", coarse: "这里的都细看或处理完了", fine: "都处理完了，去看处理完成" };
 const K = {
   lastFolder: "triage_last_folder",
-  tags: "triage_tags", // [{ id, name, color, rule? }], one list for every folder; rule is the one line the AI follows
+  tags: "triage_tags", // [{ id, name, color, folder, rule? }]: folder is the mediaId the tag belongs to; rule is the one line the AI follows
   folderCriteria: "triage_folder_criteria", // { [mediaId]: 判断标准 }
   simplified: "triage_simplified_v1",
+  tagsByFolder: "triage_tags_by_folder_v1",
   videoTags: "triage_video_tags",
   basket: "triage_basket",
   notes: "triage_notes", // { [bvid]: { text, updatedAt } }, shared with the history page and note export
@@ -71,6 +73,43 @@ function simplifyMigration({ schemes, folderScheme, tags, videoTags, criteria, f
     if (text) crit[f] = text;
   }
   return { tags: out, videoTags: nextVideoTags, folderCriteria: { ...crit, ...folderCriteria } };
+}
+
+const newTagId = () => `t${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+
+// One-time move of the global tags into folders (pure). folders = [{ id, bvids }], chosen first. A tag without a folder
+// goes to the folder its videos are in; used in several, the first keeps it and each other gets a copy (new id), and
+// each video points to the copy of every folder it is in. Unused (or used only outside these folders) → fallback;
+// without a fallback the tag stays unplaced.
+function tagsByFolderMigration({ tags = [], videoTags = {}, folders = [], fallback = "" }) {
+  const folderOf = {};
+  for (const f of folders) for (const b of f.bvids || []) (folderOf[b] ||= []).push(String(f.id));
+  const copies = {}; // { [old id]: { [folder]: id } }
+  const out = [];
+  for (const t of tags) {
+    if (t.folder) {
+      out.push(t);
+      continue;
+    }
+    const users = Object.keys(videoTags).filter((b) => videoTags[b].includes(t.id));
+    const used = folders.map((f) => String(f.id)).filter((f) => users.some((b) => folderOf[b]?.includes(f)));
+    if (!used.length) {
+      out.push(fallback ? { ...t, folder: fallback } : t);
+      continue;
+    }
+    copies[t.id] = {};
+    used.forEach((f, i) => {
+      const id = i ? newTagId() : t.id;
+      copies[t.id][f] = id;
+      out.push({ ...t, id, folder: f });
+    });
+  }
+  const remap = (b, id) => {
+    const mine = copies[id] ? (folderOf[b] || []).map((f) => copies[id][f]).filter(Boolean) : [];
+    return mine.length ? mine : [id];
+  };
+  const nextVideoTags = Object.fromEntries(Object.entries(videoTags).map(([b, ids]) => [b, [...new Set(ids.flatMap((id) => remap(b, id)))]]));
+  return { tags: out, videoTags: nextVideoTags };
 }
 
 // 所有收藏夹 (pure): lists = [{ id, items, at, decisions }] in folder order. A video in several folders appears once with
@@ -339,6 +378,26 @@ function handleAiError(error) {
 
 // ---------- derived ----------
 const tagById = (id) => S.tags.find((t) => t.id === id);
+const inFolderView = () => S.mediaId !== ALL && S.mediaId !== REMOVED;
+// The open folder's tags; 所有收藏夹 has every chosen folder's, 已取消收藏 every tag.
+function viewTags() {
+  if (S.mediaId === REMOVED) return S.tags;
+  const ids = S.mediaId === ALL ? S.folders.map((f) => String(f.id)) : [String(S.mediaId)];
+  return S.tags.filter((t) => ids.includes(t.folder));
+}
+// Filter chips: one per name, so same-name tags of several folders filter together.
+function tagChips() {
+  const chips = [];
+  for (const t of viewTags()) {
+    const c = chips.find((x) => x.name === t.name);
+    if (c) c.ids.push(t.id);
+    else chips.push({ name: t.name, color: t.color, ids: [t.id] });
+  }
+  return chips;
+}
+// How many new tags 批量打 may propose: at most 5, within the folder's room.
+const aiNewTagRoom = () => Math.max(0, Math.min(5, TAG_LIMIT - viewTags().length));
+const FOLDER_ONLY = "标签按收藏夹分开，请先打开一个具体收藏夹";
 const tagIdsOf = (bvid) => (S.videoTags[bvid] || []).filter((id) => tagById(id));
 // Only 取消收藏 / 保留 finish a video; tags and notes never do.
 const isProcessed = (bvid) => Boolean(S.decisions[bvid]);
@@ -435,7 +494,7 @@ async function init() {
   // Read up front: sidePanel.open must run inside the click's user gesture, before any await.
   chrome.tabs.getCurrent().then((tab) => (ownTabId = tab?.id));
   const [{ tags, videoTags, folderCriteria }, kept, basket, notes, settingsResp] = await Promise.all([
-    loadTagsAndCriteria(),
+    loadTagsAndCriteria().then(async (r) => ({ ...r, ...(await loadTagsByFolder(r)) })),
     loadKept(),
     storeGet(K.basket, []),
     storeGet(K.notes, {}),
@@ -487,6 +546,25 @@ async function loadTagsAndCriteria() {
   await chrome.storage.local.set({ [K.tags]: out.tags, [K.videoTags]: out.videoTags, [K.folderCriteria]: out.folderCriteria, [K.simplified]: true });
   await chrome.storage.local.remove(["triage_schemes", "triage_folder_scheme"]);
   await chrome.storage.sync.remove("triageCriteria");
+  return out;
+}
+
+// Runs tagsByFolderMigration until every tag has a folder (flag key), from the cached folder lists.
+async function loadTagsByFolder({ tags, videoTags }) {
+  if (await storeGet(K.tagsByFolder, false)) return { tags, videoTags };
+  const keys = ((await chrome.storage.local.getKeys?.()) ?? Object.keys((await chrome.storage.local.get(null)) || {})).filter((k) => k.startsWith("triage_snapshot_"));
+  const got = await chrome.storage.local.get([K.included, K.lastFolder, ...keys]);
+  const included = (got[K.included] || []).map(String);
+  const cached = keys.map((k) => k.slice(16));
+  const ids = [...new Set([...included.filter((id) => cached.includes(id)), ...cached])];
+  const out = tagsByFolderMigration({
+    tags,
+    videoTags,
+    folders: ids.map((id) => ({ id, bvids: got[K.snapshot(id)]?.bvids || [] })),
+    fallback: String(got[K.lastFolder] || included[0] || "")
+  });
+  const done = out.tags.every((t) => t.folder);
+  await chrome.storage.local.set({ [K.tags]: out.tags, [K.videoTags]: out.videoTags, ...(done ? { [K.tagsByFolder]: true } : {}) });
   return out;
 }
 
@@ -596,6 +674,7 @@ async function openFolder(mediaId) {
   S.itemMap = new Map();
   S.group = null;
   S.selected.clear();
+  S.tagFilter.clear();
   S.undo = [];
   S.stage1Skip.clear();
   S.focused = "";
@@ -1013,12 +1092,13 @@ function renderTabs() {
   el.tabs.innerHTML = S.mediaId === REMOVED ? tab("read", "已取消收藏", "read-tab", "", c.read) :
     steps.join(`<span class="arrow" aria-hidden="true">→</span>`) + `<span class="tab-sep" aria-hidden="true"></span>` + tab("read", "阅览", "read-tab", "", c.read);
 
-  el.tagFilter.innerHTML = S.tags.length
-    ? S.tags
-        .map(
-          (t) =>
-            `<button type="button" class="chip${S.tagFilter.has(t.id) ? " on" : ""}" style="--c:${esc(t.color)}" data-tagfilter="${esc(t.id)}" aria-pressed="${S.tagFilter.has(t.id)}" aria-label="按标签筛选 ${esc(t.name)}">${esc(t.name)}</button>`
-        )
+  const chips = tagChips();
+  el.tagFilter.innerHTML = chips.length
+    ? chips
+        .map((c) => {
+          const on = c.ids.some((id) => S.tagFilter.has(id));
+          return `<button type="button" class="chip${on ? " on" : ""}" style="--c:${esc(c.color)}" data-tagfilter="${esc(c.ids.join(","))}" aria-pressed="${on}" aria-label="按标签筛选 ${esc(c.name)}">${esc(c.name)}</button>`;
+        })
         .join("")
     : `<span class="muted">还没有标签</span> · <button type="button" class="link" data-tags-open aria-label="新建标签">新建标签</button>`;
 }
@@ -1555,11 +1635,15 @@ function batchKeep(list) {
 // ---------- tags ----------
 const saveTags = () => storeSet(K.tags, S.tags);
 
-// Returns the tag with this name, creating it if needed; the color comes from the palette in turn.
-function createTag(name) {
-  const existing = S.tags.find((t) => t.name === name);
+// Returns the folder's tag with this name, creating it if needed; the color comes from the palette in turn.
+// null (with a toast) outside a folder or when the folder already has TAG_LIMIT tags.
+function createTag(name, folder = S.mediaId) {
+  if (folder === ALL || folder === REMOVED || !folder) return toast(FOLDER_ONLY, true), null;
+  const own = S.tags.filter((t) => t.folder === String(folder));
+  const existing = own.find((t) => t.name === name);
   if (existing) return existing;
-  const tag = { id: `t${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`, name, color: TAG_COLORS[S.tags.length % TAG_COLORS.length] };
+  if (own.length >= TAG_LIMIT) return toast(`这个收藏夹已经有 ${TAG_LIMIT} 个标签了，先删掉不用的`, true), null;
+  const tag = { id: newTagId(), name, color: TAG_COLORS[own.length % TAG_COLORS.length], folder: String(folder) };
   S.tags.push(tag);
   saveTags();
   return tag;
@@ -1594,10 +1678,17 @@ function openPicker(bvid) {
   el.pickerInput.focus();
 }
 
+// The picker's tags: the open folder's; in 所有收藏夹 those of the folders the video is in. New tags need one folder.
+function pickerFolders(bvid) {
+  return inFolderView() ? [String(S.mediaId)] : (S.itemMap.get(bvid)?.folders || []).map(String);
+}
+
 function renderPicker() {
   const q = el.pickerInput.value.trim();
-  const opts = S.tags.filter((t) => !q || t.name.toLowerCase().includes(q.toLowerCase())).map((t) => ({ tag: t }));
-  if (q && !S.tags.some((t) => t.name === q)) opts.unshift({ create: q });
+  const folders = pickerFolders(picker.bvid);
+  const tags = S.tags.filter((t) => folders.includes(t.folder));
+  const opts = tags.filter((t) => !q || t.name.toLowerCase().includes(q.toLowerCase())).map((t) => ({ tag: t }));
+  if (q && folders.length === 1 && !tags.some((t) => t.name === q)) opts.unshift({ create: q });
   picker.options = opts;
   picker.index = Math.min(picker.index, Math.max(0, opts.length - 1));
   el.pickerList.innerHTML = opts.length
@@ -1609,7 +1700,7 @@ function renderPicker() {
           return `<li role="option" class="picker-opt${active}" data-i="${i}" aria-selected="${i === picker.index}" aria-checked="${on}"><span class="check">${on ? "✓" : ""}</span><span class="dot" style="--c:${esc(o.tag.color)}"></span>${esc(o.tag.name)}</li>`;
         })
         .join("")
-    : `<li class="muted">输入名称后回车新建标签</li>`;
+    : `<li class="muted">${folders.length === 1 ? "输入名称后回车新建标签" : "在具体收藏夹里新建标签"}</li>`;
   el.pickerList.querySelector(".active")?.scrollIntoView({ block: "nearest" });
 }
 
@@ -1617,8 +1708,8 @@ function pickOption(i) {
   const o = picker.options[i];
   if (!o) return;
   if (o.create) {
-    const t = createTag(o.create);
-    picker.ids.push(t.id);
+    const t = createTag(o.create, pickerFolders(picker.bvid)[0]);
+    if (t) picker.ids.push(t.id);
     el.pickerInput.value = "";
     picker.index = 0;
   } else if (picker.ids.includes(o.tag.id)) {
@@ -1679,7 +1770,7 @@ function showTagsMode(mode) {
 function saveTagEdit(t, field, value) {
   const text = String(value ?? "").trim();
   if (field === "name") {
-    if (!text || S.tags.some((x) => x !== t && x.name === text)) {
+    if (!text || S.tags.some((x) => x !== t && x.folder === t.folder && x.name === text)) {
       toast(text ? "已有同名标签" : "标签名不能为空", true);
       return false;
     }
@@ -1694,10 +1785,14 @@ function saveTagEdit(t, field, value) {
 }
 
 function renderTagManager() {
+  const own = inFolderView();
+  el.newTagInput.disabled = el.addTagBtn.disabled = !own;
+  if (!own) return (el.tagsRows.innerHTML = `<p class="muted">${FOLDER_ONLY}</p>`);
   const counts = {};
   for (const ids of Object.values(S.videoTags)) for (const id of ids) counts[id] = (counts[id] || 0) + 1;
-  el.tagsRows.innerHTML = S.tags.length
-    ? S.tags
+  const tags = viewTags();
+  el.tagsRows.innerHTML = tags.length
+    ? tags
         .map(
           (t) => `<div class="tag-row" data-id="${esc(t.id)}">
       <span class="dot" style="--c:${esc(t.color)}"></span>
@@ -1708,7 +1803,7 @@ function renderTagManager() {
     </div>`
         )
         .join("")
-    : `<p class="muted">还没有标签</p>`;
+    : `<p class="muted">这个收藏夹还没有标签</p>`;
 }
 
 async function deleteTag(id) {
@@ -1895,7 +1990,8 @@ function aiCommandItem(it) {
     out.oneLiner = a.oneLiner || "";
     out.points = a.points || [];
   }
-  const names = tagIdsOf(it.bvid).map((id) => tagById(id).name);
+  const own = new Set(viewTags().map((t) => t.id));
+  const names = tagIdsOf(it.bvid).filter((id) => own.has(id)).map((id) => tagById(id).name);
   if (names.length) out.currentTags = names;
   return out;
 }
@@ -1926,9 +2022,14 @@ function renderAiForm() {
   const size = Math.max(1, Number(S.settings.triageTitleBatchSize) || 30);
   const parts = [done && `${done} 个细看过（按总结和要点判断）`, n - done && `${n - done} 个只有标题和简介，标签可能不准`].filter(Boolean);
   el.aiScopeCount.textContent = n ? `${n} 个视频：${parts.join("，")}。分 ${Math.ceil(n / size)} 批发送` : "作用范围里没有视频";
-  el.aiTagsPreview.innerHTML = S.tags.length
-    ? `<div class="chips">AI 能用的标签：${S.tags.map((t) => `<span class="chip">${esc(t.name)}</span>`).join("")}</div><p class="dialog-hint">AI 也可以新建（最多 5 个），你确认后才创建。</p>`
-    : `<p class="dialog-hint">你还没有标签。AI 可以按你的话新建（最多 5 个），你确认后才创建。想打得准，先在<button type="button" class="link" data-tags-mode="manage">「管理」</button>里建好标签、每个写一句说明。</p>`;
+  const tags = viewTags();
+  const room = aiNewTagRoom();
+  const roomHint = room ? `AI 这次最多新建 ${room} 个（这个收藏夹还剩 ${TAG_LIMIT - tags.length} 个名额），你确认后才创建。` : "名额已满，AI 只会用已有标签。";
+  el.aiTagsPreview.innerHTML = !inFolderView()
+    ? `<p class="dialog-hint">${FOLDER_ONLY}再批量打。</p>`
+    : tags.length
+      ? `<div class="chips">AI 能用的标签：${tags.map((t) => `<span class="chip">${esc(t.name)}</span>`).join("")}</div><p class="dialog-hint">${roomHint}</p>`
+      : `<p class="dialog-hint">这个收藏夹还没有标签。${roomHint}想打得准，先在<button type="button" class="link" data-tags-mode="manage">「管理」</button>里建好标签、每个写一句说明。</p>`;
   el.aiHistory.innerHTML = S.aiHistory.length
     ? `<span class="muted">最近：</span>` +
       S.aiHistory
@@ -1943,6 +2044,10 @@ async function runAiCommand() {
   if (S.ai.running) return;
   const instruction = el.aiInstruction.value.trim();
   const items = aiScopeItems();
+  if (!inFolderView()) {
+    el.aiProgress.textContent = FOLDER_ONLY;
+    return;
+  }
   if (!instruction) {
     el.aiProgress.textContent = "请先写指令";
     el.aiInstruction.focus();
@@ -1954,8 +2059,8 @@ async function runAiCommand() {
   }
   S.aiHistory = [instruction, ...S.aiHistory.filter((x) => x !== instruction)].slice(0, 5);
   storeSet(K.aiHistory, S.aiHistory);
-  const opts = { maxNewTags: 5 };
-  const tags = S.tags.map((t) => ({ name: t.name, rule: t.rule || "" }));
+  const opts = { maxNewTags: aiNewTagRoom() };
+  const tags = viewTags().map((t) => ({ name: t.name, rule: t.rule || "" }));
   const size = Math.max(1, Number(S.settings.triageTitleBatchSize) || 30);
   const scopeSet = new Set(items.map((it) => it.bvid));
   const total = Math.ceil(items.length / size);
@@ -1969,7 +2074,7 @@ async function runAiCommand() {
   for (let i = 0; i < total && keepGoing(); i++) {
     el.aiProgress.textContent = `AI 正在处理第 ${i + 1} / ${total} 批…`;
     const batch = items.slice(i * size, (i + 1) * size);
-    const r = await send({ type: "triage-ai-command", instruction, items: batch.map(aiCommandItem), tags });
+    const r = await send({ type: "triage-ai-command", instruction, items: batch.map(aiCommandItem), tags, maxNewTags: opts.maxNewTags });
     if (!r.ok) {
       p.errors.push(`第 ${i + 1} 批失败：${r.error}`);
       if (/截断|配置 AI|未授权访问/.test(r.error || "")) handleAiError(r.error);
@@ -1992,7 +2097,7 @@ async function runAiCommand() {
 }
 
 function mergeAiBatch(p, data, opts, scopeSet) {
-  const existing = (name) => S.tags.find((t) => t.name === name);
+  const existing = (name) => viewTags().find((t) => t.name === name);
   const proposed = (name) => p.newTags.find((t) => t.key === name);
   const addNew = (name) => {
     if (p.newTags.length >= opts.maxNewTags) return null;
@@ -2103,7 +2208,7 @@ function applyAiProposal() {
   const idFor = {};
   for (const t of p.newTags) {
     const name = t.name.trim();
-    if (t.checked && name) idFor[t.key] = createTag(name).id;
+    if (t.checked && name) idFor[t.key] = createTag(name)?.id;
   }
   for (const { r, e } of rows) {
     const ids = new Set(S.videoTags[r.bvid] || []);
@@ -2475,9 +2580,9 @@ function bindEvents() {
     if (e.target.closest("[data-tags-open]")) return openTags();
     const btn = e.target.closest("[data-tagfilter]");
     if (!btn) return;
-    const id = btn.dataset.tagfilter;
-    if (S.tagFilter.has(id)) S.tagFilter.delete(id);
-    else S.tagFilter.add(id);
+    const ids = btn.dataset.tagfilter.split(",");
+    const on = ids.some((id) => S.tagFilter.has(id));
+    for (const id of ids) on ? S.tagFilter.delete(id) : S.tagFilter.add(id);
     render();
   });
 
@@ -2709,8 +2814,7 @@ function bindEvents() {
   });
   const addTag = () => {
     const name = el.newTagInput.value.trim();
-    if (!name) return;
-    createTag(name);
+    if (!name || !createTag(name)) return;
     el.newTagInput.value = "";
     renderTagManager();
     render();

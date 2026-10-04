@@ -201,7 +201,7 @@ function openFake(mediaId, items, decisions = {}) {
   openFake("F", pool);
   t.S.titleRes = Object.fromEntries(pool.map((it, i) => [it.bvid, { verdict: i < 10 ? "unsure" : "drop", confidence: "high" }]));
   t.S.selected.clear();
-  assert.deepStrictEqual(plain(t.nextBatch()), pool.slice(0, 8).map((it) => it.bvid));
+  assert.deepStrictEqual(plain(t.nextBatch()), pool.slice(0, 10).map((it) => it.bvid));
   t.S.selected.add("BV209");
   t.S.selected.add("BV210");
   assert.deepStrictEqual(plain(t.nextBatch()), ["BV209", "BV210"], "a confident 粗看 card can be 细看'd too");
@@ -242,7 +242,7 @@ function openFake(mediaId, items, decisions = {}) {
   t.S.tab = "coarse";
   t.S.titleRes = Object.fromEntries(pool.map((it, i) => [it.bvid, i < 6 ? { verdict: "unsure", confidence: "high" } : { verdict: i % 2 ? "keep" : "drop", confidence: "low" }]));
   t.renderListHeader(t.visibleItems());
-  for (const part of [">全部 12<", ">值得留 3<", ">可清理 3<", ">拿不准 6<", "细看下一批 8 个"]) assert.ok(t.el.listHeader.innerHTML.includes(part), part);
+  for (const part of [">全部 12<", ">值得留 3<", ">可清理 3<", ">拿不准 6<", "细看下一批 10 个"]) assert.ok(t.el.listHeader.innerHTML.includes(part), part);
   assert.ok(t.verdictBadge("BV206", t.verdictOf(pool[6])).includes("低置信"), "low confidence is a badge in 粗看完成");
   t.S.classFilter.coarse = "keep";
   assert.deepStrictEqual(plain(t.nextBatch()), ["BV207", "BV209", "BV211"], "the batch comes from the filtered videos");
@@ -263,7 +263,7 @@ function openFake(mediaId, items, decisions = {}) {
   t.S.classFilter.coarse = "all";
   // 细看下一批 picks 待定 and low confidence before confident classes.
   t.S.titleRes = Object.fromEntries(pool.map((it, i) => [it.bvid, i < 6 ? { verdict: "keep", confidence: "high" } : i < 9 ? { verdict: "unsure", confidence: "high" } : { verdict: "drop", confidence: "low" }]));
-  assert.deepStrictEqual(plain(t.nextBatch()), ["BV206", "BV207", "BV208", "BV209", "BV210", "BV211", "BV200", "BV201"]);
+  assert.deepStrictEqual(plain(t.nextBatch()), ["BV206", "BV207", "BV208", "BV209", "BV210", "BV211", "BV200", "BV201", "BV202", "BV203"]);
   Object.assign(t.S, { titleRes: Object.fromEntries(pool.map((it, i) => [it.bvid, { verdict: i < 10 ? "unsure" : "drop", confidence: "high" }])), classFilter: { coarse: "all", fine: "all" } });
   // A5: 粗看完成 lists the next batch first and failed cards last.
   t.S.tab = "coarse";
@@ -328,7 +328,7 @@ function openFake(mediaId, items, decisions = {}) {
 
   // 批量打标签 proposals: new tags only by name, at most 5; a verdict in the reply changes nothing.
   openFake("K", [item(600), item(601)]);
-  Object.assign(t.S, { tags: [{ id: "a", name: "旧", color: "#111" }], videoTags: {}, titleRes: { BV600: { verdict: "drop", confidence: "high" } } });
+  Object.assign(t.S, { tags: [{ id: "a", name: "旧", color: "#111", folder: "K" }, { id: "o", name: "别处", color: "#222", folder: "L" }], videoTags: {}, titleRes: { BV600: { verdict: "drop", confidence: "high" } } });
   const prop = { newTags: [], rows: [], notes: [], errors: [] };
   t.mergeAiBatch(prop, { newTags: ["n1", "n2", "旧", "n3", "n4", "n5", "n6"], assignments: { BV600: { add: ["n1", "旧"], verdict: "keep" }, BV601: { verdict: "t-must" } } }, { maxNewTags: 5 }, new Set(["BV600", "BV601"]));
   assert.deepStrictEqual(plain(prop.newTags.map((x) => x.name)), ["n1", "n2", "n3", "n4", "n5"]);
@@ -336,15 +336,15 @@ function openFake(mediaId, items, decisions = {}) {
   t.S.ai.proposal = prop;
   t.el.tagsDialog = { close() {} };
   t.applyAiProposal();
-  assert.deepStrictEqual(plain(t.S.tags.map((x) => x.name)), ["旧", "n1", "n2", "n3", "n4", "n5"]);
-  assert.ok(t.S.tags.every((x) => Object.keys(x).join() === "id,name,color"), "new tags carry only id, name and color, no rule");
+  assert.deepStrictEqual(plain(t.S.tags.map((x) => x.name)), ["旧", "别处", "n1", "n2", "n3", "n4", "n5"]);
+  assert.ok(t.S.tags.slice(2).every((x) => Object.keys(x).join() === "id,name,color,folder" && x.folder === "K"), "new tags belong to the open folder, no rule");
   assert.strictEqual(t.verdictOf(item(600)).verdict, "drop", "批量打标签 never changes the verdict");
 
   // 管理: a rule is saved trimmed and capped at 80, an empty one removed; 批量打 sends { name, rule } for every tag.
   const ruled = t.S.tags[0];
   assert.ok(t.saveTagEdit(ruled, "rule", `  ${"讲".repeat(90)} `) && ruled.rule.length === 80);
   assert.ok(t.saveTagEdit(ruled, "rule", "  讲老技术的  ") && ruled.rule === "讲老技术的");
-  assert.deepStrictEqual(plain(store[t.K.tags][0]), { id: "a", name: "旧", color: "#111", rule: "讲老技术的" });
+  assert.deepStrictEqual(plain(store[t.K.tags][0]), { id: "a", name: "旧", color: "#111", folder: "K", rule: "讲老技术的" });
   assert.ok(!t.saveTagEdit(ruled, "name", "n1") && ruled.name === "旧", "a duplicate name is refused");
   t.el.aiInstruction = { value: "按深度分" };
   t.el.aiScope = { value: "filter", options: [], selectedOptions: [] };
@@ -352,6 +352,8 @@ function openFake(mediaId, items, decisions = {}) {
   handlers["triage-ai-command"] = () => ({ ok: true, data: {} });
   await t.runAiCommand();
   assert.deepStrictEqual(plain(sent.at(-1).tags.slice(0, 2)), [{ name: "旧", rule: "讲老技术的" }, { name: "n1", rule: "" }]);
+  assert.ok(!sent.at(-1).tags.some((x) => x.name === "别处"), "批量打 sends only the open folder's tags");
+  assert.strictEqual(sent.at(-1).maxNewTags, 4, "6 tags in K: min(5, 10 - 6)");
   t.saveTagEdit(ruled, "rule", " ");
   assert.ok(!("rule" in ruled));
   t.S.ai.proposal = null;
@@ -369,6 +371,96 @@ function openFake(mediaId, items, decisions = {}) {
   assert.deepStrictEqual([t.el.tagsManage.hidden, t.el.aiForm.hidden, t.el.aiReview.hidden], [true, false, true], "I opens the 批量打 form");
   t.openTags();
   assert.deepStrictEqual([t.el.tagsManage.hidden, t.el.aiForm.hidden, t.el.aiReview.hidden], [false, true, true], "openTags opens 管理");
+
+  // Cap: 10 tags per folder. Creating an 11th is refused, a same-name one is reused; 批量打's room shrinks to 0.
+  for (const n of ["c1", "c2", "c3", "c4"]) assert.ok(t.createTag(n));
+  assert.strictEqual(t.viewTags().length, 10);
+  toasts.length = 0;
+  assert.strictEqual(t.createTag("c5"), null);
+  assert.ok(/已经有 10 个标签/.test(toasts.at(-1)) && !t.S.tags.some((x) => x.name === "c5"));
+  assert.strictEqual(t.createTag("c1").folder, "K", "an existing name is still found at the cap");
+  assert.strictEqual(vm.runInContext("aiNewTagRoom()", ctx), 0);
+  t.renderAiForm();
+  assert.ok(t.el.aiTagsPreview.innerHTML.includes("名额已满"));
+  t.S.tags = t.S.tags.filter((x) => !/^c\d$/.test(x.name));
+  assert.strictEqual(vm.runInContext("aiNewTagRoom()", ctx), 4);
+  t.renderAiForm();
+  assert.ok(t.el.aiTagsPreview.innerHTML.includes("AI 这次最多新建 4 个（这个收藏夹还剩 4 个名额）"));
+  // U after 批量打 restores the tags and video tags.
+  const beforeApply = plain([t.S.tags, t.S.videoTags]);
+  t.S.ai.proposal = { newTags: [{ key: "z", name: "z", checked: true }], rows: [{ bvid: "BV600", add: ["new:z"], remove: [], checked: true }], notes: [], errors: [] };
+  t.el.tagsDialog = { close() {} };
+  t.applyAiProposal();
+  const z = t.S.tags.find((x) => x.name === "z" && x.folder === "K");
+  assert.ok(z && t.S.videoTags.BV600.includes(z.id));
+  await t.undo();
+  assert.deepStrictEqual(plain([t.S.tags, t.S.videoTags]), beforeApply);
+  t.S.tags = t.S.tags.filter((x) => x.folder !== "K" || x.id === "a");
+  assert.strictEqual(vm.runInContext("aiNewTagRoom()", ctx), 5, "at most 5 even with 9 left");
+
+  // 所有收藏夹: same-name tags of the chosen folders merge into one chip that filters across folders;
+  // 管理 and 批量打 ask for a folder; the picker offers only the video's folders' tags.
+  openFake("all", [{ ...item(1), folders: ["A"] }, { ...item(2), folders: ["B"] }, { ...item(3), folders: ["A", "B"] }]);
+  Object.assign(t.S, {
+    folders: [{ id: "A", title: "甲" }, { id: "B", title: "乙" }],
+    tags: [{ id: "xa", name: "x", color: "#1", folder: "A" }, { id: "xb", name: "x", color: "#2", folder: "B" }, { id: "yb", name: "y", color: "#3", folder: "B" }, { id: "zc", name: "z", color: "#4", folder: "C" }],
+    videoTags: { BV1: ["xa"], BV2: ["xb", "yb"] },
+    tagFilter: new Set(),
+    query: ""
+  });
+  t.renderTabs();
+  assert.ok(t.el.tagFilter.innerHTML.includes('data-tagfilter="xa,xb"') && t.el.tagFilter.innerHTML.includes('data-tagfilter="yb"') && !t.el.tagFilter.innerHTML.includes("zc"));
+  t.S.tagFilter = new Set(t.tagChips()[0].ids);
+  assert.deepStrictEqual(plain(t.S.items.filter((it) => t.passFilter(it)).map((it) => it.bvid)), ["BV1", "BV2"], "the merged chip matches either folder's tag");
+  t.S.tagFilter = new Set();
+  t.S.query = "y";
+  assert.deepStrictEqual(plain(t.S.items.filter((it) => t.passFilter(it)).map((it) => it.bvid)), ["BV2"], "search by tag name");
+  t.S.query = "";
+  assert.strictEqual(t.createTag("新"), null, "no new tag outside a folder");
+  t.renderTagManager();
+  assert.ok(t.el.tagsRows.innerHTML.includes("请先打开一个具体收藏夹") && t.el.addTagBtn.disabled);
+  t.renderAiForm();
+  assert.ok(t.el.aiTagsPreview.innerHTML.includes("请先打开一个具体收藏夹"));
+  const pk = vm.runInContext("picker", ctx);
+  t.el.pickerInput = { value: "" };
+  t.el.pickerList = { innerHTML: "", querySelector: () => null };
+  const pickNames = (b, q = "") => ((pk.bvid = b), (t.el.pickerInput.value = q), t.renderPicker(), plain(pk.options.map((o) => o.create ? `+${o.create}` : o.tag.id)));
+  assert.deepStrictEqual(pickNames("BV1"), ["xa"]);
+  assert.deepStrictEqual(pickNames("BV3"), ["xa", "xb", "yb"]);
+  assert.deepStrictEqual(pickNames("BV1", "w"), ["+w"], "one folder: a new name can be created there");
+  assert.deepStrictEqual(pickNames("BV3", "w"), [], "two folders: no new tag");
+  pk.bvid = "";
+  Object.assign(t.S, { tags: [], videoTags: {}, folders: [] });
+  openFake("K", [item(600), item(601)]);
+
+  // Migration to per-folder tags (pure).
+  const fmig = (o) => plain(t.tagsByFolderMigration(o));
+  const one = fmig({ tags: [{ id: "a", name: "A", color: "#1" }], videoTags: { BV1: ["a"] }, folders: [{ id: "1", bvids: ["BV1"] }, { id: "2", bvids: ["BV2"] }], fallback: "2" });
+  assert.deepStrictEqual(one, { tags: [{ id: "a", name: "A", color: "#1", folder: "1" }], videoTags: { BV1: ["a"] } }, "used in one folder");
+  const multi = fmig({
+    tags: [{ id: "a", name: "A", color: "#1", rule: "r" }, { id: "k", name: "K", color: "#2", folder: "9" }],
+    videoTags: { BV1: ["a"], BV2: ["a", "k"], BV3: ["a"], BV9: ["a"] },
+    folders: [{ id: "1", bvids: ["BV1", "BV3"] }, { id: "2", bvids: ["BV2", "BV3"] }, { id: "3", bvids: ["BV3"] }]
+  });
+  const [a1, a2, a3] = multi.tags.filter((x) => x.name === "A");
+  assert.deepStrictEqual([a1.id, a1.folder, a2.folder, a3.folder], ["a", "1", "2", "3"], "the first folder keeps the original");
+  assert.ok(a2.id !== "a" && a3.id !== a2.id && a2.rule === "r" && a3.color === "#1", "copies keep name, color and rule");
+  assert.deepStrictEqual(multi.tags.find((x) => x.id === "k"), { id: "k", name: "K", color: "#2", folder: "9" }, "a placed tag is left alone");
+  assert.deepStrictEqual(multi.videoTags, { BV1: ["a"], BV2: [a2.id, "k"], BV3: ["a", a2.id, a3.id], BV9: ["a"] }, "each video gets the copy of every folder it is in");
+  assert.deepStrictEqual(fmig({ tags: [{ id: "u", name: "U" }], videoTags: { BVx: ["u"] }, folders: [{ id: "1", bvids: [] }], fallback: "7" }).tags, [{ id: "u", name: "U", folder: "7" }], "unused → the fallback folder");
+  assert.deepStrictEqual(fmig({ tags: [{ id: "u", name: "U" }], videoTags: {}, folders: [] }), { tags: [{ id: "u", name: "U" }], videoTags: {} }, "no folder: unchanged");
+
+  // Migration (storage): last folder as fallback, chosen folders first; the flag waits until every tag is placed.
+  for (const k of Object.keys(store)) delete store[k];
+  const unplaced = { tags: [{ id: "a", name: "A" }, { id: "b", name: "B" }], videoTags: { BV1: ["a"] } };
+  assert.deepStrictEqual(plain(await t.loadTagsByFolder(unplaced)), unplaced, "no folder yet");
+  assert.ok(!store[t.K.tagsByFolder]);
+  Object.assign(store, { triage_snapshot_5: { bvids: ["BV1"] }, triage_snapshot_6: { bvids: ["BV1"] }, triage_included_folders: [6, 5], triage_last_folder: "5" });
+  const placed = plain(await t.loadTagsByFolder(unplaced));
+  assert.deepStrictEqual(placed.tags.map((x) => [x.name, x.folder]), [["A", "6"], ["A", "5"], ["B", "5"]]);
+  assert.deepStrictEqual(placed.videoTags.BV1, ["a", placed.tags[1].id]);
+  assert.ok(store[t.K.tagsByFolder] === true && store.triage_tags.length === 3);
+  assert.deepStrictEqual(plain(await t.loadTagsByFolder(unplaced)), unplaced, "runs once");
 
   // 只处理细看过的: only videos with a done 细看 from the current filter results.
   Object.assign(t.S, { tab: "read", analyses: { BV600: { status: "done", oneLiner: "x" } }, titleRes: { BV601: { verdict: "drop", confidence: "high" } } });

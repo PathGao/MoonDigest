@@ -221,9 +221,12 @@ function triageBuildCommandMessages({ instruction, tags, items, maxNewTags = 5 }
     "用户指令写在 <<<指令>>> 和 <<<指令结束>>> 之间，它就是本次任务的要求。",
     "规则：",
     "- add 只能用已有标签名，或本次 new_tags 里列出的新标签名。",
-    `- 可以新建标签，至多 ${maxNewTags} 个，名称 ≤12字、不含逗号；已有标签能用就先用，不要重复造。`,
+    maxNewTags > 0
+      ? `- 可以新建标签，至多 ${maxNewTags} 个，名称 ≤12字、不含逗号；已有标签能用就先用，不要重复造。`
+      : "- 这次不能新建标签，new_tags 留空，只用已有标签。",
     "- remove 只能填该视频“现有标签”里的名称。",
     "- 标签带说明（冒号后）的，按说明决定给视频加上还是去掉这个标签。",
+    "- 一个视频可以加多个标签，也可以一个都不加；指令或标签说明要求只选一个时（比如分档：入门 / 进阶 / 硬核），每个视频只加其中一个。",
     "- reason ≤20字。",
     "- 指令不适用的视频不要放进 items。",
     "- note ≤60字，总结做了什么，或者为什么没有合适的。",
@@ -476,14 +479,14 @@ async function triageClassifyTitles({ items, criteria, folder }) {
   return { results };
 }
 
-// 协作打标签：只返回提案，不缓存。新建标签至多 5 个
-async function triageAiCommand({ instruction, items, tags }) {
+// 协作打标签：只返回提案，不缓存。新建标签至多 maxNewTags 个（收藏夹剩余名额，≤5）
+async function triageAiCommand({ instruction, items, tags, maxNewTags = 5 }) {
   const text = String(instruction ?? "").trim();
   if (!text) throw triageError("缺少指令");
   const list = (Array.isArray(items) ? items : []).filter((it) => it && it.bvid);
   if (!list.length) throw triageError("缺少 items");
   const ai = await triageAiSettings();
-  const opts = { maxNewTags: 5 };
+  const opts = { maxNewTags: Math.max(0, Math.min(5, Math.floor(Number(maxNewTags)) || 0)) };
   const { content } = await triageChat(
     triageBuildCommandMessages({ instruction: text, tags, items: list, ...opts }),
     triageMaxTokens("command", list.length, ai),

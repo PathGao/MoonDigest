@@ -114,6 +114,10 @@ assert.ok(cmdMsgs[0].content.endsWith("没有说明只写名称）：\nAI\n编�
 const ruleMsgs = t.triageBuildCommandMessages({ instruction: "x", tags: [{ name: "AI", rule: " 讲大模型\n的 " }, { name: "编程", rule: "" }], items: [{ bvid: "BV1", title: "T" }] });
 assert.ok(ruleMsgs[0].content.endsWith("\nAI：讲大模型 的\n编程"), "a tag with a rule is 名称：说明, without one name only");
 assert.ok(ruleMsgs[0].content.includes("按说明决定"));
+assert.ok(ruleMsgs[0].content.includes("一个视频可以加多个标签"));
+// The folder's room: 批量打 tells the model how many new tags it may make, none at 0.
+const roomMsg = (n) => t.triageBuildCommandMessages({ instruction: "x", tags: [], items: [], maxNewTags: n })[0].content;
+assert.ok(roomMsg(3).includes("至多 3 个") && !roomMsg(0).includes("至多") && roomMsg(0).includes("这次不能新建标签"));
 assert.deepStrictEqual(plain(t.triageParseCommand('{"items":[{"i":1,"add":["AI","AI：讲大模型 的"]}]}', [{ bvid: "BV1" }], [{ name: "AI", rule: "讲大模型" }])).assignments, { BV1: { add: ["AI"], remove: [], reason: "" } }, "tag objects validate by name only");
 assert.ok(t.triageBuildCommandMessages({ instruction: "x", tags: [], items: [] })[0].content.endsWith("：\n（无）"));
 assert.ok(!cmdMsgs[0].content.includes('"verdict"'));
