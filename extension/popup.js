@@ -15,7 +15,6 @@ const el = {
   summaryBtn: document.getElementById("summaryBtn"),
   triageBtn: document.getElementById("triageBtn"),
   readingViewBtn: document.getElementById("readingViewBtn"),
-  aiBtn: document.getElementById("aiBtn"),
   settingsBtn: document.getElementById("settingsBtn")
 };
 
@@ -160,6 +159,16 @@ function bindEvents() {
       setMessage("请先打开一个支持的视频页。");
       return;
     }
+    // A video that already has a conversation only gets the panel, which restores that conversation.
+    if (await hasConversationFor(tab.url)) {
+      try {
+        await chrome.sidePanel.open({ tabId: tab.id });
+        window.setTimeout(() => window.close(), 80);
+      } catch (error) {
+        setMessage(`打开侧边栏失败：${error?.message || error}`);
+      }
+      return;
+    }
     // Same path as the player AI button: background opens the side panel and queues the one-click prompt.
     const resp = await sendToRuntime({ type: "player-ai-quick-action", tabId: tab.id, source: "popup" }).catch((error) => ({ ok: false, error: error.message }));
     if (!resp?.ok) {
@@ -173,32 +182,12 @@ function bindEvents() {
     await chrome.tabs.create({ url: chrome.runtime.getURL("triage/triage.html") });
     window.close();
   });
-
-  el.aiBtn?.addEventListener("click", async () => {
-    try {
-      const tab = await getActiveTab();
-      if (!tab?.id) {
-        setStatus("找不到当前标签页。", true);
-        setMessage("找不到当前标签页。");
-        return;
-      }
-
-      if (chrome.sidePanel?.open) {
-        await chrome.sidePanel.open({ tabId: tab.id });
-      } else {
-        throw new Error("当前浏览器不支持扩展侧边栏");
-      }
-      window.setTimeout(() => window.close(), 80);
-    } catch (error) {
-      setStatus(`打开侧边栏失败：${error?.message || error}`, true);
-      setMessage(`打开侧边栏失败：${error?.message || error}`);
-    }
-  });
 }
 
 async function refreshFromTab() {
   setStatus("正在抓取...");
   const resp = await sendToContent({ type: "popup-refresh" });
+  el.refreshBtn.classList.toggle("is-error", !resp?.ok);
   if (!resp?.ok) {
     const errorText = resp?.error || "请在支持的视频页使用。";
     setStatus(`抓取失败：${errorText}`, true);
@@ -206,6 +195,17 @@ async function refreshFromTab() {
     return;
   }
   render(resp?.payload || latestPayload);
+}
+
+// Same video and part as the side panel's own match (doesTabMatchContextUrl).
+async function hasConversationFor(url) {
+  const ref = BocSites.parseRef(url);
+  const key = BocLimits.KEYS.aiConversations;
+  const list = (await chrome.storage.local.get(key).catch(() => ({})))[key];
+  return Boolean(ref) && Array.isArray(list) && list.some((item) => {
+    const other = BocSites.parseRef(item?.contextUrl || item?.contextRef?.url || "");
+    return other?.site === ref.site && other.id === ref.id && (other.part?.index || 1) === (ref.part?.index || 1);
+  });
 }
 
 async function ensurePayload() {

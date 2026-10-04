@@ -3,20 +3,16 @@ body {
   margin: 0;
   padding: 0;
   width: 360px;
-  height: 540px;
   background: var(--bg);
   color: var(--text);
   font-family: var(--font-sans);
-  overflow: hidden;
 }
 
 .popup {
-  height: 100%;
   padding: var(--space-2);
   display: flex;
   flex-direction: column;
   gap: 6px;
-  overflow: hidden;
 }
 
 .top {
@@ -25,10 +21,44 @@ body {
   justify-content: space-between;
 }
 
-.top-actions {
+.title {
   display: inline-flex;
   align-items: center;
   gap: var(--space-1);
+}
+
+.icon-btn {
+  width: 28px;
+  height: 28px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--muted);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.icon-btn:hover {
+  background: var(--surface-muted);
+  color: var(--text);
+}
+
+.icon-btn svg {
+  width: 15px;
+  height: 15px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* Refresh only stands out when the last fetch failed. */
+.icon-btn.is-error {
+  color: var(--danger);
+  background: var(--danger-bg);
+  border-color: var(--danger-border);
 }
 
 .top strong {
@@ -63,17 +93,6 @@ button {
   color: var(--text);
 }
 
-.ghost-ai {
-  gap: var(--space-1);
-}
-
-.ghost-ai svg {
-  width: 16px;
-  height: 16px;
-  fill: currentColor;
-  flex: 0 0 auto;
-}
-
 .status {
   margin: 0;
   font-size: var(--fs-xs);
@@ -93,7 +112,8 @@ button {
 }
 
 .section-title,
-.label {
+.label,
+.details summary {
   font-size: var(--fs-xs);
   font-weight: 600;
   color: var(--text-2);
@@ -111,7 +131,7 @@ button {
 
 .prop-row {
   display: grid;
-  grid-template-columns: 56px minmax(0, 1fr);
+  grid-template-columns: 60px minmax(0, 1fr);
   align-items: center;
   gap: 6px;
 }
@@ -139,10 +159,19 @@ button {
   font-size: var(--fs-sm);
 }
 
+.details summary {
+  cursor: pointer;
+}
+
+.details[open] {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
 #preview {
   width: 100%;
-  flex: 1;
-  min-height: 0;
+  height: 180px;
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
   padding: var(--space-2);
