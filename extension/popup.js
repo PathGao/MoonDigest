@@ -21,7 +21,6 @@ const el = {
 };
 
 let latestPayload = null;
-const EXPECTED_CONTENT_SCRIPT_VERSION = chrome.runtime.getManifest().version || "";
 const DEFAULT_SETTINGS = {
   downloadFormat: "srt"
 };
@@ -371,40 +370,9 @@ function isSupportedSubtitlePage(url) {
 }
 
 async function ensureContentScriptReady(tabId) {
-  if (!chrome.scripting) {
-    throw new Error("请刷新网页重试，或当前网页不支持");
-  }
-
-  const loadedVersion = await probeContentScriptVersion(tabId);
-  if (loadedVersion === EXPECTED_CONTENT_SCRIPT_VERSION) {
-    return;
-  }
-
-  await chrome.scripting.insertCSS({
-    target: { tabId },
-    files: ["content.css"]
-  });
-
-  await chrome.scripting.executeScript({
-    target: { tabId },
-    files: ["sites.js", "note.js", "content.js"]
-  });
-
-  const reinjectedVersion = await probeContentScriptVersion(tabId);
-  if (reinjectedVersion !== EXPECTED_CONTENT_SCRIPT_VERSION) {
-    throw new Error("扩展刚刚更新，请刷新当前页面后重试。");
-  }
-}
-
-async function probeContentScriptVersion(tabId) {
-  try {
-    const probe = await chrome.scripting.executeScript({
-      target: { tabId },
-      func: () => globalThis.__BOC_CONTENT_SCRIPT_LOADED__ || ""
-    });
-    return String(probe?.[0]?.result || "");
-  } catch {
-    return "";
+  const resp = await chrome.runtime.sendMessage({ type: "ensure-reader-content", tabId });
+  if (!resp?.ok) {
+    throw new Error(resp?.error || "扩展刚刚更新，请刷新当前页面后重试。");
   }
 }
 
