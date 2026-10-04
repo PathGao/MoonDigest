@@ -53,7 +53,7 @@ vm.runInContext(`${source}\n;globalThis.S = S; globalThis.K = K;`, ctx);
 const t = ctx;
 const plain = (v) => JSON.parse(JSON.stringify(v));
 const toasts = [];
-Object.assign(t, { render() {}, setFocus() {}, afterProcessedChange() {}, toast: (m) => toasts.push(m), askConfirm: async () => true });
+Object.assign(t, { render() {}, setFocus() {}, toast: (m) => toasts.push(m), askConfirm: async () => true });
 
 const item = (n) => ({ bvid: `BV${n}`, aid: 1000 + n, title: `视频${n}`, upper: "up", duration: 61 });
 function openFake(mediaId, items, decisions = {}) {
@@ -69,13 +69,12 @@ function openFake(mediaId, items, decisions = {}) {
   // B8: switching folders while a batch unfavorite is in flight keeps the finished chunks, aid and title included.
   const many = Array.from({ length: 45 }, (_, i) => item(i));
   openFake("A", many);
-  t.visibleItems = () => many;
   let unfavCalls = 0;
   handlers["triage-unfav"] = () => {
     if (++unfavCalls === 2) openFake("B", [item(99)]);
     return { ok: true };
   };
-  await t.batchUnfav({});
+  await t.batchUnfav({}, many);
   assert.strictEqual(unfavCalls, 2, "no chunk is sent after the folder switch");
   const savedA = store[t.K.decisions("A")];
   assert.strictEqual(Object.keys(savedA).length, 40, "both finished chunks are recorded under folder A");
@@ -152,6 +151,39 @@ function openFake(mediaId, items, decisions = {}) {
   t.S.overrides.BVv = { verdict: "unsure", reason: "指令" };
   assert.strictEqual(t.verdictOf(v).verdict, "unsure");
   assert.strictEqual(t.verdictOf({ ...v, invalid: true }).reason, "视频已失效");
+
+  // Progress tabs: no 粗分 → 未分析, unsure/low → 待细看, confident or 细看 done or invalid → 待处理, processed → 已处理.
+  Object.assign(t.S, { analyses: {}, overrides: {}, titleRes: {}, decisions: {}, videoTags: {}, tags: [] });
+  const st = (patch = {}, it = v) => {
+    Object.assign(t.S, patch);
+    return t.stageOf(it);
+  };
+  assert.strictEqual(st(), "none");
+  assert.strictEqual(st({ titleRes: { BVv: { verdict: "unsure", confidence: "high" } } }), "deep");
+  assert.strictEqual(st({ titleRes: { BVv: { verdict: "keep", confidence: "low" } } }), "deep");
+  assert.strictEqual(st({ titleRes: { BVv: { verdict: "drop", confidence: "high" } } }), "act");
+  assert.strictEqual(st({ analyses: { BVv: { status: "done", verdict: "unsure" } } }), "act");
+  assert.strictEqual(st({ analyses: { BVv: { status: "error" } }, titleRes: { BVv: { verdict: "unsure" } } }), "deep", "a failed 细看 stays in 待细看 with its retry button");
+  assert.strictEqual(st({ analyses: {}, titleRes: {} }, { ...v, invalid: true }), "act");
+  assert.strictEqual(t.verdictOf({ ...v, invalid: true }).verdict, "drop", "invalid videos count as 建议删");
+  assert.strictEqual(st({ decisions: { BVv: { action: "keep" } } }), "done");
+  assert.strictEqual(st({ decisions: {} }, { ...v, invalid: true, bvid: "BVv" }), "act");
+
+  // 待细看 batch: first GROUP_SIZE open cards, or the selected ones; 待处理 buttons follow the selection too.
+  const pool = Array.from({ length: 12 }, (_, i) => item(200 + i));
+  openFake("F", pool);
+  t.S.titleRes = Object.fromEntries(pool.map((it, i) => [it.bvid, { verdict: i < 10 ? "unsure" : "drop", confidence: "high" }]));
+  t.S.selected.clear();
+  assert.deepStrictEqual(plain(t.nextBatch()), pool.slice(0, 8).map((it) => it.bvid));
+  t.S.selected.add("BV209");
+  t.S.selected.add("BV210");
+  assert.deepStrictEqual(plain(t.nextBatch()), ["BV209"], "a selected card outside 待细看 is ignored");
+  t.S.tab = "act";
+  t.S.actFilter = "all";
+  assert.deepStrictEqual(plain(t.batchList("keep").map((it) => it.bvid)), ["BV210"], "the selection overrides the verdict scope");
+  t.S.selected.clear();
+  assert.deepStrictEqual(plain(t.batchList("drop").map((it) => it.bvid)), ["BV210", "BV211"]);
+  assert.strictEqual(vm.runInContext("currentStage(stageCounts())", ctx), "deep", "the default tab is the earliest step with videos");
 
   // Backup maps storage keys to sections and never exports secrets or unrelated keys.
   for (const k of Object.keys(store)) delete store[k];

@@ -16,10 +16,9 @@
         <span id="progress" class="progress"></span>
         <span id="queueStatus" class="queue-status" aria-live="polite"></span>
         <span class="spacer"></span>
-        <button id="stage1Btn" type="button" class="primary" aria-label="标题粗分" title="标题粗分：只看标题和简介，几十个一批，快、省钱，分成 建议删 / 建议留 / 待定。"></button>
-        <button id="groupBtn" type="button" aria-label="字幕细看一组" title="字幕细看：读字幕（没有字幕时读简介和评论），一次一个视频，慢一些，给出一句话总结、3 个要点、判断和建议标签。"></button>
         <button id="aiBtn" type="button" aria-label="AI 指令 (I)">AI 指令</button>
         <button id="writeBtn" type="button" aria-label="批量导出笔记">批量导出</button>
+        <button id="manageTagsBtn" type="button" aria-label="管理标签">管理标签</button>
         <button id="settingsBtn" type="button" aria-label="分拣设置">分拣设置</button>
         <button id="helpBtn" type="button" aria-label="快捷键帮助">?</button>
       </header>
@@ -40,13 +39,14 @@
 
       <div class="main">
         <section class="listpane">
-          <nav id="tabs" class="tabs" role="tablist" aria-label="按判断筛选"></nav>
+          <div class="stagebar">
+            <nav id="tabs" class="tabs" role="tablist" aria-label="分拣进度"></nav>
+            <div id="listHeader" class="list-header" hidden></div>
+          </div>
           <div class="tagbar">
             <span class="tagbar-label">标签</span>
             <span id="tagFilter" class="tagfilter"></span>
-            <button id="manageTagsBtn" type="button" class="link" aria-label="管理标签">管理标签</button>
           </div>
-          <div id="listHeader" class="list-header" hidden></div>
           <div id="list" class="list" aria-label="视频列表"></div>
         </section>
 
@@ -73,29 +73,26 @@
     <dialog id="settingsDialog" aria-label="分拣设置">
       <form method="dialog">
         <h2>分拣设置</h2>
-        <p class="dialog-hint">标题粗分：只看标题和简介，几十个一批，快、省钱，分成 建议删 / 建议留 / 待定。<br />字幕细看：读字幕（没有字幕时读简介和评论），一次一个视频，慢一些，给出一句话总结、3 个要点、判断和建议标签。</p>
-        <label for="criteriaInput">判断标准</label>
+        <label for="criteriaInput">判断标准（粗分和细看都用）</label>
         <textarea id="criteriaInput" rows="6"></textarea>
         <label for="intervalInput">请求间隔（秒）</label>
         <input id="intervalInput" type="number" min="0" step="1" />
-        <label for="batchSizeInput">标题粗分每批数量</label>
-        <input id="batchSizeInput" type="number" min="1" max="100" step="1" />
-        <label for="exportFolderInput">收藏夹批量写入目录</label>
-        <input id="exportFolderInput" type="text" />
-        <h3 id="aiDebugTitle">AI 调试</h3>
         <label class="toggle"><input id="thinkingInput" type="checkbox" /> 开启思考</label>
         <p class="dialog-hint">关：快、省（30 个标题约 3 秒）。开：判断更细，但慢约 6 倍、费约 5 倍 token。目前只对 DeepSeek 生效。</p>
-        <details id="advancedTokens" class="advanced">
-          <summary>高级（一般不用改）</summary>
-          <p class="dialog-hint">留空就是自动。只有提示“输出被截断”时才需要调大。</p>
-          <label for="titleMaxInput">粗分输出上限（token）</label>
-          <input id="titleMaxInput" type="number" min="0" max="32000" step="1" placeholder="自动" />
-          <p id="titleMaxHint" class="dialog-hint"></p>
-          <label for="analyzeMaxInput">细看输出上限（token）</label>
-          <input id="analyzeMaxInput" type="number" min="0" max="32000" step="1" placeholder="自动" />
-          <p id="analyzeMaxHint" class="dialog-hint"></p>
-        </details>
+        <h3>标题粗分</h3>
+        <label for="batchSizeInput">每批数量</label>
+        <input id="batchSizeInput" type="number" min="1" max="100" step="1" />
+        <label for="titleMaxInput">输出上限（token，AI 指令也用）</label>
+        <input id="titleMaxInput" type="number" min="0" max="32000" step="1" placeholder="自动" />
+        <p id="titleMaxHint" class="dialog-hint"></p>
+        <h3>字幕细看</h3>
+        <label for="analyzeMaxInput">输出上限（token）</label>
+        <input id="analyzeMaxInput" type="number" min="0" max="32000" step="1" placeholder="自动" />
+        <p id="analyzeMaxHint" class="dialog-hint"></p>
         <p id="settingsError" class="form-error" role="alert" hidden></p>
+        <h3 class="obsidian-only">导出</h3>
+        <label for="exportFolderInput">收藏夹批量写入目录</label>
+        <input id="exportFolderInput" type="text" />
         <h3>数据导出</h3>
         <div class="export-row">
           <button id="backupBtn" type="button" aria-label="导出完整备份 JSON">导出完整备份 (JSON)</button>
@@ -159,6 +156,9 @@
     <dialog id="tagsDialog" aria-label="管理标签">
       <form method="dialog">
         <h2>管理标签</h2>
+        <p class="dialog-hint">标签名和说明会发给 AI，粗分、细看和 AI 指令按说明挑标签。</p>
+        <label class="toggle"><input id="ownTagsInput" type="checkbox" /> 只用我的标签</label>
+        <p class="dialog-hint">关闭时，AI 粗分、细看和 AI 指令可以提出新标签；开启后只从下面的标签里选。</p>
         <div id="tagsRows" class="tag-rows"></div>
         <div class="tag-add">
           <input id="newTagInput" type="text" placeholder="新标签名称" aria-label="新标签名称" />
@@ -184,7 +184,6 @@
             <select id="aiScope">
               <option value="filter">当前筛选结果</option>
               <option value="selected">已选中 (X)</option>
-              <option value="group">本轮细看组</option>
             </select>
             <label for="aiPreset">预设</label>
             <select id="aiPreset"></select>
@@ -240,13 +239,13 @@
           <dt>A</dt><dd>采纳 AI 建议标签</dd>
           <dt>E</dt><dd>加入 / 移出摘录篮</dd>
           <dt>Q</dt><dd>问 AI（在侧边栏打开这个视频）</dd>
-          <dt>X</dt><dd>选中 / 取消选中（细看、AI 指令和批量导出可只处理选中的）</dd>
+          <dt>X</dt><dd>选中 / 取消选中（待细看、待处理的按钮、AI 指令和批量导出可只处理选中的）</dd>
           <dt>O / Enter</dt><dd>打开视频</dd>
           <dt>I</dt><dd>AI 指令</dd>
           <dt>U</dt><dd>撤销上一步</dd>
           <dt>?</dt><dd>显示本帮助</dd>
         </dl>
-        <p class="dialog-hint">阅览视图只支持 ? 和 I。</p>
+        <p class="dialog-hint">标签页按进度排：① 未分析 → ② 待细看 → ③ 待处理 → ④ 已处理，当前这一步的按钮跟在标签页后面。阅览视图只支持 ? 和 I。</p>
         <div class="dialog-actions"><span class="spacer"></span><button type="submit" class="primary">知道了</button></div>
       </form>
     </dialog>

@@ -81,12 +81,24 @@ select { height: 28px; max-width: 240px; }
 
 .listpane { display: flex; flex-direction: column; min-height: 0; }
 
-.tabs { display: flex; flex-wrap: wrap; gap: 4px; padding-bottom: 6px; }
+/* Steps and the current step's action share one row; the actions wrap below on narrow widths. */
+.stagebar { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 16px; padding-bottom: 6px; }
+.tabs { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
 .tabs button { height: 26px; border-radius: 13px; }
 .tabs button[aria-selected="true"] { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
 .tabs .count { margin-left: 4px; opacity: 0.75; font-variant-numeric: tabular-nums; }
+.tabs .num { margin-right: 4px; }
+.tabs .step.zero:not([aria-selected="true"]) { color: var(--muted); border-style: dashed; }
+.tabs .step.current:not([aria-selected="true"]) { border-color: var(--accent); color: var(--accent); font-weight: 600; }
+.tabs .arrow { color: var(--muted); }
+.tabs .tab-sep { width: 1px; height: 18px; margin: 0 6px; background: var(--border-strong); }
 
-.list-header { display: flex; gap: 8px; padding-bottom: 6px; }
+.list-header { display: flex; flex-wrap: wrap; gap: 8px; }
+.seg { display: inline-flex; }
+.seg button { border-radius: 0; margin-left: -1px; }
+.seg button:first-child { border-radius: var(--radius-sm) 0 0 var(--radius-sm); margin-left: 0; }
+.seg button:last-child { border-radius: 0 var(--radius-sm) var(--radius-sm) 0; }
+.seg button[aria-pressed="true"] { background: var(--secondary-bg); border-color: var(--secondary-border); color: var(--secondary-text); position: relative; }
 
 .list { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; padding: 2px 4px 40px 2px; }
 
@@ -145,6 +157,7 @@ select { height: 28px; max-width: 240px; }
 .badge.none, .badge.running { background: var(--surface-muted); color: var(--muted); }
 .badge.running { color: var(--secondary-text); }
 .badge.decision { background: var(--secondary-bg); color: var(--secondary-text); }
+.badge.batch { background: var(--accent); color: var(--on-accent); }
 .reason { color: var(--muted); font-size: var(--fs-xs); flex: 1; min-width: 120px; }
 .actions { display: flex; flex-wrap: wrap; gap: 4px; }
 .actions button { height: 24px; padding: 0 8px; font-size: var(--fs-xs); }
@@ -189,7 +202,6 @@ button.icon { width: 26px; height: 24px; padding: 0; }
 .chips { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
 
 .list-header { align-items: center; }
-.group-title { font-weight: 600; }
 .card.selected { background: var(--secondary-bg); }
 .stage { font-size: 11px; color: var(--muted); border: 1px solid var(--border); border-radius: 4px; padding: 0 4px; }
 .badge.low { background: transparent; outline: 1px dashed currentColor; outline-offset: -1px; }
@@ -316,9 +328,6 @@ dialog.wide { width: min(880px, calc(100% - 32px)); }
 .preset-row .row { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
 .preset-row textarea { width: 100%; resize: vertical; font-size: var(--fs-xs); }
 .tag-row input[data-field="description"] { flex-basis: 100%; }
-.advanced summary { cursor: pointer; font-size: var(--fs-xs); color: var(--muted); }
-.advanced > :not(summary) { display: block; margin-top: 6px; }
-.advanced input { width: 100%; box-sizing: border-box; }
 
 .recent-unfav { margin-top: 16px; padding-top: 8px; border-top: 1px solid var(--border); }
 .recent-unfav h3 { margin: 0 0 6px; font-size: var(--fs-sm); }
