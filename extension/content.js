@@ -359,7 +359,7 @@ function init() {
     schedulePlayerAiQuickActionSync();
     if (shouldEnterReaderMode) {
       enterReaderMode().catch((error) => {
-        setReadingNotice(`阅读视图启动失败：${getErrorMessage(error)}`);
+        setReadingNotice(`专注模式启动失败：${getErrorMessage(error)}`);
       });
     }
   });
@@ -630,7 +630,7 @@ function buildUiHtml() {
         <section class="boc-reading-stage">
           <header class="boc-reading-header">
             <div class="boc-reading-header-copy">
-              <strong class="boc-reading-title">${escapeHtml(state.title || "字幕阅读")}</strong>
+              <strong class="boc-reading-title">${escapeHtml(state.title || "专注模式")}</strong>
               <div id="${ids.readingMeta}" class="boc-reading-meta">${escapeHtml(currentSite()?.domain || "")}</div>
             </div>
             <div class="boc-reading-actions">
@@ -640,7 +640,7 @@ function buildUiHtml() {
               <button id="${ids.readingSettingsBtn}" type="button" class="boc-reading-icon-btn" title="设置" aria-label="设置" aria-expanded="false" aria-controls="${ids.readingSettingsPanel}">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>
               </button>
-              <button id="${ids.readingCloseBtn}" type="button" class="boc-reading-icon-btn" title="退出" aria-label="退出阅读视图">
+              <button id="${ids.readingCloseBtn}" type="button" class="boc-reading-icon-btn" title="退出" aria-label="退出专注模式">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
               </button>
             </div>
@@ -876,7 +876,7 @@ function checkUrlChange() {
     document.documentElement.setAttribute("data-boc-reader-mode", "1");
     document.body.setAttribute("data-boc-reader-mode", "1");
     enterReaderMode().catch((error) => {
-      setReadingNotice(`阅读视图启动失败：${getErrorMessage(error)}`);
+      setReadingNotice(`专注模式启动失败：${getErrorMessage(error)}`);
     });
     return;
   }
@@ -1088,7 +1088,7 @@ async function runRefreshClip() {
     );
 
     let selected = null;
-    // 无字幕时也允许进入阅读视图，只是字幕区域保持空态。
+    // 无字幕时也允许进入专注模式，只是字幕区域保持空态。
     if (state.subtitles.length === 0) {
       if (!state.meta?.gate) {
         await showNoSubtitleState(runId);
@@ -1594,7 +1594,7 @@ function scheduleReaderPlayerRetry() {
     if (state.readingPlayerRetries > 12) {
       replaceReaderModeUrl(stripReaderModeUrl(location.href));
       closeReadingView();
-      setReadingNotice("视频播放器长时间未就绪，已退出阅读视图，可刷新页面后重试。");
+      setReadingNotice("视频播放器长时间未就绪，已退出专注模式，可刷新页面后重试。");
       return;
     }
     const mounted = await ensureReaderPlayerMounted({ retries: 10, delayMs: 200, forceLayout: true });
@@ -1850,7 +1850,7 @@ function renderReadingView() {
   const hasChapters = chapters.length > 0;
 
   if (titleNode) {
-    titleNode.textContent = state.title || "字幕阅读";
+    titleNode.textContent = state.title || "专注模式";
   }
   if (metaNode) {
     metaNode.textContent = buildReadingMetaLine();

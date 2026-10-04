@@ -675,7 +675,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       parsed.searchParams.set("boc_reader", "1");
       readerUrl = parsed.toString();
     } catch (error) {
-      sendResponse({ ok: false, error: error.message || "阅读视图地址无效" });
+      sendResponse({ ok: false, error: error.message || "专注模式的地址无效" });
       return false;
     }
 
@@ -683,7 +683,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       .then(() => triggerReaderModeInTab(tabId, readerUrl))
       .then((triggered) => {
         if (!triggered) {
-          throw new Error("阅读视图触发失败，请刷新浏览器网页重试");
+          throw new Error("专注模式打开失败，请刷新网页重试");
         }
         sendResponse({ ok: true });
       })

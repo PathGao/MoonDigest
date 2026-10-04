@@ -114,7 +114,7 @@ function bindEvents() {
       return;
     }
 
-    setStatus("正在打开阅读视图...");
+    setStatus("正在打开专注模式...");
     const resp = await sendToRuntime({
       type: "open-reading-view-tab",
       url: tab.url,
@@ -125,8 +125,8 @@ function bindEvents() {
       setMessage(`打开失败：${resp?.error || "未知错误"}`);
       return;
     }
-    setMessage("已在当前页面打开阅读视图。");
-    setStatus("阅读视图已打开。");
+    setMessage("已在当前页面打开专注模式。");
+    setStatus("专注模式已打开。");
     window.setTimeout(() => window.close(), 80);
   });
 
