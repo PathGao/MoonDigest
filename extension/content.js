@@ -707,7 +707,7 @@ function buildUiHtml() {
 
             <section class="boc-reading-settings-group">
               <div class="boc-reading-controls">
-                <select id="${ids.readingSubtitleSelect}" class="boc-reading-select boc-reading-select-sm" aria-label="字幕语言">
+                <select id="${ids.readingSubtitleSelect}" class="boc-reading-select" aria-label="字幕语言">
                 </select>
               </div>
             </section>
