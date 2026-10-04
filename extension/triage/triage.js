@@ -33,6 +33,7 @@ const K = {
   decisions: (id) => `triage_decisions_${id}`, // 取消收藏 only: it changes one Bilibili folder
   kept: "triage_kept", // { [bvid]: { action: "keep", at } }: 保留 belongs to the video, so it shows in every folder
   keptMigrated: "triage_kept_v1",
+  watched: "triage_watched", // { [bvid]: at }: 真人已看, set when a video leaves 优先看 as watched; it shows in every folder
   removed: "triage_removed", // { [bvid]: { item, at } }: videos that left every folder, kept until the user cleans them
   included: "triage_included_folders", // [mediaId]: the folders the user chose; only these are listed and read
   snapshot: (id) => `triage_snapshot_${id}`,
@@ -187,6 +188,8 @@ const S = {
   videoTags: {},
   basket: [],
   notes: {},
+  watched: {},
+  watchedFilter: false,
   noteOpen: new Set(), // empty notes the user opened for editing
   settings: {
     triageIntervalSec: 8,
@@ -229,7 +232,7 @@ const el = {};
   "folderSelect", "allBtn", "removedBtn", "searchInput", "searchCount", "refreshBtn", "progress", "queueStatus", "settingsBtn", "helpBtn",
   "banner", "bannerText", "bannerBtn", "bannerClose", "syncNotice", "syncText", "syncViewBtn", "syncCloseBtn", "syncDetail",
   "tabs", "tagFilter", "listHeader", "list", "basket", "basketToggle", "basketCount",
-  "basketList", "basketNextBtn", "toast", "settingsDialog", "folderToggles", "thinkingRow", "intervalInput",
+  "basketList", "toast", "settingsDialog", "folderToggles", "thinkingRow", "intervalInput",
   "batchSizeInput", "openOptionsBtn", "thinkingInput", "titleMaxInput",
   "titleMaxHint", "analyzeMaxInput", "analyzeMaxHint", "settingsError", "backupBtn", "csvBtn", "confirmDialog",
   "confirmTitle", "confirmBody", "confirmOk", "pickerDialog", "pickerTitle", "pickerInput", "pickerList",
@@ -237,7 +240,7 @@ const el = {};
   "aiBtn", "aiForm", "aiScope", "aiScopeCount", "aiInstruction", "aiHistory",
   "aiTagsPreview", "aiProgress", "aiCloseBtn", "aiStopBtn", "aiRunBtn",
   "aiReview", "aiReviewSummary", "aiNotes", "aiNewTags", "aiAllBtn", "aiNoneBtn", "aiRows", "aiDiscardBtn", "aiApplyBtn",
-  "main", "viewer", "viewerTitle", "viewerTabBtn", "viewerCloseBtn", "viewerFrame",
+  "biliBtn", "main", "viewer", "viewerTitle", "viewerNextBtn", "viewerTabBtn", "viewerCloseBtn", "viewerFrame",
   "writeBtn", "writeDialog", "writeScope", "writeFormat", "writeScopeCount", "writeOverwriteRow", "writeOverwrite", "writeProgress", "writeFailed", "writeStopBtn", "writeCopyBtn", "writeRunBtn", "writeMdBtn"
 ].forEach((id) => (el[id] = $(id)));
 
@@ -426,6 +429,7 @@ function searchText(it) {
 }
 
 function passFilter(it) {
+  if (S.watchedFilter && !S.watched[it.bvid]) return false;
   if (S.tagFilter.size && !tagIdsOf(it.bvid).some((id) => S.tagFilter.has(id))) return false;
   const words = S.query.toLowerCase().split(/\s+/).filter(Boolean);
   if (!words.length) return true;
@@ -495,16 +499,18 @@ async function init() {
   bindEvents();
   // Read up front: sidePanel.open must run inside the click's user gesture, before any await.
   chrome.tabs.getCurrent().then((tab) => (ownTabId = tab?.id));
-  const [{ tags, videoTags, folderCriteria }, kept, basket, notes, settingsResp] = await Promise.all([
+  const [{ tags, videoTags, folderCriteria }, kept, basket, notes, watched, settingsResp] = await Promise.all([
     loadTagsAndCriteria().then(async (r) => ({ ...r, ...(await loadTagsByFolder(r)) })),
     loadKept(),
     storeGet(K.basket, []),
     storeGet(K.notes, {}),
+    storeGet(K.watched, {}),
     send({ type: "triage-settings-get" })
   ]);
   Object.assign(S, { tags, videoTags, folderCriteria, kept });
-  S.basket = basket.map(({ bvid, title, opened }) => ({ bvid, title, ...(opened ? { opened: true } : {}) }));
+  S.basket = basket.map(({ bvid, title, cover, upper, duration, opened }) => ({ bvid, title, cover, upper, duration, ...(opened ? { opened: true } : {}) }));
   S.notes = notes;
+  S.watched = watched;
   S.aiHistory = await storeGet(K.aiHistory, []);
   if (settingsResp.ok) Object.assign(S.settings, settingsResp.data);
   const syncObsidian = ({ obsidianEnabled }) => document.body.classList.toggle("obsidian-off", obsidianEnabled !== true);
@@ -634,6 +640,7 @@ async function loadFolders() {
     return;
   }
   S.allFolders = r.data.folders || [];
+  S.mid = r.data.mid;
   S.included = (await loadIncluded()).map(String);
   S.folders = S.allFolders.filter((f) => S.included.includes(String(f.id)));
   await retireUnchosenFolders();
@@ -679,6 +686,7 @@ async function openFolder(mediaId) {
   S.group = null;
   S.selected.clear();
   S.tagFilter.clear();
+  S.watchedFilter = false;
   S.undo = [];
   S.stage1Skip.clear();
   S.focused = "";
@@ -1054,6 +1062,8 @@ function renderTop() {
   const deep = S.items.filter((it) => S.analyses[it.bvid]?.status === "done").length;
   const processed = S.items.filter((it) => isProcessed(it.bvid)).length;
   el.progress.textContent = `已粗看 ${classified} / ${total} · 已细看 ${deep} · 已处理 ${processed}`;
+  el.biliBtn.hidden = !S.mid;
+  el.biliBtn.textContent = inFolderView() ? "B 站收藏夹 ↗" : "B 站主页 ↗";
   setBusy(el.refreshBtn, (S.syncing || S.loadAll?.running) && `刷新中…${S.syncing ? pageText(S.mediaId) : ""}`);
   el.allBtn.setAttribute("aria-pressed", String(S.mediaId === ALL));
   el.allBtn.hidden = !S.folders.length;
@@ -1097,14 +1107,15 @@ function renderTabs() {
     steps.join(`<span class="arrow" aria-hidden="true">→</span>`) + `<span class="tab-sep" aria-hidden="true"></span>` + tab("read", "阅览", "read-tab", "", c.read);
 
   const chips = tagChips();
-  el.tagFilter.innerHTML = chips.length
+  const watchedChip = `<button type="button" class="chip watched${S.watchedFilter ? " on" : ""}" data-watchedfilter aria-pressed="${S.watchedFilter}" aria-label="只看真人已看的视频"><span class="ai-mark">真人</span>已看</button>`;
+  el.tagFilter.innerHTML = watchedChip + (chips.length
     ? chips
         .map((c) => {
           const on = c.ids.some((id) => S.tagFilter.has(id));
           return `<button type="button" class="chip${on ? " on" : ""}" style="--c:${esc(c.color)}" data-tagfilter="${esc(c.ids.join(","))}" aria-pressed="${on}" aria-label="按标签筛选 ${esc(c.name)}">${esc(c.name)}</button>`;
         })
         .join("")
-    : `<span class="muted">还没有标签</span> · <button type="button" class="link" data-tags-open aria-label="新建标签">新建标签</button>`;
+    : `<span class="muted">还没有标签</span> · <button type="button" class="link" data-tags-open aria-label="新建标签">新建标签</button>`);
 }
 
 // Marks a control that starts an AI request (tokens.css draws it in the text color).
@@ -1353,7 +1364,7 @@ function cardHtml(it, expanded, mark) {
       <div class="title-row">${mark ? `<span class="batch-tag">${mark}</span>` : ""}<button type="button" class="title" data-act="open" aria-label="打开视频 ${esc(it.title)}">${esc(it.title)}</button></div>
       <div class="meta">${meta.map(esc).join(" · ")}</div>
       ${body.join("")}
-      <div class="card-foot">${verdict}<span class="reason">${esc(v.reason)}</span>${failed}</div>
+      <div class="card-foot">${verdict}${S.watched[b] ? `<button type="button" class="badge watched" data-act="unwatch" aria-label="真人已看，点一下取消" title="${esc(fmtTime(S.watched[b]))} 已看 · 点一下取消"><span class="ai-mark">真人</span>已看</button>` : ""}<span class="reason">${esc(v.reason)}</span>${failed}</div>
       ${chips ? `<div class="chips">${chips}</div>` : ""}
       ${noteHtml}
       <div class="card-foot">
@@ -1567,6 +1578,16 @@ async function undo() {
       pushUndo({ kind: "unfavMany", items: rest });
       toast(`撤销中断（已重新收藏 ${n} 个，剩余 ${rest.length} 个可再按 U 重试）：${error}`, true);
     } else toast(`已重新收藏 ${n} 个`);
+  } else if (entry.kind === "watched") {
+    if (entry.prev) S.watched[entry.bvid] = entry.prev;
+    else delete S.watched[entry.bvid];
+    saveWatched();
+    if (entry.basketEntry) {
+      S.basket.splice(entry.basketEntry.i, 0, entry.basketEntry.x);
+      saveBasket();
+    }
+    toast(entry.prev ? "已撤销：取消真人已看" : "已撤销：真人已看");
+    render();
   } else if (entry.kind === "keepMany") {
     patchKept(Object.fromEntries(entry.bvids.map((b) => [b, null])));
     const it = entry.bvids.length === 1 && S.itemMap.get(entry.bvids[0]);
@@ -2240,7 +2261,8 @@ function applyAiProposal() {
 }
 
 // ---------- 优先看 ----------
-// triage_basket is the 优先看 list in order: [{ bvid, title, opened? }]; the title is only for videos outside the open folder.
+// triage_basket is the 优先看 list in order: [{ bvid, title, cover?, upper?, duration?, opened? }]; the copied
+// fields show videos outside the open folder (entries from before they were copied have only the title).
 const saveBasket = () => storeSet(K.basket, S.basket);
 
 function toggleBasket(bvid) {
@@ -2250,56 +2272,75 @@ function toggleBasket(bvid) {
     S.basket.splice(i, 1);
     toast("已移出优先看");
   } else if (it) {
-    S.basket.push({ bvid, title: it.title });
+    S.basket.push({ bvid, title: it.title, cover: it.cover, upper: it.upper, duration: it.duration });
     toast(`已加入优先看《${shortTitle(it)}》`);
+    el.basket.classList.remove("bump");
+    void el.basket.offsetWidth;
+    el.basket.classList.add("bump");
   }
   saveBasket();
   render();
 }
 
-// 看下一个 opens the first item not opened yet; an opened item is marked and sinks to the end, so the next click
-// moves on. Only 看过了 removes it — opening a video isn't watching it.
+// The list keeps the order videos were added in. Opening one only marks it; only 已看 removes it —
+// opening a video isn't watching it.
 function openBasketItem(i) {
-  const [x] = S.basket.splice(i, 1);
+  const x = S.basket[i];
   if (!x) return;
-  S.basket.push({ ...x, opened: true });
+  x.opened = true;
   saveBasket();
-  render();
-  openTab(videoUrl(x.bvid));
+  openViewer(x);
 }
 
-// up / down swap with the neighbor, done (看过了) removes; favorites and decisions are untouched.
-function basketAction(act, i) {
-  const j = act === "up" ? i - 1 : i + 1;
-  if (act === "done") S.basket.splice(i, 1);
-  else if (S.basket[j]) [S.basket[i], S.basket[j]] = [S.basket[j], S.basket[i]];
-  else return;
+// 已看，下一个 in the viewer: the playing video is marked watched, leaves the queue, and the next one takes its place.
+function basketDoneAndNext() {
+  removeBasketItem(S.basket.findIndex((x) => x.bvid === S.viewing));
+  if (S.basket.length) openBasketItem(Math.max(0, S.basket.findIndex((x) => !x.opened)));
+  else {
+    closeViewer();
+    toast("优先看已经看完了");
+  }
+}
+
+// 已看 marks the video 真人已看 and takes it out of 优先看; favorites and decisions are untouched. U undoes both.
+function removeBasketItem(i) {
+  const [x] = S.basket.splice(i, 1);
+  if (!x) return;
   saveBasket();
+  setWatched(x.bvid, true, { i, x });
+}
+
+const saveWatched = () => storeSet(K.watched, S.watched);
+function setWatched(bvid, on, basketEntry = null) {
+  pushUndo({ kind: "watched", bvid, prev: S.watched[bvid] || 0, basketEntry });
+  if (on) S.watched[bvid] = Date.now();
+  else delete S.watched[bvid];
+  saveWatched();
   render();
-  return j;
 }
 
 function renderBasket() {
+  el.basket.hidden = !S.basket.length;
   el.basketCount.textContent = S.basket.length;
-  el.basketList.innerHTML = S.basket.length
-    ? S.basket
-        .map((x, i) => {
-          const title = esc(S.itemMap.get(x.bvid)?.title || x.title || x.bvid);
-          const note = S.notes[x.bvid]?.text?.trim();
-          return `<div class="basket-item${x.opened ? " opened" : ""}" data-i="${i}">
-      <div class="row"><button type="button" class="link title" data-basket="open" aria-label="打开视频 ${title}">${title}</button>${x.opened ? `<span class="muted">已打开</span>` : ""}</div>
-      ${note ? `<div class="muted">${esc(note)}</div>` : ""}
-      <div class="row">
-        <button type="button" data-basket="up" aria-label="上移 ${title}"${i ? "" : " disabled"}>↑</button>
-        <button type="button" data-basket="down" aria-label="下移 ${title}"${i < S.basket.length - 1 ? "" : " disabled"}>↓</button>
-        <span class="spacer"></span>
-        <button type="button" data-basket="done" aria-label="看过了，移出 ${title}">看过了</button>
+  el.basketList.innerHTML = S.basket
+    .map((x, i) => {
+      const it = S.itemMap.get(x.bvid) || x;
+      const title = esc(it.title || x.bvid);
+      const meta = [it.upper, fmtDuration(it.duration)].filter(Boolean).map(esc).join(" · ");
+      const note = S.notes[x.bvid]?.text?.trim();
+      return `<div class="basket-item${x.opened ? " opened" : ""}${x.bvid === S.viewing ? " playing" : ""}" data-i="${i}">
+      <button type="button" class="basket-open" data-basket="open" aria-label="打开视频 ${title}">
+        ${it.cover ? `<img class="basket-cover" src="${esc(it.cover)}" alt="" loading="lazy" referrerpolicy="no-referrer" />` : ""}
+        <span class="basket-text"><span class="basket-title">${title}</span>${meta || x.opened ? `<span class="muted">${[meta, x.opened && "已打开"].filter(Boolean).join(" · ")}</span>` : ""}</span>
+      </button>
+      <div class="basket-actions">
+        <button type="button" data-basket="done" aria-label="已看，移出 ${title}">已看</button>
       </div>
+      ${note ? `<div class="muted basket-note">${esc(note)}</div>` : ""}
     </div>`;
-        })
-        .join("")
-    : `<p class="empty">按 E 把要看的视频加入这里</p>`;
-  el.basketNextBtn.disabled = !S.basket.length;
+    })
+    .join("");
+  el.viewerNextBtn.hidden = !S.basket.some((x) => x.bvid === S.viewing);
 }
 
 function mdLinkText(s) {
@@ -2467,7 +2508,7 @@ async function runWrite(md = false) {
 }
 
 // ---------- data export ----------
-const BACKUP_PREFIXES = [K.kept, K.removed, K.tags, K.folderCriteria, "triage_video_tags", "triage_basket", K.notes, "triage_snapshot_", "triage_decisions_", "triage_title_", "triage_analysis_"];
+const BACKUP_PREFIXES = [K.kept, K.watched, K.removed, K.tags, K.folderCriteria, "triage_video_tags", "triage_basket", K.notes, "triage_snapshot_", "triage_decisions_", "triage_title_", "triage_analysis_"];
 
 async function buildBackup() {
   const all = await chrome.storage.local.get(null);
@@ -2495,6 +2536,7 @@ async function buildBackup() {
     if (!BACKUP_PREFIXES.some((p) => k.startsWith(p))) continue;
     if (k === K.tags) out.tags = v;
     else if (k === K.kept) out.kept = v;
+    else if (k === K.watched) out.watched = v;
     else if (k === K.removed) out.removed = v;
     else if (k === K.folderCriteria) out.folderCriteria = v;
     else if (k === "triage_video_tags") out.videoTags = v;
@@ -2586,6 +2628,10 @@ function bindEvents() {
   });
   el.tagFilter.addEventListener("click", (e) => {
     if (e.target.closest("[data-tags-open]")) return openTags();
+    if (e.target.closest("[data-watchedfilter]")) {
+      S.watchedFilter = !S.watchedFilter;
+      return render();
+    }
     const btn = e.target.closest("[data-tagfilter]");
     if (!btn) return;
     const ids = btn.dataset.tagfilter.split(",");
@@ -2686,6 +2732,11 @@ function bindEvents() {
 
   document.addEventListener("keydown", onKey);
   el.viewerCloseBtn.addEventListener("click", closeViewer);
+  // The open folder's own Bilibili page; 所有收藏夹 and 已取消收藏 have none, so they go to the space page.
+  el.biliBtn.addEventListener("click", () =>
+    openTab(`https://space.bilibili.com/${S.mid}${inFolderView() ? `/favlist?fid=${S.mediaId}&ftype=create` : ""}`)
+  );
+  el.viewerNextBtn.addEventListener("click", basketDoneAndNext);
   el.viewerTabBtn.addEventListener("click", () => openTab(videoUrl(S.viewing)));
 
   el.settingsBtn.addEventListener("click", () => openSettings());
@@ -2882,26 +2933,13 @@ function bindEvents() {
   el.aiApplyBtn.addEventListener("click", applyAiProposal);
 
   // basket
-  el.basketToggle.addEventListener("click", () => {
-    const collapsed = el.basket.classList.toggle("collapsed");
-    el.basketToggle.setAttribute("aria-expanded", String(!collapsed));
-  });
-  if (matchMedia("(max-width: 899px)").matches) {
-    el.basket.classList.add("collapsed");
-    el.basketToggle.setAttribute("aria-expanded", "false");
-  }
+  el.basketToggle.addEventListener("click", () => setBasketOpen(el.basket.classList.contains("collapsed")));
   el.basketList.addEventListener("click", (e) => {
     const act = e.target.closest("[data-basket]")?.dataset.basket;
     if (!act) return;
     const i = Number(e.target.closest(".basket-item").dataset.i);
-    if (act === "open") return openBasketItem(i);
-    const j = basketAction(act, i);
-    // Keep keyboard focus on the moved item's same button.
-    if (act !== "done") el.basketList.querySelector(`[data-i="${j}"] [data-basket="${act}"]`)?.focus();
-  });
-  el.basketNextBtn.addEventListener("click", () => {
-    const i = S.basket.findIndex((x) => !x.opened);
-    openBasketItem(i < 0 ? 0 : i);
+    if (act === "open") openBasketItem(i);
+    else if (act === "done") removeBasketItem(i);
   });
 }
 
@@ -2946,6 +2984,12 @@ function openViewer(it) {
   el.viewerFrame.src = videoUrl(it.bvid);
   el.viewer.hidden = false;
   el.main.classList.add("viewing");
+  render();
+}
+
+function setBasketOpen(open) {
+  el.basket.classList.toggle("collapsed", !open);
+  el.basketToggle.setAttribute("aria-expanded", String(open));
 }
 
 // Likes, coins and favorites happen on Bilibili's own page, so the folder is re-read once the viewer closes.
@@ -2955,6 +2999,7 @@ function closeViewer() {
   el.viewerFrame.src = "about:blank";
   el.viewer.hidden = true;
   el.main.classList.remove("viewing");
+  render();
   if (inFolderView()) syncFolder({ force: true });
 }
 
@@ -2968,6 +3013,7 @@ function cardAction(act, bvid) {
   else if (act === "tag") openPicker(bvid);
   else if (act === "basket") toggleBasket(bvid);
   else if (act === "retry") retry(bvid);
+  else if (act === "unwatch") setWatched(bvid, false);
   else if (act === "note") {
     S.noteOpen.add(bvid);
     renderList();
