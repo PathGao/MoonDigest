@@ -218,7 +218,8 @@ async function saveSettings() {
   const hostUrls = hostPermissionUrls(payload, aiProvidersPayload);
   const deniedHosts = await requestHostPermissions(hostUrls);
 
-  setBusy(true);
+  setBusy(elements.saveBtn);
+  setStatus("正在保存…", false, true);
   try {
     const resp = await sendRuntimeMessage({ type: "save-settings", settings: payload });
     if (!resp?.ok) {
@@ -256,7 +257,7 @@ async function saveSettings() {
   } catch (error) {
     setStatus(error.message || "保存失败", true);
   } finally {
-    setBusy(false);
+    setBusy(null);
   }
 }
 
@@ -272,9 +273,10 @@ async function getSettings() {
   }
 }
 
-function setStatus(text, isError = false) {
+function setStatus(text, isError = false, busy = false) {
   elements.status.textContent = text;
   elements.status.dataset.error = isError ? "true" : "false";
+  elements.status.setAttribute("aria-busy", String(busy));
   syncSaveBar();
 }
 
@@ -960,8 +962,8 @@ async function testConnection() {
     return;
   }
 
-  setBusy(true);
-  setStatus("正在测试连接...");
+  setBusy(elements.testConnectionBtn);
+  setStatus("正在测试连接…", false, true);
   try {
     const resp = await sendRuntimeMessage({
       type: "test-obsidian-connection",
@@ -979,15 +981,17 @@ async function testConnection() {
   } catch (error) {
     setStatus(`连接失败：${error.message || "未知错误"}`, true);
   } finally {
-    setBusy(false);
+    setBusy(null);
   }
 }
 
-function setBusy(isBusy) {
-  elements.saveBtn.disabled = isBusy;
-  elements.saveBtn.textContent = isBusy ? "处理中..." : "保存";
-  elements.testConnectionBtn.disabled = isBusy;
-  elements.testConnectionBtn.textContent = isBusy ? "处理中..." : "测试连接";
+// Both buttons wait while either runs; the running one gets the shared busy look from tokens.css.
+function setBusy(active) {
+  for (const [button, idle, busy] of [[elements.saveBtn, "保存", "保存中…"], [elements.testConnectionBtn, "测试连接", "测试中…"]]) {
+    button.disabled = Boolean(active);
+    button.textContent = button === active ? busy : idle;
+    button.setAttribute("aria-busy", String(button === active));
+  }
 }
 
 function sendRuntimeMessage(message) {
@@ -1127,14 +1131,19 @@ function addAiProviderRow(item = {}) {
       showAiProviderStatus(statusNode, "请填写模型名", true);
       return;
     }
-    showAiProviderStatus(statusNode, "正在测试...");
+    const testBtn = row.querySelector(".ai-provider-test");
+    showAiProviderStatus(statusNode, "正在测试…");
+    statusNode.setAttribute("aria-busy", "true");
+    testBtn.disabled = true;
     const resp = await sendRuntimeMessage({
       type: "ai-providers-test",
       providerId: row.dataset.providerId || "",
       baseUrl,
       apiKey,
       model
-    });
+    }).catch((error) => ({ ok: false, error: error.message }));
+    statusNode.setAttribute("aria-busy", "false");
+    testBtn.disabled = false;
     if (resp?.ok) {
       showAiProviderStatus(statusNode, hasUnsavedChanges ? "测试通过，记得保存设置" : "连接成功");
     } else {
