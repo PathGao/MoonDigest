@@ -11,7 +11,7 @@
     aiProviderKeys: { openai: "sk-should-never-export" },
     obsidianApiKey: "secret-token",
     // Per-video notes (triage_notes): one seeded so a filled note shows without typing.
-    triage_notes: { BV1mock0001: { text: "第 3 节的重构步骤可以直接套到 kururu", updatedAt: Date.now() } }
+    triage_notes: { BV1mock0001: { text: "第 3 节的重构步骤可以直接套到自己的项目", updatedAt: Date.now() } }
   };
   function makeArea(data) {
     return {
@@ -51,7 +51,7 @@
     "已失效视频", "Embedding 模型怎么选", "神经网络反向传播手推",
     "AI 写论文靠谱吗？实测", "如何评估大模型：Benchmark 的坑", "Function Calling 实战", "年度 AI 回顾"
   ];
-  const uppers = ["跟李沐学AI", "技术蛋老师", "林亦LYi", "秋葉aaaki", "差评君", "3Blue1Brown官方", "硬核的半佛仙人", "Ele实验室"];
+  const uppers = "ABCDEFGH".split("").map((c) => `示例UP主${c}`);
   const cover = (i) =>
     "data:image/svg+xml," +
     encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" width="160" height="90"><rect width="160" height="90" fill="hsl(${(i * 47) % 360},45%,60%)"/><text x="80" y="54" font-size="22" text-anchor="middle" fill="white">${i + 1}</text></svg>`);
