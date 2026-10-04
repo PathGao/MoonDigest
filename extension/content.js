@@ -588,6 +588,12 @@ function bindSettingsWatcher() {
         rebuildDerivedContent();
       });
     }
+    if ((changes[`triage_analysis_${state.videoId}`] || changes.triage_basket) && state.markdown) {
+      loadTriageExtras().then((extras) => {
+        state.triageExtras = extras;
+        rebuildDerivedContent();
+      });
+    }
     if (
       !changes.enablePlayerAiQuickAction &&
       !changes.playerAiQuickPrompt &&
@@ -917,6 +923,7 @@ function resetClipState() {
   state.subtitleFailure = "";
   state.chapters = [];
   state.hotComments = [];
+  state.triageExtras = null;
   state.markdown = "";
   state.srt = "";
   state.txt = "";
@@ -4302,9 +4309,29 @@ async function loadAiTurns() {
   }
 }
 
+// The triage page's summary and basket note, so this note matches what triage exports for the video.
+// The analysis is per bvid and summarizes P1, so other parts leave it out.
+async function loadTriageExtras() {
+  if (state.site !== "bilibili" || !state.videoId || Number(state.pageIndex) > 1) {
+    return null;
+  }
+  try {
+    const analysisKey = `triage_analysis_${state.videoId}`;
+    const stored = await chrome.storage.local.get([analysisKey, "triage_basket"]);
+    const note = (stored.triage_basket || []).find((item) => item.bvid === state.videoId)?.note || "";
+    return { analysis: stored[analysisKey], note };
+  } catch (error) {
+    logWarn("[BOC] failed to load triage summary for note export", error);
+    return null;
+  }
+}
+
 function rebuildDerivedContent() {
   const body = Array.isArray(state.subtitleBody) ? state.subtitleBody : [];
-  state.markdown = body.length || state.subtitleFetchState === "empty" ? BocNote.buildMarkdown(state, body, state.settings, currentRef()) : "";
+  state.markdown =
+    body.length || state.subtitleFetchState === "empty"
+      ? BocNote.withTriageSummary(BocNote.buildMarkdown(state, body, state.settings, currentRef()), state.triageExtras?.analysis, state.triageExtras?.note)
+      : "";
   state.srt = body.length ? buildSrt(body) : "";
   state.txt = body.length ? buildTxt(body, state.settings) : "";
 }
@@ -4325,6 +4352,7 @@ async function refreshDerivedContent({ refreshComments = false } = {}) {
     }
   }
   state.aiTurns = await loadAiTurns();
+  state.triageExtras = await loadTriageExtras();
 
   rebuildDerivedContent();
 }
