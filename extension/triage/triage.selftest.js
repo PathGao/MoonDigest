@@ -16,10 +16,12 @@ const stubEl = () => new Proxy({ classList: { toggle() {}, add() {}, remove() {}
   set: (o, k, v) => ((o[k] = v), true)
 });
 const store = {};
+const syncStore = {};
 const handlers = {};
 const sent = [];
 const ctx = vm.createContext({
   console,
+  structuredClone,
   setTimeout: (f) => setImmediate(f),
   document: { getElementById: stubEl, querySelector: () => null, addEventListener() {} },
   window: { addEventListener() {} },
@@ -44,12 +46,13 @@ const ctx = vm.createContext({
         async remove(keys) {
           for (const k of [].concat(keys)) delete store[k];
         }
-      }
+      },
+      sync: { get: async (d) => ({ ...d, ...structuredClone(syncStore) }) }
     }
   }
 });
 vm.runInContext(fs.readFileSync(path.join(__dirname, "..", "limits.js"), "utf8"), ctx);
-vm.runInContext(`${source}\n;globalThis.S = S; globalThis.K = K;`, ctx);
+vm.runInContext(`${source}\n;globalThis.S = S; globalThis.K = K; globalThis.DEFAULT_TIERS = DEFAULT_TIERS; globalThis.el = el; globalThis.verdictBadge = verdictBadge; globalThis.schemePayload = schemePayload;`, ctx);
 const t = ctx;
 const plain = (v) => JSON.parse(JSON.stringify(v));
 const toasts = [];
@@ -218,7 +221,8 @@ function openFake(mediaId, items, decisions = {}) {
   // Backup maps storage keys to sections and never exports secrets or unrelated keys.
   for (const k of Object.keys(store)) delete store[k];
   Object.assign(store, {
-    triage_tags: [{ id: "t1" }], triage_video_tags: { BVa: ["t1"] }, triage_basket: [{ bvid: "BVa" }], triage_tag_presets: [{ id: "p" }],
+    triage_schemes: [{ id: "default" }], triage_folder_scheme: { 7: "s2" }, triage_tags: [{ id: "old" }], triage_tag_presets: [{ id: "old" }],
+    triage_video_tags: { BVa: ["t1"] }, triage_basket: [{ bvid: "BVa" }],
     triage_notes: { BVa: { text: "n", updatedAt: 1 } }, triage_notes_migrated: true,
     triage_snapshot_7: { bvids: ["BVa"] }, triage_decisions_7: { BVa: { action: "keep" } },
     triage_title_BVa: { verdict: "keep" }, triage_analysis_BVa: { status: "done" }, triage_verdict_override_BVa: { verdict: "drop" },
@@ -227,10 +231,98 @@ function openFake(mediaId, items, decisions = {}) {
   t.S.folders = [{ id: 7, title: "夹" }];
   const backup = plain(await t.buildBackup());
   assert.deepStrictEqual(backup.folders, { 7: { title: "夹", snapshot: { bvids: ["BVa"] }, decisions: { BVa: { action: "keep" } } } });
-  assert.deepStrictEqual([backup.tags, backup.videoTags, backup.basket, backup.tagPresets], [[{ id: "t1" }], { BVa: ["t1"] }, [{ bvid: "BVa" }], [{ id: "p" }]]);
+  assert.deepStrictEqual([backup.schemes, backup.folderScheme, backup.videoTags, backup.basket], [[{ id: "default" }], { 7: "s2" }, { BVa: ["t1"] }, [{ bvid: "BVa" }]]);
+  assert.ok(!("tags" in backup) && !("tagPresets" in backup) && !/"old"/.test(JSON.stringify(backup)), "pre-scheme keys are not exported");
   assert.deepStrictEqual([backup.titleResults, backup.analyses, backup.verdictOverrides], [{ BVa: { verdict: "keep" } }, { BVa: { status: "done" } }, { BVa: { verdict: "drop" } }]);
   assert.deepStrictEqual(backup.notes, { BVa: { text: "n", updatedAt: 1 } });
   assert.ok(!/sk-live-1|secret-token|triage_tab|migrated/.test(JSON.stringify(backup)), "no secrets or unrelated keys");
+
+  // Custom tiers: the route decides the step, the tier id the 待处理 filter and buttons; low confidence still goes to 待细看.
+  const custom = {
+    id: "s2",
+    name: "优先级",
+    criteria: "",
+    tags: [{ id: "c1", name: "Rust", color: "#000" }],
+    onlyMyTags: true,
+    grading: {
+      tiers: [
+        { id: "t-must", name: "必看", route: "keep" },
+        { id: "t-later", name: "有空看", route: "keep" },
+        { id: "t-del", name: "删", route: "unfav" },
+        { id: "t-again", name: "再看看", route: "deep" }
+      ]
+    }
+  };
+  const cv = Array.from({ length: 6 }, (_, i) => item(300 + i));
+  openFake("G", cv);
+  t.S.schemes = [vm.runInContext("defaultScheme()", ctx), custom];
+  t.S.folderScheme = { G: "s2" };
+  Object.assign(t.S, { analyses: {}, overrides: {}, decisions: {}, tab: "act", actFilter: "all" });
+  t.S.selected.clear();
+  t.S.titleRes = {
+    BV300: { verdict: "t-must", confidence: "high" },
+    BV301: { verdict: "t-later", confidence: "high" },
+    BV302: { verdict: "t-del", confidence: "high" },
+    BV303: { verdict: "t-again", confidence: "high" },
+    BV304: { verdict: "t-must", confidence: "low" },
+    BV305: { verdict: "keep", confidence: "high" }
+  };
+  assert.deepStrictEqual(cv.map((it) => t.stageOf(it)), ["act", "act", "act", "deep", "deep", "none"], "another scheme's tier counts as not classified");
+  assert.deepStrictEqual(plain(t.batchList("t-later").map((it) => it.bvid)), ["BV301"]);
+  assert.strictEqual(t.batchList(null).length, 0, "no tier, no selection → nothing");
+  t.renderListHeader(t.visibleItems());
+  const head = t.el.listHeader.innerHTML;
+  for (const part of ['data-act-filter="t-again"', "取消收藏建议删的 1 个", "保留建议必看的 1 个", "保留建议有空看的 1 个"]) assert.ok(head.includes(part), part);
+  assert.ok(!head.includes("建议再看看"), "a 要细看 tier gets no batch button");
+  assert.ok(t.verdictBadge("BV302", t.verdictOf(cv[2])).includes('class="badge drop"') && t.verdictBadge("BV302", t.verdictOf(cv[2])).includes(">删<"), "badge = tier name, red for unfav");
+  assert.strictEqual(t.verdictOf({ ...cv[0], invalid: true }).verdict, "t-del", "invalid counts as the first 取消收藏 tier");
+  t.S.analyses = { BV305: { status: "done", verdict: "keep" } };
+  assert.strictEqual(t.stageOf(cv[5]), "act", "a done 细看 stays in 待处理 even with a foreign tier");
+  assert.ok(t.verdictBadge("BV305", t.verdictOf(cv[5])).includes("未分级"));
+  t.S.analyses = {};
+  // A deleted tier sends its 粗分 results back to 未分析.
+  custom.grading.tiers = custom.grading.tiers.filter((x) => x.id !== "t-later");
+  assert.strictEqual(t.stageOf(cv[1]), "none");
+  // Grading off: every 粗分 result goes to 待处理, low confidence included; no tier badge, only selection buttons.
+  custom.grading = null;
+  assert.deepStrictEqual(cv.map((it) => t.stageOf(it)), ["act", "act", "act", "act", "act", "act"]);
+  assert.strictEqual(t.verdictBadge("BV300", t.verdictOf(cv[0])), "");
+  t.renderListHeader(t.visibleItems());
+  assert.ok(t.el.listHeader.innerHTML.includes("取消收藏选中的 0 个") && !t.el.listHeader.innerHTML.includes("data-act-filter"));
+  assert.deepStrictEqual(plain(t.schemePayload()), { criteria: "", tags: [{ name: "Rust", description: "" }], onlyMyTags: true, tiers: null });
+  // Tags of another scheme stay on the video when this scheme's tags change.
+  t.S.videoTags = { BV300: ["t1", "c1"] };
+  t.setVideoTags("BV300", [], ["c1"]);
+  assert.deepStrictEqual(plain(t.S.videoTags.BV300), ["t1"]);
+  t.S.folderScheme = {};
+
+  // Migration: global criteria, tags, 只用我的标签 and presets become schemes once; nothing is lost; later runs are no-ops.
+  for (const k of Object.keys(store)) delete store[k];
+  const oldTags = [{ id: "t1", name: "AI", color: "#111", description: "大模型" }];
+  Object.assign(store, { triage_tags: oldTags, triage_video_tags: { BVa: ["t1"] }, triage_tag_presets: [{ id: "p1", name: "主题", instruction: "旧指令", tags: [{ name: "前端", description: "d" }] }] });
+  Object.assign(syncStore, { triageCriteria: "只留干货", triageOwnTagsOnly: true });
+  const first = plain(await t.loadSchemes());
+  assert.strictEqual(first.schemes.length, 2);
+  assert.deepStrictEqual(
+    { ...first.schemes[0], grading: undefined },
+    { id: "default", name: "默认方案", criteria: "只留干货", tags: oldTags, onlyMyTags: true, grading: undefined }
+  );
+  assert.deepStrictEqual(first.schemes[0].grading.tiers.map((x) => [x.id, x.route]), [["keep", "keep"], ["drop", "unfav"], ["unsure", "deep"]], "default tier ids are the old verdicts");
+  assert.deepStrictEqual(first.schemes[1].tags.map((x) => [x.id, x.name]), [["p1-t0", "前端"]]);
+  assert.ok(!("instruction" in first.schemes[1]), "the preset instruction is dropped");
+  assert.strictEqual(store.triage_schemes_migrated, true);
+  assert.deepStrictEqual(store.triage_video_tags, { BVa: ["t1"] }, "video tags are untouched");
+  assert.deepStrictEqual(store.triage_tags, oldTags, "old keys stay for rollback");
+  store.triage_schemes[0].name = "改过";
+  store.triage_tags = [];
+  syncStore.triageCriteria = "后来改的";
+  assert.strictEqual((await t.loadSchemes()).schemes[0].name, "改过", "a second run neither rebuilds nor reads the old keys");
+  delete store.triage_schemes_migrated;
+  assert.strictEqual((await t.loadSchemes()).schemes[0].name, "改过", "existing schemes are never rebuilt, even without the flag");
+  for (const k of Object.keys(store)) delete store[k];
+  for (const k of Object.keys(syncStore)) delete syncStore[k];
+  const fresh = plain(await t.loadSchemes());
+  assert.deepStrictEqual(fresh.schemes.map((x) => x.name), ["默认方案", "学习主题", "处理优先级"], "new users get the built-in presets as schemes");
 
   console.log("triage selftest: all passed");
 })().catch((e) => {

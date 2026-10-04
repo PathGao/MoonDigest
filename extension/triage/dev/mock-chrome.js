@@ -103,25 +103,29 @@
     },
     "triage-title-get": ({ bvids }) => ({ ok: true, data: Object.fromEntries(bvids.map((b) => [b, store[`triage_title_${b}`] || null])) }),
     "triage-analysis-get": ({ bvids }) => ({ ok: true, data: Object.fromEntries(bvids.map((b) => [b, store[`triage_analysis_${b}`] || null])) }),
-    "triage-classify-titles": async ({ items, tags }) => {
+    // Requests carry the folder's scheme ({ criteria, tags, onlyMyTags, tiers }); tiers null = grading off.
+    "triage-classify-titles": async ({ items, scheme }) => {
+      const { tags, tiers } = scheme;
       await wait(400);
       if (globalThis.__mockNoAI) return noAi();
       if (globalThis.__mockHostDenied) return { ok: false, error: "未授权访问 https://api.example.com，授权后重试" };
       const results = {};
       for (const { bvid } of items) {
         const i = findItem(bvid)._i;
-        const verdict = ["keep", "drop", "unsure", "unsure", "keep"][i % 5];
+        const tier = tiers ? tiers[[0, 1, 2, 2, 0][i % 5] % tiers.length] : null;
         const suggestedTags = [];
         if (tags.length) suggestedTags.push(tags[i % tags.length].name);
-        if (i % 6 === 0) suggestedTags.push("新:大模型");
-        if (i % 9 === 0) suggestedTags.push("新:工具");
-        const r = { verdict, reason: { keep: "标题显示为系统教程", drop: "资讯/娱乐类，时效性强", unsure: "标题信息不足" }[verdict], suggestedTags, confidence: i % 7 === 0 ? "low" : "high" };
+        if (!scheme.onlyMyTags && i % 6 === 0) suggestedTags.push("新:大模型");
+        if (!scheme.onlyMyTags && i % 9 === 0) suggestedTags.push("新:工具");
+        const reason = tier ? { keep: "标题显示为系统教程", unfav: "资讯/娱乐类，时效性强", deep: "标题信息不足" }[tier.route] : `讲${findItem(bvid).title.slice(0, 8)}`;
+        const r = { verdict: tier?.id || "", reason, suggestedTags, confidence: i % 7 === 0 ? "low" : "high" };
         results[bvid] = r;
         store[`triage_title_${bvid}`] = r;
       }
       return { ok: true, data: { results } };
     },
-    "triage-analyze": async ({ bvid, tags = [] }) => {
+    "triage-analyze": async ({ bvid, scheme }) => {
+      const { tags, tiers } = scheme;
       await wait(300);
       if (globalThis.__mockNoAI) return noAi();
       const it = findItem(bvid);
@@ -134,23 +138,27 @@
         throttledOnce.add(bvid);
         return { ok: false, error: "请求过于频繁", code: "THROTTLED" };
       }
-      const verdict = ["keep", "drop", "unsure"][it._i % 3];
+      const tier = tiers ? tiers[it._i % tiers.length] : null;
       const a = {
         bvid,
         status: "done",
         source: it._i % 2 ? "subtitle" : "meta",
         oneLiner: `${it.title.slice(0, 12)}：核心观点是先理解原理再动手。`,
         points: ["讲清了基本概念和适用场景", "给出了一个可运行的完整示例", "最后总结了常见误区"],
-        verdict,
-        reason: { keep: "有可复用的方法论", drop: "内容浅，信息量低", unsure: "部分有用，需要自己判断" }[verdict],
-        suggestedTags: [tags[0]?.name, "新:深度"].filter(Boolean),
+        verdict: tier?.id || "",
+        reason: tier ? { keep: "有可复用的方法论", unfav: "内容浅，信息量低", deep: "部分有用，需要自己判断" }[tier.route] : "",
+        suggestedTags: [tags[0]?.name, !scheme.onlyMyTags && "新:深度"].filter(Boolean),
         model: "mock-model",
         analyzedAt: Date.now()
       };
       store[`triage_analysis_${bvid}`] = a;
       return { ok: true, data: a };
     },
-    "triage-ai-command": async ({ tags, items, allowNewTags, maxNewTags, allowVerdict }) => {
+    "triage-ai-command": async ({ items, allowVerdict, scheme }) => {
+      const { tags, tiers } = scheme;
+      const allowNewTags = !scheme.onlyMyTags;
+      const maxNewTags = 5;
+      const keepTier = tiers?.find((t) => t.route === "keep")?.id;
       await wait(300);
       aiCommandCalls++;
       if (aiCommandCalls === 2) return { ok: false, error: "模型返回的 JSON 无法解析" };
@@ -171,8 +179,8 @@
         if (tags.length && i % 3 === 0) add.push(tags[i % tags.length].name);
         const remove = it.currentTags && i % 4 === 0 ? [it.currentTags[0]] : [];
         const a = { add, remove, reason: d ? `标题显示为${d}内容` : "按指令归类" };
-        if (allowVerdict && !verdictChanged && it.verdict && it.verdict !== "keep") {
-          a.verdict = "keep";
+        if (allowVerdict && keepTier && !verdictChanged && it.verdict && it.verdict !== keepTier) {
+          a.verdict = keepTier;
           a.reason = "指令认为值得保留";
           verdictChanged = true;
         }
@@ -197,7 +205,7 @@
     },
     "triage-settings-get": () => ({
       ok: true,
-      data: { triageCriteria: "只保留 AI 工程实践相关的深度内容，资讯和娱乐可以删", triageIntervalSec: 1, triageExportFolder: "B站摘录", triageTitleBatchSize: 15, triageThinking: false, triageTitleMaxTokens: 0, triageAnalyzeMaxTokens: 0, ...store.__settings }
+      data: { deepseek: true, triageIntervalSec: 1, triageExportFolder: "B站摘录", triageTitleBatchSize: 15, triageThinking: false, triageTitleMaxTokens: 0, triageAnalyzeMaxTokens: 0, ...store.__settings }
     }),
     "triage-settings-save": ({ type, ...patch }) => {
       store.__settings = { ...store.__settings, ...patch };
@@ -263,7 +271,8 @@
         console.info("[mock] sidePanel.open", opts);
       }
     },
-    storage: { local: makeArea(store), sync: makeArea({}), onChanged: { addListener() {} } },
+    // The pre-scheme global criteria, so the page's one-time scheme migration has something to move.
+    storage: { local: makeArea(store), sync: makeArea({ triageCriteria: "只保留 AI 工程实践相关的深度内容，资讯和娱乐可以删" }), onChanged: { addListener() {} } },
     permissions: {
       async request(req) {
         (globalThis.__mockPermissionRequests ||= []).push(req);
