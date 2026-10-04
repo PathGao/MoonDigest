@@ -21,7 +21,7 @@
         <div id="tools" class="tools" popover>
           <button id="refreshBtn" type="button" aria-label="从 B 站刷新收藏夹">刷新</button>
           <button id="aiBtn" type="button" aria-label="AI 指令 (I)">AI 指令</button>
-          <button id="writeBtn" type="button" aria-label="批量导出笔记">批量导出</button>
+          <button id="writeBtn" type="button" aria-label="批量导出">批量导出</button>
           <button id="manageTagsBtn" type="button" aria-label="管理标签">管理标签</button>
           <button id="settingsBtn" type="button" aria-label="分拣设置">分拣设置</button>
           <button id="helpBtn" type="button" aria-label="帮助">?</button>
@@ -57,16 +57,14 @@
 
         <aside id="basket" class="basket">
           <div class="basket-head">
-            <button id="basketToggle" type="button" class="basket-toggle" aria-expanded="true" aria-label="展开或收起摘录篮">
-              摘录篮 <span id="basketCount">0</span>
+            <button id="basketToggle" type="button" class="basket-toggle" aria-expanded="true" aria-label="展开或收起优先看">
+              优先看 <span id="basketCount">0</span>
             </button>
           </div>
           <div class="basket-body">
             <div id="basketList" class="basket-list"></div>
             <div class="basket-foot">
-              <button id="copyMdBtn" type="button" aria-label="复制 Markdown">复制 Markdown</button>
-              <button id="downloadMdBtn" type="button" aria-label="下载 .md">下载 .md</button>
-              <button id="exportBtn" type="button" aria-label="写入 Obsidian"><img class="obsidian-mark" src="/icons/obsidian.svg" alt=""> 写入 Obsidian</button>
+              <button id="basketNextBtn" type="button" aria-label="在新标签页打开清单里的第一个视频">看下一个</button>
             </div>
           </div>
         </aside>
@@ -99,10 +97,8 @@
         <h3 class="obsidian-only">导出</h3>
         <label for="exportFolderInput">收藏夹批量写入目录</label>
         <input id="exportFolderInput" type="text" />
-        <h3>数据导出</h3>
+        <h3>缓存</h3>
         <div class="export-row">
-          <button id="backupBtn" type="button" aria-label="导出完整备份 JSON">导出完整备份 (JSON)</button>
-          <button id="csvBtn" type="button" aria-label="导出当前收藏夹表格 CSV">导出表格 (CSV)</button>
           <button id="cleanCacheBtn" type="button" aria-label="清理已不在收藏夹里的视频缓存">清理缓存</button>
         </div>
         <div class="dialog-actions">
@@ -114,24 +110,37 @@
       </form>
     </dialog>
 
-    <dialog id="writeDialog" aria-label="批量导出笔记">
+    <dialog id="writeDialog" aria-label="批量导出">
       <form method="dialog">
-        <h2>批量导出笔记</h2>
-        <p class="dialog-hint">每个视频一篇笔记（字幕 + AI 总结）。下载 .md 合成一个文件<span class="obsidian-only">；写入 Obsidian 每个视频一篇，再写一篇以收藏夹命名的索引</span>。不会改动收藏夹。</p>
-        <label for="writeScope">范围</label>
-        <select id="writeScope">
-          <option value="filter">当前筛选结果</option>
-          <option value="selected">已选中 (X)</option>
-          <option value="all">整个收藏夹</option>
-        </select>
+        <h2>批量导出</h2>
+        <div class="ai-grid">
+          <label for="writeScope">范围</label>
+          <select id="writeScope">
+            <option value="filter">当前筛选</option>
+            <option value="selected">选中 (X)</option>
+            <option value="basket">优先看</option>
+            <option value="all">整个收藏夹</option>
+          </select>
+          <label for="writeFormat">格式</label>
+          <select id="writeFormat">
+            <option value="digest">一篇摘录（带每个视频的笔记）</option>
+            <option value="notes">逐个视频笔记（字幕 + AI 总结）</option>
+          </select>
+        </div>
         <p id="writeScopeCount" class="dialog-hint"></p>
-        <label class="toggle"><input id="writeOverwrite" type="checkbox" /> 覆盖已有笔记</label>
+        <label id="writeOverwriteRow" class="toggle"><input id="writeOverwrite" type="checkbox" /> 覆盖已有笔记</label>
         <p id="writeProgress" class="dialog-hint" aria-live="polite"></p>
         <ul id="writeFailed" class="write-failed" hidden></ul>
+        <h3>数据</h3>
+        <div class="export-row">
+          <button id="backupBtn" type="button" aria-label="下载完整备份 JSON">完整备份 (JSON)</button>
+          <button id="csvBtn" type="button" aria-label="下载当前收藏夹表格 CSV">当前收藏夹表格 (CSV)</button>
+        </div>
         <div class="dialog-actions">
           <span class="spacer"></span>
           <button value="cancel" type="submit" aria-label="关闭">关闭</button>
           <button id="writeStopBtn" type="button" aria-label="停止写入" hidden>停止</button>
+          <button id="writeCopyBtn" type="button" aria-label="复制 Markdown">复制 Markdown</button>
           <button id="writeMdBtn" type="button" aria-label="下载 .md">下载 .md</button>
           <button id="writeRunBtn" type="button" class="primary" aria-label="写入 Obsidian"><img class="obsidian-mark" src="/icons/obsidian.svg" alt=""> 写入 Obsidian</button>
         </div>
@@ -249,6 +258,7 @@
           <li><strong>已处理</strong>：取消收藏或保留过的视频；最近取消收藏的可以重新收藏。</li>
         </ol>
         <p class="dialog-hint">怎么判、打哪些标签、分几档由收藏夹的方案决定（顶栏「方案」）。AI 处理只在本页打开时运行，关闭页面即暂停。</p>
+        <p class="dialog-hint">优先看：按 E 把真要看的视频放进右侧清单，↑↓ 调顺序，「看下一个」打开第一个，看完点「看过了」移出，不影响收藏和处理结果。导出摘录、逐个笔记和数据备份都在「批量导出」。</p>
         <h2>快捷键</h2>
         <dl class="keys">
           <dt>J / ↓</dt><dd>下一个</dd>
@@ -257,7 +267,7 @@
           <dt>S</dt><dd>保留</dd>
           <dt>T</dt><dd>打标签</dd>
           <dt>A</dt><dd>采纳 AI 建议标签</dd>
-          <dt>E</dt><dd>加入 / 移出摘录篮</dd>
+          <dt>E</dt><dd>加入优先看 / 移出</dd>
           <dt>Q</dt><dd>问 AI（在侧边栏打开这个视频）</dd>
           <dt>X</dt><dd>选中 / 取消选中（待细看、待处理的按钮、AI 指令和批量导出可只处理选中的）</dd>
           <dt>O / Enter</dt><dd>打开视频</dd>

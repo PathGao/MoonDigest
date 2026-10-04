@@ -269,11 +269,12 @@ dialog h3 { margin: 10px 0 2px; font-size: var(--fs-sm); }
 .basket-list { flex: 1; min-height: 0; overflow-y: auto; padding: 6px; display: flex; flex-direction: column; gap: 8px; }
 .basket-item { border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 6px; display: flex; flex-direction: column; gap: 4px; }
 .basket-item .row { display: flex; gap: 6px; align-items: flex-start; }
-.basket-item .row strong { flex: 1; font-size: var(--fs-xs); }
+.basket-item .title { flex: 1; height: auto; text-align: left; font-size: var(--fs-xs); font-weight: 600; color: var(--text); white-space: normal; }
+.basket-item .muted { font-size: var(--fs-xs); white-space: pre-wrap; }
 .basket-item button { height: 22px; font-size: var(--fs-xs); padding: 0 6px; }
 .basket-foot { display: flex; gap: 6px; padding: 6px; border-top: 1px solid var(--border); }
 .basket-foot button { flex: 1; }
-.obsidian-off #exportBtn, .obsidian-off #writeRunBtn, .obsidian-off label:has(#writeOverwrite),
+.obsidian-off #writeRunBtn, .obsidian-off label:has(#writeOverwrite),
 .obsidian-off label[for="exportFolderInput"], .obsidian-off #exportFolderInput, .obsidian-off .obsidian-only { display: none; }
 .write-failed { margin: 4px 0 0; padding-left: 18px; font-size: var(--fs-xs); color: var(--danger); }
 
@@ -310,7 +311,7 @@ dialog h2 { margin: 0 0 10px; font-size: var(--fs-lg); }
 dialog form { display: flex; flex-direction: column; gap: 6px; }
 dialog label { font-size: var(--fs-xs); color: var(--muted); }
 dialog textarea { resize: vertical; }
-.dialog-actions { display: flex; align-items: center; gap: 6px; margin-top: 10px; }
+.dialog-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: 6px; margin-top: 10px; }
 .confirm-body ul { margin: 0; padding-left: 18px; }
 .keys { display: grid; grid-template-columns: auto 1fr; gap: 4px 16px; margin: 0; }
 .keys dt { font-family: ui-monospace, Menlo, monospace; font-weight: 600; }

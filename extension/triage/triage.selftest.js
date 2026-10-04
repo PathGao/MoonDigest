@@ -123,6 +123,34 @@ function openFake(mediaId, items, decisions = {}) {
   const csvRows = t.buildCsv().replace(/^\uFEFF/, "").split("\r\n");
   assert.ok(csvRows[1].startsWith("'+夹,BV5,'=cmd|' /C calc'!A0,'@up,"), csvRows[1]);
 
+  // 优先看: E adds in order with only bvid + title, ↑↓ reorder, 看过了 removes without touching decisions.
+  openFake("P", [item(1), item(2), item(3)], { BV2: { action: "keep", at: 1 } });
+  t.S.basket = [{ bvid: "BVgone", title: "别的收藏夹" }];
+  for (const b of ["BV1", "BV2", "BV3"]) t.toggleBasket(b);
+  assert.deepStrictEqual(plain(store[t.K.basket]), [{ bvid: "BVgone", title: "别的收藏夹" }, { bvid: "BV1", title: "视频1" }, { bvid: "BV2", title: "视频2" }, { bvid: "BV3", title: "视频3" }]);
+  t.basketAction("up", 3);
+  t.basketAction("down", 0);
+  assert.strictEqual(t.basketAction("down", 3), undefined, "the last item cannot move down");
+  assert.deepStrictEqual(plain(t.S.basket.map((x) => x.bvid)), ["BV1", "BVgone", "BV3", "BV2"]);
+  t.basketAction("done", 3);
+  t.toggleBasket("BV1");
+  assert.deepStrictEqual(plain(store[t.K.basket].map((x) => x.bvid)), ["BVgone", "BV3"]);
+  assert.deepStrictEqual(plain(t.S.decisions), { BV2: { action: "keep", at: 1 } }, "看过了 leaves decisions alone");
+
+  // 批量导出 scopes: 优先看 keeps its order and videos outside the folder; invalid videos are left out.
+  t.S.items.push({ ...item(4), invalid: true });
+  t.S.itemMap.set("BV4", t.S.items[3]);
+  t.S.basket.push({ bvid: "BV4" });
+  t.S.selected.clear();
+  t.S.selected.add("BV2");
+  Object.assign(t.S, { tab: "none", titleRes: {}, analyses: { BVgone: { status: "done", oneLiner: "一句话", points: ["要点"] } }, notes: { BV3: { text: " 我的笔记 " } }, videoTags: {} });
+  const scope = (s) => plain(t.writeScopeItems(s).map((it) => it.bvid));
+  assert.deepStrictEqual([scope("basket"), scope("selected"), scope("all"), scope("filter")], [["BVgone", "BV3"], ["BV2"], ["BV1", "BV2", "BV3"], ["BV1", "BV3"]]);
+  const digest = t.buildMarkdown(t.writeScopeItems("basket"));
+  assert.ok(digest.includes("## [别的收藏夹](https://www.bilibili.com/video/BVgone)\n\n> 一句话\n\n- 要点"), digest);
+  assert.ok(digest.includes("## [视频3](https://www.bilibili.com/video/BV3)\n\nUP：up\n\n笔记：我的笔记"), digest);
+  t.S.selected.clear();
+
   // B12: titles with | [[ ]] or newlines cannot end the index-note link early.
   assert.strictEqual(t.wikiLink("B站/2026-10-02-a_b.md", "a|b [[c]]\nd"), "[[B站/2026-10-02-a_b|a b c d]]");
   assert.strictEqual(t.wikiLink("x.md", "|||"), "[[x|x]]");

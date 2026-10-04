@@ -144,7 +144,7 @@ const el = {};
   "folderSelect", "refreshBtn", "progress", "queueStatus", "settingsBtn", "helpBtn",
   "banner", "bannerText", "bannerBtn", "bannerClose", "syncNotice", "syncText", "syncViewBtn", "syncCloseBtn", "syncDetail",
   "tabs", "tagFilter", "manageTagsBtn", "listHeader", "list", "basket", "basketToggle", "basketCount",
-  "basketList", "copyMdBtn", "downloadMdBtn", "exportBtn", "toast", "settingsDialog", "thinkingRow", "intervalInput",
+  "basketList", "basketNextBtn", "toast", "settingsDialog", "thinkingRow", "intervalInput",
   "batchSizeInput", "exportFolderInput", "openOptionsBtn", "thinkingInput", "titleMaxInput",
   "titleMaxHint", "analyzeMaxInput", "analyzeMaxHint", "settingsError", "backupBtn", "csvBtn", "cleanCacheBtn", "confirmDialog",
   "confirmTitle", "confirmBody", "confirmOk", "pickerDialog", "pickerTitle", "pickerInput", "pickerList",
@@ -153,7 +153,7 @@ const el = {};
   "aiBtn", "aiDialog", "aiForm", "aiScope", "aiScopeCount", "aiInstruction", "aiHistory",
   "aiTagsLabel", "aiTagsPreview", "aiTagRule", "aiAllowVerdict", "aiAllowVerdictRow", "aiProgress", "aiCloseBtn", "aiStopBtn", "aiRunBtn",
   "aiReview", "aiReviewSummary", "aiNotes", "aiNewTags", "aiAllBtn", "aiNoneBtn", "aiRows", "aiDiscardBtn", "aiApplyBtn",
-  "writeBtn", "writeDialog", "writeScope", "writeScopeCount", "writeOverwrite", "writeProgress", "writeFailed", "writeStopBtn", "writeRunBtn", "writeMdBtn"
+  "writeBtn", "writeDialog", "writeScope", "writeFormat", "writeScopeCount", "writeOverwriteRow", "writeOverwrite", "writeProgress", "writeFailed", "writeStopBtn", "writeCopyBtn", "writeRunBtn", "writeMdBtn"
 ].forEach((id) => (el[id] = $(id)));
 
 // ---------- utils ----------
@@ -384,7 +384,7 @@ async function init() {
   S.schemes = schemes;
   S.folderScheme = folderScheme;
   S.videoTags = videoTags;
-  S.basket = basket;
+  S.basket = basket.map(({ bvid, title }) => ({ bvid, title }));
   S.notes = notes;
   // getKeys (Chrome 130+) lets us read only override keys instead of every cached title/analysis.
   const keys = await chrome.storage.local.getKeys?.();
@@ -605,6 +605,7 @@ function render() {
   renderTop();
   renderTabs();
   renderList();
+  renderBasket();
 }
 
 function renderTop() {
@@ -720,8 +721,7 @@ function renderListHeader(list) {
       .map(([key, label]) => `<option value="${key}"${S.readStage === key ? " selected" : ""}>${label}</option>`)
       .join("");
     html = `<select data-read-stage aria-label="按进度筛选阅览">${options}</select><span class="muted">${list.length} 个</span>
-      ${headBtn("copy-read", "复制 Markdown", "", !list.length)}
-      ${headBtn("download-read", "下载 .md", "", !list.length)}`;
+      ${headBtn("export-read", "导出 Markdown", "", !list.length)}`;
   }
   if (STAGE_EMPTY[t] && !stageCounts()[t]) {
     html += `<button type="button" data-goto="${next[0]}">${STAGE_EMPTY[t]} →</button>`;
@@ -908,7 +908,7 @@ function cardHtml(it, expanded, mark) {
         <div class="actions">
           <span class="more">
             <button type="button" data-act="tag" aria-label="打标签 (T)">标签<kbd class="key">T</kbd></button>
-            <button type="button" data-act="basket" class="${inBasket ? "on" : ""}" aria-pressed="${inBasket}" aria-label="摘录篮 (E)">摘录<kbd class="key">E</kbd></button>
+            <button type="button" data-act="basket" class="${inBasket ? "on" : ""}" aria-pressed="${inBasket}" aria-label="${inBasket ? "移出" : "加入"}优先看 (E)">优先看<kbd class="key">E</kbd></button>
             <button type="button" data-act="ask" aria-label="问 AI (Q)">问 AI<kbd class="key">Q</kbd></button>
             <button type="button" data-act="select" class="${S.selected.has(b) ? "on" : ""}" aria-pressed="${S.selected.has(b)}" aria-label="选中 (X)">选中<kbd class="key">X</kbd></button>
           </span>
@@ -943,25 +943,6 @@ function readHtml(it) {
 
 function folderTitle() {
   return S.folders.find((f) => String(f.id) === String(S.mediaId))?.title || "收藏夹";
-}
-
-function buildReadMarkdown(list, now = new Date()) {
-  const lines = [`# ${folderTitle()}`, "", `${stamp(now, false)} · ${list.length} 个视频`, ""];
-  for (const it of list) {
-    const v = verdictOf(it);
-    const a = S.analyses[it.bvid];
-    const done = a?.status === "done";
-    lines.push(`## [${mdLinkText(it.title)}](${videoUrl(it.bvid)})`, "");
-    const judged = v.verdict === "none" ? "未分析" : tiers() ? `${verdictLabel(v.verdict)}${v.low ? "（低置信）" : ""}${v.reason ? `：${v.reason}` : ""}` : v.reason;
-    lines.push([it.upper, fmtDuration(it.duration), judged].filter(Boolean).join(" · "), "");
-    if (done && a.oneLiner) lines.push(`> ${a.oneLiner}`, "");
-    if (done && a.points?.length) lines.push(...a.points.map((p) => `- ${p}`), "");
-    const suggested = suggestionsOf(it.bvid);
-    if (suggested.length) lines.push(`建议标签：${suggested.join("、")}`, "");
-    const names = tagIdsOf(it.bvid).map((id) => tagById(id).name);
-    if (names.length) lines.push(`标签：${names.join("、")}`, "");
-  }
-  return lines.join("\n");
 }
 
 function setFocus(bvid, scroll = true) {
@@ -1844,7 +1825,8 @@ function applyAiProposal() {
   toast(`已应用 AI 建议：${rows.length} 个视频 · 撤销(U)`);
 }
 
-// ---------- basket ----------
+// ---------- 优先看 ----------
+// triage_basket is the 优先看 list in order: [{ bvid, title }]; the title is only for videos outside the open folder.
 const saveBasket = () => storeSet(K.basket, S.basket);
 
 function toggleBasket(bvid) {
@@ -1852,45 +1834,55 @@ function toggleBasket(bvid) {
   const it = S.itemMap.get(bvid);
   if (i >= 0) {
     S.basket.splice(i, 1);
-    toast("已移出摘录篮");
+    toast("已移出优先看");
   } else if (it) {
-    const a = S.analyses[bvid];
-    const done = a?.status === "done";
-    S.basket.push({
-      bvid,
-      title: it.title,
-      url: videoUrl(bvid),
-      upper: it.upper,
-      oneLiner: done ? a.oneLiner || "" : "",
-      points: done ? a.points || [] : []
-    });
-    toast(`已加入摘录篮《${shortTitle(it)}》`);
+    S.basket.push({ bvid, title: it.title });
+    toast(`已加入优先看《${shortTitle(it)}》`);
   }
   saveBasket();
-  renderBasket();
   render();
+}
+
+// up / down swap with the neighbor, done (看过了) removes; favorites and decisions are untouched.
+function basketAction(act, i) {
+  const j = act === "up" ? i - 1 : i + 1;
+  if (act === "done") S.basket.splice(i, 1);
+  else if (S.basket[j]) [S.basket[i], S.basket[j]] = [S.basket[j], S.basket[i]];
+  else return;
+  saveBasket();
+  render();
+  return j;
 }
 
 function renderBasket() {
   el.basketCount.textContent = S.basket.length;
   el.basketList.innerHTML = S.basket.length
     ? S.basket
-        .map(
-          (x, i) => `<div class="basket-item" data-i="${i}">
-      <div class="row"><strong>${esc(x.title)}</strong><button type="button" data-basket="remove" aria-label="从摘录篮移除 ${esc(x.title)}">移除</button></div>
-      ${x.oneLiner ? `<div class="muted">${esc(x.oneLiner)}</div>` : ""}
-    </div>`
-        )
+        .map((x, i) => {
+          const title = esc(S.itemMap.get(x.bvid)?.title || x.title || x.bvid);
+          const note = S.notes[x.bvid]?.text?.trim();
+          return `<div class="basket-item" data-i="${i}">
+      <div class="row"><button type="button" class="link title" data-basket="open" aria-label="打开视频 ${title}">${title}</button></div>
+      ${note ? `<div class="muted">${esc(note)}</div>` : ""}
+      <div class="row">
+        <button type="button" data-basket="up" aria-label="上移 ${title}"${i ? "" : " disabled"}>↑</button>
+        <button type="button" data-basket="down" aria-label="下移 ${title}"${i < S.basket.length - 1 ? "" : " disabled"}>↓</button>
+        <span class="spacer"></span>
+        <button type="button" data-basket="done" aria-label="看过了，移出 ${title}">看过了</button>
+      </div>
+    </div>`;
+        })
         .join("")
-    : `<p class="empty">按 E 把视频加入摘录篮</p>`;
-  el.copyMdBtn.disabled = el.downloadMdBtn.disabled = el.exportBtn.disabled = !S.basket.length;
+    : `<p class="empty">按 E 把要看的视频加入这里</p>`;
+  el.basketNextBtn.disabled = !S.basket.length;
 }
 
 function mdLinkText(s) {
   return String(s).replace(/([\[\]])/g, "\\$1");
 }
 
-function buildMarkdown(now = new Date()) {
+// 一篇摘录: one Markdown file with each video's link, AI summary, tags and note.
+function buildMarkdown(items, now = new Date()) {
   const lines = [
     "---",
     `title: B站摘录 ${stamp(now, false)} ${pad(now.getHours())}:${pad(now.getMinutes())}`,
@@ -1900,56 +1892,35 @@ function buildMarkdown(now = new Date()) {
     "---",
     ""
   ];
-  for (const x of S.basket) {
-    lines.push(`## [${mdLinkText(x.title)}](${x.url})`, "");
-    if (x.upper) lines.push(`UP：${x.upper}`, "");
-    if (x.oneLiner) lines.push(`> ${x.oneLiner}`, "");
-    if (x.points?.length) lines.push(...x.points.map((p) => `- ${p}`), "");
-    const names = tagIdsOf(x.bvid).map((id) => tagById(id).name);
+  for (const it of items) {
+    const a = S.analyses[it.bvid];
+    const done = a?.status === "done";
+    lines.push(`## [${mdLinkText(it.title)}](${videoUrl(it.bvid)})`, "");
+    if (it.upper) lines.push(`UP：${it.upper}`, "");
+    if (done && a.oneLiner) lines.push(`> ${a.oneLiner}`, "");
+    if (done && a.points?.length) lines.push(...a.points.map((p) => `- ${p}`), "");
+    const names = tagIdsOf(it.bvid).map((id) => tagById(id).name);
     if (names.length) lines.push(`标签：${names.join("、")}`, "");
-    const note = S.notes[x.bvid]?.text.trim();
+    const note = S.notes[it.bvid]?.text?.trim();
     if (note) lines.push(`笔记：${note}`, "");
   }
   return lines.join("\n");
 }
 
-async function exportBasket() {
-  el.exportBtn.disabled = true;
-  const filename = `B站摘录-${stamp()}.md`;
-  const r = await send({ type: "triage-export", filename, markdown: buildMarkdown() });
-  el.exportBtn.disabled = false;
-  if (!r.ok) {
-    toast(`写入 Obsidian 失败：${r.error}`, true);
-    return;
-  }
-  await offerClearBasket(`已写入 ${r.data?.path || filename}`);
-}
-
-async function downloadBasket() {
-  const filename = `B站摘录-${stamp()}.md`;
-  BocDownload.text(filename, buildMarkdown());
-  await offerClearBasket(`已下载 ${filename}`);
-}
-
-// Only offered once the basket is saved somewhere; copying alone never clears it.
-async function offerClearBasket(saved) {
-  toast(saved);
-  if (await askConfirm("清空摘录篮？", `<p>${esc(saved)}</p>`, "清空")) {
-    S.basket = [];
-    saveBasket();
-    renderBasket();
-    render();
-  }
-}
-
-// ---------- batch Obsidian write ----------
-function writeScopeItems() {
-  const scope = el.writeScope.value;
-  const list = scope === "all" ? S.items : scope === "selected" ? [...S.selected].map((b) => S.itemMap.get(b)).filter(Boolean) : visibleItems();
+// ---------- 批量导出 ----------
+// 优先看 videos outside the open folder export with their stored title.
+function writeScopeItems(scope = el.writeScope.value) {
+  const list =
+    scope === "all" ? S.items
+    : scope === "basket" ? S.basket.map((x) => S.itemMap.get(x.bvid) || { bvid: x.bvid, title: x.title || x.bvid })
+    : scope === "selected" ? [...S.selected].map((b) => S.itemMap.get(b)).filter(Boolean)
+    : visibleItems();
   return list.filter((it) => !it.invalid);
 }
 
-function openWrite() {
+// The 阅览 tab opens it preset; a running notes export keeps its own choice.
+function openWrite({ scope, format } = {}) {
+  if (!S.write.running && scope) [el.writeScope.value, el.writeFormat.value] = [scope, format];
   el.writeProgress.textContent = "";
   el.writeFailed.hidden = true;
   el.writeFailed.innerHTML = "";
@@ -1959,11 +1930,51 @@ function openWrite() {
 
 function renderWriteScope() {
   const n = writeScopeItems().length;
-  el.writeScopeCount.textContent = `共 ${n} 个视频，间隔 ${S.settings.triageIntervalSec} 秒`;
-  el.writeRunBtn.hidden = el.writeMdBtn.hidden = S.write.running;
-  el.writeStopBtn.hidden = !S.write.running;
-  el.writeRunBtn.disabled = el.writeMdBtn.disabled = !n;
-  el.writeScope.disabled = el.writeOverwrite.disabled = S.write.running;
+  const notes = el.writeFormat.value === "notes";
+  const busy = S.write.running;
+  const obsidianOff = document.body.classList.contains("obsidian-off");
+  el.writeScopeCount.textContent = notes
+    ? `共 ${n} 个视频，逐个抓字幕，间隔 ${S.settings.triageIntervalSec} 秒。下载 .md 合成一个文件${obsidianOff ? "" : "；写入 Obsidian 每个视频一篇，另写一篇以收藏夹命名的索引"}。`
+    : `共 ${n} 个视频，合成一篇：链接、AI 总结、标签和你的笔记。`;
+  el.writeOverwriteRow.hidden = !notes;
+  el.writeCopyBtn.hidden = notes || busy;
+  el.writeRunBtn.hidden = el.writeMdBtn.hidden = busy;
+  el.writeStopBtn.hidden = !busy;
+  el.writeCopyBtn.disabled = el.writeRunBtn.disabled = el.writeMdBtn.disabled = !n;
+  el.writeScope.disabled = el.writeFormat.disabled = el.writeOverwrite.disabled = busy;
+  // One blue button: 写入 Obsidian, or 下载 .md when Obsidian is off.
+  el.writeMdBtn.classList.toggle("primary", obsidianOff);
+}
+
+// 一篇摘录 needs summaries of 优先看 videos from other folders too.
+async function digestMarkdown() {
+  const items = writeScopeItems();
+  const missing = items.map((it) => it.bvid).filter((b) => !S.analyses[b]);
+  if (missing.length) {
+    const r = await send({ type: "triage-analysis-get", bvids: missing });
+    for (const b of missing) if (r.ok && r.data?.[b]) S.analyses[b] = r.data[b];
+  }
+  return buildMarkdown(items);
+}
+
+// how: copy | download | obsidian
+async function exportDigest(how) {
+  const filename = `B站摘录-${stamp()}.md`;
+  const markdown = await digestMarkdown();
+  if (how === "copy") {
+    await navigator.clipboard.writeText(markdown).then(
+      () => (el.writeProgress.textContent = "已复制 Markdown"),
+      (err) => (el.writeProgress.textContent = `复制失败：${err.message}`)
+    );
+  } else if (how === "download") {
+    BocDownload.text(filename, markdown);
+    el.writeProgress.textContent = `已下载 ${filename}`;
+  } else {
+    el.writeRunBtn.disabled = true;
+    const r = await send({ type: "triage-export", filename, markdown });
+    el.writeRunBtn.disabled = false;
+    el.writeProgress.textContent = r.ok ? `已写入 ${r.data?.path || filename}` : `写入 Obsidian 失败：${r.error}`;
+  }
 }
 
 function safeNoteName(name) {
@@ -2106,7 +2117,7 @@ async function cleanCache() {
   }
   const folders = plan.folders ? `，以及 ${plan.folders} 个已删除收藏夹的同步与处理记录` : "";
   const body = `<p>将删除 ${plan.videos} 个已不在任何收藏夹里的视频的缓存（标题粗分 ${plan.title} 条、细看分析 ${plan.analysis} 条、AI 改判 ${plan.override} 条）${folders}。</p>
-    <p>这些视频的 AI 判断和摘要会一并删除，无法撤销；需要保留请先导出完整备份。标签、视频标签和摘录篮不受影响。</p>`;
+    <p>这些视频的 AI 判断和摘要会一并删除，无法撤销；需要保留请先导出完整备份。标签、视频标签和优先看不受影响。</p>`;
   if (!(await askConfirm("清理缓存？", body, `删除 ${plan.keys.length} 条缓存`))) return;
   await chrome.storage.local.remove(plan.keys);
   toast(`已清理 ${plan.keys.length} 条缓存`);
@@ -2213,16 +2224,8 @@ function bindEvents() {
       S.extraOpen = true;
       renderListHeader(visibleItems());
       el.listHeader.querySelector("[data-extra]")?.focus();
-    } else if (act === "copy-read") {
-      navigator.clipboard.writeText(buildReadMarkdown(visibleItems())).then(
-        () => toast("已复制 Markdown"),
-        (err) => toast(`复制失败：${err.message}`, true)
-      );
-    } else if (act === "download-read") {
-      const filename = `MoonDigest-${safeNoteName(folderTitle())}-${stamp(new Date(), false)}.md`;
-      BocDownload.text(filename, buildReadMarkdown(visibleItems()));
-      toast("已下载 .md");
-    } else if (act === "clear-selected") {
+    } else if (act === "export-read") openWrite({ scope: "filter", format: "digest" });
+    else if (act === "clear-selected") {
       S.selected.clear();
       render();
     }
@@ -2302,10 +2305,13 @@ function bindEvents() {
     Object.assign(S.settings, patch);
     toast("设置已保存");
   });
-  el.writeBtn.addEventListener("click", openWrite);
+  el.writeBtn.addEventListener("click", () => openWrite());
   el.writeScope.addEventListener("change", renderWriteScope);
-  el.writeRunBtn.addEventListener("click", () => runWrite());
-  el.writeMdBtn.addEventListener("click", () => runWrite(true));
+  el.writeFormat.addEventListener("change", renderWriteScope);
+  const digest = () => el.writeFormat.value === "digest";
+  el.writeCopyBtn.addEventListener("click", () => exportDigest("copy"));
+  el.writeRunBtn.addEventListener("click", () => (digest() ? exportDigest("obsidian") : runWrite()));
+  el.writeMdBtn.addEventListener("click", () => (digest() ? exportDigest("download") : runWrite(true)));
   el.writeStopBtn.addEventListener("click", () => {
     S.write.stop = true;
     el.writeProgress.textContent = "将在当前视频后停止…";
@@ -2537,23 +2543,15 @@ function bindEvents() {
     el.basketToggle.setAttribute("aria-expanded", "false");
   }
   el.basketList.addEventListener("click", (e) => {
-    if (e.target.dataset.basket !== "remove") return;
+    const act = e.target.closest("[data-basket]")?.dataset.basket;
+    if (!act) return;
     const i = Number(e.target.closest(".basket-item").dataset.i);
-    S.basket.splice(i, 1);
-    saveBasket();
-    renderBasket();
-    render();
+    if (act === "open") return openTab(videoUrl(S.basket[i].bvid));
+    const j = basketAction(act, i);
+    // Keep keyboard focus on the moved item's same button.
+    if (act !== "done") el.basketList.querySelector(`[data-i="${j}"] [data-basket="${act}"]`)?.focus();
   });
-  el.copyMdBtn.addEventListener("click", async () => {
-    try {
-      await navigator.clipboard.writeText(buildMarkdown());
-      toast("已复制 Markdown");
-    } catch (err) {
-      toast(`复制失败：${err.message}`, true);
-    }
-  });
-  el.downloadMdBtn.addEventListener("click", downloadBasket);
-  el.exportBtn.addEventListener("click", exportBasket);
+  el.basketNextBtn.addEventListener("click", () => S.basket[0] && openTab(videoUrl(S.basket[0].bvid)));
 }
 
 // Returns 0 for auto, the integer for 200–32000, or null when invalid.
