@@ -423,7 +423,9 @@ async function resolveAiSidepanelContext(contextRef) {
     previousUrl: ref.selectedSubtitleUrl,
     previousLang: ref.subtitleLang
   });
-  const body = selectedTrack ? site.parseSegments(await site.fetchRaw(selectedTrack, io)) : [];
+  const body = selectedTrack
+    ? site.parseSegments(await BocSites.fetchRawCached(site, selectedTrack, { videoId: videoRef.id, cid: meta.cid }, io))
+    : [];
   if (selectedTrack && !body.length) {
     throw new Error("原视频字幕为空");
   }

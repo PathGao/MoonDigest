@@ -30,9 +30,9 @@ const DEFAULT_SETTINGS = {
   notePlaceholderSections: []
 };
 const { formatCompactTimestamp, buildSubtitlePreview, buildSrt, buildTxt, shouldShowHoursInNote } = BocNote;
+const subtitleCache = BocSites.subtitleCache;
 
 const BOC_VERSION = chrome.runtime.getManifest().version;
-const CACHE_KEY_PREFIX = BocLimits.KEYS.subtitleCachePrefix;
 globalThis.__BOC_CONTENT_SCRIPT_LOADED__ = BOC_VERSION;
 const state = {
   fetchRunId: 0,
@@ -1216,7 +1216,7 @@ async function loadSubtitle(url, lang, runId = state.fetchRunId, subtitleId = ""
     throw new Error("字幕 URL 为空。");
   }
 
-  const cacheKey = getSubtitleCacheKey({
+  const cacheKey = subtitleCache.key({
     videoId: state.videoId,
     cid: state.cid,
     subtitleId,
@@ -1226,7 +1226,7 @@ async function loadSubtitle(url, lang, runId = state.fetchRunId, subtitleId = ""
 
   // 尝试从缓存读取
   if (!forceRefresh) {
-    const cachedRaw = await loadSubtitleFromCache(cacheKey);
+    const cachedRaw = await subtitleCache.load(cacheKey);
     const cachedBody = cachedRaw === null ? [] : currentSite().parseSegments(cachedRaw);
     if (cachedBody.length > 0) {
       const cachedCheck = validateSubtitleByDuration(cachedBody, state.videoDuration);
@@ -1235,7 +1235,7 @@ async function loadSubtitle(url, lang, runId = state.fetchRunId, subtitleId = ""
           cacheKey,
           reason: cachedCheck.reason
         });
-        await clearSubtitleCacheByKey(cacheKey);
+        await subtitleCache.remove(cacheKey);
       } else {
         logInfo("[BOC] using cached subtitle", { cacheKey, itemCount: cachedBody.length });
         ensureRunActive(runId);
@@ -1262,7 +1262,7 @@ async function loadSubtitle(url, lang, runId = state.fetchRunId, subtitleId = ""
 
 // Validates, caches and installs a freshly fetched raw body as the selected track.
 async function commitSubtitleBody(raw, { url, lang, subtitleId }, runId) {
-  const cacheKey = getSubtitleCacheKey({ videoId: state.videoId, cid: state.cid, subtitleId, subtitleUrl: url, lang });
+  const cacheKey = subtitleCache.key({ videoId: state.videoId, cid: state.cid, subtitleId, subtitleUrl: url, lang });
   ensureRunActive(runId);
   const body = currentSite().parseSegments(raw);
   if (body.length === 0) {
@@ -1277,7 +1277,7 @@ async function commitSubtitleBody(raw, { url, lang, subtitleId }, runId) {
   }
 
   // 存入缓存
-  await saveSubtitleToCache(cacheKey, raw);
+  await subtitleCache.save(cacheKey, raw);
 
   state.selectedSubtitleId = subtitleId ? String(subtitleId) : state.selectedSubtitleId;
   state.selectedSubtitleUrl = url;
@@ -1288,63 +1288,6 @@ async function commitSubtitleBody(raw, { url, lang, subtitleId }, runId) {
   if (state.readingViewOpen) {
     renderReadingView();
     syncReadingViewPlayback(true);
-  }
-}
-
-function getSubtitleCacheKey({ videoId, cid, subtitleId = "", subtitleUrl = "", lang = "" }) {
-  const sourceKey = buildSubtitleSourceKey(subtitleId, subtitleUrl, lang);
-  return `${CACHE_KEY_PREFIX}${videoId}_${cid}_${sourceKey}`;
-}
-
-function buildSubtitleSourceKey(subtitleId, subtitleUrl, lang) {
-  const id = String(subtitleId || "").trim();
-  if (id) {
-    return `id_${id}`;
-  }
-
-  const normalizedUrl = BocSites.trackUrlKey(subtitleUrl);
-  if (normalizedUrl) {
-    return `url_${normalizedUrl}`;
-  }
-
-  return `lang_${String(lang || "").trim().toLowerCase() || "unknown"}`;
-}
-
-// Entries hold the raw response and are parsed on read, so a parser fix
-// applies to them; entries written before that (parsed body, no raw) miss.
-async function loadSubtitleFromCache(cacheKey) {
-  try {
-    const result = await chrome.storage.local.get(cacheKey);
-    return result[cacheKey]?.raw ?? null;
-  } catch {
-    return null;
-  }
-}
-
-// The cache only serves track switches on recent videos, so it keeps only recent entries.
-async function saveSubtitleToCache(cacheKey, raw) {
-  try {
-    const now = Date.now();
-    await chrome.storage.local.set({ [cacheKey]: { raw, timestamp: now } });
-    const all = await chrome.storage.local.get(null);
-    const stale = Object.entries(all)
-      .filter(([key]) => key.startsWith(CACHE_KEY_PREFIX))
-      .sort(([, a], [, b]) => (Number(b?.timestamp) || 0) - (Number(a?.timestamp) || 0))
-      .filter(([, value], index) => index >= BocLimits.SUBTITLE_CACHE_ENTRIES || now - (Number(value?.timestamp) || 0) > BocLimits.SUBTITLE_CACHE_DAYS * 86400000)
-      .map(([key]) => key);
-    if (stale.length) {
-      await chrome.storage.local.remove(stale);
-    }
-  } catch (error) {
-    logWarn("[BOC] failed to save subtitle cache", error);
-  }
-}
-
-async function clearSubtitleCacheByKey(cacheKey) {
-  try {
-    await chrome.storage.local.remove(cacheKey);
-  } catch (error) {
-    logWarn("[BOC] failed to clear subtitle cache by key", { cacheKey, error });
   }
 }
 

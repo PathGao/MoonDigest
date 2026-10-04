@@ -4,65 +4,6 @@
 
 // ===== 纯函数 =====
 
-function triageMd5(str) {
-  const bytes = new TextEncoder().encode(String(str));
-  const len = bytes.length;
-  const blocks = ((len + 8) >> 6) + 1;
-  const m = new Uint32Array(blocks * 16);
-  for (let i = 0; i < len; i++) m[i >> 2] |= bytes[i] << ((i % 4) * 8);
-  m[len >> 2] |= 0x80 << ((len % 4) * 8);
-  m[blocks * 16 - 2] = (len * 8) >>> 0;
-  m[blocks * 16 - 1] = Math.floor((len * 8) / 4294967296);
-  const S = [7, 12, 17, 22, 5, 9, 14, 20, 4, 11, 16, 23, 6, 10, 15, 21];
-  const K = [];
-  for (let i = 0; i < 64; i++) K[i] = Math.floor(Math.abs(Math.sin(i + 1)) * 4294967296) >>> 0;
-  let a0 = 0x67452301, b0 = 0xefcdab89, c0 = 0x98badcfe, d0 = 0x10325476;
-  for (let off = 0; off < m.length; off += 16) {
-    let A = a0, B = b0, C = c0, D = d0;
-    for (let i = 0; i < 64; i++) {
-      let F, g;
-      if (i < 16) { F = (B & C) | (~B & D); g = i; }
-      else if (i < 32) { F = (D & B) | (~D & C); g = (5 * i + 1) % 16; }
-      else if (i < 48) { F = B ^ C ^ D; g = (3 * i + 5) % 16; }
-      else { F = C ^ (B | ~D); g = (7 * i) % 16; }
-      const s = S[(i >> 4) * 4 + (i % 4)];
-      F = (F + A + K[i] + m[off + g]) >>> 0;
-      A = D; D = C; C = B;
-      B = (B + ((F << s) | (F >>> (32 - s)))) >>> 0;
-    }
-    a0 = (a0 + A) >>> 0; b0 = (b0 + B) >>> 0; c0 = (c0 + C) >>> 0; d0 = (d0 + D) >>> 0;
-  }
-  let hex = "";
-  for (const w of [a0, b0, c0, d0]) {
-    for (let i = 0; i < 4; i++) hex += ((w >>> (i * 8)) & 0xff).toString(16).padStart(2, "0");
-  }
-  return hex;
-}
-
-const TRIAGE_MIXIN_TAB = [46, 47, 18, 2, 53, 8, 23, 32, 15, 50, 10, 31, 58, 3, 45, 35, 27, 43, 5, 49, 33, 9, 42, 19, 29, 28, 14, 39, 12, 38, 41, 13, 37, 48, 7, 16, 24, 55, 40, 61, 26, 17, 0, 1, 60, 51, 30, 4, 22, 25, 54, 21, 56, 59, 6, 63, 57, 62, 11, 36, 20, 34, 44, 52];
-
-function triageMixinKey(imgUrl, subUrl) {
-  const key = (u) => String(u).split("/").pop().split(".")[0];
-  const raw = key(imgUrl) + key(subUrl);
-  return TRIAGE_MIXIN_TAB.map((i) => raw[i]).join("").slice(0, 32);
-}
-
-// 返回带 wts 与 w_rid 的完整 query string
-function triageWbiSign(params, mixinKey, wts) {
-  const all = { ...params, wts };
-  const query = Object.keys(all)
-    .sort()
-    .map((k) => `${encodeURIComponent(k)}=${encodeURIComponent(String(all[k]).replace(/[!'()*]/g, ""))}`)
-    .join("&");
-  return `${query}&w_rid=${triageMd5(query + mixinKey)}`;
-}
-
-// 优先人工字幕，其次 ai-zh
-function triagePickTrack(subtitles) {
-  const list = Array.isArray(subtitles) ? subtitles.filter((t) => t && t.subtitle_url) : [];
-  return list.find((t) => !String(t.lan).startsWith("ai-")) || list.find((t) => t.lan === "ai-zh") || null;
-}
-
 // 防止拿到别的视频的字幕：最后一句结束时间要落在 [dur*0.5, dur+10]
 function triageSubtitleValid(body, dur) {
   if (!Array.isArray(body) || !body.length || !(dur > 0)) return false;
@@ -367,6 +308,19 @@ async function triageBiliPost(path, fields) {
   return triageBiliData(await triageBiliJson(res));
 }
 
+// The sites.js fetchers through background fetch, with risk control mapped to THROTTLED like triageBiliGet.
+// A player answer without a subtitle object is risk control too.
+const TRIAGE_BILI_IO = {
+  async fetchJson(url) {
+    const json = await fetchJsonForAi(url).catch((e) => {
+      throw e.status === 412 ? triageError("B站请求失败 HTTP 412", "THROTTLED") : e;
+    });
+    if (json?.code === -352 || json?.code === -412) throw triageError(`B站返回 ${json.code}: ${json.message}`, "THROTTLED");
+    if (json?.code === 0 && /\/x\/player\//.test(url) && !json.data?.subtitle) throw triageError("B站字幕接口限流，稍后重试", "THROTTLED");
+    return json;
+  }
+};
+
 // nav 未登录时 code=-101 但 data.wbi_img 仍在，所以不走 triageBiliGet
 async function triageNav() {
   const res = await fetch("https://api.bilibili.com/x/web-interface/nav", { credentials: "include" });
@@ -377,15 +331,6 @@ async function triageMid() {
   const nav = await triageNav();
   if (!nav.isLogin || !nav.mid) throw triageError("未登录 B 站");
   return nav.mid;
-}
-
-let triageMixinCache = { key: "", at: 0 };
-async function triageGetMixinKey() {
-  if (triageMixinCache.key && Date.now() - triageMixinCache.at < 10 * 60 * 1000) return triageMixinCache.key;
-  const img = (await triageNav()).wbi_img;
-  if (!img?.img_url) throw triageError("获取 WBI 签名密钥失败");
-  triageMixinCache = { key: triageMixinKey(img.img_url, img.sub_url), at: Date.now() };
-  return triageMixinCache.key;
 }
 
 async function triageCreatedFolders() {
@@ -427,35 +372,26 @@ async function triageAnalyze({ bvid, force, tags }) {
     if (cached) return cached;
   }
 
-  const v = await triageBiliGet(`https://api.bilibili.com/x/web-interface/view?bvid=${encodeURIComponent(bvid)}`);
-  const dur = v.pages?.[0]?.duration || v.duration || 0;
-  const videoTags = await triageBiliGet(`https://api.bilibili.com/x/tag/archive/tags?bvid=${encodeURIComponent(bvid)}`)
-    .then((d) => (d || []).map((t) => t.tag_name).filter(Boolean))
-    .catch(() => []);
-  const meta = { title: v.title, desc: v.desc, upper: v.owner?.name || "", duration: dur, tname: v.tname, tags: videoTags };
-
-  // 字幕：只用 WBI 签名的 wbi/v2
-  const mixinKey = await triageGetMixinKey();
-  const query = triageWbiSign({ aid: v.aid, cid: v.cid, bvid }, mixinKey, Math.floor(Date.now() / 1000));
-  const player = await triageBiliGet(`https://api.bilibili.com/x/player/wbi/v2?${query}`);
-  if (!player?.subtitle) throw triageError("B站字幕接口限流，稍后重试", "THROTTLED");
+  const site = BocSites.SITES.bilibili;
+  const ref = { site: "bilibili", id: bvid, part: null, url: "" };
+  const m = await site.fetchMeta(ref, TRIAGE_BILI_IO);
+  const meta = { title: m.title, desc: m.description, upper: m.author, duration: m.duration, tname: m.tname, tags: m.tags };
 
   let source = "meta";
   let text = "";
-  const track = triagePickTrack(player.subtitle.subtitles);
+  const track = BocSites.pickPreferredTrack(BocSites.rankTracks((await site.fetchTracks(ref, m, TRIAGE_BILI_IO)).tracks), {});
   if (track) {
-    const url = track.subtitle_url.startsWith("//") ? `https:${track.subtitle_url}` : track.subtitle_url;
-    const body = await fetch(url).then((r) => r.json()).then((j) => j.body).catch(() => null);
-    if (triageSubtitleValid(body, dur)) {
+    const valid = (body) => triageSubtitleValid(body, m.duration);
+    const raw = await BocSites.fetchRawCached(site, track, { videoId: bvid, cid: m.cid }, TRIAGE_BILI_IO, valid).catch(() => null);
+    const body = raw ? site.parseSegments(raw) : [];
+    if (valid(body)) {
       source = "subtitle";
       text = triageClip(body.map((l) => l.content).join("\n"));
     }
   }
   if (source === "meta") {
-    text = await triageBiliGet(`https://api.bilibili.com/x/v2/reply/main?type=1&oid=${v.aid}&mode=3&ps=10`)
-      .then((d) => (d?.replies || []).slice(0, 10).map((r, i) => `${i + 1}. ${r.content?.message || ""}`).join("\n"))
-      .catch(() => "");
-    text = triageClip(text);
+    const comments = await site.fetchComments(ref, m, TRIAGE_BILI_IO, 10).catch(() => []);
+    text = triageClip(comments.map((c, i) => `${i + 1}. ${c.message}`).join("\n"));
   }
 
   const tagList = Array.isArray(tags) ? tags : [];
@@ -592,13 +528,15 @@ function triageWithSummary(markdown, analysis) {
 async function triageBuildNote(bvid, settings) {
   if (!bvid) throw triageError("缺少 bvid");
   const site = BocSites.SITES.bilibili;
-  const io = { fetchJson: fetchJsonForAi };
+  const io = TRIAGE_BILI_IO;
   const ref = { site: "bilibili", id: bvid, part: null, url: "" };
   const meta = await site.fetchMeta(ref, io);
   ref.url = site.canonicalUrl(bvid, meta.pageCount > 1 ? meta.pageIndex : 1);
   const bundle = await site.fetchTracks(ref, meta, io).catch(() => ({ tracks: [], chapters: [] }));
   const track = BocSites.pickPreferredTrack(BocSites.rankTracks(bundle.tracks || []), {});
-  const body = track ? await site.fetchRaw(track, io).then(site.parseSegments).catch(() => []) : [];
+  const body = track
+    ? await BocSites.fetchRawCached(site, track, { videoId: bvid, cid: meta.cid }, io).then(site.parseSegments).catch(() => [])
+    : [];
   const hotComments =
     settings.includeHotCommentsInNote || !body.length ? await site.fetchComments(ref, meta, io, 20).catch(() => []) : [];
   const noteMeta = {
