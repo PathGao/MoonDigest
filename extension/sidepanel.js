@@ -13,6 +13,8 @@ const {
   buildNoteFilename
 } = BocNote;
 const PLAYER_AI_QUICK_ACTION_STORAGE_KEY = "boc_player_ai_quick_action_v1";
+// Marks a control that starts an AI request (tokens.css draws it in the text color).
+const AI_SPARK = '<span class="ai-spark" aria-hidden="true"></span>';
 const NON_VIDEO_CONTEXT_MESSAGE = "当前页不是支持的视频页面，<br>无法获取当前页面信息作为对话上下文，<br>仅支持 AI 对话。";
 const EMPTY_INTRO = "AI 会读这期视频的字幕和评论，回答你的问题。";
 const STREAM_SLOW_NOTICE_MS = 15000;
@@ -252,7 +254,7 @@ function setStreamingUiState(isStreaming, { stopping = false } = {}) {
   els.generating.hidden = !isStreaming;
   els.sendBtn.disabled = stopping;
   els.sendBtn.classList.toggle("is-stop", isStreaming);
-  els.sendBtn.textContent = isStreaming ? (stopping ? "停止中" : "停止") : "发送";
+  els.sendBtn.innerHTML = isStreaming ? (stopping ? "停止中" : "停止") : `${AI_SPARK}发送`;
 }
 
 async function loadProvidersAndPrefs({ preferredProviderId = "" } = {}) {
@@ -698,8 +700,8 @@ function renderSuggestions() {
   const prompt = aiPrefs.playerAiQuickPrompt;
   const quick = (aiPrefs.aiPresetPrompts || []).slice(0, 3);
   suggestionsNode.innerHTML = `<p class="sp-empty-intro">${EMPTY_INTRO}</p>${quick
-    .map((item) => `<button type="button" class="sp-followup-chip" title="${escapeHtml(item)}">${escapeHtml(item)}</button>`)
-    .join("")}${prompt ? `<button type="button" class="sp-summary-btn" title="${escapeHtml(prompt)}">AI 总结</button>` : ""}`;
+    .map((item) => `<button type="button" class="sp-followup-chip" title="${escapeHtml(item)}">${AI_SPARK}${escapeHtml(item)}</button>`)
+    .join("")}${prompt ? `<button type="button" class="sp-summary-btn" title="${escapeHtml(prompt)}">${AI_SPARK}AI 总结</button>` : ""}`;
   suggestionsNode.querySelectorAll(".sp-followup-chip").forEach((btn, index) => btn.addEventListener("click", () => sendPrompt(quick[index])));
   suggestionsNode.querySelector(".sp-summary-btn")?.addEventListener("click", () => sendPrompt(prompt));
   void renderTriageSummary(suggestionsNode);
@@ -737,7 +739,7 @@ function renderFollowups() {
   const visible = collapsible && !followupsExpanded ? prompts.slice(0, FOLLOWUP_PREVIEW) : prompts;
   els.followups.hidden = !prompts.length;
   els.followups.innerHTML = visible
-    .map((prompt) => `<button type="button" class="sp-followup-chip" title="${escapeHtml(prompt)}">${escapeHtml(prompt)}</button>`)
+    .map((prompt) => `<button type="button" class="sp-followup-chip" title="${escapeHtml(prompt)}">${AI_SPARK}${escapeHtml(prompt)}</button>`)
     .join("");
   els.followups.querySelectorAll("button").forEach((btn, index) => {
     btn.addEventListener("click", () => sendPrompt(visible[index]));
@@ -1964,7 +1966,7 @@ function appendStreamError({ node, prompt, raw }, error, saved) {
   const retry = document.createElement("button");
   retry.type = "button";
   retry.className = "sp-chip sp-grant-btn";
-  retry.textContent = "重试";
+  retry.innerHTML = `${AI_SPARK}重试`;
   // The retry replaces the failed turn instead of repeating the question below it.
   retry.addEventListener("click", () => {
     if (activeStream || sendPending) return;

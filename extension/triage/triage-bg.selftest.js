@@ -37,7 +37,8 @@ const thin = t.triageParseLlm('{"one_liner":"x","points":["only"],"verdict":"may
 assert.deepStrictEqual([...thin.points], ["only", "", ""]);
 assert.strictEqual(thin.verdict, "unsure");
 assert.strictEqual(thin.reason, "");
-assert.strictEqual(t.triageParseLlm('{"one_liner":"x","verdict":"可以删"}').verdict, "drop", "the Chinese name maps to its id");
+assert.strictEqual(t.triageParseLlm('{"one_liner":"x","verdict":"可清理"}').verdict, "drop", "the Chinese name maps to its id");
+assert.strictEqual(t.triageParseLlm('{"one_liner":"x","verdict":"可以删"}').verdict, "drop", "the old name still maps");
 assert.strictEqual(t.triageParseLlm('{"one_liner":"x"}').verdict, "unsure");
 assert.throws(() => t.triageParseLlm('{"one_liner":"x","points":["a"'), /不完整/);
 assert.throws(() => t.triageParseLlm("没有 JSON"), /不是 JSON/);
@@ -64,10 +65,16 @@ assert.throws(() => t.triageParseTitleBatch('[{"i":1,"verdict":"keep"', items), 
 const TITLE_PROMPT = vm.runInContext("TRIAGE_TITLE_PROMPT", ctx);
 // Prompts: the three classes, the folder's 判断标准 when set, and no tag lists.
 const titleSys = t.triageWithCriteria(TITLE_PROMPT, " 只留 Rust 相关 ");
-for (const part of ["- keep：留。", "- drop：可以删。", "- unsure：待定。", '"verdict": "keep|drop|unsure"', "verdict 用 unsure", "用户的判断标准（优先于上面的说明）：\n只留 Rust 相关"]) {
+for (const part of ["- keep：值得留。", "- drop：可清理。", "- unsure：拿不准。", '"verdict": "keep|drop|unsure"', "verdict 用 unsure", "用户的判断标准（优先于上面的说明）：\n只留 Rust 相关"]) {
   assert.ok(titleSys.includes(part), part);
 }
 assert.strictEqual(t.triageWithCriteria(TITLE_PROMPT, "  "), TITLE_PROMPT, "no criteria, no block");
+assert.ok(!TITLE_PROMPT.includes("纯娱乐"), "entertainment is not a reason to clean up by default");
+// The folder name tells the AI what the folder is for; without criteria it is asked to infer the purpose.
+const named = t.triageWithCriteria(TITLE_PROMPT, "", { title: "纯娱乐", intro: "下饭" });
+assert.ok(named.includes("这个收藏夹叫「纯娱乐」，简介：下饭。") && named.includes("推测它的用途"));
+const both = t.triageWithCriteria(TITLE_PROMPT, "只留段子", { title: "纯娱乐" });
+assert.ok(both.includes("这个收藏夹叫「纯娱乐」。") && !both.includes("推测") && both.endsWith("只留段子"));
 const msgs = t.triageBuildMessages({ title: "T", upper: "U", tags: [] }, "meta", "", "只留干货");
 assert.ok(msgs[0].content.includes('"verdict": "keep|drop|unsure"') && msgs[0].content.endsWith("只留干货"));
 for (const p of [TITLE_PROMPT, msgs[0].content]) assert.ok(!/标签|tags|新:/.test(p), "粗分/细看 prompts carry no tags");
@@ -103,12 +110,20 @@ assert.strictEqual(
 assert.strictEqual(t.triageCommandLine({ title: "T" }, 1), "1|T|||||");
 const cmdMsgs = t.triageBuildCommandMessages({ instruction: "把讲 AI 的都标上", tags: ["AI", "编程"], items: [{ bvid: "BV1", title: "T" }] });
 assert.ok(cmdMsgs[0].content.includes("至多 5 个"));
-assert.ok(cmdMsgs[0].content.endsWith("已有标签：AI、编程"));
+assert.ok(cmdMsgs[0].content.endsWith("没有说明只写名称）：\nAI\n编程"));
+const ruleMsgs = t.triageBuildCommandMessages({ instruction: "x", tags: [{ name: "AI", rule: " 讲大模型\n的 " }, { name: "编程", rule: "" }], items: [{ bvid: "BV1", title: "T" }] });
+assert.ok(ruleMsgs[0].content.endsWith("\nAI：讲大模型 的\n编程"), "a tag with a rule is 名称：说明, without one name only");
+assert.ok(ruleMsgs[0].content.includes("按说明决定"));
+assert.ok(ruleMsgs[0].content.includes("一个视频可以加多个标签"));
+// The folder's room: 批量打 tells the model how many new tags it may make, none at 0.
+const roomMsg = (n) => t.triageBuildCommandMessages({ instruction: "x", tags: [], items: [], maxNewTags: n })[0].content;
+assert.ok(roomMsg(3).includes("至多 3 个") && !roomMsg(0).includes("至多") && roomMsg(0).includes("这次不能新建标签"));
+assert.deepStrictEqual(plain(t.triageParseCommand('{"items":[{"i":1,"add":["AI","AI：讲大模型 的"]}]}', [{ bvid: "BV1" }], [{ name: "AI", rule: "讲大模型" }])).assignments, { BV1: { add: ["AI"], remove: [], reason: "" } }, "tag objects validate by name only");
+assert.ok(t.triageBuildCommandMessages({ instruction: "x", tags: [], items: [] })[0].content.endsWith("：\n（无）"));
 assert.ok(!cmdMsgs[0].content.includes('"verdict"'));
 assert.ok(cmdMsgs[1].content.includes("<<<指令>>>\n把讲 AI 的都标上\n<<<指令结束>>>"));
 assert.ok(cmdMsgs[1].content.endsWith("\n1|T|||||"));
-const cmdVerdictMsgs = t.triageBuildCommandMessages({ instruction: "x", tags: [], items: [], allowVerdict: true });
-assert.ok(cmdVerdictMsgs[0].content.includes('"verdict": "keep|drop|unsure"') && cmdVerdictMsgs[0].content.includes("- unsure：待定。") && cmdVerdictMsgs[0].content.endsWith("已有标签：（无）"));
+assert.ok(!/verdict|值得留|可清理|拿不准/.test(cmdMsgs[0].content), "the command prompt never asks for a verdict");
 
 // command parse
 const cmdItems = [
@@ -123,14 +138,15 @@ const cmdOut =
   '"items":[{"i":2,"add":["数学","不存在","编程","编程"],"remove":["AI"],"verdict":"KEEP","reason":"讲 {数学}"},' +
   '{"i":1,"add":["AI","物理力学"],"remove":["旧","不在"],"verdict":"必看","reason":"r1"},' +
   '{"i":3,"add":["化学"],"remove":[]},{"i":4,"add":[],"remove":[],"reason":"无"},{"i":9,"add":["AI"]},{"i":2,"add":["旧"]}],"note":"已打标签"}\n``` 以上';
-assert.deepStrictEqual(plain(t.triageParseCommand(cmdOut, cmdItems, cmdTags, { maxNewTags: 2, allowVerdict: true })), {
+assert.deepStrictEqual(plain(t.triageParseCommand(cmdOut, cmdItems, cmdTags, { maxNewTags: 2 })), {
   newTags: ["数学", "物理力学"],
   assignments: {
-    BV2: { add: ["数学", "编程"], remove: [], verdict: "keep", reason: "讲 {数学}" },
+    BV2: { add: ["数学", "编程"], remove: [], reason: "讲 {数学}" },
     BV1: { add: ["物理力学"], remove: ["旧"], reason: "r1" }
   },
   note: "已打标签"
-}, "an unknown verdict in a command is dropped, not guessed");
+}, "verdict fields in the reply are dropped");
+assert.deepStrictEqual(plain(t.triageParseCommand('{"items":[{"i":2,"verdict":"keep","reason":"x"}]}', cmdItems, cmdTags)).assignments, {}, "a verdict-only item is no change");
 assert.deepStrictEqual(plain(t.triageParseCommand(cmdOut, cmdItems, cmdTags, { maxNewTags: 0 })), {
   newTags: [],
   assignments: {

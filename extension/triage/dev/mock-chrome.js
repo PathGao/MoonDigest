@@ -165,15 +165,15 @@
       store[`triage_analysis_${bvid}`] = a;
       return { ok: true, data: a };
     },
-    "triage-ai-command": async ({ items, tags, allowVerdict }) => {
+    "triage-ai-command": async ({ items, tags: tagList }) => {
       await wait(300);
+      const tags = tagList.map((t) => t.name);
       aiCommandCalls++;
       if (aiCommandCalls === 2) return { ok: false, error: "模型返回的 JSON 无法解析" };
       const depth = (title) => (/入门|手把手|速通|三分钟|10 分钟|是什么/.test(title) ? "入门" : /原理|数学|手推|推导|解析|可视化/.test(title) ? "硬核" : "");
       const newTags = ["入门", "硬核"].filter((name) => !tags.includes(name));
       const allowed = new Set([...tags, ...newTags]);
       const assignments = {};
-      let verdictChanged = false;
       items.forEach((it, i) => {
         const add = [];
         const d = depth(it.title);
@@ -181,12 +181,7 @@
         if (tags.length && i % 3 === 0) add.push(tags[i % tags.length]);
         const remove = it.currentTags && i % 4 === 0 ? [it.currentTags[0]] : [];
         const a = { add, remove, reason: d ? `标题显示为${d}内容` : "按指令归类" };
-        if (allowVerdict && !verdictChanged && it.verdict && it.verdict !== "keep") {
-          a.verdict = "keep";
-          a.reason = "指令认为值得保留";
-          verdictChanged = true;
-        }
-        if (add.length || remove.length || a.verdict) assignments[it.bvid] = a;
+        if (add.length || remove.length) assignments[it.bvid] = a;
       });
       return { ok: true, data: { newTags, assignments, note: `按指令处理了 ${items.length} 个视频` } };
     },

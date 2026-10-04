@@ -41,18 +41,30 @@ function triageExtractJson(content, open) {
   }
 }
 
-// AI 判断固定三档。模型答 id（不分大小写）或中文名都认，其他一律算待定。
-const TRIAGE_VERDICTS = { keep: "留", drop: "可以删", unsure: "待定" };
+// AI 判断固定三档。模型答 id（不分大小写）或中文名（含改名前的旧名）都认，其他一律算拿不准。
+const TRIAGE_VERDICTS = { keep: "值得留", drop: "可清理", unsure: "拿不准" };
+const TRIAGE_VERDICT_ALIASES = { 留: "keep", 可以删: "drop", 待定: "unsure" };
 function triageVerdict(v) {
   const s = String(v ?? "").trim();
   const id = s.toLowerCase();
   if (TRIAGE_VERDICTS[id]) return id;
-  return Object.keys(TRIAGE_VERDICTS).find((k) => TRIAGE_VERDICTS[k] === s) || "unsure";
+  return Object.keys(TRIAGE_VERDICTS).find((k) => TRIAGE_VERDICTS[k] === s) || TRIAGE_VERDICT_ALIASES[s] || "unsure";
 }
 
-// tags 是标签名列表
+// tags 是标签名列表，或 [{ name, rule }]
 function triageTagNames(tags) {
-  return (Array.isArray(tags) ? tags : []).map((t) => String(t ?? "").trim()).filter(Boolean);
+  return (Array.isArray(tags) ? tags : []).map((t) => String((t && typeof t === "object" ? t.name : t) ?? "").trim()).filter(Boolean);
+}
+
+// 提示词里的标签：有说明写「名称：说明」，没有只写名称
+function triageTagLines(tags) {
+  return (Array.isArray(tags) ? tags : [])
+    .map((t) => {
+      const name = triageTagNames([t])[0];
+      const rule = t && typeof t === "object" ? String(t.rule ?? "").replace(/\s+/g, " ").trim().slice(0, 80) : "";
+      return name && (rule ? `${name}：${rule}` : name);
+    })
+    .filter(Boolean);
 }
 
 // 新标签名：去掉逗号顿号和首尾空白，≤12 字
@@ -110,9 +122,9 @@ function triageCommandLine(item, n) {
   return [n, clean(item.title), clean(item.upper), dur, list(item.currentTags).join("、"), clean(item.oneLiner), list(item.points).join("；")].join("|");
 }
 
-// AI 指令提案：add 只留已有标签或本次新建的标签（至多 maxNewTags 个），remove 只留视频现有标签，
-// verdict 只在 allowVerdict 时保留且必须是三档之一；无改动的视频不返回
-function triageParseCommand(content, items, tags, { maxNewTags = 5, allowVerdict = false } = {}) {
+// 批量打标签的提案只改标签：add 只留已有标签或本次新建的标签（至多 maxNewTags 个），remove 只留视频现有标签；
+// 其他字段（如 verdict）一律丢弃，无改动的视频不返回
+function triageParseCommand(content, items, tags, { maxNewTags = 5 } = {}) {
   const obj = triageExtractJson(content, "{");
   const existing = new Set(triageTagNames(tags));
   const newTags = [];
@@ -138,9 +150,7 @@ function triageParseCommand(content, items, tags, { maxNewTags = 5, allowVerdict
       remove: pick(r.remove, (x) => current.has(x)),
       reason: String(r.reason ?? "").trim()
     };
-    const v = String(r.verdict ?? "").trim().toLowerCase();
-    if (allowVerdict && TRIAGE_VERDICTS[v]) a.verdict = v;
-    if (a.add.length || a.remove.length || a.verdict) assignments[item.bvid] = a;
+    if (a.add.length || a.remove.length) assignments[item.bvid] = a;
   });
   return { newTags, assignments, note: String(obj.note ?? "").trim() };
 }
@@ -149,15 +159,16 @@ function triageForm(obj) {
   return new URLSearchParams(Object.entries(obj).map(([k, v]) => [k, String(v)])).toString();
 }
 
+// 判断都相对这个收藏夹的用途：娱乐收藏夹里的好段子是「值得留」，不是「可清理」。
 const TRIAGE_VERDICT_TEXT = [
-  "verdict 只能是下面三个之一：",
-  "- keep：留。有具体、可复用的知识、方法或数据。",
-  "- drop：可以删。标题党、空谈、纯娱乐、过时新闻，或内容主要是广告。",
-  "- unsure：待定。其他情况，或信息太少无法判断。"
+  "verdict 只能是下面三个之一，都按这个收藏夹的用途判断：",
+  "- keep：值得留。符合这个收藏夹的用途，以后还会想看或用到。",
+  "- drop：可清理。和收藏夹用途不符、内容过时、标题党、空洞，或主要是广告。",
+  "- unsure：拿不准。信息太少，判断不了。"
 ].join("\n");
 
 const TRIAGE_SYSTEM_PROMPT = [
-  "你是 B 站收藏夹分拣助手。根据给出的视频信息总结视频，并判断留还是可以删。",
+  "你是 B 站收藏夹分拣助手。根据给出的视频信息总结视频，并按这个收藏夹的用途判断值得留还是可清理。",
   "只输出严格 JSON，不要任何其他文字、不要代码块：",
   '{"one_liner": "一句话说清视频讲了什么，≤40字", "points": ["要点1", "要点2", "要点3"], "verdict": "keep|drop|unsure", "reason": "判断理由，≤30字"}',
   TRIAGE_VERDICT_TEXT,
@@ -173,13 +184,20 @@ const TRIAGE_TITLE_PROMPT = [
   '[{"i": 序号, "verdict": "keep|drop|unsure", "reason": "≤20字", "confidence": "high|low"}]'
 ].join("\n");
 
-// criteria 是这个收藏夹的判断标准，可以为空
-function triageWithCriteria(system, criteria) {
+// folder 是 { title, intro }，criteria 是这个收藏夹的判断标准；都可以为空
+function triageWithCriteria(system, criteria, folder) {
   const text = String(criteria ?? "").trim();
-  return text ? `${system}\n\n用户的判断标准（优先于上面的说明）：\n${text}` : system;
+  const title = String(folder?.title ?? "").trim();
+  const intro = String(folder?.intro ?? "").trim();
+  const parts = [system];
+  if (title) {
+    parts.push(`这个收藏夹叫「${title}」${intro ? `，简介：${intro}` : ""}。${text ? "" : "用户没写判断标准，从收藏夹名和简介推测它的用途；推测不出时，按「以后还会不会想看」判断。"}`);
+  }
+  if (text) parts.push(`用户的判断标准（优先于上面的说明）：\n${text}`);
+  return parts.join("\n\n");
 }
 
-function triageBuildMessages(meta, source, text, criteria) {
+function triageBuildMessages(meta, source, text, criteria, folder) {
   const user = [
     `标题：${meta.title}`,
     `UP主：${meta.upper}`,
@@ -190,22 +208,25 @@ function triageBuildMessages(meta, source, text, criteria) {
     source === "subtitle" ? `\n字幕：\n${text}` : `\n（无可用字幕）\n热门评论：\n${text || "无"}`
   ].join("\n");
   return [
-    { role: "system", content: triageWithCriteria(TRIAGE_SYSTEM_PROMPT, criteria) },
+    { role: "system", content: triageWithCriteria(TRIAGE_SYSTEM_PROMPT, criteria, folder) },
     { role: "user", content: user }
   ];
 }
 
-function triageBuildCommandMessages({ instruction, tags, items, maxNewTags = 5, allowVerdict = false }) {
-  const names = triageTagNames(tags);
-  const example = `{"new_tags": ["标签名"], "items": [{"i": 序号, "add": ["标签"], "remove": ["标签"],${allowVerdict ? ' "verdict": "keep|drop|unsure",' : ""} "reason": "≤20字"}], "note": "≤60字"}`;
+function triageBuildCommandMessages({ instruction, tags, items, maxNewTags = 5 }) {
+  const lines = triageTagLines(tags);
+  const example = `{"new_tags": ["标签名"], "items": [{"i": 序号, "add": ["标签"], "remove": ["标签"], "reason": "≤20字"}], "note": "≤60字"}`;
   const system = [
     "你是 B站收藏整理助手，按用户指令给视频打标签、做分类。",
     "用户指令写在 <<<指令>>> 和 <<<指令结束>>> 之间，它就是本次任务的要求。",
     "规则：",
     "- add 只能用已有标签名，或本次 new_tags 里列出的新标签名。",
-    `- 可以新建标签，至多 ${maxNewTags} 个，名称 ≤12字、不含逗号；已有标签能用就先用，不要重复造。`,
+    maxNewTags > 0
+      ? `- 可以新建标签，至多 ${maxNewTags} 个，名称 ≤12字、不含逗号；已有标签能用就先用，不要重复造。`
+      : "- 这次不能新建标签，new_tags 留空，只用已有标签。",
     "- remove 只能填该视频“现有标签”里的名称。",
-    allowVerdict ? `- 指令涉及留或删时给 verdict，不涉及就不写。${TRIAGE_VERDICT_TEXT.replace(/^verdict /, "")}` : "- 不要输出 verdict 字段。",
+    "- 标签带说明（冒号后）的，按说明决定给视频加上还是去掉这个标签。",
+    "- 一个视频可以加多个标签，也可以一个都不加；指令或标签说明要求只选一个时（比如分档：入门 / 进阶 / 硬核），每个视频只加其中一个。",
     "- reason ≤20字。",
     "- 指令不适用的视频不要放进 items。",
     "- note ≤60字，总结做了什么，或者为什么没有合适的。",
@@ -213,7 +234,8 @@ function triageBuildCommandMessages({ instruction, tags, items, maxNewTags = 5, 
     "只输出严格 JSON，不要任何其他文字、不要代码块：",
     example,
     "",
-    `已有标签：${names.join("、") || "（无）"}`
+    "已有标签（每行一个，格式：名称：说明，没有说明只写名称）：",
+    ...(lines.length ? lines : ["（无）"])
   ].join("\n");
   const user = [
     "<<<指令>>>",
@@ -332,7 +354,7 @@ async function triageAiSettings() {
   };
 }
 
-async function triageAnalyze({ bvid, force, criteria }) {
+async function triageAnalyze({ bvid, force, criteria, folder }) {
   if (!bvid) throw triageError("缺少 bvid");
   const cacheKey = `triage_analysis_${bvid}`;
   if (!force) {
@@ -367,7 +389,7 @@ async function triageAnalyze({ bvid, force, criteria }) {
   }
 
   const ai = await triageAiSettings();
-  const { content, model } = await triageChat(triageBuildMessages(meta, source, text, criteria), triageMaxTokens("analyze", 1, ai), ai.triageThinking);
+  const { content, model } = await triageChat(triageBuildMessages(meta, source, text, criteria, folder), triageMaxTokens("analyze", 1, ai), ai.triageThinking);
   const analysis = {
     bvid,
     status: "done",
@@ -432,11 +454,11 @@ async function triageChat(messages, maxTokens, thinking = false) {
   }
 }
 
-async function triageClassifyTitles({ items, criteria }) {
+async function triageClassifyTitles({ items, criteria, folder }) {
   const list = (Array.isArray(items) ? items : []).filter((it) => it && it.bvid);
   if (!list.length) throw triageError("缺少 items");
   const ai = await triageAiSettings();
-  const system = triageWithCriteria(TRIAGE_TITLE_PROMPT, criteria);
+  const system = triageWithCriteria(TRIAGE_TITLE_PROMPT, criteria, folder);
   const user = list.map((it, idx) => triageTitleLine(it, idx + 1)).join("\n");
   const { content, model } = await triageChat(
     [
@@ -457,14 +479,14 @@ async function triageClassifyTitles({ items, criteria }) {
   return { results };
 }
 
-// 协作打标签：只返回提案，不缓存。新建标签至多 5 个
-async function triageAiCommand({ instruction, items, tags, allowVerdict }) {
+// 协作打标签：只返回提案，不缓存。新建标签至多 maxNewTags 个（收藏夹剩余名额，≤5）
+async function triageAiCommand({ instruction, items, tags, maxNewTags = 5 }) {
   const text = String(instruction ?? "").trim();
   if (!text) throw triageError("缺少指令");
   const list = (Array.isArray(items) ? items : []).filter((it) => it && it.bvid);
   if (!list.length) throw triageError("缺少 items");
   const ai = await triageAiSettings();
-  const opts = { maxNewTags: 5, allowVerdict: allowVerdict === true };
+  const opts = { maxNewTags: Math.max(0, Math.min(5, Math.floor(Number(maxNewTags)) || 0)) };
   const { content } = await triageChat(
     triageBuildCommandMessages({ instruction: text, tags, items: list, ...opts }),
     triageMaxTokens("command", list.length, ai),
@@ -571,6 +593,7 @@ const TRIAGE_HANDLERS = {
   "triage-folder-items": async ({ mediaId }) => {
     if (!mediaId) throw triageError("缺少 mediaId");
     const items = [];
+    let info = null;
     for (let pn = 1; ; pn++) {
       if (pn > 1) await new Promise((r) => setTimeout(r, 300));
       let data;
@@ -579,8 +602,9 @@ const TRIAGE_HANDLERS = {
       } catch (e) {
         // Keep what earlier pages returned; the page must not treat a partial list as the whole folder.
         if (pn === 1) throw e;
-        return { items, partial: { page: pn, error: e.message } };
+        return { items, info, partial: { page: pn, error: e.message } };
       }
+      info ||= data?.info ? { title: data.info.title || "", intro: data.info.intro || "" } : null;
       for (const m of data?.medias || []) {
         if (m.type !== 2) continue;
         items.push({
@@ -603,7 +627,7 @@ const TRIAGE_HANDLERS = {
     // The id list is what 所有收藏夹 later checks against: it can hold entries the paged list leaves out, so comparing
     // it with the items would flag the folder every time. null when it fails; the check then falls back to the items.
     const ids = await triageFolderIds(mediaId).catch(() => null);
-    return { items, ids };
+    return { items, ids, info };
   },
 
   // Every video id of a folder in one request, no paging; 所有收藏夹 compares it with the cached list.

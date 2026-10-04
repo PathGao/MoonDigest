@@ -1,21 +1,20 @@
 // Read-only triage marks on Bilibili pages. Videos without triage data get zero DOM changes.
 (() => {
   // The triage page's fixed AI classes; the ids are also the CSS color classes.
-  const VERDICTS = { keep: "留", drop: "可以删", unsure: "待定" };
+  const VERDICTS = { keep: "值得留", drop: "可清理", unsure: "拿不准" };
   const ACTION = { keep: "已保留", unfav: "已取消收藏" };
-  const STAGE = ["", "标题粗分", "字幕细看", "AI 指令"];
+  const STAGE = ["", "标题粗看", "字幕细看"];
   const BVID_RE = /(?:\/video\/|[?&]bvid=)(BV[0-9A-Za-z]{10})/;
 
   function bvidFromHref(href) {
     return BVID_RE.exec(String(href || ""))?.[1] || "";
   }
 
-  // Same rules as verdictOf in triage/triage.js: override > stage-2 analysis (unknown = 待定) > stage-1 title result.
-  function badgeInfo({ title, analysis, override, tagIds, tags, decision } = {}) {
+  // Same rules as verdictOf in triage/triage.js: stage-2 analysis (unknown = 拿不准) > stage-1 title result.
+  function badgeInfo({ title, analysis, tagIds, tags, decision } = {}) {
     const done = analysis?.status === "done";
     let v = null;
-    if (VERDICTS[override?.verdict]) v = { verdict: override.verdict, reason: override.reason, stage: 3 };
-    else if (done) v = { verdict: VERDICTS[analysis.verdict] ? analysis.verdict : "unsure", reason: analysis.reason, stage: 2 };
+    if (done) v = { verdict: VERDICTS[analysis.verdict] ? analysis.verdict : "unsure", reason: analysis.reason, stage: 2 };
     else if (VERDICTS[title?.verdict]) v = { verdict: title.verdict, reason: title.reason, stage: 1, low: title.confidence === "low" };
     const name = v && VERDICTS[v.verdict];
     const byId = new Map((Array.isArray(tags) ? tags : []).map((t) => [t.id, t]));
@@ -31,7 +30,7 @@
     const aria = [
       "MoonDigest 分拣",
       action && ACTION[action],
-      v && `AI 分类 ${name}（${STAGE[v.stage]}${v.low ? "，低置信" : ""}）`,
+      v && `AI 判断 ${name}（${STAGE[v.stage]}${v.low ? "，低置信" : ""}）`,
       userTags.length && `标签：${userTags.map((t) => t.name).join("、")}`
     ]
       .filter(Boolean)
@@ -67,7 +66,7 @@
   const SETTING = "showBiliTriageBadges";
   const SEL = 'a[href*="/video/BV"], a[href*="bvid=BV"]';
   const isTriageKey = (k) =>
-    k === "triage_tags" || k === "triage_video_tags" || k === "triage_kept" || /^triage_(title|analysis|verdict_override|decisions)_/.test(k);
+    k === "triage_tags" || k === "triage_video_tags" || k === "triage_kept" || /^triage_(title|analysis|decisions)_/.test(k);
   const isFavPage = location.hostname === "space.bilibili.com";
 
   const cache = new Map(); // bvid -> info | null
@@ -118,7 +117,7 @@
       const here = pageBvid();
       const want = new Set(anchors.map((a) => bvidFromHref(a.getAttribute("href"))).concat(here).filter((b) => b && !cache.has(b)));
       if (want.size) {
-        const keys = [...want].flatMap((b) => [`triage_title_${b}`, `triage_analysis_${b}`, `triage_verdict_override_${b}`]);
+        const keys = [...want].flatMap((b) => [`triage_title_${b}`, `triage_analysis_${b}`]);
         const got = await chrome.storage.local.get(keys);
         if (g !== gen) return;
         for (const b of want) {
@@ -127,7 +126,6 @@
             badgeInfo({
               title: got[`triage_title_${b}`],
               analysis: got[`triage_analysis_${b}`],
-              override: got[`triage_verdict_override_${b}`],
               tagIds: shared.videoTags[b],
               tags: shared.tags,
               decision: shared.decisions[b]
