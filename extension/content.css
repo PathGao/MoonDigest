@@ -306,6 +306,21 @@ html[data-boc-reader-mode="1"][data-boc-reader-theme="dark"] {
   filter: brightness(1.08);
 }
 
+/* Pushed to the far left, away from 取消 and the default button. */
+.boc-confirm-danger {
+  margin-right: auto;
+  border: 1px solid var(--boc-danger-border);
+  border-radius: var(--boc-radius-sm);
+  background: var(--boc-danger-bg);
+  color: var(--boc-danger);
+  cursor: pointer;
+  font-size: var(--boc-fs-sm);
+}
+
+.boc-confirm-danger:hover {
+  border-color: var(--boc-danger);
+}
+
 #boc-reading-view {
   position: fixed;
   left: 16px;
@@ -430,7 +445,7 @@ html[data-boc-reader-mode="1"][data-boc-reader-theme="dark"] {
   transition: opacity 0.2s ease;
 }
 
-.boc-reading-actions[data-boc-icon-hidden="1"] {
+.boc-reading-actions[data-boc-icon-hidden="1"]:not(:focus-within) {
   opacity: 0;
   pointer-events: none;
 }
@@ -1240,7 +1255,7 @@ body[data-boc-reader-mode="1"] .boc-reading-header {
   pointer-events: auto;
 }
 
-body[data-boc-reader-mode="1"] .boc-reading-settings-panel {
+body[data-boc-reader-mode="1"] .boc-reading-settings-panel:not([hidden]) {
   position: fixed;
   right: var(--boc-reader-page-padding);
   top: 72px;

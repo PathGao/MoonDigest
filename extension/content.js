@@ -1138,7 +1138,7 @@ async function runRefreshClip() {
       startReaderPlayerObserver();
       syncReadingViewPlayback(true);
     }
-    setStatus(state.settings.obsidianEnabled ? "抓取完成，可以复制、下载或发送到 Obsidian。" : "抓取完成，可以复制或下载。");
+    setStatus(state.settings.obsidianEnabled ? "抓取完成，可以复制、下载或写入 Obsidian。" : "抓取完成，可以复制或下载。");
   } catch (error) {
     if (isStaleRunError(error)) {
       return;
@@ -1363,12 +1363,11 @@ function getPopupPayload() {
 async function sendToObsidian() {
   state.settings = await getSettings();
   if (!state.settings.obsidianEnabled) {
-    setMessage("Obsidian 写入未启用，请在设置的「进阶 2」中开启。");
     return;
   }
   await refreshDerivedContent();
   if (!state.markdown) {
-    setMessage("没有可发送内容，请先刷新抓取。");
+    setMessage("没有可写入的内容，请先刷新抓取。");
     return;
   }
 
@@ -1378,7 +1377,7 @@ async function sendToObsidian() {
   const baseUrl = String(state.settings.obsidianApiBaseUrl || "").trim();
   const apiKey = String(state.settings.obsidianApiKey || "").trim();
   if (!baseUrl || !apiKey) {
-    setMessage("请先在设置中填写 Obsidian Local REST API 地址和 API Key。");
+    setMessage("请先在设置页填写 Obsidian Local REST API 地址和 API Key。");
     requestOpenOptions();
     return;
   }
@@ -1390,7 +1389,7 @@ async function sendToObsidian() {
       const aiSection = state.settings.includeAiChatInNote === false ? "" : BocNote.buildAiSection(state.aiTurns);
       const choice = await confirmOverwriteNote(filepath, { hasAiSection: Boolean(aiSection) });
       if (!choice) {
-        setMessage(aiSection ? "已取消保存，原笔记未被覆盖。" : "笔记已存在，无新的 AI 问答，未改动。");
+        setMessage(aiSection ? "已取消写入 Obsidian，原笔记未被覆盖。" : "笔记已存在，无新的 AI 问答，未改动。");
         return;
       }
       if (choice === "ai") {
@@ -1409,7 +1408,7 @@ async function sendToObsidian() {
       setMessage("扩展刚刚更新，请刷新当前页面后重试。");
       return;
     }
-    setMessage(`写入失败：${getErrorMessage(error)}`);
+    setMessage(`写入 Obsidian 失败：${getErrorMessage(error)}`);
   }
 }
 
@@ -1459,7 +1458,7 @@ function confirmOverwriteNote(filepath, { hasAiSection = false } = {}) {
         <div class="boc-confirm-body">只更新 AI 问答：保留原笔记，只替换标记之间的「AI 问答」段落。整篇覆盖：替换全部内容。</div>
         <div class="boc-confirm-path"></div>
         <div class="boc-confirm-actions">
-          <button type="button" class="boc-confirm-cancel" data-choice="full">整篇覆盖</button>
+          <button type="button" class="boc-confirm-danger" data-choice="full">整篇覆盖</button>
           <button type="button" class="boc-confirm-cancel" data-choice="">取消</button>
           <button type="button" class="boc-confirm-primary" data-choice="ai">只更新 AI 问答</button>
         </div>
@@ -1471,7 +1470,7 @@ function confirmOverwriteNote(filepath, { hasAiSection = false } = {}) {
         <div class="boc-confirm-body">没有新的 AI 问答可更新。整篇覆盖会替换全部内容：</div>
         <div class="boc-confirm-path"></div>
         <div class="boc-confirm-actions">
-          <button type="button" class="boc-confirm-cancel" data-choice="full">整篇覆盖</button>
+          <button type="button" class="boc-confirm-danger" data-choice="full">整篇覆盖</button>
           <button type="button" class="boc-confirm-primary" data-choice="">取消</button>
         </div>
       </div>
@@ -2184,7 +2183,7 @@ function renderReadingInfoPanel() {
       return;
     }
     descriptionBtn.hidden = false;
-    descriptionBtn.textContent = state.readingDescriptionExpanded ? "收起简介" : "查看更多";
+    descriptionBtn.textContent = state.readingDescriptionExpanded ? "收起简介" : "展开简介";
   }
 }
 
