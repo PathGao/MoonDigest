@@ -1092,7 +1092,7 @@ function renderListHeader(list) {
   } else if (t === "read" && S.mediaId === REMOVED) {
     const c = S.removedCheck;
     if (c) html = c.error ? `<span class="fail-text">${esc(c.error)}</span>` : `<span class="muted" aria-busy="true">正在核对 ${c.done} / ${c.total} 个收藏夹，重新收藏的会自动移出</span>`;
-    html += `<span class="muted">已不在任何收藏夹里的视频，AI 分析、备注和标签都还留着。需要的先批量导出，再清理。</span>
+    html += `<span class="muted">离开了你勾选的所有收藏夹的视频，AI 分析、备注和标签都还留着。需要的先批量导出，再清理。</span>
       ${headBtn("export-read", "批量导出…", "", !list.length)}${headBtn("clean-removed", `清理这 ${list.length} 个`, "danger", !list.length)}`;
   } else if (t === "read") {
     const options = [["all", "全部"], ...STAGES]

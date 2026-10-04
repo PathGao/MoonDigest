@@ -14,7 +14,7 @@ const byLabel = Object.fromEntries(rows.map((row) => [row.label, row]));
 assert.strictEqual(byLabel["字幕缓存"].usage, `12 / ${L.SUBTITLE_CACHE_ENTRIES} 条`);
 assert.ok(byLabel["字幕缓存"].rule.includes(`${L.SUBTITLE_CACHE_DAYS} 天`));
 assert.strictEqual(byLabel["AI 对话"].usage, `23 / ${L.AI_CONVERSATIONS} 段`);
-assert.strictEqual(byLabel["分拣结果（粗分 + 细看）"].usage, "7 条");
+assert.strictEqual(byLabel["分拣结果（粗看 + 细看）"].usage, "7 条");
 assert.ok(byLabel["AI 每次请求读的字幕"].usage.includes("60,000"));
 assert.ok(byLabel["AI 每次请求带的历史"].usage.includes("40,000"));
 assert.ok(!byLabel["分拣台最近取消收藏"] && !byLabel["分拣台撤销"], "display counts are not storage rows");
