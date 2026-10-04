@@ -1922,17 +1922,6 @@ function buildCsv() {
   return "﻿" + rows.map((r) => r.map(csvField).join(",")).join("\r\n") + "\r\n";
 }
 
-function downloadText(filename, text, type) {
-  const url = URL.createObjectURL(new Blob([text], { type }));
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = filename;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  setTimeout(() => URL.revokeObjectURL(url), 1000);
-}
-
 // ---------- events ----------
 function bindEvents() {
   el.folderSelect.addEventListener("change", () => openFolder(el.folderSelect.value));
@@ -2075,7 +2064,7 @@ function bindEvents() {
   el.openOptionsBtn.addEventListener("click", () => send({ type: "open-options" }));
   el.backupBtn.addEventListener("click", async () => {
     try {
-      downloadText(`MoonDigest备份-${stamp()}.json`, JSON.stringify(await buildBackup(), null, 2), "application/json");
+      BocDownload.text(`MoonDigest备份-${stamp()}.json`, JSON.stringify(await buildBackup(), null, 2), "application/json");
     } catch (err) {
       toast(`导出备份失败：${err.message}`, true);
     }
@@ -2086,7 +2075,7 @@ function bindEvents() {
       return;
     }
     const title = (S.folders.find((f) => String(f.id) === S.mediaId)?.title || S.mediaId).replace(/[\\/:*?"<>|]/g, "_");
-    downloadText(`MoonDigest-${title}-${stamp(new Date(), false)}.csv`, buildCsv(), "text/csv;charset=utf-8");
+    BocDownload.text(`MoonDigest-${title}-${stamp(new Date(), false)}.csv`, buildCsv(), "text/csv;charset=utf-8");
   });
   el.cleanCacheBtn.addEventListener("click", cleanCache);
   el.helpBtn.addEventListener("click", () => el.helpDialog.showModal());
