@@ -46,7 +46,7 @@
         <div id="syncDetail" class="sync-detail" hidden></div>
       </div>
 
-      <div class="main">
+      <div id="main" class="main">
         <section class="listpane">
           <div class="stagebar">
             <nav id="tabs" class="tabs" role="tablist" aria-label="分拣进度"></nav>
@@ -71,6 +71,17 @@
               <button id="basketNextBtn" type="button" aria-label="在新标签页打开清单里的第一个视频">看下一个</button>
             </div>
           </div>
+        </aside>
+
+        <!-- The video page itself: likes, coins, favorites and comments work as on Bilibili. -->
+        <aside id="viewer" class="viewer" hidden>
+          <div class="viewer-head">
+            <strong id="viewerTitle" class="viewer-title"></strong>
+            <button id="viewerTabBtn" type="button" aria-label="在新标签页打开">新标签页打开</button>
+            <button id="viewerCloseBtn" type="button" class="icon" aria-label="关闭视频栏 (Esc)">×</button>
+          </div>
+          <!-- No allow-top-navigation: the page breaks out of frames by navigating the top window. -->
+          <iframe id="viewerFrame" class="viewer-frame" title="视频页" sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox allow-modals allow-presentation" allow="autoplay; fullscreen; picture-in-picture; clipboard-write"></iframe>
         </aside>
       </div>
     </div>
@@ -272,7 +283,7 @@
           <dt>E</dt><dd>加入优先看 / 移出</dd>
           <dt>Q</dt><dd>问 AI（在侧边栏打开这个视频）</dd>
           <dt>X</dt><dd>选中 / 取消选中（粗看完成、细看完成的按钮、批量打标签和批量导出可只处理选中的）</dd>
-          <dt>O / Enter</dt><dd>打开视频</dd>
+          <dt>O / Enter</dt><dd>在右侧打开视频页（Esc 关闭）</dd>
           <dt>I</dt><dd>批量打标签</dd>
           <dt>/</dt><dd>搜索（Esc 清空）</dd>
           <dt>U</dt><dd>撤销上一步</dd>

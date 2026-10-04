@@ -215,6 +215,7 @@ const S = {
   lastSyncAt: 0,
   syncing: false,
   aiHistory: [],
+  viewing: "",
   ai: { running: false, stop: false, proposal: null }
 };
 
@@ -236,6 +237,7 @@ const el = {};
   "aiBtn", "aiForm", "aiScope", "aiScopeCount", "aiInstruction", "aiHistory",
   "aiTagsPreview", "aiProgress", "aiCloseBtn", "aiStopBtn", "aiRunBtn",
   "aiReview", "aiReviewSummary", "aiNotes", "aiNewTags", "aiAllBtn", "aiNoneBtn", "aiRows", "aiDiscardBtn", "aiApplyBtn",
+  "main", "viewer", "viewerTitle", "viewerTabBtn", "viewerCloseBtn", "viewerFrame",
   "writeBtn", "writeDialog", "writeScope", "writeFormat", "writeScopeCount", "writeOverwriteRow", "writeOverwrite", "writeProgress", "writeFailed", "writeStopBtn", "writeCopyBtn", "writeRunBtn", "writeMdBtn"
 ].forEach((id) => (el[id] = $(id)));
 
@@ -2683,6 +2685,8 @@ function bindEvents() {
   });
 
   document.addEventListener("keydown", onKey);
+  el.viewerCloseBtn.addEventListener("click", closeViewer);
+  el.viewerTabBtn.addEventListener("click", () => openTab(videoUrl(S.viewing)));
 
   el.settingsBtn.addEventListener("click", () => openSettings());
   for (const input of [el.thinkingInput, el.batchSizeInput, el.titleMaxInput, el.analyzeMaxInput]) {
@@ -2936,10 +2940,28 @@ function openSettings(scrollToLimits = false) {
   if (scrollToLimits) el.titleMaxInput.scrollIntoView({ block: "center" });
 }
 
+function openViewer(it) {
+  S.viewing = it.bvid;
+  el.viewerTitle.textContent = it.title;
+  el.viewerFrame.src = videoUrl(it.bvid);
+  el.viewer.hidden = false;
+  el.main.classList.add("viewing");
+}
+
+// Likes, coins and favorites happen on Bilibili's own page, so the folder is re-read once the viewer closes.
+function closeViewer() {
+  if (!S.viewing) return;
+  S.viewing = "";
+  el.viewerFrame.src = "about:blank";
+  el.viewer.hidden = true;
+  el.main.classList.remove("viewing");
+  if (inFolderView()) syncFolder({ force: true });
+}
+
 function cardAction(act, bvid) {
   const it = S.itemMap.get(bvid);
   if (!it) return;
-  if (act === "open") openTab(videoUrl(bvid));
+  if (act === "open") openViewer(it);
   else if (act === "ask") askAi(it);
   else if (act === "unfav") decide(bvid, "unfav");
   else if (act === "keep") decide(bvid, "keep");
@@ -2975,7 +2997,8 @@ function onKey(e) {
   };
   const nav = { j: 1, ArrowDown: 1, k: -1, ArrowUp: -1 };
   const cardKeys = { d: "unfav", s: "keep", t: "tag", e: "basket", q: "ask", x: "select", o: "open", Enter: "open" };
-  if (map[key]) map[key]();
+  if (key === "Escape" && S.viewing) closeViewer();
+  else if (map[key]) map[key]();
   else if (S.mediaId === REMOVED) return;
   else if (nav[key]) moveFocus(nav[key]);
   else if (key === "u") undo();
