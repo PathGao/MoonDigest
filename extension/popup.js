@@ -14,6 +14,8 @@ const el = {
   sendBtn: document.getElementById("sendBtn"),
   summaryBtn: document.getElementById("summaryBtn"),
   triageBtn: document.getElementById("triageBtn"),
+  triageHint: document.getElementById("triageHint"),
+  historyBtn: document.getElementById("historyBtn"),
   readingViewBtn: document.getElementById("readingViewBtn"),
   settingsBtn: document.getElementById("settingsBtn")
 };
@@ -40,7 +42,7 @@ async function init() {
   });
   getActiveTab().then((tab) => {
     // Any bilibili host, so favorites pages on space.bilibili.com count too.
-    el.triageBtn.hidden = !/(^|\.)bilibili\.com$/.test(URL.parse(tab?.url || "")?.hostname || "");
+    el.triageHint.hidden = /(^|\.)bilibili\.com$/.test(URL.parse(tab?.url || "")?.hostname || "");
   });
   await refreshFromTab();
 }
@@ -178,10 +180,12 @@ function bindEvents() {
     window.setTimeout(() => window.close(), 80);
   });
 
-  el.triageBtn.addEventListener("click", async () => {
-    await chrome.tabs.create({ url: chrome.runtime.getURL("triage/triage.html") });
-    window.close();
-  });
+  for (const [btn, page] of [[el.triageBtn, "triage/triage.html"], [el.historyBtn, "history/history.html"]]) {
+    btn.addEventListener("click", async () => {
+      await chrome.tabs.create({ url: chrome.runtime.getURL(page) });
+      window.close();
+    });
+  }
 }
 
 async function refreshFromTab() {
