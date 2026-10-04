@@ -55,6 +55,13 @@ body {
   stroke-linejoin: round;
 }
 
+/* While fetching, the refresh icon itself spins instead of the shared spinner. */
+.icon-btn[aria-busy="true"]::before { content: none; }
+.icon-btn[aria-busy="true"] svg { animation: busy-spin 0.8s linear infinite; }
+@media (prefers-reduced-motion: reduce) {
+  .icon-btn[aria-busy="true"] svg { animation: none; }
+}
+
 /* Refresh only stands out when the last fetch failed. */
 .icon-btn.is-error {
   color: var(--danger);
