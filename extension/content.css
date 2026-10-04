@@ -450,6 +450,38 @@ html[data-boc-reader-mode="1"][data-boc-reader-theme="dark"] {
   display: none;
 }
 
+/* A 正在… notice: gray with the spinner tokens.css gives extension pages (content.css cannot link tokens.css). */
+.boc-reading-status[aria-busy="true"] {
+  background: var(--boc-surface);
+  border-color: var(--boc-border-strong);
+  color: var(--boc-text-2);
+}
+
+.boc-reading-status[aria-busy="true"]::before {
+  content: "";
+  display: inline-block;
+  width: 0.9em;
+  height: 0.9em;
+  margin-right: 6px;
+  vertical-align: -0.12em;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: boc-busy-spin 0.8s linear infinite;
+}
+
+@keyframes boc-busy-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .boc-reading-status[aria-busy="true"]::before {
+    animation: none;
+  }
+}
+
 .boc-reading-actions {
   display: flex;
   align-items: center;

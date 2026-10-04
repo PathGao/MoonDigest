@@ -1375,6 +1375,12 @@ async function sendToObsidian() {
   }
 
   const noteKey = BocSites.buildContextKey({ site: state.site, videoId: state.videoId, cid: state.cid });
+  // Answering the dialog closes the popup, so after it progress and results also show on the page.
+  let onPage = false;
+  const report = (text, ok) => {
+    setMessage(text);
+    if (onPage) setReadingNotice(text, { hideMs: ok ? 3000 : 0 });
+  };
   try {
     const exists = await checkObsidianNoteExists(baseUrl, apiKey, filepath);
     if (exists) {
@@ -1384,23 +1390,25 @@ async function sendToObsidian() {
         setMessage(aiSection ? "已取消写入 Obsidian，原笔记未被覆盖。" : "笔记已存在，无新的 AI 问答，未改动。");
         return;
       }
+      onPage = true;
+      setReadingNotice("正在写入 Obsidian…", { busy: true });
       if (choice === "ai") {
         const resp = await sendRuntimeMessage({ type: "update-obsidian-ai-section", baseUrl, apiKey, filepath, section: aiSection, noteKey });
         if (!resp?.ok) {
           throw new Error(toReadableText(resp?.error, "Local API 写入失败"));
         }
-        setMessage(`已更新 AI 问答：${filepath}`);
+        report(`已更新 AI 问答：${filepath}`, true);
         return;
       }
     }
     await writeNoteByLocalApi(baseUrl, apiKey, filepath, state.markdown, { url: state.cover, name: `${state.site}-${state.videoId}` }, noteKey);
-    setMessage(`已写入 Obsidian：${filepath}`);
+    report(`已写入 Obsidian：${filepath}`, true);
   } catch (error) {
     if (isExtensionContextInvalidated(error)) {
-      setMessage("扩展刚刚更新，请刷新当前页面后重试。");
+      report("扩展刚刚更新，请刷新当前页面后重试。");
       return;
     }
-    setMessage(`写入 Obsidian 失败：${getErrorMessage(error)}`);
+    report(`写入 Obsidian 失败：${getErrorMessage(error)}`);
   }
 }
 
@@ -1558,14 +1566,17 @@ async function enterReaderMode() {
   await sleep(0);
 
   // Try to mount player, with more retries for slower pages (like watch later)
+  // The view stays hidden until the player is in, so say so unless that is instant.
+  const waitNotice = window.setTimeout(() => state.readingViewOpen && setReadingNotice("正在等待视频播放器就绪...", { busy: true }), 150);
   const mounted = await ensureReaderPlayerMounted({ retries: 50, delayMs: 150, forceLayout: true });
+  window.clearTimeout(waitNotice);
   const mountedPlayerHost = state.readingPlayerHost || earlyPlayerHost;
   if (mountedPlayerHost) {
     mountedPlayerHost.removeAttribute("data-boc-reader-fading");
   }
   if (!mounted) {
     // Don't throw - keep UI open and keep retrying in background
-    setReadingNotice("正在等待视频播放器就绪...");
+    setReadingNotice("正在等待视频播放器就绪...", { busy: true });
     scheduleReaderPlayerRetry();
     return;
   }
@@ -1665,7 +1676,7 @@ function syncReaderModeAfterMount() {
 function settleReaderModePresentation() {
   if (!isReaderPresentationStable()) {
     setReadingViewReady(false);
-    setReadingNotice("正在等待视频播放器就绪...");
+    setReadingNotice("正在等待视频播放器就绪...", { busy: true });
     scheduleReaderPlayerRetry();
     return false;
   }
@@ -1909,7 +1920,8 @@ function renderReadingView() {
 }
 
 function getReadingTranscriptPlaceholderText() {
-  if (state.subtitleFetchState === "loading") {
+  // idle: the video just changed and its fetch has not started yet.
+  if (state.subtitleFetchState === "loading" || state.subtitleFetchState === "idle") {
     return "正在加载字幕...";
   }
   if (state.subtitleFetchState === "error") {
@@ -2228,10 +2240,14 @@ function buildReadingMetaLine() {
 
 // Errors and waits only; an empty text hides the notice. It sits outside the
 // reading view, which stays invisible until the player is ready.
-function setReadingNotice(text) {
+// busy: a 正在… notice (gray, spinner); hideMs: a result that clears itself.
+function setReadingNotice(text, { busy = false, hideMs = 0 } = {}) {
   const notice = byId(ids.readingStatus);
+  window.clearTimeout(state.readingNoticeTimer);
   notice.textContent = text;
   notice.hidden = !text;
+  notice.setAttribute("aria-busy", String(busy));
+  if (hideMs) state.readingNoticeTimer = window.setTimeout(() => setReadingNotice(""), hideMs);
 }
 
 function setReadingViewReady(ready) {
@@ -3433,6 +3449,7 @@ async function handlePlayerAiQuickActionClick(event) {
     setMessage("已打开侧边栏，开始 AI 总结。");
   } catch (error) {
     setMessage(`AI 总结失败：${getErrorMessage(error)}`);
+    setReadingNotice(`AI 总结失败：${getErrorMessage(error)}`);
   } finally {
     state.playerAiQuickActionSubmitting = false;
     if (button) {

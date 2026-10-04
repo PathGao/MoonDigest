@@ -107,6 +107,8 @@
       const f = folders.find((x) => String(x.id) === String(mediaId));
       if (!f) return { ok: false, error: "收藏夹不存在" };
       lastMediaId = f.id;
+      // Like the background: one triage-folder-page broadcast per finished page while more pages follow.
+      for (let page = 1; page * 20 < f.items.length; page++) msgListeners.forEach((fn) => fn({ type: "triage-folder-page", mediaId: String(f.id), page }));
       // __mockPartial = true simulates page 2 failing: only the first 20 items come back.
       if (globalThis.__mockPartial && f.items.length > 20) {
         return { ok: true, data: { items: f.items.slice(0, 20).map(pub), partial: { page: 2, error: "B站返回 -352: 风控校验失败" } } };
@@ -238,6 +240,7 @@
     return { removed: victims.map((it) => it.title), reAdded: back?.[1].item.title || null };
   };
 
+  const msgListeners = [];
   const prev = globalThis.chrome || {};
   globalThis.chrome = Object.assign(prev, {
     runtime: {
@@ -245,6 +248,7 @@
       lastError: undefined,
       getManifest: () => ({ version: "dev" }),
       getURL: (p) => new URL(`../${p}`, location.href).href,
+      onMessage: { addListener: (fn) => msgListeners.push(fn) },
       sendMessage(msg, cb) {
         (async () => {
           await wait(150);

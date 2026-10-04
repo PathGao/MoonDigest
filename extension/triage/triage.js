@@ -233,6 +233,20 @@ function askAi(it) {
   chrome.sidePanel.open({ tabId: ownTabId }).catch((err) => toast(`打开侧边栏失败：${err.message}`, true));
 }
 
+// Busy button: disabled + aria-busy (tokens.css draws the spinner) + 「…中」 text; false restores it.
+function setBusy(btn, text) {
+  if (text) {
+    btn.dataset.idle ??= btn.innerHTML;
+    btn.textContent = text;
+  } else if (btn.dataset.idle != null) {
+    btn.innerHTML = btn.dataset.idle;
+    delete btn.dataset.idle;
+  }
+  btn.disabled = Boolean(text);
+  if (text) btn.setAttribute("aria-busy", "true");
+  else btn.removeAttribute("aria-busy");
+}
+
 let toastTimer = 0;
 let noteTimer = 0;
 function toast(text, error = false) {
@@ -401,6 +415,13 @@ async function init() {
       render();
     }
   });
+  chrome.runtime.onMessage.addListener((msg) => {
+    if (msg?.type !== "triage-folder-page") return;
+    S.loadPage = { mediaId: msg.mediaId, page: msg.page };
+    renderTop();
+    if (S.loadAll) renderListHeader(visibleItems());
+    else if (!S.items.length && msg.mediaId === String(S.mediaId)) el.list.innerHTML = loadingHtml();
+  });
   renderBasket();
   await loadFolders();
   setInterval(tick, 1000);
@@ -426,8 +447,17 @@ async function loadTagsAndCriteria() {
   return out;
 }
 
+// 「（p/P 页）」 while a folder of more than one page (20 videos each) loads.
+function pageText(mediaId) {
+  const pages = Math.ceil(Number(S.folders.find((f) => String(f.id) === String(mediaId))?.count || 0) / 20);
+  const done = S.loadPage?.mediaId === String(mediaId) ? S.loadPage.page : 0;
+  return pages > 1 ? `（${Math.min(done, pages)}/${pages} 页）` : "";
+}
+const loadingHtml = () => `<p class="empty">正在加载收藏夹…${pageText(S.mediaId)}</p>`;
+
 async function loadFolders() {
   el.banner.hidden = true;
+  el.list.innerHTML = `<p class="empty">正在加载收藏夹列表…</p>`;
   const r = await send({ type: "triage-folders" });
   if (!r.ok) {
     const needLogin = r.code === "NOT_LOGGED_IN" || /登录/.test(r.error || "");
@@ -474,7 +504,7 @@ async function openFolder(mediaId) {
   S.status = "";
   el.syncNotice.hidden = true;
   storeSet(K.lastFolder, mediaId);
-  el.list.innerHTML = `<p class="empty">加载中…</p>`;
+  el.list.innerHTML = loadingHtml();
   const ok = all ? await openAll() : await syncFolder({ force: true });
   if (!ok) return;
   S.tab = currentStage(stageCounts());
@@ -490,7 +520,9 @@ async function syncFolder({ force = false } = {}) {
   if (S.syncing === S.folderToken || (!force && Date.now() - S.lastSyncAt < SYNC_MIN_GAP_MS)) return false;
   const token = S.folderToken;
   S.syncing = token;
+  S.loadPage = null;
   const mediaId = S.mediaId;
+  renderTop();
   try {
     const r = await send({ type: "triage-folder-items", mediaId });
     if (token !== S.folderToken) return false;
@@ -549,6 +581,7 @@ async function syncFolder({ force = false } = {}) {
     return true;
   } finally {
     if (S.syncing === token) S.syncing = false;
+    renderTop();
   }
 }
 
@@ -629,6 +662,7 @@ async function runLoadAll(token) {
   render();
   while (L.queue.length && keepGoing()) {
     const id = L.queue[0];
+    S.loadPage = null;
     const r = await send({ type: "triage-folder-items", mediaId: id });
     if (token !== S.folderToken) return;
     if (!r.ok) {
@@ -667,10 +701,11 @@ function loadAllLine() {
   const loaded = n - L.queue.length;
   const partial = L.partial ? `（${L.partial} 个只加载了部分）` : "";
   if (!L.queue.length) return `<span class="muted">${n} 个收藏夹 · ${S.items.length} 个视频${partial}</span>`;
+  const now = L.running && !L.paused ? ` · 正在加载「${esc(folderName(L.queue[0]))}」${pageText(L.queue[0])}` : "";
   const btn = L.paused
     ? `<button type="button" class="link" data-head="all-resume" aria-label="继续加载收藏夹">继续</button>`
     : `<button type="button" class="link" data-head="all-pause" aria-label="暂停加载收藏夹">暂停</button>`;
-  return `<span class="muted">已加载 ${loaded} / ${n} 个收藏夹${partial} · ${btn}</span>${L.error ? `<span class="fail-text">${esc(L.error)}</span>` : ""}`;
+  return `<span class="muted">已加载 ${loaded} / ${n} 个收藏夹${partial}${now} · ${btn}</span>${L.error ? `<span class="fail-text">${esc(L.error)}</span>` : ""}`;
 }
 
 const folderName = (id) => S.folders.find((f) => String(f.id) === String(id))?.title || String(id);
@@ -721,6 +756,7 @@ function renderTop() {
   const deep = S.items.filter((it) => S.analyses[it.bvid]?.status === "done").length;
   const processed = S.items.filter((it) => isProcessed(it.bvid)).length;
   el.progress.textContent = `已粗分 ${classified} / ${total} · 已细看 ${deep} · 已处理 ${processed}`;
+  setBusy(el.refreshBtn, (S.syncing || S.loadAll?.running) && `刷新中…${S.syncing ? pageText(S.mediaId) : ""}`);
   el.aiBtn.textContent = S.ai.running ? "AI 指令 · 运行中" : S.ai.proposal ? "AI 指令 · 待确认" : "AI 指令";
   renderStatus();
 }
@@ -767,8 +803,8 @@ function renderTabs() {
     : `<span class="muted">还没有标签</span> · <button type="button" class="link" data-tags-open aria-label="新建标签">新建标签</button>`;
 }
 
-const headBtn = (act, label, cls = "", disabled = false, verdict = "", title = "") =>
-  `<button type="button"${cls ? ` class="${cls}"` : ""} data-head="${act}"${verdict ? ` data-verdict="${verdict}"` : ""} aria-label="${esc(label)}"${title ? ` title="${esc(title)}"` : ""}${disabled ? " disabled" : ""}>${esc(label)}</button>`;
+const headBtn = (act, label, cls = "", disabled = false, verdict = "", title = "", busy = false) =>
+  `<button type="button"${cls ? ` class="${cls}"` : ""} data-head="${act}"${verdict ? ` data-verdict="${verdict}"` : ""} aria-label="${esc(label)}"${title ? ` title="${esc(title)}"` : ""}${busy ? ' aria-busy="true"' : ""}${disabled ? " disabled" : ""}>${esc(label)}</button>`;
 
 // The folder's 判断标准 next to the 粗分/细看 button; clicking it opens the editor.
 function criteriaLine() {
@@ -820,6 +856,8 @@ function renderListHeader(list) {
     const sel = selectedIn(list).length;
     const f = S.classFilter.act;
     const batchBtn = (route, verdict = "") => {
+      const run = S.unfavBatch?.token === S.folderToken && S.unfavBatch;
+      if (route === "unfav" && run) return headBtn("batch-unfav", `取消收藏中 ${run.done}/${run.total}`, "danger", true, "", "", true);
       const n = batchList(verdict || null).length;
       const verb = route === "unfav" ? "取消收藏" : "保留";
       return headBtn(`batch-${route}`, verdict ? `${verb}（AI：${VERDICTS[verdict]}）${n} 个` : `${verb}选中的 ${n} 个`, route === "unfav" ? "danger" : "", !n, verdict, route === "keep" ? KEEP_TIP : "");
@@ -863,7 +901,7 @@ function recentUnfavHtml() {
     .map(([b, d]) => {
       const title = esc(d.title || b);
       return `<li><span class="recent-title">${title}</span><span class="muted">${esc(fmtTime(d.at))}</span>
-        <button type="button" data-refav="${esc(b)}" aria-label="重新收藏 ${title}">重新收藏</button></li>`;
+        ${refaving.has(b) ? `<button type="button" aria-busy="true" disabled>重新收藏中…</button>` : `<button type="button" data-refav="${esc(b)}" aria-label="重新收藏 ${title}">重新收藏</button>`}</li>`;
     })
     .join("");
   return `<section class="recent-unfav" aria-label="最近取消收藏"><h3>最近取消收藏 <span class="muted">${list.length}</span></h3><ul>${rows}</ul></section>`;
@@ -875,9 +913,11 @@ async function refavRecent(bvid) {
   if (!d?.aid || refaving.has(bvid)) return;
   const mediaId = S.mediaId;
   refaving.add(bvid);
+  render();
   const r = await send({ type: "triage-refav", mediaId, aid: d.aid });
   refaving.delete(bvid);
   if (!r.ok) {
+    render();
     toast(`重新收藏失败：${r.error}`, true);
     return;
   }
@@ -894,7 +934,7 @@ function renderList() {
   // 保留 only marks the video here, while 取消收藏 changed Bilibili; say so where both end up.
   const recent = S.tab === "done" ? `<p class="muted tab-note">已保留：${KEEP_TIP}。已取消收藏：已从 B 站收藏夹移走，最近的操作可按 U 撤销。</p>${recentUnfavHtml()}` : "";
   if (!S.items.length) {
-    el.list.innerHTML = `<p class="empty">${S.loadAll?.queue.length ? "加载中…" : "这个收藏夹是空的"}</p>${recent}`;
+    el.list.innerHTML = `<p class="empty">${S.loadAll?.queue.length ? "正在加载收藏夹…" : "这个收藏夹是空的"}</p>${recent}`;
     return;
   }
   if (!list.length) {
@@ -1012,7 +1052,7 @@ function cardHtml(it, expanded, mark) {
             <button type="button" data-act="select" class="${S.selected.has(b) ? "on" : ""}" aria-pressed="${S.selected.has(b)}" aria-label="选中 (X)">选中<kbd class="key">X</kbd></button>
           </span>
           <button type="button" data-act="keep" class="${keepCls}" aria-label="保留 (S)" title="只在 MoonDigest 里标记，B 站收藏夹不变"${decision ? " disabled" : ""}>保留<kbd class="key">S</kbd></button>
-          <button type="button" data-act="unfav" class="${unfavCls}" aria-label="取消收藏 (D)"${decision?.action === "unfav" ? " disabled" : ""}>取消收藏<kbd class="key">D</kbd></button>
+          ${deciding.has(b) ? `<button type="button" aria-busy="true" disabled>正在取消收藏…</button>` : `<button type="button" data-act="unfav" class="${unfavCls}" aria-label="取消收藏 (D)"${decision?.action === "unfav" ? " disabled" : ""}>取消收藏<kbd class="key">D</kbd></button>`}
         </div>
       </div>
     </div>
@@ -1108,8 +1148,9 @@ async function decide(bvid, action) {
   // 所有收藏夹 items carry .folders: 保留 marks every folder, 取消收藏 asks which when there are several.
   let folders = it.folders ? [...it.folders] : [S.mediaId];
   if (action === "unfav" && folders.length > 1) folders = await pickUnfavFolders(it);
-  if (action === "unfav") {
+  if (action === "unfav" && folders.length) {
     deciding.add(bvid);
+    render();
     const done = [];
     for (const f of folders) {
       const r = await send({ type: "triage-unfav", mediaId: f, aids: [it.aid] });
@@ -1120,6 +1161,7 @@ async function decide(bvid, action) {
       done.push(f);
     }
     deciding.delete(bvid);
+    if (!done.length) render();
     folders = done;
   }
   if (!folders.length) return;
@@ -1144,6 +1186,7 @@ async function undo() {
   if (entry.kind === "decision") {
     const it = S.itemMap.get(entry.bvid);
     const token = S.folderToken;
+    if (entry.action === "unfav") toast(`正在重新收藏《${shortTitle(it)}》…`);
     for (const [mediaId, prev] of Object.entries(entry.prevs)) {
       if (entry.action === "unfav") {
         const r = await send({ type: "triage-refav", mediaId, aid: it.aid });
@@ -1170,6 +1213,7 @@ async function undo() {
     while (rest.length && token === S.folderToken) {
       if (n) await new Promise((r) => setTimeout(r, 300));
       if (token !== S.folderToken) break;
+      toast(`正在重新收藏 ${n + 1}/${entry.items.length}…`);
       const r = await send({ type: "triage-refav", mediaId, aid: rest[0].aid });
       if (!r.ok) {
         error = r.error;
@@ -1221,7 +1265,7 @@ function batchList(verdict) {
   return sel.length ? sel : verdict == null ? [] : list.filter((it) => verdictOf(it).verdict === verdict);
 }
 
-async function batchUnfav(btn, list) {
+async function batchUnfav(list) {
   if (!list.length) return;
   const titles = list.slice(0, 10).map((it) => `<li>${esc(it.title)}</li>`).join("");
   const more = list.length > 10 ? `<p>等 ${list.length} 个</p>` : "";
@@ -1229,11 +1273,14 @@ async function batchUnfav(btn, list) {
   if (!ok) return;
   const { mediaId, folderToken: token } = S;
   let done = 0;
-  btn.disabled = true;
+  S.unfavBatch = { token, done, total: list.length };
   for (let i = 0; i < list.length && token === S.folderToken; i += 20) {
     const chunk = list.slice(i, i + 20);
-    btn.textContent = `取消收藏中 ${done}/${list.length}`;
+    S.unfavBatch.done = done;
+    chunk.forEach((it) => deciding.add(it.bvid));
+    render();
     const r = await send({ type: "triage-unfav", mediaId, aids: chunk.map((it) => it.aid) });
+    chunk.forEach((it) => deciding.delete(it.bvid));
     if (!r.ok) {
       if (token === S.folderToken) toast(`批量取消收藏失败（已完成 ${done} 个）：${r.error}`, true);
       break;
@@ -1243,6 +1290,7 @@ async function batchUnfav(btn, list) {
     done += chunk.length;
     if (i + 20 < list.length && token === S.folderToken) await new Promise((r2) => setTimeout(r2, 1000));
   }
+  S.unfavBatch = null;
   // After a folder switch the finished chunks are saved under their folder and listed in its 最近取消收藏.
   if (token !== S.folderToken) return;
   if (done) {
@@ -1617,7 +1665,7 @@ function renderAiForm() {
         .map((h, i) => `<button type="button" class="chip" data-h="${i}" title="${esc(h)}" aria-label="使用指令 ${esc(h)}">${esc(h.length > 18 ? `${h.slice(0, 18)}…` : h)}</button>`)
         .join("")
     : "";
-  el.aiRunBtn.disabled = S.ai.running;
+  setBusy(el.aiRunBtn, S.ai.running && "运行中…");
   el.aiStopBtn.hidden = !S.ai.running;
 }
 
@@ -1649,7 +1697,7 @@ async function runAiCommand() {
   renderAiForm();
   renderTop();
   for (let i = 0; i < total && keepGoing(); i++) {
-    el.aiProgress.textContent = `正在处理第 ${i + 1} / ${total} 批…`;
+    el.aiProgress.textContent = `AI 正在处理第 ${i + 1} / ${total} 批…`;
     const batch = items.slice(i * size, (i + 1) * size);
     const r = await send({ type: "triage-ai-command", instruction, items: batch.map(aiCommandItem), tags: tagNames, allowVerdict: opts.allowVerdict });
     if (!r.ok) {
@@ -1963,6 +2011,10 @@ async function digestMarkdown() {
 // how: copy | download | obsidian
 async function exportDigest(how) {
   const filename = `B站摘录-${stamp()}.md`;
+  if (how === "obsidian") {
+    setBusy(el.writeRunBtn, "写入中…");
+    el.writeProgress.textContent = "正在写入 Obsidian…";
+  }
   const markdown = await digestMarkdown();
   if (how === "copy") {
     await navigator.clipboard.writeText(markdown).then(
@@ -1973,9 +2025,8 @@ async function exportDigest(how) {
     BocDownload.text(filename, markdown);
     el.writeProgress.textContent = `已下载 ${filename}`;
   } else {
-    el.writeRunBtn.disabled = true;
     const r = await send({ type: "triage-export", filename, markdown });
-    el.writeRunBtn.disabled = false;
+    setBusy(el.writeRunBtn, false);
     el.writeProgress.textContent = r.ok ? `已写入 ${r.data?.path || filename}` : `写入 Obsidian 失败：${r.error}`;
   }
 }
@@ -2113,7 +2164,9 @@ async function cleanCache() {
     toast("收藏夹列表还没加载，无法判断哪些缓存已失效", true);
     return;
   }
+  setBusy(el.cleanCacheBtn, "检查中…");
   const plan = staleCacheKeys(await chrome.storage.local.get(null), S.folders.map((f) => f.id), S.items.map((it) => it.bvid));
+  setBusy(el.cleanCacheBtn, false);
   if (!plan.keys.length) {
     toast("没有可清理的缓存");
     return;
@@ -2122,7 +2175,9 @@ async function cleanCache() {
   const body = `<p>将删除 ${plan.videos} 个已不在任何收藏夹里的视频的缓存（标题粗分 ${plan.title} 条、细看分析 ${plan.analysis} 条、AI 改判 ${plan.override} 条）${folders}。</p>
     <p>这些视频的 AI 判断和摘要会一并删除，无法撤销；需要保留请先导出完整备份。标签、视频标签和优先看不受影响。</p>`;
   if (!(await askConfirm("清理缓存？", body, `删除 ${plan.keys.length} 条缓存`))) return;
+  setBusy(el.cleanCacheBtn, "清理中…");
   await chrome.storage.local.remove(plan.keys);
+  setBusy(el.cleanCacheBtn, false);
   toast(`已清理 ${plan.keys.length} 条缓存`);
 }
 
@@ -2233,7 +2288,7 @@ function bindEvents() {
       const batch = nextBatch();
       for (const b of batch) S.selected.delete(b);
       startGroup(batch);
-    } else if (act === "batch-unfav") batchUnfav(btn, batchList(btn.dataset.verdict || null));
+    } else if (act === "batch-unfav") batchUnfav(batchList(btn.dataset.verdict || null));
     else if (act === "batch-keep") batchKeep(batchList(btn.dataset.verdict || null));
     else if (act === "criteria") openCriteria();
     else if (act === "all-pause") {

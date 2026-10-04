@@ -92,8 +92,9 @@ function bindEvents() {
   });
 
   el.sendBtn.addEventListener("click", async () => {
-    setStatus("正在写入 Obsidian…");
-    const resp = await sendToContent({ type: "popup-send-obsidian" });
+    setStatus("正在写入 Obsidian…", false, true);
+    setBusy(el.sendBtn, true, "写入中…");
+    const resp = await sendToContent({ type: "popup-send-obsidian" }).finally(() => setBusy(el.sendBtn, false));
     if (!resp?.ok) {
       setStatus(`写入 Obsidian 失败：${resp?.error || "未知错误"}`, true);
       setMessage(`写入 Obsidian 失败：${resp?.error || "未知错误"}`);
@@ -108,19 +109,22 @@ function bindEvents() {
       return;
     }
 
-    const prepResp = await sendToContent({ type: "popup-get-state" });
+    setStatus("正在打开专注模式…", false, true);
+    setBusy(el.readingViewBtn, true, "打开中…");
+    const prepResp = await sendToContent({ type: "popup-get-state" }).catch((error) => ({ ok: false, error: error.message }));
     if (!prepResp?.ok) {
+      setBusy(el.readingViewBtn, false);
       setStatus(prepResp?.error || "请刷新网页重试，或当前网页不支持", true);
       setMessage(prepResp?.error || "请刷新网页重试，或当前网页不支持");
       return;
     }
 
-    setStatus("正在打开专注模式...");
     const resp = await sendToRuntime({
       type: "open-reading-view-tab",
       url: tab.url,
       tabId: tab.id
-    });
+    }).catch((error) => ({ ok: false, error: error.message }));
+    setBusy(el.readingViewBtn, false);
     if (!resp?.ok) {
       setStatus(`打开失败：${resp?.error || "未知错误"}`, true);
       setMessage(`打开失败：${resp?.error || "未知错误"}`);
@@ -137,7 +141,7 @@ function bindEvents() {
     if (!url) {
       return;
     }
-    setStatus("正在切换字幕...");
+    setStatus("正在切换字幕…", false, true);
     const resp = await sendToContent({
       type: "popup-select-subtitle",
       url,
@@ -161,20 +165,24 @@ function bindEvents() {
       setMessage("请先打开一个支持的视频页。");
       return;
     }
+    setStatus("正在打开侧边栏…", false, true);
+    setBusy(el.summaryBtn, true, "打开中…");
     // A video that already has a conversation only gets the panel, which restores that conversation.
     if (await hasConversationFor(tab.url)) {
       try {
         await chrome.sidePanel.open({ tabId: tab.id });
         window.setTimeout(() => window.close(), 80);
       } catch (error) {
-        setMessage(`打开侧边栏失败：${error?.message || error}`);
+        setBusy(el.summaryBtn, false);
+        setStatus(`打开侧边栏失败：${error?.message || error}`, true);
       }
       return;
     }
     // Same path as the player AI button: background opens the side panel and queues the one-click prompt.
     const resp = await sendToRuntime({ type: "player-ai-quick-action", tabId: tab.id, source: "popup" }).catch((error) => ({ ok: false, error: error.message }));
     if (!resp?.ok) {
-      setMessage(`AI 总结失败：${resp?.error || "未知错误"}`);
+      setBusy(el.summaryBtn, false);
+      setStatus(`AI 总结失败：${resp?.error || "未知错误"}`, true);
       return;
     }
     window.setTimeout(() => window.close(), 80);
@@ -189,8 +197,9 @@ function bindEvents() {
 }
 
 async function refreshFromTab() {
-  setStatus("正在抓取...");
-  const resp = await sendToContent({ type: "popup-refresh" });
+  setStatus("正在抓取字幕…", false, true);
+  setBusy(el.refreshBtn, true);
+  const resp = await sendToContent({ type: "popup-refresh" }).finally(() => setBusy(el.refreshBtn, false));
   el.refreshBtn.classList.toggle("is-error", !resp?.ok);
   if (!resp?.ok) {
     const errorText = resp?.error || "请在支持的视频页使用。";
@@ -268,9 +277,23 @@ function setText(node, text) {
   node.textContent = String(text || "");
 }
 
-function setStatus(text, isError = false) {
+function setStatus(text, isError = false, busy = false) {
   el.status.textContent = String(text || "");
   el.status.classList.toggle("is-error", Boolean(isError));
+  el.status.setAttribute("aria-busy", String(busy));
+}
+
+// Shared busy look from tokens.css: disabled, spinner, and the label (if any) says 「…中」 until done.
+function setBusy(button, busy, label = "") {
+  if (busy && label) {
+    button.dataset.label = button.textContent;
+    button.textContent = label;
+  } else if (!busy && button.dataset.label) {
+    button.textContent = button.dataset.label;
+    delete button.dataset.label;
+  }
+  button.disabled = busy;
+  button.setAttribute("aria-busy", String(busy));
 }
 
 function setMessage(text) {

@@ -369,3 +369,4 @@ dialog.wide { width: min(880px, calc(100% - 32px)); }
 .recent-unfav ul { margin: 0; padding: 0; list-style: none; }
 .recent-unfav li { display: flex; align-items: center; gap: 8px; padding: 4px 0; }
 .recent-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+

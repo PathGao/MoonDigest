@@ -99,6 +99,7 @@ async function closeNote() {
     if (text) stored[id] = notes[id];
     else delete stored[id];
     await chrome.storage.local.set({ triage_notes: stored });
+    setStatus(text ? "备注已保存" : "备注已删除");
   }
   if (reloadPending) {
     reloadPending = false;
@@ -141,7 +142,7 @@ function render() {
           <div class="entry-actions">
             <button type="button" data-act="ask" ${g.context.videoId ? "" : "disabled title=\"只有视频能继续问\""}>继续问</button>
             <button type="button" data-act="md">下载 .md</button>
-            ${obsidianEnabled ? `<button type="button" data-act="obsidian"${writing.has(g.key) ? " disabled" : ""}><img class="obsidian-mark" src="/icons/obsidian.svg" alt=""> 写入 Obsidian</button>` : ""}
+            ${!obsidianEnabled ? "" : writing.has(g.key) ? `<button type="button" aria-busy="true" disabled>写入中…</button>` : `<button type="button" data-act="obsidian"><img class="obsidian-mark" src="/icons/obsidian.svg" alt=""> 写入 Obsidian</button>`}
             <button type="button" data-act="delete" class="danger" ${g.convs.length ? "" : "disabled title=\"没有 AI 对话可删\""}>删除</button>
           </div>
         </article>`;
@@ -164,8 +165,11 @@ function syncBulk(groups = visibleGroups()) {
   els.clearAll.disabled = !conversations.length;
 }
 
+// 「正在…」 lines are in progress: aria-busy grays them (tokens.css) until the result replaces them.
 function setStatus(text) {
   els.status.textContent = text;
+  if (text.startsWith("正在")) els.status.setAttribute("aria-busy", "true");
+  else els.status.removeAttribute("aria-busy");
 }
 
 async function load() {
@@ -215,9 +219,10 @@ function downloadGroups(groups) {
 // 导出对话 → 写入 Obsidian (newest conversation, as auto-sync does). Without a video note, a B 站 video (P1: the
 // background builds only that) first gets the full note triage builds, at the path the side panel would use and
 // recorded for it. YouTube, other parts and web pages get the standalone AI note.
-async function saveToObsidian(group, button) {
+async function saveToObsidian(group) {
   writing.add(group.key);
-  button.disabled = true;
+  setStatus("正在写入 Obsidian…");
+  render();
   try {
     const settings = (await chrome.runtime.sendMessage({ type: "get-settings" }))?.settings || {};
     const baseUrl = String(settings.obsidianApiBaseUrl || "").trim();
@@ -244,6 +249,7 @@ async function saveToObsidian(group, button) {
       setStatus("正在生成视频笔记…");
       const built = await chrome.runtime.sendMessage({ type: "triage-build-note", bvid: group.context.videoId });
       if (!built?.ok) throw new Error(built?.error || "生成视频笔记失败");
+      setStatus("正在写入…");
       const context = { ...group.context, title: built.data.title || group.context.title };
       const folder = BocNote.resolveFolderTemplate(settings.noteFolder || "", context);
       const filename = BocNote.buildNoteFilename(context, settings);
@@ -276,6 +282,8 @@ async function saveToObsidian(group, button) {
   } catch (error) {
     setStatus(`写入 Obsidian 失败：${error?.message || error}`);
   } finally {
+    // A declined overwrite returns without a result line; drop the in-progress one.
+    if (els.status.textContent.startsWith("正在")) setStatus("");
     writing.delete(group.key);
     render();
   }
@@ -292,7 +300,7 @@ els.list.addEventListener("click", (event) => {
     target.checked ? selected.add(key) : selected.delete(key);
     syncBulk();
   } else if (act === "md" && group) downloadGroups([group]);
-  else if (act === "obsidian" && group) void saveToObsidian(group, target);
+  else if (act === "obsidian" && group) void saveToObsidian(group);
   else if (act === "delete") void deleteGroups([key]);
   else if (act === "note" && group) {
     editing = { id: noteIdOf(group), draft: group.note?.text || "" };
@@ -301,7 +309,11 @@ els.list.addEventListener("click", (event) => {
   else if (act === "ask" && group) {
     // The side panel continues the video's latest conversation, the same request triage's 问 AI sends.
     chrome.storage.local.set({ boc_player_ai_quick_action_v1: { id: `history-${Date.now()}`, tabId: OWN_TAB?.id, prompt: "", contextRef: group.context } });
-    chrome.sidePanel.open({ tabId: OWN_TAB?.id }).catch((error) => setStatus(`打开侧边栏失败：${error.message}`));
+    setStatus("正在打开侧边栏…");
+    chrome.sidePanel.open({ tabId: OWN_TAB?.id }).then(
+      () => els.status.textContent === "正在打开侧边栏…" && setStatus(""),
+      (error) => setStatus(`打开侧边栏失败：${error.message}`)
+    );
   }
 });
 els.list.addEventListener("input", (event) => {

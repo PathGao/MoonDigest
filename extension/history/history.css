@@ -82,3 +82,4 @@ button.entry-note { display: block; width: 100%; height: auto; padding: 0; borde
 button.entry-note:hover { color: var(--text); }
 .note-add { display: block; margin-top: var(--space-1); height: auto; font-size: var(--fs-xs); }
 .entry-note-edit { display: block; width: 100%; box-sizing: border-box; margin-top: var(--space-1); padding: 4px 8px; resize: vertical; font: inherit; color: inherit; border: 1px solid var(--border-strong); border-radius: var(--radius-sm); background: var(--field-bg); field-sizing: content; min-height: 2.6em; }
+
