@@ -240,7 +240,7 @@ const el = {};
   "aiBtn", "aiForm", "aiScope", "aiScopeCount", "aiInstruction", "aiHistory",
   "aiTagsPreview", "aiProgress", "aiCloseBtn", "aiStopBtn", "aiRunBtn",
   "aiReview", "aiReviewSummary", "aiNotes", "aiNewTags", "aiAllBtn", "aiNoneBtn", "aiRows", "aiDiscardBtn", "aiApplyBtn",
-  "main", "viewer", "viewerTitle", "viewerNextBtn", "viewerTabBtn", "viewerCloseBtn", "viewerFrame",
+  "biliBtn", "main", "viewer", "viewerTitle", "viewerNextBtn", "viewerTabBtn", "viewerCloseBtn", "viewerFrame",
   "writeBtn", "writeDialog", "writeScope", "writeFormat", "writeScopeCount", "writeOverwriteRow", "writeOverwrite", "writeProgress", "writeFailed", "writeStopBtn", "writeCopyBtn", "writeRunBtn", "writeMdBtn"
 ].forEach((id) => (el[id] = $(id)));
 
@@ -640,6 +640,7 @@ async function loadFolders() {
     return;
   }
   S.allFolders = r.data.folders || [];
+  S.mid = r.data.mid;
   S.included = (await loadIncluded()).map(String);
   S.folders = S.allFolders.filter((f) => S.included.includes(String(f.id)));
   await retireUnchosenFolders();
@@ -1061,6 +1062,8 @@ function renderTop() {
   const deep = S.items.filter((it) => S.analyses[it.bvid]?.status === "done").length;
   const processed = S.items.filter((it) => isProcessed(it.bvid)).length;
   el.progress.textContent = `已粗看 ${classified} / ${total} · 已细看 ${deep} · 已处理 ${processed}`;
+  el.biliBtn.hidden = !S.mid;
+  el.biliBtn.textContent = inFolderView() ? "B 站收藏夹 ↗" : "B 站主页 ↗";
   setBusy(el.refreshBtn, (S.syncing || S.loadAll?.running) && `刷新中…${S.syncing ? pageText(S.mediaId) : ""}`);
   el.allBtn.setAttribute("aria-pressed", String(S.mediaId === ALL));
   el.allBtn.hidden = !S.folders.length;
@@ -2729,6 +2732,10 @@ function bindEvents() {
 
   document.addEventListener("keydown", onKey);
   el.viewerCloseBtn.addEventListener("click", closeViewer);
+  // The open folder's own Bilibili page; 所有收藏夹 and 已取消收藏 have none, so they go to the space page.
+  el.biliBtn.addEventListener("click", () =>
+    openTab(`https://space.bilibili.com/${S.mid}${inFolderView() ? `/favlist?fid=${S.mediaId}&ftype=create` : ""}`)
+  );
   el.viewerNextBtn.addEventListener("click", basketDoneAndNext);
   el.viewerTabBtn.addEventListener("click", () => openTab(videoUrl(S.viewing)));
 
