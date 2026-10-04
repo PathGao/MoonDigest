@@ -8,7 +8,9 @@ const THROTTLES = { THROTTLED: [THROTTLE_MS, "B站限流"], AI_THROTTLED: [60 * 
 const GROUP_SIZE = 8;
 const SELECT_CAP = 10;
 const SYNC_MIN_GAP_MS = 60 * 1000;
-const TAG_COLORS = ["#7c62e8", "#2f8f5b", "#c9463d", "#a86a00", "#2a7ab8", "#b8428f", "#4f7a28", "#6b7180"];
+// Catppuccin Latte accents (desaturated); chips keep --text on top, so these are only borders and tints.
+// Mauve, blue, green, red and yellow are left out: they mean where-you-are, next step, keep, delete and pending.
+const TAG_COLORS = ["#da86c3", "#298287", "#dc6d2d", "#3590a0", "#8595ea", "#cf5c66", "#2497c6", "#cf8686", "#ce9386"];
 // Progress tabs in pipeline order; 阅览 sits apart after them.
 const STAGES = [
   ["none", "未分析"],
@@ -765,7 +767,7 @@ function cardHtml(it, expanded, mark) {
 
   const verdict = verdictBadge(b, v);
   // The button matching the AI's verdict leads; the other stays plain.
-  const keepCls = !decision && v.verdict === "keep" ? "primary" : "";
+  const keepCls = !decision && v.verdict === "keep" ? "ok solid" : "";
   const unfavCls = !decision && v.verdict === "drop" ? "danger solid" : "";
   const note = S.notes[b]?.text || "";
   const noteHtml =
@@ -803,7 +805,7 @@ function cardHtml(it, expanded, mark) {
       ${chips || suggHtml ? `<div class="chips">${chips}${suggHtml}</div>` : ""}
       ${noteHtml}
       <div class="card-foot">
-        ${decision ? `<span class="badge decision">${ACTION_LABEL[decision.action]}</span>` : ""}
+        ${decision ? `<span class="badge ${decision.action === "keep" ? "keep" : "drop"}">${ACTION_LABEL[decision.action]}</span>` : ""}
         ${noteHtml ? "" : `<button type="button" class="link note-add" data-act="note" aria-label="添加备注">+ 备注</button>`}
         <span class="spacer"></span>
         <div class="actions">

@@ -131,7 +131,8 @@ body {
 }
 
 .sp-icon-btn.sp-follow-btn.is-active {
-  color: var(--accent);
+  background: var(--surface-muted);
+  color: var(--text);
 }
 
 .sp-prev[hidden] {
@@ -314,15 +315,15 @@ body {
   padding: 11px 13px;
   border: 0;
   border-radius: var(--radius-lg);
-  background: var(--accent);
-  color: var(--on-accent);
+  background: var(--action);
+  color: var(--on-action);
   font: inherit;
   font-weight: 600;
   cursor: pointer;
 }
 
 .sp-summary-btn:hover {
-  filter: brightness(1.08);
+  background: var(--action-hover);
 }
 
 .sp-triage-summary {
@@ -365,7 +366,7 @@ body {
 
 .sp-followup-more {
   border-style: dashed;
-  color: var(--accent);
+  color: var(--text);
 }
 
 .sp-followup-chip:hover {
@@ -506,13 +507,13 @@ body {
 }
 
 .sp-confirm-primary {
-  background: var(--accent);
-  border-color: var(--accent) !important;
-  color: var(--on-accent);
+  background: var(--action);
+  border-color: var(--action) !important;
+  color: var(--on-action);
 }
 
 .sp-confirm-primary:hover {
-  filter: brightness(1.08);
+  background: var(--action-hover);
 }
 
 .sp-confirm-cancel:hover {

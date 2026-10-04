@@ -14,13 +14,13 @@ button, input { font: inherit; color: inherit; }
 button {
   height: 28px;
   padding: 0 10px;
-  border: 1px solid var(--border);
+  border: 1px solid var(--border-strong);
   border-radius: var(--radius-sm);
   background: var(--surface);
   cursor: pointer;
   white-space: nowrap;
 }
-button:hover { border-color: var(--accent); }
+button:hover { background: var(--surface-muted); }
 button:disabled { opacity: 0.5; cursor: not-allowed; }
 button.danger { color: var(--danger); border-color: var(--danger-border); background: var(--danger-bg); }
 
@@ -69,7 +69,7 @@ a.entry-title:hover { color: var(--link-hover); text-decoration: underline; }
 .entry-summary, .entry-note { margin-top: var(--space-1); white-space: pre-wrap; overflow-wrap: anywhere; color: var(--text-2); font-size: var(--fs-sm); }
 
 details { margin-top: var(--space-1); }
-summary { cursor: pointer; color: var(--secondary-text); font-size: var(--fs-xs); }
+summary { cursor: pointer; color: var(--text-2); font-size: var(--fs-xs); }
 .turn-q { margin: var(--space-3) 0 var(--space-1); font-weight: 600; color: var(--text-2); }
 .turn-a { white-space: pre-wrap; overflow-wrap: anywhere; color: var(--text-2); }
 .conv-sep { margin: var(--space-3) 0 0; color: var(--faint); font-size: var(--fs-xs); border-top: 1px dashed var(--border); padding-top: var(--space-2); }
