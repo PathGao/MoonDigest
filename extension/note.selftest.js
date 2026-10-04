@@ -393,4 +393,12 @@ assert.strictEqual(
   "<h4>标题</h4><p><strong>粗</strong> &lt;b&gt;</p><ul><li>a</li><li>b</li></ul>",
   "markdown renders, raw HTML is escaped, think is stripped"
 );
+{
+  const p2 = { title: "合集", site: "bilibili", videoId: "BV1GJ411x7h7", url: "https://www.bilibili.com/video/BV1GJ411x7h7/?p=2&t=5", pageIndex: 2, pageCount: 3 };
+  assert.strictEqual(N.buildAiConversationFilename(p2), "【AI笔记】合集 P2.md");
+  assert.strictEqual(N.buildAiConversationFilename({ ...p2, pageIndex: 1 }), "【AI笔记】合集 P1.md", "P1 of a multi-P video is named too");
+  assert.strictEqual(N.buildAiConversationFilename({ ...p2, pageIndex: 1, pageCount: 1 }), "【AI笔记】合集.md");
+  const md = N.buildAiConversationMarkdown({ context: p2, turns: [], filename: "x.md" });
+  assert.ok(md.includes('url: "https://www.bilibili.com/video/BV1GJ411x7h7/?p=2"'), "P2's url points at P2");
+}
 console.log("note selftest ok");

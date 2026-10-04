@@ -293,8 +293,15 @@
     return String(context?.title || "当前视频").trim() || "当前视频";
   }
 
+  // Multi-P videos: each part's conversation is its own note, named and linked by part.
+  function aiPartIndex(context) {
+    return Number(context?.pageIndex) > 0 ? Number(context.pageIndex) : 1;
+  }
+
   function buildAiConversationFilename(context) {
-    const baseName = sanitizeFileName(`【AI笔记】${aiSourceTitle(context)}`);
+    const part = aiPartIndex(context);
+    const partSuffix = part > 1 || Number(context?.pageCount) > 1 ? ` P${part}` : "";
+    const baseName = sanitizeFileName(`【AI笔记】${aiSourceTitle(context)}${partSuffix}`);
     return `${baseName || "【AI笔记】当前视频"}.md`;
   }
 
@@ -321,7 +328,7 @@
     const site = BocSites.SITES[context?.site] || BocSites.matchSite(url);
     const videoId = String(context?.videoId || BocSites.parseRef(url)?.id || "").trim();
     if (site && videoId) {
-      return site.canonicalUrl(videoId, 1);
+      return site.canonicalUrl(videoId, aiPartIndex(context));
     }
     return url;
   }
