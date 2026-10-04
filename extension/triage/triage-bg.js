@@ -512,7 +512,7 @@ async function triageAiCommand({ instruction, tags, items, allowNewTags, maxNewT
   return triageParseCommand(content, list, tagList, opts);
 }
 
-// One video → one note built the same way the page's 发送到 Obsidian does, plus the stage-2 summary.
+// One video → one note built the same way the popup's 写入 Obsidian does, plus the stage-2 summary.
 async function triageBuildNote(bvid, settings) {
   if (!bvid) throw triageError("缺少 bvid");
   const site = BocSites.SITES.bilibili;
