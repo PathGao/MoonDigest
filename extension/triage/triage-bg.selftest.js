@@ -8,6 +8,7 @@ const ctx = vm.createContext({ TextEncoder, URL, URLSearchParams, console, setTi
 // Browser order: background.js imports limits.js and sites.js before triage-bg.js.
 for (const file of ["../limits.js", "../sites.js", "../note.js", "triage-bg.js"]) vm.runInContext(fs.readFileSync(path.join(__dirname, file), "utf8"), ctx);
 const t = ctx;
+const plain = (x) => JSON.parse(JSON.stringify(x));
 
 // subtitle validation
 const body = (to) => [{ from: 0, to: 1 }, { from: 1, to }];
@@ -25,24 +26,32 @@ const clipped = t.triageClip("a".repeat(8000) + "b".repeat(5000) + "c".repeat(40
 assert.strictEqual(clipped.length, 8000 + 2 + 4000);
 assert.ok(clipped.startsWith("a".repeat(8000) + "……c"));
 
+// The default scheme's tiers: ids keep/drop/unsure so results cached before schemes still resolve.
+const DEF = [
+  { id: "keep", name: "留", description: "有具体、可复用的知识", route: "keep" },
+  { id: "drop", name: "删", description: "标题党", route: "unfav" },
+  { id: "unsure", name: "待定", description: "其他", route: "deep" }
+];
+
 // LLM parse
-const good = t.triageParseLlm('```json\n{"one_liner":"讲 X","points":["1","2","3"],"verdict":"keep","reason":"有方法"}\n```');
+const good = t.triageParseLlm('```json\n{"one_liner":"讲 X","points":["1","2","3"],"verdict":"keep","reason":"有方法"}\n```', [], true, DEF);
 assert.deepStrictEqual(JSON.parse(JSON.stringify(good)), { oneLiner: "讲 X", points: ["1", "2", "3"], verdict: "keep", reason: "有方法", suggestedTags: [] });
-const dirty = t.triageParseLlm('好的，结果如下：{"one_liner":"含 } 括号","points":["a","b","c","d"],"verdict":"DROP","reason":"r"} 以上');
+const dirty = t.triageParseLlm('好的，结果如下：{"one_liner":"含 } 括号","points":["a","b","c","d"],"verdict":"DROP","reason":"r"} 以上', [], true, DEF);
 assert.strictEqual(dirty.oneLiner, "含 } 括号");
 assert.strictEqual(dirty.points.length, 3);
 assert.strictEqual(dirty.verdict, "drop");
-const thin = t.triageParseLlm('{"one_liner":"x","points":["only"],"verdict":"maybe"}');
+const thin = t.triageParseLlm('{"one_liner":"x","points":["only"],"verdict":"maybe"}', [], true, DEF);
 assert.deepStrictEqual([...thin.points], ["only", "", ""]);
 assert.strictEqual(thin.verdict, "unsure");
 assert.strictEqual(thin.reason, "");
+assert.strictEqual(t.triageParseLlm('{"one_liner":"x","verdict":"删"}', [], true, DEF).verdict, "drop", "the tier name maps to its id");
 assert.throws(() => t.triageParseLlm('{"one_liner":"x","points":["a"'), /不完整/);
 assert.throws(() => t.triageParseLlm("没有 JSON"), /不是 JSON/);
 assert.throws(() => t.triageParseLlm('{"points":[]}'), /one_liner/);
 
 // stage-2 tags
 const tagList = ["AI", "编程", "理财"];
-const withTags = t.triageParseLlm('{"one_liner":"x","points":["a","b","c"],"verdict":"keep","tags":["AI","不存在","新:数学","新:物理","编程","理财"]}', tagList);
+const withTags = t.triageParseLlm('{"one_liner":"x","points":["a","b","c"],"verdict":"keep","tags":["AI","不存在","新:数学","新:物理","编程","理财"]}', tagList, true, DEF);
 assert.deepStrictEqual([...withTags.suggestedTags], ["AI", "新:数学", "编程"]);
 assert.deepStrictEqual([...t.triageParseLlm('{"one_liner":"x","points":[]}', tagList).suggestedTags], []);
 
@@ -51,7 +60,7 @@ assert.deepStrictEqual([...t.triageCoerceTags(["新：数学", "AI", "AI"], tagL
 assert.deepStrictEqual([...t.triageCoerceTags(["新:", "乱写"], tagList, 2)], []);
 // 只用我的标签: no 新: suggestions and no new-tag clause in the prompts.
 assert.deepStrictEqual([...t.triageCoerceTags(["新:数学", "AI"], tagList, 2, false)], ["AI"]);
-for (const p of vm.runInContext("[TRIAGE_SYSTEM_PROMPT, TRIAGE_TITLE_PROMPT]", ctx)) {
+for (const p of [t.triageSystemPrompt(DEF), t.triageTitlePrompt(DEF), t.triageSystemPrompt(null), t.triageTitlePrompt(null)]) {
   assert.ok(p.includes("新:标签名") && !t.triageOwnTagsPrompt(p, true).includes("新:"), "own-only prompt drops the new-tag clause");
   assert.strictEqual(t.triageOwnTagsPrompt(p, false), p);
 }
@@ -68,12 +77,41 @@ const batch = JSON.parse(JSON.stringify(t.triageParseTitleBatch(
   '好的：\n```json\n[{"i":2,"verdict":"KEEP","reason":"教程 [实用]","tags":["编程","新:算法","新:数据结构","AI"],"confidence":"high"},' +
     '{"i":1,"verdict":"what","reason":"看不出","tags":["不存在"],"confidence":"medium"},{"i":9,"verdict":"drop"}]\n```',
   items,
-  tagList
+  tagList,
+  true,
+  DEF
 )));
 assert.deepStrictEqual(batch.BV2, { verdict: "keep", reason: "教程 [实用]", suggestedTags: ["编程", "新:算法"], confidence: "high" });
 assert.deepStrictEqual(batch.BV1, { verdict: "unsure", reason: "看不出", suggestedTags: [], confidence: "low" });
 assert.deepStrictEqual(batch.BV3, { verdict: "unsure", reason: "AI 未返回", suggestedTags: [], confidence: "low" });
-assert.throws(() => t.triageParseTitleBatch('[{"i":1,"verdict":"keep"', items, tagList), /不完整/);
+assert.throws(() => t.triageParseTitleBatch('[{"i":1,"verdict":"keep"', items, tagList, true, DEF), /不完整/);
+
+// Custom tiers: the prompt lists them by name with descriptions; answers map to ids, unknown ones to the first 要细看 tier.
+const CUSTOM = [
+  { id: "t_must", name: "必看", description: "这周就要用", route: "keep" },
+  { id: "t_later", name: "有空看", description: "", route: "keep" },
+  { id: "t_ref", name: "参考", description: "查资料用", route: "keep" },
+  { id: "t_del", name: "删", description: "过时或重复", route: "unfav" },
+  { id: "t_again", name: "再看看", description: "拿不准", route: "deep" }
+];
+const scheme = { criteria: "只留 Rust 相关", tags: [{ name: "Rust", description: "讲 Rust" }], onlyMyTags: true, tiers: CUSTOM };
+const titleSys = t.triageSchemeSystem(t.triageTitlePrompt(CUSTOM), scheme, "这次只看 2024 年以后的");
+for (const part of ["- 必看：这周就要用", "- 有空看\n", "- 再看看：拿不准", '"verdict": "必看|有空看|参考|删|再看看"', "verdict 用「再看看」", "用户补充的判断标准：\n只留 Rust 相关", "本次临时补充（优先于上面的标准）：\n这次只看 2024 年以后的", "- Rust：讲 Rust", "不要新建标签"]) {
+  assert.ok(titleSys.includes(part), part);
+}
+assert.ok(!/keep|drop|unsure|新:标签名/.test(titleSys), "no default tier words or new-tag clause leak into a custom scheme");
+const custom = plain(t.triageParseTitleBatch('[{"i":1,"verdict":"有空看","confidence":"high"},{"i":2,"verdict":"留"},{"i":3,"verdict":"T_DEL"}]', items, [], true, CUSTOM));
+assert.deepStrictEqual([custom.BV1.verdict, custom.BV2.verdict, custom.BV3.verdict], ["t_later", "t_again", "t_del"]);
+assert.strictEqual(t.triageVerdict("乱写", CUSTOM.filter((x) => x.route !== "deep")), "", "no deep tier → no tier");
+const msgs = t.triageBuildMessages({ title: "T", upper: "U", tags: [] }, "meta", "", scheme);
+assert.ok(msgs[0].content.includes('"verdict": "必看|有空看|参考|删|再看看"') && msgs[0].content.includes("选「再看看」"));
+assert.strictEqual(t.triageParseLlm('{"one_liner":"x","verdict":"必看"}', [], true, CUSTOM).verdict, "t_must");
+
+// Grading off: prompts ask only for summary/tags, results carry no tier.
+for (const p of [t.triageSystemPrompt(null), t.triageTitlePrompt(null)]) assert.ok(!/verdict|confidence|档/.test(p), p);
+assert.ok(t.triageSystemPrompt(null).includes('"one_liner"') && t.triageTitlePrompt(null).includes('"reason"'));
+assert.strictEqual(t.triageParseLlm('{"one_liner":"x","verdict":"keep"}', [], true, null).verdict, "");
+assert.strictEqual(plain(t.triageParseTitleBatch('[{"i":1,"reason":"讲 Rust","tags":[]}]', items, [], true, null)).BV1.verdict, "");
 
 // form
 assert.strictEqual(t.triageForm({ resources: "1:2,3:2", csrf: "x y", privacy: 1 }), "resources=1%3A2%2C3%3A2&csrf=x+y&privacy=1");
@@ -92,7 +130,6 @@ assert.strictEqual(t.triageMaxTokens("command", 30, off), 2800);
 assert.strictEqual(t.triageMaxTokens("command", 30, on), 9400);
 assert.strictEqual(t.triageMaxTokens("command", 30, { ...off, triageTitleMaxTokens: 5000 }), 5000);
 
-const plain = (x) => JSON.parse(JSON.stringify(x));
 
 // tags with descriptions: names, rendering, coercion by name
 assert.deepStrictEqual(plain(t.triageTagNames(["AI", { name: " 编程 ", description: "写代码" }, { name: "" }, null])), ["AI", "编程"]);
@@ -137,7 +174,7 @@ const cmdOut =
   '"items":[{"i":2,"add":["数学","不存在","编程","编程"],"remove":["AI"],"verdict":"KEEP","reason":"讲 {数学}"},' +
   '{"i":1,"add":["AI","物理力学"],"remove":["旧","不在"],"verdict":"drop","reason":"r1"},' +
   '{"i":3,"add":["化学"],"remove":[]},{"i":4,"add":[],"remove":[],"reason":"无"},{"i":9,"add":["AI"]},{"i":2,"add":["旧"]}],"note":"已打标签"}\n``` 以上';
-assert.deepStrictEqual(plain(t.triageParseCommand(cmdOut, cmdItems, cmdTags, { allowNewTags: true, maxNewTags: 2, allowVerdict: true })), {
+assert.deepStrictEqual(plain(t.triageParseCommand(cmdOut, cmdItems, cmdTags, { allowNewTags: true, maxNewTags: 2, allowVerdict: true, tiers: DEF })), {
   newTags: [{ name: "数学", description: "讲数学的" }, { name: "物理力学", description: "d" }],
   assignments: {
     BV2: { add: ["数学", "编程"], remove: [], verdict: "keep", reason: "讲 {数学}" },
@@ -157,6 +194,12 @@ assert.deepStrictEqual(plain(t.triageParseCommand(cmdOut, cmdItems, cmdTags, { a
 assert.deepStrictEqual(plain(t.triageParseCommand(cmdOut, cmdItems, cmdTags, { allowNewTags: true, maxNewTags: 0, allowVerdict: false })), noNew);
 assert.deepStrictEqual(plain(t.triageParseCommand('{"items":[]}', cmdItems, cmdTags, {})), { newTags: [], assignments: {}, note: "" });
 assert.throws(() => t.triageParseCommand("抱歉，没法处理", cmdItems, cmdTags, {}), /不是 JSON/);
+// Command verdicts use the scheme's tier names; an unknown one is dropped, not guessed.
+const cmdCustom = plain(t.triageParseCommand('{"items":[{"i":1,"verdict":"必看"},{"i":2,"verdict":"keep","add":["编程"]}]}', cmdItems, cmdTags, { allowVerdict: true, tiers: CUSTOM }));
+assert.deepStrictEqual([cmdCustom.assignments.BV1.verdict, cmdCustom.assignments.BV2.verdict], ["t_must", undefined]);
+const cmdTierMsgs = t.triageBuildCommandMessages({ instruction: "x", tags: [], items: [{ bvid: "BV1", title: "T" }], allowNewTags: true, maxNewTags: 5, allowVerdict: true, tiers: CUSTOM });
+assert.ok(cmdTierMsgs[0].content.includes("- 必看：这周就要用") && cmdTierMsgs[0].content.includes('"verdict": "必看|'));
+assert.ok(!t.triageBuildCommandMessages({ instruction: "x", tags: [], items: [], allowVerdict: true, tiers: null })[0].content.includes('"verdict"'), "grading off never asks for a tier");
 assert.throws(() => t.triageParseCommand('{"new_tags":[', cmdItems, cmdTags, {}), /不完整/);
 
 
@@ -262,7 +305,7 @@ assert.throws(() => t.triageParseCommand('{"new_tags":[', cmdItems, cmdTags, {})
     [subUrl]: subtitleRaw(272),
     "/reply/main": { code: 0, data: { replies: [{ content: { message: "评论一" } }] } }
   });
-  const analyze = () => t.triageAnalyze({ bvid: "BVa", force: true, tags: [] });
+  const analyze = () => t.triageAnalyze({ bvid: "BVa", force: true, scheme: { tags: [], tiers: DEF } });
 
   // A subtitle the video page cached is used without fetching it again.
   routes = baseRoutes();
