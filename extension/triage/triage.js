@@ -33,6 +33,7 @@ const K = {
   decisions: (id) => `triage_decisions_${id}`, // 取消收藏 only: it changes one Bilibili folder
   kept: "triage_kept", // { [bvid]: { action: "keep", at } }: 保留 belongs to the video, so it shows in every folder
   keptMigrated: "triage_kept_v1",
+  watched: "triage_watched", // { [bvid]: at }: 真人已看, set when a video leaves 优先看 as watched; it shows in every folder
   removed: "triage_removed", // { [bvid]: { item, at } }: videos that left every folder, kept until the user cleans them
   included: "triage_included_folders", // [mediaId]: the folders the user chose; only these are listed and read
   snapshot: (id) => `triage_snapshot_${id}`,
@@ -187,6 +188,8 @@ const S = {
   videoTags: {},
   basket: [],
   notes: {},
+  watched: {},
+  watchedFilter: false,
   noteOpen: new Set(), // empty notes the user opened for editing
   settings: {
     triageIntervalSec: 8,
@@ -426,6 +429,7 @@ function searchText(it) {
 }
 
 function passFilter(it) {
+  if (S.watchedFilter && !S.watched[it.bvid]) return false;
   if (S.tagFilter.size && !tagIdsOf(it.bvid).some((id) => S.tagFilter.has(id))) return false;
   const words = S.query.toLowerCase().split(/\s+/).filter(Boolean);
   if (!words.length) return true;
@@ -495,16 +499,18 @@ async function init() {
   bindEvents();
   // Read up front: sidePanel.open must run inside the click's user gesture, before any await.
   chrome.tabs.getCurrent().then((tab) => (ownTabId = tab?.id));
-  const [{ tags, videoTags, folderCriteria }, kept, basket, notes, settingsResp] = await Promise.all([
+  const [{ tags, videoTags, folderCriteria }, kept, basket, notes, watched, settingsResp] = await Promise.all([
     loadTagsAndCriteria().then(async (r) => ({ ...r, ...(await loadTagsByFolder(r)) })),
     loadKept(),
     storeGet(K.basket, []),
     storeGet(K.notes, {}),
+    storeGet(K.watched, {}),
     send({ type: "triage-settings-get" })
   ]);
   Object.assign(S, { tags, videoTags, folderCriteria, kept });
-  S.basket = basket.map(({ bvid, title, opened }) => ({ bvid, title, ...(opened ? { opened: true } : {}) }));
+  S.basket = basket.map(({ bvid, title, cover, upper, duration, opened }) => ({ bvid, title, cover, upper, duration, ...(opened ? { opened: true } : {}) }));
   S.notes = notes;
+  S.watched = watched;
   S.aiHistory = await storeGet(K.aiHistory, []);
   if (settingsResp.ok) Object.assign(S.settings, settingsResp.data);
   const syncObsidian = ({ obsidianEnabled }) => document.body.classList.toggle("obsidian-off", obsidianEnabled !== true);
@@ -679,6 +685,7 @@ async function openFolder(mediaId) {
   S.group = null;
   S.selected.clear();
   S.tagFilter.clear();
+  S.watchedFilter = false;
   S.undo = [];
   S.stage1Skip.clear();
   S.focused = "";
@@ -1097,14 +1104,15 @@ function renderTabs() {
     steps.join(`<span class="arrow" aria-hidden="true">→</span>`) + `<span class="tab-sep" aria-hidden="true"></span>` + tab("read", "阅览", "read-tab", "", c.read);
 
   const chips = tagChips();
-  el.tagFilter.innerHTML = chips.length
+  const watchedChip = `<button type="button" class="chip watched${S.watchedFilter ? " on" : ""}" data-watchedfilter aria-pressed="${S.watchedFilter}" aria-label="只看真人已看的视频"><span class="ai-mark">真人</span>已看</button>`;
+  el.tagFilter.innerHTML = watchedChip + (chips.length
     ? chips
         .map((c) => {
           const on = c.ids.some((id) => S.tagFilter.has(id));
           return `<button type="button" class="chip${on ? " on" : ""}" style="--c:${esc(c.color)}" data-tagfilter="${esc(c.ids.join(","))}" aria-pressed="${on}" aria-label="按标签筛选 ${esc(c.name)}">${esc(c.name)}</button>`;
         })
         .join("")
-    : `<span class="muted">还没有标签</span> · <button type="button" class="link" data-tags-open aria-label="新建标签">新建标签</button>`;
+    : `<span class="muted">还没有标签</span> · <button type="button" class="link" data-tags-open aria-label="新建标签">新建标签</button>`);
 }
 
 // Marks a control that starts an AI request (tokens.css draws it in the text color).
@@ -1353,7 +1361,7 @@ function cardHtml(it, expanded, mark) {
       <div class="title-row">${mark ? `<span class="batch-tag">${mark}</span>` : ""}<button type="button" class="title" data-act="open" aria-label="打开视频 ${esc(it.title)}">${esc(it.title)}</button></div>
       <div class="meta">${meta.map(esc).join(" · ")}</div>
       ${body.join("")}
-      <div class="card-foot">${verdict}<span class="reason">${esc(v.reason)}</span>${failed}</div>
+      <div class="card-foot">${verdict}${S.watched[b] ? `<button type="button" class="badge watched" data-act="unwatch" aria-label="真人已看，点一下取消" title="${esc(fmtTime(S.watched[b]))} 已看 · 点一下取消"><span class="ai-mark">真人</span>已看</button>` : ""}<span class="reason">${esc(v.reason)}</span>${failed}</div>
       ${chips ? `<div class="chips">${chips}</div>` : ""}
       ${noteHtml}
       <div class="card-foot">
@@ -1567,6 +1575,16 @@ async function undo() {
       pushUndo({ kind: "unfavMany", items: rest });
       toast(`撤销中断（已重新收藏 ${n} 个，剩余 ${rest.length} 个可再按 U 重试）：${error}`, true);
     } else toast(`已重新收藏 ${n} 个`);
+  } else if (entry.kind === "watched") {
+    if (entry.prev) S.watched[entry.bvid] = entry.prev;
+    else delete S.watched[entry.bvid];
+    saveWatched();
+    if (entry.basketEntry) {
+      S.basket.splice(entry.basketEntry.i, 0, entry.basketEntry.x);
+      saveBasket();
+    }
+    toast(entry.prev ? "已撤销：取消真人已看" : "已撤销：真人已看");
+    render();
   } else if (entry.kind === "keepMany") {
     patchKept(Object.fromEntries(entry.bvids.map((b) => [b, null])));
     const it = entry.bvids.length === 1 && S.itemMap.get(entry.bvids[0]);
@@ -2261,7 +2279,7 @@ function toggleBasket(bvid) {
   render();
 }
 
-// The list keeps the order videos were added in. Opening one only marks it; only 看过了 removes it —
+// The list keeps the order videos were added in. Opening one only marks it; only 已看 removes it —
 // opening a video isn't watching it.
 function openBasketItem(i) {
   const x = S.basket[i];
@@ -2271,10 +2289,9 @@ function openBasketItem(i) {
   openViewer(x);
 }
 
-// 看过了，下一个 in the viewer: the playing video leaves the queue and the next one takes its place.
+// 已看，下一个 in the viewer: the playing video is marked watched, leaves the queue, and the next one takes its place.
 function basketDoneAndNext() {
-  S.basket = S.basket.filter((x) => x.bvid !== S.viewing);
-  saveBasket();
+  removeBasketItem(S.basket.findIndex((x) => x.bvid === S.viewing));
   if (S.basket.length) openBasketItem(Math.max(0, S.basket.findIndex((x) => !x.opened)));
   else {
     closeViewer();
@@ -2282,10 +2299,20 @@ function basketDoneAndNext() {
   }
 }
 
-// 看过了 removes; favorites and decisions are untouched.
+// 已看 marks the video 真人已看 and takes it out of 优先看; favorites and decisions are untouched. U undoes both.
 function removeBasketItem(i) {
-  S.basket.splice(i, 1);
+  const [x] = S.basket.splice(i, 1);
+  if (!x) return;
   saveBasket();
+  setWatched(x.bvid, true, { i, x });
+}
+
+const saveWatched = () => storeSet(K.watched, S.watched);
+function setWatched(bvid, on, basketEntry = null) {
+  pushUndo({ kind: "watched", bvid, prev: S.watched[bvid] || 0, basketEntry });
+  if (on) S.watched[bvid] = Date.now();
+  else delete S.watched[bvid];
+  saveWatched();
   render();
 }
 
@@ -2304,7 +2331,7 @@ function renderBasket() {
         <span class="basket-text"><span class="basket-title">${title}</span>${meta || x.opened ? `<span class="muted">${[meta, x.opened && "已打开"].filter(Boolean).join(" · ")}</span>` : ""}</span>
       </button>
       <div class="basket-actions">
-        <button type="button" data-basket="done" aria-label="看过了，移出 ${title}">看过了</button>
+        <button type="button" data-basket="done" aria-label="已看，移出 ${title}">已看</button>
       </div>
       ${note ? `<div class="muted basket-note">${esc(note)}</div>` : ""}
     </div>`;
@@ -2478,7 +2505,7 @@ async function runWrite(md = false) {
 }
 
 // ---------- data export ----------
-const BACKUP_PREFIXES = [K.kept, K.removed, K.tags, K.folderCriteria, "triage_video_tags", "triage_basket", K.notes, "triage_snapshot_", "triage_decisions_", "triage_title_", "triage_analysis_"];
+const BACKUP_PREFIXES = [K.kept, K.watched, K.removed, K.tags, K.folderCriteria, "triage_video_tags", "triage_basket", K.notes, "triage_snapshot_", "triage_decisions_", "triage_title_", "triage_analysis_"];
 
 async function buildBackup() {
   const all = await chrome.storage.local.get(null);
@@ -2506,6 +2533,7 @@ async function buildBackup() {
     if (!BACKUP_PREFIXES.some((p) => k.startsWith(p))) continue;
     if (k === K.tags) out.tags = v;
     else if (k === K.kept) out.kept = v;
+    else if (k === K.watched) out.watched = v;
     else if (k === K.removed) out.removed = v;
     else if (k === K.folderCriteria) out.folderCriteria = v;
     else if (k === "triage_video_tags") out.videoTags = v;
@@ -2597,6 +2625,10 @@ function bindEvents() {
   });
   el.tagFilter.addEventListener("click", (e) => {
     if (e.target.closest("[data-tags-open]")) return openTags();
+    if (e.target.closest("[data-watchedfilter]")) {
+      S.watchedFilter = !S.watchedFilter;
+      return render();
+    }
     const btn = e.target.closest("[data-tagfilter]");
     if (!btn) return;
     const ids = btn.dataset.tagfilter.split(",");
@@ -2974,6 +3006,7 @@ function cardAction(act, bvid) {
   else if (act === "tag") openPicker(bvid);
   else if (act === "basket") toggleBasket(bvid);
   else if (act === "retry") retry(bvid);
+  else if (act === "unwatch") setWatched(bvid, false);
   else if (act === "note") {
     S.noteOpen.add(bvid);
     renderList();
