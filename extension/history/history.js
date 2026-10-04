@@ -102,12 +102,17 @@ async function deleteGroups(keys) {
   setStatus(`已删除 ${keys.length} 个视频的对话`);
 }
 
+// Several videos go into one file like the triage batch export: one save prompt, frontmatter
+// turned into yaml blocks so the merged file still renders.
 function downloadGroups(groups) {
-  groups.forEach((g) => {
-    const note = buildNote(g);
-    BocDownload.text(note.filename, note.content);
-  });
-  setStatus(`已下载 ${groups.length} 个 .md`);
+  const notes = groups.map((g) => buildNote(g));
+  if (notes.length === 1) {
+    BocDownload.text(notes[0].filename, notes[0].content);
+  } else {
+    const body = notes.map((n) => `# ${n.filename.replace(/\.md$/i, "")}\n\n${n.content.replace(/^---\n([\s\S]*?)\n---\n/, "```yaml\n$1\n```\n")}`);
+    BocDownload.text(`MoonDigest历史-${new Date().toISOString().slice(0, 10)}.md`, body.join("\n\n"));
+  }
+  setStatus(`已下载 ${groups.length} 个视频的对话`);
 }
 
 // Writes the standalone AI note like the side panel's 保存对话. The video note's AI 问答 section is
