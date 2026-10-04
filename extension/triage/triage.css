@@ -124,8 +124,9 @@ select { height: 28px; max-width: 240px; }
 .meta { color: var(--muted); font-size: var(--fs-xs); }
 .oneliner { margin: 2px 0 0; }
 
-.list.reading { gap: 0; max-width: 760px; }
-.read-item { padding: 12px 6px; border-bottom: 1px solid var(--border); line-height: 1.55; }
+/* Same box as .card so both views read as one card per video; no cover or actions here. */
+.list.reading { max-width: 760px; }
+.read-item { padding: 10px 12px; background: var(--surface); border: 1px solid var(--border); border-radius: 9px; line-height: 1.55; }
 .read-item.decided { opacity: 0.6; }
 .read-item h3 { margin: 0 0 2px; font-size: var(--fs-lg); }
 .read-item h3 a { color: inherit; text-decoration: none; }

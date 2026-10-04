@@ -42,6 +42,8 @@ const els = {
   presetAddBtn: document.getElementById("spPresetAddBtn"),
   followups: document.getElementById("spFollowups"),
   historyPopover: document.getElementById("spHistoryPopover"),
+  exportBtn: document.getElementById("spExportBtn"),
+  exportPopover: document.getElementById("spExportPopover"),
   historyList: document.getElementById("spHistoryList"),
   historyClearBtn: document.getElementById("spHistoryClearBtn"),
   messages: document.getElementById("spMessages"),
@@ -141,6 +143,11 @@ function bindEvents() {
   });
   els.presetBtn.addEventListener("click", togglePresetPopover);
   els.historyBtn.addEventListener("click", toggleHistoryPopover);
+  els.exportBtn.addEventListener("click", toggleExportPopover);
+  // Each export action closes the menu; the action itself is bound below.
+  els.exportPopover.addEventListener("click", (event) => {
+    if (event.target instanceof Element && event.target.closest("button")) hideExportPopover();
+  });
   els.saveConversationBtn?.addEventListener("click", () => {
     void saveCurrentConversationToObsidian();
   });
@@ -1116,6 +1123,7 @@ function insertPresetPrompt(prompt) {
 function togglePresetPopover(event) {
   event?.stopPropagation();
   hideHistoryPopover();
+  hideExportPopover();
   const willShow = els.presetPopover.hidden;
   els.presetPopover.hidden = !willShow;
   if (willShow) {
@@ -1132,6 +1140,7 @@ function hidePresetPopover() {
 function toggleHistoryPopover(event) {
   event?.stopPropagation();
   hidePresetPopover();
+  hideExportPopover();
   const willShow = els.historyPopover.hidden;
   els.historyPopover.hidden = !willShow;
   if (willShow) {
@@ -1143,13 +1152,25 @@ function hideHistoryPopover() {
   els.historyPopover.hidden = true;
 }
 
+function toggleExportPopover(event) {
+  event?.stopPropagation();
+  hidePresetPopover();
+  hideHistoryPopover();
+  els.exportPopover.hidden = !els.exportPopover.hidden;
+}
+
+function hideExportPopover() {
+  els.exportPopover.hidden = true;
+}
+
 function handleDocumentClick(event) {
-  if (els.presetPopover.hidden && els.historyPopover.hidden) {
+  if (els.presetPopover.hidden && els.historyPopover.hidden && els.exportPopover.hidden) {
     return;
   }
   if (!(event.target instanceof Element)) {
     hidePresetPopover();
     hideHistoryPopover();
+    hideExportPopover();
     return;
   }
   if (event.target.closest("#spPresetPopover") || event.target.closest("#spPresetBtn")) {
@@ -1158,8 +1179,12 @@ function handleDocumentClick(event) {
   if (event.target.closest("#spHistoryPopover") || event.target.closest("#spHistoryBtn")) {
     return;
   }
+  if (event.target.closest("#spExportPopover") || event.target.closest("#spExportBtn")) {
+    return;
+  }
   hidePresetPopover();
   hideHistoryPopover();
+  hideExportPopover();
 }
 
 function scheduleLiveContextSync(forceRefresh = false) {

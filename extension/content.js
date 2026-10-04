@@ -1138,7 +1138,7 @@ async function runRefreshClip() {
       startReaderPlayerObserver();
       syncReadingViewPlayback(true);
     }
-    setStatus("抓取完成，可以复制、下载或发送到 Obsidian。");
+    setStatus(state.settings.obsidianEnabled ? "抓取完成，可以复制、下载或发送到 Obsidian。" : "抓取完成，可以复制或下载。");
   } catch (error) {
     if (isStaleRunError(error)) {
       return;

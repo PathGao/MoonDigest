@@ -812,9 +812,9 @@ body {
 
 .sp-preset-popover {
   position: absolute;
-  left: 12px;
-  right: 12px;
-  bottom: 124px;
+  left: 0;
+  right: 0;
+  bottom: calc(100% + 6px);
   z-index: 10;
   display: flex;
   flex-direction: column;
@@ -832,9 +832,9 @@ body {
 
 .sp-history-popover {
   position: absolute;
-  left: 12px;
-  width: min(328px, calc(100% - 24px));
-  bottom: 124px;
+  left: 0;
+  width: min(328px, 100%);
+  bottom: calc(100% + 6px);
   z-index: 10;
   display: flex;
   flex-direction: column;
@@ -850,6 +850,44 @@ body {
 
 .sp-history-popover[hidden] {
   display: none !important;
+}
+
+.sp-export-popover {
+  width: auto;
+  min-width: 180px;
+  left: auto;
+  right: 0;
+  gap: 2px;
+}
+
+.sp-export-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 32px;
+  padding: 0 8px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: var(--fs-sm);
+  text-align: left;
+  cursor: pointer;
+}
+
+.sp-export-item:hover {
+  background: var(--surface-muted);
+}
+
+.sp-export-item svg {
+  width: 14px;
+  height: 14px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
 
 .sp-history-popover-head {
