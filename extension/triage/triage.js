@@ -237,7 +237,7 @@ const el = {};
   "aiBtn", "aiForm", "aiScope", "aiScopeCount", "aiInstruction", "aiHistory",
   "aiTagsPreview", "aiProgress", "aiCloseBtn", "aiStopBtn", "aiRunBtn",
   "aiReview", "aiReviewSummary", "aiNotes", "aiNewTags", "aiAllBtn", "aiNoneBtn", "aiRows", "aiDiscardBtn", "aiApplyBtn",
-  "main", "viewer", "viewerTitle", "viewerTabBtn", "viewerCloseBtn", "viewerFrame",
+  "main", "viewer", "viewerTitle", "viewerNextBtn", "viewerTabBtn", "viewerCloseBtn", "viewerFrame",
   "writeBtn", "writeDialog", "writeScope", "writeFormat", "writeScopeCount", "writeOverwriteRow", "writeOverwrite", "writeProgress", "writeFailed", "writeStopBtn", "writeCopyBtn", "writeRunBtn", "writeMdBtn"
 ].forEach((id) => (el[id] = $(id)));
 
@@ -2240,7 +2240,8 @@ function applyAiProposal() {
 }
 
 // ---------- 优先看 ----------
-// triage_basket is the 优先看 list in order: [{ bvid, title, opened? }]; the title is only for videos outside the open folder.
+// triage_basket is the 优先看 list in order: [{ bvid, title, cover?, upper?, duration?, opened? }]; the copied
+// fields show videos outside the open folder (entries from before they were copied have only the title).
 const saveBasket = () => storeSet(K.basket, S.basket);
 
 function toggleBasket(bvid) {
@@ -2250,8 +2251,11 @@ function toggleBasket(bvid) {
     S.basket.splice(i, 1);
     toast("已移出优先看");
   } else if (it) {
-    S.basket.push({ bvid, title: it.title });
+    S.basket.push({ bvid, title: it.title, cover: it.cover, upper: it.upper, duration: it.duration });
     toast(`已加入优先看《${shortTitle(it)}》`);
+    el.basket.classList.remove("bump");
+    void el.basket.offsetWidth;
+    el.basket.classList.add("bump");
   }
   saveBasket();
   render();
@@ -2264,8 +2268,24 @@ function openBasketItem(i) {
   if (!x) return;
   S.basket.push({ ...x, opened: true });
   saveBasket();
-  render();
-  openTab(videoUrl(x.bvid));
+  setBasketOpen(false);
+  openViewer(x);
+}
+
+function openNextBasketItem() {
+  const i = S.basket.findIndex((x) => !x.opened);
+  openBasketItem(i < 0 ? 0 : i);
+}
+
+// 看过了，下一个 in the viewer: the playing video leaves the queue and the next one takes its place.
+function basketDoneAndNext() {
+  S.basket = S.basket.filter((x) => x.bvid !== S.viewing);
+  saveBasket();
+  if (S.basket.length) openNextBasketItem();
+  else {
+    closeViewer();
+    toast("优先看已经看完了");
+  }
 }
 
 // up / down swap with the neighbor, done (看过了) removes; favorites and decisions are untouched.
@@ -2280,26 +2300,29 @@ function basketAction(act, i) {
 }
 
 function renderBasket() {
+  el.basket.hidden = !S.basket.length;
   el.basketCount.textContent = S.basket.length;
-  el.basketList.innerHTML = S.basket.length
-    ? S.basket
-        .map((x, i) => {
-          const title = esc(S.itemMap.get(x.bvid)?.title || x.title || x.bvid);
-          const note = S.notes[x.bvid]?.text?.trim();
-          return `<div class="basket-item${x.opened ? " opened" : ""}" data-i="${i}">
-      <div class="row"><button type="button" class="link title" data-basket="open" aria-label="打开视频 ${title}">${title}</button>${x.opened ? `<span class="muted">已打开</span>` : ""}</div>
-      ${note ? `<div class="muted">${esc(note)}</div>` : ""}
-      <div class="row">
-        <button type="button" data-basket="up" aria-label="上移 ${title}"${i ? "" : " disabled"}>↑</button>
-        <button type="button" data-basket="down" aria-label="下移 ${title}"${i < S.basket.length - 1 ? "" : " disabled"}>↓</button>
-        <span class="spacer"></span>
-        <button type="button" data-basket="done" aria-label="看过了，移出 ${title}">看过了</button>
+  el.basketList.innerHTML = S.basket
+    .map((x, i) => {
+      const it = S.itemMap.get(x.bvid) || x;
+      const title = esc(it.title || x.bvid);
+      const meta = [it.upper, fmtDuration(it.duration)].filter(Boolean).map(esc).join(" · ");
+      const note = S.notes[x.bvid]?.text?.trim();
+      return `<div class="basket-item${x.opened ? " opened" : ""}${x.bvid === S.viewing ? " playing" : ""}" data-i="${i}">
+      <button type="button" class="basket-open" data-basket="open" aria-label="打开视频 ${title}">
+        ${it.cover ? `<img class="basket-cover" src="${esc(it.cover)}" alt="" loading="lazy" referrerpolicy="no-referrer" />` : ""}
+        <span class="basket-text"><span class="basket-title">${title}</span>${meta || x.opened ? `<span class="muted">${[meta, x.opened && "已打开"].filter(Boolean).join(" · ")}</span>` : ""}</span>
+      </button>
+      <div class="basket-actions">
+        <button type="button" class="basket-move" data-basket="up" aria-label="上移 ${title}"${i ? "" : " disabled"}>↑</button>
+        <button type="button" class="basket-move" data-basket="down" aria-label="下移 ${title}"${i < S.basket.length - 1 ? "" : " disabled"}>↓</button>
+        <button type="button" data-basket="done" aria-label="看过了，移出 ${title}" title="看过了">✓</button>
       </div>
+      ${note ? `<div class="muted basket-note">${esc(note)}</div>` : ""}
     </div>`;
-        })
-        .join("")
-    : `<p class="empty">按 E 把要看的视频加入这里</p>`;
-  el.basketNextBtn.disabled = !S.basket.length;
+    })
+    .join("");
+  el.viewerNextBtn.hidden = !S.basket.some((x) => x.bvid === S.viewing);
 }
 
 function mdLinkText(s) {
@@ -2686,6 +2709,7 @@ function bindEvents() {
 
   document.addEventListener("keydown", onKey);
   el.viewerCloseBtn.addEventListener("click", closeViewer);
+  el.viewerNextBtn.addEventListener("click", basketDoneAndNext);
   el.viewerTabBtn.addEventListener("click", () => openTab(videoUrl(S.viewing)));
 
   el.settingsBtn.addEventListener("click", () => openSettings());
@@ -2882,14 +2906,10 @@ function bindEvents() {
   el.aiApplyBtn.addEventListener("click", applyAiProposal);
 
   // basket
-  el.basketToggle.addEventListener("click", () => {
-    const collapsed = el.basket.classList.toggle("collapsed");
-    el.basketToggle.setAttribute("aria-expanded", String(!collapsed));
+  el.basketToggle.addEventListener("click", () => setBasketOpen(el.basket.classList.contains("collapsed")));
+  document.addEventListener("click", (e) => {
+    if (!el.basket.contains(e.target)) setBasketOpen(false);
   });
-  if (matchMedia("(max-width: 899px)").matches) {
-    el.basket.classList.add("collapsed");
-    el.basketToggle.setAttribute("aria-expanded", "false");
-  }
   el.basketList.addEventListener("click", (e) => {
     const act = e.target.closest("[data-basket]")?.dataset.basket;
     if (!act) return;
@@ -2899,10 +2919,7 @@ function bindEvents() {
     // Keep keyboard focus on the moved item's same button.
     if (act !== "done") el.basketList.querySelector(`[data-i="${j}"] [data-basket="${act}"]`)?.focus();
   });
-  el.basketNextBtn.addEventListener("click", () => {
-    const i = S.basket.findIndex((x) => !x.opened);
-    openBasketItem(i < 0 ? 0 : i);
-  });
+  el.basketNextBtn.addEventListener("click", openNextBasketItem);
 }
 
 // Returns 0 for auto, the integer for 200–32000, or null when invalid.
@@ -2946,6 +2963,12 @@ function openViewer(it) {
   el.viewerFrame.src = videoUrl(it.bvid);
   el.viewer.hidden = false;
   el.main.classList.add("viewing");
+  render();
+}
+
+function setBasketOpen(open) {
+  el.basket.classList.toggle("collapsed", !open);
+  el.basketToggle.setAttribute("aria-expanded", String(open));
 }
 
 // Likes, coins and favorites happen on Bilibili's own page, so the folder is re-read once the viewer closes.
@@ -2955,6 +2978,7 @@ function closeViewer() {
   el.viewerFrame.src = "about:blank";
   el.viewer.hidden = true;
   el.main.classList.remove("viewing");
+  render();
   if (inFolderView()) syncFolder({ force: true });
 }
 
@@ -2997,7 +3021,8 @@ function onKey(e) {
   };
   const nav = { j: 1, ArrowDown: 1, k: -1, ArrowUp: -1 };
   const cardKeys = { d: "unfav", s: "keep", t: "tag", e: "basket", q: "ask", x: "select", o: "open", Enter: "open" };
-  if (key === "Escape" && S.viewing) closeViewer();
+  if (key === "Escape" && !el.basket.classList.contains("collapsed")) setBasketOpen(false);
+  else if (key === "Escape" && S.viewing) closeViewer();
   else if (map[key]) map[key]();
   else if (S.mediaId === REMOVED) return;
   else if (nav[key]) moveFocus(nav[key]);

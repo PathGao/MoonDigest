@@ -132,7 +132,7 @@ function openFake(mediaId, items, decisions = {}) {
   openFake("P", [item(1), item(2), item(3)], { BV2: { action: "keep", at: 1 } });
   t.S.basket = [{ bvid: "BVgone", title: "别的收藏夹" }];
   for (const b of ["BV1", "BV2", "BV3"]) t.toggleBasket(b);
-  assert.deepStrictEqual(plain(store[t.K.basket]), [{ bvid: "BVgone", title: "别的收藏夹" }, { bvid: "BV1", title: "视频1" }, { bvid: "BV2", title: "视频2" }, { bvid: "BV3", title: "视频3" }]);
+  assert.deepStrictEqual(plain(store[t.K.basket]), [{ bvid: "BVgone", title: "别的收藏夹" }, ...[1, 2, 3].map((n) => ({ bvid: `BV${n}`, title: `视频${n}`, upper: "up", duration: 61 }))]);
   t.basketAction("up", 3);
   t.basketAction("down", 0);
   assert.strictEqual(t.basketAction("down", 3), undefined, "the last item cannot move down");

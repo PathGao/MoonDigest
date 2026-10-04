@@ -57,26 +57,26 @@
             <span id="tagFilter" class="tagfilter"></span>
           </div>
           <div id="list" class="list" aria-label="视频列表"><p class="empty">正在加载收藏夹列表…</p></div>
-        </section>
 
-        <aside id="basket" class="basket">
-          <div class="basket-head">
-            <button id="basketToggle" type="button" class="basket-toggle" aria-expanded="true" aria-label="展开或收起优先看">
-              优先看 <span id="basketCount">0</span>
-            </button>
-          </div>
-          <div class="basket-body">
-            <div id="basketList" class="basket-list"></div>
-            <div class="basket-foot">
-              <button id="basketNextBtn" type="button" aria-label="在新标签页打开清单里的第一个视频">看下一个</button>
+          <!-- 优先看 floats over the bottom of the list while it holds videos and opens upward, so it never covers the viewer. -->
+          <aside id="basket" class="basket collapsed" hidden>
+            <div class="basket-body">
+              <div id="basketList" class="basket-list"></div>
+              <div class="basket-foot">
+                <button id="basketNextBtn" type="button" aria-label="在右侧打开清单里下一个没看的视频">看下一个</button>
+              </div>
             </div>
-          </div>
-        </aside>
+            <button id="basketToggle" type="button" class="basket-toggle" aria-expanded="false" aria-label="展开或收起优先看">
+              优先看 <span id="basketCount">0</span> <span class="chev" aria-hidden="true">▴</span>
+            </button>
+          </aside>
+        </section>
 
         <!-- The video page itself: likes, coins, favorites and comments work as on Bilibili. -->
         <aside id="viewer" class="viewer" hidden>
           <div class="viewer-head">
             <strong id="viewerTitle" class="viewer-title"></strong>
+            <button id="viewerNextBtn" type="button" hidden aria-label="看过了，在右侧打开优先看的下一个">看过了，下一个 ▸</button>
             <button id="viewerTabBtn" type="button" aria-label="在新标签页打开">新标签页打开</button>
             <button id="viewerCloseBtn" type="button" class="icon" aria-label="关闭视频栏 (Esc)">×</button>
           </div>
