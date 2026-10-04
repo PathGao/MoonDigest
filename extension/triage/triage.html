@@ -82,7 +82,8 @@
       <form method="dialog">
         <h2>分拣设置</h2>
         <h3>参与分拣的收藏夹</h3>
-        <p class="dialog-hint">取消勾选的收藏夹不出现在下拉框和「所有收藏夹」里，B 站上不受影响。</p>
+        <p class="dialog-hint">只读取勾选的收藏夹；没勾的不出现在下拉框和「所有收藏夹」里，也不读取内容。新建的收藏夹默认不勾。B 站上不受影响。</p>
+        <div class="export-row"><button type="button" class="link" data-folders-all aria-label="全选收藏夹">全选</button><button type="button" class="link" data-folders-none aria-label="全不选收藏夹">全不选</button></div>
         <div id="folderToggles" class="folder-toggles"></div>
         <h3>AI 参数</h3>
         <p class="dialog-hint">一般不用改。AI 平台、笔记格式和 Obsidian 在设置页；判断标准在每个收藏夹的粗分、细看按钮旁边改，标签在「管理标签」里改。</p>
@@ -107,6 +108,7 @@
         <div class="export-row">
           <button id="cleanCacheBtn" type="button" aria-label="清理已不在收藏夹里的视频缓存">清理缓存</button>
         </div>
+        <p class="dialog-hint">删掉已经不在任何收藏夹里的视频的 AI 结果（粗分、细看总结、AI 指令改判）。备注、标签、优先看和「已取消收藏」里的视频不会删。点了会先列出数量再确认。</p>
         <div class="dialog-actions">
           <button id="openOptionsBtn" type="button" class="link" aria-label="打开设置页">打开设置页</button>
           <span class="spacer"></span>

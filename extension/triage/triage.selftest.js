@@ -497,6 +497,17 @@ function openFake(mediaId, items, decisions = {}) {
   assert.deepStrictEqual(plain(t.S.items.map((it) => it.bvid)), ["BV2"]);
   assert.strictEqual(t.S.removedCount, 1);
 
+  // Opt-in folders: a new user starts with none; someone who already triaged keeps every folder but the ones switched off.
+  for (const k of Object.keys(store)) delete store[k];
+  t.S.allFolders = [{ id: 1 }, { id: 2 }, { id: 3 }];
+  assert.deepStrictEqual(plain(await t.loadIncluded()), []);
+  delete store[t.K.included];
+  Object.assign(store, { triage_snapshot_1: { bvids: [] }, triage_excluded_folders: ["2"] });
+  assert.deepStrictEqual(plain(await t.loadIncluded()), ["1", "3"]);
+  assert.ok(!("triage_excluded_folders" in store));
+  store[t.K.included] = ["3"];
+  assert.deepStrictEqual(plain(await t.loadIncluded()), ["3"], "a saved choice is kept as is");
+
   console.log("triage selftest: all passed");
 })().catch((e) => {
   console.error(e);

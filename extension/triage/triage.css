@@ -374,3 +374,5 @@ dialog.wide { width: min(880px, calc(100% - 32px)); }
 .read-item [data-clean] { margin-top: 6px; }
 .folder-toggles { display: grid; gap: 4px; max-height: 220px; overflow-y: auto; padding: 6px 8px; border: 1px solid var(--border); border-radius: 8px; }
 #allBtn[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+.pick-folders { max-width: 420px; margin: 40px auto; text-align: center; }
+.pick-folders p { margin: 0 0 10px; }
