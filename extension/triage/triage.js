@@ -21,9 +21,9 @@ const STAGES = [
 const STAGE_EMPTY = { none: "已全部粗分，下一步：细看", deep: "没有要细看的了，下一步：处理", act: "都处理完了，去看已处理" };
 const K = {
   lastFolder: "triage_last_folder",
-  schemes: "triage_schemes",
-  folderScheme: "triage_folder_scheme", // { [mediaId]: schemeId }, missing = default
-  schemesMigrated: "triage_schemes_migrated",
+  tags: "triage_tags", // [{ id, name, color }], one list for every folder
+  folderCriteria: "triage_folder_criteria", // { [mediaId]: 判断标准 }
+  simplified: "triage_simplified_v1",
   videoTags: "triage_video_tags",
   basket: "triage_basket",
   notes: "triage_notes", // { [bvid]: { text, updatedAt } }, shared with the history page and note export
@@ -33,52 +33,39 @@ const K = {
   override: (bvid) => `triage_verdict_override_${bvid}`
 };
 const OVERRIDE_PREFIX = "triage_verdict_override_";
-// A tier's route is all the pipeline reads: keep / unfav go to 待处理, deep to 待细看.
-// The default ids keep/drop/unsure are the verdicts stored before schemes existed.
-const DEFAULT_TIERS = [
-  { id: "keep", name: "留", description: "有具体、可复用的知识、方法或数据。", route: "keep" },
-  { id: "drop", name: "可以删", description: "标题党、空谈、纯娱乐、过时新闻，或内容主要是广告。", route: "unfav" },
-  { id: "unsure", name: "待定", description: "其他情况，或信息太少无法判断。", route: "deep" }
-];
-const ROUTES = [["keep", "保留"], ["unfav", "取消收藏"], ["deep", "要细看"]];
-const ROUTE_CLASS = { keep: "keep", unfav: "drop", deep: "unsure" };
-// Seeded as schemes for anyone who never saved tag presets (the old page created these two).
-const BUILTIN_PRESETS = [
-  {
-    id: "preset-topic",
-    name: "学习主题",
-    tags: [
-      { name: "AI工程", description: "大模型、Agent、RAG、AI 编程等技术实践" },
-      { name: "产品设计", description: "产品思路、交互设计、用户研究" },
-      { name: "创业商业", description: "创业经验、商业模式、行业分析" },
-      { name: "个人成长", description: "学习方法、效率、职业发展" },
-      { name: "娱乐放松", description: "搞笑、闲聊、纯娱乐内容" }
-    ]
-  },
-  {
-    id: "preset-priority",
-    name: "处理优先级",
-    tags: [
-      { name: "马上看", description: "和我当前工作直接相关，这周就要用" },
-      { name: "有空看", description: "有价值但不急" },
-      { name: "存档参考", description: "以后查资料时有用，不必现在看" },
-      { name: "可以删", description: "过时、重复或价值低" }
-    ]
+// The fixed AI classes: unsure (or low confidence) goes to 待细看, keep and drop to 待处理.
+// The ids are the badge color classes too.
+const VERDICTS = { keep: "留", drop: "可以删", unsure: "待定" };
+
+// One-time fold of the old schemes (triage_schemes + triage_folder_scheme) into per-folder 判断标准 and one tag list (pure).
+// Each folder seen in triage gets its scheme's criteria (unmapped = the default scheme's) when non-empty; folders never
+// opened in triage start empty. Tags: the default scheme's, plus other schemes' tags some video uses; same name → the
+// first id wins and video tags are remapped to it. Without schemes, the pre-scheme triage_tags and global criteria carry over.
+function simplifyMigration({ schemes, folderScheme, tags, videoTags, criteria, folderIds = [], folderCriteria }) {
+  const list = Array.isArray(schemes) && schemes.length ? schemes : null;
+  const def = list && (list.find((x) => x?.id === "default") || list[0]);
+  const vt = videoTags || {};
+  const fs = folderScheme || {};
+  const used = new Set(Object.values(vt).flat());
+  const candidates = list
+    ? [...(def.tags || []), ...list.filter((x) => x !== def).flatMap((x) => (x?.tags || []).filter((t) => used.has(t?.id)))]
+    : Array.isArray(tags) ? tags : [];
+  const out = [];
+  const remap = {};
+  for (const t of candidates) {
+    const name = String(t?.name ?? "").trim();
+    if (!name || !t.id || out.some((x) => x.id === t.id)) continue;
+    const kept = out.find((x) => x.name === name);
+    if (kept) remap[t.id] = kept.id;
+    else out.push({ id: t.id, name, color: t.color || TAG_COLORS[out.length % TAG_COLORS.length] });
   }
-];
-
-const defaultScheme = (patch = {}) => ({ id: "default", name: "默认方案", criteria: "", tags: [], onlyMyTags: false, grading: { tiers: structuredClone(DEFAULT_TIERS) }, ...patch });
-
-// One-time move of the global criteria, tags, 只用我的标签 and tag presets into schemes (pure; the caller sets the flag).
-// The default scheme keeps the old tag ids, so triage_video_tags needs no change; preset tag ids are derived, so two tabs migrating at once agree.
-function migrateSchemes({ tags, presets, criteria, ownTagsOnly }) {
-  const fromPresets = (Array.isArray(presets) ? presets : BUILTIN_PRESETS).map((p, i) => ({
-    ...defaultScheme(),
-    id: `s-${p.id || i}`,
-    name: String(p.name || `方案 ${i + 2}`),
-    tags: (p.tags || []).map((t, j) => ({ id: `${p.id || i}-t${j}`, name: t.name, description: t.description || "", color: TAG_COLORS[j % TAG_COLORS.length] }))
-  }));
-  return [defaultScheme({ criteria: String(criteria || ""), tags: Array.isArray(tags) ? tags : [], onlyMyTags: ownTagsOnly === true }), ...fromPresets];
+  const nextVideoTags = Object.fromEntries(Object.entries(vt).map(([b, ids]) => [b, [...new Set(ids.map((id) => remap[id] || id))]]));
+  const crit = {};
+  for (const f of new Set([...folderIds.map(String), ...Object.keys(fs)])) {
+    const text = String((list ? (list.find((x) => x?.id === fs[f]) || def).criteria : criteria) || "").trim();
+    if (text) crit[f] = text;
+  }
+  return { tags: out, videoTags: nextVideoTags, folderCriteria: { ...crit, ...folderCriteria } };
 }
 
 // ---------- state ----------
@@ -91,8 +78,8 @@ const S = {
   titleRes: {},
   analyses: {},
   decisions: {},
-  schemes: [defaultScheme()],
-  folderScheme: {},
+  tags: [],
+  folderCriteria: {},
   videoTags: {},
   basket: [],
   notes: {},
@@ -126,17 +113,10 @@ const S = {
   syncing: false,
   overrides: {}, // bvid -> { verdict, reason, by, at }
   aiHistory: [],
-  ai: { running: false, stop: false, proposal: null },
-  extra: "", // 临时补充 being typed; only the next 粗分/细看 run gets it
-  extraOpen: false,
-  runExtra: "" // what the running batch was started with
+  ai: { running: false, stop: false, proposal: null }
 };
 
-// The open folder's scheme; S.tags reads and writes its tags so the tag code needs no scheme plumbing.
-const scheme = () => S.schemes.find((x) => x.id === S.folderScheme[S.mediaId]) || S.schemes.find((x) => x.id === "default") || S.schemes[0];
-Object.defineProperty(S, "tags", { get: () => scheme().tags, set: (v) => (scheme().tags = v) });
-const tiers = () => scheme().grading?.tiers || null;
-const tierOf = (id) => tiers()?.find((x) => x.id === id);
+const criteria = () => S.folderCriteria[S.mediaId] || "";
 
 const $ = (id) => document.getElementById(id);
 const el = {};
@@ -148,10 +128,9 @@ const el = {};
   "batchSizeInput", "exportFolderInput", "openOptionsBtn", "thinkingInput", "titleMaxInput",
   "titleMaxHint", "analyzeMaxInput", "analyzeMaxHint", "settingsError", "backupBtn", "csvBtn", "cleanCacheBtn", "confirmDialog",
   "confirmTitle", "confirmBody", "confirmOk", "pickerDialog", "pickerTitle", "pickerInput", "pickerList",
-  "schemeSelect", "schemeDialog", "schemeName", "schemeCriteria", "schemeTagsHead", "gradingInput", "tierRows", "addTierBtn", "deleteSchemeBtn",
-  "tagsRows", "newTagInput", "addTagBtn", "ownTagsInput", "helpDialog",
+  "criteriaDialog", "criteriaTitle", "criteriaInput", "tagsDialog", "tagsRows", "newTagInput", "addTagBtn", "helpDialog",
   "aiBtn", "aiDialog", "aiForm", "aiScope", "aiScopeCount", "aiInstruction", "aiHistory",
-  "aiTagsLabel", "aiTagsPreview", "aiTagRule", "aiAllowVerdict", "aiAllowVerdictRow", "aiProgress", "aiCloseBtn", "aiStopBtn", "aiRunBtn",
+  "aiTagsPreview", "aiAllowVerdict", "aiProgress", "aiCloseBtn", "aiStopBtn", "aiRunBtn",
   "aiReview", "aiReviewSummary", "aiNotes", "aiNewTags", "aiAllBtn", "aiNoneBtn", "aiRows", "aiDiscardBtn", "aiApplyBtn",
   "writeBtn", "writeDialog", "writeScope", "writeFormat", "writeScopeCount", "writeOverwriteRow", "writeOverwrite", "writeProgress", "writeFailed", "writeStopBtn", "writeCopyBtn", "writeRunBtn", "writeMdBtn"
 ].forEach((id) => (el[id] = $(id)));
@@ -209,7 +188,6 @@ function fmtTime(ts) {
   return `${stamp(d, false)} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 const videoUrl = (bvid) => `https://www.bilibili.com/video/${bvid}`;
-const stripNew = (name) => String(name).replace(/^新[:：]\s*/, "").trim();
 
 // Waits ms, returning early when keepGoing() turns false.
 async function sleepWhile(ms, keepGoing) {
@@ -282,52 +260,36 @@ function handleAiError(error) {
 
 // ---------- derived ----------
 const tagById = (id) => S.tags.find((t) => t.id === id);
-// Tags of other schemes stay on the video and show gray; filters and AI use only the current scheme's.
-const anyTagById = (id) => tagById(id) || S.schemes.flatMap((x) => x.tags).find((t) => t.id === id);
 const tagIdsOf = (bvid) => (S.videoTags[bvid] || []).filter((id) => tagById(id));
 // Only 取消收藏 / 保留 finish a video; tags and notes never do.
 const isProcessed = (bvid) => Boolean(S.decisions[bvid]);
 
-// verdict is a tier id of the current scheme, "" for no tier, or "none" before 粗分.
-// A 粗分 tier the scheme doesn't have (another scheme's, or a deleted tier) counts as not classified, so 粗分 can run again.
+// verdict is keep / drop / unsure, or "none" before 粗分. A done 细看 with an unknown verdict counts as unsure;
+// a 粗分 result with one (left from the old custom tiers) counts as not classified, so 粗分 can run again.
 function verdictOf(it) {
   const a = S.analyses[it.bvid];
   const failed = a?.status === "error" ? a.error || "分析失败" : "";
-  const graded = Boolean(tiers());
-  const known = (v) => !graded || !v || Boolean(tierOf(v));
-  if (it.invalid) return { verdict: tiers()?.find((x) => x.route === "unfav")?.id || "", reason: "视频已失效", stage: 0, failed: "" };
+  if (it.invalid) return { verdict: "drop", reason: "视频已失效", stage: 0, failed: "" };
   const o = S.overrides[it.bvid];
-  if (o && graded && tierOf(o.verdict)) return { verdict: o.verdict, reason: o.reason, stage: 3, failed: "" };
-  if (a?.status === "done") return { verdict: graded && tierOf(a.verdict) ? a.verdict : "", reason: a.reason, stage: 2, failed: "" };
+  if (o && VERDICTS[o.verdict]) return { verdict: o.verdict, reason: o.reason, stage: 3, failed: "" };
+  if (a?.status === "done") return { verdict: VERDICTS[a.verdict] ? a.verdict : "unsure", reason: a.reason, stage: 2, failed: "" };
   const t = S.titleRes[it.bvid];
-  if (t && known(t.verdict)) return { verdict: graded ? t.verdict || "" : "", reason: t.reason, stage: 1, low: t.confidence === "low", failed };
+  if (t && VERDICTS[t.verdict]) return { verdict: t.verdict, reason: t.reason, stage: 1, low: t.confidence === "low", failed };
   return { verdict: "none", reason: "", stage: -1, failed };
-}
-
-function suggestionsOf(bvid) {
-  const a = S.analyses[bvid];
-  const list = (a?.status === "done" && a.suggestedTags) || S.titleRes[bvid]?.suggestedTags || [];
-  const have = new Set(tagIdsOf(bvid).map((id) => tagById(id).name));
-  // Results cached before 只用我的标签 was turned on may still carry 新: names.
-  const own = scheme().onlyMyTags;
-  return [...new Set(list)].filter((n) => stripNew(n) && !have.has(stripNew(n)) && !(own && n !== stripNew(n)));
 }
 
 function passTagFilter(bvid) {
   return S.tagFilter.size === 0 || tagIdsOf(bvid).some((id) => S.tagFilter.has(id));
 }
 
-// The tier's route decides: 要细看 or low confidence → 待细看, keep/unfav → 待处理. Without grading, 粗分 done → 待处理.
-// Invalid videos count as the first 取消收藏 tier (verdictOf).
+// unsure or low confidence → 待细看, keep / drop → 待处理; a done 细看 and invalid videos (可以删) → 待处理.
 function stageOf(it) {
   const b = it.bvid;
   if (isProcessed(b)) return "done";
   if (it.invalid || S.analyses[b]?.status === "done") return "act";
   const v = verdictOf(it);
   if (v.verdict === "none") return "none";
-  if (!tiers()) return "act";
-  const route = tierOf(v.verdict)?.route;
-  return !route || route === "deep" || v.low ? "deep" : "act";
+  return v.verdict === "unsure" || v.low ? "deep" : "act";
 }
 
 function inTab(it, tab) {
@@ -374,16 +336,13 @@ async function init() {
   bindEvents();
   // Read up front: sidePanel.open must run inside the click's user gesture, before any await.
   chrome.tabs.getCurrent().then((tab) => (ownTabId = tab?.id));
-  const [{ schemes, folderScheme }, videoTags, basket, notes, settingsResp] = await Promise.all([
-    loadSchemes(),
-    storeGet(K.videoTags, {}),
+  const [{ tags, videoTags, folderCriteria }, basket, notes, settingsResp] = await Promise.all([
+    loadTagsAndCriteria(),
     storeGet(K.basket, []),
     storeGet(K.notes, {}),
     send({ type: "triage-settings-get" })
   ]);
-  S.schemes = schemes;
-  S.folderScheme = folderScheme;
-  S.videoTags = videoTags;
+  Object.assign(S, { tags, videoTags, folderCriteria });
   S.basket = basket.map(({ bvid, title, opened }) => ({ bvid, title, ...(opened ? { opened: true } : {}) }));
   S.notes = notes;
   // getKeys (Chrome 130+) lets us read only override keys instead of every cached title/analysis.
@@ -407,32 +366,24 @@ async function init() {
   setInterval(tick, 1000);
 }
 
-// Runs the scheme migration once (flag key), then returns { schemes, folderScheme }.
-// An existing triage_schemes is never rebuilt; the old global keys stay for rollback and are not read after this.
-async function loadSchemes() {
-  const got = await chrome.storage.local.get([K.schemes, K.folderScheme, K.schemesMigrated]);
-  let schemes = got[K.schemes];
-  if (!got[K.schemesMigrated]) {
-    if (!Array.isArray(schemes)) {
-      const old = await chrome.storage.local.get(["triage_tags", "triage_tag_presets"]);
-      const sync = await chrome.storage.sync.get({ triageCriteria: "", triageOwnTagsOnly: false });
-      schemes = migrateSchemes({ tags: old.triage_tags, presets: old.triage_tag_presets, criteria: sync.triageCriteria, ownTagsOnly: sync.triageOwnTagsOnly });
-    }
-    await chrome.storage.local.set({ [K.schemes]: schemes, [K.schemesMigrated]: true });
-  }
-  if (Array.isArray(schemes) && renameDefaultDrop(schemes)) await chrome.storage.local.set({ [K.schemes]: schemes });
-  return { schemes: Array.isArray(schemes) && schemes.length ? schemes : [defaultScheme()], folderScheme: got[K.folderScheme] || {} };
-}
-
-// The default 「删」 tier became 「可以删」; a tier the user renamed keeps its name. Mutates, returns whether anything changed.
-function renameDefaultDrop(schemes) {
-  let changed = false;
-  for (const t of schemes.flatMap((x) => x?.grading?.tiers || [])) {
-    if (t.id !== "drop" || t.name !== "删") continue;
-    t.name = "可以删";
-    changed = true;
-  }
-  return changed;
+// Runs simplifyMigration once (flag key). The old scheme keys stay for rollback and are not read after this.
+async function loadTagsAndCriteria() {
+  const got = await chrome.storage.local.get([K.tags, K.videoTags, K.folderCriteria, K.simplified, "triage_schemes", "triage_folder_scheme"]);
+  if (got[K.simplified]) return { tags: got[K.tags] || [], videoTags: got[K.videoTags] || {}, folderCriteria: got[K.folderCriteria] || {} };
+  const keys = (await chrome.storage.local.getKeys?.()) ?? Object.keys((await chrome.storage.local.get(null)) || {});
+  const folderIds = keys.map((k) => /^triage_(?:snapshot|decisions)_(.+)$/.exec(k)?.[1]).filter(Boolean);
+  const { triageCriteria } = await chrome.storage.sync.get({ triageCriteria: "" });
+  const out = simplifyMigration({
+    schemes: got.triage_schemes,
+    folderScheme: got.triage_folder_scheme,
+    tags: got[K.tags],
+    videoTags: got[K.videoTags],
+    criteria: triageCriteria,
+    folderIds,
+    folderCriteria: got[K.folderCriteria]
+  });
+  await chrome.storage.local.set({ [K.tags]: out.tags, [K.videoTags]: out.videoTags, [K.folderCriteria]: out.folderCriteria, [K.simplified]: true });
+  return out;
 }
 
 async function loadFolders() {
@@ -478,7 +429,6 @@ async function openFolder(mediaId) {
   S.focusIndex = 0;
   S.throttleUntil = 0;
   S.status = "";
-  Object.assign(S, { extra: "", extraOpen: false, runExtra: "" });
   el.syncNotice.hidden = true;
   storeSet(K.lastFolder, mediaId);
   el.list.innerHTML = `<p class="empty">加载中…</p>`;
@@ -609,7 +559,6 @@ function render() {
 }
 
 function renderTop() {
-  renderSchemeSelect();
   const total = S.items.length;
   const classified = S.items.filter((it) => it.invalid || S.titleRes[it.bvid]).length;
   const deep = S.items.filter((it) => S.analyses[it.bvid]?.status === "done").length;
@@ -657,22 +606,19 @@ function renderTabs() {
             `<button type="button" class="chip${S.tagFilter.has(t.id) ? " on" : ""}" style="--c:${esc(t.color)}" data-tagfilter="${esc(t.id)}" aria-pressed="${S.tagFilter.has(t.id)}" aria-label="按标签筛选 ${esc(t.name)}">${esc(t.name)}</button>`
         )
         .join("")
-    : `<span class="muted">还没有标签</span> · <button type="button" class="link" data-tags-open="new" aria-label="新建标签">新建标签</button>`;
+    : `<span class="muted">还没有标签</span> · <button type="button" class="link" data-tags-open aria-label="新建标签">新建标签</button>`;
 }
 
-const headBtn = (act, label, cls = "", disabled = false, tier = "", title = "") =>
-  `<button type="button"${cls ? ` class="${cls}"` : ""} data-head="${act}"${tier ? ` data-tier="${esc(tier)}"` : ""} aria-label="${esc(label)}"${title ? ` title="${esc(title)}"` : ""}${disabled ? " disabled" : ""}>${esc(label)}</button>`;
+const headBtn = (act, label, cls = "", disabled = false, verdict = "", title = "") =>
+  `<button type="button"${cls ? ` class="${cls}"` : ""} data-head="${act}"${verdict ? ` data-verdict="${verdict}"` : ""} aria-label="${esc(label)}"${title ? ` title="${esc(title)}"` : ""}${disabled ? " disabled" : ""}>${esc(label)}</button>`;
 
-// 「按『方案』· 临时补充 ▸」 next to the 粗分/细看 button; the extra text goes to the next run only.
-function runLine(busy) {
-  const x = scheme();
-  const criteria = x.criteria.trim() ? "" : ` · <span class="muted">未设判断标准</span> <button type="button" class="link" data-head="edit-scheme" aria-label="编辑判断标准">编辑</button>`;
-  const extra = busy
-    ? S.runExtra ? ` · 临时补充：${esc(S.runExtra)}` : ""
-    : S.extraOpen || S.extra
-      ? ` · <input data-extra value="${esc(S.extra)}" placeholder="临时补充，只对这一次生效" aria-label="临时补充，只对这一次生效" />`
-      : ` · <button type="button" class="link" data-head="extra" aria-label="临时补充">临时补充 ▸</button>`;
-  return `<span class="run-line">按「${esc(x.name)}」${criteria}${extra}</span>`;
+// The folder's 判断标准 next to the 粗分/细看 button; clicking it opens the editor.
+function criteriaLine() {
+  const text = criteria();
+  const short = text.length > 24 ? `${text.slice(0, 24)}…` : text;
+  return text
+    ? `<span class="run-line" title="${esc(text)}">判断标准：${esc(short)} · <button type="button" class="link" data-head="criteria" aria-label="修改判断标准">改</button></span>`
+    : `<span class="run-line">未设判断标准 · <button type="button" class="link" data-head="criteria" aria-label="写一句判断标准">写一句</button></span>`;
 }
 
 function renderListHeader(list) {
@@ -686,7 +632,7 @@ function renderListHeader(list) {
       const n = stage1Pending().length;
       html = headBtn("stage1", n ? `标题粗分这 ${n} 个` : "标题粗分", "primary", !n || busy);
     }
-    html += runLine(busy);
+    html += criteriaLine();
   } else if (t === "deep") {
     if (S.group) {
       const done = S.group.bvids.filter((b) => !needsAnalysis(b)).length;
@@ -696,26 +642,25 @@ function renderListHeader(list) {
       const label = batch.some((b) => S.selected.has(b)) ? `细看选中 ${batch.length} 个` : batch.length ? `细看下一批 ${batch.length} 个` : "细看";
       html = headBtn("group", label, "primary", !batch.length || busy);
     }
-    html += runLine(busy);
+    html += criteriaLine();
   } else if (t === "act") {
-    // Filters and batch buttons come from the scheme's tiers. A selection gets both buttons whatever the tier;
-    // without one each keep/unfav tier gets its own button, and 要细看 tiers (or no grading) have none.
-    const ts = tiers() || [];
-    if (ts.length) {
-      html = `<span class="seg" role="group" aria-label="按档位筛选">${[["all", "全部"], ...ts.map((x) => [x.id, x.name])]
-        .map(([k, label]) => `<button type="button" data-act-filter="${esc(k)}" aria-pressed="${S.actFilter === k}">${esc(label)}</button>`)
-        .join("")}</span>`;
-    }
+    // A selection gets both buttons; without one 留 and 可以删 each get a button, 待定 none.
+    html = `<span class="seg" role="group" aria-label="按 AI 判断筛选">${[["all", "全部"], ...Object.entries(VERDICTS)]
+      .map(([k, label]) => `<button type="button" data-act-filter="${k}" aria-pressed="${S.actFilter === k}">${label}</button>`)
+      .join("")}</span>`;
     const sel = selectedIn(list).length;
     const f = S.actFilter;
-    const batchBtn = (route, x) => {
-      const n = batchList(x?.id ?? null).length;
+    const batchBtn = (route, verdict = "") => {
+      const n = batchList(verdict || null).length;
       const verb = route === "unfav" ? "取消收藏" : "保留";
-      return headBtn(`batch-${route}`, x ? `${verb}（AI：${x.name}）${n} 个` : `${verb}选中的 ${n} 个`, route === "unfav" ? "danger" : "", !n, x?.id, route === "keep" ? KEEP_TIP : "");
+      return headBtn(`batch-${route}`, verdict ? `${verb}（AI：${VERDICTS[verdict]}）${n} 个` : `${verb}选中的 ${n} 个`, route === "unfav" ? "danger" : "", !n, verdict, route === "keep" ? KEEP_TIP : "");
     };
-    if (sel || !ts.length) html += batchBtn("unfav") + batchBtn("keep");
-    else for (const route of ["unfav", "keep"]) for (const x of ts) if (x.route === route && (f === "all" || f === x.id)) html += batchBtn(route, x);
-    if (!sel && list.length && (!ts.length || routeOf(f) === "deep")) html += `<span class="muted">按 X 选中后可批量保留或取消收藏</span>`;
+    if (sel) html += batchBtn("unfav") + batchBtn("keep");
+    else {
+      if (f === "all" || f === "drop") html += batchBtn("unfav", "drop");
+      if (f === "all" || f === "keep") html += batchBtn("keep", "keep");
+    }
+    if (!sel && list.length && f === "unsure") html += `<span class="muted">按 X 选中后可批量保留或取消收藏</span>`;
   } else if (t === "read") {
     const options = [["all", "全部"], ...STAGES]
       .map(([key, label]) => `<option value="${key}"${S.readStage === key ? " selected" : ""}>${label}</option>`)
@@ -729,11 +674,8 @@ function renderListHeader(list) {
   if (S.selected.size) {
     html += `<span class="muted">已选中 ${S.selected.size} 个</span><button type="button" class="link" data-head="clear-selected" aria-label="清空选中">清空选中</button>`;
   }
-  // Background progress re-renders the header; keep the 临时补充 being typed in focus.
-  const typing = document.activeElement?.matches?.("[data-extra]");
   el.listHeader.innerHTML = html;
   el.listHeader.hidden = !html;
-  if (typing) el.listHeader.querySelector("[data-extra]")?.focus();
 }
 
 function recentUnfavs() {
@@ -829,17 +771,13 @@ function renderList() {
   }
 }
 
-// The badge shows 「AI」 + the tier name, colored by its route (keep green, unfav red, deep yellow).
-const verdictLabel = (v) => (v === "none" ? "未分析" : tierOf(v)?.name || "未分级");
-const routeOf = (v) => tierOf(v)?.route || "";
-// In 待细看 every card is there for low confidence or a 要细看 tier, so the marker would only repeat the tab.
-// Without grading only 未分析 gets a badge.
-const verdictBadge = (b, v, low = v.low && S.tab !== "deep" && Boolean(tiers())) =>
+// The badge shows 「AI」 + the class name, colored by it (keep green, drop red, unsure yellow).
+const verdictLabel = (v) => VERDICTS[v] || "未分析";
+// In 待细看 every card is there for low confidence or 待定, so the marker would only repeat the tab.
+const verdictBadge = (b, v, low = v.low && S.tab !== "deep") =>
   S.analyzing.has(b)
     ? `<span class="badge running">分析中…</span>`
-    : v.verdict !== "none" && !tiers()
-      ? ""
-      : `<span class="badge ${ROUTE_CLASS[routeOf(v.verdict)] || "none"}${low ? " low" : ""}">${tierOf(v.verdict) ? `<span class="ai-mark">AI</span>` : ""}${esc(verdictLabel(v.verdict))}${low ? " · 低置信" : ""}</span>`;
+    : `<span class="badge ${VERDICTS[v.verdict] ? v.verdict : "none"}${low ? " low" : ""}">${VERDICTS[v.verdict] ? `<span class="ai-mark">AI</span>` : ""}${esc(verdictLabel(v.verdict))}${low ? " · 低置信" : ""}</span>`;
 const ACTION_LABEL = { unfav: "已取消收藏", keep: "已保留" };
 const KEEP_TIP = "只在 MoonDigest 里标记，B 站收藏夹不变";
 
@@ -862,8 +800,8 @@ function cardHtml(it, expanded, mark) {
 
   const verdict = verdictBadge(b, v);
   // The button matching the AI's verdict leads; the other stays plain.
-  const keepCls = !decision && routeOf(v.verdict) === "keep" ? "ok solid" : "";
-  const unfavCls = !decision && routeOf(v.verdict) === "unfav" ? "danger solid" : "";
+  const keepCls = !decision && v.verdict === "keep" ? "ok solid" : "";
+  const unfavCls = !decision && v.verdict === "drop" ? "danger solid" : "";
   const note = S.notes[b]?.text || "";
   const noteHtml =
     note || S.noteOpen.has(b)
@@ -873,22 +811,10 @@ function cardHtml(it, expanded, mark) {
     ? `<span class="fail-text">分析失败：${esc(v.failed)}</span><button type="button" data-act="retry" aria-label="重试分析">重试</button>`
     : "";
 
-  // Tags from another scheme stay visible, gray.
-  const chips = (S.videoTags[b] || [])
-    .map((id) => {
-      const t = anyTagById(id);
-      if (!t) return "";
-      return tagById(id)
-        ? `<span class="chip on" style="--c:${esc(t.color)}">${esc(t.name)}</span>`
-        : `<span class="chip other" title="来自其他方案">${esc(t.name)}</span>`;
-    })
+  const chips = tagIdsOf(b)
+    .map((id) => tagById(id))
+    .map((t) => `<span class="chip on" style="--c:${esc(t.color)}">${esc(t.name)}</span>`)
     .join("");
-  const sugg = suggestionsOf(b);
-  const suggHtml = sugg.length
-    ? `<button type="button" class="chip suggest" data-act="accept" aria-label="采纳建议标签 ${esc(sugg.join("、"))}">建议 ${sugg
-        .map((n) => esc(n))
-        .join(" · ")}</button>`
-    : "";
 
   const body = [];
   if (done && a.oneLiner) body.push(`<p class="oneliner">${esc(a.oneLiner)}</p>`);
@@ -901,7 +827,7 @@ function cardHtml(it, expanded, mark) {
       <div class="meta">${meta.map(esc).join(" · ")}</div>
       ${body.join("")}
       <div class="card-foot">${verdict}<span class="reason">${esc(v.reason)}</span>${failed}</div>
-      ${chips || suggHtml ? `<div class="chips">${chips}${suggHtml}</div>` : ""}
+      ${chips ? `<div class="chips">${chips}</div>` : ""}
       ${noteHtml}
       <div class="card-foot">
         ${decision ? `<span class="badge ${decision.action === "keep" ? "keep" : "drop"}">${ACTION_LABEL[decision.action]}</span>` : ""}
@@ -930,11 +856,9 @@ function readHtml(it) {
   const done = a?.status === "done";
   const verdict = verdictBadge(b, v);
   const names = tagIdsOf(b).map((id) => tagById(id));
-  const suggested = suggestionsOf(b);
   const body = [];
   if (done && a.oneLiner) body.push(`<p class="oneliner">${esc(a.oneLiner)}</p>`);
   if (done && a.points?.length) body.push(`<ol class="points">${a.points.map((p) => `<li>${esc(p)}</li>`).join("")}</ol>`);
-  if (suggested.length) body.push(`<p class="muted">建议标签：${suggested.map(esc).join("、")}</p>`);
   if (names.length) body.push(`<div class="chips">${names.map((t) => `<span class="chip on" style="--c:${esc(t.color)}">${esc(t.name)}</span>`).join("")}</div>`);
   return `<article class="read-item${isProcessed(b) ? " decided" : ""}" data-bvid="${esc(b)}">
     <h3><a href="${videoUrl(b)}" target="_blank" rel="noopener">${esc(it.title)}</a></h3>
@@ -1073,7 +997,7 @@ async function undo() {
     saveDecisions();
     toast(`已撤销批量保留 ${entry.bvids.length} 个`);
   } else if (entry.kind === "tags") {
-    writeVideoTags(entry.bvid, entry.prev.filter((id) => tagById(id)));
+    writeVideoTags(entry.bvid, entry.prev);
     saveVideoTags();
     toast("已撤销标签修改");
     S.focused = entry.bvid;
@@ -1098,11 +1022,11 @@ async function undo() {
   setFocus(S.focused);
 }
 
-// 待处理 batch buttons act on the selected cards of the tab, otherwise on every card of this tier (none without one).
-function batchList(tier) {
+// 待处理 batch buttons act on the selected cards of the tab, otherwise on every card with this verdict (none without one).
+function batchList(verdict) {
   const list = visibleItems().filter((it) => !isProcessed(it.bvid));
   const sel = selectedIn(list);
-  return sel.length ? sel : tier == null ? [] : list.filter((it) => verdictOf(it).verdict === tier);
+  return sel.length ? sel : verdict == null ? [] : list.filter((it) => verdictOf(it).verdict === verdict);
 }
 
 async function batchUnfav(btn, list) {
@@ -1151,42 +1075,20 @@ function batchKeep(list) {
 }
 
 // ---------- tags ----------
-const saveSchemes = () => storeSet(K.schemes, S.schemes);
-const saveTags = saveSchemes;
+const saveTags = () => storeSet(K.tags, S.tags);
 
-const tagPayload = () => S.tags.map((t) => ({ name: t.name, description: t.description || "" }));
-// What the background builds prompts from; tiers null = grading off.
-const schemePayload = () => {
-  const x = scheme();
-  return { criteria: x.criteria, tags: tagPayload(), onlyMyTags: x.onlyMyTags, tiers: tiers()?.map(({ id, name, description, route }) => ({ id, name, description, route })) || null };
-};
-
-// Returns the tag with this name, creating it if needed; fills an empty description.
-function createTag(name, description = "") {
-  name = stripNew(name);
+// Returns the tag with this name, creating it if needed; the color comes from the palette in turn.
+function createTag(name) {
   const existing = S.tags.find((t) => t.name === name);
-  if (existing) {
-    if (!existing.description && description) {
-      existing.description = description;
-      saveTags();
-    }
-    return existing;
-  }
-  const tag = {
-    id: `t${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`,
-    name,
-    description,
-    color: TAG_COLORS[S.tags.length % TAG_COLORS.length]
-  };
+  if (existing) return existing;
+  const tag = { id: `t${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`, name, color: TAG_COLORS[S.tags.length % TAG_COLORS.length] };
   S.tags.push(tag);
   saveTags();
   return tag;
 }
 
-// ids and prev are the current scheme's tags; other schemes' tags on the video are kept.
 function writeVideoTags(bvid, ids) {
-  const all = [...(S.videoTags[bvid] || []).filter((id) => !tagById(id)), ...ids];
-  if (all.length) S.videoTags[bvid] = all;
+  if (ids.length) S.videoTags[bvid] = ids;
   else delete S.videoTags[bvid];
 }
 function setVideoTags(bvid, ids, prev) {
@@ -1196,23 +1098,6 @@ function setVideoTags(bvid, ids, prev) {
   saveVideoTags();
   pushUndo({ kind: "tags", bvid, prev });
   return true;
-}
-
-function acceptSuggestions(bvid) {
-  const sugg = suggestionsOf(bvid);
-  if (!sugg.length) {
-    toast("这个视频没有待采纳的建议标签");
-    return;
-  }
-  const prev = tagIdsOf(bvid);
-  const ids = [...prev];
-  for (const name of sugg) {
-    const t = createTag(name);
-    if (!ids.includes(t.id)) ids.push(t.id);
-  }
-  setVideoTags(bvid, ids, prev);
-  toast(`已添加标签：${sugg.map(stripNew).join("、")} · 撤销(U)`);
-  render();
 }
 
 const picker = { bvid: "", prev: [], ids: [], index: 0, options: [] };
@@ -1234,7 +1119,7 @@ function openPicker(bvid) {
 function renderPicker() {
   const q = el.pickerInput.value.trim();
   const opts = S.tags.filter((t) => !q || t.name.toLowerCase().includes(q.toLowerCase())).map((t) => ({ tag: t }));
-  if (q && !S.tags.some((t) => t.name === stripNew(q))) opts.unshift({ create: stripNew(q) });
+  if (q && !S.tags.some((t) => t.name === q)) opts.unshift({ create: q });
   picker.options = opts;
   picker.index = Math.min(picker.index, Math.max(0, opts.length - 1));
   el.pickerList.innerHTML = opts.length
@@ -1273,94 +1158,28 @@ function closePicker() {
   setFocus(S.focused, true);
 }
 
-// ---------- schemes ----------
-let schemeSelectHtml = "";
-function renderSchemeSelect() {
-  const cur = scheme();
-  const html =
-    S.schemes.map((x) => `<option value="${esc(x.id)}">${esc(x.name)}</option>`).join("") +
-    `<option disabled>──────</option><option value="__edit">编辑「${esc(cur.name)}」…</option><option value="__new">新建方案…</option>`;
-  // Rebuilding the options while the menu is open would close it.
-  if (html !== schemeSelectHtml) el.schemeSelect.innerHTML = schemeSelectHtml = html;
-  el.schemeSelect.value = cur.id;
-  el.schemeSelect.disabled = S.stage1.running || Boolean(S.group);
+// ---------- 判断标准 ----------
+function openCriteria() {
+  el.criteriaTitle.textContent = `判断标准 ·「${folderTitle()}」`;
+  el.criteriaInput.value = criteria();
+  el.criteriaDialog.returnValue = "";
+  el.criteriaDialog.showModal();
+  el.criteriaInput.focus();
 }
 
-// Missing entries mean the default scheme. Tag filters and the 待处理 filter belong to the old scheme, so they reset.
-function setFolderScheme(id) {
-  if (id === "default") delete S.folderScheme[S.mediaId];
-  else S.folderScheme[S.mediaId] = id;
-  storeSet(K.folderScheme, S.folderScheme);
-  S.tagFilter.clear();
-  S.actFilter = "all";
-  S.tab = currentStage(stageCounts());
-  S.focused = "";
+function saveCriteria() {
+  const text = el.criteriaInput.value.trim();
+  if (text) S.folderCriteria[S.mediaId] = text;
+  else delete S.folderCriteria[S.mediaId];
+  storeSet(K.folderCriteria, S.folderCriteria);
   render();
 }
 
-function newScheme() {
-  const x = { ...defaultScheme(), id: `s${Date.now().toString(36)}`, name: `新方案 ${S.schemes.length + 1}` };
-  S.schemes.push(x);
-  saveSchemes();
-  setFolderScheme(x.id);
-  openSchemeEditor("name");
-}
-
-function openSchemeEditor(focus) {
-  const x = scheme();
-  el.schemeName.value = x.name;
-  el.schemeCriteria.value = x.criteria;
-  el.ownTagsInput.checked = x.onlyMyTags;
-  el.deleteSchemeBtn.hidden = x.id === "default";
+// ---------- 管理标签 ----------
+function openTags() {
   renderTagManager();
-  renderTiers();
-  el.schemeDialog.showModal();
-  if (focus === "name") el.schemeName.select();
-  if (focus === "criteria") el.schemeCriteria.focus();
-  if (focus === "new") el.newTagInput.focus();
-  if (focus === "tags") el.schemeTagsHead.scrollIntoView({ block: "start" });
-}
-
-function renderTiers() {
-  const ts = tiers();
-  el.gradingInput.checked = Boolean(ts);
-  el.tierRows.hidden = el.addTierBtn.hidden = !ts;
-  el.tierRows.innerHTML = (ts || [])
-    .map(
-      (t) => `<div class="tier-row" data-id="${esc(t.id)}">
-      <input type="text" value="${esc(t.name)}" data-tier="name" aria-label="档位名称" />
-      <select data-tier="route" aria-label="去向 ${esc(t.name)}">${ROUTES.map(([k, label]) => `<option value="${k}"${t.route === k ? " selected" : ""}>${label}</option>`).join("")}</select>
-      <button type="button" class="danger" data-tier="delete" aria-label="删除档位 ${esc(t.name)}">删除</button>
-      <input type="text" value="${esc(t.description)}" data-tier="description" placeholder="说明：什么样的视频归这一档（AI 会参考）" aria-label="档位说明 ${esc(t.name)}" />
-    </div>`
-    )
-    .join("");
-}
-
-async function deleteTier(id) {
-  const ts = tiers();
-  const t = ts.find((x) => x.id === id);
-  if (ts.length === 1) return toast("至少留一档；不想分级就关掉「让 AI 分级」", true);
-  const ok = await askConfirm(`删除档位「${t.name}」？`, "<p>已判为这一档的视频回到未分析，可以重新粗分；细看过的显示「未分级」。</p>", "删除");
-  if (!ok) return;
-  scheme().grading.tiers = ts.filter((x) => x !== t);
-  S.actFilter = "all";
-  saveSchemes();
-  renderTiers();
-  render();
-}
-
-async function deleteScheme() {
-  const x = scheme();
-  if (x.id === "default") return;
-  const folders = Object.values(S.folderScheme).filter((id) => id === x.id).length;
-  const ok = await askConfirm(`删除方案「${x.name}」？`, `<p>用它的 ${folders} 个收藏夹改用默认方案。这个方案的标签会从视频上消失，无法撤销。</p>`, "删除");
-  if (!ok) return;
-  S.schemes = S.schemes.filter((s2) => s2 !== x);
-  for (const [m, id] of Object.entries(S.folderScheme)) if (id === x.id) delete S.folderScheme[m];
-  saveSchemes();
-  el.schemeDialog.close();
-  setFolderScheme("default");
+  el.tagsDialog.showModal();
+  el.newTagInput.focus();
 }
 
 function renderTagManager() {
@@ -1370,9 +1189,8 @@ function renderTagManager() {
     ? S.tags
         .map(
           (t) => `<div class="tag-row" data-id="${esc(t.id)}">
-      <input type="color" value="${esc(t.color)}" data-field="color" aria-label="标签颜色 ${esc(t.name)}" />
+      <span class="dot" style="--c:${esc(t.color)}"></span>
       <input type="text" value="${esc(t.name)}" data-field="name" aria-label="标签名称" />
-      <input type="text" value="${esc(t.description)}" data-field="description" placeholder="说明：什么时候用这个标签（AI 会参考）" aria-label="标签说明 ${esc(t.name)}" />
       <span class="muted">${counts[t.id] || 0} 个视频</span>
       <button type="button" class="danger" data-field="delete" aria-label="删除标签 ${esc(t.name)}">删除</button>
     </div>`
@@ -1415,15 +1233,6 @@ async function throttleWait(code, keepGoing) {
   renderStatus();
 }
 
-// 临时补充 is taken when a run starts and cleared when it ends, unless it was edited meanwhile.
-function beginRun() {
-  S.runExtra = S.extra.trim();
-}
-function endRun() {
-  if (S.extra.trim() === S.runExtra) Object.assign(S, { extra: "", extraOpen: false });
-  S.runExtra = "";
-}
-
 const stage1Pending = () => S.items.filter((it) => stageOf(it) === "none" && !S.stage1Skip.has(it.bvid));
 
 async function runStage1() {
@@ -1433,7 +1242,6 @@ async function runStage1() {
   const pending = () => stage1Pending().filter((it) => !timedOut.has(it.bvid));
   const total = pending().length;
   S.stage1 = { running: true, stop: false, done: 0, total };
-  beginRun();
   const keepGoing = () => !S.stage1.stop && token === S.folderToken;
   const size = Math.max(1, Number(S.settings.triageTitleBatchSize) || 30);
   let done = 0;
@@ -1446,7 +1254,7 @@ async function runStage1() {
     S.status = `标题粗分中 ${done}/${total}`;
     for (const it of batch) S.analyzing.add(it.bvid);
     render();
-    const r = await send({ type: "triage-classify-titles", items: batch.map(aiItem), scheme: schemePayload(), extra: S.runExtra });
+    const r = await send({ type: "triage-classify-titles", items: batch.map(aiItem), criteria: criteria() });
     for (const it of batch) S.analyzing.delete(it.bvid);
     if (token !== S.folderToken) break;
     if (!r.ok) {
@@ -1479,7 +1287,6 @@ async function runStage1() {
   }
   if (token !== S.folderToken) return;
   S.stage1.running = false;
-  endRun();
   if (!failedOut) el.banner.hidden = true;
   S.status = timedOut.size
     ? `标题粗分完成 ${done} 个，${timedOut.size} 个因 AI 超时跳过，再点标题粗分可重试`
@@ -1497,14 +1304,13 @@ const needsAnalysis = (b) => {
 function startGroup(bvids) {
   if (!bvids.length || S.group) return;
   S.group = { bvids, stop: false };
-  beginRun();
   runGroup();
 }
 
 async function analyzeOne(bvid, force = false) {
   S.analyzing.add(bvid);
   render();
-  const r = await send({ type: "triage-analyze", bvid, force, scheme: schemePayload(), extra: S.runExtra });
+  const r = await send({ type: "triage-analyze", bvid, force, criteria: criteria() });
   S.analyzing.delete(bvid);
   return r;
 }
@@ -1537,7 +1343,6 @@ async function runGroup() {
   // A run that stopped on a setup error keeps its banner; any other finished batch clears it.
   if (!group.stop) el.banner.hidden = true;
   S.group = null;
-  endRun();
   S.status = "";
   render();
 }
@@ -1611,14 +1416,7 @@ function renderAiForm() {
   const n = aiScopeItems().length;
   const size = Math.max(1, Number(S.settings.triageTitleBatchSize) || 30);
   el.aiScopeCount.textContent = n ? `将发送 ${n} 个视频，分 ${Math.ceil(n / size)} 批` : "作用范围里没有视频";
-  const x = scheme();
-  el.aiTagsLabel.textContent = `「${x.name}」的标签`;
-  el.aiTagsPreview.innerHTML = x.tags.length
-    ? x.tags.map((t) => `<span class="chip" title="${esc(t.description)}">${esc(t.name)}</span>`).join("")
-    : `<span class="muted">还没有标签</span>`;
-  // New tags follow the scheme's 只用我的标签; the limit is fixed.
-  el.aiTagRule.textContent = x.onlyMyTags ? "方案开着「只用我的标签」，AI 只从这些标签里选。" : "AI 可以新建至多 5 个标签，你确认后才会创建。";
-  el.aiAllowVerdictRow.hidden = !tiers();
+  el.aiTagsPreview.innerHTML = S.tags.length ? S.tags.map((t) => `<span class="chip">${esc(t.name)}</span>`).join("") : `<span class="muted">还没有标签</span>`;
   el.aiHistory.innerHTML = S.aiHistory.length
     ? `<span class="muted">最近：</span>` +
       S.aiHistory
@@ -1644,8 +1442,8 @@ async function runAiCommand() {
   }
   S.aiHistory = [instruction, ...S.aiHistory.filter((x) => x !== instruction)].slice(0, 5);
   storeSet(K.aiHistory, S.aiHistory);
-  const opts = { allowNewTags: !scheme().onlyMyTags, maxNewTags: 5, allowVerdict: el.aiAllowVerdict.checked && Boolean(tiers()) };
-  const payload = schemePayload();
+  const opts = { maxNewTags: 5, allowVerdict: el.aiAllowVerdict.checked };
+  const tagNames = S.tags.map((t) => t.name);
   const size = Math.max(1, Number(S.settings.triageTitleBatchSize) || 30);
   const scopeSet = new Set(items.map((it) => it.bvid));
   const total = Math.ceil(items.length / size);
@@ -1659,7 +1457,7 @@ async function runAiCommand() {
   for (let i = 0; i < total && keepGoing(); i++) {
     el.aiProgress.textContent = `正在处理第 ${i + 1} / ${total} 批…`;
     const batch = items.slice(i * size, (i + 1) * size);
-    const r = await send({ type: "triage-ai-command", instruction, items: batch.map(aiCommandItem), scheme: payload, allowVerdict: opts.allowVerdict });
+    const r = await send({ type: "triage-ai-command", instruction, items: batch.map(aiCommandItem), tags: tagNames, allowVerdict: opts.allowVerdict });
     if (!r.ok) {
       p.errors.push(`第 ${i + 1} 批失败：${r.error}`);
       if (/截断|配置 AI|未授权访问/.test(r.error || "")) handleAiError(r.error);
@@ -1684,17 +1482,16 @@ async function runAiCommand() {
 function mergeAiBatch(p, data, opts, scopeSet) {
   const existing = (name) => S.tags.find((t) => t.name === name);
   const proposed = (name) => p.newTags.find((t) => t.key === name);
-  const addNew = (name, description) => {
-    if (!opts.allowNewTags || p.newTags.length >= opts.maxNewTags) return null;
-    const t = { key: name, name, description: description || "", checked: true };
+  const addNew = (name) => {
+    if (p.newTags.length >= opts.maxNewTags) return null;
+    const t = { key: name, name, checked: true };
     p.newTags.push(t);
     return t;
   };
 
-  for (const nt of data?.newTags || []) {
-    const name = stripNew(nt?.name || "");
-    if (!name || existing(name) || proposed(name)) continue;
-    addNew(name, nt.description);
+  for (const raw of data?.newTags || []) {
+    const name = String(raw ?? "").trim();
+    if (name && !existing(name) && !proposed(name)) addNew(name);
   }
   if (data?.note) p.notes.push(String(data.note));
 
@@ -1703,7 +1500,7 @@ function mergeAiBatch(p, data, opts, scopeSet) {
     const current = tagIdsOf(bvid);
     const add = [];
     for (const raw of a?.add || []) {
-      const name = stripNew(raw);
+      const name = String(raw ?? "").trim();
       if (!name) continue;
       const t = existing(name);
       if (t) {
@@ -1714,11 +1511,11 @@ function mergeAiBatch(p, data, opts, scopeSet) {
       if (nt) add.push(`new:${nt.key}`);
     }
     const remove = (a?.remove || [])
-      .map((n) => existing(stripNew(n)))
+      .map((n) => existing(String(n ?? "").trim()))
       .filter((t) => t && current.includes(t.id))
       .map((t) => t.id);
     const oldVerdict = verdictOf(S.itemMap.get(bvid)).verdict;
-    const verdict = opts.allowVerdict && tierOf(a?.verdict) && a.verdict !== oldVerdict ? a.verdict : "";
+    const verdict = opts.allowVerdict && VERDICTS[a?.verdict] && a.verdict !== oldVerdict ? a.verdict : "";
     if (!add.length && !remove.length && !verdict) continue;
     const row = p.rows.find((r) => r.bvid === bvid);
     if (row) {
@@ -1753,7 +1550,6 @@ function renderAiReview() {
           (t, i) => `<div class="ai-newtag" data-i="${i}">
       <input type="checkbox" data-nt="checked"${t.checked ? " checked" : ""} aria-label="创建标签 ${esc(t.name)}" />
       <input type="text" data-nt="name" value="${esc(t.name)}" aria-label="新标签名称" />
-      <input type="text" data-nt="description" value="${esc(t.description)}" placeholder="说明：什么时候用这个标签" aria-label="新标签说明" />
     </div>`
         )
         .join("")
@@ -1799,8 +1595,8 @@ function applyAiProposal() {
   const prevOverrides = {};
   const idFor = {};
   for (const t of p.newTags) {
-    const name = stripNew(t.name);
-    if (t.checked && name) idFor[t.key] = createTag(name, t.description.trim()).id;
+    const name = t.name.trim();
+    if (t.checked && name) idFor[t.key] = createTag(name).id;
   }
   const at = Date.now();
   for (const { r, e } of rows) {
@@ -2052,14 +1848,14 @@ async function runWrite(md = false) {
 }
 
 // ---------- data export ----------
-const BACKUP_PREFIXES = [K.schemes, K.folderScheme, "triage_video_tags", "triage_basket", K.notes, "triage_snapshot_", "triage_decisions_", "triage_title_", "triage_analysis_", OVERRIDE_PREFIX];
+const BACKUP_PREFIXES = [K.tags, K.folderCriteria, "triage_video_tags", "triage_basket", K.notes, "triage_snapshot_", "triage_decisions_", "triage_title_", "triage_analysis_", OVERRIDE_PREFIX];
 const isSecretKey = (k) => /key|token/i.test(k) || k === "aiProviderKeys" || k === "obsidianApiKey";
 
 async function buildBackup() {
   const all = await chrome.storage.local.get(null);
   const out = {
     app: "moondigest",
-    schemaVersion: 2,
+    schemaVersion: 3,
     exportedAt: new Date().toISOString(),
     extensionVersion: chrome.runtime.getManifest?.().version || "",
     settings: {
@@ -2067,8 +1863,8 @@ async function buildBackup() {
       triageExportFolder: S.settings.triageExportFolder,
       triageTitleBatchSize: S.settings.triageTitleBatchSize
     },
-    schemes: [], // criteria, tags, 只用我的标签 and tiers per scheme
-    folderScheme: {}, // mediaId → scheme id; missing = default
+    tags: [],
+    folderCriteria: {}, // mediaId → 判断标准
     videoTags: {},
     basket: [],
     notes: {},
@@ -2082,8 +1878,8 @@ async function buildBackup() {
   for (const [k, v] of Object.entries(all || {})) {
     if (!BACKUP_PREFIXES.some((p) => k.startsWith(p))) continue;
     if (isSecretKey(k)) continue; // defensive: triage keys never contain these words
-    if (k === K.schemes) out.schemes = v;
-    else if (k === K.folderScheme) out.folderScheme = v;
+    if (k === K.tags) out.tags = v;
+    else if (k === K.folderCriteria) out.folderCriteria = v;
     else if (k.startsWith(OVERRIDE_PREFIX)) out.verdictOverrides[k.slice(OVERRIDE_PREFIX.length)] = v;
     else if (k === "triage_video_tags") out.videoTags = v;
     else if (k === "triage_basket") out.basket = v;
@@ -2159,7 +1955,7 @@ function buildCsv() {
       it.upper,
       fmtDuration(it.duration),
       videoUrl(it.bvid),
-      v.verdict === "none" || !tiers() ? "" : verdictLabel(v.verdict),
+      v.verdict === "none" ? "" : verdictLabel(v.verdict),
       ["", "标题粗分", "字幕细看", "AI 指令"][v.stage] || "",
       v.reason,
       done ? a.oneLiner || "" : "",
@@ -2195,8 +1991,7 @@ function bindEvents() {
     if (btn) showTab(btn.dataset.tab);
   });
   el.tagFilter.addEventListener("click", (e) => {
-    const open = e.target.closest("[data-tags-open]")?.dataset.tagsOpen;
-    if (open) return openSchemeEditor(open);
+    if (e.target.closest("[data-tags-open]")) return openTags();
     const btn = e.target.closest("[data-tagfilter]");
     if (!btn) return;
     const id = btn.dataset.tagfilter;
@@ -2230,23 +2025,16 @@ function bindEvents() {
       const batch = nextBatch();
       for (const b of batch) S.selected.delete(b);
       startGroup(batch);
-    } else if (act === "batch-unfav") batchUnfav(btn, batchList(btn.dataset.tier || null));
-    else if (act === "batch-keep") batchKeep(batchList(btn.dataset.tier || null));
-    else if (act === "edit-scheme") openSchemeEditor("criteria");
-    else if (act === "extra") {
-      S.extraOpen = true;
-      renderListHeader(visibleItems());
-      el.listHeader.querySelector("[data-extra]")?.focus();
-    } else if (act === "export-read") openWrite({ scope: "filter", format: "digest" });
+    } else if (act === "batch-unfav") batchUnfav(btn, batchList(btn.dataset.verdict || null));
+    else if (act === "batch-keep") batchKeep(batchList(btn.dataset.verdict || null));
+    else if (act === "criteria") openCriteria();
+    else if (act === "export-read") openWrite({ scope: "filter", format: "digest" });
     else if (act === "clear-selected") {
       S.selected.clear();
       render();
     }
   });
 
-  el.listHeader.addEventListener("input", (e) => {
-    if (e.target.matches("[data-extra]")) S.extra = e.target.value;
-  });
   el.listHeader.addEventListener("change", (e) => {
     if (!e.target.matches("[data-read-stage]")) return;
     S.readStage = e.target.value;
@@ -2388,86 +2176,15 @@ function bindEvents() {
     if (e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom) el.pickerDialog.close();
   });
 
-  // schemes: edits apply and save as they happen, like the tag rows
-  el.schemeSelect.addEventListener("change", () => {
-    const v = el.schemeSelect.value;
-    el.schemeSelect.value = scheme().id;
-    if (v === "__edit") openSchemeEditor();
-    else if (v === "__new") newScheme();
-    else setFolderScheme(v);
+  el.criteriaDialog.addEventListener("close", () => {
+    if (el.criteriaDialog.returnValue === "save") saveCriteria();
   });
-  el.manageTagsBtn.addEventListener("click", () => openSchemeEditor("tags"));
-  el.schemeName.addEventListener("change", () => {
-    const name = el.schemeName.value.trim();
-    if (!name || S.schemes.some((x) => x !== scheme() && x.name === name)) {
-      toast(name ? "已有同名方案" : "方案名不能为空", true);
-      el.schemeName.value = scheme().name;
-      return;
-    }
-    scheme().name = name;
-    saveSchemes();
-    render();
-  });
-  el.schemeCriteria.addEventListener("change", () => {
-    scheme().criteria = el.schemeCriteria.value.trim();
-    saveSchemes();
-    render();
-  });
-  el.ownTagsInput.addEventListener("change", () => {
-    scheme().onlyMyTags = el.ownTagsInput.checked;
-    saveSchemes();
-    render();
-  });
-  el.gradingInput.addEventListener("change", () => {
-    const x = scheme();
-    // savedTiers keeps the tiers while grading is off, so switching it back on restores them.
-    if (el.gradingInput.checked) {
-      x.grading = { tiers: x.savedTiers || structuredClone(DEFAULT_TIERS) };
-      delete x.savedTiers;
-    } else {
-      x.savedTiers = x.grading?.tiers;
-      x.grading = null;
-    }
-    S.actFilter = "all";
-    saveSchemes();
-    renderTiers();
-    render();
-  });
-  el.addTierBtn.addEventListener("click", () => {
-    const ts = tiers();
-    ts.push({ id: `tier-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 5)}`, name: `档位 ${ts.length + 1}`, description: "", route: "keep" });
-    saveSchemes();
-    renderTiers();
-    render();
-    el.tierRows.querySelector(".tier-row:last-child [data-tier=name]")?.select();
-  });
-  el.tierRows.addEventListener("change", (e) => {
-    const t = tiers()?.find((x) => x.id === e.target.closest(".tier-row")?.dataset.id);
-    const field = e.target.dataset.tier;
-    if (!t) return;
-    if (field === "name") {
-      const name = e.target.value.trim();
-      if (!name || tiers().some((x) => x !== t && x.name === name)) {
-        toast(name ? "已有同名档位" : "档位名不能为空", true);
-        e.target.value = t.name;
-        return;
-      }
-      t.name = name;
-    } else if (field === "description") t.description = e.target.value.trim();
-    else if (field === "route") t.route = e.target.value;
-    saveSchemes();
-    render();
-  });
-  el.tierRows.addEventListener("click", (e) => {
-    if (e.target.dataset.tier === "delete") deleteTier(e.target.closest(".tier-row").dataset.id);
-  });
-  el.deleteSchemeBtn.addEventListener("click", deleteScheme);
+  // Edits in 管理标签 save as they happen.
+  el.manageTagsBtn.addEventListener("click", openTags);
   el.tagsRows.addEventListener("change", (e) => {
     const row = e.target.closest(".tag-row");
     const t = row && tagById(row.dataset.id);
     if (!t) return;
-    if (e.target.dataset.field === "color") t.color = e.target.value;
-    if (e.target.dataset.field === "description") t.description = e.target.value.trim();
     if (e.target.dataset.field === "name") {
       const name = e.target.value.trim();
       if (!name || S.tags.some((x) => x !== t && x.name === name)) {
@@ -2523,9 +2240,9 @@ function bindEvents() {
   el.aiNewTags.addEventListener("input", (e) => {
     const t = S.ai.proposal?.newTags[Number(e.target.closest(".ai-newtag")?.dataset.i)];
     const field = e.target.dataset.nt;
-    if (!t || (field !== "name" && field !== "description")) return;
-    t[field] = e.target.value;
-    if (field === "name") renderAiRows();
+    if (!t || field !== "name") return;
+    t.name = e.target.value;
+    renderAiRows();
   });
   el.aiRows.addEventListener("change", (e) => {
     if (!e.target.matches("[data-row]")) return;
@@ -2611,7 +2328,6 @@ function cardAction(act, bvid) {
   else if (act === "unfav") decide(bvid, "unfav");
   else if (act === "keep") decide(bvid, "keep");
   else if (act === "tag") openPicker(bvid);
-  else if (act === "accept") acceptSuggestions(bvid);
   else if (act === "basket") toggleBasket(bvid);
   else if (act === "retry") retry(bvid);
   else if (act === "note") {
@@ -2641,7 +2357,7 @@ function onKey(e) {
     i: () => openAi()
   };
   const nav = { j: 1, ArrowDown: 1, k: -1, ArrowUp: -1 };
-  const cardKeys = { d: "unfav", s: "keep", t: "tag", a: "accept", e: "basket", q: "ask", x: "select", o: "open", Enter: "open" };
+  const cardKeys = { d: "unfav", s: "keep", t: "tag", e: "basket", q: "ask", x: "select", o: "open", Enter: "open" };
   if (map[key]) map[key]();
   else if (S.tab === "read") return;
   else if (nav[key]) moveFocus(nav[key]);

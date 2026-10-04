@@ -52,7 +52,7 @@ const ctx = vm.createContext({
   }
 });
 vm.runInContext(fs.readFileSync(path.join(__dirname, "..", "limits.js"), "utf8"), ctx);
-vm.runInContext(`${source}\n;globalThis.S = S; globalThis.K = K; globalThis.DEFAULT_TIERS = DEFAULT_TIERS; globalThis.el = el; globalThis.verdictBadge = verdictBadge; globalThis.schemePayload = schemePayload;`, ctx);
+vm.runInContext(`${source}\n;globalThis.S = S; globalThis.K = K; globalThis.el = el; globalThis.verdictBadge = verdictBadge;`, ctx);
 const t = ctx;
 const plain = (v) => JSON.parse(JSON.stringify(v));
 const toasts = [];
@@ -200,7 +200,7 @@ function openFake(mediaId, items, decisions = {}) {
   assert.strictEqual(t.verdictOf({ ...v, invalid: true }).verdict, "drop", "invalid videos count as 可以删");
   assert.strictEqual(st({ decisions: { BVv: { action: "keep" } } }), "done");
   assert.strictEqual(st({ decisions: {} }, { ...v, invalid: true, bvid: "BVv" }), "act");
-  // A1: only 取消收藏 / 保留 move a video to 已处理; tags (T, A, AI 指令) and notes do not.
+  // A1: only 取消收藏 / 保留 move a video to 已处理; tags (T, AI 指令) and notes do not.
   const tagged = { tags: [{ id: "t1", name: "x" }], videoTags: { BVv: ["t1"] }, notes: { BVv: { text: "备注", updatedAt: 1 } } };
   assert.strictEqual(st({ ...tagged, titleRes: {} }), "none", "a tagged, noted video without 粗分 stays in 未分析");
   assert.strictEqual(st({ titleRes: { BVv: { verdict: "unsure", confidence: "high" } } }), "deep", "tagged 待定 stays in 待细看");
@@ -222,10 +222,14 @@ function openFake(mediaId, items, decisions = {}) {
   assert.deepStrictEqual(plain(t.batchList("keep").map((it) => it.bvid)), ["BV210"], "the selection overrides the verdict scope");
   t.S.selected.clear();
   assert.deepStrictEqual(plain(t.batchList("drop").map((it) => it.bvid)), ["BV210", "BV211"]);
-  // Default scheme: buttons lead with the action and name the AI class; chips and badges show the bare tier name.
+  // Buttons lead with the action and name the AI class; filter chips show the bare class name.
   t.renderListHeader(t.visibleItems());
-  for (const part of ["取消收藏（AI：可以删）2 个", ">可以删<", ">留<", ">待定<"]) assert.ok(t.el.listHeader.innerHTML.includes(part), part);
-  assert.ok(t.verdictBadge("BV210", t.verdictOf(pool[10])).includes('<span class="ai-mark">AI</span>可以删'));
+  for (const part of ["取消收藏（AI：可以删）2 个", "保留（AI：留）0 个", ">全部<", ">可以删<", ">留<", ">待定<"]) assert.ok(t.el.listHeader.innerHTML.includes(part), part);
+  assert.ok(t.verdictBadge("BV210", t.verdictOf(pool[10])).includes('class="badge drop"') && t.verdictBadge("BV210", t.verdictOf(pool[10])).includes('<span class="ai-mark">AI</span>可以删'));
+  t.S.actFilter = "keep";
+  t.renderListHeader(t.visibleItems());
+  assert.ok(t.el.listHeader.innerHTML.includes("保留（AI：留）") && !t.el.listHeader.innerHTML.includes("取消收藏（AI"), "a filter shows only its own batch button");
+  t.S.actFilter = "all";
   t.S.selected.add("BV210");
   t.renderListHeader(t.visibleItems());
   assert.ok(t.el.listHeader.innerHTML.includes("取消收藏选中的 1 个") && t.el.listHeader.innerHTML.includes("保留选中的 1 个"));
@@ -234,6 +238,8 @@ function openFake(mediaId, items, decisions = {}) {
   t.S.analyses = { BV200: { status: "done", verdict: "unsure" } };
   t.S.actFilter = "unsure";
   assert.deepStrictEqual(plain(t.visibleItems().map((it) => it.bvid)), ["BV200"]);
+  t.renderListHeader(t.visibleItems());
+  assert.ok(!t.el.listHeader.innerHTML.includes("（AI") && t.el.listHeader.innerHTML.includes("按 X 选中后"), "待定 has no verdict-scoped button");
   assert.strictEqual(t.batchList("keep").length, 0, "without a selection 待定 has no verdict-scoped batch");
   t.S.selected.add("BV200");
   assert.deepStrictEqual(plain(t.batchList("keep").map((it) => it.bvid)), ["BV200"]);
@@ -257,7 +263,8 @@ function openFake(mediaId, items, decisions = {}) {
   // Backup maps storage keys to sections and never exports secrets or unrelated keys.
   for (const k of Object.keys(store)) delete store[k];
   Object.assign(store, {
-    triage_schemes: [{ id: "default" }], triage_folder_scheme: { 7: "s2" }, triage_tags: [{ id: "old" }], triage_tag_presets: [{ id: "old" }],
+    triage_schemes: [{ id: "old" }], triage_folder_scheme: { 7: "old" }, triage_tags: [{ id: "t1", name: "AI", color: "#111" }], triage_tag_presets: [{ id: "old" }],
+    triage_folder_criteria: { 7: "只留干货" }, triage_simplified_v1: true,
     triage_video_tags: { BVa: ["t1"] }, triage_basket: [{ bvid: "BVa" }],
     triage_notes: { BVa: { text: "n", updatedAt: 1 } }, triage_notes_migrated: true,
     triage_snapshot_7: { bvids: ["BVa"] }, triage_decisions_7: { BVa: { action: "keep" } },
@@ -267,106 +274,93 @@ function openFake(mediaId, items, decisions = {}) {
   t.S.folders = [{ id: 7, title: "夹" }];
   const backup = plain(await t.buildBackup());
   assert.deepStrictEqual(backup.folders, { 7: { title: "夹", snapshot: { bvids: ["BVa"] }, decisions: { BVa: { action: "keep" } } } });
-  assert.deepStrictEqual([backup.schemes, backup.folderScheme, backup.videoTags, backup.basket], [[{ id: "default" }], { 7: "s2" }, { BVa: ["t1"] }, [{ bvid: "BVa" }]]);
-  assert.ok(!("tags" in backup) && !("tagPresets" in backup) && !/"old"/.test(JSON.stringify(backup)), "pre-scheme keys are not exported");
+  assert.strictEqual(backup.schemaVersion, 3);
+  assert.deepStrictEqual([backup.tags, backup.folderCriteria, backup.videoTags, backup.basket], [[{ id: "t1", name: "AI", color: "#111" }], { 7: "只留干货" }, { BVa: ["t1"] }, [{ bvid: "BVa" }]]);
+  assert.ok(!("schemes" in backup) && !("folderScheme" in backup) && !/"old"/.test(JSON.stringify(backup)), "old scheme keys are not exported");
   assert.deepStrictEqual([backup.titleResults, backup.analyses, backup.verdictOverrides], [{ BVa: { verdict: "keep" } }, { BVa: { status: "done" } }, { BVa: { verdict: "drop" } }]);
   assert.deepStrictEqual(backup.notes, { BVa: { text: "n", updatedAt: 1 } });
-  assert.ok(!/sk-live-1|secret-token|triage_tab|migrated/.test(JSON.stringify(backup)), "no secrets or unrelated keys");
+  assert.ok(!/sk-live-1|secret-token|triage_tab|migrated|simplified/.test(JSON.stringify(backup)), "no secrets or unrelated keys");
 
-  // Custom tiers: the route decides the step, the tier id the 待处理 filter and buttons; low confidence still goes to 待细看.
-  const custom = {
-    id: "s2",
-    name: "优先级",
-    criteria: "",
-    tags: [{ id: "c1", name: "Rust", color: "#000" }],
-    onlyMyTags: true,
-    grading: {
-      tiers: [
-        { id: "t-must", name: "必看", route: "keep" },
-        { id: "t-later", name: "有空看", route: "keep" },
-        { id: "t-del", name: "删", route: "unfav" },
-        { id: "t-again", name: "再看看", route: "deep" }
-      ]
-    }
-  };
-  const cv = Array.from({ length: 6 }, (_, i) => item(300 + i));
-  openFake("G", cv);
-  t.S.schemes = [vm.runInContext("defaultScheme()", ctx), custom];
-  t.S.folderScheme = { G: "s2" };
-  Object.assign(t.S, { analyses: {}, overrides: {}, decisions: {}, tab: "act", actFilter: "all" });
-  t.S.selected.clear();
-  t.S.titleRes = {
-    BV300: { verdict: "t-must", confidence: "high" },
-    BV301: { verdict: "t-later", confidence: "high" },
-    BV302: { verdict: "t-del", confidence: "high" },
-    BV303: { verdict: "t-again", confidence: "high" },
-    BV304: { verdict: "t-must", confidence: "low" },
-    BV305: { verdict: "keep", confidence: "high" }
-  };
-  assert.deepStrictEqual(cv.map((it) => t.stageOf(it)), ["act", "act", "act", "deep", "deep", "none"], "another scheme's tier counts as not classified");
-  assert.deepStrictEqual(plain(t.batchList("t-later").map((it) => it.bvid)), ["BV301"]);
-  assert.strictEqual(t.batchList(null).length, 0, "no tier, no selection → nothing");
-  t.renderListHeader(t.visibleItems());
-  const head = t.el.listHeader.innerHTML;
-  for (const part of ['data-act-filter="t-again"', "取消收藏（AI：删）1 个", "保留（AI：必看）1 个", "保留（AI：有空看）1 个", ">再看看<"]) assert.ok(head.includes(part), part);
-  assert.ok(!head.includes("AI：再看看"), "a 要细看 tier gets no batch button");
-  assert.ok(t.verdictBadge("BV302", t.verdictOf(cv[2])).includes('class="badge drop"') && t.verdictBadge("BV302", t.verdictOf(cv[2])).includes('<span class="ai-mark">AI</span>删<'), "badge = AI + tier name, red for unfav");
-  assert.strictEqual(t.verdictOf({ ...cv[0], invalid: true }).verdict, "t-del", "invalid counts as the first 取消收藏 tier");
-  t.S.analyses = { BV305: { status: "done", verdict: "keep" } };
-  assert.strictEqual(t.stageOf(cv[5]), "act", "a done 细看 stays in 待处理 even with a foreign tier");
-  assert.ok(t.verdictBadge("BV305", t.verdictOf(cv[5])).includes("未分级"));
-  t.S.analyses = {};
-  // A deleted tier sends its 粗分 results back to 未分析.
-  custom.grading.tiers = custom.grading.tiers.filter((x) => x.id !== "t-later");
-  assert.strictEqual(t.stageOf(cv[1]), "none");
-  // Grading off: every 粗分 result goes to 待处理, low confidence included; no tier badge, only selection buttons.
-  custom.grading = null;
-  assert.deepStrictEqual(cv.map((it) => t.stageOf(it)), ["act", "act", "act", "act", "act", "act"]);
-  assert.strictEqual(t.verdictBadge("BV300", t.verdictOf(cv[0])), "");
-  t.renderListHeader(t.visibleItems());
-  assert.ok(t.el.listHeader.innerHTML.includes("取消收藏选中的 0 个") && !t.el.listHeader.innerHTML.includes("data-act-filter"));
-  assert.deepStrictEqual(plain(t.schemePayload()), { criteria: "", tags: [{ name: "Rust", description: "" }], onlyMyTags: true, tiers: null });
-  // Tags of another scheme stay on the video when this scheme's tags change.
-  t.S.videoTags = { BV300: ["t1", "c1"] };
-  t.setVideoTags("BV300", [], ["c1"]);
-  assert.deepStrictEqual(plain(t.S.videoTags.BV300), ["t1"]);
-  t.S.folderScheme = {};
+  // Old custom-tier results: a 粗分 one counts as not classified, a done 细看 one as 待定; overrides need a known class.
+  const old = item(400);
+  openFake("H", [old]);
+  Object.assign(t.S, { analyses: {}, overrides: {}, decisions: {}, titleRes: { BV400: { verdict: "t-must", confidence: "high" } } });
+  assert.strictEqual(t.stageOf(old), "none");
+  t.S.overrides.BV400 = { verdict: "t-must" };
+  assert.strictEqual(t.verdictOf(old).stage, -1);
+  t.S.analyses.BV400 = { status: "done", verdict: "t-must", reason: "旧" };
+  assert.deepStrictEqual([t.verdictOf(old).verdict, t.stageOf(old)], ["unsure", "act"]);
+  Object.assign(t.S, { analyses: {}, overrides: {}, titleRes: {} });
 
-  // Migration: global criteria, tags, 只用我的标签 and presets become schemes once; nothing is lost; later runs are no-ops.
+  // 判断标准 is per folder and goes with 粗分 requests; an empty one is removed.
+  openFake("J", [item(500)]);
+  t.S.folderCriteria = { J: "只留干货" };
+  handlers["triage-classify-titles"] = () => ({ ok: true, data: { results: { BV500: { verdict: "keep", reason: "", confidence: "high" } } } });
+  Object.assign(t.S.settings, { triageIntervalSec: 0 });
+  await t.runStage1();
+  assert.deepStrictEqual(plain(sent.at(-1)), { type: "triage-classify-titles", items: [{ bvid: "BV500", title: "视频500", upper: "up", duration: 61 }], criteria: "只留干货" });
+  t.S.tab = "none";
+  t.renderListHeader(t.visibleItems());
+  assert.ok(t.el.listHeader.innerHTML.includes("判断标准：只留干货"));
+  t.el.criteriaInput = { value: "  " };
+  t.saveCriteria();
+  assert.deepStrictEqual(plain(store[t.K.folderCriteria]), {});
+  t.renderListHeader(t.visibleItems());
+  assert.ok(t.el.listHeader.innerHTML.includes("未设判断标准") && t.el.listHeader.innerHTML.includes("写一句"));
+
+  // AI 指令 proposals: new tags only by name, at most 5; verdicts only among the three classes.
+  openFake("K", [item(600), item(601)]);
+  Object.assign(t.S, { tags: [{ id: "a", name: "旧", color: "#111" }], videoTags: {}, titleRes: { BV600: { verdict: "drop", confidence: "high" } } });
+  const prop = { newTags: [], rows: [], notes: [], errors: [] };
+  t.mergeAiBatch(prop, { newTags: ["n1", "n2", "旧", "n3", "n4", "n5", "n6"], assignments: { BV600: { add: ["n1", "旧"], verdict: "keep" }, BV601: { verdict: "t-must" } } }, { maxNewTags: 5, allowVerdict: true }, new Set(["BV600", "BV601"]));
+  assert.deepStrictEqual(plain(prop.newTags.map((x) => x.name)), ["n1", "n2", "n3", "n4", "n5"]);
+  assert.deepStrictEqual(plain(prop.rows), [{ bvid: "BV600", add: ["new:n1", "id:a"], remove: [], verdict: "keep", oldVerdict: "drop", reason: "", checked: true }]);
+  t.S.ai.proposal = prop;
+  t.el.aiDialog = { close() {} };
+  t.applyAiProposal();
+  assert.deepStrictEqual(plain(t.S.tags.map((x) => x.name)), ["旧", "n1", "n2", "n3", "n4", "n5"]);
+  assert.ok(t.S.tags.every((x) => Object.keys(x).join() === "id,name,color"), "tags carry only id, name and color");
+  assert.strictEqual(t.verdictOf(item(600)).verdict, "keep");
+
+  // Migration (pure): criteria per seen folder, the default scheme's tags plus used ones, same names merged.
+  const schemes = [
+    { id: "s2", name: "学习", criteria: " 只留课程 ", tags: [{ id: "x1", name: "数学", color: "#1" }, { id: "x2", name: "AI", color: "#2" }, { id: "x3", name: "没用到" }] },
+    { id: "default", name: "默认方案", criteria: "只留干货", tags: [{ id: "d1", name: "AI", description: "大模型", color: "#d" }, { id: "d2", name: "工具" }] },
+    { id: "s3", name: "空", criteria: "", tags: [] }
+  ];
+  const mig = plain(t.simplifyMigration({
+    schemes,
+    folderScheme: { 2: "s2", 3: "s3", 4: "gone" },
+    videoTags: { BVa: ["x2", "d1", "x1"], BVb: ["zz"] },
+    folderIds: ["1", "2"],
+    folderCriteria: { 9: "已有" }
+  }));
+  assert.deepStrictEqual(mig.tags, [{ id: "d1", name: "AI", color: "#d" }, { id: "d2", name: "工具", color: "#298287" }, { id: "x1", name: "数学", color: "#1" }]);
+  assert.deepStrictEqual(mig.videoTags, { BVa: ["d1", "x1"], BVb: ["zz"] }, "a same-name tag is remapped; unknown ids stay");
+  assert.deepStrictEqual(mig.folderCriteria, { 1: "只留干货", 2: "只留课程", 4: "只留干货", 9: "已有" }, "unmapped or missing scheme → default; empty criteria are not written");
+  // Pre-scheme users: the global tags and criteria carry over.
+  const pre = plain(t.simplifyMigration({ tags: [{ id: "t1", name: "AI", color: "#1", description: "d" }], videoTags: { BVa: ["t1"] }, criteria: "全局", folderIds: ["5"] }));
+  assert.deepStrictEqual(pre, { tags: [{ id: "t1", name: "AI", color: "#1" }], videoTags: { BVa: ["t1"] }, folderCriteria: { 5: "全局" } });
+  assert.deepStrictEqual(plain(t.simplifyMigration({})), { tags: [], videoTags: {}, folderCriteria: {} });
+
+  // Migration (storage): runs once, writes the new keys, leaves the old ones, then never reads them.
   for (const k of Object.keys(store)) delete store[k];
-  const oldTags = [{ id: "t1", name: "AI", color: "#111", description: "大模型" }];
-  Object.assign(store, { triage_tags: oldTags, triage_video_tags: { BVa: ["t1"] }, triage_tag_presets: [{ id: "p1", name: "主题", instruction: "旧指令", tags: [{ name: "前端", description: "d" }] }] });
-  Object.assign(syncStore, { triageCriteria: "只留干货", triageOwnTagsOnly: true });
-  const first = plain(await t.loadSchemes());
-  assert.strictEqual(first.schemes.length, 2);
-  assert.deepStrictEqual(
-    { ...first.schemes[0], grading: undefined },
-    { id: "default", name: "默认方案", criteria: "只留干货", tags: oldTags, onlyMyTags: true, grading: undefined }
-  );
-  assert.deepStrictEqual(first.schemes[0].grading.tiers.map((x) => [x.id, x.route]), [["keep", "keep"], ["drop", "unfav"], ["unsure", "deep"]], "default tier ids are the old verdicts");
-  assert.deepStrictEqual(first.schemes[1].tags.map((x) => [x.id, x.name]), [["p1-t0", "前端"]]);
-  assert.ok(!("instruction" in first.schemes[1]), "the preset instruction is dropped");
-  assert.strictEqual(store.triage_schemes_migrated, true);
-  assert.deepStrictEqual(store.triage_video_tags, { BVa: ["t1"] }, "video tags are untouched");
-  assert.deepStrictEqual(store.triage_tags, oldTags, "old keys stay for rollback");
-  store.triage_schemes[0].name = "改过";
-  store.triage_tags = [];
-  syncStore.triageCriteria = "后来改的";
-  assert.strictEqual((await t.loadSchemes()).schemes[0].name, "改过", "a second run neither rebuilds nor reads the old keys");
-  delete store.triage_schemes_migrated;
-  assert.strictEqual((await t.loadSchemes()).schemes[0].name, "改过", "existing schemes are never rebuilt, even without the flag");
-  // The default 「删」 tier is renamed to 「可以删」 once; a renamed tier and other schemes' 删 stay.
-  store.triage_schemes[0].grading.tiers[1].name = "删";
-  store.triage_schemes[1].grading.tiers[1].name = "扔掉";
-  store.triage_schemes.push({ id: "x", name: "x", tags: [], grading: { tiers: [{ id: "t-del", name: "删", route: "unfav" }] } });
-  await t.loadSchemes();
-  assert.deepStrictEqual(store.triage_schemes.map((x) => x.grading.tiers.find((y) => y.route === "unfav").name), ["可以删", "扔掉", "删"]);
-  assert.strictEqual(t.renameDefaultDrop(store.triage_schemes), false, "a second run changes nothing");
+  Object.assign(store, { triage_schemes: schemes, triage_folder_scheme: { 2: "s2" }, triage_video_tags: { BVa: ["x2"] }, triage_snapshot_1: { bvids: [] }, triage_decisions_2: {} });
+  const loaded = plain(await t.loadTagsAndCriteria());
+  assert.deepStrictEqual(loaded.folderCriteria, { 1: "只留干货", 2: "只留课程" });
+  assert.deepStrictEqual(loaded.videoTags, { BVa: ["d1"] });
+  assert.deepStrictEqual(plain(store.triage_tags.map((x) => x.id)), ["d1", "d2"]);
+  assert.strictEqual(store.triage_simplified_v1, true);
+  assert.ok(store.triage_schemes && store.triage_folder_scheme, "old keys stay for rollback");
+  store.triage_schemes[1].criteria = "后来改的";
+  store.triage_folder_criteria = { 1: "我改的" };
+  assert.deepStrictEqual(plain((await t.loadTagsAndCriteria()).folderCriteria), { 1: "我改的" }, "a second run reads only the new keys");
+  // Pre-scheme storage: global criteria from sync, triage_tags kept.
   for (const k of Object.keys(store)) delete store[k];
-  for (const k of Object.keys(syncStore)) delete syncStore[k];
-  const fresh = plain(await t.loadSchemes());
-  assert.deepStrictEqual(fresh.schemes.map((x) => x.name), ["默认方案", "学习主题", "处理优先级"], "new users get the built-in presets as schemes");
-  assert.deepStrictEqual(fresh.schemes.map((x) => x.grading.tiers.map((y) => y.name).join("/")), ["留/可以删/待定", "留/可以删/待定", "留/可以删/待定"], "sample schemes inherit the default tiers");
+  Object.assign(store, { triage_tags: [{ id: "t1", name: "AI", color: "#1" }], triage_video_tags: { BVa: ["t1"] }, triage_decisions_7: {} });
+  syncStore.triageCriteria = "全局标准";
+  assert.deepStrictEqual(plain(await t.loadTagsAndCriteria()), { tags: [{ id: "t1", name: "AI", color: "#1" }], videoTags: { BVa: ["t1"] }, folderCriteria: { 7: "全局标准" } });
+  delete syncStore.triageCriteria;
 
   console.log("triage selftest: all passed");
 })().catch((e) => {

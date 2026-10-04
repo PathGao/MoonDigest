@@ -12,7 +12,6 @@
       <header class="topbar">
         <strong class="brand">MoonDigest</strong>
         <select id="folderSelect" aria-label="选择收藏夹"></select>
-        <label class="scheme-pick">方案 <select id="schemeSelect" aria-label="分拣方案"></select></label>
         <span id="progress" class="progress"></span>
         <span id="queueStatus" class="queue-status" aria-live="polite"></span>
         <span class="spacer"></span>
@@ -76,7 +75,7 @@
     <dialog id="settingsDialog" aria-label="分拣设置">
       <form method="dialog">
         <h2>分拣设置</h2>
-        <p class="dialog-hint">判断标准、标签和分级在方案里改（顶栏「方案」→ 编辑）。</p>
+        <p class="dialog-hint">判断标准在每个收藏夹的粗分、细看按钮旁边改；标签在「管理标签」里改。</p>
         <label for="intervalInput">请求间隔（秒）</label>
         <input id="intervalInput" type="number" min="0" step="1" />
         <div id="thinkingRow" class="stack">
@@ -168,30 +167,29 @@
       </form>
     </dialog>
 
-    <dialog id="schemeDialog" class="wide" aria-label="编辑方案">
+    <dialog id="criteriaDialog" aria-label="判断标准">
       <form method="dialog">
-        <h2>编辑方案</h2>
-        <p class="dialog-hint">方案 = 判断标准 + 标签 + 分级，都会发给 AI。每个收藏夹记住自己用哪个方案，改动立即保存。</p>
-        <label for="schemeName">名称</label>
-        <input id="schemeName" type="text" />
-        <label for="schemeCriteria">判断标准（标题粗分和字幕细看都用）</label>
-        <textarea id="schemeCriteria" rows="4" placeholder="例如：只保留 AI 工程实践相关的深度内容，资讯和娱乐可以删"></textarea>
-        <h3 id="schemeTagsHead">标签</h3>
-        <p class="dialog-hint">标签名和说明会发给 AI，粗分、细看和 AI 指令按说明挑标签。</p>
-        <label class="toggle"><input id="ownTagsInput" type="checkbox" /> 只用我的标签</label>
-        <p class="dialog-hint">关闭时，AI 可以提出新标签；开启后只从下面的标签里选。</p>
+        <h2 id="criteriaTitle">判断标准</h2>
+        <p class="dialog-hint">只对这个收藏夹生效，标题粗分和字幕细看都会发给 AI。可以不写。</p>
+        <textarea id="criteriaInput" rows="4" aria-label="判断标准" placeholder="例如：只保留 AI 工程实践相关的深度内容，资讯和娱乐可以删"></textarea>
+        <div class="dialog-actions">
+          <span class="spacer"></span>
+          <button value="cancel" type="submit" aria-label="取消">取消</button>
+          <button value="save" type="submit" class="primary" aria-label="保存判断标准">保存</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="tagsDialog" aria-label="管理标签">
+      <form method="dialog">
+        <h2>管理标签</h2>
+        <p class="dialog-hint">所有收藏夹共用一套标签，改名和删除立即保存。</p>
         <div id="tagsRows" class="tag-rows"></div>
         <div class="tag-add">
           <input id="newTagInput" type="text" placeholder="新标签名称" aria-label="新标签名称" />
           <button id="addTagBtn" type="button" aria-label="添加标签">添加</button>
         </div>
-        <h3>分级</h3>
-        <label class="toggle"><input id="gradingInput" type="checkbox" /> 让 AI 分级</label>
-        <p class="dialog-hint">每一档的去向决定视频去哪一步：保留、取消收藏进待处理，要细看进待细看。关掉分级时 AI 只给总结和标签，粗分完全部进待处理。</p>
-        <div id="tierRows" class="tag-rows"></div>
-        <div><button id="addTierBtn" type="button" aria-label="添加档位">+ 添加档位</button></div>
         <div class="dialog-actions">
-          <button id="deleteSchemeBtn" type="button" class="danger" aria-label="删除这个方案">删除方案</button>
           <span class="spacer"></span>
           <button type="submit" class="primary">完成</button>
         </div>
@@ -202,7 +200,7 @@
       <form method="dialog">
         <section id="aiForm" class="ai-section">
           <h2>AI 指令</h2>
-          <p class="dialog-hint">用一句话修改已有结果：给视频加减标签、改档位。AI 只提出建议，你检查并点「应用选中」后才会改动。</p>
+          <p class="dialog-hint">用一句话修改已有结果：给视频加减标签、改 AI 判断。AI 只提出建议，你检查并点「应用选中」后才会改动。</p>
           <div class="ai-grid">
             <label for="aiScope">作用范围</label>
             <select id="aiScope">
@@ -214,10 +212,10 @@
           <label for="aiInstruction">指令</label>
           <textarea id="aiInstruction" rows="3" placeholder="例如：把这些按技术深度分成 入门/进阶/硬核 三个标签"></textarea>
           <div id="aiHistory" class="ai-history"></div>
-          <label id="aiTagsLabel">发送给 AI 的标签</label>
+          <label>发送给 AI 的标签</label>
           <div id="aiTagsPreview" class="chips"></div>
-          <p id="aiTagRule" class="dialog-hint"></p>
-          <label id="aiAllowVerdictRow" class="toggle"><input id="aiAllowVerdict" type="checkbox" /> 允许 AI 修改档位</label>
+          <p class="dialog-hint">AI 可以新建至多 5 个标签，你确认后才会创建。</p>
+          <label class="toggle"><input id="aiAllowVerdict" type="checkbox" /> 允许 AI 修改判断（留 / 可以删 / 待定）</label>
           <p id="aiProgress" class="dialog-hint" aria-live="polite"></p>
           <div class="dialog-actions">
             <span class="spacer"></span>
@@ -253,11 +251,11 @@
         <h2>四步分拣</h2>
         <ol class="steps">
           <li><strong>未分析</strong>：点「标题粗分」，AI 只看标题和简介，快、省。</li>
-          <li><strong>待细看</strong>：粗分拿不准的（去向为「要细看」的档或低置信）在这里，点「细看下一批」读字幕，给总结、要点和标签。</li>
-          <li><strong>待处理</strong>：有把握的和细看完的在这里，按档位批量取消收藏或保留，也可以一个个按 D / S。</li>
+          <li><strong>待细看</strong>：粗分拿不准的（AI 待定或低置信）在这里，点「细看下一批」读字幕，给总结和要点。</li>
+          <li><strong>待处理</strong>：AI 判为留、可以删的和细看完的在这里，按 AI 判断批量取消收藏或保留，也可以一个个按 D / S。</li>
           <li><strong>已处理</strong>：取消收藏或保留过的视频；最近取消收藏的可以重新收藏。</li>
         </ol>
-        <p class="dialog-hint">怎么判、打哪些标签、分几档由收藏夹的方案决定（顶栏「方案」）。AI 处理只在本页打开时运行，关闭页面即暂停。</p>
+        <p class="dialog-hint">每个收藏夹可以写一句判断标准（按钮旁边），AI 粗分和细看都按它判。标签是你自己的分类，按 T 打，批量打用「AI 指令」。AI 处理只在本页打开时运行，关闭页面即暂停。</p>
         <p class="dialog-hint">优先看：按 E 把真要看的视频放进右侧清单，↑↓ 调顺序，「看下一个」打开第一个还没打开过的（打开过的标「已打开」、沉到最后），看完点「看过了」移出，不影响收藏和处理结果。「保留」只在 MoonDigest 里标记，B 站收藏夹不变。导出摘录、逐个笔记和数据备份都在「批量导出」。</p>
         <h2>快捷键</h2>
         <dl class="keys">
@@ -266,7 +264,6 @@
           <dt>D</dt><dd>取消收藏</dd>
           <dt>S</dt><dd>保留</dd>
           <dt>T</dt><dd>打标签</dd>
-          <dt>A</dt><dd>采纳 AI 建议标签</dd>
           <dt>E</dt><dd>加入优先看 / 移出</dd>
           <dt>Q</dt><dd>问 AI（在侧边栏打开这个视频）</dd>
           <dt>X</dt><dd>选中 / 取消选中（待细看、待处理的按钮、AI 指令和批量导出可只处理选中的）</dd>

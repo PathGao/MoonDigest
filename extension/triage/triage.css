@@ -40,7 +40,6 @@ select { height: 28px; max-width: 240px; }
 .queue-status { color: var(--secondary-text); font-variant-numeric: tabular-nums; }
 .queue-status.warn { color: var(--warn); }
 .spacer { flex: 1; }
-.scheme-pick { display: inline-flex; align-items: center; gap: 4px; color: var(--muted); font-size: var(--fs-xs); }
 /* The tools are a popover only on narrow screens; on wide ones they sit inline (author styles beat the popover UA rules). */
 .tools { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .tools[popover] { position: static; inset: auto; width: auto; height: auto; margin: 0; padding: 0; border: 0; background: none; color: inherit; overflow: visible; }
@@ -204,17 +203,13 @@ button.icon { width: 26px; height: 24px; padding: 0; }
   font-size: var(--fs-xs);
 }
 .chip.on { background: color-mix(in srgb, var(--c) 20%, transparent); }
-.chip.suggest { border-color: var(--border-strong); background: var(--surface-muted); color: var(--muted); }
-.chip.suggest:hover { color: var(--text); }
 .chips { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
 
 .list-header { align-items: center; }
 .run-line { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 4px; color: var(--muted); font-size: var(--fs-xs); }
 .run-line .link { height: auto; font-size: inherit; }
-.run-line input { height: 26px; min-width: 220px; }
 .key { font: inherit; margin-left: 4px; opacity: 0.7; }
 @media (hover: none) { .key { display: none; } }
-.chip.other { color: var(--muted); border-style: dashed; }
 .card.selected { background: var(--secondary-bg); }
 .badge.low { background: transparent; outline: 1px dashed currentColor; outline-offset: -1px; }
 .fail-text { color: var(--danger); font-size: var(--fs-xs); }
@@ -228,9 +223,8 @@ button.icon { width: 26px; height: 24px; padding: 0; }
 .dialog-hint { margin: 4px 0 0; font-size: 11px; color: var(--muted); }
 
 .tag-rows { display: flex; flex-direction: column; gap: 6px; max-height: 320px; overflow-y: auto; }
-.tag-row, .tier-row, .tag-add, .export-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
-.tag-row input[type="text"], .tier-row input[type="text"], .tag-add input { flex: 1; min-width: 120px; }
-.tag-row input[type="color"] { width: 32px; height: 28px; padding: 2px; }
+.tag-row, .tag-add, .export-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.tag-row input[type="text"], .tag-add input { flex: 1; min-width: 120px; }
 dialog h3 { margin: 10px 0 2px; font-size: var(--fs-sm); }
 
 /* basket */
@@ -337,17 +331,15 @@ dialog.wide { width: min(880px, calc(100% - 32px)); }
 .ai-row-title { font-weight: 600; }
 .ai-newtag { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
 .ai-newtag input[type="text"] { flex: 1; min-width: 120px; }
-.tag-row input[data-field="description"], .tier-row input[data-tier="description"] { flex-basis: 100%; }
-.tier-row { padding: 6px; border: 1px solid var(--border); border-radius: var(--radius-sm); }
 .stack { display: flex; flex-direction: column; gap: 6px; }
 .steps { margin: 0 0 4px; padding-left: 20px; }
 .steps li { margin: 2px 0; }
 
-/* V5: at phone width the top bar keeps folder + scheme + ⋯, and the steps scroll sideways instead of wrapping. */
+/* V5: at phone width the top bar keeps folder + ⋯, and the steps scroll sideways instead of wrapping. */
 @media (max-width: 600px) {
   .brand, .progress { display: none; }
   .topbar { padding: 8px; }
-  .topbar select { max-width: 33vw; }
+  .topbar select { max-width: 50vw; }
   .more-btn { display: inline-block; }
   .tools:not(:popover-open) { display: none; }
   .tools:popover-open {
@@ -365,7 +357,6 @@ dialog.wide { width: min(880px, calc(100% - 32px)); }
   .stagebar { flex-direction: column; flex-wrap: nowrap; align-items: stretch; }
   .tabs { flex-wrap: nowrap; overflow-x: auto; padding-bottom: 2px; }
   .tabs button, .tabs .arrow, .tabs .tab-sep { flex: none; }
-  .run-line input { min-width: 0; width: 100%; }
 }
 
 .recent-unfav { margin-top: 16px; padding-top: 8px; border-top: 1px solid var(--border); }
