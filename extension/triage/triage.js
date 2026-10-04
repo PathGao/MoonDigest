@@ -16,12 +16,13 @@ const STAGES = [
   ["act", "待处理"],
   ["done", "已处理"]
 ];
-const STAGE_EMPTY = { none: "已全部粗分，下一步：细看", deep: "没有要细看的了，下一步：处理", act: "都处理完了" };
+const STAGE_EMPTY = { none: "已全部粗分，下一步：细看", deep: "没有要细看的了，下一步：处理", act: "都处理完了，去看已处理" };
 const K = {
   lastFolder: "triage_last_folder",
   tags: "triage_tags",
   videoTags: "triage_video_tags",
   basket: "triage_basket",
+  notes: "triage_notes", // { [bvid]: { text, updatedAt } }, shared with the history page and note export
   decisions: (id) => `triage_decisions_${id}`,
   snapshot: (id) => `triage_snapshot_${id}`,
   presets: "triage_tag_presets",
@@ -68,6 +69,8 @@ const S = {
   tags: [],
   videoTags: {},
   basket: [],
+  notes: {},
+  noteOpen: new Set(), // empty notes the user opened for editing
   settings: {
     triageCriteria: "",
     triageIntervalSec: 8,
@@ -106,7 +109,7 @@ const $ = (id) => document.getElementById(id);
 const el = {};
 [
   "folderSelect", "refreshBtn", "progress", "queueStatus", "settingsBtn", "helpBtn",
-  "banner", "bannerText", "bannerBtn", "syncNotice", "syncText", "syncViewBtn", "syncCloseBtn", "syncDetail",
+  "banner", "bannerText", "bannerBtn", "bannerClose", "syncNotice", "syncText", "syncViewBtn", "syncCloseBtn", "syncDetail",
   "tabs", "tagFilter", "manageTagsBtn", "listHeader", "list", "basket", "basketToggle", "basketCount",
   "basketList", "copyMdBtn", "downloadMdBtn", "exportBtn", "toast", "settingsDialog", "criteriaInput", "intervalInput",
   "batchSizeInput", "exportFolderInput", "openOptionsBtn", "thinkingInput", "titleMaxInput",
@@ -196,6 +199,7 @@ function askAi(it) {
 }
 
 let toastTimer = 0;
+let noteTimer = 0;
 function toast(text, error = false) {
   el.toast.textContent = text;
   el.toast.classList.toggle("error", error);
@@ -239,14 +243,14 @@ function handleAiError(error) {
     showBanner(`还没有可用的 AI 服务：${text}`, "去配置", () => send({ type: "open-options" }));
   } else if (text.includes("截断")) {
     showBanner(`${text}。建议调大输出上限或关闭思考`, "打开分拣设置", () => openSettings(true));
-  }
-  toast(text, true);
+  } else toast(text, true);
 }
 
 // ---------- derived ----------
 const tagById = (id) => S.tags.find((t) => t.id === id);
 const tagIdsOf = (bvid) => (S.videoTags[bvid] || []).filter((id) => tagById(id));
-const isProcessed = (bvid) => Boolean(S.decisions[bvid]) || tagIdsOf(bvid).length > 0;
+// Only 取消收藏 / 保留 finish a video; tags and notes never do.
+const isProcessed = (bvid) => Boolean(S.decisions[bvid]);
 
 function verdictOf(it) {
   const a = S.analyses[it.bvid];
@@ -289,7 +293,16 @@ function inTab(it, tab) {
   return tab !== "act" || S.actFilter === "all" || verdictOf(it).verdict === S.actFilter;
 }
 
-const visibleItems = () => S.items.filter((it) => inTab(it, S.tab) && passTagFilter(it.bvid));
+const failedAnalysis = (b) => S.analyses[b]?.status === "error";
+
+// 待细看 lists the batch the button will send (or is sending) first and failed cards last.
+function visibleItems() {
+  const list = S.items.filter((it) => inTab(it, S.tab) && passTagFilter(it.bvid));
+  if (S.tab !== "deep") return list;
+  const batch = new Set(S.group ? S.group.bvids : nextBatch());
+  const rank = ({ bvid }) => (failedAnalysis(bvid) ? 2 : batch.has(bvid) ? 0 : 1);
+  return list.sort((x, y) => rank(x) - rank(y));
+}
 const selectedIn = (list) => list.filter((it) => S.selected.has(it.bvid));
 
 function stageCounts() {
@@ -318,15 +331,17 @@ async function init() {
   bindEvents();
   // Read up front: sidePanel.open must run inside the click's user gesture, before any await.
   chrome.tabs.getCurrent().then((tab) => (ownTabId = tab?.id));
-  const [tags, videoTags, basket, settingsResp] = await Promise.all([
+  const [tags, videoTags, basket, notes, settingsResp] = await Promise.all([
     storeGet(K.tags, []),
     storeGet(K.videoTags, {}),
     storeGet(K.basket, []),
+    storeGet(K.notes, {}),
     send({ type: "triage-settings-get" })
   ]);
   S.tags = tags;
   S.videoTags = videoTags;
   S.basket = basket;
+  S.notes = notes;
   // getKeys (Chrome 130+) lets us read only override keys instead of every cached title/analysis.
   const keys = await chrome.storage.local.getKeys?.();
   const wanted = keys && [K.presets, K.aiHistory, ...keys.filter((k) => k.startsWith(OVERRIDE_PREFIX))];
@@ -342,6 +357,8 @@ async function init() {
   syncObsidian(await chrome.storage.sync.get({ obsidianEnabled: false }));
   chrome.storage.onChanged.addListener((changes, area) => {
     if (area === "sync" && changes.obsidianEnabled) syncObsidian({ obsidianEnabled: changes.obsidianEnabled.newValue });
+    // The history page edits the same notes; a pending local save is newer than any echo.
+    if (area === "local" && changes[K.notes] && !noteTimer) S.notes = changes[K.notes].newValue || {};
   });
   renderBasket();
   await loadFolders();
@@ -547,13 +564,14 @@ function tick() {
 function renderTabs() {
   const c = stageCounts();
   const cur = currentStage(c);
+  // The selected tab is solid; the step to work on next only gets a dot.
   const tab = (key, label, cls, mark, n) =>
-    `<button type="button" role="tab" class="${cls}" data-tab="${key}" aria-selected="${S.tab === key}" aria-label="${label} ${n}">${mark}${label}<span class="count">${n}</span></button>`;
+    `<button type="button" role="tab" class="${cls}" data-tab="${key}" aria-selected="${S.tab === key}" aria-label="${label} ${n}${key === cur ? "，当前这一步" : ""}">${mark}${label}<span class="count">${n}</span>${key === cur ? `<span class="now" aria-hidden="true"></span>` : ""}</button>`;
   const steps = STAGES.map(([key, label], i) => {
     const n = c[key];
     // A finished step (nothing left in it) reads as done; 已处理 has no step after it to be done with.
     const clear = !n && key !== "done";
-    const cls = ["step", n ? "" : "zero", key === cur ? "current" : ""].filter(Boolean).join(" ");
+    const cls = n ? "step" : "step zero";
     return tab(key, label, cls, `<span class="num" aria-hidden="true">${clear ? "✓" : "①②③④"[i]}</span>`, n);
   });
   el.tabs.innerHTML =
@@ -593,18 +611,21 @@ function renderListHeader(list) {
       html = headBtn("group", label, "primary", !batch.length || busy);
     }
   } else if (t === "act") {
-    html = `<span class="seg" role="group" aria-label="按判断筛选">${[["all", "全部"], ["drop", "建议删"], ["keep", "建议留"]]
+    html = `<span class="seg" role="group" aria-label="按判断筛选">${[["all", "全部"], ["drop", "建议删"], ["keep", "建议留"], ["unsure", "待定"]]
       .map(([k, label]) => `<button type="button" data-act-filter="${k}" aria-pressed="${S.actFilter === k}">${label}</button>`)
       .join("")}</span>`;
-    const scoped = selectedIn(list).length ? "选中的" : "";
-    if (S.actFilter !== "keep") {
+    // A selection gets both buttons whatever the verdict; without one each button takes its verdict, and 待定 has none.
+    const sel = selectedIn(list).length;
+    const f = S.actFilter;
+    if (sel || f === "all" || f === "drop") {
       const n = batchList("drop").length;
-      html += headBtn("batch-unfav", `取消收藏${scoped || "建议删的"} ${n} 个`, "danger", !n);
+      html += headBtn("batch-unfav", `取消收藏${sel ? "选中的" : "建议删的"} ${n} 个`, "danger", !n);
     }
-    if (S.actFilter !== "drop") {
+    if (sel || f === "all" || f === "keep") {
       const n = batchList("keep").length;
-      html += headBtn("batch-keep", `保留${scoped || "建议留的"} ${n} 个`, "", !n);
+      html += headBtn("batch-keep", `保留${sel ? "选中的" : "建议留的"} ${n} 个`, "", !n);
     }
+    if (!sel && f === "unsure" && list.length) html += `<span class="muted">按 X 选中后可批量保留或取消收藏</span>`;
   } else if (t === "read") {
     const pending = list.filter((it) => needsAnalysis(it.bvid)).length;
     const options = [["all", "全部"], ...STAGES]
@@ -616,7 +637,7 @@ function renderListHeader(list) {
       ${headBtn("download-read", "下载 .md", "", !list.length)}`;
   }
   if (STAGE_EMPTY[t] && !stageCounts()[t]) {
-    html += `<span class="muted">${STAGE_EMPTY[t]}</span>${next ? `<button type="button" class="link" data-goto="${next[0]}" aria-label="去${next[1]}">去${next[1]} →</button>` : ""}`;
+    html += `<button type="button" data-goto="${next[0]}">${STAGE_EMPTY[t]} →</button>`;
   }
   if (S.selected.size) {
     html += `<span class="muted">已选中 ${S.selected.size} 个</span><button type="button" class="link" data-head="clear-selected" aria-label="清空选中">清空选中</button>`;
@@ -693,16 +714,28 @@ function renderList() {
     bvids.forEach((b, i) => marks.set(b, `${word} ${i + 1}`));
   }
   const expanded = S.tab === "act";
+  const failed = S.tab === "deep" ? list.filter((it) => failedAnalysis(it.bvid)).length : 0;
+  const failedHead = `<div class="group-head">分析失败 ${failed} · <button type="button" class="link" data-retry-failed aria-label="全部重试"${S.group || S.stage1.running ? " disabled" : ""}>全部重试</button></div>`;
+  // Background progress re-renders the list; keep a note being typed in focus.
+  const typing = document.activeElement?.closest?.("[data-note]");
+  const caret = typing && [typing.closest(".card").dataset.bvid, typing.selectionStart, typing.selectionEnd];
   const scroll = el.list.scrollTop;
-  el.list.innerHTML = list.map((it) => cardHtml(it, expanded, marks.get(it.bvid))).join("") + recent;
+  el.list.innerHTML =
+    list.map((it, i) => (failed && i === list.length - failed ? failedHead : "") + cardHtml(it, expanded, marks.get(it.bvid))).join("") + recent;
   el.list.scrollTop = scroll;
+  if (caret) {
+    const box = el.list.querySelector(`.card[data-bvid="${CSS.escape(caret[0])}"] [data-note]`);
+    box?.focus();
+    box?.setSelectionRange(caret[1], caret[2]);
+  }
 }
 
 const VERDICT_LABEL = { drop: "建议删", keep: "建议留", unsure: "待定", none: "未分析" };
-const verdictBadge = (b, v) =>
+// In 待细看 every card is there for low confidence or 待定, so the marker would only repeat the tab.
+const verdictBadge = (b, v, low = v.low && S.tab !== "deep") =>
   S.analyzing.has(b)
     ? `<span class="badge running">分析中…</span>`
-    : `<span class="badge ${v.verdict}${v.low ? " low" : ""}">${VERDICT_LABEL[v.verdict]}${v.low ? " · 低置信" : ""}</span>`;
+    : `<span class="badge ${v.verdict}${low ? " low" : ""}">${VERDICT_LABEL[v.verdict]}${low ? " · 低置信" : ""}</span>`;
 const ACTION_LABEL = { unfav: "已取消收藏", keep: "已保留" };
 
 function cardHtml(it, expanded, mark) {
@@ -716,13 +749,21 @@ function cardHtml(it, expanded, mark) {
   if (b === S.focused) cls.push("focused");
   if (isProcessed(b)) cls.push("decided");
   if (S.selected.has(b)) cls.push("selected");
+  if (mark) cls.push("in-batch");
 
-  const meta = [it.upper, fmtDuration(it.duration)];
-  if (done) meta.push(`来源：${a.source === "subtitle" ? "字幕" : "简介"}`);
-  if (it.invalid) meta.push("已失效");
+  // Where the verdict came from, as one muted meta item.
+  const source = [["", "粗分", "细看", "AI 指令"][v.stage], done && (a.source === "subtitle" ? "字幕" : "简介")].filter(Boolean).join("·");
+  const meta = [it.upper, fmtDuration(it.duration), source, it.invalid && "已失效"].filter(Boolean);
 
   const verdict = verdictBadge(b, v);
-  const stageMark = v.stage > 0 ? `<span class="stage">${["", "标题粗分", "字幕细看", "AI 指令"][v.stage]}</span>` : "";
+  // The button matching the AI's verdict leads; the other stays plain.
+  const keepCls = !decision && v.verdict === "keep" ? "primary" : "";
+  const unfavCls = !decision && v.verdict === "drop" ? "danger solid" : "";
+  const note = S.notes[b]?.text || "";
+  const noteHtml =
+    note || S.noteOpen.has(b)
+      ? `<textarea class="note" data-note rows="1" placeholder="一句话备注，只有你自己看" aria-label="备注">${esc(note)}</textarea>`
+      : "";
   const failed = v.failed
     ? `<span class="fail-text">分析失败：${esc(v.failed)}</span><button type="button" data-act="retry" aria-label="重试分析">重试</button>`
     : "";
@@ -750,18 +791,22 @@ function cardHtml(it, expanded, mark) {
       <button type="button" class="title" data-act="open" aria-label="打开视频 ${esc(it.title)}">${esc(it.title)}</button>
       <div class="meta">${meta.map(esc).join(" · ")}</div>
       ${body.join("")}
-      <div class="card-foot">${mark ? `<span class="badge batch">${mark}</span>` : ""}${verdict}${stageMark}<span class="reason">${esc(v.reason)}</span>${failed}</div>
+      <div class="card-foot">${verdict}<span class="reason">${esc(v.reason)}</span>${failed}${mark ? `<span class="batch-mark">${mark}</span>` : ""}</div>
       ${chips || suggHtml ? `<div class="chips">${chips}${suggHtml}</div>` : ""}
+      ${noteHtml}
       <div class="card-foot">
         ${decision ? `<span class="badge decision">${ACTION_LABEL[decision.action]}</span>` : ""}
+        ${noteHtml ? "" : `<button type="button" class="link note-add" data-act="note" aria-label="添加备注">+ 备注</button>`}
         <span class="spacer"></span>
         <div class="actions">
-          <button type="button" data-act="keep" aria-label="保留 (S)"${decision ? " disabled" : ""}>保留 S</button>
-          <button type="button" data-act="tag" aria-label="打标签 (T)">标签 T</button>
-          <button type="button" data-act="basket" class="${inBasket ? "on" : ""}" aria-pressed="${inBasket}" aria-label="摘录篮 (E)">摘录 E</button>
-          <button type="button" data-act="ask" aria-label="问 AI (Q)">问 AI Q</button>
-          <button type="button" data-act="select" class="${S.selected.has(b) ? "on" : ""}" aria-pressed="${S.selected.has(b)}" aria-label="选中 (X)">选中 X</button>
-          <button type="button" data-act="unfav" class="danger" aria-label="取消收藏 (D)"${decision?.action === "unfav" ? " disabled" : ""}>取消收藏 D</button>
+          <span class="more">
+            <button type="button" data-act="tag" aria-label="打标签 (T)">标签 T</button>
+            <button type="button" data-act="basket" class="${inBasket ? "on" : ""}" aria-pressed="${inBasket}" aria-label="摘录篮 (E)">摘录 E</button>
+            <button type="button" data-act="ask" aria-label="问 AI (Q)">问 AI Q</button>
+            <button type="button" data-act="select" class="${S.selected.has(b) ? "on" : ""}" aria-pressed="${S.selected.has(b)}" aria-label="选中 (X)">选中 X</button>
+          </span>
+          <button type="button" data-act="keep" class="${keepCls}" aria-label="保留 (S)"${decision ? " disabled" : ""}>保留 S</button>
+          <button type="button" data-act="unfav" class="${unfavCls}" aria-label="取消收藏 (D)"${decision?.action === "unfav" ? " disabled" : ""}>取消收藏 D</button>
         </div>
       </div>
     </div>
@@ -885,7 +930,7 @@ async function decide(bvid, action) {
   S.decisions[bvid] = action === "unfav" ? unfavRecord(it, Date.now()) : { action, at: Date.now() };
   saveDecisions();
   pushUndo({ kind: "decision", bvid, action, prev });
-  toast(`${action === "unfav" ? "已取消收藏" : "已保留"}《${shortTitle(it)}》 · 撤销(U)`);
+  toast(`${action === "unfav" ? "已取消收藏" : "已保留"}《${shortTitle(it)}》 · U 撤销`);
   render();
   advanceFrom(bvid, before);
 }
@@ -1201,13 +1246,16 @@ async function runStage1() {
   const size = Math.max(1, Number(S.settings.triageTitleBatchSize) || 30);
   let done = 0;
   let retried = false;
+  let failedOut = false;
   render();
   while (keepGoing()) {
     const batch = pending().slice(0, size);
     if (!batch.length) break;
     S.status = `标题粗分中 ${done}/${total}`;
-    renderStatus();
+    for (const it of batch) S.analyzing.add(it.bvid);
+    render();
     const r = await send({ type: "triage-classify-titles", items: batch.map(aiItem), tags: tagPayload() });
+    for (const it of batch) S.analyzing.delete(it.bvid);
     if (token !== S.folderToken) break;
     if (!r.ok) {
       if (THROTTLES[r.code]) {
@@ -1223,6 +1271,7 @@ async function runStage1() {
         continue;
       }
       handleAiError(r.error);
+      failedOut = true;
       break;
     }
     retried = false;
@@ -1238,6 +1287,7 @@ async function runStage1() {
   }
   if (token !== S.folderToken) return;
   S.stage1.running = false;
+  if (!failedOut) el.banner.hidden = true;
   S.status = timedOut.size
     ? `标题粗分完成 ${done} 个，${timedOut.size} 个因 AI 超时跳过，再点标题粗分可重试`
     : done ? `标题粗分完成 ${done} 个` : "";
@@ -1290,9 +1340,18 @@ async function runGroup() {
     if (group.bvids.some(needsAnalysis)) await sleepWhile(S.settings.triageIntervalSec * 1000, keepGoing);
   }
   if (S.group !== group) return;
+  // A run that stopped on a setup error keeps its banner; any other finished batch clears it.
+  if (!group.stop) el.banner.hidden = true;
   S.group = null;
   S.status = "";
   render();
+}
+
+// Failed results live only on this page; dropping them puts the cards back in the batch runner.
+function retryFailed() {
+  const failed = visibleItems().filter((it) => failedAnalysis(it.bvid)).map((it) => it.bvid);
+  for (const b of failed) delete S.analyses[b];
+  startGroup(failed);
 }
 
 async function retry(bvid) {
@@ -1675,8 +1734,7 @@ function toggleBasket(bvid) {
       url: videoUrl(bvid),
       upper: it.upper,
       oneLiner: done ? a.oneLiner || "" : "",
-      points: done ? a.points || [] : [],
-      note: ""
+      points: done ? a.points || [] : []
     });
     toast(`已加入摘录篮《${shortTitle(it)}》`);
   }
@@ -1693,7 +1751,6 @@ function renderBasket() {
           (x, i) => `<div class="basket-item" data-i="${i}">
       <div class="row"><strong>${esc(x.title)}</strong><button type="button" data-basket="remove" aria-label="从摘录篮移除 ${esc(x.title)}">移除</button></div>
       ${x.oneLiner ? `<div class="muted">${esc(x.oneLiner)}</div>` : ""}
-      <textarea data-basket="note" rows="2" placeholder="笔记" aria-label="笔记">${esc(x.note)}</textarea>
     </div>`
         )
         .join("")
@@ -1722,7 +1779,8 @@ function buildMarkdown(now = new Date()) {
     if (x.points?.length) lines.push(...x.points.map((p) => `- ${p}`), "");
     const names = tagIdsOf(x.bvid).map((id) => tagById(id).name);
     if (names.length) lines.push(`标签：${names.join("、")}`, "");
-    if (x.note?.trim()) lines.push(`笔记：${x.note.trim()}`, "");
+    const note = S.notes[x.bvid]?.text.trim();
+    if (note) lines.push(`笔记：${note}`, "");
   }
   return lines.join("\n");
 }
@@ -1842,7 +1900,7 @@ async function runWrite(md = false) {
 }
 
 // ---------- data export ----------
-const BACKUP_PREFIXES = ["triage_tags", "triage_video_tags", "triage_basket", "triage_snapshot_", "triage_decisions_", "triage_title_", "triage_analysis_", "triage_tag_presets", OVERRIDE_PREFIX];
+const BACKUP_PREFIXES = ["triage_tags", "triage_video_tags", "triage_basket", K.notes, "triage_snapshot_", "triage_decisions_", "triage_title_", "triage_analysis_", "triage_tag_presets", OVERRIDE_PREFIX];
 const isSecretKey = (k) => /key|token/i.test(k) || k === "aiProviderKeys" || k === "obsidianApiKey";
 
 async function buildBackup() {
@@ -1861,6 +1919,7 @@ async function buildBackup() {
     tags: [],
     videoTags: {},
     basket: [],
+    notes: {},
     folders: {},
     titleResults: {},
     analyses: {},
@@ -1877,6 +1936,7 @@ async function buildBackup() {
     else if (k.startsWith(OVERRIDE_PREFIX)) out.verdictOverrides[k.slice(OVERRIDE_PREFIX.length)] = v;
     else if (k === "triage_video_tags") out.videoTags = v;
     else if (k === "triage_basket") out.basket = v;
+    else if (k === K.notes) out.notes = v;
     else if (k.startsWith("triage_snapshot_")) folder(k.slice(16)).snapshot = v;
     else if (k.startsWith("triage_decisions_")) folder(k.slice(17)).decisions = v;
     else if (k.startsWith("triage_title_")) out.titleResults[k.slice(13)] = v;
@@ -2047,12 +2107,32 @@ function bindEvents() {
   el.list.addEventListener("click", (e) => {
     const refav = e.target.closest("[data-refav]");
     if (refav) return refavRecent(refav.dataset.refav);
+    if (e.target.closest("[data-retry-failed]")) return retryFailed();
     const card = e.target.closest(".card");
     if (!card) return;
     const bvid = card.dataset.bvid;
     const act = e.target.closest("[data-act]")?.dataset.act;
     setFocus(bvid, false);
     if (act) cardAction(act, bvid);
+  });
+
+  el.list.addEventListener("input", (e) => {
+    if (!e.target.matches("[data-note]")) return;
+    const b = e.target.closest(".card").dataset.bvid;
+    const text = e.target.value.trim();
+    if (text) S.notes[b] = { text: e.target.value, updatedAt: Date.now() };
+    else delete S.notes[b];
+    clearTimeout(noteTimer);
+    noteTimer = setTimeout(() => {
+      noteTimer = 0;
+      storeSet(K.notes, S.notes);
+    }, 400);
+  });
+  // An emptied note folds back to 「+ 备注」.
+  el.list.addEventListener("focusout", (e) => {
+    if (!e.target.matches("[data-note]") || e.target.value.trim()) return;
+    S.noteOpen.delete(e.target.closest(".card").dataset.bvid);
+    setTimeout(renderList);
   });
 
   document.addEventListener("keydown", onKey);
@@ -2122,6 +2202,7 @@ function bindEvents() {
 
   el.syncViewBtn.addEventListener("click", () => (el.syncDetail.hidden = !el.syncDetail.hidden));
   el.syncCloseBtn.addEventListener("click", () => (el.syncNotice.hidden = true));
+  el.bannerClose.addEventListener("click", () => (el.banner.hidden = true));
 
   // tag picker
   el.pickerInput.addEventListener("input", () => {
@@ -2284,11 +2365,6 @@ function bindEvents() {
     renderBasket();
     render();
   });
-  el.basketList.addEventListener("input", (e) => {
-    if (e.target.dataset.basket !== "note") return;
-    S.basket[Number(e.target.closest(".basket-item").dataset.i)].note = e.target.value;
-    saveBasket();
-  });
   el.copyMdBtn.addEventListener("click", async () => {
     try {
       await navigator.clipboard.writeText(buildMarkdown());
@@ -2345,6 +2421,11 @@ function cardAction(act, bvid) {
   else if (act === "accept") acceptSuggestions(bvid);
   else if (act === "basket") toggleBasket(bvid);
   else if (act === "retry") retry(bvid);
+  else if (act === "note") {
+    S.noteOpen.add(bvid);
+    renderList();
+    el.list.querySelector(`.card[data-bvid="${CSS.escape(bvid)}"] [data-note]`)?.focus();
+  }
   else if (act === "select") {
     if (S.selected.has(bvid)) S.selected.delete(bvid);
     else if (S.selected.size >= SELECT_CAP) {

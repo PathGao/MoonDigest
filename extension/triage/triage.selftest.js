@@ -133,7 +133,8 @@ function openFake(mediaId, items, decisions = {}) {
     triage_title_BVa: {}, triage_analysis_BVa: {},
     triage_title_BVold: {}, triage_analysis_BVold: {}, triage_verdict_override_BVold: {},
     triage_analysis_BVbasket: {}, triage_title_BVopen: {},
-    triage_tags: [], triage_video_tags: { BVold: ["t"] }, triage_basket: [{ bvid: "BVbasket" }], triage_tag_presets: []
+    triage_tags: [], triage_video_tags: { BVold: ["t"] }, triage_basket: [{ bvid: "BVbasket" }], triage_tag_presets: [],
+    triage_notes: { BVold: { text: "n" } }
   };
   const plan = t.staleCacheKeys(all, [1], ["BVopen"]);
   assert.deepStrictEqual([...plan.keys].sort(), ["triage_analysis_BVold", "triage_decisions_9", "triage_snapshot_9", "triage_title_BVold", "triage_verdict_override_BVold"]);
@@ -168,6 +169,13 @@ function openFake(mediaId, items, decisions = {}) {
   assert.strictEqual(t.verdictOf({ ...v, invalid: true }).verdict, "drop", "invalid videos count as 建议删");
   assert.strictEqual(st({ decisions: { BVv: { action: "keep" } } }), "done");
   assert.strictEqual(st({ decisions: {} }, { ...v, invalid: true, bvid: "BVv" }), "act");
+  // A1: only 取消收藏 / 保留 move a video to 已处理; tags (T, A, AI 指令) and notes do not.
+  const tagged = { tags: [{ id: "t1", name: "x" }], videoTags: { BVv: ["t1"] }, notes: { BVv: { text: "备注", updatedAt: 1 } } };
+  assert.strictEqual(st({ ...tagged, titleRes: {} }), "none", "a tagged, noted video without 粗分 stays in 未分析");
+  assert.strictEqual(st({ titleRes: { BVv: { verdict: "unsure", confidence: "high" } } }), "deep", "tagged 待定 stays in 待细看");
+  assert.strictEqual(st({ analyses: { BVv: { status: "done", verdict: "keep" } } }), "act", "tagged after 细看 stays in 待处理");
+  assert.strictEqual(st({ decisions: { BVv: { action: "unfav" } } }), "done");
+  Object.assign(t.S, { videoTags: {}, tags: [], notes: {} });
 
   // 待细看 batch: first GROUP_SIZE open cards, or the selected ones; 待处理 buttons follow the selection too.
   const pool = Array.from({ length: 12 }, (_, i) => item(200 + i));
@@ -183,12 +191,35 @@ function openFake(mediaId, items, decisions = {}) {
   assert.deepStrictEqual(plain(t.batchList("keep").map((it) => it.bvid)), ["BV210"], "the selection overrides the verdict scope");
   t.S.selected.clear();
   assert.deepStrictEqual(plain(t.batchList("drop").map((it) => it.bvid)), ["BV210", "BV211"]);
+  // A3: 待定 left after 细看 sits in 待处理 under its own filter, and a selection there drives both batch buttons.
+  t.S.analyses = { BV200: { status: "done", verdict: "unsure" } };
+  t.S.actFilter = "unsure";
+  assert.deepStrictEqual(plain(t.visibleItems().map((it) => it.bvid)), ["BV200"]);
+  assert.strictEqual(t.batchList("keep").length, 0, "without a selection 待定 has no verdict-scoped batch");
+  t.S.selected.add("BV200");
+  assert.deepStrictEqual(plain(t.batchList("keep").map((it) => it.bvid)), ["BV200"]);
+  assert.deepStrictEqual(plain(t.batchList("drop").map((it) => it.bvid)), ["BV200"]);
+  t.batchKeep(t.batchList("keep"));
+  assert.strictEqual(t.stageOf(pool[0]), "done", "batch 保留 moves it to 已处理");
+  Object.assign(t.S, { analyses: {}, decisions: {}, actFilter: "all" });
+  t.S.selected.clear();
+  // A5: 待细看 lists the next batch first and failed cards last.
+  t.S.tab = "deep";
+  t.S.analyses = { BV201: { status: "error", error: "x" } };
+  const deepOrder = plain(t.visibleItems().map((it) => it.bvid));
+  assert.deepStrictEqual(deepOrder.slice(0, 8), ["BV200", "BV202", "BV203", "BV204", "BV205", "BV206", "BV207", "BV208"]);
+  assert.strictEqual(deepOrder.at(-1), "BV201");
+  t.S.selected.add("BV209");
+  assert.strictEqual(t.visibleItems()[0].bvid, "BV209", "a selected card is the batch and goes first");
+  t.S.selected.clear();
+  Object.assign(t.S, { analyses: {}, tab: "act" });
   assert.strictEqual(vm.runInContext("currentStage(stageCounts())", ctx), "deep", "the default tab is the earliest step with videos");
 
   // Backup maps storage keys to sections and never exports secrets or unrelated keys.
   for (const k of Object.keys(store)) delete store[k];
   Object.assign(store, {
     triage_tags: [{ id: "t1" }], triage_video_tags: { BVa: ["t1"] }, triage_basket: [{ bvid: "BVa" }], triage_tag_presets: [{ id: "p" }],
+    triage_notes: { BVa: { text: "n", updatedAt: 1 } }, triage_notes_migrated: true,
     triage_snapshot_7: { bvids: ["BVa"] }, triage_decisions_7: { BVa: { action: "keep" } },
     triage_title_BVa: { verdict: "keep" }, triage_analysis_BVa: { status: "done" }, triage_verdict_override_BVa: { verdict: "drop" },
     triage_tab: "all", aiProviderKeys: { x: "sk-live-1" }, obsidianApiKey: "secret-token"
@@ -198,7 +229,8 @@ function openFake(mediaId, items, decisions = {}) {
   assert.deepStrictEqual(backup.folders, { 7: { title: "夹", snapshot: { bvids: ["BVa"] }, decisions: { BVa: { action: "keep" } } } });
   assert.deepStrictEqual([backup.tags, backup.videoTags, backup.basket, backup.tagPresets], [[{ id: "t1" }], { BVa: ["t1"] }, [{ bvid: "BVa" }], [{ id: "p" }]]);
   assert.deepStrictEqual([backup.titleResults, backup.analyses, backup.verdictOverrides], [{ BVa: { verdict: "keep" } }, { BVa: { status: "done" } }, { BVa: { verdict: "drop" } }]);
-  assert.ok(!/sk-live-1|secret-token|triage_tab/.test(JSON.stringify(backup)), "no secrets or unrelated keys");
+  assert.deepStrictEqual(backup.notes, { BVa: { text: "n", updatedAt: 1 } });
+  assert.ok(!/sk-live-1|secret-token|triage_tab|migrated/.test(JSON.stringify(backup)), "no secrets or unrelated keys");
 
   console.log("triage selftest: all passed");
 })().catch((e) => {
