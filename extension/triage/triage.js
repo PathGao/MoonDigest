@@ -8,7 +8,8 @@ const THROTTLES = { THROTTLED: [THROTTLE_MS, "B站限流"], AI_THROTTLED: [60 * 
 const GROUP_SIZE = 8;
 const SELECT_CAP = 10;
 const SYNC_MIN_GAP_MS = 60 * 1000;
-const TAG_COLORS = ["#7c62e8", "#2f8f5b", "#c9463d", "#a86a00", "#2a7ab8", "#b8428f", "#4f7a28", "#6b7180"];
+// Catppuccin Latte accents (desaturated); chips keep --text on top, so these are only borders and tints.
+const TAG_COLORS = ["#884ed5", "#3c70d7", "#4b903b", "#dc6d2d", "#da86c3", "#298287", "#b72a49", "#c48a38", "#3590a0", "#8595ea", "#cf5c66", "#2497c6", "#cf8686", "#ce9386"];
 // Progress tabs in pipeline order; 阅览 sits apart after them.
 const STAGES = [
   ["none", "未分析"],

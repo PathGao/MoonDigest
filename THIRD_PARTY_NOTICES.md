@@ -42,3 +42,7 @@ The YouTube subtitle fetching approach follows [jdepoix/youtube-transcript-api](
 ## Obsidian logo
 
 `extension/icons/obsidian.svg` is the unmodified Obsidian logo from [obsidian.md/brand](https://obsidian.md/brand). The Obsidian name and logo are trademarks of Dynalist Inc. They mark the buttons that save to Obsidian. MoonDigest is not affiliated with or endorsed by Obsidian.
+
+## catppuccin/palette
+
+The extension colors use the [Catppuccin](https://github.com/catppuccin/palette) palette (MIT, Copyright (c) 2021 Catppuccin): Mocha for dark mode, and Latte for light mode with its accents desaturated and the text accents darkened.
