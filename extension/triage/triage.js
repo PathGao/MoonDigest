@@ -708,10 +708,13 @@ function renderList() {
   }
   S.focusIndex = list.findIndex((it) => it.bvid === S.focused);
   // 待细看 shows which cards the button will send (or is sending) before anything runs.
-  const marks = new Map();
+  // Those cards get a left bar and a label before the title.
+  let marked = new Set();
+  let word = "";
   if (S.tab === "deep") {
-    const [bvids, word] = S.group ? [S.group.bvids, "本批"] : [nextBatch(), "下一批"];
-    bvids.forEach((b, i) => marks.set(b, `${word} ${i + 1}`));
+    const bvids = S.group ? S.group.bvids : nextBatch();
+    marked = new Set(bvids);
+    word = S.group ? "本批" : bvids.some((b) => S.selected.has(b)) ? "已选中" : "下一批";
   }
   const expanded = S.tab === "act";
   const failed = S.tab === "deep" ? list.filter((it) => failedAnalysis(it.bvid)).length : 0;
@@ -721,7 +724,12 @@ function renderList() {
   const caret = typing && [typing.closest(".card").dataset.bvid, typing.selectionStart, typing.selectionEnd];
   const scroll = el.list.scrollTop;
   el.list.innerHTML =
-    list.map((it, i) => (failed && i === list.length - failed ? failedHead : "") + cardHtml(it, expanded, marks.get(it.bvid))).join("") + recent;
+    list
+      .map((it, i) => {
+        const head = failed && i === list.length - failed ? failedHead : "";
+        return head + cardHtml(it, expanded, marked.has(it.bvid) ? word : "");
+      })
+      .join("") + recent;
   el.list.scrollTop = scroll;
   if (caret) {
     const box = el.list.querySelector(`.card[data-bvid="${CSS.escape(caret[0])}"] [data-note]`);
@@ -788,10 +796,10 @@ function cardHtml(it, expanded, mark) {
   return `<article class="${cls.join(" ")}" data-bvid="${esc(b)}" aria-label="${esc(it.title)}">
     <img class="cover" src="${esc(it.cover)}" alt="" loading="lazy" referrerpolicy="no-referrer" />
     <div class="card-body">
-      <button type="button" class="title" data-act="open" aria-label="打开视频 ${esc(it.title)}">${esc(it.title)}</button>
+      <div class="title-row">${mark ? `<span class="batch-tag">${mark}</span>` : ""}<button type="button" class="title" data-act="open" aria-label="打开视频 ${esc(it.title)}">${esc(it.title)}</button></div>
       <div class="meta">${meta.map(esc).join(" · ")}</div>
       ${body.join("")}
-      <div class="card-foot">${verdict}<span class="reason">${esc(v.reason)}</span>${failed}${mark ? `<span class="batch-mark">${mark}</span>` : ""}</div>
+      <div class="card-foot">${verdict}<span class="reason">${esc(v.reason)}</span>${failed}</div>
       ${chips || suggHtml ? `<div class="chips">${chips}${suggHtml}</div>` : ""}
       ${noteHtml}
       <div class="card-foot">

@@ -167,7 +167,6 @@ select { height: 28px; max-width: 240px; }
 .badge.none, .badge.running { background: var(--surface-muted); color: var(--muted); }
 .badge.running { color: var(--secondary-text); }
 .badge.decision { background: var(--secondary-bg); color: var(--secondary-text); }
-.batch-mark { font-size: var(--fs-xs); color: var(--secondary-text); }
 .reason { color: var(--muted); font-size: var(--fs-xs); flex: 1; min-width: 120px; }
 .actions { display: flex; flex-wrap: wrap; gap: 4px; }
 .actions button { height: 24px; padding: 0 8px; font-size: var(--fs-xs); }
@@ -180,6 +179,8 @@ select { height: 28px; max-width: 240px; }
 .note-add { font-size: var(--fs-xs); height: auto; }
 .group-head { margin-top: 10px; padding: 2px 0; color: var(--muted); font-size: var(--fs-xs); }
 .group-head .link { height: auto; font-size: inherit; }
+.title-row { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.batch-tag { flex: none; padding: 1px 6px; border-radius: 4px; background: var(--secondary-bg); color: var(--secondary-text); font-size: var(--fs-xs); font-weight: 600; }
 
 .muted { color: var(--muted); font-size: var(--fs-xs); }
 button.icon { width: 26px; height: 24px; padding: 0; }
