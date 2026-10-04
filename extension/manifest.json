@@ -51,6 +51,13 @@
       "js": ["badges.js"],
       "css": ["badges.css"],
       "run_at": "document_idle"
+    },
+    {
+      "matches": ["https://www.bilibili.com/video/*"],
+      "js": ["triage/viewer-frame.js"],
+      "css": ["triage/viewer-frame.css"],
+      "all_frames": true,
+      "run_at": "document_start"
     }
   ],
   "action": {
