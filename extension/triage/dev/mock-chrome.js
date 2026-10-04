@@ -7,7 +7,12 @@
   const clone = (v) => (v === undefined ? v : structuredClone(v));
 
   // ----- storage -----
-  const store = { aiProviderKeys: { openai: "sk-should-never-export" }, obsidianApiKey: "secret-token" };
+  const store = {
+    aiProviderKeys: { openai: "sk-should-never-export" },
+    obsidianApiKey: "secret-token",
+    // Per-video notes (triage_notes): one seeded so a filled note shows without typing.
+    triage_notes: { BV1mock0001: { text: "第 3 节的重构步骤可以直接套到 kururu", updatedAt: Date.now() } }
+  };
   function makeArea(data) {
     return {
       async get(keys) {

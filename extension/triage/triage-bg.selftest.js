@@ -49,6 +49,12 @@ assert.deepStrictEqual([...t.triageParseLlm('{"one_liner":"x","points":[]}', tag
 // tag coercion
 assert.deepStrictEqual([...t.triageCoerceTags(["新：数学", "AI", "AI"], tagList, 2)], ["新:数学", "AI"]);
 assert.deepStrictEqual([...t.triageCoerceTags(["新:", "乱写"], tagList, 2)], []);
+// 只用我的标签: no 新: suggestions and no new-tag clause in the prompts.
+assert.deepStrictEqual([...t.triageCoerceTags(["新:数学", "AI"], tagList, 2, false)], ["AI"]);
+for (const p of vm.runInContext("[TRIAGE_SYSTEM_PROMPT, TRIAGE_TITLE_PROMPT]", ctx)) {
+  assert.ok(p.includes("新:标签名") && !t.triageOwnTagsPrompt(p, true).includes("新:"), "own-only prompt drops the new-tag clause");
+  assert.strictEqual(t.triageOwnTagsPrompt(p, false), p);
+}
 
 // title line
 assert.strictEqual(
@@ -312,6 +318,27 @@ assert.throws(() => t.triageParseCommand('{"new_tags":[', cmdItems, cmdTags, {})
   assert.strictEqual((await buildNote()).body.length, 0);
   routes = baseRoutes();
   assert.strictEqual((await buildNote()).body.length, 2);
+
+  // The note section comes from triage_notes (per video), not from the basket item.
+  store.triage_basket = [{ bvid: "BVa", note: "篮子里的旧笔记" }];
+  store.triage_notes = { BVa: { text: "视频笔记", updatedAt: 1 } };
+  const noted = (await buildNote()).markdown;
+  assert.ok(noted.includes("## 我的笔记\n\n视频笔记") && !noted.includes("篮子里的旧笔记"));
+
+  // Migration: copies non-empty basket notes, never overwrites, keeps the basket, runs once.
+  for (const k of Object.keys(store)) delete store[k];
+  store.triage_basket = [{ bvid: "BV1", note: "旧1" }, { bvid: "BV2", note: "旧2" }, { bvid: "BV3", note: "  " }, { bvid: "BV4" }];
+  store.triage_notes = { BV2: { text: "已有", updatedAt: 5 } };
+  await t.triageMigrateNotes();
+  assert.deepStrictEqual(Object.keys(store.triage_notes).sort(), ["BV1", "BV2"]);
+  assert.strictEqual(store.triage_notes.BV1.text, "旧1");
+  assert.deepStrictEqual(store.triage_notes.BV2, { text: "已有", updatedAt: 5 });
+  assert.strictEqual(store.triage_basket[0].note, "旧1");
+  assert.strictEqual(store.triage_notes_migrated, true);
+  store.triage_basket.push({ bvid: "BV5", note: "后加" });
+  delete store.triage_notes.BV1;
+  await t.triageMigrateNotes();
+  assert.deepStrictEqual(Object.keys(store.triage_notes), ["BV2"], "second run is a no-op");
 
 console.log("triage-bg selftest: all passed");
 })();

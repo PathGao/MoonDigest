@@ -66,7 +66,7 @@ button.danger { color: var(--danger); border-color: var(--danger-border); backgr
 a.entry-title:hover { color: var(--link-hover); text-decoration: underline; }
 .entry-meta { color: var(--muted); font-size: var(--fs-xs); }
 .entry-actions { display: flex; gap: var(--space-1); }
-.entry-summary { margin-top: var(--space-1); white-space: pre-wrap; overflow-wrap: anywhere; color: var(--text-2); font-size: var(--fs-sm); }
+.entry-summary, .entry-note { margin-top: var(--space-1); white-space: pre-wrap; overflow-wrap: anywhere; color: var(--text-2); font-size: var(--fs-sm); }
 
 details { margin-top: var(--space-1); }
 summary { cursor: pointer; color: var(--secondary-text); font-size: var(--fs-xs); }
