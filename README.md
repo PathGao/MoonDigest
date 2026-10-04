@@ -19,7 +19,7 @@
 
 - **读**：把视频变成可以读的文字。看字幕、让 AI 总结、接着追问，在专注模式里边看边读。
 - **理**：把一个收藏夹交给分拣台，AI 先粗分、再细看，你决定保留还是取消收藏；真想看的放进「优先看」，一个个看完。
-- **记**：给视频留一句自己的备注，AI 对话按视频存进历史页，都能导出成 Markdown。用 Obsidian 的话，也可以直接写进库里，这是可选项。
+- **记**：给视频留一句自己的备注，AI 对话按视频存进视频记录页，都能导出成 Markdown。用 Obsidian 的话，也可以直接写进库里，这是可选项。
 
 数据都留在你的浏览器里。
 
@@ -44,10 +44,10 @@
 - **导出**：复制 Markdown，下载 SRT 或 TXT，属性含干净链接、封面、作者、时长、发布日期和标签。
 - **AI 侧边栏**：任意 OpenAI 兼容平台。AI 总结、管理追问（输入框上方的常用追问，设置页同名一段可改），切换视频自动跟随。发送按钮在生成中变成「停止」，出错时可重试。
 - **导出对话**：侧边栏的「导出对话」菜单可以复制、下载 .md 或写入 Obsidian。写入 Obsidian 写进这个视频笔记的 AI 问答段，还没有视频笔记就新建一篇。每条回复下只有「复制单条回复」。
-- **AI 对话历史**：侧边栏的历史弹层只列当前视频的对话，点「全部」或设置页「数据与存储」里的「管理 AI 对话历史」打开历史页。历史页按视频列出全部对话、分拣台 AI 总结和你的笔记，可以搜索、继续问、下载 .md、写入 Obsidian 或删除；「清空全部」只删 AI 对话，不动笔记和分拣结果。
+- **视频记录**：侧边栏的历史弹层只列当前视频的对话，点「全部」或设置页「数据与存储」里的「打开视频记录」打开视频记录页。视频记录页按视频列出全部对话、分拣台 AI 总结和你的备注，可以搜索、继续问、下载 .md、写入 Obsidian 或删除；「清空全部」只删 AI 对话，不动备注和分拣结果。
 
 <p align="center">
-  <img src="docs/images/history.png" alt="AI 对话历史页：按视频列出对话、分拣台 AI 总结和笔记，每条可继续问、下载 .md、写入 Obsidian 或删除" width="900">
+  <img src="docs/images/history.png" alt="视频记录页：按视频列出对话、分拣台 AI 总结和备注，每条可继续问、下载 .md、写入 Obsidian 或删除" width="900">
 </p>
 
 ### 进阶 1 · 收藏夹分拣台（仅 B 站）
@@ -200,7 +200,7 @@ extension/
 ├── badges.*           B 站页面上的分拣标记
 ├── tokens.css         共享的颜色、字号和间距变量（含深色主题）
 ├── triage/            收藏夹分拣台页面和后台接口（triage-bg.js）
-├── history/           AI 对话历史页
+├── history/           视频记录页
 └── dev-sidepanel/     侧边栏的开发预览
 ```
 
@@ -213,7 +213,7 @@ for f in extension/*.selftest.js extension/triage/*.selftest.js; do node "$f" ||
 ### 不装插件预览页面
 
 ```bash
-# 分拣台和历史页：在 extension/ 下起静态服务，打开 /triage/triage.html 或 /history/history.html，会自动加载各自 dev/mock-chrome.js 的假数据
+# 分拣台和视频记录页：在 extension/ 下起静态服务，打开 /triage/triage.html 或 /history/history.html，会自动加载各自 dev/mock-chrome.js 的假数据
 cd extension && python3 -m http.server 8000
 
 # 侧边栏：先生成预览页，再打开 /dev-sidepanel/index.html

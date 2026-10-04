@@ -48,7 +48,7 @@
       {
         label: "AI 对话",
         usage: `${count(usage.aiConversations)} / ${AI_CONVERSATIONS} 段`,
-        rule: `超过 ${AI_CONVERSATIONS} 段自动删最旧的。在「AI 对话历史」页按视频查看、下载或删除。`
+        rule: `超过 ${AI_CONVERSATIONS} 段自动删最旧的。在「视频记录」页按视频查看、下载或删除。`
       },
       {
         label: "AI 每次请求读的字幕",
