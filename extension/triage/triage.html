@@ -204,12 +204,13 @@
       <form method="dialog">
         <section id="aiForm" class="ai-section">
           <h2>AI 指令</h2>
-          <p class="dialog-hint">用一句话修改已有结果：给视频加减标签、改 AI 判断。AI 只提出建议，你检查并点「应用选中」后才会改动。</p>
+          <p class="dialog-hint">用一句话修改已有结果：给视频加减标签。AI 不会改动留 / 可以删 / 待定的判断。AI 只提出建议，你检查并点「应用选中」后才会改动。</p>
           <div class="ai-grid">
             <label for="aiScope">作用范围</label>
             <select id="aiScope">
               <option value="filter">当前筛选结果</option>
               <option value="selected">已选中 (X)</option>
+              <option value="analyzed">只处理细看过的</option>
             </select>
           </div>
           <p id="aiScopeCount" class="dialog-hint"></p>
@@ -217,7 +218,6 @@
           <textarea id="aiInstruction" rows="3" placeholder="例如：把这些按技术深度分成 入门/进阶/硬核 三个标签"></textarea>
           <div id="aiHistory" class="ai-history"></div>
           <div id="aiTagsPreview"></div>
-          <label class="toggle"><input id="aiAllowVerdict" type="checkbox" /> 允许 AI 修改判断（留 / 可以删 / 待定）</label>
           <p id="aiProgress" class="dialog-hint" aria-live="polite"></p>
           <div class="dialog-actions">
             <span class="spacer"></span>

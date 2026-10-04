@@ -107,8 +107,7 @@ assert.ok(cmdMsgs[0].content.endsWith("已有标签：AI、编程"));
 assert.ok(!cmdMsgs[0].content.includes('"verdict"'));
 assert.ok(cmdMsgs[1].content.includes("<<<指令>>>\n把讲 AI 的都标上\n<<<指令结束>>>"));
 assert.ok(cmdMsgs[1].content.endsWith("\n1|T|||||"));
-const cmdVerdictMsgs = t.triageBuildCommandMessages({ instruction: "x", tags: [], items: [], allowVerdict: true });
-assert.ok(cmdVerdictMsgs[0].content.includes('"verdict": "keep|drop|unsure"') && cmdVerdictMsgs[0].content.includes("- unsure：待定。") && cmdVerdictMsgs[0].content.endsWith("已有标签：（无）"));
+assert.ok(!/verdict|留|可以删|待定/.test(cmdMsgs[0].content), "the command prompt never asks for a verdict");
 
 // command parse
 const cmdItems = [
@@ -123,14 +122,15 @@ const cmdOut =
   '"items":[{"i":2,"add":["数学","不存在","编程","编程"],"remove":["AI"],"verdict":"KEEP","reason":"讲 {数学}"},' +
   '{"i":1,"add":["AI","物理力学"],"remove":["旧","不在"],"verdict":"必看","reason":"r1"},' +
   '{"i":3,"add":["化学"],"remove":[]},{"i":4,"add":[],"remove":[],"reason":"无"},{"i":9,"add":["AI"]},{"i":2,"add":["旧"]}],"note":"已打标签"}\n``` 以上';
-assert.deepStrictEqual(plain(t.triageParseCommand(cmdOut, cmdItems, cmdTags, { maxNewTags: 2, allowVerdict: true })), {
+assert.deepStrictEqual(plain(t.triageParseCommand(cmdOut, cmdItems, cmdTags, { maxNewTags: 2 })), {
   newTags: ["数学", "物理力学"],
   assignments: {
-    BV2: { add: ["数学", "编程"], remove: [], verdict: "keep", reason: "讲 {数学}" },
+    BV2: { add: ["数学", "编程"], remove: [], reason: "讲 {数学}" },
     BV1: { add: ["物理力学"], remove: ["旧"], reason: "r1" }
   },
   note: "已打标签"
-}, "an unknown verdict in a command is dropped, not guessed");
+}, "verdict fields in the reply are dropped");
+assert.deepStrictEqual(plain(t.triageParseCommand('{"items":[{"i":2,"verdict":"keep","reason":"x"}]}', cmdItems, cmdTags)).assignments, {}, "a verdict-only item is no change");
 assert.deepStrictEqual(plain(t.triageParseCommand(cmdOut, cmdItems, cmdTags, { maxNewTags: 0 })), {
   newTags: [],
   assignments: {

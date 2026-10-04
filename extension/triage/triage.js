@@ -34,10 +34,8 @@ const K = {
   removed: "triage_removed", // { [bvid]: { item, at } }: videos that left every folder, kept until the user cleans them
   included: "triage_included_folders", // [mediaId]: the folders the user chose; only these are listed and read
   snapshot: (id) => `triage_snapshot_${id}`,
-  aiHistory: "triage_ai_command_history",
-  override: (bvid) => `triage_verdict_override_${bvid}`
+  aiHistory: "triage_ai_command_history"
 };
-const OVERRIDE_PREFIX = "triage_verdict_override_";
 const ALL = "all"; // the 所有收藏夹 view's folder-select value
 const REMOVED = "removed"; // the 已取消收藏 view
 // The fixed AI classes, shown as chips inside 粗看完成 and 细看完成.
@@ -177,7 +175,6 @@ const S = {
   undo: [],
   lastSyncAt: 0,
   syncing: false,
-  overrides: {}, // bvid -> { verdict, reason, by, at }
   aiHistory: [],
   ai: { running: false, stop: false, proposal: null }
 };
@@ -196,7 +193,7 @@ const el = {};
   "confirmTitle", "confirmBody", "confirmOk", "pickerDialog", "pickerTitle", "pickerInput", "pickerList",
   "criteriaDialog", "criteriaTitle", "criteriaInput", "tagsDialog", "tagsRows", "newTagInput", "addTagBtn", "helpDialog",
   "aiBtn", "aiDialog", "aiForm", "aiScope", "aiScopeCount", "aiInstruction", "aiHistory",
-  "aiTagsPreview", "aiAllowVerdict", "aiProgress", "aiCloseBtn", "aiStopBtn", "aiRunBtn",
+  "aiTagsPreview", "aiProgress", "aiCloseBtn", "aiStopBtn", "aiRunBtn",
   "aiReview", "aiReviewSummary", "aiNotes", "aiNewTags", "aiAllBtn", "aiNoneBtn", "aiRows", "aiDiscardBtn", "aiApplyBtn",
   "writeBtn", "writeDialog", "writeScope", "writeFormat", "writeScopeCount", "writeOverwriteRow", "writeOverwrite", "writeProgress", "writeFailed", "writeStopBtn", "writeCopyBtn", "writeRunBtn", "writeMdBtn"
 ].forEach((id) => (el[id] = $(id)));
@@ -350,8 +347,6 @@ function verdictOf(it) {
   const a = S.analyses[it.bvid];
   const failed = a?.status === "error" ? a.error || "分析失败" : "";
   if (it.invalid) return { verdict: "drop", reason: "视频已失效", stage: 0, failed: "" };
-  const o = S.overrides[it.bvid];
-  if (o && VERDICTS[o.verdict]) return { verdict: o.verdict, reason: o.reason, stage: 3, failed: "" };
   if (a?.status === "done") return { verdict: VERDICTS[a.verdict] ? a.verdict : "unsure", reason: a.reason, stage: 2, failed: "" };
   const t = S.titleRes[it.bvid];
   if (t && VERDICTS[t.verdict]) return { verdict: t.verdict, reason: t.reason, stage: 1, low: t.confidence === "low", failed };
@@ -446,14 +441,7 @@ async function init() {
   Object.assign(S, { tags, videoTags, folderCriteria, kept });
   S.basket = basket.map(({ bvid, title, opened }) => ({ bvid, title, ...(opened ? { opened: true } : {}) }));
   S.notes = notes;
-  // getKeys (Chrome 130+) lets us read only override keys instead of every cached title/analysis.
-  const keys = await chrome.storage.local.getKeys?.();
-  const wanted = keys && [K.aiHistory, ...keys.filter((k) => k.startsWith(OVERRIDE_PREFIX))];
-  const all = (await chrome.storage.local.get(wanted ?? null)) || {};
-  S.aiHistory = all[K.aiHistory] || [];
-  for (const [k, v] of Object.entries(all)) {
-    if (k.startsWith(OVERRIDE_PREFIX)) S.overrides[k.slice(OVERRIDE_PREFIX.length)] = v;
-  }
+  S.aiHistory = await storeGet(K.aiHistory, []);
   if (settingsResp.ok) Object.assign(S.settings, settingsResp.data);
   const syncObsidian = ({ obsidianEnabled }) => document.body.classList.toggle("obsidian-off", obsidianEnabled !== true);
   syncObsidian(await chrome.storage.sync.get({ obsidianEnabled: false }));
@@ -775,10 +763,10 @@ async function cleanRemoved(list) {
   const set = new Set(bvids);
   const rec = await storeGet(K.removed, {});
   for (const b of bvids) {
-    for (const map of [rec, S.notes, S.videoTags, S.kept, S.analyses, S.titleRes, S.overrides]) delete map[b];
+    for (const map of [rec, S.notes, S.videoTags, S.kept, S.analyses, S.titleRes]) delete map[b];
   }
   S.basket = S.basket.filter((x) => !set.has(x.bvid));
-  await chrome.storage.local.remove(bvids.flatMap((b) => [`triage_title_${b}`, `triage_analysis_${b}`, K.override(b)]));
+  await chrome.storage.local.remove(bvids.flatMap((b) => [`triage_title_${b}`, `triage_analysis_${b}`]));
   await chrome.storage.local.set({ [K.removed]: rec, [K.notes]: S.notes, [K.videoTags]: S.videoTags, [K.kept]: S.kept, [K.basket]: S.basket });
   S.removedCount = Object.keys(rec).length;
   S.items = S.items.filter((it) => !set.has(it.bvid));
@@ -1236,7 +1224,7 @@ function cardHtml(it, expanded, mark) {
   if (mark) cls.push("in-batch");
 
   // Where the verdict came from, as one muted meta item.
-  const source = [["", "粗看", "细看", "AI 指令"][v.stage], done && (a.source === "subtitle" ? "字幕" : "简介")].filter(Boolean).join("·");
+  const source = [["", "粗看", "细看"][v.stage], done && (a.source === "subtitle" ? "字幕" : "简介")].filter(Boolean).join("·");
   const meta = [it.upper, fmtDuration(it.duration), source, it.invalid && "已失效", it.folders?.length && `收藏夹：${folderNames(it)}`].filter(Boolean);
 
   const verdict = verdictBadge(b, v);
@@ -1491,15 +1479,6 @@ async function undo() {
   } else if (entry.kind === "aiApply") {
     S.tags = entry.prevTags;
     S.videoTags = entry.prevVideoTags;
-    for (const [b, o] of Object.entries(entry.prevOverrides)) {
-      if (o) {
-        S.overrides[b] = o;
-        storeSet(K.override(b), o);
-      } else {
-        delete S.overrides[b];
-        chrome.storage.local.remove(K.override(b));
-      }
-    }
     for (const id of [...S.tagFilter]) if (!tagById(id)) S.tagFilter.delete(id);
     saveTags();
     saveVideoTags();
@@ -1855,21 +1834,22 @@ async function retry(bvid) {
 }
 
 // ---------- AI command ----------
+const isAnalyzed = (it) => S.analyses[it.bvid]?.status === "done";
+
 function aiScopeItems() {
   const scope = el.aiScope.value;
   if (scope === "selected") return [...S.selected].map((b) => S.itemMap.get(b)).filter(Boolean);
+  if (scope === "analyzed") return visibleItems().filter(isAnalyzed);
   return visibleItems();
 }
 
 function aiCommandItem(it) {
   const out = aiItem(it);
   const a = S.analyses[it.bvid];
-  if (a?.status === "done") {
+  if (isAnalyzed(it)) {
     out.oneLiner = a.oneLiner || "";
     out.points = a.points || [];
   }
-  const v = verdictOf(it);
-  if (v.verdict !== "none") out.verdict = v.verdict;
   const names = tagIdsOf(it.bvid).map((id) => tagById(id).name);
   if (names.length) out.currentTags = names;
   return out;
@@ -1894,16 +1874,19 @@ function showAiReview() {
 }
 
 function renderAiForm() {
-  const counts = { filter: visibleItems().length, selected: S.selected.size };
-  const labels = { filter: "当前筛选结果", selected: "已选中 (X)" };
+  const counts = { filter: visibleItems().length, selected: S.selected.size, analyzed: visibleItems().filter(isAnalyzed).length };
+  const labels = { filter: "当前筛选结果", selected: "已选中 (X)", analyzed: "只处理细看过的" };
   for (const o of el.aiScope.options) {
     o.textContent = `${labels[o.value]} · ${counts[o.value]} 个`;
     o.disabled = !counts[o.value];
   }
   if (el.aiScope.selectedOptions[0]?.disabled) el.aiScope.value = "filter";
-  const n = aiScopeItems().length;
+  const items = aiScopeItems();
+  const n = items.length;
+  const done = items.filter(isAnalyzed).length;
   const size = Math.max(1, Number(S.settings.triageTitleBatchSize) || 30);
-  el.aiScopeCount.textContent = n ? `将发送 ${n} 个视频，分 ${Math.ceil(n / size)} 批` : "作用范围里没有视频";
+  const parts = [done && `${done} 个细看过（按总结和要点判断）`, n - done && `${n - done} 个只有标题和简介，标签可能不准`].filter(Boolean);
+  el.aiScopeCount.textContent = n ? `${n} 个视频：${parts.join("，")}。分 ${Math.ceil(n / size)} 批发送` : "作用范围里没有视频";
   el.aiTagsPreview.innerHTML = S.tags.length
     ? `<div class="chips">AI 能用的标签：${S.tags.map((t) => `<span class="chip">${esc(t.name)}</span>`).join("")}</div><p class="dialog-hint">AI 也可以新建（最多 5 个），你确认后才创建。</p>`
     : `<p class="dialog-hint">你还没有标签。AI 可以新建（最多 5 个），你确认后才创建。</p>`;
@@ -1932,7 +1915,7 @@ async function runAiCommand() {
   }
   S.aiHistory = [instruction, ...S.aiHistory.filter((x) => x !== instruction)].slice(0, 5);
   storeSet(K.aiHistory, S.aiHistory);
-  const opts = { maxNewTags: 5, allowVerdict: el.aiAllowVerdict.checked };
+  const opts = { maxNewTags: 5 };
   const tagNames = S.tags.map((t) => t.name);
   const size = Math.max(1, Number(S.settings.triageTitleBatchSize) || 30);
   const scopeSet = new Set(items.map((it) => it.bvid));
@@ -1947,7 +1930,7 @@ async function runAiCommand() {
   for (let i = 0; i < total && keepGoing(); i++) {
     el.aiProgress.textContent = `AI 正在处理第 ${i + 1} / ${total} 批…`;
     const batch = items.slice(i * size, (i + 1) * size);
-    const r = await send({ type: "triage-ai-command", instruction, items: batch.map(aiCommandItem), tags: tagNames, allowVerdict: opts.allowVerdict });
+    const r = await send({ type: "triage-ai-command", instruction, items: batch.map(aiCommandItem), tags: tagNames });
     if (!r.ok) {
       p.errors.push(`第 ${i + 1} 批失败：${r.error}`);
       if (/截断|配置 AI|未授权访问/.test(r.error || "")) handleAiError(r.error);
@@ -2004,17 +1987,14 @@ function mergeAiBatch(p, data, opts, scopeSet) {
       .map((n) => existing(String(n ?? "").trim()))
       .filter((t) => t && current.includes(t.id))
       .map((t) => t.id);
-    const oldVerdict = verdictOf(S.itemMap.get(bvid)).verdict;
-    const verdict = opts.allowVerdict && VERDICTS[a?.verdict] && a.verdict !== oldVerdict ? a.verdict : "";
-    if (!add.length && !remove.length && !verdict) continue;
+    if (!add.length && !remove.length) continue;
     const row = p.rows.find((r) => r.bvid === bvid);
     if (row) {
       row.add = [...new Set([...row.add, ...add])];
       row.remove = [...new Set([...row.remove, ...remove])];
-      row.verdict = verdict || row.verdict;
       row.reason = a?.reason || row.reason;
     } else {
-      p.rows.push({ bvid, add, remove, verdict, oldVerdict, reason: a?.reason || "", checked: true });
+      p.rows.push({ bvid, add, remove, reason: a?.reason || "", checked: true });
     }
   }
 }
@@ -2022,7 +2002,7 @@ function mergeAiBatch(p, data, opts, scopeSet) {
 // Row changes after dropping adds of unchecked new tags.
 function effectiveRow(p, row) {
   const add = row.add.filter((ref) => !ref.startsWith("new:") || p.newTags.find((t) => t.key === ref.slice(4))?.checked);
-  return { add, empty: !add.length && !row.remove.length && !row.verdict };
+  return { add, empty: !add.length && !row.remove.length };
 }
 
 function refName(p, ref) {
@@ -2058,8 +2038,7 @@ function renderAiRows() {
           const it = S.itemMap.get(r.bvid);
           const chips =
             e.add.map((ref) => `<span class="chip add">+ ${esc(refName(p, ref))}</span>`).join("") +
-            r.remove.map((id) => `<span class="chip remove">− ${esc(tagById(id)?.name)}</span>`).join("") +
-            (r.verdict ? `<span class="verdict-change">${esc(verdictLabel(r.oldVerdict))} → ${esc(verdictLabel(r.verdict))}</span>` : "");
+            r.remove.map((id) => `<span class="chip remove">− ${esc(tagById(id)?.name)}</span>`).join("");
           return `<div class="ai-row${r.checked ? "" : " off"}" data-bvid="${esc(r.bvid)}">
         <input type="checkbox" data-row${r.checked ? " checked" : ""} aria-label="应用到 ${esc(it?.title)}" />
         <div class="ai-row-body">
@@ -2082,13 +2061,11 @@ function applyAiProposal() {
   const rows = p.rows.filter((r) => r.checked).map((r) => ({ r, e: effectiveRow(p, r) })).filter((x) => !x.e.empty);
   const prevTags = structuredClone(S.tags);
   const prevVideoTags = structuredClone(S.videoTags);
-  const prevOverrides = {};
   const idFor = {};
   for (const t of p.newTags) {
     const name = t.name.trim();
     if (t.checked && name) idFor[t.key] = createTag(name).id;
   }
-  const at = Date.now();
   for (const { r, e } of rows) {
     const ids = new Set(S.videoTags[r.bvid] || []);
     for (const ref of e.add) {
@@ -2098,15 +2075,10 @@ function applyAiProposal() {
     for (const id of r.remove) ids.delete(id);
     if (ids.size) S.videoTags[r.bvid] = [...ids];
     else delete S.videoTags[r.bvid];
-    if (r.verdict) {
-      prevOverrides[r.bvid] = S.overrides[r.bvid] || null;
-      S.overrides[r.bvid] = { verdict: r.verdict, reason: r.reason, by: "ai-command", at };
-      storeSet(K.override(r.bvid), S.overrides[r.bvid]);
-    }
   }
   saveTags();
   saveVideoTags();
-  pushUndo({ kind: "aiApply", prevTags, prevVideoTags, prevOverrides, count: rows.length });
+  pushUndo({ kind: "aiApply", prevTags, prevVideoTags, count: rows.length });
   S.ai.proposal = null;
   el.aiDialog.close();
   render();
@@ -2341,7 +2313,7 @@ async function runWrite(md = false) {
 }
 
 // ---------- data export ----------
-const BACKUP_PREFIXES = [K.kept, K.removed, K.tags, K.folderCriteria, "triage_video_tags", "triage_basket", K.notes, "triage_snapshot_", "triage_decisions_", "triage_title_", "triage_analysis_", OVERRIDE_PREFIX];
+const BACKUP_PREFIXES = [K.kept, K.removed, K.tags, K.folderCriteria, "triage_video_tags", "triage_basket", K.notes, "triage_snapshot_", "triage_decisions_", "triage_title_", "triage_analysis_"];
 const isSecretKey = (k) => /key|token/i.test(k) || k === "aiProviderKeys" || k === "obsidianApiKey";
 
 async function buildBackup() {
@@ -2362,8 +2334,7 @@ async function buildBackup() {
     notes: {},
     folders: {},
     titleResults: {},
-    analyses: {},
-    verdictOverrides: {}
+    analyses: {}
   };
   const folder = (id) =>
     (out.folders[id] ||= { title: S.allFolders.find((f) => String(f.id) === id)?.title || "", snapshot: null, decisions: {} });
@@ -2374,7 +2345,6 @@ async function buildBackup() {
     else if (k === K.kept) out.kept = v;
     else if (k === K.removed) out.removed = v;
     else if (k === K.folderCriteria) out.folderCriteria = v;
-    else if (k.startsWith(OVERRIDE_PREFIX)) out.verdictOverrides[k.slice(OVERRIDE_PREFIX.length)] = v;
     else if (k === "triage_video_tags") out.videoTags = v;
     else if (k === "triage_basket") out.basket = v;
     else if (k === K.notes) out.notes = v;
@@ -2410,7 +2380,7 @@ function buildCsv() {
       fmtDuration(it.duration),
       videoUrl(it.bvid),
       v.verdict === "none" ? "" : verdictLabel(v.verdict),
-      ["", "标题粗看", "字幕细看", "AI 指令"][v.stage] || "",
+      ["", "标题粗看", "字幕细看"][v.stage] || "",
       v.reason,
       done ? a.oneLiner || "" : "",
       done ? (a.points || []).join(" | ") : "",

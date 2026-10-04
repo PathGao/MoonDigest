@@ -110,9 +110,9 @@ function triageCommandLine(item, n) {
   return [n, clean(item.title), clean(item.upper), dur, list(item.currentTags).join("、"), clean(item.oneLiner), list(item.points).join("；")].join("|");
 }
 
-// AI 指令提案：add 只留已有标签或本次新建的标签（至多 maxNewTags 个），remove 只留视频现有标签，
-// verdict 只在 allowVerdict 时保留且必须是三档之一；无改动的视频不返回
-function triageParseCommand(content, items, tags, { maxNewTags = 5, allowVerdict = false } = {}) {
+// AI 指令提案只改标签：add 只留已有标签或本次新建的标签（至多 maxNewTags 个），remove 只留视频现有标签；
+// 其他字段（如 verdict）一律丢弃，无改动的视频不返回
+function triageParseCommand(content, items, tags, { maxNewTags = 5 } = {}) {
   const obj = triageExtractJson(content, "{");
   const existing = new Set(triageTagNames(tags));
   const newTags = [];
@@ -138,9 +138,7 @@ function triageParseCommand(content, items, tags, { maxNewTags = 5, allowVerdict
       remove: pick(r.remove, (x) => current.has(x)),
       reason: String(r.reason ?? "").trim()
     };
-    const v = String(r.verdict ?? "").trim().toLowerCase();
-    if (allowVerdict && TRIAGE_VERDICTS[v]) a.verdict = v;
-    if (a.add.length || a.remove.length || a.verdict) assignments[item.bvid] = a;
+    if (a.add.length || a.remove.length) assignments[item.bvid] = a;
   });
   return { newTags, assignments, note: String(obj.note ?? "").trim() };
 }
@@ -195,9 +193,9 @@ function triageBuildMessages(meta, source, text, criteria) {
   ];
 }
 
-function triageBuildCommandMessages({ instruction, tags, items, maxNewTags = 5, allowVerdict = false }) {
+function triageBuildCommandMessages({ instruction, tags, items, maxNewTags = 5 }) {
   const names = triageTagNames(tags);
-  const example = `{"new_tags": ["标签名"], "items": [{"i": 序号, "add": ["标签"], "remove": ["标签"],${allowVerdict ? ' "verdict": "keep|drop|unsure",' : ""} "reason": "≤20字"}], "note": "≤60字"}`;
+  const example = `{"new_tags": ["标签名"], "items": [{"i": 序号, "add": ["标签"], "remove": ["标签"], "reason": "≤20字"}], "note": "≤60字"}`;
   const system = [
     "你是 B站收藏整理助手，按用户指令给视频打标签、做分类。",
     "用户指令写在 <<<指令>>> 和 <<<指令结束>>> 之间，它就是本次任务的要求。",
@@ -205,7 +203,6 @@ function triageBuildCommandMessages({ instruction, tags, items, maxNewTags = 5, 
     "- add 只能用已有标签名，或本次 new_tags 里列出的新标签名。",
     `- 可以新建标签，至多 ${maxNewTags} 个，名称 ≤12字、不含逗号；已有标签能用就先用，不要重复造。`,
     "- remove 只能填该视频“现有标签”里的名称。",
-    allowVerdict ? `- 指令涉及留或删时给 verdict，不涉及就不写。${TRIAGE_VERDICT_TEXT.replace(/^verdict /, "")}` : "- 不要输出 verdict 字段。",
     "- reason ≤20字。",
     "- 指令不适用的视频不要放进 items。",
     "- note ≤60字，总结做了什么，或者为什么没有合适的。",
@@ -458,13 +455,13 @@ async function triageClassifyTitles({ items, criteria }) {
 }
 
 // 协作打标签：只返回提案，不缓存。新建标签至多 5 个
-async function triageAiCommand({ instruction, items, tags, allowVerdict }) {
+async function triageAiCommand({ instruction, items, tags }) {
   const text = String(instruction ?? "").trim();
   if (!text) throw triageError("缺少指令");
   const list = (Array.isArray(items) ? items : []).filter((it) => it && it.bvid);
   if (!list.length) throw triageError("缺少 items");
   const ai = await triageAiSettings();
-  const opts = { maxNewTags: 5, allowVerdict: allowVerdict === true };
+  const opts = { maxNewTags: 5 };
   const { content } = await triageChat(
     triageBuildCommandMessages({ instruction: text, tags, items: list, ...opts }),
     triageMaxTokens("command", list.length, ai),

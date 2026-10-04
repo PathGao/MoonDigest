@@ -326,7 +326,6 @@ dialog.wide { width: min(880px, calc(100% - 32px)); }
 .ai-history { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
 .chip.add { --c: var(--ok); color: var(--ok); }
 .chip.remove { --c: var(--danger); color: var(--danger); text-decoration: line-through; }
-.verdict-change { font-size: var(--fs-xs); font-weight: 600; color: var(--warn); }
 .ai-review-head { display: flex; align-items: center; gap: 8px; }
 .ai-rows { display: flex; flex-direction: column; gap: 6px; max-height: 50vh; overflow-y: auto; }
 .ai-row { display: flex; gap: 8px; align-items: flex-start; padding: 6px 8px; border: 1px solid var(--border); border-radius: var(--radius-sm); }

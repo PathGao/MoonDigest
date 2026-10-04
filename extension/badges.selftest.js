@@ -41,11 +41,6 @@ assert.strictEqual(s2.stage, 2);
 assert.strictEqual(s2.oneLiner, "讲 Rust 所有权");
 assert.deepStrictEqual(plain(s2.points), ["a", "b"]);
 
-const o = badgeInfo({ analysis, override: { verdict: "unsure", reason: "再看看" } });
-assert.strictEqual(o.label, "AI 待定", "override beats analysis");
-assert.strictEqual(o.reason, "再看看");
-assert.strictEqual(o.oneLiner, "讲 Rust 所有权", "override keeps the stage-2 summary");
-
 const tags = [{ id: "t1", name: "Rust", color: "#f60" }];
 const tagOnly = badgeInfo({ tagIds: ["t1"], tags });
 assert.strictEqual(tagOnly.label, "");
@@ -60,7 +55,7 @@ assert.strictEqual(badgeInfo({ title: { verdict: "bogus" } }), null, "unknown ve
 
 assert.strictEqual(badgeInfo({ title: { verdict: "t-must", confidence: "high" } }), null, "old custom-tier verdicts are not a mark");
 assert.strictEqual(badgeInfo({ title: { verdict: "unsure" } }).verdict, "unsure");
-assert.strictEqual(badgeInfo({ analysis: { status: "done", verdict: "t-must" }, override: { verdict: "t-x" } }).label, "AI 待定", "a done 细看 with an old verdict reads as 待定, like the triage page");
+assert.strictEqual(badgeInfo({ analysis: { status: "done", verdict: "t-must" } }).label, "AI 待定", "a done 细看 with an old verdict reads as 待定, like the triage page");
 
 // A video decided in several folders shows its latest decision, whatever the storage-key order.
 const merged = mergeDecisions({

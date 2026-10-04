@@ -155,22 +155,20 @@ function openFake(mediaId, items, decisions = {}) {
   assert.strictEqual(t.wikiLink("B站/2026-10-02-a_b.md", "a|b [[c]]\nd"), "[[B站/2026-10-02-a_b|a b c d]]");
   assert.strictEqual(t.wikiLink("x.md", "|||"), "[[x|x]]");
 
-  // verdictOf precedence: invalid > override > done analysis > title result.
+  // verdictOf precedence: invalid > done analysis > title result.
   const v = { bvid: "BVv", title: "v" };
-  Object.assign(t.S, { analyses: {}, overrides: {}, titleRes: {} });
+  Object.assign(t.S, { analyses: {}, titleRes: {} });
   assert.deepStrictEqual(plain(t.verdictOf(v)), { verdict: "none", reason: "", stage: -1, failed: "" });
   t.S.titleRes.BVv = { verdict: "keep", reason: "标题", confidence: "low" };
   t.S.analyses.BVv = { status: "error", error: "超时" };
   assert.deepStrictEqual(plain(t.verdictOf(v)), { verdict: "keep", reason: "标题", stage: 1, low: true, failed: "超时" });
   t.S.analyses.BVv = { status: "done", verdict: "drop", reason: "字幕" };
   assert.strictEqual(t.verdictOf(v).stage, 2);
-  t.S.overrides.BVv = { verdict: "unsure", reason: "指令" };
-  assert.strictEqual(t.verdictOf(v).verdict, "unsure");
   assert.strictEqual(t.verdictOf({ ...v, invalid: true }).reason, "视频已失效");
 
   // Progress tabs follow which AI steps ran: no 粗看 → 未分析, a 粗看 class or invalid → 粗看完成,
   // a done 细看 → 细看完成, processed → 处理完成. Class and confidence never move a card.
-  Object.assign(t.S, { analyses: {}, overrides: {}, titleRes: {}, decisions: {}, videoTags: {}, tags: [] });
+  Object.assign(t.S, { analyses: {}, titleRes: {}, decisions: {}, videoTags: {}, tags: [] });
   const st = (patch = {}, it = v) => {
     Object.assign(t.S, patch);
     return t.stageOf(it);
@@ -282,7 +280,7 @@ function openFake(mediaId, items, decisions = {}) {
     triage_video_tags: { BVa: ["t1"] }, triage_basket: [{ bvid: "BVa" }],
     triage_notes: { BVa: { text: "n", updatedAt: 1 } }, triage_notes_migrated: true,
     triage_snapshot_7: { bvids: ["BVa"] }, triage_decisions_7: { BVa: { action: "keep" } },
-    triage_title_BVa: { verdict: "keep" }, triage_analysis_BVa: { status: "done" }, triage_verdict_override_BVa: { verdict: "drop" },
+    triage_title_BVa: { verdict: "keep" }, triage_analysis_BVa: { status: "done" },
     triage_tab: "all", aiProviderKeys: { x: "sk-live-1" }, obsidianApiKey: "secret-token"
   });
   t.S.folders = t.S.allFolders = [{ id: 7, title: "夹" }];
@@ -291,20 +289,19 @@ function openFake(mediaId, items, decisions = {}) {
   assert.strictEqual(backup.schemaVersion, 3);
   assert.deepStrictEqual([backup.tags, backup.folderCriteria, backup.videoTags, backup.basket], [[{ id: "t1", name: "AI", color: "#111" }], { 7: "只留干货" }, { BVa: ["t1"] }, [{ bvid: "BVa" }]]);
   assert.ok(!("schemes" in backup) && !("folderScheme" in backup) && !/"old"/.test(JSON.stringify(backup)), "old scheme keys are not exported");
-  assert.deepStrictEqual([backup.titleResults, backup.analyses, backup.verdictOverrides], [{ BVa: { verdict: "keep" } }, { BVa: { status: "done" } }, { BVa: { verdict: "drop" } }]);
+  assert.deepStrictEqual([backup.titleResults, backup.analyses], [{ BVa: { verdict: "keep" } }, { BVa: { status: "done" } }]);
   assert.deepStrictEqual(backup.notes, { BVa: { text: "n", updatedAt: 1 } });
   assert.ok(!/sk-live-1|secret-token|triage_tab|migrated|simplified/.test(JSON.stringify(backup)), "no secrets or unrelated keys");
 
-  // Old custom-tier results: a 粗看 one counts as not classified, a done 细看 one as 待定; overrides need a known class.
+  // Old custom-tier results: a 粗看 one counts as not classified, a done 细看 one as 待定.
   const old = item(400);
   openFake("H", [old]);
-  Object.assign(t.S, { analyses: {}, overrides: {}, decisions: {}, titleRes: { BV400: { verdict: "t-must", confidence: "high" } } });
+  Object.assign(t.S, { analyses: {}, decisions: {}, titleRes: { BV400: { verdict: "t-must", confidence: "high" } } });
   assert.strictEqual(t.stageOf(old), "none");
-  t.S.overrides.BV400 = { verdict: "t-must" };
   assert.strictEqual(t.verdictOf(old).stage, -1);
   t.S.analyses.BV400 = { status: "done", verdict: "t-must", reason: "旧" };
   assert.deepStrictEqual([t.verdictOf(old).verdict, t.stageOf(old)], ["unsure", "fine"]);
-  Object.assign(t.S, { analyses: {}, overrides: {}, titleRes: {} });
+  Object.assign(t.S, { analyses: {}, titleRes: {} });
 
   // 判断标准 is per folder and goes with 粗分 requests; an empty one is removed.
   openFake("J", [item(500)]);
@@ -322,19 +319,25 @@ function openFake(mediaId, items, decisions = {}) {
   t.renderListHeader(t.visibleItems());
   assert.ok(t.el.listHeader.innerHTML.includes("未设判断标准") && t.el.listHeader.innerHTML.includes("写一句"));
 
-  // AI 指令 proposals: new tags only by name, at most 5; verdicts only among the three classes.
+  // AI 指令 proposals: new tags only by name, at most 5; a verdict in the reply changes nothing.
   openFake("K", [item(600), item(601)]);
   Object.assign(t.S, { tags: [{ id: "a", name: "旧", color: "#111" }], videoTags: {}, titleRes: { BV600: { verdict: "drop", confidence: "high" } } });
   const prop = { newTags: [], rows: [], notes: [], errors: [] };
-  t.mergeAiBatch(prop, { newTags: ["n1", "n2", "旧", "n3", "n4", "n5", "n6"], assignments: { BV600: { add: ["n1", "旧"], verdict: "keep" }, BV601: { verdict: "t-must" } } }, { maxNewTags: 5, allowVerdict: true }, new Set(["BV600", "BV601"]));
+  t.mergeAiBatch(prop, { newTags: ["n1", "n2", "旧", "n3", "n4", "n5", "n6"], assignments: { BV600: { add: ["n1", "旧"], verdict: "keep" }, BV601: { verdict: "t-must" } } }, { maxNewTags: 5 }, new Set(["BV600", "BV601"]));
   assert.deepStrictEqual(plain(prop.newTags.map((x) => x.name)), ["n1", "n2", "n3", "n4", "n5"]);
-  assert.deepStrictEqual(plain(prop.rows), [{ bvid: "BV600", add: ["new:n1", "id:a"], remove: [], verdict: "keep", oldVerdict: "drop", reason: "", checked: true }]);
+  assert.deepStrictEqual(plain(prop.rows), [{ bvid: "BV600", add: ["new:n1", "id:a"], remove: [], reason: "", checked: true }]);
   t.S.ai.proposal = prop;
   t.el.aiDialog = { close() {} };
   t.applyAiProposal();
   assert.deepStrictEqual(plain(t.S.tags.map((x) => x.name)), ["旧", "n1", "n2", "n3", "n4", "n5"]);
   assert.ok(t.S.tags.every((x) => Object.keys(x).join() === "id,name,color"), "tags carry only id, name and color");
-  assert.strictEqual(t.verdictOf(item(600)).verdict, "keep");
+  assert.strictEqual(t.verdictOf(item(600)).verdict, "drop", "AI 指令 never changes the verdict");
+
+  // 只处理细看过的: only videos with a done 细看 from the current filter results.
+  Object.assign(t.S, { tab: "read", readStage: "all", analyses: { BV600: { status: "done", oneLiner: "x" } }, titleRes: { BV601: { verdict: "drop", confidence: "high" } } });
+  t.el.aiScope = { value: "analyzed" };
+  assert.deepStrictEqual(plain(t.aiScopeItems().map((it) => it.bvid)), ["BV600"]);
+  t.S.analyses = {};
 
   // Migration (pure): criteria per seen folder, the default scheme's tags plus used ones, same names merged.
   const schemes = [
