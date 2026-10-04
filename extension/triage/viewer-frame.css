@@ -1,0 +1,22 @@
+html[data-mdg-viewer] #biliMainHeader,
+html[data-mdg-viewer] .right-container,
+html[data-mdg-viewer] .fixed-sidenav-storage {
+  display: none !important;
+}
+
+html[data-mdg-viewer] #app {
+  min-width: 0 !important;
+}
+
+html[data-mdg-viewer] .left-container {
+  width: auto !important;
+  flex: 1 !important;
+  padding: 0 16px !important;
+}
+
+html[data-mdg-viewer] #playerWrap,
+html[data-mdg-viewer] #bilibili-player {
+  width: 100% !important;
+  height: auto !important;
+  aspect-ratio: 16 / 9;
+}
