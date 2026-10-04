@@ -12,6 +12,10 @@
       <header class="topbar">
         <strong class="brand">MoonDigest</strong>
         <select id="folderSelect" aria-label="选择收藏夹"></select>
+        <span class="search">
+          <input id="searchInput" type="search" placeholder="搜索标题、UP 主、总结、备注、标签" aria-label="搜索 (/)" autocomplete="off" />
+          <span id="searchCount" class="muted" aria-live="polite"></span>
+        </span>
         <span id="progress" class="progress"></span>
         <span id="queueStatus" class="queue-status" aria-live="polite"></span>
         <span class="spacer"></span>
@@ -269,10 +273,11 @@
           <dt>X</dt><dd>选中 / 取消选中（待细看、待处理的按钮、AI 指令和批量导出可只处理选中的）</dd>
           <dt>O / Enter</dt><dd>打开视频</dd>
           <dt>I</dt><dd>AI 指令</dd>
+          <dt>/</dt><dd>搜索（Esc 清空）</dd>
           <dt>U</dt><dd>撤销上一步</dd>
           <dt>?</dt><dd>显示本帮助</dd>
         </dl>
-        <p class="dialog-hint">阅览视图只支持 ? 和 I。</p>
+        <p class="dialog-hint">阅览视图只支持 ?、/ 和 I。</p>
         <div class="dialog-actions"><span class="spacer"></span><button type="submit" class="primary">知道了</button></div>
       </form>
     </dialog>

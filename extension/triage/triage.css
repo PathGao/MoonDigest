@@ -44,6 +44,9 @@ select { height: 28px; max-width: 240px; }
 .tools { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .tools[popover] { position: static; inset: auto; width: auto; height: auto; margin: 0; padding: 0; border: 0; background: none; color: inherit; overflow: visible; }
 .more-btn { display: none; }
+.search { display: flex; align-items: center; gap: 6px; flex: 0 1 320px; min-width: 0; }
+.search input { flex: 1; min-width: 0; height: 28px; }
+.search .muted { white-space: nowrap; }
 
 /* Floats over the page so showing or closing it never moves the list. */
 .banner {
@@ -340,6 +343,7 @@ dialog.wide { width: min(880px, calc(100% - 32px)); }
   .brand, .progress { display: none; }
   .topbar { padding: 8px; }
   .topbar select { max-width: 50vw; }
+  .search { order: 1; flex-basis: 100%; }
   .more-btn { display: inline-block; }
   .tools:not(:popover-open) { display: none; }
   .tools:popover-open {

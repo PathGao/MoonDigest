@@ -97,6 +97,7 @@ const S = {
   readStage: "all",
   actFilter: "all",
   tagFilter: new Set(),
+  query: "",
   focused: "",
   focusIndex: 0,
   selected: new Set(),
@@ -121,7 +122,7 @@ const criteria = () => S.folderCriteria[S.mediaId] || "";
 const $ = (id) => document.getElementById(id);
 const el = {};
 [
-  "folderSelect", "refreshBtn", "progress", "queueStatus", "settingsBtn", "helpBtn",
+  "folderSelect", "searchInput", "searchCount", "refreshBtn", "progress", "queueStatus", "settingsBtn", "helpBtn",
   "banner", "bannerText", "bannerBtn", "bannerClose", "syncNotice", "syncText", "syncViewBtn", "syncCloseBtn", "syncDetail",
   "tabs", "tagFilter", "manageTagsBtn", "listHeader", "list", "basket", "basketToggle", "basketCount",
   "basketList", "basketNextBtn", "toast", "settingsDialog", "thinkingRow", "intervalInput",
@@ -278,8 +279,21 @@ function verdictOf(it) {
   return { verdict: "none", reason: "", stage: -1, failed };
 }
 
-function passTagFilter(bvid) {
-  return S.tagFilter.size === 0 || tagIdsOf(bvid).some((id) => S.tagFilter.has(id));
+// Search covers title, uploader, the AI one-liner and points, the note and tag names; every word must match.
+function searchText(it) {
+  const a = S.analyses[it.bvid];
+  return [it.title, it.upper, a?.oneLiner, ...(a?.points || []), S.notes[it.bvid]?.text, ...tagIdsOf(it.bvid).map((id) => tagById(id).name)]
+    .filter(Boolean)
+    .join("\n")
+    .toLowerCase();
+}
+
+function passFilter(it) {
+  if (S.tagFilter.size && !tagIdsOf(it.bvid).some((id) => S.tagFilter.has(id))) return false;
+  const words = S.query.toLowerCase().split(/\s+/).filter(Boolean);
+  if (!words.length) return true;
+  const text = searchText(it);
+  return words.every((w) => text.includes(w));
 }
 
 // unsure or low confidence → 待细看, keep / drop → 待处理; a done 细看 and invalid videos (可以删) → 待处理.
@@ -302,7 +316,7 @@ const failedAnalysis = (b) => S.analyses[b]?.status === "error";
 
 // 待细看 lists the batch the button will send (or is sending) first and failed cards last.
 function visibleItems() {
-  const list = S.items.filter((it) => inTab(it, S.tab) && passTagFilter(it.bvid));
+  const list = S.items.filter((it) => inTab(it, S.tab) && passFilter(it));
   if (S.tab !== "deep") return list;
   const batch = new Set(S.group ? S.group.bvids : nextBatch());
   const rank = ({ bvid }) => (failedAnalysis(bvid) ? 2 : batch.has(bvid) ? 0 : 1);
@@ -313,7 +327,7 @@ const selectedIn = (list) => list.filter((it) => S.selected.has(it.bvid));
 function stageCounts() {
   const c = { none: 0, deep: 0, act: 0, done: 0, read: 0 };
   for (const it of S.items) {
-    if (!passTagFilter(it.bvid)) continue;
+    if (!passFilter(it)) continue;
     c[stageOf(it)]++;
     c.read++;
   }
@@ -324,7 +338,7 @@ const currentStage = (c) => STAGES.find(([k]) => c[k])?.[0] || "none";
 
 // The 待细看 batch: the selected cards of that tab, otherwise its first GROUP_SIZE.
 function nextBatch() {
-  const open = S.items.filter((it) => inTab(it, "deep") && passTagFilter(it.bvid) && needsAnalysis(it.bvid));
+  const open = S.items.filter((it) => inTab(it, "deep") && passFilter(it) && needsAnalysis(it.bvid));
   const sel = selectedIn(open);
   return (sel.length ? sel : open.slice(0, GROUP_SIZE)).map((it) => it.bvid);
 }
@@ -596,6 +610,7 @@ function renderTabs() {
     const cls = n ? "step" : "step zero";
     return tab(key, label, cls, `<span class="num" aria-hidden="true">${clear ? "✓" : "①②③④"[i]}</span>`, n);
   });
+  el.searchCount.textContent = S.query.trim() ? `搜索：${c.read} 个结果` : "";
   el.tabs.innerHTML =
     steps.join(`<span class="arrow" aria-hidden="true">→</span>`) + `<span class="tab-sep" aria-hidden="true"></span>` + tab("read", "阅览", "read-tab", "", c.read);
 
@@ -728,7 +743,7 @@ function renderList() {
   }
   if (!list.length) {
     const empty = { none: "没有未分析的视频", deep: "没有要细看的视频", act: "没有待处理的视频", done: "还没有处理过的视频" };
-    el.list.innerHTML = `<p class="empty">${empty[S.tab] || "这里没有视频"}</p>${recent}`;
+    el.list.innerHTML = `<p class="empty">${S.query.trim() ? "没有匹配搜索的视频" : empty[S.tab] || "这里没有视频"}</p>${recent}`;
     return;
   }
   el.list.classList.toggle("reading", S.tab === "read");
@@ -1990,6 +2005,20 @@ function bindEvents() {
     const btn = e.target.closest("[data-tab]");
     if (btn) showTab(btn.dataset.tab);
   });
+  el.searchInput.addEventListener("input", (e) => {
+    if (e.isComposing) return;
+    S.query = el.searchInput.value;
+    S.focusIndex = 0;
+    render();
+  });
+  // Esc clears the box; on an empty box it hands the keys back to the cards.
+  el.searchInput.addEventListener("keydown", (e) => {
+    if (e.key !== "Escape" || e.isComposing) return;
+    e.preventDefault();
+    if (!el.searchInput.value) return el.searchInput.blur();
+    el.searchInput.value = S.query = "";
+    render();
+  });
   el.tagFilter.addEventListener("click", (e) => {
     if (e.target.closest("[data-tags-open]")) return openTags();
     const btn = e.target.closest("[data-tagfilter]");
@@ -2354,6 +2383,7 @@ function onKey(e) {
   const key = e.key.length === 1 ? e.key.toLowerCase() : e.key;
   const map = {
     "?": () => el.helpDialog.showModal(),
+    "/": () => el.searchInput.focus(),
     i: () => openAi()
   };
   const nav = { j: 1, ArrowDown: 1, k: -1, ArrowUp: -1 };

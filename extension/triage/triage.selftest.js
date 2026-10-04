@@ -362,6 +362,29 @@ function openFake(mediaId, items, decisions = {}) {
   assert.deepStrictEqual(plain(await t.loadTagsAndCriteria()), { tags: [{ id: "t1", name: "AI", color: "#1" }], videoTags: { BVa: ["t1"] }, folderCriteria: { 7: "全局标准" } });
   delete syncStore.triageCriteria;
 
+  // F1 search: title, uploader, one-liner, points, note and tag names; case-insensitive; every word must match; combines with tags.
+  openFake("Q", [{ ...item(1), title: "Claude Code 实战", upper: "老王" }, { ...item(2), title: "红烧肉" }, item(3)]);
+  Object.assign(t.S, {
+    analyses: { BV2: { status: "done", oneLiner: "家常做法", points: ["火候是关键"] } },
+    notes: { BV3: { text: "周末试试 Agent" } },
+    tags: [{ id: "f", name: "美食", color: "#1" }],
+    videoTags: { BV2: ["f"] },
+    tagFilter: new Set()
+  });
+  const hits = (q) => ((t.S.query = q), t.S.items.filter((it) => t.passFilter(it)).map((it) => it.bvid));
+  assert.deepStrictEqual(hits(""), ["BV1", "BV2", "BV3"]);
+  assert.deepStrictEqual(hits("claude"), ["BV1"], "title, case-insensitive");
+  assert.deepStrictEqual(hits("老王"), ["BV1"], "uploader");
+  assert.deepStrictEqual(hits("火候"), ["BV2"], "points");
+  assert.deepStrictEqual(hits("家常"), ["BV2"], "one-liner");
+  assert.deepStrictEqual(hits("美食"), ["BV2"], "tag name");
+  assert.deepStrictEqual(hits("agent"), ["BV3"], "note");
+  assert.deepStrictEqual(hits(" claude  实战 "), ["BV1"], "all words match");
+  assert.deepStrictEqual(hits("claude 红烧肉"), [], "a word that misses drops the video");
+  t.S.tagFilter = new Set(["f"]);
+  assert.deepStrictEqual(hits("claude"), [], "search and tag filter combine");
+  Object.assign(t.S, { query: "", tagFilter: new Set(), analyses: {}, notes: {}, tags: [], videoTags: {} });
+
   console.log("triage selftest: all passed");
 })().catch((e) => {
   console.error(e);
