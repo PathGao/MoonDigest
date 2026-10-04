@@ -286,6 +286,94 @@
     return `${text}${text.endsWith("\n") ? "" : "\n"}\n${section}\n`;
   }
 
+  // Standalone AI notes from side panel conversations. context: a conversation's video ref
+  // ({ title, url, site, videoId, author }). sourcePath: the video note's vault path, or "" when unknown.
+  function aiSourceTitle(context) {
+    return String(context?.title || "当前视频").trim() || "当前视频";
+  }
+
+  function buildAiConversationFilename(context) {
+    const baseName = sanitizeFileName(`【AI笔记】${aiSourceTitle(context)}`);
+    return `${baseName || "【AI笔记】当前视频"}.md`;
+  }
+
+  function escapeWikiLinkTarget(value) {
+    return String(value || "").replace(/\]/g, "\\]");
+  }
+
+  // source: a wiki link to the video note (path without .md), so the AI note sits under it in the graph.
+  // Body line: link the real video note when its path is known, else name the video without a dangling link.
+  function sourceBodyLine(sourcePath, sourceTitle) {
+    const target = String(sourcePath || "").replace(/\.md$/i, "");
+    return target
+      ? `来源：[[${escapeWikiLinkTarget(target)}|${escapeWikiLinkTarget(sourceTitle)}]]`
+      : `来源：${sourceTitle}`;
+  }
+
+  function sourceFrontmatterLine(sourcePath) {
+    const target = String(sourcePath || "").replace(/\.md$/i, "");
+    return target ? `source: "[[${escapeYaml(target)}]]"` : "";
+  }
+
+  function cleanVideoUrl(context) {
+    const url = String(context?.url || "").trim();
+    const site = BocSites.SITES[context?.site] || BocSites.matchSite(url);
+    const videoId = String(context?.videoId || BocSites.parseRef(url)?.id || "").trim();
+    if (site && videoId) {
+      return site.canonicalUrl(videoId, 1);
+    }
+    return url;
+  }
+
+  function buildAiNoteFrontmatter({ context, filename, sourcePath }) {
+    return [
+      "---",
+      `title: "${escapeYaml(filename.replace(/\.md$/i, ""))}"`,
+      `source_title: "${escapeYaml(aiSourceTitle(context))}"`,
+      sourceFrontmatterLine(sourcePath),
+      `url: "${escapeYaml(cleanVideoUrl(context))}"`,
+      context?.author ? `author: "${escapeYaml(context.author)}"` : "",
+      `created: "${formatLocalDate()}"`,
+      `tags: [ai_note]`,
+      "---"
+    ].filter(Boolean);
+  }
+
+  // A whole conversation; turns from buildConversationTurns.
+  function buildAiConversationMarkdown({ context, turns, filename, sourcePath = "" }) {
+    const lines = [...buildAiNoteFrontmatter({ context, filename, sourcePath }), "", sourceBodyLine(sourcePath, aiSourceTitle(context))];
+    turns.forEach((turn) => {
+      lines.push("", `## ${sanitizeMarkdownHeadingText(turn.prompt)}`, "", turn.answer);
+    });
+    return `${lines.join("\n").trim()}\n`;
+  }
+
+  // The triage page's per-video analysis (triage_analysis_<bvid>) as Markdown; "" until it is done.
+  function buildTriageSummary(analysis) {
+    if (analysis?.status !== "done") {
+      return "";
+    }
+    const lines = [];
+    if (analysis.oneLiner) lines.push(`> ${analysis.oneLiner}`, "");
+    const points = (analysis.points || []).filter(Boolean);
+    if (points.length) lines.push(...points.map((p) => `- ${p}`), "");
+    const verdict = { keep: "建议留", drop: "建议删", unsure: "待定" }[analysis.verdict];
+    if (verdict) lines.push(`判断：${verdict}${analysis.reason ? `，${analysis.reason}` : ""}`);
+    return lines.join("\n").trim();
+  }
+
+  // The summary and the user's basket note go right after the frontmatter so they are read first.
+  function withTriageSummary(markdown, analysis, note) {
+    const summary = buildTriageSummary(analysis);
+    const mine = String(note || "").trim();
+    const block = [summary && `## AI 总结\n\n${summary}`, mine && `## 我的笔记\n\n${mine}`].filter(Boolean).join("\n\n");
+    if (!block) {
+      return markdown;
+    }
+    const front = /^---\n[\s\S]*?\n---\n\n?/.exec(markdown)?.[0] || "";
+    return `${front}${block}\n\n${markdown.slice(front.length)}`;
+  }
+
   function buildHotCommentLines(comments) {
     const items = normalizeHotComments(comments, 20);
     if (items.length === 0) {
@@ -821,6 +909,10 @@
     sanitizeMarkdownHeadingText,
     buildAiSection,
     upsertAiSection,
+    buildAiConversationFilename,
+    buildAiConversationMarkdown,
+    buildTriageSummary,
+    withTriageSummary,
     buildNoteFilename,
     resolveFolderTemplate,
     buildSubtitlePreview,

@@ -5,7 +5,7 @@
     drop: ["删?", "建议删"],
     unsure: ["待定", "待定"]
   };
-  const ACTION = { keep: ["已留", "已保留"], unfav: ["已删", "已取消收藏"] };
+  const ACTION = { keep: "已保留", unfav: "已取消收藏" };
   const STAGE = ["", "标题粗分", "字幕细看", "AI 指令"];
   const BVID_RE = /(?:\/video\/|[?&]bvid=)(BV[0-9A-Za-z]{10})/;
 
@@ -29,10 +29,10 @@
     const action = ACTION[decision?.action] ? decision.action : "";
     if (!v && !userTags.length && !action) return null;
 
-    const label = action ? ACTION[action][0] : v ? VERDICT[v.verdict][0] : "";
+    const label = action ? ACTION[action] : v ? VERDICT[v.verdict][0] : "";
     const aria = [
       "MoonDigest 分拣",
-      action && ACTION[action][1],
+      action && ACTION[action],
       v && `${VERDICT[v.verdict][1]}（${STAGE[v.stage]}${v.low ? "，低置信" : ""}）`,
       userTags.length && `标签：${userTags.map((t) => t.name).join("、")}`
     ]
@@ -95,12 +95,16 @@
     try {
       const fid = favFid();
       if (!shared || fid !== sharedFid) {
-        const keys = ["triage_tags", "triage_video_tags"];
-        if (fid) keys.push(`triage_decisions_${fid}`);
-        const got = await chrome.storage.local.get(keys);
+        // A favorites page shows its own folder's decisions; elsewhere every folder's decisions are merged.
+        // getKeys (Chrome 130+) avoids reading every cached title and analysis just to find the decision keys.
+        const all = fid ? null : await chrome.storage.local.getKeys?.();
+        const decisionKeys = fid ? [`triage_decisions_${fid}`] : (all || []).filter((k) => k.startsWith("triage_decisions_"));
+        const got = await chrome.storage.local.get(fid || all ? ["triage_tags", "triage_video_tags", ...decisionKeys] : null);
         if (g !== gen) return;
         sharedFid = fid;
-        shared = { tags: got.triage_tags, videoTags: got.triage_video_tags || {}, decisions: got[`triage_decisions_${fid}`] || {} };
+        const decisions = {};
+        for (const [k, v] of Object.entries(got)) if (k.startsWith("triage_decisions_")) Object.assign(decisions, v);
+        shared = { tags: got.triage_tags, videoTags: got.triage_video_tags || {}, decisions };
         cache.clear();
       }
       const anchors = [...document.querySelectorAll(SEL)];

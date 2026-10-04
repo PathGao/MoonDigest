@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Bilibili Clipper</title>
+    <title>MoonDigest</title>
     <link rel="stylesheet" href="./tokens.css" />
     <link rel="stylesheet" href="./popup.css" />
   </head>
@@ -18,7 +18,7 @@
               <path d="M18.4 4.6l.72 1.92 1.92.72-1.92.72-.72 1.92-.72-1.92-1.92-.72 1.92-.72.72-1.92z"></path>
               <path d="M18.1 13.9l.52 1.38 1.38.52-1.38.52-.52 1.38-.52-1.38-1.38-.52 1.38-.52.52-1.38z"></path>
             </svg>
-            <span>AI</span>
+            <span>AI 对话</span>
           </button>
           <button id="settingsBtn" type="button" class="ghost">设置</button>
         </div>
@@ -42,17 +42,22 @@
 
       <div class="actions">
         <button id="refreshBtn" type="button">刷新</button>
-        <button id="copyBtn" type="button">复制</button>
-        <button id="downloadBtn" type="button">下载</button>
+        <button id="downloadBtn" type="button">下载字幕</button>
         <button id="readingViewBtn" type="button">阅读</button>
       </div>
       <button id="summaryBtn" type="button" class="primary">AI 总结</button>
-      <button id="sendBtn" type="button" class="secondary" hidden>保存到 Obsidian</button>
+      <div class="section-title">Markdown 笔记</div>
+      <div class="actions">
+        <button id="copyBtn" type="button">复制 Markdown</button>
+        <button id="mdBtn" type="button">下载 .md</button>
+        <button id="sendBtn" type="button" hidden>写入 Obsidian</button>
+      </div>
       <p id="message" class="message"></p>
       <button id="triageBtn" type="button" class="triage-link" hidden>打开 B 站收藏夹分拣台</button>
     </main>
 
     <script src="./sites.js"></script>
+    <script src="./download.js"></script>
     <script src="./popup.js"></script>
   </body>
 </html>

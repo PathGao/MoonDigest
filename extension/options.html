@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>MoonDigest 设置</title>
+    <title>MoonDigest · 设置</title>
     <link rel="stylesheet" href="./tokens.css" />
     <link rel="stylesheet" href="./options.css" />
   </head>
@@ -21,7 +21,7 @@
 
       <section class="field-group">
         <h2>字幕与阅读</h2>
-        <label for="downloadFormat">下载格式</label>
+        <label for="downloadFormat">字幕下载格式</label>
         <select id="downloadFormat">
           <option value="srt">SRT</option>
           <option value="txt">TXT</option>
@@ -92,7 +92,7 @@
 
       <section class="tier">
         <div class="tier-head">
-          <h2 class="tier-title">进阶 1 · 收藏夹批量阅览（仅 B 站）</h2>
+          <h2 class="tier-title">进阶 1 · 收藏夹分拣台（仅 B 站）</h2>
           <button id="openTriageBtn" class="secondary-btn" type="button">打开收藏夹分拣台</button>
         </div>
         <p class="tier-desc">把一个收藏夹里的视频批量交给 AI 粗分和细看，连起来读，判断哪些值得看。</p>
@@ -104,7 +104,7 @@
 
         <section class="field-group">
           <h2>分拣设置</h2>
-          <p class="hint">与分拣台里的“设置”是同一份，改哪边都一样。</p>
+          <p class="hint">与分拣台里的“分拣设置”是同一份，改哪边都一样。</p>
           <p class="hint">标题粗分：只看标题和简介，几十个一批，快、省钱，分成 建议删 / 建议留 / 待定。<br />字幕细看：读字幕（没有字幕时读简介和评论），一次一个视频，慢一些，给出一句话总结、3 个要点、判断和建议标签。</p>
           <label for="triageCriteria">判断标准</label>
           <textarea id="triageCriteria" class="settings-textarea" placeholder="例如：我关注 AI 工程实践与产品方法，娱乐和纯资讯类不感兴趣。"></textarea>
@@ -137,6 +137,87 @@
               </div>
             </div>
           </details>
+        </section>
+
+        <div class="action-row">
+          <button class="save-btn" type="button">保存设置</button>
+        </div>
+      </section>
+
+      <section class="tier">
+        <h2 class="tier-title">笔记格式</h2>
+        <p class="tier-desc">复制 Markdown 和下载 .md 都按这里生成笔记。<span class="obsidian-only">写入 Obsidian 也一样。</span></p>
+
+        <section class="field-group">
+          <h2>内容</h2>
+          <label for="tags">默认标签（逗号分隔）</label>
+          <input id="tags" type="text" placeholder="例如：clippings,bilibili,subtitle" />
+
+          <label class="checkbox">
+            <input id="includeDateInFilename" type="checkbox" />
+            文件名前包含导出日期
+          </label>
+
+          <label class="checkbox">
+            <input id="includeHotCommentsInNote" type="checkbox" />
+            导出前 20 条热门评论
+          </label>
+
+          <label class="checkbox">
+            <input id="includeCoverInNote" type="checkbox" />
+            在笔记开头插入封面图
+          </label>
+
+          <label class="checkbox">
+            <input id="includeAiChatInNote" type="checkbox" />
+            导出时附带 AI 问答
+          </label>
+          <p class="hint inline-hint">
+            把这个视频最近一段侧边栏对话写进笔记末尾的「AI 问答」段落。<span class="obsidian-only">笔记已存在时再次写入 Obsidian 只替换这一段，其余内容不动；你在这一段标记之间改的文字会被替换。写入过一次后，这个视频每次 AI 回答完都会自动更新这一段。</span>
+          </p>
+        </section>
+
+        <section class="field-group">
+          <h2>笔记属性（Frontmatter）</h2>
+          <p class="hint">勾选要写进笔记 frontmatter 的字段。</p>
+          <div class="field-grid">
+            <label class="mini-checkbox"><input type="checkbox" name="frontmatterField" value="title" /> title</label>
+            <label class="mini-checkbox"><input type="checkbox" name="frontmatterField" value="url" /> url</label>
+            <label class="mini-checkbox"><input type="checkbox" name="frontmatterField" value="site" /> site</label>
+            <label class="mini-checkbox"><input type="checkbox" name="frontmatterField" value="video_id" /> video_id</label>
+            <label class="mini-checkbox"><input type="checkbox" name="frontmatterField" value="cid" /> cid（仅 B 站）</label>
+            <label class="mini-checkbox"><input type="checkbox" name="frontmatterField" value="author" /> author</label>
+            <label class="mini-checkbox"><input type="checkbox" name="frontmatterField" value="author_url" /> author_url</label>
+            <label class="mini-checkbox"><input type="checkbox" name="frontmatterField" value="duration" /> duration</label>
+            <label class="mini-checkbox"><input type="checkbox" name="frontmatterField" value="cover" /> cover</label>
+            <label class="mini-checkbox"><input type="checkbox" name="frontmatterField" value="video_tags" /> video_tags</label>
+            <label class="mini-checkbox">
+              <input type="checkbox" name="frontmatterField" value="upload_date" /> upload_date
+            </label>
+            <label class="mini-checkbox">
+              <input type="checkbox" name="frontmatterField" value="subtitle_lang" /> subtitle_lang
+            </label>
+            <label class="mini-checkbox">
+              <input type="checkbox" name="frontmatterField" value="created" /> created
+            </label>
+            <label class="mini-checkbox"><input type="checkbox" name="frontmatterField" value="tags" /> tags</label>
+          </div>
+        </section>
+
+        <section class="field-group property-editor">
+          <h2>自定义属性</h2>
+          <p class="hint">支持默认属性的变量映射，比如 <code>{{upload_date}}</code> <code>{{created}}</code> <code>{{site}}</code> <code>{{video_id}}</code> <code>{{author_url}}</code> <code>{{cover}}</code> <code>{{duration}}</code></p>
+          <div id="fixedPropertiesList" class="fixed-properties-list"></div>
+          <p id="fixedPropertiesEmpty" class="fixed-properties-empty">还没有自定义属性</p>
+          <button id="addFixedPropertyBtn" class="add-property-btn" type="button">+ 添加属性</button>
+        </section>
+
+        <section class="field-group property-editor">
+          <h2>正文附加段落</h2>
+          <p class="hint">在正文插入占位段落标题。默认结构：简介-章节-字幕；具体内容可留空。</p>
+          <div id="noteSectionsList" class="note-sections-list"></div>
+          <p id="noteSectionsEmpty" class="fixed-properties-empty">还没有正文附加段落</p>
+          <button id="addNoteSectionBtn" class="add-property-btn" type="button">+ 添加段落</button>
         </section>
 
         <div class="action-row">
@@ -178,7 +259,7 @@
           </section>
 
           <section class="field-group">
-            <h2>笔记格式</h2>
+            <h2>写入位置</h2>
             <label for="noteFolder">笔记目录</label>
             <input id="noteFolder" type="text" placeholder="例如：Clippings/{{site}}" />
             <p class="hint inline-hint">支持变量：{{created}} / {{upload_date}} / {{author}} / {{site}} / {{id}} / {{bvid}}，示例：Clippings/{{site}}/{{created}}</p>
@@ -186,76 +267,7 @@
             <label for="triageExportFolder">收藏夹批量写入目录</label>
             <input id="triageExportFolder" type="text" placeholder="例如：raw/01-articles" />
             <p class="hint inline-hint">分拣台的摘录篮和整个收藏夹的笔记写到这里。</p>
-
-            <label for="tags">默认标签（逗号分隔）</label>
-            <input id="tags" type="text" placeholder="例如：clippings,bilibili,subtitle" />
-
-            <label class="checkbox">
-              <input id="includeDateInFilename" type="checkbox" />
-              文件名前包含导出日期
-            </label>
-
-            <label class="checkbox">
-              <input id="includeHotCommentsInNote" type="checkbox" />
-              导出前 20 条热门评论
-            </label>
-
-            <label class="checkbox">
-              <input id="includeCoverInNote" type="checkbox" />
-              在笔记开头插入封面图
-            </label>
-
-            <label class="checkbox">
-              <input id="includeAiChatInNote" type="checkbox" />
-              导出时附带 AI 问答
-            </label>
-            <p class="hint inline-hint">
-              把这个视频最近一段侧边栏对话写进笔记末尾的「AI 问答」段落（复制 Markdown 和下载也带）。笔记已存在时再次保存只替换这一段，其余内容不动；你在这一段标记之间改的文字会被替换。保存过一次后，这个视频每次 AI 回答完都会自动更新这一段。
-            </p>
           </section>
-
-      <section class="field-group">
-        <h2>笔记属性（Frontmatter）</h2>
-        <p class="hint">勾选需要写入到 Obsidian 属性区的字段。</p>
-        <div class="field-grid">
-          <label class="mini-checkbox"><input type="checkbox" name="frontmatterField" value="title" /> title</label>
-          <label class="mini-checkbox"><input type="checkbox" name="frontmatterField" value="url" /> url</label>
-          <label class="mini-checkbox"><input type="checkbox" name="frontmatterField" value="site" /> site</label>
-          <label class="mini-checkbox"><input type="checkbox" name="frontmatterField" value="video_id" /> video_id</label>
-          <label class="mini-checkbox"><input type="checkbox" name="frontmatterField" value="cid" /> cid（仅 B 站）</label>
-          <label class="mini-checkbox"><input type="checkbox" name="frontmatterField" value="author" /> author</label>
-          <label class="mini-checkbox"><input type="checkbox" name="frontmatterField" value="author_url" /> author_url</label>
-          <label class="mini-checkbox"><input type="checkbox" name="frontmatterField" value="duration" /> duration</label>
-          <label class="mini-checkbox"><input type="checkbox" name="frontmatterField" value="cover" /> cover</label>
-          <label class="mini-checkbox"><input type="checkbox" name="frontmatterField" value="video_tags" /> video_tags</label>
-          <label class="mini-checkbox">
-            <input type="checkbox" name="frontmatterField" value="upload_date" /> upload_date
-          </label>
-          <label class="mini-checkbox">
-            <input type="checkbox" name="frontmatterField" value="subtitle_lang" /> subtitle_lang
-          </label>
-          <label class="mini-checkbox">
-            <input type="checkbox" name="frontmatterField" value="created" /> created
-          </label>
-          <label class="mini-checkbox"><input type="checkbox" name="frontmatterField" value="tags" /> tags</label>
-        </div>
-      </section>
-
-      <section class="field-group property-editor">
-        <h2>自定义属性</h2>
-        <p class="hint">支持默认属性的变量映射，比如 <code>{{upload_date}}</code> <code>{{created}}</code> <code>{{site}}</code> <code>{{video_id}}</code> <code>{{author_url}}</code> <code>{{cover}}</code> <code>{{duration}}</code></p>
-        <div id="fixedPropertiesList" class="fixed-properties-list"></div>
-        <p id="fixedPropertiesEmpty" class="fixed-properties-empty">还没有自定义属性</p>
-        <button id="addFixedPropertyBtn" class="add-property-btn" type="button">+ 添加属性</button>
-      </section>
-
-      <section class="field-group property-editor">
-        <h2>正文附加段落</h2>
-        <p class="hint">在正文插入占位段落标题。默认结构：简介-章节-字幕；具体内容可留空。</p>
-        <div id="noteSectionsList" class="note-sections-list"></div>
-        <p id="noteSectionsEmpty" class="fixed-properties-empty">还没有正文附加段落</p>
-        <button id="addNoteSectionBtn" class="add-property-btn" type="button">+ 添加段落</button>
-      </section>
 
         </div>
 
@@ -268,7 +280,7 @@
 
       <section class="about">
         <h2>数据与存储</h2>
-        <p class="hint">都存在浏览器本地，不上传。到了上限怎么处理，写在每一行里。</p>
+        <p class="hint">都存在浏览器本地，不上传。到了上限怎么处理，写在每一行里。<a href="./history/history.html" target="_blank">管理 AI 对话历史</a></p>
         <div id="storageLimits" class="about-card"></div>
       </section>
 

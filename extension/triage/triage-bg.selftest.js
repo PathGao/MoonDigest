@@ -2,37 +2,12 @@
 const fs = require("fs");
 const path = require("path");
 const vm = require("vm");
-const crypto = require("crypto");
 const assert = require("assert");
 
-const ctx = vm.createContext({ TextEncoder, URLSearchParams, console, setTimeout, clearTimeout, AbortController });
-vm.runInContext(fs.readFileSync(path.join(__dirname, "triage-bg.js"), "utf8"), ctx);
+const ctx = vm.createContext({ TextEncoder, URL, URLSearchParams, console, setTimeout, clearTimeout, AbortController });
+// Browser order: background.js imports limits.js and sites.js before triage-bg.js.
+for (const file of ["../limits.js", "../sites.js", "triage-bg.js"]) vm.runInContext(fs.readFileSync(path.join(__dirname, file), "utf8"), ctx);
 const t = ctx;
-const md5 = (s) => crypto.createHash("md5").update(s).digest("hex");
-
-// MD5
-assert.strictEqual(t.triageMd5(""), "d41d8cd98f00b204e9800998ecf8427e");
-assert.strictEqual(t.triageMd5("abc"), "900150983cd24fb0d6963f7d28e17f72");
-for (const s of ["a".repeat(55), "a".repeat(56), "a".repeat(64), "中文字幕 w_rid", "x".repeat(1000)]) {
-  assert.strictEqual(t.triageMd5(s), md5(s), `md5 len ${s.length}`);
-}
-
-// WBI
-const mixinKey = t.triageMixinKey(
-  "https://i0.hdslb.com/bfs/wbi/7cd084941338484aae1ad9425b84077c.png",
-  "https://i0.hdslb.com/bfs/wbi/4932caff0ff746eab6f01bf08b70ac45.png"
-);
-assert.strictEqual(mixinKey.length, 32);
-const params = { bvid: "BV1g1dLBPEHV", cid: 37589944385, aid: 116420927166252, foo: "a!b'(c)*d 中" };
-const wts = 1700000000;
-const expectedQuery = "aid=116420927166252&bvid=BV1g1dLBPEHV&cid=37589944385&foo=abcd%20%E4%B8%AD&wts=1700000000";
-assert.strictEqual(t.triageWbiSign(params, mixinKey, wts), `${expectedQuery}&w_rid=${md5(expectedQuery + mixinKey)}`);
-
-// track pick
-assert.strictEqual(t.triagePickTrack([{ lan: "ai-zh", subtitle_url: "a" }, { lan: "zh-CN", subtitle_url: "b" }]).subtitle_url, "b");
-assert.strictEqual(t.triagePickTrack([{ lan: "ai-en", subtitle_url: "a" }, { lan: "ai-zh", subtitle_url: "b" }]).subtitle_url, "b");
-assert.strictEqual(t.triagePickTrack([{ lan: "ai-en", subtitle_url: "a" }]), null);
-assert.strictEqual(t.triagePickTrack(undefined), null);
 
 // subtitle validation
 const body = (to) => [{ from: 0, to: 1 }, { from: 1, to }];
@@ -244,16 +219,73 @@ assert.throws(() => t.triageParseCommand('{"new_tags":[', cmdItems, cmdTags, {})
   t.fetch = jsonRes({ code: 0, data: { medias: [media(3)], has_more: false } });
   assert.strictEqual((await folderItems({ mediaId: 1 })).partial, undefined);
 
-  // AI summary placement
-const front = "---\ntitle: \"x\"\n---\n\n![cover](u)\n\n## 简介\n\nhi";
-const done = { status: "done", oneLiner: "一句话", points: ["a", "b"], verdict: "keep", reason: "有用" };
-assert.strictEqual(
-  t.triageWithSummary(front, done),
-  "---\ntitle: \"x\"\n---\n\n## AI 总结\n\n> 一句话\n\n- a\n- b\n\n判断：建议留，有用\n\n![cover](u)\n\n## 简介\n\nhi"
-);
-assert.strictEqual(t.triageWithSummary("## 简介\n\nhi", { status: "done", verdict: "drop" }), "## AI 总结\n\n判断：建议删\n\n## 简介\n\nhi");
-assert.strictEqual(t.triageWithSummary(front, { status: "error" }), front);
-assert.strictEqual(t.triageWithSummary(front, undefined), front);
+  // Analysis reads B站 through sites.js and shares the video page's subtitle cache.
+  const store = {};
+  t.chrome = {
+    storage: {
+      sync: { get: async (d) => d },
+      local: {
+        get: async (key) => (key === null ? { ...store } : Object.fromEntries([].concat(key).filter((k) => k in store).map((k) => [k, store[k]]))),
+        set: async (items) => Object.assign(store, items),
+        remove: async (keys) => [].concat(keys).forEach((k) => delete store[k])
+      }
+    }
+  };
+  let prompt = "";
+  t.fetch = async (url, { body }) => {
+    prompt = JSON.parse(body).messages[1].content;
+    return { ok: true, json: async () => ({ choices: [{ message: { content: '{"one_liner":"x","points":["a"],"verdict":"keep","reason":"r"}' } }] }) };
+  };
+  const subUrl = "https://aisubtitle.hdslb.com/bfs/ai_subtitle/BVa.json";
+  const subtitleKey = "boc_subtitle_cache_BVa_11_id_5";
+  const subtitleRaw = (to) => ({ body: [{ from: 0, to: 1, content: "第一句" }, { from: 1, to, content: "最后一句" }] });
+  let routes;
+  const calls = [];
+  t.fetchJsonForAi = async (url) => {
+    calls.push(url);
+    const hit = Object.keys(routes).find((part) => url.includes(part));
+    const answer = routes[hit];
+    if (answer instanceof Error) throw answer;
+    return answer;
+  };
+  const withTracks = { code: 0, data: { subtitle: { subtitles: [{ id: 5, lan: "ai-zh", lan_doc: "中文", subtitle_url: subUrl }] } } };
+  const baseRoutes = () => ({
+    "/view/detail": { code: 0, data: { View: { title: "标题", desc: "简介", tname: "知识", aid: 22, cid: 11, duration: 273, owner: { name: "UP" }, pages: [{ cid: 11, page: 1, duration: 273 }] }, Tags: [{ tag_name: "标签" }] } },
+    "/nav": { code: -101, data: { wbi_img: { img_url: "https://i0.hdslb.com/bfs/wbi/7cd084941338484aae1ad9425b84077c.png", sub_url: "https://i0.hdslb.com/bfs/wbi/4932caff0ff746eab6f01bf08b70ac45.png" } } },
+    "/x/player/wbi/v2": withTracks,
+    [subUrl]: subtitleRaw(272),
+    "/reply/main": { code: 0, data: { replies: [{ content: { message: "评论一" } }] } }
+  });
+  const analyze = () => t.triageAnalyze({ bvid: "BVa", force: true, tags: [] });
+
+  // A subtitle the video page cached is used without fetching it again.
+  routes = baseRoutes();
+  store[subtitleKey] = { raw: subtitleRaw(270), timestamp: Date.now() };
+  assert.strictEqual((await analyze()).source, "subtitle");
+  assert.ok(!calls.includes(subUrl), "cached subtitle is not refetched");
+  assert.ok(prompt.includes("分区：知识") && prompt.includes("标签：标签") && prompt.includes("最后一句"));
+
+  // A fetched subtitle that passes the duration guard is cached for the video page.
+  delete store[subtitleKey];
+  assert.strictEqual((await analyze()).source, "subtitle");
+  assert.deepStrictEqual(store[subtitleKey].raw, subtitleRaw(272));
+
+  // Another video's subtitle (ends far too early) falls back to comments and is not cached.
+  delete store[subtitleKey];
+  routes = { ...baseRoutes(), [subUrl]: subtitleRaw(100) };
+  assert.strictEqual((await analyze()).source, "meta");
+  assert.strictEqual(subtitleKey in store, false);
+  assert.ok(prompt.includes("1. 评论一"));
+
+  // Risk control still reaches the page as THROTTLED: player answers without subtitles, HTTP 412, -352.
+  routes = { ...baseRoutes(), "/x/player/wbi/v2": { code: 0, data: {} }, "/x/player/v2": { code: 0, data: {} } };
+  await assert.rejects(analyze(), (e) => e.code === "THROTTLED");
+  const http412 = Object.assign(new Error("HTTP 412"), { status: 412 });
+  routes = { ...baseRoutes(), "/view/detail": http412, "/view": http412 };
+  await assert.rejects(analyze(), (e) => e.code === "THROTTLED");
+  routes = { ...baseRoutes(), "/x/player/wbi/v2": { code: -352, message: "风控" }, "/x/player/v2": { code: -352, message: "风控" } };
+  await assert.rejects(analyze(), (e) => e.code === "THROTTLED");
+
 
 console.log("triage-bg selftest: all passed");
 })();

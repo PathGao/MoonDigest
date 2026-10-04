@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>AI 助手</title>
+    <title>MoonDigest · AI 侧边栏</title>
     <link rel="stylesheet" href="./tokens.css" />
     <link rel="stylesheet" href="./sidepanel.css" />
   </head>
@@ -48,35 +48,52 @@
           </svg>
           <span>开启新对话</span>
         </button>
-        <button id="spPresetBtn" type="button" class="sp-toolbar-btn" title="快捷追问">
-          <span>快捷追问</span>
+        <button id="spPresetBtn" type="button" class="sp-toolbar-btn" title="管理输入框上方的快捷追问">
+          <span>管理追问</span>
         </button>
         <button id="spHistoryBtn" type="button" class="sp-toolbar-btn" title="历史对话">
           <span>历史对话</span>
         </button>
-        <button id="spSaveConversationBtn" type="button" class="sp-toolbar-btn" title="保存当前对话到 Obsidian">
-          <span>保存对话</span>
+        <button id="spExportBtn" type="button" class="sp-toolbar-btn" title="导出整段对话" aria-haspopup="menu">
+          <span>导出对话</span>
         </button>
-        <button id="spCopyConversationBtn" type="button" class="sp-toolbar-btn" title="复制对话为 Markdown" aria-label="复制对话为 Markdown">
-          <svg viewBox="0 0 24 24" focusable="false" aria-hidden="true">
-            <rect x="9" y="9" width="10" height="10" rx="2"></rect>
-            <path d="M7 15H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h7a2 2 0 0 1 2 2v1"></path>
-          </svg>
-        </button>
-      </div>
-      <div id="spPresetPopover" class="sp-preset-popover" hidden>
-        <div id="spPresetList" class="sp-preset-list"></div>
-        <div class="sp-preset-editor">
-          <input id="spPresetInput" class="sp-preset-input" type="text" placeholder="添加快捷追问" />
-          <button id="spPresetAddBtn" type="button" class="sp-preset-add-btn">添加</button>
+        <div id="spPresetPopover" class="sp-preset-popover" hidden>
+          <div id="spPresetList" class="sp-preset-list"></div>
+          <div class="sp-preset-editor">
+            <input id="spPresetInput" class="sp-preset-input" type="text" placeholder="添加快捷追问" />
+            <button id="spPresetAddBtn" type="button" class="sp-preset-add-btn">添加</button>
+          </div>
         </div>
-      </div>
-      <div id="spHistoryPopover" class="sp-history-popover" hidden>
-        <div class="sp-history-popover-head">
-          <span class="sp-history-popover-title">历史对话</span>
-          <button id="spHistoryClearBtn" type="button" class="sp-history-clear-btn">清空全部</button>
+        <div id="spExportPopover" class="sp-history-popover sp-export-popover" role="menu" hidden>
+          <span class="sp-history-popover-title">整段对话</span>
+          <button id="spCopyConversationBtn" type="button" class="sp-export-item" role="menuitem">
+            <svg viewBox="0 0 24 24" focusable="false" aria-hidden="true">
+              <rect x="9" y="9" width="10" height="10" rx="2"></rect>
+              <path d="M7 15H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h7a2 2 0 0 1 2 2v1"></path>
+            </svg>
+            <span>复制全部对话 md</span>
+          </button>
+          <button id="spDownloadConversationBtn" type="button" class="sp-export-item" role="menuitem">
+            <svg viewBox="0 0 24 24" focusable="false" aria-hidden="true">
+              <path d="M12 4v11"></path>
+              <path d="m7 10 5 5 5-5"></path>
+              <path d="M5 20h14"></path>
+            </svg>
+            <span>下载 .md</span>
+          </button>
+          <button id="spSaveConversationBtn" type="button" class="sp-export-item" role="menuitem">
+            <img class="obsidian-mark" src="/icons/obsidian.svg" alt="">
+            <span>写入 Obsidian</span>
+          </button>
         </div>
-        <div id="spHistoryList" class="sp-history-list"></div>
+        <div id="spHistoryPopover" class="sp-history-popover" hidden>
+          <div class="sp-history-popover-head">
+            <span class="sp-history-popover-title">历史对话</span>
+            <a class="sp-history-manage" href="./history/history.html" target="_blank">管理全部</a>
+            <button id="spHistoryClearBtn" type="button" class="sp-history-clear-btn">清空全部</button>
+          </div>
+          <div id="spHistoryList" class="sp-history-list"></div>
+        </div>
       </div>
       <div id="spFollowups" class="sp-followups" hidden></div>
       <div class="sp-input-row">
@@ -92,6 +109,7 @@
     <script src="./limits.js"></script>
     <script src="./sites.js"></script>
     <script src="./note.js"></script>
+    <script src="./download.js"></script>
     <script type="module" src="./sidepanel.js"></script>
   </body>
 </html>

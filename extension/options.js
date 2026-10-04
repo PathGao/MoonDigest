@@ -395,14 +395,14 @@ function validateSettings(payload, { requireApiKey }) {
     return { ok: false, field: elements.obsidianApiKey, message: "测试连接前请填写 Local REST API Key" };
   }
 
-  if (/[\r\n]/.test(payload.tags)) {
-    return { ok: false, field: elements.tags, message: "默认标签请使用逗号分隔，不要换行" };
-  }
-
   return validateNoteExtras();
 }
 
 function validateNoteExtras() {
+  if (/[\r\n]/.test(elements.tags.value)) {
+    return { ok: false, field: elements.tags, message: "默认标签请使用逗号分隔，不要换行" };
+  }
+
   const fixedPropertyValidation = validateFixedFrontmatterProperties(collectFixedPropertyRows({ includeRow: true }));
   if (!fixedPropertyValidation.ok) {
     return fixedPropertyValidation;
@@ -416,8 +416,9 @@ function validateNoteExtras() {
   return { ok: true };
 }
 
+// Note-format settings stay visible (copy and download use them); only Obsidian-specific text hides.
 function syncObsidianBody() {
-  elements.obsidianBody.hidden = !elements.obsidianEnabled.checked;
+  document.querySelectorAll("#obsidianBody, .obsidian-only").forEach((el) => (el.hidden = !elements.obsidianEnabled.checked));
 }
 
 async function loadTriageSettings() {
@@ -1141,7 +1142,7 @@ function addAiProviderRow(item = {}) {
   });
 
   row.querySelector(".ai-provider-remove")?.addEventListener("click", async () => {
-    if (!confirm("确定要删除这个平台吗？")) return;
+    if (!confirm("删除这个平台？它保存的 API Key 也会一起删除。")) return;
     if (row.dataset.providerId) {
       try {
         await sendRuntimeMessage({ type: "ai-providers-delete", providerId: row.dataset.providerId });
@@ -1153,7 +1154,7 @@ function addAiProviderRow(item = {}) {
 
   const clearKeyBtn = row.querySelector(".ai-provider-clear-key");
   clearKeyBtn.addEventListener("click", async () => {
-    if (!confirm("确定要清除这个平台已保存的 API Key 吗？")) return;
+    if (!confirm("清除这个平台的 API Key？清除后要重新填写才能使用。")) return;
     const resp = await sendRuntimeMessage({ type: "ai-provider-set-key", providerId: row.dataset.providerId, apiKey: "" }).catch(() => null);
     if (!resp?.ok) {
       showAiProviderStatus(row.querySelector(".ai-provider-status"), `清除失败：${resp?.error || "未知错误"}`, true);
@@ -1274,7 +1275,7 @@ async function renderHostPermissionBanner(urls) {
   if (!missing.length) {
     return;
   }
-  elements.hostPermissionText.textContent = `未授权访问 ${missing.map((pattern) => pattern.replace(/\/\*$/, "")).join("、")}，AI 与 Obsidian 请求会失败。`;
+  elements.hostPermissionText.textContent = `未授权访问 ${missing.map((pattern) => pattern.replace(/\/\*$/, "")).join("、")}，AI 请求会失败。`;
   elements.hostPermissionBtn.onclick = async () => {
     await chrome.permissions.request({ origins: missing }).catch(() => false);
     renderHostPermissionBanner(urls);

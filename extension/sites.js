@@ -228,6 +228,74 @@
     return list[index - 1]?.cid ? list[index - 1] : list.find((item) => Number(item.page) === index) || null;
   }
 
+  function biliMd5(str) {
+    const bytes = new TextEncoder().encode(String(str));
+    const len = bytes.length;
+    const blocks = ((len + 8) >> 6) + 1;
+    const m = new Uint32Array(blocks * 16);
+    for (let i = 0; i < len; i++) m[i >> 2] |= bytes[i] << ((i % 4) * 8);
+    m[len >> 2] |= 0x80 << ((len % 4) * 8);
+    m[blocks * 16 - 2] = (len * 8) >>> 0;
+    m[blocks * 16 - 1] = Math.floor((len * 8) / 4294967296);
+    const S = [7, 12, 17, 22, 5, 9, 14, 20, 4, 11, 16, 23, 6, 10, 15, 21];
+    const K = [];
+    for (let i = 0; i < 64; i++) K[i] = Math.floor(Math.abs(Math.sin(i + 1)) * 4294967296) >>> 0;
+    let a0 = 0x67452301, b0 = 0xefcdab89, c0 = 0x98badcfe, d0 = 0x10325476;
+    for (let off = 0; off < m.length; off += 16) {
+      let A = a0, B = b0, C = c0, D = d0;
+      for (let i = 0; i < 64; i++) {
+        let F, g;
+        if (i < 16) { F = (B & C) | (~B & D); g = i; }
+        else if (i < 32) { F = (D & B) | (~D & C); g = (5 * i + 1) % 16; }
+        else if (i < 48) { F = B ^ C ^ D; g = (3 * i + 5) % 16; }
+        else { F = C ^ (B | ~D); g = (7 * i) % 16; }
+        const s = S[(i >> 4) * 4 + (i % 4)];
+        F = (F + A + K[i] + m[off + g]) >>> 0;
+        A = D; D = C; C = B;
+        B = (B + ((F << s) | (F >>> (32 - s)))) >>> 0;
+      }
+      a0 = (a0 + A) >>> 0; b0 = (b0 + B) >>> 0; c0 = (c0 + C) >>> 0; d0 = (d0 + D) >>> 0;
+    }
+    let hex = "";
+    for (const w of [a0, b0, c0, d0]) {
+      for (let i = 0; i < 4; i++) hex += ((w >>> (i * 8)) & 0xff).toString(16).padStart(2, "0");
+    }
+    return hex;
+  }
+
+  const BILI_MIXIN_TAB = [46, 47, 18, 2, 53, 8, 23, 32, 15, 50, 10, 31, 58, 3, 45, 35, 27, 43, 5, 49, 33, 9, 42, 19, 29, 28, 14, 39, 12, 38, 41, 13, 37, 48, 7, 16, 24, 55, 40, 61, 26, 17, 0, 1, 60, 51, 30, 4, 22, 25, 54, 21, 56, 59, 6, 63, 57, 62, 11, 36, 20, 34, 44, 52];
+
+  function biliMixinKey(imgUrl, subUrl) {
+    const key = (u) => String(u).split("/").pop().split(".")[0];
+    const raw = key(imgUrl) + key(subUrl);
+    return BILI_MIXIN_TAB.map((i) => raw[i]).join("").slice(0, 32);
+  }
+
+  function biliWbiSign(params, mixinKey, wts) {
+    const all = { ...params, wts };
+    const query = Object.keys(all)
+      .sort()
+      .map((k) => `${encodeURIComponent(k)}=${encodeURIComponent(String(all[k]).replace(/[!'()*]/g, ""))}`)
+      .join("&");
+    return `${query}&w_rid=${biliMd5(query + mixinKey)}`;
+  }
+
+  // The wbi endpoints want a w_rid signature keyed by nav's wbi_img (present even when logged out,
+  // code -101). Without a key the request goes unsigned.
+  let biliWbiKey = { key: "", at: 0 };
+  async function biliWbiQuery(params, io) {
+    try {
+      if (!biliWbiKey.key || Date.now() - biliWbiKey.at > 10 * 60 * 1000) {
+        const img = (await io.fetchJson(`${BILI_API}/x/web-interface/nav`))?.data?.wbi_img;
+        if (!img?.img_url || !img?.sub_url) throw new Error("no wbi_img");
+        biliWbiKey = { key: biliMixinKey(img.img_url, img.sub_url), at: Date.now() };
+      }
+      return biliWbiSign(params, biliWbiKey.key, Math.floor(Date.now() / 1000));
+    } catch {
+      return Object.entries(params).map(([k, v]) => `${k}=${encodeURIComponent(String(v))}`).join("&");
+    }
+  }
+
   const bilibili = {
     id: "bilibili",
     label: "B 站",
@@ -298,6 +366,7 @@
         authorUrl: view.owner?.mid ? `https://space.bilibili.com/${view.owner.mid}` : "",
         uploadDate: pubdate > 0 ? formatLocalDate(pubdate * 1000) : "",
         description: String(view.desc || ""),
+        tname: String(view.tname || ""),
         duration: Number(page?.duration || view.duration || 0) || 0,
         cover: httpsUrl(view.pic),
         tags: (Array.isArray(tags) ? tags : []).map((item) => String(item?.tag_name || "").trim()).filter(Boolean),
@@ -318,7 +387,11 @@
       const bvid = encodeURIComponent(ref.id);
       const requests = [];
       if (meta?.aid) {
-        requests.push(`${BILI_API}/x/player/wbi/v2?aid=${aid}&cid=${cid}&bvid=${bvid}`);
+        // Only callers that opt in sign (triage); the video page keeps its unsigned request and skips nav.
+        const query = io.signWbi
+          ? await biliWbiQuery({ aid: String(meta.aid), cid: String(meta?.cid || ref.part?.cid || ""), bvid: ref.id }, io)
+          : `aid=${aid}&cid=${cid}&bvid=${bvid}`;
+        requests.push(`${BILI_API}/x/player/wbi/v2?${query}`);
       }
       requests.push(`${BILI_API}/x/player/v2?bvid=${bvid}&cid=${cid}${meta?.aid ? `&aid=${aid}` : ""}`);
 
@@ -1073,6 +1146,65 @@
     }
   };
 
+  // ----------------------------------------------------------- subtitle cache
+
+  // chrome.storage.local entries { raw, timestamp } shared by the video page, side panel and triage.
+  // They hold the raw response and are parsed on read, so a parser fix applies to them; entries
+  // written before that (parsed body, no raw) miss.
+  function subtitleCacheKey({ videoId, cid, subtitleId = "", subtitleUrl = "", lang = "" }) {
+    const id = String(subtitleId || "").trim();
+    const urlKey = trackUrlKey(subtitleUrl);
+    const source = id ? `id_${id}` : urlKey ? `url_${urlKey}` : `lang_${String(lang || "").trim().toLowerCase() || "unknown"}`;
+    return `${BocLimits.KEYS.subtitleCachePrefix}${videoId}_${cid}_${source}`;
+  }
+
+  async function loadSubtitleCache(key) {
+    try {
+      return (await chrome.storage.local.get(key))[key]?.raw ?? null;
+    } catch {
+      return null;
+    }
+  }
+
+  // Keeps only recent entries; the caps live in limits.js.
+  async function saveSubtitleCache(key, raw) {
+    try {
+      const now = Date.now();
+      await chrome.storage.local.set({ [key]: { raw, timestamp: now } });
+      const all = await chrome.storage.local.get(null);
+      const stale = Object.entries(all)
+        .filter(([k]) => k.startsWith(BocLimits.KEYS.subtitleCachePrefix))
+        .sort(([, a], [, b]) => (Number(b?.timestamp) || 0) - (Number(a?.timestamp) || 0))
+        .filter(([, value], index) => index >= BocLimits.SUBTITLE_CACHE_ENTRIES || now - (Number(value?.timestamp) || 0) > BocLimits.SUBTITLE_CACHE_DAYS * 86400000)
+        .map(([k]) => k);
+      if (stale.length) {
+        await chrome.storage.local.remove(stale);
+      }
+    } catch (error) {
+      console.warn("[BOC] failed to save subtitle cache", error);
+    }
+  }
+
+  async function removeSubtitleCache(key) {
+    try {
+      await chrome.storage.local.remove(key);
+    } catch {}
+  }
+
+  // A cached body that accept() rejects is fetched again; only an accepted body is cached.
+  async function fetchRawCached(site, track, { videoId, cid }, io, accept = (body) => body.length > 0) {
+    const key = subtitleCacheKey({ videoId, cid, subtitleId: track.id, subtitleUrl: track.url, lang: track.lang });
+    const cached = await loadSubtitleCache(key);
+    if (cached !== null && accept(site.parseSegments(cached))) {
+      return cached;
+    }
+    const raw = await site.fetchRaw(track, io);
+    if (accept(site.parseSegments(raw))) {
+      await saveSubtitleCache(key, raw);
+    }
+    return raw;
+  }
+
   // ----------------------------------------------------------------- registry
 
   const SITES = { bilibili, youtube };
@@ -1114,6 +1246,10 @@
     normalizeSubtitleLang,
     pickPreferredTrack,
     trackUrlKey,
+    subtitleCache: { key: subtitleCacheKey, load: loadSubtitleCache, save: saveSubtitleCache, remove: removeSubtitleCache },
+    fetchRawCached,
+    biliMixinKey,
+    biliWbiSign,
     normalizeChapters,
     parseChaptersFromDescription,
     normalizeSegments,

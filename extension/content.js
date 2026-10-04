@@ -30,9 +30,9 @@ const DEFAULT_SETTINGS = {
   notePlaceholderSections: []
 };
 const { formatCompactTimestamp, buildSubtitlePreview, buildSrt, buildTxt, shouldShowHoursInNote } = BocNote;
+const subtitleCache = BocSites.subtitleCache;
 
 const BOC_VERSION = chrome.runtime.getManifest().version;
-const CACHE_KEY_PREFIX = BocLimits.KEYS.subtitleCachePrefix;
 globalThis.__BOC_CONTENT_SCRIPT_LOADED__ = BOC_VERSION;
 const state = {
   fetchRunId: 0,
@@ -1138,7 +1138,7 @@ async function runRefreshClip() {
       startReaderPlayerObserver();
       syncReadingViewPlayback(true);
     }
-    setStatus("抓取完成，可以复制、下载或发送到 Obsidian。");
+    setStatus(state.settings.obsidianEnabled ? "抓取完成，可以复制、下载或写入 Obsidian。" : "抓取完成，可以复制或下载。");
   } catch (error) {
     if (isStaleRunError(error)) {
       return;
@@ -1216,7 +1216,7 @@ async function loadSubtitle(url, lang, runId = state.fetchRunId, subtitleId = ""
     throw new Error("字幕 URL 为空。");
   }
 
-  const cacheKey = getSubtitleCacheKey({
+  const cacheKey = subtitleCache.key({
     videoId: state.videoId,
     cid: state.cid,
     subtitleId,
@@ -1226,7 +1226,7 @@ async function loadSubtitle(url, lang, runId = state.fetchRunId, subtitleId = ""
 
   // 尝试从缓存读取
   if (!forceRefresh) {
-    const cachedRaw = await loadSubtitleFromCache(cacheKey);
+    const cachedRaw = await subtitleCache.load(cacheKey);
     const cachedBody = cachedRaw === null ? [] : currentSite().parseSegments(cachedRaw);
     if (cachedBody.length > 0) {
       const cachedCheck = validateSubtitleByDuration(cachedBody, state.videoDuration);
@@ -1235,7 +1235,7 @@ async function loadSubtitle(url, lang, runId = state.fetchRunId, subtitleId = ""
           cacheKey,
           reason: cachedCheck.reason
         });
-        await clearSubtitleCacheByKey(cacheKey);
+        await subtitleCache.remove(cacheKey);
       } else {
         logInfo("[BOC] using cached subtitle", { cacheKey, itemCount: cachedBody.length });
         ensureRunActive(runId);
@@ -1262,7 +1262,7 @@ async function loadSubtitle(url, lang, runId = state.fetchRunId, subtitleId = ""
 
 // Validates, caches and installs a freshly fetched raw body as the selected track.
 async function commitSubtitleBody(raw, { url, lang, subtitleId }, runId) {
-  const cacheKey = getSubtitleCacheKey({ videoId: state.videoId, cid: state.cid, subtitleId, subtitleUrl: url, lang });
+  const cacheKey = subtitleCache.key({ videoId: state.videoId, cid: state.cid, subtitleId, subtitleUrl: url, lang });
   ensureRunActive(runId);
   const body = currentSite().parseSegments(raw);
   if (body.length === 0) {
@@ -1277,7 +1277,7 @@ async function commitSubtitleBody(raw, { url, lang, subtitleId }, runId) {
   }
 
   // 存入缓存
-  await saveSubtitleToCache(cacheKey, raw);
+  await subtitleCache.save(cacheKey, raw);
 
   state.selectedSubtitleId = subtitleId ? String(subtitleId) : state.selectedSubtitleId;
   state.selectedSubtitleUrl = url;
@@ -1288,63 +1288,6 @@ async function commitSubtitleBody(raw, { url, lang, subtitleId }, runId) {
   if (state.readingViewOpen) {
     renderReadingView();
     syncReadingViewPlayback(true);
-  }
-}
-
-function getSubtitleCacheKey({ videoId, cid, subtitleId = "", subtitleUrl = "", lang = "" }) {
-  const sourceKey = buildSubtitleSourceKey(subtitleId, subtitleUrl, lang);
-  return `${CACHE_KEY_PREFIX}${videoId}_${cid}_${sourceKey}`;
-}
-
-function buildSubtitleSourceKey(subtitleId, subtitleUrl, lang) {
-  const id = String(subtitleId || "").trim();
-  if (id) {
-    return `id_${id}`;
-  }
-
-  const normalizedUrl = BocSites.trackUrlKey(subtitleUrl);
-  if (normalizedUrl) {
-    return `url_${normalizedUrl}`;
-  }
-
-  return `lang_${String(lang || "").trim().toLowerCase() || "unknown"}`;
-}
-
-// Entries hold the raw response and are parsed on read, so a parser fix
-// applies to them; entries written before that (parsed body, no raw) miss.
-async function loadSubtitleFromCache(cacheKey) {
-  try {
-    const result = await chrome.storage.local.get(cacheKey);
-    return result[cacheKey]?.raw ?? null;
-  } catch {
-    return null;
-  }
-}
-
-// The cache only serves track switches on recent videos, so it keeps only recent entries.
-async function saveSubtitleToCache(cacheKey, raw) {
-  try {
-    const now = Date.now();
-    await chrome.storage.local.set({ [cacheKey]: { raw, timestamp: now } });
-    const all = await chrome.storage.local.get(null);
-    const stale = Object.entries(all)
-      .filter(([key]) => key.startsWith(CACHE_KEY_PREFIX))
-      .sort(([, a], [, b]) => (Number(b?.timestamp) || 0) - (Number(a?.timestamp) || 0))
-      .filter(([, value], index) => index >= BocLimits.SUBTITLE_CACHE_ENTRIES || now - (Number(value?.timestamp) || 0) > BocLimits.SUBTITLE_CACHE_DAYS * 86400000)
-      .map(([key]) => key);
-    if (stale.length) {
-      await chrome.storage.local.remove(stale);
-    }
-  } catch (error) {
-    logWarn("[BOC] failed to save subtitle cache", error);
-  }
-}
-
-async function clearSubtitleCacheByKey(cacheKey) {
-  try {
-    await chrome.storage.local.remove(cacheKey);
-  } catch (error) {
-    logWarn("[BOC] failed to clear subtitle cache by key", { cacheKey, error });
   }
 }
 
@@ -1420,12 +1363,11 @@ function getPopupPayload() {
 async function sendToObsidian() {
   state.settings = await getSettings();
   if (!state.settings.obsidianEnabled) {
-    setMessage("Obsidian 写入未启用，请在设置的「进阶 2」中开启。");
     return;
   }
   await refreshDerivedContent();
   if (!state.markdown) {
-    setMessage("没有可发送内容，请先刷新抓取。");
+    setMessage("没有可写入的内容，请先刷新抓取。");
     return;
   }
 
@@ -1435,7 +1377,7 @@ async function sendToObsidian() {
   const baseUrl = String(state.settings.obsidianApiBaseUrl || "").trim();
   const apiKey = String(state.settings.obsidianApiKey || "").trim();
   if (!baseUrl || !apiKey) {
-    setMessage("请先在设置中填写 Obsidian Local REST API 地址和 API Key。");
+    setMessage("请先在设置页填写 Obsidian Local REST API 地址和 API Key。");
     requestOpenOptions();
     return;
   }
@@ -1447,7 +1389,7 @@ async function sendToObsidian() {
       const aiSection = state.settings.includeAiChatInNote === false ? "" : BocNote.buildAiSection(state.aiTurns);
       const choice = await confirmOverwriteNote(filepath, { hasAiSection: Boolean(aiSection) });
       if (!choice) {
-        setMessage(aiSection ? "已取消保存，原笔记未被覆盖。" : "笔记已存在，无新的 AI 问答，未改动。");
+        setMessage(aiSection ? "已取消写入 Obsidian，原笔记未被覆盖。" : "笔记已存在，无新的 AI 问答，未改动。");
         return;
       }
       if (choice === "ai") {
@@ -1466,7 +1408,7 @@ async function sendToObsidian() {
       setMessage("扩展刚刚更新，请刷新当前页面后重试。");
       return;
     }
-    setMessage(`写入失败：${getErrorMessage(error)}`);
+    setMessage(`写入 Obsidian 失败：${getErrorMessage(error)}`);
   }
 }
 
@@ -1516,7 +1458,7 @@ function confirmOverwriteNote(filepath, { hasAiSection = false } = {}) {
         <div class="boc-confirm-body">只更新 AI 问答：保留原笔记，只替换标记之间的「AI 问答」段落。整篇覆盖：替换全部内容。</div>
         <div class="boc-confirm-path"></div>
         <div class="boc-confirm-actions">
-          <button type="button" class="boc-confirm-cancel" data-choice="full">整篇覆盖</button>
+          <button type="button" class="boc-confirm-danger" data-choice="full">整篇覆盖</button>
           <button type="button" class="boc-confirm-cancel" data-choice="">取消</button>
           <button type="button" class="boc-confirm-primary" data-choice="ai">只更新 AI 问答</button>
         </div>
@@ -1528,7 +1470,7 @@ function confirmOverwriteNote(filepath, { hasAiSection = false } = {}) {
         <div class="boc-confirm-body">没有新的 AI 问答可更新。整篇覆盖会替换全部内容：</div>
         <div class="boc-confirm-path"></div>
         <div class="boc-confirm-actions">
-          <button type="button" class="boc-confirm-cancel" data-choice="full">整篇覆盖</button>
+          <button type="button" class="boc-confirm-danger" data-choice="full">整篇覆盖</button>
           <button type="button" class="boc-confirm-primary" data-choice="">取消</button>
         </div>
       </div>
@@ -2241,7 +2183,7 @@ function renderReadingInfoPanel() {
       return;
     }
     descriptionBtn.hidden = false;
-    descriptionBtn.textContent = state.readingDescriptionExpanded ? "收起简介" : "查看更多";
+    descriptionBtn.textContent = state.readingDescriptionExpanded ? "收起简介" : "展开简介";
   }
 }
 

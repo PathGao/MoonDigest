@@ -128,7 +128,7 @@
           : { ok: true, payload: { title: tab.title || "", url: tab.url || "", subtitleMarkdown: "", hotComments: [], isVideoContext: false } };
       }
       case "ai-sidepanel-resolve-context": {
-        const video = videos.find((v) => v.bvid === msg.contextRef?.bvid);
+        const video = videos.find((v) => v.bvid === (msg.contextRef?.videoId || msg.contextRef?.bvid));
         return video ? { ok: true, payload: payloadFor(video) } : { ok: false, error: "not found" };
       }
       case "ai-sidepanel-resolve-page-ref":

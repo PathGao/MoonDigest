@@ -7,12 +7,11 @@ const {
   isTimestampOnlyInlineCode,
   TIMESTAMP_PATTERN,
   buildConversationTurns,
-  sanitizeMarkdownHeadingText,
+  buildAiConversationFilename,
+  buildAiConversationMarkdown,
   resolveFolderTemplate,
   buildNoteFilename,
-  sanitizeFileName,
-  escapeYaml,
-  formatLocalDate
+  sanitizeFileName
 } = BocNote;
 const PLAYER_AI_QUICK_ACTION_STORAGE_KEY = "boc_player_ai_quick_action_v1";
 const NON_VIDEO_CONTEXT_MESSAGE = "当前页不是支持的视频页面，<br>无法获取当前页面信息作为对话上下文，<br>仅支持 AI 对话。";
@@ -35,12 +34,15 @@ const els = {
   saveConversationBtn: document.getElementById("spSaveConversationBtn"),
   syncStatus: document.getElementById("spSyncStatus"),
   copyConversationBtn: document.getElementById("spCopyConversationBtn"),
+  downloadConversationBtn: document.getElementById("spDownloadConversationBtn"),
   presetPopover: document.getElementById("spPresetPopover"),
   presetList: document.getElementById("spPresetList"),
   presetInput: document.getElementById("spPresetInput"),
   presetAddBtn: document.getElementById("spPresetAddBtn"),
   followups: document.getElementById("spFollowups"),
   historyPopover: document.getElementById("spHistoryPopover"),
+  exportBtn: document.getElementById("spExportBtn"),
+  exportPopover: document.getElementById("spExportPopover"),
   historyList: document.getElementById("spHistoryList"),
   historyClearBtn: document.getElementById("spHistoryClearBtn"),
   messages: document.getElementById("spMessages"),
@@ -140,11 +142,21 @@ function bindEvents() {
   });
   els.presetBtn.addEventListener("click", togglePresetPopover);
   els.historyBtn.addEventListener("click", toggleHistoryPopover);
+  els.exportBtn.addEventListener("click", toggleExportPopover);
+  // Each export action closes the menu; the action itself is bound below.
+  els.exportPopover.addEventListener("click", (event) => {
+    if (event.target instanceof Element && event.target.closest("button")) hideExportPopover();
+  });
   els.saveConversationBtn?.addEventListener("click", () => {
     void saveCurrentConversationToObsidian();
   });
   els.copyConversationBtn?.addEventListener("click", () => {
     void copyCurrentConversationMarkdown();
+  });
+  els.downloadConversationBtn?.addEventListener("click", () => {
+    const note = buildCurrentConversationNote();
+    if (note) BocDownload.text(note.filename, note.content);
+    else showConversationContextNotice("当前没有可下载的对话。", 2200);
   });
   els.historyClearBtn?.addEventListener("click", () => {
     void clearAllConversations();
@@ -198,6 +210,11 @@ function bindEvents() {
       (areaName === "local" && changes.aiProviderKeys)
     ) {
       void refreshProvidersAndPrefsAfterExternalChange();
+    }
+    // The history page deletes conversations too; without this the next save here would bring them back.
+    if (areaName === "local" && changes[CONVERSATIONS_STORAGE_KEY]) {
+      savedConversations = normalizeConversations(changes[CONVERSATIONS_STORAGE_KEY].newValue);
+      renderHistoryList();
     }
     if (areaName === "local" && changes[PLAYER_AI_QUICK_ACTION_STORAGE_KEY] && initCompleted) {
       void handlePlayerAiQuickActionRequest(changes[PLAYER_AI_QUICK_ACTION_STORAGE_KEY].newValue);
@@ -298,7 +315,8 @@ function normalizePlayerAiQuickActionRequest(value) {
     id,
     prompt,
     tabId,
-    createdAt: Number(value.createdAt) || Date.now()
+    createdAt: Number(value.createdAt) || Date.now(),
+    contextRef: value.contextRef && typeof value.contextRef === "object" ? value.contextRef : null
   };
 }
 
@@ -324,8 +342,25 @@ async function handlePlayerAiQuickActionRequest(value, { fromStorageChange = tru
     await chrome.storage.local.remove(PLAYER_AI_QUICK_ACTION_STORAGE_KEY).catch(() => null);
   }
 
+  if (request.contextRef) {
+    await openRequestedVideoContext(request.contextRef);
+  }
   await runPlayerAiQuickActionPrompt(request.prompt);
   return true;
+}
+
+// The triage and history pages hand over a video that is not open: continue its latest conversation,
+// else start one bound to it, and resolve the context like a history conversation.
+async function openRequestedVideoContext(ref) {
+  await detachActiveStream();
+  const contextRef = normalizeConversationContextRef(ref);
+  const placeholder = buildContextPlaceholder(contextRef);
+  if (!(await restoreLatestConversationForCurrentContext(placeholder, buildContextKey(placeholder)))) {
+    applyConversation({ id: "", contextKey: "", contextTitle: placeholder.title, contextUrl: placeholder.url, contextRef, messages: [] });
+  }
+  renderInitialState();
+  showConversationContextNotice("正在加载原视频上下文...");
+  await hydratePinnedConversationContext();
 }
 
 async function runPlayerAiQuickActionPrompt(prompt) {
@@ -642,6 +677,24 @@ function renderSuggestions() {
     ? `<button type="button" class="sp-summary-btn" title="${escapeHtml(prompt)}">总结这期视频</button>`
     : "";
   suggestionsNode.querySelector("button")?.addEventListener("click", () => sendPrompt(prompt));
+  void renderTriageSummary(suggestionsNode);
+}
+
+// A summary the triage page already paid for, shown before the first question; nothing is requested here.
+// It is per bvid and summarizes P1, so other parts don't show it.
+async function renderTriageSummary(node) {
+  const ref = buildConversationContextRef(contextData);
+  if (ref?.site !== "bilibili" || ref.pageIndex !== 1) {
+    return;
+  }
+  const key = `triage_analysis_${ref.videoId}`;
+  const summary = BocNote.buildTriageSummary((await chrome.storage.local.get(key))[key]);
+  if (!summary || node !== suggestionsNode || chatHistory.length || buildConversationContextRef(contextData)?.videoId !== ref.videoId) {
+    return;
+  }
+  node.querySelector(".sp-triage-summary")?.remove();
+  // renderMarkdown has no blockquotes, so the one-liner loses its "> ".
+  node.insertAdjacentHTML("afterbegin", `<div class="sp-triage-summary"><div class="sp-triage-summary-label">分拣台的 AI 总结</div>${renderMarkdown(summary.replace(/^> /, ""))}</div>`);
 }
 
 // Follow-up chips: only once there is a reply to follow up on, and not mid-stream.
@@ -696,18 +749,11 @@ function renderPresetPrompts() {
   els.presetList.innerHTML = prompts
     .map((prompt, index) => `
       <span class="sp-preset-item">
-        <button type="button" class="sp-preset-chip" data-index="${index}" title="${escapeHtml(prompt)}">${escapeHtml(prompt)}</button>
+        <span class="sp-preset-chip" title="${escapeHtml(prompt)}">${escapeHtml(prompt)}</span>
         <button type="button" class="sp-preset-remove" data-index="${index}" aria-label="删除快捷追问">×</button>
       </span>
     `)
     .join("");
-  els.presetList.querySelectorAll(".sp-preset-chip").forEach((btn) => {
-    btn.addEventListener("click", () => {
-      const index = Number(btn.getAttribute("data-index") || -1);
-      insertPresetPrompt(prompts[index] || "");
-      hidePresetPopover();
-    });
-  });
   els.presetList.querySelectorAll(".sp-preset-remove").forEach((btn) => {
     btn.addEventListener("click", async () => {
       const index = Number(btn.getAttribute("data-index") || -1);
@@ -756,7 +802,13 @@ function renderHistoryList() {
             </span>
             <span class="sp-history-meta" title="${escapeHtml(metaText)}">${escapeHtml(metaText)}</span>
           </button>
-          <button type="button" class="sp-history-remove" data-id="${escapeHtml(conversation.id)}" aria-label="删除历史对话">×</button>
+          <button type="button" class="sp-history-remove" data-id="${escapeHtml(conversation.id)}" aria-label="删除历史对话" title="删除">
+            <svg viewBox="0 0 24 24" focusable="false" aria-hidden="true">
+              <path d="M3 6h18"></path>
+              <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"></path>
+              <path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+            </svg>
+          </button>
         </div>
       `;
     })
@@ -1017,6 +1069,9 @@ async function loadConversationById(id) {
 }
 
 async function deleteConversation(id) {
+  if (!confirm("删除这条历史对话？删除后不能恢复。")) {
+    return;
+  }
   const wasCurrent = id && id === currentConversationId;
   savedConversations = savedConversations.filter((item) => item.id !== id);
   await saveConversations();
@@ -1038,7 +1093,7 @@ async function clearAllConversations() {
   if (!savedConversations.length) {
     return;
   }
-  if (!confirm("确定要清空全部历史对话吗？")) {
+  if (!confirm("清空全部历史对话？删除后不能恢复。")) {
     return;
   }
   savedConversations = [];
@@ -1055,20 +1110,10 @@ async function clearAllConversations() {
   renderInitialState();
 }
 
-function insertPresetPrompt(prompt) {
-  const text = String(prompt || "").trim();
-  if (!text) {
-    return;
-  }
-  const current = els.input.value.trim();
-  els.input.value = current ? `${current}\n${text}` : text;
-  els.input.focus();
-  autosizeInput();
-}
-
 function togglePresetPopover(event) {
   event?.stopPropagation();
   hideHistoryPopover();
+  hideExportPopover();
   const willShow = els.presetPopover.hidden;
   els.presetPopover.hidden = !willShow;
   if (willShow) {
@@ -1085,6 +1130,7 @@ function hidePresetPopover() {
 function toggleHistoryPopover(event) {
   event?.stopPropagation();
   hidePresetPopover();
+  hideExportPopover();
   const willShow = els.historyPopover.hidden;
   els.historyPopover.hidden = !willShow;
   if (willShow) {
@@ -1096,13 +1142,25 @@ function hideHistoryPopover() {
   els.historyPopover.hidden = true;
 }
 
+function toggleExportPopover(event) {
+  event?.stopPropagation();
+  hidePresetPopover();
+  hideHistoryPopover();
+  els.exportPopover.hidden = !els.exportPopover.hidden;
+}
+
+function hideExportPopover() {
+  els.exportPopover.hidden = true;
+}
+
 function handleDocumentClick(event) {
-  if (els.presetPopover.hidden && els.historyPopover.hidden) {
+  if (els.presetPopover.hidden && els.historyPopover.hidden && els.exportPopover.hidden) {
     return;
   }
   if (!(event.target instanceof Element)) {
     hidePresetPopover();
     hideHistoryPopover();
+    hideExportPopover();
     return;
   }
   if (event.target.closest("#spPresetPopover") || event.target.closest("#spPresetBtn")) {
@@ -1111,8 +1169,12 @@ function handleDocumentClick(event) {
   if (event.target.closest("#spHistoryPopover") || event.target.closest("#spHistoryBtn")) {
     return;
   }
+  if (event.target.closest("#spExportPopover") || event.target.closest("#spExportBtn")) {
+    return;
+  }
   hidePresetPopover();
   hideHistoryPopover();
+  hideExportPopover();
 }
 
 function scheduleLiveContextSync(forceRefresh = false) {
@@ -1429,31 +1491,19 @@ function renderConversationMessages() {
     resetConversationView("");
     return;
   }
-  chatHistory.forEach((message, index) => {
+  chatHistory.forEach((message) => {
     if (message.role === "user") {
       appendUserMessage(message.content, false);
       return;
     }
     const node = document.createElement("div");
     node.className = "sp-msg sp-msg-assistant";
-    renderAssistantMessage(node, String(message.content || ""), {
-      userPrompt: findPreviousUserPrompt(index)
-    });
+    renderAssistantMessage(node, String(message.content || ""));
     els.messages.appendChild(node);
   });
   renderFollowups();
   shouldAutoScrollMessages = true;
   scrollToBottom(true);
-}
-
-function findPreviousUserPrompt(index) {
-  for (let i = Number(index) - 1; i >= 0; i -= 1) {
-    const item = chatHistory[i];
-    if (item?.role === "user" && typeof item.content === "string") {
-      return item.content;
-    }
-  }
-  return "";
 }
 
 function buildConversationTitle(context) {
@@ -1888,7 +1938,7 @@ function endStream(stream, { stopped = "", error = "" } = {}) {
   const { node, prompt, raw } = stream;
   const saved = Boolean(raw.trim());
   if (saved || !(stopped || error)) {
-    renderAssistantMessage(node, raw, { userPrompt: prompt });
+    renderAssistantMessage(node, raw);
   } else {
     node.innerHTML = "";
   }
@@ -1995,7 +2045,7 @@ function clearStreamRuntimeState() {
   removeConversationContextNotice();
 }
 
-function renderAssistantMessage(node, raw, { userPrompt = "" } = {}) {
+function renderAssistantMessage(node, raw) {
   if (!node) {
     return;
   }
@@ -2014,8 +2064,8 @@ function renderAssistantMessage(node, raw, { userPrompt = "" } = {}) {
   const copyBtn = document.createElement("button");
   copyBtn.type = "button";
   copyBtn.className = "sp-msg-copy-btn";
-  copyBtn.setAttribute("aria-label", "复制回复");
-  copyBtn.setAttribute("title", "复制回复");
+  copyBtn.setAttribute("aria-label", "复制单条回复");
+  copyBtn.setAttribute("title", "复制单条回复");
   copyBtn.innerHTML = `
     <svg viewBox="0 0 24 24" focusable="false" aria-hidden="true">
       <rect x="9" y="9" width="10" height="10" rx="2"></rect>
@@ -2038,61 +2088,7 @@ function renderAssistantMessage(node, raw, { userPrompt = "" } = {}) {
   });
   actions.appendChild(copyBtn);
 
-  const saveBtn = document.createElement("button");
-  saveBtn.type = "button";
-  saveBtn.className = "sp-msg-copy-btn sp-msg-save-btn";
-  saveBtn.setAttribute("aria-label", "保存到 Obsidian");
-  saveBtn.setAttribute("title", "保存到 Obsidian");
-  saveBtn.innerHTML = `
-    <svg viewBox="0 0 24 24" focusable="false" aria-hidden="true">
-      <path d="M5 4h11l3 3v13H5z"></path>
-      <path d="M8 4v6h8"></path>
-      <path d="M8 17h8"></path>
-    </svg>
-  `;
-  saveBtn.addEventListener("click", () => {
-    void saveAssistantReplyToObsidian({
-      button: saveBtn,
-      userPrompt,
-      assistantMarkdown: pasteReadyRaw
-    });
-  });
-  actions.appendChild(saveBtn);
   node.appendChild(actions);
-}
-
-async function saveAssistantReplyToObsidian({ button, userPrompt, assistantMarkdown }) {
-  const prompt = String(userPrompt || "").trim();
-  const answer = String(assistantMarkdown || "").trim();
-  if (!prompt || !answer) {
-    showConversationContextNotice("没有可保存的单轮问答。", 2200);
-    return;
-  }
-
-  const settingsBundle = await loadObsidianSettings();
-  if (!settingsBundle) {
-    return;
-  }
-
-  const context = currentConversationMeta?.resolvedContext || contextData || currentConversationMeta?.contextRef || {};
-  const filename = buildAiNoteFilename(context, prompt);
-  const folder = resolveFolderTemplate(settingsBundle.settings.noteFolder || "", context);
-  const filepath = folder ? `${folder}/${filename}` : filename;
-  const noteContent = buildAiNoteMarkdown({
-    context,
-    prompt,
-    answer,
-    filename,
-    sourcePath: await resolveVideoNotePath(context, settingsBundle.settings)
-  });
-
-  await saveMarkdownToObsidian({
-    button,
-    filepath,
-    content: noteContent,
-    baseUrl: settingsBundle.baseUrl,
-    apiKey: settingsBundle.apiKey
-  });
 }
 
 // The same note feeds the Obsidian save and the clipboard copy; only the save knows where the
@@ -2107,7 +2103,7 @@ function buildCurrentConversationNote(sourcePath = "") {
   return { context, filename, content: buildAiConversationMarkdown({ context, turns, filename, sourcePath }) };
 }
 
-// Where the page's 保存到 Obsidian puts this video's note: same folder template and filename builder.
+// Where the page's 写入 Obsidian puts this video's note: same folder template and filename builder.
 function videoNotePathFor(context, settings) {
   const folder = resolveFolderTemplate(settings?.noteFolder || "", context);
   const filename = buildNoteFilename(context, settings || {});
@@ -2166,7 +2162,8 @@ function scheduleAutoSync(conversationId) {
 async function autoSyncConversation(conversationId) {
   const conversation = savedConversations.find((item) => item.id === conversationId);
   const noteKey = conversation?.contextRef ? BocSites.buildContextKey(conversation.contextRef) : "";
-  if (!noteKey || !(await boundVideoNotePath(noteKey))) {
+  const notePath = noteKey ? await boundVideoNotePath(noteKey) : "";
+  if (!notePath) {
     return;
   }
   const settingsResp = await sendRuntimeMessage({ type: "get-settings" }).catch(() => null);
@@ -2182,12 +2179,12 @@ async function autoSyncConversation(conversationId) {
       return;
     }
     if (!result.exists) {
-      showSyncStatus("笔记已不存在，未同步");
+      showSyncStatus("Obsidian 里的视频笔记已不存在，未写入");
       return;
     }
-    showSyncStatus("已同步到 Obsidian ✓", { autoHideMs: 3000 });
+    showSyncStatus(`已写入 Obsidian：${notePath}`, { autoHideMs: 3000 });
   } catch (error) {
-    showSyncStatus(`同步失败 · ${readableObsidianError(error)}`, { retry: () => autoSyncConversation(conversationId) });
+    showSyncStatus(`写入 Obsidian 失败：${readableObsidianError(error)}`, { retry: () => autoSyncConversation(conversationId) });
   }
 }
 
@@ -2222,7 +2219,7 @@ async function copyCurrentConversationMarkdown() {
   }
   try {
     await navigator.clipboard.writeText(note.content);
-    showConversationContextNotice("已复制对话 Markdown。", 2200);
+    showConversationContextNotice("已复制 Markdown", 2200);
   } catch (error) {
     showConversationContextNotice(`复制失败：${getErrorMessage(error)}`, 3000);
   }
@@ -2235,7 +2232,7 @@ async function saveCurrentConversationToObsidian() {
   }
   const context = currentConversationMeta?.resolvedContext || contextData || currentConversationMeta?.contextRef || {};
   if (!buildConversationTurns(chatHistory).length) {
-    showConversationContextNotice("当前没有可保存的历史对话。", 2200);
+    showConversationContextNotice("当前没有可写入 Obsidian 的对话。", 2200);
     return;
   }
   // Update the video note first: a 404 clears the recorded path, so the backlink below is computed afresh.
@@ -2300,7 +2297,7 @@ async function saveMarkdownToObsidian({ button, filepath, content, baseUrl, apiK
     if (exists) {
       const shouldOverwrite = await confirmOverwriteNote(filepath);
       if (!shouldOverwrite) {
-        showConversationContextNotice("已取消保存，原笔记未被覆盖。", 2200);
+        showConversationContextNotice("已取消写入 Obsidian，原笔记未被覆盖。", 2200);
         return false;
       }
     }
@@ -2308,7 +2305,7 @@ async function saveMarkdownToObsidian({ button, filepath, content, baseUrl, apiK
     showConversationContextNotice(`已写入 Obsidian：${filepath}`, 2600);
     return true;
   } catch (error) {
-    showConversationContextNotice(`写入失败：${getErrorMessage(error)}`, 4000);
+    showConversationContextNotice(`写入 Obsidian 失败：${getErrorMessage(error)}`, 4000);
   } finally {
     if (button) {
       button.classList.remove("is-saving");
@@ -2343,120 +2340,6 @@ async function writeNoteByLocalApi(baseUrl, apiKey, filepath, content) {
   if (!resp?.ok) {
     throw new Error(getReadableText(resp?.error, "Local API 写入失败"));
   }
-}
-
-function buildAiNoteFilename(context, prompt) {
-  const sourceTitle = String(context?.title || currentConversationMeta?.contextTitle || "当前视频").trim() || "当前视频";
-  const questionSummary = buildQuestionSummary(prompt);
-  const baseName = sanitizeFileName(`【AI笔记】${sourceTitle} - ${questionSummary}`);
-  return `${baseName || "【AI笔记】当前视频"}.md`;
-}
-
-function buildAiConversationFilename(context) {
-  const sourceTitle = String(context?.title || currentConversationMeta?.contextTitle || "当前视频").trim() || "当前视频";
-  const baseName = sanitizeFileName(`【AI笔记】${sourceTitle}`);
-  return `${baseName || "【AI笔记】当前视频"}.md`;
-}
-
-function buildQuestionSummary(prompt) {
-  const text = String(prompt || "")
-    .replace(/\s+/g, " ")
-    .trim()
-    .slice(0, 30);
-  return text || "AI问答";
-}
-
-// source: a wiki link to the video note (path without .md), so the AI note sits under it in the graph.
-// Body line: link the real video note when its path is known, else name the video without a dangling link.
-function sourceBodyLine(sourcePath, sourceTitle) {
-  const target = String(sourcePath || "").replace(/\.md$/i, "");
-  return target
-    ? `来源：[[${escapeWikiLinkTarget(target)}|${escapeWikiLinkTarget(sourceTitle)}]]`
-    : `来源：${sourceTitle}`;
-}
-
-function sourceFrontmatterLine(sourcePath) {
-  const target = String(sourcePath || "").replace(/\.md$/i, "");
-  return target ? `source: "[[${escapeYaml(target)}]]"` : "";
-}
-
-function buildAiNoteMarkdown({ context, prompt, answer, filename, sourcePath = "" }) {
-  const created = formatLocalDate();
-  const sourceTitle = String(context?.title || currentConversationMeta?.contextTitle || "当前视频").trim() || "当前视频";
-  const url = buildCleanVideoUrl(context);
-  const title = filename.replace(/\.md$/i, "");
-  const frontmatter = [
-    "---",
-    `title: "${escapeYaml(title)}"`,
-    `source_title: "${escapeYaml(sourceTitle)}"`,
-    sourceFrontmatterLine(sourcePath),
-    `url: "${escapeYaml(url)}"`,
-    context?.author ? `author: "${escapeYaml(context.author)}"` : "",
-    `created: "${created}"`,
-    `tags: [ai_note]`,
-    "---"
-  ].filter(Boolean);
-
-  const lines = [
-    ...frontmatter,
-    "",
-    `问题：${String(prompt || "").trim()}`,
-    sourceBodyLine(sourcePath, sourceTitle),
-    "",
-    String(answer || "").trim(),
-    ""
-  ].filter((line, index, arr) => line !== "" || arr[index - 1] !== "");
-
-  return `${lines.join("\n").trim()}\n`;
-}
-
-function buildAiConversationMarkdown({ context, turns, filename, sourcePath = "" }) {
-  const created = formatLocalDate();
-  const sourceTitle = String(context?.title || currentConversationMeta?.contextTitle || "当前视频").trim() || "当前视频";
-  const url = buildCleanVideoUrl(context);
-  const title = filename.replace(/\.md$/i, "");
-  const frontmatter = [
-    "---",
-    `title: "${escapeYaml(title)}"`,
-    `source_title: "${escapeYaml(sourceTitle)}"`,
-    sourceFrontmatterLine(sourcePath),
-    `url: "${escapeYaml(url)}"`,
-    context?.author ? `author: "${escapeYaml(context.author)}"` : "",
-    `created: "${created}"`,
-    `tags: [ai_note]`,
-    "---"
-  ].filter(Boolean);
-
-  const lines = [
-    ...frontmatter,
-    "",
-    sourceBodyLine(sourcePath, sourceTitle)
-  ];
-
-  turns.forEach((turn) => {
-    lines.push(
-      "",
-      `## ${sanitizeMarkdownHeadingText(turn.prompt)}`,
-      "",
-      turn.answer
-    );
-  });
-
-  return `${lines.join("\n").trim()}\n`;
-}
-
-function buildCleanVideoUrl(context) {
-  const url = String(context?.url || currentConversationMeta?.contextUrl || "").trim();
-  const site = BocSites.SITES[context?.site] || BocSites.matchSite(url);
-  const videoId = String(context?.videoId || BocSites.parseRef(url)?.id || "").trim();
-  if (site && videoId) {
-    return site.canonicalUrl(videoId, 1);
-  }
-  return url;
-}
-
-function escapeWikiLinkTarget(value) {
-  return String(value || "").replace(/\]/g, "\\]");
 }
 
 function getReadableText(value, fallback = "") {

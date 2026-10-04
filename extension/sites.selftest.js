@@ -3,9 +3,22 @@ const fs = require("fs");
 const path = require("path");
 const vm = require("vm");
 const assert = require("assert");
+const crypto = require("crypto");
 
-const ctx = vm.createContext({ URL, URLSearchParams, console });
-vm.runInContext(fs.readFileSync(path.join(__dirname, "sites.js"), "utf8"), ctx);
+// In-memory chrome.storage.local for the subtitle cache.
+const store = {};
+const chrome = {
+  storage: {
+    local: {
+      get: async (key) => (key === null ? { ...store } : key in store ? { [key]: store[key] } : {}),
+      set: async (items) => Object.assign(store, items),
+      remove: async (keys) => [].concat(keys).forEach((key) => delete store[key])
+    }
+  }
+};
+const ctx = vm.createContext({ URL, URLSearchParams, TextEncoder, console, chrome });
+// Manifest order: limits.js before sites.js.
+for (const file of ["limits.js", "sites.js"]) vm.runInContext(fs.readFileSync(path.join(__dirname, file), "utf8"), ctx);
 const S = ctx.BocSites;
 // vm objects have a foreign Object prototype, so compare by value.
 const eq = (actual, expected) => assert.deepStrictEqual(JSON.parse(JSON.stringify(actual)), expected);
@@ -460,6 +473,84 @@ async function ytComments(next, byContinuation) {
   eq((await yt.fetchMeta(ref, m.io)).uploadDate, "2009-10-25");
   m = ytIo({ "player:WEB:dQw4w9WgXcQ": { playabilityStatus: { status: "AGE_VERIFICATION_REQUIRED" } }, "player:ANDROID:dQw4w9WgXcQ": { playabilityStatus: { status: "AGE_VERIFICATION_REQUIRED" } } });
   eq(await yt.fetchMeta(ref, m.io).then(() => "", (error) => error.message), "该视频需要登录或年龄验证，暂不支持（AGE_VERIFICATION_REQUIRED）");
+  // WBI: w_rid is md5(sorted query + mixin key), with !'()* stripped from values.
+  const md5 = (text) => crypto.createHash("md5").update(text).digest("hex");
+  const mixinKey = S.biliMixinKey("https://i0.hdslb.com/bfs/wbi/7cd084941338484aae1ad9425b84077c.png", "https://i0.hdslb.com/bfs/wbi/4932caff0ff746eab6f01bf08b70ac45.png");
+  eq(mixinKey.length, 32);
+  const wbiQuery = "aid=116420927166252&bvid=BV1g1dLBPEHV&cid=37589944385&foo=abcd%20%E4%B8%AD&wts=1700000000";
+  eq(S.biliWbiSign({ bvid: "BV1g1dLBPEHV", cid: 37589944385, aid: 116420927166252, foo: "a!b'(c)*d 中" }, mixinKey, 1700000000), `${wbiQuery}&w_rid=${md5(wbiQuery + mixinKey)}`);
+  // Lengths around the md5 block boundaries.
+  for (const n of [0, 40, 41, 48, 1000]) {
+    const q = `s=${"a".repeat(n)}&wts=1`;
+    eq(S.biliWbiSign({ s: "a".repeat(n) }, "", 1), `${q}&w_rid=${md5(q)}`);
+  }
+  // fetchTracks signs wbi/v2 with the nav key when the caller opts in.
+  const biliIo = (nav) => {
+    const calls = [];
+    const fetchJson = async (url) => {
+      calls.push(url);
+      if (url.includes("/nav")) return nav;
+      return { code: 0, data: { subtitle: { subtitles: [{ id: 7, lan: "ai-zh", lan_doc: "中文", subtitle_url: "//aisubtitle.hdslb.com/a.json" }] } } };
+    };
+    return { calls, io: { fetchJson, signWbi: true } };
+  };
+  const biliRef = { site: "bilibili", id: "BV1g1dLBPEHV", part: null };
+  const biliMeta = { aid: "116420927166252", cid: "37589944385" };
+  let b = biliIo({ code: -101, data: { wbi_img: { img_url: "https://i0.hdslb.com/bfs/wbi/7cd084941338484aae1ad9425b84077c.png", sub_url: "https://i0.hdslb.com/bfs/wbi/4932caff0ff746eab6f01bf08b70ac45.png" } } });
+  const tracks = (await S.SITES.bilibili.fetchTracks(biliRef, biliMeta, b.io)).tracks;
+  eq(tracks.map((item) => [item.id, item.kind, item.url]), [["7", "ai", "https://aisubtitle.hdslb.com/a.json"]]);
+  const signed = new URL(b.calls[1]);
+  eq(signed.pathname, "/x/player/wbi/v2");
+  const unsignedQuery = `aid=${biliMeta.aid}&bvid=${biliRef.id}&cid=${biliMeta.cid}&wts=${signed.searchParams.get("wts")}`;
+  eq(signed.searchParams.get("w_rid"), md5(unsignedQuery + mixinKey));
+  // The key is reused for ten minutes, so the next video costs no nav request.
+  b = biliIo(null);
+  await S.SITES.bilibili.fetchTracks(biliRef, biliMeta, b.io);
+  eq(b.calls.length, 1);
+  // Callers that don't opt in (the video page) send the unsigned query and never ask nav.
+  b = biliIo(null);
+  delete b.io.signWbi;
+  await S.SITES.bilibili.fetchTracks(biliRef, biliMeta, b.io);
+  eq(b.calls, [`https://api.bilibili.com/x/player/wbi/v2?aid=${biliMeta.aid}&cid=${biliMeta.cid}&bvid=${biliRef.id}`]);
+
+  // Subtitle cache: same key format content.js always wrote; entries hold the raw response.
+  const cache = S.subtitleCache;
+  eq(cache.key({ videoId: "BV1", cid: "9", subtitleId: "7" }), "boc_subtitle_cache_BV1_9_id_7");
+  eq(cache.key({ videoId: "v", cid: "", subtitleUrl: "https://a.com/x.json?auth=1" }), "boc_subtitle_cache_v__url_a.com/x.json");
+  eq(cache.key({ videoId: "v", cid: "", lang: " EN " }), "boc_subtitle_cache_v__lang_en");
+  eq(await cache.load("boc_subtitle_cache_missing"), null);
+  store.boc_subtitle_cache_old = { body: [{ from: 0, to: 1, content: "parsed, no raw" }], timestamp: Date.now() };
+  eq(await cache.load("boc_subtitle_cache_old"), null);
+  // Caps: entries past SUBTITLE_CACHE_DAYS go, then the oldest beyond SUBTITLE_CACHE_ENTRIES.
+  const L = ctx.BocLimits;
+  store.boc_subtitle_cache_stale = { raw: {}, timestamp: Date.now() - (L.SUBTITLE_CACHE_DAYS + 1) * 86400000 };
+  store.unrelated = { timestamp: 0 };
+  for (let i = 0; i < L.SUBTITLE_CACHE_ENTRIES; i += 1) store[`boc_subtitle_cache_n${i}`] = { raw: {}, timestamp: Date.now() - 1000 - i };
+  await cache.save("boc_subtitle_cache_new", { body: [] });
+  const cachedKeys = Object.keys(store).filter((key) => key.startsWith(L.KEYS.subtitleCachePrefix));
+  eq(cachedKeys.length, L.SUBTITLE_CACHE_ENTRIES);
+  // new + old + n0..n49 = 52 recent entries, so the two oldest go.
+  eq(["boc_subtitle_cache_stale", `boc_subtitle_cache_n${L.SUBTITLE_CACHE_ENTRIES - 2}`, `boc_subtitle_cache_n${L.SUBTITLE_CACHE_ENTRIES - 1}`].some((key) => key in store), false);
+  eq("boc_subtitle_cache_new" in store && "unrelated" in store, true);
+  await cache.remove("boc_subtitle_cache_new");
+  eq("boc_subtitle_cache_new" in store, false);
+
+  // fetchRawCached: a hit skips the network; a rejected body is fetched again and not cached.
+  const bili = S.SITES.bilibili;
+  const raw = (to) => ({ body: [{ from: 0, to, content: "x" }] });
+  const track = { id: "7", lang: "ai-zh", url: "https://aisubtitle.hdslb.com/a.json" };
+  const ids = { videoId: "BV1", cid: "9" };
+  let fetched = 0;
+  const rawIo = (answer) => ({ fetchJson: async () => ((fetched += 1), answer) });
+  eq(await S.fetchRawCached(bili, track, ids, rawIo(raw(10))), raw(10));
+  eq(store.boc_subtitle_cache_BV1_9_id_7.raw, raw(10));
+  eq(await S.fetchRawCached(bili, track, ids, rawIo(raw(99))), raw(10));
+  eq(fetched, 1);
+  const long = (body) => body.length > 0 && body[0].to > 50;
+  eq(await S.fetchRawCached(bili, track, ids, rawIo(raw(20)), long), raw(20));
+  eq([fetched, store.boc_subtitle_cache_BV1_9_id_7.raw], [2, raw(10)]);
+  eq(await S.fetchRawCached(bili, track, ids, rawIo({ body: [] })), raw(10));
+
   console.log("sites selftest ok");
 })().catch((error) => {
   console.error(error);
