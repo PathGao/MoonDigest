@@ -611,6 +611,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     }
 
     const openPromise = openAiSidepanelForTab(tabId);
+    // Awaited once settings load; without a handler now, a fast rejection is reported as uncaught.
+    openPromise.catch(() => {});
     getMergedSettings()
       .then(async (settings) => {
         // The setting hides the player button; the popup's AI 总结 is always available.
