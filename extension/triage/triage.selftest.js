@@ -148,7 +148,7 @@ function openFake(mediaId, items, decisions = {}) {
   assert.deepStrictEqual([scope("basket"), scope("selected"), scope("all"), scope("filter")], [["BVgone", "BV3"], ["BV2"], ["BV1", "BV2", "BV3"], ["BV1", "BV3"]]);
   const digest = t.buildMarkdown(t.writeScopeItems("basket"));
   assert.ok(digest.includes("## [别的收藏夹](https://www.bilibili.com/video/BVgone)\n\n> 一句话\n\n- 要点"), digest);
-  assert.ok(digest.includes("## [视频3](https://www.bilibili.com/video/BV3)\n\nUP：up\n\n笔记：我的笔记"), digest);
+  assert.ok(digest.includes("## [视频3](https://www.bilibili.com/video/BV3)\n\nUP：up\n\n备注：我的笔记"), digest);
   t.S.selected.clear();
 
   // B12: titles with | [[ ]] or newlines cannot end the index-note link early.

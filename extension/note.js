@@ -367,7 +367,7 @@
   function withTriageSummary(markdown, analysis, note) {
     const summary = buildTriageSummary(analysis);
     const mine = String(note || "").trim();
-    const block = [summary && `## AI 总结\n\n${summary}`, mine && `## 我的笔记\n\n${mine}`].filter(Boolean).join("\n\n");
+    const block = [summary && `## AI 总结\n\n${summary}`, mine && `## 我的备注\n\n${mine}`].filter(Boolean).join("\n\n");
     if (!block) {
       return markdown;
     }

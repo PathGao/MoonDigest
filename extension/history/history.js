@@ -90,9 +90,9 @@ function render() {
           <input type="checkbox" data-act="pick" aria-label="选择" ${selected.has(g.key) ? "checked" : ""} />
           <div>
             ${title}
-            <div class="entry-meta">${esc(site)} · ${esc(formatTime(g.updatedAt))} · ${g.convs.length ? `${g.convs.length} 段对话 · ${turnCount} 轮问答` : `仅${[g.analysis && "分拣台 AI 总结", g.note && "我的笔记"].filter(Boolean).join("和")}`}</div>
+            <div class="entry-meta">${esc(site)} · ${esc(formatTime(g.updatedAt))} · ${g.convs.length ? `${g.convs.length} 段对话 · ${turnCount} 轮问答` : `仅${[g.analysis && "分拣台 AI 总结", g.note && "备注"].filter(Boolean).join("和")}`}</div>
             ${g.analysis ? renderSummary(g.analysis) : ""}
-            ${g.note ? `<div class="entry-note"><b>我的笔记</b> ${esc(g.note.text.trim())}</div>` : ""}
+            ${g.note ? `<div class="entry-note"><b>备注</b> ${esc(g.note.text.trim())}</div>` : ""}
             ${g.convs.length ? `<details><summary>查看对话</summary>${g.convs.map((c, i) => renderConversation(c, i, g.convs.length)).join("")}</details>` : ""}
           </div>
           <div class="entry-actions">

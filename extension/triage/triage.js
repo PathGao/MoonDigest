@@ -1902,7 +1902,7 @@ function buildMarkdown(items, now = new Date()) {
     const names = tagIdsOf(it.bvid).map((id) => tagById(id).name);
     if (names.length) lines.push(`标签：${names.join("、")}`, "");
     const note = S.notes[it.bvid]?.text?.trim();
-    if (note) lines.push(`笔记：${note}`, "");
+    if (note) lines.push(`备注：${note}`, "");
   }
   return lines.join("\n");
 }

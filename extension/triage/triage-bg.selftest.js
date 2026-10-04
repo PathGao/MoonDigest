@@ -366,7 +366,7 @@ assert.throws(() => t.triageParseCommand('{"new_tags":[', cmdItems, cmdTags, {})
   store.triage_basket = [{ bvid: "BVa", note: "篮子里的旧笔记" }];
   store.triage_notes = { BVa: { text: "视频笔记", updatedAt: 1 } };
   const noted = (await buildNote()).markdown;
-  assert.ok(noted.includes("## 我的笔记\n\n视频笔记") && !noted.includes("篮子里的旧笔记"));
+  assert.ok(noted.includes("## 我的备注\n\n视频笔记") && !noted.includes("篮子里的旧笔记"));
 
   // Migration: copies non-empty basket notes, never overwrites, keeps the basket, runs once.
   for (const k of Object.keys(store)) delete store[k];

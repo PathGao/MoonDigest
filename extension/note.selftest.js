@@ -382,8 +382,8 @@ assert.strictEqual(
 assert.strictEqual(N.withTriageSummary("## 简介\n\nhi", { status: "done", verdict: "drop" }), "## AI 总结\n\nAI 分类：可以删\n\n## 简介\n\nhi");
 assert.strictEqual(N.withTriageSummary(front, { status: "error" }), front);
 assert.strictEqual(N.withTriageSummary(front, undefined), front);
-assert.strictEqual(N.withTriageSummary("## 简介", { status: "done", verdict: "drop" }, " 我的话 "), "## AI 总结\n\nAI 分类：可以删\n\n## 我的笔记\n\n我的话\n\n## 简介");
-assert.strictEqual(N.withTriageSummary(front, undefined, "n"), "---\ntitle: \"x\"\n---\n\n## 我的笔记\n\nn\n\n![cover](u)\n\n## 简介\n\nhi");
+assert.strictEqual(N.withTriageSummary("## 简介", { status: "done", verdict: "drop" }, " 我的话 "), "## AI 总结\n\nAI 分类：可以删\n\n## 我的备注\n\n我的话\n\n## 简介");
+assert.strictEqual(N.withTriageSummary(front, undefined, "n"), "---\ntitle: \"x\"\n---\n\n## 我的备注\n\nn\n\n![cover](u)\n\n## 简介\n\nhi");
 assert.strictEqual(N.withTriageSummary(front, undefined, "  "), front);
 assert.strictEqual(N.buildTriageSummary({ status: "done", verdict: "t3", verdictName: "必看", reason: "核心" }), "AI 分类：必看，核心", "a custom tier keeps its name");
 
