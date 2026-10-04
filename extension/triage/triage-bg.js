@@ -311,6 +311,7 @@ async function triageBiliPost(path, fields) {
 // The sites.js fetchers through background fetch, with risk control mapped to THROTTLED like triageBiliGet.
 // A player answer without a subtitle object is risk control too.
 const TRIAGE_BILI_IO = {
+  signWbi: true,
   async fetchJson(url) {
     const json = await fetchJsonForAi(url).catch((e) => {
       throw e.status === 412 ? triageError("B站请求失败 HTTP 412", "THROTTLED") : e;

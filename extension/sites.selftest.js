@@ -484,7 +484,7 @@ async function ytComments(next, byContinuation) {
     const q = `s=${"a".repeat(n)}&wts=1`;
     eq(S.biliWbiSign({ s: "a".repeat(n) }, "", 1), `${q}&w_rid=${md5(q)}`);
   }
-  // fetchTracks signs wbi/v2 with the nav key, and goes unsigned when nav has none.
+  // fetchTracks signs wbi/v2 with the nav key when the caller opts in.
   const biliIo = (nav) => {
     const calls = [];
     const fetchJson = async (url) => {
@@ -492,7 +492,7 @@ async function ytComments(next, byContinuation) {
       if (url.includes("/nav")) return nav;
       return { code: 0, data: { subtitle: { subtitles: [{ id: 7, lan: "ai-zh", lan_doc: "中文", subtitle_url: "//aisubtitle.hdslb.com/a.json" }] } } };
     };
-    return { calls, io: { fetchJson } };
+    return { calls, io: { fetchJson, signWbi: true } };
   };
   const biliRef = { site: "bilibili", id: "BV1g1dLBPEHV", part: null };
   const biliMeta = { aid: "116420927166252", cid: "37589944385" };
@@ -507,6 +507,11 @@ async function ytComments(next, byContinuation) {
   b = biliIo(null);
   await S.SITES.bilibili.fetchTracks(biliRef, biliMeta, b.io);
   eq(b.calls.length, 1);
+  // Callers that don't opt in (the video page) send the unsigned query and never ask nav.
+  b = biliIo(null);
+  delete b.io.signWbi;
+  await S.SITES.bilibili.fetchTracks(biliRef, biliMeta, b.io);
+  eq(b.calls, [`https://api.bilibili.com/x/player/wbi/v2?aid=${biliMeta.aid}&cid=${biliMeta.cid}&bvid=${biliRef.id}`]);
 
   // Subtitle cache: same key format content.js always wrote; entries hold the raw response.
   const cache = S.subtitleCache;

@@ -387,7 +387,10 @@
       const bvid = encodeURIComponent(ref.id);
       const requests = [];
       if (meta?.aid) {
-        const query = await biliWbiQuery({ aid: String(meta.aid), cid: String(meta?.cid || ref.part?.cid || ""), bvid: ref.id }, io);
+        // Only callers that opt in sign (triage); the video page keeps its unsigned request and skips nav.
+        const query = io.signWbi
+          ? await biliWbiQuery({ aid: String(meta.aid), cid: String(meta?.cid || ref.part?.cid || ""), bvid: ref.id }, io)
+          : `aid=${aid}&cid=${cid}&bvid=${bvid}`;
         requests.push(`${BILI_API}/x/player/wbi/v2?${query}`);
       }
       requests.push(`${BILI_API}/x/player/v2?bvid=${bvid}&cid=${cid}${meta?.aid ? `&aid=${aid}` : ""}`);
