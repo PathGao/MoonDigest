@@ -29,7 +29,7 @@ assert.ok(clipped.startsWith("a".repeat(8000) + "……c"));
 // The default scheme's tiers: ids keep/drop/unsure so results cached before schemes still resolve.
 const DEF = [
   { id: "keep", name: "留", description: "有具体、可复用的知识", route: "keep" },
-  { id: "drop", name: "删", description: "标题党", route: "unfav" },
+  { id: "drop", name: "可以删", description: "标题党", route: "unfav" },
   { id: "unsure", name: "待定", description: "其他", route: "deep" }
 ];
 
@@ -44,7 +44,7 @@ const thin = t.triageParseLlm('{"one_liner":"x","points":["only"],"verdict":"may
 assert.deepStrictEqual([...thin.points], ["only", "", ""]);
 assert.strictEqual(thin.verdict, "unsure");
 assert.strictEqual(thin.reason, "");
-assert.strictEqual(t.triageParseLlm('{"one_liner":"x","verdict":"删"}', [], true, DEF).verdict, "drop", "the tier name maps to its id");
+assert.strictEqual(t.triageParseLlm('{"one_liner":"x","verdict":"可以删"}', [], true, DEF).verdict, "drop", "the tier name maps to its id");
 assert.throws(() => t.triageParseLlm('{"one_liner":"x","points":["a"'), /不完整/);
 assert.throws(() => t.triageParseLlm("没有 JSON"), /不是 JSON/);
 assert.throws(() => t.triageParseLlm('{"points":[]}'), /one_liner/);

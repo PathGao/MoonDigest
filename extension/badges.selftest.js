@@ -22,8 +22,8 @@ assert.strictEqual(badgeInfo({ tagIds: ["gone"], tags: [] }), null, "dangling ta
 
 const s1 = badgeInfo({ title: { verdict: "drop", reason: "标题党", confidence: "low" } });
 assert.deepStrictEqual(plain(s1), {
-  label: "删",
-  aria: "MoonDigest 分拣，删（标题粗分，低置信）",
+  label: "AI 可以删",
+  aria: "MoonDigest 分拣，AI 分类 可以删（标题粗分，低置信）",
   verdict: "drop",
   stage: 1,
   low: true,
@@ -36,13 +36,13 @@ assert.deepStrictEqual(plain(s1), {
 
 const analysis = { status: "done", verdict: "keep", reason: "干货", oneLiner: "讲 Rust 所有权", points: ["a", "b", ""] };
 const s2 = badgeInfo({ title: { verdict: "drop", reason: "x", confidence: "high" }, analysis });
-assert.strictEqual(s2.label, "留", "stage 2 beats stage 1");
+assert.strictEqual(s2.label, "AI 留", "stage 2 beats stage 1");
 assert.strictEqual(s2.stage, 2);
 assert.strictEqual(s2.oneLiner, "讲 Rust 所有权");
 assert.deepStrictEqual(plain(s2.points), ["a", "b"]);
 
 const o = badgeInfo({ analysis, override: { verdict: "unsure", reason: "再看看" } });
-assert.strictEqual(o.label, "待定", "override beats analysis");
+assert.strictEqual(o.label, "AI 待定", "override beats analysis");
 assert.strictEqual(o.reason, "再看看");
 assert.strictEqual(o.oneLiner, "讲 Rust 所有权", "override keeps the stage-2 summary");
 
@@ -58,10 +58,10 @@ assert.strictEqual(decided.verdict, "keep");
 
 assert.strictEqual(badgeInfo({ title: { verdict: "bogus" } }), null, "unknown verdicts are ignored");
 
-// Custom tiers: the label is the tier name, the color class follows the route.
+// Custom tiers: the label is 「AI」 + the tier name, the color class follows the route.
 const tiers = [{ id: "t-must", name: "必看", route: "keep" }, { id: "t-again", name: "再看看", route: "deep" }];
 const custom = badgeInfo({ title: { verdict: "t-must", confidence: "high" }, tiers });
-assert.deepStrictEqual([custom.label, custom.verdict, custom.aria], ["必看", "keep", "MoonDigest 分拣，必看（标题粗分）"]);
+assert.deepStrictEqual([custom.label, custom.verdict, custom.aria], ["AI 必看", "keep", "MoonDigest 分拣，AI 分类 必看（标题粗分）"]);
 assert.strictEqual(badgeInfo({ title: { verdict: "t-again" }, tiers }).verdict, "unsure");
 assert.strictEqual(badgeInfo({ title: { verdict: "" }, tiers }), null, "no tier (grading off) is not a mark");
 

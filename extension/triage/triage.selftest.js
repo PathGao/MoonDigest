@@ -169,7 +169,7 @@ function openFake(mediaId, items, decisions = {}) {
   assert.strictEqual(st({ analyses: { BVv: { status: "done", verdict: "unsure" } } }), "act");
   assert.strictEqual(st({ analyses: { BVv: { status: "error" } }, titleRes: { BVv: { verdict: "unsure" } } }), "deep", "a failed 细看 stays in 待细看 with its retry button");
   assert.strictEqual(st({ analyses: {}, titleRes: {} }, { ...v, invalid: true }), "act");
-  assert.strictEqual(t.verdictOf({ ...v, invalid: true }).verdict, "drop", "invalid videos count as 建议删");
+  assert.strictEqual(t.verdictOf({ ...v, invalid: true }).verdict, "drop", "invalid videos count as 可以删");
   assert.strictEqual(st({ decisions: { BVv: { action: "keep" } } }), "done");
   assert.strictEqual(st({ decisions: {} }, { ...v, invalid: true, bvid: "BVv" }), "act");
   // A1: only 取消收藏 / 保留 move a video to 已处理; tags (T, A, AI 指令) and notes do not.
@@ -194,6 +194,14 @@ function openFake(mediaId, items, decisions = {}) {
   assert.deepStrictEqual(plain(t.batchList("keep").map((it) => it.bvid)), ["BV210"], "the selection overrides the verdict scope");
   t.S.selected.clear();
   assert.deepStrictEqual(plain(t.batchList("drop").map((it) => it.bvid)), ["BV210", "BV211"]);
+  // Default scheme: buttons lead with the action and name the AI class; chips and badges show the bare tier name.
+  t.renderListHeader(t.visibleItems());
+  for (const part of ["取消收藏（AI：可以删）2 个", ">可以删<", ">留<", ">待定<"]) assert.ok(t.el.listHeader.innerHTML.includes(part), part);
+  assert.ok(t.verdictBadge("BV210", t.verdictOf(pool[10])).includes('<span class="ai-mark">AI</span>可以删'));
+  t.S.selected.add("BV210");
+  t.renderListHeader(t.visibleItems());
+  assert.ok(t.el.listHeader.innerHTML.includes("取消收藏选中的 1 个") && t.el.listHeader.innerHTML.includes("保留选中的 1 个"));
+  t.S.selected.clear();
   // A3: 待定 left after 细看 sits in 待处理 under its own filter, and a selection there drives both batch buttons.
   t.S.analyses = { BV200: { status: "done", verdict: "unsure" } };
   t.S.actFilter = "unsure";
@@ -272,9 +280,9 @@ function openFake(mediaId, items, decisions = {}) {
   assert.strictEqual(t.batchList(null).length, 0, "no tier, no selection → nothing");
   t.renderListHeader(t.visibleItems());
   const head = t.el.listHeader.innerHTML;
-  for (const part of ['data-act-filter="t-again"', "取消收藏建议删的 1 个", "保留建议必看的 1 个", "保留建议有空看的 1 个"]) assert.ok(head.includes(part), part);
-  assert.ok(!head.includes("建议再看看"), "a 要细看 tier gets no batch button");
-  assert.ok(t.verdictBadge("BV302", t.verdictOf(cv[2])).includes('class="badge drop"') && t.verdictBadge("BV302", t.verdictOf(cv[2])).includes(">删<"), "badge = tier name, red for unfav");
+  for (const part of ['data-act-filter="t-again"', "取消收藏（AI：删）1 个", "保留（AI：必看）1 个", "保留（AI：有空看）1 个", ">再看看<"]) assert.ok(head.includes(part), part);
+  assert.ok(!head.includes("AI：再看看"), "a 要细看 tier gets no batch button");
+  assert.ok(t.verdictBadge("BV302", t.verdictOf(cv[2])).includes('class="badge drop"') && t.verdictBadge("BV302", t.verdictOf(cv[2])).includes('<span class="ai-mark">AI</span>删<'), "badge = AI + tier name, red for unfav");
   assert.strictEqual(t.verdictOf({ ...cv[0], invalid: true }).verdict, "t-del", "invalid counts as the first 取消收藏 tier");
   t.S.analyses = { BV305: { status: "done", verdict: "keep" } };
   assert.strictEqual(t.stageOf(cv[5]), "act", "a done 细看 stays in 待处理 even with a foreign tier");
@@ -319,10 +327,18 @@ function openFake(mediaId, items, decisions = {}) {
   assert.strictEqual((await t.loadSchemes()).schemes[0].name, "改过", "a second run neither rebuilds nor reads the old keys");
   delete store.triage_schemes_migrated;
   assert.strictEqual((await t.loadSchemes()).schemes[0].name, "改过", "existing schemes are never rebuilt, even without the flag");
+  // The default 「删」 tier is renamed to 「可以删」 once; a renamed tier and other schemes' 删 stay.
+  store.triage_schemes[0].grading.tiers[1].name = "删";
+  store.triage_schemes[1].grading.tiers[1].name = "扔掉";
+  store.triage_schemes.push({ id: "x", name: "x", tags: [], grading: { tiers: [{ id: "t-del", name: "删", route: "unfav" }] } });
+  await t.loadSchemes();
+  assert.deepStrictEqual(store.triage_schemes.map((x) => x.grading.tiers.find((y) => y.route === "unfav").name), ["可以删", "扔掉", "删"]);
+  assert.strictEqual(t.renameDefaultDrop(store.triage_schemes), false, "a second run changes nothing");
   for (const k of Object.keys(store)) delete store[k];
   for (const k of Object.keys(syncStore)) delete syncStore[k];
   const fresh = plain(await t.loadSchemes());
   assert.deepStrictEqual(fresh.schemes.map((x) => x.name), ["默认方案", "学习主题", "处理优先级"], "new users get the built-in presets as schemes");
+  assert.deepStrictEqual(fresh.schemes.map((x) => x.grading.tiers.map((y) => y.name).join("/")), ["留/可以删/待定", "留/可以删/待定", "留/可以删/待定"], "sample schemes inherit the default tiers");
 
   console.log("triage selftest: all passed");
 })().catch((e) => {

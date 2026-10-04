@@ -3,7 +3,7 @@
   // Verdicts are tier ids of the triage page's schemes; these are the default scheme's (and the pre-scheme verdicts).
   const DEFAULT_TIERS = [
     { id: "keep", name: "留", route: "keep" },
-    { id: "drop", name: "删", route: "unfav" },
+    { id: "drop", name: "可以删", route: "unfav" },
     { id: "unsure", name: "待定", route: "deep" }
   ];
   const ROUTE_CLASS = { keep: "keep", unfav: "drop", deep: "unsure" };
@@ -33,11 +33,12 @@
     const action = ACTION[decision?.action] ? decision.action : "";
     if (!v && !userTags.length && !action) return null;
 
-    const label = action ? ACTION[action] : v ? String(tier.name) : "";
+    // AI classes carry an 「AI」 marker; the user's own decision never does.
+    const label = action ? ACTION[action] : v ? `AI ${tier.name}` : "";
     const aria = [
       "MoonDigest 分拣",
       action && ACTION[action],
-      v && `${tier.name}（${STAGE[v.stage]}${v.low ? "，低置信" : ""}）`,
+      v && `AI 分类 ${tier.name}（${STAGE[v.stage]}${v.low ? "，低置信" : ""}）`,
       userTags.length && `标签：${userTags.map((t) => t.name).join("、")}`
     ]
       .filter(Boolean)

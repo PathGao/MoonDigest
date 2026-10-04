@@ -37,7 +37,7 @@ const OVERRIDE_PREFIX = "triage_verdict_override_";
 // The default ids keep/drop/unsure are the verdicts stored before schemes existed.
 const DEFAULT_TIERS = [
   { id: "keep", name: "留", description: "有具体、可复用的知识、方法或数据。", route: "keep" },
-  { id: "drop", name: "删", description: "标题党、空谈、纯娱乐、过时新闻，或内容主要是广告。", route: "unfav" },
+  { id: "drop", name: "可以删", description: "标题党、空谈、纯娱乐、过时新闻，或内容主要是广告。", route: "unfav" },
   { id: "unsure", name: "待定", description: "其他情况，或信息太少无法判断。", route: "deep" }
 ];
 const ROUTES = [["keep", "保留"], ["unfav", "取消收藏"], ["deep", "要细看"]];
@@ -420,7 +420,19 @@ async function loadSchemes() {
     }
     await chrome.storage.local.set({ [K.schemes]: schemes, [K.schemesMigrated]: true });
   }
+  if (Array.isArray(schemes) && renameDefaultDrop(schemes)) await chrome.storage.local.set({ [K.schemes]: schemes });
   return { schemes: Array.isArray(schemes) && schemes.length ? schemes : [defaultScheme()], folderScheme: got[K.folderScheme] || {} };
+}
+
+// The default 「删」 tier became 「可以删」; a tier the user renamed keeps its name. Mutates, returns whether anything changed.
+function renameDefaultDrop(schemes) {
+  let changed = false;
+  for (const t of schemes.flatMap((x) => x?.grading?.tiers || [])) {
+    if (t.id !== "drop" || t.name !== "删") continue;
+    t.name = "可以删";
+    changed = true;
+  }
+  return changed;
 }
 
 async function loadFolders() {
@@ -698,7 +710,7 @@ function renderListHeader(list) {
     const batchBtn = (route, x) => {
       const n = batchList(x?.id ?? null).length;
       const verb = route === "unfav" ? "取消收藏" : "保留";
-      return headBtn(`batch-${route}`, `${verb}${x ? `建议${x.name}的` : "选中的"} ${n} 个`, route === "unfav" ? "danger" : "", !n, x?.id);
+      return headBtn(`batch-${route}`, x ? `${verb}（AI：${x.name}）${n} 个` : `${verb}选中的 ${n} 个`, route === "unfav" ? "danger" : "", !n, x?.id);
     };
     if (sel || !ts.length) html += batchBtn("unfav") + batchBtn("keep");
     else for (const route of ["unfav", "keep"]) for (const x of ts) if (x.route === route && (f === "all" || f === x.id)) html += batchBtn(route, x);
@@ -816,7 +828,7 @@ function renderList() {
   }
 }
 
-// The badge shows the tier name, colored by its route (keep green, unfav red, deep yellow).
+// The badge shows 「AI」 + the tier name, colored by its route (keep green, unfav red, deep yellow).
 const verdictLabel = (v) => (v === "none" ? "未分析" : tierOf(v)?.name || "未分级");
 const routeOf = (v) => tierOf(v)?.route || "";
 // In 待细看 every card is there for low confidence or a 要细看 tier, so the marker would only repeat the tab.
@@ -826,7 +838,7 @@ const verdictBadge = (b, v, low = v.low && S.tab !== "deep" && Boolean(tiers()))
     ? `<span class="badge running">分析中…</span>`
     : v.verdict !== "none" && !tiers()
       ? ""
-      : `<span class="badge ${ROUTE_CLASS[routeOf(v.verdict)] || "none"}${low ? " low" : ""}">${esc(verdictLabel(v.verdict))}${low ? " · 低置信" : ""}</span>`;
+      : `<span class="badge ${ROUTE_CLASS[routeOf(v.verdict)] || "none"}${low ? " low" : ""}">${tierOf(v.verdict) ? `<span class="ai-mark">AI</span>` : ""}${esc(verdictLabel(v.verdict))}${low ? " · 低置信" : ""}</span>`;
 const ACTION_LABEL = { unfav: "已取消收藏", keep: "已保留" };
 
 function cardHtml(it, expanded, mark) {

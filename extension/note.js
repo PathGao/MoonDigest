@@ -357,8 +357,9 @@
     if (analysis.oneLiner) lines.push(`> ${analysis.oneLiner}`, "");
     const points = (analysis.points || []).filter(Boolean);
     if (points.length) lines.push(...points.map((p) => `- ${p}`), "");
-    const verdict = analysis.verdictName || { keep: "建议留", drop: "建议删", unsure: "待定" }[analysis.verdict];
-    if (verdict) lines.push(`判断：${verdict}${analysis.reason ? `，${analysis.reason}` : ""}`);
+    // verdictName is the tier name the triage page stored; the map covers results from before it.
+    const verdict = analysis.verdictName || { keep: "留", drop: "可以删", unsure: "待定" }[analysis.verdict];
+    if (verdict) lines.push(`AI 分类：${verdict}${analysis.reason ? `，${analysis.reason}` : ""}`);
     return lines.join("\n").trim();
   }
 
