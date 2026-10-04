@@ -7,6 +7,7 @@
   color-scheme: light dark;
 
   /* Design tokens: Catppuccin Latte on white surfaces (accents desaturated, text colors darkened to 4.5:1) and Mocha for dark. */
+  /* One color, one meaning: accent = where you are, action = next step (one filled button per view) and links, ok/danger/warn = keep/delete/pending, gray = everything else. */
   --bg: #eff1f5;
   --surface: #ffffff;
   --surface-muted: #f6f7fa;
@@ -20,8 +21,13 @@
   --accent: #7c3ed1;
   --on-accent: #ffffff;
   --focus-ring: rgba(124, 62, 209, 0.25);
-  --link: #295ec7;
-  --link-hover: #2656b6;
+  --action: #2f5fc4;
+  --action-hover: #2a55b0;
+  --on-action: #ffffff;
+  --action-bg: #ecf1fa;
+  --action-border: #b6c7ea;
+  --link: #2f5fc4;
+  --link-hover: #2a55b0;
   --ok: #3a6f2e;
   --ok-bg: #edf4eb;
   --ok-border: #c0d8ba;
@@ -31,11 +37,11 @@
   --warn: #a04b1a;
   --warn-bg: #f8f1e7;
   --warn-border: #e7d0af;
-  --info-bg: #f6f1fc;
-  --info-border: #decff4;
-  --secondary-bg: #f5f0fb;
-  --secondary-border: #dac9f2;
-  --secondary-text: #7c3ed1;
+  --info-bg: #f6f7fa;
+  --info-border: #ccd0da;
+  --secondary-bg: #e6e9ef;
+  --secondary-border: #ccd0da;
+  --secondary-text: #4c4f69;
 
   --radius-sm: 8px;
   --radius-md: 10px;
@@ -73,8 +79,13 @@
     --accent: #cba6f7;
     --on-accent: #11111b;
     --focus-ring: rgba(203, 166, 247, 0.3);
+    --action: #89b4fa;
+    --action-hover: #74a7f9;
+    --on-action: #11111b;
+    --action-bg: #292d42;
+    --action-border: #435275;
     --link: #89b4fa;
-    --link-hover: #b4befe;
+    --link-hover: #74a7f9;
     --ok: #a6e3a1;
     --ok-bg: #2c323a;
     --ok-border: #4e6356;
@@ -84,11 +95,11 @@
     --warn: #fab387;
     --warn-bg: #34323b;
     --warn-border: #6b635b;
-    --info-bg: #2f2c42;
-    --info-border: #5b4e74;
-    --secondary-bg: #2d2e43;
-    --secondary-border: #535677;
-    --secondary-text: #b4befe;
+    --info-bg: #181825;
+    --info-border: #45475a;
+    --secondary-bg: #313244;
+    --secondary-border: #45475a;
+    --secondary-text: #cdd6f4;
   }
 }
 

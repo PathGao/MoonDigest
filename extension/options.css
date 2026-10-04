@@ -446,8 +446,8 @@ select.input-error {
 button {
   border: 0;
   border-radius: var(--radius-sm);
-  background: var(--accent);
-  color: var(--on-accent);
+  background: var(--action);
+  color: var(--on-action);
   font: inherit;
   font-size: var(--fs-md);
   font-weight: 600;
@@ -476,18 +476,18 @@ button:active {
 .secondary-btn {
   padding: 7px 14px;
   font-size: var(--fs-sm);
-  background: var(--secondary-bg);
-  color: var(--secondary-text);
-  border: 1px solid var(--secondary-border);
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--border-strong);
   font-weight: 600;
 }
 
 .secondary-btn:hover {
-  border-color: var(--accent);
+  background: var(--surface-muted);
 }
 
 .save-btn:hover {
-  filter: brightness(1.08);
+  background: var(--action-hover);
 }
 
 .add-property-btn {

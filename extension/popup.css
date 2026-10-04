@@ -64,16 +64,7 @@ button {
 }
 
 .ghost-ai {
-  border-color: var(--secondary-border);
-  background: var(--secondary-bg);
-  color: var(--secondary-text);
   gap: var(--space-1);
-}
-
-.ghost-ai:hover {
-  border-color: var(--accent);
-  background: var(--secondary-bg);
-  color: var(--secondary-text);
 }
 
 .ghost-ai svg {
@@ -173,31 +164,31 @@ button {
 }
 
 .actions button {
-  border: 1px solid var(--secondary-border);
-  background: var(--secondary-bg);
+  border: 1px solid var(--border-strong);
+  background: var(--surface);
   border-radius: var(--radius-sm);
   padding: 7px 0;
   font-size: var(--fs-sm);
   font-weight: 600;
-  color: var(--secondary-text);
+  color: var(--text);
 }
 
 .actions button:hover {
-  border-color: var(--accent);
+  background: var(--surface-muted);
 }
 
 .primary {
-  border: 1px solid var(--accent);
-  background: var(--accent);
+  border: 1px solid var(--action);
+  background: var(--action);
   border-radius: var(--radius-sm);
   padding: var(--space-2) 0;
   font-size: var(--fs-md);
   font-weight: 600;
-  color: var(--on-accent);
+  color: var(--on-action);
 }
 
 .primary:hover {
-  filter: brightness(1.08);
+  background: var(--action-hover);
 }
 
 button:active:not(:disabled) {
@@ -228,11 +219,11 @@ button:disabled {
   background: none;
   padding: 0;
   font-size: var(--fs-xs);
-  color: var(--text-2);
+  color: var(--link);
   text-decoration: underline;
   text-underline-offset: 2px;
 }
 
 .triage-link:hover {
-  color: var(--accent);
+  color: var(--link-hover);
 }
