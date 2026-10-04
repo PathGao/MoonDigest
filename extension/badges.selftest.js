@@ -58,12 +58,9 @@ assert.strictEqual(decided.verdict, "keep");
 
 assert.strictEqual(badgeInfo({ title: { verdict: "bogus" } }), null, "unknown verdicts are ignored");
 
-// Custom tiers: the label is 「AI」 + the tier name, the color class follows the route.
-const tiers = [{ id: "t-must", name: "必看", route: "keep" }, { id: "t-again", name: "再看看", route: "deep" }];
-const custom = badgeInfo({ title: { verdict: "t-must", confidence: "high" }, tiers });
-assert.deepStrictEqual([custom.label, custom.verdict, custom.aria], ["AI 必看", "keep", "MoonDigest 分拣，AI 分类 必看（标题粗分）"]);
-assert.strictEqual(badgeInfo({ title: { verdict: "t-again" }, tiers }).verdict, "unsure");
-assert.strictEqual(badgeInfo({ title: { verdict: "" }, tiers }), null, "no tier (grading off) is not a mark");
+assert.strictEqual(badgeInfo({ title: { verdict: "t-must", confidence: "high" } }), null, "old custom-tier verdicts are not a mark");
+assert.strictEqual(badgeInfo({ title: { verdict: "unsure" } }).verdict, "unsure");
+assert.strictEqual(badgeInfo({ analysis: { status: "done", verdict: "t-must" }, override: { verdict: "t-x" } }).label, "AI 待定", "a done 细看 with an old verdict reads as 待定, like the triage page");
 
 // A video decided in several folders shows its latest decision, whatever the storage-key order.
 const merged = mergeDecisions({
