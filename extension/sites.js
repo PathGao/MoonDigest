@@ -2,7 +2,7 @@
 // (importScripts) and the extension pages (<script>). Idempotent so a
 // re-injected content script does not redeclare it.
 //
-// VideoRef { site, id, part: { index, cid? } | null, url }
+// VideoRef { site, id, part: { index, explicit?, oid?, cid? } | null, url }
 // Meta     { title, author, authorUrl, uploadDate, description, duration, cover,
 //            tags, chapters, pageCount, pageIndex, pageTitle, cid?, aid?, pages? }
 // Track    { id, lang, label, url, kind: "manual" | "auto" | "ai" | "translated" | "transcript", isDefault }

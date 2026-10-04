@@ -107,8 +107,6 @@ const state = {
   playerAiQuickActionObserver: null,
   playerAiQuickActionLayoutBound: false,
   playerAiQuickActionSyncTimer: 0,
-  playerAiQuickActionRevealTimer: 0,
-  playerAiQuickActionHideTimer: 0,
   playerAiQuickActionCursorHideTimer: 0,
   playerAiQuickActionSubmitting: false,
   playerAiQuickActionSuppressedUntil: 0,
@@ -387,7 +385,6 @@ function clearReaderModePageState() {
   document.documentElement.removeAttribute("data-boc-reader-content-width");
   document.documentElement.removeAttribute("data-boc-reader-chapter-visibility");
   document.documentElement.removeAttribute("data-boc-reader-has-chapters");
-  document.documentElement.removeAttribute("data-boc-reader-transcript-visible");
   document.body.removeAttribute("data-boc-reader-mode");
   document.body.removeAttribute("data-boc-reader-line-height");
   document.body.removeAttribute("data-boc-reading-active");
@@ -423,8 +420,7 @@ function bindNormalPageStateGuard() {
       "data-boc-reader-letter-spacing",
       "data-boc-reader-content-width",
       "data-boc-reader-chapter-visibility",
-      "data-boc-reader-has-chapters",
-      "data-boc-reader-transcript-visible"
+      "data-boc-reader-has-chapters"
     ]
   });
   observer.observe(document.body, {
@@ -759,6 +755,10 @@ function bindUiEvents() {
     e.stopPropagation();
     state.readingSettingsExpanded = !state.readingSettingsExpanded;
     renderReaderPanels();
+    // The panel is display:none until now, so the description could not be measured before.
+    if (state.readingSettingsExpanded) {
+      renderReadingInfoPanel();
+    }
   });
   readingDescriptionBtn.addEventListener("click", () => {
     state.readingDescriptionExpanded = !state.readingDescriptionExpanded;
@@ -784,7 +784,6 @@ function bindUiEvents() {
       });
   });
 
-  // Click outside settings panel to close
   if (!state.readingDocumentClickBound) {
     document.addEventListener("click", (e) => {
       if (!state.readingSettingsExpanded) return;
@@ -1102,7 +1101,7 @@ async function runRefreshClip() {
           selected = await loadTranscriptFallback(error, runId);
         } else {
           const message = getErrorMessage(error, "");
-          if (!message.includes("HTTP") && error?.code !== "SUBTITLE_DURATION_MISMATCH") {
+          if (!message.includes("HTTP") && !error?.status && error?.code !== "SUBTITLE_DURATION_MISMATCH") {
             throw error;
           }
           selected = await retrySubtitleCandidates(preferred, runId).catch((retryError) => {
@@ -1153,7 +1152,6 @@ async function runRefreshClip() {
       }
       return;
     }
-    state.subtitleFetchState = "error";
     resetClipState();
     state.subtitleFetchState = "error";
     if (state.readingViewOpen) {
@@ -1216,7 +1214,6 @@ async function loadSubtitle(url, lang, runId = state.fetchRunId, subtitleId = ""
     lang
   });
 
-  // 尝试从缓存读取
   if (!forceRefresh) {
     const cachedRaw = await subtitleCache.load(cacheKey);
     const cachedBody = cachedRaw === null ? [] : currentSite().parseSegments(cachedRaw);
@@ -1246,7 +1243,6 @@ async function loadSubtitle(url, lang, runId = state.fetchRunId, subtitleId = ""
     }
   }
 
-  // 从网络获取
   logInfo("[BOC] fetch subtitle body", { url });
   const raw = await currentSite().fetchRaw({ id: subtitleId, url, lang }, siteIo());
   await commitSubtitleBody(raw, { url, lang, subtitleId }, runId);
@@ -1268,7 +1264,6 @@ async function commitSubtitleBody(raw, { url, lang, subtitleId }, runId) {
     throw mismatchError;
   }
 
-  // 存入缓存
   await subtitleCache.save(cacheKey, raw);
 
   state.selectedSubtitleId = subtitleId ? String(subtitleId) : state.selectedSubtitleId;
@@ -1565,7 +1560,6 @@ async function enterReaderMode() {
 
   await sleep(0);
 
-  // Try to mount player, with more retries for slower pages (like watch later)
   // The view stays hidden until the player is in, so say so unless that is instant.
   const waitNotice = window.setTimeout(() => state.readingViewOpen && setReadingNotice("正在等待视频播放器就绪...", { busy: true }), 150);
   const mounted = await ensureReaderPlayerMounted({ retries: 50, delayMs: 150, forceLayout: true });
@@ -1830,11 +1824,9 @@ function closeReadingView() {
   clearReaderPageFocus();
   const sendingBar = reader().sendingBar ? document.querySelector(reader().sendingBar) : null;
   if (sendingBar) {
-    sendingBar.setAttribute("data-boc-reader-hide-sending-bar", "1");
     sendingBar.style.setProperty("display", "none", "important");
     window.setTimeout(() => {
       sendingBar.style.removeProperty("display");
-      sendingBar.removeAttribute("data-boc-reader-hide-sending-bar");
     }, 200);
   }
   window.setTimeout(() => cleanupReaderFloatingArtifacts(), 40);
@@ -1935,7 +1927,6 @@ function getReadingTranscriptItems(body = state.subtitleBody) {
     .map((item, index) => ({
       index,
       from: Number(item?.from || 0) || 0,
-      to: Number(item?.to || 0) || 0,
       content: String(item?.content || "").trim()
     }))
     .filter((item) => item.content);
@@ -2046,7 +2037,7 @@ function buildReaderStepperControl({
     return "";
   }
   return `
-    <div id="${id}" class="boc-reading-stepper" data-reader-setting-id="${id}">
+    <div id="${id}" class="boc-reading-stepper">
       <span class="boc-reading-stepper-title">${escapeHtml(title)}</span>
       <div class="boc-reading-stepper-buttons" role="group" aria-label="${escapeHtml(title)}">
         ${config.options
@@ -3281,7 +3272,6 @@ function syncPlayerAiQuickActionButton() {
   if (!wrap) {
     wrap = document.createElement("div");
     wrap.className = "boc-player-ai-wrap";
-    wrap.setAttribute("data-boc-extension-node", "ai-quick-action");
   }
   if (!button) {
     button = document.createElement("button");
@@ -3305,14 +3295,6 @@ function syncPlayerAiQuickActionButton() {
 }
 
 function removePlayerAiQuickActionButton() {
-  if (state.playerAiQuickActionRevealTimer) {
-    window.clearTimeout(state.playerAiQuickActionRevealTimer);
-    state.playerAiQuickActionRevealTimer = 0;
-  }
-  if (state.playerAiQuickActionHideTimer) {
-    window.clearTimeout(state.playerAiQuickActionHideTimer);
-    state.playerAiQuickActionHideTimer = 0;
-  }
   if (state.playerAiQuickActionCursorHideTimer) {
     window.clearTimeout(state.playerAiQuickActionCursorHideTimer);
     state.playerAiQuickActionCursorHideTimer = 0;
@@ -3978,9 +3960,7 @@ function toReadableText(value, fallback = "") {
     if (json && json !== "{}") {
       return json;
     }
-  } catch {
-    // ignore
-  }
+  } catch {}
   const text = String(value);
   if (!text || text === "[object Object]") {
     return fallback;
@@ -4076,7 +4056,6 @@ async function retryAsync(task, retries = 1, delayMs = 180) {
       return await task();
     } catch (error) {
       lastError = error;
-      // 如果不是网络错误也不是可重试的业务错误，立即抛出
       const isNetworkError = isRetryableNetworkError(error);
       const isRetryable = error?.retryable === true;
       if (!isNetworkError && !isRetryable) {
@@ -4085,7 +4064,6 @@ async function retryAsync(task, retries = 1, delayMs = 180) {
       if (attempt >= retries) {
         throw error;
       }
-      // 指数退避：delayMs * 2^(attempt-1)，最多等待 5 秒
       const backoffDelay = Math.min(delayMs * Math.pow(2, attempt - 1), 5000);
       logInfo(`[BOC] retrying after ${backoffDelay}ms, attempt ${attempt + 1}/${retries}`, {
         error: getErrorMessage(error),
@@ -4304,10 +4282,9 @@ function rebuildDerivedContent() {
 
 // Without subtitles the comments are most of the note, so they are fetched
 // regardless of includeHotCommentsInNote.
-async function refreshDerivedContent({ refreshComments = false } = {}) {
+async function refreshDerivedContent() {
   if (state.settings?.includeHotCommentsInNote || state.subtitleFetchState === "empty") {
-    const shouldFetchComments =
-      refreshComments || !Array.isArray(state.hotComments) || state.hotComments.length === 0;
+    const shouldFetchComments = !Array.isArray(state.hotComments) || state.hotComments.length === 0;
     if (shouldFetchComments) {
       try {
         state.hotComments = await fetchHotComments(20);

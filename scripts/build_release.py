@@ -27,7 +27,7 @@ def check_readme_version(version: str):
         raise SystemExit(f"README.md version badge says {match.group(1)} but manifest.json says {version}; update the badge")
 
 
-def build_chrome(manifest: dict, version: str, release_dir: Path):
+def build_chrome(version: str, release_dir: Path):
     release_folder = release_dir / f"{PACKAGE_NAME}-v{version}-chrome"
     zip_path = release_dir / f"{PACKAGE_NAME}-v{version}-chrome.zip"
 
@@ -35,14 +35,6 @@ def build_chrome(manifest: dict, version: str, release_dir: Path):
         shutil.rmtree(release_folder)
     # Selftests and dev-only mocks stay out of the shipped package.
     shutil.copytree(EXTENSION_DIR, release_folder, ignore=shutil.ignore_patterns("*.selftest.js", "dev-sidepanel", "dev"))
-
-    chrome_manifest = json.loads(json.dumps(manifest))
-    chrome_manifest.pop("browser_specific_settings", None)
-    chrome_manifest.pop("sidebar_action", None)
-    background = chrome_manifest.setdefault("background", {})
-    background.pop("scripts", None)
-    background["service_worker"] = "background.js"
-    (release_folder / "manifest.json").write_text(json.dumps(chrome_manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
     with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
         for file_path in sorted(release_folder.rglob("*")):
@@ -61,7 +53,7 @@ def main():
 
     release_dir = Path(sys.argv[1]).resolve() if len(sys.argv) > 1 else ROOT / "release"
     release_dir.mkdir(parents=True, exist_ok=True)
-    folder, zip_path = build_chrome(manifest, version, release_dir)
+    folder, zip_path = build_chrome(version, release_dir)
 
     print(f"Built Chrome release package for v{version}:")
     print(f"- dir: {folder}")

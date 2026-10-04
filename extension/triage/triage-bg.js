@@ -373,7 +373,7 @@ async function triageAnalyze({ bvid, force, criteria, folder }) {
   if (track) {
     const valid = (body) => triageSubtitleValid(body, m.duration);
     const raw = await BocSites.fetchRawCached(site, track, { videoId: bvid, cid: m.cid }, TRIAGE_BILI_IO, valid).catch((e) => {
-      // Throttling must reach the page so it backs off; other failures fall back to comments as before.
+      // Throttling must reach the page so it backs off; other failures fall back to comments.
       if (e?.code === "THROTTLED") throw e;
       return null;
     });

@@ -79,7 +79,7 @@
       .filter(Boolean);
     const tagsCsv = tags.join(", ");
     const tagsYaml =
-      tags.length === 0 ? "[]" : `[${tags.map((tag) => `"${tag.replace(/"/g, '\\"')}"`).join(", ")}]`;
+      tags.length === 0 ? "[]" : `[${tags.map((tag) => `"${escapeYaml(tag)}"`).join(", ")}]`;
 
     const compactWithHours = shouldShowHoursInNote(meta, body);
     const chapterLines = buildChapterLines(meta.chapters || [], compactWithHours);
@@ -748,10 +748,6 @@
       lines.push("");
     }
 
-    if (lines.length === 0) {
-      return subtitleItems.map((item) => formatSubtitleLine(item, settings, withHours));
-    }
-
     while (lines.length > 0 && !lines[lines.length - 1]) {
       lines.pop();
     }
@@ -1079,7 +1075,6 @@
     AI_SECTION_END,
     TIMESTAMP_PATTERN,
     stripThinkBlocks,
-    isTimestampOnlyInlineCode,
     renderMarkdown,
     normalizeMarkdownForSectionPaste,
     buildConversationTurns,
@@ -1100,7 +1095,6 @@
     formatCompactTimestamp,
     formatTimestamp,
     sanitizeFileName,
-    normalizeFolder,
     escapeYaml
   };
 })();

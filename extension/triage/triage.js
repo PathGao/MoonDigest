@@ -625,7 +625,7 @@ async function loadFolders() {
   el.list.innerHTML = `<p class="empty">正在加载收藏夹列表…</p>`;
   const r = await send({ type: "triage-folders" });
   if (!r.ok) {
-    const needLogin = r.code === "NOT_LOGGED_IN" || /登录/.test(r.error || "");
+    const needLogin = /登录/.test(r.error || "");
     if (needLogin) showBanner(`未登录 B 站：${r.error}`, "去登录", () => openTab("https://passport.bilibili.com/login"));
     else showBanner(`读取收藏夹失败：${r.error}`, "重试", loadFolders);
     el.list.innerHTML = `<p class="empty">无法读取收藏夹</p>`;
@@ -662,6 +662,8 @@ async function openFolder(mediaId) {
   const removed = mediaId === REMOVED;
   const decisions = all || removed ? {} : { ...S.kept, ...(await storeGet(K.decisions(mediaId), {})) };
   S.folderToken++;
+  // A proposal's new tags and rows belong to the folder it ran in.
+  S.ai.proposal = null;
   // The old stage-1 loop exits on the token change without touching state, so reset it here.
   S.stage1 = { running: false, stop: true };
   if (S.group) S.group.stop = true;
@@ -706,7 +708,7 @@ async function syncFolder({ force = false } = {}) {
     const r = await send({ type: "triage-folder-items", mediaId });
     if (token !== S.folderToken) return false;
     if (!r.ok) {
-      const needLogin = r.code === "NOT_LOGGED_IN" || /登录/.test(r.error || "");
+      const needLogin = /登录/.test(r.error || "");
       if (needLogin) showBanner(`未登录 B 站：${r.error}`, "去登录", () => openTab("https://passport.bilibili.com/login"));
       else toast(`刷新收藏夹失败：${r.error}`, true);
       if (!S.items.length) el.list.innerHTML = `<p class="empty">无法读取这个收藏夹</p>`;
@@ -1469,6 +1471,7 @@ async function decide(bvid, action) {
     return;
   }
   const before = visibleItems();
+  const token = S.folderToken;
   if (action === "keep") {
     patchKept({ [bvid]: { action, at: Date.now() } });
     pushUndo({ kind: "keepMany", bvids: [bvid] });
@@ -1500,6 +1503,8 @@ async function decide(bvid, action) {
   const rec = unfavRecord(it, Date.now());
   const prevs = Object.fromEntries(folders.map((f) => [f, (f === S.mediaId ? S.decisions : S.folderDecisions[f])?.[bvid] || null]));
   for (const f of folders) await patchDecisions(f, { [bvid]: rec });
+  // After a folder switch the record is saved under its folder; the undo entry would point at a video no longer listed.
+  if (token !== S.folderToken) return;
   const left = it.folders ? (it.folders = it.folders.filter((f) => !folders.includes(f))) : [];
   if (it.folders && !left.length) S.decisions[bvid] = rec;
   pushUndo({ kind: "decision", bvid, action, prev, prevs });
@@ -2233,7 +2238,7 @@ function applyAiProposal() {
 }
 
 // ---------- 优先看 ----------
-// triage_basket is the 优先看 list in order: [{ bvid, title }]; the title is only for videos outside the open folder.
+// triage_basket is the 优先看 list in order: [{ bvid, title, opened? }]; the title is only for videos outside the open folder.
 const saveBasket = () => storeSet(K.basket, S.basket);
 
 function toggleBasket(bvid) {
@@ -2461,7 +2466,6 @@ async function runWrite(md = false) {
 
 // ---------- data export ----------
 const BACKUP_PREFIXES = [K.kept, K.removed, K.tags, K.folderCriteria, "triage_video_tags", "triage_basket", K.notes, "triage_snapshot_", "triage_decisions_", "triage_title_", "triage_analysis_"];
-const isSecretKey = (k) => /key|token/i.test(k) || k === "aiProviderKeys" || k === "obsidianApiKey";
 
 async function buildBackup() {
   const all = await chrome.storage.local.get(null);
@@ -2487,7 +2491,6 @@ async function buildBackup() {
     (out.folders[id] ||= { title: S.allFolders.find((f) => String(f.id) === id)?.title || "", snapshot: null, decisions: {} });
   for (const [k, v] of Object.entries(all || {})) {
     if (!BACKUP_PREFIXES.some((p) => k.startsWith(p))) continue;
-    if (isSecretKey(k)) continue; // defensive: triage keys never contain these words
     if (k === K.tags) out.tags = v;
     else if (k === K.kept) out.kept = v;
     else if (k === K.removed) out.removed = v;
@@ -2799,7 +2802,6 @@ function bindEvents() {
   el.criteriaDialog.addEventListener("close", () => {
     if (el.criteriaDialog.returnValue === "save") saveCriteria();
   });
-  // Edits in 管理 save as they happen.
   el.aiBtn.addEventListener("click", () => openTags(tagsBtnMode()));
   el.tagsDialog.addEventListener("click", (e) => {
     const btn = e.target.closest("[data-tags-mode]");

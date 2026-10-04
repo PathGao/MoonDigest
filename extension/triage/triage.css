@@ -146,7 +146,6 @@ select { height: 28px; max-width: 240px; }
 .read-item h3 a:hover { text-decoration: underline; }
 .read-item .points { font-size: var(--fs-sm); color: inherit; margin-top: 4px; }
 .read-item .points li { margin: 2px 0; }
-.read-item .muted { margin: 4px 0 0; }
 .points { margin: 0; padding-left: 18px; color: var(--muted); font-size: var(--fs-xs); }
 .points li { margin: 0; }
 
@@ -211,7 +210,6 @@ button.icon { width: 26px; height: 24px; padding: 0; }
 
 .list-header { align-items: center; }
 .run-line { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 4px; color: var(--muted); font-size: var(--fs-xs); }
-.run-line .link { height: auto; font-size: inherit; }
 .key { font: inherit; margin-left: 4px; opacity: 0.7; }
 @media (hover: none) { .key { display: none; } }
 .card.selected { background: var(--secondary-bg); }
@@ -257,8 +255,7 @@ dialog h3 { margin: 10px 0 2px; font-size: var(--fs-sm); }
 .tab-note { margin: 4px 0 8px; font-size: var(--fs-xs); }
 .basket-foot { display: flex; gap: 6px; padding: 6px; border-top: 1px solid var(--border); }
 .basket-foot button { flex: 1; }
-.obsidian-off #writeRunBtn, .obsidian-off label:has(#writeOverwrite),
-.obsidian-off label[for="exportFolderInput"], .obsidian-off #exportFolderInput, .obsidian-off .obsidian-only { display: none; }
+.obsidian-off #writeRunBtn, .obsidian-off label:has(#writeOverwrite) { display: none; }
 .write-failed { margin: 4px 0 0; padding-left: 18px; font-size: var(--fs-xs); color: var(--danger); }
 
 /* toast */
@@ -318,10 +315,9 @@ dialog textarea { resize: vertical; }
   .toast { bottom: 64px; }
 }
 
-/* AI command + presets */
+/* 标签 dialog: 管理 + 批量打 */
 dialog.wide { width: min(880px, calc(100% - 32px)); }
 .ai-section { display: flex; flex-direction: column; gap: 6px; }
-.ai-section[hidden] { display: none !important; }
 .ai-grid { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 6px 10px; align-items: center; }
 .ai-history { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
 .chip.add { --c: var(--ok); color: var(--ok); }
@@ -338,7 +334,7 @@ dialog.wide { width: min(880px, calc(100% - 32px)); }
 .steps { margin: 0 0 4px; padding-left: 20px; }
 .steps li { margin: 2px 0; }
 
-/* V5: at phone width the top bar keeps folder + ⋯, and the steps scroll sideways instead of wrapping. */
+/* At phone width the top bar keeps folder + ⋯, and the steps scroll sideways instead of wrapping. */
 @media (max-width: 600px) {
   .brand, .progress { display: none; }
   .topbar { padding: 8px; }

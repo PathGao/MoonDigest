@@ -614,31 +614,6 @@ html[data-boc-reader-mode="1"][data-boc-reader-theme="dark"] {
   pointer-events: none;
 }
 
-.boc-reading-player-slot > * {
-  width: 100% !important;
-  max-width: 100% !important;
-  height: 100% !important;
-}
-
-.boc-reading-player-slot > video {
-  width: 100% !important;
-  height: 100% !important;
-  display: block;
-  background: #000;
-  object-fit: contain;
-}
-
-.boc-reading-player-slot #bilibili-player,
-.boc-reading-player-slot .bpx-player-container,
-.boc-reading-player-slot .bpx-player-video-area,
-.boc-reading-player-slot .bpx-player-primary-area,
-.boc-reading-player-slot .bpx-player-inner,
-.boc-reading-player-slot #movie_player,
-.boc-reading-player-slot .html5-video-container {
-  width: 100% !important;
-  height: 100% !important;
-}
-
 body[data-boc-reader-mode="1"] #secondary,
 body[data-boc-reader-mode="1"] #comments,
 body[data-boc-reader-mode="1"] ytd-merch-shelf-renderer {
@@ -1094,7 +1069,6 @@ body[data-boc-reader-mode="1"] #app {
 }
 
 #boc-reading-view .boc-reading-actions button.is-active,
-#boc-reading-view .boc-reading-toggle.is-active,
 #boc-reading-view .boc-reading-select:focus {
   background: var(--boc-secondary-bg);
   color: var(--boc-text);

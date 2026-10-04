@@ -23,7 +23,6 @@ const FOLLOWED_LIVE_VIDEO = "followed";
 const QUICK_ACTION_MAX_AGE_MS = 15000;
 
 const els = {
-  header: document.querySelector(".sp-header"),
   contextChip: document.getElementById("spContextChip"),
   previousVideoBar: document.getElementById("spPreviousVideo"),
   modelSelect: document.getElementById("spModelSelect"),
@@ -503,7 +502,7 @@ function applyContextPayload(payload) {
   updateContextChip();
 
   if (contextChanged) {
-    restartChat({ keepContext: true });
+    restartChat();
   } else {
     renderSuggestions();
   }
@@ -1102,7 +1101,7 @@ function showLiveContextInFreshConversation() {
     currentContextKey = liveContextKey || buildContextKey(liveContextData);
   }
   const draft = els.input.value;
-  restartChat({ keepContext: true });
+  restartChat();
   els.input.value = draft;
   autosizeInput();
   renderInitialState();
@@ -1269,7 +1268,7 @@ async function followLiveVideo(context) {
   contextData = { ...context };
   currentContextKey = buildContextKey(context);
   const draft = els.input.value;
-  restartChat({ keepContext: true });
+  restartChat();
   els.input.value = draft;
   autosizeInput();
   await restoreLatestConversationForCurrentContext(contextData, currentContextKey);
@@ -1454,7 +1453,7 @@ async function startNewConversation() {
     currentContextKey = liveContextKey || buildContextKey(liveContextData);
     updateContextChip();
   }
-  restartChat({ keepContext: true });
+  restartChat();
   renderInitialState();
 }
 
@@ -1795,10 +1794,6 @@ async function sendMessage() {
   if (!hasContext || activeStream) {
     return;
   }
-  if (!currentConversationMeta?.pinnedContext && currentConversationMeta?.contextKey && currentConversationMeta.contextKey !== currentContextKey) {
-    currentConversationId = "";
-    currentConversationMeta = null;
-  }
 
   suggestionsNode?.remove();
   suggestionsNode = null;
@@ -2101,7 +2096,7 @@ async function resolveVideoNotePath(context, settings) {
 }
 
 // Rewrites the marked AI 问答 section of the video's note when that note exists; never creates one.
-// Resolves to the background result plus the path ({ exists, updated, filepath }) or null when the conversation has no video.
+// Resolves to the background result plus the path ({ exists, updated, filepath }) or null when the conversation has no video or nothing to write.
 async function syncVideoNoteAiSection({ context, messages, settings, baseUrl, apiKey }) {
   const noteKey = BocSites.buildContextKey(buildConversationContextRef(context) || {});
   if (!noteKey) {
@@ -2275,7 +2270,6 @@ async function saveMarkdownToObsidian({ button, filepath, content, baseUrl, apiK
   try {
     if (button) {
       button.disabled = true;
-      button.classList.add("is-saving");
     }
     const exists = await checkObsidianNoteExists(baseUrl, apiKey, filepath);
     if (exists) {
@@ -2292,7 +2286,6 @@ async function saveMarkdownToObsidian({ button, filepath, content, baseUrl, apiK
     showConversationContextNotice(`写入 Obsidian 失败：${getErrorMessage(error)}`, 4000);
   } finally {
     if (button) {
-      button.classList.remove("is-saving");
       window.setTimeout(() => {
         button.disabled = false;
       }, 500);
@@ -2465,7 +2458,7 @@ function parseTimestampToSeconds(value) {
   return 0;
 }
 
-async function jumpToAssistantTimestamp(seconds, label = "") {
+async function jumpToAssistantTimestamp(seconds, label) {
   const safeSeconds = Math.max(0, Number(seconds || 0) || 0);
   const targetUrl = String(contextData?.url || currentConversationMeta?.contextUrl || "").trim();
   if (!targetUrl) {
@@ -2479,7 +2472,7 @@ async function jumpToAssistantTimestamp(seconds, label = "") {
     return;
   }
 
-  showConversationContextNotice(`正在跳转到 ${label || formatSecondsAsTimestamp(safeSeconds)}...`, 1800);
+  showConversationContextNotice(`正在跳转到 ${label}...`, 1800);
 
   try {
     const sameVideo = doesTabMatchContextUrl(tab.url || "", targetUrl);
@@ -2545,18 +2538,7 @@ function delay(ms) {
   return new Promise((resolve) => window.setTimeout(resolve, ms));
 }
 
-function formatSecondsAsTimestamp(seconds) {
-  const safe = Math.max(0, Math.floor(Number(seconds) || 0));
-  const hour = Math.floor(safe / 3600);
-  const minute = Math.floor((safe % 3600) / 60);
-  const second = safe % 60;
-  if (hour > 0) {
-    return `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}:${String(second).padStart(2, "0")}`;
-  }
-  return `${String(Math.floor(safe / 60)).padStart(2, "0")}:${String(second).padStart(2, "0")}`;
-}
-
-function restartChat({ keepContext = false } = {}) {
+function restartChat() {
   conversationEpoch += 1;
   clearStreamRuntimeState();
   if (activeStream) {
@@ -2566,9 +2548,6 @@ function restartChat({ keepContext = false } = {}) {
   chatHistory = [];
   currentConversationId = "";
   currentConversationMeta = null;
-  if (!keepContext) {
-    currentContextKey = buildContextKey(contextData);
-  }
   updateContextChip();
   resetConversationView("");
   setStreamingUiState(false);

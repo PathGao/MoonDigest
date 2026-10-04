@@ -301,6 +301,13 @@ select.input-error {
   margin: 0;
 }
 
+/* Rows restyle their inputs with higher specificity than input.input-error. */
+.fixed-property-fields input.input-error,
+.note-section-fields :is(input, select).input-error {
+  border-color: var(--danger);
+  background: var(--danger-bg);
+}
+
 .note-section-fields select.note-section-position,
 .ai-provider-row select.ai-provider-preset {
   appearance: none;
