@@ -1026,6 +1026,7 @@ function updateAiProvidersEmptyState() {
   elements.aiProvidersEmpty.hidden = hasRows;
   // With no platform yet, adding one is the page's next step, so it takes the filled action style.
   elements.addAiProviderBtn.classList.toggle("add-property-btn", hasRows);
+  elements.addAiProviderBtn.classList.toggle("primary", !hasRows);
 }
 
 function generateAiProviderId() {

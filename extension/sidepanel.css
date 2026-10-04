@@ -29,6 +29,8 @@ body {
 /* The chip takes what is left and the model select keeps its full name. */
 .sp-context-chip {
   flex: 1 1 0;
+  height: auto;
+  line-height: normal;
   min-width: 72px;
   padding: 6px 10px;
   border: 0;
@@ -91,6 +93,7 @@ body {
 .sp-icon-btn {
   width: 32px;
   height: 32px;
+  padding: 0;
   border: 0;
   border-radius: var(--radius-sm);
   background: transparent;
@@ -267,6 +270,8 @@ body {
 }
 
 .sp-chip {
+  height: auto;
+  white-space: normal;
   text-align: left;
   padding: 11px 13px;
   border: 1px solid var(--border);
@@ -294,6 +299,8 @@ body {
 }
 
 .sp-summary-btn {
+  height: auto;
+  white-space: normal;
   padding: 11px 13px;
   border: 0;
   border-radius: var(--radius-lg);
@@ -333,6 +340,7 @@ body {
 
 .sp-followup-chip {
   max-width: 100%;
+  height: auto;
   padding: 5px 10px;
   border: 1px solid var(--border);
   border-radius: 999px;
@@ -714,6 +722,7 @@ body {
 }
 
 .sp-sync-status button {
+  height: auto;
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   background: transparent;
@@ -1039,6 +1048,8 @@ body {
 .sp-preset-remove {
   width: 24px;
   height: 24px;
+  padding: 0;
+  border-radius: 0;
   border: 0;
   border-left: 1px solid var(--border);
   background: transparent;
@@ -1120,6 +1131,7 @@ body {
   bottom: 8px;
   width: 60px;
   height: 32px;
+  padding: 0;
   border: 1px solid var(--border);
   border-radius: 999px;
   background: var(--surface);

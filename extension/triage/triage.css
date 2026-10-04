@@ -10,27 +10,10 @@ html, body {
   font-family: var(--font-sans);
 }
 
-button, select, input, textarea { font: inherit; color: inherit; }
+select, input, textarea { font: inherit; color: inherit; }
 
-button {
-  height: 28px;
-  padding: 0 10px;
-  border: 1px solid var(--border-strong);
-  border-radius: var(--radius-sm);
-  background: var(--surface);
-  cursor: pointer;
-  white-space: nowrap;
-}
-button:hover { background: var(--surface-muted); }
-button:active:not(:disabled) { transform: translateY(1px); }
-button:disabled { opacity: 0.5; cursor: not-allowed; }
-button.primary { background: var(--action); border-color: var(--action); color: var(--on-action); font-weight: 600; }
-button.primary:hover { background: var(--action-hover); border-color: var(--action-hover); }
-button.ok.solid { background: var(--ok); border-color: var(--ok); color: var(--surface); font-weight: 600; }
-button.danger { color: var(--danger); border-color: var(--danger-border); background: var(--danger-bg); }
-button.danger.solid { background: var(--danger); border-color: var(--danger); color: var(--surface); font-weight: 600; }
-button.link { border: 0; background: none; color: var(--link); padding: 0; }
-button.link:hover { text-decoration: underline; }
+/* Dense workspace: 28px buttons to match the 28px selects. Base styles live in tokens.css. */
+button { height: 28px; padding: 0 10px; color: inherit; }
 button.on { background: var(--secondary-bg); border-color: var(--secondary-border); color: var(--secondary-text); }
 
 select, input, textarea {

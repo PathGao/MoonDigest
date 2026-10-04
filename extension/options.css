@@ -82,7 +82,7 @@ select {
   width: 100%;
   height: 38px;
   border: 1px solid var(--border-strong);
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   margin-bottom: 12px;
   padding: 0 10px;
   background: var(--field-bg);
@@ -92,7 +92,7 @@ textarea.settings-textarea {
   width: 100%;
   min-height: 78px;
   border: 1px solid var(--border-strong);
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   margin-bottom: 0;
   padding: 10px;
   background: var(--field-bg);
@@ -183,7 +183,7 @@ select.input-error {
 
 .property-editor {
   border: 1px solid var(--border);
-  border-radius: 10px;
+  border-radius: var(--radius-md);
   padding: 16px 12px 14px;
   background: var(--field-bg);
 }
@@ -374,7 +374,7 @@ select.input-error {
   width: 100%;
   height: 32px;
   border: 0;
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   background: transparent;
   color: var(--text);
   font-size: 12px;
@@ -443,27 +443,10 @@ select.input-error {
   font-weight: 500;
 }
 
+/* Base button styles live in tokens.css; the settings page uses a slightly larger label. */
 button {
-  border: 0;
-  border-radius: var(--radius-sm);
-  background: var(--action);
-  color: var(--on-action);
-  font: inherit;
   font-size: var(--fs-md);
   font-weight: 600;
-  padding: 9px 18px;
-  cursor: pointer;
-  transition: filter 150ms ease, border-color 150ms ease, background-color 150ms ease;
-}
-
-button:active {
-  filter: brightness(0.94);
-}
-
-@media (prefers-reduced-motion: reduce) {
-  button {
-    transition: none;
-  }
 }
 
 .save-bar {
@@ -522,11 +505,8 @@ button:active {
   background: var(--surface-muted);
 }
 
-.save-btn:hover {
-  background: var(--action-hover);
-}
-
 .add-property-btn {
+  height: auto;
   padding: 8px 0 0;
   background: transparent;
   color: var(--muted);
@@ -837,6 +817,7 @@ ol {
 .ai-provider-clear-key {
   grid-column: 4 / -1;
   justify-self: start;
+  height: auto;
   padding: 0;
   border: 0;
   background: transparent;

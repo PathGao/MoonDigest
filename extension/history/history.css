@@ -9,20 +9,7 @@ body {
   font-family: var(--font-sans);
 }
 
-button, input { font: inherit; color: inherit; }
-
-button {
-  height: 28px;
-  padding: 0 10px;
-  border: 1px solid var(--border-strong);
-  border-radius: var(--radius-sm);
-  background: var(--surface);
-  cursor: pointer;
-  white-space: nowrap;
-}
-button:hover { background: var(--surface-muted); }
-button:disabled { opacity: 0.5; cursor: not-allowed; }
-button.danger { color: var(--danger); border-color: var(--danger-border); background: var(--danger-bg); }
+input { font: inherit; color: inherit; }
 
 .topbar, .bulkbar {
   display: flex;

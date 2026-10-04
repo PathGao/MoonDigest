@@ -30,6 +30,7 @@ body {
 .icon-btn {
   width: 28px;
   height: 28px;
+  padding: 0;
   border: 1px solid transparent;
   border-radius: var(--radius-sm);
   background: transparent;
@@ -66,18 +67,9 @@ body {
   font-weight: 600;
 }
 
-button {
-  font-family: inherit;
-  cursor: pointer;
-  transition: background 0.15s, border-color 0.15s, color 0.15s;
-}
-
 .ghost {
   height: 28px;
   min-width: 58px;
-  border: 1px solid var(--border-strong);
-  border-radius: var(--radius-sm);
-  background: var(--surface);
   color: var(--text-2);
   font-size: var(--fs-xs);
   font-weight: 600;
@@ -89,7 +81,6 @@ button {
 }
 
 .ghost:hover {
-  background: var(--surface-muted);
   color: var(--text);
 }
 
@@ -193,40 +184,16 @@ button {
 }
 
 .actions button {
-  border: 1px solid var(--border-strong);
-  background: var(--surface);
-  border-radius: var(--radius-sm);
+  height: auto;
   padding: 7px 0;
   font-size: var(--fs-sm);
   font-weight: 600;
-  color: var(--text);
-}
-
-.actions button:hover {
-  background: var(--surface-muted);
 }
 
 .primary {
-  border: 1px solid var(--action);
-  background: var(--action);
-  border-radius: var(--radius-sm);
+  height: auto;
   padding: var(--space-2) 0;
   font-size: var(--fs-md);
-  font-weight: 600;
-  color: var(--on-action);
-}
-
-.primary:hover {
-  background: var(--action-hover);
-}
-
-button:active:not(:disabled) {
-  transform: translateY(1px);
-}
-
-button:disabled {
-  opacity: 0.55;
-  cursor: not-allowed;
 }
 
 .message {
@@ -243,6 +210,7 @@ button:disabled {
 }
 
 .triage-link {
+  height: auto;
   align-self: center;
   border: 0;
   background: none;
