@@ -63,14 +63,14 @@ const NOTE_SECTION_POSITIONS = new Set(["before_intro", "before_chapters", "befo
 const MAX_NOTE_PLACEHOLDER_SECTIONS = 5;
 
 const AI_PRESETS = [
-  { id: "openai_compat", name: "OpenAI 兼容", baseUrl: "https://api.openai.com/v1", requiresKey: true },
-  { id: "deepseek",      name: "DeepSeek",    baseUrl: "https://api.deepseek.com/v1", requiresKey: true },
-  { id: "zhipu",         name: "智谱 GLM",    baseUrl: "https://open.bigmodel.cn/api/paas/v4", requiresKey: true },
-  { id: "minimax",       name: "MiniMax",     baseUrl: "https://api.minimaxi.com/v1", requiresKey: true },
-  { id: "moonshot",      name: "Moonshot",    baseUrl: "https://api.moonshot.cn/v1", requiresKey: true },
-  { id: "openrouter",    name: "OpenRouter",  baseUrl: "https://openrouter.ai/api/v1", requiresKey: true },
-  { id: "ollama",        name: "Ollama (本地)", baseUrl: "http://localhost:11434/v1", requiresKey: false },
-  { id: "custom",        name: "自定义",      baseUrl: "", requiresKey: true }
+  { id: "openai_compat", name: "OpenAI 兼容", baseUrl: "https://api.openai.com/v1", model: "gpt-4o-mini", requiresKey: true },
+  { id: "deepseek",      name: "DeepSeek",    baseUrl: "https://api.deepseek.com/v1", model: "deepseek-chat", requiresKey: true },
+  { id: "zhipu",         name: "智谱 GLM",    baseUrl: "https://open.bigmodel.cn/api/paas/v4", model: "glm-4-flash", requiresKey: true },
+  { id: "minimax",       name: "MiniMax",     baseUrl: "https://api.minimaxi.com/v1", model: "", requiresKey: true },
+  { id: "moonshot",      name: "Moonshot",    baseUrl: "https://api.moonshot.cn/v1", model: "moonshot-v1-8k", requiresKey: true },
+  { id: "openrouter",    name: "OpenRouter",  baseUrl: "https://openrouter.ai/api/v1", model: "openai/gpt-4o-mini", requiresKey: true },
+  { id: "ollama",        name: "Ollama (本地)", baseUrl: "http://localhost:11434/v1", model: "", requiresKey: false },
+  { id: "custom",        name: "自定义",      baseUrl: "", model: "", requiresKey: true }
 ];
 
 const elements = {
@@ -104,7 +104,9 @@ const elements = {
   addAiProviderBtn: document.getElementById("addAiProviderBtn"),
   aiSystemPrompt: document.getElementById("aiSystemPrompt"),
   aiPresetPrompts: document.getElementById("aiPresetPrompts"),
-  saveBtns: [...document.querySelectorAll(".save-btn")],
+  saveBar: document.getElementById("saveBar"),
+  unsavedHint: document.getElementById("unsavedHint"),
+  saveBtn: document.getElementById("saveBtn"),
   testConnectionBtn: document.getElementById("testConnectionBtn"),
   status: document.getElementById("status"),
   hostPermissionBanner: document.getElementById("hostPermissionBanner"),
@@ -119,23 +121,20 @@ init();
 
 function init() {
   loadSettings();
-  ["input", "change"].forEach((type) => document.addEventListener(type, () => (hasUnsavedChanges = true)));
+  ["input", "change"].forEach((type) => document.addEventListener(type, () => setUnsaved(true)));
   window.addEventListener("beforeunload", (event) => {
     if (hasUnsavedChanges) {
       event.preventDefault();
     }
   });
-  // Every tier has its own save button; all save everything, and the status shows under the one clicked.
-  elements.saveBtns.forEach((button) => {
-    button.addEventListener("click", () => {
-      button.closest(".action-row").after(elements.status);
-      saveSettings();
-    });
-  });
+  elements.saveBtn.addEventListener("click", saveSettings);
   elements.testConnectionBtn.addEventListener("click", testConnection);
   elements.addFixedPropertyBtn.addEventListener("click", () => addFixedPropertyRow());
   elements.addNoteSectionBtn.addEventListener("click", () => addNoteSectionRow());
-  elements.addAiProviderBtn.addEventListener("click", () => addAiProviderRow());
+  elements.addAiProviderBtn.addEventListener("click", () => {
+    addAiProviderRow();
+    setUnsaved(true);
+  });
   elements.obsidianEnabled.addEventListener("change", syncObsidianBody);
   document.addEventListener("click", (event) => {
     if (!(event.target instanceof Element) || !event.target.closest(".fixed-property-type-picker")) {
@@ -245,7 +244,7 @@ async function saveSettings() {
     }
     // 用最新列表（含 hasSavedKey）重新渲染，避免误以为 Key 丢了
     renderAiProviders(aiResp.providers || []);
-    hasUnsavedChanges = false;
+    setUnsaved(false);
     renderHostPermissionBanner(hostUrls);
     if (deniedHosts.length) {
       setStatus(`已保存，但未授权访问 ${deniedHosts.join("、")}，相关请求会失败；重新保存可再次授权`, true);
@@ -278,6 +277,20 @@ async function getSettings() {
 function setStatus(text, isError = false) {
   elements.status.textContent = text;
   elements.status.dataset.error = isError ? "true" : "false";
+  syncSaveBar();
+}
+
+// One sticky bar: shown while there are unsaved edits or a status to read; save is clickable only with edits.
+function setUnsaved(value) {
+  hasUnsavedChanges = value;
+  if (value) setStatus("");
+  syncSaveBar();
+}
+
+function syncSaveBar() {
+  elements.saveBar.hidden = !hasUnsavedChanges && !elements.status.textContent;
+  elements.unsavedHint.hidden = !hasUnsavedChanges;
+  elements.saveBtn.hidden = !hasUnsavedChanges;
 }
 
 function normalizeDownloadFormat(value) {
@@ -406,6 +419,7 @@ function normalizePlayerAiQuickPrompt(value) {
 
 function applyValidationError(validation) {
   clearInputErrors();
+  validation?.row?.closest("details")?.setAttribute("open", "");
   if (validation?.field) {
     validation.field.classList.add("input-error");
     validation.field.focus();
@@ -972,10 +986,8 @@ async function testConnection() {
 }
 
 function setBusy(isBusy) {
-  elements.saveBtns.forEach((button) => {
-    button.disabled = isBusy;
-    button.textContent = isBusy ? "处理中..." : "保存设置";
-  });
+  elements.saveBtn.disabled = isBusy;
+  elements.saveBtn.textContent = isBusy ? "处理中..." : "保存";
   elements.testConnectionBtn.disabled = isBusy;
   elements.testConnectionBtn.textContent = isBusy ? "处理中..." : "测试连接";
 }
@@ -1014,6 +1026,8 @@ function renderAiProviders(items) {
 function updateAiProvidersEmptyState() {
   const hasRows = elements.aiProvidersList.children.length > 0;
   elements.aiProvidersEmpty.hidden = hasRows;
+  // With no platform yet, adding one is the page's next step, so it takes the filled action style.
+  elements.addAiProviderBtn.classList.toggle("add-property-btn", hasRows);
 }
 
 function generateAiProviderId() {
@@ -1063,6 +1077,10 @@ function addAiProviderRow(item = {}) {
     const currentBaseUrl = baseUrlInput.value.trim();
     if (!currentBaseUrl || (previousPreset && currentBaseUrl === previousPreset.baseUrl)) {
       baseUrlInput.value = next.baseUrl;
+    }
+    const modelInput = row.querySelector(".ai-provider-model");
+    if (!modelInput.value.trim() || (previousPreset && modelInput.value.trim() === previousPreset.model)) {
+      modelInput.value = next.model;
     }
     const apikeyInput = row.querySelector(".ai-provider-apikey");
     apikeyInput.placeholder = row.dataset.hasSavedKey === "1"

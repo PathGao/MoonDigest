@@ -32,11 +32,6 @@
           在字幕正文中保留时间戳
         </label>
 
-        <label class="checkbox">
-          <input id="enableDebugLogs" type="checkbox" />
-          启用调试日志（仅在排查问题时开启）
-        </label>
-
         <label for="youtubeSubtitleLang">YouTube 默认字幕语言（仅 YouTube）</label>
         <select id="youtubeSubtitleLang">
           <option value="auto">自动（中文优先）</option>
@@ -54,9 +49,6 @@
         <div id="aiProvidersList" class="ai-providers-list"></div>
         <p id="aiProvidersEmpty" class="ai-providers-empty">还没有配置平台，点击下方按钮添加。</p>
         <button id="addAiProviderBtn" class="add-property-btn" type="button">+ 添加平台</button>
-        <div class="action-row">
-          <button class="save-btn" type="button">保存设置</button>
-        </div>
       </section>
 
       <section class="field-group field-group-tight-bottom">
@@ -66,7 +58,7 @@
       </section>
 
       <section class="field-group field-group-tight-bottom player-ai-quick-action-settings">
-        <h2>一键总结要求</h2>
+        <h2>AI 总结要求</h2>
         <p class="hint">播放器 AI 按钮和侧边栏「总结这期视频」按钮发出的第一条消息。留空时 AI 按钮只打开侧边栏。</p>
         <textarea
           id="playerAiQuickPrompt"
@@ -80,14 +72,10 @@
       </section>
 
       <section class="field-group field-group-tight-bottom">
-        <h2>追问快捷问题</h2>
-        <p class="hint">有回答后显示在输入框上方，点一下就发送。每行一条，最多 12 条；侧边栏「快捷追问」里也能增删。</p>
+        <h2>管理追问</h2>
+        <p class="hint">有回答后显示在输入框上方，点一下就发送。每行一条，最多 12 条；侧边栏「管理追问」里也能增删。</p>
         <textarea id="aiPresetPrompts" class="settings-textarea" rows="7"></textarea>
       </section>
-
-        <div class="action-row">
-          <button class="save-btn" type="button">保存设置</button>
-        </div>
       </section>
 
       <section class="tier">
@@ -101,10 +89,6 @@
           在 B 站页面显示分拣标记
         </label>
         <p class="hint">分拣过或打过标签的视频，在收藏夹、视频页、首页和搜索结果里显示一个小标记。虚线框表示只做过标题粗分。</p>
-
-        <div class="action-row">
-          <button class="save-btn" type="button">保存设置</button>
-        </div>
       </section>
 
       <section class="tier">
@@ -140,6 +124,8 @@
           </p>
         </section>
 
+        <details class="advanced">
+          <summary>高级</summary>
         <section class="field-group">
           <h2>笔记属性（Frontmatter）</h2>
           <p class="hint">勾选要写进笔记 frontmatter 的字段。</p>
@@ -182,10 +168,7 @@
           <p id="noteSectionsEmpty" class="fixed-properties-empty">还没有正文附加段落</p>
           <button id="addNoteSectionBtn" class="add-property-btn" type="button">+ 添加段落</button>
         </section>
-
-        <div class="action-row">
-          <button class="save-btn" type="button">保存设置</button>
-        </div>
+        </details>
       </section>
 
       <section class="tier">
@@ -233,13 +216,7 @@
           </section>
 
         </div>
-
-        <div class="action-row">
-          <button class="save-btn" type="button">保存设置</button>
-        </div>
       </section>
-
-      <p id="status" class="status" role="status"></p>
 
       <section class="about">
         <h2>数据与存储</h2>
@@ -260,6 +237,20 @@
           </p>
         </div>
       </section>
+
+      <section class="tier">
+        <h2 class="tier-title">高级</h2>
+        <label class="checkbox">
+          <input id="enableDebugLogs" type="checkbox" />
+          启用调试日志（仅在排查问题时开启）
+        </label>
+      </section>
+
+      <div id="saveBar" class="save-bar" hidden>
+        <p id="status" class="status" role="status"></p>
+        <span id="unsavedHint" class="save-bar-hint">有未保存的修改</span>
+        <button id="saveBtn" class="save-btn" type="button">保存</button>
+      </div>
     </main>
 
     <script src="./limits.js"></script>
