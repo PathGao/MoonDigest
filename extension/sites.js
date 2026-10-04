@@ -728,8 +728,13 @@
       const tracks = await ytClientTracks(ref, io, clientName).catch(() => []);
       if (tracks.length) return tracks;
     }
-    if (Object.values(ytPlayerCache(ref).responses).some(ytGateReason)) {
+    const cache = ytPlayerCache(ref);
+    if (Object.values(cache.responses).some(ytGateReason)) {
       return ytClientTracks(ref, io, "WEB_EMBEDDED_PLAYER").catch(() => []);
+    }
+    // The video has captions, but every track needs a PO token and the page player gave none.
+    if (ytCaptionTracks(cache.responses.WEB).length) {
+      throw new Error("没拿到 YouTube 字幕令牌，请稍后重试");
     }
     return [];
   }
