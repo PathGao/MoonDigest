@@ -1534,6 +1534,17 @@ body[data-boc-reader-mode="1"] .boc-reading-info-copy {
   color: var(--boc-text) !important;
 }
 
+body[data-boc-reader-mode="1"] .boc-reading-retry {
+  margin-left: 8px;
+  padding: 2px 12px;
+  border: 1px solid var(--boc-border-strong);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--boc-text);
+  font: inherit;
+  cursor: pointer;
+}
+
 body[data-boc-reader-mode="1"] .boc-reading-item .boc-reading-text {
   font-size: var(--boc-reader-transcript-font-size) !important;
   line-height: var(--boc-reader-transcript-line-height) !important;

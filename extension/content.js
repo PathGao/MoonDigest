@@ -327,6 +327,13 @@ document.addEventListener("boc-content-superseded", standDown, { once: true });
 
 init();
 
+// Every focus-mode entry goes through here; the view only opens in reader mode.
+function markReaderMode() {
+  state.readerMode = true;
+  document.documentElement.setAttribute("data-boc-reader-mode", "1");
+  document.body.setAttribute("data-boc-reader-mode", "1");
+}
+
 function standDown() {
   state.superseded = true;
   // Focus mode moved the page's player into our view; a reload restores the page and the URL reopens focus mode.
@@ -344,9 +351,7 @@ function init() {
 
   const shouldEnterReaderMode = readerEntryRequested();
   if (shouldEnterReaderMode) {
-    state.readerMode = true;
-    document.documentElement.setAttribute("data-boc-reader-mode", "1");
-    document.body.setAttribute("data-boc-reader-mode", "1");
+    markReaderMode();
   } else {
     clearReaderModePageState();
   }
@@ -513,10 +518,8 @@ function bindRuntimeEvents() {
       }
       if (readerUrl) {
         replaceReaderModeUrl(readerUrl);
-        state.readerMode = true;
-        document.documentElement.setAttribute("data-boc-reader-mode", "1");
-        document.body.setAttribute("data-boc-reader-mode", "1");
       }
+      markReaderMode();
       if (!state.readingViewOpen) {
         enterReaderMode().catch((error) => {
           logWarn("[BOC] reading mode trigger failed", error);
@@ -888,9 +891,7 @@ function checkUrlChange() {
   resetClipState();
   const shouldEnterReaderMode = hasReaderParam(nextUrl);
   if (!state.readingViewOpen && shouldEnterReaderMode) {
-    state.readerMode = true;
-    document.documentElement.setAttribute("data-boc-reader-mode", "1");
-    document.body.setAttribute("data-boc-reader-mode", "1");
+    markReaderMode();
     enterReaderMode().catch((error) => {
       setReadingNotice(`专注模式启动失败：${getErrorMessage(error)}`);
     });
@@ -1036,6 +1037,8 @@ async function runRefreshClip() {
     }
     state.site = ref.site;
     state.videoId = ref.id;
+    // Taken before the awaits: a navigation mid-run must still look like a change to checkUrlChange.
+    const clipSignature = computeCurrentClipSignature();
 
     const meta = await retryAsync(() => site.fetchMeta(ref, siteIo()), 2, 250);
     ensureRunActive(runId);
@@ -1053,7 +1056,7 @@ async function runRefreshClip() {
     state.uploadDate = meta.uploadDate || dom.uploadDate;
     state.description = meta.description || dom.description;
     state.pageCount = Number(meta.pageCount) || 0;
-    state.currentClipSignature = computeCurrentClipSignature();
+    state.currentClipSignature = clipSignature;
     state.pageIndex = Number(meta.pageIndex) > 0 ? Number(meta.pageIndex) : 1;
     state.pageTitle = meta.pageTitle || "";
     state.cid = meta.cid || "";
@@ -1076,12 +1079,19 @@ async function runRefreshClip() {
     });
 
     setStatus("正在获取可用字幕...");
-    const subtitleBundle = await retryAsync(
+    let subtitleBundle = await retryAsync(
       () => fetchSubtitleBundle(),
       3,
       500
     );
     ensureRunActive(runId);
+    // Bilibili sometimes answers code 0 with an empty list under risk control; one late retry is cheap.
+    if (!subtitleBundle.tracks.length && state.site === "bilibili") {
+      await sleep(1500);
+      ensureRunActive(runId);
+      subtitleBundle = await fetchSubtitleBundle();
+      ensureRunActive(runId);
+    }
     state.subtitles = BocSites.rankTracks(subtitleBundle.tracks, subtitleLangTarget());
     state.chapters = BocSites.normalizeChapters(subtitleBundle.chapters);
     logInfo(
@@ -1661,7 +1671,7 @@ function maybeRefreshReaderSubtitleInBackground() {
     return;
   }
   waitForVideoMetadata().then(() => {
-    refreshClip().catch((error) => {
+    refreshClipShared().catch((error) => {
       if (!isStaleRunError(error)) {
         setReadingNotice(`字幕加载失败：${getErrorMessage(error)}`);
       }
@@ -1708,6 +1718,10 @@ function settleReaderModePresentation() {
 
 async function ensureReaderPlayerMounted({ retries = 1, delayMs = 100, forceLayout = false } = {}) {
   for (let attempt = 0; attempt < retries; attempt += 1) {
+    // Exiting mid-loop must not leave the page's player stripped of controls and picture-in-picture.
+    if (!isReaderMode()) {
+      return false;
+    }
     const video = getRuntimeVideoElement();
     const playerHost = findReaderPlayerHost(video);
     if (video && playerHost) {
@@ -1848,6 +1862,12 @@ function closeReadingView() {
   unbindReaderLayout();
   cleanupReaderPlayerHost();
   clearReaderPageFocus();
+  // Mounting turned picture-in-picture off on the page's own video.
+  const video = getRuntimeVideoElement();
+  if (video) {
+    video.disablePictureInPicture = false;
+    video.removeAttribute("disablepictureinpicture");
+  }
   const sendingBar = reader().sendingBar ? document.querySelector(reader().sendingBar) : null;
   if (sendingBar) {
     sendingBar.style.setProperty("display", "none", "important");
@@ -1900,9 +1920,10 @@ function renderReadingView() {
   }
 
   if (transcriptItems.length === 0) {
-    transcriptList.innerHTML = `<div class="boc-reading-empty">${escapeHtml(
-      getReadingTranscriptPlaceholderText()
-    )}</div>`;
+    const failed = state.subtitleFetchState === "error" || Boolean(state.subtitleFailure);
+    transcriptList.innerHTML = `<div class="boc-reading-empty">${escapeHtml(getReadingTranscriptPlaceholderText())}${
+      failed ? '<button type="button" class="boc-reading-retry">重试</button>' : ""
+    }</div>`;
   } else {
     transcriptList.innerHTML = transcriptItems
       .map(
@@ -1943,7 +1964,7 @@ function getReadingTranscriptPlaceholderText() {
     return "正在加载字幕...";
   }
   if (state.subtitleFetchState === "error") {
-    return "字幕加载失败，请刷新重试。";
+    return "字幕加载失败。";
   }
   return state.subtitleFailure ? `字幕抓取失败：${state.subtitleFailure}。` : "当前视频无字幕。";
 }
@@ -3796,6 +3817,14 @@ function onReadingChapterClick(event) {
 }
 
 function onReadingTranscriptClick(event) {
+  if (event.target.closest(".boc-reading-retry")) {
+    refreshClipShared().catch((error) => {
+      if (!isStaleRunError(error)) {
+        setReadingNotice(`字幕加载失败：${getErrorMessage(error)}`);
+      }
+    });
+    return;
+  }
   const target = event.target.closest(".boc-reading-item");
   if (!target) {
     return;
@@ -3914,7 +3943,16 @@ async function ytCapturePot(videoId) {
     return pot;
   }
   const wasOn = button.getAttribute("aria-pressed") === "true";
-  pot = await new Promise((resolve) => {
+  // Right after load the player may not fetch captions on the first click yet; a second round a few seconds later does.
+  for (let attempt = 0; attempt < 2 && !pot; attempt += 1) {
+    pot = await toggleCaptionsForPot(button, wasOn, videoId);
+  }
+  logInfo("[BOC] youtube pot capture", { wasOn, found: Boolean(pot) });
+  return pot;
+}
+
+async function toggleCaptionsForPot(button, wasOn, videoId) {
+  const pot = await new Promise((resolve) => {
     const observer = new PerformanceObserver((list) => {
       const hit = BocSites.ytPotFromUrls(list.getEntries().map((entry) => entry.name), videoId);
       if (hit) {
@@ -3935,7 +3973,6 @@ async function ytCapturePot(videoId) {
   if (!wasOn) {
     button.click();
   }
-  logInfo("[BOC] youtube pot capture", { wasOn, found: Boolean(pot) });
   return pot;
 }
 
