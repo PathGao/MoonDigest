@@ -689,6 +689,11 @@ function renderSuggestions() {
   if (!contextData || contextData.isVideoContext === false) {
     return;
   }
+  // A followed video's placeholder: no summary to offer until its subtitles arrive (sending still waits for them).
+  if (contextData.pending) {
+    suggestionsNode.innerHTML = '<p class="sp-empty-intro" aria-busy="true">正在读取视频字幕…</p>';
+    return;
+  }
   // The intro, a few follow-ups to ask straight away, then the one-click summary as the main action.
   const prompt = aiPrefs.playerAiQuickPrompt;
   const quick = (aiPrefs.aiPresetPrompts || []).slice(0, 3);
@@ -2264,6 +2269,7 @@ async function loadObsidianSettings() {
 }
 
 async function saveMarkdownToObsidian({ button, filepath, content, baseUrl, apiKey }) {
+  showConversationContextNotice("正在写入 Obsidian…");
   try {
     if (button) {
       button.disabled = true;
@@ -2591,6 +2597,8 @@ function showConversationContextNotice(message, autoHideMs = 0) {
   const notice = document.createElement("div");
   notice.className = "sp-context-notice";
   notice.textContent = String(message || "").trim();
+  // Notices that stay up are the 正在… ones; they get the shared spinner.
+  notice.setAttribute("aria-busy", String(!(autoHideMs > 0)));
   els.messages.prepend(notice);
   if (autoHideMs > 0) {
     contextNoticeTimer = window.setTimeout(() => {
