@@ -17,10 +17,10 @@ const DEFAULT_AI_SYSTEM_PROMPT = [
 
 const DEFAULT_SETTINGS = {
   obsidianEnabled: false,
-  noteFolder: "Clippings/{{site}}",
+  noteFolder: "MoonDigest/{{site}}",
   obsidianApiBaseUrl: "http://127.0.0.1:27123",
   obsidianApiKey: "",
-  tags: "clippings",
+  tags: "MoonDigest",
   downloadFormat: "srt",
   youtubeSubtitleLang: "auto",
   includeDateInFilename: true,
@@ -73,7 +73,6 @@ const AI_PRESETS = [
 
 const elements = {
   obsidianEnabled: document.getElementById("obsidianEnabled"),
-  triageExportFolder: document.getElementById("triageExportFolder"),
   noteFolder: document.getElementById("noteFolder"),
   obsidianApiBaseUrl: document.getElementById("obsidianApiBaseUrl"),
   obsidianApiKey: document.getElementById("obsidianApiKey"),
@@ -191,7 +190,6 @@ async function loadSettings() {
   renderNoteSectionRows(settings.notePlaceholderSections);
   elements.aiSystemPrompt.value = settings.aiSystemPrompt || "";
   elements.aiPresetPrompts.value = (Array.isArray(settings.aiPresetPrompts) ? settings.aiPresetPrompts : []).join("\n");
-  await loadTriageSettings();
 
   // AI 配置
   const providers = await loadAiProviders();
@@ -228,12 +226,6 @@ async function saveSettings() {
     }
     renderFixedPropertyRows(payload.fixedFrontmatterProperties);
     renderNoteSectionRows(payload.notePlaceholderSections);
-
-    const triageResp = await sendRuntimeMessage({ type: "triage-settings-save", triageExportFolder: elements.triageExportFolder.value.trim() });
-    if (!triageResp?.ok) {
-      setStatus(`已保存，但收藏夹批量写入目录保存失败：${triageResp?.error || "未知错误"}`, true);
-      return;
-    }
 
     // AI 平台：list 走 sync、apiKey 走 local
     const aiResp = await sendRuntimeMessage({ type: "ai-providers-save", providers: aiProvidersPayload });
@@ -337,7 +329,7 @@ function validateSettings(payload, { requireApiKey }) {
     return validateNoteExtras();
   }
   if (!payload.noteFolder) {
-    return { ok: false, field: elements.noteFolder, message: "请填写笔记目录（例如：Clippings/{{site}}）" };
+    return { ok: false, field: elements.noteFolder, message: "请填写笔记目录（例如：MoonDigest/{{site}}）" };
   }
   if (/^[\/\\]|[\/\\]$/.test(payload.noteFolder)) {
     return { ok: false, field: elements.noteFolder, message: "笔记目录无需以 / 开头或结尾" };
@@ -404,13 +396,6 @@ function validateNoteExtras() {
 // Note-format settings stay visible (copy and download use them); only Obsidian-specific text hides.
 function syncObsidianBody() {
   document.querySelectorAll("#obsidianBody, .obsidian-only").forEach((el) => (el.hidden = !elements.obsidianEnabled.checked));
-}
-
-async function loadTriageSettings() {
-  const resp = await sendRuntimeMessage({ type: "triage-settings-get" }).catch(() => null);
-  if (resp?.ok) {
-    elements.triageExportFolder.value = resp.data?.triageExportFolder || "";
-  }
 }
 
 function normalizePlayerAiQuickPrompt(value) {

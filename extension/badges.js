@@ -50,11 +50,12 @@
     };
   }
 
-  // Merges every triage_decisions_<folder> in `got`; a video decided in several folders shows its latest decision.
+  // Merges every triage_decisions_<folder> (取消收藏) and triage_kept (保留, one list for all folders) in `got`;
+  // a video decided more than once shows its latest decision.
   function mergeDecisions(got) {
     const out = {};
     for (const [k, v] of Object.entries(got || {})) {
-      if (!k.startsWith("triage_decisions_")) continue;
+      if (!k.startsWith("triage_decisions_") && k !== "triage_kept") continue;
       for (const [b, d] of Object.entries(v || {})) if (!out[b] || (d?.at || 0) > (out[b].at || 0)) out[b] = d;
     }
     return out;
@@ -66,7 +67,7 @@
   const SETTING = "showBiliTriageBadges";
   const SEL = 'a[href*="/video/BV"], a[href*="bvid=BV"]';
   const isTriageKey = (k) =>
-    k === "triage_tags" || k === "triage_video_tags" || /^triage_(title|analysis|verdict_override|decisions)_/.test(k);
+    k === "triage_tags" || k === "triage_video_tags" || k === "triage_kept" || /^triage_(title|analysis|verdict_override|decisions)_/.test(k);
   const isFavPage = location.hostname === "space.bilibili.com";
 
   const cache = new Map(); // bvid -> info | null
@@ -106,7 +107,7 @@
         // A favorites page shows its own folder's decisions; elsewhere every folder's decisions are merged.
         // getKeys (Chrome 130+) avoids reading every cached title and analysis just to find the decision keys.
         const all = fid ? null : await chrome.storage.local.getKeys?.();
-        const decisionKeys = fid ? [`triage_decisions_${fid}`] : (all || []).filter((k) => k.startsWith("triage_decisions_"));
+        const decisionKeys = ["triage_kept", ...(fid ? [`triage_decisions_${fid}`] : (all || []).filter((k) => k.startsWith("triage_decisions_")))];
         const got = await chrome.storage.local.get(fid || all ? ["triage_tags", "triage_video_tags", ...decisionKeys] : null);
         if (g !== gen) return;
         sharedFid = fid;

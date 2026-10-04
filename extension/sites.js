@@ -213,11 +213,26 @@
     return error;
   }
 
+  // Old av links (/video/av170001) still open without redirecting; the BV id is a fixed transform of the aid.
+  function biliAvToBv(aid) {
+    const table = "FcwAPNKTMug3GV5Lj7EJnHpWsx4tb8haYeviqBz6rkCy12mUSDQX9RdoZf";
+    const out = [..."BV1000000000"];
+    let n = ((1n << 51n) | BigInt(aid)) ^ 23442827791579n;
+    for (let i = 11; n > 0n; i--, n /= 58n) out[i] = table[Number(n % 58n)];
+    [out[3], out[9]] = [out[9], out[3]];
+    [out[4], out[7]] = [out[7], out[4]];
+    return out.join("");
+  }
+
   function biliExtractBvid(url) {
     const text = String(url || "");
     const fromPath = text.match(/\/video\/(BV[0-9A-Za-z]+)/)?.[1];
     if (fromPath) {
       return fromPath;
+    }
+    const av = text.match(/\/video\/av(\d+)/i)?.[1];
+    if (av) {
+      return biliAvToBv(av);
     }
     const fromQuery = String(parseUrl(text)?.searchParams.get("bvid") || "").trim();
     return /^BV[0-9A-Za-z]+$/.test(fromQuery) ? fromQuery : "";

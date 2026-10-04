@@ -56,7 +56,7 @@
   const handle = (msg) => {
     switch (msg?.type) {
       case "get-settings":
-        return { ok: true, settings: { obsidianEnabled: !window.__mockObsidianOff, obsidianApiBaseUrl: "http://127.0.0.1:27123", obsidianApiKey: "mock", noteFolder: "Clippings/{{site}}", includeDateInFilename: true } };
+        return { ok: true, settings: { obsidianEnabled: !window.__mockObsidianOff, obsidianApiBaseUrl: "http://127.0.0.1:27123", obsidianApiKey: "mock", noteFolder: "MoonDigest/{{site}}", includeDateInFilename: true } };
       case "obsidian-note-exists":
         return { ok: true, exists: msg.filepath in window.__mockVault };
       case "write-obsidian-note":

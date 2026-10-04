@@ -85,7 +85,7 @@
         <section class="field-group">
           <h2>内容</h2>
           <label for="tags">默认标签（逗号分隔）</label>
-          <input id="tags" type="text" placeholder="例如：clippings,bilibili,subtitle" />
+          <input id="tags" type="text" placeholder="例如：MoonDigest,视频" />
 
           <label class="checkbox">
             <input id="includeDateInFilename" type="checkbox" />
@@ -207,12 +207,8 @@
           <section class="field-group">
             <h2>写入位置</h2>
             <label for="noteFolder">笔记目录</label>
-            <input id="noteFolder" type="text" placeholder="例如：Clippings/{{site}}" />
-            <p class="hint inline-hint">支持变量：{{created}} / {{upload_date}} / {{author}} / {{site}} / {{id}} / {{bvid}}，示例：Clippings/{{site}}/{{created}}</p>
-
-            <label for="triageExportFolder">分拣台批量写入的目录</label>
-            <input id="triageExportFolder" type="text" placeholder="例如：raw/01-articles" />
-            <p class="hint inline-hint">分拣台「批量导出 → 写入 Obsidian」时，笔记写进库里的这个文件夹；留空就用上面的笔记目录。下载 .md 不受影响。</p>
+            <input id="noteFolder" type="text" placeholder="例如：MoonDigest/{{site}}" />
+            <p class="hint inline-hint">所有写入 Obsidian 的笔记都放这里，分拣台批量写入也一样。可用变量：{{site}} 网站（bilibili / youtube）、{{created}} 写入日期、{{upload_date}} 视频发布日期、{{author}} UP 主或频道、{{id}} 视频号（BV 号或 YouTube ID）。示例：MoonDigest/{{site}}/{{author}}</p>
           </section>
 
         </div>

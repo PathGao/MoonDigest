@@ -248,7 +248,7 @@ function render(payload, { preserveStatus = false } = {}) {
   setText(el.propTitle, payload.title || "-");
   setText(el.propUrl, payload.url || "-");
   setText(el.propCreated, formatLocalDate());
-  setText(el.propTags, payload.tags || "clippings");
+  setText(el.propTags, payload.tags || "MoonDigest");
   el.propTitle.title = payload.title || "";
   el.propUrl.title = payload.url || "";
 
@@ -286,10 +286,10 @@ function setStatus(text, isError = false, busy = false) {
 // Shared busy look from tokens.css: disabled, spinner, and the label (if any) says 「…中」 until done.
 function setBusy(button, busy, label = "") {
   if (busy && label) {
-    button.dataset.label = button.textContent;
+    button.dataset.label = button.innerHTML;
     button.textContent = label;
   } else if (!busy && button.dataset.label) {
-    button.textContent = button.dataset.label;
+    button.innerHTML = button.dataset.label;
     delete button.dataset.label;
   }
   button.disabled = busy;

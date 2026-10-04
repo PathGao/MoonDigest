@@ -203,7 +203,7 @@
     },
     "triage-settings-get": () => ({
       ok: true,
-      data: { deepseek: true, triageIntervalSec: 1, triageExportFolder: "B站摘录", triageTitleBatchSize: 15, triageThinking: false, triageTitleMaxTokens: 0, triageAnalyzeMaxTokens: 0, ...store.__settings }
+      data: { deepseek: true, triageIntervalSec: 1, triageTitleBatchSize: 15, triageThinking: false, triageTitleMaxTokens: 0, triageAnalyzeMaxTokens: 0, ...store.__settings }
     }),
     "triage-settings-save": ({ type, ...patch }) => {
       store.__settings = { ...store.__settings, ...patch };

@@ -4,10 +4,10 @@
 if (!globalThis.__BOC_CONTENT_SCRIPT_LOADED__) {
 const DEFAULT_SETTINGS = {
   obsidianEnabled: false,
-  noteFolder: "Clippings/{{site}}",
+  noteFolder: "MoonDigest/{{site}}",
   obsidianApiBaseUrl: "http://127.0.0.1:27123",
   obsidianApiKey: "",
-  tags: "clippings",
+  tags: "MoonDigest",
   downloadFormat: "srt",
   youtubeSubtitleLang: "auto",
   includeDateInFilename: true,

@@ -398,13 +398,12 @@ function openFake(mediaId, items, decisions = {}) {
   assert.deepStrictEqual(hits("claude"), [], "search and tag filter combine");
   Object.assign(t.S, { query: "", tagFilter: new Set(), analyses: {}, notes: {}, tags: [], videoTags: {} });
 
-  // F2 所有收藏夹: one entry per video with every folder; an unfav newer than a folder's cache drops that folder; keep merges.
+  // F2 所有收藏夹: one entry per video with every folder; an unfav newer than a folder's cache drops that folder.
   const merged = plain(t.mergeFolderItems([
-    { id: "A", at: 10, items: [item(1), item(2)], decisions: { BV2: { action: "keep", at: 5 } } },
+    { id: "A", at: 10, items: [item(1), item(2)], decisions: {} },
     { id: "B", at: 10, items: [item(2), item(3), item(4)], decisions: { BV3: { action: "unfav", at: 20 }, BV4: { action: "unfav", at: 5 } } }
   ]));
-  assert.deepStrictEqual(merged.items.map((it) => [it.bvid, it.folders]), [["BV1", ["A"]], ["BV2", ["A", "B"]], ["BV4", ["B"]]], "BV3 unfavorited after B's cache; BV4 re-favorited since");
-  assert.deepStrictEqual(Object.keys(merged.decisions), ["BV2"]);
+  assert.deepStrictEqual(merged.map((it) => [it.bvid, it.folders]), [["BV1", ["A"]], ["BV2", ["A", "B"]], ["BV4", ["B"]]], "BV3 unfavorited after B's cache; BV4 re-favorited since");
 
   // F2 取消收藏 in 所有收藏夹: only the picked folder is unfavorited and recorded; U re-favorites it there.
   const shared = { ...item(7), folders: ["A", "B"] };
@@ -423,6 +422,62 @@ function openFake(mediaId, items, decisions = {}) {
   assert.deepStrictEqual(plain(sent.at(-1)), { type: "triage-refav", mediaId: "B", aid: 1007 });
   assert.deepStrictEqual(plain(shared.folders), ["A", "B"]);
   assert.ok(!("BV7" in store[t.K.decisions("B")]));
+
+  // 保留 belongs to the video: the one-time split moves every folder's keeps into triage_kept, newest first.
+  const split = plain(t.splitKept({
+    triage_decisions_A: { BV1: { action: "keep", at: 5 }, BV2: { action: "unfav", at: 6 } },
+    triage_decisions_B: { BV1: { action: "keep", at: 9 }, BV3: { action: "keep", at: 1 } },
+    triage_tags: []
+  }));
+  assert.deepStrictEqual(split.kept, { BV1: { action: "keep", at: 9 }, BV3: { action: "keep", at: 1 } });
+  assert.deepStrictEqual(split.folders, { triage_decisions_A: { BV2: { action: "unfav", at: 6 } }, triage_decisions_B: {} });
+
+  // A 保留 made in one folder shows in another; folder records keep only 取消收藏; U removes it everywhere.
+  for (const k of Object.keys(store)) delete store[k];
+  t.S.kept = {};
+  openFake("A", [item(1)]);
+  await t.decide("BV1", "keep");
+  assert.deepStrictEqual(Object.keys(store[t.K.kept]), ["BV1"]);
+  assert.ok(!store[t.K.decisions("A")], "保留 writes no folder record");
+  t.S.decisions = { ...t.S.kept, ...store[t.K.decisions("B")] };
+  assert.strictEqual(t.stageOf(item(1)), "done", "kept in A is kept in B");
+  await t.undo();
+  assert.deepStrictEqual(plain(store[t.K.kept]), {});
+  // Unfavoriting a kept video in a folder keeps the 保留 for other folders; U restores the folder view.
+  openFake("A", [item(1)]);
+  await t.decide("BV1", "keep");
+  handlers["triage-unfav"] = () => ({ ok: true });
+  handlers["triage-refav"] = () => ({ ok: true });
+  await t.decide("BV1", "unfav");
+  assert.deepStrictEqual(Object.keys(store[t.K.decisions("A")]), ["BV1"]);
+  assert.ok(store[t.K.kept].BV1);
+  await t.undo();
+  assert.deepStrictEqual(plain(store[t.K.decisions("A")]), {});
+  assert.strictEqual(t.S.decisions.BV1.action, "keep");
+
+  // 已取消收藏: a video that left every folder is recorded; moved to another folder or listed again, it is not.
+  const rec = t.updateRemoved({ BV9: { item: item(9), at: 1 } }, [item(1), item(2), item(3)], [item(1), item(9)], new Set(["BV3"]), 5);
+  assert.deepStrictEqual(plain(rec), { BV2: { item: item(2), at: 5 } }, "BV3 is in another folder, BV9 came back");
+
+  // saveSnapshot records against the other folders' snapshots and stores the folder cover.
+  for (const k of Object.keys(store)) delete store[k];
+  t.S.folders = [{ id: "A", cover: "c1", count: 1 }, { id: "B", cover: "", count: 1 }];
+  store[t.K.snapshot("A")] = { bvids: ["BV1", "BV2"], items: [item(1), item(2)] };
+  store[t.K.snapshot("B")] = { bvids: ["BV2"], items: [item(2)] };
+  await t.saveSnapshot("A", []);
+  assert.deepStrictEqual(Object.keys(store[t.K.removed]), ["BV1"]);
+  assert.strictEqual(store[t.K.snapshot("A")].cover, "c1");
+  assert.strictEqual(t.S.removedCount, 1);
+
+  // Cleaning a removed video deletes its AI results, note, tags, 保留 and basket entry, and nothing else.
+  Object.assign(store, { triage_analysis_BV1: {}, triage_title_BV1: {}, triage_analysis_BV5: {} });
+  Object.assign(t.S, { notes: { BV1: { text: "n" }, BV5: { text: "m" } }, videoTags: { BV1: ["t"] }, kept: { BV1: { action: "keep" } }, basket: [{ bvid: "BV1" }, { bvid: "BV5" }] });
+  await t.openRemoved();
+  assert.deepStrictEqual(plain(t.S.items.map((it) => it.bvid)), ["BV1"]);
+  await t.cleanRemoved(t.S.items);
+  assert.ok(!store.triage_analysis_BV1 && !store.triage_title_BV1 && store.triage_analysis_BV5);
+  assert.deepStrictEqual(plain([Object.keys(store[t.K.notes]), store[t.K.videoTags], store[t.K.kept], store[t.K.removed]]), [["BV5"], {}, {}, {}]);
+  assert.deepStrictEqual(plain(store[t.K.basket]), [{ bvid: "BV5" }]);
 
   console.log("triage selftest: all passed");
 })().catch((e) => {
