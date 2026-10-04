@@ -4252,15 +4252,15 @@ async function loadAiTurns() {
 }
 
 // The triage page's summary and the video's note, so this note matches what triage exports for the video.
-// The analysis is per bvid and summarizes P1, so other parts leave it out.
+// The note is per video id on every site and part; the analysis is per bvid and summarizes P1, so only B 站 P1 gets it.
 async function loadTriageExtras() {
-  if (state.site !== "bilibili" || !state.videoId || Number(state.pageIndex) > 1) {
+  if (!state.videoId) {
     return null;
   }
   try {
-    const analysisKey = `triage_analysis_${state.videoId}`;
-    const stored = await chrome.storage.local.get([analysisKey, "triage_notes"]);
-    return { analysis: stored[analysisKey], note: stored.triage_notes?.[state.videoId]?.text || "" };
+    const analysisKey = state.site === "bilibili" && !(Number(state.pageIndex) > 1) ? `triage_analysis_${state.videoId}` : "";
+    const stored = await chrome.storage.local.get([analysisKey, "triage_notes"].filter(Boolean));
+    return { analysis: analysisKey ? stored[analysisKey] : null, note: stored.triage_notes?.[state.videoId]?.text || "" };
   } catch (error) {
     logWarn("[BOC] failed to load triage summary for note export", error);
     return null;
