@@ -655,6 +655,21 @@ async function triageMigrateNotes() {
   await chrome.storage.local.set({ triage_notes: notes, triage_notes_migrated: true });
 }
 
+// The triage page renames the default 「删」 tier to 「可以删」 when it opens; doing it at startup too keeps
+// Bilibili page badges from showing the old name before the user ever opens triage.
+async function triageRenameDefaultDrop() {
+  const { triage_schemes: schemes } = await chrome.storage.local.get("triage_schemes");
+  if (!Array.isArray(schemes)) return;
+  let changed = false;
+  for (const t of schemes.flatMap((x) => x?.grading?.tiers || [])) {
+    if (t.id === "drop" && t.name === "删") {
+      t.name = "可以删";
+      changed = true;
+    }
+  }
+  if (changed) await chrome.storage.local.set({ triage_schemes: schemes });
+}
+
 const TRIAGE_HANDLERS = {
   "triage-write-note": (msg) => triageWriteNote(msg),
   "triage-build-note": async ({ bvid }) => {
@@ -807,6 +822,7 @@ function triageRegisterDnr() {
 if (typeof chrome !== "undefined" && chrome.runtime?.onMessage) {
   triageRegisterDnr();
   triageMigrateNotes().catch((e) => console.warn("[triage] 笔记迁移失败", e));
+  triageRenameDefaultDrop().catch((e) => console.warn("[triage] 档位改名失败", e));
   chrome.runtime.onInstalled.addListener(triageRegisterDnr);
   chrome.runtime.onStartup.addListener(triageRegisterDnr);
 
