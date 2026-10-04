@@ -271,12 +271,10 @@ dialog h3 { margin: 10px 0 2px; font-size: var(--fs-sm); }
 .basket-item.opened .basket-title { color: var(--muted); font-weight: 500; }
 .basket-item .muted { font-size: var(--fs-xs); }
 .basket-note { grid-column: 1 / -1; white-space: pre-wrap; }
-.basket-actions { display: flex; flex-direction: column; gap: 2px; }
+.basket-actions { display: flex; align-items: flex-start; }
 .basket-actions button { height: 22px; min-width: 24px; font-size: var(--fs-xs); padding: 0 6px; }
-.basket-item:not(:hover):not(:focus-within) .basket-move { visibility: hidden; }
 .tab-note { margin: 4px 0 8px; font-size: var(--fs-xs); }
-.basket-foot { display: flex; gap: 6px; padding: 6px; border-top: 1px solid var(--border); }
-.basket-foot button { flex: 1; }
+
 .obsidian-off #writeRunBtn, .obsidian-off label:has(#writeOverwrite) { display: none; }
 .write-failed { margin: 4px 0 0; padding-left: 18px; font-size: var(--fs-xs); color: var(--danger); }
 

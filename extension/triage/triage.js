@@ -229,7 +229,7 @@ const el = {};
   "folderSelect", "allBtn", "removedBtn", "searchInput", "searchCount", "refreshBtn", "progress", "queueStatus", "settingsBtn", "helpBtn",
   "banner", "bannerText", "bannerBtn", "bannerClose", "syncNotice", "syncText", "syncViewBtn", "syncCloseBtn", "syncDetail",
   "tabs", "tagFilter", "listHeader", "list", "basket", "basketToggle", "basketCount",
-  "basketList", "basketNextBtn", "toast", "settingsDialog", "folderToggles", "thinkingRow", "intervalInput",
+  "basketList", "toast", "settingsDialog", "folderToggles", "thinkingRow", "intervalInput",
   "batchSizeInput", "openOptionsBtn", "thinkingInput", "titleMaxInput",
   "titleMaxHint", "analyzeMaxInput", "analyzeMaxHint", "settingsError", "backupBtn", "csvBtn", "confirmDialog",
   "confirmTitle", "confirmBody", "confirmOk", "pickerDialog", "pickerTitle", "pickerInput", "pickerList",
@@ -2261,42 +2261,32 @@ function toggleBasket(bvid) {
   render();
 }
 
-// 看下一个 opens the first item not opened yet; an opened item is marked and sinks to the end, so the next click
-// moves on. Only 看过了 removes it — opening a video isn't watching it.
+// The list keeps the order videos were added in. Opening one only marks it; only 看过了 removes it —
+// opening a video isn't watching it.
 function openBasketItem(i) {
-  const [x] = S.basket.splice(i, 1);
+  const x = S.basket[i];
   if (!x) return;
-  S.basket.push({ ...x, opened: true });
+  x.opened = true;
   saveBasket();
-  setBasketOpen(false);
   openViewer(x);
-}
-
-function openNextBasketItem() {
-  const i = S.basket.findIndex((x) => !x.opened);
-  openBasketItem(i < 0 ? 0 : i);
 }
 
 // 看过了，下一个 in the viewer: the playing video leaves the queue and the next one takes its place.
 function basketDoneAndNext() {
   S.basket = S.basket.filter((x) => x.bvid !== S.viewing);
   saveBasket();
-  if (S.basket.length) openNextBasketItem();
+  if (S.basket.length) openBasketItem(Math.max(0, S.basket.findIndex((x) => !x.opened)));
   else {
     closeViewer();
     toast("优先看已经看完了");
   }
 }
 
-// up / down swap with the neighbor, done (看过了) removes; favorites and decisions are untouched.
-function basketAction(act, i) {
-  const j = act === "up" ? i - 1 : i + 1;
-  if (act === "done") S.basket.splice(i, 1);
-  else if (S.basket[j]) [S.basket[i], S.basket[j]] = [S.basket[j], S.basket[i]];
-  else return;
+// 看过了 removes; favorites and decisions are untouched.
+function removeBasketItem(i) {
+  S.basket.splice(i, 1);
   saveBasket();
   render();
-  return j;
 }
 
 function renderBasket() {
@@ -2314,9 +2304,7 @@ function renderBasket() {
         <span class="basket-text"><span class="basket-title">${title}</span>${meta || x.opened ? `<span class="muted">${[meta, x.opened && "已打开"].filter(Boolean).join(" · ")}</span>` : ""}</span>
       </button>
       <div class="basket-actions">
-        <button type="button" class="basket-move" data-basket="up" aria-label="上移 ${title}"${i ? "" : " disabled"}>↑</button>
-        <button type="button" class="basket-move" data-basket="down" aria-label="下移 ${title}"${i < S.basket.length - 1 ? "" : " disabled"}>↓</button>
-        <button type="button" data-basket="done" aria-label="看过了，移出 ${title}" title="看过了">✓</button>
+        <button type="button" data-basket="done" aria-label="看过了，移出 ${title}">看过了</button>
       </div>
       ${note ? `<div class="muted basket-note">${esc(note)}</div>` : ""}
     </div>`;
@@ -2907,19 +2895,13 @@ function bindEvents() {
 
   // basket
   el.basketToggle.addEventListener("click", () => setBasketOpen(el.basket.classList.contains("collapsed")));
-  document.addEventListener("click", (e) => {
-    if (!el.basket.contains(e.target)) setBasketOpen(false);
-  });
   el.basketList.addEventListener("click", (e) => {
     const act = e.target.closest("[data-basket]")?.dataset.basket;
     if (!act) return;
     const i = Number(e.target.closest(".basket-item").dataset.i);
-    if (act === "open") return openBasketItem(i);
-    const j = basketAction(act, i);
-    // Keep keyboard focus on the moved item's same button.
-    if (act !== "done") el.basketList.querySelector(`[data-i="${j}"] [data-basket="${act}"]`)?.focus();
+    if (act === "open") openBasketItem(i);
+    else if (act === "done") removeBasketItem(i);
   });
-  el.basketNextBtn.addEventListener("click", openNextBasketItem);
 }
 
 // Returns 0 for auto, the integer for 200–32000, or null when invalid.
@@ -3021,8 +3003,7 @@ function onKey(e) {
   };
   const nav = { j: 1, ArrowDown: 1, k: -1, ArrowUp: -1 };
   const cardKeys = { d: "unfav", s: "keep", t: "tag", e: "basket", q: "ask", x: "select", o: "open", Enter: "open" };
-  if (key === "Escape" && !el.basket.classList.contains("collapsed")) setBasketOpen(false);
-  else if (key === "Escape" && S.viewing) closeViewer();
+  if (key === "Escape" && S.viewing) closeViewer();
   else if (map[key]) map[key]();
   else if (S.mediaId === REMOVED) return;
   else if (nav[key]) moveFocus(nav[key]);

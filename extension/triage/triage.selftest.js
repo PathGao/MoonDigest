@@ -128,16 +128,12 @@ function openFake(mediaId, items, decisions = {}) {
   const csvRows = t.buildCsv().replace(/^\uFEFF/, "").split("\r\n");
   assert.ok(csvRows[1].startsWith("'+夹,BV5,'=cmd|' /C calc'!A0,'@up,"), csvRows[1]);
 
-  // 优先看: E adds in order with only bvid + title, ↑↓ reorder, 看过了 removes without touching decisions.
+  // 优先看: E adds in order, 看过了 removes without touching decisions.
   openFake("P", [item(1), item(2), item(3)], { BV2: { action: "keep", at: 1 } });
   t.S.basket = [{ bvid: "BVgone", title: "别的收藏夹" }];
   for (const b of ["BV1", "BV2", "BV3"]) t.toggleBasket(b);
   assert.deepStrictEqual(plain(store[t.K.basket]), [{ bvid: "BVgone", title: "别的收藏夹" }, ...[1, 2, 3].map((n) => ({ bvid: `BV${n}`, title: `视频${n}`, upper: "up", duration: 61 }))]);
-  t.basketAction("up", 3);
-  t.basketAction("down", 0);
-  assert.strictEqual(t.basketAction("down", 3), undefined, "the last item cannot move down");
-  assert.deepStrictEqual(plain(t.S.basket.map((x) => x.bvid)), ["BV1", "BVgone", "BV3", "BV2"]);
-  t.basketAction("done", 3);
+  t.removeBasketItem(2);
   t.toggleBasket("BV1");
   assert.deepStrictEqual(plain(store[t.K.basket].map((x) => x.bvid)), ["BVgone", "BV3"]);
   assert.deepStrictEqual(plain(t.S.decisions), { BV2: { action: "keep", at: 1 } }, "看过了 leaves decisions alone");
