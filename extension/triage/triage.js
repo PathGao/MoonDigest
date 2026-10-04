@@ -384,7 +384,7 @@ async function init() {
   S.schemes = schemes;
   S.folderScheme = folderScheme;
   S.videoTags = videoTags;
-  S.basket = basket.map(({ bvid, title }) => ({ bvid, title }));
+  S.basket = basket.map(({ bvid, title, opened }) => ({ bvid, title, ...(opened ? { opened: true } : {}) }));
   S.notes = notes;
   // getKeys (Chrome 130+) lets us read only override keys instead of every cached title/analysis.
   const keys = await chrome.storage.local.getKeys?.();
@@ -660,8 +660,8 @@ function renderTabs() {
     : `<span class="muted">还没有标签</span> · <button type="button" class="link" data-tags-open="new" aria-label="新建标签">新建标签</button>`;
 }
 
-const headBtn = (act, label, cls = "", disabled = false, tier = "") =>
-  `<button type="button"${cls ? ` class="${cls}"` : ""} data-head="${act}"${tier ? ` data-tier="${esc(tier)}"` : ""} aria-label="${esc(label)}"${disabled ? " disabled" : ""}>${esc(label)}</button>`;
+const headBtn = (act, label, cls = "", disabled = false, tier = "", title = "") =>
+  `<button type="button"${cls ? ` class="${cls}"` : ""} data-head="${act}"${tier ? ` data-tier="${esc(tier)}"` : ""} aria-label="${esc(label)}"${title ? ` title="${esc(title)}"` : ""}${disabled ? " disabled" : ""}>${esc(label)}</button>`;
 
 // 「按『方案』· 临时补充 ▸」 next to the 粗分/细看 button; the extra text goes to the next run only.
 function runLine(busy) {
@@ -711,7 +711,7 @@ function renderListHeader(list) {
     const batchBtn = (route, x) => {
       const n = batchList(x?.id ?? null).length;
       const verb = route === "unfav" ? "取消收藏" : "保留";
-      return headBtn(`batch-${route}`, x ? `${verb}（AI：${x.name}）${n} 个` : `${verb}选中的 ${n} 个`, route === "unfav" ? "danger" : "", !n, x?.id);
+      return headBtn(`batch-${route}`, x ? `${verb}（AI：${x.name}）${n} 个` : `${verb}选中的 ${n} 个`, route === "unfav" ? "danger" : "", !n, x?.id, route === "keep" ? KEEP_TIP : "");
     };
     if (sel || !ts.length) html += batchBtn("unfav") + batchBtn("keep");
     else for (const route of ["unfav", "keep"]) for (const x of ts) if (x.route === route && (f === "all" || f === x.id)) html += batchBtn(route, x);
@@ -778,7 +778,8 @@ async function refavRecent(bvid) {
 function renderList() {
   const list = visibleItems();
   renderListHeader(list);
-  const recent = S.tab === "done" ? recentUnfavHtml() : "";
+  // 保留 only marks the video here, while 取消收藏 changed Bilibili; say so where both end up.
+  const recent = S.tab === "done" ? `<p class="muted tab-note">已保留：${KEEP_TIP}。已取消收藏：已从 B 站收藏夹移走，最近的操作可按 U 撤销。</p>${recentUnfavHtml()}` : "";
   if (!S.items.length) {
     el.list.innerHTML = `<p class="empty">这个收藏夹是空的</p>${recent}`;
     return;
@@ -840,6 +841,7 @@ const verdictBadge = (b, v, low = v.low && S.tab !== "deep" && Boolean(tiers()))
       ? ""
       : `<span class="badge ${ROUTE_CLASS[routeOf(v.verdict)] || "none"}${low ? " low" : ""}">${tierOf(v.verdict) ? `<span class="ai-mark">AI</span>` : ""}${esc(verdictLabel(v.verdict))}${low ? " · 低置信" : ""}</span>`;
 const ACTION_LABEL = { unfav: "已取消收藏", keep: "已保留" };
+const KEEP_TIP = "只在 MoonDigest 里标记，B 站收藏夹不变";
 
 function cardHtml(it, expanded, mark) {
   const b = it.bvid;
@@ -912,7 +914,7 @@ function cardHtml(it, expanded, mark) {
             <button type="button" data-act="ask" aria-label="问 AI (Q)">问 AI<kbd class="key">Q</kbd></button>
             <button type="button" data-act="select" class="${S.selected.has(b) ? "on" : ""}" aria-pressed="${S.selected.has(b)}" aria-label="选中 (X)">选中<kbd class="key">X</kbd></button>
           </span>
-          <button type="button" data-act="keep" class="${keepCls}" aria-label="保留 (S)"${decision ? " disabled" : ""}>保留<kbd class="key">S</kbd></button>
+          <button type="button" data-act="keep" class="${keepCls}" aria-label="保留 (S)" title="只在 MoonDigest 里标记，B 站收藏夹不变"${decision ? " disabled" : ""}>保留<kbd class="key">S</kbd></button>
           <button type="button" data-act="unfav" class="${unfavCls}" aria-label="取消收藏 (D)"${decision?.action === "unfav" ? " disabled" : ""}>取消收藏<kbd class="key">D</kbd></button>
         </div>
       </div>
@@ -1843,6 +1845,17 @@ function toggleBasket(bvid) {
   render();
 }
 
+// 看下一个 opens the first item not opened yet; an opened item is marked and sinks to the end, so the next click
+// moves on. Only 看过了 removes it — opening a video isn't watching it.
+function openBasketItem(i) {
+  const [x] = S.basket.splice(i, 1);
+  if (!x) return;
+  S.basket.push({ ...x, opened: true });
+  saveBasket();
+  render();
+  openTab(videoUrl(x.bvid));
+}
+
 // up / down swap with the neighbor, done (看过了) removes; favorites and decisions are untouched.
 function basketAction(act, i) {
   const j = act === "up" ? i - 1 : i + 1;
@@ -1861,8 +1874,8 @@ function renderBasket() {
         .map((x, i) => {
           const title = esc(S.itemMap.get(x.bvid)?.title || x.title || x.bvid);
           const note = S.notes[x.bvid]?.text?.trim();
-          return `<div class="basket-item" data-i="${i}">
-      <div class="row"><button type="button" class="link title" data-basket="open" aria-label="打开视频 ${title}">${title}</button></div>
+          return `<div class="basket-item${x.opened ? " opened" : ""}" data-i="${i}">
+      <div class="row"><button type="button" class="link title" data-basket="open" aria-label="打开视频 ${title}">${title}</button>${x.opened ? `<span class="muted">已打开</span>` : ""}</div>
       ${note ? `<div class="muted">${esc(note)}</div>` : ""}
       <div class="row">
         <button type="button" data-basket="up" aria-label="上移 ${title}"${i ? "" : " disabled"}>↑</button>
@@ -2546,12 +2559,15 @@ function bindEvents() {
     const act = e.target.closest("[data-basket]")?.dataset.basket;
     if (!act) return;
     const i = Number(e.target.closest(".basket-item").dataset.i);
-    if (act === "open") return openTab(videoUrl(S.basket[i].bvid));
+    if (act === "open") return openBasketItem(i);
     const j = basketAction(act, i);
     // Keep keyboard focus on the moved item's same button.
     if (act !== "done") el.basketList.querySelector(`[data-i="${j}"] [data-basket="${act}"]`)?.focus();
   });
-  el.basketNextBtn.addEventListener("click", () => S.basket[0] && openTab(videoUrl(S.basket[0].bvid)));
+  el.basketNextBtn.addEventListener("click", () => {
+    const i = S.basket.findIndex((x) => !x.opened);
+    openBasketItem(i < 0 ? 0 : i);
+  });
 }
 
 // Returns 0 for auto, the integer for 200–32000, or null when invalid.

@@ -272,6 +272,8 @@ dialog h3 { margin: 10px 0 2px; font-size: var(--fs-sm); }
 .basket-item .title { flex: 1; height: auto; text-align: left; font-size: var(--fs-xs); font-weight: 600; color: var(--text); white-space: normal; }
 .basket-item .muted { font-size: var(--fs-xs); white-space: pre-wrap; }
 .basket-item button { height: 22px; font-size: var(--fs-xs); padding: 0 6px; }
+.basket-item.opened .title { color: var(--muted); font-weight: 500; }
+.tab-note { margin: 4px 0 8px; font-size: var(--fs-xs); }
 .basket-foot { display: flex; gap: 6px; padding: 6px; border-top: 1px solid var(--border); }
 .basket-foot button { flex: 1; }
 .obsidian-off #writeRunBtn, .obsidian-off label:has(#writeOverwrite),
