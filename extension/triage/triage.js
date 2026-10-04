@@ -108,7 +108,7 @@ const el = {};
   "folderSelect", "refreshBtn", "progress", "queueStatus", "stage1Btn", "groupBtn", "settingsBtn", "helpBtn",
   "banner", "bannerText", "bannerBtn", "syncNotice", "syncText", "syncViewBtn", "syncCloseBtn", "syncDetail",
   "tabs", "tagFilter", "manageTagsBtn", "listHeader", "list", "basket", "basketToggle", "basketCount",
-  "basketList", "copyMdBtn", "exportBtn", "toast", "settingsDialog", "criteriaInput", "intervalInput",
+  "basketList", "copyMdBtn", "downloadMdBtn", "exportBtn", "toast", "settingsDialog", "criteriaInput", "intervalInput",
   "batchSizeInput", "exportFolderInput", "openOptionsBtn", "aiDebugTitle", "thinkingInput", "titleMaxInput",
   "titleMaxHint", "advancedTokens", "analyzeMaxInput", "analyzeMaxHint", "settingsError", "backupBtn", "csvBtn", "cleanCacheBtn", "confirmDialog",
   "confirmTitle", "confirmBody", "confirmOk", "pickerDialog", "pickerTitle", "pickerInput", "pickerList",
@@ -116,7 +116,7 @@ const el = {};
   "presetRows", "aiBtn", "aiDialog", "aiForm", "aiScope", "aiPreset", "aiScopeCount", "aiInstruction", "aiHistory",
   "aiTagsPreview", "aiAllowNew", "aiMaxNew", "aiAllowVerdict", "aiProgress", "aiCloseBtn", "aiStopBtn", "aiRunBtn",
   "aiReview", "aiReviewSummary", "aiNotes", "aiNewTags", "aiAllBtn", "aiNoneBtn", "aiRows", "aiDiscardBtn", "aiApplyBtn",
-  "writeBtn", "writeDialog", "writeScope", "writeScopeCount", "writeOverwrite", "writeProgress", "writeFailed", "writeStopBtn", "writeRunBtn"
+  "writeBtn", "writeDialog", "writeScope", "writeScopeCount", "writeOverwrite", "writeProgress", "writeFailed", "writeStopBtn", "writeRunBtn", "writeMdBtn"
 ].forEach((id) => (el[id] = $(id)));
 
 // ---------- utils ----------
@@ -1674,7 +1674,7 @@ function renderBasket() {
         )
         .join("")
     : `<p class="empty">按 E 把视频加入摘录篮</p>`;
-  el.copyMdBtn.disabled = el.exportBtn.disabled = !S.basket.length;
+  el.copyMdBtn.disabled = el.downloadMdBtn.disabled = el.exportBtn.disabled = !S.basket.length;
 }
 
 function mdLinkText(s) {
@@ -1712,8 +1712,19 @@ async function exportBasket() {
     toast(`写入 Obsidian 失败：${r.error}`, true);
     return;
   }
-  toast(`已写入 ${r.data?.path || filename}`);
-  if (await askConfirm("清空摘录篮？", `<p>已写入 ${esc(r.data?.path || filename)}</p>`, "清空")) {
+  await offerClearBasket(`已写入 ${r.data?.path || filename}`);
+}
+
+async function downloadBasket() {
+  const filename = `B站摘录-${stamp()}.md`;
+  BocDownload.text(filename, buildMarkdown());
+  await offerClearBasket(`已下载 ${filename}`);
+}
+
+// Only offered once the basket is saved somewhere; copying alone never clears it.
+async function offerClearBasket(saved) {
+  toast(saved);
+  if (await askConfirm("清空摘录篮？", `<p>${esc(saved)}</p>`, "清空")) {
     S.basket = [];
     saveBasket();
     renderBasket();
@@ -1739,9 +1750,9 @@ function openWrite() {
 function renderWriteScope() {
   const n = writeScopeItems().length;
   el.writeScopeCount.textContent = `共 ${n} 个视频，间隔 ${S.settings.triageIntervalSec} 秒`;
-  el.writeRunBtn.hidden = S.write.running;
+  el.writeRunBtn.hidden = el.writeMdBtn.hidden = S.write.running;
   el.writeStopBtn.hidden = !S.write.running;
-  el.writeRunBtn.disabled = !n;
+  el.writeRunBtn.disabled = el.writeMdBtn.disabled = !n;
   el.writeScope.disabled = el.writeOverwrite.disabled = S.write.running;
 }
 
@@ -1756,7 +1767,8 @@ function wikiLink(path, title) {
   return `[[${target}|${oneLine(String(title ?? "").replace(/[|[\]]/g, " ")) || target}]]`;
 }
 
-async function runWrite() {
+// md: build the same notes but download them as one file instead of writing to the vault.
+async function runWrite(md = false) {
   const items = writeScopeItems();
   const overwrite = el.writeOverwrite.checked;
   const token = S.folderToken;
@@ -1768,14 +1780,18 @@ async function runWrite() {
   const failed = [];
   for (let i = 0; i < items.length && keepGoing(); i++) {
     const it = items[i];
-    el.writeProgress.textContent = `写入 ${i + 1}/${items.length}：${it.title}`;
-    const r = await send({ type: "triage-write-note", bvid: it.bvid, overwrite });
+    el.writeProgress.textContent = `${md ? "生成" : "写入"} ${i + 1}/${items.length}：${it.title}`;
+    const r = await send(md ? { type: "triage-build-note", bvid: it.bvid } : { type: "triage-write-note", bvid: it.bvid, overwrite });
     if (r.ok) written.push({ ...r.data, bvid: it.bvid });
     else failed.push(`${it.title}：${r.error}`);
     if (i + 1 < items.length) await sleepWhile(S.settings.triageIntervalSec * 1000, keepGoing);
   }
   let indexPath = "";
-  if (written.length && keepGoing()) {
+  if (md && written.length && token === S.folderToken) {
+    indexPath = `${safeNoteName(folderTitle())}.md`;
+    const notes = written.map((w) => `# ${w.title}\n\n${w.markdown.replace(/^---\n([\s\S]*?)\n---\n/, "```yaml\n$1\n```\n")}`);
+    BocDownload.text(indexPath, [`# ${folderTitle()}`, `${stamp(new Date(), false)} · ${written.length} 篇`, ...notes].join("\n\n"));
+  } else if (written.length && keepGoing()) {
     const lines = [`# ${folderTitle()}`, "", `${stamp(new Date(), false)} · ${written.length} 篇`, ""];
     for (const w of written) {
       const oneLiner = S.analyses[w.bvid]?.oneLiner;
@@ -1790,11 +1806,11 @@ async function runWrite() {
   const aiUpdated = written.filter((w) => w.aiUpdated).length;
   el.writeProgress.textContent = [
     S.write.stop ? "已停止。" : "完成。",
-    `写入 ${written.length - skipped} 篇`,
+    `${md ? "下载" : "写入"} ${written.length - skipped} 篇`,
     skipped ? `已存在跳过 ${skipped} 篇` : "",
     aiUpdated ? `其中更新 AI 问答 ${aiUpdated} 篇` : "",
     failed.length ? `失败 ${failed.length} 篇` : "",
-    indexPath ? `索引：${indexPath}` : ""
+    indexPath ? `${md ? "文件" : "索引"}：${indexPath}` : ""
   ].filter(Boolean).join(" · ");
   el.writeFailed.innerHTML = failed.map((f) => `<li>${esc(f)}</li>`).join("");
   el.writeFailed.hidden = !failed.length;
@@ -2053,7 +2069,8 @@ function bindEvents() {
   });
   el.writeBtn.addEventListener("click", openWrite);
   el.writeScope.addEventListener("change", renderWriteScope);
-  el.writeRunBtn.addEventListener("click", runWrite);
+  el.writeRunBtn.addEventListener("click", () => runWrite());
+  el.writeMdBtn.addEventListener("click", () => runWrite(true));
   el.writeStopBtn.addEventListener("click", () => {
     S.write.stop = true;
     el.writeProgress.textContent = "将在当前视频后停止…";
@@ -2250,6 +2267,7 @@ function bindEvents() {
       toast(`复制失败：${err.message}`, true);
     }
   });
+  el.downloadMdBtn.addEventListener("click", downloadBasket);
   el.exportBtn.addEventListener("click", exportBasket);
 }
 

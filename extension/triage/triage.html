@@ -19,7 +19,7 @@
         <button id="stage1Btn" type="button" class="primary" aria-label="标题粗分" title="标题粗分：只看标题和简介，几十个一批，快、省钱，分成 建议删 / 建议留 / 待定。"></button>
         <button id="groupBtn" type="button" aria-label="字幕细看一组" title="字幕细看：读字幕（没有字幕时读简介和评论），一次一个视频，慢一些，给出一句话总结、3 个要点、判断和建议标签。"></button>
         <button id="aiBtn" type="button" aria-label="AI 指令 (I)">AI 指令</button>
-        <button id="writeBtn" type="button" aria-label="批量写入 Obsidian">写入 Obsidian</button>
+        <button id="writeBtn" type="button" aria-label="批量导出笔记">批量导出</button>
         <button id="settingsBtn" type="button" aria-label="设置">设置</button>
         <button id="helpBtn" type="button" aria-label="快捷键帮助">?</button>
       </header>
@@ -60,6 +60,7 @@
             <div id="basketList" class="basket-list"></div>
             <div class="basket-foot">
               <button id="copyMdBtn" type="button" aria-label="复制 Markdown">复制 Markdown</button>
+              <button id="downloadMdBtn" type="button" aria-label="下载 .md">下载 .md</button>
               <button id="exportBtn" type="button" class="primary" aria-label="写入 Obsidian">写入 Obsidian</button>
             </div>
           </div>
@@ -110,10 +111,10 @@
       </form>
     </dialog>
 
-    <dialog id="writeDialog" aria-label="批量写入 Obsidian">
+    <dialog id="writeDialog" aria-label="批量导出笔记">
       <form method="dialog">
-        <h2>批量写入 Obsidian</h2>
-        <p class="dialog-hint">每个视频一篇笔记（字幕 + AI 总结），再写一篇以收藏夹命名的索引。不会改动收藏夹。</p>
+        <h2>批量导出笔记</h2>
+        <p class="dialog-hint">每个视频一篇笔记（字幕 + AI 总结）。下载 .md 合成一个文件；写入 Obsidian 每个视频一篇，再写一篇以收藏夹命名的索引。不会改动收藏夹。</p>
         <label for="writeScope">范围</label>
         <select id="writeScope">
           <option value="filter">当前筛选结果</option>
@@ -128,7 +129,8 @@
           <span class="spacer"></span>
           <button value="cancel" type="submit" aria-label="关闭">关闭</button>
           <button id="writeStopBtn" type="button" aria-label="停止写入" hidden>停止</button>
-          <button id="writeRunBtn" type="button" class="primary" aria-label="开始写入">开始写入</button>
+          <button id="writeMdBtn" type="button" aria-label="下载 .md">下载 .md</button>
+          <button id="writeRunBtn" type="button" class="primary" aria-label="写入 Obsidian">写入 Obsidian</button>
         </div>
       </form>
     </dialog>

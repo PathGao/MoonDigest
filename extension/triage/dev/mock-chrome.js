@@ -202,6 +202,11 @@
       globalThis.__mockExported = { filename, markdown };
       return { ok: true, data: { path: `B站摘录/${filename}` } };
     },
+    "triage-build-note": ({ bvid }) => ({
+      ok: true,
+      data: { title: `视频 ${bvid}`, markdown: `---\ntitle: "视频 ${bvid}"\nurl: "https://www.bilibili.com/video/${bvid}/"\n---\n\n## 字幕\n\n（mock）\n` }
+    }),
+    "triage-write-note": ({ bvid }) => ({ ok: true, data: { path: `B站摘录/${bvid}.md`, title: `视频 ${bvid}`, source: "subtitle" } }),
     "open-options": () => {
       console.info("[mock] open-options");
       return { ok: true };

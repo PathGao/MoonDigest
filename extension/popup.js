@@ -10,6 +10,7 @@ const el = {
   refreshBtn: document.getElementById("refreshBtn"),
   copyBtn: document.getElementById("copyBtn"),
   downloadBtn: document.getElementById("downloadBtn"),
+  mdBtn: document.getElementById("mdBtn"),
   sendBtn: document.getElementById("sendBtn"),
   summaryBtn: document.getElementById("summaryBtn"),
   triageBtn: document.getElementById("triageBtn"),
@@ -74,16 +75,18 @@ function bindEvents() {
       return;
     }
     const safeTitle = sanitizeFileName(payload.title || "video-subtitle");
-    const blob = new Blob([content], { type: "text/plain;charset=utf-8" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `${safeTitle}.${format}`;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    URL.revokeObjectURL(url);
+    BocDownload.text(`${safeTitle}.${format}`, content, "text/plain;charset=utf-8");
     setMessage(`已下载 ${format.toUpperCase()}。`);
+  });
+
+  el.mdBtn.addEventListener("click", async () => {
+    const payload = await ensurePayload();
+    if (!payload?.markdown) {
+      setMessage("没有可下载内容，请先刷新。");
+      return;
+    }
+    BocDownload.text(`${sanitizeFileName(payload.title || "video-subtitle")}.md`, payload.markdown);
+    setMessage("已下载 Markdown 笔记。");
   });
 
   el.sendBtn.addEventListener("click", async () => {

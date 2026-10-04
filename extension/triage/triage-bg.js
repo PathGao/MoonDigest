@@ -588,17 +588,9 @@ function triageWithSummary(markdown, analysis) {
   return `${front}${block}\n${markdown.slice(front.length)}`;
 }
 
-// One video → one vault note built the same way the page's 发送到 Obsidian does, plus the stage-2 summary.
-// Returns { path, skipped, aiUpdated, title, source }; skipped means the note existed and overwrite was off,
-// aiUpdated that its AI 问答 section was rewritten anyway.
-async function triageWriteNote({ bvid, overwrite }) {
+// One video → one note built the same way the page's 发送到 Obsidian does, plus the stage-2 summary.
+async function triageBuildNote(bvid, settings) {
   if (!bvid) throw triageError("缺少 bvid");
-  const settings = await getMergedSettings();
-  if (!settings.obsidianEnabled) throw triageError("Obsidian 写入未启用");
-  const baseUrl = String(settings.obsidianApiBaseUrl || "").trim();
-  const apiKey = String(settings.obsidianApiKey || "").trim();
-  if (!baseUrl || !apiKey) throw triageError("缺少 Local REST API 参数");
-
   const site = BocSites.SITES.bilibili;
   const io = { fetchJson: fetchJsonForAi };
   const ref = { site: "bilibili", id: bvid, part: null, url: "" };
@@ -635,6 +627,18 @@ async function triageWriteNote({ bvid, overwrite }) {
   const analysis = stored[cacheKey];
   noteMeta.aiTurns = BocNote.buildConversationTurns(BocNote.pickConversation(stored[conversationsKey], noteMeta)?.messages);
   const markdown = triageWithSummary(BocNote.buildMarkdown(noteMeta, body, settings, ref), analysis);
+  return { meta, noteMeta, body, markdown };
+}
+
+// Returns { path, skipped, aiUpdated, title, source }; skipped means the note existed and overwrite was off,
+// aiUpdated that its AI 问答 section was rewritten anyway.
+async function triageWriteNote({ bvid, overwrite }) {
+  const settings = await getMergedSettings();
+  if (!settings.obsidianEnabled) throw triageError("Obsidian 写入未启用");
+  const baseUrl = String(settings.obsidianApiBaseUrl || "").trim();
+  const apiKey = String(settings.obsidianApiKey || "").trim();
+  if (!baseUrl || !apiKey) throw triageError("缺少 Local REST API 参数");
+  const { meta, noteMeta, body, markdown } = await triageBuildNote(bvid, settings);
 
   const { triageExportFolder } = await chrome.storage.sync.get(TRIAGE_SETTINGS_DEFAULTS);
   const folder = BocNote.normalizeFolder(triageExportFolder) || BocNote.resolveFolderTemplate(settings.noteFolder, noteMeta);
@@ -657,6 +661,10 @@ async function triageWriteNote({ bvid, overwrite }) {
 
 const TRIAGE_HANDLERS = {
   "triage-write-note": (msg) => triageWriteNote(msg),
+  "triage-build-note": async ({ bvid }) => {
+    const { meta, markdown } = await triageBuildNote(bvid, await getMergedSettings());
+    return { title: meta.title, markdown };
+  },
   "triage-folders": () => triageCreatedFolders(),
 
   "triage-folder-items": async ({ mediaId }) => {

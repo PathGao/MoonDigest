@@ -57,6 +57,13 @@
         <button id="spSaveConversationBtn" type="button" class="sp-toolbar-btn" title="保存当前对话到 Obsidian">
           <span>保存对话</span>
         </button>
+        <button id="spDownloadConversationBtn" type="button" class="sp-toolbar-btn" title="下载对话为 .md" aria-label="下载对话为 .md">
+          <svg viewBox="0 0 24 24" focusable="false" aria-hidden="true">
+            <path d="M12 4v11"></path>
+            <path d="m7 10 5 5 5-5"></path>
+            <path d="M5 20h14"></path>
+          </svg>
+        </button>
         <button id="spCopyConversationBtn" type="button" class="sp-toolbar-btn" title="复制对话为 Markdown" aria-label="复制对话为 Markdown">
           <svg viewBox="0 0 24 24" focusable="false" aria-hidden="true">
             <rect x="9" y="9" width="10" height="10" rx="2"></rect>
@@ -92,6 +99,7 @@
     <script src="./limits.js"></script>
     <script src="./sites.js"></script>
     <script src="./note.js"></script>
+    <script src="./download.js"></script>
     <script type="module" src="./sidepanel.js"></script>
   </body>
 </html>

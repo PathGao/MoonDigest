@@ -35,6 +35,7 @@ const els = {
   saveConversationBtn: document.getElementById("spSaveConversationBtn"),
   syncStatus: document.getElementById("spSyncStatus"),
   copyConversationBtn: document.getElementById("spCopyConversationBtn"),
+  downloadConversationBtn: document.getElementById("spDownloadConversationBtn"),
   presetPopover: document.getElementById("spPresetPopover"),
   presetList: document.getElementById("spPresetList"),
   presetInput: document.getElementById("spPresetInput"),
@@ -145,6 +146,11 @@ function bindEvents() {
   });
   els.copyConversationBtn?.addEventListener("click", () => {
     void copyCurrentConversationMarkdown();
+  });
+  els.downloadConversationBtn?.addEventListener("click", () => {
+    const note = buildCurrentConversationNote();
+    if (note) BocDownload.text(note.filename, note.content);
+    else showConversationContextNotice("当前没有可下载的对话。", 2200);
   });
   els.historyClearBtn?.addEventListener("click", () => {
     void clearAllConversations();
@@ -2058,14 +2064,41 @@ function renderAssistantMessage(node, raw, { userPrompt = "" } = {}) {
     });
   });
   actions.appendChild(saveBtn);
+
+  const downloadBtn = document.createElement("button");
+  downloadBtn.type = "button";
+  downloadBtn.className = "sp-msg-copy-btn";
+  downloadBtn.setAttribute("aria-label", "下载 .md");
+  downloadBtn.setAttribute("title", "下载 .md");
+  downloadBtn.innerHTML = `
+    <svg viewBox="0 0 24 24" focusable="false" aria-hidden="true">
+      <path d="M12 4v11"></path>
+      <path d="m7 10 5 5 5-5"></path>
+      <path d="M5 20h14"></path>
+    </svg>
+  `;
+  downloadBtn.addEventListener("click", () => {
+    const reply = assistantReplyNote(userPrompt, pasteReadyRaw);
+    if (reply) BocDownload.text(reply.filename, buildAiNoteMarkdown(reply));
+  });
+  actions.appendChild(downloadBtn);
   node.appendChild(actions);
 }
 
-async function saveAssistantReplyToObsidian({ button, userPrompt, assistantMarkdown }) {
+function assistantReplyNote(userPrompt, assistantMarkdown) {
   const prompt = String(userPrompt || "").trim();
   const answer = String(assistantMarkdown || "").trim();
   if (!prompt || !answer) {
     showConversationContextNotice("没有可保存的单轮问答。", 2200);
+    return null;
+  }
+  const context = currentConversationMeta?.resolvedContext || contextData || currentConversationMeta?.contextRef || {};
+  return { context, prompt, answer, filename: buildAiNoteFilename(context, prompt) };
+}
+
+async function saveAssistantReplyToObsidian({ button, userPrompt, assistantMarkdown }) {
+  const reply = assistantReplyNote(userPrompt, assistantMarkdown);
+  if (!reply) {
     return;
   }
 
@@ -2074,15 +2107,11 @@ async function saveAssistantReplyToObsidian({ button, userPrompt, assistantMarkd
     return;
   }
 
-  const context = currentConversationMeta?.resolvedContext || contextData || currentConversationMeta?.contextRef || {};
-  const filename = buildAiNoteFilename(context, prompt);
+  const { context, filename } = reply;
   const folder = resolveFolderTemplate(settingsBundle.settings.noteFolder || "", context);
   const filepath = folder ? `${folder}/${filename}` : filename;
   const noteContent = buildAiNoteMarkdown({
-    context,
-    prompt,
-    answer,
-    filename,
+    ...reply,
     sourcePath: await resolveVideoNotePath(context, settingsBundle.settings)
   });
 
