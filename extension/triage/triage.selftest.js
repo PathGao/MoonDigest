@@ -218,25 +218,25 @@ function openFake(mediaId, items, decisions = {}) {
   t.S.selected.add("BV210");
   assert.deepStrictEqual(plain(t.nextBatch()), ["BV209"], "a selected card outside 待细看 is ignored");
   t.S.tab = "act";
-  t.S.actFilter = "all";
+  t.S.classFilter.act = "all";
   assert.deepStrictEqual(plain(t.batchList("keep").map((it) => it.bvid)), ["BV210"], "the selection overrides the verdict scope");
   t.S.selected.clear();
   assert.deepStrictEqual(plain(t.batchList("drop").map((it) => it.bvid)), ["BV210", "BV211"]);
   // Buttons lead with the action and name the AI class; filter chips show the bare class name.
   t.renderListHeader(t.visibleItems());
-  for (const part of ["取消收藏（AI：可以删）2 个", "保留（AI：留）0 个", ">全部<", ">可以删<", ">留<", ">待定<"]) assert.ok(t.el.listHeader.innerHTML.includes(part), part);
+  for (const part of ["取消收藏（AI：可以删）2 个", "保留（AI：留）0 个", ">全部 2<", ">可以删 2<", ">留 0<", ">待定 0<"]) assert.ok(t.el.listHeader.innerHTML.includes(part), part);
   assert.ok(t.verdictBadge("BV210", t.verdictOf(pool[10])).includes('class="badge drop"') && t.verdictBadge("BV210", t.verdictOf(pool[10])).includes('<span class="ai-mark">AI</span>可以删'));
-  t.S.actFilter = "keep";
+  t.S.classFilter.act = "keep";
   t.renderListHeader(t.visibleItems());
   assert.ok(t.el.listHeader.innerHTML.includes("保留（AI：留）") && !t.el.listHeader.innerHTML.includes("取消收藏（AI"), "a filter shows only its own batch button");
-  t.S.actFilter = "all";
+  t.S.classFilter.act = "all";
   t.S.selected.add("BV210");
   t.renderListHeader(t.visibleItems());
   assert.ok(t.el.listHeader.innerHTML.includes("取消收藏选中的 1 个") && t.el.listHeader.innerHTML.includes("保留选中的 1 个"));
   t.S.selected.clear();
   // A3: 待定 left after 细看 sits in 待处理 under its own filter, and a selection there drives both batch buttons.
   t.S.analyses = { BV200: { status: "done", verdict: "unsure" } };
-  t.S.actFilter = "unsure";
+  t.S.classFilter.act = "unsure";
   assert.deepStrictEqual(plain(t.visibleItems().map((it) => it.bvid)), ["BV200"]);
   t.renderListHeader(t.visibleItems());
   assert.ok(!t.el.listHeader.innerHTML.includes("（AI") && t.el.listHeader.innerHTML.includes("按 X 选中后"), "待定 has no verdict-scoped button");
@@ -246,8 +246,21 @@ function openFake(mediaId, items, decisions = {}) {
   assert.deepStrictEqual(plain(t.batchList("drop").map((it) => it.bvid)), ["BV200"]);
   t.batchKeep(t.batchList("keep"));
   assert.strictEqual(t.stageOf(pool[0]), "done", "batch 保留 moves it to 已处理");
-  Object.assign(t.S, { analyses: {}, decisions: {}, actFilter: "all" });
+  Object.assign(t.S, { analyses: {}, decisions: {}, classFilter: { deep: "all", act: "all" } });
   t.S.selected.clear();
+  // 待细看 chips: per-class counts in the tab; a chip narrows the next batch, a selection still wins; each tab keeps its chip.
+  t.S.tab = "deep";
+  t.S.titleRes = Object.fromEntries(pool.map((it, i) => [it.bvid, i < 6 ? { verdict: "unsure", confidence: "high" } : { verdict: i % 2 ? "keep" : "drop", confidence: "low" }]));
+  t.renderListHeader(t.visibleItems());
+  for (const part of [">全部 12<", ">留 3<", ">可以删 3<", ">待定 6<", "细看下一批 8 个"]) assert.ok(t.el.listHeader.innerHTML.includes(part), part);
+  t.S.classFilter.deep = "keep";
+  assert.deepStrictEqual(plain(t.nextBatch()), ["BV207", "BV209", "BV211"], "the batch comes from the filtered videos");
+  t.S.classFilter.act = "drop";
+  assert.strictEqual(t.S.classFilter.deep, "keep", "待处理's chip does not touch 待细看's");
+  t.S.selected.add("BV207");
+  assert.deepStrictEqual(plain(t.nextBatch()), ["BV207"], "a selection still wins");
+  t.S.selected.clear();
+  Object.assign(t.S, { titleRes: Object.fromEntries(pool.map((it, i) => [it.bvid, { verdict: i < 10 ? "unsure" : "drop", confidence: "high" }])), classFilter: { deep: "all", act: "all" } });
   // A5: 待细看 lists the next batch first and failed cards last.
   t.S.tab = "deep";
   t.S.analyses = { BV201: { status: "error", error: "x" } };

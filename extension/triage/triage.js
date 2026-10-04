@@ -117,7 +117,7 @@ const S = {
   },
   tab: "none",
   readStage: "all",
-  actFilter: "all",
+  classFilter: { deep: "all", act: "all" }, // each tab keeps its own AI-class chip; a folder switch resets both
   tagFilter: new Set(),
   query: "",
   focused: "",
@@ -331,7 +331,8 @@ function stageOf(it) {
 function inTab(it, tab) {
   if (tab === "read") return S.readStage === "all" || stageOf(it) === S.readStage;
   if (stageOf(it) !== tab) return false;
-  return tab !== "act" || S.actFilter === "all" || verdictOf(it).verdict === S.actFilter;
+  const f = S.classFilter[tab];
+  return !f || f === "all" || verdictOf(it).verdict === f;
 }
 
 const failedAnalysis = (b) => S.analyses[b]?.status === "error";
@@ -475,7 +476,7 @@ async function openFolder(mediaId) {
   if (!ok) return;
   S.tab = currentStage(stageCounts());
   S.readStage = "all";
-  S.actFilter = "all";
+  S.classFilter = { deep: "all", act: "all" };
   S.focused = visibleItems()[0]?.bvid || "";
   render();
 }
@@ -781,8 +782,17 @@ function renderListHeader(list) {
   const busy = S.stage1.running || Boolean(S.group);
   const all = S.mediaId === ALL;
   const sortHint = `<span class="muted">请在具体收藏夹里分拣</span>`;
+  // AI-class chips with per-class counts inside the tab (search and tag filter applied).
+  const seg = () => {
+    const inStage = S.items.filter((it) => stageOf(it) === t && passFilter(it));
+    const n = (k) => (k === "all" ? inStage.length : inStage.filter((it) => verdictOf(it).verdict === k).length);
+    return `<span class="seg" role="group" aria-label="按 AI 判断筛选">${[["all", "全部"], ...Object.entries(VERDICTS)]
+      .map(([k, label]) => `<button type="button" data-class-filter="${k}" aria-pressed="${S.classFilter[t] === k}">${label} ${n(k)}</button>`)
+      .join("")}</span>`;
+  };
   let html = "";
-  if (all && (t === "none" || t === "deep")) html = sortHint;
+  if (all && t === "none") html = sortHint;
+  else if (all && t === "deep") html = seg() + sortHint;
   else if (t === "none") {
     if (S.stage1.running) html = headBtn("stage1", `暂停粗分 ${S.stage1.done}/${S.stage1.total}`, "primary");
     else {
@@ -791,22 +801,21 @@ function renderListHeader(list) {
     }
     html += criteriaLine();
   } else if (t === "deep") {
+    html = seg();
     if (S.group) {
       const done = S.group.bvids.filter((b) => !needsAnalysis(b)).length;
-      html = headBtn("group", `暂停细看 ${done}/${S.group.bvids.length}`, "primary");
+      html += headBtn("group", `暂停细看 ${done}/${S.group.bvids.length}`, "primary");
     } else {
       const batch = nextBatch();
       const label = batch.some((b) => S.selected.has(b)) ? `细看选中 ${batch.length} 个` : batch.length ? `细看下一批 ${batch.length} 个` : "细看";
-      html = headBtn("group", label, "primary", !batch.length || busy);
+      html += headBtn("group", label, "primary", !batch.length || busy);
     }
     html += criteriaLine();
   } else if (t === "act") {
     // A selection gets both buttons; without one 留 and 可以删 each get a button, 待定 none.
-    html = `<span class="seg" role="group" aria-label="按 AI 判断筛选">${[["all", "全部"], ...Object.entries(VERDICTS)]
-      .map(([k, label]) => `<button type="button" data-act-filter="${k}" aria-pressed="${S.actFilter === k}">${label}</button>`)
-      .join("")}</span>`;
+    html = seg();
     const sel = selectedIn(list).length;
-    const f = S.actFilter;
+    const f = S.classFilter.act;
     const batchBtn = (route, verdict = "") => {
       const n = batchList(verdict || null).length;
       const verb = route === "unfav" ? "取消收藏" : "保留";
@@ -2197,9 +2206,9 @@ function bindEvents() {
   el.listHeader.addEventListener("click", (e) => {
     const go = e.target.closest("[data-goto]");
     if (go) return showTab(go.dataset.goto);
-    const filter = e.target.closest("[data-act-filter]");
+    const filter = e.target.closest("[data-class-filter]");
     if (filter) {
-      S.actFilter = filter.dataset.actFilter;
+      S.classFilter[S.tab] = filter.dataset.classFilter;
       return render();
     }
     const btn = e.target.closest("[data-head]");
