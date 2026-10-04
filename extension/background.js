@@ -78,9 +78,14 @@ const DEFAULT_LOCAL_SETTINGS = {
   obsidianApiKey: ""
 };
 const EXPECTED_CONTENT_SCRIPT_VERSION = chrome.runtime.getManifest().version || "";
+const READER_SCRIPTS = chrome.runtime.getManifest().content_scripts[0];
 
 chrome.runtime.onInstalled.addListener(async () => {
   await initializeSettingsStorage();
+  // Chrome leaves tabs opened before an install or update without our content script, and an
+  // update leaves the old copy running with a dead chrome.runtime. The fresh copy replaces it.
+  const tabs = await chrome.tabs.query({ url: READER_SCRIPTS.matches });
+  await Promise.allSettled(tabs.map((tab) => injectReaderContent(tab.id)));
 });
 
 async function ensureReaderContentReady(tabId) {
@@ -93,24 +98,11 @@ async function ensureReaderContentReady(tabId) {
     return;
   }
 
+  // Each extension load runs in a fresh isolated world, so the probe never sees an older copy.
   await injectReaderContent(tabId);
   const reinjectedVersion = await probeContentScriptVersion(tabId);
   if (reinjectedVersion === EXPECTED_CONTENT_SCRIPT_VERSION) {
     return;
-  }
-
-  if (loadedVersion && loadedVersion !== EXPECTED_CONTENT_SCRIPT_VERSION) {
-    await chrome.tabs.reload(tabId);
-    const ready = await waitForTabComplete(tabId);
-    if (!ready) {
-      throw new Error("扩展更新后页面未及时恢复，请刷新浏览器网页重试");
-    }
-    await sleep(120);
-    await injectReaderContent(tabId);
-    const reloadedVersion = await probeContentScriptVersion(tabId);
-    if (reloadedVersion === EXPECTED_CONTENT_SCRIPT_VERSION) {
-      return;
-    }
   }
 
   throw new Error("扩展脚本未能和当前页面同步，请刷新浏览器网页重试");
@@ -135,24 +127,13 @@ async function probeContentScriptVersion(tabId) {
 async function injectReaderContent(tabId) {
   await chrome.scripting.insertCSS({
     target: { tabId },
-    files: ["content.css"]
+    files: READER_SCRIPTS.css
   });
 
   await chrome.scripting.executeScript({
     target: { tabId },
-    files: ["limits.js", "sites.js", "note.js", "content.js"]
+    files: READER_SCRIPTS.js
   });
-}
-
-async function waitForTabComplete(tabId, retries = 40, delayMs = 250) {
-  for (let attempt = 0; attempt < retries; attempt += 1) {
-    const tab = await chrome.tabs.get(tabId).catch(() => null);
-    if (tab?.status === "complete") {
-      return true;
-    }
-    await sleep(delayMs);
-  }
-  return false;
 }
 
 async function sendMessageToTab(tabId, message) {
@@ -603,6 +584,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         func: () => document.getElementById("movie_player")?.getPlayerResponse?.() ?? globalThis.ytInitialPlayerResponse ?? null
       })
       .then((results) => sendResponse({ ok: true, data: results?.[0]?.result ?? null }))
+      .catch((error) => sendResponse({ ok: false, error: error.message }));
+    return true;
+  }
+
+  if (message.type === "ensure-reader-content") {
+    ensureReaderContentReady(Number(message.tabId) || 0)
+      .then(() => sendResponse({ ok: true }))
       .catch((error) => sendResponse({ ok: false, error: error.message }));
     return true;
   }

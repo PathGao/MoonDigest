@@ -53,7 +53,7 @@ const area = (store) => ({
 const onMessageListeners = [];
 const noop = new Proxy(function () {}, { get: () => noop, apply: () => noop });
 const chrome = {
-  runtime: { onInstalled: { addListener() {} }, onStartup: { addListener() {} }, onConnect: { addListener() {} }, onMessage: { addListener: (fn) => onMessageListeners.push(fn) }, getManifest: () => ({ version: "test" }) },
+  runtime: { onInstalled: { addListener() {} }, onStartup: { addListener() {} }, onConnect: { addListener() {} }, onMessage: { addListener: (fn) => onMessageListeners.push(fn) }, getManifest: () => JSON.parse(fs.readFileSync(path.join(__dirname, "manifest.json"), "utf8")) },
   storage: { local: area(local), sync: area(sync), onChanged: { addListener() {} } },
   permissions: noop,
   tabs: noop,

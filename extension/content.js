@@ -1,4 +1,4 @@
-// background.js and popup.js re-inject this file when their version probe misses
+// background.js re-injects this file when its version probe misses
 // (e.g. mid-navigation). A repeat run must be a no-op, and top-level const would
 // throw on redeclaration, so the body sits in this block.
 if (!globalThis.__BOC_CONTENT_SCRIPT_LOADED__) {
@@ -319,7 +319,24 @@ const ids = {
   readingTranscriptTailSpacer: "boc-reading-tail-spacer"
 };
 
+// An extension reload or update leaves the previous copy running in its own isolated world with a
+// dead chrome.runtime. Ask it to stand down; v2.0.0 and older can't and still hold their root.
+document.dispatchEvent(new Event("boc-content-superseded"));
+const predecessorStillRunning = Boolean(document.getElementById(ids.root));
+document.addEventListener("boc-content-superseded", standDown, { once: true });
+
 init();
+
+function standDown() {
+  state.superseded = true;
+  // Focus mode moved the page's player into our view; a reload restores the page and the URL reopens focus mode.
+  if (state.readerMode || state.readingViewOpen) {
+    location.reload();
+    return;
+  }
+  removePlayerAiQuickActionButton();
+  document.getElementById(ids.root)?.remove();
+}
 
 function init() {
   logInfo(`[BOC] content script loaded, version=${BOC_VERSION}`);
@@ -395,7 +412,7 @@ function shouldForceNormalPageState() {
 }
 
 function enforceNormalPageStateIfNeeded() {
-  if (!shouldForceNormalPageState()) {
+  if (state.superseded || !shouldForceNormalPageState()) {
     return;
   }
   clearReaderModePageState();
@@ -488,6 +505,12 @@ function bindRuntimeEvents() {
       removePlayerAiQuickActionButton();
       ensureUiReady();
       const readerUrl = String(message.readerUrl || "").trim();
+      // That old copy would strip focus mode's page attributes; a fresh load leaves only this one.
+      if (readerUrl && predecessorStillRunning) {
+        sendResponse({ ok: true });
+        location.assign(readerUrl);
+        return false;
+      }
       if (readerUrl) {
         replaceReaderModeUrl(readerUrl);
         state.readerMode = true;
@@ -845,6 +868,9 @@ function startUrlWatcher() {
 }
 
 function checkUrlChange() {
+  if (state.superseded) {
+    return;
+  }
   const nextUrl = location.href;
   const nextSignature = computeCurrentClipSignature();
   if (nextSignature === state.currentClipSignature) {
@@ -3244,7 +3270,16 @@ function schedulePlayerAiQuickActionSync(delayMs = 120) {
 }
 
 function syncPlayerAiQuickActionButton() {
-  const existing = document.getElementById("boc-player-ai-quick-action");
+  if (state.superseded) {
+    return;
+  }
+  let existing = document.getElementById("boc-player-ai-quick-action");
+  // Expandos are per isolated world: a button without ours was left by a previous copy and calls into its dead context.
+  if (existing && !existing.__bocOwned) {
+    existing.closest(".boc-player-ai-wrap")?.remove();
+    existing.remove();
+    existing = null;
+  }
   const existingWrap = existing?.closest(".boc-player-ai-wrap");
   if (!state.settings?.enablePlayerAiQuickAction || state.readingViewOpen || isReaderMode()) {
     removePlayerAiQuickActionButton();
@@ -3282,6 +3317,7 @@ function syncPlayerAiQuickActionButton() {
     button.setAttribute("aria-label", "AI 总结");
     button.innerHTML = buildPlayerAiQuickActionIconSvg();
     button.addEventListener("click", handlePlayerAiQuickActionClick, true);
+    button.__bocOwned = true;
   }
 
   if (button.parentElement !== wrap) {
