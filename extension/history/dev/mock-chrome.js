@@ -1,5 +1,5 @@
 // Dev-only fake chrome.* for opening history.html from a static server (no-op inside the extension).
-// Seeds four videos' conversations. window.__mockVault is the fake Obsidian vault (path → markdown);
+// Seeds four videos' conversations and some triage analyses. window.__mockVault is the fake Obsidian vault (path → markdown);
 // downloads are caught into window.__mockDownloads ({ filename, content }) instead of hitting disk.
 (() => {
   if (globalThis.chrome?.runtime?.id) return;
@@ -27,7 +27,14 @@
       conv("c3", "youtube|dQw4w9WgXcQ|", yt, now - 50 * hour, [["Summarize", "RAG = retrieval + generation."]]),
       conv("c4", "bilibili|BV1mock000002|1002", longTitle, now - 200 * hour, [["有哪些反对观点？", "有人认为课程太浅。"]]),
       conv("c5", "https://example.com/post", page, now - 300 * hour, [["这篇讲了什么", "讲了 <script>alert(1)</script> 的转义。"]])
-    ]
+    ],
+    // Triage analyses: BV1mock000001 joins its conversation entry, BV1mock000009 / BV1mock000010 stand alone
+    // (title from a folder snapshot / no title), the error one is ignored.
+    triage_analysis_BV1mock000001: { bvid: "BV1mock000001", status: "done", source: "subtitle", oneLiner: "逐行手写 Transformer", points: ["注意力", "位置编码", ""], verdict: "keep", reason: "讲得细", analyzedAt: now - 2 * hour },
+    triage_analysis_BV1mock000009: { bvid: "BV1mock000009", status: "done", source: "meta", oneLiner: "只在分拣台分析过的视频", points: ["要点一", "要点二", "要点三"], verdict: "drop", reason: "过时", analyzedAt: now - 10 * hour },
+    triage_analysis_BV1mock000010: { bvid: "BV1mock000010", status: "done", oneLiner: "没有标题的视频", points: [], verdict: "unsure", analyzedAt: now - 400 * hour },
+    triage_analysis_BV1mock000011: { bvid: "BV1mock000011", status: "error" },
+    triage_snapshot_42: { bvids: ["BV1mock000009"], titles: { BV1mock000009: "分拣台里的视频标题" }, at: now }
   };
   const clone = (v) => (v === undefined ? v : structuredClone(v));
 
@@ -62,6 +69,7 @@
     storage: {
       local: {
         async get(keys) {
+          if (keys == null) return clone(store);
           const list = [].concat(keys);
           return Object.fromEntries(list.filter((k) => k in store).map((k) => [k, clone(store[k])]));
         },
