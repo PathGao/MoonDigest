@@ -63,7 +63,15 @@ a.entry-title:hover { color: var(--link-hover); text-decoration: underline; }
 details { margin-top: var(--space-1); }
 summary { cursor: pointer; color: var(--text-2); font-size: var(--fs-xs); }
 .turn-q { margin: var(--space-3) 0 var(--space-1); font-weight: 600; color: var(--text-2); }
-.turn-a { white-space: pre-wrap; overflow-wrap: anywhere; color: var(--text-2); }
+.turn-a { overflow-wrap: anywhere; color: var(--text-2); }
+.turn-a > :first-child { margin-top: 0; }
+.turn-a :is(p, ul, ol, pre, table) { margin: var(--space-1) 0; }
+.turn-a :is(h3, h4, h5) { margin: var(--space-2) 0 var(--space-1); font-size: var(--fs-sm); color: var(--text); }
+.turn-a :is(ul, ol) { padding-left: 1.4em; }
+.turn-a code { font-family: var(--font-mono); }
+.turn-a pre { overflow-x: auto; padding: var(--space-2); border-radius: var(--radius-sm); background: var(--surface-muted); }
+.turn-a table { border-collapse: collapse; }
+.turn-a :is(th, td) { border: 1px solid var(--border); padding: 2px 6px; }
 .conv-sep { margin: var(--space-3) 0 0; color: var(--faint); font-size: var(--fs-xs); border-top: 1px dashed var(--border); padding-top: var(--space-2); }
 
 @media (max-width: 560px) {

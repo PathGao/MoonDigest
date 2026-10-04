@@ -388,4 +388,9 @@ assert.strictEqual(N.withTriageSummary(front, undefined, "  "), front);
 assert.strictEqual(N.buildTriageSummary({ status: "done", verdict: "t3", verdictName: "必看", reason: "核心" }), "AI 分类：必看，核心", "a custom tier keeps its name");
 
 assert.strictEqual(N.buildTriageSummary({ status: "done", oneLiner: "一句话", points: ["a", "", ""] }), "> 一句话\n\n- a", "padded empty points are dropped");
+assert.strictEqual(
+  N.renderMarkdown("<think>x</think>## 标题\n\n**粗** <b>\n\n- a\n- b"),
+  "<h4>标题</h4><p><strong>粗</strong> &lt;b&gt;</p><ul><li>a</li><li>b</li></ul>",
+  "markdown renders, raw HTML is escaped, think is stripped"
+);
 console.log("note selftest ok");

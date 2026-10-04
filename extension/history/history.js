@@ -70,8 +70,8 @@ function renderSummary(analysis) {
 }
 
 function renderConversation(conv, index, total) {
-  const turns = BocNote.buildConversationTurns(conv.messages)
-    .map((t) => `<p class="turn-q">问：${esc(t.prompt)}</p><div class="turn-a">${esc(t.answer)}</div>`)
+  const turns = BocNote.buildConversationTurns(conv.messages, 0)
+    .map((t) => `<p class="turn-q">问：${esc(t.prompt)}</p><div class="turn-a">${BocNote.renderMarkdown(t.answer)}</div>`)
     .join("");
   return `${total > 1 ? `<p class="conv-sep">对话 ${index + 1} · ${esc(formatTime(conv.updatedAt))}</p>` : ""}${turns}`;
 }
