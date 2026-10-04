@@ -40,7 +40,8 @@ async function init() {
     el.sendBtn.hidden = settings.obsidianEnabled !== true;
   });
   getActiveTab().then((tab) => {
-    el.triageBtn.hidden = BocSites.matchSite(tab?.url || "")?.id === "youtube";
+    // Any bilibili host, so favorites pages on space.bilibili.com count too.
+    el.triageBtn.hidden = !/(^|\.)bilibili\.com$/.test(URL.parse(tab?.url || "")?.hostname || "");
   });
   await refreshFromTab();
 }
@@ -58,7 +59,7 @@ function bindEvents() {
     }
     try {
       await navigator.clipboard.writeText(payload.markdown);
-      setMessage("已复制完整 Markdown。");
+      setMessage("已复制 Markdown");
     } catch (error) {
       setMessage(`复制失败：${error?.message || "无法访问剪贴板"}`);
     }
@@ -86,15 +87,15 @@ function bindEvents() {
       return;
     }
     BocDownload.text(`${sanitizeFileName(payload.title || "video-subtitle")}.md`, payload.markdown);
-    setMessage("已下载 Markdown 笔记。");
+    setMessage("已下载 .md");
   });
 
   el.sendBtn.addEventListener("click", async () => {
-    setStatus("正在发送到 Obsidian...");
+    setStatus("正在写入 Obsidian…");
     const resp = await sendToContent({ type: "popup-send-obsidian" });
     if (!resp?.ok) {
-      setStatus(`发送失败：${resp?.error || "未知错误"}`, true);
-      setMessage(`发送失败：${resp?.error || "未知错误"}`);
+      setStatus(`写入 Obsidian 失败：${resp?.error || "未知错误"}`, true);
+      setMessage(`写入 Obsidian 失败：${resp?.error || "未知错误"}`);
     }
     render(resp?.payload || latestPayload);
   });
@@ -108,8 +109,8 @@ function bindEvents() {
 
     const prepResp = await sendToContent({ type: "popup-get-state" });
     if (!prepResp?.ok) {
-      setStatus(prepResp?.error || "请刷新浏览器网页重试，或当前网页不支持", true);
-      setMessage(prepResp?.error || "请刷新浏览器网页重试，或当前网页不支持");
+      setStatus(prepResp?.error || "请刷新网页重试，或当前网页不支持", true);
+      setMessage(prepResp?.error || "请刷新网页重试，或当前网页不支持");
       return;
     }
 
@@ -199,10 +200,7 @@ async function refreshFromTab() {
   setStatus("正在抓取...");
   const resp = await sendToContent({ type: "popup-refresh" });
   if (!resp?.ok) {
-    const errorText = (resp?.error || "请在支持的视频页使用。").replace(
-      "请刷新浏览器网页重试，或当前网页不支持",
-      "请刷新网页重试，或当前网页不支持"
-    );
+    const errorText = resp?.error || "请在支持的视频页使用。";
     setStatus(`抓取失败：${errorText}`, true);
     render(resp?.payload || latestPayload, { preserveStatus: true });
     return;
@@ -331,7 +329,7 @@ async function sendToContent(message) {
 function normalizeContentErrorMessage(error) {
   const message = String(error?.message || "").trim();
   if (message.includes("Could not establish connection. Receiving end does not exist.")) {
-    return "请刷新浏览器网页重试，或当前网页不支持";
+    return "请刷新网页重试，或当前网页不支持";
   }
   return message || "未知错误";
 }
@@ -347,7 +345,7 @@ function isSupportedSubtitlePage(url) {
 
 async function ensureContentScriptReady(tabId) {
   if (!chrome.scripting) {
-    throw new Error("请刷新浏览器网页重试，或当前网页不支持");
+    throw new Error("请刷新网页重试，或当前网页不支持");
   }
 
   const loadedVersion = await probeContentScriptVersion(tabId);
@@ -367,7 +365,7 @@ async function ensureContentScriptReady(tabId) {
 
   const reinjectedVersion = await probeContentScriptVersion(tabId);
   if (reinjectedVersion !== EXPECTED_CONTENT_SCRIPT_VERSION) {
-    throw new Error("扩展刚更新，请刷新当前页面后重试。");
+    throw new Error("扩展刚刚更新，请刷新当前页面后重试。");
   }
 }
 
