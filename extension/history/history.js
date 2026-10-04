@@ -9,12 +9,15 @@ const els = { list: $("list"), search: $("search"), count: $("count"), selectAll
 
 let conversations = [];
 let analyses = {}; // bvid → done triage analysis
-let notes = {}; // bvid → { text, updatedAt } from the triage page, non-empty only
+let notes = {}; // video id (bvid / YouTube videoId) → { text, updatedAt }, non-empty only
 let triageTitles = {}; // bvid → title from the triage folder snapshots
 let obsidianEnabled = false;
 const selected = new Set();
 const writing = new Set(); // entry keys with a 写入 Obsidian in flight
 let reloadTimer = 0;
+let editing = null; // { id, draft } while a 备注 is open; storage reloads wait until it closes
+let reloadPending = false;
+let rendering = false;
 
 const esc = (value) => String(value ?? "").replace(/[&<>"']/g, (ch) => `&#${ch.charCodeAt(0)};`);
 const formatTime = (value) => new Date(Number(value) || 0).toLocaleString("zh-CN", { hour12: false, year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" });
@@ -33,12 +36,13 @@ function groupByVideo(items) {
     const context = { ...ref, title: ref.title || latest.contextTitle || latest.title, url: latest.contextUrl || ref.url || "" };
     return { key, convs, context, title: latest.title || context.title || "历史对话", updatedAt: latest.updatedAt || 0 };
   });
-  // The triage analysis and note are per bvid (the analysis summarizes P1), so they join only the P1 entry;
-  // without one they are their own entry.
+  // The triage analysis and note are per video (the analysis summarizes P1), so they join only the P1 entry;
+  // without one they are their own entry. Note ids are bvids or YouTube videoIds; only bvids start with BV.
   for (const bvid of new Set([...Object.keys(analyses), ...Object.keys(notes)])) {
     const analysis = analyses[bvid];
     const note = notes[bvid];
-    const context = { site: "bilibili", videoId: bvid, title: triageTitles[bvid] || bvid, url: BocSites.SITES.bilibili.canonicalUrl(bvid, 1), isVideoContext: true };
+    const site = /^BV/i.test(bvid) ? "bilibili" : "youtube";
+    const context = { site, videoId: bvid, title: triageTitles[bvid] || bvid, url: BocSites.SITES[site].canonicalUrl(bvid, 1), isVideoContext: true };
     const key = BocSites.buildContextKey(context);
     const host = groups.find((g) => BocSites.buildContextKey({ ...g.context, cid: "" }) === key && (Number(g.context.pageIndex) || 1) === 1);
     if (host) Object.assign(host, { analysis, note });
@@ -71,6 +75,37 @@ function renderSummary(analysis) {
   return `<div class="entry-summary">${rest[0] && !rest[0].startsWith("判断") ? `<p>${rest.shift()}</p>` : ""}${points ? `<ul>${points}</ul>` : ""}${rest.map((l) => `<p>${l}</p>`).join("")}</div>`;
 }
 
+// The 备注 belongs to the video and shows on its P1 entry, like grouping joins it.
+const noteIdOf = (g) => (g.context.videoId && (Number(g.context.pageIndex) || 1) === 1 ? g.context.videoId : "");
+
+function renderNote(g) {
+  const id = noteIdOf(g);
+  if (id && editing?.id === id) return `<textarea class="entry-note-edit" data-note rows="2" placeholder="一句话备注，只有你自己看" aria-label="备注">${esc(editing.draft)}</textarea>`;
+  if (!g.note) return id ? `<button type="button" class="link note-add" data-act="note">+ 备注</button>` : "";
+  const body = `<b>备注</b> ${esc(g.note.text.trim())}`;
+  return id ? `<button type="button" class="entry-note" data-act="note" title="点击编辑备注">${body}</button>` : `<div class="entry-note">${body}</div>`;
+}
+
+// Same rule as the triage card: an unchanged note is not rewritten, an emptied one is deleted.
+async function closeNote() {
+  if (!editing) return;
+  const { id, draft } = editing;
+  editing = null;
+  const text = draft.trim() ? draft : "";
+  if (text !== (notes[id]?.text || "")) {
+    if (text) notes[id] = { text, updatedAt: Date.now() };
+    else delete notes[id];
+    const stored = (await chrome.storage.local.get("triage_notes")).triage_notes || {};
+    if (text) stored[id] = notes[id];
+    else delete stored[id];
+    await chrome.storage.local.set({ triage_notes: stored });
+  }
+  if (reloadPending) {
+    reloadPending = false;
+    await load();
+  } else render();
+}
+
 function renderConversation(conv, index, total) {
   const turns = BocNote.buildConversationTurns(conv.messages, 0)
     .map((t) => `<p class="turn-q">问：${esc(t.prompt)}</p><div class="turn-a">${BocNote.renderMarkdown(t.answer)}</div>`)
@@ -86,6 +121,9 @@ function render() {
   // Storage changes re-render the list while the user reads it: keep expanded entries and the scroll.
   const open = new Set([...els.list.querySelectorAll(".entry details[open]")].map((d) => d.closest(".entry").dataset.key));
   const scrollY = window.scrollY;
+  const active = document.activeElement?.matches?.("[data-note]") ? document.activeElement : null;
+  const caret = active ? [active.selectionStart, active.selectionEnd] : null;
+  rendering = true;
   els.list.innerHTML = groups.length
     ? groups.map((g) => {
         const site = BocSites.SITES[g.context.site]?.label || "网页";
@@ -97,7 +135,7 @@ function render() {
             ${title}
             <div class="entry-meta">${esc(site)} · ${esc(formatTime(g.updatedAt))} · ${g.convs.length ? `${g.convs.length} 段对话 · ${turnCount} 轮问答` : `仅${[g.analysis && "分拣台 AI 总结", g.note && "备注"].filter(Boolean).join("和")}`}</div>
             ${g.analysis ? renderSummary(g.analysis) : ""}
-            ${g.note ? `<div class="entry-note"><b>备注</b> ${esc(g.note.text.trim())}</div>` : ""}
+            ${renderNote(g)}
             ${g.convs.length ? `<details${open.has(g.key) ? " open" : ""}><summary>查看对话</summary>${g.convs.map((c, i) => renderConversation(c, i, g.convs.length)).join("")}</details>` : ""}
           </div>
           <div class="entry-actions">
@@ -109,6 +147,12 @@ function render() {
         </article>`;
       }).join("")
     : `<p class="empty">${allGroups.length ? "没有匹配的视频" : "还没有视频记录。在视频页打开侧边栏提问、或在分拣台写备注后，会按视频记在这里。"}</p>`;
+  rendering = false;
+  const textarea = editing && els.list.querySelector("[data-note]");
+  if (textarea) {
+    textarea.focus();
+    textarea.setSelectionRange(...(caret || [textarea.value.length, textarea.value.length]));
+  }
   window.scrollTo(0, scrollY);
   syncBulk(groups);
 }
@@ -226,11 +270,28 @@ els.list.addEventListener("click", (event) => {
   } else if (act === "md" && group) downloadGroups([group]);
   else if (act === "obsidian" && group) void saveToObsidian(group, target);
   else if (act === "delete") void deleteGroups([key]);
+  else if (act === "note" && group) {
+    editing = { id: noteIdOf(group), draft: group.note?.text || "" };
+    render();
+  }
   else if (act === "ask" && group) {
     // The side panel continues the video's latest conversation, the same request triage's 问 AI sends.
     chrome.storage.local.set({ boc_player_ai_quick_action_v1: { id: `history-${Date.now()}`, tabId: OWN_TAB?.id, prompt: "", contextRef: group.context } });
     chrome.sidePanel.open({ tabId: OWN_TAB?.id }).catch((error) => setStatus(`打开侧边栏失败：${error.message}`));
   }
+});
+els.list.addEventListener("input", (event) => {
+  if (editing && event.target.matches("[data-note]")) editing.draft = event.target.value;
+});
+// Enter (or Esc) saves and closes; Shift+Enter is a newline. Never mid-IME.
+els.list.addEventListener("keydown", (event) => {
+  if (!event.target.matches("[data-note]") || event.isComposing || event.keyCode === 229) return;
+  if (!(event.key === "Escape" || (event.key === "Enter" && !event.shiftKey))) return;
+  event.preventDefault();
+  void closeNote();
+});
+els.list.addEventListener("focusout", (event) => {
+  if (!rendering && event.target.matches("[data-note]")) void closeNote();
 });
 els.search.addEventListener("input", render);
 els.selectAll.addEventListener("change", () => {
@@ -250,7 +311,7 @@ chrome.storage.onChanged.addListener((changes, area) => {
   // Triage analyses arrive in bursts; one reload per burst.
   if (area === "local" && Object.keys(changes).some((k) => k === KEY || k === "triage_notes" || k.startsWith("triage_analysis_") || k.startsWith("triage_snapshot_"))) {
     clearTimeout(reloadTimer);
-    reloadTimer = setTimeout(load, 300);
+    reloadTimer = setTimeout(() => (editing ? (reloadPending = true) : load()), 300);
   }
   if (area === "sync" && changes.obsidianEnabled) {
     obsidianEnabled = changes.obsidianEnabled.newValue === true;
