@@ -116,6 +116,13 @@ function updateRemoved(removed, oldItems, newItems, otherBvids, at) {
   }
   return next;
 }
+
+// 所有收藏夹 (pure): a cached list is stale when the folder's current video ids differ from it as a set.
+function idsChanged(cached, ids) {
+  const have = new Set(cached);
+  const now = new Set(ids);
+  return have.size !== now.size || [...now].some((b) => !have.has(b));
+}
 const unfavOnly = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) => v?.action === "unfav"));
 
 // ---------- state ----------
@@ -131,7 +138,7 @@ const S = {
   kept: {},
   removedCount: 0,
   folderDecisions: {}, // 所有收藏夹 only: { [mediaId]: that folder's decisions }
-  loadAll: null, // 所有收藏夹 only: { lists: { [mediaId]: { items, at } }, queue, paused, running, error, partial }
+  loadAll: null, // 所有收藏夹 only: { lists: { [mediaId]: { items, at } }, check, checkTotal, queue, paused, running, error, partial }
   tags: [],
   folderCriteria: {},
   videoTags: {},
@@ -629,8 +636,8 @@ async function syncFolder({ force = false } = {}) {
   }
 }
 
-// The full item list doubles as the 所有收藏夹 cache; bvids/invalid/titles drive the sync diff, and the folder's
-// count + cover tell 所有收藏夹 whether the cache is still current. Videos that left every folder go to 已取消收藏.
+// The full item list doubles as the 所有收藏夹 cache; bvids/invalid/titles drive the sync diff. Videos that left every
+// folder go to 已取消收藏.
 async function saveSnapshot(mediaId, items) {
   const others = S.folders.map((f) => String(f.id)).filter((id) => id !== String(mediaId));
   const got = await chrome.storage.local.get([K.snapshot(mediaId), K.removed, ...others.map(K.snapshot)]);
@@ -644,7 +651,6 @@ async function saveSnapshot(mediaId, items) {
       invalid: items.filter((it) => it.invalid).map((it) => it.bvid),
       titles: Object.fromEntries(items.map((it) => [it.bvid, it.title])),
       items,
-      cover: S.folders.find((f) => String(f.id) === String(mediaId))?.cover ?? "",
       at: Date.now()
     },
     [K.removed]: removed
@@ -704,8 +710,9 @@ async function loadResults(token) {
 }
 
 // ---------- 所有收藏夹 ----------
-// Folders with a cached list (triage_snapshot_*.items) whose count and cover still match the folder show at once;
-// the rest are fetched one by one in the background with the same loader and request interval as the rest of the page.
+// Folders with a cached list (triage_snapshot_*.items) show at once, then each is checked against the folder's video ids
+// (one light request) and re-fetched if they differ. Folders without a cache are fetched one by one in the background
+// with the same loader and request interval as the rest of the page.
 async function openAll() {
   const token = S.folderToken;
   const ids = S.folders.map((f) => String(f.id));
@@ -716,10 +723,11 @@ async function openAll() {
     const id = String(f.id);
     S.folderDecisions[id] = got[K.decisions(id)] || {};
     const snap = got[K.snapshot(id)];
-    if (snap?.items && snap.items.length === Number(f.count) && snap.cover === f.cover) lists[id] = { items: snap.items, at: snap.at || 0 };
+    if (snap?.items) lists[id] = { items: snap.items, at: snap.at || 0 };
     else if (!Number(f.count)) lists[id] = { items: [], at: Date.now() };
   }
-  S.loadAll = { lists, queue: ids.filter((id) => !lists[id]), paused: false, running: false, error: "", partial: 0 };
+  const check = ids.filter((id) => got[K.snapshot(id)]?.items);
+  S.loadAll = { lists, check, checkTotal: check.length, queue: ids.filter((id) => !lists[id]), paused: false, running: false, error: "", partial: 0 };
   rebuildAll();
   if (!(await loadResults(token))) return false;
   runLoadAll(token);
@@ -753,7 +761,23 @@ async function runLoadAll(token) {
   L.running = true;
   L.error = "";
   render();
-  while (L.queue.length && keepGoing()) {
+  while ((L.check.length || L.queue.length) && keepGoing()) {
+    // Checks go first: they are light (~300 ms apart) and may add folders to the full-load queue.
+    if (L.check.length) {
+      const id = L.check[0];
+      const r = await send({ type: "triage-folder-ids", mediaId: id });
+      if (token !== S.folderToken) return;
+      if (!r.ok) {
+        L.error = `核对「${folderName(id)}」失败：${r.error}`;
+        L.paused = true;
+        break;
+      }
+      L.check.shift();
+      if (idsChanged(L.lists[id].items.map((it) => it.bvid), r.data.bvids)) L.queue.push(id);
+      render();
+      if (L.check.length || L.queue.length) await sleepWhile(300, keepGoing);
+      continue;
+    }
     const id = L.queue[0];
     S.loadPage = null;
     const r = await send({ type: "triage-folder-items", mediaId: id });
@@ -783,6 +807,7 @@ function refreshAll() {
   const L = S.loadAll;
   if (!L) return;
   L.queue = S.folders.map((f) => String(f.id));
+  L.check = [];
   L.paused = false;
   L.partial = 0;
   runLoadAll(S.folderToken);
@@ -793,12 +818,16 @@ function loadAllLine() {
   const n = S.folders.length;
   const loaded = n - L.queue.length;
   const partial = L.partial ? `（${L.partial} 个只加载了部分）` : "";
-  if (!L.queue.length) return `<span class="muted">${n} 个收藏夹 · ${S.items.length} 个视频${partial}</span>`;
-  const now = L.running && !L.paused ? ` · 正在加载「${esc(folderName(L.queue[0]))}」${pageText(L.queue[0])}` : "";
+  if (!L.queue.length && !L.check.length) return `<span class="muted">${n} 个收藏夹 · ${S.items.length} 个视频${partial}</span>`;
+  const busy = L.running && !L.paused;
+  const now = busy ? ` · 正在加载「${esc(folderName(L.queue[0]))}」${pageText(L.queue[0])}` : "";
+  const text = L.check.length
+    ? `${busy ? "正在核对" : "已核对"} ${L.checkTotal - L.check.length} / ${L.checkTotal} 个收藏夹`
+    : `已加载 ${loaded} / ${n} 个收藏夹${partial}${now}`;
   const btn = L.paused
     ? `<button type="button" class="link" data-head="all-resume" aria-label="继续加载收藏夹">继续</button>`
     : `<button type="button" class="link" data-head="all-pause" aria-label="暂停加载收藏夹">暂停</button>`;
-  return `<span class="muted">已加载 ${loaded} / ${n} 个收藏夹${partial}${now} · ${btn}</span>${L.error ? `<span class="fail-text">${esc(L.error)}</span>` : ""}`;
+  return `<span class="muted"${busy ? ' aria-busy="true"' : ""}>${text} · ${btn}</span>${L.error ? `<span class="fail-text">${esc(L.error)}</span>` : ""}`;
 }
 
 const folderName = (id) => S.folders.find((f) => String(f.id) === String(id))?.title || String(id);

@@ -459,14 +459,20 @@ function openFake(mediaId, items, decisions = {}) {
   const rec = t.updateRemoved({ BV9: { item: item(9), at: 1 } }, [item(1), item(2), item(3)], [item(1), item(9)], new Set(["BV3"]), 5);
   assert.deepStrictEqual(plain(rec), { BV2: { item: item(2), at: 5 } }, "BV3 is in another folder, BV9 came back");
 
-  // saveSnapshot records against the other folders' snapshots and stores the folder cover.
+  // 所有收藏夹 keeps a cached list only while the folder's video ids match it as a set.
+  assert.strictEqual(t.idsChanged(["BV1", "BV2"], ["BV2", "BV1"]), false, "order does not matter");
+  assert.strictEqual(t.idsChanged(["BV1", "BV2"], ["BV1", "BV3"]), true, "add + remove with the same count");
+  assert.strictEqual(t.idsChanged(["BV1"], ["BV1", "BV2"]), true);
+  assert.strictEqual(t.idsChanged(["BV1", "BV2"], ["BV1"]), true);
+  assert.strictEqual(t.idsChanged([], []), false);
+
+  // saveSnapshot records against the other folders' snapshots.
   for (const k of Object.keys(store)) delete store[k];
-  t.S.folders = [{ id: "A", cover: "c1", count: 1 }, { id: "B", cover: "", count: 1 }];
+  t.S.folders = [{ id: "A", count: 1 }, { id: "B", count: 1 }];
   store[t.K.snapshot("A")] = { bvids: ["BV1", "BV2"], items: [item(1), item(2)] };
   store[t.K.snapshot("B")] = { bvids: ["BV2"], items: [item(2)] };
   await t.saveSnapshot("A", []);
   assert.deepStrictEqual(Object.keys(store[t.K.removed]), ["BV1"]);
-  assert.strictEqual(store[t.K.snapshot("A")].cover, "c1");
   assert.strictEqual(t.S.removedCount, 1);
 
   // Cleaning a removed video deletes its AI results, note, tags, 保留 and basket entry, and nothing else.

@@ -294,14 +294,8 @@ async function triageMid() {
 
 async function triageCreatedFolders() {
   const mid = await triageMid();
-  // The paged list (not list-all) carries cover: an auto cover is the newest video, so count + cover notice a swap.
-  const folders = [];
-  for (let pn = 1; pn <= 20; pn++) {
-    const data = await triageBiliGet(`https://api.bilibili.com/x/v3/fav/folder/created/list?up_mid=${mid}&pn=${pn}&ps=50`);
-    folders.push(...(data?.list || []).map((f) => ({ id: f.id, title: f.title, count: f.media_count, cover: f.cover || "" })));
-    if (!data?.has_more) break;
-  }
-  return { mid, folders };
+  const data = await triageBiliGet(`https://api.bilibili.com/x/v3/fav/folder/created/list-all?up_mid=${mid}`);
+  return { mid, folders: (data?.list || []).map((f) => ({ id: f.id, title: f.title, count: f.media_count })) };
 }
 
 // The folder's 判断标准 and the tag names come with each request from the page.
@@ -601,6 +595,14 @@ const TRIAGE_HANDLERS = {
       globalThis.chrome?.runtime?.sendMessage?.({ type: "triage-folder-page", mediaId: String(mediaId), page: pn })?.catch?.(() => {});
     }
     return { items };
+  },
+
+  // Every video id of a folder in one request, no paging; 所有收藏夹 compares it with the cached list.
+  "triage-folder-ids": async ({ mediaId }) => {
+    if (!mediaId) throw triageError("缺少 mediaId");
+    const data = await triageBiliGet(`https://api.bilibili.com/x/v3/fav/resource/ids?media_id=${mediaId}&platform=web`);
+    // type 2 = video, the only type triage-folder-items keeps.
+    return { bvids: (data || []).filter((m) => m.type === 2).map((m) => m.bvid || m.bv_id) };
   },
 
   "triage-analysis-get": async ({ bvids }) => {

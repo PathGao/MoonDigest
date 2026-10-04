@@ -115,6 +115,10 @@
       }
       return { ok: true, data: { items: f.items.map(pub) } };
     },
+    "triage-folder-ids": ({ mediaId }) => {
+      const f = folders.find((x) => String(x.id) === String(mediaId));
+      return f ? { ok: true, data: { bvids: f.items.map((it) => it.bvid) } } : { ok: false, error: "收藏夹不存在" };
+    },
     "triage-title-get": ({ bvids }) => ({ ok: true, data: Object.fromEntries(bvids.map((b) => [b, store[`triage_title_${b}`] || null])) }),
     "triage-analysis-get": ({ bvids }) => ({ ok: true, data: Object.fromEntries(bvids.map((b) => [b, store[`triage_analysis_${b}`] || null])) }),
     // Requests carry the folder's 判断标准; the AI answers one of keep / drop / unsure.
