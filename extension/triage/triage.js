@@ -1031,8 +1031,8 @@ function criteriaLine() {
   const text = criteria();
   const short = text.length > 24 ? `${text.slice(0, 24)}…` : text;
   return text
-    ? `<span class="run-line" title="${esc(text)}">判断标准：${esc(short)} · <button type="button" class="link" data-head="criteria" aria-label="修改判断标准">改</button></span>`
-    : `<span class="run-line" title="没写判断标准时，AI 从收藏夹名和简介推测用途，按它判断值得留还是可清理">未设判断标准，AI 按收藏夹名「${esc(folderTitle())}」推测用途 · <button type="button" class="link" data-head="criteria" aria-label="写一句判断标准">写一句更准</button></span>`;
+    ? `<span class="run-line" title="${esc(text)}">判断标准：${esc(short)}</span><button type="button" data-head="criteria" aria-label="修改判断标准">改判断标准</button>`
+    : `<span class="run-line" title="没写判断标准时，AI 从收藏夹名和简介推测用途，按它判断值得留还是可清理">未设判断标准，AI 按收藏夹名「${esc(folderTitle())}」推测用途</span><button type="button" data-head="criteria" aria-label="写一句判断标准">写判断标准</button>`;
 }
 
 function renderListHeader(list) {
