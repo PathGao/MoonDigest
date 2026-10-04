@@ -370,19 +370,3 @@ dialog.wide { width: min(880px, calc(100% - 32px)); }
 .recent-unfav li { display: flex; align-items: center; gap: 8px; padding: 4px 0; }
 .recent-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
-/* ponytail: page-local copy of the shared busy button (disabled + aria-busy + 「…中」 + spinner); moves to tokens.css. */
-button.is-busy:disabled { opacity: 0.8; cursor: progress; }
-button.is-busy::before {
-  content: "";
-  display: inline-block;
-  width: 0.8em;
-  height: 0.8em;
-  margin-right: 4px;
-  vertical-align: -0.1em;
-  border: 1.5px solid currentColor;
-  border-right-color: transparent;
-  border-radius: 50%;
-  animation: busy-spin 0.8s linear infinite;
-}
-@keyframes busy-spin { to { transform: rotate(360deg); } }
-@media (prefers-reduced-motion: reduce) { button.is-busy::before { animation: none; border-right-color: currentColor; opacity: 0.5; } }

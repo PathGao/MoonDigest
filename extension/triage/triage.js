@@ -233,7 +233,7 @@ function askAi(it) {
   chrome.sidePanel.open({ tabId: ownTabId }).catch((err) => toast(`打开侧边栏失败：${err.message}`, true));
 }
 
-// ponytail: page-local copy of the shared .is-busy button state; moves to tokens.css with the CSS.
+// The spinner comes from [aria-busy] in tokens.css; is-busy only marks the button for re-renders.
 function setBusy(btn, text) {
   if (text) {
     btn.dataset.idle ??= btn.innerHTML;
