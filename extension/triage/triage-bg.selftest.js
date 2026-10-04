@@ -49,6 +49,12 @@ assert.deepStrictEqual([...t.triageParseLlm('{"one_liner":"x","points":[]}', tag
 // tag coercion
 assert.deepStrictEqual([...t.triageCoerceTags(["新：数学", "AI", "AI"], tagList, 2)], ["新:数学", "AI"]);
 assert.deepStrictEqual([...t.triageCoerceTags(["新:", "乱写"], tagList, 2)], []);
+// 只用我的标签: no 新: suggestions and no new-tag clause in the prompts.
+assert.deepStrictEqual([...t.triageCoerceTags(["新:数学", "AI"], tagList, 2, false)], ["AI"]);
+for (const p of vm.runInContext("[TRIAGE_SYSTEM_PROMPT, TRIAGE_TITLE_PROMPT]", ctx)) {
+  assert.ok(p.includes("新:标签名") && !t.triageOwnTagsPrompt(p, true).includes("新:"), "own-only prompt drops the new-tag clause");
+  assert.strictEqual(t.triageOwnTagsPrompt(p, false), p);
+}
 
 // title line
 assert.strictEqual(

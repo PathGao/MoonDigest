@@ -58,8 +58,8 @@ function triageCleanTagName(name) {
   return String(name ?? "").replace(/[,，、]/g, "").trim().slice(0, 12);
 }
 
-// 只保留列表内的标签，外加至多一个 "新:" 前缀的新标签，总数 ≤ max
-function triageCoerceTags(raw, tags, max) {
+// 只保留列表内的标签，外加至多一个 "新:" 前缀的新标签（allowNew 为 false 时不要），总数 ≤ max
+function triageCoerceTags(raw, tags, max, allowNew = true) {
   const allowed = new Set(triageTagNames(tags));
   const out = [];
   let hasNew = false;
@@ -69,7 +69,7 @@ function triageCoerceTags(raw, tags, max) {
     if (!t || out.includes(t)) continue;
     if (/^新[:：]/.test(t)) {
       const name = t.replace(/^新[:：]\s*/, "");
-      if (!hasNew && name) { out.push(`新:${name}`); hasNew = true; }
+      if (allowNew && !hasNew && name) { out.push(`新:${name}`); hasNew = true; }
     } else if (allowed.has(t)) {
       out.push(t);
     }
@@ -77,7 +77,7 @@ function triageCoerceTags(raw, tags, max) {
   return out;
 }
 
-function triageParseLlm(content, tags) {
+function triageParseLlm(content, tags, allowNew = true) {
   const obj = triageExtractJson(content, "{");
   const oneLiner = String(obj.one_liner ?? obj.oneLiner ?? "").trim();
   if (!oneLiner) throw new Error("AI 返回缺少 one_liner");
@@ -91,12 +91,12 @@ function triageParseLlm(content, tags) {
     points,
     verdict: triageVerdict(obj.verdict),
     reason: String(obj.reason ?? "").trim(),
-    suggestedTags: triageCoerceTags(obj.tags ?? obj.suggestedTags, tags, 3)
+    suggestedTags: triageCoerceTags(obj.tags ?? obj.suggestedTags, tags, 3, allowNew)
   };
 }
 
 // items 与发给模型的序号一一对应（序号从 1 开始）
-function triageParseTitleBatch(content, items, tags) {
+function triageParseTitleBatch(content, items, tags, allowNew = true) {
   const arr = triageExtractJson(content, "[");
   const byIndex = new Map();
   for (const r of Array.isArray(arr) ? arr : []) {
@@ -110,7 +110,7 @@ function triageParseTitleBatch(content, items, tags) {
       ? {
           verdict: triageVerdict(r.verdict),
           reason: String(r.reason ?? "").trim(),
-          suggestedTags: triageCoerceTags(r.tags, tags, 2),
+          suggestedTags: triageCoerceTags(r.tags, tags, 2, allowNew),
           confidence: String(r.confidence || "").trim().toLowerCase() === "high" ? "high" : "low"
         }
       : { verdict: "unsure", reason: "AI 未返回", suggestedTags: [], confidence: "low" };
@@ -196,6 +196,11 @@ const TRIAGE_TITLE_PROMPT = [
   '[{"i": 序号, "verdict": "keep|drop|unsure", "reason": "≤20字", "tags": ["标签"], "confidence": "high|low"}]'
 ].join("\n");
 
+// 只用我的标签：去掉提示里允许新建标签的半句
+function triageOwnTagsPrompt(system, ownOnly) {
+  return ownOnly ? system.replace(/；都不合适时[^\n]*/, "；不要新建标签。") : system;
+}
+
 function triageWithCriteria(system, criteria) {
   return criteria && String(criteria).trim() ? `${system}\n\n用户补充的判断标准：\n${String(criteria).trim()}` : system;
 }
@@ -215,8 +220,8 @@ function triageTagListText(tags) {
   ].join("\n");
 }
 
-function triageBuildMessages(meta, source, text, criteria, tags) {
-  const system = `${triageWithCriteria(TRIAGE_SYSTEM_PROMPT, criteria)}\n\n${triageTagListText(tags)}`;
+function triageBuildMessages(meta, source, text, criteria, tags, ownOnly = false) {
+  const system = `${triageWithCriteria(triageOwnTagsPrompt(TRIAGE_SYSTEM_PROMPT, ownOnly), criteria)}\n\n${triageTagListText(tags)}`;
   const user = [
     `标题：${meta.title}`,
     `UP主：${meta.upper}`,
@@ -347,7 +352,8 @@ const TRIAGE_SETTINGS_DEFAULTS = {
   triageTitleBatchSize: 30,
   triageThinking: false,
   triageTitleMaxTokens: 0,
-  triageAnalyzeMaxTokens: 0
+  triageAnalyzeMaxTokens: 0,
+  triageOwnTagsOnly: false
 };
 
 // 输出上限：用户填了正数就用用户的，否则按是否思考自动（思考 token 计入 max_tokens）
@@ -361,8 +367,13 @@ function triageMaxTokens(kind, itemCount, { triageThinking, triageTitleMaxTokens
 }
 
 async function triageAiSettings() {
-  const s = await chrome.storage.sync.get({ triageThinking: false, triageTitleMaxTokens: 0, triageAnalyzeMaxTokens: 0 });
-  return { triageThinking: s.triageThinking === true, triageTitleMaxTokens: Number(s.triageTitleMaxTokens) || 0, triageAnalyzeMaxTokens: Number(s.triageAnalyzeMaxTokens) || 0 };
+  const s = await chrome.storage.sync.get({ triageThinking: false, triageTitleMaxTokens: 0, triageAnalyzeMaxTokens: 0, triageOwnTagsOnly: false });
+  return {
+    triageThinking: s.triageThinking === true,
+    triageTitleMaxTokens: Number(s.triageTitleMaxTokens) || 0,
+    triageAnalyzeMaxTokens: Number(s.triageAnalyzeMaxTokens) || 0,
+    triageOwnTagsOnly: s.triageOwnTagsOnly === true
+  };
 }
 
 async function triageAnalyze({ bvid, force, tags }) {
@@ -402,12 +413,12 @@ async function triageAnalyze({ bvid, force, tags }) {
   const tagList = Array.isArray(tags) ? tags : [];
   const criteria = await triageCriteriaText();
   const ai = await triageAiSettings();
-  const { content, model } = await triageChat(triageBuildMessages(meta, source, text, criteria, tagList), triageMaxTokens("analyze", 1, ai), ai.triageThinking);
+  const { content, model } = await triageChat(triageBuildMessages(meta, source, text, criteria, tagList, ai.triageOwnTagsOnly), triageMaxTokens("analyze", 1, ai), ai.triageThinking);
   const analysis = {
     bvid,
     status: "done",
     source,
-    ...triageParseLlm(content, tagList),
+    ...triageParseLlm(content, tagList, !ai.triageOwnTagsOnly),
     model,
     analyzedAt: Date.now()
   };
@@ -476,9 +487,9 @@ async function triageClassifyTitles({ items, tags }) {
   const list = (Array.isArray(items) ? items : []).filter((it) => it && it.bvid);
   if (!list.length) throw triageError("缺少 items");
   const tagList = Array.isArray(tags) ? tags : [];
-  const system = `${triageWithCriteria(TRIAGE_TITLE_PROMPT, await triageCriteriaText())}\n\n${triageTagListText(tagList)}`;
-  const user = list.map((it, idx) => triageTitleLine(it, idx + 1)).join("\n");
   const ai = await triageAiSettings();
+  const system = `${triageWithCriteria(triageOwnTagsPrompt(TRIAGE_TITLE_PROMPT, ai.triageOwnTagsOnly), await triageCriteriaText())}\n\n${triageTagListText(tagList)}`;
+  const user = list.map((it, idx) => triageTitleLine(it, idx + 1)).join("\n");
   const { content, model } = await triageChat(
     [
       { role: "system", content: system },
@@ -487,7 +498,7 @@ async function triageClassifyTitles({ items, tags }) {
     triageMaxTokens("title", list.length, ai),
     ai.triageThinking
   );
-  const results = triageParseTitleBatch(content, list, tagList);
+  const results = triageParseTitleBatch(content, list, tagList, !ai.triageOwnTagsOnly);
   const analyzedAt = Date.now();
   // "AI 未返回" 的不缓存，方便下次重试
   const toStore = {};
@@ -505,9 +516,9 @@ async function triageAiCommand({ instruction, tags, items, allowNewTags, maxNewT
   const list = (Array.isArray(items) ? items : []).filter((it) => it && it.bvid);
   if (!list.length) throw triageError("缺少 items");
   const n = Number(maxNewTags ?? 5);
-  const opts = { allowNewTags: allowNewTags === true, maxNewTags: n >= 0 ? Math.floor(n) : 5, allowVerdict: allowVerdict === true };
-  const tagList = Array.isArray(tags) ? tags : [];
   const ai = await triageAiSettings();
+  const opts = { allowNewTags: allowNewTags === true && !ai.triageOwnTagsOnly, maxNewTags: n >= 0 ? Math.floor(n) : 5, allowVerdict: allowVerdict === true };
+  const tagList = Array.isArray(tags) ? tags : [];
   const { content } = await triageChat(
     triageBuildCommandMessages({ instruction: text, tags: tagList, items: list, ...opts }),
     triageMaxTokens("command", list.length, ai),
@@ -676,7 +687,8 @@ const TRIAGE_HANDLERS = {
       triageTitleBatchSize: Number(s.triageTitleBatchSize) > 0 ? Number(s.triageTitleBatchSize) : 30,
       triageThinking: s.triageThinking === true,
       triageTitleMaxTokens: Number(s.triageTitleMaxTokens) > 0 ? Number(s.triageTitleMaxTokens) : 0,
-      triageAnalyzeMaxTokens: Number(s.triageAnalyzeMaxTokens) > 0 ? Number(s.triageAnalyzeMaxTokens) : 0
+      triageAnalyzeMaxTokens: Number(s.triageAnalyzeMaxTokens) > 0 ? Number(s.triageAnalyzeMaxTokens) : 0,
+      triageOwnTagsOnly: s.triageOwnTagsOnly === true
     };
   },
 
