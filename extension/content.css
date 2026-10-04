@@ -516,6 +516,13 @@ html[data-boc-reader-mode="1"][data-boc-reader-theme="dark"] {
   flex: 0 0 auto;
 }
 
+#boc-reading-ai-btn svg {
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
 .boc-reading-icon-btn:hover {
   background: var(--boc-surface-muted);
   border-color: var(--boc-border-strong);
@@ -1121,17 +1128,6 @@ body[data-boc-reader-mode="1"] #app {
 
 #boc-reading-view .boc-reading-transcript {
   width: min(100%, var(--boc-reader-content-max));
-}
-
-html[data-boc-reader-mode="1"][data-boc-reader-transcript-visible="0"] #boc-reading-view .boc-reading-main,
-body[data-boc-reader-mode="1"][data-boc-reader-transcript-visible="0"] #boc-reading-view .boc-reading-main,
-#boc-reading-view[data-transcript-visible="0"] .boc-reading-main {
-  display: none !important;
-}
-
-#boc-reading-view[data-transcript-visible="0"] #boc-reading-inline-host {
-  border: none;
-  background: transparent;
 }
 
 #boc-reading-view .boc-reading-item {

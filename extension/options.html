@@ -12,7 +12,7 @@
       <h1>MoonDigest</h1>
       <p id="hostPermissionBanner" class="status" data-error="true" hidden>
         <span id="hostPermissionText"></span>
-        <button id="hostPermissionBtn" type="button">授权</button>
+        <button id="hostPermissionBtn" class="primary" type="button">授权</button>
       </p>
 
       <section class="tier">
@@ -32,11 +32,6 @@
           在字幕正文中保留时间戳
         </label>
 
-        <label class="checkbox">
-          <input id="enableDebugLogs" type="checkbox" />
-          启用调试日志（仅在排查问题时开启）
-        </label>
-
         <label for="youtubeSubtitleLang">YouTube 默认字幕语言（仅 YouTube）</label>
         <select id="youtubeSubtitleLang">
           <option value="auto">自动（中文优先）</option>
@@ -54,9 +49,6 @@
         <div id="aiProvidersList" class="ai-providers-list"></div>
         <p id="aiProvidersEmpty" class="ai-providers-empty">还没有配置平台，点击下方按钮添加。</p>
         <button id="addAiProviderBtn" class="add-property-btn" type="button">+ 添加平台</button>
-        <div class="action-row">
-          <button class="save-btn" type="button">保存设置</button>
-        </div>
       </section>
 
       <section class="field-group field-group-tight-bottom">
@@ -66,8 +58,8 @@
       </section>
 
       <section class="field-group field-group-tight-bottom player-ai-quick-action-settings">
-        <h2>一键总结要求</h2>
-        <p class="hint">播放器 AI 按钮和侧边栏「总结这期视频」按钮发出的第一条消息。留空时 AI 按钮只打开侧边栏。</p>
+        <h2>AI 总结要求</h2>
+        <p class="hint">所有「AI 总结」按钮（弹窗、侧边栏、播放器、专注模式）发出的第一条消息。留空时这些按钮只打开侧边栏。</p>
         <textarea
           id="playerAiQuickPrompt"
           class="settings-textarea"
@@ -80,68 +72,10 @@
       </section>
 
       <section class="field-group field-group-tight-bottom">
-        <h2>追问快捷问题</h2>
-        <p class="hint">有回答后显示在输入框上方，点一下就发送。每行一条，最多 12 条；侧边栏「快捷追问」里也能增删。</p>
+        <h2>管理追问</h2>
+        <p class="hint">有回答后显示在输入框上方，点一下就发送。每行一条，最多 12 条；侧边栏「管理追问」里也能增删。</p>
         <textarea id="aiPresetPrompts" class="settings-textarea" rows="7"></textarea>
       </section>
-
-        <div class="action-row">
-          <button class="save-btn" type="button">保存设置</button>
-        </div>
-      </section>
-
-      <section class="tier">
-        <div class="tier-head">
-          <h2 class="tier-title">进阶 1 · 收藏夹分拣台（仅 B 站）</h2>
-          <button id="openTriageBtn" class="secondary-btn" type="button">打开收藏夹分拣台</button>
-        </div>
-        <p class="tier-desc">把一个收藏夹里的视频批量交给 AI 粗分和细看，连起来读，判断哪些值得看。</p>
-        <label class="checkbox">
-          <input id="showBiliTriageBadges" type="checkbox" />
-          在 B 站页面显示分拣标记
-        </label>
-        <p class="hint">分拣过或打过标签的视频，在收藏夹、视频页、首页和搜索结果里显示一个小标记。虚线框表示只做过标题粗分。</p>
-
-        <section class="field-group">
-          <h2>分拣设置</h2>
-          <p class="hint">与分拣台里的“分拣设置”是同一份，改哪边都一样。</p>
-          <p class="hint">标题粗分：只看标题和简介，几十个一批，快、省钱，分成 建议删 / 建议留 / 待定。<br />字幕细看：读字幕（没有字幕时读简介和评论），一次一个视频，慢一些，给出一句话总结、3 个要点、判断和建议标签。</p>
-          <label for="triageCriteria">判断标准</label>
-          <textarea id="triageCriteria" class="settings-textarea" placeholder="例如：我关注 AI 工程实践与产品方法，娱乐和纯资讯类不感兴趣。"></textarea>
-          <div class="field-grid">
-            <div>
-              <label for="triageIntervalSec">请求间隔（秒）</label>
-              <input id="triageIntervalSec" type="number" min="0" step="1" />
-            </div>
-            <div>
-              <label for="triageTitleBatchSize">标题粗分每批数量</label>
-              <input id="triageTitleBatchSize" type="number" min="1" max="100" step="1" />
-            </div>
-          </div>
-          <label class="checkbox checkbox-tight">
-            <input id="triageThinking" type="checkbox" />
-            开启思考
-          </label>
-          <p class="hint">关：快、省（30 个标题约 3 秒）。开：判断更细，但慢约 6 倍、费约 5 倍 token。目前只对 DeepSeek 生效。</p>
-          <details class="advanced">
-            <summary>高级（一般不用改）</summary>
-            <p class="hint">留空就是自动。只有提示“输出被截断”时才需要调大。</p>
-            <div class="field-grid">
-              <div>
-                <label for="triageTitleMaxTokens">粗分输出上限（token）</label>
-                <input id="triageTitleMaxTokens" type="number" min="0" max="32000" step="1" placeholder="自动" />
-              </div>
-              <div>
-                <label for="triageAnalyzeMaxTokens">细看输出上限（token）</label>
-                <input id="triageAnalyzeMaxTokens" type="number" min="0" max="32000" step="1" placeholder="自动" />
-              </div>
-            </div>
-          </details>
-        </section>
-
-        <div class="action-row">
-          <button class="save-btn" type="button">保存设置</button>
-        </div>
       </section>
 
       <section class="tier">
@@ -177,6 +111,8 @@
           </p>
         </section>
 
+        <details class="advanced">
+          <summary>高级</summary>
         <section class="field-group">
           <h2>笔记属性（Frontmatter）</h2>
           <p class="hint">勾选要写进笔记 frontmatter 的字段。</p>
@@ -219,14 +155,24 @@
           <p id="noteSectionsEmpty" class="fixed-properties-empty">还没有正文附加段落</p>
           <button id="addNoteSectionBtn" class="add-property-btn" type="button">+ 添加段落</button>
         </section>
-
-        <div class="action-row">
-          <button class="save-btn" type="button">保存设置</button>
-        </div>
+        </details>
       </section>
 
       <section class="tier">
-        <h2 class="tier-title">进阶 2 · Obsidian 知识库</h2>
+        <div class="tier-head">
+          <h2 class="tier-title">进阶 1 · 收藏夹分拣台（仅 B 站）</h2>
+          <a class="secondary-btn" href="./triage/triage.html" target="_blank">打开分拣台</a>
+        </div>
+        <p class="tier-desc">把一个收藏夹里的视频批量交给 AI 粗分和细看，连起来读，判断哪些值得看。</p>
+        <label class="checkbox">
+          <input id="showBiliTriageBadges" type="checkbox" />
+          在 B 站页面显示分拣标记
+        </label>
+        <p class="hint">分拣过或打过标签的视频，在收藏夹、视频页、首页和搜索结果里显示一个小标记。虚线框表示只做过标题粗分。</p>
+      </section>
+
+      <section class="tier">
+        <h2 class="tier-title">进阶 2 · Obsidian（可选）</h2>
         <p class="tier-desc">把字幕、AI 对话和分拣结果写进 Obsidian，可以单个写，也可以整个收藏夹批量写。</p>
         <label class="checkbox tier-toggle">
           <input id="obsidianEnabled" type="checkbox" />
@@ -264,24 +210,27 @@
             <input id="noteFolder" type="text" placeholder="例如：Clippings/{{site}}" />
             <p class="hint inline-hint">支持变量：{{created}} / {{upload_date}} / {{author}} / {{site}} / {{id}} / {{bvid}}，示例：Clippings/{{site}}/{{created}}</p>
 
-            <label for="triageExportFolder">收藏夹批量写入目录</label>
+            <label for="triageExportFolder">分拣台批量写入的目录</label>
             <input id="triageExportFolder" type="text" placeholder="例如：raw/01-articles" />
-            <p class="hint inline-hint">分拣台的摘录篮和整个收藏夹的笔记写到这里。</p>
+            <p class="hint inline-hint">分拣台「批量导出 → 写入 Obsidian」时，笔记写进库里的这个文件夹；留空就用上面的笔记目录。下载 .md 不受影响。</p>
           </section>
 
         </div>
-
-        <div class="action-row">
-          <button class="save-btn" type="button">保存设置</button>
-        </div>
       </section>
 
-      <p id="status" class="status" role="status"></p>
-
-      <section class="about">
-        <h2>数据与存储</h2>
-        <p class="hint">都存在浏览器本地，不上传。到了上限怎么处理，写在每一行里。<a href="./history/history.html" target="_blank">管理 AI 对话历史</a></p>
+      <section class="tier">
+        <h2 class="tier-title">数据与存储</h2>
+        <p class="tier-desc">所有功能共用的本地数据：字幕缓存、AI 对话、分拣结果和备注。都存在浏览器本地，不上传；到了上限怎么处理，写在每一行里。</p>
+        <p class="hint"><a href="./history/history.html" target="_blank">打开视频记录</a></p>
         <div id="storageLimits" class="about-card"></div>
+      </section>
+
+      <section class="tier">
+        <h2 class="tier-title">高级</h2>
+        <label class="checkbox">
+          <input id="enableDebugLogs" type="checkbox" />
+          启用调试日志（仅在排查问题时开启）
+        </label>
       </section>
 
       <section class="about">
@@ -297,6 +246,12 @@
           </p>
         </div>
       </section>
+
+      <div id="saveBar" class="save-bar" hidden>
+        <p id="status" class="status" role="status"></p>
+        <span id="unsavedHint" class="save-bar-hint">有未保存的修改</span>
+        <button id="saveBtn" class="primary" type="button">保存</button>
+      </div>
     </main>
 
     <script src="./limits.js"></script>

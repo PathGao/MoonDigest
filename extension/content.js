@@ -24,7 +24,6 @@ const DEFAULT_SETTINGS = {
   readerLineHeight: "tight",
   readerContentWidth: "medium",
   readerChapterVisible: true,
-  readerTranscriptVisible: true,
   frontmatterFields: BocNote.DEFAULT_FRONTMATTER_FIELDS,
   fixedFrontmatterProperties: [],
   notePlaceholderSections: []
@@ -74,7 +73,6 @@ const state = {
   readingLineHeight: "tight",
   readingContentWidth: "medium",
   readingChapterVisible: true,
-  readingTranscriptVisible: true,
   readingSettingsExpanded: false,
   readingDescriptionExpanded: false,
   readingActiveSubtitleIndex: -1,
@@ -118,7 +116,7 @@ const state = {
   readingManualScrollPauseUntil: 0,
   readingProgrammaticScrollUntil: 0,
   readingViewReady: false,
-  statusText: "准备就绪，点击“刷新抓取”开始。",
+  statusText: "准备就绪，点击“刷新”开始。",
   messageText: "",
   settings: { ...DEFAULT_SETTINGS }
 };
@@ -281,10 +279,6 @@ function normalizeReaderContentWidth(value) {
   return ["compact", "narrow", "medium", "wide", "full"].includes(value) ? value : "medium";
 }
 
-function normalizeReaderTranscriptVisible(value) {
-  return value !== false;
-}
-
 function shouldDebugLog() {
   return Boolean(state.settings?.enableDebugLogs);
 }
@@ -308,9 +302,9 @@ const ids = {
   readingStatus: "boc-reading-status",
   readingCloseBtn: "boc-reading-close-btn",
   readingAutoScroll: "boc-reading-autoscroll",
-  readingTranscriptVisible: "boc-reading-transcript-visible",
   readingThemeSelect: "boc-reading-theme-select",
   readingSettingsBtn: "boc-reading-settings-btn",
+  readingAiBtn: "boc-reading-ai-btn",
   readingSettingsPanel: "boc-reading-settings-panel",
   readingFontScaleSelect: "boc-reading-font-scale-select",
   readingLetterSpacingSelect: "boc-reading-letter-spacing-select",
@@ -602,8 +596,7 @@ function bindSettingsWatcher() {
       !changes.readerLetterSpacing &&
       !changes.readerLineHeight &&
       !changes.readerContentWidth &&
-      !changes.readerChapterVisible &&
-      !changes.readerTranscriptVisible
+      !changes.readerChapterVisible
     ) {
       return;
     }
@@ -637,6 +630,7 @@ function buildUiHtml() {
               <div id="${ids.readingMeta}" class="boc-reading-meta">${escapeHtml(currentSite()?.domain || "")}</div>
             </div>
             <div class="boc-reading-actions">
+              <button id="${ids.readingAiBtn}" type="button" class="boc-reading-icon-btn" title="AI 总结" aria-label="AI 总结">${buildPlayerAiQuickActionIconSvg()}</button>
               <button id="${ids.readingThemeSelect}" type="button" class="boc-reading-icon-btn" title="主题" aria-label="切换主题">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg>
               </button>
@@ -683,10 +677,6 @@ function buildUiHtml() {
                   <span>滚动</span>
                 </label>
                 <label class="boc-reading-toggle boc-reading-toggle-inline">
-                  <input id="${ids.readingTranscriptVisible}" type="checkbox" checked />
-                  <span>字幕</span>
-                </label>
-                <label class="boc-reading-toggle boc-reading-toggle-inline">
                   <input id="${ids.readingChapterVisible}" type="checkbox" checked />
                   <span>章节</span>
                 </label>
@@ -701,7 +691,7 @@ function buildUiHtml() {
             </section>
 
             <section class="boc-reading-settings-group boc-reading-info-group">
-              <div class="boc-reading-eyebrow">视频摘要</div>
+              <div class="boc-reading-eyebrow">视频信息</div>
               <div id="${ids.readingInfoSummary}" class="boc-reading-info-list"></div>
             </section>
             <section class="boc-reading-settings-group boc-reading-info-group">
@@ -729,7 +719,6 @@ function bindUiEvents() {
   const readingView = byId(ids.readingView);
   const readingCloseBtn = byId(ids.readingCloseBtn);
   const readingAutoScroll = byId(ids.readingAutoScroll);
-  const readingTranscriptVisible = byId(ids.readingTranscriptVisible);
   const readingThemeSelect = byId(ids.readingThemeSelect);
   const readingSettingsToggleBtn = byId(ids.readingSettingsBtn);
   const readingFontScaleSelect = byId(ids.readingFontScaleSelect);
@@ -751,13 +740,6 @@ function bindUiEvents() {
       syncReadingViewPlayback(true);
     }
     updateReaderFollowState();
-  });
-  readingTranscriptVisible.addEventListener("change", (event) => {
-    updateReaderPreferences({ readerTranscriptVisible: Boolean(event.target.checked) }, { persist: true });
-    const main = document.querySelector(".boc-reading-main");
-    if (main) {
-      main.style.display = event.target.checked ? "" : "none";
-    }
   });
   const readingChapterVisible = byId(ids.readingChapterVisible);
   if (readingChapterVisible) {
@@ -837,6 +819,12 @@ function bindUiEvents() {
   chapterList.addEventListener("pointerdown", () => noteManualReaderInteraction(3500));
   transcriptList.addEventListener("pointerdown", () => noteManualReaderInteraction(3500));
   byId(ids.readingStatus).addEventListener("click", () => setReadingNotice(""));
+  // Same request as the popup's AI 总结, so it works even when the player button is turned off.
+  byId(ids.readingAiBtn).addEventListener("click", () => {
+    sendRuntimeMessage({ type: "player-ai-quick-action", source: "popup" })
+      .then((resp) => setReadingNotice(resp?.ok ? "" : `AI 总结失败：${resp?.error || "打开侧边栏失败"}`))
+      .catch((error) => setReadingNotice(`AI 总结失败：${getErrorMessage(error)}`));
+  });
   chapterList.addEventListener("click", onReadingChapterClick);
   transcriptList.addEventListener("click", onReadingTranscriptClick);
   readingView.addEventListener("transitionend", () => {
@@ -894,7 +882,7 @@ function checkUrlChange() {
     });
     return;
   }
-  setStatus("检测到页面变化，请点击“刷新抓取”加载当前视频字幕。");
+  setStatus("检测到页面变化，请点击“刷新”加载当前视频字幕。");
 }
 
 function resetClipState() {
@@ -1371,7 +1359,7 @@ async function sendToObsidian() {
   }
   await refreshDerivedContent();
   if (!state.markdown) {
-    setMessage("没有可写入的内容，请先刷新抓取。");
+    setMessage("没有可写入的内容，请先点击“刷新”。");
     return;
   }
 
@@ -1960,7 +1948,6 @@ function hydrateReaderStateFromSettings(settings = state.settings) {
   state.readingLineHeight = normalizeReaderLineHeight(settings?.readerLineHeight);
   state.readingContentWidth = normalizeReaderContentWidth(settings?.readerContentWidth);
   state.readingChapterVisible = settings?.readerChapterVisible !== undefined ? Boolean(settings.readerChapterVisible) : true;
-  state.readingTranscriptVisible = normalizeReaderTranscriptVisible(settings?.readerTranscriptVisible);
 }
 
 function applyReadingViewPresentation() {
@@ -1971,46 +1958,21 @@ function applyReadingViewPresentation() {
   readingView.dataset.lineHeight = state.readingLineHeight;
   readingView.dataset.contentWidth = state.readingContentWidth;
   readingView.dataset.chapterVisibility = state.readingChapterVisible ? "auto" : "hide";
-  readingView.dataset.transcriptVisible = state.readingTranscriptVisible ? "1" : "0";
   document.documentElement.dataset.bocReaderTheme = state.readingTheme;
   document.documentElement.dataset.bocReaderFontScale = state.readingFontScale;
   document.documentElement.dataset.bocReaderLetterSpacing = state.readingLetterSpacing;
   document.documentElement.dataset.bocReaderLineHeight = state.readingLineHeight;
   document.documentElement.dataset.bocReaderContentWidth = state.readingContentWidth;
   document.documentElement.dataset.bocReaderChapterVisibility = state.readingChapterVisible ? "auto" : "hide";
-  document.documentElement.dataset.bocReaderTranscriptVisible = state.readingTranscriptVisible ? "1" : "0";
   document.body.dataset.bocReaderTheme = state.readingTheme;
   document.body.dataset.bocReaderFontScale = state.readingFontScale;
   document.body.dataset.bocReaderLetterSpacing = state.readingLetterSpacing;
   document.body.dataset.bocReaderLineHeight = state.readingLineHeight;
   document.body.dataset.bocReaderContentWidth = state.readingContentWidth;
   document.body.dataset.bocReaderChapterVisibility = state.readingChapterVisible ? "auto" : "hide";
-  document.body.dataset.bocReaderTranscriptVisible = state.readingTranscriptVisible ? "1" : "0";
   const readingChapterVisibleEl = byId(ids.readingChapterVisible);
   if (readingChapterVisibleEl) {
     readingChapterVisibleEl.checked = state.readingChapterVisible;
-  }
-  const main = document.querySelector(".boc-reading-main");
-  if (main) {
-    main.style.display = state.readingTranscriptVisible ? "" : "none";
-  }
-  const inlineHost = document.getElementById("boc-reading-inline-host");
-  if (inlineHost) {
-    const leftContainer = document.querySelector(".left-container");
-    const bgColor = leftContainer ? getComputedStyle(leftContainer).backgroundColor : "";
-    if (state.readingTranscriptVisible) {
-      inlineHost.style.border = "";
-      inlineHost.style.background = "";
-      inlineHost.style.marginTop = "";
-      inlineHost.style.boxShadow = "";
-      inlineHost.style.borderRadius = "";
-    } else {
-      inlineHost.style.border = "none";
-      inlineHost.style.background = bgColor;
-      inlineHost.style.marginTop = "0";
-      inlineHost.style.boxShadow = "none";
-      inlineHost.style.borderRadius = "0";
-    }
   }
 }
 
@@ -2142,7 +2104,6 @@ function renderReaderPanels() {
   settingsBtn.classList.toggle("is-active", state.readingSettingsExpanded);
   settingsBtn.setAttribute("aria-expanded", String(state.readingSettingsExpanded));
   byId(ids.readingAutoScroll).checked = state.readingAutoScroll;
-  byId(ids.readingTranscriptVisible).checked = state.readingTranscriptVisible;
   renderReaderStepperState(byId(ids.readingFontScaleSelect), "readerFontScale");
   renderReaderStepperState(byId(ids.readingLetterSpacingSelect), "readerLetterSpacing");
   renderReaderStepperState(byId(ids.readingLineHeightSelect), "readerLineHeight");
@@ -2221,9 +2182,6 @@ function updateReaderPreferences(next, { persist = true } = {}) {
   state.readingLineHeight = normalizeReaderLineHeight(next.readerLineHeight ?? state.readingLineHeight);
   state.readingContentWidth = normalizeReaderContentWidth(next.readerContentWidth ?? state.readingContentWidth);
   state.readingChapterVisible = next.readerChapterVisible !== undefined ? Boolean(next.readerChapterVisible) : state.readingChapterVisible;
-  state.readingTranscriptVisible = normalizeReaderTranscriptVisible(
-    next.readerTranscriptVisible ?? state.readingTranscriptVisible
-  );
   state.settings = {
     ...state.settings,
     readerTheme: state.readingTheme,
@@ -2231,8 +2189,7 @@ function updateReaderPreferences(next, { persist = true } = {}) {
     readerLetterSpacing: state.readingLetterSpacing,
     readerLineHeight: state.readingLineHeight,
     readerContentWidth: state.readingContentWidth,
-    readerChapterVisible: state.readingChapterVisible,
-    readerTranscriptVisible: state.readingTranscriptVisible
+    readerChapterVisible: state.readingChapterVisible
   };
   applyReadingViewPresentation();
   renderReaderPanels();
@@ -2691,21 +2648,6 @@ function moveReadingMainInline() {
 
   if (readingMain.parentElement !== inlineHost) {
     inlineHost.appendChild(readingMain);
-  }
-  const leftContainer = document.querySelector(".left-container");
-  const bgColor = leftContainer ? getComputedStyle(leftContainer).backgroundColor : "";
-  if (state.readingTranscriptVisible) {
-    inlineHost.style.border = "";
-    inlineHost.style.background = "";
-    inlineHost.style.marginTop = "";
-    inlineHost.style.boxShadow = "";
-    inlineHost.style.borderRadius = "";
-  } else {
-    inlineHost.style.border = "none";
-    inlineHost.style.background = bgColor;
-    inlineHost.style.marginTop = "0";
-    inlineHost.style.boxShadow = "none";
-    inlineHost.style.borderRadius = "0";
   }
   updateReadingTranscriptTailSpacer();
 }
@@ -3322,8 +3264,8 @@ function syncPlayerAiQuickActionButton() {
     button.id = "boc-player-ai-quick-action";
     button.type = "button";
     button.className = "boc-player-ai-quick-action";
-    button.title = "用 AI 分析这期视频";
-    button.setAttribute("aria-label", "用 AI 分析这期视频");
+    button.title = "AI 总结";
+    button.setAttribute("aria-label", "AI 总结");
     button.innerHTML = buildPlayerAiQuickActionIconSvg();
     button.addEventListener("click", handlePlayerAiQuickActionClick, true);
   }
@@ -3488,9 +3430,9 @@ async function handlePlayerAiQuickActionClick(event) {
     if (!resp?.ok) {
       throw new Error(resp?.error || "打开 AI 侧边栏失败");
     }
-    setMessage("已打开 AI 侧边栏并发送快捷提示词。");
+    setMessage("已打开侧边栏，开始 AI 总结。");
   } catch (error) {
-    setMessage(`AI 快捷操作失败：${getErrorMessage(error)}`);
+    setMessage(`AI 总结失败：${getErrorMessage(error)}`);
   } finally {
     state.playerAiQuickActionSubmitting = false;
     if (button) {
@@ -4310,15 +4252,15 @@ async function loadAiTurns() {
 }
 
 // The triage page's summary and the video's note, so this note matches what triage exports for the video.
-// The analysis is per bvid and summarizes P1, so other parts leave it out.
+// The note is per video id on every site and part; the analysis is per bvid and summarizes P1, so only B 站 P1 gets it.
 async function loadTriageExtras() {
-  if (state.site !== "bilibili" || !state.videoId || Number(state.pageIndex) > 1) {
+  if (!state.videoId) {
     return null;
   }
   try {
-    const analysisKey = `triage_analysis_${state.videoId}`;
-    const stored = await chrome.storage.local.get([analysisKey, "triage_notes"]);
-    return { analysis: stored[analysisKey], note: stored.triage_notes?.[state.videoId]?.text || "" };
+    const analysisKey = state.site === "bilibili" && !(Number(state.pageIndex) > 1) ? `triage_analysis_${state.videoId}` : "";
+    const stored = await chrome.storage.local.get([analysisKey, "triage_notes"].filter(Boolean));
+    return { analysis: analysisKey ? stored[analysisKey] : null, note: stored.triage_notes?.[state.videoId]?.text || "" };
   } catch (error) {
     logWarn("[BOC] failed to load triage summary for note export", error);
     return null;

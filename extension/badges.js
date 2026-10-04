@@ -1,10 +1,7 @@
 // Read-only triage marks on Bilibili pages. Videos without triage data get zero DOM changes.
 (() => {
-  const VERDICT = {
-    keep: ["留", "建议留"],
-    drop: ["删?", "建议删"],
-    unsure: ["待定", "待定"]
-  };
+  // The triage page's fixed AI classes; the ids are also the CSS color classes.
+  const VERDICTS = { keep: "留", drop: "可以删", unsure: "待定" };
   const ACTION = { keep: "已保留", unfav: "已取消收藏" };
   const STAGE = ["", "标题粗分", "字幕细看", "AI 指令"];
   const BVID_RE = /(?:\/video\/|[?&]bvid=)(BV[0-9A-Za-z]{10})/;
@@ -13,14 +10,14 @@
     return BVID_RE.exec(String(href || ""))?.[1] || "";
   }
 
-  // Same precedence as verdictOf in triage/triage.js: override > stage-2 analysis > stage-1 title result.
+  // Same rules as verdictOf in triage/triage.js: override > stage-2 analysis (unknown = 待定) > stage-1 title result.
   function badgeInfo({ title, analysis, override, tagIds, tags, decision } = {}) {
     const done = analysis?.status === "done";
     let v = null;
-    if (override?.verdict) v = { verdict: override.verdict, reason: override.reason, stage: 3 };
-    else if (done) v = { verdict: analysis.verdict, reason: analysis.reason, stage: 2 };
-    else if (title?.verdict) v = { verdict: title.verdict, reason: title.reason, stage: 1, low: title.confidence === "low" };
-    if (v && !VERDICT[v.verdict]) v = null;
+    if (VERDICTS[override?.verdict]) v = { verdict: override.verdict, reason: override.reason, stage: 3 };
+    else if (done) v = { verdict: VERDICTS[analysis.verdict] ? analysis.verdict : "unsure", reason: analysis.reason, stage: 2 };
+    else if (VERDICTS[title?.verdict]) v = { verdict: title.verdict, reason: title.reason, stage: 1, low: title.confidence === "low" };
+    const name = v && VERDICTS[v.verdict];
     const byId = new Map((Array.isArray(tags) ? tags : []).map((t) => [t.id, t]));
     const userTags = (Array.isArray(tagIds) ? tagIds : [])
       .map((id) => byId.get(id))
@@ -29,11 +26,12 @@
     const action = ACTION[decision?.action] ? decision.action : "";
     if (!v && !userTags.length && !action) return null;
 
-    const label = action ? ACTION[action] : v ? VERDICT[v.verdict][0] : "";
+    // AI classes carry an 「AI」 marker; the user's own decision never does.
+    const label = action ? ACTION[action] : v ? `AI ${name}` : "";
     const aria = [
       "MoonDigest 分拣",
       action && ACTION[action],
-      v && `${VERDICT[v.verdict][1]}（${STAGE[v.stage]}${v.low ? "，低置信" : ""}）`,
+      v && `AI 分类 ${name}（${STAGE[v.stage]}${v.low ? "，低置信" : ""}）`,
       userTags.length && `标签：${userTags.map((t) => t.name).join("、")}`
     ]
       .filter(Boolean)
@@ -41,7 +39,7 @@
     return {
       label,
       aria,
-      verdict: v?.verdict || "",
+      verdict: v ? v.verdict : "", // the CSS color class: keep / drop / unsure
       stage: v?.stage || 0,
       low: Boolean(v?.low),
       action,
@@ -52,7 +50,17 @@
     };
   }
 
-  globalThis.BocBadges = { bvidFromHref, badgeInfo };
+  // Merges every triage_decisions_<folder> in `got`; a video decided in several folders shows its latest decision.
+  function mergeDecisions(got) {
+    const out = {};
+    for (const [k, v] of Object.entries(got || {})) {
+      if (!k.startsWith("triage_decisions_")) continue;
+      for (const [b, d] of Object.entries(v || {})) if (!out[b] || (d?.at || 0) > (out[b].at || 0)) out[b] = d;
+    }
+    return out;
+  }
+
+  globalThis.BocBadges = { bvidFromHref, badgeInfo, mergeDecisions };
   if (typeof chrome === "undefined" || !chrome.storage?.local || typeof document === "undefined") return;
 
   const SETTING = "showBiliTriageBadges";
@@ -102,9 +110,7 @@
         const got = await chrome.storage.local.get(fid || all ? ["triage_tags", "triage_video_tags", ...decisionKeys] : null);
         if (g !== gen) return;
         sharedFid = fid;
-        const decisions = {};
-        for (const [k, v] of Object.entries(got)) if (k.startsWith("triage_decisions_")) Object.assign(decisions, v);
-        shared = { tags: got.triage_tags, videoTags: got.triage_video_tags || {}, decisions };
+        shared = { tags: got.triage_tags, videoTags: got.triage_video_tags || {}, decisions: mergeDecisions(got) };
         cache.clear();
       }
       const anchors = [...document.querySelectorAll(SEL)];

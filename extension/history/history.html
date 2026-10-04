@@ -3,21 +3,24 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>MoonDigest · AI 对话历史</title>
+    <title>MoonDigest · 视频记录</title>
     <link rel="stylesheet" href="../tokens.css" />
     <link rel="stylesheet" href="./history.css" />
   </head>
   <body>
     <header class="topbar">
-      <strong class="brand">AI 对话历史</strong>
+      <strong class="brand">视频记录</strong>
       <span id="count" class="count"></span>
-      <input id="search" type="search" placeholder="搜索标题或对话内容" aria-label="搜索标题或对话内容" />
+      <input id="search" type="search" placeholder="搜索标题、备注或对话内容" aria-label="搜索标题、备注或对话内容" />
     </header>
     <div class="bulkbar">
       <label><input id="selectAll" type="checkbox" /> 全选</label>
       <button id="bulkMd" type="button" disabled>下载所选 .md</button>
-      <button id="bulkDelete" type="button" class="danger" disabled>删除所选</button>
       <span id="status" class="status" role="status"></span>
+      <span class="destructive">
+        <button id="bulkDelete" type="button" class="danger" disabled>删除所选</button>
+        <button id="clearAll" type="button" class="danger" disabled>清空全部</button>
+      </span>
     </div>
     <main id="list" class="list"></main>
 

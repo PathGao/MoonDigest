@@ -41,16 +41,18 @@ function triageExtractJson(content, open) {
   }
 }
 
+// AI 判断固定三档。模型答 id（不分大小写）或中文名都认，其他一律算待定。
+const TRIAGE_VERDICTS = { keep: "留", drop: "可以删", unsure: "待定" };
 function triageVerdict(v) {
-  const s = String(v || "").trim().toLowerCase();
-  return ["keep", "drop", "unsure"].includes(s) ? s : "unsure";
+  const s = String(v ?? "").trim();
+  const id = s.toLowerCase();
+  if (TRIAGE_VERDICTS[id]) return id;
+  return Object.keys(TRIAGE_VERDICTS).find((k) => TRIAGE_VERDICTS[k] === s) || "unsure";
 }
 
-// tags 可以是 ["名称"] 或 [{ name, description }]
+// tags 是标签名列表
 function triageTagNames(tags) {
-  return (Array.isArray(tags) ? tags : [])
-    .map((t) => String((t && typeof t === "object" ? t.name : t) ?? "").trim())
-    .filter(Boolean);
+  return (Array.isArray(tags) ? tags : []).map((t) => String(t ?? "").trim()).filter(Boolean);
 }
 
 // 新标签名：去掉逗号顿号和首尾空白，≤12 字
@@ -58,26 +60,7 @@ function triageCleanTagName(name) {
   return String(name ?? "").replace(/[,，、]/g, "").trim().slice(0, 12);
 }
 
-// 只保留列表内的标签，外加至多一个 "新:" 前缀的新标签（allowNew 为 false 时不要），总数 ≤ max
-function triageCoerceTags(raw, tags, max, allowNew = true) {
-  const allowed = new Set(triageTagNames(tags));
-  const out = [];
-  let hasNew = false;
-  for (const item of Array.isArray(raw) ? raw : []) {
-    if (out.length >= max) break;
-    const t = String(item ?? "").trim();
-    if (!t || out.includes(t)) continue;
-    if (/^新[:：]/.test(t)) {
-      const name = t.replace(/^新[:：]\s*/, "");
-      if (allowNew && !hasNew && name) { out.push(`新:${name}`); hasNew = true; }
-    } else if (allowed.has(t)) {
-      out.push(t);
-    }
-  }
-  return out;
-}
-
-function triageParseLlm(content, tags, allowNew = true) {
+function triageParseLlm(content) {
   const obj = triageExtractJson(content, "{");
   const oneLiner = String(obj.one_liner ?? obj.oneLiner ?? "").trim();
   if (!oneLiner) throw new Error("AI 返回缺少 one_liner");
@@ -86,17 +69,11 @@ function triageParseLlm(content, tags, allowNew = true) {
     .filter(Boolean)
     .slice(0, 3);
   while (points.length < 3) points.push("");
-  return {
-    oneLiner,
-    points,
-    verdict: triageVerdict(obj.verdict),
-    reason: String(obj.reason ?? "").trim(),
-    suggestedTags: triageCoerceTags(obj.tags ?? obj.suggestedTags, tags, 3, allowNew)
-  };
+  return { oneLiner, points, verdict: triageVerdict(obj.verdict), reason: String(obj.reason ?? "").trim() };
 }
 
 // items 与发给模型的序号一一对应（序号从 1 开始）
-function triageParseTitleBatch(content, items, tags, allowNew = true) {
+function triageParseTitleBatch(content, items) {
   const arr = triageExtractJson(content, "[");
   const byIndex = new Map();
   for (const r of Array.isArray(arr) ? arr : []) {
@@ -110,10 +87,9 @@ function triageParseTitleBatch(content, items, tags, allowNew = true) {
       ? {
           verdict: triageVerdict(r.verdict),
           reason: String(r.reason ?? "").trim(),
-          suggestedTags: triageCoerceTags(r.tags, tags, 2, allowNew),
           confidence: String(r.confidence || "").trim().toLowerCase() === "high" ? "high" : "low"
         }
-      : { verdict: "unsure", reason: "AI 未返回", suggestedTags: [], confidence: "low" };
+      : { verdict: "unsure", reason: "AI 未返回", confidence: "low" };
   });
   return results;
 }
@@ -134,20 +110,18 @@ function triageCommandLine(item, n) {
   return [n, clean(item.title), clean(item.upper), dur, list(item.currentTags).join("、"), clean(item.oneLiner), list(item.points).join("；")].join("|");
 }
 
-// AI 指令提案：add 只留已有标签或本次新建的标签，remove 只留视频现有标签，按开关裁掉新标签和 verdict；无改动的视频不返回
-function triageParseCommand(content, items, tags, { allowNewTags = false, maxNewTags = 5, allowVerdict = false } = {}) {
+// AI 指令提案：add 只留已有标签或本次新建的标签（至多 maxNewTags 个），remove 只留视频现有标签，
+// verdict 只在 allowVerdict 时保留且必须是三档之一；无改动的视频不返回
+function triageParseCommand(content, items, tags, { maxNewTags = 5, allowVerdict = false } = {}) {
   const obj = triageExtractJson(content, "{");
   const existing = new Set(triageTagNames(tags));
   const newTags = [];
-  if (allowNewTags) {
-    for (const t of Array.isArray(obj.new_tags) ? obj.new_tags : []) {
-      if (newTags.length >= maxNewTags) break;
-      const name = triageCleanTagName(t && typeof t === "object" ? t.name : t);
-      if (!name || existing.has(name) || newTags.some((x) => x.name === name)) continue;
-      newTags.push({ name, description: String(t?.description ?? "").trim() });
-    }
+  for (const t of Array.isArray(obj.new_tags) ? obj.new_tags : []) {
+    if (newTags.length >= maxNewTags) break;
+    const name = triageCleanTagName(t && typeof t === "object" ? t.name : t);
+    if (name && !existing.has(name) && !newTags.includes(name)) newTags.push(name);
   }
-  const valid = new Set([...existing, ...newTags.map((t) => t.name)]);
+  const valid = new Set([...existing, ...newTags]);
   const byIndex = new Map();
   for (const r of Array.isArray(obj.items) ? obj.items : []) {
     const i = Number(r?.i);
@@ -164,8 +138,8 @@ function triageParseCommand(content, items, tags, { allowNewTags = false, maxNew
       remove: pick(r.remove, (x) => current.has(x)),
       reason: String(r.reason ?? "").trim()
     };
-    const v = String(r.verdict || "").trim().toLowerCase();
-    if (allowVerdict && ["keep", "drop", "unsure"].includes(v)) a.verdict = v;
+    const v = String(r.verdict ?? "").trim().toLowerCase();
+    if (allowVerdict && TRIAGE_VERDICTS[v]) a.verdict = v;
     if (a.add.length || a.remove.length || a.verdict) assignments[item.bvid] = a;
   });
   return { newTags, assignments, note: String(obj.note ?? "").trim() };
@@ -175,53 +149,37 @@ function triageForm(obj) {
   return new URLSearchParams(Object.entries(obj).map(([k, v]) => [k, String(v)])).toString();
 }
 
+const TRIAGE_VERDICT_TEXT = [
+  "verdict 只能是下面三个之一：",
+  "- keep：留。有具体、可复用的知识、方法或数据。",
+  "- drop：可以删。标题党、空谈、纯娱乐、过时新闻，或内容主要是广告。",
+  "- unsure：待定。其他情况，或信息太少无法判断。"
+].join("\n");
+
 const TRIAGE_SYSTEM_PROMPT = [
-  "你是 B 站收藏夹分拣助手。根据给出的视频信息判断这个收藏值不值得留。",
+  "你是 B 站收藏夹分拣助手。根据给出的视频信息总结视频，并判断留还是可以删。",
   "只输出严格 JSON，不要任何其他文字、不要代码块：",
-  '{"one_liner": "一句话说清视频讲了什么，≤40字", "points": ["要点1", "要点2", "要点3"], "verdict": "keep|drop|unsure", "reason": "判断理由，≤30字", "tags": ["标签"]}',
-  "verdict 标准：",
-  "- keep：有具体、可复用的知识、方法或数据。",
-  "- drop：标题党、空谈、纯娱乐、过时新闻，或内容主要是广告。",
-  "- unsure：其他情况，或信息太少无法判断（只有标题简介且简介很短时倾向 unsure）。",
-  "tags：从给定的标签列表中选 0-3 个；都不合适时可以加至多一个新标签，写成 \"新:标签名\"。"
+  '{"one_liner": "一句话说清视频讲了什么，≤40字", "points": ["要点1", "要点2", "要点3"], "verdict": "keep|drop|unsure", "reason": "判断理由，≤30字"}',
+  TRIAGE_VERDICT_TEXT,
+  "信息太少无法判断时（只有标题简介且简介很短）选 unsure。"
 ].join("\n");
 
 const TRIAGE_TITLE_PROMPT = [
   "你是 B 站收藏夹分拣助手。下面每行是一个收藏的视频，格式：序号|标题|UP主|时长|简介前60字。",
   "只根据这些信息做初筛。标题是很弱的证据：看不出实际内容时，verdict 用 unsure，confidence 用 low，不要猜。",
-  "verdict 标准：keep = 明显有具体、可复用的知识、方法或数据；drop = 明显是标题党、空谈、纯娱乐、过时新闻或广告；unsure = 其他情况。",
+  TRIAGE_VERDICT_TEXT,
   "confidence：只有标题和简介足以判断时才用 high，否则用 low。",
-  "tags：从给定的标签列表中选 0-2 个；都不合适时可以加至多一个新标签，写成 \"新:标签名\"。",
   "只输出严格 JSON 数组，每个视频一项，不要任何其他文字、不要代码块：",
-  '[{"i": 序号, "verdict": "keep|drop|unsure", "reason": "≤20字", "tags": ["标签"], "confidence": "high|low"}]'
+  '[{"i": 序号, "verdict": "keep|drop|unsure", "reason": "≤20字", "confidence": "high|low"}]'
 ].join("\n");
 
-// 只用我的标签：去掉提示里允许新建标签的半句
-function triageOwnTagsPrompt(system, ownOnly) {
-  return ownOnly ? system.replace(/；都不合适时[^\n]*/, "；不要新建标签。") : system;
-}
-
+// criteria 是这个收藏夹的判断标准，可以为空
 function triageWithCriteria(system, criteria) {
-  return criteria && String(criteria).trim() ? `${system}\n\n用户补充的判断标准：\n${String(criteria).trim()}` : system;
+  const text = String(criteria ?? "").trim();
+  return text ? `${system}\n\n用户的判断标准（优先于上面的说明）：\n${text}` : system;
 }
 
-function triageTagListText(tags) {
-  const list = (Array.isArray(tags) ? tags : [])
-    .map((t) =>
-      t && typeof t === "object"
-        ? { name: String(t.name ?? "").trim(), description: String(t.description ?? "").trim() }
-        : { name: String(t ?? "").trim(), description: "" }
-    )
-    .filter((t) => t.name);
-  if (!list.length) return "可选标签：（无）";
-  return [
-    "可选标签（每行“名称：说明”，说明是用户规定的该标签什么时候用）：",
-    ...list.map((t) => (t.description ? `- ${t.name}：${t.description}` : `- ${t.name}`))
-  ].join("\n");
-}
-
-function triageBuildMessages(meta, source, text, criteria, tags, ownOnly = false) {
-  const system = `${triageWithCriteria(triageOwnTagsPrompt(TRIAGE_SYSTEM_PROMPT, ownOnly), criteria)}\n\n${triageTagListText(tags)}`;
+function triageBuildMessages(meta, source, text, criteria) {
   const user = [
     `标题：${meta.title}`,
     `UP主：${meta.upper}`,
@@ -232,27 +190,22 @@ function triageBuildMessages(meta, source, text, criteria, tags, ownOnly = false
     source === "subtitle" ? `\n字幕：\n${text}` : `\n（无可用字幕）\n热门评论：\n${text || "无"}`
   ].join("\n");
   return [
-    { role: "system", content: system },
+    { role: "system", content: triageWithCriteria(TRIAGE_SYSTEM_PROMPT, criteria) },
     { role: "user", content: user }
   ];
 }
 
-function triageBuildCommandMessages({ instruction, tags, items, allowNewTags, maxNewTags, allowVerdict }) {
-  const example = allowVerdict
-    ? '{"new_tags": [{"name": "标签名", "description": "一句话说明"}], "items": [{"i": 序号, "add": ["标签"], "remove": ["标签"], "verdict": "keep|drop|unsure", "reason": "≤20字"}], "note": "≤60字"}'
-    : '{"new_tags": [{"name": "标签名", "description": "一句话说明"}], "items": [{"i": 序号, "add": ["标签"], "remove": ["标签"], "reason": "≤20字"}], "note": "≤60字"}';
+function triageBuildCommandMessages({ instruction, tags, items, maxNewTags = 5, allowVerdict = false }) {
+  const names = triageTagNames(tags);
+  const example = `{"new_tags": ["标签名"], "items": [{"i": 序号, "add": ["标签"], "remove": ["标签"],${allowVerdict ? ' "verdict": "keep|drop|unsure",' : ""} "reason": "≤20字"}], "note": "≤60字"}`;
   const system = [
     "你是 B站收藏整理助手，按用户指令给视频打标签、做分类。",
     "用户指令写在 <<<指令>>> 和 <<<指令结束>>> 之间，它就是本次任务的要求。",
     "规则：",
     "- add 只能用已有标签名，或本次 new_tags 里列出的新标签名。",
-    allowNewTags
-      ? `- 可以新建标签，至多 ${maxNewTags} 个，名称 ≤12字、不含逗号，每个配一句话说明什么时候用；已有标签能用就先用，不要重复造。`
-      : "- 不允许新建标签，new_tags 必须是 []。",
+    `- 可以新建标签，至多 ${maxNewTags} 个，名称 ≤12字、不含逗号；已有标签能用就先用，不要重复造。`,
     "- remove 只能填该视频“现有标签”里的名称。",
-    allowVerdict
-      ? "- 指令涉及去留时给 verdict：keep = 值得留，drop = 可以删，unsure = 拿不准；不涉及就不写。"
-      : "- 不要输出 verdict 字段。",
+    allowVerdict ? `- 指令涉及留或删时给 verdict，不涉及就不写。${TRIAGE_VERDICT_TEXT.replace(/^verdict /, "")}` : "- 不要输出 verdict 字段。",
     "- reason ≤20字。",
     "- 指令不适用的视频不要放进 items。",
     "- note ≤60字，总结做了什么，或者为什么没有合适的。",
@@ -260,7 +213,7 @@ function triageBuildCommandMessages({ instruction, tags, items, allowNewTags, ma
     "只输出严格 JSON，不要任何其他文字、不要代码块：",
     example,
     "",
-    triageTagListText(tags)
+    `已有标签：${names.join("、") || "（无）"}`
   ].join("\n");
   const user = [
     "<<<指令>>>",
@@ -345,15 +298,14 @@ async function triageCreatedFolders() {
   return { mid, folders: (data?.list || []).map((f) => ({ id: f.id, title: f.title, count: f.media_count })) };
 }
 
+// The folder's 判断标准 and the tag names come with each request from the page.
 const TRIAGE_SETTINGS_DEFAULTS = {
-  triageCriteria: "",
   triageIntervalSec: 8,
   triageExportFolder: "raw/01-articles",
   triageTitleBatchSize: 30,
   triageThinking: false,
   triageTitleMaxTokens: 0,
-  triageAnalyzeMaxTokens: 0,
-  triageOwnTagsOnly: false
+  triageAnalyzeMaxTokens: 0
 };
 
 // 输出上限：用户填了正数就用用户的，否则按是否思考自动（思考 token 计入 max_tokens）
@@ -367,16 +319,15 @@ function triageMaxTokens(kind, itemCount, { triageThinking, triageTitleMaxTokens
 }
 
 async function triageAiSettings() {
-  const s = await chrome.storage.sync.get({ triageThinking: false, triageTitleMaxTokens: 0, triageAnalyzeMaxTokens: 0, triageOwnTagsOnly: false });
+  const s = await chrome.storage.sync.get({ triageThinking: false, triageTitleMaxTokens: 0, triageAnalyzeMaxTokens: 0 });
   return {
     triageThinking: s.triageThinking === true,
     triageTitleMaxTokens: Number(s.triageTitleMaxTokens) || 0,
-    triageAnalyzeMaxTokens: Number(s.triageAnalyzeMaxTokens) || 0,
-    triageOwnTagsOnly: s.triageOwnTagsOnly === true
+    triageAnalyzeMaxTokens: Number(s.triageAnalyzeMaxTokens) || 0
   };
 }
 
-async function triageAnalyze({ bvid, force, tags }) {
+async function triageAnalyze({ bvid, force, criteria }) {
   if (!bvid) throw triageError("缺少 bvid");
   const cacheKey = `triage_analysis_${bvid}`;
   if (!force) {
@@ -410,25 +361,18 @@ async function triageAnalyze({ bvid, force, tags }) {
     text = triageClip(comments.map((c, i) => `${i + 1}. ${c.message}`).join("\n"));
   }
 
-  const tagList = Array.isArray(tags) ? tags : [];
-  const criteria = await triageCriteriaText();
   const ai = await triageAiSettings();
-  const { content, model } = await triageChat(triageBuildMessages(meta, source, text, criteria, tagList, ai.triageOwnTagsOnly), triageMaxTokens("analyze", 1, ai), ai.triageThinking);
+  const { content, model } = await triageChat(triageBuildMessages(meta, source, text, criteria), triageMaxTokens("analyze", 1, ai), ai.triageThinking);
   const analysis = {
     bvid,
     status: "done",
     source,
-    ...triageParseLlm(content, tagList, !ai.triageOwnTagsOnly),
+    ...triageParseLlm(content),
     model,
     analyzedAt: Date.now()
   };
   await chrome.storage.local.set({ [cacheKey]: analysis });
   return analysis;
-}
-
-async function triageCriteriaText() {
-  const { triageCriteria } = await chrome.storage.sync.get({ triageCriteria: "" });
-  return String(triageCriteria || "");
 }
 
 // 单次 AI 请求的超时（毫秒）。思考模式慢得多；两档都要短于 MV3 单个消息事件约 5 分钟的上限
@@ -483,12 +427,11 @@ async function triageChat(messages, maxTokens, thinking = false) {
   }
 }
 
-async function triageClassifyTitles({ items, tags }) {
+async function triageClassifyTitles({ items, criteria }) {
   const list = (Array.isArray(items) ? items : []).filter((it) => it && it.bvid);
   if (!list.length) throw triageError("缺少 items");
-  const tagList = Array.isArray(tags) ? tags : [];
   const ai = await triageAiSettings();
-  const system = `${triageWithCriteria(triageOwnTagsPrompt(TRIAGE_TITLE_PROMPT, ai.triageOwnTagsOnly), await triageCriteriaText())}\n\n${triageTagListText(tagList)}`;
+  const system = triageWithCriteria(TRIAGE_TITLE_PROMPT, criteria);
   const user = list.map((it, idx) => triageTitleLine(it, idx + 1)).join("\n");
   const { content, model } = await triageChat(
     [
@@ -498,7 +441,7 @@ async function triageClassifyTitles({ items, tags }) {
     triageMaxTokens("title", list.length, ai),
     ai.triageThinking
   );
-  const results = triageParseTitleBatch(content, list, tagList, !ai.triageOwnTagsOnly);
+  const results = triageParseTitleBatch(content, list);
   const analyzedAt = Date.now();
   // "AI 未返回" 的不缓存，方便下次重试
   const toStore = {};
@@ -509,22 +452,20 @@ async function triageClassifyTitles({ items, tags }) {
   return { results };
 }
 
-// 协作打标签：只返回提案，不缓存
-async function triageAiCommand({ instruction, tags, items, allowNewTags, maxNewTags, allowVerdict }) {
+// 协作打标签：只返回提案，不缓存。新建标签至多 5 个
+async function triageAiCommand({ instruction, items, tags, allowVerdict }) {
   const text = String(instruction ?? "").trim();
   if (!text) throw triageError("缺少指令");
   const list = (Array.isArray(items) ? items : []).filter((it) => it && it.bvid);
   if (!list.length) throw triageError("缺少 items");
-  const n = Number(maxNewTags ?? 5);
   const ai = await triageAiSettings();
-  const opts = { allowNewTags: allowNewTags === true && !ai.triageOwnTagsOnly, maxNewTags: n >= 0 ? Math.floor(n) : 5, allowVerdict: allowVerdict === true };
-  const tagList = Array.isArray(tags) ? tags : [];
+  const opts = { maxNewTags: 5, allowVerdict: allowVerdict === true };
   const { content } = await triageChat(
-    triageBuildCommandMessages({ instruction: text, tags: tagList, items: list, ...opts }),
+    triageBuildCommandMessages({ instruction: text, tags, items: list, ...opts }),
     triageMaxTokens("command", list.length, ai),
     ai.triageThinking
   );
-  return triageParseCommand(content, list, tagList, opts);
+  return triageParseCommand(content, list, tags, opts);
 }
 
 // One video → one note built the same way the popup's 写入 Obsidian does, plus the stage-2 summary.
@@ -693,15 +634,17 @@ const TRIAGE_HANDLERS = {
 
   "triage-settings-get": async () => {
     const s = await chrome.storage.sync.get(TRIAGE_SETTINGS_DEFAULTS);
+    const provider = typeof loadAiProviders === "function" ? (await loadAiProviders().catch(() => [])).find((p) => p.enabled !== false) : null;
     return {
-      triageCriteria: String(s.triageCriteria || ""),
       triageIntervalSec: Number(s.triageIntervalSec) >= 0 ? Number(s.triageIntervalSec) : TRIAGE_SETTINGS_DEFAULTS.triageIntervalSec,
-      triageExportFolder: String(s.triageExportFolder || TRIAGE_SETTINGS_DEFAULTS.triageExportFolder),
+      // A cleared folder stays empty (writes then use the general note folder); the default is only for a missing key.
+      triageExportFolder: typeof s.triageExportFolder === "string" ? s.triageExportFolder : TRIAGE_SETTINGS_DEFAULTS.triageExportFolder,
       triageTitleBatchSize: Number(s.triageTitleBatchSize) > 0 ? Number(s.triageTitleBatchSize) : 30,
       triageThinking: s.triageThinking === true,
       triageTitleMaxTokens: Number(s.triageTitleMaxTokens) > 0 ? Number(s.triageTitleMaxTokens) : 0,
       triageAnalyzeMaxTokens: Number(s.triageAnalyzeMaxTokens) > 0 ? Number(s.triageAnalyzeMaxTokens) : 0,
-      triageOwnTagsOnly: s.triageOwnTagsOnly === true
+      // 开启思考 only reaches DeepSeek (triageChat), so the page shows the switch only for it.
+      deepseek: /api\.deepseek\.com/.test(String(provider?.baseUrl || ""))
     };
   },
 

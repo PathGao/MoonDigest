@@ -10,19 +10,26 @@
   <body>
     <div class="app">
       <header class="topbar">
-        <strong class="brand">MoonDigest</strong>
+        <strong class="brand">MoonDigest <span class="brand-sub">B 站收藏夹分拣台</span></strong>
         <select id="folderSelect" aria-label="选择收藏夹"></select>
-        <button id="refreshBtn" type="button" aria-label="从 B 站刷新收藏夹">刷新</button>
+        <span class="search">
+          <input id="searchInput" type="search" placeholder="搜索标题、UP 主、总结、备注、标签" aria-label="搜索 (/)" autocomplete="off" />
+          <span id="searchCount" class="muted" aria-live="polite"></span>
+        </span>
         <span id="progress" class="progress"></span>
         <span id="queueStatus" class="queue-status" aria-live="polite"></span>
         <span class="spacer"></span>
-        <button id="aiBtn" type="button" aria-label="AI 指令 (I)">AI 指令</button>
-        <button id="writeBtn" type="button" aria-label="批量导出笔记">批量导出</button>
-        <button id="manageTagsBtn" type="button" aria-label="管理标签">管理标签</button>
-        <button id="settingsBtn" type="button" aria-label="分拣设置">分拣设置</button>
-        <button id="helpBtn" type="button" aria-label="快捷键帮助">?</button>
+        <!-- Wide: the tools sit inline. Narrow: they fold into this ⋯ popover. -->
+        <button id="moreBtn" type="button" class="more-btn" popovertarget="tools" aria-label="更多操作">⋯</button>
+        <div id="tools" class="tools" popover>
+          <button id="refreshBtn" type="button" aria-label="从 B 站刷新收藏夹">刷新</button>
+          <button id="aiBtn" type="button" aria-label="AI 指令 (I)">AI 指令</button>
+          <button id="writeBtn" type="button" aria-label="批量导出">批量导出</button>
+          <button id="manageTagsBtn" type="button" aria-label="管理标签">管理标签</button>
+          <button id="settingsBtn" type="button" aria-label="分拣设置">分拣设置</button>
+          <button id="helpBtn" type="button" aria-label="帮助">?</button>
+        </div>
       </header>
-      <p class="hint">粗分只看标题，快；细看读字幕，给总结和标签。AI 处理只在本页打开时运行，关闭页面即暂停。</p>
 
       <div id="banner" class="banner" hidden>
         <span id="bannerText"></span>
@@ -53,16 +60,14 @@
 
         <aside id="basket" class="basket">
           <div class="basket-head">
-            <button id="basketToggle" type="button" class="basket-toggle" aria-expanded="true" aria-label="展开或收起摘录篮">
-              摘录篮 <span id="basketCount">0</span>
+            <button id="basketToggle" type="button" class="basket-toggle" aria-expanded="true" aria-label="展开或收起优先看">
+              优先看 <span id="basketCount">0</span>
             </button>
           </div>
           <div class="basket-body">
             <div id="basketList" class="basket-list"></div>
             <div class="basket-foot">
-              <button id="copyMdBtn" type="button" aria-label="复制 Markdown">复制 Markdown</button>
-              <button id="downloadMdBtn" type="button" aria-label="下载 .md">下载 .md</button>
-              <button id="exportBtn" type="button" aria-label="写入 Obsidian"><img class="obsidian-mark" src="/icons/obsidian.svg" alt=""> 写入 Obsidian</button>
+              <button id="basketNextBtn" type="button" aria-label="在新标签页打开清单里的第一个视频">看下一个</button>
             </div>
           </div>
         </aside>
@@ -74,12 +79,14 @@
     <dialog id="settingsDialog" aria-label="分拣设置">
       <form method="dialog">
         <h2>分拣设置</h2>
-        <label for="criteriaInput">判断标准（粗分和细看都用）</label>
-        <textarea id="criteriaInput" rows="6"></textarea>
+        <p class="dialog-hint">这里是分拣台跑 AI 的技术参数，一般不用改。AI 平台、笔记格式和 Obsidian 在设置页。</p>
+        <p class="dialog-hint">判断标准在每个收藏夹的粗分、细看按钮旁边改；标签在「管理标签」里改。</p>
         <label for="intervalInput">请求间隔（秒）</label>
         <input id="intervalInput" type="number" min="0" step="1" />
-        <label class="toggle"><input id="thinkingInput" type="checkbox" /> 开启思考</label>
-        <p class="dialog-hint">关：快、省（30 个标题约 3 秒）。开：判断更细，但慢约 6 倍、费约 5 倍 token。目前只对 DeepSeek 生效。</p>
+        <div id="thinkingRow" class="stack">
+          <label class="toggle"><input id="thinkingInput" type="checkbox" /> 开启思考</label>
+          <p class="dialog-hint">关：快、省（30 个标题约 3 秒）。开：判断更细，但慢约 6 倍、费约 5 倍 token。</p>
+        </div>
         <h3>标题粗分</h3>
         <label for="batchSizeInput">每批数量</label>
         <input id="batchSizeInput" type="number" min="1" max="100" step="1" />
@@ -91,13 +98,8 @@
         <input id="analyzeMaxInput" type="number" min="0" max="32000" step="1" placeholder="自动" />
         <p id="analyzeMaxHint" class="dialog-hint"></p>
         <p id="settingsError" class="form-error" role="alert" hidden></p>
-        <h3 class="obsidian-only">导出</h3>
-        <label for="exportFolderInput">收藏夹批量写入目录</label>
-        <input id="exportFolderInput" type="text" />
-        <h3>数据导出</h3>
+        <h3>缓存</h3>
         <div class="export-row">
-          <button id="backupBtn" type="button" aria-label="导出完整备份 JSON">导出完整备份 (JSON)</button>
-          <button id="csvBtn" type="button" aria-label="导出当前收藏夹表格 CSV">导出表格 (CSV)</button>
           <button id="cleanCacheBtn" type="button" aria-label="清理已不在收藏夹里的视频缓存">清理缓存</button>
         </div>
         <div class="dialog-actions">
@@ -109,24 +111,37 @@
       </form>
     </dialog>
 
-    <dialog id="writeDialog" aria-label="批量导出笔记">
+    <dialog id="writeDialog" aria-label="批量导出">
       <form method="dialog">
-        <h2>批量导出笔记</h2>
-        <p class="dialog-hint">每个视频一篇笔记（字幕 + AI 总结）。下载 .md 合成一个文件<span class="obsidian-only">；写入 Obsidian 每个视频一篇，再写一篇以收藏夹命名的索引</span>。不会改动收藏夹。</p>
-        <label for="writeScope">范围</label>
-        <select id="writeScope">
-          <option value="filter">当前筛选结果</option>
-          <option value="selected">已选中 (X)</option>
-          <option value="all">整个收藏夹</option>
-        </select>
+        <h2>批量导出</h2>
+        <div class="ai-grid">
+          <label for="writeScope">范围</label>
+          <select id="writeScope">
+            <option value="filter">当前筛选</option>
+            <option value="selected">选中 (X)</option>
+            <option value="basket">优先看</option>
+            <option value="all">整个收藏夹</option>
+          </select>
+          <label for="writeFormat">格式</label>
+          <select id="writeFormat">
+            <option value="digest">一篇摘录（带每个视频的备注）</option>
+            <option value="notes">逐个视频笔记（字幕 + AI 总结）</option>
+          </select>
+        </div>
         <p id="writeScopeCount" class="dialog-hint"></p>
-        <label class="toggle"><input id="writeOverwrite" type="checkbox" /> 覆盖已有笔记</label>
+        <label id="writeOverwriteRow" class="toggle"><input id="writeOverwrite" type="checkbox" /> 覆盖已有笔记</label>
         <p id="writeProgress" class="dialog-hint" aria-live="polite"></p>
         <ul id="writeFailed" class="write-failed" hidden></ul>
+        <h3>数据</h3>
+        <div class="export-row">
+          <button id="backupBtn" type="button" aria-label="下载完整备份 JSON">完整备份 (JSON)</button>
+          <button id="csvBtn" type="button" aria-label="下载当前收藏夹表格 CSV">当前收藏夹表格 (CSV)</button>
+        </div>
         <div class="dialog-actions">
           <span class="spacer"></span>
           <button value="cancel" type="submit" aria-label="关闭">关闭</button>
           <button id="writeStopBtn" type="button" aria-label="停止写入" hidden>停止</button>
+          <button id="writeCopyBtn" type="button" aria-label="复制 Markdown">复制 Markdown</button>
           <button id="writeMdBtn" type="button" aria-label="下载 .md">下载 .md</button>
           <button id="writeRunBtn" type="button" class="primary" aria-label="写入 Obsidian"><img class="obsidian-mark" src="/icons/obsidian.svg" alt=""> 写入 Obsidian</button>
         </div>
@@ -154,24 +169,32 @@
       </form>
     </dialog>
 
+    <dialog id="criteriaDialog" aria-label="判断标准">
+      <form method="dialog">
+        <h2 id="criteriaTitle">判断标准</h2>
+        <p class="dialog-hint">只对这个收藏夹生效，标题粗分和字幕细看都会发给 AI。可以不写。Enter 保存，Shift+Enter 换行。</p>
+        <textarea id="criteriaInput" rows="4" aria-label="判断标准" placeholder="例如：只保留 AI 工程实践相关的深度内容，资讯和娱乐可以删"></textarea>
+        <div class="dialog-actions">
+          <span class="spacer"></span>
+          <button value="cancel" type="submit" aria-label="取消">取消</button>
+          <button value="save" type="submit" class="primary" aria-label="保存判断标准">保存</button>
+        </div>
+      </form>
+    </dialog>
+
     <dialog id="tagsDialog" aria-label="管理标签">
       <form method="dialog">
         <h2>管理标签</h2>
-        <p class="dialog-hint">标签名和说明会发给 AI，粗分、细看和 AI 指令按说明挑标签。</p>
-        <label class="toggle"><input id="ownTagsInput" type="checkbox" /> 只用我的标签</label>
-        <p class="dialog-hint">关闭时，AI 粗分、细看和 AI 指令可以提出新标签；开启后只从下面的标签里选。</p>
+        <p class="dialog-hint">所有收藏夹共用一套标签，改名和删除立即保存。</p>
         <div id="tagsRows" class="tag-rows"></div>
         <div class="tag-add">
           <input id="newTagInput" type="text" placeholder="新标签名称" aria-label="新标签名称" />
           <button id="addTagBtn" type="button" aria-label="添加标签">添加</button>
         </div>
-        <h3>标签预设</h3>
-        <div class="tag-add">
-          <input id="presetNameInput" type="text" placeholder="预设名称" aria-label="预设名称" />
-          <button id="savePresetBtn" type="button" aria-label="保存当前标签为预设">保存当前标签为预设</button>
+        <div class="dialog-actions">
+          <span class="spacer"></span>
+          <button type="submit" class="primary">完成</button>
         </div>
-        <div id="presetRows" class="tag-rows"></div>
-        <div class="dialog-actions"><span class="spacer"></span><button type="submit" class="primary">完成</button></div>
       </form>
     </dialog>
 
@@ -179,25 +202,20 @@
       <form method="dialog">
         <section id="aiForm" class="ai-section">
           <h2>AI 指令</h2>
-          <p class="dialog-hint">AI 只提出建议。你检查并点「应用选中」后才会改动标签和判断。</p>
+          <p class="dialog-hint">用一句话修改已有结果：给视频加减标签、改 AI 判断。AI 只提出建议，你检查并点「应用选中」后才会改动。</p>
           <div class="ai-grid">
             <label for="aiScope">作用范围</label>
             <select id="aiScope">
               <option value="filter">当前筛选结果</option>
               <option value="selected">已选中 (X)</option>
             </select>
-            <label for="aiPreset">预设</label>
-            <select id="aiPreset"></select>
           </div>
           <p id="aiScopeCount" class="dialog-hint"></p>
           <label for="aiInstruction">指令</label>
           <textarea id="aiInstruction" rows="3" placeholder="例如：把这些按技术深度分成 入门/进阶/硬核 三个标签"></textarea>
           <div id="aiHistory" class="ai-history"></div>
-          <label>发送给 AI 的标签（高亮 = 来自预设）</label>
-          <div id="aiTagsPreview" class="chips"></div>
-          <label class="toggle"><input id="aiAllowNew" type="checkbox" checked /> 允许 AI 新建标签，最多
-            <input id="aiMaxNew" type="number" min="1" max="50" value="5" aria-label="最多新建标签数" /> 个</label>
-          <label class="toggle"><input id="aiAllowVerdict" type="checkbox" /> 允许 AI 修改删/留判断</label>
+          <div id="aiTagsPreview"></div>
+          <label class="toggle"><input id="aiAllowVerdict" type="checkbox" /> 允许 AI 修改判断（留 / 可以删 / 待定）</label>
           <p id="aiProgress" class="dialog-hint" aria-live="polite"></p>
           <div class="dialog-actions">
             <span class="spacer"></span>
@@ -228,8 +246,17 @@
       </form>
     </dialog>
 
-    <dialog id="helpDialog" aria-label="快捷键帮助">
+    <dialog id="helpDialog" aria-label="帮助">
       <form method="dialog">
+        <h2>四步分拣</h2>
+        <ol class="steps">
+          <li><strong>未分析</strong>：点「标题粗分」，AI 只看标题和简介，快、省。</li>
+          <li><strong>待细看</strong>：粗分拿不准的（AI 待定或低置信）在这里，点「细看下一批」读字幕，给总结和要点。</li>
+          <li><strong>待处理</strong>：AI 判为留、可以删的和细看完的在这里，按 AI 判断批量取消收藏或保留，也可以一个个按 D / S。</li>
+          <li><strong>已处理</strong>：取消收藏或保留过的视频；最近取消收藏的可以重新收藏。</li>
+        </ol>
+        <p class="dialog-hint">每个收藏夹可以写一句判断标准（按钮旁边），AI 粗分和细看都按它判。标签是你自己的分类，按 T 打，批量打用「AI 指令」。AI 处理只在本页打开时运行，关闭页面即暂停。</p>
+        <p class="dialog-hint">优先看：按 E 把真要看的视频放进右侧清单，↑↓ 调顺序，「看下一个」打开第一个还没打开过的（打开过的标「已打开」、沉到最后），看完点「看过了」移出，不影响收藏和处理结果。「保留」只在 MoonDigest 里标记，B 站收藏夹不变。导出摘录、逐个笔记和数据备份都在「批量导出」。</p>
         <h2>快捷键</h2>
         <dl class="keys">
           <dt>J / ↓</dt><dd>下一个</dd>
@@ -237,16 +264,16 @@
           <dt>D</dt><dd>取消收藏</dd>
           <dt>S</dt><dd>保留</dd>
           <dt>T</dt><dd>打标签</dd>
-          <dt>A</dt><dd>采纳 AI 建议标签</dd>
-          <dt>E</dt><dd>加入 / 移出摘录篮</dd>
+          <dt>E</dt><dd>加入优先看 / 移出</dd>
           <dt>Q</dt><dd>问 AI（在侧边栏打开这个视频）</dd>
           <dt>X</dt><dd>选中 / 取消选中（待细看、待处理的按钮、AI 指令和批量导出可只处理选中的）</dd>
           <dt>O / Enter</dt><dd>打开视频</dd>
           <dt>I</dt><dd>AI 指令</dd>
+          <dt>/</dt><dd>搜索（Esc 清空）</dd>
           <dt>U</dt><dd>撤销上一步</dd>
           <dt>?</dt><dd>显示本帮助</dd>
         </dl>
-        <p class="dialog-hint">标签页按进度排：① 未分析 → ② 待细看 → ③ 待处理 → ④ 已处理，当前这一步的按钮跟在标签页后面。阅览视图只支持 ? 和 I。</p>
+        <p class="dialog-hint">阅览视图只支持 ?、/ 和 I。</p>
         <div class="dialog-actions"><span class="spacer"></span><button type="submit" class="primary">知道了</button></div>
       </form>
     </dialog>

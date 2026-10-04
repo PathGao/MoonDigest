@@ -4,7 +4,7 @@ const NOTE_PATHS_STORAGE_KEY = BocLimits.KEYS.obsidianNotePaths;
 const {
   stripThinkBlocks,
   normalizeMarkdownForSectionPaste,
-  isTimestampOnlyInlineCode,
+  renderMarkdown,
   TIMESTAMP_PATTERN,
   buildConversationTurns,
   buildAiConversationFilename,
@@ -14,8 +14,8 @@ const {
 } = BocNote;
 const PLAYER_AI_QUICK_ACTION_STORAGE_KEY = "boc_player_ai_quick_action_v1";
 const NON_VIDEO_CONTEXT_MESSAGE = "当前页不是支持的视频页面，<br>无法获取当前页面信息作为对话上下文，<br>仅支持 AI 对话。";
+const EMPTY_INTRO = "AI 会读这期视频的字幕和评论，回答你的问题。";
 const STREAM_SLOW_NOTICE_MS = 15000;
-const FOLLOW_PLAYBACK_KEY = "boc_sp_follow_playback";
 const PREVIOUS_VIDEO_CONVERSATION_KEY = "boc_sp_previous_video_conversation";
 const FOLLOWED_LIVE_VIDEO = "followed";
 const QUICK_ACTION_MAX_AGE_MS = 15000;
@@ -23,8 +23,6 @@ const QUICK_ACTION_MAX_AGE_MS = 15000;
 const els = {
   header: document.querySelector(".sp-header"),
   contextChip: document.getElementById("spContextChip"),
-  refreshBtn: document.getElementById("spRefreshBtn"),
-  followBtn: document.getElementById("spFollowBtn"),
   previousVideoBar: document.getElementById("spPreviousVideo"),
   modelSelect: document.getElementById("spModelSelect"),
   settingsBtn: document.getElementById("spSettingsBtn"),
@@ -44,11 +42,16 @@ const els = {
   exportBtn: document.getElementById("spExportBtn"),
   exportPopover: document.getElementById("spExportPopover"),
   historyList: document.getElementById("spHistoryList"),
-  historyClearBtn: document.getElementById("spHistoryClearBtn"),
   messages: document.getElementById("spMessages"),
   input: document.getElementById("spInput"),
-  stopBtn: document.getElementById("spStopBtn"),
+  sendBtn: document.getElementById("spSendBtn"),
+  generating: document.getElementById("spGenerating"),
+  note: document.getElementById("spNote"),
+  noteToggle: document.getElementById("spNoteToggle"),
+  noteText: document.getElementById("spNoteText"),
+  noteInput: document.getElementById("spNoteInput"),
 };
+const NOTES_STORAGE_KEY = "triage_notes"; // { [videoId]: { text, updatedAt } }, shared with the triage and video records pages
 
 const DEFAULT_AI_PREFS = {
   aiSystemPrompt: "",
@@ -76,11 +79,9 @@ let contextNoticeTimer = 0;
 let shouldAutoScrollMessages = true;
 let liveContextSyncTimer = 0;
 let liveContextSyncForceRefresh = false;
-let modelSelectMeasureCanvas = null;
 let streamSlowNoticeTimer = 0;
 let streamFirstTokenReceived = false;
 let initCompleted = false;
-let followPlayback = localStorage.getItem(FOLLOW_PLAYBACK_KEY) !== "0";
 let lastLiveVideoUrl = "";
 let previousVideoConversationId = "";
 let previousVideoExpanded = false;
@@ -92,7 +93,6 @@ init().catch((err) => {
 
 async function init() {
   bindEvents();
-  renderFollowButton();
   await loadProvidersAndPrefs();
   await loadSavedConversations();
   await loadPreviousVideoConversationId();
@@ -122,12 +122,6 @@ function bindEvents() {
   els.newChatBtn.addEventListener("click", () => {
     void startNewConversation();
   });
-  els.refreshBtn.addEventListener("click", () => refreshContextManually());
-  els.followBtn?.addEventListener("click", () => {
-    followPlayback = !followPlayback;
-    localStorage.setItem(FOLLOW_PLAYBACK_KEY, followPlayback ? "1" : "0");
-    renderFollowButton();
-  });
   els.previousVideoBar?.addEventListener("click", handlePreviousVideoBarClick);
   chrome.runtime.onMessage.addListener((message, sender) => {
     if (message?.type !== "boc-video-changed") {
@@ -141,6 +135,20 @@ function bindEvents() {
       })
       .catch(() => {});
     return false;
+  });
+  els.noteToggle.addEventListener("click", () => {
+    els.noteToggle.hidden = true;
+    els.noteInput.hidden = false;
+    els.noteInput.focus();
+  });
+  // Enter or Esc saves and closes, like the triage card; Shift+Enter is a newline. Never mid-IME.
+  els.noteInput.addEventListener("keydown", (e) => {
+    if (e.isComposing || e.keyCode === 229 || !(e.key === "Escape" || (e.key === "Enter" && !e.shiftKey))) return;
+    e.preventDefault();
+    void saveNote();
+  });
+  els.noteInput.addEventListener("focusout", () => {
+    if (!els.noteInput.hidden) void saveNote();
   });
   els.presetBtn.addEventListener("click", togglePresetPopover);
   els.historyBtn.addEventListener("click", toggleHistoryPopover);
@@ -160,11 +168,10 @@ function bindEvents() {
     if (note) BocDownload.text(note.filename, note.content);
     else showConversationContextNotice("当前没有可下载的对话。", 2200);
   });
-  els.historyClearBtn?.addEventListener("click", () => {
-    void clearAllConversations();
-  });
-  els.stopBtn?.addEventListener("click", () => {
-    stopActiveStream();
+  // One button in place: 发送, or 停止 while a reply streams.
+  els.sendBtn.addEventListener("click", () => {
+    if (activeStream) stopActiveStream();
+    else void sendMessage();
   });
   els.presetAddBtn.addEventListener("click", addPresetPrompt);
   els.presetInput.addEventListener("keydown", (e) => {
@@ -177,9 +184,7 @@ function bindEvents() {
     if (els.modelSelect.value) {
       localStorage.setItem(SELECTED_PROVIDER_KEY, els.modelSelect.value);
     }
-    updateModelSelectWidth();
   });
-  window.addEventListener("resize", updateModelSelectWidth);
   document.addEventListener("click", handleDocumentClick);
   document.addEventListener("visibilitychange", () => {
     if (!document.hidden) {
@@ -225,6 +230,9 @@ function bindEvents() {
         showLiveContextInFreshConversation();
       }
     }
+    if (areaName === "local" && changes[NOTES_STORAGE_KEY] && els.noteInput.hidden) {
+      void renderNote();
+    }
     if (areaName === "local" && changes[PLAYER_AI_QUICK_ACTION_STORAGE_KEY] && initCompleted) {
       void handlePlayerAiQuickActionRequest(changes[PLAYER_AI_QUICK_ACTION_STORAGE_KEY].newValue);
     }
@@ -241,11 +249,10 @@ function autosizeInput() {
 function setStreamingUiState(isStreaming, { stopping = false } = {}) {
   els.input.disabled = isStreaming;
   renderFollowups();
-  if (els.stopBtn) {
-    els.stopBtn.hidden = !isStreaming;
-    els.stopBtn.disabled = stopping;
-    els.stopBtn.textContent = stopping ? "停止中..." : "停止";
-  }
+  els.generating.hidden = !isStreaming;
+  els.sendBtn.disabled = stopping;
+  els.sendBtn.classList.toggle("is-stop", isStreaming);
+  els.sendBtn.textContent = isStreaming ? (stopping ? "停止中" : "停止") : "发送";
 }
 
 async function loadProvidersAndPrefs({ preferredProviderId = "" } = {}) {
@@ -273,7 +280,6 @@ function renderModelSelect(preferredProviderId = "") {
   if (!providers.length) {
     els.modelSelect.innerHTML = '<option value="">未配置平台</option>';
     els.modelSelect.disabled = true;
-    updateModelSelectWidth();
     return;
   }
 
@@ -288,7 +294,6 @@ function renderModelSelect(preferredProviderId = "") {
   const matchedProvider = providers.find((item) => item.id === savedProviderId) || providers[0];
   els.modelSelect.value = matchedProvider?.id || "";
   els.modelSelect.disabled = false;
-  updateModelSelectWidth();
 }
 
 async function refreshProvidersAndPrefsAfterExternalChange() {
@@ -390,58 +395,6 @@ async function runPlayerAiQuickActionPrompt(prompt) {
   await sendMessage();
 }
 
-function updateModelSelectWidth() {
-  if (!els.modelSelect) {
-    return;
-  }
-  const selectedOption = els.modelSelect.options[els.modelSelect.selectedIndex];
-  const text = String(selectedOption?.textContent || "").trim() || "未配置平台";
-  const computedStyle = window.getComputedStyle(els.modelSelect);
-  const measuredTextWidth = measureTextWidth(text, computedStyle);
-  const extraCharsWidth = measureTextWidth("000", computedStyle);
-  const desiredWidth = Math.ceil(measuredTextWidth + extraCharsWidth + 36);
-  const minWidth = 92;
-  const maxWidth = getModelSelectMaxWidth();
-  const nextWidth = Math.max(minWidth, Math.min(desiredWidth, maxWidth));
-  els.modelSelect.style.width = `${nextWidth}px`;
-}
-
-function measureTextWidth(text, style) {
-  if (!modelSelectMeasureCanvas) {
-    modelSelectMeasureCanvas = document.createElement("canvas");
-  }
-  const ctx = modelSelectMeasureCanvas.getContext("2d");
-  if (!ctx) {
-    return text.length * 8;
-  }
-  const fontStyle = style?.fontStyle || "normal";
-  const fontVariant = style?.fontVariant || "normal";
-  const fontWeight = style?.fontWeight || "400";
-  const fontSize = style?.fontSize || "11px";
-  const fontFamily = style?.fontFamily || "sans-serif";
-  ctx.font = `${fontStyle} ${fontVariant} ${fontWeight} ${fontSize} ${fontFamily}`;
-  return ctx.measureText(text).width;
-}
-
-function getModelSelectMaxWidth() {
-  const header = els.header;
-  if (!header || !els.contextChip || !els.refreshBtn || !els.settingsBtn) {
-    return 172;
-  }
-  const style = window.getComputedStyle(header);
-  const gap = Number.parseFloat(style.columnGap || style.gap || "0") || 0;
-  const paddingLeft = Number.parseFloat(style.paddingLeft || "0") || 0;
-  const paddingRight = Number.parseFloat(style.paddingRight || "0") || 0;
-  const contentWidth = header.clientWidth - paddingLeft - paddingRight;
-  const siblingWidth =
-    els.contextChip.offsetWidth +
-    els.refreshBtn.offsetWidth +
-    (els.followBtn?.offsetWidth || 0) +
-    els.settingsBtn.offsetWidth +
-    gap * (els.followBtn ? 4 : 3);
-  return Math.max(92, Math.floor(contentWidth - siblingWidth));
-}
-
 // A conversation owns the context its first question was asked in. Tab changes only update the live context
 // (and contextData while no conversation or reply holds it), so they never relabel an existing or in-flight one.
 function isContextBound() {
@@ -492,7 +445,7 @@ async function loadContextState({ forceRefresh = false, silent = false, follow =
     }
     updateContextChip();
     if (!silent && !isContextBound()) {
-      resetConversationView(escapeHtml(resp?.error || "当前页面上下文读取失败。"));
+      resetConversationView(escapeHtml(resp?.error || "当前页面上下文读取失败。"), { retry: true });
     }
     return false;
   }
@@ -581,7 +534,43 @@ function normalizeContextUrlForKey(value) {
   }
 }
 
+// The note belongs to the video (multi-part videos share one); web pages have none.
+function noteVideoId() {
+  const ref = contextData?.isVideoContext === false ? null : buildConversationContextRef(contextData);
+  return ref?.site ? ref.videoId : "";
+}
+
+async function renderNote() {
+  const id = noteVideoId();
+  els.note.hidden = !id;
+  if (!id || !els.noteInput.hidden) return;
+  const text = String((await chrome.storage.local.get(NOTES_STORAGE_KEY))[NOTES_STORAGE_KEY]?.[id]?.text || "");
+  if (id !== noteVideoId() || !els.noteInput.hidden) return;
+  els.noteInput.value = text;
+  els.noteText.textContent = text.trim() ? text : "＋ 添加";
+  els.noteText.title = text;
+  els.noteInput.dataset.videoId = id;
+}
+
+// Read-modify-write so notes the other pages saved meanwhile are kept; empty text deletes the entry.
+async function saveNote() {
+  const id = els.noteInput.dataset.videoId;
+  const text = els.noteInput.value;
+  els.noteInput.hidden = true;
+  els.noteToggle.hidden = false;
+  if (id) {
+    const notes = { ...(await chrome.storage.local.get(NOTES_STORAGE_KEY))[NOTES_STORAGE_KEY] };
+    if ((notes[id]?.text || "") !== text) {
+      if (text.trim()) notes[id] = { text, updatedAt: Date.now() };
+      else delete notes[id];
+      await chrome.storage.local.set({ [NOTES_STORAGE_KEY]: notes });
+    }
+  }
+  await renderNote();
+}
+
 function updateContextChip() {
+  void renderNote();
   if (!contextData) {
     els.contextChip.textContent = "无上下文";
     els.contextChip.title = "";
@@ -635,16 +624,13 @@ async function openCurrentContextUrl() {
 
 function renderInitialState() {
   updateSidepanelLayoutState();
-  if (!contextData) {
-    resetConversationView("当前页面不是支持的视频页，无法读取视频信息。");
+  // Without a platform nothing else works, so the empty state only offers to add one.
+  if (!providers.length) {
+    resetConversationView("");
     return;
   }
-  if (!providers.length) {
-    resetConversationView('还没有配置 AI 平台，<a href="#" id="spOpenSettings">前往设置</a>');
-    document.getElementById("spOpenSettings")?.addEventListener("click", (e) => {
-      e.preventDefault();
-      chrome.runtime.openOptionsPage();
-    });
+  if (!contextData) {
+    resetConversationView("当前页面信息读取失败。", { retry: true });
     return;
   }
   if (chatHistory.length) {
@@ -658,13 +644,22 @@ function renderInitialState() {
   resetConversationView("");
 }
 
-function resetConversationView(stateHtml = "") {
+// retry: a context read failed, so offer to read it again (the context otherwise refreshes on its own).
+function resetConversationView(stateHtml = "", { retry = false } = {}) {
   updateSidepanelLayoutState();
   els.messages.innerHTML = "";
   if (stateHtml) {
     const stateNode = document.createElement("div");
     stateNode.className = "sp-center-error";
     stateNode.innerHTML = stateHtml;
+    if (retry) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "sp-chip sp-grant-btn";
+      button.textContent = "重试";
+      button.addEventListener("click", () => void refreshContextManually());
+      stateNode.append(document.createElement("br"), button);
+    }
     els.messages.appendChild(stateNode);
   }
   suggestionsNode = document.createElement("div");
@@ -682,15 +677,26 @@ function renderSuggestions() {
   if (!suggestionsNode) {
     return;
   }
-  if (!contextData || !providers.length || chatHistory.length || contextData.isVideoContext === false) {
-    suggestionsNode.innerHTML = "";
+  suggestionsNode.innerHTML = "";
+  if (chatHistory.length) {
     return;
   }
+  if (!providers.length) {
+    suggestionsNode.innerHTML = `<p class="sp-empty-intro">${EMPTY_INTRO}先添加一个 AI 平台。</p><button type="button" class="sp-summary-btn">去设置页添加平台</button>`;
+    suggestionsNode.querySelector("button").addEventListener("click", () => chrome.runtime.openOptionsPage());
+    return;
+  }
+  if (!contextData || contextData.isVideoContext === false) {
+    return;
+  }
+  // The intro, a few follow-ups to ask straight away, then the one-click summary as the main action.
   const prompt = aiPrefs.playerAiQuickPrompt;
-  suggestionsNode.innerHTML = prompt
-    ? `<button type="button" class="sp-summary-btn" title="${escapeHtml(prompt)}">总结这期视频</button>`
-    : "";
-  suggestionsNode.querySelector("button")?.addEventListener("click", () => sendPrompt(prompt));
+  const quick = (aiPrefs.aiPresetPrompts || []).slice(0, 3);
+  suggestionsNode.innerHTML = `<p class="sp-empty-intro">${EMPTY_INTRO}</p>${quick
+    .map((item) => `<button type="button" class="sp-followup-chip" title="${escapeHtml(item)}">${escapeHtml(item)}</button>`)
+    .join("")}${prompt ? `<button type="button" class="sp-summary-btn" title="${escapeHtml(prompt)}">AI 总结</button>` : ""}`;
+  suggestionsNode.querySelectorAll(".sp-followup-chip").forEach((btn, index) => btn.addEventListener("click", () => sendPrompt(quick[index])));
+  suggestionsNode.querySelector(".sp-summary-btn")?.addEventListener("click", () => sendPrompt(prompt));
   void renderTriageSummary(suggestionsNode);
 }
 
@@ -781,34 +787,22 @@ function renderHistoryList() {
   if (!els.historyList) {
     return;
   }
-  if (els.historyClearBtn) {
-    els.historyClearBtn.hidden = savedConversations.length === 0;
-  }
-  if (!savedConversations.length) {
-    els.historyList.innerHTML = '<span class="sp-history-empty">还没有历史对话</span>';
+  // Only the shown video's conversations; the history page lists and searches all of them.
+  const conversations = savedConversations.filter(
+    (conversation) => conversation.id === currentConversationId || doesConversationMatchCurrentContext(conversation, contextData, currentContextKey)
+  );
+  if (!conversations.length) {
+    els.historyList.innerHTML = '<span class="sp-history-empty">这里还没有历史对话</span>';
     return;
   }
 
-  const liveVideoRef = liveContextData?.isVideoContext ? liveContextData : null;
-  const canHighlightLiveMatches = Boolean(
-    liveVideoRef &&
-    currentConversationMeta?.pinnedContext &&
-    currentConversationMeta?.contextUrl &&
-    !doesTabMatchContextUrl(liveVideoRef.url || liveTabUrl, currentConversationMeta.contextUrl || "")
-  );
-
-  els.historyList.innerHTML = savedConversations
+  els.historyList.innerHTML = conversations
     .map((conversation) => {
       const isActive = conversation.id === currentConversationId;
-      const isLiveMatch = Boolean(
-        !isActive &&
-        canHighlightLiveMatches &&
-        doesConversationMatchCurrentContext(conversation, liveVideoRef, liveContextKey)
-      );
       const metaText = formatConversationTimestamp(conversation.updatedAt || conversation.createdAt);
       const titleDisplay = buildConversationTitleDisplay(conversation.title, 30);
       return `
-        <div class="sp-history-item ${isActive ? "is-active" : ""} ${isLiveMatch ? "is-live-match" : ""}" data-id="${escapeHtml(conversation.id)}">
+        <div class="sp-history-item ${isActive ? "is-active" : ""}" data-id="${escapeHtml(conversation.id)}">
           <button type="button" class="sp-history-open" data-id="${escapeHtml(conversation.id)}">
             <span class="sp-history-title" title="${escapeHtml(conversation.title)}">
               <span class="sp-history-title-main">${escapeHtml(titleDisplay.main)}</span>
@@ -1107,19 +1101,6 @@ function showLiveContextInFreshConversation() {
   renderInitialState();
 }
 
-async function clearAllConversations() {
-  if (!savedConversations.length) {
-    return;
-  }
-  if (!confirm("清空全部历史对话？删除后不能恢复。")) {
-    return;
-  }
-  showLiveContextInFreshConversation();
-  savedConversations = [];
-  await saveConversations();
-  hideHistoryPopover();
-}
-
 function togglePresetPopover(event) {
   event?.stopPropagation();
   hideHistoryPopover();
@@ -1219,7 +1200,7 @@ async function syncLiveContextState(forceRefresh = false) {
 // 跟随播放：只在当前对话绑定的是“刚才在播的视频”（或还没有对话）时才切走，
 // 用户主动打开的无关历史对话不动。视频按 URL（站点、id、分 P）比较，标签页 URL 和完整上下文都能判断。
 function isFollowCandidate(fromUrl, toUrl) {
-  if (!followPlayback || !fromUrl || !toUrl || doesTabMatchContextUrl(toUrl, fromUrl)) {
+  if (!fromUrl || !toUrl || doesTabMatchContextUrl(toUrl, fromUrl)) {
     return false;
   }
   if (!currentConversationMeta && !chatHistory.length) {
@@ -1289,15 +1270,6 @@ async function followLiveVideo(context) {
   updateContextChip();
   renderInitialState();
   showConversationContextNotice(`已切换到新视频：${truncate(context.title || "未知视频", 24)}`, 2500);
-}
-
-function renderFollowButton() {
-  if (!els.followBtn) {
-    return;
-  }
-  els.followBtn.classList.toggle("is-active", followPlayback);
-  els.followBtn.setAttribute("aria-pressed", followPlayback ? "true" : "false");
-  els.followBtn.title = `跟随播放：视频切换时自动切到新视频（${followPlayback ? "已开启" : "已关闭"}）`;
 }
 
 async function loadPreviousVideoConversationId() {
@@ -1446,11 +1418,12 @@ function updateSidepanelLayoutState() {
   }
 }
 
+let refreshingContext = false;
 async function refreshContextManually() {
-  if (els.refreshBtn.disabled) {
+  if (refreshingContext) {
     return;
   }
-  setRefreshing(true);
+  refreshingContext = true;
   try {
     const ok = await loadContextState({ forceRefresh: true });
     if (ok) {
@@ -1461,29 +1434,14 @@ async function refreshContextManually() {
       }
     }
   } finally {
-    setRefreshing(false);
-  }
-}
-
-function setRefreshing(isRefreshing) {
-  els.refreshBtn.disabled = isRefreshing;
-  els.refreshBtn.classList.toggle("is-loading", isRefreshing);
-  if (isRefreshing) {
-    els.refreshBtn.setAttribute("aria-busy", "true");
-  } else {
-    els.refreshBtn.removeAttribute("aria-busy");
+    refreshingContext = false;
   }
 }
 
 async function startNewConversation() {
   hidePresetPopover();
   hideHistoryPopover();
-  setRefreshing(true);
-  try {
-    await loadContextState({ forceRefresh: true, silent: true });
-  } finally {
-    setRefreshing(false);
-  }
+  await loadContextState({ forceRefresh: true, silent: true });
   if (liveContextData) {
     contextData = { ...liveContextData };
     currentContextKey = liveContextKey || buildContextKey(liveContextData);
@@ -1720,7 +1678,7 @@ async function ensureCurrentContextForSend() {
   }
   // A placeholder still standing means the subtitles never arrived; never answer from it.
   if (!ok || !contextData || contextData.pending) {
-    resetConversationView("当前页面上下文读取失败。");
+    resetConversationView("当前页面上下文读取失败。", { retry: true });
     return false;
   }
   return true;
@@ -2023,10 +1981,7 @@ function stopActiveStream() {
   if (!activeStream) {
     return;
   }
-  if (els.stopBtn) {
-    els.stopBtn.disabled = true;
-    els.stopBtn.textContent = "停止中...";
-  }
+  setStreamingUiState(true, { stopping: true });
   try {
     activeStream.port.postMessage({ action: "stop" });
   } catch {
@@ -2108,16 +2063,15 @@ function renderAssistantMessage(node, raw) {
   node.appendChild(actions);
 }
 
-// The same note feeds the Obsidian save and the clipboard copy; only the save knows where the
-// video note lives, so only it passes the source backlink.
-function buildCurrentConversationNote(sourcePath = "") {
+// The conversation as its own note: copy, download, and 写入 Obsidian on pages that are not videos.
+function buildCurrentConversationNote() {
   const turns = buildConversationTurns(chatHistory);
   if (!turns.length) {
     return null;
   }
   const context = currentConversationMeta?.resolvedContext || contextData || currentConversationMeta?.contextRef || {};
   const filename = buildAiConversationFilename(context);
-  return { context, filename, content: buildAiConversationMarkdown({ context, turns, filename, sourcePath }) };
+  return { context, filename, content: buildAiConversationMarkdown({ context, turns, filename }) };
 }
 
 // Where the page's 写入 Obsidian puts this video's note: same folder template and filename builder.
@@ -2140,7 +2094,7 @@ async function resolveVideoNotePath(context, settings) {
 }
 
 // Rewrites the marked AI 问答 section of the video's note when that note exists; never creates one.
-// Resolves to the background result ({ exists, updated }) or null when the conversation has no video.
+// Resolves to the background result plus the path ({ exists, updated, filepath }) or null when the conversation has no video.
 async function syncVideoNoteAiSection({ context, messages, settings, baseUrl, apiKey }) {
   const noteKey = BocSites.buildContextKey(buildConversationContextRef(context) || {});
   if (!noteKey) {
@@ -2155,7 +2109,7 @@ async function syncVideoNoteAiSection({ context, messages, settings, baseUrl, ap
   if (!resp?.ok) {
     throw new Error(getReadableText(resp?.error, "Local API 写入失败"));
   }
-  return resp;
+  return { ...resp, filepath };
 }
 
 // ---- auto-sync: after a manual save bound the video to its note, every finished answer updates the section ----
@@ -2242,6 +2196,9 @@ async function copyCurrentConversationMarkdown() {
   }
 }
 
+// A video's conversation goes into its video note's AI 问答 section, the one auto-sync keeps current.
+// A missing video note is first written by the page's content script, the same writer as the popup's 写入 Obsidian.
+// Pages that are not videos have no video note, so their conversation is written as its own note.
 async function saveCurrentConversationToObsidian() {
   const settingsBundle = await loadObsidianSettings();
   if (!settingsBundle) {
@@ -2252,33 +2209,35 @@ async function saveCurrentConversationToObsidian() {
     showConversationContextNotice("当前没有可写入 Obsidian 的对话。", 2200);
     return;
   }
-  // Update the video note first: a 404 clears the recorded path, so the backlink below is computed afresh.
-  let videoNoteNotice = "";
-  if (settingsBundle.settings.includeAiChatInNote !== false) {
-    try {
-      const result = await syncVideoNoteAiSection({ context, messages: chatHistory, ...settingsBundle });
-      if (result?.exists) {
-        videoNoteNotice = "，视频笔记的 AI 问答已更新";
-      } else if (result && !result.exists) {
-        videoNoteNotice = "；视频笔记已不存在，已解除关联";
-      }
-    } catch (error) {
-      videoNoteNotice = `；视频笔记的 AI 问答更新失败：${readableObsidianError(error)}`;
-    }
+  if (!BocSites.buildContextKey(buildConversationContextRef(context) || {})) {
+    const note = buildCurrentConversationNote();
+    const folder = resolveFolderTemplate(settingsBundle.settings.noteFolder || "", note.context);
+    const filepath = folder ? `${folder}/${note.filename}` : note.filename;
+    await saveMarkdownToObsidian({ button: els.saveConversationBtn, filepath, content: note.content, ...settingsBundle });
+    return;
   }
-  const note = buildCurrentConversationNote(await resolveVideoNotePath(context, settingsBundle.settings));
-  const folder = resolveFolderTemplate(settingsBundle.settings.noteFolder || "", note.context);
-  const filepath = folder ? `${folder}/${note.filename}` : note.filename;
-
-  const written = await saveMarkdownToObsidian({
-    button: els.saveConversationBtn,
-    filepath,
-    content: note.content,
-    baseUrl: settingsBundle.baseUrl,
-    apiKey: settingsBundle.apiKey
-  });
-  if (written && videoNoteNotice) {
-    showConversationContextNotice(`已写入 Obsidian：${filepath}${videoNoteNotice}。`, 4000);
+  showConversationContextNotice("正在写入 Obsidian…");
+  try {
+    const result = await syncVideoNoteAiSection({ context, messages: chatHistory, ...settingsBundle });
+    if (result.exists) {
+      showConversationContextNotice(`已写入视频笔记的 AI 问答：${result.filepath}`, 3000);
+      return;
+    }
+    const tab = await getActiveTab();
+    if (!tab?.id || !liveContextData || !doesTabMatchContextUrl(liveTabUrl, context.url || "")) {
+      showConversationContextNotice("这个视频还没有视频笔记，打开视频页后再写入 Obsidian。", 4000);
+      return;
+    }
+    const resp = await sendMessageToActiveTab(tab.id, { type: "popup-send-obsidian" }, 1);
+    // The page's note carries its latest conversation; the live context (the page's own key and path)
+    // finds the note it just wrote, and this conversation replaces that section.
+    const created = resp?.ok ? await syncVideoNoteAiSection({ context: liveContextData, messages: chatHistory, ...settingsBundle }) : null;
+    if (!created?.exists) {
+      throw new Error(resp?.error || resp?.payload?.message || "没能新建视频笔记");
+    }
+    showConversationContextNotice(`已新建视频笔记并写入 AI 问答：${created.filepath}`, 4000);
+  } catch (error) {
+    showConversationContextNotice(`写入 Obsidian 失败：${readableObsidianError(error)}`, 4000);
   }
 }
 
@@ -2651,166 +2610,6 @@ function removeConversationContextNotice() {
 function isMessagesNearBottom(threshold = 56) {
   const { scrollTop, scrollHeight, clientHeight } = els.messages;
   return scrollHeight - (scrollTop + clientHeight) <= threshold;
-}
-
-function renderMarkdown(text) {
-  let escaped = escapeHtml(stripThinkBlocks(text));
-  const codeBlocks = [];
-  escaped = escaped.replace(/```([\s\S]*?)```/g, (_, code) => {
-    codeBlocks.push(code);
-    return `\u0001BOC_CODE_${codeBlocks.length - 1}\u0001`;
-  });
-
-  const lines = escaped.split("\n");
-  const out = [];
-  let listType = "";
-  let listStartNumber = 1;
-  let paraBuf = [];
-
-  const flushPara = () => {
-    if (paraBuf.length) {
-      out.push(`<p>${renderInline(paraBuf.join(" "))}</p>`);
-      paraBuf = [];
-    }
-  };
-  const closeList = () => {
-    if (!listType) {
-      return;
-    }
-    out.push(listType === "ul" ? "</ul>" : "</ol>");
-    listType = "";
-    listStartNumber = 1;
-  };
-  const openList = (nextType, startNumber = 1) => {
-    if (listType === nextType && (nextType !== "ol" || listStartNumber === startNumber)) {
-      return;
-    }
-    closeList();
-    listType = nextType;
-    listStartNumber = nextType === "ol" ? startNumber : 1;
-    if (nextType === "ul") {
-      out.push("<ul>");
-      return;
-    }
-    out.push(startNumber > 1 ? `<ol start="${startNumber}">` : "<ol>");
-  };
-  const getNextListType = (startIndex) => {
-    for (let index = startIndex; index < lines.length; index += 1) {
-      const nextLine = lines[index].trim();
-      if (!nextLine) {
-        continue;
-      }
-      if (/^[-*+]\s+(.+)$/.test(nextLine)) {
-        return "ul";
-      }
-      if (/^\d+\.\s+(.+)$/.test(nextLine)) {
-        return "ol";
-      }
-      break;
-    }
-    return "";
-  };
-  const isTableSeparatorLine = (value) => /^\|?(?:\s*:?-{3,}:?\s*\|)+\s*:?-{3,}:?\s*\|?$/.test(value);
-  const isTableRowLine = (value) => /^\|.+\|$/.test(value);
-  const splitTableCells = (value) =>
-    value
-      .trim()
-      .replace(/^\|/, "")
-      .replace(/\|$/, "")
-      .split("|")
-      .map((cell) => renderInline(cell.trim()));
-
-  for (let index = 0; index < lines.length; index += 1) {
-    const rawLine = lines[index];
-    const line = rawLine.trim();
-
-    const codeMatch = line.match(/^\u0001BOC_CODE_(\d+)\u0001$/);
-    if (codeMatch) {
-      flushPara();
-      closeList();
-      out.push(`<pre><code>${codeBlocks[Number(codeMatch[1])]}</code></pre>`);
-      continue;
-    }
-
-    const heading = line.match(/^(#{1,3})\s+(.+)$/);
-    if (heading) {
-      flushPara();
-      closeList();
-      const level = heading[1].length + 2;
-      out.push(`<h${level}>${renderInline(heading[2])}</h${level}>`);
-      continue;
-    }
-
-    if (
-      isTableRowLine(line) &&
-      index + 1 < lines.length &&
-      isTableSeparatorLine(lines[index + 1].trim())
-    ) {
-      flushPara();
-      closeList();
-      const headers = splitTableCells(line);
-      const bodyRows = [];
-      index += 2;
-      while (index < lines.length) {
-        const tableLine = lines[index].trim();
-        if (!isTableRowLine(tableLine)) {
-          index -= 1;
-          break;
-        }
-        bodyRows.push(splitTableCells(tableLine));
-        index += 1;
-      }
-      out.push(
-        `<table><thead><tr>${headers.map((cell) => `<th>${cell}</th>`).join("")}</tr></thead><tbody>${
-          bodyRows.map((row) => `<tr>${row.map((cell) => `<td>${cell}</td>`).join("")}</tr>`).join("")
-        }</tbody></table>`
-      );
-      continue;
-    }
-
-    const ul = line.match(/^[-*+]\s+(.+)$/);
-    if (ul) {
-      flushPara();
-      openList("ul");
-      out.push(`<li>${renderInline(ul[1])}</li>`);
-      continue;
-    }
-
-    const ol = line.match(/^(\d+)\.\s+(.+)$/);
-    if (ol) {
-      flushPara();
-      const orderNumber = Number(ol[1]) || 1;
-      openList("ol", orderNumber);
-      out.push(`<li>${renderInline(ol[2])}</li>`);
-      continue;
-    }
-
-    if (!line) {
-      flushPara();
-      if (listType && getNextListType(index + 1) === listType) {
-        continue;
-      }
-      closeList();
-      continue;
-    }
-
-    paraBuf.push(line);
-  }
-
-  flushPara();
-  closeList();
-  return out.join("");
-}
-
-function renderInline(text) {
-  return text
-    .replace(/`([^`]+)`/g, (_, c) => (isTimestampOnlyInlineCode(c) ? c : `<code>${c}</code>`))
-    .replace(/\*\*([^*\n]+)\*\*/g, (_, c) => `<strong>${c}</strong>`)
-    .replace(/(^|[^*])\*([^*\n]+)\*(?!\*)/g, (_, pre, c) => `${pre}<em>${c}</em>`)
-    .replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, (_, t, u) => {
-      const safeUrl = /^(https?:|mailto:|#)/i.test(u) ? u : "#";
-      return `<a href="${safeUrl}" target="_blank" rel="noopener noreferrer">${t}</a>`;
-    });
 }
 
 function scrollToBottom(force = false) {

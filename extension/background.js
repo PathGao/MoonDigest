@@ -1,10 +1,8 @@
 // Shared modules must load before the top-level code below reads them (e.g. BocLimits).
 importScripts("limits.js", "sites.js", "note.js");
 
-// Follow-up quick questions. The one-click summary lives in playerAiQuickPrompt.
+// Follow-up quick questions. The one-click summary lives in playerAiQuickPrompt, so none of these summarize.
 const DEFAULT_PRESET_PROMPTS = [
-  "用 3 句话总结这个视频",
-  "提炼这个视频的 5 个重点",
   "按时间顺序整理这期视频的内容",
   "根据评论总结观众的看法",
   "按章节整理视频内容",

@@ -11,7 +11,16 @@
     aiProviderKeys: { openai: "sk-should-never-export" },
     obsidianApiKey: "secret-token",
     // Per-video notes (triage_notes): one seeded so a filled note shows without typing.
-    triage_notes: { BV1mock0001: { text: "第 3 节的重构步骤可以直接套到 kururu", updatedAt: Date.now() } }
+    triage_notes: { BV1mock0001: { text: "第 3 节的重构步骤可以直接套到自己的项目", updatedAt: Date.now() } },
+    // Old scheme data, so the page's one-time migration has something to fold: 稍后-AI (seen, unmapped) gets the
+    // default criteria, 学习 its scheme's; tags become AI工程 + 工具 + 数学, s-ai merges into t-ai, s-unused is dropped.
+    triage_schemes: [
+      { id: "default", name: "默认方案", criteria: "只保留 AI 工程实践相关的深度内容，资讯和娱乐可以删", tags: [{ id: "t-ai", name: "AI工程", description: "大模型实践", color: "#da86c3" }, { id: "t-tool", name: "工具", color: "#298287" }] },
+      { id: "s-study", name: "学习", criteria: "只留系统课程", tags: [{ id: "s-math", name: "数学", color: "#dc6d2d" }, { id: "s-ai", name: "AI工程", color: "#3590a0" }, { id: "s-unused", name: "没用到", color: "#8595ea" }] }
+    ],
+    triage_folder_scheme: { 1002: "s-study" },
+    triage_decisions_1001: {},
+    triage_video_tags: { BV1mock0001: ["t-ai"], BV1mock0040: ["s-math", "s-ai"] }
   };
   function makeArea(data) {
     return {
@@ -51,7 +60,7 @@
     "已失效视频", "Embedding 模型怎么选", "神经网络反向传播手推",
     "AI 写论文靠谱吗？实测", "如何评估大模型：Benchmark 的坑", "Function Calling 实战", "年度 AI 回顾"
   ];
-  const uppers = ["跟李沐学AI", "技术蛋老师", "林亦LYi", "秋葉aaaki", "差评君", "3Blue1Brown官方", "硬核的半佛仙人", "Ele实验室"];
+  const uppers = "ABCDEFGH".split("").map((c) => `示例UP主${c}`);
   const cover = (i) =>
     "data:image/svg+xml," +
     encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" width="160" height="90"><rect width="160" height="90" fill="hsl(${(i * 47) % 360},45%,60%)"/><text x="80" y="54" font-size="22" text-anchor="middle" fill="white">${i + 1}</text></svg>`);
@@ -74,12 +83,15 @@
     };
   }
 
+  const ai = titles.map(makeItem);
+  const study = ["线性代数的本质 01", "费曼学习法", "如何高效读论文", "统计学习方法导读", "英语听力训练"].map(makeItem);
+  // 默认收藏夹 overlaps both others (same videos), for the 所有收藏夹 view.
   const folders = [
-    { id: 1001, title: "稍后-AI", items: titles.map(makeItem) },
-    { id: 1002, title: "学习", items: ["线性代数的本质 01", "费曼学习法", "如何高效读论文", "统计学习方法导读", "英语听力训练"].map(makeItem) },
-    { id: 1003, title: "默认收藏夹", items: [] }
+    { id: 1001, title: "稍后-AI", items: ai },
+    { id: 1002, title: "学习", items: study },
+    { id: 1003, title: "默认收藏夹", items: [ai[1], ai[12], study[0], ...["家常红烧肉的做法", "十分钟早餐：葱油拌面"].map(makeItem)] }
   ];
-  const removed = new Map(); // aid -> { folder, item, index }
+  const removed = new Map(); // "mediaId:aid" -> { folder, item, index }
   const throttledOnce = new Set();
   let lastMediaId = 1001;
   let aiCommandCalls = 0;
@@ -103,7 +115,8 @@
     },
     "triage-title-get": ({ bvids }) => ({ ok: true, data: Object.fromEntries(bvids.map((b) => [b, store[`triage_title_${b}`] || null])) }),
     "triage-analysis-get": ({ bvids }) => ({ ok: true, data: Object.fromEntries(bvids.map((b) => [b, store[`triage_analysis_${b}`] || null])) }),
-    "triage-classify-titles": async ({ items, tags }) => {
+    // Requests carry the folder's 判断标准; the AI answers one of keep / drop / unsure.
+    "triage-classify-titles": async ({ items }) => {
       await wait(400);
       if (globalThis.__mockNoAI) return noAi();
       if (globalThis.__mockHostDenied) return { ok: false, error: "未授权访问 https://api.example.com，授权后重试" };
@@ -111,17 +124,14 @@
       for (const { bvid } of items) {
         const i = findItem(bvid)._i;
         const verdict = ["keep", "drop", "unsure", "unsure", "keep"][i % 5];
-        const suggestedTags = [];
-        if (tags.length) suggestedTags.push(tags[i % tags.length].name);
-        if (i % 6 === 0) suggestedTags.push("新:大模型");
-        if (i % 9 === 0) suggestedTags.push("新:工具");
-        const r = { verdict, reason: { keep: "标题显示为系统教程", drop: "资讯/娱乐类，时效性强", unsure: "标题信息不足" }[verdict], suggestedTags, confidence: i % 7 === 0 ? "low" : "high" };
+        const reason = { keep: "标题显示为系统教程", drop: "资讯/娱乐类，时效性强", unsure: "标题信息不足" }[verdict];
+        const r = { verdict, reason, confidence: i % 7 === 0 ? "low" : "high" };
         results[bvid] = r;
         store[`triage_title_${bvid}`] = r;
       }
       return { ok: true, data: { results } };
     },
-    "triage-analyze": async ({ bvid, tags = [] }) => {
+    "triage-analyze": async ({ bvid }) => {
       await wait(300);
       if (globalThis.__mockNoAI) return noAi();
       const it = findItem(bvid);
@@ -143,32 +153,26 @@
         points: ["讲清了基本概念和适用场景", "给出了一个可运行的完整示例", "最后总结了常见误区"],
         verdict,
         reason: { keep: "有可复用的方法论", drop: "内容浅，信息量低", unsure: "部分有用，需要自己判断" }[verdict],
-        suggestedTags: [tags[0]?.name, "新:深度"].filter(Boolean),
         model: "mock-model",
         analyzedAt: Date.now()
       };
       store[`triage_analysis_${bvid}`] = a;
       return { ok: true, data: a };
     },
-    "triage-ai-command": async ({ tags, items, allowNewTags, maxNewTags, allowVerdict }) => {
+    "triage-ai-command": async ({ items, tags, allowVerdict }) => {
       await wait(300);
       aiCommandCalls++;
       if (aiCommandCalls === 2) return { ok: false, error: "模型返回的 JSON 无法解析" };
       const depth = (title) => (/入门|手把手|速通|三分钟|10 分钟|是什么/.test(title) ? "入门" : /原理|数学|手推|推导|解析|可视化/.test(title) ? "硬核" : "");
-      const newTags = [];
-      if (allowNewTags) {
-        for (const [name, description] of [["入门", "零基础能看懂"], ["硬核", "需要数学或源码基础"]].slice(0, maxNewTags)) {
-          if (!tags.some((t) => t.name === name)) newTags.push({ name, description });
-        }
-      }
-      const allowed = new Set([...tags.map((t) => t.name), ...newTags.map((t) => t.name)]);
+      const newTags = ["入门", "硬核"].filter((name) => !tags.includes(name));
+      const allowed = new Set([...tags, ...newTags]);
       const assignments = {};
       let verdictChanged = false;
       items.forEach((it, i) => {
         const add = [];
         const d = depth(it.title);
         if (d && allowed.has(d)) add.push(d);
-        if (tags.length && i % 3 === 0) add.push(tags[i % tags.length].name);
+        if (tags.length && i % 3 === 0) add.push(tags[i % tags.length]);
         const remove = it.currentTags && i % 4 === 0 ? [it.currentTags[0]] : [];
         const a = { add, remove, reason: d ? `标题显示为${d}内容` : "按指令归类" };
         if (allowVerdict && !verdictChanged && it.verdict && it.verdict !== "keep") {
@@ -184,20 +188,20 @@
       const f = folders.find((x) => String(x.id) === String(mediaId));
       for (const aid of aids) {
         const index = f.items.findIndex((it) => it.aid === aid);
-        if (index >= 0) removed.set(aid, { folder: f, item: f.items.splice(index, 1)[0], index });
+        if (index >= 0) removed.set(`${f.id}:${aid}`, { folder: f, item: f.items.splice(index, 1)[0], index });
       }
       return { ok: true, data: { done: aids.length } };
     },
-    "triage-refav": ({ aid }) => {
-      const r = removed.get(aid);
+    "triage-refav": ({ mediaId, aid }) => {
+      const r = removed.get(`${mediaId}:${aid}`);
       if (!r) return { ok: false, error: "找不到要恢复的视频" };
       r.folder.items.splice(Math.min(r.index, r.folder.items.length), 0, r.item);
-      removed.delete(aid);
+      removed.delete(`${mediaId}:${aid}`);
       return { ok: true, data: { done: 1 } };
     },
     "triage-settings-get": () => ({
       ok: true,
-      data: { triageCriteria: "只保留 AI 工程实践相关的深度内容，资讯和娱乐可以删", triageIntervalSec: 1, triageExportFolder: "B站摘录", triageTitleBatchSize: 15, triageThinking: false, triageTitleMaxTokens: 0, triageAnalyzeMaxTokens: 0, ...store.__settings }
+      data: { deepseek: true, triageIntervalSec: 1, triageExportFolder: "B站摘录", triageTitleBatchSize: 15, triageThinking: false, triageTitleMaxTokens: 0, triageAnalyzeMaxTokens: 0, ...store.__settings }
     }),
     "triage-settings-save": ({ type, ...patch }) => {
       store.__settings = { ...store.__settings, ...patch };
@@ -225,7 +229,7 @@
     f.items = f.items.filter((it) => !victims.includes(it));
     f.items.unshift(...["新收藏：Agent 记忆系统设计", "新收藏：AI 播客剪辑技巧", "新收藏：多模态模型综述"].map(makeItem));
     const back = [...removed.entries()].find(([, r]) => r.folder === f);
-    if (back) handlers["triage-refav"]({ aid: back[0] });
+    if (back) handlers["triage-refav"]({ mediaId: f.id, aid: back[1].item.aid });
     const flip = f.items.find((it) => !it.invalid && it._i > 30 && it._i < titles.length);
     if (flip) {
       flip.invalid = true;

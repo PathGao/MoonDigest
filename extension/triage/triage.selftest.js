@@ -16,10 +16,12 @@ const stubEl = () => new Proxy({ classList: { toggle() {}, add() {}, remove() {}
   set: (o, k, v) => ((o[k] = v), true)
 });
 const store = {};
+const syncStore = {};
 const handlers = {};
 const sent = [];
 const ctx = vm.createContext({
   console,
+  structuredClone,
   setTimeout: (f) => setImmediate(f),
   document: { getElementById: stubEl, querySelector: () => null, addEventListener() {} },
   window: { addEventListener() {} },
@@ -44,12 +46,13 @@ const ctx = vm.createContext({
         async remove(keys) {
           for (const k of [].concat(keys)) delete store[k];
         }
-      }
+      },
+      sync: { get: async (d) => ({ ...d, ...structuredClone(syncStore) }) }
     }
   }
 });
 vm.runInContext(fs.readFileSync(path.join(__dirname, "..", "limits.js"), "utf8"), ctx);
-vm.runInContext(`${source}\n;globalThis.S = S; globalThis.K = K;`, ctx);
+vm.runInContext(`${source}\n;globalThis.S = S; globalThis.K = K; globalThis.el = el; globalThis.verdictBadge = verdictBadge;`, ctx);
 const t = ctx;
 const plain = (v) => JSON.parse(JSON.stringify(v));
 const toasts = [];
@@ -120,6 +123,34 @@ function openFake(mediaId, items, decisions = {}) {
   const csvRows = t.buildCsv().replace(/^\uFEFF/, "").split("\r\n");
   assert.ok(csvRows[1].startsWith("'+夹,BV5,'=cmd|' /C calc'!A0,'@up,"), csvRows[1]);
 
+  // 优先看: E adds in order with only bvid + title, ↑↓ reorder, 看过了 removes without touching decisions.
+  openFake("P", [item(1), item(2), item(3)], { BV2: { action: "keep", at: 1 } });
+  t.S.basket = [{ bvid: "BVgone", title: "别的收藏夹" }];
+  for (const b of ["BV1", "BV2", "BV3"]) t.toggleBasket(b);
+  assert.deepStrictEqual(plain(store[t.K.basket]), [{ bvid: "BVgone", title: "别的收藏夹" }, { bvid: "BV1", title: "视频1" }, { bvid: "BV2", title: "视频2" }, { bvid: "BV3", title: "视频3" }]);
+  t.basketAction("up", 3);
+  t.basketAction("down", 0);
+  assert.strictEqual(t.basketAction("down", 3), undefined, "the last item cannot move down");
+  assert.deepStrictEqual(plain(t.S.basket.map((x) => x.bvid)), ["BV1", "BVgone", "BV3", "BV2"]);
+  t.basketAction("done", 3);
+  t.toggleBasket("BV1");
+  assert.deepStrictEqual(plain(store[t.K.basket].map((x) => x.bvid)), ["BVgone", "BV3"]);
+  assert.deepStrictEqual(plain(t.S.decisions), { BV2: { action: "keep", at: 1 } }, "看过了 leaves decisions alone");
+
+  // 批量导出 scopes: 优先看 keeps its order and videos outside the folder; invalid videos are left out.
+  t.S.items.push({ ...item(4), invalid: true });
+  t.S.itemMap.set("BV4", t.S.items[3]);
+  t.S.basket.push({ bvid: "BV4" });
+  t.S.selected.clear();
+  t.S.selected.add("BV2");
+  Object.assign(t.S, { tab: "none", titleRes: {}, analyses: { BVgone: { status: "done", oneLiner: "一句话", points: ["要点"] } }, notes: { BV3: { text: " 我的笔记 " } }, videoTags: {} });
+  const scope = (s) => plain(t.writeScopeItems(s).map((it) => it.bvid));
+  assert.deepStrictEqual([scope("basket"), scope("selected"), scope("all"), scope("filter")], [["BVgone", "BV3"], ["BV2"], ["BV1", "BV2", "BV3"], ["BV1", "BV3"]]);
+  const digest = t.buildMarkdown(t.writeScopeItems("basket"));
+  assert.ok(digest.includes("## [别的收藏夹](https://www.bilibili.com/video/BVgone)\n\n> 一句话\n\n- 要点"), digest);
+  assert.ok(digest.includes("## [视频3](https://www.bilibili.com/video/BV3)\n\nUP：up\n\n备注：我的笔记"), digest);
+  t.S.selected.clear();
+
   // B12: titles with | [[ ]] or newlines cannot end the index-note link early.
   assert.strictEqual(t.wikiLink("B站/2026-10-02-a_b.md", "a|b [[c]]\nd"), "[[B站/2026-10-02-a_b|a b c d]]");
   assert.strictEqual(t.wikiLink("x.md", "|||"), "[[x|x]]");
@@ -166,10 +197,10 @@ function openFake(mediaId, items, decisions = {}) {
   assert.strictEqual(st({ analyses: { BVv: { status: "done", verdict: "unsure" } } }), "act");
   assert.strictEqual(st({ analyses: { BVv: { status: "error" } }, titleRes: { BVv: { verdict: "unsure" } } }), "deep", "a failed 细看 stays in 待细看 with its retry button");
   assert.strictEqual(st({ analyses: {}, titleRes: {} }, { ...v, invalid: true }), "act");
-  assert.strictEqual(t.verdictOf({ ...v, invalid: true }).verdict, "drop", "invalid videos count as 建议删");
+  assert.strictEqual(t.verdictOf({ ...v, invalid: true }).verdict, "drop", "invalid videos count as 可以删");
   assert.strictEqual(st({ decisions: { BVv: { action: "keep" } } }), "done");
   assert.strictEqual(st({ decisions: {} }, { ...v, invalid: true, bvid: "BVv" }), "act");
-  // A1: only 取消收藏 / 保留 move a video to 已处理; tags (T, A, AI 指令) and notes do not.
+  // A1: only 取消收藏 / 保留 move a video to 已处理; tags (T, AI 指令) and notes do not.
   const tagged = { tags: [{ id: "t1", name: "x" }], videoTags: { BVv: ["t1"] }, notes: { BVv: { text: "备注", updatedAt: 1 } } };
   assert.strictEqual(st({ ...tagged, titleRes: {} }), "none", "a tagged, noted video without 粗分 stays in 未分析");
   assert.strictEqual(st({ titleRes: { BVv: { verdict: "unsure", confidence: "high" } } }), "deep", "tagged 待定 stays in 待细看");
@@ -187,22 +218,49 @@ function openFake(mediaId, items, decisions = {}) {
   t.S.selected.add("BV210");
   assert.deepStrictEqual(plain(t.nextBatch()), ["BV209"], "a selected card outside 待细看 is ignored");
   t.S.tab = "act";
-  t.S.actFilter = "all";
+  t.S.classFilter.act = "all";
   assert.deepStrictEqual(plain(t.batchList("keep").map((it) => it.bvid)), ["BV210"], "the selection overrides the verdict scope");
   t.S.selected.clear();
   assert.deepStrictEqual(plain(t.batchList("drop").map((it) => it.bvid)), ["BV210", "BV211"]);
+  // Buttons lead with the action and name the AI class; filter chips show the bare class name.
+  t.renderListHeader(t.visibleItems());
+  for (const part of ["取消收藏（AI：可以删）2 个", "保留（AI：留）0 个", ">全部 2<", ">可以删 2<", ">留 0<", ">待定 0<"]) assert.ok(t.el.listHeader.innerHTML.includes(part), part);
+  assert.ok(t.verdictBadge("BV210", t.verdictOf(pool[10])).includes('class="badge drop"') && t.verdictBadge("BV210", t.verdictOf(pool[10])).includes('<span class="ai-mark">AI</span>可以删'));
+  t.S.classFilter.act = "keep";
+  t.renderListHeader(t.visibleItems());
+  assert.ok(t.el.listHeader.innerHTML.includes("保留（AI：留）") && !t.el.listHeader.innerHTML.includes("取消收藏（AI"), "a filter shows only its own batch button");
+  t.S.classFilter.act = "all";
+  t.S.selected.add("BV210");
+  t.renderListHeader(t.visibleItems());
+  assert.ok(t.el.listHeader.innerHTML.includes("取消收藏选中的 1 个") && t.el.listHeader.innerHTML.includes("保留选中的 1 个"));
+  t.S.selected.clear();
   // A3: 待定 left after 细看 sits in 待处理 under its own filter, and a selection there drives both batch buttons.
   t.S.analyses = { BV200: { status: "done", verdict: "unsure" } };
-  t.S.actFilter = "unsure";
+  t.S.classFilter.act = "unsure";
   assert.deepStrictEqual(plain(t.visibleItems().map((it) => it.bvid)), ["BV200"]);
+  t.renderListHeader(t.visibleItems());
+  assert.ok(!t.el.listHeader.innerHTML.includes("（AI") && t.el.listHeader.innerHTML.includes("按 X 选中后"), "待定 has no verdict-scoped button");
   assert.strictEqual(t.batchList("keep").length, 0, "without a selection 待定 has no verdict-scoped batch");
   t.S.selected.add("BV200");
   assert.deepStrictEqual(plain(t.batchList("keep").map((it) => it.bvid)), ["BV200"]);
   assert.deepStrictEqual(plain(t.batchList("drop").map((it) => it.bvid)), ["BV200"]);
   t.batchKeep(t.batchList("keep"));
   assert.strictEqual(t.stageOf(pool[0]), "done", "batch 保留 moves it to 已处理");
-  Object.assign(t.S, { analyses: {}, decisions: {}, actFilter: "all" });
+  Object.assign(t.S, { analyses: {}, decisions: {}, classFilter: { deep: "all", act: "all" } });
   t.S.selected.clear();
+  // 待细看 chips: per-class counts in the tab; a chip narrows the next batch, a selection still wins; each tab keeps its chip.
+  t.S.tab = "deep";
+  t.S.titleRes = Object.fromEntries(pool.map((it, i) => [it.bvid, i < 6 ? { verdict: "unsure", confidence: "high" } : { verdict: i % 2 ? "keep" : "drop", confidence: "low" }]));
+  t.renderListHeader(t.visibleItems());
+  for (const part of [">全部 12<", ">留 3<", ">可以删 3<", ">待定 6<", "细看下一批 8 个"]) assert.ok(t.el.listHeader.innerHTML.includes(part), part);
+  t.S.classFilter.deep = "keep";
+  assert.deepStrictEqual(plain(t.nextBatch()), ["BV207", "BV209", "BV211"], "the batch comes from the filtered videos");
+  t.S.classFilter.act = "drop";
+  assert.strictEqual(t.S.classFilter.deep, "keep", "待处理's chip does not touch 待细看's");
+  t.S.selected.add("BV207");
+  assert.deepStrictEqual(plain(t.nextBatch()), ["BV207"], "a selection still wins");
+  t.S.selected.clear();
+  Object.assign(t.S, { titleRes: Object.fromEntries(pool.map((it, i) => [it.bvid, { verdict: i < 10 ? "unsure" : "drop", confidence: "high" }])), classFilter: { deep: "all", act: "all" } });
   // A5: 待细看 lists the next batch first and failed cards last.
   t.S.tab = "deep";
   t.S.analyses = { BV201: { status: "error", error: "x" } };
@@ -218,7 +276,9 @@ function openFake(mediaId, items, decisions = {}) {
   // Backup maps storage keys to sections and never exports secrets or unrelated keys.
   for (const k of Object.keys(store)) delete store[k];
   Object.assign(store, {
-    triage_tags: [{ id: "t1" }], triage_video_tags: { BVa: ["t1"] }, triage_basket: [{ bvid: "BVa" }], triage_tag_presets: [{ id: "p" }],
+    triage_schemes: [{ id: "old" }], triage_folder_scheme: { 7: "old" }, triage_tags: [{ id: "t1", name: "AI", color: "#111" }], triage_tag_presets: [{ id: "old" }],
+    triage_folder_criteria: { 7: "只留干货" }, triage_simplified_v1: true,
+    triage_video_tags: { BVa: ["t1"] }, triage_basket: [{ bvid: "BVa" }],
     triage_notes: { BVa: { text: "n", updatedAt: 1 } }, triage_notes_migrated: true,
     triage_snapshot_7: { bvids: ["BVa"] }, triage_decisions_7: { BVa: { action: "keep" } },
     triage_title_BVa: { verdict: "keep" }, triage_analysis_BVa: { status: "done" }, triage_verdict_override_BVa: { verdict: "drop" },
@@ -227,10 +287,142 @@ function openFake(mediaId, items, decisions = {}) {
   t.S.folders = [{ id: 7, title: "夹" }];
   const backup = plain(await t.buildBackup());
   assert.deepStrictEqual(backup.folders, { 7: { title: "夹", snapshot: { bvids: ["BVa"] }, decisions: { BVa: { action: "keep" } } } });
-  assert.deepStrictEqual([backup.tags, backup.videoTags, backup.basket, backup.tagPresets], [[{ id: "t1" }], { BVa: ["t1"] }, [{ bvid: "BVa" }], [{ id: "p" }]]);
+  assert.strictEqual(backup.schemaVersion, 3);
+  assert.deepStrictEqual([backup.tags, backup.folderCriteria, backup.videoTags, backup.basket], [[{ id: "t1", name: "AI", color: "#111" }], { 7: "只留干货" }, { BVa: ["t1"] }, [{ bvid: "BVa" }]]);
+  assert.ok(!("schemes" in backup) && !("folderScheme" in backup) && !/"old"/.test(JSON.stringify(backup)), "old scheme keys are not exported");
   assert.deepStrictEqual([backup.titleResults, backup.analyses, backup.verdictOverrides], [{ BVa: { verdict: "keep" } }, { BVa: { status: "done" } }, { BVa: { verdict: "drop" } }]);
   assert.deepStrictEqual(backup.notes, { BVa: { text: "n", updatedAt: 1 } });
-  assert.ok(!/sk-live-1|secret-token|triage_tab|migrated/.test(JSON.stringify(backup)), "no secrets or unrelated keys");
+  assert.ok(!/sk-live-1|secret-token|triage_tab|migrated|simplified/.test(JSON.stringify(backup)), "no secrets or unrelated keys");
+
+  // Old custom-tier results: a 粗分 one counts as not classified, a done 细看 one as 待定; overrides need a known class.
+  const old = item(400);
+  openFake("H", [old]);
+  Object.assign(t.S, { analyses: {}, overrides: {}, decisions: {}, titleRes: { BV400: { verdict: "t-must", confidence: "high" } } });
+  assert.strictEqual(t.stageOf(old), "none");
+  t.S.overrides.BV400 = { verdict: "t-must" };
+  assert.strictEqual(t.verdictOf(old).stage, -1);
+  t.S.analyses.BV400 = { status: "done", verdict: "t-must", reason: "旧" };
+  assert.deepStrictEqual([t.verdictOf(old).verdict, t.stageOf(old)], ["unsure", "act"]);
+  Object.assign(t.S, { analyses: {}, overrides: {}, titleRes: {} });
+
+  // 判断标准 is per folder and goes with 粗分 requests; an empty one is removed.
+  openFake("J", [item(500)]);
+  t.S.folderCriteria = { J: "只留干货" };
+  handlers["triage-classify-titles"] = () => ({ ok: true, data: { results: { BV500: { verdict: "keep", reason: "", confidence: "high" } } } });
+  Object.assign(t.S.settings, { triageIntervalSec: 0 });
+  await t.runStage1();
+  assert.deepStrictEqual(plain(sent.at(-1)), { type: "triage-classify-titles", items: [{ bvid: "BV500", title: "视频500", upper: "up", duration: 61 }], criteria: "只留干货" });
+  t.S.tab = "none";
+  t.renderListHeader(t.visibleItems());
+  assert.ok(t.el.listHeader.innerHTML.includes("判断标准：只留干货"));
+  t.el.criteriaInput = { value: "  " };
+  t.saveCriteria();
+  assert.deepStrictEqual(plain(store[t.K.folderCriteria]), {});
+  t.renderListHeader(t.visibleItems());
+  assert.ok(t.el.listHeader.innerHTML.includes("未设判断标准") && t.el.listHeader.innerHTML.includes("写一句"));
+
+  // AI 指令 proposals: new tags only by name, at most 5; verdicts only among the three classes.
+  openFake("K", [item(600), item(601)]);
+  Object.assign(t.S, { tags: [{ id: "a", name: "旧", color: "#111" }], videoTags: {}, titleRes: { BV600: { verdict: "drop", confidence: "high" } } });
+  const prop = { newTags: [], rows: [], notes: [], errors: [] };
+  t.mergeAiBatch(prop, { newTags: ["n1", "n2", "旧", "n3", "n4", "n5", "n6"], assignments: { BV600: { add: ["n1", "旧"], verdict: "keep" }, BV601: { verdict: "t-must" } } }, { maxNewTags: 5, allowVerdict: true }, new Set(["BV600", "BV601"]));
+  assert.deepStrictEqual(plain(prop.newTags.map((x) => x.name)), ["n1", "n2", "n3", "n4", "n5"]);
+  assert.deepStrictEqual(plain(prop.rows), [{ bvid: "BV600", add: ["new:n1", "id:a"], remove: [], verdict: "keep", oldVerdict: "drop", reason: "", checked: true }]);
+  t.S.ai.proposal = prop;
+  t.el.aiDialog = { close() {} };
+  t.applyAiProposal();
+  assert.deepStrictEqual(plain(t.S.tags.map((x) => x.name)), ["旧", "n1", "n2", "n3", "n4", "n5"]);
+  assert.ok(t.S.tags.every((x) => Object.keys(x).join() === "id,name,color"), "tags carry only id, name and color");
+  assert.strictEqual(t.verdictOf(item(600)).verdict, "keep");
+
+  // Migration (pure): criteria per seen folder, the default scheme's tags plus used ones, same names merged.
+  const schemes = [
+    { id: "s2", name: "学习", criteria: " 只留课程 ", tags: [{ id: "x1", name: "数学", color: "#1" }, { id: "x2", name: "AI", color: "#2" }, { id: "x3", name: "没用到" }] },
+    { id: "default", name: "默认方案", criteria: "只留干货", tags: [{ id: "d1", name: "AI", description: "大模型", color: "#d" }, { id: "d2", name: "工具" }] },
+    { id: "s3", name: "空", criteria: "", tags: [] }
+  ];
+  const mig = plain(t.simplifyMigration({
+    schemes,
+    folderScheme: { 2: "s2", 3: "s3", 4: "gone" },
+    videoTags: { BVa: ["x2", "d1", "x1"], BVb: ["zz"] },
+    folderIds: ["1", "2"],
+    folderCriteria: { 9: "已有" }
+  }));
+  assert.deepStrictEqual(mig.tags, [{ id: "d1", name: "AI", color: "#d" }, { id: "d2", name: "工具", color: "#298287" }, { id: "x1", name: "数学", color: "#1" }]);
+  assert.deepStrictEqual(mig.videoTags, { BVa: ["d1", "x1"], BVb: ["zz"] }, "a same-name tag is remapped; unknown ids stay");
+  assert.deepStrictEqual(mig.folderCriteria, { 1: "只留干货", 2: "只留课程", 4: "只留干货", 9: "已有" }, "unmapped or missing scheme → default; empty criteria are not written");
+  // Pre-scheme users: the global tags and criteria carry over.
+  const pre = plain(t.simplifyMigration({ tags: [{ id: "t1", name: "AI", color: "#1", description: "d" }], videoTags: { BVa: ["t1"] }, criteria: "全局", folderIds: ["5"] }));
+  assert.deepStrictEqual(pre, { tags: [{ id: "t1", name: "AI", color: "#1" }], videoTags: { BVa: ["t1"] }, folderCriteria: { 5: "全局" } });
+  assert.deepStrictEqual(plain(t.simplifyMigration({})), { tags: [], videoTags: {}, folderCriteria: {} });
+
+  // Migration (storage): runs once, writes the new keys, leaves the old ones, then never reads them.
+  for (const k of Object.keys(store)) delete store[k];
+  Object.assign(store, { triage_schemes: schemes, triage_folder_scheme: { 2: "s2" }, triage_video_tags: { BVa: ["x2"] }, triage_snapshot_1: { bvids: [] }, triage_decisions_2: {} });
+  const loaded = plain(await t.loadTagsAndCriteria());
+  assert.deepStrictEqual(loaded.folderCriteria, { 1: "只留干货", 2: "只留课程" });
+  assert.deepStrictEqual(loaded.videoTags, { BVa: ["d1"] });
+  assert.deepStrictEqual(plain(store.triage_tags.map((x) => x.id)), ["d1", "d2"]);
+  assert.strictEqual(store.triage_simplified_v1, true);
+  assert.ok(store.triage_schemes && store.triage_folder_scheme, "old keys stay for rollback");
+  store.triage_schemes[1].criteria = "后来改的";
+  store.triage_folder_criteria = { 1: "我改的" };
+  assert.deepStrictEqual(plain((await t.loadTagsAndCriteria()).folderCriteria), { 1: "我改的" }, "a second run reads only the new keys");
+  // Pre-scheme storage: global criteria from sync, triage_tags kept.
+  for (const k of Object.keys(store)) delete store[k];
+  Object.assign(store, { triage_tags: [{ id: "t1", name: "AI", color: "#1" }], triage_video_tags: { BVa: ["t1"] }, triage_decisions_7: {} });
+  syncStore.triageCriteria = "全局标准";
+  assert.deepStrictEqual(plain(await t.loadTagsAndCriteria()), { tags: [{ id: "t1", name: "AI", color: "#1" }], videoTags: { BVa: ["t1"] }, folderCriteria: { 7: "全局标准" } });
+  delete syncStore.triageCriteria;
+
+  // F1 search: title, uploader, one-liner, points, note and tag names; case-insensitive; every word must match; combines with tags.
+  openFake("Q", [{ ...item(1), title: "Claude Code 实战", upper: "老王" }, { ...item(2), title: "红烧肉" }, item(3)]);
+  Object.assign(t.S, {
+    analyses: { BV2: { status: "done", oneLiner: "家常做法", points: ["火候是关键"] } },
+    notes: { BV3: { text: "周末试试 Agent" } },
+    tags: [{ id: "f", name: "美食", color: "#1" }],
+    videoTags: { BV2: ["f"] },
+    tagFilter: new Set()
+  });
+  const hits = (q) => ((t.S.query = q), t.S.items.filter((it) => t.passFilter(it)).map((it) => it.bvid));
+  assert.deepStrictEqual(hits(""), ["BV1", "BV2", "BV3"]);
+  assert.deepStrictEqual(hits("claude"), ["BV1"], "title, case-insensitive");
+  assert.deepStrictEqual(hits("老王"), ["BV1"], "uploader");
+  assert.deepStrictEqual(hits("火候"), ["BV2"], "points");
+  assert.deepStrictEqual(hits("家常"), ["BV2"], "one-liner");
+  assert.deepStrictEqual(hits("美食"), ["BV2"], "tag name");
+  assert.deepStrictEqual(hits("agent"), ["BV3"], "note");
+  assert.deepStrictEqual(hits(" claude  实战 "), ["BV1"], "all words match");
+  assert.deepStrictEqual(hits("claude 红烧肉"), [], "a word that misses drops the video");
+  t.S.tagFilter = new Set(["f"]);
+  assert.deepStrictEqual(hits("claude"), [], "search and tag filter combine");
+  Object.assign(t.S, { query: "", tagFilter: new Set(), analyses: {}, notes: {}, tags: [], videoTags: {} });
+
+  // F2 所有收藏夹: one entry per video with every folder; an unfav newer than a folder's cache drops that folder; keep merges.
+  const merged = plain(t.mergeFolderItems([
+    { id: "A", at: 10, items: [item(1), item(2)], decisions: { BV2: { action: "keep", at: 5 } } },
+    { id: "B", at: 10, items: [item(2), item(3), item(4)], decisions: { BV3: { action: "unfav", at: 20 }, BV4: { action: "unfav", at: 5 } } }
+  ]));
+  assert.deepStrictEqual(merged.items.map((it) => [it.bvid, it.folders]), [["BV1", ["A"]], ["BV2", ["A", "B"]], ["BV4", ["B"]]], "BV3 unfavorited after B's cache; BV4 re-favorited since");
+  assert.deepStrictEqual(Object.keys(merged.decisions), ["BV2"]);
+
+  // F2 取消收藏 in 所有收藏夹: only the picked folder is unfavorited and recorded; U re-favorites it there.
+  const shared = { ...item(7), folders: ["A", "B"] };
+  openFake("all", [shared]);
+  t.S.folderDecisions = { A: {}, B: {} };
+  t.S.folders = [{ id: "A", title: "甲" }, { id: "B", title: "乙" }];
+  t.pickUnfavFolders = async () => ["B"];
+  handlers["triage-unfav"] = () => ({ ok: true });
+  await t.decide("BV7", "unfav");
+  assert.deepStrictEqual(plain(sent.at(-1)), { type: "triage-unfav", mediaId: "B", aids: [1007] });
+  assert.deepStrictEqual(plain(shared.folders), ["A"]);
+  assert.strictEqual(store[t.K.decisions("B")].BV7.action, "unfav");
+  assert.ok(!store[t.K.decisions("A")] && !t.S.decisions.BV7, "still in 甲, so not processed");
+  assert.ok(!store[t.K.decisions("all")], "no decisions key for the merged view");
+  await t.undo();
+  assert.deepStrictEqual(plain(sent.at(-1)), { type: "triage-refav", mediaId: "B", aid: 1007 });
+  assert.deepStrictEqual(plain(shared.folders), ["A", "B"]);
+  assert.ok(!("BV7" in store[t.K.decisions("B")]));
 
   console.log("triage selftest: all passed");
 })().catch((e) => {

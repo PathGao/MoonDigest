@@ -215,7 +215,8 @@
 
   // Pairs each user message with the assistant reply that follows it. Stored conversations hold
   // only user/assistant turns; the system prompt and video context never reach them.
-  function buildConversationTurns(messages) {
+  // baseLevel: heading shift for pasting under a note's ## heading; 0 keeps the answer's own headings.
+  function buildConversationTurns(messages, baseLevel = 2) {
     const turns = [];
     let pendingPrompt = "";
     (Array.isArray(messages) ? messages : []).forEach((message) => {
@@ -227,7 +228,7 @@
         return;
       }
       if (message.role === "assistant" && pendingPrompt) {
-        const answer = normalizeMarkdownForSectionPaste(stripThinkBlocks(message.content)).trim();
+        const answer = normalizeMarkdownForSectionPaste(stripThinkBlocks(message.content), baseLevel).trim();
         if (answer) {
           turns.push({ prompt: pendingPrompt, answer });
         }
@@ -292,8 +293,15 @@
     return String(context?.title || "当前视频").trim() || "当前视频";
   }
 
+  // Multi-P videos: each part's conversation is its own note, named and linked by part.
+  function aiPartIndex(context) {
+    return Number(context?.pageIndex) > 0 ? Number(context.pageIndex) : 1;
+  }
+
   function buildAiConversationFilename(context) {
-    const baseName = sanitizeFileName(`【AI笔记】${aiSourceTitle(context)}`);
+    const part = aiPartIndex(context);
+    const partSuffix = part > 1 || Number(context?.pageCount) > 1 ? ` P${part}` : "";
+    const baseName = sanitizeFileName(`【AI笔记】${aiSourceTitle(context)}${partSuffix}`);
     return `${baseName || "【AI笔记】当前视频"}.md`;
   }
 
@@ -320,7 +328,7 @@
     const site = BocSites.SITES[context?.site] || BocSites.matchSite(url);
     const videoId = String(context?.videoId || BocSites.parseRef(url)?.id || "").trim();
     if (site && videoId) {
-      return site.canonicalUrl(videoId, 1);
+      return site.canonicalUrl(videoId, aiPartIndex(context));
     }
     return url;
   }
@@ -357,8 +365,8 @@
     if (analysis.oneLiner) lines.push(`> ${analysis.oneLiner}`, "");
     const points = (analysis.points || []).filter(Boolean);
     if (points.length) lines.push(...points.map((p) => `- ${p}`), "");
-    const verdict = { keep: "建议留", drop: "建议删", unsure: "待定" }[analysis.verdict];
-    if (verdict) lines.push(`判断：${verdict}${analysis.reason ? `，${analysis.reason}` : ""}`);
+    const verdict = { keep: "留", drop: "可以删", unsure: "待定" }[analysis.verdict];
+    if (verdict) lines.push(`AI 分类：${verdict}${analysis.reason ? `，${analysis.reason}` : ""}`);
     return lines.join("\n").trim();
   }
 
@@ -366,7 +374,7 @@
   function withTriageSummary(markdown, analysis, note) {
     const summary = buildTriageSummary(analysis);
     const mine = String(note || "").trim();
-    const block = [summary && `## AI 总结\n\n${summary}`, mine && `## 我的笔记\n\n${mine}`].filter(Boolean).join("\n\n");
+    const block = [summary && `## AI 总结\n\n${summary}`, mine && `## 我的备注\n\n${mine}`].filter(Boolean).join("\n\n");
     if (!block) {
       return markdown;
     }
@@ -894,6 +902,177 @@
     return String(value).replaceAll("\\", "\\\\").replaceAll('"', '\\"').replaceAll("\n", "\\n").replaceAll("\r", "\\r").replaceAll("\t", "\\t");
   }
 
+  // Chat-answer Markdown to HTML for the side panel and the history page. HTML is escaped first,
+  // so only the tags built here reach the page.
+  function renderMarkdown(text) {
+    let escaped = escapeHtml(stripThinkBlocks(text));
+    const codeBlocks = [];
+    escaped = escaped.replace(/```([\s\S]*?)```/g, (_, code) => {
+      codeBlocks.push(code);
+      return `\u0001BOC_CODE_${codeBlocks.length - 1}\u0001`;
+    });
+
+    const lines = escaped.split("\n");
+    const out = [];
+    let listType = "";
+    let listStartNumber = 1;
+    let paraBuf = [];
+
+    const flushPara = () => {
+      if (paraBuf.length) {
+        out.push(`<p>${renderInline(paraBuf.join(" "))}</p>`);
+        paraBuf = [];
+      }
+    };
+    const closeList = () => {
+      if (!listType) {
+        return;
+      }
+      out.push(listType === "ul" ? "</ul>" : "</ol>");
+      listType = "";
+      listStartNumber = 1;
+    };
+    const openList = (nextType, startNumber = 1) => {
+      if (listType === nextType && (nextType !== "ol" || listStartNumber === startNumber)) {
+        return;
+      }
+      closeList();
+      listType = nextType;
+      listStartNumber = nextType === "ol" ? startNumber : 1;
+      if (nextType === "ul") {
+        out.push("<ul>");
+        return;
+      }
+      out.push(startNumber > 1 ? `<ol start="${startNumber}">` : "<ol>");
+    };
+    const getNextListType = (startIndex) => {
+      for (let index = startIndex; index < lines.length; index += 1) {
+        const nextLine = lines[index].trim();
+        if (!nextLine) {
+          continue;
+        }
+        if (/^[-*+]\s+(.+)$/.test(nextLine)) {
+          return "ul";
+        }
+        if (/^\d+\.\s+(.+)$/.test(nextLine)) {
+          return "ol";
+        }
+        break;
+      }
+      return "";
+    };
+    const isTableSeparatorLine = (value) => /^\|?(?:\s*:?-{3,}:?\s*\|)+\s*:?-{3,}:?\s*\|?$/.test(value);
+    const isTableRowLine = (value) => /^\|.+\|$/.test(value);
+    const splitTableCells = (value) =>
+      value
+        .trim()
+        .replace(/^\|/, "")
+        .replace(/\|$/, "")
+        .split("|")
+        .map((cell) => renderInline(cell.trim()));
+
+    for (let index = 0; index < lines.length; index += 1) {
+      const rawLine = lines[index];
+      const line = rawLine.trim();
+
+      const codeMatch = line.match(/^\u0001BOC_CODE_(\d+)\u0001$/);
+      if (codeMatch) {
+        flushPara();
+        closeList();
+        out.push(`<pre><code>${codeBlocks[Number(codeMatch[1])]}</code></pre>`);
+        continue;
+      }
+
+      const heading = line.match(/^(#{1,3})\s+(.+)$/);
+      if (heading) {
+        flushPara();
+        closeList();
+        const level = heading[1].length + 2;
+        out.push(`<h${level}>${renderInline(heading[2])}</h${level}>`);
+        continue;
+      }
+
+      if (
+        isTableRowLine(line) &&
+        index + 1 < lines.length &&
+        isTableSeparatorLine(lines[index + 1].trim())
+      ) {
+        flushPara();
+        closeList();
+        const headers = splitTableCells(line);
+        const bodyRows = [];
+        index += 2;
+        while (index < lines.length) {
+          const tableLine = lines[index].trim();
+          if (!isTableRowLine(tableLine)) {
+            index -= 1;
+            break;
+          }
+          bodyRows.push(splitTableCells(tableLine));
+          index += 1;
+        }
+        out.push(
+          `<table><thead><tr>${headers.map((cell) => `<th>${cell}</th>`).join("")}</tr></thead><tbody>${
+            bodyRows.map((row) => `<tr>${row.map((cell) => `<td>${cell}</td>`).join("")}</tr>`).join("")
+          }</tbody></table>`
+        );
+        continue;
+      }
+
+      const ul = line.match(/^[-*+]\s+(.+)$/);
+      if (ul) {
+        flushPara();
+        openList("ul");
+        out.push(`<li>${renderInline(ul[1])}</li>`);
+        continue;
+      }
+
+      const ol = line.match(/^(\d+)\.\s+(.+)$/);
+      if (ol) {
+        flushPara();
+        const orderNumber = Number(ol[1]) || 1;
+        openList("ol", orderNumber);
+        out.push(`<li>${renderInline(ol[2])}</li>`);
+        continue;
+      }
+
+      if (!line) {
+        flushPara();
+        if (listType && getNextListType(index + 1) === listType) {
+          continue;
+        }
+        closeList();
+        continue;
+      }
+
+      paraBuf.push(line);
+    }
+
+    flushPara();
+    closeList();
+    return out.join("");
+  }
+
+  function renderInline(text) {
+    return text
+      .replace(/`([^`]+)`/g, (_, c) => (isTimestampOnlyInlineCode(c) ? c : `<code>${c}</code>`))
+      .replace(/\*\*([^*\n]+)\*\*/g, (_, c) => `<strong>${c}</strong>`)
+      .replace(/(^|[^*])\*([^*\n]+)\*(?!\*)/g, (_, pre, c) => `${pre}<em>${c}</em>`)
+      .replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, (_, t, u) => {
+        const safeUrl = /^(https?:|mailto:|#)/i.test(u) ? u : "#";
+        return `<a href="${safeUrl}" target="_blank" rel="noopener noreferrer">${t}</a>`;
+      });
+  }
+
+  function escapeHtml(value) {
+    return String(value)
+      .replaceAll("&", "&amp;")
+      .replaceAll("<", "&lt;")
+      .replaceAll(">", "&gt;")
+      .replaceAll('"', "&quot;")
+      .replaceAll("'", "&#39;");
+  }
+
   globalThis.BocNote = {
     DEFAULT_FRONTMATTER_FIELDS,
     buildMarkdown,
@@ -902,6 +1081,7 @@
     TIMESTAMP_PATTERN,
     stripThinkBlocks,
     isTimestampOnlyInlineCode,
+    renderMarkdown,
     normalizeMarkdownForSectionPaste,
     buildConversationTurns,
     pickConversation,

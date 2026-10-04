@@ -8,6 +8,7 @@ const ctx = vm.createContext({ TextEncoder, URL, URLSearchParams, console, setTi
 // Browser order: background.js imports limits.js and sites.js before triage-bg.js.
 for (const file of ["../limits.js", "../sites.js", "../note.js", "triage-bg.js"]) vm.runInContext(fs.readFileSync(path.join(__dirname, file), "utf8"), ctx);
 const t = ctx;
+const plain = (x) => JSON.parse(JSON.stringify(x));
 
 // subtitle validation
 const body = (to) => [{ from: 0, to: 1 }, { from: 1, to }];
@@ -25,9 +26,9 @@ const clipped = t.triageClip("a".repeat(8000) + "b".repeat(5000) + "c".repeat(40
 assert.strictEqual(clipped.length, 8000 + 2 + 4000);
 assert.ok(clipped.startsWith("a".repeat(8000) + "……c"));
 
-// LLM parse
-const good = t.triageParseLlm('```json\n{"one_liner":"讲 X","points":["1","2","3"],"verdict":"keep","reason":"有方法"}\n```');
-assert.deepStrictEqual(JSON.parse(JSON.stringify(good)), { oneLiner: "讲 X", points: ["1", "2", "3"], verdict: "keep", reason: "有方法", suggestedTags: [] });
+// LLM parse: fixed three classes; ids in any case or the Chinese names; anything else is unsure.
+const good = t.triageParseLlm('```json\n{"one_liner":"讲 X","points":["1","2","3"],"verdict":"keep","reason":"有方法","tags":["AI"]}\n```');
+assert.deepStrictEqual(plain(good), { oneLiner: "讲 X", points: ["1", "2", "3"], verdict: "keep", reason: "有方法" }, "tags in the answer are ignored");
 const dirty = t.triageParseLlm('好的，结果如下：{"one_liner":"含 } 括号","points":["a","b","c","d"],"verdict":"DROP","reason":"r"} 以上');
 assert.strictEqual(dirty.oneLiner, "含 } 括号");
 assert.strictEqual(dirty.points.length, 3);
@@ -36,25 +37,11 @@ const thin = t.triageParseLlm('{"one_liner":"x","points":["only"],"verdict":"may
 assert.deepStrictEqual([...thin.points], ["only", "", ""]);
 assert.strictEqual(thin.verdict, "unsure");
 assert.strictEqual(thin.reason, "");
+assert.strictEqual(t.triageParseLlm('{"one_liner":"x","verdict":"可以删"}').verdict, "drop", "the Chinese name maps to its id");
+assert.strictEqual(t.triageParseLlm('{"one_liner":"x"}').verdict, "unsure");
 assert.throws(() => t.triageParseLlm('{"one_liner":"x","points":["a"'), /不完整/);
 assert.throws(() => t.triageParseLlm("没有 JSON"), /不是 JSON/);
 assert.throws(() => t.triageParseLlm('{"points":[]}'), /one_liner/);
-
-// stage-2 tags
-const tagList = ["AI", "编程", "理财"];
-const withTags = t.triageParseLlm('{"one_liner":"x","points":["a","b","c"],"verdict":"keep","tags":["AI","不存在","新:数学","新:物理","编程","理财"]}', tagList);
-assert.deepStrictEqual([...withTags.suggestedTags], ["AI", "新:数学", "编程"]);
-assert.deepStrictEqual([...t.triageParseLlm('{"one_liner":"x","points":[]}', tagList).suggestedTags], []);
-
-// tag coercion
-assert.deepStrictEqual([...t.triageCoerceTags(["新：数学", "AI", "AI"], tagList, 2)], ["新:数学", "AI"]);
-assert.deepStrictEqual([...t.triageCoerceTags(["新:", "乱写"], tagList, 2)], []);
-// 只用我的标签: no 新: suggestions and no new-tag clause in the prompts.
-assert.deepStrictEqual([...t.triageCoerceTags(["新:数学", "AI"], tagList, 2, false)], ["AI"]);
-for (const p of vm.runInContext("[TRIAGE_SYSTEM_PROMPT, TRIAGE_TITLE_PROMPT]", ctx)) {
-  assert.ok(p.includes("新:标签名") && !t.triageOwnTagsPrompt(p, true).includes("新:"), "own-only prompt drops the new-tag clause");
-  assert.strictEqual(t.triageOwnTagsPrompt(p, false), p);
-}
 
 // title line
 assert.strictEqual(
@@ -64,16 +51,26 @@ assert.strictEqual(
 
 // stage-1 title batch
 const items = [{ bvid: "BV1" }, { bvid: "BV2" }, { bvid: "BV3" }];
-const batch = JSON.parse(JSON.stringify(t.triageParseTitleBatch(
-  '好的：\n```json\n[{"i":2,"verdict":"KEEP","reason":"教程 [实用]","tags":["编程","新:算法","新:数据结构","AI"],"confidence":"high"},' +
-    '{"i":1,"verdict":"what","reason":"看不出","tags":["不存在"],"confidence":"medium"},{"i":9,"verdict":"drop"}]\n```',
-  items,
-  tagList
-)));
-assert.deepStrictEqual(batch.BV2, { verdict: "keep", reason: "教程 [实用]", suggestedTags: ["编程", "新:算法"], confidence: "high" });
-assert.deepStrictEqual(batch.BV1, { verdict: "unsure", reason: "看不出", suggestedTags: [], confidence: "low" });
-assert.deepStrictEqual(batch.BV3, { verdict: "unsure", reason: "AI 未返回", suggestedTags: [], confidence: "low" });
-assert.throws(() => t.triageParseTitleBatch('[{"i":1,"verdict":"keep"', items, tagList), /不完整/);
+const batch = plain(t.triageParseTitleBatch(
+  '好的：\n```json\n[{"i":2,"verdict":"KEEP","reason":"教程 [实用]","tags":["编程"],"confidence":"high"},' +
+    '{"i":1,"verdict":"what","reason":"看不出","confidence":"medium"},{"i":9,"verdict":"drop"}]\n```',
+  items
+));
+assert.deepStrictEqual(batch.BV2, { verdict: "keep", reason: "教程 [实用]", confidence: "high" });
+assert.deepStrictEqual(batch.BV1, { verdict: "unsure", reason: "看不出", confidence: "low" });
+assert.deepStrictEqual(batch.BV3, { verdict: "unsure", reason: "AI 未返回", confidence: "low" });
+assert.throws(() => t.triageParseTitleBatch('[{"i":1,"verdict":"keep"', items), /不完整/);
+
+const TITLE_PROMPT = vm.runInContext("TRIAGE_TITLE_PROMPT", ctx);
+// Prompts: the three classes, the folder's 判断标准 when set, and no tag lists.
+const titleSys = t.triageWithCriteria(TITLE_PROMPT, " 只留 Rust 相关 ");
+for (const part of ["- keep：留。", "- drop：可以删。", "- unsure：待定。", '"verdict": "keep|drop|unsure"', "verdict 用 unsure", "用户的判断标准（优先于上面的说明）：\n只留 Rust 相关"]) {
+  assert.ok(titleSys.includes(part), part);
+}
+assert.strictEqual(t.triageWithCriteria(TITLE_PROMPT, "  "), TITLE_PROMPT, "no criteria, no block");
+const msgs = t.triageBuildMessages({ title: "T", upper: "U", tags: [] }, "meta", "", "只留干货");
+assert.ok(msgs[0].content.includes('"verdict": "keep|drop|unsure"') && msgs[0].content.endsWith("只留干货"));
+for (const p of [TITLE_PROMPT, msgs[0].content]) assert.ok(!/标签|tags|新:/.test(p), "粗分/细看 prompts carry no tags");
 
 // form
 assert.strictEqual(t.triageForm({ resources: "1:2,3:2", csrf: "x y", privacy: 1 }), "resources=1%3A2%2C3%3A2&csrf=x+y&privacy=1");
@@ -92,15 +89,9 @@ assert.strictEqual(t.triageMaxTokens("command", 30, off), 2800);
 assert.strictEqual(t.triageMaxTokens("command", 30, on), 9400);
 assert.strictEqual(t.triageMaxTokens("command", 30, { ...off, triageTitleMaxTokens: 5000 }), 5000);
 
-const plain = (x) => JSON.parse(JSON.stringify(x));
 
-// tags with descriptions: names, rendering, coercion by name
-assert.deepStrictEqual(plain(t.triageTagNames(["AI", { name: " 编程 ", description: "写代码" }, { name: "" }, null])), ["AI", "编程"]);
-assert.strictEqual(t.triageTagListText([]), "可选标签：（无）");
-const rendered = t.triageTagListText([{ name: "AI", description: "讲大模型的" }, { name: "编程", description: "" }, "理财"]);
-assert.ok(rendered.endsWith("\n- AI：讲大模型的\n- 编程\n- 理财"), rendered);
-assert.ok(rendered.includes("说明是用户规定"));
-assert.deepStrictEqual(plain(t.triageCoerceTags(["AI", "编程"], [{ name: "AI", description: "x" }], 3)), ["AI"]);
+// tag names
+assert.deepStrictEqual(plain(t.triageTagNames(["AI", " 编程 ", "", null])), ["AI", "编程"]);
 assert.strictEqual(t.triageCleanTagName(" 一二三四五六七八九十甲乙丙 "), "一二三四五六七八九十甲乙");
 assert.strictEqual(t.triageCleanTagName("a，b、c,d"), "abcd");
 
@@ -110,19 +101,14 @@ assert.strictEqual(
   "2|T x|U|1:01|AI、编程|一句|p1；p2；p3"
 );
 assert.strictEqual(t.triageCommandLine({ title: "T" }, 1), "1|T|||||");
-const cmdMsgs = t.triageBuildCommandMessages({
-  instruction: "把讲 AI 的都标上",
-  tags: [{ name: "AI", description: "讲大模型" }],
-  items: [{ bvid: "BV1", title: "T" }],
-  allowNewTags: false,
-  maxNewTags: 5,
-  allowVerdict: false
-});
-assert.ok(cmdMsgs[0].content.includes("new_tags 必须是 []"));
-assert.ok(cmdMsgs[0].content.includes("- AI：讲大模型"));
+const cmdMsgs = t.triageBuildCommandMessages({ instruction: "把讲 AI 的都标上", tags: ["AI", "编程"], items: [{ bvid: "BV1", title: "T" }] });
+assert.ok(cmdMsgs[0].content.includes("至多 5 个"));
+assert.ok(cmdMsgs[0].content.endsWith("已有标签：AI、编程"));
 assert.ok(!cmdMsgs[0].content.includes('"verdict"'));
 assert.ok(cmdMsgs[1].content.includes("<<<指令>>>\n把讲 AI 的都标上\n<<<指令结束>>>"));
 assert.ok(cmdMsgs[1].content.endsWith("\n1|T|||||"));
+const cmdVerdictMsgs = t.triageBuildCommandMessages({ instruction: "x", tags: [], items: [], allowVerdict: true });
+assert.ok(cmdVerdictMsgs[0].content.includes('"verdict": "keep|drop|unsure"') && cmdVerdictMsgs[0].content.includes("- unsure：待定。") && cmdVerdictMsgs[0].content.endsWith("已有标签：（无）"));
 
 // command parse
 const cmdItems = [
@@ -131,30 +117,29 @@ const cmdItems = [
   { bvid: "BV3" },
   { bvid: "BV4", currentTags: ["编程"] }
 ];
-const cmdTags = [{ name: "AI", description: "" }, "编程", "旧"];
+const cmdTags = ["AI", "编程", "旧"];
 const cmdOut =
-  '好的，提案如下：\n```json\n{"new_tags":[{"name":" 数学 ","description":"讲数学的"},{"name":"AI"},{"name":"物理,力学","description":"d"},{"name":"数学"},{"name":"化学"}],' +
+  '好的，提案如下：\n```json\n{"new_tags":[" 数学 ",{"name":"AI"},{"name":"物理,力学"},"数学","化学"],' +
   '"items":[{"i":2,"add":["数学","不存在","编程","编程"],"remove":["AI"],"verdict":"KEEP","reason":"讲 {数学}"},' +
-  '{"i":1,"add":["AI","物理力学"],"remove":["旧","不在"],"verdict":"drop","reason":"r1"},' +
+  '{"i":1,"add":["AI","物理力学"],"remove":["旧","不在"],"verdict":"必看","reason":"r1"},' +
   '{"i":3,"add":["化学"],"remove":[]},{"i":4,"add":[],"remove":[],"reason":"无"},{"i":9,"add":["AI"]},{"i":2,"add":["旧"]}],"note":"已打标签"}\n``` 以上';
-assert.deepStrictEqual(plain(t.triageParseCommand(cmdOut, cmdItems, cmdTags, { allowNewTags: true, maxNewTags: 2, allowVerdict: true })), {
-  newTags: [{ name: "数学", description: "讲数学的" }, { name: "物理力学", description: "d" }],
+assert.deepStrictEqual(plain(t.triageParseCommand(cmdOut, cmdItems, cmdTags, { maxNewTags: 2, allowVerdict: true })), {
+  newTags: ["数学", "物理力学"],
   assignments: {
     BV2: { add: ["数学", "编程"], remove: [], verdict: "keep", reason: "讲 {数学}" },
-    BV1: { add: ["物理力学"], remove: ["旧"], verdict: "drop", reason: "r1" }
+    BV1: { add: ["物理力学"], remove: ["旧"], reason: "r1" }
   },
   note: "已打标签"
-});
-const noNew = {
+}, "an unknown verdict in a command is dropped, not guessed");
+assert.deepStrictEqual(plain(t.triageParseCommand(cmdOut, cmdItems, cmdTags, { maxNewTags: 0 })), {
   newTags: [],
   assignments: {
     BV2: { add: ["编程"], remove: [], reason: "讲 {数学}" },
     BV1: { add: [], remove: ["旧"], reason: "r1" }
   },
   note: "已打标签"
-};
-assert.deepStrictEqual(plain(t.triageParseCommand(cmdOut, cmdItems, cmdTags, { allowNewTags: false, maxNewTags: 5, allowVerdict: false })), noNew);
-assert.deepStrictEqual(plain(t.triageParseCommand(cmdOut, cmdItems, cmdTags, { allowNewTags: true, maxNewTags: 0, allowVerdict: false })), noNew);
+});
+assert.strictEqual(plain(t.triageParseCommand(cmdOut, cmdItems, cmdTags)).newTags.length, 3, "up to 5 new tags by default");
 assert.deepStrictEqual(plain(t.triageParseCommand('{"items":[]}', cmdItems, cmdTags, {})), { newTags: [], assignments: {}, note: "" });
 assert.throws(() => t.triageParseCommand("抱歉，没法处理", cmdItems, cmdTags, {}), /不是 JSON/);
 assert.throws(() => t.triageParseCommand('{"new_tags":[', cmdItems, cmdTags, {}), /不完整/);
@@ -192,6 +177,13 @@ assert.throws(() => t.triageParseCommand('{"new_tags":[', cmdItems, cmdTags, {})
   assert.strictEqual(await settingsWith({ triageIntervalSec: -1 }), 8);
   assert.strictEqual(await settingsWith({ triageIntervalSec: "x" }), 8);
   assert.strictEqual(await settingsWith({}), 8);
+  // A cleared batch folder reads back empty (writes then use the general note folder); a missing key gets the default.
+  const folderWith = async (stored) => {
+    t.chrome = { storage: { sync: { get: async (d) => ({ ...d, ...stored }) } } };
+    return (await vm.runInContext("TRIAGE_HANDLERS", ctx)["triage-settings-get"]()).triageExportFolder;
+  };
+  assert.strictEqual(await folderWith({ triageExportFolder: "" }), "");
+  assert.strictEqual(await folderWith({}), "raw/01-articles");
 
   // B站 risk control maps to THROTTLED on writes as well as reads; non-JSON answers get a clear error.
   t.chrome = { cookies: { get: async () => ({ value: "csrf" }) } };
@@ -262,7 +254,7 @@ assert.throws(() => t.triageParseCommand('{"new_tags":[', cmdItems, cmdTags, {})
     [subUrl]: subtitleRaw(272),
     "/reply/main": { code: 0, data: { replies: [{ content: { message: "评论一" } }] } }
   });
-  const analyze = () => t.triageAnalyze({ bvid: "BVa", force: true, tags: [] });
+  const analyze = () => t.triageAnalyze({ bvid: "BVa", force: true, criteria: "" });
 
   // A subtitle the video page cached is used without fetching it again.
   routes = baseRoutes();
@@ -323,7 +315,7 @@ assert.throws(() => t.triageParseCommand('{"new_tags":[', cmdItems, cmdTags, {})
   store.triage_basket = [{ bvid: "BVa", note: "篮子里的旧笔记" }];
   store.triage_notes = { BVa: { text: "视频笔记", updatedAt: 1 } };
   const noted = (await buildNote()).markdown;
-  assert.ok(noted.includes("## 我的笔记\n\n视频笔记") && !noted.includes("篮子里的旧笔记"));
+  assert.ok(noted.includes("## 我的备注\n\n视频笔记") && !noted.includes("篮子里的旧笔记"));
 
   // Migration: copies non-empty basket notes, never overwrites, keeps the basket, runs once.
   for (const k of Object.keys(store)) delete store[k];

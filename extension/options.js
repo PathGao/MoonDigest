@@ -1,6 +1,4 @@
 const DEFAULT_PRESET_PROMPTS = [
-  "用 3 句话总结这个视频",
-  "提炼这个视频的 5 个重点",
   "按时间顺序整理这期视频的内容",
   "根据评论总结观众的看法",
   "按章节整理视频内容",
@@ -63,30 +61,19 @@ const NOTE_SECTION_POSITIONS = new Set(["before_intro", "before_chapters", "befo
 const MAX_NOTE_PLACEHOLDER_SECTIONS = 5;
 
 const AI_PRESETS = [
-  { id: "openai_compat", name: "OpenAI 兼容", baseUrl: "https://api.openai.com/v1", requiresKey: true },
-  { id: "deepseek",      name: "DeepSeek",    baseUrl: "https://api.deepseek.com/v1", requiresKey: true },
-  { id: "zhipu",         name: "智谱 GLM",    baseUrl: "https://open.bigmodel.cn/api/paas/v4", requiresKey: true },
-  { id: "minimax",       name: "MiniMax",     baseUrl: "https://api.minimaxi.com/v1", requiresKey: true },
-  { id: "moonshot",      name: "Moonshot",    baseUrl: "https://api.moonshot.cn/v1", requiresKey: true },
-  { id: "openrouter",    name: "OpenRouter",  baseUrl: "https://openrouter.ai/api/v1", requiresKey: true },
-  { id: "ollama",        name: "Ollama (本地)", baseUrl: "http://localhost:11434/v1", requiresKey: false },
-  { id: "custom",        name: "自定义",      baseUrl: "", requiresKey: true }
-];
-
-const TRIAGE_SETTING_KEYS = [
-  "triageCriteria",
-  "triageIntervalSec",
-  "triageExportFolder",
-  "triageTitleBatchSize",
-  "triageThinking",
-  "triageTitleMaxTokens",
-  "triageAnalyzeMaxTokens"
+  { id: "openai_compat", name: "OpenAI 兼容", baseUrl: "https://api.openai.com/v1", model: "gpt-4o-mini", requiresKey: true },
+  { id: "deepseek",      name: "DeepSeek",    baseUrl: "https://api.deepseek.com/v1", model: "deepseek-chat", requiresKey: true },
+  { id: "zhipu",         name: "智谱 GLM",    baseUrl: "https://open.bigmodel.cn/api/paas/v4", model: "glm-4-flash", requiresKey: true },
+  { id: "minimax",       name: "MiniMax",     baseUrl: "https://api.minimaxi.com/v1", model: "", requiresKey: true },
+  { id: "moonshot",      name: "Moonshot",    baseUrl: "https://api.moonshot.cn/v1", model: "moonshot-v1-8k", requiresKey: true },
+  { id: "openrouter",    name: "OpenRouter",  baseUrl: "https://openrouter.ai/api/v1", model: "openai/gpt-4o-mini", requiresKey: true },
+  { id: "ollama",        name: "Ollama (本地)", baseUrl: "http://localhost:11434/v1", model: "", requiresKey: false },
+  { id: "custom",        name: "自定义",      baseUrl: "", model: "", requiresKey: true }
 ];
 
 const elements = {
   obsidianEnabled: document.getElementById("obsidianEnabled"),
-  openTriageBtn: document.getElementById("openTriageBtn"),
-  triage: Object.fromEntries(TRIAGE_SETTING_KEYS.map((key) => [key, document.getElementById(key)])),
+  triageExportFolder: document.getElementById("triageExportFolder"),
   noteFolder: document.getElementById("noteFolder"),
   obsidianApiBaseUrl: document.getElementById("obsidianApiBaseUrl"),
   obsidianApiKey: document.getElementById("obsidianApiKey"),
@@ -115,7 +102,9 @@ const elements = {
   addAiProviderBtn: document.getElementById("addAiProviderBtn"),
   aiSystemPrompt: document.getElementById("aiSystemPrompt"),
   aiPresetPrompts: document.getElementById("aiPresetPrompts"),
-  saveBtns: [...document.querySelectorAll(".save-btn")],
+  saveBar: document.getElementById("saveBar"),
+  unsavedHint: document.getElementById("unsavedHint"),
+  saveBtn: document.getElementById("saveBtn"),
   testConnectionBtn: document.getElementById("testConnectionBtn"),
   status: document.getElementById("status"),
   hostPermissionBanner: document.getElementById("hostPermissionBanner"),
@@ -130,27 +119,21 @@ init();
 
 function init() {
   loadSettings();
-  ["input", "change"].forEach((type) => document.addEventListener(type, () => (hasUnsavedChanges = true)));
+  ["input", "change"].forEach((type) => document.addEventListener(type, () => setUnsaved(true)));
   window.addEventListener("beforeunload", (event) => {
     if (hasUnsavedChanges) {
       event.preventDefault();
     }
   });
-  // Every tier has its own save button; all save everything, and the status shows under the one clicked.
-  elements.saveBtns.forEach((button) => {
-    button.addEventListener("click", () => {
-      button.closest(".action-row").after(elements.status);
-      saveSettings();
-    });
-  });
+  elements.saveBtn.addEventListener("click", saveSettings);
   elements.testConnectionBtn.addEventListener("click", testConnection);
   elements.addFixedPropertyBtn.addEventListener("click", () => addFixedPropertyRow());
   elements.addNoteSectionBtn.addEventListener("click", () => addNoteSectionRow());
-  elements.addAiProviderBtn.addEventListener("click", () => addAiProviderRow());
-  elements.obsidianEnabled.addEventListener("change", syncObsidianBody);
-  elements.openTriageBtn.addEventListener("click", () => {
-    chrome.tabs.create({ url: chrome.runtime.getURL("triage/triage.html") });
+  elements.addAiProviderBtn.addEventListener("click", () => {
+    addAiProviderRow();
+    setUnsaved(true);
   });
+  elements.obsidianEnabled.addEventListener("change", syncObsidianBody);
   document.addEventListener("click", (event) => {
     if (!(event.target instanceof Element) || !event.target.closest(".fixed-property-type-picker")) {
       closeAllFixedPropertyMenus();
@@ -231,12 +214,6 @@ async function saveSettings() {
     return;
   }
 
-  const triagePayload = collectTriageSettings();
-  if (!triagePayload.ok) {
-    applyValidationError(triagePayload);
-    return;
-  }
-
   // Remote hosts are optional permissions; the save click is the user gesture that may request them.
   const hostUrls = hostPermissionUrls(payload, aiProvidersPayload);
   const deniedHosts = await requestHostPermissions(hostUrls);
@@ -251,9 +228,9 @@ async function saveSettings() {
     renderFixedPropertyRows(payload.fixedFrontmatterProperties);
     renderNoteSectionRows(payload.notePlaceholderSections);
 
-    const triageResp = await sendRuntimeMessage({ type: "triage-settings-save", ...triagePayload.patch });
+    const triageResp = await sendRuntimeMessage({ type: "triage-settings-save", triageExportFolder: elements.triageExportFolder.value.trim() });
     if (!triageResp?.ok) {
-      setStatus(`已保存，但分拣设置保存失败：${triageResp?.error || "未知错误"}`, true);
+      setStatus(`已保存，但收藏夹批量写入目录保存失败：${triageResp?.error || "未知错误"}`, true);
       return;
     }
 
@@ -265,7 +242,7 @@ async function saveSettings() {
     }
     // 用最新列表（含 hasSavedKey）重新渲染，避免误以为 Key 丢了
     renderAiProviders(aiResp.providers || []);
-    hasUnsavedChanges = false;
+    setUnsaved(false);
     renderHostPermissionBanner(hostUrls);
     if (deniedHosts.length) {
       setStatus(`已保存，但未授权访问 ${deniedHosts.join("、")}，相关请求会失败；重新保存可再次授权`, true);
@@ -298,6 +275,20 @@ async function getSettings() {
 function setStatus(text, isError = false) {
   elements.status.textContent = text;
   elements.status.dataset.error = isError ? "true" : "false";
+  syncSaveBar();
+}
+
+// One sticky bar: shown while there are unsaved edits or a status to read; save is clickable only with edits.
+function setUnsaved(value) {
+  hasUnsavedChanges = value;
+  if (value) setStatus("");
+  syncSaveBar();
+}
+
+function syncSaveBar() {
+  elements.saveBar.hidden = !hasUnsavedChanges && !elements.status.textContent;
+  elements.unsavedHint.hidden = !hasUnsavedChanges;
+  elements.saveBtn.hidden = !hasUnsavedChanges;
 }
 
 function normalizeDownloadFormat(value) {
@@ -415,49 +406,9 @@ function syncObsidianBody() {
 
 async function loadTriageSettings() {
   const resp = await sendRuntimeMessage({ type: "triage-settings-get" }).catch(() => null);
-  if (!resp?.ok) {
-    return;
+  if (resp?.ok) {
+    elements.triageExportFolder.value = resp.data?.triageExportFolder || "";
   }
-  const t = elements.triage;
-  const d = resp.data || {};
-  t.triageCriteria.value = d.triageCriteria || "";
-  t.triageIntervalSec.value = d.triageIntervalSec ?? 8;
-  t.triageTitleBatchSize.value = d.triageTitleBatchSize ?? 30;
-  t.triageExportFolder.value = d.triageExportFolder || "";
-  t.triageThinking.checked = Boolean(d.triageThinking);
-  t.triageTitleMaxTokens.value = d.triageTitleMaxTokens || "";
-  t.triageAnalyzeMaxTokens.value = d.triageAnalyzeMaxTokens || "";
-}
-
-// Same rules as the triage page dialog: 0 or blank means auto, otherwise 200–32000.
-function parseTriageMaxTokens(value) {
-  const text = String(value ?? "").trim();
-  if (!text) return 0;
-  const n = Number(text);
-  if (!Number.isInteger(n)) return null;
-  return n === 0 || (n >= 200 && n <= 32000) ? n : null;
-}
-
-function collectTriageSettings() {
-  const t = elements.triage;
-  const titleMax = parseTriageMaxTokens(t.triageTitleMaxTokens.value);
-  const analyzeMax = parseTriageMaxTokens(t.triageAnalyzeMaxTokens.value);
-  const bad = titleMax === null ? t.triageTitleMaxTokens : analyzeMax === null ? t.triageAnalyzeMaxTokens : null;
-  if (bad) {
-    return { ok: false, field: bad, message: "输出上限需为整数：0 或留空表示自动，否则在 200–32000 之间" };
-  }
-  return {
-    ok: true,
-    patch: {
-      triageCriteria: t.triageCriteria.value,
-      triageIntervalSec: Math.max(0, Number(t.triageIntervalSec.value) || 0),
-      triageTitleBatchSize: Math.max(1, Math.min(100, Number(t.triageTitleBatchSize.value) || 30)),
-      triageExportFolder: t.triageExportFolder.value.trim(),
-      triageThinking: t.triageThinking.checked,
-      triageTitleMaxTokens: titleMax,
-      triageAnalyzeMaxTokens: analyzeMax
-    }
-  };
 }
 
 function normalizePlayerAiQuickPrompt(value) {
@@ -466,10 +417,9 @@ function normalizePlayerAiQuickPrompt(value) {
 
 function applyValidationError(validation) {
   clearInputErrors();
+  validation?.row?.closest("details")?.setAttribute("open", "");
   if (validation?.field) {
     validation.field.classList.add("input-error");
-    const details = validation.field.closest("details");
-    if (details) details.open = true;
     validation.field.focus();
   }
   if (validation?.row) {
@@ -1034,10 +984,8 @@ async function testConnection() {
 }
 
 function setBusy(isBusy) {
-  elements.saveBtns.forEach((button) => {
-    button.disabled = isBusy;
-    button.textContent = isBusy ? "处理中..." : "保存设置";
-  });
+  elements.saveBtn.disabled = isBusy;
+  elements.saveBtn.textContent = isBusy ? "处理中..." : "保存";
   elements.testConnectionBtn.disabled = isBusy;
   elements.testConnectionBtn.textContent = isBusy ? "处理中..." : "测试连接";
 }
@@ -1076,6 +1024,9 @@ function renderAiProviders(items) {
 function updateAiProvidersEmptyState() {
   const hasRows = elements.aiProvidersList.children.length > 0;
   elements.aiProvidersEmpty.hidden = hasRows;
+  // With no platform yet, adding one is the page's next step, so it takes the filled action style.
+  elements.addAiProviderBtn.classList.toggle("add-property-btn", hasRows);
+  elements.addAiProviderBtn.classList.toggle("primary", !hasRows);
 }
 
 function generateAiProviderId() {
@@ -1125,6 +1076,10 @@ function addAiProviderRow(item = {}) {
     const currentBaseUrl = baseUrlInput.value.trim();
     if (!currentBaseUrl || (previousPreset && currentBaseUrl === previousPreset.baseUrl)) {
       baseUrlInput.value = next.baseUrl;
+    }
+    const modelInput = row.querySelector(".ai-provider-model");
+    if (!modelInput.value.trim() || (previousPreset && modelInput.value.trim() === previousPreset.model)) {
+      modelInput.value = next.model;
     }
     const apikeyInput = row.querySelector(".ai-provider-apikey");
     apikeyInput.placeholder = row.dataset.hasSavedKey === "1"

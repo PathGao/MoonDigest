@@ -103,6 +103,29 @@
   }
 }
 
+/* Base buttons for every page: gray by default; .primary = the one blue next step, .ok/.danger = keep/delete, .link = text. Pages only add size/layout. */
+button {
+  height: 32px;
+  padding: 0 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  cursor: pointer;
+  white-space: nowrap;
+}
+button:hover { background: var(--surface-muted); }
+button:active:not(:disabled) { transform: translateY(1px); }
+button:disabled { opacity: 0.5; cursor: not-allowed; }
+button.primary { background: var(--action); border-color: var(--action); color: var(--on-action); font-weight: 600; }
+button.primary:hover { background: var(--action-hover); border-color: var(--action-hover); }
+button.ok.solid { background: var(--ok); border-color: var(--ok); color: var(--surface); font-weight: 600; }
+button.danger { color: var(--danger); border-color: var(--danger-border); background: var(--danger-bg); }
+button.danger.solid { background: var(--danger); border-color: var(--danger); color: var(--surface); font-weight: 600; }
+button.link { border: 0; background: none; color: var(--link); padding: 0; }
+button.link:hover { color: var(--link-hover); text-decoration: underline; }
+
 :where(input, select, textarea, button, summary, a):focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;

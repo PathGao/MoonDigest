@@ -10,38 +10,27 @@
   <body>
     <main class="popup">
       <header class="top">
-        <strong>视频字幕</strong>
-        <div class="top-actions">
-          <button id="aiBtn" type="button" class="ghost ghost-ai">
+        <div class="title">
+          <strong>MoonDigest</strong>
+          <button id="refreshBtn" type="button" class="icon-btn" title="刷新" aria-label="刷新">
             <svg viewBox="0 0 24 24" focusable="false" aria-hidden="true">
-              <path d="M11.5 4.2l2.05 5.5 5.45 2.05-5.45 2.05-2.05 5.5-2.05-5.5L4 11.75 9.45 9.7l2.05-5.5z"></path>
-              <path d="M18.4 4.6l.72 1.92 1.92.72-1.92.72-.72 1.92-.72-1.92-1.92-.72 1.92-.72.72-1.92z"></path>
-              <path d="M18.1 13.9l.52 1.38 1.38.52-1.38.52-.52 1.38-.52-1.38-1.38-.52 1.38-.52.52-1.38z"></path>
+              <path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"></path>
+              <path d="M21 3v5h-5"></path>
+              <path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"></path>
+              <path d="M8 16H3v5"></path>
             </svg>
-            <span>AI 对话</span>
           </button>
-          <button id="settingsBtn" type="button" class="ghost">设置</button>
         </div>
+        <button id="settingsBtn" type="button" class="ghost">设置</button>
       </header>
 
       <p id="status" class="status">准备就绪</p>
 
-      <div class="section-title">属性</div>
-      <section class="props">
-        <div class="prop-row"><span class="k">title</span><span id="propTitle" class="v"></span></div>
-        <div class="prop-row"><span class="k">url</span><span id="propUrl" class="v"></span></div>
-        <div class="prop-row"><span class="k">created</span><span id="propCreated" class="v"></span></div>
-        <div class="prop-row"><span class="k">tags</span><span id="propTags" class="v"></span></div>
-      </section>
-
       <label class="label" for="subtitleSelect">语言</label>
       <select id="subtitleSelect"></select>
-
-      <label class="label" for="preview">预览</label>
-      <textarea id="preview" readonly wrap="off"></textarea>
+      <textarea id="preview" readonly wrap="off" aria-label="字幕预览"></textarea>
 
       <div class="actions">
-        <button id="refreshBtn" type="button">刷新</button>
         <button id="downloadBtn" type="button">下载字幕</button>
         <button id="readingViewBtn" type="button">专注模式</button>
       </div>
@@ -53,9 +42,22 @@
         <button id="sendBtn" type="button" hidden>写入 Obsidian</button>
       </div>
       <p id="message" class="message"></p>
-      <button id="triageBtn" type="button" class="triage-link" hidden>打开 B 站收藏夹分拣台</button>
+      <details class="details">
+        <summary>详情</summary>
+        <section class="props">
+          <div class="prop-row"><span class="k">标题</span><span id="propTitle" class="v"></span></div>
+          <div class="prop-row"><span class="k">链接</span><span id="propUrl" class="v"></span></div>
+          <div class="prop-row"><span class="k">创建时间</span><span id="propCreated" class="v"></span></div>
+          <div class="prop-row"><span class="k">标签</span><span id="propTags" class="v"></span></div>
+        </section>
+      </details>
+      <div class="links">
+        <button id="historyBtn" type="button" class="triage-link">视频记录</button>
+        <button id="triageBtn" type="button" class="triage-link">分拣台<span id="triageHint" class="link-hint" hidden>（仅 B 站收藏夹）</span></button>
+      </div>
     </main>
 
+    <script src="./limits.js"></script>
     <script src="./sites.js"></script>
     <script src="./download.js"></script>
     <script src="./popup.js"></script>

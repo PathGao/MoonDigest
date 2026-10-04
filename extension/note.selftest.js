@@ -377,14 +377,28 @@ const front = "---\ntitle: \"x\"\n---\n\n![cover](u)\n\n## 简介\n\nhi";
 const done = { status: "done", oneLiner: "一句话", points: ["a", "b"], verdict: "keep", reason: "有用" };
 assert.strictEqual(
   N.withTriageSummary(front, done),
-  "---\ntitle: \"x\"\n---\n\n## AI 总结\n\n> 一句话\n\n- a\n- b\n\n判断：建议留，有用\n\n![cover](u)\n\n## 简介\n\nhi"
+  "---\ntitle: \"x\"\n---\n\n## AI 总结\n\n> 一句话\n\n- a\n- b\n\nAI 分类：留，有用\n\n![cover](u)\n\n## 简介\n\nhi"
 );
-assert.strictEqual(N.withTriageSummary("## 简介\n\nhi", { status: "done", verdict: "drop" }), "## AI 总结\n\n判断：建议删\n\n## 简介\n\nhi");
+assert.strictEqual(N.withTriageSummary("## 简介\n\nhi", { status: "done", verdict: "drop" }), "## AI 总结\n\nAI 分类：可以删\n\n## 简介\n\nhi");
 assert.strictEqual(N.withTriageSummary(front, { status: "error" }), front);
 assert.strictEqual(N.withTriageSummary(front, undefined), front);
-assert.strictEqual(N.withTriageSummary("## 简介", { status: "done", verdict: "drop" }, " 我的话 "), "## AI 总结\n\n判断：建议删\n\n## 我的笔记\n\n我的话\n\n## 简介");
-assert.strictEqual(N.withTriageSummary(front, undefined, "n"), "---\ntitle: \"x\"\n---\n\n## 我的笔记\n\nn\n\n![cover](u)\n\n## 简介\n\nhi");
+assert.strictEqual(N.withTriageSummary("## 简介", { status: "done", verdict: "drop" }, " 我的话 "), "## AI 总结\n\nAI 分类：可以删\n\n## 我的备注\n\n我的话\n\n## 简介");
+assert.strictEqual(N.withTriageSummary(front, undefined, "n"), "---\ntitle: \"x\"\n---\n\n## 我的备注\n\nn\n\n![cover](u)\n\n## 简介\n\nhi");
 assert.strictEqual(N.withTriageSummary(front, undefined, "  "), front);
+assert.strictEqual(N.buildTriageSummary({ status: "done", verdict: "unsure", reason: "核心" }), "AI 分类：待定，核心");
 
 assert.strictEqual(N.buildTriageSummary({ status: "done", oneLiner: "一句话", points: ["a", "", ""] }), "> 一句话\n\n- a", "padded empty points are dropped");
+assert.strictEqual(
+  N.renderMarkdown("<think>x</think>## 标题\n\n**粗** <b>\n\n- a\n- b"),
+  "<h4>标题</h4><p><strong>粗</strong> &lt;b&gt;</p><ul><li>a</li><li>b</li></ul>",
+  "markdown renders, raw HTML is escaped, think is stripped"
+);
+{
+  const p2 = { title: "合集", site: "bilibili", videoId: "BV1GJ411x7h7", url: "https://www.bilibili.com/video/BV1GJ411x7h7/?p=2&t=5", pageIndex: 2, pageCount: 3 };
+  assert.strictEqual(N.buildAiConversationFilename(p2), "【AI笔记】合集 P2.md");
+  assert.strictEqual(N.buildAiConversationFilename({ ...p2, pageIndex: 1 }), "【AI笔记】合集 P1.md", "P1 of a multi-P video is named too");
+  assert.strictEqual(N.buildAiConversationFilename({ ...p2, pageIndex: 1, pageCount: 1 }), "【AI笔记】合集.md");
+  const md = N.buildAiConversationMarkdown({ context: p2, turns: [], filename: "x.md" });
+  assert.ok(md.includes('url: "https://www.bilibili.com/video/BV1GJ411x7h7/?p=2"'), "P2's url points at P2");
+}
 console.log("note selftest ok");

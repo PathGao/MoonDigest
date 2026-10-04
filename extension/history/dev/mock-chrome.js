@@ -34,8 +34,8 @@
     triage_analysis_BV1mock000009: { bvid: "BV1mock000009", status: "done", source: "meta", oneLiner: "只在分拣台分析过的视频", points: ["要点一", "要点二", "要点三"], verdict: "drop", reason: "过时", analyzedAt: now - 10 * hour },
     triage_analysis_BV1mock000010: { bvid: "BV1mock000010", status: "done", oneLiner: "没有标题的视频", points: [], verdict: "unsure", analyzedAt: now - 400 * hour },
     triage_analysis_BV1mock000011: { bvid: "BV1mock000011", status: "error" },
-    // Notes: BV1mock000001 joins its entry, BV1mock000012 is a note-only entry, the blank one is ignored.
-    triage_notes: { BV1mock000001: { text: "先看注意力那段\n再看位置编码", updatedAt: now - 3 * hour }, BV1mock000012: { text: "只有笔记的视频", updatedAt: now - 5 * hour }, BV1mock000013: { text: " ", updatedAt: now } },
+    // Notes: BV1mock000001 joins its entry, BV1mock000012 and the YouTube abcDEF12345 are note-only entries, the blank one is ignored.
+    triage_notes: { BV1mock000001: { text: "先看注意力那段\n再看位置编码", updatedAt: now - 3 * hour }, BV1mock000012: { text: "只有备注的视频", updatedAt: now - 5 * hour }, abcDEF12345: { text: "YouTube 上只有备注的视频", updatedAt: now - 6 * hour }, BV1mock000013: { text: " ", updatedAt: now } },
     triage_snapshot_42: { bvids: ["BV1mock000009"], titles: { BV1mock000009: "分拣台里的视频标题" }, at: now }
   };
   const clone = (v) => (v === undefined ? v : structuredClone(v));
@@ -50,6 +50,9 @@
     fetch(this.href).then((r) => r.text()).then((content) => window.__mockDownloads.push({ filename, content }));
   };
 
+  const rememberPath = (noteKey, path) => {
+    if (noteKey) store.boc_obsidian_note_paths_v1 = { ...store.boc_obsidian_note_paths_v1, [noteKey]: { path, lastSyncedAt: Date.now() } };
+  };
   const handle = (msg) => {
     switch (msg?.type) {
       case "get-settings":
@@ -58,7 +61,19 @@
         return { ok: true, exists: msg.filepath in window.__mockVault };
       case "write-obsidian-note":
         window.__mockVault[msg.filepath] = msg.content;
+        rememberPath(msg.noteKey, msg.filepath);
         return { ok: true };
+      case "update-obsidian-ai-section": {
+        const content = window.__mockVault[msg.filepath];
+        if (content == null) return { ok: true, exists: false, updated: false };
+        window.__mockVault[msg.filepath] = BocNote.upsertAiSection(content, msg.section);
+        rememberPath(msg.noteKey, msg.filepath);
+        return { ok: true, exists: true, updated: window.__mockVault[msg.filepath] !== content };
+      }
+      // Background reply shape: { ok, data }. window.__mockBuildFail makes it fail like a throttled fetch.
+      case "triage-build-note":
+        if (window.__mockBuildFail) return { ok: false, error: "mock: 请求过于频繁" };
+        return { ok: true, data: { title: `视频 ${msg.bvid}`, markdown: `---\ntitle: 视频 ${msg.bvid}\n---\n\n## 字幕\n\nmock subtitle\n` } };
       default:
         return { ok: false, error: `mock: unhandled ${msg?.type}` };
     }

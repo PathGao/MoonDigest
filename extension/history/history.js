@@ -5,14 +5,19 @@ const OWN_TAB = await chrome.tabs.getCurrent();
 const KEY = BocLimits.KEYS.aiConversations;
 const NOTE_PATHS_KEY = BocLimits.KEYS.obsidianNotePaths;
 const $ = (id) => document.getElementById(id);
-const els = { list: $("list"), search: $("search"), count: $("count"), selectAll: $("selectAll"), bulkMd: $("bulkMd"), bulkDelete: $("bulkDelete"), status: $("status") };
+const els = { list: $("list"), search: $("search"), count: $("count"), selectAll: $("selectAll"), bulkMd: $("bulkMd"), bulkDelete: $("bulkDelete"), clearAll: $("clearAll"), status: $("status") };
 
 let conversations = [];
 let analyses = {}; // bvid → done triage analysis
-let notes = {}; // bvid → { text, updatedAt } from the triage page, non-empty only
+let notes = {}; // video id (bvid / YouTube videoId) → { text, updatedAt }, non-empty only
 let triageTitles = {}; // bvid → title from the triage folder snapshots
 let obsidianEnabled = false;
 const selected = new Set();
+const writing = new Set(); // entry keys with a 写入 Obsidian in flight
+let reloadTimer = 0;
+let editing = null; // { id, draft } while a 备注 is open; storage reloads wait until it closes
+let reloadPending = false;
+let rendering = false;
 
 const esc = (value) => String(value ?? "").replace(/[&<>"']/g, (ch) => `&#${ch.charCodeAt(0)};`);
 const formatTime = (value) => new Date(Number(value) || 0).toLocaleString("zh-CN", { hour12: false, year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" });
@@ -31,12 +36,13 @@ function groupByVideo(items) {
     const context = { ...ref, title: ref.title || latest.contextTitle || latest.title, url: latest.contextUrl || ref.url || "" };
     return { key, convs, context, title: latest.title || context.title || "历史对话", updatedAt: latest.updatedAt || 0 };
   });
-  // The triage analysis and note are per bvid (the analysis summarizes P1), so they join only the P1 entry;
-  // without one they are their own entry.
+  // The triage analysis and note are per video (the analysis summarizes P1), so they join only the P1 entry;
+  // without one they are their own entry. Note ids are bvids or YouTube videoIds; only bvids start with BV.
   for (const bvid of new Set([...Object.keys(analyses), ...Object.keys(notes)])) {
     const analysis = analyses[bvid];
     const note = notes[bvid];
-    const context = { site: "bilibili", videoId: bvid, title: triageTitles[bvid] || bvid, url: BocSites.SITES.bilibili.canonicalUrl(bvid, 1), isVideoContext: true };
+    const site = /^BV/i.test(bvid) ? "bilibili" : "youtube";
+    const context = { site, videoId: bvid, title: triageTitles[bvid] || bvid, url: BocSites.SITES[site].canonicalUrl(bvid, 1), isVideoContext: true };
     const key = BocSites.buildContextKey(context);
     const host = groups.find((g) => BocSites.buildContextKey({ ...g.context, cid: "" }) === key && (Number(g.context.pageIndex) || 1) === 1);
     if (host) Object.assign(host, { analysis, note });
@@ -61,9 +67,48 @@ function visibleGroups() {
   );
 }
 
+// The triage summary is markdown (> one-liner, - points, 判断 line); shown as a paragraph, a list and a line.
+function renderSummary(analysis) {
+  const lines = BocNote.buildTriageSummary(analysis).split("\n").filter(Boolean);
+  const points = lines.filter((l) => l.startsWith("- ")).map((l) => `<li>${esc(l.slice(2))}</li>`).join("");
+  const rest = lines.filter((l) => !l.startsWith("- ")).map((l) => esc(l.replace(/^> /, "")));
+  return `<div class="entry-summary">${rest[0] && !rest[0].startsWith("判断") ? `<p>${rest.shift()}</p>` : ""}${points ? `<ul>${points}</ul>` : ""}${rest.map((l) => `<p>${l}</p>`).join("")}</div>`;
+}
+
+// The 备注 belongs to the video and shows on its P1 entry, like grouping joins it.
+const noteIdOf = (g) => (g.context.videoId && (Number(g.context.pageIndex) || 1) === 1 ? g.context.videoId : "");
+
+function renderNote(g) {
+  const id = noteIdOf(g);
+  if (id && editing?.id === id) return `<textarea class="entry-note-edit" data-note rows="2" placeholder="一句话备注，只有你自己看" aria-label="备注">${esc(editing.draft)}</textarea>`;
+  if (!g.note) return id ? `<button type="button" class="link note-add" data-act="note">+ 备注</button>` : "";
+  const body = `<b>备注</b> ${esc(g.note.text.trim())}`;
+  return id ? `<button type="button" class="entry-note" data-act="note" title="点击编辑备注">${body}</button>` : `<div class="entry-note">${body}</div>`;
+}
+
+// Same rule as the triage card: an unchanged note is not rewritten, an emptied one is deleted.
+async function closeNote() {
+  if (!editing) return;
+  const { id, draft } = editing;
+  editing = null;
+  const text = draft.trim() ? draft : "";
+  if (text !== (notes[id]?.text || "")) {
+    if (text) notes[id] = { text, updatedAt: Date.now() };
+    else delete notes[id];
+    const stored = (await chrome.storage.local.get("triage_notes")).triage_notes || {};
+    if (text) stored[id] = notes[id];
+    else delete stored[id];
+    await chrome.storage.local.set({ triage_notes: stored });
+  }
+  if (reloadPending) {
+    reloadPending = false;
+    await load();
+  } else render();
+}
+
 function renderConversation(conv, index, total) {
-  const turns = BocNote.buildConversationTurns(conv.messages)
-    .map((t) => `<p class="turn-q">问：${esc(t.prompt)}</p><div class="turn-a">${esc(t.answer)}</div>`)
+  const turns = BocNote.buildConversationTurns(conv.messages, 0)
+    .map((t) => `<p class="turn-q">问：${esc(t.prompt)}</p><div class="turn-a">${BocNote.renderMarkdown(t.answer)}</div>`)
     .join("");
   return `${total > 1 ? `<p class="conv-sep">对话 ${index + 1} · ${esc(formatTime(conv.updatedAt))}</p>` : ""}${turns}`;
 }
@@ -71,8 +116,14 @@ function renderConversation(conv, index, total) {
 function render() {
   const groups = visibleGroups();
   const allGroups = groupByVideo(conversations);
-  els.count.textContent = `${allGroups.length} 个视频 · ${conversations.length} / ${BocLimits.AI_CONVERSATIONS} 段对话`;
+  els.count.textContent = `${allGroups.length} 个视频 · 已存 ${conversations.length} 段（上限 ${BocLimits.AI_CONVERSATIONS}）`;
   for (const key of [...selected]) if (!groups.some((g) => g.key === key)) selected.delete(key);
+  // Storage changes re-render the list while the user reads it: keep expanded entries and the scroll.
+  const open = new Set([...els.list.querySelectorAll(".entry details[open]")].map((d) => d.closest(".entry").dataset.key));
+  const scrollY = window.scrollY;
+  const active = document.activeElement?.matches?.("[data-note]") ? document.activeElement : null;
+  const caret = active ? [active.selectionStart, active.selectionEnd] : null;
+  rendering = true;
   els.list.innerHTML = groups.length
     ? groups.map((g) => {
         const site = BocSites.SITES[g.context.site]?.label || "网页";
@@ -82,20 +133,27 @@ function render() {
           <input type="checkbox" data-act="pick" aria-label="选择" ${selected.has(g.key) ? "checked" : ""} />
           <div>
             ${title}
-            <div class="entry-meta">${esc(site)} · ${esc(formatTime(g.updatedAt))} · ${g.convs.length ? `${g.convs.length} 段对话 · ${turnCount} 轮问答` : `仅${[g.analysis && "分拣台 AI 总结", g.note && "我的笔记"].filter(Boolean).join("和")}`}</div>
-            ${g.analysis ? `<div class="entry-summary">${esc(BocNote.buildTriageSummary(g.analysis).replace(/^> /, "").replace(/\n\n/g, "\n"))}</div>` : ""}
-            ${g.note ? `<div class="entry-note"><b>我的笔记</b> ${esc(g.note.text.trim())}</div>` : ""}
-            ${g.convs.length ? `<details><summary>查看对话</summary>${g.convs.map((c, i) => renderConversation(c, i, g.convs.length)).join("")}</details>` : ""}
+            <div class="entry-meta">${esc(site)} · ${esc(formatTime(g.updatedAt))} · ${g.convs.length ? `${g.convs.length} 段对话 · ${turnCount} 轮问答` : `仅${[g.analysis && "分拣台 AI 总结", g.note && "备注"].filter(Boolean).join("和")}`}</div>
+            ${g.analysis ? renderSummary(g.analysis) : ""}
+            ${renderNote(g)}
+            ${g.convs.length ? `<details${open.has(g.key) ? " open" : ""}><summary>查看对话</summary>${g.convs.map((c, i) => renderConversation(c, i, g.convs.length)).join("")}</details>` : ""}
           </div>
           <div class="entry-actions">
-            ${g.context.videoId ? '<button type="button" data-act="ask">继续问</button>' : ""}
+            <button type="button" data-act="ask" ${g.context.videoId ? "" : "disabled title=\"只有视频能继续问\""}>继续问</button>
             <button type="button" data-act="md">下载 .md</button>
-            ${obsidianEnabled ? '<button type="button" data-act="obsidian"><img class="obsidian-mark" src="/icons/obsidian.svg" alt=""> 写入 Obsidian</button>' : ""}
-            ${g.convs.length ? '<button type="button" data-act="delete" class="danger">删除</button>' : ""}
+            ${obsidianEnabled ? `<button type="button" data-act="obsidian"${writing.has(g.key) ? " disabled" : ""}><img class="obsidian-mark" src="/icons/obsidian.svg" alt=""> 写入 Obsidian</button>` : ""}
+            <button type="button" data-act="delete" class="danger" ${g.convs.length ? "" : "disabled title=\"没有 AI 对话可删\""}>删除</button>
           </div>
         </article>`;
       }).join("")
-    : `<p class="empty">${allGroups.length ? "没有匹配的对话" : "还没有 AI 对话。在视频页打开侧边栏提问后，会按视频记在这里。"}</p>`;
+    : `<p class="empty">${allGroups.length ? "没有匹配的视频" : "还没有视频记录。在视频页打开侧边栏提问、或在分拣台写备注后，会按视频记在这里。"}</p>`;
+  rendering = false;
+  const textarea = editing && els.list.querySelector("[data-note]");
+  if (textarea) {
+    textarea.focus();
+    textarea.setSelectionRange(...(caret || [textarea.value.length, textarea.value.length]));
+  }
+  window.scrollTo(0, scrollY);
   syncBulk(groups);
 }
 
@@ -103,6 +161,7 @@ function syncBulk(groups = visibleGroups()) {
   els.selectAll.checked = groups.length > 0 && groups.every((g) => selected.has(g.key));
   els.bulkMd.disabled = selected.size === 0;
   els.bulkDelete.disabled = !deletableKeys([...selected]).length;
+  els.clearAll.disabled = !conversations.length;
 }
 
 function setStatus(text) {
@@ -147,14 +206,17 @@ function downloadGroups(groups) {
     BocDownload.text(notes[0].filename, notes[0].content);
   } else {
     const body = notes.map((n) => `# ${n.filename.replace(/\.md$/i, "")}\n\n${n.content.replace(/^---\n([\s\S]*?)\n---\n/, "```yaml\n$1\n```\n")}`);
-    BocDownload.text(`MoonDigest历史-${new Date().toISOString().slice(0, 10)}.md`, body.join("\n\n"));
+    BocDownload.text(`MoonDigest视频记录-${new Date().toISOString().slice(0, 10)}.md`, body.join("\n\n"));
   }
   setStatus(`已下载 ${groups.length} 个视频的对话`);
 }
 
-// Writes the standalone AI note like the side panel's 导出对话 → 写入 Obsidian. The video note's AI 问答 section is
-// left to the side panel's auto-sync, which follows the newest conversation rather than all of them.
+// A video already written to Obsidian gets the conversation in its note's AI 问答 section, like the side panel's
+// 导出对话 → 写入 Obsidian (newest conversation, as auto-sync does). Without a video note, a B 站 video (P1: the
+// background builds only that) first gets the full note triage builds, at the path the side panel would use and
+// recorded for it. YouTube, other parts and web pages get the standalone AI note.
 async function saveToObsidian(group, button) {
+  writing.add(group.key);
   button.disabled = true;
   try {
     const settings = (await chrome.runtime.sendMessage({ type: "get-settings" }))?.settings || {};
@@ -166,7 +228,40 @@ async function saveToObsidian(group, button) {
       return;
     }
     const noteKey = BocSites.buildContextKey(group.context);
-    const boundPath = noteKey ? ((await chrome.storage.local.get(NOTE_PATHS_KEY))[NOTE_PATHS_KEY] || {})[noteKey]?.path : "";
+    let boundPath = noteKey ? ((await chrome.storage.local.get(NOTE_PATHS_KEY))[NOTE_PATHS_KEY] || {})[noteKey]?.path : "";
+    const newest = group.convs.reduce((a, b) => ((b.updatedAt || 0) > (a.updatedAt || 0) ? b : a), group.convs[0]);
+    const section = newest ? BocNote.buildAiSection(BocNote.buildConversationTurns(newest.messages)) : "";
+    if (section && boundPath) {
+      const resp = await chrome.runtime.sendMessage({ type: "update-obsidian-ai-section", baseUrl, apiKey, filepath: boundPath, section, noteKey });
+      if (!resp?.ok) throw new Error(resp?.error || "Local API 写入失败");
+      if (resp.exists !== false) {
+        setStatus(`已写入 Obsidian：${boundPath}（AI 问答段）`);
+        return;
+      }
+      boundPath = "";
+    }
+    if (!boundPath && group.context.site === "bilibili" && (Number(group.context.pageIndex) || 1) === 1) {
+      setStatus("正在生成视频笔记…");
+      const built = await chrome.runtime.sendMessage({ type: "triage-build-note", bvid: group.context.videoId });
+      if (!built?.ok) throw new Error(built?.error || "生成视频笔记失败");
+      const context = { ...group.context, title: built.data.title || group.context.title };
+      const folder = BocNote.resolveFolderTemplate(settings.noteFolder || "", context);
+      const filename = BocNote.buildNoteFilename(context, settings);
+      const filepath = folder ? `${folder}/${filename}` : filename;
+      const exists = await chrome.runtime.sendMessage({ type: "obsidian-note-exists", baseUrl, apiKey, filepath });
+      if (!exists?.ok) throw new Error(exists?.error || "Local API 检查失败");
+      const overwrite = !exists.exists || confirm(`该视频笔记已存在：${filepath}\n确定：覆盖成新生成的视频笔记。取消：保留原笔记${section ? "，只更新其中的 AI 问答段" : ""}。`);
+      if (overwrite) {
+        const written = await chrome.runtime.sendMessage({ type: "write-obsidian-note", baseUrl, apiKey, filepath, content: built.data.markdown, noteKey });
+        if (!written?.ok) throw new Error(written?.error || "Local API 写入失败");
+      }
+      if (section) {
+        const resp = await chrome.runtime.sendMessage({ type: "update-obsidian-ai-section", baseUrl, apiKey, filepath, section, noteKey });
+        if (!resp?.ok) throw new Error(resp?.error || "Local API 写入失败");
+      }
+      setStatus(overwrite || section ? `已写入 Obsidian：${filepath}（${overwrite ? "视频笔记" : "AI 问答段"}）` : `已保留原笔记：${filepath}`);
+      return;
+    }
     const videoFolder = BocNote.resolveFolderTemplate(settings.noteFolder || "", group.context);
     const videoFile = BocNote.buildNoteFilename(group.context, settings);
     const sourcePath = boundPath || (videoFolder ? `${videoFolder}/${videoFile}` : videoFile);
@@ -177,11 +272,12 @@ async function saveToObsidian(group, button) {
     if (exists.exists && !confirm(`该笔记已存在，继续会覆盖原内容：${filepath}`)) return;
     const written = await chrome.runtime.sendMessage({ type: "write-obsidian-note", baseUrl, apiKey, filepath, content: note.content });
     if (!written?.ok) throw new Error(written?.error || "Local API 写入失败");
-    setStatus(`已写入 Obsidian：${filepath}`);
+    setStatus(group.context.videoId ? `已写入 Obsidian：${filepath}（这个视频还没有视频笔记，写成了单独的对话笔记）` : `已写入 Obsidian：${filepath}`);
   } catch (error) {
     setStatus(`写入 Obsidian 失败：${error?.message || error}`);
   } finally {
-    button.disabled = false;
+    writing.delete(group.key);
+    render();
   }
 }
 
@@ -198,11 +294,28 @@ els.list.addEventListener("click", (event) => {
   } else if (act === "md" && group) downloadGroups([group]);
   else if (act === "obsidian" && group) void saveToObsidian(group, target);
   else if (act === "delete") void deleteGroups([key]);
+  else if (act === "note" && group) {
+    editing = { id: noteIdOf(group), draft: group.note?.text || "" };
+    render();
+  }
   else if (act === "ask" && group) {
     // The side panel continues the video's latest conversation, the same request triage's 问 AI sends.
     chrome.storage.local.set({ boc_player_ai_quick_action_v1: { id: `history-${Date.now()}`, tabId: OWN_TAB?.id, prompt: "", contextRef: group.context } });
     chrome.sidePanel.open({ tabId: OWN_TAB?.id }).catch((error) => setStatus(`打开侧边栏失败：${error.message}`));
   }
+});
+els.list.addEventListener("input", (event) => {
+  if (editing && event.target.matches("[data-note]")) editing.draft = event.target.value;
+});
+// Enter (or Esc) saves and closes; Shift+Enter is a newline. Never mid-IME.
+els.list.addEventListener("keydown", (event) => {
+  if (!event.target.matches("[data-note]") || event.isComposing || event.keyCode === 229) return;
+  if (!(event.key === "Escape" || (event.key === "Enter" && !event.shiftKey))) return;
+  event.preventDefault();
+  void closeNote();
+});
+els.list.addEventListener("focusout", (event) => {
+  if (!rendering && event.target.matches("[data-note]")) void closeNote();
 });
 els.search.addEventListener("input", render);
 els.selectAll.addEventListener("change", () => {
@@ -211,8 +324,19 @@ els.selectAll.addEventListener("change", () => {
 });
 els.bulkMd.addEventListener("click", () => downloadGroups(groupByVideo(conversations).filter((g) => selected.has(g.key))));
 els.bulkDelete.addEventListener("click", () => void deleteGroups([...selected]));
+// AI conversations only: triage analyses and notes are other features' data and stay.
+els.clearAll.addEventListener("click", async () => {
+  if (!confirm("清空全部 AI 对话？删除后不能恢复。")) return;
+  await chrome.storage.local.set({ [KEY]: [] });
+  selected.clear();
+  setStatus("已清空全部 AI 对话");
+});
 chrome.storage.onChanged.addListener((changes, area) => {
-  if (area === "local" && Object.keys(changes).some((k) => k === KEY || k === "triage_notes" || k.startsWith("triage_analysis_") || k.startsWith("triage_snapshot_"))) void load();
+  // Triage analyses arrive in bursts; one reload per burst.
+  if (area === "local" && Object.keys(changes).some((k) => k === KEY || k === "triage_notes" || k.startsWith("triage_analysis_") || k.startsWith("triage_snapshot_"))) {
+    clearTimeout(reloadTimer);
+    reloadTimer = setTimeout(() => (editing ? (reloadPending = true) : load()), 300);
+  }
   if (area === "sync" && changes.obsidianEnabled) {
     obsidianEnabled = changes.obsidianEnabled.newValue === true;
     render();
