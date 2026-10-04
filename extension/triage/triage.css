@@ -36,6 +36,7 @@ select { height: 28px; max-width: 240px; }
   border-bottom: 1px solid var(--border);
 }
 .brand { font-size: var(--fs-lg); }
+.brand-sub { margin-left: 4px; color: var(--muted); font-weight: 500; font-size: var(--fs-md); }
 .progress { color: var(--muted); font-variant-numeric: tabular-nums; }
 .queue-status { color: var(--secondary-text); font-variant-numeric: tabular-nums; }
 .queue-status.warn { color: var(--warn); }
