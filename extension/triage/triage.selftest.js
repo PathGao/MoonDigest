@@ -214,11 +214,11 @@ function openFake(mediaId, items, decisions = {}) {
   assert.deepStrictEqual(plain(t.batchList("drop").map((it) => it.bvid)), ["BV210", "BV211"]);
   // Buttons lead with the action and name the AI class; filter chips show the bare class name.
   t.renderListHeader(t.visibleItems());
-  for (const part of ["取消收藏（AI：可以删）2 个", "保留（AI：留）0 个", ">全部 2<", ">可以删 2<", ">留 0<", ">待定 0<"]) assert.ok(t.el.listHeader.innerHTML.includes(part), part);
-  assert.ok(t.verdictBadge("BV210", t.verdictOf(pool[10])).includes('class="badge drop"') && t.verdictBadge("BV210", t.verdictOf(pool[10])).includes('<span class="ai-mark">AI</span>可以删'));
+  for (const part of ["取消收藏（AI：可清理）2 个", "保留（AI：值得留）0 个", ">全部 2<", ">可清理 2<", ">值得留 0<", ">拿不准 0<"]) assert.ok(t.el.listHeader.innerHTML.includes(part), part);
+  assert.ok(t.verdictBadge("BV210", t.verdictOf(pool[10])).includes('class="badge drop"') && t.verdictBadge("BV210", t.verdictOf(pool[10])).includes('<span class="ai-mark">AI</span>可清理'));
   t.S.classFilter.fine = "keep";
   t.renderListHeader(t.visibleItems());
-  assert.ok(t.el.listHeader.innerHTML.includes("保留（AI：留）") && !t.el.listHeader.innerHTML.includes("取消收藏（AI"), "a filter shows only its own batch button");
+  assert.ok(t.el.listHeader.innerHTML.includes("保留（AI：值得留）") && !t.el.listHeader.innerHTML.includes("取消收藏（AI"), "a filter shows only its own batch button");
   t.S.classFilter.fine = "all";
   t.S.selected.add("BV210");
   t.renderListHeader(t.visibleItems());
@@ -242,16 +242,16 @@ function openFake(mediaId, items, decisions = {}) {
   t.S.tab = "coarse";
   t.S.titleRes = Object.fromEntries(pool.map((it, i) => [it.bvid, i < 6 ? { verdict: "unsure", confidence: "high" } : { verdict: i % 2 ? "keep" : "drop", confidence: "low" }]));
   t.renderListHeader(t.visibleItems());
-  for (const part of [">全部 12<", ">留 3<", ">可以删 3<", ">待定 6<", "细看下一批 8 个"]) assert.ok(t.el.listHeader.innerHTML.includes(part), part);
+  for (const part of [">全部 12<", ">值得留 3<", ">可清理 3<", ">拿不准 6<", "细看下一批 8 个"]) assert.ok(t.el.listHeader.innerHTML.includes(part), part);
   assert.ok(t.verdictBadge("BV206", t.verdictOf(pool[6])).includes("低置信"), "low confidence is a badge in 粗看完成");
   t.S.classFilter.coarse = "keep";
   assert.deepStrictEqual(plain(t.nextBatch()), ["BV207", "BV209", "BV211"], "the batch comes from the filtered videos");
   t.renderListHeader(t.visibleItems());
-  assert.ok(/保留（AI：留）3 个.*细看下一批 3 个/.test(t.el.listHeader.innerHTML), "chip 留 leads with batch 保留, 细看 second");
+  assert.ok(/保留（AI：值得留）3 个.*细看下一批 3 个/.test(t.el.listHeader.innerHTML), "chip 留 leads with batch 保留, 细看 second");
   t.S.classFilter.coarse = "drop";
   assert.deepStrictEqual(plain(t.batchList("drop").map((it) => it.bvid)), ["BV206", "BV208", "BV210"], "chip 可以删 gives a batch 取消收藏 list");
   t.renderListHeader(t.visibleItems());
-  assert.ok(/取消收藏（AI：可以删）3 个.*细看下一批 3 个/.test(t.el.listHeader.innerHTML), "chip 可以删 leads with batch 取消收藏, 细看 second");
+  assert.ok(/取消收藏（AI：可清理）3 个.*细看下一批 3 个/.test(t.el.listHeader.innerHTML), "chip 可以删 leads with batch 取消收藏, 细看 second");
   t.S.classFilter.coarse = "keep";
   t.S.classFilter.fine = "drop";
   assert.strictEqual(t.S.classFilter.coarse, "keep", "细看完成's chip does not touch 粗看完成's");
@@ -308,13 +308,15 @@ function openFake(mediaId, items, decisions = {}) {
   assert.deepStrictEqual([t.verdictOf(old).verdict, t.stageOf(old)], ["unsure", "fine"]);
   Object.assign(t.S, { analyses: {}, titleRes: {} });
 
-  // 判断标准 is per folder and goes with 粗分 requests; an empty one is removed.
+  // 判断标准 is per folder and goes with 粗看 requests together with the folder name and intro; an empty one is removed.
   openFake("J", [item(500)]);
+  t.S.folders = t.S.allFolders = [{ id: "J", title: "干货" }];
+  t.S.folderIntro = { J: "学习用" };
   t.S.folderCriteria = { J: "只留干货" };
   handlers["triage-classify-titles"] = () => ({ ok: true, data: { results: { BV500: { verdict: "keep", reason: "", confidence: "high" } } } });
   Object.assign(t.S.settings, { triageIntervalSec: 0 });
   await t.runStage1();
-  assert.deepStrictEqual(plain(sent.at(-1)), { type: "triage-classify-titles", items: [{ bvid: "BV500", title: "视频500", upper: "up", duration: 61 }], criteria: "只留干货" });
+  assert.deepStrictEqual(plain(sent.at(-1)), { type: "triage-classify-titles", items: [{ bvid: "BV500", title: "视频500", upper: "up", duration: 61 }], criteria: "只留干货", folder: { title: "干货", intro: "学习用" } });
   t.S.tab = "none";
   t.renderListHeader(t.visibleItems());
   assert.ok(t.el.listHeader.innerHTML.includes("判断标准：只留干货"));

@@ -377,15 +377,15 @@ const front = "---\ntitle: \"x\"\n---\n\n![cover](u)\n\n## 简介\n\nhi";
 const done = { status: "done", oneLiner: "一句话", points: ["a", "b"], verdict: "keep", reason: "有用" };
 assert.strictEqual(
   N.withTriageSummary(front, done),
-  "---\ntitle: \"x\"\n---\n\n## AI 总结\n\n> 一句话\n\n- a\n- b\n\nAI 分类：留，有用\n\n![cover](u)\n\n## 简介\n\nhi"
+  "---\ntitle: \"x\"\n---\n\n## AI 总结\n\n> 一句话\n\n- a\n- b\n\nAI 分类：值得留，有用\n\n![cover](u)\n\n## 简介\n\nhi"
 );
-assert.strictEqual(N.withTriageSummary("## 简介\n\nhi", { status: "done", verdict: "drop" }), "## AI 总结\n\nAI 分类：可以删\n\n## 简介\n\nhi");
+assert.strictEqual(N.withTriageSummary("## 简介\n\nhi", { status: "done", verdict: "drop" }), "## AI 总结\n\nAI 分类：可清理\n\n## 简介\n\nhi");
 assert.strictEqual(N.withTriageSummary(front, { status: "error" }), front);
 assert.strictEqual(N.withTriageSummary(front, undefined), front);
-assert.strictEqual(N.withTriageSummary("## 简介", { status: "done", verdict: "drop" }, " 我的话 "), "## AI 总结\n\nAI 分类：可以删\n\n## 我的备注\n\n我的话\n\n## 简介");
+assert.strictEqual(N.withTriageSummary("## 简介", { status: "done", verdict: "drop" }, " 我的话 "), "## AI 总结\n\nAI 分类：可清理\n\n## 我的备注\n\n我的话\n\n## 简介");
 assert.strictEqual(N.withTriageSummary(front, undefined, "n"), "---\ntitle: \"x\"\n---\n\n## 我的备注\n\nn\n\n![cover](u)\n\n## 简介\n\nhi");
 assert.strictEqual(N.withTriageSummary(front, undefined, "  "), front);
-assert.strictEqual(N.buildTriageSummary({ status: "done", verdict: "unsure", reason: "核心" }), "AI 分类：待定，核心");
+assert.strictEqual(N.buildTriageSummary({ status: "done", verdict: "unsure", reason: "核心" }), "AI 分类：拿不准，核心");
 
 assert.strictEqual(N.buildTriageSummary({ status: "done", oneLiner: "一句话", points: ["a", "", ""] }), "> 一句话\n\n- a", "padded empty points are dropped");
 assert.strictEqual(

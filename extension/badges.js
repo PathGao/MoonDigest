@@ -1,7 +1,7 @@
 // Read-only triage marks on Bilibili pages. Videos without triage data get zero DOM changes.
 (() => {
   // The triage page's fixed AI classes; the ids are also the CSS color classes.
-  const VERDICTS = { keep: "留", drop: "可以删", unsure: "待定" };
+  const VERDICTS = { keep: "值得留", drop: "可清理", unsure: "拿不准" };
   const ACTION = { keep: "已保留", unfav: "已取消收藏" };
   const STAGE = ["", "标题粗看", "字幕细看"];
   const BVID_RE = /(?:\/video\/|[?&]bvid=)(BV[0-9A-Za-z]{10})/;
@@ -10,7 +10,7 @@
     return BVID_RE.exec(String(href || ""))?.[1] || "";
   }
 
-  // Same rules as verdictOf in triage/triage.js: stage-2 analysis (unknown = 待定) > stage-1 title result.
+  // Same rules as verdictOf in triage/triage.js: stage-2 analysis (unknown = 拿不准) > stage-1 title result.
   function badgeInfo({ title, analysis, tagIds, tags, decision } = {}) {
     const done = analysis?.status === "done";
     let v = null;

@@ -40,7 +40,7 @@ const ALL = "all"; // the 所有收藏夹 view's folder-select value
 const REMOVED = "removed"; // the 已取消收藏 view
 // The fixed AI classes, shown as chips inside 粗看完成 and 细看完成.
 // The ids are the badge color classes too.
-const VERDICTS = { keep: "留", drop: "可以删", unsure: "待定" };
+const VERDICTS = { keep: "值得留", drop: "可清理", unsure: "拿不准" };
 
 // One-time fold of the old schemes (triage_schemes + triage_folder_scheme) into per-folder 判断标准 and one tag list (pure).
 // Each folder seen in triage gets its scheme's criteria (unmapped = the default scheme's) when non-empty; folders never
@@ -140,6 +140,7 @@ const S = {
   decisions: {}, // the open folder's 取消收藏 over the global 保留
   kept: {},
   removedCount: 0,
+  folderIntro: {}, // { [mediaId]: Bilibili folder intro }, read with the folder list
   folderDecisions: {}, // 所有收藏夹 only: { [mediaId]: that folder's decisions }
   loadAll: null, // 所有收藏夹 only: { lists: { [mediaId]: { items, at } }, check, checkTotal, queue, paused, running, error, partial }
   tags: [],
@@ -179,6 +180,8 @@ const S = {
 };
 
 const criteria = () => S.folderCriteria[S.mediaId] || "";
+// What the AI is told about the open folder; its 判断标准 is relative to this.
+const folderContext = () => ({ title: folderTitle(), intro: S.folderIntro[S.mediaId] || "" });
 
 const $ = (id) => document.getElementById(id);
 const el = {};
@@ -369,7 +372,7 @@ function passFilter(it) {
   return words.every((w) => text.includes(w));
 }
 
-// Which AI steps have run, not what they said. Invalid videos (可以删) can never be 细看'd, so they stop at 粗看;
+// Which AI steps have run, not what they said. Invalid videos (可清理) can never be 细看'd, so they stop at 粗看;
 // a failed 细看 stays where its 粗看 put it.
 function stageOf(it) {
   const b = it.bvid;
@@ -389,13 +392,13 @@ function inTab(it, tab) {
 
 const failedAnalysis = (b) => S.analyses[b]?.status === "error";
 
-// 待定 and low confidence are what 细看 is for, so they go first in 粗看完成.
+// 拿不准 and low confidence are what 细看 is for, so they go first in 粗看完成.
 const unsureFirst = (it) => {
   const v = verdictOf(it);
   return v.verdict === "unsure" || v.low ? 0 : 1;
 };
 
-// 粗看完成 lists the batch the button will send (or is sending) first, then 待定 / low confidence, failed cards last.
+// 粗看完成 lists the batch the button will send (or is sending) first, then 拿不准 / low confidence, failed cards last.
 function visibleItems() {
   const list = S.items.filter((it) => inTab(it, S.tab) && passFilter(it));
   if (S.tab !== "coarse") return list;
@@ -417,7 +420,7 @@ function stageCounts() {
 // The earliest step that still has videos.
 const currentStage = (c) => STAGES.find(([k]) => c[k])?.[0] || "none";
 
-// The 细看 batch: the selected cards of 粗看完成, otherwise its first GROUP_SIZE, 待定 / low confidence first.
+// The 细看 batch: the selected cards of 粗看完成, otherwise its first GROUP_SIZE, 拿不准 / low confidence first.
 function nextBatch() {
   const open = S.items.filter((it) => inTab(it, "coarse") && passFilter(it) && needsAnalysis(it.bvid));
   const sel = selectedIn(open);
@@ -631,6 +634,7 @@ async function syncFolder({ force = false } = {}) {
       return false;
     }
     S.lastSyncAt = Date.now();
+    if (r.data.info) S.folderIntro[mediaId] = r.data.info.intro;
     const remote = r.data.items || [];
     // A partial list proves what exists, never what was removed, so it skips the removed diff and the snapshot.
     const partial = r.data.partial ? { ...r.data.partial, count: remote.length } : null;
@@ -1028,7 +1032,7 @@ function criteriaLine() {
   const short = text.length > 24 ? `${text.slice(0, 24)}…` : text;
   return text
     ? `<span class="run-line" title="${esc(text)}">判断标准：${esc(short)} · <button type="button" class="link" data-head="criteria" aria-label="修改判断标准">改</button></span>`
-    : `<span class="run-line">未设判断标准 · <button type="button" class="link" data-head="criteria" aria-label="写一句判断标准">写一句</button></span>`;
+    : `<span class="run-line" title="没写判断标准时，AI 从收藏夹名和简介推测用途，按它判断值得留还是可清理">未设判断标准，AI 按收藏夹名「${esc(folderTitle())}」推测用途 · <button type="button" class="link" data-head="criteria" aria-label="写一句判断标准">写一句更准</button></span>`;
 }
 
 function renderListHeader(list) {
@@ -1071,7 +1075,7 @@ function renderListHeader(list) {
     }
     html += criteriaLine();
   } else if (t === "coarse") {
-    // A selection gets 细看 plus both batch buttons; 可以删 / 留 lead with their batch button, 细看 stays secondary.
+    // A selection gets 细看 plus both batch buttons; 可清理 / 值得留 lead with their batch button, 细看 stays secondary.
     html = seg();
     if (sel) html += groupBtn("primary") + batchBtn("keep") + batchBtn("unfav");
     else if (f === "drop") html += batchBtn("unfav", "drop") + groupBtn("");
@@ -1079,7 +1083,7 @@ function renderListHeader(list) {
     else html += groupBtn("primary");
     html += criteriaLine();
   } else if (t === "fine") {
-    // A selection gets both buttons; without one 留 and 可以删 each get a button, 待定 none.
+    // A selection gets both buttons; without one 值得留 and 可清理 each get a button, 拿不准 none.
     html = seg();
     if (all) html += sortHint;
     else if (sel) html += batchBtn("unfav") + batchBtn("keep");
@@ -1728,7 +1732,7 @@ async function runStage1() {
     S.status = `标题粗看中 ${done}/${total}`;
     for (const it of batch) S.analyzing.add(it.bvid);
     render();
-    const r = await send({ type: "triage-classify-titles", items: batch.map(aiItem), criteria: criteria() });
+    const r = await send({ type: "triage-classify-titles", items: batch.map(aiItem), criteria: criteria(), folder: folderContext() });
     for (const it of batch) S.analyzing.delete(it.bvid);
     if (token !== S.folderToken) break;
     if (!r.ok) {
@@ -1784,7 +1788,7 @@ function startGroup(bvids) {
 async function analyzeOne(bvid, force = false) {
   S.analyzing.add(bvid);
   render();
-  const r = await send({ type: "triage-analyze", bvid, force, criteria: criteria() });
+  const r = await send({ type: "triage-analyze", bvid, force, criteria: criteria(), folder: folderContext() });
   S.analyzing.delete(bvid);
   return r;
 }

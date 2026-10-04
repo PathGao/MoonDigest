@@ -22,8 +22,8 @@ assert.strictEqual(badgeInfo({ tagIds: ["gone"], tags: [] }), null, "dangling ta
 
 const s1 = badgeInfo({ title: { verdict: "drop", reason: "标题党", confidence: "low" } });
 assert.deepStrictEqual(plain(s1), {
-  label: "AI 可以删",
-  aria: "MoonDigest 分拣，AI 分类 可以删（标题粗看，低置信）",
+  label: "AI 可清理",
+  aria: "MoonDigest 分拣，AI 分类 可清理（标题粗看，低置信）",
   verdict: "drop",
   stage: 1,
   low: true,
@@ -36,7 +36,7 @@ assert.deepStrictEqual(plain(s1), {
 
 const analysis = { status: "done", verdict: "keep", reason: "干货", oneLiner: "讲 Rust 所有权", points: ["a", "b", ""] };
 const s2 = badgeInfo({ title: { verdict: "drop", reason: "x", confidence: "high" }, analysis });
-assert.strictEqual(s2.label, "AI 留", "stage 2 beats stage 1");
+assert.strictEqual(s2.label, "AI 值得留", "stage 2 beats stage 1");
 assert.strictEqual(s2.stage, 2);
 assert.strictEqual(s2.oneLiner, "讲 Rust 所有权");
 assert.deepStrictEqual(plain(s2.points), ["a", "b"]);
@@ -55,7 +55,7 @@ assert.strictEqual(badgeInfo({ title: { verdict: "bogus" } }), null, "unknown ve
 
 assert.strictEqual(badgeInfo({ title: { verdict: "t-must", confidence: "high" } }), null, "old custom-tier verdicts are not a mark");
 assert.strictEqual(badgeInfo({ title: { verdict: "unsure" } }).verdict, "unsure");
-assert.strictEqual(badgeInfo({ analysis: { status: "done", verdict: "t-must" } }).label, "AI 待定", "a done 细看 with an old verdict reads as 待定, like the triage page");
+assert.strictEqual(badgeInfo({ analysis: { status: "done", verdict: "t-must" } }).label, "AI 拿不准", "a done 细看 with an old verdict reads as 待定, like the triage page");
 
 // A video decided in several folders shows its latest decision, whatever the storage-key order.
 const merged = mergeDecisions({

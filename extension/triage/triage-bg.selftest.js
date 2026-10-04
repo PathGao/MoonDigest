@@ -37,7 +37,8 @@ const thin = t.triageParseLlm('{"one_liner":"x","points":["only"],"verdict":"may
 assert.deepStrictEqual([...thin.points], ["only", "", ""]);
 assert.strictEqual(thin.verdict, "unsure");
 assert.strictEqual(thin.reason, "");
-assert.strictEqual(t.triageParseLlm('{"one_liner":"x","verdict":"可以删"}').verdict, "drop", "the Chinese name maps to its id");
+assert.strictEqual(t.triageParseLlm('{"one_liner":"x","verdict":"可清理"}').verdict, "drop", "the Chinese name maps to its id");
+assert.strictEqual(t.triageParseLlm('{"one_liner":"x","verdict":"可以删"}').verdict, "drop", "the old name still maps");
 assert.strictEqual(t.triageParseLlm('{"one_liner":"x"}').verdict, "unsure");
 assert.throws(() => t.triageParseLlm('{"one_liner":"x","points":["a"'), /不完整/);
 assert.throws(() => t.triageParseLlm("没有 JSON"), /不是 JSON/);
@@ -64,10 +65,16 @@ assert.throws(() => t.triageParseTitleBatch('[{"i":1,"verdict":"keep"', items), 
 const TITLE_PROMPT = vm.runInContext("TRIAGE_TITLE_PROMPT", ctx);
 // Prompts: the three classes, the folder's 判断标准 when set, and no tag lists.
 const titleSys = t.triageWithCriteria(TITLE_PROMPT, " 只留 Rust 相关 ");
-for (const part of ["- keep：留。", "- drop：可以删。", "- unsure：待定。", '"verdict": "keep|drop|unsure"', "verdict 用 unsure", "用户的判断标准（优先于上面的说明）：\n只留 Rust 相关"]) {
+for (const part of ["- keep：值得留。", "- drop：可清理。", "- unsure：拿不准。", '"verdict": "keep|drop|unsure"', "verdict 用 unsure", "用户的判断标准（优先于上面的说明）：\n只留 Rust 相关"]) {
   assert.ok(titleSys.includes(part), part);
 }
 assert.strictEqual(t.triageWithCriteria(TITLE_PROMPT, "  "), TITLE_PROMPT, "no criteria, no block");
+assert.ok(!TITLE_PROMPT.includes("纯娱乐"), "entertainment is not a reason to clean up by default");
+// The folder name tells the AI what the folder is for; without criteria it is asked to infer the purpose.
+const named = t.triageWithCriteria(TITLE_PROMPT, "", { title: "纯娱乐", intro: "下饭" });
+assert.ok(named.includes("这个收藏夹叫「纯娱乐」，简介：下饭。") && named.includes("推测它的用途"));
+const both = t.triageWithCriteria(TITLE_PROMPT, "只留段子", { title: "纯娱乐" });
+assert.ok(both.includes("这个收藏夹叫「纯娱乐」。") && !both.includes("推测") && both.endsWith("只留段子"));
 const msgs = t.triageBuildMessages({ title: "T", upper: "U", tags: [] }, "meta", "", "只留干货");
 assert.ok(msgs[0].content.includes('"verdict": "keep|drop|unsure"') && msgs[0].content.endsWith("只留干货"));
 for (const p of [TITLE_PROMPT, msgs[0].content]) assert.ok(!/标签|tags|新:/.test(p), "粗分/细看 prompts carry no tags");
@@ -107,7 +114,7 @@ assert.ok(cmdMsgs[0].content.endsWith("已有标签：AI、编程"));
 assert.ok(!cmdMsgs[0].content.includes('"verdict"'));
 assert.ok(cmdMsgs[1].content.includes("<<<指令>>>\n把讲 AI 的都标上\n<<<指令结束>>>"));
 assert.ok(cmdMsgs[1].content.endsWith("\n1|T|||||"));
-assert.ok(!/verdict|留|可以删|待定/.test(cmdMsgs[0].content), "the command prompt never asks for a verdict");
+assert.ok(!/verdict|值得留|可清理|拿不准/.test(cmdMsgs[0].content), "the command prompt never asks for a verdict");
 
 // command parse
 const cmdItems = [
