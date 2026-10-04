@@ -7,12 +7,12 @@ const {
   isTimestampOnlyInlineCode,
   TIMESTAMP_PATTERN,
   buildConversationTurns,
-  sanitizeMarkdownHeadingText,
+  buildAiConversationFilename,
+  buildAiNoteMarkdown,
+  buildAiConversationMarkdown,
   resolveFolderTemplate,
   buildNoteFilename,
-  sanitizeFileName,
-  escapeYaml,
-  formatLocalDate
+  sanitizeFileName
 } = BocNote;
 const PLAYER_AI_QUICK_ACTION_STORAGE_KEY = "boc_player_ai_quick_action_v1";
 const NON_VIDEO_CONTEXT_MESSAGE = "当前页不是支持的视频页面，<br>无法获取当前页面信息作为对话上下文，<br>仅支持 AI 对话。";
@@ -2381,111 +2381,12 @@ function buildAiNoteFilename(context, prompt) {
   return `${baseName || "【AI笔记】当前视频"}.md`;
 }
 
-function buildAiConversationFilename(context) {
-  const sourceTitle = String(context?.title || currentConversationMeta?.contextTitle || "当前视频").trim() || "当前视频";
-  const baseName = sanitizeFileName(`【AI笔记】${sourceTitle}`);
-  return `${baseName || "【AI笔记】当前视频"}.md`;
-}
-
 function buildQuestionSummary(prompt) {
   const text = String(prompt || "")
     .replace(/\s+/g, " ")
     .trim()
     .slice(0, 30);
   return text || "AI问答";
-}
-
-// source: a wiki link to the video note (path without .md), so the AI note sits under it in the graph.
-// Body line: link the real video note when its path is known, else name the video without a dangling link.
-function sourceBodyLine(sourcePath, sourceTitle) {
-  const target = String(sourcePath || "").replace(/\.md$/i, "");
-  return target
-    ? `来源：[[${escapeWikiLinkTarget(target)}|${escapeWikiLinkTarget(sourceTitle)}]]`
-    : `来源：${sourceTitle}`;
-}
-
-function sourceFrontmatterLine(sourcePath) {
-  const target = String(sourcePath || "").replace(/\.md$/i, "");
-  return target ? `source: "[[${escapeYaml(target)}]]"` : "";
-}
-
-function buildAiNoteMarkdown({ context, prompt, answer, filename, sourcePath = "" }) {
-  const created = formatLocalDate();
-  const sourceTitle = String(context?.title || currentConversationMeta?.contextTitle || "当前视频").trim() || "当前视频";
-  const url = buildCleanVideoUrl(context);
-  const title = filename.replace(/\.md$/i, "");
-  const frontmatter = [
-    "---",
-    `title: "${escapeYaml(title)}"`,
-    `source_title: "${escapeYaml(sourceTitle)}"`,
-    sourceFrontmatterLine(sourcePath),
-    `url: "${escapeYaml(url)}"`,
-    context?.author ? `author: "${escapeYaml(context.author)}"` : "",
-    `created: "${created}"`,
-    `tags: [ai_note]`,
-    "---"
-  ].filter(Boolean);
-
-  const lines = [
-    ...frontmatter,
-    "",
-    `问题：${String(prompt || "").trim()}`,
-    sourceBodyLine(sourcePath, sourceTitle),
-    "",
-    String(answer || "").trim(),
-    ""
-  ].filter((line, index, arr) => line !== "" || arr[index - 1] !== "");
-
-  return `${lines.join("\n").trim()}\n`;
-}
-
-function buildAiConversationMarkdown({ context, turns, filename, sourcePath = "" }) {
-  const created = formatLocalDate();
-  const sourceTitle = String(context?.title || currentConversationMeta?.contextTitle || "当前视频").trim() || "当前视频";
-  const url = buildCleanVideoUrl(context);
-  const title = filename.replace(/\.md$/i, "");
-  const frontmatter = [
-    "---",
-    `title: "${escapeYaml(title)}"`,
-    `source_title: "${escapeYaml(sourceTitle)}"`,
-    sourceFrontmatterLine(sourcePath),
-    `url: "${escapeYaml(url)}"`,
-    context?.author ? `author: "${escapeYaml(context.author)}"` : "",
-    `created: "${created}"`,
-    `tags: [ai_note]`,
-    "---"
-  ].filter(Boolean);
-
-  const lines = [
-    ...frontmatter,
-    "",
-    sourceBodyLine(sourcePath, sourceTitle)
-  ];
-
-  turns.forEach((turn) => {
-    lines.push(
-      "",
-      `## ${sanitizeMarkdownHeadingText(turn.prompt)}`,
-      "",
-      turn.answer
-    );
-  });
-
-  return `${lines.join("\n").trim()}\n`;
-}
-
-function buildCleanVideoUrl(context) {
-  const url = String(context?.url || currentConversationMeta?.contextUrl || "").trim();
-  const site = BocSites.SITES[context?.site] || BocSites.matchSite(url);
-  const videoId = String(context?.videoId || BocSites.parseRef(url)?.id || "").trim();
-  if (site && videoId) {
-    return site.canonicalUrl(videoId, 1);
-  }
-  return url;
-}
-
-function escapeWikiLinkTarget(value) {
-  return String(value || "").replace(/\]/g, "\\]");
 }
 
 function getReadableText(value, fallback = "") {

@@ -363,4 +363,13 @@ assert.strictEqual(N.pickConversation(convs, { site: "bilibili", videoId: "BV1",
 assert.strictEqual(N.pickConversation(convs, { site: "bilibili", videoId: "BV1" }).updatedAt, 5, "no part → newest of any part");
 assert.strictEqual(N.pickConversation(convs, { site: "bilibili", videoId: "BV2" }), null);
 assert.strictEqual(N.pickConversation(convs, { site: "youtube", videoId: "" }), null);
+// AI conversation note (side panel 保存对话 / history page): moved out of sidepanel.js byte for byte.
+const aiContext = { title: "视频]标题", url: "https://www.bilibili.com/video/BV1GJ411x7h7/?p=2", site: "bilibili", videoId: "BV1GJ411x7h7", author: "UP主" };
+const aiFile = N.buildAiConversationFilename(aiContext);
+assert.strictEqual(aiFile, "【AI笔记】视频_标题.md");
+assert.strictEqual(
+  N.buildAiConversationMarkdown({ context: aiContext, turns: [{ prompt: "# 问一", answer: "答一" }, { prompt: "问二", answer: "答二" }], filename: aiFile, sourcePath: "Clip/视频.md" }),
+  `---\ntitle: "【AI笔记】视频_标题"\nsource_title: "视频]标题"\nsource: "[[Clip/视频]]"\nurl: "https://www.bilibili.com/video/BV1GJ411x7h7/"\nauthor: "UP主"\ncreated: "${N.formatLocalDate()}"\ntags: [ai_note]\n---\n\n来源：[[Clip/视频|视频\\]标题]]\n\n## 问一\n\n答一\n\n## 问二\n\n答二\n`
+);
+assert.ok(N.buildAiConversationMarkdown({ context: {}, turns: [], filename: "x.md" }).includes("来源：当前视频"), "no source path → no dangling link");
 console.log("note selftest ok");
