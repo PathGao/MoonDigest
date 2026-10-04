@@ -229,7 +229,7 @@ const folderContext = () => ({ title: folderTitle(), intro: S.folderIntro[S.medi
 const $ = (id) => document.getElementById(id);
 const el = {};
 [
-  "folderSelect", "allBtn", "removedBtn", "searchInput", "searchCount", "refreshBtn", "progress", "queueStatus", "settingsBtn", "helpBtn",
+  "folderSelect", "allBtn", "removedBtn", "searchInput", "searchCount", "refreshBtn", "queueStatus", "settingsBtn", "helpBtn",
   "banner", "bannerText", "bannerBtn", "bannerClose", "syncNotice", "syncText", "syncViewBtn", "syncCloseBtn", "syncDetail",
   "tabs", "tagFilter", "listHeader", "list", "basket", "basketToggle", "basketCount",
   "basketList", "toast", "settingsDialog", "folderToggles", "thinkingRow", "intervalInput",
@@ -1057,11 +1057,6 @@ function render() {
 }
 
 function renderTop() {
-  const total = S.items.length;
-  const classified = S.items.filter((it) => it.invalid || S.titleRes[it.bvid]).length;
-  const deep = S.items.filter((it) => S.analyses[it.bvid]?.status === "done").length;
-  const processed = S.items.filter((it) => isProcessed(it.bvid)).length;
-  el.progress.textContent = `已粗看 ${classified} / ${total} · 已细看 ${deep} · 已处理 ${processed}`;
   el.biliBtn.hidden = !S.mid;
   el.biliBtn.textContent = inFolderView() ? "B 站收藏夹 ↗" : "B 站主页 ↗";
   setBusy(el.refreshBtn, (S.syncing || S.loadAll?.running) && `刷新中…${S.syncing ? pageText(S.mediaId) : ""}`);
