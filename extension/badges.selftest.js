@@ -22,8 +22,8 @@ assert.strictEqual(badgeInfo({ tagIds: ["gone"], tags: [] }), null, "dangling ta
 
 const s1 = badgeInfo({ title: { verdict: "drop", reason: "标题党", confidence: "low" } });
 assert.deepStrictEqual(plain(s1), {
-  label: "删?",
-  aria: "MoonDigest 分拣，建议删（标题粗分，低置信）",
+  label: "删",
+  aria: "MoonDigest 分拣，删（标题粗分，低置信）",
   verdict: "drop",
   stage: 1,
   low: true,
@@ -57,5 +57,12 @@ assert.strictEqual(decided.label, "已取消收藏", "a user decision outranks t
 assert.strictEqual(decided.verdict, "keep");
 
 assert.strictEqual(badgeInfo({ title: { verdict: "bogus" } }), null, "unknown verdicts are ignored");
+
+// Custom tiers: the label is the tier name, the color class follows the route.
+const tiers = [{ id: "t-must", name: "必看", route: "keep" }, { id: "t-again", name: "再看看", route: "deep" }];
+const custom = badgeInfo({ title: { verdict: "t-must", confidence: "high" }, tiers });
+assert.deepStrictEqual([custom.label, custom.verdict, custom.aria], ["必看", "keep", "MoonDigest 分拣，必看（标题粗分）"]);
+assert.strictEqual(badgeInfo({ title: { verdict: "t-again" }, tiers }).verdict, "unsure");
+assert.strictEqual(badgeInfo({ title: { verdict: "" }, tiers }), null, "no tier (grading off) is not a mark");
 
 console.log("badges selftest ok");

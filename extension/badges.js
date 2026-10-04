@@ -1,10 +1,12 @@
 // Read-only triage marks on Bilibili pages. Videos without triage data get zero DOM changes.
 (() => {
-  const VERDICT = {
-    keep: ["留", "建议留"],
-    drop: ["删?", "建议删"],
-    unsure: ["待定", "待定"]
-  };
+  // Verdicts are tier ids of the triage page's schemes; these are the default scheme's (and the pre-scheme verdicts).
+  const DEFAULT_TIERS = [
+    { id: "keep", name: "留", route: "keep" },
+    { id: "drop", name: "删", route: "unfav" },
+    { id: "unsure", name: "待定", route: "deep" }
+  ];
+  const ROUTE_CLASS = { keep: "keep", unfav: "drop", deep: "unsure" };
   const ACTION = { keep: "已保留", unfav: "已取消收藏" };
   const STAGE = ["", "标题粗分", "字幕细看", "AI 指令"];
   const BVID_RE = /(?:\/video\/|[?&]bvid=)(BV[0-9A-Za-z]{10})/;
@@ -14,13 +16,15 @@
   }
 
   // Same precedence as verdictOf in triage/triage.js: override > stage-2 analysis > stage-1 title result.
-  function badgeInfo({ title, analysis, override, tagIds, tags, decision } = {}) {
+  // tiers: every scheme's tiers, the folder's scheme first, so an id resolves to the name the user sees there.
+  function badgeInfo({ title, analysis, override, tagIds, tags, decision, tiers = DEFAULT_TIERS } = {}) {
     const done = analysis?.status === "done";
     let v = null;
     if (override?.verdict) v = { verdict: override.verdict, reason: override.reason, stage: 3 };
     else if (done) v = { verdict: analysis.verdict, reason: analysis.reason, stage: 2 };
     else if (title?.verdict) v = { verdict: title.verdict, reason: title.reason, stage: 1, low: title.confidence === "low" };
-    if (v && !VERDICT[v.verdict]) v = null;
+    const tier = v && (Array.isArray(tiers) ? tiers : []).find((t) => t.id === v.verdict);
+    if (!tier || !ROUTE_CLASS[tier.route]) v = null;
     const byId = new Map((Array.isArray(tags) ? tags : []).map((t) => [t.id, t]));
     const userTags = (Array.isArray(tagIds) ? tagIds : [])
       .map((id) => byId.get(id))
@@ -29,11 +33,11 @@
     const action = ACTION[decision?.action] ? decision.action : "";
     if (!v && !userTags.length && !action) return null;
 
-    const label = action ? ACTION[action] : v ? VERDICT[v.verdict][0] : "";
+    const label = action ? ACTION[action] : v ? String(tier.name) : "";
     const aria = [
       "MoonDigest 分拣",
       action && ACTION[action],
-      v && `${VERDICT[v.verdict][1]}（${STAGE[v.stage]}${v.low ? "，低置信" : ""}）`,
+      v && `${tier.name}（${STAGE[v.stage]}${v.low ? "，低置信" : ""}）`,
       userTags.length && `标签：${userTags.map((t) => t.name).join("、")}`
     ]
       .filter(Boolean)
@@ -41,7 +45,7 @@
     return {
       label,
       aria,
-      verdict: v?.verdict || "",
+      verdict: v ? ROUTE_CLASS[tier.route] : "", // the CSS color class: keep / drop / unsure
       stage: v?.stage || 0,
       low: Boolean(v?.low),
       action,
@@ -58,7 +62,7 @@
   const SETTING = "showBiliTriageBadges";
   const SEL = 'a[href*="/video/BV"], a[href*="bvid=BV"]';
   const isTriageKey = (k) =>
-    k === "triage_tags" || k === "triage_video_tags" || /^triage_(title|analysis|verdict_override|decisions)_/.test(k);
+    k === "triage_schemes" || k === "triage_folder_scheme" || k === "triage_tags" || k === "triage_video_tags" || /^triage_(title|analysis|verdict_override|decisions)_/.test(k);
   const isFavPage = location.hostname === "space.bilibili.com";
 
   const cache = new Map(); // bvid -> info | null
@@ -99,12 +103,22 @@
         // getKeys (Chrome 130+) avoids reading every cached title and analysis just to find the decision keys.
         const all = fid ? null : await chrome.storage.local.getKeys?.();
         const decisionKeys = fid ? [`triage_decisions_${fid}`] : (all || []).filter((k) => k.startsWith("triage_decisions_"));
-        const got = await chrome.storage.local.get(fid || all ? ["triage_tags", "triage_video_tags", ...decisionKeys] : null);
+        const got = await chrome.storage.local.get(fid || all ? ["triage_schemes", "triage_folder_scheme", "triage_video_tags", ...decisionKeys] : null);
+        // Before the triage page migrated to schemes, tags were one global list.
+        const schemes = Array.isArray(got.triage_schemes) ? got.triage_schemes : null;
+        const oldTags = schemes ? null : (await chrome.storage.local.get("triage_tags")).triage_tags;
         if (g !== gen) return;
         sharedFid = fid;
         const decisions = {};
         for (const [k, v] of Object.entries(got)) if (k.startsWith("triage_decisions_")) Object.assign(decisions, v);
-        shared = { tags: got.triage_tags, videoTags: got.triage_video_tags || {}, decisions };
+        const first = got.triage_folder_scheme?.[fid] || "default";
+        const ordered = schemes ? [...schemes].sort((a, b) => (b.id === first) - (a.id === first)) : [];
+        shared = {
+          tags: schemes ? ordered.flatMap((s) => s.tags || []) : oldTags,
+          tiers: schemes ? ordered.flatMap((s) => s.grading?.tiers || []) : DEFAULT_TIERS,
+          videoTags: got.triage_video_tags || {},
+          decisions
+        };
         cache.clear();
       }
       const anchors = [...document.querySelectorAll(SEL)];
@@ -123,6 +137,7 @@
               override: got[`triage_verdict_override_${b}`],
               tagIds: shared.videoTags[b],
               tags: shared.tags,
+              tiers: shared.tiers,
               decision: shared.decisions[b]
             })
           );
