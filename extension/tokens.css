@@ -97,6 +97,19 @@
   outline-offset: 2px;
 }
 
+/* Obsidian's official mark, used unmodified as the brand page asks; marks every Obsidian action. */
+.obsidian-mark {
+  width: 14px;
+  height: 14px;
+  flex: none;
+  vertical-align: -2px;
+}
+
+/* On a filled accent button the purple mark disappears; the brand allows an all-white mark there. */
+.primary .obsidian-mark {
+  filter: brightness(0) invert(1);
+}
+
 :where(input[type="text"], input[type="password"], input[type="number"], select, textarea):focus-visible {
   outline: none;
   border-color: var(--accent);

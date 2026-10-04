@@ -85,7 +85,7 @@ function render() {
           <div class="entry-actions">
             ${g.context.videoId ? '<button type="button" data-act="ask">继续问</button>' : ""}
             <button type="button" data-act="md">下载 .md</button>
-            ${obsidianEnabled ? '<button type="button" data-act="obsidian">存 Obsidian</button>' : ""}
+            ${obsidianEnabled ? '<button type="button" data-act="obsidian"><img class="obsidian-mark" src="/icons/obsidian.svg" alt=""> 存 Obsidian</button>' : ""}
             ${g.convs.length ? '<button type="button" data-act="delete" class="danger">删除</button>' : ""}
           </div>
         </article>`;

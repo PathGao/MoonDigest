@@ -2090,13 +2090,7 @@ function renderAssistantMessage(node, raw, { userPrompt = "" } = {}) {
   saveBtn.className = "sp-msg-copy-btn sp-msg-save-btn";
   saveBtn.setAttribute("aria-label", "保存到 Obsidian");
   saveBtn.setAttribute("title", "保存到 Obsidian");
-  saveBtn.innerHTML = `
-    <svg viewBox="0 0 24 24" focusable="false" aria-hidden="true">
-      <path d="M5 4h11l3 3v13H5z"></path>
-      <path d="M8 4v6h8"></path>
-      <path d="M8 17h8"></path>
-    </svg>
-  `;
+  saveBtn.innerHTML = '<img class="obsidian-mark" src="/icons/obsidian.svg" alt="">';
   saveBtn.addEventListener("click", () => {
     void saveAssistantReplyToObsidian({
       button: saveBtn,
@@ -2104,7 +2098,6 @@ function renderAssistantMessage(node, raw, { userPrompt = "" } = {}) {
       assistantMarkdown: pasteReadyRaw
     });
   });
-  actions.appendChild(saveBtn);
 
   const downloadBtn = document.createElement("button");
   downloadBtn.type = "button";
@@ -2123,6 +2116,7 @@ function renderAssistantMessage(node, raw, { userPrompt = "" } = {}) {
     if (reply) BocDownload.text(reply.filename, buildAiNoteMarkdown(reply));
   });
   actions.appendChild(downloadBtn);
+  actions.appendChild(saveBtn);
   node.appendChild(actions);
 }
 

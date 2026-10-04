@@ -38,3 +38,7 @@ SOFTWARE.
 ## jdepoix/youtube-transcript-api
 
 The YouTube subtitle fetching approach follows [jdepoix/youtube-transcript-api](https://github.com/jdepoix/youtube-transcript-api) (MIT). Approach only. No code was copied from it.
+
+## Obsidian logo
+
+`extension/icons/obsidian.svg` is the unmodified Obsidian logo from [obsidian.md/brand](https://obsidian.md/brand). The Obsidian name and logo are trademarks of Dynalist Inc. They mark the buttons that save to Obsidian. MoonDigest is not affiliated with or endorsed by Obsidian.
