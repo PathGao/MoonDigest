@@ -24,7 +24,7 @@
 数据都留在你的浏览器里。
 
 <p align="center">
-  <img src="docs/images/hero-sidepanel.png" alt="视频页旁边的 AI 侧边栏，显示 AI 总结的结果和管理追问" width="900">
+  <img src="docs/images/hero-sidepanel.png" alt="B 站视频页右侧的 AI 侧边栏，显示一键 AI 总结的结构化结果（一句话总结、带时间戳的要点），下方是常用追问和输入框" width="900">
 </p>
 
 ## 功能
@@ -46,10 +46,14 @@
 - **导出对话**：侧边栏的「导出对话」菜单可以复制、下载 .md 或写入 Obsidian。写入 Obsidian 写进这个视频笔记的 AI 问答段，还没有视频笔记就新建一篇。每条回复下只有「复制单条回复」。
 - **AI 对话历史**：侧边栏的历史弹层只列当前视频的对话，点「全部」或设置页「数据与存储」里的「管理 AI 对话历史」打开历史页。历史页按视频列出全部对话、分拣台 AI 总结和你的笔记，可以搜索、继续问、下载 .md、写入 Obsidian 或删除；「清空全部」只删 AI 对话，不动笔记和分拣结果。
 
+<p align="center">
+  <img src="docs/images/history.png" alt="AI 对话历史页：按视频列出对话、分拣台 AI 总结和笔记，每条可继续问、下载 .md、写入 Obsidian 或删除" width="900">
+</p>
+
 ### 进阶 1 · 收藏夹分拣台（仅 B 站）
 
 <p align="center">
-  <img src="docs/images/triage-light.png" alt="收藏夹分拣台的视频卡片列表" width="900">
+  <img src="docs/images/triage-light.png" alt="收藏夹分拣台：标题粗分后停在「② 待细看」，卡片标着「下一批」和 AI 档位，右侧优先看列表里有 3 个视频" width="900">
 </p>
 
 - **两段式 AI 分拣**：标题粗分把几十个标题按档位分开（默认 留 / 可以删 / 待定）；字幕细看给每个视频一句话总结、要点、档位和建议标签。AI 的分类带「AI」标记（AI 留、AI 可以删、AI 待定），你做的决定显示为「已保留」「已取消收藏」。
@@ -101,7 +105,7 @@ Chrome 和其他 Chromium 内核浏览器（只在 Chrome 上测试过），不�
 更完整的使用教程正在写。
 
 <p align="center">
-  <img src="docs/images/options.png" alt="设置页基础档：字幕设置和 AI 模型平台" width="540">
+  <img src="docs/images/options.png" alt="设置页基础档：字幕下载格式、时间戳和 YouTube 字幕语言，下方 AI 模型平台已配一个 DeepSeek" width="540">
 </p>
 
 ## 使用收藏夹分拣台
@@ -129,7 +133,7 @@ Chrome 和其他 Chromium 内核浏览器（只在 Chrome 上测试过），不�
 “阅览”标签页里只有 `I` 和 `?` 生效。
 
 <p align="center">
-  <img src="docs/images/triage-dark.png" alt="分拣台深色主题" width="900">
+  <img src="docs/images/triage-dark.png" alt="分拣台深色主题：同一个待细看列表和优先看面板" width="900">
 </p>
 
 ## 隐私与权限
