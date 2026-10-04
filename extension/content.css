@@ -491,9 +491,9 @@ html[data-boc-reader-mode="1"][data-boc-reader-theme="dark"] {
   transition: opacity 0.2s ease;
 }
 
+/* Faded, not gone: the buttons stay findable and clickable while reading. */
 .boc-reading-actions[data-boc-icon-hidden="1"]:not(:focus-within) {
-  opacity: 0;
-  pointer-events: none;
+  opacity: 0.35;
 }
 
 @media (prefers-reduced-motion: reduce) {

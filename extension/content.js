@@ -3179,9 +3179,16 @@ function bindReaderHeaderActionsHover() {
     scheduleReaderHeaderActionsHide();
   };
 
+  // Anywhere along the top of the page brings them back, not just over the buttons.
+  const onMove = (event) => {
+    if (event.clientY > 80 || header.matches(":hover")) return;
+    showActions();
+    hideActionsLater();
+  };
   header.addEventListener("mouseenter", showActions, true);
   header.addEventListener("mouseleave", hideActionsLater, true);
-  header.__bocReaderHeaderHoverBound = { showActions, hideActionsLater };
+  document.addEventListener("mousemove", onMove, { passive: true });
+  header.__bocReaderHeaderHoverBound = { showActions, hideActionsLater, onMove };
   state.readingHeaderHoverHost = header;
   setReaderHeaderActionsVisible(true);
   scheduleReaderHeaderActionsHide();
@@ -3197,9 +3204,10 @@ function unbindReaderHeaderActionsHover() {
     state.readingHeaderHoverHost = null;
     return;
   }
-  const { showActions, hideActionsLater } = header.__bocReaderHeaderHoverBound;
+  const { showActions, hideActionsLater, onMove } = header.__bocReaderHeaderHoverBound;
   header.removeEventListener("mouseenter", showActions, true);
   header.removeEventListener("mouseleave", hideActionsLater, true);
+  document.removeEventListener("mousemove", onMove);
   delete header.__bocReaderHeaderHoverBound;
   state.readingHeaderHoverHost = null;
   setReaderHeaderActionsVisible(true);
