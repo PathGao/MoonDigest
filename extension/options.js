@@ -1043,7 +1043,7 @@ function addAiProviderRow(item = {}) {
     <input class="ai-provider-baseurl" type="text" placeholder="baseUrl（如 https://api.openai.com/v1）" value="${escapeAttribute(baseUrl)}" />
     <input class="ai-provider-model" type="text" placeholder="模型名（如 gpt-4o-mini）" value="${escapeAttribute(model)}" />
     <input class="ai-provider-apikey" type="password" placeholder="${hasSavedKey ? "已保存" : (requiresKey ? "API Key" : "API Key（可选）")}" autocomplete="off" />
-    <button type="button" class="secondary-btn ai-provider-test">测试</button>
+    <button type="button" class="secondary-btn ai-provider-test"><span class="ai-spark" aria-hidden="true"></span>测试</button>
     <button type="button" class="ai-provider-remove" aria-label="删除" title="删除">
       <svg viewBox="0 0 24 24" focusable="false" aria-hidden="true">
         <path d="M4 7h16"></path>

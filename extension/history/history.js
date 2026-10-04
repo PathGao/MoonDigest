@@ -140,7 +140,7 @@ function render() {
             ${g.convs.length ? `<details${open.has(g.key) ? " open" : ""}><summary>查看对话</summary>${g.convs.map((c, i) => renderConversation(c, i, g.convs.length)).join("")}</details>` : ""}
           </div>
           <div class="entry-actions">
-            <button type="button" data-act="ask" ${g.context.videoId ? "" : "disabled title=\"只有视频能继续问\""}>继续问</button>
+            <button type="button" data-act="ask" ${g.context.videoId ? "" : "disabled title=\"只有视频能继续问\""}><span class="ai-spark" aria-hidden="true"></span>继续问</button>
             <button type="button" data-act="md">下载 .md</button>
             ${!obsidianEnabled ? "" : writing.has(g.key) ? `<button type="button" aria-busy="true" disabled>写入中…</button>` : `<button type="button" data-act="obsidian"><img class="obsidian-mark" src="/icons/obsidian.svg" alt=""> 写入 Obsidian</button>`}
             <button type="button" data-act="delete" class="danger" ${g.convs.length ? "" : "disabled title=\"没有 AI 对话可删\""}>删除</button>

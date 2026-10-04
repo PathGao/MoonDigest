@@ -243,6 +243,8 @@ function openFake(mediaId, items, decisions = {}) {
   t.S.titleRes = Object.fromEntries(pool.map((it, i) => [it.bvid, i < 6 ? { verdict: "unsure", confidence: "high" } : { verdict: i % 2 ? "keep" : "drop", confidence: "low" }]));
   t.renderListHeader(t.visibleItems());
   for (const part of [">全部 12<", ">值得留 3<", ">可清理 3<", ">拿不准 6<", "细看下一批 10 个"]) assert.ok(t.el.listHeader.innerHTML.includes(part), part);
+  // AI-starting buttons lead with the sparkle; plain actions do not.
+  assert.ok(t.el.listHeader.innerHTML.includes('<span class="ai-spark" aria-hidden="true"></span>细看下一批 10 个</button>'), "细看 carries the AI sparkle");
   assert.ok(t.verdictBadge("BV206", t.verdictOf(pool[6])).includes("低置信"), "low confidence is a badge in 粗看完成");
   t.S.classFilter.coarse = "keep";
   assert.deepStrictEqual(plain(t.nextBatch()), ["BV207", "BV209", "BV211"], "the batch comes from the filtered videos");
@@ -252,6 +254,7 @@ function openFake(mediaId, items, decisions = {}) {
   assert.deepStrictEqual(plain(t.batchList("drop").map((it) => it.bvid)), ["BV206", "BV208", "BV210"], "chip 可以删 gives a batch 取消收藏 list");
   t.renderListHeader(t.visibleItems());
   assert.ok(/取消收藏（AI：可清理）3 个.*细看下一批 3 个/.test(t.el.listHeader.innerHTML), "chip 可以删 leads with batch 取消收藏, 细看 second");
+  assert.ok(t.el.listHeader.innerHTML.includes(">取消收藏（AI：可清理）3 个</button>"), "取消收藏 has no sparkle");
   t.S.classFilter.coarse = "keep";
   t.S.classFilter.fine = "drop";
   assert.strictEqual(t.S.classFilter.coarse, "keep", "细看完成's chip does not touch 粗看完成's");
@@ -359,7 +362,9 @@ function openFake(mediaId, items, decisions = {}) {
   t.S.ai.proposal = null;
 
   // The 标签 button: its text shows a pending run or proposal, and it opens 批量打 then; I always opens 批量打.
-  const btnText = () => (t.renderTop(), t.el.aiBtn.textContent);
+  const spark = '<span class="ai-spark" aria-hidden="true"></span>';
+  const btnText = () => (t.renderTop(), t.el.aiBtn.innerHTML.replace(spark, ""));
+  assert.ok((t.renderTop(), t.el.aiBtn.innerHTML.startsWith(spark)), "the 标签 button carries the AI sparkle");
   assert.deepStrictEqual([btnText(), t.tagsBtnMode()], ["标签", "manage"]);
   t.S.ai.running = true;
   assert.deepStrictEqual([btnText(), t.tagsBtnMode()], ["标签 · 运行中", "batch"]);

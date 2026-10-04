@@ -1056,7 +1056,7 @@ function renderTop() {
   el.removedBtn.textContent = `已取消收藏 ${S.removedCount}`;
   el.removedBtn.setAttribute("aria-pressed", String(S.mediaId === REMOVED));
   el.removedBtn.hidden = !S.removedCount && S.mediaId !== REMOVED;
-  el.aiBtn.textContent = `标签${S.ai.running ? " · 运行中" : S.ai.proposal ? " · 待确认" : ""}`;
+  el.aiBtn.innerHTML = `${AI_SPARK}标签${S.ai.running ? " · 运行中" : S.ai.proposal ? " · 待确认" : ""}`;
   renderStatus();
 }
 
@@ -1103,8 +1103,11 @@ function renderTabs() {
     : `<span class="muted">还没有标签</span> · <button type="button" class="link" data-tags-open aria-label="新建标签">新建标签</button>`;
 }
 
-const headBtn = (act, label, cls = "", disabled = false, verdict = "", title = "", busy = false) =>
-  `<button type="button"${cls ? ` class="${cls}"` : ""} data-head="${act}"${verdict ? ` data-verdict="${verdict}"` : ""} aria-label="${esc(label)}"${title ? ` title="${esc(title)}"` : ""}${busy ? ' aria-busy="true"' : ""}${disabled ? " disabled" : ""}>${esc(label)}</button>`;
+// Marks a control that starts an AI request (tokens.css draws it in the text color).
+const AI_SPARK = '<span class="ai-spark" aria-hidden="true"></span>';
+
+const headBtn = (act, label, cls = "", disabled = false, verdict = "", title = "", busy = false, ai = false) =>
+  `<button type="button"${cls ? ` class="${cls}"` : ""} data-head="${act}"${verdict ? ` data-verdict="${verdict}"` : ""} aria-label="${esc(label)}"${title ? ` title="${esc(title)}"` : ""}${busy ? ' aria-busy="true"' : ""}${disabled ? " disabled" : ""}>${ai ? AI_SPARK : ""}${esc(label)}</button>`;
 
 // The folder's 判断标准 next to the 粗看/细看 button; clicking it opens the editor.
 function criteriaLine() {
@@ -1140,7 +1143,7 @@ function renderListHeader(list) {
     if (S.group) return headBtn("group", `暂停细看 ${S.group.bvids.filter((b) => !needsAnalysis(b)).length}/${S.group.bvids.length}`, "primary");
     const batch = nextBatch();
     const label = batch.some((b) => S.selected.has(b)) ? `细看选中 ${batch.length} 个` : batch.length ? `细看下一批 ${batch.length} 个` : "细看";
-    return headBtn("group", label, cls, !batch.length || busy);
+    return headBtn("group", label, cls, !batch.length || busy, "", "", false, true);
   };
   const sel = selectedIn(list).length;
   const f = S.classFilter[t];
@@ -1151,7 +1154,7 @@ function renderListHeader(list) {
     if (S.stage1.running) html = headBtn("stage1", `暂停粗看 ${S.stage1.done}/${S.stage1.total}`, "primary");
     else {
       const n = stage1Pending().length;
-      html = headBtn("stage1", n ? `标题粗看这 ${n} 个` : "标题粗看", "primary", !n || busy);
+      html = headBtn("stage1", n ? `标题粗看这 ${n} 个` : "标题粗看", "primary", !n || busy, "", "", false, true);
     }
     html += criteriaLine();
   } else if (t === "coarse") {
@@ -1272,7 +1275,7 @@ function renderList() {
   }
   const expanded = S.tab === "fine" || S.tab === "read";
   const failed = S.tab === "coarse" ? list.filter((it) => failedAnalysis(it.bvid)).length : 0;
-  const failedHead = `<div class="group-head">分析失败 ${failed} · <button type="button" class="link" data-retry-failed aria-label="全部重试"${S.group || S.stage1.running ? " disabled" : ""}>全部重试</button></div>`;
+  const failedHead = `<div class="group-head">分析失败 ${failed} · <button type="button" class="link" data-retry-failed aria-label="全部重试"${S.group || S.stage1.running ? " disabled" : ""}>${AI_SPARK}全部重试</button></div>`;
   // Background progress re-renders the list; keep a note being typed in focus.
   const typing = document.activeElement?.closest?.("[data-note]");
   const caret = typing && [typing.closest(".card").dataset.bvid, typing.selectionStart, typing.selectionEnd];
@@ -1328,7 +1331,7 @@ function cardHtml(it, expanded, mark) {
       ? `<textarea class="note" data-note rows="1" placeholder="一句话备注，只有你自己看" aria-label="备注">${esc(note)}</textarea>`
       : "";
   const failed = v.failed
-    ? `<span class="fail-text">分析失败：${esc(v.failed)}</span><button type="button" data-act="retry" aria-label="重试分析">重试</button>`
+    ? `<span class="fail-text">分析失败：${esc(v.failed)}</span><button type="button" data-act="retry" aria-label="重试分析">${AI_SPARK}重试</button>`
     : "";
 
   const chips = tagIdsOf(b)
@@ -1357,7 +1360,7 @@ function cardHtml(it, expanded, mark) {
           <span class="more">
             <button type="button" data-act="tag" aria-label="打标签 (T)">标签<kbd class="key">T</kbd></button>
             <button type="button" data-act="basket" class="${inBasket ? "on" : ""}" aria-pressed="${inBasket}" aria-label="${inBasket ? "移出" : "加入"}优先看 (E)">优先看<kbd class="key">E</kbd></button>
-            <button type="button" data-act="ask" aria-label="问 AI (Q)">问 AI<kbd class="key">Q</kbd></button>
+            <button type="button" data-act="ask" aria-label="问 AI (Q)">${AI_SPARK}问 AI<kbd class="key">Q</kbd></button>
             <button type="button" data-act="select" class="${S.selected.has(b) ? "on" : ""}" aria-pressed="${S.selected.has(b)}" aria-label="选中 (X)">选中<kbd class="key">X</kbd></button>
           </span>
           <button type="button" data-act="keep" class="${keepCls}" aria-label="保留 (S)" title="只在 MoonDigest 里标记，B 站收藏夹不变"${decision ? " disabled" : ""}>保留<kbd class="key">S</kbd></button>
