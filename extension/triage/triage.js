@@ -395,8 +395,11 @@ async function init() {
   syncObsidian(await chrome.storage.sync.get({ obsidianEnabled: false }));
   chrome.storage.onChanged.addListener((changes, area) => {
     if (area === "sync" && changes.obsidianEnabled) syncObsidian({ obsidianEnabled: changes.obsidianEnabled.newValue });
-    // The history page edits the same notes; a pending local save is newer than any echo.
-    if (area === "local" && changes[K.notes] && !noteTimer) S.notes = changes[K.notes].newValue || {};
+    // The side panel and history page edit the same notes; a pending local save is newer than any echo.
+    if (area === "local" && changes[K.notes] && !noteTimer) {
+      S.notes = changes[K.notes].newValue || {};
+      render();
+    }
   });
   renderBasket();
   await loadFolders();
