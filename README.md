@@ -27,7 +27,7 @@
 
 ## 快速开始
 
-1. **安装**：从 [Releases](https://github.com/PathGao/MoonDigest/releases/latest) 下载 `moondigest-vX.Y.Z-chrome.zip`，解压到一个以后不会移动的文件夹。打开 `chrome://extensions`，打开右上角「开发者模式」，点「加载已解压的扩展程序」，选这个文件夹。
+1. **安装**：从 [Chrome 应用商店](https://chromewebstore.google.com/detail/bnjihpbocpimaipifanfkjjpfdbigggd) 添加，以后自动更新。想用最新版或者不方便上商店，见下面的「安装与更新」用 zip 包装。
 2. **配置 AI**：插件图标 → 设置 → 「AI 模型平台」 → 「添加平台」。选一个预设会自动填好地址和模型，再填 API Key，点底部「保存」。浏览器弹窗问能否访问这个地址时点允许。支持任意 OpenAI 兼容的平台。
 3. **试一下**：打开任意 B 站或 YouTube 视频，点插件图标里的 **✦ AI 总结**。
 
@@ -135,8 +135,10 @@
 
 支持 Chrome 和其他 Chromium 内核浏览器（只在 Chrome 上测试过），不支持 Firefox。网站支持 B 站视频页、稍后再看和 YouTube 视频页。
 
-- **zip 包**：见上面的快速开始。也可以克隆本仓库，加载其中的 `extension/` 目录。
-- **更新**：下载新版 zip，解压后**覆盖原来的文件夹**，再到 `chrome://extensions` 点 MoonDigest 卡片上的刷新按钮。换一个文件夹加载，Chrome 会当成新扩展，原来的数据全部丢失。源码安装的话 `git pull` 后点刷新。
+- **Chrome 应用商店**（推荐）：[添加到 Chrome](https://chromewebstore.google.com/detail/bnjihpbocpimaipifanfkjjpfdbigggd)，自动更新。新版要等商店审核，通常比 GitHub 晚几小时到几天。
+- **zip 包**：从 [Releases](https://github.com/PathGao/MoonDigest/releases/latest) 下载 `moondigest-vX.Y.Z-chrome.zip`，解压到一个以后不会移动的文件夹。打开 `chrome://extensions`，打开右上角「开发者模式」，点「加载已解压的扩展程序」，选这个文件夹。也可以克隆本仓库，加载其中的 `extension/` 目录。
+- **zip 包更新**：下载新版 zip，解压后**覆盖原来的文件夹**，再到 `chrome://extensions` 点 MoonDigest 卡片上的刷新按钮。换一个文件夹加载，Chrome 会当成新扩展，原来的数据全部丢失。源码安装的话 `git pull` 后点刷新。
+- 商店版和 zip 版在 Chrome 里是两个不同的扩展，数据不互通，二选一装就行。
 - 装过商店版 Bilibili Obsidian Clipper 的话，先停用它，免得视频页出现重复按钮。
 
 ## 隐私与数据
@@ -204,7 +206,7 @@ for f in extension/*.selftest.js extension/triage/*.selftest.js; do node "$f" ||
 
 不装插件预览页面：在 `extension/` 下起静态服务（`python3 -m http.server 8000`），打开 `/triage/triage.html` 或 `/history/history.html`，会自动加载各自 `dev/mock-chrome.js` 里的假数据。侧边栏先运行 `node extension/dev-sidepanel/build.mjs`，再打开 `/dev-sidepanel/index.html`。
 
-打包：`python3 scripts/build_release.py`，产物在 `release/` 下。README 的版本徽章和 `manifest.json` 的版本不一致时打包会失败。推送 `v` 开头的标签会由 GitHub Actions 自动打包并发布 Release。
+打包：`python3 scripts/build_release.py`，产物在 `release/` 下。README 的版本徽章和 `manifest.json` 的版本不一致时打包会失败。推送 `v` 开头的标签会由 GitHub Actions 自动打包、发布 Release，并上传 Chrome 应用商店提交审核；已有的标签也可以在 Actions 里手动重新发布。
 
 YouTube 字幕的取法参照 yt-dlp：读页面播放器的字幕轨；需要校验参数（PO token）时，从播放器已发出的字幕请求里取。拿不到时依次退回安卓客户端、嵌入式播放器和文字稿接口。这依赖播放器的内部实现，YouTube 改版后需要跟进。
 
@@ -212,7 +214,6 @@ YouTube 字幕的取法参照 yt-dlp：读页面播放器的字幕轨；需要�
 
 - 问 AI：用一句话描述需求，AI 从收藏夹里挑出带理由的视频清单，你再决定怎么处理
 - YouTube 播放列表的批量阅览
-- 上架 Chrome 应用商店
 
 ## 贡献
 
