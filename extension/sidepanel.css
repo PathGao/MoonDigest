@@ -874,6 +874,17 @@ body {
   font-size: var(--fs-xs);
 }
 
+.sp-history-manage {
+  margin-left: auto;
+  color: var(--link);
+  font-size: var(--fs-xs);
+  text-decoration: none;
+}
+
+.sp-history-manage:hover {
+  color: var(--link-hover);
+}
+
 .sp-history-clear-btn {
   border: 0;
   background: transparent;

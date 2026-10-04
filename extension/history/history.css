@@ -1,0 +1,79 @@
+[hidden] { display: none !important; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-size: var(--fs-sm);
+  line-height: 1.5;
+  font-family: var(--font-sans);
+}
+
+button, input { font: inherit; color: inherit; }
+
+button {
+  height: 28px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  cursor: pointer;
+  white-space: nowrap;
+}
+button:hover { border-color: var(--accent); }
+button:disabled { opacity: 0.5; cursor: not-allowed; }
+button.danger { color: var(--danger); border-color: var(--danger-border); background: var(--danger-bg); }
+
+.topbar, .bulkbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-4);
+}
+.topbar { background: var(--surface); border-bottom: 1px solid var(--border); }
+.brand { font-size: var(--fs-lg); }
+.count, .status { color: var(--muted); }
+#search {
+  flex: 1 1 240px;
+  height: 30px;
+  padding: 4px 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--field-bg);
+}
+.bulkbar label { display: inline-flex; align-items: center; gap: 4px; }
+
+.list {
+  display: grid;
+  gap: var(--space-2);
+  max-width: 960px;
+  padding: 0 var(--space-4) var(--space-5);
+}
+.empty { color: var(--muted); padding: var(--space-5) 0; text-align: center; }
+
+.entry {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: var(--space-3);
+  align-items: start;
+  padding: var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+}
+.entry-title { color: var(--text); font-weight: 600; font-size: var(--fs-md); text-decoration: none; overflow-wrap: anywhere; }
+a.entry-title:hover { color: var(--link-hover); text-decoration: underline; }
+.entry-meta { color: var(--muted); font-size: var(--fs-xs); }
+.entry-actions { display: flex; gap: var(--space-1); }
+
+details { margin-top: var(--space-1); }
+summary { cursor: pointer; color: var(--secondary-text); font-size: var(--fs-xs); }
+.turn-q { margin: var(--space-3) 0 var(--space-1); font-weight: 600; color: var(--text-2); }
+.turn-a { white-space: pre-wrap; overflow-wrap: anywhere; color: var(--text-2); }
+.conv-sep { margin: var(--space-3) 0 0; color: var(--faint); font-size: var(--fs-xs); border-top: 1px dashed var(--border); padding-top: var(--space-2); }
+
+@media (max-width: 560px) {
+  .entry { grid-template-columns: auto minmax(0, 1fr); }
+  .entry-actions { grid-column: 2; flex-wrap: wrap; }
+}

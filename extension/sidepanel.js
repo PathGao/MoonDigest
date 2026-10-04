@@ -205,6 +205,11 @@ function bindEvents() {
     ) {
       void refreshProvidersAndPrefsAfterExternalChange();
     }
+    // The history page deletes conversations too; without this the next save here would bring them back.
+    if (areaName === "local" && changes[CONVERSATIONS_STORAGE_KEY]) {
+      savedConversations = normalizeConversations(changes[CONVERSATIONS_STORAGE_KEY].newValue);
+      renderHistoryList();
+    }
     if (areaName === "local" && changes[PLAYER_AI_QUICK_ACTION_STORAGE_KEY] && initCompleted) {
       void handlePlayerAiQuickActionRequest(changes[PLAYER_AI_QUICK_ACTION_STORAGE_KEY].newValue);
     }

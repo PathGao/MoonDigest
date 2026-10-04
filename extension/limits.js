@@ -8,7 +8,7 @@
 
   const SUBTITLE_CACHE_ENTRIES = 50;
   const SUBTITLE_CACHE_DAYS = 30;
-  const AI_CONVERSATIONS = 60;
+  const AI_CONVERSATIONS = 500;
   const AI_SUBTITLE_MAX_CHARS = 60000;
   const AI_HISTORY_MAX_CHARS = 40000;
   const TRIAGE_RECENT_UNFAV = 50;
@@ -48,7 +48,7 @@
       {
         label: "AI 对话",
         usage: `${count(usage.aiConversations)} / ${AI_CONVERSATIONS} 段`,
-        rule: `超过 ${AI_CONVERSATIONS} 段自动删最旧的。`
+        rule: `超过 ${AI_CONVERSATIONS} 段自动删最旧的。在「AI 对话历史」页按视频查看、下载或删除。`
       },
       {
         label: "AI 每次请求读的字幕",
