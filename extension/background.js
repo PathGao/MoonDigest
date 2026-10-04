@@ -423,11 +423,13 @@ async function resolveAiSidepanelContext(contextRef) {
     previousUrl: ref.selectedSubtitleUrl,
     previousLang: ref.subtitleLang
   });
+  // Same duration guard as triage, so another video's subtitle is neither shown nor cached.
+  const valid = (segments) => segments.length > 0 && (!(meta.duration > 0) || triageSubtitleValid(segments, meta.duration));
   const body = selectedTrack
-    ? site.parseSegments(await BocSites.fetchRawCached(site, selectedTrack, { videoId: videoRef.id, cid: meta.cid }, io))
+    ? site.parseSegments(await BocSites.fetchRawCached(site, selectedTrack, { videoId: videoRef.id, cid: meta.cid }, io, valid))
     : [];
-  if (selectedTrack && !body.length) {
-    throw new Error("原视频字幕为空");
+  if (selectedTrack && !valid(body)) {
+    throw new Error(body.length ? "原视频字幕与视频时长不匹配" : "原视频字幕为空");
   }
 
   const hotComments = site.fetchComments ? await site.fetchComments(videoRef, meta, io, 18).catch(() => []) : [];

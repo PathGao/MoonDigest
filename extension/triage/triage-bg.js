@@ -322,7 +322,7 @@ const TRIAGE_BILI_IO = {
   }
 };
 
-// nav 未登录时 code=-101 但 data.wbi_img 仍在，所以不走 triageBiliGet
+// nav 未登录时 code=-101，triageBiliGet 会当错误抛出，所以只查 HTTP 与 JSON，由 triageMid 判断登录
 async function triageNav() {
   const res = await fetch("https://api.bilibili.com/x/web-interface/nav", { credentials: "include" });
   return (await triageBiliJson(res)).data || {};
@@ -520,11 +520,12 @@ async function triageBuildNote(bvid, settings) {
   const ref = { site: "bilibili", id: bvid, part: null, url: "" };
   const meta = await site.fetchMeta(ref, io);
   ref.url = site.canonicalUrl(bvid, meta.pageCount > 1 ? meta.pageIndex : 1);
-  const bundle = await site.fetchTracks(ref, meta, io).catch(() => ({ tracks: [], chapters: [] }));
+  // Throttling and fetch failures reject so no subtitle-less note is written; another video's subtitle is dropped.
+  const bundle = await site.fetchTracks(ref, meta, io);
   const track = BocSites.pickPreferredTrack(BocSites.rankTracks(bundle.tracks || []), {});
-  const body = track
-    ? await BocSites.fetchRawCached(site, track, { videoId: bvid, cid: meta.cid }, io).then(site.parseSegments).catch(() => [])
-    : [];
+  const valid = (segments) => triageSubtitleValid(segments, meta.duration);
+  const fetched = track ? site.parseSegments(await BocSites.fetchRawCached(site, track, { videoId: bvid, cid: meta.cid }, io, valid)) : [];
+  const body = valid(fetched) ? fetched : [];
   const hotComments =
     settings.includeHotCommentsInNote || !body.length ? await site.fetchComments(ref, meta, io, 20).catch(() => []) : [];
   const noteMeta = {

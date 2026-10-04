@@ -405,7 +405,8 @@
           .map((item) => {
             const lang = String(item?.lan || "");
             return {
-              id: item?.id === undefined || item?.id === null ? "" : String(item.id),
+              // id_str keeps ids past 2^53 exact; id is the fallback.
+              id: String(item?.id_str || (item?.id ?? "")),
               lang,
               label: String(item?.lan_doc || ""),
               url: httpsUrl(item?.subtitle_url),
@@ -427,7 +428,12 @@
       try {
         return await load(requests[0]);
       } catch (primaryError) {
-        if (requests.length < 2) {
+        // A stale wbi key answers -352, so the next signed call refetches nav.
+        if (io.signWbi) {
+          biliWbiKey = { key: "", at: 0 };
+        }
+        // Throttling must reach the caller: under risk control player/v2 tends to answer with no tracks.
+        if (requests.length < 2 || primaryError?.code === "THROTTLED") {
           throw primaryError;
         }
         return load(requests[1]);
@@ -1171,7 +1177,11 @@
     try {
       const now = Date.now();
       await chrome.storage.local.set({ [key]: { raw, timestamp: now } });
-      const all = await chrome.storage.local.get(null);
+      // getKeys (Chrome 130+) avoids reading every stored value just to find the cache keys.
+      const keys = chrome.storage.local.getKeys
+        ? (await chrome.storage.local.getKeys()).filter((k) => k.startsWith(BocLimits.KEYS.subtitleCachePrefix))
+        : null;
+      const all = await chrome.storage.local.get(keys);
       const stale = Object.entries(all)
         .filter(([k]) => k.startsWith(BocLimits.KEYS.subtitleCachePrefix))
         .sort(([, a], [, b]) => (Number(b?.timestamp) || 0) - (Number(a?.timestamp) || 0))
@@ -1252,7 +1262,6 @@
     biliWbiSign,
     normalizeChapters,
     parseChaptersFromDescription,
-    normalizeSegments,
     decodeXmlEntities,
     parseSrv3,
     parseJson3,

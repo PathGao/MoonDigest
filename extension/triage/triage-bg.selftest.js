@@ -6,7 +6,7 @@ const assert = require("assert");
 
 const ctx = vm.createContext({ TextEncoder, URL, URLSearchParams, console, setTimeout, clearTimeout, AbortController });
 // Browser order: background.js imports limits.js and sites.js before triage-bg.js.
-for (const file of ["../limits.js", "../sites.js", "triage-bg.js"]) vm.runInContext(fs.readFileSync(path.join(__dirname, file), "utf8"), ctx);
+for (const file of ["../limits.js", "../sites.js", "../note.js", "triage-bg.js"]) vm.runInContext(fs.readFileSync(path.join(__dirname, file), "utf8"), ctx);
 const t = ctx;
 
 // subtitle validation
@@ -285,7 +285,26 @@ assert.throws(() => t.triageParseCommand('{"new_tags":[', cmdItems, cmdTags, {})
   await assert.rejects(analyze(), (e) => e.code === "THROTTLED");
   routes = { ...baseRoutes(), "/x/player/wbi/v2": { code: -352, message: "风控" }, "/x/player/v2": { code: -352, message: "风控" } };
   await assert.rejects(analyze(), (e) => e.code === "THROTTLED");
+  // A throttled wbi/v2 is not turned into "no subtitles" by an empty player/v2 answer, so nothing is cached.
+  const noTracks = { code: 0, data: { subtitle: { subtitles: [] } } };
+  delete store.triage_analysis_BVa;
+  routes = { ...baseRoutes(), "/x/player/wbi/v2": { code: -352, message: "风控" }, "/x/player/v2": noTracks };
+  await assert.rejects(analyze(), (e) => e.code === "THROTTLED");
+  assert.strictEqual("triage_analysis_BVa" in store, false);
 
+  // Notes: throttling or a failed subtitle fetch writes nothing; another video's subtitle is dropped, not cached.
+  const buildNote = () => t.triageBuildNote("BVa", {});
+  routes = { ...baseRoutes(), "/x/player/wbi/v2": { code: -352, message: "风控" }, "/x/player/v2": { code: -352, message: "风控" } };
+  await assert.rejects(buildNote(), (e) => e.code === "THROTTLED");
+  routes = { ...baseRoutes(), [subUrl]: new Error("network") };
+  await assert.rejects(buildNote(), /network/);
+  routes = { ...baseRoutes(), [subUrl]: subtitleRaw(100) };
+  assert.strictEqual((await buildNote()).body.length, 0);
+  assert.strictEqual(subtitleKey in store, false);
+  routes = { ...baseRoutes(), "/x/player/wbi/v2": noTracks };
+  assert.strictEqual((await buildNote()).body.length, 0);
+  routes = baseRoutes();
+  assert.strictEqual((await buildNote()).body.length, 2);
 
 console.log("triage-bg selftest: all passed");
 })();
