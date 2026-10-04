@@ -3,6 +3,12 @@ name: Release
 on:
   push:
     tags: ["v*"]
+  # Re-publish an existing tag, e.g. to send it to the Chrome Web Store after a failed or skipped upload.
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing tag, e.g. v2.0.0"
+        required: true
 
 permissions:
   contents: write
@@ -12,22 +18,26 @@ jobs:
     runs-on: ubuntu-latest
     env:
       CWS_REFRESH_TOKEN: ${{ secrets.CWS_REFRESH_TOKEN }}
+      TAG: ${{ inputs.tag || github.ref_name }}
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ env.TAG }}
 
       - name: Check tag matches manifest version
         run: |
           version=$(python3 -c 'import json; print(json.load(open("extension/manifest.json"))["version"])')
-          test "v$version" = "$GITHUB_REF_NAME" || { echo "tag $GITHUB_REF_NAME != manifest v$version"; exit 1; }
+          test "v$version" = "$TAG" || { echo "tag $TAG != manifest v$version"; exit 1; }
 
       - run: python3 scripts/build_release.py
 
       - name: GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "$GITHUB_REF_NAME" release/moondigest-*-chrome.zip --title "MoonDigest $GITHUB_REF_NAME" --generate-notes
+        # A re-run for a tag that already has its release only does the store upload.
+        run: gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" release/moondigest-*-chrome.zip --title "MoonDigest $TAG" --generate-notes
 
-      # Skipped until the three OAuth secrets exist. Upload also submits for review.
+      # Skipped when the OAuth secrets are missing. Upload also submits for review.
       - name: Chrome Web Store
         if: env.CWS_REFRESH_TOKEN != ''
         env:
