@@ -524,7 +524,6 @@
       created: sanitizeFolderTemplateValue(created),
       upload_date: sanitizeFolderTemplateValue(meta?.uploadDate || ""),
       author: sanitizeFolderTemplateValue(meta?.author || ""),
-      bvid: sanitizeFolderTemplateValue(meta?.site === "bilibili" ? meta?.videoId || "" : ""),
       site: sanitizeFolderTemplateValue(meta?.site || ""),
       id: sanitizeFolderTemplateValue(meta?.videoId || "")
     };
@@ -536,7 +535,7 @@
       return "";
     }
 
-    const allowedKeys = new Set(["created", "upload_date", "author", "bvid", "site", "id"]);
+    const allowedKeys = new Set(["created", "upload_date", "author", "site", "id"]);
     const context = buildFolderTemplateContext(meta, created);
     const resolved = String(normalized).replace(/\{\{\s*([a-zA-Z0-9_]+)\s*\}\}/g, (_match, rawKey) => {
       const key = String(rawKey || "").trim().toLowerCase();
