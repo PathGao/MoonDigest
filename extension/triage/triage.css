@@ -352,9 +352,9 @@ dialog.wide { width: min(880px, calc(100% - 32px)); }
 .steps { margin: 0 0 4px; padding-left: 20px; }
 .steps li { margin: 2px 0; }
 
-/* Below desktop width the tools fold into ⋯ so the top bar stays one line. */
+/* Below desktop width the title goes and the tools fold into ⋯, so the top bar stays one line. */
 @media (max-width: 1199px) {
-  .brand-sub { display: none; }
+  .brand { display: none; }
   .more-btn { display: inline-block; }
   .tools:not(:popover-open) { display: none; }
   .tools:popover-open {
@@ -372,7 +372,6 @@ dialog.wide { width: min(880px, calc(100% - 32px)); }
 
 /* At phone width the top bar keeps folder + ⋯, and the steps scroll sideways instead of wrapping. */
 @media (max-width: 600px) {
-  .brand { display: none; }
   .topbar { padding: 8px; }
   .topbar select { max-width: 50vw; }
   .search { order: 1; flex-basis: 100%; }
