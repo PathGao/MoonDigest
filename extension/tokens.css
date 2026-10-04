@@ -6,13 +6,13 @@
 :root {
   color-scheme: light dark;
 
-  /* Design tokens: Catppuccin Latte (accents desaturated, text colors darkened to 4.5:1) and Mocha for dark. */
-  --bg: #e6e9ef;
-  --surface: #eff1f5;
-  --surface-muted: #e6e9ef;
-  --field-bg: #eff1f5;
-  --border: #ccd0da;
-  --border-strong: #bcc0cc;
+  /* Design tokens: Catppuccin Latte on white surfaces (accents desaturated, text colors darkened to 4.5:1) and Mocha for dark. */
+  --bg: #eff1f5;
+  --surface: #ffffff;
+  --surface-muted: #f6f7fa;
+  --field-bg: #ffffff;
+  --border: #dbdee5;
+  --border-strong: #ccd0da;
   --text: #4c4f69;
   --text-2: #5c5f77;
   --muted: #5c5f77;
@@ -23,18 +23,18 @@
   --link: #295ec7;
   --link-hover: #2656b6;
   --ok: #3a6f2e;
-  --ok-bg: #dbe5df;
-  --ok-border: #adcaab;
+  --ok-bg: #edf4eb;
+  --ok-border: #c0d8ba;
   --danger: #b52a48;
-  --danger-bg: #e8d9e0;
-  --danger-border: #d9a1b0;
+  --danger-bg: #f9eef0;
+  --danger-border: #e9bfc8;
   --warn: #a04b1a;
-  --warn-bg: #eae5de;
-  --warn-border: #dec8a9;
-  --info-bg: #e3ddf1;
-  --info-border: #c6b0e8;
-  --secondary-bg: #e2e6f4;
-  --secondary-border: #c5ccf1;
+  --warn-bg: #f8f1e7;
+  --warn-border: #e7d0af;
+  --info-bg: #f6f1fc;
+  --info-border: #decff4;
+  --secondary-bg: #f5f0fb;
+  --secondary-border: #dac9f2;
   --secondary-text: #7c3ed1;
 
   --radius-sm: 8px;

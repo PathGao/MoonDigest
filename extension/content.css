@@ -7,12 +7,12 @@
  */
 :where(#boc-root, .boc-confirm-overlay, #boc-reading-view, html[data-boc-reader-mode="1"]) {
   color-scheme: light;
-  --boc-bg: #e6e9ef;
-  --boc-surface: #eff1f5;
-  --boc-surface-muted: #e6e9ef;
-  --boc-field-bg: #eff1f5;
-  --boc-border: #ccd0da;
-  --boc-border-strong: #bcc0cc;
+  --boc-bg: #eff1f5;
+  --boc-surface: #ffffff;
+  --boc-surface-muted: #f6f7fa;
+  --boc-field-bg: #ffffff;
+  --boc-border: #dbdee5;
+  --boc-border-strong: #ccd0da;
   --boc-text: #4c4f69;
   --boc-text-2: #5c5f77;
   --boc-muted: #5c5f77;
@@ -23,18 +23,18 @@
   --boc-link: #295ec7;
   --boc-link-hover: #2656b6;
   --boc-ok: #3a6f2e;
-  --boc-ok-bg: #dbe5df;
-  --boc-ok-border: #adcaab;
+  --boc-ok-bg: #edf4eb;
+  --boc-ok-border: #c0d8ba;
   --boc-danger: #b52a48;
-  --boc-danger-bg: #e8d9e0;
-  --boc-danger-border: #d9a1b0;
+  --boc-danger-bg: #f9eef0;
+  --boc-danger-border: #e9bfc8;
   --boc-warn: #a04b1a;
-  --boc-warn-bg: #eae5de;
-  --boc-warn-border: #dec8a9;
-  --boc-info-bg: #e3ddf1;
-  --boc-info-border: #c6b0e8;
-  --boc-secondary-bg: #e2e6f4;
-  --boc-secondary-border: #c5ccf1;
+  --boc-warn-bg: #f8f1e7;
+  --boc-warn-border: #e7d0af;
+  --boc-info-bg: #f6f1fc;
+  --boc-info-border: #decff4;
+  --boc-secondary-bg: #f5f0fb;
+  --boc-secondary-border: #dac9f2;
   --boc-secondary-text: #7c3ed1;
   --boc-radius-sm: 8px;
   --boc-radius-md: 10px;
