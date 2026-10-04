@@ -86,14 +86,14 @@
         <div class="export-row"><button type="button" class="link" data-folders-all aria-label="全选收藏夹">全选</button><button type="button" class="link" data-folders-none aria-label="全不选收藏夹">全不选</button></div>
         <div id="folderToggles" class="folder-toggles"></div>
         <h3>AI 参数</h3>
-        <p class="dialog-hint">一般不用改。AI 平台、笔记格式和 Obsidian 在设置页；判断标准在每个收藏夹的粗分、细看按钮旁边改，标签在「管理标签」里改。</p>
+        <p class="dialog-hint">一般不用改。AI 平台、笔记格式和 Obsidian 在设置页；判断标准在每个收藏夹的粗看、细看按钮旁边改，标签在「管理标签」里改。</p>
         <label for="intervalInput">请求间隔（秒）</label>
         <input id="intervalInput" type="number" min="0" step="1" />
         <div id="thinkingRow" class="stack">
           <label class="toggle"><input id="thinkingInput" type="checkbox" /> 开启思考</label>
           <p class="dialog-hint">关：快、省（30 个标题约 3 秒）。开：判断更细，但慢约 6 倍、费约 5 倍 token。</p>
         </div>
-        <h3>标题粗分</h3>
+        <h3>标题粗看</h3>
         <label for="batchSizeInput">每批数量</label>
         <input id="batchSizeInput" type="number" min="1" max="100" step="1" />
         <label for="titleMaxInput">输出上限（token，AI 指令也用）</label>
@@ -174,7 +174,7 @@
     <dialog id="criteriaDialog" aria-label="判断标准">
       <form method="dialog">
         <h2 id="criteriaTitle">判断标准</h2>
-        <p class="dialog-hint">只对这个收藏夹生效，标题粗分和字幕细看都会发给 AI。可以不写。Enter 保存，Shift+Enter 换行。</p>
+        <p class="dialog-hint">只对这个收藏夹生效，标题粗看和字幕细看都会发给 AI。可以不写。Enter 保存，Shift+Enter 换行。</p>
         <textarea id="criteriaInput" rows="4" aria-label="判断标准" placeholder="例如：只保留 AI 工程实践相关的深度内容，资讯和娱乐可以删"></textarea>
         <div class="dialog-actions">
           <span class="spacer"></span>
@@ -252,12 +252,13 @@
       <form method="dialog">
         <h2>四步分拣</h2>
         <ol class="steps">
-          <li><strong>未分析</strong>：点「标题粗分」，AI 只看标题和简介，快、省。</li>
-          <li><strong>待细看</strong>：粗分拿不准的（AI 待定或低置信）在这里，点「细看下一批」读字幕，给总结和要点。</li>
-          <li><strong>待处理</strong>：AI 判为留、可以删的和细看完的在这里，按 AI 判断批量取消收藏或保留，也可以一个个按 D / S。</li>
-          <li><strong>已处理</strong>：取消收藏或保留过的视频；最近取消收藏的可以重新收藏。</li>
+          <li><strong>未分析</strong>：点「标题粗看」，AI 只看标题和简介，快、省。</li>
+          <li><strong>粗看完成</strong>：AI 看过标题的在这里。点「细看下一批」读字幕，给总结和要点，待定和低置信的排在前面；有把握的也可以直接按 AI 判断批量取消收藏或保留。</li>
+          <li><strong>细看完成</strong>：读过字幕的在这里，按 AI 判断批量取消收藏或保留，也可以一个个按 D / S。</li>
+          <li><strong>处理完成</strong>：取消收藏或保留过的视频；最近取消收藏的可以重新收藏。</li>
         </ol>
-        <p class="dialog-hint">每个收藏夹可以写一句判断标准（按钮旁边），AI 粗分和细看都按它判。标签是你自己的分类，按 T 打，批量打用「AI 指令」。AI 处理只在本页打开时运行，关闭页面即暂停。</p>
+        <p class="dialog-hint">标签页只看 AI 看到了哪一步；AI 判断（留 / 可以删 / 待定）是每个标签页里的筛选。</p>
+        <p class="dialog-hint">每个收藏夹可以写一句判断标准（按钮旁边），AI 粗看和细看都按它判。标签是你自己的分类，按 T 打，批量打用「AI 指令」。AI 处理只在本页打开时运行，关闭页面即暂停。</p>
         <p class="dialog-hint">优先看：按 E 把真要看的视频放进右侧清单，↑↓ 调顺序，「看下一个」打开第一个还没打开过的（打开过的标「已打开」、沉到最后），看完点「看过了」移出，不影响收藏和处理结果。「保留」只在 MoonDigest 里标记，B 站收藏夹不变。导出摘录、逐个笔记和数据备份都在「批量导出」。</p>
         <h2>快捷键</h2>
         <dl class="keys">
@@ -268,7 +269,7 @@
           <dt>T</dt><dd>打标签</dd>
           <dt>E</dt><dd>加入优先看 / 移出</dd>
           <dt>Q</dt><dd>问 AI（在侧边栏打开这个视频）</dd>
-          <dt>X</dt><dd>选中 / 取消选中（待细看、待处理的按钮、AI 指令和批量导出可只处理选中的）</dd>
+          <dt>X</dt><dd>选中 / 取消选中（粗看完成、细看完成的按钮、AI 指令和批量导出可只处理选中的）</dd>
           <dt>O / Enter</dt><dd>打开视频</dd>
           <dt>I</dt><dd>AI 指令</dd>
           <dt>/</dt><dd>搜索（Esc 清空）</dd>

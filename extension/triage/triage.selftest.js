@@ -168,31 +168,32 @@ function openFake(mediaId, items, decisions = {}) {
   assert.strictEqual(t.verdictOf(v).verdict, "unsure");
   assert.strictEqual(t.verdictOf({ ...v, invalid: true }).reason, "视频已失效");
 
-  // Progress tabs: no 粗分 → 未分析, unsure/low → 待细看, confident or 细看 done or invalid → 待处理, processed → 已处理.
+  // Progress tabs follow which AI steps ran: no 粗看 → 未分析, a 粗看 class or invalid → 粗看完成,
+  // a done 细看 → 细看完成, processed → 处理完成. Class and confidence never move a card.
   Object.assign(t.S, { analyses: {}, overrides: {}, titleRes: {}, decisions: {}, videoTags: {}, tags: [] });
   const st = (patch = {}, it = v) => {
     Object.assign(t.S, patch);
     return t.stageOf(it);
   };
   assert.strictEqual(st(), "none");
-  assert.strictEqual(st({ titleRes: { BVv: { verdict: "unsure", confidence: "high" } } }), "deep");
-  assert.strictEqual(st({ titleRes: { BVv: { verdict: "keep", confidence: "low" } } }), "deep");
-  assert.strictEqual(st({ titleRes: { BVv: { verdict: "drop", confidence: "high" } } }), "act");
-  assert.strictEqual(st({ analyses: { BVv: { status: "done", verdict: "unsure" } } }), "act");
-  assert.strictEqual(st({ analyses: { BVv: { status: "error" } }, titleRes: { BVv: { verdict: "unsure" } } }), "deep", "a failed 细看 stays in 待细看 with its retry button");
-  assert.strictEqual(st({ analyses: {}, titleRes: {} }, { ...v, invalid: true }), "act");
+  assert.strictEqual(st({ titleRes: { BVv: { verdict: "unsure", confidence: "high" } } }), "coarse");
+  assert.strictEqual(st({ titleRes: { BVv: { verdict: "keep", confidence: "low" } } }), "coarse");
+  assert.strictEqual(st({ titleRes: { BVv: { verdict: "drop", confidence: "high" } } }), "coarse", "a confident 粗看 可以删 stays in 粗看完成");
+  assert.strictEqual(st({ analyses: { BVv: { status: "done", verdict: "unsure" } } }), "fine");
+  assert.strictEqual(st({ analyses: { BVv: { status: "error" } }, titleRes: { BVv: { verdict: "unsure" } } }), "coarse", "a failed 细看 stays in 粗看完成 with its retry button");
+  assert.strictEqual(st({ analyses: {}, titleRes: {} }, { ...v, invalid: true }), "coarse");
   assert.strictEqual(t.verdictOf({ ...v, invalid: true }).verdict, "drop", "invalid videos count as 可以删");
   assert.strictEqual(st({ decisions: { BVv: { action: "keep" } } }), "done");
-  assert.strictEqual(st({ decisions: {} }, { ...v, invalid: true, bvid: "BVv" }), "act");
-  // A1: only 取消收藏 / 保留 move a video to 已处理; tags (T, AI 指令) and notes do not.
+  assert.strictEqual(st({ decisions: {} }, { ...v, invalid: true, bvid: "BVv" }), "coarse");
+  // A1: only 取消收藏 / 保留 move a video to 处理完成; tags (T, AI 指令) and notes do not.
   const tagged = { tags: [{ id: "t1", name: "x" }], videoTags: { BVv: ["t1"] }, notes: { BVv: { text: "备注", updatedAt: 1 } } };
-  assert.strictEqual(st({ ...tagged, titleRes: {} }), "none", "a tagged, noted video without 粗分 stays in 未分析");
-  assert.strictEqual(st({ titleRes: { BVv: { verdict: "unsure", confidence: "high" } } }), "deep", "tagged 待定 stays in 待细看");
-  assert.strictEqual(st({ analyses: { BVv: { status: "done", verdict: "keep" } } }), "act", "tagged after 细看 stays in 待处理");
+  assert.strictEqual(st({ ...tagged, titleRes: {} }), "none", "a tagged, noted video without 粗看 stays in 未分析");
+  assert.strictEqual(st({ titleRes: { BVv: { verdict: "unsure", confidence: "high" } } }), "coarse", "tagged 待定 stays in 粗看完成");
+  assert.strictEqual(st({ analyses: { BVv: { status: "done", verdict: "keep" } } }), "fine", "tagged after 细看 stays in 细看完成");
   assert.strictEqual(st({ decisions: { BVv: { action: "unfav" } } }), "done");
   Object.assign(t.S, { videoTags: {}, tags: [], notes: {} });
 
-  // 待细看 batch: first GROUP_SIZE open cards, or the selected ones; 待处理 buttons follow the selection too.
+  // 细看 batch: first GROUP_SIZE open cards of 粗看完成, or the selected ones; 细看完成 buttons follow the selection too.
   const pool = Array.from({ length: 12 }, (_, i) => item(200 + i));
   openFake("F", pool);
   t.S.titleRes = Object.fromEntries(pool.map((it, i) => [it.bvid, { verdict: i < 10 ? "unsure" : "drop", confidence: "high" }]));
@@ -200,9 +201,11 @@ function openFake(mediaId, items, decisions = {}) {
   assert.deepStrictEqual(plain(t.nextBatch()), pool.slice(0, 8).map((it) => it.bvid));
   t.S.selected.add("BV209");
   t.S.selected.add("BV210");
-  assert.deepStrictEqual(plain(t.nextBatch()), ["BV209"], "a selected card outside 待细看 is ignored");
-  t.S.tab = "act";
-  t.S.classFilter.act = "all";
+  assert.deepStrictEqual(plain(t.nextBatch()), ["BV209", "BV210"], "a confident 粗看 card can be 细看'd too");
+  t.S.analyses = { BV210: { status: "done", verdict: "drop" }, BV211: { status: "done", verdict: "drop" } };
+  assert.deepStrictEqual(plain(t.nextBatch()), ["BV209"], "a selected card outside 粗看完成 is ignored");
+  t.S.tab = "fine";
+  t.S.classFilter.fine = "all";
   assert.deepStrictEqual(plain(t.batchList("keep").map((it) => it.bvid)), ["BV210"], "the selection overrides the verdict scope");
   t.S.selected.clear();
   assert.deepStrictEqual(plain(t.batchList("drop").map((it) => it.bvid)), ["BV210", "BV211"]);
@@ -210,17 +213,17 @@ function openFake(mediaId, items, decisions = {}) {
   t.renderListHeader(t.visibleItems());
   for (const part of ["取消收藏（AI：可以删）2 个", "保留（AI：留）0 个", ">全部 2<", ">可以删 2<", ">留 0<", ">待定 0<"]) assert.ok(t.el.listHeader.innerHTML.includes(part), part);
   assert.ok(t.verdictBadge("BV210", t.verdictOf(pool[10])).includes('class="badge drop"') && t.verdictBadge("BV210", t.verdictOf(pool[10])).includes('<span class="ai-mark">AI</span>可以删'));
-  t.S.classFilter.act = "keep";
+  t.S.classFilter.fine = "keep";
   t.renderListHeader(t.visibleItems());
   assert.ok(t.el.listHeader.innerHTML.includes("保留（AI：留）") && !t.el.listHeader.innerHTML.includes("取消收藏（AI"), "a filter shows only its own batch button");
-  t.S.classFilter.act = "all";
+  t.S.classFilter.fine = "all";
   t.S.selected.add("BV210");
   t.renderListHeader(t.visibleItems());
   assert.ok(t.el.listHeader.innerHTML.includes("取消收藏选中的 1 个") && t.el.listHeader.innerHTML.includes("保留选中的 1 个"));
   t.S.selected.clear();
-  // A3: 待定 left after 细看 sits in 待处理 under its own filter, and a selection there drives both batch buttons.
+  // A3: 待定 left after 细看 sits in 细看完成 under its own filter, and a selection there drives both batch buttons.
   t.S.analyses = { BV200: { status: "done", verdict: "unsure" } };
-  t.S.classFilter.act = "unsure";
+  t.S.classFilter.fine = "unsure";
   assert.deepStrictEqual(plain(t.visibleItems().map((it) => it.bvid)), ["BV200"]);
   t.renderListHeader(t.visibleItems());
   assert.ok(!t.el.listHeader.innerHTML.includes("（AI") && t.el.listHeader.innerHTML.includes("按 X 选中后"), "待定 has no verdict-scoped button");
@@ -229,24 +232,38 @@ function openFake(mediaId, items, decisions = {}) {
   assert.deepStrictEqual(plain(t.batchList("keep").map((it) => it.bvid)), ["BV200"]);
   assert.deepStrictEqual(plain(t.batchList("drop").map((it) => it.bvid)), ["BV200"]);
   t.batchKeep(t.batchList("keep"));
-  assert.strictEqual(t.stageOf(pool[0]), "done", "batch 保留 moves it to 已处理");
-  Object.assign(t.S, { analyses: {}, decisions: {}, classFilter: { deep: "all", act: "all" } });
+  assert.strictEqual(t.stageOf(pool[0]), "done", "batch 保留 moves it to 处理完成");
+  Object.assign(t.S, { analyses: {}, decisions: {}, classFilter: { coarse: "all", fine: "all" } });
   t.S.selected.clear();
-  // 待细看 chips: per-class counts in the tab; a chip narrows the next batch, a selection still wins; each tab keeps its chip.
-  t.S.tab = "deep";
+  // 粗看完成 chips: per-class counts in the tab; a chip narrows the next batch, a selection still wins; each tab keeps its chip.
+  t.S.tab = "coarse";
   t.S.titleRes = Object.fromEntries(pool.map((it, i) => [it.bvid, i < 6 ? { verdict: "unsure", confidence: "high" } : { verdict: i % 2 ? "keep" : "drop", confidence: "low" }]));
   t.renderListHeader(t.visibleItems());
   for (const part of [">全部 12<", ">留 3<", ">可以删 3<", ">待定 6<", "细看下一批 8 个"]) assert.ok(t.el.listHeader.innerHTML.includes(part), part);
-  t.S.classFilter.deep = "keep";
+  assert.ok(t.verdictBadge("BV206", t.verdictOf(pool[6])).includes("低置信"), "low confidence is a badge in 粗看完成");
+  t.S.classFilter.coarse = "keep";
   assert.deepStrictEqual(plain(t.nextBatch()), ["BV207", "BV209", "BV211"], "the batch comes from the filtered videos");
-  t.S.classFilter.act = "drop";
-  assert.strictEqual(t.S.classFilter.deep, "keep", "待处理's chip does not touch 待细看's");
+  t.renderListHeader(t.visibleItems());
+  assert.ok(/保留（AI：留）3 个.*细看下一批 3 个/.test(t.el.listHeader.innerHTML), "chip 留 leads with batch 保留, 细看 second");
+  t.S.classFilter.coarse = "drop";
+  assert.deepStrictEqual(plain(t.batchList("drop").map((it) => it.bvid)), ["BV206", "BV208", "BV210"], "chip 可以删 gives a batch 取消收藏 list");
+  t.renderListHeader(t.visibleItems());
+  assert.ok(/取消收藏（AI：可以删）3 个.*细看下一批 3 个/.test(t.el.listHeader.innerHTML), "chip 可以删 leads with batch 取消收藏, 细看 second");
+  t.S.classFilter.coarse = "keep";
+  t.S.classFilter.fine = "drop";
+  assert.strictEqual(t.S.classFilter.coarse, "keep", "细看完成's chip does not touch 粗看完成's");
   t.S.selected.add("BV207");
   assert.deepStrictEqual(plain(t.nextBatch()), ["BV207"], "a selection still wins");
+  t.renderListHeader(t.visibleItems());
+  for (const part of ["细看选中 1 个", "保留选中的 1 个", "取消收藏选中的 1 个"]) assert.ok(t.el.listHeader.innerHTML.includes(part), part);
   t.S.selected.clear();
-  Object.assign(t.S, { titleRes: Object.fromEntries(pool.map((it, i) => [it.bvid, { verdict: i < 10 ? "unsure" : "drop", confidence: "high" }])), classFilter: { deep: "all", act: "all" } });
-  // A5: 待细看 lists the next batch first and failed cards last.
-  t.S.tab = "deep";
+  t.S.classFilter.coarse = "all";
+  // 细看下一批 picks 待定 and low confidence before confident classes.
+  t.S.titleRes = Object.fromEntries(pool.map((it, i) => [it.bvid, i < 6 ? { verdict: "keep", confidence: "high" } : i < 9 ? { verdict: "unsure", confidence: "high" } : { verdict: "drop", confidence: "low" }]));
+  assert.deepStrictEqual(plain(t.nextBatch()), ["BV206", "BV207", "BV208", "BV209", "BV210", "BV211", "BV200", "BV201"]);
+  Object.assign(t.S, { titleRes: Object.fromEntries(pool.map((it, i) => [it.bvid, { verdict: i < 10 ? "unsure" : "drop", confidence: "high" }])), classFilter: { coarse: "all", fine: "all" } });
+  // A5: 粗看完成 lists the next batch first and failed cards last.
+  t.S.tab = "coarse";
   t.S.analyses = { BV201: { status: "error", error: "x" } };
   const deepOrder = plain(t.visibleItems().map((it) => it.bvid));
   assert.deepStrictEqual(deepOrder.slice(0, 8), ["BV200", "BV202", "BV203", "BV204", "BV205", "BV206", "BV207", "BV208"]);
@@ -254,8 +271,8 @@ function openFake(mediaId, items, decisions = {}) {
   t.S.selected.add("BV209");
   assert.strictEqual(t.visibleItems()[0].bvid, "BV209", "a selected card is the batch and goes first");
   t.S.selected.clear();
-  Object.assign(t.S, { analyses: {}, tab: "act" });
-  assert.strictEqual(vm.runInContext("currentStage(stageCounts())", ctx), "deep", "the default tab is the earliest step with videos");
+  Object.assign(t.S, { analyses: {}, tab: "fine" });
+  assert.strictEqual(vm.runInContext("currentStage(stageCounts())", ctx), "coarse", "the default tab is the earliest step with videos");
 
   // Backup maps storage keys to sections and never exports secrets or unrelated keys.
   for (const k of Object.keys(store)) delete store[k];
@@ -278,7 +295,7 @@ function openFake(mediaId, items, decisions = {}) {
   assert.deepStrictEqual(backup.notes, { BVa: { text: "n", updatedAt: 1 } });
   assert.ok(!/sk-live-1|secret-token|triage_tab|migrated|simplified/.test(JSON.stringify(backup)), "no secrets or unrelated keys");
 
-  // Old custom-tier results: a 粗分 one counts as not classified, a done 细看 one as 待定; overrides need a known class.
+  // Old custom-tier results: a 粗看 one counts as not classified, a done 细看 one as 待定; overrides need a known class.
   const old = item(400);
   openFake("H", [old]);
   Object.assign(t.S, { analyses: {}, overrides: {}, decisions: {}, titleRes: { BV400: { verdict: "t-must", confidence: "high" } } });
@@ -286,7 +303,7 @@ function openFake(mediaId, items, decisions = {}) {
   t.S.overrides.BV400 = { verdict: "t-must" };
   assert.strictEqual(t.verdictOf(old).stage, -1);
   t.S.analyses.BV400 = { status: "done", verdict: "t-must", reason: "旧" };
-  assert.deepStrictEqual([t.verdictOf(old).verdict, t.stageOf(old)], ["unsure", "act"]);
+  assert.deepStrictEqual([t.verdictOf(old).verdict, t.stageOf(old)], ["unsure", "fine"]);
   Object.assign(t.S, { analyses: {}, overrides: {}, titleRes: {} });
 
   // 判断标准 is per folder and goes with 粗分 requests; an empty one is removed.

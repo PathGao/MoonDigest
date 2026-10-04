@@ -3,7 +3,7 @@
   // The triage page's fixed AI classes; the ids are also the CSS color classes.
   const VERDICTS = { keep: "留", drop: "可以删", unsure: "待定" };
   const ACTION = { keep: "已保留", unfav: "已取消收藏" };
-  const STAGE = ["", "标题粗分", "字幕细看", "AI 指令"];
+  const STAGE = ["", "标题粗看", "字幕细看", "AI 指令"];
   const BVID_RE = /(?:\/video\/|[?&]bvid=)(BV[0-9A-Za-z]{10})/;
 
   function bvidFromHref(href) {

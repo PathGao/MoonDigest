@@ -11,14 +11,15 @@ const SYNC_MIN_GAP_MS = 60 * 1000;
 // Catppuccin Latte accents (desaturated); chips keep --text on top, so these are only borders and tints.
 // Mauve, blue, green, red and yellow are left out: they mean where-you-are, next step, keep, delete and pending.
 const TAG_COLORS = ["#da86c3", "#298287", "#dc6d2d", "#3590a0", "#8595ea", "#cf5c66", "#2497c6", "#cf8686", "#ce9386"];
-// Progress tabs in pipeline order; 阅览 sits apart after them.
+// Progress tabs: how far a video has been looked at. The AI class is a filter inside a tab, never a tab.
+// 阅览 sits apart after them.
 const STAGES = [
   ["none", "未分析"],
-  ["deep", "待细看"],
-  ["act", "待处理"],
-  ["done", "已处理"]
+  ["coarse", "粗看完成"],
+  ["fine", "细看完成"],
+  ["done", "处理完成"]
 ];
-const STAGE_EMPTY = { none: "已全部粗分，下一步：细看", deep: "没有要细看的了，下一步：处理", act: "都处理完了，去看已处理" };
+const STAGE_EMPTY = { none: "都粗看过了，下一步：粗看完成", coarse: "这里的都细看或处理完了", fine: "都处理完了，去看处理完成" };
 const K = {
   lastFolder: "triage_last_folder",
   tags: "triage_tags", // [{ id, name, color }], one list for every folder
@@ -39,7 +40,7 @@ const K = {
 const OVERRIDE_PREFIX = "triage_verdict_override_";
 const ALL = "all"; // the 所有收藏夹 view's folder-select value
 const REMOVED = "removed"; // the 已取消收藏 view
-// The fixed AI classes: unsure (or low confidence) goes to 待细看, keep and drop to 待处理.
+// The fixed AI classes, shown as chips inside 粗看完成 and 细看完成.
 // The ids are the badge color classes too.
 const VERDICTS = { keep: "留", drop: "可以删", unsure: "待定" };
 
@@ -159,7 +160,7 @@ const S = {
   },
   tab: "none",
   readStage: "all",
-  classFilter: { deep: "all", act: "all" }, // each tab keeps its own AI-class chip; a folder switch resets both
+  classFilter: { coarse: "all", fine: "all" }, // each tab keeps its own AI-class chip; a folder switch resets both
   tagFilter: new Set(),
   query: "",
   focused: "",
@@ -374,14 +375,14 @@ function passFilter(it) {
   return words.every((w) => text.includes(w));
 }
 
-// unsure or low confidence → 待细看, keep / drop → 待处理; a done 细看 and invalid videos (可以删) → 待处理.
+// Which AI steps have run, not what they said. Invalid videos (可以删) can never be 细看'd, so they stop at 粗看;
+// a failed 细看 stays where its 粗看 put it.
 function stageOf(it) {
   const b = it.bvid;
   if (isProcessed(b)) return "done";
-  if (it.invalid || S.analyses[b]?.status === "done") return "act";
-  const v = verdictOf(it);
-  if (v.verdict === "none") return "none";
-  return v.verdict === "unsure" || v.low ? "deep" : "act";
+  if (S.analyses[b]?.status === "done") return "fine";
+  if (it.invalid || VERDICTS[S.titleRes[b]?.verdict]) return "coarse";
+  return "none";
 }
 
 function inTab(it, tab) {
@@ -393,18 +394,24 @@ function inTab(it, tab) {
 
 const failedAnalysis = (b) => S.analyses[b]?.status === "error";
 
-// 待细看 lists the batch the button will send (or is sending) first and failed cards last.
+// 待定 and low confidence are what 细看 is for, so they go first in 粗看完成.
+const unsureFirst = (it) => {
+  const v = verdictOf(it);
+  return v.verdict === "unsure" || v.low ? 0 : 1;
+};
+
+// 粗看完成 lists the batch the button will send (or is sending) first, then 待定 / low confidence, failed cards last.
 function visibleItems() {
   const list = S.items.filter((it) => inTab(it, S.tab) && passFilter(it));
-  if (S.tab !== "deep") return list;
+  if (S.tab !== "coarse") return list;
   const batch = new Set(S.group ? S.group.bvids : nextBatch());
-  const rank = ({ bvid }) => (failedAnalysis(bvid) ? 2 : batch.has(bvid) ? 0 : 1);
+  const rank = (it) => (failedAnalysis(it.bvid) ? 3 : batch.has(it.bvid) ? 0 : 1 + unsureFirst(it));
   return list.sort((x, y) => rank(x) - rank(y));
 }
 const selectedIn = (list) => list.filter((it) => S.selected.has(it.bvid));
 
 function stageCounts() {
-  const c = { none: 0, deep: 0, act: 0, done: 0, read: 0 };
+  const c = { none: 0, coarse: 0, fine: 0, done: 0, read: 0 };
   for (const it of S.items) {
     if (!passFilter(it)) continue;
     c[stageOf(it)]++;
@@ -415,11 +422,11 @@ function stageCounts() {
 // The earliest step that still has videos.
 const currentStage = (c) => STAGES.find(([k]) => c[k])?.[0] || "none";
 
-// The 待细看 batch: the selected cards of that tab, otherwise its first GROUP_SIZE.
+// The 细看 batch: the selected cards of 粗看完成, otherwise its first GROUP_SIZE, 待定 / low confidence first.
 function nextBatch() {
-  const open = S.items.filter((it) => inTab(it, "deep") && passFilter(it) && needsAnalysis(it.bvid));
+  const open = S.items.filter((it) => inTab(it, "coarse") && passFilter(it) && needsAnalysis(it.bvid));
   const sel = selectedIn(open);
-  return (sel.length ? sel : open.slice(0, GROUP_SIZE)).map((it) => it.bvid);
+  return (sel.length ? sel : open.sort((x, y) => unsureFirst(x) - unsureFirst(y)).slice(0, GROUP_SIZE)).map((it) => it.bvid);
 }
 
 // ---------- init ----------
@@ -609,7 +616,7 @@ async function openFolder(mediaId) {
   if (!ok) return;
   S.tab = removed ? "read" : currentStage(stageCounts());
   S.readStage = "all";
-  S.classFilter = { deep: "all", act: "all" };
+  S.classFilter = { coarse: "all", fine: "all" };
   S.focused = visibleItems()[0]?.bvid || "";
   render();
 }
@@ -827,7 +834,7 @@ function rebuildAll() {
   const items = mergeFolderItems(lists);
   const decisions = {};
   for (const it of items) if (S.kept[it.bvid]) decisions[it.bvid] = S.kept[it.bvid];
-  // Keep videos unfavorited from every folder this session, so they sit in 已处理 and U can undo.
+  // Keep videos unfavorited from every folder this session, so they sit in 处理完成 and U can undo.
   const have = new Set(items.map((it) => it.bvid));
   for (const it of S.items) {
     if (!have.has(it.bvid) && S.decisions[it.bvid]?.action === "unfav") {
@@ -965,7 +972,7 @@ function renderTop() {
   const classified = S.items.filter((it) => it.invalid || S.titleRes[it.bvid]).length;
   const deep = S.items.filter((it) => S.analyses[it.bvid]?.status === "done").length;
   const processed = S.items.filter((it) => isProcessed(it.bvid)).length;
-  el.progress.textContent = `已粗分 ${classified} / ${total} · 已细看 ${deep} · 已处理 ${processed}`;
+  el.progress.textContent = `已粗看 ${classified} / ${total} · 已细看 ${deep} · 已处理 ${processed}`;
   setBusy(el.refreshBtn, (S.syncing || S.loadAll?.running) && `刷新中…${S.syncing ? pageText(S.mediaId) : ""}`);
   el.allBtn.setAttribute("aria-pressed", String(S.mediaId === ALL));
   el.allBtn.hidden = !S.folders.length;
@@ -999,7 +1006,7 @@ function renderTabs() {
     `<button type="button" role="tab" class="${cls}" data-tab="${key}" aria-selected="${S.tab === key}" aria-label="${label} ${n}${key === cur ? "，当前这一步" : ""}">${mark}${label}<span class="count">${n}</span>${key === cur ? `<span class="now" aria-hidden="true"></span>` : ""}</button>`;
   const steps = STAGES.map(([key, label], i) => {
     const n = c[key];
-    // A finished step (nothing left in it) reads as done; 已处理 has no step after it to be done with.
+    // A finished step (nothing left in it) reads as done; 处理完成 has no step after it to be done with.
     const clear = !n && key !== "done";
     const cls = n ? "step" : "step zero";
     return tab(key, label, cls, `<span class="num" aria-hidden="true">${clear ? "✓" : "①②③④"[i]}</span>`, n);
@@ -1021,7 +1028,7 @@ function renderTabs() {
 const headBtn = (act, label, cls = "", disabled = false, verdict = "", title = "", busy = false) =>
   `<button type="button"${cls ? ` class="${cls}"` : ""} data-head="${act}"${verdict ? ` data-verdict="${verdict}"` : ""} aria-label="${esc(label)}"${title ? ` title="${esc(title)}"` : ""}${busy ? ' aria-busy="true"' : ""}${disabled ? " disabled" : ""}>${esc(label)}</button>`;
 
-// The folder's 判断标准 next to the 粗分/细看 button; clicking it opens the editor.
+// The folder's 判断标准 next to the 粗看/细看 button; clicking it opens the editor.
 function criteriaLine() {
   const text = criteria();
   const short = text.length > 24 ? `${text.slice(0, 24)}…` : text;
@@ -1044,39 +1051,42 @@ function renderListHeader(list) {
       .map(([k, label]) => `<button type="button" data-class-filter="${k}" aria-pressed="${S.classFilter[t] === k}">${label} ${n(k)}</button>`)
       .join("")}</span>`;
   };
+  const batchBtn = (route, verdict = "") => {
+    const run = S.unfavBatch?.token === S.folderToken && S.unfavBatch;
+    if (route === "unfav" && run) return headBtn("batch-unfav", `取消收藏中 ${run.done}/${run.total}`, "danger", true, "", "", true);
+    const n = batchList(verdict || null).length;
+    const verb = route === "unfav" ? "取消收藏" : "保留";
+    return headBtn(`batch-${route}`, verdict ? `${verb}（AI：${VERDICTS[verdict]}）${n} 个` : `${verb}选中的 ${n} 个`, route === "unfav" ? "danger" : "", !n, verdict, route === "keep" ? KEEP_TIP : "");
+  };
+  const groupBtn = (cls) => {
+    if (S.group) return headBtn("group", `暂停细看 ${S.group.bvids.filter((b) => !needsAnalysis(b)).length}/${S.group.bvids.length}`, "primary");
+    const batch = nextBatch();
+    const label = batch.some((b) => S.selected.has(b)) ? `细看选中 ${batch.length} 个` : batch.length ? `细看下一批 ${batch.length} 个` : "细看";
+    return headBtn("group", label, cls, !batch.length || busy);
+  };
+  const sel = selectedIn(list).length;
+  const f = S.classFilter[t];
   let html = "";
   if (all && t === "none") html = sortHint;
-  else if (all && t === "deep") html = seg() + sortHint;
+  else if (all && t === "coarse") html = seg() + sortHint;
   else if (t === "none") {
-    if (S.stage1.running) html = headBtn("stage1", `暂停粗分 ${S.stage1.done}/${S.stage1.total}`, "primary");
+    if (S.stage1.running) html = headBtn("stage1", `暂停粗看 ${S.stage1.done}/${S.stage1.total}`, "primary");
     else {
       const n = stage1Pending().length;
-      html = headBtn("stage1", n ? `标题粗分这 ${n} 个` : "标题粗分", "primary", !n || busy);
+      html = headBtn("stage1", n ? `标题粗看这 ${n} 个` : "标题粗看", "primary", !n || busy);
     }
     html += criteriaLine();
-  } else if (t === "deep") {
+  } else if (t === "coarse") {
+    // A selection gets 细看 plus both batch buttons; 可以删 / 留 lead with their batch button, 细看 stays secondary.
     html = seg();
-    if (S.group) {
-      const done = S.group.bvids.filter((b) => !needsAnalysis(b)).length;
-      html += headBtn("group", `暂停细看 ${done}/${S.group.bvids.length}`, "primary");
-    } else {
-      const batch = nextBatch();
-      const label = batch.some((b) => S.selected.has(b)) ? `细看选中 ${batch.length} 个` : batch.length ? `细看下一批 ${batch.length} 个` : "细看";
-      html += headBtn("group", label, "primary", !batch.length || busy);
-    }
+    if (sel) html += groupBtn("primary") + batchBtn("keep") + batchBtn("unfav");
+    else if (f === "drop") html += batchBtn("unfav", "drop") + groupBtn("");
+    else if (f === "keep") html += batchBtn("keep", "keep") + groupBtn("");
+    else html += groupBtn("primary");
     html += criteriaLine();
-  } else if (t === "act") {
+  } else if (t === "fine") {
     // A selection gets both buttons; without one 留 and 可以删 each get a button, 待定 none.
     html = seg();
-    const sel = selectedIn(list).length;
-    const f = S.classFilter.act;
-    const batchBtn = (route, verdict = "") => {
-      const run = S.unfavBatch?.token === S.folderToken && S.unfavBatch;
-      if (route === "unfav" && run) return headBtn("batch-unfav", `取消收藏中 ${run.done}/${run.total}`, "danger", true, "", "", true);
-      const n = batchList(verdict || null).length;
-      const verb = route === "unfav" ? "取消收藏" : "保留";
-      return headBtn(`batch-${route}`, verdict ? `${verb}（AI：${VERDICTS[verdict]}）${n} 个` : `${verb}选中的 ${n} 个`, route === "unfav" ? "danger" : "", !n, verdict, route === "keep" ? KEEP_TIP : "");
-    };
     if (all) html += sortHint;
     else if (sel) html += batchBtn("unfav") + batchBtn("keep");
     else {
@@ -1159,7 +1169,7 @@ function renderList() {
     return;
   }
   if (!list.length) {
-    const empty = { none: "没有未分析的视频", deep: "没有要细看的视频", act: "没有待处理的视频", done: "还没有处理过的视频" };
+    const empty = { none: "没有未分析的视频", coarse: "没有粗看完成的视频", fine: "没有细看完成的视频", done: "还没有处理过的视频" };
     el.list.innerHTML = `<p class="empty">${S.query.trim() ? "没有匹配搜索的视频" : empty[S.tab] || "这里没有视频"}</p>${recent}`;
     return;
   }
@@ -1172,17 +1182,17 @@ function renderList() {
     S.focused = list[Math.min(S.focusIndex, list.length - 1)].bvid;
   }
   S.focusIndex = list.findIndex((it) => it.bvid === S.focused);
-  // 待细看 shows which cards the button will send (or is sending) before anything runs.
+  // 粗看完成 shows which cards the button will send (or is sending) before anything runs.
   // Those cards get a left bar and a label before the title.
   let marked = new Set();
   let word = "";
-  if (S.tab === "deep") {
+  if (S.tab === "coarse") {
     const bvids = S.group ? S.group.bvids : nextBatch();
     marked = new Set(bvids);
     word = S.group ? "本批" : bvids.some((b) => S.selected.has(b)) ? "已选中" : "下一批";
   }
-  const expanded = S.tab === "act";
-  const failed = S.tab === "deep" ? list.filter((it) => failedAnalysis(it.bvid)).length : 0;
+  const expanded = S.tab === "fine";
+  const failed = S.tab === "coarse" ? list.filter((it) => failedAnalysis(it.bvid)).length : 0;
   const failedHead = `<div class="group-head">分析失败 ${failed} · <button type="button" class="link" data-retry-failed aria-label="全部重试"${S.group || S.stage1.running ? " disabled" : ""}>全部重试</button></div>`;
   // Background progress re-renders the list; keep a note being typed in focus.
   const typing = document.activeElement?.closest?.("[data-note]");
@@ -1205,8 +1215,7 @@ function renderList() {
 
 // The badge shows 「AI」 + the class name, colored by it (keep green, drop red, unsure yellow).
 const verdictLabel = (v) => VERDICTS[v] || "未分析";
-// In 待细看 every card is there for low confidence or 待定, so the marker would only repeat the tab.
-const verdictBadge = (b, v, low = v.low && S.tab !== "deep") =>
+const verdictBadge = (b, v, low = v.low) =>
   S.analyzing.has(b)
     ? `<span class="badge running">分析中…</span>`
     : `<span class="badge ${VERDICTS[v.verdict] ? v.verdict : "none"}${low ? " low" : ""}">${VERDICTS[v.verdict] ? `<span class="ai-mark">AI</span>` : ""}${esc(verdictLabel(v.verdict))}${low ? " · 低置信" : ""}</span>`;
@@ -1227,7 +1236,7 @@ function cardHtml(it, expanded, mark) {
   if (mark) cls.push("in-batch");
 
   // Where the verdict came from, as one muted meta item.
-  const source = [["", "粗分", "细看", "AI 指令"][v.stage], done && (a.source === "subtitle" ? "字幕" : "简介")].filter(Boolean).join("·");
+  const source = [["", "粗看", "细看", "AI 指令"][v.stage], done && (a.source === "subtitle" ? "字幕" : "简介")].filter(Boolean).join("·");
   const meta = [it.upper, fmtDuration(it.duration), source, it.invalid && "已失效", it.folders?.length && `收藏夹：${folderNames(it)}`].filter(Boolean);
 
   const verdict = verdictBadge(b, v);
@@ -1500,7 +1509,7 @@ async function undo() {
   setFocus(S.focused);
 }
 
-// 待处理 batch buttons act on the selected cards of the tab, otherwise on every card with this verdict (none without one).
+// Batch buttons act on the selected cards of the tab, otherwise on every card with this verdict (none without one).
 function batchList(verdict) {
   const list = visibleItems().filter((it) => !isProcessed(it.bvid));
   const sel = selectedIn(list);
@@ -1716,7 +1725,7 @@ const stage1Pending = () => S.items.filter((it) => stageOf(it) === "none" && !S.
 
 async function runStage1() {
   const token = S.folderToken;
-  // Timed-out batches are skipped for this run only, so clicking 标题粗分 again retries them.
+  // Timed-out batches are skipped for this run only, so clicking 标题粗看 again retries them.
   const timedOut = new Set();
   const pending = () => stage1Pending().filter((it) => !timedOut.has(it.bvid));
   const total = pending().length;
@@ -1730,7 +1739,7 @@ async function runStage1() {
   while (keepGoing()) {
     const batch = pending().slice(0, size);
     if (!batch.length) break;
-    S.status = `标题粗分中 ${done}/${total}`;
+    S.status = `标题粗看中 ${done}/${total}`;
     for (const it of batch) S.analyzing.add(it.bvid);
     render();
     const r = await send({ type: "triage-classify-titles", items: batch.map(aiItem), criteria: criteria() });
@@ -1768,8 +1777,8 @@ async function runStage1() {
   S.stage1.running = false;
   if (!failedOut) el.banner.hidden = true;
   S.status = timedOut.size
-    ? `标题粗分完成 ${done} 个，${timedOut.size} 个因 AI 超时跳过，再点标题粗分可重试`
-    : done ? `标题粗分完成 ${done} 个` : "";
+    ? `标题粗看完成 ${done} 个，${timedOut.size} 个因 AI 超时跳过，再点标题粗看可重试`
+    : done ? `标题粗看完成 ${done} 个` : "";
   render();
 }
 
@@ -2401,7 +2410,7 @@ function buildCsv() {
       fmtDuration(it.duration),
       videoUrl(it.bvid),
       v.verdict === "none" ? "" : verdictLabel(v.verdict),
-      ["", "标题粗分", "字幕细看", "AI 指令"][v.stage] || "",
+      ["", "标题粗看", "字幕细看", "AI 指令"][v.stage] || "",
       v.reason,
       done ? a.oneLiner || "" : "",
       done ? (a.points || []).join(" | ") : "",
@@ -2477,7 +2486,7 @@ function bindEvents() {
     if (act === "stage1") {
       if (!S.stage1.running) return runStage1();
       S.stage1.stop = true;
-      S.status = "粗分将在当前批次后暂停";
+      S.status = "粗看将在当前批次后暂停";
       renderStatus();
     } else if (act === "group") {
       if (S.group) {
