@@ -92,7 +92,7 @@
     obsidianEnabled: true,
     obsidianApiBaseUrl: "http://127.0.0.1:27123",
     obsidianApiKey: "mock",
-    noteFolder: "Clippings/{{site}}",
+    noteFolder: "MoonDigest/{{site}}",
     includeDateInFilename: true,
     includeAiChatInNote: true
   };

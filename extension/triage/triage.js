@@ -140,7 +140,6 @@ const S = {
   noteOpen: new Set(), // empty notes the user opened for editing
   settings: {
     triageIntervalSec: 8,
-    triageExportFolder: "raw/01-articles",
     triageTitleBatchSize: 30,
     triageThinking: false,
     triageTitleMaxTokens: 0,
@@ -2224,7 +2223,6 @@ async function buildBackup() {
     extensionVersion: chrome.runtime.getManifest?.().version || "",
     settings: {
       triageIntervalSec: S.settings.triageIntervalSec,
-      triageExportFolder: S.settings.triageExportFolder,
       triageTitleBatchSize: S.settings.triageTitleBatchSize
     },
     tags: [],

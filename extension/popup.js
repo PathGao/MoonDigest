@@ -248,7 +248,7 @@ function render(payload, { preserveStatus = false } = {}) {
   setText(el.propTitle, payload.title || "-");
   setText(el.propUrl, payload.url || "-");
   setText(el.propCreated, formatLocalDate());
-  setText(el.propTags, payload.tags || "clippings");
+  setText(el.propTags, payload.tags || "MoonDigest");
   el.propTitle.title = payload.title || "";
   el.propUrl.title = payload.url || "";
 

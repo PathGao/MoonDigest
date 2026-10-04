@@ -307,7 +307,6 @@ async function triageCreatedFolders() {
 // The folder's 判断标准 and the tag names come with each request from the page.
 const TRIAGE_SETTINGS_DEFAULTS = {
   triageIntervalSec: 8,
-  triageExportFolder: "raw/01-articles",
   triageTitleBatchSize: 30,
   triageThinking: false,
   triageTitleMaxTokens: 0,
@@ -529,8 +528,7 @@ async function triageWriteNote({ bvid, overwrite }) {
   if (!baseUrl || !apiKey) throw triageError("缺少 Local REST API 参数");
   const { meta, noteMeta, body, markdown } = await triageBuildNote(bvid, settings);
 
-  const { triageExportFolder } = await chrome.storage.sync.get(TRIAGE_SETTINGS_DEFAULTS);
-  const folder = BocNote.normalizeFolder(triageExportFolder) || BocNote.resolveFolderTemplate(settings.noteFolder, noteMeta);
+  const folder = BocNote.resolveFolderTemplate(settings.noteFolder, noteMeta);
   const filename = BocNote.buildNoteFilename(noteMeta, settings);
   const path = folder ? `${folder}/${filename}` : filename;
   const noteKey = BocSites.buildContextKey(noteMeta);
@@ -645,8 +643,6 @@ const TRIAGE_HANDLERS = {
     const provider = typeof loadAiProviders === "function" ? (await loadAiProviders().catch(() => [])).find((p) => p.enabled !== false) : null;
     return {
       triageIntervalSec: Number(s.triageIntervalSec) >= 0 ? Number(s.triageIntervalSec) : TRIAGE_SETTINGS_DEFAULTS.triageIntervalSec,
-      // A cleared folder stays empty (writes then use the general note folder); the default is only for a missing key.
-      triageExportFolder: typeof s.triageExportFolder === "string" ? s.triageExportFolder : TRIAGE_SETTINGS_DEFAULTS.triageExportFolder,
       triageTitleBatchSize: Number(s.triageTitleBatchSize) > 0 ? Number(s.triageTitleBatchSize) : 30,
       triageThinking: s.triageThinking === true,
       triageTitleMaxTokens: Number(s.triageTitleMaxTokens) > 0 ? Number(s.triageTitleMaxTokens) : 0,
@@ -664,15 +660,16 @@ const TRIAGE_HANDLERS = {
   },
 
   // 与 background.js 的 write-obsidian-note 同一机制：Local REST API PUT /vault/<path>
+  // 合并文件写进 B 站视频笔记所在的目录（笔记目录按 site=bilibili 解析）。
   "triage-export": async ({ filename, markdown }) => {
     const name = String(filename || "").trim();
     if (!name) throw triageError("缺少文件名");
     const settings = await getMergedSettings();
-    const { triageExportFolder } = await chrome.storage.sync.get(TRIAGE_SETTINGS_DEFAULTS);
+    const folder = BocNote.resolveFolderTemplate(settings.noteFolder, { site: "bilibili" });
     const baseUrl = String(settings.obsidianApiBaseUrl || "").trim();
     const apiKey = String(settings.obsidianApiKey || "").trim();
     if (!baseUrl || !apiKey) throw triageError("缺少 Local REST API 参数");
-    const path = `${String(triageExportFolder || "").replace(/\/+$/g, "")}/${name}`;
+    const path = folder ? `${folder}/${name}` : name;
     const encodedPath = path.split("/").filter(Boolean).map((s) => encodeURIComponent(s)).join("/");
     const res = await fetch(`${baseUrl.replace(/\/+$/g, "")}/vault/${encodedPath}`, {
       method: "PUT",

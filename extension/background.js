@@ -32,9 +32,9 @@ const DEFAULT_AI_SYSTEM_PROMPT = [
 
 const DEFAULT_SYNC_SETTINGS = {
   obsidianEnabled: false,
-  noteFolder: "Clippings/{{site}}",
+  noteFolder: "MoonDigest/{{site}}",
   obsidianApiBaseUrl: "http://127.0.0.1:27123",
-  tags: "clippings",
+  tags: "MoonDigest",
   downloadFormat: "srt",
   youtubeSubtitleLang: "auto",
   includeDateInFilename: true,
