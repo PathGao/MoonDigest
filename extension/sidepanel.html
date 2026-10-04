@@ -18,6 +18,10 @@
         </svg>
       </button>
     </header>
+    <section id="spNote" class="sp-note" hidden>
+      <button id="spNoteToggle" type="button" class="sp-note-toggle" title="这个视频的备注，只有你自己看"><span class="sp-note-label">备注</span><span id="spNoteText" class="sp-note-text"></span></button>
+      <textarea id="spNoteInput" class="sp-note-input" rows="2" placeholder="一句话备注，只有你自己看。回车保存，Shift+Enter 换行" aria-label="备注" hidden></textarea>
+    </section>
     <section id="spPreviousVideo" class="sp-prev" hidden></section>
     <main class="sp-messages" id="spMessages">
       <div class="sp-suggestions" id="spSuggestions"></div>

@@ -46,7 +46,12 @@ const els = {
   input: document.getElementById("spInput"),
   sendBtn: document.getElementById("spSendBtn"),
   generating: document.getElementById("spGenerating"),
+  note: document.getElementById("spNote"),
+  noteToggle: document.getElementById("spNoteToggle"),
+  noteText: document.getElementById("spNoteText"),
+  noteInput: document.getElementById("spNoteInput"),
 };
+const NOTES_STORAGE_KEY = "triage_notes"; // { [videoId]: { text, updatedAt } }, shared with the triage and video records pages
 
 const DEFAULT_AI_PREFS = {
   aiSystemPrompt: "",
@@ -131,6 +136,20 @@ function bindEvents() {
       .catch(() => {});
     return false;
   });
+  els.noteToggle.addEventListener("click", () => {
+    els.noteToggle.hidden = true;
+    els.noteInput.hidden = false;
+    els.noteInput.focus();
+  });
+  // Enter or Esc saves and closes, like the triage card; Shift+Enter is a newline. Never mid-IME.
+  els.noteInput.addEventListener("keydown", (e) => {
+    if (e.isComposing || e.keyCode === 229 || !(e.key === "Escape" || (e.key === "Enter" && !e.shiftKey))) return;
+    e.preventDefault();
+    void saveNote();
+  });
+  els.noteInput.addEventListener("focusout", () => {
+    if (!els.noteInput.hidden) void saveNote();
+  });
   els.presetBtn.addEventListener("click", togglePresetPopover);
   els.historyBtn.addEventListener("click", toggleHistoryPopover);
   els.exportBtn.addEventListener("click", toggleExportPopover);
@@ -210,6 +229,9 @@ function bindEvents() {
       if (currentConversationId && !activeStream && wasStored(change.oldValue) && !wasStored(change.newValue)) {
         showLiveContextInFreshConversation();
       }
+    }
+    if (areaName === "local" && changes[NOTES_STORAGE_KEY] && els.noteInput.hidden) {
+      void renderNote();
     }
     if (areaName === "local" && changes[PLAYER_AI_QUICK_ACTION_STORAGE_KEY] && initCompleted) {
       void handlePlayerAiQuickActionRequest(changes[PLAYER_AI_QUICK_ACTION_STORAGE_KEY].newValue);
@@ -512,7 +534,43 @@ function normalizeContextUrlForKey(value) {
   }
 }
 
+// The note belongs to the video (multi-part videos share one); web pages have none.
+function noteVideoId() {
+  const ref = contextData?.isVideoContext === false ? null : buildConversationContextRef(contextData);
+  return ref?.site ? ref.videoId : "";
+}
+
+async function renderNote() {
+  const id = noteVideoId();
+  els.note.hidden = !id;
+  if (!id || !els.noteInput.hidden) return;
+  const text = String((await chrome.storage.local.get(NOTES_STORAGE_KEY))[NOTES_STORAGE_KEY]?.[id]?.text || "");
+  if (id !== noteVideoId() || !els.noteInput.hidden) return;
+  els.noteInput.value = text;
+  els.noteText.textContent = text.trim() ? text : "＋ 添加";
+  els.noteText.title = text;
+  els.noteInput.dataset.videoId = id;
+}
+
+// Read-modify-write so notes the other pages saved meanwhile are kept; empty text deletes the entry.
+async function saveNote() {
+  const id = els.noteInput.dataset.videoId;
+  const text = els.noteInput.value;
+  els.noteInput.hidden = true;
+  els.noteToggle.hidden = false;
+  if (id) {
+    const notes = { ...(await chrome.storage.local.get(NOTES_STORAGE_KEY))[NOTES_STORAGE_KEY] };
+    if ((notes[id]?.text || "") !== text) {
+      if (text.trim()) notes[id] = { text, updatedAt: Date.now() };
+      else delete notes[id];
+      await chrome.storage.local.set({ [NOTES_STORAGE_KEY]: notes });
+    }
+  }
+  await renderNote();
+}
+
 function updateContextChip() {
+  void renderNote();
   if (!contextData) {
     els.contextChip.textContent = "无上下文";
     els.contextChip.title = "";

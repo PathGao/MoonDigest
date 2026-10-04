@@ -119,6 +119,69 @@ body {
   color: var(--text);
 }
 
+.sp-note[hidden],
+.sp-note-toggle[hidden],
+.sp-note-input[hidden] {
+  display: none !important;
+}
+
+/* One quiet row under the header; the textarea opens in place of the saved text. */
+.sp-note {
+  flex-shrink: 0;
+  margin: 8px 14px 0;
+}
+
+.sp-note-toggle {
+  display: flex;
+  gap: 6px;
+  width: 100%;
+  height: auto;
+  padding: 2px 0;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: var(--fs-xs);
+  text-align: left;
+  cursor: pointer;
+}
+
+.sp-note-toggle:hover {
+  color: var(--text);
+}
+
+.sp-note-label {
+  flex: 0 0 auto;
+  font-weight: 600;
+}
+
+.sp-note-text {
+  min-width: 0;
+  color: var(--text-2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sp-note-input {
+  box-sizing: border-box;
+  width: 100%;
+  padding: 6px 8px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  background: var(--field-bg);
+  color: var(--text);
+  font: inherit;
+  font-size: var(--fs-xs);
+  resize: vertical;
+}
+
+.sp-note-input:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--focus-ring);
+}
+
 .sp-prev[hidden] {
   display: none !important;
 }
