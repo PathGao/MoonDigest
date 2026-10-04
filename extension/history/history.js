@@ -13,6 +13,8 @@ let notes = {}; // bvid → { text, updatedAt } from the triage page, non-empty 
 let triageTitles = {}; // bvid → title from the triage folder snapshots
 let obsidianEnabled = false;
 const selected = new Set();
+const writing = new Set(); // entry keys with a 写入 Obsidian in flight
+let reloadTimer = 0;
 
 const esc = (value) => String(value ?? "").replace(/[&<>"']/g, (ch) => `&#${ch.charCodeAt(0)};`);
 const formatTime = (value) => new Date(Number(value) || 0).toLocaleString("zh-CN", { hour12: false, year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" });
@@ -81,6 +83,9 @@ function render() {
   const allGroups = groupByVideo(conversations);
   els.count.textContent = `${allGroups.length} 个视频 · 已存 ${conversations.length} 段（上限 ${BocLimits.AI_CONVERSATIONS}）`;
   for (const key of [...selected]) if (!groups.some((g) => g.key === key)) selected.delete(key);
+  // Storage changes re-render the list while the user reads it: keep expanded entries and the scroll.
+  const open = new Set([...els.list.querySelectorAll(".entry details[open]")].map((d) => d.closest(".entry").dataset.key));
+  const scrollY = window.scrollY;
   els.list.innerHTML = groups.length
     ? groups.map((g) => {
         const site = BocSites.SITES[g.context.site]?.label || "网页";
@@ -93,17 +98,18 @@ function render() {
             <div class="entry-meta">${esc(site)} · ${esc(formatTime(g.updatedAt))} · ${g.convs.length ? `${g.convs.length} 段对话 · ${turnCount} 轮问答` : `仅${[g.analysis && "分拣台 AI 总结", g.note && "备注"].filter(Boolean).join("和")}`}</div>
             ${g.analysis ? renderSummary(g.analysis) : ""}
             ${g.note ? `<div class="entry-note"><b>备注</b> ${esc(g.note.text.trim())}</div>` : ""}
-            ${g.convs.length ? `<details><summary>查看对话</summary>${g.convs.map((c, i) => renderConversation(c, i, g.convs.length)).join("")}</details>` : ""}
+            ${g.convs.length ? `<details${open.has(g.key) ? " open" : ""}><summary>查看对话</summary>${g.convs.map((c, i) => renderConversation(c, i, g.convs.length)).join("")}</details>` : ""}
           </div>
           <div class="entry-actions">
             <button type="button" data-act="ask" ${g.context.videoId ? "" : "disabled title=\"只有视频能继续问\""}>继续问</button>
             <button type="button" data-act="md">下载 .md</button>
-            ${obsidianEnabled ? '<button type="button" data-act="obsidian"><img class="obsidian-mark" src="/icons/obsidian.svg" alt=""> 写入 Obsidian</button>' : ""}
+            ${obsidianEnabled ? `<button type="button" data-act="obsidian"${writing.has(g.key) ? " disabled" : ""}><img class="obsidian-mark" src="/icons/obsidian.svg" alt=""> 写入 Obsidian</button>` : ""}
             <button type="button" data-act="delete" class="danger" ${g.convs.length ? "" : "disabled title=\"没有 AI 对话可删\""}>删除</button>
           </div>
         </article>`;
       }).join("")
     : `<p class="empty">${allGroups.length ? "没有匹配的对话" : "还没有 AI 对话。在视频页打开侧边栏提问后，会按视频记在这里。"}</p>`;
+  window.scrollTo(0, scrollY);
   syncBulk(groups);
 }
 
@@ -165,6 +171,7 @@ function downloadGroups(groups) {
 // 导出对话 → 写入 Obsidian (newest conversation, as auto-sync does). Without a video note — this page can't read the
 // video's subtitles to create one — or for web pages, it writes the standalone AI note.
 async function saveToObsidian(group, button) {
+  writing.add(group.key);
   button.disabled = true;
   try {
     const settings = (await chrome.runtime.sendMessage({ type: "get-settings" }))?.settings || {};
@@ -201,7 +208,8 @@ async function saveToObsidian(group, button) {
   } catch (error) {
     setStatus(`写入 Obsidian 失败：${error?.message || error}`);
   } finally {
-    button.disabled = false;
+    writing.delete(group.key);
+    render();
   }
 }
 
@@ -239,7 +247,11 @@ els.clearAll.addEventListener("click", async () => {
   setStatus("已清空全部 AI 对话");
 });
 chrome.storage.onChanged.addListener((changes, area) => {
-  if (area === "local" && Object.keys(changes).some((k) => k === KEY || k === "triage_notes" || k.startsWith("triage_analysis_") || k.startsWith("triage_snapshot_"))) void load();
+  // Triage analyses arrive in bursts; one reload per burst.
+  if (area === "local" && Object.keys(changes).some((k) => k === KEY || k === "triage_notes" || k.startsWith("triage_analysis_") || k.startsWith("triage_snapshot_"))) {
+    clearTimeout(reloadTimer);
+    reloadTimer = setTimeout(load, 300);
+  }
   if (area === "sync" && changes.obsidianEnabled) {
     obsidianEnabled = changes.obsidianEnabled.newValue === true;
     render();
