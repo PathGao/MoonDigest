@@ -155,22 +155,6 @@ function openFake(mediaId, items, decisions = {}) {
   assert.strictEqual(t.wikiLink("B站/2026-10-02-a_b.md", "a|b [[c]]\nd"), "[[B站/2026-10-02-a_b|a b c d]]");
   assert.strictEqual(t.wikiLink("x.md", "|||"), "[[x|x]]");
 
-  // U4: the cache cleanup removes only caches of videos and folders nothing references.
-  const all = {
-    triage_snapshot_1: { bvids: ["BVa"] },
-    triage_decisions_1: { BVgone: { action: "unfav" } },
-    triage_snapshot_9: { bvids: ["BVold"] },
-    triage_decisions_9: {},
-    triage_title_BVa: {}, triage_analysis_BVa: {},
-    triage_title_BVold: {}, triage_analysis_BVold: {}, triage_verdict_override_BVold: {},
-    triage_analysis_BVbasket: {}, triage_title_BVopen: {},
-    triage_tags: [], triage_video_tags: { BVold: ["t"] }, triage_basket: [{ bvid: "BVbasket" }], triage_tag_presets: [],
-    triage_notes: { BVold: { text: "n" } }
-  };
-  const plan = t.staleCacheKeys(all, [1], ["BVopen"]);
-  assert.deepStrictEqual([...plan.keys].sort(), ["triage_analysis_BVold", "triage_decisions_9", "triage_snapshot_9", "triage_title_BVold", "triage_verdict_override_BVold"]);
-  assert.deepStrictEqual([plan.videos, plan.title, plan.analysis, plan.override, plan.folders], [1, 1, 1, 1, 1]);
-
   // verdictOf precedence: invalid > override > done analysis > title result.
   const v = { bvid: "BVv", title: "v" };
   Object.assign(t.S, { analyses: {}, overrides: {}, titleRes: {} });
