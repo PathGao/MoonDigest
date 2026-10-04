@@ -43,6 +43,7 @@ button.danger { color: var(--danger); border-color: var(--danger-border); backgr
   background: var(--field-bg);
 }
 .bulkbar label { display: inline-flex; align-items: center; gap: 4px; }
+.destructive { display: inline-flex; gap: var(--space-2); margin-left: auto; }
 
 .list {
   display: grid;
@@ -66,7 +67,11 @@ button.danger { color: var(--danger); border-color: var(--danger-border); backgr
 a.entry-title:hover { color: var(--link-hover); text-decoration: underline; }
 .entry-meta { color: var(--muted); font-size: var(--fs-xs); }
 .entry-actions { display: flex; gap: var(--space-1); }
-.entry-summary, .entry-note { margin-top: var(--space-1); white-space: pre-wrap; overflow-wrap: anywhere; color: var(--text-2); font-size: var(--fs-sm); }
+.entry-actions .danger { margin-left: var(--space-2); }
+.entry-summary, .entry-note { margin-top: var(--space-1); overflow-wrap: anywhere; color: var(--text-2); font-size: var(--fs-sm); }
+.entry-note { white-space: pre-wrap; }
+.entry-summary p, .entry-summary ul { margin: 0; }
+.entry-summary ul { padding-left: 1.4em; }
 
 details { margin-top: var(--space-1); }
 summary { cursor: pointer; color: var(--text-2); font-size: var(--fs-xs); }

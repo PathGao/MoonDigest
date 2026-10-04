@@ -16,8 +16,11 @@
     <div class="bulkbar">
       <label><input id="selectAll" type="checkbox" /> 全选</label>
       <button id="bulkMd" type="button" disabled>下载所选 .md</button>
-      <button id="bulkDelete" type="button" class="danger" disabled>删除所选</button>
       <span id="status" class="status" role="status"></span>
+      <span class="destructive">
+        <button id="bulkDelete" type="button" class="danger" disabled>删除所选</button>
+        <button id="clearAll" type="button" class="danger" disabled>清空全部</button>
+      </span>
     </div>
     <main id="list" class="list"></main>
 

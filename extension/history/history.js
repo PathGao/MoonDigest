@@ -5,7 +5,7 @@ const OWN_TAB = await chrome.tabs.getCurrent();
 const KEY = BocLimits.KEYS.aiConversations;
 const NOTE_PATHS_KEY = BocLimits.KEYS.obsidianNotePaths;
 const $ = (id) => document.getElementById(id);
-const els = { list: $("list"), search: $("search"), count: $("count"), selectAll: $("selectAll"), bulkMd: $("bulkMd"), bulkDelete: $("bulkDelete"), status: $("status") };
+const els = { list: $("list"), search: $("search"), count: $("count"), selectAll: $("selectAll"), bulkMd: $("bulkMd"), bulkDelete: $("bulkDelete"), clearAll: $("clearAll"), status: $("status") };
 
 let conversations = [];
 let analyses = {}; // bvid → done triage analysis
@@ -61,6 +61,14 @@ function visibleGroups() {
   );
 }
 
+// The triage summary is markdown (> one-liner, - points, 判断 line); shown as a paragraph, a list and a line.
+function renderSummary(analysis) {
+  const lines = BocNote.buildTriageSummary(analysis).split("\n").filter(Boolean);
+  const points = lines.filter((l) => l.startsWith("- ")).map((l) => `<li>${esc(l.slice(2))}</li>`).join("");
+  const rest = lines.filter((l) => !l.startsWith("- ")).map((l) => esc(l.replace(/^> /, "")));
+  return `<div class="entry-summary">${rest[0] && !rest[0].startsWith("判断") ? `<p>${rest.shift()}</p>` : ""}${points ? `<ul>${points}</ul>` : ""}${rest.map((l) => `<p>${l}</p>`).join("")}</div>`;
+}
+
 function renderConversation(conv, index, total) {
   const turns = BocNote.buildConversationTurns(conv.messages)
     .map((t) => `<p class="turn-q">问：${esc(t.prompt)}</p><div class="turn-a">${esc(t.answer)}</div>`)
@@ -71,7 +79,7 @@ function renderConversation(conv, index, total) {
 function render() {
   const groups = visibleGroups();
   const allGroups = groupByVideo(conversations);
-  els.count.textContent = `${allGroups.length} 个视频 · ${conversations.length} / ${BocLimits.AI_CONVERSATIONS} 段对话`;
+  els.count.textContent = `${allGroups.length} 个视频 · 已存 ${conversations.length} 段（上限 ${BocLimits.AI_CONVERSATIONS}）`;
   for (const key of [...selected]) if (!groups.some((g) => g.key === key)) selected.delete(key);
   els.list.innerHTML = groups.length
     ? groups.map((g) => {
@@ -83,15 +91,15 @@ function render() {
           <div>
             ${title}
             <div class="entry-meta">${esc(site)} · ${esc(formatTime(g.updatedAt))} · ${g.convs.length ? `${g.convs.length} 段对话 · ${turnCount} 轮问答` : `仅${[g.analysis && "分拣台 AI 总结", g.note && "我的笔记"].filter(Boolean).join("和")}`}</div>
-            ${g.analysis ? `<div class="entry-summary">${esc(BocNote.buildTriageSummary(g.analysis).replace(/^> /, "").replace(/\n\n/g, "\n"))}</div>` : ""}
+            ${g.analysis ? renderSummary(g.analysis) : ""}
             ${g.note ? `<div class="entry-note"><b>我的笔记</b> ${esc(g.note.text.trim())}</div>` : ""}
             ${g.convs.length ? `<details><summary>查看对话</summary>${g.convs.map((c, i) => renderConversation(c, i, g.convs.length)).join("")}</details>` : ""}
           </div>
           <div class="entry-actions">
-            ${g.context.videoId ? '<button type="button" data-act="ask">继续问</button>' : ""}
+            <button type="button" data-act="ask" ${g.context.videoId ? "" : "disabled title=\"只有视频能继续问\""}>继续问</button>
             <button type="button" data-act="md">下载 .md</button>
             ${obsidianEnabled ? '<button type="button" data-act="obsidian"><img class="obsidian-mark" src="/icons/obsidian.svg" alt=""> 写入 Obsidian</button>' : ""}
-            ${g.convs.length ? '<button type="button" data-act="delete" class="danger">删除</button>' : ""}
+            <button type="button" data-act="delete" class="danger" ${g.convs.length ? "" : "disabled title=\"没有 AI 对话可删\""}>删除</button>
           </div>
         </article>`;
       }).join("")
@@ -103,6 +111,7 @@ function syncBulk(groups = visibleGroups()) {
   els.selectAll.checked = groups.length > 0 && groups.every((g) => selected.has(g.key));
   els.bulkMd.disabled = selected.size === 0;
   els.bulkDelete.disabled = !deletableKeys([...selected]).length;
+  els.clearAll.disabled = !conversations.length;
 }
 
 function setStatus(text) {
@@ -211,6 +220,13 @@ els.selectAll.addEventListener("change", () => {
 });
 els.bulkMd.addEventListener("click", () => downloadGroups(groupByVideo(conversations).filter((g) => selected.has(g.key))));
 els.bulkDelete.addEventListener("click", () => void deleteGroups([...selected]));
+// AI conversations only: triage analyses and notes are other features' data and stay.
+els.clearAll.addEventListener("click", async () => {
+  if (!confirm("清空全部 AI 对话？删除后不能恢复。")) return;
+  await chrome.storage.local.set({ [KEY]: [] });
+  selected.clear();
+  setStatus("已清空全部 AI 对话");
+});
 chrome.storage.onChanged.addListener((changes, area) => {
   if (area === "local" && Object.keys(changes).some((k) => k === KEY || k === "triage_notes" || k.startsWith("triage_analysis_") || k.startsWith("triage_snapshot_"))) void load();
   if (area === "sync" && changes.obsidianEnabled) {
