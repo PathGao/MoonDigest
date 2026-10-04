@@ -593,6 +593,8 @@ const TRIAGE_HANDLERS = {
         });
       }
       if (!data?.has_more || !data?.medias?.length) break;
+      // Page progress for the triage page's loading line; no open page to receive it is fine.
+      globalThis.chrome?.runtime?.sendMessage?.({ type: "triage-folder-page", mediaId: String(mediaId), page: pn })?.catch?.(() => {});
     }
     return { items };
   },

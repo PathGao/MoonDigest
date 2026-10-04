@@ -77,7 +77,7 @@ function openFake(mediaId, items, decisions = {}) {
     if (++unfavCalls === 2) openFake("B", [item(99)]);
     return { ok: true };
   };
-  await t.batchUnfav({}, many);
+  await t.batchUnfav(many);
   assert.strictEqual(unfavCalls, 2, "no chunk is sent after the folder switch");
   const savedA = store[t.K.decisions("A")];
   assert.strictEqual(Object.keys(savedA).length, 40, "both finished chunks are recorded under folder A");
