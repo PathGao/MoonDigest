@@ -30,7 +30,7 @@
     const aria = [
       "MoonDigest 分拣",
       action && ACTION[action],
-      v && `AI 分类 ${name}（${STAGE[v.stage]}${v.low ? "，低置信" : ""}）`,
+      v && `AI 判断 ${name}（${STAGE[v.stage]}${v.low ? "，低置信" : ""}）`,
       userTags.length && `标签：${userTags.map((t) => t.name).join("、")}`
     ]
       .filter(Boolean)

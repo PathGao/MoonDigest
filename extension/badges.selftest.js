@@ -23,7 +23,7 @@ assert.strictEqual(badgeInfo({ tagIds: ["gone"], tags: [] }), null, "dangling ta
 const s1 = badgeInfo({ title: { verdict: "drop", reason: "标题党", confidence: "low" } });
 assert.deepStrictEqual(plain(s1), {
   label: "AI 可清理",
-  aria: "MoonDigest 分拣，AI 分类 可清理（标题粗看，低置信）",
+  aria: "MoonDigest 分拣，AI 判断 可清理（标题粗看，低置信）",
   verdict: "drop",
   stage: 1,
   low: true,

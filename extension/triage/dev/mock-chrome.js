@@ -165,8 +165,9 @@
       store[`triage_analysis_${bvid}`] = a;
       return { ok: true, data: a };
     },
-    "triage-ai-command": async ({ items, tags }) => {
+    "triage-ai-command": async ({ items, tags: tagList }) => {
       await wait(300);
+      const tags = tagList.map((t) => t.name);
       aiCommandCalls++;
       if (aiCommandCalls === 2) return { ok: false, error: "模型返回的 JSON 无法解析" };
       const depth = (title) => (/入门|手把手|速通|三分钟|10 分钟|是什么/.test(title) ? "入门" : /原理|数学|手推|推导|解析|可视化/.test(title) ? "硬核" : "");

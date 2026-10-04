@@ -22,7 +22,7 @@ const STAGES = [
 const STAGE_EMPTY = { none: "都粗看过了，下一步：粗看完成", coarse: "这里的都细看或处理完了", fine: "都处理完了，去看处理完成" };
 const K = {
   lastFolder: "triage_last_folder",
-  tags: "triage_tags", // [{ id, name, color }], one list for every folder
+  tags: "triage_tags", // [{ id, name, color, rule? }], one list for every folder; rule is the one line the AI follows
   folderCriteria: "triage_folder_criteria", // { [mediaId]: 判断标准 }
   simplified: "triage_simplified_v1",
   videoTags: "triage_video_tags",
@@ -188,13 +188,13 @@ const el = {};
 [
   "folderSelect", "allBtn", "removedBtn", "searchInput", "searchCount", "refreshBtn", "progress", "queueStatus", "settingsBtn", "helpBtn",
   "banner", "bannerText", "bannerBtn", "bannerClose", "syncNotice", "syncText", "syncViewBtn", "syncCloseBtn", "syncDetail",
-  "tabs", "tagFilter", "manageTagsBtn", "listHeader", "list", "basket", "basketToggle", "basketCount",
+  "tabs", "tagFilter", "listHeader", "list", "basket", "basketToggle", "basketCount",
   "basketList", "basketNextBtn", "toast", "settingsDialog", "folderToggles", "thinkingRow", "intervalInput",
   "batchSizeInput", "openOptionsBtn", "thinkingInput", "titleMaxInput",
   "titleMaxHint", "analyzeMaxInput", "analyzeMaxHint", "settingsError", "backupBtn", "csvBtn", "confirmDialog",
   "confirmTitle", "confirmBody", "confirmOk", "pickerDialog", "pickerTitle", "pickerInput", "pickerList",
-  "criteriaDialog", "criteriaTitle", "criteriaInput", "tagsDialog", "tagsRows", "newTagInput", "addTagBtn", "helpDialog",
-  "aiBtn", "aiDialog", "aiForm", "aiScope", "aiScopeCount", "aiInstruction", "aiHistory",
+  "criteriaDialog", "criteriaTitle", "criteriaInput", "tagsDialog", "tagsModeManage", "tagsModeBatch", "tagsManage", "tagsRows", "newTagInput", "addTagBtn", "helpDialog",
+  "aiBtn", "aiForm", "aiScope", "aiScopeCount", "aiInstruction", "aiHistory",
   "aiTagsPreview", "aiProgress", "aiCloseBtn", "aiStopBtn", "aiRunBtn",
   "aiReview", "aiReviewSummary", "aiNotes", "aiNewTags", "aiAllBtn", "aiNoneBtn", "aiRows", "aiDiscardBtn", "aiApplyBtn",
   "writeBtn", "writeDialog", "writeScope", "writeFormat", "writeScopeCount", "writeOverwriteRow", "writeOverwrite", "writeProgress", "writeFailed", "writeStopBtn", "writeCopyBtn", "writeRunBtn", "writeMdBtn"
@@ -977,7 +977,7 @@ function renderTop() {
   el.removedBtn.textContent = `已取消收藏 ${S.removedCount}`;
   el.removedBtn.setAttribute("aria-pressed", String(S.mediaId === REMOVED));
   el.removedBtn.hidden = !S.removedCount && S.mediaId !== REMOVED;
-  el.aiBtn.textContent = S.ai.running ? "AI 指令 · 运行中" : S.ai.proposal ? "AI 指令 · 待确认" : "AI 指令";
+  el.aiBtn.textContent = `标签${S.ai.running ? " · 运行中" : S.ai.proposal ? " · 待确认" : ""}`;
   renderStatus();
 }
 
@@ -1493,7 +1493,7 @@ async function undo() {
     for (const id of [...S.tagFilter]) if (!tagById(id)) S.tagFilter.delete(id);
     saveTags();
     saveVideoTags();
-    toast(`已撤销 AI 指令对 ${entry.count} 个视频的改动`);
+    toast(`已撤销批量打标签对 ${entry.count} 个视频的改动`);
   }
   render();
   setFocus(S.focused);
@@ -1653,11 +1653,44 @@ function saveCriteria() {
   render();
 }
 
-// ---------- 管理标签 ----------
-function openTags() {
-  renderTagManager();
+// ---------- 标签 dialog: 管理 / 批量打 ----------
+// The 标签 button opens 批量打 while a run or a proposal is pending, otherwise 管理.
+function tagsBtnMode() {
+  return S.ai.running || S.ai.proposal ? "batch" : "manage";
+}
+
+function openTags(mode = "manage") {
+  showTagsMode(mode);
   el.tagsDialog.showModal();
-  el.newTagInput.focus();
+  if (mode === "manage") el.newTagInput.focus();
+}
+
+function showTagsMode(mode) {
+  const manage = mode === "manage";
+  el.tagsModeManage.setAttribute("aria-pressed", String(manage));
+  el.tagsModeBatch.setAttribute("aria-pressed", String(!manage));
+  el.tagsManage.hidden = !manage;
+  if (!manage) return S.ai.proposal && !S.ai.running ? showAiReview() : showAiForm();
+  el.aiForm.hidden = el.aiReview.hidden = true;
+  renderTagManager();
+}
+
+// A rename or rule edit from 管理; false (and nothing saved) for an empty or duplicate name.
+function saveTagEdit(t, field, value) {
+  const text = String(value ?? "").trim();
+  if (field === "name") {
+    if (!text || S.tags.some((x) => x !== t && x.name === text)) {
+      toast(text ? "已有同名标签" : "标签名不能为空", true);
+      return false;
+    }
+    t.name = text;
+  } else if (field === "rule") {
+    if (text) t.rule = text.slice(0, 80);
+    else delete t.rule;
+  } else return false;
+  saveTags();
+  render();
+  return true;
 }
 
 function renderTagManager() {
@@ -1669,6 +1702,7 @@ function renderTagManager() {
           (t) => `<div class="tag-row" data-id="${esc(t.id)}">
       <span class="dot" style="--c:${esc(t.color)}"></span>
       <input type="text" value="${esc(t.name)}" data-field="name" aria-label="标签名称" />
+      <input type="text" value="${esc(t.rule || "")}" data-field="rule" maxlength="80" placeholder="什么样的视频打这个标签（给 AI 看，可不写）" aria-label="${esc(t.name)} 的说明" />
       <span class="muted">${counts[t.id] || 0} 个视频</span>
       <button type="button" class="danger" data-field="delete" aria-label="删除标签 ${esc(t.name)}">删除</button>
     </div>`
@@ -1866,12 +1900,6 @@ function aiCommandItem(it) {
   return out;
 }
 
-function openAi() {
-  if (S.ai.proposal && !S.ai.running) showAiReview();
-  else showAiForm();
-  el.aiDialog.showModal();
-}
-
 function showAiForm() {
   el.aiForm.hidden = false;
   el.aiReview.hidden = true;
@@ -1900,7 +1928,7 @@ function renderAiForm() {
   el.aiScopeCount.textContent = n ? `${n} 个视频：${parts.join("，")}。分 ${Math.ceil(n / size)} 批发送` : "作用范围里没有视频";
   el.aiTagsPreview.innerHTML = S.tags.length
     ? `<div class="chips">AI 能用的标签：${S.tags.map((t) => `<span class="chip">${esc(t.name)}</span>`).join("")}</div><p class="dialog-hint">AI 也可以新建（最多 5 个），你确认后才创建。</p>`
-    : `<p class="dialog-hint">你还没有标签。AI 可以新建（最多 5 个），你确认后才创建。</p>`;
+    : `<p class="dialog-hint">你还没有标签。AI 可以按你的话新建（最多 5 个），你确认后才创建。想打得准，先在<button type="button" class="link" data-tags-mode="manage">「管理」</button>里建好标签、每个写一句说明。</p>`;
   el.aiHistory.innerHTML = S.aiHistory.length
     ? `<span class="muted">最近：</span>` +
       S.aiHistory
@@ -1927,7 +1955,7 @@ async function runAiCommand() {
   S.aiHistory = [instruction, ...S.aiHistory.filter((x) => x !== instruction)].slice(0, 5);
   storeSet(K.aiHistory, S.aiHistory);
   const opts = { maxNewTags: 5 };
-  const tagNames = S.tags.map((t) => t.name);
+  const tags = S.tags.map((t) => ({ name: t.name, rule: t.rule || "" }));
   const size = Math.max(1, Number(S.settings.triageTitleBatchSize) || 30);
   const scopeSet = new Set(items.map((it) => it.bvid));
   const total = Math.ceil(items.length / size);
@@ -1941,7 +1969,7 @@ async function runAiCommand() {
   for (let i = 0; i < total && keepGoing(); i++) {
     el.aiProgress.textContent = `AI 正在处理第 ${i + 1} / ${total} 批…`;
     const batch = items.slice(i * size, (i + 1) * size);
-    const r = await send({ type: "triage-ai-command", instruction, items: batch.map(aiCommandItem), tags: tagNames });
+    const r = await send({ type: "triage-ai-command", instruction, items: batch.map(aiCommandItem), tags });
     if (!r.ok) {
       p.errors.push(`第 ${i + 1} 批失败：${r.error}`);
       if (/截断|配置 AI|未授权访问/.test(r.error || "")) handleAiError(r.error);
@@ -1959,8 +1987,8 @@ async function runAiCommand() {
   if (S.ai.stop) p.errors.push("已手动停止，这里只有已完成批次的建议");
   S.ai.proposal = p;
   renderTop();
-  if (el.aiDialog.open) showAiReview();
-  else toast("AI 指令已完成，按 I 查看建议");
+  if (el.tagsDialog.open && el.tagsManage.hidden) showAiReview();
+  else toast("批量打标签已完成，按 I 查看建议");
 }
 
 function mergeAiBatch(p, data, opts, scopeSet) {
@@ -2091,7 +2119,7 @@ function applyAiProposal() {
   saveVideoTags();
   pushUndo({ kind: "aiApply", prevTags, prevVideoTags, count: rows.length });
   S.ai.proposal = null;
-  el.aiDialog.close();
+  el.tagsDialog.close();
   render();
   toast(`已应用 AI 建议：${rows.length} 个视频 · 撤销(U)`);
 }
@@ -2663,23 +2691,17 @@ function bindEvents() {
   el.criteriaDialog.addEventListener("close", () => {
     if (el.criteriaDialog.returnValue === "save") saveCriteria();
   });
-  // Edits in 管理标签 save as they happen.
-  el.manageTagsBtn.addEventListener("click", openTags);
+  // Edits in 管理 save as they happen.
+  el.aiBtn.addEventListener("click", () => openTags(tagsBtnMode()));
+  el.tagsDialog.addEventListener("click", (e) => {
+    const btn = e.target.closest("[data-tags-mode]");
+    if (btn) showTagsMode(btn.dataset.tagsMode);
+  });
   el.tagsRows.addEventListener("change", (e) => {
     const row = e.target.closest(".tag-row");
     const t = row && tagById(row.dataset.id);
-    if (!t) return;
-    if (e.target.dataset.field === "name") {
-      const name = e.target.value.trim();
-      if (!name || S.tags.some((x) => x !== t && x.name === name)) {
-        toast(name ? "已有同名标签" : "标签名不能为空", true);
-        e.target.value = t.name;
-        return;
-      }
-      t.name = name;
-    }
-    saveTags();
-    render();
+    const field = e.target.dataset.field;
+    if (t && field && !saveTagEdit(t, field, e.target.value) && field === "name") e.target.value = t.name;
   });
   el.tagsRows.addEventListener("click", (e) => {
     const btn = e.target.closest('[data-field="delete"]');
@@ -2701,8 +2723,7 @@ function bindEvents() {
     }
   });
 
-  // AI command
-  el.aiBtn.addEventListener("click", openAi);
+  // 批量打
   el.aiScope.addEventListener("change", renderAiForm);
   el.aiHistory.addEventListener("click", (e) => {
     const btn = e.target.closest("[data-h]");
@@ -2713,7 +2734,7 @@ function bindEvents() {
     S.ai.stop = true;
     el.aiProgress.textContent = "将在当前批次完成后停止…";
   });
-  el.aiCloseBtn.addEventListener("click", () => el.aiDialog.close());
+  el.aiCloseBtn.addEventListener("click", () => el.tagsDialog.close());
   el.aiNewTags.addEventListener("change", (e) => {
     const t = S.ai.proposal?.newTags[Number(e.target.closest(".ai-newtag")?.dataset.i)];
     if (t && e.target.dataset.nt === "checked") {
@@ -2841,7 +2862,7 @@ function onKey(e) {
   const map = {
     "?": () => el.helpDialog.showModal(),
     "/": () => el.searchInput.focus(),
-    i: () => openAi()
+    i: () => openTags("batch")
   };
   const nav = { j: 1, ArrowDown: 1, k: -1, ArrowUp: -1 };
   const cardKeys = { d: "unfav", s: "keep", t: "tag", e: "basket", q: "ask", x: "select", o: "open", Enter: "open" };

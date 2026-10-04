@@ -188,7 +188,7 @@ function openFake(mediaId, items, decisions = {}) {
   assert.strictEqual(t.verdictOf({ ...v, invalid: true }).verdict, "drop", "invalid videos count as 可以删");
   assert.strictEqual(st({ decisions: { BVv: { action: "keep" } } }), "done");
   assert.strictEqual(st({ decisions: {} }, { ...v, invalid: true, bvid: "BVv" }), "coarse");
-  // A1: only 取消收藏 / 保留 move a video to 处理完成; tags (T, AI 指令) and notes do not.
+  // A1: only 取消收藏 / 保留 move a video to 处理完成; tags (T, 批量打标签) and notes do not.
   const tagged = { tags: [{ id: "t1", name: "x" }], videoTags: { BVv: ["t1"] }, notes: { BVv: { text: "备注", updatedAt: 1 } } };
   assert.strictEqual(st({ ...tagged, titleRes: {} }), "none", "a tagged, noted video without 粗看 stays in 未分析");
   assert.strictEqual(st({ titleRes: { BVv: { verdict: "unsure", confidence: "high" } } }), "coarse", "tagged 待定 stays in 粗看完成");
@@ -326,7 +326,7 @@ function openFake(mediaId, items, decisions = {}) {
   t.renderListHeader(t.visibleItems());
   assert.ok(t.el.listHeader.innerHTML.includes("未设判断标准") && t.el.listHeader.innerHTML.includes(">写判断标准<"));
 
-  // AI 指令 proposals: new tags only by name, at most 5; a verdict in the reply changes nothing.
+  // 批量打标签 proposals: new tags only by name, at most 5; a verdict in the reply changes nothing.
   openFake("K", [item(600), item(601)]);
   Object.assign(t.S, { tags: [{ id: "a", name: "旧", color: "#111" }], videoTags: {}, titleRes: { BV600: { verdict: "drop", confidence: "high" } } });
   const prop = { newTags: [], rows: [], notes: [], errors: [] };
@@ -334,11 +334,41 @@ function openFake(mediaId, items, decisions = {}) {
   assert.deepStrictEqual(plain(prop.newTags.map((x) => x.name)), ["n1", "n2", "n3", "n4", "n5"]);
   assert.deepStrictEqual(plain(prop.rows), [{ bvid: "BV600", add: ["new:n1", "id:a"], remove: [], reason: "", checked: true }]);
   t.S.ai.proposal = prop;
-  t.el.aiDialog = { close() {} };
+  t.el.tagsDialog = { close() {} };
   t.applyAiProposal();
   assert.deepStrictEqual(plain(t.S.tags.map((x) => x.name)), ["旧", "n1", "n2", "n3", "n4", "n5"]);
-  assert.ok(t.S.tags.every((x) => Object.keys(x).join() === "id,name,color"), "tags carry only id, name and color");
-  assert.strictEqual(t.verdictOf(item(600)).verdict, "drop", "AI 指令 never changes the verdict");
+  assert.ok(t.S.tags.every((x) => Object.keys(x).join() === "id,name,color"), "new tags carry only id, name and color, no rule");
+  assert.strictEqual(t.verdictOf(item(600)).verdict, "drop", "批量打标签 never changes the verdict");
+
+  // 管理: a rule is saved trimmed and capped at 80, an empty one removed; 批量打 sends { name, rule } for every tag.
+  const ruled = t.S.tags[0];
+  assert.ok(t.saveTagEdit(ruled, "rule", `  ${"讲".repeat(90)} `) && ruled.rule.length === 80);
+  assert.ok(t.saveTagEdit(ruled, "rule", "  讲老技术的  ") && ruled.rule === "讲老技术的");
+  assert.deepStrictEqual(plain(store[t.K.tags][0]), { id: "a", name: "旧", color: "#111", rule: "讲老技术的" });
+  assert.ok(!t.saveTagEdit(ruled, "name", "n1") && ruled.name === "旧", "a duplicate name is refused");
+  t.el.aiInstruction = { value: "按深度分" };
+  t.el.aiScope = { value: "filter", options: [], selectedOptions: [] };
+  Object.assign(t.S, { tab: "read", aiHistory: [] });
+  handlers["triage-ai-command"] = () => ({ ok: true, data: {} });
+  await t.runAiCommand();
+  assert.deepStrictEqual(plain(sent.at(-1).tags.slice(0, 2)), [{ name: "旧", rule: "讲老技术的" }, { name: "n1", rule: "" }]);
+  t.saveTagEdit(ruled, "rule", " ");
+  assert.ok(!("rule" in ruled));
+  t.S.ai.proposal = null;
+
+  // The 标签 button: its text shows a pending run or proposal, and it opens 批量打 then; I always opens 批量打.
+  const btnText = () => (t.renderTop(), t.el.aiBtn.textContent);
+  assert.deepStrictEqual([btnText(), t.tagsBtnMode()], ["标签", "manage"]);
+  t.S.ai.running = true;
+  assert.deepStrictEqual([btnText(), t.tagsBtnMode()], ["标签 · 运行中", "batch"]);
+  Object.assign(t.S.ai, { running: false, proposal: { newTags: [], rows: [], notes: [], errors: [] } });
+  assert.deepStrictEqual([btnText(), t.tagsBtnMode()], ["标签 · 待确认", "batch"]);
+  t.S.ai.proposal = null;
+  t.el.tagsDialog = { showModal() {} };
+  t.onKey({ key: "i", target: {}, preventDefault() {} });
+  assert.deepStrictEqual([t.el.tagsManage.hidden, t.el.aiForm.hidden, t.el.aiReview.hidden], [true, false, true], "I opens the 批量打 form");
+  t.openTags();
+  assert.deepStrictEqual([t.el.tagsManage.hidden, t.el.aiForm.hidden, t.el.aiReview.hidden], [false, true, true], "openTags opens 管理");
 
   // 只处理细看过的: only videos with a done 细看 from the current filter results.
   Object.assign(t.S, { tab: "read", analyses: { BV600: { status: "done", oneLiner: "x" } }, titleRes: { BV601: { verdict: "drop", confidence: "high" } } });

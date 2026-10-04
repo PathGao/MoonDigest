@@ -110,7 +110,12 @@ assert.strictEqual(
 assert.strictEqual(t.triageCommandLine({ title: "T" }, 1), "1|T|||||");
 const cmdMsgs = t.triageBuildCommandMessages({ instruction: "把讲 AI 的都标上", tags: ["AI", "编程"], items: [{ bvid: "BV1", title: "T" }] });
 assert.ok(cmdMsgs[0].content.includes("至多 5 个"));
-assert.ok(cmdMsgs[0].content.endsWith("已有标签：AI、编程"));
+assert.ok(cmdMsgs[0].content.endsWith("没有说明只写名称）：\nAI\n编程"));
+const ruleMsgs = t.triageBuildCommandMessages({ instruction: "x", tags: [{ name: "AI", rule: " 讲大模型\n的 " }, { name: "编程", rule: "" }], items: [{ bvid: "BV1", title: "T" }] });
+assert.ok(ruleMsgs[0].content.endsWith("\nAI：讲大模型 的\n编程"), "a tag with a rule is 名称：说明, without one name only");
+assert.ok(ruleMsgs[0].content.includes("按说明决定"));
+assert.deepStrictEqual(plain(t.triageParseCommand('{"items":[{"i":1,"add":["AI","AI：讲大模型 的"]}]}', [{ bvid: "BV1" }], [{ name: "AI", rule: "讲大模型" }])).assignments, { BV1: { add: ["AI"], remove: [], reason: "" } }, "tag objects validate by name only");
+assert.ok(t.triageBuildCommandMessages({ instruction: "x", tags: [], items: [] })[0].content.endsWith("：\n（无）"));
 assert.ok(!cmdMsgs[0].content.includes('"verdict"'));
 assert.ok(cmdMsgs[1].content.includes("<<<指令>>>\n把讲 AI 的都标上\n<<<指令结束>>>"));
 assert.ok(cmdMsgs[1].content.endsWith("\n1|T|||||"));
