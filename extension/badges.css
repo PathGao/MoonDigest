@@ -25,19 +25,29 @@
 .mdg-s1 { background: transparent; border-style: dashed; border-color: currentColor; }
 .mdg-low { opacity: 0.7; }
 .mdg-chip { color: var(--mdg-c, var(--text2, #61666d)); border-color: currentColor; font-weight: 500; }
+/* Boxed with a left accent and a label so it reads as the extension's, not Bilibili's. */
 .mdg-line {
   display: flex;
   align-items: center;
-  gap: 6px;
-  margin-top: 2px;
-  font-size: 13px;
-  line-height: 20px;
+  gap: 8px;
+  margin-top: 8px;
+  padding: 6px 10px;
+  border-left: 3px solid #5b4bc4;
+  border-radius: 6px;
+  background: rgba(91, 75, 196, 0.07);
+  font-size: 15px;
+  line-height: 22px;
   color: var(--text2, #61666d);
   white-space: nowrap;
   overflow: hidden;
 }
+/* Bilibili fixes the title block at 108px; let it grow so the player doesn't cover the line. */
+.video-info-container:has(.mdg-line) { height: auto !important; padding-bottom: 8px; }
 .mdg-line .mdg-badge { margin-right: 0; }
+.mdg-line .mdg-v,
+.mdg-line .mdg-chip { padding: 2px 6px; font-size: 13px; line-height: 16px; }
 .mdg-one { overflow: hidden; text-overflow: ellipsis; }
+.mdg-brand { flex: none; color: #5b4bc4; font-size: 12px; font-weight: 600; letter-spacing: 0.02em; }
 .mdg-pop {
   position: fixed;
   z-index: 2147483000;
@@ -60,3 +70,5 @@ html.bili_dark .mdg-keep, html.bili_dark .mdg-act-keep { color: #4ac26b; backgro
 html.bili_dark .mdg-drop, html.bili_dark .mdg-act-unfav { color: #ff7b72; background: rgba(255, 123, 114, 0.16); }
 html.bili_dark .mdg-unsure { color: #e3b341; background: rgba(227, 179, 65, 0.16); }
 html.bili_dark .mdg-s1 { background: transparent; }
+html.bili_dark .mdg-line { border-left-color: #b7a0ff; background: rgba(183, 160, 255, 0.1); }
+html.bili_dark .mdg-brand { color: #b7a0ff; }
