@@ -14,8 +14,8 @@ const {
 } = BocNote;
 const PLAYER_AI_QUICK_ACTION_STORAGE_KEY = "boc_player_ai_quick_action_v1";
 const NON_VIDEO_CONTEXT_MESSAGE = "当前页不是支持的视频页面，<br>无法获取当前页面信息作为对话上下文，<br>仅支持 AI 对话。";
+const EMPTY_INTRO = "AI 会读这期视频的字幕和评论，回答你的问题。";
 const STREAM_SLOW_NOTICE_MS = 15000;
-const FOLLOW_PLAYBACK_KEY = "boc_sp_follow_playback";
 const PREVIOUS_VIDEO_CONVERSATION_KEY = "boc_sp_previous_video_conversation";
 const FOLLOWED_LIVE_VIDEO = "followed";
 const QUICK_ACTION_MAX_AGE_MS = 15000;
@@ -23,8 +23,6 @@ const QUICK_ACTION_MAX_AGE_MS = 15000;
 const els = {
   header: document.querySelector(".sp-header"),
   contextChip: document.getElementById("spContextChip"),
-  refreshBtn: document.getElementById("spRefreshBtn"),
-  followBtn: document.getElementById("spFollowBtn"),
   previousVideoBar: document.getElementById("spPreviousVideo"),
   modelSelect: document.getElementById("spModelSelect"),
   settingsBtn: document.getElementById("spSettingsBtn"),
@@ -44,10 +42,10 @@ const els = {
   exportBtn: document.getElementById("spExportBtn"),
   exportPopover: document.getElementById("spExportPopover"),
   historyList: document.getElementById("spHistoryList"),
-  historyClearBtn: document.getElementById("spHistoryClearBtn"),
   messages: document.getElementById("spMessages"),
   input: document.getElementById("spInput"),
-  stopBtn: document.getElementById("spStopBtn"),
+  sendBtn: document.getElementById("spSendBtn"),
+  generating: document.getElementById("spGenerating"),
 };
 
 const DEFAULT_AI_PREFS = {
@@ -76,11 +74,9 @@ let contextNoticeTimer = 0;
 let shouldAutoScrollMessages = true;
 let liveContextSyncTimer = 0;
 let liveContextSyncForceRefresh = false;
-let modelSelectMeasureCanvas = null;
 let streamSlowNoticeTimer = 0;
 let streamFirstTokenReceived = false;
 let initCompleted = false;
-let followPlayback = localStorage.getItem(FOLLOW_PLAYBACK_KEY) !== "0";
 let lastLiveVideoUrl = "";
 let previousVideoConversationId = "";
 let previousVideoExpanded = false;
@@ -92,7 +88,6 @@ init().catch((err) => {
 
 async function init() {
   bindEvents();
-  renderFollowButton();
   await loadProvidersAndPrefs();
   await loadSavedConversations();
   await loadPreviousVideoConversationId();
@@ -121,12 +116,6 @@ function bindEvents() {
   });
   els.newChatBtn.addEventListener("click", () => {
     void startNewConversation();
-  });
-  els.refreshBtn.addEventListener("click", () => refreshContextManually());
-  els.followBtn?.addEventListener("click", () => {
-    followPlayback = !followPlayback;
-    localStorage.setItem(FOLLOW_PLAYBACK_KEY, followPlayback ? "1" : "0");
-    renderFollowButton();
   });
   els.previousVideoBar?.addEventListener("click", handlePreviousVideoBarClick);
   chrome.runtime.onMessage.addListener((message, sender) => {
@@ -160,11 +149,10 @@ function bindEvents() {
     if (note) BocDownload.text(note.filename, note.content);
     else showConversationContextNotice("当前没有可下载的对话。", 2200);
   });
-  els.historyClearBtn?.addEventListener("click", () => {
-    void clearAllConversations();
-  });
-  els.stopBtn?.addEventListener("click", () => {
-    stopActiveStream();
+  // One button in place: 发送, or 停止 while a reply streams.
+  els.sendBtn.addEventListener("click", () => {
+    if (activeStream) stopActiveStream();
+    else void sendMessage();
   });
   els.presetAddBtn.addEventListener("click", addPresetPrompt);
   els.presetInput.addEventListener("keydown", (e) => {
@@ -177,9 +165,7 @@ function bindEvents() {
     if (els.modelSelect.value) {
       localStorage.setItem(SELECTED_PROVIDER_KEY, els.modelSelect.value);
     }
-    updateModelSelectWidth();
   });
-  window.addEventListener("resize", updateModelSelectWidth);
   document.addEventListener("click", handleDocumentClick);
   document.addEventListener("visibilitychange", () => {
     if (!document.hidden) {
@@ -241,11 +227,10 @@ function autosizeInput() {
 function setStreamingUiState(isStreaming, { stopping = false } = {}) {
   els.input.disabled = isStreaming;
   renderFollowups();
-  if (els.stopBtn) {
-    els.stopBtn.hidden = !isStreaming;
-    els.stopBtn.disabled = stopping;
-    els.stopBtn.textContent = stopping ? "停止中..." : "停止";
-  }
+  els.generating.hidden = !isStreaming;
+  els.sendBtn.disabled = stopping;
+  els.sendBtn.classList.toggle("is-stop", isStreaming);
+  els.sendBtn.textContent = isStreaming ? (stopping ? "停止中" : "停止") : "发送";
 }
 
 async function loadProvidersAndPrefs({ preferredProviderId = "" } = {}) {
@@ -273,7 +258,6 @@ function renderModelSelect(preferredProviderId = "") {
   if (!providers.length) {
     els.modelSelect.innerHTML = '<option value="">未配置平台</option>';
     els.modelSelect.disabled = true;
-    updateModelSelectWidth();
     return;
   }
 
@@ -288,7 +272,6 @@ function renderModelSelect(preferredProviderId = "") {
   const matchedProvider = providers.find((item) => item.id === savedProviderId) || providers[0];
   els.modelSelect.value = matchedProvider?.id || "";
   els.modelSelect.disabled = false;
-  updateModelSelectWidth();
 }
 
 async function refreshProvidersAndPrefsAfterExternalChange() {
@@ -390,58 +373,6 @@ async function runPlayerAiQuickActionPrompt(prompt) {
   await sendMessage();
 }
 
-function updateModelSelectWidth() {
-  if (!els.modelSelect) {
-    return;
-  }
-  const selectedOption = els.modelSelect.options[els.modelSelect.selectedIndex];
-  const text = String(selectedOption?.textContent || "").trim() || "未配置平台";
-  const computedStyle = window.getComputedStyle(els.modelSelect);
-  const measuredTextWidth = measureTextWidth(text, computedStyle);
-  const extraCharsWidth = measureTextWidth("000", computedStyle);
-  const desiredWidth = Math.ceil(measuredTextWidth + extraCharsWidth + 36);
-  const minWidth = 92;
-  const maxWidth = getModelSelectMaxWidth();
-  const nextWidth = Math.max(minWidth, Math.min(desiredWidth, maxWidth));
-  els.modelSelect.style.width = `${nextWidth}px`;
-}
-
-function measureTextWidth(text, style) {
-  if (!modelSelectMeasureCanvas) {
-    modelSelectMeasureCanvas = document.createElement("canvas");
-  }
-  const ctx = modelSelectMeasureCanvas.getContext("2d");
-  if (!ctx) {
-    return text.length * 8;
-  }
-  const fontStyle = style?.fontStyle || "normal";
-  const fontVariant = style?.fontVariant || "normal";
-  const fontWeight = style?.fontWeight || "400";
-  const fontSize = style?.fontSize || "11px";
-  const fontFamily = style?.fontFamily || "sans-serif";
-  ctx.font = `${fontStyle} ${fontVariant} ${fontWeight} ${fontSize} ${fontFamily}`;
-  return ctx.measureText(text).width;
-}
-
-function getModelSelectMaxWidth() {
-  const header = els.header;
-  if (!header || !els.contextChip || !els.refreshBtn || !els.settingsBtn) {
-    return 172;
-  }
-  const style = window.getComputedStyle(header);
-  const gap = Number.parseFloat(style.columnGap || style.gap || "0") || 0;
-  const paddingLeft = Number.parseFloat(style.paddingLeft || "0") || 0;
-  const paddingRight = Number.parseFloat(style.paddingRight || "0") || 0;
-  const contentWidth = header.clientWidth - paddingLeft - paddingRight;
-  const siblingWidth =
-    els.contextChip.offsetWidth +
-    els.refreshBtn.offsetWidth +
-    (els.followBtn?.offsetWidth || 0) +
-    els.settingsBtn.offsetWidth +
-    gap * (els.followBtn ? 4 : 3);
-  return Math.max(92, Math.floor(contentWidth - siblingWidth));
-}
-
 // A conversation owns the context its first question was asked in. Tab changes only update the live context
 // (and contextData while no conversation or reply holds it), so they never relabel an existing or in-flight one.
 function isContextBound() {
@@ -492,7 +423,7 @@ async function loadContextState({ forceRefresh = false, silent = false, follow =
     }
     updateContextChip();
     if (!silent && !isContextBound()) {
-      resetConversationView(escapeHtml(resp?.error || "当前页面上下文读取失败。"));
+      resetConversationView(escapeHtml(resp?.error || "当前页面上下文读取失败。"), { retry: true });
     }
     return false;
   }
@@ -635,16 +566,13 @@ async function openCurrentContextUrl() {
 
 function renderInitialState() {
   updateSidepanelLayoutState();
-  if (!contextData) {
-    resetConversationView("当前页面不是支持的视频页，无法读取视频信息。");
+  // Without a platform nothing else works, so the empty state only offers to add one.
+  if (!providers.length) {
+    resetConversationView("");
     return;
   }
-  if (!providers.length) {
-    resetConversationView('还没有配置 AI 平台，<a href="#" id="spOpenSettings">前往设置</a>');
-    document.getElementById("spOpenSettings")?.addEventListener("click", (e) => {
-      e.preventDefault();
-      chrome.runtime.openOptionsPage();
-    });
+  if (!contextData) {
+    resetConversationView("当前页面信息读取失败。", { retry: true });
     return;
   }
   if (chatHistory.length) {
@@ -658,13 +586,22 @@ function renderInitialState() {
   resetConversationView("");
 }
 
-function resetConversationView(stateHtml = "") {
+// retry: a context read failed, so offer to read it again (the context otherwise refreshes on its own).
+function resetConversationView(stateHtml = "", { retry = false } = {}) {
   updateSidepanelLayoutState();
   els.messages.innerHTML = "";
   if (stateHtml) {
     const stateNode = document.createElement("div");
     stateNode.className = "sp-center-error";
     stateNode.innerHTML = stateHtml;
+    if (retry) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "sp-chip sp-grant-btn";
+      button.textContent = "重试";
+      button.addEventListener("click", () => void refreshContextManually());
+      stateNode.append(document.createElement("br"), button);
+    }
     els.messages.appendChild(stateNode);
   }
   suggestionsNode = document.createElement("div");
@@ -682,15 +619,26 @@ function renderSuggestions() {
   if (!suggestionsNode) {
     return;
   }
-  if (!contextData || !providers.length || chatHistory.length || contextData.isVideoContext === false) {
-    suggestionsNode.innerHTML = "";
+  suggestionsNode.innerHTML = "";
+  if (chatHistory.length) {
     return;
   }
+  if (!providers.length) {
+    suggestionsNode.innerHTML = `<p class="sp-empty-intro">${EMPTY_INTRO}先添加一个 AI 平台。</p><button type="button" class="sp-summary-btn">去设置页添加平台</button>`;
+    suggestionsNode.querySelector("button").addEventListener("click", () => chrome.runtime.openOptionsPage());
+    return;
+  }
+  if (!contextData || contextData.isVideoContext === false) {
+    return;
+  }
+  // The intro, a few follow-ups to ask straight away, then the one-click summary as the main action.
   const prompt = aiPrefs.playerAiQuickPrompt;
-  suggestionsNode.innerHTML = prompt
-    ? `<button type="button" class="sp-summary-btn" title="${escapeHtml(prompt)}">总结这期视频</button>`
-    : "";
-  suggestionsNode.querySelector("button")?.addEventListener("click", () => sendPrompt(prompt));
+  const quick = (aiPrefs.aiPresetPrompts || []).slice(0, 3);
+  suggestionsNode.innerHTML = `<p class="sp-empty-intro">${EMPTY_INTRO}</p>${quick
+    .map((item) => `<button type="button" class="sp-followup-chip" title="${escapeHtml(item)}">${escapeHtml(item)}</button>`)
+    .join("")}${prompt ? `<button type="button" class="sp-summary-btn" title="${escapeHtml(prompt)}">AI 总结</button>` : ""}`;
+  suggestionsNode.querySelectorAll(".sp-followup-chip").forEach((btn, index) => btn.addEventListener("click", () => sendPrompt(quick[index])));
+  suggestionsNode.querySelector(".sp-summary-btn")?.addEventListener("click", () => sendPrompt(prompt));
   void renderTriageSummary(suggestionsNode);
 }
 
@@ -781,34 +729,22 @@ function renderHistoryList() {
   if (!els.historyList) {
     return;
   }
-  if (els.historyClearBtn) {
-    els.historyClearBtn.hidden = savedConversations.length === 0;
-  }
-  if (!savedConversations.length) {
-    els.historyList.innerHTML = '<span class="sp-history-empty">还没有历史对话</span>';
+  // Only the shown video's conversations; the history page lists and searches all of them.
+  const conversations = savedConversations.filter(
+    (conversation) => conversation.id === currentConversationId || doesConversationMatchCurrentContext(conversation, contextData, currentContextKey)
+  );
+  if (!conversations.length) {
+    els.historyList.innerHTML = '<span class="sp-history-empty">这里还没有历史对话</span>';
     return;
   }
 
-  const liveVideoRef = liveContextData?.isVideoContext ? liveContextData : null;
-  const canHighlightLiveMatches = Boolean(
-    liveVideoRef &&
-    currentConversationMeta?.pinnedContext &&
-    currentConversationMeta?.contextUrl &&
-    !doesTabMatchContextUrl(liveVideoRef.url || liveTabUrl, currentConversationMeta.contextUrl || "")
-  );
-
-  els.historyList.innerHTML = savedConversations
+  els.historyList.innerHTML = conversations
     .map((conversation) => {
       const isActive = conversation.id === currentConversationId;
-      const isLiveMatch = Boolean(
-        !isActive &&
-        canHighlightLiveMatches &&
-        doesConversationMatchCurrentContext(conversation, liveVideoRef, liveContextKey)
-      );
       const metaText = formatConversationTimestamp(conversation.updatedAt || conversation.createdAt);
       const titleDisplay = buildConversationTitleDisplay(conversation.title, 30);
       return `
-        <div class="sp-history-item ${isActive ? "is-active" : ""} ${isLiveMatch ? "is-live-match" : ""}" data-id="${escapeHtml(conversation.id)}">
+        <div class="sp-history-item ${isActive ? "is-active" : ""}" data-id="${escapeHtml(conversation.id)}">
           <button type="button" class="sp-history-open" data-id="${escapeHtml(conversation.id)}">
             <span class="sp-history-title" title="${escapeHtml(conversation.title)}">
               <span class="sp-history-title-main">${escapeHtml(titleDisplay.main)}</span>
@@ -1107,19 +1043,6 @@ function showLiveContextInFreshConversation() {
   renderInitialState();
 }
 
-async function clearAllConversations() {
-  if (!savedConversations.length) {
-    return;
-  }
-  if (!confirm("清空全部历史对话？删除后不能恢复。")) {
-    return;
-  }
-  showLiveContextInFreshConversation();
-  savedConversations = [];
-  await saveConversations();
-  hideHistoryPopover();
-}
-
 function togglePresetPopover(event) {
   event?.stopPropagation();
   hideHistoryPopover();
@@ -1219,7 +1142,7 @@ async function syncLiveContextState(forceRefresh = false) {
 // 跟随播放：只在当前对话绑定的是“刚才在播的视频”（或还没有对话）时才切走，
 // 用户主动打开的无关历史对话不动。视频按 URL（站点、id、分 P）比较，标签页 URL 和完整上下文都能判断。
 function isFollowCandidate(fromUrl, toUrl) {
-  if (!followPlayback || !fromUrl || !toUrl || doesTabMatchContextUrl(toUrl, fromUrl)) {
+  if (!fromUrl || !toUrl || doesTabMatchContextUrl(toUrl, fromUrl)) {
     return false;
   }
   if (!currentConversationMeta && !chatHistory.length) {
@@ -1289,15 +1212,6 @@ async function followLiveVideo(context) {
   updateContextChip();
   renderInitialState();
   showConversationContextNotice(`已切换到新视频：${truncate(context.title || "未知视频", 24)}`, 2500);
-}
-
-function renderFollowButton() {
-  if (!els.followBtn) {
-    return;
-  }
-  els.followBtn.classList.toggle("is-active", followPlayback);
-  els.followBtn.setAttribute("aria-pressed", followPlayback ? "true" : "false");
-  els.followBtn.title = `跟随播放：视频切换时自动切到新视频（${followPlayback ? "已开启" : "已关闭"}）`;
 }
 
 async function loadPreviousVideoConversationId() {
@@ -1446,11 +1360,12 @@ function updateSidepanelLayoutState() {
   }
 }
 
+let refreshingContext = false;
 async function refreshContextManually() {
-  if (els.refreshBtn.disabled) {
+  if (refreshingContext) {
     return;
   }
-  setRefreshing(true);
+  refreshingContext = true;
   try {
     const ok = await loadContextState({ forceRefresh: true });
     if (ok) {
@@ -1461,29 +1376,14 @@ async function refreshContextManually() {
       }
     }
   } finally {
-    setRefreshing(false);
-  }
-}
-
-function setRefreshing(isRefreshing) {
-  els.refreshBtn.disabled = isRefreshing;
-  els.refreshBtn.classList.toggle("is-loading", isRefreshing);
-  if (isRefreshing) {
-    els.refreshBtn.setAttribute("aria-busy", "true");
-  } else {
-    els.refreshBtn.removeAttribute("aria-busy");
+    refreshingContext = false;
   }
 }
 
 async function startNewConversation() {
   hidePresetPopover();
   hideHistoryPopover();
-  setRefreshing(true);
-  try {
-    await loadContextState({ forceRefresh: true, silent: true });
-  } finally {
-    setRefreshing(false);
-  }
+  await loadContextState({ forceRefresh: true, silent: true });
   if (liveContextData) {
     contextData = { ...liveContextData };
     currentContextKey = liveContextKey || buildContextKey(liveContextData);
@@ -1720,7 +1620,7 @@ async function ensureCurrentContextForSend() {
   }
   // A placeholder still standing means the subtitles never arrived; never answer from it.
   if (!ok || !contextData || contextData.pending) {
-    resetConversationView("当前页面上下文读取失败。");
+    resetConversationView("当前页面上下文读取失败。", { retry: true });
     return false;
   }
   return true;
@@ -2023,10 +1923,7 @@ function stopActiveStream() {
   if (!activeStream) {
     return;
   }
-  if (els.stopBtn) {
-    els.stopBtn.disabled = true;
-    els.stopBtn.textContent = "停止中...";
-  }
+  setStreamingUiState(true, { stopping: true });
   try {
     activeStream.port.postMessage({ action: "stop" });
   } catch {

@@ -2,7 +2,9 @@
 // window.__mockSwitchVideo(n) 切到第 n 个视频（改 URL + tabs.onUpdated + boc-video-changed）。
 // window.__mockOpenPage(url, title) 切到非视频标签页（url 为空即加载中的标签页）；__mockStateDelayMs 模拟字幕和评论加载耗时。
 // 流的结局：__mockStreamEnd = { after: n, error: "..." } 在第 n 个 token 后报错；{ after: n, disconnect: true } 模拟后台断开。
+// __mockStateError = "..." 让读取页面上下文失败（检查「重试」）。
 // __mockNotice 先发一条 notice；__mockTokenMs 调慢流速。
+// ?providers=0 模拟还没配置 AI 平台。
 // Obsidian：window.__mockVault 是假库（path → markdown），__mockVaultLog 记每次 GET/PUT；__mockObsidianDown = true 让写入失败。
 (() => {
   const makeEvent = () => {
@@ -28,8 +30,11 @@
   const TOKEN_MS = 80;
 
   const findVideo = (url) => videos.find((v) => String(url || "").includes(v.bvid));
+  // Like content.js buildSidepanelContext, the payload names its site and video id.
   const payloadFor = (video) => ({
     ...video,
+    site: "bilibili",
+    videoId: video.bvid,
     pageIndex: 1,
     pageCount: 1,
     subtitleMarkdown: `字幕 ${video.title}`,
@@ -71,14 +76,26 @@
   };
 
   // ?presets=N swaps in N follow-up prompts to check how long lists lay out.
-  const presetCount = Number(new URLSearchParams(location.search).get("presets")) || 0;
+  const params = new URLSearchParams(location.search);
+  const presetCount = Number(params.get("presets")) || 0;
   const presetPrompts = presetCount
     ? Array.from({ length: presetCount }, (_, i) => ["用 3 句话总结这个视频", "提炼这个视频的 5 个重点", "按章节整理视频内容", "这个视频的核心论点是什么，有哪些论据支撑"][i % 4] + (i >= 4 ? ` ${i + 1}` : ""))
-    : ["用 3 句话总结这个视频", "提炼这个视频的 5 个重点", "按章节整理视频内容"];
+    : ["按时间顺序整理这期视频的内容", "根据评论总结观众的看法", "按章节整理视频内容", "生成带时间轴的笔记"];
 
   window.__mockVault = window.__mockVault || {};
   window.__mockVaultLog = window.__mockVaultLog || [];
   const vaultLog = (method, path) => window.__mockVaultLog.push(`${method} ${path}`);
+
+  const mockSettings = {
+    playerAiQuickPrompt: "整理这期视频的内容，输出结构化总结。",
+    aiPresetPrompts: presetPrompts,
+    obsidianEnabled: true,
+    obsidianApiBaseUrl: "http://127.0.0.1:27123",
+    obsidianApiKey: "mock",
+    noteFolder: "Clippings/{{site}}",
+    includeDateInFilename: true,
+    includeAiChatInNote: true
+  };
 
   const handleMessage = (msg) => {
     switch (msg?.type) {
@@ -103,24 +120,13 @@
         return { ok: true, exists: true, updated: next !== current };
       }
       case "ai-providers-list":
-        return { ok: true, providers: [{ id: "p1", name: "Mock", model: "mock-model", enabled: true }] };
+        return { ok: true, providers: params.get("providers") === "0" ? [] : [{ id: "p1", name: "Mock", model: "claude-sonnet-4-5-20250929", enabled: true }] };
       case "get-settings":
-        return {
-          ok: true,
-          settings: {
-            playerAiQuickPrompt: "整理这期视频的内容，输出结构化总结。",
-            aiPresetPrompts: presetPrompts,
-            obsidianEnabled: true,
-            obsidianApiBaseUrl: "http://127.0.0.1:27123",
-            obsidianApiKey: "mock",
-            noteFolder: "Clippings/{{site}}",
-            includeDateInFilename: true,
-            includeAiChatInNote: true
-          }
-        };
+        return { ok: true, settings: mockSettings };
       case "save-settings":
         return { ok: true };
       case "ai-sidepanel-get-state": {
+        if (window.__mockStateError) return { ok: false, error: window.__mockStateError };
         const video = findVideo(tab.url);
         // Like background.js, an unsupported page answers with a non-video context built from the tab.
         return video

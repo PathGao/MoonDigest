@@ -26,11 +26,10 @@ body {
   flex-shrink: 0;
 }
 
+/* The chip takes what is left and the model select keeps its full name. */
 .sp-context-chip {
-  flex: 0 1 144px;
-  width: 144px;
-  min-width: 0;
-  max-width: 144px;
+  flex: 1 1 0;
+  min-width: 72px;
   padding: 6px 10px;
   border: 0;
   background: var(--surface-muted);
@@ -66,10 +65,9 @@ body {
 }
 
 .sp-model-select {
-  width: auto;
+  flex: 0 1 auto;
   height: 28px;
   min-width: 92px;
-  max-width: 172px;
   padding: 0 28px 0 12px;
   border: 1px solid var(--border);
   border-radius: 999px;
@@ -113,24 +111,7 @@ body {
   stroke-linejoin: round;
 }
 
-.sp-icon-btn.is-loading svg {
-  animation: sp-icon-rotate 0.95s linear infinite;
-}
-
-.sp-icon-btn + .sp-icon-btn {
-  margin-left: -3px;
-}
-
 .sp-icon-btn:hover {
-  background: var(--surface-muted);
-  color: var(--text);
-}
-
-.sp-icon-btn.sp-follow-btn {
-  color: var(--faint);
-}
-
-.sp-icon-btn.sp-follow-btn.is-active {
   background: var(--surface-muted);
   color: var(--text);
 }
@@ -267,15 +248,6 @@ body {
   background: var(--border);
 }
 
-@keyframes sp-icon-rotate {
-  from {
-    transform: rotate(0deg);
-  }
-  to {
-    transform: rotate(360deg);
-  }
-}
-
 .sp-messages {
   flex: 1;
   overflow-y: auto;
@@ -309,6 +281,16 @@ body {
 .sp-chip:hover {
   background: var(--surface-muted);
   border-color: var(--border-strong);
+}
+
+.sp-empty-intro {
+  margin: 0 0 2px;
+  color: var(--text-2);
+  font-size: var(--fs-md);
+}
+
+.sp-suggestions .sp-followup-chip {
+  align-self: flex-start;
 }
 
 .sp-summary-btn {
@@ -802,9 +784,17 @@ body {
 }
 
 .sp-input-row {
+  position: relative;
   display: flex;
-  align-items: stretch;
-  gap: 8px;
+}
+
+.sp-generating {
+  color: var(--muted);
+  font-size: var(--fs-xs);
+}
+
+.sp-generating[hidden] {
+  display: none;
 }
 
 .sp-preset-popover {
@@ -933,22 +923,6 @@ body {
   color: var(--link-hover);
 }
 
-.sp-history-clear-btn {
-  border: 0;
-  background: transparent;
-  color: var(--faint);
-  font: inherit;
-  font-size: var(--fs-xs);
-  cursor: pointer;
-  padding: 2px 4px;
-  border-radius: 6px;
-}
-
-.sp-history-clear-btn:hover {
-  color: var(--danger);
-  background: var(--danger-bg);
-}
-
 .sp-history-item {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 24px;
@@ -964,11 +938,6 @@ body {
 .sp-history-item.is-active {
   border-color: var(--border-strong);
   background: var(--surface-muted);
-}
-
-.sp-history-item.is-live-match {
-  border-color: var(--warn-border);
-  background: var(--warn-bg);
 }
 
 .sp-history-open {
@@ -1122,7 +1091,8 @@ body {
   flex: 1;
   min-height: 94px;
   max-height: 320px;
-  padding: 12px 12px;
+  /* Room on the right for the send button that sits inside the box. */
+  padding: 12px 76px 12px 12px;
   border: 1px solid var(--border);
   border-radius: 16px;
   background: var(--surface-muted);
@@ -1143,28 +1113,38 @@ body {
   box-shadow: 0 0 0 3px var(--focus-ring);
 }
 
-.sp-stop-btn {
-  flex: 0 0 auto;
-  align-self: flex-end;
-  height: 36px;
-  padding: 0 12px;
+/* Fixed width, so turning into 停止 never moves anything. Blue only once there is something to send. */
+.sp-send-btn {
+  position: absolute;
+  right: 8px;
+  bottom: 8px;
+  width: 60px;
+  height: 32px;
   border: 1px solid var(--border);
   border-radius: 999px;
   background: var(--surface);
-  color: var(--muted);
+  color: var(--text-2);
   font: inherit;
   font-size: var(--fs-sm);
   cursor: pointer;
-  transition: background 0.15s, color 0.15s, border-color 0.15s;
 }
 
-.sp-stop-btn:hover {
-  background: var(--surface-muted);
-  color: var(--text);
+.sp-send-btn:hover {
   border-color: var(--border-strong);
+  color: var(--text);
 }
 
-.sp-stop-btn:disabled {
+#spInput:not(:placeholder-shown) + .sp-send-btn:not(.is-stop) {
+  border-color: var(--action);
+  background: var(--action);
+  color: var(--on-action);
+}
+
+#spInput:not(:placeholder-shown) + .sp-send-btn:not(.is-stop):hover {
+  background: var(--action-hover);
+}
+
+.sp-send-btn:disabled {
   cursor: default;
   opacity: 0.7;
 }
