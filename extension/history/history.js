@@ -41,7 +41,7 @@ function groupByVideo(items) {
   return groups.sort((a, b) => b.updatedAt - a.updatedAt);
 }
 
-// Same note the side panel's 保存对话 writes, with every conversation of the video in order.
+// Same note the side panel's export menu (导出对话 → 写入 Obsidian) writes, with every conversation of the video in order.
 function buildNote(group, sourcePath = "") {
   const turns = group.convs.flatMap((conv) => BocNote.buildConversationTurns(conv.messages));
   const filename = BocNote.buildAiConversationFilename(group.context);
@@ -85,7 +85,7 @@ function render() {
           <div class="entry-actions">
             ${g.context.videoId ? '<button type="button" data-act="ask">继续问</button>' : ""}
             <button type="button" data-act="md">下载 .md</button>
-            ${obsidianEnabled ? '<button type="button" data-act="obsidian"><img class="obsidian-mark" src="/icons/obsidian.svg" alt=""> 存 Obsidian</button>' : ""}
+            ${obsidianEnabled ? '<button type="button" data-act="obsidian"><img class="obsidian-mark" src="/icons/obsidian.svg" alt=""> 写入 Obsidian</button>' : ""}
             ${g.convs.length ? '<button type="button" data-act="delete" class="danger">删除</button>' : ""}
           </div>
         </article>`;
@@ -96,7 +96,8 @@ function render() {
 
 function syncBulk(groups = visibleGroups()) {
   els.selectAll.checked = groups.length > 0 && groups.every((g) => selected.has(g.key));
-  els.bulkMd.disabled = els.bulkDelete.disabled = selected.size === 0;
+  els.bulkMd.disabled = selected.size === 0;
+  els.bulkDelete.disabled = !deletableKeys([...selected]).length;
 }
 
 function setStatus(text) {
@@ -116,8 +117,15 @@ async function load() {
   render();
 }
 
+// Triage-summary-only entries have no conversations to delete, so they are left out.
+function deletableKeys(keys) {
+  const withConvs = new Set(conversations.map((c) => c.contextKey || c.id));
+  return keys.filter((key) => withConvs.has(key));
+}
+
 // Reads storage again before writing so a reply the side panel saved meanwhile is kept.
 async function deleteGroups(keys) {
+  keys = deletableKeys(keys);
   if (!keys.length || !confirm(`删除 ${keys.length} 个视频的全部 AI 对话？删除后不能恢复。`)) return;
   const current = (await chrome.storage.local.get(KEY))[KEY] || [];
   await chrome.storage.local.set({ [KEY]: current.filter((c) => !keys.includes(c?.contextKey || c?.id)) });
@@ -138,7 +146,7 @@ function downloadGroups(groups) {
   setStatus(`已下载 ${groups.length} 个视频的对话`);
 }
 
-// Writes the standalone AI note like the side panel's 保存对话. The video note's AI 问答 section is
+// Writes the standalone AI note like the side panel's 导出对话 → 写入 Obsidian. The video note's AI 问答 section is
 // left to the side panel's auto-sync, which follows the newest conversation rather than all of them.
 async function saveToObsidian(group, button) {
   button.disabled = true;
@@ -160,12 +168,12 @@ async function saveToObsidian(group, button) {
     const filepath = videoFolder ? `${videoFolder}/${note.filename}` : note.filename;
     const exists = await chrome.runtime.sendMessage({ type: "obsidian-note-exists", baseUrl, apiKey, filepath });
     if (!exists?.ok) throw new Error(exists?.error || "Local API 检查失败");
-    if (exists.exists && !confirm(`Obsidian 里已有 ${filepath}，覆盖它？`)) return;
+    if (exists.exists && !confirm(`该笔记已存在，继续会覆盖原内容：${filepath}`)) return;
     const written = await chrome.runtime.sendMessage({ type: "write-obsidian-note", baseUrl, apiKey, filepath, content: note.content });
     if (!written?.ok) throw new Error(written?.error || "Local API 写入失败");
     setStatus(`已写入 Obsidian：${filepath}`);
   } catch (error) {
-    setStatus(`写入失败：${error?.message || error}`);
+    setStatus(`写入 Obsidian 失败：${error?.message || error}`);
   } finally {
     button.disabled = false;
   }
@@ -199,6 +207,10 @@ els.bulkMd.addEventListener("click", () => downloadGroups(groupByVideo(conversat
 els.bulkDelete.addEventListener("click", () => void deleteGroups([...selected]));
 chrome.storage.onChanged.addListener((changes, area) => {
   if (area === "local" && Object.keys(changes).some((k) => k === KEY || k.startsWith("triage_analysis_") || k.startsWith("triage_snapshot_"))) void load();
+  if (area === "sync" && changes.obsidianEnabled) {
+    obsidianEnabled = changes.obsidianEnabled.newValue === true;
+    render();
+  }
 });
 
 obsidianEnabled = (await chrome.runtime.sendMessage({ type: "get-settings" }).catch(() => null))?.settings?.obsidianEnabled === true;

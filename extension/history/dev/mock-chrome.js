@@ -39,6 +39,7 @@
   const clone = (v) => (v === undefined ? v : structuredClone(v));
 
   window.__mockVault = {};
+  window.__mockEmit = (changes, area) => listeners.forEach((fn) => fn(changes, area));
   window.__mockDownloads = [];
   const nativeClick = HTMLAnchorElement.prototype.click;
   HTMLAnchorElement.prototype.click = function () {
