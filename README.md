@@ -175,7 +175,7 @@ YouTube 短时间内收到太多请求时会暂时拒绝。插件会稍等重试
 
 1. 在 Obsidian 社区插件里安装并启用 **Local REST API with MCP**。
 2. 在它的设置里打开 **Enable Non-encrypted (HTTP) Server**，地址一般是 `http://127.0.0.1:27123`。
-3. 复制 API Key，填进 MoonDigest 设置页“进阶 2 · Obsidian 知识库”里的地址和 Key，打开开关并保存。
+3. 复制 API Key，填进 MoonDigest 设置页“进阶 2 · Obsidian（可选）”里的地址和 Key，打开开关并保存。
 
 ## 开发
 
