@@ -504,6 +504,7 @@ function bindRuntimeEvents() {
       const readerUrl = String(message.readerUrl || "").trim();
       if (readerUrl) {
         replaceReaderModeUrl(readerUrl);
+        state.readerMode = true;
         document.documentElement.setAttribute("data-boc-reader-mode", "1");
         document.body.setAttribute("data-boc-reader-mode", "1");
       }
