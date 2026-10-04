@@ -66,6 +66,8 @@
       sendMessage: async (msg) => handle(msg),
       openOptionsPage: () => console.log("[mock] openOptionsPage")
     },
+    tabs: { getCurrent: async () => ({ id: 1, windowId: 1 }) },
+    sidePanel: { open: async (opts) => (window.__mockSidePanel ||= []).push(opts) },
     storage: {
       local: {
         async get(keys) {

@@ -1,4 +1,6 @@
 if (!globalThis.chrome?.runtime?.id) await import("./dev/mock-chrome.js");
+// Read up front: sidePanel.open must run inside the click's user gesture, before any await.
+const OWN_TAB = await chrome.tabs.getCurrent();
 
 const KEY = BocLimits.KEYS.aiConversations;
 const NOTE_PATHS_KEY = BocLimits.KEYS.obsidianNotePaths;
@@ -81,6 +83,7 @@ function render() {
             ${g.convs.length ? `<details><summary>查看对话</summary>${g.convs.map((c, i) => renderConversation(c, i, g.convs.length)).join("")}</details>` : ""}
           </div>
           <div class="entry-actions">
+            ${g.context.videoId ? '<button type="button" data-act="ask">继续问</button>' : ""}
             <button type="button" data-act="md">下载 .md</button>
             ${obsidianEnabled ? '<button type="button" data-act="obsidian">存 Obsidian</button>' : ""}
             ${g.convs.length ? '<button type="button" data-act="delete" class="danger">删除</button>' : ""}
@@ -181,6 +184,11 @@ els.list.addEventListener("click", (event) => {
   } else if (act === "md" && group) downloadGroups([group]);
   else if (act === "obsidian" && group) void saveToObsidian(group, target);
   else if (act === "delete") void deleteGroups([key]);
+  else if (act === "ask" && group) {
+    // The side panel continues the video's latest conversation, the same request triage's 问 AI sends.
+    chrome.storage.local.set({ boc_player_ai_quick_action_v1: { id: `history-${Date.now()}`, tabId: OWN_TAB?.id, prompt: "", contextRef: group.context } });
+    chrome.sidePanel.open({ tabId: OWN_TAB?.id }).catch((error) => setStatus(`打开侧边栏失败：${error.message}`));
+  }
 });
 els.search.addEventListener("input", render);
 els.selectAll.addEventListener("change", () => {
