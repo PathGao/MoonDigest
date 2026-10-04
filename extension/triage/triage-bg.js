@@ -637,7 +637,8 @@ const TRIAGE_HANDLERS = {
     const provider = typeof loadAiProviders === "function" ? (await loadAiProviders().catch(() => [])).find((p) => p.enabled !== false) : null;
     return {
       triageIntervalSec: Number(s.triageIntervalSec) >= 0 ? Number(s.triageIntervalSec) : TRIAGE_SETTINGS_DEFAULTS.triageIntervalSec,
-      triageExportFolder: String(s.triageExportFolder || TRIAGE_SETTINGS_DEFAULTS.triageExportFolder),
+      // A cleared folder stays empty (writes then use the general note folder); the default is only for a missing key.
+      triageExportFolder: typeof s.triageExportFolder === "string" ? s.triageExportFolder : TRIAGE_SETTINGS_DEFAULTS.triageExportFolder,
       triageTitleBatchSize: Number(s.triageTitleBatchSize) > 0 ? Number(s.triageTitleBatchSize) : 30,
       triageThinking: s.triageThinking === true,
       triageTitleMaxTokens: Number(s.triageTitleMaxTokens) > 0 ? Number(s.triageTitleMaxTokens) : 0,

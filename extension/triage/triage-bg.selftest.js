@@ -177,6 +177,13 @@ assert.throws(() => t.triageParseCommand('{"new_tags":[', cmdItems, cmdTags, {})
   assert.strictEqual(await settingsWith({ triageIntervalSec: -1 }), 8);
   assert.strictEqual(await settingsWith({ triageIntervalSec: "x" }), 8);
   assert.strictEqual(await settingsWith({}), 8);
+  // A cleared batch folder reads back empty (writes then use the general note folder); a missing key gets the default.
+  const folderWith = async (stored) => {
+    t.chrome = { storage: { sync: { get: async (d) => ({ ...d, ...stored }) } } };
+    return (await vm.runInContext("TRIAGE_HANDLERS", ctx)["triage-settings-get"]()).triageExportFolder;
+  };
+  assert.strictEqual(await folderWith({ triageExportFolder: "" }), "");
+  assert.strictEqual(await folderWith({}), "raw/01-articles");
 
   // B站 risk control maps to THROTTLED on writes as well as reads; non-JSON answers get a clear error.
   t.chrome = { cookies: { get: async () => ({ value: "csrf" }) } };
