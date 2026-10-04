@@ -508,6 +508,22 @@ function openFake(mediaId, items, decisions = {}) {
   store[t.K.included] = ["3"];
   assert.deepStrictEqual(plain(await t.loadIncluded()), ["3"], "a saved choice is kept as is");
 
+  // A folder deleted on Bilibili: its videos move to 已取消收藏 unless still in a live folder; its records go.
+  for (const k of Object.keys(store)) delete store[k];
+  t.S.allFolders = [{ id: 1 }];
+  Object.assign(store, {
+    triage_snapshot_1: { bvids: ["BV2"], items: [item(2)] },
+    triage_snapshot_9: { bvids: ["BV1", "BV2"], items: [item(1), item(2)] },
+    triage_decisions_9: { BV1: { action: "unfav" } }
+  });
+  await t.retireDeletedFolders();
+  assert.deepStrictEqual(Object.keys(store[t.K.removed]), ["BV1"], "BV2 is still in folder 1");
+  assert.ok(!store.triage_snapshot_9 && !store.triage_decisions_9 && store.triage_snapshot_1);
+  t.S.allFolders = [];
+  store.triage_snapshot_8 = { bvids: ["BV3"], items: [item(3)] };
+  await t.retireDeletedFolders();
+  assert.ok(store.triage_snapshot_8, "an empty folder list never retires anything");
+
   console.log("triage selftest: all passed");
 })().catch((e) => {
   console.error(e);

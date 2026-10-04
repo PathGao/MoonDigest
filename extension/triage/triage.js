@@ -498,6 +498,26 @@ async function loadKept() {
   return kept;
 }
 
+// A folder deleted on Bilibili leaves no new list to diff against, so its videos (unless still in another folder's
+// list) move to 已取消收藏 here and its records go.
+async function retireDeletedFolders() {
+  if (!S.allFolders.length) return; // 默认收藏夹 always exists; an empty list is never "every folder deleted"
+  const live = new Set(S.allFolders.map((f) => String(f.id)));
+  const keys = ((await chrome.storage.local.getKeys?.()) ?? Object.keys((await chrome.storage.local.get(null)) || {})).filter((k) => k.startsWith("triage_snapshot_"));
+  const gone = keys.map((k) => k.slice(16)).filter((id) => !live.has(id));
+  if (!gone.length) return;
+  const got = await chrome.storage.local.get([K.removed, ...keys]);
+  const otherBvids = new Set([...live].flatMap((id) => got[K.snapshot(id)]?.bvids || []));
+  let removed = got[K.removed] || {};
+  for (const id of gone) {
+    const old = got[K.snapshot(id)];
+    const oldItems = old?.items || (old?.bvids || []).map((bvid) => ({ bvid, title: old.titles?.[bvid] || bvid }));
+    removed = updateRemoved(removed, oldItems, [], otherBvids, Date.now());
+  }
+  await chrome.storage.local.set({ [K.removed]: removed });
+  await chrome.storage.local.remove(gone.flatMap((id) => [K.snapshot(id), K.decisions(id)]));
+}
+
 // Opt-in: a new user starts with no folder chosen. The first load after this change keeps every folder for
 // someone who already triaged (a snapshot exists), minus the ones they had switched off.
 async function loadIncluded() {
@@ -533,6 +553,7 @@ async function loadFolders() {
     return;
   }
   S.allFolders = r.data.folders || [];
+  await retireDeletedFolders();
   S.included = (await loadIncluded()).map(String);
   S.folders = S.allFolders.filter((f) => S.included.includes(String(f.id)));
   S.removedCount = Object.keys(await storeGet(K.removed, {})).length;
