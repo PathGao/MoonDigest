@@ -233,7 +233,7 @@ function askAi(it) {
   chrome.sidePanel.open({ tabId: ownTabId }).catch((err) => toast(`打开侧边栏失败：${err.message}`, true));
 }
 
-// The spinner comes from [aria-busy] in tokens.css; is-busy only marks the button for re-renders.
+// Busy button: disabled + aria-busy (tokens.css draws the spinner) + 「…中」 text; false restores it.
 function setBusy(btn, text) {
   if (text) {
     btn.dataset.idle ??= btn.innerHTML;
@@ -243,7 +243,6 @@ function setBusy(btn, text) {
     delete btn.dataset.idle;
   }
   btn.disabled = Boolean(text);
-  btn.classList.toggle("is-busy", Boolean(text));
   if (text) btn.setAttribute("aria-busy", "true");
   else btn.removeAttribute("aria-busy");
 }
@@ -804,8 +803,8 @@ function renderTabs() {
     : `<span class="muted">还没有标签</span> · <button type="button" class="link" data-tags-open aria-label="新建标签">新建标签</button>`;
 }
 
-const headBtn = (act, label, cls = "", disabled = false, verdict = "", title = "") =>
-  `<button type="button"${cls ? ` class="${cls}"` : ""} data-head="${act}"${verdict ? ` data-verdict="${verdict}"` : ""} aria-label="${esc(label)}"${title ? ` title="${esc(title)}"` : ""}${cls.includes("is-busy") ? ' aria-busy="true"' : ""}${disabled ? " disabled" : ""}>${esc(label)}</button>`;
+const headBtn = (act, label, cls = "", disabled = false, verdict = "", title = "", busy = false) =>
+  `<button type="button"${cls ? ` class="${cls}"` : ""} data-head="${act}"${verdict ? ` data-verdict="${verdict}"` : ""} aria-label="${esc(label)}"${title ? ` title="${esc(title)}"` : ""}${busy ? ' aria-busy="true"' : ""}${disabled ? " disabled" : ""}>${esc(label)}</button>`;
 
 // The folder's 判断标准 next to the 粗分/细看 button; clicking it opens the editor.
 function criteriaLine() {
@@ -858,7 +857,7 @@ function renderListHeader(list) {
     const f = S.classFilter.act;
     const batchBtn = (route, verdict = "") => {
       const run = S.unfavBatch?.token === S.folderToken && S.unfavBatch;
-      if (route === "unfav" && run) return headBtn("batch-unfav", `取消收藏中 ${run.done}/${run.total}`, "danger is-busy", true);
+      if (route === "unfav" && run) return headBtn("batch-unfav", `取消收藏中 ${run.done}/${run.total}`, "danger", true, "", "", true);
       const n = batchList(verdict || null).length;
       const verb = route === "unfav" ? "取消收藏" : "保留";
       return headBtn(`batch-${route}`, verdict ? `${verb}（AI：${VERDICTS[verdict]}）${n} 个` : `${verb}选中的 ${n} 个`, route === "unfav" ? "danger" : "", !n, verdict, route === "keep" ? KEEP_TIP : "");
@@ -902,7 +901,7 @@ function recentUnfavHtml() {
     .map(([b, d]) => {
       const title = esc(d.title || b);
       return `<li><span class="recent-title">${title}</span><span class="muted">${esc(fmtTime(d.at))}</span>
-        ${refaving.has(b) ? `<button type="button" class="is-busy" aria-busy="true" disabled>重新收藏中…</button>` : `<button type="button" data-refav="${esc(b)}" aria-label="重新收藏 ${title}">重新收藏</button>`}</li>`;
+        ${refaving.has(b) ? `<button type="button" aria-busy="true" disabled>重新收藏中…</button>` : `<button type="button" data-refav="${esc(b)}" aria-label="重新收藏 ${title}">重新收藏</button>`}</li>`;
     })
     .join("");
   return `<section class="recent-unfav" aria-label="最近取消收藏"><h3>最近取消收藏 <span class="muted">${list.length}</span></h3><ul>${rows}</ul></section>`;
@@ -1053,7 +1052,7 @@ function cardHtml(it, expanded, mark) {
             <button type="button" data-act="select" class="${S.selected.has(b) ? "on" : ""}" aria-pressed="${S.selected.has(b)}" aria-label="选中 (X)">选中<kbd class="key">X</kbd></button>
           </span>
           <button type="button" data-act="keep" class="${keepCls}" aria-label="保留 (S)" title="只在 MoonDigest 里标记，B 站收藏夹不变"${decision ? " disabled" : ""}>保留<kbd class="key">S</kbd></button>
-          ${deciding.has(b) ? `<button type="button" class="is-busy" aria-busy="true" disabled>正在取消收藏…</button>` : `<button type="button" data-act="unfav" class="${unfavCls}" aria-label="取消收藏 (D)"${decision?.action === "unfav" ? " disabled" : ""}>取消收藏<kbd class="key">D</kbd></button>`}
+          ${deciding.has(b) ? `<button type="button" aria-busy="true" disabled>正在取消收藏…</button>` : `<button type="button" data-act="unfav" class="${unfavCls}" aria-label="取消收藏 (D)"${decision?.action === "unfav" ? " disabled" : ""}>取消收藏<kbd class="key">D</kbd></button>`}
         </div>
       </div>
     </div>

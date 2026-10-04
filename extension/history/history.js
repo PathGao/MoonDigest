@@ -142,7 +142,7 @@ function render() {
           <div class="entry-actions">
             <button type="button" data-act="ask" ${g.context.videoId ? "" : "disabled title=\"只有视频能继续问\""}>继续问</button>
             <button type="button" data-act="md">下载 .md</button>
-            ${!obsidianEnabled ? "" : writing.has(g.key) ? `<button type="button" class="is-busy" aria-busy="true" disabled>写入中…</button>` : `<button type="button" data-act="obsidian"><img class="obsidian-mark" src="/icons/obsidian.svg" alt=""> 写入 Obsidian</button>`}
+            ${!obsidianEnabled ? "" : writing.has(g.key) ? `<button type="button" aria-busy="true" disabled>写入中…</button>` : `<button type="button" data-act="obsidian"><img class="obsidian-mark" src="/icons/obsidian.svg" alt=""> 写入 Obsidian</button>`}
             <button type="button" data-act="delete" class="danger" ${g.convs.length ? "" : "disabled title=\"没有 AI 对话可删\""}>删除</button>
           </div>
         </article>`;
@@ -165,8 +165,11 @@ function syncBulk(groups = visibleGroups()) {
   els.clearAll.disabled = !conversations.length;
 }
 
+// 「正在…」 lines are in progress: aria-busy grays them (tokens.css) until the result replaces them.
 function setStatus(text) {
   els.status.textContent = text;
+  if (text.startsWith("正在")) els.status.setAttribute("aria-busy", "true");
+  else els.status.removeAttribute("aria-busy");
 }
 
 async function load() {
