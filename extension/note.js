@@ -896,7 +896,6 @@
 
   globalThis.BocNote = {
     DEFAULT_FRONTMATTER_FIELDS,
-    FRONTMATTER_FIELDS,
     buildMarkdown,
     AI_SECTION_START,
     AI_SECTION_END,
@@ -906,7 +905,6 @@
     normalizeMarkdownForSectionPaste,
     buildConversationTurns,
     pickConversation,
-    sanitizeMarkdownHeadingText,
     buildAiSection,
     upsertAiSection,
     buildAiConversationFilename,
@@ -918,9 +916,7 @@
     buildSubtitlePreview,
     buildSrt,
     buildTxt,
-    shouldShowHoursInSubtitle,
     shouldShowHoursInNote,
-    normalizeHotComments,
     formatLocalDate,
     formatCompactTimestamp,
     formatTimestamp,

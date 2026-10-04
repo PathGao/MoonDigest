@@ -142,7 +142,7 @@ select { height: 28px; max-width: 240px; }
 .badge.drop { background: var(--danger-bg); color: var(--danger); }
 .badge.keep { background: var(--ok-bg); color: var(--ok); }
 .badge.unsure { background: var(--warn-bg); color: var(--warn); }
-.badge.none, .badge.fail, .badge.running { background: var(--surface-muted); color: var(--muted); }
+.badge.none, .badge.running { background: var(--surface-muted); color: var(--muted); }
 .badge.running { color: var(--secondary-text); }
 .badge.decision { background: var(--secondary-bg); color: var(--secondary-text); }
 .reason { color: var(--muted); font-size: var(--fs-xs); flex: 1; min-width: 120px; }

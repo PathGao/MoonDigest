@@ -281,10 +281,6 @@ function normalizeReaderContentWidth(value) {
   return ["compact", "narrow", "medium", "wide", "full"].includes(value) ? value : "medium";
 }
 
-function normalizeReaderChapterVisibility(value) {
-  return value === "hide" || value === "auto" ? value : "show";
-}
-
 function normalizeReaderTranscriptVisible(value) {
   return value !== false;
 }
