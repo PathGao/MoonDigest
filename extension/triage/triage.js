@@ -21,6 +21,7 @@ const TABS = [
 const K = {
   lastFolder: "triage_last_folder",
   tab: "triage_tab",
+  readVerdict: "triage_read_verdict",
   tags: "triage_tags",
   videoTags: "triage_video_tags",
   basket: "triage_basket",
@@ -381,7 +382,9 @@ async function openFolder(mediaId) {
   if (!ok) return;
   const hasAi = S.items.some((it) => S.titleRes[it.bvid] || S.analyses[it.bvid]?.status === "done");
   S.tab = hasAi ? await storeGet(K.tab, "unsure") : "all";
-  if (S.tab === "group") S.tab = "unsure";
+  // 建议删 shows a destructive batch button, so a fresh open never lands there.
+  if (S.tab === "group" || S.tab === "drop") S.tab = "unsure";
+  S.readVerdict = await storeGet(K.readVerdict, "all");
   S.focused = visibleItems()[0]?.bvid || "";
   render();
 }
@@ -584,16 +587,19 @@ function renderListHeader(list) {
       .join("");
     html = `<select data-read-verdict aria-label="按判断筛选阅览">${options}</select><span class="muted">${list.length} 个</span><span class="spacer"></span>
       <button type="button" data-head="analyze-all" aria-label="细看全部未看"${pending && !S.group?.running ? "" : " disabled"}>细看全部未看 (${pending})</button>
-      <button type="button" data-head="copy-read" aria-label="复制为 Markdown"${list.length ? "" : " disabled"}>复制为 Markdown</button>`;
+      <button type="button" data-head="copy-read" aria-label="复制 Markdown"${list.length ? "" : " disabled"}>复制 Markdown</button>
+      <button type="button" data-head="download-read" aria-label="下载 .md"${list.length ? "" : " disabled"}>下载 .md</button>`;
   } else if (S.tab === "group" && S.group) {
     const done = S.group.bvids.filter(isProcessed).length;
     html = `<span class="group-title">本轮细看 · 已处理 ${done} / ${S.group.bvids.length}</span><span class="spacer"></span>
       <button type="button" data-head="next-group" aria-label="下一组">下一组</button>
       <button type="button" data-head="end-group" aria-label="结束本轮">结束本轮</button>`;
-  } else if (S.tab === "drop" && list.length) {
-    html = `<button type="button" class="danger" data-head="batch-unfav" aria-label="确认删除这 ${list.length} 个">确认删除这 ${list.length} 个</button>`;
-  } else if (S.tab === "keep" && list.length) {
-    html = `<button type="button" data-head="batch-keep" aria-label="全部标记保留">全部标记保留 (${list.length})</button>`;
+  } else if ((S.tab === "drop" || S.tab === "keep") && batchList().length) {
+    const n = batchList().length;
+    const label = S.tab === "drop"
+      ? S.selected.size ? `取消收藏选中的 ${n} 个` : `取消收藏这 ${n} 个`
+      : S.selected.size ? `保留选中的 ${n} 个` : `全部标记保留 (${n})`;
+    html = `<button type="button"${S.tab === "drop" ? ' class="danger"' : ""} data-head="batch-${S.tab === "drop" ? "unfav" : "keep"}" aria-label="${label}">${label}</button>`;
   }
   if (S.selected.size) {
     html += `<span class="muted">已选中 ${S.selected.size} 个</span><button type="button" class="link" data-head="clear-selected" aria-label="清空选中">清空选中</button>`;
@@ -669,6 +675,10 @@ function renderList() {
 }
 
 const VERDICT_LABEL = { drop: "建议删", keep: "建议留", unsure: "待定", none: "未分析" };
+const verdictBadge = (b, v) =>
+  S.analyzing.has(b)
+    ? `<span class="badge running">分析中…</span>`
+    : `<span class="badge ${v.verdict}${v.low ? " low" : ""}">${VERDICT_LABEL[v.verdict]}${v.low ? " · 低置信" : ""}</span>`;
 const ACTION_LABEL = { unfav: "已取消收藏", keep: "已保留" };
 
 function cardHtml(it, expanded) {
@@ -687,10 +697,8 @@ function cardHtml(it, expanded) {
   if (done) meta.push(`来源：${a.source === "subtitle" ? "字幕" : "简介"}`);
   if (it.invalid) meta.push("已失效");
 
-  let verdict;
-  if (S.analyzing.has(b)) verdict = `<span class="badge running">分析中…</span>`;
-  else verdict = `<span class="badge ${v.verdict}${v.low ? " low" : ""}">${VERDICT_LABEL[v.verdict]}${v.low ? " · 低置信" : ""}</span>`;
-  const stageMark = v.stage > 0 ? `<span class="stage">${["", "标题判断", "字幕判断", "AI 指令"][v.stage]}</span>` : "";
+  const verdict = verdictBadge(b, v);
+  const stageMark = v.stage > 0 ? `<span class="stage">${["", "标题粗分", "字幕细看", "AI 指令"][v.stage]}</span>` : "";
   const failed = v.failed
     ? `<span class="fail-text">分析失败：${esc(v.failed)}</span><button type="button" data-act="retry" aria-label="重试分析">重试</button>`
     : "";
@@ -724,12 +732,12 @@ function cardHtml(it, expanded) {
         ${decision ? `<span class="badge decision">${ACTION_LABEL[decision.action]}</span>` : ""}
         <span class="spacer"></span>
         <div class="actions">
-          <button type="button" data-act="unfav" aria-label="取消收藏 (D)"${decision?.action === "unfav" ? " disabled" : ""}>取消收藏 D</button>
           <button type="button" data-act="keep" aria-label="保留 (S)"${decision ? " disabled" : ""}>保留 S</button>
           <button type="button" data-act="tag" aria-label="打标签 (T)">标签 T</button>
           <button type="button" data-act="basket" class="${inBasket ? "on" : ""}" aria-pressed="${inBasket}" aria-label="摘录篮 (E)">摘录 E</button>
           <button type="button" data-act="ask" aria-label="问 AI (Q)">问 AI Q</button>
           <button type="button" data-act="select" class="${S.selected.has(b) ? "on" : ""}" aria-pressed="${S.selected.has(b)}" aria-label="选中 (X)">选中 X</button>
+          <button type="button" data-act="unfav" class="danger" aria-label="取消收藏 (D)"${decision?.action === "unfav" ? " disabled" : ""}>取消收藏 D</button>
         </div>
       </div>
     </div>
@@ -742,11 +750,9 @@ function readHtml(it) {
   const v = verdictOf(it);
   const a = S.analyses[b];
   const done = a?.status === "done";
-  const verdict = S.analyzing.has(b)
-    ? `<span class="badge running">分析中…</span>`
-    : `<span class="badge ${v.verdict}${v.low ? " low" : ""}">${VERDICT_LABEL[v.verdict]}</span>`;
+  const verdict = verdictBadge(b, v);
   const names = tagIdsOf(b).map((id) => tagById(id));
-  const suggested = done ? [] : S.titleRes[b]?.suggestedTags || [];
+  const suggested = suggestionsOf(b);
   const body = [];
   if (done && a.oneLiner) body.push(`<p class="oneliner">${esc(a.oneLiner)}</p>`);
   if (done && a.points?.length) body.push(`<ol class="points">${a.points.map((p) => `<li>${esc(p)}</li>`).join("")}</ol>`);
@@ -770,10 +776,10 @@ function buildReadMarkdown(list, now = new Date()) {
     const a = S.analyses[it.bvid];
     const done = a?.status === "done";
     lines.push(`## [${mdLinkText(it.title)}](${videoUrl(it.bvid)})`, "");
-    lines.push([it.upper, fmtDuration(it.duration), v.verdict === "none" ? "未分析" : `${VERDICT_LABEL[v.verdict]}${v.reason ? `：${v.reason}` : ""}`].join(" · "), "");
+    lines.push([it.upper, fmtDuration(it.duration), v.verdict === "none" ? "未分析" : `${VERDICT_LABEL[v.verdict]}${v.low ? "（低置信）" : ""}${v.reason ? `：${v.reason}` : ""}`].join(" · "), "");
     if (done && a.oneLiner) lines.push(`> ${a.oneLiner}`, "");
     if (done && a.points?.length) lines.push(...a.points.map((p) => `- ${p}`), "");
-    const suggested = done ? [] : S.titleRes[it.bvid]?.suggestedTags || [];
+    const suggested = suggestionsOf(it.bvid);
     if (suggested.length) lines.push(`建议标签：${suggested.join("、")}`, "");
     const names = tagIdsOf(it.bvid).map((id) => tagById(id).name);
     if (names.length) lines.push(`标签：${names.join("、")}`, "");
@@ -811,6 +817,8 @@ function advanceFrom(bvid, before) {
   if (next) setFocus(next.bvid);
   else setFocus(S.focused, true);
 }
+
+const saveTab = () => chrome.storage.local.set({ [K.tab]: S.tab, [K.readVerdict]: S.readVerdict }).catch(() => {});
 
 // ---------- decisions ----------
 function pushUndo(entry) {
@@ -934,19 +942,25 @@ async function undo() {
   setFocus(S.focused);
 }
 
-async function batchUnfav(btn) {
+// Batch buttons act on the selection when there is one, otherwise on the whole tab.
+function batchList() {
   const list = visibleItems().filter((it) => !isProcessed(it.bvid));
+  return S.selected.size ? list.filter((it) => S.selected.has(it.bvid)) : list;
+}
+
+async function batchUnfav(btn) {
+  const list = batchList();
   if (!list.length) return;
   const titles = list.slice(0, 10).map((it) => `<li>${esc(it.title)}</li>`).join("");
   const more = list.length > 10 ? `<p>等 ${list.length} 个</p>` : "";
-  const ok = await askConfirm(`取消收藏这 ${list.length} 个视频？`, `<ul>${titles}</ul>${more}`, `确认删除 ${list.length} 个`);
+  const ok = await askConfirm(`取消收藏这 ${list.length} 个视频？`, `<ul>${titles}</ul>${more}`, `取消收藏 ${list.length} 个`);
   if (!ok) return;
   const { mediaId, folderToken: token } = S;
   let done = 0;
   btn.disabled = true;
   for (let i = 0; i < list.length && token === S.folderToken; i += 20) {
     const chunk = list.slice(i, i + 20);
-    btn.textContent = `删除中 ${done}/${list.length}`;
+    btn.textContent = `取消收藏中 ${done}/${list.length}`;
     const r = await send({ type: "triage-unfav", mediaId, aids: chunk.map((it) => it.aid) });
     if (!r.ok) {
       if (token === S.folderToken) toast(`批量取消收藏失败（已完成 ${done} 个）：${r.error}`, true);
@@ -961,6 +975,7 @@ async function batchUnfav(btn) {
   if (token !== S.folderToken) return;
   if (done) {
     pushUndo({ kind: "unfavMany", items: list.slice(0, done).map(({ bvid, aid }) => ({ bvid, aid })) });
+    for (const it of list.slice(0, done)) S.selected.delete(it.bvid);
     toast(`已取消收藏 ${done} 个 · 撤销(U)`);
   }
   render();
@@ -968,10 +983,13 @@ async function batchUnfav(btn) {
 }
 
 function batchKeep() {
-  const list = visibleItems().filter((it) => !isProcessed(it.bvid));
+  const list = batchList();
   if (!list.length) return;
   const at = Date.now();
-  for (const it of list) S.decisions[it.bvid] = { action: "keep", at };
+  for (const it of list) {
+    S.decisions[it.bvid] = { action: "keep", at };
+    S.selected.delete(it.bvid);
+  }
   saveDecisions();
   pushUndo({ kind: "keepMany", bvids: list.map((it) => it.bvid) });
   toast(`已标记保留 ${list.length} 个 · 撤销(U)`);
@@ -1208,13 +1226,13 @@ const needsAnalysis = (b) => {
   return it && !it.invalid && !isProcessed(b) && a?.status !== "done" && a?.status !== "error";
 };
 
-function startGroup(bvids) {
+function startGroup(bvids, keepSelection = false) {
   if (!bvids.length) {
     toast("没有需要细看的视频了");
     return;
   }
   S.group = { bvids, running: false, stop: false };
-  S.selected.clear();
+  if (!keepSelection) S.selected.clear();
   S.tab = "group";
   S.focused = bvids[0];
   S.focusIndex = 0;
@@ -1836,7 +1854,7 @@ const isSecretKey = (k) => /key|token/i.test(k) || k === "aiProviderKeys" || k =
 async function buildBackup() {
   const all = await chrome.storage.local.get(null);
   const out = {
-    app: "bilidigest",
+    app: "moondigest",
     schemaVersion: 1,
     exportedAt: new Date().toISOString(),
     extensionVersion: chrome.runtime.getManifest?.().version || "",
@@ -1906,8 +1924,8 @@ async function cleanCache() {
     return;
   }
   const folders = plan.folders ? `，以及 ${plan.folders} 个已删除收藏夹的同步与处理记录` : "";
-  const body = `<p>将删除 ${plan.videos} 个已不在任何收藏夹里的视频的缓存（标题判断 ${plan.title} 条、细看分析 ${plan.analysis} 条、AI 改判 ${plan.override} 条）${folders}。</p>
-    <p>这些视频的 AI 判断和摘要会一并删除，无法撤销；需要保留请先导出完整备份。标签、视频标签和待导出篮子不受影响。</p>`;
+  const body = `<p>将删除 ${plan.videos} 个已不在任何收藏夹里的视频的缓存（标题粗分 ${plan.title} 条、细看分析 ${plan.analysis} 条、AI 改判 ${plan.override} 条）${folders}。</p>
+    <p>这些视频的 AI 判断和摘要会一并删除，无法撤销；需要保留请先导出完整备份。标签、视频标签和摘录篮不受影响。</p>`;
   if (!(await askConfirm("清理缓存？", body, `删除 ${plan.keys.length} 条缓存`))) return;
   await chrome.storage.local.remove(plan.keys);
   toast(`已清理 ${plan.keys.length} 条缓存`);
@@ -1937,7 +1955,7 @@ function buildCsv() {
       fmtDuration(it.duration),
       videoUrl(it.bvid),
       v.verdict === "none" ? "" : VERDICT_LABEL[v.verdict],
-      ["", "标题", "字幕", "AI 指令"][v.stage] || "",
+      ["", "标题粗分", "字幕细看", "AI 指令"][v.stage] || "",
       v.reason,
       done ? a.oneLiner || "" : "",
       done ? (a.points || []).join(" | ") : "",
@@ -1983,7 +2001,7 @@ function bindEvents() {
     const btn = e.target.closest("[data-tab]");
     if (!btn) return;
     S.tab = btn.dataset.tab;
-    if (S.tab !== "group") storeSet(K.tab, S.tab);
+    if (S.tab !== "group") saveTab();
     S.focusIndex = 0;
     S.focused = "";
     el.list.scrollTop = 0;
@@ -2007,7 +2025,7 @@ function bindEvents() {
     else if (act === "next-group") nextGroup();
     else if (act === "analyze-all") {
       // The existing group runner does the work; stay on the reading tab so results fill in as they land.
-      startGroup(visibleItems().filter((it) => needsAnalysis(it.bvid)).map((it) => it.bvid));
+      startGroup(visibleItems().filter((it) => needsAnalysis(it.bvid)).map((it) => it.bvid), true);
       S.tab = "read";
       render();
     } else if (act === "copy-read") {
@@ -2015,6 +2033,10 @@ function bindEvents() {
         () => toast("已复制 Markdown"),
         (err) => toast(`复制失败：${err.message}`, true)
       );
+    } else if (act === "download-read") {
+      const filename = `MoonDigest-${safeNoteName(folderTitle())}-${stamp(new Date(), false)}.md`;
+      BocDownload.text(filename, buildReadMarkdown(visibleItems()));
+      toast("已下载 .md");
     } else if (act === "clear-selected") {
       S.selected.clear();
       render();
@@ -2029,6 +2051,7 @@ function bindEvents() {
   el.listHeader.addEventListener("change", (e) => {
     if (!e.target.matches("[data-read-verdict]")) return;
     S.readVerdict = e.target.value;
+    saveTab();
     render();
   });
 
@@ -2346,16 +2369,14 @@ function onKey(e) {
   if ((e.key === "Enter" || e.key === " ") && t.closest?.("button, a")) return;
   const key = e.key.length === 1 ? e.key.toLowerCase() : e.key;
   const map = {
-    j: () => moveFocus(1),
-    ArrowDown: () => moveFocus(1),
-    k: () => moveFocus(-1),
-    ArrowUp: () => moveFocus(-1),
     "?": () => el.helpDialog.showModal(),
     i: () => openAi()
   };
+  const nav = { j: 1, ArrowDown: 1, k: -1, ArrowUp: -1 };
   const cardKeys = { d: "unfav", s: "keep", t: "tag", a: "accept", e: "basket", q: "ask", x: "select", o: "open", Enter: "open" };
   if (map[key]) map[key]();
   else if (S.tab === "read") return;
+  else if (nav[key]) moveFocus(nav[key]);
   else if (key === "u") undo();
   else if (cardKeys[key] && S.focused) cardAction(cardKeys[key], S.focused);
   else return;

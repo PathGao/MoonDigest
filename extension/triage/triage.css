@@ -148,6 +148,7 @@ select { height: 28px; max-width: 240px; }
 .reason { color: var(--muted); font-size: var(--fs-xs); flex: 1; min-width: 120px; }
 .actions { display: flex; flex-wrap: wrap; gap: 4px; }
 .actions button { height: 24px; padding: 0 8px; font-size: var(--fs-xs); }
+.actions [data-act="unfav"] { margin-left: 8px; }
 
 .muted { color: var(--muted); font-size: var(--fs-xs); }
 button.icon { width: 26px; height: 24px; padding: 0; }
@@ -233,7 +234,7 @@ dialog h3 { margin: 10px 0 2px; font-size: var(--fs-sm); }
 .basket-foot { display: flex; gap: 6px; padding: 6px; border-top: 1px solid var(--border); }
 .basket-foot button { flex: 1; }
 .obsidian-off #exportBtn, .obsidian-off #writeRunBtn, .obsidian-off label:has(#writeOverwrite),
-.obsidian-off label[for="exportFolderInput"], .obsidian-off #exportFolderInput { display: none; }
+.obsidian-off label[for="exportFolderInput"], .obsidian-off #exportFolderInput, .obsidian-off .obsidian-only { display: none; }
 .write-failed { margin: 4px 0 0; padding-left: 18px; font-size: var(--fs-xs); color: var(--danger); }
 
 /* toast */

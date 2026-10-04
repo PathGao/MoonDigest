@@ -20,7 +20,7 @@
         <button id="groupBtn" type="button" aria-label="字幕细看一组" title="字幕细看：读字幕（没有字幕时读简介和评论），一次一个视频，慢一些，给出一句话总结、3 个要点、判断和建议标签。"></button>
         <button id="aiBtn" type="button" aria-label="AI 指令 (I)">AI 指令</button>
         <button id="writeBtn" type="button" aria-label="批量导出笔记">批量导出</button>
-        <button id="settingsBtn" type="button" aria-label="设置">设置</button>
+        <button id="settingsBtn" type="button" aria-label="分拣设置">分拣设置</button>
         <button id="helpBtn" type="button" aria-label="快捷键帮助">?</button>
       </header>
       <p class="hint">粗分只看标题，快；细看读字幕，给总结和标签。AI 处理只在本页打开时运行，关闭页面即暂停。</p>
@@ -103,7 +103,7 @@
           <button id="cleanCacheBtn" type="button" aria-label="清理已不在收藏夹里的视频缓存">清理缓存</button>
         </div>
         <div class="dialog-actions">
-          <button id="openOptionsBtn" type="button" class="link" aria-label="打开 AI 与 Obsidian 配置">AI / Obsidian 配置</button>
+          <button id="openOptionsBtn" type="button" class="link" aria-label="打开设置页">打开设置页</button>
           <span class="spacer"></span>
           <button value="cancel" type="submit" aria-label="取消">取消</button>
           <button value="save" type="submit" class="primary" aria-label="保存设置">保存</button>
@@ -114,7 +114,7 @@
     <dialog id="writeDialog" aria-label="批量导出笔记">
       <form method="dialog">
         <h2>批量导出笔记</h2>
-        <p class="dialog-hint">每个视频一篇笔记（字幕 + AI 总结）。下载 .md 合成一个文件；写入 Obsidian 每个视频一篇，再写一篇以收藏夹命名的索引。不会改动收藏夹。</p>
+        <p class="dialog-hint">每个视频一篇笔记（字幕 + AI 总结）。下载 .md 合成一个文件<span class="obsidian-only">；写入 Obsidian 每个视频一篇，再写一篇以收藏夹命名的索引</span>。不会改动收藏夹。</p>
         <label for="writeScope">范围</label>
         <select id="writeScope">
           <option value="filter">当前筛选结果</option>
@@ -240,12 +240,13 @@
           <dt>A</dt><dd>采纳 AI 建议标签</dd>
           <dt>E</dt><dd>加入 / 移出摘录篮</dd>
           <dt>Q</dt><dd>问 AI（在侧边栏打开这个视频）</dd>
-          <dt>X</dt><dd>选中 / 取消选中（用于细看）</dd>
+          <dt>X</dt><dd>选中 / 取消选中（细看、AI 指令和批量导出可只处理选中的）</dd>
           <dt>O / Enter</dt><dd>打开视频</dd>
           <dt>I</dt><dd>AI 指令</dd>
           <dt>U</dt><dd>撤销上一步</dd>
           <dt>?</dt><dd>显示本帮助</dd>
         </dl>
+        <p class="dialog-hint">阅览视图只支持 ? 和 I。</p>
         <div class="dialog-actions"><span class="spacer"></span><button type="submit" class="primary">知道了</button></div>
       </form>
     </dialog>
