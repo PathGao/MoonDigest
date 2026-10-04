@@ -161,8 +161,9 @@ function downloadGroups(groups) {
   setStatus(`已下载 ${groups.length} 个视频的对话`);
 }
 
-// Writes the standalone AI note like the side panel's 导出对话 → 写入 Obsidian. The video note's AI 问答 section is
-// left to the side panel's auto-sync, which follows the newest conversation rather than all of them.
+// A video already written to Obsidian gets the conversation in its note's AI 问答 section, like the side panel's
+// 导出对话 → 写入 Obsidian (newest conversation, as auto-sync does). Without a video note — this page can't read the
+// video's subtitles to create one — or for web pages, it writes the standalone AI note.
 async function saveToObsidian(group, button) {
   button.disabled = true;
   try {
@@ -176,6 +177,16 @@ async function saveToObsidian(group, button) {
     }
     const noteKey = BocSites.buildContextKey(group.context);
     const boundPath = noteKey ? ((await chrome.storage.local.get(NOTE_PATHS_KEY))[NOTE_PATHS_KEY] || {})[noteKey]?.path : "";
+    const newest = group.convs.reduce((a, b) => ((b.updatedAt || 0) > (a.updatedAt || 0) ? b : a), group.convs[0]);
+    const section = boundPath && newest ? BocNote.buildAiSection(BocNote.buildConversationTurns(newest.messages)) : "";
+    if (section) {
+      const resp = await chrome.runtime.sendMessage({ type: "update-obsidian-ai-section", baseUrl, apiKey, filepath: boundPath, section, noteKey });
+      if (!resp?.ok) throw new Error(resp?.error || "Local API 写入失败");
+      if (resp.exists !== false) {
+        setStatus(`已写入 Obsidian：${boundPath}（AI 问答段）`);
+        return;
+      }
+    }
     const videoFolder = BocNote.resolveFolderTemplate(settings.noteFolder || "", group.context);
     const videoFile = BocNote.buildNoteFilename(group.context, settings);
     const sourcePath = boundPath || (videoFolder ? `${videoFolder}/${videoFile}` : videoFile);
@@ -186,7 +197,7 @@ async function saveToObsidian(group, button) {
     if (exists.exists && !confirm(`该笔记已存在，继续会覆盖原内容：${filepath}`)) return;
     const written = await chrome.runtime.sendMessage({ type: "write-obsidian-note", baseUrl, apiKey, filepath, content: note.content });
     if (!written?.ok) throw new Error(written?.error || "Local API 写入失败");
-    setStatus(`已写入 Obsidian：${filepath}`);
+    setStatus(group.context.videoId ? `已写入 Obsidian：${filepath}（这个视频还没有视频笔记，写成了单独的对话笔记）` : `已写入 Obsidian：${filepath}`);
   } catch (error) {
     setStatus(`写入 Obsidian 失败：${error?.message || error}`);
   } finally {
