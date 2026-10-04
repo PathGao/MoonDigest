@@ -57,7 +57,17 @@
     };
   }
 
-  globalThis.BocBadges = { bvidFromHref, badgeInfo };
+  // Merges every triage_decisions_<folder> in `got`; a video decided in several folders shows its latest decision.
+  function mergeDecisions(got) {
+    const out = {};
+    for (const [k, v] of Object.entries(got || {})) {
+      if (!k.startsWith("triage_decisions_")) continue;
+      for (const [b, d] of Object.entries(v || {})) if (!out[b] || (d?.at || 0) > (out[b].at || 0)) out[b] = d;
+    }
+    return out;
+  }
+
+  globalThis.BocBadges = { bvidFromHref, badgeInfo, mergeDecisions };
   if (typeof chrome === "undefined" || !chrome.storage?.local || typeof document === "undefined") return;
 
   const SETTING = "showBiliTriageBadges";
@@ -110,8 +120,7 @@
         const oldTags = schemes ? null : (await chrome.storage.local.get("triage_tags")).triage_tags;
         if (g !== gen) return;
         sharedFid = fid;
-        const decisions = {};
-        for (const [k, v] of Object.entries(got)) if (k.startsWith("triage_decisions_")) Object.assign(decisions, v);
+        const decisions = mergeDecisions(got);
         const first = got.triage_folder_scheme?.[fid] || "default";
         const ordered = schemes ? [...schemes].sort((a, b) => (b.id === first) - (a.id === first)) : [];
         shared = {

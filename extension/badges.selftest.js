@@ -6,7 +6,7 @@ const assert = require("assert");
 
 const ctx = vm.createContext({});
 vm.runInContext(fs.readFileSync(path.join(__dirname, "badges.js"), "utf8"), ctx);
-const { bvidFromHref, badgeInfo } = ctx.BocBadges;
+const { bvidFromHref, badgeInfo, mergeDecisions } = ctx.BocBadges;
 const plain = (v) => JSON.parse(JSON.stringify(v));
 
 assert.strictEqual(bvidFromHref("//www.bilibili.com/video/BV1GJ411x7h7?spm_id_from=333"), "BV1GJ411x7h7");
@@ -64,5 +64,13 @@ const custom = badgeInfo({ title: { verdict: "t-must", confidence: "high" }, tie
 assert.deepStrictEqual([custom.label, custom.verdict, custom.aria], ["AI 必看", "keep", "MoonDigest 分拣，AI 分类 必看（标题粗分）"]);
 assert.strictEqual(badgeInfo({ title: { verdict: "t-again" }, tiers }).verdict, "unsure");
 assert.strictEqual(badgeInfo({ title: { verdict: "" }, tiers }), null, "no tier (grading off) is not a mark");
+
+// A video decided in several folders shows its latest decision, whatever the storage-key order.
+const merged = mergeDecisions({
+  triage_decisions_b: { BV1: { action: "keep", at: 5 }, BV2: { action: "keep", at: 1 } },
+  triage_decisions_a: { BV1: { action: "unfav", at: 3 }, BV2: { action: "unfav", at: 9 } },
+  triage_video_tags: { BV1: ["t1"] }
+});
+assert.deepStrictEqual(plain(merged), { BV1: { action: "keep", at: 5 }, BV2: { action: "unfav", at: 9 } });
 
 console.log("badges selftest ok");
