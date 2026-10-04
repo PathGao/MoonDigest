@@ -2275,6 +2275,18 @@ function bindEvents() {
       storeSet(K.notes, S.notes);
     }, 400);
   });
+  // Enter (or Esc) saves now and leaves the note so card keys work again; Shift+Enter is a newline. Never mid-IME.
+  el.list.addEventListener("keydown", (e) => {
+    if (!e.target.matches("[data-note]") || e.isComposing || e.keyCode === 229) return;
+    if (!(e.key === "Escape" || (e.key === "Enter" && !e.shiftKey))) return;
+    e.preventDefault();
+    if (noteTimer) {
+      clearTimeout(noteTimer);
+      noteTimer = 0;
+      storeSet(K.notes, S.notes);
+    }
+    e.target.blur();
+  });
   // An emptied note folds back to 「+ 备注」.
   el.list.addEventListener("focusout", (e) => {
     if (!e.target.matches("[data-note]") || e.target.value.trim()) return;
@@ -2386,6 +2398,11 @@ function bindEvents() {
     if (e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom) el.pickerDialog.close();
   });
 
+  el.criteriaInput.addEventListener("keydown", (e) => {
+    if (e.key !== "Enter" || e.shiftKey || e.isComposing || e.keyCode === 229) return;
+    e.preventDefault();
+    el.criteriaDialog.close("save");
+  });
   el.criteriaDialog.addEventListener("close", () => {
     if (el.criteriaDialog.returnValue === "save") saveCriteria();
   });
