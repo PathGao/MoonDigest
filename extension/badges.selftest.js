@@ -53,7 +53,7 @@ assert.deepStrictEqual(plain(tagOnly.tags), [{ name: "Rust", color: "#f60" }]);
 assert.strictEqual(tagOnly.aria, "MoonDigest 分拣，标签：Rust");
 
 const decided = badgeInfo({ title: { verdict: "keep", confidence: "high" }, decision: { action: "unfav", at: 1 } });
-assert.strictEqual(decided.label, "已删", "a user decision outranks the AI verdict in the label");
+assert.strictEqual(decided.label, "已取消收藏", "a user decision outranks the AI verdict in the label");
 assert.strictEqual(decided.verdict, "keep");
 
 assert.strictEqual(badgeInfo({ title: { verdict: "bogus" } }), null, "unknown verdicts are ignored");
