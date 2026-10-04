@@ -339,7 +339,7 @@ function openFake(mediaId, items, decisions = {}) {
   assert.strictEqual(t.verdictOf(item(600)).verdict, "drop", "AI 指令 never changes the verdict");
 
   // 只处理细看过的: only videos with a done 细看 from the current filter results.
-  Object.assign(t.S, { tab: "read", readStage: "all", analyses: { BV600: { status: "done", oneLiner: "x" } }, titleRes: { BV601: { verdict: "drop", confidence: "high" } } });
+  Object.assign(t.S, { tab: "read", analyses: { BV600: { status: "done", oneLiner: "x" } }, titleRes: { BV601: { verdict: "drop", confidence: "high" } } });
   t.el.aiScope = { value: "analyzed" };
   assert.deepStrictEqual(plain(t.aiScopeItems().map((it) => it.bvid)), ["BV600"]);
   t.S.analyses = {};
@@ -557,6 +557,16 @@ function openFake(mediaId, items, decisions = {}) {
   store.triage_snapshot_9 = { bvids: ["BV3"], items: [item(3)] };
   await t.saveSnapshot("2", [item(2)]);
   assert.deepStrictEqual(Object.keys(store[t.K.removed]).sort(), ["BV1", "BV3"]);
+
+  // 阅览: every step in one list, the AI-class chip filters across steps.
+  openFake("R", [item(701), item(702), item(703), item(704)]);
+  Object.assign(t.S, { tab: "read", query: "", tagFilter: new Set(), classFilter: { coarse: "all", fine: "all", read: "drop" },
+    titleRes: { BV701: { verdict: "drop", confidence: "high" }, BV702: { verdict: "keep", confidence: "high" } },
+    analyses: { BV703: { status: "done", verdict: "drop" } }, decisions: {} });
+  assert.deepStrictEqual(plain(t.visibleItems().map((it) => it.bvid)), ["BV701", "BV703"], "粗看 and 细看 可以删 together, 未分析 left out");
+  t.S.classFilter.read = "all";
+  assert.strictEqual(t.visibleItems().length, 4);
+  Object.assign(t.S, { titleRes: {}, analyses: {}, classFilter: { coarse: "all", fine: "all", read: "all" } });
 
   console.log("triage selftest: all passed");
 })().catch((e) => {

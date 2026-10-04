@@ -157,8 +157,7 @@ const S = {
     deepseek: false
   },
   tab: "none",
-  readStage: "all",
-  classFilter: { coarse: "all", fine: "all" }, // each tab keeps its own AI-class chip; a folder switch resets both
+  classFilter: { coarse: "all", fine: "all", read: "all" }, // each tab keeps its own AI-class chip; a folder switch resets them
   tagFilter: new Set(),
   query: "",
   focused: "",
@@ -381,8 +380,9 @@ function stageOf(it) {
 }
 
 function inTab(it, tab) {
-  if (tab === "read") return S.readStage === "all" || stageOf(it) === S.readStage;
-  if (stageOf(it) !== tab) return false;
+  // 阅览 is every video of the folder, whatever its step; 已取消收藏 has no AI-class chips.
+  if (tab === "read" && S.mediaId === REMOVED) return true;
+  if (tab !== "read" && stageOf(it) !== tab) return false;
   const f = S.classFilter[tab];
   return !f || f === "all" || verdictOf(it).verdict === f;
 }
@@ -606,8 +606,7 @@ async function openFolder(mediaId) {
   const ok = all ? await openAll() : removed ? await openRemoved() : await syncFolder({ force: true });
   if (!ok) return;
   S.tab = removed ? "read" : currentStage(stageCounts());
-  S.readStage = "all";
-  S.classFilter = { coarse: "all", fine: "all" };
+  S.classFilter = { coarse: "all", fine: "all", read: "all" };
   S.focused = visibleItems()[0]?.bvid || "";
   render();
 }
@@ -1040,7 +1039,7 @@ function renderListHeader(list) {
   const sortHint = `<span class="muted">请在具体收藏夹里分拣</span>`;
   // AI-class chips with per-class counts inside the tab (search and tag filter applied).
   const seg = () => {
-    const inStage = S.items.filter((it) => stageOf(it) === t && passFilter(it));
+    const inStage = S.items.filter((it) => (t === "read" || stageOf(it) === t) && passFilter(it));
     const n = (k) => (k === "all" ? inStage.length : inStage.filter((it) => verdictOf(it).verdict === k).length);
     return `<span class="seg" role="group" aria-label="按 AI 判断筛选">${[["all", "全部"], ...Object.entries(VERDICTS)]
       .map(([k, label]) => `<button type="button" data-class-filter="${k}" aria-pressed="${S.classFilter[t] === k}">${label} ${n(k)}</button>`)
@@ -1095,11 +1094,12 @@ function renderListHeader(list) {
     html += `<span class="muted">离开了你勾选的所有收藏夹的视频，AI 分析、备注和标签都还留着。需要的先批量导出，再清理。</span>
       ${headBtn("export-read", "批量导出…", "", !list.length)}${headBtn("clean-removed", `清理这 ${list.length} 个`, "danger", !list.length)}`;
   } else if (t === "read") {
-    const options = [["all", "全部"], ...STAGES]
-      .map(([key, label]) => `<option value="${key}"${S.readStage === key ? " selected" : ""}>${label}</option>`)
-      .join("");
-    html = `<select data-read-stage aria-label="按进度筛选阅览">${options}</select><span class="muted">${list.length} 个</span>
-      ${headBtn("export-read", "批量导出…", "", !list.length)}`;
+    // 阅览 mixes 粗看 guesses with 细看 conclusions, so no class-wide batch here: only the selection.
+    html = seg();
+    if (all) html += sortHint;
+    else if (sel) html += batchBtn("unfav") + batchBtn("keep");
+    else if (list.length) html += `<span class="muted">按 X 选中后可批量保留或取消收藏</span>`;
+    html += headBtn("export-read", "批量导出…", "", !list.length);
   }
   if (STAGE_EMPTY[t] && !stageCounts()[t]) {
     html += `<button type="button" data-goto="${next[0]}">${STAGE_EMPTY[t]} →</button>`;
@@ -1168,8 +1168,8 @@ function renderList() {
     el.list.innerHTML = `<p class="empty">${S.query.trim() ? "没有匹配搜索的视频" : empty[S.tab] || "这里没有视频"}</p>${recent}`;
     return;
   }
-  el.list.classList.toggle("reading", S.tab === "read");
-  if (S.tab === "read") {
+  el.list.classList.toggle("reading", S.mediaId === REMOVED);
+  if (S.mediaId === REMOVED) {
     el.list.innerHTML = list.map(readHtml).join("");
     return;
   }
@@ -1186,7 +1186,7 @@ function renderList() {
     marked = new Set(bvids);
     word = S.group ? "本批" : bvids.some((b) => S.selected.has(b)) ? "已选中" : "下一批";
   }
-  const expanded = S.tab === "fine";
+  const expanded = S.tab === "fine" || S.tab === "read";
   const failed = S.tab === "coarse" ? list.filter((it) => failedAnalysis(it.bvid)).length : 0;
   const failedHead = `<div class="group-head">分析失败 ${failed} · <button type="button" class="link" data-retry-failed aria-label="全部重试"${S.group || S.stage1.running ? " disabled" : ""}>全部重试</button></div>`;
   // Background progress re-renders the list; keep a note being typed in focus.
@@ -2492,11 +2492,6 @@ function bindEvents() {
     }
   });
 
-  el.listHeader.addEventListener("change", (e) => {
-    if (!e.target.matches("[data-read-stage]")) return;
-    S.readStage = e.target.value;
-    render();
-  });
 
   el.list.addEventListener("click", (e) => {
     if (e.target.closest("[data-pick-folders]")) return openSettings();
@@ -2847,7 +2842,7 @@ function onKey(e) {
   const nav = { j: 1, ArrowDown: 1, k: -1, ArrowUp: -1 };
   const cardKeys = { d: "unfav", s: "keep", t: "tag", e: "basket", q: "ask", x: "select", o: "open", Enter: "open" };
   if (map[key]) map[key]();
-  else if (S.tab === "read") return;
+  else if (S.mediaId === REMOVED) return;
   else if (nav[key]) moveFocus(nav[key]);
   else if (key === "u") undo();
   else if (cardKeys[key] && S.focused) cardAction(cardKeys[key], S.focused);
