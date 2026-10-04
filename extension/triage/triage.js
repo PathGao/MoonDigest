@@ -721,7 +721,7 @@ function renderListHeader(list) {
       .map(([key, label]) => `<option value="${key}"${S.readStage === key ? " selected" : ""}>${label}</option>`)
       .join("");
     html = `<select data-read-stage aria-label="按进度筛选阅览">${options}</select><span class="muted">${list.length} 个</span>
-      ${headBtn("export-read", "导出 Markdown", "", !list.length)}`;
+      ${headBtn("export-read", "批量导出…", "", !list.length)}`;
   }
   if (STAGE_EMPTY[t] && !stageCounts()[t]) {
     html += `<button type="button" data-goto="${next[0]}">${STAGE_EMPTY[t]} →</button>`;
