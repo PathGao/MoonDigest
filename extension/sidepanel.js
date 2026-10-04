@@ -749,18 +749,11 @@ function renderPresetPrompts() {
   els.presetList.innerHTML = prompts
     .map((prompt, index) => `
       <span class="sp-preset-item">
-        <button type="button" class="sp-preset-chip" data-index="${index}" title="${escapeHtml(prompt)}">${escapeHtml(prompt)}</button>
+        <span class="sp-preset-chip" title="${escapeHtml(prompt)}">${escapeHtml(prompt)}</span>
         <button type="button" class="sp-preset-remove" data-index="${index}" aria-label="删除快捷追问">×</button>
       </span>
     `)
     .join("");
-  els.presetList.querySelectorAll(".sp-preset-chip").forEach((btn) => {
-    btn.addEventListener("click", () => {
-      const index = Number(btn.getAttribute("data-index") || -1);
-      insertPresetPrompt(prompts[index] || "");
-      hidePresetPopover();
-    });
-  });
   els.presetList.querySelectorAll(".sp-preset-remove").forEach((btn) => {
     btn.addEventListener("click", async () => {
       const index = Number(btn.getAttribute("data-index") || -1);
@@ -809,7 +802,13 @@ function renderHistoryList() {
             </span>
             <span class="sp-history-meta" title="${escapeHtml(metaText)}">${escapeHtml(metaText)}</span>
           </button>
-          <button type="button" class="sp-history-remove" data-id="${escapeHtml(conversation.id)}" aria-label="删除历史对话">×</button>
+          <button type="button" class="sp-history-remove" data-id="${escapeHtml(conversation.id)}" aria-label="删除历史对话" title="删除">
+            <svg viewBox="0 0 24 24" focusable="false" aria-hidden="true">
+              <path d="M3 6h18"></path>
+              <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"></path>
+              <path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+            </svg>
+          </button>
         </div>
       `;
     })
@@ -1070,6 +1069,9 @@ async function loadConversationById(id) {
 }
 
 async function deleteConversation(id) {
+  if (!confirm("删除这条历史对话？删除后不能恢复。")) {
+    return;
+  }
   const wasCurrent = id && id === currentConversationId;
   savedConversations = savedConversations.filter((item) => item.id !== id);
   await saveConversations();
@@ -1091,7 +1093,7 @@ async function clearAllConversations() {
   if (!savedConversations.length) {
     return;
   }
-  if (!confirm("确定要清空全部历史对话吗？")) {
+  if (!confirm("清空全部历史对话？删除后不能恢复。")) {
     return;
   }
   savedConversations = [];
@@ -1106,17 +1108,6 @@ async function clearAllConversations() {
     updateContextChip();
   }
   renderInitialState();
-}
-
-function insertPresetPrompt(prompt) {
-  const text = String(prompt || "").trim();
-  if (!text) {
-    return;
-  }
-  const current = els.input.value.trim();
-  els.input.value = current ? `${current}\n${text}` : text;
-  els.input.focus();
-  autosizeInput();
 }
 
 function togglePresetPopover(event) {
@@ -2073,8 +2064,8 @@ function renderAssistantMessage(node, raw) {
   const copyBtn = document.createElement("button");
   copyBtn.type = "button";
   copyBtn.className = "sp-msg-copy-btn";
-  copyBtn.setAttribute("aria-label", "复制回复");
-  copyBtn.setAttribute("title", "复制回复");
+  copyBtn.setAttribute("aria-label", "复制单条回复");
+  copyBtn.setAttribute("title", "复制单条回复");
   copyBtn.innerHTML = `
     <svg viewBox="0 0 24 24" focusable="false" aria-hidden="true">
       <rect x="9" y="9" width="10" height="10" rx="2"></rect>
@@ -2112,7 +2103,7 @@ function buildCurrentConversationNote(sourcePath = "") {
   return { context, filename, content: buildAiConversationMarkdown({ context, turns, filename, sourcePath }) };
 }
 
-// Where the page's 保存到 Obsidian puts this video's note: same folder template and filename builder.
+// Where the page's 写入 Obsidian puts this video's note: same folder template and filename builder.
 function videoNotePathFor(context, settings) {
   const folder = resolveFolderTemplate(settings?.noteFolder || "", context);
   const filename = buildNoteFilename(context, settings || {});
@@ -2171,7 +2162,8 @@ function scheduleAutoSync(conversationId) {
 async function autoSyncConversation(conversationId) {
   const conversation = savedConversations.find((item) => item.id === conversationId);
   const noteKey = conversation?.contextRef ? BocSites.buildContextKey(conversation.contextRef) : "";
-  if (!noteKey || !(await boundVideoNotePath(noteKey))) {
+  const notePath = noteKey ? await boundVideoNotePath(noteKey) : "";
+  if (!notePath) {
     return;
   }
   const settingsResp = await sendRuntimeMessage({ type: "get-settings" }).catch(() => null);
@@ -2187,12 +2179,12 @@ async function autoSyncConversation(conversationId) {
       return;
     }
     if (!result.exists) {
-      showSyncStatus("笔记已不存在，未同步");
+      showSyncStatus("Obsidian 里的视频笔记已不存在，未写入");
       return;
     }
-    showSyncStatus("已同步到 Obsidian ✓", { autoHideMs: 3000 });
+    showSyncStatus(`已写入 Obsidian：${notePath}`, { autoHideMs: 3000 });
   } catch (error) {
-    showSyncStatus(`同步失败 · ${readableObsidianError(error)}`, { retry: () => autoSyncConversation(conversationId) });
+    showSyncStatus(`写入 Obsidian 失败：${readableObsidianError(error)}`, { retry: () => autoSyncConversation(conversationId) });
   }
 }
 
@@ -2227,7 +2219,7 @@ async function copyCurrentConversationMarkdown() {
   }
   try {
     await navigator.clipboard.writeText(note.content);
-    showConversationContextNotice("已复制对话 Markdown。", 2200);
+    showConversationContextNotice("已复制 Markdown", 2200);
   } catch (error) {
     showConversationContextNotice(`复制失败：${getErrorMessage(error)}`, 3000);
   }
@@ -2240,7 +2232,7 @@ async function saveCurrentConversationToObsidian() {
   }
   const context = currentConversationMeta?.resolvedContext || contextData || currentConversationMeta?.contextRef || {};
   if (!buildConversationTurns(chatHistory).length) {
-    showConversationContextNotice("当前没有可保存的历史对话。", 2200);
+    showConversationContextNotice("当前没有可写入 Obsidian 的对话。", 2200);
     return;
   }
   // Update the video note first: a 404 clears the recorded path, so the backlink below is computed afresh.
@@ -2305,7 +2297,7 @@ async function saveMarkdownToObsidian({ button, filepath, content, baseUrl, apiK
     if (exists) {
       const shouldOverwrite = await confirmOverwriteNote(filepath);
       if (!shouldOverwrite) {
-        showConversationContextNotice("已取消保存，原笔记未被覆盖。", 2200);
+        showConversationContextNotice("已取消写入 Obsidian，原笔记未被覆盖。", 2200);
         return false;
       }
     }
@@ -2313,7 +2305,7 @@ async function saveMarkdownToObsidian({ button, filepath, content, baseUrl, apiK
     showConversationContextNotice(`已写入 Obsidian：${filepath}`, 2600);
     return true;
   } catch (error) {
-    showConversationContextNotice(`写入失败：${getErrorMessage(error)}`, 4000);
+    showConversationContextNotice(`写入 Obsidian 失败：${getErrorMessage(error)}`, 4000);
   } finally {
     if (button) {
       button.classList.remove("is-saving");

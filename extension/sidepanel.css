@@ -717,8 +717,11 @@ body {
   position: relative;
 }
 
-.sp-sync-status {
+.sp-sync-status:not([hidden]) {
   display: flex;
+}
+
+.sp-sync-status {
   align-items: center;
   gap: 8px;
   padding: 0 4px 4px;
@@ -1025,6 +1028,16 @@ body {
   cursor: pointer;
 }
 
+.sp-history-remove svg {
+  width: 14px;
+  height: 14px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
 .sp-history-remove:hover {
   color: var(--danger);
   background: var(--danger-bg);
@@ -1048,14 +1061,9 @@ body {
   color: var(--text-2);
   font: inherit;
   font-size: var(--fs-xs);
-  cursor: pointer;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-}
-
-.sp-preset-chip:hover {
-  color: var(--text);
 }
 
 .sp-preset-remove {
