@@ -15,7 +15,7 @@
     // Old scheme data, so the page's one-time migration has something to fold: 稍后-AI (seen, unmapped) gets the
     // default criteria, 学习 its scheme's; tags become AI工程 + 工具 + 数学, s-ai merges into t-ai, s-unused is dropped.
     triage_schemes: [
-      { id: "default", name: "默认方案", criteria: "只保留 AI 工程实践相关的深度内容，资讯和娱乐可以删", tags: [{ id: "t-ai", name: "AI工程", description: "大模型实践", color: "#da86c3" }, { id: "t-tool", name: "工具", color: "#298287" }] },
+      { id: "default", name: "默认方案", criteria: "只留 AI 工程实践的深度内容，资讯可清理", tags: [{ id: "t-ai", name: "AI工程", description: "大模型实践", color: "#da86c3" }, { id: "t-tool", name: "工具", color: "#298287" }] },
       { id: "s-study", name: "学习", criteria: "只留系统课程", tags: [{ id: "s-math", name: "数学", color: "#dc6d2d" }, { id: "s-ai", name: "AI工程", color: "#3590a0" }, { id: "s-unused", name: "没用到", color: "#8595ea" }] }
     ],
     triage_folder_scheme: { 1002: "s-study" },
