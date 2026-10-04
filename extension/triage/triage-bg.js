@@ -466,6 +466,8 @@ async function triageAnalyze({ bvid, force, scheme: raw, extra }) {
     model,
     analyzedAt: Date.now()
   };
+  // Notes and exports outside the triage page can't look up the scheme, so the tier name travels with the result.
+  analysis.verdictName = (scheme.tiers || []).find((t) => t.id === analysis.verdict)?.name;
   await chrome.storage.local.set({ [cacheKey]: analysis });
   return analysis;
 }

@@ -357,7 +357,7 @@
     if (analysis.oneLiner) lines.push(`> ${analysis.oneLiner}`, "");
     const points = (analysis.points || []).filter(Boolean);
     if (points.length) lines.push(...points.map((p) => `- ${p}`), "");
-    const verdict = { keep: "建议留", drop: "建议删", unsure: "待定" }[analysis.verdict];
+    const verdict = analysis.verdictName || { keep: "建议留", drop: "建议删", unsure: "待定" }[analysis.verdict];
     if (verdict) lines.push(`判断：${verdict}${analysis.reason ? `，${analysis.reason}` : ""}`);
     return lines.join("\n").trim();
   }
