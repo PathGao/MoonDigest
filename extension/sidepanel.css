@@ -734,15 +734,6 @@ body {
   line-height: 1.65;
 }
 
-.sp-center-error a {
-  color: var(--link);
-  text-decoration: none;
-}
-
-.sp-center-error a:hover {
-  text-decoration: underline;
-}
-
 .sp-context-notice {
   align-self: stretch;
   position: sticky;
@@ -812,7 +803,7 @@ body {
   align-items: center;
   gap: 4px;
   height: 28px;
-  /* Five buttons must fit one line at the 360px minimum side panel width. */
+  /* Four buttons must fit one line at the 360px minimum side panel width. */
   padding: 0 6px;
   border: 0;
   border-radius: 999px;
@@ -826,16 +817,6 @@ body {
 }
 
 .sp-toolbar-btn:hover {
-  background: var(--surface-muted);
-  color: var(--text);
-}
-
-.sp-toolbar-btn:disabled {
-  cursor: default;
-  opacity: 0.62;
-}
-
-.sp-toolbar-btn.is-saving {
   background: var(--surface-muted);
   color: var(--text);
 }

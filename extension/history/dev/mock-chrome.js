@@ -1,5 +1,5 @@
 // Dev-only fake chrome.* for opening history.html from a static server (no-op inside the extension).
-// Seeds four videos' conversations, some triage analyses and notes. window.__mockVault is the fake Obsidian vault (path → markdown);
+// Seeds conversations for three videos and a web page, some triage analyses and notes. window.__mockVault is the fake Obsidian vault (path → markdown);
 // downloads are caught into window.__mockDownloads ({ filename, content }) instead of hitting disk.
 (() => {
   if (globalThis.chrome?.runtime?.id) return;

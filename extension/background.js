@@ -140,7 +140,7 @@ async function injectReaderContent(tabId) {
 
   await chrome.scripting.executeScript({
     target: { tabId },
-    files: ["sites.js", "note.js", "content.js"]
+    files: ["limits.js", "sites.js", "note.js", "content.js"]
   });
 }
 
@@ -309,18 +309,6 @@ function normalizeAiContextRef(ref) {
 }
 
 
-function createBiliHeaders(url) {
-  const headers = new Headers();
-  const isBiliRequest = /(?:api\.bilibili\.com|hdslb\.com)/.test(String(url || ""));
-  if (isBiliRequest) {
-    headers.set("Accept", "application/json, text/plain, */*");
-    headers.set("Accept-Language", "zh-CN,zh;q=0.9,en;q=0.8");
-    headers.set("Cache-Control", "no-cache");
-    headers.set("Pragma", "no-cache");
-  }
-  return headers;
-}
-
 const FETCH_TIMEOUT_MS = 15000;
 const OBSIDIAN_TIMEOUT_MS = 30000;
 
@@ -340,15 +328,11 @@ async function fetchWithTimeout(url, options = {}, ms = FETCH_TIMEOUT_MS) {
 }
 
 async function fetchJsonForAi(url) {
-  const headers = createBiliHeaders(url);
   const options = {
     method: "GET",
     credentials: "include",
     cache: "no-store"
   };
-  if (headers.size > 0) {
-    options.headers = headers;
-  }
   if (/(?:api\.bilibili\.com|hdslb\.com)/.test(String(url || ""))) {
     options.referrer = "https://www.bilibili.com/";
     options.referrerPolicy = "strict-origin-when-cross-origin";
@@ -1284,7 +1268,6 @@ async function saveAiProviders(items) {
     chrome.storage.sync.set({ aiProviders: nextList }),
     chrome.storage.local.set({ [AI_PROVIDER_KEYS_STORAGE]: keys })
   ]);
-  // 返回带 hasSavedKey 的列表，方便前端渲染占位
   return nextList.map((p) => ({ ...p, hasSavedKey: Boolean(keys[p.id]) }));
 }
 
@@ -1318,7 +1301,7 @@ async function saveAiProviderKey(providerId, apiKey) {
   return keys;
 }
 
-// ===== AI 调用（内联实现，避免 service worker 跨文件 import） =====
+// ===== AI 调用 =====
 
 const { AI_SUBTITLE_MAX_CHARS, AI_HISTORY_MAX_CHARS } = BocLimits;
 

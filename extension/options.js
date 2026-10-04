@@ -191,7 +191,6 @@ async function loadSettings() {
   elements.aiSystemPrompt.value = settings.aiSystemPrompt || "";
   elements.aiPresetPrompts.value = (Array.isArray(settings.aiPresetPrompts) ? settings.aiPresetPrompts : []).join("\n");
 
-  // AI 配置
   const providers = await loadAiProviders();
   renderAiProviders(providers);
   renderHostPermissionBanner(hostPermissionUrls(settings, providers));
@@ -503,6 +502,7 @@ function addFixedPropertyRow(item = {}) {
   row.querySelector(".fixed-property-remove")?.addEventListener("click", () => {
     row.remove();
     updateFixedPropertyEmptyState();
+    setUnsaved(true);
   });
 
   const typeButton = row.querySelector(".fixed-property-type-button");
@@ -544,6 +544,7 @@ function addFixedPropertyRow(item = {}) {
         bindFixedPropertyValueEvents(row);
       }
       clearFixedPropertyErrorState(row);
+      setUnsaved(true);
     });
   });
 
@@ -611,6 +612,7 @@ function addNoteSectionRow(item = {}, { skipLimit = false } = {}) {
   row.querySelector(".note-section-remove")?.addEventListener("click", () => {
     row.remove();
     updateNoteSectionEmptyState();
+    setUnsaved(true);
   });
 
   row.querySelectorAll(".note-section-title, .note-section-content, .note-section-position").forEach((input) => {
@@ -700,7 +702,7 @@ function collectFixedPropertyRows({ includeRow = false } = {}) {
     const item = {
       key: String(row.querySelector(".fixed-property-key")?.value || "").trim(),
       type,
-      value: readFixedPropertyValue(row, type)
+      value: readFixedPropertyValue(row)
     };
     if (includeRow) {
       item.row = row;
@@ -771,9 +773,6 @@ function clearFixedPropertyErrors() {
   elements.fixedPropertiesList.querySelectorAll(".fixed-property-key, .fixed-property-value").forEach((input) => {
     input.classList.remove("input-error");
   });
-  elements.fixedPropertiesList.querySelectorAll(".fixed-property-type-button").forEach((input) => {
-    input.classList.remove("input-error");
-  });
   elements.fixedPropertiesList.querySelectorAll(".fixed-property-error").forEach((node) => {
     node.hidden = true;
     node.textContent = "";
@@ -825,7 +824,7 @@ function containsFrontmatterTemplateToken(value) {
   return FRONTMATTER_TEMPLATE_TOKEN_RE.test(String(value || "").trim());
 }
 
-function readFixedPropertyValue(row, _type = normalizeFixedPropertyType(row.querySelector(".fixed-property-type")?.value)) {
+function readFixedPropertyValue(row) {
   return String(row.querySelector(".fixed-property-value")?.value || "").trim();
 }
 
@@ -890,7 +889,7 @@ function bindFixedPropertyValueEvents(row) {
 }
 
 function clearFixedPropertyErrorState(row) {
-  row.querySelectorAll(".fixed-property-key, .fixed-property-value, .fixed-property-type-button").forEach((input) => {
+  row.querySelectorAll(".fixed-property-key, .fixed-property-value").forEach((input) => {
     input.classList.remove("input-error");
   });
   const errorNode = row.querySelector(".fixed-property-error");

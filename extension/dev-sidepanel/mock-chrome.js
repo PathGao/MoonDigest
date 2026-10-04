@@ -11,7 +11,6 @@
     const listeners = [];
     return {
       addListener: (fn) => listeners.push(fn),
-      removeListener: (fn) => listeners.splice(listeners.indexOf(fn) >>> 0, 1),
       _fire: (...args) => listeners.slice().forEach((fn) => fn(...args))
     };
   };
@@ -173,7 +172,6 @@
     },
     runtime: {
       lastError: undefined,
-      getURL: (p) => `../${p}`,
       openOptionsPage: () => console.log("[mock] openOptionsPage"),
       onMessage: runtimeOnMessage,
       sendMessage(msg, cb) {

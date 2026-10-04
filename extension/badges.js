@@ -38,7 +38,7 @@
     return {
       label,
       aria,
-      verdict: v ? v.verdict : "", // the CSS color class: keep / drop / unsure
+      verdict: v ? v.verdict : "",
       stage: v?.stage || 0,
       low: Boolean(v?.low),
       action,
