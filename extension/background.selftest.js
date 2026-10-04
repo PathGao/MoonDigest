@@ -216,11 +216,13 @@ process.on("exit", (code) => {
     "/reply/main": { code: 0, data: { replies: [] } }
   });
   const historyContext = () => ctx.resolveAiSidepanelContext({ site: "bilibili", videoId: "BVa", cid: "11" });
-  let routes = sidepanelRoutes(100);
+  // A subtitle running far past the 273 s video belongs to another video.
+  let routes = sidepanelRoutes(400);
   ctx.fetchJsonForAi = async (url) => routes[Object.keys(routes).find((part) => url.includes(part))];
   await assert.rejects(historyContext(), /时长不匹配/);
   assert.deepStrictEqual(Object.keys(local).filter((k) => k.startsWith("boc_subtitle_cache_")), []);
-  routes = sidepanelRoutes(272);
+  // Speech ending at 100 s (a long silent outro) passes the video page's loose guard, so the side panel takes it too.
+  routes = sidepanelRoutes(100);
   assert.strictEqual((await historyContext()).subtitleBody.length, 2);
   assert.ok("boc_subtitle_cache_BVa_11_id_5" in local);
 

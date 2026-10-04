@@ -423,8 +423,8 @@ async function resolveAiSidepanelContext(contextRef) {
     previousUrl: ref.selectedSubtitleUrl,
     previousLang: ref.subtitleLang
   });
-  // Same duration guard as triage, so another video's subtitle is neither shown nor cached.
-  const valid = (segments) => segments.length > 0 && (!(meta.duration > 0) || triageSubtitleValid(segments, meta.duration));
+  // Same duration guard as the video page, so another video's subtitle is neither shown nor cached.
+  const valid = (segments) => BocSites.validateSubtitleByDuration(segments, meta.duration).ok;
   const body = selectedTrack
     ? site.parseSegments(await BocSites.fetchRawCached(site, selectedTrack, { videoId: videoRef.id, cid: meta.cid }, io, valid))
     : [];

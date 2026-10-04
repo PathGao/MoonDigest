@@ -1226,7 +1226,7 @@ async function loadSubtitle(url, lang, runId = state.fetchRunId, subtitleId = ""
     const cachedRaw = await subtitleCache.load(cacheKey);
     const cachedBody = cachedRaw === null ? [] : currentSite().parseSegments(cachedRaw);
     if (cachedBody.length > 0) {
-      const cachedCheck = validateSubtitleByDuration(cachedBody, state.videoDuration);
+      const cachedCheck = BocSites.validateSubtitleByDuration(cachedBody, state.videoDuration);
       if (!cachedCheck.ok) {
         logWarn("[BOC] cached subtitle duration mismatch, clearing cache", {
           cacheKey,
@@ -1265,7 +1265,7 @@ async function commitSubtitleBody(raw, { url, lang, subtitleId }, runId) {
   if (body.length === 0) {
     throw new Error("字幕文件为空。");
   }
-  const durationCheck = validateSubtitleByDuration(body, state.videoDuration);
+  const durationCheck = BocSites.validateSubtitleByDuration(body, state.videoDuration);
   if (!durationCheck.ok) {
     const mismatchError = new Error("字幕时长与当前视频不匹配。");
     mismatchError.code = "SUBTITLE_DURATION_MISMATCH";
@@ -4237,49 +4237,6 @@ async function tryLoadSubtitleCandidates(candidates, runId) {
     throw lastError;
   }
   throw new Error("这个视频暂时没有可用字幕。");
-}
-
-function validateSubtitleByDuration(body, videoDuration) {
-  const duration = Number(videoDuration || 0);
-  if (!Array.isArray(body) || body.length === 0) {
-    return { ok: false, reason: "empty", videoDuration: duration, maxTo: 0 };
-  }
-
-  let maxTo = 0;
-  for (const item of body) {
-    const to = Number(item?.to);
-    const from = Number(item?.from);
-    if (Number.isFinite(to) && to > maxTo) {
-      maxTo = to;
-    }
-    if (Number.isFinite(from) && from > maxTo) {
-      maxTo = from;
-    }
-  }
-
-  if (!(duration > 0)) {
-    return { ok: true, reason: "skip-no-video-duration", videoDuration: duration, maxTo };
-  }
-
-  const upperTolerance = Math.max(12, duration * 0.15);
-  if (maxTo > duration + upperTolerance) {
-    return { ok: false, reason: "too-long", videoDuration: duration, maxTo };
-  }
-
-  let minCoverageRatio = 0;
-  if (duration >= 600) {
-    minCoverageRatio = 0.18;
-  } else if (duration >= 300) {
-    minCoverageRatio = 0.22;
-  } else if (duration >= 180) {
-    minCoverageRatio = 0.25;
-  }
-
-  if (minCoverageRatio > 0 && maxTo < duration * minCoverageRatio) {
-    return { ok: false, reason: "too-short", videoDuration: duration, maxTo };
-  }
-
-  return { ok: true, reason: "ok", videoDuration: duration, maxTo };
 }
 
 function readRuntimeVideoDuration() {
