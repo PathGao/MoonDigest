@@ -325,6 +325,19 @@ body {
   filter: brightness(1.08);
 }
 
+.sp-triage-summary {
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  font-size: var(--fs-md);
+  line-height: 1.6;
+}
+
+.sp-triage-summary-label {
+  color: var(--muted);
+  font-size: var(--fs-xs);
+}
+
 .sp-followups {
   display: flex;
   flex-wrap: wrap;

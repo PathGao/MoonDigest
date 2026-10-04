@@ -653,6 +653,24 @@ function renderSuggestions() {
     ? `<button type="button" class="sp-summary-btn" title="${escapeHtml(prompt)}">总结这期视频</button>`
     : "";
   suggestionsNode.querySelector("button")?.addEventListener("click", () => sendPrompt(prompt));
+  void renderTriageSummary(suggestionsNode);
+}
+
+// A summary the triage page already paid for, shown before the first question; nothing is requested here.
+// It is per bvid and summarizes P1, so other parts don't show it.
+async function renderTriageSummary(node) {
+  const ref = buildConversationContextRef(contextData);
+  if (ref?.site !== "bilibili" || ref.pageIndex !== 1) {
+    return;
+  }
+  const key = `triage_analysis_${ref.videoId}`;
+  const summary = BocNote.buildTriageSummary((await chrome.storage.local.get(key))[key]);
+  if (!summary || node !== suggestionsNode || chatHistory.length || buildConversationContextRef(contextData)?.videoId !== ref.videoId) {
+    return;
+  }
+  node.querySelector(".sp-triage-summary")?.remove();
+  // renderMarkdown has no blockquotes, so the one-liner loses its "> ".
+  node.insertAdjacentHTML("afterbegin", `<div class="sp-triage-summary"><div class="sp-triage-summary-label">分拣台的 AI 总结</div>${renderMarkdown(summary.replace(/^> /, ""))}</div>`);
 }
 
 // Follow-up chips: only once there is a reply to follow up on, and not mid-stream.
