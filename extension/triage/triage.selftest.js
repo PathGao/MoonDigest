@@ -119,7 +119,7 @@ function openFake(mediaId, items, decisions = {}) {
   assert.strictEqual(t.csvField("普通 标题"), "普通 标题");
   assert.strictEqual(t.csvField("a,b"), '"a,b"');
   openFake("E", [{ ...item(5), title: "=cmd|' /C calc'!A0", upper: "@up" }]);
-  t.S.folders = [{ id: "E", title: "+夹" }];
+  t.S.folders = t.S.allFolders = [{ id: "E", title: "+夹" }];
   const csvRows = t.buildCsv().replace(/^\uFEFF/, "").split("\r\n");
   assert.ok(csvRows[1].startsWith("'+夹,BV5,'=cmd|' /C calc'!A0,'@up,"), csvRows[1]);
 
@@ -154,22 +154,6 @@ function openFake(mediaId, items, decisions = {}) {
   // B12: titles with | [[ ]] or newlines cannot end the index-note link early.
   assert.strictEqual(t.wikiLink("B站/2026-10-02-a_b.md", "a|b [[c]]\nd"), "[[B站/2026-10-02-a_b|a b c d]]");
   assert.strictEqual(t.wikiLink("x.md", "|||"), "[[x|x]]");
-
-  // U4: the cache cleanup removes only caches of videos and folders nothing references.
-  const all = {
-    triage_snapshot_1: { bvids: ["BVa"] },
-    triage_decisions_1: { BVgone: { action: "unfav" } },
-    triage_snapshot_9: { bvids: ["BVold"] },
-    triage_decisions_9: {},
-    triage_title_BVa: {}, triage_analysis_BVa: {},
-    triage_title_BVold: {}, triage_analysis_BVold: {}, triage_verdict_override_BVold: {},
-    triage_analysis_BVbasket: {}, triage_title_BVopen: {},
-    triage_tags: [], triage_video_tags: { BVold: ["t"] }, triage_basket: [{ bvid: "BVbasket" }], triage_tag_presets: [],
-    triage_notes: { BVold: { text: "n" } }
-  };
-  const plan = t.staleCacheKeys(all, [1], ["BVopen"]);
-  assert.deepStrictEqual([...plan.keys].sort(), ["triage_analysis_BVold", "triage_decisions_9", "triage_snapshot_9", "triage_title_BVold", "triage_verdict_override_BVold"]);
-  assert.deepStrictEqual([plan.videos, plan.title, plan.analysis, plan.override, plan.folders], [1, 1, 1, 1, 1]);
 
   // verdictOf precedence: invalid > override > done analysis > title result.
   const v = { bvid: "BVv", title: "v" };
@@ -284,7 +268,7 @@ function openFake(mediaId, items, decisions = {}) {
     triage_title_BVa: { verdict: "keep" }, triage_analysis_BVa: { status: "done" }, triage_verdict_override_BVa: { verdict: "drop" },
     triage_tab: "all", aiProviderKeys: { x: "sk-live-1" }, obsidianApiKey: "secret-token"
   });
-  t.S.folders = [{ id: 7, title: "夹" }];
+  t.S.folders = t.S.allFolders = [{ id: 7, title: "夹" }];
   const backup = plain(await t.buildBackup());
   assert.deepStrictEqual(backup.folders, { 7: { title: "夹", snapshot: { bvids: ["BVa"] }, decisions: { BVa: { action: "keep" } } } });
   assert.strictEqual(backup.schemaVersion, 3);
@@ -409,7 +393,7 @@ function openFake(mediaId, items, decisions = {}) {
   const shared = { ...item(7), folders: ["A", "B"] };
   openFake("all", [shared]);
   t.S.folderDecisions = { A: {}, B: {} };
-  t.S.folders = [{ id: "A", title: "甲" }, { id: "B", title: "乙" }];
+  t.S.folders = t.S.allFolders = [{ id: "A", title: "甲" }, { id: "B", title: "乙" }];
   t.pickUnfavFolders = async () => ["B"];
   handlers["triage-unfav"] = () => ({ ok: true });
   await t.decide("BV7", "unfav");
@@ -459,25 +443,70 @@ function openFake(mediaId, items, decisions = {}) {
   const rec = t.updateRemoved({ BV9: { item: item(9), at: 1 } }, [item(1), item(2), item(3)], [item(1), item(9)], new Set(["BV3"]), 5);
   assert.deepStrictEqual(plain(rec), { BV2: { item: item(2), at: 5 } }, "BV3 is in another folder, BV9 came back");
 
-  // saveSnapshot records against the other folders' snapshots and stores the folder cover.
+  // 所有收藏夹 keeps a cached list only while the folder's video ids match it as a set.
+  assert.strictEqual(t.idsChanged(["BV1", "BV2"], ["BV2", "BV1"]), false, "order does not matter");
+  assert.strictEqual(t.idsChanged(["BV1", "BV2"], ["BV1", "BV3"]), true, "add + remove with the same count");
+  assert.strictEqual(t.idsChanged(["BV1"], ["BV1", "BV2"]), true);
+  assert.strictEqual(t.idsChanged(["BV1", "BV2"], ["BV1"]), true);
+  assert.strictEqual(t.idsChanged([], []), false);
+
+  // saveSnapshot records against the other folders' snapshots and keeps the id list the next check compares with.
   for (const k of Object.keys(store)) delete store[k];
-  t.S.folders = [{ id: "A", cover: "c1", count: 1 }, { id: "B", cover: "", count: 1 }];
+  t.S.folders = t.S.allFolders = [{ id: "A", count: 1 }, { id: "B", count: 1 }];
   store[t.K.snapshot("A")] = { bvids: ["BV1", "BV2"], items: [item(1), item(2)] };
   store[t.K.snapshot("B")] = { bvids: ["BV2"], items: [item(2)] };
-  await t.saveSnapshot("A", []);
+  await t.saveSnapshot("A", [], ["BVhidden"]);
   assert.deepStrictEqual(Object.keys(store[t.K.removed]), ["BV1"]);
-  assert.strictEqual(store[t.K.snapshot("A")].cover, "c1");
+  assert.deepStrictEqual(plain(store[t.K.snapshot("A")].ids), ["BVhidden"], "an id the paged list leaves out stays in the check baseline");
   assert.strictEqual(t.S.removedCount, 1);
 
   // Cleaning a removed video deletes its AI results, note, tags, 保留 and basket entry, and nothing else.
   Object.assign(store, { triage_analysis_BV1: {}, triage_title_BV1: {}, triage_analysis_BV5: {} });
   Object.assign(t.S, { notes: { BV1: { text: "n" }, BV5: { text: "m" } }, videoTags: { BV1: ["t"] }, kept: { BV1: { action: "keep" } }, basket: [{ bvid: "BV1" }, { bvid: "BV5" }] });
+  handlers["triage-folder-ids"] = () => ({ ok: true, data: { bvids: [] } });
   await t.openRemoved();
   assert.deepStrictEqual(plain(t.S.items.map((it) => it.bvid)), ["BV1"]);
   await t.cleanRemoved(t.S.items);
   assert.ok(!store.triage_analysis_BV1 && !store.triage_title_BV1 && store.triage_analysis_BV5);
   assert.deepStrictEqual(plain([Object.keys(store[t.K.notes]), store[t.K.videoTags], store[t.K.kept], store[t.K.removed]]), [["BV5"], {}, {}, {}]);
   assert.deepStrictEqual(plain(store[t.K.basket]), [{ bvid: "BV5" }]);
+
+  // Opening 已取消收藏 checks every folder's id list; a video found in one again leaves the list.
+  store[t.K.removed] = { BV1: { item: item(1), at: 1 }, BV2: { item: item(2), at: 2 } };
+  handlers["triage-folder-ids"] = ({ mediaId }) => ({ ok: true, data: { bvids: mediaId === "B" ? ["BV1"] : [] } });
+  t.S.mediaId = "removed";
+  await t.openRemoved();
+  for (let i = 0; i < 20 && t.S.removedCheck; i++) await new Promise((r) => setImmediate(r));
+  assert.deepStrictEqual(Object.keys(store[t.K.removed]), ["BV2"]);
+  assert.deepStrictEqual(plain(t.S.items.map((it) => it.bvid)), ["BV2"]);
+  assert.strictEqual(t.S.removedCount, 1);
+
+  // Opt-in folders: a new user starts with none; someone who already triaged keeps every folder but the ones switched off.
+  for (const k of Object.keys(store)) delete store[k];
+  t.S.allFolders = [{ id: 1 }, { id: 2 }, { id: 3 }];
+  assert.deepStrictEqual(plain(await t.loadIncluded()), []);
+  delete store[t.K.included];
+  Object.assign(store, { triage_snapshot_1: { bvids: [] }, triage_excluded_folders: ["2"] });
+  assert.deepStrictEqual(plain(await t.loadIncluded()), ["1", "3"]);
+  assert.ok(!("triage_excluded_folders" in store));
+  store[t.K.included] = ["3"];
+  assert.deepStrictEqual(plain(await t.loadIncluded()), ["3"], "a saved choice is kept as is");
+
+  // A folder deleted on Bilibili: its videos move to 已取消收藏 unless still in a live folder; its records go.
+  for (const k of Object.keys(store)) delete store[k];
+  t.S.allFolders = [{ id: 1 }];
+  Object.assign(store, {
+    triage_snapshot_1: { bvids: ["BV2"], items: [item(2)] },
+    triage_snapshot_9: { bvids: ["BV1", "BV2"], items: [item(1), item(2)] },
+    triage_decisions_9: { BV1: { action: "unfav" } }
+  });
+  await t.retireDeletedFolders();
+  assert.deepStrictEqual(Object.keys(store[t.K.removed]), ["BV1"], "BV2 is still in folder 1");
+  assert.ok(!store.triage_snapshot_9 && !store.triage_decisions_9 && store.triage_snapshot_1);
+  t.S.allFolders = [];
+  store.triage_snapshot_8 = { bvids: ["BV3"], items: [item(3)] };
+  await t.retireDeletedFolders();
+  assert.ok(store.triage_snapshot_8, "an empty folder list never retires anything");
 
   console.log("triage selftest: all passed");
 })().catch((e) => {

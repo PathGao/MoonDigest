@@ -31,6 +31,7 @@ const K = {
   kept: "triage_kept", // { [bvid]: { action: "keep", at } }: 保留 belongs to the video, so it shows in every folder
   keptMigrated: "triage_kept_v1",
   removed: "triage_removed", // { [bvid]: { item, at } }: videos that left every folder, kept until the user cleans them
+  included: "triage_included_folders", // [mediaId]: the folders the user chose; only these are listed and read
   snapshot: (id) => `triage_snapshot_${id}`,
   aiHistory: "triage_ai_command_history",
   override: (bvid) => `triage_verdict_override_${bvid}`
@@ -116,11 +117,21 @@ function updateRemoved(removed, oldItems, newItems, otherBvids, at) {
   }
   return next;
 }
+
+// 所有收藏夹 (pure): a cached list is stale when the folder's current video ids differ from it as a set.
+function idsChanged(cached, ids) {
+  const have = new Set(cached);
+  const now = new Set(ids);
+  return have.size !== now.size || [...now].some((b) => !have.has(b));
+}
 const unfavOnly = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) => v?.action === "unfav"));
 
 // ---------- state ----------
 const S = {
-  folders: [],
+  allFolders: [], // every folder on Bilibili
+  folders: [], // the ones taking part in triage
+  included: [],
+  removedCheck: null, // 已取消收藏 only: { done, total, error } while its folders are checked
   mediaId: "",
   folderToken: 0,
   items: [],
@@ -131,7 +142,7 @@ const S = {
   kept: {},
   removedCount: 0,
   folderDecisions: {}, // 所有收藏夹 only: { [mediaId]: that folder's decisions }
-  loadAll: null, // 所有收藏夹 only: { lists: { [mediaId]: { items, at } }, queue, paused, running, error, partial }
+  loadAll: null, // 所有收藏夹 only: { lists: { [mediaId]: { items, at } }, check, checkTotal, queue, paused, running, error, partial }
   tags: [],
   folderCriteria: {},
   videoTags: {},
@@ -175,12 +186,12 @@ const criteria = () => S.folderCriteria[S.mediaId] || "";
 const $ = (id) => document.getElementById(id);
 const el = {};
 [
-  "folderSelect", "removedBtn", "searchInput", "searchCount", "refreshBtn", "progress", "queueStatus", "settingsBtn", "helpBtn",
+  "folderSelect", "allBtn", "removedBtn", "searchInput", "searchCount", "refreshBtn", "progress", "queueStatus", "settingsBtn", "helpBtn",
   "banner", "bannerText", "bannerBtn", "bannerClose", "syncNotice", "syncText", "syncViewBtn", "syncCloseBtn", "syncDetail",
   "tabs", "tagFilter", "manageTagsBtn", "listHeader", "list", "basket", "basketToggle", "basketCount",
-  "basketList", "basketNextBtn", "toast", "settingsDialog", "thinkingRow", "intervalInput",
+  "basketList", "basketNextBtn", "toast", "settingsDialog", "folderToggles", "thinkingRow", "intervalInput",
   "batchSizeInput", "openOptionsBtn", "thinkingInput", "titleMaxInput",
-  "titleMaxHint", "analyzeMaxInput", "analyzeMaxHint", "settingsError", "backupBtn", "csvBtn", "cleanCacheBtn", "confirmDialog",
+  "titleMaxHint", "analyzeMaxInput", "analyzeMaxHint", "settingsError", "backupBtn", "csvBtn", "confirmDialog",
   "confirmTitle", "confirmBody", "confirmOk", "pickerDialog", "pickerTitle", "pickerInput", "pickerList",
   "criteriaDialog", "criteriaTitle", "criteriaInput", "tagsDialog", "tagsRows", "newTagInput", "addTagBtn", "helpDialog",
   "aiBtn", "aiDialog", "aiForm", "aiScope", "aiScopeCount", "aiInstruction", "aiHistory",
@@ -487,6 +498,41 @@ async function loadKept() {
   return kept;
 }
 
+// A folder deleted on Bilibili leaves no new list to diff against, so its videos (unless still in another folder's
+// list) move to 已取消收藏 here and its records go.
+async function retireDeletedFolders() {
+  if (!S.allFolders.length) return; // 默认收藏夹 always exists; an empty list is never "every folder deleted"
+  const live = new Set(S.allFolders.map((f) => String(f.id)));
+  const keys = ((await chrome.storage.local.getKeys?.()) ?? Object.keys((await chrome.storage.local.get(null)) || {})).filter((k) => k.startsWith("triage_snapshot_"));
+  const gone = keys.map((k) => k.slice(16)).filter((id) => !live.has(id));
+  if (!gone.length) return;
+  const got = await chrome.storage.local.get([K.removed, ...keys]);
+  const otherBvids = new Set([...live].flatMap((id) => got[K.snapshot(id)]?.bvids || []));
+  let removed = got[K.removed] || {};
+  for (const id of gone) {
+    const old = got[K.snapshot(id)];
+    const oldItems = old?.items || (old?.bvids || []).map((bvid) => ({ bvid, title: old.titles?.[bvid] || bvid }));
+    removed = updateRemoved(removed, oldItems, [], otherBvids, Date.now());
+  }
+  await chrome.storage.local.set({ [K.removed]: removed });
+  await chrome.storage.local.remove(gone.flatMap((id) => [K.snapshot(id), K.decisions(id)]));
+}
+
+// Opt-in: a new user starts with no folder chosen. The first load after this change keeps every folder for
+// someone who already triaged (a snapshot exists), minus the ones they had switched off.
+async function loadIncluded() {
+  const got = await chrome.storage.local.get([K.included, "triage_excluded_folders"]);
+  if (Array.isArray(got[K.included])) return got[K.included];
+  const keys = (await chrome.storage.local.getKeys?.()) ?? Object.keys((await chrome.storage.local.get(null)) || {});
+  const off = (got.triage_excluded_folders || []).map(String);
+  const included = keys.some((k) => k.startsWith("triage_snapshot_"))
+    ? S.allFolders.map((f) => String(f.id)).filter((id) => !off.includes(id))
+    : [];
+  await chrome.storage.local.set({ [K.included]: included });
+  await chrome.storage.local.remove("triage_excluded_folders");
+  return included;
+}
+
 // 「（p/P 页）」 while a folder of more than one page (20 videos each) loads.
 function pageText(mediaId) {
   const pages = Math.ceil(Number(S.folders.find((f) => String(f.id) === String(mediaId))?.count || 0) / 20);
@@ -506,18 +552,27 @@ async function loadFolders() {
     el.list.innerHTML = `<p class="empty">无法读取收藏夹</p>`;
     return;
   }
-  S.folders = r.data.folders || [];
+  S.allFolders = r.data.folders || [];
+  await retireDeletedFolders();
+  S.included = (await loadIncluded()).map(String);
+  S.folders = S.allFolders.filter((f) => S.included.includes(String(f.id)));
   S.removedCount = Object.keys(await storeGet(K.removed, {})).length;
-  // 已取消收藏 opens from its own button; the hidden option only names it in the select while it is open.
+  // 所有收藏夹 and 已取消收藏 open from their own buttons; the hidden options only name them in the select while open.
   el.folderSelect.innerHTML =
-    `<option value="${ALL}">所有收藏夹</option><option value="${REMOVED}" hidden>已取消收藏</option>` +
+    `<option value="${ALL}" hidden>所有收藏夹</option><option value="${REMOVED}" hidden>已取消收藏</option>` +
     S.folders.map((f) => `<option value="${esc(f.id)}">${esc(f.title)} (${esc(f.count)})</option>`).join("");
+  renderTop();
   if (!S.folders.length) {
-    el.list.innerHTML = `<p class="empty">没有找到收藏夹</p>`;
+    el.list.innerHTML = S.allFolders.length
+      ? `<div class="empty pick-folders"><p><strong>先选要分拣的收藏夹</strong></p>
+          <p>MoonDigest 只读取你勾选的收藏夹，没勾的不会读取里面的内容。以后可以在「分拣设置」里随时改。</p>
+          <button type="button" class="primary" data-pick-folders>选择收藏夹</button></div>`
+      : `<p class="empty">没有找到收藏夹</p>`;
     return;
   }
+  // Back to the last real folder, else the first (默认收藏夹); 所有收藏夹 is slow to load, so it never opens by itself.
   const last = String(await storeGet(K.lastFolder, ""));
-  const pick = last === ALL || last === REMOVED ? last : String((S.folders.find((f) => String(f.id) === last) || S.folders[0]).id);
+  const pick = String((S.folders.find((f) => String(f.id) === last) || S.folders[0]).id);
   el.folderSelect.value = pick;
   await openFolder(pick);
 }
@@ -535,6 +590,7 @@ async function openFolder(mediaId) {
   S.decisions = decisions;
   S.folderDecisions = {};
   S.loadAll = null;
+  S.removedCheck = null;
   S.items = [];
   S.itemMap = new Map();
   S.group = null;
@@ -546,7 +602,7 @@ async function openFolder(mediaId) {
   S.throttleUntil = 0;
   S.status = "";
   el.syncNotice.hidden = true;
-  storeSet(K.lastFolder, mediaId);
+  if (!all && !removed) storeSet(K.lastFolder, mediaId);
   el.folderSelect.value = mediaId;
   el.list.innerHTML = loadingHtml();
   const ok = all ? await openAll() : removed ? await openRemoved() : await syncFolder({ force: true });
@@ -618,7 +674,7 @@ async function syncFolder({ force = false } = {}) {
     if (S.group) S.group.bvids = S.group.bvids.filter((b) => S.itemMap.has(b));
     for (const b of [...S.selected]) if (!S.itemMap.has(b)) S.selected.delete(b);
 
-    if (!partial) await saveSnapshot(mediaId, remote);
+    if (!partial) await saveSnapshot(mediaId, remote, r.data.ids);
     if (!(await loadResults(token))) return false;
     showSyncNotice(diff, partial);
     render();
@@ -629,10 +685,10 @@ async function syncFolder({ force = false } = {}) {
   }
 }
 
-// The full item list doubles as the 所有收藏夹 cache; bvids/invalid/titles drive the sync diff, and the folder's
-// count + cover tell 所有收藏夹 whether the cache is still current. Videos that left every folder go to 已取消收藏.
-async function saveSnapshot(mediaId, items) {
-  const others = S.folders.map((f) => String(f.id)).filter((id) => id !== String(mediaId));
+// The full item list doubles as the 所有收藏夹 cache; bvids/invalid/titles drive the sync diff. Videos that left every
+// folder go to 已取消收藏.
+async function saveSnapshot(mediaId, items, ids = null) {
+  const others = S.allFolders.map((f) => String(f.id)).filter((id) => id !== String(mediaId));
   const got = await chrome.storage.local.get([K.snapshot(mediaId), K.removed, ...others.map(K.snapshot)]);
   const old = got[K.snapshot(mediaId)];
   const oldItems = old?.items || (old?.bvids || []).map((bvid) => ({ bvid, title: old.titles?.[bvid] || bvid }));
@@ -644,7 +700,7 @@ async function saveSnapshot(mediaId, items) {
       invalid: items.filter((it) => it.invalid).map((it) => it.bvid),
       titles: Object.fromEntries(items.map((it) => [it.bvid, it.title])),
       items,
-      cover: S.folders.find((f) => String(f.id) === String(mediaId))?.cover ?? "",
+      ids, // the folder's id list at this load; 所有收藏夹 compares the next id list with it
       at: Date.now()
     },
     [K.removed]: removed
@@ -662,7 +718,44 @@ async function openRemoved() {
     .sort((x, y) => y.at - x.at)
     .map(({ item, at }) => ({ ...item, removedAt: at }));
   S.itemMap = new Map(S.items.map((it) => [it.bvid, it]));
-  return loadResults(token);
+  if (!(await loadResults(token))) return false;
+  checkRemoved(token);
+  return true;
+}
+
+// Re-favorited videos leave 已取消收藏 as soon as one chosen folder's id list has them again.
+async function checkRemoved(token) {
+  const ids = S.folders.map((f) => String(f.id));
+  S.removedCheck = { done: 0, total: ids.length, error: "" };
+  for (const id of ids) {
+    if (token !== S.folderToken) return;
+    const r = await send({ type: "triage-folder-ids", mediaId: id });
+    if (token !== S.folderToken) return;
+    if (!r.ok) {
+      S.removedCheck.error = `核对「${folderName(id)}」失败：${r.error}，可点刷新重试`;
+      render();
+      return;
+    }
+    S.removedCheck.done++;
+    await dropRemoved(r.data.bvids);
+    render();
+    await new Promise((res) => setTimeout(res, 300));
+  }
+  if (token === S.folderToken) S.removedCheck = null;
+  render();
+}
+
+// Drops these bvids from 已取消收藏 (they are in a folder again).
+async function dropRemoved(bvids) {
+  const rec = await storeGet(K.removed, {});
+  const back = bvids.filter((b) => rec[b]);
+  if (!back.length) return;
+  for (const b of back) delete rec[b];
+  await storeSet(K.removed, rec);
+  S.removedCount = Object.keys(rec).length;
+  if (S.mediaId !== REMOVED) return;
+  S.items = S.items.filter((it) => !back.includes(it.bvid));
+  S.itemMap = new Map(S.items.map((it) => [it.bvid, it]));
 }
 
 // Deletes everything MoonDigest holds for these videos (AI results, 保留, note, tags, 优先看) and their record.
@@ -704,8 +797,9 @@ async function loadResults(token) {
 }
 
 // ---------- 所有收藏夹 ----------
-// Folders with a cached list (triage_snapshot_*.items) whose count and cover still match the folder show at once;
-// the rest are fetched one by one in the background with the same loader and request interval as the rest of the page.
+// Folders with a cached list (triage_snapshot_*.items) show at once, then each is checked against the folder's video ids
+// (one light request) and re-fetched if they differ. Folders without a cache are fetched one by one in the background
+// with the same loader and request interval as the rest of the page.
 async function openAll() {
   const token = S.folderToken;
   const ids = S.folders.map((f) => String(f.id));
@@ -716,10 +810,11 @@ async function openAll() {
     const id = String(f.id);
     S.folderDecisions[id] = got[K.decisions(id)] || {};
     const snap = got[K.snapshot(id)];
-    if (snap?.items && snap.items.length === Number(f.count) && snap.cover === f.cover) lists[id] = { items: snap.items, at: snap.at || 0 };
+    if (snap?.items) lists[id] = { items: snap.items, ids: snap.ids, at: snap.at || 0 };
     else if (!Number(f.count)) lists[id] = { items: [], at: Date.now() };
   }
-  S.loadAll = { lists, queue: ids.filter((id) => !lists[id]), paused: false, running: false, error: "", partial: 0 };
+  const check = ids.filter((id) => got[K.snapshot(id)]?.items);
+  S.loadAll = { lists, check, checkTotal: check.length, queue: ids.filter((id) => !lists[id]), paused: false, running: false, error: "", partial: 0 };
   rebuildAll();
   if (!(await loadResults(token))) return false;
   runLoadAll(token);
@@ -753,7 +848,24 @@ async function runLoadAll(token) {
   L.running = true;
   L.error = "";
   render();
-  while (L.queue.length && keepGoing()) {
+  while ((L.check.length || L.queue.length) && keepGoing()) {
+    // Checks go first: they are light (~300 ms apart) and may add folders to the full-load queue.
+    if (L.check.length) {
+      const id = L.check[0];
+      const r = await send({ type: "triage-folder-ids", mediaId: id });
+      if (token !== S.folderToken) return;
+      if (!r.ok) {
+        L.error = `核对「${folderName(id)}」失败：${r.error}`;
+        L.paused = true;
+        break;
+      }
+      L.check.shift();
+      await dropRemoved(r.data.bvids);
+      if (idsChanged(L.lists[id].ids || L.lists[id].items.map((it) => it.bvid), r.data.bvids)) L.queue.push(id);
+      render();
+      if (L.check.length || L.queue.length) await sleepWhile(300, keepGoing);
+      continue;
+    }
     const id = L.queue[0];
     S.loadPage = null;
     const r = await send({ type: "triage-folder-items", mediaId: id });
@@ -765,10 +877,10 @@ async function runLoadAll(token) {
     }
     L.queue.shift();
     const items = r.data.items || [];
-    L.lists[id] = { items, at: Date.now() };
+    L.lists[id] = { items, ids: r.data.ids, at: Date.now() };
     // A partial list is still searchable but never becomes the cache, as in syncFolder.
     if (r.data.partial) L.partial++;
-    else await saveSnapshot(id, items);
+    else await saveSnapshot(id, items, r.data.ids);
     rebuildAll();
     if (!(await loadResults(token))) return;
     render();
@@ -783,6 +895,7 @@ function refreshAll() {
   const L = S.loadAll;
   if (!L) return;
   L.queue = S.folders.map((f) => String(f.id));
+  L.check = [];
   L.paused = false;
   L.partial = 0;
   runLoadAll(S.folderToken);
@@ -793,15 +906,19 @@ function loadAllLine() {
   const n = S.folders.length;
   const loaded = n - L.queue.length;
   const partial = L.partial ? `（${L.partial} 个只加载了部分）` : "";
-  if (!L.queue.length) return `<span class="muted">${n} 个收藏夹 · ${S.items.length} 个视频${partial}</span>`;
-  const now = L.running && !L.paused ? ` · 正在加载「${esc(folderName(L.queue[0]))}」${pageText(L.queue[0])}` : "";
+  if (!L.queue.length && !L.check.length) return `<span class="muted">${n} 个收藏夹 · ${S.items.length} 个视频${partial}</span>`;
+  const busy = L.running && !L.paused;
+  const now = busy ? ` · 正在加载「${esc(folderName(L.queue[0]))}」${pageText(L.queue[0])}` : "";
+  const text = L.check.length
+    ? `${busy ? "正在核对" : "已核对"} ${L.checkTotal - L.check.length} / ${L.checkTotal} 个收藏夹`
+    : `已加载 ${loaded} / ${n} 个收藏夹${partial}${now}（第一次较慢，之后只核对变化）`;
   const btn = L.paused
     ? `<button type="button" class="link" data-head="all-resume" aria-label="继续加载收藏夹">继续</button>`
     : `<button type="button" class="link" data-head="all-pause" aria-label="暂停加载收藏夹">暂停</button>`;
-  return `<span class="muted">已加载 ${loaded} / ${n} 个收藏夹${partial}${now} · ${btn}</span>${L.error ? `<span class="fail-text">${esc(L.error)}</span>` : ""}`;
+  return `<span class="muted"${busy ? ' aria-busy="true"' : ""}>${text} · ${btn}</span>${L.error ? `<span class="fail-text">${esc(L.error)}</span>` : ""}`;
 }
 
-const folderName = (id) => S.folders.find((f) => String(f.id) === String(id))?.title || String(id);
+const folderName = (id) => S.allFolders.find((f) => String(f.id) === String(id))?.title || String(id);
 const folderNames = (it) => it.folders.map(folderName).join("、");
 
 // A video in several folders: pick which ones to unfavorite it from (all checked by default).
@@ -850,6 +967,8 @@ function renderTop() {
   const processed = S.items.filter((it) => isProcessed(it.bvid)).length;
   el.progress.textContent = `已粗分 ${classified} / ${total} · 已细看 ${deep} · 已处理 ${processed}`;
   setBusy(el.refreshBtn, (S.syncing || S.loadAll?.running) && `刷新中…${S.syncing ? pageText(S.mediaId) : ""}`);
+  el.allBtn.setAttribute("aria-pressed", String(S.mediaId === ALL));
+  el.allBtn.hidden = !S.folders.length;
   el.removedBtn.textContent = `已取消收藏 ${S.removedCount}`;
   el.removedBtn.setAttribute("aria-pressed", String(S.mediaId === REMOVED));
   el.removedBtn.hidden = !S.removedCount && S.mediaId !== REMOVED;
@@ -966,7 +1085,9 @@ function renderListHeader(list) {
     }
     if (!sel && list.length && f === "unsure") html += `<span class="muted">按 X 选中后可批量保留或取消收藏</span>`;
   } else if (t === "read" && S.mediaId === REMOVED) {
-    html = `<span class="muted">已不在任何收藏夹里的视频，AI 分析、备注和标签都还留着。需要的先批量导出，再清理。</span>
+    const c = S.removedCheck;
+    if (c) html = c.error ? `<span class="fail-text">${esc(c.error)}</span>` : `<span class="muted" aria-busy="true">正在核对 ${c.done} / ${c.total} 个收藏夹，重新收藏的会自动移出</span>`;
+    html += `<span class="muted">已不在任何收藏夹里的视频，AI 分析、备注和标签都还留着。需要的先批量导出，再清理。</span>
       ${headBtn("export-read", "批量导出…", "", !list.length)}${headBtn("clean-removed", `清理这 ${list.length} 个`, "danger", !list.length)}`;
   } else if (t === "read") {
     const options = [["all", "全部"], ...STAGES]
@@ -2236,7 +2357,7 @@ async function buildBackup() {
     verdictOverrides: {}
   };
   const folder = (id) =>
-    (out.folders[id] ||= { title: S.folders.find((f) => String(f.id) === id)?.title || "", snapshot: null, decisions: {} });
+    (out.folders[id] ||= { title: S.allFolders.find((f) => String(f.id) === id)?.title || "", snapshot: null, decisions: {} });
   for (const [k, v] of Object.entries(all || {})) {
     if (!BACKUP_PREFIXES.some((p) => k.startsWith(p))) continue;
     if (isSecretKey(k)) continue; // defensive: triage keys never contain these words
@@ -2254,50 +2375,6 @@ async function buildBackup() {
     else if (k.startsWith("triage_analysis_")) out.analyses[k.slice(16)] = v;
   }
   return out;
-}
-
-// Per-video AI caches for videos in no live folder's snapshot, the open list, the basket or 已取消收藏,
-// plus snapshot/decision records of folders that no longer exist. Tags, videoTags and the basket are never touched.
-function staleCacheKeys(all, folderIds, openBvids) {
-  const live = new Set(folderIds.map(String));
-  const keep = new Set([...openBvids, ...(all[K.basket] || []).map((x) => x.bvid), ...Object.keys(all[K.removed] || {})]);
-  for (const id of live) for (const b of all[K.snapshot(id)]?.bvids || []) keep.add(b);
-  const plan = { keys: [], videos: new Set(), title: 0, analysis: 0, override: 0, folders: new Set() };
-  for (const k of Object.keys(all)) {
-    const v = /^triage_(title|analysis|verdict_override)_(.+)$/.exec(k);
-    const f = /^triage_(snapshot|decisions)_(.+)$/.exec(k);
-    if (v && !keep.has(v[2])) {
-      plan.keys.push(k);
-      plan.videos.add(v[2]);
-      plan[v[1] === "verdict_override" ? "override" : v[1]]++;
-    } else if (f && !live.has(f[2])) {
-      plan.keys.push(k);
-      plan.folders.add(f[2]);
-    }
-  }
-  return { ...plan, videos: plan.videos.size, folders: plan.folders.size };
-}
-
-async function cleanCache() {
-  if (!S.folders.length) {
-    toast("收藏夹列表还没加载，无法判断哪些缓存已失效", true);
-    return;
-  }
-  setBusy(el.cleanCacheBtn, "检查中…");
-  const plan = staleCacheKeys(await chrome.storage.local.get(null), S.folders.map((f) => f.id), S.items.map((it) => it.bvid));
-  setBusy(el.cleanCacheBtn, false);
-  if (!plan.keys.length) {
-    toast("没有可清理的缓存");
-    return;
-  }
-  const folders = plan.folders ? `，以及 ${plan.folders} 个已删除收藏夹的同步与处理记录` : "";
-  const body = `<p>将删除 ${plan.videos} 个已不在任何收藏夹里的视频的缓存（标题粗分 ${plan.title} 条、细看分析 ${plan.analysis} 条、AI 改判 ${plan.override} 条）${folders}。</p>
-    <p>这些视频的 AI 判断和摘要会一并删除，无法撤销；需要保留请先导出完整备份。标签、视频标签、优先看和「已取消收藏」里的视频不受影响。</p>`;
-  if (!(await askConfirm("清理缓存？", body, `删除 ${plan.keys.length} 条缓存`))) return;
-  setBusy(el.cleanCacheBtn, "清理中…");
-  await chrome.storage.local.remove(plan.keys);
-  setBusy(el.cleanCacheBtn, false);
-  toast(`已清理 ${plan.keys.length} 条缓存`);
 }
 
 function csvField(v) {
@@ -2341,6 +2418,7 @@ function buildCsv() {
 function bindEvents() {
   el.folderSelect.addEventListener("change", () => openFolder(el.folderSelect.value));
   el.removedBtn.addEventListener("click", () => openFolder(REMOVED));
+  el.allBtn.addEventListener("click", () => openFolder(ALL));
   el.refreshBtn.addEventListener("click", () =>
     S.mediaId === ALL ? refreshAll() : S.mediaId === REMOVED ? openFolder(REMOVED) : S.mediaId && syncFolder({ force: true })
   );
@@ -2435,6 +2513,7 @@ function bindEvents() {
   });
 
   el.list.addEventListener("click", (e) => {
+    if (e.target.closest("[data-pick-folders]")) return openSettings();
     const refav = e.target.closest("[data-refav]");
     if (refav) return refavRecent(refav.dataset.refav);
     const clean = e.target.closest("[data-clean]");
@@ -2495,6 +2574,11 @@ function bindEvents() {
       bad[0].focus();
     }
   });
+  el.settingsDialog.addEventListener("click", (e) => {
+    const all = e.target.closest("[data-folders-all]");
+    if (!all && !e.target.closest("[data-folders-none]")) return;
+    for (const box of el.folderToggles.querySelectorAll("input")) box.checked = Boolean(all);
+  });
   el.settingsDialog.addEventListener("close", async () => {
     if (el.settingsDialog.returnValue !== "save") return;
     const patch = {
@@ -2511,6 +2595,11 @@ function bindEvents() {
     }
     Object.assign(S.settings, patch);
     toast("设置已保存");
+    const included = [...el.folderToggles.querySelectorAll("input:checked")].map((x) => x.value);
+    if (S.allFolders.length && included.join() !== S.included.join()) {
+      await storeSet(K.included, included);
+      await loadFolders();
+    }
   });
   el.writeBtn.addEventListener("click", () => openWrite());
   el.writeScope.addEventListener("change", renderWriteScope);
@@ -2542,7 +2631,6 @@ function bindEvents() {
     const title = folderTitle().replace(/[\\/:*?"<>|]/g, "_");
     BocDownload.text(`MoonDigest-${title}-${stamp(new Date(), false)}.csv`, buildCsv(), "text/csv;charset=utf-8");
   });
-  el.cleanCacheBtn.addEventListener("click", cleanCache);
   el.helpBtn.addEventListener("click", () => el.helpDialog.showModal());
 
   el.syncViewBtn.addEventListener("click", () => (el.syncDetail.hidden = !el.syncDetail.hidden));
@@ -2717,6 +2805,9 @@ function renderTokenHints() {
 }
 
 function openSettings(scrollToLimits = false) {
+  el.folderToggles.innerHTML = S.allFolders
+    .map((f) => `<label class="toggle"><input type="checkbox" value="${esc(f.id)}"${S.included.includes(String(f.id)) ? " checked" : ""} /> ${esc(f.title)} <span class="muted">${esc(f.count)}</span></label>`)
+    .join("") || `<p class="dialog-hint">收藏夹列表还没加载</p>`;
   el.thinkingRow.hidden = !S.settings.deepseek;
   el.intervalInput.value = S.settings.triageIntervalSec ?? 8;
   el.batchSizeInput.value = S.settings.triageTitleBatchSize ?? 30;
