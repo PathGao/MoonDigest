@@ -83,12 +83,15 @@
     };
   }
 
+  const ai = titles.map(makeItem);
+  const study = ["线性代数的本质 01", "费曼学习法", "如何高效读论文", "统计学习方法导读", "英语听力训练"].map(makeItem);
+  // 默认收藏夹 overlaps both others (same videos), for the 所有收藏夹 view.
   const folders = [
-    { id: 1001, title: "稍后-AI", items: titles.map(makeItem) },
-    { id: 1002, title: "学习", items: ["线性代数的本质 01", "费曼学习法", "如何高效读论文", "统计学习方法导读", "英语听力训练"].map(makeItem) },
-    { id: 1003, title: "默认收藏夹", items: [] }
+    { id: 1001, title: "稍后-AI", items: ai },
+    { id: 1002, title: "学习", items: study },
+    { id: 1003, title: "默认收藏夹", items: [ai[1], ai[12], study[0], ...["家常红烧肉的做法", "十分钟早餐：葱油拌面"].map(makeItem)] }
   ];
-  const removed = new Map(); // aid -> { folder, item, index }
+  const removed = new Map(); // "mediaId:aid" -> { folder, item, index }
   const throttledOnce = new Set();
   let lastMediaId = 1001;
   let aiCommandCalls = 0;
@@ -185,15 +188,15 @@
       const f = folders.find((x) => String(x.id) === String(mediaId));
       for (const aid of aids) {
         const index = f.items.findIndex((it) => it.aid === aid);
-        if (index >= 0) removed.set(aid, { folder: f, item: f.items.splice(index, 1)[0], index });
+        if (index >= 0) removed.set(`${f.id}:${aid}`, { folder: f, item: f.items.splice(index, 1)[0], index });
       }
       return { ok: true, data: { done: aids.length } };
     },
-    "triage-refav": ({ aid }) => {
-      const r = removed.get(aid);
+    "triage-refav": ({ mediaId, aid }) => {
+      const r = removed.get(`${mediaId}:${aid}`);
       if (!r) return { ok: false, error: "找不到要恢复的视频" };
       r.folder.items.splice(Math.min(r.index, r.folder.items.length), 0, r.item);
-      removed.delete(aid);
+      removed.delete(`${mediaId}:${aid}`);
       return { ok: true, data: { done: 1 } };
     },
     "triage-settings-get": () => ({
@@ -226,7 +229,7 @@
     f.items = f.items.filter((it) => !victims.includes(it));
     f.items.unshift(...["新收藏：Agent 记忆系统设计", "新收藏：AI 播客剪辑技巧", "新收藏：多模态模型综述"].map(makeItem));
     const back = [...removed.entries()].find(([, r]) => r.folder === f);
-    if (back) handlers["triage-refav"]({ aid: back[0] });
+    if (back) handlers["triage-refav"]({ mediaId: f.id, aid: back[1].item.aid });
     const flip = f.items.find((it) => !it.invalid && it._i > 30 && it._i < titles.length);
     if (flip) {
       flip.invalid = true;

@@ -33,6 +33,7 @@ const K = {
   override: (bvid) => `triage_verdict_override_${bvid}`
 };
 const OVERRIDE_PREFIX = "triage_verdict_override_";
+const ALL = "all"; // the 所有收藏夹 view's folder-select value
 // The fixed AI classes: unsure (or low confidence) goes to 待细看, keep and drop to 待处理.
 // The ids are the badge color classes too.
 const VERDICTS = { keep: "留", drop: "可以删", unsure: "待定" };
@@ -68,6 +69,25 @@ function simplifyMigration({ schemes, folderScheme, tags, videoTags, criteria, f
   return { tags: out, videoTags: nextVideoTags, folderCriteria: { ...crit, ...folderCriteria } };
 }
 
+// 所有收藏夹 (pure): lists = [{ id, items, at, decisions }] in folder order. A video in several folders appears once with
+// every folder id in .folders. A folder whose 取消收藏 is newer than its cached list (at) no longer counts; a video left in
+// no folder is dropped. A 保留 in any remaining folder shows as the merged decision.
+function mergeFolderItems(lists) {
+  const map = new Map();
+  const decisions = {};
+  for (const { id, items, at = 0, decisions: d = {} } of lists) {
+    for (const it of items) {
+      const dec = d[it.bvid];
+      if (dec?.action === "unfav" && dec.at >= at) continue;
+      const m = map.get(it.bvid);
+      if (m) m.folders.push(id);
+      else map.set(it.bvid, { ...it, folders: [id] });
+      if (dec?.action === "keep") decisions[it.bvid] ||= dec;
+    }
+  }
+  return { items: [...map.values()], decisions };
+}
+
 // ---------- state ----------
 const S = {
   folders: [],
@@ -78,6 +98,8 @@ const S = {
   titleRes: {},
   analyses: {},
   decisions: {},
+  folderDecisions: {}, // 所有收藏夹 only: { [mediaId]: that folder's decisions }
+  loadAll: null, // 所有收藏夹 only: { lists: { [mediaId]: { items, at } }, queue, paused, running, error, partial }
   tags: [],
   folderCriteria: {},
   videoTags: {},
@@ -411,28 +433,31 @@ async function loadFolders() {
     return;
   }
   S.folders = r.data.folders || [];
-  el.folderSelect.innerHTML = S.folders
-    .map((f) => `<option value="${esc(f.id)}">${esc(f.title)} (${esc(f.count)})</option>`)
-    .join("");
+  el.folderSelect.innerHTML =
+    `<option value="${ALL}">所有收藏夹</option>` +
+    S.folders.map((f) => `<option value="${esc(f.id)}">${esc(f.title)} (${esc(f.count)})</option>`).join("");
   if (!S.folders.length) {
     el.list.innerHTML = `<p class="empty">没有找到收藏夹</p>`;
     return;
   }
   const last = String(await storeGet(K.lastFolder, ""));
-  const pick = S.folders.find((f) => String(f.id) === last) || S.folders[0];
-  el.folderSelect.value = String(pick.id);
-  await openFolder(String(pick.id));
+  const pick = last === ALL ? ALL : String((S.folders.find((f) => String(f.id) === last) || S.folders[0]).id);
+  el.folderSelect.value = pick;
+  await openFolder(pick);
 }
 
 async function openFolder(mediaId) {
   // Loaded before any state changes so S.mediaId and S.decisions always belong to the same folder.
-  const decisions = await storeGet(K.decisions(mediaId), {});
+  const all = mediaId === ALL;
+  const decisions = all ? {} : await storeGet(K.decisions(mediaId), {});
   S.folderToken++;
   // The old stage-1 loop exits on the token change without touching state, so reset it here.
   S.stage1 = { running: false, stop: true };
   if (S.group) S.group.stop = true;
   S.mediaId = mediaId;
   S.decisions = decisions;
+  S.folderDecisions = {};
+  S.loadAll = null;
   S.items = [];
   S.itemMap = new Map();
   S.group = null;
@@ -446,7 +471,7 @@ async function openFolder(mediaId) {
   el.syncNotice.hidden = true;
   storeSet(K.lastFolder, mediaId);
   el.list.innerHTML = `<p class="empty">加载中…</p>`;
-  const ok = await syncFolder({ force: true });
+  const ok = all ? await openAll() : await syncFolder({ force: true });
   if (!ok) return;
   S.tab = currentStage(stageCounts());
   S.readStage = "all";
@@ -513,33 +538,147 @@ async function syncFolder({ force = false } = {}) {
     if (S.group) S.group.bvids = S.group.bvids.filter((b) => S.itemMap.has(b));
     for (const b of [...S.selected]) if (!S.itemMap.has(b)) S.selected.delete(b);
 
-    if (!partial) {
-      storeSet(K.snapshot(mediaId), {
-        bvids: remote.map((it) => it.bvid),
-        invalid: remote.filter((it) => it.invalid).map((it) => it.bvid),
-        titles: Object.fromEntries(remote.map((it) => [it.bvid, it.title])),
-        at: Date.now()
-      });
-    }
-
-    const missing = next.map((it) => it.bvid).filter((b) => !(b in S.titleRes) && !(b in S.analyses));
-    if (missing.length) {
-      const [t, a] = await Promise.all([
-        send({ type: "triage-title-get", bvids: missing }),
-        send({ type: "triage-analysis-get", bvids: missing })
-      ]);
-      if (token !== S.folderToken) return false;
-      for (const b of missing) {
-        if (t.ok && t.data?.[b]) S.titleRes[b] = t.data[b];
-        if (a.ok && a.data?.[b]) S.analyses[b] = a.data[b];
-      }
-    }
+    if (!partial) saveSnapshot(mediaId, remote);
+    if (!(await loadResults(token))) return false;
     showSyncNotice(diff, partial);
     render();
     return true;
   } finally {
     if (S.syncing === token) S.syncing = false;
   }
+}
+
+// The full item list doubles as the 所有收藏夹 cache; bvids/invalid/titles drive the sync diff.
+function saveSnapshot(mediaId, items) {
+  storeSet(K.snapshot(mediaId), {
+    bvids: items.map((it) => it.bvid),
+    invalid: items.filter((it) => it.invalid).map((it) => it.bvid),
+    titles: Object.fromEntries(items.map((it) => [it.bvid, it.title])),
+    items,
+    at: Date.now()
+  });
+}
+
+// Reads cached 粗分/细看 results for listed videos not loaded yet; false when the folder changed meanwhile.
+async function loadResults(token) {
+  const missing = S.items.map((it) => it.bvid).filter((b) => !(b in S.titleRes) && !(b in S.analyses));
+  if (!missing.length) return true;
+  const [t, a] = await Promise.all([
+    send({ type: "triage-title-get", bvids: missing }),
+    send({ type: "triage-analysis-get", bvids: missing })
+  ]);
+  if (token !== S.folderToken) return false;
+  for (const b of missing) {
+    if (t.ok && t.data?.[b]) S.titleRes[b] = t.data[b];
+    if (a.ok && a.data?.[b]) S.analyses[b] = a.data[b];
+  }
+  return true;
+}
+
+// ---------- 所有收藏夹 ----------
+// Folders with a cached list (triage_snapshot_*.items) whose length still matches the folder's count show at once;
+// the rest are fetched one by one in the background with the same loader and request interval as the rest of the page.
+async function openAll() {
+  const token = S.folderToken;
+  const ids = S.folders.map((f) => String(f.id));
+  const got = await chrome.storage.local.get(ids.flatMap((id) => [K.snapshot(id), K.decisions(id)]));
+  if (token !== S.folderToken) return false;
+  const lists = {};
+  for (const f of S.folders) {
+    const id = String(f.id);
+    S.folderDecisions[id] = got[K.decisions(id)] || {};
+    const snap = got[K.snapshot(id)];
+    if (snap?.items && snap.items.length === Number(f.count)) lists[id] = { items: snap.items, at: snap.at || 0 };
+    else if (!Number(f.count)) lists[id] = { items: [], at: Date.now() };
+  }
+  S.loadAll = { lists, queue: ids.filter((id) => !lists[id]), paused: false, running: false, error: "", partial: 0 };
+  rebuildAll();
+  if (!(await loadResults(token))) return false;
+  runLoadAll(token);
+  return true;
+}
+
+function rebuildAll() {
+  const L = S.loadAll;
+  const lists = S.folders.map((f) => String(f.id)).filter((id) => L.lists[id]).map((id) => ({ id, ...L.lists[id], decisions: S.folderDecisions[id] }));
+  const { items, decisions } = mergeFolderItems(lists);
+  // Keep videos unfavorited from every folder this session, so they sit in 已处理 and U can undo.
+  const have = new Set(items.map((it) => it.bvid));
+  for (const it of S.items) {
+    if (!have.has(it.bvid) && S.decisions[it.bvid]?.action === "unfav") {
+      items.push(it);
+      decisions[it.bvid] = S.decisions[it.bvid];
+    }
+  }
+  S.items = items;
+  S.itemMap = new Map(items.map((it) => [it.bvid, it]));
+  S.decisions = decisions;
+  for (const b of [...S.selected]) if (!S.itemMap.has(b)) S.selected.delete(b);
+}
+
+async function runLoadAll(token) {
+  const L = S.loadAll;
+  if (!L || L.running) return;
+  const keepGoing = () => !L.paused && token === S.folderToken;
+  L.running = true;
+  L.error = "";
+  render();
+  while (L.queue.length && keepGoing()) {
+    const id = L.queue[0];
+    const r = await send({ type: "triage-folder-items", mediaId: id });
+    if (token !== S.folderToken) return;
+    if (!r.ok) {
+      L.error = `「${folderName(id)}」加载失败：${r.error}`;
+      L.paused = true;
+      break;
+    }
+    L.queue.shift();
+    const items = r.data.items || [];
+    L.lists[id] = { items, at: Date.now() };
+    // A partial list is still searchable but never becomes the cache, as in syncFolder.
+    if (r.data.partial) L.partial++;
+    else saveSnapshot(id, items);
+    rebuildAll();
+    if (!(await loadResults(token))) return;
+    render();
+    if (L.queue.length) await sleepWhile(S.settings.triageIntervalSec * 1000, keepGoing);
+  }
+  L.running = false;
+  render();
+}
+
+// 刷新 in 所有收藏夹 re-fetches every folder; the cached lists stay visible until each one is replaced.
+function refreshAll() {
+  const L = S.loadAll;
+  if (!L) return;
+  L.queue = S.folders.map((f) => String(f.id));
+  L.paused = false;
+  L.partial = 0;
+  runLoadAll(S.folderToken);
+}
+
+function loadAllLine() {
+  const L = S.loadAll;
+  const n = S.folders.length;
+  const loaded = n - L.queue.length;
+  const partial = L.partial ? `（${L.partial} 个只加载了部分）` : "";
+  if (!L.queue.length) return `<span class="muted">${n} 个收藏夹 · ${S.items.length} 个视频${partial}</span>`;
+  const btn = L.paused
+    ? `<button type="button" class="link" data-head="all-resume" aria-label="继续加载收藏夹">继续</button>`
+    : `<button type="button" class="link" data-head="all-pause" aria-label="暂停加载收藏夹">暂停</button>`;
+  return `<span class="muted">已加载 ${loaded} / ${n} 个收藏夹${partial} · ${btn}</span>${L.error ? `<span class="fail-text">${esc(L.error)}</span>` : ""}`;
+}
+
+const folderName = (id) => S.folders.find((f) => String(f.id) === String(id))?.title || String(id);
+const folderNames = (it) => it.folders.map(folderName).join("、");
+
+// A video in several folders: pick which ones to unfavorite it from (all checked by default).
+async function pickUnfavFolders(it) {
+  const boxes = it.folders
+    .map((f) => `<label class="toggle"><input type="checkbox" value="${esc(f)}" checked /> ${esc(folderName(f))}</label>`)
+    .join("");
+  const ok = await askConfirm(`取消收藏《${shortTitle(it)}》？`, `<p>这个视频在 ${it.folders.length} 个收藏夹里，从勾选的收藏夹取消收藏：</p>${boxes}`, "取消收藏");
+  return ok ? [...el.confirmBody.querySelectorAll("input:checked")].map((x) => x.value) : [];
 }
 
 function showSyncNotice(diff, partial) {
@@ -640,8 +779,11 @@ function renderListHeader(list) {
   const t = S.tab;
   const next = STAGES[STAGES.findIndex(([k]) => k === t) + 1];
   const busy = S.stage1.running || Boolean(S.group);
+  const all = S.mediaId === ALL;
+  const sortHint = `<span class="muted">请在具体收藏夹里分拣</span>`;
   let html = "";
-  if (t === "none") {
+  if (all && (t === "none" || t === "deep")) html = sortHint;
+  else if (t === "none") {
     if (S.stage1.running) html = headBtn("stage1", `暂停粗分 ${S.stage1.done}/${S.stage1.total}`, "primary");
     else {
       const n = stage1Pending().length;
@@ -670,7 +812,8 @@ function renderListHeader(list) {
       const verb = route === "unfav" ? "取消收藏" : "保留";
       return headBtn(`batch-${route}`, verdict ? `${verb}（AI：${VERDICTS[verdict]}）${n} 个` : `${verb}选中的 ${n} 个`, route === "unfav" ? "danger" : "", !n, verdict, route === "keep" ? KEEP_TIP : "");
     };
-    if (sel) html += batchBtn("unfav") + batchBtn("keep");
+    if (all) html += sortHint;
+    else if (sel) html += batchBtn("unfav") + batchBtn("keep");
     else {
       if (f === "all" || f === "drop") html += batchBtn("unfav", "drop");
       if (f === "all" || f === "keep") html += batchBtn("keep", "keep");
@@ -689,6 +832,7 @@ function renderListHeader(list) {
   if (S.selected.size) {
     html += `<span class="muted">已选中 ${S.selected.size} 个</span><button type="button" class="link" data-head="clear-selected" aria-label="清空选中">清空选中</button>`;
   }
+  if (all) html = loadAllLine() + html;
   el.listHeader.innerHTML = html;
   el.listHeader.hidden = !html;
 }
@@ -738,7 +882,7 @@ function renderList() {
   // 保留 only marks the video here, while 取消收藏 changed Bilibili; say so where both end up.
   const recent = S.tab === "done" ? `<p class="muted tab-note">已保留：${KEEP_TIP}。已取消收藏：已从 B 站收藏夹移走，最近的操作可按 U 撤销。</p>${recentUnfavHtml()}` : "";
   if (!S.items.length) {
-    el.list.innerHTML = `<p class="empty">这个收藏夹是空的</p>${recent}`;
+    el.list.innerHTML = `<p class="empty">${S.loadAll?.queue.length ? "加载中…" : "这个收藏夹是空的"}</p>${recent}`;
     return;
   }
   if (!list.length) {
@@ -811,7 +955,7 @@ function cardHtml(it, expanded, mark) {
 
   // Where the verdict came from, as one muted meta item.
   const source = [["", "粗分", "细看", "AI 指令"][v.stage], done && (a.source === "subtitle" ? "字幕" : "简介")].filter(Boolean).join("·");
-  const meta = [it.upper, fmtDuration(it.duration), source, it.invalid && "已失效"].filter(Boolean);
+  const meta = [it.upper, fmtDuration(it.duration), source, it.invalid && "已失效", it.folders?.length && `收藏夹：${folderNames(it)}`].filter(Boolean);
 
   const verdict = verdictBadge(b, v);
   // The button matching the AI's verdict leads; the other stays plain.
@@ -877,12 +1021,13 @@ function readHtml(it) {
   if (names.length) body.push(`<div class="chips">${names.map((t) => `<span class="chip on" style="--c:${esc(t.color)}">${esc(t.name)}</span>`).join("")}</div>`);
   return `<article class="read-item${isProcessed(b) ? " decided" : ""}" data-bvid="${esc(b)}">
     <h3><a href="${videoUrl(b)}" target="_blank" rel="noopener">${esc(it.title)}</a></h3>
-    <div class="meta">${esc(it.upper)} · ${fmtDuration(it.duration)} · ${verdict}${v.reason ? ` <span class="reason">${esc(v.reason)}</span>` : ""}</div>
+    <div class="meta">${esc(it.upper)} · ${fmtDuration(it.duration)}${it.folders?.length ? ` · 收藏夹：${esc(folderNames(it))}` : ""} · ${verdict}${v.reason ? ` <span class="reason">${esc(v.reason)}</span>` : ""}</div>
     ${body.join("")}
   </article>`;
 }
 
 function folderTitle() {
+  if (S.mediaId === ALL) return "所有收藏夹";
   return S.folders.find((f) => String(f.id) === String(S.mediaId))?.title || "收藏夹";
 }
 
@@ -925,7 +1070,7 @@ function pushUndo(entry) {
 const saveDecisions = () => storeSet(K.decisions(S.mediaId), S.decisions);
 // Patch one folder's decisions even after the user switched away from it; a null value deletes.
 async function patchDecisions(mediaId, patch) {
-  const d = mediaId === S.mediaId ? S.decisions : await storeGet(K.decisions(mediaId), {});
+  const d = mediaId === S.mediaId ? S.decisions : S.folderDecisions[mediaId] || (await storeGet(K.decisions(mediaId), {}));
   for (const [b, v] of Object.entries(patch)) {
     if (v) d[b] = v;
     else delete d[b];
@@ -948,19 +1093,32 @@ async function decide(bvid, action) {
     return;
   }
   const before = visibleItems();
+  // 所有收藏夹 items carry .folders: 保留 marks every folder, 取消收藏 asks which when there are several.
+  let folders = it.folders ? [...it.folders] : [S.mediaId];
+  if (action === "unfav" && folders.length > 1) folders = await pickUnfavFolders(it);
   if (action === "unfav") {
     deciding.add(bvid);
-    const r = await send({ type: "triage-unfav", mediaId: S.mediaId, aids: [it.aid] });
-    deciding.delete(bvid);
-    if (!r.ok) {
-      toast(`取消收藏失败：${r.error}`, true);
-      return;
+    const done = [];
+    for (const f of folders) {
+      const r = await send({ type: "triage-unfav", mediaId: f, aids: [it.aid] });
+      if (!r.ok) {
+        toast(`取消收藏失败：${r.error}`, true);
+        break;
+      }
+      done.push(f);
     }
+    deciding.delete(bvid);
+    folders = done;
   }
-  S.decisions[bvid] = action === "unfav" ? unfavRecord(it, Date.now()) : { action, at: Date.now() };
-  saveDecisions();
-  pushUndo({ kind: "decision", bvid, action, prev });
-  toast(`${action === "unfav" ? "已取消收藏" : "已保留"}《${shortTitle(it)}》 · U 撤销`);
+  if (!folders.length) return;
+  const rec = action === "unfav" ? unfavRecord(it, Date.now()) : { action, at: Date.now() };
+  const prevs = Object.fromEntries(folders.map((f) => [f, (f === S.mediaId ? S.decisions : S.folderDecisions[f])?.[bvid] || null]));
+  for (const f of folders) await patchDecisions(f, { [bvid]: rec });
+  const left = it.folders && action === "unfav" ? (it.folders = it.folders.filter((f) => !folders.includes(f))) : [];
+  if (it.folders && !left.length) S.decisions[bvid] = rec;
+  pushUndo({ kind: "decision", bvid, action, prev, prevs });
+  const from = left.length ? `从「${folders.map(folderName).join("、")}」` : "";
+  toast(`${action === "unfav" ? `已${from}取消收藏` : "已保留"}《${shortTitle(it)}》 · U 撤销`);
   render();
   advanceFrom(bvid, before);
 }
@@ -973,16 +1131,23 @@ async function undo() {
   }
   if (entry.kind === "decision") {
     const it = S.itemMap.get(entry.bvid);
-    const { mediaId, folderToken: token } = S;
-    if (entry.action === "unfav") {
-      const r = await send({ type: "triage-refav", mediaId, aid: it.aid });
-      if (!r.ok) {
-        if (token === S.folderToken) toast(`撤销失败：${r.error}。可到 B 站手动重新收藏`, true);
-        return;
+    const token = S.folderToken;
+    for (const [mediaId, prev] of Object.entries(entry.prevs)) {
+      if (entry.action === "unfav") {
+        const r = await send({ type: "triage-refav", mediaId, aid: it.aid });
+        if (!r.ok) {
+          if (token === S.folderToken) toast(`撤销失败：${r.error}。可到 B 站手动重新收藏`, true);
+          return;
+        }
       }
+      await patchDecisions(mediaId, { [entry.bvid]: prev });
     }
-    await patchDecisions(mediaId, { [entry.bvid]: entry.prev });
     if (token !== S.folderToken) return;
+    if (it.folders) {
+      if (entry.action === "unfav") it.folders = [...new Set([...it.folders, ...Object.keys(entry.prevs)])];
+      if (entry.prev) S.decisions[entry.bvid] = entry.prev;
+      else delete S.decisions[entry.bvid];
+    }
     toast(`已撤销：${entry.action === "unfav" ? "重新收藏" : "取消保留"}《${shortTitle(it)}》`);
     S.focused = entry.bvid;
   } else if (entry.kind === "unfavMany") {
@@ -1955,7 +2120,7 @@ function csvField(v) {
 }
 
 function buildCsv() {
-  const folderTitle = S.folders.find((f) => String(f.id) === S.mediaId)?.title || "";
+  const title = folderTitle();
   const header = ["收藏夹", "BV号", "标题", "UP主", "时长", "链接", "AI判断", "判断来源", "理由", "一句话", "要点", "标签", "我的处理", "处理时间", "是否失效"];
   const rows = [header];
   for (const it of S.items) {
@@ -1964,7 +2129,7 @@ function buildCsv() {
     const done = a?.status === "done";
     const d = S.decisions[it.bvid];
     rows.push([
-      folderTitle,
+      it.folders ? folderNames(it) : title,
       it.bvid,
       it.title,
       it.upper,
@@ -1987,9 +2152,9 @@ function buildCsv() {
 // ---------- events ----------
 function bindEvents() {
   el.folderSelect.addEventListener("change", () => openFolder(el.folderSelect.value));
-  el.refreshBtn.addEventListener("click", () => S.mediaId && syncFolder({ force: true }));
+  el.refreshBtn.addEventListener("click", () => (S.mediaId === ALL ? refreshAll() : S.mediaId && syncFolder({ force: true })));
   const autoSync = () => {
-    if (S.mediaId && document.visibilityState === "visible") syncFolder();
+    if (S.mediaId && S.mediaId !== ALL && document.visibilityState === "visible") syncFolder();
   };
   window.addEventListener("focus", autoSync);
   document.addEventListener("visibilitychange", autoSync);
@@ -2057,6 +2222,13 @@ function bindEvents() {
     } else if (act === "batch-unfav") batchUnfav(btn, batchList(btn.dataset.verdict || null));
     else if (act === "batch-keep") batchKeep(batchList(btn.dataset.verdict || null));
     else if (act === "criteria") openCriteria();
+    else if (act === "all-pause") {
+      S.loadAll.paused = true;
+      render();
+    } else if (act === "all-resume") {
+      S.loadAll.paused = false;
+      runLoadAll(S.folderToken);
+    }
     else if (act === "export-read") openWrite({ scope: "filter", format: "digest" });
     else if (act === "clear-selected") {
       S.selected.clear();
@@ -2162,7 +2334,7 @@ function bindEvents() {
       toast("当前收藏夹没有视频可导出", true);
       return;
     }
-    const title = (S.folders.find((f) => String(f.id) === S.mediaId)?.title || S.mediaId).replace(/[\\/:*?"<>|]/g, "_");
+    const title = folderTitle().replace(/[\\/:*?"<>|]/g, "_");
     BocDownload.text(`MoonDigest-${title}-${stamp(new Date(), false)}.csv`, buildCsv(), "text/csv;charset=utf-8");
   });
   el.cleanCacheBtn.addEventListener("click", cleanCache);

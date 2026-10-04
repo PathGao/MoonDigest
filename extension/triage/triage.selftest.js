@@ -385,6 +385,32 @@ function openFake(mediaId, items, decisions = {}) {
   assert.deepStrictEqual(hits("claude"), [], "search and tag filter combine");
   Object.assign(t.S, { query: "", tagFilter: new Set(), analyses: {}, notes: {}, tags: [], videoTags: {} });
 
+  // F2 所有收藏夹: one entry per video with every folder; an unfav newer than a folder's cache drops that folder; keep merges.
+  const merged = plain(t.mergeFolderItems([
+    { id: "A", at: 10, items: [item(1), item(2)], decisions: { BV2: { action: "keep", at: 5 } } },
+    { id: "B", at: 10, items: [item(2), item(3), item(4)], decisions: { BV3: { action: "unfav", at: 20 }, BV4: { action: "unfav", at: 5 } } }
+  ]));
+  assert.deepStrictEqual(merged.items.map((it) => [it.bvid, it.folders]), [["BV1", ["A"]], ["BV2", ["A", "B"]], ["BV4", ["B"]]], "BV3 unfavorited after B's cache; BV4 re-favorited since");
+  assert.deepStrictEqual(Object.keys(merged.decisions), ["BV2"]);
+
+  // F2 取消收藏 in 所有收藏夹: only the picked folder is unfavorited and recorded; U re-favorites it there.
+  const shared = { ...item(7), folders: ["A", "B"] };
+  openFake("all", [shared]);
+  t.S.folderDecisions = { A: {}, B: {} };
+  t.S.folders = [{ id: "A", title: "甲" }, { id: "B", title: "乙" }];
+  t.pickUnfavFolders = async () => ["B"];
+  handlers["triage-unfav"] = () => ({ ok: true });
+  await t.decide("BV7", "unfav");
+  assert.deepStrictEqual(plain(sent.at(-1)), { type: "triage-unfav", mediaId: "B", aids: [1007] });
+  assert.deepStrictEqual(plain(shared.folders), ["A"]);
+  assert.strictEqual(store[t.K.decisions("B")].BV7.action, "unfav");
+  assert.ok(!store[t.K.decisions("A")] && !t.S.decisions.BV7, "still in 甲, so not processed");
+  assert.ok(!store[t.K.decisions("all")], "no decisions key for the merged view");
+  await t.undo();
+  assert.deepStrictEqual(plain(sent.at(-1)), { type: "triage-refav", mediaId: "B", aid: 1007 });
+  assert.deepStrictEqual(plain(shared.folders), ["A", "B"]);
+  assert.ok(!("BV7" in store[t.K.decisions("B")]));
+
   console.log("triage selftest: all passed");
 })().catch((e) => {
   console.error(e);
