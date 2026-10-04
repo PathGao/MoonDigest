@@ -309,7 +309,8 @@ function normalizePlayerAiQuickActionRequest(value) {
     id,
     prompt,
     tabId,
-    createdAt: Number(value.createdAt) || Date.now()
+    createdAt: Number(value.createdAt) || Date.now(),
+    contextRef: value.contextRef && typeof value.contextRef === "object" ? value.contextRef : null
   };
 }
 
@@ -335,8 +336,25 @@ async function handlePlayerAiQuickActionRequest(value, { fromStorageChange = tru
     await chrome.storage.local.remove(PLAYER_AI_QUICK_ACTION_STORAGE_KEY).catch(() => null);
   }
 
+  if (request.contextRef) {
+    await openRequestedVideoContext(request.contextRef);
+  }
   await runPlayerAiQuickActionPrompt(request.prompt);
   return true;
+}
+
+// The triage and history pages hand over a video that is not open: continue its latest conversation,
+// else start one bound to it, and resolve the context like a history conversation.
+async function openRequestedVideoContext(ref) {
+  await detachActiveStream();
+  const contextRef = normalizeConversationContextRef(ref);
+  const placeholder = buildContextPlaceholder(contextRef);
+  if (!(await restoreLatestConversationForCurrentContext(placeholder, buildContextKey(placeholder)))) {
+    applyConversation({ id: "", contextKey: "", contextTitle: placeholder.title, contextUrl: placeholder.url, contextRef, messages: [] });
+  }
+  renderInitialState();
+  showConversationContextNotice("正在加载原视频上下文...");
+  await hydratePinnedConversationContext();
 }
 
 async function runPlayerAiQuickActionPrompt(prompt) {

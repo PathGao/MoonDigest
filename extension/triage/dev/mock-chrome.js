@@ -246,9 +246,16 @@
       }
     },
     tabs: {
+      getCurrent: async () => ({ id: 1, windowId: 1 }),
       create({ url }) {
         (globalThis.__mockOpened ||= []).push(url);
         console.info("[mock] tabs.create", url);
+      }
+    },
+    sidePanel: {
+      async open(opts) {
+        (globalThis.__mockSidePanel ||= []).push(opts);
+        console.info("[mock] sidePanel.open", opts);
       }
     },
     storage: { local: makeArea(store), sync: makeArea({}), onChanged: { addListener() {} } },

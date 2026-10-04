@@ -186,6 +186,15 @@ function openTab(url) {
   chrome.tabs.create({ url });
 }
 
+let ownTabId;
+// Opens the side panel on this tab with the video as its context; the panel takes the request
+// the same way as the player's AI 总结 button.
+function askAi(it) {
+  const contextRef = { site: "bilibili", videoId: it.bvid, title: it.title, author: it.upper, url: videoUrl(it.bvid) };
+  chrome.storage.local.set({ boc_player_ai_quick_action_v1: { id: `triage-${Date.now()}`, tabId: ownTabId, prompt: "", contextRef } });
+  chrome.sidePanel.open({ tabId: ownTabId }).catch((err) => toast(`打开侧边栏失败：${err.message}`, true));
+}
+
 let toastTimer = 0;
 function toast(text, error = false) {
   el.toast.textContent = text;
@@ -290,6 +299,8 @@ init();
 
 async function init() {
   bindEvents();
+  // Read up front: sidePanel.open must run inside the click's user gesture, before any await.
+  chrome.tabs.getCurrent().then((tab) => (ownTabId = tab?.id));
   const [tags, videoTags, basket, settingsResp] = await Promise.all([
     storeGet(K.tags, []),
     storeGet(K.videoTags, {}),
@@ -717,6 +728,7 @@ function cardHtml(it, expanded) {
           <button type="button" data-act="keep" aria-label="保留 (S)"${decision ? " disabled" : ""}>保留 S</button>
           <button type="button" data-act="tag" aria-label="打标签 (T)">标签 T</button>
           <button type="button" data-act="basket" class="${inBasket ? "on" : ""}" aria-pressed="${inBasket}" aria-label="摘录篮 (E)">摘录 E</button>
+          <button type="button" data-act="ask" aria-label="问 AI (Q)">问 AI Q</button>
           <button type="button" data-act="select" class="${S.selected.has(b) ? "on" : ""}" aria-pressed="${S.selected.has(b)}" aria-label="选中 (X)">选中 X</button>
         </div>
       </div>
@@ -2309,6 +2321,7 @@ function cardAction(act, bvid) {
   const it = S.itemMap.get(bvid);
   if (!it) return;
   if (act === "open") openTab(videoUrl(bvid));
+  else if (act === "ask") askAi(it);
   else if (act === "unfav") decide(bvid, "unfav");
   else if (act === "keep") decide(bvid, "keep");
   else if (act === "tag") openPicker(bvid);
@@ -2340,7 +2353,7 @@ function onKey(e) {
     "?": () => el.helpDialog.showModal(),
     i: () => openAi()
   };
-  const cardKeys = { d: "unfav", s: "keep", t: "tag", a: "accept", e: "basket", x: "select", o: "open", Enter: "open" };
+  const cardKeys = { d: "unfav", s: "keep", t: "tag", a: "accept", e: "basket", q: "ask", x: "select", o: "open", Enter: "open" };
   if (map[key]) map[key]();
   else if (S.tab === "read") return;
   else if (key === "u") undo();
