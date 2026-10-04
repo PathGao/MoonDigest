@@ -291,6 +291,13 @@ assert.throws(() => t.triageParseCommand('{"new_tags":[', cmdItems, cmdTags, {})
   routes = { ...baseRoutes(), "/x/player/wbi/v2": { code: -352, message: "风控" }, "/x/player/v2": noTracks };
   await assert.rejects(analyze(), (e) => e.code === "THROTTLED");
   assert.strictEqual("triage_analysis_BVa" in store, false);
+  // A 412 on the subtitle file itself is throttling too; any other subtitle failure still falls back to comments.
+  delete store[subtitleKey];
+  routes = { ...baseRoutes(), [subUrl]: http412 };
+  await assert.rejects(analyze(), (e) => e.code === "THROTTLED");
+  assert.strictEqual("triage_analysis_BVa" in store, false);
+  routes = { ...baseRoutes(), [subUrl]: new Error("network") };
+  assert.strictEqual((await analyze()).source, "meta");
 
   // Notes: throttling or a failed subtitle fetch writes nothing; another video's subtitle is dropped, not cached.
   const buildNote = () => t.triageBuildNote("BVa", {});
