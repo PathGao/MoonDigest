@@ -148,7 +148,7 @@ const el = {};
   "banner", "bannerText", "bannerBtn", "bannerClose", "syncNotice", "syncText", "syncViewBtn", "syncCloseBtn", "syncDetail",
   "tabs", "tagFilter", "manageTagsBtn", "listHeader", "list", "basket", "basketToggle", "basketCount",
   "basketList", "basketNextBtn", "toast", "settingsDialog", "thinkingRow", "intervalInput",
-  "batchSizeInput", "exportFolderInput", "openOptionsBtn", "thinkingInput", "titleMaxInput",
+  "batchSizeInput", "openOptionsBtn", "thinkingInput", "titleMaxInput",
   "titleMaxHint", "analyzeMaxInput", "analyzeMaxHint", "settingsError", "backupBtn", "csvBtn", "cleanCacheBtn", "confirmDialog",
   "confirmTitle", "confirmBody", "confirmOk", "pickerDialog", "pickerTitle", "pickerInput", "pickerList",
   "criteriaDialog", "criteriaTitle", "criteriaInput", "tagsDialog", "tagsRows", "newTagInput", "addTagBtn", "helpDialog",
@@ -2317,7 +2317,6 @@ function bindEvents() {
     const patch = {
       triageIntervalSec: Math.max(0, Number(el.intervalInput.value) || 0),
       triageTitleBatchSize: Math.max(1, Math.min(100, Number(el.batchSizeInput.value) || 30)),
-      triageExportFolder: el.exportFolderInput.value.trim(),
       triageThinking: el.thinkingInput.checked,
       triageTitleMaxTokens: parseMaxTokens(el.titleMaxInput.value),
       triageAnalyzeMaxTokens: parseMaxTokens(el.analyzeMaxInput.value)
@@ -2538,7 +2537,6 @@ function openSettings(scrollToLimits = false) {
   el.thinkingRow.hidden = !S.settings.deepseek;
   el.intervalInput.value = S.settings.triageIntervalSec ?? 8;
   el.batchSizeInput.value = S.settings.triageTitleBatchSize ?? 30;
-  el.exportFolderInput.value = S.settings.triageExportFolder || "";
   el.thinkingInput.checked = Boolean(S.settings.triageThinking);
   el.titleMaxInput.value = S.settings.triageTitleMaxTokens || "";
   el.analyzeMaxInput.value = S.settings.triageAnalyzeMaxTokens || "";

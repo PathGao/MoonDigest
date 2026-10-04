@@ -79,6 +79,7 @@
     <dialog id="settingsDialog" aria-label="分拣设置">
       <form method="dialog">
         <h2>分拣设置</h2>
+        <p class="dialog-hint">这里是分拣台跑 AI 的技术参数，一般不用改。AI 平台、笔记格式和 Obsidian 在设置页。</p>
         <p class="dialog-hint">判断标准在每个收藏夹的粗分、细看按钮旁边改；标签在「管理标签」里改。</p>
         <label for="intervalInput">请求间隔（秒）</label>
         <input id="intervalInput" type="number" min="0" step="1" />
@@ -97,9 +98,6 @@
         <input id="analyzeMaxInput" type="number" min="0" max="32000" step="1" placeholder="自动" />
         <p id="analyzeMaxHint" class="dialog-hint"></p>
         <p id="settingsError" class="form-error" role="alert" hidden></p>
-        <h3 class="obsidian-only">导出</h3>
-        <label for="exportFolderInput">收藏夹批量写入目录</label>
-        <input id="exportFolderInput" type="text" />
         <h3>缓存</h3>
         <div class="export-row">
           <button id="cleanCacheBtn" type="button" aria-label="清理已不在收藏夹里的视频缓存">清理缓存</button>
