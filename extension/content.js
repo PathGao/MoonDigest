@@ -588,7 +588,7 @@ function bindSettingsWatcher() {
         rebuildDerivedContent();
       });
     }
-    if ((changes[`triage_analysis_${state.videoId}`] || changes.triage_basket) && state.markdown) {
+    if ((changes[`triage_analysis_${state.videoId}`] || changes.triage_notes) && state.markdown) {
       loadTriageExtras().then((extras) => {
         state.triageExtras = extras;
         rebuildDerivedContent();
@@ -4309,7 +4309,7 @@ async function loadAiTurns() {
   }
 }
 
-// The triage page's summary and basket note, so this note matches what triage exports for the video.
+// The triage page's summary and the video's note, so this note matches what triage exports for the video.
 // The analysis is per bvid and summarizes P1, so other parts leave it out.
 async function loadTriageExtras() {
   if (state.site !== "bilibili" || !state.videoId || Number(state.pageIndex) > 1) {
@@ -4317,9 +4317,8 @@ async function loadTriageExtras() {
   }
   try {
     const analysisKey = `triage_analysis_${state.videoId}`;
-    const stored = await chrome.storage.local.get([analysisKey, "triage_basket"]);
-    const note = (stored.triage_basket || []).find((item) => item.bvid === state.videoId)?.note || "";
-    return { analysis: stored[analysisKey], note };
+    const stored = await chrome.storage.local.get([analysisKey, "triage_notes"]);
+    return { analysis: stored[analysisKey], note: stored.triage_notes?.[state.videoId]?.text || "" };
   } catch (error) {
     logWarn("[BOC] failed to load triage summary for note export", error);
     return null;

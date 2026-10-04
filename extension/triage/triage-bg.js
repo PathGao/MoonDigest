@@ -565,11 +565,10 @@ async function triageBuildNote(bvid, settings) {
   };
   const cacheKey = `triage_analysis_${bvid}`;
   const conversationsKey = BocLimits.KEYS.aiConversations;
-  const stored = await chrome.storage.local.get([cacheKey, conversationsKey, "triage_basket"]);
+  const stored = await chrome.storage.local.get([cacheKey, conversationsKey, "triage_notes"]);
   const analysis = stored[cacheKey];
-  const basketNote = (stored.triage_basket || []).find((x) => x.bvid === bvid)?.note;
   noteMeta.aiTurns = BocNote.buildConversationTurns(BocNote.pickConversation(stored[conversationsKey], noteMeta)?.messages);
-  const markdown = BocNote.withTriageSummary(BocNote.buildMarkdown(noteMeta, body, settings, ref), analysis, basketNote);
+  const markdown = BocNote.withTriageSummary(BocNote.buildMarkdown(noteMeta, body, settings, ref), analysis, stored.triage_notes?.[bvid]?.text);
   return { meta, noteMeta, body, markdown };
 }
 
@@ -600,6 +599,20 @@ async function triageWriteNote({ bvid, overwrite }) {
   await putVaultNote(baseUrl, apiKey, path, content);
   await rememberObsidianNotePath(noteKey, path);
   return { path, skipped: false, title: meta.title, source: body.length ? "subtitle" : "meta" };
+}
+
+// Notes used to live on basket items; they now belong to the video (triage_notes, bvid → { text, updatedAt }).
+// Copies each basket note once, never over an existing entry; the basket items keep theirs.
+async function triageMigrateNotes() {
+  const stored = await chrome.storage.local.get(["triage_notes_migrated", "triage_basket", "triage_notes"]);
+  if (stored.triage_notes_migrated) return;
+  const notes = { ...stored.triage_notes };
+  for (const item of stored.triage_basket || []) {
+    if (item?.bvid && String(item.note || "").trim() && !String(notes[item.bvid]?.text || "").trim()) {
+      notes[item.bvid] = { text: item.note, updatedAt: Date.now() };
+    }
+  }
+  await chrome.storage.local.set({ triage_notes: notes, triage_notes_migrated: true });
 }
 
 const TRIAGE_HANDLERS = {
@@ -752,6 +765,7 @@ function triageRegisterDnr() {
 
 if (typeof chrome !== "undefined" && chrome.runtime?.onMessage) {
   triageRegisterDnr();
+  triageMigrateNotes().catch((e) => console.warn("[triage] 笔记迁移失败", e));
   chrome.runtime.onInstalled.addListener(triageRegisterDnr);
   chrome.runtime.onStartup.addListener(triageRegisterDnr);
 

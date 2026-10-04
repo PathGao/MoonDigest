@@ -1,5 +1,5 @@
 // Dev-only fake chrome.* for opening history.html from a static server (no-op inside the extension).
-// Seeds four videos' conversations and some triage analyses. window.__mockVault is the fake Obsidian vault (path → markdown);
+// Seeds four videos' conversations, some triage analyses and notes. window.__mockVault is the fake Obsidian vault (path → markdown);
 // downloads are caught into window.__mockDownloads ({ filename, content }) instead of hitting disk.
 (() => {
   if (globalThis.chrome?.runtime?.id) return;
@@ -34,6 +34,8 @@
     triage_analysis_BV1mock000009: { bvid: "BV1mock000009", status: "done", source: "meta", oneLiner: "只在分拣台分析过的视频", points: ["要点一", "要点二", "要点三"], verdict: "drop", reason: "过时", analyzedAt: now - 10 * hour },
     triage_analysis_BV1mock000010: { bvid: "BV1mock000010", status: "done", oneLiner: "没有标题的视频", points: [], verdict: "unsure", analyzedAt: now - 400 * hour },
     triage_analysis_BV1mock000011: { bvid: "BV1mock000011", status: "error" },
+    // Notes: BV1mock000001 joins its entry, BV1mock000012 is a note-only entry, the blank one is ignored.
+    triage_notes: { BV1mock000001: { text: "先看注意力那段\n再看位置编码", updatedAt: now - 3 * hour }, BV1mock000012: { text: "只有笔记的视频", updatedAt: now - 5 * hour }, BV1mock000013: { text: " ", updatedAt: now } },
     triage_snapshot_42: { bvids: ["BV1mock000009"], titles: { BV1mock000009: "分拣台里的视频标题" }, at: now }
   };
   const clone = (v) => (v === undefined ? v : structuredClone(v));

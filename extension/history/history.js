@@ -9,6 +9,7 @@ const els = { list: $("list"), search: $("search"), count: $("count"), selectAll
 
 let conversations = [];
 let analyses = {}; // bvid → done triage analysis
+let notes = {}; // bvid → { text, updatedAt } from the triage page, non-empty only
 let triageTitles = {}; // bvid → title from the triage folder snapshots
 let obsidianEnabled = false;
 const selected = new Set();
@@ -30,13 +31,16 @@ function groupByVideo(items) {
     const context = { ...ref, title: ref.title || latest.contextTitle || latest.title, url: latest.contextUrl || ref.url || "" };
     return { key, convs, context, title: latest.title || context.title || "历史对话", updatedAt: latest.updatedAt || 0 };
   });
-  // The triage analysis is per bvid and summarizes P1, so it joins only the P1 entry; without one it is its own entry.
-  for (const [bvid, analysis] of Object.entries(analyses)) {
+  // The triage analysis and note are per bvid (the analysis summarizes P1), so they join only the P1 entry;
+  // without one they are their own entry.
+  for (const bvid of new Set([...Object.keys(analyses), ...Object.keys(notes)])) {
+    const analysis = analyses[bvid];
+    const note = notes[bvid];
     const context = { site: "bilibili", videoId: bvid, title: triageTitles[bvid] || bvid, url: BocSites.SITES.bilibili.canonicalUrl(bvid, 1), isVideoContext: true };
     const key = BocSites.buildContextKey(context);
     const host = groups.find((g) => BocSites.buildContextKey({ ...g.context, cid: "" }) === key && (Number(g.context.pageIndex) || 1) === 1);
-    if (host) host.analysis = analysis;
-    else groups.push({ key, convs: [], context, title: context.title, updatedAt: analysis.analyzedAt || 0, analysis });
+    if (host) Object.assign(host, { analysis, note });
+    else groups.push({ key, convs: [], context, title: context.title, updatedAt: Math.max(analysis?.analyzedAt || 0, note?.updatedAt || 0), analysis, note });
   }
   return groups.sort((a, b) => b.updatedAt - a.updatedAt);
 }
@@ -45,7 +49,7 @@ function groupByVideo(items) {
 function buildNote(group, sourcePath = "") {
   const turns = group.convs.flatMap((conv) => BocNote.buildConversationTurns(conv.messages));
   const filename = BocNote.buildAiConversationFilename(group.context);
-  return { filename, content: BocNote.withTriageSummary(BocNote.buildAiConversationMarkdown({ context: group.context, turns, filename, sourcePath }), group.analysis) };
+  return { filename, content: BocNote.withTriageSummary(BocNote.buildAiConversationMarkdown({ context: group.context, turns, filename, sourcePath }), group.analysis, group.note?.text) };
 }
 
 function visibleGroups() {
@@ -53,7 +57,7 @@ function visibleGroups() {
   const groups = groupByVideo(conversations);
   if (!query) return groups;
   return groups.filter((g) =>
-    [g.title, g.context.title, BocNote.buildTriageSummary(g.analysis), ...g.convs.flatMap((c) => (c.messages || []).map((m) => m.content))].some((text) => String(text || "").toLowerCase().includes(query))
+    [g.title, g.context.title, BocNote.buildTriageSummary(g.analysis), g.note?.text, ...g.convs.flatMap((c) => (c.messages || []).map((m) => m.content))].some((text) => String(text || "").toLowerCase().includes(query))
   );
 }
 
@@ -78,8 +82,9 @@ function render() {
           <input type="checkbox" data-act="pick" aria-label="选择" ${selected.has(g.key) ? "checked" : ""} />
           <div>
             ${title}
-            <div class="entry-meta">${esc(site)} · ${esc(formatTime(g.updatedAt))} · ${g.convs.length ? `${g.convs.length} 段对话 · ${turnCount} 轮问答` : "仅分拣台 AI 总结"}</div>
+            <div class="entry-meta">${esc(site)} · ${esc(formatTime(g.updatedAt))} · ${g.convs.length ? `${g.convs.length} 段对话 · ${turnCount} 轮问答` : `仅${[g.analysis && "分拣台 AI 总结", g.note && "我的笔记"].filter(Boolean).join("和")}`}</div>
             ${g.analysis ? `<div class="entry-summary">${esc(BocNote.buildTriageSummary(g.analysis).replace(/^> /, "").replace(/\n\n/g, "\n"))}</div>` : ""}
+            ${g.note ? `<div class="entry-note"><b>我的笔记</b> ${esc(g.note.text.trim())}</div>` : ""}
             ${g.convs.length ? `<details><summary>查看对话</summary>${g.convs.map((c, i) => renderConversation(c, i, g.convs.length)).join("")}</details>` : ""}
           </div>
           <div class="entry-actions">
@@ -109,6 +114,7 @@ async function load() {
   const all = await chrome.storage.local.get(null);
   conversations = (all[KEY] || []).filter((c) => c?.id && Array.isArray(c.messages));
   analyses = {};
+  notes = Object.fromEntries(Object.entries(all.triage_notes || {}).filter(([, n]) => String(n?.text || "").trim()));
   triageTitles = {};
   for (const [k, v] of Object.entries(all)) {
     if (k.startsWith("triage_analysis_") && v?.status === "done") analyses[k.slice(16)] = v;
@@ -117,7 +123,7 @@ async function load() {
   render();
 }
 
-// Triage-summary-only entries have no conversations to delete, so they are left out.
+// Triage-summary-only and note-only entries have no conversations to delete, so they are left out.
 function deletableKeys(keys) {
   const withConvs = new Set(conversations.map((c) => c.contextKey || c.id));
   return keys.filter((key) => withConvs.has(key));
@@ -206,7 +212,7 @@ els.selectAll.addEventListener("change", () => {
 els.bulkMd.addEventListener("click", () => downloadGroups(groupByVideo(conversations).filter((g) => selected.has(g.key))));
 els.bulkDelete.addEventListener("click", () => void deleteGroups([...selected]));
 chrome.storage.onChanged.addListener((changes, area) => {
-  if (area === "local" && Object.keys(changes).some((k) => k === KEY || k.startsWith("triage_analysis_") || k.startsWith("triage_snapshot_"))) void load();
+  if (area === "local" && Object.keys(changes).some((k) => k === KEY || k === "triage_notes" || k.startsWith("triage_analysis_") || k.startsWith("triage_snapshot_"))) void load();
   if (area === "sync" && changes.obsidianEnabled) {
     obsidianEnabled = changes.obsidianEnabled.newValue === true;
     render();
