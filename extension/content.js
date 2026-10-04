@@ -23,7 +23,7 @@ const DEFAULT_SETTINGS = {
   readerLetterSpacing: "normal",
   readerLineHeight: "tight",
   readerContentWidth: "medium",
-  readerChapterVisibility: "show",
+  readerChapterVisible: true,
   readerTranscriptVisible: true,
   frontmatterFields: BocNote.DEFAULT_FRONTMATTER_FIELDS,
   fixedFrontmatterProperties: [],
@@ -596,7 +596,7 @@ function bindSettingsWatcher() {
       !changes.readerLetterSpacing &&
       !changes.readerLineHeight &&
       !changes.readerContentWidth &&
-      !changes.readerChapterVisibility &&
+      !changes.readerChapterVisible &&
       !changes.readerTranscriptVisible
     ) {
       return;

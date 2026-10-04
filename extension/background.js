@@ -53,7 +53,7 @@ const DEFAULT_SYNC_SETTINGS = {
   readerLetterSpacing: "normal",
   readerLineHeight: "tight",
   readerContentWidth: "medium",
-  readerChapterVisibility: "show",
+  readerChapterVisible: true,
   readerTranscriptVisible: true,
   frontmatterFields: [
     "title",
@@ -1051,7 +1051,7 @@ function normalizeSyncSettings(settings) {
   merged.readerLetterSpacing = normalizeReaderLetterSpacing(merged.readerLetterSpacing);
   merged.readerLineHeight = normalizeReaderLineHeight(merged.readerLineHeight);
   merged.readerContentWidth = normalizeReaderContentWidth(merged.readerContentWidth);
-  merged.readerChapterVisibility = normalizeReaderChapterVisibility(merged.readerChapterVisibility);
+  merged.readerChapterVisible = merged.readerChapterVisible !== false;
   merged.readerTranscriptVisible = normalizeReaderTranscriptVisible(merged.readerTranscriptVisible);
   merged.fixedFrontmatterProperties = normalizeFixedFrontmatterProperties(merged.fixedFrontmatterProperties);
   merged.notePlaceholderSections = normalizeNotePlaceholderSections(merged.notePlaceholderSections);
@@ -1159,10 +1159,6 @@ function normalizeReaderLineHeight(value) {
 
 function normalizeReaderContentWidth(value) {
   return ["compact", "narrow", "medium", "wide", "full"].includes(value) ? value : "medium";
-}
-
-function normalizeReaderChapterVisibility(value) {
-  return value === "hide" || value === "auto" ? value : "show";
 }
 
 function normalizeReaderTranscriptVisible(value) {
