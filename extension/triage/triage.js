@@ -1605,7 +1605,9 @@ function renderAiForm() {
   const n = aiScopeItems().length;
   const size = Math.max(1, Number(S.settings.triageTitleBatchSize) || 30);
   el.aiScopeCount.textContent = n ? `将发送 ${n} 个视频，分 ${Math.ceil(n / size)} 批` : "作用范围里没有视频";
-  el.aiTagsPreview.innerHTML = S.tags.length ? S.tags.map((t) => `<span class="chip">${esc(t.name)}</span>`).join("") : `<span class="muted">还没有标签</span>`;
+  el.aiTagsPreview.innerHTML = S.tags.length
+    ? `<div class="chips">AI 能用的标签：${S.tags.map((t) => `<span class="chip">${esc(t.name)}</span>`).join("")}</div><p class="dialog-hint">AI 也可以新建（最多 5 个），你确认后才创建。</p>`
+    : `<p class="dialog-hint">你还没有标签。AI 可以新建（最多 5 个），你确认后才创建。</p>`;
   el.aiHistory.innerHTML = S.aiHistory.length
     ? `<span class="muted">最近：</span>` +
       S.aiHistory
