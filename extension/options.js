@@ -73,20 +73,9 @@ const AI_PRESETS = [
   { id: "custom",        name: "自定义",      baseUrl: "", requiresKey: true }
 ];
 
-const TRIAGE_SETTING_KEYS = [
-  "triageCriteria",
-  "triageIntervalSec",
-  "triageExportFolder",
-  "triageTitleBatchSize",
-  "triageThinking",
-  "triageTitleMaxTokens",
-  "triageAnalyzeMaxTokens"
-];
-
 const elements = {
   obsidianEnabled: document.getElementById("obsidianEnabled"),
-  openTriageBtn: document.getElementById("openTriageBtn"),
-  triage: Object.fromEntries(TRIAGE_SETTING_KEYS.map((key) => [key, document.getElementById(key)])),
+  triageExportFolder: document.getElementById("triageExportFolder"),
   noteFolder: document.getElementById("noteFolder"),
   obsidianApiBaseUrl: document.getElementById("obsidianApiBaseUrl"),
   obsidianApiKey: document.getElementById("obsidianApiKey"),
@@ -148,9 +137,6 @@ function init() {
   elements.addNoteSectionBtn.addEventListener("click", () => addNoteSectionRow());
   elements.addAiProviderBtn.addEventListener("click", () => addAiProviderRow());
   elements.obsidianEnabled.addEventListener("change", syncObsidianBody);
-  elements.openTriageBtn.addEventListener("click", () => {
-    chrome.tabs.create({ url: chrome.runtime.getURL("triage/triage.html") });
-  });
   document.addEventListener("click", (event) => {
     if (!(event.target instanceof Element) || !event.target.closest(".fixed-property-type-picker")) {
       closeAllFixedPropertyMenus();
@@ -231,12 +217,6 @@ async function saveSettings() {
     return;
   }
 
-  const triagePayload = collectTriageSettings();
-  if (!triagePayload.ok) {
-    applyValidationError(triagePayload);
-    return;
-  }
-
   // Remote hosts are optional permissions; the save click is the user gesture that may request them.
   const hostUrls = hostPermissionUrls(payload, aiProvidersPayload);
   const deniedHosts = await requestHostPermissions(hostUrls);
@@ -251,9 +231,9 @@ async function saveSettings() {
     renderFixedPropertyRows(payload.fixedFrontmatterProperties);
     renderNoteSectionRows(payload.notePlaceholderSections);
 
-    const triageResp = await sendRuntimeMessage({ type: "triage-settings-save", ...triagePayload.patch });
+    const triageResp = await sendRuntimeMessage({ type: "triage-settings-save", triageExportFolder: elements.triageExportFolder.value.trim() });
     if (!triageResp?.ok) {
-      setStatus(`已保存，但分拣设置保存失败：${triageResp?.error || "未知错误"}`, true);
+      setStatus(`已保存，但收藏夹批量写入目录保存失败：${triageResp?.error || "未知错误"}`, true);
       return;
     }
 
@@ -415,49 +395,9 @@ function syncObsidianBody() {
 
 async function loadTriageSettings() {
   const resp = await sendRuntimeMessage({ type: "triage-settings-get" }).catch(() => null);
-  if (!resp?.ok) {
-    return;
+  if (resp?.ok) {
+    elements.triageExportFolder.value = resp.data?.triageExportFolder || "";
   }
-  const t = elements.triage;
-  const d = resp.data || {};
-  t.triageCriteria.value = d.triageCriteria || "";
-  t.triageIntervalSec.value = d.triageIntervalSec ?? 8;
-  t.triageTitleBatchSize.value = d.triageTitleBatchSize ?? 30;
-  t.triageExportFolder.value = d.triageExportFolder || "";
-  t.triageThinking.checked = Boolean(d.triageThinking);
-  t.triageTitleMaxTokens.value = d.triageTitleMaxTokens || "";
-  t.triageAnalyzeMaxTokens.value = d.triageAnalyzeMaxTokens || "";
-}
-
-// Same rules as the triage page dialog: 0 or blank means auto, otherwise 200–32000.
-function parseTriageMaxTokens(value) {
-  const text = String(value ?? "").trim();
-  if (!text) return 0;
-  const n = Number(text);
-  if (!Number.isInteger(n)) return null;
-  return n === 0 || (n >= 200 && n <= 32000) ? n : null;
-}
-
-function collectTriageSettings() {
-  const t = elements.triage;
-  const titleMax = parseTriageMaxTokens(t.triageTitleMaxTokens.value);
-  const analyzeMax = parseTriageMaxTokens(t.triageAnalyzeMaxTokens.value);
-  const bad = titleMax === null ? t.triageTitleMaxTokens : analyzeMax === null ? t.triageAnalyzeMaxTokens : null;
-  if (bad) {
-    return { ok: false, field: bad, message: "输出上限需为整数：0 或留空表示自动，否则在 200–32000 之间" };
-  }
-  return {
-    ok: true,
-    patch: {
-      triageCriteria: t.triageCriteria.value,
-      triageIntervalSec: Math.max(0, Number(t.triageIntervalSec.value) || 0),
-      triageTitleBatchSize: Math.max(1, Math.min(100, Number(t.triageTitleBatchSize.value) || 30)),
-      triageExportFolder: t.triageExportFolder.value.trim(),
-      triageThinking: t.triageThinking.checked,
-      triageTitleMaxTokens: titleMax,
-      triageAnalyzeMaxTokens: analyzeMax
-    }
-  };
 }
 
 function normalizePlayerAiQuickPrompt(value) {
@@ -468,8 +408,6 @@ function applyValidationError(validation) {
   clearInputErrors();
   if (validation?.field) {
     validation.field.classList.add("input-error");
-    const details = validation.field.closest("details");
-    if (details) details.open = true;
     validation.field.focus();
   }
   if (validation?.row) {

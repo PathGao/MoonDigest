@@ -479,7 +479,9 @@ button:active {
   background: var(--surface);
   color: var(--text);
   border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
   font-weight: 600;
+  text-decoration: none;
 }
 
 .secondary-btn:hover {
@@ -831,13 +833,3 @@ ol {
   margin: 0;
 }
 
-.checkbox-tight {
-  margin-bottom: 2px;
-}
-
-.advanced summary {
-  cursor: pointer;
-  color: var(--text-2);
-  font-size: 13px;
-  margin-bottom: 8px;
-}
