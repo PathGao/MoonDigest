@@ -10,8 +10,7 @@ const {
   buildAiConversationFilename,
   buildAiConversationMarkdown,
   resolveFolderTemplate,
-  buildNoteFilename,
-  sanitizeFileName
+  buildNoteFilename
 } = BocNote;
 const PLAYER_AI_QUICK_ACTION_STORAGE_KEY = "boc_player_ai_quick_action_v1";
 const NON_VIDEO_CONTEXT_MESSAGE = "当前页不是支持的视频页面，<br>无法获取当前页面信息作为对话上下文，<br>仅支持 AI 对话。";
@@ -19,6 +18,7 @@ const STREAM_SLOW_NOTICE_MS = 15000;
 const FOLLOW_PLAYBACK_KEY = "boc_sp_follow_playback";
 const PREVIOUS_VIDEO_CONVERSATION_KEY = "boc_sp_previous_video_conversation";
 const FOLLOWED_LIVE_VIDEO = "followed";
+const QUICK_ACTION_MAX_AGE_MS = 15000;
 
 const els = {
   header: document.querySelector(".sp-header"),
@@ -67,6 +67,8 @@ let aiPrefs = { ...DEFAULT_AI_PREFS };
 let savedConversations = [];
 let currentConversationId = "";
 let currentConversationMeta = null;
+// Bumped whenever another conversation is shown, so a context fetch started for the old one can tell it is stale.
+let conversationEpoch = 0;
 let liveContextData = null;
 let liveContextKey = "";
 let liveTabUrl = "";
@@ -215,6 +217,13 @@ function bindEvents() {
     if (areaName === "local" && changes[CONVERSATIONS_STORAGE_KEY]) {
       savedConversations = normalizeConversations(changes[CONVERSATIONS_STORAGE_KEY].newValue);
       renderHistoryList();
+      // The shown conversation was deleted there: drop it like a delete here, so the next question cannot save it back.
+      // A reply in flight is left to finish and saves the conversation again.
+      const wasStored = (list) => Array.isArray(list) && list.some((item) => item?.id === currentConversationId);
+      const change = changes[CONVERSATIONS_STORAGE_KEY];
+      if (currentConversationId && !activeStream && wasStored(change.oldValue) && !wasStored(change.newValue)) {
+        showLiveContextInFreshConversation();
+      }
     }
     if (areaName === "local" && changes[PLAYER_AI_QUICK_ACTION_STORAGE_KEY] && initCompleted) {
       void handlePlayerAiQuickActionRequest(changes[PLAYER_AI_QUICK_ACTION_STORAGE_KEY].newValue);
@@ -323,6 +332,11 @@ function normalizePlayerAiQuickActionRequest(value) {
 async function handlePlayerAiQuickActionRequest(value, { fromStorageChange = true } = {}) {
   const request = normalizePlayerAiQuickActionRequest(value);
   if (!request) {
+    return false;
+  }
+  // A request for another tab is never consumed, so an old one must not replay when the panel opens there later.
+  if (Date.now() - request.createdAt > QUICK_ACTION_MAX_AGE_MS) {
+    await chrome.storage.local.remove(PLAYER_AI_QUICK_ACTION_STORAGE_KEY).catch(() => null);
     return false;
   }
 
@@ -1024,6 +1038,7 @@ function applyConversation(conversation) {
   if (!conversation) {
     return;
   }
+  conversationEpoch += 1;
   currentConversationId = conversation.id;
   currentConversationMeta = {
     id: conversation.id,
@@ -1072,20 +1087,23 @@ async function deleteConversation(id) {
   if (!confirm("删除这条历史对话？删除后不能恢复。")) {
     return;
   }
-  const wasCurrent = id && id === currentConversationId;
+  if (id && id === currentConversationId) {
+    showLiveContextInFreshConversation();
+  }
   savedConversations = savedConversations.filter((item) => item.id !== id);
   await saveConversations();
-  if (!wasCurrent) {
-    return;
-  }
-  currentConversationId = "";
-  currentConversationMeta = null;
-  chatHistory = [];
+}
+
+// restartChat also drops the reply in flight without saving it, so it cannot bring the conversation back.
+function showLiveContextInFreshConversation() {
   if (liveContextData) {
     contextData = { ...liveContextData };
     currentContextKey = liveContextKey || buildContextKey(liveContextData);
-    updateContextChip();
   }
+  const draft = els.input.value;
+  restartChat({ keepContext: true });
+  els.input.value = draft;
+  autosizeInput();
   renderInitialState();
 }
 
@@ -1096,18 +1114,10 @@ async function clearAllConversations() {
   if (!confirm("清空全部历史对话？删除后不能恢复。")) {
     return;
   }
+  showLiveContextInFreshConversation();
   savedConversations = [];
-  currentConversationId = "";
-  currentConversationMeta = null;
-  chatHistory = [];
   await saveConversations();
   hideHistoryPopover();
-  if (liveContextData) {
-    contextData = { ...liveContextData };
-    currentContextKey = liveContextKey || buildContextKey(liveContextData);
-    updateContextChip();
-  }
-  renderInitialState();
 }
 
 function togglePresetPopover(event) {
@@ -1717,6 +1727,7 @@ async function ensureCurrentContextForSend() {
 }
 
 async function hydratePinnedConversationContext({ silent = false } = {}) {
+  const epoch = conversationEpoch;
   const targetKey = String(currentConversationMeta?.contextKey || "").trim();
   const cachedResolvedContext = currentConversationMeta?.resolvedContext;
   if (cachedResolvedContext && typeof cachedResolvedContext === "object") {
@@ -1729,6 +1740,9 @@ async function hydratePinnedConversationContext({ silent = false } = {}) {
 
   if (targetKey && liveContextKey && targetKey === liveContextKey) {
     const ok = await loadContextState({ forceRefresh: false, silent: true });
+    if (epoch !== conversationEpoch) {
+      return false;
+    }
     // contextData of a bound conversation is not refreshed from the tab; the live payload is its resolved context.
     if (ok && liveContextData && liveContextKey === targetKey) {
       contextData = { ...liveContextData };
@@ -1756,6 +1770,9 @@ async function hydratePinnedConversationContext({ silent = false } = {}) {
     ok: false,
     error: error?.message || String(error || "")
   }));
+  if (epoch !== conversationEpoch) {
+    return false;
+  }
   if (!response?.ok || !response.payload) {
     removeConversationContextNotice();
     if (!silent) {
@@ -2573,6 +2590,7 @@ function formatSecondsAsTimestamp(seconds) {
 }
 
 function restartChat({ keepContext = false } = {}) {
+  conversationEpoch += 1;
   clearStreamRuntimeState();
   if (activeStream) {
     closeStream(activeStream);

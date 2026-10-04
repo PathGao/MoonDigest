@@ -405,7 +405,8 @@
           .map((item) => {
             const lang = String(item?.lan || "");
             return {
-              id: item?.id === undefined || item?.id === null ? "" : String(item.id),
+              // id_str keeps ids past 2^53 exact; id is the fallback.
+              id: String(item?.id_str || (item?.id ?? "")),
               lang,
               label: String(item?.lan_doc || ""),
               url: httpsUrl(item?.subtitle_url),
@@ -427,7 +428,12 @@
       try {
         return await load(requests[0]);
       } catch (primaryError) {
-        if (requests.length < 2) {
+        // A stale wbi key answers -352, so the next signed call refetches nav.
+        if (io.signWbi) {
+          biliWbiKey = { key: "", at: 0 };
+        }
+        // Throttling must reach the caller: under risk control player/v2 tends to answer with no tracks.
+        if (requests.length < 2 || primaryError?.code === "THROTTLED") {
           throw primaryError;
         }
         return load(requests[1]);
@@ -1146,6 +1152,51 @@
     }
   };
 
+  // Loose duration guard shared by the video page and the side panel: rejects a body that runs past the
+  // video or covers too little of a long one (another video's subtitle). Triage keeps its stricter check.
+  function validateSubtitleByDuration(body, videoDuration) {
+    const duration = Number(videoDuration || 0);
+    if (!Array.isArray(body) || body.length === 0) {
+      return { ok: false, reason: "empty", videoDuration: duration, maxTo: 0 };
+    }
+
+    let maxTo = 0;
+    for (const item of body) {
+      const to = Number(item?.to);
+      const from = Number(item?.from);
+      if (Number.isFinite(to) && to > maxTo) {
+        maxTo = to;
+      }
+      if (Number.isFinite(from) && from > maxTo) {
+        maxTo = from;
+      }
+    }
+
+    if (!(duration > 0)) {
+      return { ok: true, reason: "skip-no-video-duration", videoDuration: duration, maxTo };
+    }
+
+    const upperTolerance = Math.max(12, duration * 0.15);
+    if (maxTo > duration + upperTolerance) {
+      return { ok: false, reason: "too-long", videoDuration: duration, maxTo };
+    }
+
+    let minCoverageRatio = 0;
+    if (duration >= 600) {
+      minCoverageRatio = 0.18;
+    } else if (duration >= 300) {
+      minCoverageRatio = 0.22;
+    } else if (duration >= 180) {
+      minCoverageRatio = 0.25;
+    }
+
+    if (minCoverageRatio > 0 && maxTo < duration * minCoverageRatio) {
+      return { ok: false, reason: "too-short", videoDuration: duration, maxTo };
+    }
+
+    return { ok: true, reason: "ok", videoDuration: duration, maxTo };
+  }
+
   // ----------------------------------------------------------- subtitle cache
 
   // chrome.storage.local entries { raw, timestamp } shared by the video page, side panel and triage.
@@ -1171,7 +1222,11 @@
     try {
       const now = Date.now();
       await chrome.storage.local.set({ [key]: { raw, timestamp: now } });
-      const all = await chrome.storage.local.get(null);
+      // getKeys (Chrome 130+) avoids reading every stored value just to find the cache keys.
+      const keys = chrome.storage.local.getKeys
+        ? (await chrome.storage.local.getKeys()).filter((k) => k.startsWith(BocLimits.KEYS.subtitleCachePrefix))
+        : null;
+      const all = await chrome.storage.local.get(keys);
       const stale = Object.entries(all)
         .filter(([k]) => k.startsWith(BocLimits.KEYS.subtitleCachePrefix))
         .sort(([, a], [, b]) => (Number(b?.timestamp) || 0) - (Number(a?.timestamp) || 0))
@@ -1247,12 +1302,12 @@
     pickPreferredTrack,
     trackUrlKey,
     subtitleCache: { key: subtitleCacheKey, load: loadSubtitleCache, save: saveSubtitleCache, remove: removeSubtitleCache },
+    validateSubtitleByDuration,
     fetchRawCached,
     biliMixinKey,
     biliWbiSign,
     normalizeChapters,
     parseChaptersFromDescription,
-    normalizeSegments,
     decodeXmlEntities,
     parseSrv3,
     parseJson3,

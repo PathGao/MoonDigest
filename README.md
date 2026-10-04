@@ -27,14 +27,14 @@
 
 | 档位 | 能做什么 | 平台 |
 |---|---|---|
-| 基础 · 读字幕 + AI 总结 | 抓字幕、阅读视图、导出、AI 侧边栏 | B 站、YouTube |
+| 基础 · 读字幕 + AI 总结 | 抓字幕、专注模式、导出、AI 侧边栏 | B 站、YouTube |
 | 进阶 1 · 收藏夹分拣台 | 把一个收藏夹交给 AI 粗分和细看，连起来读 | 仅 B 站 |
 | 进阶 2 · Obsidian 知识库 | 单个或整个收藏夹写进 Obsidian | B 站、YouTube |
 
 ### 基础 · 读字幕 + AI 总结
 
 - **字幕**：人工、AI 和自动生成字幕；YouTube 可设默认语言，没有时用机器翻译。没有字幕的视频用简介和热门评论代替。
-- **阅读视图**：字幕跟随播放滚动，点句子跳转。
+- **专注模式**：页面只留视频和字幕，字幕跟随播放滚动，点句子跳转。
 - **导出**：复制 Markdown，下载 SRT 或 TXT，属性含干净链接、封面、作者、时长、发布日期和标签。
 - **AI 侧边栏**：任意 OpenAI 兼容平台。一键总结、快捷追问、切换视频自动跟随，超时可重试。
 - **导出对话**：侧边栏的「导出对话」菜单可以复制、下载 .md 或写入 Obsidian；每条回复下只有「复制回复」。
@@ -129,7 +129,7 @@ Chrome 和其他 Chromium 内核浏览器（只在 Chrome 上测试过），不�
 | 权限 | 用途 |
 |---|---|
 | `storage`、`unlimitedStorage` | 在本地保存设置、分拣结果、字幕和对话缓存 |
-| `scripting` | 在视频页按需注入内容脚本（抓字幕、阅读视图、播放器 AI 按钮） |
+| `scripting` | 在视频页按需注入内容脚本（抓字幕、专注模式、播放器 AI 按钮） |
 | `sidePanel` | 显示 AI 侧边栏 |
 | `cookies` | 读取 B 站的 `bili_jct`，用于在分拣台取消收藏等写操作 |
 | `declarativeNetRequest` | 给分拣台发往 B 站接口的请求加上 B 站的 Referer 和 Origin |
@@ -170,7 +170,7 @@ extension/
 ├── manifest.json
 ├── sites.js           站点注册表：B 站和 YouTube 的视频信息、字幕、评论抓取
 ├── note.js            笔记生成：Markdown、frontmatter、SRT、TXT
-├── content.js         视频页内的字幕抓取、阅读视图、播放器 AI 按钮（字幕显示在插件弹窗里）
+├── content.js         视频页内的字幕抓取、专注模式、播放器 AI 按钮（字幕显示在插件弹窗里）
 ├── background.js      后台 service worker：AI 请求、Obsidian 写入、权限
 ├── sidepanel.*        AI 侧边栏
 ├── popup.*            插件弹窗

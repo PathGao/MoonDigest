@@ -205,6 +205,27 @@ process.on("exit", (code) => {
   const early = await contextFor("https://www.bilibili.com/video/BV1xx411c7mD/?boc_reader=1", { videoId: "" });
   assert.strictEqual(early.url, "https://www.bilibili.com/video/BV1xx411c7mD/");
 
+  // A history conversation's context rejects another video's subtitle and keeps it out of the shared cache.
+  const local = {};
+  ctx.chrome = { storage: { sync: area({}), local: area(local) } };
+  const subUrl = "https://aisubtitle.hdslb.com/a.json";
+  const sidepanelRoutes = (to) => ({
+    "/view/detail": { code: 0, data: { View: { title: "T", aid: 22, cid: 11, duration: 273, pages: [{ cid: 11, page: 1, duration: 273 }] } } },
+    "/x/player/wbi/v2": { code: 0, data: { subtitle: { subtitles: [{ id: 5, lan: "ai-zh", lan_doc: "中文", subtitle_url: subUrl }] } } },
+    [subUrl]: { body: [{ from: 0, to: 1, content: "a" }, { from: 1, to, content: "b" }] },
+    "/reply/main": { code: 0, data: { replies: [] } }
+  });
+  const historyContext = () => ctx.resolveAiSidepanelContext({ site: "bilibili", videoId: "BVa", cid: "11" });
+  // A subtitle running far past the 273 s video belongs to another video.
+  let routes = sidepanelRoutes(400);
+  ctx.fetchJsonForAi = async (url) => routes[Object.keys(routes).find((part) => url.includes(part))];
+  await assert.rejects(historyContext(), /时长不匹配/);
+  assert.deepStrictEqual(Object.keys(local).filter((k) => k.startsWith("boc_subtitle_cache_")), []);
+  // Speech ending at 100 s (a long silent outro) passes the video page's loose guard, so the side panel takes it too.
+  routes = sidepanelRoutes(100);
+  assert.strictEqual((await historyContext()).subtitleBody.length, 2);
+  assert.ok("boc_subtitle_cache_BVa_11_id_5" in local);
+
   finished = true;
   clearInterval(keepAlive);
   console.log("background selftest: all passed");

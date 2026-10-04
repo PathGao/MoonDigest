@@ -196,12 +196,16 @@
     if (old && old.dataset.bvid === bvid && info) return;
     old?.remove();
     if (!info) return;
-    const title = document.querySelector(".video-info-title") || document.querySelector("h1.video-title");
-    if (!title) return;
+    // Below the views / danmaku / date row; the title alone when that row isn't there.
+    const anchor = document.querySelector(".video-info-meta") || document.querySelector(".video-info-title") || document.querySelector("h1.video-title");
+    if (!anchor) return;
     const line = document.createElement("div");
     line.className = "mdg-line";
     line.dataset.bvid = bvid;
-    line.append(badgeEl(info, bvid, info.tags));
+    const brand = document.createElement("span");
+    brand.className = "mdg-brand";
+    brand.textContent = "MoonDigest";
+    line.append(brand, badgeEl(info, bvid, info.tags));
     const text = info.oneLiner || info.reason;
     if (text) {
       const s = document.createElement("span");
@@ -209,7 +213,7 @@
       s.textContent = text;
       line.append(s);
     }
-    title.after(line);
+    anchor.after(line);
   }
 
   function showPop(host) {

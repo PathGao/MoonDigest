@@ -53,7 +53,7 @@ const DEFAULT_SYNC_SETTINGS = {
   readerLetterSpacing: "normal",
   readerLineHeight: "tight",
   readerContentWidth: "medium",
-  readerChapterVisibility: "show",
+  readerChapterVisible: true,
   readerTranscriptVisible: true,
   frontmatterFields: [
     "title",
@@ -423,11 +423,13 @@ async function resolveAiSidepanelContext(contextRef) {
     previousUrl: ref.selectedSubtitleUrl,
     previousLang: ref.subtitleLang
   });
+  // Same duration guard as the video page, so another video's subtitle is neither shown nor cached.
+  const valid = (segments) => BocSites.validateSubtitleByDuration(segments, meta.duration).ok;
   const body = selectedTrack
-    ? site.parseSegments(await BocSites.fetchRawCached(site, selectedTrack, { videoId: videoRef.id, cid: meta.cid }, io))
+    ? site.parseSegments(await BocSites.fetchRawCached(site, selectedTrack, { videoId: videoRef.id, cid: meta.cid }, io, valid))
     : [];
-  if (selectedTrack && !body.length) {
-    throw new Error("原视频字幕为空");
+  if (selectedTrack && !valid(body)) {
+    throw new Error(body.length ? "原视频字幕与视频时长不匹配" : "原视频字幕为空");
   }
 
   const hotComments = site.fetchComments ? await site.fetchComments(videoRef, meta, io, 18).catch(() => []) : [];
@@ -675,7 +677,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       parsed.searchParams.set("boc_reader", "1");
       readerUrl = parsed.toString();
     } catch (error) {
-      sendResponse({ ok: false, error: error.message || "阅读视图地址无效" });
+      sendResponse({ ok: false, error: error.message || "专注模式的地址无效" });
       return false;
     }
 
@@ -683,7 +685,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       .then(() => triggerReaderModeInTab(tabId, readerUrl))
       .then((triggered) => {
         if (!triggered) {
-          throw new Error("阅读视图触发失败，请刷新浏览器网页重试");
+          throw new Error("专注模式打开失败，请刷新网页重试");
         }
         sendResponse({ ok: true });
       })
@@ -1049,7 +1051,7 @@ function normalizeSyncSettings(settings) {
   merged.readerLetterSpacing = normalizeReaderLetterSpacing(merged.readerLetterSpacing);
   merged.readerLineHeight = normalizeReaderLineHeight(merged.readerLineHeight);
   merged.readerContentWidth = normalizeReaderContentWidth(merged.readerContentWidth);
-  merged.readerChapterVisibility = normalizeReaderChapterVisibility(merged.readerChapterVisibility);
+  merged.readerChapterVisible = merged.readerChapterVisible !== false;
   merged.readerTranscriptVisible = normalizeReaderTranscriptVisible(merged.readerTranscriptVisible);
   merged.fixedFrontmatterProperties = normalizeFixedFrontmatterProperties(merged.fixedFrontmatterProperties);
   merged.notePlaceholderSections = normalizeNotePlaceholderSections(merged.notePlaceholderSections);
@@ -1157,10 +1159,6 @@ function normalizeReaderLineHeight(value) {
 
 function normalizeReaderContentWidth(value) {
   return ["compact", "narrow", "medium", "wide", "full"].includes(value) ? value : "medium";
-}
-
-function normalizeReaderChapterVisibility(value) {
-  return value === "hide" || value === "auto" ? value : "show";
 }
 
 function normalizeReaderTranscriptVisible(value) {
