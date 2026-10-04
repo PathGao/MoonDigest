@@ -2005,16 +2005,15 @@ function renderAssistantMessage(node, raw) {
   node.appendChild(actions);
 }
 
-// The same note feeds the Obsidian save and the clipboard copy; only the save knows where the
-// video note lives, so only it passes the source backlink.
-function buildCurrentConversationNote(sourcePath = "") {
+// The conversation as its own note: copy, download, and 写入 Obsidian on pages that are not videos.
+function buildCurrentConversationNote() {
   const turns = buildConversationTurns(chatHistory);
   if (!turns.length) {
     return null;
   }
   const context = currentConversationMeta?.resolvedContext || contextData || currentConversationMeta?.contextRef || {};
   const filename = buildAiConversationFilename(context);
-  return { context, filename, content: buildAiConversationMarkdown({ context, turns, filename, sourcePath }) };
+  return { context, filename, content: buildAiConversationMarkdown({ context, turns, filename }) };
 }
 
 // Where the page's 写入 Obsidian puts this video's note: same folder template and filename builder.
@@ -2037,7 +2036,7 @@ async function resolveVideoNotePath(context, settings) {
 }
 
 // Rewrites the marked AI 问答 section of the video's note when that note exists; never creates one.
-// Resolves to the background result ({ exists, updated }) or null when the conversation has no video.
+// Resolves to the background result plus the path ({ exists, updated, filepath }) or null when the conversation has no video.
 async function syncVideoNoteAiSection({ context, messages, settings, baseUrl, apiKey }) {
   const noteKey = BocSites.buildContextKey(buildConversationContextRef(context) || {});
   if (!noteKey) {
@@ -2052,7 +2051,7 @@ async function syncVideoNoteAiSection({ context, messages, settings, baseUrl, ap
   if (!resp?.ok) {
     throw new Error(getReadableText(resp?.error, "Local API 写入失败"));
   }
-  return resp;
+  return { ...resp, filepath };
 }
 
 // ---- auto-sync: after a manual save bound the video to its note, every finished answer updates the section ----
@@ -2139,6 +2138,9 @@ async function copyCurrentConversationMarkdown() {
   }
 }
 
+// A video's conversation goes into its video note's AI 问答 section, the one auto-sync keeps current.
+// A missing video note is first written by the page's content script, the same writer as the popup's 写入 Obsidian.
+// Pages that are not videos have no video note, so their conversation is written as its own note.
 async function saveCurrentConversationToObsidian() {
   const settingsBundle = await loadObsidianSettings();
   if (!settingsBundle) {
@@ -2149,33 +2151,35 @@ async function saveCurrentConversationToObsidian() {
     showConversationContextNotice("当前没有可写入 Obsidian 的对话。", 2200);
     return;
   }
-  // Update the video note first: a 404 clears the recorded path, so the backlink below is computed afresh.
-  let videoNoteNotice = "";
-  if (settingsBundle.settings.includeAiChatInNote !== false) {
-    try {
-      const result = await syncVideoNoteAiSection({ context, messages: chatHistory, ...settingsBundle });
-      if (result?.exists) {
-        videoNoteNotice = "，视频笔记的 AI 问答已更新";
-      } else if (result && !result.exists) {
-        videoNoteNotice = "；视频笔记已不存在，已解除关联";
-      }
-    } catch (error) {
-      videoNoteNotice = `；视频笔记的 AI 问答更新失败：${readableObsidianError(error)}`;
-    }
+  if (!BocSites.buildContextKey(buildConversationContextRef(context) || {})) {
+    const note = buildCurrentConversationNote();
+    const folder = resolveFolderTemplate(settingsBundle.settings.noteFolder || "", note.context);
+    const filepath = folder ? `${folder}/${note.filename}` : note.filename;
+    await saveMarkdownToObsidian({ button: els.saveConversationBtn, filepath, content: note.content, ...settingsBundle });
+    return;
   }
-  const note = buildCurrentConversationNote(await resolveVideoNotePath(context, settingsBundle.settings));
-  const folder = resolveFolderTemplate(settingsBundle.settings.noteFolder || "", note.context);
-  const filepath = folder ? `${folder}/${note.filename}` : note.filename;
-
-  const written = await saveMarkdownToObsidian({
-    button: els.saveConversationBtn,
-    filepath,
-    content: note.content,
-    baseUrl: settingsBundle.baseUrl,
-    apiKey: settingsBundle.apiKey
-  });
-  if (written && videoNoteNotice) {
-    showConversationContextNotice(`已写入 Obsidian：${filepath}${videoNoteNotice}。`, 4000);
+  showConversationContextNotice("正在写入 Obsidian…");
+  try {
+    const result = await syncVideoNoteAiSection({ context, messages: chatHistory, ...settingsBundle });
+    if (result.exists) {
+      showConversationContextNotice(`已写入视频笔记的 AI 问答：${result.filepath}`, 3000);
+      return;
+    }
+    const tab = await getActiveTab();
+    if (!tab?.id || !liveContextData || !doesTabMatchContextUrl(liveTabUrl, context.url || "")) {
+      showConversationContextNotice("这个视频还没有视频笔记，打开视频页后再写入 Obsidian。", 4000);
+      return;
+    }
+    const resp = await sendMessageToActiveTab(tab.id, { type: "popup-send-obsidian" }, 1);
+    // The page's note carries its latest conversation; the live context (the page's own key and path)
+    // finds the note it just wrote, and this conversation replaces that section.
+    const created = resp?.ok ? await syncVideoNoteAiSection({ context: liveContextData, messages: chatHistory, ...settingsBundle }) : null;
+    if (!created?.exists) {
+      throw new Error(resp?.error || resp?.payload?.message || "没能新建视频笔记");
+    }
+    showConversationContextNotice(`已新建视频笔记并写入 AI 问答：${created.filepath}`, 4000);
+  } catch (error) {
+    showConversationContextNotice(`写入 Obsidian 失败：${readableObsidianError(error)}`, 4000);
   }
 }
 

@@ -157,7 +157,17 @@
         setTimeout(() => onUpdated._fire(tab.id, { url }, { ...tab }), 10);
         return { ...tab };
       },
-      sendMessage: (_id, _msg, cb) => setTimeout(() => cb?.({ ok: true }), 10),
+      sendMessage: (_id, msg, cb) => {
+        if (msg?.type === "popup-send-obsidian") {
+          const video = findVideo(tab.url);
+          const state = payloadFor(video);
+          const folder = BocNote.resolveFolderTemplate(mockSettings.noteFolder, state);
+          const path = `${folder}/${BocNote.buildNoteFilename(state, mockSettings)}`;
+          vaultLog("PUT", path);
+          window.__mockVault[path] = `# ${video.title}\n\n字幕正文\n`;
+        }
+        setTimeout(() => cb?.({ ok: true }), 10);
+      },
       onUpdated,
       onActivated: makeEvent()
     },
