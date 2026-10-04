@@ -8,7 +8,6 @@ const {
   TIMESTAMP_PATTERN,
   buildConversationTurns,
   buildAiConversationFilename,
-  buildAiNoteMarkdown,
   buildAiConversationMarkdown,
   resolveFolderTemplate,
   buildNoteFilename,
@@ -1501,31 +1500,19 @@ function renderConversationMessages() {
     resetConversationView("");
     return;
   }
-  chatHistory.forEach((message, index) => {
+  chatHistory.forEach((message) => {
     if (message.role === "user") {
       appendUserMessage(message.content, false);
       return;
     }
     const node = document.createElement("div");
     node.className = "sp-msg sp-msg-assistant";
-    renderAssistantMessage(node, String(message.content || ""), {
-      userPrompt: findPreviousUserPrompt(index)
-    });
+    renderAssistantMessage(node, String(message.content || ""));
     els.messages.appendChild(node);
   });
   renderFollowups();
   shouldAutoScrollMessages = true;
   scrollToBottom(true);
-}
-
-function findPreviousUserPrompt(index) {
-  for (let i = Number(index) - 1; i >= 0; i -= 1) {
-    const item = chatHistory[i];
-    if (item?.role === "user" && typeof item.content === "string") {
-      return item.content;
-    }
-  }
-  return "";
 }
 
 function buildConversationTitle(context) {
@@ -1960,7 +1947,7 @@ function endStream(stream, { stopped = "", error = "" } = {}) {
   const { node, prompt, raw } = stream;
   const saved = Boolean(raw.trim());
   if (saved || !(stopped || error)) {
-    renderAssistantMessage(node, raw, { userPrompt: prompt });
+    renderAssistantMessage(node, raw);
   } else {
     node.innerHTML = "";
   }
@@ -2067,7 +2054,7 @@ function clearStreamRuntimeState() {
   removeConversationContextNotice();
 }
 
-function renderAssistantMessage(node, raw, { userPrompt = "" } = {}) {
+function renderAssistantMessage(node, raw) {
   if (!node) {
     return;
   }
@@ -2110,78 +2097,7 @@ function renderAssistantMessage(node, raw, { userPrompt = "" } = {}) {
   });
   actions.appendChild(copyBtn);
 
-  const saveBtn = document.createElement("button");
-  saveBtn.type = "button";
-  saveBtn.className = "sp-msg-copy-btn sp-msg-save-btn";
-  saveBtn.setAttribute("aria-label", "保存到 Obsidian");
-  saveBtn.setAttribute("title", "保存到 Obsidian");
-  saveBtn.innerHTML = '<img class="obsidian-mark" src="/icons/obsidian.svg" alt="">';
-  saveBtn.addEventListener("click", () => {
-    void saveAssistantReplyToObsidian({
-      button: saveBtn,
-      userPrompt,
-      assistantMarkdown: pasteReadyRaw
-    });
-  });
-
-  const downloadBtn = document.createElement("button");
-  downloadBtn.type = "button";
-  downloadBtn.className = "sp-msg-copy-btn";
-  downloadBtn.setAttribute("aria-label", "下载 .md");
-  downloadBtn.setAttribute("title", "下载 .md");
-  downloadBtn.innerHTML = `
-    <svg viewBox="0 0 24 24" focusable="false" aria-hidden="true">
-      <path d="M12 4v11"></path>
-      <path d="m7 10 5 5 5-5"></path>
-      <path d="M5 20h14"></path>
-    </svg>
-  `;
-  downloadBtn.addEventListener("click", () => {
-    const reply = assistantReplyNote(userPrompt, pasteReadyRaw);
-    if (reply) BocDownload.text(reply.filename, buildAiNoteMarkdown(reply));
-  });
-  actions.appendChild(downloadBtn);
-  actions.appendChild(saveBtn);
   node.appendChild(actions);
-}
-
-function assistantReplyNote(userPrompt, assistantMarkdown) {
-  const prompt = String(userPrompt || "").trim();
-  const answer = String(assistantMarkdown || "").trim();
-  if (!prompt || !answer) {
-    showConversationContextNotice("没有可保存的单轮问答。", 2200);
-    return null;
-  }
-  const context = currentConversationMeta?.resolvedContext || contextData || currentConversationMeta?.contextRef || {};
-  return { context, prompt, answer, filename: buildAiNoteFilename(context, prompt) };
-}
-
-async function saveAssistantReplyToObsidian({ button, userPrompt, assistantMarkdown }) {
-  const reply = assistantReplyNote(userPrompt, assistantMarkdown);
-  if (!reply) {
-    return;
-  }
-
-  const settingsBundle = await loadObsidianSettings();
-  if (!settingsBundle) {
-    return;
-  }
-
-  const { context, filename } = reply;
-  const folder = resolveFolderTemplate(settingsBundle.settings.noteFolder || "", context);
-  const filepath = folder ? `${folder}/${filename}` : filename;
-  const noteContent = buildAiNoteMarkdown({
-    ...reply,
-    sourcePath: await resolveVideoNotePath(context, settingsBundle.settings)
-  });
-
-  await saveMarkdownToObsidian({
-    button,
-    filepath,
-    content: noteContent,
-    baseUrl: settingsBundle.baseUrl,
-    apiKey: settingsBundle.apiKey
-  });
 }
 
 // The same note feeds the Obsidian save and the clipboard copy; only the save knows where the
@@ -2432,21 +2348,6 @@ async function writeNoteByLocalApi(baseUrl, apiKey, filepath, content) {
   if (!resp?.ok) {
     throw new Error(getReadableText(resp?.error, "Local API 写入失败"));
   }
-}
-
-function buildAiNoteFilename(context, prompt) {
-  const sourceTitle = String(context?.title || currentConversationMeta?.contextTitle || "当前视频").trim() || "当前视频";
-  const questionSummary = buildQuestionSummary(prompt);
-  const baseName = sanitizeFileName(`【AI笔记】${sourceTitle} - ${questionSummary}`);
-  return `${baseName || "【AI笔记】当前视频"}.md`;
-}
-
-function buildQuestionSummary(prompt) {
-  const text = String(prompt || "")
-    .replace(/\s+/g, " ")
-    .trim()
-    .slice(0, 30);
-  return text || "AI问答";
 }
 
 function getReadableText(value, fallback = "") {

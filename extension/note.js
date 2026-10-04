@@ -339,20 +339,6 @@
     ].filter(Boolean);
   }
 
-  // One question and its answer.
-  function buildAiNoteMarkdown({ context, prompt, answer, filename, sourcePath = "" }) {
-    const lines = [
-      ...buildAiNoteFrontmatter({ context, filename, sourcePath }),
-      "",
-      `问题：${String(prompt || "").trim()}`,
-      sourceBodyLine(sourcePath, aiSourceTitle(context)),
-      "",
-      String(answer || "").trim(),
-      ""
-    ].filter((line, index, arr) => line !== "" || arr[index - 1] !== "");
-    return `${lines.join("\n").trim()}\n`;
-  }
-
   // A whole conversation; turns from buildConversationTurns.
   function buildAiConversationMarkdown({ context, turns, filename, sourcePath = "" }) {
     const lines = [...buildAiNoteFrontmatter({ context, filename, sourcePath }), "", sourceBodyLine(sourcePath, aiSourceTitle(context))];
@@ -924,7 +910,6 @@
     buildAiSection,
     upsertAiSection,
     buildAiConversationFilename,
-    buildAiNoteMarkdown,
     buildAiConversationMarkdown,
     buildTriageSummary,
     withTriageSummary,

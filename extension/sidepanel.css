@@ -437,12 +437,6 @@ body {
   color: var(--text-2);
 }
 
-.sp-msg-save-btn.is-saving {
-  color: var(--text);
-  border-color: var(--border-strong);
-  background: var(--surface-muted);
-}
-
 .sp-confirm-overlay {
   align-items: center;
   background: rgba(17, 24, 39, 0.28);
@@ -751,8 +745,7 @@ body {
   position: relative;
 }
 
-.sp-obsidian-off #spSaveConversationBtn,
-.sp-obsidian-off .sp-msg-save-btn {
+.sp-obsidian-off #spSaveConversationBtn {
   display: none;
 }
 
