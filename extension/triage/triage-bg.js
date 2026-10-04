@@ -294,8 +294,14 @@ async function triageMid() {
 
 async function triageCreatedFolders() {
   const mid = await triageMid();
-  const data = await triageBiliGet(`https://api.bilibili.com/x/v3/fav/folder/created/list-all?up_mid=${mid}`);
-  return { mid, folders: (data?.list || []).map((f) => ({ id: f.id, title: f.title, count: f.media_count })) };
+  // The paged list (not list-all) carries cover: an auto cover is the newest video, so count + cover notice a swap.
+  const folders = [];
+  for (let pn = 1; pn <= 20; pn++) {
+    const data = await triageBiliGet(`https://api.bilibili.com/x/v3/fav/folder/created/list?up_mid=${mid}&pn=${pn}&ps=50`);
+    folders.push(...(data?.list || []).map((f) => ({ id: f.id, title: f.title, count: f.media_count, cover: f.cover || "" })));
+    if (!data?.has_more) break;
+  }
+  return { mid, folders };
 }
 
 // The folder's 判断标准 and the tag names come with each request from the page.
