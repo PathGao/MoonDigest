@@ -12,6 +12,7 @@
       <!-- Row 1: where you are (folder, steps) and what is running; row 2 (.stagebar) is what to do in this step. -->
       <header class="topbar">
         <select id="folderSelect" class="folder-select" aria-label="选择收藏夹"></select>
+        <button id="refreshBtn" type="button" class="ghost-btn" aria-label="从 B 站刷新收藏夹">↻ 刷新</button>
         <nav id="tabs" class="tabs" role="tablist" aria-label="分拣进度"></nav>
         <span class="spacer"></span>
         <span class="sync-wrap">
@@ -32,8 +33,6 @@
           <div class="tools-brand">MoonDigest · B 站收藏夹分拣台</div>
           <button id="removedBtn" type="button" title="离开了你勾选的所有收藏夹、但 MoonDigest 还留着信息的视频" hidden>已取消收藏</button>
           <button id="biliBtn" type="button" aria-label="在 B 站打开当前收藏夹（所有收藏夹时打开个人主页）" hidden>B 站收藏夹 ↗</button>
-          <button id="refreshBtn" type="button" aria-label="从 B 站刷新收藏夹">刷新</button>
-          <button id="aiBtn" type="button" aria-label="标签"><span class="ai-spark" aria-hidden="true"></span>标签</button>
           <button id="writeBtn" type="button" aria-label="批量导出">批量导出</button>
           <button id="settingsBtn" type="button" aria-label="分拣设置">分拣设置</button>
           <button id="helpBtn" type="button" aria-label="帮助">帮助（?）</button>
@@ -51,7 +50,7 @@
           <div id="stagebar" class="stagebar">
             <span id="classFilter" class="class-filter"></span>
             <div class="tagbar">
-              <span class="tagbar-label">标签</span>
+              <button id="aiBtn" type="button" class="tag-btn" aria-label="标签：管理标签和 AI 批量打标签"><span class="ai-spark" aria-hidden="true"></span>标签</button>
               <span id="tagFilter" class="tagfilter"></span>
             </div>
             <div id="listHeader" class="list-header"></div>
