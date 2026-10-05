@@ -44,7 +44,8 @@ select { height: 28px; max-width: 240px; }
 .tools { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .tools[popover] { position: static; inset: auto; width: auto; height: auto; margin: 0; padding: 0; border: 0; background: none; color: inherit; overflow: visible; }
 .more-btn { display: none; }
-.search { display: flex; align-items: center; gap: 6px; flex: 0 1 320px; min-width: 0; }
+/* A small basis so the box narrows before it would drop to a second line. */
+.search { display: flex; align-items: center; gap: 6px; flex: 1 1 160px; max-width: 320px; min-width: 0; }
 .search input { flex: 1; min-width: 0; height: 28px; }
 .search .muted { white-space: nowrap; }
 
@@ -354,9 +355,13 @@ dialog.wide { width: min(880px, calc(100% - 32px)); }
 .steps { margin: 0 0 4px; padding-left: 20px; }
 .steps li { margin: 2px 0; }
 
-/* Below desktop width the title goes and the tools fold into ⋯, so the top bar stays one line. */
-@media (max-width: 1199px) {
+/* The title needs the most room, so it goes first. */
+@media (max-width: 1439px) {
   .brand { display: none; }
+}
+
+/* Below desktop width the tools fold into ⋯, so the top bar stays one line. */
+@media (max-width: 1199px) {
   .more-btn { display: inline-block; }
   .tools:not(:popover-open) { display: none; }
   .tools:popover-open {
@@ -372,11 +377,16 @@ dialog.wide { width: min(880px, calc(100% - 32px)); }
   }
 }
 
+/* A long folder name would push the search box to a second line here. */
+@media (max-width: 760px) {
+  .topbar select { max-width: 140px; }
+}
+
 /* At phone width the top bar keeps folder + ⋯, and the steps scroll sideways instead of wrapping. */
 @media (max-width: 600px) {
   .topbar { padding: 8px; }
   .topbar select { max-width: 50vw; }
-  .search { order: 1; flex-basis: 100%; }
+  .search { order: 1; flex-basis: 100%; max-width: none; }
   .main { padding: 6px 8px 12px; }
   .stagebar { flex-direction: column; flex-wrap: nowrap; align-items: stretch; }
   .list-header { flex: none; min-width: 0; }
