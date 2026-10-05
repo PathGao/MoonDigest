@@ -222,6 +222,12 @@ const S = {
 };
 
 const criteria = () => S.folderCriteria[S.mediaId] || "";
+// A 粗看 or 细看 result remembers the 判断标准 it was made under (loadResults stamps older ones with the folder's
+// current one), so after the criteria change the old results can be redone.
+const isStale = (r) => Boolean(r) && (r.criteria ?? criteria()) !== criteria();
+const inFolderOnly = () => S.mediaId && S.mediaId !== ALL && S.mediaId !== REMOVED;
+const staleCoarse = () => (inFolderOnly() ? S.items.filter((it) => !it.invalid && stageOf(it) === "coarse" && isStale(S.titleRes[it.bvid])) : []);
+const staleFine = () => (inFolderOnly() ? S.items.filter((it) => stageOf(it) === "fine" && isStale(S.analyses[it.bvid])) : []);
 // What the AI is told about the open folder; its 判断标准 is relative to this.
 const folderContext = () => ({ title: folderTitle(), intro: S.folderIntro[S.mediaId] || "" });
 
@@ -885,10 +891,18 @@ async function loadResults(token) {
     send({ type: "triage-analysis-get", bvids: missing })
   ]);
   if (token !== S.folderToken) return false;
+  // Results from before criteria were recorded count as made under this folder's current criteria.
+  const stamp = {};
+  const stamped = (key, r) => {
+    if (!inFolderOnly() || r.criteria !== undefined) return r;
+    stamp[key] = { ...r, criteria: criteria() };
+    return stamp[key];
+  };
   for (const b of missing) {
-    if (t.ok && t.data?.[b]) S.titleRes[b] = t.data[b];
-    if (a.ok && a.data?.[b]) S.analyses[b] = a.data[b];
+    if (t.ok && t.data?.[b]) S.titleRes[b] = stamped(`triage_title_${b}`, t.data[b]);
+    if (a.ok && a.data?.[b]) S.analyses[b] = stamped(`triage_analysis_${b}`, a.data[b]);
   }
+  if (Object.keys(stamp).length) await chrome.storage.local.set(stamp);
   return true;
 }
 
@@ -1087,7 +1101,7 @@ function activityState() {
   const left = S.throttleUntil - Date.now();
   const wait = left > 0 ? `${S.throttleLabel}，${fmtDuration(Math.ceil(left / 1000))} 后重试` : "";
   if (S.group) {
-    const done = S.group.bvids.filter((b) => !needsAnalysis(b)).length;
+    const done = groupDone(S.group);
     return { text: wait || S.status || `字幕细看 ${done}/${S.group.bvids.length}`, done, total: S.group.bvids.length, act: "group", actLabel: "暂停细看", warn: Boolean(wait) };
   }
   if (S.stage1.running) {
@@ -1180,12 +1194,14 @@ function renderListHeader(list) {
     return headBtn(`batch-${route}`, verdict ? `${verb}（AI：${VERDICTS[verdict]}）${n} 个` : `${verb}选中的 ${n} 个`, route === "unfav" ? "danger" : "", !n, verdict, route === "keep" ? KEEP_TIP : "");
   };
   const groupBtn = (cls) => {
-    if (S.group) return headBtn("group", `暂停细看 ${S.group.bvids.filter((b) => !needsAnalysis(b)).length}/${S.group.bvids.length}`, "primary");
+    if (S.group) return headBtn("group", `暂停细看 ${groupDone(S.group)}/${S.group.bvids.length}`, "primary");
     const batch = nextBatch();
     const label = batch.some((b) => S.selected.has(b)) ? `细看选中 ${batch.length} 个` : batch.length ? `细看下一批 ${batch.length} 个` : "细看";
     return headBtn("group", label, cls, !batch.length || busy, "", "", false, true);
   };
   const stage1Pause = () => headBtn("stage1", `暂停粗看 ${S.stage1.done}/${S.stage1.total}`, "primary");
+  // Results made under an older 判断标准 can be redone; 细看 goes one batch at a time like a normal run.
+  const redoBtn = (act, verb, n) => (n ? headBtn(act, `按新标准重新${verb} ${n} 个`, "", busy, "", `这些视频是按旧的判断标准${verb}的`, false, true) : "");
   const sel = selectedIn(list).length;
   const f = S.classFilter[t];
   let html = "";
@@ -1201,7 +1217,7 @@ function renderListHeader(list) {
     }
   } else if (t === "coarse") {
     // A selection gets 细看 plus both batch buttons; 可清理 / 值得留 lead with their batch button, 细看 stays secondary.
-    html = seg() + criteriaLine();
+    html = seg() + criteriaLine() + redoBtn("redo-coarse", "粗看", staleCoarse().length);
     if (sel) html += groupBtn("primary") + batchBtn("keep") + batchBtn("unfav");
     else if (f === "drop") html += batchBtn("unfav", "drop") + groupBtn("");
     else if (f === "keep") html += batchBtn("keep", "keep") + groupBtn("");
@@ -1209,6 +1225,8 @@ function renderListHeader(list) {
   } else if (t === "fine") {
     // A selection gets both buttons; without one 值得留 and 可清理 each get a button, 拿不准 none.
     html = seg();
+    const staleN = staleFine().length;
+    if (staleN && !all) html += criteriaLine() + redoBtn("redo-fine", "细看", Math.min(staleN, GROUP_SIZE));
     if (all) html += sortHint;
     else if (sel) html += batchBtn("unfav") + batchBtn("keep");
     else {
@@ -1790,12 +1808,29 @@ function openCriteria() {
   el.criteriaInput.focus();
 }
 
-function saveCriteria() {
+async function saveCriteria() {
   const text = el.criteriaInput.value.trim();
+  const changed = text !== criteria();
   if (text) S.folderCriteria[S.mediaId] = text;
   else delete S.folderCriteria[S.mediaId];
   storeSet(K.folderCriteria, S.folderCriteria);
   render();
+  const stale = staleCoarse();
+  if (!changed || !stale.length || S.stage1.running || S.group) return;
+  const ok = await askConfirm(
+    "判断标准改了",
+    `<p>「粗看完成」里有 ${stale.length} 个视频是按旧标准粗看的，要按新标准重新粗看吗？</p><p>已细看和已处理的视频不动；细看完成页可以另外按新标准重新细看。</p>`,
+    "重新粗看"
+  );
+  if (ok) redoCoarse(stale);
+}
+
+// The old 粗看 results go, so these videos are back in 未分析 and the next 标题粗看 run takes them.
+async function redoCoarse(list) {
+  const bvids = list.map((it) => it.bvid);
+  for (const b of bvids) delete S.titleRes[b];
+  await chrome.storage.local.remove(bvids.map((b) => `triage_title_${b}`));
+  runStage1();
 }
 
 // ---------- 标签 dialog: 管理 / 批量打 ----------
@@ -1962,11 +1997,15 @@ const needsAnalysis = (b) => {
   return it && !it.invalid && !isProcessed(b) && a?.status !== "done" && a?.status !== "error";
 };
 
-function startGroup(bvids) {
+// redo: 细看 these again under the current criteria; each keeps its old result until the new one arrives.
+function startGroup(bvids, redo = false) {
   if (!bvids.length || S.group) return;
-  S.group = { bvids, stop: false };
+  S.group = { bvids, stop: false, redo: redo ? new Set(bvids) : null };
   runGroup();
 }
+
+const groupPending = (group, b) => (group.redo ? group.redo.has(b) : needsAnalysis(b));
+const groupDone = (group) => group.bvids.filter((b) => !groupPending(group, b)).length;
 
 async function analyzeOne(bvid, force = false) {
   S.analyzing.add(bvid);
@@ -1982,23 +2021,25 @@ async function runGroup() {
   const keepGoing = () => !group.stop && S.group === group && token === S.folderToken;
   render();
   while (keepGoing()) {
-    const b = group.bvids.find(needsAnalysis);
+    const b = group.bvids.find((x) => groupPending(group, x));
     if (!b) break;
-    const idx = group.bvids.filter((x) => !needsAnalysis(x)).length + 1;
-    S.status = `字幕细看 ${idx}/${group.bvids.length}`;
-    const r = await analyzeOne(b);
+    S.status = `${group.redo ? "按新标准重新细看" : "字幕细看"} ${groupDone(group) + 1}/${group.bvids.length}`;
+    const r = await analyzeOne(b, Boolean(group.redo));
     if (token !== S.folderToken) return;
     if (!r.ok && THROTTLES[r.code]) {
       render();
       await throttleWait(r.code, keepGoing);
       continue;
     }
-    S.analyses[b] = r.ok ? r.data : { bvid: b, status: "error", error: r.error };
-    const err = S.analyses[b].status === "error" ? String(S.analyses[b].error || "") : "";
+    group.redo?.delete(b);
+    const keepOld = !r.ok && group.redo && S.analyses[b]?.status === "done";
+    if (keepOld) toast(`重新细看失败，保留原来的结果：${r.error}`, true);
+    else S.analyses[b] = r.ok ? r.data : { bvid: b, status: "error", error: r.error };
+    const err = r.ok ? "" : String(r.error || "");
     if (/配置 AI|截断|未授权访问/.test(err)) handleAiError(err);
     if (/配置 AI|未授权访问/.test(err)) group.stop = true;
     render();
-    if (group.bvids.some(needsAnalysis)) await sleepWhile(S.settings.triageIntervalSec * 1000, keepGoing);
+    if (group.bvids.some((x) => groupPending(group, x))) await sleepWhile(S.settings.triageIntervalSec * 1000, keepGoing);
   }
   if (S.group !== group) return;
   // A run that stopped on a setup error keeps its banner; any other finished batch clears it.
@@ -2692,6 +2733,8 @@ function bindEvents() {
     } else if (act === "batch-unfav") batchUnfav(batchList(btn.dataset.verdict || null));
     else if (act === "batch-keep") batchKeep(batchList(btn.dataset.verdict || null));
     else if (act === "criteria") openCriteria();
+    else if (act === "redo-coarse") redoCoarse(staleCoarse());
+    else if (act === "redo-fine") startGroup(staleFine().slice(0, GROUP_SIZE).map((it) => it.bvid), true);
     else if (act === "all-pause") {
       S.loadAll.paused = true;
       render();
