@@ -1153,13 +1153,14 @@ function renderListHeader(list) {
     const label = batch.some((b) => S.selected.has(b)) ? `细看选中 ${batch.length} 个` : batch.length ? `细看下一批 ${batch.length} 个` : "细看";
     return headBtn("group", label, cls, !batch.length || busy, "", "", false, true);
   };
+  const stage1Pause = () => headBtn("stage1", `暂停粗看 ${S.stage1.done}/${S.stage1.total}`, "primary");
   const sel = selectedIn(list).length;
   const f = S.classFilter[t];
   let html = "";
   if (all && t === "none") html = sortHint;
   else if (all && t === "coarse") html = seg() + sortHint;
   else if (t === "none") {
-    if (S.stage1.running) html = headBtn("stage1", `暂停粗看 ${S.stage1.done}/${S.stage1.total}`, "primary");
+    if (S.stage1.running) html = stage1Pause();
     else {
       const n = stage1Pending().length;
       html = headBtn("stage1", n ? `标题粗看这 ${n} 个` : "标题粗看", "primary", !n || busy, "", "", false, true);
@@ -1199,6 +1200,12 @@ function renderListHeader(list) {
   if (S.selected.size) {
     html += `<span class="muted">已选中 ${S.selected.size} 个</span><button type="button" class="link" data-head="clear-selected" aria-label="清空选中">清空选中</button>`;
   }
+  // A running 粗看, 细看 or unfavorite batch keeps its progress button on every tab, not only the one it
+  // was started from: its videos move to the next tab while it runs.
+  const unfavRun = S.unfavBatch?.token === S.folderToken;
+  if (unfavRun && !html.includes('data-head="batch-unfav"')) html = batchBtn("unfav") + html;
+  if (S.group && t !== "coarse") html = groupBtn("primary") + html;
+  if (S.stage1.running && t !== "none") html = stage1Pause() + html;
   if (all) html = loadAllLine() + html;
   el.listHeader.innerHTML = html;
 }

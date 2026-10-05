@@ -258,6 +258,19 @@ function openFake(mediaId, items, decisions = {}) {
   assert.deepStrictEqual(plain(t.nextBatch()), ["BV207"], "a selection still wins");
   t.renderListHeader(t.visibleItems());
   for (const part of ["细看选中 1 个", "保留选中的 1 个", "取消收藏选中的 1 个"]) assert.ok(t.el.listHeader.innerHTML.includes(part), part);
+  // A running 细看 / 粗看 keeps its pause button on every tab, once per header.
+  t.S.group = { bvids: ["BV207"], stop: false };
+  t.S.stage1 = { ...t.S.stage1, running: true, done: 2, total: 5 };
+  for (const tab of ["none", "coarse", "fine", "done", "read"]) {
+    t.S.tab = tab;
+    t.renderListHeader(t.visibleItems());
+    const html = t.el.listHeader.innerHTML;
+    assert.strictEqual(html.split(">暂停细看").length - 1, 1, `暂停细看 once on ${tab}`);
+    assert.strictEqual(html.split(">暂停粗看 2/5").length - 1, 1, `暂停粗看 once on ${tab}`);
+  }
+  t.S.group = null;
+  t.S.stage1 = { ...t.S.stage1, running: false };
+  t.S.tab = "coarse";
   t.S.selected.clear();
   t.S.classFilter.coarse = "all";
   // 细看下一批 picks 待定 and low confidence before confident classes.
