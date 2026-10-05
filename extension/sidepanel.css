@@ -26,17 +26,17 @@ body {
   flex-shrink: 0;
 }
 
-/* The chip takes what is left and the model select keeps its full name. */
+/* The video title takes what is left; the model select stays narrow (full name in its tooltip and options). */
 .sp-context-chip {
   flex: 1 1 0;
-  height: auto;
+  height: 28px;
   line-height: normal;
-  min-width: 72px;
-  padding: 6px 10px;
-  border: 0;
-  background: var(--surface-muted);
-  color: var(--text-2);
-  border-radius: 999px;
+  min-width: 0;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+  border-radius: var(--radius-sm);
   font-size: var(--fs-xs);
   text-align: left;
   white-space: nowrap;
@@ -47,12 +47,13 @@ body {
 }
 
 .sp-context-chip:hover {
-  background: var(--border);
-  color: var(--text);
+  background: var(--surface-muted);
+  border-color: var(--border-strong);
 }
 
 .sp-context-chip.is-mismatch {
   background: var(--warn-bg);
+  border-color: var(--warn-border);
   color: var(--warn);
 }
 
@@ -71,7 +72,7 @@ body {
   45% {
     background: var(--secondary-bg);
     color: var(--text);
-    box-shadow: inset 0 0 0 1.5px var(--action);
+    box-shadow: inset 0 0 0 1.5px var(--accent);
   }
 }
 
@@ -89,10 +90,12 @@ body {
 .sp-model-select {
   flex: 0 1 auto;
   height: 28px;
-  min-width: 92px;
-  padding: 0 28px 0 12px;
+  min-width: 72px;
+  max-width: 120px;
+  padding: 0 24px 0 10px;
   border: 1px solid var(--border);
-  border-radius: 999px;
+  border-radius: var(--radius-sm);
+  text-overflow: ellipsis;
   background: var(--surface);
   font: inherit;
   font-size: var(--fs-xs);
@@ -111,8 +114,8 @@ body {
 }
 
 .sp-icon-btn {
-  width: 32px;
-  height: 32px;
+  width: 28px;
+  height: 28px;
   padding: 0;
   border: 0;
   border-radius: var(--radius-sm);
@@ -210,7 +213,7 @@ body {
   flex-shrink: 0;
   margin: 8px 14px 0;
   border: 1px solid var(--border);
-  border-radius: 12px;
+  border-radius: var(--radius-md);
   background: var(--surface-muted);
   overflow: hidden;
 }
@@ -309,7 +312,12 @@ body {
 }
 
 .sp-prev-messages .sp-msg {
-  font-size: var(--fs-xs);
+  font-size: var(--fs-sm);
+}
+
+.sp-prev-messages .sp-msg-user {
+  border: 0;
+  background: var(--secondary-bg);
 }
 
 .sp-prev-actions {
@@ -320,18 +328,19 @@ body {
 
 .sp-prev-action {
   height: 28px;
-  padding: 0 12px;
+  padding: 0 6px;
   border: 0;
-  border-radius: 999px;
-  background: var(--surface-muted);
-  color: var(--text-2);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--muted);
   font: inherit;
-  font-size: var(--fs-xs);
+  font-size: var(--fs-sm);
   cursor: pointer;
 }
 
 .sp-prev-action:hover {
-  background: var(--border);
+  background: var(--secondary-bg);
+  color: var(--text);
 }
 
 .sp-messages {
@@ -377,10 +386,6 @@ body {
   font-size: var(--fs-md);
 }
 
-.sp-suggestions .sp-followup-chip {
-  align-self: flex-start;
-}
-
 .sp-summary-btn {
   height: auto;
   white-space: normal;
@@ -396,6 +401,12 @@ body {
 
 .sp-summary-btn:hover {
   background: var(--action-hover);
+}
+
+/* One filled button per view: once something is typed, send is the next step and the summary steps back. */
+body:has(#spInput:not(:placeholder-shown)) .sp-summary-btn {
+  background: var(--action-bg);
+  color: var(--action);
 }
 
 .sp-triage-summary {
@@ -426,7 +437,7 @@ body {
   height: auto;
   padding: 5px 10px;
   border: 1px solid var(--border);
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: var(--surface-muted);
   color: var(--text-2);
   font: inherit;
@@ -462,7 +473,7 @@ body {
   background: var(--surface-muted);
   color: var(--text);
   border: 1px solid var(--border);
-  border-bottom-right-radius: 6px;
+  border-bottom-right-radius: var(--radius-sm);
 }
 
 .sp-msg-assistant {
@@ -490,7 +501,7 @@ body {
   height: 28px;
   padding: 0;
   border: 1px solid var(--border);
-  border-radius: 9px;
+  border-radius: var(--radius-sm);
   background: var(--surface);
   color: var(--muted);
   cursor: pointer;
@@ -525,7 +536,7 @@ body {
 .sp-confirm-dialog {
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: 16px;
+  border-radius: var(--radius-lg);
   box-shadow: 0 20px 60px rgba(15, 23, 42, 0.22);
   color: var(--text);
   max-width: 360px;
@@ -826,7 +837,7 @@ body {
   /* Four buttons must fit one line at the 360px minimum side panel width. */
   padding: 0 6px;
   border: 0;
-  border-radius: 999px;
+  border-radius: var(--radius-sm);
   background: transparent;
   color: var(--muted);
   font: inherit;
@@ -834,6 +845,11 @@ body {
   line-height: 1;
   white-space: nowrap;
   cursor: pointer;
+}
+
+/* Settings for the chips sit apart from the conversation actions. */
+.sp-toolbar-end {
+  margin-left: auto;
 }
 
 .sp-toolbar-btn:hover {
@@ -957,12 +973,6 @@ body {
   gap: 8px;
 }
 
-.sp-history-popover-title {
-  font-size: var(--fs-xs);
-  font-weight: 600;
-  color: var(--text-2);
-}
-
 .sp-preset-list {
   display: flex;
   flex-wrap: wrap;
@@ -1002,7 +1012,7 @@ body {
   gap: 6px;
   align-items: center;
   border: 1px solid var(--border);
-  border-radius: 12px;
+  border-radius: var(--radius-md);
   background: var(--surface-muted);
   padding: 4px;
   max-width: 100%;
@@ -1091,7 +1101,7 @@ body {
   align-items: center;
   max-width: 100%;
   border: 1px solid var(--border);
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: var(--surface-muted);
   overflow: hidden;
 }
@@ -1115,7 +1125,6 @@ body {
   padding: 0;
   border-radius: 0;
   border: 0;
-  border-left: 1px solid var(--border);
   background: transparent;
   color: var(--faint);
   font: inherit;
@@ -1139,7 +1148,7 @@ body {
   height: 30px;
   padding: 0 10px;
   border: 1px solid var(--border);
-  border-radius: 999px;
+  border-radius: var(--radius-sm);
   background: var(--surface-muted);
   color: var(--text);
   font: inherit;
@@ -1150,7 +1159,7 @@ body {
   height: 30px;
   padding: 0 12px;
   border: 0;
-  border-radius: 999px;
+  border-radius: var(--radius-sm);
   background: var(--surface-muted);
   color: var(--text-2);
   font: inherit;
@@ -1169,7 +1178,7 @@ body {
   /* Room on the right for the send button that sits inside the box. */
   padding: 12px 76px 12px 12px;
   border: 1px solid var(--border);
-  border-radius: 16px;
+  border-radius: var(--radius-lg);
   background: var(--surface-muted);
   color: var(--text);
   font: inherit;
@@ -1197,7 +1206,7 @@ body {
   height: 32px;
   padding: 0;
   border: 1px solid var(--border);
-  border-radius: 999px;
+  border-radius: var(--radius-sm);
   background: var(--surface);
   color: var(--text-2);
   font: inherit;
