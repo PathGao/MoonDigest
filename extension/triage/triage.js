@@ -1052,6 +1052,8 @@ function showSyncNotice(diff, partial) {
   const head = partial ? `只加载了前 ${partial.count} 个（第 ${partial.page} 页失败：${partial.error}），可稍后重试同步。` : "";
   el.syncText.textContent = `${head}B站同步：${parts.join(" · ")}`;
   el.syncViewBtn.textContent = `B站同步${partial ? "（部分）" : ""} +${added.length}${partial ? "" : ` −${removed.length}`}`;
+  // A partial load is a notice to retry later, not a blocker: amber, per the color rules in tokens.css.
+  el.syncViewBtn.classList.toggle("warn", Boolean(partial));
   const section = (label, titles) =>
     titles.length ? `<div><strong>${label}</strong><ul>${titles.map((t) => `<li>${esc(t)}</li>`).join("")}</ul></div>` : "";
   el.syncDetail.innerHTML =

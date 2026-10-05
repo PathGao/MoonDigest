@@ -55,6 +55,8 @@ select { height: 28px; max-width: 240px; }
 .sync-wrap { position: relative; }
 .pill { height: 30px; padding: 0 12px; border-radius: 15px; white-space: nowrap; }
 .sync-pill::before { content: ""; display: inline-block; width: 7px; height: 7px; margin-right: 6px; border-radius: 50%; background: var(--action); vertical-align: 1px; }
+.sync-pill.warn { border-color: var(--warn-border); background: var(--warn-bg); color: var(--warn); }
+.sync-pill.warn::before { background: var(--warn); }
 
 /* The tools always sit in the ⋯ popover. */
 .tools:not(:popover-open) { display: none; }
