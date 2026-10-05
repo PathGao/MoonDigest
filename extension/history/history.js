@@ -14,6 +14,7 @@ let triageTitles = {}; // bvid → title from the triage folder snapshots
 let obsidianEnabled = false;
 const selected = new Set();
 const writing = new Set(); // entry keys with a 写入 Obsidian in flight
+const unfolded = new Set(); // entry keys whose one-line AI summary is shown in full
 let reloadTimer = 0;
 let editing = null; // { id, draft } while a 备注 is open; storage reloads wait until it closes
 let reloadPending = false;
@@ -67,12 +68,15 @@ function visibleGroups() {
   );
 }
 
-// The triage summary is markdown (> one-liner, - points, 判断 line); shown as a paragraph, a list and a line.
-function renderSummary(analysis) {
-  const lines = BocNote.buildTriageSummary(analysis).split("\n").filter(Boolean);
-  const points = lines.filter((l) => l.startsWith("- ")).map((l) => `<li>${esc(l.slice(2))}</li>`).join("");
-  const rest = lines.filter((l) => !l.startsWith("- ")).map((l) => esc(l.replace(/^> /, "")));
-  return `<div class="entry-summary">${rest[0] && !rest[0].startsWith("判断") ? `<p>${rest.shift()}</p>` : ""}${points ? `<ul>${points}</ul>` : ""}${rest.map((l) => `<p>${l}</p>`).join("")}</div>`;
+// The triage summary is markdown (> one-liner, - points, AI 判断 line); shown as one line, verdict first,
+// cut off with an ellipsis until clicked.
+function renderSummary(g) {
+  const lines = BocNote.buildTriageSummary(g.analysis).split("\n").filter(Boolean);
+  const verdict = lines.find((l) => l.startsWith("AI 判断："));
+  const rest = lines.filter((l) => l !== verdict).map((l) => esc(l.replace(/^(> |- )/, ""))).join(" · ");
+  const head = verdict ? `<b>AI 判断</b> ${esc(verdict.slice(6))}` : "";
+  const open = unfolded.has(g.key);
+  return `<button type="button" class="entry-summary${open ? " open" : ""}" data-act="summary" aria-expanded="${open}">${head}${head && rest ? " · " : ""}<span class="entry-points">${rest}</span></button>`;
 }
 
 // The 备注 belongs to the video and shows on its P1 entry, like grouping joins it.
@@ -81,7 +85,7 @@ const noteIdOf = (g) => (g.context.videoId && (Number(g.context.pageIndex) || 1)
 function renderNote(g) {
   const id = noteIdOf(g);
   if (id && editing?.id === id) return `<textarea class="entry-note-edit" data-note rows="2" placeholder="一句话备注，只有你自己看" aria-label="备注">${esc(editing.draft)}</textarea>`;
-  if (!g.note) return id ? `<button type="button" class="link note-add" data-act="note">+ 备注</button>` : "";
+  if (!g.note) return id ? `<button type="button" class="note-add" data-act="note">+ 备注</button>` : "";
   const body = `<b>备注</b> ${esc(g.note.text.trim())}`;
   return id ? `<button type="button" class="entry-note" data-act="note" title="点击编辑备注">${body}</button>` : `<div class="entry-note">${body}</div>`;
 }
@@ -117,7 +121,7 @@ function renderConversation(conv, index, total) {
 function render() {
   const groups = visibleGroups();
   const allGroups = groupByVideo(conversations);
-  els.count.textContent = `${allGroups.length} 个视频 · 已存 ${conversations.length} 段（上限 ${BocLimits.AI_CONVERSATIONS}）`;
+  els.count.textContent = `${allGroups.length} 个视频 · 对话 ${conversations.length}/${BocLimits.AI_CONVERSATIONS}`;
   for (const key of [...selected]) if (!groups.some((g) => g.key === key)) selected.delete(key);
   // Storage changes re-render the list while the user reads it: keep expanded entries and the scroll.
   const open = new Set([...els.list.querySelectorAll(".entry details[open]")].map((d) => d.closest(".entry").dataset.key));
@@ -129,21 +133,27 @@ function render() {
     ? groups.map((g) => {
         const site = BocSites.SITES[g.context.site]?.label || "网页";
         const turnCount = g.convs.reduce((n, c) => n + BocNote.buildConversationTurns(c.messages).length, 0);
-        const title = g.context.url ? `<a class="entry-title" href="${esc(g.context.url)}" target="_blank" rel="noopener">${esc(g.title)}</a>` : `<span class="entry-title">${esc(g.title)}</span>`;
+        // A video whose title never arrived falls back to its id; show that as 未获取标题 with the id in the meta line.
+        const untitled = g.title === g.context.videoId;
+        const label = untitled ? "未获取标题" : g.title;
+        const title = g.context.url ? `<a class="entry-title" href="${esc(g.context.url)}" target="_blank" rel="noopener">${esc(label)}</a>` : `<span class="entry-title">${esc(label)}</span>`;
+        const kind = g.convs.length ? (g.convs.length > 1 ? `${g.convs.length} 段对话` : "") : `仅${[g.analysis && "分拣台 AI 总结", g.note && "备注"].filter(Boolean).join("和")} · 没有 AI 对话可删`;
         return `<article class="entry" data-key="${esc(g.key)}">
           <input type="checkbox" data-act="pick" aria-label="选择" ${selected.has(g.key) ? "checked" : ""} />
-          <div>
+          <div class="entry-head">
             ${title}
-            <div class="entry-meta">${esc(site)} · ${esc(formatTime(g.updatedAt))} · ${g.convs.length ? `${g.convs.length} 段对话 · ${turnCount} 轮问答` : `仅${[g.analysis && "分拣台 AI 总结", g.note && "备注"].filter(Boolean).join("和")}`}</div>
-            ${g.analysis ? renderSummary(g.analysis) : ""}
-            ${renderNote(g)}
-            ${g.convs.length ? `<details${open.has(g.key) ? " open" : ""}><summary>查看对话</summary>${g.convs.map((c, i) => renderConversation(c, i, g.convs.length)).join("")}</details>` : ""}
+            <div class="entry-meta">${[site, formatTime(g.updatedAt), untitled && g.context.videoId, kind].filter(Boolean).map(esc).join(" · ")}</div>
           </div>
           <div class="entry-actions">
-            <button type="button" data-act="ask" ${g.context.videoId ? "" : "disabled title=\"只有视频能继续问\""}><span class="ai-spark" aria-hidden="true"></span>继续问</button>
+            <button type="button" class="ask" data-act="ask" ${g.context.videoId ? "" : "disabled title=\"只有视频能继续问\""}><span class="ai-spark" aria-hidden="true"></span>继续问</button>
             <button type="button" data-act="md">下载 .md</button>
             ${!obsidianEnabled ? "" : writing.has(g.key) ? `<button type="button" aria-busy="true" disabled>写入中…</button>` : `<button type="button" data-act="obsidian"><img class="obsidian-mark" src="/icons/obsidian.svg" alt=""> 写入 Obsidian</button>`}
-            <button type="button" data-act="delete" class="danger" ${g.convs.length ? "" : "disabled title=\"没有 AI 对话可删\""}>删除</button>
+            ${g.convs.length ? `<button type="button" data-act="delete" class="danger">删除</button>` : `<button type="button" class="danger slot" tabindex="-1" aria-hidden="true" disabled>删除</button>`}
+          </div>
+          <div class="entry-body">
+            ${g.analysis ? renderSummary(g) : ""}
+            ${renderNote(g)}
+            ${g.convs.length ? `<details${open.has(g.key) ? " open" : ""}><summary>查看 ${turnCount} 轮问答</summary>${g.convs.map((c, i) => renderConversation(c, i, g.convs.length)).join("")}</details>` : ""}
           </div>
         </article>`;
       }).join("")
@@ -302,6 +312,10 @@ els.list.addEventListener("click", (event) => {
   } else if (act === "md" && group) downloadGroups([group]);
   else if (act === "obsidian" && group) void saveToObsidian(group);
   else if (act === "delete") void deleteGroups([key]);
+  else if (act === "summary") {
+    unfolded.has(key) ? unfolded.delete(key) : unfolded.add(key);
+    render();
+  }
   else if (act === "note" && group) {
     editing = { id: noteIdOf(group), draft: group.note?.text || "" };
     render();
