@@ -1973,7 +1973,7 @@ async function runStage1() {
     retried = false;
     const results = r.data?.results || {};
     for (const it of batch) {
-      if (results[it.bvid]) S.titleRes[it.bvid] = results[it.bvid];
+      if (results[it.bvid]) S.titleRes[it.bvid] = { criteria: criteria(), ...results[it.bvid] };
       else S.stage1Skip.add(it.bvid);
     }
     done += batch.length;
@@ -2034,7 +2034,7 @@ async function runGroup() {
     group.redo?.delete(b);
     const keepOld = !r.ok && group.redo && S.analyses[b]?.status === "done";
     if (keepOld) toast(`重新细看失败，保留原来的结果：${r.error}`, true);
-    else S.analyses[b] = r.ok ? r.data : { bvid: b, status: "error", error: r.error };
+    else S.analyses[b] = r.ok ? { criteria: criteria(), ...r.data } : { bvid: b, status: "error", error: r.error };
     const err = r.ok ? "" : String(r.error || "");
     if (/配置 AI|截断|未授权访问/.test(err)) handleAiError(err);
     if (/配置 AI|未授权访问/.test(err)) group.stop = true;
@@ -2063,7 +2063,7 @@ async function retry(bvid) {
     if (THROTTLES[r.code]) toast(`${THROTTLES[r.code][1]}，请稍后再试`, true);
     else handleAiError(r.error);
   } else {
-    S.analyses[bvid] = r.data;
+    S.analyses[bvid] = { criteria: criteria(), ...r.data };
   }
   render();
 }
