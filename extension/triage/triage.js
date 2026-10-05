@@ -40,6 +40,7 @@ const K = {
 };
 const ALL = "all"; // the 所有收藏夹 view's folder-select value
 const REMOVED = "removed"; // the 已取消收藏 view
+const TOVIEW = "toview"; // 稍后再看, listed by triage-bg as one more folder
 // The fixed AI classes, shown as chips inside 粗看完成 and 细看完成.
 // The ids are the badge color classes too.
 const VERDICTS = { keep: "值得留", drop: "可清理", unsure: "拿不准" };
@@ -625,8 +626,16 @@ async function loadIncluded() {
   return included;
 }
 
+// 稍后再看 says how far each video was watched on Bilibili: seconds, or -1 once finished.
+function seenText(it) {
+  if (it.seen == null || it.seen === 0) return "";
+  if (it.seen < 0) return "已看完";
+  return it.duration > 0 ? `看过 ${Math.min(99, Math.max(1, Math.round((it.seen / it.duration) * 100)))}%` : "";
+}
+
 // 「（p/P 页）」 while a folder of more than one page (20 videos each) loads.
 function pageText(mediaId) {
+  if (String(mediaId) === TOVIEW) return ""; // read in one request, no pages
   const pages = Math.ceil(Number(S.folders.find((f) => String(f.id) === String(mediaId))?.count || 0) / 20);
   const done = S.loadPage?.mediaId === String(mediaId) ? S.loadPage.page : 0;
   return pages > 1 ? `（${Math.min(done, pages)}/${pages} 页）` : "";
@@ -1081,7 +1090,7 @@ function render() {
 
 function renderTop() {
   el.biliBtn.hidden = !S.mid;
-  el.biliBtn.textContent = inFolderView() ? "B 站收藏夹 ↗" : "B 站主页 ↗";
+  el.biliBtn.textContent = S.mediaId === TOVIEW ? "B 站稍后再看 ↗" : inFolderView() ? "B 站收藏夹 ↗" : "B 站主页 ↗";
   setBusy(el.refreshBtn, (S.syncing || S.loadAll?.running) && `刷新中…${S.syncing ? pageText(S.mediaId) : ""}`);
   const allOpt = el.folderSelect.querySelector(`option[value="${ALL}"]`);
   if (allOpt) allOpt.hidden = !S.folders.length;
@@ -1377,7 +1386,7 @@ function cardHtml(it, expanded, mark) {
 
   // Where the verdict came from, as one muted meta item.
   const source = [["", "粗看", "细看"][v.stage], done && (a.source === "subtitle" ? "字幕" : "简介")].filter(Boolean).join("·");
-  const meta = [it.upper, fmtDuration(it.duration), source, it.invalid && "已失效", it.folders?.length && `收藏夹：${folderNames(it)}`].filter(Boolean);
+  const meta = [it.upper, fmtDuration(it.duration), source, seenText(it), it.invalid && "已失效", it.folders?.length && `收藏夹：${folderNames(it)}`].filter(Boolean);
 
   const verdict = verdictBadge(b, v);
   // The button matching the AI's verdict leads; the other stays plain.
@@ -2804,7 +2813,11 @@ function bindEvents() {
   el.viewerCloseBtn.addEventListener("click", closeViewer);
   // The open folder's own Bilibili page; 所有收藏夹 and 已取消收藏 have none, so they go to the space page.
   el.biliBtn.addEventListener("click", () =>
-    openTab(`https://space.bilibili.com/${S.mid}${inFolderView() ? `/favlist?fid=${S.mediaId}&ftype=create` : ""}`)
+    openTab(
+      S.mediaId === TOVIEW
+        ? "https://www.bilibili.com/watchlater/list"
+        : `https://space.bilibili.com/${S.mid}${inFolderView() ? `/favlist?fid=${S.mediaId}&ftype=create` : ""}`
+    )
   );
   el.viewerNextBtn.addEventListener("click", basketDoneAndNext);
   el.viewerTabBtn.addEventListener("click", () => openTab(videoUrl(S.viewing)));

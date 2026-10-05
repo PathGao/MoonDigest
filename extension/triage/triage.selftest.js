@@ -57,7 +57,7 @@ const ctx = vm.createContext({
   }
 });
 vm.runInContext(fs.readFileSync(path.join(__dirname, "..", "limits.js"), "utf8"), ctx);
-vm.runInContext(`${source}\n;globalThis.S = S; globalThis.K = K; globalThis.el = el; globalThis.verdictBadge = verdictBadge; globalThis.staleCoarse = staleCoarse; globalThis.staleFine = staleFine; globalThis.groupDone = groupDone;`, ctx);
+vm.runInContext(`${source}\n;globalThis.S = S; globalThis.K = K; globalThis.el = el; globalThis.verdictBadge = verdictBadge; globalThis.seenText = seenText; globalThis.staleCoarse = staleCoarse; globalThis.staleFine = staleFine; globalThis.groupDone = groupDone;`, ctx);
 const t = ctx;
 const plain = (v) => JSON.parse(JSON.stringify(v));
 const toasts = [];
@@ -276,6 +276,12 @@ function openFake(mediaId, items, decisions = {}) {
   assert.ok(t.activityState().warn && !t.activityState().act, "a wait alone has no button");
   t.S.throttleUntil = 0;
   assert.strictEqual(t.activityState(), null, "nothing running hides the pill");
+  // 稍后再看 progress: seconds watched, -1 once finished, 0 or missing for not started.
+  assert.strictEqual(t.seenText({ seen: 98, duration: 768 }), "看过 13%");
+  assert.strictEqual(t.seenText({ seen: -1, duration: 768 }), "已看完");
+  assert.strictEqual(t.seenText({ seen: 0, duration: 768 }), "");
+  assert.strictEqual(t.seenText({ duration: 768 }), "");
+  assert.strictEqual(t.seenText({ seen: 767, duration: 768 }), "看过 99%", "unfinished never reads 100%");
   // Results remember their 判断标准; after it changes, the old ones are offered for a redo. Unstamped ones count as current.
   const savedTitles = t.S.titleRes;
   const savedAnalyses = t.S.analyses;
