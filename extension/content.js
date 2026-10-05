@@ -2343,11 +2343,15 @@ function layoutReaderPlayerHost() {
 
   // Size from the space available, not from the player's current box: that box already
   // follows these numbers, so measuring it would only ever shrink the player.
+  // Never narrower than 16:9: a vertical video keeps black bars instead of a box too
+  // narrow for the player's control bar.
   const video = state.readingVideoEl;
-  const aspectRatio =
+  const aspectRatio = Math.max(
+    16 / 9,
     Number(video?.videoWidth) > 0 && Number(video?.videoHeight) > 0
       ? Number(video.videoWidth) / Number(video.videoHeight)
-      : 16 / 9;
+      : 0
+  );
   let renderedWidth = getReaderMainWidthLimit();
   let renderedHeight = renderedWidth / aspectRatio;
   // Keep the whole video and the chapter strip under it on screen.
