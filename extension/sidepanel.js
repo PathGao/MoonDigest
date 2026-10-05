@@ -1348,12 +1348,12 @@ function renderPreviousVideoBar() {
   bar.innerHTML = `
     <div class="sp-prev-head">
       <button type="button" class="sp-prev-toggle" data-action="toggle" aria-expanded="${previousVideoExpanded}" title="${escapeHtml(title)}">
-        <span class="sp-prev-label">上一段对话：</span>
+        <span class="sp-prev-label">上一个视频：</span>
         <span class="sp-prev-title">${escapeHtml(title)}</span>
         <span class="sp-prev-count">· ${conversation.messages.length} 条消息</span>
         <svg class="sp-prev-chevron" viewBox="0 0 24 24" focusable="false" aria-hidden="true"><path d="m6 9 6 6 6-6"></path></svg>
       </button>
-      <button type="button" class="sp-prev-dismiss" data-action="dismiss" aria-label="关闭上一段对话" title="关闭">×</button>
+      <button type="button" class="sp-prev-dismiss" data-action="dismiss" aria-label="关闭上一个视频" title="关闭">×</button>
     </div>
     ${previousVideoExpanded ? `
     <div class="sp-prev-body">
