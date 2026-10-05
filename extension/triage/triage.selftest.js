@@ -210,7 +210,8 @@ function openFake(mediaId, items, decisions = {}) {
   assert.deepStrictEqual(plain(t.batchList("drop").map((it) => it.bvid)), ["BV210", "BV211"]);
   // Buttons lead with the action and name the AI class; filter chips show the bare class name.
   t.renderListHeader(t.visibleItems());
-  for (const part of ["取消收藏（AI：可清理）2 个", "保留（AI：值得留）0 个", ">全部 2<", ">可清理 2<", ">值得留 0<", ">拿不准 0<"]) assert.ok(t.el.listHeader.innerHTML.includes(part), part);
+  for (const part of ["取消收藏（AI：可清理）2 个", "保留（AI：值得留）0 个"]) assert.ok(t.el.listHeader.innerHTML.includes(part), part);
+  for (const part of [">全部 2<", ">可清理 2<", ">值得留 0<", ">拿不准 0<"]) assert.ok(t.el.classFilter.innerHTML.includes(part), part);
   assert.ok(t.verdictBadge("BV210", t.verdictOf(pool[10])).includes('class="badge drop"') && t.verdictBadge("BV210", t.verdictOf(pool[10])).includes('<span class="ai-mark">AI</span>可清理'));
   t.S.classFilter.fine = "keep";
   t.renderListHeader(t.visibleItems());
@@ -238,7 +239,8 @@ function openFake(mediaId, items, decisions = {}) {
   t.S.tab = "coarse";
   t.S.titleRes = Object.fromEntries(pool.map((it, i) => [it.bvid, i < 6 ? { verdict: "unsure", confidence: "high" } : { verdict: i % 2 ? "keep" : "drop", confidence: "low" }]));
   t.renderListHeader(t.visibleItems());
-  for (const part of [">全部 12<", ">值得留 3<", ">可清理 3<", ">拿不准 6<", "细看下一批 10 个"]) assert.ok(t.el.listHeader.innerHTML.includes(part), part);
+  for (const part of [">全部 12<", ">值得留 3<", ">可清理 3<", ">拿不准 6<"]) assert.ok(t.el.classFilter.innerHTML.includes(part), part);
+  assert.ok(t.el.listHeader.innerHTML.includes("细看下一批 10 个"));
   // AI-starting buttons lead with the sparkle; plain actions do not.
   assert.ok(t.el.listHeader.innerHTML.includes('<span class="ai-spark" aria-hidden="true"></span>细看下一批 10 个</button>'), "细看 carries the AI sparkle");
   assert.ok(t.verdictBadge("BV206", t.verdictOf(pool[6])).includes("低置信"), "low confidence is a badge in 粗看完成");
@@ -258,18 +260,22 @@ function openFake(mediaId, items, decisions = {}) {
   assert.deepStrictEqual(plain(t.nextBatch()), ["BV207"], "a selection still wins");
   t.renderListHeader(t.visibleItems());
   for (const part of ["细看选中 1 个", "保留选中的 1 个", "取消收藏选中的 1 个"]) assert.ok(t.el.listHeader.innerHTML.includes(part), part);
-  // A running 细看 / 粗看 keeps its pause button on every tab, once per header.
+  // The activity pill names what runs, whatever the tab: 细看 first, then 粗看; a wait keeps the job's pause button.
   t.S.group = { bvids: ["BV207"], stop: false };
   t.S.stage1 = { ...t.S.stage1, running: true, done: 2, total: 5 };
-  for (const tab of ["none", "coarse", "fine", "done", "read"]) {
-    t.S.tab = tab;
-    t.renderListHeader(t.visibleItems());
-    const html = t.el.listHeader.innerHTML;
-    assert.strictEqual(html.split(">暂停细看").length - 1, 1, `暂停细看 once on ${tab}`);
-    assert.strictEqual(html.split(">暂停粗看 2/5").length - 1, 1, `暂停粗看 once on ${tab}`);
-  }
+  t.S.status = "字幕细看 1/1";
+  assert.deepStrictEqual(plain(t.activityState()), { text: "字幕细看 1/1", done: 0, total: 1, act: "group", actLabel: "暂停细看", warn: false });
   t.S.group = null;
+  t.S.status = "标题粗看中 2/5";
+  assert.deepStrictEqual(plain(t.activityState()), { text: "标题粗看中 2/5", done: 2, total: 5, act: "stage1", actLabel: "暂停粗看", warn: false });
+  Object.assign(t.S, { throttleUntil: Date.now() + 61000, throttleLabel: "B站限流" });
+  const waiting = t.activityState();
+  assert.ok(waiting.warn && waiting.text.startsWith("B站限流，") && waiting.act === "stage1", "a wait shows its countdown and keeps 暂停粗看");
   t.S.stage1 = { ...t.S.stage1, running: false };
+  t.S.status = "";
+  assert.ok(t.activityState().warn && !t.activityState().act, "a wait alone has no button");
+  t.S.throttleUntil = 0;
+  assert.strictEqual(t.activityState(), null, "nothing running hides the pill");
   t.S.tab = "coarse";
   t.S.selected.clear();
   t.S.classFilter.coarse = "all";
