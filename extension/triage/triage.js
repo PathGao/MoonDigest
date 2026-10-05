@@ -20,7 +20,8 @@ const STAGES = [
   ["fine", "细看完成"],
   ["done", "处理完成"]
 ];
-const STAGE_EMPTY = { none: "都粗看过了，下一步：粗看完成", coarse: "这里的都细看或处理完了", fine: "都处理完了，去看处理完成" };
+// Shown only while this step is empty; the button just switches to the next step.
+const STAGE_EMPTY = { none: "下一步：粗看完成", coarse: "下一步：细看完成", fine: "下一步：处理完成" };
 const K = {
   lastFolder: "triage_last_folder",
   tags: "triage_tags", // [{ id, name, color, folder, rule? }]: folder is the mediaId the tag belongs to; rule is the one line the AI follows
