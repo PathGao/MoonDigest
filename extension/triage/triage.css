@@ -432,3 +432,7 @@ dialog.wide { width: min(880px, calc(100% - 32px)); }
 #allBtn[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
 .pick-folders { max-width: 420px; margin: 40px auto; text-align: center; }
 .pick-folders p { margin: 0 0 10px; }
+
+/* Only groups the AI part of 分拣设置 so the first open can leave it out; the dialog lays out its children as before. */
+.settings-ai { display: contents; }
+.settings-ai[hidden] { display: none; }

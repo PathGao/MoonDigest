@@ -86,11 +86,14 @@
 
     <dialog id="settingsDialog" aria-label="分拣设置">
       <form method="dialog">
-        <h2>分拣设置</h2>
-        <h3>参与分拣的收藏夹</h3>
+        <h2 id="settingsHeading">分拣设置</h2>
+        <h3 id="settingsFoldersHeading">参与分拣的收藏夹</h3>
         <p class="dialog-hint">只读取勾选的收藏夹；没勾的不出现在下拉框和「所有收藏夹」里，也不读取内容。新建的收藏夹默认不勾。B 站上不受影响。</p>
         <div class="export-row"><button type="button" class="link" data-folders-all aria-label="全选收藏夹">全选</button><button type="button" class="link" data-folders-none aria-label="全不选收藏夹">全不选</button></div>
         <div id="folderToggles" class="folder-toggles"></div>
+        <p id="settingsFirstRunHint" class="dialog-hint" hidden>AI 参数一般不用改，需要时在右上角 ⋯ →「分拣设置」里调；AI 平台、笔记格式和 Obsidian 在设置页。</p>
+        <!-- The first open only asks for folders; this part shows from ⋯ → 分拣设置. -->
+        <div id="settingsAi" class="settings-ai">
         <h3>AI 参数</h3>
         <p class="dialog-hint">一般不用改。AI 平台、笔记格式和 Obsidian 在设置页；判断标准在每个收藏夹的粗看、细看按钮旁边改，标签在「标签」里改。</p>
         <label for="intervalInput">请求间隔（秒）</label>
@@ -109,6 +112,7 @@
         <label for="analyzeMaxInput">输出上限（token）</label>
         <input id="analyzeMaxInput" type="number" min="0" max="32000" step="1" placeholder="自动" />
         <p id="analyzeMaxHint" class="dialog-hint"></p>
+        </div>
         <p id="settingsError" class="form-error" role="alert" hidden></p>
         <div class="dialog-actions">
           <button id="openOptionsBtn" type="button" class="link" aria-label="打开设置页">打开设置页</button>
