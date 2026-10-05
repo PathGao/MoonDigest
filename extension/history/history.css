@@ -60,6 +60,8 @@ a.entry-title:hover { color: var(--link-hover); text-decoration: underline; }
 .entry-meta { color: var(--muted); font-size: var(--fs-xs); }
 .entry-actions { display: flex; gap: var(--space-1); }
 .entry-actions .danger { margin-left: var(--space-3); }
+/* Rows that cannot delete keep the button's space, so every row's buttons line up. */
+.entry-actions .slot { visibility: hidden; }
 /* 继续问 is each row's main action: the light action fill, never the solid blue. */
 button.ask { background: var(--action-bg); border-color: var(--action-border); color: var(--action); }
 button.ask:hover { border-color: var(--action); }
