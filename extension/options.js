@@ -98,7 +98,8 @@ const elements = {
   addNoteSectionBtn: document.getElementById("addNoteSectionBtn"),
   aiProvidersHead: document.getElementById("aiProvidersHead"),
   aiProvidersList: document.getElementById("aiProvidersList"),
-  aiProvidersEmpty: document.getElementById("aiProvidersEmpty"),
+  aiPromptRows: document.getElementById("aiPromptRows"),
+  aiPromptsLater: document.getElementById("aiPromptsLater"),
   addAiProviderBtn: document.getElementById("addAiProviderBtn"),
   aiSystemPrompt: document.getElementById("aiSystemPrompt"),
   aiPresetPrompts: document.getElementById("aiPresetPrompts"),
@@ -109,12 +110,32 @@ const elements = {
   status: document.getElementById("status"),
   hostPermissionBanner: document.getElementById("hostPermissionBanner"),
   hostPermissionText: document.getElementById("hostPermissionText"),
-  hostPermissionBtn: document.getElementById("hostPermissionBtn")
+  hostPermissionBtn: document.getElementById("hostPermissionBtn"),
+  unsavedWhere: document.getElementById("unsavedWhere"),
+  toc: document.getElementById("toc"),
+  aiPill: document.getElementById("aiPill"),
+  aiSectionPill: document.getElementById("aiSectionPill"),
+  obsidianPill: document.getElementById("obsidianPill"),
+  noAiNote: document.getElementById("noAiNote"),
+  obsidianGuide: document.getElementById("obsidianGuide"),
+  obsidianKeyTag: document.getElementById("obsidianKeyTag"),
+  obsidianTestResult: document.getElementById("obsidianTestResult"),
+  filenameSample: document.getElementById("filenameSample")
+};
+
+// Form state keys that are not an element id, mapped to the element whose section they belong to.
+const STATE_KEY_NODES = {
+  frontmatterFields: elements.frontmatterFields[0],
+  fixedFrontmatterProperties: elements.fixedPropertiesList,
+  notePlaceholderSections: elements.noteSectionsList,
+  providers: elements.aiProvidersList
 };
 
 // The form differs from what was last loaded or saved; a passed provider test reminds the user to save.
 let hasUnsavedChanges = false;
 let savedForm = null;
+// The last Obsidian test passed; the header says 「已连接」 only after that.
+let obsidianConnected = false;
 
 init();
 
@@ -143,22 +164,45 @@ function init() {
   [elements.noteFolder, elements.obsidianApiBaseUrl, elements.obsidianApiKey, elements.tags].forEach((input) => {
     input?.addEventListener("input", () => input.classList.remove("input-error"));
   });
+  elements.obsidianApiKey.addEventListener("input", syncObsidianKeyTag);
+  document.querySelectorAll(".var[data-var]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const folder = elements.noteFolder.value.trim().replace(/\/+$/, "");
+      elements.noteFolder.value = (folder ? `${folder}/` : "") + button.dataset.var;
+      elements.noteFolder.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+  });
+  elements.filenameSample.textContent = `${new Date().toLocaleDateString("sv-SE")}-视频标题.md`;
+  trackCurrentSection();
+}
+
+// Marks the section list entry for the section at the top of the window.
+function trackCurrentSection() {
+  const links = Array.from(elements.toc.querySelectorAll("a"));
+  const setCurrent = (id) => links.forEach((link) => link.setAttribute("aria-current", String(link.hash === `#${id}`)));
+  setCurrent("basic");
+  const observer = new IntersectionObserver(
+    (entries) => entries.forEach((entry) => entry.isIntersecting && setCurrent(entry.target.id)),
+    { rootMargin: "-80px 0px -70% 0px" }
+  );
+  document.querySelectorAll("section.sec").forEach((section) => observer.observe(section));
 }
 
 async function renderStorageLimits() {
   const all = await chrome.storage.local.get(null).catch(() => ({}));
   elements.storageLimits.replaceChildren(
     ...BocLimits.describe(BocLimits.storageUsage(all)).map((row) => {
-      const node = document.createElement("p");
-      node.className = "about-row";
-      const label = document.createElement("span");
-      label.className = "about-label";
+      const tr = document.createElement("tr");
+      const label = document.createElement("th");
       label.textContent = row.label;
-      const text = document.createElement("span");
-      text.append(document.createElement("strong"), ` ${row.rule}`);
-      text.firstChild.textContent = row.usage;
-      node.append(label, text);
-      return node;
+      const usage = document.createElement("td");
+      usage.className = "use";
+      usage.textContent = row.usage;
+      const rule = document.createElement("td");
+      rule.className = "rule";
+      rule.textContent = row.rule;
+      tr.append(label, usage, rule);
+      return tr;
     })
   );
 }
@@ -288,11 +332,33 @@ function readFormState() {
 
 function markSaved() {
   savedForm = readFormState();
-  setUnsaved(false);
+  syncUnsaved();
+  renderSavedState();
+}
+
+// The sections whose content differs from the saved copy; a key with no section still counts as a change.
+function changedSections() {
+  if (!savedForm) return [];
+  const flat = (state) => ({ ...state.payload, providers: state.providers });
+  const now = flat(readFormState());
+  const saved = flat(savedForm);
+  const changed = new Set();
+  for (const key of Object.keys(now)) {
+    if (JSON.stringify(now[key]) !== JSON.stringify(saved[key])) {
+      changed.add((STATE_KEY_NODES[key] || elements[key])?.closest?.("section.sec") || null);
+    }
+  }
+  return Array.from(changed);
 }
 
 function syncUnsaved() {
-  setUnsaved(JSON.stringify(readFormState()) !== JSON.stringify(savedForm));
+  const changed = changedSections();
+  elements.toc.querySelectorAll("a").forEach((link) => {
+    link.querySelector(".dot").hidden = !changed.some((section) => section && link.hash === `#${section.id}`);
+  });
+  const names = Array.from(document.querySelectorAll("section.sec"), (section) => changed.includes(section) && section.dataset.name).filter(Boolean);
+  elements.unsavedWhere.textContent = names.length ? `：${names.join("、")}` : "";
+  setUnsaved(changed.length > 0);
 }
 
 // Deleting a provider is written right away, so the saved copy follows.
@@ -301,6 +367,40 @@ function updateSavedProviders(update) {
     savedForm.providers = update(savedForm.providers);
   }
   syncUnsaved();
+  renderSavedState();
+}
+
+// Header pills, the no-AI note and the Obsidian guide follow what is saved, not what is being typed.
+function renderSavedState() {
+  const providers = savedForm.providers;
+  const aiReady = providers.length > 0;
+  elements.noAiNote.hidden = aiReady;
+  setPill(elements.aiPill, aiReady, aiReady ? `AI · ${providers[0].name}` : "AI 未配置");
+  setPill(elements.aiSectionPill, aiReady, aiReady ? `已配置 ${providers.length} 个平台` : "没配也能用");
+
+  const { obsidianEnabled, obsidianApiKey } = savedForm.payload;
+  const obsidianText = !obsidianEnabled ? "Obsidian 关" : !obsidianApiKey ? "Obsidian 待填 Key" : obsidianConnected ? "Obsidian 已连接" : "Obsidian 已开";
+  setPill(elements.obsidianPill, obsidianEnabled && Boolean(obsidianApiKey), obsidianText);
+  elements.obsidianPill.classList.toggle("off", !obsidianEnabled);
+
+  // Open for first-time setup; once a key is saved it folds to one line. Only flips when that changes, so a guide the user opened stays open.
+  const firstSetup = !obsidianApiKey;
+  if (elements.obsidianGuide.classList.contains("first") !== firstSetup) {
+    elements.obsidianGuide.classList.toggle("first", firstSetup);
+    elements.obsidianGuide.open = firstSetup;
+  }
+  syncObsidianKeyTag();
+}
+
+function setPill(node, ok, text) {
+  node.textContent = text;
+  node.classList.toggle("ok", ok);
+  node.classList.toggle("off", !ok);
+}
+
+function syncObsidianKeyTag() {
+  const saved = savedForm?.payload.obsidianApiKey;
+  elements.obsidianKeyTag.hidden = !saved || normalizeApiKey(elements.obsidianApiKey.value) !== saved;
 }
 
 function syncSaveBar() {
@@ -978,7 +1078,7 @@ async function testConnection() {
   }
 
   setBusy(elements.testConnectionBtn);
-  setStatus("正在测试连接…", false, true);
+  setTestResult("");
   try {
     const resp = await sendRuntimeMessage({
       type: "test-obsidian-connection",
@@ -986,18 +1086,27 @@ async function testConnection() {
       apiKey: payload.obsidianApiKey
     });
 
+    obsidianConnected = Boolean(resp?.ok);
     if (!resp?.ok) {
-      setStatus(`连接失败：${resp?.error || "未知错误"}`, true);
+      setTestResult(`连接失败：${resp?.error || "未知错误"}`, true);
       return;
     }
 
     const service = resp?.service ? `（${resp.service}）` : "";
-    setStatus(`连接成功 ${service}`);
+    setTestResult(`连接成功${service}`);
   } catch (error) {
-    setStatus(`连接失败：${error.message || "未知错误"}`, true);
+    obsidianConnected = false;
+    setTestResult(`连接失败：${error.message || "未知错误"}`, true);
   } finally {
     setBusy(null);
+    renderSavedState();
   }
+}
+
+// The Obsidian test result sits next to its button.
+function setTestResult(text, isError = false) {
+  elements.obsidianTestResult.textContent = text;
+  elements.obsidianTestResult.dataset.error = String(isError);
 }
 
 // Both buttons wait while either runs; the running one gets the shared busy look from tokens.css.
@@ -1042,11 +1151,10 @@ function renderAiProviders(items) {
 
 function updateAiProvidersEmptyState() {
   const hasRows = elements.aiProvidersList.children.length > 0;
-  elements.aiProvidersEmpty.hidden = hasRows;
   elements.aiProvidersHead.hidden = !hasRows;
-  // With no platform yet, adding one is the page's next step, so it takes the filled action style.
-  elements.addAiProviderBtn.classList.toggle("add-property-btn", hasRows);
-  elements.addAiProviderBtn.classList.toggle("primary", !hasRows);
+  // The prompt settings do nothing without a platform, so they wait until a row is added.
+  elements.aiPromptRows.hidden = !hasRows;
+  elements.aiPromptsLater.hidden = hasRows;
 }
 
 function generateAiProviderId() {
@@ -1073,8 +1181,11 @@ function addAiProviderRow(item = {}) {
     </select>
     <input class="ai-provider-baseurl" type="text" aria-label="接口地址" placeholder="如 https://api.openai.com/v1" value="${escapeAttribute(baseUrl)}" />
     <input class="ai-provider-model" type="text" aria-label="模型" placeholder="如 gpt-4o-mini" value="${escapeAttribute(model)}" />
-    <input class="ai-provider-apikey" type="password" aria-label="API Key" placeholder="${apiKeyPlaceholder(hasSavedKey, requiresKey)}" autocomplete="off" />
-    <button type="button" class="secondary-btn ai-provider-test" title="用这一行的地址、模型和 Key 向 AI 发一条测试消息"><span class="ai-spark" aria-hidden="true"></span>测试连接</button>
+    <div class="key">
+      <input class="ai-provider-apikey" type="password" aria-label="API Key" placeholder="${apiKeyPlaceholder(hasSavedKey, requiresKey)}" autocomplete="off" />
+      <span class="keytag"${hasSavedKey ? "" : " hidden"}>已保存</span>
+    </div>
+    <button type="button" class="sm ai-provider-test" title="用这一行的地址、模型和 Key 向 AI 发一条测试消息"><span class="ai-spark" aria-hidden="true"></span>测试连接</button>
     <button type="button" class="ai-provider-remove" aria-label="删除平台" title="删除平台">
       <svg viewBox="0 0 24 24" focusable="false" aria-hidden="true">
         <path d="M4 7h16"></path>
@@ -1105,8 +1216,31 @@ function addAiProviderRow(item = {}) {
     row.dataset.currentPresetId = next.id;
   });
 
-  row.querySelector(".ai-provider-remove")?.addEventListener("click", async () => {
-    if (!confirm("删除这个平台？它保存的 API Key 也会一起删除。")) return;
+  const keyInput = row.querySelector(".ai-provider-apikey");
+  keyInput.addEventListener("input", () => {
+    row.querySelector(".keytag").hidden = row.dataset.hasSavedKey !== "1" || Boolean(keyInput.value);
+  });
+
+  // Two clicks in place instead of a system dialog: the first turns the trash icon into 「确认删除」.
+  const removeBtn = row.querySelector(".ai-provider-remove");
+  const trashIcon = removeBtn.innerHTML;
+  const disarm = () => {
+    if (!removeBtn.classList.contains("armed")) return;
+    removeBtn.classList.remove("armed");
+    removeBtn.innerHTML = trashIcon;
+    removeBtn.setAttribute("aria-label", "删除平台");
+    removeBtn.title = "删除平台";
+  };
+  removeBtn.addEventListener("blur", disarm);
+  removeBtn.addEventListener("click", async () => {
+    if (!removeBtn.classList.contains("armed")) {
+      removeBtn.classList.add("armed");
+      removeBtn.textContent = "确认删除";
+      removeBtn.setAttribute("aria-label", "再点一次删除平台，它保存的 API Key 也一起删除");
+      removeBtn.title = "再点一次删除，API Key 一起删掉";
+      removeBtn.focus();
+      return;
+    }
     if (row.dataset.providerId) {
       try {
         await sendRuntimeMessage({ type: "ai-providers-delete", providerId: row.dataset.providerId });
@@ -1155,7 +1289,7 @@ function addAiProviderRow(item = {}) {
 }
 
 function apiKeyPlaceholder(hasSavedKey, requiresKey) {
-  return hasSavedKey ? "已保存" : requiresKey === false ? "可选" : "必填";
+  return hasSavedKey ? "••••••••••••" : requiresKey === false ? "可选" : "必填";
 }
 
 function showAiProviderStatus(node, text, isError = false) {
