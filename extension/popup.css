@@ -232,6 +232,17 @@ body {
   display: none;
 }
 
+.triage-btn {
+  height: auto;
+  padding: 7px 0;
+  font-size: var(--fs-sm);
+  font-weight: 600;
+}
+
+.triage-btn .link-hint {
+  font-weight: 400;
+}
+
 .triage-link {
   height: auto;
   border: 0;
