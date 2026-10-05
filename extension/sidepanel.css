@@ -61,6 +61,26 @@ body {
   color: var(--warn);
 }
 
+/* Just switched videos: the chip holds the highlight for a moment, then fades back. */
+.sp-context-chip.is-switched {
+  animation: sp-chip-switched 2.4s ease-out;
+}
+
+@keyframes sp-chip-switched {
+  0%,
+  45% {
+    background: var(--secondary-bg);
+    color: var(--text);
+    box-shadow: inset 0 0 0 1.5px var(--action);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sp-context-chip.is-switched {
+    animation-timing-function: step-end;
+  }
+}
+
 .sp-context-chip:disabled {
   cursor: default;
   opacity: 0.72;
