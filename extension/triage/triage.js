@@ -234,7 +234,7 @@ const folderContext = () => ({ title: folderTitle(), intro: S.folderIntro[S.medi
 const $ = (id) => document.getElementById(id);
 const el = {};
 [
-  "folderSelect", "removedBtn", "searchInput", "searchCount", "refreshBtn", "activity", "settingsBtn", "helpBtn", "tools",
+  "folderSelect", "settingsHeading", "settingsFoldersHeading", "settingsAi", "settingsFirstRunHint", "removedBtn", "searchInput", "searchCount", "refreshBtn", "activity", "settingsBtn", "helpBtn", "tools",
   "banner", "bannerText", "bannerBtn", "bannerClose", "syncNotice", "syncText", "syncViewBtn", "syncCloseBtn", "syncDetail",
   "tabs", "stagebar", "classFilter", "tagFilter", "listHeader", "list", "basket", "basketToggle", "basketCount",
   "basketList", "toast", "settingsDialog", "folderToggles", "thinkingRow", "intervalInput",
@@ -2753,7 +2753,7 @@ function bindEvents() {
   el.activity.addEventListener("click", onHeadClick);
 
   el.list.addEventListener("click", (e) => {
-    if (e.target.closest("[data-pick-folders]")) return openSettings();
+    if (e.target.closest("[data-pick-folders]")) return openSettings(false, true);
     const refav = e.target.closest("[data-refav]");
     if (refav) return refavRecent(refav.dataset.refav);
     const clean = e.target.closest("[data-clean]");
@@ -3032,7 +3032,12 @@ function renderTokenHints() {
   el.analyzeMaxHint.textContent = `留空为自动 = ${analyzeAuto}（思考${on ? "开" : "关"}）`;
 }
 
-function openSettings(scrollToLimits = false) {
+// firstRun: the first open, before any folder is chosen, asks only for folders.
+function openSettings(scrollToLimits = false, firstRun = false) {
+  el.settingsHeading.textContent = firstRun ? "选择要分拣的收藏夹" : "分拣设置";
+  el.settingsAi.hidden = firstRun;
+  el.settingsFoldersHeading.hidden = firstRun;
+  el.settingsFirstRunHint.hidden = !firstRun;
   el.folderToggles.innerHTML = S.allFolders
     .map((f) => `<label class="toggle"><input type="checkbox" value="${esc(f.id)}"${S.included.includes(String(f.id)) ? " checked" : ""} /> ${esc(f.title)} <span class="muted">${esc(f.count)}</span></label>`)
     .join("") || `<p class="dialog-hint">收藏夹列表还没加载</p>`;
