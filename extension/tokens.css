@@ -7,7 +7,9 @@
   color-scheme: light dark;
 
   /* Design tokens: Catppuccin Latte on white surfaces (accents desaturated, text colors darkened to 4.5:1) and Mocha for dark. */
-  /* One color, one meaning: accent = where you are, action = next step (one filled button per view) and links, ok/danger/warn = keep/delete/pending, gray = everything else. */
+  /* One color, one meaning: accent = where you are, action = next step (one filled button per view) and links, ok = keep,
+     danger = delete and errors you must act on (not logged in, AI not set up, a write failed),
+     warn = waits, things to confirm and notices that do not block (a countdown, a partial load), gray = everything else. */
   --bg: #eff1f5;
   --surface: #ffffff;
   --surface-muted: #f6f7fa;
@@ -46,6 +48,8 @@
   --radius-sm: 8px;
   --radius-md: 10px;
   --radius-lg: 14px;
+  /* Pills: only for status (what is running, a sync notice) and filter or prompt chips; buttons and cards use the radii above. */
+  --radius-pill: 999px;
   --space-1: 4px;
   --space-2: 8px;
   --space-3: 12px;
