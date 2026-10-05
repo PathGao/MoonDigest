@@ -1,6 +1,5 @@
 const el = {
   status: document.getElementById("status"),
-  message: document.getElementById("message"),
   propTitle: document.getElementById("propTitle"),
   propUrl: document.getElementById("propUrl"),
   propCreated: document.getElementById("propCreated"),
@@ -54,14 +53,14 @@ function bindEvents() {
   el.copyBtn.addEventListener("click", async () => {
     const payload = await ensurePayload();
     if (!payload?.markdown) {
-      setMessage("没有可复制内容，请先刷新。");
+      setStatus("没有可复制内容，请先刷新。", true);
       return;
     }
     try {
       await navigator.clipboard.writeText(payload.markdown);
-      setMessage("已复制 Markdown");
+      setStatus("已复制 Markdown");
     } catch (error) {
-      setMessage(`复制失败：${error?.message || "无法访问剪贴板"}`);
+      setStatus(`复制失败：${error?.message || "无法访问剪贴板"}`, true);
     }
   });
 
@@ -72,22 +71,22 @@ function bindEvents() {
     const content =
       format === "txt" ? payload?.txt || payload?.subtitlePreview || "" : payload?.srt || "";
     if (!content) {
-      setMessage("没有可下载字幕。");
+      setStatus("没有可下载字幕。", true);
       return;
     }
     const safeTitle = sanitizeFileName(payload.title || "video-subtitle");
     BocDownload.text(`${safeTitle}.${format}`, content, "text/plain;charset=utf-8");
-    setMessage(`已下载 ${format.toUpperCase()}。`);
+    setStatus(`已下载 ${format.toUpperCase()}。`);
   });
 
   el.mdBtn.addEventListener("click", async () => {
     const payload = await ensurePayload();
     if (!payload?.markdown) {
-      setMessage("没有可下载内容，请先刷新。");
+      setStatus("没有可下载内容，请先刷新。", true);
       return;
     }
     BocDownload.text(`${sanitizeFileName(payload.title || "video-subtitle")}.md`, payload.markdown);
-    setMessage("已下载 .md");
+    setStatus("已下载 .md");
   });
 
   el.sendBtn.addEventListener("click", async () => {
@@ -96,15 +95,14 @@ function bindEvents() {
     const resp = await sendToContent({ type: "popup-send-obsidian" }).finally(() => setBusy(el.sendBtn, false));
     if (!resp?.ok) {
       setStatus(`写入 Obsidian 失败：${resp?.error || "未知错误"}`, true);
-      setMessage(`写入 Obsidian 失败：${resp?.error || "未知错误"}`);
     }
-    render(resp?.payload || latestPayload);
+    render(resp?.payload || latestPayload, { preserveStatus: !resp?.ok });
   });
 
   el.readingViewBtn?.addEventListener("click", async () => {
     const tab = await getActiveTab();
     if (!isSupportedSubtitlePage(tab?.url || "")) {
-      setMessage("请先打开一个支持的视频页。");
+      setStatus("请先打开一个支持的视频页。", true);
       return;
     }
 
@@ -114,7 +112,6 @@ function bindEvents() {
     if (!prepResp?.ok) {
       setBusy(el.readingViewBtn, false);
       setStatus(prepResp?.error || "请刷新网页重试，或当前网页不支持", true);
-      setMessage(prepResp?.error || "请刷新网页重试，或当前网页不支持");
       return;
     }
 
@@ -126,10 +123,8 @@ function bindEvents() {
     setBusy(el.readingViewBtn, false);
     if (!resp?.ok) {
       setStatus(`打开失败：${resp?.error || "未知错误"}`, true);
-      setMessage(`打开失败：${resp?.error || "未知错误"}`);
       return;
     }
-    setMessage("已在当前页面打开专注模式。");
     setStatus("专注模式已打开。");
     window.setTimeout(() => window.close(), 80);
   });
@@ -149,9 +144,8 @@ function bindEvents() {
     });
     if (!resp?.ok) {
       setStatus(`切换失败：${resp?.error || "未知错误"}`, true);
-      setMessage(`切换失败：${resp?.error || "未知错误"}`);
     }
-    render(resp?.payload || latestPayload);
+    render(resp?.payload || latestPayload, { preserveStatus: !resp?.ok });
   });
 
   el.settingsBtn.addEventListener("click", async () => {
@@ -161,7 +155,7 @@ function bindEvents() {
   el.summaryBtn.addEventListener("click", async () => {
     const tab = await getActiveTab();
     if (!isSupportedSubtitlePage(tab?.url || "")) {
-      setMessage("请先打开一个支持的视频页。");
+      setStatus("请先打开一个支持的视频页。", true);
       return;
     }
     setStatus("正在打开侧边栏…", false, true);
@@ -242,7 +236,9 @@ function render(payload, { preserveStatus = false } = {}) {
     const isErrorStatus = /失败|错误|不可用|不支持/.test(statusText);
     setStatus(statusText, isErrorStatus);
   }
-  setMessage(payload.message || "");
+  if (payload.message && !preserveStatus) {
+    setStatus(payload.message, /失败|错误|不可用|不支持|请先/.test(payload.message));
+  }
 
   setText(el.propTitle, payload.title || "-");
   setText(el.propUrl, payload.url || "-");
@@ -295,10 +291,6 @@ function setBusy(button, busy, label = "") {
   button.setAttribute("aria-busy", String(busy));
 }
 
-function setMessage(text) {
-  el.message.textContent = String(text || "");
-}
-
 function sanitizeFileName(value) {
   return String(value || "subtitle")
     .replace(/[\\/:*?"<>|]/g, "_")
@@ -346,8 +338,7 @@ async function sendToContent(message) {
     }
 
     const normalizedError = normalizeContentErrorMessage(error);
-    setStatus("请在支持的视频页使用插件。");
-    setMessage(normalizedError);
+    setStatus(normalizedError, true);
     return { ok: false, error: normalizedError, payload: latestPayload };
   }
 }
