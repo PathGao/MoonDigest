@@ -2352,8 +2352,11 @@ function layoutReaderPlayerHost() {
       ? Number(video.videoWidth) / Number(video.videoHeight)
       : 0
   );
-  let renderedWidth = getReaderMainWidthLimit();
-  let renderedHeight = renderedWidth / aspectRatio;
+  // The player box has a 1px border on each side; size the inside to the video so no
+  // sliver of black shows at the edges.
+  const border = 2;
+  let renderedWidth = Math.floor(getReaderMainWidthLimit());
+  let renderedHeight = Math.ceil((renderedWidth - border) / aspectRatio) + border;
   // Keep the whole video and the chapter strip under it on screen.
   const wrapNode = getReaderPlayerWrapNode(playerHost);
   if (wrapNode) {
@@ -2362,7 +2365,7 @@ function layoutReaderPlayerHost() {
     const railSpace = rail?.offsetHeight ? rail.offsetHeight + 12 : 0;
     const heightLimit = Math.max(200, window.innerHeight - wrapTop - railSpace - getReaderPagePaddingPx());
     if (renderedHeight > heightLimit) {
-      renderedWidth = heightLimit * aspectRatio;
+      renderedWidth = Math.floor((heightLimit - border) * aspectRatio) + border;
       renderedHeight = heightLimit;
     }
   }

@@ -891,7 +891,6 @@ body[data-boc-reader-mode="1"] .boc-reading-item .boc-reading-text {
   color: var(--boc-text) !important;
 }
 
-body[data-boc-reader-mode="1"] .boc-reading-chapter.is-active .boc-reading-chapter-title,
 body[data-boc-reader-mode="1"] .boc-reading-item.is-active .boc-reading-text {
   text-decoration-line: underline;
   text-decoration-color: var(--boc-accent);
