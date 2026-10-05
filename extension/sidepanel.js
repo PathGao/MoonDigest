@@ -183,6 +183,7 @@ function bindEvents() {
     }
   });
   els.modelSelect.addEventListener("change", () => {
+    syncModelSelectTitle();
     if (els.modelSelect.value) {
       localStorage.setItem(SELECTED_PROVIDER_KEY, els.modelSelect.value);
     }
@@ -296,6 +297,12 @@ function renderModelSelect(preferredProviderId = "") {
   const matchedProvider = providers.find((item) => item.id === savedProviderId) || providers[0];
   els.modelSelect.value = matchedProvider?.id || "";
   els.modelSelect.disabled = false;
+  syncModelSelectTitle();
+}
+
+// The select is narrow, so the full model name lives in its tooltip.
+function syncModelSelectTitle() {
+  els.modelSelect.title = els.modelSelect.selectedOptions[0]?.textContent || "";
 }
 
 async function refreshProvidersAndPrefsAfterExternalChange() {
@@ -581,12 +588,12 @@ function updateContextChip() {
     return;
   }
 
-  const shortTitle = contextData.title ? truncate(contextData.title, 19) : contextData.pending ? "加载中…" : "未知视频";
+  const shortTitle = contextData.title || (contextData.pending ? "加载中…" : "未知视频");
   els.contextChip.textContent = shortTitle;
   const mismatch = isBoundConversationMismatched();
   els.contextChip.classList.toggle("is-mismatch", mismatch);
   els.contextChip.title = contextData.url
-    ? `${contextData.title || ""}${mismatch ? "\n当前页不是这个对话绑定的视频" : ""}\n点击跳转目标视频，或开启新对话`
+    ? `${contextData.title || ""}${mismatch ? "\n当前页不是这个对话绑定的视频" : ""}\n点击跳转目标视频`
     : contextData.title || "";
   els.contextChip.disabled = !String(contextData.url || "").trim();
 }
@@ -680,6 +687,7 @@ function renderSuggestions() {
     return;
   }
   suggestionsNode.innerHTML = "";
+  renderFollowups();
   if (chatHistory.length) {
     return;
   }
@@ -696,13 +704,9 @@ function renderSuggestions() {
     suggestionsNode.innerHTML = '<p class="sp-empty-intro" aria-busy="true">正在读取视频字幕…</p>';
     return;
   }
-  // The intro, a few follow-ups to ask straight away, then the one-click summary as the main action.
+  // The intro and the one-click summary as the main action; the preset chips sit above the input (renderFollowups).
   const prompt = aiPrefs.playerAiQuickPrompt;
-  const quick = (aiPrefs.aiPresetPrompts || []).slice(0, 3);
-  suggestionsNode.innerHTML = `<p class="sp-empty-intro">${EMPTY_INTRO}</p>${quick
-    .map((item) => `<button type="button" class="sp-followup-chip" title="${escapeHtml(item)}">${AI_SPARK}${escapeHtml(item)}</button>`)
-    .join("")}${prompt ? `<button type="button" class="sp-summary-btn" title="${escapeHtml(prompt)}">${AI_SPARK}AI 总结</button>` : ""}`;
-  suggestionsNode.querySelectorAll(".sp-followup-chip").forEach((btn, index) => btn.addEventListener("click", () => sendPrompt(quick[index])));
+  suggestionsNode.innerHTML = `<p class="sp-empty-intro">${EMPTY_INTRO}</p>${prompt ? `<button type="button" class="sp-summary-btn" title="${escapeHtml(prompt)}">${AI_SPARK}AI 总结</button>` : ""}`;
   suggestionsNode.querySelector(".sp-summary-btn")?.addEventListener("click", () => sendPrompt(prompt));
   void renderTriageSummary(suggestionsNode);
 }
@@ -724,7 +728,7 @@ async function renderTriageSummary(node) {
   node.insertAdjacentHTML("afterbegin", `<div class="sp-triage-summary"><div class="sp-triage-summary-label">分拣台的 AI 总结</div>${renderMarkdown(summary.replace(/^> /, ""))}</div>`);
 }
 
-// Follow-up chips: only once there is a reply to follow up on, and not mid-stream.
+// Preset chips above the input: on a fresh video ready to ask about, or once there is a reply to follow up on; never mid-stream.
 // Long lists show the first few plus a visible toggle instead of a hidden scroll area.
 const FOLLOWUP_PREVIEW = 4;
 let followupsExpanded = false;
@@ -733,7 +737,8 @@ function renderFollowups() {
   if (!els.followups) {
     return;
   }
-  const show = !els.input.disabled && chatHistory.some((message) => message.role === "assistant");
+  const readyToAsk = !chatHistory.length && providers.length && contextData && contextData.isVideoContext !== false && !contextData.pending;
+  const show = !els.input.disabled && (readyToAsk || chatHistory.some((message) => message.role === "assistant"));
   const prompts = show ? aiPrefs.aiPresetPrompts || [] : [];
   const collapsible = prompts.length > FOLLOWUP_PREVIEW + 1;
   const visible = collapsible && !followupsExpanded ? prompts.slice(0, FOLLOWUP_PREVIEW) : prompts;
@@ -1343,12 +1348,12 @@ function renderPreviousVideoBar() {
   bar.innerHTML = `
     <div class="sp-prev-head">
       <button type="button" class="sp-prev-toggle" data-action="toggle" aria-expanded="${previousVideoExpanded}" title="${escapeHtml(title)}">
-        <span class="sp-prev-label">上一个视频：</span>
+        <span class="sp-prev-label">上一段对话：</span>
         <span class="sp-prev-title">${escapeHtml(title)}</span>
         <span class="sp-prev-count">· ${conversation.messages.length} 条消息</span>
         <svg class="sp-prev-chevron" viewBox="0 0 24 24" focusable="false" aria-hidden="true"><path d="m6 9 6 6 6-6"></path></svg>
       </button>
-      <button type="button" class="sp-prev-dismiss" data-action="dismiss" aria-label="关闭上一个视频" title="关闭">×</button>
+      <button type="button" class="sp-prev-dismiss" data-action="dismiss" aria-label="关闭上一段对话" title="关闭">×</button>
     </div>
     ${previousVideoExpanded ? `
     <div class="sp-prev-body">
