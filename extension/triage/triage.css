@@ -217,8 +217,9 @@ button.icon { width: 26px; height: 24px; padding: 0; }
 .chip.on { background: color-mix(in srgb, var(--c) 20%, transparent); }
 .chips { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
 
-/* The criteria note shrinks to an ellipsis (full text in its title) before the actions wrap. */
-.list-header { align-items: center; flex: 1 1 100%; min-width: 0; }
+/* The criteria note shrinks to an ellipsis (full text in its title) before the actions wrap.
+   An empty row keeps its height, so the list below does not move between tabs. */
+.list-header { align-items: center; flex: 1 1 100%; min-width: 0; min-height: 28px; }
 .run-line { flex: 1 1 0; min-width: 6em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); font-size: var(--fs-xs); }
 .key { font: inherit; margin-left: 4px; opacity: 0.7; }
 @media (hover: none) { .key { display: none; } }
