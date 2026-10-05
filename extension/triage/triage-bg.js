@@ -396,7 +396,8 @@ async function triageAnalyze({ bvid, force, criteria, folder }) {
     source,
     ...triageParseLlm(content),
     model,
-    analyzedAt: Date.now()
+    analyzedAt: Date.now(),
+    criteria: String(criteria ?? "").trim()
   };
   await chrome.storage.local.set({ [cacheKey]: analysis });
   return analysis;
@@ -468,12 +469,14 @@ async function triageClassifyTitles({ items, criteria, folder }) {
     triageMaxTokens("title", list.length, ai),
     ai.triageThinking
   );
-  const results = triageParseTitleBatch(content, list);
+  const parsed = triageParseTitleBatch(content, list);
   const analyzedAt = Date.now();
-  // "AI 未返回" 的不缓存，方便下次重试
+  // 结果记下当时的判断标准，标准改了页面才认得出哪些要重新粗看。"AI 未返回" 的不缓存，方便下次重试
+  const results = {};
   const toStore = {};
-  for (const [bvid, r] of Object.entries(results)) {
-    if (r.reason !== "AI 未返回") toStore[`triage_title_${bvid}`] = { ...r, model, analyzedAt };
+  for (const [bvid, r] of Object.entries(parsed)) {
+    results[bvid] = { ...r, criteria: String(criteria ?? "").trim() };
+    if (r.reason !== "AI 未返回") toStore[`triage_title_${bvid}`] = { ...results[bvid], model, analyzedAt };
   }
   await chrome.storage.local.set(toStore);
   return { results };

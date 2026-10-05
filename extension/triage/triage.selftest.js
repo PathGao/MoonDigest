@@ -57,7 +57,7 @@ const ctx = vm.createContext({
   }
 });
 vm.runInContext(fs.readFileSync(path.join(__dirname, "..", "limits.js"), "utf8"), ctx);
-vm.runInContext(`${source}\n;globalThis.S = S; globalThis.K = K; globalThis.el = el; globalThis.verdictBadge = verdictBadge;`, ctx);
+vm.runInContext(`${source}\n;globalThis.S = S; globalThis.K = K; globalThis.el = el; globalThis.verdictBadge = verdictBadge; globalThis.staleCoarse = staleCoarse; globalThis.staleFine = staleFine; globalThis.groupDone = groupDone;`, ctx);
 const t = ctx;
 const plain = (v) => JSON.parse(JSON.stringify(v));
 const toasts = [];
@@ -276,6 +276,25 @@ function openFake(mediaId, items, decisions = {}) {
   assert.ok(t.activityState().warn && !t.activityState().act, "a wait alone has no button");
   t.S.throttleUntil = 0;
   assert.strictEqual(t.activityState(), null, "nothing running hides the pill");
+  // Results remember their 判断标准; after it changes, the old ones are offered for a redo. Unstamped ones count as current.
+  const savedTitles = t.S.titleRes;
+  const savedAnalyses = t.S.analyses;
+  t.S.folderCriteria = { F: "新标准" };
+  t.S.titleRes = { BV200: { verdict: "keep", criteria: "旧标准" }, BV201: { verdict: "keep", criteria: "新标准" }, BV202: { verdict: "keep" } };
+  t.S.analyses = { BV203: { status: "done", verdict: "keep", criteria: "旧标准" }, BV204: { status: "done", verdict: "keep", criteria: "新标准" } };
+  assert.deepStrictEqual(plain(t.staleCoarse().map((it) => it.bvid)), ["BV200"]);
+  assert.deepStrictEqual(plain(t.staleFine().map((it) => it.bvid)), ["BV203"]);
+  t.S.tab = "fine";
+  t.renderListHeader(t.visibleItems());
+  assert.ok(t.el.listHeader.innerHTML.includes("按新标准重新细看 1 个"));
+  // A redo batch counts by what it has redone, not by whether a result exists.
+  const redo = { bvids: ["BV203", "BV204"], stop: false, redo: new Set(["BV203", "BV204"]) };
+  assert.strictEqual(t.groupDone(redo), 0);
+  redo.redo.delete("BV203");
+  assert.strictEqual(t.groupDone(redo), 1);
+  t.S.folderCriteria = {};
+  t.S.titleRes = savedTitles;
+  t.S.analyses = savedAnalyses;
   t.S.tab = "coarse";
   t.S.selected.clear();
   t.S.classFilter.coarse = "all";
