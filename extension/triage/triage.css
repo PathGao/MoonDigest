@@ -27,25 +27,57 @@ select { height: 28px; max-width: 240px; }
 .app { height: 100%; display: flex; flex-direction: column; }
 
 .topbar {
+  position: relative;
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 8px;
+  gap: 8px 12px;
   padding: 8px 16px;
   background: var(--surface);
   border-bottom: 1px solid var(--border);
 }
-.brand { font-size: var(--fs-lg); }
-.brand-sub { margin-left: 4px; color: var(--muted); font-weight: 500; font-size: var(--fs-md); }
-.queue-status { color: var(--secondary-text); font-variant-numeric: tabular-nums; }
-.queue-status.warn { color: var(--warn); }
 .spacer { flex: 1; }
-/* The tools are a popover only on narrow screens; on wide ones they sit inline (author styles beat the popover UA rules). */
-.tools { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
-.tools[popover] { position: static; inset: auto; width: auto; height: auto; margin: 0; padding: 0; border: 0; background: none; color: inherit; overflow: visible; }
-.more-btn { display: none; }
+/* The open folder is the page title. */
+.folder-select { height: 34px; max-width: 240px; padding: 0 6px; border-color: transparent; background-color: transparent; font-size: 17px; font-weight: 700; }
+.folder-select:hover { border-color: var(--border); }
+.folder-select option { font-size: var(--fs-md); font-weight: 400; }
+
+/* Whatever is running (粗看, 细看, unfavorite batch, loading, refresh, tag AI, a wait) shows here on every tab. */
+.activity { display: inline-flex; align-items: center; gap: 8px; height: 30px; padding: 0 4px 0 12px; border: 1px solid var(--action-border); border-radius: 15px; background: var(--action-bg); color: var(--action); font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.activity[hidden] { display: none; }
+.activity:not(:has(button)) { padding-right: 12px; }
+.activity.warn { border-color: var(--warn-border); background: var(--warn-bg); color: var(--warn); }
+.activity-bar { width: 56px; height: 4px; border-radius: 2px; background: color-mix(in srgb, currentColor 18%, transparent); overflow: hidden; }
+.activity-bar i { display: block; height: 100%; background: currentColor; }
+.activity button { height: 22px; padding: 0 8px; border: 0; border-radius: 11px; background: var(--surface); color: inherit; font-size: var(--fs-xs); }
+
+/* B站同步 is a pill; its full text and list open below it. */
+.sync-wrap { position: relative; }
+.pill { height: 30px; padding: 0 12px; border-radius: 15px; white-space: nowrap; }
+.sync-pill::before { content: ""; display: inline-block; width: 7px; height: 7px; margin-right: 6px; border-radius: 50%; background: var(--action); vertical-align: 1px; }
+
+/* The tools always sit in the ⋯ popover. */
+.tools:not(:popover-open) { display: none; }
+.tools:popover-open {
+  position: fixed;
+  inset: 48px 16px auto auto;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 4px;
+  min-width: 180px;
+  margin: 0;
+  padding: 6px;
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
+}
+.tools button { justify-content: flex-start; text-align: left; }
+.tools-brand { padding: 4px 8px 6px; border-bottom: 1px solid var(--border); color: var(--muted); font-size: var(--fs-xs); font-weight: 600; }
 /* A small basis so the box narrows before it would drop to a second line. */
-.search { display: flex; align-items: center; gap: 6px; flex: 1 1 160px; max-width: 320px; min-width: 0; }
+.search { display: flex; align-items: center; gap: 6px; flex: 0 1 260px; min-width: 120px; }
 .search input { flex: 1; min-width: 0; height: 28px; }
 .search .muted { white-space: nowrap; }
 
@@ -75,31 +107,31 @@ select { height: 28px; max-width: 240px; }
   min-height: 0;
   display: grid;
   grid-template-columns: minmax(0, 1fr);
-  grid-template-rows: auto auto minmax(0, 1fr);
-  grid-template-areas: "bar" "tags" "list";
+  grid-template-rows: auto minmax(0, 1fr);
+  grid-template-areas: "bar" "list";
   column-gap: 12px;
   padding: 6px 16px 12px;
 }
-.main.viewing { grid-template-columns: minmax(320px, 2fr) minmax(0, 3fr); grid-template-areas: "bar bar" "tags tags" "list viewer"; }
+.main.viewing { grid-template-columns: minmax(320px, 2fr) minmax(0, 3fr); grid-template-areas: "bar bar" "list viewer"; }
 .listpane { display: contents; }
 .stagebar { grid-area: bar; }
-.tagbar { grid-area: tags; }
 .list { grid-area: list; }
 .viewer { grid-area: viewer; }
 
-/* The steps take one row and the current step's actions always the row below, both centered, so
-   switching tabs or filters never moves the bar between layouts. */
-.stagebar { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 6px 16px; padding-bottom: 6px; }
-.tabs { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 4px; }
-.tabs button { height: auto; min-height: 32px; border-radius: 16px; }
-.tabs button[aria-selected="true"] { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
-.tabs .count { margin-left: 4px; opacity: 0.75; font-variant-numeric: tabular-nums; }
-.tabs .num { margin-right: 4px; }
+/* The steps, in a tray in the top bar; the open one is lifted out in the accent color. */
+.tabs { display: flex; align-items: center; gap: 2px; padding: 3px; border-radius: var(--radius-md); background: var(--bg); }
+.tabs button { height: 28px; padding: 0 10px; border: 0; border-radius: 7px; background: none; color: var(--text-2); }
+.tabs button[aria-selected="true"] { background: var(--surface); color: var(--accent); font-weight: 600; box-shadow: 0 1px 2px rgba(76, 79, 105, 0.18); }
+.tabs .count { margin-left: 5px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.tabs [aria-selected="true"] .count { color: var(--accent); }
 .tabs .step.zero:not([aria-selected="true"]) { color: var(--muted); }
 .tabs .now { width: 6px; height: 6px; margin-left: 5px; border-radius: 50%; background: var(--action); display: inline-block; vertical-align: 2px; }
-.tabs [aria-selected="true"] .now { background: var(--on-accent); }
-.tabs .arrow { color: var(--muted); }
-.tabs .tab-sep { width: 1px; height: 18px; margin: 0 6px; background: var(--border-strong); }
+.tabs .arrow { color: var(--muted); font-size: var(--fs-xs); }
+.tabs .tab-sep { width: 1px; height: 16px; margin: 0 4px; background: var(--border-strong); }
+
+/* Row 2, what to do in the open step: filters on the left, the step's actions on the right. */
+.stagebar { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; padding: 6px 0 8px; }
+.class-filter:empty { display: none; }
 
 .list-header { display: flex; flex-wrap: wrap; gap: 8px; }
 .seg { display: inline-flex; }
@@ -186,20 +218,24 @@ select { height: 28px; max-width: 240px; }
 button.icon { width: 26px; height: 24px; padding: 0; }
 
 .notice {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px;
-  margin: 6px 16px 0;
-  padding: 6px 10px;
-  border: 1px solid var(--info-border);
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 12;
+  width: min(380px, calc(100vw - 32px));
+  padding: 10px 12px;
+  border: 1px solid var(--border);
   border-radius: var(--radius-sm);
-  background: var(--info-bg);
+  background: var(--surface);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
 }
-.sync-detail { flex-basis: 100%; font-size: var(--fs-xs); max-height: 200px; overflow-y: auto; }
+.notice[hidden] { display: none; }
+.notice p { margin: 0 0 6px; }
+.notice-actions { display: flex; justify-content: flex-end; }
+.sync-detail { font-size: var(--fs-xs); max-height: 240px; overflow-y: auto; }
 .sync-detail ul { margin: 2px 0 6px; padding-left: 18px; }
 
-.tagbar { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; padding-bottom: 6px; }
+.tagbar { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
 .tagbar-label { color: var(--muted); font-size: var(--fs-xs); margin-right: 2px; }
 .tagfilter { display: contents; }
 
@@ -220,7 +256,7 @@ button.icon { width: 26px; height: 24px; padding: 0; }
 
 /* The criteria note is capped and ends in an ellipsis (full text in its title).
    An empty row keeps its height, so the list below does not move between tabs. */
-.list-header { align-items: center; justify-content: center; flex: 1 1 100%; min-width: 0; min-height: 28px; }
+.list-header { align-items: center; justify-content: flex-end; flex: 1 1 auto; min-width: 0; min-height: 28px; }
 .run-line { max-width: 24em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); font-size: var(--fs-xs); }
 .key { font: inherit; margin-left: 4px; opacity: 0.7; }
 @media (hover: none) { .key { display: none; } }
@@ -330,7 +366,7 @@ dialog textarea { resize: vertical; }
 
 @media (max-width: 899px) {
   /* Too narrow for two columns: the viewer takes the list's place until it closes. */
-  .main.viewing { grid-template-columns: minmax(0, 1fr); grid-template-areas: "bar" "tags" "viewer"; }
+  .main.viewing { grid-template-columns: minmax(0, 1fr); grid-template-areas: "bar" "viewer"; }
   .main.viewing .list, .main.viewing .basket { display: none; }
   .card { grid-template-columns: 96px minmax(0, 1fr); }
   .cover { width: 96px; height: 54px; }
@@ -356,26 +392,13 @@ dialog.wide { width: min(880px, calc(100% - 32px)); }
 .steps { margin: 0 0 4px; padding-left: 20px; }
 .steps li { margin: 2px 0; }
 
-/* The title needs the most room, so it goes first. */
-@media (max-width: 1439px) {
-  .brand { display: none; }
-}
-
-/* Below desktop width the tools fold into ⋯, so the top bar stays one line. */
-@media (max-width: 1199px) {
-  .more-btn { display: inline-block; }
-  .tools:not(:popover-open) { display: none; }
-  .tools:popover-open {
-    position: fixed;
-    inset: 44px 8px auto auto;
-    flex-direction: column;
-    align-items: stretch;
-    padding: 6px;
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: var(--radius-sm);
-    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
-  }
+/* Too narrow for the steps beside the rest: they take the top bar's second line. */
+@media (max-width: 1099px) {
+  .tabs { order: 1; }
+  .topbar .spacer { display: none; }
+  .search { flex-grow: 1; }
+  .tabs { flex-basis: 100%; justify-content: flex-start; overflow-x: auto; }
+  .tabs button, .tabs .arrow, .tabs .tab-sep { flex: none; }
 }
 
 /* A long folder name would push the search box to a second line here. */
@@ -387,11 +410,9 @@ dialog.wide { width: min(880px, calc(100% - 32px)); }
 @media (max-width: 600px) {
   .topbar { padding: 8px; }
   .topbar select { max-width: 50vw; }
-  .search { order: 1; flex-basis: 100%; max-width: none; }
+  .search { order: 2; flex-basis: 100%; max-width: none; }
   .main { padding: 6px 8px 12px; }
   .stagebar { flex-direction: column; flex-wrap: nowrap; align-items: stretch; }
-  .tabs { flex-wrap: nowrap; justify-content: flex-start; overflow-x: auto; padding-bottom: 2px; }
-  .tabs button, .tabs .arrow, .tabs .tab-sep { flex: none; }
 }
 
 .recent-unfav { margin-top: 16px; padding-top: 8px; border-top: 1px solid var(--border); }

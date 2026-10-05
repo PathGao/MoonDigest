@@ -228,9 +228,9 @@ const folderContext = () => ({ title: folderTitle(), intro: S.folderIntro[S.medi
 const $ = (id) => document.getElementById(id);
 const el = {};
 [
-  "folderSelect", "allBtn", "removedBtn", "searchInput", "searchCount", "refreshBtn", "queueStatus", "settingsBtn", "helpBtn",
+  "folderSelect", "removedBtn", "searchInput", "searchCount", "refreshBtn", "activity", "settingsBtn", "helpBtn", "tools",
   "banner", "bannerText", "bannerBtn", "bannerClose", "syncNotice", "syncText", "syncViewBtn", "syncCloseBtn", "syncDetail",
-  "tabs", "tagFilter", "listHeader", "list", "basket", "basketToggle", "basketCount",
+  "tabs", "stagebar", "classFilter", "tagFilter", "listHeader", "list", "basket", "basketToggle", "basketCount",
   "basketList", "toast", "settingsDialog", "folderToggles", "thinkingRow", "intervalInput",
   "batchSizeInput", "openOptionsBtn", "thinkingInput", "titleMaxInput",
   "titleMaxHint", "analyzeMaxInput", "analyzeMaxHint", "settingsError", "backupBtn", "csvBtn", "confirmDialog",
@@ -644,10 +644,11 @@ async function loadFolders() {
   S.folders = S.allFolders.filter((f) => S.included.includes(String(f.id)));
   await retireUnchosenFolders();
   S.removedCount = Object.keys(await storeGet(K.removed, {})).length;
-  // 所有收藏夹 and 已取消收藏 open from their own buttons; the hidden options only name them in the select while open.
+  // 所有收藏夹 leads and 已取消收藏 closes the list; renderTop keeps their labels and visibility current.
   el.folderSelect.innerHTML =
-    `<option value="${ALL}" hidden>所有收藏夹</option><option value="${REMOVED}" hidden>已取消收藏</option>` +
-    S.folders.map((f) => `<option value="${esc(f.id)}">${esc(f.title)} (${esc(f.count)})</option>`).join("");
+    `<option value="${ALL}" title="把所有收藏夹合在一起看和搜索。第一次要逐个加载，收藏夹多时需要几分钟；之后只核对变化，很快">所有收藏夹</option><hr />` +
+    S.folders.map((f) => `<option value="${esc(f.id)}">${esc(f.title)} (${esc(f.count)})</option>`).join("") +
+    `<hr /><option value="${REMOVED}" title="离开了你勾选的所有收藏夹、但 MoonDigest 还留着信息的视频">已取消收藏</option>`;
   renderTop();
   if (!S.folders.length) {
     el.list.innerHTML = S.allFolders.length
@@ -692,7 +693,7 @@ async function openFolder(mediaId) {
   S.focusIndex = 0;
   S.throttleUntil = 0;
   S.status = "";
-  el.syncNotice.hidden = true;
+  hideSyncNotice();
   if (!all && !removed) storeSet(K.lastFolder, mediaId);
   el.folderSelect.value = mediaId;
   el.list.innerHTML = loadingHtml();
@@ -1028,7 +1029,7 @@ async function pickUnfavFolders(it) {
 function showSyncNotice(diff, partial) {
   const { added, removed, invalid, restored } = diff;
   if (!partial && !added.length && !removed.length && !invalid.length && !restored.length) {
-    if (el.syncNotice.dataset.partial) el.syncNotice.hidden = true;
+    if (el.syncNotice.dataset.partial) hideSyncNotice();
     return;
   }
   el.syncNotice.dataset.partial = partial ? "1" : "";
@@ -1036,6 +1037,7 @@ function showSyncNotice(diff, partial) {
   if (restored.length) parts.push(`恢复 ${restored.length}`);
   const head = partial ? `只加载了前 ${partial.count} 个（第 ${partial.page} 页失败：${partial.error}），可稍后重试同步。` : "";
   el.syncText.textContent = `${head}B站同步：${parts.join(" · ")}`;
+  el.syncViewBtn.textContent = `B站同步${partial ? "（部分）" : ""} +${added.length}${partial ? "" : ` −${removed.length}`}`;
   const section = (label, titles) =>
     titles.length ? `<div><strong>${label}</strong><ul>${titles.map((t) => `<li>${esc(t)}</li>`).join("")}</ul></div>` : "";
   el.syncDetail.innerHTML =
@@ -1043,8 +1045,14 @@ function showSyncNotice(diff, partial) {
     section("已在B站移除", removed) +
     section("已失效", invalid) +
     section("恢复（在B站重新收藏）", restored);
-  el.syncDetail.hidden = true;
-  el.syncNotice.hidden = false;
+  el.syncNotice.hidden = true;
+  el.syncViewBtn.hidden = false;
+  el.syncViewBtn.setAttribute("aria-expanded", "false");
+}
+
+function hideSyncNotice() {
+  el.syncNotice.hidden = true;
+  el.syncViewBtn.hidden = true;
 }
 
 // ---------- render ----------
@@ -1059,24 +1067,51 @@ function renderTop() {
   el.biliBtn.hidden = !S.mid;
   el.biliBtn.textContent = inFolderView() ? "B 站收藏夹 ↗" : "B 站主页 ↗";
   setBusy(el.refreshBtn, (S.syncing || S.loadAll?.running) && `刷新中…${S.syncing ? pageText(S.mediaId) : ""}`);
-  el.allBtn.setAttribute("aria-pressed", String(S.mediaId === ALL));
-  el.allBtn.hidden = !S.folders.length;
+  const allOpt = el.folderSelect.querySelector(`option[value="${ALL}"]`);
+  if (allOpt) allOpt.hidden = !S.folders.length;
+  const removedOpt = el.folderSelect.querySelector(`option[value="${REMOVED}"]`);
+  const showRemoved = Boolean(S.removedCount) || S.mediaId === REMOVED;
+  if (removedOpt) {
+    removedOpt.textContent = `已取消收藏 (${S.removedCount})`;
+    removedOpt.hidden = !showRemoved;
+  }
   el.removedBtn.textContent = `已取消收藏 ${S.removedCount}`;
-  el.removedBtn.setAttribute("aria-pressed", String(S.mediaId === REMOVED));
-  el.removedBtn.hidden = !S.removedCount && S.mediaId !== REMOVED;
+  el.removedBtn.hidden = !showRemoved;
   el.aiBtn.innerHTML = `${AI_SPARK}标签${S.ai.running ? " · 运行中" : S.ai.proposal ? " · 待确认" : ""}`;
   renderStatus();
 }
 
-function renderStatus() {
+// What is running, in one place on every tab: the first that applies wins. done/total draws a bar,
+// act puts a button on it (handled like the step bar's buttons), warn turns it amber.
+function activityState() {
   const left = S.throttleUntil - Date.now();
-  if (left > 0) {
-    el.queueStatus.textContent = `${S.throttleLabel}，${fmtDuration(Math.ceil(left / 1000))} 后重试`;
-    el.queueStatus.classList.add("warn");
-  } else {
-    el.queueStatus.textContent = S.status;
-    el.queueStatus.classList.remove("warn");
+  const wait = left > 0 ? `${S.throttleLabel}，${fmtDuration(Math.ceil(left / 1000))} 后重试` : "";
+  if (S.group) {
+    const done = S.group.bvids.filter((b) => !needsAnalysis(b)).length;
+    return { text: wait || S.status || `字幕细看 ${done}/${S.group.bvids.length}`, done, total: S.group.bvids.length, act: "group", actLabel: "暂停细看", warn: Boolean(wait) };
   }
+  if (S.stage1.running) {
+    return { text: wait || S.status, done: S.stage1.done, total: S.stage1.total, act: "stage1", actLabel: "暂停粗看", warn: Boolean(wait) };
+  }
+  const unfav = S.unfavBatch?.token === S.folderToken && S.unfavBatch;
+  if (unfav) return { text: `取消收藏中 ${unfav.done}/${unfav.total}`, done: unfav.done, total: unfav.total };
+  if (wait) return { text: wait, warn: true };
+  // Loading 所有收藏夹 is not here: its own line leads the step bar on every tab of that view.
+  if (S.syncing) return { text: `刷新中…${pageText(S.mediaId)}` };
+  if (S.ai.running) return { text: "标签 AI 运行中", act: "tags", actLabel: "查看" };
+  if (S.ai.proposal) return { text: "标签建议待确认", act: "tags", actLabel: "查看" };
+  if (S.status) return { text: S.status };
+  return null;
+}
+
+function renderStatus() {
+  const a = activityState();
+  el.activity.hidden = !a;
+  if (!a) return;
+  el.activity.classList.toggle("warn", Boolean(a.warn));
+  const bar = a.total ? `<span class="activity-bar" aria-hidden="true"><i style="width:${Math.round((a.done / a.total) * 100)}%"></i></span>` : "";
+  const btn = a.act ? `<button type="button" data-head="${a.act}" aria-label="${esc(a.actLabel)}">${esc(a.actLabel)}</button>` : "";
+  el.activity.innerHTML = `<span class="activity-text">${esc(a.text)}</span>${bar}${btn}`;
 }
 
 function tick() {
@@ -1087,18 +1122,12 @@ function renderTabs() {
   const c = stageCounts();
   const cur = currentStage(c);
   // The selected tab is solid; the step to work on next only gets a dot.
-  const tab = (key, label, cls, mark, n) =>
-    `<button type="button" role="tab" class="${cls}" data-tab="${key}" aria-selected="${S.tab === key}" aria-label="${label} ${n}${key === cur ? "，当前这一步" : ""}">${mark}${label}<span class="count">${n}</span>${key === cur ? `<span class="now" aria-hidden="true"></span>` : ""}</button>`;
-  const steps = STAGES.map(([key, label], i) => {
-    const n = c[key];
-    // A finished step (nothing left in it) reads as done; 处理完成 has no step after it to be done with.
-    const clear = !n && key !== "done";
-    const cls = n ? "step" : "step zero";
-    return tab(key, label, cls, `<span class="num" aria-hidden="true">${clear ? "✓" : "①②③④"[i]}</span>`, n);
-  });
+  const tab = (key, label, cls, n) =>
+    `<button type="button" role="tab" class="${cls}" data-tab="${key}" aria-selected="${S.tab === key}" aria-label="${label} ${n}${key === cur ? "，当前这一步" : ""}">${label}<span class="count">${n}</span>${key === cur ? `<span class="now" aria-hidden="true"></span>` : ""}</button>`;
+  const steps = STAGES.map(([key, label]) => tab(key, label, c[key] ? "step" : "step zero", c[key]));
   el.searchCount.textContent = S.query.trim() ? `搜索：${c.read} 个结果` : "";
-  el.tabs.innerHTML = S.mediaId === REMOVED ? tab("read", "已取消收藏", "read-tab", "", c.read) :
-    steps.join(`<span class="arrow" aria-hidden="true">→</span>`) + `<span class="tab-sep" aria-hidden="true"></span>` + tab("read", "阅览", "read-tab", "", c.read);
+  el.tabs.innerHTML = S.mediaId === REMOVED ? tab("read", "已取消收藏", "read-tab", c.read) :
+    steps.join(`<span class="arrow" aria-hidden="true">→</span>`) + `<span class="tab-sep" aria-hidden="true"></span>` + tab("read", "阅览", "read-tab", c.read);
 
   const chips = tagChips();
   const watchedChip = `<button type="button" class="chip watched${S.watchedFilter ? " on" : ""}" data-watchedfilter aria-pressed="${S.watchedFilter}" aria-label="只看真人已看的视频"><span class="ai-mark">真人</span>已看</button>`;
@@ -1133,12 +1162,15 @@ function renderListHeader(list) {
   const all = S.mediaId === ALL;
   const sortHint = `<span class="muted">请在具体收藏夹里分拣</span>`;
   // AI-class chips with per-class counts inside the tab (search and tag filter applied).
+  // It renders into its own slot at the left of the row, so it adds nothing to the action html.
+  let segHtml = "";
   const seg = () => {
     const inStage = S.items.filter((it) => (t === "read" || stageOf(it) === t) && passFilter(it));
     const n = (k) => (k === "all" ? inStage.length : inStage.filter((it) => verdictOf(it).verdict === k).length);
-    return `<span class="seg" role="group" aria-label="按 AI 判断筛选">${[["all", "全部"], ...Object.entries(VERDICTS)]
+    segHtml = `<span class="seg" role="group" aria-label="按 AI 判断筛选">${[["all", "全部"], ...Object.entries(VERDICTS)]
       .map(([k, label]) => `<button type="button" data-class-filter="${k}" aria-pressed="${S.classFilter[t] === k}">${label} ${n(k)}</button>`)
       .join("")}</span>`;
+    return "";
   };
   const batchBtn = (route, verdict = "") => {
     const run = S.unfavBatch?.token === S.folderToken && S.unfavBatch;
@@ -1160,20 +1192,20 @@ function renderListHeader(list) {
   if (all && t === "none") html = sortHint;
   else if (all && t === "coarse") html = seg() + sortHint;
   else if (t === "none") {
-    if (S.stage1.running) html = stage1Pause();
+    // The criteria the AI reads sits just before the button that sends it.
+    html = criteriaLine();
+    if (S.stage1.running) html += stage1Pause();
     else {
       const n = stage1Pending().length;
-      html = headBtn("stage1", n ? `标题粗看这 ${n} 个` : "标题粗看", "primary", !n || busy, "", "", false, true);
+      html += headBtn("stage1", n ? `标题粗看这 ${n} 个` : "标题粗看", "primary", !n || busy, "", "", false, true);
     }
-    html += criteriaLine();
   } else if (t === "coarse") {
     // A selection gets 细看 plus both batch buttons; 可清理 / 值得留 lead with their batch button, 细看 stays secondary.
-    html = seg();
+    html = seg() + criteriaLine();
     if (sel) html += groupBtn("primary") + batchBtn("keep") + batchBtn("unfav");
     else if (f === "drop") html += batchBtn("unfav", "drop") + groupBtn("");
     else if (f === "keep") html += batchBtn("keep", "keep") + groupBtn("");
     else html += groupBtn("primary");
-    html += criteriaLine();
   } else if (t === "fine") {
     // A selection gets both buttons; without one 值得留 and 可清理 each get a button, 拿不准 none.
     html = seg();
@@ -1200,13 +1232,8 @@ function renderListHeader(list) {
   if (S.selected.size) {
     html += `<span class="muted">已选中 ${S.selected.size} 个</span><button type="button" class="link" data-head="clear-selected" aria-label="清空选中">清空选中</button>`;
   }
-  // A running 粗看, 细看 or unfavorite batch keeps its progress button on every tab, not only the one it
-  // was started from: its videos move to the next tab while it runs.
-  const unfavRun = S.unfavBatch?.token === S.folderToken;
-  if (unfavRun && !html.includes('data-head="batch-unfav"')) html = batchBtn("unfav") + html;
-  if (S.group && t !== "coarse") html = groupBtn("primary") + html;
-  if (S.stage1.running && t !== "none") html = stage1Pause() + html;
   if (all) html = loadAllLine() + html;
+  el.classFilter.innerHTML = segHtml;
   el.listHeader.innerHTML = html;
 }
 
@@ -2586,8 +2613,10 @@ function buildCsv() {
 // ---------- events ----------
 function bindEvents() {
   el.folderSelect.addEventListener("change", () => openFolder(el.folderSelect.value));
-  el.removedBtn.addEventListener("click", () => openFolder(REMOVED));
-  el.allBtn.addEventListener("click", () => openFolder(ALL));
+  el.removedBtn.addEventListener("click", () => {
+    el.tools.hidePopover();
+    openFolder(REMOVED);
+  });
   el.refreshBtn.addEventListener("click", () =>
     S.mediaId === ALL ? refreshAll() : S.mediaId === REMOVED ? openFolder(REMOVED) : S.mediaId && syncFolder({ force: true })
   );
@@ -2636,7 +2665,7 @@ function bindEvents() {
     render();
   });
 
-  el.listHeader.addEventListener("click", (e) => {
+  const onHeadClick = (e) => {
     const filter = e.target.closest("[data-class-filter]");
     if (filter) {
       S.classFilter[S.tab] = filter.dataset.classFilter;
@@ -2645,7 +2674,8 @@ function bindEvents() {
     const btn = e.target.closest("[data-head]");
     if (!btn) return;
     const act = btn.dataset.head;
-    if (act === "stage1") {
+    if (act === "tags") el.aiBtn.click();
+    else if (act === "stage1") {
       if (!S.stage1.running) return runStage1();
       S.stage1.stop = true;
       S.status = "粗看将在当前批次后暂停";
@@ -2675,8 +2705,9 @@ function bindEvents() {
       S.selected.clear();
       render();
     }
-  });
-
+  };
+  el.stagebar.addEventListener("click", onHeadClick);
+  el.activity.addEventListener("click", onHeadClick);
 
   el.list.addEventListener("click", (e) => {
     if (e.target.closest("[data-pick-folders]")) return openSettings();
@@ -2806,8 +2837,11 @@ function bindEvents() {
   });
   el.helpBtn.addEventListener("click", () => el.helpDialog.showModal());
 
-  el.syncViewBtn.addEventListener("click", () => (el.syncDetail.hidden = !el.syncDetail.hidden));
-  el.syncCloseBtn.addEventListener("click", () => (el.syncNotice.hidden = true));
+  el.syncViewBtn.addEventListener("click", () => {
+    el.syncNotice.hidden = !el.syncNotice.hidden;
+    el.syncViewBtn.setAttribute("aria-expanded", String(!el.syncNotice.hidden));
+  });
+  el.syncCloseBtn.addEventListener("click", hideSyncNotice);
   el.bannerClose.addEventListener("click", () => (el.banner.hidden = true));
 
   // tag picker
