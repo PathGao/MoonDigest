@@ -1201,7 +1201,6 @@ function renderListHeader(list) {
   }
   if (all) html = loadAllLine() + html;
   el.listHeader.innerHTML = html;
-  el.listHeader.hidden = !html;
 }
 
 function recentUnfavs() {
