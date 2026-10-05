@@ -18,7 +18,7 @@
   });
   const bili = ref("bilibili", "BV1mock000001", "从零实现一个 Transformer：逐行代码讲解", { cid: "1001" });
   const yt = ref("youtube", "dQw4w9WgXcQ", "How RAG actually works — a deep dive");
-  const longTitle = ref("bilibili", "BV1mock000002", "【合集】吴恩达机器学习 2024 中文字幕 超长标题测试一下窄屏下标题怎么换行显示", { cid: "1002" });
+  const longTitle = ref("bilibili", "BV1mock000002", "【合集】吴恩达机器学习 2024 中文字幕 全 142 集：监督学习、无监督学习、推荐系统与强化学习", { cid: "1002" });
   const page = { title: "某篇博客文章", url: "https://example.com/post", isVideoContext: false };
   const store = {
     boc_ai_conversations_v1: [
@@ -31,12 +31,12 @@
     // Triage analyses: BV1mock000001 joins its conversation entry, BV1mock000009 / BV1mock000010 stand alone
     // (title from a folder snapshot / no title), the error one is ignored.
     triage_analysis_BV1mock000001: { bvid: "BV1mock000001", status: "done", source: "subtitle", oneLiner: "逐行手写 Transformer", points: ["注意力", "位置编码", ""], verdict: "keep", reason: "讲得细", analyzedAt: now - 2 * hour },
-    triage_analysis_BV1mock000009: { bvid: "BV1mock000009", status: "done", source: "meta", oneLiner: "只在分拣台分析过的视频", points: ["要点一", "要点二", "要点三"], verdict: "drop", reason: "过时", analyzedAt: now - 10 * hour },
-    triage_analysis_BV1mock000010: { bvid: "BV1mock000010", status: "done", oneLiner: "没有标题的视频", points: [], verdict: "unsure", analyzedAt: now - 400 * hour },
+    triage_analysis_BV1mock000009: { bvid: "BV1mock000009", status: "done", source: "meta", oneLiner: "梯度下降调参经验谈", points: ["学习率太大为什么会震荡，太小为什么收敛慢", "三种常见的学习率调度：阶梯、余弦、预热", "批归一化在小批量下效果变差的原因"], verdict: "drop", reason: "过时", analyzedAt: now - 10 * hour },
+    triage_analysis_BV1mock000010: { bvid: "BV1mock000010", status: "done", oneLiner: "一期 Rust 所有权入门", points: [], verdict: "unsure", analyzedAt: now - 400 * hour },
     triage_analysis_BV1mock000011: { bvid: "BV1mock000011", status: "error" },
     // Notes: BV1mock000001 joins its entry, BV1mock000012 and the YouTube abcDEF12345 are note-only entries, the blank one is ignored.
-    triage_notes: { BV1mock000001: { text: "先看注意力那段\n再看位置编码", updatedAt: now - 3 * hour }, BV1mock000012: { text: "只有备注的视频", updatedAt: now - 5 * hour }, abcDEF12345: { text: "YouTube 上只有备注的视频", updatedAt: now - 6 * hour }, BV1mock000013: { text: " ", updatedAt: now } },
-    triage_snapshot_42: { bvids: ["BV1mock000009"], titles: { BV1mock000009: "分拣台里的视频标题" }, at: now }
+    triage_notes: { BV1mock000001: { text: "先看注意力那段\n再看位置编码", updatedAt: now - 3 * hour }, BV1mock000012: { text: "周末看，讲 CUDA 的那段", updatedAt: now - 5 * hour }, abcDEF12345: { text: "配合论文一起看", updatedAt: now - 6 * hour }, BV1mock000013: { text: " ", updatedAt: now } },
+    triage_snapshot_42: { bvids: ["BV1mock000009"], titles: { BV1mock000009: "深度学习调参：从学习率到批归一化" }, at: now }
   };
   const clone = (v) => (v === undefined ? v : structuredClone(v));
 
