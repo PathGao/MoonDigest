@@ -20,7 +20,6 @@ const STAGES = [
   ["fine", "细看完成"],
   ["done", "处理完成"]
 ];
-const STAGE_EMPTY = { none: "都粗看过了，下一步：粗看完成", coarse: "这里的都细看或处理完了", fine: "都处理完了，去看处理完成" };
 const K = {
   lastFolder: "triage_last_folder",
   tags: "triage_tags", // [{ id, name, color, folder, rule? }]: folder is the mediaId the tag belongs to; rule is the one line the AI follows
@@ -1130,7 +1129,6 @@ function criteriaLine() {
 
 function renderListHeader(list) {
   const t = S.tab;
-  const next = STAGES[STAGES.findIndex(([k]) => k === t) + 1];
   const busy = S.stage1.running || Boolean(S.group);
   const all = S.mediaId === ALL;
   const sortHint = `<span class="muted">请在具体收藏夹里分拣</span>`;
@@ -1197,9 +1195,6 @@ function renderListHeader(list) {
     else if (sel) html += batchBtn("unfav") + batchBtn("keep");
     else if (list.length) html += `<span class="muted">按 X 选中后可批量保留或取消收藏</span>`;
     html += headBtn("export-read", "批量导出…", "", !list.length);
-  }
-  if (STAGE_EMPTY[t] && !stageCounts()[t]) {
-    html += `<button type="button" data-goto="${next[0]}">${STAGE_EMPTY[t]} →</button>`;
   }
   if (S.selected.size) {
     html += `<span class="muted">已选中 ${S.selected.size} 个</span><button type="button" class="link" data-head="clear-selected" aria-label="清空选中">清空选中</button>`;
@@ -2636,8 +2631,6 @@ function bindEvents() {
   });
 
   el.listHeader.addEventListener("click", (e) => {
-    const go = e.target.closest("[data-goto]");
-    if (go) return showTab(go.dataset.goto);
     const filter = e.target.closest("[data-class-filter]");
     if (filter) {
       S.classFilter[S.tab] = filter.dataset.classFilter;
