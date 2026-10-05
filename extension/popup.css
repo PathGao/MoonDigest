@@ -9,10 +9,10 @@ body {
 }
 
 .popup {
-  padding: var(--space-2);
+  padding: var(--space-2) var(--space-2) 0;
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: var(--space-2);
 }
 
 .top {
@@ -76,6 +76,8 @@ body {
 
 .ghost {
   height: 28px;
+  border-color: transparent;
+  background: transparent;
   min-width: 58px;
   color: var(--text-2);
   font-size: var(--fs-xs);
@@ -89,18 +91,26 @@ body {
 
 .ghost:hover {
   color: var(--text);
+  background: var(--surface-muted);
 }
 
+/* Gray unless it is an error; flex keeps the busy spinner from changing the line height. */
 .status {
   margin: 0;
+  display: flex;
+  align-items: center;
   font-size: var(--fs-xs);
-  color: var(--ok);
-  background: var(--ok-bg);
-  border: 1px solid var(--ok-border);
+  color: var(--text-2);
+  background: var(--surface-muted);
+  border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   padding: 7px var(--space-2);
   white-space: normal;
   line-height: 1.35;
+}
+
+.status[aria-busy="true"]::before {
+  flex: none;
 }
 
 .status.is-error {
@@ -118,11 +128,23 @@ body {
   white-space: nowrap;
 }
 
+/* A label sits closer to its controls than groups sit to each other. */
+.section-title,
+.label {
+  margin-bottom: calc(-1 * var(--space-1));
+}
+
+/* AI summary and the note actions are their own groups: 16px apart, 8px inside. */
+.primary,
+.section-title {
+  margin-top: var(--space-2);
+}
+
 .props {
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
   background: var(--surface);
-  padding: 7px;
+  padding: var(--space-2);
   display: grid;
   gap: var(--space-1);
 }
@@ -131,7 +153,7 @@ body {
   display: grid;
   grid-template-columns: 60px minmax(0, 1fr);
   align-items: center;
-  gap: 6px;
+  gap: var(--space-2);
 }
 
 .k {
@@ -164,12 +186,14 @@ body {
 .details[open] {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: var(--space-2);
 }
 
+/* Grows with the subtitles up to 180px; long lines wrap instead of scrolling sideways. */
 #preview {
   width: 100%;
-  height: 180px;
+  field-sizing: content;
+  max-height: 180px;
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
   padding: var(--space-2);
@@ -179,20 +203,19 @@ body {
   background: var(--field-bg);
   color: var(--text);
   overflow: auto;
-  white-space: pre;
-  font-family: "SF Mono", "JetBrains Mono", "PingFang SC", Menlo, Monaco, Consolas, monospace;
+  white-space: pre-wrap;
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
 }
 
+/* Every button row: equal widths, but a longer label widens its button instead of clipping. */
 .actions {
-  display: grid;
-  grid-auto-flow: column;
-  grid-auto-columns: minmax(0, 1fr);
-  gap: 6px;
+  display: flex;
+  gap: var(--space-2);
 }
 
 .actions button {
-  height: auto;
-  padding: 7px 0;
+  flex: 1 1 0;
   font-size: var(--fs-sm);
   font-weight: 600;
 }
@@ -203,11 +226,13 @@ body {
   font-size: var(--fs-md);
 }
 
-/* Entries that don't depend on the current video sit below a divider. */
+/* Entries that don't depend on the current video stay pinned to the bottom, so open details never push them out of the 600px popup. */
 .global-actions {
-  grid-template-columns: 2fr 1fr;
-  margin-top: 4px;
-  padding-top: var(--space-2);
+  position: sticky;
+  bottom: 0;
+  margin: 0 calc(-1 * var(--space-2));
+  padding: var(--space-2);
+  background: var(--bg);
   border-top: 1px solid var(--border);
 }
 
