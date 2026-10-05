@@ -111,14 +111,15 @@ const elements = {
   hostPermissionBtn: document.getElementById("hostPermissionBtn")
 };
 
-// Any edit since the last successful save; a passed provider test reminds the user to save.
+// The form differs from what was last loaded or saved; a passed provider test reminds the user to save.
 let hasUnsavedChanges = false;
+let savedForm = null;
 
 init();
 
 function init() {
   loadSettings();
-  ["input", "change"].forEach((type) => document.addEventListener(type, () => setUnsaved(true)));
+  ["input", "change"].forEach((type) => document.addEventListener(type, syncUnsaved));
   window.addEventListener("beforeunload", (event) => {
     if (hasUnsavedChanges) {
       event.preventDefault();
@@ -130,7 +131,7 @@ function init() {
   elements.addNoteSectionBtn.addEventListener("click", () => addNoteSectionRow());
   elements.addAiProviderBtn.addEventListener("click", () => {
     addAiProviderRow();
-    setUnsaved(true);
+    syncUnsaved();
   });
   elements.obsidianEnabled.addEventListener("change", syncObsidianBody);
   document.addEventListener("click", (event) => {
@@ -194,6 +195,7 @@ async function loadSettings() {
   const providers = await loadAiProviders();
   renderAiProviders(providers);
   renderHostPermissionBanner(hostPermissionUrls(settings, providers));
+  markSaved();
 }
 
 async function saveSettings() {
@@ -234,7 +236,7 @@ async function saveSettings() {
     }
     // 用最新列表（含 hasSavedKey）重新渲染，避免误以为 Key 丢了
     renderAiProviders(aiResp.providers || []);
-    setUnsaved(false);
+    markSaved();
     renderHostPermissionBanner(hostUrls);
     if (deniedHosts.length) {
       setStatus(`已保存，但未授权访问 ${deniedHosts.join("、")}，相关请求会失败；重新保存可再次授权`, true);
@@ -278,6 +280,28 @@ function setUnsaved(value) {
   syncSaveBar();
 }
 
+// Compares content, so an edit that is undone (add a row, then remove it) is not "unsaved".
+function readFormState() {
+  return { payload: readFormPayload(), providers: collectAiProviders() };
+}
+
+function markSaved() {
+  savedForm = readFormState();
+  setUnsaved(false);
+}
+
+function syncUnsaved() {
+  setUnsaved(JSON.stringify(readFormState()) !== JSON.stringify(savedForm));
+}
+
+// Deleting a provider or clearing its key is written right away, so the saved copy follows.
+function updateSavedProviders(update) {
+  if (savedForm) {
+    savedForm.providers = update(savedForm.providers);
+  }
+  syncUnsaved();
+}
+
 function syncSaveBar() {
   elements.saveBar.hidden = !hasUnsavedChanges && !elements.status.textContent;
   elements.unsavedHint.hidden = !hasUnsavedChanges;
@@ -288,15 +312,21 @@ function normalizeDownloadFormat(value) {
   return value === "txt" ? "txt" : "srt";
 }
 
+// Also writes the normalized Obsidian URL and key back into their inputs.
 function collectFormPayload() {
+  const payload = readFormPayload();
+  elements.obsidianApiBaseUrl.value = payload.obsidianApiBaseUrl;
+  elements.obsidianApiKey.value = payload.obsidianApiKey;
+  return payload;
+}
+
+function readFormPayload() {
   const selectedFields = Array.from(elements.frontmatterFields)
     .filter((checkbox) => checkbox.checked)
     .map((checkbox) => checkbox.value);
 
   const normalizedBaseUrl = normalizeBaseUrl(elements.obsidianApiBaseUrl.value);
   const normalizedApiKey = normalizeApiKey(elements.obsidianApiKey.value);
-  elements.obsidianApiBaseUrl.value = normalizedBaseUrl;
-  elements.obsidianApiKey.value = normalizedApiKey;
 
   return {
     obsidianEnabled: elements.obsidianEnabled.checked,
@@ -502,7 +532,7 @@ function addFixedPropertyRow(item = {}) {
   row.querySelector(".fixed-property-remove")?.addEventListener("click", () => {
     row.remove();
     updateFixedPropertyEmptyState();
-    setUnsaved(true);
+    syncUnsaved();
   });
 
   const typeButton = row.querySelector(".fixed-property-type-button");
@@ -544,7 +574,7 @@ function addFixedPropertyRow(item = {}) {
         bindFixedPropertyValueEvents(row);
       }
       clearFixedPropertyErrorState(row);
-      setUnsaved(true);
+      syncUnsaved();
     });
   });
 
@@ -612,7 +642,7 @@ function addNoteSectionRow(item = {}, { skipLimit = false } = {}) {
   row.querySelector(".note-section-remove")?.addEventListener("click", () => {
     row.remove();
     updateNoteSectionEmptyState();
-    setUnsaved(true);
+    syncUnsaved();
   });
 
   row.querySelectorAll(".note-section-title, .note-section-content, .note-section-position").forEach((input) => {
@@ -1085,6 +1115,7 @@ function addAiProviderRow(item = {}) {
     }
     row.remove();
     updateAiProvidersEmptyState();
+    updateSavedProviders((list) => list.filter((item) => item.id !== row.dataset.providerId));
   });
 
   const clearKeyBtn = row.querySelector(".ai-provider-clear-key");
@@ -1099,6 +1130,9 @@ function addAiProviderRow(item = {}) {
     const preset = AI_PRESETS.find((p) => p.id === row.querySelector(".ai-provider-preset").value);
     row.querySelector(".ai-provider-apikey").placeholder = preset?.requiresKey === false ? "API Key（可选）" : "API Key";
     clearKeyBtn.hidden = true;
+    updateSavedProviders((list) =>
+      list.map((item) => (item.id === row.dataset.providerId ? { ...item, hasSavedKey: false } : item))
+    );
     showAiProviderStatus(row.querySelector(".ai-provider-status"), "已清除 API Key");
   });
 
