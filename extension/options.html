@@ -8,254 +8,288 @@
     <link rel="stylesheet" href="./options.css" />
   </head>
   <body>
-    <main class="container">
-      <h1>MoonDigest 设置</h1>
-      <p id="hostPermissionBanner" class="status" data-error="true" hidden>
+    <header class="top">
+      <div class="top-in">
+        <h1>MoonDigest<small>设置</small></h1>
+        <nav class="toc" id="toc" aria-label="设置目录">
+          <a href="#basic">读字幕<span class="dot" hidden></span></a>
+          <a href="#note">笔记格式<span class="dot" hidden></span></a>
+          <a href="#ai">AI 平台<span class="dot" hidden></span></a>
+          <a href="#triage">分拣台<span class="dot" hidden></span></a>
+          <a href="#obsidian">Obsidian<span class="dot" hidden></span></a>
+          <a href="#data">数据<span class="dot" hidden></span></a>
+          <a href="#more">高级<span class="dot" hidden></span></a>
+        </nav>
+        <div class="top-status">
+          <span id="aiPill" class="pill off">AI 未配置</span>
+          <span id="obsidianPill" class="pill off">Obsidian 关</span>
+        </div>
+      </div>
+    </header>
+
+    <main>
+      <p id="hostPermissionBanner" class="perm" role="alert" hidden>
         <span id="hostPermissionText"></span>
-        <button id="hostPermissionBtn" class="primary" type="button">授权</button>
+        <button id="hostPermissionBtn" class="primary sm" type="button">授权</button>
       </p>
 
-      <section class="tier">
-        <h2 class="tier-title">基础 · 读字幕</h2>
+      <p id="noAiNote" class="noai" hidden>不配 AI 也能用：读字幕、下载字幕、专注模式、导出笔记、写入 Obsidian、手动分拣。配了 AI，再多出 ✦ AI 总结、问答和分拣台的粗看细看。</p>
 
-      <section class="field-group">
-        <h2>字幕与专注模式</h2>
-        <label for="downloadFormat">字幕下载格式</label>
-        <select id="downloadFormat">
-          <option value="srt">SRT</option>
-          <option value="txt">TXT</option>
-        </select>
-
-        <label class="checkbox">
-          <input id="includeTimestampInBody" type="checkbox" />
-          在字幕正文中保留时间戳
-        </label>
-
-        <label for="youtubeSubtitleLang">YouTube 默认字幕语言（仅 YouTube）</label>
-        <select id="youtubeSubtitleLang">
-          <option value="auto">自动（中文优先）</option>
-          <option value="zh-Hans">简体中文</option>
-          <option value="zh-Hant">繁體中文</option>
-          <option value="en">English</option>
-          <option value="ja">日本語</option>
-        </select>
-        <p class="hint inline-hint">没有该语言的字幕时，使用 YouTube 机器翻译。</p>
-      </section>
-      </section>
-
-      <section class="tier">
-        <h2 class="tier-title">笔记格式</h2>
-        <p class="tier-desc">复制 Markdown 和下载 .md 都按这里生成笔记。<span class="obsidian-only">写入 Obsidian 也一样。</span></p>
-
-        <section class="field-group">
-          <h2>内容</h2>
-          <label for="tags">默认标签（逗号分隔）</label>
-          <input id="tags" type="text" placeholder="例如：MoonDigest,视频" />
-
-          <label class="checkbox">
-            <input id="includeDateInFilename" type="checkbox" />
-            文件名前包含导出日期
-          </label>
-
-          <label class="checkbox">
-            <input id="includeHotCommentsInNote" type="checkbox" />
-            导出前 20 条热门评论
-          </label>
-
-          <label class="checkbox">
-            <input id="includeCoverInNote" type="checkbox" />
-            在笔记开头插入封面图
-          </label>
-
-          <label class="checkbox">
-            <input id="includeAiChatInNote" type="checkbox" />
-            导出时附带 AI 问答
-          </label>
-          <p class="hint inline-hint">
-            把这个视频最近一段侧边栏对话写进笔记末尾的「AI 问答」段落。<span class="obsidian-only">写入 Obsidian 后，再次写入和每次 AI 回答完都会自动更新这一段，段内手改的文字会被覆盖，笔记其余内容不动。</span>
-          </p>
-        </section>
-
-        <details class="advanced">
-          <summary>高级</summary>
-        <section class="field-group">
-          <h2>笔记属性（Frontmatter）</h2>
-          <p class="hint">勾选要写进笔记 frontmatter 的字段。</p>
-          <div class="field-grid">
-            <label class="mini-checkbox"><input type="checkbox" name="frontmatterField" value="title" /> title</label>
-            <label class="mini-checkbox"><input type="checkbox" name="frontmatterField" value="url" /> url</label>
-            <label class="mini-checkbox"><input type="checkbox" name="frontmatterField" value="site" /> site</label>
-            <label class="mini-checkbox"><input type="checkbox" name="frontmatterField" value="video_id" /> video_id</label>
-            <label class="mini-checkbox"><input type="checkbox" name="frontmatterField" value="cid" /> cid（仅 B 站）</label>
-            <label class="mini-checkbox"><input type="checkbox" name="frontmatterField" value="author" /> author</label>
-            <label class="mini-checkbox"><input type="checkbox" name="frontmatterField" value="author_url" /> author_url</label>
-            <label class="mini-checkbox"><input type="checkbox" name="frontmatterField" value="duration" /> duration</label>
-            <label class="mini-checkbox"><input type="checkbox" name="frontmatterField" value="cover" /> cover</label>
-            <label class="mini-checkbox"><input type="checkbox" name="frontmatterField" value="video_tags" /> video_tags</label>
-            <label class="mini-checkbox">
-              <input type="checkbox" name="frontmatterField" value="upload_date" /> upload_date
-            </label>
-            <label class="mini-checkbox">
-              <input type="checkbox" name="frontmatterField" value="subtitle_lang" /> subtitle_lang
-            </label>
-            <label class="mini-checkbox">
-              <input type="checkbox" name="frontmatterField" value="created" /> created
-            </label>
-            <label class="mini-checkbox"><input type="checkbox" name="frontmatterField" value="tags" /> tags</label>
+      <section class="sec" id="basic" data-name="读字幕">
+        <div class="sec-head">
+          <div class="no">01</div>
+          <h2>读字幕</h2>
+          <p>B 站和 YouTube 通用。</p>
+        </div>
+        <div class="rows">
+          <div class="row">
+            <div class="lab"><label class="name" for="downloadFormat">字幕下载格式</label></div>
+            <div class="ctl">
+              <select id="downloadFormat">
+                <option value="srt">SRT（带时间轴）</option>
+                <option value="txt">TXT（纯文本）</option>
+              </select>
+            </div>
           </div>
-        </section>
-
-        <section class="field-group property-editor">
-          <h2>自定义属性</h2>
-          <p class="hint">支持默认属性的变量映射，比如 <code>{{upload_date}}</code> <code>{{created}}</code> <code>{{site}}</code> <code>{{video_id}}</code> <code>{{author_url}}</code> <code>{{cover}}</code> <code>{{duration}}</code></p>
-          <div id="fixedPropertiesList" class="fixed-properties-list"></div>
-          <p id="fixedPropertiesEmpty" class="fixed-properties-empty">还没有自定义属性</p>
-          <button id="addFixedPropertyBtn" class="add-property-btn" type="button">+ 添加属性</button>
-        </section>
-
-        <section class="field-group property-editor">
-          <h2>正文附加段落</h2>
-          <p class="hint">在正文插入占位段落标题。默认结构：简介-章节-字幕；具体内容可留空。</p>
-          <div id="noteSectionsList" class="note-sections-list"></div>
-          <p id="noteSectionsEmpty" class="fixed-properties-empty">还没有正文附加段落</p>
-          <button id="addNoteSectionBtn" class="add-property-btn" type="button">+ 添加段落</button>
-        </section>
-        </details>
-      </section>
-
-      <section class="tier">
-        <h2 class="tier-title">AI 平台（可选）</h2>
-        <p class="tier-desc">配了 AI 平台才有 AI 总结、问答和分拣台的粗看细看；不配，上面的功能照常能用。</p>
-
-      <section class="field-group">
-        <h2>AI 模型平台</h2>
-        <p class="hint">支持 OpenAI 兼容接口。</p>
-        <div id="aiProvidersHead" class="ai-provider-row ai-provider-head" aria-hidden="true">
-          <span>平台</span><span>接口地址</span><span>模型</span><span>API Key</span>
-        </div>
-        <div id="aiProvidersList" class="ai-providers-list"></div>
-        <p id="aiProvidersEmpty" class="ai-providers-empty">还没有配置平台，点击下方按钮添加。</p>
-        <button id="addAiProviderBtn" class="add-property-btn" type="button">+ 添加平台</button>
-      </section>
-
-      <section class="field-group field-group-tight-bottom">
-        <h2>系统提示词</h2>
-        <p class="hint">每次回答都遵守的规则，如语言、长短、时间戳格式。总结格式别写在这里，它对追问也生效。</p>
-        <textarea id="aiSystemPrompt" class="settings-textarea" rows="6" placeholder="例如：用中文回答；尽量简洁；引用内容时带时间戳。"></textarea>
-      </section>
-
-      <section class="field-group field-group-tight-bottom player-ai-quick-action-settings">
-        <h2>AI 总结要求</h2>
-        <p class="hint">所有「AI 总结」按钮（弹窗、侧边栏、播放器、专注模式）发出的第一条消息。留空时这些按钮只打开侧边栏。</p>
-        <textarea
-          id="playerAiQuickPrompt"
-          class="settings-textarea"
-          placeholder="例如：整理这期视频的内容，输出结构化总结。"
-        ></textarea>
-        <label class="checkbox">
-          <input id="enablePlayerAiQuickAction" type="checkbox" />
-          在视频播放器显示 AI 按钮
-        </label>
-      </section>
-
-      <section class="field-group field-group-tight-bottom">
-        <h2>管理追问</h2>
-        <p class="hint">有回答后显示在输入框上方，点一下就发送。每行一条，最多 12 条；侧边栏「管理追问」里也能增删。</p>
-        <textarea id="aiPresetPrompts" class="settings-textarea" rows="4"></textarea>
-      </section>
-      </section>
-
-      <section class="tier">
-        <div class="tier-head">
-          <h2 class="tier-title">进阶 1 · 收藏夹分拣台（仅 B 站）</h2>
-          <a class="secondary-btn" href="./triage/triage.html" target="_blank">打开分拣台</a>
-        </div>
-        <p class="tier-desc">把一个收藏夹里的视频批量交给 AI 粗看和细看，连起来读，判断哪些值得看。</p>
-        <label class="checkbox">
-          <input id="showBiliTriageBadges" type="checkbox" />
-          在 B 站页面显示分拣标记
-        </label>
-        <p class="hint inline-hint">分拣过或打过标签的视频，在收藏夹、视频页、首页和搜索结果里显示一个小标记。虚线框表示只做过标题粗看。</p>
-      </section>
-
-      <section class="tier">
-        <h2 class="tier-title">进阶 2 · Obsidian</h2>
-        <p class="tier-desc">把字幕、AI 对话和分拣结果写进 Obsidian，可以单个写，也可以整个收藏夹批量写。</p>
-        <label class="checkbox tier-toggle">
-          <input id="obsidianEnabled" type="checkbox" />
-          启用 Obsidian 写入
-        </label>
-
-        <div id="obsidianBody">
-      <section class="quick-start">
-        <div class="quick-start-head">
-          <h2>配置指引</h2>
-        </div>
-        <ol>
-          <li>在 Obsidian 社区插件市场安装并启用 <strong>Local REST API with MCP</strong>。</li>
-          <li>
-            在插件设置中勾选 <strong>Enable Non-encrypted (HTTP) Server</strong>，地址通常为
-            <code>http://127.0.0.1:27123</code>。
-          </li>
-          <li>复制 API Key，回到本页填写“Local REST API 地址”和“Local REST API Key”。</li>
-        </ol>
-      </section>
-
-          <section class="field-group">
-            <h2>连接</h2>
-            <label for="obsidianApiBaseUrl">Local REST API 地址</label>
-            <input id="obsidianApiBaseUrl" type="text" placeholder="例如：http://127.0.0.1:27123" />
-
-            <label for="obsidianApiKey">Local REST API Key</label>
-            <input id="obsidianApiKey" type="password" placeholder="填入 Obsidian Local REST API 的 Key" />
-            <button id="testConnectionBtn" class="secondary-btn" type="button" title="用上面的地址和 Key 连一次 Obsidian 的 Local REST API">测试连接</button>
-          </section>
-
-          <section class="field-group">
-            <h2>写入位置</h2>
-            <label for="noteFolder">笔记目录</label>
-            <input id="noteFolder" type="text" placeholder="例如：MoonDigest/{{site}}" />
-            <p class="hint inline-hint">所有写入 Obsidian 的笔记都放这里，分拣台批量写入也一样。可用变量：<code>{{site}}</code> 网站（bilibili / youtube）、<code>{{created}}</code> 写入日期、<code>{{upload_date}}</code> 视频发布日期、<code>{{author}}</code> UP 主或频道、<code>{{id}}</code> 视频号（BV 号或 YouTube ID）。示例：<code>MoonDigest/{{site}}/{{author}}</code></p>
-          </section>
-
+          <div class="row">
+            <div class="lab"><label class="name" for="includeTimestampInBody">正文保留时间戳</label><p class="hint">复制和下载的字幕正文里，每段前面带 03:12 这样的时间。</p></div>
+            <div class="ctl"><input id="includeTimestampInBody" type="checkbox" class="switch" /></div>
+          </div>
+          <div class="row">
+            <div class="lab"><label class="name" for="youtubeSubtitleLang">YouTube 默认字幕语言</label><p class="hint">没有这种语言的字幕时，用 YouTube 机器翻译。</p></div>
+            <div class="ctl">
+              <select id="youtubeSubtitleLang">
+                <option value="auto">自动（中文优先）</option>
+                <option value="zh-Hans">简体中文</option>
+                <option value="zh-Hant">繁體中文</option>
+                <option value="en">English</option>
+                <option value="ja">日本語</option>
+              </select>
+            </div>
+          </div>
         </div>
       </section>
 
-      <section class="tier">
-        <h2 class="tier-title">数据与存储</h2>
-        <p class="tier-desc">所有功能共用的本地数据：字幕缓存、AI 对话、分拣结果和备注。都存在浏览器本地，不上传。</p>
-        <p class="hint"><a href="./history/history.html" target="_blank">打开视频记录</a></p>
-        <div id="storageLimits" class="about-card"><span aria-busy="true">正在统计…</span></div>
+      <section class="sec" id="note" data-name="笔记格式">
+        <div class="sec-head">
+          <div class="no">02</div>
+          <h2>笔记格式</h2>
+          <p>复制 Markdown、下载 .md<span class="obsidian-only">、写入 Obsidian</span> 都按这里生成。</p>
+        </div>
+        <div class="rows">
+          <div class="row">
+            <div class="lab"><label class="name" for="tags">默认标签</label><p class="hint">用逗号分开。</p></div>
+            <div class="ctl"><input id="tags" type="text" placeholder="MoonDigest, 视频" /></div>
+          </div>
+          <div class="row">
+            <div class="lab"><label class="name" for="includeDateInFilename">文件名前加导出日期</label><p id="filenameSample" class="hint mono">2026-10-05 视频标题.md</p></div>
+            <div class="ctl"><input id="includeDateInFilename" type="checkbox" class="switch" /></div>
+          </div>
+          <div class="row">
+            <div class="lab"><label class="name" for="includeHotCommentsInNote">带上前 20 条热门评论</label></div>
+            <div class="ctl"><input id="includeHotCommentsInNote" type="checkbox" class="switch" /></div>
+          </div>
+          <div class="row">
+            <div class="lab"><label class="name" for="includeCoverInNote">笔记开头插入封面图</label></div>
+            <div class="ctl"><input id="includeCoverInNote" type="checkbox" class="switch" /></div>
+          </div>
+          <div class="row">
+            <div class="lab">
+              <label class="name" for="includeAiChatInNote">附带 AI 问答</label>
+              <p class="hint">把这个视频最近一段侧边栏对话写进笔记末尾的「AI 问答」段落。<span class="obsidian-only">写入 Obsidian 后，这一段跟着新回答自动更新，段内手改的字会被覆盖，笔记其余部分不动。</span></p>
+            </div>
+            <div class="ctl"><input id="includeAiChatInNote" type="checkbox" class="switch" /></div>
+          </div>
+
+          <details class="adv">
+            <summary>属性和附加段落</summary>
+            <div class="row wide">
+              <div class="lab"><span class="name">笔记属性（frontmatter）</span><p class="hint">勾选要写进笔记开头属性区的字段。</p></div>
+              <div class="ctl fm-grid">
+                <label class="chipbox"><input type="checkbox" name="frontmatterField" value="title" /><span class="mono">title</span></label>
+                <label class="chipbox"><input type="checkbox" name="frontmatterField" value="url" /><span class="mono">url</span></label>
+                <label class="chipbox"><input type="checkbox" name="frontmatterField" value="site" /><span class="mono">site</span></label>
+                <label class="chipbox"><input type="checkbox" name="frontmatterField" value="video_id" /><span class="mono">video_id</span></label>
+                <label class="chipbox"><input type="checkbox" name="frontmatterField" value="cid" /><span class="mono">cid</span><span class="faint">仅 B 站</span></label>
+                <label class="chipbox"><input type="checkbox" name="frontmatterField" value="author" /><span class="mono">author</span></label>
+                <label class="chipbox"><input type="checkbox" name="frontmatterField" value="author_url" /><span class="mono">author_url</span></label>
+                <label class="chipbox"><input type="checkbox" name="frontmatterField" value="duration" /><span class="mono">duration</span></label>
+                <label class="chipbox"><input type="checkbox" name="frontmatterField" value="cover" /><span class="mono">cover</span></label>
+                <label class="chipbox"><input type="checkbox" name="frontmatterField" value="video_tags" /><span class="mono">video_tags</span></label>
+                <label class="chipbox"><input type="checkbox" name="frontmatterField" value="upload_date" /><span class="mono">upload_date</span></label>
+                <label class="chipbox"><input type="checkbox" name="frontmatterField" value="subtitle_lang" /><span class="mono">subtitle_lang</span></label>
+                <label class="chipbox"><input type="checkbox" name="frontmatterField" value="created" /><span class="mono">created</span></label>
+                <label class="chipbox"><input type="checkbox" name="frontmatterField" value="tags" /><span class="mono">tags</span></label>
+              </div>
+            </div>
+            <div class="row wide">
+              <div class="lab"><span class="name">固定属性</span><p class="hint">每篇笔记都带上。值里可以用变量：<code>{{upload_date}}</code> <code>{{created}}</code> <code>{{site}}</code> <code>{{video_id}}</code> <code>{{author_url}}</code> <code>{{cover}}</code> <code>{{duration}}</code></p></div>
+              <div class="ctl">
+                <div id="fixedPropertiesList" class="fixed-properties-list"></div>
+                <p id="fixedPropertiesEmpty" class="empty">还没有固定属性</p>
+                <button id="addFixedPropertyBtn" class="add" type="button">+ 添加属性</button>
+              </div>
+            </div>
+            <div class="row wide">
+              <div class="lab"><span class="name">正文附加段落</span><p class="hint">在正文里插一个空段落标题，留给自己写。正文默认是 简介 → 章节 → 字幕，最多加 5 段。</p></div>
+              <div class="ctl">
+                <div id="noteSectionsList" class="note-sections-list"></div>
+                <p id="noteSectionsEmpty" class="empty">还没有附加段落</p>
+                <button id="addNoteSectionBtn" class="add" type="button">+ 添加段落</button>
+              </div>
+            </div>
+          </details>
+        </div>
       </section>
 
-      <section class="tier">
-        <h2 class="tier-title">高级</h2>
-        <label class="checkbox">
-          <input id="enableDebugLogs" type="checkbox" />
-          启用调试日志（仅在排查问题时开启）
-        </label>
+      <section class="sec" id="ai" data-name="AI 平台">
+        <div class="sec-head">
+          <div class="no">03</div>
+          <h2>AI 平台</h2>
+          <p>可选。支持 OpenAI 兼容接口。</p>
+          <span id="aiSectionPill" class="pill off">没配也能用</span>
+        </div>
+        <div class="rows">
+          <div class="prov">
+            <div id="aiProvidersHead" class="ai-provider-row ai-provider-head" aria-hidden="true">
+              <span>平台</span><span>接口地址</span><span>模型</span><span>API Key</span><span></span><span></span>
+            </div>
+            <div id="aiProvidersList" class="ai-providers-list"></div>
+            <button id="addAiProviderBtn" class="add" type="button">+ 添加平台</button>
+          </div>
+          <p id="aiPromptsLater" class="ai-later">加好平台后，这里会出现系统提示词、AI 总结要求、播放器上的 ✦ AI 按钮和追问。</p>
+          <div id="aiPromptRows">
+            <div class="row wide">
+              <div class="lab"><label class="name" for="aiSystemPrompt">系统提示词</label><p class="hint">每次回答都遵守的规则：语言、长短、时间戳格式。总结格式写在下面的「AI 总结要求」里，因为这里对追问也生效。</p></div>
+              <div class="ctl"><textarea id="aiSystemPrompt" rows="7" placeholder="例如：用中文回答；尽量简洁；引用内容时带时间戳。"></textarea></div>
+            </div>
+            <div class="row wide">
+              <div class="lab"><label class="name" for="playerAiQuickPrompt">AI 总结要求</label><p class="hint">弹窗、侧边栏、播放器、专注模式里的「✦ AI 总结」都先发这一句。留空时只打开侧边栏。</p></div>
+              <div class="ctl"><textarea id="playerAiQuickPrompt" rows="2" placeholder="例如：整理这期视频的内容，输出结构化总结。"></textarea></div>
+            </div>
+            <div class="row">
+              <div class="lab"><label class="name" for="enablePlayerAiQuickAction">在视频播放器上显示 ✦ AI 按钮</label></div>
+              <div class="ctl"><input id="enablePlayerAiQuickAction" type="checkbox" class="switch" /></div>
+            </div>
+            <div class="row wide">
+              <div class="lab"><label class="name" for="aiPresetPrompts">追问</label><p class="hint">有回答后出现在输入框上方，点一下就发。每行一条，最多 12 条。侧边栏「管理追问」里也能改。</p></div>
+              <div class="ctl"><textarea id="aiPresetPrompts" rows="4"></textarea></div>
+            </div>
+          </div>
+        </div>
       </section>
 
-      <section class="about">
-        <h2>项目地址</h2>
-        <div class="about-card">
-          <p class="about-row">
-            <span class="about-label">GitHub</span>
-            <a href="https://github.com/PathGao/MoonDigest" target="_blank" rel="noopener noreferrer">github.com/PathGao/MoonDigest</a>
+      <section class="sec" id="triage" data-name="分拣台">
+        <div class="sec-head">
+          <div class="no">04</div>
+          <h2>收藏夹分拣台</h2>
+          <p>仅 B 站。把一个收藏夹的视频批量粗看、细看，判断哪些值得看。</p>
+          <a class="jump" href="./triage/triage.html" target="_blank">打开分拣台 ↗</a>
+        </div>
+        <div class="rows">
+          <div class="row">
+            <div class="lab"><label class="name" for="showBiliTriageBadges">在 B 站页面显示分拣标记</label><p class="hint">分拣过或打过标签的视频，在收藏夹、视频页、首页和搜索结果里带一个小标记。虚线框 = 只做过标题粗看。</p></div>
+            <div class="ctl"><input id="showBiliTriageBadges" type="checkbox" class="switch" /></div>
+          </div>
+        </div>
+      </section>
+
+      <section class="sec" id="obsidian" data-name="Obsidian">
+        <div class="sec-head">
+          <div class="no">05</div>
+          <h2>Obsidian</h2>
+          <p>把字幕、AI 对话和分拣结果写进 Obsidian，单个或整个收藏夹批量写。</p>
+        </div>
+        <div class="rows">
+          <div class="row toggle-row">
+            <div class="lab"><label class="name" for="obsidianEnabled">启用写入 Obsidian</label></div>
+            <div class="ctl"><input id="obsidianEnabled" type="checkbox" class="switch" /></div>
+          </div>
+
+          <div id="obsidianBody">
+            <details id="obsidianGuide" class="guide-box">
+              <summary>重看配置指引</summary>
+              <ol class="guide">
+                <li><b>装插件</b><span>在 Obsidian 社区插件里装好并启用 <strong>Local REST API with MCP</strong>。</span></li>
+                <li><b>开 HTTP</b><span>插件设置里勾选 <strong>Enable Non-encrypted (HTTP) Server</strong>，地址通常是 <code>http://127.0.0.1:27123</code>。</span></li>
+                <li><b>填 Key</b><span>复制插件里的 API Key，填到下面，点「测试连接」。</span></li>
+              </ol>
+            </details>
+            <div class="row">
+              <div class="lab"><label class="name" for="obsidianApiBaseUrl">Local REST API 地址</label></div>
+              <div class="ctl"><input id="obsidianApiBaseUrl" type="text" placeholder="http://127.0.0.1:27123" /></div>
+            </div>
+            <div class="row">
+              <div class="lab"><label class="name" for="obsidianApiKey">Local REST API Key</label></div>
+              <div class="ctl key">
+                <input id="obsidianApiKey" type="password" placeholder="从插件设置里复制" autocomplete="off" />
+                <span id="obsidianKeyTag" class="keytag" hidden>已保存</span>
+              </div>
+            </div>
+            <div class="row">
+              <div class="lab"></div>
+              <div class="ctl test-line">
+                <button id="testConnectionBtn" class="sm" type="button" title="用上面的地址和 Key 连一次 Obsidian 的 Local REST API">测试连接</button>
+                <span id="obsidianTestResult" role="status"></span>
+              </div>
+            </div>
+            <div class="row">
+              <div class="lab"><label class="name" for="noteFolder">笔记目录</label><p class="hint">单个写入和分拣台批量写入都放这里。点变量加到末尾。</p></div>
+              <div class="ctl">
+                <input id="noteFolder" class="mono" type="text" placeholder="MoonDigest/{{site}}" />
+                <div class="vars">
+                  <button class="var" type="button" data-var="{{site}}" title="网站：bilibili / youtube"><span class="mono">{{site}}</span>网站</button>
+                  <button class="var" type="button" data-var="{{author}}" title="UP 主或频道"><span class="mono">{{author}}</span>UP 主或频道</button>
+                  <button class="var" type="button" data-var="{{created}}" title="写入日期"><span class="mono">{{created}}</span>写入日期</button>
+                  <button class="var" type="button" data-var="{{upload_date}}" title="视频发布日期"><span class="mono">{{upload_date}}</span>视频发布日期</button>
+                  <button class="var" type="button" data-var="{{id}}" title="视频号：BV 号或 YouTube ID"><span class="mono">{{id}}</span>视频号</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="sec" id="data" data-name="数据">
+        <div class="sec-head">
+          <div class="no">06</div>
+          <h2>数据与存储</h2>
+          <p>全部存在这台电脑的浏览器里，不上传。</p>
+          <a class="jump" href="./history/history.html" target="_blank">打开视频记录 ↗</a>
+        </div>
+        <div class="rows">
+          <table class="data">
+            <tbody id="storageLimits"><tr><td aria-busy="true">正在统计…</td></tr></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="sec" id="more" data-name="高级">
+        <div class="sec-head">
+          <div class="no">07</div>
+          <h2>高级</h2>
+        </div>
+        <div class="rows">
+          <div class="row">
+            <div class="lab"><label class="name" for="enableDebugLogs">调试日志</label><p class="hint">排查问题时再开。</p></div>
+            <div class="ctl"><input id="enableDebugLogs" type="checkbox" class="switch" /></div>
+          </div>
+          <div class="sub">项目地址</div>
+          <p class="about">
+            <a href="https://github.com/PathGao/MoonDigest" target="_blank" rel="noopener noreferrer">GitHub · github.com/PathGao/MoonDigest ↗</a>
+            <a href="https://github.com/PathGao/MoonDigest/issues" target="_blank" rel="noopener noreferrer">反馈问题 / 提 issue ↗</a>
           </p>
-          <p class="about-row">
-            <span class="about-label">反馈</span>
-            <a href="https://github.com/PathGao/MoonDigest/issues" target="_blank" rel="noopener noreferrer">反馈问题 / 提 issue</a>
-          </p>
         </div>
       </section>
+    </main>
 
-      <div id="saveBar" class="save-bar" hidden>
+    <div id="saveBar" class="savebar" hidden>
+      <div class="savebar-in">
         <p id="status" class="status" role="status"></p>
-        <span id="unsavedHint" class="save-bar-hint">有未保存的修改</span>
+        <span id="unsavedHint" class="unsaved">有未保存的修改<span id="unsavedWhere" class="where"></span></span>
         <button id="saveBtn" class="primary" type="button">保存</button>
       </div>
-    </main>
+    </div>
 
     <script src="./limits.js"></script>
     <script src="./options.js"></script>
