@@ -86,10 +86,10 @@ select { height: 28px; max-width: 240px; }
 .list { grid-area: list; }
 .viewer { grid-area: viewer; }
 
-/* The steps take one row and the current step's actions always the row below, so switching tabs or
-   filters never moves the bar between layouts. */
-.stagebar { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 16px; padding-bottom: 6px; }
-.tabs { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
+/* The steps take one row and the current step's actions always the row below, both centered, so
+   switching tabs or filters never moves the bar between layouts. */
+.stagebar { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 6px 16px; padding-bottom: 6px; }
+.tabs { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 4px; }
 .tabs button { height: auto; min-height: 32px; border-radius: 16px; }
 .tabs button[aria-selected="true"] { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
 .tabs .count { margin-left: 4px; opacity: 0.75; font-variant-numeric: tabular-nums; }
@@ -217,10 +217,10 @@ button.icon { width: 26px; height: 24px; padding: 0; }
 .chip.on { background: color-mix(in srgb, var(--c) 20%, transparent); }
 .chips { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
 
-/* The criteria note shrinks to an ellipsis (full text in its title) before the actions wrap.
+/* The criteria note is capped and ends in an ellipsis (full text in its title).
    An empty row keeps its height, so the list below does not move between tabs. */
-.list-header { align-items: center; flex: 1 1 100%; min-width: 0; min-height: 28px; }
-.run-line { flex: 1 1 0; min-width: 6em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); font-size: var(--fs-xs); }
+.list-header { align-items: center; justify-content: center; flex: 1 1 100%; min-width: 0; min-height: 28px; }
+.run-line { max-width: 24em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); font-size: var(--fs-xs); }
 .key { font: inherit; margin-left: 4px; opacity: 0.7; }
 @media (hover: none) { .key { display: none; } }
 .card.selected { background: var(--secondary-bg); }
@@ -380,7 +380,7 @@ dialog.wide { width: min(880px, calc(100% - 32px)); }
   .search { order: 1; flex-basis: 100%; }
   .main { padding: 6px 8px 12px; }
   .stagebar { flex-direction: column; flex-wrap: nowrap; align-items: stretch; }
-  .tabs { flex-wrap: nowrap; overflow-x: auto; padding-bottom: 2px; }
+  .tabs { flex-wrap: nowrap; justify-content: flex-start; overflow-x: auto; padding-bottom: 2px; }
   .tabs button, .tabs .arrow, .tabs .tab-sep { flex: none; }
 }
 
