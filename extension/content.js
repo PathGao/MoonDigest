@@ -2331,7 +2331,6 @@ function layoutReaderPlayerHost() {
     return;
   }
 
-  const readingView = byId(ids.readingView);
   const playerHost = state.readingPlayerHost;
   if (!playerHost) {
     return;
@@ -2342,44 +2341,34 @@ function layoutReaderPlayerHost() {
     return;
   }
 
+  // Size from the space available, not from the player's current box: that box already
+  // follows these numbers, so measuring it would only ever shrink the player.
   const video = state.readingVideoEl;
-  let renderedWidth = rect.width;
-  let renderedHeight = rect.height;
-  if (Number(video?.videoWidth) > 0 && Number(video?.videoHeight) > 0) {
-    const aspectRatio = Number(video.videoWidth) / Number(video.videoHeight);
-    if (aspectRatio > 0) {
-      const hostAspectRatio = rect.width / rect.height;
-      if (hostAspectRatio > aspectRatio) {
-        renderedHeight = rect.height;
-        renderedWidth = rect.height * aspectRatio;
-      } else {
-        renderedWidth = rect.width;
-        renderedHeight = rect.width / aspectRatio;
-      }
-    }
-  }
-
-  const widthLimit = getReaderMainWidthLimit();
-  if (renderedWidth > widthLimit) {
-    const scale = widthLimit / renderedWidth;
-    renderedWidth = widthLimit;
-    renderedHeight *= scale;
-  }
-  // Two columns: keep the whole video on screen under the title.
+  const aspectRatio =
+    Number(video?.videoWidth) > 0 && Number(video?.videoHeight) > 0
+      ? Number(video.videoWidth) / Number(video.videoHeight)
+      : 16 / 9;
+  let renderedWidth = getReaderMainWidthLimit();
+  let renderedHeight = renderedWidth / aspectRatio;
+  // Keep the whole video and the chapter strip under it on screen.
   const wrapNode = getReaderPlayerWrapNode(playerHost);
-  if (getReaderSideWidthPx() && wrapNode) {
+  if (wrapNode) {
     const wrapTop = wrapNode.getBoundingClientRect().top + window.scrollY;
-    const heightLimit = Math.max(200, window.innerHeight - wrapTop - getReaderPagePaddingPx());
+    const rail = document.querySelector(".boc-reading-rail");
+    const railSpace = rail?.offsetHeight ? rail.offsetHeight + 12 : 0;
+    const heightLimit = Math.max(200, window.innerHeight - wrapTop - railSpace - getReaderPagePaddingPx());
     if (renderedHeight > heightLimit) {
-      renderedWidth *= heightLimit / renderedHeight;
+      renderedWidth = heightLimit * aspectRatio;
       renderedHeight = heightLimit;
     }
   }
 
   clearNativeReaderFloatingStyles(playerHost);
   cleanupReaderPlayerHostNode(playerHost);
-  readingView.style.setProperty("--boc-reader-player-rendered-width", `${Math.round(renderedWidth)}px`);
-  readingView.style.setProperty("--boc-reader-player-rendered-height", `${Math.round(renderedHeight)}px`);
+  // On <html>: the player and title these size are page nodes outside #boc-reading-view.
+  const rootStyle = document.documentElement.style;
+  rootStyle.setProperty("--boc-reader-player-rendered-width", `${Math.round(renderedWidth)}px`);
+  rootStyle.setProperty("--boc-reader-player-rendered-height", `${Math.round(renderedHeight)}px`);
   updateReadingTranscriptTailSpacer();
   queueEnsureReaderPlayerControlsRecovered({
     reason: "layout-native",
@@ -2416,9 +2405,8 @@ function cleanupReaderPlayerHost() {
     state.readingControlsRecoveryTimer = 0;
   }
   state.readingControlsRecoveryInFlight = false;
-  const readingView = byId(ids.readingView);
-  readingView?.style.removeProperty("--boc-reader-player-rendered-width");
-  readingView?.style.removeProperty("--boc-reader-player-rendered-height");
+  document.documentElement.style.removeProperty("--boc-reader-player-rendered-width");
+  document.documentElement.style.removeProperty("--boc-reader-player-rendered-height");
   const playerHost = state.readingPlayerHost;
   if (!playerHost) {
     return;
@@ -2631,7 +2619,13 @@ function applyReaderPageFocus() {
   const video = getRuntimeVideoElement();
   const playerHost = findReaderPlayerHost(video);
   const titleNode = findReaderTitleContainer();
-  const keepRoots = [root, playerHost, titleNode, document.getElementById("boc-reading-inline-host")].filter(Boolean);
+  const keepRoots = [
+    root,
+    playerHost,
+    titleNode,
+    document.getElementById("boc-reading-inline-host"),
+    document.querySelector(".boc-reading-rail")
+  ].filter(Boolean);
 
   keepRoots.forEach((node) => {
     markReaderKeepSubtree(node);
@@ -2689,8 +2683,14 @@ function moveReadingMainInline() {
     inlineHost.id = "boc-reading-inline-host";
   }
 
-  if (inlineHost.parentElement !== hostParent || inlineHost.previousElementSibling !== playerWrap) {
-    playerWrap.insertAdjacentElement("afterend", inlineHost);
+  // Chapters go right under the video, the transcript column after them.
+  const rail = document.querySelector(".boc-reading-rail");
+  if (rail && (rail.parentElement !== hostParent || rail.previousElementSibling !== playerWrap)) {
+    playerWrap.insertAdjacentElement("afterend", rail);
+  }
+  const hostAnchor = rail || playerWrap;
+  if (inlineHost.parentElement !== hostParent || inlineHost.previousElementSibling !== hostAnchor) {
+    hostAnchor.insertAdjacentElement("afterend", inlineHost);
   }
 
   if (!inlineHost.dataset.bocScrollBound) {
@@ -2705,10 +2705,6 @@ function moveReadingMainInline() {
     inlineHost.dataset.bocScrollBound = "1";
   }
 
-  const rail = document.querySelector(".boc-reading-rail");
-  if (rail && rail.parentElement !== inlineHost) {
-    inlineHost.prepend(rail);
-  }
   if (readingMain.parentElement !== inlineHost) {
     inlineHost.appendChild(readingMain);
   }
@@ -2725,9 +2721,10 @@ function restoreReadingMainInline() {
       state.readingMainOriginalParent.appendChild(readingMain);
     }
   }
+  const layout = document.querySelector(`#${ids.readingView} .boc-reading-layout`);
   const rail = document.querySelector(".boc-reading-rail");
-  if (rail && rail.parentElement === inlineHost) {
-    document.querySelector(`#${ids.readingView} .boc-reading-layout`)?.prepend(rail);
+  if (layout && rail && rail.parentElement !== layout) {
+    layout.prepend(rail);
   }
   inlineHost?.remove();
   state.readingMainOriginalParent = null;
@@ -3786,9 +3783,7 @@ function scrollReadingTranscriptItemIntoView(node) {
     const hostRect = inlineHost.getBoundingClientRect();
     const computed = window.getComputedStyle(node);
     const lineHeight = Number.parseFloat(computed.lineHeight) || itemRect.height || 32;
-    // The chapter list is pinned over the top of the column.
-    const rail = inlineHost.querySelector(".boc-reading-rail");
-    const desiredOffset = (rail?.offsetHeight || 0) + lineHeight * 2.5;
+    const desiredOffset = lineHeight * 2.5;
     const targetScrollTop =
       inlineHost.scrollTop + (itemRect.top - hostRect.top) - desiredOffset;
     inlineHost.scrollTo({

@@ -425,22 +425,17 @@ body[data-boc-reader-mode="1"] .boc-reading-layout {
   gap: 22px;
 }
 
-/* Chapters stay pinned at the top of the transcript column. */
+/* Chapters sit in one scrollable row right under the video. */
 body[data-boc-reader-mode="1"] .boc-reading-rail {
-  position: sticky;
-  top: 0;
   display: grid !important;
-  min-height: 0;
-  max-height: 32vh;
-  grid-template-rows: auto minmax(0, 1fr);
-  gap: 6px;
-  align-content: start;
-  padding: 10px 8px 8px;
+  gap: 4px;
+  margin-top: 12px !important;
+  padding: 8px 10px;
   box-sizing: border-box;
   background: var(--boc-surface);
-  border-bottom: 1px solid var(--boc-border);
+  border: 1px solid var(--boc-border);
+  border-radius: var(--boc-radius-lg);
   pointer-events: auto;
-  z-index: 4;
 }
 
 html[data-boc-reader-mode="1"][data-boc-reader-chapter-visibility="hide"] .boc-reading-rail,
@@ -466,13 +461,17 @@ body[data-boc-reader-mode="1"] #boc-reading-view[data-boc-reader-follow="manual"
 }
 
 body[data-boc-reader-mode="1"] .boc-reading-list {
-  min-height: 0;
-  overflow: auto;
-  padding-right: 6px;
+  display: flex;
+  gap: 4px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: thin;
 }
 
 body[data-boc-reader-mode="1"] .boc-reading-chapter {
-  width: 100%;
+  flex: 0 0 auto;
+  min-width: 96px;
+  max-width: 180px;
   display: grid;
   gap: 4px;
   padding: 8px 10px;
@@ -504,6 +503,9 @@ body[data-boc-reader-mode="1"] .boc-reading-chapter-time {
 }
 
 body[data-boc-reader-mode="1"] .boc-reading-chapter-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   font-size: var(--boc-fs-sm);
   line-height: 1.45;
   color: var(--boc-text) !important;
@@ -1151,7 +1153,8 @@ body[data-boc-reader-mode="1"] #playerWrap,
 body[data-boc-reader-mode="1"] .player-wrap,
 body[data-boc-reader-mode="1"] h1.video-title,
 body[data-boc-reader-mode="1"] .video-info-container,
-body[data-boc-reader-mode="1"] #viewbox_report {
+body[data-boc-reader-mode="1"] #viewbox_report,
+body[data-boc-reader-mode="1"] .boc-reading-rail {
   width: min(
     var(--boc-reader-main-width),
     var(--boc-reader-player-rendered-width, var(--boc-reader-main-width))
