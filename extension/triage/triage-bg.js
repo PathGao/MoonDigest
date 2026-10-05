@@ -314,8 +314,18 @@ async function triageMid() {
   return nav.mid;
 }
 
+// 稍后再看 is listed as one more folder with this id; its own endpoints stand in for the favorites ones.
+const TRIAGE_TOVIEW = "toview";
+
+// The whole 稍后再看 list in one request (the paged toview/web endpoint is only for the site's own page).
+async function triageToviewList() {
+  const data = await triageBiliGet("https://api.bilibili.com/x/v2/history/toview");
+  return data?.list || [];
+}
+
 // type 2 = video, the only type triage-folder-items keeps.
 async function triageFolderIds(mediaId) {
+  if (mediaId === TRIAGE_TOVIEW) return (await triageToviewList()).map((m) => m.bvid);
   const data = await triageBiliGet(`https://api.bilibili.com/x/v3/fav/resource/ids?media_id=${mediaId}&platform=web`);
   return (data || []).filter((m) => m.type === 2).map((m) => m.bvid || m.bv_id);
 }
@@ -323,7 +333,14 @@ async function triageFolderIds(mediaId) {
 async function triageCreatedFolders() {
   const mid = await triageMid();
   const data = await triageBiliGet(`https://api.bilibili.com/x/v3/fav/folder/created/list-all?up_mid=${mid}`);
-  return { mid, folders: (data?.list || []).map((f) => ({ id: f.id, title: f.title, count: f.media_count })) };
+  const toview = await triageBiliGet("https://api.bilibili.com/x/v2/history/toview/web?pn=1&ps=1&viewed=0").catch(() => null);
+  return {
+    mid,
+    folders: [
+      ...(toview ? [{ id: TRIAGE_TOVIEW, title: "稍后再看", count: toview.count || 0 }] : []),
+      ...(data?.list || []).map((f) => ({ id: f.id, title: f.title, count: f.media_count }))
+    ]
+  };
 }
 
 // The folder's 判断标准 and the tag names come with each request from the page.
@@ -595,6 +612,23 @@ const TRIAGE_HANDLERS = {
 
   "triage-folder-items": async ({ mediaId }) => {
     if (!mediaId) throw triageError("缺少 mediaId");
+    if (mediaId === TRIAGE_TOVIEW) {
+      const items = (await triageToviewList()).map((m) => ({
+        bvid: m.bvid,
+        aid: m.aid,
+        title: m.title,
+        cover: m.pic,
+        upper: m.owner?.name || "",
+        duration: m.duration,
+        pubdate: m.pubdate,
+        favTime: m.add_at,
+        intro: m.desc,
+        invalid: m.state !== 0,
+        // Seconds watched on Bilibili, -1 once finished; the card shows it as 看过 N% or 已看完.
+        seen: m.progress
+      }));
+      return { items, ids: items.map((it) => it.bvid), info: { title: "稍后再看", intro: "" } };
+    }
     const items = [];
     let info = null;
     for (let pn = 1; ; pn++) {
@@ -660,6 +694,10 @@ const TRIAGE_HANDLERS = {
   "triage-unfav": async ({ mediaId, aids }) => {
     const list = Array.isArray(aids) ? aids : [];
     if (!mediaId || !list.length) throw triageError("缺少 mediaId 或 aids");
+    if (mediaId === TRIAGE_TOVIEW) {
+      for (const aid of list) await triageBiliPost("/x/v2/history/toview/del", { aid });
+      return { done: list.length };
+    }
     await triageBiliPost("/x/v3/fav/resource/batch-del", {
       media_id: mediaId,
       resources: list.map((a) => `${a}:2`).join(","),
@@ -670,6 +708,10 @@ const TRIAGE_HANDLERS = {
 
   "triage-refav": async ({ mediaId, aid }) => {
     if (!mediaId || !aid) throw triageError("缺少 mediaId 或 aid");
+    if (mediaId === TRIAGE_TOVIEW) {
+      await triageBiliPost("/x/v2/history/toview/add", { aid });
+      return {};
+    }
     await triageBiliPost("/x/v3/fav/resource/deal", { rid: aid, type: 2, add_media_ids: mediaId, del_media_ids: "" });
     return {};
   },
