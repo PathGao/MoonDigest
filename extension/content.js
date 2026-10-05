@@ -171,20 +171,13 @@ function isWatchlaterPage(url = location.href) {
   }
 }
 
-function getReaderContentMaxPx() {
-  if (state.readingContentWidth === "compact") {
-    return 680;
+// Mirrors --boc-reader-side-width in content.css; 0 below 900px, where the transcript sits under the video.
+function getReaderSideWidthPx() {
+  if (window.innerWidth <= 900) {
+    return 0;
   }
-  if (state.readingContentWidth === "narrow") {
-    return 760;
-  }
-  if (state.readingContentWidth === "wide") {
-    return 980;
-  }
-  if (state.readingContentWidth === "full") {
-    return 1100;
-  }
-  return 860;
+  const max = { compact: 340, narrow: 390, wide: 520, full: 600 }[state.readingContentWidth] || 440;
+  return Math.min(max, window.innerWidth * 0.45);
 }
 
 function getReaderPagePaddingPx() {
@@ -192,7 +185,9 @@ function getReaderPagePaddingPx() {
 }
 
 function getReaderMainWidthLimit() {
-  return Math.max(320, Math.min(getReaderContentMaxPx(), window.innerWidth - getReaderPagePaddingPx() * 2));
+  const side = getReaderSideWidthPx();
+  const sideSpace = side ? side + getReaderPagePaddingPx() * 2 : 0;
+  return Math.max(320, window.innerWidth - sideSpace - getReaderPagePaddingPx() * 2);
 }
 
 function clearNativeReaderFloatingStyles(playerHost = state.readingPlayerHost) {
@@ -686,7 +681,7 @@ function buildUiHtml() {
                 })}
                 ${buildReaderStepperControl({
                   id: ids.readingContentWidthSelect,
-                  title: "正文宽度",
+                  title: "字幕栏宽度",
                   settingKey: "readerContentWidth"
                 })}
               </div>
@@ -2370,6 +2365,16 @@ function layoutReaderPlayerHost() {
     renderedWidth = widthLimit;
     renderedHeight *= scale;
   }
+  // Two columns: keep the whole video on screen under the title.
+  const wrapNode = getReaderPlayerWrapNode(playerHost);
+  if (getReaderSideWidthPx() && wrapNode) {
+    const wrapTop = wrapNode.getBoundingClientRect().top + window.scrollY;
+    const heightLimit = Math.max(200, window.innerHeight - wrapTop - getReaderPagePaddingPx());
+    if (renderedHeight > heightLimit) {
+      renderedWidth *= heightLimit / renderedHeight;
+      renderedHeight = heightLimit;
+    }
+  }
 
   clearNativeReaderFloatingStyles(playerHost);
   cleanupReaderPlayerHostNode(playerHost);
@@ -2700,6 +2705,10 @@ function moveReadingMainInline() {
     inlineHost.dataset.bocScrollBound = "1";
   }
 
+  const rail = document.querySelector(".boc-reading-rail");
+  if (rail && rail.parentElement !== inlineHost) {
+    inlineHost.prepend(rail);
+  }
   if (readingMain.parentElement !== inlineHost) {
     inlineHost.appendChild(readingMain);
   }
@@ -2715,6 +2724,10 @@ function restoreReadingMainInline() {
     } else {
       state.readingMainOriginalParent.appendChild(readingMain);
     }
+  }
+  const rail = document.querySelector(".boc-reading-rail");
+  if (rail && rail.parentElement === inlineHost) {
+    document.querySelector(`#${ids.readingView} .boc-reading-layout`)?.prepend(rail);
   }
   inlineHost?.remove();
   state.readingMainOriginalParent = null;
@@ -3773,7 +3786,9 @@ function scrollReadingTranscriptItemIntoView(node) {
     const hostRect = inlineHost.getBoundingClientRect();
     const computed = window.getComputedStyle(node);
     const lineHeight = Number.parseFloat(computed.lineHeight) || itemRect.height || 32;
-    const desiredOffset = lineHeight * 2.5;
+    // The chapter list is pinned over the top of the column.
+    const rail = inlineHost.querySelector(".boc-reading-rail");
+    const desiredOffset = (rail?.offsetHeight || 0) + lineHeight * 2.5;
     const targetScrollTop =
       inlineHost.scrollTop + (itemRect.top - hostRect.top) - desiredOffset;
     inlineHost.scrollTo({

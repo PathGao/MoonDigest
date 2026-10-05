@@ -425,30 +425,22 @@ body[data-boc-reader-mode="1"] .boc-reading-layout {
   gap: 22px;
 }
 
+/* Chapters stay pinned at the top of the transcript column. */
 body[data-boc-reader-mode="1"] .boc-reading-rail {
-  position: fixed;
+  position: sticky;
+  top: 0;
   display: grid !important;
-  left: var(--boc-reader-page-padding) !important;
-  top: 112px !important;
-  width: var(--boc-reader-rail-width) !important;
   min-height: 0;
-  max-height: calc(100vh - 136px) !important;
-  grid-template-rows: auto auto minmax(0, 1fr);
-  gap: 10px;
+  max-height: 32vh;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 6px;
   align-content: start;
-  padding: 12px;
+  padding: 10px 8px 8px;
   box-sizing: border-box;
   background: var(--boc-surface);
-  border: 1px solid var(--boc-border);
-  border-radius: var(--boc-radius-lg);
-  box-shadow: var(--boc-reader-shadow);
+  border-bottom: 1px solid var(--boc-border);
   pointer-events: auto;
-  z-index: 2147483646;
-}
-
-body[data-boc-reader-mode="1"] #boc-reading-view[data-boc-reader-follow="manual"] .boc-reading-rail {
-  border-color: var(--boc-border-strong);
-  box-shadow: 0 8px 20px rgba(15, 23, 42, 0.06);
+  z-index: 4;
 }
 
 html[data-boc-reader-mode="1"][data-boc-reader-chapter-visibility="hide"] .boc-reading-rail,
@@ -974,23 +966,13 @@ html[data-boc-reader-mode="1"] {
   --boc-reader-transcript-font-size: var(--boc-fs-md);
   --boc-reader-transcript-line-height: 1.404;
   --boc-reader-letter-spacing: 0em;
-  --boc-reader-content-max: 860px;
+  /* Two columns: the video fills the left, the transcript column sits fixed on the right.
+     getReaderSideWidthPx / getReaderMainWidthLimit in content.js mirror these numbers. */
+  --boc-reader-side-max: 440px;
   --boc-reader-page-padding: clamp(16px, 2.8vw, 32px);
-  --boc-reader-layout-gap: clamp(16px, 2vw, 24px);
-  --boc-reader-rail-target-width: clamp(168px, 15vw, 220px);
-  --boc-reader-main-width: min(
-    var(--boc-reader-content-max),
-    calc(100vw - (var(--boc-reader-page-padding) * 2))
-  );
-  --boc-reader-rail-width: min(
-    var(--boc-reader-rail-target-width),
-    max(
-      0px,
-      calc(
-        ((100vw - var(--boc-reader-main-width)) / 2) - var(--boc-reader-page-padding) - var(--boc-reader-layout-gap)
-      )
-    )
-  );
+  --boc-reader-side-width: min(var(--boc-reader-side-max), 45vw);
+  --boc-reader-side-space: calc(var(--boc-reader-side-width) + (var(--boc-reader-page-padding) * 2));
+  --boc-reader-main-width: calc(100vw - var(--boc-reader-side-space) - (var(--boc-reader-page-padding) * 2));
   color: var(--boc-text);
 }
 
@@ -1062,19 +1044,19 @@ html[data-boc-reader-mode="1"][data-boc-reader-line-height="loose"] {
 }
 
 html[data-boc-reader-mode="1"][data-boc-reader-content-width="compact"] {
-  --boc-reader-content-max: 680px;
+  --boc-reader-side-max: 340px;
 }
 
 html[data-boc-reader-mode="1"][data-boc-reader-content-width="narrow"] {
-  --boc-reader-content-max: 760px;
+  --boc-reader-side-max: 390px;
 }
 
 html[data-boc-reader-mode="1"][data-boc-reader-content-width="wide"] {
-  --boc-reader-content-max: 980px;
+  --boc-reader-side-max: 520px;
 }
 
 html[data-boc-reader-mode="1"][data-boc-reader-content-width="full"] {
-  --boc-reader-content-max: 1100px;
+  --boc-reader-side-max: 600px;
 }
 
 body[data-boc-reader-mode="1"] #boc-root {
@@ -1169,8 +1151,7 @@ body[data-boc-reader-mode="1"] #playerWrap,
 body[data-boc-reader-mode="1"] .player-wrap,
 body[data-boc-reader-mode="1"] h1.video-title,
 body[data-boc-reader-mode="1"] .video-info-container,
-body[data-boc-reader-mode="1"] #viewbox_report,
-body[data-boc-reader-mode="1"] #boc-reading-inline-host {
+body[data-boc-reader-mode="1"] #viewbox_report {
   width: min(
     var(--boc-reader-main-width),
     var(--boc-reader-player-rendered-width, var(--boc-reader-main-width))
@@ -1183,21 +1164,42 @@ body[data-boc-reader-mode="1"] #boc-reading-inline-host {
   margin-right: auto !important;
 }
 
+html[data-boc-reader-mode="1"] body[data-boc-reader-mode="1"] {
+  padding-right: var(--boc-reader-side-space) !important;
+  box-sizing: border-box !important;
+}
+
+/* YouTube's ytd-app is absolutely positioned and its columns carry a viewport-based min-width,
+   so the body padding above does not reach them. */
+body[data-boc-reader-mode="1"] ytd-app {
+  width: calc(100vw - var(--boc-reader-side-space)) !important;
+}
+
+body[data-boc-reader-mode="1"] ytd-watch-flexy #columns {
+  min-width: 0 !important;
+}
+
+body[data-boc-reader-mode="1"] ytd-watch-flexy #primary {
+  min-width: 0 !important;
+  max-width: var(--boc-reader-main-width) !important;
+}
+
 body[data-boc-reader-mode="1"] #boc-reading-inline-host {
-  min-height: 100vh;
-  margin-top: -1px;
+  position: fixed;
+  top: 64px;
+  right: var(--boc-reader-page-padding);
+  bottom: var(--boc-reader-page-padding);
+  width: var(--boc-reader-side-width);
+  z-index: 2147483645;
   padding: 0;
   border: 1px solid var(--boc-border);
-  border-top: 0;
-  border-radius: 0 0 var(--boc-radius-lg) var(--boc-radius-lg);
+  border-radius: var(--boc-radius-lg);
   background: var(--boc-surface-muted);
   box-shadow: var(--boc-reader-shadow);
   box-sizing: border-box;
   overflow: auto;
-  height: 100vh;
   scrollbar-width: thin;
   scrollbar-color: rgba(100, 116, 139, 0.1) transparent;
-  position: relative;
   isolation: isolate;
   color: var(--boc-text) !important;
 }
@@ -1217,7 +1219,6 @@ body[data-boc-reader-mode="1"] #boc-reading-inline-host::before {
 body[data-boc-reader-mode="1"] #playerWrap,
 body[data-boc-reader-mode="1"] .player-wrap {
   border: 1px solid var(--boc-border);
-  border-bottom: 0;
   border-radius: 0;
   box-shadow: var(--boc-reader-shadow);
   box-sizing: border-box;
@@ -1293,19 +1294,18 @@ body[data-boc-reader-mode="1"] [class*="picture-in-picture"] {
   display: none !important;
 }
 
-@media (max-width: 1320px) {
+/* Too narrow for two columns: the transcript goes back under the video. */
+@media (max-width: 900px) {
   html[data-boc-reader-mode="1"] {
-    --boc-reader-layout-gap: clamp(12px, 1.4vw, 16px);
-    --boc-reader-rail-target-width: clamp(144px, 12vw, 168px);
+    --boc-reader-side-space: 0px;
+    --boc-reader-main-width: calc(100vw - (var(--boc-reader-page-padding) * 2));
   }
 
-  html[data-boc-reader-mode="1"][data-boc-reader-content-width="wide"] .boc-reading-rail {
-    display: none !important;
-  }
-}
-
-@media (max-width: 1180px) {
-  body[data-boc-reader-mode="1"] .boc-reading-rail {
-    display: none !important;
+  body[data-boc-reader-mode="1"] #boc-reading-inline-host {
+    position: relative;
+    inset: auto;
+    width: var(--boc-reader-main-width);
+    height: 100vh;
+    margin: var(--boc-reader-page-padding) auto 0;
   }
 }
