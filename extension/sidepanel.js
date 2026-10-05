@@ -117,6 +117,7 @@ function bindEvents() {
     shouldAutoScrollMessages = isMessagesNearBottom();
   });
   els.settingsBtn.addEventListener("click", () => chrome.runtime.openOptionsPage());
+  els.contextChip.addEventListener("animationend", () => els.contextChip.classList.remove("is-switched"));
   els.contextChip.addEventListener("click", () => {
     void openCurrentContextUrl();
   });
@@ -1275,7 +1276,15 @@ async function followLiveVideo(context) {
   renderHistoryList();
   updateContextChip();
   renderInitialState();
-  showConversationContextNotice(`已切换到新视频：${truncate(context.title || "未知视频", 24)}`, 2500);
+  flashContextChip();
+}
+
+// A video switch lights up the chip that names the video; the animation fades it back on its own.
+function flashContextChip() {
+  const chip = els.contextChip;
+  chip.classList.remove("is-switched");
+  void chip.offsetWidth;
+  chip.classList.add("is-switched");
 }
 
 async function loadPreviousVideoConversationId() {
