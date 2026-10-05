@@ -86,7 +86,8 @@ select { height: 28px; max-width: 240px; }
 .list { grid-area: list; }
 .viewer { grid-area: viewer; }
 
-/* Steps and the current step's action share one row; the actions wrap below on narrow widths. */
+/* The steps take one row and the current step's actions always the row below, so switching tabs or
+   filters never moves the bar between layouts. */
 .stagebar { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 16px; padding-bottom: 6px; }
 .tabs { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
 .tabs button { height: auto; min-height: 32px; border-radius: 16px; }
@@ -216,9 +217,8 @@ button.icon { width: 26px; height: 24px; padding: 0; }
 .chip.on { background: color-mix(in srgb, var(--c) 20%, transparent); }
 .chips { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
 
-/* The actions stay beside the steps: the criteria note shrinks to an ellipsis (full text in its title)
-   before the row would drop below the steps. */
-.list-header { align-items: center; flex: 1 1 0; min-width: min(100%, 480px); }
+/* The criteria note shrinks to an ellipsis (full text in its title) before the actions wrap. */
+.list-header { align-items: center; flex: 1 1 100%; min-width: 0; }
 .run-line { flex: 1 1 0; min-width: 6em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); font-size: var(--fs-xs); }
 .key { font: inherit; margin-left: 4px; opacity: 0.7; }
 @media (hover: none) { .key { display: none; } }
@@ -379,7 +379,6 @@ dialog.wide { width: min(880px, calc(100% - 32px)); }
   .search { order: 1; flex-basis: 100%; }
   .main { padding: 6px 8px 12px; }
   .stagebar { flex-direction: column; flex-wrap: nowrap; align-items: stretch; }
-  .list-header { flex: none; min-width: 0; }
   .tabs { flex-wrap: nowrap; overflow-x: auto; padding-bottom: 2px; }
   .tabs button, .tabs .arrow, .tabs .tab-sep { flex: none; }
 }
