@@ -14,6 +14,20 @@ code {
   color: var(--text-2);
 }
 
+a:not(.secondary-btn) {
+  color: var(--link);
+  text-decoration: none;
+}
+
+a:not(.secondary-btn):hover {
+  color: var(--link-hover);
+  text-decoration: underline;
+}
+
+input[type="checkbox"] {
+  accent-color: var(--accent);
+}
+
 body {
   margin: 0;
   line-height: 1.5;
@@ -41,7 +55,7 @@ h1 {
   border: 1px solid var(--info-border);
   background: var(--info-bg);
   border-radius: var(--radius-md);
-  padding: 12px 14px;
+  padding: 14px var(--space-4);
 }
 
 .quick-start-head {
@@ -182,9 +196,6 @@ select.input-error {
 }
 
 .property-editor {
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  padding: 16px 12px 14px;
   background: var(--field-bg);
 }
 
@@ -308,6 +319,7 @@ select.input-error {
   background: var(--danger-bg);
 }
 
+select,
 .note-section-fields select.note-section-position,
 .ai-provider-row select.ai-provider-preset {
   appearance: none;
@@ -481,7 +493,7 @@ button {
 
 .save-bar-hint {
   flex: 1;
-  color: var(--text-2);
+  color: var(--warn);
   font-size: 13px;
 }
 
@@ -609,7 +621,6 @@ button {
 }
 
 .about-card {
-  border: 1px solid var(--info-border);
   background: var(--info-bg);
   border-radius: var(--radius-md);
   padding: 12px 14px;
@@ -631,7 +642,8 @@ button {
 
 #storageLimits .about-row {
   grid-template-columns: 168px minmax(0, 1fr);
-  align-items: start;
+  align-items: baseline;
+  font-size: var(--fs-sm);
 }
 
 .about-label {
@@ -641,14 +653,8 @@ button {
 }
 
 .about a {
-  color: var(--link);
-  text-decoration: none;
   font-size: 13px;
   word-break: break-all;
-}
-
-.about a:hover {
-  text-decoration: underline;
 }
 
 h2 {
@@ -754,7 +760,7 @@ ol {
 .ai-provider-row {
   display: grid;
   width: 100%;
-  grid-template-columns: 102px minmax(0, 1.58fr) minmax(0, 0.96fr) minmax(0, 0.63fr) 56px 30px;
+  grid-template-columns: 112px minmax(0, 1fr) 112px 72px 92px 30px;
   gap: 6px;
   align-items: center;
   padding: 0;
@@ -786,10 +792,22 @@ ol {
 
 .ai-provider-row .ai-provider-test {
   height: var(--fixed-property-control-size);
-  width: 56px;
-  padding: 0;
-  font-size: 12px;
-  line-height: 1;
+  padding: 0 10px;
+}
+
+/* Column titles above the provider rows, in the field-label style. */
+.ai-provider-head {
+  margin-top: 4px;
+}
+
+.ai-provider-head span {
+  color: var(--text-2);
+  font-size: var(--fs-sm);
+  font-weight: 600;
+}
+
+.ai-provider-head[hidden] {
+  display: none;
 }
 
 .ai-provider-row .ai-provider-remove {
@@ -806,7 +824,7 @@ ol {
   justify-content: center;
 }
 
-.ai-provider-row .ai-provider-remove:hover {
+.ai-provider-row .ai-provider-remove:is(:hover, :focus-visible) {
   color: var(--danger);
   background: var(--danger-bg);
 }
@@ -819,27 +837,6 @@ ol {
   stroke-width: 1.8;
   stroke-linecap: round;
   stroke-linejoin: round;
-}
-
-.ai-provider-clear-key {
-  grid-column: 4 / -1;
-  justify-self: start;
-  height: auto;
-  padding: 0;
-  border: 0;
-  background: transparent;
-  color: var(--muted);
-  font: inherit;
-  font-size: 12px;
-  cursor: pointer;
-}
-
-.ai-provider-clear-key:hover {
-  color: var(--danger);
-}
-
-.ai-provider-clear-key[hidden] {
-  display: none;
 }
 
 .ai-provider-status {
@@ -859,6 +856,9 @@ ol {
   }
   .ai-provider-row .ai-provider-status {
     grid-column: 1 / -1;
+  }
+  .ai-provider-head {
+    display: none;
   }
 }
 
