@@ -42,6 +42,7 @@ input[type="checkbox"] {
 
 input[type="text"],
 input[type="password"],
+input[type="number"],
 select,
 textarea {
   font: inherit;
@@ -59,6 +60,12 @@ select {
   min-width: 0;
   height: 34px;
   padding: 0 10px;
+}
+
+input[type="number"] {
+  width: 72px;
+  height: 34px;
+  padding: 0 8px;
 }
 
 select {

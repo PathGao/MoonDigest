@@ -45,6 +45,10 @@ const DEFAULT_SYNC_SETTINGS = {
   playerAiQuickPrompt: DEFAULT_PLAYER_AI_QUICK_PROMPT,
   includeTimestampInBody: true,
   showBiliTriageBadges: true,
+  seenBar: false,
+  seenMark: false,
+  seenThreshold: 80,
+  seenStyle: "badge",
   enableDebugLogs: false,
   readerTheme: "light",
   readerFontScale: "m",
@@ -1030,6 +1034,10 @@ function normalizeSyncSettings(settings) {
   merged.enablePlayerAiQuickAction = normalizeEnablePlayerAiQuickAction(merged.enablePlayerAiQuickAction);
   merged.playerAiQuickPrompt = normalizePlayerAiQuickPrompt(merged.playerAiQuickPrompt);
   merged.showBiliTriageBadges = merged.showBiliTriageBadges !== false;
+  merged.seenBar = merged.seenBar === true;
+  merged.seenMark = merged.seenMark === true;
+  merged.seenThreshold = Math.min(100, Math.max(1, Math.round(Number(merged.seenThreshold)) || 80));
+  merged.seenStyle = merged.seenStyle === "veil" ? "veil" : "badge";
   merged.readerTheme = normalizeReaderTheme(merged.readerTheme);
   merged.readerFontScale = normalizeReaderFontScale(merged.readerFontScale);
   merged.readerLetterSpacing = normalizeReaderLetterSpacing(merged.readerLetterSpacing);

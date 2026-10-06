@@ -57,7 +57,7 @@ const ctx = vm.createContext({
   }
 });
 vm.runInContext(fs.readFileSync(path.join(__dirname, "..", "limits.js"), "utf8"), ctx);
-vm.runInContext(`${source}\n;globalThis.S = S; globalThis.K = K; globalThis.el = el; globalThis.verdictBadge = verdictBadge; globalThis.seenText = seenText; globalThis.staleCoarse = staleCoarse; globalThis.staleFine = staleFine; globalThis.groupDone = groupDone; globalThis.mergeHead = mergeHead;`, ctx);
+vm.runInContext(`${source}\n;globalThis.S = S; globalThis.K = K; globalThis.el = el; globalThis.verdictBadge = verdictBadge; globalThis.seenText = seenText; globalThis.staleCoarse = staleCoarse; globalThis.staleFine = staleFine; globalThis.groupDone = groupDone; globalThis.mergeHead = mergeHead; globalThis.isSeen = isSeen;`, ctx);
 const t = ctx;
 const plain = (v) => JSON.parse(JSON.stringify(v));
 const realSync = t.syncFolder;
@@ -1128,6 +1128,48 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     assert.deepStrictEqual(plain(store[t.K.removed]), {});
     assert.deepStrictEqual(plain(store[t.K.snapshot("2")].items.slice(0, 2)), [item(961), item(960)]);
     assert.strictEqual(toasts.at(-1), "已收藏 2 个到「目标」");
+  }
+
+  // 失效: a video Bilibili turns into a placeholder keeps what was known; one it hides (still in the id list, no longer
+  // listed) goes to 已取消收藏 marked hidden, and an id check never takes it out again.
+  {
+    const was = { bvid: "BV70", title: "原标题", cover: "c.jpg", upper: "UP", intro: "简介", duration: 90 };
+    const now = { bvid: "BV70", title: "已失效视频", cover: "ph.jpg", upper: "", intro: "", duration: 0, invalid: true };
+    assert.deepStrictEqual(plain(t.keepInvalidInfo([now, item(71)], [was])), [{ ...now, title: "原标题", cover: "c.jpg", upper: "UP", intro: "简介", duration: 90 }, item(71)]);
+    const rec = t.updateRemoved({}, [item(72), item(73)], [], new Set(), 9, ["BV72"]);
+    assert.deepStrictEqual(plain(rec), { BV72: { item: item(72), at: 9, hidden: true }, BV73: { item: item(73), at: 9 } });
+    store[t.K.removed] = structuredClone(rec);
+    assert.strictEqual(await t.dropRemoved(["BV72", "BV73"]), 1, "only the unhidden one leaves on an id match");
+    assert.deepStrictEqual(Object.keys(store[t.K.removed]), ["BV72"]);
+    // The 已失效 chip appears when the view has one and filters to them.
+    openFake("I", [{ ...item(74), invalid: true }, item(75)]);
+    t.S.tab = "read";
+    t.renderTabs();
+    assert.ok(t.el.tagFilter.innerHTML.includes("已失效 1"));
+    t.S.invalidFilter = true;
+    assert.deepStrictEqual(plain(t.visibleItems().map((it) => it.bvid)), ["BV74"]);
+    t.S.invalidFilter = false;
+  }
+
+  // 看过 on covers: the progress bar and the mark each have their own switch; the mark counts the set share or a hand mark.
+  {
+    openFake("S", [item(80), item(81), item(82)]);
+    t.S.seenPct = { BV80: [100, 1], BV81: [50, 1], BV82: null };
+    t.S.watched = { BV82: 1 };
+    const cfg = (bar, mark) => (t.S.seenCfg = { on: bar || mark, bar, mark, threshold: 80, style: "badge" });
+    cfg(false, false);
+    assert.ok(!t.coverHtml(t.S.items[0]).includes("seen-") && !t.isSeen(t.S.items[0]), "both off: nothing");
+    assert.ok(t.isSeen(t.S.items[2]), "a hand mark counts as 看过 whatever the switches");
+    cfg(true, false);
+    assert.ok(t.coverHtml(t.S.items[1]).includes('style="width:50%"') && !t.coverHtml(t.S.items[0]).includes("seen-tag"), "bar only");
+    cfg(false, true);
+    const done = t.coverHtml(t.S.items[0]);
+    assert.ok(done.includes("✓ 看完了") && !done.includes("seen-bar"), "mark only");
+    assert.ok(!t.isSeen(t.S.items[1]) && t.coverHtml(t.S.items[2]).includes("✓ 看过"), "50% is under the threshold; the hand mark shows");
+    t.S.seenCfg.threshold = 50;
+    assert.ok(t.coverHtml(t.S.items[1]).includes("✓ 看过 50%"));
+    t.S.watched = {};
+    cfg(false, false);
   }
 
   console.log("triage selftest: all passed");

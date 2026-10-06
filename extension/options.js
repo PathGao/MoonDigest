@@ -31,6 +31,10 @@ const DEFAULT_SETTINGS = {
   playerAiQuickPrompt: DEFAULT_PLAYER_AI_QUICK_PROMPT,
   includeTimestampInBody: true,
   showBiliTriageBadges: true,
+  seenBar: false,
+  seenMark: false,
+  seenThreshold: 80,
+  seenStyle: "badge",
   enableDebugLogs: false,
   frontmatterFields: [
     "title",
@@ -88,6 +92,10 @@ const elements = {
   playerAiQuickPrompt: document.getElementById("playerAiQuickPrompt"),
   includeTimestampInBody: document.getElementById("includeTimestampInBody"),
   showBiliTriageBadges: document.getElementById("showBiliTriageBadges"),
+  seenBar: document.getElementById("seenBar"),
+  seenMark: document.getElementById("seenMark"),
+  seenThreshold: document.getElementById("seenThreshold"),
+  seenStyle: document.getElementById("seenStyle"),
   enableDebugLogs: document.getElementById("enableDebugLogs"),
   frontmatterFields: document.querySelectorAll('input[name="frontmatterField"]'),
   fixedPropertiesList: document.getElementById("fixedPropertiesList"),
@@ -232,6 +240,10 @@ async function loadSettings() {
   elements.playerAiQuickPrompt.value = String(settings.playerAiQuickPrompt || "");
   elements.includeTimestampInBody.checked = Boolean(settings.includeTimestampInBody);
   elements.showBiliTriageBadges.checked = settings.showBiliTriageBadges !== false;
+  elements.seenBar.checked = settings.seenBar === true;
+  elements.seenMark.checked = settings.seenMark === true;
+  elements.seenThreshold.value = String(settings.seenThreshold || 80);
+  elements.seenStyle.value = settings.seenStyle === "veil" ? "veil" : "badge";
   elements.enableDebugLogs.checked = Boolean(settings.enableDebugLogs);
   // "bvid" was the field name before the site registry.
   const selectedFields = new Set((settings.frontmatterFields || DEFAULT_SETTINGS.frontmatterFields).map((field) => (field === "bvid" ? "video_id" : field)));
@@ -451,6 +463,10 @@ function readFormPayload() {
     playerAiQuickPrompt: normalizePlayerAiQuickPrompt(elements.playerAiQuickPrompt.value),
     includeTimestampInBody: elements.includeTimestampInBody.checked,
     showBiliTriageBadges: elements.showBiliTriageBadges.checked,
+    seenBar: elements.seenBar.checked,
+    seenMark: elements.seenMark.checked,
+    seenThreshold: Math.min(100, Math.max(1, Math.round(Number(elements.seenThreshold.value)) || 80)),
+    seenStyle: elements.seenStyle.value === "veil" ? "veil" : "badge",
     enableDebugLogs: elements.enableDebugLogs.checked,
     frontmatterFields: selectedFields,
     fixedFrontmatterProperties: normalizeFixedFrontmatterProperties(collectFixedPropertyRows()),

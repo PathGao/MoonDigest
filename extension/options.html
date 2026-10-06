@@ -191,6 +191,27 @@
             <div class="lab"><label class="name" for="showBiliTriageBadges">在 B 站页面显示分拣标记</label><p class="hint">分拣过或打过标签的视频，在收藏夹、视频页、首页和搜索结果里带一个小标记。虚线框 = 只做过标题粗看。</p></div>
             <div class="ctl"><input id="showBiliTriageBadges" type="checkbox" class="switch" /></div>
           </div>
+          <div class="row">
+            <div class="lab"><label class="name" for="seenBar">封面显示观看进度条</label><p class="hint">按 B 站历史记录，在分拣台和 B 站页面的视频封面底部画进度条，样式和 B 站一样。<br />这一项或下一项打开时才读历史：只在你打开分拣台或 B 站页面时读新增的部分，最多 10 分钟一次；本地只存每个视频的进度，留最近 1 年、最多 5000 个。</p></div>
+            <div class="ctl"><input id="seenBar" type="checkbox" class="switch" /></div>
+          </div>
+          <div class="row">
+            <div class="lab"><label class="name" for="seenMark">标出看过的视频</label><p class="hint">看够下面的比例，或在分拣台手动标过，就在封面上标「✓ 看过」。</p></div>
+            <div class="ctl"><input id="seenMark" type="checkbox" class="switch" /></div>
+          </div>
+          <div class="row">
+            <div class="lab"><label class="name" for="seenThreshold">看过多少算看过</label><p class="hint">按视频时长的百分比算，短视频也适用。</p></div>
+            <div class="ctl"><input id="seenThreshold" type="number" min="1" max="100" step="1" /> %</div>
+          </div>
+          <div class="row">
+            <div class="lab"><label class="name" for="seenStyle">看过的显示方式</label><p class="hint">角标：封面左上角写「✓ 看过」。封面遮罩：封面盖一层暗色，正中写「✓ 看过」。</p></div>
+            <div class="ctl">
+              <select id="seenStyle">
+                <option value="badge">角标</option>
+                <option value="veil">封面遮罩</option>
+              </select>
+            </div>
+          </div>
         </div>
       </section>
 
