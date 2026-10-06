@@ -430,7 +430,7 @@ assert.throws(() => t.triageParseCommand('{"new_tags":[', cmdItems, cmdTags, {})
     assert.deepStrictEqual(Object.keys(H).filter((k) => !k.startsWith("triage-")), []);
     assert.deepStrictEqual(plain(await H["triage-seen-sync"]()), { skipped: "off" });
     assert.strictEqual(urls.length, 0, "nothing is read with both switches off");
-    sync = { seenBar: true };
+    sync = { seenShow: "bar" };
     const T = Math.floor(Date.now() / 1000) - 1000; // view_at in seconds, recent enough to survive the prune
     const page = (list, max) => ({ code: 0, data: { list, cursor: { max, view_at: 1, business: "archive" } } });
     st.seen_BVa = [95, T - 500];

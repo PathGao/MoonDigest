@@ -16,6 +16,7 @@
           <a href="#note">笔记格式<span class="dot" hidden></span></a>
           <a href="#ai">AI 平台<span class="dot" hidden></span></a>
           <a href="#triage">分拣台<span class="dot" hidden></span></a>
+          <a href="#seen">观看进度<span class="dot" hidden></span></a>
           <a href="#obsidian">Obsidian<span class="dot" hidden></span></a>
           <a href="#data">数据<span class="dot" hidden></span></a>
           <a href="#more">高级<span class="dot" hidden></span></a>
@@ -191,20 +192,33 @@
             <div class="lab"><label class="name" for="showBiliTriageBadges">在 B 站页面显示分拣标记</label><p class="hint">分拣过或打过标签的视频，在收藏夹、视频页、首页和搜索结果里带一个小标记。虚线框 = 只做过标题粗看。</p></div>
             <div class="ctl"><input id="showBiliTriageBadges" type="checkbox" class="switch" /></div>
           </div>
+        </div>
+      </section>
+
+      <section class="sec" id="seen" data-name="观看进度">
+        <div class="sec-head">
+          <div class="no">05</div>
+          <h2>观看进度</h2>
+          <p>仅 B 站。按你的 B 站历史记录，在分拣台和 B 站页面的视频封面上标出看了多少。</p>
+        </div>
+        <div class="rows">
           <div class="row">
-            <div class="lab"><label class="name" for="seenBar">封面显示观看进度条</label><p class="hint">按 B 站历史记录，在分拣台和 B 站页面的视频封面底部画进度条，样式和 B 站一样。<br />这一项或下一项打开时才读历史：只在你打开分拣台或 B 站页面时读新增的部分，最多 10 分钟一次；本地只存每个视频的进度，留最近 1 年、最多 5000 个。</p></div>
-            <div class="ctl"><input id="seenBar" type="checkbox" class="switch" /></div>
+            <div class="lab"><label class="name" for="seenShow">封面显示</label><p class="hint">进度条和 B 站自己的一样；看过标记在看够下面的比例、或在分拣台手动标过时出现。<br />关闭时不读历史。打开后只在你打开分拣台或 B 站页面时读新增的部分，最多 10 分钟一次；本地只存每个视频的进度，留最近 1 年、最多 5000 个。</p></div>
+            <div class="ctl">
+              <select id="seenShow">
+                <option value="off">关</option>
+                <option value="bar">进度条</option>
+                <option value="mark">看过标记</option>
+                <option value="both">进度条和看过标记</option>
+              </select>
+            </div>
           </div>
-          <div class="row">
-            <div class="lab"><label class="name" for="seenMark">标出看过的视频</label><p class="hint">看够下面的比例，或在分拣台手动标过，就在封面上标「✓ 看过」。</p></div>
-            <div class="ctl"><input id="seenMark" type="checkbox" class="switch" /></div>
-          </div>
-          <div class="row">
+          <div class="row" data-seen-mark-row>
             <div class="lab"><label class="name" for="seenThreshold">看过多少算看过</label><p class="hint">按视频时长的百分比算，短视频也适用。</p></div>
             <div class="ctl"><input id="seenThreshold" type="number" min="1" max="100" step="1" /> %</div>
           </div>
-          <div class="row">
-            <div class="lab"><label class="name" for="seenStyle">看过的显示方式</label><p class="hint">角标：封面左上角写「✓ 看过」。封面遮罩：封面盖一层暗色，正中写「✓ 看过」。</p></div>
+          <div class="row" data-seen-mark-row>
+            <div class="lab"><label class="name" for="seenStyle">看过标记样式</label><p class="hint">角标：封面左上角写「✓ 看过」。封面遮罩：封面盖一层暗色，正中写「✓ 看过」。</p></div>
             <div class="ctl">
               <select id="seenStyle">
                 <option value="badge">角标</option>
@@ -217,7 +231,7 @@
 
       <section class="sec" id="obsidian" data-name="Obsidian">
         <div class="sec-head">
-          <div class="no">05</div>
+          <div class="no">06</div>
           <h2>Obsidian</h2>
           <p>把字幕、AI 对话和分拣结果写进 Obsidian，单个或整个收藏夹批量写。</p>
         </div>
@@ -273,7 +287,7 @@
 
       <section class="sec" id="data" data-name="数据">
         <div class="sec-head">
-          <div class="no">06</div>
+          <div class="no">07</div>
           <h2>数据与存储</h2>
           <p>全部存在这台电脑的浏览器里，不上传。</p>
           <a class="jump" href="./history/history.html" target="_blank">打开视频记录 ↗</a>
@@ -287,7 +301,7 @@
 
       <section class="sec" id="more" data-name="高级">
         <div class="sec-head">
-          <div class="no">07</div>
+          <div class="no">08</div>
           <h2>高级</h2>
         </div>
         <div class="rows">

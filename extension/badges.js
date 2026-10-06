@@ -64,8 +64,8 @@
   if (typeof chrome === "undefined" || !chrome.storage?.local || typeof document === "undefined") return;
 
   const SETTING = "showBiliTriageBadges";
-  // 看过 marks on covers have their own switch (设置页, off by default); either one turns the page scan on.
-  const SEEN_DEFAULTS = { seenBar: false, seenMark: false, seenThreshold: 80, seenStyle: "badge" };
+  // 看过 on covers has its own setting (设置页「观看进度」, off by default); it or the triage marks turn the page scan on.
+  const SEEN_DEFAULTS = { seenShow: "off", seenThreshold: 80, seenStyle: "badge" };
   let triageOn = false;
   let seenCfg = { on: false, bar: false, mark: false, threshold: 80, style: "badge" };
   const seenCache = new Map(); // bvid -> percent | 0
@@ -342,8 +342,8 @@
   function applySettings(v) {
     triageOn = v[SETTING] !== false;
     const before = seenCfg.on;
-    const bar = v.seenBar === true;
-    const mark = v.seenMark === true;
+    const bar = v.seenShow === "bar" || v.seenShow === "both";
+    const mark = v.seenShow === "mark" || v.seenShow === "both";
     seenCfg = { on: bar || mark, bar, mark, threshold: Number(v.seenThreshold) || 80, style: v.seenStyle === "veil" ? "veil" : "badge" };
     // Only the top frame asks; the background reads what is new at most every 10 minutes.
     if (seenCfg.on && !before && window === window.top) chrome.runtime.sendMessage({ type: "triage-seen-sync" }).catch(() => {});

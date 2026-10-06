@@ -31,8 +31,7 @@ const DEFAULT_SETTINGS = {
   playerAiQuickPrompt: DEFAULT_PLAYER_AI_QUICK_PROMPT,
   includeTimestampInBody: true,
   showBiliTriageBadges: true,
-  seenBar: false,
-  seenMark: false,
+  seenShow: "off",
   seenThreshold: 80,
   seenStyle: "badge",
   enableDebugLogs: false,
@@ -92,8 +91,7 @@ const elements = {
   playerAiQuickPrompt: document.getElementById("playerAiQuickPrompt"),
   includeTimestampInBody: document.getElementById("includeTimestampInBody"),
   showBiliTriageBadges: document.getElementById("showBiliTriageBadges"),
-  seenBar: document.getElementById("seenBar"),
-  seenMark: document.getElementById("seenMark"),
+  seenShow: document.getElementById("seenShow"),
   seenThreshold: document.getElementById("seenThreshold"),
   seenStyle: document.getElementById("seenStyle"),
   enableDebugLogs: document.getElementById("enableDebugLogs"),
@@ -156,6 +154,7 @@ function init() {
     }
   });
   elements.saveBtn.addEventListener("click", saveSettings);
+  elements.seenShow.addEventListener("change", syncSeenRows);
   elements.testConnectionBtn.addEventListener("click", testConnection);
   elements.addFixedPropertyBtn.addEventListener("click", () => addFixedPropertyRow());
   elements.addNoteSectionBtn.addEventListener("click", () => addNoteSectionRow());
@@ -240,8 +239,8 @@ async function loadSettings() {
   elements.playerAiQuickPrompt.value = String(settings.playerAiQuickPrompt || "");
   elements.includeTimestampInBody.checked = Boolean(settings.includeTimestampInBody);
   elements.showBiliTriageBadges.checked = settings.showBiliTriageBadges !== false;
-  elements.seenBar.checked = settings.seenBar === true;
-  elements.seenMark.checked = settings.seenMark === true;
+  elements.seenShow.value = ["bar", "mark", "both"].includes(settings.seenShow) ? settings.seenShow : "off";
+  syncSeenRows();
   elements.seenThreshold.value = String(settings.seenThreshold || 80);
   elements.seenStyle.value = settings.seenStyle === "veil" ? "veil" : "badge";
   elements.enableDebugLogs.checked = Boolean(settings.enableDebugLogs);
@@ -259,6 +258,12 @@ async function loadSettings() {
   renderAiProviders(providers);
   renderHostPermissionBanner(hostPermissionUrls(settings, providers));
   markSaved();
+}
+
+// 看过多少算看过 and the mark style only matter while the mark is shown.
+function syncSeenRows() {
+  const mark = elements.seenShow.value === "mark" || elements.seenShow.value === "both";
+  document.querySelectorAll("[data-seen-mark-row]").forEach((row) => (row.hidden = !mark));
 }
 
 async function saveSettings() {
@@ -463,8 +468,7 @@ function readFormPayload() {
     playerAiQuickPrompt: normalizePlayerAiQuickPrompt(elements.playerAiQuickPrompt.value),
     includeTimestampInBody: elements.includeTimestampInBody.checked,
     showBiliTriageBadges: elements.showBiliTriageBadges.checked,
-    seenBar: elements.seenBar.checked,
-    seenMark: elements.seenMark.checked,
+    seenShow: elements.seenShow.value,
     seenThreshold: Math.min(100, Math.max(1, Math.round(Number(elements.seenThreshold.value)) || 80)),
     seenStyle: elements.seenStyle.value === "veil" ? "veil" : "badge",
     enableDebugLogs: elements.enableDebugLogs.checked,

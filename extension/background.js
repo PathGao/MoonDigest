@@ -45,8 +45,7 @@ const DEFAULT_SYNC_SETTINGS = {
   playerAiQuickPrompt: DEFAULT_PLAYER_AI_QUICK_PROMPT,
   includeTimestampInBody: true,
   showBiliTriageBadges: true,
-  seenBar: false,
-  seenMark: false,
+  seenShow: "off",
   seenThreshold: 80,
   seenStyle: "badge",
   enableDebugLogs: false,
@@ -1034,8 +1033,7 @@ function normalizeSyncSettings(settings) {
   merged.enablePlayerAiQuickAction = normalizeEnablePlayerAiQuickAction(merged.enablePlayerAiQuickAction);
   merged.playerAiQuickPrompt = normalizePlayerAiQuickPrompt(merged.playerAiQuickPrompt);
   merged.showBiliTriageBadges = merged.showBiliTriageBadges !== false;
-  merged.seenBar = merged.seenBar === true;
-  merged.seenMark = merged.seenMark === true;
+  merged.seenShow = ["bar", "mark", "both"].includes(merged.seenShow) ? merged.seenShow : "off";
   merged.seenThreshold = Math.min(100, Math.max(1, Math.round(Number(merged.seenThreshold)) || 80));
   merged.seenStyle = merged.seenStyle === "veil" ? "veil" : "badge";
   merged.readerTheme = normalizeReaderTheme(merged.readerTheme);

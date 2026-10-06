@@ -217,7 +217,7 @@ const S = {
   watched: {},
   watchedFilter: false,
   invalidFilter: false, // 已失效: invalid in a folder, or hidden by Bilibili in 已取消收藏
-  seenCfg: { on: false, bar: false, mark: false, threshold: 80, style: "badge" }, // 设置页「进度条」「标出看过的视频」
+  seenCfg: { on: false, bar: false, mark: false, threshold: 80, style: "badge" }, // 设置页「观看进度 → 封面显示」
   seenPct: {}, // bvid → [percent, view_at] from the history, null when it has none
   noteOpen: new Set(), // empty notes the user opened for editing
   settings: {
@@ -668,10 +668,10 @@ function followKept(kept) {
 }
 
 // ---------- 看过 ----------
-const SEEN_DEFAULTS = { seenBar: false, seenMark: false, seenThreshold: 80, seenStyle: "badge" };
+const SEEN_DEFAULTS = { seenShow: "off", seenThreshold: 80, seenStyle: "badge" };
 function setSeenCfg(v) {
-  const bar = v.seenBar === true;
-  const mark = v.seenMark === true;
+  const bar = v.seenShow === "bar" || v.seenShow === "both";
+  const mark = v.seenShow === "mark" || v.seenShow === "both";
   S.seenCfg = { on: bar || mark, bar, mark, threshold: Number(v.seenThreshold) || 80, style: v.seenStyle === "veil" ? "veil" : "badge" };
   document.documentElement.dataset.seenStyle = S.seenCfg.style;
   // The background reads only what is new, at most every 10 minutes (triage-seen-sync); its writes come back through followSeen.

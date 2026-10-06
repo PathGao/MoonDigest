@@ -323,7 +323,7 @@ async function triageToviewList() {
   return data?.list || [];
 }
 
-// ---------- 看过 (from the Bilibili watch history; read only while 进度条 or 看过标记 is on) ----------
+// ---------- 看过 (from the Bilibili watch history; read only while 设置页「封面显示」is not 关) ----------
 // Bilibili keeps about three months of history. Only what is new since the last read is fetched, at most every
 // SEEN_GAP_MS and only when a page asks (the triage page or a Bilibili page opening), so it reads no more than the user
 // browsing their own history page would. Each video keeps two numbers under seen_<bvid>: [best percent, last view_at].
@@ -369,8 +369,8 @@ function seenSync({ force }) {
 }
 
 async function seenSyncOnce(force) {
-  const { seenBar, seenMark } = await chrome.storage.sync.get({ seenBar: false, seenMark: false });
-  if (seenBar !== true && seenMark !== true) return { skipped: "off" };
+  const { seenShow } = await chrome.storage.sync.get({ seenShow: "off" });
+  if (!["bar", "mark", "both"].includes(seenShow)) return { skipped: "off" };
   const meta = (await chrome.storage.local.get(SEEN_META))[SEEN_META] || {};
   const now = Date.now();
   if (now < (meta.backoffUntil || 0)) return { skipped: "throttled" };
