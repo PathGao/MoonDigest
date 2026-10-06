@@ -769,6 +769,36 @@ async function checkCached(token, snap) {
   else syncFolder({ force: true, cached: { snap, ids: r.data.bvids } });
 }
 
+// bvid → { item, from } for videos in another chosen folder's cached list (from: its id) or in 已取消收藏 (from: REMOVED).
+async function localItems(mediaId) {
+  const others = S.folders.map((f) => String(f.id)).filter((id) => id !== String(mediaId));
+  const got = await chrome.storage.local.get([K.removed, ...others.map(K.snapshot)]);
+  const local = new Map();
+  for (const id of others) for (const item of got[K.snapshot(id)]?.items || []) if (!local.has(item.bvid)) local.set(item.bvid, { item, from: id });
+  for (const [bvid, rec] of Object.entries(got[K.removed] || {})) if (!local.has(bvid)) local.set(bvid, { item: rec.item, from: REMOVED });
+  return local;
+}
+
+// Changed ids without the full load: removed videos leave the cached list, added ones come from local when MoonDigest
+// already holds them, and only truly new ones are fetched from the newest part of the list. null when an added id is
+// found nowhere (a new favorite deep in the list), so the caller loads the whole folder.
+async function fromCache(mediaId, { snap, ids }, local) {
+  const old = snap.ids || snap.bvids;
+  const oldSet = new Set(old);
+  const added = ids.filter((b) => !oldSet.has(b));
+  const moved = added.filter((b) => local.has(b)).map((b) => local.get(b).item);
+  let head = [];
+  let info = { intro: snap.intro };
+  if (moved.length < added.length) {
+    const r = await send({ type: "triage-folder-items", mediaId, known: [...snap.bvids, ...moved.map((it) => it.bvid)] });
+    if (!r.ok || !r.data.head) return r;
+    head = r.data.items;
+    info = r.data.info || info;
+  }
+  const items = mergeHead(head, [...moved, ...snap.items], old, ids);
+  return items && { ok: true, data: { items, ids, info } };
+}
+
 // ---------- sync with bilibili ----------
 // cached ({ snap, ids }, from checkCached) fetches only the newest pages and takes the rest from the cached list.
 async function syncFolder({ force = false, cached = null } = {}) {
@@ -780,13 +810,13 @@ async function syncFolder({ force = false, cached = null } = {}) {
   const mediaId = S.mediaId;
   renderTop();
   try {
-    let r = await send({ type: "triage-folder-items", mediaId, known: cached?.snap.bvids });
+    // Videos MoonDigest already holds from another chosen folder or 已取消收藏: added here, they reuse that info.
+    const local = await localItems(mediaId);
     if (token !== S.folderToken) return false;
-    if (r.ok && r.data.head) {
-      const items = mergeHead(r.data.items, cached.snap.items, cached.snap.ids || cached.snap.bvids, cached.ids);
-      r = items ? { ok: true, data: { ...r.data, items, ids: cached.ids } } : await send({ type: "triage-folder-items", mediaId });
-      if (token !== S.folderToken) return false;
-    }
+    let r = cached ? await fromCache(mediaId, cached, local) : null;
+    if (token !== S.folderToken) return false;
+    r ||= await send({ type: "triage-folder-items", mediaId });
+    if (token !== S.folderToken) return false;
     if (!r.ok) {
       const needLogin = /登录/.test(r.error || "");
       if (needLogin) showBanner(`未登录 B 站：${r.error}`, "去登录", () => openTab("https://passport.bilibili.com/login"));
@@ -815,7 +845,7 @@ async function syncFolder({ force = false, cached = null } = {}) {
       const snapSet = new Set(snap.bvids);
       const snapInvalid = new Set(snap.invalid || []);
       for (const it of remote) {
-        if (!snapSet.has(it.bvid) && !restored.has(it.bvid)) diff.added.push(it);
+        if (!snapSet.has(it.bvid) && !restored.has(it.bvid)) diff.added.push({ ...it, from: local.get(it.bvid)?.from });
         if (it.invalid && snapSet.has(it.bvid) && !snapInvalid.has(it.bvid)) diff.invalid.push(it.title);
       }
       for (const b of partial ? [] : snap.bvids) {
@@ -1112,7 +1142,8 @@ function showSyncNotice(diff, partial) {
     return;
   }
   el.syncNotice.dataset.partial = partial ? "1" : "";
-  const parts = [`新增 ${added.length}`, ...(partial ? [] : [`已在B站移除 ${removed.length}`]), `已失效 ${invalid.length}`];
+  const fromOthers = added.filter((it) => it.from).length;
+  const parts = [`新增 ${added.length - fromOthers}`, ...(fromOthers ? [`来自其他收藏夹 ${fromOthers}`] : []), ...(partial ? [] : [`已在B站移除 ${removed.length}`]), `已失效 ${invalid.length}`];
   if (restored.length) parts.push(`恢复 ${restored.length}`);
   const head = partial ? `只加载了前 ${partial.count} 个（第 ${partial.page} 页失败：${partial.error}），可稍后重试同步。` : "";
   el.syncText.textContent = `${head}B站同步：${parts.join(" · ")}`;
@@ -1121,8 +1152,10 @@ function showSyncNotice(diff, partial) {
   el.syncViewBtn.classList.toggle("warn", Boolean(partial));
   const section = (label, titles) =>
     titles.length ? `<div><strong>${label}</strong><ul>${titles.map((t) => `<li>${esc(t)}</li>`).join("")}</ul></div>` : "";
+  const where = (it) => (it.from === REMOVED ? "原在已取消收藏" : `也在「${folderName(it.from)}」`);
   el.syncDetail.innerHTML =
-    section("新增", added.map((it) => it.title)) +
+    section("新增", added.filter((it) => !it.from).map((it) => it.title)) +
+    section("来自其他收藏夹", added.filter((it) => it.from).map((it) => `${it.title}（${where(it)}）`)) +
     section("已在B站移除", removed) +
     section("已失效", invalid) +
     section("恢复（在B站重新收藏）", restored);

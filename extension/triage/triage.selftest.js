@@ -784,6 +784,21 @@ function openFake(mediaId, items, decisions = {}) {
   assert.deepStrictEqual(plain(itemCalls), [["BV2", "BV3"]], "one head request with the cached bvids");
   assert.deepStrictEqual(plain(t.S.items.map((it) => it.bvid)), ["BV8", "BV2"]);
   assert.deepStrictEqual(plain(store.triage_snapshot_6.ids), ["BV8", "BV2"], "the snapshot takes the new id list");
+  // An added id already in another chosen folder's cache is taken from there, no request, and the notice says so.
+  t.S.folders = [{ id: "6", title: "夹6" }, { id: "7", title: "夹7" }];
+  t.S.allFolders = t.S.folders;
+  store.triage_snapshot_7 = { bvids: ["BV9"], ids: ["BV9"], items: [{ ...item(9), title: "从7来" }], intro: "" };
+  handlers["triage-folder-ids"] = () => ({ ok: true, data: { bvids: ["BV9", "BV8", "BV2"] } });
+  itemCalls.length = 0;
+  t.el.syncDetail = {};
+  t.el.syncText = {};
+  await t.openFolder("6");
+  for (let i = 0; i < 20; i++) await new Promise((r) => setImmediate(r));
+  assert.deepStrictEqual(plain(itemCalls), [], "nothing fetched for a video that moved in");
+  assert.deepStrictEqual(plain(t.S.items.map((it) => it.bvid)), ["BV9", "BV8", "BV2"]);
+  assert.ok(t.el.syncDetail.innerHTML.includes("<strong>来自其他收藏夹</strong><ul><li>从7来（也在「夹7」）</li>"), t.el.syncDetail.innerHTML);
+  assert.ok(t.el.syncText.textContent.includes("新增 0 · 来自其他收藏夹 1"), t.el.syncText.textContent);
+  assert.ok(!("from" in store.triage_snapshot_6.items[0]), "the cache keeps plain items");
 
   // 阅览: every step in one list, the AI-class chip filters across steps.
   openFake("R", [item(701), item(702), item(703), item(704)]);
