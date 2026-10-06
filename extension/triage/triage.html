@@ -181,12 +181,14 @@
           <input id="transferName" type="text" maxlength="20" placeholder="新收藏夹名称" aria-label="新收藏夹名称" autocomplete="off" />
           <label><input id="transferPrivate" type="checkbox" /> 设为私密</label>
         </div>
-        <p class="dialog-hint">复制：原收藏夹里也留着。移动：从原收藏夹移走。</p>
+        <p id="transferUnchosen" class="dialog-hint warn" hidden></p>
+        <p id="transferHow" class="dialog-hint">复制：原收藏夹里也留着。移动：从原收藏夹移走。</p>
         <div class="dialog-actions">
           <span class="spacer"></span>
           <button value="cancel" type="submit" formnovalidate aria-label="取消">取消</button>
           <button value="copy" type="submit" aria-label="复制过去">复制</button>
           <button value="move" type="submit" class="primary" aria-label="移动过去">移动</button>
+          <button value="add" type="submit" class="primary" aria-label="收藏到这个收藏夹">收藏</button>
         </div>
       </form>
     </dialog>

@@ -950,6 +950,62 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   assert.strictEqual(t.visibleItems().length, 4);
   Object.assign(t.S, { titleRes: {}, analyses: {}, classFilter: { coarse: "all", fine: "all", read: "all" } });
 
+  // 移动 runs to the end after another folder opens, and each chunk updates both cached lists at once, so opening
+  // either folder mid-run never sends moved videos to 已取消收藏.
+  {
+    const vids = Array.from({ length: 25 }, (_, i) => item(900 + i));
+    const snap = (items) => ({ bvids: items.map((v) => v.bvid), items, titles: {}, ids: items.map((v) => v.bvid), intro: "" });
+    t.S.allFolders = [{ id: 1, title: "源" }, { id: 2, title: "目标" }, { id: 3, title: "没勾" }];
+    t.S.folders = t.S.allFolders.slice(0, 2);
+    t.S.included = ["1", "2"];
+    store[t.K.snapshot("1")] = snap(vids);
+    store[t.K.snapshot("2")] = snap([]);
+    store[t.K.removed] = {};
+    openFake("1", vids);
+    let calls = 0;
+    handlers["triage-transfer"] = (m) => {
+      assert.deepStrictEqual([m.from, m.to, m.move], ["1", "2", true]);
+      if (++calls === 2) {
+        assert.strictEqual(store[t.K.snapshot("2")].bvids.length, 20, "the first chunk is already in the target's list");
+        assert.strictEqual(store[t.K.snapshot("1")].bvids.length, 5, "and out of the source's");
+        openFake("2", []);
+        assert.ok(t.activityState().text.endsWith("（源）"), t.activityState().text);
+      }
+      return { ok: true };
+    };
+    t.askTransfer = async () => ({ how: "move", target: { id: "2" } });
+    await t.batchTransfer(vids);
+    assert.strictEqual(calls, 2);
+    assert.strictEqual(store[t.K.snapshot("2")].bvids.length, 25);
+    assert.deepStrictEqual(plain(store[t.K.removed]), {}, "moving between chosen folders sends nothing to 已取消收藏");
+    assert.strictEqual(toasts.at(-1), "「源」已移动 25 个到「目标」");
+
+    // A target outside triage: the moved videos go to 已取消收藏 marked with it; ticking it takes them back.
+    const two = [item(950), item(951)];
+    store[t.K.snapshot("1")] = snap(two);
+    openFake("1", two);
+    handlers["triage-transfer"] = () => ({ ok: true });
+    t.askTransfer = async () => ({ how: "move", target: { id: "3" } });
+    await t.batchTransfer(two);
+    assert.deepStrictEqual(plain(store[t.K.removed].BV950.movedTo), { id: "3", title: "没勾" });
+    assert.deepStrictEqual(plain(t.S.items), [], "they leave the source");
+    assert.ok(toasts.at(-1).includes("已取消收藏"), toasts.at(-1));
+    handlers["triage-folder-ids"] = () => ({ ok: true, data: { bvids: ["BV950", "BV951", "BV999"] } });
+    await t.recoverRemoved(["3"]);
+    assert.deepStrictEqual(plain(store[t.K.removed]), {});
+    assert.strictEqual(toasts.at(-1), "已从「已取消收藏」找回 2 个视频");
+
+    // 已取消收藏 收藏到 a chosen folder: added with no source, back in that folder's list without the removed fields.
+    store[t.K.removed] = { BV960: { item: item(960), at: 5 } };
+    openFake("removed", [{ ...item(960), removedAt: 5 }]);
+    handlers["triage-transfer"] = (m) => (assert.deepStrictEqual([m.from, m.to, m.move], ["", "2", false]), { ok: true });
+    t.askTransfer = async () => ({ how: "add", target: { id: "2" } });
+    await t.batchTransfer(t.S.items.slice());
+    assert.deepStrictEqual(plain(store[t.K.removed]), {});
+    assert.deepStrictEqual(plain(store[t.K.snapshot("2")].items[0]), item(960));
+    assert.strictEqual(toasts.at(-1), "已收藏 1 个到「目标」");
+  }
+
   console.log("triage selftest: all passed");
 })().catch((e) => {
   console.error(e);
