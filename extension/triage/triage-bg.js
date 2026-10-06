@@ -329,7 +329,7 @@ async function triageToviewList() {
 // browsing their own history page would. Each video keeps two numbers under seen_<bvid>: [best percent, last view_at].
 const SEEN_GAP_MS = 10 * 60 * 1000;
 const SEEN_BACKOFF_MS = 30 * 60 * 1000;
-const SEEN_PAGE_GAP_MS = 2000;
+const SEEN_PAGE_GAP_MS = 5000;
 const SEEN_MAX_PAGES = 60;
 const SEEN_KEEP_S = 365 * 86400;
 const SEEN_MAX = 5000;
@@ -391,7 +391,7 @@ async function seenSyncOnce(force) {
     while (pages < SEEN_MAX_PAGES) {
       if (pages) {
         await new Promise((r) => setTimeout(r, SEEN_PAGE_GAP_MS));
-        await chrome.runtime.getPlatformInfo(); // an extension API call keeps the worker alive through a ~2 min first read
+        await chrome.runtime.getPlatformInfo(); // an extension API call keeps the worker alive through a ~5 min first read
       }
       const data = await triageBiliGet(`https://api.bilibili.com/x/web-interface/history/cursor?ps=30&max=${cursor.max}&view_at=${cursor.view_at}&business=${cursor.business}`);
       pages++;
