@@ -22,7 +22,7 @@
 所有数据都留在你的浏览器里，没有作者的服务器。
 
 <p align="center">
-  <img src="docs/images/hero-sidepanel.png" alt="B 站视频页右侧的 AI 侧边栏：顶上是视频标题和模型，中间是这期视频的 AI 结构化总结，下方一排常用追问和输入框" width="900">
+  <img src="docs/images/hero-sidepanel.png" alt="B 站视频页右侧的 AI 侧边栏，显示 AI 总结的结构化结果（一句话总结、带时间戳的要点），下方是常用追问和输入框" width="900">
 </p>
 
 ## 快速开始
