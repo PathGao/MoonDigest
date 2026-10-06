@@ -381,8 +381,10 @@ function setUnsaved(value) {
 }
 
 // Compares content, so an edit that is undone (add a row, then remove it) is not "unsaved".
+// Rows are compared as typed: a half-filled one is dropped from the payload, but it is still an edit that saving must validate.
 function readFormState() {
-  return { payload: readFormPayload(), providers: collectAiProviders() };
+  const payload = { ...readFormPayload(), fixedFrontmatterProperties: collectFixedPropertyRows(), notePlaceholderSections: collectNoteSectionRows() };
+  return { payload, providers: collectAiProviders() };
 }
 
 function markSaved() {
