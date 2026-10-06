@@ -731,6 +731,35 @@ const TRIAGE_HANDLERS = {
     return {};
   },
 
+  // 移动 / 复制 to another folder (never 稍后再看); without from, just 收藏 into it (videos from 已取消收藏).
+  // From 稍后再看 or nowhere there is no batch endpoint: add one by one, then remove.
+  "triage-transfer": async ({ from, to, aids, move }) => {
+    const list = Array.isArray(aids) ? aids : [];
+    if (!to || to === TRIAGE_TOVIEW || String(from) === String(to) || !list.length) throw triageError("缺少目标或 aids");
+    if (!from || from === TRIAGE_TOVIEW) {
+      for (const aid of list) {
+        await triageBiliPost("/x/v3/fav/resource/deal", { rid: aid, type: 2, add_media_ids: to, del_media_ids: "" });
+        if (move && from) await triageBiliPost("/x/v2/history/toview/del", { aid });
+      }
+      return { done: list.length };
+    }
+    await triageBiliPost(`/x/v3/fav/resource/${move ? "move" : "copy"}`, {
+      src_media_id: from,
+      tar_media_id: to,
+      mid: await triageMid(),
+      resources: list.map((a) => `${a}:2`).join(","),
+      platform: "web"
+    });
+    return { done: list.length };
+  },
+
+  "triage-folder-create": async ({ title, privacy }) => {
+    const name = String(title || "").trim();
+    if (!name) throw triageError("收藏夹名不能为空");
+    const data = await triageBiliPost("/x/v3/fav/folder/add", { title: name, intro: "", privacy: privacy ? 1 : 0, cover: "" });
+    return { id: data.id, title: data.title || name };
+  },
+
   "triage-settings-get": async () => {
     const s = await chrome.storage.sync.get(TRIAGE_SETTINGS_DEFAULTS);
     const provider = typeof loadAiProviders === "function" ? (await loadAiProviders().catch(() => [])).find((p) => p.enabled !== false) : null;
