@@ -155,6 +155,8 @@ function init() {
   });
   elements.saveBtn.addEventListener("click", saveSettings);
   elements.seenShow.addEventListener("change", syncSeenRows);
+  // The box shows the value that would be saved, so 150 over a stored 100 is not a silent no-op.
+  elements.seenThreshold.addEventListener("change", () => (elements.seenThreshold.value = String(readFormPayload().seenThreshold)));
   elements.testConnectionBtn.addEventListener("click", testConnection);
   elements.addFixedPropertyBtn.addEventListener("click", () => addFixedPropertyRow());
   elements.addNoteSectionBtn.addEventListener("click", () => addNoteSectionRow());
@@ -487,7 +489,7 @@ function readFormPayload() {
     includeTimestampInBody: elements.includeTimestampInBody.checked,
     showBiliTriageBadges: elements.showBiliTriageBadges.checked,
     seenShow: elements.seenShow.value,
-    seenThreshold: Math.min(100, Math.max(1, Math.round(Number(elements.seenThreshold.value)) || 80)),
+    seenThreshold: Number.isFinite(parseFloat(elements.seenThreshold.value)) ? Math.min(100, Math.max(1, Math.round(parseFloat(elements.seenThreshold.value)))) : 80,
     seenStyle: elements.seenStyle.value === "veil" ? "veil" : "badge",
     enableDebugLogs: elements.enableDebugLogs.checked,
     frontmatterFields: selectedFields,

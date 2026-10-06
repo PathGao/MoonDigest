@@ -1034,7 +1034,8 @@ function normalizeSyncSettings(settings) {
   merged.playerAiQuickPrompt = normalizePlayerAiQuickPrompt(merged.playerAiQuickPrompt);
   merged.showBiliTriageBadges = merged.showBiliTriageBadges !== false;
   merged.seenShow = ["bar", "mark", "both"].includes(merged.seenShow) ? merged.seenShow : "off";
-  merged.seenThreshold = Math.min(100, Math.max(1, Math.round(Number(merged.seenThreshold)) || 80));
+  // 0 is clamped to 1; only a missing or non-numeric value falls back to 80.
+  merged.seenThreshold = Number.isFinite(parseFloat(merged.seenThreshold)) ? Math.min(100, Math.max(1, Math.round(parseFloat(merged.seenThreshold)))) : 80;
   merged.seenStyle = merged.seenStyle === "veil" ? "veil" : "badge";
   merged.readerTheme = normalizeReaderTheme(merged.readerTheme);
   merged.readerFontScale = normalizeReaderFontScale(merged.readerFontScale);

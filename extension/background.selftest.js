@@ -138,6 +138,11 @@ process.on("exit", (code) => {
   assert.strictEqual(stored.noteFolder, "N");
   assert.strictEqual((await ctx.chrome.storage.local.get("obsidianApiKey")).obsidianApiKey, "k");
 
+  // 看多少算看完了: 0 clamps to 1, only a missing or non-numeric value means 80.
+  for (const [input, want] of [[0, 1], ["150", 100], [42.4, 42], [undefined, 80], ["", 80], ["x", 80]]) {
+    assert.strictEqual(ctx.normalizeSyncSettings({ seenThreshold: input }).seenThreshold, want);
+  }
+
   const systemFor = (extra) =>
     ctx.buildAiMessages({ context: { isVideoContext: true, title: "T", description: "简介", ...extra }, userPrompt: "q" }).messages[0].content;
   const none = systemFor({});
