@@ -94,9 +94,23 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   const savedA = store[t.K.decisions("A")];
   assert.strictEqual(Object.keys(savedA).length, 45, "every chunk is recorded under folder A");
   assert.ok(toasts.at(-1).startsWith("「A」已取消收藏 45 个"), toasts.at(-1));
-  assert.deepStrictEqual(plain(savedA.BV25), { action: "unfav", at: savedA.BV25.at, aid: 1025, title: "视频25" });
+  assert.deepStrictEqual(plain(savedA.BV25), { action: "unfav", at: savedA.BV25.at, aid: 1025, title: "视频25", batch: savedA.BV0.batch });
+  assert.ok(Object.values(savedA).every((d) => d.batch === savedA.BV0.batch), "every chunk carries the batch's start");
   assert.deepStrictEqual(plain(t.S.decisions), {}, "folder B's decisions are untouched");
   assert.strictEqual(t.S.undo.length, 0, "folder B's undo stack gets no entry for folder A");
+
+  // 最近取消收藏 re-favorites a whole batch in one go (all 45, though it lists only the latest), a single one alone.
+  openFake("A", [], structuredClone(savedA));
+  t.S.decisions.BVsolo = { action: "unfav", at: 1, aid: 7, title: "单个" };
+  assert.ok(t.recentUnfavHtml().includes(`data-refav-batch="${savedA.BV0.batch}"`) && t.recentUnfavHtml().includes("批量取消收藏 45 个"));
+  const refavAids = [];
+  handlers["triage-refav"] = (m) => (refavAids.push(m.aid), { ok: true });
+  await t.refavBatch(savedA.BV0.batch);
+  assert.strictEqual(refavAids.length, 45, "the batch, not the single one");
+  assert.deepStrictEqual(Object.keys(store[t.K.decisions("A")]), [], "the stored records are gone");
+  assert.ok(t.S.decisions.BVsolo && toasts.at(-1) === "已重新收藏这批 45 个", toasts.at(-1));
+  assert.ok(!t.recentUnfavHtml().includes("data-refav-batch"), "no batch line once it is re-favorited");
+  store[t.K.decisions("A")] = structuredClone(savedA);
 
   // Back in the folder mid-run with a record read before the batch's last write: nothing written earlier is lost.
   openFake("A2", many);

@@ -1411,7 +1411,60 @@ function recentUnfavHtml() {
         ${refaving.has(b) ? `<button type="button" aria-busy="true" disabled>重新收藏中…</button>` : `<button type="button" data-refav="${esc(b)}" aria-label="重新收藏 ${title}">重新收藏</button>`}</li>`;
     })
     .join("");
-  return `<section class="recent-unfav" aria-label="最近取消收藏"><h3>最近取消收藏 <span class="muted">${list.length}</span></h3><ul>${rows}</ul></section>`;
+  // One line per batch 取消收藏 of two or more still listed, newest first.
+  const batches = [...new Set(list.map(([, d]) => d.batch).filter(Boolean))]
+    .map((batch) => ({ batch, n: unfavBatchItems(batch).length }))
+    .filter((x) => x.n > 1);
+  const batchRows = batches
+    .map(({ batch, n }) => {
+      const busy = unfavBatchItems(batch).some((it) => refaving.has(it.bvid));
+      return `<p class="recent-batch"><span>${esc(fmtTime(batch))} 批量取消收藏 ${n} 个</span>${busy ? `<button type="button" aria-busy="true" disabled>重新收藏中…</button>` : `<button type="button" data-refav-batch="${batch}" aria-label="这批 ${n} 个全部重新收藏">这批全部重新收藏</button>`}</p>`;
+    })
+    .join("");
+  return `<section class="recent-unfav" aria-label="最近取消收藏"><h3>最近取消收藏 <span class="muted">${list.length}</span></h3>${batchRows}<ul>${rows}</ul></section>`;
+}
+
+// Re-favorites items ([{ bvid, aid }]) into mediaId one by one, stopping at the first failure. It changes Bilibili, so
+// it runs to the end even after another folder opens.
+async function refavMany(mediaId, items) {
+  const rest = items.slice();
+  let n = 0;
+  let error = "";
+  for (const it of items) refaving.add(it.bvid);
+  render();
+  while (rest.length) {
+    if (n) await new Promise((r) => setTimeout(r, 300));
+    if (S.mediaId === mediaId) toast(`正在重新收藏 ${n + 1}/${items.length}…`);
+    const r = await send({ type: "triage-refav", mediaId, aid: rest[0].aid });
+    if (!r.ok) {
+      error = r.error;
+      break;
+    }
+    const { bvid } = rest.shift();
+    refaving.delete(bvid);
+    await patchDecisions(mediaId, { [bvid]: null });
+    n++;
+  }
+  for (const it of rest) refaving.delete(it.bvid);
+  render();
+  return { n, rest, error };
+}
+
+// The records one batch 取消收藏 left in the open folder, all of them (the list shows only the latest).
+const unfavBatchItems = (batch) =>
+  Object.entries(S.decisions)
+    .filter(([b, d]) => d.action === "unfav" && d.batch === batch && d.aid && !S.itemMap.has(b))
+    .map(([bvid, d]) => ({ bvid, aid: d.aid }));
+
+async function refavBatch(batch) {
+  const items = unfavBatchItems(batch).filter((it) => !refaving.has(it.bvid));
+  if (!items.length) return;
+  const mediaId = String(S.mediaId);
+  const { n, rest, error } = await refavMany(mediaId, items);
+  const where = S.mediaId === mediaId ? "" : `「${folderName(mediaId)}」`;
+  if (error) toast(`${where}重新收藏中断（已完成 ${n} 个，剩余 ${rest.length} 个可再点重试）：${error}`, true);
+  else toast(`${where}已重新收藏这批 ${n} 个`);
+  if (!where) quickSync({ force: true });
 }
 
 const refaving = new Set();
@@ -1654,7 +1707,8 @@ function patchKept(patch) {
   return storeSet(K.kept, S.kept);
 }
 // aid and title let 最近取消收藏 re-favorite the video after it has left the folder list.
-const unfavRecord = (it, at) => ({ action: "unfav", at, aid: it.aid, title: it.title });
+// batch: when the batch 取消收藏 that made it started, so 最近取消收藏 can re-favorite that batch in one go.
+const unfavRecord = (it, at, batch) => ({ action: "unfav", at, aid: it.aid, title: it.title, ...(batch && { batch }) });
 const saveVideoTags = () => storeSet(K.videoTags, S.videoTags);
 const shortTitle = (it) => (it.title.length > 24 ? `${it.title.slice(0, 24)}…` : it.title);
 
@@ -1741,26 +1795,12 @@ async function undo() {
     toast(`已撤销：${entry.action === "unfav" ? "重新收藏" : "取消保留"}《${shortTitle(it)}》`);
     S.focused = entry.bvid;
   } else if (entry.kind === "unfavMany") {
-    // It changes Bilibili, so it runs to the end even after another folder opens.
     const mediaId = String(S.mediaId);
-    const here = () => S.mediaId === mediaId;
-    const rest = entry.items.slice();
-    let n = 0;
-    let error = "";
-    while (rest.length) {
-      if (n) await new Promise((r) => setTimeout(r, 300));
-      if (here()) toast(`正在重新收藏 ${n + 1}/${entry.items.length}…`);
-      const r = await send({ type: "triage-refav", mediaId, aid: rest[0].aid });
-      if (!r.ok) {
-        error = r.error;
-        break;
-      }
-      await patchDecisions(mediaId, { [rest.shift().bvid]: null });
-      n++;
-    }
+    const { n, rest, error } = await refavMany(mediaId, entry.items);
     // Elsewhere the ones left stay listed under their folder's 最近取消收藏.
-    const where = here() ? "" : `「${folderName(mediaId)}」`;
-    if (error && here()) {
+    const here = S.mediaId === mediaId;
+    const where = here ? "" : `「${folderName(mediaId)}」`;
+    if (error && here) {
       pushUndo({ kind: "unfavMany", items: rest });
       toast(`撤销中断（已重新收藏 ${n} 个，剩余 ${rest.length} 个可再按 U 重试）：${error}`, true);
     } else if (error) toast(`${where}撤销中断（已重新收藏 ${n} 个，剩余 ${rest.length} 个在它的最近取消收藏里）：${error}`, true);
@@ -1812,6 +1852,7 @@ async function batchUnfav(list) {
   if (!ok || S.unfavBatch) return;
   // It changes Bilibili, so it runs to the end even after another folder opens.
   const mediaId = String(S.mediaId);
+  const batch = Date.now();
   let done = 0;
   S.unfavBatch = { mediaId, done, total: list.length };
   for (let i = 0; i < list.length; i += 20) {
@@ -1826,7 +1867,7 @@ async function batchUnfav(list) {
       break;
     }
     const at = Date.now();
-    await patchDecisions(mediaId, Object.fromEntries(chunk.map((it) => [it.bvid, unfavRecord(it, at)])));
+    await patchDecisions(mediaId, Object.fromEntries(chunk.map((it) => [it.bvid, unfavRecord(it, at, batch)])));
     done += chunk.length;
     if (i + 20 < list.length) await new Promise((r2) => setTimeout(r2, 1000));
   }
@@ -2927,6 +2968,8 @@ function bindEvents() {
     if (e.target.closest("[data-pick-folders]")) return openSettings(false, true);
     const refav = e.target.closest("[data-refav]");
     if (refav) return refavRecent(refav.dataset.refav);
+    const refavAll = e.target.closest("[data-refav-batch]");
+    if (refavAll) return refavBatch(Number(refavAll.dataset.refavBatch));
     const clean = e.target.closest("[data-clean]");
     if (clean) return cleanRemoved([S.itemMap.get(clean.dataset.clean)].filter(Boolean));
     if (e.target.closest("[data-retry-failed]")) return retryFailed();
