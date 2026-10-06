@@ -532,6 +532,9 @@ function visibleItems() {
   return list.sort((x, y) => rank(x) - rank(y));
 }
 const selectedIn = (list) => list.filter((it) => S.selected.has(it.bvid));
+// The selection belongs to the open tab (switching tabs clears it). A filter may hide part of it: every action and count
+// takes only what is listed, and the selection bar says how many are hidden.
+const visibleSelected = () => selectedIn(visibleItems());
 
 function stageCounts() {
   const c = { none: 0, coarse: 0, fine: 0, done: 0, read: 0 };
@@ -1522,8 +1525,10 @@ function renderListHeader(list) {
   const unselected = S.mediaId !== ALL ? list.filter((it) => !S.selected.has(it.bvid)).length : 0;
   const selectAll = unselected ? `<button type="button" class="link" data-head="select-all" aria-label="全选这里列出的 ${list.length} 个">全选这里的 ${list.length} 个</button>` : "";
   if (all) html = loadAllLine() + html;
+  const shown = selectedIn(list).length;
+  const hidden = S.selected.size - shown;
   const selbar = S.selected.size
-    ? `<div class="selbar" role="toolbar" aria-label="选中的视频"><strong class="sel-count">已选中 ${S.selected.size} 个</strong><button type="button" class="link" data-head="clear-selected" aria-label="清空选中">清空选中</button>${selectAll}<span class="sel-actions">${selActs}</span></div>`
+    ? `<div class="selbar" role="toolbar" aria-label="选中的视频"><strong class="sel-count">已选中 ${shown} 个</strong>${hidden ? `<span class="muted">另有 ${hidden} 个被筛选隐藏</span>` : ""}<button type="button" class="link" data-head="clear-selected" aria-label="清空选中">清空选中</button>${selectAll}<span class="sel-actions">${selActs}</span></div>`
     : "";
   el.classFilter.innerHTML = segHtml;
   el.listHeader.innerHTML = `${S.selected.size ? "" : `<span class="select-all">${selectAll}</span>`}<div class="step-actions">${html}</div>${selbar}`;
@@ -2611,7 +2616,7 @@ const isAnalyzed = (it) => S.analyses[it.bvid]?.status === "done";
 
 function aiScopeItems() {
   const scope = el.aiScope.value;
-  if (scope === "selected") return [...S.selected].map((b) => S.itemMap.get(b)).filter(Boolean);
+  if (scope === "selected") return visibleSelected();
   if (scope === "analyzed") return visibleItems().filter(isAnalyzed);
   return visibleItems();
 }
@@ -2642,7 +2647,7 @@ function showAiReview() {
 }
 
 function renderAiForm() {
-  const counts = { filter: visibleItems().length, selected: S.selected.size, analyzed: visibleItems().filter(isAnalyzed).length };
+  const counts = { filter: visibleItems().length, selected: visibleSelected().length, analyzed: visibleItems().filter(isAnalyzed).length };
   const labels = { filter: "当前筛选结果", selected: "已选中 (X)", analyzed: "只处理细看过的" };
   for (const o of el.aiScope.options) {
     o.textContent = `${labels[o.value]} · ${counts[o.value]} 个`;
@@ -2988,7 +2993,7 @@ function writeScopeItems(scope = el.writeScope.value) {
   const list =
     scope === "all" ? S.items
     : scope === "basket" ? S.basket.map((x) => S.itemMap.get(x.bvid) || { bvid: x.bvid, title: x.title || x.bvid })
-    : scope === "selected" ? [...S.selected].map((b) => S.itemMap.get(b)).filter(Boolean)
+    : scope === "selected" ? visibleSelected()
     : visibleItems();
   return list.filter((it) => !it.invalid);
 }
@@ -3214,6 +3219,7 @@ function bindEvents() {
   document.addEventListener("visibilitychange", autoSync);
 
   const showTab = (tab) => {
+    if (tab !== S.tab) S.selected.clear();
     S.tab = tab;
     S.focusIndex = 0;
     S.focused = "";
