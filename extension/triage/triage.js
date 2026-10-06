@@ -31,7 +31,7 @@ const K = {
   decisions: (id) => `triage_decisions_${id}`, // 取消收藏 only: it changes one Bilibili folder
   kept: "triage_kept", // { [bvid]: { action: "keep", at } }: 保留 belongs to the video, so it shows in every folder
   keptMigrated: "triage_kept_v1",
-  watched: "triage_watched", // { [bvid]: at }: 真人已看, set when a video leaves 优先看 as watched; it shows in every folder
+  watched: "triage_watched", // { [bvid]: at }: 手动看过, set when a video leaves 优先看 as watched; it shows in every folder
   removed: "triage_removed", // { [bvid]: { item, at } }: videos that left every folder, kept until the user cleans them
   included: "triage_included_folders", // [mediaId]: the folders the user chose; only these are listed and read
   snapshot: (id) => `triage_snapshot_${id}`,
@@ -2048,7 +2048,7 @@ async function undo() {
       S.basket.splice(entry.basketEntry.i, 0, entry.basketEntry.x);
       saveBasket();
     }
-    toast(entry.prev ? "已撤销：取消真人已看" : "已撤销：真人已看");
+    toast(entry.prev ? "已撤销：取消手动看过" : "已撤销：手动看过");
     render();
   } else if (entry.kind === "keepMany") {
     patchKept(Object.fromEntries(entry.bvids.map((b) => [b, null])));
@@ -3003,7 +3003,7 @@ function basketDoneAndNext() {
   }
 }
 
-// 已看 marks the video 真人已看 and takes it out of 优先看; favorites and decisions are untouched. U undoes both.
+// 已看 marks the video 手动看过 and takes it out of 优先看; favorites and decisions are untouched. U undoes both.
 function removeBasketItem(i) {
   const [x] = S.basket.splice(i, 1);
   if (!x) return;
