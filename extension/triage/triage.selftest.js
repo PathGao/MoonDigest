@@ -243,6 +243,9 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   t.S.titleRes = Object.fromEntries(pool.map((it, i) => [it.bvid, { verdict: i < 10 ? "unsure" : "drop", confidence: "high" }]));
   t.S.selected.clear();
   assert.deepStrictEqual(plain(t.nextBatch()), pool.slice(0, 10).map((it) => it.bvid));
+  for (const it of pool) t.S.selected.add(it.bvid);
+  assert.strictEqual(t.nextBatch().length, 10, "细看 takes at most 10 of a large selection");
+  t.S.selected.clear();
   t.S.selected.add("BV209");
   t.S.selected.add("BV210");
   assert.deepStrictEqual(plain(t.nextBatch()), ["BV209", "BV210"], "a confident 粗看 card can be 细看'd too");
@@ -271,7 +274,13 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   t.S.classFilter.fine = "unsure";
   assert.deepStrictEqual(plain(t.visibleItems().map((it) => it.bvid)), ["BV200"]);
   t.renderListHeader(t.visibleItems());
-  assert.ok(!t.el.listHeader.innerHTML.includes("（AI") && t.el.listHeader.innerHTML.includes("按 X 选中后"), "待定 has no verdict-scoped button");
+  assert.ok(!t.el.listHeader.innerHTML.includes("（AI") && t.el.listHeader.innerHTML.includes("按 X 或全选后"), "待定 has no verdict-scoped button");
+  // 全选 selects what this tab lists; the selection then offers 移动/复制 with 保留 ones included.
+  assert.ok(t.el.listHeader.innerHTML.includes("全选这里的 1 个"));
+  t.S.selected.add("BV200");
+  t.renderListHeader(t.visibleItems());
+  assert.ok(!t.el.listHeader.innerHTML.includes("全选这里") && t.el.listHeader.innerHTML.includes("移动/复制选中的 1 个"));
+  t.S.selected.clear();
   assert.strictEqual(t.batchList("keep").length, 0, "without a selection 待定 has no verdict-scoped batch");
   t.S.selected.add("BV200");
   assert.deepStrictEqual(plain(t.batchList("keep").map((it) => it.bvid)), ["BV200"]);
@@ -410,6 +419,14 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   assert.deepStrictEqual(plain(store[t.K.folderCriteria]), {});
   t.renderListHeader(t.visibleItems());
   assert.ok(t.el.listHeader.innerHTML.includes("未设判断标准") && t.el.listHeader.innerHTML.includes(">写判断标准<"));
+
+  // 移动/复制 is offered for a selection in any tab, 未分析 too.
+  openFake("Z", [item(700)]);
+  t.S.tab = "none";
+  t.S.selected.add("BV700");
+  t.renderListHeader(t.visibleItems());
+  assert.ok(["移动/复制选中的 1 个", "保留选中的 1 个", "取消收藏选中的 1 个"].every((x) => t.el.listHeader.innerHTML.includes(x)), "未分析 offers every selection action");
+  t.S.selected.clear();
 
   // 批量打标签 proposals: new tags only by name, at most 5; a verdict in the reply changes nothing.
   openFake("K", [item(600), item(601)]);
@@ -932,6 +949,84 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   t.S.classFilter.read = "all";
   assert.strictEqual(t.visibleItems().length, 4);
   Object.assign(t.S, { titleRes: {}, analyses: {}, classFilter: { coarse: "all", fine: "all", read: "all" } });
+
+  // 移动 runs to the end after another folder opens, and each chunk updates both cached lists at once, so opening
+  // either folder mid-run never sends moved videos to 已取消收藏.
+  {
+    const vids = Array.from({ length: 25 }, (_, i) => item(900 + i));
+    const snap = (items) => ({ bvids: items.map((v) => v.bvid), items, titles: {}, ids: items.map((v) => v.bvid), intro: "" });
+    t.S.allFolders = [{ id: 1, title: "源", count: 25 }, { id: 2, title: "目标", count: 0 }, { id: 3, title: "没勾", count: 0 }];
+    t.S.folders = t.S.allFolders.slice(0, 2);
+    t.S.included = ["1", "2"];
+    store[t.K.snapshot("1")] = snap(vids);
+    store[t.K.snapshot("2")] = snap([]);
+    store[t.K.removed] = {};
+    openFake("1", vids);
+    let calls = 0;
+    handlers["triage-transfer"] = (m) => {
+      assert.deepStrictEqual([m.from, m.to, m.move], ["1", "2", true]);
+      if (calls === 0) {
+        // Mid-run: the folders being written are not read from Bilibili, and a queued video cannot be unfavorited.
+        assert.ok(t.writingTo("1") && t.writingTo("2") && !t.writingTo("3"));
+        t.S.syncing = false;
+        const before = sent.length;
+        return realSync({ force: true }).then(async (synced) => {
+          assert.strictEqual(synced, false, "no sync of a folder being written");
+          await t.decide("BV924", "unfav");
+          assert.ok(!sent.slice(before).some((m) => m.type === "triage-folder-items" || m.type === "triage-unfav"));
+          assert.ok(toasts.at(-1).includes("等待移动"), toasts.at(-1));
+          calls++;
+          return { ok: true };
+        });
+      }
+      if (++calls === 2) {
+        assert.strictEqual(store[t.K.snapshot("2")].bvids.length, 20, "the first chunk is already in the target's list");
+        assert.strictEqual(store[t.K.snapshot("1")].bvids.length, 5, "and out of the source's");
+        openFake("2", []);
+        assert.ok(t.activityState().text.endsWith("（源）"), t.activityState().text);
+      }
+      return { ok: true };
+    };
+    t.askTransfer = async () => ({ how: "move", target: { id: "2" } });
+    await t.batchTransfer(vids);
+    assert.strictEqual(calls, 2);
+    assert.strictEqual(store[t.K.snapshot("2")].bvids.length, 25);
+    assert.deepStrictEqual(plain(store[t.K.removed]), {}, "moving between chosen folders sends nothing to 已取消收藏");
+    assert.strictEqual(toasts.at(-1), "「源」已移动 25 个到「目标」");
+    assert.deepStrictEqual(t.S.allFolders.map((f) => f.count), [0, 25, 0], "the folder counts follow the move");
+
+    // A target outside triage: the moved videos go to 已取消收藏 marked with it; ticking it takes them back.
+    const two = [item(950), item(951)];
+    store[t.K.snapshot("1")] = snap(two);
+    openFake("1", two);
+    handlers["triage-transfer"] = () => ({ ok: true });
+    t.askTransfer = async () => ({ how: "move", target: { id: "3" } });
+    handlers["triage-transfer"] = () => (openFake("removed", []), { ok: true });
+    await t.batchTransfer(two);
+    assert.deepStrictEqual(plain(t.S.items.map((it) => [it.bvid, it.movedTo.title])), [["BV951", "没勾"], ["BV950", "没勾"]], "已取消收藏 open meanwhile lists them");
+    openFake("1", []);
+    assert.deepStrictEqual(plain(store[t.K.removed].BV950.movedTo), { id: "3", title: "没勾" });
+    assert.ok(toasts.at(-1).includes("已取消收藏"), toasts.at(-1));
+    handlers["triage-folder-ids"] = () => ({ ok: true, data: { bvids: ["BV950", "BV951", "BV999"] } });
+    await t.recoverRemoved(["3"]);
+    assert.deepStrictEqual(plain(store[t.K.removed]), {});
+    assert.strictEqual(toasts.at(-1), "已从「已取消收藏」找回 2 个视频");
+
+    // 已取消收藏 收藏到 a chosen folder: added with no source, back in that folder's list without the removed fields.
+    store[t.K.removed] = { BV960: { item: item(960), at: 5 }, BV961: { item: item(961), at: 5 } };
+    openFake("removed", [{ ...item(960), removedAt: 5 }, { ...item(961), removedAt: 5 }]);
+    t.S.selected.add("BV960");
+    t.renderListHeader(t.visibleItems());
+    assert.ok(t.el.listHeader.innerHTML.includes("清理选中的 1 个") && !t.el.listHeader.innerHTML.includes("清理这 2 个"), "清理 takes the selection");
+    const adds = [];
+    handlers["triage-transfer"] = (m) => (adds.push([m.from, m.to, m.move, m.aids.length]), { ok: true });
+    t.askTransfer = async () => ({ how: "add", target: { id: "2" } });
+    await t.batchTransfer(t.S.items.slice());
+    assert.deepStrictEqual(adds, [["", "2", false, 1], ["", "2", false, 1]], "one video per request");
+    assert.deepStrictEqual(plain(store[t.K.removed]), {});
+    assert.deepStrictEqual(plain(store[t.K.snapshot("2")].items.slice(0, 2)), [item(961), item(960)]);
+    assert.strictEqual(toasts.at(-1), "已收藏 2 个到「目标」");
+  }
 
   console.log("triage selftest: all passed");
 })().catch((e) => {

@@ -350,5 +350,31 @@ assert.throws(() => t.triageParseCommand('{"new_tags":[', cmdItems, cmdTags, {})
   await t.triageMigrateNotes();
   assert.deepStrictEqual(Object.keys(store.triage_notes), ["BV2"], "second run is a no-op");
 
+  // 移动/复制 is one batch request; from 稍后再看 or with no source (已取消收藏) one add per video, 稍后再看 removed only on a
+  // move. 稍后再看 is never a target. A new folder answers with its id.
+  {
+    const H = vm.runInContext("TRIAGE_HANDLERS", ctx);
+    const calls = [];
+    t.chrome = { cookies: { get: async () => ({ value: "csrf" }) } };
+    t.fetch = async (url, opts) => {
+      if (/web-interface\/nav/.test(url)) return { ok: true, status: 200, json: async () => ({ code: 0, data: { isLogin: true, mid: 7 } }) };
+      calls.push([new URL(url).pathname, Object.fromEntries(new URLSearchParams(opts.body))]);
+      return { ok: true, status: 200, json: async () => ({ code: 0, data: { id: 42, title: "新夹" } }) };
+    };
+    await H["triage-transfer"]({ from: "1", to: "2", aids: [10, 11], move: true });
+    assert.deepStrictEqual(calls.pop(), ["/x/v3/fav/resource/move", { src_media_id: "1", tar_media_id: "2", mid: "7", resources: "10:2,11:2", platform: "web", csrf: "csrf" }]);
+    await H["triage-transfer"]({ from: "1", to: "2", aids: [10], move: false });
+    assert.strictEqual(calls.pop()[0], "/x/v3/fav/resource/copy");
+    await H["triage-transfer"]({ from: "toview", to: "2", aids: [10], move: true });
+    assert.deepStrictEqual(calls.splice(0).map((c) => c[0]), ["/x/v3/fav/resource/deal", "/x/v2/history/toview/del"]);
+    await H["triage-transfer"]({ from: "", to: "2", aids: [10, 11], move: false });
+    assert.deepStrictEqual(calls.splice(0).map((c) => c[0]), ["/x/v3/fav/resource/deal", "/x/v3/fav/resource/deal"]);
+    await assert.rejects(H["triage-transfer"]({ from: "1", to: "toview", aids: [10], move: true }), /缺少目标/);
+    await assert.rejects(H["triage-transfer"]({ from: "1", to: "1", aids: [10], move: true }), /缺少目标/);
+    assert.deepStrictEqual(plain(await H["triage-folder-create"]({ title: " 新夹 ", privacy: true })), { id: 42, title: "新夹" });
+    assert.deepStrictEqual(calls.pop(), ["/x/v3/fav/folder/add", { title: "新夹", intro: "", privacy: "1", cover: "", csrf: "csrf" }]);
+    await assert.rejects(H["triage-folder-create"]({ title: "  " }), /不能为空/);
+  }
+
 console.log("triage-bg selftest: all passed");
 })();

@@ -172,6 +172,27 @@
       </form>
     </dialog>
 
+    <dialog id="transferDialog" aria-label="移动或复制">
+      <form method="dialog">
+        <h2 id="transferTitle"></h2>
+        <div id="transferBody" class="confirm-body"></div>
+        <label>目标收藏夹 <select id="transferTarget" aria-label="目标收藏夹"></select></label>
+        <div id="transferNewRow" hidden>
+          <input id="transferName" type="text" maxlength="20" placeholder="新收藏夹名称" aria-label="新收藏夹名称" autocomplete="off" />
+          <label><input id="transferPrivate" type="checkbox" /> 设为私密</label>
+        </div>
+        <p id="transferUnchosen" class="dialog-hint warn" hidden></p>
+        <p id="transferHow" class="dialog-hint">复制：原收藏夹里也留着。移动：从原收藏夹移走。</p>
+        <div class="dialog-actions">
+          <span class="spacer"></span>
+          <button value="cancel" type="submit" formnovalidate aria-label="取消">取消</button>
+          <button value="copy" type="submit" aria-label="复制过去">复制</button>
+          <button value="move" type="submit" class="primary" aria-label="移动过去">移动</button>
+          <button value="add" type="submit" class="primary" aria-label="收藏到这个收藏夹">收藏</button>
+        </div>
+      </form>
+    </dialog>
+
     <dialog id="pickerDialog" aria-label="打标签">
       <form method="dialog">
         <h2 id="pickerTitle">打标签</h2>
@@ -282,14 +303,14 @@
           <dt>T</dt><dd>打标签</dd>
           <dt>E</dt><dd>加入优先看 / 移出</dd>
           <dt>Q</dt><dd>问 AI（在侧边栏打开这个视频）</dd>
-          <dt>X</dt><dd>选中 / 取消选中（粗看完成、细看完成的按钮、批量打标签和批量导出可只处理选中的）</dd>
+          <dt>X</dt><dd>选中 / 取消选中。选中后可批量保留、取消收藏、移动或复制，批量打标签和批量导出也可只处理选中的；列表上方「全选这里的 N 个」一次选中当前列出的全部</dd>
           <dt>O / Enter</dt><dd>在右侧打开视频页（Esc 关闭）</dd>
           <dt>I</dt><dd>批量打标签</dd>
           <dt>/</dt><dd>搜索（Esc 清空）</dd>
           <dt>U</dt><dd>撤销上一步</dd>
           <dt>?</dt><dd>显示本帮助</dd>
         </dl>
-        <p class="dialog-hint">「已取消收藏」里只支持 ?、/ 和 I。</p>
+        <p class="dialog-hint">「已取消收藏」里只支持 ?、/ 和 I，选中用卡片上的「选中」按钮，选中后可收藏到任一收藏夹或只清理选中的。</p>
         <div class="dialog-actions"><span class="spacer"></span><button type="submit" class="primary">知道了</button></div>
       </form>
     </dialog>
