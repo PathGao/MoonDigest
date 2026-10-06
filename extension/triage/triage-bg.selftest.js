@@ -225,6 +225,15 @@ assert.throws(() => t.triageParseCommand('{"new_tags":[', cmdItems, cmdTags, {})
   await assert.rejects(folderItems({ mediaId: 1 }), (e) => e.code === "THROTTLED");
   t.fetch = jsonRes({ code: 0, data: { medias: [media(3)], has_more: false } });
   assert.strictEqual((await folderItems({ mediaId: 1 })).partial, undefined);
+  // With known, loading stops after the first page that is all known and returns just those pages as head.
+  const pages = [];
+  t.fetch = async (url) => {
+    const pn = Number(new URL(url).searchParams.get("pn"));
+    pages.push(pn);
+    return jsonRes({ code: 0, data: { medias: pn === 1 ? [media(9), media(1)] : [media(2), media(3)], has_more: true } })();
+  };
+  const head = await folderItems({ mediaId: 1, known: ["BV1", "BV2", "BV3"] });
+  assert.deepStrictEqual(JSON.parse(JSON.stringify([pages, head.items.map((it) => it.bvid), head.head])), [[1, 2], ["BV9", "BV1", "BV2", "BV3"], true]);
 
   // Analysis reads B站 through sites.js and shares the video page's subtitle cache.
   const store = {};

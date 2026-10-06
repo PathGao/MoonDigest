@@ -57,9 +57,10 @@ const ctx = vm.createContext({
   }
 });
 vm.runInContext(fs.readFileSync(path.join(__dirname, "..", "limits.js"), "utf8"), ctx);
-vm.runInContext(`${source}\n;globalThis.S = S; globalThis.K = K; globalThis.el = el; globalThis.verdictBadge = verdictBadge; globalThis.seenText = seenText; globalThis.staleCoarse = staleCoarse; globalThis.staleFine = staleFine; globalThis.groupDone = groupDone;`, ctx);
+vm.runInContext(`${source}\n;globalThis.S = S; globalThis.K = K; globalThis.el = el; globalThis.verdictBadge = verdictBadge; globalThis.seenText = seenText; globalThis.staleCoarse = staleCoarse; globalThis.staleFine = staleFine; globalThis.groupDone = groupDone; globalThis.mergeHead = mergeHead;`, ctx);
 const t = ctx;
 const plain = (v) => JSON.parse(JSON.stringify(v));
+const realSync = t.syncFolder;
 const toasts = [];
 Object.assign(t, { render() {}, setFocus() {}, toast: (m) => toasts.push(m), askConfirm: async () => true });
 
@@ -753,7 +754,7 @@ function openFake(mediaId, items, decisions = {}) {
   let synced = 0;
   t.syncFolder = async () => (synced++, true); // stubbed since U7
   Object.assign(t.S, { folders: [{ id: "2", title: "夹" }], kept: {} });
-  t.el.folderSelect = { value: "" };
+  t.el.folderSelect = { value: "", querySelector: () => null };
   store.triage_snapshot_2 = { bvids: ["BV2"], ids: ["BV2"], items: [item(2)], intro: "简介" };
   handlers["triage-folder-ids"] = () => ({ ok: true, data: { bvids: ["BV2"] } });
   await t.openFolder("2");
@@ -766,6 +767,23 @@ function openFake(mediaId, items, decisions = {}) {
   delete store.triage_snapshot_2.intro;
   await t.openFolder("2");
   assert.strictEqual(synced, 2, "a snapshot without the intro syncs instead");
+
+  // Changed ids fetch only the newest pages: removed videos leave, added ones come from the head, the rest from the cache.
+  assert.deepStrictEqual(plain(t.mergeHead([item(8)], [item(2), item(3)], ["BV2", "BV3"], ["BV8", "BV2"]).map((it) => it.bvid)), ["BV8", "BV2"]);
+  assert.strictEqual(t.mergeHead([item(8)], [item(2)], ["BV2"], ["BV8", "BV7", "BV2"]), null, "an added id outside the head loads the whole folder");
+  assert.ok(t.mergeHead([], [item(2)], ["BV2", "BVhidden"], ["BV2", "BVhidden"]), "an id the list never shows was already in the old ids");
+  t.syncFolder = realSync;
+  t.S.folders = [{ id: "6", title: "夹6" }];
+  store.triage_snapshot_6 = { bvids: ["BV2", "BV3"], ids: ["BV2", "BV3"], items: [item(2), item(3)], intro: "简介" };
+  handlers["triage-folder-ids"] = () => ({ ok: true, data: { bvids: ["BV8", "BV2"] } });
+  const itemCalls = [];
+  handlers["triage-folder-items"] = (m) => (itemCalls.push(m.known), { ok: true, data: { items: [item(8), item(2)], info: { intro: "简介" }, head: true } });
+  t.S.lastSyncAt = 0;
+  await t.openFolder("6");
+  for (let i = 0; i < 20; i++) await new Promise((r) => setImmediate(r));
+  assert.deepStrictEqual(plain(itemCalls), [["BV2", "BV3"]], "one head request with the cached bvids");
+  assert.deepStrictEqual(plain(t.S.items.map((it) => it.bvid)), ["BV8", "BV2"]);
+  assert.deepStrictEqual(plain(store.triage_snapshot_6.ids), ["BV8", "BV2"], "the snapshot takes the new id list");
 
   // 阅览: every step in one list, the AI-class chip filters across steps.
   openFake("R", [item(701), item(702), item(703), item(704)]);

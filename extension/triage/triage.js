@@ -163,6 +163,16 @@ function idsChanged(cached, ids) {
   const now = new Set(ids);
   return have.size !== now.size || [...now].some((b) => !have.has(b));
 }
+// 切换收藏夹 (pure): the fetched newest pages, then the cached rest still in the folder's id list. null when an added id
+// is in neither (moved in from deep in the list), so the caller loads the whole folder.
+function mergeHead(head, cachedItems, oldIds, ids) {
+  const now = new Set(ids);
+  const inHead = new Set(head.map((it) => it.bvid));
+  const items = [...head, ...cachedItems.filter((it) => now.has(it.bvid) && !inHead.has(it.bvid))];
+  const got = new Set(items.map((it) => it.bvid));
+  const old = new Set(oldIds);
+  return ids.every((b) => old.has(b) || got.has(b)) ? items : null;
+}
 const unfavOnly = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) => v?.action === "unfav"));
 
 // ---------- state ----------
@@ -754,12 +764,14 @@ async function openCached(token) {
 async function checkCached(token, snap) {
   const r = await send({ type: "triage-folder-ids", mediaId: S.mediaId });
   if (token !== S.folderToken) return;
-  if (r.ok && !idsChanged(snap.ids || snap.bvids, r.data.bvids)) S.lastSyncAt = Date.now();
-  else syncFolder({ force: true });
+  if (!r.ok) syncFolder({ force: true });
+  else if (!idsChanged(snap.ids || snap.bvids, r.data.bvids)) S.lastSyncAt = Date.now();
+  else syncFolder({ force: true, cached: { snap, ids: r.data.bvids } });
 }
 
 // ---------- sync with bilibili ----------
-async function syncFolder({ force = false } = {}) {
+// cached ({ snap, ids }, from checkCached) fetches only the newest pages and takes the rest from the cached list.
+async function syncFolder({ force = false, cached = null } = {}) {
   // S.syncing holds the token of the running sync, so a forced sync for a newly opened folder is not blocked by the old one.
   if (S.syncing === S.folderToken || (!force && Date.now() - S.lastSyncAt < SYNC_MIN_GAP_MS)) return false;
   const token = S.folderToken;
@@ -768,8 +780,13 @@ async function syncFolder({ force = false } = {}) {
   const mediaId = S.mediaId;
   renderTop();
   try {
-    const r = await send({ type: "triage-folder-items", mediaId });
+    let r = await send({ type: "triage-folder-items", mediaId, known: cached?.snap.bvids });
     if (token !== S.folderToken) return false;
+    if (r.ok && r.data.head) {
+      const items = mergeHead(r.data.items, cached.snap.items, cached.snap.ids || cached.snap.bvids, cached.ids);
+      r = items ? { ok: true, data: { ...r.data, items, ids: cached.ids } } : await send({ type: "triage-folder-items", mediaId });
+      if (token !== S.folderToken) return false;
+    }
     if (!r.ok) {
       const needLogin = /登录/.test(r.error || "");
       if (needLogin) showBanner(`未登录 B 站：${r.error}`, "去登录", () => openTab("https://passport.bilibili.com/login"));
