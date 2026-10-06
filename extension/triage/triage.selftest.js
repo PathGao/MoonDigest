@@ -516,6 +516,28 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   assert.deepStrictEqual(pickNames("BV3"), ["xa", "xb", "yb"]);
   assert.deepStrictEqual(pickNames("BV1", "w"), ["+w"], "one folder: a new name can be created there");
   assert.deepStrictEqual(pickNames("BV3", "w"), [], "two folders: no new tag");
+  // F15: a tag stays in its folder when the video moves. BV1 is only in 甲 now: 乙's y shows nowhere, finds nothing,
+  // and the picker in 甲 keeps it when saving.
+  t.S.videoTags.BV1 = ["xa", "yb"];
+  assert.deepStrictEqual(plain(t.tagIdsOf("BV1")), ["xa"], "所有收藏夹: the video's folders' tags");
+  t.S.query = "y";
+  assert.deepStrictEqual(plain(t.S.items.filter((it) => t.passFilter(it)).map((it) => it.bvid)), ["BV2"], "another folder's tag name finds nothing");
+  t.S.query = "";
+  openFake("A", [item(1)]);
+  assert.deepStrictEqual(plain(t.tagIdsOf("BV1")), ["xa"], "a folder: its own tags");
+  t.S.mediaId = "removed";
+  assert.deepStrictEqual(plain(t.tagIdsOf("BV1")), ["xa", "yb"], "已取消收藏: every tag");
+  t.S.mediaId = "A";
+  t.el.pickerInput.focus = () => {};
+  t.openPicker("BV1");
+  t.pickOption(0);
+  t.closePicker();
+  assert.deepStrictEqual(plain(t.S.videoTags.BV1), ["yb"], "unticking 甲's x keeps 乙's y");
+  // A 批量打 proposal skips a video that left the folder since.
+  t.S.ai.proposal = { newTags: [], rows: [{ bvid: "BV1", add: ["id:xa"], remove: [], checked: true }, { bvid: "BV2", add: ["id:xa"], remove: [], checked: true }], notes: [], errors: [] };
+  t.el.tagsDialog = { close() {} };
+  t.applyAiProposal();
+  assert.deepStrictEqual(plain([t.S.videoTags.BV1, t.S.videoTags.BV2]), [["yb", "xa"], ["xb", "yb"]]);
   pk.bvid = "";
   Object.assign(t.S, { tags: [], videoTags: {}, folders: [] });
   openFake("K", [item(600), item(601)]);
@@ -600,7 +622,7 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   Object.assign(t.S, {
     analyses: { BV2: { status: "done", oneLiner: "家常做法", points: ["火候是关键"] } },
     notes: { BV3: { text: "周末试试 Agent" } },
-    tags: [{ id: "f", name: "美食", color: "#1" }],
+    tags: [{ id: "f", name: "美食", color: "#1", folder: "Q" }],
     videoTags: { BV2: ["f"] },
     tagFilter: new Set()
   });

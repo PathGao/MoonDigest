@@ -442,7 +442,15 @@ function tagChips() {
 // How many new tags 批量打 may propose: at most 5, within the folder's room.
 const aiNewTagRoom = () => Math.max(0, Math.min(5, TAG_LIMIT - viewTags().length));
 const FOLDER_ONLY = "标签按收藏夹分开，请先打开一个具体收藏夹";
-const tagIdsOf = (bvid) => (S.videoTags[bvid] || []).filter((id) => tagById(id));
+// A video's tags in the open view. A tag belongs to one folder and stays there when the video moves, so a folder shows
+// only its own; 所有收藏夹 those of the video's folders (as the picker); 已取消收藏 every one.
+function tagIdsOf(bvid) {
+  const folders = S.mediaId === REMOVED ? null : pickerFolders(bvid);
+  return (S.videoTags[bvid] || []).filter((id) => {
+    const t = tagById(id);
+    return t && (!folders || folders.includes(t.folder));
+  });
+}
 // Only 取消收藏 / 保留 finish a video; tags and notes never do.
 const isProcessed = (bvid) => Boolean(S.decisions[bvid]);
 // 粗看 and 细看 runs keep going in their own folder (mediaId) after another one opens; these are the open folder's.
@@ -1937,7 +1945,8 @@ function openPicker(bvid) {
   const it = S.itemMap.get(bvid);
   if (!it) return;
   picker.bvid = bvid;
-  picker.prev = tagIdsOf(bvid);
+  // Every tag of the video, so saving keeps the ones of other folders the picker does not list.
+  picker.prev = (S.videoTags[bvid] || []).filter((id) => tagById(id));
   picker.ids = [...picker.prev];
   picker.index = 0;
   el.pickerTitle.textContent = `打标签 ·《${shortTitle(it)}》`;
@@ -2428,7 +2437,7 @@ function mergeAiBatch(p, data, opts, scopeSet) {
 
   for (const [bvid, a] of Object.entries(data?.assignments || {})) {
     if (!scopeSet.has(bvid)) continue;
-    const current = tagIdsOf(bvid);
+    const current = S.videoTags[bvid] || []; // not tagIdsOf: the open folder may have changed since the run started
     const add = [];
     for (const raw of a?.add || []) {
       const name = String(raw ?? "").trim();
@@ -2457,8 +2466,9 @@ function mergeAiBatch(p, data, opts, scopeSet) {
   }
 }
 
-// Row changes after dropping adds of unchecked new tags.
+// Row changes after dropping adds of unchecked new tags. A video that left the folder since the proposal is skipped.
 function effectiveRow(p, row) {
+  if (!S.itemMap.has(row.bvid)) return { add: [], empty: true };
   const add = row.add.filter((ref) => !ref.startsWith("new:") || p.newTags.find((t) => t.key === ref.slice(4))?.checked);
   return { add, empty: !add.length && !row.remove.length };
 }
