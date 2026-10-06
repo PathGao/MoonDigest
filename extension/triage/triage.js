@@ -1339,7 +1339,7 @@ function renderTabs() {
           return `<button type="button" class="chip${on ? " on" : ""}" style="--c:${esc(c.color)}" data-tagfilter="${esc(c.ids.join(","))}" aria-pressed="${on}" aria-label="按标签筛选 ${esc(c.name)}">${esc(c.name)}</button>`;
         })
         .join("")
-    : `<span class="muted">还没有自定义标签</span> · <button type="button" class="link" data-tags-open aria-label="新建标签">新建标签</button>`);
+    : `<span class="muted">还没有自定义标签</span>`); // created from the 标签 button
 }
 
 // Marks a control that starts an AI request (tokens.css draws it in the text color).
@@ -3167,7 +3167,6 @@ function bindEvents() {
     render();
   });
   el.tagFilter.addEventListener("click", (e) => {
-    if (e.target.closest("[data-tags-open]")) return openTags();
     if (e.target.closest("[data-watchedfilter]")) {
       S.watchedFilter = !S.watchedFilter;
       return render();

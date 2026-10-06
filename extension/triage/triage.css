@@ -250,7 +250,8 @@ button.icon { width: 26px; height: 24px; padding: 0; }
 
 .tagbar { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
 /* 标签 opens tag management and AI batch tagging; the chips after it filter by tag. */
-.tag-btn { height: 24px; padding: 0 8px; margin-right: 2px; font-size: var(--fs-xs); }
+/* Same height and type as the AI class tray (.seg) beside it: both are top-level filters. */
+.tag-btn { height: 30px; padding: 0 12px; margin-right: 4px; font-size: var(--fs-sm); }
 .ghost-btn { height: 28px; padding: 0 8px; border-color: transparent; background: transparent; color: var(--text-2); }
 .ghost-btn:hover { border-color: var(--border); }
 .tagfilter { display: contents; }
