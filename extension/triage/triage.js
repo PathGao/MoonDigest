@@ -1252,8 +1252,8 @@ function renderTabs() {
     steps.join(`<span class="arrow" aria-hidden="true">→</span>`) + `<span class="tab-sep" aria-hidden="true"></span>` + tab("read", "阅览", "read-tab", c.read);
 
   const chips = tagChips();
-  // Only once something has been marked 已看 (or the filter is on, so it can be turned off).
-  const watchedChip = !S.watchedFilter && !Object.keys(S.watched).length ? "" : `<button type="button" class="chip watched${S.watchedFilter ? " on" : ""}" data-watchedfilter aria-pressed="${S.watchedFilter}" aria-label="只看真人已看的视频"><span class="ai-mark">真人</span>已看</button>`;
+  // Only when this view has a video marked 已看 (or the filter is on, so it can be turned off).
+  const watchedChip = !S.watchedFilter && !S.items.some((it) => S.watched[it.bvid]) ? "" : `<button type="button" class="chip watched${S.watchedFilter ? " on" : ""}" data-watchedfilter aria-pressed="${S.watchedFilter}" aria-label="只看真人已看的视频"><span class="ai-mark">真人</span>已看</button>`;
   el.tagFilter.innerHTML = watchedChip + (chips.length
     ? chips
         .map((c) => {
@@ -1417,7 +1417,10 @@ function renderList() {
   }
   if (!list.length) {
     const empty = { none: "没有未分析的视频", coarse: "没有粗看完成的视频", fine: "没有细看完成的视频", done: "还没有处理过的视频" };
-    el.list.innerHTML = `<p class="empty">${S.query.trim() ? "没有匹配搜索的视频" : empty[S.tab] || "这里没有视频"}</p>${recent}`;
+    const f = S.classFilter[S.tab];
+    const filtered = S.watchedFilter || S.tagFilter.size || (S.mediaId !== REMOVED && f && f !== "all");
+    const text = filtered ? "没有符合筛选的视频" : S.query.trim() ? "没有匹配搜索的视频" : empty[S.tab] || "这里没有视频";
+    el.list.innerHTML = `<p class="empty">${text}</p>${recent}`;
     return;
   }
   el.list.classList.toggle("reading", S.mediaId === REMOVED);
