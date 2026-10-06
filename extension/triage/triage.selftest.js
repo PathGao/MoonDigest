@@ -547,6 +547,24 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   assert.deepStrictEqual(plain(t.tagIdsOf("BV1")), ["xa"], "a folder: its own tags");
   t.S.mediaId = "removed";
   assert.deepStrictEqual(plain(t.tagIdsOf("BV1")), ["xa", "yb"], "已取消收藏: every tag");
+  // 已取消收藏 filters by AI class, 真人已看 and tags like 阅览.
+  {
+    const saved = { items: t.S.items, tab: t.S.tab, titleRes: t.S.titleRes, watched: t.S.watched, classFilter: t.S.classFilter };
+    Object.assign(t.S, { items: [item(1), item(2), item(3)], tab: "read", titleRes: { BV1: { verdict: "keep" }, BV2: { verdict: "drop" } }, watched: { BV2: true }, classFilter: { coarse: "all", fine: "all", read: "all" } });
+    const shown = () => plain(t.visibleItems().map((it) => it.bvid));
+    t.renderListHeader(t.visibleItems());
+    for (const part of [">全部 3<", ">值得留 1<", ">可清理 1<", ">拿不准 0<"]) assert.ok(t.el.classFilter.innerHTML.includes(part), part);
+    t.S.classFilter.read = "drop";
+    assert.deepStrictEqual(shown(), ["BV2"], "已取消收藏: AI class chip");
+    t.S.classFilter.read = "all";
+    t.S.watchedFilter = true;
+    assert.deepStrictEqual(shown(), ["BV2"], "已取消收藏: 真人已看 chip");
+    t.S.watchedFilter = false;
+    t.S.tagFilter.add("xa");
+    assert.deepStrictEqual(shown(), ["BV1"], "已取消收藏: tag chip");
+    t.S.tagFilter.clear();
+    Object.assign(t.S, saved);
+  }
   t.S.mediaId = "A";
   t.el.pickerInput.focus = () => {};
   t.openPicker("BV1");
