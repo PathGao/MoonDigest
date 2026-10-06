@@ -789,6 +789,10 @@ function openFake(mediaId, items, decisions = {}) {
   t.S.allFolders = t.S.folders;
   store.triage_snapshot_7 = { bvids: ["BV9"], ids: ["BV9"], items: [{ ...item(9), title: "从7来" }], intro: "" };
   handlers["triage-folder-ids"] = () => ({ ok: true, data: { bvids: ["BV9", "BV8", "BV2"] } });
+  // It keeps its 粗看 result from folder 7; under folder 6's other 判断标准 the result is marked stale. BV8 was never analyzed.
+  Object.assign(t.S, { titleRes: {}, analyses: {}, folderCriteria: { 6: "B 的标准", 7: "A 的标准" } });
+  handlers["triage-title-get"] = ({ bvids }) => ({ ok: true, data: bvids.includes("BV9") ? { BV9: { verdict: "keep", confidence: "high", criteria: "A 的标准" } } : {} });
+  handlers["triage-analysis-get"] = () => ({ ok: true, data: {} });
   itemCalls.length = 0;
   t.el.syncDetail = {};
   t.el.syncText = {};
@@ -799,6 +803,8 @@ function openFake(mediaId, items, decisions = {}) {
   assert.ok(t.el.syncDetail.innerHTML.includes("<strong>来自其他收藏夹</strong><ul><li>从7来（也在「夹7」）</li>"), t.el.syncDetail.innerHTML);
   assert.ok(t.el.syncText.textContent.includes("新增 0 · 来自其他收藏夹 1"), t.el.syncText.textContent);
   assert.ok(!("from" in store.triage_snapshot_6.items[0]), "the cache keeps plain items");
+  assert.deepStrictEqual([t.stageOf(t.S.itemMap.get("BV9")), t.stageOf(t.S.itemMap.get("BV8"))], ["coarse", "none"], "a moved video stays at its step");
+  assert.deepStrictEqual(plain(t.staleCoarse().map((it) => it.bvid)), ["BV9"], "and is offered for redo under this folder's criteria");
 
   // 阅览: every step in one list, the AI-class chip filters across steps.
   openFake("R", [item(701), item(702), item(703), item(704)]);
