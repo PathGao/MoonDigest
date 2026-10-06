@@ -174,7 +174,7 @@ select { height: 28px; max-width: 240px; }
 
 .cover { width: 128px; height: 72px; border-radius: 6px; object-fit: cover; background: var(--surface-muted); display: block; }
 /* 看过: Bilibili's own progress bar (3px, #ff6699 on 50% black), and the mark in MoonDigest's color so it is not taken for
-   Bilibili's. html[data-seen-style] picks the corner tag or the veil (设置页「看过的显示方式」). */
+   Bilibili's. html[data-seen-style] picks the corner tag or the veil (设置页「看过标记样式」). */
 .cover-wrap { position: relative; display: block; align-self: start; border-radius: 6px; overflow: hidden; }
 .seen-bar { position: absolute; left: 0; right: 0; bottom: 0; height: 3px; background: rgba(0, 0, 0, 0.5); pointer-events: none; }
 .seen-bar i { display: block; height: 100%; background: #ff6699; }

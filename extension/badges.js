@@ -69,7 +69,7 @@
   let triageOn = false;
   let seenCfg = { on: false, bar: false, mark: false, threshold: 80, style: "badge" };
   const seenCache = new Map(); // bvid -> percent | 0
-  let watched = null; // 手动标的看过 (triage_watched)
+  let watched = null; // 真人看过 marked in 优先看 (triage_watched)
   const SEL = 'a[href*="/video/BV"], a[href*="bvid=BV"]';
   const isTriageKey = (k) =>
     k === "triage_tags" || k === "triage_video_tags" || k === "triage_kept" || /^triage_(title|analysis|decisions)_/.test(k);

@@ -31,7 +31,7 @@ const K = {
   decisions: (id) => `triage_decisions_${id}`, // 取消收藏 only: it changes one Bilibili folder
   kept: "triage_kept", // { [bvid]: { action: "keep", at } }: 保留 belongs to the video, so it shows in every folder
   keptMigrated: "triage_kept_v1",
-  watched: "triage_watched", // { [bvid]: at }: 手动看过, set when a video leaves 优先看 as watched; it shows in every folder
+  watched: "triage_watched", // { [bvid]: at }: 真人看过 (by hand), set when a video leaves 优先看 as watched; it shows in every folder
   removed: "triage_removed", // { [bvid]: { item, at } }: videos that left every folder, kept until the user cleans them
   included: "triage_included_folders", // [mediaId]: the folders the user chose; only these are listed and read
   snapshot: (id) => `triage_snapshot_${id}`,
@@ -713,7 +713,7 @@ function seenLabel(it) {
 function coverHtml(it) {
   const img = `<img class="cover" src="${esc(it.cover)}" alt="" loading="lazy" referrerpolicy="no-referrer" />`;
   const p = S.seenCfg.bar ? seenPercentOf(it) : null;
-  // 手动看过 shows as before (footer badge) unless 看过标记 is on.
+  // The hand mark shows as before (footer badge) unless 看过标记 is on.
   const seen = S.seenCfg.mark && isSeen(it);
   if (!p && !seen) return img;
   const label = esc(seenLabel(it));
@@ -1488,7 +1488,7 @@ function renderTabs() {
 
   const chips = tagChips();
   // Only when this view has a 看过 video (or the filter is on, so it can be turned off).
-  const watchedChip = !S.watchedFilter && !S.items.some(isSeen) ? "" : `<button type="button" class="chip watched${S.watchedFilter ? " on" : ""}" data-watchedfilter aria-pressed="${S.watchedFilter}" aria-label="只看看过的视频">看过</button>`;
+  const watchedChip = !S.watchedFilter && !S.items.some(isSeen) ? "" : `<button type="button" class="chip watched${S.watchedFilter ? " on" : ""}" data-watchedfilter aria-pressed="${S.watchedFilter}" aria-label="只看真人看过的视频"><span class="ai-mark">真人</span>看过</button>`;
   // Only when this view has an invalid video, like 看过; with 全选 it picks them all for 取消收藏 or 清理.
   const invalidN = S.items.filter((it) => it.invalid || it.hidden).length;
   const invalidChip = !S.invalidFilter && !invalidN ? "" : `<button type="button" class="chip invalid${S.invalidFilter ? " on" : ""}" data-invalidfilter aria-pressed="${S.invalidFilter}" aria-label="只看已失效的视频">已失效 ${invalidN}</button>`;
@@ -1829,7 +1829,7 @@ function cardHtml(it, expanded, mark) {
       <div class="title-row">${mark ? `<span class="batch-tag">${mark}</span>` : ""}<button type="button" class="title" data-act="open" aria-label="打开视频 ${esc(it.title)}">${esc(it.title)}</button></div>
       <div class="meta">${meta.map(esc).join(" · ")}</div>
       ${body.join("")}
-      <div class="card-foot">${verdict}${S.watched[b] ? `<button type="button" class="badge watched" data-act="unwatch" aria-label="手动标的看过，点一下取消" title="${esc(fmtTime(S.watched[b]))} 手动标为看过 · 点一下取消"><span class="ai-mark">手动</span>看过</button>` : ""}<span class="reason">${esc(v.reason)}</span>${failed}</div>
+      <div class="card-foot">${verdict}${S.watched[b] ? `<button type="button" class="badge watched" data-act="unwatch" aria-label="真人看过，点一下取消" title="${esc(fmtTime(S.watched[b]))} 在优先看里点了已看 · 点一下取消"><span class="ai-mark">真人</span>看过</button>` : ""}<span class="reason">${esc(v.reason)}</span>${failed}</div>
       ${chips ? `<div class="chips">${chips}</div>` : ""}
       ${noteHtml}
       <div class="card-foot">
@@ -2048,7 +2048,7 @@ async function undo() {
       S.basket.splice(entry.basketEntry.i, 0, entry.basketEntry.x);
       saveBasket();
     }
-    toast(entry.prev ? "已撤销：取消手动看过" : "已撤销：手动看过");
+    toast(entry.prev ? "已撤销：取消真人看过" : "已撤销：真人看过");
     render();
   } else if (entry.kind === "keepMany") {
     patchKept(Object.fromEntries(entry.bvids.map((b) => [b, null])));
@@ -3003,7 +3003,7 @@ function basketDoneAndNext() {
   }
 }
 
-// 已看 marks the video 手动看过 and takes it out of 优先看; favorites and decisions are untouched. U undoes both.
+// 已看 marks the video 真人看过 and takes it out of 优先看; favorites and decisions are untouched. U undoes both.
 function removeBasketItem(i) {
   const [x] = S.basket.splice(i, 1);
   if (!x) return;
