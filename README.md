@@ -22,7 +22,7 @@
 所有数据都留在你的浏览器里，没有作者的服务器。
 
 <p align="center">
-  <img src="docs/images/hero-sidepanel.png" alt="B 站视频页右侧的 AI 侧边栏，显示 AI 总结的结构化结果（一句话总结、带时间戳的要点），下方是常用追问和输入框" width="900">
+  <img src="docs/images/hero-sidepanel.png" alt="B 站视频页右侧的 AI 侧边栏：顶上是视频标题和模型，中间是这期视频的 AI 结构化总结，下方一排常用追问和输入框" width="900">
 </p>
 
 ## 快速开始
@@ -45,7 +45,7 @@
 ### 理：收藏夹分拣台（仅 B 站）
 
 <p align="center">
-  <img src="docs/images/triage-light.png" alt="收藏夹分拣台的粗看完成步骤：上方是值得留、可清理、拿不准的筛选和细看下一批按钮，卡片标着 AI 判断，右侧是优先看清单" width="900">
+  <img src="docs/images/triage-light.png" alt="收藏夹分拣台的细看完成步骤：值得留、可清理、拿不准的筛选和看完了、优先看过两个筛选，下面是已选中 2 个的选中条；卡片有一句话总结和 AI 判断，封面上有观看进度条和「✓ 看过 83%」「✓ 看完了」「看过 16%」标记，右下角展开了优先看清单" width="900">
 </p>
 
 点插件图标 → **打开分拣台**。第一次打开先勾选要分拣的收藏夹，B 站「稍后再看」也可以勾。MoonDigest 只读取你勾选的，没勾的连内容都不读。
@@ -100,11 +100,7 @@
 分拣过的视频，在 B 站页面上也能看到结果，不用回分拣台。视频页标题下面多一行，写着 AI 判断、你的标签和一句话总结；推荐、搜索、收藏夹这些列表里，视频标题前面带一个小标记，比如「AI 值得留」「已保留」「已取消收藏」。不想看到可以在设置页关掉。
 
 <p align="center">
-  <img src="docs/images/bili-video-line.png" alt="B 站视频页标题下方的 MoonDigest 一行：AI 值得留、标签「经典」和一句话总结" width="760">
-</p>
-
-<p align="center">
-  <img src="docs/images/bili-list.png" alt="B 站推荐列表里，视频标题前带着 AI 可清理、AI 拿不准、已保留、AI 值得留、已取消收藏等标记" width="370">
+  <img src="docs/images/bili-marks.png" alt="B 站视频页：标题下方的 MoonDigest 一行写着 AI 值得留和一句话总结；右侧接下来播放的视频标题前带 AI 值得留、AI 可清理、AI 拿不准标记，封面上有观看进度条和「✓ 看完了」「✓ 看过 83%」「看过 40%」" width="900">
 </p>
 
 ### 观看进度（仅 B 站，默认关）
@@ -123,7 +119,7 @@
 - **Obsidian（可选）**：不开也能全部复制、下载成 Markdown。开了以后通过 Obsidian 插件 Local REST API 写入库里，默认放在 `MoonDigest/bilibili/` 和 `MoonDigest/youtube/`，一个视频一篇笔记；写入过一次之后，新的 AI 问答会自动更新到笔记末尾。
 
 <p align="center">
-  <img src="docs/images/history.png" alt="视频记录页：按视频列出对话、分拣台 AI 总结和备注，每条可继续问、下载 .md、写入 Obsidian 或删除" width="900">
+  <img src="docs/images/history.png" alt="视频记录页：按视频列出分拣台 AI 总结、AI 对话和备注，每条可继续问、下载 .md、写入 Obsidian" width="900">
 </p>
 
 ## 分拣台快捷键
@@ -146,7 +142,7 @@
 「已取消收藏」里只有 `?`、`/` 和 `I`。
 
 <p align="center">
-  <img src="docs/images/triage-dark.png" alt="分拣台深色主题：粗看完成步骤和优先看清单" width="900">
+  <img src="docs/images/triage-dark.png" alt="分拣台深色主题：同一个细看完成步骤、选中条、观看进度标记和展开的优先看清单" width="900">
 </p>
 
 ## 安装与更新
