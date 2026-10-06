@@ -606,18 +606,31 @@ function followShared(changes) {
   for (const [name, empty] of Object.entries(SHARED)) {
     const c = changes[K[name]];
     if (!c) continue;
-    const mine = ownWrites[K[name]] || [];
-    const i = mine.indexOf(JSON.stringify(c.newValue ?? null));
-    if (i >= 0) {
-      mine.splice(0, i + 1);
-      continue;
-    }
+    if (ownEcho(K[name], c)) continue;
     const value = c.newValue ?? structuredClone(empty);
     if (name === "kept") followKept(value);
     else S[name] = value;
     changed = true;
   }
+  // 取消收藏 records: the open folder's, as openFolder builds them; in 所有收藏夹 those of the loaded folders.
+  for (const [key, c] of Object.entries(changes)) {
+    const id = /^triage_decisions_(.+)$/.exec(key)?.[1];
+    if (!id || ownEcho(key, c)) continue;
+    const d = c.newValue || {};
+    if (id === String(S.mediaId)) S.decisions = { ...S.kept, ...d };
+    else if (S.loadAll && S.folderDecisions[id]) {
+      S.folderDecisions[id] = d;
+      rebuildAll();
+    } else continue;
+    changed = true;
+  }
   if (changed) render();
+}
+function ownEcho(key, c) {
+  const mine = ownWrites[key] || [];
+  const i = mine.indexOf(JSON.stringify(c.newValue ?? null));
+  if (i >= 0) mine.splice(0, i + 1);
+  return i >= 0;
 }
 // 保留 also sits in the open view's decisions (see openFolder and rebuildAll); 取消收藏 there wins, as on open.
 function followKept(kept) {
@@ -923,7 +936,7 @@ async function syncFolder({ force = false, cached = null } = {}) {
         if (!remoteSet.has(b) && S.decisions[b]?.action !== "unfav") diff.removed.push(snap.titles?.[b] || b);
       }
     }
-    if (restored.size) saveDecisions();
+    if (restored.size) patchDecisions(mediaId, Object.fromEntries([...restored].map((b) => [b, null])));
 
     // Remote order, newly added first; keep items we unfavorited this session so undo stays possible,
     // and after a partial load keep everything the missing pages may still hold.
@@ -1037,6 +1050,7 @@ async function cleanRemoved(list) {
   const decisionKeys = ((await chrome.storage.local.getKeys?.()) ?? Object.keys((await chrome.storage.local.get(null)) || {})).filter((k) => k.startsWith("triage_decisions_"));
   const decisions = await chrome.storage.local.get(decisionKeys);
   for (const map of [...Object.values(decisions), S.decisions, ...Object.values(S.folderDecisions)]) for (const b of bvids) delete map[b];
+  noteOwnWrites(decisions);
   await chrome.storage.local.set(decisions);
   await chrome.storage.local.remove(bvids.flatMap((b) => [`triage_title_${b}`, `triage_analysis_${b}`]));
   const write = { [K.removed]: rec, [K.notes]: S.notes, [K.videoTags]: S.videoTags, [K.kept]: S.kept, [K.basket]: S.basket };
@@ -1740,7 +1754,6 @@ function pushUndo(entry) {
   S.undo.push(entry);
   if (S.undo.length > BocLimits.TRIAGE_UNDO_STEPS) S.undo.shift();
 }
-const saveDecisions = () => storeSet(K.decisions(S.mediaId), unfavOnly(S.decisions));
 // Patch one folder's decisions even after the user switched away from it; a null value deletes.
 // Merged into the stored record, not written from memory: a batch running for this folder may have written it after
 // the open folder read it.

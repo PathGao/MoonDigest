@@ -980,6 +980,30 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   assert.deepStrictEqual(Object.keys(store.triage_kept), ["BV51", "BV50"], "the next write keeps the other tab's 保留");
   Object.assign(t.S, { kept: {}, watched: {}, tags: [], basket: [] });
 
+  // R3: another tab's 取消收藏 records for the open folder are followed, and a restore here does not wipe the ones this
+  // page never saw. In 所有收藏夹 the loaded folders' records follow too.
+  openFake("P", [item(60), item(61)], { BV60: unfavAt(60) });
+  const other = { BV60: unfavAt(60), BV62: unfavAt(62) };
+  store[t.K.decisions("P")] = structuredClone(other);
+  t.followShared({ [t.K.decisions("P")]: { newValue: structuredClone(other) } });
+  assert.ok(t.S.decisions.BV62, "the other tab's record shows here");
+  store[t.K.decisions("P")].BV63 = unfavAt(63); // its event not delivered yet
+  handlers["triage-folder-items"] = () => ({ ok: true, data: { items: [{ ...item(60), favTime: 300 }, item(61)], ids: ["BV60", "BV61"], info: { intro: "" } } });
+  Object.assign(t.S, { syncing: false, lastSyncAt: 0 });
+  await t.syncFolder({ force: true });
+  await new Promise((r) => setImmediate(r));
+  assert.deepStrictEqual(Object.keys(plain(store[t.K.decisions("P")])).sort(), ["BV62", "BV63"], "the restore removes BV60 only");
+  t.followShared({ [t.K.decisions("P")]: { newValue: structuredClone(store[t.K.decisions("P")]) } });
+  assert.deepStrictEqual(Object.keys(plain(t.S.decisions)).sort(), ["BV62"], "this page's own echo is skipped");
+  t.S.mediaId = "all";
+  t.S.folderDecisions = { P: {} };
+  t.S.loadAll = { lists: { P: { items: [item(60), item(62)] } } };
+  t.S.folders = [{ id: "P", title: "夹P" }];
+  t.S.items = [];
+  t.followShared({ [t.K.decisions("P")]: { newValue: { BV62: unfavAt(62) } } });
+  assert.deepStrictEqual(plain(t.S.items.map((it) => it.bvid)), ["BV60"], "所有收藏夹 drops the video the other tab unfavorited");
+  t.S.loadAll = null;
+
   // 阅览: every step in one list, the AI-class chip filters across steps.
   openFake("R", [item(701), item(702), item(703), item(704)]);
   Object.assign(t.S, { tab: "read", query: "", tagFilter: new Set(), classFilter: { coarse: "all", fine: "all", read: "drop" },
