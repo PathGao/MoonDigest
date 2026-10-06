@@ -72,24 +72,56 @@ function openFake(mediaId, items, decisions = {}) {
   t.S.itemMap = new Map(items.map((it) => [it.bvid, it]));
   t.S.decisions = decisions;
   t.S.undo = [];
+  // In the page every unfavorite record is stored too; patchDecisions merges into the stored one.
+  if (Object.keys(decisions).length) store[t.K.decisions(mediaId)] = structuredClone(unfavOnlyOf(decisions));
 }
+const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) => v?.action === "unfav"));
 
 (async () => {
-  // B8: switching folders while a batch unfavorite is in flight keeps the finished chunks, aid and title included.
+  // B8: a batch unfavorite runs to the end after another folder opens, every chunk recorded under its folder, aid and
+  // title included; the other folder gets no undo entry, only a toast naming the folder.
   const many = Array.from({ length: 45 }, (_, i) => item(i));
   openFake("A", many);
   let unfavCalls = 0;
-  handlers["triage-unfav"] = () => {
+  handlers["triage-unfav"] = (m) => {
+    assert.strictEqual(m.mediaId, "A");
     if (++unfavCalls === 2) openFake("B", [item(99)]);
+    assert.strictEqual(t.activityState().text, unfavCalls === 1 ? "取消收藏中 0/45" : `取消收藏中 ${(unfavCalls - 1) * 20}/45（A）`);
     return { ok: true };
   };
   await t.batchUnfav(many);
-  assert.strictEqual(unfavCalls, 2, "no chunk is sent after the folder switch");
+  assert.strictEqual(unfavCalls, 3, "the last chunk is still sent after the switch");
   const savedA = store[t.K.decisions("A")];
-  assert.strictEqual(Object.keys(savedA).length, 40, "both finished chunks are recorded under folder A");
-  assert.deepStrictEqual(plain(savedA.BV25), { action: "unfav", at: savedA.BV25.at, aid: 1025, title: "视频25" });
+  assert.strictEqual(Object.keys(savedA).length, 45, "every chunk is recorded under folder A");
+  assert.ok(toasts.at(-1).startsWith("「A」已取消收藏 45 个"), toasts.at(-1));
+  assert.deepStrictEqual(plain(savedA.BV25), { action: "unfav", at: savedA.BV25.at, aid: 1025, title: "视频25", batch: savedA.BV0.batch });
+  assert.ok(Object.values(savedA).every((d) => d.batch === savedA.BV0.batch), "every chunk carries the batch's start");
   assert.deepStrictEqual(plain(t.S.decisions), {}, "folder B's decisions are untouched");
   assert.strictEqual(t.S.undo.length, 0, "folder B's undo stack gets no entry for folder A");
+
+  // 最近取消收藏 re-favorites a whole batch in one go (all 45, though it lists only the latest), a single one alone.
+  openFake("A", [], structuredClone(savedA));
+  t.S.decisions.BVsolo = { action: "unfav", at: 1, aid: 7, title: "单个" };
+  assert.ok(t.recentUnfavHtml().includes(`data-refav-batch="${savedA.BV0.batch}"`) && t.recentUnfavHtml().includes("批量取消收藏 45 个"));
+  const refavAids = [];
+  handlers["triage-refav"] = (m) => (refavAids.push(m.aid), { ok: true });
+  await t.refavBatch(savedA.BV0.batch);
+  assert.strictEqual(refavAids.length, 45, "the batch, not the single one");
+  assert.deepStrictEqual(Object.keys(store[t.K.decisions("A")]), [], "the stored records are gone");
+  assert.ok(t.S.decisions.BVsolo && toasts.at(-1) === "已重新收藏这批 45 个", toasts.at(-1));
+  assert.ok(!t.recentUnfavHtml().includes("data-refav-batch"), "no batch line once it is re-favorited");
+  store[t.K.decisions("A")] = structuredClone(savedA);
+
+  // Back in the folder mid-run with a record read before the batch's last write: nothing written earlier is lost.
+  openFake("A2", many);
+  let a2Calls = 0;
+  handlers["triage-unfav"] = () => {
+    if (++a2Calls === 2) openFake("A2", many);
+    return { ok: true };
+  };
+  await t.batchUnfav(many);
+  assert.strictEqual(Object.keys(store[t.K.decisions("A2")]).length, 45, "the first chunk's records survive");
+  assert.strictEqual(t.S.undo.length, 1, "back in its folder, the batch is undoable with U");
 
   // U7: after a reload the unfavorited videos are listed and re-favorited into their own folder.
   openFake("A", many.slice(40), savedA);
@@ -118,6 +150,18 @@ function openFake(mediaId, items, decisions = {}) {
   await t.undo();
   assert.deepStrictEqual(store[t.K.decisions("D")], {});
   assert.strictEqual(t.S.undo.length, 0);
+
+  // A batch undo also runs to the end after another folder opens.
+  openFake("D", three, Object.fromEntries(three.map((it) => [it.bvid, { action: "unfav", at: 1, aid: it.aid, title: it.title }])));
+  t.S.undo = [{ kind: "unfavMany", items: three.map(({ bvid, aid }) => ({ bvid, aid })) }];
+  let refavs = 0;
+  handlers["triage-refav"] = () => {
+    if (++refavs === 1) openFake("E", []);
+    return { ok: true };
+  };
+  await t.undo();
+  assert.deepStrictEqual([refavs, store[t.K.decisions("D")], toasts.at(-1)], [3, {}, "「D」已重新收藏 3 个"]);
+  handlers["triage-refav"] = () => ({ ok: true });
 
   // B11: cells that a spreadsheet would run as a formula are prefixed with '.
   for (const s of ["=1+1", "+cmd", "-2", "@SUM(A1)", "\tx", "\rx"]) assert.ok(t.csvField(s).replace(/^"/, "").startsWith(`'${s[0]}`), s);
@@ -262,18 +306,15 @@ function openFake(mediaId, items, decisions = {}) {
   t.renderListHeader(t.visibleItems());
   for (const part of ["细看选中 1 个", "保留选中的 1 个", "取消收藏选中的 1 个"]) assert.ok(t.el.listHeader.innerHTML.includes(part), part);
   // The activity pill names what runs, whatever the tab: 细看 first, then 粗看; a wait keeps the job's pause button.
-  t.S.group = { bvids: ["BV207"], stop: false };
-  t.S.stage1 = { ...t.S.stage1, running: true, done: 2, total: 5 };
-  t.S.status = "字幕细看 1/1";
+  t.S.group = { bvids: ["BV207"], stop: false, mediaId: String(t.S.mediaId), items: t.S.itemMap, text: "字幕细看 1/1" };
+  t.S.stage1 = { ...t.S.stage1, running: true, done: 2, total: 5, mediaId: String(t.S.mediaId), text: "标题粗看中 2/5" };
   assert.deepStrictEqual(plain(t.activityState()), { text: "字幕细看 1/1", done: 0, total: 1, act: "group", actLabel: "暂停细看", warn: false });
   t.S.group = null;
-  t.S.status = "标题粗看中 2/5";
   assert.deepStrictEqual(plain(t.activityState()), { text: "标题粗看中 2/5", done: 2, total: 5, act: "stage1", actLabel: "暂停粗看", warn: false });
   Object.assign(t.S, { throttleUntil: Date.now() + 61000, throttleLabel: "B站限流" });
   const waiting = t.activityState();
   assert.ok(waiting.warn && waiting.text.startsWith("B站限流，") && waiting.act === "stage1", "a wait shows its countdown and keeps 暂停粗看");
-  t.S.stage1 = { ...t.S.stage1, running: false };
-  t.S.status = "";
+  t.S.stage1 = { ...t.S.stage1, running: false, text: "" };
   assert.ok(t.activityState().warn && !t.activityState().act, "a wait alone has no button");
   t.S.throttleUntil = 0;
   assert.strictEqual(t.activityState(), null, "nothing running hides the pill");
@@ -812,6 +853,75 @@ function openFake(mediaId, items, decisions = {}) {
   assert.ok(!("from" in store.triage_snapshot_6.items[0]), "the cache keeps plain items");
   assert.deepStrictEqual([t.stageOf(t.S.itemMap.get("BV9")), t.stageOf(t.S.itemMap.get("BV8"))], ["coarse", "none"], "a moved video stays at its step");
   assert.deepStrictEqual(plain(t.staleCoarse().map((it) => it.bvid)), ["BV9"], "and is offered for redo under this folder's criteria");
+
+  // 粗看 keeps going after another folder opens, with its own folder's criteria; the other folder sees where it runs.
+  openFake("K", [item(810), item(811)]);
+  t.S.folders = t.S.allFolders = [{ id: "K", title: "夹K" }, { id: "L", title: "夹L" }];
+  Object.assign(t.S, { titleRes: {}, analyses: {}, decisions: {}, folderCriteria: { K: "K 标准", L: "L 标准" }, stage1Skip: new Set() });
+  Object.assign(t.S.settings, { triageTitleBatchSize: 1, triageIntervalSec: 0 });
+  const classified = [];
+  handlers["triage-classify-titles"] = ({ items, criteria }) => {
+    classified.push([items[0].bvid, criteria]);
+    if (classified.length === 1) {
+      openFake("L", [item(820)]);
+      assert.strictEqual(t.activityState().text, "标题粗看中 0/2（夹K）");
+    }
+    return { ok: true, data: { results: { [items[0].bvid]: { verdict: "keep", confidence: "high" } } } };
+  };
+  toasts.length = 0;
+  await t.runStage1();
+  assert.deepStrictEqual(plain(classified), [["BV810", "K 标准"], ["BV811", "K 标准"]]);
+  assert.deepStrictEqual([t.S.titleRes.BV811?.criteria, t.S.stage1.running], ["K 标准", false]);
+  assert.strictEqual(toasts.at(-1), "「夹K」标题粗看完成 2 个");
+
+  // 细看 too: the run judges by its own items, not the open folder's.
+  openFake("K", [item(830), item(831)]);
+  const analyzed = [];
+  handlers["triage-analyze"] = ({ bvid, criteria }) => {
+    analyzed.push([bvid, criteria]);
+    // Back in K while its list is still loading (empty): the run must not take that as done.
+    if (analyzed.length === 1) openFake("K", []);
+    if (analyzed.length === 2) {
+      openFake("L", [item(820)]);
+      t.showBanner("未登录 B 站", "去登录", () => {});
+    }
+    return { ok: true, data: { bvid, status: "done", verdict: "keep" } };
+  };
+  t.startGroup(["BV830", "BV831"]);
+  for (let i = 0; i < 20 && t.S.group; i++) await new Promise((r) => setImmediate(r));
+  assert.deepStrictEqual(plain(analyzed), [["BV830", "K 标准"], ["BV831", "K 标准"]]);
+  assert.deepStrictEqual([t.S.analyses.BV831?.criteria, t.S.group], ["K 标准", null]);
+  assert.strictEqual(toasts.at(-1), "「夹K」这批字幕细看完成");
+  assert.strictEqual(t.el.banner.hidden, false, "a finished run leaves a banner that is not about AI");
+  assert.strictEqual(t.activityState(), null, "K's last 粗看 line is not shown in L");
+  t.handleAiError("请先配置 AI 服务");
+  t.startGroup(["BV820"]);
+  for (let i = 0; i < 20 && t.S.group; i++) await new Promise((r) => setImmediate(r));
+  assert.strictEqual(t.el.banner.hidden, true, "a run that works clears the AI banner wherever it ran");
+  openFake("K", []);
+  assert.strictEqual(t.activityState().text, "标题粗看完成 2 个", "back in K, its last 粗看 line shows");
+  Object.assign(t.S.settings, { triageTitleBatchSize: 30 });
+
+  // Back on the tab: the id check alone when nothing changed, no full load.
+  t.S.folders = t.S.allFolders = [{ id: "6", title: "夹6" }];
+  openFake("6", store.triage_snapshot_6.items.slice());
+  handlers["triage-folder-ids"] = () => ({ ok: true, data: { bvids: store.triage_snapshot_6.ids.slice() } });
+  itemCalls.length = 0;
+  t.S.lastSyncAt = 0;
+  await t.quickSync();
+  await new Promise((r) => setImmediate(r));
+  assert.deepStrictEqual(plain(itemCalls), [], "no full load when the ids match");
+  assert.ok(Date.now() - t.S.lastSyncAt < 1000, "and it counts as a sync");
+
+  // 所有收藏夹: a folder whose ids changed takes only the difference.
+  handlers["triage-folder-ids"] = () => ({ ok: true, data: { bvids: ["BV5", ...store.triage_snapshot_6.ids] } });
+  handlers["triage-folder-items"] = (m) => (itemCalls.push(m.known), { ok: true, data: { items: [item(5)], info: { intro: "" }, head: true } });
+  t.S.mediaId = "all";
+  t.S.loadAll = { lists: { 6: { items: store.triage_snapshot_6.items, ids: store.triage_snapshot_6.ids, at: 0 } }, check: ["6"], checkTotal: 1, queue: [], paused: false, running: false, error: "", partial: 0 };
+  await t.runLoadAll(t.S.folderToken);
+  assert.deepStrictEqual([itemCalls.length, t.S.loadAll.queue.length], [1, 0], "one head request, no full load queued");
+  assert.strictEqual(t.S.loadAll.lists["6"].items[0].bvid, "BV5");
+  assert.strictEqual(store.triage_snapshot_6.ids[0], "BV5");
 
   // 阅览: every step in one list, the AI-class chip filters across steps.
   openFake("R", [item(701), item(702), item(703), item(704)]);
