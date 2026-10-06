@@ -140,8 +140,8 @@ const STATE_KEY_NODES = {
 // The form differs from what was last loaded or saved; a passed provider test reminds the user to save.
 let hasUnsavedChanges = false;
 let savedForm = null;
-// The last Obsidian test passed; the header says 「已连接」 only after that.
-let obsidianConnected = false;
+// The URL and key of the last Obsidian test and whether it passed; the header says 「已连接」 only while those are saved.
+let obsidianTest = null;
 
 init();
 
@@ -336,6 +336,11 @@ async function saveSettings() {
     }
     // 用最新列表（含 hasSavedKey）重新渲染，避免误以为 Key 丢了
     renderAiProviders(aiResp.providers || []);
+    // A test of other values says nothing about the ones just saved.
+    if (obsidianTest && obsidianTest.target !== obsidianTarget(payload)) {
+      obsidianTest = null;
+      setTestResult("");
+    }
     markSaved();
     renderHostPermissionBanner(hostUrls);
     if (deniedHosts.length) {
@@ -436,6 +441,7 @@ function renderSavedState() {
   setPill(elements.aiSectionPill, aiReady, aiReady ? `已配置 ${providers.length} 个平台` : "没配也能用");
 
   const { obsidianEnabled, obsidianApiKey } = savedForm.payload;
+  const obsidianConnected = obsidianTest?.ok && obsidianTest.target === obsidianTarget(savedForm.payload);
   const obsidianText = !obsidianEnabled ? "Obsidian 关" : !obsidianApiKey ? "Obsidian 待填 Key" : obsidianConnected ? "Obsidian 已连接" : "Obsidian 已开";
   setPill(elements.obsidianPill, obsidianEnabled && Boolean(obsidianApiKey), obsidianText);
   elements.obsidianPill.classList.toggle("off", !obsidianEnabled);
@@ -1139,6 +1145,7 @@ async function testConnection() {
 
   setBusy(elements.testConnectionBtn);
   setTestResult("");
+  obsidianTest = { target: obsidianTarget(payload), ok: false };
   try {
     const resp = await sendRuntimeMessage({
       type: "test-obsidian-connection",
@@ -1146,7 +1153,7 @@ async function testConnection() {
       apiKey: payload.obsidianApiKey
     });
 
-    obsidianConnected = Boolean(resp?.ok);
+    obsidianTest.ok = Boolean(resp?.ok);
     if (!resp?.ok) {
       setTestResult(`连接失败：${resp?.error || "未知错误"}`, true);
       return;
@@ -1155,12 +1162,15 @@ async function testConnection() {
     const service = resp?.service ? `（${resp.service}）` : "";
     setTestResult(`连接成功${service}`);
   } catch (error) {
-    obsidianConnected = false;
     setTestResult(`连接失败：${error.message || "未知错误"}`, true);
   } finally {
     setBusy(null);
     renderSavedState();
   }
+}
+
+function obsidianTarget(settings) {
+  return `${settings.obsidianApiBaseUrl}\n${settings.obsidianApiKey}`;
 }
 
 // The Obsidian test result sits next to its button.
