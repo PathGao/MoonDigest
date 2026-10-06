@@ -533,6 +533,28 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   assert.deepStrictEqual(pickNames("BV3"), ["xa", "xb", "yb"]);
   assert.deepStrictEqual(pickNames("BV1", "w"), ["+w"], "one folder: a new name can be created there");
   assert.deepStrictEqual(pickNames("BV3", "w"), [], "two folders: no new tag");
+  // F15: a tag stays in its folder when the video moves. BV1 is only in 甲 now: 乙's y shows nowhere, finds nothing,
+  // and the picker in 甲 keeps it when saving.
+  t.S.videoTags.BV1 = ["xa", "yb"];
+  assert.deepStrictEqual(plain(t.tagIdsOf("BV1")), ["xa"], "所有收藏夹: the video's folders' tags");
+  t.S.query = "y";
+  assert.deepStrictEqual(plain(t.S.items.filter((it) => t.passFilter(it)).map((it) => it.bvid)), ["BV2"], "another folder's tag name finds nothing");
+  t.S.query = "";
+  openFake("A", [item(1)]);
+  assert.deepStrictEqual(plain(t.tagIdsOf("BV1")), ["xa"], "a folder: its own tags");
+  t.S.mediaId = "removed";
+  assert.deepStrictEqual(plain(t.tagIdsOf("BV1")), ["xa", "yb"], "已取消收藏: every tag");
+  t.S.mediaId = "A";
+  t.el.pickerInput.focus = () => {};
+  t.openPicker("BV1");
+  t.pickOption(0);
+  t.closePicker();
+  assert.deepStrictEqual(plain(t.S.videoTags.BV1), ["yb"], "unticking 甲's x keeps 乙's y");
+  // A 批量打 proposal skips a video that left the folder since.
+  t.S.ai.proposal = { newTags: [], rows: [{ bvid: "BV1", add: ["id:xa"], remove: [], checked: true }, { bvid: "BV2", add: ["id:xa"], remove: [], checked: true }], notes: [], errors: [] };
+  t.el.tagsDialog = { close() {} };
+  t.applyAiProposal();
+  assert.deepStrictEqual(plain([t.S.videoTags.BV1, t.S.videoTags.BV2]), [["yb", "xa"], ["xb", "yb"]]);
   pk.bvid = "";
   Object.assign(t.S, { tags: [], videoTags: {}, folders: [] });
   openFake("K", [item(600), item(601)]);
@@ -617,7 +639,7 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   Object.assign(t.S, {
     analyses: { BV2: { status: "done", oneLiner: "家常做法", points: ["火候是关键"] } },
     notes: { BV3: { text: "周末试试 Agent" } },
-    tags: [{ id: "f", name: "美食", color: "#1" }],
+    tags: [{ id: "f", name: "美食", color: "#1", folder: "Q" }],
     videoTags: { BV2: ["f"] },
     tagFilter: new Set()
   });
@@ -635,12 +657,13 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   assert.deepStrictEqual(hits("claude"), [], "search and tag filter combine");
   Object.assign(t.S, { query: "", tagFilter: new Set(), analyses: {}, notes: {}, tags: [], videoTags: {} });
 
-  // F2 所有收藏夹: one entry per video with every folder; an unfav newer than a folder's cache drops that folder.
+  // F2 所有收藏夹: one entry per video with every folder; an unfav drops that folder unless B's favorite time is newer.
   const merged = plain(t.mergeFolderItems([
-    { id: "A", at: 10, items: [item(1), item(2)], decisions: {} },
-    { id: "B", at: 10, items: [item(2), item(3), item(4)], decisions: { BV3: { action: "unfav", at: 20 }, BV4: { action: "unfav", at: 5 } } }
+    { id: "A", items: [item(1), item(2)], decisions: {} },
+    { id: "B", items: [item(2), { ...item(3), favTime: 10 }, { ...item(4), favTime: 10 }, item(5)],
+      decisions: { BV3: { action: "unfav", at: 20000 }, BV4: { action: "unfav", at: 5000 }, BV5: { action: "unfav", at: 1 } } }
   ]));
-  assert.deepStrictEqual(merged.map((it) => [it.bvid, it.folders]), [["BV1", ["A"]], ["BV2", ["A", "B"]], ["BV4", ["B"]]], "BV3 unfavorited after B's cache; BV4 re-favorited since");
+  assert.deepStrictEqual(merged.map((it) => [it.bvid, it.folders]), [["BV1", ["A"]], ["BV2", ["A", "B"]], ["BV4", ["B"]]], "BV3 favorited before its unfav (stale list); BV4 re-favorited since; BV5 has no favTime");
 
   // F2 取消收藏 in 所有收藏夹: only the picked folder is unfavorited and recorded; U re-favorites it there.
   const shared = { ...item(7), folders: ["A", "B"] };
@@ -939,6 +962,64 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   assert.deepStrictEqual([itemCalls.length, t.S.loadAll.queue.length], [1, 0], "one head request, no full load queued");
   assert.strictEqual(t.S.loadAll.lists["6"].items[0].bvid, "BV5");
   assert.strictEqual(store.triage_snapshot_6.ids[0], "BV5");
+
+  // R2: a list fetched before a 取消收藏, or lagging behind it, still holds the video with its old favTime. Only a
+  // favorite time not older than the 取消收藏 counts as re-favorited.
+  t.S.folders = t.S.allFolders = [{ id: "M", title: "夹M" }];
+  const unfavAt = (n) => ({ action: "unfav", at: 200000, aid: 1000 + n, title: `视频${n}` });
+  openFake("M", [item(40), item(41)], { BV40: unfavAt(40), BV41: unfavAt(41) });
+  handlers["triage-folder-items"] = () => ({ ok: true, data: { items: [{ ...item(40), favTime: 100 }, { ...item(41), favTime: 300 }], ids: ["BV40", "BV41"], info: { intro: "" } } });
+  Object.assign(t.S, { syncing: false, lastSyncAt: 0 });
+  await t.syncFolder({ force: true });
+  assert.deepStrictEqual(Object.keys(plain(store[t.K.decisions("M")])), ["BV40"], "BV40 stays unfavorited, BV41 was re-favorited");
+  assert.ok(t.S.decisions.BV40 && !t.S.decisions.BV41);
+
+  // R1: another triage tab's write to a shared list replaces this page's copy, so the next write here keeps it. This
+  // page's own writes echo back too, and an older echo arriving after a newer edit is skipped.
+  openFake("N", [item(50), item(51)], { BV51: { action: "unfav", at: 1 } });
+  t.S.kept = {};
+  const keep = { action: "keep", at: 5 };
+  t.patchKept({ BV50: keep });
+  const echo1 = { triage_kept: { newValue: structuredClone(store.triage_kept) } };
+  t.S.watched = { BV50: 1 };
+  vm.runInContext("saveWatched()", ctx);
+  t.S.watched.BV51 = 2;
+  vm.runInContext("saveWatched()", ctx);
+  t.followShared({ triage_watched: { newValue: { BV50: 1 } } });
+  t.followShared(echo1);
+  assert.deepStrictEqual(plain(t.S.watched), { BV50: 1, BV51: 2 }, "an older echo of this page's write is skipped");
+  t.followShared({ triage_kept: { newValue: { BV51: keep } }, triage_tags: { newValue: [{ id: "n", name: "新", folder: "N" }] } });
+  assert.deepStrictEqual(plain([t.S.kept, t.S.decisions, t.S.tags.map((x) => x.id)]), [{ BV51: keep }, { BV51: { action: "unfav", at: 1 } }, ["n"]],
+    "the other tab's 保留 list replaces this one; 取消收藏 still wins in the folder; tags follow");
+  t.followShared({ triage_basket: { newValue: undefined } });
+  assert.deepStrictEqual(plain(t.S.basket), [], "a removed key reads as empty");
+  t.patchKept({ BV50: keep });
+  assert.deepStrictEqual(Object.keys(store.triage_kept), ["BV51", "BV50"], "the next write keeps the other tab's 保留");
+  Object.assign(t.S, { kept: {}, watched: {}, tags: [], basket: [] });
+
+  // R3: another tab's 取消收藏 records for the open folder are followed, and a restore here does not wipe the ones this
+  // page never saw. In 所有收藏夹 the loaded folders' records follow too.
+  openFake("P", [item(60), item(61)], { BV60: unfavAt(60) });
+  const other = { BV60: unfavAt(60), BV62: unfavAt(62) };
+  store[t.K.decisions("P")] = structuredClone(other);
+  t.followShared({ [t.K.decisions("P")]: { newValue: structuredClone(other) } });
+  assert.ok(t.S.decisions.BV62, "the other tab's record shows here");
+  store[t.K.decisions("P")].BV63 = unfavAt(63); // its event not delivered yet
+  handlers["triage-folder-items"] = () => ({ ok: true, data: { items: [{ ...item(60), favTime: 300 }, item(61)], ids: ["BV60", "BV61"], info: { intro: "" } } });
+  Object.assign(t.S, { syncing: false, lastSyncAt: 0 });
+  await t.syncFolder({ force: true });
+  await new Promise((r) => setImmediate(r));
+  assert.deepStrictEqual(Object.keys(plain(store[t.K.decisions("P")])).sort(), ["BV62", "BV63"], "the restore removes BV60 only");
+  t.followShared({ [t.K.decisions("P")]: { newValue: structuredClone(store[t.K.decisions("P")]) } });
+  assert.deepStrictEqual(Object.keys(plain(t.S.decisions)).sort(), ["BV62"], "this page's own echo is skipped");
+  t.S.mediaId = "all";
+  t.S.folderDecisions = { P: {} };
+  t.S.loadAll = { lists: { P: { items: [item(60), item(62)] } } };
+  t.S.folders = [{ id: "P", title: "夹P" }];
+  t.S.items = [];
+  t.followShared({ [t.K.decisions("P")]: { newValue: { BV62: unfavAt(62) } } });
+  assert.deepStrictEqual(plain(t.S.items.map((it) => it.bvid)), ["BV60"], "所有收藏夹 drops the video the other tab unfavorited");
+  t.S.loadAll = null;
 
   // 阅览: every step in one list, the AI-class chip filters across steps.
   openFake("R", [item(701), item(702), item(703), item(704)]);

@@ -181,12 +181,15 @@ function bindEvents() {
     window.setTimeout(() => window.close(), 80);
   });
 
-  for (const [btn, page] of [[el.triageBtn, "triage/triage.html"], [el.historyBtn, "history/history.html"]]) {
-    btn.addEventListener("click", async () => {
-      await chrome.tabs.create({ url: chrome.runtime.getURL(page) });
-      window.close();
-    });
-  }
+  el.triageBtn.addEventListener("click", async () => {
+    const r = await sendToRuntime({ type: "triage-open" }).catch(() => null);
+    if (!r?.ok) await chrome.tabs.create({ url: chrome.runtime.getURL("triage/triage.html") });
+    window.close();
+  });
+  el.historyBtn.addEventListener("click", async () => {
+    await chrome.tabs.create({ url: chrome.runtime.getURL("history/history.html") });
+    window.close();
+  });
 }
 
 async function refreshFromTab() {

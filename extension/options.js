@@ -165,6 +165,12 @@ function init() {
     input?.addEventListener("input", () => input.classList.remove("input-error"));
   });
   elements.obsidianApiKey.addEventListener("input", syncObsidianKeyTag);
+  // Focuses an open triage tab instead of a second one.
+  document.querySelector('a.jump[href$="triage.html"]')?.addEventListener("click", async (event) => {
+    event.preventDefault();
+    const r = await chrome.runtime.sendMessage({ type: "triage-open" }).catch(() => null);
+    if (!r?.ok) chrome.tabs.create({ url: chrome.runtime.getURL("triage/triage.html") });
+  });
   document.querySelectorAll(".var[data-var]").forEach((button) => {
     button.addEventListener("click", () => {
       const folder = elements.noteFolder.value.trim().replace(/\/+$/, "");

@@ -112,15 +112,20 @@ function tagsByFolderMigration({ tags = [], videoTags = {}, folders = [], fallba
   return { tags: out, videoTags: nextVideoTags };
 }
 
-// 所有收藏夹 (pure): lists = [{ id, items, at, decisions }] in folder order. A video in several folders appears once with
-// every folder id in .folders. A folder whose 取消收藏 is newer than its cached list (at) no longer counts; a video left in
-// no folder is dropped.
+// A listed video counts as favorited again after our 取消收藏 only when Bilibili's favorite time (seconds) is not older
+// than it: a list fetched before the 取消收藏, or lagging behind it, still holds the video with its old time. No favTime
+// keeps the 取消收藏.
+const refavorited = (it, dec) => (it.favTime || 0) * 1000 >= dec.at;
+
+// 所有收藏夹 (pure): lists = [{ id, items, decisions }] in folder order. A video in several folders appears once with
+// every folder id in .folders. A folder the video was unfavorited from no longer counts unless it was favorited there
+// again since; a video left in no folder is dropped.
 function mergeFolderItems(lists) {
   const map = new Map();
-  for (const { id, items, at = 0, decisions: d = {} } of lists) {
+  for (const { id, items, decisions: d = {} } of lists) {
     for (const it of items) {
       const dec = d[it.bvid];
-      if (dec?.action === "unfav" && dec.at >= at) continue;
+      if (dec?.action === "unfav" && !refavorited(it, dec)) continue;
       const m = map.get(it.bvid);
       if (m) m.folders.push(id);
       else map.set(it.bvid, { ...it, folders: [id] });
@@ -291,8 +296,18 @@ async function storeGet(key, fallback) {
   const r = await chrome.storage.local.get(key);
   return r?.[key] ?? fallback;
 }
+// key → JSON of this page's writes whose change event has not come back yet; see followShared.
+const ownWrites = {};
+function noteOwnWrites(obj) {
+  for (const [k, v] of Object.entries(obj)) {
+    const list = (ownWrites[k] ||= []);
+    list.push(JSON.stringify(v ?? null));
+    if (list.length > 20) list.shift(); // an unchanged value fires no event, so its entry would never leave
+  }
+}
 let storeFailShown = false;
 function storeSet(key, value) {
+  noteOwnWrites({ [key]: value });
   return chrome.storage.local.set({ [key]: value }).catch((e) => {
     console.error("[triage] storage write failed", key, e);
     if (storeFailShown) return;
@@ -436,7 +451,15 @@ function tagChips() {
 // How many new tags 批量打 may propose: at most 5, within the folder's room.
 const aiNewTagRoom = () => Math.max(0, Math.min(5, TAG_LIMIT - viewTags().length));
 const FOLDER_ONLY = "标签按收藏夹分开，请先打开一个具体收藏夹";
-const tagIdsOf = (bvid) => (S.videoTags[bvid] || []).filter((id) => tagById(id));
+// A video's tags in the open view. A tag belongs to one folder and stays there when the video moves, so a folder shows
+// only its own; 所有收藏夹 those of the video's folders (as the picker); 已取消收藏 every one.
+function tagIdsOf(bvid) {
+  const folders = S.mediaId === REMOVED ? null : pickerFolders(bvid);
+  return (S.videoTags[bvid] || []).filter((id) => {
+    const t = tagById(id);
+    return t && (!folders || folders.includes(t.folder));
+  });
+}
 // Only 取消收藏 / 保留 finish a video; tags and notes never do.
 const isProcessed = (bvid) => Boolean(S.decisions[bvid]);
 // 粗看 and 细看 runs keep going in their own folder (mediaId) after another one opens; these are the open folder's.
@@ -559,6 +582,7 @@ async function init() {
       S.notes = changes[K.notes].newValue || {};
       render();
     }
+    if (area === "local") followShared(changes);
   });
   chrome.runtime.onMessage.addListener((msg) => {
     if (msg?.type !== "triage-folder-page") return;
@@ -570,6 +594,50 @@ async function init() {
   renderBasket();
   await loadFolders();
   setInterval(tick, 1000);
+}
+
+// Another triage tab wrote one of the lists every page writes whole: take its value, so the next
+// write here does not put back what it removed. This page's own writes come back as events too and are skipped: an
+// older one arriving after a newer edit would undo that edit.
+const SHARED = { kept: {}, videoTags: {}, tags: [], basket: [], watched: {}, folderCriteria: {} };
+function followShared(changes) {
+  let changed = false;
+  for (const [name, empty] of Object.entries(SHARED)) {
+    const c = changes[K[name]];
+    if (!c) continue;
+    if (ownEcho(K[name], c)) continue;
+    const value = c.newValue ?? structuredClone(empty);
+    if (name === "kept") followKept(value);
+    else S[name] = value;
+    changed = true;
+  }
+  // 取消收藏 records: the open folder's, as openFolder builds them; in 所有收藏夹 those of the loaded folders.
+  for (const [key, c] of Object.entries(changes)) {
+    const id = /^triage_decisions_(.+)$/.exec(key)?.[1];
+    if (!id || ownEcho(key, c)) continue;
+    const d = c.newValue || {};
+    if (id === String(S.mediaId)) S.decisions = { ...S.kept, ...d };
+    else if (S.loadAll && S.folderDecisions[id]) {
+      S.folderDecisions[id] = d;
+      rebuildAll();
+    } else continue;
+    changed = true;
+  }
+  if (changed) render();
+}
+function ownEcho(key, c) {
+  const mine = ownWrites[key] || [];
+  const i = mine.indexOf(JSON.stringify(c.newValue ?? null));
+  if (i >= 0) mine.splice(0, i + 1);
+  return i >= 0;
+}
+// 保留 also sits in the open view's decisions (see openFolder and rebuildAll); 取消收藏 there wins, as on open.
+function followKept(kept) {
+  if (S.mediaId !== REMOVED) {
+    for (const [b, d] of Object.entries(S.decisions)) if (d?.action === "keep" && !kept[b]) delete S.decisions[b];
+    for (const [b, d] of Object.entries(kept)) if (S.decisions[b]?.action !== "unfav") S.decisions[b] = d;
+  }
+  S.kept = kept;
 }
 
 // Runs simplifyMigration once (flag key), then drops the old scheme keys it read.
@@ -874,7 +942,8 @@ async function syncFolder({ force = false, cached = null } = {}) {
     const restored = new Set();
 
     for (const it of remote) {
-      if (S.decisions[it.bvid]?.action === "unfav") {
+      const dec = S.decisions[it.bvid];
+      if (dec?.action === "unfav" && refavorited(it, dec)) {
         delete S.decisions[it.bvid];
         restored.add(it.bvid);
         diff.restored.push(it.title);
@@ -891,7 +960,7 @@ async function syncFolder({ force = false, cached = null } = {}) {
         if (!remoteSet.has(b) && S.decisions[b]?.action !== "unfav") diff.removed.push(snap.titles?.[b] || b);
       }
     }
-    if (restored.size) saveDecisions();
+    if (restored.size) patchDecisions(mediaId, Object.fromEntries([...restored].map((b) => [b, null])));
 
     // Remote order, newly added first; keep items we unfavorited this session so undo stays possible,
     // and after a partial load keep everything the missing pages may still hold.
@@ -932,8 +1001,7 @@ async function saveSnapshot(mediaId, items, ids = null) {
       titles: Object.fromEntries(items.map((it) => [it.bvid, it.title])),
       items,
       ids, // the folder's id list at this load; 所有收藏夹 compares the next id list with it
-      intro: S.folderIntro[mediaId] ?? old?.intro,
-      at: Date.now()
+      intro: S.folderIntro[mediaId] ?? old?.intro
     },
     [K.removed]: removed
   });
@@ -1012,9 +1080,12 @@ async function cleanRemoved(list) {
   const decisionKeys = ((await chrome.storage.local.getKeys?.()) ?? Object.keys((await chrome.storage.local.get(null)) || {})).filter((k) => k.startsWith("triage_decisions_"));
   const decisions = await chrome.storage.local.get(decisionKeys);
   for (const map of [...Object.values(decisions), S.decisions, ...Object.values(S.folderDecisions)]) for (const b of bvids) delete map[b];
+  noteOwnWrites(decisions);
   await chrome.storage.local.set(decisions);
   await chrome.storage.local.remove(bvids.flatMap((b) => [`triage_title_${b}`, `triage_analysis_${b}`]));
-  await chrome.storage.local.set({ [K.removed]: rec, [K.notes]: S.notes, [K.videoTags]: S.videoTags, [K.kept]: S.kept, [K.basket]: S.basket });
+  const write = { [K.removed]: rec, [K.notes]: S.notes, [K.videoTags]: S.videoTags, [K.kept]: S.kept, [K.basket]: S.basket };
+  noteOwnWrites(write);
+  await chrome.storage.local.set(write);
   S.removedCount = Object.keys(rec).length;
   S.items = S.items.filter((it) => !set.has(it.bvid));
   S.itemMap = new Map(S.items.map((it) => [it.bvid, it]));
@@ -1061,8 +1132,8 @@ async function openAll() {
     const id = String(f.id);
     S.folderDecisions[id] = got[K.decisions(id)] || {};
     const snap = got[K.snapshot(id)];
-    if (snap?.items) lists[id] = { items: snap.items, ids: snap.ids, at: snap.at || 0 };
-    else if (!Number(f.count)) lists[id] = { items: [], at: Date.now() };
+    if (snap?.items) lists[id] = { items: snap.items, ids: snap.ids };
+    else if (!Number(f.count)) lists[id] = { items: [] };
   }
   const check = ids.filter((id) => got[K.snapshot(id)]?.items);
   S.loadAll = { lists, check, checkTotal: check.length, queue: ids.filter((id) => !lists[id]), paused: false, running: false, error: "", partial: 0 };
@@ -1127,7 +1198,7 @@ async function runLoadAll(token) {
         const q = await fromCache(id, { snap: { ...list, bvids }, ids: r.data.bvids }, await localItems(id));
         if (token !== S.folderToken) return;
         if (q?.ok && !q.data.partial) {
-          L.lists[id] = { items: q.data.items, ids: q.data.ids, at: Date.now() };
+          L.lists[id] = { items: q.data.items, ids: q.data.ids };
           await saveSnapshot(id, q.data.items, q.data.ids);
           rebuildAll();
           if (!(await loadResults(token))) return;
@@ -1148,7 +1219,7 @@ async function runLoadAll(token) {
     }
     L.queue.shift();
     const items = r.data.items || [];
-    L.lists[id] = { items, ids: r.data.ids, at: Date.now() };
+    L.lists[id] = { items, ids: r.data.ids };
     // A partial list is still searchable but never becomes the cache, as in syncFolder.
     if (r.data.partial) L.partial++;
     else await saveSnapshot(id, items, r.data.ids);
@@ -1749,7 +1820,6 @@ function pushUndo(entry) {
   S.undo.push(entry);
   if (S.undo.length > BocLimits.TRIAGE_UNDO_STEPS) S.undo.shift();
 }
-const saveDecisions = () => storeSet(K.decisions(S.mediaId), unfavOnly(S.decisions));
 // Patch one folder's decisions even after the user switched away from it; a null value deletes.
 // Merged into the stored record, not written from memory: a batch running for this folder may have written it after
 // the open folder read it.
@@ -2191,7 +2261,8 @@ function openPicker(bvid) {
   const it = S.itemMap.get(bvid);
   if (!it) return;
   picker.bvid = bvid;
-  picker.prev = tagIdsOf(bvid);
+  // Every tag of the video, so saving keeps the ones of other folders the picker does not list.
+  picker.prev = (S.videoTags[bvid] || []).filter((id) => tagById(id));
   picker.ids = [...picker.prev];
   picker.index = 0;
   el.pickerTitle.textContent = `打标签 ·《${shortTitle(it)}》`;
@@ -2682,7 +2753,7 @@ function mergeAiBatch(p, data, opts, scopeSet) {
 
   for (const [bvid, a] of Object.entries(data?.assignments || {})) {
     if (!scopeSet.has(bvid)) continue;
-    const current = tagIdsOf(bvid);
+    const current = S.videoTags[bvid] || []; // not tagIdsOf: the open folder may have changed since the run started
     const add = [];
     for (const raw of a?.add || []) {
       const name = String(raw ?? "").trim();
@@ -2711,8 +2782,9 @@ function mergeAiBatch(p, data, opts, scopeSet) {
   }
 }
 
-// Row changes after dropping adds of unchecked new tags.
+// Row changes after dropping adds of unchecked new tags. A video that left the folder since the proposal is skipped.
 function effectiveRow(p, row) {
+  if (!S.itemMap.has(row.bvid)) return { add: [], empty: true };
   const add = row.add.filter((ref) => !ref.startsWith("new:") || p.newTags.find((t) => t.key === ref.slice(4))?.checked);
   return { add, empty: !add.length && !row.remove.length };
 }
