@@ -113,15 +113,20 @@ function tagsByFolderMigration({ tags = [], videoTags = {}, folders = [], fallba
   return { tags: out, videoTags: nextVideoTags };
 }
 
-// 所有收藏夹 (pure): lists = [{ id, items, at, decisions }] in folder order. A video in several folders appears once with
-// every folder id in .folders. A folder whose 取消收藏 is newer than its cached list (at) no longer counts; a video left in
-// no folder is dropped.
+// A listed video counts as favorited again after our 取消收藏 only when Bilibili's favorite time (seconds) is not older
+// than it: a list fetched before the 取消收藏, or lagging behind it, still holds the video with its old time. No favTime
+// keeps the 取消收藏.
+const refavorited = (it, dec) => (it.favTime || 0) * 1000 >= dec.at;
+
+// 所有收藏夹 (pure): lists = [{ id, items, decisions }] in folder order. A video in several folders appears once with
+// every folder id in .folders. A folder the video was unfavorited from no longer counts unless it was favorited there
+// again since; a video left in no folder is dropped.
 function mergeFolderItems(lists) {
   const map = new Map();
-  for (const { id, items, at = 0, decisions: d = {} } of lists) {
+  for (const { id, items, decisions: d = {} } of lists) {
     for (const it of items) {
       const dec = d[it.bvid];
-      if (dec?.action === "unfav" && dec.at >= at) continue;
+      if (dec?.action === "unfav" && !refavorited(it, dec)) continue;
       const m = map.get(it.bvid);
       if (m) m.folders.push(id);
       else map.set(it.bvid, { ...it, folders: [id] });
@@ -850,7 +855,8 @@ async function syncFolder({ force = false, cached = null } = {}) {
     const restored = new Set();
 
     for (const it of remote) {
-      if (S.decisions[it.bvid]?.action === "unfav") {
+      const dec = S.decisions[it.bvid];
+      if (dec?.action === "unfav" && refavorited(it, dec)) {
         delete S.decisions[it.bvid];
         restored.add(it.bvid);
         diff.restored.push(it.title);
@@ -908,8 +914,7 @@ async function saveSnapshot(mediaId, items, ids = null) {
       titles: Object.fromEntries(items.map((it) => [it.bvid, it.title])),
       items,
       ids, // the folder's id list at this load; 所有收藏夹 compares the next id list with it
-      intro: S.folderIntro[mediaId] ?? old?.intro,
-      at: Date.now()
+      intro: S.folderIntro[mediaId] ?? old?.intro
     },
     [K.removed]: removed
   });
@@ -1030,8 +1035,8 @@ async function openAll() {
     const id = String(f.id);
     S.folderDecisions[id] = got[K.decisions(id)] || {};
     const snap = got[K.snapshot(id)];
-    if (snap?.items) lists[id] = { items: snap.items, ids: snap.ids, at: snap.at || 0 };
-    else if (!Number(f.count)) lists[id] = { items: [], at: Date.now() };
+    if (snap?.items) lists[id] = { items: snap.items, ids: snap.ids };
+    else if (!Number(f.count)) lists[id] = { items: [] };
   }
   const check = ids.filter((id) => got[K.snapshot(id)]?.items);
   S.loadAll = { lists, check, checkTotal: check.length, queue: ids.filter((id) => !lists[id]), paused: false, running: false, error: "", partial: 0 };
@@ -1088,7 +1093,7 @@ async function runLoadAll(token) {
         const q = await fromCache(id, { snap: { ...list, bvids }, ids: r.data.bvids }, await localItems(id));
         if (token !== S.folderToken) return;
         if (q?.ok && !q.data.partial) {
-          L.lists[id] = { items: q.data.items, ids: q.data.ids, at: Date.now() };
+          L.lists[id] = { items: q.data.items, ids: q.data.ids };
           await saveSnapshot(id, q.data.items, q.data.ids);
           rebuildAll();
           if (!(await loadResults(token))) return;
@@ -1109,7 +1114,7 @@ async function runLoadAll(token) {
     }
     L.queue.shift();
     const items = r.data.items || [];
-    L.lists[id] = { items, ids: r.data.ids, at: Date.now() };
+    L.lists[id] = { items, ids: r.data.ids };
     // A partial list is still searchable but never becomes the cache, as in syncFolder.
     if (r.data.partial) L.partial++;
     else await saveSnapshot(id, items, r.data.ids);

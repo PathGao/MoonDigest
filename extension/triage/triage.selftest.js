@@ -618,12 +618,13 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   assert.deepStrictEqual(hits("claude"), [], "search and tag filter combine");
   Object.assign(t.S, { query: "", tagFilter: new Set(), analyses: {}, notes: {}, tags: [], videoTags: {} });
 
-  // F2 所有收藏夹: one entry per video with every folder; an unfav newer than a folder's cache drops that folder.
+  // F2 所有收藏夹: one entry per video with every folder; an unfav drops that folder unless B's favorite time is newer.
   const merged = plain(t.mergeFolderItems([
-    { id: "A", at: 10, items: [item(1), item(2)], decisions: {} },
-    { id: "B", at: 10, items: [item(2), item(3), item(4)], decisions: { BV3: { action: "unfav", at: 20 }, BV4: { action: "unfav", at: 5 } } }
+    { id: "A", items: [item(1), item(2)], decisions: {} },
+    { id: "B", items: [item(2), { ...item(3), favTime: 10 }, { ...item(4), favTime: 10 }, item(5)],
+      decisions: { BV3: { action: "unfav", at: 20000 }, BV4: { action: "unfav", at: 5000 }, BV5: { action: "unfav", at: 1 } } }
   ]));
-  assert.deepStrictEqual(merged.map((it) => [it.bvid, it.folders]), [["BV1", ["A"]], ["BV2", ["A", "B"]], ["BV4", ["B"]]], "BV3 unfavorited after B's cache; BV4 re-favorited since");
+  assert.deepStrictEqual(merged.map((it) => [it.bvid, it.folders]), [["BV1", ["A"]], ["BV2", ["A", "B"]], ["BV4", ["B"]]], "BV3 favorited before its unfav (stale list); BV4 re-favorited since; BV5 has no favTime");
 
   // F2 取消收藏 in 所有收藏夹: only the picked folder is unfavorited and recorded; U re-favorites it there.
   const shared = { ...item(7), folders: ["A", "B"] };
@@ -922,6 +923,17 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   assert.deepStrictEqual([itemCalls.length, t.S.loadAll.queue.length], [1, 0], "one head request, no full load queued");
   assert.strictEqual(t.S.loadAll.lists["6"].items[0].bvid, "BV5");
   assert.strictEqual(store.triage_snapshot_6.ids[0], "BV5");
+
+  // R2: a list fetched before a 取消收藏, or lagging behind it, still holds the video with its old favTime. Only a
+  // favorite time not older than the 取消收藏 counts as re-favorited.
+  t.S.folders = t.S.allFolders = [{ id: "M", title: "夹M" }];
+  const unfavAt = (n) => ({ action: "unfav", at: 200000, aid: 1000 + n, title: `视频${n}` });
+  openFake("M", [item(40), item(41)], { BV40: unfavAt(40), BV41: unfavAt(41) });
+  handlers["triage-folder-items"] = () => ({ ok: true, data: { items: [{ ...item(40), favTime: 100 }, { ...item(41), favTime: 300 }], ids: ["BV40", "BV41"], info: { intro: "" } } });
+  Object.assign(t.S, { syncing: false, lastSyncAt: 0 });
+  await t.syncFolder({ force: true });
+  assert.deepStrictEqual(Object.keys(plain(store[t.K.decisions("M")])), ["BV40"], "BV40 stays unfavorited, BV41 was re-favorited");
+  assert.ok(t.S.decisions.BV40 && !t.S.decisions.BV41);
 
   // 阅览: every step in one list, the AI-class chip filters across steps.
   openFake("R", [item(701), item(702), item(703), item(704)]);
