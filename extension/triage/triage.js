@@ -1899,7 +1899,7 @@ async function batchUnfav(list) {
 // 移动/复制 takes every selected card still in the folder here, 保留 ones too (unlike 取消收藏, which skips them).
 const transferList = () => selectedIn(visibleItems()).filter((it) => S.decisions[it.bvid]?.action !== "unfav");
 
-// Resolves "move" / "copy" with the target ({ id } or { create, privacy }), or null when cancelled.
+// Resolves { move, target } (target: { id } or { create, privacy }), or null when cancelled.
 function askTransfer(list) {
   const from = String(S.mediaId);
   const targets = S.allFolders.filter((f) => String(f.id) !== from && String(f.id) !== TOVIEW);
