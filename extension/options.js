@@ -157,6 +157,8 @@ function init() {
   elements.seenShow.addEventListener("change", syncSeenRows);
   // The box shows the value that would be saved, so 150 over a stored 100 is not a silent no-op.
   elements.seenThreshold.addEventListener("change", () => (elements.seenThreshold.value = String(readFormPayload().seenThreshold)));
+  // Same for 追问: blank, repeated and past-12 lines are dropped from the box, not only from what is saved.
+  elements.aiPresetPrompts.addEventListener("change", () => (elements.aiPresetPrompts.value = readFormPayload().aiPresetPrompts.join("\n")));
   elements.testConnectionBtn.addEventListener("click", testConnection);
   elements.addFixedPropertyBtn.addEventListener("click", () => addFixedPropertyRow());
   elements.addNoteSectionBtn.addEventListener("click", () => addNoteSectionRow());
@@ -315,6 +317,7 @@ async function saveSettings() {
     renderNoteSectionRows(payload.notePlaceholderSections);
     // The box shows what was saved: 150 is stored and shown as 100.
     elements.seenThreshold.value = String(payload.seenThreshold);
+    elements.aiPresetPrompts.value = payload.aiPresetPrompts.join("\n");
 
     // AI 平台：list 走 sync、apiKey 走 local
     const aiResp = await sendRuntimeMessage({ type: "ai-providers-save", providers: aiProvidersPayload });
