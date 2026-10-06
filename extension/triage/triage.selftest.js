@@ -292,18 +292,15 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   t.renderListHeader(t.visibleItems());
   for (const part of ["细看选中 1 个", "保留选中的 1 个", "取消收藏选中的 1 个"]) assert.ok(t.el.listHeader.innerHTML.includes(part), part);
   // The activity pill names what runs, whatever the tab: 细看 first, then 粗看; a wait keeps the job's pause button.
-  t.S.group = { bvids: ["BV207"], stop: false, mediaId: String(t.S.mediaId), items: t.S.itemMap };
-  t.S.stage1 = { ...t.S.stage1, running: true, done: 2, total: 5, mediaId: String(t.S.mediaId) };
-  t.S.status = "字幕细看 1/1";
+  t.S.group = { bvids: ["BV207"], stop: false, mediaId: String(t.S.mediaId), items: t.S.itemMap, text: "字幕细看 1/1" };
+  t.S.stage1 = { ...t.S.stage1, running: true, done: 2, total: 5, mediaId: String(t.S.mediaId), text: "标题粗看中 2/5" };
   assert.deepStrictEqual(plain(t.activityState()), { text: "字幕细看 1/1", done: 0, total: 1, act: "group", actLabel: "暂停细看", warn: false });
   t.S.group = null;
-  t.S.status = "标题粗看中 2/5";
   assert.deepStrictEqual(plain(t.activityState()), { text: "标题粗看中 2/5", done: 2, total: 5, act: "stage1", actLabel: "暂停粗看", warn: false });
   Object.assign(t.S, { throttleUntil: Date.now() + 61000, throttleLabel: "B站限流" });
   const waiting = t.activityState();
   assert.ok(waiting.warn && waiting.text.startsWith("B站限流，") && waiting.act === "stage1", "a wait shows its countdown and keeps 暂停粗看");
-  t.S.stage1 = { ...t.S.stage1, running: false };
-  t.S.status = "";
+  t.S.stage1 = { ...t.S.stage1, running: false, text: "" };
   assert.ok(t.activityState().warn && !t.activityState().act, "a wait alone has no button");
   t.S.throttleUntil = 0;
   assert.strictEqual(t.activityState(), null, "nothing running hides the pill");
@@ -872,8 +869,7 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     if (analyzed.length === 1) openFake("K", []);
     if (analyzed.length === 2) {
       openFake("L", [item(820)]);
-      t.S.status = "L 自己的状态";
-      t.el.banner.hidden = false;
+      t.showBanner("未登录 B 站", "去登录", () => {});
     }
     return { ok: true, data: { bvid, status: "done", verdict: "keep" } };
   };
@@ -882,7 +878,14 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   assert.deepStrictEqual(plain(analyzed), [["BV830", "K 标准"], ["BV831", "K 标准"]]);
   assert.deepStrictEqual([t.S.analyses.BV831?.criteria, t.S.group], ["K 标准", null]);
   assert.strictEqual(toasts.at(-1), "「夹K」这批字幕细看完成");
-  assert.deepStrictEqual([t.S.status, t.el.banner.hidden], ["L 自己的状态", false], "a run elsewhere leaves this folder's status and banner");
+  assert.strictEqual(t.el.banner.hidden, false, "a finished run leaves a banner that is not about AI");
+  assert.strictEqual(t.activityState(), null, "K's last 粗看 line is not shown in L");
+  t.handleAiError("请先配置 AI 服务");
+  t.startGroup(["BV820"]);
+  for (let i = 0; i < 20 && t.S.group; i++) await new Promise((r) => setImmediate(r));
+  assert.strictEqual(t.el.banner.hidden, true, "a run that works clears the AI banner wherever it ran");
+  openFake("K", []);
+  assert.strictEqual(t.activityState().text, "标题粗看完成 2 个", "back in K, its last 粗看 line shows");
   Object.assign(t.S.settings, { triageTitleBatchSize: 30 });
 
   // Back on the tab: the id check alone when nothing changed, no full load.

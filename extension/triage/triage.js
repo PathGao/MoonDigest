@@ -223,7 +223,6 @@ const S = {
   analyzing: new Set(),
   throttleUntil: 0,
   throttleLabel: "",
-  status: "",
   undo: [],
   lastSyncAt: 0,
   syncing: false,
@@ -385,7 +384,9 @@ function askConfirm(title, bodyHtml, okText) {
   });
 }
 
-function showBanner(text, btnText, onClick) {
+// kind "ai" marks an AI setup problem; a run that then succeeds clears only that kind, whichever folder it ran in.
+function showBanner(text, btnText, onClick, kind = "") {
+  el.banner.dataset.kind = kind;
   el.bannerText.textContent = text;
   el.bannerBtn.textContent = btnText;
   el.bannerBtn.setAttribute("aria-label", btnText);
@@ -403,13 +404,16 @@ function handleAiError(error) {
         el.banner.hidden = true;
         toast("已授权，请重试");
       }
-    });
+    }, "ai");
   } else if (text.includes("配置 AI")) {
-    showBanner(`还没有可用的 AI 服务：${text}`, "去配置", () => send({ type: "open-options" }));
+    showBanner(`还没有可用的 AI 服务：${text}`, "去配置", () => send({ type: "open-options" }), "ai");
   } else if (text.includes("截断")) {
-    showBanner(`${text}。建议调大输出上限或关闭思考`, "打开分拣设置", () => openSettings(true));
+    showBanner(`${text}。建议调大输出上限或关闭思考`, "打开分拣设置", () => openSettings(true), "ai");
   } else toast(text, true);
 }
+const clearAiBanner = () => {
+  if (el.banner.dataset.kind === "ai") el.banner.hidden = true;
+};
 
 // ---------- derived ----------
 const tagById = (id) => S.tags.find((t) => t.id === id);
@@ -725,10 +729,8 @@ async function openFolder(mediaId) {
   S.tagFilter.clear();
   S.watchedFilter = false;
   S.undo = [];
-  S.stage1Skip.clear();
   S.focused = "";
   S.focusIndex = 0;
-  S.status = "";
   hideSyncNotice();
   if (!all && !removed) storeSet(K.lastFolder, mediaId);
   el.folderSelect.value = mediaId;
@@ -1228,12 +1230,12 @@ function activityState() {
   if (S.group) {
     const done = groupDone(S.group);
     const where = runWhere(S.group);
-    const text = where ? `字幕细看 ${done}/${S.group.bvids.length}${where}` : S.status || `字幕细看 ${done}/${S.group.bvids.length}`;
+    const text = where ? `字幕细看 ${done}/${S.group.bvids.length}${where}` : S.group.text || `字幕细看 ${done}/${S.group.bvids.length}`;
     return { text: wait || text, done, total: S.group.bvids.length, act: "group", actLabel: "暂停细看", warn: Boolean(wait) };
   }
   if (S.stage1.running) {
     const where = runWhere(S.stage1);
-    const text = where ? `标题粗看中 ${S.stage1.done}/${S.stage1.total}${where}` : S.status;
+    const text = where ? `标题粗看中 ${S.stage1.done}/${S.stage1.total}${where}` : S.stage1.text;
     return { text: wait || text, done: S.stage1.done, total: S.stage1.total, act: "stage1", actLabel: "暂停粗看", warn: Boolean(wait) };
   }
   const unfav = S.unfavBatch;
@@ -1248,7 +1250,8 @@ function activityState() {
   if (S.ai.proposal) return { text: "标签建议待确认", act: "tags", actLabel: "查看" };
   const other = otherAiFolder();
   if (other) return { text: `「${folderName(other)}」的标签建议待确认`, act: "aiOther", actLabel: "查看" };
-  if (S.status) return { text: S.status };
+  // A finished 粗看 keeps its last line for its own folder.
+  if (S.stage1.text && !runWhere(S.stage1)) return { text: S.stage1.text };
   return null;
 }
 
@@ -2083,14 +2086,14 @@ async function runStage1() {
   const crit = criteria();
   const ctx = folderContext();
   const list = stage1Pending();
-  const skip = new Set();
   // Timed-out batches are skipped for this run only, so clicking 标题粗看 again retries them.
   const timedOut = new Set();
   // In its own folder the live step decides (a card may have been sorted meanwhile); elsewhere only the result does.
   const pending = () =>
-    list.filter((it) => !timedOut.has(it.bvid) && !skip.has(it.bvid) && (S.mediaId === folder ? stageOf(it) === "none" && !S.stage1Skip.has(it.bvid) : !VERDICTS[S.titleRes[it.bvid]?.verdict]));
+    list.filter((it) => !timedOut.has(it.bvid) && !S.stage1Skip.has(it.bvid) && (S.mediaId === folder ? stageOf(it) === "none" : !VERDICTS[S.titleRes[it.bvid]?.verdict]));
   const total = pending().length;
-  S.stage1 = { running: true, stop: false, done: 0, total, mediaId: folder };
+  // The run owns its line (text); the activity bar reads it, in its folder or as a hint elsewhere.
+  S.stage1 = { running: true, stop: false, done: 0, total, mediaId: folder, text: "" };
   const keepGoing = () => !S.stage1.stop;
   const size = Math.max(1, Number(S.settings.triageTitleBatchSize) || 30);
   let done = 0;
@@ -2100,7 +2103,7 @@ async function runStage1() {
   while (keepGoing()) {
     const batch = pending().slice(0, size);
     if (!batch.length) break;
-    if (S.mediaId === folder) S.status = `标题粗看中 ${done}/${total}`;
+    S.stage1.text = `标题粗看中 ${done}/${total}`;
     for (const it of batch) S.analyzing.add(it.bvid);
     render();
     const r = await send({ type: "triage-classify-titles", items: batch.map(aiItem), criteria: crit, folder: ctx });
@@ -2126,10 +2129,7 @@ async function runStage1() {
     const results = r.data?.results || {};
     for (const it of batch) {
       if (results[it.bvid]) S.titleRes[it.bvid] = { criteria: crit, ...results[it.bvid] };
-      else {
-        skip.add(it.bvid);
-        if (S.mediaId === folder) S.stage1Skip.add(it.bvid);
-      }
+      else S.stage1Skip.add(it.bvid);
     }
     done += batch.length;
     S.stage1.done = done;
@@ -2137,13 +2137,11 @@ async function runStage1() {
     if (pending().length) await sleepWhile(S.settings.triageIntervalSec * 1000, keepGoing);
   }
   S.stage1.running = false;
-  const own = S.mediaId === folder;
-  if (!failedOut && own) el.banner.hidden = true;
-  const msg = timedOut.size
+  if (!failedOut) clearAiBanner();
+  S.stage1.text = timedOut.size
     ? `标题粗看完成 ${done} 个，${timedOut.size} 个因 AI 超时跳过，再点标题粗看可重试`
     : done ? `标题粗看完成 ${done} 个` : "";
-  if (own) S.status = msg;
-  else if (msg) toast(`「${folderName(folder)}」${msg}`);
+  if (S.stage1.text && runWhere(S.stage1)) toast(`「${folderName(folder)}」${S.stage1.text}`);
   render();
 }
 
@@ -2190,7 +2188,7 @@ async function runGroup() {
   while (keepGoing()) {
     const b = group.bvids.find((x) => groupPending(group, x));
     if (!b) break;
-    if (!runWhere(group)) S.status = `${group.redo ? "按新标准重新细看" : "字幕细看"} ${groupDone(group) + 1}/${group.bvids.length}`;
+    group.text = `${group.redo ? "按新标准重新细看" : "字幕细看"} ${groupDone(group) + 1}/${group.bvids.length}`;
     const r = await analyzeOne(b, Boolean(group.redo), group.crit, group.ctx);
     if (!r.ok && THROTTLES[r.code]) {
       render();
@@ -2209,11 +2207,9 @@ async function runGroup() {
   }
   if (S.group !== group) return;
   // A run that stopped on a setup error keeps its banner; any other finished batch clears it.
-  const own = !runWhere(group);
-  if (!group.stop && own) el.banner.hidden = true;
+  if (!group.stop) clearAiBanner();
   S.group = null;
-  if (own) S.status = "";
-  else if (!group.stop) toast(`「${folderName(group.mediaId)}」这批字幕细看完成`);
+  if (runWhere(group) && !group.stop) toast(`「${folderName(group.mediaId)}」这批字幕细看完成`);
   render();
 }
 
@@ -2894,12 +2890,12 @@ function bindEvents() {
     else if (act === "stage1") {
       if (!S.stage1.running) return runStage1();
       S.stage1.stop = true;
-      S.status = "粗看将在当前批次后暂停";
+      S.stage1.text = "粗看将在当前批次后暂停";
       renderStatus();
     } else if (act === "group") {
       if (S.group) {
         S.group.stop = true;
-        S.status = "细看将在当前视频后暂停";
+        S.group.text = "细看将在当前视频后暂停";
         return renderStatus();
       }
       const batch = nextBatch();
