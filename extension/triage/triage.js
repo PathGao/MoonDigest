@@ -1353,8 +1353,8 @@ function criteriaLine() {
   const text = criteria();
   const short = text.length > 24 ? `${text.slice(0, 24)}…` : text;
   return text
-    ? `<span class="run-line" title="${esc(text)}">判断标准：${esc(short)}</span><button type="button" data-head="criteria" aria-label="修改判断标准">改判断标准</button>`
-    : `<span class="run-line" title="没写判断标准时，AI 从收藏夹名和简介推测用途，按它判断值得留还是可清理">未设判断标准，AI 按收藏夹名「${esc(folderTitle())}」推测用途</span><button type="button" data-head="criteria" aria-label="写一句判断标准">写判断标准</button>`;
+    ? `<span class="run-line" title="${esc(text)}">判断标准：${esc(short)}</span><button type="button" class="link" data-head="criteria" aria-label="修改判断标准">改判断标准</button>`
+    : `<span class="run-line" title="没写判断标准时，AI 从收藏夹名和简介推测用途，按它判断值得留还是可清理">未设判断标准，AI 按收藏夹名「${esc(folderTitle())}」推测用途</span><button type="button" class="link" data-head="criteria" aria-label="写一句判断标准">写判断标准</button>`;
 }
 
 function renderListHeader(list) {
@@ -1398,7 +1398,9 @@ function renderListHeader(list) {
   const redoBtn = (act, verb, n) => (n ? headBtn(act, `按新标准重新${verb} ${n} 个`, "", busy, "", `这些视频是按旧的判断标准${verb}的`, false, true) : "");
   const sel = selectedIn(list).length;
   const f = S.classFilter[t];
+  // html is what this step does; selActs acts on the selection and goes to its own bar below the filters.
   let html = "";
+  let selActs = "";
   if (all && t === "none") html = sortHint;
   else if (all && t === "coarse") html = seg() + sortHint;
   else if (t === "none") {
@@ -1413,7 +1415,7 @@ function renderListHeader(list) {
   } else if (t === "coarse") {
     // A selection gets 细看 plus both batch buttons; 可清理 / 值得留 lead with their batch button, 细看 stays secondary.
     html = seg() + criteriaLine() + redoBtn("redo-coarse", "粗看", staleCoarse().length);
-    if (sel) html += groupBtn("primary") + batchBtn("keep") + batchBtn("unfav");
+    if (sel) selActs = groupBtn("primary") + batchBtn("keep");
     else if (f === "drop") html += batchBtn("unfav", "drop") + groupBtn("");
     else if (f === "keep") html += batchBtn("keep", "keep") + groupBtn("");
     else html += groupBtn("primary");
@@ -1423,7 +1425,7 @@ function renderListHeader(list) {
     const staleN = staleFine().length;
     if (staleN && !all) html += criteriaLine() + redoBtn("redo-fine", "细看", Math.min(staleN, GROUP_SIZE));
     if (all) html += sortHint;
-    else if (sel) html += batchBtn("unfav") + batchBtn("keep");
+    else if (sel) selActs = batchBtn("keep");
     else {
       if (f === "all" || f === "drop") html += batchBtn("unfav", "drop");
       if (f === "all" || f === "keep") html += batchBtn("keep", "keep");
@@ -1438,21 +1440,22 @@ function renderListHeader(list) {
     // 阅览 mixes 粗看 guesses with 细看 conclusions, so no class-wide batch here: only the selection.
     html = seg();
     if (all) html += sortHint;
-    else if (sel) html += batchBtn("unfav") + batchBtn("keep");
+    else if (sel) selActs = batchBtn("keep");
     else if (list.length) html += `<span class="muted">按 X 或全选后可批量保留、取消收藏、移动或复制</span>`;
     html += headBtn("export-read", "批量导出…", "", !list.length);
   }
-  // 移动/复制 works on a selection in any tab of a single folder; in 已取消收藏 it is 收藏到.
-  if (sel && S.mediaId !== ALL) html += transferBtn();
+  // 移动/复制 works on a selection in any tab of a single folder; in 已取消收藏 it is 收藏到. 取消收藏 goes last, set apart.
+  if (sel && S.mediaId !== ALL) selActs += transferBtn();
+  if (sel && !all && t !== "none" && S.mediaId !== REMOVED) selActs += batchBtn("unfav");
   // 全选 adds every card listed under the current tab and filters; other tabs keep their selection.
   const unselected = S.mediaId !== ALL ? list.filter((it) => !S.selected.has(it.bvid)).length : 0;
-  if (unselected) html += `<button type="button" class="link" data-head="select-all" aria-label="全选这里列出的 ${list.length} 个">全选这里的 ${list.length} 个</button>`;
-  if (S.selected.size) {
-    html += `<span class="muted">已选中 ${S.selected.size} 个</span><button type="button" class="link" data-head="clear-selected" aria-label="清空选中">清空选中</button>`;
-  }
+  const selectAll = unselected ? `<button type="button" class="link" data-head="select-all" aria-label="全选这里列出的 ${list.length} 个">全选这里的 ${list.length} 个</button>` : "";
   if (all) html = loadAllLine() + html;
+  const selbar = S.selected.size
+    ? `<div class="selbar" role="toolbar" aria-label="选中的视频"><strong class="sel-count">已选中 ${S.selected.size} 个</strong><button type="button" class="link" data-head="clear-selected" aria-label="清空选中">清空选中</button>${selectAll}<span class="sel-actions">${selActs}</span></div>`
+    : "";
   el.classFilter.innerHTML = segHtml;
-  el.listHeader.innerHTML = html;
+  el.listHeader.innerHTML = `${S.selected.size ? "" : `<span class="select-all">${selectAll}</span>`}<div class="step-actions">${html}</div>${selbar}`;
 }
 
 function recentUnfavs() {
