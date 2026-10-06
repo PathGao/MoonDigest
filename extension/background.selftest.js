@@ -128,12 +128,11 @@ process.on("exit", (code) => {
   assert.ok(!("aiInitialQuickPrompts" in fresh));
 
   // Saving a partial payload (the options page has no reading-view controls) keeps every key it omits.
-  const stored = { readerTheme: "dark", readerFontScale: "l", readerTranscriptVisible: false, aiPresetPrompts: ["a"] };
+  const stored = { readerTheme: "dark", readerFontScale: "l", aiPresetPrompts: ["a"] };
   ctx.chrome = { storage: { sync: area(stored), local: area({ obsidianApiKey: "k" }) } };
   await ctx.saveSettings({ aiPresetPrompts: [], noteFolder: "N" });
   assert.strictEqual(stored.readerTheme, "dark");
   assert.strictEqual(stored.readerFontScale, "l");
-  assert.strictEqual(stored.readerTranscriptVisible, false);
   assert.deepStrictEqual(stored.aiPresetPrompts, []);
   assert.strictEqual(stored.noteFolder, "N");
   assert.strictEqual((await ctx.chrome.storage.local.get("obsidianApiKey")).obsidianApiKey, "k");

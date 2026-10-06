@@ -55,7 +55,6 @@ const DEFAULT_SYNC_SETTINGS = {
   readerLineHeight: "tight",
   readerContentWidth: "medium",
   readerChapterVisible: true,
-  readerTranscriptVisible: true,
   frontmatterFields: [
     "title",
     "url",
@@ -818,13 +817,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
-  if (message.type === "ai-provider-set-key") {
-    saveAiProviderKey(String(message.providerId || ""), String(message.apiKey || ""))
-      .then(() => sendResponse({ ok: true }))
-      .catch((error) => sendResponse({ ok: false, error: error.message }));
-    return true;
-  }
-
   if (message.type === "ai-providers-delete") {
     deleteAiProvider(String(message.providerId || ""))
       .then((items) => sendResponse({ ok: true, providers: items }))
@@ -1043,7 +1035,6 @@ function normalizeSyncSettings(settings) {
   merged.readerLineHeight = normalizeReaderLineHeight(merged.readerLineHeight);
   merged.readerContentWidth = normalizeReaderContentWidth(merged.readerContentWidth);
   merged.readerChapterVisible = merged.readerChapterVisible !== false;
-  merged.readerTranscriptVisible = normalizeReaderTranscriptVisible(merged.readerTranscriptVisible);
   merged.fixedFrontmatterProperties = normalizeFixedFrontmatterProperties(merged.fixedFrontmatterProperties);
   merged.notePlaceholderSections = normalizeNotePlaceholderSections(merged.notePlaceholderSections);
   merged.aiSystemPrompt = normalizeAiSystemPrompt(merged.aiSystemPrompt);
@@ -1150,10 +1141,6 @@ function normalizeReaderLineHeight(value) {
 
 function normalizeReaderContentWidth(value) {
   return ["compact", "narrow", "medium", "wide", "full"].includes(value) ? value : "medium";
-}
-
-function normalizeReaderTranscriptVisible(value) {
-  return value !== false;
 }
 
 function normalizeFixedFrontmatterProperties(value) {
@@ -1284,18 +1271,6 @@ async function loadAiProviderKeys() {
   const localData = await chrome.storage.local.get([AI_PROVIDER_KEYS_STORAGE]);
   const keys = localData?.[AI_PROVIDER_KEYS_STORAGE];
   return keys && typeof keys === "object" ? keys : {};
-}
-
-async function saveAiProviderKey(providerId, apiKey) {
-  const keys = await loadAiProviderKeys();
-  const trimmed = String(apiKey || "").trim();
-  if (trimmed) {
-    keys[providerId] = trimmed;
-  } else {
-    delete keys[providerId];
-  }
-  await chrome.storage.local.set({ [AI_PROVIDER_KEYS_STORAGE]: keys });
-  return keys;
 }
 
 // ===== AI 调用 =====
