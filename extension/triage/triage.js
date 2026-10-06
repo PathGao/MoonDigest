@@ -436,6 +436,10 @@ const FOLDER_ONLY = "标签按收藏夹分开，请先打开一个具体收藏�
 const tagIdsOf = (bvid) => (S.videoTags[bvid] || []).filter((id) => tagById(id));
 // Only 取消收藏 / 保留 finish a video; tags and notes never do.
 const isProcessed = (bvid) => Boolean(S.decisions[bvid]);
+// 粗看 and 细看 runs keep going in their own folder (mediaId) after another one opens; these are the open folder's.
+const ownStage1 = () => S.stage1.running && S.stage1.mediaId === String(S.mediaId);
+const ownGroup = () => (S.group?.mediaId === String(S.mediaId) ? S.group : null);
+const runWhere = (run) => (run.mediaId === String(S.mediaId) ? "" : `（${folderName(run.mediaId)}）`);
 
 // verdict is keep / drop / unsure, or "none" before 粗分. A done 细看 with an unknown verdict counts as unsure;
 // a 粗分 result with one (left from the old custom tiers) counts as not classified, so 粗分 can run again.
@@ -497,7 +501,7 @@ const unsureFirst = (it) => {
 function visibleItems() {
   const list = S.items.filter((it) => inTab(it, S.tab) && passFilter(it));
   if (S.tab !== "coarse") return list;
-  const batch = new Set(S.group ? S.group.bvids : nextBatch());
+  const batch = new Set(ownGroup()?.bvids || nextBatch());
   const rank = (it) => (failedAnalysis(it.bvid) ? 3 : batch.has(it.bvid) ? 0 : 1 + unsureFirst(it));
   return list.sort((x, y) => rank(x) - rank(y));
 }
@@ -710,9 +714,6 @@ async function openFolder(mediaId) {
   const removed = mediaId === REMOVED;
   const decisions = all || removed ? {} : { ...S.kept, ...(await storeGet(K.decisions(mediaId), {})) };
   const token = ++S.folderToken;
-  // The old stage-1 loop exits on the token change without touching state, so reset it here.
-  S.stage1 = { running: false, stop: true };
-  if (S.group) S.group.stop = true;
   S.mediaId = mediaId;
   S.decisions = decisions;
   S.folderDecisions = {};
@@ -720,7 +721,6 @@ async function openFolder(mediaId) {
   S.removedCheck = null;
   S.items = [];
   S.itemMap = new Map();
-  S.group = null;
   S.selected.clear();
   S.tagFilter.clear();
   S.watchedFilter = false;
@@ -728,7 +728,6 @@ async function openFolder(mediaId) {
   S.stage1Skip.clear();
   S.focused = "";
   S.focusIndex = 0;
-  S.throttleUntil = 0;
   S.status = "";
   hideSyncNotice();
   if (!all && !removed) storeSet(K.lastFolder, mediaId);
@@ -799,6 +798,17 @@ async function fromCache(mediaId, { snap, ids }, local) {
   return items && { ok: true, data: { items, ids, info } };
 }
 
+// The light refresh (back on the tab, the player closed, a video re-favorited): check the id list and apply only the
+// difference. 刷新 still loads the whole folder, which also catches videos that became invalid.
+async function quickSync({ force = false } = {}) {
+  if (!force && Date.now() - S.lastSyncAt < SYNC_MIN_GAP_MS) return;
+  const token = S.folderToken;
+  const snap = S.mediaId === TOVIEW ? null : await storeGet(K.snapshot(S.mediaId), null);
+  if (token !== S.folderToken) return;
+  if (!snap?.items || snap.intro === undefined) syncFolder({ force });
+  else checkCached(token, snap);
+}
+
 // A chosen folder other than the open one with a proposal waiting.
 const otherAiFolder = () => Object.keys(S.ai.proposals).find((id) => id !== String(S.mediaId) && S.folders.some((f) => String(f.id) === id));
 
@@ -866,7 +876,7 @@ async function syncFolder({ force = false, cached = null } = {}) {
     }
     S.items = next;
     S.itemMap = new Map(next.map((it) => [it.bvid, it]));
-    if (S.group) S.group.bvids = S.group.bvids.filter((b) => S.itemMap.has(b));
+    if (S.group?.mediaId === String(mediaId)) S.group.bvids = S.group.bvids.filter((b) => S.itemMap.has(b));
     for (const b of [...S.selected]) if (!S.itemMap.has(b)) S.selected.delete(b);
 
     if (!partial) await saveSnapshot(mediaId, remote, r.data.ids);
@@ -1069,7 +1079,19 @@ async function runLoadAll(token) {
       }
       L.check.shift();
       await dropRemoved(r.data.bvids);
-      if (idsChanged(L.lists[id].ids || L.lists[id].items.map((it) => it.bvid), r.data.bvids)) L.queue.push(id);
+      const list = L.lists[id];
+      const bvids = list.items.map((it) => it.bvid);
+      if (idsChanged(list.ids || bvids, r.data.bvids)) {
+        // Only the difference, as in a single folder; the whole folder loads when that is not enough.
+        const q = await fromCache(id, { snap: { ...list, bvids }, ids: r.data.bvids }, await localItems(id));
+        if (token !== S.folderToken) return;
+        if (q?.ok && !q.data.partial) {
+          L.lists[id] = { items: q.data.items, ids: q.data.ids, at: Date.now() };
+          await saveSnapshot(id, q.data.items, q.data.ids);
+          rebuildAll();
+          if (!(await loadResults(token))) return;
+        } else L.queue.push(id);
+      }
       render();
       if (L.check.length || L.queue.length) await sleepWhile(300, keepGoing);
       continue;
@@ -1205,10 +1227,14 @@ function activityState() {
   const wait = left > 0 ? `${S.throttleLabel}，${fmtDuration(Math.ceil(left / 1000))} 后重试` : "";
   if (S.group) {
     const done = groupDone(S.group);
-    return { text: wait || S.status || `字幕细看 ${done}/${S.group.bvids.length}`, done, total: S.group.bvids.length, act: "group", actLabel: "暂停细看", warn: Boolean(wait) };
+    const where = runWhere(S.group);
+    const text = where ? `字幕细看 ${done}/${S.group.bvids.length}${where}` : S.status || `字幕细看 ${done}/${S.group.bvids.length}`;
+    return { text: wait || text, done, total: S.group.bvids.length, act: "group", actLabel: "暂停细看", warn: Boolean(wait) };
   }
   if (S.stage1.running) {
-    return { text: wait || S.status, done: S.stage1.done, total: S.stage1.total, act: "stage1", actLabel: "暂停粗看", warn: Boolean(wait) };
+    const where = runWhere(S.stage1);
+    const text = where ? `标题粗看中 ${S.stage1.done}/${S.stage1.total}${where}` : S.status;
+    return { text: wait || text, done: S.stage1.done, total: S.stage1.total, act: "stage1", actLabel: "暂停粗看", warn: Boolean(wait) };
   }
   const unfav = S.unfavBatch?.token === S.folderToken && S.unfavBatch;
   if (unfav) return { text: `取消收藏中 ${unfav.done}/${unfav.total}`, done: unfav.done, total: unfav.total };
@@ -1303,7 +1329,7 @@ function renderListHeader(list) {
     return headBtn(`batch-${route}`, verdict ? `${verb}（AI：${VERDICTS[verdict]}）${n} 个` : `${verb}选中的 ${n} 个`, route === "unfav" ? "danger" : "", !n, verdict, route === "keep" ? KEEP_TIP : "");
   };
   const groupBtn = (cls) => {
-    if (S.group) return headBtn("group", `暂停细看 ${groupDone(S.group)}/${S.group.bvids.length}`, "primary");
+    if (ownGroup()) return headBtn("group", `暂停细看 ${groupDone(S.group)}/${S.group.bvids.length}`, "primary");
     const batch = nextBatch();
     const label = batch.some((b) => S.selected.has(b)) ? `细看选中 ${batch.length} 个` : batch.length ? `细看下一批 ${batch.length} 个` : "细看";
     return headBtn("group", label, cls, !batch.length || busy, "", "", false, true);
@@ -1319,7 +1345,7 @@ function renderListHeader(list) {
   else if (t === "none") {
     // The criteria the AI reads sits just before the button that sends it.
     html = criteriaLine();
-    if (S.stage1.running) html += stage1Pause();
+    if (ownStage1()) html += stage1Pause();
     else {
       const n = stage1Pending().length;
       html += headBtn("stage1", n ? `标题粗看这 ${n} 个` : "标题粗看", "primary", !n || busy, "", "", false, true);
@@ -1402,7 +1428,7 @@ async function refavRecent(bvid) {
   if (mediaId !== S.mediaId) return;
   toast(`已重新收藏《${d.title || bvid}》`);
   render();
-  syncFolder({ force: true });
+  quickSync({ force: true });
 }
 
 function renderList() {
@@ -1434,9 +1460,9 @@ function renderList() {
   let marked = new Set();
   let word = "";
   if (S.tab === "coarse") {
-    const bvids = S.group ? S.group.bvids : nextBatch();
+    const bvids = ownGroup()?.bvids || nextBatch();
     marked = new Set(bvids);
-    word = S.group ? "本批" : bvids.some((b) => S.selected.has(b)) ? "已选中" : "下一批";
+    word = ownGroup() ? "本批" : bvids.some((b) => S.selected.has(b)) ? "已选中" : "下一批";
   }
   const expanded = S.tab === "fine" || S.tab === "read";
   const failed = S.tab === "coarse" ? list.filter((it) => failedAnalysis(it.bvid)).length : 0;
@@ -2041,13 +2067,21 @@ async function throttleWait(code, keepGoing) {
 const stage1Pending = () => S.items.filter((it) => stageOf(it) === "none" && !S.stage1Skip.has(it.bvid));
 
 async function runStage1() {
-  const token = S.folderToken;
+  if (S.stage1.running) return;
+  // Everything the run needs is taken now: it keeps going after another folder opens.
+  const folder = String(S.mediaId);
+  const crit = criteria();
+  const ctx = folderContext();
+  const list = stage1Pending();
+  const skip = new Set();
   // Timed-out batches are skipped for this run only, so clicking 标题粗看 again retries them.
   const timedOut = new Set();
-  const pending = () => stage1Pending().filter((it) => !timedOut.has(it.bvid));
+  // In its own folder the live step decides (a card may have been sorted meanwhile); elsewhere only the result does.
+  const pending = () =>
+    list.filter((it) => !timedOut.has(it.bvid) && !skip.has(it.bvid) && (S.mediaId === folder ? stageOf(it) === "none" && !S.stage1Skip.has(it.bvid) : !VERDICTS[S.titleRes[it.bvid]?.verdict]));
   const total = pending().length;
-  S.stage1 = { running: true, stop: false, done: 0, total };
-  const keepGoing = () => !S.stage1.stop && token === S.folderToken;
+  S.stage1 = { running: true, stop: false, done: 0, total, mediaId: folder };
+  const keepGoing = () => !S.stage1.stop;
   const size = Math.max(1, Number(S.settings.triageTitleBatchSize) || 30);
   let done = 0;
   let retried = false;
@@ -2056,12 +2090,11 @@ async function runStage1() {
   while (keepGoing()) {
     const batch = pending().slice(0, size);
     if (!batch.length) break;
-    S.status = `标题粗看中 ${done}/${total}`;
+    if (S.mediaId === folder) S.status = `标题粗看中 ${done}/${total}`;
     for (const it of batch) S.analyzing.add(it.bvid);
     render();
-    const r = await send({ type: "triage-classify-titles", items: batch.map(aiItem), criteria: criteria(), folder: folderContext() });
+    const r = await send({ type: "triage-classify-titles", items: batch.map(aiItem), criteria: crit, folder: ctx });
     for (const it of batch) S.analyzing.delete(it.bvid);
-    if (token !== S.folderToken) break;
     if (!r.ok) {
       if (THROTTLES[r.code]) {
         await throttleWait(r.code, keepGoing);
@@ -2082,59 +2115,73 @@ async function runStage1() {
     retried = false;
     const results = r.data?.results || {};
     for (const it of batch) {
-      if (results[it.bvid]) S.titleRes[it.bvid] = { criteria: criteria(), ...results[it.bvid] };
-      else S.stage1Skip.add(it.bvid);
+      if (results[it.bvid]) S.titleRes[it.bvid] = { criteria: crit, ...results[it.bvid] };
+      else {
+        skip.add(it.bvid);
+        if (S.mediaId === folder) S.stage1Skip.add(it.bvid);
+      }
     }
     done += batch.length;
     S.stage1.done = done;
     render();
     if (pending().length) await sleepWhile(S.settings.triageIntervalSec * 1000, keepGoing);
   }
-  if (token !== S.folderToken) return;
   S.stage1.running = false;
-  if (!failedOut) el.banner.hidden = true;
-  S.status = timedOut.size
+  const own = S.mediaId === folder;
+  if (!failedOut && own) el.banner.hidden = true;
+  const msg = timedOut.size
     ? `标题粗看完成 ${done} 个，${timedOut.size} 个因 AI 超时跳过，再点标题粗看可重试`
     : done ? `标题粗看完成 ${done} 个` : "";
+  if (own) S.status = msg;
+  else if (msg) toast(`「${folderName(folder)}」${msg}`);
   render();
 }
 
 // ---------- AI stage 2: subtitle group ----------
-const needsAnalysis = (b) => {
-  const it = S.itemMap.get(b);
+// group: a 细看 run, which judges by its own items (the open folder's list is empty while a folder loads, and may be
+// another folder's); 已处理 is read only in its own folder.
+const needsAnalysis = (b, group = null) => {
+  const own = !group || group.mediaId === String(S.mediaId);
+  const it = group ? group.items.get(b) : S.itemMap.get(b);
   const a = S.analyses[b];
-  return it && !it.invalid && !isProcessed(b) && a?.status !== "done" && a?.status !== "error";
+  return it && !it.invalid && !(own && isProcessed(b)) && a?.status !== "done" && a?.status !== "error";
 };
 
 // redo: 细看 these again under the current criteria; each keeps its old result until the new one arrives.
 function startGroup(bvids, redo = false) {
   if (!bvids.length || S.group) return;
-  S.group = { bvids, stop: false, redo: redo ? new Set(bvids) : null };
+  S.group = {
+    bvids,
+    stop: false,
+    redo: redo ? new Set(bvids) : null,
+    mediaId: String(S.mediaId),
+    items: new Map(bvids.map((b) => [b, S.itemMap.get(b)])),
+    crit: criteria(),
+    ctx: folderContext()
+  };
   runGroup();
 }
 
-const groupPending = (group, b) => (group.redo ? group.redo.has(b) : needsAnalysis(b));
+const groupPending = (group, b) => (group.redo ? group.redo.has(b) : needsAnalysis(b, group));
 const groupDone = (group) => group.bvids.filter((b) => !groupPending(group, b)).length;
 
-async function analyzeOne(bvid, force = false) {
+async function analyzeOne(bvid, force = false, crit = criteria(), ctx = folderContext()) {
   S.analyzing.add(bvid);
   render();
-  const r = await send({ type: "triage-analyze", bvid, force, criteria: criteria(), folder: folderContext() });
+  const r = await send({ type: "triage-analyze", bvid, force, criteria: crit, folder: ctx });
   S.analyzing.delete(bvid);
   return r;
 }
 
 async function runGroup() {
   const group = S.group;
-  const token = S.folderToken;
-  const keepGoing = () => !group.stop && S.group === group && token === S.folderToken;
+  const keepGoing = () => !group.stop && S.group === group;
   render();
   while (keepGoing()) {
     const b = group.bvids.find((x) => groupPending(group, x));
     if (!b) break;
-    S.status = `${group.redo ? "按新标准重新细看" : "字幕细看"} ${groupDone(group) + 1}/${group.bvids.length}`;
-    const r = await analyzeOne(b, Boolean(group.redo));
-    if (token !== S.folderToken) return;
+    if (!runWhere(group)) S.status = `${group.redo ? "按新标准重新细看" : "字幕细看"} ${groupDone(group) + 1}/${group.bvids.length}`;
+    const r = await analyzeOne(b, Boolean(group.redo), group.crit, group.ctx);
     if (!r.ok && THROTTLES[r.code]) {
       render();
       await throttleWait(r.code, keepGoing);
@@ -2143,7 +2190,7 @@ async function runGroup() {
     group.redo?.delete(b);
     const keepOld = !r.ok && group.redo && S.analyses[b]?.status === "done";
     if (keepOld) toast(`重新细看失败，保留原来的结果：${r.error}`, true);
-    else S.analyses[b] = r.ok ? { criteria: criteria(), ...r.data } : { bvid: b, status: "error", error: r.error };
+    else S.analyses[b] = r.ok ? { criteria: group.crit, ...r.data } : { bvid: b, status: "error", error: r.error };
     const err = r.ok ? "" : String(r.error || "");
     if (/配置 AI|截断|未授权访问/.test(err)) handleAiError(err);
     if (/配置 AI|未授权访问/.test(err)) group.stop = true;
@@ -2152,9 +2199,11 @@ async function runGroup() {
   }
   if (S.group !== group) return;
   // A run that stopped on a setup error keeps its banner; any other finished batch clears it.
-  if (!group.stop) el.banner.hidden = true;
+  const own = !runWhere(group);
+  if (!group.stop && own) el.banner.hidden = true;
   S.group = null;
-  S.status = "";
+  if (own) S.status = "";
+  else if (!group.stop) toast(`「${folderName(group.mediaId)}」这批字幕细看完成`);
   render();
 }
 
@@ -2777,7 +2826,7 @@ function bindEvents() {
     S.mediaId === ALL ? refreshAll() : S.mediaId === REMOVED ? openFolder(REMOVED) : S.mediaId && syncFolder({ force: true })
   );
   const autoSync = () => {
-    if (S.mediaId && S.mediaId !== ALL && S.mediaId !== REMOVED && document.visibilityState === "visible") syncFolder();
+    if (S.mediaId && S.mediaId !== ALL && S.mediaId !== REMOVED && document.visibilityState === "visible") quickSync();
   };
   window.addEventListener("focus", autoSync);
   document.addEventListener("visibilitychange", autoSync);
@@ -3196,7 +3245,7 @@ function closeViewer() {
   el.viewer.hidden = true;
   el.main.classList.remove("viewing");
   render();
-  if (inFolderView()) syncFolder({ force: true });
+  if (inFolderView()) quickSync({ force: true });
 }
 
 function cardAction(act, bvid) {
