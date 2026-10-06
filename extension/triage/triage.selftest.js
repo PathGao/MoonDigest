@@ -420,6 +420,14 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   t.renderListHeader(t.visibleItems());
   assert.ok(t.el.listHeader.innerHTML.includes("未设判断标准") && t.el.listHeader.innerHTML.includes(">写判断标准<"));
 
+  // 移动/复制 is offered for a selection in any tab, 未分析 too.
+  openFake("Z", [item(700)]);
+  t.S.tab = "none";
+  t.S.selected.add("BV700");
+  t.renderListHeader(t.visibleItems());
+  assert.ok(t.el.listHeader.innerHTML.includes("移动/复制选中的 1 个"), "未分析 offers 移动/复制");
+  t.S.selected.clear();
+
   // 批量打标签 proposals: new tags only by name, at most 5; a verdict in the reply changes nothing.
   openFake("K", [item(600), item(601)]);
   Object.assign(t.S, { tags: [{ id: "a", name: "旧", color: "#111", folder: "K" }, { id: "o", name: "别处", color: "#222", folder: "L" }], videoTags: {}, titleRes: { BV600: { verdict: "drop", confidence: "high" } } });

@@ -1364,7 +1364,7 @@ function renderListHeader(list) {
   } else if (t === "coarse") {
     // A selection gets 细看 plus both batch buttons; 可清理 / 值得留 lead with their batch button, 细看 stays secondary.
     html = seg() + criteriaLine() + redoBtn("redo-coarse", "粗看", staleCoarse().length);
-    if (sel) html += groupBtn("primary") + batchBtn("keep") + batchBtn("unfav") + transferBtn();
+    if (sel) html += groupBtn("primary") + batchBtn("keep") + batchBtn("unfav");
     else if (f === "drop") html += batchBtn("unfav", "drop") + groupBtn("");
     else if (f === "keep") html += batchBtn("keep", "keep") + groupBtn("");
     else html += groupBtn("primary");
@@ -1374,7 +1374,7 @@ function renderListHeader(list) {
     const staleN = staleFine().length;
     if (staleN && !all) html += criteriaLine() + redoBtn("redo-fine", "细看", Math.min(staleN, GROUP_SIZE));
     if (all) html += sortHint;
-    else if (sel) html += batchBtn("unfav") + batchBtn("keep") + transferBtn();
+    else if (sel) html += batchBtn("unfav") + batchBtn("keep");
     else {
       if (f === "all" || f === "drop") html += batchBtn("unfav", "drop");
       if (f === "all" || f === "keep") html += batchBtn("keep", "keep");
@@ -1389,10 +1389,12 @@ function renderListHeader(list) {
     // 阅览 mixes 粗看 guesses with 细看 conclusions, so no class-wide batch here: only the selection.
     html = seg();
     if (all) html += sortHint;
-    else if (sel) html += batchBtn("unfav") + batchBtn("keep") + transferBtn();
+    else if (sel) html += batchBtn("unfav") + batchBtn("keep");
     else if (list.length) html += `<span class="muted">按 X 或全选后可批量保留、取消收藏、移动或复制</span>`;
     html += headBtn("export-read", "批量导出…", "", !list.length);
   }
+  // 移动/复制 works on a selection in any tab of a single folder.
+  if (sel && inFolderView()) html += transferBtn();
   // 全选 adds every card listed under the current tab and filters; other tabs keep their selection.
   const unselected = inFolderView() ? list.filter((it) => !S.selected.has(it.bvid)).length : 0;
   if (unselected) html += `<button type="button" class="link" data-head="select-all" aria-label="全选这里列出的 ${list.length} 个">全选这里的 ${list.length} 个</button>`;
