@@ -799,6 +799,9 @@ async function fromCache(mediaId, { snap, ids }, local) {
   return items && { ok: true, data: { items, ids, info } };
 }
 
+// A chosen folder other than the open one with a proposal waiting.
+const otherAiFolder = () => Object.keys(S.ai.proposals).find((id) => id !== String(S.mediaId) && S.folders.some((f) => String(f.id) === id));
+
 // ---------- sync with bilibili ----------
 // cached ({ snap, ids }, from checkCached) fetches only the newest pages and takes the rest from the cached list.
 async function syncFolder({ force = false, cached = null } = {}) {
@@ -1217,6 +1220,8 @@ function activityState() {
     return { text: `标签 AI 运行中${where}`, act: "tags", actLabel: "查看" };
   }
   if (S.ai.proposal) return { text: "标签建议待确认", act: "tags", actLabel: "查看" };
+  const other = otherAiFolder();
+  if (other) return { text: `「${folderName(other)}」的标签建议待确认`, act: "aiOther", actLabel: "查看" };
   if (S.status) return { text: S.status };
   return null;
 }
@@ -2235,6 +2240,10 @@ function renderAiForm() {
         .map((h, i) => `<button type="button" class="chip" data-h="${i}" title="${esc(h)}" aria-label="使用指令 ${esc(h)}">${esc(h.length > 18 ? `${h.slice(0, 18)}…` : h)}</button>`)
         .join("")
     : "";
+  if (S.ai.running && S.ai.mediaId !== String(S.mediaId)) {
+    el.aiScopeCount.textContent = `正在处理「${folderName(S.ai.mediaId)}」的视频，完成后可在状态栏点「查看」确认`;
+    el.aiTagsPreview.innerHTML = "";
+  }
   setBusy(el.aiRunBtn, S.ai.running && "运行中…");
   el.aiStopBtn.hidden = !S.ai.running;
 }
@@ -2292,7 +2301,7 @@ async function runAiCommand() {
   renderTop();
   if (folder !== String(S.mediaId)) {
     if (el.tagsDialog.open) renderAiForm();
-    toast(`「${folderName(folder)}」的标签建议已完成，切回这个收藏夹后按 I 查看`);
+    toast(`「${folderName(folder)}」的标签建议已完成，在状态栏点「查看」确认`);
   } else if (el.tagsDialog.open && el.tagsManage.hidden) showAiReview();
   else toast("批量打标签已完成，按 I 查看建议");
 }
@@ -2822,6 +2831,7 @@ function bindEvents() {
     if (!btn) return;
     const act = btn.dataset.head;
     if (act === "tags") el.aiBtn.click();
+    else if (act === "aiOther") openFolder(otherAiFolder()).then(() => openTags("batch"));
     else if (act === "stage1") {
       if (!S.stage1.running) return runStage1();
       S.stage1.stop = true;

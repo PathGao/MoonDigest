@@ -730,6 +730,7 @@ function openFake(mediaId, items, decisions = {}) {
 
   // 批量打标签 keeps running when another folder opens; its proposal stays with its folder and shows on return.
   openFake("K", [item(600), item(601)]);
+  t.S.folders = t.S.allFolders = [{ id: "K", title: "夹K" }, { id: "L", title: "夹L" }];
   Object.assign(t.S, { tags: [{ id: "a", name: "旧", color: "#111", folder: "K" }, { id: "b", name: "旧", color: "#222", folder: "L" }], videoTags: {}, aiHistory: [], tab: "read", query: "", tagFilter: new Set(), classFilter: { coarse: "all", fine: "all", read: "all" } });
   Object.assign(t.S.settings, { triageTitleBatchSize: 1, triageIntervalSec: 0 });
   t.el.aiInstruction = { value: "分一下" };
@@ -737,14 +738,20 @@ function openFake(mediaId, items, decisions = {}) {
   t.el.tagsDialog = { open: false };
   let aiCalls = 0;
   handlers["triage-ai-command"] = ({ items }) => {
-    if (++aiCalls === 1) openFake("L", [item(700)]);
+    if (++aiCalls === 1) {
+      openFake("L", [item(700)]);
+      t.renderAiForm();
+      assert.ok(t.el.aiScopeCount.textContent.startsWith("正在处理「夹K」的视频"), "the form in L says which folder runs");
+      assert.strictEqual(vm.runInContext("activityState()", ctx).text, "标签 AI 运行中（夹K）");
+    }
     return { ok: true, data: { assignments: { [items[0].bvid]: { add: ["旧"] } } } };
   };
   toasts.length = 0;
   await t.runAiCommand();
   assert.strictEqual(aiCalls, 2, "the second batch is still sent after the switch");
   assert.ok(!t.S.ai.running && t.S.ai.proposal === null, "folder L sees no proposal");
-  assert.ok(/标签建议已完成，切回这个收藏夹后按 I 查看/.test(toasts.at(-1)));
+  assert.ok(/「夹K」的标签建议已完成，在状态栏点「查看」确认/.test(toasts.at(-1)), toasts.at(-1));
+  assert.deepStrictEqual(plain(vm.runInContext("activityState()", ctx)), { text: "「夹K」的标签建议待确认", act: "aiOther", actLabel: "查看" }, "folder L points back to K");
   openFake("K", [item(600), item(601)]);
   assert.deepStrictEqual(plain(t.S.ai.proposal.rows.map((r) => [r.bvid, r.add])), [["BV600", ["id:a"]], ["BV601", ["id:a"]]], "K's own 旧, not L's");
   t.S.ai.proposal = null;
