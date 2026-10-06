@@ -1155,7 +1155,8 @@ function renderTabs() {
     steps.join(`<span class="arrow" aria-hidden="true">→</span>`) + `<span class="tab-sep" aria-hidden="true"></span>` + tab("read", "阅览", "read-tab", c.read);
 
   const chips = tagChips();
-  const watchedChip = `<button type="button" class="chip watched${S.watchedFilter ? " on" : ""}" data-watchedfilter aria-pressed="${S.watchedFilter}" aria-label="只看真人已看的视频"><span class="ai-mark">真人</span>已看</button>`;
+  // Only once something has been marked 已看 (or the filter is on, so it can be turned off).
+  const watchedChip = !S.watchedFilter && !Object.keys(S.watched).length ? "" : `<button type="button" class="chip watched${S.watchedFilter ? " on" : ""}" data-watchedfilter aria-pressed="${S.watchedFilter}" aria-label="只看真人已看的视频"><span class="ai-mark">真人</span>已看</button>`;
   el.tagFilter.innerHTML = watchedChip + (chips.length
     ? chips
         .map((c) => {
@@ -1163,7 +1164,7 @@ function renderTabs() {
           return `<button type="button" class="chip${on ? " on" : ""}" style="--c:${esc(c.color)}" data-tagfilter="${esc(c.ids.join(","))}" aria-pressed="${on}" aria-label="按标签筛选 ${esc(c.name)}">${esc(c.name)}</button>`;
         })
         .join("")
-    : `<span class="muted">还没有标签</span> · <button type="button" class="link" data-tags-open aria-label="新建标签">新建标签</button>`);
+    : `<span class="muted">还没有自定义标签</span> · <button type="button" class="link" data-tags-open aria-label="新建标签">新建标签</button>`);
 }
 
 // Marks a control that starts an AI request (tokens.css draws it in the text color).
@@ -1903,7 +1904,7 @@ function renderTagManager() {
     </div>`
         )
         .join("")
-    : `<p class="muted">这个收藏夹还没有标签</p>`;
+    : `<p class="muted">这个收藏夹还没有自定义标签</p>`;
 }
 
 async function deleteTag(id) {
@@ -2135,7 +2136,7 @@ function renderAiForm() {
     ? `<p class="dialog-hint">${FOLDER_ONLY}再批量打。</p>`
     : tags.length
       ? `<div class="chips">AI 能用的标签：${tags.map((t) => `<span class="chip">${esc(t.name)}</span>`).join("")}</div><p class="dialog-hint">${roomHint}</p>`
-      : `<p class="dialog-hint">这个收藏夹还没有标签。${roomHint}想打得准，先在<button type="button" class="link" data-tags-mode="manage">「管理」</button>里建好标签、每个写一句说明。</p>`;
+      : `<p class="dialog-hint">这个收藏夹还没有自定义标签。${roomHint}想打得准，先在<button type="button" class="link" data-tags-mode="manage">「管理」</button>里建好标签、每个写一句说明。</p>`;
   el.aiHistory.innerHTML = S.aiHistory.length
     ? `<span class="muted">最近：</span>` +
       S.aiHistory
