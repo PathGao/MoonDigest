@@ -64,6 +64,12 @@
   if (typeof chrome === "undefined" || !chrome.storage?.local || typeof document === "undefined") return;
 
   const SETTING = "showBiliTriageBadges";
+  // 看过 on covers has its own setting (设置页「观看进度」, off by default); it or the triage marks turn the page scan on.
+  const SEEN_DEFAULTS = { seenShow: "off", seenThreshold: 80, seenStyle: "badge" };
+  let triageOn = false;
+  let seenCfg = { on: false, bar: false, mark: false, threshold: 80, style: "badge" };
+  const seenCache = new Map(); // bvid -> percent | 0
+  let watched = null; // 手动标的看过 (triage_watched)
   const SEL = 'a[href*="/video/BV"], a[href*="bvid=BV"]';
   const isTriageKey = (k) =>
     k === "triage_tags" || k === "triage_video_tags" || k === "triage_kept" || /^triage_(title|analysis|decisions)_/.test(k);
@@ -102,6 +108,12 @@
     const g = gen;
     try {
       const fid = favFid();
+      if (seenCfg.on) await loadSeen(g);
+      if (g !== gen) return;
+      if (!triageOn) {
+        for (const a of document.querySelectorAll(SEL)) markCover(a);
+        return;
+      }
       if (!shared || fid !== sharedFid) {
         // A favorites page shows its own folder's decisions; elsewhere every folder's decisions are merged.
         // getKeys (Chrome 130+) avoids reading every cached title and analysis just to find the decision keys.
@@ -134,7 +146,10 @@
         }
       }
       if (!enabled) return;
-      for (const a of anchors) markAnchor(a);
+      for (const a of anchors) {
+        markAnchor(a);
+        markCover(a);
+      }
       markVideoLine(here);
     } finally {
       running = false;
@@ -143,6 +158,46 @@
         schedule();
       }
     }
+  }
+
+  // One key per video on screen, a few KB per page; the history itself is read by the background (triage-seen-sync).
+  async function loadSeen(g) {
+    const want = [...new Set([...document.querySelectorAll(SEL)].map((a) => bvidFromHref(a.getAttribute("href"))).filter((b) => b && !seenCache.has(b)))];
+    if (!want.length && watched) return;
+    const got = await chrome.storage.local.get([...want.map((b) => `seen_${b}`), ...(watched ? [] : ["triage_watched"])]);
+    if (g !== gen) return;
+    watched ||= got.triage_watched || {};
+    for (const b of want) seenCache.set(b, got[`seen_${b}`]?.[0] || 0);
+  }
+
+  // The progress bar (Bilibili's own look) on a cover link, and once 看过 the corner tag or the veil.
+  function markCover(a) {
+    const b = bvidFromHref(a.getAttribute("href"));
+    const known = seenCfg.on ? seenCache.get(b) || 0 : 0;
+    const pct = seenCfg.bar ? known : 0;
+    const seen = seenCfg.mark && (Boolean(watched?.[b]) || known >= seenCfg.threshold);
+    // On the image's own box: some links wrap the whole card, title included.
+    const media = a.querySelector("picture") || a.querySelector("img");
+    const host = media?.parentElement;
+    if (!host) return;
+    const old = host.querySelector(":scope > .mdg-seen");
+    const key = `${b}|${pct}|${seen}|${known}|${seenCfg.style}`;
+    if (old?.dataset.key === key) return;
+    old?.remove();
+    if (!pct && !seen) return;
+    const box = document.createElement("span");
+    box.className = `mdg-seen mdg-seen-${seenCfg.style}`;
+    box.dataset.key = key;
+    const label = known >= 100 ? "✓ 看完了" : known >= seenCfg.threshold ? `✓ 看过 ${known}%` : "✓ 看过";
+    if (seen) box.append(Object.assign(document.createElement("span"), { className: "mdg-seen-mark", textContent: label }));
+    // Bilibili's history and 稍后再看 cards draw this bar themselves.
+    if (pct && !host.querySelector(".bili-cover-card__progress")) {
+      const bar = Object.assign(document.createElement("span"), { className: "mdg-seen-bar" });
+      bar.append(Object.assign(document.createElement("i"), { style: `width:${Math.max(pct, 2)}%` }));
+      box.append(bar);
+    }
+    if (getComputedStyle(host).position === "static") host.classList.add("mdg-seen-host");
+    host.append(box);
   }
 
   function markAnchor(a) {
@@ -259,7 +314,8 @@
 
   function clearMarks() {
     hidePop();
-    document.querySelectorAll(".mdg-badge, .mdg-line").forEach((n) => n.remove());
+    document.querySelectorAll(".mdg-badge, .mdg-line, .mdg-seen").forEach((n) => n.remove());
+    document.querySelectorAll(".mdg-seen-host").forEach((n) => n.classList.remove("mdg-seen-host"));
   }
 
   function setEnabled(on) {
@@ -282,17 +338,38 @@
     }
   }
 
+  // The two switches and the 看过 options decide whether the page is scanned at all.
+  function applySettings(v) {
+    triageOn = v[SETTING] !== false;
+    const before = seenCfg.on;
+    const bar = v.seenShow === "bar" || v.seenShow === "both";
+    const mark = v.seenShow === "mark" || v.seenShow === "both";
+    seenCfg = { on: bar || mark, bar, mark, threshold: Number(v.seenThreshold) || 80, style: v.seenStyle === "veil" ? "veil" : "badge" };
+    // Only the top frame asks; the background reads what is new at most every 10 minutes.
+    if (seenCfg.on && !before && window === window.top) chrome.runtime.sendMessage({ type: "triage-seen-sync" }).catch(() => {});
+    const on = triageOn || seenCfg.on;
+    if (on && enabled) {
+      gen++;
+      clearMarks();
+      schedule();
+    } else setEnabled(on);
+  }
+  const readSettings = () => chrome.storage.sync.get({ [SETTING]: true, ...SEEN_DEFAULTS }).then(applySettings).catch(() => {});
+
   chrome.storage.onChanged.addListener((changes, area) => {
-    if (area === "sync" && SETTING in changes) setEnabled(changes[SETTING].newValue !== false);
-    if (area === "local" && enabled && Object.keys(changes).some(isTriageKey)) {
+    if (area === "sync" && (SETTING in changes || Object.keys(SEEN_DEFAULTS).some((k) => k in changes))) readSettings();
+    if (area === "local" && enabled && Object.keys(changes).some((k) => k.startsWith("seen_") || k === "triage_watched")) {
+      for (const k of Object.keys(changes)) if (k.startsWith("seen_")) seenCache.delete(k.slice(5));
+      if (changes.triage_watched) watched = changes.triage_watched.newValue || {};
+      gen++;
+      schedule();
+    }
+    if (area === "local" && enabled && triageOn && Object.keys(changes).some(isTriageKey)) {
       gen++;
       shared = null;
       clearMarks();
       schedule();
     }
   });
-  chrome.storage.sync
-    .get({ [SETTING]: true })
-    .then((s) => setEnabled(s[SETTING] !== false))
-    .catch(() => {});
+  readSettings();
 })();

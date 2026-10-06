@@ -323,6 +323,109 @@ async function triageToviewList() {
   return data?.list || [];
 }
 
+// ---------- 看过 (from the Bilibili watch history; read only while 设置页「封面显示」is not 关) ----------
+// Bilibili keeps about three months of history. Only what is new since the last read is fetched, at most every
+// SEEN_GAP_MS and only when a page asks (the triage page or a Bilibili page opening), so it reads no more than the user
+// browsing their own history page would. Each video keeps two numbers under seen_<bvid>: [best percent, last view_at].
+const SEEN_GAP_MS = 10 * 60 * 1000;
+const SEEN_BACKOFF_MS = 30 * 60 * 1000;
+const SEEN_PAGE_GAP_MS = 1000;
+const SEEN_MAX_PAGES = 60;
+const SEEN_KEEP_S = 365 * 86400;
+const SEEN_MAX = 5000;
+const SEEN_PRUNE_GAP_MS = 86400 * 1000;
+const SEEN_META = "triage_seen_meta"; // { newest: view_at s, syncedAt, prunedAt, backoffUntil }
+
+// Percent watched from a history item: progress -1 means finished.
+function seenPercent(progress, duration) {
+  if (progress === -1) return 100;
+  if (!(progress > 0) || !(duration > 0)) return 0;
+  return Math.min(100, Math.round((progress / duration) * 100));
+}
+
+// Folds history items newer than `newest` into { bvid: [percent, view_at] }; done once an older item shows up (pure).
+function seenFold(found, list, newest) {
+  for (const it of list) {
+    if (it.view_at <= newest) return true;
+    const b = it.history?.business === "archive" && it.history.bvid;
+    const pct = b ? seenPercent(it.progress, it.duration) : 0;
+    if (!pct) continue; // autoplay and hover previews leave 0
+    const prev = found[b];
+    found[b] = [Math.max(prev?.[0] || 0, pct), Math.max(prev?.[1] || 0, it.view_at)];
+  }
+  return false;
+}
+
+// Which seen_ entries to drop: older than SEEN_KEEP_S, or past the newest SEEN_MAX; videos in a chosen folder stay (pure).
+function seenPrune(entries, keep, nowS) {
+  const sorted = Object.entries(entries).sort((x, y) => y[1][1] - x[1][1]);
+  return sorted.filter(([b, [, at]], i) => !keep.has(b) && (nowS - at > SEEN_KEEP_S || i >= SEEN_MAX)).map(([b]) => b);
+}
+
+let seenRun = null;
+function seenSync({ force }) {
+  seenRun ||= seenSyncOnce(force).finally(() => (seenRun = null));
+  return seenRun;
+}
+
+async function seenSyncOnce(force) {
+  const { seenShow } = await chrome.storage.sync.get({ seenShow: "off" });
+  if (!["bar", "mark", "both"].includes(seenShow)) return { skipped: "off" };
+  const meta = (await chrome.storage.local.get(SEEN_META))[SEEN_META] || {};
+  const now = Date.now();
+  if (now < (meta.backoffUntil || 0)) return { skipped: "throttled" };
+  if (!force && now - (meta.syncedAt || 0) < SEEN_GAP_MS) return { skipped: "recent" };
+  const newest = meta.newest || 0;
+  const found = {};
+  let cursor = { max: 0, view_at: 0, business: "" };
+  let pages = 0;
+  let top = newest;
+  try {
+    while (pages < SEEN_MAX_PAGES) {
+      if (pages) {
+        await new Promise((r) => setTimeout(r, SEEN_PAGE_GAP_MS));
+        await chrome.runtime.getPlatformInfo(); // an extension API call keeps the worker alive through a ~50 s first read
+      }
+      const data = await triageBiliGet(`https://api.bilibili.com/x/web-interface/history/cursor?ps=30&max=${cursor.max}&view_at=${cursor.view_at}&business=${cursor.business}`);
+      pages++;
+      const list = data?.list || [];
+      for (const it of list) top = Math.max(top, it.view_at || 0);
+      if (seenFold(found, list, newest)) break;
+      const c = data?.cursor;
+      if (!list.length || !c?.max) break;
+      cursor = c;
+    }
+  } catch (e) {
+    // Risk control: stop and stay away for a while; never retry in a loop.
+    if (e.code === "THROTTLED") await chrome.storage.local.set({ [SEEN_META]: { ...meta, backoffUntil: now + SEEN_BACKOFF_MS } });
+    throw e;
+  }
+  const keys = Object.keys(found).map((b) => `seen_${b}`);
+  const stored = keys.length ? await chrome.storage.local.get(keys) : {};
+  const write = {};
+  for (const [b, [pct, at]] of Object.entries(found)) {
+    const old = stored[`seen_${b}`];
+    write[`seen_${b}`] = [Math.max(old?.[0] || 0, pct), Math.max(old?.[1] || 0, at)];
+  }
+  const next = { ...meta, newest: top, syncedAt: now, backoffUntil: 0 };
+  let dropped = 0;
+  if (now - (meta.prunedAt || 0) > SEEN_PRUNE_GAP_MS) {
+    const all = (await chrome.storage.local.getKeys()).filter((k) => k.startsWith("seen_"));
+    const got = await chrome.storage.local.get([...all, "triage_included_folders"]);
+    const snaps = await chrome.storage.local.get((got.triage_included_folders || []).map((id) => `triage_snapshot_${id}`));
+    const keep = new Set(Object.values(snaps).flatMap((s) => s?.bvids || []));
+    const entries = Object.fromEntries(all.map((k) => [k.slice(5), write[k] || got[k]]));
+    for (const k of Object.keys(write)) entries[k.slice(5)] = write[k];
+    const drop = seenPrune(entries, keep, Math.floor(now / 1000));
+    if (drop.length) await chrome.storage.local.remove(drop.map((b) => `seen_${b}`));
+    for (const b of drop) delete write[`seen_${b}`];
+    dropped = drop.length;
+    next.prunedAt = now;
+  }
+  await chrome.storage.local.set({ ...write, [SEEN_META]: next });
+  return { pages, videos: Object.keys(found).length, dropped };
+}
+
 // type 2 = video, the only type triage-folder-items keeps.
 async function triageFolderIds(mediaId) {
   if (mediaId === TRIAGE_TOVIEW) return (await triageToviewList()).map((m) => m.bvid);
@@ -683,6 +786,8 @@ const TRIAGE_HANDLERS = {
   },
 
   // Every video id of a folder in one request, no paging; 所有收藏夹 compares it with the cached list.
+  "triage-seen-sync": ({ force } = {}) => seenSync({ force: force === true }),
+
   "triage-folder-ids": async ({ mediaId }) => {
     if (!mediaId) throw triageError("缺少 mediaId");
     return { bvids: await triageFolderIds(mediaId) };

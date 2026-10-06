@@ -388,5 +388,69 @@ assert.throws(() => t.triageParseCommand('{"new_tags":[', cmdItems, cmdTags, {})
     await assert.rejects(H["triage-folder-create"]({ title: "  " }), /不能为空/);
   }
 
+  // 看过: percent is progress over duration, -1 = finished, capped at 100; 0 is not stored.
+  {
+    assert.deepStrictEqual([t.seenPercent(-1, 0), t.seenPercent(30, 60), t.seenPercent(70, 60), t.seenPercent(0, 60), t.seenPercent(5, 0)], [100, 50, 100, 0, 0]);
+    const h = (bvid, view_at, progress, duration = 100, business = "archive") => ({ view_at, progress, duration, history: { business, bvid } });
+    const found = {};
+    const done = t.seenFold(found, [h("BVa", 50, 40), h("BVb", 40, 0), h("BVc", 30, 10, 100, "live"), h("BVa", 20, 90), h("BVd", 10, 100)], 15);
+    assert.strictEqual(done, true, "stops at the first item not newer than the last read");
+    assert.deepStrictEqual(plain(found), { BVa: [90, 50] }, "best percent, latest view; 0 progress and non-videos skipped");
+    // Prune: older than a year or past the newest 5000 go, unless the video is in a chosen folder.
+    const nowS = 400 * 86400;
+    const entries = { BVold: [80, 10], BVkeep: [80, 10], BVnew: [80, nowS - 5] };
+    assert.deepStrictEqual(plain(t.seenPrune(entries, new Set(["BVkeep"]), nowS)), ["BVold"]);
+
+    // seen-sync: off by default; reads only what is new, merges with what is stored, waits 10 minutes between reads,
+    // and backs off on risk control.
+    const st = {};
+    let sync = {};
+    const urls = [];
+    let pages = [];
+    t.chrome = {
+      runtime: { getPlatformInfo: async () => ({}) },
+      cookies: { get: async () => ({ value: "csrf" }) },
+      storage: {
+        sync: { get: async (d) => ({ ...d, ...sync }) },
+        local: {
+          get: async (k) => Object.fromEntries([].concat(k).filter((x) => x in st).map((x) => [x, structuredClone(st[x])])),
+          set: async (o) => Object.assign(st, structuredClone(o)),
+          remove: async (keys) => [].concat(keys).forEach((x) => delete st[x]),
+          getKeys: async () => Object.keys(st)
+        }
+      }
+    };
+    t.fetch = async (url) => {
+      urls.push(url);
+      const body = pages.shift() || { code: 0, data: { list: [], cursor: { max: 0 } } };
+      return { ok: true, status: 200, json: async () => body };
+    };
+    const H = vm.runInContext("TRIAGE_HANDLERS", ctx);
+    // The message listener only routes triage-* types: a handler named otherwise is never reached.
+    assert.deepStrictEqual(Object.keys(H).filter((k) => !k.startsWith("triage-")), []);
+    assert.deepStrictEqual(plain(await H["triage-seen-sync"]()), { skipped: "off" });
+    assert.strictEqual(urls.length, 0, "nothing is read with both switches off");
+    sync = { seenShow: "bar" };
+    const T = Math.floor(Date.now() / 1000) - 1000; // view_at in seconds, recent enough to survive the prune
+    const page = (list, max) => ({ code: 0, data: { list, cursor: { max, view_at: 1, business: "archive" } } });
+    st.seen_BVa = [95, T - 500];
+    pages = [page([h("BVa", T + 300, 50), h("BVb", T + 290, 100)], 7), page([h("BVc", T + 280, -1)], 0)];
+    const first = await H["triage-seen-sync"]();
+    assert.strictEqual(first.pages, 2);
+    assert.deepStrictEqual([plain(st.seen_BVa), plain(st.seen_BVb), plain(st.seen_BVc)], [[95, T + 300], [100, T + 290], [100, T + 280]], "keeps the higher stored percent");
+    assert.strictEqual(st.triage_seen_meta.newest, T + 300);
+    assert.deepStrictEqual(plain(await H["triage-seen-sync"]()), { skipped: "recent" });
+    pages = [page([h("BVd", T + 310, 30), h("BVa", T + 300, 50)], 9)];
+    const again = await H["triage-seen-sync"]({ force: true });
+    assert.strictEqual(again.pages, 1, "a later read stops at what it already has");
+    assert.deepStrictEqual(plain(st.seen_BVd), [30, T + 310]);
+    pages = [{ code: -412, message: "请求被拦截" }];
+    await assert.rejects(H["triage-seen-sync"]({ force: true }), (e) => e.code === "THROTTLED");
+    assert.ok(st.triage_seen_meta.backoffUntil > Date.now(), "risk control backs off");
+    const before = urls.length;
+    assert.deepStrictEqual(plain(await H["triage-seen-sync"]({ force: true })), { skipped: "throttled" });
+    assert.strictEqual(urls.length, before, "no request while backing off");
+  }
+
 console.log("triage-bg selftest: all passed");
 })();

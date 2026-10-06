@@ -150,15 +150,27 @@ function splitKept(all) {
 }
 
 // 已取消收藏 (pure): a folder's full new list replaces its old one. A video that left it and is in no other folder's
-// list is recorded with its last known item; a video listed again is dropped from the record.
-function updateRemoved(removed, oldItems, newItems, otherBvids, at) {
+// list is recorded with its last known item; a video listed again is dropped from the record. One still in the folder's
+// id list (ids) only stopped being listed: Bilibili hides a video that became invalid, so it is marked hidden.
+function updateRemoved(removed, oldItems, newItems, otherBvids, at, ids = null) {
   const next = { ...removed };
   const now = new Set(newItems.map((it) => it.bvid));
+  const stillThere = new Set(ids || []);
   for (const b of now) delete next[b];
   for (const it of oldItems) {
-    if (!now.has(it.bvid) && !otherBvids.has(it.bvid) && !next[it.bvid]) next[it.bvid] = { item: it, at };
+    if (now.has(it.bvid) || otherBvids.has(it.bvid) || next[it.bvid]) continue;
+    next[it.bvid] = stillThere.has(it.bvid) ? { item: it, at, hidden: true } : { item: it, at };
   }
   return next;
+}
+
+// A video that turns invalid comes back as Bilibili's placeholder; keep what was known about it before (pure).
+function keepInvalidInfo(items, oldItems) {
+  const old = new Map((oldItems || []).map((it) => [it.bvid, it]));
+  return items.map((it) => {
+    const o = it.invalid && old.get(it.bvid);
+    return o ? { ...it, title: o.title || it.title, cover: o.cover || it.cover, upper: o.upper || it.upper, intro: o.intro || it.intro, duration: o.duration || it.duration } : it;
+  });
 }
 
 // 所有收藏夹 (pure): a cached list is stale when the folder's current video ids differ from it as a set.
@@ -204,6 +216,9 @@ const S = {
   notes: {},
   watched: {},
   watchedFilter: false,
+  invalidFilter: false, // 已失效: invalid in a folder, or hidden by Bilibili in 已取消收藏
+  seenCfg: { on: false, bar: false, mark: false, threshold: 80, style: "badge" }, // 设置页「观看进度 → 封面显示」
+  seenPct: {}, // bvid → [percent, view_at] from the history, null when it has none
   noteOpen: new Set(), // empty notes the user opened for editing
   settings: {
     triageIntervalSec: 8,
@@ -489,7 +504,8 @@ function searchText(it) {
 }
 
 function passFilter(it) {
-  if (S.watchedFilter && !S.watched[it.bvid]) return false;
+  if (S.watchedFilter && !isSeen(it)) return false;
+  if (S.invalidFilter && !(it.invalid || it.hidden)) return false;
   if (S.tagFilter.size && !tagIdsOf(it.bvid).some((id) => S.tagFilter.has(id))) return false;
   const words = S.query.toLowerCase().split(/\s+/).filter(Boolean);
   if (!words.length) return true;
@@ -576,9 +592,18 @@ async function init() {
   S.aiHistory = await storeGet(K.aiHistory, []);
   if (settingsResp.ok) Object.assign(S.settings, settingsResp.data);
   const syncObsidian = ({ obsidianEnabled }) => document.body.classList.toggle("obsidian-off", obsidianEnabled !== true);
-  syncObsidian(await chrome.storage.sync.get({ obsidianEnabled: false }));
+  const sync = await chrome.storage.sync.get({ obsidianEnabled: false, ...SEEN_DEFAULTS });
+  syncObsidian(sync);
+  setSeenCfg(sync);
   chrome.storage.onChanged.addListener((changes, area) => {
     if (area === "sync" && changes.obsidianEnabled) syncObsidian({ obsidianEnabled: changes.obsidianEnabled.newValue });
+    if (area === "sync" && Object.keys(SEEN_DEFAULTS).some((k) => changes[k])) {
+      chrome.storage.sync.get(SEEN_DEFAULTS).then((v) => {
+        setSeenCfg(v);
+        loadSeen(S.folderToken).then(render);
+      });
+    }
+    if (area === "local") followSeen(changes);
     // The side panel and history page edit the same notes; a pending local save is newer than any echo.
     if (area === "local" && changes[K.notes] && !noteTimer) {
       S.notes = changes[K.notes].newValue || {};
@@ -640,6 +665,59 @@ function followKept(kept) {
     for (const [b, d] of Object.entries(kept)) if (S.decisions[b]?.action !== "unfav") S.decisions[b] = d;
   }
   S.kept = kept;
+}
+
+// ---------- 看过 ----------
+const SEEN_DEFAULTS = { seenShow: "off", seenThreshold: 80, seenStyle: "badge" };
+function setSeenCfg(v) {
+  const bar = v.seenShow === "bar" || v.seenShow === "both";
+  const mark = v.seenShow === "mark" || v.seenShow === "both";
+  S.seenCfg = { on: bar || mark, bar, mark, threshold: Number(v.seenThreshold) || 80, style: v.seenStyle === "veil" ? "veil" : "badge" };
+  document.documentElement.dataset.seenStyle = S.seenCfg.style;
+  // The background reads only what is new, at most every 10 minutes (triage-seen-sync); its writes come back through followSeen.
+  if (S.seenCfg.on) send({ type: "triage-seen-sync" });
+}
+// Reads the listed videos' history entries not read yet; one key per video, so a folder costs a few KB.
+async function loadSeen(token) {
+  if (!S.seenCfg.on) return;
+  const want = S.items.map((it) => it.bvid).filter((b) => !(b in S.seenPct));
+  if (!want.length) return;
+  const got = await chrome.storage.local.get(want.map((b) => `seen_${b}`));
+  if (token !== S.folderToken) return;
+  for (const b of want) S.seenPct[b] = got[`seen_${b}`] || null;
+}
+function followSeen(changes) {
+  let hit = false;
+  for (const [key, c] of Object.entries(changes)) {
+    if (!key.startsWith("seen_")) continue;
+    S.seenPct[key.slice(5)] = c.newValue || null;
+    hit = true;
+  }
+  if (hit && S.seenCfg.on) render();
+}
+// Percent watched: the history's, else 稍后再看's own progress; null with no record or with the setting off.
+function seenPercentOf(it) {
+  if (!S.seenCfg.on) return null;
+  const h = S.seenPct[it.bvid]?.[0];
+  if (h) return h;
+  if (it.seen == null || it.seen === 0) return null;
+  return it.seen < 0 ? 100 : it.duration > 0 ? Math.min(100, Math.round((it.seen / it.duration) * 100)) : null;
+}
+// 看过: marked by hand, or watched at least the set share.
+const isSeen = (it) => Boolean(S.watched[it.bvid]) || (S.seenCfg.mark && (seenPercentOf(it) ?? 0) >= S.seenCfg.threshold);
+function seenLabel(it) {
+  const p = seenPercentOf(it) ?? 0;
+  return p >= 100 ? "✓ 看完了" : p >= S.seenCfg.threshold ? `✓ 看过 ${p}%` : "✓ 看过";
+}
+// The cover with its progress bar and, once 看过, the corner tag or the veil (html[data-seen-style] picks one).
+function coverHtml(it) {
+  const img = `<img class="cover" src="${esc(it.cover)}" alt="" loading="lazy" referrerpolicy="no-referrer" />`;
+  const p = S.seenCfg.bar ? seenPercentOf(it) : null;
+  // 手动看过 shows as before (footer badge) unless 看过标记 is on.
+  const seen = S.seenCfg.mark && isSeen(it);
+  if (!p && !seen) return img;
+  const label = esc(seenLabel(it));
+  return `<span class="cover-wrap${seen ? " seen" : ""}">${img}${seen ? `<span class="seen-veil">${label}</span><span class="seen-tag">${label}</span>` : ""}${p ? `<span class="seen-bar" title="看了 ${p}%"><i style="width:${Math.max(p, 2)}%"></i></span>` : ""}</span>`;
 }
 
 // Runs simplifyMigration once (flag key), then drops the old scheme keys it read.
@@ -729,7 +807,7 @@ async function loadIncluded() {
 
 // 稍后再看 says how far each video was watched on Bilibili: seconds, or -1 once finished.
 function seenText(it) {
-  if (it.seen == null || it.seen === 0) return "";
+  if (S.seenCfg.on || it.seen == null || it.seen === 0) return "";
   if (it.seen < 0) return "已看完";
   return it.duration > 0 ? `看过 ${Math.min(99, Math.max(1, Math.round((it.seen / it.duration) * 100)))}%` : "";
 }
@@ -797,6 +875,7 @@ async function openFolder(mediaId) {
   S.selected.clear();
   S.tagFilter.clear();
   S.watchedFilter = false;
+  S.invalidFilter = false;
   S.undo = [];
   S.focused = "";
   S.focusIndex = 0;
@@ -935,11 +1014,11 @@ async function syncFolder({ force = false, cached = null } = {}) {
     }
     S.lastSyncAt = Date.now();
     if (r.data.info) S.folderIntro[mediaId] = r.data.info.intro;
-    const remote = r.data.items || [];
+    const snap = await storeGet(K.snapshot(mediaId), null);
+    const remote = keepInvalidInfo(r.data.items || [], snap?.items);
     // A partial list proves what exists, never what was removed, so it skips the removed diff and the snapshot.
     const partial = r.data.partial ? { ...r.data.partial, count: remote.length } : null;
     const remoteSet = new Set(remote.map((it) => it.bvid));
-    const snap = await storeGet(K.snapshot(mediaId), null);
     const diff = { added: [], removed: [], invalid: [], restored: [] };
     const restored = new Set();
 
@@ -958,8 +1037,10 @@ async function syncFolder({ force = false, cached = null } = {}) {
         if (!snapSet.has(it.bvid) && !restored.has(it.bvid)) diff.added.push({ ...it, from: local.get(it.bvid)?.from });
         if (it.invalid && snapSet.has(it.bvid) && !snapInvalid.has(it.bvid)) diff.invalid.push(it.title);
       }
+      // Still in the id list but no longer listed: Bilibili hid it as invalid.
+      const ids = new Set(r.data.ids || []);
       for (const b of partial ? [] : snap.bvids) {
-        if (!remoteSet.has(b) && S.decisions[b]?.action !== "unfav") diff.removed.push(snap.titles?.[b] || b);
+        if (!remoteSet.has(b) && S.decisions[b]?.action !== "unfav") (ids.has(b) ? diff.invalid : diff.removed).push(snap.titles?.[b] || b);
       }
     }
     if (restored.size) patchDecisions(mediaId, Object.fromEntries([...restored].map((b) => [b, null])));
@@ -995,7 +1076,7 @@ async function saveSnapshot(mediaId, items, ids = null) {
   const old = got[K.snapshot(mediaId)];
   const oldItems = old?.items || (old?.bvids || []).map((bvid) => ({ bvid, title: old.titles?.[bvid] || bvid }));
   const otherBvids = new Set(others.flatMap((id) => got[K.snapshot(id)]?.bvids || []));
-  const removed = updateRemoved(got[K.removed] || {}, oldItems, items, otherBvids, Date.now());
+  const removed = updateRemoved(got[K.removed] || {}, oldItems, items, otherBvids, Date.now(), ids);
   await chrome.storage.local.set({
     [K.snapshot(mediaId)]: {
       bvids: items.map((it) => it.bvid),
@@ -1018,7 +1099,7 @@ async function openRemoved() {
   if (token !== S.folderToken) return false;
   S.items = Object.values(rec)
     .sort((x, y) => y.at - x.at)
-    .map(({ item, at, movedTo }) => ({ ...item, removedAt: at, movedTo }));
+    .map(({ item, at, movedTo, hidden }) => ({ ...item, removedAt: at, movedTo, hidden }));
   S.itemMap = new Map(S.items.map((it) => [it.bvid, it]));
   if (!(await loadResults(token))) return false;
   checkRemoved(token);
@@ -1054,7 +1135,8 @@ async function checkRemoved(token) {
 // Drops these bvids from 已取消收藏 (they are in a folder again); returns how many were there.
 async function dropRemoved(bvids) {
   const rec = await storeGet(K.removed, {});
-  const back = bvids.filter((b) => rec[b]);
+  // A hidden invalid video stays in the id list; only its listing coming back (updateRemoved) takes it out.
+  const back = bvids.filter((b) => rec[b] && !rec[b].hidden);
   if (!back.length) return 0;
   for (const b of back) delete rec[b];
   await storeSet(K.removed, rec);
@@ -1098,6 +1180,8 @@ async function cleanRemoved(list) {
 
 // Reads cached 粗分/细看 results for listed videos not loaded yet; false when the folder changed meanwhile.
 async function loadResults(token) {
+  await loadSeen(token);
+  if (token !== S.folderToken) return false;
   const missing = S.items.map((it) => it.bvid).filter((b) => !(b in S.titleRes) && !(b in S.analyses));
   if (!missing.length) return true;
   const [t, a] = await Promise.all([
@@ -1220,7 +1304,7 @@ async function runLoadAll(token) {
       break;
     }
     L.queue.shift();
-    const items = r.data.items || [];
+    const items = keepInvalidInfo(r.data.items || [], (await storeGet(K.snapshot(id), null))?.items);
     L.lists[id] = { items, ids: r.data.ids };
     // A partial list is still searchable but never becomes the cache, as in syncFolder.
     if (r.data.partial) L.partial++;
@@ -1403,9 +1487,12 @@ function renderTabs() {
     steps.join(`<span class="arrow" aria-hidden="true">→</span>`) + `<span class="tab-sep" aria-hidden="true"></span>` + tab("read", "阅览", "read-tab", c.read);
 
   const chips = tagChips();
-  // Only when this view has a video marked 已看 (or the filter is on, so it can be turned off).
-  const watchedChip = !S.watchedFilter && !S.items.some((it) => S.watched[it.bvid]) ? "" : `<button type="button" class="chip watched${S.watchedFilter ? " on" : ""}" data-watchedfilter aria-pressed="${S.watchedFilter}" aria-label="只看真人已看的视频"><span class="ai-mark">真人</span>已看</button>`;
-  el.tagFilter.innerHTML = watchedChip + (chips.length
+  // Only when this view has a 看过 video (or the filter is on, so it can be turned off).
+  const watchedChip = !S.watchedFilter && !S.items.some(isSeen) ? "" : `<button type="button" class="chip watched${S.watchedFilter ? " on" : ""}" data-watchedfilter aria-pressed="${S.watchedFilter}" aria-label="只看看过的视频">看过</button>`;
+  // Only when this view has an invalid video, like 看过; with 全选 it picks them all for 取消收藏 or 清理.
+  const invalidN = S.items.filter((it) => it.invalid || it.hidden).length;
+  const invalidChip = !S.invalidFilter && !invalidN ? "" : `<button type="button" class="chip invalid${S.invalidFilter ? " on" : ""}" data-invalidfilter aria-pressed="${S.invalidFilter}" aria-label="只看已失效的视频">已失效 ${invalidN}</button>`;
+  el.tagFilter.innerHTML = invalidChip + watchedChip + (chips.length
     ? chips
         .map((c) => {
           const on = c.ids.some((id) => S.tagFilter.has(id));
@@ -1643,7 +1730,7 @@ function renderList() {
   if (!list.length) {
     const empty = { none: "没有未分析的视频", coarse: "没有粗看完成的视频", fine: "没有细看完成的视频", done: "还没有处理过的视频" };
     const f = S.classFilter[S.tab];
-    const filtered = S.watchedFilter || S.tagFilter.size || (f && f !== "all");
+    const filtered = S.watchedFilter || S.invalidFilter || S.tagFilter.size || (f && f !== "all");
     const text = filtered ? "没有符合筛选的视频" : S.query.trim() ? "没有匹配搜索的视频" : empty[S.tab] || "这里没有视频";
     el.list.innerHTML = `<p class="empty">${text}</p>${recent}`;
     return;
@@ -1737,12 +1824,12 @@ function cardHtml(it, expanded, mark) {
   if (done && expanded && a.points?.length) body.push(`<ol class="points">${a.points.map((p) => `<li>${esc(p)}</li>`).join("")}</ol>`);
 
   return `<article class="${cls.join(" ")}" data-bvid="${esc(b)}" aria-label="${esc(it.title)}">
-    <img class="cover" src="${esc(it.cover)}" alt="" loading="lazy" referrerpolicy="no-referrer" />
+    ${coverHtml(it)}
     <div class="card-body">
       <div class="title-row">${mark ? `<span class="batch-tag">${mark}</span>` : ""}<button type="button" class="title" data-act="open" aria-label="打开视频 ${esc(it.title)}">${esc(it.title)}</button></div>
       <div class="meta">${meta.map(esc).join(" · ")}</div>
       ${body.join("")}
-      <div class="card-foot">${verdict}${S.watched[b] ? `<button type="button" class="badge watched" data-act="unwatch" aria-label="真人已看，点一下取消" title="${esc(fmtTime(S.watched[b]))} 已看 · 点一下取消"><span class="ai-mark">真人</span>已看</button>` : ""}<span class="reason">${esc(v.reason)}</span>${failed}</div>
+      <div class="card-foot">${verdict}${S.watched[b] ? `<button type="button" class="badge watched" data-act="unwatch" aria-label="手动标的看过，点一下取消" title="${esc(fmtTime(S.watched[b]))} 手动标为看过 · 点一下取消"><span class="ai-mark">手动</span>看过</button>` : ""}<span class="reason">${esc(v.reason)}</span>${failed}</div>
       ${chips ? `<div class="chips">${chips}</div>` : ""}
       ${noteHtml}
       <div class="card-foot">
@@ -1778,7 +1865,7 @@ function readHtml(it) {
   if (names.length) body.push(`<div class="chips">${names.map((t) => `<span class="chip on" style="--c:${esc(t.color)}">${esc(t.name)}</span>`).join("")}</div>`);
   return `<article class="read-item${isProcessed(b) ? " decided" : ""}${S.selected.has(b) ? " selected" : ""}" data-bvid="${esc(b)}">
     <h3><a href="${videoUrl(b)}" target="_blank" rel="noopener">${esc(it.title)}</a></h3>
-    <div class="meta">${[it.upper, fmtDuration(it.duration)].filter(Boolean).map(esc).join(" · ")}${it.folders?.length ? ` · 收藏夹：${esc(folderNames(it))}` : ""}${it.removedAt ? (it.movedTo ? ` · 移到「${esc(it.movedTo.title)}」（未勾选）：${esc(fmtTime(it.removedAt))}` : ` · 离开收藏夹：${esc(fmtTime(it.removedAt))}`) : ""} · ${verdict}${v.reason ? ` <span class="reason">${esc(v.reason)}</span>` : ""}</div>
+    <div class="meta">${[it.upper, fmtDuration(it.duration)].filter(Boolean).map(esc).join(" · ")}${it.folders?.length ? ` · 收藏夹：${esc(folderNames(it))}` : ""}${it.removedAt ? (it.movedTo ? ` · 移到「${esc(it.movedTo.title)}」（未勾选）：${esc(fmtTime(it.removedAt))}` : it.hidden ? ` · 已失效（B 站已隐藏）：${esc(fmtTime(it.removedAt))}` : ` · 离开收藏夹：${esc(fmtTime(it.removedAt))}`) : ""} · ${verdict}${v.reason ? ` <span class="reason">${esc(v.reason)}</span>` : ""}</div>
     ${body.join("")}${it.removedAt ? `<button type="button" data-select="${esc(b)}" class="${S.selected.has(b) ? "on" : ""}" aria-pressed="${S.selected.has(b)}" aria-label="选中 ${esc(it.title)}">选中</button>` : ""}${it.removedAt ? `<button type="button" class="danger" data-clean="${esc(b)}" aria-label="清理 ${esc(it.title)}">清理</button>` : ""}
   </article>`;
 }
@@ -3209,6 +3296,7 @@ function bindEvents() {
     openFolder(REMOVED);
   });
   el.refreshBtn.addEventListener("click", () => {
+    if (S.seenCfg.on) send({ type: "triage-seen-sync", force: true });
     if (inFolderView() && writingTo(S.mediaId)) toast("这个收藏夹正在批量修改，结束后自动刷新");
     S.mediaId === ALL ? refreshAll() : S.mediaId === REMOVED ? openFolder(REMOVED) : S.mediaId && syncFolder({ force: true });
   });
@@ -3247,6 +3335,10 @@ function bindEvents() {
   el.tagFilter.addEventListener("click", (e) => {
     if (e.target.closest("[data-watchedfilter]")) {
       S.watchedFilter = !S.watchedFilter;
+      return render();
+    }
+    if (e.target.closest("[data-invalidfilter]")) {
+      S.invalidFilter = !S.invalidFilter;
       return render();
     }
     const btn = e.target.closest("[data-tagfilter]");
