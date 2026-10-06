@@ -2647,8 +2647,3 @@ function escapeHtml(value) {
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&#39;");
 }
-
-function truncate(value, max) {
-  const s = String(value || "");
-  return s.length > max ? s.slice(0, max) + "..." : s;
-}
