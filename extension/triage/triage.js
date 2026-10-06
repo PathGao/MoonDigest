@@ -1411,7 +1411,7 @@ function renderListHeader(list) {
       const n = stage1Pending().length;
       html += headBtn("stage1", n ? `标题粗看这 ${n} 个` : "标题粗看", "primary", !n || busy, "", "", false, true);
     }
-    if (sel) html += batchBtn("keep") + batchBtn("unfav");
+    if (sel) selActs = batchBtn("keep");
   } else if (t === "coarse") {
     // A selection gets 细看 plus both batch buttons; 可清理 / 值得留 lead with their batch button, 细看 stays secondary.
     html = seg() + criteriaLine() + redoBtn("redo-coarse", "粗看", staleCoarse().length);
@@ -1446,7 +1446,7 @@ function renderListHeader(list) {
   }
   // 移动/复制 works on a selection in any tab of a single folder; in 已取消收藏 it is 收藏到. 取消收藏 goes last, set apart.
   if (sel && S.mediaId !== ALL) selActs += transferBtn();
-  if (sel && !all && t !== "none" && S.mediaId !== REMOVED) selActs += batchBtn("unfav");
+  if (sel && !all && S.mediaId !== REMOVED) selActs += batchBtn("unfav");
   // 全选 adds every card listed under the current tab and filters; other tabs keep their selection.
   const unselected = S.mediaId !== ALL ? list.filter((it) => !S.selected.has(it.bvid)).length : 0;
   const selectAll = unselected ? `<button type="button" class="link" data-head="select-all" aria-label="全选这里列出的 ${list.length} 个">全选这里的 ${list.length} 个</button>` : "";
