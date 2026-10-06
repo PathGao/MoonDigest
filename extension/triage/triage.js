@@ -508,8 +508,7 @@ function stageOf(it) {
 }
 
 function inTab(it, tab) {
-  // 阅览 is every video of the folder, whatever its step; 已取消收藏 has no AI-class chips.
-  if (tab === "read" && S.mediaId === REMOVED) return true;
+  // 阅览 (and 已取消收藏) is every video of the folder, whatever its step.
   if (tab !== "read" && stageOf(it) !== tab) return false;
   const f = S.classFilter[tab];
   return !f || f === "all" || verdictOf(it).verdict === f;
@@ -1507,7 +1506,8 @@ function renderListHeader(list) {
     if (!sel && list.length && f === "unsure") html += `<span class="muted">按 X 或全选后可批量保留、取消收藏、移动或复制</span>`;
   } else if (t === "read" && S.mediaId === REMOVED) {
     const c = S.removedCheck;
-    if (c) html = c.error ? `<span class="fail-text">${esc(c.error)}</span>` : `<span class="muted" aria-busy="true">正在核对 ${c.done} / ${c.total} 个收藏夹，重新收藏的会自动移出</span>`;
+    html = seg();
+    if (c) html += c.error ? `<span class="fail-text">${esc(c.error)}</span>` : `<span class="muted" aria-busy="true">正在核对 ${c.done} / ${c.total} 个收藏夹，重新收藏的会自动移出</span>`;
     html += `<span class="muted">离开了你勾选的所有收藏夹的视频，AI 分析、备注和标签都还留着。需要的先批量导出，再清理。</span>
       ${headBtn("export-read", "批量导出…", "", !list.length)}${sel ? headBtn("clean-selected", `清理选中的 ${sel} 个`, "danger") : headBtn("clean-removed", `清理这 ${list.length} 个`, "danger", !list.length)}`;
   } else if (t === "read") {
@@ -1643,7 +1643,7 @@ function renderList() {
   if (!list.length) {
     const empty = { none: "没有未分析的视频", coarse: "没有粗看完成的视频", fine: "没有细看完成的视频", done: "还没有处理过的视频" };
     const f = S.classFilter[S.tab];
-    const filtered = S.watchedFilter || S.tagFilter.size || (S.mediaId !== REMOVED && f && f !== "all");
+    const filtered = S.watchedFilter || S.tagFilter.size || (f && f !== "all");
     const text = filtered ? "没有符合筛选的视频" : S.query.trim() ? "没有匹配搜索的视频" : empty[S.tab] || "这里没有视频";
     el.list.innerHTML = `<p class="empty">${text}</p>${recent}`;
     return;
