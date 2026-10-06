@@ -159,6 +159,15 @@ function init() {
   elements.seenThreshold.addEventListener("change", () => (elements.seenThreshold.value = String(readFormPayload().seenThreshold)));
   // Same for 追问: blank, repeated and past-12 lines are dropped from the box, not only from what is saved.
   elements.aiPresetPrompts.addEventListener("change", () => (elements.aiPresetPrompts.value = readFormPayload().aiPresetPrompts.join("\n")));
+  // The side panel edits 追问 too. Follow it unless the box has an unsaved edit, so the next save does not put the old list back.
+  chrome.storage.onChanged.addListener((changes, area) => {
+    const next = changes.aiPresetPrompts?.newValue;
+    if (area !== "sync" || !Array.isArray(next) || !savedForm) return;
+    if (JSON.stringify(readFormPayload().aiPresetPrompts) !== JSON.stringify(savedForm.payload.aiPresetPrompts)) return;
+    elements.aiPresetPrompts.value = next.join("\n");
+    savedForm.payload.aiPresetPrompts = readFormPayload().aiPresetPrompts;
+    syncUnsaved();
+  });
   elements.testConnectionBtn.addEventListener("click", testConnection);
   elements.addFixedPropertyBtn.addEventListener("click", () => addFixedPropertyRow());
   elements.addNoteSectionBtn.addEventListener("click", () => addNoteSectionRow());
