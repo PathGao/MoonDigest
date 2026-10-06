@@ -265,7 +265,7 @@ button.icon { width: 26px; height: 24px; padding: 0; }
 .run-line { max-width: 24em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); font-size: var(--fs-xs); }
 .key { font: inherit; margin-left: 4px; opacity: 0.7; }
 @media (hover: none) { .key { display: none; } }
-.card.selected { background: var(--secondary-bg); }
+.card.selected, .read-item.selected { background: var(--secondary-bg); }
 .badge.low { background: transparent; outline: 1px dashed currentColor; outline-offset: -1px; }
 .fail-text { color: var(--danger); font-size: var(--fs-xs); }
 .card-foot .spacer { flex: 1; }
