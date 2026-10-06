@@ -64,12 +64,11 @@
   if (typeof chrome === "undefined" || !chrome.storage?.local || typeof document === "undefined") return;
 
   const SETTING = "showBiliTriageBadges";
-  // 看过 on covers has its own setting (设置页「观看进度」, off by default); it or the triage marks turn the page scan on.
+  // 观看进度 on covers has its own setting (设置页「观看进度」, off by default); it or the triage marks turn the page scan on.
   const SEEN_DEFAULTS = { seenShow: "off", seenThreshold: 80, seenStyle: "badge" };
   let triageOn = false;
   let seenCfg = { on: false, bar: false, mark: false, threshold: 80, style: "badge" };
   const seenCache = new Map(); // bvid -> percent | 0
-  let watched = null; // 手动标的看过 (triage_watched)
   const SEL = 'a[href*="/video/BV"], a[href*="bvid=BV"]';
   const isTriageKey = (k) =>
     k === "triage_tags" || k === "triage_video_tags" || k === "triage_kept" || /^triage_(title|analysis|decisions)_/.test(k);
@@ -163,33 +162,35 @@
   // One key per video on screen, a few KB per page; the history itself is read by the background (triage-seen-sync).
   async function loadSeen(g) {
     const want = [...new Set([...document.querySelectorAll(SEL)].map((a) => bvidFromHref(a.getAttribute("href"))).filter((b) => b && !seenCache.has(b)))];
-    if (!want.length && watched) return;
-    const got = await chrome.storage.local.get([...want.map((b) => `seen_${b}`), ...(watched ? [] : ["triage_watched"])]);
+    if (!want.length) return;
+    const got = await chrome.storage.local.get(want.map((b) => `seen_${b}`));
     if (g !== gen) return;
-    watched ||= got.triage_watched || {};
     for (const b of want) seenCache.set(b, got[`seen_${b}`]?.[0] || 0);
   }
 
-  // The progress bar (Bilibili's own look) on a cover link, and once 看过 the corner tag or the veil.
+  // The progress bar (Bilibili's own look) on a cover link, and once 看完了 the corner tag or the veil.
   function markCover(a) {
     const b = bvidFromHref(a.getAttribute("href"));
     const known = seenCfg.on ? seenCache.get(b) || 0 : 0;
     const pct = seenCfg.bar ? known : 0;
-    const seen = seenCfg.mark && (Boolean(watched?.[b]) || known >= seenCfg.threshold);
+    const seen = seenCfg.mark && known >= seenCfg.threshold;
+    // Below the share, a faint 看过 N% says how far it got.
+    const faint = !seen && known > 0 && seenCfg.mark;
     // On the image's own box: some links wrap the whole card, title included.
     const media = a.querySelector("picture") || a.querySelector("img");
     const host = media?.parentElement;
     if (!host) return;
     const old = host.querySelector(":scope > .mdg-seen");
-    const key = `${b}|${pct}|${seen}|${known}|${seenCfg.style}`;
+    const key = `${b}|${pct}|${seen}|${faint}|${known}|${seenCfg.style}`;
     if (old?.dataset.key === key) return;
     old?.remove();
-    if (!pct && !seen) return;
+    if (!pct && !seen && !faint) return;
     const box = document.createElement("span");
     box.className = `mdg-seen mdg-seen-${seenCfg.style}`;
     box.dataset.key = key;
-    const label = known >= 100 ? "✓ 看完了" : known >= seenCfg.threshold ? `✓ 看过 ${known}%` : "✓ 看过";
-    if (seen) box.append(Object.assign(document.createElement("span"), { className: "mdg-seen-mark", textContent: label }));
+    // 100% reads 看完了, otherwise 看过 N%; ✓ (and the strong look) means it counts as 看完了.
+    const words = known >= 100 ? "✓ 看完了" : seen ? `✓ 看过 ${known}%` : `看过 ${known}%`;
+    if (seen || faint) box.append(Object.assign(document.createElement("span"), { className: `mdg-seen-mark${faint ? " mdg-faint" : ""}`, textContent: words }));
     // Bilibili's history and 稍后再看 cards draw this bar themselves.
     if (pct && !host.querySelector(".bili-cover-card__progress")) {
       const bar = Object.assign(document.createElement("span"), { className: "mdg-seen-bar" });
@@ -338,7 +339,7 @@
     }
   }
 
-  // The two switches and the 看过 options decide whether the page is scanned at all.
+  // The two switches and the 观看进度 options decide whether the page is scanned at all.
   function applySettings(v) {
     triageOn = v[SETTING] !== false;
     const before = seenCfg.on;
@@ -358,9 +359,8 @@
 
   chrome.storage.onChanged.addListener((changes, area) => {
     if (area === "sync" && (SETTING in changes || Object.keys(SEEN_DEFAULTS).some((k) => k in changes))) readSettings();
-    if (area === "local" && enabled && Object.keys(changes).some((k) => k.startsWith("seen_") || k === "triage_watched")) {
+    if (area === "local" && enabled && Object.keys(changes).some((k) => k.startsWith("seen_"))) {
       for (const k of Object.keys(changes)) if (k.startsWith("seen_")) seenCache.delete(k.slice(5));
-      if (changes.triage_watched) watched = changes.triage_watched.newValue || {};
       gen++;
       schedule();
     }

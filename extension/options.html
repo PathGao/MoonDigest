@@ -203,22 +203,22 @@
         </div>
         <div class="rows">
           <div class="row">
-            <div class="lab"><label class="name" for="seenShow">封面显示</label><p class="hint">进度条和 B 站自己的一样；看过标记在看够下面的比例、或在分拣台手动标过时出现。<br />关闭时不读历史。打开后只在你打开分拣台或 B 站页面时读新增的部分，最多 10 分钟一次；本地只存每个视频的进度，留最近 1 年、最多 5000 个。</p></div>
+            <div class="lab"><label class="name" for="seenShow">封面显示</label><p class="hint">进度条和 B 站自己的一样。看完了标记：100% 写「✓ 看完了」，达到下面的比例写「✓ 看过 83%」；没到比例的写淡色「看过 40%」。<br />关闭时不读历史。打开后只在你打开分拣台或 B 站页面时读新增的部分，最多 10 分钟一次；本地只存每个视频的进度，留最近 1 年、最多 5000 个。</p></div>
             <div class="ctl">
               <select id="seenShow">
                 <option value="off">关</option>
                 <option value="bar">进度条</option>
-                <option value="mark">看过标记</option>
-                <option value="both">进度条和看过标记</option>
+                <option value="mark">看完了标记</option>
+                <option value="both">进度条和看完了标记</option>
               </select>
             </div>
           </div>
           <div class="row" data-seen-mark-row>
-            <div class="lab"><label class="name" for="seenThreshold">看过多少算看过</label><p class="hint">按视频时长的百分比算，短视频也适用。</p></div>
+            <div class="lab"><label class="name" for="seenThreshold">看多少算看完了</label><p class="hint">按视频时长的百分比算，短视频也适用。</p></div>
             <div class="ctl"><input id="seenThreshold" type="number" min="1" max="100" step="1" /> %</div>
           </div>
           <div class="row" data-seen-mark-row>
-            <div class="lab"><label class="name" for="seenStyle">看过标记样式</label><p class="hint">角标：封面左上角写「✓ 看过」。封面遮罩：封面盖一层暗色，正中写「✓ 看过」。</p></div>
+            <div class="lab"><label class="name" for="seenStyle">看完了标记样式</label><p class="hint">角标：写在封面左上角。封面遮罩：封面盖一层暗色，字写在正中。</p></div>
             <div class="ctl">
               <select id="seenStyle">
                 <option value="badge">角标</option>

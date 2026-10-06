@@ -31,7 +31,7 @@ const K = {
   decisions: (id) => `triage_decisions_${id}`, // 取消收藏 only: it changes one Bilibili folder
   kept: "triage_kept", // { [bvid]: { action: "keep", at } }: 保留 belongs to the video, so it shows in every folder
   keptMigrated: "triage_kept_v1",
-  watched: "triage_watched", // { [bvid]: at }: 真人已看, set when a video leaves 优先看 as watched; it shows in every folder
+  watched: "triage_watched", // { [bvid]: at }: 优先看过, set when a video leaves 优先看 as watched; it shows in every folder
   removed: "triage_removed", // { [bvid]: { item, at } }: videos that left every folder, kept until the user cleans them
   included: "triage_included_folders", // [mediaId]: the folders the user chose; only these are listed and read
   snapshot: (id) => `triage_snapshot_${id}`,
@@ -215,7 +215,8 @@ const S = {
   basket: [],
   notes: {},
   watched: {},
-  watchedFilter: false,
+  watchedFilter: false, // 优先看过
+  finishedFilter: false, // 看完了
   invalidFilter: false, // 已失效: invalid in a folder, or hidden by Bilibili in 已取消收藏
   seenCfg: { on: false, bar: false, mark: false, threshold: 80, style: "badge" }, // 设置页「观看进度 → 封面显示」
   seenPct: {}, // bvid → [percent, view_at] from the history, null when it has none
@@ -504,7 +505,8 @@ function searchText(it) {
 }
 
 function passFilter(it) {
-  if (S.watchedFilter && !isSeen(it)) return false;
+  if (S.watchedFilter && !S.watched[it.bvid]) return false;
+  if (S.finishedFilter && !isFinished(it)) return false;
   if (S.invalidFilter && !(it.invalid || it.hidden)) return false;
   if (S.tagFilter.size && !tagIdsOf(it.bvid).some((id) => S.tagFilter.has(id))) return false;
   const words = S.query.toLowerCase().split(/\s+/).filter(Boolean);
@@ -667,7 +669,7 @@ function followKept(kept) {
   S.kept = kept;
 }
 
-// ---------- 看过 ----------
+// ---------- 观看进度：看完了 ----------
 const SEEN_DEFAULTS = { seenShow: "off", seenThreshold: 80, seenStyle: "badge" };
 function setSeenCfg(v) {
   const bar = v.seenShow === "bar" || v.seenShow === "both";
@@ -703,21 +705,22 @@ function seenPercentOf(it) {
   if (it.seen == null || it.seen === 0) return null;
   return it.seen < 0 ? 100 : it.duration > 0 ? Math.min(100, Math.round((it.seen / it.duration) * 100)) : null;
 }
-// 看过: marked by hand, or watched at least the set share.
-const isSeen = (it) => Boolean(S.watched[it.bvid]) || (S.seenCfg.mark && (seenPercentOf(it) ?? 0) >= S.seenCfg.threshold);
-function seenLabel(it) {
-  const p = seenPercentOf(it) ?? 0;
-  return p >= 100 ? "✓ 看完了" : p >= S.seenCfg.threshold ? `✓ 看过 ${p}%` : "✓ 看过";
-}
-// The cover with its progress bar and, once 看过, the corner tag or the veil (html[data-seen-style] picks one).
+// 看完了: the history says at least the set share was watched (only while that mark is shown). 优先看过 is separate.
+const isFinished = (it) => S.seenCfg.mark && (seenPercentOf(it) ?? 0) >= S.seenCfg.threshold;
+// 100% reads 看完了, otherwise 看过 N%; ✓ (and the strong look) means it counts as 看完了.
+const seenWords = (p, done) => (p >= 100 ? "✓ 看完了" : done ? `✓ 看过 ${p}%` : `看过 ${p}%`);
+// The cover with its progress bar and, once 看完了, the corner tag or the veil (html[data-seen-style] picks one).
+// Below the share, a faint 看过 N% says how far it got.
 function coverHtml(it) {
   const img = `<img class="cover" src="${esc(it.cover)}" alt="" loading="lazy" referrerpolicy="no-referrer" />`;
-  const p = S.seenCfg.bar ? seenPercentOf(it) : null;
-  // 手动看过 shows as before (footer badge) unless 看过标记 is on.
-  const seen = S.seenCfg.mark && isSeen(it);
-  if (!p && !seen) return img;
-  const label = esc(seenLabel(it));
-  return `<span class="cover-wrap${seen ? " seen" : ""}">${img}${seen ? `<span class="seen-veil">${label}</span><span class="seen-tag">${label}</span>` : ""}${p ? `<span class="seen-bar" title="看了 ${p}%"><i style="width:${Math.max(p, 2)}%"></i></span>` : ""}</span>`;
+  const known = seenPercentOf(it);
+  const p = S.seenCfg.bar ? known : null;
+  const seen = isFinished(it);
+  const faint = !seen && known && S.seenCfg.mark;
+  if (!p && !seen && !faint) return img;
+  const label = seenWords(known, seen);
+  const mark = seen ? `<span class="seen-veil">${label}</span><span class="seen-tag">${label}</span>` : faint ? `<span class="seen-tag faint">${label}</span>` : "";
+  return `<span class="cover-wrap${seen ? " seen" : ""}">${img}${mark}${p ? `<span class="seen-bar" title="看过 ${p}%"><i style="width:${Math.max(p, 2)}%"></i></span>` : ""}</span>`;
 }
 
 // Runs simplifyMigration once (flag key), then drops the old scheme keys it read.
@@ -808,7 +811,7 @@ async function loadIncluded() {
 // 稍后再看 says how far each video was watched on Bilibili: seconds, or -1 once finished.
 function seenText(it) {
   if (S.seenCfg.on || it.seen == null || it.seen === 0) return "";
-  if (it.seen < 0) return "已看完";
+  if (it.seen < 0) return "看完了";
   return it.duration > 0 ? `看过 ${Math.min(99, Math.max(1, Math.round((it.seen / it.duration) * 100)))}%` : "";
 }
 
@@ -875,6 +878,7 @@ async function openFolder(mediaId) {
   S.selected.clear();
   S.tagFilter.clear();
   S.watchedFilter = false;
+  S.finishedFilter = false;
   S.invalidFilter = false;
   S.undo = [];
   S.focused = "";
@@ -1487,9 +1491,13 @@ function renderTabs() {
     steps.join(`<span class="arrow" aria-hidden="true">→</span>`) + `<span class="tab-sep" aria-hidden="true"></span>` + tab("read", "阅览", "read-tab", c.read);
 
   const chips = tagChips();
-  // Only when this view has a 看过 video (or the filter is on, so it can be turned off).
-  const watchedChip = !S.watchedFilter && !S.items.some(isSeen) ? "" : `<button type="button" class="chip watched${S.watchedFilter ? " on" : ""}" data-watchedfilter aria-pressed="${S.watchedFilter}" aria-label="只看看过的视频">看过</button>`;
-  // Only when this view has an invalid video, like 看过; with 全选 it picks them all for 取消收藏 or 清理.
+  // Each only when this view has such a video (or the filter is on, so it can be turned off).
+  const chip = (on, show, attr, label, aria) =>
+    !on && !show ? "" : `<button type="button" class="chip watched${on ? " on" : ""}" ${attr} aria-pressed="${on}" aria-label="${aria}">${label}</button>`;
+  const watchedChip =
+    chip(S.finishedFilter, S.items.some(isFinished), "data-finishedfilter", "看完了", "只看 B 站历史记录里看完了的视频") +
+    chip(S.watchedFilter, S.items.some((it) => S.watched[it.bvid]), "data-watchedfilter", "优先看过", "只看在优先看里点了已看的视频");
+  // Only when this view has an invalid video, like those above; with 全选 it picks them all for 取消收藏 or 清理.
   const invalidN = S.items.filter((it) => it.invalid || it.hidden).length;
   const invalidChip = !S.invalidFilter && !invalidN ? "" : `<button type="button" class="chip invalid${S.invalidFilter ? " on" : ""}" data-invalidfilter aria-pressed="${S.invalidFilter}" aria-label="只看已失效的视频">已失效 ${invalidN}</button>`;
   el.tagFilter.innerHTML = invalidChip + watchedChip + (chips.length
@@ -1730,7 +1738,7 @@ function renderList() {
   if (!list.length) {
     const empty = { none: "没有未分析的视频", coarse: "没有粗看完成的视频", fine: "没有细看完成的视频", done: "还没有处理过的视频" };
     const f = S.classFilter[S.tab];
-    const filtered = S.watchedFilter || S.invalidFilter || S.tagFilter.size || (f && f !== "all");
+    const filtered = S.watchedFilter || S.finishedFilter || S.invalidFilter || S.tagFilter.size || (f && f !== "all");
     const text = filtered ? "没有符合筛选的视频" : S.query.trim() ? "没有匹配搜索的视频" : empty[S.tab] || "这里没有视频";
     el.list.innerHTML = `<p class="empty">${text}</p>${recent}`;
     return;
@@ -1829,7 +1837,7 @@ function cardHtml(it, expanded, mark) {
       <div class="title-row">${mark ? `<span class="batch-tag">${mark}</span>` : ""}<button type="button" class="title" data-act="open" aria-label="打开视频 ${esc(it.title)}">${esc(it.title)}</button></div>
       <div class="meta">${meta.map(esc).join(" · ")}</div>
       ${body.join("")}
-      <div class="card-foot">${verdict}${S.watched[b] ? `<button type="button" class="badge watched" data-act="unwatch" aria-label="手动标的看过，点一下取消" title="${esc(fmtTime(S.watched[b]))} 手动标为看过 · 点一下取消"><span class="ai-mark">手动</span>看过</button>` : ""}<span class="reason">${esc(v.reason)}</span>${failed}</div>
+      <div class="card-foot">${verdict}${S.watched[b] ? `<button type="button" class="badge watched" data-act="unwatch" aria-label="优先看过，点一下取消" title="${esc(fmtTime(S.watched[b]))} 在优先看里点了已看 · 点一下取消">优先看过</button>` : ""}<span class="reason">${esc(v.reason)}</span>${failed}</div>
       ${chips ? `<div class="chips">${chips}</div>` : ""}
       ${noteHtml}
       <div class="card-foot">
@@ -2048,7 +2056,7 @@ async function undo() {
       S.basket.splice(entry.basketEntry.i, 0, entry.basketEntry.x);
       saveBasket();
     }
-    toast(entry.prev ? "已撤销：取消真人已看" : "已撤销：真人已看");
+    toast(entry.prev ? "已撤销：取消优先看过" : "已撤销：优先看过");
     render();
   } else if (entry.kind === "keepMany") {
     patchKept(Object.fromEntries(entry.bvids.map((b) => [b, null])));
@@ -3003,7 +3011,7 @@ function basketDoneAndNext() {
   }
 }
 
-// 已看 marks the video 真人已看 and takes it out of 优先看; favorites and decisions are untouched. U undoes both.
+// 已看 marks the video 优先看过 and takes it out of 优先看; favorites and decisions are untouched. U undoes both.
 function removeBasketItem(i) {
   const [x] = S.basket.splice(i, 1);
   if (!x) return;
@@ -3335,6 +3343,10 @@ function bindEvents() {
   el.tagFilter.addEventListener("click", (e) => {
     if (e.target.closest("[data-watchedfilter]")) {
       S.watchedFilter = !S.watchedFilter;
+      return render();
+    }
+    if (e.target.closest("[data-finishedfilter]")) {
+      S.finishedFilter = !S.finishedFilter;
       return render();
     }
     if (e.target.closest("[data-invalidfilter]")) {
