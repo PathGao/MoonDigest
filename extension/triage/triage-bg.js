@@ -610,7 +610,9 @@ const TRIAGE_HANDLERS = {
   },
   "triage-folders": () => triageCreatedFolders(),
 
-  "triage-folder-items": async ({ mediaId }) => {
+  // With known (the cached bvids), it stops after the first page with nothing new and returns only those pages as head:
+  // the list is newest first, so a page of known videos means the rest is in the cache too.
+  "triage-folder-items": async ({ mediaId, known }) => {
     if (!mediaId) throw triageError("缺少 mediaId");
     if (mediaId === TRIAGE_TOVIEW) {
       const items = (await triageToviewList()).map((m) => ({
@@ -631,6 +633,7 @@ const TRIAGE_HANDLERS = {
     }
     const items = [];
     let info = null;
+    const knownSet = known ? new Set(known) : null;
     for (let pn = 1; ; pn++) {
       if (pn > 1) await new Promise((r) => setTimeout(r, 300));
       let data;
@@ -658,6 +661,7 @@ const TRIAGE_HANDLERS = {
         });
       }
       if (!data?.has_more || !data?.medias?.length) break;
+      if (knownSet && (data.medias || []).every((m) => knownSet.has(m.bvid || m.bv_id))) return { items, info, head: true };
       // Page progress for the triage page's loading line; no open page to receive it is fine.
       globalThis.chrome?.runtime?.sendMessage?.({ type: "triage-folder-page", mediaId: String(mediaId), page: pn })?.catch?.(() => {});
     }

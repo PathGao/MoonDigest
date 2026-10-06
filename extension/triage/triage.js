@@ -163,6 +163,16 @@ function idsChanged(cached, ids) {
   const now = new Set(ids);
   return have.size !== now.size || [...now].some((b) => !have.has(b));
 }
+// 切换收藏夹 (pure): the fetched newest pages, then the cached rest still in the folder's id list. null when an added id
+// is in neither (moved in from deep in the list), so the caller loads the whole folder.
+function mergeHead(head, cachedItems, oldIds, ids) {
+  const now = new Set(ids);
+  const inHead = new Set(head.map((it) => it.bvid));
+  const items = [...head, ...cachedItems.filter((it) => now.has(it.bvid) && !inHead.has(it.bvid))];
+  const got = new Set(items.map((it) => it.bvid));
+  const old = new Set(oldIds);
+  return ids.every((b) => old.has(b) || got.has(b)) ? items : null;
+}
 const unfavOnly = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) => v?.action === "unfav"));
 
 // ---------- state ----------
@@ -219,7 +229,21 @@ const S = {
   syncing: false,
   aiHistory: [],
   viewing: "",
-  ai: { running: false, stop: false, proposal: null }
+  // One 批量打标签 run at a time (mediaId is its folder); it keeps going when another folder is opened. Each folder keeps
+  // its own proposal, and proposal reads and writes the open folder's.
+  ai: {
+    running: false,
+    stop: false,
+    mediaId: "",
+    proposals: {},
+    get proposal() {
+      return this.proposals[S.mediaId] || null;
+    },
+    set proposal(p) {
+      if (p) this.proposals[S.mediaId] = p;
+      else delete this.proposals[S.mediaId];
+    }
+  }
 };
 
 const criteria = () => S.folderCriteria[S.mediaId] || "";
@@ -685,9 +709,7 @@ async function openFolder(mediaId) {
   const all = mediaId === ALL;
   const removed = mediaId === REMOVED;
   const decisions = all || removed ? {} : { ...S.kept, ...(await storeGet(K.decisions(mediaId), {})) };
-  S.folderToken++;
-  // A proposal's new tags and rows belong to the folder it ran in.
-  S.ai.proposal = null;
+  const token = ++S.folderToken;
   // The old stage-1 loop exits on the token change without touching state, so reset it here.
   S.stage1 = { running: false, stop: true };
   if (S.group) S.group.stop = true;
@@ -712,7 +734,10 @@ async function openFolder(mediaId) {
   if (!all && !removed) storeSet(K.lastFolder, mediaId);
   el.folderSelect.value = mediaId;
   el.list.innerHTML = loadingHtml();
-  const ok = all ? await openAll() : removed ? await openRemoved() : await syncFolder({ force: true });
+  let ok;
+  if (all) ok = await openAll();
+  else if (removed) ok = await openRemoved();
+  else ok = (await openCached(token)) || (token === S.folderToken && (await syncFolder({ force: true })));
   if (!ok) return;
   S.tab = removed ? "read" : currentStage(stageCounts());
   S.classFilter = { coarse: "all", fine: "all", read: "all" };
@@ -720,8 +745,63 @@ async function openFolder(mediaId) {
   render();
 }
 
+// A folder with a cached list shows it at once; one light id request then decides whether it needs a full sync.
+// 稍后再看 is read in one request anyway, and its watch progress goes stale, so it always syncs.
+async function openCached(token) {
+  const mediaId = S.mediaId;
+  if (mediaId === TOVIEW) return false;
+  const snap = await storeGet(K.snapshot(mediaId), null);
+  // Snapshots from before the intro was cached sync once, so the AI is not told an empty intro.
+  if (token !== S.folderToken || !snap?.items || snap.intro === undefined) return false;
+  S.folderIntro[mediaId] = snap.intro;
+  S.items = [...snap.items];
+  S.itemMap = new Map(S.items.map((it) => [it.bvid, it]));
+  if (!(await loadResults(token))) return false;
+  checkCached(token, snap);
+  return true;
+}
+
+async function checkCached(token, snap) {
+  const r = await send({ type: "triage-folder-ids", mediaId: S.mediaId });
+  if (token !== S.folderToken) return;
+  if (!r.ok) syncFolder({ force: true });
+  else if (!idsChanged(snap.ids || snap.bvids, r.data.bvids)) S.lastSyncAt = Date.now();
+  else syncFolder({ force: true, cached: { snap, ids: r.data.bvids } });
+}
+
+// bvid → { item, from } for videos in another chosen folder's cached list (from: its id) or in 已取消收藏 (from: REMOVED).
+async function localItems(mediaId) {
+  const others = S.folders.map((f) => String(f.id)).filter((id) => id !== String(mediaId));
+  const got = await chrome.storage.local.get([K.removed, ...others.map(K.snapshot)]);
+  const local = new Map();
+  for (const id of others) for (const item of got[K.snapshot(id)]?.items || []) if (!local.has(item.bvid)) local.set(item.bvid, { item, from: id });
+  for (const [bvid, rec] of Object.entries(got[K.removed] || {})) if (!local.has(bvid)) local.set(bvid, { item: rec.item, from: REMOVED });
+  return local;
+}
+
+// Changed ids without the full load: removed videos leave the cached list, added ones come from local when MoonDigest
+// already holds them, and only truly new ones are fetched from the newest part of the list. null when an added id is
+// found nowhere (a new favorite deep in the list), so the caller loads the whole folder.
+async function fromCache(mediaId, { snap, ids }, local) {
+  const old = snap.ids || snap.bvids;
+  const oldSet = new Set(old);
+  const added = ids.filter((b) => !oldSet.has(b));
+  const moved = added.filter((b) => local.has(b)).map((b) => local.get(b).item);
+  let head = [];
+  let info = { intro: snap.intro };
+  if (moved.length < added.length) {
+    const r = await send({ type: "triage-folder-items", mediaId, known: [...snap.bvids, ...moved.map((it) => it.bvid)] });
+    if (!r.ok || !r.data.head) return r;
+    head = r.data.items;
+    info = r.data.info || info;
+  }
+  const items = mergeHead(head, [...moved, ...snap.items], old, ids);
+  return items && { ok: true, data: { items, ids, info } };
+}
+
 // ---------- sync with bilibili ----------
-async function syncFolder({ force = false } = {}) {
+// cached ({ snap, ids }, from checkCached) fetches only the newest pages and takes the rest from the cached list.
+async function syncFolder({ force = false, cached = null } = {}) {
   // S.syncing holds the token of the running sync, so a forced sync for a newly opened folder is not blocked by the old one.
   if (S.syncing === S.folderToken || (!force && Date.now() - S.lastSyncAt < SYNC_MIN_GAP_MS)) return false;
   const token = S.folderToken;
@@ -730,7 +810,12 @@ async function syncFolder({ force = false } = {}) {
   const mediaId = S.mediaId;
   renderTop();
   try {
-    const r = await send({ type: "triage-folder-items", mediaId });
+    // Videos MoonDigest already holds from another chosen folder or 已取消收藏: added here, they reuse that info.
+    const local = await localItems(mediaId);
+    if (token !== S.folderToken) return false;
+    let r = cached ? await fromCache(mediaId, cached, local) : null;
+    if (token !== S.folderToken) return false;
+    r ||= await send({ type: "triage-folder-items", mediaId });
     if (token !== S.folderToken) return false;
     if (!r.ok) {
       const needLogin = /登录/.test(r.error || "");
@@ -760,7 +845,7 @@ async function syncFolder({ force = false } = {}) {
       const snapSet = new Set(snap.bvids);
       const snapInvalid = new Set(snap.invalid || []);
       for (const it of remote) {
-        if (!snapSet.has(it.bvid) && !restored.has(it.bvid)) diff.added.push(it);
+        if (!snapSet.has(it.bvid) && !restored.has(it.bvid)) diff.added.push({ ...it, from: local.get(it.bvid)?.from });
         if (it.invalid && snapSet.has(it.bvid) && !snapInvalid.has(it.bvid)) diff.invalid.push(it.title);
       }
       for (const b of partial ? [] : snap.bvids) {
@@ -808,6 +893,7 @@ async function saveSnapshot(mediaId, items, ids = null) {
       titles: Object.fromEntries(items.map((it) => [it.bvid, it.title])),
       items,
       ids, // the folder's id list at this load; 所有收藏夹 compares the next id list with it
+      intro: S.folderIntro[mediaId] ?? old?.intro,
       at: Date.now()
     },
     [K.removed]: removed
@@ -1056,7 +1142,8 @@ function showSyncNotice(diff, partial) {
     return;
   }
   el.syncNotice.dataset.partial = partial ? "1" : "";
-  const parts = [`新增 ${added.length}`, ...(partial ? [] : [`已在B站移除 ${removed.length}`]), `已失效 ${invalid.length}`];
+  const fromOthers = added.filter((it) => it.from).length;
+  const parts = [`新增 ${added.length - fromOthers}`, ...(fromOthers ? [`来自其他收藏夹 ${fromOthers}`] : []), ...(partial ? [] : [`已在B站移除 ${removed.length}`]), `已失效 ${invalid.length}`];
   if (restored.length) parts.push(`恢复 ${restored.length}`);
   const head = partial ? `只加载了前 ${partial.count} 个（第 ${partial.page} 页失败：${partial.error}），可稍后重试同步。` : "";
   el.syncText.textContent = `${head}B站同步：${parts.join(" · ")}`;
@@ -1065,8 +1152,10 @@ function showSyncNotice(diff, partial) {
   el.syncViewBtn.classList.toggle("warn", Boolean(partial));
   const section = (label, titles) =>
     titles.length ? `<div><strong>${label}</strong><ul>${titles.map((t) => `<li>${esc(t)}</li>`).join("")}</ul></div>` : "";
+  const where = (it) => (it.from === REMOVED ? "原在已取消收藏" : `也在「${folderName(it.from)}」`);
   el.syncDetail.innerHTML =
-    section("新增", added.map((it) => it.title)) +
+    section("新增", added.filter((it) => !it.from).map((it) => it.title)) +
+    section("来自其他收藏夹", added.filter((it) => it.from).map((it) => `${it.title}（${where(it)}）`)) +
     section("已在B站移除", removed) +
     section("已失效", invalid) +
     section("恢复（在B站重新收藏）", restored);
@@ -1123,7 +1212,10 @@ function activityState() {
   if (wait) return { text: wait, warn: true };
   // Loading 所有收藏夹 is not here: its own line leads the step bar on every tab of that view.
   if (S.syncing) return { text: `刷新中…${pageText(S.mediaId)}` };
-  if (S.ai.running) return { text: "标签 AI 运行中", act: "tags", actLabel: "查看" };
+  if (S.ai.running) {
+    const where = S.ai.mediaId === String(S.mediaId) ? "" : `（${folderName(S.ai.mediaId)}）`;
+    return { text: `标签 AI 运行中${where}`, act: "tags", actLabel: "查看" };
+  }
   if (S.ai.proposal) return { text: "标签建议待确认", act: "tags", actLabel: "查看" };
   if (S.status) return { text: S.status };
   return null;
@@ -2166,22 +2258,25 @@ async function runAiCommand() {
   }
   S.aiHistory = [instruction, ...S.aiHistory.filter((x) => x !== instruction)].slice(0, 5);
   storeSet(K.aiHistory, S.aiHistory);
-  const opts = { maxNewTags: aiNewTagRoom() };
+  // Everything the run sends is taken now: the run outlives a folder switch, and the page then holds another folder.
+  const folder = String(S.mediaId);
+  const opts = { maxNewTags: aiNewTagRoom(), folder };
   const tags = viewTags().map((t) => ({ name: t.name, rule: t.rule || "" }));
+  const payload = items.map(aiCommandItem);
   const size = Math.max(1, Number(S.settings.triageTitleBatchSize) || 30);
   const scopeSet = new Set(items.map((it) => it.bvid));
   const total = Math.ceil(items.length / size);
   const p = { newTags: [], rows: [], notes: [], errors: [] };
-  const token = S.folderToken;
-  const keepGoing = () => !S.ai.stop && token === S.folderToken;
+  const keepGoing = () => !S.ai.stop;
   S.ai.running = true;
+  S.ai.mediaId = folder;
   S.ai.stop = false;
   renderAiForm();
   renderTop();
   for (let i = 0; i < total && keepGoing(); i++) {
     el.aiProgress.textContent = `AI 正在处理第 ${i + 1} / ${total} 批…`;
-    const batch = items.slice(i * size, (i + 1) * size);
-    const r = await send({ type: "triage-ai-command", instruction, items: batch.map(aiCommandItem), tags, maxNewTags: opts.maxNewTags });
+    const batch = payload.slice(i * size, (i + 1) * size);
+    const r = await send({ type: "triage-ai-command", instruction, items: batch, tags, maxNewTags: opts.maxNewTags });
     if (!r.ok) {
       p.errors.push(`第 ${i + 1} 批失败：${r.error}`);
       if (/截断|配置 AI|未授权访问/.test(r.error || "")) handleAiError(r.error);
@@ -2192,19 +2287,18 @@ async function runAiCommand() {
   }
   S.ai.running = false;
   el.aiProgress.textContent = "";
-  if (token !== S.folderToken) {
-    renderTop();
-    return;
-  }
   if (S.ai.stop) p.errors.push("已手动停止，这里只有已完成批次的建议");
-  S.ai.proposal = p;
+  S.ai.proposals[folder] = p;
   renderTop();
-  if (el.tagsDialog.open && el.tagsManage.hidden) showAiReview();
+  if (folder !== String(S.mediaId)) {
+    if (el.tagsDialog.open) renderAiForm();
+    toast(`「${folderName(folder)}」的标签建议已完成，切回这个收藏夹后按 I 查看`);
+  } else if (el.tagsDialog.open && el.tagsManage.hidden) showAiReview();
   else toast("批量打标签已完成，按 I 查看建议");
 }
 
 function mergeAiBatch(p, data, opts, scopeSet) {
-  const existing = (name) => viewTags().find((t) => t.name === name);
+  const existing = (name) => S.tags.find((t) => t.folder === opts.folder && t.name === name);
   const proposed = (name) => p.newTags.find((t) => t.key === name);
   const addNew = (name) => {
     if (p.newTags.length >= opts.maxNewTags) return null;
