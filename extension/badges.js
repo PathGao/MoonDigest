@@ -70,8 +70,8 @@
   let seenCfg = { on: false, bar: false, mark: false, threshold: 80, style: "badge" };
   const seenCache = new Map(); // bvid -> percent | 0
   const SEL = 'a[href*="/video/BV"], a[href*="bvid=BV"]';
-  const isTriageKey = (k) =>
-    k === "triage_tags" || k === "triage_video_tags" || k === "triage_kept" || /^triage_(title|analysis|decisions)_/.test(k);
+  // Keys that every video's info depends on; a per-video title or analysis only redraws that video.
+  const isSharedKey = (k) => k === "triage_tags" || k === "triage_video_tags" || k === "triage_kept" || k.startsWith("triage_decisions_");
   const isFavPage = location.hostname === "space.bilibili.com";
 
   const cache = new Map(); // bvid -> info | null
@@ -106,19 +106,22 @@
     running = true;
     const g = gen;
     try {
+      // Most Bilibili iframes hold no video link: nothing to mark, so no storage reads.
+      if (!pageBvid() && !document.querySelector(SEL)) return;
       const fid = favFid();
       if (seenCfg.on) await loadSeen(g);
       if (g !== gen) return;
       if (!triageOn) {
-        for (const a of document.querySelectorAll(SEL)) markCover(a);
+        const writes = [...document.querySelectorAll(SEL)].map(markCover);
+        for (const w of writes) w?.();
         return;
       }
       if (!shared || fid !== sharedFid) {
         // A favorites page shows its own folder's decisions; elsewhere every folder's decisions are merged.
-        // getKeys (Chrome 130+) avoids reading every cached title and analysis just to find the decision keys.
-        const all = fid ? null : await chrome.storage.local.getKeys?.();
-        const decisionKeys = ["triage_kept", ...(fid ? [`triage_decisions_${fid}`] : (all || []).filter((k) => k.startsWith("triage_decisions_")))];
-        const got = await chrome.storage.local.get(fid || all ? ["triage_tags", "triage_video_tags", ...decisionKeys] : null);
+        // getKeys is Chrome 130+; before that only 保留 shows outside a favorites page.
+        const all = fid ? [] : (await chrome.storage.local.getKeys?.()) || [];
+        const decisionKeys = ["triage_kept", ...(fid ? [`triage_decisions_${fid}`] : all.filter((k) => k.startsWith("triage_decisions_")))];
+        const got = await chrome.storage.local.get(["triage_tags", "triage_video_tags", ...decisionKeys]);
         if (g !== gen) return;
         sharedFid = fid;
         shared = { tags: got.triage_tags, videoTags: got.triage_video_tags || {}, decisions: mergeDecisions(got) };
@@ -145,10 +148,9 @@
         }
       }
       if (!enabled) return;
-      for (const a of anchors) {
-        markAnchor(a);
-        markCover(a);
-      }
+      // Every style read first, then every DOM write, so the page recalculates styles once rather than per card.
+      const writes = anchors.flatMap((a) => [markAnchor(a), markCover(a)]);
+      for (const w of writes) w?.();
       markVideoLine(here);
     } finally {
       running = false;
@@ -169,6 +171,7 @@
   }
 
   // The progress bar (Bilibili's own look) on a cover link, and once 看完了 the corner tag or the veil.
+  // Reads only; returns the DOM write for run() to apply after every card is read.
   function markCover(a) {
     const b = bvidFromHref(a.getAttribute("href"));
     const known = seenCfg.on ? seenCache.get(b) || 0 : 0;
@@ -183,8 +186,7 @@
     const old = host.querySelector(":scope > .mdg-seen");
     const key = `${b}|${pct}|${seen}|${faint}|${known}|${seenCfg.style}`;
     if (old?.dataset.key === key) return;
-    old?.remove();
-    if (!pct && !seen && !faint) return;
+    if (!pct && !seen && !faint) return old && (() => old.remove());
     const box = document.createElement("span");
     box.className = `mdg-seen mdg-seen-${seenCfg.style}`;
     box.dataset.key = key;
@@ -197,10 +199,15 @@
       bar.append(Object.assign(document.createElement("i"), { style: `width:${Math.max(pct, 2)}%` }));
       box.append(bar);
     }
-    if (getComputedStyle(host).position === "static") host.classList.add("mdg-seen-host");
-    host.append(box);
+    const fix = getComputedStyle(host).position === "static";
+    return () => {
+      old?.remove();
+      if (fix) host.classList.add("mdg-seen-host");
+      host.append(box);
+    };
   }
 
+  // Like markCover, returns its DOM write; a stale badge goes at once, before titleBox reads the title's text.
   function markAnchor(a) {
     const b = bvidFromHref(a.getAttribute("href"));
     const info = cache.get(b);
@@ -216,7 +223,7 @@
     // Some titles hang their opening bracket with a negative text-indent, which would clip the badge.
     const indent = parseFloat(getComputedStyle(target).textIndent);
     if (indent < 0) badge.style.marginLeft = `${-indent}px`;
-    target.prepend(badge);
+    return () => target.prepend(badge);
   }
 
   // The block that holds the title's first text, so the badge sits inline before the title words.
@@ -346,6 +353,8 @@
     const bar = v.seenShow === "bar" || v.seenShow === "both";
     const mark = v.seenShow === "mark" || v.seenShow === "both";
     seenCfg = { on: bar || mark, bar, mark, threshold: Number(v.seenThreshold) || 80, style: v.seenStyle === "veil" ? "veil" : "badge" };
+    // Turning it off clears the stored history (triage-bg.js), so a later re-enable starts from a fresh read.
+    if (!seenCfg.on) seenCache.clear();
     // Only the top frame asks; the background reads what is new at most every 10 minutes.
     if (seenCfg.on && !before && window === window.top) chrome.runtime.sendMessage({ type: "triage-seen-sync" }).catch(() => {});
     const on = triageOn || seenCfg.on;
@@ -364,10 +373,19 @@
       gen++;
       schedule();
     }
-    if (area === "local" && enabled && triageOn && Object.keys(changes).some(isTriageKey)) {
+    if (area === "local" && enabled && triageOn && Object.keys(changes).some(isSharedKey)) {
       gen++;
       shared = null;
       clearMarks();
+      schedule();
+    } else if (area === "local" && enabled && triageOn) {
+      const changed = Object.keys(changes).map((k) => /^triage_(?:title|analysis)_(BV[0-9A-Za-z]{10})$/.exec(k)?.[1]).filter(Boolean);
+      if (!changed.length) return;
+      gen++;
+      for (const b of changed) {
+        cache.delete(b);
+        document.querySelectorAll(`.mdg-badge[data-bvid="${b}"], .mdg-line[data-bvid="${b}"]`).forEach((n) => n.remove());
+      }
       schedule();
     }
   });
