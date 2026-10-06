@@ -180,7 +180,8 @@ select { height: 28px; max-width: 240px; }
 .seen-bar i { display: block; height: 100%; background: #ff6699; }
 .seen-tag { position: absolute; top: 4px; left: 4px; padding: 1px 6px; border-radius: 5px; background: var(--accent); color: #fff; font-size: var(--fs-xs); font-weight: 600; line-height: 18px; white-space: nowrap; pointer-events: none; }
 .seen-veil { position: absolute; inset: 0; display: none; align-items: center; justify-content: center; background: rgba(17, 17, 27, 0.55); color: #fff; font-size: var(--fs-sm); font-weight: 700; pointer-events: none; }
-html[data-seen-style="veil"] .seen-tag { display: none; }
+.seen-tag.faint { background: rgba(17, 17, 27, 0.6); font-weight: 400; }
+html[data-seen-style="veil"] .seen-tag:not(.faint) { display: none; }
 html[data-seen-style="veil"] .cover-wrap.seen .seen-veil { display: flex; }
 
 .card-body { min-width: 0; display: flex; flex-direction: column; gap: 2px; }

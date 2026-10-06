@@ -707,14 +707,20 @@ function seenPercentOf(it) {
 }
 // 看完了: the history says at least the set share was watched (only while that mark is shown). 优先看过 is separate.
 const isFinished = (it) => S.seenCfg.mark && (seenPercentOf(it) ?? 0) >= S.seenCfg.threshold;
+// 100% reads 看完了, otherwise 看过 N%; ✓ (and the strong look) means it counts as 看完了.
+const seenWords = (p, done) => (p >= 100 ? "✓ 看完了" : done ? `✓ 看过 ${p}%` : `看过 ${p}%`);
 // The cover with its progress bar and, once 看完了, the corner tag or the veil (html[data-seen-style] picks one).
+// Below the share with no bar, a faint 看过 N% says how far it got.
 function coverHtml(it) {
   const img = `<img class="cover" src="${esc(it.cover)}" alt="" loading="lazy" referrerpolicy="no-referrer" />`;
-  const p = S.seenCfg.bar ? seenPercentOf(it) : null;
+  const known = seenPercentOf(it);
+  const p = S.seenCfg.bar ? known : null;
   const seen = isFinished(it);
-  if (!p && !seen) return img;
-  const label = "✓ 看完了";
-  return `<span class="cover-wrap${seen ? " seen" : ""}">${img}${seen ? `<span class="seen-veil">${label}</span><span class="seen-tag">${label}</span>` : ""}${p ? `<span class="seen-bar" title="看了 ${p}%"><i style="width:${Math.max(p, 2)}%"></i></span>` : ""}</span>`;
+  const faint = !seen && known && S.seenCfg.mark && !S.seenCfg.bar;
+  if (!p && !seen && !faint) return img;
+  const label = seenWords(known, seen);
+  const mark = seen ? `<span class="seen-veil">${label}</span><span class="seen-tag">${label}</span>` : faint ? `<span class="seen-tag faint">${label}</span>` : "";
+  return `<span class="cover-wrap${seen ? " seen" : ""}">${img}${mark}${p ? `<span class="seen-bar" title="看过 ${p}%"><i style="width:${Math.max(p, 2)}%"></i></span>` : ""}</span>`;
 }
 
 // Runs simplifyMigration once (flag key), then drops the old scheme keys it read.
@@ -806,7 +812,7 @@ async function loadIncluded() {
 function seenText(it) {
   if (S.seenCfg.on || it.seen == null || it.seen === 0) return "";
   if (it.seen < 0) return "看完了";
-  return it.duration > 0 ? `看了 ${Math.min(99, Math.max(1, Math.round((it.seen / it.duration) * 100)))}%` : "";
+  return it.duration > 0 ? `看过 ${Math.min(99, Math.max(1, Math.round((it.seen / it.duration) * 100)))}%` : "";
 }
 
 // 「（p/P 页）」 while a folder of more than one page (20 videos each) loads.

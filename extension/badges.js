@@ -174,19 +174,23 @@
     const known = seenCfg.on ? seenCache.get(b) || 0 : 0;
     const pct = seenCfg.bar ? known : 0;
     const seen = seenCfg.mark && known >= seenCfg.threshold;
+    // Below the share with no bar, a faint 看过 N% says how far it got.
+    const faint = !seen && known > 0 && seenCfg.mark && !seenCfg.bar;
     // On the image's own box: some links wrap the whole card, title included.
     const media = a.querySelector("picture") || a.querySelector("img");
     const host = media?.parentElement;
     if (!host) return;
     const old = host.querySelector(":scope > .mdg-seen");
-    const key = `${b}|${pct}|${seen}|${known}|${seenCfg.style}`;
+    const key = `${b}|${pct}|${seen}|${faint}|${known}|${seenCfg.style}`;
     if (old?.dataset.key === key) return;
     old?.remove();
-    if (!pct && !seen) return;
+    if (!pct && !seen && !faint) return;
     const box = document.createElement("span");
     box.className = `mdg-seen mdg-seen-${seenCfg.style}`;
     box.dataset.key = key;
-    if (seen) box.append(Object.assign(document.createElement("span"), { className: "mdg-seen-mark", textContent: "✓ 看完了" }));
+    // 100% reads 看完了, otherwise 看过 N%; ✓ (and the strong look) means it counts as 看完了.
+    const words = known >= 100 ? "✓ 看完了" : seen ? `✓ 看过 ${known}%` : `看过 ${known}%`;
+    if (seen || faint) box.append(Object.assign(document.createElement("span"), { className: `mdg-seen-mark${faint ? " mdg-faint" : ""}`, textContent: words }));
     // Bilibili's history and 稍后再看 cards draw this bar themselves.
     if (pct && !host.querySelector(".bili-cover-card__progress")) {
       const bar = Object.assign(document.createElement("span"), { className: "mdg-seen-bar" });
