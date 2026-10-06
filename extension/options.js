@@ -311,6 +311,8 @@ async function saveSettings() {
     }
     renderFixedPropertyRows(payload.fixedFrontmatterProperties);
     renderNoteSectionRows(payload.notePlaceholderSections);
+    // The box shows what was saved: 150 is stored and shown as 100.
+    elements.seenThreshold.value = String(payload.seenThreshold);
 
     // AI 平台：list 走 sync、apiKey 走 local
     const aiResp = await sendRuntimeMessage({ type: "ai-providers-save", providers: aiProvidersPayload });
