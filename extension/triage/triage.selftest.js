@@ -188,10 +188,13 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   t.S.itemMap.set("BV4", t.S.items[3]);
   t.S.basket.push({ bvid: "BV4" });
   t.S.selected.clear();
-  t.S.selected.add("BV2");
+  t.S.selected.add("BV2"); // kept, so not listed in 未分析: a selection hidden there is left out
+  t.S.selected.add("BV3");
   Object.assign(t.S, { tab: "none", titleRes: {}, analyses: { BVgone: { status: "done", oneLiner: "一句话", points: ["要点"] } }, notes: { BV3: { text: " 我的笔记 " } }, videoTags: {} });
   const scope = (s) => plain(t.writeScopeItems(s).map((it) => it.bvid));
-  assert.deepStrictEqual([scope("basket"), scope("selected"), scope("all"), scope("filter")], [["BVgone", "BV3"], ["BV2"], ["BV1", "BV2", "BV3"], ["BV1", "BV3"]]);
+  assert.deepStrictEqual([scope("basket"), scope("selected"), scope("all"), scope("filter")], [["BVgone", "BV3"], ["BV3"], ["BV1", "BV2", "BV3"], ["BV1", "BV3"]]);
+  t.renderListHeader(t.visibleItems());
+  assert.ok(t.el.listHeader.innerHTML.includes("已选中 1 个") && t.el.listHeader.innerHTML.includes("另有 1 个被筛选隐藏"), "the bar counts only what is listed");
   const digest = t.buildMarkdown(t.writeScopeItems("basket"));
   assert.ok(digest.includes("## [别的收藏夹](https://www.bilibili.com/video/BVgone)\n\n> 一句话\n\n- 要点"), digest);
   assert.ok(digest.includes("## [视频3](https://www.bilibili.com/video/BV3)\n\nUP：up\n\n备注：我的笔记"), digest);
