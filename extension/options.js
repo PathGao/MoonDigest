@@ -189,16 +189,32 @@ function init() {
   trackCurrentSection();
 }
 
-// Marks the section list entry for the section at the top of the window.
+// Marks the section list entry: the one clicked until the page scrolls away from where the jump left it,
+// else the section at the top of the window.
+// A short section near the end never reaches the top, so a click has to win over the scroll position.
 function trackCurrentSection() {
   const links = Array.from(elements.toc.querySelectorAll("a"));
+  const sections = Array.from(document.querySelectorAll("section.sec"));
   const setCurrent = (id) => links.forEach((link) => link.setAttribute("aria-current", String(link.hash === `#${id}`)));
-  setCurrent("basic");
-  const observer = new IntersectionObserver(
-    (entries) => entries.forEach((entry) => entry.isIntersecting && setCurrent(entry.target.id)),
-    { rootMargin: "-80px 0px -70% 0px" }
+  let clicked = null;
+  let clickedY = null; // where the jump landed; set on the frame after the click
+  const update = () => {
+    if (clicked && (clickedY === null || Math.abs(scrollY - clickedY) < 2)) return setCurrent(clicked.id);
+    clicked = null;
+    const atEnd = innerHeight + scrollY >= document.documentElement.scrollHeight - 2;
+    const current = atEnd ? sections.at(-1) : sections.filter((s) => s.getBoundingClientRect().top <= 80).at(-1) || sections[0];
+    setCurrent(current.id);
+  };
+  links.forEach((link) =>
+    link.addEventListener("click", () => {
+      clicked = document.getElementById(link.hash.slice(1));
+      clickedY = null;
+      setCurrent(clicked.id);
+      requestAnimationFrame(() => (clickedY = scrollY));
+    })
   );
-  document.querySelectorAll("section.sec").forEach((section) => observer.observe(section));
+  addEventListener("scroll", update, { passive: true });
+  update();
 }
 
 async function renderStorageLimits() {
