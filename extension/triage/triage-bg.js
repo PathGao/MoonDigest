@@ -329,7 +329,7 @@ async function triageToviewList() {
 // browsing their own history page would. Each video keeps two numbers under seen_<bvid>: [best percent, last view_at].
 const SEEN_GAP_MS = 10 * 60 * 1000;
 const SEEN_BACKOFF_MS = 30 * 60 * 1000;
-const SEEN_PAGE_GAP_MS = 1000;
+const SEEN_PAGE_GAP_MS = 5000;
 const SEEN_MAX_PAGES = 60;
 const SEEN_KEEP_S = 365 * 86400;
 const SEEN_MAX = 5000;
@@ -368,6 +368,13 @@ function seenSync({ force }) {
   return seenRun;
 }
 
+// 关 drops the stored history (up to SEEN_MAX keys) once any read in flight has written; turning it back on reads afresh.
+async function seenClear() {
+  await seenRun?.catch(() => {});
+  const keys = (await chrome.storage.local.getKeys()).filter((k) => k.startsWith("seen_"));
+  await chrome.storage.local.remove([...keys, SEEN_META]);
+}
+
 async function seenSyncOnce(force) {
   const { seenShow } = await chrome.storage.sync.get({ seenShow: "off" });
   if (!["bar", "mark", "both"].includes(seenShow)) return { skipped: "off" };
@@ -384,7 +391,7 @@ async function seenSyncOnce(force) {
     while (pages < SEEN_MAX_PAGES) {
       if (pages) {
         await new Promise((r) => setTimeout(r, SEEN_PAGE_GAP_MS));
-        await chrome.runtime.getPlatformInfo(); // an extension API call keeps the worker alive through a ~50 s first read
+        await chrome.runtime.getPlatformInfo(); // an extension API call keeps the worker alive through a ~5 min first read
       }
       const data = await triageBiliGet(`https://api.bilibili.com/x/web-interface/history/cursor?ps=30&max=${cursor.max}&view_at=${cursor.view_at}&business=${cursor.business}`);
       pages++;
@@ -943,6 +950,11 @@ if (typeof chrome !== "undefined" && chrome.runtime?.onMessage) {
   triageMigrateNotes().catch((e) => console.warn("[triage] 笔记迁移失败", e));
   chrome.runtime.onInstalled.addListener(triageRegisterDnr);
   chrome.runtime.onStartup.addListener(triageRegisterDnr);
+  chrome.storage.onChanged.addListener((changes, area) => {
+    const c = area === "sync" && changes.seenShow;
+    const on = (v) => ["bar", "mark", "both"].includes(v);
+    if (c && on(c.oldValue) && !on(c.newValue)) seenClear().catch((e) => console.warn("[triage] 清除观看进度失败", e));
+  });
 
   chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     const type = message?.type;
