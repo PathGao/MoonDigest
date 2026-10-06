@@ -1236,8 +1236,8 @@ function activityState() {
     const text = where ? `标题粗看中 ${S.stage1.done}/${S.stage1.total}${where}` : S.status;
     return { text: wait || text, done: S.stage1.done, total: S.stage1.total, act: "stage1", actLabel: "暂停粗看", warn: Boolean(wait) };
   }
-  const unfav = S.unfavBatch?.token === S.folderToken && S.unfavBatch;
-  if (unfav) return { text: `取消收藏中 ${unfav.done}/${unfav.total}`, done: unfav.done, total: unfav.total };
+  const unfav = S.unfavBatch;
+  if (unfav) return { text: `取消收藏中 ${unfav.done}/${unfav.total}${runWhere(unfav)}`, done: unfav.done, total: unfav.total };
   if (wait) return { text: wait, warn: true };
   // Loading 所有收藏夹 is not here: its own line leads the step bar on every tab of that view.
   if (S.syncing) return { text: `刷新中…${pageText(S.mediaId)}` };
@@ -1322,11 +1322,12 @@ function renderListHeader(list) {
     return "";
   };
   const batchBtn = (route, verdict = "") => {
-    const run = S.unfavBatch?.token === S.folderToken && S.unfavBatch;
-    if (route === "unfav" && run) return headBtn("batch-unfav", `取消收藏中 ${run.done}/${run.total}`, "danger", true, "", "", true);
+    const run = S.unfavBatch;
+    if (route === "unfav" && run && !runWhere(run)) return headBtn("batch-unfav", `取消收藏中 ${run.done}/${run.total}`, "danger", true, "", "", true);
     const n = batchList(verdict || null).length;
     const verb = route === "unfav" ? "取消收藏" : "保留";
-    return headBtn(`batch-${route}`, verdict ? `${verb}（AI：${VERDICTS[verdict]}）${n} 个` : `${verb}选中的 ${n} 个`, route === "unfav" ? "danger" : "", !n, verdict, route === "keep" ? KEEP_TIP : "");
+    // One batch 取消收藏 at a time: while another folder's runs, this one waits.
+    return headBtn(`batch-${route}`, verdict ? `${verb}（AI：${VERDICTS[verdict]}）${n} 个` : `${verb}选中的 ${n} 个`, route === "unfav" ? "danger" : "", !n || (route === "unfav" && Boolean(run)), verdict, route === "keep" ? KEEP_TIP : "");
   };
   const groupBtn = (cls) => {
     if (ownGroup()) return headBtn("group", `暂停细看 ${groupDone(S.group)}/${S.group.bvids.length}`, "primary");
@@ -1625,13 +1626,18 @@ function pushUndo(entry) {
 }
 const saveDecisions = () => storeSet(K.decisions(S.mediaId), unfavOnly(S.decisions));
 // Patch one folder's decisions even after the user switched away from it; a null value deletes.
+// Merged into the stored record, not written from memory: a batch running for this folder may have written it after
+// the open folder read it.
 async function patchDecisions(mediaId, patch) {
-  const d = mediaId === S.mediaId ? S.decisions : S.folderDecisions[mediaId] || (await storeGet(K.decisions(mediaId), {}));
-  for (const [b, v] of Object.entries(patch)) {
-    if (v) d[b] = v;
-    else delete d[b];
+  const stored = await storeGet(K.decisions(mediaId), {});
+  const maps = [stored, mediaId === S.mediaId && S.decisions, S.folderDecisions[mediaId]].filter(Boolean);
+  for (const d of maps) {
+    for (const [b, v] of Object.entries(patch)) {
+      if (v) d[b] = v;
+      else delete d[b];
+    }
   }
-  await storeSet(K.decisions(mediaId), unfavOnly(d));
+  await storeSet(K.decisions(mediaId), unfavOnly(stored));
 }
 // 保留 is one list for every folder; a null value deletes.
 function patchKept(patch) {
@@ -1732,14 +1738,15 @@ async function undo() {
     toast(`已撤销：${entry.action === "unfav" ? "重新收藏" : "取消保留"}《${shortTitle(it)}》`);
     S.focused = entry.bvid;
   } else if (entry.kind === "unfavMany") {
-    const { mediaId, folderToken: token } = S;
+    // It changes Bilibili, so it runs to the end even after another folder opens.
+    const mediaId = String(S.mediaId);
+    const here = () => S.mediaId === mediaId;
     const rest = entry.items.slice();
     let n = 0;
     let error = "";
-    while (rest.length && token === S.folderToken) {
+    while (rest.length) {
       if (n) await new Promise((r) => setTimeout(r, 300));
-      if (token !== S.folderToken) break;
-      toast(`正在重新收藏 ${n + 1}/${entry.items.length}…`);
+      if (here()) toast(`正在重新收藏 ${n + 1}/${entry.items.length}…`);
       const r = await send({ type: "triage-refav", mediaId, aid: rest[0].aid });
       if (!r.ok) {
         error = r.error;
@@ -1748,12 +1755,13 @@ async function undo() {
       await patchDecisions(mediaId, { [rest.shift().bvid]: null });
       n++;
     }
-    // After a folder switch the rest stay listed under that folder's 最近取消收藏.
-    if (token !== S.folderToken) return;
-    if (error) {
+    // Elsewhere the ones left stay listed under their folder's 最近取消收藏.
+    const where = here() ? "" : `「${folderName(mediaId)}」`;
+    if (error && here()) {
       pushUndo({ kind: "unfavMany", items: rest });
       toast(`撤销中断（已重新收藏 ${n} 个，剩余 ${rest.length} 个可再按 U 重试）：${error}`, true);
-    } else toast(`已重新收藏 ${n} 个`);
+    } else if (error) toast(`${where}撤销中断（已重新收藏 ${n} 个，剩余 ${rest.length} 个在它的最近取消收藏里）：${error}`, true);
+    else toast(`${where}已重新收藏 ${n} 个`);
   } else if (entry.kind === "watched") {
     if (entry.prev) S.watched[entry.bvid] = entry.prev;
     else delete S.watched[entry.bvid];
@@ -1794,15 +1802,16 @@ function batchList(verdict) {
 }
 
 async function batchUnfav(list) {
-  if (!list.length) return;
+  if (!list.length || S.unfavBatch) return;
   const titles = list.slice(0, 10).map((it) => `<li>${esc(it.title)}</li>`).join("");
   const more = list.length > 10 ? `<p>等 ${list.length} 个</p>` : "";
   const ok = await askConfirm(`取消收藏这 ${list.length} 个视频？`, `<ul>${titles}</ul>${more}`, `取消收藏 ${list.length} 个`);
-  if (!ok) return;
-  const { mediaId, folderToken: token } = S;
+  if (!ok || S.unfavBatch) return;
+  // It changes Bilibili, so it runs to the end even after another folder opens.
+  const mediaId = String(S.mediaId);
   let done = 0;
-  S.unfavBatch = { token, done, total: list.length };
-  for (let i = 0; i < list.length && token === S.folderToken; i += 20) {
+  S.unfavBatch = { mediaId, done, total: list.length };
+  for (let i = 0; i < list.length; i += 20) {
     const chunk = list.slice(i, i + 20);
     S.unfavBatch.done = done;
     chunk.forEach((it) => deciding.add(it.bvid));
@@ -1810,21 +1819,22 @@ async function batchUnfav(list) {
     const r = await send({ type: "triage-unfav", mediaId, aids: chunk.map((it) => it.aid) });
     chunk.forEach((it) => deciding.delete(it.bvid));
     if (!r.ok) {
-      if (token === S.folderToken) toast(`批量取消收藏失败（已完成 ${done} 个）：${r.error}`, true);
+      toast(`${S.mediaId === mediaId ? "" : `「${folderName(mediaId)}」`}批量取消收藏失败（已完成 ${done} 个）：${r.error}`, true);
       break;
     }
     const at = Date.now();
     await patchDecisions(mediaId, Object.fromEntries(chunk.map((it) => [it.bvid, unfavRecord(it, at)])));
     done += chunk.length;
-    if (i + 20 < list.length && token === S.folderToken) await new Promise((r2) => setTimeout(r2, 1000));
+    if (i + 20 < list.length) await new Promise((r2) => setTimeout(r2, 1000));
   }
   S.unfavBatch = null;
-  // After a folder switch the finished chunks are saved under their folder and listed in its 最近取消收藏.
-  if (token !== S.folderToken) return;
-  if (done) {
+  if (done && S.mediaId === mediaId) {
     pushUndo({ kind: "unfavMany", items: list.slice(0, done).map(({ bvid, aid }) => ({ bvid, aid })) });
     for (const it of list.slice(0, done)) S.selected.delete(it.bvid);
     toast(`已取消收藏 ${done} 个 · 撤销(U)`);
+  } else if (done) {
+    // Elsewhere they are saved under their folder and listed in its 最近取消收藏, where they can be re-favorited.
+    toast(`「${folderName(mediaId)}」已取消收藏 ${done} 个，可在它的最近取消收藏里撤销`);
   }
   render();
 }

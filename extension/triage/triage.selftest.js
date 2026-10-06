@@ -72,24 +72,42 @@ function openFake(mediaId, items, decisions = {}) {
   t.S.itemMap = new Map(items.map((it) => [it.bvid, it]));
   t.S.decisions = decisions;
   t.S.undo = [];
+  // In the page every unfavorite record is stored too; patchDecisions merges into the stored one.
+  if (Object.keys(decisions).length) store[t.K.decisions(mediaId)] = structuredClone(unfavOnlyOf(decisions));
 }
+const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) => v?.action === "unfav"));
 
 (async () => {
-  // B8: switching folders while a batch unfavorite is in flight keeps the finished chunks, aid and title included.
+  // B8: a batch unfavorite runs to the end after another folder opens, every chunk recorded under its folder, aid and
+  // title included; the other folder gets no undo entry, only a toast naming the folder.
   const many = Array.from({ length: 45 }, (_, i) => item(i));
   openFake("A", many);
   let unfavCalls = 0;
-  handlers["triage-unfav"] = () => {
+  handlers["triage-unfav"] = (m) => {
+    assert.strictEqual(m.mediaId, "A");
     if (++unfavCalls === 2) openFake("B", [item(99)]);
+    assert.strictEqual(t.activityState().text, unfavCalls === 1 ? "取消收藏中 0/45" : `取消收藏中 ${(unfavCalls - 1) * 20}/45（A）`);
     return { ok: true };
   };
   await t.batchUnfav(many);
-  assert.strictEqual(unfavCalls, 2, "no chunk is sent after the folder switch");
+  assert.strictEqual(unfavCalls, 3, "the last chunk is still sent after the switch");
   const savedA = store[t.K.decisions("A")];
-  assert.strictEqual(Object.keys(savedA).length, 40, "both finished chunks are recorded under folder A");
+  assert.strictEqual(Object.keys(savedA).length, 45, "every chunk is recorded under folder A");
+  assert.ok(toasts.at(-1).startsWith("「A」已取消收藏 45 个"), toasts.at(-1));
   assert.deepStrictEqual(plain(savedA.BV25), { action: "unfav", at: savedA.BV25.at, aid: 1025, title: "视频25" });
   assert.deepStrictEqual(plain(t.S.decisions), {}, "folder B's decisions are untouched");
   assert.strictEqual(t.S.undo.length, 0, "folder B's undo stack gets no entry for folder A");
+
+  // Back in the folder mid-run with a record read before the batch's last write: nothing written earlier is lost.
+  openFake("A2", many);
+  let a2Calls = 0;
+  handlers["triage-unfav"] = () => {
+    if (++a2Calls === 2) openFake("A2", many);
+    return { ok: true };
+  };
+  await t.batchUnfav(many);
+  assert.strictEqual(Object.keys(store[t.K.decisions("A2")]).length, 45, "the first chunk's records survive");
+  assert.strictEqual(t.S.undo.length, 1, "back in its folder, the batch is undoable with U");
 
   // U7: after a reload the unfavorited videos are listed and re-favorited into their own folder.
   openFake("A", many.slice(40), savedA);
@@ -118,6 +136,18 @@ function openFake(mediaId, items, decisions = {}) {
   await t.undo();
   assert.deepStrictEqual(store[t.K.decisions("D")], {});
   assert.strictEqual(t.S.undo.length, 0);
+
+  // A batch undo also runs to the end after another folder opens.
+  openFake("D", three, Object.fromEntries(three.map((it) => [it.bvid, { action: "unfav", at: 1, aid: it.aid, title: it.title }])));
+  t.S.undo = [{ kind: "unfavMany", items: three.map(({ bvid, aid }) => ({ bvid, aid })) }];
+  let refavs = 0;
+  handlers["triage-refav"] = () => {
+    if (++refavs === 1) openFake("E", []);
+    return { ok: true };
+  };
+  await t.undo();
+  assert.deepStrictEqual([refavs, store[t.K.decisions("D")], toasts.at(-1)], [3, {}, "「D」已重新收藏 3 个"]);
+  handlers["triage-refav"] = () => ({ ok: true });
 
   // B11: cells that a spreadsheet would run as a formula are prefixed with '.
   for (const s of ["=1+1", "+cmd", "-2", "@SUM(A1)", "\tx", "\rx"]) assert.ok(t.csvField(s).replace(/^"/, "").startsWith(`'${s[0]}`), s);
