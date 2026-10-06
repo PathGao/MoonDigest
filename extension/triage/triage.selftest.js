@@ -243,6 +243,9 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   t.S.titleRes = Object.fromEntries(pool.map((it, i) => [it.bvid, { verdict: i < 10 ? "unsure" : "drop", confidence: "high" }]));
   t.S.selected.clear();
   assert.deepStrictEqual(plain(t.nextBatch()), pool.slice(0, 10).map((it) => it.bvid));
+  for (const it of pool) t.S.selected.add(it.bvid);
+  assert.strictEqual(t.nextBatch().length, 10, "细看 takes at most 10 of a large selection");
+  t.S.selected.clear();
   t.S.selected.add("BV209");
   t.S.selected.add("BV210");
   assert.deepStrictEqual(plain(t.nextBatch()), ["BV209", "BV210"], "a confident 粗看 card can be 细看'd too");
@@ -271,7 +274,13 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   t.S.classFilter.fine = "unsure";
   assert.deepStrictEqual(plain(t.visibleItems().map((it) => it.bvid)), ["BV200"]);
   t.renderListHeader(t.visibleItems());
-  assert.ok(!t.el.listHeader.innerHTML.includes("（AI") && t.el.listHeader.innerHTML.includes("按 X 选中后"), "待定 has no verdict-scoped button");
+  assert.ok(!t.el.listHeader.innerHTML.includes("（AI") && t.el.listHeader.innerHTML.includes("按 X 或全选后"), "待定 has no verdict-scoped button");
+  // 全选 selects what this tab lists; the selection then offers 移动/复制 with 保留 ones included.
+  assert.ok(t.el.listHeader.innerHTML.includes("全选这里的 1 个"));
+  t.S.selected.add("BV200");
+  t.renderListHeader(t.visibleItems());
+  assert.ok(!t.el.listHeader.innerHTML.includes("全选这里") && t.el.listHeader.innerHTML.includes("移动/复制选中的 1 个"));
+  t.S.selected.clear();
   assert.strictEqual(t.batchList("keep").length, 0, "without a selection 待定 has no verdict-scoped batch");
   t.S.selected.add("BV200");
   assert.deepStrictEqual(plain(t.batchList("keep").map((it) => it.bvid)), ["BV200"]);

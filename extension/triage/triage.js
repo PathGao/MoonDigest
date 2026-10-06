@@ -7,7 +7,6 @@ const THROTTLE_MS = globalThis.__TRIAGE_THROTTLE_MS || 10 * 60 * 1000;
 const THROTTLES = { THROTTLED: [THROTTLE_MS, "B站限流"], AI_THROTTLED: [60 * 1000, "AI 平台限流"] };
 const GROUP_SIZE = 10;
 const TAG_LIMIT = 10; // tags per folder; only creating a new one is refused past it
-const SELECT_CAP = 10;
 const SYNC_MIN_GAP_MS = 60 * 1000;
 // Catppuccin Latte accents (desaturated); chips keep --text on top, so these are only borders and tints.
 // Mauve, blue, green, red and yellow are left out: they mean where-you-are, next step, keep, delete and pending.
@@ -264,7 +263,7 @@ const el = {};
   "basketList", "toast", "settingsDialog", "folderToggles", "thinkingRow", "intervalInput",
   "batchSizeInput", "openOptionsBtn", "thinkingInput", "titleMaxInput",
   "titleMaxHint", "analyzeMaxInput", "analyzeMaxHint", "settingsError", "backupBtn", "csvBtn", "confirmDialog",
-  "confirmTitle", "confirmBody", "confirmOk", "pickerDialog", "pickerTitle", "pickerInput", "pickerList",
+  "confirmTitle", "confirmBody", "confirmOk", "transferDialog", "transferTitle", "transferBody", "transferTarget", "transferNewRow", "transferName", "transferPrivate", "pickerDialog", "pickerTitle", "pickerInput", "pickerList",
   "criteriaDialog", "criteriaTitle", "criteriaInput", "tagsDialog", "tagsModeManage", "tagsModeBatch", "tagsManage", "tagsRows", "newTagInput", "addTagBtn", "helpDialog",
   "aiBtn", "aiForm", "aiScope", "aiScopeCount", "aiInstruction", "aiHistory",
   "aiTagsPreview", "aiProgress", "aiCloseBtn", "aiStopBtn", "aiRunBtn",
@@ -523,11 +522,11 @@ function stageCounts() {
 // The earliest step that still has videos.
 const currentStage = (c) => STAGES.find(([k]) => c[k])?.[0] || "none";
 
-// The 细看 batch: the selected cards of 粗看完成, otherwise its first GROUP_SIZE, 拿不准 / low confidence first.
+// The 细看 batch: the first GROUP_SIZE selected cards of 粗看完成, otherwise its first GROUP_SIZE, 拿不准 / low confidence first.
 function nextBatch() {
   const open = S.items.filter((it) => inTab(it, "coarse") && passFilter(it) && needsAnalysis(it.bvid));
   const sel = selectedIn(open);
-  return (sel.length ? sel : open.sort((x, y) => unsureFirst(x) - unsureFirst(y)).slice(0, GROUP_SIZE)).map((it) => it.bvid);
+  return (sel.length ? sel : open.sort((x, y) => unsureFirst(x) - unsureFirst(y))).slice(0, GROUP_SIZE).map((it) => it.bvid);
 }
 
 // ---------- init ----------
@@ -1238,6 +1237,8 @@ function activityState() {
     const text = where ? `标题粗看中 ${S.stage1.done}/${S.stage1.total}${where}` : S.stage1.text;
     return { text: wait || text, done: S.stage1.done, total: S.stage1.total, act: "stage1", actLabel: "暂停粗看", warn: Boolean(wait) };
   }
+  const move = S.transferRun;
+  if (move) return { text: `${move.verb}到「${move.toName}」${move.done}/${move.total}${runWhere(move)}`, done: move.done, total: move.total };
   const unfav = S.unfavBatch;
   if (unfav) return { text: `取消收藏中 ${unfav.done}/${unfav.total}${runWhere(unfav)}`, done: unfav.done, total: unfav.total };
   if (wait) return { text: wait, warn: true };
@@ -1330,12 +1331,18 @@ function renderListHeader(list) {
     const n = batchList(verdict || null).length;
     const verb = route === "unfav" ? "取消收藏" : "保留";
     // One batch 取消收藏 at a time: while another folder's runs, this one waits.
-    return headBtn(`batch-${route}`, verdict ? `${verb}（AI：${VERDICTS[verdict]}）${n} 个` : `${verb}选中的 ${n} 个`, route === "unfav" ? "danger" : "", !n || (route === "unfav" && Boolean(run)), verdict, route === "keep" ? KEEP_TIP : "");
+    return headBtn(`batch-${route}`, verdict ? `${verb}（AI：${VERDICTS[verdict]}）${n} 个` : `${verb}选中的 ${n} 个`, route === "unfav" ? "danger" : "", !n || (route === "unfav" && Boolean(run || S.transferRun)), verdict, route === "keep" ? KEEP_TIP : "");
+  };
+  const transferBtn = () => {
+    const run = S.transferRun;
+    if (run) return headBtn("transfer", `${run.verb}中 ${run.done}/${run.total}`, "", true, "", "", true);
+    const n = transferList().length;
+    return headBtn("transfer", `移动/复制选中的 ${n} 个…`, "", !n || Boolean(S.unfavBatch));
   };
   const groupBtn = (cls) => {
     if (ownGroup()) return headBtn("group", `暂停细看 ${groupDone(S.group)}/${S.group.bvids.length}`, "primary");
     const batch = nextBatch();
-    const label = batch.some((b) => S.selected.has(b)) ? `细看选中 ${batch.length} 个` : batch.length ? `细看下一批 ${batch.length} 个` : "细看";
+    const label = batch.some((b) => S.selected.has(b)) ? selectedIn(list).length > batch.length ? `细看选中的前 ${batch.length} 个` : `细看选中 ${batch.length} 个` : batch.length ? `细看下一批 ${batch.length} 个` : "细看";
     return headBtn("group", label, cls, !batch.length || busy, "", "", false, true);
   };
   const stage1Pause = () => headBtn("stage1", `暂停粗看 ${S.stage1.done}/${S.stage1.total}`, "primary");
@@ -1357,7 +1364,7 @@ function renderListHeader(list) {
   } else if (t === "coarse") {
     // A selection gets 细看 plus both batch buttons; 可清理 / 值得留 lead with their batch button, 细看 stays secondary.
     html = seg() + criteriaLine() + redoBtn("redo-coarse", "粗看", staleCoarse().length);
-    if (sel) html += groupBtn("primary") + batchBtn("keep") + batchBtn("unfav");
+    if (sel) html += groupBtn("primary") + batchBtn("keep") + batchBtn("unfav") + transferBtn();
     else if (f === "drop") html += batchBtn("unfav", "drop") + groupBtn("");
     else if (f === "keep") html += batchBtn("keep", "keep") + groupBtn("");
     else html += groupBtn("primary");
@@ -1367,12 +1374,12 @@ function renderListHeader(list) {
     const staleN = staleFine().length;
     if (staleN && !all) html += criteriaLine() + redoBtn("redo-fine", "细看", Math.min(staleN, GROUP_SIZE));
     if (all) html += sortHint;
-    else if (sel) html += batchBtn("unfav") + batchBtn("keep");
+    else if (sel) html += batchBtn("unfav") + batchBtn("keep") + transferBtn();
     else {
       if (f === "all" || f === "drop") html += batchBtn("unfav", "drop");
       if (f === "all" || f === "keep") html += batchBtn("keep", "keep");
     }
-    if (!sel && list.length && f === "unsure") html += `<span class="muted">按 X 选中后可批量保留或取消收藏</span>`;
+    if (!sel && list.length && f === "unsure") html += `<span class="muted">按 X 或全选后可批量保留或取消收藏</span>`;
   } else if (t === "read" && S.mediaId === REMOVED) {
     const c = S.removedCheck;
     if (c) html = c.error ? `<span class="fail-text">${esc(c.error)}</span>` : `<span class="muted" aria-busy="true">正在核对 ${c.done} / ${c.total} 个收藏夹，重新收藏的会自动移出</span>`;
@@ -1382,10 +1389,13 @@ function renderListHeader(list) {
     // 阅览 mixes 粗看 guesses with 细看 conclusions, so no class-wide batch here: only the selection.
     html = seg();
     if (all) html += sortHint;
-    else if (sel) html += batchBtn("unfav") + batchBtn("keep");
-    else if (list.length) html += `<span class="muted">按 X 选中后可批量保留或取消收藏</span>`;
+    else if (sel) html += batchBtn("unfav") + batchBtn("keep") + transferBtn();
+    else if (list.length) html += `<span class="muted">按 X 或全选后可批量保留、取消收藏、移动或复制</span>`;
     html += headBtn("export-read", "批量导出…", "", !list.length);
   }
+  // 全选 adds every card listed under the current tab and filters; other tabs keep their selection.
+  const unselected = inFolderView() ? list.filter((it) => !S.selected.has(it.bvid)).length : 0;
+  if (unselected) html += `<button type="button" class="link" data-head="select-all" aria-label="全选这里列出的 ${list.length} 个">全选这里的 ${list.length} 个</button>`;
   if (S.selected.size) {
     html += `<span class="muted">已选中 ${S.selected.size} 个</span><button type="button" class="link" data-head="clear-selected" aria-label="清空选中">清空选中</button>`;
   }
@@ -1848,7 +1858,7 @@ function batchList(verdict) {
 }
 
 async function batchUnfav(list) {
-  if (!list.length || S.unfavBatch) return;
+  if (!list.length || S.unfavBatch || S.transferRun) return;
   const titles = list.slice(0, 10).map((it) => `<li>${esc(it.title)}</li>`).join("");
   const more = list.length > 10 ? `<p>等 ${list.length} 个</p>` : "";
   const ok = await askConfirm(`取消收藏这 ${list.length} 个视频？`, `<ul>${titles}</ul>${more}`, `取消收藏 ${list.length} 个`);
@@ -1882,6 +1892,125 @@ async function batchUnfav(list) {
   } else if (done) {
     // Elsewhere they are saved under their folder and listed in its 最近取消收藏, where they can be re-favorited.
     toast(`「${folderName(mediaId)}」已取消收藏 ${done} 个，可在它的最近取消收藏里撤销`);
+  }
+  render();
+}
+
+// 移动/复制 takes every selected card still in the folder here, 保留 ones too (unlike 取消收藏, which skips them).
+const transferList = () => selectedIn(visibleItems()).filter((it) => S.decisions[it.bvid]?.action !== "unfav");
+
+// Resolves "move" / "copy" with the target ({ id } or { create, privacy }), or null when cancelled.
+function askTransfer(list) {
+  const from = String(S.mediaId);
+  const targets = S.allFolders.filter((f) => String(f.id) !== from && String(f.id) !== TOVIEW);
+  el.transferTitle.textContent = `移动或复制这 ${list.length} 个视频`;
+  el.transferBody.innerHTML = `<ul>${list.slice(0, 10).map((it) => `<li>${esc(it.title)}</li>`).join("")}</ul>${list.length > 10 ? `<p>等 ${list.length} 个</p>` : ""}`;
+  el.transferTarget.innerHTML =
+    targets.map((f) => `<option value="${esc(f.id)}">${esc(f.title)} (${esc(f.count)})</option>`).join("") + `<option value="new">新建收藏夹…</option>`;
+  el.transferName.value = "";
+  el.transferPrivate.checked = false;
+  toggleTransferNew();
+  el.transferDialog.returnValue = "";
+  el.transferDialog.showModal();
+  return new Promise((resolve) => {
+    el.transferDialog.addEventListener(
+      "close",
+      () => {
+        const how = el.transferDialog.returnValue;
+        if (how !== "move" && how !== "copy") return resolve(null);
+        const v = el.transferTarget.value;
+        resolve({ move: how === "move", target: v === "new" ? { create: el.transferName.value.trim(), privacy: el.transferPrivate.checked } : { id: v } });
+      },
+      { once: true }
+    );
+  });
+}
+function toggleTransferNew() {
+  const on = el.transferTarget.value === "new";
+  el.transferNewRow.hidden = !on;
+  el.transferName.required = on;
+}
+
+// Bilibili's lists lag a few seconds behind a move, so both cached lists change here instead of by a sync: the target
+// gains the videos (a new folder starts with exactly these), the source loses them without counting them as having left
+// every folder (已取消收藏). A folder with no cached list is left to its first load.
+async function patchSnapshot(mediaId, { add = [], drop = [] }, created = false) {
+  const key = K.snapshot(mediaId);
+  const snap = await storeGet(key, null);
+  if (!snap && !created) return;
+  const old = snap || { bvids: [], invalid: [], titles: {}, items: [], ids: [], intro: "" };
+  const gone = new Set(drop);
+  const fresh = add.filter((it) => !old.bvids.includes(it.bvid));
+  const added = fresh.map((it) => it.bvid);
+  const keep = (b) => !gone.has(b);
+  await chrome.storage.local.set({
+    [key]: {
+      ...old,
+      bvids: [...added, ...old.bvids.filter(keep)],
+      invalid: (old.invalid || []).filter(keep),
+      titles: { ...old.titles, ...Object.fromEntries(fresh.map((it) => [it.bvid, it.title])) },
+      items: [...fresh, ...(old.items || []).filter((it) => keep(it.bvid))],
+      ids: old.ids ? [...added, ...old.ids.filter(keep)] : old.ids,
+      at: Date.now()
+    }
+  });
+}
+
+// It changes Bilibili, so like 取消收藏 it runs to the end even after another folder opens.
+async function batchTransfer(list) {
+  if (!list.length || S.transferRun || S.unfavBatch) return;
+  const from = String(S.mediaId);
+  const ask = await askTransfer(list);
+  if (!ask || S.transferRun || S.unfavBatch) return;
+  const { move, target } = ask;
+  const verb = move ? "移动" : "复制";
+  let to = target.id;
+  let toName = folderName(to);
+  if (target.create) {
+    const r = await send({ type: "triage-folder-create", title: target.create, privacy: target.privacy });
+    if (!r.ok) return toast(`新建收藏夹失败：${r.error}`, true);
+    to = String(r.data.id);
+    toName = r.data.title;
+  }
+  let done = 0;
+  S.transferRun = { mediaId: from, verb, toName, done, total: list.length };
+  for (let i = 0; i < list.length; i += 20) {
+    const chunk = list.slice(i, i + 20);
+    S.transferRun.done = done;
+    chunk.forEach((it) => deciding.add(it.bvid));
+    render();
+    const r = await send({ type: "triage-transfer", from, to, aids: chunk.map((it) => it.aid), move });
+    chunk.forEach((it) => deciding.delete(it.bvid));
+    if (!r.ok) {
+      toast(`${verb}到「${toName}」中断（已完成 ${done} 个）：${r.error}`, true);
+      break;
+    }
+    done += chunk.length;
+    if (i + 20 < list.length) await new Promise((r2) => setTimeout(r2, 1000));
+  }
+  S.transferRun = null;
+  if (done) {
+    const moved = list.slice(0, done);
+    if (target.create) {
+      // Chosen for triage and listed right away; reloading the folder list would meet Bilibili's lag.
+      const f = { id: Number(to), title: toName, count: done };
+      S.allFolders.push(f);
+      S.folders.push(f);
+      S.included = [...S.included, to];
+      await chrome.storage.local.set({ [K.included]: S.included });
+      el.folderSelect.querySelector(`option[value="${REMOVED}"]`)?.previousElementSibling?.before(new Option(`${toName} (${done})`, to));
+    }
+    if (S.included.includes(to)) await patchSnapshot(to, { add: moved }, Boolean(target.create));
+    for (const it of moved) S.selected.delete(it.bvid);
+    if (move) {
+      await patchSnapshot(from, { drop: moved.map((it) => it.bvid) });
+      if (S.mediaId === from) {
+        S.items = S.items.filter((it) => !moved.includes(it));
+        S.itemMap = new Map(S.items.map((it) => [it.bvid, it]));
+        S.lastSyncAt = Date.now(); // no sync until Bilibili's lists catch up
+      }
+    }
+    if (done === list.length) toast(`已${verb} ${done} 个到「${toName}」`);
   }
   render();
 }
@@ -2959,11 +3088,16 @@ function bindEvents() {
     }
     else if (act === "export-read") openWrite({ scope: "filter", format: "digest" });
     else if (act === "clean-removed") cleanRemoved(visibleItems());
-    else if (act === "clear-selected") {
+    else if (act === "transfer") batchTransfer(transferList());
+    else if (act === "select-all") {
+      for (const it of visibleItems()) S.selected.add(it.bvid);
+      render();
+    } else if (act === "clear-selected") {
       S.selected.clear();
       render();
     }
   };
+  el.transferTarget.addEventListener("change", toggleTransferNew);
   el.stagebar.addEventListener("click", onHeadClick);
   el.activity.addEventListener("click", onHeadClick);
 
@@ -3318,10 +3452,7 @@ function cardAction(act, bvid) {
   }
   else if (act === "select") {
     if (S.selected.has(bvid)) S.selected.delete(bvid);
-    else if (S.selected.size >= SELECT_CAP) {
-      toast(`一次最多选中 ${SELECT_CAP} 个`, true);
-      return;
-    } else S.selected.add(bvid);
+    else S.selected.add(bvid);
     render();
   }
 }
