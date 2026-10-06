@@ -174,8 +174,8 @@
     const known = seenCfg.on ? seenCache.get(b) || 0 : 0;
     const pct = seenCfg.bar ? known : 0;
     const seen = seenCfg.mark && known >= seenCfg.threshold;
-    // Below the share with no bar, a faint 看过 N% says how far it got.
-    const faint = !seen && known > 0 && seenCfg.mark && !seenCfg.bar;
+    // Below the share, a faint 看过 N% says how far it got.
+    const faint = !seen && known > 0 && seenCfg.mark;
     // On the image's own box: some links wrap the whole card, title included.
     const media = a.querySelector("picture") || a.querySelector("img");
     const host = media?.parentElement;

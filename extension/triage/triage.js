@@ -710,13 +710,13 @@ const isFinished = (it) => S.seenCfg.mark && (seenPercentOf(it) ?? 0) >= S.seenC
 // 100% reads 看完了, otherwise 看过 N%; ✓ (and the strong look) means it counts as 看完了.
 const seenWords = (p, done) => (p >= 100 ? "✓ 看完了" : done ? `✓ 看过 ${p}%` : `看过 ${p}%`);
 // The cover with its progress bar and, once 看完了, the corner tag or the veil (html[data-seen-style] picks one).
-// Below the share with no bar, a faint 看过 N% says how far it got.
+// Below the share, a faint 看过 N% says how far it got.
 function coverHtml(it) {
   const img = `<img class="cover" src="${esc(it.cover)}" alt="" loading="lazy" referrerpolicy="no-referrer" />`;
   const known = seenPercentOf(it);
   const p = S.seenCfg.bar ? known : null;
   const seen = isFinished(it);
-  const faint = !seen && known && S.seenCfg.mark && !S.seenCfg.bar;
+  const faint = !seen && known && S.seenCfg.mark;
   if (!p && !seen && !faint) return img;
   const label = seenWords(known, seen);
   const mark = seen ? `<span class="seen-veil">${label}</span><span class="seen-tag">${label}</span>` : faint ? `<span class="seen-tag faint">${label}</span>` : "";

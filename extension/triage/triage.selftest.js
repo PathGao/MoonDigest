@@ -1168,9 +1168,9 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     t.S.seenCfg.threshold = 50;
     assert.ok(t.coverHtml(t.S.items[1]).includes("✓ 看过 50%") && t.coverHtml(t.S.items[0]).includes("✓ 看完了"));
     t.S.seenCfg.threshold = 80;
-    assert.ok(t.coverHtml(t.S.items[1]).includes('seen-tag faint">看过 50%'), "below the share, mark only: a faint 看过 N%");
+    assert.ok(t.coverHtml(t.S.items[1]).includes('seen-tag faint">看过 50%'), "below the share: a faint 看过 N%");
     t.S.seenCfg.bar = true;
-    assert.ok(!t.coverHtml(t.S.items[1]).includes("faint"), "with the bar there is no faint text");
+    assert.ok(t.coverHtml(t.S.items[1]).includes("faint") && t.coverHtml(t.S.items[1]).includes("seen-bar"), "with the bar too");
     t.S.seenCfg.bar = false;
     t.S.seenCfg.threshold = 50;
     // Two chips, each for its own source: 看完了 from the history, 优先看过 from 优先看.
