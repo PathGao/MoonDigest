@@ -57,7 +57,7 @@ const ctx = vm.createContext({
   }
 });
 vm.runInContext(fs.readFileSync(path.join(__dirname, "..", "limits.js"), "utf8"), ctx);
-vm.runInContext(`${source}\n;globalThis.S = S; globalThis.K = K; globalThis.el = el; globalThis.verdictBadge = verdictBadge; globalThis.seenText = seenText; globalThis.staleCoarse = staleCoarse; globalThis.staleFine = staleFine; globalThis.groupDone = groupDone; globalThis.mergeHead = mergeHead; globalThis.isSeen = isSeen;`, ctx);
+vm.runInContext(`${source}\n;globalThis.S = S; globalThis.K = K; globalThis.el = el; globalThis.verdictBadge = verdictBadge; globalThis.seenText = seenText; globalThis.staleCoarse = staleCoarse; globalThis.staleFine = staleFine; globalThis.groupDone = groupDone; globalThis.mergeHead = mergeHead; globalThis.isFinished = isFinished;`, ctx);
 const t = ctx;
 const plain = (v) => JSON.parse(JSON.stringify(v));
 const realSync = t.syncFolder;
@@ -331,11 +331,11 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   t.S.throttleUntil = 0;
   assert.strictEqual(t.activityState(), null, "nothing running hides the pill");
   // 稍后再看 progress: seconds watched, -1 once finished, 0 or missing for not started.
-  assert.strictEqual(t.seenText({ seen: 98, duration: 768 }), "看过 13%");
-  assert.strictEqual(t.seenText({ seen: -1, duration: 768 }), "已看完");
+  assert.strictEqual(t.seenText({ seen: 98, duration: 768 }), "看了 13%");
+  assert.strictEqual(t.seenText({ seen: -1, duration: 768 }), "看完了");
   assert.strictEqual(t.seenText({ seen: 0, duration: 768 }), "");
   assert.strictEqual(t.seenText({ duration: 768 }), "");
-  assert.strictEqual(t.seenText({ seen: 767, duration: 768 }), "看过 99%", "unfinished never reads 100%");
+  assert.strictEqual(t.seenText({ seen: 767, duration: 768 }), "看了 99%", "unfinished never reads 100%");
   // Results remember their 判断标准; after it changes, the old ones are offered for a redo. Unstamped ones count as current.
   const savedTitles = t.S.titleRes;
   const savedAnalyses = t.S.analyses;
@@ -1151,23 +1151,33 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     t.S.invalidFilter = false;
   }
 
-  // 看过 on covers: the progress bar and the mark each have their own switch; the mark counts the set share or a hand mark.
+  // 观看进度 on covers: bar and 看完了 mark each follow the setting; 看完了 counts the set share only (优先看过 is separate).
   {
     openFake("S", [item(80), item(81), item(82)]);
     t.S.seenPct = { BV80: [100, 1], BV81: [50, 1], BV82: null };
     t.S.watched = { BV82: 1 };
     const cfg = (bar, mark) => (t.S.seenCfg = { on: bar || mark, bar, mark, threshold: 80, style: "badge" });
     cfg(false, false);
-    assert.ok(!t.coverHtml(t.S.items[0]).includes("seen-") && !t.isSeen(t.S.items[0]), "both off: nothing");
-    assert.ok(t.isSeen(t.S.items[2]), "a hand mark counts as 看过 whatever the switches");
+    assert.ok(!t.coverHtml(t.S.items[0]).includes("seen-") && !t.isFinished(t.S.items[0]), "both off: nothing");
     cfg(true, false);
     assert.ok(t.coverHtml(t.S.items[1]).includes('style="width:50%"') && !t.coverHtml(t.S.items[0]).includes("seen-tag"), "bar only");
     cfg(false, true);
     const done = t.coverHtml(t.S.items[0]);
     assert.ok(done.includes("✓ 看完了") && !done.includes("seen-bar"), "mark only");
-    assert.ok(!t.isSeen(t.S.items[1]) && t.coverHtml(t.S.items[2]).includes("✓ 看过"), "50% is under the threshold; the hand mark shows");
+    assert.ok(!t.isFinished(t.S.items[1]) && !t.coverHtml(t.S.items[2]).includes("seen-"), "50% is under the threshold; 优先看过 stays off the cover");
     t.S.seenCfg.threshold = 50;
-    assert.ok(t.coverHtml(t.S.items[1]).includes("✓ 看过 50%"));
+    assert.ok(t.coverHtml(t.S.items[1]).includes("✓ 看完了"));
+    // Two chips, each for its own source: 看完了 from the history, 优先看过 from 优先看.
+    t.S.watched = { BV82: 1 };
+    t.S.tab = "read";
+    t.renderTabs();
+    assert.ok(t.el.tagFilter.innerHTML.includes(">看完了<") && t.el.tagFilter.innerHTML.includes(">优先看过<"));
+    t.S.finishedFilter = true;
+    assert.deepStrictEqual(plain(t.visibleItems().map((it) => it.bvid)), ["BV80", "BV81"]);
+    t.S.finishedFilter = false;
+    t.S.watchedFilter = true;
+    assert.deepStrictEqual(plain(t.visibleItems().map((it) => it.bvid)), ["BV82"]);
+    t.S.watchedFilter = false;
     t.S.watched = {};
     cfg(false, false);
   }

@@ -73,7 +73,7 @@ html.bili_dark .mdg-s1 { background: transparent; }
 html.bili_dark .mdg-line { border-left-color: #cba6f7; background: rgba(203, 166, 247, 0.1); }
 html.bili_dark .mdg-brand { color: #cba6f7; }
 
-/* 看过 on covers: Bilibili's own progress bar look (3px, #ff6699 on 50% black); the mark uses MoonDigest's purple. */
+/* 观看进度 on covers: Bilibili's own progress bar look (3px, #ff6699 on 50% black); the mark uses MoonDigest's purple. */
 .mdg-seen-host { position: relative; }
 .mdg-seen { position: absolute; inset: 0; z-index: 3; pointer-events: none; overflow: hidden; border-radius: inherit; }
 .mdg-seen-bar { position: absolute; left: 0; right: 0; bottom: 0; height: 3px; background: rgba(0, 0, 0, 0.5); }

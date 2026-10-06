@@ -260,7 +260,7 @@ async function loadSettings() {
   markSaved();
 }
 
-// 看过多少算看过 and the mark style only matter while the mark is shown.
+// 看多少算看完了 and the mark style only matter while the mark is shown.
 function syncSeenRows() {
   const mark = elements.seenShow.value === "mark" || elements.seenShow.value === "both";
   document.querySelectorAll("[data-seen-mark-row]").forEach((row) => (row.hidden = !mark));
