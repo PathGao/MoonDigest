@@ -2243,8 +2243,11 @@ function updateReaderPreferences(next, { persist = true } = {}) {
   }
 }
 
+// Only the reader keys: state.settings is stale for everything else, and save-settings keeps the keys it is not sent.
 function persistReaderSettings() {
-  sendRuntimeMessage({ type: "save-settings", settings: state.settings }).catch((error) => {
+  const { readerTheme, readerFontScale, readerLetterSpacing, readerLineHeight, readerContentWidth, readerChapterVisible } = state.settings;
+  const settings = { readerTheme, readerFontScale, readerLetterSpacing, readerLineHeight, readerContentWidth, readerChapterVisible };
+  sendRuntimeMessage({ type: "save-settings", settings }).catch((error) => {
     logWarn("[BOC] failed to persist reader settings", error);
   });
 }

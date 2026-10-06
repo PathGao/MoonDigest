@@ -140,8 +140,8 @@ const STATE_KEY_NODES = {
 // The form differs from what was last loaded or saved; a passed provider test reminds the user to save.
 let hasUnsavedChanges = false;
 let savedForm = null;
-// The last Obsidian test passed; the header says 「已连接」 only after that.
-let obsidianConnected = false;
+// The URL and key of the last Obsidian test and whether it passed; the header says 「已连接」 only while those are saved.
+let obsidianTest = null;
 
 init();
 
@@ -155,6 +155,19 @@ function init() {
   });
   elements.saveBtn.addEventListener("click", saveSettings);
   elements.seenShow.addEventListener("change", syncSeenRows);
+  // The box shows the value that would be saved, so 150 over a stored 100 is not a silent no-op.
+  elements.seenThreshold.addEventListener("change", () => (elements.seenThreshold.value = String(readFormPayload().seenThreshold)));
+  // Same for 追问: blank, repeated and past-12 lines are dropped from the box, not only from what is saved.
+  elements.aiPresetPrompts.addEventListener("change", () => (elements.aiPresetPrompts.value = readFormPayload().aiPresetPrompts.join("\n")));
+  // The side panel edits 追问 too. Follow it unless the box has an unsaved edit, so the next save does not put the old list back.
+  chrome.storage.onChanged.addListener((changes, area) => {
+    const next = changes.aiPresetPrompts?.newValue;
+    if (area !== "sync" || !Array.isArray(next) || !savedForm) return;
+    if (JSON.stringify(readFormPayload().aiPresetPrompts) !== JSON.stringify(savedForm.payload.aiPresetPrompts)) return;
+    elements.aiPresetPrompts.value = next.join("\n");
+    savedForm.payload.aiPresetPrompts = readFormPayload().aiPresetPrompts;
+    syncUnsaved();
+  });
   elements.testConnectionBtn.addEventListener("click", testConnection);
   elements.addFixedPropertyBtn.addEventListener("click", () => addFixedPropertyRow());
   elements.addNoteSectionBtn.addEventListener("click", () => addNoteSectionRow());
@@ -313,6 +326,7 @@ async function saveSettings() {
     renderNoteSectionRows(payload.notePlaceholderSections);
     // The box shows what was saved: 150 is stored and shown as 100.
     elements.seenThreshold.value = String(payload.seenThreshold);
+    elements.aiPresetPrompts.value = payload.aiPresetPrompts.join("\n");
 
     // AI 平台：list 走 sync、apiKey 走 local
     const aiResp = await sendRuntimeMessage({ type: "ai-providers-save", providers: aiProvidersPayload });
@@ -322,6 +336,11 @@ async function saveSettings() {
     }
     // 用最新列表（含 hasSavedKey）重新渲染，避免误以为 Key 丢了
     renderAiProviders(aiResp.providers || []);
+    // A test of other values says nothing about the ones just saved.
+    if (obsidianTest && obsidianTest.target !== obsidianTarget(payload)) {
+      obsidianTest = null;
+      setTestResult("");
+    }
     markSaved();
     renderHostPermissionBanner(hostUrls);
     if (deniedHosts.length) {
@@ -367,8 +386,10 @@ function setUnsaved(value) {
 }
 
 // Compares content, so an edit that is undone (add a row, then remove it) is not "unsaved".
+// Rows are compared as typed: a half-filled one is dropped from the payload, but it is still an edit that saving must validate.
 function readFormState() {
-  return { payload: readFormPayload(), providers: collectAiProviders() };
+  const payload = { ...readFormPayload(), fixedFrontmatterProperties: collectFixedPropertyRows(), notePlaceholderSections: collectNoteSectionRows() };
+  return { payload, providers: collectAiProviders() };
 }
 
 function markSaved() {
@@ -420,6 +441,7 @@ function renderSavedState() {
   setPill(elements.aiSectionPill, aiReady, aiReady ? `已配置 ${providers.length} 个平台` : "没配也能用");
 
   const { obsidianEnabled, obsidianApiKey } = savedForm.payload;
+  const obsidianConnected = obsidianTest?.ok && obsidianTest.target === obsidianTarget(savedForm.payload);
   const obsidianText = !obsidianEnabled ? "Obsidian 关" : !obsidianApiKey ? "Obsidian 待填 Key" : obsidianConnected ? "Obsidian 已连接" : "Obsidian 已开";
   setPill(elements.obsidianPill, obsidianEnabled && Boolean(obsidianApiKey), obsidianText);
   elements.obsidianPill.classList.toggle("off", !obsidianEnabled);
@@ -487,7 +509,7 @@ function readFormPayload() {
     includeTimestampInBody: elements.includeTimestampInBody.checked,
     showBiliTriageBadges: elements.showBiliTriageBadges.checked,
     seenShow: elements.seenShow.value,
-    seenThreshold: Math.min(100, Math.max(1, Math.round(Number(elements.seenThreshold.value)) || 80)),
+    seenThreshold: Number.isFinite(parseFloat(elements.seenThreshold.value)) ? Math.min(100, Math.max(1, Math.round(parseFloat(elements.seenThreshold.value)))) : 80,
     seenStyle: elements.seenStyle.value === "veil" ? "veil" : "badge",
     enableDebugLogs: elements.enableDebugLogs.checked,
     frontmatterFields: selectedFields,
@@ -1123,6 +1145,7 @@ async function testConnection() {
 
   setBusy(elements.testConnectionBtn);
   setTestResult("");
+  obsidianTest = { target: obsidianTarget(payload), ok: false };
   try {
     const resp = await sendRuntimeMessage({
       type: "test-obsidian-connection",
@@ -1130,7 +1153,7 @@ async function testConnection() {
       apiKey: payload.obsidianApiKey
     });
 
-    obsidianConnected = Boolean(resp?.ok);
+    obsidianTest.ok = Boolean(resp?.ok);
     if (!resp?.ok) {
       setTestResult(`连接失败：${resp?.error || "未知错误"}`, true);
       return;
@@ -1139,12 +1162,15 @@ async function testConnection() {
     const service = resp?.service ? `（${resp.service}）` : "";
     setTestResult(`连接成功${service}`);
   } catch (error) {
-    obsidianConnected = false;
     setTestResult(`连接失败：${error.message || "未知错误"}`, true);
   } finally {
     setBusy(null);
     renderSavedState();
   }
+}
+
+function obsidianTarget(settings) {
+  return `${settings.obsidianApiBaseUrl}\n${settings.obsidianApiKey}`;
 }
 
 // The Obsidian test result sits next to its button.
