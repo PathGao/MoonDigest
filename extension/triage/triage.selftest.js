@@ -957,6 +957,29 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   assert.deepStrictEqual(Object.keys(plain(store[t.K.decisions("M")])), ["BV40"], "BV40 stays unfavorited, BV41 was re-favorited");
   assert.ok(t.S.decisions.BV40 && !t.S.decisions.BV41);
 
+  // R1: another triage tab's write to a shared list replaces this page's copy, so the next write here keeps it. This
+  // page's own writes echo back too, and an older echo arriving after a newer edit is skipped.
+  openFake("N", [item(50), item(51)], { BV51: { action: "unfav", at: 1 } });
+  t.S.kept = {};
+  const keep = { action: "keep", at: 5 };
+  t.patchKept({ BV50: keep });
+  const echo1 = { triage_kept: { newValue: structuredClone(store.triage_kept) } };
+  t.S.watched = { BV50: 1 };
+  vm.runInContext("saveWatched()", ctx);
+  t.S.watched.BV51 = 2;
+  vm.runInContext("saveWatched()", ctx);
+  t.followShared({ triage_watched: { newValue: { BV50: 1 } } });
+  t.followShared(echo1);
+  assert.deepStrictEqual(plain(t.S.watched), { BV50: 1, BV51: 2 }, "an older echo of this page's write is skipped");
+  t.followShared({ triage_kept: { newValue: { BV51: keep } }, triage_tags: { newValue: [{ id: "n", name: "新", folder: "N" }] } });
+  assert.deepStrictEqual(plain([t.S.kept, t.S.decisions, t.S.tags.map((x) => x.id)]), [{ BV51: keep }, { BV51: { action: "unfav", at: 1 } }, ["n"]],
+    "the other tab's 保留 list replaces this one; 取消收藏 still wins in the folder; tags follow");
+  t.followShared({ triage_basket: { newValue: undefined } });
+  assert.deepStrictEqual(plain(t.S.basket), [], "a removed key reads as empty");
+  t.patchKept({ BV50: keep });
+  assert.deepStrictEqual(Object.keys(store.triage_kept), ["BV51", "BV50"], "the next write keeps the other tab's 保留");
+  Object.assign(t.S, { kept: {}, watched: {}, tags: [], basket: [] });
+
   // 阅览: every step in one list, the AI-class chip filters across steps.
   openFake("R", [item(701), item(702), item(703), item(704)]);
   Object.assign(t.S, { tab: "read", query: "", tagFilter: new Set(), classFilter: { coarse: "all", fine: "all", read: "drop" },

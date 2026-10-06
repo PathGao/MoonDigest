@@ -297,8 +297,18 @@ async function storeGet(key, fallback) {
   const r = await chrome.storage.local.get(key);
   return r?.[key] ?? fallback;
 }
+// key → JSON of this page's writes whose change event has not come back yet; see followShared.
+const ownWrites = {};
+function noteOwnWrites(obj) {
+  for (const [k, v] of Object.entries(obj)) {
+    const list = (ownWrites[k] ||= []);
+    list.push(JSON.stringify(v ?? null));
+    if (list.length > 20) list.shift(); // an unchanged value fires no event, so its entry would never leave
+  }
+}
 let storeFailShown = false;
 function storeSet(key, value) {
+  noteOwnWrites({ [key]: value });
   return chrome.storage.local.set({ [key]: value }).catch((e) => {
     console.error("[triage] storage write failed", key, e);
     if (storeFailShown) return;
@@ -573,6 +583,7 @@ async function init() {
       S.notes = changes[K.notes].newValue || {};
       render();
     }
+    if (area === "local") followShared(changes);
   });
   chrome.runtime.onMessage.addListener((msg) => {
     if (msg?.type !== "triage-folder-page") return;
@@ -584,6 +595,37 @@ async function init() {
   renderBasket();
   await loadFolders();
   setInterval(tick, 1000);
+}
+
+// Another triage tab wrote one of the lists every page writes whole: take its value, so the next
+// write here does not put back what it removed. This page's own writes come back as events too and are skipped: an
+// older one arriving after a newer edit would undo that edit.
+const SHARED = { kept: {}, videoTags: {}, tags: [], basket: [], watched: {}, folderCriteria: {} };
+function followShared(changes) {
+  let changed = false;
+  for (const [name, empty] of Object.entries(SHARED)) {
+    const c = changes[K[name]];
+    if (!c) continue;
+    const mine = ownWrites[K[name]] || [];
+    const i = mine.indexOf(JSON.stringify(c.newValue ?? null));
+    if (i >= 0) {
+      mine.splice(0, i + 1);
+      continue;
+    }
+    const value = c.newValue ?? structuredClone(empty);
+    if (name === "kept") followKept(value);
+    else S[name] = value;
+    changed = true;
+  }
+  if (changed) render();
+}
+// 保留 also sits in the open view's decisions (see openFolder and rebuildAll); 取消收藏 there wins, as on open.
+function followKept(kept) {
+  if (S.mediaId !== REMOVED) {
+    for (const [b, d] of Object.entries(S.decisions)) if (d?.action === "keep" && !kept[b]) delete S.decisions[b];
+    for (const [b, d] of Object.entries(kept)) if (S.decisions[b]?.action !== "unfav") S.decisions[b] = d;
+  }
+  S.kept = kept;
 }
 
 // Runs simplifyMigration once (flag key), then drops the old scheme keys it read.
@@ -997,7 +1039,9 @@ async function cleanRemoved(list) {
   for (const map of [...Object.values(decisions), S.decisions, ...Object.values(S.folderDecisions)]) for (const b of bvids) delete map[b];
   await chrome.storage.local.set(decisions);
   await chrome.storage.local.remove(bvids.flatMap((b) => [`triage_title_${b}`, `triage_analysis_${b}`]));
-  await chrome.storage.local.set({ [K.removed]: rec, [K.notes]: S.notes, [K.videoTags]: S.videoTags, [K.kept]: S.kept, [K.basket]: S.basket });
+  const write = { [K.removed]: rec, [K.notes]: S.notes, [K.videoTags]: S.videoTags, [K.kept]: S.kept, [K.basket]: S.basket };
+  noteOwnWrites(write);
+  await chrome.storage.local.set(write);
   S.removedCount = Object.keys(rec).length;
   S.items = S.items.filter((it) => !set.has(it.bvid));
   S.itemMap = new Map(S.items.map((it) => [it.bvid, it]));

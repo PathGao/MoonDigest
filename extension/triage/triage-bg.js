@@ -602,7 +602,18 @@ async function triageMigrateNotes() {
   await chrome.storage.local.set({ triage_notes: notes, triage_notes_migrated: true });
 }
 
+// One triage tab: each holds its own copy of 保留, tags and the rest, so a second one is focused instead of opened.
+async function triageOpenPage() {
+  const url = chrome.runtime.getURL("triage/triage.html");
+  const tabs = (await chrome.runtime.getContexts?.({ contextTypes: ["TAB"] })) || [];
+  const open = tabs.find((c) => c.documentUrl?.startsWith(url) && c.tabId >= 0);
+  if (!open) return void (await chrome.tabs.create({ url }));
+  await chrome.tabs.update(open.tabId, { active: true });
+  await chrome.windows.update(open.windowId, { focused: true });
+}
+
 const TRIAGE_HANDLERS = {
+  "triage-open": () => triageOpenPage(),
   "triage-write-note": (msg) => triageWriteNote(msg),
   "triage-build-note": async ({ bvid }) => {
     const { meta, markdown } = await triageBuildNote(bvid, await getMergedSettings());

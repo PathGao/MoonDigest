@@ -350,5 +350,18 @@ assert.throws(() => t.triageParseCommand('{"new_tags":[', cmdItems, cmdTags, {})
   await t.triageMigrateNotes();
   assert.deepStrictEqual(Object.keys(store.triage_notes), ["BV2"], "second run is a no-op");
 
+  // R1: the triage page opens once; a second open focuses the tab already showing it.
+  const tabCalls = [];
+  const fakeTabs = (contexts) => ({
+    runtime: { getURL: (p) => `chrome-extension://id/${p}`, getContexts: async () => contexts },
+    tabs: { create: async (o) => tabCalls.push(["create", o.url]), update: async (id, o) => tabCalls.push(["update", id, o.active]) },
+    windows: { update: async (id, o) => tabCalls.push(["window", id, o.focused]) }
+  });
+  t.chrome = fakeTabs([{ tabId: 3, windowId: 1, documentUrl: "chrome-extension://id/history/history.html" }]);
+  await vm.runInContext("TRIAGE_HANDLERS", ctx)["triage-open"]();
+  t.chrome = fakeTabs([{ tabId: 4, windowId: 2, documentUrl: "chrome-extension://id/triage/triage.html" }]);
+  await vm.runInContext("TRIAGE_HANDLERS", ctx)["triage-open"]();
+  assert.deepStrictEqual(tabCalls, [["create", "chrome-extension://id/triage/triage.html"], ["update", 4, true], ["window", 2, true]]);
+
 console.log("triage-bg selftest: all passed");
 })();
