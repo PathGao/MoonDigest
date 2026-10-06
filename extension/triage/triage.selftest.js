@@ -373,7 +373,7 @@ function openFake(mediaId, items, decisions = {}) {
   openFake("K", [item(600), item(601)]);
   Object.assign(t.S, { tags: [{ id: "a", name: "旧", color: "#111", folder: "K" }, { id: "o", name: "别处", color: "#222", folder: "L" }], videoTags: {}, titleRes: { BV600: { verdict: "drop", confidence: "high" } } });
   const prop = { newTags: [], rows: [], notes: [], errors: [] };
-  t.mergeAiBatch(prop, { newTags: ["n1", "n2", "旧", "n3", "n4", "n5", "n6"], assignments: { BV600: { add: ["n1", "旧"], verdict: "keep" }, BV601: { verdict: "t-must" } } }, { maxNewTags: 5 }, new Set(["BV600", "BV601"]));
+  t.mergeAiBatch(prop, { newTags: ["n1", "n2", "旧", "n3", "n4", "n5", "n6"], assignments: { BV600: { add: ["n1", "旧"], verdict: "keep" }, BV601: { verdict: "t-must" } } }, { maxNewTags: 5, folder: "K" }, new Set(["BV600", "BV601"]));
   assert.deepStrictEqual(plain(prop.newTags.map((x) => x.name)), ["n1", "n2", "n3", "n4", "n5"]);
   assert.deepStrictEqual(plain(prop.rows), [{ bvid: "BV600", add: ["new:n1", "id:a"], remove: [], reason: "", checked: true }]);
   t.S.ai.proposal = prop;
@@ -726,6 +726,46 @@ function openFake(mediaId, items, decisions = {}) {
   store.triage_snapshot_9 = { bvids: ["BV3"], items: [item(3)] };
   await t.saveSnapshot("2", [item(2)]);
   assert.deepStrictEqual(Object.keys(store[t.K.removed]).sort(), ["BV1", "BV3"]);
+
+  // 批量打标签 keeps running when another folder opens; its proposal stays with its folder and shows on return.
+  openFake("K", [item(600), item(601)]);
+  Object.assign(t.S, { tags: [{ id: "a", name: "旧", color: "#111", folder: "K" }, { id: "b", name: "旧", color: "#222", folder: "L" }], videoTags: {}, aiHistory: [], tab: "read", query: "", tagFilter: new Set(), classFilter: { coarse: "all", fine: "all", read: "all" } });
+  Object.assign(t.S.settings, { triageTitleBatchSize: 1, triageIntervalSec: 0 });
+  t.el.aiInstruction = { value: "分一下" };
+  t.el.aiScope = { value: "filter", options: [], selectedOptions: [] };
+  t.el.tagsDialog = { open: false };
+  let aiCalls = 0;
+  handlers["triage-ai-command"] = ({ items }) => {
+    if (++aiCalls === 1) openFake("L", [item(700)]);
+    return { ok: true, data: { assignments: { [items[0].bvid]: { add: ["旧"] } } } };
+  };
+  toasts.length = 0;
+  await t.runAiCommand();
+  assert.strictEqual(aiCalls, 2, "the second batch is still sent after the switch");
+  assert.ok(!t.S.ai.running && t.S.ai.proposal === null, "folder L sees no proposal");
+  assert.ok(/标签建议已完成，切回这个收藏夹后按 I 查看/.test(toasts.at(-1)));
+  openFake("K", [item(600), item(601)]);
+  assert.deepStrictEqual(plain(t.S.ai.proposal.rows.map((r) => [r.bvid, r.add])), [["BV600", ["id:a"]], ["BV601", ["id:a"]]], "K's own 旧, not L's");
+  t.S.ai.proposal = null;
+  Object.assign(t.S.settings, { triageTitleBatchSize: 30 });
+
+  // Opening a folder with a cached list shows it without the full sync; changed ids still sync once.
+  let synced = 0;
+  t.syncFolder = async () => (synced++, true); // stubbed since U7
+  Object.assign(t.S, { folders: [{ id: "2", title: "夹" }], kept: {} });
+  t.el.folderSelect = { value: "" };
+  store.triage_snapshot_2 = { bvids: ["BV2"], ids: ["BV2"], items: [item(2)], intro: "简介" };
+  handlers["triage-folder-ids"] = () => ({ ok: true, data: { bvids: ["BV2"] } });
+  await t.openFolder("2");
+  await new Promise((r) => setImmediate(r));
+  assert.deepStrictEqual([synced, plain(t.S.items.map((it) => it.bvid)), t.S.folderIntro["2"]], [0, ["BV2"], "简介"]);
+  handlers["triage-folder-ids"] = () => ({ ok: true, data: { bvids: ["BV2", "BV8"] } });
+  await t.openFolder("2");
+  await new Promise((r) => setImmediate(r));
+  assert.strictEqual(synced, 1, "changed ids trigger a full sync");
+  delete store.triage_snapshot_2.intro;
+  await t.openFolder("2");
+  assert.strictEqual(synced, 2, "a snapshot without the intro syncs instead");
 
   // 阅览: every step in one list, the AI-class chip filters across steps.
   openFake("R", [item(701), item(702), item(703), item(704)]);

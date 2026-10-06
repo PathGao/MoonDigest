@@ -219,7 +219,21 @@ const S = {
   syncing: false,
   aiHistory: [],
   viewing: "",
-  ai: { running: false, stop: false, proposal: null }
+  // One 批量打标签 run at a time (mediaId is its folder); it keeps going when another folder is opened. Each folder keeps
+  // its own proposal, and proposal reads and writes the open folder's.
+  ai: {
+    running: false,
+    stop: false,
+    mediaId: "",
+    proposals: {},
+    get proposal() {
+      return this.proposals[S.mediaId] || null;
+    },
+    set proposal(p) {
+      if (p) this.proposals[S.mediaId] = p;
+      else delete this.proposals[S.mediaId];
+    }
+  }
 };
 
 const criteria = () => S.folderCriteria[S.mediaId] || "";
@@ -685,9 +699,7 @@ async function openFolder(mediaId) {
   const all = mediaId === ALL;
   const removed = mediaId === REMOVED;
   const decisions = all || removed ? {} : { ...S.kept, ...(await storeGet(K.decisions(mediaId), {})) };
-  S.folderToken++;
-  // A proposal's new tags and rows belong to the folder it ran in.
-  S.ai.proposal = null;
+  const token = ++S.folderToken;
   // The old stage-1 loop exits on the token change without touching state, so reset it here.
   S.stage1 = { running: false, stop: true };
   if (S.group) S.group.stop = true;
@@ -712,12 +724,38 @@ async function openFolder(mediaId) {
   if (!all && !removed) storeSet(K.lastFolder, mediaId);
   el.folderSelect.value = mediaId;
   el.list.innerHTML = loadingHtml();
-  const ok = all ? await openAll() : removed ? await openRemoved() : await syncFolder({ force: true });
+  let ok;
+  if (all) ok = await openAll();
+  else if (removed) ok = await openRemoved();
+  else ok = (await openCached(token)) || (token === S.folderToken && (await syncFolder({ force: true })));
   if (!ok) return;
   S.tab = removed ? "read" : currentStage(stageCounts());
   S.classFilter = { coarse: "all", fine: "all", read: "all" };
   S.focused = visibleItems()[0]?.bvid || "";
   render();
+}
+
+// A folder with a cached list shows it at once; one light id request then decides whether it needs a full sync.
+// 稍后再看 is read in one request anyway, and its watch progress goes stale, so it always syncs.
+async function openCached(token) {
+  const mediaId = S.mediaId;
+  if (mediaId === TOVIEW) return false;
+  const snap = await storeGet(K.snapshot(mediaId), null);
+  // Snapshots from before the intro was cached sync once, so the AI is not told an empty intro.
+  if (token !== S.folderToken || !snap?.items || snap.intro === undefined) return false;
+  S.folderIntro[mediaId] = snap.intro;
+  S.items = [...snap.items];
+  S.itemMap = new Map(S.items.map((it) => [it.bvid, it]));
+  if (!(await loadResults(token))) return false;
+  checkCached(token, snap);
+  return true;
+}
+
+async function checkCached(token, snap) {
+  const r = await send({ type: "triage-folder-ids", mediaId: S.mediaId });
+  if (token !== S.folderToken) return;
+  if (r.ok && !idsChanged(snap.ids || snap.bvids, r.data.bvids)) S.lastSyncAt = Date.now();
+  else syncFolder({ force: true });
 }
 
 // ---------- sync with bilibili ----------
@@ -808,6 +846,7 @@ async function saveSnapshot(mediaId, items, ids = null) {
       titles: Object.fromEntries(items.map((it) => [it.bvid, it.title])),
       items,
       ids, // the folder's id list at this load; 所有收藏夹 compares the next id list with it
+      intro: S.folderIntro[mediaId] ?? old?.intro,
       at: Date.now()
     },
     [K.removed]: removed
@@ -1123,7 +1162,10 @@ function activityState() {
   if (wait) return { text: wait, warn: true };
   // Loading 所有收藏夹 is not here: its own line leads the step bar on every tab of that view.
   if (S.syncing) return { text: `刷新中…${pageText(S.mediaId)}` };
-  if (S.ai.running) return { text: "标签 AI 运行中", act: "tags", actLabel: "查看" };
+  if (S.ai.running) {
+    const where = S.ai.mediaId === String(S.mediaId) ? "" : `（${folderName(S.ai.mediaId)}）`;
+    return { text: `标签 AI 运行中${where}`, act: "tags", actLabel: "查看" };
+  }
   if (S.ai.proposal) return { text: "标签建议待确认", act: "tags", actLabel: "查看" };
   if (S.status) return { text: S.status };
   return null;
@@ -2165,22 +2207,25 @@ async function runAiCommand() {
   }
   S.aiHistory = [instruction, ...S.aiHistory.filter((x) => x !== instruction)].slice(0, 5);
   storeSet(K.aiHistory, S.aiHistory);
-  const opts = { maxNewTags: aiNewTagRoom() };
+  // Everything the run sends is taken now: the run outlives a folder switch, and the page then holds another folder.
+  const folder = String(S.mediaId);
+  const opts = { maxNewTags: aiNewTagRoom(), folder };
   const tags = viewTags().map((t) => ({ name: t.name, rule: t.rule || "" }));
+  const payload = items.map(aiCommandItem);
   const size = Math.max(1, Number(S.settings.triageTitleBatchSize) || 30);
   const scopeSet = new Set(items.map((it) => it.bvid));
   const total = Math.ceil(items.length / size);
   const p = { newTags: [], rows: [], notes: [], errors: [] };
-  const token = S.folderToken;
-  const keepGoing = () => !S.ai.stop && token === S.folderToken;
+  const keepGoing = () => !S.ai.stop;
   S.ai.running = true;
+  S.ai.mediaId = folder;
   S.ai.stop = false;
   renderAiForm();
   renderTop();
   for (let i = 0; i < total && keepGoing(); i++) {
     el.aiProgress.textContent = `AI 正在处理第 ${i + 1} / ${total} 批…`;
-    const batch = items.slice(i * size, (i + 1) * size);
-    const r = await send({ type: "triage-ai-command", instruction, items: batch.map(aiCommandItem), tags, maxNewTags: opts.maxNewTags });
+    const batch = payload.slice(i * size, (i + 1) * size);
+    const r = await send({ type: "triage-ai-command", instruction, items: batch, tags, maxNewTags: opts.maxNewTags });
     if (!r.ok) {
       p.errors.push(`第 ${i + 1} 批失败：${r.error}`);
       if (/截断|配置 AI|未授权访问/.test(r.error || "")) handleAiError(r.error);
@@ -2191,19 +2236,18 @@ async function runAiCommand() {
   }
   S.ai.running = false;
   el.aiProgress.textContent = "";
-  if (token !== S.folderToken) {
-    renderTop();
-    return;
-  }
   if (S.ai.stop) p.errors.push("已手动停止，这里只有已完成批次的建议");
-  S.ai.proposal = p;
+  S.ai.proposals[folder] = p;
   renderTop();
-  if (el.tagsDialog.open && el.tagsManage.hidden) showAiReview();
+  if (folder !== String(S.mediaId)) {
+    if (el.tagsDialog.open) renderAiForm();
+    toast(`「${folderName(folder)}」的标签建议已完成，切回这个收藏夹后按 I 查看`);
+  } else if (el.tagsDialog.open && el.tagsManage.hidden) showAiReview();
   else toast("批量打标签已完成，按 I 查看建议");
 }
 
 function mergeAiBatch(p, data, opts, scopeSet) {
-  const existing = (name) => viewTags().find((t) => t.name === name);
+  const existing = (name) => S.tags.find((t) => t.folder === opts.folder && t.name === name);
   const proposed = (name) => p.newTags.find((t) => t.key === name);
   const addNew = (name) => {
     if (p.newTags.length >= opts.maxNewTags) return null;
