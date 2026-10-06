@@ -79,7 +79,7 @@ select { height: 28px; max-width: 240px; }
 .tools button { justify-content: flex-start; text-align: left; }
 .tools-brand { padding: 4px 8px 6px; border-bottom: 1px solid var(--border); color: var(--muted); font-size: var(--fs-xs); font-weight: 600; }
 /* A small basis so the box narrows before it would drop to a second line. */
-.search { display: flex; align-items: center; gap: 6px; flex: 0 1 260px; min-width: 120px; }
+.search { display: flex; align-items: center; gap: 6px; flex: 1 1 160px; min-width: 120px; max-width: 260px; }
 .search input { flex: 1; min-width: 0; height: 28px; }
 .search .muted { white-space: nowrap; }
 
@@ -131,16 +131,27 @@ select { height: 28px; max-width: 240px; }
 .tabs .arrow { color: var(--muted); font-size: var(--fs-xs); }
 .tabs .tab-sep { width: 1px; height: 16px; margin: 0 4px; background: var(--border-strong); }
 
-/* Row 2, what to do in the open step: filters on the left, the step's actions on the right. */
-.stagebar { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; padding: 6px 0 8px; }
-.class-filter:empty { display: none; }
+/* Row 2, what to do in the open step: filters and 全选 on the left, the step's actions on the right.
+   With a selection, row 3 is the selection bar: everything that acts on the selected cards, and nothing else. */
+.stagebar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; padding: 8px 0; min-height: 44px; }
+.class-filter:empty, .select-all:empty { display: none; }
+.list-header { display: contents; }
+.step-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 6px 8px; margin-left: auto; min-width: 0; }
+.step-actions:empty { display: none; }
 
-.list-header { display: flex; flex-wrap: wrap; gap: 8px; }
-.seg { display: inline-flex; }
-.seg button { border-radius: 0; margin-left: -1px; }
-.seg button:first-child { border-radius: var(--radius-sm) 0 0 var(--radius-sm); margin-left: 0; }
-.seg button:last-child { border-radius: 0 var(--radius-sm) var(--radius-sm) 0; }
-.seg button[aria-pressed="true"] { background: var(--secondary-bg); border-color: var(--secondary-border); color: var(--secondary-text); position: relative; }
+/* AI class filter: the same tray as the steps above, so one control grammar reads as "pick one". */
+.seg { display: inline-flex; gap: 2px; padding: 2px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface-muted); }
+.seg button { height: 24px; padding: 0 8px; border: 0; border-radius: 6px; background: none; color: var(--text-2); font-variant-numeric: tabular-nums; }
+.seg button:hover { background: var(--surface); }
+.seg button[aria-pressed="true"] { background: var(--surface); color: var(--text); font-weight: 600; box-shadow: 0 1px 2px rgba(76, 79, 105, 0.18); }
+
+/* Same tint as a selected card, so the bar reads as "these cards". The destructive 取消收藏 sits last, set apart. */
+.selbar { flex-basis: 100%; display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; padding: 4px 4px 4px 12px; border-radius: var(--radius-sm); background: var(--secondary-bg); }
+.sel-count { font-weight: 600; font-variant-numeric: tabular-nums; }
+.selbar .link { height: 28px; }
+.sel-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 6px; margin-left: auto; }
+.sel-actions:empty { display: none; }
+.sel-actions .danger { margin-left: 10px; }
 
 .list { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; padding: 2px 4px 40px 2px; }
 
@@ -239,7 +250,8 @@ button.icon { width: 26px; height: 24px; padding: 0; }
 
 .tagbar { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
 /* 标签 opens tag management and AI batch tagging; the chips after it filter by tag. */
-.tag-btn { height: 24px; padding: 0 8px; margin-right: 2px; font-size: var(--fs-xs); }
+/* Same height and type as the AI class tray (.seg) beside it: both are top-level filters. */
+.tag-btn { height: 30px; padding: 0 12px; margin-right: 4px; font-size: var(--fs-sm); }
 .ghost-btn { height: 28px; padding: 0 8px; border-color: transparent; background: transparent; color: var(--text-2); }
 .ghost-btn:hover { border-color: var(--border); }
 .tagfilter { display: contents; }
@@ -259,9 +271,7 @@ button.icon { width: 26px; height: 24px; padding: 0; }
 .chip.on { background: color-mix(in srgb, var(--c) 20%, transparent); }
 .chips { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
 
-/* The criteria note is capped and ends in an ellipsis (full text in its title).
-   An empty row keeps its height, so the list below does not move between tabs. */
-.list-header { align-items: center; justify-content: flex-end; flex: 1 1 auto; min-width: 0; min-height: 28px; }
+/* The criteria note is capped and ends in an ellipsis (full text in its title). */
 .run-line { max-width: 24em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); font-size: var(--fs-xs); }
 .key { font: inherit; margin-left: 4px; opacity: 0.7; }
 @media (hover: none) { .key { display: none; } }
@@ -402,7 +412,7 @@ dialog.wide { width: min(880px, calc(100% - 32px)); }
 @media (max-width: 1099px) {
   .tabs { order: 1; }
   .topbar .spacer { display: none; }
-  .search { flex-grow: 1; }
+  .search { flex-grow: 1; max-width: none; }
   .tabs { flex-basis: 100%; justify-content: flex-start; overflow-x: auto; }
   .tabs button, .tabs .arrow, .tabs .tab-sep { flex: none; }
 }
