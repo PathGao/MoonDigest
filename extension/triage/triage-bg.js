@@ -786,7 +786,7 @@ const TRIAGE_HANDLERS = {
   },
 
   // Every video id of a folder in one request, no paging; 所有收藏夹 compares it with the cached list.
-  "seen-sync": ({ force } = {}) => seenSync({ force: force === true }),
+  "triage-seen-sync": ({ force } = {}) => seenSync({ force: force === true }),
 
   "triage-folder-ids": async ({ mediaId }) => {
     if (!mediaId) throw triageError("缺少 mediaId");

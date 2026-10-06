@@ -674,8 +674,8 @@ function setSeenCfg(v) {
   const mark = v.seenMark === true;
   S.seenCfg = { on: bar || mark, bar, mark, threshold: Number(v.seenThreshold) || 80, style: v.seenStyle === "veil" ? "veil" : "badge" };
   document.documentElement.dataset.seenStyle = S.seenCfg.style;
-  // The background reads only what is new, at most every 10 minutes (seen-sync); its writes come back through followSeen.
-  if (S.seenCfg.on) send({ type: "seen-sync" });
+  // The background reads only what is new, at most every 10 minutes (triage-seen-sync); its writes come back through followSeen.
+  if (S.seenCfg.on) send({ type: "triage-seen-sync" });
 }
 // Reads the listed videos' history entries not read yet; one key per video, so a folder costs a few KB.
 async function loadSeen(token) {
@@ -3296,7 +3296,7 @@ function bindEvents() {
     openFolder(REMOVED);
   });
   el.refreshBtn.addEventListener("click", () => {
-    if (S.seenCfg.on) send({ type: "seen-sync", force: true });
+    if (S.seenCfg.on) send({ type: "triage-seen-sync", force: true });
     if (inFolderView() && writingTo(S.mediaId)) toast("这个收藏夹正在批量修改，结束后自动刷新");
     S.mediaId === ALL ? refreshAll() : S.mediaId === REMOVED ? openFolder(REMOVED) : S.mediaId && syncFolder({ force: true });
   });

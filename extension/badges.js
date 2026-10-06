@@ -160,7 +160,7 @@
     }
   }
 
-  // One key per video on screen, a few KB per page; the history itself is read by the background (seen-sync).
+  // One key per video on screen, a few KB per page; the history itself is read by the background (triage-seen-sync).
   async function loadSeen(g) {
     const want = [...new Set([...document.querySelectorAll(SEL)].map((a) => bvidFromHref(a.getAttribute("href"))).filter((b) => b && !seenCache.has(b)))];
     if (!want.length && watched) return;
@@ -346,7 +346,7 @@
     const mark = v.seenMark === true;
     seenCfg = { on: bar || mark, bar, mark, threshold: Number(v.seenThreshold) || 80, style: v.seenStyle === "veil" ? "veil" : "badge" };
     // Only the top frame asks; the background reads what is new at most every 10 minutes.
-    if (seenCfg.on && !before && window === window.top) chrome.runtime.sendMessage({ type: "seen-sync" }).catch(() => {});
+    if (seenCfg.on && !before && window === window.top) chrome.runtime.sendMessage({ type: "triage-seen-sync" }).catch(() => {});
     const on = triageOn || seenCfg.on;
     if (on && enabled) {
       gen++;

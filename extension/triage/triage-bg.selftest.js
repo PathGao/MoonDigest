@@ -426,27 +426,29 @@ assert.throws(() => t.triageParseCommand('{"new_tags":[', cmdItems, cmdTags, {})
       return { ok: true, status: 200, json: async () => body };
     };
     const H = vm.runInContext("TRIAGE_HANDLERS", ctx);
-    assert.deepStrictEqual(plain(await H["seen-sync"]()), { skipped: "off" });
+    // The message listener only routes triage-* types: a handler named otherwise is never reached.
+    assert.deepStrictEqual(Object.keys(H).filter((k) => !k.startsWith("triage-")), []);
+    assert.deepStrictEqual(plain(await H["triage-seen-sync"]()), { skipped: "off" });
     assert.strictEqual(urls.length, 0, "nothing is read with both switches off");
     sync = { seenBar: true };
     const T = Math.floor(Date.now() / 1000) - 1000; // view_at in seconds, recent enough to survive the prune
     const page = (list, max) => ({ code: 0, data: { list, cursor: { max, view_at: 1, business: "archive" } } });
     st.seen_BVa = [95, T - 500];
     pages = [page([h("BVa", T + 300, 50), h("BVb", T + 290, 100)], 7), page([h("BVc", T + 280, -1)], 0)];
-    const first = await H["seen-sync"]();
+    const first = await H["triage-seen-sync"]();
     assert.strictEqual(first.pages, 2);
     assert.deepStrictEqual([plain(st.seen_BVa), plain(st.seen_BVb), plain(st.seen_BVc)], [[95, T + 300], [100, T + 290], [100, T + 280]], "keeps the higher stored percent");
     assert.strictEqual(st.triage_seen_meta.newest, T + 300);
-    assert.deepStrictEqual(plain(await H["seen-sync"]()), { skipped: "recent" });
+    assert.deepStrictEqual(plain(await H["triage-seen-sync"]()), { skipped: "recent" });
     pages = [page([h("BVd", T + 310, 30), h("BVa", T + 300, 50)], 9)];
-    const again = await H["seen-sync"]({ force: true });
+    const again = await H["triage-seen-sync"]({ force: true });
     assert.strictEqual(again.pages, 1, "a later read stops at what it already has");
     assert.deepStrictEqual(plain(st.seen_BVd), [30, T + 310]);
     pages = [{ code: -412, message: "请求被拦截" }];
-    await assert.rejects(H["seen-sync"]({ force: true }), (e) => e.code === "THROTTLED");
+    await assert.rejects(H["triage-seen-sync"]({ force: true }), (e) => e.code === "THROTTLED");
     assert.ok(st.triage_seen_meta.backoffUntil > Date.now(), "risk control backs off");
     const before = urls.length;
-    assert.deepStrictEqual(plain(await H["seen-sync"]({ force: true })), { skipped: "throttled" });
+    assert.deepStrictEqual(plain(await H["triage-seen-sync"]({ force: true })), { skipped: "throttled" });
     assert.strictEqual(urls.length, before, "no request while backing off");
   }
 
