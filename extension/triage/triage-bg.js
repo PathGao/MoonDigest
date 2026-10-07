@@ -540,11 +540,6 @@ async function triageAnalyze({ bvid, force, criteria, folder }) {
 // 单次 AI 请求的超时（毫秒）。思考模式慢得多；两档都要短于 MV3 单个消息事件约 5 分钟的上限
 const TRIAGE_AI_TIMEOUT_MS = { normal: 120000, thinking: 240000 };
 
-// DeepSeek、智谱（国内/国际）、Kimi（国内/国际）用同一个 thinking 参数开关思考；其他平台不发该参数
-function supportsThinkingToggle(baseUrl) {
-  return /^https?:\/\/(api\.deepseek\.com|open\.bigmodel\.cn|api\.z\.ai|api\.moonshot\.(cn|ai))(\/|:|$)/i.test(String(baseUrl || ""));
-}
-
 // 非流式 chat/completions，只取 message.content（忽略 reasoning_content）
 async function triageChat(messages, maxTokens, thinking = false) {
   const provider = (await loadAiProviders()).find((p) => p.enabled !== false);

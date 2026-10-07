@@ -7,6 +7,10 @@ const assert = require("assert");
 const ctx = vm.createContext({ TextEncoder, URL, URLSearchParams, console, setTimeout, clearTimeout, AbortController });
 // Browser order: background.js imports limits.js and sites.js before triage-bg.js.
 for (const file of ["../limits.js", "../sites.js", "../note.js", "triage-bg.js"]) vm.runInContext(fs.readFileSync(path.join(__dirname, file), "utf8"), ctx);
+// background.js owns supportsThinkingToggle; lift just that function.
+const bg = fs.readFileSync(path.join(__dirname, "../background.js"), "utf8");
+const at = bg.indexOf("function supportsThinkingToggle(");
+vm.runInContext(bg.slice(at, bg.indexOf("\n}\n", at) + 2), ctx);
 const t = ctx;
 const plain = (x) => JSON.parse(JSON.stringify(x));
 
