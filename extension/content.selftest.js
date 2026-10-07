@@ -237,6 +237,25 @@ const settle = async () => {
     t.stepReader("close");
   }
 
+  // 跟随已停 shows after a manual scroll only while playing: a paused video sends no ticks to clear it. The scroll guard holds either way.
+  {
+    const attrs = {};
+    const view = { getAttribute: (k) => attrs[k], setAttribute: (k, v) => (attrs[k] = v) };
+    const realGet = t.document.getElementById;
+    t.document.getElementById = () => view;
+    state.readingAutoScroll = true;
+    state.readingVideoEl = { paused: true };
+    t.noteManualReaderInteraction();
+    assert.ok(state.readingManualScrollPauseUntil > Date.now(), "the guard is set while paused");
+    assert.strictEqual(attrs["data-boc-reader-follow"], "auto", "no hint while paused");
+    state.readingVideoEl.paused = false;
+    t.updateReaderFollowState();
+    assert.strictEqual(attrs["data-boc-reader-follow"], "manual", "the hint shows once playing within the guard");
+    t.document.getElementById = realGet;
+    state.readingVideoEl = null;
+    state.readingManualScrollPauseUntil = 0;
+  }
+
   console.log("content selftest: all passed");
 })().catch((e) => {
   console.error(e);

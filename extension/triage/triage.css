@@ -442,6 +442,9 @@ button.icon { width: 26px; height: 24px; padding: 0; }
 .chip.on { background: color-mix(in srgb, var(--c) 20%, transparent); }
 .chip.invalid { --c: var(--danger); color: var(--danger); }
 .chips { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
+/* A card's own tags are labels, not filters: plain tinted text, so they do not read as buttons. */
+.card-body > .chips { gap: 4px 10px; }
+.card-body > .chips .chip { height: auto; padding: 0; border: 0; background: none; color: color-mix(in srgb, var(--c) 70%, var(--text)); cursor: default; }
 
 /* The criteria note is capped and ends in an ellipsis (full text in its title). */
 .run-line { max-width: 24em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); font-size: var(--fs-xs); }

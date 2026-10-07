@@ -835,7 +835,7 @@ body[data-boc-reader-mode="1"] .boc-reading-main {
 
 /* The transcript column lives in #boc-reading-inline-host, outside #boc-reading-view, hence :has(). */
 body[data-boc-reader-mode="1"]:has(#boc-reading-view[data-boc-reader-follow="manual"]) .boc-reading-main::before {
-  content: "暂停跟随";
+  content: "跟随已停";
   position: sticky;
   top: 6px;
   z-index: 4;
