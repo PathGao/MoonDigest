@@ -22,6 +22,7 @@ const sent = [];
 const ctx = vm.createContext({
   console,
   structuredClone,
+  TextEncoder,
   setTimeout: (f) => setImmediate(f),
   clearTimeout: (id) => clearImmediate(id),
   document: { getElementById: stubEl, querySelector: () => null, querySelectorAll: () => [], addEventListener() {} },
@@ -207,6 +208,51 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   // B12: titles with | [[ ]] or newlines cannot end the index-note link early.
   assert.strictEqual(t.wikiLink("B站/2026-10-02-a_b.md", "a|b [[c]]\nd"), "[[B站/2026-10-02-a_b|a b c d]]");
   assert.strictEqual(t.wikiLink("x.md", "|||"), "[[x|x]]");
+
+  // 下载 .zip: the index links each note by a relative Markdown link, notes keep their frontmatter, and the
+  // archive passes the system unzip with its Chinese names intact.
+  {
+    const { execFileSync } = require("child_process");
+    const os = require("os");
+    t.S.analyses.BVz1 = { oneLiner: "一句\n总结" };
+    const note = "---\ntitle: \"窗口函数\"\n---\n\n## 字幕\n";
+    const files = t.zipNotes("干货", [
+      { bvid: "BVz1", title: "窗口 [函数]", filename: "2026-10-08-窗口 函数.md", markdown: note },
+      { bvid: "BVz2", title: "同名", filename: "2026-10-08-窗口 函数.md", markdown: "二" },
+      { bvid: "BVz3", title: "撞索引", filename: "干货.md", markdown: "三" }
+    ]);
+    assert.deepStrictEqual(plain(files.map((f) => f.name)), ["干货.md", "2026-10-08-窗口 函数.md", "2026-10-08-窗口 函数 (2).md", "干货 (2).md"]);
+    assert.ok(files[0].text.includes("- [窗口 \\[函数\\]](<2026-10-08-窗口 函数.md>) 一句 总结\n"), files[0].text);
+    assert.ok(files[0].text.includes("- [同名](<2026-10-08-窗口 函数 (2).md>)"), files[0].text);
+    assert.strictEqual(files[1].text, note, "frontmatter stays frontmatter");
+
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "triage-zip-"));
+    const zip = path.join(dir, "干货.zip");
+    fs.writeFileSync(zip, t.zipStored(files));
+    try {
+      assert.match(execFileSync("/usr/bin/unzip", ["-t", zip], { encoding: "utf8" }), /No errors detected/);
+      execFileSync("/usr/bin/unzip", ["-q", zip, "-d", path.join(dir, "out")]);
+      assert.deepStrictEqual(fs.readdirSync(path.join(dir, "out")).sort(), plain(files.map((f) => f.name)).sort(), "extracts under the same names");
+      assert.strictEqual(fs.statSync(path.join(dir, "out", "干货.md")).mode & 0o777, 0o644, "extracted notes are readable");
+      for (const f of files) assert.strictEqual(execFileSync("/usr/bin/unzip", ["-p", zip, f.name], { encoding: "utf8" }), f.text, `unzip finds ${f.name} by its UTF-8 name`);
+      // The central directory read back by hand: UTF-8 flag, stored, CRC and name per entry.
+      const buf = fs.readFileSync(zip);
+      const end = buf.length - 22;
+      assert.strictEqual(buf.readUInt32LE(end), 0x06054b50);
+      let p = buf.readUInt32LE(end + 16);
+      for (const f of files) {
+        assert.strictEqual(buf.readUInt32LE(p), 0x02014b50);
+        assert.strictEqual(buf.readUInt16LE(p + 8) & 0x0800, 0x0800, "bit 11 set");
+        assert.strictEqual(buf.readUInt16LE(p + 10), 0, "stored");
+        assert.strictEqual(buf.readUInt32LE(p + 16), require("zlib").crc32(f.text));
+        const n = buf.readUInt16LE(p + 28);
+        assert.strictEqual(buf.toString("utf8", p + 46, p + 46 + n), f.name);
+        p += 46 + n;
+      }
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  }
 
   // verdictOf precedence: invalid > done analysis > title result; invalid keeps the AI's reason and step.
   const v = { bvid: "BVv", title: "v" };

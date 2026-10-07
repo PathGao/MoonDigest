@@ -3322,9 +3322,11 @@ function renderWriteScope() {
   const busy = S.write.running;
   const obsidianOff = document.body.classList.contains("obsidian-off");
   el.writeScopeCount.textContent = notes
-    ? `共 ${n} 个视频，逐个抓字幕，间隔 ${S.settings.triageIntervalSec} 秒。下载 .md 合成一个文件${obsidianOff ? "" : "；写入 Obsidian 每个视频一篇，另写一篇以收藏夹命名的索引"}。`
+    ? `共 ${n} 个视频，逐个抓字幕，间隔 ${S.settings.triageIntervalSec} 秒。下载 .zip 每个视频一篇，另附索引${obsidianOff ? "" : "；写入 Obsidian 每个视频一篇，另写一篇以收藏夹命名的索引"}。`
     : `共 ${n} 个视频，合成一篇：链接、AI 总结、标签和你的备注。`;
   el.writeOverwriteRow.hidden = !notes;
+  el.writeMdBtn.textContent = notes ? "下载 .zip" : "下载 .md";
+  el.writeMdBtn.setAttribute("aria-label", el.writeMdBtn.textContent);
   el.writeCopyBtn.hidden = notes || busy;
   el.writeRunBtn.hidden = el.writeMdBtn.hidden = busy;
   el.writeStopBtn.hidden = !busy;
@@ -3371,13 +3373,73 @@ function safeNoteName(name) {
 }
 
 const oneLine = (s) => String(s ?? "").replace(/\s+/g, " ").trim();
+// A relative link inside the zip; <> keeps spaces in the filename (note filenames never hold < or >).
+const mdLink = (path, title) => `[${oneLine(title).replace(/[[\]\\]/g, "\\$&") || path}](<${path}>)`;
 // | [ ] or a newline in the alias would end the link early; the path is already a safe note filename.
 function wikiLink(path, title) {
   const target = String(path).replace(/\.md$/, "");
   return `[[${target}|${oneLine(String(title ?? "").replace(/[|[\]]/g, " ")) || target}]]`;
 }
 
-// md: build the same notes but download them as one file instead of writing to the vault.
+// The 逐个视频笔记 index, the same in the vault and in the zip; only the link form differs.
+function indexMarkdown(written, link) {
+  const lines = [`# ${folderTitle()}`, "", `${stamp(new Date(), false)} · ${written.length} 篇`, ""];
+  for (const w of written) {
+    const oneLiner = S.analyses[w.bvid]?.oneLiner;
+    lines.push(`- ${link(w.path, w.title)}${oneLiner ? ` ${oneLine(oneLiner)}` : ""}`);
+  }
+  return lines.join("\n");
+}
+
+const CRC_TABLE = Uint32Array.from({ length: 256 }, (_, n) => {
+  for (let k = 0; k < 8; k++) n = n & 1 ? 0xedb88320 ^ (n >>> 1) : n >>> 1;
+  return n >>> 0;
+});
+function crc32(bytes) {
+  let c = ~0;
+  for (const b of bytes) c = CRC_TABLE[(c ^ b) & 0xff] ^ (c >>> 8);
+  return ~c >>> 0;
+}
+
+// files: [{ name, text }] → zip bytes. Stored (no compression); flag bit 11 marks the names as UTF-8.
+// "Made by" Unix with mode 0644: made by DOS, Info-ZIP unzip (macOS's) reads the names as a DOS code page and mangles them.
+function zipStored(files, now = new Date()) {
+  const enc = new TextEncoder();
+  const entries = files.map((f) => ({ name: enc.encode(f.name), data: enc.encode(f.text) }));
+  const localSize = entries.reduce((n, e) => n + 30 + e.name.length + e.data.length, 0);
+  const centralSize = entries.reduce((n, e) => n + 46 + e.name.length, 0);
+  const out = new Uint8Array(localSize + centralSize + 22);
+  const view = new DataView(out.buffer);
+  const put = (at, fields) => fields.reduce((p, [size, value]) => (size === 2 ? view.setUint16(p, value, true) : view.setUint32(p, value, true), p + size), at);
+  const time = (now.getHours() << 11) | (now.getMinutes() << 5) | (now.getSeconds() >> 1);
+  const date = ((now.getFullYear() - 1980) << 9) | ((now.getMonth() + 1) << 5) | now.getDate();
+  let local = 0;
+  let central = localSize;
+  for (const e of entries) {
+    const common = [[2, 20], [2, 0x0800], [2, 0], [2, time], [2, date], [4, crc32(e.data)], [4, e.data.length], [4, e.data.length], [2, e.name.length], [2, 0]];
+    out.set(e.name, put(local, [[4, 0x04034b50], ...common]));
+    out.set(e.data, local + 30 + e.name.length);
+    out.set(e.name, put(central, [[4, 0x02014b50], [2, 0x0314], ...common, [2, 0], [2, 0], [2, 0], [4, 0x81a40000], [4, local]]));
+    local += 30 + e.name.length + e.data.length;
+    central += 46 + e.name.length;
+  }
+  put(central, [[4, 0x06054b50], [2, 0], [2, 0], [2, entries.length], [2, entries.length], [4, centralSize], [4, localSize], [2, 0]]);
+  return out;
+}
+
+// The zip's files: the index named after the folder, then each note under its vault filename (a repeat gets " (2)").
+function zipNotes(base, written) {
+  const used = new Set([`${base}.md`]);
+  const notes = written.map((w) => {
+    let path = w.filename;
+    for (let i = 2; used.has(path); i++) path = w.filename.replace(/\.md$/, ` (${i}).md`);
+    used.add(path);
+    return { ...w, path };
+  });
+  return [{ name: `${base}.md`, text: indexMarkdown(notes, mdLink) }, ...notes.map((w) => ({ name: w.path, text: w.markdown }))];
+}
+
+// md: build the same notes but download them as a zip (one note each plus the index) instead of writing to the vault.
 async function runWrite(md = false) {
   const items = writeScopeItems();
   const overwrite = el.writeOverwrite.checked;
@@ -3398,16 +3460,11 @@ async function runWrite(md = false) {
   }
   let indexPath = "";
   if (md && written.length && token === S.folderToken) {
-    indexPath = `${safeNoteName(folderTitle())}.md`;
-    const notes = written.map((w) => `# ${w.title}\n\n${w.markdown.replace(/^---\n([\s\S]*?)\n---\n/, "```yaml\n$1\n```\n")}`);
-    BocDownload.text(indexPath, [`# ${folderTitle()}`, `${stamp(new Date(), false)} · ${written.length} 篇`, ...notes].join("\n\n"));
+    const base = safeNoteName(folderTitle());
+    indexPath = `${base}.zip`;
+    BocDownload.text(indexPath, zipStored(zipNotes(base, written)), "application/zip");
   } else if (written.length && keepGoing()) {
-    const lines = [`# ${folderTitle()}`, "", `${stamp(new Date(), false)} · ${written.length} 篇`, ""];
-    for (const w of written) {
-      const oneLiner = S.analyses[w.bvid]?.oneLiner;
-      lines.push(`- ${wikiLink(w.path, w.title)}${oneLiner ? ` ${oneLine(oneLiner)}` : ""}`);
-    }
-    const r = await send({ type: "triage-export", filename: `${safeNoteName(folderTitle())}.md`, markdown: lines.join("\n") });
+    const r = await send({ type: "triage-export", filename: `${safeNoteName(folderTitle())}.md`, markdown: indexMarkdown(written, wikiLink) });
     if (r.ok) indexPath = r.data?.path || "";
     else failed.push(`索引：${r.error}`);
   }
