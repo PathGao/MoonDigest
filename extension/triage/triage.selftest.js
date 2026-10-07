@@ -205,7 +205,7 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   assert.strictEqual(t.wikiLink("B站/2026-10-02-a_b.md", "a|b [[c]]\nd"), "[[B站/2026-10-02-a_b|a b c d]]");
   assert.strictEqual(t.wikiLink("x.md", "|||"), "[[x|x]]");
 
-  // verdictOf precedence: invalid > done analysis > title result.
+  // verdictOf precedence: invalid > done analysis > title result; invalid keeps the AI's reason and step.
   const v = { bvid: "BVv", title: "v" };
   Object.assign(t.S, { analyses: {}, titleRes: {} });
   assert.deepStrictEqual(plain(t.verdictOf(v)), { verdict: "none", reason: "", stage: -1, failed: "" });
@@ -214,7 +214,8 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   assert.deepStrictEqual(plain(t.verdictOf(v)), { verdict: "keep", reason: "标题", stage: 1, low: true, failed: "超时" });
   t.S.analyses.BVv = { status: "done", verdict: "drop", reason: "字幕" };
   assert.strictEqual(t.verdictOf(v).stage, 2);
-  assert.strictEqual(t.verdictOf({ ...v, invalid: true }).reason, "视频已失效");
+  assert.deepStrictEqual(plain(t.verdictOf({ ...v, invalid: true })), { verdict: "drop", reason: "视频已失效。AI 原理由：字幕", stage: 2, failed: "" });
+  assert.strictEqual(t.verdictOf({ bvid: "BVnone", invalid: true }).reason, "视频已失效");
 
   // Progress tabs follow which AI steps ran: no 粗看 → 未分析, a 粗看 class or invalid → 粗看完成,
   // a done 细看 → 细看完成, processed → 处理完成. Class and confidence never move a card.
@@ -430,6 +431,22 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   assert.deepStrictEqual(plain(store[t.K.folderCriteria]), {});
   t.renderListHeader(t.visibleItems());
   assert.ok(t.el.listHeader.innerHTML.includes("未设判断标准") && t.el.listHeader.innerHTML.includes(">写判断标准<"));
+  // Clearing the 判断标准 offered 重新粗看 (askConfirm says yes here); stop it before the next block swaps the state.
+  await new Promise((r) => setTimeout(r, 0));
+  t.S.stage1.stop = true;
+  while (t.S.stage1.running) await new Promise((r) => setTimeout(r, 0));
+
+  // 重新粗看 keeps the old result until a new one arrives: a failed run leaves the card as it was.
+  t.S.folderCriteria = { J: "新标准" };
+  t.S.titleRes.BV500 = { verdict: "keep", reason: "旧理由", confidence: "high", criteria: "旧标准" };
+  handlers["triage-classify-titles"] = () => ({ ok: false, error: "AI 出错" });
+  await t.runStage1(t.staleCoarse());
+  assert.strictEqual(t.S.titleRes.BV500?.reason, "旧理由", "a failed 重新粗看 keeps the old 粗看");
+  assert.strictEqual(sent.at(-1).criteria, "新标准");
+  handlers["triage-classify-titles"] = () => ({ ok: true, data: { results: { BV500: { verdict: "drop", reason: "新理由", confidence: "high" } } } });
+  await t.runStage1(t.staleCoarse());
+  assert.deepStrictEqual([t.S.titleRes.BV500.reason, t.S.titleRes.BV500.criteria], ["新理由", "新标准"], "the new result replaces it");
+  Object.assign(t.S, { titleRes: {}, folderCriteria: {} });
 
   // 移动/复制 is offered for a selection in any tab, 未分析 too.
   openFake("Z", [item(700)]);
@@ -712,9 +729,12 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   openFake("all", [shared]);
   t.S.folderDecisions = { A: {}, B: {} };
   t.S.folders = t.S.allFolders = [{ id: "A", title: "甲" }, { id: "B", title: "乙" }];
+  const savedTags = { tags: t.S.tags, videoTags: t.S.videoTags };
+  Object.assign(t.S, { tags: [{ id: "ta", name: "甲标", color: "#1", folder: "A" }, { id: "tb", name: "乙标", color: "#2", folder: "B" }], videoTags: { BV7: ["ta", "tb"] } });
   t.pickUnfavFolders = async () => ["B"];
   handlers["triage-unfav"] = () => ({ ok: true });
   await t.decide("BV7", "unfav");
+  assert.deepStrictEqual(plain(t.tagIdsOf("BV7")), ["ta", "tb"], "the folder it just left keeps its tags on the card");
   assert.deepStrictEqual(plain(sent.at(-1)), { type: "triage-unfav", mediaId: "B", aids: [1007] });
   assert.deepStrictEqual(plain(shared.folders), ["A"]);
   assert.strictEqual(store[t.K.decisions("B")].BV7.action, "unfav");
@@ -724,6 +744,8 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   assert.deepStrictEqual(plain(sent.at(-1)), { type: "triage-refav", mediaId: "B", aid: 1007 });
   assert.deepStrictEqual(plain(shared.folders), ["A", "B"]);
   assert.ok(!("BV7" in store[t.K.decisions("B")]));
+  assert.deepStrictEqual(plain(shared.left), [], "undo clears the left folder");
+  Object.assign(t.S, savedTags);
 
   // 保留 belongs to the video: the one-time split moves every folder's keeps into triage_kept, newest first.
   const split = plain(t.splitKept({
