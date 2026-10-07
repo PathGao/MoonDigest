@@ -124,9 +124,9 @@ function triageCommandLine(item, n) {
   return [n, clean(item.title), clean(item.upper), dur, list(item.currentTags).join("、"), clean(item.oneLiner), list(item.points).join("；")].join("|");
 }
 
-// 批量打标签的提案只改标签：add 只留已有标签或本次新建的标签（至多 maxNewTags 个），remove 只留视频现有标签；
+// 批量打标签的提案只改标签：add 只留已有标签或本次新建的标签（至多 maxNewTags 个），remove 只留视频现有标签且要 allowRemove；
 // 其他字段（如 verdict）一律丢弃，无改动的视频不返回
-function triageParseCommand(content, items, tags, { maxNewTags = 5 } = {}) {
+function triageParseCommand(content, items, tags, { maxNewTags = 5, allowRemove = false } = {}) {
   const obj = triageExtractJson(content, "{");
   const existing = new Set(triageTagNames(tags));
   const newTags = [];
@@ -149,7 +149,7 @@ function triageParseCommand(content, items, tags, { maxNewTags = 5 } = {}) {
     const pick = (arr, ok) => [...new Set((Array.isArray(arr) ? arr : []).map((x) => triageCleanTagName(x)))].filter((x) => x && ok(x));
     const a = {
       add: pick(r.add, (x) => valid.has(x) && !current.has(x)),
-      remove: pick(r.remove, (x) => current.has(x)),
+      remove: allowRemove ? pick(r.remove, (x) => current.has(x)) : [],
       reason: String(r.reason ?? "").trim()
     };
     if (a.add.length || a.remove.length) assignments[item.bvid] = a;
@@ -217,7 +217,7 @@ function triageBuildMessages(meta, subtitle, comments, criteria, folder) {
   ];
 }
 
-function triageBuildCommandMessages({ instruction, tags, items, maxNewTags = 5 }) {
+function triageBuildCommandMessages({ instruction, tags, items, maxNewTags = 5, allowRemove = false }) {
   const lines = triageTagLines(tags);
   const example = `{"new_tags": ["标签名"], "items": [{"i": 序号, "add": ["标签"], "remove": ["标签"], "reason": "≤20字"}], "note": "≤60字"}`;
   const system = [
@@ -228,7 +228,7 @@ function triageBuildCommandMessages({ instruction, tags, items, maxNewTags = 5 }
     maxNewTags > 0
       ? `- 可以新建标签，至多 ${maxNewTags} 个，名称 ≤12字、不含逗号；已有标签能用就先用，不要重复造。`
       : "- 这次不能新建标签，new_tags 留空，只用已有标签。",
-    "- remove 只能填该视频“现有标签”里的名称。",
+    allowRemove ? "- remove 只能填该视频“现有标签”里的名称。" : "- 这次不能去掉视频已有的标签，remove 留空，只加标签。",
     "- 标签带说明（冒号后）的，按说明决定给视频加上还是去掉这个标签。",
     "- 一个视频可以加多个标签，也可以一个都不加；指令或标签说明要求只选一个时（比如分档：入门 / 进阶 / 硬核），每个视频只加其中一个。",
     "- reason ≤20字。",
@@ -471,7 +471,8 @@ const TRIAGE_SETTINGS_DEFAULTS = {
   triageTitleMaxTokens: 0,
   triageAnalyzeMaxTokens: 0,
   triageTagLimit: 10,
-  triageAiNewTagMax: 5
+  triageAiNewTagMax: 5,
+  triageAiRemoveTags: false
 };
 
 // 输出上限：用户填了正数就用用户的，否则按是否思考自动（思考 token 计入 max_tokens）
@@ -619,13 +620,13 @@ async function triageClassifyTitles({ items, criteria, folder }) {
 }
 
 // 协作打标签：只返回提案，不缓存。新建标签至多 maxNewTags 个（收藏夹剩余名额与分拣设置里 AI 新建上限取小）
-async function triageAiCommand({ instruction, items, tags, maxNewTags = 5 }) {
+async function triageAiCommand({ instruction, items, tags, maxNewTags = 5, allowRemove = false }) {
   const text = String(instruction ?? "").trim();
   if (!text) throw triageError("缺少指令");
   const list = (Array.isArray(items) ? items : []).filter((it) => it && it.bvid);
   if (!list.length) throw triageError("缺少 items");
   const ai = await triageAiSettings();
-  const opts = { maxNewTags: Math.max(0, Math.min(50, Math.floor(Number(maxNewTags)) || 0)) };
+  const opts = { maxNewTags: Math.max(0, Math.min(50, Math.floor(Number(maxNewTags)) || 0)), allowRemove: allowRemove === true };
   const { content } = await triageChat(
     triageBuildCommandMessages({ instruction: text, tags, items: list, ...opts }),
     triageMaxTokens("command", list.length, ai),
@@ -892,6 +893,7 @@ const TRIAGE_HANDLERS = {
       triageAnalyzeMaxTokens: Number(s.triageAnalyzeMaxTokens) > 0 ? Number(s.triageAnalyzeMaxTokens) : 0,
       triageTagLimit: Math.max(1, Math.min(50, Math.floor(Number(s.triageTagLimit)) || 10)),
       triageAiNewTagMax: Number.isInteger(s.triageAiNewTagMax) ? Math.max(0, Math.min(50, s.triageAiNewTagMax)) : 5,
+      triageAiRemoveTags: s.triageAiRemoveTags === true,
       // 开启思考 only reaches these platforms (triageChat), so the page shows the switch only for them.
       thinkingToggle: supportsThinkingToggle(provider?.baseUrl)
     };

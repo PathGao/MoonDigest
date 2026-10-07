@@ -292,8 +292,6 @@ html[data-seen-style="veil"] .cover-wrap.seen .seen-veil { display: flex; }
 /* ---------- card body, shared by rows and the grid ---------- */
 .card { position: relative; }
 /* Processed cards stay readable: muted title and gray cover instead of fading the whole card. */
-.card.decided .title { color: var(--muted); }
-.card.decided .cover { filter: grayscale(1); }
 .card-body { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
 .title {
   align-self: flex-start;
@@ -375,6 +373,7 @@ button.icon { width: 26px; height: 24px; padding: 0; }
 .list.grid .title { font-size: var(--fs-md); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; height: 42px; }
 .list.grid .verdict-row .badge:not(.watched), .list.grid .verdict-row .reason { display: none; }
 .list.grid .verdict-row:not(:has(.watched, .fail-text)) { display: none; }
+.verdict-row:empty { display: none; }
 .list.grid .card-foot:last-child { margin-top: 4px; }
 .list.grid .cover-wrap, .list.grid .actions { transition: transform 0.12s, box-shadow 0.12s; }
 .list.grid .card.focused .cover-wrap { transform: translateY(-2px); box-shadow: 0 6px 16px rgba(0, 0, 0, 0.18); }
@@ -587,6 +586,14 @@ dialog.wide { width: min(880px, calc(100% - 32px)); }
 .recent-batch { display: flex; align-items: center; gap: 8px; margin: 0 0 6px; }
 .recent-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
+.settings-cols { display: grid; gap: 6px 20px; }
+.settings-cols > div { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+/* 分拣设置 with its AI part: folders on the left, the rest on the right; the first run asks only for folders. */
+#settingsDialog:has(#settingsAi:not([hidden])) { width: min(760px, calc(100% - 32px)); }
+@media (min-width: 640px) {
+  .settings-cols:has(#settingsAi:not([hidden])) { grid-template-columns: 1fr 1fr; }
+  .settings-cols:has(#settingsAi:not([hidden])) .folder-toggles { max-height: 420px; }
+}
 .folder-toggles { display: grid; gap: 4px; max-height: 220px; overflow-y: auto; padding: 6px 8px; border: 1px solid var(--border); border-radius: 8px; }
 .pick-folders { max-width: 420px; margin: 40px auto; text-align: center; }
 .pick-folders p { margin: 0 0 10px; }
