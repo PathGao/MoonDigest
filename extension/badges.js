@@ -245,7 +245,7 @@
     const target = titleBox(a);
     if (!target) return;
     // Favorites pages show every user tag; elsewhere a tag chip appears only when there is no verdict.
-    const tags = isFavPage() ? info.tags : info.label ? [] : info.tags.slice(0, 1);
+    const tags = isFavPage() ? info.tags : info.verdict ? [] : info.tags.slice(0, 1);
     const badge = badgeEl(info, b, tags);
     // Some titles hang their opening bracket with a negative text-indent, which would clip the badge.
     const indent = parseFloat(getComputedStyle(target).textIndent);

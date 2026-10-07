@@ -790,7 +790,7 @@ function coverHtml(it) {
   const faint = !seen && known && S.seenCfg.mark;
   const label = seenWords(known, seen);
   const mark = seen ? `<span class="seen-veil">${label}</span><span class="seen-tag">${label}</span>` : faint ? `<span class="seen-tag faint">${label}</span>` : "";
-  // Once the user has decided, their decision replaces the AI's verdict on the card.
+  // Once the user has decided, their decision replaces the AI's verdict label; the AI's reason and summary stay.
   const v = isProcessed(it.bvid) ? { verdict: "none" } : verdictOf(it);
   const tag = S.analyzing.has(it.bvid) ? `<span class="cover-tag running">分析中…</span>` : VERDICTS[v.verdict] ? `<span class="cover-tag ${v.verdict}" title="${esc(v.reason)}">${VERDICTS[v.verdict]}</span>` : "";
   const dur = it.duration ? `<span class="cover-dur">${fmtDuration(it.duration)}</span>` : "";
@@ -1889,7 +1889,7 @@ function renderList() {
     marked = new Set(bvids);
     word = ownGroup() ? "本批" : bvids.some((b) => S.selected.has(b)) ? "已选中" : "下一批";
   }
-  const expanded = S.mediaId !== REMOVED && (S.tab === "fine" || S.tab === "read");
+  const expanded = S.tab === "fine" || S.tab === "read" || S.tab === "done";
   const failed = S.tab === "coarse" ? list.filter((it) => failedAnalysis(it.bvid)).length : 0;
   const failedHead = `<div class="group-head">分析失败 ${failed} · <button type="button" class="link" data-retry-failed aria-label="全部重试"${S.group || S.stage1.running ? " disabled" : ""}>${AI_SPARK}全部重试</button></div>`;
   // Background progress re-renders the list; keep a note being typed in focus.
@@ -1965,7 +1965,7 @@ function cardHtml(it, expanded, mark) {
       ${left ? `<div class="left-row">${left}</div>` : ""}
       <div class="meta">${meta.map(esc).join(" · ")}</div>
       ${body.join("")}
-      <div class="card-foot verdict-row">${verdict}${S.watched[b] ? `<button type="button" class="badge watched" data-act="unwatch" aria-label="优先看过，点一下取消" title="${esc(fmtTime(S.watched[b]))} 在优先看里点了已看 · 点一下取消">优先看过×</button>` : ""}${decision ? "" : `<span class="reason">${esc(v.reason)}</span>`}${failed}</div>
+      <div class="card-foot verdict-row">${verdict}${S.watched[b] ? `<button type="button" class="badge watched" data-act="unwatch" aria-label="优先看过，点一下取消" title="${esc(fmtTime(S.watched[b]))} 在优先看里点了已看 · 点一下取消">优先看过×</button>` : ""}<span class="reason">${esc(v.reason)}</span>${failed}</div>
       ${chips ? `<div class="chips">${chips}</div>` : ""}
       ${noteHtml}
       <div class="card-foot">
