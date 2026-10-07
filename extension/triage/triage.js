@@ -1456,7 +1456,8 @@ function render() {
 }
 
 function renderTop() {
-  el.biliBtn.hidden = !S.mid;
+  // 已取消收藏 has no Bilibili page of its own; the link would land on the homepage under that title.
+  el.biliBtn.hidden = !S.mid || S.mediaId === REMOVED;
   el.biliBtn.title = S.mediaId === TOVIEW ? "B 站稍后再看" : inFolderView() ? "B 站收藏夹" : "B 站主页";
   setBusy(el.refreshBtn, (S.syncing || S.loadAll?.running) && `刷新中…${S.syncing ? pageText(S.mediaId) : ""}`);
   const allOpt = el.folderSelect.querySelector(`option[value="${ALL}"]`);
