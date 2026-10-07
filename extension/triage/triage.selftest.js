@@ -814,6 +814,29 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     assert.ok(t.cardHtml({ ...item(4), removedAt: at, movedTo: { id: "Z", title: "外" } }, true, "").includes("10月5日 17:25 移到「外」（未勾选）"));
     openFake("A", [item(1)]);
     assert.ok(t.cardHtml(item(1), false, "").includes('<span class="pair">\n            <button type="button" data-act="keep"'), "a folder's card keeps 保留 / 取消收藏 as the pair");
+    // Once decided, the decision replaces the AI verdict: no badge, cover tag or reason.
+    t.S.titleRes.BV1 = { verdict: "keep", reason: "好看" };
+    assert.ok(t.cardHtml(item(1), false, "").includes("值得留"), "undecided shows the verdict");
+    t.S.decisions.BV1 = { action: "keep" };
+    const kept = t.cardHtml(item(1), false, "");
+    assert.ok(!kept.includes("值得留") && !kept.includes("好看") && kept.includes("已保留"), kept);
+    delete t.S.decisions.BV1;
+    delete t.S.titleRes.BV1;
+  }
+
+  // 阅览: a decided video leaves the AI classes for 已保留, the same word its card shows.
+  {
+    const saved = { tab: t.S.tab, titleRes: t.S.titleRes, classFilter: t.S.classFilter };
+    openFake("A", [item(1), item(2)], { BV1: { action: "keep" } });
+    Object.assign(t.S, { tab: "read", titleRes: { BV1: { verdict: "keep" }, BV2: { verdict: "keep" } }, classFilter: { coarse: "all", fine: "all", read: "all" } });
+    t.renderListHeader(t.visibleItems());
+    for (const part of [">全部 2<", ">值得留 1<", ">已保留 1<"]) assert.ok(t.el.classFilter.innerHTML.includes(part), part);
+    t.S.classFilter.read = "kept";
+    assert.deepStrictEqual(plain(t.visibleItems().map((it) => it.bvid)), ["BV1"]);
+    t.S.classFilter.read = "keep";
+    assert.deepStrictEqual(plain(t.visibleItems().map((it) => it.bvid)), ["BV2"]);
+    Object.assign(t.S, saved);
+    openFake("A", [item(1)]);
   }
 
   // Cleaning a removed video deletes its AI results, note, tags, 保留, basket entry and 取消收藏 records, and nothing else.

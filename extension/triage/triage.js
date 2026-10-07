@@ -271,6 +271,7 @@ const S = {
     triageAnalyzeMaxTokens: 0,
     triageTagLimit: 10, // tags per folder; only creating a new one is refused past it
     triageAiNewTagMax: 5, // new tags one 批量打 may propose
+    triageAiRemoveTags: false, // 批量打 may also take tags off
     thinkingToggle: false
   },
   tab: "none",
@@ -326,7 +327,7 @@ const el = {};
   "banner", "bannerText", "bannerBtn", "bannerClose", "syncNotice", "syncText", "syncViewBtn", "syncCloseBtn", "syncDetail",
   "tabs", "stagebar", "classFilter", "sideFilter", "tagFilter", "listHeader", "list", "basket", "basketToggle", "basketCount",
   "basketList", "toast", "settingsDialog", "folderToggles", "thinkingRow", "intervalInput",
-  "batchSizeInput", "tagLimitInput", "aiNewTagMaxInput", "openOptionsBtn", "thinkingInput", "titleMaxInput",
+  "batchSizeInput", "tagLimitInput", "aiNewTagMaxInput", "aiRemoveTagsInput", "aiFormRemoveTagsInput", "openOptionsBtn", "thinkingInput", "titleMaxInput",
   "titleMaxHint", "analyzeMaxInput", "analyzeMaxHint", "settingsError", "backupBtn", "csvBtn", "confirmDialog",
   "confirmTitle", "confirmBody", "confirmOk", "transferDialog", "transferTitle", "transferBody", "transferTarget", "transferNewRow", "transferUnchosen", "transferHow", "transferName", "transferPrivate", "pickerDialog", "pickerTitle", "pickerInput", "pickerList",
   "criteriaDialog", "criteriaTitle", "criteriaInput", "tagsDialog", "tagsModeManage", "tagsModeBatch", "tagsManage", "tagsRows", "newTagInput", "addTagBtn", "helpDialog",
@@ -595,8 +596,11 @@ function inTab(it, tab) {
   // 阅览 (and 已取消收藏) is every video of the folder, whatever its step.
   if (tab !== "read" && stageOf(it) !== tab) return false;
   const f = S.classFilter[tab];
-  return !f || f === "all" || verdictOf(it).verdict === f;
+  return !f || f === "all" || classOf(it) === f;
 }
+
+// The filter chip a card falls under: the user's decision once there is one (as on the card), else the AI verdict.
+const classOf = (it) => (isProcessed(it.bvid) ? (S.decisions[it.bvid].action === "keep" ? "kept" : "unfav") : verdictOf(it).verdict);
 
 const failedAnalysis = (b) => S.analyses[b]?.status === "error";
 
@@ -786,7 +790,8 @@ function coverHtml(it) {
   const faint = !seen && known && S.seenCfg.mark;
   const label = seenWords(known, seen);
   const mark = seen ? `<span class="seen-veil">${label}</span><span class="seen-tag">${label}</span>` : faint ? `<span class="seen-tag faint">${label}</span>` : "";
-  const v = verdictOf(it);
+  // Once the user has decided, their decision replaces the AI's verdict on the card.
+  const v = isProcessed(it.bvid) ? { verdict: "none" } : verdictOf(it);
   const tag = S.analyzing.has(it.bvid) ? `<span class="cover-tag running">分析中…</span>` : VERDICTS[v.verdict] ? `<span class="cover-tag ${v.verdict}" title="${esc(v.reason)}">${VERDICTS[v.verdict]}</span>` : "";
   const dur = it.duration ? `<span class="cover-dur">${fmtDuration(it.duration)}</span>` : "";
   return `<span class="cover-wrap${seen ? " seen" : ""}">${img}${tag}${dur}${mark}${p ? `<span class="seen-bar" title="看过 ${p}%"><i style="width:${Math.max(p, 2)}%"></i></span>` : ""}</span>`;
@@ -1658,9 +1663,10 @@ function renderListHeader(list) {
   // It renders into its own slot at the left of the row, so it adds nothing to the action html.
   let segHtml = "";
   const inStage = S.items.filter((it) => (t === "read" || stageOf(it) === t) && passFilter(it));
-  const n = (k) => (k === "all" ? inStage.length : inStage.filter((it) => verdictOf(it).verdict === k).length);
+  const n = (k) => (k === "all" ? inStage.length : inStage.filter((it) => classOf(it) === k).length);
   const classBtn = (k, label, off) => `<button type="button" data-class-filter="${k}" aria-pressed="${!off && S.classFilter[t] === k}"${off ? " disabled" : ""}>${label} ${n(k)}</button>`;
-  const CLASSES = [["all", "全部"], ...Object.entries(VERDICTS)];
+  // 阅览 also holds decided videos; they leave the AI classes for 已保留 (已取消收藏 has its own folder).
+  const CLASSES = [["all", "全部"], ...Object.entries(VERDICTS), ...(t === "read" && S.mediaId !== REMOVED ? [["kept", "已保留"]] : [])];
   const seg = () => {
     segHtml = `<span class="seg" role="group" aria-label="按 AI 判断筛选">${CLASSES.map(([k, label]) => classBtn(k, label)).join("")}</span>`;
     return "";
@@ -1923,7 +1929,6 @@ function cardHtml(it, expanded, mark) {
   const inBasket = S.basket.some((x) => x.bvid === b);
   const cls = ["card"];
   if (b === S.focused) cls.push("focused");
-  if (isProcessed(b)) cls.push("decided");
   if (S.selected.has(b)) cls.push("selected");
   if (mark) cls.push("in-batch");
 
@@ -1931,7 +1936,7 @@ function cardHtml(it, expanded, mark) {
   const meta = [it.upper, fmtDate(it.pubdate), ["", "粗看", "细看"][v.stage], seenText(it), it.invalid && "已失效", it.folders?.length && `收藏夹：${folderNames(it)}`].filter(Boolean);
   const left = removed && [originHtml(it), it.removedAt && `<span>${esc(leftText(it))}</span>`].filter(Boolean).join("");
 
-  const verdict = verdictBadge(b, v);
+  const verdict = decision ? "" : verdictBadge(b, v);
   // The button matching the AI's verdict leads; the other stays plain.
   const keepCls = !decision && v.verdict === "keep" ? "ok solid" : "";
   const unfavCls = !decision && v.verdict === "drop" ? "danger solid" : "";
@@ -1960,7 +1965,7 @@ function cardHtml(it, expanded, mark) {
       ${left ? `<div class="left-row">${left}</div>` : ""}
       <div class="meta">${meta.map(esc).join(" · ")}</div>
       ${body.join("")}
-      <div class="card-foot verdict-row">${verdict}${S.watched[b] ? `<button type="button" class="badge watched" data-act="unwatch" aria-label="优先看过，点一下取消" title="${esc(fmtTime(S.watched[b]))} 在优先看里点了已看 · 点一下取消">优先看过×</button>` : ""}<span class="reason">${esc(v.reason)}</span>${failed}</div>
+      <div class="card-foot verdict-row">${verdict}${S.watched[b] ? `<button type="button" class="badge watched" data-act="unwatch" aria-label="优先看过，点一下取消" title="${esc(fmtTime(S.watched[b]))} 在优先看里点了已看 · 点一下取消">优先看过×</button>` : ""}${decision ? "" : `<span class="reason">${esc(v.reason)}</span>`}${failed}</div>
       ${chips ? `<div class="chips">${chips}</div>` : ""}
       ${noteHtml}
       <div class="card-foot">
@@ -2888,6 +2893,7 @@ function renderAiForm() {
     o.disabled = !counts[o.value];
   }
   if (el.aiScope.selectedOptions[0]?.disabled) el.aiScope.value = "filter";
+  el.aiFormRemoveTagsInput.checked = S.settings.triageAiRemoveTags === true;
   const items = aiScopeItems();
   const n = items.length;
   const done = items.filter(isAnalyzed).length;
@@ -2937,7 +2943,7 @@ async function runAiCommand() {
   storeSet(K.aiHistory, S.aiHistory);
   // Everything the run sends is taken now: the run outlives a folder switch, and the page then holds another folder.
   const folder = String(S.mediaId);
-  const opts = { maxNewTags: aiNewTagRoom(), folder };
+  const opts = { maxNewTags: aiNewTagRoom(), allowRemove: S.settings.triageAiRemoveTags === true, folder };
   const tags = viewTags().map((t) => ({ name: t.name, rule: t.rule || "" }));
   const payload = items.map(aiCommandItem);
   const size = Math.max(1, Number(S.settings.triageTitleBatchSize) || 30);
@@ -2953,7 +2959,7 @@ async function runAiCommand() {
   for (let i = 0; i < total && keepGoing(); i++) {
     el.aiProgress.textContent = `AI 正在处理第 ${i + 1} / ${total} 批…`;
     const batch = payload.slice(i * size, (i + 1) * size);
-    const r = await send({ type: "triage-ai-command", instruction, items: batch, tags, maxNewTags: opts.maxNewTags });
+    const r = await send({ type: "triage-ai-command", instruction, items: batch, tags, maxNewTags: opts.maxNewTags, allowRemove: opts.allowRemove });
     if (!r.ok) {
       p.errors.push(`第 ${i + 1} 批失败：${r.error}`);
       if (/截断|配置 AI|未授权访问/.test(r.error || "")) handleAiError(r.error);
@@ -3669,7 +3675,8 @@ function bindEvents() {
       triageTitleMaxTokens: parseMaxTokens(el.titleMaxInput.value),
       triageAnalyzeMaxTokens: parseMaxTokens(el.analyzeMaxInput.value),
       triageTagLimit: Math.max(1, Math.min(50, Math.floor(Number(el.tagLimitInput.value)) || 10)),
-      triageAiNewTagMax: el.aiNewTagMaxInput.value === "" ? 5 : Math.max(0, Math.min(50, Math.floor(Number(el.aiNewTagMaxInput.value)) || 0))
+      triageAiNewTagMax: el.aiNewTagMaxInput.value === "" ? 5 : Math.max(0, Math.min(50, Math.floor(Number(el.aiNewTagMaxInput.value)) || 0)),
+      triageAiRemoveTags: el.aiRemoveTagsInput.checked
     };
     const r = await send({ type: "triage-settings-save", ...patch });
     if (!r.ok) {
@@ -3800,6 +3807,17 @@ function bindEvents() {
 
   // 批量打
   el.aiScope.addEventListener("change", renderAiForm);
+  // The same switch as in 分拣设置, saved as soon as it flips.
+  el.aiFormRemoveTagsInput.addEventListener("change", async () => {
+    const on = el.aiFormRemoveTagsInput.checked;
+    const r = await send({ type: "triage-settings-save", triageAiRemoveTags: on });
+    if (!r.ok) {
+      el.aiFormRemoveTagsInput.checked = !on;
+      toast(`保存设置失败：${r.error}`, true);
+      return;
+    }
+    S.settings.triageAiRemoveTags = on;
+  });
   el.aiHistory.addEventListener("click", (e) => {
     const btn = e.target.closest("[data-h]");
     if (btn) el.aiInstruction.value = S.aiHistory[Number(btn.dataset.h)];
@@ -3874,8 +3892,8 @@ function renderTokenHints() {
   const on = el.thinkingInput.checked;
   const titleAuto = on ? 150 * batch + 4000 : 60 * batch + 200;
   const analyzeAuto = on ? 8000 : 1000;
-  el.titleMaxHint.textContent = `留空为自动 = ${titleAuto}（每批 ${batch} 个，思考${on ? "开" : "关"}）。只有提示「输出被截断」时才需要调大。`;
-  el.analyzeMaxHint.textContent = `留空为自动 = ${analyzeAuto}（思考${on ? "开" : "关"}）`;
+  el.titleMaxHint.textContent = `留空 = 自动（${titleAuto}），被截断时再调大。`;
+  el.analyzeMaxHint.textContent = `留空 = 自动（${analyzeAuto}）`;
 }
 
 // firstRun: the first open, before any folder is chosen, asks only for folders.
@@ -3895,6 +3913,7 @@ function openSettings(scrollToLimits = false, firstRun = false) {
   el.analyzeMaxInput.value = S.settings.triageAnalyzeMaxTokens || "";
   el.tagLimitInput.value = tagLimit();
   el.aiNewTagMaxInput.value = S.settings.triageAiNewTagMax;
+  el.aiRemoveTagsInput.checked = S.settings.triageAiRemoveTags === true;
   el.settingsError.hidden = true;
   renderTokenHints();
   el.settingsDialog.returnValue = "";
