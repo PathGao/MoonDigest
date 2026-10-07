@@ -1832,7 +1832,8 @@ async function refavRecent(bvid) {
 function renderList() {
   const list = visibleItems();
   renderListHeader(list);
-  el.list.classList.toggle("grid", S.tab === "read");
+  // 已取消收藏 is a list to act on, so it uses the rows the steps use, not the 阅览全部 grid.
+  el.list.classList.toggle("grid", S.tab === "read" && S.mediaId !== REMOVED);
   // 保留 only marks the video here, while 取消收藏 changed Bilibili; say so where both end up.
   const recent = S.tab === "done" ? `<p class="muted tab-note">已保留：${KEEP_TIP}。已取消收藏：已从 B 站收藏夹移走，最近的操作可按 U 撤销。</p>${recentUnfavHtml()}` : "";
   if (!S.items.length) {
@@ -1861,7 +1862,7 @@ function renderList() {
     marked = new Set(bvids);
     word = ownGroup() ? "本批" : bvids.some((b) => S.selected.has(b)) ? "已选中" : "下一批";
   }
-  const expanded = S.tab === "fine" || S.tab === "read";
+  const expanded = S.mediaId !== REMOVED && (S.tab === "fine" || S.tab === "read");
   const failed = S.tab === "coarse" ? list.filter((it) => failedAnalysis(it.bvid)).length : 0;
   const failedHead = `<div class="group-head">分析失败 ${failed} · <button type="button" class="link" data-retry-failed aria-label="全部重试"${S.group || S.stage1.running ? " disabled" : ""}>${AI_SPARK}全部重试</button></div>`;
   // Background progress re-renders the list; keep a note being typed in focus.
