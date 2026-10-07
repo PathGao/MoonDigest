@@ -626,7 +626,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         await chrome.storage.local.set({ [PLAYER_AI_QUICK_ACTION_STORAGE_KEY]: request });
         sendResponse({ ok: true });
       })
-      .catch((error) => sendResponse({ ok: false, error: error.message || "打开 AI 侧边栏失败" }));
+      .catch((error) => sendResponse({ ok: false, error: error.message || "未知错误" }));
     return true;
   }
 
