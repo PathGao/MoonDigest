@@ -276,7 +276,7 @@ assert.throws(() => t.triageParseCommand('{"new_tags":[', cmdItems, cmdTags, {})
   assert.strictEqual((await analyze()).source, "subtitle");
   assert.ok(!calls.includes(subUrl), "cached subtitle is not refetched");
   assert.ok(prompt.includes("分区：知识") && prompt.includes("标签：标签") && prompt.includes("发布：2024-05-30") && prompt.includes("第一句\n最后一句"));
-  assert.ok(prompt.includes("字幕：\n第一句") && prompt.includes("\n\n热门评论：\n1. 评论一"), "hot comments come after the subtitles");
+  assert.ok(prompt.includes("字幕：\n第一句") && !prompt.includes("热门评论") && !calls.some((u) => u.includes("/reply/main")), "with subtitles no comments are fetched or sent");
 
   // A fetched subtitle that passes the duration guard is cached for the video page.
   delete store[subtitleKey];
@@ -290,10 +290,10 @@ assert.throws(() => t.triageParseCommand('{"new_tags":[', cmdItems, cmdTags, {})
   assert.strictEqual(subtitleKey in store, false);
   assert.ok(prompt.includes("（无可用字幕）\n热门评论：\n1. 评论一"));
 
-  // A comment fetch failure does not fail the analysis.
-  routes = { ...baseRoutes(), "/reply/main": new Error("network") };
-  assert.strictEqual((await analyze()).source, "subtitle");
-  assert.ok(prompt.includes("热门评论：\n无"));
+  // Without subtitles, a comment fetch failure does not fail the analysis.
+  routes = { ...baseRoutes(), [subUrl]: subtitleRaw(100), "/reply/main": new Error("network") };
+  assert.strictEqual((await analyze()).source, "meta");
+  assert.ok(prompt.includes("（无可用字幕）\n热门评论：\n无"));
 
   // A subtitle up to the cap goes in whole; a longer one is sampled down to the cap.
   const line = "一句字幕".repeat(10);
@@ -307,7 +307,7 @@ assert.throws(() => t.triageParseCommand('{"new_tags":[', cmdItems, cmdTags, {})
   delete store[subtitleKey];
   await analyze();
   const kept = prompt.split(line).length - 1;
-  assert.ok(kept < whole * 3 && kept >= whole - 1 && prompt.includes("热门评论"), `an over-cap subtitle is sampled to the cap (${kept} lines)`);
+  assert.ok(kept < whole * 3 && kept >= whole - 1, `an over-cap subtitle is sampled to the cap (${kept} lines)`);
 
   // Risk control still reaches the page as THROTTLED: player answers without subtitles, HTTP 412, -352.
   routes = { ...baseRoutes(), "/x/player/wbi/v2": { code: 0, data: {} }, "/x/player/v2": { code: 0, data: {} } };

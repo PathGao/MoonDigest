@@ -199,9 +199,8 @@ function triageWithCriteria(system, criteria, folder) {
   return parts.join("\n\n");
 }
 
-// subtitle is "" when the video has none; comments are the hot comments, numbered.
+// subtitle is "" when the video has none; then comments (the hot comments, numbered) stand in for it.
 function triageBuildMessages(meta, subtitle, comments, criteria, folder) {
-  const hot = `热门评论：\n${comments || "无"}`;
   const user = [
     `标题：${meta.title}`,
     `UP主：${meta.upper}`,
@@ -210,7 +209,7 @@ function triageBuildMessages(meta, subtitle, comments, criteria, folder) {
     `发布：${meta.pubdate || "未知"}`,
     `标签：${meta.tags.join("、") || "无"}`,
     `简介：${meta.desc || "无"}`,
-    subtitle ? `\n字幕：\n${subtitle}\n\n${hot}` : `\n（无可用字幕）\n${hot}`
+    subtitle ? `\n字幕：\n${subtitle}` : `\n（无可用字幕）\n热门评论：\n${comments || "无"}`
   ].join("\n");
   return [
     { role: "system", content: triageWithCriteria(TRIAGE_SYSTEM_PROMPT, criteria, folder) },
@@ -521,7 +520,7 @@ async function triageAnalyze({ bvid, force, criteria, folder }) {
       subtitle = BocLimits.sampleAiSubtitle(body.map((l) => l.content).join("\n")).text;
     }
   }
-  const comments = (await site.fetchComments(ref, m, TRIAGE_BILI_IO, 10).catch(() => [])).map((c, i) => `${i + 1}. ${c.message}`).join("\n");
+  const comments = subtitle ? "" : (await site.fetchComments(ref, m, TRIAGE_BILI_IO, 10).catch(() => [])).map((c, i) => `${i + 1}. ${c.message}`).join("\n");
 
   const ai = await triageAiSettings();
   const { content, model } = await triageChat(triageBuildMessages(meta, subtitle, comments, criteria, folder), triageMaxTokens("analyze", 1, ai), ai.triageThinking);
