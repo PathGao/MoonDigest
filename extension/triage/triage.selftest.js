@@ -184,7 +184,8 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   assert.deepStrictEqual(plain(store[t.K.basket].map((x) => x.bvid)), ["BVgone", "BV3"]);
   assert.deepStrictEqual(plain(t.S.decisions), { BV2: { action: "keep", at: 1 } }, "已看 leaves decisions alone");
 
-  // 批量导出 scopes: 优先看 keeps its order and videos outside the folder; invalid videos are left out.
+  // 批量导出 scopes: 优先看 keeps its order and videos outside the folder; 逐个视频笔记 leaves invalid videos out,
+  // 一篇摘录 keeps them, marked.
   t.S.items.push({ ...item(4), invalid: true });
   t.S.itemMap.set("BV4", t.S.items[3]);
   t.S.basket.push({ bvid: "BV4" });
@@ -192,11 +193,13 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   t.S.selected.add("BV2"); // kept, so not listed in 未分析: a selection hidden there is left out
   t.S.selected.add("BV3");
   Object.assign(t.S, { tab: "none", titleRes: {}, analyses: { BVgone: { status: "done", oneLiner: "一句话", points: ["要点"] } }, notes: { BV3: { text: " 我的笔记 " } }, videoTags: {} });
-  const scope = (s) => plain(t.writeScopeItems(s).map((it) => it.bvid));
+  const scope = (s) => plain(t.writeScopeItems(s, true).map((it) => it.bvid));
   assert.deepStrictEqual([scope("basket"), scope("selected"), scope("all"), scope("filter")], [["BVgone", "BV3"], ["BV3"], ["BV1", "BV2", "BV3"], ["BV1", "BV3"]]);
   t.renderListHeader(t.visibleItems());
   assert.ok(t.el.listHeader.innerHTML.includes("已选中 1 个") && t.el.listHeader.innerHTML.includes("另有 1 个被筛选隐藏"), "the bar counts only what is listed");
-  const digest = t.buildMarkdown(t.writeScopeItems("basket"));
+  assert.deepStrictEqual(plain(t.writeScopeItems("basket", false).map((it) => it.bvid)), ["BVgone", "BV3", "BV4"]);
+  const digest = t.buildMarkdown(t.writeScopeItems("basket", false));
+  assert.ok(digest.includes("## [视频4](https://www.bilibili.com/video/BV4)\n\nUP：up · 已失效"), digest);
   assert.ok(digest.includes("## [别的收藏夹](https://www.bilibili.com/video/BVgone)\n\n> 一句话\n\n- 要点"), digest);
   assert.ok(digest.includes("## [视频3](https://www.bilibili.com/video/BV3)\n\nUP：up\n\n备注：我的笔记"), digest);
   t.S.selected.clear();
@@ -838,6 +841,10 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     const [head, row] = t.buildCsv().replace(/^\uFEFF/, "").split("\r\n");
     const col = (name) => row.split(",")[head.split(",").indexOf(name)];
     assert.deepStrictEqual([col("备注"), col("优先看"), col("我的处理"), col("原在"), col("离开原因")], ["我的话", "在优先看", "保留", "甲", "10月5日 17:25 已取消收藏"]);
+    t.S.items = [{ ...item(1), cover: "https://i0.hdslb.com/c.jpg", pubdate: 1759622400, favTime: 1759708800, intro: "简介文字" }];
+    const [, row2] = t.buildCsv().replace(/^\uFEFF/, "").split("\r\n");
+    const col2 = (name) => row2.split(",")[head.split(",").indexOf(name)];
+    assert.deepStrictEqual([col2("封面"), col2("发布时间"), col2("收藏时间"), col2("简介")], ["https://i0.hdslb.com/c.jpg", "2025-10-05", "2025-10-06", "简介文字"]);
     Object.assign(t.S, { notes: savedNotes, basket: savedBasket, decisions: {}, items: [] });
     assert.ok(html.includes('<div class="left-row"><span class="origin-chip" title="原在「甲」「乙」「丙」">原在「甲」「乙」等 3 个</span><span>10月5日 17:25 离开收藏夹</span></div>'), html);
     assert.ok(!/class="meta">[^<]*(离开收藏夹|原在)/.test(html), "the gray meta line does not repeat the leaving line");

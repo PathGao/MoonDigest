@@ -673,8 +673,11 @@ async function triageBuildNote(bvid, settings) {
   };
   const cacheKey = `triage_analysis_${bvid}`;
   const conversationsKey = BocLimits.KEYS.aiConversations;
-  const stored = await chrome.storage.local.get([cacheKey, conversationsKey, "triage_notes"]);
+  const stored = await chrome.storage.local.get([cacheKey, conversationsKey, "triage_notes", "triage_tags", "triage_video_tags"]);
   const analysis = stored[cacheKey];
+  // The user's 分拣 tags, every folder's, go into the note's tags next to the fixed ones from the settings page.
+  const tagNames = new Map((stored.triage_tags || []).map((t) => [t.id, t.name]));
+  noteMeta.userTags = [...new Set((stored.triage_video_tags?.[bvid] || []).map((id) => tagNames.get(id)).filter(Boolean))];
   noteMeta.aiTurns = BocNote.buildConversationTurns(BocNote.pickConversation(stored[conversationsKey], noteMeta)?.messages);
   const markdown = BocNote.withTriageSummary(BocNote.buildMarkdown(noteMeta, body, settings, ref), analysis, stored.triage_notes?.[bvid]?.text);
   return { meta, noteMeta, body, markdown };
