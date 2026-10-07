@@ -3282,7 +3282,7 @@ function buildMarkdown(items, now = new Date()) {
     const a = S.analyses[it.bvid];
     const done = a?.status === "done";
     lines.push(`## [${mdLinkText(it.title)}](${videoUrl(it.bvid)})`, "");
-    if (it.upper) lines.push(`UP：${it.upper}`, "");
+    if (it.upper || it.invalid) lines.push([it.upper && `UP：${it.upper}`, it.invalid && "已失效"].filter(Boolean).join(" · "), "");
     if (done && a.oneLiner) lines.push(`> ${a.oneLiner}`, "");
     if (done && a.points?.length) lines.push(...a.points.map((p) => `- ${p}`), "");
     const names = tagIdsOf(it.bvid).map((id) => tagById(id).name);
@@ -3294,14 +3294,15 @@ function buildMarkdown(items, now = new Date()) {
 }
 
 // ---------- 批量导出 ----------
-// 优先看 videos outside the open folder export with their stored title.
-function writeScopeItems(scope = el.writeScope.value) {
+// 优先看 videos outside the open folder export with their stored title. 逐个视频笔记 leaves out invalid videos (no
+// subtitle to fetch); 一篇摘录 keeps them, marked, so their notes and tags still go out.
+function writeScopeItems(scope = el.writeScope.value, notes = el.writeFormat?.value === "notes") {
   const list =
     scope === "all" ? S.items
     : scope === "basket" ? S.basket.map((x) => S.itemMap.get(x.bvid) || { bvid: x.bvid, title: x.title || x.bvid })
     : scope === "selected" ? visibleSelected()
     : visibleItems();
-  return list.filter((it) => !it.invalid);
+  return notes ? list.filter((it) => !it.invalid) : list;
 }
 
 // The 阅览 tab opens it preset; a running notes export keeps its own choice.
@@ -3480,7 +3481,7 @@ function csvField(v) {
 
 function buildCsv() {
   const title = folderTitle();
-  const header = ["收藏夹", "BV号", "标题", "UP主", "时长", "链接", "AI判断", "判断来源", "理由", "一句话", "要点", "标签", "备注", "优先看", "我的处理", "处理时间", "是否失效", "原在", "离开原因"];
+  const header = ["收藏夹", "BV号", "标题", "UP主", "时长", "链接", "封面", "发布时间", "收藏时间", "简介", "AI判断", "判断来源", "理由", "一句话", "要点", "标签", "备注", "优先看", "我的处理", "处理时间", "是否失效", "原在", "离开原因"];
   const rows = [header];
   for (const it of S.items) {
     const v = verdictOf(it);
@@ -3494,6 +3495,10 @@ function buildCsv() {
       it.upper,
       fmtDuration(it.duration),
       videoUrl(it.bvid),
+      it.cover || "",
+      fmtDate(it.pubdate),
+      fmtDate(it.favTime),
+      it.intro || "",
       v.verdict === "none" ? "" : verdictLabel(v.verdict),
       ["", "标题粗看", "字幕细看"][v.stage] || "",
       v.reason,

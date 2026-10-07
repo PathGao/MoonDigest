@@ -284,6 +284,8 @@ for (const [name, c] of Object.entries(cases)) {
 }
 assert.strictEqual(N.buildNoteFilename(cases.biliSingle.meta, { includeDateInFilename: false }, CREATED), "测试视频：引号_与反斜杠_.md");
 assert.strictEqual(N.buildMarkdown(cases.biliSingle.meta, body, baseSettings, null, CREATED).includes('\nurl: "'), false, "no ref means no url");
+// 分拣台 tags join the fixed ones; characters Obsidian tags cannot hold become _, and repeats go.
+assert.ok(N.buildMarkdown({ ...cases.biliSingle.meta, userTags: ["入门 教程", "视频", "C++"] }, body, baseSettings, null, CREATED).includes('\ntags: ["clippings", "视频", "入门_教程", "C_"]\n'));
 {
   const c = cases.noSubtitle;
   const md = N.buildMarkdown({ ...c.meta, subtitleFailure: "字幕接口限流（429），稍后再试" }, c.body, c.settings, refOf(c.meta), CREATED);

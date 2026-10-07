@@ -73,10 +73,13 @@
 
   function buildMarkdown(meta, body, settings, ref, created = formatLocalDate()) {
     const url = String(ref?.url || "");
-    const tags = (settings.tags || "")
-      .split(",")
-      .map((item) => item.trim())
-      .filter(Boolean);
+    // meta.userTags: the 分拣台 tags; Obsidian tags take letters, digits, _ - / only, so anything else becomes _.
+    const tags = [
+      ...new Set([
+        ...(settings.tags || "").split(",").map((item) => item.trim()),
+        ...(meta.userTags || []).map((name) => String(name).trim().replace(/[^\p{L}\p{N}_\-/]+/gu, "_"))
+      ])
+    ].filter(Boolean);
     const tagsCsv = tags.join(", ");
     const tagsYaml =
       tags.length === 0 ? "[]" : `[${tags.map((tag) => `"${escapeYaml(tag)}"`).join(", ")}]`;
