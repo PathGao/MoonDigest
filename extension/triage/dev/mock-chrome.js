@@ -91,6 +91,24 @@
     { id: 1002, title: "学习", items: study },
     { id: 1003, title: "默认收藏夹", items: [ai[1], ai[12], study[0], ...["家常红烧肉的做法", "十分钟早餐：葱油拌面"].map(makeItem)] }
   ];
+  // ?fresh shows the first-run folder picker; otherwise every folder is chosen and 已取消收藏 has records of each kind:
+  // one old record without an origin, one hidden, one moved, one that left one folder, one that left two, one that left three.
+  if (!/[?&]fresh\b/.test(location.search)) {
+    store.triage_included_folders = ["1001", "1002", "1003"];
+    const gone = ["老记录：没有来源信息", "被 B 站隐藏的视频", "移到了没勾选的收藏夹", "只离开了一个收藏夹", "先离开 A 再离开 B 的视频", "离开了三个收藏夹的视频"].map(makeItem);
+    const day = 86400000;
+    const now = Date.now();
+    const f = (id, title, at) => ({ id, title, at });
+    store.triage_removed = {
+      [gone[0].bvid]: { item: gone[0], at: now - 9 * day },
+      [gone[1].bvid]: { item: gone[1], at: now - 5 * day, hidden: true, from: [f("1001", "稍后-AI", now - 5 * day)] },
+      [gone[2].bvid]: { item: gone[2], at: now - 3 * day, movedTo: { id: "1004", title: "美食" }, from: [f("1003", "默认收藏夹", now - 3 * day)] },
+      [gone[3].bvid]: { item: gone[3], at: now - 2 * day, from: [f("1002", "学习", now - 2 * day)] },
+      [gone[4].bvid]: { item: gone[4], at: now - day, from: [f("1001", "稍后-AI", now - 6 * day), f("1002", "学习", now - day)] },
+      [gone[5].bvid]: { item: gone[5], at: now - 3600000, from: [f("1001", "稍后-AI", now - 8 * day), f("1002", "学习", now - 4 * day), f("1003", "默认收藏夹", now - 3600000)] }
+    };
+  }
+
   const removed = new Map(); // "mediaId:aid" -> { folder, item, index }
   const throttledOnce = new Set();
   let lastMediaId = 1001;

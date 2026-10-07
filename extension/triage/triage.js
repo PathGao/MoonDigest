@@ -32,7 +32,8 @@ const K = {
   kept: "triage_kept", // { [bvid]: { action: "keep", at } }: 保留 belongs to the video, so it shows in every folder
   keptMigrated: "triage_kept_v1",
   watched: "triage_watched", // { [bvid]: at }: 优先看过, set when a video leaves 优先看 as watched; it shows in every folder
-  removed: "triage_removed", // { [bvid]: { item, at } }: videos that left every folder, kept until the user cleans them
+  removed: "triage_removed", // { [bvid]: { item, at, movedTo?, hidden?, from?: [{ id, title, at }] } }: videos that left every folder, kept until the user cleans them
+  left: "triage_left", // { [bvid]: { [folderId]: { title, at } } }: folders a video left while still in another chosen one; becomes the record's from
   included: "triage_included_folders", // [mediaId]: the folders the user chose; only these are listed and read
   snapshot: (id) => `triage_snapshot_${id}`,
   aiHistory: "triage_ai_command_history"
@@ -150,18 +151,55 @@ function splitKept(all) {
 }
 
 // 已取消收藏 (pure): a folder's full new list replaces its old one. A video that left it and is in no other folder's
-// list is recorded with its last known item; a video listed again is dropped from the record. One still in the folder's
-// id list (ids) only stopped being listed: Bilibili hides a video that became invalid, so it is marked hidden.
-function updateRemoved(removed, oldItems, newItems, otherBvids, at, ids = null) {
+// list is recorded with its last known item and where it had been (its trail, then this folder); a video listed again
+// is dropped from the record and this folder from its trail. One that left but is still in another chosen folder only
+// gets this folder on its trail. One still in the folder's id list (ids) only stopped being listed: Bilibili hides a
+// video that became invalid, so it is marked hidden.
+function updateRemoved(removed, left, oldItems, newItems, otherBvids, at, ids, folder) {
   const next = { ...removed };
+  const trail = { ...left };
   const now = new Set(newItems.map((it) => it.bvid));
   const stillThere = new Set(ids || []);
-  for (const b of now) delete next[b];
-  for (const it of oldItems) {
-    if (now.has(it.bvid) || otherBvids.has(it.bvid) || next[it.bvid]) continue;
-    next[it.bvid] = stillThere.has(it.bvid) ? { item: it, at, hidden: true } : { item: it, at };
+  for (const b of now) {
+    delete next[b];
+    forgetLeft(trail, b, folder.id);
   }
-  return next;
+  for (const it of oldItems) {
+    const b = it.bvid;
+    if (now.has(b) || next[b]) continue;
+    if (otherBvids.has(b)) {
+      trail[b] = { ...trail[b], [folder.id]: { title: folder.title, at } };
+      continue;
+    }
+    next[b] = { item: it, at, from: originOf(trail, b, folder, at) };
+    if (stillThere.has(b)) next[b].hidden = true;
+    delete trail[b];
+  }
+  return { removed: next, left: trail };
+}
+// 移动 to a folder outside triage (pure): like updateRemoved for the moved videos, with where they went. From 已取消收藏
+// itself (from null) the record keeps the origin it had.
+function moveToRemoved(removed, left, items, otherBvids, from, at, movedTo) {
+  const next = { ...removed };
+  const trail = { ...left };
+  for (const it of items) {
+    if (otherBvids.has(it.bvid)) continue;
+    next[it.bvid] = { item: it, at, movedTo, from: from ? originOf(trail, it.bvid, from, at) : removed[it.bvid]?.from };
+    delete trail[it.bvid];
+  }
+  return { removed: next, left: trail };
+}
+// The folders a video left before (its trail), then the one it leaves now.
+function originOf(left, bvid, folder, at) {
+  const before = Object.entries(left[bvid] || {}).filter(([id]) => id !== folder.id).map(([id, e]) => ({ id, title: e.title, at: e.at }));
+  return [...before, { id: folder.id, title: folder.title, at }];
+}
+// Listed in this folder again: it never left it (mutates trail).
+function forgetLeft(trail, bvid, folderId) {
+  if (!trail[bvid]?.[folderId]) return;
+  const { [folderId]: _, ...rest } = trail[bvid];
+  if (Object.keys(rest).length) trail[bvid] = rest;
+  else delete trail[bvid];
 }
 
 // A video that turns invalid comes back as Bilibili's placeholder; keep what was known about it before (pure).
@@ -785,15 +823,15 @@ async function retireUnchosenFolders() {
   const keys = ((await chrome.storage.local.getKeys?.()) ?? Object.keys((await chrome.storage.local.get(null)) || {})).filter((k) => k.startsWith("triage_snapshot_"));
   const gone = keys.map((k) => k.slice(16)).filter((id) => !live.has(id));
   if (!gone.length) return;
-  const got = await chrome.storage.local.get([K.removed, ...keys]);
+  const got = await chrome.storage.local.get([K.removed, K.left, ...keys]);
   const otherBvids = new Set([...live].flatMap((id) => got[K.snapshot(id)]?.bvids || []));
-  let removed = got[K.removed] || {};
+  let out = { removed: got[K.removed] || {}, left: got[K.left] || {} };
   for (const id of gone) {
     const old = got[K.snapshot(id)];
     const oldItems = old?.items || (old?.bvids || []).map((bvid) => ({ bvid, title: old.titles?.[bvid] || bvid }));
-    removed = updateRemoved(removed, oldItems, [], otherBvids, Date.now());
+    out = updateRemoved(out.removed, out.left, oldItems, [], otherBvids, Date.now(), null, { id, title: folderName(id) });
   }
-  await chrome.storage.local.set({ [K.removed]: removed });
+  await chrome.storage.local.set({ [K.removed]: out.removed, [K.left]: out.left });
   await chrome.storage.local.remove(gone.flatMap((id) => [K.snapshot(id), K.decisions(id)]));
 }
 
@@ -1080,11 +1118,11 @@ async function syncFolder({ force = false, cached = null } = {}) {
 // chosen folder go to 已取消收藏.
 async function saveSnapshot(mediaId, items, ids = null) {
   const others = S.folders.map((f) => String(f.id)).filter((id) => id !== String(mediaId));
-  const got = await chrome.storage.local.get([K.snapshot(mediaId), K.removed, ...others.map(K.snapshot)]);
+  const got = await chrome.storage.local.get([K.snapshot(mediaId), K.removed, K.left, ...others.map(K.snapshot)]);
   const old = got[K.snapshot(mediaId)];
   const oldItems = old?.items || (old?.bvids || []).map((bvid) => ({ bvid, title: old.titles?.[bvid] || bvid }));
   const otherBvids = new Set(others.flatMap((id) => got[K.snapshot(id)]?.bvids || []));
-  const removed = updateRemoved(got[K.removed] || {}, oldItems, items, otherBvids, Date.now(), ids);
+  const { removed, left } = updateRemoved(got[K.removed] || {}, got[K.left] || {}, oldItems, items, otherBvids, Date.now(), ids, { id: String(mediaId), title: folderName(mediaId) });
   await chrome.storage.local.set({
     [K.snapshot(mediaId)]: {
       bvids: items.map((it) => it.bvid),
@@ -1094,7 +1132,8 @@ async function saveSnapshot(mediaId, items, ids = null) {
       ids, // the folder's id list at this load; 所有收藏夹 compares the next id list with it
       intro: S.folderIntro[mediaId] ?? old?.intro
     },
-    [K.removed]: removed
+    [K.removed]: removed,
+    [K.left]: left
   });
   S.removedCount = Object.keys(removed).length;
   renderTop();
@@ -1107,7 +1146,7 @@ async function openRemoved() {
   if (token !== S.folderToken) return false;
   S.items = Object.values(rec)
     .sort((x, y) => y.at - x.at)
-    .map(({ item, at, movedTo, hidden }) => ({ ...item, removedAt: at, movedTo, hidden }));
+    .map(({ item, at, movedTo, hidden, from }) => ({ ...item, removedAt: at, movedTo, hidden, from }));
   S.itemMap = new Map(S.items.map((it) => [it.bvid, it]));
   if (!(await loadResults(token))) return false;
   checkRemoved(token);
@@ -1767,7 +1806,7 @@ async function refavRecent(bvid) {
 function renderList() {
   const list = visibleItems();
   renderListHeader(list);
-  el.list.classList.toggle("grid", S.tab === "read" && S.mediaId !== REMOVED);
+  el.list.classList.toggle("grid", S.tab === "read");
   // 保留 only marks the video here, while 取消收藏 changed Bilibili; say so where both end up.
   const recent = S.tab === "done" ? `<p class="muted tab-note">已保留：${KEEP_TIP}。已取消收藏：已从 B 站收藏夹移走，最近的操作可按 U 撤销。</p>${recentUnfavHtml()}` : "";
   if (!S.items.length) {
@@ -1781,11 +1820,6 @@ function renderList() {
     const filtered = S.watchedFilter || S.finishedFilter || S.invalidFilter || S.tagFilter.size || (f && f !== "all");
     const text = filtered ? "没有符合筛选的视频" : S.query.trim() ? "没有匹配搜索的视频" : empty[S.tab] || "这里没有视频";
     el.list.innerHTML = `<p class="empty">${text}</p>${recent}`;
-    return;
-  }
-  el.list.classList.toggle("reading", S.mediaId === REMOVED);
-  if (S.mediaId === REMOVED) {
-    el.list.innerHTML = list.map(readHtml).join("");
     return;
   }
   if (!list.some((it) => it.bvid === S.focused)) {
@@ -1847,7 +1881,8 @@ function cardHtml(it, expanded, mark) {
 
   // Where the verdict came from, as one muted meta item.
   const source = [["", "粗看", "细看"][v.stage], done && (a.source === "subtitle" ? "字幕" : "简介")].filter(Boolean).join("·");
-  const meta = [it.upper, fmtDate(it.pubdate), source, seenText(it), it.invalid && "已失效", it.folders?.length && `收藏夹：${folderNames(it)}`].filter(Boolean);
+  const removed = S.mediaId === REMOVED;
+  const meta = [it.upper, fmtDate(it.pubdate), source, seenText(it), it.invalid && "已失效", it.folders?.length && `收藏夹：${folderNames(it)}`, removed && leftText(it)].filter(Boolean);
 
   const verdict = verdictBadge(b, v);
   // The button matching the AI's verdict leads; the other stays plain.
@@ -1875,7 +1910,7 @@ function cardHtml(it, expanded, mark) {
     ${coverHtml(it)}
     <div class="card-body">
       <div class="title-row">${mark ? `<span class="batch-tag">${mark}</span>` : ""}<button type="button" class="title" data-act="open" aria-label="打开视频 ${esc(it.title)}">${esc(it.title)}</button></div>
-      <div class="meta">${meta.map(esc).join(" · ")}</div>
+      <div class="meta">${[...meta.map(esc), removed && originHtml(it)].filter(Boolean).join(" · ")}</div>
       ${body.join("")}
       <div class="card-foot verdict-row">${verdict}${S.watched[b] ? `<button type="button" class="badge watched" data-act="unwatch" aria-label="优先看过，点一下取消" title="${esc(fmtTime(S.watched[b]))} 在优先看里点了已看 · 点一下取消">优先看过</button>` : ""}<span class="reason">${esc(v.reason)}</span>${failed}</div>
       ${chips ? `<div class="chips">${chips}</div>` : ""}
@@ -1885,37 +1920,37 @@ function cardHtml(it, expanded, mark) {
         ${noteHtml ? "" : `<button type="button" class="link note-add" data-act="note" aria-label="添加备注">+ 备注</button>`}
         <span class="spacer"></span>
         <div class="actions">
+          ${removed ? `<span class="pair">
+            <button type="button" data-select="${esc(b)}" class="${S.selected.has(b) ? "on" : ""}" aria-pressed="${S.selected.has(b)}" aria-label="选中 ${esc(it.title)}">选中</button>
+            <button type="button" class="danger" data-clean="${esc(b)}" aria-label="清理 ${esc(it.title)}">清理</button>
+          </span>` : `<span class="pair">
+            <button type="button" data-act="keep" class="${keepCls}" aria-label="保留 (S)" title="只在 MoonDigest 里标记，B 站收藏夹不变"${decision ? " disabled" : ""}>保留<kbd class="key">S</kbd></button>
+            ${moving.has(b) ? `<button type="button" aria-busy="true" disabled>正在${S.transferRun?.verb || "移动"}…</button>` : deciding.has(b) ? `<button type="button" aria-busy="true" disabled>正在取消收藏…</button>` : `<button type="button" data-act="unfav" class="${unfavCls}" aria-label="取消收藏 (D)"${decision?.action === "unfav" ? " disabled" : ""}>取消收藏<kbd class="key">D</kbd></button>`}
+          </span>
           <span class="more">
             <button type="button" data-act="tag" aria-label="打标签 (T)">标签<kbd class="key">T</kbd></button>
             <button type="button" data-act="basket" class="${inBasket ? "on" : ""}" aria-pressed="${inBasket}" aria-label="${inBasket ? "移出" : "加入"}优先看 (E)">优先看<kbd class="key">E</kbd></button>
             <button type="button" data-act="ask" aria-label="问 AI (Q)">${AI_SPARK}问 AI<kbd class="key">Q</kbd></button>
             <button type="button" data-act="select" class="${S.selected.has(b) ? "on" : ""}" aria-pressed="${S.selected.has(b)}" aria-label="选中 (X)">选中<kbd class="key">X</kbd></button>
-          </span>
-          <button type="button" data-act="keep" class="${keepCls}" aria-label="保留 (S)" title="只在 MoonDigest 里标记，B 站收藏夹不变"${decision ? " disabled" : ""}>保留<kbd class="key">S</kbd></button>
-          ${moving.has(b) ? `<button type="button" aria-busy="true" disabled>正在${S.transferRun?.verb || "移动"}…</button>` : deciding.has(b) ? `<button type="button" aria-busy="true" disabled>正在取消收藏…</button>` : `<button type="button" data-act="unfav" class="${unfavCls}" aria-label="取消收藏 (D)"${decision?.action === "unfav" ? " disabled" : ""}>取消收藏<kbd class="key">D</kbd></button>`}
+          </span>`}
         </div>
       </div>
     </div>
   </article>`;
 }
 
-// ---------- reading view ----------
-function readHtml(it) {
-  const b = it.bvid;
-  const v = verdictOf(it);
-  const a = S.analyses[b];
-  const done = a?.status === "done";
-  const verdict = verdictBadge(b, v);
-  const names = tagIdsOf(b).map((id) => tagById(id));
-  const body = [];
-  if (done && a.oneLiner) body.push(`<p class="oneliner">${esc(a.oneLiner)}</p>`);
-  if (done && a.points?.length) body.push(`<ol class="points">${a.points.map((p) => `<li>${esc(p)}</li>`).join("")}</ol>`);
-  if (names.length) body.push(`<div class="chips">${names.map((t) => `<span class="chip on" style="--c:${esc(t.color)}">${esc(t.name)}</span>`).join("")}</div>`);
-  return `<article class="read-item${isProcessed(b) ? " decided" : ""}${S.selected.has(b) ? " selected" : ""}" data-bvid="${esc(b)}">
-    <h3><a href="${videoUrl(b)}" target="_blank" rel="noopener">${esc(it.title)}</a></h3>
-    <div class="meta">${[it.upper, fmtDuration(it.duration)].filter(Boolean).map(esc).join(" · ")}${it.folders?.length ? ` · 收藏夹：${esc(folderNames(it))}` : ""}${it.removedAt ? (it.movedTo ? ` · 移到「${esc(it.movedTo.title)}」（未勾选）：${esc(fmtTime(it.removedAt))}` : it.hidden ? ` · 已失效（B 站已隐藏）：${esc(fmtTime(it.removedAt))}` : ` · 离开收藏夹：${esc(fmtTime(it.removedAt))}`) : ""} · ${verdict}${v.reason ? ` <span class="reason">${esc(v.reason)}</span>` : ""}</div>
-    ${body.join("")}${it.removedAt ? `<button type="button" data-select="${esc(b)}" class="${S.selected.has(b) ? "on" : ""}" aria-pressed="${S.selected.has(b)}" aria-label="选中 ${esc(it.title)}">选中</button>` : ""}${it.removedAt ? `<button type="button" class="danger" data-clean="${esc(b)}" aria-label="清理 ${esc(it.title)}">清理</button>` : ""}
-  </article>`;
+// 已取消收藏: why and when the video left.
+function leftText(it) {
+  if (!it.removedAt) return "";
+  const when = fmtTime(it.removedAt);
+  return it.movedTo ? `移到「${it.movedTo.title}」（未勾选）：${when}` : it.hidden ? `已失效（B 站已隐藏）：${when}` : `离开收藏夹：${when}`;
+}
+// 原在「A」「B」, or 原在「A」「B」等 N 个 with the whole list in the title; nothing for records from before the origin was kept.
+function originHtml(it) {
+  const names = (it.from || []).map((f) => `「${f.title}」`);
+  if (!names.length) return "";
+  const text = names.length > 2 ? `原在${names.slice(0, 2).join("")}等 ${names.length} 个` : `原在${names.join("")}`;
+  return `<span title="${esc(`原在${names.join("")}`)}">${esc(text)}</span>`;
 }
 
 function folderTitle() {
@@ -2221,14 +2256,20 @@ function toggleTransferNew() {
 // every folder (已取消收藏). A folder with no cached list is left to its first load.
 async function patchSnapshot(mediaId, { add = [], drop = [] }, created = false) {
   const key = K.snapshot(mediaId);
-  const snap = await storeGet(key, null);
+  const got = await chrome.storage.local.get([key, K.left]);
+  const snap = got[key];
   if (!snap && !created) return;
   const old = snap || { bvids: [], invalid: [], titles: {}, items: [], ids: [], intro: "" };
   const gone = new Set(drop);
   const fresh = add.filter((it) => !old.bvids.includes(it.bvid));
   const added = fresh.map((it) => it.bvid);
   const keep = (b) => !gone.has(b);
+  // The trail follows this move like a folder diff would: added here forgets this folder, dropped from here adds it.
+  const left = { ...got[K.left] };
+  for (const it of add) forgetLeft(left, it.bvid, String(mediaId));
+  for (const b of drop) left[b] = { ...left[b], [String(mediaId)]: { title: folderName(mediaId), at: Date.now() } };
   await chrome.storage.local.set({
+    [K.left]: left,
     [key]: {
       ...old,
       bvids: [...added, ...old.bvids.filter(keep)],
@@ -2287,10 +2328,10 @@ async function batchTransfer(list) {
     bumpCount(to, chunk.length);
     if (move) bumpCount(from, -chunk.length);
     // Both cached lists follow each chunk; neither folder is read from Bilibili until the run settles (writingTo).
-    if (chosen) await patchSnapshot(to, { add: chunk.map(({ removedAt, movedTo, ...it }) => it) }, Boolean(target.create));
+    if (chosen) await patchSnapshot(to, { add: chunk.map(({ removedAt, movedTo, hidden, from, ...it }) => it) }, Boolean(target.create));
     if (add) {
       if (chosen) await dropRemoved(chunk.map((it) => it.bvid));
-      else await addMovedToRemoved(from, chunk.map(({ removedAt, movedTo, ...it }) => it), { id: to, title: toName });
+      else await addMovedToRemoved(from, chunk.map(({ removedAt, movedTo, hidden, from, ...it }) => it), { id: to, title: toName });
     }
     if (move) {
       const gone = new Set(chunk.map((it) => it.bvid));
@@ -2322,18 +2363,19 @@ async function batchTransfer(list) {
 // where it went. Ticking that folder brings it back (recoverRemoved).
 async function addMovedToRemoved(from, items, movedTo) {
   const others = S.folders.map((f) => String(f.id)).filter((id) => id !== from);
-  const got = await chrome.storage.local.get([K.removed, ...others.map(K.snapshot)]);
+  const got = await chrome.storage.local.get([K.removed, K.left, ...others.map(K.snapshot)]);
   const otherBvids = new Set(others.flatMap((id) => got[K.snapshot(id)]?.bvids || []));
-  const removed = got[K.removed] || {};
   const at = Date.now();
-  for (const it of items) if (!otherBvids.has(it.bvid)) removed[it.bvid] = { item: it, at, movedTo };
-  await chrome.storage.local.set({ [K.removed]: removed });
+  const source = from === REMOVED ? null : { id: from, title: folderName(from) };
+  const { removed, left } = moveToRemoved(got[K.removed] || {}, got[K.left] || {}, items, otherBvids, source, at, movedTo);
+  await chrome.storage.local.set({ [K.removed]: removed, [K.left]: left });
   if (S.mediaId === REMOVED) {
     for (const it of items) {
-      if (!removed[it.bvid]) continue;
+      const rec = removed[it.bvid];
+      if (!rec) continue;
       const shown = S.itemMap.get(it.bvid);
-      if (shown) Object.assign(shown, { removedAt: at, movedTo });
-      else S.items.unshift({ ...it, removedAt: at, movedTo });
+      if (shown) Object.assign(shown, { removedAt: at, movedTo, from: rec.from });
+      else S.items.unshift({ ...it, removedAt: at, movedTo, from: rec.from });
     }
     S.itemMap = new Map(S.items.map((x) => [x.bvid, x]));
   }
@@ -3257,7 +3299,7 @@ async function runWrite(md = false) {
 }
 
 // ---------- data export ----------
-const BACKUP_PREFIXES = [K.kept, K.watched, K.removed, K.tags, K.folderCriteria, "triage_video_tags", "triage_basket", K.notes, "triage_snapshot_", "triage_decisions_", "triage_title_", "triage_analysis_"];
+const BACKUP_PREFIXES = [K.kept, K.watched, K.removed, K.left, K.tags, K.folderCriteria, "triage_video_tags", "triage_basket", K.notes, "triage_snapshot_", "triage_decisions_", "triage_title_", "triage_analysis_"];
 
 async function buildBackup() {
   const all = await chrome.storage.local.get(null);
@@ -3287,6 +3329,7 @@ async function buildBackup() {
     else if (k === K.kept) out.kept = v;
     else if (k === K.watched) out.watched = v;
     else if (k === K.removed) out.removed = v;
+    else if (k === K.left) out.left = v;
     else if (k === K.folderCriteria) out.folderCriteria = v;
     else if (k === "triage_video_tags") out.videoTags = v;
     else if (k === "triage_basket") out.basket = v;
@@ -3845,8 +3888,8 @@ function onKey(e) {
   const cardKeys = { d: "unfav", s: "keep", t: "tag", e: "basket", q: "ask", x: "select", o: "open", Enter: "open" };
   if (key === "Escape" && S.viewing) closeViewer();
   else if (map[key]) map[key]();
-  else if (S.mediaId === REMOVED) return;
   else if (nav[key]) moveFocus(nav[key]);
+  else if (S.mediaId === REMOVED) return;
   else if (key === "u") undo();
   else if (cardKeys[key] && S.focused) cardAction(cardKeys[key], S.focused);
   else return;

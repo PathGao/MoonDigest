@@ -224,18 +224,22 @@ select { height: 28px; max-width: 240px; }
 .tag-chip:hover { background: var(--field-bg); }
 .tag-chip .ai-spark { margin-right: 3px; }
 
-/* ---------- the selection bar floats over the bottom of the page while anything is selected ---------- */
+/* ---------- the selection bar floats over the bottom of the page while anything is selected ----------
+   Centered with auto margins between left and right (not left: 50% + translate, which caps a fixed box at half the
+   viewport), so the count stays on one line and the button group wraps instead. */
 .selbar {
   position: fixed;
-  left: 50%;
+  left: 16px;
+  right: 16px;
   bottom: 20px;
   z-index: 16;
-  transform: translateX(-50%);
+  width: fit-content;
+  margin: 0 auto;
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: center;
   gap: 6px 10px;
-  max-width: calc(100vw - 32px);
   min-height: 52px;
   padding: 8px 10px 8px 20px;
   border-radius: var(--radius-lg);
@@ -246,7 +250,8 @@ select { height: 28px; max-width: 240px; }
 .selbar > * { flex: none; white-space: nowrap; }
 .sel-count { font-weight: 600; font-variant-numeric: tabular-nums; color: var(--link); }
 .selbar .link { height: 28px; }
-.sel-actions { display: flex; align-items: center; justify-content: flex-end; gap: 6px; padding-left: 10px; border-left: 1px solid var(--border); }
+.selbar > .sel-actions { flex: 0 1 auto; }
+.sel-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 6px; padding-left: 10px; border-left: 1px solid var(--border); }
 .sel-actions:empty { display: none; }
 .sel-actions button { height: 32px; padding: 0 14px; border-color: transparent; background: var(--field-bg); }
 .sel-actions button:hover { background: var(--border); }
@@ -316,7 +321,8 @@ html[data-seen-style="veil"] .cover-wrap.seen .seen-veil { display: flex; }
 .card-foot .spacer { flex: 1; }
 .actions { display: flex; flex-wrap: wrap; gap: 4px; }
 .actions button { height: 26px; padding: 0 8px; font-size: var(--fs-xs); }
-.actions .more { display: flex; gap: 4px; }
+/* 保留 / 取消收藏 (选中 / 清理 in 已取消收藏) are one pair and the secondary ones one group: each wraps whole. */
+.actions .pair, .actions .more { display: flex; gap: 4px; }
 .actions .more button { border-color: transparent; background: none; color: var(--text-2); }
 .actions .more button:hover { background: var(--field-bg); }
 /* Secondary actions show on the current, hovered or focused card; their keys work everywhere. A pressed one stays visible. */
@@ -342,22 +348,24 @@ button.icon { width: 26px; height: 24px; padding: 0; }
 .list:not(.grid) .card.selected { box-shadow: 0 0 0 8px var(--action-bg), 0 0 0 10px var(--action); background: var(--action-bg); }
 .list:not(.grid) .card.selected:hover { background: var(--action-bg); }
 .card.selected .cover-wrap::before { content: "✓"; position: absolute; right: 6px; top: 6px; z-index: 2; width: 20px; height: 20px; border-radius: 4px; background: var(--action); color: #fff; font-size: 14px; font-weight: 700; line-height: 20px; text-align: center; }
-.list:not(.grid) .actions { display: contents; }
-.list:not(.grid) .actions > [data-act="keep"], .list:not(.grid) .actions > button:last-child { position: absolute; right: 0; width: 112px; height: 32px; padding: 0; justify-content: center; font-size: var(--fs-sm); }
-.list:not(.grid) .actions > [data-act="keep"] { top: calc(50% - 36px); }
-.list:not(.grid) .actions > button:last-child { top: calc(50% + 4px); }
-.list:not(.grid) .actions > button:last-child:not(.solid) { border-color: transparent; background: var(--field-bg); }
+.list:not(.grid) .actions, .list:not(.grid) .pair { display: contents; }
+.list:not(.grid) .pair > button { position: absolute; right: 0; width: 112px; height: 32px; padding: 0; justify-content: center; font-size: var(--fs-sm); }
+.list:not(.grid) .pair > button:first-child { top: calc(50% - 36px); }
+.list:not(.grid) .pair > button:last-child { top: calc(50% + 4px); }
+.list:not(.grid) .pair > button:last-child:not(.solid) { border-color: transparent; background: var(--field-bg); }
 .list:not(.grid) .actions .more { margin-left: auto; }
-/* Beside the viewer the list is narrow: the smaller cover, as on a narrow screen. */
+/* Beside the viewer the list is narrow: the smaller cover, and the buttons back in the foot row, the pair first. */
 .main.viewing .list:not(.grid) .card { grid-template-columns: 128px minmax(0, 1fr); gap: 10px; padding-right: 0; }
-.main.viewing .list:not(.grid) .actions > [data-act="keep"], .main.viewing .list:not(.grid) .actions > button:last-child { position: static; width: auto; height: 26px; padding: 0 8px; font-size: var(--fs-xs); }
-.main.viewing .list:not(.grid) .actions > button:last-child:not(.solid) { border-color: var(--border-strong); background: var(--surface); }
+.main.viewing .list:not(.grid) .actions { display: flex; justify-content: flex-end; }
+.main.viewing .list:not(.grid) .pair { display: flex; }
+.main.viewing .list:not(.grid) .pair > button { position: static; width: auto; height: 26px; padding: 0 8px; font-size: var(--fs-xs); }
+.main.viewing .list:not(.grid) .pair > button:last-child:not(.solid) { border-color: var(--border-strong); background: var(--surface); }
 .main.viewing .list:not(.grid) .actions .more { margin-left: 0; }
 .main.viewing .list:not(.grid) .key { display: none; }
 .shell:has(.main.viewing) { grid-template-columns: minmax(0, 1fr); }
 .shell:has(.main.viewing) .side { display: none; }
 
-/* ---------- 阅览: the grid. The actions overlay the cover's box and show on the current, hovered or focused card ---------- */
+/* ---------- 阅览 and 已取消收藏: the grid. The actions overlay the cover's box, above the duration, and show on the current, hovered or focused card ---------- */
 .list.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 20px 16px; align-content: start; padding-top: 2px; }
 .list.grid > :not(.card) { grid-column: 1 / -1; }
 .list.grid .card-body { margin-top: 8px; }
@@ -384,31 +392,21 @@ button.icon { width: 26px; height: 24px; padding: 0; }
   width: 100%;
   aspect-ratio: 16 / 10;
   gap: 6px;
-  padding: 8px;
+  padding: 8px 8px 28px;
   pointer-events: none;
 }
-.list.grid .actions .more { grid-column: 1 / -1; flex-wrap: wrap; justify-content: center; }
-.list.grid .actions button { pointer-events: auto; }
-.list.grid .actions > button, .list.grid .actions .more button { height: 28px; border-color: transparent; background: rgba(255, 255, 255, 0.95); color: var(--text); font-weight: 600; visibility: hidden; }
+.list.grid .actions .pair { display: contents; }
+.list.grid .actions .more { grid-column: 1 / -1; grid-row: 1; flex-wrap: wrap; justify-content: center; }
+/* White buttons over the cover in both themes, so their text is the light theme's ink, not var(--text). */
+.list.grid .actions button { pointer-events: auto; height: 28px; border-color: transparent; background: rgba(255, 255, 255, 0.95); color: #18191c; font-weight: 600; visibility: hidden; }
+.list.grid .actions button.danger { color: #b52a48; }
 .list.grid .actions .more button { height: 24px; padding: 0 6px; font-weight: 500; }
-.list.grid .actions > [data-act="keep"], .list.grid .actions > button:last-child { display: inline-flex; align-items: center; justify-content: center; }
+.list.grid .pair > button { display: inline-flex; align-items: center; justify-content: center; }
 .list.grid .card:is(.focused, :hover, :focus-within) .actions button { visibility: visible; }
 .list.grid .actions .more button.on { visibility: visible; }
 .list.grid .actions .key { display: none; }
 .list.grid .actions .more .key { display: none; }
 @media (hover: none) { .list.grid .card:not(.focused) .actions button:not(.on) { display: none; } }
-
-/* Same box as .card so both views read as one card per video; no cover or actions here. */
-.list.reading { max-width: 760px; }
-.read-item { padding: 10px 12px; margin-bottom: 6px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-md); line-height: 1.55; }
-.read-item.decided h3 a { color: var(--muted); }
-.read-item h3 { margin: 0 0 2px; font-size: var(--fs-lg); }
-.read-item h3 a { color: inherit; text-decoration: none; }
-.read-item h3 a:hover { text-decoration: underline; }
-.read-item .points { font-size: var(--fs-sm); color: inherit; margin-top: 4px; }
-.read-item .points li { margin: 2px 0; }
-.read-item.selected { background: var(--action-bg); }
-.read-item [data-clean], .read-item [data-select] { margin: 6px 6px 0 0; }
 
 .notice {
   position: absolute;
@@ -553,7 +551,6 @@ dialog textarea { resize: vertical; }
 .keys dd { margin: 0; }
 
 @media (max-width: 899px) {
-  .selbar, .sel-actions { flex-wrap: wrap; }
   /* Too narrow for two columns: the viewer takes the list's place until it closes. */
   .main.viewing { grid-template-columns: minmax(0, 1fr); grid-template-areas: "bar" "viewer"; }
   .main.viewing .list, .main.viewing .basket { display: none; }
@@ -626,5 +623,6 @@ dialog.wide { width: min(880px, calc(100% - 32px)); }
   .search { order: 2; flex-basis: 100%; max-width: none; margin: 0; }
   .main { padding: 0 8px; }
   .list:not(.grid) .card { padding-right: 0; }
-  .list:not(.grid) .actions > [data-act="keep"], .list:not(.grid) .actions > button:last-child { position: static; width: auto; height: 26px; padding: 0 8px; font-size: var(--fs-xs); }
+  .list:not(.grid) .actions, .list:not(.grid) .pair { display: flex; }
+  .list:not(.grid) .pair > button { position: static; width: auto; height: 26px; padding: 0 8px; font-size: var(--fs-xs); }
 }
