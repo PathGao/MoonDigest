@@ -204,7 +204,7 @@
         </div>
         <div class="rows">
           <div class="row">
-            <div class="lab"><label class="name" for="seenShow">封面显示</label><p class="hint">按你的 B站历史记录，在分拣台和 B站页面的视频封面上标出看了多少。</p></div>
+            <div class="lab"><label class="name" for="seenShow">封面显示</label><p class="hint">按你的 B站历史记录，在分拣台和 B站页面的视频封面上标出看了多少。</p><p class="note">关闭时不读历史。打开后只在打开分拣台或 B站页面时读新增记录，最多 10 分钟一次。本地只存每个视频的进度，留最近 1 年、最多 5000 个。</p></div>
             <div class="ctl">
               <select id="seenShow">
                 <option value="off">关</option>
@@ -214,27 +214,26 @@
               </select>
             </div>
           </div>
-          <div class="row wide seen-demo">
-            <div class="covers" aria-hidden="true">
-              <figure><div class="cover c1"><span class="seen-tag">✓ 看完了</span><i style="width: 100%"></i></div><figcaption>看到 100%</figcaption></figure>
-              <figure><div class="cover c2"><span class="seen-tag">✓ 看过 83%</span><i style="width: 83%"></i></div><figcaption>达到设定比例</figcaption></figure>
-              <figure><div class="cover c3"><span class="seen-tag faint-tag">看过 40%</span><i style="width: 40%"></i></div><figcaption>没到比例，淡色</figcaption></figure>
-            </div>
-            <p class="hint">进度条和 B站自己的一样。</p>
-            <p class="note">关闭时不读历史。打开后只在打开分拣台或 B站页面时读新增记录，最多 10 分钟一次。本地只存每个视频的进度，留最近 1 年、最多 5000 个。</p>
-          </div>
           <div class="row" data-seen-mark-row>
             <div class="lab"><label class="name" for="seenThreshold">看多少算看完了</label><p class="hint">按视频时长的百分比算。</p></div>
             <div class="ctl"><input id="seenThreshold" type="number" min="1" max="100" step="1" /> %</div>
           </div>
           <div class="row" data-seen-mark-row>
-            <div class="lab"><label class="name" for="seenStyle">看完了标记样式</label><p class="hint">角标：写在封面左上角。封面遮罩：封面盖一层暗色，字写在正中。</p></div>
+            <div class="lab"><label class="name" for="seenStyle">看完了标记样式</label><p class="hint">角标：写在封面角上。封面遮罩：封面盖一层暗色，字写在正中。</p></div>
             <div class="ctl">
               <select id="seenStyle">
                 <option value="badge">角标</option>
                 <option value="veil">封面遮罩</option>
               </select>
             </div>
+          </div>
+          <div class="row wide seen-demo" id="seenDemo">
+            <div class="covers" aria-hidden="true">
+              <figure><div class="cover c1"><span class="seen-tag">✓ 看完了</span><i style="width: 100%"></i></div><figcaption>看到 100%</figcaption></figure>
+              <figure data-seen-at="full"><div class="cover c2"><span class="seen-tag">✓ 看过 80%</span><i style="width: 80%"></i></div><figcaption>达到设定比例</figcaption></figure>
+              <figure data-seen-at="half"><div class="cover c3"><span class="seen-tag faint-tag">看过 40%</span><i style="width: 40%"></i></div><figcaption>没到比例，淡色</figcaption></figure>
+            </div>
+            <p class="hint">进度条和 B站自己的一样。</p>
           </div>
         </div>
       </section>

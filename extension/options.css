@@ -685,7 +685,9 @@ details.adv[open] > summary::before {
   display: none;
 }
 
-/* 观看进度: three drawn covers show what each mark looks like. Cover colors and the overlay are fixed, like real covers. */
+/* 观看进度: three drawn covers show what each mark looks like. Cover colors and the overlay are fixed, like real covers.
+   The tag and veil copy the triage page's (triage.css .seen-tag, .seen-veil). options.js keeps data-show and data-style
+   on .seen-demo in step with the selects, unsaved. */
 .seen-demo {
   gap: 10px;
 }
@@ -716,19 +718,32 @@ details.adv[open] > summary::before {
   position: absolute;
   top: 6px;
   left: 6px;
-  padding: 0 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1px 6px;
   border-radius: 4px;
-  background: rgba(0, 0, 0, 0.6);
+  background: var(--accent);
   color: #fff;
   font-size: var(--fs-xs);
   font-weight: 600;
-  line-height: 20px;
+  line-height: 18px;
   white-space: nowrap;
 }
 
 .seen-tag.faint-tag {
-  color: rgba(255, 255, 255, 0.75);
+  background: rgba(17, 17, 27, 0.6);
   font-weight: 400;
+}
+
+/* No display here, so data-show="bar" still hides it. */
+.seen-demo[data-style="veil"] .seen-tag:not(.faint-tag) {
+  inset: 0;
+  padding: 0;
+  border-radius: 0;
+  background: rgba(17, 17, 27, 0.55);
+  font-size: var(--fs-sm);
+  font-weight: 700;
 }
 
 .cover::after {
@@ -748,6 +763,13 @@ details.adv[open] > summary::before {
   background: var(--accent);
 }
 
+/* 关 keeps both marks but fades them, so the choices can still be seen before turning it on. */
+.seen-demo[data-show="off"] .covers { opacity: 0.35; }
+.seen-demo[data-show="bar"] .seen-tag,
+.seen-demo[data-show="mark"] .cover i,
+.seen-demo[data-show="mark"] .cover::after,
+.seen-demo [hidden] { display: none; }
+
 .covers figcaption {
   margin-top: 4px;
   color: var(--faint);
@@ -757,6 +779,10 @@ details.adv[open] > summary::before {
 
 .seen-demo .hint {
   margin: 0;
+}
+
+.lab .note {
+  margin-top: 4px;
 }
 
 .note {
