@@ -539,8 +539,12 @@ dialog.wide { width: min(620px, calc(100% - 32px)); }
 .ai-section { display: flex; flex-direction: column; gap: 6px; }
 /* Label column on the left; anything that is not a label or a field (counts, switches, chips) sits under its field. */
 .ai-grid { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 6px 12px; align-items: baseline; }
-.ai-grid > label:not(.toggle) { font-size: var(--fs-sm); color: var(--text-2); }
-.ai-grid > :not(label, select, textarea, input), .ai-grid > .toggle { grid-column: 2; }
+.ai-grid > label:not(.toggle), .ai-grid .grid-label { grid-column: 1; font-size: var(--fs-sm); color: var(--text-2); }
+.ai-grid > :not(label, select, textarea, input), .ai-grid > .toggle, #aiTagsPreview > :not(.grid-label) { grid-column: 2; }
+/* Its label, chips and hint join the grid as if they were the grid's own children. */
+#aiTagsPreview { display: contents; }
+#aiTagsPreview .chips { margin: 0; }
+.chip.tag-use[aria-pressed="false"] { border: 1px dashed var(--border-strong); color: var(--faint); }
 .ai-grid select { width: 100%; max-width: none; }
 .field-row { display: flex; align-items: center; gap: 12px; }
 .field-row input[type="text"] { flex: 1; min-width: 0; }

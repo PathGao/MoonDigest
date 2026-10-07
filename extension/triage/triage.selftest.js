@@ -1063,6 +1063,25 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   await t.saveSnapshot("2", [item(2)]);
   assert.deepStrictEqual(Object.keys(store[t.K.removed]).sort(), ["BV1", "BV3"]);
 
+  // A tag greyed out in 批量打 is nowhere in what the AI gets; a reply that still adds, creates or removes it is dropped.
+  {
+    openFake("K", [item(610)]);
+    Object.assign(t.S, { tags: [{ id: "a", name: "旧", color: "#111", folder: "K" }, { id: "b", name: "留", color: "#222", folder: "K" }], videoTags: { BV610: ["a"] }, aiHistory: [], tab: "read" });
+    t.S.settings.triageAiRemoveTags = true;
+    t.S.ai.excluded.add("a");
+    t.el.aiInstruction = { value: "分" };
+    t.el.aiScope = { value: "filter", options: [], selectedOptions: [] };
+    handlers["triage-ai-command"] = () => ({ ok: true, data: { newTags: ["旧"], assignments: { BV610: { add: ["旧", "留"], remove: ["旧"] } } } });
+    await t.runAiCommand();
+    assert.deepStrictEqual(plain(sent.at(-1).tags), [{ name: "留", rule: "" }]);
+    assert.ok(!JSON.stringify(sent.at(-1)).includes("旧"), "not in the tag list nor in the video's current tags");
+    assert.deepStrictEqual(plain(t.S.ai.proposal.newTags), [], "not created as a new tag");
+    assert.deepStrictEqual(plain(t.S.ai.proposal.rows), [{ bvid: "BV610", add: ["id:b"], remove: [], reason: "", checked: true }], "not added, not removed");
+    t.S.ai.proposal = null;
+    t.S.ai.excluded.clear();
+    t.S.settings.triageAiRemoveTags = false;
+  }
+
   // 批量打标签 keeps running when another folder opens; its proposal stays with its folder and shows on return.
   openFake("K", [item(600), item(601)]);
   t.S.folders = t.S.allFolders = [{ id: "K", title: "夹K" }, { id: "L", title: "夹L" }];

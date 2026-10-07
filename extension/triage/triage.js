@@ -299,6 +299,8 @@ const S = {
     running: false,
     stop: false,
     mediaId: "",
+    // Tag ids greyed out in 批量打 for this opening of the dialog: not sent to the AI, never added, kept or removed.
+    excluded: new Set(),
     proposals: {},
     get proposal() {
       return this.proposals[S.mediaId] || null;
@@ -2667,6 +2669,7 @@ function tagsBtnMode() {
 }
 
 function openTags(mode = "manage") {
+  S.ai.excluded.clear();
   showTagsMode(mode);
   el.tagsDialog.showModal();
   if (mode === "manage") el.newTagInput.focus();
@@ -2935,7 +2938,7 @@ function aiCommandItem(it) {
     out.points = a.points || [];
   }
   const own = new Set(viewTags().map((t) => t.id));
-  const names = tagIdsOf(it.bvid).filter((id) => own.has(id)).map((id) => tagById(id).name);
+  const names = tagIdsOf(it.bvid).filter((id) => own.has(id) && !S.ai.excluded.has(id)).map((id) => tagById(id).name);
   if (names.length) out.currentTags = names;
   return out;
 }
@@ -2969,11 +2972,18 @@ function renderAiForm() {
   el.aiScopeCount.textContent = n ? `${n} 个视频：${parts.join("，")}。分 ${Math.ceil(n / size)} 批发送` : "作用范围里没有视频";
   const tags = viewTags();
   const room = aiNewTagRoom();
-  const roomHint = room ? `AI 这次最多新建 ${room} 个（这个收藏夹还剩 ${tagLimit() - tags.length} 个名额），你确认后才创建。` : "名额已满，AI 只会用已有标签。";
+  const noneUsable = tags.length > 0 && tags.every((t) => S.ai.excluded.has(t.id));
+  const roomHint = noneUsable
+    ? room ? `已有标签都不给 AI 用，AI 只会新建标签（这次最多 ${room} 个），你确认后才创建。` : "已有标签都不给 AI 用，名额也满了，AI 打不了标签。"
+    : room ? `AI 这次最多新建 ${room} 个（这个收藏夹还剩 ${tagLimit() - tags.length} 个名额），你确认后才创建。` : "名额已满，AI 只会用已有标签。";
+  const useChip = (t) => {
+    const on = !S.ai.excluded.has(t.id);
+    return `<button type="button" class="chip tag-use${on ? " on" : ""}" style="--c:${esc(t.color)}" data-use="${esc(t.id)}" aria-pressed="${on}" title="${on ? "点一下：这次不让 AI 用" : "点一下：让 AI 用"}">${esc(t.name)}</button>`;
+  };
   el.aiTagsPreview.innerHTML = !inFolderView()
     ? `<p class="dialog-hint">${FOLDER_ONLY}再批量打。</p>`
     : tags.length
-      ? `<div class="chips">AI 能用的标签：${tags.map((t) => `<span class="chip">${esc(t.name)}</span>`).join("")}</div><p class="dialog-hint">${roomHint}</p>`
+      ? `<span id="aiTagsLabel" class="grid-label">可用标签</span><div class="chips" role="group" aria-labelledby="aiTagsLabel">${tags.map(useChip).join("")}</div><p class="dialog-meta">${roomHint}</p>`
       : `<p class="dialog-hint">这个收藏夹还没有自定义标签。${roomHint}想打得准，先在<button type="button" class="link" data-tags-mode="manage">「管理」</button>里建好标签、每个写一句说明。</p>`;
   el.aiHistory.innerHTML = S.aiHistory.length
     ? `<span class="muted">最近：</span>` +
@@ -3010,8 +3020,9 @@ async function runAiCommand() {
   storeSet(K.aiHistory, S.aiHistory);
   // Everything the run sends is taken now: the run outlives a folder switch, and the page then holds another folder.
   const folder = String(S.mediaId);
-  const opts = { maxNewTags: aiNewTagRoom(), allowRemove: S.settings.triageAiRemoveTags === true, folder };
-  const tags = viewTags().map((t) => ({ name: t.name, rule: t.rule || "" }));
+  const excluded = new Set(viewTags().filter((t) => S.ai.excluded.has(t.id)).map((t) => t.name));
+  const opts = { maxNewTags: aiNewTagRoom(), allowRemove: S.settings.triageAiRemoveTags === true, folder, excluded };
+  const tags = viewTags().filter((t) => !excluded.has(t.name)).map((t) => ({ name: t.name, rule: t.rule || "" }));
   const payload = items.map(aiCommandItem);
   const size = Math.max(1, Number(S.settings.triageTitleBatchSize) || 30);
   const scopeSet = new Set(items.map((it) => it.bvid));
@@ -3057,9 +3068,10 @@ function mergeAiBatch(p, data, opts, scopeSet) {
     return t;
   };
 
+  const blocked = (name) => opts.excluded?.has(name);
   for (const raw of data?.newTags || []) {
     const name = String(raw ?? "").trim();
-    if (name && !existing(name) && !proposed(name)) addNew(name);
+    if (name && !blocked(name) && !existing(name) && !proposed(name)) addNew(name);
   }
   if (data?.note) p.notes.push(String(data.note));
 
@@ -3069,7 +3081,7 @@ function mergeAiBatch(p, data, opts, scopeSet) {
     const add = [];
     for (const raw of a?.add || []) {
       const name = String(raw ?? "").trim();
-      if (!name) continue;
+      if (!name || blocked(name)) continue;
       const t = existing(name);
       if (t) {
         if (!current.includes(t.id)) add.push(`id:${t.id}`);
@@ -3079,7 +3091,9 @@ function mergeAiBatch(p, data, opts, scopeSet) {
       if (nt) add.push(`new:${nt.key}`);
     }
     const remove = (a?.remove || [])
-      .map((n) => existing(String(n ?? "").trim()))
+      .map((n) => String(n ?? "").trim())
+      .filter((n) => !blocked(n))
+      .map(existing)
       .filter((t) => t && current.includes(t.id))
       .map((t) => t.id);
     if (!add.length && !remove.length) continue;
@@ -3919,6 +3933,13 @@ function bindEvents() {
   el.tagsDialog.addEventListener("click", (e) => {
     const btn = e.target.closest("[data-tags-mode]");
     if (btn) showTagsMode(btn.dataset.tagsMode);
+  });
+  el.aiTagsPreview.addEventListener("click", (e) => {
+    const id = e.target.closest("[data-use]")?.dataset.use;
+    if (!id) return;
+    if (!S.ai.excluded.delete(id)) S.ai.excluded.add(id);
+    renderAiForm();
+    el.aiTagsPreview.querySelector(`[data-use="${CSS.escape(id)}"]`)?.focus();
   });
   el.tagsRows.addEventListener("change", (e) => {
     const row = e.target.closest(".tag-row");
