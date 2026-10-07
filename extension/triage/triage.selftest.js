@@ -780,16 +780,18 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   assert.deepStrictEqual(plain(store[t.K.snapshot("A")].ids), ["BVhidden"], "an id the paged list leaves out stays in the check baseline");
   assert.strictEqual(t.S.removedCount, 1);
 
-  // 已取消收藏 renders the normal card: the leaving line and the origin in the meta, 选中 / 清理 as the pair, no 保留 / 取消收藏.
+  // 已取消收藏 renders the normal card: a line under the title with the origin chip and when / why it left, 选中 / 清理 as the pair, no 保留 / 取消收藏.
   {
     openFake("removed", []);
-    const html = t.cardHtml({ ...item(1), removedAt: 5, from: [{ id: "A", title: "甲", at: 1 }, { id: "B", title: "乙", at: 3 }, { id: "C", title: "丙", at: 5 }] }, true, "");
+    const at = new Date(new Date().getFullYear(), 9, 5, 17, 25).getTime();
+    const html = t.cardHtml({ ...item(1), removedAt: at, from: [{ id: "A", title: "甲", at: 1 }, { id: "B", title: "乙", at: 3 }, { id: "C", title: "丙", at: 5 }] }, true, "");
     assert.ok(html.includes('data-select="BV1"') && html.includes('class="danger" data-clean="BV1"') && !html.includes('data-act="keep"') && !html.includes('data-act="unfav"'), html);
-    assert.ok(html.includes("离开收藏夹：") && html.includes('title="原在「甲」「乙」「丙」">原在「甲」「乙」等 3 个<'), html);
-    assert.ok(t.cardHtml({ ...item(2), removedAt: 5, from: [{ id: "A", title: "甲", at: 5 }] }, true, "").includes(">原在「甲」<"));
-    const hidden = t.cardHtml({ ...item(3), removedAt: 5, hidden: true }, true, "");
-    assert.ok(!hidden.includes("原在") && hidden.includes("已失效（B 站已隐藏）："), "a record without an origin shows none");
-    assert.ok(t.cardHtml({ ...item(4), removedAt: 5, movedTo: { id: "Z", title: "外" } }, true, "").includes("移到「外」（未勾选）："));
+    assert.ok(html.includes('<div class="left-row"><span class="origin-chip" title="原在「甲」「乙」「丙」">原在「甲」「乙」等 3 个</span><span>10月5日 17:25 离开收藏夹</span></div>'), html);
+    assert.ok(!/class="meta">[^<]*(离开收藏夹|原在)/.test(html), "the gray meta line does not repeat the leaving line");
+    assert.ok(t.cardHtml({ ...item(2), removedAt: at, from: [{ id: "A", title: "甲", at: 5 }] }, true, "").includes(">原在「甲」<"));
+    const hidden = t.cardHtml({ ...item(3), removedAt: new Date(2020, 9, 2).getTime(), hidden: true }, true, "");
+    assert.ok(!hidden.includes("原在") && hidden.includes('<div class="left-row"><span>2020年10月2日 已失效（B 站已隐藏）</span></div>'), "a record without an origin shows no chip; another year shows the year and no time");
+    assert.ok(t.cardHtml({ ...item(4), removedAt: at, movedTo: { id: "Z", title: "外" } }, true, "").includes("10月5日 17:25 移到「外」（未勾选）"));
     openFake("A", [item(1)]);
     assert.ok(t.cardHtml(item(1), false, "").includes('<span class="pair">\n            <button type="button" data-act="keep"'), "a folder's card keeps 保留 / 取消收藏 as the pair");
   }

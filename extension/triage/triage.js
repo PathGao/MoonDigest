@@ -1914,10 +1914,9 @@ function cardHtml(it, expanded, mark) {
   if (S.selected.has(b)) cls.push("selected");
   if (mark) cls.push("in-batch");
 
-  // Where the verdict came from, as one muted meta item.
-  const source = [["", "粗看", "细看"][v.stage], done && (a.source === "subtitle" ? "字幕" : "简介")].filter(Boolean).join("·");
   const removed = S.mediaId === REMOVED;
-  const meta = [it.upper, fmtDate(it.pubdate), source, seenText(it), it.invalid && "已失效", it.folders?.length && `收藏夹：${folderNames(it)}`, removed && leftText(it)].filter(Boolean);
+  const meta = [it.upper, fmtDate(it.pubdate), ["", "粗看", "细看"][v.stage], seenText(it), it.invalid && "已失效", it.folders?.length && `收藏夹：${folderNames(it)}`].filter(Boolean);
+  const left = removed && [originHtml(it), it.removedAt && `<span>${esc(leftText(it))}</span>`].filter(Boolean).join("");
 
   const verdict = verdictBadge(b, v);
   // The button matching the AI's verdict leads; the other stays plain.
@@ -1945,7 +1944,8 @@ function cardHtml(it, expanded, mark) {
     ${coverHtml(it)}
     <div class="card-body">
       <div class="title-row">${mark ? `<span class="batch-tag">${mark}</span>` : ""}<button type="button" class="title" data-act="open" aria-label="打开视频 ${esc(it.title)}">${esc(it.title)}</button></div>
-      <div class="meta">${[...meta.map(esc), removed && originHtml(it)].filter(Boolean).join(" · ")}</div>
+      ${left ? `<div class="left-row">${left}</div>` : ""}
+      <div class="meta">${meta.map(esc).join(" · ")}</div>
       ${body.join("")}
       <div class="card-foot verdict-row">${verdict}${S.watched[b] ? `<button type="button" class="badge watched" data-act="unwatch" aria-label="优先看过，点一下取消" title="${esc(fmtTime(S.watched[b]))} 在优先看里点了已看 · 点一下取消">优先看过</button>` : ""}<span class="reason">${esc(v.reason)}</span>${failed}</div>
       ${chips ? `<div class="chips">${chips}</div>` : ""}
@@ -1974,18 +1974,19 @@ function cardHtml(it, expanded, mark) {
   </article>`;
 }
 
-// 已取消收藏: why and when the video left.
+// 已取消收藏: when and why the video left. 「10月5日 17:25」 this year, 「2025年10月5日」 before.
 function leftText(it) {
-  if (!it.removedAt) return "";
-  const when = fmtTime(it.removedAt);
-  return it.movedTo ? `移到「${it.movedTo.title}」（未勾选）：${when}` : it.hidden ? `已失效（B 站已隐藏）：${when}` : `离开收藏夹：${when}`;
+  const d = new Date(it.removedAt);
+  const day = `${d.getMonth() + 1}月${d.getDate()}日`;
+  const when = d.getFullYear() === new Date().getFullYear() ? `${day} ${pad(d.getHours())}:${pad(d.getMinutes())}` : `${d.getFullYear()}年${day}`;
+  return `${when} ${it.movedTo ? `移到「${it.movedTo.title}」（未勾选）` : it.hidden ? "已失效（B 站已隐藏）" : "离开收藏夹"}`;
 }
 // 原在「A」「B」, or 原在「A」「B」等 N 个 with the whole list in the title; nothing for records from before the origin was kept.
 function originHtml(it) {
   const names = (it.from || []).map((f) => `「${f.title}」`);
   if (!names.length) return "";
   const text = names.length > 2 ? `原在${names.slice(0, 2).join("")}等 ${names.length} 个` : `原在${names.join("")}`;
-  return `<span title="${esc(`原在${names.join("")}`)}">${esc(text)}</span>`;
+  return `<span class="origin-chip" title="${esc(`原在${names.join("")}`)}">${esc(text)}</span>`;
 }
 
 function folderTitle() {

@@ -311,6 +311,8 @@ html[data-seen-style="veil"] .cover-wrap.seen .seen-veil { display: flex; }
 }
 .title:hover { background: none; text-decoration: underline; }
 .meta { color: var(--faint); font-size: var(--fs-xs); }
+.left-row { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; margin: 2px 0; color: var(--text); font-size: 13px; }
+.origin-chip { height: 20px; padding: 0 6px; border: 1px solid var(--border-strong); border-radius: var(--radius-sm); font-size: 12px; line-height: 18px; white-space: nowrap; }
 .oneliner { margin: 4px 0 0; color: var(--text-2); }
 .points { margin: 2px 0 0; padding-left: 18px; color: var(--text-2); font-size: var(--fs-xs); }
 .points li { margin: 0; }
