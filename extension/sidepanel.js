@@ -15,7 +15,7 @@ const {
 const PLAYER_AI_QUICK_ACTION_STORAGE_KEY = "boc_player_ai_quick_action_v1";
 // Marks a control that starts an AI request (tokens.css draws it in the text color).
 const AI_SPARK = '<span class="ai-spark" aria-hidden="true"></span>';
-const NON_VIDEO_CONTEXT_MESSAGE = "这不是支持的视频页，<br>AI 读不到本页，只能普通对话。";
+const NON_VIDEO_CONTEXT_MESSAGE = "这不是支持的视频页。";
 const EMPTY_INTRO = "AI 会读这期视频的字幕和评论，回答你的问题。";
 const STREAM_SLOW_NOTICE_MS = 15000;
 const PREVIOUS_VIDEO_CONVERSATION_KEY = "boc_sp_previous_video_conversation";
@@ -252,10 +252,11 @@ function autosizeInput() {
 }
 
 function setStreamingUiState(isStreaming, { stopping = false } = {}) {
-  els.input.disabled = isStreaming;
+  const blocked = !isStreaming && isNonVideoConversation();
+  els.input.disabled = isStreaming || blocked;
   renderFollowups();
   els.generating.hidden = !isStreaming;
-  els.sendBtn.disabled = stopping;
+  els.sendBtn.disabled = stopping || blocked;
   els.sendBtn.classList.toggle("is-stop", isStreaming);
   els.sendBtn.innerHTML = isStreaming ? (stopping ? "停止中" : "停止") : `${AI_SPARK}发送`;
 }
@@ -422,6 +423,11 @@ function fillPrompt(prompt) {
 // (and contextData while no conversation or reply holds it), so they never relabel an existing or in-flight one.
 function isContextBound() {
   return currentConversationMeta?.pinnedContext === true || Boolean(activeStream);
+}
+
+// Only videos can be asked about: a web page gives the AI nothing to read, and a conversation saved on one stays read-only.
+function isNonVideoConversation() {
+  return (currentConversationMeta?.pinnedContext ? currentConversationMeta : contextData)?.isVideoContext === false;
 }
 
 // Tab switches and sends overlap their loads; only the newest one writes the context, and an older caller gets the
@@ -779,13 +785,16 @@ function followupBlockReason() {
   if (!providers.length) {
     return "先在设置页添加一个 AI 平台";
   }
+  if (isNonVideoConversation()) {
+    return "不是视频，不能问";
+  }
   if (activeStream || els.input.disabled) {
     return "正在生成，等这条回复结束";
   }
   if (contextData?.pending) {
     return "正在读取视频字幕…";
   }
-  if (!chatHistory.length && !currentConversationMeta?.pinnedContext && (!contextData || contextData.isVideoContext === false)) {
+  if (!chatHistory.length && !currentConversationMeta?.pinnedContext && !contextData) {
     return "打开一个视频后才能追问";
   }
   return "";
@@ -1164,7 +1173,7 @@ async function loadConversationById(id) {
   await detachActiveStream();
   applyConversation(conversation);
   renderInitialState();
-  if (conversation.contextKey && conversation.contextKey !== liveContextKey) {
+  if (conversation.isVideoContext && conversation.contextKey && conversation.contextKey !== liveContextKey) {
     showConversationContextNotice("正在加载原视频信息…");
     void hydratePinnedConversationContext({ silent: true });
   }
@@ -1514,6 +1523,9 @@ function updateSidepanelLayoutState() {
     !currentConversationMeta?.pinnedContext
   );
   document.body.classList.toggle("sp-non-video-context", useCompactInput);
+  if (!activeStream) {
+    setStreamingUiState(false);
+  }
   if (els.input) {
     autosizeInput();
   }
@@ -1575,6 +1587,9 @@ function renderConversationMessages() {
     renderAssistantMessage(node, String(message.content || ""));
     els.messages.appendChild(node);
   });
+  if (isNonVideoConversation()) {
+    showConversationContextError(NON_VIDEO_CONTEXT_MESSAGE);
+  }
   renderFollowups();
   shouldAutoScrollMessages = true;
   scrollToBottom(true);
@@ -1872,7 +1887,7 @@ async function resolveConversationContext(contextRef) {
 async function sendMessage() {
   const text = els.input.value.trim();
   // sendPending closes the window while the context loads, when a second Enter or chip click would send twice.
-  if (!text || activeStream || sendPending) {
+  if (!text || activeStream || sendPending || isNonVideoConversation()) {
     return;
   }
   hidePresetPopover();
@@ -1892,6 +1907,11 @@ async function sendMessage() {
     sendPending = false;
   }
   if (!hasContext || activeStream) {
+    return;
+  }
+  // The tab may have left the video while the context loaded, or a saved video no longer resolves to one.
+  if (!contextData.isVideoContext) {
+    showConversationContextError(NON_VIDEO_CONTEXT_MESSAGE);
     return;
   }
 

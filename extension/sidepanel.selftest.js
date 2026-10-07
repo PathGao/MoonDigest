@@ -74,6 +74,34 @@ const page = (id) => ({ ok: true, payload: { url: `https://example.com/${id}`, t
   assert.deepStrictEqual(follows, [true, true, false]);
   ctx.readContextState = realRead;
 
+  // Only videos can be asked: not a web page, and not a conversation saved on one, even with a video open.
+  const video = { url: "https://www.bilibili.com/video/BV1xx411c7mD", site: "bilibili", videoId: "BV1xx411c7mD", isVideoContext: true };
+  const blocked = (current, meta) => {
+    ctx.current = current;
+    ctx.meta = meta;
+    return [...vm.runInContext("providers = [{}]; contextData = current; currentConversationMeta = meta; [isNonVideoConversation(), followupBlockReason()]", ctx)];
+  };
+  assert.deepStrictEqual(blocked(page("a").payload, null), [true, "不是视频，不能问"], "a fresh conversation on a web page");
+  assert.deepStrictEqual(blocked(video, { pinnedContext: true, isVideoContext: false }), [true, "不是视频，不能问"], "a saved web conversation");
+  assert.strictEqual(blocked(page("a").payload, { pinnedContext: true, isVideoContext: true })[0], false, "a saved video conversation on a web page");
+  assert.strictEqual(blocked(video, null)[0], false, "a fresh conversation on a video");
+
+  // Neither gate of sendMessage reaches the request (chrome.runtime.connect is not stubbed and would throw).
+  const errors = [];
+  let loads = 0;
+  ctx.showConversationContextError = (text) => errors.push(text);
+  ctx.ensureCurrentContextForSend = async () => (loads++, true);
+  vm.runInContext('els.input.value = "q"; els.modelSelect.value = "p"', ctx);
+  blocked(video, { pinnedContext: true, isVideoContext: false });
+  await ctx.sendMessage();
+  assert.strictEqual(loads, 0, "a saved web conversation does not even load its context");
+  // The tab leaves the video while the context loads.
+  ctx.ensureCurrentContextForSend = async () => (loads++, vm.runInContext("contextData = current", ctx), true);
+  ctx.current = page("b").payload;
+  vm.runInContext("contextData = { ...current, isVideoContext: true }; currentConversationMeta = null", ctx);
+  await ctx.sendMessage();
+  assert.deepStrictEqual([loads, ...errors], [1, "这不是支持的视频页。"], "the context that came back is checked too");
+
   console.log("sidepanel selftest: all passed");
 })().catch((e) => {
   console.error(e);
