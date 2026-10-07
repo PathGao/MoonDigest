@@ -9,24 +9,20 @@
   </head>
   <body>
     <header class="top">
-      <div class="top-in">
-        <h1>MoonDigest<small>设置</small></h1>
-        <nav class="toc" id="toc" aria-label="设置目录">
-          <a href="#basic">读字幕<span class="dot" hidden></span></a>
-          <a href="#note">笔记格式<span class="dot" hidden></span></a>
-          <a href="#ai">AI 平台<span class="dot" hidden></span></a>
-          <a href="#triage">分拣台<span class="dot" hidden></span></a>
-          <a href="#seen">观看进度<span class="dot" hidden></span></a>
-          <a href="#obsidian">Obsidian<span class="dot" hidden></span></a>
-          <a href="#data">数据<span class="dot" hidden></span></a>
-          <a href="#more">高级<span class="dot" hidden></span></a>
-        </nav>
-        <div class="top-status">
-          <span id="aiPill" class="pill off">AI 未配置</span>
-          <span id="obsidianPill" class="pill off">Obsidian 关</span>
-        </div>
-      </div>
+      <h1><svg class="moon" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 14.5A8.5 8.5 0 1 1 9.5 4a7 7 0 0 0 10.5 10.5z"/></svg>MoonDigest<small>/ 设置</small></h1>
     </header>
+
+    <div class="wrap">
+      <nav class="toc" id="toc" aria-label="设置目录">
+        <a href="#basic"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M7 13h4M13 13h4M7 16h10"/></svg><span class="lbl">读字幕</span><span class="dot" hidden></span></a>
+        <a href="#note"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9zM14 3v6h6M8 14h8M8 17h5"/></svg><span class="lbl">笔记格式</span><span class="dot" hidden></span></a>
+        <a href="#ai"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l2 5 5 2-5 2-2 5-2-5-5-2 5-2z"/></svg><span class="lbl">AI 平台</span><span class="dot" hidden></span><span id="aiPill" class="pill off">未配置</span></a>
+        <a href="#triage"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg><span class="lbl">分拣台</span><span class="dot" hidden></span></a>
+        <a href="#seen"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg><span class="lbl">观看进度</span><span class="dot" hidden></span></a>
+        <a href="#obsidian"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 3l8 2 4 8-4 8H8l-4-8z"/></svg><span class="lbl">Obsidian</span><span class="dot" hidden></span><span id="obsidianPill" class="pill off">关</span></a>
+        <a href="#data"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v14c0 1.7 3.6 3 8 3s8-1.3 8-3V5M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3"/></svg><span class="lbl">数据与存储</span><span class="dot" hidden></span></a>
+        <a href="#more"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M14.7 6.3a4 4 0 0 0 5 5L22 14l-8 8-2.3-2.3a4 4 0 0 0-5-5L4 12l8-8z"/></svg><span class="lbl">高级</span><span class="dot" hidden></span></a>
+      </nav>
 
     <main>
       <p id="hostPermissionBanner" class="perm" role="alert" hidden>
@@ -38,7 +34,6 @@
 
       <section class="sec" id="basic" data-name="读字幕">
         <div class="sec-head">
-          <div class="no">01</div>
           <h2>读字幕</h2>
           <p>B 站和 YouTube 通用。</p>
         </div>
@@ -73,7 +68,6 @@
 
       <section class="sec" id="note" data-name="笔记格式">
         <div class="sec-head">
-          <div class="no">02</div>
           <h2>笔记格式</h2>
           <p>复制 Markdown、下载 .md<span class="obsidian-only">、写入 Obsidian</span> 都按这里生成。</p>
         </div>
@@ -145,7 +139,6 @@
 
       <section class="sec" id="ai" data-name="AI 平台">
         <div class="sec-head">
-          <div class="no">03</div>
           <h2>AI 平台</h2>
           <p>可选。支持 OpenAI 兼容接口。</p>
           <span id="aiSectionPill" class="pill off">没配也能用</span>
@@ -182,7 +175,6 @@
 
       <section class="sec" id="triage" data-name="分拣台">
         <div class="sec-head">
-          <div class="no">04</div>
           <h2>收藏夹分拣台</h2>
           <p>仅 B 站。把一个收藏夹的视频批量粗看、细看，判断哪些值得看。</p>
           <a class="jump" href="./triage/triage.html" target="_blank">打开分拣台 ↗</a>
@@ -197,13 +189,12 @@
 
       <section class="sec" id="seen" data-name="观看进度">
         <div class="sec-head">
-          <div class="no">05</div>
           <h2>观看进度</h2>
-          <p>仅 B 站。按你的 B 站历史记录，在分拣台和 B 站页面的视频封面上标出看了多少。</p>
+          <p>仅 B 站。</p>
         </div>
         <div class="rows">
           <div class="row">
-            <div class="lab"><label class="name" for="seenShow">封面显示</label><p class="hint">进度条和 B 站自己的一样。看完了标记：100% 写「✓ 看完了」，达到下面的比例写「✓ 看过 83%」；没到比例的写淡色「看过 40%」。<br />关闭时不读历史。打开后只在你打开分拣台或 B 站页面时读新增的部分，最多 10 分钟一次；本地只存每个视频的进度，留最近 1 年、最多 5000 个。</p></div>
+            <div class="lab"><label class="name" for="seenShow">封面显示</label><p class="hint">按你的 B 站历史记录，在分拣台和 B 站页面的视频封面上标出看了多少。</p></div>
             <div class="ctl">
               <select id="seenShow">
                 <option value="off">关</option>
@@ -212,6 +203,15 @@
                 <option value="both">进度条和看完了标记</option>
               </select>
             </div>
+          </div>
+          <div class="row wide seen-demo">
+            <div class="covers" aria-hidden="true">
+              <figure><div class="cover c1"><span class="seen-tag">✓ 看完了</span><i style="width: 100%"></i></div><figcaption>看到 100%</figcaption></figure>
+              <figure><div class="cover c2"><span class="seen-tag">✓ 看过 83%</span><i style="width: 83%"></i></div><figcaption>达到设定比例</figcaption></figure>
+              <figure><div class="cover c3"><span class="seen-tag faint-tag">看过 40%</span><i style="width: 40%"></i></div><figcaption>没到比例，淡色</figcaption></figure>
+            </div>
+            <p class="hint">进度条和 B 站自己的一样。</p>
+            <p class="note">关闭时不读历史。打开后只在你打开分拣台或 B 站页面时读新增的部分，最多 10 分钟读一次；本地只存每个视频的进度，留最近 1 年、最多 5000 个。</p>
           </div>
           <div class="row" data-seen-mark-row>
             <div class="lab"><label class="name" for="seenThreshold">看多少算看完了</label><p class="hint">按视频时长的百分比算，短视频也适用。</p></div>
@@ -231,7 +231,6 @@
 
       <section class="sec" id="obsidian" data-name="Obsidian">
         <div class="sec-head">
-          <div class="no">06</div>
           <h2>Obsidian</h2>
           <p>把字幕、AI 对话和分拣结果写进 Obsidian，单个或整个收藏夹批量写。</p>
         </div>
@@ -287,7 +286,6 @@
 
       <section class="sec" id="data" data-name="数据">
         <div class="sec-head">
-          <div class="no">07</div>
           <h2>数据与存储</h2>
           <p>全部存在这台电脑的浏览器里，不上传。</p>
           <a class="jump" href="./history/history.html" target="_blank">打开视频记录 ↗</a>
@@ -301,7 +299,6 @@
 
       <section class="sec" id="more" data-name="高级">
         <div class="sec-head">
-          <div class="no">08</div>
           <h2>高级</h2>
         </div>
         <div class="rows">
@@ -317,6 +314,7 @@
         </div>
       </section>
     </main>
+    </div>
 
     <div id="saveBar" class="savebar" hidden>
       <div class="savebar-in">

@@ -432,17 +432,17 @@ function updateSavedProviders(update) {
   renderSavedState();
 }
 
-// Header pills, the no-AI note and the Obsidian guide follow what is saved, not what is being typed.
+// Section-list badges, the no-AI note and the Obsidian guide follow what is saved, not what is being typed.
 function renderSavedState() {
   const providers = savedForm.providers;
   const aiReady = providers.length > 0;
   elements.noAiNote.hidden = aiReady;
-  setPill(elements.aiPill, aiReady, aiReady ? `AI · ${providers[0].name}` : "AI 未配置");
+  setPill(elements.aiPill, aiReady, aiReady ? providers[0].name : "未配置");
   setPill(elements.aiSectionPill, aiReady, aiReady ? `已配置 ${providers.length} 个平台` : "没配也能用");
 
   const { obsidianEnabled, obsidianApiKey } = savedForm.payload;
   const obsidianConnected = obsidianTest?.ok && obsidianTest.target === obsidianTarget(savedForm.payload);
-  const obsidianText = !obsidianEnabled ? "Obsidian 关" : !obsidianApiKey ? "Obsidian 待填 Key" : obsidianConnected ? "Obsidian 已连接" : "Obsidian 已开";
+  const obsidianText = !obsidianEnabled ? "关" : !obsidianApiKey ? "待填 Key" : obsidianConnected ? "已连接" : "已开";
   setPill(elements.obsidianPill, obsidianEnabled && Boolean(obsidianApiKey), obsidianText);
   elements.obsidianPill.classList.toggle("off", !obsidianEnabled);
 

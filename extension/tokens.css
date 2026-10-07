@@ -186,3 +186,15 @@ button[aria-busy="true"]:disabled { opacity: 0.7; cursor: progress; }
 @media (prefers-reduced-motion: reduce) {
   [aria-busy="true"]::before { animation: none; border-right-color: currentColor; opacity: 0.5; }
 }
+
+/* The 月团 silhouette (App图标视觉库/月团/菜单栏-预览v1), painted in the current text color; pages set color and size. */
+.brand-mark {
+  display: inline-block;
+  width: 1.1em;
+  height: 1em;
+  flex: none;
+  vertical-align: -0.125em;
+  color: var(--accent);
+  background: currentColor;
+  mask: url("icons/moondigest-mark.svg") center / contain no-repeat;
+}
