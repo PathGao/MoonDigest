@@ -496,33 +496,6 @@ details.adv[open] > summary::before {
   transform: rotate(90deg);
 }
 
-/* Frontmatter fields */
-.fm-grid {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-}
-
-.chipbox {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 3px 10px 3px 8px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  background: var(--surface);
-  cursor: pointer;
-}
-
-.chipbox:has(input:checked) {
-  border-color: var(--action-border);
-  background: var(--action-bg);
-}
-
-.chipbox input {
-  margin: 0;
-}
-
 /* Fixed properties and extra sections: built by options.js, one grid row each. */
 .fixed-properties-list,
 .note-sections-list {
@@ -925,7 +898,7 @@ table.data tr + tr > * {
   border-top: 1px solid var(--border);
 }
 
-table.data tr:last-child:not(:first-child) > * {
+#storageLimits tr:last-child:not(:first-child) > * {
   border-top-color: var(--border-strong);
 }
 

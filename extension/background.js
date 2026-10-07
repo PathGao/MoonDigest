@@ -619,7 +619,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       .then(async (settings) => {
         // The setting hides the player button; the popup's AI 总结 is always available.
         if (message.source !== "popup" && !settings.enablePlayerAiQuickAction) {
-          throw new Error("AI 按钮未开启");
+          throw new Error("✦ AI 按钮未开启");
         }
         await openPromise;
         const request = buildPlayerAiQuickActionRequest(tabId, settings.playerAiQuickPrompt);
@@ -1195,7 +1195,7 @@ function isFixedPropertyRowEffectivelyEmpty(type, value) {
 function formatConnectionError(error) {
   const message = String(error?.message || "").trim();
   if (!message) {
-    return "连接失败：未知错误";
+    return "未知错误";
   }
   if (message.includes("Failed to fetch")) {
     return "无法连接 Local REST API。请检查地址、HTTP/HTTPS 模式和证书信任。";
