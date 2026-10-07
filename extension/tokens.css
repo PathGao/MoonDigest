@@ -144,11 +144,6 @@ button.link:hover { color: var(--link-hover); text-decoration: underline; }
   vertical-align: -2px;
 }
 
-/* On a filled accent button the purple mark disappears; the brand allows an all-white mark there. */
-.primary .obsidian-mark {
-  filter: brightness(0) invert(1);
-}
-
 /* Marks every control that starts an AI request; painted in the button's text color. */
 .ai-spark {
   display: inline-block;
