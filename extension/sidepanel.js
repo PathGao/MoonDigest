@@ -424,8 +424,26 @@ function isContextBound() {
   return currentConversationMeta?.pinnedContext === true || Boolean(activeStream);
 }
 
-async function loadContextState({ forceRefresh = false, silent = false, follow = false } = {}) {
+// Tab switches and sends overlap their loads; only the newest one writes the context, and an older caller gets the
+// newest one's result. A follow asked for by a superseded load carries over to the newer one.
+let contextLoadSeq = 0;
+let contextLoad = null;
+let contextLoadFollow = false;
+function loadContextState(opts = {}) {
+  const seq = ++contextLoadSeq;
+  contextLoadFollow ||= Boolean(opts.follow);
+  const run = readContextState({ ...opts, follow: contextLoadFollow }, () => seq !== contextLoadSeq);
+  contextLoad = run;
+  const settle = () => {
+    if (seq === contextLoadSeq) contextLoadFollow = false;
+  };
+  run.then(settle, settle);
+  return run;
+}
+
+async function readContextState({ forceRefresh = false, silent = false, follow = false }, superseded) {
   const tab = await getActiveTab();
+  if (superseded()) return contextLoad;
   if (!tab?.id) {
     liveContextData = null;
     liveContextKey = "";
@@ -458,6 +476,7 @@ async function loadContextState({ forceRefresh = false, silent = false, follow =
     tabId: tab.id,
     forceRefresh
   }).catch((error) => ({ ok: false, error: error.message }));
+  if (superseded()) return contextLoad;
 
   if (!resp?.ok || !resp.payload) {
     liveContextData = null;
