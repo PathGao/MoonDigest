@@ -417,13 +417,20 @@ button.icon { width: 26px; height: 24px; padding: 0; }
 .picker-opt.active { background: var(--secondary-bg); }
 .picker-opt .check { width: 14px; color: var(--text); font-weight: 700; }
 .dot { --c: var(--border-strong); width: 10px; height: 10px; border-radius: 50%; background: var(--c); }
-.dialog-hint { margin: 4px 0 0; font-size: 11px; color: var(--muted); }
+/* Two text levels in dialogs: .dialog-hint explains, .dialog-meta reports (counts, progress, key tips). */
+.dialog-hint { margin: 0; font-size: var(--fs-sm); color: var(--text-2); line-height: 1.5; }
+.dialog-meta { margin: 0; font-size: var(--fs-xs); color: var(--muted); }
 .dialog-hint.warn { color: var(--warn); }
+/* Status lines fill in later; empty ones must not add the form's gap. */
+dialog :is(p, div):empty { display: none; }
 
 .tag-rows { display: flex; flex-direction: column; gap: 6px; max-height: 320px; overflow-y: auto; }
-.tag-row, .tag-add, .export-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
-.tag-row input[type="text"], .tag-add input { flex: 1; min-width: 120px; }
-dialog h3 { margin: 10px 0 2px; font-size: var(--fs-sm); }
+.tag-row { display: grid; grid-template-columns: 10px minmax(0, 9em) minmax(0, 1fr) 4.5em auto; align-items: center; gap: 6px; }
+.tag-row .muted { text-align: right; font-size: var(--fs-xs); }
+.tag-add { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.tag-add input { flex: 1; min-width: 120px; }
+dialog h3 { margin: 8px 0 0; font-size: var(--fs-sm); font-weight: 600; }
+.ai-section > h3:first-child { margin-top: 0; }
 
 /* viewer: the video page next to the list */
 .viewer { display: flex; flex-direction: column; min-height: 0; min-width: 0; background: var(--surface); border: 1px solid var(--border); border-radius: 9px; overflow: hidden; }
@@ -508,6 +515,12 @@ dialog label { font-size: var(--fs-xs); color: var(--muted); }
 dialog textarea { resize: vertical; }
 .dialog-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: 6px; margin-top: 10px; }
 .confirm-body ul { margin: 0; padding-left: 18px; }
+.help-cols { display: grid; gap: 6px 32px; }
+.help-cols h2 { margin: 0 0 4px; }
+@media (min-width: 760px) {
+  #helpDialog { width: min(920px, calc(100% - 32px)); }
+  .help-cols { grid-template-columns: 1.2fr 1fr; }
+}
 .keys { display: grid; grid-template-columns: auto 1fr; gap: 4px 16px; margin: 0; }
 .keys dt { font-family: ui-monospace, Menlo, monospace; font-weight: 600; }
 .keys dd { margin: 0; }
@@ -522,20 +535,33 @@ dialog textarea { resize: vertical; }
 }
 
 /* 标签 dialog: 管理 + 批量打 */
-dialog.wide { width: min(880px, calc(100% - 32px)); }
+dialog.wide { width: min(620px, calc(100% - 32px)); }
 .ai-section { display: flex; flex-direction: column; gap: 6px; }
-.ai-grid { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 6px 10px; align-items: center; }
+/* Label column on the left; anything that is not a label or a field (counts, switches, chips) sits under its field. */
+.ai-grid { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 6px 12px; align-items: baseline; }
+.ai-grid > label:not(.toggle), .ai-grid .grid-label { grid-column: 1; font-size: var(--fs-sm); color: var(--text-2); }
+.ai-grid > :not(label, select, textarea, input), .ai-grid > .toggle, #aiTagsPreview > :not(.grid-label) { grid-column: 2; }
+/* Its label, chips and hint join the grid as if they were the grid's own children. */
+#aiTagsPreview { display: contents; }
+#aiTagsPreview .chips { margin: 0; }
+.chip.tag-use[aria-pressed="false"] { border: 1px dashed var(--border-strong); color: var(--faint); }
+.ai-grid select { width: 100%; max-width: none; }
+.field-row { display: flex; align-items: center; gap: 12px; }
+.field-row input[type="text"] { flex: 1; min-width: 0; }
 .ai-history { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
 .chip.add { --c: var(--ok); color: var(--ok); }
 .chip.remove { --c: var(--danger); color: var(--danger); text-decoration: line-through; }
 .ai-review-head { display: flex; align-items: center; gap: 8px; }
+.ai-section > .ai-review-head:not(:first-child) { margin-top: 8px; }
+.ai-review-head h3 { margin: 0; }
+#aiNotes p { margin: 0; }
 .ai-rows { display: flex; flex-direction: column; gap: 6px; max-height: 50vh; overflow-y: auto; }
 .ai-row { display: flex; gap: 8px; align-items: flex-start; padding: 6px 8px; border: 1px solid var(--border); border-radius: var(--radius-sm); }
 .ai-row.off { opacity: 0.5; }
 .ai-row-body { min-width: 0; flex: 1; }
 .ai-row-title { font-weight: 600; }
 .ai-newtag { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
-.ai-newtag input[type="text"] { flex: 1; min-width: 120px; }
+.ai-newtag input[type="text"] { flex: 0 1 240px; min-width: 120px; }
 .stack { display: flex; flex-direction: column; gap: 6px; }
 .steps { margin: 0 0 4px; padding-left: 20px; }
 .steps li { margin: 2px 0; }
@@ -555,7 +581,6 @@ dialog.wide { width: min(880px, calc(100% - 32px)); }
 .set-group h3 { margin: 0; font-size: var(--fs-sm); font-weight: 600; }
 .set-head { display: flex; align-items: baseline; gap: 10px; }
 .set-head h3 { margin-right: auto; }
-.set-desc { margin: 0; font-size: var(--fs-xs); color: var(--faint); }
 .set-card { border: 1px solid var(--border); border-radius: var(--radius-md); padding: 0 12px; }
 .set-row { display: flex; align-items: center; gap: 12px; padding: 10px 0; }
 .set-row + .set-row { border-top: 1px solid var(--border); }
@@ -563,7 +588,7 @@ dialog.wide { width: min(880px, calc(100% - 32px)); }
 .set-row .name { font-size: var(--fs-sm); color: var(--text); }
 .set-row .hint { margin: 2px 0 0; font-size: var(--fs-xs); color: var(--faint); line-height: 1.5; }
 .set-row input[type="number"] { flex: none; width: 72px; text-align: right; }
-.folder-toggles { display: grid; gap: 2px; max-height: 220px; overflow-y: auto; padding: 6px 10px; border: 1px solid var(--border); border-radius: var(--radius-md); }
+.folder-toggles { display: grid; align-content: start; gap: 2px; max-height: 220px; overflow-y: auto; padding: 6px 10px; border: 1px solid var(--border); border-radius: var(--radius-md); }
 .folder-toggles .toggle { padding: 3px 0; }
 .folder-toggles .muted { margin-left: auto; font-size: var(--fs-xs); }
 #settingsDialog:has(#settingsAi:not([hidden])) { width: min(800px, calc(100% - 32px)); }

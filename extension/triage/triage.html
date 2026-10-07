@@ -37,6 +37,8 @@
         <div id="tools" class="tools" popover>
           <div class="tools-brand">MoonDigest · B站收藏夹分拣台</div>
           <button id="writeBtn" type="button" aria-label="批量导出">批量导出</button>
+          <button id="backupBtn" type="button" aria-label="下载完整备份 JSON">完整备份 (JSON)</button>
+          <button id="csvBtn" type="button" aria-label="下载当前收藏夹表格 CSV">当前收藏夹表格 (CSV)</button>
           <button id="helpBtn" type="button" aria-label="帮助">帮助（?）</button>
         </div>
       </header>
@@ -112,9 +114,9 @@
             <h3 id="settingsFoldersHeading">参与分拣的收藏夹</h3>
             <button type="button" class="link" data-folders-all aria-label="全选收藏夹">全选</button><button type="button" class="link" data-folders-none aria-label="全不选收藏夹">全不选</button>
           </div>
-          <p class="set-desc">只读取勾选的。B站新建的默认不勾，B站上不受影响。</p>
+          <p class="dialog-hint">只读取勾选的。B站新建的默认不勾，B站上不受影响。</p>
           <div id="folderToggles" class="folder-toggles"></div>
-          <p id="settingsFirstRunHint" class="set-desc" hidden>AI 参数一般不用改，以后点右上角的齿轮可以再调。</p>
+          <p id="settingsFirstRunHint" class="dialog-hint" hidden>AI 参数一般不用改，以后点右上角的齿轮可以再调。</p>
         </section>
         <!-- The first open only asks for folders; this part shows from the 分拣设置 gear. -->
         <div id="settingsAi" class="settings-ai">
@@ -128,7 +130,7 @@
           </section>
           <section class="set-group">
             <h3>AI 参数</h3>
-            <p class="set-desc">一般不用改。AI 平台在设置页，判断标准在粗看、细看按钮旁边。</p>
+            <p class="dialog-hint">一般不用改。AI 平台在设置页，判断标准在粗看、细看按钮旁边。</p>
             <div class="set-card">
               <div class="set-row"><div><label class="name" for="intervalInput">请求间隔（秒）</label></div><input id="intervalInput" type="number" min="0" step="1" /></div>
               <div id="thinkingRow" class="set-row"><div><label class="name" for="thinkingInput">开启思考</label><p class="hint">判断更细，但慢得多、token 多几倍。</p></div><input id="thinkingInput" type="checkbox" class="switch" /></div>
@@ -165,23 +167,18 @@
             <option value="digest">一篇摘录（带每个视频的备注）</option>
             <option value="notes">逐个视频笔记（字幕 + AI 总结）</option>
           </select>
+          <p id="writeScopeCount" class="dialog-meta"></p>
+          <label id="writeOverwriteRow" class="toggle"><input id="writeOverwrite" type="checkbox" class="switch" /> 覆盖已有笔记</label>
         </div>
-        <p id="writeScopeCount" class="dialog-hint"></p>
-        <label id="writeOverwriteRow" class="toggle"><input id="writeOverwrite" type="checkbox" /> 覆盖已有笔记</label>
-        <p id="writeProgress" class="dialog-hint" aria-live="polite"></p>
+        <p id="writeProgress" class="dialog-meta" aria-live="polite"></p>
         <ul id="writeFailed" class="write-failed" hidden></ul>
-        <h3>数据</h3>
-        <div class="export-row">
-          <button id="backupBtn" type="button" aria-label="下载完整备份 JSON">完整备份 (JSON)</button>
-          <button id="csvBtn" type="button" aria-label="下载当前收藏夹表格 CSV">当前收藏夹表格 (CSV)</button>
-        </div>
         <div class="dialog-actions">
-          <span class="spacer"></span>
           <button value="cancel" type="submit" aria-label="关闭">关闭</button>
+          <span class="spacer"></span>
           <button id="writeStopBtn" type="button" aria-label="停止写入" hidden>停止</button>
           <button id="writeCopyBtn" type="button" aria-label="复制 Markdown">复制 Markdown</button>
           <button id="writeMdBtn" type="button" aria-label="下载 .md">下载 .md</button>
-          <button id="writeRunBtn" type="button" class="primary" aria-label="写入 Obsidian"><img class="obsidian-mark" src="/icons/obsidian.svg" alt=""> 写入 Obsidian</button>
+          <button id="writeRunBtn" type="button" aria-label="写入 Obsidian"><img class="obsidian-mark" src="/icons/obsidian.svg" alt=""> 写入 Obsidian</button>
         </div>
       </form>
     </dialog>
@@ -202,10 +199,13 @@
       <form method="dialog">
         <h2 id="transferTitle"></h2>
         <div id="transferBody" class="confirm-body"></div>
-        <label>目标收藏夹 <select id="transferTarget" aria-label="目标收藏夹"></select></label>
-        <div id="transferNewRow" hidden>
-          <input id="transferName" type="text" maxlength="20" placeholder="新收藏夹名称" aria-label="新收藏夹名称" autocomplete="off" />
-          <label><input id="transferPrivate" type="checkbox" /> 设为私密</label>
+        <div class="ai-grid">
+          <label for="transferTarget">目标收藏夹</label>
+          <select id="transferTarget"></select>
+          <div id="transferNewRow" class="field-row" hidden>
+            <input id="transferName" type="text" maxlength="20" placeholder="新收藏夹名称" aria-label="新收藏夹名称" autocomplete="off" />
+            <label class="toggle"><input id="transferPrivate" type="checkbox" class="switch" /> 设为私密</label>
+          </div>
         </div>
         <p id="transferUnchosen" class="dialog-hint warn" hidden></p>
         <p id="transferHow" class="dialog-hint">复制：原收藏夹里也留着。移动：从原收藏夹移走。</p>
@@ -224,7 +224,7 @@
         <h2 id="pickerTitle">打标签</h2>
         <input id="pickerInput" type="text" placeholder="输入筛选，或输入新名称后回车新建" aria-label="筛选或新建标签" autocomplete="off" />
         <ul id="pickerList" class="picker-list" role="listbox" aria-label="标签"></ul>
-        <p class="dialog-hint">↑↓ 选择 · 回车 勾选或新建 · Esc 关闭</p>
+        <p class="dialog-meta">↑↓ 选择 · 回车 勾选或新建 · Esc 关闭</p>
       </form>
     </dialog>
 
@@ -272,14 +272,14 @@
               <option value="selected">选中 (X)</option>
               <option value="analyzed">细看过的</option>
             </select>
+            <p id="aiScopeCount" class="dialog-meta"></p>
+            <label for="aiInstruction">指令</label>
+            <textarea id="aiInstruction" rows="3" placeholder="例如：把这些按技术深度分成 入门/进阶/硬核 三个标签"></textarea>
+            <div id="aiHistory" class="ai-history"></div>
+            <div id="aiTagsPreview"></div>
           </div>
-          <p id="aiScopeCount" class="dialog-hint"></p>
-          <label for="aiInstruction">指令</label>
-          <textarea id="aiInstruction" rows="3" placeholder="例如：把这些按技术深度分成 入门/进阶/硬核 三个标签"></textarea>
-          <div id="aiHistory" class="ai-history"></div>
-          <div id="aiTagsPreview"></div>
           <label class="toggle"><input id="aiFormRemoveTagsInput" type="checkbox" class="switch" /> 允许 AI 去掉已有标签</label>
-          <p id="aiProgress" class="dialog-hint" aria-live="polite"></p>
+          <p id="aiProgress" class="dialog-meta" aria-live="polite"></p>
           <div class="dialog-actions">
             <span class="spacer"></span>
             <button id="aiCloseBtn" type="button" aria-label="关闭">关闭</button>
@@ -289,7 +289,7 @@
         </section>
         <section id="aiReview" class="ai-section" hidden>
           <h3>检查 AI 的建议</h3>
-          <p id="aiReviewSummary" class="dialog-hint"></p>
+          <p id="aiReviewSummary" class="dialog-meta"></p>
           <div id="aiNotes"></div>
           <h3>新标签</h3>
           <div id="aiNewTags" class="tag-rows"></div>
@@ -311,6 +311,8 @@
 
     <dialog id="helpDialog" aria-label="帮助">
       <form method="dialog">
+        <div class="help-cols">
+        <div class="stack">
         <h2>四步分拣</h2>
         <ol class="steps">
           <li><strong>未分析</strong>：点「标题粗看」，AI 只看标题和简介，快、省。</li>
@@ -321,7 +323,9 @@
         <p class="dialog-hint">分拣分两层：第一层是收藏夹的判断标准，AI 按它给出 AI 判断（值得留 / 可清理 / 拿不准），决定留不留；第二层是你的标签，按每个标签的说明给视频分类，决定怎么找。判断标准在粗看、细看按钮旁边写，标签说明在「标签 → 管理」里写。</p>
         <p class="dialog-hint">步骤按 AI 分析到哪一步分，取消收藏或保留过的归处理完成；AI 判断是每步里的筛选。判断标准不写时，AI 从收藏夹名和简介推测用途。每个收藏夹最多 <span data-tag-limit>10</span> 个标签：按 T 逐个打，按 I 批量打（AI 每次最多新建 <span data-ai-new-tag-max>5</span> 个）。AI 只在本页打开时运行。</p>
         <p class="dialog-hint">优先看：按 E 把要看的视频放进清单（列表右下角），按加入先后排。点一条在右侧打开，看完点「已看」：移出清单，卡片标「优先看过」（点它取消，U 撤销）。右侧顶栏「已看，下一个」直接打开下一条。不影响收藏和处理结果。</p>
-        <p class="dialog-hint">「保留」只在 MoonDigest 里标记，B站收藏夹不变。导出摘录、逐个笔记和数据备份都在「批量导出」。</p>
+        <p class="dialog-hint">「保留」只在 MoonDigest 里标记，B站收藏夹不变。导出摘录和逐个笔记在「批量导出」，数据备份和表格在右上角 ⋯ 菜单。</p>
+        </div>
+        <div class="stack">
         <h2>快捷键</h2>
         <p class="dialog-hint">D、S、T、E、Q、X、O 作用于当前卡片：鼠标所在或 J / K 停在的那张，显示为浮起的卡片。</p>
         <dl class="keys">
@@ -340,6 +344,8 @@
           <dt>?</dt><dd>显示本帮助</dd>
         </dl>
         <p class="dialog-hint">「已出分拣范围」里卡片键和 U 不可用，选中用卡片上的「选中」按钮，选中后可收藏到任一收藏夹或只清理选中的。</p>
+        </div>
+        </div>
         <div class="dialog-actions"><span class="spacer"></span><button type="submit" class="primary">知道了</button></div>
       </form>
     </dialog>

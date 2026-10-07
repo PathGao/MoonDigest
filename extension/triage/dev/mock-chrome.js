@@ -322,7 +322,7 @@
     },
     "triage-build-note": ({ bvid }) => ({
       ok: true,
-      data: { title: `视频 ${bvid}`, markdown: `---\ntitle: "视频 ${bvid}"\nurl: "https://www.bilibili.com/video/${bvid}/"\n---\n\n## 字幕\n\n（mock）\n` }
+      data: { title: `视频 ${bvid}`, filename: `2026-10-08-视频 ${bvid}.md`, markdown: `---\ntitle: "视频 ${bvid}"\nurl: "https://www.bilibili.com/video/${bvid}/"\n---\n\n## 字幕\n\n（mock）\n` }
     }),
     "triage-write-note": ({ bvid }) => ({ ok: true, data: { path: `B站摘录/${bvid}.md`, title: `视频 ${bvid}`, source: "subtitle" } }),
     "open-options": () => {

@@ -299,6 +299,8 @@ const S = {
     running: false,
     stop: false,
     mediaId: "",
+    // Tag ids greyed out in 批量打 for this opening of the dialog: not sent to the AI, never added, kept or removed.
+    excluded: new Set(),
     proposals: {},
     get proposal() {
       return this.proposals[S.mediaId] || null;
@@ -335,7 +337,7 @@ const el = {};
   "aiTagsPreview", "aiProgress", "aiCloseBtn", "aiStopBtn", "aiRunBtn",
   "aiReview", "aiReviewSummary", "aiNotes", "aiNewTags", "aiAllBtn", "aiNoneBtn", "aiRows", "aiDiscardBtn", "aiApplyBtn",
   "biliBtn", "main", "viewer", "viewerTitle", "viewerNextBtn", "viewerTabBtn", "viewerCloseBtn", "viewerFrame",
-  "writeBtn", "writeDialog", "writeScope", "writeFormat", "writeScopeCount", "writeOverwriteRow", "writeOverwrite", "writeProgress", "writeFailed", "writeStopBtn", "writeCopyBtn", "writeRunBtn", "writeMdBtn"
+  "tools", "writeBtn", "writeDialog", "writeScope", "writeFormat", "writeScopeCount", "writeOverwriteRow", "writeOverwrite", "writeProgress", "writeFailed", "writeStopBtn", "writeCopyBtn", "writeRunBtn", "writeMdBtn"
 ].forEach((id) => (el[id] = $(id)));
 
 // ---------- utils ----------
@@ -457,9 +459,10 @@ function toast(text, error = false) {
   toastTimer = setTimeout(() => (el.toast.hidden = true), 6000);
 }
 
-function askConfirm(title, bodyHtml, okText) {
+function askConfirm(title, bodyHtml, okText, { danger = false } = {}) {
   el.confirmTitle.textContent = title;
   el.confirmBody.innerHTML = bodyHtml;
+  el.confirmOk.className = danger ? "danger solid" : "primary";
   el.confirmOk.textContent = okText;
   el.confirmOk.setAttribute("aria-label", okText);
   el.confirmDialog.returnValue = "";
@@ -1301,7 +1304,7 @@ async function cleanRemoved(list) {
   if (!list.length) return;
   const one = list.length === 1 ? `《${shortTitle(list[0])}》` : `这 ${list.length} 个视频`;
   const body = `<p>删除${one}的 AI 分析、备注、标签和优先看记录，无法撤销。要留存请先「批量导出」。</p>`;
-  if (!(await askConfirm(`清理${one}？`, body, `清理 ${list.length} 个`))) return;
+  if (!(await askConfirm(`清理${one}？`, body, `清理 ${list.length} 个`, { danger: true }))) return;
   return serialStore(async () => {
     const bvids = list.map((it) => it.bvid);
     const set = new Set(bvids);
@@ -1512,7 +1515,7 @@ async function pickUnfavFolders(it) {
   const boxes = it.folders
     .map((f) => `<label class="toggle"><input type="checkbox" value="${esc(f)}" checked /> ${esc(folderName(f))}</label>`)
     .join("");
-  const ok = await askConfirm(`取消收藏《${shortTitle(it)}》？`, `<p>这个视频在 ${it.folders.length} 个收藏夹里，从勾选的收藏夹取消收藏：</p>${boxes}`, "取消收藏");
+  const ok = await askConfirm(`取消收藏《${shortTitle(it)}》？`, `<p>这个视频在 ${it.folders.length} 个收藏夹里，从勾选的收藏夹取消收藏：</p>${boxes}`, "取消收藏", { danger: true });
   return ok ? [...el.confirmBody.querySelectorAll("input:checked")].map((x) => x.value) : [];
 }
 
@@ -2292,7 +2295,7 @@ async function batchUnfav(list) {
   if (!list.length || S.unfavBatch || S.transferRun) return;
   const titles = list.slice(0, 10).map((it) => `<li>${esc(it.title)}</li>`).join("");
   const more = list.length > 10 ? `<p>等 ${list.length} 个</p>` : "";
-  const ok = await askConfirm(`取消收藏这 ${list.length} 个视频？`, `<ul>${titles}</ul>${more}`, `取消收藏 ${list.length} 个`);
+  const ok = await askConfirm(`取消收藏这 ${list.length} 个视频？`, `<ul>${titles}</ul>${more}`, `取消收藏 ${list.length} 个`, { danger: true });
   if (!ok || S.unfavBatch) return;
   // It changes Bilibili, so it runs to the end even after another folder opens.
   const mediaId = String(S.mediaId);
@@ -2666,6 +2669,7 @@ function tagsBtnMode() {
 }
 
 function openTags(mode = "manage") {
+  S.ai.excluded.clear();
   showTagsMode(mode);
   el.tagsDialog.showModal();
   if (mode === "manage") el.newTagInput.focus();
@@ -2724,7 +2728,7 @@ function renderTagManager() {
 async function deleteTag(id) {
   const t = tagById(id);
   const n = Object.values(S.videoTags).filter((ids) => ids.includes(id)).length;
-  const ok = await askConfirm(`删除标签「${t.name}」？`, `<p>将从 ${n} 个视频上移除这个标签，无法撤销。</p>`, "删除");
+  const ok = await askConfirm(`删除标签「${t.name}」？`, `<p>将从 ${n} 个视频上移除这个标签，无法撤销。</p>`, "删除", { danger: true });
   if (!ok) return;
   S.tags = S.tags.filter((x) => x.id !== id);
   for (const [b, ids] of Object.entries(S.videoTags)) {
@@ -2934,7 +2938,7 @@ function aiCommandItem(it) {
     out.points = a.points || [];
   }
   const own = new Set(viewTags().map((t) => t.id));
-  const names = tagIdsOf(it.bvid).filter((id) => own.has(id)).map((id) => tagById(id).name);
+  const names = tagIdsOf(it.bvid).filter((id) => own.has(id) && !S.ai.excluded.has(id)).map((id) => tagById(id).name);
   if (names.length) out.currentTags = names;
   return out;
 }
@@ -2968,11 +2972,18 @@ function renderAiForm() {
   el.aiScopeCount.textContent = n ? `${n} 个视频：${parts.join("，")}。分 ${Math.ceil(n / size)} 批发送` : "作用范围里没有视频";
   const tags = viewTags();
   const room = aiNewTagRoom();
-  const roomHint = room ? `AI 这次最多新建 ${room} 个（这个收藏夹还剩 ${tagLimit() - tags.length} 个名额），你确认后才创建。` : "名额已满，AI 只会用已有标签。";
+  const noneUsable = tags.length > 0 && tags.every((t) => S.ai.excluded.has(t.id));
+  const roomHint = noneUsable
+    ? room ? `已有标签都不给 AI 用，AI 只会新建标签（这次最多 ${room} 个），你确认后才创建。` : "已有标签都不给 AI 用，名额也满了，AI 打不了标签。"
+    : room ? `AI 这次最多新建 ${room} 个（这个收藏夹还剩 ${tagLimit() - tags.length} 个名额），你确认后才创建。` : "名额已满，AI 只会用已有标签。";
+  const useChip = (t) => {
+    const on = !S.ai.excluded.has(t.id);
+    return `<button type="button" class="chip tag-use${on ? " on" : ""}" style="--c:${esc(t.color)}" data-use="${esc(t.id)}" aria-pressed="${on}" title="${on ? "点一下：这次不让 AI 用" : "点一下：让 AI 用"}">${esc(t.name)}</button>`;
+  };
   el.aiTagsPreview.innerHTML = !inFolderView()
     ? `<p class="dialog-hint">${FOLDER_ONLY}再批量打。</p>`
     : tags.length
-      ? `<div class="chips">AI 能用的标签：${tags.map((t) => `<span class="chip">${esc(t.name)}</span>`).join("")}</div><p class="dialog-hint">${roomHint}</p>`
+      ? `<span id="aiTagsLabel" class="grid-label">可用标签</span><div class="chips" role="group" aria-labelledby="aiTagsLabel">${tags.map(useChip).join("")}</div><p class="dialog-meta">${roomHint}</p>`
       : `<p class="dialog-hint">这个收藏夹还没有自定义标签。${roomHint}想打得准，先在<button type="button" class="link" data-tags-mode="manage">「管理」</button>里建好标签、每个写一句说明。</p>`;
   el.aiHistory.innerHTML = S.aiHistory.length
     ? `<span class="muted">最近：</span>` +
@@ -3009,8 +3020,9 @@ async function runAiCommand() {
   storeSet(K.aiHistory, S.aiHistory);
   // Everything the run sends is taken now: the run outlives a folder switch, and the page then holds another folder.
   const folder = String(S.mediaId);
-  const opts = { maxNewTags: aiNewTagRoom(), allowRemove: S.settings.triageAiRemoveTags === true, folder };
-  const tags = viewTags().map((t) => ({ name: t.name, rule: t.rule || "" }));
+  const excluded = new Set(viewTags().filter((t) => S.ai.excluded.has(t.id)).map((t) => t.name));
+  const opts = { maxNewTags: aiNewTagRoom(), allowRemove: S.settings.triageAiRemoveTags === true, folder, excluded };
+  const tags = viewTags().filter((t) => !excluded.has(t.name)).map((t) => ({ name: t.name, rule: t.rule || "" }));
   const payload = items.map(aiCommandItem);
   const size = Math.max(1, Number(S.settings.triageTitleBatchSize) || 30);
   const scopeSet = new Set(items.map((it) => it.bvid));
@@ -3056,9 +3068,10 @@ function mergeAiBatch(p, data, opts, scopeSet) {
     return t;
   };
 
+  const blocked = (name) => opts.excluded?.has(name);
   for (const raw of data?.newTags || []) {
     const name = String(raw ?? "").trim();
-    if (name && !existing(name) && !proposed(name)) addNew(name);
+    if (name && !blocked(name) && !existing(name) && !proposed(name)) addNew(name);
   }
   if (data?.note) p.notes.push(String(data.note));
 
@@ -3068,7 +3081,7 @@ function mergeAiBatch(p, data, opts, scopeSet) {
     const add = [];
     for (const raw of a?.add || []) {
       const name = String(raw ?? "").trim();
-      if (!name) continue;
+      if (!name || blocked(name)) continue;
       const t = existing(name);
       if (t) {
         if (!current.includes(t.id)) add.push(`id:${t.id}`);
@@ -3078,7 +3091,9 @@ function mergeAiBatch(p, data, opts, scopeSet) {
       if (nt) add.push(`new:${nt.key}`);
     }
     const remove = (a?.remove || [])
-      .map((n) => existing(String(n ?? "").trim()))
+      .map((n) => String(n ?? "").trim())
+      .filter((n) => !blocked(n))
+      .map(existing)
       .filter((t) => t && current.includes(t.id))
       .map((t) => t.id);
     if (!add.length && !remove.length) continue;
@@ -3321,16 +3336,16 @@ function renderWriteScope() {
   const busy = S.write.running;
   const obsidianOff = document.body.classList.contains("obsidian-off");
   el.writeScopeCount.textContent = notes
-    ? `共 ${n} 个视频，逐个抓字幕，间隔 ${S.settings.triageIntervalSec} 秒。下载 .md 合成一个文件${obsidianOff ? "" : "；写入 Obsidian 每个视频一篇，另写一篇以收藏夹命名的索引"}。`
+    ? `共 ${n} 个视频，逐个抓字幕，间隔 ${S.settings.triageIntervalSec} 秒。下载 .zip 每个视频一篇，另附索引${obsidianOff ? "" : "；写入 Obsidian 每个视频一篇，另写一篇以收藏夹命名的索引"}。`
     : `共 ${n} 个视频，合成一篇：链接、AI 总结、标签和你的备注。`;
   el.writeOverwriteRow.hidden = !notes;
+  el.writeMdBtn.textContent = notes ? "下载 .zip" : "下载 .md";
+  el.writeMdBtn.setAttribute("aria-label", el.writeMdBtn.textContent);
   el.writeCopyBtn.hidden = notes || busy;
   el.writeRunBtn.hidden = el.writeMdBtn.hidden = busy;
   el.writeStopBtn.hidden = !busy;
   el.writeCopyBtn.disabled = el.writeRunBtn.disabled = el.writeMdBtn.disabled = !n;
   el.writeScope.disabled = el.writeFormat.disabled = el.writeOverwrite.disabled = busy;
-  // One blue button: 写入 Obsidian, or 下载 .md when Obsidian is off.
-  el.writeMdBtn.classList.toggle("primary", obsidianOff);
 }
 
 // 一篇摘录 needs summaries of 优先看 videos from other folders too.
@@ -3372,13 +3387,73 @@ function safeNoteName(name) {
 }
 
 const oneLine = (s) => String(s ?? "").replace(/\s+/g, " ").trim();
+// A relative link inside the zip; <> keeps spaces in the filename (note filenames never hold < or >).
+const mdLink = (path, title) => `[${oneLine(title).replace(/[[\]\\]/g, "\\$&") || path}](<${path}>)`;
 // | [ ] or a newline in the alias would end the link early; the path is already a safe note filename.
 function wikiLink(path, title) {
   const target = String(path).replace(/\.md$/, "");
   return `[[${target}|${oneLine(String(title ?? "").replace(/[|[\]]/g, " ")) || target}]]`;
 }
 
-// md: build the same notes but download them as one file instead of writing to the vault.
+// The 逐个视频笔记 index, the same in the vault and in the zip; only the link form differs.
+function indexMarkdown(written, link) {
+  const lines = [`# ${folderTitle()}`, "", `${stamp(new Date(), false)} · ${written.length} 篇`, ""];
+  for (const w of written) {
+    const oneLiner = S.analyses[w.bvid]?.oneLiner;
+    lines.push(`- ${link(w.path, w.title)}${oneLiner ? ` ${oneLine(oneLiner)}` : ""}`);
+  }
+  return lines.join("\n");
+}
+
+const CRC_TABLE = Uint32Array.from({ length: 256 }, (_, n) => {
+  for (let k = 0; k < 8; k++) n = n & 1 ? 0xedb88320 ^ (n >>> 1) : n >>> 1;
+  return n >>> 0;
+});
+function crc32(bytes) {
+  let c = ~0;
+  for (const b of bytes) c = CRC_TABLE[(c ^ b) & 0xff] ^ (c >>> 8);
+  return ~c >>> 0;
+}
+
+// files: [{ name, text }] → zip bytes. Stored (no compression); flag bit 11 marks the names as UTF-8.
+// "Made by" Unix with mode 0644: made by DOS, Info-ZIP unzip (macOS's) reads the names as a DOS code page and mangles them.
+function zipStored(files, now = new Date()) {
+  const enc = new TextEncoder();
+  const entries = files.map((f) => ({ name: enc.encode(f.name), data: enc.encode(f.text) }));
+  const localSize = entries.reduce((n, e) => n + 30 + e.name.length + e.data.length, 0);
+  const centralSize = entries.reduce((n, e) => n + 46 + e.name.length, 0);
+  const out = new Uint8Array(localSize + centralSize + 22);
+  const view = new DataView(out.buffer);
+  const put = (at, fields) => fields.reduce((p, [size, value]) => (size === 2 ? view.setUint16(p, value, true) : view.setUint32(p, value, true), p + size), at);
+  const time = (now.getHours() << 11) | (now.getMinutes() << 5) | (now.getSeconds() >> 1);
+  const date = ((now.getFullYear() - 1980) << 9) | ((now.getMonth() + 1) << 5) | now.getDate();
+  let local = 0;
+  let central = localSize;
+  for (const e of entries) {
+    const common = [[2, 20], [2, 0x0800], [2, 0], [2, time], [2, date], [4, crc32(e.data)], [4, e.data.length], [4, e.data.length], [2, e.name.length], [2, 0]];
+    out.set(e.name, put(local, [[4, 0x04034b50], ...common]));
+    out.set(e.data, local + 30 + e.name.length);
+    out.set(e.name, put(central, [[4, 0x02014b50], [2, 0x0314], ...common, [2, 0], [2, 0], [2, 0], [4, 0x81a40000], [4, local]]));
+    local += 30 + e.name.length + e.data.length;
+    central += 46 + e.name.length;
+  }
+  put(central, [[4, 0x06054b50], [2, 0], [2, 0], [2, entries.length], [2, entries.length], [4, centralSize], [4, localSize], [2, 0]]);
+  return out;
+}
+
+// The zip's files: the index named after the folder, then each note under its vault filename (a repeat gets " (2)").
+function zipNotes(base, written) {
+  const used = new Set([`${base}.md`]);
+  const notes = written.map((w) => {
+    let path = w.filename;
+    for (let i = 2; used.has(path); i++) path = w.filename.replace(/\.md$/, ` (${i}).md`);
+    used.add(path);
+    return { ...w, path };
+  });
+  return [{ name: `${base}.md`, text: indexMarkdown(notes, mdLink) }, ...notes.map((w) => ({ name: w.path, text: w.markdown }))];
+}
+
+// md: build the same notes but download them as a zip (one note each plus the index) instead of writing to the vault.
 async function runWrite(md = false) {
   const items = writeScopeItems();
   const overwrite = el.writeOverwrite.checked;
@@ -3399,16 +3474,11 @@ async function runWrite(md = false) {
   }
   let indexPath = "";
   if (md && written.length && token === S.folderToken) {
-    indexPath = `${safeNoteName(folderTitle())}.md`;
-    const notes = written.map((w) => `# ${w.title}\n\n${w.markdown.replace(/^---\n([\s\S]*?)\n---\n/, "```yaml\n$1\n```\n")}`);
-    BocDownload.text(indexPath, [`# ${folderTitle()}`, `${stamp(new Date(), false)} · ${written.length} 篇`, ...notes].join("\n\n"));
+    const base = safeNoteName(folderTitle());
+    indexPath = `${base}.zip`;
+    BocDownload.text(indexPath, zipStored(zipNotes(base, written)), "application/zip");
   } else if (written.length && keepGoing()) {
-    const lines = [`# ${folderTitle()}`, "", `${stamp(new Date(), false)} · ${written.length} 篇`, ""];
-    for (const w of written) {
-      const oneLiner = S.analyses[w.bvid]?.oneLiner;
-      lines.push(`- ${wikiLink(w.path, w.title)}${oneLiner ? ` ${oneLine(oneLiner)}` : ""}`);
-    }
-    const r = await send({ type: "triage-export", filename: `${safeNoteName(folderTitle())}.md`, markdown: lines.join("\n") });
+    const r = await send({ type: "triage-export", filename: `${safeNoteName(folderTitle())}.md`, markdown: indexMarkdown(written, wikiLink) });
     if (r.ok) indexPath = r.data?.path || "";
     else failed.push(`索引：${r.error}`);
   }
@@ -3808,6 +3878,8 @@ function bindEvents() {
     BocDownload.text(`MoonDigest-${title}-${stamp(new Date(), false)}.csv`, buildCsv(), "text/csv;charset=utf-8");
   });
   el.helpBtn.addEventListener("click", () => el.helpDialog.showModal());
+  // A download leaves the page as it was, so the ⋯ menu would stay open over it.
+  el.tools.addEventListener("click", (e) => e.target.closest("button") && el.tools.hidePopover());
 
   el.syncViewBtn.addEventListener("click", () => {
     el.syncNotice.hidden = !el.syncNotice.hidden;
@@ -3861,6 +3933,13 @@ function bindEvents() {
   el.tagsDialog.addEventListener("click", (e) => {
     const btn = e.target.closest("[data-tags-mode]");
     if (btn) showTagsMode(btn.dataset.tagsMode);
+  });
+  el.aiTagsPreview.addEventListener("click", (e) => {
+    const id = e.target.closest("[data-use]")?.dataset.use;
+    if (!id) return;
+    if (!S.ai.excluded.delete(id)) S.ai.excluded.add(id);
+    renderAiForm();
+    el.aiTagsPreview.querySelector(`[data-use="${CSS.escape(id)}"]`)?.focus();
   });
   el.tagsRows.addEventListener("change", (e) => {
     const row = e.target.closest(".tag-row");

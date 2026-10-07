@@ -739,8 +739,9 @@ const TRIAGE_HANDLERS = {
   "triage-open": () => triageOpenPage(),
   "triage-write-note": (msg) => triageWriteNote(msg),
   "triage-build-note": async ({ bvid }) => {
-    const { meta, markdown } = await triageBuildNote(bvid, await getMergedSettings());
-    return { title: meta.title, markdown };
+    const settings = await getMergedSettings();
+    const { meta, noteMeta, markdown } = await triageBuildNote(bvid, settings);
+    return { title: meta.title, markdown, filename: BocNote.buildNoteFilename(noteMeta, settings) };
   },
   "triage-folders": () => triageCreatedFolders(),
 
