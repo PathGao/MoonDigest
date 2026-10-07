@@ -24,6 +24,8 @@ const QUICK_ACTION_MAX_AGE_MS = 15000;
 
 const els = {
   contextChip: document.getElementById("spContextChip"),
+  contextTitle: document.querySelector("#spContextChip .sp-context-title"),
+  contextMeta: document.querySelector("#spContextChip .sp-context-meta"),
   previousVideoBar: document.getElementById("spPreviousVideo"),
   modelSelect: document.getElementById("spModelSelect"),
   settingsBtn: document.getElementById("spSettingsBtn"),
@@ -581,7 +583,7 @@ async function saveNote() {
 function updateContextChip() {
   void renderNote();
   if (!contextData) {
-    els.contextChip.textContent = "无上下文";
+    setContextChipText("无上下文");
     els.contextChip.title = "";
     els.contextChip.disabled = true;
     els.contextChip.classList.remove("is-mismatch");
@@ -589,13 +591,19 @@ function updateContextChip() {
   }
 
   const shortTitle = contextData.title || (contextData.pending ? "加载中…" : "未知视频");
-  els.contextChip.textContent = shortTitle;
+  setContextChipText(shortTitle, contextData.isVideoContext === false ? "" : contextData.author);
   const mismatch = isBoundConversationMismatched();
   els.contextChip.classList.toggle("is-mismatch", mismatch);
   els.contextChip.title = contextData.url
     ? `${contextData.title || ""}${mismatch ? "\n当前页不是这个对话绑定的视频" : ""}\n点击跳转目标视频`
     : contextData.title || "";
   els.contextChip.disabled = !String(contextData.url || "").trim();
+}
+
+function setContextChipText(title, meta = "") {
+  els.contextTitle.textContent = title;
+  els.contextMeta.textContent = String(meta || "").trim();
+  els.contextMeta.hidden = !els.contextMeta.textContent;
 }
 
 function isBoundConversationMismatched() {
@@ -2058,7 +2066,7 @@ function renderAssistantMessage(node, raw) {
     <svg viewBox="0 0 24 24" focusable="false" aria-hidden="true">
       <rect x="9" y="9" width="10" height="10" rx="2"></rect>
       <path d="M7 15H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h7a2 2 0 0 1 2 2v1"></path>
-    </svg>
+    </svg><span>复制</span>
   `;
   copyBtn.addEventListener("click", async () => {
     try {

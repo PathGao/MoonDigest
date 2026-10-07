@@ -9,7 +9,7 @@
   </head>
   <body>
     <header class="sp-header">
-      <button type="button" class="sp-context-chip" id="spContextChip" title="" aria-live="polite">加载中...</button>
+      <button type="button" class="sp-context-chip" id="spContextChip" title="" aria-live="polite"><span class="sp-context-title">加载中...</span><span class="sp-context-meta" hidden></span></button>
       <select id="spModelSelect" class="sp-model-select" aria-label="选择模型平台"></select>
       <button id="spSettingsBtn" type="button" class="sp-icon-btn" title="打开设置" aria-label="设置">
         <svg viewBox="0 0 24 24" focusable="false" aria-hidden="true">
@@ -31,12 +31,15 @@
       <div id="spSyncStatus" class="sp-sync-status" hidden><span></span><button type="button">重试</button></div>
       <div class="sp-toolbar">
         <button id="spNewChatBtn" type="button" class="sp-toolbar-btn" title="开启新对话">
+          <svg viewBox="0 0 24 24" focusable="false" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg>
           <span>开启新对话</span>
         </button>
         <button id="spHistoryBtn" type="button" class="sp-toolbar-btn" title="历史对话">
+          <svg viewBox="0 0 24 24" focusable="false" aria-hidden="true"><path d="M3 12a9 9 0 1 0 3-6.7L3 8M3 3v5h5M12 7v5l3 2"></path></svg>
           <span>历史对话</span>
         </button>
         <button id="spExportBtn" type="button" class="sp-toolbar-btn" title="导出整段对话" aria-haspopup="menu">
+          <svg viewBox="0 0 24 24" focusable="false" aria-hidden="true"><path d="M12 15V3M7 8l5-5 5 5M5 21h14"></path></svg>
           <span>导出对话</span>
         </button>
         <button id="spPresetBtn" type="button" class="sp-toolbar-btn sp-toolbar-end" title="管理输入框上方的快捷追问">
