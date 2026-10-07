@@ -602,6 +602,10 @@ body[data-boc-reader-mode="1"] .boc-reading-icon-btn.is-active {
   flex: 0 0 auto;
 }
 
+#boc-reading-ai-btn[hidden] {
+  display: none;
+}
+
 #boc-reading-ai-btn svg {
   fill: none;
   stroke: currentColor;

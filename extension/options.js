@@ -551,8 +551,11 @@ function validateSettings(payload, { requireApiKey }) {
   }
 
   const hostname = parsedUrl.hostname.toLowerCase();
-  const isLocal = hostname === "127.0.0.1" || hostname === "localhost" || hostname === "::1" || hostname === "[::1]";
-  if (!isLocal) {
+  // [::1] is not in manifest host_permissions, so requests to it would fail.
+  if (hostname === "[::1]") {
+    return { ok: false, field: elements.obsidianApiBaseUrl, message: "不支持 [::1]，请改用 127.0.0.1" };
+  }
+  if (hostname !== "127.0.0.1" && hostname !== "localhost") {
     return {
       ok: false,
       field: elements.obsidianApiBaseUrl,
@@ -1398,7 +1401,7 @@ function hostPermissionUrls(settings, providers) {
 function hostPermissionPattern(url) {
   try {
     const parsed = new URL(String(url || ""));
-    if (!/^https?:$/.test(parsed.protocol) || ["localhost", "127.0.0.1", "[::1]"].includes(parsed.hostname)) {
+    if (!/^https?:$/.test(parsed.protocol) || ["localhost", "127.0.0.1"].includes(parsed.hostname)) {
       return "";
     }
     return `${parsed.protocol}//${parsed.hostname}/*`;
