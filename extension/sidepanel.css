@@ -18,48 +18,75 @@ body {
 .sp-header {
   display: flex;
   align-items: center;
-  gap: 5px;
-  min-height: 46px;
-  padding: 10px 12px 8px;
+  gap: 8px;
+  min-height: 56px;
+  padding: 10px 12px;
   border-bottom: 1px solid var(--border);
   background: var(--surface);
   flex-shrink: 0;
 }
 
-/* The video title takes what is left; the model select stays narrow (full name in its tooltip and options). */
+/* The video row takes what is left; the model select stays narrow (full name in its tooltip and options). */
 .sp-context-chip {
   flex: 1 1 0;
-  height: 28px;
-  line-height: normal;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 1px;
+  min-height: 36px;
   min-width: 0;
-  padding: 0 10px;
-  border: 1px solid var(--border);
-  background: var(--surface);
+  margin: -2px 0 -2px -6px;
+  padding: 2px 6px;
+  border: 0;
+  background: transparent;
   color: var(--text);
   border-radius: var(--radius-sm);
-  font-size: var(--fs-xs);
+  font: inherit;
   text-align: left;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
   cursor: pointer;
   transition: background 0.15s, color 0.15s;
 }
 
+.sp-context-title,
+.sp-context-meta {
+  max-width: 100%;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sp-context-title {
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  line-height: 1.35;
+}
+
+.sp-context-meta {
+  color: var(--faint);
+  font-size: var(--fs-xs);
+  line-height: 1.35;
+}
+
+.sp-context-meta[hidden] {
+  display: none;
+}
+
 .sp-context-chip:hover {
   background: var(--surface-muted);
-  border-color: var(--border-strong);
+}
+
+.sp-context-chip.is-mismatch,
+.sp-context-chip.is-mismatch .sp-context-meta {
+  color: var(--warn);
 }
 
 .sp-context-chip.is-mismatch {
   background: var(--warn-bg);
-  border-color: var(--warn-border);
-  color: var(--warn);
+  box-shadow: inset 0 0 0 1px var(--warn-border);
 }
 
 .sp-context-chip.is-mismatch:hover {
   background: var(--warn-border);
-  color: var(--warn);
 }
 
 /* Just switched videos: the chip holds the highlight for a moment, then fades back. */
@@ -93,10 +120,11 @@ body {
   min-width: 72px;
   max-width: 120px;
   padding: 0 24px 0 10px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
+  border: 0;
+  border-radius: var(--radius-pill);
   text-overflow: ellipsis;
-  background: var(--surface);
+  background-color: var(--field-bg);
+  cursor: pointer;
   font: inherit;
   font-size: var(--fs-xs);
   color: var(--text-2);
@@ -125,11 +153,12 @@ body {
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  flex: none;
 }
 
 .sp-icon-btn svg {
-  width: 14px;
-  height: 14px;
+  width: 16px;
+  height: 16px;
   fill: none;
   stroke: currentColor;
   stroke-width: 2;
@@ -346,10 +375,10 @@ body {
 .sp-messages {
   flex: 1;
   overflow-y: auto;
-  padding: 14px 14px 10px;
+  padding: 12px 14px 14px;
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 14px;
   scroll-behavior: smooth;
 }
 
@@ -368,7 +397,7 @@ body {
   padding: 11px 13px;
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
-  background: var(--surface-muted);
+  background: var(--surface);
   color: var(--text);
   font: inherit;
   cursor: pointer;
@@ -406,13 +435,13 @@ body {
 /* One filled button per view: once something is typed, send is the next step and the summary steps back. */
 body:has(#spInput:not(:placeholder-shown)) .sp-summary-btn {
   background: var(--action-bg);
-  color: var(--action);
+  color: var(--link);
 }
 
 .sp-triage-summary {
-  padding: 10px 12px;
-  border: 1px solid var(--border);
+  padding: 12px 14px;
   border-radius: var(--radius-lg);
+  background: var(--surface-muted);
   font-size: var(--fs-md);
   line-height: 1.6;
 }
@@ -423,8 +452,8 @@ body:has(#spInput:not(:placeholder-shown)) .sp-summary-btn {
 }
 
 .sp-followups {
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 6px;
 }
 
@@ -433,29 +462,68 @@ body:has(#spInput:not(:placeholder-shown)) .sp-summary-btn {
 }
 
 .sp-followup-chip {
-  max-width: 100%;
-  height: auto;
-  padding: 5px 10px;
-  border: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
+  height: 28px;
+  padding: 0 12px;
+  border: 0;
   border-radius: var(--radius-pill);
-  background: var(--surface-muted);
-  color: var(--text-2);
+  background: var(--field-bg);
+  color: var(--text);
   font: inherit;
   font-size: var(--fs-xs);
   cursor: pointer;
   white-space: nowrap;
+}
+
+.sp-followup-chip .ai-spark {
+  flex: none;
+  background: var(--accent);
+}
+
+.sp-followup-text {
+  flex: 1;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
+  text-align: left;
 }
 
 .sp-followup-more {
-  border-style: dashed;
-  color: var(--text);
+  color: var(--text-2);
 }
 
-.sp-followup-chip:hover {
-  color: var(--text);
-  border-color: var(--border-strong);
+.sp-followup-chip:hover:not(:disabled) {
+  background: var(--border);
+}
+
+.sp-followup-chip:disabled {
+  color: var(--faint);
+  cursor: not-allowed;
+}
+
+.sp-followup-chip:disabled .ai-spark {
+  opacity: 0.5;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .sp-followup-chip.is-marquee .sp-followup-text {
+    text-overflow: clip;
+  }
+
+  .sp-followup-chip.is-marquee .sp-followup-text > span {
+    display: inline-block;
+    animation: sp-followup-marquee var(--marquee-duration, 4s) ease-in-out infinite;
+  }
+}
+
+/* Hold at each end so the start and the hidden tail are both readable. */
+@keyframes sp-followup-marquee {
+  0%, 15% { transform: translateX(0); }
+  50%, 70% { transform: translateX(var(--marquee-shift, 0)); }
+  100% { transform: translateX(0); }
 }
 
 .sp-msg {
@@ -470,19 +538,27 @@ body:has(#spInput:not(:placeholder-shown)) .sp-summary-btn {
 
 .sp-msg-user {
   align-self: flex-end;
-  background: var(--surface-muted);
+  max-width: 80%;
+  padding: 8px 12px;
+  background: var(--action-bg);
   color: var(--text);
-  border: 1px solid var(--border);
-  border-bottom-right-radius: var(--radius-sm);
+  border-bottom-right-radius: 4px;
 }
 
 .sp-msg-assistant {
-  align-self: flex-start;
-  background: transparent;
+  align-self: stretch;
+  max-width: 100%;
+  background: var(--surface-muted);
   color: var(--text);
   border: 0;
-  padding: 0;
+  padding: 12px 14px;
+  line-height: 1.6;
   white-space: normal;
+}
+
+/* A turn that failed before any token leaves an empty node until the error lands in it. */
+.sp-msg-assistant:empty {
+  display: none;
 }
 
 .sp-msg-assistant-body {
@@ -492,29 +568,32 @@ body:has(#spInput:not(:placeholder-shown)) .sp-summary-btn {
 .sp-msg-actions {
   display: flex;
   justify-content: flex-start;
-  gap: 6px;
-  margin-top: 8px;
+  gap: 4px;
+  margin-top: 12px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
 }
 
 .sp-msg-copy-btn {
-  width: 28px;
-  height: 28px;
-  padding: 0;
-  border: 1px solid var(--border);
+  height: 26px;
+  padding: 0 8px;
+  margin-left: -8px;
+  border: 0;
   border-radius: var(--radius-sm);
-  background: var(--surface);
-  color: var(--muted);
+  background: transparent;
+  color: var(--text-2);
+  font: inherit;
+  font-size: var(--fs-xs);
   cursor: pointer;
   display: inline-flex;
   align-items: center;
-  justify-content: center;
-  transition: background 0.15s, color 0.15s, border-color 0.15s;
+  gap: 4px;
+  transition: background 0.15s, color 0.15s;
 }
 
 .sp-msg-copy-btn:hover {
-  background: var(--surface-muted);
+  background: var(--field-bg);
   color: var(--text);
-  border-color: var(--border-strong);
 }
 
 .sp-msg-copy-btn:disabled {
@@ -656,7 +735,7 @@ body:has(#spInput:not(:placeholder-shown)) .sp-summary-btn {
 }
 
 .sp-msg-assistant th {
-  background: var(--surface-muted);
+  background: var(--field-bg);
   font-weight: 700;
 }
 
@@ -675,7 +754,7 @@ body:has(#spInput:not(:placeholder-shown)) .sp-summary-btn {
 
 .sp-msg-assistant code {
   padding: 1px 5px;
-  background: var(--surface-muted);
+  background: var(--surface);
   border: 1px solid var(--border);
   border-radius: 4px;
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
@@ -683,28 +762,32 @@ body:has(#spInput:not(:placeholder-shown)) .sp-summary-btn {
 }
 
 .sp-timestamp-link {
-  display: inline;
-  padding: 0;
+  display: inline-block;
+  height: 20px;
+  margin: 0 1px;
+  padding: 0 6px;
   border: 0;
-  background: transparent;
+  border-radius: 4px;
+  background: var(--action-bg);
   color: var(--link);
   font: inherit;
+  font-size: var(--fs-xs);
   font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  line-height: 20px;
+  vertical-align: 1px;
   cursor: pointer;
-  text-decoration: underline;
-  text-decoration-color: color-mix(in srgb, var(--link) 35%, transparent);
-  text-underline-offset: 2px;
 }
 
 .sp-timestamp-link:hover {
+  background: var(--action-border);
   color: var(--link-hover);
-  text-decoration-color: color-mix(in srgb, var(--link-hover) 55%, transparent);
 }
 
 .sp-msg-assistant pre {
   margin: 6px 0;
   padding: 10px 12px;
-  background: var(--surface-muted);
+  background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
   overflow-x: auto;
@@ -785,8 +868,8 @@ body:has(#spInput:not(:placeholder-shown)) .sp-summary-btn {
 .sp-footer {
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  padding: 8px 12px 12px;
+  gap: 8px;
+  padding: 10px 12px 12px;
   border-top: 1px solid var(--border);
   background: var(--surface);
   flex-shrink: 0;
@@ -820,8 +903,8 @@ body:has(#spInput:not(:placeholder-shown)) .sp-summary-btn {
 .sp-toolbar {
   display: flex;
   align-items: center;
-  gap: 4px;
-  min-height: 28px;
+  gap: 2px;
+  min-height: 26px;
   position: relative;
 }
 
@@ -833,15 +916,15 @@ body:has(#spInput:not(:placeholder-shown)) .sp-summary-btn {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  height: 28px;
+  height: 26px;
   /* Four buttons must fit one line at the 360px minimum side panel width. */
   padding: 0 6px;
   border: 0;
   border-radius: var(--radius-sm);
   background: transparent;
-  color: var(--muted);
+  color: var(--text-2);
   font: inherit;
-  font-size: var(--fs-sm);
+  font-size: var(--fs-xs);
   line-height: 1;
   white-space: nowrap;
   cursor: pointer;
@@ -853,16 +936,17 @@ body:has(#spInput:not(:placeholder-shown)) .sp-summary-btn {
 }
 
 .sp-toolbar-btn:hover {
-  background: var(--surface-muted);
+  background: var(--field-bg);
   color: var(--text);
 }
 
 .sp-toolbar-btn svg {
+  flex: none;
   width: 14px;
   height: 14px;
   fill: none;
   stroke: currentColor;
-  stroke-width: 2;
+  stroke-width: 1.8;
   stroke-linecap: round;
   stroke-linejoin: round;
 }
@@ -1176,10 +1260,10 @@ body:has(#spInput:not(:placeholder-shown)) .sp-summary-btn {
   min-height: 94px;
   max-height: 320px;
   /* Room on the right for the send button that sits inside the box. */
-  padding: 12px 76px 12px 12px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  background: var(--surface-muted);
+  padding: 10px 76px 10px 12px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+  background: var(--field-bg);
   color: var(--text);
   font: inherit;
   font-size: var(--fs-md);
@@ -1193,8 +1277,9 @@ body:has(#spInput:not(:placeholder-shown)) .sp-summary-btn {
 }
 
 #spInput:focus {
-  border-color: var(--accent);
-  box-shadow: 0 0 0 3px var(--focus-ring);
+  border-color: var(--action);
+  background: var(--surface);
+  box-shadow: none;
 }
 
 /* Fixed width, so turning into 停止 never moves anything. Blue only once there is something to send. */
@@ -1202,21 +1287,27 @@ body:has(#spInput:not(:placeholder-shown)) .sp-summary-btn {
   position: absolute;
   right: 8px;
   bottom: 8px;
-  width: 60px;
-  height: 32px;
+  width: 64px;
+  height: 30px;
   padding: 0;
-  border: 1px solid var(--border);
+  border: 1px solid transparent;
   border-radius: var(--radius-sm);
-  background: var(--surface);
-  color: var(--text-2);
+  background: var(--action-bg);
+  color: var(--link);
   font: inherit;
   font-size: var(--fs-sm);
+  font-weight: 600;
   cursor: pointer;
 }
 
 .sp-send-btn:hover {
-  border-color: var(--border-strong);
-  color: var(--text);
+  border-color: var(--action-border);
+}
+
+.sp-send-btn.is-stop {
+  background: var(--surface);
+  border-color: var(--border);
+  color: var(--text-2);
 }
 
 #spInput:not(:placeholder-shown) + .sp-send-btn:not(.is-stop) {

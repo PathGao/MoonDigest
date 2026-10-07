@@ -238,7 +238,7 @@ YouTube 字幕的取法参照 yt-dlp：读页面播放器的字幕轨；需要�
 
 - 基于 [haixiong1997/Bilibili-Obsidian-Clipper](https://github.com/haixiong1997/Bilibili-Obsidian-Clipper)（MIT）。
 - YouTube 字幕的取法参照 [yt-dlp](https://github.com/yt-dlp/yt-dlp)。
-- 配色来自 [Catppuccin](https://github.com/catppuccin/catppuccin)（MIT）。
+- 成功、警告、错误三种状态色来自 [Catppuccin](https://github.com/catppuccin/catppuccin)（MIT）。
 
 ## 许可
 

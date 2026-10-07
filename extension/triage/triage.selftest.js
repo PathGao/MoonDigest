@@ -736,9 +736,31 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   assert.deepStrictEqual(plain(store[t.K.decisions("A")]), {});
   assert.strictEqual(t.S.decisions.BV1.action, "keep");
 
-  // 已取消收藏: a video that left every folder is recorded; moved to another folder or listed again, it is not.
-  const rec = t.updateRemoved({ BV9: { item: item(9), at: 1 } }, [item(1), item(2), item(3)], [item(1), item(9)], new Set(["BV3"]), 5);
-  assert.deepStrictEqual(plain(rec), { BV2: { item: item(2), at: 5 } }, "BV3 is in another folder, BV9 came back");
+  // 已取消收藏: a video that left every folder is recorded with where it had been; one still in another folder only gets
+  // this folder on its trail; one listed again is dropped from the record and this folder from its trail.
+  {
+    const A = { id: "A", title: "甲" };
+    const B = { id: "B", title: "乙" };
+    const rec = t.updateRemoved({ BV9: { item: item(9), at: 1 } }, { BV1: { A: { title: "甲", at: 2 } } }, [item(1), item(2), item(3)], [item(1), item(9)], new Set(["BV3"]), 5, null, A);
+    assert.deepStrictEqual(plain(rec), { removed: { BV2: { item: item(2), at: 5, from: [{ id: "A", title: "甲", at: 5 }] } }, left: { BV3: { A: { title: "甲", at: 5 } } } }, "BV3 is in another folder (trail), BV9 came back, BV1 listed again clears its trail");
+    // Left A first (still in B), then B: the record names both, oldest first, and the trail is gone.
+    const one = t.updateRemoved({}, {}, [item(1)], [], new Set(["BV1"]), 2, null, A);
+    assert.deepStrictEqual(plain(one), { removed: {}, left: { BV1: { A: { title: "甲", at: 2 } } } });
+    const both = t.updateRemoved(one.removed, one.left, [item(1)], [], new Set(), 7, null, B);
+    assert.deepStrictEqual(plain(both), { removed: { BV1: { item: item(1), at: 7, from: [{ id: "A", title: "甲", at: 2 }, { id: "B", title: "乙", at: 7 }] } }, left: {} });
+    // Back in A before leaving B: A leaves the trail, so leaving B later names B alone.
+    const back = t.updateRemoved(one.removed, one.left, [], [item(1)], new Set(["BV1"]), 3, null, A);
+    assert.deepStrictEqual(plain(back), { removed: {}, left: {} });
+    assert.deepStrictEqual(plain(t.updateRemoved(back.removed, back.left, [item(1)], [], new Set(), 8, null, B).removed.BV1.from), [{ id: "B", title: "乙", at: 8 }]);
+    // A hidden (still in the id list) video is marked so, with its origin.
+    assert.deepStrictEqual(plain(t.updateRemoved({}, {}, [item(4)], [], new Set(), 9, ["BV4"], A).removed), { BV4: { item: item(4), at: 9, from: [{ id: "A", title: "甲", at: 9 }], hidden: true } });
+    // Moved out of triage: the source folder is the origin (after its trail); from 已取消收藏 itself the origin is kept.
+    const moved = t.moveToRemoved({}, { BV1: { A: { title: "甲", at: 2 } } }, [item(1), item(3)], new Set(["BV3"]), B, 7, { id: "Z", title: "外" });
+    assert.deepStrictEqual(plain(moved), { removed: { BV1: { item: item(1), at: 7, movedTo: { id: "Z", title: "外" }, from: [{ id: "A", title: "甲", at: 2 }, { id: "B", title: "乙", at: 7 }] } }, left: {} });
+    const again = t.moveToRemoved(moved.removed, {}, [item(1)], new Set(), null, 8, { id: "Y", title: "另" });
+    assert.deepStrictEqual(plain(again.removed.BV1), { item: item(1), at: 8, movedTo: { id: "Y", title: "另" }, from: plain(moved.removed.BV1.from) });
+    assert.deepStrictEqual(plain(t.moveToRemoved({}, {}, [item(1)], new Set(), null, 8, { id: "Y", title: "另" }).removed.BV1), { item: item(1), at: 8, movedTo: { id: "Y", title: "另" } }, "an old record without an origin stays without one");
+  }
 
   // 所有收藏夹 keeps a cached list only while the folder's video ids match it as a set.
   assert.strictEqual(t.idsChanged(["BV1", "BV2"], ["BV2", "BV1"]), false, "order does not matter");
@@ -756,6 +778,20 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   assert.deepStrictEqual(Object.keys(store[t.K.removed]), ["BV1"]);
   assert.deepStrictEqual(plain(store[t.K.snapshot("A")].ids), ["BVhidden"], "an id the paged list leaves out stays in the check baseline");
   assert.strictEqual(t.S.removedCount, 1);
+
+  // 已取消收藏 renders the normal card: the leaving line and the origin in the meta, 选中 / 清理 as the pair, no 保留 / 取消收藏.
+  {
+    openFake("removed", []);
+    const html = t.cardHtml({ ...item(1), removedAt: 5, from: [{ id: "A", title: "甲", at: 1 }, { id: "B", title: "乙", at: 3 }, { id: "C", title: "丙", at: 5 }] }, true, "");
+    assert.ok(html.includes('data-select="BV1"') && html.includes('class="danger" data-clean="BV1"') && !html.includes('data-act="keep"') && !html.includes('data-act="unfav"'), html);
+    assert.ok(html.includes("离开收藏夹：") && html.includes('title="原在「甲」「乙」「丙」">原在「甲」「乙」等 3 个<'), html);
+    assert.ok(t.cardHtml({ ...item(2), removedAt: 5, from: [{ id: "A", title: "甲", at: 5 }] }, true, "").includes(">原在「甲」<"));
+    const hidden = t.cardHtml({ ...item(3), removedAt: 5, hidden: true }, true, "");
+    assert.ok(!hidden.includes("原在") && hidden.includes("已失效（B 站已隐藏）："), "a record without an origin shows none");
+    assert.ok(t.cardHtml({ ...item(4), removedAt: 5, movedTo: { id: "Z", title: "外" } }, true, "").includes("移到「外」（未勾选）："));
+    openFake("A", [item(1)]);
+    assert.ok(t.cardHtml(item(1), false, "").includes('<span class="pair">\n            <button type="button" data-act="keep"'), "a folder's card keeps 保留 / 取消收藏 as the pair");
+  }
 
   // Cleaning a removed video deletes its AI results, note, tags, 保留, basket entry and 取消收藏 records, and nothing else.
   Object.assign(store, { triage_analysis_BV1: {}, triage_title_BV1: {}, triage_analysis_BV5: {} });
@@ -1136,8 +1172,9 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     const was = { bvid: "BV70", title: "原标题", cover: "c.jpg", upper: "UP", intro: "简介", duration: 90 };
     const now = { bvid: "BV70", title: "已失效视频", cover: "ph.jpg", upper: "", intro: "", duration: 0, invalid: true };
     assert.deepStrictEqual(plain(t.keepInvalidInfo([now, item(71)], [was])), [{ ...now, title: "原标题", cover: "c.jpg", upper: "UP", intro: "简介", duration: 90 }, item(71)]);
-    const rec = t.updateRemoved({}, [item(72), item(73)], [], new Set(), 9, ["BV72"]);
-    assert.deepStrictEqual(plain(rec), { BV72: { item: item(72), at: 9, hidden: true }, BV73: { item: item(73), at: 9 } });
+    const rec = t.updateRemoved({}, {}, [item(72), item(73)], [], new Set(), 9, ["BV72"], { id: "A", title: "甲" }).removed;
+    const fromA = [{ id: "A", title: "甲", at: 9 }];
+    assert.deepStrictEqual(plain(rec), { BV72: { item: item(72), at: 9, from: fromA, hidden: true }, BV73: { item: item(73), at: 9, from: fromA } });
     store[t.K.removed] = structuredClone(rec);
     assert.strictEqual(await t.dropRemoved(["BV72", "BV73"]), 1, "only the unhidden one leaves on an id match");
     assert.deepStrictEqual(Object.keys(store[t.K.removed]), ["BV72"]);

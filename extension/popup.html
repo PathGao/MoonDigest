@@ -10,37 +10,62 @@
   <body>
     <main class="popup">
       <header class="top">
-        <div class="title">
-          <strong>MoonDigest</strong>
-          <button id="refreshBtn" type="button" class="icon-btn" title="刷新" aria-label="刷新">
-            <svg viewBox="0 0 24 24" focusable="false" aria-hidden="true">
-              <path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"></path>
-              <path d="M21 3v5h-5"></path>
-              <path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"></path>
-              <path d="M8 16H3v5"></path>
-            </svg>
-          </button>
-        </div>
-        <button id="settingsBtn" type="button" class="ghost">设置</button>
+        <strong class="brand">
+          <span class="brand-mark" aria-hidden="true"></span>
+          MoonDigest
+        </strong>
+        <button id="refreshBtn" type="button" class="icon-btn" title="刷新" aria-label="刷新">
+          <svg viewBox="0 0 24 24" focusable="false" aria-hidden="true">
+            <path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"></path>
+            <path d="M21 3v5h-5"></path>
+            <path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"></path>
+            <path d="M8 16H3v5"></path>
+          </svg>
+        </button>
+        <button id="settingsBtn" type="button" class="icon-btn" title="设置" aria-label="设置">
+          <svg viewBox="0 0 24 24" focusable="false" aria-hidden="true">
+            <path d="M9.671 4.136a2.34 2.34 0 0 1 4.659 0 2.34 2.34 0 0 0 3.319 1.915 2.34 2.34 0 0 1 2.33 4.033 2.34 2.34 0 0 0 0 3.831 2.34 2.34 0 0 1-2.33 4.033 2.34 2.34 0 0 0-3.319 1.915 2.34 2.34 0 0 1-4.659 0 2.34 2.34 0 0 0-3.32-1.915 2.34 2.34 0 0 1-2.33-4.033 2.34 2.34 0 0 0 0-3.831A2.34 2.34 0 0 1 6.35 6.051a2.34 2.34 0 0 0 3.319-1.915"></path>
+            <circle cx="12" cy="12" r="3"></circle>
+          </svg>
+        </button>
       </header>
 
-      <p id="status" class="status">准备就绪</p>
+      <section class="video">
+        <div class="cover">
+          <img id="videoCover" alt="" referrerpolicy="no-referrer" hidden />
+          <span id="videoDuration" class="duration" hidden></span>
+        </div>
+        <div class="video-text">
+          <div id="videoTitle" class="video-title"></div>
+          <div id="videoMeta" class="video-meta"></div>
+          <p id="status" class="status">准备就绪</p>
+        </div>
+      </section>
 
-      <label class="label" for="subtitleSelect">语言</label>
-      <select id="subtitleSelect"></select>
-      <textarea id="preview" readonly aria-label="字幕预览"></textarea>
+      <button id="summaryBtn" type="button" class="primary summary"><span class="ai-spark" aria-hidden="true"></span>AI 总结</button>
 
-      <div class="actions">
-        <button id="downloadBtn" type="button">下载字幕</button>
-        <button id="readingViewBtn" type="button">专注模式</button>
+      <label class="subrow" for="subtitleSelect">
+        <span class="k">字幕</span>
+        <select id="subtitleSelect"></select>
+      </label>
+      <textarea id="preview" readonly aria-label="字幕预览" hidden></textarea>
+
+      <div class="tools">
+        <button id="downloadBtn" type="button" class="tool">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12M7 10l5 5 5-5M5 21h14"></path></svg>下载字幕
+        </button>
+        <button id="readingViewBtn" type="button" class="tool">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 3H5a2 2 0 0 0-2 2v3M21 8V5a2 2 0 0 0-2-2h-3M3 16v3a2 2 0 0 0 2 2h3M16 21h3a2 2 0 0 0 2-2v-3"></path></svg>专注模式
+        </button>
+        <button id="copyBtn" type="button" class="tool">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="9" width="12" height="12" rx="2"></rect><path d="M5 15H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v1"></path></svg>复制 Markdown
+        </button>
+        <button id="mdBtn" type="button" class="tool">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9zM14 3v6h6M8 14h8M8 17h5"></path></svg>下载 .md
+        </button>
+        <button id="sendBtn" type="button" class="tool" hidden><img class="obsidian-mark" src="/icons/obsidian.svg" alt="" />写入 Obsidian</button>
       </div>
-      <button id="summaryBtn" type="button" class="primary"><span class="ai-spark" aria-hidden="true"></span>AI 总结</button>
-      <div class="section-title">Markdown 笔记</div>
-      <div class="actions">
-        <button id="copyBtn" type="button">复制 Markdown</button>
-        <button id="mdBtn" type="button">下载 .md</button>
-        <button id="sendBtn" type="button" hidden><img class="obsidian-mark" src="/icons/obsidian.svg" alt="" /> 写入 Obsidian</button>
-      </div>
+
       <details class="details">
         <summary>详情</summary>
         <section class="props">
@@ -50,10 +75,19 @@
           <div class="prop-row"><span class="k">标签</span><span id="propTags" class="v"></span></div>
         </section>
       </details>
-      <div class="actions global-actions">
-        <button id="triageBtn" type="button">打开分拣台<span id="triageHint" class="link-hint" hidden>（仅 B 站收藏夹）</span></button>
-        <button id="historyBtn" type="button">视频记录</button>
-      </div>
+
+      <nav class="rows">
+        <button id="triageBtn" type="button" class="row">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1.5"></rect><rect x="14" y="3" width="7" height="7" rx="1.5"></rect><rect x="3" y="14" width="7" height="7" rx="1.5"></rect><rect x="14" y="14" width="7" height="7" rx="1.5"></rect></svg>
+          <span class="row-label">打开分拣台<span id="triageHint" class="link-hint" hidden>（仅 B 站收藏夹）</span></span>
+          <svg class="chev" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6l6 6-6 6"></path></svg>
+        </button>
+        <button id="historyBtn" type="button" class="row">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12a9 9 0 1 0 3-6.7L3 8M3 3v5h5M12 7v5l3 2"></path></svg>
+          <span class="row-label">视频记录</span>
+          <svg class="chev" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6l6 6-6 6"></path></svg>
+        </button>
+      </nav>
     </main>
 
     <script src="./limits.js"></script>

@@ -440,15 +440,21 @@ async function triageFolderIds(mediaId) {
   return (data || []).filter((m) => m.type === 2).map((m) => m.bvid || m.bv_id);
 }
 
+// created/list (paged) is used instead of list-all because only it returns each folder's cover.
 async function triageCreatedFolders() {
   const mid = await triageMid();
-  const data = await triageBiliGet(`https://api.bilibili.com/x/v3/fav/folder/created/list-all?up_mid=${mid}`);
+  const list = [];
+  for (let pn = 1; pn <= 20; pn++) {
+    const data = await triageBiliGet(`https://api.bilibili.com/x/v3/fav/folder/created/list?up_mid=${mid}&pn=${pn}&ps=50`);
+    list.push(...(data?.list || []));
+    if (!data?.has_more || !data.list?.length) break;
+  }
   const toview = await triageBiliGet("https://api.bilibili.com/x/v2/history/toview/web?pn=1&ps=1&viewed=0").catch(() => null);
   return {
     mid,
     folders: [
       ...(toview ? [{ id: TRIAGE_TOVIEW, title: "稍后再看", count: toview.count || 0 }] : []),
-      ...(data?.list || []).map((f) => ({ id: f.id, title: f.title, count: f.media_count }))
+      ...list.map((f) => ({ id: f.id, title: f.title, count: f.media_count, cover: String(f.cover || "").replace(/^http:\/\//, "https://") }))
     ]
   };
 }

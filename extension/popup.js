@@ -1,5 +1,9 @@
 const el = {
   status: document.getElementById("status"),
+  videoCover: document.getElementById("videoCover"),
+  videoDuration: document.getElementById("videoDuration"),
+  videoTitle: document.getElementById("videoTitle"),
+  videoMeta: document.getElementById("videoMeta"),
   propTitle: document.getElementById("propTitle"),
   propUrl: document.getElementById("propUrl"),
   propCreated: document.getElementById("propCreated"),
@@ -46,6 +50,10 @@ async function init() {
 }
 
 function bindEvents() {
+  // A cover that fails to load leaves the colored placeholder behind it.
+  el.videoCover.addEventListener("error", () => {
+    el.videoCover.hidden = true;
+  });
   el.refreshBtn.addEventListener("click", async () => {
     await refreshFromTab();
   });
@@ -248,6 +256,16 @@ function render(payload, { preserveStatus = false } = {}) {
   setText(el.propCreated, formatLocalDate());
   setText(el.propTags, payload.tags || "MoonDigest");
   el.propTitle.title = payload.title || "";
+  setText(el.videoTitle, payload.title);
+  el.videoTitle.title = payload.title || "";
+  setText(el.videoMeta, [payload.author, payload.uploadDate].filter(Boolean).join(" · "));
+  if (el.videoCover.getAttribute("src") !== (payload.cover || null)) {
+    if (payload.cover) el.videoCover.src = payload.cover;
+    else el.videoCover.removeAttribute("src");
+    el.videoCover.hidden = !payload.cover;
+  }
+  setText(el.videoDuration, formatDuration(payload.duration));
+  el.videoDuration.hidden = !el.videoDuration.textContent;
   el.propUrl.title = payload.url || "";
 
   const options = payload.subtitleOptions || [];
@@ -269,6 +287,16 @@ function render(payload, { preserveStatus = false } = {}) {
   }
 
   el.preview.value = payload.subtitlePreview || "";
+  el.preview.hidden = !el.preview.value;
+}
+
+function formatDuration(seconds) {
+  const total = Math.floor(Number(seconds) || 0);
+  if (total <= 0) return "";
+  const h = Math.floor(total / 3600);
+  const mm = String(Math.floor((total % 3600) / 60)).padStart(h ? 2 : 1, "0");
+  const ss = String(total % 60).padStart(2, "0");
+  return h ? `${h}:${mm}:${ss}` : `${mm}:${ss}`;
 }
 
 function setText(node, text) {

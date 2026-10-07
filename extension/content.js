@@ -1366,6 +1366,8 @@ function getPopupPayload() {
     title: state.title || "",
     author: state.author || "",
     uploadDate: state.uploadDate || "",
+    cover: state.cover || "",
+    duration: state.videoDuration || 0,
     tags: String(state.settings?.tags || ""),
     status: state.statusText || "",
     message: state.messageText || "",

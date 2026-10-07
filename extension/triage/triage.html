@@ -9,12 +9,17 @@
   </head>
   <body>
     <div class="app">
-      <!-- Row 1: where you are (folder, steps) and what is running; row 2 (.stagebar) is what to do in this step. -->
+      <!-- Top bar: brand, the search box in the middle, what is running and the tools on the right. -->
       <header class="topbar">
+        <div class="brand"><span class="brand-mark" aria-hidden="true"></span>B站分拣台</div>
+        <!-- The select holds the open folder (every reader and writer keeps using it); the sidebar list is drawn from its options. -->
         <select id="folderSelect" class="folder-select" aria-label="选择收藏夹"></select>
-        <button id="refreshBtn" type="button" class="ghost-btn" aria-label="从 B 站刷新收藏夹">↻ 刷新</button>
-        <nav id="tabs" class="tabs" role="tablist" aria-label="分拣进度"></nav>
-        <span class="spacer"></span>
+        <span class="search">
+          <svg class="search-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
+          <input id="searchInput" type="search" placeholder="搜索标题、UP 主、总结、备注、标签" aria-label="搜索 (/)" autocomplete="off" />
+          <span id="searchCount" class="muted" aria-live="polite"></span>
+          <kbd class="search-key" aria-hidden="true">/</kbd>
+        </span>
         <span class="sync-wrap">
           <button id="syncViewBtn" type="button" class="pill sync-pill" aria-expanded="false" aria-controls="syncNotice" hidden></button>
           <div id="syncNotice" class="notice" hidden>
@@ -24,17 +29,14 @@
           </div>
         </span>
         <span id="activity" class="activity" aria-live="polite" hidden></span>
-        <span class="search">
-          <input id="searchInput" type="search" placeholder="搜索标题、UP 主、总结、备注、标签" aria-label="搜索 (/)" autocomplete="off" />
-          <span id="searchCount" class="muted" aria-live="polite"></span>
-        </span>
+        <button id="refreshBtn" type="button" class="ghost-btn" aria-label="从 B 站刷新收藏夹">↻ 刷新</button>
+        <button id="settingsBtn" type="button" class="more-btn gear-btn" title="分拣设置" aria-label="分拣设置">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9.671 4.136a2.34 2.34 0 0 1 4.659 0 2.34 2.34 0 0 0 3.319 1.915 2.34 2.34 0 0 1 2.33 4.033 2.34 2.34 0 0 0 0 3.831 2.34 2.34 0 0 1-2.33 4.033 2.34 2.34 0 0 0-3.319 1.915 2.34 2.34 0 0 1-4.659 0 2.34 2.34 0 0 0-3.32-1.915 2.34 2.34 0 0 1-2.33-4.033 2.34 2.34 0 0 0 0-3.831A2.34 2.34 0 0 1 6.35 6.051a2.34 2.34 0 0 0 3.319-1.915"/><circle cx="12" cy="12" r="3"/></svg>
+        </button>
         <button id="moreBtn" type="button" class="more-btn" popovertarget="tools" aria-label="更多操作">⋯</button>
         <div id="tools" class="tools" popover>
           <div class="tools-brand">MoonDigest · B 站收藏夹分拣台</div>
-          <button id="removedBtn" type="button" title="离开了你勾选的所有收藏夹、但 MoonDigest 还留着信息的视频" hidden>已取消收藏</button>
-          <button id="biliBtn" type="button" aria-label="在 B 站打开当前收藏夹（所有收藏夹时打开个人主页）" hidden>B 站收藏夹 ↗</button>
           <button id="writeBtn" type="button" aria-label="批量导出">批量导出</button>
-          <button id="settingsBtn" type="button" aria-label="分拣设置">分拣设置</button>
           <button id="helpBtn" type="button" aria-label="帮助">帮助（?）</button>
         </div>
       </header>
@@ -45,40 +47,57 @@
         <button id="bannerClose" type="button" class="icon" aria-label="关闭提示">×</button>
       </div>
 
-      <div id="main" class="main">
-        <section class="listpane">
-          <div id="stagebar" class="stagebar">
-            <span id="classFilter" class="class-filter"></span>
-            <div class="tagbar">
-              <button id="aiBtn" type="button" class="tag-btn" aria-label="标签：管理标签和 AI 批量打标签"><span class="ai-spark" aria-hidden="true"></span>标签</button>
-              <span id="tagFilter" class="tagfilter"></span>
+      <div class="shell">
+        <aside class="side" aria-label="收藏夹">
+          <div class="side-head">收藏夹</div>
+          <div id="folderList" class="folder-list"></div>
+          <hr />
+          <!-- The same AI-class filter as the chips above the list; both read and write S.classFilter[S.tab]. -->
+          <div id="sideFilter" class="folder-list side-filter" role="group" aria-label="按 AI 判断筛选"></div>
+          <hr />
+          <button id="aiBtn" type="button" class="side-item tag-btn" aria-label="标签：管理标签和 AI 批量打标签"><span class="ai-spark" aria-hidden="true"></span>标签</button>
+        </aside>
+
+        <div id="main" class="main">
+          <!-- The folder's name and counts on the left; the step's criteria line and buttons (listHeader) on the right. -->
+          <div class="folder-head">
+            <div class="folder-info">
+              <div id="folderHead" class="folder-name"></div>
+              <button id="biliBtn" type="button" class="link bili-link" aria-label="在 B 站打开当前收藏夹（所有收藏夹时打开个人主页）" hidden>在 B 站打开 ↗</button>
             </div>
             <div id="listHeader" class="list-header"></div>
           </div>
-          <div id="list" class="list" aria-label="视频列表"><p class="empty">正在加载收藏夹列表…</p></div>
-
-          <!-- 优先看 floats over the bottom of the list while it holds videos and opens upward, so it never covers the viewer. Only its own button folds it. -->
-          <aside id="basket" class="basket collapsed" hidden>
-            <div class="basket-body">
-              <div id="basketList" class="basket-list"></div>
+          <nav id="tabs" class="tabs" role="tablist" aria-label="分拣进度"></nav>
+          <section class="listpane">
+            <div id="stagebar" class="stagebar">
+              <span id="classFilter" class="class-filter"></span>
+              <span id="tagFilter" class="tagfilter"></span>
             </div>
-            <button id="basketToggle" type="button" class="basket-toggle" aria-expanded="false" aria-label="展开或收起优先看">
-              优先看 <span id="basketCount">0</span> <span class="chev" aria-hidden="true">▴</span>
-            </button>
-          </aside>
-        </section>
+            <div id="list" class="list" aria-label="视频列表"><p class="empty">正在加载收藏夹列表…</p></div>
 
-        <!-- The video page itself: likes, coins, favorites and comments work as on Bilibili. -->
-        <aside id="viewer" class="viewer" hidden>
-          <div class="viewer-head">
-            <strong id="viewerTitle" class="viewer-title"></strong>
-            <button id="viewerNextBtn" type="button" hidden aria-label="已看，在右侧打开优先看的下一个">已看，下一个 ▸</button>
-            <button id="viewerTabBtn" type="button" aria-label="在新标签页打开">新标签页打开</button>
-            <button id="viewerCloseBtn" type="button" class="icon" aria-label="关闭视频栏 (Esc)">×</button>
-          </div>
-          <!-- No allow-top-navigation: the page breaks out of frames by navigating the top window. -->
-          <iframe id="viewerFrame" class="viewer-frame" title="视频页" sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox allow-modals allow-presentation" allow="autoplay; fullscreen; picture-in-picture; clipboard-write"></iframe>
-        </aside>
+            <!-- 优先看 floats over the bottom of the list while it holds videos and opens upward, so it never covers the viewer. Only its own button folds it. -->
+            <aside id="basket" class="basket collapsed" hidden>
+              <div class="basket-body">
+                <div id="basketList" class="basket-list"></div>
+              </div>
+              <button id="basketToggle" type="button" class="basket-toggle" aria-expanded="false" aria-label="展开或收起优先看">
+                优先看 <span id="basketCount">0</span> <span class="chev" aria-hidden="true">▴</span>
+              </button>
+            </aside>
+          </section>
+
+          <!-- The video page itself: likes, coins, favorites and comments work as on Bilibili. -->
+          <aside id="viewer" class="viewer" hidden>
+            <div class="viewer-head">
+              <strong id="viewerTitle" class="viewer-title"></strong>
+              <button id="viewerNextBtn" type="button" hidden aria-label="已看，在右侧打开优先看的下一个">已看，下一个 ▸</button>
+              <button id="viewerTabBtn" type="button" aria-label="在新标签页打开">新标签页打开</button>
+              <button id="viewerCloseBtn" type="button" class="icon" aria-label="关闭视频栏 (Esc)">×</button>
+            </div>
+            <!-- No allow-top-navigation: the page breaks out of frames by navigating the top window. -->
+            <iframe id="viewerFrame" class="viewer-frame" title="视频页" sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox allow-modals allow-presentation" allow="autoplay; fullscreen; picture-in-picture; clipboard-write"></iframe>
+          </aside>
+        </div>
       </div>
     </div>
 
@@ -91,8 +110,8 @@
         <p class="dialog-hint">只读取勾选的收藏夹；没勾的不出现在下拉框和「所有收藏夹」里，也不读取内容。新建的收藏夹默认不勾。B 站上不受影响。</p>
         <div class="export-row"><button type="button" class="link" data-folders-all aria-label="全选收藏夹">全选</button><button type="button" class="link" data-folders-none aria-label="全不选收藏夹">全不选</button></div>
         <div id="folderToggles" class="folder-toggles"></div>
-        <p id="settingsFirstRunHint" class="dialog-hint" hidden>AI 参数一般不用改，需要时在右上角 ⋯ →「分拣设置」里调；AI 平台、笔记格式和 Obsidian 在设置页。</p>
-        <!-- The first open only asks for folders; this part shows from ⋯ → 分拣设置. -->
+        <p id="settingsFirstRunHint" class="dialog-hint" hidden>AI 参数一般不用改，需要时点右上角的齿轮（分拣设置）调；AI 平台、笔记格式和 Obsidian 在设置页。</p>
+        <!-- The first open only asks for folders; this part shows from the 分拣设置 gear. -->
         <div id="settingsAi" class="settings-ai">
         <h3>AI 参数</h3>
         <p class="dialog-hint">一般不用改。AI 平台、笔记格式和 Obsidian 在设置页；判断标准在每个收藏夹的粗看、细看按钮旁边改，标签在「标签」里改。</p>
