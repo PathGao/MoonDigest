@@ -64,8 +64,19 @@ const state = {
   markdown: "",
   srt: "",
   txt: "",
-  readingViewOpen: false,
-  readerMode: false,
+  // Focus mode: off → requested (asked for by URL or popup, view not open yet) → entering (open, waiting for the
+  // player) ⇄ open (shown). Only stepReader changes it; the three flags below are views of it.
+  readerPhase: "off",
+  readerGen: 0, // bumped on every entry and close, so an entry's late steps can tell they belong to a closed one
+  get readerMode() {
+    return this.readerPhase !== "off";
+  },
+  get readingViewOpen() {
+    return this.readerPhase === "entering" || this.readerPhase === "open";
+  },
+  get readingViewReady() {
+    return this.readerPhase === "open";
+  },
   readingAutoScroll: true,
   readingTheme: "light",
   readingFontScale: "m",
@@ -113,7 +124,6 @@ const state = {
   readingDocumentClickBound: false,
   readingManualScrollPauseUntil: 0,
   readingProgrammaticScrollUntil: 0,
-  readingViewReady: false,
   statusText: "准备就绪，点击“刷新”开始。",
   messageText: "",
   settings: { ...DEFAULT_SETTINGS }
@@ -124,6 +134,26 @@ const state = {
 // its SPA boot (around 3 s after load, before document_idle on a fast load).
 function isReaderMode() {
   return state.readerMode;
+}
+
+// Every focus-mode change. A pair not in the table (entering twice, ready after a close) is refused and changes nothing.
+const READER_STEPS = {
+  mark: { off: "requested" },
+  enter: { requested: "entering" },
+  ready: { entering: "open" },
+  unready: { open: "entering" },
+  close: { requested: "off", entering: "off", open: "off" }
+};
+function stepReader(event) {
+  const next = READER_STEPS[event][state.readerPhase];
+  if (!next) {
+    return false;
+  }
+  state.readerPhase = next;
+  if (event === "enter" || event === "close") {
+    state.readerGen++;
+  }
+  return true;
 }
 
 function hasReaderParam(url) {
@@ -324,7 +354,7 @@ init();
 
 // Every focus-mode entry goes through here; the view only opens in reader mode.
 function markReaderMode() {
-  state.readerMode = true;
+  stepReader("mark");
   document.documentElement.setAttribute("data-boc-reader-mode", "1");
   document.body.setAttribute("data-boc-reader-mode", "1");
 }
@@ -543,13 +573,18 @@ function bindRuntimeEvents() {
         return false;
       }
 
+      const runId = state.fetchRunId;
       fetchHotComments(20)
         .then((hotComments) => {
-          state.hotComments = hotComments;
+          if (runId === state.fetchRunId) {
+            state.hotComments = hotComments;
+          }
           sendResponse({ ok: true, comments: hotComments });
         })
         .catch((error) => {
-          state.hotComments = [];
+          if (runId === state.fetchRunId) {
+            state.hotComments = [];
+          }
           sendResponse({ ok: true, comments: [], note: String(error?.message || error) });
         });
       return true;
@@ -593,14 +628,17 @@ function bindSettingsWatcher() {
       return;
     }
     // The popup copies state.markdown as is, so a new answer must reach it before the next refresh.
+    const runId = state.fetchRunId;
     if (changes[BocLimits.KEYS.aiConversations] && state.markdown) {
       loadAiTurns().then((turns) => {
+        if (runId !== state.fetchRunId) return;
         state.aiTurns = turns;
         rebuildDerivedContent();
       });
     }
     if ((changes[`triage_analysis_${state.videoId}`] || changes.triage_notes) && state.markdown) {
       loadTriageExtras().then((extras) => {
+        if (runId !== state.fetchRunId) return;
         state.triageExtras = extras;
         rebuildDerivedContent();
       });
@@ -894,7 +932,11 @@ function checkUrlChange() {
   }
   if (state.readingViewOpen || shouldEnterReaderMode) {
     setReadingNotice("");
+    const runId = state.fetchRunId;
     waitForVideoMetadata().then(() => {
+      if (runId !== state.fetchRunId) {
+        return;
+      }
       refreshClip().catch((error) => {
         if (!isStaleRunError(error)) {
           setReadingNotice(`自动刷新失败：${getErrorMessage(error)}`);
@@ -1265,6 +1307,7 @@ async function loadSubtitle(url, lang, runId = state.fetchRunId, subtitleId = ""
         state.subtitleBody = cachedBody;
         state.subtitleFetchState = "ready";
         await refreshDerivedContent();
+        ensureRunActive(runId);
         if (state.readingViewOpen) {
           renderReadingView();
           syncReadingViewPlayback(true);
@@ -1296,6 +1339,7 @@ async function commitSubtitleBody(raw, { url, lang, subtitleId }, runId) {
   }
 
   await subtitleCache.save(cacheKey, raw);
+  ensureRunActive(runId);
 
   state.selectedSubtitleId = subtitleId ? String(subtitleId) : state.selectedSubtitleId;
   state.selectedSubtitleUrl = url;
@@ -1303,6 +1347,7 @@ async function commitSubtitleBody(raw, { url, lang, subtitleId }, runId) {
   state.subtitleBody = body;
   state.subtitleFetchState = "ready";
   await refreshDerivedContent();
+  ensureRunActive(runId);
   if (state.readingViewOpen) {
     renderReadingView();
     syncReadingViewPlayback(true);
@@ -1573,14 +1618,20 @@ function cleanupReaderFloatingArtifacts(playerHost = state.readingPlayerHost) {
 }
 
 async function enterReaderMode() {
+  if (!stepReader("enter")) {
+    return;
+  }
+  const gen = state.readerGen;
   const readingView = byId(ids.readingView);
-  state.readingViewOpen = true;
   state.readingPlayerRetries = 0;
   document.body.setAttribute("data-boc-reading-active", "1");
   hydrateReaderStateFromSettings(state.settings);
   applyReadingViewPresentation();
   alignReaderViewportToPlayer();
   await sleep(0);
+  if (gen !== state.readerGen) {
+    return;
+  }
   openReaderViewShell(readingView);
   applyReaderPageFocus();
   startReaderPlayerObserver();
@@ -1592,6 +1643,9 @@ async function enterReaderMode() {
   }
 
   await sleep(0);
+  if (gen !== state.readerGen) {
+    return;
+  }
 
   // The view stays hidden until the player is in, so say so unless that is instant.
   const waitNotice = window.setTimeout(() => state.readingViewOpen && setReadingNotice("正在等待视频播放器就绪...", { busy: true }), 150);
@@ -1600,6 +1654,9 @@ async function enterReaderMode() {
   const mountedPlayerHost = state.readingPlayerHost || earlyPlayerHost;
   if (mountedPlayerHost) {
     mountedPlayerHost.removeAttribute("data-boc-reader-fading");
+  }
+  if (gen !== state.readerGen) {
+    return;
   }
   if (!mounted) {
     // Don't throw - keep UI open and keep retrying in background
@@ -1617,9 +1674,10 @@ function scheduleReaderPlayerRetry() {
     state.readingPlayerRetryTimer = 0;
   }
   // Keep trying to mount player in background, for about 30 seconds.
+  const gen = state.readerGen;
   const tryMount = async () => {
     state.readingPlayerRetryTimer = 0;
-    if (!state.readingViewOpen || !isReaderMode()) return;
+    if (gen !== state.readerGen || !state.readingViewOpen) return;
     state.readingPlayerRetries += 1;
     if (state.readingPlayerRetries > 12) {
       replaceReaderModeUrl(stripReaderModeUrl(location.href));
@@ -1632,6 +1690,7 @@ function scheduleReaderPlayerRetry() {
     if (retryHost) {
       retryHost.removeAttribute("data-boc-reader-fading");
     }
+    if (gen !== state.readerGen) return;
     if (mounted) {
       finishEnterReaderMode();
     } else if (state.readingViewOpen) {
@@ -1667,7 +1726,11 @@ function maybeRefreshReaderSubtitleInBackground() {
   if (state.subtitleBody.length) {
     return;
   }
+  const runId = state.fetchRunId;
   waitForVideoMetadata().then(() => {
+    if (runId !== state.fetchRunId) {
+      return;
+    }
     refreshClipShared().catch((error) => {
       if (!isStaleRunError(error)) {
         setReadingNotice(`字幕加载失败：${getErrorMessage(error)}`);
@@ -1820,9 +1883,7 @@ function findReaderPlayerHost(video) {
 
 function closeReadingView() {
   cleanupReaderFloatingArtifacts();
-  state.readingViewOpen = false;
-  state.readerMode = false;
-  state.readingViewReady = false;
+  stepReader("close");
   setReadingNotice("");
   state.readingSettingsExpanded = false;
   state.readingManualScrollPauseUntil = 0;
@@ -2289,7 +2350,7 @@ function setReadingNotice(text, { busy = false, hideMs = 0 } = {}) {
 }
 
 function setReadingViewReady(ready) {
-  state.readingViewReady = Boolean(ready);
+  stepReader(ready ? "ready" : "unready");
   const readingView = document.getElementById(ids.readingView);
   if (!readingView) {
     return;
@@ -4377,21 +4438,27 @@ function rebuildDerivedContent() {
 
 // Without subtitles the comments are most of the note, so they are fetched
 // regardless of includeHotCommentsInNote.
+// Read for the video of the run it started in; a newer run (the video changed) fills its own.
 async function refreshDerivedContent() {
+  const runId = state.fetchRunId;
+  let hotComments = state.hotComments;
   if (state.settings?.includeHotCommentsInNote || state.subtitleFetchState === "empty") {
-    const shouldFetchComments = !Array.isArray(state.hotComments) || state.hotComments.length === 0;
+    const shouldFetchComments = !Array.isArray(hotComments) || hotComments.length === 0;
     if (shouldFetchComments) {
       try {
-        state.hotComments = await fetchHotComments(20);
+        hotComments = await fetchHotComments(20);
       } catch (error) {
-        state.hotComments = [];
+        hotComments = [];
         logWarn("[BOC] failed to fetch hot comments for note export", error);
       }
     }
   }
-  state.aiTurns = await loadAiTurns();
-  state.triageExtras = await loadTriageExtras();
-
+  const aiTurns = await loadAiTurns();
+  const triageExtras = await loadTriageExtras();
+  if (runId !== state.fetchRunId) {
+    return;
+  }
+  Object.assign(state, { hotComments, aiTurns, triageExtras });
   rebuildDerivedContent();
 }
 
