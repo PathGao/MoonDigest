@@ -647,7 +647,7 @@ function applyValidationError(validation) {
     const errorNode = validation.row.querySelector(".fixed-property-error");
     if (errorNode) {
       errorNode.hidden = false;
-      errorNode.textContent = validation.message || "固定属性校验失败";
+      errorNode.textContent = validation.message || "自定属性校验失败";
     }
   }
   setStatus(validation?.message || "设置校验失败", true);
@@ -922,7 +922,7 @@ function validateFixedFrontmatterProperties(items) {
       continue;
     }
     if (!key) {
-      return { ok: false, row: item.row, message: "请填写固定属性的属性名" };
+      return { ok: false, row: item.row, message: "请填写自定属性的属性名" };
     }
     if (!CUSTOM_PROPERTY_KEY_PATTERN.test(key)) {
       return { ok: false, row: item.row, message: "属性名仅支持中文、英文、数字、空格、下划线和短横线" };
@@ -952,13 +952,13 @@ function validateFixedFrontmatterProperties(items) {
         return { ok: false, row: item.row, message: "日期类型请填写 YYYY-MM-DD，或使用 {{upload_date}} 这类变量" };
       }
     } else if (!valueText) {
-      return { ok: false, row: item.row, message: "请填写固定属性的属性值" };
+      return { ok: false, row: item.row, message: "请填写自定属性的属性值" };
     }
     if (Array.from(elements.frontmatterFields).some((checkbox) => checkbox.value === lowerKey)) {
       return { ok: false, row: item.row, message: "该属性名与系统字段重复，请换一个名称" };
     }
     if (seenKeys.has(lowerKey)) {
-      return { ok: false, row: item.row, message: "固定属性名不能重复" };
+      return { ok: false, row: item.row, message: "自定属性名不能重复" };
     }
     seenKeys.add(lowerKey);
   }
