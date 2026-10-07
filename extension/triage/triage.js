@@ -194,6 +194,11 @@ function originOf(left, bvid, folder, at) {
   const before = Object.entries(left[bvid] || {}).filter(([id]) => id !== folder.id).map(([id, e]) => ({ id, title: e.title, at: e.at }));
   return [...before, { id: folder.id, title: folder.title, at }];
 }
+// Records from before `from` existed: a 取消收藏 done here in folder X is a fact that the video was in X (pure).
+function inferFrom(decisionsByFolder, bvid, titleOf) {
+  const ids = Object.entries(decisionsByFolder).filter(([, d]) => d?.[bvid]?.action === "unfav").map(([id]) => id);
+  return ids.length ? ids.map((id) => ({ id, title: titleOf(id) })) : undefined;
+}
 // Listed in this folder again: it never left it (mutates trail).
 function forgetLeft(trail, bvid, folderId) {
   if (!trail[bvid]?.[folderId]) return;
@@ -552,11 +557,20 @@ function searchText(it) {
     .toLowerCase();
 }
 
+// Several tag chips narrow the list: a video must carry every selected tag. One chip can stand for same-named tags of
+// several folders (所有收藏夹), so selected ids are grouped by name and any id of a group counts (pure).
+function hasAllTags(videoIds, selectedIds, nameOf) {
+  const have = new Set(videoIds);
+  const groups = new Map();
+  for (const id of selectedIds) groups.set(nameOf(id), [...(groups.get(nameOf(id)) || []), id]);
+  return [...groups.values()].every((ids) => ids.some((id) => have.has(id)));
+}
+
 function passFilter(it) {
   if (S.watchedFilter && !S.watched[it.bvid]) return false;
   if (S.finishedFilter && !isFinished(it)) return false;
   if (S.invalidFilter && !(it.invalid || it.hidden)) return false;
-  if (S.tagFilter.size && !tagIdsOf(it.bvid).some((id) => S.tagFilter.has(id))) return false;
+  if (S.tagFilter.size && !hasAllTags(tagIdsOf(it.bvid), S.tagFilter, (id) => tagById(id)?.name ?? id)) return false;
   const words = S.query.toLowerCase().split(/\s+/).filter(Boolean);
   if (!words.length) return true;
   const text = searchText(it);
@@ -1163,11 +1177,14 @@ function saveSnapshot(mediaId, items, ids = null) {
 // ---------- 已取消收藏 ----------
 async function openRemoved() {
   const token = S.folderToken;
-  const rec = await storeGet(K.removed, {});
+  const keys = ((await chrome.storage.local.getKeys?.()) ?? Object.keys((await chrome.storage.local.get(null)) || {})).filter((k) => k.startsWith("triage_decisions_"));
+  const got = await chrome.storage.local.get([K.removed, ...keys]);
   if (token !== S.folderToken) return false;
+  const rec = got[K.removed] || {};
+  const decisionsByFolder = Object.fromEntries(keys.map((k) => [k.slice("triage_decisions_".length), got[k]]));
   S.items = Object.values(rec)
     .sort((x, y) => y.at - x.at)
-    .map(({ item, at, movedTo, hidden, from }) => ({ ...item, removedAt: at, movedTo, hidden, from }));
+    .map(({ item, at, movedTo, hidden, from }) => ({ ...item, removedAt: at, movedTo, hidden, from: from || inferFrom(decisionsByFolder, item.bvid, folderName) }));
   S.itemMap = new Map(S.items.map((it) => [it.bvid, it]));
   if (!(await loadResults(token))) return false;
   checkRemoved(token);
@@ -1524,7 +1541,8 @@ function folderThumb(id, cover) {
 function renderFolderHead() {
   if (!S.mediaId) return (el.folderHead.innerHTML = "");
   const invalid = S.items.filter((it) => it.invalid || it.hidden).length;
-  const meta = [`${S.items.length} 个视频`, invalid && `${invalid} 个已失效`].filter(Boolean).join(" · ");
+  const explain = S.mediaId === REMOVED && "离开了你勾选的所有收藏夹，AI 分析、备注和标签都还留着，清理前可先批量导出";
+  const meta = [`${S.items.length} 个视频`, invalid && `${invalid} 个已失效`, explain].filter(Boolean).join(" · ");
   const thumb = inFolderView() && S.mediaId !== TOVIEW ? folderThumb(S.mediaId, el.folderSelect.querySelector?.(`option[value="${S.mediaId}"]`)?.dataset.cover) : "";
   el.folderHead.innerHTML = `${thumb}<div class="folder-text"><h1 class="folder-title">${esc(folderTitle())}</h1><div class="folder-meta">${meta}</div></div>`;
 }
@@ -1603,7 +1621,7 @@ function renderTabs() {
     ? chips
         .map((c) => {
           const on = c.ids.some((id) => S.tagFilter.has(id));
-          return `<button type="button" class="chip${on ? " on" : ""}" style="--c:${esc(c.color)}" data-tagfilter="${esc(c.ids.join(","))}" aria-pressed="${on}" aria-label="按标签筛选 ${esc(c.name)}">${esc(c.name)}</button>`;
+          return `<button type="button" class="chip${on ? " on" : ""}" style="--c:${esc(c.color)}" data-tagfilter="${esc(c.ids.join(","))}" aria-pressed="${on}" aria-label="按标签筛选 ${esc(c.name)}" title="可多选：只显示同时带有所选标签的视频">${esc(c.name)}</button>`;
         })
         .join("")
     : `<span class="muted">还没有自定义标签</span>`) + // created from the 标签 button
@@ -1706,8 +1724,7 @@ function renderListHeader(list) {
     const c = S.removedCheck;
     html = seg();
     if (c) html += c.error ? `<span class="fail-text">${esc(c.error)}</span>` : `<span class="muted" aria-busy="true">正在核对 ${c.done} / ${c.total} 个收藏夹，重新收藏的会自动移出</span>`;
-    html += `<span class="muted">离开了你勾选的所有收藏夹的视频，AI 分析、备注和标签都还留着。需要的先批量导出，再清理。</span>
-      ${headBtn("export-read", "批量导出…", "", !list.length)}${sel ? headBtn("clean-selected", `清理选中的 ${sel} 个`, "danger") : headBtn("clean-removed", `清理这 ${list.length} 个`, "danger", !list.length)}`;
+    html += `${headBtn("export-read", "批量导出…", "", !list.length)}${sel ? headBtn("clean-selected", `清理选中的 ${sel} 个`, "danger") : headBtn("clean-removed", `清理这 ${list.length} 个`, "danger", !list.length)}`;
   } else if (t === "read") {
     // 阅览 mixes 粗看 guesses with 细看 conclusions, so no class-wide batch here: only the selection.
     html = seg();
@@ -1832,7 +1849,8 @@ async function refavRecent(bvid) {
 function renderList() {
   const list = visibleItems();
   renderListHeader(list);
-  el.list.classList.toggle("grid", S.tab === "read");
+  // 已取消收藏 is a list to act on, so it uses the rows the steps use, not the 阅览全部 grid.
+  el.list.classList.toggle("grid", S.tab === "read" && S.mediaId !== REMOVED);
   // 保留 only marks the video here, while 取消收藏 changed Bilibili; say so where both end up.
   const recent = S.tab === "done" ? `<p class="muted tab-note">已保留：${KEEP_TIP}。已取消收藏：已从 B 站收藏夹移走，最近的操作可按 U 撤销。</p>${recentUnfavHtml()}` : "";
   if (!S.items.length) {
@@ -1853,7 +1871,7 @@ function renderList() {
   }
   S.focusIndex = list.findIndex((it) => it.bvid === S.focused);
   // 粗看完成 shows which cards the button will send (or is sending) before anything runs.
-  // Those cards get a left bar and a label before the title.
+  // Those cards get a label before the title.
   let marked = new Set();
   let word = "";
   if (S.tab === "coarse") {
@@ -1861,7 +1879,7 @@ function renderList() {
     marked = new Set(bvids);
     word = ownGroup() ? "本批" : bvids.some((b) => S.selected.has(b)) ? "已选中" : "下一批";
   }
-  const expanded = S.tab === "fine" || S.tab === "read";
+  const expanded = S.mediaId !== REMOVED && (S.tab === "fine" || S.tab === "read");
   const failed = S.tab === "coarse" ? list.filter((it) => failedAnalysis(it.bvid)).length : 0;
   const failedHead = `<div class="group-head">分析失败 ${failed} · <button type="button" class="link" data-retry-failed aria-label="全部重试"${S.group || S.stage1.running ? " disabled" : ""}>${AI_SPARK}全部重试</button></div>`;
   // Background progress re-renders the list; keep a note being typed in focus.
@@ -1905,10 +1923,9 @@ function cardHtml(it, expanded, mark) {
   if (S.selected.has(b)) cls.push("selected");
   if (mark) cls.push("in-batch");
 
-  // Where the verdict came from, as one muted meta item.
-  const source = [["", "粗看", "细看"][v.stage], done && (a.source === "subtitle" ? "字幕" : "简介")].filter(Boolean).join("·");
   const removed = S.mediaId === REMOVED;
-  const meta = [it.upper, fmtDate(it.pubdate), source, seenText(it), it.invalid && "已失效", it.folders?.length && `收藏夹：${folderNames(it)}`, removed && leftText(it)].filter(Boolean);
+  const meta = [it.upper, fmtDate(it.pubdate), ["", "粗看", "细看"][v.stage], seenText(it), it.invalid && "已失效", it.folders?.length && `收藏夹：${folderNames(it)}`].filter(Boolean);
+  const left = removed && [originHtml(it), it.removedAt && `<span>${esc(leftText(it))}</span>`].filter(Boolean).join("");
 
   const verdict = verdictBadge(b, v);
   // The button matching the AI's verdict leads; the other stays plain.
@@ -1936,7 +1953,8 @@ function cardHtml(it, expanded, mark) {
     ${coverHtml(it)}
     <div class="card-body">
       <div class="title-row">${mark ? `<span class="batch-tag">${mark}</span>` : ""}<button type="button" class="title" data-act="open" aria-label="打开视频 ${esc(it.title)}">${esc(it.title)}</button></div>
-      <div class="meta">${[...meta.map(esc), removed && originHtml(it)].filter(Boolean).join(" · ")}</div>
+      ${left ? `<div class="left-row">${left}</div>` : ""}
+      <div class="meta">${meta.map(esc).join(" · ")}</div>
       ${body.join("")}
       <div class="card-foot verdict-row">${verdict}${S.watched[b] ? `<button type="button" class="badge watched" data-act="unwatch" aria-label="优先看过，点一下取消" title="${esc(fmtTime(S.watched[b]))} 在优先看里点了已看 · 点一下取消">优先看过</button>` : ""}<span class="reason">${esc(v.reason)}</span>${failed}</div>
       ${chips ? `<div class="chips">${chips}</div>` : ""}
@@ -1965,18 +1983,19 @@ function cardHtml(it, expanded, mark) {
   </article>`;
 }
 
-// 已取消收藏: why and when the video left.
+// 已取消收藏: when and why the video left. 「10月5日 17:25」 this year, 「2025年10月5日」 before.
 function leftText(it) {
-  if (!it.removedAt) return "";
-  const when = fmtTime(it.removedAt);
-  return it.movedTo ? `移到「${it.movedTo.title}」（未勾选）：${when}` : it.hidden ? `已失效（B 站已隐藏）：${when}` : `离开收藏夹：${when}`;
+  const d = new Date(it.removedAt);
+  const day = `${d.getMonth() + 1}月${d.getDate()}日`;
+  const when = d.getFullYear() === new Date().getFullYear() ? `${day} ${pad(d.getHours())}:${pad(d.getMinutes())}` : `${d.getFullYear()}年${day}`;
+  return `${when} ${it.movedTo ? `移到「${it.movedTo.title}」（未勾选）` : it.hidden ? "已失效（B 站已隐藏）" : "离开收藏夹"}`;
 }
 // 原在「A」「B」, or 原在「A」「B」等 N 个 with the whole list in the title; nothing for records from before the origin was kept.
 function originHtml(it) {
   const names = (it.from || []).map((f) => `「${f.title}」`);
   if (!names.length) return "";
   const text = names.length > 2 ? `原在${names.slice(0, 2).join("")}等 ${names.length} 个` : `原在${names.join("")}`;
-  return `<span title="${esc(`原在${names.join("")}`)}">${esc(text)}</span>`;
+  return `<span class="origin-chip" title="${esc(`原在${names.join("")}`)}">${esc(text)}</span>`;
 }
 
 function folderTitle() {
@@ -1996,6 +2015,8 @@ function setFocus(bvid, scroll = true) {
     if (scroll) card.scrollIntoView({ block: "nearest" });
   }
 }
+
+const pointerMoved = (at, x, y) => !at || at.x !== x || at.y !== y;
 
 function moveFocus(delta) {
   const list = visibleItems();
@@ -2652,7 +2673,7 @@ async function deleteTag(id) {
 
 // ---------- AI stage 1: titles ----------
 function aiItem(it) {
-  return { bvid: it.bvid, title: it.title, upper: it.upper, duration: it.duration, intro: it.intro };
+  return { bvid: it.bvid, title: it.title, upper: it.upper, duration: it.duration, pubdate: it.pubdate, intro: it.intro };
 }
 
 async function throttleWait(code, keepGoing) {
@@ -3560,6 +3581,16 @@ function bindEvents() {
     const act = e.target.closest("[data-act]")?.dataset.act;
     setFocus(bvid, false);
     if (act) cardAction(act, bvid);
+  });
+
+  // The pointer makes a card current only when the hand moves it. A mousemove at the same position comes from the
+  // list scrolling (J/K, wheel) or re-rendering under a still pointer and must not steal the keyboard's current card.
+  let pointerAt = null;
+  el.list.addEventListener("mousemove", (e) => {
+    if (!pointerMoved(pointerAt, e.clientX, e.clientY)) return;
+    pointerAt = { x: e.clientX, y: e.clientY };
+    const bvid = e.target.closest(".card")?.dataset.bvid;
+    if (bvid && bvid !== S.focused) setFocus(bvid, false);
   });
 
   el.list.addEventListener("input", (e) => {

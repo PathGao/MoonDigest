@@ -181,13 +181,14 @@ select { height: 28px; max-width: 240px; }
 
 /* ---------- folder head: name and counts left, the step's criteria and buttons right ---------- */
 .folder-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; padding: 18px 0 0; min-height: 60px; }
-.folder-info { display: flex; align-items: center; gap: 12px; min-width: 0; margin-right: auto; }
-.folder-name { display: contents; }
-.folder-name .folder-thumb { width: 72px; height: 45px; border-radius: var(--radius-sm); }
-.folder-text { min-width: 0; }
-.bili-link { align-self: flex-start; margin-top: 5px; height: auto; font-size: var(--fs-sm); white-space: nowrap; }
-.folder-title { margin: 0; font-size: 20px; font-weight: 600; line-height: 1.3; }
-.folder-meta { margin-top: 2px; color: var(--faint); font-size: var(--fs-sm); }
+/* thumb | name + 在 B 站打开 / counts. The button sits on the name's line and keeps its width; the name ellipsizes. */
+.folder-info { display: grid; grid-template-areas: "thumb title btn" "thumb meta ."; grid-template-columns: auto minmax(0, 1fr) auto; column-gap: 12px; align-items: center; min-width: 0; margin-right: auto; }
+.folder-info:not(:has(.folder-thumb)) { grid-template-areas: "title btn" "meta ."; grid-template-columns: minmax(0, 1fr) auto; }
+.folder-name, .folder-text { display: contents; }
+.folder-name .folder-thumb { grid-area: thumb; width: 72px; height: 45px; border-radius: var(--radius-sm); }
+.bili-link { grid-area: btn; height: 28px; padding: 0 10px; border: 1px solid var(--border-strong); border-radius: var(--radius-sm); background: var(--surface); color: var(--text); font-size: var(--fs-sm); white-space: nowrap; }
+.folder-title { grid-area: title; margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 20px; font-weight: 600; line-height: 1.3; }
+.folder-meta { grid-area: meta; margin-top: 2px; color: var(--faint); font-size: var(--fs-sm); }
 .list-header { display: contents; }
 .step-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 6px 8px; max-width: 70%; min-width: 0; }
 .step-actions:empty { display: none; }
@@ -259,7 +260,14 @@ select { height: 28px; max-width: 240px; }
 .sel-actions .primary:hover { background: var(--action-hover); }
 .sel-actions .danger { margin-left: 4px; }
 
-.list { min-height: 0; overflow-y: auto; display: flex; flex-direction: column; padding: 0 4px 80px 12px; }
+.list { min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 12px; margin: 0 -8px; padding: 6px 8px 80px; }
+/* Two card states. Current (hover or J/K) is the lifted box; selected (X) is the blue outline, ✓ and tint. Both can show at once. */
+.card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); transition: border-color 0.12s, box-shadow 0.12s; }
+/* Current: a dark ring plus the lift, so it reads at a glance; selected (below) swaps the ring for blue. */
+.card.focused { outline: 2px solid var(--text-2); outline-offset: -1px; box-shadow: var(--lift); }
+.card.selected { outline: 2px solid var(--action); outline-offset: -1px; background: var(--action-bg); }
+:root { --lift: 0 8px 22px rgba(0, 0, 0, 0.14); }
+@media (prefers-color-scheme: dark) { :root { --lift: 0 6px 16px rgba(0, 0, 0, 0.5); } }
 .empty { padding: 40px 0; text-align: center; color: var(--muted); }
 
 /* ---------- cover: progress bar and marks, the duration bottom-right, the AI verdict top-left ---------- */
@@ -303,6 +311,8 @@ html[data-seen-style="veil"] .cover-wrap.seen .seen-veil { display: flex; }
 }
 .title:hover { background: none; text-decoration: underline; }
 .meta { color: var(--faint); font-size: var(--fs-xs); }
+.left-row { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; margin: 2px 0; color: var(--text); font-size: 13px; }
+.origin-chip { height: 20px; padding: 0 6px; border: 1px solid var(--border-strong); border-radius: var(--radius-sm); font-size: 12px; line-height: 18px; white-space: nowrap; }
 .oneliner { margin: 4px 0 0; color: var(--text-2); }
 .points { margin: 2px 0 0; padding-left: 18px; color: var(--text-2); font-size: var(--fs-xs); }
 .points li { margin: 0; }
@@ -325,8 +335,8 @@ html[data-seen-style="veil"] .cover-wrap.seen .seen-veil { display: flex; }
 .actions .pair, .actions .more { display: flex; gap: 4px; }
 .actions .more button { border-color: transparent; background: none; color: var(--text-2); }
 .actions .more button:hover { background: var(--field-bg); }
-/* Secondary actions show on the current, hovered or focused card; their keys work everywhere. A pressed one stays visible. */
-.card:not(.focused, :hover, :focus-within) .more button:not(.on) { visibility: hidden; }
+/* Secondary actions show on the current or focused card; their keys work everywhere. A pressed one stays visible. */
+.card:not(.focused, :focus-within) .more button:not(.on) { visibility: hidden; }
 @media (hover: none) { .card:not(.focused) .more button:not(.on) { display: none; } }
 .note { width: 100%; max-width: 560px; margin-top: 6px; padding: 4px 8px; border: 0; border-radius: var(--radius-sm); background: var(--bg); resize: vertical; min-height: 28px; font-size: var(--fs-sm); color: var(--text-2); field-sizing: content; }
 .note-add { font-size: var(--fs-xs); height: auto; }
@@ -339,23 +349,17 @@ html[data-seen-style="veil"] .cover-wrap.seen .seen-veil { display: flex; }
 .muted { color: var(--muted); font-size: var(--fs-xs); }
 button.icon { width: 26px; height: 24px; padding: 0; }
 
-/* ---------- rows (the four steps): 192px cover, body, 保留 / 取消收藏 stacked on the right; the current row gets a pink bar ---------- */
-.list:not(.grid) .card { display: grid; grid-template-columns: 192px minmax(0, 1fr); gap: 16px; padding: 16px 128px 16px 0; border-bottom: 1px solid var(--border); }
-.list:not(.grid) .card.focused::before { content: ""; position: absolute; left: -12px; top: 16px; bottom: 16px; width: 3px; border-radius: 2px; background: var(--accent); }
-.list:not(.grid) .card.in-batch .cover-wrap { box-shadow: 0 0 0 2px var(--action); }
-.list:not(.grid) .card { border-radius: var(--radius-md); transition: background 0.12s, box-shadow 0.12s; }
-.list:not(.grid) .card:hover { background: var(--surface); box-shadow: 0 0 0 8px var(--surface), 0 0 0 9px var(--border-strong), 0 4px 14px rgba(0, 0, 0, 0.08); }
-.list:not(.grid) .card.selected { box-shadow: 0 0 0 8px var(--action-bg), 0 0 0 10px var(--action); background: var(--action-bg); }
-.list:not(.grid) .card.selected:hover { background: var(--action-bg); }
+/* ---------- rows (the four steps): a box per video, 192px cover, body, 保留 / 取消收藏 stacked on the right ---------- */
+.list:not(.grid) .card { display: grid; grid-template-columns: 192px minmax(0, 1fr); gap: 16px; padding: 12px 140px 12px 12px; }
 .card.selected .cover-wrap::before { content: "✓"; position: absolute; right: 6px; top: 6px; z-index: 2; width: 20px; height: 20px; border-radius: 4px; background: var(--action); color: #fff; font-size: 14px; font-weight: 700; line-height: 20px; text-align: center; }
 .list:not(.grid) .actions, .list:not(.grid) .pair { display: contents; }
-.list:not(.grid) .pair > button { position: absolute; right: 0; width: 112px; height: 32px; padding: 0; justify-content: center; font-size: var(--fs-sm); }
+.list:not(.grid) .pair > button { position: absolute; right: 12px; width: 112px; height: 32px; padding: 0; justify-content: center; font-size: var(--fs-sm); }
 .list:not(.grid) .pair > button:first-child { top: calc(50% - 36px); }
 .list:not(.grid) .pair > button:last-child { top: calc(50% + 4px); }
 .list:not(.grid) .pair > button:last-child:not(.solid) { border-color: transparent; background: var(--field-bg); }
 .list:not(.grid) .actions .more { margin-left: auto; }
 /* Beside the viewer the list is narrow: the smaller cover, and the buttons back in the foot row, the pair first. */
-.main.viewing .list:not(.grid) .card { grid-template-columns: 128px minmax(0, 1fr); gap: 10px; padding-right: 0; }
+.main.viewing .list:not(.grid) .card { grid-template-columns: 128px minmax(0, 1fr); gap: 10px; padding-right: 12px; }
 .main.viewing .list:not(.grid) .actions { display: flex; justify-content: flex-end; }
 .main.viewing .list:not(.grid) .pair { display: flex; }
 .main.viewing .list:not(.grid) .pair > button { position: static; width: auto; height: 26px; padding: 0 8px; font-size: var(--fs-xs); }
@@ -365,31 +369,27 @@ button.icon { width: 26px; height: 24px; padding: 0; }
 .shell:has(.main.viewing) { grid-template-columns: minmax(0, 1fr); }
 .shell:has(.main.viewing) .side { display: none; }
 
-/* ---------- 阅览 and 已取消收藏: the grid. The actions overlay the cover's box, above the duration, and show on the current, hovered or focused card ---------- */
-.list.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 20px 16px; align-content: start; padding-top: 2px; }
+/* ---------- 阅览 and 已取消收藏: the grid. A box per video with the cover inset; the actions overlay the cover, above the duration, and show on the current or focused card ---------- */
+.list.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 16px; align-content: start; }
 .list.grid > :not(.card) { grid-column: 1 / -1; }
-.list.grid .card-body { margin-top: 8px; }
+.list.grid .card { padding: 8px 8px 12px; }
+.list.grid .card-body { margin: 8px 4px 0; }
 .list.grid .title { font-size: var(--fs-md); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; height: 42px; }
 .list.grid .verdict-row .badge:not(.watched), .list.grid .verdict-row .reason { display: none; }
 .list.grid .verdict-row:not(:has(.watched, .fail-text)) { display: none; }
 .list.grid .card-foot:last-child { margin-top: 4px; }
-.list.grid .card { border-radius: var(--radius-md); transition: background 0.12s, box-shadow 0.12s; }
-.list.grid .cover-wrap { transition: transform 0.12s, box-shadow 0.12s; }
-.list.grid .card:hover { background: var(--surface); box-shadow: 0 0 0 8px var(--surface), 0 0 0 9px var(--border-strong); }
-.list.grid .card:hover .cover-wrap { transform: translateY(-2px); box-shadow: 0 6px 16px rgba(0, 0, 0, 0.18); }
-.list.grid .card:hover .actions { transform: translateY(-2px); }
-.list.grid .card.focused .cover-wrap { box-shadow: 0 0 0 2px var(--accent); }
-.list.grid .card.focused::after { content: ""; position: absolute; left: 0; right: 0; bottom: -8px; height: 3px; border-radius: 2px; background: var(--accent); }
-.list.grid .card.selected .cover-wrap { outline: 2px solid var(--action); outline-offset: 2px; }
+.list.grid .cover-wrap, .list.grid .actions { transition: transform 0.12s, box-shadow 0.12s; }
+.list.grid .card.focused .cover-wrap { transform: translateY(-2px); box-shadow: 0 6px 16px rgba(0, 0, 0, 0.18); }
+.list.grid .card.focused .actions { transform: translateY(-2px); }
 .list.grid .actions {
   position: absolute;
-  left: 0;
-  top: 0;
+  left: 8px;
+  top: 8px;
   z-index: 3;
   display: grid;
   grid-template-columns: 1fr 1fr;
   align-content: end;
-  width: 100%;
+  width: calc(100% - 16px);
   aspect-ratio: 16 / 10;
   gap: 6px;
   padding: 8px 8px 28px;
@@ -402,8 +402,9 @@ button.icon { width: 26px; height: 24px; padding: 0; }
 .list.grid .actions button.danger { color: #b52a48; }
 .list.grid .actions .more button { height: 24px; padding: 0 6px; font-weight: 500; }
 .list.grid .pair > button { display: inline-flex; align-items: center; justify-content: center; }
-.list.grid .card:is(.focused, :hover, :focus-within) .actions button { visibility: visible; }
-.list.grid .actions .more button.on { visibility: visible; }
+.list.grid .card:is(.focused, :focus-within) .actions button { visibility: visible; }
+/* A pressed button stays visible on the cover, except 选中: the ✓ box already shows it. */
+.list.grid .actions .more button.on:not([data-act="select"]) { visibility: visible; }
 .list.grid .actions .key { display: none; }
 .list.grid .actions .more .key { display: none; }
 @media (hover: none) { .list.grid .card:not(.focused) .actions button:not(.on) { display: none; } }
@@ -622,7 +623,7 @@ dialog.wide { width: min(880px, calc(100% - 32px)); }
   .folder-select { max-width: 50vw; }
   .search { order: 2; flex-basis: 100%; max-width: none; margin: 0; }
   .main { padding: 0 8px; }
-  .list:not(.grid) .card { padding-right: 0; }
+  .list:not(.grid) .card { padding-right: 12px; }
   .list:not(.grid) .actions, .list:not(.grid) .pair { display: flex; }
   .list:not(.grid) .pair > button { position: static; width: auto; height: 26px; padding: 0 8px; font-size: var(--fs-xs); }
 }

@@ -167,8 +167,8 @@ function bindEvents() {
   els.copyConversationBtn?.addEventListener("click", () => {
     void copyCurrentConversationMarkdown();
   });
-  els.downloadConversationBtn?.addEventListener("click", () => {
-    const note = buildCurrentConversationNote();
+  els.downloadConversationBtn?.addEventListener("click", async () => {
+    const note = await buildCurrentConversationNote().catch(() => null);
     if (note) BocDownload.text(note.filename, note.content);
     else showConversationContextNotice("当前没有可下载的对话。", 2200);
   });
@@ -577,8 +577,8 @@ function normalizeContextUrlForKey(value) {
 }
 
 // The note belongs to the video (multi-part videos share one); web pages have none.
-function noteVideoId() {
-  const ref = contextData?.isVideoContext === false ? null : buildConversationContextRef(contextData);
+function noteVideoId(context = contextData) {
+  const ref = context?.isVideoContext === false ? null : buildConversationContextRef(context);
   return ref?.site ? ref.videoId : "";
 }
 
@@ -589,7 +589,8 @@ async function renderNote() {
   const text = String((await chrome.storage.local.get(NOTES_STORAGE_KEY))[NOTES_STORAGE_KEY]?.[id]?.text || "");
   if (id !== noteVideoId() || !els.noteInput.hidden) return;
   els.noteInput.value = text;
-  els.noteText.textContent = text.trim() ? text : "＋ 添加";
+  els.noteToggle.classList.toggle("is-empty", !text.trim());
+  els.noteText.textContent = text;
   els.noteText.title = text;
   els.noteInput.dataset.videoId = id;
 }
@@ -696,7 +697,7 @@ function renderInitialState() {
 // retry: a context read failed, so offer to read it again (the context otherwise refreshes on its own).
 function resetConversationView(stateHtml = "", { retry = false } = {}) {
   updateSidepanelLayoutState();
-  els.messages.innerHTML = "";
+  clearMessages();
   if (stateHtml) {
     const stateNode = document.createElement("div");
     stateNode.className = "sp-center-error";
@@ -1551,9 +1552,14 @@ async function startNewConversation() {
   renderInitialState();
 }
 
+// The note card leads the conversation and survives every redraw.
+function clearMessages() {
+  els.messages.replaceChildren(els.note);
+}
+
 function renderConversationMessages() {
   updateSidepanelLayoutState();
-  els.messages.innerHTML = "";
+  clearMessages();
   suggestionsNode = null;
   if (!chatHistory.length) {
     resetConversationView("");
@@ -2160,14 +2166,20 @@ function renderAssistantMessage(node, raw) {
 }
 
 // The conversation as its own note: copy, download, and 写入 Obsidian on pages that are not videos.
-function buildCurrentConversationNote() {
+// Like the 视频记录 page's export, the triage summary (bilibili P1 only) and the video's note lead it.
+async function buildCurrentConversationNote() {
   const turns = buildConversationTurns(chatHistory);
   if (!turns.length) {
     return null;
   }
   const context = currentConversationMeta?.resolvedContext || contextData || currentConversationMeta?.contextRef || {};
   const filename = buildAiConversationFilename(context);
-  return { context, filename, content: buildAiConversationMarkdown({ context, turns, filename }) };
+  const noteId = noteVideoId(context);
+  const ref = buildConversationContextRef(context);
+  const analysisKey = noteId && ref.site === "bilibili" && ref.pageIndex === 1 ? `triage_analysis_${noteId}` : "";
+  const stored = noteId ? await chrome.storage.local.get([NOTES_STORAGE_KEY, analysisKey].filter(Boolean)) : {};
+  const markdown = buildAiConversationMarkdown({ context, turns, filename });
+  return { context, filename, content: BocNote.withTriageSummary(markdown, stored[analysisKey], stored[NOTES_STORAGE_KEY]?.[noteId]?.text) };
 }
 
 // Where the page's 写入 Obsidian puts this video's note: same folder template and filename builder.
@@ -2279,12 +2291,12 @@ function showSyncStatus(text, { autoHideMs = 0, retry = null } = {}) {
 }
 
 async function copyCurrentConversationMarkdown() {
-  const note = buildCurrentConversationNote();
-  if (!note) {
-    showConversationContextNotice("当前没有可复制的对话。", 2200);
-    return;
-  }
   try {
+    const note = await buildCurrentConversationNote();
+    if (!note) {
+      showConversationContextNotice("当前没有可复制的对话。", 2200);
+      return;
+    }
     await navigator.clipboard.writeText(note.content);
     showConversationContextNotice("已复制 Markdown", 2200);
   } catch (error) {
@@ -2306,7 +2318,7 @@ async function saveCurrentConversationToObsidian() {
     return;
   }
   if (!BocSites.buildContextKey(buildConversationContextRef(context) || {})) {
-    const note = buildCurrentConversationNote();
+    const note = await buildCurrentConversationNote();
     const folder = resolveFolderTemplate(settingsBundle.settings.noteFolder || "", note.context);
     const filepath = folder ? `${folder}/${note.filename}` : note.filename;
     await saveMarkdownToObsidian({ button: els.saveConversationBtn, filepath, content: note.content, ...settingsBundle });
