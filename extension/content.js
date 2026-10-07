@@ -729,7 +729,7 @@ function buildUiHtml() {
               <div class="boc-reading-controls">
                 <label class="boc-reading-toggle boc-reading-toggle-inline">
                   <input id="${ids.readingAutoScroll}" type="checkbox" checked />
-                  <span>滚动</span>
+                  <span>跟随</span>
                 </label>
                 <label class="boc-reading-toggle boc-reading-toggle-inline">
                   <input id="${ids.readingChapterVisible}" type="checkbox" checked />
@@ -1210,7 +1210,7 @@ async function runRefreshClip() {
     // Reasons arrive with or without a trailing full stop; strip it so the sentences below join cleanly.
     const reason = (
       error?.code === "SUBTITLE_DURATION_MISMATCH"
-        ? "未找到与当前视频时长匹配的字幕轨，可能该视频无可用字幕"
+        ? "没找到和视频时长匹配的字幕，可能没有可用字幕"
         : getErrorMessage(error)
     ).replace(/[。.！!；;，,\s]+$/u, "");
     // Only the subtitle step failed: keep the video info and degrade to the no-subtitle state.
@@ -1276,7 +1276,7 @@ async function loadTranscriptFallback(cause, runId) {
 
 async function loadSubtitle(url, lang, runId = state.fetchRunId, subtitleId = "", forceRefresh = false) {
   if (!url) {
-    throw new Error("字幕 URL 为空。");
+    throw new Error("字幕地址为空");
   }
 
   const cacheKey = subtitleCache.key({
@@ -1360,7 +1360,7 @@ function renderReadingSubtitleSelect() {
 
 // Translated tracks already say 机器翻译 in their label.
 function subtitleOptionLabel(item) {
-  return `${item.label || item.lang || "unknown"}${{ ai: " [AI]", auto: " [自动]" }[item.kind] || ""}`;
+  return `${item.label || item.lang || "未命名字幕"}${{ ai: "（AI）", auto: "（自动）" }[item.kind] || ""}`;
 }
 
 function renderSubtitleOptions(select) {
@@ -1460,7 +1460,7 @@ async function sendToObsidian() {
       const aiSection = state.settings.includeAiChatInNote === false ? "" : BocNote.buildAiSection(state.aiTurns);
       const choice = await confirmOverwriteNote(filepath, { hasAiSection: Boolean(aiSection) });
       if (!choice) {
-        setMessage(aiSection ? "已取消写入 Obsidian，原笔记未被覆盖。" : "笔记已存在，无新的 AI 问答，未改动。");
+        setMessage(aiSection ? "已取消写入 Obsidian，原笔记未被覆盖。" : "笔记已存在，无 AI 问答，未改动。");
         return;
       }
       onPage = true;
@@ -1540,7 +1540,7 @@ function confirmOverwriteNote(filepath, { hasAiSection = false } = {}) {
       : `
       <div class="boc-confirm-dialog" role="dialog" aria-modal="true" aria-labelledby="bocConfirmTitle">
         <div id="bocConfirmTitle" class="boc-confirm-title">该笔记已存在</div>
-        <div class="boc-confirm-body">没有新的 AI 问答可更新。整篇覆盖会替换全部内容：</div>
+        <div class="boc-confirm-body">没有 AI 问答可更新。整篇覆盖会替换全部内容：</div>
         <div class="boc-confirm-path"></div>
         <div class="boc-confirm-actions">
           <button type="button" class="boc-confirm-danger" data-choice="full">整篇覆盖</button>
@@ -3576,7 +3576,7 @@ async function handlePlayerAiQuickActionClick(event) {
     if (!resp?.ok) {
       throw new Error(resp?.error || "未知错误");
     }
-    setMessage("已打开侧边栏，开始 AI 总结。");
+    setMessage("点发送开始 AI 总结");
   } catch (error) {
     setMessage(`打开侧边栏失败：${getErrorMessage(error)}`);
     setReadingNotice(`打开侧边栏失败：${getErrorMessage(error)}`);

@@ -372,7 +372,7 @@
       const page = biliPickPage(pages, pageIndex) || pages[0] || null;
       const cid = String(page?.cid || view.cid || "");
       if (!cid) {
-        throw new Error("没有找到当前分P的 CID。");
+        throw new Error("读取当前分 P 失败");
       }
       const pubdate = Number(view.pubdate || 0);
       return {
