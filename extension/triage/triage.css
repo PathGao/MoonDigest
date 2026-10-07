@@ -208,7 +208,6 @@ select { height: 28px; max-width: 240px; }
 .tabs button[aria-selected="true"]::after { content: ""; position: absolute; left: 0; right: 0; bottom: -1px; height: 2px; border-radius: 2px; background: var(--accent); }
 .tabs .count { color: var(--faint); font-size: var(--fs-xs); font-variant-numeric: tabular-nums; }
 .tabs .step.zero:not([aria-selected="true"]) { color: var(--faint); }
-.tabs .now { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); display: inline-block; }
 .tabs .arrow { margin: 0 -18px; color: var(--border-strong); font-size: var(--fs-xs); }
 .tabs .tab-sep { flex: 1; }
 

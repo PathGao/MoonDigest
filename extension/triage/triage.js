@@ -1598,10 +1598,8 @@ function tick() {
 
 function renderTabs() {
   const c = stageCounts();
-  const cur = currentStage(c);
-  // The selected tab is solid; the step to work on next only gets a dot.
   const tab = (key, label, cls, n) =>
-    `<button type="button" role="tab" class="${cls}" data-tab="${key}" aria-selected="${S.tab === key}" aria-label="${label} ${n}${key === cur ? "，当前这一步" : ""}">${label}<span class="count">${n}</span>${key === cur ? `<span class="now" aria-hidden="true"></span>` : ""}</button>`;
+    `<button type="button" role="tab" class="${cls}" data-tab="${key}" aria-selected="${S.tab === key}" aria-label="${label} ${n}">${label}<span class="count">${n}</span></button>`;
   const steps = STAGES.map(([key, label]) => tab(key, label, c[key] ? "step" : "step zero", c[key]));
   el.searchCount.textContent = S.query.trim() ? `搜索：${c.read} 个结果` : "";
   el.tabs.innerHTML = S.mediaId === REMOVED ? tab("read", "已取消收藏", "read-tab", c.read) :
