@@ -91,7 +91,7 @@
     { id: 1002, title: "学习", items: study },
     { id: 1003, title: "默认收藏夹", items: [ai[1], ai[12], study[0], ...["家常红烧肉的做法", "十分钟早餐：葱油拌面"].map(makeItem)] }
   ];
-  // ?fresh shows the first-run folder picker; otherwise every folder is chosen and 已取消收藏 has records of each kind:
+  // ?fresh shows the first-run folder picker; otherwise every folder is chosen and 已出分拣范围 has records of each kind:
   // one old record without an origin, one hidden, one moved, one that left one folder, one that left two, one that left three.
   if (!/[?&]fresh\b/.test(location.search)) {
     store.triage_included_folders = ["1001", "1002", "1003"];

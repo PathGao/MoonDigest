@@ -328,7 +328,7 @@ html[data-seen-style="veil"] .cover-wrap.seen .seen-veil { display: flex; }
 .card-foot .spacer { flex: 1; }
 .actions { display: flex; flex-wrap: wrap; gap: 4px; }
 .actions button { height: 26px; padding: 0 8px; font-size: var(--fs-xs); }
-/* 保留 / 取消收藏 (选中 / 清理 in 已取消收藏) are one pair and the secondary ones one group: each wraps whole. */
+/* 保留 / 取消收藏 (选中 / 清理 in 已出分拣范围) are one pair and the secondary ones one group: each wraps whole. */
 .actions .pair, .actions .more { display: flex; gap: 4px; }
 .actions .more button { border-color: transparent; background: none; color: var(--text-2); }
 .actions .more button:hover { background: var(--field-bg); }
@@ -365,7 +365,7 @@ button.icon { width: 26px; height: 24px; padding: 0; }
 .shell:has(.main.viewing) { grid-template-columns: minmax(0, 1fr); }
 .shell:has(.main.viewing) .side { display: none; }
 
-/* ---------- 阅览 and 已取消收藏: the grid. A box per video with the cover inset; the actions overlay the cover, above the duration, and show on the current or focused card ---------- */
+/* ---------- 阅览 and 已出分拣范围: the grid. A box per video with the cover inset; the actions overlay the cover, above the duration, and show on the current or focused card ---------- */
 .list.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 16px; align-content: start; }
 .list.grid > :not(.card) { grid-column: 1 / -1; }
 .list.grid .card { padding: 8px 8px 12px; }

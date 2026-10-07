@@ -568,7 +568,7 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   assert.deepStrictEqual(plain(t.tagIdsOf("BV1")), ["xa"], "a folder: its own tags");
   t.S.mediaId = "removed";
   assert.deepStrictEqual(plain(t.tagIdsOf("BV1")), ["xa", "yb"], "已取消收藏: every tag");
-  // 已取消收藏 filters by AI class, 真人已看 and tags like 阅览.
+  // 已出分拣范围 filters by AI class, 真人已看 and tags like 阅览.
   {
     const saved = { items: t.S.items, tab: t.S.tab, titleRes: t.S.titleRes, watched: t.S.watched, classFilter: t.S.classFilter };
     Object.assign(t.S, { items: [item(1), item(2), item(3)], tab: "read", titleRes: { BV1: { verdict: "keep" }, BV2: { verdict: "drop" } }, watched: { BV2: true }, classFilter: { coarse: "all", fine: "all", read: "all" } });
@@ -757,7 +757,7 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   assert.deepStrictEqual(plain(store[t.K.decisions("A")]), {});
   assert.strictEqual(t.S.decisions.BV1.action, "keep");
 
-  // 已取消收藏: a video that left every folder is recorded with where it had been; one still in another folder only gets
+  // 已出分拣范围: a video that left every folder is recorded with where it had been; one still in another folder only gets
   // this folder on its trail; one listed again is dropped from the record and this folder from its trail.
   {
     const A = { id: "A", title: "甲" };
@@ -775,7 +775,7 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     assert.deepStrictEqual(plain(t.updateRemoved(back.removed, back.left, [item(1)], [], new Set(), 8, null, B).removed.BV1.from), [{ id: "B", title: "乙", at: 8 }]);
     // A hidden (still in the id list) video is marked so, with its origin.
     assert.deepStrictEqual(plain(t.updateRemoved({}, {}, [item(4)], [], new Set(), 9, ["BV4"], A).removed), { BV4: { item: item(4), at: 9, from: [{ id: "A", title: "甲", at: 9 }], hidden: true } });
-    // Moved out of triage: the source folder is the origin (after its trail); from 已取消收藏 itself the origin is kept.
+    // Moved out of triage: the source folder is the origin (after its trail); from 已出分拣范围 itself the origin is kept.
     const moved = t.moveToRemoved({}, { BV1: { A: { title: "甲", at: 2 } } }, [item(1), item(3)], new Set(["BV3"]), B, 7, { id: "Z", title: "外" });
     assert.deepStrictEqual(plain(moved), { removed: { BV1: { item: item(1), at: 7, movedTo: { id: "Z", title: "外" }, from: [{ id: "A", title: "甲", at: 2 }, { id: "B", title: "乙", at: 7 }] } }, left: {} });
     const again = t.moveToRemoved(moved.removed, {}, [item(1)], new Set(), null, 8, { id: "Y", title: "另" });
@@ -800,7 +800,7 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   assert.deepStrictEqual(plain(store[t.K.snapshot("A")].ids), ["BVhidden"], "an id the paged list leaves out stays in the check baseline");
   assert.strictEqual(t.S.removedCount, 1);
 
-  // 已取消收藏 renders the normal card: a line under the title with the origin chip and when / why it left, 选中 / 清理 as the pair, no 保留 / 取消收藏.
+  // 已出分拣范围 renders the normal card: a line under the title with the origin chip and when / why it left, 选中 / 清理 as the pair, no 保留 / 取消收藏.
   {
     openFake("removed", []);
     const at = new Date(new Date().getFullYear(), 9, 5, 17, 25).getTime();
@@ -858,7 +858,7 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   assert.deepStrictEqual(plain(store[t.K.basket]), [{ bvid: "BV5" }]);
   assert.deepStrictEqual(plain([store.triage_decisions_A, store.triage_decisions_B]), [{ BV5: { action: "unfav" } }, {}], "cleaned videos leave 最近取消收藏");
 
-  // Opening 已取消收藏 checks every folder's id list; a video found in one again leaves the list.
+  // Opening 已出分拣范围 checks every folder's id list; a video found in one again leaves the list.
   store[t.K.removed] = { BV1: { item: item(1), at: 1 }, BV2: { item: item(2), at: 2 } };
   handlers["triage-folder-ids"] = ({ mediaId }) => ({ ok: true, data: { bvids: mediaId === "B" ? ["BV1"] : [] } });
   t.S.mediaId = "removed";
@@ -916,7 +916,7 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   store[t.K.included] = ["3"];
   assert.deepStrictEqual(plain(await t.loadIncluded()), ["3"], "a saved choice is kept as is");
 
-  // A folder deleted on Bilibili: its videos move to 已取消收藏 unless still in a live folder; its records go.
+  // A folder deleted on Bilibili: its videos move to 已出分拣范围 unless still in a live folder; its records go.
   for (const k of Object.keys(store)) delete store[k];
   t.S.folders = t.S.allFolders = [{ id: 1 }];
   t.S.included = ["1"];
@@ -1185,7 +1185,7 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   Object.assign(t.S, { titleRes: {}, analyses: {}, classFilter: { coarse: "all", fine: "all", read: "all" } });
 
   // 移动 runs to the end after another folder opens, and each chunk updates both cached lists at once, so opening
-  // either folder mid-run never sends moved videos to 已取消收藏.
+  // either folder mid-run never sends moved videos to 已出分拣范围.
   {
     const vids = Array.from({ length: 25 }, (_, i) => item(900 + i));
     const snap = (items) => ({ bvids: items.map((v) => v.bvid), items, titles: {}, ids: items.map((v) => v.bvid), intro: "" });
@@ -1229,7 +1229,7 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     assert.strictEqual(toasts.at(-1), "「源」已移动 25 个到「目标」");
     assert.deepStrictEqual(t.S.allFolders.map((f) => f.count), [0, 25, 0], "the folder counts follow the move");
 
-    // A target outside triage: the moved videos go to 已取消收藏 marked with it; ticking it takes them back.
+    // A target outside triage: the moved videos go to 已出分拣范围 marked with it; ticking it takes them back.
     const two = [item(950), item(951)];
     store[t.K.snapshot("1")] = snap(two);
     openFake("1", two);
@@ -1246,7 +1246,7 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     assert.deepStrictEqual(plain(store[t.K.removed]), {});
     assert.strictEqual(toasts.at(-1), "已从「已出分拣范围」找回 2 个视频");
 
-    // 已取消收藏 收藏到 a chosen folder: added with no source, back in that folder's list without the removed fields.
+    // 已出分拣范围 收藏到 a chosen folder: added with no source, back in that folder's list without the removed fields.
     store[t.K.removed] = { BV960: { item: item(960), at: 5 }, BV961: { item: item(961), at: 5 } };
     openFake("removed", [{ ...item(960), removedAt: 5 }, { ...item(961), removedAt: 5 }]);
     t.S.selected.add("BV960");
@@ -1263,7 +1263,7 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   }
 
   // 失效: a video Bilibili turns into a placeholder keeps what was known; one it hides (still in the id list, no longer
-  // listed) goes to 已取消收藏 marked hidden, and an id check never takes it out again.
+  // listed) goes to 已出分拣范围 marked hidden, and an id check never takes it out again.
   {
     const was = { bvid: "BV70", title: "原标题", cover: "c.jpg", upper: "UP", intro: "简介", duration: 90 };
     const now = { bvid: "BV70", title: "已失效视频", cover: "ph.jpg", upper: "", intro: "", duration: 0, invalid: true };
@@ -1413,7 +1413,7 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   assert.ok(!t.pointerMoved({ x: 10, y: 10 }, 10, 10), "same position is not movement");
   assert.ok(t.pointerMoved({ x: 10, y: 10 }, 10, 11), "a changed coordinate is movement");
 
-  // An old 已取消收藏 record without `from` gets its folder from a 取消收藏 decision made there; keep/none give nothing.
+  // An old 已出分拣范围 record without `from` gets its folder from a 取消收藏 decision made there; keep/none give nothing.
   {
     const title = (id) => ({ f1: "稍后-AI", f2: "学习" })[id] || id;
     assert.deepStrictEqual(plain(t.inferFrom({ f1: { BV1: { action: "unfav" } }, f2: { BV1: { action: "keep" } } }, "BV1", title)), [{ id: "f1", title: "稍后-AI" }]);

@@ -149,7 +149,7 @@ function splitKept(all) {
   return { kept, folders };
 }
 
-// 已取消收藏 (pure): a folder's full new list replaces its old one. A video that left it and is in no other folder's
+// 已出分拣范围 (pure): a folder's full new list replaces its old one. A video that left it and is in no other folder's
 // list is recorded with its last known item and where it had been (its trail, then this folder); a video listed again
 // is dropped from the record and this folder from its trail. One that left but is still in another chosen folder only
 // gets this folder on its trail. One still in the folder's id list (ids) only stopped being listed: Bilibili hides a
@@ -176,7 +176,7 @@ function updateRemoved(removed, left, oldItems, newItems, otherBvids, at, ids, f
   }
   return { removed: next, left: trail };
 }
-// 移动 to a folder outside triage (pure): like updateRemoved for the moved videos, with where they went. From 已取消收藏
+// 移动 to a folder outside triage (pure): like updateRemoved for the moved videos, with where they went. From 已出分拣范围
 // itself (from null) the record keeps the origin it had.
 function moveToRemoved(removed, left, items, otherBvids, from, at, movedTo) {
   const next = { ...removed };
@@ -376,7 +376,7 @@ function storeSet(key, value) {
     toast(`保存失败，本地存储可能已满：${e?.message || e}`, true);
   });
 }
-// Read-modify-writes of a shared record (已取消收藏, the left trail, a folder's list or 取消收藏) run one at a time: two overlapping ones each
+// Read-modify-writes of a shared record (已出分拣范围, the left trail, a folder's list or 取消收藏) run one at a time: two overlapping ones each
 // write back what they read, and the first one's change is lost. A queued fn must not queue another (it would wait on itself).
 let storeChain = Promise.resolve();
 function serialStore(fn) {
@@ -505,7 +505,7 @@ const clearAiBanner = () => {
 // ---------- derived ----------
 const tagById = (id) => S.tags.find((t) => t.id === id);
 const inFolderView = () => S.mediaId !== ALL && S.mediaId !== REMOVED;
-// The open folder's tags; 所有收藏夹 has every chosen folder's, 已取消收藏 every tag.
+// The open folder's tags; 所有收藏夹 has every chosen folder's, 已出分拣范围 every tag.
 function viewTags() {
   if (S.mediaId === REMOVED) return S.tags;
   const ids = S.mediaId === ALL ? S.folders.map((f) => String(f.id)) : [String(S.mediaId)];
@@ -526,7 +526,7 @@ const tagLimit = () => S.settings.triageTagLimit;
 const aiNewTagRoom = () => Math.max(0, Math.min(S.settings.triageAiNewTagMax, tagLimit() - viewTags().length));
 const FOLDER_ONLY = "标签按收藏夹分开，请先打开一个具体收藏夹";
 // A video's tags in the open view. A tag belongs to one folder and stays there when the video moves, so a folder shows
-// only its own; 所有收藏夹 those of the video's folders (as the picker); 已取消收藏 every one.
+// only its own; 所有收藏夹 those of the video's folders (as the picker); 已出分拣范围 every one.
 function tagIdsOf(bvid) {
   const folders = S.mediaId === REMOVED ? null : pickerFolders(bvid);
   return (S.videoTags[bvid] || []).filter((id) => {
@@ -601,7 +601,7 @@ function stageOf(it) {
 }
 
 function inTab(it, tab) {
-  // 阅览 (and 已取消收藏) is every video of the folder, whatever its step.
+  // 阅览 (and 已出分拣范围) is every video of the folder, whatever its step.
   if (tab !== "read" && stageOf(it) !== tab) return false;
   const f = S.classFilter[tab];
   return !f || f === "all" || classOf(it) === f;
@@ -855,11 +855,11 @@ async function loadKept() {
 }
 
 // A folder that is no longer chosen (deleted on Bilibili or unticked) gets no new list to diff against, so its videos
-// (unless in a chosen folder's list) move to 已取消收藏 here and its records go. Runs once S.folders is known.
+// (unless in a chosen folder's list) move to 已出分拣范围 here and its records go. Runs once S.folders is known.
 function retireUnchosenFolders() {
   return serialStore(async () => {
     if (!S.allFolders.length) return; // 默认收藏夹 always exists; an empty list is never "every folder deleted"
-    if (!S.included.length) return; // nothing chosen yet (or all unticked by accident): never empty every folder into 已取消收藏
+    if (!S.included.length) return; // nothing chosen yet (or all unticked by accident): never empty every folder into 已出分拣范围
     const live = new Set(S.folders.map((f) => String(f.id)));
     const keys = ((await chrome.storage.local.getKeys?.()) ?? Object.keys((await chrome.storage.local.get(null)) || {})).filter((k) => k.startsWith("triage_snapshot_"));
     const gone = keys.map((k) => k.slice(16)).filter((id) => !live.has(id));
@@ -925,7 +925,7 @@ async function loadFolders() {
   S.folders = S.allFolders.filter((f) => S.included.includes(String(f.id)));
   await retireUnchosenFolders();
   S.removedCount = Object.keys(await storeGet(K.removed, {})).length;
-  // 所有收藏夹 leads and 已取消收藏 closes the list; renderTop keeps their labels and visibility current.
+  // 所有收藏夹 leads and 已出分拣范围 closes the list; renderTop keeps their labels and visibility current.
   el.folderSelect.innerHTML =
     `<option value="${ALL}" title="把所有收藏夹合在一起看和搜索。第一次要逐个加载，收藏夹多时需要几分钟；之后只核对变化，很快">所有收藏夹</option><hr />` +
     S.folders.map((f) => `<option value="${esc(f.id)}"${f.cover ? ` data-cover="${esc(f.cover)}"` : ""}>${esc(f.title)} (${esc(f.count)})</option>`).join("") +
@@ -1011,7 +1011,7 @@ async function checkCached(token, snap) {
   else syncFolder({ force: true, cached: { snap, ids: r.data.bvids } });
 }
 
-// bvid → { item, from } for videos in another chosen folder's cached list (from: its id) or in 已取消收藏 (from: REMOVED).
+// bvid → { item, from } for videos in another chosen folder's cached list (from: its id) or in 已出分拣范围 (from: REMOVED).
 async function localItems(mediaId) {
   const others = S.folders.map((f) => String(f.id)).filter((id) => id !== String(mediaId));
   const got = await chrome.storage.local.get([K.removed, ...others.map(K.snapshot)]);
@@ -1094,7 +1094,7 @@ async function syncFolder({ force = false, cached = null } = {}) {
   const mediaId = S.mediaId;
   renderTop();
   try {
-    // Videos MoonDigest already holds from another chosen folder or 已取消收藏: added here, they reuse that info.
+    // Videos MoonDigest already holds from another chosen folder or 已出分拣范围: added here, they reuse that info.
     const local = await localItems(mediaId);
     if (token !== S.folderToken) return false;
     let r = cached ? await fromCache(mediaId, cached, local) : null;
@@ -1166,7 +1166,7 @@ async function syncFolder({ force = false, cached = null } = {}) {
 }
 
 // The full item list doubles as the 所有收藏夹 cache; bvids/invalid/titles drive the sync diff. Videos that left every
-// chosen folder go to 已取消收藏.
+// chosen folder go to 已出分拣范围.
 function saveSnapshot(mediaId, items, ids = null) {
   return serialStore(async () => {
     const others = S.folders.map((f) => String(f.id)).filter((id) => id !== String(mediaId));
@@ -1192,7 +1192,7 @@ function saveSnapshot(mediaId, items, ids = null) {
   });
 }
 
-// ---------- 已取消收藏 ----------
+// ---------- 已出分拣范围 ----------
 async function openRemoved() {
   const token = S.folderToken;
   const keys = ((await chrome.storage.local.getKeys?.()) ?? Object.keys((await chrome.storage.local.get(null)) || {})).filter((k) => k.startsWith("triage_decisions_"));
@@ -1254,7 +1254,10 @@ async function checkWhere(token) {
     }
     const folders = r.data?.folders || [];
     const out = folders.find((f) => !S.included.includes(String(f.id)));
-    if (out || !folders.length) found[it.bvid] = it.inFolder = out ? { id: out.id, title: out.title } : null;
+    if (out || !folders.length) {
+      it.inFolder = out ? { id: out.id, title: out.title } : null;
+      found[it.bvid] = it.inFolder;
+    }
     S.removedCheck.done++;
     render();
     await new Promise((res) => setTimeout(res, 150));
@@ -1267,7 +1270,7 @@ async function checkWhere(token) {
   });
 }
 
-// Drops these bvids from 已取消收藏 (they are in a folder again); returns how many were there.
+// Drops these bvids from 已出分拣范围 (they are in a folder again); returns how many were there.
 function dropRemoved(bvids) {
   return serialStore(async () => {
     const rec = await storeGet(K.removed, {});
@@ -1548,7 +1551,7 @@ function render() {
 }
 
 function renderTop() {
-  // 已取消收藏 has no Bilibili page of its own; the link would land on the homepage under that title.
+  // 已出分拣范围 has no Bilibili page of its own; the link would land on the homepage under that title.
   el.biliBtn.hidden = !S.mid || S.mediaId === REMOVED;
   el.biliBtn.title = S.mediaId === TOVIEW ? "B站稍后再看" : inFolderView() ? "B站收藏夹" : "B站主页";
   setBusy(el.refreshBtn, (S.syncing || S.loadAll?.running) && `刷新中…${S.syncing ? pageText(S.mediaId) : ""}`);
@@ -1789,7 +1792,7 @@ function renderListHeader(list) {
     else if (list.length) html += `<span class="muted">按 X 或全选后可批量保留、取消收藏、移动或复制</span>`;
     html += headBtn("export-read", "批量导出…", "", !list.length);
   }
-  // 移动/复制 works on a selection in any tab of a single folder; in 已取消收藏 it is 收藏到. 取消收藏 goes last, set apart.
+  // 移动/复制 works on a selection in any tab of a single folder; in 已出分拣范围 it is 收藏到. 取消收藏 goes last, set apart.
   if (sel && S.mediaId !== ALL) selActs += transferBtn();
   if (sel && !all && S.mediaId !== REMOVED) selActs += batchBtn("unfav");
   // 全选 adds every card listed under the current tab and filters; other tabs keep their selection.
@@ -1905,7 +1908,7 @@ async function refavRecent(bvid) {
 function renderList() {
   const list = visibleItems();
   renderListHeader(list);
-  // 已取消收藏 is a list to act on, so it uses the rows the steps use, not the 阅览全部 grid.
+  // 已出分拣范围 is a list to act on, so it uses the rows the steps use, not the 阅览全部 grid.
   el.list.classList.toggle("grid", S.tab === "read" && S.mediaId !== REMOVED);
   // 保留 only marks the video here, while 取消收藏 changed Bilibili; say so where both end up.
   const recent = S.tab === "done" ? `<p class="muted tab-note">已保留：${KEEP_TIP}。已取消收藏：已从 B站收藏夹移走，最近的操作可按 U 撤销。</p>${recentUnfavHtml()}` : "";
@@ -2362,7 +2365,7 @@ function toggleTransferNew() {
 
 // Folders are not read while a run writes them (writingTo), so both cached lists change here instead of by a sync: the target
 // gains the videos (a new folder starts with exactly these), the source loses them without counting them as having left
-// every folder (已取消收藏). A folder with no cached list is left to its first load.
+// every folder (已出分拣范围). A folder with no cached list is left to its first load.
 function patchSnapshot(mediaId, { add = [], drop = [] }, created = false) {
   return serialStore(async () => {
     const key = K.snapshot(mediaId);
@@ -2400,7 +2403,7 @@ async function batchTransfer(list) {
   const ask = await askTransfer(list);
   if (!ask || S.transferRun || S.unfavBatch) return;
   const { how, target } = ask;
-  const add = how === "add"; // from 已取消收藏: no source folder on Bilibili
+  const add = how === "add"; // from 已出分拣范围: no source folder on Bilibili
   const move = how === "move";
   const verb = { move: "移动", copy: "复制", add: "收藏" }[how];
   let to = target.id;
@@ -2417,7 +2420,7 @@ async function batchTransfer(list) {
     S.included = [...S.included, to];
     await chrome.storage.local.set({ [K.included]: S.included });
   }
-  // From 稍后再看 or 已取消收藏 Bilibili takes one video per request: one per chunk keeps the count exact on a failure.
+  // From 稍后再看 or 已出分拣范围 Bilibili takes one video per request: one per chunk keeps the count exact on a failure.
   const one = add || from === TOVIEW;
   const size = one ? 1 : 20;
   let done = 0;
@@ -2470,7 +2473,7 @@ async function batchTransfer(list) {
   render();
 }
 
-// Moved to a folder outside triage: like any video that left every chosen folder, it goes to 已取消收藏, marked with
+// Moved to a folder outside triage: like any video that left every chosen folder, it goes to 已出分拣范围, marked with
 // where it went. Ticking that folder brings it back (recoverRemoved).
 function addMovedToRemoved(from, items, movedTo) {
   return serialStore(async () => {
@@ -2496,7 +2499,7 @@ function addMovedToRemoved(from, items, movedTo) {
   });
 }
 
-// Newly ticked folders take back their videos from 已取消收藏 at once, without waiting for the folder to be opened.
+// Newly ticked folders take back their videos from 已出分拣范围 at once, without waiting for the folder to be opened.
 async function recoverRemoved(ids) {
   if (!Object.keys(await storeGet(K.removed, {})).length) return;
   let n = 0;
@@ -3688,7 +3691,7 @@ function bindEvents() {
 
   document.addEventListener("keydown", onKey);
   el.viewerCloseBtn.addEventListener("click", closeViewer);
-  // The open folder's own Bilibili page; 所有收藏夹 and 已取消收藏 have none, so they go to the space page.
+  // The open folder's own Bilibili page; 所有收藏夹 and 已出分拣范围 have none, so they go to the space page.
   el.biliBtn.addEventListener("click", () =>
     openTab(
       S.mediaId === TOVIEW

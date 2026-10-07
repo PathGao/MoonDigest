@@ -862,7 +862,7 @@ const TRIAGE_HANDLERS = {
     return {};
   },
 
-  // 移动 / 复制 to another folder (never 稍后再看); without from, just 收藏 into it (videos from 已取消收藏).
+  // 移动 / 复制 to another folder (never 稍后再看); without from, just 收藏 into it (videos from 已出分拣范围).
   // From 稍后再看 or nowhere there is no batch endpoint: add one by one, then remove.
   "triage-transfer": async ({ from, to, aids, move }) => {
     const list = Array.isArray(aids) ? aids : [];
