@@ -891,10 +891,15 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     assert.deepStrictEqual(plain(t.S.items.map((it) => [it.bvid, t.kindOf(it)]).sort()), [["BV1", "out"], ["BV2", "unfav"], ["BV3", ""], ["BV4", "invalid"], ["BV5", ""]]);
     t.S.tab = "read";
     t.renderTabs();
-    assert.ok(["已取消收藏 1", "在未勾选收藏夹 1", "已失效 1"].every((x) => t.el.tagFilter.innerHTML.includes(x)), t.el.tagFilter.innerHTML);
+    const tabs = () => [...t.el.tabs.innerHTML.matchAll(/aria-label="([^"]+)"/g)].map((m) => m[1]);
+    assert.deepStrictEqual(tabs(), ["全部 5", "已取消收藏 1", "在未勾选收藏夹 1", "已失效 1"], "why they left are the tabs here");
+    assert.ok(!t.el.tagFilter.innerHTML.includes("data-kindfilter"), "no 已失效 chip beside the tab");
     t.S.kindFilter = "out";
     assert.deepStrictEqual(plain(t.visibleItems().map((it) => it.bvid)), ["BV1"]);
     t.S.kindFilter = "";
+    t.S.items = t.S.items.filter((it) => it.bvid === "BV2");
+    t.renderTabs();
+    assert.deepStrictEqual(tabs(), ["全部 1", "已取消收藏 1", "在未勾选收藏夹 0", "已失效 0"], "all show, even at 0");
     // A failed lookup stops there and says so; nothing found so far is lost.
     handlers["triage-fav-where"] = () => ({ ok: false, error: "offline" });
     await t.openRemoved();

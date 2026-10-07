@@ -573,6 +573,7 @@ function hasAllTags(videoIds, selectedIds, nameOf) {
 
 // Why a video is in 已出分拣范围: "invalid" (also invalid in a folder), "out" (still in a folder that is not chosen), "unfav"
 // (in no folder), "" until checked. inFolder, once looked up, outranks where a 移动 here sent it.
+const KINDS = [["unfav", "已取消收藏"], ["out", "在未勾选收藏夹"], ["invalid", "已失效"]];
 function kindOf(it) {
   if (it.invalid || it.hidden) return "invalid";
   const at = it.inFolder !== undefined ? it.inFolder : it.movedTo;
@@ -1655,7 +1656,13 @@ function renderTabs() {
     `<button type="button" role="tab" class="${cls}" data-tab="${key}" aria-selected="${S.tab === key}" aria-label="${label} ${n}">${label}<span class="count">${n}</span></button>`;
   const steps = STAGES.map(([key, label]) => tab(key, label, c[key] ? "step" : "step zero", c[key]));
   el.searchCount.textContent = S.query.trim() ? `搜索：${c.read} 个结果` : "";
-  el.tabs.innerHTML = S.mediaId === REMOVED ? tab("read", "已出分拣范围", "read-tab", c.read) :
+  // 已出分拣范围 has no steps; its tabs are why the videos left (kindOf), 全部 first for the ones not checked yet.
+  const kindTabs = () =>
+    [["", "全部"], ...KINDS].map(([kind, label]) => {
+      const n = kind ? S.items.filter((it) => kindOf(it) === kind).length : S.items.length;
+      return `<button type="button" role="tab" class="${n ? "step" : "step zero"}" data-kindtab="${kind}" aria-selected="${S.kindFilter === kind}" aria-label="${label} ${n}">${label}<span class="count">${n}</span></button>`;
+    }).join("");
+  el.tabs.innerHTML = S.mediaId === REMOVED ? kindTabs() :
     steps.join(`<span class="arrow" aria-hidden="true">→</span>`) + `<span class="tab-sep" aria-hidden="true"></span>` + tab("read", "阅览全部", "read-tab", c.read);
 
   const chips = tagChips();
@@ -1665,16 +1672,12 @@ function renderTabs() {
   const watchedChip =
     chip(S.finishedFilter, S.items.some(isFinished), "data-finishedfilter", "看完了", "只看 B站历史记录里看完了的视频") +
     chip(S.watchedFilter, S.items.some((it) => S.watched[it.bvid]), "data-watchedfilter", "优先看过", "只看在优先看里点了已看的视频");
-  // Only when this view has such a video, like those above; with 全选 it picks them all for 取消收藏 or 清理. Why a video
-  // left is told only in 已出分拣范围; 已失效 is in every view.
-  const kindChip = ([kind, label, aria]) => {
-    const n = S.items.filter((it) => kindOf(it) === kind).length;
-    const on = S.kindFilter === kind;
-    return !on && !n ? "" : `<button type="button" class="chip ${kind === "invalid" ? "invalid" : "watched"}${on ? " on" : ""}" data-kindfilter="${kind}" aria-pressed="${on}" aria-label="${aria}">${label} ${n}</button>`;
-  };
-  const kinds = [["invalid", "已失效", "只看已失效的视频"]];
-  if (S.mediaId === REMOVED) kinds.unshift(["unfav", "已取消收藏", "只看已不在任何收藏夹里的视频"], ["out", "在未勾选收藏夹", "只看还在没勾选分拣的收藏夹里的视频"]);
-  el.tagFilter.innerHTML = kinds.map(kindChip).join("") + watchedChip + (chips.length
+  // Only when this view has an invalid video, like those above; with 全选 it picks them all for 取消收藏 or 清理. 已出分拣范围
+  // has it as a tab instead.
+  const invalidN = S.items.filter((it) => kindOf(it) === "invalid").length;
+  const invalidOn = S.kindFilter === "invalid";
+  const invalidChip = S.mediaId === REMOVED || (!invalidOn && !invalidN) ? "" : `<button type="button" class="chip invalid${invalidOn ? " on" : ""}" data-kindfilter="invalid" aria-pressed="${invalidOn}" aria-label="只看已失效的视频">已失效 ${invalidN}</button>`;
+  el.tagFilter.innerHTML = invalidChip + watchedChip + (chips.length
     ? chips
         .map((c) => {
           const on = c.ids.some((id) => S.tagFilter.has(id));
@@ -3527,6 +3530,12 @@ function bindEvents() {
   el.tabs.addEventListener("click", (e) => {
     const btn = e.target.closest("[data-tab]");
     if (btn) showTab(btn.dataset.tab);
+    const kind = e.target.closest("[data-kindtab]");
+    if (kind) {
+      S.kindFilter = kind.dataset.kindtab;
+      S.selected.clear(); // a selection belongs to its tab
+      render();
+    }
   });
   el.searchInput.addEventListener("input", (e) => {
     if (e.isComposing) return;
