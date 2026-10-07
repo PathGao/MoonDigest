@@ -30,13 +30,15 @@
         </span>
         <span id="activity" class="activity" aria-live="polite" hidden></span>
         <button id="refreshBtn" type="button" class="ghost-btn" aria-label="从 B 站刷新收藏夹">↻ 刷新</button>
+        <button id="settingsBtn" type="button" class="more-btn gear-btn" title="分拣设置" aria-label="分拣设置">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9.671 4.136a2.34 2.34 0 0 1 4.659 0 2.34 2.34 0 0 0 3.319 1.915 2.34 2.34 0 0 1 2.33 4.033 2.34 2.34 0 0 0 0 3.831 2.34 2.34 0 0 1-2.33 4.033 2.34 2.34 0 0 0-3.319 1.915 2.34 2.34 0 0 1-4.659 0 2.34 2.34 0 0 0-3.32-1.915 2.34 2.34 0 0 1-2.33-4.033 2.34 2.34 0 0 0 0-3.831A2.34 2.34 0 0 1 6.35 6.051a2.34 2.34 0 0 0 3.319-1.915"/><circle cx="12" cy="12" r="3"/></svg>
+        </button>
         <button id="moreBtn" type="button" class="more-btn" popovertarget="tools" aria-label="更多操作">⋯</button>
         <div id="tools" class="tools" popover>
           <div class="tools-brand">MoonDigest · B 站收藏夹分拣台</div>
           <button id="removedBtn" type="button" title="离开了你勾选的所有收藏夹、但 MoonDigest 还留着信息的视频" hidden>已取消收藏</button>
           <button id="biliBtn" type="button" aria-label="在 B 站打开当前收藏夹（所有收藏夹时打开个人主页）" hidden>B 站收藏夹 ↗</button>
           <button id="writeBtn" type="button" aria-label="批量导出">批量导出</button>
-          <button id="settingsBtn" type="button" aria-label="分拣设置">分拣设置</button>
           <button id="helpBtn" type="button" aria-label="帮助">帮助（?）</button>
         </div>
       </header>
@@ -104,8 +106,8 @@
         <p class="dialog-hint">只读取勾选的收藏夹；没勾的不出现在下拉框和「所有收藏夹」里，也不读取内容。新建的收藏夹默认不勾。B 站上不受影响。</p>
         <div class="export-row"><button type="button" class="link" data-folders-all aria-label="全选收藏夹">全选</button><button type="button" class="link" data-folders-none aria-label="全不选收藏夹">全不选</button></div>
         <div id="folderToggles" class="folder-toggles"></div>
-        <p id="settingsFirstRunHint" class="dialog-hint" hidden>AI 参数一般不用改，需要时在右上角 ⋯ →「分拣设置」里调；AI 平台、笔记格式和 Obsidian 在设置页。</p>
-        <!-- The first open only asks for folders; this part shows from ⋯ → 分拣设置. -->
+        <p id="settingsFirstRunHint" class="dialog-hint" hidden>AI 参数一般不用改，需要时点右上角的齿轮（分拣设置）调；AI 平台、笔记格式和 Obsidian 在设置页。</p>
+        <!-- The first open only asks for folders; this part shows from the 分拣设置 gear. -->
         <div id="settingsAi" class="settings-ai">
         <h3>AI 参数</h3>
         <p class="dialog-hint">一般不用改。AI 平台、笔记格式和 Obsidian 在设置页；判断标准在每个收藏夹的粗看、细看按钮旁边改，标签在「标签」里改。</p>
