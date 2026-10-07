@@ -427,12 +427,10 @@ dialog :is(p, div):empty { display: none; }
 .tag-rows { display: flex; flex-direction: column; gap: 6px; max-height: 320px; overflow-y: auto; }
 .tag-row { display: grid; grid-template-columns: 10px minmax(0, 9em) minmax(0, 1fr) 4.5em auto; align-items: center; gap: 6px; }
 .tag-row .muted { text-align: right; font-size: var(--fs-xs); }
-.tag-add, .export-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.tag-add { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 .tag-add input { flex: 1; min-width: 120px; }
 dialog h3 { margin: 8px 0 0; font-size: var(--fs-sm); font-weight: 600; }
 .ai-section > h3:first-child { margin-top: 0; }
-.dialog-sub { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; padding-top: 10px; border-top: 1px solid var(--border); }
-.dialog-sub h3 { margin: 0; }
 
 /* viewer: the video page next to the list */
 .viewer { display: flex; flex-direction: column; min-height: 0; min-width: 0; background: var(--surface); border: 1px solid var(--border); border-radius: 9px; overflow: hidden; }

@@ -335,7 +335,7 @@ const el = {};
   "aiTagsPreview", "aiProgress", "aiCloseBtn", "aiStopBtn", "aiRunBtn",
   "aiReview", "aiReviewSummary", "aiNotes", "aiNewTags", "aiAllBtn", "aiNoneBtn", "aiRows", "aiDiscardBtn", "aiApplyBtn",
   "biliBtn", "main", "viewer", "viewerTitle", "viewerNextBtn", "viewerTabBtn", "viewerCloseBtn", "viewerFrame",
-  "writeBtn", "writeDialog", "writeScope", "writeFormat", "writeScopeCount", "writeOverwriteRow", "writeOverwrite", "writeProgress", "writeFailed", "writeStopBtn", "writeCopyBtn", "writeRunBtn", "writeMdBtn"
+  "tools", "writeBtn", "writeDialog", "writeScope", "writeFormat", "writeScopeCount", "writeOverwriteRow", "writeOverwrite", "writeProgress", "writeFailed", "writeStopBtn", "writeCopyBtn", "writeRunBtn", "writeMdBtn"
 ].forEach((id) => (el[id] = $(id)));
 
 // ---------- utils ----------
@@ -3807,6 +3807,8 @@ function bindEvents() {
     BocDownload.text(`MoonDigest-${title}-${stamp(new Date(), false)}.csv`, buildCsv(), "text/csv;charset=utf-8");
   });
   el.helpBtn.addEventListener("click", () => el.helpDialog.showModal());
+  // A download leaves the page as it was, so the ⋯ menu would stay open over it.
+  el.tools.addEventListener("click", (e) => e.target.closest("button") && el.tools.hidePopover());
 
   el.syncViewBtn.addEventListener("click", () => {
     el.syncNotice.hidden = !el.syncNotice.hidden;
