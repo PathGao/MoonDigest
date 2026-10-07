@@ -216,13 +216,13 @@ async function getAiSidepanelState(tabId, { forceRefresh = false } = {}) {
   if (needsRefresh) {
     const refreshResp = await sendMessageToTab(tab.id, { type: "popup-refresh" });
     if (!refreshResp?.ok) {
-      throw new Error(refreshResp?.error || "当前视频上下文加载失败");
+      throw new Error(refreshResp?.error || "读取当前视频失败");
     }
     contextResp = await sendMessageToTab(tab.id, { type: "sidepanel-get-context" });
   }
 
   if (!contextResp?.ok || !contextResp?.payload) {
-    throw new Error("当前页面上下文读取失败");
+    throw new Error("读取当前页面失败");
   }
 
   let hotComments = [];
@@ -373,7 +373,7 @@ async function resolveAiSidepanelContext(contextRef) {
   if (site.pageOnly) {
     const tab = await findTabForRef(videoRef);
     if (!tab?.id) {
-      throw new Error(`请先打开这个 ${site.label} 视频页，再读取历史对话的视频上下文`);
+      throw new Error(`请先打开这个 ${site.label} 视频页，再继续这段对话`);
     }
     return getAiSidepanelState(tab.id);
   }

@@ -15,7 +15,7 @@ const {
 const PLAYER_AI_QUICK_ACTION_STORAGE_KEY = "boc_player_ai_quick_action_v1";
 // Marks a control that starts an AI request (tokens.css draws it in the text color).
 const AI_SPARK = '<span class="ai-spark" aria-hidden="true"></span>';
-const NON_VIDEO_CONTEXT_MESSAGE = "当前页不是支持的视频页面，<br>无法获取当前页面信息作为对话上下文，<br>仅支持 AI 对话。";
+const NON_VIDEO_CONTEXT_MESSAGE = "这不是支持的视频页，<br>AI 读不到本页，只能普通对话。";
 const EMPTY_INTRO = "AI 会读这期视频的字幕和评论，回答你的问题。";
 const STREAM_SLOW_NOTICE_MS = 15000;
 const PREVIOUS_VIDEO_CONVERSATION_KEY = "boc_sp_previous_video_conversation";
@@ -389,7 +389,7 @@ async function openRequestedVideoContext(ref) {
     applyConversation({ id: "", contextKey: "", contextTitle: placeholder.title, contextUrl: placeholder.url, contextRef, messages: [] });
   }
   renderInitialState();
-  showConversationContextNotice("正在加载原视频上下文...");
+  showConversationContextNotice("正在加载原视频信息…");
   await hydratePinnedConversationContext();
 }
 
@@ -487,7 +487,7 @@ async function readContextState({ forceRefresh = false, silent = false, follow =
     }
     updateContextChip();
     if (!silent && !isContextBound()) {
-      resetConversationView(escapeHtml(resp?.error || "当前页面上下文读取失败。"), { retry: true });
+      resetConversationView(escapeHtml(resp?.error || "读取当前页面失败"), { retry: true });
     }
     return false;
   }
@@ -616,7 +616,7 @@ function updateContextChip() {
   void renderNote();
   renderFollowups();
   if (!contextData) {
-    setContextChipText("无上下文");
+    setContextChipText("读取失败");
     els.contextChip.title = "";
     els.contextChip.disabled = true;
     els.contextChip.classList.remove("is-mismatch");
@@ -628,7 +628,7 @@ function updateContextChip() {
   const mismatch = isBoundConversationMismatched();
   els.contextChip.classList.toggle("is-mismatch", mismatch);
   els.contextChip.title = contextData.url
-    ? `${contextData.title || ""}${mismatch ? "\n当前页不是这个对话绑定的视频" : ""}\n点击跳转目标视频`
+    ? `${contextData.title || ""}${mismatch ? "\n当前页不是这段对话绑定的视频" : ""}\n点击跳转目标视频`
     : contextData.title || "";
   els.contextChip.disabled = !String(contextData.url || "").trim();
 }
@@ -680,7 +680,7 @@ function renderInitialState() {
     return;
   }
   if (!contextData) {
-    resetConversationView("当前页面信息读取失败。", { retry: true });
+    resetConversationView("读取当前页面失败", { retry: true });
     return;
   }
   if (chatHistory.length) {
@@ -1165,7 +1165,7 @@ async function loadConversationById(id) {
   applyConversation(conversation);
   renderInitialState();
   if (conversation.contextKey && conversation.contextKey !== liveContextKey) {
-    showConversationContextNotice("正在加载原视频上下文...");
+    showConversationContextNotice("正在加载原视频信息…");
     void hydratePinnedConversationContext({ silent: true });
   }
 }
@@ -1776,7 +1776,7 @@ async function ensureCurrentContextForSend() {
   }
   const loadingNotice = contextData?.pending;
   if (loadingNotice) {
-    showConversationContextNotice("正在加载视频上下文...");
+    showConversationContextNotice("正在加载视频信息…");
   }
   const ok = await loadContextState({ forceRefresh: false, silent: true });
   if (loadingNotice) {
@@ -1784,7 +1784,7 @@ async function ensureCurrentContextForSend() {
   }
   // A placeholder still standing means the subtitles never arrived; never answer from it.
   if (!ok || !contextData || contextData.pending) {
-    resetConversationView("当前页面上下文读取失败。", { retry: true });
+    resetConversationView("读取当前页面失败", { retry: true });
     return false;
   }
   return true;
@@ -1840,7 +1840,7 @@ async function hydratePinnedConversationContext({ silent = false } = {}) {
   if (!response?.ok || !response.payload) {
     removeConversationContextNotice();
     if (!silent) {
-      showConversationContextError(`历史视频上下文获取失败：${response?.error || "未知错误"}`);
+      showConversationContextError(`读取原视频失败：${response?.error || "未知错误"}`);
     }
     return false;
   }
@@ -2568,7 +2568,7 @@ async function jumpToAssistantTimestamp(seconds, label) {
   const safeSeconds = Math.max(0, Number(seconds || 0) || 0);
   const targetUrl = String(contextData?.url || currentConversationMeta?.contextUrl || "").trim();
   if (!targetUrl) {
-    showConversationContextNotice("当前没有可跳转的视频上下文。", 2200);
+    showConversationContextNotice("没有可跳转的视频", 2200);
     return;
   }
 
