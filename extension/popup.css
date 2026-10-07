@@ -2,55 +2,70 @@ html,
 body {
   margin: 0;
   padding: 0;
-  width: 360px;
-  background: var(--bg);
+  width: 380px;
+  background: var(--surface);
   color: var(--text);
   font-family: var(--font-sans);
 }
 
 .popup {
-  padding: var(--space-2) var(--space-2) 0;
   display: flex;
   flex-direction: column;
-  gap: var(--space-2);
 }
 
 .top {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  gap: var(--space-1);
+  padding: var(--space-3) 14px 0;
 }
 
-.title {
+.brand {
+  flex: 1;
   display: inline-flex;
   align-items: center;
-  gap: var(--space-1);
+  gap: 6px;
+  font-size: var(--fs-lg);
+  font-weight: 700;
+}
+
+.moon {
+  width: 18px;
+  height: 18px;
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 1.7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
 
 .icon-btn {
-  width: 28px;
-  height: 28px;
+  width: 30px;
+  height: 30px;
   padding: 0;
   border: 1px solid transparent;
   border-radius: var(--radius-sm);
   background: transparent;
-  color: var(--muted);
+  color: var(--text-2);
   display: inline-flex;
   align-items: center;
   justify-content: center;
 }
 
 .icon-btn:hover {
-  background: var(--surface-muted);
+  background: var(--field-bg);
   color: var(--text);
 }
 
-.icon-btn svg {
-  width: 15px;
-  height: 15px;
+.icon-btn svg,
+.tool svg,
+.row svg {
+  width: 16px;
+  height: 16px;
+  flex: none;
   fill: none;
   stroke: currentColor;
-  stroke-width: 2;
+  stroke-width: 1.7;
   stroke-linecap: round;
   stroke-linejoin: round;
 }
@@ -69,81 +84,266 @@ body {
   border-color: var(--danger-border);
 }
 
-.top strong {
-  font-size: var(--fs-xl);
-  font-weight: 600;
-}
-
-.ghost {
-  height: 28px;
-  border-color: transparent;
-  background: transparent;
-  min-width: 58px;
-  color: var(--text-2);
-  font-size: var(--fs-xs);
-  font-weight: 600;
-  padding: 0 10px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  line-height: 1;
-}
-
-.ghost:hover {
-  color: var(--text);
-  background: var(--surface-muted);
-}
-
-/* Gray unless it is an error; flex keeps the busy spinner from changing the line height. */
-.status {
-  margin: 0;
+.video {
   display: flex;
-  align-items: center;
+  gap: 10px;
+  padding: var(--space-3) 14px;
+}
+
+/* The gradient shows when there is no cover or it fails to load; never gray. */
+.cover {
+  position: relative;
+  width: 124px;
+  aspect-ratio: 16 / 10;
+  flex: none;
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  background: linear-gradient(135deg, #2b5876, #4e4376);
+}
+
+.cover img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.duration {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  padding: 10px 6px 3px;
+  text-align: right;
   font-size: var(--fs-xs);
+  color: #fff;
+  background: linear-gradient(transparent, rgba(0, 0, 0, 0.6));
+  font-variant-numeric: tabular-nums;
+}
+
+.duration[hidden] {
+  display: none;
+}
+
+.video-text {
+  min-width: 0;
+  flex: 1;
+}
+
+.video-title {
+  font-size: var(--fs-md);
+  font-weight: 600;
+  line-height: 1.45;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+}
+
+.video-meta {
+  margin-top: var(--space-1);
+  font-size: var(--fs-xs);
+  color: var(--faint);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.video-title:empty,
+.video-meta:empty {
+  display: none;
+}
+
+/* Fine: green dot and text. Busy: the shared spinner replaces the dot. Error: the danger box. */
+.status {
+  margin: 6px 0 0;
+  display: flex;
+  align-items: baseline;
+  gap: 5px;
+  font-size: var(--fs-xs);
+  line-height: 1.4;
+  color: var(--ok);
+  overflow-wrap: anywhere;
+}
+
+.status::before {
+  content: "";
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  transform: translateY(-1px);
+}
+
+.video-text > .status:first-child {
+  margin-top: 0;
+}
+
+.status[aria-busy="true"] {
   color: var(--text-2);
-  background: var(--surface-muted);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  padding: 7px var(--space-2);
-  white-space: normal;
-  line-height: 1.35;
+  background: none;
+  border: 0;
 }
 
 .status[aria-busy="true"]::before {
-  flex: none;
+  width: 0.9em;
+  height: 0.9em;
+  margin: 0;
+  background: none;
+  transform: translateY(0.1em);
 }
 
 .status.is-error {
   color: var(--danger);
   background: var(--danger-bg);
-  border-color: var(--danger-border);
+  border: 1px solid var(--danger-border);
+  border-radius: var(--radius-sm);
+  padding: 5px var(--space-2);
 }
 
-.section-title,
-.label,
+.status.is-error::before {
+  content: none;
+}
+
+.summary {
+  margin: 0 14px;
+  height: 40px;
+  border-radius: var(--radius-md);
+  font-size: var(--fs-lg);
+}
+
+.subrow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin: var(--space-3) 14px 0;
+  padding-left: 10px;
+  height: 36px;
+  background: var(--field-bg);
+  border-radius: var(--radius-md);
+  font-size: var(--fs-sm);
+}
+
+.subrow .k {
+  color: var(--faint);
+  white-space: nowrap;
+}
+
+#subtitleSelect {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  border: 0;
+  border-radius: var(--radius-md);
+  padding: 0 28px 0 0;
+  appearance: none;
+  background: transparent url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%239499a0' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E") right 10px center / 14px no-repeat;
+  color: var(--text);
+  font: inherit;
+  cursor: pointer;
+}
+
+#subtitleSelect:disabled {
+  color: var(--faint);
+  cursor: default;
+}
+
+/* Fixed height with its own scrollbar; long lines wrap instead of scrolling sideways. */
+#preview {
+  display: block;
+  margin: var(--space-2) 14px 0;
+  height: 132px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: var(--space-2);
+  resize: none;
+  font-size: var(--fs-xs);
+  line-height: 1.5;
+  background: var(--surface-muted);
+  color: var(--text);
+  overflow-y: auto;
+  white-space: pre-wrap;
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+#preview[hidden] {
+  display: none;
+}
+
+.tools {
+  display: flex;
+  gap: var(--space-1);
+  padding: 10px 10px var(--space-3);
+}
+
+.tool {
+  flex: 1 1 0;
+  min-width: 0;
+  height: auto;
+  padding: 10px 2px 8px;
+  border: 0;
+  border-radius: var(--radius-md);
+  background: transparent;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--fs-xs);
+  line-height: 1.3;
+  color: var(--text-2);
+  white-space: normal;
+  text-align: center;
+}
+
+.tool:hover {
+  background: var(--field-bg);
+}
+
+.tool[hidden] {
+  display: none;
+}
+
+.tool svg {
+  width: 22px;
+  height: 22px;
+  stroke-width: 1.5;
+  color: var(--text);
+}
+
+.tool .obsidian-mark {
+  width: 22px;
+  height: 22px;
+}
+
+/* Busy tiles keep their height: the spinner takes the icon's place. */
+.tool[aria-busy="true"]::before {
+  width: 18px;
+  height: 18px;
+  margin: 2px 0;
+}
+
+.details {
+  margin: 0 14px var(--space-2);
+}
+
 .details summary {
   font-size: var(--fs-xs);
   font-weight: 600;
   color: var(--text-2);
-  white-space: nowrap;
+  cursor: pointer;
 }
 
-/* A label sits closer to its controls than groups sit to each other. */
-.section-title,
-.label {
-  margin-bottom: calc(-1 * var(--space-1));
-}
-
-/* AI summary and the note actions are their own groups: 16px apart, 8px inside. */
-.primary,
-.section-title {
-  margin-top: var(--space-2);
+.details[open] summary {
+  margin-bottom: var(--space-2);
 }
 
 .props {
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
-  background: var(--surface);
+  background: var(--surface-muted);
   padding: var(--space-2);
   display: grid;
   gap: var(--space-1);
@@ -169,76 +369,60 @@ body {
   text-overflow: ellipsis;
 }
 
-#subtitleSelect {
-  height: 32px;
-  border: 1px solid var(--border-strong);
-  border-radius: var(--radius-sm);
-  padding: 0 var(--space-2);
-  background: var(--field-bg);
-  color: var(--text);
-  font-size: var(--fs-sm);
+/* Entries that don't depend on the current video stay pinned to the bottom, so open details never push them out of the 600px popup. */
+.rows {
+  position: sticky;
+  bottom: 0;
+  padding: 6px 6px var(--space-2);
+  background: var(--surface);
 }
 
-.details summary {
-  cursor: pointer;
+.rows::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  right: 14px;
+  left: 14px;
+  height: 1px;
+  background: var(--border);
 }
 
-.details[open] {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
-}
-
-/* Grows with the subtitles up to 180px; long lines wrap instead of scrolling sideways. */
-#preview {
+.row {
   width: 100%;
-  field-sizing: content;
-  max-height: 180px;
-  border: 1px solid var(--border);
+  height: 40px;
+  padding: 0 var(--space-2);
+  border: 0;
   border-radius: var(--radius-md);
-  padding: var(--space-2);
-  resize: none;
-  font-size: var(--fs-xs);
-  line-height: 1.5;
-  background: var(--field-bg);
-  color: var(--text);
-  overflow: auto;
-  white-space: pre-wrap;
-  font-family: var(--font-mono);
-  font-variant-numeric: tabular-nums;
-}
-
-/* Every button row: equal widths, but a longer label widens its button instead of clipping. */
-.actions {
+  background: transparent;
   display: flex;
-  gap: var(--space-2);
-}
-
-.actions button {
-  flex: 1 1 0;
-  font-size: var(--fs-sm);
-  font-weight: 600;
-}
-
-.primary {
-  height: auto;
-  padding: var(--space-2) 0;
+  align-items: center;
+  gap: 10px;
+  text-align: left;
   font-size: var(--fs-md);
 }
 
-/* Entries that don't depend on the current video stay pinned to the bottom, so open details never push them out of the 600px popup. */
-.global-actions {
-  position: sticky;
-  bottom: 0;
-  margin: 0 calc(-1 * var(--space-2));
-  padding: var(--space-2);
-  background: var(--bg);
-  border-top: 1px solid var(--border);
+.row:hover {
+  background: var(--field-bg);
+}
+
+.row svg {
+  color: var(--text-2);
+}
+
+.row-label {
+  flex: 1;
+  min-width: 0;
+}
+
+.row .chev {
+  width: 14px;
+  height: 14px;
+  color: var(--faint);
 }
 
 .link-hint {
-  color: var(--muted);
-  font-weight: 400;
+  font-size: var(--fs-xs);
+  color: var(--faint);
 }
 
 .link-hint[hidden] {
