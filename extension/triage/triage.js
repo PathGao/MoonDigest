@@ -1853,7 +1853,7 @@ function renderList() {
   }
   S.focusIndex = list.findIndex((it) => it.bvid === S.focused);
   // 粗看完成 shows which cards the button will send (or is sending) before anything runs.
-  // Those cards get a left bar and a label before the title.
+  // Those cards get a label before the title.
   let marked = new Set();
   let word = "";
   if (S.tab === "coarse") {
@@ -1996,6 +1996,8 @@ function setFocus(bvid, scroll = true) {
     if (scroll) card.scrollIntoView({ block: "nearest" });
   }
 }
+
+const pointerMoved = (at, x, y) => !at || at.x !== x || at.y !== y;
 
 function moveFocus(delta) {
   const list = visibleItems();
@@ -3560,6 +3562,16 @@ function bindEvents() {
     const act = e.target.closest("[data-act]")?.dataset.act;
     setFocus(bvid, false);
     if (act) cardAction(act, bvid);
+  });
+
+  // The pointer makes a card current only when the hand moves it. A mousemove at the same position comes from the
+  // list scrolling (J/K, wheel) or re-rendering under a still pointer and must not steal the keyboard's current card.
+  let pointerAt = null;
+  el.list.addEventListener("mousemove", (e) => {
+    if (!pointerMoved(pointerAt, e.clientX, e.clientY)) return;
+    pointerAt = { x: e.clientX, y: e.clientY };
+    const bvid = e.target.closest(".card")?.dataset.bvid;
+    if (bvid && bvid !== S.focused) setFocus(bvid, false);
   });
 
   el.list.addEventListener("input", (e) => {
