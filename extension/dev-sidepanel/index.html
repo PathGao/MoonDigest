@@ -21,7 +21,7 @@
     <section id="spPreviousVideo" class="sp-prev" hidden></section>
     <main class="sp-messages" id="spMessages">
       <section id="spNote" class="sp-note" hidden>
-        <button id="spNoteToggle" type="button" class="sp-note-toggle is-empty" title="这个视频的备注，和分拣台卡片上的备注是同一份"><span class="sp-note-label"><span class="sp-note-add">✎ 添加备注</span><span class="sp-note-head">✎ 备注</span></span><span id="spNoteText" class="sp-note-text"></span></button>
+        <button id="spNoteToggle" type="button" class="sp-note-toggle is-empty" title="这个视频的备注，和分拣台卡片上的备注是同一份"><span class="sp-note-label"><span class="sp-note-add">✎ 备注</span><span class="sp-note-head">✎ 备注</span></span><span id="spNoteText" class="sp-note-text"></span></button>
         <textarea id="spNoteInput" class="sp-note-input" rows="2" placeholder="一句话备注，回车保存" aria-label="备注" hidden></textarea>
       </section>
       <div class="sp-center-error" aria-busy="true">正在读取视频字幕…</div>
@@ -43,7 +43,7 @@
           <span>导出对话</span>
         </button>
         <button id="spPresetBtn" type="button" class="sp-toolbar-btn sp-toolbar-end" title="管理输入框上方的快捷追问">
-          <span>管理追问</span>
+          <span>管理快捷追问</span>
         </button>
         <div id="spPresetPopover" class="sp-preset-popover" hidden>
           <div id="spPresetList" class="sp-preset-list"></div>
@@ -75,7 +75,7 @@
         </div>
         <div id="spHistoryPopover" class="sp-history-popover" hidden>
           <div class="sp-history-popover-head">
-            <a class="sp-history-manage" href="./history/history.html" target="_blank" title="打开视频记录" aria-label="打开视频记录（全部 / 搜索）">全部 / 搜索</a>
+            <a class="sp-history-manage" href="./history/history.html" target="_blank" title="打开视频记录" aria-label="打开视频记录">视频记录</a>
           </div>
           <div id="spHistoryList" class="sp-history-list"></div>
         </div>
@@ -86,7 +86,7 @@
         <textarea
           id="spInput"
           rows="2"
-          placeholder="回车发送，Shift+Enter 换行"
+          placeholder="回车发送，Shift+回车换行"
           autocomplete="off"
         ></textarea>
         <button id="spSendBtn" type="button" class="sp-send-btn"><span class="ai-spark" aria-hidden="true"></span>发送</button>

@@ -84,8 +84,8 @@ const noteIdOf = (g) => (g.context.videoId && (Number(g.context.pageIndex) || 1)
 
 function renderNote(g) {
   const id = noteIdOf(g);
-  if (id && editing?.id === id) return `<textarea class="entry-note-edit" data-note rows="2" placeholder="一句话备注，只有你自己看" aria-label="备注">${esc(editing.draft)}</textarea>`;
-  if (!g.note) return id ? `<button type="button" class="note-add" data-act="note">+ 备注</button>` : "";
+  if (id && editing?.id === id) return `<textarea class="entry-note-edit" data-note rows="2" placeholder="一句话备注，回车保存" aria-label="备注">${esc(editing.draft)}</textarea>`;
+  if (!g.note) return id ? `<button type="button" class="note-add" data-act="note">✎ 备注</button>` : "";
   const body = `<b>备注</b> ${esc(g.note.text.trim())}`;
   return id ? `<button type="button" class="entry-note" data-act="note" title="点击编辑备注">${body}</button>` : `<div class="entry-note">${body}</div>`;
 }

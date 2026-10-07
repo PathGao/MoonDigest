@@ -1934,7 +1934,7 @@ function cardHtml(it, expanded, mark) {
   const note = S.notes[b]?.text || "";
   const noteHtml =
     note || S.noteOpen.has(b)
-      ? `<textarea class="note" data-note rows="1" placeholder="一句话备注，只有你自己看" aria-label="备注">${esc(note)}</textarea>`
+      ? `<textarea class="note" data-note rows="1" placeholder="一句话备注，回车保存" aria-label="备注">${esc(note)}</textarea>`
       : "";
   const failed = v.failed
     ? `<span class="fail-text">分析失败：${esc(v.failed)}</span><button type="button" data-act="retry" aria-label="重试分析">${AI_SPARK}重试</button>`
@@ -1961,7 +1961,7 @@ function cardHtml(it, expanded, mark) {
       ${noteHtml}
       <div class="card-foot">
         ${decision ? `<span class="badge ${decision.action === "keep" ? "keep" : "drop"}">${ACTION_LABEL[decision.action]}</span>` : ""}
-        ${noteHtml ? "" : `<button type="button" class="link note-add" data-act="note" aria-label="添加备注">+ 备注</button>`}
+        ${noteHtml ? "" : `<button type="button" class="link note-add" data-act="note" aria-label="添加备注">✎ 备注</button>`}
         <span class="spacer"></span>
         <div class="actions">
           ${removed ? `<span class="pair">
