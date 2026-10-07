@@ -213,9 +213,9 @@
     return error;
   }
 
-  // The view API's codes for a video that is gone or hidden: -404 稿件不存在, 62002 稿件不可见, 62004 稿件审核中,
-  // 62012 仅 UP 主自己可见. Risk control (-352/-412, THROTTLED) and network errors are not among them.
-  const BILI_GONE_CODES = new Set([-404, 62002, 62004, 62012]);
+  // The view API's codes for a video that is gone or hidden: -404 稿件不存在, 62002 稿件不可见, 62012 仅 UP 主自己可见.
+  // 62004 稿件审核中 comes back later, and risk control (-352/-412, THROTTLED) and network errors are not among them.
+  const BILI_GONE_CODES = new Set([-404, 62002, 62012]);
   function isBiliVideoGone(code) {
     return BILI_GONE_CODES.has(code);
   }

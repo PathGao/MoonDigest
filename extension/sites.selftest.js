@@ -39,8 +39,8 @@ assert.strictEqual(S.parseRef("https://example.com/video/BV1GJ411x7h7"), null);
 assert.strictEqual(S.parseRef("https://www.bilibili.com/video/av170001/?vd_source=x").id, "BV17x411w7KC");
 assert.strictEqual(S.parseRef("https://www.bilibili.com/video/av1").id, "BV1xx411c7mQ");
 // A deleted or hidden video falls back to a conversation-only note; risk control and other failures do not.
-for (const code of [-404, 62002, 62004, 62012]) assert.strictEqual(S.isBiliVideoGone(code), true, code);
-for (const code of ["THROTTLED", -352, -412, -101, -403, undefined]) assert.strictEqual(S.isBiliVideoGone(code), false, code);
+for (const code of [-404, 62002, 62012]) assert.strictEqual(S.isBiliVideoGone(code), true, code);
+for (const code of [62004, "THROTTLED", -352, -412, -101, -403, undefined]) assert.strictEqual(S.isBiliVideoGone(code), false, code);
 assert.strictEqual(S.isAllowedFetchUrl("https://api.bilibili.com/x/web-interface/view?bvid=1"), true);
 assert.strictEqual(S.isAllowedFetchUrl("https://i0.hdslb.com/bfs/x.jpg"), true);
 assert.strictEqual(S.isAllowedFetchUrl("https://evil.com/?hdslb.com"), false);

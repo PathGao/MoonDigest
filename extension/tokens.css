@@ -198,3 +198,12 @@ button[aria-busy="true"]:disabled { opacity: 0.7; cursor: progress; }
   background: currentColor;
   mask: url("icons/moondigest-mark.svg") center / contain no-repeat;
 }
+
+/* BocOverwriteDialog (download.js): the form fills the dialog, so a click on the dialog itself is the backdrop. */
+dialog.boc-overwrite { padding: 0; max-width: 360px; border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--surface); color: var(--text); }
+dialog.boc-overwrite::backdrop { background: rgba(17, 24, 39, 0.28); }
+dialog.boc-overwrite form { padding: 16px; }
+dialog.boc-overwrite h2 { margin: 0 0 8px; font-size: var(--fs-lg); }
+dialog.boc-overwrite p { margin: 0 0 8px; color: var(--text-2); font-size: var(--fs-sm); }
+dialog.boc-overwrite code { display: block; color: var(--text-2); font-size: var(--fs-xs); word-break: break-all; }
+dialog.boc-overwrite .actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 14px; }

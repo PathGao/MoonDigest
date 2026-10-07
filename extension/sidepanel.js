@@ -2368,7 +2368,7 @@ async function saveBuiltVideoNoteToObsidian(context, ref, settingsBundle) {
   const built = await sendRuntimeMessage({ type: "triage-build-note", bvid: ref.videoId });
   if (!built?.ok) {
     if (!BocSites.isBiliVideoGone(built?.code)) {
-      throw new Error(getReadableText(built?.error, "生成视频笔记失败"));
+      throw new Error(built?.code === 62004 ? "视频审核中，过后再试" : getReadableText(built?.error, "生成视频笔记失败"));
     }
     const filepath = await saveConversationNoteToObsidian(settingsBundle);
     if (filepath) {
@@ -2377,18 +2377,24 @@ async function saveBuiltVideoNoteToObsidian(context, ref, settingsBundle) {
     return;
   }
   const filepath = videoNotePathFor({ ...context, title: built.data.title || context.title }, settings);
-  if ((await checkObsidianNoteExists(baseUrl, apiKey, filepath)) && !(await confirmOverwriteNote(filepath))) {
+  const choice = (await checkObsidianNoteExists(baseUrl, apiKey, filepath)) ? await BocOverwriteDialog.choose(filepath, { hasAiSection: true }) : "full";
+  if (!choice) {
     showConversationContextNotice("已取消写入 Obsidian，原笔记未被覆盖。", 2200);
     return;
   }
   const noteKey = BocSites.buildContextKey(ref);
-  const written = await sendRuntimeMessage({ type: "write-obsidian-note", baseUrl, apiKey, filepath, content: built.data.markdown, noteKey });
-  if (!written?.ok) {
-    throw new Error(getReadableText(written?.error, "Local API 写入失败"));
+  if (choice === "full") {
+    const written = await sendRuntimeMessage({ type: "write-obsidian-note", baseUrl, apiKey, filepath, content: built.data.markdown, noteKey });
+    if (!written?.ok) {
+      throw new Error(getReadableText(written?.error, "Local API 写入失败"));
+    }
   }
-  // The write recorded filepath for noteKey, so the section update finds the new note.
-  await syncVideoNoteAiSection({ context, messages: chatHistory, ...settingsBundle });
-  showConversationContextNotice(`已新建视频笔记并写入 AI 问答：${filepath}`, 4000);
+  const section = BocNote.buildAiSection(buildConversationTurns(chatHistory));
+  const updated = await sendRuntimeMessage({ type: "update-obsidian-ai-section", baseUrl, apiKey, filepath, section, noteKey });
+  if (!updated?.ok) {
+    throw new Error(getReadableText(updated?.error, "Local API 写入失败"));
+  }
+  showConversationContextNotice(choice === "full" ? `已新建视频笔记并写入 AI 问答：${filepath}` : `已写入视频笔记的 AI 问答：${filepath}`, 4000);
 }
 
 async function loadObsidianSettings() {
