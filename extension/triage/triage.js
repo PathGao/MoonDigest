@@ -369,6 +369,14 @@ function storeSet(key, value) {
     toast(`保存失败，本地存储可能已满：${e?.message || e}`, true);
   });
 }
+// Read-modify-writes of a shared record (已取消收藏, the left trail, a folder's list or 取消收藏) run one at a time: two overlapping ones each
+// write back what they read, and the first one's change is lost. A queued fn must not queue another (it would wait on itself).
+let storeChain = Promise.resolve();
+function serialStore(fn) {
+  const run = storeChain.then(fn);
+  storeChain = run.catch(() => {});
+  return run;
+}
 
 function esc(v) {
   return String(v ?? "")
@@ -816,23 +824,25 @@ async function loadKept() {
 
 // A folder that is no longer chosen (deleted on Bilibili or unticked) gets no new list to diff against, so its videos
 // (unless in a chosen folder's list) move to 已取消收藏 here and its records go. Runs once S.folders is known.
-async function retireUnchosenFolders() {
-  if (!S.allFolders.length) return; // 默认收藏夹 always exists; an empty list is never "every folder deleted"
-  if (!S.included.length) return; // nothing chosen yet (or all unticked by accident): never empty every folder into 已取消收藏
-  const live = new Set(S.folders.map((f) => String(f.id)));
-  const keys = ((await chrome.storage.local.getKeys?.()) ?? Object.keys((await chrome.storage.local.get(null)) || {})).filter((k) => k.startsWith("triage_snapshot_"));
-  const gone = keys.map((k) => k.slice(16)).filter((id) => !live.has(id));
-  if (!gone.length) return;
-  const got = await chrome.storage.local.get([K.removed, K.left, ...keys]);
-  const otherBvids = new Set([...live].flatMap((id) => got[K.snapshot(id)]?.bvids || []));
-  let out = { removed: got[K.removed] || {}, left: got[K.left] || {} };
-  for (const id of gone) {
-    const old = got[K.snapshot(id)];
-    const oldItems = old?.items || (old?.bvids || []).map((bvid) => ({ bvid, title: old.titles?.[bvid] || bvid }));
-    out = updateRemoved(out.removed, out.left, oldItems, [], otherBvids, Date.now(), null, { id, title: folderName(id) });
-  }
-  await chrome.storage.local.set({ [K.removed]: out.removed, [K.left]: out.left });
-  await chrome.storage.local.remove(gone.flatMap((id) => [K.snapshot(id), K.decisions(id)]));
+function retireUnchosenFolders() {
+  return serialStore(async () => {
+    if (!S.allFolders.length) return; // 默认收藏夹 always exists; an empty list is never "every folder deleted"
+    if (!S.included.length) return; // nothing chosen yet (or all unticked by accident): never empty every folder into 已取消收藏
+    const live = new Set(S.folders.map((f) => String(f.id)));
+    const keys = ((await chrome.storage.local.getKeys?.()) ?? Object.keys((await chrome.storage.local.get(null)) || {})).filter((k) => k.startsWith("triage_snapshot_"));
+    const gone = keys.map((k) => k.slice(16)).filter((id) => !live.has(id));
+    if (!gone.length) return;
+    const got = await chrome.storage.local.get([K.removed, K.left, ...keys]);
+    const otherBvids = new Set([...live].flatMap((id) => got[K.snapshot(id)]?.bvids || []));
+    let out = { removed: got[K.removed] || {}, left: got[K.left] || {} };
+    for (const id of gone) {
+      const old = got[K.snapshot(id)];
+      const oldItems = old?.items || (old?.bvids || []).map((bvid) => ({ bvid, title: old.titles?.[bvid] || bvid }));
+      out = updateRemoved(out.removed, out.left, oldItems, [], otherBvids, Date.now(), null, { id, title: folderName(id) });
+    }
+    await chrome.storage.local.set({ [K.removed]: out.removed, [K.left]: out.left });
+    await chrome.storage.local.remove(gone.flatMap((id) => [K.snapshot(id), K.decisions(id)]));
+  });
 }
 
 // Opt-in: a new user starts with no folder chosen. The first load after this change keeps every folder for
@@ -904,11 +914,15 @@ async function loadFolders() {
   await openFolder(pick);
 }
 
+let openSeq = 0;
 async function openFolder(mediaId) {
-  // Loaded before any state changes so S.mediaId and S.decisions always belong to the same folder.
+  // Loaded before any state changes so S.mediaId and S.decisions always belong to the same folder; a later click
+  // during the read wins.
+  const seq = ++openSeq;
   const all = mediaId === ALL;
   const removed = mediaId === REMOVED;
   const decisions = all || removed ? {} : { ...S.kept, ...(await storeGet(K.decisions(mediaId), {})) };
+  if (seq !== openSeq) return;
   const token = ++S.folderToken;
   S.mediaId = mediaId;
   S.decisions = decisions;
@@ -1005,14 +1019,18 @@ function writingTo(id) {
   const k = String(id);
   return [S.unfavBatch, S.transferRun].some((run) => run && (run.mediaId === k || run.to === k)) || Date.now() - (lastWrite[k] || 0) < WRITE_SETTLE_MS;
 }
-let deferredRead = 0;
-function deferRead(fn) {
-  if (deferredRead) return;
+// The latest request replaces a waiting one (it may be for the folder opened since), except that a waiting full sync
+// is not traded for the light check.
+let deferredRead = null;
+function deferRead(fn, full = false) {
+  if (deferredRead?.full && deferredRead.token === S.folderToken && !full) return;
+  clearTimeout(deferredRead?.timer);
   const token = S.folderToken;
-  deferredRead = setTimeout(() => {
-    deferredRead = 0;
+  const timer = setTimeout(() => {
+    deferredRead = null;
     if (token === S.folderToken) fn();
   }, 1000);
+  deferredRead = { timer, token, full };
 }
 
 // The light refresh (back on the tab, the player closed, a video re-favorited): check the id list and apply only the
@@ -1035,7 +1053,7 @@ async function syncFolder({ force = false, cached = null } = {}) {
   // S.syncing holds the token of the running sync, so a forced sync for a newly opened folder is not blocked by the old one.
   if (S.syncing === S.folderToken || (!force && Date.now() - S.lastSyncAt < SYNC_MIN_GAP_MS)) return false;
   if (writingTo(S.mediaId)) {
-    deferRead(() => (cached ? quickSync({ force: true }) : syncFolder({ force: true })));
+    deferRead(() => (cached ? quickSync({ force: true }) : syncFolder({ force: true })), !cached);
     return false;
   }
   const token = S.folderToken;
@@ -1061,6 +1079,7 @@ async function syncFolder({ force = false, cached = null } = {}) {
     S.lastSyncAt = Date.now();
     if (r.data.info) S.folderIntro[mediaId] = r.data.info.intro;
     const snap = await storeGet(K.snapshot(mediaId), null);
+    if (token !== S.folderToken) return false;
     const remote = keepInvalidInfo(r.data.items || [], snap?.items);
     // A partial list proves what exists, never what was removed, so it skips the removed diff and the snapshot.
     const partial = r.data.partial ? { ...r.data.partial, count: remote.length } : null;
@@ -1116,27 +1135,29 @@ async function syncFolder({ force = false, cached = null } = {}) {
 
 // The full item list doubles as the 所有收藏夹 cache; bvids/invalid/titles drive the sync diff. Videos that left every
 // chosen folder go to 已取消收藏.
-async function saveSnapshot(mediaId, items, ids = null) {
-  const others = S.folders.map((f) => String(f.id)).filter((id) => id !== String(mediaId));
-  const got = await chrome.storage.local.get([K.snapshot(mediaId), K.removed, K.left, ...others.map(K.snapshot)]);
-  const old = got[K.snapshot(mediaId)];
-  const oldItems = old?.items || (old?.bvids || []).map((bvid) => ({ bvid, title: old.titles?.[bvid] || bvid }));
-  const otherBvids = new Set(others.flatMap((id) => got[K.snapshot(id)]?.bvids || []));
-  const { removed, left } = updateRemoved(got[K.removed] || {}, got[K.left] || {}, oldItems, items, otherBvids, Date.now(), ids, { id: String(mediaId), title: folderName(mediaId) });
-  await chrome.storage.local.set({
-    [K.snapshot(mediaId)]: {
-      bvids: items.map((it) => it.bvid),
-      invalid: items.filter((it) => it.invalid).map((it) => it.bvid),
-      titles: Object.fromEntries(items.map((it) => [it.bvid, it.title])),
-      items,
-      ids, // the folder's id list at this load; 所有收藏夹 compares the next id list with it
-      intro: S.folderIntro[mediaId] ?? old?.intro
-    },
-    [K.removed]: removed,
-    [K.left]: left
+function saveSnapshot(mediaId, items, ids = null) {
+  return serialStore(async () => {
+    const others = S.folders.map((f) => String(f.id)).filter((id) => id !== String(mediaId));
+    const got = await chrome.storage.local.get([K.snapshot(mediaId), K.removed, K.left, ...others.map(K.snapshot)]);
+    const old = got[K.snapshot(mediaId)];
+    const oldItems = old?.items || (old?.bvids || []).map((bvid) => ({ bvid, title: old.titles?.[bvid] || bvid }));
+    const otherBvids = new Set(others.flatMap((id) => got[K.snapshot(id)]?.bvids || []));
+    const { removed, left } = updateRemoved(got[K.removed] || {}, got[K.left] || {}, oldItems, items, otherBvids, Date.now(), ids, { id: String(mediaId), title: folderName(mediaId) });
+    await chrome.storage.local.set({
+      [K.snapshot(mediaId)]: {
+        bvids: items.map((it) => it.bvid),
+        invalid: items.filter((it) => it.invalid).map((it) => it.bvid),
+        titles: Object.fromEntries(items.map((it) => [it.bvid, it.title])),
+        items,
+        ids, // the folder's id list at this load; 所有收藏夹 compares the next id list with it
+        intro: S.folderIntro[mediaId] ?? old?.intro
+      },
+      [K.removed]: removed,
+      [K.left]: left
+    });
+    S.removedCount = Object.keys(removed).length;
+    renderTop();
   });
-  S.removedCount = Object.keys(removed).length;
-  renderTop();
 }
 
 // ---------- 已取消收藏 ----------
@@ -1180,19 +1201,21 @@ async function checkRemoved(token) {
 }
 
 // Drops these bvids from 已取消收藏 (they are in a folder again); returns how many were there.
-async function dropRemoved(bvids) {
-  const rec = await storeGet(K.removed, {});
-  // A hidden invalid video stays in the id list; only its listing coming back (updateRemoved) takes it out.
-  const back = bvids.filter((b) => rec[b] && !rec[b].hidden);
-  if (!back.length) return 0;
-  for (const b of back) delete rec[b];
-  await storeSet(K.removed, rec);
-  S.removedCount = Object.keys(rec).length;
-  if (S.mediaId === REMOVED) {
-    S.items = S.items.filter((it) => !back.includes(it.bvid));
-    S.itemMap = new Map(S.items.map((it) => [it.bvid, it]));
-  }
-  return back.length;
+function dropRemoved(bvids) {
+  return serialStore(async () => {
+    const rec = await storeGet(K.removed, {});
+    // A hidden invalid video stays in the id list; only its listing coming back (updateRemoved) takes it out.
+    const back = bvids.filter((b) => rec[b] && !rec[b].hidden);
+    if (!back.length) return 0;
+    for (const b of back) delete rec[b];
+    await storeSet(K.removed, rec);
+    S.removedCount = Object.keys(rec).length;
+    if (S.mediaId === REMOVED) {
+      S.items = S.items.filter((it) => !back.includes(it.bvid));
+      S.itemMap = new Map(S.items.map((it) => [it.bvid, it]));
+    }
+    return back.length;
+  });
 }
 
 // Deletes everything MoonDigest holds for these videos (AI results, 保留, note, tags, 优先看, 取消收藏 records) and their record.
@@ -1201,28 +1224,30 @@ async function cleanRemoved(list) {
   const one = list.length === 1 ? `《${shortTitle(list[0])}》` : `这 ${list.length} 个视频`;
   const body = `<p>删除${one}的 AI 分析、备注、标签和优先看记录，无法撤销。要留存请先「批量导出」。</p>`;
   if (!(await askConfirm(`清理${one}？`, body, `清理 ${list.length} 个`))) return;
-  const bvids = list.map((it) => it.bvid);
-  const set = new Set(bvids);
-  const rec = await storeGet(K.removed, {});
-  for (const b of bvids) {
-    for (const map of [rec, S.notes, S.videoTags, S.kept, S.analyses, S.titleRes]) delete map[b];
-  }
-  S.basket = S.basket.filter((x) => !set.has(x.bvid));
-  const decisionKeys = ((await chrome.storage.local.getKeys?.()) ?? Object.keys((await chrome.storage.local.get(null)) || {})).filter((k) => k.startsWith("triage_decisions_"));
-  const decisions = await chrome.storage.local.get(decisionKeys);
-  for (const map of [...Object.values(decisions), S.decisions, ...Object.values(S.folderDecisions)]) for (const b of bvids) delete map[b];
-  noteOwnWrites(decisions);
-  await chrome.storage.local.set(decisions);
-  await chrome.storage.local.remove(bvids.flatMap((b) => [`triage_title_${b}`, `triage_analysis_${b}`]));
-  const write = { [K.removed]: rec, [K.notes]: S.notes, [K.videoTags]: S.videoTags, [K.kept]: S.kept, [K.basket]: S.basket };
-  noteOwnWrites(write);
-  await chrome.storage.local.set(write);
-  S.removedCount = Object.keys(rec).length;
-  S.items = S.items.filter((it) => !set.has(it.bvid));
-  S.itemMap = new Map(S.items.map((it) => [it.bvid, it]));
-  for (const b of set) S.selected.delete(b);
-  toast(`已清理 ${list.length} 个视频`);
-  render();
+  return serialStore(async () => {
+    const bvids = list.map((it) => it.bvid);
+    const set = new Set(bvids);
+    const rec = await storeGet(K.removed, {});
+    for (const b of bvids) {
+      for (const map of [rec, S.notes, S.videoTags, S.kept, S.analyses, S.titleRes]) delete map[b];
+    }
+    S.basket = S.basket.filter((x) => !set.has(x.bvid));
+    const decisionKeys = ((await chrome.storage.local.getKeys?.()) ?? Object.keys((await chrome.storage.local.get(null)) || {})).filter((k) => k.startsWith("triage_decisions_"));
+    const decisions = await chrome.storage.local.get(decisionKeys);
+    for (const map of [...Object.values(decisions), S.decisions, ...Object.values(S.folderDecisions)]) for (const b of bvids) delete map[b];
+    noteOwnWrites(decisions);
+    await chrome.storage.local.set(decisions);
+    await chrome.storage.local.remove(bvids.flatMap((b) => [`triage_title_${b}`, `triage_analysis_${b}`]));
+    const write = { [K.removed]: rec, [K.notes]: S.notes, [K.videoTags]: S.videoTags, [K.kept]: S.kept, [K.basket]: S.basket };
+    noteOwnWrites(write);
+    await chrome.storage.local.set(write);
+    S.removedCount = Object.keys(rec).length;
+    S.items = S.items.filter((it) => !set.has(it.bvid));
+    S.itemMap = new Map(S.items.map((it) => [it.bvid, it]));
+    for (const b of set) S.selected.delete(b);
+    toast(`已清理 ${list.length} 个视频`);
+    render();
+  });
 }
 
 // Reads cached 粗分/细看 results for listed videos not loaded yet; false when the folder changed meanwhile.
@@ -1999,16 +2024,18 @@ function pushUndo(entry) {
 // Patch one folder's decisions even after the user switched away from it; a null value deletes.
 // Merged into the stored record, not written from memory: a batch running for this folder may have written it after
 // the open folder read it.
-async function patchDecisions(mediaId, patch) {
-  const stored = await storeGet(K.decisions(mediaId), {});
-  const maps = [stored, mediaId === S.mediaId && S.decisions, S.folderDecisions[mediaId]].filter(Boolean);
-  for (const d of maps) {
-    for (const [b, v] of Object.entries(patch)) {
-      if (v) d[b] = v;
-      else delete d[b];
+function patchDecisions(mediaId, patch) {
+  return serialStore(async () => {
+    const stored = await storeGet(K.decisions(mediaId), {});
+    const maps = [stored, mediaId === S.mediaId && S.decisions, S.folderDecisions[mediaId]].filter(Boolean);
+    for (const d of maps) {
+      for (const [b, v] of Object.entries(patch)) {
+        if (v) d[b] = v;
+        else delete d[b];
+      }
     }
-  }
-  await storeSet(K.decisions(mediaId), unfavOnly(stored));
+    await storeSet(K.decisions(mediaId), unfavOnly(stored));
+  });
 }
 // 保留 is one list for every folder; a null value deletes.
 function patchKept(patch) {
@@ -2255,31 +2282,33 @@ function toggleTransferNew() {
 // Folders are not read while a run writes them (writingTo), so both cached lists change here instead of by a sync: the target
 // gains the videos (a new folder starts with exactly these), the source loses them without counting them as having left
 // every folder (已取消收藏). A folder with no cached list is left to its first load.
-async function patchSnapshot(mediaId, { add = [], drop = [] }, created = false) {
-  const key = K.snapshot(mediaId);
-  const got = await chrome.storage.local.get([key, K.left]);
-  const snap = got[key];
-  if (!snap && !created) return;
-  const old = snap || { bvids: [], invalid: [], titles: {}, items: [], ids: [], intro: "" };
-  const gone = new Set(drop);
-  const fresh = add.filter((it) => !old.bvids.includes(it.bvid));
-  const added = fresh.map((it) => it.bvid);
-  const keep = (b) => !gone.has(b);
-  // The trail follows this move like a folder diff would: added here forgets this folder, dropped from here adds it.
-  const left = { ...got[K.left] };
-  for (const it of add) forgetLeft(left, it.bvid, String(mediaId));
-  for (const b of drop) left[b] = { ...left[b], [String(mediaId)]: { title: folderName(mediaId), at: Date.now() } };
-  await chrome.storage.local.set({
-    [K.left]: left,
-    [key]: {
-      ...old,
-      bvids: [...added, ...old.bvids.filter(keep)],
-      invalid: (old.invalid || []).filter(keep),
-      titles: { ...old.titles, ...Object.fromEntries(fresh.map((it) => [it.bvid, it.title])) },
-      items: [...fresh, ...(old.items || []).filter((it) => keep(it.bvid))],
-      ids: old.ids ? [...added, ...old.ids.filter(keep)] : old.ids,
-      at: Date.now()
-    }
+function patchSnapshot(mediaId, { add = [], drop = [] }, created = false) {
+  return serialStore(async () => {
+    const key = K.snapshot(mediaId);
+    const got = await chrome.storage.local.get([key, K.left]);
+    const snap = got[key];
+    if (!snap && !created) return;
+    const old = snap || { bvids: [], invalid: [], titles: {}, items: [], ids: [], intro: "" };
+    const gone = new Set(drop);
+    const fresh = add.filter((it) => !old.bvids.includes(it.bvid));
+    const added = fresh.map((it) => it.bvid);
+    const keep = (b) => !gone.has(b);
+    // The trail follows this move like a folder diff would: added here forgets this folder, dropped from here adds it.
+    const left = { ...got[K.left] };
+    for (const it of add) forgetLeft(left, it.bvid, String(mediaId));
+    for (const b of drop) left[b] = { ...left[b], [String(mediaId)]: { title: folderName(mediaId), at: Date.now() } };
+    await chrome.storage.local.set({
+      [K.left]: left,
+      [key]: {
+        ...old,
+        bvids: [...added, ...old.bvids.filter(keep)],
+        invalid: (old.invalid || []).filter(keep),
+        titles: { ...old.titles, ...Object.fromEntries(fresh.map((it) => [it.bvid, it.title])) },
+        items: [...fresh, ...(old.items || []).filter((it) => keep(it.bvid))],
+        ids: old.ids ? [...added, ...old.ids.filter(keep)] : old.ids,
+        at: Date.now()
+      }
+    });
   });
 }
 
@@ -2362,26 +2391,28 @@ async function batchTransfer(list) {
 
 // Moved to a folder outside triage: like any video that left every chosen folder, it goes to 已取消收藏, marked with
 // where it went. Ticking that folder brings it back (recoverRemoved).
-async function addMovedToRemoved(from, items, movedTo) {
-  const others = S.folders.map((f) => String(f.id)).filter((id) => id !== from);
-  const got = await chrome.storage.local.get([K.removed, K.left, ...others.map(K.snapshot)]);
-  const otherBvids = new Set(others.flatMap((id) => got[K.snapshot(id)]?.bvids || []));
-  const at = Date.now();
-  const source = from === REMOVED ? null : { id: from, title: folderName(from) };
-  const { removed, left } = moveToRemoved(got[K.removed] || {}, got[K.left] || {}, items, otherBvids, source, at, movedTo);
-  await chrome.storage.local.set({ [K.removed]: removed, [K.left]: left });
-  if (S.mediaId === REMOVED) {
-    for (const it of items) {
-      const rec = removed[it.bvid];
-      if (!rec) continue;
-      const shown = S.itemMap.get(it.bvid);
-      if (shown) Object.assign(shown, { removedAt: at, movedTo, from: rec.from });
-      else S.items.unshift({ ...it, removedAt: at, movedTo, from: rec.from });
+function addMovedToRemoved(from, items, movedTo) {
+  return serialStore(async () => {
+    const others = S.folders.map((f) => String(f.id)).filter((id) => id !== from);
+    const got = await chrome.storage.local.get([K.removed, K.left, ...others.map(K.snapshot)]);
+    const otherBvids = new Set(others.flatMap((id) => got[K.snapshot(id)]?.bvids || []));
+    const at = Date.now();
+    const source = from === REMOVED ? null : { id: from, title: folderName(from) };
+    const { removed, left } = moveToRemoved(got[K.removed] || {}, got[K.left] || {}, items, otherBvids, source, at, movedTo);
+    await chrome.storage.local.set({ [K.removed]: removed, [K.left]: left });
+    if (S.mediaId === REMOVED) {
+      for (const it of items) {
+        const rec = removed[it.bvid];
+        if (!rec) continue;
+        const shown = S.itemMap.get(it.bvid);
+        if (shown) Object.assign(shown, { removedAt: at, movedTo, from: rec.from });
+        else S.items.unshift({ ...it, removedAt: at, movedTo, from: rec.from });
+      }
+      S.itemMap = new Map(S.items.map((x) => [x.bvid, x]));
     }
-    S.itemMap = new Map(S.items.map((x) => [x.bvid, x]));
-  }
-  S.removedCount = Object.keys(removed).length;
-  renderTop();
+    S.removedCount = Object.keys(removed).length;
+    renderTop();
+  });
 }
 
 // Newly ticked folders take back their videos from 已取消收藏 at once, without waiting for the folder to be opened.

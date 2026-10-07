@@ -23,6 +23,7 @@ const ctx = vm.createContext({
   console,
   structuredClone,
   setTimeout: (f) => setImmediate(f),
+  clearTimeout: (id) => clearImmediate(id),
   document: { getElementById: stubEl, querySelector: () => null, addEventListener() {} },
   window: { addEventListener() {} },
   chrome: {
@@ -1223,6 +1224,93 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     t.S.watchedFilter = false;
     t.S.watched = {};
     cfg(false, false);
+  }
+
+  {
+    // Overlapping read-modify-writes of one record each read it before the other wrote; neither change may be lost.
+    openFake("S", []);
+    store[t.K.removed] = { BV90: { item: item(90), at: 1 } };
+    t.S.folders = [];
+    await Promise.all([t.dropRemoved(["BV90"]), t.addMovedToRemoved("S", [item(91)], "T")]);
+    assert.deepStrictEqual(Object.keys(store[t.K.removed]), ["BV91"], "已取消收藏: the drop and the add both land");
+    delete store[t.K.decisions("S")];
+    await Promise.all([t.patchDecisions("S", { BV92: { action: "unfav" } }), t.patchDecisions("S", { BV93: { action: "unfav" } })]);
+    assert.deepStrictEqual(Object.keys(store[t.K.decisions("S")]).sort(), ["BV92", "BV93"], "two decision patches both land");
+    // Two folders' cached lists patched at once both add to the shared trail of where videos left.
+    const snap = (b) => ({ bvids: [b], invalid: [], titles: {}, items: [item(+b.slice(2))], ids: [b], intro: "" });
+    Object.assign(store, { [t.K.snapshot("S")]: snap("BV94"), [t.K.snapshot("T")]: snap("BV95"), [t.K.left]: {} });
+    await Promise.all([t.patchSnapshot("S", { drop: ["BV94"] }), t.patchSnapshot("T", { drop: ["BV95"] })]);
+    assert.deepStrictEqual(Object.keys(store[t.K.left]).sort(), ["BV94", "BV95"], "both moves are in the trail");
+    for (const k of [t.K.snapshot("S"), t.K.snapshot("T"), t.K.left]) delete store[k];
+    delete store[t.K.removed];
+    delete store[t.K.decisions("S")];
+  }
+
+  {
+    // A read held back until a test lets it go: the slow one of two overlapping async flows.
+    const realGet = ctx.chrome.storage.local.get;
+    const holdRead = (key) => {
+      let open;
+      const gate = new Promise((r) => (open = r));
+      ctx.chrome.storage.local.get = async (k) => {
+        if (k === key) {
+          ctx.chrome.storage.local.get = realGet;
+          await gate;
+        }
+        return realGet(k);
+      };
+      return open;
+    };
+    const settle = async () => {
+      for (let i = 0; i < 30; i++) await new Promise((r) => setImmediate(r));
+    };
+    t.syncFolder = async () => true;
+    Object.assign(t.S, { folders: [{ id: "PA", title: "A" }, { id: "PB", title: "B" }], kept: {}, unfavBatch: null, transferRun: null });
+    t.el.folderSelect = { value: "", querySelector: () => null };
+    store.triage_snapshot_PA = { bvids: ["BV71"], ids: ["BV71"], items: [item(71)], intro: "" };
+    store.triage_snapshot_PB = { bvids: ["BV72"], ids: ["BV72"], items: [item(72)], intro: "" };
+    handlers["triage-folder-ids"] = ({ mediaId }) => ({ ok: true, data: { bvids: [mediaId === "PA" ? "BV71" : "BV72"] } });
+    handlers["triage-title-get"] = handlers["triage-analysis-get"] = () => ({ ok: true, data: {} });
+
+    // Two quick folder switches: the first folder's slow read finishing last must not take the view back.
+    const releaseA = holdRead(t.K.decisions("PA"));
+    const openA = t.openFolder("PA");
+    await t.openFolder("PB");
+    releaseA();
+    await openA;
+    await settle();
+    assert.deepStrictEqual([t.S.mediaId, plain(t.S.items.map((it) => it.bvid))], ["PB", ["BV72"]], "the last folder clicked stays open");
+
+    // A full sync whose folder changes while it reads the old list leaves the new folder's list alone.
+    t.syncFolder = realSync;
+    openFake("PA", [item(71)]);
+    t.S.syncing = false;
+    handlers["triage-folder-items"] = () => ({ ok: true, data: { items: [item(71), item(73)], ids: ["BV71", "BV73"] } });
+    const releaseSnap = holdRead(t.K.snapshot("PA"));
+    const sync = t.syncFolder({ force: true });
+    await settle();
+    openFake("PB", [item(72)]);
+    releaseSnap();
+    assert.strictEqual(await sync, false, "the stale sync gives up");
+    assert.deepStrictEqual(plain(t.S.items.map((it) => it.bvid)), ["BV72"], "folder B keeps its own list");
+
+    // A read deferred for a folder being written is not dropped because another folder's read was waiting first.
+    const ran = [];
+    t.S.transferRun = { mediaId: "PA", to: "PB" };
+    openFake("PA", []);
+    t.deferRead(() => ran.push("A"));
+    openFake("PB", []);
+    t.deferRead(() => ran.push("B"));
+    await settle();
+    assert.deepStrictEqual(ran, ["B"], "the open folder's deferred read runs");
+    // A pending full sync is not downgraded to the light check by a later request.
+    ran.length = 0;
+    t.deferRead(() => ran.push("full"), true);
+    t.deferRead(() => ran.push("quick"));
+    await settle();
+    assert.deepStrictEqual(ran, ["full"]);
+    t.S.transferRun = null;
+    t.syncFolder = realSync;
   }
 
   console.log("triage selftest: all passed");
