@@ -727,6 +727,7 @@ function buildUiHtml() {
             </section>
 
             <section class="boc-reading-settings-group">
+              <div class="boc-reading-eyebrow">字幕</div>
               <div class="boc-reading-controls">
                 <label class="boc-reading-toggle boc-reading-toggle-inline">
                   <input id="${ids.readingAutoScroll}" type="checkbox" checked />
@@ -737,9 +738,6 @@ function buildUiHtml() {
                   <span>章节</span>
                 </label>
               </div>
-            </section>
-
-            <section class="boc-reading-settings-group">
               <div class="boc-reading-controls">
                 <select id="${ids.readingSubtitleSelect}" class="boc-reading-select" aria-label="字幕语言">
                 </select>
