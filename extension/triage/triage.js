@@ -808,13 +808,10 @@ function coverHtml(it) {
   const label = seenWords(known, seen);
   const mark = seen ? `<span class="seen-veil">${label}</span><span class="seen-tag">${label}</span>` : faint ? `<span class="seen-tag faint">${label}</span>` : "";
   // Once the user has decided, their decision replaces the AI's verdict label; the AI's reason and summary stay.
-  // The grid hides the reason line, so a decided cover carries it as its hover text instead of the gone tag.
-  const decided = isProcessed(it.bvid);
-  const v = decided ? { verdict: "none" } : verdictOf(it);
-  const tip = decided && verdictOf(it).reason;
+  const v = isProcessed(it.bvid) ? { verdict: "none" } : verdictOf(it);
   const tag = S.analyzing.has(it.bvid) ? `<span class="cover-tag running">分析中…</span>` : VERDICTS[v.verdict] ? `<span class="cover-tag ${v.verdict}" title="${esc(v.reason)}">${VERDICTS[v.verdict]}</span>` : "";
   const dur = it.duration ? `<span class="cover-dur">${fmtDuration(it.duration)}</span>` : "";
-  return `<span class="cover-wrap${seen ? " seen" : ""}"${tip ? ` title="${esc(tip)}"` : ""}>${img}${tag}${dur}${mark}${p ? `<span class="seen-bar" title="看过 ${p}%"><i style="width:${Math.max(p, 2)}%"></i></span>` : ""}</span>`;
+  return `<span class="cover-wrap${seen ? " seen" : ""}">${img}${tag}${dur}${mark}${p ? `<span class="seen-bar" title="看过 ${p}%"><i style="width:${Math.max(p, 2)}%"></i></span>` : ""}</span>`;
 }
 
 // Runs simplifyMigration once (flag key), then drops the old scheme keys it read.
@@ -1922,8 +1919,6 @@ async function refavRecent(bvid) {
 function renderList() {
   const list = visibleItems();
   renderListHeader(list);
-  // 已出分拣范围 is a list to act on, so it uses the rows the steps use, not the 阅览全部 grid.
-  el.list.classList.toggle("grid", S.tab === "read" && S.mediaId !== REMOVED);
   // 保留 only marks the video here, while 取消收藏 changed Bilibili; say so where both end up.
   const recent = S.tab === "done" ? `<p class="muted tab-note">已保留：${KEEP_TIP}。已取消收藏：已从 B站收藏夹移走，最近的操作可按 U 撤销。</p>${recentUnfavHtml()}` : "";
   if (!S.items.length) {

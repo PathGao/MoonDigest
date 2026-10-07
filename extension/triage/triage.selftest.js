@@ -848,7 +848,6 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     t.S.decisions.BV1 = { action: "keep" };
     const kept = t.cardHtml(item(1), false, "");
     assert.ok(!kept.includes("值得留") && kept.includes("好看") && kept.includes("已保留"), kept);
-    assert.ok(t.coverHtml(item(1)).includes('class="cover-wrap" title="好看"'), "the grid, which hides the reason line, has it on the cover");
     delete t.S.decisions.BV1;
     delete t.S.titleRes.BV1;
   }

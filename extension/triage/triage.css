@@ -346,65 +346,26 @@ html[data-seen-style="veil"] .cover-wrap.seen .seen-veil { display: flex; }
 .muted { color: var(--muted); font-size: var(--fs-xs); }
 button.icon { width: 26px; height: 24px; padding: 0; }
 
-/* ---------- rows (the four steps): a box per video, 192px cover, body, 保留 / 取消收藏 stacked on the right ---------- */
-.list:not(.grid) .card { display: grid; grid-template-columns: 192px minmax(0, 1fr); gap: 16px; padding: 12px 140px 12px 12px; }
-.list:not(.grid) .actions, .list:not(.grid) .pair { display: contents; }
-.list:not(.grid) .pair > button { position: absolute; right: 12px; width: 112px; height: 32px; padding: 0; justify-content: center; font-size: var(--fs-sm); }
-.list:not(.grid) .pair > button:first-child { top: calc(50% - 36px); }
-.list:not(.grid) .pair > button:last-child { top: calc(50% + 4px); }
-.list:not(.grid) .pair > button:last-child:not(.solid) { border-color: transparent; background: var(--field-bg); }
-.list:not(.grid) .actions .more { margin-left: auto; }
+/* ---------- rows (every tab): a box per video, 192px cover, body, 保留 / 取消收藏 stacked on the right ---------- */
+.list .card { display: grid; grid-template-columns: 192px minmax(0, 1fr); gap: 16px; padding: 12px 140px 12px 12px; }
+.list .actions, .list .pair { display: contents; }
+.list .pair > button { position: absolute; right: 12px; width: 112px; height: 32px; padding: 0; justify-content: center; font-size: var(--fs-sm); }
+.list .pair > button:first-child { top: calc(50% - 36px); }
+.list .pair > button:last-child { top: calc(50% + 4px); }
+.list .pair > button:last-child:not(.solid) { border-color: transparent; background: var(--field-bg); }
+.list .actions .more { margin-left: auto; }
 /* Beside the viewer the list is narrow: the smaller cover, and the buttons back in the foot row, the pair first. */
-.main.viewing .list:not(.grid) .card { grid-template-columns: 128px minmax(0, 1fr); gap: 10px; padding-right: 12px; }
-.main.viewing .list:not(.grid) .actions { display: flex; justify-content: flex-end; }
-.main.viewing .list:not(.grid) .pair { display: flex; }
-.main.viewing .list:not(.grid) .pair > button { position: static; width: auto; height: 26px; padding: 0 8px; font-size: var(--fs-xs); }
-.main.viewing .list:not(.grid) .pair > button:last-child:not(.solid) { border-color: var(--border-strong); background: var(--surface); }
-.main.viewing .list:not(.grid) .actions .more { margin-left: 0; }
-.main.viewing .list:not(.grid) .key { display: none; }
+.main.viewing .list .card { grid-template-columns: 128px minmax(0, 1fr); gap: 10px; padding-right: 12px; }
+.main.viewing .list .actions { display: flex; justify-content: flex-end; }
+.main.viewing .list .pair { display: flex; }
+.main.viewing .list .pair > button { position: static; width: auto; height: 26px; padding: 0 8px; font-size: var(--fs-xs); }
+.main.viewing .list .pair > button:last-child:not(.solid) { border-color: var(--border-strong); background: var(--surface); }
+.main.viewing .list .actions .more { margin-left: 0; }
+.main.viewing .list .key { display: none; }
 .shell:has(.main.viewing) { grid-template-columns: minmax(0, 1fr); }
 .shell:has(.main.viewing) .side { display: none; }
 
-/* ---------- 阅览 and 已出分拣范围: the grid. A box per video with the cover inset; the actions overlay the cover, above the duration, and show on the current or focused card ---------- */
-.list.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 16px; align-content: start; }
-.list.grid > :not(.card) { grid-column: 1 / -1; }
-.list.grid .card { padding: 8px 8px 12px; }
-.list.grid .card-body { margin: 8px 4px 0; }
-.list.grid .title { font-size: var(--fs-md); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; height: 42px; }
-.list.grid .verdict-row .badge:not(.watched), .list.grid .verdict-row .reason { display: none; }
-.list.grid .verdict-row:not(:has(.watched, .fail-text)) { display: none; }
 .verdict-row:empty { display: none; }
-.list.grid .card-foot:last-child { margin-top: 4px; }
-.list.grid .cover-wrap, .list.grid .actions { transition: transform 0.12s, box-shadow 0.12s; }
-.list.grid .card.focused .cover-wrap { transform: translateY(-2px); box-shadow: 0 6px 16px rgba(0, 0, 0, 0.18); }
-.list.grid .card.focused .actions { transform: translateY(-2px); }
-.list.grid .actions {
-  position: absolute;
-  left: 8px;
-  top: 8px;
-  z-index: 3;
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  align-content: end;
-  width: calc(100% - 16px);
-  aspect-ratio: 16 / 10;
-  gap: 6px;
-  padding: 8px 8px 28px;
-  pointer-events: none;
-}
-.list.grid .actions .pair { display: contents; }
-.list.grid .actions .more { grid-column: 1 / -1; grid-row: 1; flex-wrap: wrap; justify-content: center; }
-/* White buttons over the cover in both themes, so their text is the light theme's ink, not var(--text). */
-.list.grid .actions button { pointer-events: auto; height: 28px; border-color: transparent; background: rgba(255, 255, 255, 0.95); color: #18191c; font-weight: 600; visibility: hidden; }
-.list.grid .actions button.danger { color: #b52a48; }
-.list.grid .actions .more button { height: 24px; padding: 0 6px; font-weight: 500; }
-.list.grid .pair > button { display: inline-flex; align-items: center; justify-content: center; }
-.list.grid .card:is(.focused, :focus-within) .actions button { visibility: visible; }
-/* A pressed button stays visible on the cover, except 选中: the ✓ box already shows it. */
-.list.grid .actions .more button.on:not([data-act="select"]) { visibility: visible; }
-.list.grid .actions .key { display: none; }
-.list.grid .actions .more .key { display: none; }
-@media (hover: none) { .list.grid .card:not(.focused) .actions button:not(.on) { display: none; } }
 
 .notice {
   position: absolute;
@@ -628,7 +589,7 @@ dialog.wide { width: min(880px, calc(100% - 32px)); }
   /* Too narrow for two columns: the viewer takes the list's place until it closes. */
   .main.viewing { grid-template-columns: minmax(0, 1fr); grid-template-areas: "head" "tabs" "bar" "viewer"; }
   .main.viewing .list, .main.viewing .basket { display: none; }
-  .list:not(.grid) .card { grid-template-columns: 128px minmax(0, 1fr); gap: 10px; }
+  .list .card { grid-template-columns: 128px minmax(0, 1fr); gap: 10px; }
 }
 
 /* No room for the sidebar: the folder select comes back in the top bar. */
@@ -647,7 +608,7 @@ dialog.wide { width: min(880px, calc(100% - 32px)); }
   .folder-select { max-width: 50vw; }
   .search { order: 2; flex-basis: 100%; max-width: none; margin: 0; }
   .main { padding: 0 8px; }
-  .list:not(.grid) .card { padding-right: 12px; }
-  .list:not(.grid) .actions, .list:not(.grid) .pair { display: flex; }
-  .list:not(.grid) .pair > button { position: static; width: auto; height: 26px; padding: 0 8px; font-size: var(--fs-xs); }
+  .list .card { padding-right: 12px; }
+  .list .actions, .list .pair { display: flex; }
+  .list .pair > button { position: static; width: auto; height: 26px; padding: 0 8px; font-size: var(--fs-xs); }
 }
