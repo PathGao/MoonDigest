@@ -45,4 +45,4 @@ The YouTube subtitle fetching approach follows [jdepoix/youtube-transcript-api](
 
 ## catppuccin/palette
 
-The extension colors use the [Catppuccin](https://github.com/catppuccin/palette) palette (MIT, Copyright (c) 2021 Catppuccin): Mocha for dark mode, and Latte for light mode with its accents desaturated and the text accents darkened.
+The extension's status colors (ok, warn, danger) use the [Catppuccin](https://github.com/catppuccin/palette) palette (MIT, Copyright (c) 2021 Catppuccin): Mocha for dark mode, and Latte for light mode with its accents desaturated and darkened.
