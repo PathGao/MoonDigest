@@ -35,9 +35,9 @@ assert.strictEqual(thin.reason, "");
 assert.strictEqual(t.triageParseLlm('{"one_liner":"x","verdict":"可清理"}').verdict, "drop", "the Chinese name maps to its id");
 assert.strictEqual(t.triageParseLlm('{"one_liner":"x","verdict":"可以删"}').verdict, "drop", "the old name still maps");
 assert.strictEqual(t.triageParseLlm('{"one_liner":"x"}').verdict, "unsure");
-assert.throws(() => t.triageParseLlm('{"one_liner":"x","points":["a"'), /不完整/);
-assert.throws(() => t.triageParseLlm("没有 JSON"), /不是 JSON/);
-assert.throws(() => t.triageParseLlm('{"points":[]}'), /one_liner/);
+assert.throws(() => t.triageParseLlm('{"one_liner":"x","points":["a"'), /回复不完整/);
+assert.throws(() => t.triageParseLlm("没有 JSON"), /格式不对/);
+assert.throws(() => t.triageParseLlm('{"points":[]}'), /缺少总结/);
 
 // title line
 assert.strictEqual(
@@ -56,7 +56,7 @@ const batch = plain(t.triageParseTitleBatch(
 assert.deepStrictEqual(batch.BV2, { verdict: "keep", reason: "教程 [实用]", confidence: "high" });
 assert.deepStrictEqual(batch.BV1, { verdict: "unsure", reason: "看不出", confidence: "low" });
 assert.deepStrictEqual(batch.BV3, { verdict: "unsure", reason: "AI 未返回", confidence: "low" });
-assert.throws(() => t.triageParseTitleBatch('[{"i":1,"verdict":"keep"', items), /不完整/);
+assert.throws(() => t.triageParseTitleBatch('[{"i":1,"verdict":"keep"', items), /回复不完整/);
 
 const TITLE_PROMPT = vm.runInContext("TRIAGE_TITLE_PROMPT", ctx);
 // Prompts: the three classes, the folder's 判断标准 when set, and no tag lists.
@@ -153,8 +153,8 @@ assert.deepStrictEqual(plain(t.triageParseCommand(cmdOut, cmdItems, cmdTags, { m
 });
 assert.strictEqual(plain(t.triageParseCommand(cmdOut, cmdItems, cmdTags)).newTags.length, 3, "up to 5 new tags by default");
 assert.deepStrictEqual(plain(t.triageParseCommand('{"items":[]}', cmdItems, cmdTags, {})), { newTags: [], assignments: {}, note: "" });
-assert.throws(() => t.triageParseCommand("抱歉，没法处理", cmdItems, cmdTags, {}), /不是 JSON/);
-assert.throws(() => t.triageParseCommand('{"new_tags":[', cmdItems, cmdTags, {}), /不完整/);
+assert.throws(() => t.triageParseCommand("抱歉，没法处理", cmdItems, cmdTags, {}), /格式不对/);
+assert.throws(() => t.triageParseCommand('{"new_tags":[', cmdItems, cmdTags, {}), /回复不完整/);
 
 
 (async () => {

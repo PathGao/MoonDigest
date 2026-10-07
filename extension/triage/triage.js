@@ -489,7 +489,7 @@ function handleAiError(error) {
       }
     }, "ai");
   } else if (text.includes("配置 AI")) {
-    showBanner(`还没有可用的 AI 服务：${text}`, "去配置", () => send({ type: "open-options" }), "ai");
+    showBanner("还没有配置 AI 平台", "去设置", () => send({ type: "open-options" }), "ai");
   } else if (text.includes("截断")) {
     showBanner(`${text}。建议调大输出上限或关闭思考`, "打开分拣设置", () => openSettings(true), "ai");
   } else toast(text, true);
@@ -896,7 +896,7 @@ async function loadFolders() {
   const r = await send({ type: "triage-folders" });
   if (!r.ok) {
     const needLogin = /登录/.test(r.error || "");
-    if (needLogin) showBanner(`未登录 B 站：${r.error}`, "去登录", () => openTab("https://passport.bilibili.com/login"));
+    if (needLogin) showBanner(r.error, "去登录", () => openTab("https://passport.bilibili.com/login"));
     else showBanner(`读取收藏夹失败：${r.error}`, "重试", loadFolders);
     el.list.innerHTML = `<p class="empty">无法读取收藏夹</p>`;
     return;
@@ -1085,7 +1085,7 @@ async function syncFolder({ force = false, cached = null } = {}) {
     if (token !== S.folderToken) return false;
     if (!r.ok) {
       const needLogin = /登录/.test(r.error || "");
-      if (needLogin) showBanner(`未登录 B 站：${r.error}`, "去登录", () => openTab("https://passport.bilibili.com/login"));
+      if (needLogin) showBanner(r.error, "去登录", () => openTab("https://passport.bilibili.com/login"));
       else toast(`刷新收藏夹失败：${r.error}`, true);
       if (!S.items.length) el.list.innerHTML = `<p class="empty">无法读取这个收藏夹</p>`;
       return false;
@@ -2244,7 +2244,7 @@ async function batchUnfav(list) {
   if (done && S.mediaId === mediaId) {
     pushUndo({ kind: "unfavMany", items: list.slice(0, done).map(({ bvid, aid }) => ({ bvid, aid })) });
     for (const it of list.slice(0, done)) S.selected.delete(it.bvid);
-    toast(`已取消收藏 ${done} 个 · 撤销(U)`);
+    toast(`已取消收藏 ${done} 个 · U 撤销`);
   } else if (done) {
     // Elsewhere they are saved under their folder and listed in its 最近取消收藏, where they can be re-favorited.
     toast(`「${folderName(mediaId)}」已取消收藏 ${done} 个，可在它的最近取消收藏里撤销`);
@@ -2456,7 +2456,7 @@ function batchKeep(list) {
   patchKept(Object.fromEntries(list.map((it) => [it.bvid, { action: "keep", at }])));
   for (const it of list) S.selected.delete(it.bvid);
   pushUndo({ kind: "keepMany", bvids: list.map((it) => it.bvid) });
-  toast(`已标记保留 ${list.length} 个 · 撤销(U)`);
+  toast(`已标记保留 ${list.length} 个 · U 撤销`);
   render();
 }
 
@@ -2552,7 +2552,7 @@ function pickOption(i) {
 function closePicker() {
   const changed = setVideoTags(picker.bvid, picker.ids, picker.prev);
   render();
-  if (changed) toast("标签已更新 · 撤销(U)");
+  if (changed) toast("标签已更新 · U 撤销");
   setFocus(S.focused, true);
 }
 
@@ -2878,7 +2878,7 @@ function showAiReview() {
 
 function renderAiForm() {
   const counts = { filter: visibleItems().length, selected: visibleSelected().length, analyzed: visibleItems().filter(isAnalyzed).length };
-  const labels = { filter: "当前筛选结果", selected: "已选中 (X)", analyzed: "只处理细看过的" };
+  const labels = { filter: "当前筛选", selected: "选中 (X)", analyzed: "细看过的" };
   for (const o of el.aiScope.options) {
     o.textContent = `${labels[o.value]} · ${counts[o.value]} 个`;
     o.disabled = !counts[o.value];
@@ -3101,7 +3101,7 @@ function applyAiProposal() {
   S.ai.proposal = null;
   el.tagsDialog.close();
   render();
-  toast(`已应用 AI 建议：${rows.length} 个视频 · 撤销(U)`);
+  toast(`已应用 AI 建议：${rows.length} 个视频 · U 撤销`);
 }
 
 // ---------- 优先看 ----------
@@ -3245,7 +3245,7 @@ function renderWriteScope() {
   const obsidianOff = document.body.classList.contains("obsidian-off");
   el.writeScopeCount.textContent = notes
     ? `共 ${n} 个视频，逐个抓字幕，间隔 ${S.settings.triageIntervalSec} 秒。下载 .md 合成一个文件${obsidianOff ? "" : "；写入 Obsidian 每个视频一篇，另写一篇以收藏夹命名的索引"}。`
-    : `共 ${n} 个视频，合成一篇：链接、AI 总结、标签和你的笔记。`;
+    : `共 ${n} 个视频，合成一篇：链接、AI 总结、标签和你的备注。`;
   el.writeOverwriteRow.hidden = !notes;
   el.writeCopyBtn.hidden = notes || busy;
   el.writeRunBtn.hidden = el.writeMdBtn.hidden = busy;
@@ -3861,7 +3861,7 @@ function renderTokenHints() {
   const on = el.thinkingInput.checked;
   const titleAuto = on ? 150 * batch + 4000 : 60 * batch + 200;
   const analyzeAuto = on ? 8000 : 1000;
-  el.titleMaxHint.textContent = `留空为自动 = ${titleAuto}（每批 ${batch} 个，思考${on ? "开" : "关"}）。只有提示“输出被截断”时才需要调大。`;
+  el.titleMaxHint.textContent = `留空为自动 = ${titleAuto}（每批 ${batch} 个，思考${on ? "开" : "关"}）。只有提示「输出被截断」时才需要调大。`;
   el.analyzeMaxHint.textContent = `留空为自动 = ${analyzeAuto}（思考${on ? "开" : "关"}）`;
 }
 
