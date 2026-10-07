@@ -457,9 +457,10 @@ function toast(text, error = false) {
   toastTimer = setTimeout(() => (el.toast.hidden = true), 6000);
 }
 
-function askConfirm(title, bodyHtml, okText) {
+function askConfirm(title, bodyHtml, okText, { danger = false } = {}) {
   el.confirmTitle.textContent = title;
   el.confirmBody.innerHTML = bodyHtml;
+  el.confirmOk.className = danger ? "danger solid" : "primary";
   el.confirmOk.textContent = okText;
   el.confirmOk.setAttribute("aria-label", okText);
   el.confirmDialog.returnValue = "";
@@ -1301,7 +1302,7 @@ async function cleanRemoved(list) {
   if (!list.length) return;
   const one = list.length === 1 ? `《${shortTitle(list[0])}》` : `这 ${list.length} 个视频`;
   const body = `<p>删除${one}的 AI 分析、备注、标签和优先看记录，无法撤销。要留存请先「批量导出」。</p>`;
-  if (!(await askConfirm(`清理${one}？`, body, `清理 ${list.length} 个`))) return;
+  if (!(await askConfirm(`清理${one}？`, body, `清理 ${list.length} 个`, { danger: true }))) return;
   return serialStore(async () => {
     const bvids = list.map((it) => it.bvid);
     const set = new Set(bvids);
@@ -1512,7 +1513,7 @@ async function pickUnfavFolders(it) {
   const boxes = it.folders
     .map((f) => `<label class="toggle"><input type="checkbox" value="${esc(f)}" checked /> ${esc(folderName(f))}</label>`)
     .join("");
-  const ok = await askConfirm(`取消收藏《${shortTitle(it)}》？`, `<p>这个视频在 ${it.folders.length} 个收藏夹里，从勾选的收藏夹取消收藏：</p>${boxes}`, "取消收藏");
+  const ok = await askConfirm(`取消收藏《${shortTitle(it)}》？`, `<p>这个视频在 ${it.folders.length} 个收藏夹里，从勾选的收藏夹取消收藏：</p>${boxes}`, "取消收藏", { danger: true });
   return ok ? [...el.confirmBody.querySelectorAll("input:checked")].map((x) => x.value) : [];
 }
 
@@ -2292,7 +2293,7 @@ async function batchUnfav(list) {
   if (!list.length || S.unfavBatch || S.transferRun) return;
   const titles = list.slice(0, 10).map((it) => `<li>${esc(it.title)}</li>`).join("");
   const more = list.length > 10 ? `<p>等 ${list.length} 个</p>` : "";
-  const ok = await askConfirm(`取消收藏这 ${list.length} 个视频？`, `<ul>${titles}</ul>${more}`, `取消收藏 ${list.length} 个`);
+  const ok = await askConfirm(`取消收藏这 ${list.length} 个视频？`, `<ul>${titles}</ul>${more}`, `取消收藏 ${list.length} 个`, { danger: true });
   if (!ok || S.unfavBatch) return;
   // It changes Bilibili, so it runs to the end even after another folder opens.
   const mediaId = String(S.mediaId);
@@ -2724,7 +2725,7 @@ function renderTagManager() {
 async function deleteTag(id) {
   const t = tagById(id);
   const n = Object.values(S.videoTags).filter((ids) => ids.includes(id)).length;
-  const ok = await askConfirm(`删除标签「${t.name}」？`, `<p>将从 ${n} 个视频上移除这个标签，无法撤销。</p>`, "删除");
+  const ok = await askConfirm(`删除标签「${t.name}」？`, `<p>将从 ${n} 个视频上移除这个标签，无法撤销。</p>`, "删除", { danger: true });
   if (!ok) return;
   S.tags = S.tags.filter((x) => x.id !== id);
   for (const [b, ids] of Object.entries(S.videoTags)) {
@@ -3329,8 +3330,6 @@ function renderWriteScope() {
   el.writeStopBtn.hidden = !busy;
   el.writeCopyBtn.disabled = el.writeRunBtn.disabled = el.writeMdBtn.disabled = !n;
   el.writeScope.disabled = el.writeFormat.disabled = el.writeOverwrite.disabled = busy;
-  // One blue button: 写入 Obsidian, or 下载 .md when Obsidian is off.
-  el.writeMdBtn.classList.toggle("primary", obsidianOff);
 }
 
 // 一篇摘录 needs summaries of 优先看 videos from other folders too.
