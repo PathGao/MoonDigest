@@ -61,7 +61,7 @@ function bindEvents() {
   el.copyBtn.addEventListener("click", async () => {
     const payload = await ensurePayload();
     if (!payload?.markdown) {
-      setStatus("没有可复制内容，请先刷新。", true);
+      setStatus("没有可复制内容，请先刷新", true);
       return;
     }
     try {
@@ -79,18 +79,18 @@ function bindEvents() {
     const content =
       format === "txt" ? payload?.txt || payload?.subtitlePreview || "" : payload?.srt || "";
     if (!content) {
-      setStatus("没有可下载字幕。", true);
+      setStatus("没有可下载字幕", true);
       return;
     }
     const safeTitle = sanitizeFileName(payload.title || "video-subtitle");
     BocDownload.text(`${safeTitle}.${format}`, content, "text/plain;charset=utf-8");
-    setStatus(`已下载 ${format.toUpperCase()}。`);
+    setStatus(`已下载 ${format.toUpperCase()}`);
   });
 
   el.mdBtn.addEventListener("click", async () => {
     const payload = await ensurePayload();
     if (!payload?.markdown) {
-      setStatus("没有可下载内容，请先刷新。", true);
+      setStatus("没有可下载内容，请先刷新", true);
       return;
     }
     BocDownload.text(`${sanitizeFileName(payload.title || "video-subtitle")}.md`, payload.markdown);
@@ -110,7 +110,7 @@ function bindEvents() {
   el.readingViewBtn?.addEventListener("click", async () => {
     const tab = await getActiveTab();
     if (!isSupportedSubtitlePage(tab?.url || "")) {
-      setStatus("请先打开一个支持的视频页。", true);
+      setStatus("请先打开一个支持的视频页", true);
       return;
     }
 
@@ -119,7 +119,7 @@ function bindEvents() {
     const prepResp = await sendToContent({ type: "popup-get-state" }).catch((error) => ({ ok: false, error: error.message }));
     if (!prepResp?.ok) {
       setBusy(el.readingViewBtn, false);
-      setStatus(prepResp?.error || "请刷新网页重试，或当前网页不支持", true);
+      setStatus(prepResp?.error || "当前网页不支持，或需刷新重试", true);
       return;
     }
 
@@ -133,7 +133,7 @@ function bindEvents() {
       setStatus(`打开失败：${resp?.error || "未知错误"}`, true);
       return;
     }
-    setStatus("专注模式已打开。");
+    setStatus("专注模式已打开");
     window.setTimeout(() => window.close(), 80);
   });
 
@@ -163,7 +163,7 @@ function bindEvents() {
   el.summaryBtn.addEventListener("click", async () => {
     const tab = await getActiveTab();
     if (!isSupportedSubtitlePage(tab?.url || "")) {
-      setStatus("请先打开一个支持的视频页。", true);
+      setStatus("请先打开一个支持的视频页", true);
       return;
     }
     setStatus("正在打开侧边栏…", false, true);
@@ -183,7 +183,7 @@ function bindEvents() {
     const resp = await sendToRuntime({ type: "player-ai-quick-action", tabId: tab.id, source: "popup" }).catch((error) => ({ ok: false, error: error.message }));
     if (!resp?.ok) {
       setBusy(el.summaryBtn, false);
-      setStatus(`AI 总结失败：${resp?.error || "未知错误"}`, true);
+      setStatus(`打开侧边栏失败：${resp?.error || "未知错误"}`, true);
       return;
     }
     window.setTimeout(() => window.close(), 80);
@@ -377,7 +377,7 @@ async function sendToContent(message) {
 function normalizeContentErrorMessage(error) {
   const message = String(error?.message || "").trim();
   if (message.includes("Could not establish connection. Receiving end does not exist.")) {
-    return "请刷新网页重试，或当前网页不支持";
+    return "当前网页不支持，或需刷新重试";
   }
   return message || "未知错误";
 }

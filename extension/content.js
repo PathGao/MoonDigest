@@ -880,8 +880,8 @@ function bindUiEvents() {
   // Same request as the popup's AI 总结, so it works even when the player button is turned off.
   byId(ids.readingAiBtn).addEventListener("click", () => {
     sendRuntimeMessage({ type: "player-ai-quick-action", source: "popup" })
-      .then((resp) => setReadingNotice(resp?.ok ? "" : `AI 总结失败：${resp?.error || "打开侧边栏失败"}`))
-      .catch((error) => setReadingNotice(`AI 总结失败：${getErrorMessage(error)}`));
+      .then((resp) => setReadingNotice(resp?.ok ? "" : `打开侧边栏失败：${resp?.error || "未知错误"}`))
+      .catch((error) => setReadingNotice(`打开侧边栏失败：${getErrorMessage(error)}`));
   });
   chapterList.addEventListener("click", onReadingChapterClick);
   transcriptList.addEventListener("click", onReadingTranscriptClick);
@@ -3574,12 +3574,12 @@ async function handlePlayerAiQuickActionClick(event) {
     }
     const resp = await sendRuntimeMessage({ type: "player-ai-quick-action" });
     if (!resp?.ok) {
-      throw new Error(resp?.error || "打开 AI 侧边栏失败");
+      throw new Error(resp?.error || "未知错误");
     }
     setMessage("已打开侧边栏，开始 AI 总结。");
   } catch (error) {
-    setMessage(`AI 总结失败：${getErrorMessage(error)}`);
-    setReadingNotice(`AI 总结失败：${getErrorMessage(error)}`);
+    setMessage(`打开侧边栏失败：${getErrorMessage(error)}`);
+    setReadingNotice(`打开侧边栏失败：${getErrorMessage(error)}`);
   } finally {
     state.playerAiQuickActionSubmitting = false;
     if (button) {
