@@ -467,6 +467,11 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   assert.deepStrictEqual(plain(sent.at(-1).tags.slice(0, 2)), [{ name: "旧", rule: "讲老技术的" }, { name: "n1", rule: "" }]);
   assert.ok(!sent.at(-1).tags.some((x) => x.name === "别处"), "批量打 sends only the open folder's tags");
   assert.strictEqual(sent.at(-1).maxNewTags, 4, "6 tags in K: min(5, 10 - 6)");
+  t.S.settings.triageAiNewTagMax = 2;
+  assert.strictEqual(vm.runInContext("aiNewTagRoom()", ctx), 2, "分拣设置 caps AI new tags below the folder's room");
+  t.S.settings.triageAiNewTagMax = 0;
+  assert.strictEqual(vm.runInContext("aiNewTagRoom()", ctx), 0, "0 = AI only uses existing tags");
+  t.S.settings.triageAiNewTagMax = 5;
   t.saveTagEdit(ruled, "rule", " ");
   assert.ok(!("rule" in ruled));
   t.S.ai.proposal = null;
