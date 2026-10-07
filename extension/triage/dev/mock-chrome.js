@@ -91,7 +91,7 @@
     { id: 1002, title: "学习", items: study },
     { id: 1003, title: "默认收藏夹", items: [ai[1], ai[12], study[0], ...["家常红烧肉的做法", "十分钟早餐：葱油拌面"].map(makeItem)] }
   ];
-  // ?fresh shows the first-run folder picker; otherwise every folder is chosen and 已取消收藏 has records of each kind:
+  // ?fresh shows the first-run folder picker; otherwise every folder is chosen and 已出分拣范围 has records of each kind:
   // one old record without an origin, one hidden, one moved, one that left one folder, one that left two, one that left three.
   if (!/[?&]fresh\b/.test(location.search)) {
     store.triage_included_folders = ["1001", "1002", "1003"];
@@ -221,6 +221,11 @@
     "triage-folder-ids": ({ mediaId }) => {
       const f = folders.find((x) => String(x.id) === String(mediaId));
       return f ? { ok: true, data: { bvids: f.items.map((it) => it.bvid) } } : { ok: false, error: "收藏夹不存在" };
+    },
+    // Of the 已出分拣范围 records, the moved one and 「只离开了一个收藏夹」 are still in the unchosen 美食; the rest are in none.
+    "triage-fav-where": ({ aid }) => {
+      const title = Object.values(store.triage_removed || {}).find((r) => r.item.aid === aid)?.item.title || "";
+      return { ok: true, data: { folders: /移到了没勾选|只离开了一个/.test(title) ? [{ id: "1004", title: "美食" }] : [] } };
     },
     "triage-title-get": ({ bvids }) => ({ ok: true, data: Object.fromEntries(bvids.map((b) => [b, store[`triage_title_${b}`] || null])) }),
     "triage-analysis-get": ({ bvids }) => ({ ok: true, data: Object.fromEntries(bvids.map((b) => [b, store[`triage_analysis_${b}`] || null])) }),

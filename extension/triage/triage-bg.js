@@ -810,6 +810,15 @@ const TRIAGE_HANDLERS = {
     return { bvids: await triageFolderIds(mediaId) };
   },
 
+  // Which of the user's folders hold this video (Bilibili's own 收藏 dialog asks the same): one request per video, no
+  // folder's contents are read.
+  "triage-fav-where": async ({ aid }) => {
+    if (!aid) throw triageError("缺少 aid");
+    const mid = await triageMid();
+    const data = await triageBiliGet(`https://api.bilibili.com/x/v3/fav/folder/created/list-all?up_mid=${mid}&type=2&rid=${aid}`);
+    return { folders: (data?.list || []).filter((f) => f.fav_state === 1).map((f) => ({ id: String(f.id), title: f.title })) };
+  },
+
   "triage-analysis-get": async ({ bvids }) => {
     const list = Array.isArray(bvids) ? bvids : [];
     const stored = await chrome.storage.local.get(list.map((b) => `triage_analysis_${b}`));
@@ -853,7 +862,7 @@ const TRIAGE_HANDLERS = {
     return {};
   },
 
-  // 移动 / 复制 to another folder (never 稍后再看); without from, just 收藏 into it (videos from 已取消收藏).
+  // 移动 / 复制 to another folder (never 稍后再看); without from, just 收藏 into it (videos from 已出分拣范围).
   // From 稍后再看 or nowhere there is no batch endpoint: add one by one, then remove.
   "triage-transfer": async ({ from, to, aids, move }) => {
     const list = Array.isArray(aids) ? aids : [];
