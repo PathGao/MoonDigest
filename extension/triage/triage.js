@@ -526,9 +526,11 @@ const tagLimit = () => S.settings.triageTagLimit;
 const aiNewTagRoom = () => Math.max(0, Math.min(S.settings.triageAiNewTagMax, tagLimit() - viewTags().length));
 const FOLDER_ONLY = "标签按收藏夹分开，请先打开一个具体收藏夹";
 // A video's tags in the open view. A tag belongs to one folder and stays there when the video moves, so a folder shows
-// only its own; 所有收藏夹 those of the video's folders (as the picker); 已出分拣范围 every one.
+// only its own; 所有收藏夹 those of the video's folders (as the picker) and of the ones it was just unfavorited from;
+// 已出分拣范围 every one.
 function tagIdsOf(bvid) {
-  const folders = S.mediaId === REMOVED ? null : pickerFolders(bvid);
+  const left = inFolderView() ? [] : S.itemMap.get(bvid)?.left || [];
+  const folders = S.mediaId === REMOVED ? null : [...pickerFolders(bvid), ...left.map(String)];
   return (S.videoTags[bvid] || []).filter((id) => {
     const t = tagById(id);
     return t && (!folders || folders.includes(t.folder));
@@ -543,10 +545,16 @@ const runWhere = (run) => (run.mediaId === String(S.mediaId) ? "" : `（${folder
 
 // verdict is keep / drop / unsure, or "none" before 粗分. A done 细看 with an unknown verdict counts as unsure;
 // a 粗分 result with one (left from the old custom tiers) counts as not classified, so 粗分 can run again.
+// An invalid video is 可清理 whatever the AI said, but keeps the AI's reason and step after the 已失效 note.
 function verdictOf(it) {
+  const v = aiVerdictOf(it);
+  if (!it.invalid) return v;
+  return { verdict: "drop", reason: v.reason ? `视频已失效。AI 原理由：${v.reason}` : "视频已失效", stage: Math.max(v.stage, 0), failed: "" };
+}
+
+function aiVerdictOf(it) {
   const a = S.analyses[it.bvid];
   const failed = a?.status === "error" ? a.error || "分析失败" : "";
-  if (it.invalid) return { verdict: "drop", reason: "视频已失效", stage: 0, failed: "" };
   if (a?.status === "done") return { verdict: VERDICTS[a.verdict] ? a.verdict : "unsure", reason: a.reason, stage: 2, failed: "" };
   const t = S.titleRes[it.bvid];
   if (t && VERDICTS[t.verdict]) return { verdict: t.verdict, reason: t.reason, stage: 1, low: t.confidence === "low", failed };
@@ -800,10 +808,13 @@ function coverHtml(it) {
   const label = seenWords(known, seen);
   const mark = seen ? `<span class="seen-veil">${label}</span><span class="seen-tag">${label}</span>` : faint ? `<span class="seen-tag faint">${label}</span>` : "";
   // Once the user has decided, their decision replaces the AI's verdict label; the AI's reason and summary stay.
-  const v = isProcessed(it.bvid) ? { verdict: "none" } : verdictOf(it);
+  // The grid hides the reason line, so a decided cover carries it as its hover text instead of the gone tag.
+  const decided = isProcessed(it.bvid);
+  const v = decided ? { verdict: "none" } : verdictOf(it);
+  const tip = decided && verdictOf(it).reason;
   const tag = S.analyzing.has(it.bvid) ? `<span class="cover-tag running">分析中…</span>` : VERDICTS[v.verdict] ? `<span class="cover-tag ${v.verdict}" title="${esc(v.reason)}">${VERDICTS[v.verdict]}</span>` : "";
   const dur = it.duration ? `<span class="cover-dur">${fmtDuration(it.duration)}</span>` : "";
-  return `<span class="cover-wrap${seen ? " seen" : ""}">${img}${tag}${dur}${mark}${p ? `<span class="seen-bar" title="看过 ${p}%"><i style="width:${Math.max(p, 2)}%"></i></span>` : ""}</span>`;
+  return `<span class="cover-wrap${seen ? " seen" : ""}"${tip ? ` title="${esc(tip)}"` : ""}>${img}${tag}${dur}${mark}${p ? `<span class="seen-bar" title="看过 ${p}%"><i style="width:${Math.max(p, 2)}%"></i></span>` : ""}</span>`;
 }
 
 // Runs simplifyMigration once (flag key), then drops the old scheme keys it read.
@@ -2190,6 +2201,7 @@ async function decide(bvid, action) {
   // After a folder switch the record is saved under its folder; the undo entry would point at a video no longer listed.
   if (token !== S.folderToken) return;
   const left = it.folders ? (it.folders = it.folders.filter((f) => !folders.includes(f))) : [];
+  if (it.folders) it.left = [...new Set([...(it.left || []), ...folders])];
   if (it.folders && !left.length) S.decisions[bvid] = rec;
   pushUndo({ kind: "decision", bvid, action, prev, prevs });
   const from = left.length ? `从「${folders.map(folderName).join("、")}」` : "";
@@ -2221,7 +2233,10 @@ async function undo() {
     }
     if (token !== S.folderToken) return;
     if (it.folders) {
-      if (entry.action === "unfav") it.folders = [...new Set([...it.folders, ...Object.keys(entry.prevs)])];
+      if (entry.action === "unfav") {
+        it.folders = [...new Set([...it.folders, ...Object.keys(entry.prevs)])];
+        it.left = (it.left || []).filter((f) => !it.folders.includes(f));
+      }
       if (entry.prev) S.decisions[entry.bvid] = entry.prev;
       else delete S.decisions[entry.bvid];
     }
@@ -2645,15 +2660,7 @@ async function saveCriteria() {
     `<p>「粗看完成」里有 ${stale.length} 个视频是按旧标准粗看的，要按新标准重新粗看吗？</p><p>已细看和已处理的视频不动；细看完成页可以另外按新标准重新细看。</p>`,
     "重新粗看"
   );
-  if (ok) redoCoarse(stale);
-}
-
-// The old 粗看 results go, so these videos are back in 未分析 and the next 标题粗看 run takes them.
-async function redoCoarse(list) {
-  const bvids = list.map((it) => it.bvid);
-  for (const b of bvids) delete S.titleRes[b];
-  await chrome.storage.local.remove(bvids.map((b) => `triage_title_${b}`));
-  runStage1();
+  if (ok) runStage1(stale);
 }
 
 // ---------- 标签 dialog: 管理 / 批量打 ----------
@@ -2754,18 +2761,24 @@ async function throttleWait(code, keepGoing) {
 
 const stage1Pending = () => S.items.filter((it) => stageOf(it) === "none" && !S.stage1Skip.has(it.bvid));
 
-async function runStage1() {
+// list: 未分析 by default; 重新粗看 passes the cards whose 粗看 used an older 判断标准. Their old results stay on the
+// cards until new ones replace them, so a stopped or failed run loses nothing.
+async function runStage1(list = stage1Pending()) {
   if (S.stage1.running) return;
   // Everything the run needs is taken now: it keeps going after another folder opens.
   const folder = String(S.mediaId);
   const crit = criteria();
   const ctx = folderContext();
-  const list = stage1Pending();
+  // Due: no 粗看 yet, or one made under another 判断标准.
+  const due = (it) => {
+    const r = S.titleRes[it.bvid];
+    return !VERDICTS[r?.verdict] || (r.criteria ?? crit) !== crit;
+  };
   // Timed-out batches are skipped for this run only, so clicking 标题粗看 again retries them.
   const timedOut = new Set();
   // In its own folder the live step decides (a card may have been sorted meanwhile); elsewhere only the result does.
   const pending = () =>
-    list.filter((it) => !timedOut.has(it.bvid) && !S.stage1Skip.has(it.bvid) && (S.mediaId === folder ? stageOf(it) === "none" : !VERDICTS[S.titleRes[it.bvid]?.verdict]));
+    list.filter((it) => !timedOut.has(it.bvid) && !S.stage1Skip.has(it.bvid) && !it.invalid && due(it) && (S.mediaId !== folder || ["none", "coarse"].includes(stageOf(it))));
   const total = pending().length;
   // The run owns its line (text); the activity bar reads it, in its folder or as a hint elsewhere.
   S.stage1 = { running: true, stop: false, done: 0, total, mediaId: folder, text: "" };
@@ -3602,7 +3615,7 @@ function bindEvents() {
     } else if (act === "batch-unfav") batchUnfav(batchList(btn.dataset.verdict || null));
     else if (act === "batch-keep") batchKeep(batchList(btn.dataset.verdict || null));
     else if (act === "criteria") openCriteria();
-    else if (act === "redo-coarse") redoCoarse(staleCoarse());
+    else if (act === "redo-coarse") runStage1(staleCoarse());
     else if (act === "redo-fine") startGroup(staleFine().slice(0, GROUP_SIZE).map((it) => it.bvid), true);
     else if (act === "all-pause") {
       S.loadAll.paused = true;
