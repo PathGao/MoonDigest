@@ -557,11 +557,20 @@ function searchText(it) {
     .toLowerCase();
 }
 
+// Several tag chips narrow the list: a video must carry every selected tag. One chip can stand for same-named tags of
+// several folders (所有收藏夹), so selected ids are grouped by name and any id of a group counts (pure).
+function hasAllTags(videoIds, selectedIds, nameOf) {
+  const have = new Set(videoIds);
+  const groups = new Map();
+  for (const id of selectedIds) groups.set(nameOf(id), [...(groups.get(nameOf(id)) || []), id]);
+  return [...groups.values()].every((ids) => ids.some((id) => have.has(id)));
+}
+
 function passFilter(it) {
   if (S.watchedFilter && !S.watched[it.bvid]) return false;
   if (S.finishedFilter && !isFinished(it)) return false;
   if (S.invalidFilter && !(it.invalid || it.hidden)) return false;
-  if (S.tagFilter.size && !tagIdsOf(it.bvid).some((id) => S.tagFilter.has(id))) return false;
+  if (S.tagFilter.size && !hasAllTags(tagIdsOf(it.bvid), S.tagFilter, (id) => tagById(id)?.name ?? id)) return false;
   const words = S.query.toLowerCase().split(/\s+/).filter(Boolean);
   if (!words.length) return true;
   const text = searchText(it);
@@ -1611,7 +1620,7 @@ function renderTabs() {
     ? chips
         .map((c) => {
           const on = c.ids.some((id) => S.tagFilter.has(id));
-          return `<button type="button" class="chip${on ? " on" : ""}" style="--c:${esc(c.color)}" data-tagfilter="${esc(c.ids.join(","))}" aria-pressed="${on}" aria-label="按标签筛选 ${esc(c.name)}">${esc(c.name)}</button>`;
+          return `<button type="button" class="chip${on ? " on" : ""}" style="--c:${esc(c.color)}" data-tagfilter="${esc(c.ids.join(","))}" aria-pressed="${on}" aria-label="按标签筛选 ${esc(c.name)}" title="可多选：只显示同时带有所选标签的视频">${esc(c.name)}</button>`;
         })
         .join("")
     : `<span class="muted">还没有自定义标签</span>`) + // created from the 标签 button

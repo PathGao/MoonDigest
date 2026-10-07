@@ -58,7 +58,7 @@ const ctx = vm.createContext({
   }
 });
 vm.runInContext(fs.readFileSync(path.join(__dirname, "..", "limits.js"), "utf8"), ctx);
-vm.runInContext(`${source}\n;globalThis.S = S; globalThis.K = K; globalThis.el = el; globalThis.verdictBadge = verdictBadge; globalThis.seenText = seenText; globalThis.staleCoarse = staleCoarse; globalThis.staleFine = staleFine; globalThis.groupDone = groupDone; globalThis.mergeHead = mergeHead; globalThis.isFinished = isFinished; globalThis.pointerMoved = pointerMoved; globalThis.inferFrom = inferFrom;`, ctx);
+vm.runInContext(`${source}\n;globalThis.S = S; globalThis.K = K; globalThis.el = el; globalThis.verdictBadge = verdictBadge; globalThis.seenText = seenText; globalThis.staleCoarse = staleCoarse; globalThis.staleFine = staleFine; globalThis.groupDone = groupDone; globalThis.mergeHead = mergeHead; globalThis.isFinished = isFinished; globalThis.pointerMoved = pointerMoved; globalThis.inferFrom = inferFrom; globalThis.hasAllTags = hasAllTags;`, ctx);
 const t = ctx;
 const plain = (v) => JSON.parse(JSON.stringify(v));
 const realSync = t.syncFolder;
@@ -1325,6 +1325,15 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     assert.deepStrictEqual(plain(t.inferFrom({ f1: { BV1: { action: "unfav" } }, f2: { BV1: { action: "keep" } } }, "BV1", title)), [{ id: "f1", title: "稍后-AI" }]);
     assert.deepStrictEqual(plain(t.inferFrom({ f1: { BV1: { action: "unfav" } }, f2: { BV1: { action: "unfav" } } }, "BV1", title)), [{ id: "f1", title: "稍后-AI" }, { id: "f2", title: "学习" }]);
     assert.strictEqual(t.inferFrom({ f1: { BV2: { action: "unfav" } } }, "BV1", title), undefined);
+  }
+
+  // Tag chips intersect: every selected tag name must be on the video; same-named tags of two folders count as one.
+  {
+    const name = (id) => ({ a1: "AI", a2: "AI", m: "数学", t: "工具" })[id];
+    assert.ok(t.hasAllTags(["a1", "m"], ["a1", "a2", "m"], name), "has AI (either folder's) and 数学");
+    assert.ok(!t.hasAllTags(["a1"], ["a1", "a2", "m"], name), "missing 数学 fails");
+    assert.ok(t.hasAllTags(["a2"], ["a1", "a2"], name), "one merged chip needs only one of its ids");
+    assert.ok(!t.hasAllTags(["t"], ["a1", "a2"], name), "no selected tag fails");
   }
 
   console.log("triage selftest: all passed");
