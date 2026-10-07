@@ -206,7 +206,7 @@ async function refreshFromTab() {
   const resp = await sendToContent({ type: "popup-refresh" }).finally(() => setBusy(el.refreshBtn, false));
   el.refreshBtn.classList.toggle("is-error", !resp?.ok);
   if (!resp?.ok) {
-    const errorText = resp?.error || "请在支持的视频页使用。";
+    const errorText = resp?.error || "请在支持的视频页使用";
     setStatus(`抓取失败：${errorText}`, true);
     render(resp?.payload || latestPayload, { preserveStatus: true });
     return;
