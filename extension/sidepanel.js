@@ -400,10 +400,22 @@ async function runPlayerAiQuickActionPrompt(prompt) {
     els.input?.focus?.();
     return;
   }
+  // startNewConversation clears the input, so a draft the user was typing is put back instead of replaced.
+  const draft = els.input.value;
   await startNewConversation();
-  els.input.value = text;
+  els.input.value = draft;
+  fillPrompt(text);
+}
+
+// AI 总结 never sends by itself: it fills an empty input and leaves the send to the user.
+function fillPrompt(prompt) {
+  if (!els.input.value.trim()) {
+    els.input.value = prompt;
+  }
   autosizeInput();
-  await sendMessage();
+  els.input.focus();
+  const end = els.input.value.length;
+  els.input.setSelectionRange(end, end);
 }
 
 // A conversation owns the context its first question was asked in. Tab changes only update the live context
@@ -582,6 +594,7 @@ async function saveNote() {
 
 function updateContextChip() {
   void renderNote();
+  renderFollowups();
   if (!contextData) {
     setContextChipText("无上下文");
     els.contextChip.title = "";
@@ -715,7 +728,7 @@ function renderSuggestions() {
   // The intro and the one-click summary as the main action; the preset chips sit above the input (renderFollowups).
   const prompt = aiPrefs.playerAiQuickPrompt;
   suggestionsNode.innerHTML = `<p class="sp-empty-intro">${EMPTY_INTRO}</p>${prompt ? `<button type="button" class="sp-summary-btn" title="${escapeHtml(prompt)}">${AI_SPARK}AI 总结</button>` : ""}`;
-  suggestionsNode.querySelector(".sp-summary-btn")?.addEventListener("click", () => sendPrompt(prompt));
+  suggestionsNode.querySelector(".sp-summary-btn")?.addEventListener("click", () => fillPrompt(prompt));
   void renderTriageSummary(suggestionsNode);
 }
 
@@ -736,26 +749,54 @@ async function renderTriageSummary(node) {
   node.insertAdjacentHTML("afterbegin", `<div class="sp-triage-summary"><div class="sp-triage-summary-label">分拣台的 AI 总结</div>${renderMarkdown(summary.replace(/^> /, ""))}</div>`);
 }
 
-// Preset chips above the input: on a fresh video ready to ask about, or once there is a reply to follow up on; never mid-stream.
-// Long lists show the first few plus a visible toggle instead of a hidden scroll area.
+// Preset chips above the input stay put whenever presets exist; when a send is impossible they are disabled
+// and say why, so the layout never jumps. Long lists show the first few plus a visible toggle.
 const FOLLOWUP_PREVIEW = 4;
 let followupsExpanded = false;
+let followupsRendered = "";
+
+function followupBlockReason() {
+  if (!providers.length) {
+    return "先在设置页添加一个 AI 平台";
+  }
+  if (activeStream || els.input.disabled) {
+    return "正在生成，等这条回复结束";
+  }
+  if (contextData?.pending) {
+    return "正在读取视频字幕…";
+  }
+  if (!chatHistory.length && !currentConversationMeta?.pinnedContext && (!contextData || contextData.isVideoContext === false)) {
+    return "打开一个视频后才能追问";
+  }
+  return "";
+}
 
 function renderFollowups() {
   if (!els.followups) {
     return;
   }
-  const readyToAsk = !chatHistory.length && providers.length && contextData && contextData.isVideoContext !== false && !contextData.pending;
-  const show = !els.input.disabled && (readyToAsk || chatHistory.some((message) => message.role === "assistant"));
-  const prompts = show ? aiPrefs.aiPresetPrompts || [] : [];
+  const prompts = aiPrefs.aiPresetPrompts || [];
+  const reason = followupBlockReason();
   const collapsible = prompts.length > FOLLOWUP_PREVIEW + 1;
   const visible = collapsible && !followupsExpanded ? prompts.slice(0, FOLLOWUP_PREVIEW) : prompts;
+  // Context updates call this often; rebuilding unchanged chips would cut a running marquee and drop focus.
+  const signature = JSON.stringify([prompts, reason, followupsExpanded]);
+  if (signature === followupsRendered) {
+    return;
+  }
+  followupsRendered = signature;
   els.followups.hidden = !prompts.length;
   els.followups.innerHTML = visible
-    .map((prompt) => `<button type="button" class="sp-followup-chip" title="${escapeHtml(prompt)}">${AI_SPARK}${escapeHtml(prompt)}</button>`)
+    .map((prompt) => `<button type="button" class="sp-followup-chip" title="${escapeHtml(reason || prompt)}"${reason ? " disabled" : ""}>${AI_SPARK}<span class="sp-followup-text"><span>${escapeHtml(prompt)}</span></span></button>`)
     .join("");
   els.followups.querySelectorAll("button").forEach((btn, index) => {
     btn.addEventListener("click", () => sendPrompt(visible[index]));
+    const start = () => startFollowupMarquee(btn);
+    const stop = () => btn.classList.remove("is-marquee");
+    btn.addEventListener("mouseenter", start);
+    btn.addEventListener("focus", start);
+    btn.addEventListener("mouseleave", stop);
+    btn.addEventListener("blur", stop);
   });
   if (collapsible) {
     const toggle = document.createElement("button");
@@ -769,6 +810,18 @@ function renderFollowups() {
     });
     els.followups.append(toggle);
   }
+}
+
+// Only a chip whose text overflows scrolls, by exactly the hidden width, at a steady speed.
+function startFollowupMarquee(btn) {
+  const text = btn.querySelector(".sp-followup-text");
+  const shift = text.scrollWidth - text.clientWidth;
+  if (shift <= 0) {
+    return;
+  }
+  btn.style.setProperty("--marquee-shift", `-${shift}px`);
+  btn.style.setProperty("--marquee-duration", `${(2 + shift / 20).toFixed(2)}s`);
+  btn.classList.add("is-marquee");
 }
 
 function sendPrompt(prompt) {

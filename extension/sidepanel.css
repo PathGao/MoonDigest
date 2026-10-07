@@ -452,8 +452,8 @@ body:has(#spInput:not(:placeholder-shown)) .sp-summary-btn {
 }
 
 .sp-followups {
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 6px;
 }
 
@@ -462,7 +462,10 @@ body:has(#spInput:not(:placeholder-shown)) .sp-summary-btn {
 }
 
 .sp-followup-chip {
-  max-width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
   height: 28px;
   padding: 0 12px;
   border: 0;
@@ -473,20 +476,54 @@ body:has(#spInput:not(:placeholder-shown)) .sp-summary-btn {
   font-size: var(--fs-xs);
   cursor: pointer;
   white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 
 .sp-followup-chip .ai-spark {
+  flex: none;
   background: var(--accent);
+}
+
+.sp-followup-text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-align: left;
 }
 
 .sp-followup-more {
   color: var(--text-2);
 }
 
-.sp-followup-chip:hover {
+.sp-followup-chip:hover:not(:disabled) {
   background: var(--border);
+}
+
+.sp-followup-chip:disabled {
+  color: var(--faint);
+  cursor: not-allowed;
+}
+
+.sp-followup-chip:disabled .ai-spark {
+  opacity: 0.5;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .sp-followup-chip.is-marquee .sp-followup-text {
+    text-overflow: clip;
+  }
+
+  .sp-followup-chip.is-marquee .sp-followup-text > span {
+    display: inline-block;
+    animation: sp-followup-marquee var(--marquee-duration, 4s) ease-in-out infinite;
+  }
+}
+
+/* Hold at each end so the start and the hidden tail are both readable. */
+@keyframes sp-followup-marquee {
+  0%, 15% { transform: translateX(0); }
+  50%, 70% { transform: translateX(var(--marquee-shift, 0)); }
+  100% { transform: translateX(0); }
 }
 
 .sp-msg {
