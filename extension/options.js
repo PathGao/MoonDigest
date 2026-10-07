@@ -64,12 +64,12 @@ const NOTE_SECTION_POSITIONS = new Set(["before_intro", "before_chapters", "befo
 const MAX_NOTE_PLACEHOLDER_SECTIONS = 5;
 
 const AI_PRESETS = [
-  { id: "openai_compat", name: "OpenAI 兼容", baseUrl: "https://api.openai.com/v1", model: "gpt-4o-mini", requiresKey: true },
-  { id: "deepseek",      name: "DeepSeek",    baseUrl: "https://api.deepseek.com/v1", model: "deepseek-chat", requiresKey: true },
-  { id: "zhipu",         name: "智谱 GLM",    baseUrl: "https://open.bigmodel.cn/api/paas/v4", model: "glm-4-flash", requiresKey: true },
-  { id: "minimax",       name: "MiniMax",     baseUrl: "https://api.minimaxi.com/v1", model: "", requiresKey: true },
-  { id: "moonshot",      name: "Moonshot",    baseUrl: "https://api.moonshot.cn/v1", model: "moonshot-v1-8k", requiresKey: true },
-  { id: "openrouter",    name: "OpenRouter",  baseUrl: "https://openrouter.ai/api/v1", model: "openai/gpt-4o-mini", requiresKey: true },
+  { id: "openai_compat", name: "OpenAI 兼容", baseUrl: "https://api.openai.com/v1", model: "gpt-6-luna", requiresKey: true },
+  { id: "deepseek",      name: "DeepSeek",    baseUrl: "https://api.deepseek.com/v1", model: "deepseek-flash", requiresKey: true },
+  { id: "zhipu",         name: "智谱 GLM",    baseUrl: "https://open.bigmodel.cn/api/paas/v4", model: "glm-4.7-flash", requiresKey: true },
+  { id: "minimax",       name: "MiniMax",     baseUrl: "https://api.minimaxi.com/v1", model: "MiniMax-M2.7-highspeed", requiresKey: true },
+  { id: "moonshot",      name: "Moonshot",    baseUrl: "https://api.moonshot.cn/v1", model: "kimi-k2.6", requiresKey: true },
+  { id: "openrouter",    name: "OpenRouter",  baseUrl: "https://openrouter.ai/api/v1", model: "~google/gemini-flash-latest", requiresKey: true },
   { id: "ollama",        name: "Ollama (本地)", baseUrl: "http://localhost:11434/v1", model: "", requiresKey: false },
   { id: "custom",        name: "自定义",      baseUrl: "", model: "", requiresKey: true }
 ];
@@ -1253,7 +1253,7 @@ function addAiProviderRow(item = {}) {
       ${AI_PRESETS.map((p) => `<option value="${escapeAttribute(p.id)}" ${p.id === presetId ? "selected" : ""}>${escapeAttribute(p.name)}</option>`).join("")}
     </select>
     <input class="ai-provider-baseurl" type="text" aria-label="接口地址" placeholder="如 https://api.openai.com/v1" value="${escapeAttribute(baseUrl)}" />
-    <input class="ai-provider-model" type="text" aria-label="模型" placeholder="如 gpt-4o-mini" value="${escapeAttribute(model)}" />
+    <input class="ai-provider-model" type="text" aria-label="模型" placeholder="如 gpt-6-luna" value="${escapeAttribute(model)}" />
     <div class="key">
       <input class="ai-provider-apikey" type="password" aria-label="API Key" placeholder="${apiKeyPlaceholder(hasSavedKey, requiresKey)}" autocomplete="off" />
       <span class="keytag"${hasSavedKey ? "" : " hidden"}>已保存</span>
