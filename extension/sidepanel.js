@@ -2318,10 +2318,7 @@ async function saveCurrentConversationToObsidian() {
     return;
   }
   if (!BocSites.buildContextKey(buildConversationContextRef(context) || {})) {
-    const note = await buildCurrentConversationNote();
-    const folder = resolveFolderTemplate(settingsBundle.settings.noteFolder || "", note.context);
-    const filepath = folder ? `${folder}/${note.filename}` : note.filename;
-    await saveMarkdownToObsidian({ button: els.saveConversationBtn, filepath, content: note.content, ...settingsBundle });
+    await saveConversationNoteToObsidian(settingsBundle);
     return;
   }
   showConversationContextNotice("正在写入 Obsidian…");
@@ -2333,6 +2330,11 @@ async function saveCurrentConversationToObsidian() {
     }
     const tab = await getActiveTab();
     if (!tab?.id || !liveContextData || !doesTabMatchContextUrl(liveTabUrl, context.url || "")) {
+      const ref = buildConversationContextRef(context);
+      if (ref.site === "bilibili" && ref.pageIndex === 1) {
+        await saveBuiltVideoNoteToObsidian(context, ref, settingsBundle);
+        return;
+      }
       showConversationContextNotice("这个视频还没有视频笔记，打开视频页后再写入 Obsidian。", 4000);
       return;
     }
@@ -2347,6 +2349,52 @@ async function saveCurrentConversationToObsidian() {
   } catch (error) {
     showConversationContextNotice(`写入 Obsidian 失败：${readableObsidianError(error)}`, 4000);
   }
+}
+
+// The conversation as its own note, at the folder template's path.
+async function saveConversationNoteToObsidian(settingsBundle) {
+  const note = await buildCurrentConversationNote();
+  const folder = resolveFolderTemplate(settingsBundle.settings.noteFolder || "", note.context);
+  const filepath = folder ? `${folder}/${note.filename}` : note.filename;
+  return (await saveMarkdownToObsidian({ button: els.saveConversationBtn, filepath, content: note.content, ...settingsBundle })) ? filepath : "";
+}
+
+// Without the video page open, a B 站 P1 video's note is built by the background from Bilibili's API, as on the
+// 视频记录 page, then gets this conversation in its AI 问答 section. A deleted or hidden video gets the conversation
+// as its own note instead.
+async function saveBuiltVideoNoteToObsidian(context, ref, settingsBundle) {
+  const { settings, baseUrl, apiKey } = settingsBundle;
+  showConversationContextNotice("正在生成视频笔记…");
+  const built = await sendRuntimeMessage({ type: "triage-build-note", bvid: ref.videoId });
+  if (!built?.ok) {
+    if (!BocSites.isBiliVideoGone(built?.code)) {
+      throw new Error(built?.code === 62004 ? "视频审核中，过后再试" : getReadableText(built?.error, "生成视频笔记失败"));
+    }
+    const filepath = await saveConversationNoteToObsidian(settingsBundle);
+    if (filepath) {
+      showConversationContextNotice(`已写入 Obsidian：${filepath}（视频已失效，只写了对话）`, 4000);
+    }
+    return;
+  }
+  const filepath = videoNotePathFor({ ...context, title: built.data.title || context.title }, settings);
+  const choice = (await checkObsidianNoteExists(baseUrl, apiKey, filepath)) ? await BocOverwriteDialog.choose(filepath, { hasAiSection: true }) : "full";
+  if (!choice) {
+    showConversationContextNotice("已取消写入 Obsidian，原笔记未被覆盖。", 2200);
+    return;
+  }
+  const noteKey = BocSites.buildContextKey(ref);
+  if (choice === "full") {
+    const written = await sendRuntimeMessage({ type: "write-obsidian-note", baseUrl, apiKey, filepath, content: built.data.markdown, noteKey });
+    if (!written?.ok) {
+      throw new Error(getReadableText(written?.error, "Local API 写入失败"));
+    }
+  }
+  const section = BocNote.buildAiSection(buildConversationTurns(chatHistory));
+  const updated = await sendRuntimeMessage({ type: "update-obsidian-ai-section", baseUrl, apiKey, filepath, section, noteKey });
+  if (!updated?.ok) {
+    throw new Error(getReadableText(updated?.error, "Local API 写入失败"));
+  }
+  showConversationContextNotice(choice === "full" ? `已新建视频笔记并写入 AI 问答：${filepath}` : `已写入视频笔记的 AI 问答：${filepath}`, 4000);
 }
 
 async function loadObsidianSettings() {

@@ -335,6 +335,11 @@ assert.throws(() => t.triageParseCommand('{"new_tags":[', cmdItems, cmdTags, {})
   const buildNote = () => t.triageBuildNote("BVa", {});
   routes = { ...baseRoutes(), "/x/player/wbi/v2": { code: -352, message: "风控" }, "/x/player/v2": { code: -352, message: "风控" } };
   await assert.rejects(buildNote(), (e) => e.code === "THROTTLED");
+  // A deleted video rejects with Bilibili's code, which the pages read as gone; a throttled view does not.
+  routes = { ...baseRoutes(), "/view/detail": { code: -404, message: "啥都木有" }, "/web-interface/view?": { code: -404, message: "啥都木有" } };
+  await assert.rejects(buildNote(), (e) => e.code === -404 && e.message === "啥都木有" && t.BocSites.isBiliVideoGone(e.code));
+  routes = { ...baseRoutes(), "/view/detail": { code: -352, message: "风控" }, "/web-interface/view?": { code: -352, message: "风控" } };
+  await assert.rejects(buildNote(), (e) => e.code === "THROTTLED" && !t.BocSites.isBiliVideoGone(e.code));
   routes = { ...baseRoutes(), [subUrl]: new Error("network") };
   await assert.rejects(buildNote(), /network/);
   routes = { ...baseRoutes(), [subUrl]: subtitleRaw(100) };

@@ -255,10 +255,14 @@ async function saveToObsidian(group) {
       }
       boundPath = "";
     }
+    // A deleted or hidden video has no note to build; its conversation is written as its own note below.
+    let built = null;
     if (!boundPath && group.context.site === "bilibili" && (Number(group.context.pageIndex) || 1) === 1) {
       setStatus("正在生成视频笔记…");
-      const built = await chrome.runtime.sendMessage({ type: "triage-build-note", bvid: group.context.videoId });
-      if (!built?.ok) throw new Error(built?.error || "生成视频笔记失败");
+      built = await chrome.runtime.sendMessage({ type: "triage-build-note", bvid: group.context.videoId });
+      if (!built?.ok && !BocSites.isBiliVideoGone(built?.code)) throw new Error(built?.code === 62004 ? "视频审核中，过后再试" : built?.error || "生成视频笔记失败");
+    }
+    if (built?.ok) {
       setStatus("正在写入…");
       const context = { ...group.context, title: built.data.title || group.context.title };
       const folder = BocNote.resolveFolderTemplate(settings.noteFolder || "", context);
@@ -266,7 +270,9 @@ async function saveToObsidian(group) {
       const filepath = folder ? `${folder}/${filename}` : filename;
       const exists = await chrome.runtime.sendMessage({ type: "obsidian-note-exists", baseUrl, apiKey, filepath });
       if (!exists?.ok) throw new Error(exists?.error || "Local API 检查失败");
-      const overwrite = !exists.exists || confirm(`该视频笔记已存在：${filepath}\n确定：覆盖成新生成的视频笔记。取消：保留原笔记${section ? "，只更新其中的 AI 问答段" : ""}。`);
+      const choice = exists.exists ? await BocOverwriteDialog.choose(filepath, { hasAiSection: Boolean(section) }) : "full";
+      if (!choice) return;
+      const overwrite = choice === "full";
       if (overwrite) {
         const written = await chrome.runtime.sendMessage({ type: "write-obsidian-note", baseUrl, apiKey, filepath, content: built.data.markdown, noteKey });
         if (!written?.ok) throw new Error(written?.error || "Local API 写入失败");
@@ -275,7 +281,7 @@ async function saveToObsidian(group) {
         const resp = await chrome.runtime.sendMessage({ type: "update-obsidian-ai-section", baseUrl, apiKey, filepath, section, noteKey });
         if (!resp?.ok) throw new Error(resp?.error || "Local API 写入失败");
       }
-      setStatus(overwrite || section ? `已写入 Obsidian：${filepath}（${overwrite ? "视频笔记" : "AI 问答段"}）` : `已保留原笔记：${filepath}`);
+      setStatus(`已写入 Obsidian：${filepath}（${overwrite ? "视频笔记" : "AI 问答段"}）`);
       return;
     }
     const videoFolder = BocNote.resolveFolderTemplate(settings.noteFolder || "", group.context);
@@ -288,7 +294,8 @@ async function saveToObsidian(group) {
     if (exists.exists && !confirm(`该笔记已存在，继续会覆盖原内容：${filepath}`)) return;
     const written = await chrome.runtime.sendMessage({ type: "write-obsidian-note", baseUrl, apiKey, filepath, content: note.content });
     if (!written?.ok) throw new Error(written?.error || "Local API 写入失败");
-    setStatus(group.context.videoId ? `已写入 Obsidian：${filepath}（这个视频还没有视频笔记，写成了单独的对话笔记）` : `已写入 Obsidian：${filepath}`);
+    if (built) setStatus(`已写入 Obsidian：${filepath}（视频已失效，只写了对话）`);
+    else setStatus(group.context.videoId ? `已写入 Obsidian：${filepath}（这个视频还没有视频笔记，写成了单独的对话笔记）` : `已写入 Obsidian：${filepath}`);
   } catch (error) {
     setStatus(`写入 Obsidian 失败：${error?.message || error}`);
   } finally {
