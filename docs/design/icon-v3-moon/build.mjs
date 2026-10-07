@@ -1,4 +1,5 @@
 // Generates the moon-dumpling (月团 A5) toolbar icons: SVG sources, PNGs, and a preview sheet.
+// Bilibili light-blue tile, the body outlined in white so the pink reads against the blue.
 // Run from the repo root: bun docs/design/icon-v3-moon/build.mjs
 import { Resvg } from "@resvg/resvg-js";
 import { writeFileSync, mkdirSync } from "node:fs";
@@ -12,7 +13,7 @@ const BODY = "M81 89C82.3333 68.3333 93 61 113 67C134.333 48.3333 151.333 51.666
 const ORBIT_BACK = "M49 150C20 93 191 78 207 111C223 143 72 184 49 150Z";
 const ORBIT_BACK_ARC = "M49 150C20 93 191 78 207 111";
 const ORBIT_FRONT = "M51 145C70 179 184 153 205 120";
-const PLAY = "M182 55.5L198 66L182 76.5Z";
+const TILE = "#8FD9F5";
 
 const defs = `<defs>
 <linearGradient id="pink" x1="82.3" y1="55.1" x2="174.7" y2="186.8" gradientUnits="userSpaceOnUse"><stop stop-color="#FFE4EC"/><stop offset="0.52" stop-color="#EE9DBD"/><stop offset="1" stop-color="#C45B97"/></linearGradient>
@@ -23,10 +24,10 @@ const defs = `<defs>
 // smaller icon), corner radius ~22% of size. `art` is the 256-unit artwork scale relative to size; stroke
 // weights are in artwork units; eyes are in px so they land on whole pixels at small sizes.
 const sizes = {
-  128: { art: 1 / 225, orbit: 13, play: 5, back: "loop", border: true, eyes: null },
-  48: { art: 1 / 225, orbit: 15, play: 7, back: "loop", border: false, eyes: { y: 19, h: 4, w: 2, x: [20, 26] } },
-  32: { art: 1 / 225, orbit: 19, play: 10, back: "loop", border: false, eyes: { y: 13, h: 3, w: 1, x: [13, 18] }, playScale: 1.35 },
-  16: { art: 1 / 240, orbit: 24, play: 0, back: "arc", gap: 16, border: false, eyes: { y: 6, h: 2, w: 1, x: [6, 9] } },
+  128: { art: 1 / 225, orbit: 13, outline: 7, back: "loop", border: true, eyes: null },
+  48: { art: 1 / 225, orbit: 15, outline: 9, back: "loop", border: false, eyes: { y: 19, h: 4, w: 2, x: [20, 26] } },
+  32: { art: 1 / 225, orbit: 19, outline: 11, back: "loop", border: false, eyes: { y: 13, h: 3, w: 1, x: [13, 18] } },
+  16: { art: 1 / 240, orbit: 24, outline: 14, back: "arc", gap: 16, border: false, eyes: { y: 6, h: 2, w: 1, x: [6, 9] } },
 };
 
 function svg(size) {
@@ -38,15 +39,11 @@ function svg(size) {
   art.push(c.back === "loop"
     ? `<path d="${ORBIT_BACK}" stroke="#706DAB" stroke-width="${c.orbit}" stroke-linecap="round" stroke-linejoin="round" fill="none"/>`
     : `<path d="${ORBIT_BACK_ARC}" stroke="#706DAB" stroke-width="${c.orbit}" stroke-linecap="round" fill="none"/>`);
-  art.push(`<path d="${BODY}" fill="url(#pink)"${size === 128 ? ` stroke="#F8D8EA" stroke-width="2"` : ""}/>`);
+  art.push(`<path d="${BODY}" fill="url(#pink)" stroke="#FFFFFF" stroke-width="${c.outline}" stroke-linejoin="round" paint-order="stroke"/>`);
   // Small sizes cut a tile-coloured gap between body and front orbit, as the menu-bar version does.
-  if (c.gap) art.push(`<path d="${ORBIT_FRONT}" stroke="#27283F" stroke-width="${c.orbit + c.gap}" stroke-linecap="round" fill="none"/>`);
+  if (c.gap) art.push(`<path d="${ORBIT_FRONT}" stroke="${TILE}" stroke-width="${c.orbit + c.gap}" stroke-linecap="round" fill="none"/>`);
   art.push(`<path d="${ORBIT_FRONT}" stroke="url(#lilac)" stroke-width="${c.orbit}" stroke-linecap="round" fill="none"/>`);
   if (!c.eyes) art.push(`<rect x="108" y="105" width="9" height="20" rx="4.5" fill="#6A3D61"/><rect x="139" y="105" width="9" height="20" rx="4.5" fill="#6A3D61"/>`);
-  if (c.play) {
-    const k = c.playScale ?? 1;
-    art.push(`<path d="${PLAY}" transform="translate(190 66) scale(${k}) translate(-190 -66)" fill="#FFE4A7" stroke="#FFE4A7" stroke-width="${c.play}" stroke-linejoin="round"/>`);
-  }
   const eyes = c.eyes
     ? c.eyes.x.map((x) => `<rect x="${x}" y="${c.eyes.y}" width="${c.eyes.w}" height="${c.eyes.h}" rx="${Math.min(c.eyes.w / 2, 0.8)}" fill="#6A3D61"/>`).join("")
     : "";
@@ -54,7 +51,7 @@ function svg(size) {
     ? `<rect x="0.25" y="0.25" width="${size - 0.5}" height="${size - 0.5}" rx="${rx - 0.25}" fill="none" stroke="#FFFFFF" stroke-width="0.5" opacity=".35"/>`
     : "";
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 ${size} ${size}">${defs}
-<rect width="${size}" height="${size}" rx="${rx}" fill="#27283F"/>
+<rect width="${size}" height="${size}" rx="${rx}" fill="${TILE}"/>
 <g transform="translate(${mid} ${mid}) scale(${+s.toFixed(5)}) translate(-128 -128)">${art.join("")}</g>${eyes}${border}
 </svg>
 `;
