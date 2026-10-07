@@ -727,6 +727,7 @@ function buildUiHtml() {
             </section>
 
             <section class="boc-reading-settings-group">
+              <div class="boc-reading-eyebrow">字幕</div>
               <div class="boc-reading-controls">
                 <label class="boc-reading-toggle boc-reading-toggle-inline">
                   <input id="${ids.readingAutoScroll}" type="checkbox" checked />
@@ -737,9 +738,6 @@ function buildUiHtml() {
                   <span>章节</span>
                 </label>
               </div>
-            </section>
-
-            <section class="boc-reading-settings-group">
               <div class="boc-reading-controls">
                 <select id="${ids.readingSubtitleSelect}" class="boc-reading-select" aria-label="字幕语言">
                 </select>
@@ -1545,7 +1543,7 @@ function confirmOverwriteNote(filepath, { hasAiSection = false } = {}) {
         <div class="boc-confirm-path"></div>
         <div class="boc-confirm-actions">
           <button type="button" class="boc-confirm-danger" data-choice="full">整篇覆盖</button>
-          <button type="button" class="boc-confirm-primary" data-choice="">取消</button>
+          <button type="button" class="boc-confirm-cancel" data-choice="">取消</button>
         </div>
       </div>
     `;
@@ -1573,7 +1571,7 @@ function confirmOverwriteNote(filepath, { hasAiSection = false } = {}) {
     });
     document.addEventListener("keydown", onKeydown, true);
     document.body.appendChild(overlay);
-    overlay.querySelector(".boc-confirm-primary")?.focus();
+    (overlay.querySelector(".boc-confirm-primary") || overlay.querySelector(".boc-confirm-cancel")).focus();
   });
 }
 

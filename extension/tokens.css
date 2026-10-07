@@ -144,11 +144,6 @@ button.link:hover { color: var(--link-hover); text-decoration: underline; }
   vertical-align: -2px;
 }
 
-/* On a filled accent button the purple mark disappears; the brand allows an all-white mark there. */
-.primary .obsidian-mark {
-  filter: brightness(0) invert(1);
-}
-
 /* Marks every control that starts an AI request; painted in the button's text color. */
 .ai-spark {
   display: inline-block;
@@ -205,8 +200,10 @@ dialog.boc-overwrite::backdrop { background: rgba(17, 24, 39, 0.28); }
 dialog.boc-overwrite form { padding: 16px; }
 dialog.boc-overwrite h2 { margin: 0 0 8px; font-size: var(--fs-lg); }
 dialog.boc-overwrite p { margin: 0 0 8px; color: var(--text-2); font-size: var(--fs-sm); }
-dialog.boc-overwrite code { display: block; color: var(--text-2); font-size: var(--fs-xs); word-break: break-all; }
+dialog.boc-overwrite code { display: block; max-height: 96px; overflow: auto; padding: 9px 10px; border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--surface-muted); color: var(--text-2); font-family: inherit; font-size: var(--fs-xs); line-height: 1.45; word-break: break-all; }
 dialog.boc-overwrite .actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 14px; }
+/* Pushed to the far left, away from 取消 and the default button. */
+dialog.boc-overwrite .danger { margin-right: auto; }
 
 /* Settings that are on or off: a checkbox drawn as a slider, still focusable and toggled with Space. */
 input.switch {
