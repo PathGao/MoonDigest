@@ -3933,8 +3933,9 @@ function updateReaderFollowState() {
   if (!readingView) {
     return;
   }
-  const mode =
-    !state.readingAutoScroll ? "off" : Date.now() < state.readingManualScrollPauseUntil ? "manual" : "auto";
+  // A paused video gets no playback ticks to clear the hint, so it is not shown while paused; the scroll guard still holds.
+  const manual = Date.now() < state.readingManualScrollPauseUntil && !state.readingVideoEl?.paused;
+  const mode = !state.readingAutoScroll ? "off" : manual ? "manual" : "auto";
   if (readingView.getAttribute("data-boc-reader-follow") !== mode) {
     readingView.setAttribute("data-boc-reader-follow", mode);
   }

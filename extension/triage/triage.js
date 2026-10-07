@@ -1467,7 +1467,7 @@ function showSyncNotice(diff, partial) {
   if (restored.length) parts.push(`恢复 ${restored.length}`);
   const head = partial ? `只加载了前 ${partial.count} 个（第 ${partial.page} 页失败：${partial.error}），可稍后重试同步。` : "";
   el.syncText.textContent = `${head}B站同步：${parts.join(" · ")}`;
-  el.syncViewBtn.textContent = `B站同步${partial ? "（部分）" : ""} +${added.length}${partial ? "" : ` −${removed.length}`}`;
+  el.syncViewBtn.textContent = `B站已同步${partial ? "（部分）" : ""} +${added.length}${partial ? "" : ` −${removed.length}`}`;
   // A partial load is a notice to retry later, not a blocker: amber, per the color rules in tokens.css.
   el.syncViewBtn.classList.toggle("warn", Boolean(partial));
   const section = (label, titles) =>
@@ -1556,12 +1556,12 @@ function activityState() {
     const done = groupDone(S.group);
     const where = runWhere(S.group);
     const text = where ? `字幕细看 ${done}/${S.group.bvids.length}${where}` : S.group.text || `字幕细看 ${done}/${S.group.bvids.length}`;
-    return { text: wait || text, done, total: S.group.bvids.length, act: "group", actLabel: "暂停细看", warn: Boolean(wait) };
+    return { text: wait || text, done, total: S.group.bvids.length, act: "group", actLabel: S.group.stop ? "暂停中" : "暂停细看", stopping: S.group.stop, warn: Boolean(wait) };
   }
   if (S.stage1.running) {
     const where = runWhere(S.stage1);
     const text = where ? `标题粗看中 ${S.stage1.done}/${S.stage1.total}${where}` : S.stage1.text;
-    return { text: wait || text, done: S.stage1.done, total: S.stage1.total, act: "stage1", actLabel: "暂停粗看", warn: Boolean(wait) };
+    return { text: wait || text, done: S.stage1.done, total: S.stage1.total, act: "stage1", actLabel: S.stage1.stop ? "暂停中" : "暂停粗看", stopping: S.stage1.stop, warn: Boolean(wait) };
   }
   const move = S.transferRun;
   if (move) return { text: `${move.verb}到「${move.toName}」${move.done}/${move.total}${runWhere(move)}`, done: move.done, total: move.total };
@@ -1588,7 +1588,7 @@ function renderStatus() {
   if (!a) return;
   el.activity.classList.toggle("warn", Boolean(a.warn));
   const bar = a.total ? `<span class="activity-bar" aria-hidden="true"><i style="width:${Math.round((a.done / a.total) * 100)}%"></i></span>` : "";
-  const btn = a.act ? `<button type="button" data-head="${a.act}" aria-label="${esc(a.actLabel)}">${esc(a.actLabel)}</button>` : "";
+  const btn = a.act ? `<button type="button" data-head="${a.act}" aria-label="${esc(a.actLabel)}"${a.stopping ? " disabled" : ""}>${esc(a.actLabel)}</button>` : "";
   el.activity.innerHTML = `<span class="activity-text">${esc(a.text)}</span>${bar}${btn}`;
 }
 
@@ -1677,12 +1677,13 @@ function renderListHeader(list) {
     return headBtn("transfer", S.mediaId === REMOVED ? `收藏选中的 ${n} 个到…` : `移动/复制选中的 ${n} 个…`, "", !n || Boolean(S.unfavBatch));
   };
   const groupBtn = (cls) => {
-    if (ownGroup()) return headBtn("group", `暂停细看 ${groupDone(S.group)}/${S.group.bvids.length}`, "primary");
+    if (ownGroup()) return headBtn("group", `${S.group.stop ? "暂停中" : "暂停细看"} ${groupDone(S.group)}/${S.group.bvids.length}`, "primary", S.group.stop);
     const batch = nextBatch();
     const label = batch.some((b) => S.selected.has(b)) ? selectedIn(list).length > batch.length ? `细看选中的前 ${batch.length} 个` : `细看选中 ${batch.length} 个` : batch.length ? `细看下一批 ${batch.length} 个` : "细看";
     return headBtn("group", label, cls, !batch.length || busy, "", "", false, true);
   };
-  const stage1Pause = () => headBtn("stage1", `暂停粗看 ${S.stage1.done}/${S.stage1.total}`, "primary");
+  // Pausing waits for the current batch or video; until then the button says so and takes no second click.
+  const stage1Pause = () => headBtn("stage1", `${S.stage1.stop ? "暂停中" : "暂停粗看"} ${S.stage1.done}/${S.stage1.total}`, "primary", S.stage1.stop);
   // Results made under an older 判断标准 can be redone; 细看 goes one batch at a time like a normal run.
   const redoBtn = (act, verb, n) => (n ? headBtn(act, `按新标准重新${verb} ${n} 个`, "", busy, "", `这些视频是按旧的判断标准${verb}的`, false, true) : "");
   const sel = selectedIn(list).length;
@@ -1956,7 +1957,7 @@ function cardHtml(it, expanded, mark) {
       ${left ? `<div class="left-row">${left}</div>` : ""}
       <div class="meta">${meta.map(esc).join(" · ")}</div>
       ${body.join("")}
-      <div class="card-foot verdict-row">${verdict}${S.watched[b] ? `<button type="button" class="badge watched" data-act="unwatch" aria-label="优先看过，点一下取消" title="${esc(fmtTime(S.watched[b]))} 在优先看里点了已看 · 点一下取消">优先看过</button>` : ""}<span class="reason">${esc(v.reason)}</span>${failed}</div>
+      <div class="card-foot verdict-row">${verdict}${S.watched[b] ? `<button type="button" class="badge watched" data-act="unwatch" aria-label="优先看过，点一下取消" title="${esc(fmtTime(S.watched[b]))} 在优先看里点了已看 · 点一下取消">优先看过×</button>` : ""}<span class="reason">${esc(v.reason)}</span>${failed}</div>
       ${chips ? `<div class="chips">${chips}</div>` : ""}
       ${noteHtml}
       <div class="card-foot">
@@ -3178,7 +3179,7 @@ function renderBasket() {
         <span class="basket-text"><span class="basket-title">${title}</span>${meta || x.opened ? `<span class="muted">${[meta, x.opened && "已打开"].filter(Boolean).join(" · ")}</span>` : ""}</span>
       </button>
       <div class="basket-actions">
-        <button type="button" data-basket="done" aria-label="已看，移出 ${title}">已看</button>
+        <button type="button" data-basket="done" aria-label="看完，移出 ${title}">看完</button>
       </div>
       ${note ? `<div class="muted basket-note">${esc(note)}</div>` : ""}
     </div>`;
@@ -3515,12 +3516,12 @@ function bindEvents() {
       if (!S.stage1.running) return runStage1();
       S.stage1.stop = true;
       S.stage1.text = "粗看将在当前批次后暂停";
-      renderStatus();
+      render();
     } else if (act === "group") {
       if (S.group) {
         S.group.stop = true;
         S.group.text = "细看将在当前视频后暂停";
-        return renderStatus();
+        return render();
       }
       const batch = nextBatch();
       for (const b of batch) S.selected.delete(b);

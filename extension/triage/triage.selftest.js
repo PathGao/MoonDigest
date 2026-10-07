@@ -321,9 +321,16 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   // The activity pill names what runs, whatever the tab: 细看 first, then 粗看; a wait keeps the job's pause button.
   t.S.group = { bvids: ["BV207"], stop: false, mediaId: String(t.S.mediaId), items: t.S.itemMap, text: "字幕细看 1/1" };
   t.S.stage1 = { ...t.S.stage1, running: true, done: 2, total: 5, mediaId: String(t.S.mediaId), text: "标题粗看中 2/5" };
-  assert.deepStrictEqual(plain(t.activityState()), { text: "字幕细看 1/1", done: 0, total: 1, act: "group", actLabel: "暂停细看", warn: false });
+  assert.deepStrictEqual(plain(t.activityState()), { text: "字幕细看 1/1", done: 0, total: 1, act: "group", actLabel: "暂停细看", stopping: false, warn: false });
+  // Paused but still finishing the current video: the button says so and is disabled, on the pill and in the step bar.
+  t.S.group.stop = true;
+  assert.strictEqual(t.activityState().actLabel, "暂停中");
+  t.renderStatus();
+  assert.ok(t.el.activity.innerHTML.includes('aria-label="暂停中" disabled>暂停中</button>'), t.el.activity.innerHTML);
+  t.renderListHeader(t.visibleItems());
+  assert.ok(t.el.listHeader.innerHTML.includes('aria-label="暂停中 0/1" disabled>暂停中 0/1</button>'), t.el.listHeader.innerHTML);
   t.S.group = null;
-  assert.deepStrictEqual(plain(t.activityState()), { text: "标题粗看中 2/5", done: 2, total: 5, act: "stage1", actLabel: "暂停粗看", warn: false });
+  assert.deepStrictEqual(plain(t.activityState()), { text: "标题粗看中 2/5", done: 2, total: 5, act: "stage1", actLabel: "暂停粗看", stopping: false, warn: false });
   Object.assign(t.S, { throttleUntil: Date.now() + 61000, throttleLabel: "B站限流" });
   const waiting = t.activityState();
   assert.ok(waiting.warn && waiting.text.startsWith("B站限流，") && waiting.act === "stage1", "a wait shows its countdown and keeps 暂停粗看");
