@@ -194,6 +194,11 @@ function originOf(left, bvid, folder, at) {
   const before = Object.entries(left[bvid] || {}).filter(([id]) => id !== folder.id).map(([id, e]) => ({ id, title: e.title, at: e.at }));
   return [...before, { id: folder.id, title: folder.title, at }];
 }
+// Records from before `from` existed: a 取消收藏 done here in folder X is a fact that the video was in X (pure).
+function inferFrom(decisionsByFolder, bvid, titleOf) {
+  const ids = Object.entries(decisionsByFolder).filter(([, d]) => d?.[bvid]?.action === "unfav").map(([id]) => id);
+  return ids.length ? ids.map((id) => ({ id, title: titleOf(id) })) : undefined;
+}
 // Listed in this folder again: it never left it (mutates trail).
 function forgetLeft(trail, bvid, folderId) {
   if (!trail[bvid]?.[folderId]) return;
@@ -1163,11 +1168,14 @@ function saveSnapshot(mediaId, items, ids = null) {
 // ---------- 已取消收藏 ----------
 async function openRemoved() {
   const token = S.folderToken;
-  const rec = await storeGet(K.removed, {});
+  const keys = ((await chrome.storage.local.getKeys?.()) ?? Object.keys((await chrome.storage.local.get(null)) || {})).filter((k) => k.startsWith("triage_decisions_"));
+  const got = await chrome.storage.local.get([K.removed, ...keys]);
   if (token !== S.folderToken) return false;
+  const rec = got[K.removed] || {};
+  const decisionsByFolder = Object.fromEntries(keys.map((k) => [k.slice("triage_decisions_".length), got[k]]));
   S.items = Object.values(rec)
     .sort((x, y) => y.at - x.at)
-    .map(({ item, at, movedTo, hidden, from }) => ({ ...item, removedAt: at, movedTo, hidden, from }));
+    .map(({ item, at, movedTo, hidden, from }) => ({ ...item, removedAt: at, movedTo, hidden, from: from || inferFrom(decisionsByFolder, item.bvid, folderName) }));
   S.itemMap = new Map(S.items.map((it) => [it.bvid, it]));
   if (!(await loadResults(token))) return false;
   checkRemoved(token);
