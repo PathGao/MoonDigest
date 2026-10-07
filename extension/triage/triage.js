@@ -278,7 +278,7 @@ const folderContext = () => ({ title: folderTitle(), intro: S.folderIntro[S.medi
 const $ = (id) => document.getElementById(id);
 const el = {};
 [
-  "folderSelect", "settingsHeading", "settingsFoldersHeading", "settingsAi", "settingsFirstRunHint", "removedBtn", "searchInput", "searchCount", "refreshBtn", "activity", "settingsBtn", "helpBtn", "tools",
+  "folderSelect", "folderList", "folderHead", "settingsHeading", "settingsFoldersHeading", "settingsAi", "settingsFirstRunHint", "removedBtn", "searchInput", "searchCount", "refreshBtn", "activity", "settingsBtn", "helpBtn", "tools",
   "banner", "bannerText", "bannerBtn", "bannerClose", "syncNotice", "syncText", "syncViewBtn", "syncCloseBtn", "syncDetail",
   "tabs", "stagebar", "classFilter", "tagFilter", "listHeader", "list", "basket", "basketToggle", "basketCount",
   "basketList", "toast", "settingsDialog", "folderToggles", "thinkingRow", "intervalInput",
@@ -350,6 +350,8 @@ function stamp(d = new Date(), withTime = true) {
   const day = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
   return withTime ? `${day}-${pad(d.getHours())}${pad(d.getMinutes())}` : day;
 }
+// pubdate is seconds since the epoch.
+const fmtDate = (sec) => (sec ? stamp(new Date(sec * 1000), false) : "");
 function fmtTime(ts) {
   if (!ts) return "";
   const d = new Date(ts);
@@ -717,10 +719,12 @@ function coverHtml(it) {
   const p = S.seenCfg.bar ? known : null;
   const seen = isFinished(it);
   const faint = !seen && known && S.seenCfg.mark;
-  if (!p && !seen && !faint) return img;
   const label = seenWords(known, seen);
   const mark = seen ? `<span class="seen-veil">${label}</span><span class="seen-tag">${label}</span>` : faint ? `<span class="seen-tag faint">${label}</span>` : "";
-  return `<span class="cover-wrap${seen ? " seen" : ""}">${img}${mark}${p ? `<span class="seen-bar" title="看过 ${p}%"><i style="width:${Math.max(p, 2)}%"></i></span>` : ""}</span>`;
+  const v = verdictOf(it);
+  const tag = S.analyzing.has(it.bvid) ? `<span class="cover-tag running">分析中…</span>` : VERDICTS[v.verdict] ? `<span class="cover-tag ${v.verdict}" title="${esc(v.reason)}">${VERDICTS[v.verdict]}</span>` : "";
+  const dur = it.duration ? `<span class="cover-dur">${fmtDuration(it.duration)}</span>` : "";
+  return `<span class="cover-wrap${seen ? " seen" : ""}">${img}${tag}${dur}${mark}${p ? `<span class="seen-bar" title="看过 ${p}%"><i style="width:${Math.max(p, 2)}%"></i></span>` : ""}</span>`;
 }
 
 // Runs simplifyMigration once (flag key), then drops the old scheme keys it read.
@@ -1427,7 +1431,34 @@ function renderTop() {
   el.removedBtn.textContent = `已取消收藏 ${S.removedCount}`;
   el.removedBtn.hidden = !showRemoved;
   el.aiBtn.innerHTML = `${AI_SPARK}标签${S.ai.running ? " · 运行中" : S.ai.proposal ? " · 待确认" : ""}`;
+  renderFolderList();
+  renderFolderHead();
   renderStatus();
+}
+
+// The sidebar is the folder select drawn as a list: same options, same order, same hidden ones; a click sets the select.
+function renderFolderList() {
+  const opts = el.folderSelect.options;
+  if (!opts?.length) return;
+  // Golden-angle steps keep neighbouring ids apart.
+  const hue = (id) => Math.round((Number(id) || [...String(id)].reduce((h, ch) => h + ch.charCodeAt(0), 0)) * 137.5) % 360;
+  el.folderList.innerHTML = [...opts]
+    .filter((o) => !o.hidden)
+    .map((o) => {
+      const on = o.value === String(S.mediaId);
+      const m = /^(.*?)(?: \((\d+)\))?$/.exec(o.textContent);
+      const real = o.value !== ALL && o.value !== REMOVED;
+      const thumb = real ? `<span class="folder-thumb" style="--h:${hue(o.value)}" aria-hidden="true"></span>` : "";
+      return `<button type="button" class="side-item${on ? " on" : ""}" data-folder="${esc(o.value)}"${on ? ' aria-current="true"' : ""}${o.title ? ` title="${esc(o.title)}"` : ""}>${thumb}<span class="side-name">${esc(m[1])}</span>${m[2] ? `<span class="side-count">${m[2]}</span>` : ""}</button>`;
+    })
+    .join("");
+}
+
+function renderFolderHead() {
+  if (!S.mediaId) return (el.folderHead.innerHTML = "");
+  const invalid = S.items.filter((it) => it.invalid || it.hidden).length;
+  const meta = [`${S.items.length} 个视频`, invalid && `${invalid} 个已失效`].filter(Boolean).join(" · ");
+  el.folderHead.innerHTML = `<h1 class="folder-title">${esc(folderTitle())}</h1><div class="folder-meta">${meta}</div>`;
 }
 
 // What is running, in one place on every tab: the first that applies wins. done/total draws a bar,
@@ -1728,6 +1759,7 @@ async function refavRecent(bvid) {
 function renderList() {
   const list = visibleItems();
   renderListHeader(list);
+  el.list.classList.toggle("grid", S.tab === "read" && S.mediaId !== REMOVED);
   // 保留 only marks the video here, while 取消收藏 changed Bilibili; say so where both end up.
   const recent = S.tab === "done" ? `<p class="muted tab-note">已保留：${KEEP_TIP}。已取消收藏：已从 B 站收藏夹移走，最近的操作可按 U 撤销。</p>${recentUnfavHtml()}` : "";
   if (!S.items.length) {
@@ -1807,7 +1839,7 @@ function cardHtml(it, expanded, mark) {
 
   // Where the verdict came from, as one muted meta item.
   const source = [["", "粗看", "细看"][v.stage], done && (a.source === "subtitle" ? "字幕" : "简介")].filter(Boolean).join("·");
-  const meta = [it.upper, fmtDuration(it.duration), source, seenText(it), it.invalid && "已失效", it.folders?.length && `收藏夹：${folderNames(it)}`].filter(Boolean);
+  const meta = [it.upper, fmtDate(it.pubdate), source, seenText(it), it.invalid && "已失效", it.folders?.length && `收藏夹：${folderNames(it)}`].filter(Boolean);
 
   const verdict = verdictBadge(b, v);
   // The button matching the AI's verdict leads; the other stays plain.
@@ -1837,7 +1869,7 @@ function cardHtml(it, expanded, mark) {
       <div class="title-row">${mark ? `<span class="batch-tag">${mark}</span>` : ""}<button type="button" class="title" data-act="open" aria-label="打开视频 ${esc(it.title)}">${esc(it.title)}</button></div>
       <div class="meta">${meta.map(esc).join(" · ")}</div>
       ${body.join("")}
-      <div class="card-foot">${verdict}${S.watched[b] ? `<button type="button" class="badge watched" data-act="unwatch" aria-label="优先看过，点一下取消" title="${esc(fmtTime(S.watched[b]))} 在优先看里点了已看 · 点一下取消">优先看过</button>` : ""}<span class="reason">${esc(v.reason)}</span>${failed}</div>
+      <div class="card-foot verdict-row">${verdict}${S.watched[b] ? `<button type="button" class="badge watched" data-act="unwatch" aria-label="优先看过，点一下取消" title="${esc(fmtTime(S.watched[b]))} 在优先看里点了已看 · 点一下取消">优先看过</button>` : ""}<span class="reason">${esc(v.reason)}</span>${failed}</div>
       ${chips ? `<div class="chips">${chips}</div>` : ""}
       ${noteHtml}
       <div class="card-foot">
@@ -3299,6 +3331,10 @@ function buildCsv() {
 // ---------- events ----------
 function bindEvents() {
   el.folderSelect.addEventListener("change", () => openFolder(el.folderSelect.value));
+  el.folderList.addEventListener("click", (e) => {
+    const btn = e.target.closest("[data-folder]");
+    if (btn && btn.dataset.folder !== String(S.mediaId)) openFolder(btn.dataset.folder);
+  });
   el.removedBtn.addEventListener("click", () => {
     el.tools.hidePopover();
     openFolder(REMOVED);
@@ -3416,6 +3452,7 @@ function bindEvents() {
     if (e.key === "Enter" && !e.isComposing) e.preventDefault();
   });
   el.stagebar.addEventListener("click", onHeadClick);
+  el.listHeader.addEventListener("click", onHeadClick);
   el.activity.addEventListener("click", onHeadClick);
 
   el.list.addEventListener("click", (e) => {
