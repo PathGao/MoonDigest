@@ -113,6 +113,10 @@
         <p id="settingsFirstRunHint" class="dialog-hint" hidden>AI 参数一般不用改，以后点右上角的齿轮可以再调。</p>
         <!-- The first open only asks for folders; this part shows from the 分拣设置 gear. -->
         <div id="settingsAi" class="settings-ai">
+        <h3>标签</h3>
+        <label for="tagLimitInput">每个收藏夹最多几个标签（1–50）</label>
+        <input id="tagLimitInput" type="number" min="1" max="50" step="1" />
+        <p class="dialog-hint">调低不会删掉已有标签，只是超出后不能再新建。</p>
         <h3>AI 参数</h3>
         <p class="dialog-hint">一般不用改。AI 平台和笔记格式在设置页；判断标准在粗看、细看按钮旁边改，标签在「标签」里改。</p>
         <label for="intervalInput">请求间隔（秒）</label>
@@ -245,7 +249,7 @@
           </span>
         </div>
         <section id="tagsManage" class="ai-section">
-          <p class="dialog-hint">这里是这个收藏夹的标签，最多 10 个，改名、说明和删除立即保存。</p>
+          <p class="dialog-hint">这里是这个收藏夹的标签，最多 <span data-tag-limit>10</span> 个（在分拣设置里改），改名、说明和删除立即保存。</p>
           <div id="tagsRows" class="tag-rows"></div>
           <div class="tag-add">
             <input id="newTagInput" type="text" placeholder="新标签名称" aria-label="新标签名称" />
@@ -311,7 +315,7 @@
           <li><strong>处理完成</strong>：取消收藏或保留过的视频；最近取消收藏的可以重新收藏。</li>
         </ol>
         <p class="dialog-hint">分拣分两层：第一层是收藏夹的判断标准，AI 按它给出 AI 判断（值得留 / 可清理 / 拿不准），决定留不留；第二层是你的标签，按每个标签的说明给视频分类，决定怎么找。判断标准在粗看、细看按钮旁边写，标签说明在「标签 → 管理」里写。</p>
-        <p class="dialog-hint">步骤按 AI 分析到哪一步分，取消收藏或保留过的归处理完成；AI 判断是每步里的筛选。判断标准不写时，AI 从收藏夹名和简介推测用途。每个收藏夹最多 10 个标签：按 T 逐个打，按 I 批量打（AI 每次最多新建 5 个）。AI 只在本页打开时运行。</p>
+        <p class="dialog-hint">步骤按 AI 分析到哪一步分，取消收藏或保留过的归处理完成；AI 判断是每步里的筛选。判断标准不写时，AI 从收藏夹名和简介推测用途。每个收藏夹最多 <span data-tag-limit>10</span> 个标签：按 T 逐个打，按 I 批量打（AI 每次最多新建 5 个）。AI 只在本页打开时运行。</p>
         <p class="dialog-hint">优先看：按 E 把要看的视频放进清单（列表右下角），按加入先后排。点一条在右侧打开，看完点「已看」：移出清单，卡片标「优先看过」（点它取消，U 撤销）。右侧顶栏「已看，下一个」直接打开下一条。不影响收藏和处理结果。</p>
         <p class="dialog-hint">「保留」只在 MoonDigest 里标记，B站收藏夹不变。导出摘录、逐个笔记和数据备份都在「批量导出」。</p>
         <h2>快捷键</h2>

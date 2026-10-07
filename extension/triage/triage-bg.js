@@ -469,7 +469,8 @@ const TRIAGE_SETTINGS_DEFAULTS = {
   triageTitleBatchSize: 30,
   triageThinking: false,
   triageTitleMaxTokens: 0,
-  triageAnalyzeMaxTokens: 0
+  triageAnalyzeMaxTokens: 0,
+  triageTagLimit: 10
 };
 
 // 输出上限：用户填了正数就用用户的，否则按是否思考自动（思考 token 计入 max_tokens）
@@ -888,6 +889,7 @@ const TRIAGE_HANDLERS = {
       triageThinking: s.triageThinking === true,
       triageTitleMaxTokens: Number(s.triageTitleMaxTokens) > 0 ? Number(s.triageTitleMaxTokens) : 0,
       triageAnalyzeMaxTokens: Number(s.triageAnalyzeMaxTokens) > 0 ? Number(s.triageAnalyzeMaxTokens) : 0,
+      triageTagLimit: Math.max(1, Math.min(50, Math.floor(Number(s.triageTagLimit)) || 10)),
       // 开启思考 only reaches these platforms (triageChat), so the page shows the switch only for them.
       thinkingToggle: supportsThinkingToggle(provider?.baseUrl)
     };
