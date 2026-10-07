@@ -828,6 +828,17 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     const at = new Date(new Date().getFullYear(), 9, 5, 17, 25).getTime();
     const html = t.cardHtml({ ...item(1), removedAt: at, from: [{ id: "A", title: "甲", at: 1 }, { id: "B", title: "乙", at: 3 }, { id: "C", title: "丙", at: 5 }] }, true, "");
     assert.ok(html.includes('data-select="BV1"') && html.includes('class="danger" data-clean="BV1"') && !html.includes('data-act="keep"') && !html.includes('data-act="unfav"'), html);
+    assert.ok(html.includes('data-act="basket"') && html.includes('data-act="ask"') && !html.includes('data-act="tag"'), "已出分拣范围 keeps 优先看 and 问 AI, not 标签");
+    // 保留 shows here too, and the table carries the note, 优先看, origin and why it left.
+    t.S.decisions = { BV1: { action: "keep", at } };
+    assert.ok(t.cardHtml({ ...item(1), removedAt: at }, true, "").includes(">已保留<"));
+    const savedNotes = t.S.notes, savedBasket = t.S.basket;
+    Object.assign(t.S, { notes: { BV1: { text: " 我的话 " } }, basket: [{ bvid: "BV1" }] });
+    t.S.items = [{ ...item(1), removedAt: at, from: [{ id: "A", title: "甲", at: 1 }], inFolder: null }];
+    const [head, row] = t.buildCsv().replace(/^\uFEFF/, "").split("\r\n");
+    const col = (name) => row.split(",")[head.split(",").indexOf(name)];
+    assert.deepStrictEqual([col("备注"), col("优先看"), col("我的处理"), col("原在"), col("离开原因")], ["我的话", "在优先看", "保留", "甲", "10月5日 17:25 已取消收藏"]);
+    Object.assign(t.S, { notes: savedNotes, basket: savedBasket, decisions: {}, items: [] });
     assert.ok(html.includes('<div class="left-row"><span class="origin-chip" title="原在「甲」「乙」「丙」">原在「甲」「乙」等 3 个</span><span>10月5日 17:25 离开收藏夹</span></div>'), html);
     assert.ok(!/class="meta">[^<]*(离开收藏夹|原在)/.test(html), "the gray meta line does not repeat the leaving line");
     assert.ok(t.cardHtml({ ...item(2), removedAt: at, from: [{ id: "A", title: "甲", at: 5 }] }, true, "").includes(">原在「甲」<"));
