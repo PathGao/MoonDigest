@@ -1541,7 +1541,8 @@ function folderThumb(id, cover) {
 function renderFolderHead() {
   if (!S.mediaId) return (el.folderHead.innerHTML = "");
   const invalid = S.items.filter((it) => it.invalid || it.hidden).length;
-  const meta = [`${S.items.length} 个视频`, invalid && `${invalid} 个已失效`].filter(Boolean).join(" · ");
+  const explain = S.mediaId === REMOVED && "离开了你勾选的所有收藏夹，AI 分析、备注和标签都还留着，清理前可先批量导出";
+  const meta = [`${S.items.length} 个视频`, invalid && `${invalid} 个已失效`, explain].filter(Boolean).join(" · ");
   const thumb = inFolderView() && S.mediaId !== TOVIEW ? folderThumb(S.mediaId, el.folderSelect.querySelector?.(`option[value="${S.mediaId}"]`)?.dataset.cover) : "";
   el.folderHead.innerHTML = `${thumb}<div class="folder-text"><h1 class="folder-title">${esc(folderTitle())}</h1><div class="folder-meta">${meta}</div></div>`;
 }
@@ -1723,8 +1724,7 @@ function renderListHeader(list) {
     const c = S.removedCheck;
     html = seg();
     if (c) html += c.error ? `<span class="fail-text">${esc(c.error)}</span>` : `<span class="muted" aria-busy="true">正在核对 ${c.done} / ${c.total} 个收藏夹，重新收藏的会自动移出</span>`;
-    html += `<span class="muted">离开了你勾选的所有收藏夹的视频，AI 分析、备注和标签都还留着。需要的先批量导出，再清理。</span>
-      ${headBtn("export-read", "批量导出…", "", !list.length)}${sel ? headBtn("clean-selected", `清理选中的 ${sel} 个`, "danger") : headBtn("clean-removed", `清理这 ${list.length} 个`, "danger", !list.length)}`;
+    html += `${headBtn("export-read", "批量导出…", "", !list.length)}${sel ? headBtn("clean-selected", `清理选中的 ${sel} 个`, "danger") : headBtn("clean-removed", `清理这 ${list.length} 个`, "danger", !list.length)}`;
   } else if (t === "read") {
     // 阅览 mixes 粗看 guesses with 细看 conclusions, so no class-wide batch here: only the selection.
     html = seg();
