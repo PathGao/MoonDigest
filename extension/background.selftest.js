@@ -189,7 +189,7 @@ process.on("exit", (code) => {
 
   // A request that never answers fails with a retryable timeout instead of hanging the caller.
   ctx.fetch = (url, { signal }) => new Promise((_, reject) => signal.addEventListener("abort", () => reject(signal.reason)));
-  await assert.rejects(ctx.fetchWithTimeout("https://api.bilibili.com/x", {}, 30), (e) => e.status === 408 && /timeout/.test(e.message));
+  await assert.rejects(ctx.fetchWithTimeout("https://api.bilibili.com/x", {}, 30), (e) => e.status === 408 && /超时/.test(e.message));
 
   // The side panel saves the context URL with a conversation, so reader mode and tracking params never reach it.
   const contextFor = async (tabUrl, payload) => {

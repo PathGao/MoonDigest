@@ -1682,7 +1682,7 @@ function buildConversationTitleDisplay(title, maxChars = 22) {
   const match = value.match(/^(.*?)(-P\d+)$/i);
   if (!match) {
     return {
-      main: value.length > maxChars ? `${value.slice(0, maxChars)}...` : value,
+      main: value.length > maxChars ? `${value.slice(0, maxChars)}…` : value,
       suffix: ""
     };
   }
@@ -1692,7 +1692,7 @@ function buildConversationTitleDisplay(title, maxChars = 22) {
   const reservedChars = Math.max(suffix.length + 3, 6);
   const availableChars = Math.max(maxChars - reservedChars, 8);
   return {
-    main: baseTitle.length > availableChars ? `${baseTitle.slice(0, availableChars)}...` : baseTitle,
+    main: baseTitle.length > availableChars ? `${baseTitle.slice(0, availableChars)}…` : baseTitle,
     suffix
   };
 }
@@ -2118,7 +2118,7 @@ function startStreamSlowNoticeTimer() {
     if (!activeStream || streamFirstTokenReceived) {
       return;
     }
-    showConversationContextNotice("模型响应较慢，仍在等待服务器返回...", 0);
+    showConversationContextNotice("模型响应较慢，仍在等待服务器返回…", 0);
   }, STREAM_SLOW_NOTICE_MS);
 }
 
@@ -2281,7 +2281,7 @@ async function autoSyncConversation(conversationId) {
       showSyncStatus("Obsidian 里的视频笔记已不存在，未写入");
       return;
     }
-    showSyncStatus(`已写入 Obsidian：${notePath}`, { autoHideMs: 3000 });
+    showSyncStatus(`已更新 AI 问答：${notePath}`, { autoHideMs: 3000 });
   } catch (error) {
     showSyncStatus(`写入 Obsidian 失败：${readableObsidianError(error)}`, { retry: () => autoSyncConversation(conversationId) });
   }
@@ -2345,7 +2345,7 @@ async function saveCurrentConversationToObsidian() {
   try {
     const result = await syncVideoNoteAiSection({ context, messages: chatHistory, ...settingsBundle });
     if (result.exists) {
-      showConversationContextNotice(`已写入视频笔记的 AI 问答：${result.filepath}`, 3000);
+      showConversationContextNotice(`已更新 AI 问答：${result.filepath}`, 3000);
       return;
     }
     const tab = await getActiveTab();
@@ -2365,7 +2365,7 @@ async function saveCurrentConversationToObsidian() {
     if (!created?.exists) {
       throw new Error(resp?.error || resp?.payload?.message || "没能新建视频笔记");
     }
-    showConversationContextNotice(`已新建视频笔记并写入 AI 问答：${created.filepath}`, 4000);
+    showConversationContextNotice(`已写入 Obsidian：${created.filepath}`, 4000);
   } catch (error) {
     showConversationContextNotice(`写入 Obsidian 失败：${readableObsidianError(error)}`, 4000);
   }
@@ -2414,7 +2414,7 @@ async function saveBuiltVideoNoteToObsidian(context, ref, settingsBundle) {
   if (!updated?.ok) {
     throw new Error(getReadableText(updated?.error, "Local API 写入失败"));
   }
-  showConversationContextNotice(choice === "full" ? `已新建视频笔记并写入 AI 问答：${filepath}` : `已写入视频笔记的 AI 问答：${filepath}`, 4000);
+  showConversationContextNotice(choice === "full" ? `已写入 Obsidian：${filepath}` : `已更新 AI 问答：${filepath}`, 4000);
 }
 
 async function loadObsidianSettings() {
@@ -2646,7 +2646,7 @@ async function jumpToAssistantTimestamp(seconds, label) {
     return;
   }
 
-  showConversationContextNotice(`正在跳转到 ${label}...`, 1800);
+  showConversationContextNotice(`正在跳转到 ${label}…`, 1800);
 
   try {
     const sameVideo = doesTabMatchContextUrl(tab.url || "", targetUrl);

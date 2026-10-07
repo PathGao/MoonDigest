@@ -124,7 +124,7 @@ const state = {
   readingDocumentClickBound: false,
   readingManualScrollPauseUntil: 0,
   readingProgrammaticScrollUntil: 0,
-  statusText: "准备就绪，点击“刷新”开始。",
+  statusText: "准备就绪，点击「刷新」开始。",
   messageText: "",
   settings: { ...DEFAULT_SETTINGS }
 };
@@ -945,7 +945,7 @@ function checkUrlChange() {
     });
     return;
   }
-  setStatus("检测到页面变化，请点击“刷新”加载当前视频字幕。");
+  setStatus("检测到页面变化，请点击「刷新」加载当前视频字幕。");
 }
 
 function resetClipState() {
@@ -1059,7 +1059,7 @@ async function runRefreshClip() {
   let metaLoaded = false;
   try {
     setMessage("");
-    setStatus("正在抓取视频信息...");
+    setStatus("正在抓取视频信息…");
     state.subtitleFetchState = "loading";
     if (state.readingViewOpen) {
       renderReadingView();
@@ -1115,7 +1115,7 @@ async function runRefreshClip() {
       videoDuration: state.videoDuration
     });
 
-    setStatus("正在获取可用字幕...");
+    setStatus("正在获取可用字幕…");
     let subtitleBundle = await retryAsync(
       () => fetchSubtitleBundle(),
       3,
@@ -1432,7 +1432,7 @@ async function sendToObsidian() {
   }
   await refreshDerivedContent();
   if (!state.markdown) {
-    setMessage("没有可写入的内容，请先点击“刷新”。");
+    setMessage("没有可写入的内容，请先点击「刷新」。");
     return;
   }
 
@@ -1478,7 +1478,7 @@ async function sendToObsidian() {
     report(`已写入 Obsidian：${filepath}`, true);
   } catch (error) {
     if (isExtensionContextInvalidated(error)) {
-      report("扩展刚刚更新，请刷新当前页面后重试。");
+      report("扩展刚刚更新，请刷新网页重试");
       return;
     }
     report(`写入 Obsidian 失败：${getErrorMessage(error)}`);
@@ -1528,7 +1528,7 @@ function confirmOverwriteNote(filepath, { hasAiSection = false } = {}) {
       ? `
       <div class="boc-confirm-dialog" role="dialog" aria-modal="true" aria-labelledby="bocConfirmTitle">
         <div id="bocConfirmTitle" class="boc-confirm-title">该笔记已存在</div>
-        <div class="boc-confirm-body">只更新 AI 问答：保留原笔记，只替换标记之间的「AI 问答」段落。整篇覆盖：替换全部内容。</div>
+        <div class="boc-confirm-body">只更新 AI 问答：保留原笔记，只替换标记之间的「AI 问答」。整篇覆盖：替换全部内容。</div>
         <div class="boc-confirm-path"></div>
         <div class="boc-confirm-actions">
           <button type="button" class="boc-confirm-danger" data-choice="full">整篇覆盖</button>
@@ -1600,7 +1600,7 @@ async function showNoSubtitleState(runId, failure = "") {
     startReaderPlayerObserver();
     syncReadingViewPlayback(true);
   }
-  setStatus(`${label}${failure ? "。" : "，"}正在读取评论...`);
+  setStatus(`${label}${failure ? "。" : "，"}正在读取评论…`);
   await refreshDerivedContent();
   ensureRunActive(runId);
   setStatus(failure ? `${label}。已保留视频信息，可导出简介与评论。` : `${label}，可导出简介与评论。`);
@@ -1648,7 +1648,7 @@ async function enterReaderMode() {
   }
 
   // The view stays hidden until the player is in, so say so unless that is instant.
-  const waitNotice = window.setTimeout(() => state.readingViewOpen && setReadingNotice("正在等待视频播放器就绪...", { busy: true }), 150);
+  const waitNotice = window.setTimeout(() => state.readingViewOpen && setReadingNotice("正在等待视频播放器就绪…", { busy: true }), 150);
   const mounted = await ensureReaderPlayerMounted({ retries: 50, delayMs: 150, forceLayout: true });
   window.clearTimeout(waitNotice);
   const mountedPlayerHost = state.readingPlayerHost || earlyPlayerHost;
@@ -1660,7 +1660,7 @@ async function enterReaderMode() {
   }
   if (!mounted) {
     // Don't throw - keep UI open and keep retrying in background
-    setReadingNotice("正在等待视频播放器就绪...", { busy: true });
+    setReadingNotice("正在等待视频播放器就绪…", { busy: true });
     scheduleReaderPlayerRetry();
     return;
   }
@@ -1682,7 +1682,7 @@ function scheduleReaderPlayerRetry() {
     if (state.readingPlayerRetries > 12) {
       replaceReaderModeUrl(stripReaderModeUrl(location.href));
       closeReadingView();
-      setReadingNotice("视频播放器长时间未就绪，已退出专注模式，可刷新页面后重试。");
+      setReadingNotice("视频播放器长时间未就绪，已退出专注模式，请刷新网页重试");
       return;
     }
     const mounted = await ensureReaderPlayerMounted({ retries: 10, delayMs: 200, forceLayout: true });
@@ -1766,7 +1766,7 @@ function syncReaderModeAfterMount() {
 function settleReaderModePresentation() {
   if (!isReaderPresentationStable()) {
     setReadingViewReady(false);
-    setReadingNotice("正在等待视频播放器就绪...", { busy: true });
+    setReadingNotice("正在等待视频播放器就绪…", { busy: true });
     scheduleReaderPlayerRetry();
     return false;
   }
@@ -2019,7 +2019,7 @@ function renderReadingView() {
 function getReadingTranscriptPlaceholderText() {
   // idle: the video just changed and its fetch has not started yet.
   if (state.subtitleFetchState === "loading" || state.subtitleFetchState === "idle") {
-    return "正在加载字幕...";
+    return "正在加载字幕…";
   }
   if (state.subtitleFetchState === "error") {
     return "字幕加载失败。";
@@ -4166,7 +4166,7 @@ function requestOpenOptions() {
     })
     .catch((error) => {
       if (isExtensionContextInvalidated(error)) {
-        setMessage("扩展刚刚更新，请刷新当前页面后重试。");
+        setMessage("扩展刚刚更新，请刷新网页重试");
         return;
       }
       setMessage(`打开设置失败：${getErrorMessage(error)}`);
@@ -4392,7 +4392,7 @@ async function fetchJsonInBackground(url) {
     return resp.data;
   } catch (error) {
     if (isExtensionContextInvalidated(error)) {
-      throw new Error("扩展刚刚更新，请刷新当前页面后重试。");
+      throw new Error("扩展刚刚更新，请刷新网页重试");
     }
     throw error;
   }

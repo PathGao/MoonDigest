@@ -102,7 +102,7 @@
       {
         label: "收藏夹列表缓存",
         usage: `${count(usage.folderSnapshots)} 个收藏夹，约 ${size(usage.folderSnapshotSize)}`,
-        rule: "每次同步自动更新，取消勾选或在 B 站删掉的收藏夹会被移除。"
+        rule: "每次同步自动更新，取消勾选或在 B站删掉的收藏夹会被移除。"
       },
       {
         label: "已取消收藏",

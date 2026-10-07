@@ -30,7 +30,7 @@
     dialog.className = "boc-overwrite";
     dialog.innerHTML = `<form method="dialog">
       <h2>该笔记已存在</h2>
-      <p>${hasAiSection ? "只更新 AI 问答：保留原笔记，只替换标记之间的「AI 问答」段落。整篇覆盖：替换全部内容。" : "没有新的 AI 问答可更新。整篇覆盖会替换全部内容："}</p>
+      <p>${hasAiSection ? "只更新 AI 问答：保留原笔记，只替换标记之间的「AI 问答」。整篇覆盖：替换全部内容。" : "没有新的 AI 问答可更新。整篇覆盖会替换全部内容："}</p>
       <code></code>
       <div class="actions">
         <button class="danger" value="full">整篇覆盖</button>

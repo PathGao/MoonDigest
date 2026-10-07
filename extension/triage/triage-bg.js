@@ -170,7 +170,7 @@ const TRIAGE_VERDICT_TEXT = [
 ].join("\n");
 
 const TRIAGE_SYSTEM_PROMPT = [
-  "你是 B 站收藏夹分拣助手。根据给出的视频信息总结视频，并按这个收藏夹的用途判断值得留还是可清理。",
+  "你是 B站收藏夹分拣助手。根据给出的视频信息总结视频，并按这个收藏夹的用途判断值得留还是可清理。",
   "只输出严格 JSON，不要任何其他文字、不要代码块：",
   '{"one_liner": "一句话说清视频讲了什么，≤40字", "points": ["要点1", "要点2", "要点3"], "verdict": "keep|drop|unsure", "reason": "判断理由，≤30字"}',
   TRIAGE_VERDICT_TEXT,
@@ -178,7 +178,7 @@ const TRIAGE_SYSTEM_PROMPT = [
 ].join("\n");
 
 const TRIAGE_TITLE_PROMPT = [
-  "你是 B 站收藏夹分拣助手。下面每行是一个收藏的视频，格式：序号|标题|UP主|时长|发布日期|简介前120字。",
+  "你是 B站收藏夹分拣助手。下面每行是一个收藏的视频，格式：序号|标题|UP主|时长|发布日期|简介前120字。",
   "只根据这些信息做初筛。标题是很弱的证据：看不出实际内容时，verdict 用 unsure，confidence 用 low，不要猜。",
   TRIAGE_VERDICT_TEXT,
   "confidence：只有标题和简介足以判断时才用 high，否则用 low。",
@@ -282,7 +282,7 @@ async function triageBiliGet(url) {
 
 async function triageBiliPost(path, fields) {
   const cookie = await chrome.cookies.get({ url: "https://www.bilibili.com", name: "bili_jct" });
-  if (!cookie?.value) throw triageError("未登录 B 站");
+  if (!cookie?.value) throw triageError("未登录 B站");
   const res = await fetch(`https://api.bilibili.com${path}`, {
     method: "POST",
     credentials: "include",
@@ -314,7 +314,7 @@ async function triageNav() {
 
 async function triageMid() {
   const nav = await triageNav();
-  if (!nav.isLogin || !nav.mid) throw triageError("未登录 B 站");
+  if (!nav.isLogin || !nav.mid) throw triageError("未登录 B站");
   return nav.mid;
 }
 
@@ -684,7 +684,7 @@ async function triageWriteNote({ bvid, overwrite }) {
   if (!settings.obsidianEnabled) throw triageError("Obsidian 写入未启用");
   const baseUrl = String(settings.obsidianApiBaseUrl || "").trim();
   const apiKey = String(settings.obsidianApiKey || "").trim();
-  if (!baseUrl || !apiKey) throw triageError("缺少 Local REST API 参数");
+  if (!baseUrl || !apiKey) throw triageError("Obsidian 未配置");
   const { meta, noteMeta, body, markdown } = await triageBuildNote(bvid, settings);
 
   const folder = BocNote.resolveFolderTemplate(settings.noteFolder, noteMeta);
@@ -909,7 +909,7 @@ const TRIAGE_HANDLERS = {
     const folder = BocNote.resolveFolderTemplate(settings.noteFolder, { site: "bilibili" });
     const baseUrl = String(settings.obsidianApiBaseUrl || "").trim();
     const apiKey = String(settings.obsidianApiKey || "").trim();
-    if (!baseUrl || !apiKey) throw triageError("缺少 Local REST API 参数");
+    if (!baseUrl || !apiKey) throw triageError("Obsidian 未配置");
     const path = folder ? `${folder}/${name}` : name;
     const encodedPath = path.split("/").filter(Boolean).map((s) => encodeURIComponent(s)).join("/");
     const res = await fetch(`${baseUrl.replace(/\/+$/g, "")}/vault/${encodedPath}`, {
