@@ -24,7 +24,7 @@ const ctx = vm.createContext({
   structuredClone,
   setTimeout: (f) => setImmediate(f),
   clearTimeout: (id) => clearImmediate(id),
-  document: { getElementById: stubEl, querySelector: () => null, addEventListener() {} },
+  document: { getElementById: stubEl, querySelector: () => null, querySelectorAll: () => [], addEventListener() {} },
   window: { addEventListener() {} },
   chrome: {
     runtime: {
@@ -497,6 +497,14 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   assert.strictEqual(vm.runInContext("aiNewTagRoom()", ctx), 0);
   t.renderAiForm();
   assert.ok(t.el.aiTagsPreview.innerHTML.includes("名额已满"));
+  // The cap comes from 分拣设置: raising it lets c5 in, lowering it keeps existing tags but refuses new ones.
+  t.S.settings.triageTagLimit = 11;
+  assert.strictEqual(vm.runInContext("aiNewTagRoom()", ctx), 1);
+  assert.ok(t.createTag("c5"));
+  t.S.settings.triageTagLimit = 3;
+  assert.strictEqual(t.createTag("c6"), null);
+  assert.strictEqual(t.viewTags().length, 11, "lowering the cap deletes nothing");
+  t.S.settings.triageTagLimit = 10;
   t.S.tags = t.S.tags.filter((x) => !/^c\d$/.test(x.name));
   assert.strictEqual(vm.runInContext("aiNewTagRoom()", ctx), 4);
   t.renderAiForm();

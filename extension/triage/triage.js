@@ -6,7 +6,6 @@ const THROTTLE_MS = globalThis.__TRIAGE_THROTTLE_MS || 10 * 60 * 1000;
 // Error code -> [backoff ms, status label]. AI 429s clear far sooner than B站 risk control.
 const THROTTLES = { THROTTLED: [THROTTLE_MS, "B站限流"], AI_THROTTLED: [60 * 1000, "AI 平台限流"] };
 const GROUP_SIZE = 10;
-const TAG_LIMIT = 10; // tags per folder; only creating a new one is refused past it
 const SYNC_MIN_GAP_MS = 60 * 1000;
 // Catppuccin Latte accents (desaturated); chips keep --text on top, so these are only borders and tints.
 // Mauve, blue, green, red and yellow are left out: they mean where-you-are, next step, keep, delete and pending.
@@ -270,6 +269,7 @@ const S = {
     triageThinking: false,
     triageTitleMaxTokens: 0,
     triageAnalyzeMaxTokens: 0,
+    triageTagLimit: 10, // tags per folder; only creating a new one is refused past it
     thinkingToggle: false
   },
   tab: "none",
@@ -325,7 +325,7 @@ const el = {};
   "banner", "bannerText", "bannerBtn", "bannerClose", "syncNotice", "syncText", "syncViewBtn", "syncCloseBtn", "syncDetail",
   "tabs", "stagebar", "classFilter", "sideFilter", "tagFilter", "listHeader", "list", "basket", "basketToggle", "basketCount",
   "basketList", "toast", "settingsDialog", "folderToggles", "thinkingRow", "intervalInput",
-  "batchSizeInput", "openOptionsBtn", "thinkingInput", "titleMaxInput",
+  "batchSizeInput", "tagLimitInput", "openOptionsBtn", "thinkingInput", "titleMaxInput",
   "titleMaxHint", "analyzeMaxInput", "analyzeMaxHint", "settingsError", "backupBtn", "csvBtn", "confirmDialog",
   "confirmTitle", "confirmBody", "confirmOk", "transferDialog", "transferTitle", "transferBody", "transferTarget", "transferNewRow", "transferUnchosen", "transferHow", "transferName", "transferPrivate", "pickerDialog", "pickerTitle", "pickerInput", "pickerList",
   "criteriaDialog", "criteriaTitle", "criteriaInput", "tagsDialog", "tagsModeManage", "tagsModeBatch", "tagsManage", "tagsRows", "newTagInput", "addTagBtn", "helpDialog",
@@ -520,7 +520,8 @@ function tagChips() {
   return chips;
 }
 // How many new tags 批量打 may propose: at most 5, within the folder's room.
-const aiNewTagRoom = () => Math.max(0, Math.min(5, TAG_LIMIT - viewTags().length));
+const tagLimit = () => S.settings.triageTagLimit;
+const aiNewTagRoom = () => Math.max(0, Math.min(5, tagLimit() - viewTags().length));
 const FOLDER_ONLY = "标签按收藏夹分开，请先打开一个具体收藏夹";
 // A video's tags in the open view. A tag belongs to one folder and stays there when the video moves, so a folder shows
 // only its own; 所有收藏夹 those of the video's folders (as the picker); 已取消收藏 every one.
@@ -657,6 +658,7 @@ async function init() {
   S.watched = watched;
   S.aiHistory = await storeGet(K.aiHistory, []);
   if (settingsResp.ok) Object.assign(S.settings, settingsResp.data);
+  renderTagLimit();
   const syncObsidian = ({ obsidianEnabled }) => document.body.classList.toggle("obsidian-off", obsidianEnabled !== true);
   const sync = await chrome.storage.sync.get({ obsidianEnabled: false, ...SEEN_DEFAULTS });
   syncObsidian(sync);
@@ -2465,13 +2467,13 @@ function batchKeep(list) {
 const saveTags = () => storeSet(K.tags, S.tags);
 
 // Returns the folder's tag with this name, creating it if needed; the color comes from the palette in turn.
-// null (with a toast) outside a folder or when the folder already has TAG_LIMIT tags.
+// null (with a toast) outside a folder or when the folder already has tagLimit() tags.
 function createTag(name, folder = S.mediaId) {
   if (folder === ALL || folder === REMOVED || !folder) return toast(FOLDER_ONLY, true), null;
   const own = S.tags.filter((t) => t.folder === String(folder));
   const existing = own.find((t) => t.name === name);
   if (existing) return existing;
-  if (own.length >= TAG_LIMIT) return toast(`这个收藏夹已经有 ${TAG_LIMIT} 个标签了，先删掉不用的`, true), null;
+  if (own.length >= tagLimit()) return toast(`这个收藏夹已经有 ${own.length} 个标签了，先删掉不用的，或在分拣设置里调高上限`, true), null;
   const tag = { id: newTagId(), name, color: TAG_COLORS[own.length % TAG_COLORS.length], folder: String(folder) };
   S.tags.push(tag);
   saveTags();
@@ -2893,7 +2895,7 @@ function renderAiForm() {
   el.aiScopeCount.textContent = n ? `${n} 个视频：${parts.join("，")}。分 ${Math.ceil(n / size)} 批发送` : "作用范围里没有视频";
   const tags = viewTags();
   const room = aiNewTagRoom();
-  const roomHint = room ? `AI 这次最多新建 ${room} 个（这个收藏夹还剩 ${TAG_LIMIT - tags.length} 个名额），你确认后才创建。` : "名额已满，AI 只会用已有标签。";
+  const roomHint = room ? `AI 这次最多新建 ${room} 个（这个收藏夹还剩 ${tagLimit() - tags.length} 个名额），你确认后才创建。` : "名额已满，AI 只会用已有标签。";
   el.aiTagsPreview.innerHTML = !inFolderView()
     ? `<p class="dialog-hint">${FOLDER_ONLY}再批量打。</p>`
     : tags.length
@@ -3664,7 +3666,8 @@ function bindEvents() {
       triageTitleBatchSize: Math.max(1, Math.min(100, Number(el.batchSizeInput.value) || 30)),
       triageThinking: el.thinkingInput.checked,
       triageTitleMaxTokens: parseMaxTokens(el.titleMaxInput.value),
-      triageAnalyzeMaxTokens: parseMaxTokens(el.analyzeMaxInput.value)
+      triageAnalyzeMaxTokens: parseMaxTokens(el.analyzeMaxInput.value),
+      triageTagLimit: Math.max(1, Math.min(50, Math.floor(Number(el.tagLimitInput.value)) || 10))
     };
     const r = await send({ type: "triage-settings-save", ...patch });
     if (!r.ok) {
@@ -3672,6 +3675,7 @@ function bindEvents() {
       return;
     }
     Object.assign(S.settings, patch);
+    renderTagLimit();
     toast("设置已保存");
     const included = [...el.folderToggles.querySelectorAll("input:checked")].map((x) => x.value);
     const same = included.length === S.included.length && included.every((id) => S.included.includes(id));
@@ -3857,6 +3861,11 @@ function parseMaxTokens(value) {
   return n === 0 || (n >= 200 && n <= 32000) ? n : null;
 }
 
+// The tag cap is written into the static hints of the 标签 and help dialogs.
+function renderTagLimit() {
+  for (const node of document.querySelectorAll("[data-tag-limit]")) node.textContent = tagLimit();
+}
+
 function renderTokenHints() {
   const batch = Math.max(1, Number(el.batchSizeInput.value) || 30);
   const on = el.thinkingInput.checked;
@@ -3881,6 +3890,7 @@ function openSettings(scrollToLimits = false, firstRun = false) {
   el.thinkingInput.checked = Boolean(S.settings.triageThinking);
   el.titleMaxInput.value = S.settings.triageTitleMaxTokens || "";
   el.analyzeMaxInput.value = S.settings.triageAnalyzeMaxTokens || "";
+  el.tagLimitInput.value = tagLimit();
   el.settingsError.hidden = true;
   renderTokenHints();
   el.settingsDialog.returnValue = "";
