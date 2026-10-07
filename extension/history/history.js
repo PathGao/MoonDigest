@@ -137,7 +137,7 @@ function render() {
         const untitled = g.title === g.context.videoId;
         const label = untitled ? "未获取标题" : g.title;
         const title = g.context.url ? `<a class="entry-title" href="${esc(g.context.url)}" target="_blank" rel="noopener">${esc(label)}</a>` : `<span class="entry-title">${esc(label)}</span>`;
-        const kind = g.convs.length ? (g.convs.length > 1 ? `${g.convs.length} 段对话` : "") : `仅${[g.analysis && "分拣台 AI 总结", g.note && "备注"].filter(Boolean).join("和")} · 没有 AI 对话可删`;
+        const kind = g.convs.length ? (g.convs.length > 1 ? `${g.convs.length} 段对话` : "") : `仅${[g.analysis && "分拣台 AI 总结", g.note && "备注"].filter(Boolean).join("和")}，没有 AI 对话`;
         return `<article class="entry" data-key="${esc(g.key)}">
           <input type="checkbox" data-act="pick" aria-label="选择" ${selected.has(g.key) ? "checked" : ""} />
           <div class="entry-head">
@@ -145,7 +145,7 @@ function render() {
             <div class="entry-meta">${[site, formatTime(g.updatedAt), untitled && g.context.videoId, kind].filter(Boolean).map(esc).join(" · ")}</div>
           </div>
           <div class="entry-actions">
-            <button type="button" class="ask" data-act="ask" ${g.context.videoId ? "" : "disabled title=\"只有视频能继续问\""}><span class="ai-spark" aria-hidden="true"></span>继续问</button>
+            <button type="button" class="ask" data-act="ask" ${g.context.videoId ? "" : "disabled title=\"不是视频，不能问\""}><span class="ai-spark" aria-hidden="true"></span>继续问</button>
             <button type="button" data-act="md">下载 .md</button>
             ${!obsidianEnabled ? "" : writing.has(g.key) ? `<button type="button" aria-busy="true" disabled>写入中…</button>` : `<button type="button" data-act="obsidian"><img class="obsidian-mark" src="/icons/obsidian.svg" alt=""> 写入 Obsidian</button>`}
             ${g.convs.length ? `<button type="button" data-act="delete" class="danger">删除</button>` : `<button type="button" class="danger slot" tabindex="-1" aria-hidden="true" disabled>删除</button>`}
@@ -157,7 +157,7 @@ function render() {
           </div>
         </article>`;
       }).join("")
-    : `<p class="empty">${allGroups.length ? "没有匹配的视频" : "还没有视频记录。在视频页打开侧边栏提问、或在分拣台写备注后，会按视频记在这里。"}</p>`;
+    : `<p class="empty">${allGroups.length ? "没有匹配的视频" : "还没有视频记录。在侧边栏提问，或在分拣台总结、写备注后，会按视频记在这里。"}</p>`;
   rendering = false;
   const textarea = editing && els.list.querySelector("[data-note]");
   if (textarea) {

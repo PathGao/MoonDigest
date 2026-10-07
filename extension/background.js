@@ -1300,16 +1300,11 @@ function buildAiMessages({ context, userPrompt, history, systemPrompt }) {
   const subtitle = sampleAiSubtitle(ctx.subtitleMarkdown);
   const trimmed = trimAiHistory(history);
   const notices = [];
-  const hasVideoContext = Boolean(ctx.isVideoContext);
-  const sections = hasVideoContext
-    ? [
-        `你是一个视频助手。当前用户正在看一个视频，标题：「${ctx.title || "未知"}」`,
-        `作者：${ctx.author || "未知"} | 上传日期：${ctx.uploadDate || "未知"}`
-      ]
-    : [
-        "你是一个通用 AI 助手。",
-        "当前对话没有页面上下文，请仅基于用户消息和历史对话回答。"
-      ];
+  // The side panel only sends video contexts.
+  const sections = [
+    `你是一个视频助手。当前用户正在看一个视频，标题：「${ctx.title || "未知"}」`,
+    `作者：${ctx.author || "未知"} | 上传日期：${ctx.uploadDate || "未知"}`
+  ];
 
   if (subtitle.step > 1) {
     sections.push(
@@ -1318,7 +1313,7 @@ function buildAiMessages({ context, userPrompt, history, systemPrompt }) {
     notices.push(`字幕过长，只发送了均匀抽取的约 1/${subtitle.step}`);
   } else if (subtitle.text) {
     sections.push(`以下是视频的字幕全文：\n\n${subtitle.text}`);
-  } else if (hasVideoContext) {
+  } else {
     const failure = String(ctx.subtitleFailure || "").trim();
     sections.push(
       failure
@@ -1330,7 +1325,7 @@ function buildAiMessages({ context, userPrompt, history, systemPrompt }) {
       sections.push(`以下是视频简介：\n\n${description}`);
     }
   }
-  if (hasVideoContext && Array.isArray(ctx.hotComments) && ctx.hotComments.length) {
+  if (Array.isArray(ctx.hotComments) && ctx.hotComments.length) {
     const block = ctx.hotComments
       .map((c, i) => `${i + 1}. ${c.uname || "匿名"}（赞 ${c.like || 0}）: ${c.message || ""}`)
       .join("\n");
