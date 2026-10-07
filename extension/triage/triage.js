@@ -327,7 +327,7 @@ const el = {};
   "banner", "bannerText", "bannerBtn", "bannerClose", "syncNotice", "syncText", "syncViewBtn", "syncCloseBtn", "syncDetail",
   "tabs", "stagebar", "classFilter", "sideFilter", "tagFilter", "listHeader", "list", "basket", "basketToggle", "basketCount",
   "basketList", "toast", "settingsDialog", "folderToggles", "thinkingRow", "intervalInput",
-  "batchSizeInput", "tagLimitInput", "aiNewTagMaxInput", "aiRemoveTagsInput", "openOptionsBtn", "thinkingInput", "titleMaxInput",
+  "batchSizeInput", "tagLimitInput", "aiNewTagMaxInput", "aiRemoveTagsInput", "aiFormRemoveTagsInput", "openOptionsBtn", "thinkingInput", "titleMaxInput",
   "titleMaxHint", "analyzeMaxInput", "analyzeMaxHint", "settingsError", "backupBtn", "csvBtn", "confirmDialog",
   "confirmTitle", "confirmBody", "confirmOk", "transferDialog", "transferTitle", "transferBody", "transferTarget", "transferNewRow", "transferUnchosen", "transferHow", "transferName", "transferPrivate", "pickerDialog", "pickerTitle", "pickerInput", "pickerList",
   "criteriaDialog", "criteriaTitle", "criteriaInput", "tagsDialog", "tagsModeManage", "tagsModeBatch", "tagsManage", "tagsRows", "newTagInput", "addTagBtn", "helpDialog",
@@ -2889,6 +2889,7 @@ function renderAiForm() {
     o.disabled = !counts[o.value];
   }
   if (el.aiScope.selectedOptions[0]?.disabled) el.aiScope.value = "filter";
+  el.aiFormRemoveTagsInput.checked = S.settings.triageAiRemoveTags === true;
   const items = aiScopeItems();
   const n = items.length;
   const done = items.filter(isAnalyzed).length;
@@ -3802,6 +3803,17 @@ function bindEvents() {
 
   // 批量打
   el.aiScope.addEventListener("change", renderAiForm);
+  // The same switch as in 分拣设置, saved as soon as it flips.
+  el.aiFormRemoveTagsInput.addEventListener("change", async () => {
+    const on = el.aiFormRemoveTagsInput.checked;
+    const r = await send({ type: "triage-settings-save", triageAiRemoveTags: on });
+    if (!r.ok) {
+      el.aiFormRemoveTagsInput.checked = !on;
+      toast(`保存设置失败：${r.error}`, true);
+      return;
+    }
+    S.settings.triageAiRemoveTags = on;
+  });
   el.aiHistory.addEventListener("click", (e) => {
     const btn = e.target.closest("[data-h]");
     if (btn) el.aiInstruction.value = S.aiHistory[Number(btn.dataset.h)];
