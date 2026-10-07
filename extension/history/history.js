@@ -250,7 +250,7 @@ async function saveToObsidian(group) {
       const resp = await chrome.runtime.sendMessage({ type: "update-obsidian-ai-section", baseUrl, apiKey, filepath: boundPath, section, noteKey });
       if (!resp?.ok) throw new Error(resp?.error || "Local API 写入失败");
       if (resp.exists !== false) {
-        setStatus(`已写入 Obsidian：${boundPath}（AI 问答段）`);
+        setStatus(`已更新 AI 问答：${boundPath}`);
         return;
       }
       boundPath = "";
@@ -281,7 +281,7 @@ async function saveToObsidian(group) {
         const resp = await chrome.runtime.sendMessage({ type: "update-obsidian-ai-section", baseUrl, apiKey, filepath, section, noteKey });
         if (!resp?.ok) throw new Error(resp?.error || "Local API 写入失败");
       }
-      setStatus(`已写入 Obsidian：${filepath}（${overwrite ? "视频笔记" : "AI 问答段"}）`);
+      setStatus(overwrite ? `已写入 Obsidian：${filepath}` : `已更新 AI 问答：${filepath}`);
       return;
     }
     const videoFolder = BocNote.resolveFolderTemplate(settings.noteFolder || "", group.context);
@@ -295,7 +295,7 @@ async function saveToObsidian(group) {
     const written = await chrome.runtime.sendMessage({ type: "write-obsidian-note", baseUrl, apiKey, filepath, content: note.content });
     if (!written?.ok) throw new Error(written?.error || "Local API 写入失败");
     if (built) setStatus(`已写入 Obsidian：${filepath}（视频已失效，只写了对话）`);
-    else setStatus(group.context.videoId ? `已写入 Obsidian：${filepath}（这个视频还没有视频笔记，写成了单独的对话笔记）` : `已写入 Obsidian：${filepath}`);
+    else setStatus(group.context.videoId ? `已写入 Obsidian：${filepath}（单独的对话笔记）` : `已写入 Obsidian：${filepath}`);
   } catch (error) {
     setStatus(`写入 Obsidian 失败：${error?.message || error}`);
   } finally {

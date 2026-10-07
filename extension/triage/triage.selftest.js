@@ -790,7 +790,7 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     assert.ok(!/class="meta">[^<]*(离开收藏夹|原在)/.test(html), "the gray meta line does not repeat the leaving line");
     assert.ok(t.cardHtml({ ...item(2), removedAt: at, from: [{ id: "A", title: "甲", at: 5 }] }, true, "").includes(">原在「甲」<"));
     const hidden = t.cardHtml({ ...item(3), removedAt: new Date(2020, 9, 2).getTime(), hidden: true }, true, "");
-    assert.ok(!hidden.includes("原在") && hidden.includes('<div class="left-row"><span>2020年10月2日 已失效（B 站已隐藏）</span></div>'), "a record without an origin shows no chip; another year shows the year and no time");
+    assert.ok(!hidden.includes("原在") && hidden.includes('<div class="left-row"><span>2020年10月2日 已失效（B站已隐藏）</span></div>'), "a record without an origin shows no chip; another year shows the year and no time");
     assert.ok(t.cardHtml({ ...item(4), removedAt: at, movedTo: { id: "Z", title: "外" } }, true, "").includes("10月5日 17:25 移到「外」（未勾选）"));
     openFake("A", [item(1)]);
     assert.ok(t.cardHtml(item(1), false, "").includes('<span class="pair">\n            <button type="button" data-act="keep"'), "a folder's card keeps 保留 / 取消收藏 as the pair");

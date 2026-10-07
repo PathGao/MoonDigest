@@ -1500,7 +1500,7 @@ function render() {
 function renderTop() {
   // 已取消收藏 has no Bilibili page of its own; the link would land on the homepage under that title.
   el.biliBtn.hidden = !S.mid || S.mediaId === REMOVED;
-  el.biliBtn.title = S.mediaId === TOVIEW ? "B 站稍后再看" : inFolderView() ? "B 站收藏夹" : "B 站主页";
+  el.biliBtn.title = S.mediaId === TOVIEW ? "B站稍后再看" : inFolderView() ? "B站收藏夹" : "B站主页";
   setBusy(el.refreshBtn, (S.syncing || S.loadAll?.running) && `刷新中…${S.syncing ? pageText(S.mediaId) : ""}`);
   const allOpt = el.folderSelect.querySelector(`option[value="${ALL}"]`);
   if (allOpt) allOpt.hidden = !S.folders.length;
@@ -1612,7 +1612,7 @@ function renderTabs() {
   const chip = (on, show, attr, label, aria) =>
     !on && !show ? "" : `<button type="button" class="chip watched${on ? " on" : ""}" ${attr} aria-pressed="${on}" aria-label="${aria}">${label}</button>`;
   const watchedChip =
-    chip(S.finishedFilter, S.items.some(isFinished), "data-finishedfilter", "看完了", "只看 B 站历史记录里看完了的视频") +
+    chip(S.finishedFilter, S.items.some(isFinished), "data-finishedfilter", "看完了", "只看 B站历史记录里看完了的视频") +
     chip(S.watchedFilter, S.items.some((it) => S.watched[it.bvid]), "data-watchedfilter", "优先看过", "只看在优先看里点了已看的视频");
   // Only when this view has an invalid video, like those above; with 全选 it picks them all for 取消收藏 or 清理.
   const invalidN = S.items.filter((it) => it.invalid || it.hidden).length;
@@ -1852,7 +1852,7 @@ function renderList() {
   // 已取消收藏 is a list to act on, so it uses the rows the steps use, not the 阅览全部 grid.
   el.list.classList.toggle("grid", S.tab === "read" && S.mediaId !== REMOVED);
   // 保留 only marks the video here, while 取消收藏 changed Bilibili; say so where both end up.
-  const recent = S.tab === "done" ? `<p class="muted tab-note">已保留：${KEEP_TIP}。已取消收藏：已从 B 站收藏夹移走，最近的操作可按 U 撤销。</p>${recentUnfavHtml()}` : "";
+  const recent = S.tab === "done" ? `<p class="muted tab-note">已保留：${KEEP_TIP}。已取消收藏：已从 B站收藏夹移走，最近的操作可按 U 撤销。</p>${recentUnfavHtml()}` : "";
   if (!S.items.length) {
     const empty = S.mediaId === REMOVED ? "没有已取消收藏的视频" : S.loadAll?.queue.length ? "正在加载收藏夹…" : "这个收藏夹是空的";
     el.list.innerHTML = `<p class="empty">${empty}</p>${recent}`;
@@ -1908,7 +1908,7 @@ const verdictBadge = (b, v, low = v.low) =>
     ? `<span class="badge running">分析中…</span>`
     : `<span class="badge ${VERDICTS[v.verdict] ? v.verdict : "none"}${low ? " low" : ""}">${VERDICTS[v.verdict] ? `<span class="ai-mark">AI</span>` : ""}${esc(verdictLabel(v.verdict))}${low ? " · 低置信" : ""}</span>`;
 const ACTION_LABEL = { unfav: "已取消收藏", keep: "已保留" };
-const KEEP_TIP = "只在 MoonDigest 里标记，B 站收藏夹不变";
+const KEEP_TIP = "只在 MoonDigest 里标记，B站收藏夹不变";
 
 function cardHtml(it, expanded, mark) {
   const b = it.bvid;
@@ -1968,7 +1968,7 @@ function cardHtml(it, expanded, mark) {
             <button type="button" data-select="${esc(b)}" class="${S.selected.has(b) ? "on" : ""}" aria-pressed="${S.selected.has(b)}" aria-label="选中 ${esc(it.title)}">选中</button>
             <button type="button" class="danger" data-clean="${esc(b)}" aria-label="清理 ${esc(it.title)}">清理</button>
           </span>` : `<span class="pair">
-            <button type="button" data-act="keep" class="${keepCls}" aria-label="保留 (S)" title="只在 MoonDigest 里标记，B 站收藏夹不变"${decision ? " disabled" : ""}>保留<kbd class="key">S</kbd></button>
+            <button type="button" data-act="keep" class="${keepCls}" aria-label="保留 (S)" title="只在 MoonDigest 里标记，B站收藏夹不变"${decision ? " disabled" : ""}>保留<kbd class="key">S</kbd></button>
             ${moving.has(b) ? `<button type="button" aria-busy="true" disabled>正在${S.transferRun?.verb || "移动"}…</button>` : deciding.has(b) ? `<button type="button" aria-busy="true" disabled>正在取消收藏…</button>` : `<button type="button" data-act="unfav" class="${unfavCls}" aria-label="取消收藏 (D)"${decision?.action === "unfav" ? " disabled" : ""}>取消收藏<kbd class="key">D</kbd></button>`}
           </span>
           <span class="more">
@@ -1988,7 +1988,7 @@ function leftText(it) {
   const d = new Date(it.removedAt);
   const day = `${d.getMonth() + 1}月${d.getDate()}日`;
   const when = d.getFullYear() === new Date().getFullYear() ? `${day} ${pad(d.getHours())}:${pad(d.getMinutes())}` : `${d.getFullYear()}年${day}`;
-  return `${when} ${it.movedTo ? `移到「${it.movedTo.title}」（未勾选）` : it.hidden ? "已失效（B 站已隐藏）" : "离开收藏夹"}`;
+  return `${when} ${it.movedTo ? `移到「${it.movedTo.title}」（未勾选）` : it.hidden ? "已失效（B站已隐藏）" : "离开收藏夹"}`;
 }
 // 原在「A」「B」, or 原在「A」「B」等 N 个 with the whole list in the title; nothing for records from before the origin was kept.
 function originHtml(it) {
@@ -2146,7 +2146,7 @@ async function undo() {
       if (entry.action === "unfav") {
         const r = await send({ type: "triage-refav", mediaId, aid: it.aid });
         if (!r.ok) {
-          if (token === S.folderToken) toast(`撤销失败：${r.error}。可到 B 站手动重新收藏`, true);
+          if (token === S.folderToken) toast(`撤销失败：${r.error}。可到 B站手动重新收藏`, true);
           return;
         }
         bumpCount(mediaId, 1);

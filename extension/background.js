@@ -107,7 +107,7 @@ async function ensureReaderContentReady(tabId) {
     return;
   }
 
-  throw new Error("扩展脚本未能和当前页面同步，请刷新浏览器网页重试");
+  throw new Error("扩展脚本未能和当前页面同步，请刷新网页重试");
 }
 
 async function sleep(ms) {
@@ -296,13 +296,13 @@ const FETCH_TIMEOUT_MS = 15000;
 const OBSIDIAN_TIMEOUT_MS = 30000;
 
 // A hung request would otherwise block the popup refresh and the side panel context forever.
-// "timeout" in the message is what content.js retryAsync treats as a retryable network error.
+// "超时" in the message is what content.js retryAsync treats as a retryable network error.
 async function fetchWithTimeout(url, options = {}, ms = FETCH_TIMEOUT_MS) {
   try {
     return await fetch(url, { ...options, signal: AbortSignal.timeout(ms) });
   } catch (error) {
     if (error?.name === "TimeoutError") {
-      const timeout = new Error(`请求超时（timeout）：${ms / 1000} 秒没有响应`);
+      const timeout = new Error(`请求超时：${ms / 1000} 秒没有响应`);
       timeout.status = 408;
       throw timeout;
     }
@@ -687,7 +687,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     const content = typeof message.content === "string" ? message.content : "";
 
     if (!baseUrl || !apiKey || !filepath) {
-      sendResponse({ ok: false, error: "缺少 Local REST API 参数" });
+      sendResponse({ ok: false, error: "Obsidian 未配置" });
       return false;
     }
 
@@ -706,7 +706,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     const filepath = String(message.filepath || "").trim();
 
     if (!baseUrl || !apiKey || !filepath) {
-      sendResponse({ ok: false, error: "缺少 Local REST API 参数" });
+      sendResponse({ ok: false, error: "Obsidian 未配置" });
       return false;
     }
 
@@ -723,7 +723,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     const filepath = String(message.filepath || "").trim();
 
     if (!baseUrl || !apiKey || !filepath) {
-      sendResponse({ ok: false, error: "缺少 Local REST API 参数" });
+      sendResponse({ ok: false, error: "Obsidian 未配置" });
       return false;
     }
 
@@ -758,7 +758,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     const apiKey = String(message.apiKey || "").trim();
 
     if (!baseUrl || !apiKey) {
-      sendResponse({ ok: false, error: "缺少 Local REST API 参数" });
+      sendResponse({ ok: false, error: "Obsidian 未配置" });
       return false;
     }
 
@@ -829,7 +829,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     const providerId = String(message.providerId || "").trim();
     const model = String(message.model || "").trim();
     if (!baseUrl) {
-      sendResponse({ ok: false, error: "请填写 baseUrl" });
+      sendResponse({ ok: false, error: "请填写接口地址" });
       return false;
     }
     Promise.resolve()
@@ -1523,7 +1523,7 @@ async function streamChat({ provider, context, userPrompt, history, port, signal
   if (!port) return;
   const baseUrl = String(provider?.baseUrl || "").trim().replace(/\/+$/, "");
   if (!baseUrl) {
-    port.postMessage({ type: "error", error: "baseUrl 未配置" });
+    port.postMessage({ type: "error", error: "接口地址未配置" });
     return;
   }
   if (!provider.model) {
@@ -1601,7 +1601,7 @@ async function testAiConnection({ baseUrl, apiKey, model }) {
   const normalizedBaseUrl = String(baseUrl || "").trim().replace(/\/+$/, "");
   const normalizedModel = String(model || "").trim();
   if (!normalizedBaseUrl) {
-    return { ok: false, error: "请填写 baseUrl" };
+    return { ok: false, error: "请填写接口地址" };
   }
   if (!normalizedModel) {
     return { ok: false, error: "请填写模型名" };

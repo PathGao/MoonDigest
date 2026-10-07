@@ -394,7 +394,7 @@ function isSupportedSubtitlePage(url) {
 async function ensureContentScriptReady(tabId) {
   const resp = await chrome.runtime.sendMessage({ type: "ensure-reader-content", tabId });
   if (!resp?.ok) {
-    throw new Error(resp?.error || "扩展刚刚更新，请刷新当前页面后重试。");
+    throw new Error(resp?.error || "扩展刚刚更新，请刷新网页重试");
   }
 }
 

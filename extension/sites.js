@@ -320,7 +320,7 @@
 
   const bilibili = {
     id: "bilibili",
-    label: "B 站",
+    label: "B站",
     domain: "bilibili.com",
     hosts: ["www.bilibili.com", "api.bilibili.com", "hdslb.com"],
     match(url) {
@@ -648,7 +648,7 @@
       }
       response = await ytPost(io, "player", body, clientName);
       if (response?.videoDetails?.videoId && response.videoDetails.videoId !== ref.id) {
-        throw new Error("播放器返回的是另一个视频，请刷新页面重试");
+        throw new Error("播放器返回的是另一个视频，请刷新网页重试");
       }
     }
     cache.responses[clientName] = response || {};
