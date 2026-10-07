@@ -6,30 +6,31 @@
 :root {
   color-scheme: light dark;
 
-  /* Design tokens: Catppuccin Latte on white surfaces (accents desaturated, text colors darkened to 4.5:1) and Mocha for dark. */
-  /* One color, one meaning: accent = where you are, action = next step (one filled button per view) and links, ok = keep,
+  /* Design tokens: Bilibili's palette (pink #ff6699, blue #00aeec, gray text and fills) on white, and its dark theme for dark.
+     Pink and the filled blue fail 4.5:1 as text on white, so they mark (underlines, dots, borders, fills); text uses --link and --text*. */
+  /* One color, one meaning: accent = where you are, action = next step (one filled button per view), link = blue text, ok = keep,
      danger = delete and errors you must act on (not logged in, AI not set up, a write failed),
      warn = waits, things to confirm and notices that do not block (a countdown, a partial load), gray = everything else. */
-  --bg: #eff1f5;
+  --bg: #f6f7f8;
   --surface: #ffffff;
-  --surface-muted: #f6f7fa;
-  --field-bg: #ffffff;
-  --border: #dbdee5;
-  --border-strong: #ccd0da;
-  --text: #4c4f69;
-  --text-2: #5c5f77;
-  --muted: #5c5f77;
-  --faint: #5c5f77;
-  --accent: #7c3ed1;
+  --surface-muted: #f6f7f8;
+  --field-bg: #f1f2f3;
+  --border: #e3e5e7;
+  --border-strong: #c9ccd0;
+  --text: #18191c;
+  --text-2: #61666d;
+  --muted: #61666d;
+  --faint: #6d7279;
+  --accent: #ff6699;
   --on-accent: #ffffff;
-  --focus-ring: rgba(124, 62, 209, 0.25);
-  --action: #2f5fc4;
-  --action-hover: #2a55b0;
+  --focus-ring: rgba(255, 102, 153, 0.3);
+  --action: #00aeec;
+  --action-hover: #0098ce;
   --on-action: #ffffff;
-  --action-bg: #ecf1fa;
-  --action-border: #b6c7ea;
-  --link: #2f5fc4;
-  --link-hover: #2a55b0;
+  --action-bg: #e3f6fd;
+  --action-border: #a6e2f7;
+  --link: #0079ad;
+  --link-hover: #006a98;
   --ok: #3a6f2e;
   --ok-bg: #edf4eb;
   --ok-border: #c0d8ba;
@@ -39,15 +40,15 @@
   --warn: #a04b1a;
   --warn-bg: #f8f1e7;
   --warn-border: #e7d0af;
-  --info-bg: #f6f7fa;
-  --info-border: #ccd0da;
-  --secondary-bg: #e6e9ef;
-  --secondary-border: #ccd0da;
-  --secondary-text: #4c4f69;
+  --info-bg: #f6f7f8;
+  --info-border: #e3e5e7;
+  --secondary-bg: #f1f2f3;
+  --secondary-border: #e3e5e7;
+  --secondary-text: #18191c;
 
-  --radius-sm: 8px;
-  --radius-md: 10px;
-  --radius-lg: 14px;
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
   /* Pills: only for status (what is running, a sync notice) and filter or prompt chips; buttons and cards use the radii above. */
   --radius-pill: 999px;
   --space-1: 4px;
@@ -70,40 +71,40 @@
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --bg: #11111b;
-    --surface: #1e1e2e;
-    --surface-muted: #181825;
-    --field-bg: #11111b;
-    --border: #313244;
-    --border-strong: #45475a;
-    --text: #cdd6f4;
-    --text-2: #bac2de;
-    --muted: #a6adc8;
-    --faint: #9399b2;
-    --accent: #cba6f7;
-    --on-accent: #11111b;
-    --focus-ring: rgba(203, 166, 247, 0.3);
-    --action: #89b4fa;
-    --action-hover: #74a7f9;
-    --on-action: #11111b;
-    --action-bg: #292d42;
-    --action-border: #435275;
-    --link: #89b4fa;
-    --link-hover: #74a7f9;
+    --bg: #17181a;
+    --surface: #232527;
+    --surface-muted: #1d1e20;
+    --field-bg: #2f3134;
+    --border: #2f3134;
+    --border-strong: #3d4045;
+    --text: #e3e5e7;
+    --text-2: #a2a7ae;
+    --muted: #a2a7ae;
+    --faint: #8a8f96;
+    --accent: #ff6699;
+    --on-accent: #ffffff;
+    --focus-ring: rgba(255, 102, 153, 0.35);
+    --action: #00aeec;
+    --action-hover: #33bef0;
+    --on-action: #ffffff;
+    --action-bg: #10303d;
+    --action-border: #1d5a73;
+    --link: #33bef0;
+    --link-hover: #66cef4;
     --ok: #a6e3a1;
-    --ok-bg: #2c323a;
-    --ok-border: #4e6356;
+    --ok-bg: #233026;
+    --ok-border: #3d5a43;
     --danger: #f38ba8;
-    --danger-bg: #33293a;
-    --danger-border: #694459;
+    --danger-bg: #3a2329;
+    --danger-border: #6a3a47;
     --warn: #fab387;
-    --warn-bg: #34323b;
-    --warn-border: #6b635b;
-    --info-bg: #181825;
-    --info-border: #45475a;
-    --secondary-bg: #313244;
-    --secondary-border: #45475a;
-    --secondary-text: #cdd6f4;
+    --warn-bg: #3a2e24;
+    --warn-border: #6b5440;
+    --info-bg: #1d1e20;
+    --info-border: #3d4045;
+    --secondary-bg: #2f3134;
+    --secondary-border: #3d4045;
+    --secondary-text: #e3e5e7;
   }
 }
 
