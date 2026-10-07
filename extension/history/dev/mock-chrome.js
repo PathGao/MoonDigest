@@ -39,6 +39,25 @@
     triage_snapshot_42: { bvids: ["BV1mock000009"], titles: { BV1mock000009: "深度学习调参：从学习率到批归一化" }, at: now }
   };
   const clone = (v) => (v === undefined ? v : structuredClone(v));
+  // ?demo swaps in the README screenshot data: B站-style videos, one side panel conversation, triage summaries and notes.
+  if (/[?&]demo\b/.test(location.search)) {
+    for (const k of Object.keys(store)) delete store[k];
+    const day = 24 * hour;
+    const tomato = ref("bilibili", "BV1demo000001", "番茄工作法：25 分钟专注到底怎么用", { cid: "2001", author: "效率研究所" });
+    const git = ref("bilibili", "BV1demo00004", "Git 原理图解：commit、branch 到底是什么", { cid: "2004", author: "量子土豆" });
+    const talk = ref("youtube", "aB3dEmo9xYz", "How I take notes on long videos", { author: "Study Lab" });
+    store.boc_ai_conversations_v1 = [
+      conv("d1", "bilibili|BV1demo000001|2001", tomato, now - 2 * hour, [["整理这期视频的内容，输出结构化总结。", "**一句话总结** 25 分钟专注加 5 分钟休息，把大任务拆成能完成的小块。\n\n1. 为什么有效 `00:42`\n2. 怎么开始 `02:15`\n3. 常见误区 `05:30`"], ["被打断了怎么办？", "记下打断的事，这个番茄作废，重新开始一个。"]]),
+      conv("d2", "bilibili|BV1demo00004|2004", git, now - 26 * hour, [["rebase 和 merge 怎么选？", "自己的分支用 rebase 保持历史整齐，公共分支用 merge。"]]),
+      conv("d3", "youtube|aB3dEmo9xYz|", talk, now - 3 * day, [["Summarize in Chinese", "作者用三步记笔记：先看一遍只记时间点，再按章节整理，最后写一句自己的结论。"]])
+    ];
+    const a = (bvid, verdict, reason, oneLiner, points, at) => ({ bvid, status: "done", source: "subtitle", oneLiner, points, verdict, reason, analyzedAt: now - at });
+    store.triage_analysis_BV1demo00004 = a("BV1demo00004", "keep", "讲透原理", "用画图的方式讲清 commit、branch 和 HEAD 的关系。", ["commit 是快照，不是差异", "branch 只是指向 commit 的指针", "rebase 和 merge 的区别"], day);
+    store.triage_analysis_BV1demo00001 = a("BV1demo00001", "keep", "跟着做就能学会", "用一份销售表演示数据透视表的建表、分组、筛选和切片器。", ["拖字段建表", "按月和按季度分组", "切片器联动多张表"], 2 * day);
+    store.triage_analysis_BV1demo00005 = a("BV1demo00005", "drop", "带货测评，时效性强", "五款降噪耳机的音质、降噪和续航对比。", ["降噪最强的价格也最高", "通勤推荐中端款", "文末抽奖"], 2 * day);
+    store.triage_snapshot_2001 = { bvids: ["BV1demo00001", "BV1demo00005"], titles: { BV1demo00001: "Excel 数据透视表从入门到精通，看这一个就够了", BV1demo00005: "2026 年最值得买的 5 款降噪耳机（文末抽奖）" }, at: now };
+    store.triage_notes = { BV1demo00004: { text: "周末配合官方文档一起看，第 3 节的图要截下来", updatedAt: now - 3 * hour }, BV1demo000001: { text: "周一试一周，记录每天完成几个番茄", updatedAt: now - hour } };
+  }
 
   window.__mockVault = {};
   window.__mockEmit = (changes, area) => listeners.forEach((fn) => fn(changes, area));

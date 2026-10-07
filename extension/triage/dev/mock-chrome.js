@@ -109,6 +109,90 @@
     };
   }
 
+  // ?demo swaps in the README screenshot data: B站-style titles and covers, every step filled, tags, 优先看, notes and
+  // watch progress (seenShow 进度条和看完了标记). Nothing here is a real account's data.
+  const demoSync = {};
+  if (/[?&]demo\b/.test(location.search)) {
+    const day = 86400000;
+    const now = Date.now();
+    const art = (title, sub, [a, b]) =>
+      "data:image/svg+xml," +
+      encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" width="320" height="180"><defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="${a}"/><stop offset="1" stop-color="${b}"/></linearGradient></defs><rect width="320" height="180" fill="url(#g)"/><circle cx="268" cy="40" r="70" fill="#fff" opacity=".12"/><text x="22" y="86" font-family="PingFang SC, sans-serif" font-size="34" font-weight="800" fill="#fff">${title}</text><text x="22" y="126" font-family="PingFang SC, sans-serif" font-size="20" font-weight="600" fill="#fff" opacity=".9">${sub}</text></svg>`);
+    // [title, upper, seconds, cover big, cover small, colors]
+    const rows = [
+      ["Excel 数据透视表从入门到精通，看这一个就够了", "表格研究社", 1475, "数据透视表", "从入门到精通", ["#1d8f5a", "#0d5c3a"]],
+      ["零基础学 Python：用 30 行代码批量重命名文件", "码农阿杰", 728, "30 行 Python", "批量重命名文件", ["#3a6fd8", "#22408a"]],
+      ["手机摄影构图的 9 个技巧，随手拍出电影感", "慢慢学摄影", 906, "9 个构图技巧", "手机也能拍出电影感", ["#d9822b", "#8a3d12"]],
+      ["Git 原理图解：commit、branch 到底是什么", "量子土豆", 1141, "Git 原理图解", "commit / branch", ["#e2553f", "#7d2418"]],
+      ["2026 年最值得买的 5 款降噪耳机（文末抽奖）", "木子说数码", 587, "降噪耳机横评", "5 款怎么选", ["#4b4f63", "#1f2230"]],
+      ["一口气看完日本战国史：从应仁之乱到关原合战", "阿北的书房", 2530, "日本战国史", "一口气看完", ["#8a5a3c", "#3f2617"]],
+      ["【干货】PPT 配色只需要记住这三条", "设计小周", 492, "PPT 配色", "只记这三条", ["#b04fc1", "#5b2370"]],
+      ["震惊！这个方法让我一周背完 3000 个单词", "英语每日一练", 371, "一周 3000 词", "真的假的？", ["#e8b21f", "#a3640b"]],
+      ["从零搭建个人博客：域名、服务器、部署全流程", "小周爱折腾", 1863, "搭建个人博客", "域名到部署", ["#2a9d8f", "#145049"]],
+      ["Photoshop 抠图 6 种方法对比，头发丝也能抠干净", "设计小周", 1022, "PS 抠图对比", "6 种方法", ["#3d7fb8", "#1c3f5e"]],
+      ["SQL 窗口函数一次讲透：排名、累计、同比", "表格研究社", 1388, "SQL 窗口函数", "一次讲透", ["#5b6ee1", "#2b3590"]],
+      ["家用 NAS 入门：买什么、怎么装、装什么", "木子说数码", 1540, "家用 NAS 入门", "买什么 · 怎么装", ["#46526b", "#1c2333"]],
+      ["Markdown 十分钟上手，写笔记再也不乱", "码农阿杰", 615, "Markdown", "十分钟上手", ["#6b7280", "#30343c"]],
+      ["Linux 常用命令 50 个，收藏起来慢慢看", "量子土豆", 2210, "Linux 命令", "常用 50 个", ["#1f2937", "#0b0f17"]]
+    ];
+    const items = rows.map(([title, upper, duration, big, small, colors], i) => ({
+      bvid: `BV1demo${String(i + 1).padStart(5, "0")}`,
+      aid: 700000 + i,
+      title,
+      cover: art(big, small, colors),
+      upper,
+      duration,
+      pubdate: Math.floor((now - (40 - i) * day) / 1000),
+      favTime: Math.floor((now - (20 - i) * day) / 1000),
+      intro: `${title}。`,
+      invalid: false,
+      _i: i
+    }));
+    const [pivot, py, photo, git, earbuds, history, ppt, words, blog, ps] = items;
+    const folder = (id, title, list) => ({ id, title, items: list });
+    folders.splice(0, folders.length, folder(2001, "想学的技能", items), folder(2002, "做饭合集", []), folder(2003, "默认收藏夹", [items[0], items[5]]));
+    folders[0].cover = items[3].cover;
+    folders[1].cover = art("家常菜", "", ["#e07a3f", "#8f3a14"]);
+    folders[2].cover = items[0].cover;
+    for (const k of Object.keys(store)) delete store[k];
+    const analysis = (it, verdict, reason, oneLiner, points, source = "subtitle") => {
+      store[`triage_title_${it.bvid}`] = { verdict, reason, confidence: "high" };
+      store[`triage_analysis_${it.bvid}`] = { bvid: it.bvid, status: "done", source, oneLiner, points, verdict, reason, model: "deepseek-flash", analyzedAt: now - day };
+    };
+    analysis(pivot, "keep", "跟着做就能学会，符合收藏夹用途", "用一份销售表演示数据透视表的建表、分组、筛选和切片器。", ["拖字段建表：行、列、值三个区域各放什么", "按月和按季度分组，一键出同比", "切片器联动多张表，做出简单看板"]);
+    analysis(py, "keep", "能直接上手的教程", "从读取文件夹开始，一步步写出批量重命名脚本。", ["os 和 pathlib 遍历文件夹", "用正则提取编号并补零", "先打印预览再真正改名，避免改错"]);
+    analysis(photo, "unsure", "技巧实用，但和收藏夹的学习方向关系不大", "九种常见构图，每种配一组手机实拍对比。", ["三分法和引导线最容易上手", "低角度和框架构图让画面有层次", "后期只调曝光和色温就够了"]);
+    analysis(git, "keep", "讲透原理，正是这个收藏夹要的", "用画图的方式讲清 commit、branch 和 HEAD 的关系。", ["commit 是快照，不是差异", "branch 只是指向 commit 的指针", "rebase 和 merge 的区别在历史长什么样"]);
+    analysis(earbuds, "drop", "带货测评，时效性强", "五款降噪耳机的音质、降噪和续航对比。", ["降噪最强的价格也最高", "通勤场景推荐中端款", "文末抽奖和购买链接"], "meta");
+    analysis(history, "unsure", "内容扎实但偏兴趣，不是技能教程", "按时间线串起日本战国时代的主要人物和战役。", ["应仁之乱开启战国时代", "织田、丰臣、德川三人的接力", "关原合战奠定江户幕府"]);
+    const title = (it, verdict, reason) => (store[`triage_title_${it.bvid}`] = { verdict, reason, confidence: "high" });
+    title(ppt, "keep", "标题显示为实操教程");
+    title(words, "drop", "标题党，信息量低");
+    title(blog, "keep", "完整的搭建教程");
+    title(ps, "unsure", "标题信息不足，需要读字幕");
+    const tag = (id, name, color) => ({ id, name, color, folder: "2001" });
+    Object.assign(store, {
+      triage_simplified_v1: true,
+      triage_tags_by_folder_v1: true,
+      triage_kept_v1: true,
+      triage_included_folders: ["2001", "2002", "2003"],
+      triage_last_folder: 2001,
+      triage_folder_criteria: { 2001: "只留能跟着做的教程和讲透原理的内容；资讯、带货、标题党可清理" },
+      triage_tags: [tag("t-basic", "入门", "#da86c3"), tag("t-adv", "进阶", "#298287"), tag("t-tool", "办公", "#dc6d2d")],
+      triage_video_tags: { [pivot.bvid]: ["t-basic", "t-tool"], [py.bvid]: ["t-basic"], [git.bvid]: ["t-adv"], [items[12].bvid]: ["t-basic"], [items[13].bvid]: ["t-adv"] },
+      triage_kept: { [items[12].bvid]: { action: "keep", at: now - 2 * day }, [items[13].bvid]: { action: "keep", at: now - 2 * day } },
+      triage_watched: { [py.bvid]: now - day },
+      triage_basket: [pivot, git, blog].map(({ bvid, title, cover, upper, duration }) => ({ bvid, title, cover, upper, duration })),
+      triage_notes: { [git.bvid]: { text: "周末配合官方文档一起看，第 3 节的图要截下来", updatedAt: now - 3 * day } },
+      triage_removed: {},
+      [`seen_${pivot.bvid}`]: [83, now - 2 * day],
+      [`seen_${py.bvid}`]: [100, now - day],
+      [`seen_${photo.bvid}`]: [16, now - 4 * day],
+      [`seen_${history.bvid}`]: [40, now - 6 * day]
+    });
+    Object.assign(demoSync, { seenShow: "both", seenThreshold: 80, seenStyle: "badge", obsidianEnabled: true });
+  }
+
   const removed = new Map(); // "mediaId:aid" -> { folder, item, index }
   const throttledOnce = new Set();
   let lastMediaId = 1001;
@@ -121,7 +205,7 @@
   // ----- handlers -----
   const handlers = {
     // 默认收藏夹 has no cover, so the hue block fallback shows too.
-    "triage-folders": () => ({ ok: true, data: { mid: 12345, folders: folders.map((f, i) => ({ id: f.id, title: f.title, count: f.items.length, cover: i < 2 ? cover(i * 9 + 3) : "" })) } }),
+    "triage-folders": () => ({ ok: true, data: { mid: 12345, folders: folders.map((f, i) => ({ id: f.id, title: f.title, count: f.items.length, cover: f.cover ?? (i < 2 ? cover(i * 9 + 3) : "") })) } }),
     "triage-folder-items": ({ mediaId }) => {
       const f = folders.find((x) => String(x.id) === String(mediaId));
       if (!f) return { ok: false, error: "收藏夹不存在" };
@@ -289,7 +373,7 @@
         console.info("[mock] sidePanel.open", opts);
       }
     },
-    storage: { local: makeArea(store), sync: makeArea({}), onChanged: { addListener() {} } },
+    storage: { local: makeArea(store), sync: makeArea(demoSync), onChanged: { addListener() {} } },
     permissions: {
       async request(req) {
         (globalThis.__mockPermissionRequests ||= []).push(req);

@@ -5,6 +5,7 @@
 // __mockStateError = "..." 让读取页面上下文失败（检查「重试」）。
 // __mockNotice 先发一条 notice；__mockTokenMs 调慢流速。
 // ?providers=0 模拟还没配置 AI 平台。
+// ?demo 换成 README 截图用的演示数据：一个像样的 B 站视频，预置一段带 AI 总结的对话和一条备注。
 // Obsidian：window.__mockVault 是假库（path → markdown），__mockVaultLog 记每次 GET/PUT；__mockObsidianDown = true 让写入失败。
 (() => {
   const makeEvent = () => {
@@ -23,6 +24,35 @@
     url: `https://www.bilibili.com/video/BV1mock00000${n}/`,
     author: `UP主${n}`
   }));
+  const demo = new URLSearchParams(location.search).has("demo");
+  if (demo) {
+    videos.splice(0, videos.length, { bvid: "BV1demo000001", cid: "2001", aid: "601", title: "番茄工作法：25 分钟专注到底怎么用", url: "https://www.bilibili.com/video/BV1demo000001/", author: "效率研究所" });
+    const v = videos[0];
+    const ref = { site: "bilibili", videoId: v.bvid, cid: v.cid, aid: v.aid, title: v.title, url: v.url, author: v.author, pageIndex: 1, pageCount: 1, isVideoContext: true };
+    const now = Date.now();
+    const summary = [
+      "**一句话总结**",
+      "番茄工作法用 25 分钟专注加 5 分钟休息的节奏，把大任务拆成能完成的小块，重点是保护专注时段不被打断。",
+      "",
+      "**要点**",
+      "1. **为什么有效**（[00:42](https://www.bilibili.com/video/BV1demo000001/?t=42)）：时间短，开始的门槛低；休息让注意力恢复。",
+      "2. **怎么开始**（[02:15](https://www.bilibili.com/video/BV1demo000001/?t=135)）：先列清单，每个番茄只做一件事。被打断就记下来，结束后再处理。",
+      "3. **常见误区**（[05:30](https://www.bilibili.com/video/BV1demo000001/?t=330)）：休息时间拿去刷手机，或者硬撑着不休息，下一个番茄效率都会下降。",
+      "4. **进阶用法**（[07:48](https://www.bilibili.com/video/BV1demo000001/?t=468)）：每 4 个番茄做一次 15 到 30 分钟的长休息，记录每天完成的数量。",
+      "",
+      "**适合谁**",
+      "容易拖延、经常被打断、需要长时间伏案的人。"
+    ].join("\n");
+    const seed = {
+      boc_ai_conversations_v1: [{
+        id: "demo-c1", title: v.title, contextKey: `video:bilibili:${v.bvid}|${v.cid}`, contextTitle: v.title, contextUrl: v.url, isVideoContext: true,
+        createdAt: now - 60000, updatedAt: now - 30000, contextRef: ref, pageHydrated: true,
+        messages: [{ role: "user", content: "整理这期视频的内容，输出结构化总结。" }, { role: "assistant", content: summary }]
+      }],
+      triage_notes: { [v.bvid]: { text: "周一试一周，记录每天完成几个番茄", updatedAt: now - 20000 } }
+    };
+    localStorage.setItem("__mock_storage_local", JSON.stringify(seed));
+  }
   const tabTitle = (video) => `${video.title}_哔哩哔哩_bilibili`;
   const tab = { id: 1, active: true, status: "complete", url: videos[0].url, title: tabTitle(videos[0]) };
   const TOKEN_COUNT = 20;
@@ -123,7 +153,7 @@
         return { ok: true, exists: true, updated: next !== current };
       }
       case "ai-providers-list":
-        return { ok: true, providers: params.get("providers") === "0" ? [] : [{ id: "p1", name: "Mock", model: "claude-sonnet-4-5-20250929", enabled: true }] };
+        return { ok: true, providers: params.get("providers") === "0" ? [] : [demo ? { id: "p1", name: "DeepSeek", model: "deepseek-flash", enabled: true } : { id: "p1", name: "Mock", model: "claude-sonnet-4-5-20250929", enabled: true }] };
       case "get-settings":
         return { ok: true, settings: mockSettings };
       case "save-settings":
