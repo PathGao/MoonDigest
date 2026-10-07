@@ -54,7 +54,7 @@ input[type="checkbox"] { accent-color: var(--accent); }
   background: var(--surface);
 }
 .entry:has([data-act="pick"]:checked) { border-color: var(--accent); }
-.entry-body { grid-column: 2 / -1; }
+.entry-body { grid-column: 2 / -1; max-width: 72ch; }
 .entry-title { color: var(--text); font-weight: 600; font-size: var(--fs-md); text-decoration: none; overflow-wrap: anywhere; }
 a.entry-title:hover { color: var(--link-hover); text-decoration: underline; }
 .entry-meta { color: var(--muted); font-size: var(--fs-xs); }
@@ -66,6 +66,11 @@ a.entry-title:hover { color: var(--link-hover); text-decoration: underline; }
 button.ask { background: var(--action-bg); border-color: var(--action-border); color: var(--action); }
 button.ask:hover { border-color: var(--action); }
 button.ask:disabled { background: var(--surface); border-color: var(--border-strong); color: var(--text); }
+/* 写入中… sits in a cell sized by the idle label, so the button keeps its width and its row does not shift. */
+.write-label { display: inline-grid; justify-items: center; }
+.write-label::after { content: attr(data-idle); visibility: hidden; }
+.write-label > span, .write-label::after { grid-area: 1 / 1; }
+button:disabled:has(> .write-label [aria-busy="true"]) { opacity: 0.7; cursor: progress; }
 /* Delete is told apart by its red text and its gap, not a fill; disabled it is gray like any other button. */
 button.danger { background: var(--surface); }
 button.danger:hover { background: var(--danger-bg); }
