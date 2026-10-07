@@ -596,8 +596,11 @@ function inTab(it, tab) {
   // 阅览 (and 已取消收藏) is every video of the folder, whatever its step.
   if (tab !== "read" && stageOf(it) !== tab) return false;
   const f = S.classFilter[tab];
-  return !f || f === "all" || verdictOf(it).verdict === f;
+  return !f || f === "all" || classOf(it) === f;
 }
+
+// The filter chip a card falls under: the user's decision once there is one (as on the card), else the AI verdict.
+const classOf = (it) => (isProcessed(it.bvid) ? (S.decisions[it.bvid].action === "keep" ? "kept" : "unfav") : verdictOf(it).verdict);
 
 const failedAnalysis = (b) => S.analyses[b]?.status === "error";
 
@@ -1660,9 +1663,10 @@ function renderListHeader(list) {
   // It renders into its own slot at the left of the row, so it adds nothing to the action html.
   let segHtml = "";
   const inStage = S.items.filter((it) => (t === "read" || stageOf(it) === t) && passFilter(it));
-  const n = (k) => (k === "all" ? inStage.length : inStage.filter((it) => verdictOf(it).verdict === k).length);
+  const n = (k) => (k === "all" ? inStage.length : inStage.filter((it) => classOf(it) === k).length);
   const classBtn = (k, label, off) => `<button type="button" data-class-filter="${k}" aria-pressed="${!off && S.classFilter[t] === k}"${off ? " disabled" : ""}>${label} ${n(k)}</button>`;
-  const CLASSES = [["all", "全部"], ...Object.entries(VERDICTS)];
+  // 阅览 also holds decided videos; they leave the AI classes for 已保留 (已取消收藏 has its own folder).
+  const CLASSES = [["all", "全部"], ...Object.entries(VERDICTS), ...(t === "read" && S.mediaId !== REMOVED ? [["kept", "已保留"]] : [])];
   const seg = () => {
     segHtml = `<span class="seg" role="group" aria-label="按 AI 判断筛选">${CLASSES.map(([k, label]) => classBtn(k, label)).join("")}</span>`;
     return "";

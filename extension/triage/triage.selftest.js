@@ -824,6 +824,21 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     delete t.S.titleRes.BV1;
   }
 
+  // 阅览: a decided video leaves the AI classes for 已保留, the same word its card shows.
+  {
+    const saved = { tab: t.S.tab, titleRes: t.S.titleRes, classFilter: t.S.classFilter };
+    openFake("A", [item(1), item(2)], { BV1: { action: "keep" } });
+    Object.assign(t.S, { tab: "read", titleRes: { BV1: { verdict: "keep" }, BV2: { verdict: "keep" } }, classFilter: { coarse: "all", fine: "all", read: "all" } });
+    t.renderListHeader(t.visibleItems());
+    for (const part of [">全部 2<", ">值得留 1<", ">已保留 1<"]) assert.ok(t.el.classFilter.innerHTML.includes(part), part);
+    t.S.classFilter.read = "kept";
+    assert.deepStrictEqual(plain(t.visibleItems().map((it) => it.bvid)), ["BV1"]);
+    t.S.classFilter.read = "keep";
+    assert.deepStrictEqual(plain(t.visibleItems().map((it) => it.bvid)), ["BV2"]);
+    Object.assign(t.S, saved);
+    openFake("A", [item(1)]);
+  }
+
   // Cleaning a removed video deletes its AI results, note, tags, 保留, basket entry and 取消收藏 records, and nothing else.
   Object.assign(store, { triage_analysis_BV1: {}, triage_title_BV1: {}, triage_analysis_BV5: {} });
   Object.assign(store, { triage_decisions_A: { BV1: { action: "unfav" }, BV5: { action: "unfav" } }, triage_decisions_B: { BV1: { action: "unfav" } } });
