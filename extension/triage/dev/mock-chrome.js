@@ -102,7 +102,8 @@
 
   // ----- handlers -----
   const handlers = {
-    "triage-folders": () => ({ ok: true, data: { mid: 12345, folders: folders.map((f) => ({ id: f.id, title: f.title, count: f.items.length })) } }),
+    // 默认收藏夹 has no cover, so the hue block fallback shows too.
+    "triage-folders": () => ({ ok: true, data: { mid: 12345, folders: folders.map((f, i) => ({ id: f.id, title: f.title, count: f.items.length, cover: i < 2 ? cover(i * 9 + 3) : "" })) } }),
     "triage-folder-items": ({ mediaId }) => {
       const f = folders.find((x) => String(x.id) === String(mediaId));
       if (!f) return { ok: false, error: "收藏夹不存在" };

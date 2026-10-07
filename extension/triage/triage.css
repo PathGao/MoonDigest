@@ -152,8 +152,12 @@ select { height: 28px; max-width: 240px; }
 .side-count { color: var(--faint); font-size: var(--fs-xs); font-variant-numeric: tabular-nums; }
 .side-item.on .side-count { color: var(--link); }
 /* No cover comes with the folder list, so each folder gets a fixed colored tint (never gray). */
-.folder-thumb { width: 40px; height: 25px; flex: none; border-radius: 4px; background: hsl(var(--h) 45% 60%); }
+.folder-thumb { width: 40px; height: 25px; flex: none; border-radius: 4px; background: hsl(var(--h) 45% 60%); overflow: hidden; }
+.folder-thumb img { display: block; width: 100%; height: 100%; object-fit: cover; }
 .tag-btn.side-item { font-size: var(--fs-md); }
+.side-filter .side-item { height: 36px; font-size: var(--fs-sm); color: var(--text-2); font-variant-numeric: tabular-nums; }
+.side-filter .side-item[aria-pressed="true"] { background: var(--text); color: var(--bg); font-weight: 600; }
+.side-filter .side-item:disabled { opacity: 0.45; cursor: default; background: none; }
 .tag-btn .ai-spark { margin: 0 0 0 2px; width: 16px; height: 16px; color: var(--faint); }
 
 /* The list pane's parts sit in .main's grid, so with the viewer open the head, steps and filters keep the full
@@ -177,7 +181,11 @@ select { height: 28px; max-width: 240px; }
 
 /* ---------- folder head: name and counts left, the step's criteria and buttons right ---------- */
 .folder-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; padding: 18px 0 0; min-height: 60px; }
-.folder-info { min-width: 0; margin-right: auto; }
+.folder-info { display: flex; align-items: center; gap: 12px; min-width: 0; margin-right: auto; }
+.folder-name { display: contents; }
+.folder-name .folder-thumb { width: 72px; height: 45px; border-radius: var(--radius-sm); }
+.folder-text { min-width: 0; }
+.bili-link { align-self: flex-start; margin-top: 5px; height: auto; font-size: var(--fs-sm); white-space: nowrap; }
 .folder-title { margin: 0; font-size: 20px; font-weight: 600; line-height: 1.3; }
 .folder-meta { margin-top: 2px; color: var(--faint); font-size: var(--fs-sm); }
 .list-header { display: contents; }
@@ -188,7 +196,7 @@ select { height: 28px; max-width: 240px; }
 .select-all:empty { display: none; }
 .select-all .link { height: 32px; }
 /* The criteria note is capped and ends in an ellipsis (full text in its title). */
-.run-line { max-width: 24em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-2); font-size: var(--fs-sm); }
+.run-line { flex: 0 1 auto; min-width: 6em; max-width: 24em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-2); font-size: var(--fs-sm); }
 
 /* ---------- steps: text tabs, a pink underline on the open one, counts faint; 阅览 sits apart on the right ---------- */
 .tabs:empty { display: none; }
@@ -210,8 +218,11 @@ select { height: 28px; max-width: 240px; }
 .seg button { height: 26px; padding: 0 12px; border: 0; border-radius: var(--radius-pill); background: var(--field-bg); color: var(--text-2); font-variant-numeric: tabular-nums; }
 .seg button:hover { background: var(--border); }
 .seg button[aria-pressed="true"] { background: var(--text); color: var(--bg); font-weight: 600; }
-.tagfilter { display: contents; }
-.class-filter:not(:empty) + .tagfilter > :first-child { margin-left: 8px; }
+.tagfilter { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
+.class-filter:not(:empty) + .tagfilter { margin-left: 4px; padding-left: 12px; border-left: 1px solid var(--border-strong); }
+.tag-chip { --c: var(--border-strong); color: var(--text-2); }
+.tag-chip:hover { background: var(--field-bg); }
+.tag-chip .ai-spark { margin-right: 3px; }
 
 /* ---------- the selection bar floats over the bottom of the page while anything is selected ---------- */
 .selbar {
@@ -232,6 +243,7 @@ select { height: 28px; max-width: 240px; }
   box-shadow: 0 8px 28px rgba(0, 0, 0, 0.16);
   font-size: var(--fs-md);
 }
+.selbar > * { flex: none; white-space: nowrap; }
 .sel-count { font-weight: 600; font-variant-numeric: tabular-nums; color: var(--link); }
 .selbar .link { height: 28px; }
 .sel-actions { display: flex; align-items: center; justify-content: flex-end; gap: 6px; padding-left: 10px; border-left: 1px solid var(--border); }
@@ -325,7 +337,11 @@ button.icon { width: 26px; height: 24px; padding: 0; }
 .list:not(.grid) .card { display: grid; grid-template-columns: 192px minmax(0, 1fr); gap: 16px; padding: 16px 128px 16px 0; border-bottom: 1px solid var(--border); }
 .list:not(.grid) .card.focused::before { content: ""; position: absolute; left: -12px; top: 16px; bottom: 16px; width: 3px; border-radius: 2px; background: var(--accent); }
 .list:not(.grid) .card.in-batch .cover-wrap { box-shadow: 0 0 0 2px var(--action); }
-.list:not(.grid) .card.selected { background: var(--action-bg); box-shadow: 0 0 0 8px var(--action-bg); border-radius: var(--radius-sm); }
+.list:not(.grid) .card { border-radius: var(--radius-md); transition: background 0.12s, box-shadow 0.12s; }
+.list:not(.grid) .card:hover { background: var(--surface); box-shadow: 0 0 0 8px var(--surface), 0 0 0 9px var(--border-strong), 0 4px 14px rgba(0, 0, 0, 0.08); }
+.list:not(.grid) .card.selected { box-shadow: 0 0 0 8px var(--action-bg), 0 0 0 10px var(--action); background: var(--action-bg); }
+.list:not(.grid) .card.selected:hover { background: var(--action-bg); }
+.card.selected .cover-wrap::before { content: "✓"; position: absolute; right: 6px; top: 6px; z-index: 2; width: 20px; height: 20px; border-radius: 4px; background: var(--action); color: #fff; font-size: 14px; font-weight: 700; line-height: 20px; text-align: center; }
 .list:not(.grid) .actions { display: contents; }
 .list:not(.grid) .actions > [data-act="keep"], .list:not(.grid) .actions > button:last-child { position: absolute; right: 0; width: 112px; height: 32px; padding: 0; justify-content: center; font-size: var(--fs-sm); }
 .list:not(.grid) .actions > [data-act="keep"] { top: calc(50% - 36px); }
@@ -333,7 +349,13 @@ button.icon { width: 26px; height: 24px; padding: 0; }
 .list:not(.grid) .actions > button:last-child:not(.solid) { border-color: transparent; background: var(--field-bg); }
 .list:not(.grid) .actions .more { margin-left: auto; }
 /* Beside the viewer the list is narrow: the smaller cover, as on a narrow screen. */
-.main.viewing .list:not(.grid) .card { grid-template-columns: 128px minmax(0, 1fr); gap: 10px; }
+.main.viewing .list:not(.grid) .card { grid-template-columns: 128px minmax(0, 1fr); gap: 10px; padding-right: 0; }
+.main.viewing .list:not(.grid) .actions > [data-act="keep"], .main.viewing .list:not(.grid) .actions > button:last-child { position: static; width: auto; height: 26px; padding: 0 8px; font-size: var(--fs-xs); }
+.main.viewing .list:not(.grid) .actions > button:last-child:not(.solid) { border-color: var(--border-strong); background: var(--surface); }
+.main.viewing .list:not(.grid) .actions .more { margin-left: 0; }
+.main.viewing .list:not(.grid) .key { display: none; }
+.shell:has(.main.viewing) { grid-template-columns: minmax(0, 1fr); }
+.shell:has(.main.viewing) .side { display: none; }
 
 /* ---------- 阅览: the grid. The actions overlay the cover's box and show on the current, hovered or focused card ---------- */
 .list.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 20px 16px; align-content: start; padding-top: 2px; }
@@ -343,9 +365,14 @@ button.icon { width: 26px; height: 24px; padding: 0; }
 .list.grid .verdict-row .badge:not(.watched), .list.grid .verdict-row .reason { display: none; }
 .list.grid .verdict-row:not(:has(.watched, .fail-text)) { display: none; }
 .list.grid .card-foot:last-child { margin-top: 4px; }
-.list.grid .card.focused .cover-wrap { box-shadow: 0 0 0 2px var(--accent), 0 6px 16px rgba(0, 0, 0, 0.18); }
+.list.grid .card { border-radius: var(--radius-md); transition: background 0.12s, box-shadow 0.12s; }
+.list.grid .cover-wrap { transition: transform 0.12s, box-shadow 0.12s; }
+.list.grid .card:hover { background: var(--surface); box-shadow: 0 0 0 8px var(--surface), 0 0 0 9px var(--border-strong); }
+.list.grid .card:hover .cover-wrap { transform: translateY(-2px); box-shadow: 0 6px 16px rgba(0, 0, 0, 0.18); }
+.list.grid .card:hover .actions { transform: translateY(-2px); }
+.list.grid .card.focused .cover-wrap { box-shadow: 0 0 0 2px var(--accent); }
+.list.grid .card.focused::after { content: ""; position: absolute; left: 0; right: 0; bottom: -8px; height: 3px; border-radius: 2px; background: var(--accent); }
 .list.grid .card.selected .cover-wrap { outline: 2px solid var(--action); outline-offset: 2px; }
-.list.grid .card.selected .cover-wrap::before { content: "✓"; position: absolute; right: 6px; top: 6px; z-index: 2; width: 20px; height: 20px; border-radius: 4px; background: var(--action); color: #fff; font-size: 14px; font-weight: 700; line-height: 20px; text-align: center; }
 .list.grid .actions {
   position: absolute;
   left: 0;
@@ -567,7 +594,6 @@ dialog.wide { width: min(880px, calc(100% - 32px)); }
 
 .pick-folders { max-width: 420px; margin: 40px auto; text-align: center; }
 .pick-folders p { margin: 0 0 10px; }
-#removedBtn[aria-pressed="true"] { background: var(--danger); border-color: var(--danger); color: var(--surface); }
 
 @media (max-width: 1099px) {
   .brand { width: auto; }
@@ -599,7 +625,6 @@ dialog.wide { width: min(880px, calc(100% - 32px)); }
   .folder-select { max-width: 50vw; }
   .search { order: 2; flex-basis: 100%; max-width: none; margin: 0; }
   .main { padding: 0 8px; }
-  .list:not(.grid) .card { padding-right: 0; padding-bottom: 56px; }
-  .list:not(.grid) .actions > [data-act="keep"], .list:not(.grid) .actions > button:last-child { top: auto; bottom: 12px; }
-  .list:not(.grid) .actions > [data-act="keep"] { right: 120px; }
+  .list:not(.grid) .card { padding-right: 0; }
+  .list:not(.grid) .actions > [data-act="keep"], .list:not(.grid) .actions > button:last-child { position: static; width: auto; height: 26px; padding: 0 8px; font-size: var(--fs-xs); }
 }

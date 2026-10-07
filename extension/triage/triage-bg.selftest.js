@@ -388,6 +388,29 @@ assert.throws(() => t.triageParseCommand('{"new_tags":[', cmdItems, cmdTags, {})
     await assert.rejects(H["triage-folder-create"]({ title: "  " }), /不能为空/);
   }
 
+  // The folder list pages through created/list (which carries the cover) until has_more is false; covers are https.
+  {
+    const H = vm.runInContext("TRIAGE_HANDLERS", ctx);
+    const pages = [];
+    t.fetch = async (url) => {
+      const u = new URL(url);
+      if (/web-interface\/nav/.test(url)) return { ok: true, status: 200, json: async () => ({ code: 0, data: { isLogin: true, mid: 7 } }) };
+      if (/toview/.test(url)) return { ok: true, status: 200, json: async () => ({ code: 0, data: { count: 3 } }) };
+      assert.strictEqual(u.pathname, "/x/v3/fav/folder/created/list");
+      const pn = Number(u.searchParams.get("pn"));
+      pages.push(pn);
+      const list = pn === 1 ? [{ id: 1, title: "甲", media_count: 4, cover: "http://i0.hdslb.com/a.jpg" }] : [{ id: 2, title: "乙", media_count: 1, cover: "" }];
+      return { ok: true, status: 200, json: async () => ({ code: 0, data: { list, has_more: pn === 1 } }) };
+    };
+    const r = plain(await H["triage-folders"]());
+    assert.deepStrictEqual(pages, [1, 2]);
+    assert.deepStrictEqual(r.folders, [
+      { id: "toview", title: "稍后再看", count: 3 },
+      { id: 1, title: "甲", count: 4, cover: "https://i0.hdslb.com/a.jpg" },
+      { id: 2, title: "乙", count: 1, cover: "" }
+    ]);
+  }
+
   // 看过: percent is progress over duration, -1 = finished, capped at 100; 0 is not stored.
   {
     assert.deepStrictEqual([t.seenPercent(-1, 0), t.seenPercent(30, 60), t.seenPercent(70, 60), t.seenPercent(0, 60), t.seenPercent(5, 0)], [100, 50, 100, 0, 0]);

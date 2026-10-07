@@ -278,9 +278,9 @@ const folderContext = () => ({ title: folderTitle(), intro: S.folderIntro[S.medi
 const $ = (id) => document.getElementById(id);
 const el = {};
 [
-  "folderSelect", "folderList", "folderHead", "settingsHeading", "settingsFoldersHeading", "settingsAi", "settingsFirstRunHint", "removedBtn", "searchInput", "searchCount", "refreshBtn", "activity", "settingsBtn", "helpBtn", "tools",
+  "folderSelect", "folderList", "folderHead", "settingsHeading", "settingsFoldersHeading", "settingsAi", "settingsFirstRunHint", "searchInput", "searchCount", "refreshBtn", "activity", "settingsBtn", "helpBtn",
   "banner", "bannerText", "bannerBtn", "bannerClose", "syncNotice", "syncText", "syncViewBtn", "syncCloseBtn", "syncDetail",
-  "tabs", "stagebar", "classFilter", "tagFilter", "listHeader", "list", "basket", "basketToggle", "basketCount",
+  "tabs", "stagebar", "classFilter", "sideFilter", "tagFilter", "listHeader", "list", "basket", "basketToggle", "basketCount",
   "basketList", "toast", "settingsDialog", "folderToggles", "thinkingRow", "intervalInput",
   "batchSizeInput", "openOptionsBtn", "thinkingInput", "titleMaxInput",
   "titleMaxHint", "analyzeMaxInput", "analyzeMaxHint", "settingsError", "backupBtn", "csvBtn", "confirmDialog",
@@ -848,7 +848,7 @@ async function loadFolders() {
   // 所有收藏夹 leads and 已取消收藏 closes the list; renderTop keeps their labels and visibility current.
   el.folderSelect.innerHTML =
     `<option value="${ALL}" title="把所有收藏夹合在一起看和搜索。第一次要逐个加载，收藏夹多时需要几分钟；之后只核对变化，很快">所有收藏夹</option><hr />` +
-    S.folders.map((f) => `<option value="${esc(f.id)}">${esc(f.title)} (${esc(f.count)})</option>`).join("") +
+    S.folders.map((f) => `<option value="${esc(f.id)}"${f.cover ? ` data-cover="${esc(f.cover)}"` : ""}>${esc(f.title)} (${esc(f.count)})</option>`).join("") +
     `<hr /><option value="${REMOVED}" title="离开了你勾选的所有收藏夹、但 MoonDigest 还留着信息的视频">已取消收藏</option>`;
   renderTop();
   if (!S.folders.length) {
@@ -1418,7 +1418,7 @@ function render() {
 
 function renderTop() {
   el.biliBtn.hidden = !S.mid;
-  el.biliBtn.textContent = S.mediaId === TOVIEW ? "B 站稍后再看 ↗" : inFolderView() ? "B 站收藏夹 ↗" : "B 站主页 ↗";
+  el.biliBtn.title = S.mediaId === TOVIEW ? "B 站稍后再看" : inFolderView() ? "B 站收藏夹" : "B 站主页";
   setBusy(el.refreshBtn, (S.syncing || S.loadAll?.running) && `刷新中…${S.syncing ? pageText(S.mediaId) : ""}`);
   const allOpt = el.folderSelect.querySelector(`option[value="${ALL}"]`);
   if (allOpt) allOpt.hidden = !S.folders.length;
@@ -1428,9 +1428,7 @@ function renderTop() {
     removedOpt.textContent = `已取消收藏 (${S.removedCount})`;
     removedOpt.hidden = !showRemoved;
   }
-  el.removedBtn.textContent = `已取消收藏 ${S.removedCount}`;
-  el.removedBtn.hidden = !showRemoved;
-  el.aiBtn.innerHTML = `${AI_SPARK}标签${S.ai.running ? " · 运行中" : S.ai.proposal ? " · 待确认" : ""}`;
+  el.aiBtn.innerHTML = tagsBtnHtml();
   renderFolderList();
   renderFolderHead();
   renderStatus();
@@ -1440,25 +1438,30 @@ function renderTop() {
 function renderFolderList() {
   const opts = el.folderSelect.options;
   if (!opts?.length) return;
-  // Golden-angle steps keep neighbouring ids apart.
-  const hue = (id) => Math.round((Number(id) || [...String(id)].reduce((h, ch) => h + ch.charCodeAt(0), 0)) * 137.5) % 360;
   el.folderList.innerHTML = [...opts]
     .filter((o) => !o.hidden)
     .map((o) => {
       const on = o.value === String(S.mediaId);
       const m = /^(.*?)(?: \((\d+)\))?$/.exec(o.textContent);
       const real = o.value !== ALL && o.value !== REMOVED;
-      const thumb = real ? `<span class="folder-thumb" style="--h:${hue(o.value)}" aria-hidden="true"></span>` : "";
+      const thumb = real ? folderThumb(o.value, o.dataset.cover) : "";
       return `<button type="button" class="side-item${on ? " on" : ""}" data-folder="${esc(o.value)}"${on ? ' aria-current="true"' : ""}${o.title ? ` title="${esc(o.title)}"` : ""}>${thumb}<span class="side-name">${esc(m[1])}</span>${m[2] ? `<span class="side-count">${m[2]}</span>` : ""}</button>`;
     })
     .join("");
+}
+
+// The folder's cover, or a fixed colored tint (never gray) when it has none or the image fails (the error listener drops it).
+function folderThumb(id, cover) {
+  const hue = Math.round((Number(id) || [...String(id)].reduce((h, ch) => h + ch.charCodeAt(0), 0)) * 137.5) % 360;
+  return `<span class="folder-thumb" style="--h:${hue}" aria-hidden="true">${cover ? `<img src="${esc(cover)}" alt="" loading="lazy" referrerpolicy="no-referrer" />` : ""}</span>`;
 }
 
 function renderFolderHead() {
   if (!S.mediaId) return (el.folderHead.innerHTML = "");
   const invalid = S.items.filter((it) => it.invalid || it.hidden).length;
   const meta = [`${S.items.length} 个视频`, invalid && `${invalid} 个已失效`].filter(Boolean).join(" · ");
-  el.folderHead.innerHTML = `<h1 class="folder-title">${esc(folderTitle())}</h1><div class="folder-meta">${meta}</div>`;
+  const thumb = inFolderView() && S.mediaId !== TOVIEW ? folderThumb(S.mediaId, el.folderSelect.querySelector?.(`option[value="${S.mediaId}"]`)?.dataset.cover) : "";
+  el.folderHead.innerHTML = `${thumb}<div class="folder-text"><h1 class="folder-title">${esc(folderTitle())}</h1><div class="folder-meta">${meta}</div></div>`;
 }
 
 // What is running, in one place on every tab: the first that applies wins. done/total draws a bar,
@@ -1519,7 +1522,7 @@ function renderTabs() {
   const steps = STAGES.map(([key, label]) => tab(key, label, c[key] ? "step" : "step zero", c[key]));
   el.searchCount.textContent = S.query.trim() ? `搜索：${c.read} 个结果` : "";
   el.tabs.innerHTML = S.mediaId === REMOVED ? tab("read", "已取消收藏", "read-tab", c.read) :
-    steps.join(`<span class="arrow" aria-hidden="true">→</span>`) + `<span class="tab-sep" aria-hidden="true"></span>` + tab("read", "阅览", "read-tab", c.read);
+    steps.join(`<span class="arrow" aria-hidden="true">→</span>`) + `<span class="tab-sep" aria-hidden="true"></span>` + tab("read", "阅览全部", "read-tab", c.read);
 
   const chips = tagChips();
   // Each only when this view has such a video (or the filter is on, so it can be turned off).
@@ -1538,8 +1541,12 @@ function renderTabs() {
           return `<button type="button" class="chip${on ? " on" : ""}" style="--c:${esc(c.color)}" data-tagfilter="${esc(c.ids.join(","))}" aria-pressed="${on}" aria-label="按标签筛选 ${esc(c.name)}">${esc(c.name)}</button>`;
         })
         .join("")
-    : `<span class="muted">还没有自定义标签</span>`); // created from the 标签 button
+    : `<span class="muted">还没有自定义标签</span>`) + // created from the 标签 button
+    `<button type="button" class="chip tag-chip" data-tags aria-label="标签：管理标签和 AI 批量打标签">${tagsBtnHtml()}</button>`;
 }
+
+// The 标签 entry's text, in the sidebar and as the chip after the tag filters.
+const tagsBtnHtml = () => `${AI_SPARK}标签${S.ai.running ? " · 运行中" : S.ai.proposal ? " · 待确认" : ""}`;
 
 // Marks a control that starts an AI request (tokens.css draws it in the text color).
 const AI_SPARK = '<span class="ai-spark" aria-hidden="true"></span>';
@@ -1564,12 +1571,12 @@ function renderListHeader(list) {
   // AI-class chips with per-class counts inside the tab (search and tag filter applied).
   // It renders into its own slot at the left of the row, so it adds nothing to the action html.
   let segHtml = "";
+  const inStage = S.items.filter((it) => (t === "read" || stageOf(it) === t) && passFilter(it));
+  const n = (k) => (k === "all" ? inStage.length : inStage.filter((it) => verdictOf(it).verdict === k).length);
+  const classBtn = (k, label, off) => `<button type="button" data-class-filter="${k}" aria-pressed="${!off && S.classFilter[t] === k}"${off ? " disabled" : ""}>${label} ${n(k)}</button>`;
+  const CLASSES = [["all", "全部"], ...Object.entries(VERDICTS)];
   const seg = () => {
-    const inStage = S.items.filter((it) => (t === "read" || stageOf(it) === t) && passFilter(it));
-    const n = (k) => (k === "all" ? inStage.length : inStage.filter((it) => verdictOf(it).verdict === k).length);
-    segHtml = `<span class="seg" role="group" aria-label="按 AI 判断筛选">${[["all", "全部"], ...Object.entries(VERDICTS)]
-      .map(([k, label]) => `<button type="button" data-class-filter="${k}" aria-pressed="${S.classFilter[t] === k}">${label} ${n(k)}</button>`)
-      .join("")}</span>`;
+    segHtml = `<span class="seg" role="group" aria-label="按 AI 判断筛选">${CLASSES.map(([k, label]) => classBtn(k, label)).join("")}</span>`;
     return "";
   };
   const batchBtn = (route, verdict = "") => {
@@ -1657,6 +1664,7 @@ function renderListHeader(list) {
     ? `<div class="selbar" role="toolbar" aria-label="选中的视频"><strong class="sel-count">已选中 ${shown} 个</strong>${hidden ? `<span class="muted">另有 ${hidden} 个被筛选隐藏</span>` : ""}<button type="button" class="link" data-head="clear-selected" aria-label="清空选中">清空选中</button>${selectAll}<span class="sel-actions">${selActs}</span></div>`
     : "";
   el.classFilter.innerHTML = segHtml;
+  el.sideFilter.innerHTML = CLASSES.map(([k, label]) => classBtn(k, label, !segHtml).replace('<button type="button"', '<button type="button" class="side-item"')).join("");
   el.listHeader.innerHTML = `${S.selected.size ? "" : `<span class="select-all">${selectAll}</span>`}<div class="step-actions">${html}</div>${selbar}`;
 }
 
@@ -3331,13 +3339,11 @@ function buildCsv() {
 // ---------- events ----------
 function bindEvents() {
   el.folderSelect.addEventListener("change", () => openFolder(el.folderSelect.value));
+  // A cover that fails to load leaves the colored tint behind it.
+  for (const box of [el.folderList, el.folderHead]) box.addEventListener("error", (e) => e.target.remove?.(), true);
   el.folderList.addEventListener("click", (e) => {
     const btn = e.target.closest("[data-folder]");
     if (btn && btn.dataset.folder !== String(S.mediaId)) openFolder(btn.dataset.folder);
-  });
-  el.removedBtn.addEventListener("click", () => {
-    el.tools.hidePopover();
-    openFolder(REMOVED);
   });
   el.refreshBtn.addEventListener("click", () => {
     if (S.seenCfg.on) send({ type: "triage-seen-sync", force: true });
@@ -3377,6 +3383,7 @@ function bindEvents() {
     render();
   });
   el.tagFilter.addEventListener("click", (e) => {
+    if (e.target.closest("[data-tags]")) return el.aiBtn.click();
     if (e.target.closest("[data-watchedfilter]")) {
       S.watchedFilter = !S.watchedFilter;
       return render();
@@ -3453,6 +3460,7 @@ function bindEvents() {
   });
   el.stagebar.addEventListener("click", onHeadClick);
   el.listHeader.addEventListener("click", onHeadClick);
+  el.sideFilter.addEventListener("click", onHeadClick);
   el.activity.addEventListener("click", onHeadClick);
 
   el.list.addEventListener("click", (e) => {
