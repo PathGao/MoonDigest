@@ -260,7 +260,7 @@ select { height: 28px; max-width: 240px; }
 .sel-actions .danger { margin-left: 4px; }
 
 .list { min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 12px; margin: 0 -8px; padding: 6px 8px 80px; }
-/* Two card states. Current (hover or J/K) is the lifted box; selected (X) is the blue outline, ✓ and tint. Both can show at once. */
+/* Two card states. Current (hover or J/K) is the lifted box; selected (X) is the blue outline and tint, no ✓ so it never sits on the cover's 看过 tag. Both can show at once. */
 .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); transition: border-color 0.12s, box-shadow 0.12s; }
 /* Current: a dark ring plus the lift, so it reads at a glance; selected (below) swaps the ring for blue. */
 .card.focused { outline: 2px solid var(--text-2); outline-offset: -1px; box-shadow: var(--lift); }
@@ -350,7 +350,6 @@ button.icon { width: 26px; height: 24px; padding: 0; }
 
 /* ---------- rows (the four steps): a box per video, 192px cover, body, 保留 / 取消收藏 stacked on the right ---------- */
 .list:not(.grid) .card { display: grid; grid-template-columns: 192px minmax(0, 1fr); gap: 16px; padding: 12px 140px 12px 12px; }
-.card.selected .cover-wrap::before { content: "✓"; position: absolute; right: 6px; top: 6px; z-index: 2; width: 20px; height: 20px; border-radius: 4px; background: var(--action); color: #fff; font-size: 14px; font-weight: 700; line-height: 20px; text-align: center; }
 .list:not(.grid) .actions, .list:not(.grid) .pair { display: contents; }
 .list:not(.grid) .pair > button { position: absolute; right: 12px; width: 112px; height: 32px; padding: 0; justify-content: center; font-size: var(--fs-sm); }
 .list:not(.grid) .pair > button:first-child { top: calc(50% - 36px); }
