@@ -222,6 +222,11 @@
       const f = folders.find((x) => String(x.id) === String(mediaId));
       return f ? { ok: true, data: { bvids: f.items.map((it) => it.bvid) } } : { ok: false, error: "收藏夹不存在" };
     },
+    // Of the 已出分拣范围 records, the moved one and 「只离开了一个收藏夹」 are still in the unchosen 美食; the rest are in none.
+    "triage-fav-where": ({ aid }) => {
+      const title = Object.values(store.triage_removed || {}).find((r) => r.item.aid === aid)?.item.title || "";
+      return { ok: true, data: { folders: /移到了没勾选|只离开了一个/.test(title) ? [{ id: "1004", title: "美食" }] : [] } };
+    },
     "triage-title-get": ({ bvids }) => ({ ok: true, data: Object.fromEntries(bvids.map((b) => [b, store[`triage_title_${b}`] || null])) }),
     "triage-analysis-get": ({ bvids }) => ({ ok: true, data: Object.fromEntries(bvids.map((b) => [b, store[`triage_analysis_${b}`] || null])) }),
     // Requests carry the folder's 判断标准; the AI answers one of keep / drop / unsure.

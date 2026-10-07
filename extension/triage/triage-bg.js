@@ -810,6 +810,15 @@ const TRIAGE_HANDLERS = {
     return { bvids: await triageFolderIds(mediaId) };
   },
 
+  // Which of the user's folders hold this video (Bilibili's own 收藏 dialog asks the same): one request per video, no
+  // folder's contents are read.
+  "triage-fav-where": async ({ aid }) => {
+    if (!aid) throw triageError("缺少 aid");
+    const mid = await triageMid();
+    const data = await triageBiliGet(`https://api.bilibili.com/x/v3/fav/folder/created/list-all?up_mid=${mid}&type=2&rid=${aid}`);
+    return { folders: (data?.list || []).filter((f) => f.fav_state === 1).map((f) => ({ id: String(f.id), title: f.title })) };
+  },
+
   "triage-analysis-get": async ({ bvids }) => {
     const list = Array.isArray(bvids) ? bvids : [];
     const stored = await chrome.storage.local.get(list.map((b) => `triage_analysis_${b}`));

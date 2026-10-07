@@ -31,14 +31,14 @@ const K = {
   kept: "triage_kept", // { [bvid]: { action: "keep", at } }: 保留 belongs to the video, so it shows in every folder
   keptMigrated: "triage_kept_v1",
   watched: "triage_watched", // { [bvid]: at }: 优先看过, set when a video leaves 优先看 as watched; it shows in every folder
-  removed: "triage_removed", // { [bvid]: { item, at, movedTo?, hidden?, from?: [{ id, title, at }] } }: videos that left every folder, kept until the user cleans them
+  removed: "triage_removed", // { [bvid]: { item, at, movedTo?, hidden?, inFolder?: { id, title } | null, from?: [{ id, title, at }] } }: videos that left every folder, kept until the user cleans them
   left: "triage_left", // { [bvid]: { [folderId]: { title, at } } }: folders a video left while still in another chosen one; becomes the record's from
   included: "triage_included_folders", // [mediaId]: the folders the user chose; only these are listed and read
   snapshot: (id) => `triage_snapshot_${id}`,
   aiHistory: "triage_ai_command_history"
 };
 const ALL = "all"; // the 所有收藏夹 view's folder-select value
-const REMOVED = "removed"; // the 已取消收藏 view
+const REMOVED = "removed"; // the 已出分拣范围 view
 const TOVIEW = "toview"; // 稍后再看, listed by triage-bg as one more folder
 // The fixed AI classes, shown as chips inside 粗看完成 and 细看完成.
 // The ids are the badge color classes too.
@@ -238,7 +238,7 @@ const S = {
   allFolders: [], // every folder on Bilibili
   folders: [], // the ones taking part in triage
   included: [],
-  removedCheck: null, // 已取消收藏 only: { done, total, error } while its folders are checked
+  removedCheck: null, // 已出分拣范围 only: { done, total, what, error } while its folders, then its videos, are checked
   mediaId: "",
   folderToken: 0,
   items: [],
@@ -259,7 +259,7 @@ const S = {
   watched: {},
   watchedFilter: false, // 优先看过
   finishedFilter: false, // 看完了
-  invalidFilter: false, // 已失效: invalid in a folder, or hidden by Bilibili in 已取消收藏
+  kindFilter: "", // kindOf: "invalid" (已失效) anywhere; "unfav" / "out" in 已出分拣范围 only
   seenCfg: { on: false, bar: false, mark: false, threshold: 80, style: "badge" }, // 设置页「观看进度 → 封面显示」
   seenPct: {}, // bvid → [percent, view_at] from the history, null when it has none
   noteOpen: new Set(), // empty notes the user opened for editing
@@ -571,10 +571,18 @@ function hasAllTags(videoIds, selectedIds, nameOf) {
   return [...groups.values()].every((ids) => ids.some((id) => have.has(id)));
 }
 
+// Why a video is in 已出分拣范围: "invalid" (also invalid in a folder), "out" (still in a folder that is not chosen), "unfav"
+// (in no folder), "" until checked. inFolder, once looked up, outranks where a 移动 here sent it.
+function kindOf(it) {
+  if (it.invalid || it.hidden) return "invalid";
+  const at = it.inFolder !== undefined ? it.inFolder : it.movedTo;
+  return at ? "out" : it.inFolder === null ? "unfav" : "";
+}
+
 function passFilter(it) {
   if (S.watchedFilter && !S.watched[it.bvid]) return false;
   if (S.finishedFilter && !isFinished(it)) return false;
-  if (S.invalidFilter && !(it.invalid || it.hidden)) return false;
+  if (S.kindFilter && kindOf(it) !== S.kindFilter) return false;
   if (S.tagFilter.size && !hasAllTags(tagIdsOf(it.bvid), S.tagFilter, (id) => tagById(id)?.name ?? id)) return false;
   const words = S.query.toLowerCase().split(/\s+/).filter(Boolean);
   if (!words.length) return true;
@@ -921,7 +929,7 @@ async function loadFolders() {
   el.folderSelect.innerHTML =
     `<option value="${ALL}" title="把所有收藏夹合在一起看和搜索。第一次要逐个加载，收藏夹多时需要几分钟；之后只核对变化，很快">所有收藏夹</option><hr />` +
     S.folders.map((f) => `<option value="${esc(f.id)}"${f.cover ? ` data-cover="${esc(f.cover)}"` : ""}>${esc(f.title)} (${esc(f.count)})</option>`).join("") +
-    `<hr /><option value="${REMOVED}" title="离开了你勾选的所有收藏夹、但 MoonDigest 还留着信息的视频">已取消收藏</option>`;
+    `<hr /><option value="${REMOVED}" title="不在你勾选的收藏夹里、但 MoonDigest 还留着信息的视频：取消收藏的、在没勾选的收藏夹里的、已失效的">已出分拣范围</option>`;
   renderTop();
   if (!S.folders.length) {
     el.list.innerHTML = S.allFolders.length
@@ -959,7 +967,7 @@ async function openFolder(mediaId) {
   S.tagFilter.clear();
   S.watchedFilter = false;
   S.finishedFilter = false;
-  S.invalidFilter = false;
+  S.kindFilter = "";
   S.undo = [];
   S.focused = "";
   S.focusIndex = 0;
@@ -1194,17 +1202,18 @@ async function openRemoved() {
   const decisionsByFolder = Object.fromEntries(keys.map((k) => [k.slice("triage_decisions_".length), got[k]]));
   S.items = Object.values(rec)
     .sort((x, y) => y.at - x.at)
-    .map(({ item, at, movedTo, hidden, from }) => ({ ...item, removedAt: at, movedTo, hidden, from: from || inferFrom(decisionsByFolder, item.bvid, folderName) }));
+    .map(({ item, at, movedTo, hidden, inFolder, from }) => ({ ...item, removedAt: at, movedTo, hidden, inFolder, from: from || inferFrom(decisionsByFolder, item.bvid, folderName) }));
   S.itemMap = new Map(S.items.map((it) => [it.bvid, it]));
   if (!(await loadResults(token))) return false;
   checkRemoved(token);
   return true;
 }
 
-// Re-favorited videos leave 已取消收藏 as soon as one chosen folder's id list has them again.
+// Re-favorited videos leave 已出分拣范围 as soon as one chosen folder's id list has them again; then each one left is
+// asked where it is now (checkWhere).
 async function checkRemoved(token) {
   const ids = S.folders.map((f) => String(f.id));
-  S.removedCheck = { done: 0, total: ids.length, error: "" };
+  S.removedCheck = { done: 0, total: ids.length, what: "个收藏夹，重新收藏的会自动移出", error: "" };
   for (const id of ids) {
     if (token !== S.folderToken) return;
     if (writingTo(id)) {
@@ -1223,8 +1232,39 @@ async function checkRemoved(token) {
     render();
     await new Promise((res) => setTimeout(res, 300));
   }
-  if (token === S.folderToken) S.removedCheck = null;
+  await checkWhere(token);
+  if (token === S.folderToken && !S.removedCheck.error) S.removedCheck = null;
   render();
+}
+
+// Asks Bilibili, per video, which folders hold it (not invalid ones: those are known, and records too old to have an aid
+// are left as they are). Only folders not chosen count; one in a chosen folder is taken out by the next id check.
+async function checkWhere(token) {
+  if (token !== S.folderToken) return;
+  const list = S.items.filter((it) => it.aid && kindOf(it) !== "invalid");
+  S.removedCheck = { done: 0, total: list.length, what: "个视频还在不在收藏夹里", error: "" };
+  const found = {};
+  for (const it of list) {
+    if (token !== S.folderToken) break;
+    const r = await send({ type: "triage-fav-where", aid: it.aid });
+    if (token !== S.folderToken) break;
+    if (!r.ok) {
+      S.removedCheck.error = `核对《${shortTitle(it)}》的收藏状态失败：${r.error}，可点刷新重试`;
+      break;
+    }
+    const folders = r.data?.folders || [];
+    const out = folders.find((f) => !S.included.includes(String(f.id)));
+    if (out || !folders.length) found[it.bvid] = it.inFolder = out ? { id: out.id, title: out.title } : null;
+    S.removedCheck.done++;
+    render();
+    await new Promise((res) => setTimeout(res, 150));
+  }
+  await serialStore(async () => {
+    const rec = await storeGet(K.removed, {});
+    const hit = Object.keys(found).filter((b) => rec[b]);
+    for (const b of hit) rec[b].inFolder = found[b];
+    if (hit.length) await storeSet(K.removed, rec);
+  });
 }
 
 // Drops these bvids from 已取消收藏 (they are in a folder again); returns how many were there.
@@ -1445,7 +1485,7 @@ function loadAllLine() {
   return `<span class="muted"${busy ? ' aria-busy="true"' : ""}>${text} · ${btn}</span>${L.error ? `<span class="fail-text">${esc(L.error)}</span>` : ""}`;
 }
 
-const folderName = (id) => id === REMOVED ? "已取消收藏" : S.allFolders.find((f) => String(f.id) === String(id))?.title || String(id);
+const folderName = (id) => id === REMOVED ? "已出分拣范围" : S.allFolders.find((f) => String(f.id) === String(id))?.title || String(id);
 // The folder select's counts follow our own writes at once instead of waiting for the next folder-list load.
 function bumpCount(id, delta) {
   const f = S.allFolders.find((x) => String(x.id) === String(id));
@@ -1482,7 +1522,7 @@ function showSyncNotice(diff, partial) {
   el.syncViewBtn.classList.toggle("warn", Boolean(partial));
   const section = (label, titles) =>
     titles.length ? `<div><strong>${label}</strong><ul>${titles.map((t) => `<li>${esc(t)}</li>`).join("")}</ul></div>` : "";
-  const where = (it) => (it.from === REMOVED ? "原在已取消收藏" : `也在「${folderName(it.from)}」`);
+  const where = (it) => (it.from === REMOVED ? "原在已出分拣范围" : `也在「${folderName(it.from)}」`);
   el.syncDetail.innerHTML =
     section("新增", added.filter((it) => !it.from).map((it) => it.title)) +
     section("来自其他收藏夹", added.filter((it) => it.from).map((it) => `${it.title}（${where(it)}）`)) +
@@ -1517,7 +1557,7 @@ function renderTop() {
   const removedOpt = el.folderSelect.querySelector(`option[value="${REMOVED}"]`);
   const showRemoved = Boolean(S.removedCount) || S.mediaId === REMOVED;
   if (removedOpt) {
-    removedOpt.textContent = `已取消收藏 (${S.removedCount})`;
+    removedOpt.textContent = `已出分拣范围 (${S.removedCount})`;
     removedOpt.hidden = !showRemoved;
   }
   el.aiBtn.innerHTML = tagsBtnHtml();
@@ -1612,7 +1652,7 @@ function renderTabs() {
     `<button type="button" role="tab" class="${cls}" data-tab="${key}" aria-selected="${S.tab === key}" aria-label="${label} ${n}">${label}<span class="count">${n}</span></button>`;
   const steps = STAGES.map(([key, label]) => tab(key, label, c[key] ? "step" : "step zero", c[key]));
   el.searchCount.textContent = S.query.trim() ? `搜索：${c.read} 个结果` : "";
-  el.tabs.innerHTML = S.mediaId === REMOVED ? tab("read", "已取消收藏", "read-tab", c.read) :
+  el.tabs.innerHTML = S.mediaId === REMOVED ? tab("read", "已出分拣范围", "read-tab", c.read) :
     steps.join(`<span class="arrow" aria-hidden="true">→</span>`) + `<span class="tab-sep" aria-hidden="true"></span>` + tab("read", "阅览全部", "read-tab", c.read);
 
   const chips = tagChips();
@@ -1622,10 +1662,16 @@ function renderTabs() {
   const watchedChip =
     chip(S.finishedFilter, S.items.some(isFinished), "data-finishedfilter", "看完了", "只看 B站历史记录里看完了的视频") +
     chip(S.watchedFilter, S.items.some((it) => S.watched[it.bvid]), "data-watchedfilter", "优先看过", "只看在优先看里点了已看的视频");
-  // Only when this view has an invalid video, like those above; with 全选 it picks them all for 取消收藏 or 清理.
-  const invalidN = S.items.filter((it) => it.invalid || it.hidden).length;
-  const invalidChip = !S.invalidFilter && !invalidN ? "" : `<button type="button" class="chip invalid${S.invalidFilter ? " on" : ""}" data-invalidfilter aria-pressed="${S.invalidFilter}" aria-label="只看已失效的视频">已失效 ${invalidN}</button>`;
-  el.tagFilter.innerHTML = invalidChip + watchedChip + (chips.length
+  // Only when this view has such a video, like those above; with 全选 it picks them all for 取消收藏 or 清理. Why a video
+  // left is told only in 已出分拣范围; 已失效 is in every view.
+  const kindChip = ([kind, label, aria]) => {
+    const n = S.items.filter((it) => kindOf(it) === kind).length;
+    const on = S.kindFilter === kind;
+    return !on && !n ? "" : `<button type="button" class="chip ${kind === "invalid" ? "invalid" : "watched"}${on ? " on" : ""}" data-kindfilter="${kind}" aria-pressed="${on}" aria-label="${aria}">${label} ${n}</button>`;
+  };
+  const kinds = [["invalid", "已失效", "只看已失效的视频"]];
+  if (S.mediaId === REMOVED) kinds.unshift(["unfav", "已取消收藏", "只看已不在任何收藏夹里的视频"], ["out", "在未勾选收藏夹", "只看还在没勾选分拣的收藏夹里的视频"]);
+  el.tagFilter.innerHTML = kinds.map(kindChip).join("") + watchedChip + (chips.length
     ? chips
         .map((c) => {
           const on = c.ids.some((id) => S.tagFilter.has(id));
@@ -1733,7 +1779,7 @@ function renderListHeader(list) {
   } else if (t === "read" && S.mediaId === REMOVED) {
     const c = S.removedCheck;
     html = seg();
-    if (c) html += c.error ? `<span class="fail-text">${esc(c.error)}</span>` : `<span class="muted" aria-busy="true">正在核对 ${c.done} / ${c.total} 个收藏夹，重新收藏的会自动移出</span>`;
+    if (c) html += c.error ? `<span class="fail-text">${esc(c.error)}</span>` : `<span class="muted" aria-busy="true">正在核对 ${c.done} / ${c.total} ${c.what}</span>`;
     html += `${headBtn("export-read", "批量导出…", "", !list.length)}${sel ? headBtn("clean-selected", `清理选中的 ${sel} 个`, "danger") : headBtn("clean-removed", `清理这 ${list.length} 个`, "danger", !list.length)}`;
   } else if (t === "read") {
     // 阅览 mixes 粗看 guesses with 细看 conclusions, so no class-wide batch here: only the selection.
@@ -1864,14 +1910,14 @@ function renderList() {
   // 保留 only marks the video here, while 取消收藏 changed Bilibili; say so where both end up.
   const recent = S.tab === "done" ? `<p class="muted tab-note">已保留：${KEEP_TIP}。已取消收藏：已从 B站收藏夹移走，最近的操作可按 U 撤销。</p>${recentUnfavHtml()}` : "";
   if (!S.items.length) {
-    const empty = S.mediaId === REMOVED ? "没有已取消收藏的视频" : S.loadAll?.queue.length ? "正在加载收藏夹…" : "这个收藏夹是空的";
+    const empty = S.mediaId === REMOVED ? "没有已出分拣范围的视频" : S.loadAll?.queue.length ? "正在加载收藏夹…" : "这个收藏夹是空的";
     el.list.innerHTML = `<p class="empty">${empty}</p>${recent}`;
     return;
   }
   if (!list.length) {
     const empty = { none: "没有未分析的视频", coarse: "没有粗看完成的视频", fine: "没有细看完成的视频", done: "还没有处理过的视频" };
     const f = S.classFilter[S.tab];
-    const filtered = S.watchedFilter || S.finishedFilter || S.invalidFilter || S.tagFilter.size || (f && f !== "all");
+    const filtered = S.watchedFilter || S.finishedFilter || S.kindFilter || S.tagFilter.size || (f && f !== "all");
     const text = filtered ? "没有符合筛选的视频" : S.query.trim() ? "没有匹配搜索的视频" : empty[S.tab] || "这里没有视频";
     el.list.innerHTML = `<p class="empty">${text}</p>${recent}`;
     return;
@@ -1992,12 +2038,17 @@ function cardHtml(it, expanded, mark) {
   </article>`;
 }
 
-// 已取消收藏: when and why the video left. 「10月5日 17:25」 this year, 「2025年10月5日」 before.
+// 已出分拣范围: when and why the video left. 「10月5日 17:25」 this year, 「2025年10月5日」 before.
 function leftText(it) {
   const d = new Date(it.removedAt);
   const day = `${d.getMonth() + 1}月${d.getDate()}日`;
   const when = d.getFullYear() === new Date().getFullYear() ? `${day} ${pad(d.getHours())}:${pad(d.getMinutes())}` : `${d.getFullYear()}年${day}`;
-  return `${when} ${it.movedTo ? `移到「${it.movedTo.title}」（未勾选）` : it.hidden ? "已失效（B站已隐藏）" : "离开收藏夹"}`;
+  const kind = kindOf(it);
+  const at = it.inFolder || it.movedTo;
+  const why = it.hidden ? "已失效（B站已隐藏）"
+    : kind === "out" ? `${it.movedTo?.id === at.id ? "移到" : "在"}「${at.title}」（未勾选）`
+    : kind === "unfav" ? "已取消收藏" : "离开收藏夹";
+  return `${when} ${why}`;
 }
 // 原在「A」「B」, or 原在「A」「B」等 N 个 with the whole list in the title; nothing for records from before the origin was kept.
 function originHtml(it) {
@@ -2009,7 +2060,7 @@ function originHtml(it) {
 
 function folderTitle() {
   if (S.mediaId === ALL) return "所有收藏夹";
-  if (S.mediaId === REMOVED) return "已取消收藏";
+  if (S.mediaId === REMOVED) return "已出分拣范围";
   return S.folders.find((f) => String(f.id) === String(S.mediaId))?.title || "收藏夹";
 }
 
@@ -2304,8 +2355,8 @@ function toggleTransferNew() {
   el.transferUnchosen.hidden = !out;
   if (out) {
     el.transferUnchosen.textContent = S.mediaId === REMOVED
-      ? `「${folderName(v)}」没有勾选分拣：收藏后这些视频仍在「已取消收藏」。以后在分拣设置里勾选它，会自动找回。`
-      : `「${folderName(v)}」没有勾选分拣：移动过去的视频会进「已取消收藏」。以后在分拣设置里勾选它，这些视频会自动找回。复制不受影响。`;
+      ? `「${folderName(v)}」没有勾选分拣：收藏后这些视频仍在「已出分拣范围」。以后在分拣设置里勾选它，会自动找回。`
+      : `「${folderName(v)}」没有勾选分拣：移动过去的视频会进「已出分拣范围」。以后在分拣设置里勾选它，这些视频会自动找回。复制不受影响。`;
   }
 }
 
@@ -2414,7 +2465,7 @@ async function batchTransfer(list) {
   }
   if (done === list.length) {
     const where = S.mediaId === from ? "" : `「${folderName(from)}」`;
-    toast(`${where}已${verb} ${done} 个到「${toName}」${(move || add) && !S.included.includes(to) ? "，它们在「已取消收藏」里，勾选这个收藏夹后会自动找回" : ""}`);
+    toast(`${where}已${verb} ${done} 个到「${toName}」${(move || add) && !S.included.includes(to) ? "，它们在「已出分拣范围」里，勾选这个收藏夹后会自动找回" : ""}`);
   }
   render();
 }
@@ -2454,7 +2505,7 @@ async function recoverRemoved(ids) {
     if (r.ok) n += await dropRemoved(r.data.bvids);
   }
   if (n) {
-    toast(`已从「已取消收藏」找回 ${n} 个视频`);
+    toast(`已从「已出分拣范围」找回 ${n} 个视频`);
     renderTop();
   }
 }
@@ -3498,8 +3549,9 @@ function bindEvents() {
       S.finishedFilter = !S.finishedFilter;
       return render();
     }
-    if (e.target.closest("[data-invalidfilter]")) {
-      S.invalidFilter = !S.invalidFilter;
+    const kind = e.target.closest("[data-kindfilter]")?.dataset.kindfilter;
+    if (kind) {
+      S.kindFilter = S.kindFilter === kind ? "" : kind;
       return render();
     }
     const btn = e.target.closest("[data-tagfilter]");

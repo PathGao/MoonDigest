@@ -21,7 +21,7 @@ assert.ok(!byLabel["分拣台最近取消收藏"] && !byLabel["分拣台撤销"]
 const sized = Object.fromEntries(L.describe({ folderSnapshots: 3, folderSnapshotSize: 2.8 * 1024 * 1024, triageRemoved: 4, triageNotes: 5, totalSize: 300 })
   .map((row) => [row.label, row.usage]));
 assert.strictEqual(sized["收藏夹列表缓存"], "3 个收藏夹，约 2.8 MB");
-assert.strictEqual(sized["已取消收藏"], "4 个视频");
+assert.strictEqual(sized["已出分拣范围"], "4 个视频");
 assert.strictEqual(sized["备注"], "5 条");
 assert.strictEqual(sized["本地数据合计"], "约 1 KB");
 assert.strictEqual(byLabel["收藏夹列表缓存"].usage, "– 个收藏夹，约 –", "unknown sizes render as a dash");

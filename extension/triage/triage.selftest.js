@@ -812,6 +812,12 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     const hidden = t.cardHtml({ ...item(3), removedAt: new Date(2020, 9, 2).getTime(), hidden: true }, true, "");
     assert.ok(!hidden.includes("原在") && hidden.includes('<div class="left-row"><span>2020年10月2日 已失效（B站已隐藏）</span></div>'), "a record without an origin shows no chip; another year shows the year and no time");
     assert.ok(t.cardHtml({ ...item(4), removedAt: at, movedTo: { id: "Z", title: "外" } }, true, "").includes("10月5日 17:25 移到「外」（未勾选）"));
+    // Once looked up, where the video is now wins over where a 移动 sent it.
+    const leftOf = (extra) => t.leftText({ ...item(5), removedAt: at, ...extra }).slice(12);
+    assert.strictEqual(leftOf({ inFolder: { id: "Y", title: "别处" } }), "在「别处」（未勾选）");
+    assert.strictEqual(leftOf({ movedTo: { id: "Z", title: "外" }, inFolder: { id: "Z", title: "外" } }), "移到「外」（未勾选）");
+    assert.strictEqual(leftOf({ movedTo: { id: "Z", title: "外" }, inFolder: null }), "已取消收藏");
+    assert.strictEqual(leftOf({ hidden: true, inFolder: null }), "已失效（B站已隐藏）");
     openFake("A", [item(1)]);
     assert.ok(t.cardHtml(item(1), false, "").includes('<span class="pair">\n            <button type="button" data-act="keep"'), "a folder's card keeps 保留 / 取消收藏 as the pair");
     // Once decided, the decision replaces the AI verdict: no badge, cover tag or reason.
@@ -857,10 +863,47 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   handlers["triage-folder-ids"] = ({ mediaId }) => ({ ok: true, data: { bvids: mediaId === "B" ? ["BV1"] : [] } });
   t.S.mediaId = "removed";
   await t.openRemoved();
-  for (let i = 0; i < 20 && t.S.removedCheck; i++) await new Promise((r) => setImmediate(r));
+  for (let i = 0; i < 100 && t.S.removedCheck; i++) await new Promise((r) => setImmediate(r));
+  assert.strictEqual(t.S.removedCheck, null);
   assert.deepStrictEqual(Object.keys(store[t.K.removed]), ["BV2"]);
   assert.deepStrictEqual(plain(t.S.items.map((it) => it.bvid)), ["BV2"]);
   assert.strictEqual(t.S.removedCount, 1);
+
+  // Then each video left is asked where it is: a folder not chosen makes it 在未勾选收藏夹, none 已取消收藏; one only in a
+  // chosen folder, an invalid one and one without an aid stay unknown. The answers are kept on the records.
+  {
+    const rec = (n, extra) => ({ item: { ...item(n), aid: n * 10, ...extra }, at: n });
+    const { aid: _, ...noAid } = item(5);
+    store[t.K.removed] = { BV1: rec(1), BV2: rec(2), BV3: rec(3), BV4: rec(4, { invalid: true }), BV5: { item: noAid, at: 5 } };
+    t.S.included = ["A", "B"];
+    t.S.folderToken++; // earlier checks still running stop
+    handlers["triage-folder-ids"] = () => ({ ok: true, data: { bvids: [] } });
+    const asked = [];
+    handlers["triage-fav-where"] = ({ aid }) => {
+      asked.push(aid);
+      const folders = { 10: [{ id: "B", title: "乙" }, { id: "X", title: "外" }], 20: [], 30: [{ id: "A", title: "甲" }] }[aid];
+      return { ok: true, data: { folders } };
+    };
+    await t.openRemoved();
+    for (let i = 0; i < 100 && t.S.removedCheck; i++) await new Promise((r) => setImmediate(r));
+    assert.deepStrictEqual(asked.sort(), [10, 20, 30]);
+    assert.deepStrictEqual(plain(Object.fromEntries(Object.entries(store[t.K.removed]).map(([b, r]) => [b, r.inFolder]))), { BV1: { id: "X", title: "外" }, BV2: null }, "only answers are kept");
+    assert.deepStrictEqual(plain(t.S.items.map((it) => [it.bvid, t.kindOf(it)]).sort()), [["BV1", "out"], ["BV2", "unfav"], ["BV3", ""], ["BV4", "invalid"], ["BV5", ""]]);
+    t.S.tab = "read";
+    t.renderTabs();
+    assert.ok(["已取消收藏 1", "在未勾选收藏夹 1", "已失效 1"].every((x) => t.el.tagFilter.innerHTML.includes(x)), t.el.tagFilter.innerHTML);
+    t.S.kindFilter = "out";
+    assert.deepStrictEqual(plain(t.visibleItems().map((it) => it.bvid)), ["BV1"]);
+    t.S.kindFilter = "";
+    // A failed lookup stops there and says so; nothing found so far is lost.
+    handlers["triage-fav-where"] = () => ({ ok: false, error: "offline" });
+    await t.openRemoved();
+    for (let i = 0; i < 50 && !t.S.removedCheck?.error; i++) await new Promise((r) => setImmediate(r));
+    assert.ok(t.S.removedCheck.error.includes("offline"), t.S.removedCheck.error);
+    assert.deepStrictEqual(plain(store[t.K.removed].BV1.inFolder), { id: "X", title: "外" });
+    delete handlers["triage-fav-where"];
+    t.S.removedCheck = null;
+  }
 
   // Opt-in folders: a new user starts with none; someone who already triaged keeps every folder but the ones switched off.
   for (const k of Object.keys(store)) delete store[k];
@@ -1197,11 +1240,11 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     assert.deepStrictEqual(plain(t.S.items.map((it) => [it.bvid, it.movedTo.title])), [["BV951", "没勾"], ["BV950", "没勾"]], "已取消收藏 open meanwhile lists them");
     openFake("1", []);
     assert.deepStrictEqual(plain(store[t.K.removed].BV950.movedTo), { id: "3", title: "没勾" });
-    assert.ok(toasts.at(-1).includes("已取消收藏"), toasts.at(-1));
+    assert.ok(toasts.at(-1).includes("已出分拣范围"), toasts.at(-1));
     handlers["triage-folder-ids"] = () => ({ ok: true, data: { bvids: ["BV950", "BV951", "BV999"] } });
     await t.recoverRemoved(["3"]);
     assert.deepStrictEqual(plain(store[t.K.removed]), {});
-    assert.strictEqual(toasts.at(-1), "已从「已取消收藏」找回 2 个视频");
+    assert.strictEqual(toasts.at(-1), "已从「已出分拣范围」找回 2 个视频");
 
     // 已取消收藏 收藏到 a chosen folder: added with no source, back in that folder's list without the removed fields.
     store[t.K.removed] = { BV960: { item: item(960), at: 5 }, BV961: { item: item(961), at: 5 } };
@@ -1236,9 +1279,10 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     t.S.tab = "read";
     t.renderTabs();
     assert.ok(t.el.tagFilter.innerHTML.includes("已失效 1"));
-    t.S.invalidFilter = true;
+    assert.ok(!t.el.tagFilter.innerHTML.includes("已取消收藏") && !t.el.tagFilter.innerHTML.includes("在未勾选收藏夹"), "why a video left is told only in 已出分拣范围");
+    t.S.kindFilter = "invalid";
     assert.deepStrictEqual(plain(t.visibleItems().map((it) => it.bvid)), ["BV74"]);
-    t.S.invalidFilter = false;
+    t.S.kindFilter = "";
   }
 
   // 观看进度 on covers: bar and 看完了 mark each follow the setting; 看完了 counts the set share only (优先看过 is separate).
