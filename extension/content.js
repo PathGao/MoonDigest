@@ -1545,7 +1545,7 @@ function confirmOverwriteNote(filepath, { hasAiSection = false } = {}) {
         <div class="boc-confirm-path"></div>
         <div class="boc-confirm-actions">
           <button type="button" class="boc-confirm-danger" data-choice="full">整篇覆盖</button>
-          <button type="button" class="boc-confirm-primary" data-choice="">取消</button>
+          <button type="button" class="boc-confirm-cancel" data-choice="">取消</button>
         </div>
       </div>
     `;
@@ -1573,7 +1573,7 @@ function confirmOverwriteNote(filepath, { hasAiSection = false } = {}) {
     });
     document.addEventListener("keydown", onKeydown, true);
     document.body.appendChild(overlay);
-    overlay.querySelector(".boc-confirm-primary")?.focus();
+    (overlay.querySelector(".boc-confirm-primary") || overlay.querySelector(".boc-confirm-cancel")).focus();
   });
 }
 

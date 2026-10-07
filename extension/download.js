@@ -34,7 +34,7 @@
       <code></code>
       <div class="actions">
         <button class="danger" value="full">整篇覆盖</button>
-        ${hasAiSection ? '<button value="">取消</button><button class="primary" value="ai" autofocus>只更新 AI 问答</button>' : '<button class="primary" value="" autofocus>取消</button>'}
+        ${hasAiSection ? '<button value="">取消</button><button class="primary" value="ai" autofocus>只更新 AI 问答</button>' : '<button value="" autofocus>取消</button>'}
       </div>
     </form>`;
     dialog.querySelector("code").textContent = String(filepath || "");
