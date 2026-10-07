@@ -45,6 +45,23 @@
     };
   }
 
+  // Long videos overflow small context windows. Even sampling keeps every part of the video and each kept line's timestamp.
+  // Shared by the side panel and 分拣台细看. ponytail: samples by line count, assumes similar line lengths; the final slice is the hard cap.
+  function sampleAiSubtitle(markdown) {
+    const text = String(markdown || "");
+    if (text.length <= AI_SUBTITLE_MAX_CHARS) {
+      return { text, step: 1 };
+    }
+    const step = Math.ceil(text.length / AI_SUBTITLE_MAX_CHARS);
+    let index = 0;
+    const sampled = text
+      .split("\n")
+      .filter((line) => /^#|^\s*$/.test(line) || index++ % step === 0)
+      .join("\n")
+      .slice(0, AI_SUBTITLE_MAX_CHARS);
+    return { text: sampled, step };
+  }
+
   const count = (value) => (value == null ? "–" : String(value));
   const chars = (value) => `${value.toLocaleString("en-US")} 字`;
   const size = (value) => {
@@ -70,7 +87,7 @@
       {
         label: "AI 每次请求读的字幕",
         usage: `最多 ${chars(AI_SUBTITLE_MAX_CHARS)}`,
-        rule: "更长的字幕按行均匀抽样，侧边栏会提示。"
+        rule: "侧边栏和分拣台细看都按这个上限读。更长的字幕按行均匀抽样，侧边栏会提示。"
       },
       {
         label: "AI 每次请求带的历史",
@@ -115,6 +132,7 @@
     TRIAGE_UNDO_STEPS,
     KEYS,
     storageUsage,
-    describe
+    describe,
+    sampleAiSubtitle
   });
 })();

@@ -11,9 +11,11 @@ function triageSubtitleValid(body, dur) {
   return lastTo <= dur + 10 && lastTo >= dur * 0.5;
 }
 
-function triageClip(text) {
-  const s = String(text || "");
-  return s.length > 12000 ? `${s.slice(0, 8000)}……${s.slice(-4000)}` : s;
+// pubdate is seconds since the epoch; YYYY-MM-DD in local time, "" when missing.
+function triageDate(sec) {
+  if (!(sec > 0)) return "";
+  const d = new Date(sec * 1000);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
 // 从模型输出里取第一个完整的 {...} 或 [...]（去掉 ``` 围栏，跳过字符串里的括号）
@@ -110,7 +112,7 @@ function triageTitleLine(item, n) {
   const clean = (s) => String(s ?? "").replace(/[|\r\n]+/g, " ").trim();
   const d = Number(item.duration) || 0;
   const dur = `${Math.floor(d / 60)}:${String(d % 60).padStart(2, "0")}`;
-  return `${n}|${clean(item.title)}|${clean(item.upper)}|${dur}|${clean(item.intro).slice(0, 60)}`;
+  return `${n}|${clean(item.title)}|${clean(item.upper)}|${dur}|${triageDate(item.pubdate)}|${clean(item.intro).slice(0, 120)}`;
 }
 
 // 序号|标题|UP|时长|现有标签|一句话|要点1；要点2；要点3（没有的字段留空）
@@ -176,7 +178,7 @@ const TRIAGE_SYSTEM_PROMPT = [
 ].join("\n");
 
 const TRIAGE_TITLE_PROMPT = [
-  "你是 B 站收藏夹分拣助手。下面每行是一个收藏的视频，格式：序号|标题|UP主|时长|简介前60字。",
+  "你是 B 站收藏夹分拣助手。下面每行是一个收藏的视频，格式：序号|标题|UP主|时长|发布日期|简介前120字。",
   "只根据这些信息做初筛。标题是很弱的证据：看不出实际内容时，verdict 用 unsure，confidence 用 low，不要猜。",
   TRIAGE_VERDICT_TEXT,
   "confidence：只有标题和简介足以判断时才用 high，否则用 low。",
@@ -197,15 +199,18 @@ function triageWithCriteria(system, criteria, folder) {
   return parts.join("\n\n");
 }
 
-function triageBuildMessages(meta, source, text, criteria, folder) {
+// subtitle is "" when the video has none; comments are the hot comments, numbered.
+function triageBuildMessages(meta, subtitle, comments, criteria, folder) {
+  const hot = `热门评论：\n${comments || "无"}`;
   const user = [
     `标题：${meta.title}`,
     `UP主：${meta.upper}`,
     `分区：${meta.tname || "未知"}`,
     `时长：${Math.round((meta.duration || 0) / 60)} 分钟`,
+    `发布：${meta.pubdate || "未知"}`,
     `标签：${meta.tags.join("、") || "无"}`,
     `简介：${meta.desc || "无"}`,
-    source === "subtitle" ? `\n字幕：\n${text}` : `\n（无可用字幕）\n热门评论：\n${text || "无"}`
+    subtitle ? `\n字幕：\n${subtitle}\n\n${hot}` : `\n（无可用字幕）\n${hot}`
   ].join("\n");
   return [
     { role: "system", content: triageWithCriteria(TRIAGE_SYSTEM_PROMPT, criteria, folder) },
@@ -498,10 +503,10 @@ async function triageAnalyze({ bvid, force, criteria, folder }) {
   const site = BocSites.SITES.bilibili;
   const ref = { site: "bilibili", id: bvid, part: null, url: "" };
   const m = await site.fetchMeta(ref, TRIAGE_BILI_IO);
-  const meta = { title: m.title, desc: m.description, upper: m.author, duration: m.duration, tname: m.tname, tags: m.tags };
+  const meta = { title: m.title, desc: m.description, upper: m.author, duration: m.duration, pubdate: m.uploadDate, tname: m.tname, tags: m.tags };
 
   let source = "meta";
-  let text = "";
+  let subtitle = "";
   const track = BocSites.pickPreferredTrack(BocSites.rankTracks((await site.fetchTracks(ref, m, TRIAGE_BILI_IO)).tracks), {});
   if (track) {
     const valid = (body) => triageSubtitleValid(body, m.duration);
@@ -513,16 +518,13 @@ async function triageAnalyze({ bvid, force, criteria, folder }) {
     const body = raw ? site.parseSegments(raw) : [];
     if (valid(body)) {
       source = "subtitle";
-      text = triageClip(body.map((l) => l.content).join("\n"));
+      subtitle = BocLimits.sampleAiSubtitle(body.map((l) => l.content).join("\n")).text;
     }
   }
-  if (source === "meta") {
-    const comments = await site.fetchComments(ref, m, TRIAGE_BILI_IO, 10).catch(() => []);
-    text = triageClip(comments.map((c, i) => `${i + 1}. ${c.message}`).join("\n"));
-  }
+  const comments = (await site.fetchComments(ref, m, TRIAGE_BILI_IO, 10).catch(() => [])).map((c, i) => `${i + 1}. ${c.message}`).join("\n");
 
   const ai = await triageAiSettings();
-  const { content, model } = await triageChat(triageBuildMessages(meta, source, text, criteria, folder), triageMaxTokens("analyze", 1, ai), ai.triageThinking);
+  const { content, model } = await triageChat(triageBuildMessages(meta, subtitle, comments, criteria, folder), triageMaxTokens("analyze", 1, ai), ai.triageThinking);
   const analysis = {
     bvid,
     status: "done",

@@ -2664,7 +2664,7 @@ async function deleteTag(id) {
 
 // ---------- AI stage 1: titles ----------
 function aiItem(it) {
-  return { bvid: it.bvid, title: it.title, upper: it.upper, duration: it.duration, intro: it.intro };
+  return { bvid: it.bvid, title: it.title, upper: it.upper, duration: it.duration, pubdate: it.pubdate, intro: it.intro };
 }
 
 async function throttleWait(code, keepGoing) {

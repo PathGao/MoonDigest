@@ -1275,24 +1275,7 @@ async function loadAiProviderKeys() {
 
 // ===== AI 调用 =====
 
-const { AI_SUBTITLE_MAX_CHARS, AI_HISTORY_MAX_CHARS } = BocLimits;
-
-// Long videos overflow small context windows. Even sampling keeps every part of the video and each kept line's timestamp.
-// ponytail: samples by line count, assumes similar line lengths; the final slice is the hard cap.
-function sampleAiSubtitle(markdown) {
-  const text = String(markdown || "");
-  if (text.length <= AI_SUBTITLE_MAX_CHARS) {
-    return { text, step: 1 };
-  }
-  const step = Math.ceil(text.length / AI_SUBTITLE_MAX_CHARS);
-  let index = 0;
-  const sampled = text
-    .split("\n")
-    .filter((line) => /^#|^\s*$/.test(line) || index++ % step === 0)
-    .join("\n")
-    .slice(0, AI_SUBTITLE_MAX_CHARS);
-  return { text: sampled, step };
-}
+const { AI_HISTORY_MAX_CHARS, sampleAiSubtitle } = BocLimits;
 
 // Keeps the newest turns within the budget, starting at a user message.
 function trimAiHistory(history) {

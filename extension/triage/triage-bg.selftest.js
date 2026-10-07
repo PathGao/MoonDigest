@@ -20,11 +20,6 @@ assert.strictEqual(t.triageSubtitleValid(body(100), 273), false);
 assert.strictEqual(t.triageSubtitleValid([], 273), false);
 assert.strictEqual(t.triageSubtitleValid(null, 273), false);
 
-// clip
-assert.strictEqual(t.triageClip("a".repeat(12000)).length, 12000);
-const clipped = t.triageClip("a".repeat(8000) + "b".repeat(5000) + "c".repeat(4000));
-assert.strictEqual(clipped.length, 8000 + 2 + 4000);
-assert.ok(clipped.startsWith("a".repeat(8000) + "……c"));
 
 // LLM parse: fixed three classes; ids in any case or the Chinese names; anything else is unsure.
 const good = t.triageParseLlm('```json\n{"one_liner":"讲 X","points":["1","2","3"],"verdict":"keep","reason":"有方法","tags":["AI"]}\n```');
@@ -46,9 +41,10 @@ assert.throws(() => t.triageParseLlm('{"points":[]}'), /one_liner/);
 
 // title line
 assert.strictEqual(
-  t.triageTitleLine({ title: "a|b\nc", upper: "UP", duration: 125, intro: "简".repeat(80) }, 3),
-  `3|a b c|UP|2:05|${"简".repeat(60)}`
+  t.triageTitleLine({ title: "a|b\nc", upper: "UP", duration: 125, pubdate: new Date(2024, 4, 30, 12).getTime() / 1000, intro: "简".repeat(150) }, 3),
+  `3|a b c|UP|2:05|2024-05-30|${"简".repeat(120)}`
 );
+assert.strictEqual(t.triageTitleLine({ title: "T", upper: "U", duration: 0, intro: "" }, 1), "1|T|U|0:00||", "no publish date leaves its field empty");
 
 // stage-1 title batch
 const items = [{ bvid: "BV1" }, { bvid: "BV2" }, { bvid: "BV3" }];
@@ -75,7 +71,7 @@ const named = t.triageWithCriteria(TITLE_PROMPT, "", { title: "纯娱乐", intro
 assert.ok(named.includes("这个收藏夹叫「纯娱乐」，简介：下饭。") && named.includes("推测它的用途"));
 const both = t.triageWithCriteria(TITLE_PROMPT, "只留段子", { title: "纯娱乐" });
 assert.ok(both.includes("这个收藏夹叫「纯娱乐」。") && !both.includes("推测") && both.endsWith("只留段子"));
-const msgs = t.triageBuildMessages({ title: "T", upper: "U", tags: [] }, "meta", "", "只留干货");
+const msgs = t.triageBuildMessages({ title: "T", upper: "U", tags: [] }, "", "", "只留干货");
 assert.ok(msgs[0].content.includes('"verdict": "keep|drop|unsure"') && msgs[0].content.endsWith("只留干货"));
 for (const p of [TITLE_PROMPT, msgs[0].content]) assert.ok(!/标签|tags|新:/.test(p), "粗分/细看 prompts carry no tags");
 
@@ -266,7 +262,7 @@ assert.throws(() => t.triageParseCommand('{"new_tags":[', cmdItems, cmdTags, {})
   };
   const withTracks = { code: 0, data: { subtitle: { subtitles: [{ id: 5, lan: "ai-zh", lan_doc: "中文", subtitle_url: subUrl }] } } };
   const baseRoutes = () => ({
-    "/view/detail": { code: 0, data: { View: { title: "标题", desc: "简介", tname: "知识", aid: 22, cid: 11, duration: 273, owner: { name: "UP" }, pages: [{ cid: 11, page: 1, duration: 273 }] }, Tags: [{ tag_name: "标签" }] } },
+    "/view/detail": { code: 0, data: { View: { title: "标题", desc: "简介", tname: "知识", aid: 22, pubdate: new Date(2024, 4, 30, 12).getTime() / 1000, cid: 11, duration: 273, owner: { name: "UP" }, pages: [{ cid: 11, page: 1, duration: 273 }] }, Tags: [{ tag_name: "标签" }] } },
     "/nav": { code: -101, data: { wbi_img: { img_url: "https://i0.hdslb.com/bfs/wbi/7cd084941338484aae1ad9425b84077c.png", sub_url: "https://i0.hdslb.com/bfs/wbi/4932caff0ff746eab6f01bf08b70ac45.png" } } },
     "/x/player/wbi/v2": withTracks,
     [subUrl]: subtitleRaw(272),
@@ -279,7 +275,8 @@ assert.throws(() => t.triageParseCommand('{"new_tags":[', cmdItems, cmdTags, {})
   store[subtitleKey] = { raw: subtitleRaw(270), timestamp: Date.now() };
   assert.strictEqual((await analyze()).source, "subtitle");
   assert.ok(!calls.includes(subUrl), "cached subtitle is not refetched");
-  assert.ok(prompt.includes("分区：知识") && prompt.includes("标签：标签") && prompt.includes("最后一句"));
+  assert.ok(prompt.includes("分区：知识") && prompt.includes("标签：标签") && prompt.includes("发布：2024-05-30") && prompt.includes("第一句\n最后一句"));
+  assert.ok(prompt.includes("字幕：\n第一句") && prompt.includes("\n\n热门评论：\n1. 评论一"), "hot comments come after the subtitles");
 
   // A fetched subtitle that passes the duration guard is cached for the video page.
   delete store[subtitleKey];
@@ -291,7 +288,26 @@ assert.throws(() => t.triageParseCommand('{"new_tags":[', cmdItems, cmdTags, {})
   routes = { ...baseRoutes(), [subUrl]: subtitleRaw(100) };
   assert.strictEqual((await analyze()).source, "meta");
   assert.strictEqual(subtitleKey in store, false);
-  assert.ok(prompt.includes("1. 评论一"));
+  assert.ok(prompt.includes("（无可用字幕）\n热门评论：\n1. 评论一"));
+
+  // A comment fetch failure does not fail the analysis.
+  routes = { ...baseRoutes(), "/reply/main": new Error("network") };
+  assert.strictEqual((await analyze()).source, "subtitle");
+  assert.ok(prompt.includes("热门评论：\n无"));
+
+  // A subtitle up to the cap goes in whole; a longer one is sampled down to the cap.
+  const line = "一句字幕".repeat(10);
+  const longRaw = (n) => ({ body: Array.from({ length: n }, (_, i) => ({ from: i, to: i === n - 1 ? 272 : i + 1, content: line })) });
+  const whole = Math.floor(t.BocLimits.AI_SUBTITLE_MAX_CHARS / (line.length + 1));
+  routes = { ...baseRoutes(), [subUrl]: longRaw(whole) };
+  delete store[subtitleKey];
+  await analyze();
+  assert.strictEqual(prompt.split(line).length - 1, whole, "a subtitle under the cap is not cut");
+  routes = { ...baseRoutes(), [subUrl]: longRaw(whole * 3) };
+  delete store[subtitleKey];
+  await analyze();
+  const kept = prompt.split(line).length - 1;
+  assert.ok(kept < whole * 3 && kept >= whole - 1 && prompt.includes("热门评论"), `an over-cap subtitle is sampled to the cap (${kept} lines)`);
 
   // Risk control still reaches the page as THROTTLED: player answers without subtitles, HTTP 412, -352.
   routes = { ...baseRoutes(), "/x/player/wbi/v2": { code: 0, data: {} }, "/x/player/v2": { code: 0, data: {} } };
