@@ -1304,6 +1304,12 @@ function addAiProviderRow(item = {}) {
     row.dataset.currentPresetId = next.id;
   });
 
+  // Long addresses end in an ellipsis; hovering shows the whole one.
+  const baseUrlInput = row.querySelector(".ai-provider-baseurl");
+  baseUrlInput.addEventListener("mouseenter", () => {
+    baseUrlInput.title = baseUrlInput.value;
+  });
+
   const keyInput = row.querySelector(".ai-provider-apikey");
   keyInput.addEventListener("input", () => {
     row.querySelector(".keytag").hidden = row.dataset.hasSavedKey !== "1" || Boolean(keyInput.value);

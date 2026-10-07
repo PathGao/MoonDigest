@@ -572,7 +572,7 @@ details.adv[open] > summary::before {
 
 .ai-provider-row {
   display: grid;
-  grid-template-columns: 136px minmax(150px, 1fr) 150px 168px 96px minmax(30px, max-content);
+  grid-template-columns: 136px minmax(150px, 1fr) 150px 150px 96px minmax(30px, max-content);
   gap: 8px;
   align-items: center;
 }
@@ -586,6 +586,10 @@ details.adv[open] > summary::before {
 .ai-provider-row :is(input, select) {
   height: var(--control-h);
   font-size: var(--fs-sm);
+}
+
+.ai-provider-baseurl {
+  text-overflow: ellipsis;
 }
 
 .ai-provider-head {
