@@ -107,41 +107,36 @@
       <form method="dialog">
         <h2 id="settingsHeading">分拣设置</h2>
         <div class="settings-cols">
-        <div>
-        <h3 id="settingsFoldersHeading">参与分拣的收藏夹</h3>
-        <p class="dialog-hint">只读取勾选的收藏夹，没勾的不进收藏夹列表和「所有收藏夹」，也不读取。B站新建的默认不勾。B站上不受影响。</p>
-        <div class="export-row"><button type="button" class="link" data-folders-all aria-label="全选收藏夹">全选</button><button type="button" class="link" data-folders-none aria-label="全不选收藏夹">全不选</button></div>
-        <div id="folderToggles" class="folder-toggles"></div>
-        <p id="settingsFirstRunHint" class="dialog-hint" hidden>AI 参数一般不用改，以后点右上角的齿轮可以再调。</p>
-        </div>
+        <section class="set-group">
+          <div class="set-head">
+            <h3 id="settingsFoldersHeading">参与分拣的收藏夹</h3>
+            <button type="button" class="link" data-folders-all aria-label="全选收藏夹">全选</button><button type="button" class="link" data-folders-none aria-label="全不选收藏夹">全不选</button>
+          </div>
+          <p class="set-desc">只读取勾选的。B站新建的默认不勾，B站上不受影响。</p>
+          <div id="folderToggles" class="folder-toggles"></div>
+          <p id="settingsFirstRunHint" class="set-desc" hidden>AI 参数一般不用改，以后点右上角的齿轮可以再调。</p>
+        </section>
         <!-- The first open only asks for folders; this part shows from the 分拣设置 gear. -->
         <div id="settingsAi" class="settings-ai">
-        <h3>标签</h3>
-        <label for="tagLimitInput">每个收藏夹最多几个标签（1–50）</label>
-        <input id="tagLimitInput" type="number" min="1" max="50" step="1" />
-        <p class="dialog-hint">调低不会删掉已有标签，只是超出后不能再新建。</p>
-        <label for="aiNewTagMaxInput">批量打时 AI 每次最多新建几个（0–50，0 = 只用已有标签）</label>
-        <input id="aiNewTagMaxInput" type="number" min="0" max="50" step="1" />
-        <label class="toggle"><input id="aiRemoveTagsInput" type="checkbox" /> 批量打时允许 AI 去掉已有标签</label>
-        <p class="dialog-hint">关：AI 只加标签。开：AI 也会建议去掉不合适的标签，改动同样要你勾选确认。</p>
-        <h3>AI 参数</h3>
-        <p class="dialog-hint">一般不用改。AI 平台和笔记格式在设置页；判断标准在粗看、细看按钮旁边改，标签在「标签」里改。</p>
-        <label for="intervalInput">请求间隔（秒）</label>
-        <input id="intervalInput" type="number" min="0" step="1" />
-        <div id="thinkingRow" class="stack">
-          <label class="toggle"><input id="thinkingInput" type="checkbox" /> 开启思考</label>
-          <p class="dialog-hint">关：快、省。开：判断更细，但慢得多、token 多几倍。</p>
-        </div>
-        <h3>标题粗看</h3>
-        <label for="batchSizeInput">每批数量</label>
-        <input id="batchSizeInput" type="number" min="1" max="100" step="1" />
-        <label for="titleMaxInput">输出上限（token，批量打标签也用）</label>
-        <input id="titleMaxInput" type="number" min="0" max="32000" step="1" placeholder="自动" />
-        <p id="titleMaxHint" class="dialog-hint"></p>
-        <h3>字幕细看</h3>
-        <label for="analyzeMaxInput">输出上限（token）</label>
-        <input id="analyzeMaxInput" type="number" min="0" max="32000" step="1" placeholder="自动" />
-        <p id="analyzeMaxHint" class="dialog-hint"></p>
+          <section class="set-group">
+            <h3>标签</h3>
+            <div class="set-card">
+              <div class="set-row"><div><label class="name" for="tagLimitInput">每个收藏夹最多几个</label><p class="hint">1–50。调低不删已有标签，只是不能再新建。</p></div><input id="tagLimitInput" type="number" min="1" max="50" step="1" /></div>
+              <div class="set-row"><div><label class="name" for="aiNewTagMaxInput">批量打时 AI 最多新建</label><p class="hint">0–50，0 = 只用已有标签。</p></div><input id="aiNewTagMaxInput" type="number" min="0" max="50" step="1" /></div>
+              <div class="set-row"><div><label class="name" for="aiRemoveTagsInput">批量打时允许 AI 去掉已有标签</label><p class="hint">关时只加标签。开了也要你勾选确认。</p></div><input id="aiRemoveTagsInput" type="checkbox" class="switch" /></div>
+            </div>
+          </section>
+          <section class="set-group">
+            <h3>AI 参数</h3>
+            <p class="set-desc">一般不用改。AI 平台在设置页，判断标准在粗看、细看按钮旁边。</p>
+            <div class="set-card">
+              <div class="set-row"><div><label class="name" for="intervalInput">请求间隔（秒）</label></div><input id="intervalInput" type="number" min="0" step="1" /></div>
+              <div id="thinkingRow" class="set-row"><div><label class="name" for="thinkingInput">开启思考</label><p class="hint">判断更细，但慢得多、token 多几倍。</p></div><input id="thinkingInput" type="checkbox" class="switch" /></div>
+              <div class="set-row"><div><label class="name" for="batchSizeInput">标题粗看每批数量</label></div><input id="batchSizeInput" type="number" min="1" max="100" step="1" /></div>
+              <div class="set-row"><div><label class="name" for="titleMaxInput">粗看输出上限（token）</label><p id="titleMaxHint" class="hint"></p></div><input id="titleMaxInput" type="number" min="0" max="32000" step="1" placeholder="自动" /></div>
+              <div class="set-row"><div><label class="name" for="analyzeMaxInput">细看输出上限（token）</label><p id="analyzeMaxHint" class="hint"></p></div><input id="analyzeMaxInput" type="number" min="0" max="32000" step="1" placeholder="自动" /></div>
+            </div>
+          </section>
         </div>
         </div>
         <p id="settingsError" class="form-error" role="alert" hidden></p>
@@ -283,7 +278,7 @@
           <textarea id="aiInstruction" rows="3" placeholder="例如：把这些按技术深度分成 入门/进阶/硬核 三个标签"></textarea>
           <div id="aiHistory" class="ai-history"></div>
           <div id="aiTagsPreview"></div>
-          <label class="toggle"><input id="aiFormRemoveTagsInput" type="checkbox" /> 允许 AI 去掉已有标签</label>
+          <label class="toggle"><input id="aiFormRemoveTagsInput" type="checkbox" class="switch" /> 允许 AI 去掉已有标签</label>
           <p id="aiProgress" class="dialog-hint" aria-live="polite"></p>
           <div class="dialog-actions">
             <span class="spacer"></span>

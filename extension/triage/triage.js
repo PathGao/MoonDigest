@@ -3892,8 +3892,8 @@ function renderTokenHints() {
   const on = el.thinkingInput.checked;
   const titleAuto = on ? 150 * batch + 4000 : 60 * batch + 200;
   const analyzeAuto = on ? 8000 : 1000;
-  el.titleMaxHint.textContent = `留空为自动 = ${titleAuto}（每批 ${batch} 个，思考${on ? "开" : "关"}）。只有提示「输出被截断」时才需要调大。`;
-  el.analyzeMaxHint.textContent = `留空为自动 = ${analyzeAuto}（思考${on ? "开" : "关"}）`;
+  el.titleMaxHint.textContent = `留空 = 自动（${titleAuto}），被截断时再调大。`;
+  el.analyzeMaxHint.textContent = `留空 = 自动（${analyzeAuto}）`;
 }
 
 // firstRun: the first open, before any folder is chosen, asks only for folders.
