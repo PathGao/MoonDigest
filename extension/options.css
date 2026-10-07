@@ -261,7 +261,6 @@ input.switch:checked::after {
   color: var(--faint);
 }
 
-.moon,
 .toc .ico {
   flex: none;
   fill: none;
@@ -271,10 +270,8 @@ input.switch:checked::after {
   stroke-linejoin: round;
 }
 
-.moon {
-  width: 20px;
-  height: 20px;
-  color: var(--accent);
+h1 .brand-mark {
+  font-size: 22px;
 }
 
 .wrap {

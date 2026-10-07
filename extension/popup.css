@@ -29,14 +29,8 @@ body {
   font-weight: 700;
 }
 
-.moon {
-  width: 18px;
-  height: 18px;
-  fill: none;
-  stroke: var(--accent);
-  stroke-width: 1.7;
-  stroke-linecap: round;
-  stroke-linejoin: round;
+.brand .brand-mark {
+  font-size: 20px;
 }
 
 .icon-btn {
@@ -280,8 +274,7 @@ body {
 }
 
 .tool {
-  flex: 1 1 0;
-  min-width: 0;
+  flex: 1 1 auto;
   height: auto;
   padding: 10px 2px 8px;
   border: 0;
@@ -294,7 +287,6 @@ body {
   font-size: var(--fs-xs);
   line-height: 1.3;
   color: var(--text-2);
-  white-space: normal;
   text-align: center;
 }
 
