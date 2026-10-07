@@ -400,7 +400,8 @@ button.icon { width: 26px; height: 24px; padding: 0; }
 .list.grid .actions .more button { height: 24px; padding: 0 6px; font-weight: 500; }
 .list.grid .pair > button { display: inline-flex; align-items: center; justify-content: center; }
 .list.grid .card:is(.focused, :focus-within) .actions button { visibility: visible; }
-.list.grid .actions .more button.on { visibility: visible; }
+/* A pressed button stays visible on the cover, except 选中: the ✓ box already shows it. */
+.list.grid .actions .more button.on:not([data-act="select"]) { visibility: visible; }
 .list.grid .actions .key { display: none; }
 .list.grid .actions .more .key { display: none; }
 @media (hover: none) { .list.grid .card:not(.focused) .actions button:not(.on) { display: none; } }
