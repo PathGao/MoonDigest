@@ -30,7 +30,7 @@
         <button id="hostPermissionBtn" class="primary sm" type="button">授权</button>
       </p>
 
-      <p id="noAiNote" class="noai" hidden>不配 AI 也能用：读字幕、下载字幕、专注模式、导出笔记、写入 Obsidian、手动分拣。配了 AI，再多出 ✦ AI 总结、问答和分拣台的粗看细看。</p>
+      <p id="noAiNote" class="noai" hidden>不配 AI 也能用：读字幕、下载字幕、专注模式、导出笔记<span class="obsidian-only">、写入 Obsidian</span>、手动分拣。配了 AI，再多出 ✦ AI 总结、问答和分拣台的粗看细看。</p>
 
       <section class="sec" id="basic" data-name="读字幕">
         <div class="sec-head">
@@ -99,26 +99,28 @@
           <details class="adv">
             <summary>属性和附加段落</summary>
             <div class="row wide">
-              <div class="lab"><span class="name">笔记属性（frontmatter）</span><p class="hint">勾选要写进笔记开头属性区的字段。</p></div>
-              <div class="ctl fm-grid">
-                <label class="chipbox"><input type="checkbox" name="frontmatterField" value="title" /><span class="mono">title</span></label>
-                <label class="chipbox"><input type="checkbox" name="frontmatterField" value="url" /><span class="mono">url</span></label>
-                <label class="chipbox"><input type="checkbox" name="frontmatterField" value="site" /><span class="mono">site</span></label>
-                <label class="chipbox"><input type="checkbox" name="frontmatterField" value="video_id" /><span class="mono">video_id</span></label>
-                <label class="chipbox"><input type="checkbox" name="frontmatterField" value="cid" /><span class="mono">cid</span><span class="faint">仅 B 站</span></label>
-                <label class="chipbox"><input type="checkbox" name="frontmatterField" value="author" /><span class="mono">author</span></label>
-                <label class="chipbox"><input type="checkbox" name="frontmatterField" value="author_url" /><span class="mono">author_url</span></label>
-                <label class="chipbox"><input type="checkbox" name="frontmatterField" value="duration" /><span class="mono">duration</span></label>
-                <label class="chipbox"><input type="checkbox" name="frontmatterField" value="cover" /><span class="mono">cover</span></label>
-                <label class="chipbox"><input type="checkbox" name="frontmatterField" value="video_tags" /><span class="mono">video_tags</span></label>
-                <label class="chipbox"><input type="checkbox" name="frontmatterField" value="upload_date" /><span class="mono">upload_date</span></label>
-                <label class="chipbox"><input type="checkbox" name="frontmatterField" value="subtitle_lang" /><span class="mono">subtitle_lang</span></label>
-                <label class="chipbox"><input type="checkbox" name="frontmatterField" value="created" /><span class="mono">created</span></label>
-                <label class="chipbox"><input type="checkbox" name="frontmatterField" value="tags" /><span class="mono">tags</span></label>
-              </div>
+              <div class="lab"><span class="name">笔记属性（frontmatter）</span><p class="hint">勾选的写进笔记开头。「固定属性」的值里也能用 <code>{{名称}}</code>（video_tags 除外）。</p></div>
+              <table class="data">
+                <tbody>
+                  <tr><td><label><input type="checkbox" name="frontmatterField" value="title" /> <span class="mono">title</span></label></td><td class="rule">视频标题</td></tr>
+                  <tr><td><label><input type="checkbox" name="frontmatterField" value="url" /> <span class="mono">url</span></label></td><td class="rule">视频链接</td></tr>
+                  <tr><td><label><input type="checkbox" name="frontmatterField" value="site" /> <span class="mono">site</span></label></td><td class="rule">网站：bilibili / youtube</td></tr>
+                  <tr><td><label><input type="checkbox" name="frontmatterField" value="video_id" /> <span class="mono">video_id</span></label></td><td class="rule">视频号：BV 号或 YouTube ID</td></tr>
+                  <tr><td><label><input type="checkbox" name="frontmatterField" value="cid" /> <span class="mono">cid</span></label></td><td class="rule">分 P 编号（仅 B 站）</td></tr>
+                  <tr><td><label><input type="checkbox" name="frontmatterField" value="author" /> <span class="mono">author</span></label></td><td class="rule">UP 主或频道</td></tr>
+                  <tr><td><label><input type="checkbox" name="frontmatterField" value="author_url" /> <span class="mono">author_url</span></label></td><td class="rule">作者主页</td></tr>
+                  <tr><td><label><input type="checkbox" name="frontmatterField" value="duration" /> <span class="mono">duration</span></label></td><td class="rule">时长（秒）</td></tr>
+                  <tr><td><label><input type="checkbox" name="frontmatterField" value="cover" /> <span class="mono">cover</span></label></td><td class="rule">封面图地址</td></tr>
+                  <tr><td><label><input type="checkbox" name="frontmatterField" value="video_tags" /> <span class="mono">video_tags</span></label></td><td class="rule">视频自带的标签</td></tr>
+                  <tr><td><label><input type="checkbox" name="frontmatterField" value="upload_date" /> <span class="mono">upload_date</span></label></td><td class="rule">发布日期</td></tr>
+                  <tr><td><label><input type="checkbox" name="frontmatterField" value="subtitle_lang" /> <span class="mono">subtitle_lang</span></label></td><td class="rule">字幕语言</td></tr>
+                  <tr><td><label><input type="checkbox" name="frontmatterField" value="created" /> <span class="mono">created</span></label></td><td class="rule">导出日期</td></tr>
+                  <tr><td><label><input type="checkbox" name="frontmatterField" value="tags" /> <span class="mono">tags</span></label></td><td class="rule">默认标签（下面设置里填的）</td></tr>
+                </tbody>
+              </table>
             </div>
             <div class="row wide">
-              <div class="lab"><span class="name">固定属性</span><p class="hint">每篇笔记都带上。值里可以用变量：<code>{{upload_date}}</code> <code>{{created}}</code> <code>{{site}}</code> <code>{{video_id}}</code> <code>{{author_url}}</code> <code>{{cover}}</code> <code>{{duration}}</code></p></div>
+              <div class="lab"><span class="name">固定属性</span><p class="hint">每篇笔记都带上。值里可以用上表的 <code>{{名称}}</code>。</p></div>
               <div class="ctl">
                 <div id="fixedPropertiesList" class="fixed-properties-list"></div>
                 <p id="fixedPropertiesEmpty" class="empty">还没有固定属性</p>
@@ -154,7 +156,7 @@
           <p id="aiPromptsLater" class="ai-later">加好平台后，这里会出现系统提示词、AI 总结要求、播放器上的 ✦ AI 按钮和快捷追问。</p>
           <div id="aiPromptRows">
             <div class="row wide">
-              <div class="lab"><label class="name" for="aiSystemPrompt">系统提示词</label><p class="hint">每次回答都遵守的规则：语言、长短、时间戳格式。总结格式写在下面的「AI 总结要求」里，因为这里对追问也生效。</p></div>
+              <div class="lab"><label class="name" for="aiSystemPrompt">系统提示词</label><p class="hint">每次回答都遵守的规则：语言、长短、时间戳格式。总结格式写在下面的「AI 总结要求」里。</p></div>
               <div class="ctl"><textarea id="aiSystemPrompt" rows="7" placeholder="例如：用中文回答；尽量简洁；引用内容时带时间戳。"></textarea></div>
             </div>
             <div class="row wide">
@@ -162,7 +164,7 @@
               <div class="ctl"><textarea id="playerAiQuickPrompt" rows="2" placeholder="例如：整理这期视频的内容，输出结构化总结。"></textarea></div>
             </div>
             <div class="row">
-              <div class="lab"><label class="name" for="enablePlayerAiQuickAction">在视频播放器上显示 ✦ AI 按钮</label></div>
+              <div class="lab"><label class="name" for="enablePlayerAiQuickAction">在播放器上显示 ✦ AI 按钮</label></div>
               <div class="ctl"><input id="enablePlayerAiQuickAction" type="checkbox" class="switch" /></div>
             </div>
             <div class="row wide">
@@ -219,10 +221,10 @@
               <figure><div class="cover c3"><span class="seen-tag faint-tag">看过 40%</span><i style="width: 40%"></i></div><figcaption>没到比例，淡色</figcaption></figure>
             </div>
             <p class="hint">进度条和 B 站自己的一样。</p>
-            <p class="note">关闭时不读历史。打开后只在你打开分拣台或 B 站页面时读新增的部分，最多 10 分钟读一次；本地只存每个视频的进度，留最近 1 年、最多 5000 个。</p>
+            <p class="note">关闭时不读历史。打开后只在打开分拣台或 B 站页面时读新增记录，最多 10 分钟一次。本地只存每个视频的进度，留最近 1 年、最多 5000 个。</p>
           </div>
           <div class="row" data-seen-mark-row>
-            <div class="lab"><label class="name" for="seenThreshold">看多少算看完了</label><p class="hint">按视频时长的百分比算，短视频也适用。</p></div>
+            <div class="lab"><label class="name" for="seenThreshold">看多少算看完了</label><p class="hint">按视频时长的百分比算。</p></div>
             <div class="ctl"><input id="seenThreshold" type="number" min="1" max="100" step="1" /> %</div>
           </div>
           <div class="row" data-seen-mark-row>
@@ -282,9 +284,9 @@
                 <div class="vars">
                   <button class="var" type="button" data-var="{{site}}" title="网站：bilibili / youtube"><span class="mono">{{site}}</span>网站</button>
                   <button class="var" type="button" data-var="{{author}}" title="UP 主或频道"><span class="mono">{{author}}</span>UP 主或频道</button>
-                  <button class="var" type="button" data-var="{{created}}" title="写入日期"><span class="mono">{{created}}</span>写入日期</button>
+                  <button class="var" type="button" data-var="{{created}}" title="导出日期"><span class="mono">{{created}}</span>导出日期</button>
                   <button class="var" type="button" data-var="{{upload_date}}" title="视频发布日期"><span class="mono">{{upload_date}}</span>视频发布日期</button>
-                  <button class="var" type="button" data-var="{{id}}" title="视频号：BV 号或 YouTube ID"><span class="mono">{{id}}</span>视频号</button>
+                  <button class="var" type="button" data-var="{{video_id}}" title="视频号：BV 号或 YouTube ID"><span class="mono">{{video_id}}</span>视频号</button>
                 </div>
               </div>
             </div>
@@ -295,7 +297,7 @@
       <section class="sec" id="data" data-name="数据">
         <div class="sec-head">
           <h2>数据与存储</h2>
-          <p>全部存在这台电脑的浏览器里，不上传。</p>
+          <p>设置随浏览器同步，Key 和数据只存本机。</p>
           <a class="jump" href="./history/history.html" target="_blank">打开视频记录 ↗</a>
         </div>
         <div class="rows">

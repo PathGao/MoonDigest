@@ -528,7 +528,7 @@ function validateSettings(payload, { requireApiKey }) {
     return { ok: false, field: elements.noteFolder, message: "请填写笔记目录（例如：MoonDigest/{{site}}）" };
   }
   if (/^[\/\\]|[\/\\]$/.test(payload.noteFolder)) {
-    return { ok: false, field: elements.noteFolder, message: "笔记目录无需以 / 开头或结尾" };
+    return { ok: false, field: elements.noteFolder, message: "笔记目录不要以 / 开头或结尾" };
   }
   if (/[\\:*?"<>|\u0000-\u001f]/.test(payload.noteFolder)) {
     return { ok: false, field: elements.noteFolder, message: "笔记目录包含非法字符，请修改后再试" };
@@ -1155,14 +1155,14 @@ async function testConnection() {
 
     obsidianTest.ok = Boolean(resp?.ok);
     if (!resp?.ok) {
-      setTestResult(`连接失败：${resp?.error || "未知错误"}`, true);
+      setTestResult(`失败：${resp?.error || "未知错误"}`, true);
       return;
     }
 
     const service = resp?.service ? `（${resp.service}）` : "";
     setTestResult(`连接成功${service}`);
   } catch (error) {
-    setTestResult(`连接失败：${error.message || "未知错误"}`, true);
+    setTestResult(`失败：${error.message || "未知错误"}`, true);
   } finally {
     setBusy(null);
     renderSavedState();
@@ -1348,7 +1348,7 @@ function addAiProviderRow(item = {}) {
     statusNode.setAttribute("aria-busy", "false");
     testBtn.disabled = false;
     if (resp?.ok) {
-      showAiProviderStatus(statusNode, hasUnsavedChanges ? "测试通过，记得保存设置" : "连接成功");
+      showAiProviderStatus(statusNode, hasUnsavedChanges ? "连接成功，记得保存设置" : "连接成功");
     } else {
       showAiProviderStatus(statusNode, `失败：${resp?.error || "未知错误"}`, true);
     }
@@ -1466,7 +1466,7 @@ function validateAiProviders(items) {
       return { ok: false, message: `平台「${item.name}」需要填写模型名` };
     }
     if (seenIds.has(item.id)) {
-      return { ok: false, message: "平台 id 重复，请刷新页面后重试" };
+      return { ok: false, message: "平台 id 重复，请刷新网页重试" };
     }
     seenIds.add(item.id);
   }

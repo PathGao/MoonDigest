@@ -619,7 +619,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       .then(async (settings) => {
         // The setting hides the player button; the popup's AI 总结 is always available.
         if (message.source !== "popup" && !settings.enablePlayerAiQuickAction) {
-          throw new Error("AI 按钮未开启");
+          throw new Error("✦ AI 按钮未开启");
         }
         await openPromise;
         const request = buildPlayerAiQuickActionRequest(tabId, settings.playerAiQuickPrompt);

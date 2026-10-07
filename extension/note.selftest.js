@@ -277,6 +277,11 @@ for (const [name, c] of Object.entries(cases)) {
   assert.strictEqual(N.buildNoteFilename(c.meta, c.settings, CREATED), golden[name].file, name + " filename");
   assert.strictEqual(N.resolveFolderTemplate(c.settings.noteFolder, c.meta, CREATED), golden[name].folder, name + " folder");
 }
+{
+  const viaVideoId = N.resolveFolderTemplate("Notes/{{video_id}}", cases.biliSingle.meta, CREATED);
+  assert.ok(cases.biliSingle.meta.videoId && viaVideoId.endsWith(cases.biliSingle.meta.videoId), "{{video_id}} resolves in the folder");
+  assert.strictEqual(viaVideoId, N.resolveFolderTemplate("Notes/{{id}}", cases.biliSingle.meta, CREATED), "{{video_id}} and {{id}} resolve the same");
+}
 assert.strictEqual(N.buildNoteFilename(cases.biliSingle.meta, { includeDateInFilename: false }, CREATED), "测试视频：引号_与反斜杠_.md");
 assert.strictEqual(N.buildMarkdown(cases.biliSingle.meta, body, baseSettings, null, CREATED).includes('\nurl: "'), false, "no ref means no url");
 {
