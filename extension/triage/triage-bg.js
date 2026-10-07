@@ -470,7 +470,8 @@ const TRIAGE_SETTINGS_DEFAULTS = {
   triageThinking: false,
   triageTitleMaxTokens: 0,
   triageAnalyzeMaxTokens: 0,
-  triageTagLimit: 10
+  triageTagLimit: 10,
+  triageAiNewTagMax: 5
 };
 
 // 输出上限：用户填了正数就用用户的，否则按是否思考自动（思考 token 计入 max_tokens）
@@ -617,14 +618,14 @@ async function triageClassifyTitles({ items, criteria, folder }) {
   return { results };
 }
 
-// 协作打标签：只返回提案，不缓存。新建标签至多 maxNewTags 个（收藏夹剩余名额，≤5）
+// 协作打标签：只返回提案，不缓存。新建标签至多 maxNewTags 个（收藏夹剩余名额与分拣设置里 AI 新建上限取小）
 async function triageAiCommand({ instruction, items, tags, maxNewTags = 5 }) {
   const text = String(instruction ?? "").trim();
   if (!text) throw triageError("缺少指令");
   const list = (Array.isArray(items) ? items : []).filter((it) => it && it.bvid);
   if (!list.length) throw triageError("缺少 items");
   const ai = await triageAiSettings();
-  const opts = { maxNewTags: Math.max(0, Math.min(5, Math.floor(Number(maxNewTags)) || 0)) };
+  const opts = { maxNewTags: Math.max(0, Math.min(50, Math.floor(Number(maxNewTags)) || 0)) };
   const { content } = await triageChat(
     triageBuildCommandMessages({ instruction: text, tags, items: list, ...opts }),
     triageMaxTokens("command", list.length, ai),
@@ -890,6 +891,7 @@ const TRIAGE_HANDLERS = {
       triageTitleMaxTokens: Number(s.triageTitleMaxTokens) > 0 ? Number(s.triageTitleMaxTokens) : 0,
       triageAnalyzeMaxTokens: Number(s.triageAnalyzeMaxTokens) > 0 ? Number(s.triageAnalyzeMaxTokens) : 0,
       triageTagLimit: Math.max(1, Math.min(50, Math.floor(Number(s.triageTagLimit)) || 10)),
+      triageAiNewTagMax: Number.isInteger(s.triageAiNewTagMax) ? Math.max(0, Math.min(50, s.triageAiNewTagMax)) : 5,
       // 开启思考 only reaches these platforms (triageChat), so the page shows the switch only for them.
       thinkingToggle: supportsThinkingToggle(provider?.baseUrl)
     };

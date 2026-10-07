@@ -270,6 +270,7 @@ const S = {
     triageTitleMaxTokens: 0,
     triageAnalyzeMaxTokens: 0,
     triageTagLimit: 10, // tags per folder; only creating a new one is refused past it
+    triageAiNewTagMax: 5, // new tags one 批量打 may propose
     thinkingToggle: false
   },
   tab: "none",
@@ -325,7 +326,7 @@ const el = {};
   "banner", "bannerText", "bannerBtn", "bannerClose", "syncNotice", "syncText", "syncViewBtn", "syncCloseBtn", "syncDetail",
   "tabs", "stagebar", "classFilter", "sideFilter", "tagFilter", "listHeader", "list", "basket", "basketToggle", "basketCount",
   "basketList", "toast", "settingsDialog", "folderToggles", "thinkingRow", "intervalInput",
-  "batchSizeInput", "tagLimitInput", "openOptionsBtn", "thinkingInput", "titleMaxInput",
+  "batchSizeInput", "tagLimitInput", "aiNewTagMaxInput", "openOptionsBtn", "thinkingInput", "titleMaxInput",
   "titleMaxHint", "analyzeMaxInput", "analyzeMaxHint", "settingsError", "backupBtn", "csvBtn", "confirmDialog",
   "confirmTitle", "confirmBody", "confirmOk", "transferDialog", "transferTitle", "transferBody", "transferTarget", "transferNewRow", "transferUnchosen", "transferHow", "transferName", "transferPrivate", "pickerDialog", "pickerTitle", "pickerInput", "pickerList",
   "criteriaDialog", "criteriaTitle", "criteriaInput", "tagsDialog", "tagsModeManage", "tagsModeBatch", "tagsManage", "tagsRows", "newTagInput", "addTagBtn", "helpDialog",
@@ -519,9 +520,9 @@ function tagChips() {
   }
   return chips;
 }
-// How many new tags 批量打 may propose: at most 5, within the folder's room.
+// How many new tags 批量打 may propose: at most triageAiNewTagMax, within the folder's room.
 const tagLimit = () => S.settings.triageTagLimit;
-const aiNewTagRoom = () => Math.max(0, Math.min(5, tagLimit() - viewTags().length));
+const aiNewTagRoom = () => Math.max(0, Math.min(S.settings.triageAiNewTagMax, tagLimit() - viewTags().length));
 const FOLDER_ONLY = "标签按收藏夹分开，请先打开一个具体收藏夹";
 // A video's tags in the open view. A tag belongs to one folder and stays there when the video moves, so a folder shows
 // only its own; 所有收藏夹 those of the video's folders (as the picker); 已取消收藏 every one.
@@ -3667,7 +3668,8 @@ function bindEvents() {
       triageThinking: el.thinkingInput.checked,
       triageTitleMaxTokens: parseMaxTokens(el.titleMaxInput.value),
       triageAnalyzeMaxTokens: parseMaxTokens(el.analyzeMaxInput.value),
-      triageTagLimit: Math.max(1, Math.min(50, Math.floor(Number(el.tagLimitInput.value)) || 10))
+      triageTagLimit: Math.max(1, Math.min(50, Math.floor(Number(el.tagLimitInput.value)) || 10)),
+      triageAiNewTagMax: el.aiNewTagMaxInput.value === "" ? 5 : Math.max(0, Math.min(50, Math.floor(Number(el.aiNewTagMaxInput.value)) || 0))
     };
     const r = await send({ type: "triage-settings-save", ...patch });
     if (!r.ok) {
@@ -3861,9 +3863,10 @@ function parseMaxTokens(value) {
   return n === 0 || (n >= 200 && n <= 32000) ? n : null;
 }
 
-// The tag cap is written into the static hints of the 标签 and help dialogs.
+// The tag caps are written into the static hints of the 标签 and help dialogs.
 function renderTagLimit() {
   for (const node of document.querySelectorAll("[data-tag-limit]")) node.textContent = tagLimit();
+  for (const node of document.querySelectorAll("[data-ai-new-tag-max]")) node.textContent = S.settings.triageAiNewTagMax;
 }
 
 function renderTokenHints() {
@@ -3891,6 +3894,7 @@ function openSettings(scrollToLimits = false, firstRun = false) {
   el.titleMaxInput.value = S.settings.triageTitleMaxTokens || "";
   el.analyzeMaxInput.value = S.settings.triageAnalyzeMaxTokens || "";
   el.tagLimitInput.value = tagLimit();
+  el.aiNewTagMaxInput.value = S.settings.triageAiNewTagMax;
   el.settingsError.hidden = true;
   renderTokenHints();
   el.settingsDialog.returnValue = "";
