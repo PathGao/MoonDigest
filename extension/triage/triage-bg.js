@@ -549,8 +549,8 @@ async function triageChat(messages, maxTokens, thinking = false) {
   if (apiKey) headers.Authorization = `Bearer ${apiKey}`;
   const baseUrl = String(provider.baseUrl || "").replace(/\/+$/, "");
   const body = { model: provider.model, stream: false, temperature: 0.3, max_tokens: maxTokens, messages };
-  // DeepSeek 思考 token 计入 max_tokens；默认关（实测 30 标题 3s/815 token，开则约 19s/4579 token）。其他平台不发该参数
-  if (/api\.deepseek\.com/.test(baseUrl)) body.thinking = { type: thinking ? "enabled" : "disabled" };
+  // 思考 token 计入 max_tokens；默认关（DeepSeek 实测 30 标题 3s/815 token，开则约 19s/4579 token）
+  if (supportsThinkingToggle(baseUrl)) body.thinking = { type: thinking ? "enabled" : "disabled" };
 
   const ms = TRIAGE_AI_TIMEOUT_MS[thinking ? "thinking" : "normal"];
   const controller = new AbortController();
@@ -888,8 +888,8 @@ const TRIAGE_HANDLERS = {
       triageThinking: s.triageThinking === true,
       triageTitleMaxTokens: Number(s.triageTitleMaxTokens) > 0 ? Number(s.triageTitleMaxTokens) : 0,
       triageAnalyzeMaxTokens: Number(s.triageAnalyzeMaxTokens) > 0 ? Number(s.triageAnalyzeMaxTokens) : 0,
-      // 开启思考 only reaches DeepSeek (triageChat), so the page shows the switch only for it.
-      deepseek: /api\.deepseek\.com/.test(String(provider?.baseUrl || ""))
+      // 开启思考 only reaches these platforms (triageChat), so the page shows the switch only for them.
+      thinkingToggle: supportsThinkingToggle(provider?.baseUrl)
     };
   },
 

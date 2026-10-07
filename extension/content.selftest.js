@@ -77,6 +77,34 @@ const settle = async () => {
 };
 
 (async () => {
+  // The AI buttons wait for a platform: without one the player button is removed and the focus-mode one hidden.
+  {
+    const realSync = t.chrome.storage.sync.get;
+    t.chrome.storage.sync.get = async () => ({ aiProviders: [{ id: "a", enabled: false }] });
+    assert.strictEqual(await t.loadHasAiProvider(), false, "a disabled platform does not count");
+    t.chrome.storage.sync.get = async () => ({ aiProviders: [{ id: "a" }] });
+    assert.strictEqual(await t.loadHasAiProvider(), true);
+    t.chrome.storage.sync.get = realSync;
+    assert.strictEqual(await t.loadHasAiProvider(), false, "no platforms saved");
+
+    const calls = [];
+    const [realRemove, realHas, realById] = [t.removePlayerAiQuickActionButton, t.hasPlayerSubtitleControl, t.byId];
+    t.removePlayerAiQuickActionButton = () => calls.push("remove");
+    t.hasPlayerSubtitleControl = () => (calls.push("mount"), false);
+    const aiBtn = stubEl();
+    t.byId = (id) => (id === "boc-reading-ai-btn" ? aiBtn : stubEl());
+    for (const hasAiProvider of [false, true]) {
+      state.settings = { enablePlayerAiQuickAction: true, hasAiProvider };
+      state.readingViewOpen = false;
+      calls.length = 0;
+      t.syncPlayerAiQuickActionButton();
+      assert.strictEqual(calls[0], hasAiProvider ? "mount" : "remove");
+      t.applyReadingViewPresentation();
+      assert.strictEqual(aiBtn.hidden, !hasAiProvider);
+    }
+    Object.assign(t, { removePlayerAiQuickActionButton: realRemove, hasPlayerSubtitleControl: realHas, byId: realById });
+  }
+
   // G4: the video changes while a subtitle body is being cached; the old body must not land under the new video.
   {
     state.videoDuration = 100;

@@ -1005,6 +1005,13 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   t.startGroup(["BV820"]);
   for (let i = 0; i < 20 && t.S.group; i++) await new Promise((r) => setImmediate(r));
   assert.strictEqual(t.el.banner.hidden, true, "a run that works clears the AI banner wherever it ran");
+  for (const thinkingToggle of [false, true]) {
+    t.S.settings.thinkingToggle = thinkingToggle;
+    t.handleAiError("输出被截断");
+    assert.strictEqual(t.el.bannerText.textContent.endsWith("关闭思考"), thinkingToggle, "only a platform with the thinking switch is told to turn it off");
+  }
+  t.S.settings.thinkingToggle = false;
+  t.el.banner.hidden = true;
   openFake("K", []);
   assert.strictEqual(t.activityState().text, "标题粗看完成 2 个", "back in K, its last 粗看 line shows");
   Object.assign(t.S.settings, { triageTitleBatchSize: 30 });

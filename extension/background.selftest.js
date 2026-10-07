@@ -89,6 +89,22 @@ process.on("exit", (code) => {
   assert.deepStrictEqual(out.map((m) => m.type), ["error"]);
   assert.match(out[0].error, /^请求超时：.* 秒没有返回/);
 
+  // The side panel and 测试连接 turn thinking off where the platform takes the switch, and send nothing elsewhere.
+  for (const [url, on] of [
+    ["https://api.deepseek.com/v1", true], ["https://open.bigmodel.cn/api/paas/v4", true], ["https://api.moonshot.cn/v1", true],
+    ["https://api.openai.com/v1", false], ["https://openrouter.ai/api/v1", false], ["http://localhost:11434/v1", false], ["https://api.minimaxi.com/v1", false]
+  ]) {
+    ctx.loadAiProviders = async () => [{ id: "p", baseUrl: url, model: "m", requiresKey: false }];
+    const bodies = [];
+    const stream = streamingFetch([{ after: 0, done: true }]);
+    ctx.fetch = (u, init) => (bodies.push(JSON.parse(init.body)), stream(u, init));
+    await chat();
+    ctx.fetch = async (u, init) => (bodies.push(JSON.parse(init.body)), { ok: true });
+    await ctx.probeAiChatCompletion({ baseUrl: url, apiKey: "", model: "m" });
+    assert.deepStrictEqual(bodies.map((b) => b.thinking), on ? [{ type: "disabled" }, { type: "disabled" }] : [undefined, undefined], url);
+  }
+  ctx.loadAiProviders = async () => [{ id: "p", baseUrl: "https://ai.test", model: "m", requiresKey: false }];
+
   // Settings migration: the empty-panel chips fold into the one follow-up list, once.
   const area = (data) => ({
     data,

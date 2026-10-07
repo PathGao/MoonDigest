@@ -270,7 +270,7 @@ const S = {
     triageThinking: false,
     triageTitleMaxTokens: 0,
     triageAnalyzeMaxTokens: 0,
-    deepseek: false
+    thinkingToggle: false
   },
   tab: "none",
   classFilter: { coarse: "all", fine: "all", read: "all" }, // each tab keeps its own AI-class chip; a folder switch resets them
@@ -491,9 +491,11 @@ function handleAiError(error) {
   } else if (text.includes("配置 AI")) {
     showBanner("还没有配置 AI 平台", "去设置", () => send({ type: "open-options" }), "ai");
   } else if (text.includes("截断")) {
-    showBanner(`${text}。建议调大输出上限或关闭思考`, "打开分拣设置", () => openSettings(true), "ai");
+    showBanner(`${text}。建议调大输出上限${hasThinkingToggle() ? "或关闭思考" : ""}`, "打开分拣设置", () => openSettings(true), "ai");
   } else toast(text, true);
 }
+// Only platforms with the 开启思考 switch in 分拣设置 can turn thinking off.
+const hasThinkingToggle = () => Boolean(S.settings.thinkingToggle);
 const clearAiBanner = () => {
   if (el.banner.dataset.kind === "ai") el.banner.hidden = true;
 };
@@ -3873,7 +3875,7 @@ function openSettings(scrollToLimits = false, firstRun = false) {
   el.folderToggles.innerHTML = S.allFolders
     .map((f) => `<label class="toggle"><input type="checkbox" value="${esc(f.id)}"${S.included.includes(String(f.id)) ? " checked" : ""} /> ${esc(f.title)} <span class="muted">${esc(f.count)}</span></label>`)
     .join("") || `<p class="dialog-hint">收藏夹列表还没加载</p>`;
-  el.thinkingRow.hidden = !S.settings.deepseek;
+  el.thinkingRow.hidden = !hasThinkingToggle();
   el.intervalInput.value = S.settings.triageIntervalSec ?? 8;
   el.batchSizeInput.value = S.settings.triageTitleBatchSize ?? 30;
   el.thinkingInput.checked = Boolean(S.settings.triageThinking);

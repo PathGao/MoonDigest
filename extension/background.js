@@ -1507,6 +1507,11 @@ async function linkCoverInVault(content, cover, { baseUrl, apiKey, filepath }) {
   }
 }
 
+// DeepSeek、智谱（国内/国际）、Kimi（国内/国际）用同一个 thinking 参数开关思考；其他平台不发该参数。triage-bg.js 也用它
+function supportsThinkingToggle(baseUrl) {
+  return /^https?:\/\/(api\.deepseek\.com|open\.bigmodel\.cn|api\.z\.ai|api\.moonshot\.(cn|ai))(\/|:|$)/i.test(String(baseUrl || ""));
+}
+
 // Remote hosts are optional permissions since 1.2.0, so an upgraded install may lack its AI provider's origin.
 // The side panel and triage page match "未授权访问 <origin>" to offer a grant button.
 async function hostPermissionError(url) {
@@ -1556,7 +1561,9 @@ async function streamChat({ provider, context, userPrompt, history, port, signal
         model: provider.model,
         messages,
         stream: true,
-        temperature: typeof provider.temperature === "number" ? provider.temperature : 0.7
+        temperature: typeof provider.temperature === "number" ? provider.temperature : 0.7,
+        // Newer fast models think by default; the side panel never asked for it.
+        ...(supportsThinkingToggle(baseUrl) && { thinking: { type: "disabled" } })
       })
     });
   } catch (e) {
@@ -1631,7 +1638,8 @@ async function probeAiChatCompletion({ baseUrl, apiKey, model }) {
         stream: false,
         temperature: 0,
         max_tokens: 1,
-        messages: [{ role: "user", content: "ping" }]
+        messages: [{ role: "user", content: "ping" }],
+        ...(supportsThinkingToggle(baseUrl) && { thinking: { type: "disabled" } })
       })
     });
   } catch (error) {

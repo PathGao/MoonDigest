@@ -7,6 +7,10 @@ const assert = require("assert");
 const ctx = vm.createContext({ TextEncoder, URL, URLSearchParams, console, setTimeout, clearTimeout, AbortController });
 // Browser order: background.js imports limits.js and sites.js before triage-bg.js.
 for (const file of ["../limits.js", "../sites.js", "../note.js", "triage-bg.js"]) vm.runInContext(fs.readFileSync(path.join(__dirname, file), "utf8"), ctx);
+// background.js owns supportsThinkingToggle; lift just that function.
+const bg = fs.readFileSync(path.join(__dirname, "../background.js"), "utf8");
+const at = bg.indexOf("function supportsThinkingToggle(");
+vm.runInContext(bg.slice(at, bg.indexOf("\n}\n", at) + 2), ctx);
 const t = ctx;
 const plain = (x) => JSON.parse(JSON.stringify(x));
 
@@ -165,6 +169,23 @@ assert.throws(() => t.triageParseCommand('{"new_tags":[', cmdItems, cmdTags, {})
   await assert.rejects(t.triageChat([], 100), (e) => e.code === "AI_THROTTLED");
   t.fetch = async () => ({ ok: false, status: 500, text: async () => "" });
   await assert.rejects(t.triageChat([], 100), (e) => e.code === undefined);
+
+  // 开启思考 reaches DeepSeek, 智谱 and Kimi only; other platforms get no thinking field.
+  for (const [url, on] of [
+    ["https://api.deepseek.com/v1", true], ["https://open.bigmodel.cn/api/paas/v4", true], ["https://api.z.ai/api/paas/v4", true],
+    ["https://api.moonshot.cn/v1", true], ["https://api.moonshot.ai/v1", true],
+    ["https://api.openai.com/v1", false], ["https://openrouter.ai/api/v1", false], ["http://127.0.0.1:11434/v1", false], ["https://api.minimaxi.com/v1", false]
+  ]) {
+    assert.strictEqual(t.supportsThinkingToggle(url), on, url);
+    t.loadAiProviders = async () => [{ id: "p", baseUrl: url, model: "m" }];
+    let sent;
+    t.fetch = async (_, init) => ((sent = JSON.parse(init.body)), { ok: true, json: async () => ({ choices: [{ message: { content: "x" } }] }) });
+    await t.triageChat([], 100, false);
+    assert.deepStrictEqual(sent.thinking, on ? { type: "disabled" } : undefined, url);
+    t.chrome = { storage: { sync: { get: async (d) => d } } };
+    assert.strictEqual((await vm.runInContext("TRIAGE_HANDLERS", ctx)["triage-settings-get"]()).thinkingToggle, on, url);
+  }
+  t.loadAiProviders = async () => [{ id: "p", baseUrl: "https://ai.test", model: "m" }];
 
   // A request that never settles, even on abort, still ends with the retryable timeout code.
   vm.runInContext("TRIAGE_AI_TIMEOUT_MS.normal = 30; TRIAGE_AI_TIMEOUT_MS.thinking = 60;", ctx);

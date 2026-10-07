@@ -645,6 +645,7 @@ function bindSettingsWatcher() {
     }
     if (
       !changes.enablePlayerAiQuickAction &&
+      !changes.aiProviders &&
       !changes.playerAiQuickPrompt &&
       !changes.readerTheme &&
       !changes.readerFontScale &&
@@ -685,7 +686,7 @@ function buildUiHtml() {
               <div id="${ids.readingMeta}" class="boc-reading-meta">${escapeHtml(currentSite()?.domain || "")}</div>
             </div>
             <div class="boc-reading-actions">
-              <button id="${ids.readingAiBtn}" type="button" class="boc-reading-icon-btn" title="AI 总结" aria-label="AI 总结">${buildPlayerAiQuickActionIconSvg()}</button>
+              <button id="${ids.readingAiBtn}" type="button" hidden class="boc-reading-icon-btn" title="AI 总结" aria-label="AI 总结">${buildPlayerAiQuickActionIconSvg()}</button>
               <button id="${ids.readingThemeSelect}" type="button" class="boc-reading-icon-btn" title="主题" aria-label="切换主题">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg>
               </button>
@@ -2078,6 +2079,7 @@ function applyReadingViewPresentation() {
   document.body.dataset.bocReaderLineHeight = state.readingLineHeight;
   document.body.dataset.bocReaderContentWidth = state.readingContentWidth;
   document.body.dataset.bocReaderChapterVisibility = state.readingChapterVisible ? "auto" : "hide";
+  byId(ids.readingAiBtn).hidden = !state.settings?.hasAiProvider;
   const readingChapterVisibleEl = byId(ids.readingChapterVisible);
   if (readingChapterVisibleEl) {
     readingChapterVisibleEl.checked = state.readingChapterVisible;
@@ -3385,7 +3387,7 @@ function syncPlayerAiQuickActionButton() {
     existing = null;
   }
   const existingWrap = existing?.closest(".boc-player-ai-wrap");
-  if (!state.settings?.enablePlayerAiQuickAction || state.readingViewOpen || isReaderMode()) {
+  if (!state.settings?.enablePlayerAiQuickAction || !state.settings.hasAiProvider || state.readingViewOpen || isReaderMode()) {
     removePlayerAiQuickActionButton();
     return;
   }
@@ -4175,14 +4177,25 @@ function requestOpenOptions() {
 }
 
 async function getSettings() {
+  const hasAiProvider = await loadHasAiProvider();
   try {
     const response = await sendRuntimeMessage({ type: "get-settings" });
     if (!response?.ok) {
-      return { ...DEFAULT_SETTINGS };
+      return { ...DEFAULT_SETTINGS, hasAiProvider };
     }
-    return { ...DEFAULT_SETTINGS, ...(response.settings || {}) };
+    return { ...DEFAULT_SETTINGS, ...(response.settings || {}), hasAiProvider };
   } catch (error) {
-    return { ...DEFAULT_SETTINGS };
+    return { ...DEFAULT_SETTINGS, hasAiProvider };
+  }
+}
+
+// The AI buttons only show once 设置页 has a platform; get-settings does not carry the platform list.
+async function loadHasAiProvider() {
+  try {
+    const { aiProviders } = await chrome.storage.sync.get({ aiProviders: [] });
+    return Array.isArray(aiProviders) && aiProviders.some((p) => p?.id && p.enabled !== false);
+  } catch {
+    return false;
   }
 }
 
