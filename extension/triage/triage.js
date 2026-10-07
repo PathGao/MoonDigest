@@ -750,10 +750,8 @@ function ownEcho(key, c) {
 }
 // 保留 also sits in the open view's decisions (see openFolder and rebuildAll); 取消收藏 there wins, as on open.
 function followKept(kept) {
-  if (S.mediaId !== REMOVED) {
-    for (const [b, d] of Object.entries(S.decisions)) if (d?.action === "keep" && !kept[b]) delete S.decisions[b];
-    for (const [b, d] of Object.entries(kept)) if (S.decisions[b]?.action !== "unfav") S.decisions[b] = d;
-  }
+  for (const [b, d] of Object.entries(S.decisions)) if (d?.action === "keep" && !kept[b]) delete S.decisions[b];
+  for (const [b, d] of Object.entries(kept)) if (S.decisions[b]?.action !== "unfav") S.decisions[b] = d;
   S.kept = kept;
 }
 
@@ -962,7 +960,8 @@ async function openFolder(mediaId) {
   const seq = ++openSeq;
   const all = mediaId === ALL;
   const removed = mediaId === REMOVED;
-  const decisions = all || removed ? {} : { ...S.kept, ...(await storeGet(K.decisions(mediaId), {})) };
+  // 已出分拣范围 shows 保留 too; its 取消收藏 is on each card's leaving line.
+  const decisions = all ? {} : removed ? { ...S.kept } : { ...S.kept, ...(await storeGet(K.decisions(mediaId), {})) };
   if (seq !== openSeq) return;
   const token = ++S.folderToken;
   S.mediaId = mediaId;
@@ -1726,7 +1725,7 @@ function renderListHeader(list) {
   const n = (k) => (k === "all" ? inStage.length : inStage.filter((it) => classOf(it) === k).length);
   const classBtn = (k, label, off) => `<button type="button" data-class-filter="${k}" aria-pressed="${!off && S.classFilter[t] === k}"${off ? " disabled" : ""}>${label} ${n(k)}</button>`;
   // 阅览 also holds decided videos; they leave the AI classes for 已保留 (已取消收藏 has its own folder).
-  const CLASSES = [["all", "全部"], ...Object.entries(VERDICTS), ...(t === "read" && S.mediaId !== REMOVED ? [["kept", "已保留"]] : [])];
+  const CLASSES = [["all", "全部"], ...Object.entries(VERDICTS), ...(t === "read" ? [["kept", "已保留"]] : [])];
   const seg = () => {
     segHtml = `<span class="seg" role="group" aria-label="按 AI 判断筛选">${CLASSES.map(([k, label]) => classBtn(k, label)).join("")}</span>`;
     return "";
@@ -1991,6 +1990,8 @@ function cardHtml(it, expanded, mark) {
   if (mark) cls.push("in-batch");
 
   const removed = S.mediaId === REMOVED;
+  const basketBtn = `<button type="button" data-act="basket" class="${inBasket ? "on" : ""}" aria-pressed="${inBasket}" aria-label="${inBasket ? "移出" : "加入"}优先看 (E)">优先看<kbd class="key">E</kbd></button>`;
+  const askBtn = `<button type="button" data-act="ask" aria-label="问 AI (Q)">${AI_SPARK}问 AI<kbd class="key">Q</kbd></button>`;
   const meta = [it.upper, fmtDate(it.pubdate), ["", "粗看", "细看"][v.stage], seenText(it), it.invalid && "已失效", it.folders?.length && `收藏夹：${folderNames(it)}`].filter(Boolean);
   const left = removed && [originHtml(it), it.removedAt && `<span>${esc(leftText(it))}</span>`].filter(Boolean).join("");
 
@@ -2034,14 +2035,14 @@ function cardHtml(it, expanded, mark) {
           ${removed ? `<span class="pair">
             <button type="button" data-select="${esc(b)}" class="${S.selected.has(b) ? "on" : ""}" aria-pressed="${S.selected.has(b)}" aria-label="选中 ${esc(it.title)}">选中</button>
             <button type="button" class="danger" data-clean="${esc(b)}" aria-label="清理 ${esc(it.title)}">清理</button>
-          </span>` : `<span class="pair">
+          </span>
+          <span class="more">${basketBtn}${askBtn}</span>` : `<span class="pair">
             <button type="button" data-act="keep" class="${keepCls}" aria-label="保留 (S)" title="只在 MoonDigest 里标记，B站收藏夹不变"${decision ? " disabled" : ""}>保留<kbd class="key">S</kbd></button>
             ${moving.has(b) ? `<button type="button" aria-busy="true" disabled>正在${S.transferRun?.verb || "移动"}…</button>` : deciding.has(b) ? `<button type="button" aria-busy="true" disabled>正在取消收藏…</button>` : `<button type="button" data-act="unfav" class="${unfavCls}" aria-label="取消收藏 (D)"${decision?.action === "unfav" ? " disabled" : ""}>取消收藏<kbd class="key">D</kbd></button>`}
           </span>
           <span class="more">
             <button type="button" data-act="tag" aria-label="打标签 (T)">标签<kbd class="key">T</kbd></button>
-            <button type="button" data-act="basket" class="${inBasket ? "on" : ""}" aria-pressed="${inBasket}" aria-label="${inBasket ? "移出" : "加入"}优先看 (E)">优先看<kbd class="key">E</kbd></button>
-            <button type="button" data-act="ask" aria-label="问 AI (Q)">${AI_SPARK}问 AI<kbd class="key">Q</kbd></button>
+            ${basketBtn}${askBtn}
             <button type="button" data-act="select" class="${S.selected.has(b) ? "on" : ""}" aria-pressed="${S.selected.has(b)}" aria-label="选中 (X)">选中<kbd class="key">X</kbd></button>
           </span>`}
         </div>
@@ -3479,7 +3480,7 @@ function csvField(v) {
 
 function buildCsv() {
   const title = folderTitle();
-  const header = ["收藏夹", "BV号", "标题", "UP主", "时长", "链接", "AI判断", "判断来源", "理由", "一句话", "要点", "标签", "我的处理", "处理时间", "是否失效"];
+  const header = ["收藏夹", "BV号", "标题", "UP主", "时长", "链接", "AI判断", "判断来源", "理由", "一句话", "要点", "标签", "备注", "优先看", "我的处理", "处理时间", "是否失效", "原在", "离开原因"];
   const rows = [header];
   for (const it of S.items) {
     const v = verdictOf(it);
@@ -3499,9 +3500,13 @@ function buildCsv() {
       done ? a.oneLiner || "" : "",
       done ? (a.points || []).join(" | ") : "",
       tagIdsOf(it.bvid).map((id) => tagById(id).name).join("、"),
+      S.notes[it.bvid]?.text?.trim() || "",
+      S.basket.some((x) => x.bvid === it.bvid) ? "在优先看" : S.watched[it.bvid] ? "优先看过" : "",
       d ? (d.action === "unfav" ? "取消收藏" : "保留") : "",
       d ? fmtTime(d.at) : "",
-      it.invalid ? "是" : "否"
+      it.invalid ? "是" : "否",
+      (it.from || []).map((f) => f.title).join("、"),
+      it.removedAt ? leftText(it) : ""
     ]);
   }
   return "﻿" + rows.map((r) => r.map(csvField).join(",")).join("\r\n") + "\r\n";
@@ -4058,7 +4063,8 @@ function onKey(e) {
   if (key === "Escape" && S.viewing) closeViewer();
   else if (map[key]) map[key]();
   else if (nav[key]) moveFocus(nav[key]);
-  else if (S.mediaId === REMOVED) return;
+  // 已出分拣范围 has no 保留 / 取消收藏 / 标签; 优先看 and 问 AI work there.
+  else if (S.mediaId === REMOVED && key !== "e" && key !== "q") return;
   else if (key === "u") undo();
   else if (cardKeys[key] && S.focused) cardAction(cardKeys[key], S.focused);
   else return;
