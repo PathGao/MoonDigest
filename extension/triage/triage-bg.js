@@ -23,7 +23,7 @@ function triageExtractJson(content, open) {
   const close = open === "[" ? "]" : "}";
   const s = String(content || "").replace(/```(?:json)?/gi, "");
   const start = s.indexOf(open);
-  if (start < 0) throw new Error("AI 返回内容不是 JSON");
+  if (start < 0) throw new Error("AI 回复格式不对");
   let depth = 0, inStr = false, esc = false, end = -1;
   for (let i = start; i < s.length; i++) {
     const ch = s[i];
@@ -35,11 +35,11 @@ function triageExtractJson(content, open) {
     else if (ch === open) depth++;
     else if (ch === close && --depth === 0) { end = i; break; }
   }
-  if (end < 0) throw new Error("AI 返回的 JSON 不完整");
+  if (end < 0) throw new Error("AI 回复不完整");
   try {
     return JSON.parse(s.slice(start, end + 1));
   } catch {
-    throw new Error("AI 返回的 JSON 无法解析");
+    throw new Error("AI 回复格式不对");
   }
 }
 
@@ -77,7 +77,7 @@ function triageCleanTagName(name) {
 function triageParseLlm(content) {
   const obj = triageExtractJson(content, "{");
   const oneLiner = String(obj.one_liner ?? obj.oneLiner ?? "").trim();
-  if (!oneLiner) throw new Error("AI 返回缺少 one_liner");
+  if (!oneLiner) throw new Error("AI 回复缺少总结");
   const points = (Array.isArray(obj.points) ? obj.points : [])
     .map((p) => String(p ?? "").trim())
     .filter(Boolean)
@@ -272,7 +272,7 @@ async function triageBiliJson(res) {
 }
 
 function triageBiliData(json) {
-  if (json.code !== 0) throw triageError(`B站返回 ${json.code}: ${json.message}`, json.code === -352 || json.code === -412 ? "THROTTLED" : undefined);
+  if (json.code !== 0) throw triageError(`B站返回 ${json.code}：${json.message}`, json.code === -352 || json.code === -412 ? "THROTTLED" : undefined);
   return json.data;
 }
 
@@ -282,7 +282,7 @@ async function triageBiliGet(url) {
 
 async function triageBiliPost(path, fields) {
   const cookie = await chrome.cookies.get({ url: "https://www.bilibili.com", name: "bili_jct" });
-  if (!cookie?.value) throw triageError("未登录 B 站（缺少 csrf）");
+  if (!cookie?.value) throw triageError("未登录 B 站");
   const res = await fetch(`https://api.bilibili.com${path}`, {
     method: "POST",
     credentials: "include",
@@ -300,7 +300,7 @@ const TRIAGE_BILI_IO = {
     const json = await fetchJsonForAi(url).catch((e) => {
       throw e.status === 412 ? triageError("B站请求失败 HTTP 412", "THROTTLED") : e;
     });
-    if (json?.code === -352 || json?.code === -412) throw triageError(`B站返回 ${json.code}: ${json.message}`, "THROTTLED");
+    if (json?.code === -352 || json?.code === -412) throw triageError(`B站返回 ${json.code}：${json.message}`, "THROTTLED");
     if (json?.code === 0 && /\/x\/player\//.test(url) && !json.data?.subtitle) throw triageError("B站字幕接口限流，稍后重试", "THROTTLED");
     return json;
   }
@@ -578,7 +578,7 @@ async function triageChat(messages, maxTokens, thinking = false) {
     const json = await res.json();
     const choice = json.choices?.[0];
     if (!choice?.message?.content && choice?.finish_reason === "length") {
-      throw triageError("模型输出被截断（思考可能用光了额度），请调大输出上限或关闭思考");
+      throw triageError("模型输出被截断");
     }
     return { content: choice?.message?.content, model: provider.model };
   };
