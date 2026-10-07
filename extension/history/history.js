@@ -255,10 +255,14 @@ async function saveToObsidian(group) {
       }
       boundPath = "";
     }
+    // A deleted or hidden video has no note to build; its conversation is written as its own note below.
+    let built = null;
     if (!boundPath && group.context.site === "bilibili" && (Number(group.context.pageIndex) || 1) === 1) {
       setStatus("正在生成视频笔记…");
-      const built = await chrome.runtime.sendMessage({ type: "triage-build-note", bvid: group.context.videoId });
-      if (!built?.ok) throw new Error(built?.error || "生成视频笔记失败");
+      built = await chrome.runtime.sendMessage({ type: "triage-build-note", bvid: group.context.videoId });
+      if (!built?.ok && !BocSites.isBiliVideoGone(built?.code)) throw new Error(built?.error || "生成视频笔记失败");
+    }
+    if (built?.ok) {
       setStatus("正在写入…");
       const context = { ...group.context, title: built.data.title || group.context.title };
       const folder = BocNote.resolveFolderTemplate(settings.noteFolder || "", context);
@@ -288,7 +292,8 @@ async function saveToObsidian(group) {
     if (exists.exists && !confirm(`该笔记已存在，继续会覆盖原内容：${filepath}`)) return;
     const written = await chrome.runtime.sendMessage({ type: "write-obsidian-note", baseUrl, apiKey, filepath, content: note.content });
     if (!written?.ok) throw new Error(written?.error || "Local API 写入失败");
-    setStatus(group.context.videoId ? `已写入 Obsidian：${filepath}（这个视频还没有视频笔记，写成了单独的对话笔记）` : `已写入 Obsidian：${filepath}`);
+    if (built) setStatus(`已写入 Obsidian：${filepath}（视频已失效，只写了对话）`);
+    else setStatus(group.context.videoId ? `已写入 Obsidian：${filepath}（这个视频还没有视频笔记，写成了单独的对话笔记）` : `已写入 Obsidian：${filepath}`);
   } catch (error) {
     setStatus(`写入 Obsidian 失败：${error?.message || error}`);
   } finally {

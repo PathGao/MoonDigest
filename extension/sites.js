@@ -213,6 +213,13 @@
     return error;
   }
 
+  // The view API's codes for a video that is gone or hidden: -404 稿件不存在, 62002 稿件不可见, 62004 稿件审核中,
+  // 62012 仅 UP 主自己可见. Risk control (-352/-412, THROTTLED) and network errors are not among them.
+  const BILI_GONE_CODES = new Set([-404, 62002, 62004, 62012]);
+  function isBiliVideoGone(code) {
+    return BILI_GONE_CODES.has(code);
+  }
+
   // Old av links (/video/av170001) still open without redirecting; the BV id is a fixed transform of the aid.
   function biliAvToBv(aid) {
     const table = "FcwAPNKTMug3GV5Lj7EJnHpWsx4tb8haYeviqBz6rkCy12mUSDQX9RdoZf";
@@ -1317,6 +1324,7 @@
     cleanUrl,
     isAllowedFetchUrl,
     buildContextKey,
+    isBiliVideoGone,
     rankTracks,
     normalizeSubtitleLang,
     pickPreferredTrack,
