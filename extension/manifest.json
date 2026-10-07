@@ -61,6 +61,13 @@
       "run_at": "document_start"
     }
   ],
+  "web_accessible_resources": [
+    {
+      "resources": ["badges.css"],
+      "matches": ["https://www.bilibili.com/*"],
+      "use_dynamic_url": true
+    }
+  ],
   "action": {
     "default_title": "MoonDigest",
     "default_icon": {

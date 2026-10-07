@@ -72,7 +72,8 @@
   const SEL = 'a[href*="/video/BV"], a[href*="bvid=BV"]';
   // Keys that every video's info depends on; a per-video title or analysis only redraws that video.
   const isSharedKey = (k) => k === "triage_tags" || k === "triage_video_tags" || k === "triage_kept" || k.startsWith("triage_decisions_");
-  const isFavPage = location.hostname === "space.bilibili.com";
+  // BewlyCat's 收藏 page (?page=Favorites) counts too.
+  const isFavPage = () => location.hostname === "space.bilibili.com" || new URLSearchParams(location.search).get("page") === "Favorites";
 
   const cache = new Map(); // bvid -> info | null
   let shared = null;
@@ -84,8 +85,31 @@
   let pop = null;
   let gen = 0; // bumped when triage data changes so an in-flight scan drops its stale reads
   const observer = new MutationObserver(() => schedule());
+  const OBSERVE = { childList: true, subtree: true, attributes: true, attributeFilter: ["href"] };
 
-  const favFid = () => (isFavPage ? new URLSearchParams(location.search).get("fid") || "" : "");
+  // BewlyCat draws its own pages (首页, 收藏, 稍后再看…) inside #bewly's open shadow root. Only that root is searched:
+  // Bilibili's comment section is nested shadow roots too, and its video links should stay unmarked.
+  const bewlyRoot = () => document.getElementById("bewly")?.shadowRoot || null;
+  const findAll = (sel) => {
+    const r = bewlyRoot();
+    const list = [...document.querySelectorAll(sel)];
+    return r ? list.concat([...r.querySelectorAll(sel)]) : list;
+  };
+  let bewlyHooked = null;
+  // Page CSS doesn't reach into a shadow root, so it gets its own copy of badges.css.
+  function hookBewly() {
+    const r = bewlyRoot();
+    if (!r || r === bewlyHooked) return;
+    bewlyHooked = r;
+    observer.observe(r, OBSERVE);
+    if (!r.querySelector("link[data-mdg]")) {
+      const link = Object.assign(document.createElement("link"), { rel: "stylesheet", href: chrome.runtime.getURL("badges.css") });
+      link.dataset.mdg = "";
+      r.append(link);
+    }
+  }
+
+  const favFid = () => (isFavPage() ? new URLSearchParams(location.search).get("fid") || "" : "");
   const pageBvid = () => (location.pathname.startsWith("/video/") ? bvidFromHref(location.pathname) : "");
 
   // ponytail: rescans at most every 400ms; the video page's danmaku layer mutates constantly and this caps that cost.
@@ -107,12 +131,13 @@
     const g = gen;
     try {
       // Most Bilibili iframes hold no video link: nothing to mark, so no storage reads.
-      if (!pageBvid() && !document.querySelector(SEL)) return;
+      hookBewly();
+      if (!pageBvid() && !findAll(SEL).length) return;
       const fid = favFid();
       if (seenCfg.on) await loadSeen(g);
       if (g !== gen) return;
       if (!triageOn) {
-        const writes = [...document.querySelectorAll(SEL)].map(markCover);
+        const writes = findAll(SEL).map(markCover);
         for (const w of writes) w?.();
         return;
       }
@@ -127,7 +152,7 @@
         shared = { tags: got.triage_tags, videoTags: got.triage_video_tags || {}, decisions: mergeDecisions(got) };
         cache.clear();
       }
-      const anchors = [...document.querySelectorAll(SEL)];
+      const anchors = findAll(SEL);
       const here = pageBvid();
       const want = new Set(anchors.map((a) => bvidFromHref(a.getAttribute("href"))).concat(here).filter((b) => b && !cache.has(b)));
       if (want.size) {
@@ -163,7 +188,7 @@
 
   // One key per video on screen, a few KB per page; the history itself is read by the background (triage-seen-sync).
   async function loadSeen(g) {
-    const want = [...new Set([...document.querySelectorAll(SEL)].map((a) => bvidFromHref(a.getAttribute("href"))).filter((b) => b && !seenCache.has(b)))];
+    const want = [...new Set(findAll(SEL).map((a) => bvidFromHref(a.getAttribute("href"))).filter((b) => b && !seenCache.has(b)))];
     if (!want.length) return;
     const got = await chrome.storage.local.get(want.map((b) => `seen_${b}`));
     if (g !== gen) return;
@@ -209,6 +234,8 @@
 
   // Like markCover, returns its DOM write; a stale badge goes at once, before titleBox reads the title's text.
   function markAnchor(a) {
+    // BewlyCat wraps the whole card in a link around the title's own link; the inner link takes the badge.
+    if (a.querySelector(SEL)) return;
     const b = bvidFromHref(a.getAttribute("href"));
     const info = cache.get(b);
     const old = a.querySelector(".mdg-badge");
@@ -218,7 +245,7 @@
     const target = titleBox(a);
     if (!target) return;
     // Favorites pages show every user tag; elsewhere a tag chip appears only when there is no verdict.
-    const tags = isFavPage ? info.tags : info.label ? [] : info.tags.slice(0, 1);
+    const tags = isFavPage() ? info.tags : info.label ? [] : info.tags.slice(0, 1);
     const badge = badgeEl(info, b, tags);
     // Some titles hang their opening bracket with a negative text-indent, which would clip the badge.
     const indent = parseFloat(getComputedStyle(target).textIndent);
@@ -309,34 +336,38 @@
   }
 
   const hidePop = () => pop?.remove();
+  // Events from inside BewlyCat's shadow root reach the document retargeted to #bewly; composedPath has the real node.
+  const origin = (e) => e.composedPath?.()[0] || e.target;
   const onOver = (e) => {
-    const host = e.target.closest?.(".mdg-badge, .mdg-line");
+    const host = origin(e).closest?.(".mdg-badge, .mdg-line");
     if (host) showPop(host);
     else if (pop?.isConnected) hidePop();
   };
   const onFocus = (e) => {
-    const badge = e.target.closest?.(".mdg-badge") || e.target.querySelector?.(".mdg-badge");
+    const t = origin(e);
+    const badge = t.closest?.(".mdg-badge") || t.querySelector?.(".mdg-badge");
     if (badge) showPop(badge);
     else hidePop();
   };
 
   function clearMarks() {
     hidePop();
-    document.querySelectorAll(".mdg-badge, .mdg-line, .mdg-seen").forEach((n) => n.remove());
-    document.querySelectorAll(".mdg-seen-host").forEach((n) => n.classList.remove("mdg-seen-host"));
+    findAll(".mdg-badge, .mdg-line, .mdg-seen").forEach((n) => n.remove());
+    findAll(".mdg-seen-host").forEach((n) => n.classList.remove("mdg-seen-host"));
   }
 
   function setEnabled(on) {
     if (on === enabled) return;
     enabled = on;
     if (on) {
-      observer.observe(document.documentElement, { childList: true, subtree: true, attributes: true, attributeFilter: ["href"] });
+      observer.observe(document.documentElement, OBSERVE);
       document.addEventListener("mouseover", onOver, true);
       document.addEventListener("focusin", onFocus, true);
       document.addEventListener("focusout", hidePop, true);
       schedule();
     } else {
       observer.disconnect();
+      bewlyHooked = null;
       document.removeEventListener("mouseover", onOver, true);
       document.removeEventListener("focusin", onFocus, true);
       document.removeEventListener("focusout", hidePop, true);
@@ -384,7 +415,7 @@
       gen++;
       for (const b of changed) {
         cache.delete(b);
-        document.querySelectorAll(`.mdg-badge[data-bvid="${b}"], .mdg-line[data-bvid="${b}"]`).forEach((n) => n.remove());
+        findAll(`.mdg-badge[data-bvid="${b}"], .mdg-line[data-bvid="${b}"]`).forEach((n) => n.remove());
       }
       schedule();
     }
