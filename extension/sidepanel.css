@@ -177,42 +177,74 @@ body {
   display: none !important;
 }
 
-/* One quiet row under the header; the textarea opens in place of the saved text. */
+/* The note card leads the conversation, tinted unlike the chat bubbles; the textarea opens in its place.
+   Without a note it is a dashed 添加备注 button. */
 .sp-note {
   flex-shrink: 0;
-  margin: 8px 14px 0;
 }
 
 .sp-note-toggle {
   display: flex;
-  gap: 6px;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 2px;
   width: 100%;
   height: auto;
-  padding: 2px 0;
-  border: 0;
-  background: transparent;
-  color: var(--muted);
+  padding: 8px 12px;
+  border: 1px solid var(--warn-border);
+  border-radius: var(--radius-md);
+  background: var(--warn-bg);
+  color: var(--text);
   font: inherit;
-  font-size: var(--fs-xs);
   text-align: left;
+  white-space: normal;
   cursor: pointer;
 }
 
 .sp-note-toggle:hover {
-  color: var(--text);
+  background: var(--warn-bg);
+  border-color: var(--warn);
 }
 
 .sp-note-label {
-  flex: 0 0 auto;
-  font-weight: 600;
+  color: var(--text-2);
+  font-size: var(--fs-xs);
 }
 
 .sp-note-text {
-  min-width: 0;
-  color: var(--text-2);
-  white-space: nowrap;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
   overflow: hidden;
-  text-overflow: ellipsis;
+  font-size: var(--fs-sm);
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.sp-note-toggle.is-empty {
+  width: auto;
+  align-self: flex-start;
+  min-height: 28px;
+  padding: 0 10px;
+  justify-content: center;
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: transparent;
+}
+
+.sp-note-toggle.is-empty:hover {
+  background: var(--surface-muted);
+}
+
+.sp-note-toggle.is-empty:hover .sp-note-label {
+  color: var(--text);
+}
+
+.sp-note-toggle.is-empty .sp-note-text,
+.sp-note-toggle.is-empty .sp-note-head,
+.sp-note-toggle:not(.is-empty) .sp-note-add {
+  display: none;
 }
 
 .sp-note-input {
