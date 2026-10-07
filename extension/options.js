@@ -94,6 +94,7 @@ const elements = {
   seenShow: document.getElementById("seenShow"),
   seenThreshold: document.getElementById("seenThreshold"),
   seenStyle: document.getElementById("seenStyle"),
+  seenDemo: document.getElementById("seenDemo"),
   enableDebugLogs: document.getElementById("enableDebugLogs"),
   frontmatterFields: document.querySelectorAll('input[name="frontmatterField"]'),
   fixedPropertiesList: document.getElementById("fixedPropertiesList"),
@@ -154,7 +155,7 @@ function init() {
     }
   });
   elements.saveBtn.addEventListener("click", saveSettings);
-  elements.seenShow.addEventListener("change", syncSeenRows);
+  document.getElementById("seen").addEventListener("input", syncSeenRows);
   // The box shows the value that would be saved, so 150 over a stored 100 is not a silent no-op.
   elements.seenThreshold.addEventListener("change", () => (elements.seenThreshold.value = String(readFormPayload().seenThreshold)));
   // Same for 追问: blank, repeated and past-12 lines are dropped from the box, not only from what is saved.
@@ -269,9 +270,9 @@ async function loadSettings() {
   elements.includeTimestampInBody.checked = Boolean(settings.includeTimestampInBody);
   elements.showBiliTriageBadges.checked = settings.showBiliTriageBadges !== false;
   elements.seenShow.value = ["bar", "mark", "both"].includes(settings.seenShow) ? settings.seenShow : "off";
-  syncSeenRows();
   elements.seenThreshold.value = String(settings.seenThreshold || 80);
   elements.seenStyle.value = settings.seenStyle === "veil" ? "veil" : "badge";
+  syncSeenRows();
   elements.enableDebugLogs.checked = Boolean(settings.enableDebugLogs);
   // "bvid" was the field name before the site registry.
   const selectedFields = new Set((settings.frontmatterFields || DEFAULT_SETTINGS.frontmatterFields).map((field) => (field === "bvid" ? "video_id" : field)));
@@ -289,10 +290,24 @@ async function loadSettings() {
   markSaved();
 }
 
-// 看多少算看完了 and the mark style only matter while the mark is shown.
+// 看多少算看完了 and the mark style only matter while the mark is shown. The example covers follow the unsaved form:
+// options.css reads data-show and data-style, and the 2nd and 3rd covers sit at the share and at half of it.
 function syncSeenRows() {
   const mark = elements.seenShow.value === "mark" || elements.seenShow.value === "both";
   document.querySelectorAll("[data-seen-mark-row]").forEach((row) => (row.hidden = !mark));
+  const demo = elements.seenDemo;
+  demo.dataset.show = elements.seenShow.value;
+  demo.dataset.style = elements.seenStyle.value;
+  const share = readFormPayload().seenThreshold;
+  const half = Math.floor(share / 2);
+  const cover = (at, pct, words) => {
+    const fig = demo.querySelector(`[data-seen-at="${at}"]`);
+    fig.hidden = pct < 1; // a 1% share leaves nothing below it
+    fig.querySelector(".seen-tag").textContent = words;
+    fig.querySelector("i").style.width = `${pct}%`;
+  };
+  cover("full", share, share >= 100 ? "✓ 看完了" : `✓ 看过 ${share}%`);
+  cover("half", half, `看过 ${half}%`);
 }
 
 async function saveSettings() {
