@@ -3179,7 +3179,7 @@ function renderBasket() {
         <span class="basket-text"><span class="basket-title">${title}</span>${meta || x.opened ? `<span class="muted">${[meta, x.opened && "已打开"].filter(Boolean).join(" · ")}</span>` : ""}</span>
       </button>
       <div class="basket-actions">
-        <button type="button" data-basket="done" aria-label="看完，移出 ${title}">看完</button>
+        <button type="button" data-basket="done" aria-label="已看，移出 ${title}">已看</button>
       </div>
       ${note ? `<div class="muted basket-note">${esc(note)}</div>` : ""}
     </div>`;
