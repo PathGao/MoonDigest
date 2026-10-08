@@ -972,19 +972,9 @@ async function initializeSettingsStorage() {
     obsidianApiKey: normalizeApiKey(localCurrent.obsidianApiKey)
   });
 
-  const legacySyncApiKey = normalizeApiKey(syncCurrent.obsidianApiKey);
-  const localApiKey = normalizeApiKey(localCurrent.obsidianApiKey);
-  if (!localApiKey && legacySyncApiKey) {
-    await chrome.storage.local.set({ obsidianApiKey: legacySyncApiKey });
-  }
-
-  if ("obsidianApiKey" in syncCurrent) {
-    await chrome.storage.sync.remove("obsidianApiKey");
-  }
-
   // A configured key means the user was already writing to Obsidian.
   if (typeof storedObsidianEnabled !== "boolean") {
-    await chrome.storage.sync.set({ obsidianEnabled: Boolean(localApiKey || legacySyncApiKey) });
+    await chrome.storage.sync.set({ obsidianEnabled: Boolean(normalizeApiKey(localCurrent.obsidianApiKey)) });
   }
 }
 
@@ -1049,18 +1039,9 @@ async function getMergedSettings() {
   ]);
 
   const merged = normalizeSyncSettings({ ...DEFAULT_SYNC_SETTINGS, ...syncSettings });
-  let apiKey = normalizeApiKey(localSettings.obsidianApiKey);
-  const legacySyncApiKey = normalizeApiKey(syncSettings.obsidianApiKey);
-
-  if (!apiKey && legacySyncApiKey) {
-    apiKey = legacySyncApiKey;
-    await chrome.storage.local.set({ obsidianApiKey: apiKey });
-    await chrome.storage.sync.remove("obsidianApiKey");
-  }
-
   return {
     ...merged,
-    obsidianApiKey: apiKey
+    obsidianApiKey: normalizeApiKey(localSettings.obsidianApiKey)
   };
 }
 
