@@ -161,8 +161,14 @@ function bindEvents() {
   els.exportPopover.addEventListener("click", (event) => {
     if (event.target instanceof Element && event.target.closest("button")) hideExportPopover();
   });
-  els.saveConversationBtn?.addEventListener("click", () => {
-    void saveCurrentConversationToObsidian();
+  // One write at a time: a second click would open a second overwrite dialog.
+  els.saveConversationBtn?.addEventListener("click", async () => {
+    els.saveConversationBtn.disabled = true;
+    try {
+      await saveCurrentConversationToObsidian();
+    } finally {
+      els.saveConversationBtn.disabled = false;
+    }
   });
   els.copyConversationBtn?.addEventListener("click", () => {
     void copyCurrentConversationMarkdown();
@@ -1491,6 +1497,11 @@ async function addPresetPrompt() {
   }
   const nextPrompts = [...(aiPrefs.aiPresetPrompts || [])];
   if (!nextPrompts.includes(text)) {
+    // A 13th would be cut by the slice below; keep the input so the text is not lost.
+    if (nextPrompts.length >= 12) {
+      showConversationContextNotice("最多 12 条快捷追问，先删掉一条再添加。", 2600);
+      return;
+    }
     nextPrompts.push(text);
   }
   aiPrefs.aiPresetPrompts = nextPrompts.slice(0, 12);
@@ -2328,31 +2339,37 @@ async function copyCurrentConversationMarkdown() {
 // A missing video note is first written by the page's content script, the same writer as the popup's 写入 Obsidian.
 // Pages that are not videos have no video note, so their conversation is written as its own note.
 async function saveCurrentConversationToObsidian() {
+  // Taken before any await: switching video mid-write must not put another video's chat into this note.
+  const epoch = conversationEpoch;
+  const context = currentConversationMeta?.resolvedContext || contextData || currentConversationMeta?.contextRef || {};
+  const messages = chatHistory.slice();
   const settingsBundle = await loadObsidianSettings();
   if (!settingsBundle) {
     return;
   }
-  const context = currentConversationMeta?.resolvedContext || contextData || currentConversationMeta?.contextRef || {};
-  if (!buildConversationTurns(chatHistory).length) {
+  if (!buildConversationTurns(messages).length) {
     showConversationContextNotice("当前没有可写入 Obsidian 的对话。", 2200);
     return;
   }
   if (!BocSites.buildContextKey(buildConversationContextRef(context) || {})) {
-    await saveConversationNoteToObsidian(settingsBundle);
+    if (epoch === conversationEpoch) {
+      await saveConversationNoteToObsidian(settingsBundle);
+    }
     return;
   }
   showConversationContextNotice("正在写入 Obsidian…");
   try {
-    const result = await syncVideoNoteAiSection({ context, messages: chatHistory, ...settingsBundle });
+    const result = await syncVideoNoteAiSection({ context, messages, ...settingsBundle });
     if (result.exists) {
       showConversationContextNotice(`已更新 AI 问答：${result.filepath}`, 3000);
       return;
     }
     const tab = await getActiveTab();
-    if (!tab?.id || !liveContextData || !doesTabMatchContextUrl(liveTabUrl, context.url || "")) {
+    const live = liveContextData;
+    if (!tab?.id || !live || !doesTabMatchContextUrl(liveTabUrl, context.url || "")) {
       const ref = buildConversationContextRef(context);
       if (ref.site === "bilibili" && ref.pageIndex === 1) {
-        await saveBuiltVideoNoteToObsidian(context, ref, settingsBundle);
+        await saveBuiltVideoNoteToObsidian(ref, messages, epoch, settingsBundle);
         return;
       }
       showConversationContextNotice("这个视频还没有视频笔记，打开视频页后再写入 Obsidian。", 4000);
@@ -2361,7 +2378,7 @@ async function saveCurrentConversationToObsidian() {
     const resp = await sendMessageToActiveTab(tab.id, { type: "popup-send-obsidian" }, 1);
     // The page's note carries its latest conversation; the live context (the page's own key and path)
     // finds the note it just wrote, and this conversation replaces that section.
-    const created = resp?.ok ? await syncVideoNoteAiSection({ context: liveContextData, messages: chatHistory, ...settingsBundle }) : null;
+    const created = resp?.ok ? await syncVideoNoteAiSection({ context: live, messages, ...settingsBundle }) : null;
     if (!created?.exists) {
       throw new Error(resp?.error || resp?.payload?.message || "没能新建视频笔记");
     }
@@ -2382,13 +2399,17 @@ async function saveConversationNoteToObsidian(settingsBundle) {
 // Without the video page open, a B 站 P1 video's note is built by the background from Bilibili's API, as on the
 // 视频记录 page, then gets this conversation in its AI 问答 section. A deleted or hidden video gets the conversation
 // as its own note instead.
-async function saveBuiltVideoNoteToObsidian(context, ref, settingsBundle) {
-  const { settings, baseUrl, apiKey } = settingsBundle;
+async function saveBuiltVideoNoteToObsidian(ref, messages, epoch, settingsBundle) {
+  const { baseUrl, apiKey } = settingsBundle;
   showConversationContextNotice("正在生成视频笔记…");
   const built = await sendRuntimeMessage({ type: "triage-build-note", bvid: ref.videoId });
   if (!built?.ok) {
     if (!BocSites.isBiliVideoGone(built?.code)) {
       throw new Error(built?.code === 62004 ? "视频审核中，过后再试" : getReadableText(built?.error, "生成视频笔记失败"));
+    }
+    // The conversation-only note is built from the panel's current conversation.
+    if (epoch !== conversationEpoch) {
+      throw new Error("对话已切换");
     }
     const filepath = await saveConversationNoteToObsidian(settingsBundle);
     if (filepath) {
@@ -2396,7 +2417,7 @@ async function saveBuiltVideoNoteToObsidian(context, ref, settingsBundle) {
     }
     return;
   }
-  const filepath = videoNotePathFor({ ...context, title: built.data.title || context.title }, settings);
+  const { path: filepath, cover } = built.data;
   const choice = (await checkObsidianNoteExists(baseUrl, apiKey, filepath)) ? await BocOverwriteDialog.choose(filepath, { hasAiSection: true }) : "full";
   if (!choice) {
     showConversationContextNotice("已取消写入 Obsidian，原笔记未被覆盖。", 2200);
@@ -2404,12 +2425,12 @@ async function saveBuiltVideoNoteToObsidian(context, ref, settingsBundle) {
   }
   const noteKey = BocSites.buildContextKey(ref);
   if (choice === "full") {
-    const written = await sendRuntimeMessage({ type: "write-obsidian-note", baseUrl, apiKey, filepath, content: built.data.markdown, noteKey });
+    const written = await sendRuntimeMessage({ type: "write-obsidian-note", baseUrl, apiKey, filepath, content: built.data.markdown, cover, noteKey });
     if (!written?.ok) {
       throw new Error(getReadableText(written?.error, "Local API 写入失败"));
     }
   }
-  const section = BocNote.buildAiSection(buildConversationTurns(chatHistory));
+  const section = BocNote.buildAiSection(buildConversationTurns(messages));
   const updated = await sendRuntimeMessage({ type: "update-obsidian-ai-section", baseUrl, apiKey, filepath, section, noteKey });
   if (!updated?.ok) {
     throw new Error(getReadableText(updated?.error, "Local API 写入失败"));
@@ -2511,13 +2532,12 @@ function getErrorMessage(error, fallback = "未知错误") {
   return getReadableText(error?.message || error, fallback);
 }
 
-function confirmOverwriteNote(filepath) {
-  return new Promise((resolve) => {
-    const existing = document.querySelector(".sp-confirm-overlay");
-    if (existing) {
-      existing.remove();
-    }
+let cancelOverwriteNote = null;
 
+function confirmOverwriteNote(filepath) {
+  // A second dialog answers the first with 取消, so its caller does not wait forever.
+  cancelOverwriteNote?.();
+  return new Promise((resolve) => {
     const overlay = document.createElement("div");
     overlay.className = "sp-confirm-overlay";
     overlay.innerHTML = `
@@ -2534,6 +2554,7 @@ function confirmOverwriteNote(filepath) {
     overlay.querySelector(".sp-confirm-path").textContent = String(filepath || "");
 
     const cleanup = (value) => {
+      cancelOverwriteNote = null;
       overlay.remove();
       document.removeEventListener("keydown", onKeydown, true);
       resolve(value);
@@ -2552,9 +2573,11 @@ function confirmOverwriteNote(filepath) {
     });
     overlay.querySelector(".sp-confirm-cancel")?.addEventListener("click", () => cleanup(false));
     overlay.querySelector(".sp-confirm-primary")?.addEventListener("click", () => cleanup(true));
+    cancelOverwriteNote = () => cleanup(false);
     document.addEventListener("keydown", onKeydown, true);
     document.body.appendChild(overlay);
-    overlay.querySelector(".sp-confirm-primary")?.focus();
+    // 覆盖 is destructive: Enter on the focused button must not overwrite by default.
+    overlay.querySelector(".sp-confirm-cancel")?.focus();
   });
 }
 

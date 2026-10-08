@@ -680,7 +680,12 @@ async function triageBuildNote(bvid, settings) {
   noteMeta.userTags = [...new Set((stored.triage_video_tags?.[bvid] || []).map((id) => tagNames.get(id)).filter(Boolean))];
   noteMeta.aiTurns = BocNote.buildConversationTurns(BocNote.pickConversation(stored[conversationsKey], noteMeta)?.messages);
   const markdown = BocNote.withTriageSummary(BocNote.buildMarkdown(noteMeta, body, settings, ref), analysis, stored.triage_notes?.[bvid]?.text);
-  return { meta, noteMeta, body, markdown };
+  // Every writer of this note uses this path and downloads this cover into the vault (hdslb links 403 in Obsidian).
+  const folder = BocNote.resolveFolderTemplate(settings.noteFolder, noteMeta);
+  const filename = BocNote.buildNoteFilename(noteMeta, settings);
+  const path = folder ? `${folder}/${filename}` : filename;
+  const cover = { url: meta.cover, name: `bilibili-${bvid}` };
+  return { meta, noteMeta, body, markdown, filename, path, cover };
 }
 
 // Returns { path, skipped, aiUpdated, title, source }; skipped means the note existed and overwrite was off,
@@ -691,11 +696,7 @@ async function triageWriteNote({ bvid, overwrite }) {
   const baseUrl = String(settings.obsidianApiBaseUrl || "").trim();
   const apiKey = String(settings.obsidianApiKey || "").trim();
   if (!baseUrl || !apiKey) throw triageError("Obsidian 未配置");
-  const { meta, noteMeta, body, markdown } = await triageBuildNote(bvid, settings);
-
-  const folder = BocNote.resolveFolderTemplate(settings.noteFolder, noteMeta);
-  const filename = BocNote.buildNoteFilename(noteMeta, settings);
-  const path = folder ? `${folder}/${filename}` : filename;
+  const { meta, noteMeta, body, markdown, path, cover } = await triageBuildNote(bvid, settings);
   const noteKey = BocSites.buildContextKey(noteMeta);
   if (!overwrite) {
     // An existing note keeps its body; only its marked AI 问答 section follows the conversation.
@@ -705,7 +706,7 @@ async function triageWriteNote({ bvid, overwrite }) {
       : await readVaultNote(baseUrl, apiKey, path);
     if (existing.exists) return { path, skipped: true, aiUpdated: existing.updated === true, title: meta.title };
   }
-  const content = await linkCoverInVault(markdown, { url: meta.cover, name: `bilibili-${bvid}` }, { baseUrl, apiKey, filepath: path });
+  const content = await linkCoverInVault(markdown, cover, { baseUrl, apiKey, filepath: path });
   await putVaultNote(baseUrl, apiKey, path, content);
   await rememberObsidianNotePath(noteKey, path);
   return { path, skipped: false, title: meta.title, source: body.length ? "subtitle" : "meta" };
@@ -740,8 +741,8 @@ const TRIAGE_HANDLERS = {
   "triage-write-note": (msg) => triageWriteNote(msg),
   "triage-build-note": async ({ bvid }) => {
     const settings = await getMergedSettings();
-    const { meta, noteMeta, markdown } = await triageBuildNote(bvid, settings);
-    return { title: meta.title, markdown, filename: BocNote.buildNoteFilename(noteMeta, settings) };
+    const { meta, markdown, filename, path, cover } = await triageBuildNote(bvid, settings);
+    return { title: meta.title, markdown, filename, path, cover };
   },
   "triage-folders": () => triageCreatedFolders(),
 

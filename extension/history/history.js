@@ -227,7 +227,7 @@ function downloadGroups(groups) {
 
 // A video already written to Obsidian gets the conversation in its note's AI 问答 section, like the side panel's
 // 导出对话 → 写入 Obsidian (newest conversation, as auto-sync does). Without a video note, a B 站 video (P1: the
-// background builds only that) first gets the full note triage builds, at the path the side panel would use and
+// background builds only that) first gets the full note triage builds, at the path triage writes it to and
 // recorded for it. YouTube, other parts and web pages get the standalone AI note.
 async function saveToObsidian(group) {
   writing.add(group.key);
@@ -264,17 +264,14 @@ async function saveToObsidian(group) {
     }
     if (built?.ok) {
       setStatus("正在写入…");
-      const context = { ...group.context, title: built.data.title || group.context.title };
-      const folder = BocNote.resolveFolderTemplate(settings.noteFolder || "", context);
-      const filename = BocNote.buildNoteFilename(context, settings);
-      const filepath = folder ? `${folder}/${filename}` : filename;
+      const { path: filepath, cover } = built.data;
       const exists = await chrome.runtime.sendMessage({ type: "obsidian-note-exists", baseUrl, apiKey, filepath });
       if (!exists?.ok) throw new Error(exists?.error || "Local API 检查失败");
       const choice = exists.exists ? await BocOverwriteDialog.choose(filepath, { hasAiSection: Boolean(section) }) : "full";
       if (!choice) return;
       const overwrite = choice === "full";
       if (overwrite) {
-        const written = await chrome.runtime.sendMessage({ type: "write-obsidian-note", baseUrl, apiKey, filepath, content: built.data.markdown, noteKey });
+        const written = await chrome.runtime.sendMessage({ type: "write-obsidian-note", baseUrl, apiKey, filepath, content: built.data.markdown, cover, noteKey });
         if (!written?.ok) throw new Error(written?.error || "Local API 写入失败");
       }
       if (section) {

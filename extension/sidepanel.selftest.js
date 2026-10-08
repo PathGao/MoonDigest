@@ -102,6 +102,34 @@ const page = (id) => ({ ok: true, payload: { url: `https://example.com/${id}`, t
   await ctx.sendMessage();
   assert.deepStrictEqual([loads, ...errors], [1, "这不是支持的视频页。"], "the context that came back is checked too");
 
+  // 写入 Obsidian with the video page closed: the built note goes to the background's path with its cover, and the
+  // conversation switched during the write does not replace this video's chat.
+  {
+    const sent = [];
+    let updates = 0;
+    ctx.showConversationContextNotice = () => {};
+    const realSend = ctx.sendRuntimeMessage;
+    ctx.sendRuntimeMessage = async (msg) => {
+      sent.push(msg);
+      if (msg.type === "get-settings") {
+        vm.runInContext('chatHistory = [{ role: "user", content: "别的视频" }, { role: "assistant", content: "别的回答" }]; conversationEpoch += 1', ctx);
+        return { ok: true, settings: { obsidianApiBaseUrl: "http://127.0.0.1:27123", obsidianApiKey: "k" } };
+      }
+      if (msg.type === "triage-build-note") return { ok: true, data: { title: "T", markdown: "m", path: "B站/UP/T.md", cover: { url: "https://i0.hdslb.com/a.jpg", name: "bilibili-BV1xx411c7mD" } } };
+      if (msg.type === "obsidian-note-exists") return { ok: true, exists: false };
+      if (msg.type === "update-obsidian-ai-section") return { ok: true, exists: updates++ > 0, updated: true };
+      return { ok: true };
+    };
+    ctx.video = { ...video, pageIndex: 1, title: "T" };
+    vm.runInContext('contextData = video; currentConversationMeta = null; chatHistory = [{ role: "user", content: "这个视频" }, { role: "assistant", content: "回答" }]', ctx);
+    await ctx.saveCurrentConversationToObsidian();
+    const write = sent.find((m) => m.type === "write-obsidian-note");
+    assert.deepStrictEqual([write.filepath, write.cover.name], ["B站/UP/T.md", "bilibili-BV1xx411c7mD"]);
+    const section = sent.filter((m) => m.type === "update-obsidian-ai-section").pop();
+    assert.ok(section.filepath === "B站/UP/T.md" && section.section.includes("这个视频") && !section.section.includes("别的视频"), section.section);
+    ctx.sendRuntimeMessage = realSend;
+  }
+
   console.log("sidepanel selftest: all passed");
 })().catch((e) => {
   console.error(e);

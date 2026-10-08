@@ -92,7 +92,7 @@
       // Background reply shape: { ok, data }. window.__mockBuildFail makes it fail like a throttled fetch.
       case "triage-build-note":
         if (window.__mockBuildFail) return { ok: false, error: "mock: 请求过于频繁" };
-        return { ok: true, data: { title: `视频 ${msg.bvid}`, markdown: `---\ntitle: 视频 ${msg.bvid}\n---\n\n## 字幕\n\nmock subtitle\n` } };
+        return { ok: true, data: { title: `视频 ${msg.bvid}`, path: `MoonDigest/bilibili/视频 ${msg.bvid}.md`, cover: { url: "", name: `bilibili-${msg.bvid}` }, markdown: `---\ntitle: 视频 ${msg.bvid}\n---\n\n## 字幕\n\nmock subtitle\n` } };
       default:
         return { ok: false, error: `mock: unhandled ${msg?.type}` };
     }
