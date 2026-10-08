@@ -232,7 +232,7 @@ select { height: 28px; max-width: 240px; }
 /* Each row reads as one line left to right: more room between rows 2, 3 and 4, and a thin rule under row 3 as under
    row 2 (the tabs). */
 .stagebar { padding: 14px 0; border-bottom: 1px solid var(--border); }
-.tagbar { padding: 14px 0; }
+.tagbar { padding: 14px 0; border-bottom: 1px solid var(--border); }
 .stagebar .list-header { grid-column: 2; margin-left: 0; }
 .stagebar .step-actions { flex-wrap: nowrap; }
 .stagebar .class-filter, .tagbar .tagfilter { min-height: 32px; }
@@ -320,7 +320,7 @@ select { height: 28px; max-width: 240px; }
 .sel-actions .primary:hover { background: var(--action-hover); }
 .sel-actions .danger { margin-left: 4px; }
 
-.list { min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 12px; margin: 0 -8px; padding: 6px 8px 80px; }
+.list { min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 12px; margin: 0 -8px; padding: 14px 8px 80px; }
 /* Two card states. Current (hover or J/K) is the lifted box; selected (X) is the blue outline and tint, no ✓ so it never sits on the cover's 看到 tag. Both can show at once. */
 .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); transition: border-color 0.12s, box-shadow 0.12s; }
 /* Current: a dark ring plus the lift, so it reads at a glance; selected (below) swaps the ring for blue. */
