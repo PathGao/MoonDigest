@@ -149,8 +149,7 @@ function triageParseCommand(content, items, tags, { maxNewTags = 5, allowRemove 
     const pick = (arr, ok) => [...new Set((Array.isArray(arr) ? arr : []).map((x) => triageCleanTagName(x)))].filter((x) => x && ok(x));
     const a = {
       add: pick(r.add, (x) => valid.has(x) && !current.has(x)),
-      remove: allowRemove ? pick(r.remove, (x) => current.has(x)) : [],
-      reason: String(r.reason ?? "").trim()
+      remove: allowRemove ? pick(r.remove, (x) => current.has(x)) : []
     };
     if (a.add.length || a.remove.length) assignments[item.bvid] = a;
   });
@@ -219,7 +218,7 @@ function triageBuildMessages(meta, subtitle, comments, criteria, folder) {
 
 function triageBuildCommandMessages({ instruction, tags, items, maxNewTags = 5, allowRemove = false }) {
   const lines = triageTagLines(tags);
-  const example = `{"new_tags": ["标签名"], "items": [{"i": 序号, "add": ["标签"], "remove": ["标签"], "reason": "≤20字"}], "note": "≤60字"}`;
+  const example = `{"new_tags": ["标签名"], "items": [{"i": 序号, "add": ["标签"], "remove": ["标签"]}], "note": "≤60字"}`;
   const system = [
     "你是 B站收藏整理助手，按用户指令给视频打标签、做分类。",
     "用户指令写在 <<<指令>>> 和 <<<指令结束>>> 之间，它就是本次任务的要求。",
@@ -231,7 +230,6 @@ function triageBuildCommandMessages({ instruction, tags, items, maxNewTags = 5, 
     allowRemove ? "- remove 只能填该视频“现有标签”里的名称。" : "- 这次不能去掉视频已有的标签，remove 留空，只加标签。",
     "- 标签带说明（冒号后）的，按说明决定给视频加上还是去掉这个标签。",
     "- 一个视频可以加多个标签，也可以一个都不加；指令或标签说明要求只选一个时（比如分档：入门 / 进阶 / 硬核），每个视频只加其中一个。",
-    "- reason ≤20字。",
     "- 指令不适用的视频不要放进 items。",
     "- note ≤60字，总结做了什么，或者为什么没有合适的。",
     "- 有“一句话”和“要点”的视频以它们为主要依据，它们比标题可靠得多。",
