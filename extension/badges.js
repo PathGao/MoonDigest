@@ -441,6 +441,7 @@
   // the 「+」 opens the tag picker. Events from BewlyCat's shadow root reach the document retargeted to #bewly;
   // composedPath has the chip.
   function onChip(e) {
+    if (globalThis.BocTyping.composing(e) || globalThis.BocTyping.typingIn(e)) return;
     if (e.type === "keydown" && e.key !== "Enter" && e.key !== " ") return;
     const path = e.composedPath?.() || [];
     const add = path.find((n) => n.classList?.contains("mdg-up-add"));

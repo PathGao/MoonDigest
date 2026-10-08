@@ -268,7 +268,7 @@ assert.strictEqual(spotIn(h("a", {}, h("div", {}, h("img"), "  "))), null, "avat
   win.window = win;
   win.top = win;
   const live = vm.createContext(win);
-  vm.runInContext(fs.readFileSync(path.join(__dirname, "badges.js"), "utf8"), live);
+  vm.runInContext(badgesJs, live);
   const settle = () => new Promise((r) => setTimeout(r, 30));
   const chipAfter = (n) => (n.nextSibling?.classList?.contains("mdg-ups") ? n.nextSibling : null);
   const tagsText = (box) => box?.querySelectorAll(".mdg-up").filter((c) => !c.classList.contains("mdg-up-add")).map((c) => c.textContent).join("");
@@ -324,6 +324,13 @@ assert.strictEqual(spotIn(h("a", {}, h("div", {}, h("img"), "  "))), null, "avat
   doc.listeners.click.forEach((f) => f(ev));
   assert.deepStrictEqual(plain(sent), [{ type: "triage-open", hash: "follow&tag=t2" }]);
   assert.strictEqual(stopped, 2);
+  // Enter on a chip opens it too, but not an Enter that picks an IME candidate, nor one typed into a field.
+  const enter = (o) => doc.listeners.keydown.forEach((f) => f({ type: "keydown", key: "Enter", composedPath: () => [chip, chip.parentNode, homeAuthor], preventDefault: () => stopped++, stopPropagation: () => stopped++, ...o }));
+  enter({ isComposing: true });
+  enter({ composedPath: () => [{ closest: (sel) => (sel.includes("input") ? {} : null) }, chip, chip.parentNode] });
+  assert.strictEqual(sent.length, 1, "IME and typing skip the chip");
+  enter({});
+  assert.strictEqual(sent.length, 2);
 
   // No UP tags left: chips, bar and hidden cards all go.
   store.follow_tags = [];
