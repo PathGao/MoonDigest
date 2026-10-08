@@ -81,8 +81,9 @@ select { height: 28px; max-width: 240px; }
 .activity-bar i { display: block; height: 100%; background: currentColor; }
 .activity button { height: 22px; padding: 0 8px; border: 0; border-radius: 11px; background: var(--surface); color: inherit; font-size: var(--fs-xs); }
 
-/* B站同步 is a pill; its full text and list open below it. */
-.sync-wrap { position: relative; }
+/* B站同步 is a pill; its full text and list open below it, right-aligned to it, and slide right to stay on screen. */
+.sync-wrap { position: relative; anchor-scope: --sync; }
+.sync-pill { anchor-name: --sync; }
 .pill { height: 30px; padding: 0 12px; border-radius: 15px; white-space: nowrap; }
 .sync-pill::before { content: ""; display: inline-block; width: 7px; height: 7px; margin-right: 6px; border-radius: 50%; background: var(--action); vertical-align: 1px; }
 .sync-pill.warn { border-color: var(--warn-border); background: var(--warn-bg); color: var(--warn); }
@@ -417,11 +418,13 @@ button.icon { width: 26px; height: 24px; padding: 0; }
 .verdict-row:empty { display: none; }
 
 .notice {
-  position: absolute;
-  top: calc(100% + 6px);
-  right: 0;
+  --w: min(380px, calc(100vw - 32px));
+  position: fixed;
+  position-anchor: --sync;
+  top: calc(anchor(bottom) + 6px);
+  left: max(16px, calc(anchor(right) - var(--w)));
   z-index: 12;
-  width: min(380px, calc(100vw - 32px));
+  width: var(--w);
   padding: 10px 12px;
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
