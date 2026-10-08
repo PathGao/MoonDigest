@@ -121,4 +121,4 @@ B站 页面上的颜色是 `tokens.css` 的第三份拷贝：`content.css` 里�
 - 键盘只有一个全局处理函数，在 `triage.js` 的 `onKey` 里。播放器里按的 T / Esc 也只有一个 message 监听，同在 `triage.js`。关注模式用 `MoonTriage.setModeKeys` 注册自己的按键，两处都先问它。
 - 后台（`background.js` 的 service worker）也加载 `tag-core.js` 和 `shared.js`，日期、时长、标签名清洗直接用 `TriageUi`，不在 `triage-bg.js` 里另写。加载顺序以 `background.js` 的 `importScripts` 为准，后台的 selftest 照它读。
 - 「✦ AI 打标签」的后台只有一份：`triage-bg.js` 的 `triageAiCommand`（指令检查、新建上限 0–50、解析）。关注只把 UP 主整理成条目，带上自己的 unit 调它。
-- B站 的 GET 只有一个通道：`triage-bg.js` 的 `triageBiliGetJson`，30 秒没回应算断网。收藏夹每次只试一次，限流由页面退避；关注传入自己的队列（间隔、断网重试、风控整队暂停）。风控码统一用 `BILI_RISK_CODES`，WBI 签名用 `sites.js`。
+- B站 的 GET 只有一个通道：`triage-bg.js` 的 `triageBiliGetJson`，30 秒没回应算断网。收藏夹每次只试一次，限流由页面退避；关注传入自己的队列（间隔、断网重试、风控整队暂停）。写操作 `triageBiliPost` 也有这 30 秒超时，但只发一次、从不自动重试；超时报「不确定 B站 是否已改」，调用方按失败处理，不改计数、不记撤销。风控码统一用 `BILI_RISK_CODES`，WBI 签名用 `sites.js`。

@@ -263,16 +263,17 @@ function triageBiliData(json) {
   return json.data;
 }
 
-// The one B站 GET of both modes. No answer in TRIAGE_BILI_CFG.timeoutMs, or a dropped connection, is NETWORK.
+// The one B站 channel of both modes (GET and POST). No answer in TRIAGE_BILI_CFG.timeoutMs, or a dropped connection,
+// is NETWORK.
 const TRIAGE_BILI_CFG = { timeoutMs: 30000 };
-async function triageBiliFetch(url) {
+async function triageBiliFetch(url, init = {}) {
   const ctl = new AbortController();
   let timer;
   const timeout = new Promise((_, reject) => {
     timer = setTimeout(() => reject(new Error(`${TRIAGE_BILI_CFG.timeoutMs / 1000} 秒没有回应`)), TRIAGE_BILI_CFG.timeoutMs);
   });
   try {
-    return await Promise.race([fetch(url, { credentials: "include", signal: ctl.signal }), timeout]);
+    return await Promise.race([fetch(url, { ...init, credentials: "include", signal: ctl.signal }), timeout]);
   } catch (e) {
     ctl.abort();
     throw triageError(`网络断了：${e?.message || e}`, "NETWORK");
@@ -317,11 +318,14 @@ async function triageBiliGet(url) {
 async function triageBiliPost(path, fields) {
   const cookie = await chrome.cookies.get({ url: "https://www.bilibili.com", name: "bili_jct" });
   if (!cookie?.value) throw triageError("未登录 B站");
-  const res = await fetch(`https://api.bilibili.com${path}`, {
+  // A write is tried once. Without an answer B站 may or may not have done it, so callers keep their state as before
+  // (no count change, no undo step) and the message says to look.
+  const res = await triageBiliFetch(`https://api.bilibili.com${path}`, {
     method: "POST",
-    credentials: "include",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body: triageForm({ ...fields, csrf: cookie.value })
+  }).catch((e) => {
+    throw e.code === "NETWORK" ? triageError("网络超时或断开：不确定 B站 是否已改，刷新后看一下", "NETWORK") : e;
   });
   return triageBiliData(await triageBiliJson(res));
 }

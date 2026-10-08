@@ -248,6 +248,11 @@ assert.throws(() => t.triageParseCommand('{"new_tags":[', cmdItems, cmdTags, {})
   const within = (p) => Promise.race([p, new Promise((_, reject) => setTimeout(() => reject(new Error("hangs")), 500))]);
   await assert.rejects(within(t.triageBiliGet("https://api.test")), (e) => e.code === "NETWORK" && /没有回应/.test(e.message));
   await assert.rejects(within(t.triageNav()), (e) => e.code === "NETWORK");
+  // A write that gets no answer is not tried again and says the outcome is unknown.
+  let posts = 0;
+  t.fetch = () => (posts++, new Promise(() => {}));
+  await assert.rejects(within(t.triageBiliPost("/x", {})), (e) => e.code === "NETWORK" && /不确定 B站 是否已改/.test(e.message));
+  assert.strictEqual(posts, 1, "a write is sent once");
   vm.runInContext("TRIAGE_BILI_CFG.timeoutMs = 30000", ctx);
 
   // A folder load that fails after page 1 keeps the fetched items and says so; a page-1 failure still throws.
