@@ -341,6 +341,34 @@ const settle = async () => {
     t.loadSubtitle = realLoad;
   }
 
+  // A subtitle longer than the video (uploader's subtitle for a longer cut) is rejected per track, carried through
+  // the candidate loop, and as the last resort shown with a warning but never cached.
+  {
+    state.videoDuration = 961;
+    state.subtitles = [];
+    t.currentSite = () => ({ parseSegments: () => [{ from: 0, to: 2, content: "嗨" }, { from: 1200, to: 1202, content: "拜拜" }] });
+    const realSave = t.BocSites.subtitleCache.save;
+    const saved = [];
+    t.BocSites.subtitleCache.save = async (key) => saved.push(key);
+    let mismatch;
+    await assert.rejects(t.commitSubtitleBody("raw", { url: "u", lang: "中文", subtitleId: ".zh" }, state.fetchRunId), (e) => ((mismatch = e), e.code === "SUBTITLE_DURATION_MISMATCH"));
+
+    const realLoad = t.loadSubtitle;
+    const fails = [mismatch, new Error("HTTP 404")];
+    t.loadSubtitle = async () => {
+      throw fails.shift();
+    };
+    await assert.rejects(t.tryLoadSubtitleCandidates([{ id: ".zh", url: "u1" }, { id: ".en", url: "u2" }], state.fetchRunId), (e) => e.message === "HTTP 404" && t.subtitleMismatchOf(e) === mismatch);
+    t.loadSubtitle = realLoad;
+
+    const track = await t.acceptMismatchedSubtitle(mismatch, state.fetchRunId);
+    assert.strictEqual(track.id, ".zh");
+    assert.strictEqual(state.subtitleBody.length, 2);
+    assert.strictEqual(state.subtitleWarning, "字幕时间轴到 20:02，视频长 16:01，字幕时间可能对不上。");
+    assert.deepStrictEqual(saved, [], "a mismatched body is not cached");
+    t.BocSites.subtitleCache.save = realSave;
+  }
+
   console.log("content selftest: all passed");
 })().catch((e) => {
   console.error(e);

@@ -63,6 +63,7 @@ const state = {
   subtitleBody: [],
   subtitleFetchState: "idle",
   subtitleFailure: "",
+  subtitleWarning: "", // set when the shown subtitle's time range does not match the video
   chapters: [],
   hotComments: [],
   markdown: "",
@@ -513,9 +514,15 @@ function bindRuntimeEvents() {
         sendResponse({ ok: false, error: "Missing subtitle URL", payload: getPopupPayload() });
         return false;
       }
-      loadSubtitle(url, lang, state.fetchRunId, subtitleId)
+      const runId = state.fetchRunId;
+      loadSubtitle(url, lang, runId, subtitleId)
+        .catch((error) => {
+          const mismatch = subtitleMismatchOf(error);
+          if (!mismatch) throw error;
+          return acceptMismatchedSubtitle(mismatch, runId);
+        })
         .then(() => {
-          setStatus("字幕切换完成。");
+          setStatus(`${state.subtitleWarning}字幕切换完成。`);
           sendResponse({ ok: true, payload: getPopupPayload() });
         })
         .catch((error) =>
@@ -978,6 +985,7 @@ function resetClipState() {
   state.selectedSubtitleLang = "";
   state.subtitleBody = [];
   state.subtitleFetchState = "idle";
+  state.subtitleWarning = "";
   state.subtitleFailure = "";
   state.chapters = [];
   state.hotComments = [];
@@ -1182,16 +1190,24 @@ async function runRefreshClip() {
         } else {
           const message = getErrorMessage(error, "");
           const empty = error?.anyEmpty === true;
-          if (!empty && !message.includes("HTTP") && !error?.status && error?.code !== "SUBTITLE_DURATION_MISMATCH") {
+          if (!empty && !message.includes("HTTP") && !error?.status && !subtitleMismatchOf(error)) {
             throw error;
           }
           // YouTube answers every track with an empty body when it rejects the PO token; ask for tracks that need none.
-          selected = await retrySubtitleCandidates(preferred, runId, empty ? { withoutPot: true } : {}).catch((retryError) => {
-            if (isStaleRunError(retryError)) {
-              throw retryError;
-            }
-            return loadTranscriptFallback(retryError, runId);
-          });
+          selected = await retrySubtitleCandidates(preferred, runId, empty ? { withoutPot: true } : {})
+            .catch((retryError) => {
+              if (isStaleRunError(retryError)) {
+                throw retryError;
+              }
+              return loadTranscriptFallback(retryError, runId);
+            })
+            .catch((finalError) => {
+              const mismatch = subtitleMismatchOf(finalError) || subtitleMismatchOf(error);
+              if (!mismatch || isStaleRunError(finalError)) {
+                throw finalError;
+              }
+              return acceptMismatchedSubtitle(mismatch, runId);
+            });
         }
       }
     }
@@ -1207,11 +1223,13 @@ async function runRefreshClip() {
     if (state.readingViewOpen) {
       moveReadingMainInline();
       renderReadingView();
-      setReadingNotice("");
+      setReadingNotice(state.subtitleWarning);
       startReaderPlayerObserver();
       syncReadingViewPlayback(true);
     }
-    setStatus(state.settings.obsidianEnabled ? "抓取完成，可以复制、下载或写入 Obsidian。" : "抓取完成，可以复制或下载。");
+    setStatus(
+      state.subtitleWarning + (state.settings.obsidianEnabled ? "抓取完成，可以复制、下载或写入 Obsidian。" : "抓取完成，可以复制或下载。")
+    );
   } catch (error) {
     if (isStaleRunError(error)) {
       return;
@@ -1314,6 +1332,7 @@ async function loadSubtitle(url, lang, runId = state.fetchRunId, subtitleId = ""
         state.selectedSubtitleUrl = url;
         state.selectedSubtitleLang = lang;
         state.subtitleBody = cachedBody;
+        state.subtitleWarning = "";
         state.subtitleFetchState = "ready";
         await refreshDerivedContent();
         ensureRunActive(runId);
@@ -1332,7 +1351,7 @@ async function loadSubtitle(url, lang, runId = state.fetchRunId, subtitleId = ""
 }
 
 // Validates, caches and installs a freshly fetched raw body as the selected track.
-async function commitSubtitleBody(raw, { url, lang, subtitleId }, runId) {
+async function commitSubtitleBody(raw, { url, lang, subtitleId }, runId, { allowMismatch = false } = {}) {
   const cacheKey = subtitleCache.key({ videoId: state.videoId, cid: state.cid, subtitleId, subtitleUrl: url, lang });
   ensureRunActive(runId);
   const body = currentSite().parseSegments(raw);
@@ -1342,20 +1361,25 @@ async function commitSubtitleBody(raw, { url, lang, subtitleId }, runId) {
     throw emptyError;
   }
   const durationCheck = BocSites.validateSubtitleByDuration(body, state.videoDuration);
-  if (!durationCheck.ok) {
+  if (!durationCheck.ok && !allowMismatch) {
     const mismatchError = new Error("字幕时长与当前视频不匹配。");
     mismatchError.code = "SUBTITLE_DURATION_MISMATCH";
     mismatchError.details = durationCheck;
+    mismatchError.commit = { raw, url, lang, subtitleId };
     throw mismatchError;
   }
 
-  await subtitleCache.save(cacheKey, raw);
-  ensureRunActive(runId);
+  // A mismatched body is shown but not cached: the cache only holds bodies that pass the check.
+  if (durationCheck.ok) {
+    await subtitleCache.save(cacheKey, raw);
+    ensureRunActive(runId);
+  }
 
   state.selectedSubtitleId = subtitleId ? String(subtitleId) : state.selectedSubtitleId;
   state.selectedSubtitleUrl = url;
   state.selectedSubtitleLang = lang;
   state.subtitleBody = body;
+  state.subtitleWarning = durationCheck.ok ? "" : subtitleMismatchWarning(durationCheck);
   state.subtitleFetchState = "ready";
   await refreshDerivedContent();
   ensureRunActive(runId);
@@ -1363,6 +1387,25 @@ async function commitSubtitleBody(raw, { url, lang, subtitleId }, runId) {
     renderReadingView();
     syncReadingViewPlayback(true);
   }
+}
+
+function subtitleMismatchWarning({ maxTo, videoDuration }) {
+  const withHours = Math.max(maxTo, videoDuration) >= 3600;
+  return `字幕时间轴到 ${formatCompactTimestamp(maxTo, withHours)}，视频长 ${formatCompactTimestamp(videoDuration, withHours)}，字幕时间可能对不上。`;
+}
+
+// The duration mismatch behind an error, if any: thrown by one track, or attached by tryLoadSubtitleCandidates.
+function subtitleMismatchOf(error) {
+  return error?.code === "SUBTITLE_DURATION_MISMATCH" ? error : error?.mismatch || null;
+}
+
+// Last resort when no track matches the video's duration: show the mismatched one with a warning
+// (the uploader's subtitle for a longer cut, or one covering only part of the video).
+async function acceptMismatchedSubtitle(mismatch, runId) {
+  const { raw, url, lang, subtitleId } = mismatch.commit;
+  await commitSubtitleBody(raw, { url, lang, subtitleId }, runId, { allowMismatch: true });
+  logInfo("[BOC] accepted subtitle despite duration mismatch", { subtitleId, ...mismatch.details });
+  return state.subtitles.find((item) => item.id === subtitleId) || { id: subtitleId, lang, label: lang };
 }
 
 function renderReadingSubtitleSelect() {
@@ -4329,6 +4372,7 @@ function buildSubtitleCandidates(subtitles, preferred) {
 async function tryLoadSubtitleCandidates(candidates, runId) {
   let lastError = null;
   let anyEmpty = false;
+  let mismatch = null;
   let backedOff = false;
   for (const item of candidates || []) {
     try {
@@ -4362,6 +4406,7 @@ async function tryLoadSubtitleCandidates(candidates, runId) {
       }
       lastError = error;
       anyEmpty ||= error?.code === "SUBTITLE_EMPTY";
+      mismatch ||= subtitleMismatchOf(error);
       const reasonCode = toReadableText(error?.code, "");
       const reasonMessage = getErrorMessage(error, "unknown");
       const meta = {
@@ -4383,6 +4428,7 @@ async function tryLoadSubtitleCandidates(candidates, runId) {
   if (lastError) {
     // The caller's PO-token fallback looks at every track, not just the last one.
     if (anyEmpty) lastError.anyEmpty = true;
+    if (mismatch) lastError.mismatch = mismatch;
     throw lastError;
   }
   throw new Error("这个视频暂时没有可用字幕。");
