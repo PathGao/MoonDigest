@@ -235,6 +235,13 @@ assert.throws(() => t.triageParseCommand('{"new_tags":[', cmdItems, cmdTags, {})
   await assert.rejects(t.triageNav(), /不是 JSON/);
   t.fetch = async () => ({ ok: false, status: 502, json: async () => ({}) });
   await assert.rejects(t.triageNav(), /HTTP 502/);
+  // 收藏夹 reads use 关注's channel: no answer in time is NETWORK instead of hanging forever.
+  vm.runInContext("TRIAGE_BILI_CFG.timeoutMs = 20", ctx);
+  t.fetch = () => new Promise(() => {});
+  const within = (p) => Promise.race([p, new Promise((_, reject) => setTimeout(() => reject(new Error("hangs")), 500))]);
+  await assert.rejects(within(t.triageBiliGet("https://api.test")), (e) => e.code === "NETWORK" && /没有回应/.test(e.message));
+  await assert.rejects(within(t.triageNav()), (e) => e.code === "NETWORK");
+  vm.runInContext("TRIAGE_BILI_CFG.timeoutMs = 30000", ctx);
 
   // A folder load that fails after page 1 keeps the fetched items and says so; a page-1 failure still throws.
   const media = (n) => ({ type: 2, bvid: `BV${n}`, id: n, title: `t${n}`, attr: 0 });

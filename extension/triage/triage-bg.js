@@ -279,8 +279,55 @@ function triageBiliData(json) {
   return json.data;
 }
 
+// The one B站 GET of both modes. No answer in TRIAGE_BILI_CFG.timeoutMs, or a dropped connection, is NETWORK.
+const TRIAGE_BILI_CFG = { timeoutMs: 30000 };
+async function triageBiliFetch(url) {
+  const ctl = new AbortController();
+  let timer;
+  const timeout = new Promise((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`${TRIAGE_BILI_CFG.timeoutMs / 1000} 秒没有回应`)), TRIAGE_BILI_CFG.timeoutMs);
+  });
+  try {
+    return await Promise.race([fetch(url, { credentials: "include", signal: ctl.signal }), timeout]);
+  } catch (e) {
+    ctl.abort();
+    throw triageError(`网络断了：${e?.message || e}`, "NETWORK");
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+// GET → the whole JSON, whatever its code. url may be an async function (WBI: signed again on every try).
+// Without pace (收藏夹) it is one try; the caller backs off on THROTTLED. pace (关注's long syncs) =
+// { slot, hold, cfg: { strikes, backoffMs, netRetry } }: every try waits for slot(); a dropped connection holds the
+// queue netRetry[i] ms and tries again; risk control holds it backoffMs (and drops the WBI key, a stale one answers
+// -352 too) and gives up with THROTTLED on the strikes-th time.
+async function triageBiliGetJson(url, pace) {
+  let net = 0;
+  for (let strike = 1; ; strike++) {
+    const u = typeof url === "function" ? await url() : url;
+    await pace?.slot();
+    let json = null;
+    try {
+      json = await triageBiliJson(await triageBiliFetch(u));
+    } catch (e) {
+      if (!pace) throw e;
+      if (e.code === "NETWORK" && net < pace.cfg.netRetry.length) {
+        pace.hold(pace.cfg.netRetry[net++], "network");
+        strike--;
+        continue;
+      }
+      if (e.code !== "THROTTLED") throw e;
+    }
+    if (json && !(pace && BILI_RISK_CODES.has(json.code))) return json;
+    if (strike >= pace.cfg.strikes) throw triageError("被 B站 限流，已暂停", "THROTTLED");
+    if (typeof url === "function") BocSites.biliWbiReset();
+    pace.hold(pace.cfg.backoffMs, "throttled");
+  }
+}
+
 async function triageBiliGet(url) {
-  return triageBiliData(await triageBiliJson(await fetch(url, { credentials: "include" })));
+  return triageBiliData(await triageBiliGetJson(url));
 }
 
 async function triageBiliPost(path, fields) {
@@ -311,8 +358,7 @@ const TRIAGE_BILI_IO = {
 
 // nav 未登录时 code=-101，triageBiliGet 会当错误抛出，所以只查 HTTP 与 JSON，由 triageMid 判断登录
 async function triageNav() {
-  const res = await fetch("https://api.bilibili.com/x/web-interface/nav", { credentials: "include" });
-  return (await triageBiliJson(res)).data || {};
+  return (await triageBiliGetJson("https://api.bilibili.com/x/web-interface/nav")).data || {};
 }
 
 async function triageMid() {

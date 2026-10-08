@@ -1,5 +1,5 @@
 // MoonDigest 关注分拣台 background 层。classic script，background.js 在 triage-bg.js 之后 importScripts，共享全局作用域，
-// 顶层名字统一带 follow / FOLLOW_ 前缀。B站 请求走 triage-bg.js 的 triageBiliJson / triageBiliPost，WBI 用 sites.js。
+// 顶层名字统一带 follow / FOLLOW_ 前缀。B站 请求走 triage-bg.js 的 triageBiliGetJson / triageBiliPost，WBI 用 sites.js。
 //
 // 消息（回复 { ok: true, data } 或 { ok: false, error, code? }；code: THROTTLED / NETWORK / NOT_LOGGED_IN）。时间都是秒，mid 都是字符串。
 // - follow-sync {}            开始或接着跑同步，立即返回 {}；进度在 storage follow_jobs。
@@ -155,7 +155,7 @@ const FOLLOW_AI_UNIT = {
 // ===== B站 请求 =====
 
 const FOLLOW_API = "https://api.bilibili.com";
-const FOLLOW_CFG = { gapMs: 1000, jitterMs: 500, backoffMs: 90000, strikes: 3, timeoutMs: 30000, emptyRetryMs: 1500, netRetry: [5000, 15000, 60000] };
+const FOLLOW_CFG = { gapMs: 1000, jitterMs: 500, backoffMs: 90000, strikes: 3, emptyRetryMs: 1500, netRetry: [5000, 15000, 60000] };
 const followSleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 let followQueue = Promise.resolve();
@@ -181,46 +181,9 @@ function followHold(ms, why) {
   } catch {}
 }
 
-// 30 秒没回应、连接断了都算 NETWORK。
-async function followFetch(url) {
-  const ctl = new AbortController();
-  let timer;
-  const timeout = new Promise((_, reject) => {
-    timer = setTimeout(() => reject(new Error(`${FOLLOW_CFG.timeoutMs / 1000} 秒没有回应`)), FOLLOW_CFG.timeoutMs);
-  });
-  try {
-    return await Promise.race([fetch(url, { credentials: "include", signal: ctl.signal }), timeout]);
-  } catch (e) {
-    ctl.abort();
-    throw triageError(`网络断了：${e?.message || e}`, "NETWORK");
-  } finally {
-    clearTimeout(timer);
-  }
-}
-
-// GET → 整个 JSON。url 可以是 async 函数（WBI 签名，每次重试重新签；风控时先丢掉签名密钥，旧密钥也回 -352）。
-async function followGetJson(url) {
-  let net = 0;
-  for (let strike = 1; ; strike++) {
-    const u = typeof url === "function" ? await url() : url;
-    await followSlot();
-    let json = null;
-    try {
-      json = await triageBiliJson(await followFetch(u));
-    } catch (e) {
-      if (e.code === "NETWORK" && net < FOLLOW_CFG.netRetry.length) {
-        followHold(FOLLOW_CFG.netRetry[net++], "network");
-        strike--;
-        continue;
-      }
-      if (e.code !== "THROTTLED") throw e;
-    }
-    if (json && !BILI_RISK_CODES.has(json.code)) return json;
-    if (strike >= FOLLOW_CFG.strikes) throw triageError("被 B站 限流，已暂停", "THROTTLED");
-    if (typeof url === "function") BocSites.biliWbiReset();
-    followHold(FOLLOW_CFG.backoffMs, "throttled");
-  }
-}
+// Every GET goes through triage-bg.js's channel, paced by this queue.
+const FOLLOW_PACE = { slot: followSlot, hold: followHold, cfg: FOLLOW_CFG };
+const followGetJson = (url) => triageBiliGetJson(url, FOLLOW_PACE);
 
 async function followGetData(url) {
   const j = await followGetJson(url);

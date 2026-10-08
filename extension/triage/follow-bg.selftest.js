@@ -5,9 +5,12 @@ const vm = require("vm");
 const assert = require("assert");
 
 const ctx = vm.createContext({ TextEncoder, URL, URLSearchParams, console, setTimeout, clearTimeout, setInterval, clearInterval, AbortController });
-// Browser order: background.js imports limits.js, sites.js, note.js, then triage-bg.js, then follow-bg.js.
-for (const file of ["../limits.js", "../sites.js", "../note.js", "triage-bg.js", "follow-bg.js"]) vm.runInContext(fs.readFileSync(path.join(__dirname, file), "utf8"), ctx);
-vm.runInContext("Object.assign(FOLLOW_CFG, { gapMs: 0, jitterMs: 0, backoffMs: 5, emptyRetryMs: 0, timeoutMs: 40, netRetry: [1, 1, 1] })", ctx);
+// The worker's own load order: every file background.js importScripts, in that order.
+const order = [...fs.readFileSync(path.join(__dirname, "../background.js"), "utf8").matchAll(/importScripts\(([^)]*)\)/g)].flatMap((m) => m[1].match(/"[^"]+"/g).map((f) => JSON.parse(f)));
+const load = (c) => order.forEach((file) => vm.runInContext(fs.readFileSync(path.join(__dirname, "..", file), "utf8"), c));
+const FAST = "Object.assign(FOLLOW_CFG, { gapMs: 0, jitterMs: 0, backoffMs: 5, emptyRetryMs: 0, netRetry: [1, 1, 1] }); TRIAGE_BILI_CFG.timeoutMs = 40;";
+load(ctx);
+vm.runInContext(FAST, ctx);
 const t = ctx;
 const plain = (x) => JSON.parse(JSON.stringify(x));
 const now = () => Math.floor(Date.now() / 1000);
@@ -226,7 +229,7 @@ const runSync = async () => {
     calls = [];
     let release;
     routes["/x/space/wbi/arc/search"] = (u) => (u.searchParams.get("mid") === "2" ? new Promise((r) => (release = r)) : arcOk(1));
-    vm.runInContext("FOLLOW_CFG.timeoutMs = 5000", ctx);
+    vm.runInContext("TRIAGE_BILI_CFG.timeoutMs = 5000", ctx);
     await t.followStart();
     while (!release) await new Promise((r) => setTimeout(r, 5));
     await t.followStop();
@@ -238,7 +241,7 @@ const runSync = async () => {
     routes["/x/space/wbi/arc/search"] = () => arcOk(1);
     calls = [];
     await runSync();
-    vm.runInContext("FOLLOW_CFG.timeoutMs = 40", ctx);
+    vm.runInContext("TRIAGE_BILI_CFG.timeoutMs = 40", ctx);
     assert.deepStrictEqual(calls.filter((c) => c.startsWith("space")), ["space/wbi/arc/search#2", "space/wbi/arc/search#3"]);
     assert.ok(local.follow_jobs.finishedAt);
   }
@@ -418,8 +421,8 @@ const runSync = async () => {
           onAlarm: { addListener: (fn) => (onAlarm = fn) }
         }
       };
-      for (const file of ["../limits.js", "../sites.js", "../note.js", "triage-bg.js", "follow-bg.js"]) vm.runInContext(fs.readFileSync(path.join(__dirname, file), "utf8"), w);
-      vm.runInContext("Object.assign(FOLLOW_CFG, { gapMs: 0, jitterMs: 0, backoffMs: 5, emptyRetryMs: 0, timeoutMs: 40, netRetry: [1, 1, 1] })", w);
+      load(w);
+      vm.runInContext(FAST, w);
       return w;
     };
     const settle = async (w) => {
