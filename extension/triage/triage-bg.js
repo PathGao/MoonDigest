@@ -455,7 +455,8 @@ async function triageCreatedFolders() {
   return {
     mid,
     folders: [
-      ...(toview ? [{ id: TRIAGE_TOVIEW, title: "稍后再看", count: toview.count || 0 }] : []),
+      // 稍后再看 has no folder cover of its own: use the newest unwatched video's cover, like a folder's first video.
+      ...(toview ? [{ id: TRIAGE_TOVIEW, title: "稍后再看", count: toview.count || 0, ...(toview.list?.[0]?.pic ? { cover: String(toview.list[0].pic).replace(/^http:\/\//, "https://") } : {}) }] : []),
       ...list.map((f) => ({ id: f.id, title: f.title, count: f.media_count, cover: String(f.cover || "").replace(/^http:\/\//, "https://") }))
     ]
   };

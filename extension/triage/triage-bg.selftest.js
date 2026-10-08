@@ -451,7 +451,7 @@ assert.throws(() => t.triageParseCommand('{"new_tags":[', cmdItems, cmdTags, {})
     t.fetch = async (url) => {
       const u = new URL(url);
       if (/web-interface\/nav/.test(url)) return { ok: true, status: 200, json: async () => ({ code: 0, data: { isLogin: true, mid: 7 } }) };
-      if (/toview/.test(url)) return { ok: true, status: 200, json: async () => ({ code: 0, data: { count: 3 } }) };
+      if (/toview/.test(url)) return { ok: true, status: 200, json: async () => ({ code: 0, data: { count: 3, list: [{ pic: "http://i1.hdslb.com/t.jpg" }] } }) };
       assert.strictEqual(u.pathname, "/x/v3/fav/folder/created/list");
       const pn = Number(u.searchParams.get("pn"));
       pages.push(pn);
@@ -461,7 +461,7 @@ assert.throws(() => t.triageParseCommand('{"new_tags":[', cmdItems, cmdTags, {})
     const r = plain(await H["triage-folders"]());
     assert.deepStrictEqual(pages, [1, 2]);
     assert.deepStrictEqual(r.folders, [
-      { id: "toview", title: "稍后再看", count: 3 },
+      { id: "toview", title: "稍后再看", count: 3, cover: "https://i1.hdslb.com/t.jpg" },
       { id: 1, title: "甲", count: 4, cover: "https://i0.hdslb.com/a.jpg" },
       { id: 2, title: "乙", count: 1, cover: "" }
     ]);

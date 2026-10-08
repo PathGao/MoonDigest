@@ -1633,3 +1633,15 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   console.error(e);
   process.exit(1);
 });
+
+// Folder tints never land on pink (where you are) or blue (next step); an empty 稍后再看 shows a gray clock, not a tint.
+{
+  const thumbHue = vm.runInContext("thumbHue", ctx), folderThumb = vm.runInContext("folderThumb", ctx);
+  for (const id of ["toview", 1, 2, 3, 77, 123456, "abc", 987654321]) {
+    const h = thumbHue(id);
+    assert.ok(!(h >= 180 && h <= 240) && !(h >= 300 || h <= 10), `hue ${h} for ${id}`);
+  }
+  assert.match(folderThumb("toview", ""), /toview-thumb[^>]*><svg/);
+  assert.doesNotMatch(folderThumb("toview", ""), /--h:/);
+  assert.match(folderThumb("toview", "https://i1.hdslb.com/t.jpg"), /<img src="https:\/\/i1\.hdslb\.com\/t\.jpg"/);
+}
