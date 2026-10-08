@@ -1356,10 +1356,12 @@ if (view?.tab === "feed") F.tab = "feed";
 if (SORTS[view?.sort]) F.sort = view.sort;
 if (view?.dir === "asc" || view?.dir === "desc") F.dir = view.dir;
 // Deep link from the UP tag chips on B站 pages: #follow opens 关注, &tag=<id> picks that tag (unknown id → 全部).
-// A hash wins over the remembered mode; an open tab only gets its hash changed.
+// A hash wins over the remembered mode; an open tab only gets its hash changed. Handled once, the hash goes: the same
+// chip clicked again is a hash change again, and a reload opens the mode last used.
 async function followHash() {
   const h = decodeURIComponent(location.hash.slice(1));
   if (!/^follow(&|$)/.test(h)) return false;
+  history.replaceState(null, "", location.pathname + location.search);
   const tag = new URLSearchParams(h.slice(6)).get("tag");
   if (tag) {
     F.side = tag;

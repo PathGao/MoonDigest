@@ -238,4 +238,8 @@ assert.strictEqual(t.fmtAgo(ago(800), now), "2 年前");
   assert.ok(/if \(syncFinished\(changes\.follow_jobs\?\.oldValue, changes\.follow_jobs\?\.newValue\)\) \{\s*F\.feed = null;/.test(source), "the page drops F.feed on it");
 }
 
+// The deep link's hash is dropped once read: the same tag clicked again changes the hash again (the worker sets it), and a
+// reload in 收藏夹 does not jump back to 关注.
+assert.ok(/if \(!\/\^follow\(&\|\$\)\/\.test\(h\)\) return false;\s*history\.replaceState\(null, "", location\.pathname \+ location\.search\);/.test(source), "followHash drops the hash");
+
 console.log("follow selftest: all passed");
