@@ -66,7 +66,7 @@ a.fw-title:hover { background: none; color: var(--link); text-decoration: underl
 
 /* ---------- 视频投稿: a grid of videos; beside the viewer a single column of rows ---------- */
 .fw-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 20px 16px; }
-.fw-video { min-width: 0; display: flex; flex-direction: column; gap: 8px; border-radius: var(--radius-md); }
+.fw-video { min-width: 0; display: flex; flex-direction: column; gap: 8px; border-radius: var(--radius-md); cursor: pointer; }
 .fw-video .cover-wrap { height: auto; padding: 0; border: 0; text-decoration: none; aspect-ratio: 16 / 9; cursor: pointer; }
 .fw-video .cover-wrap:hover .cover { transform: scale(1.03); }
 .fw-video .cover { width: 100%; height: 100%; transition: transform 0.2s; }
@@ -80,13 +80,14 @@ a.fw-title:hover { background: none; color: var(--link); text-decoration: underl
 .fw-video .chips { margin: 0; }
 /* Playing: pink, where you are, as in 收藏夹. */
 .fw-video.playing { outline: 2px solid var(--accent); outline-offset: 2px; }
+.fw-video:hover:not(.playing) { outline: 2px solid var(--text-2); outline-offset: 2px; }
 .fw-foot { display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 28px 0 8px; color: var(--muted); text-align: center; }
 .fw-foot p { margin: 0; }
 
 .main.viewing .fw-grid { grid-template-columns: minmax(0, 1fr); gap: 4px; }
 .main.viewing .fw-video { display: grid; grid-template-columns: 128px minmax(0, 1fr); gap: 10px; padding: 6px; }
 .main.viewing .fw-video .title { font-size: var(--fs-sm); }
-.main.viewing .fw-video.playing { outline-offset: -2px; }
+.main.viewing .fw-video:is(.playing, :hover) { outline-offset: -2px; }
 .main.viewing .fw-up { grid-template-columns: 40px minmax(0, 1fr) auto; gap: 10px; }
 .main.viewing .fw-avatar { width: 40px; height: 40px; }
 

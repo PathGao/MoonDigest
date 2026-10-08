@@ -360,6 +360,7 @@ html[data-seen-style="veil"] .cover-wrap.seen .seen-veil { display: flex; }
 
 /* ---------- card body, shared by rows and the grid ---------- */
 .card { position: relative; }
+.card[data-bvid] { cursor: pointer; }
 /* Processed cards stay readable: muted title and gray cover instead of fading the whole card. */
 .card-body { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
 .title {

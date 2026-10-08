@@ -1308,6 +1308,8 @@ main.addEventListener("click", async (e) => {
     e.preventDefault();
     return play(playBtn.dataset.play);
   }
+  const card = t.closest(".fw-video");
+  if (card && UI.cardPlayClick(e)) return play(card.dataset.bvid);
   const untag = t.closest("[data-untag]");
   if (untag) {
     const mid = untag.closest("[data-mid]").dataset.mid;
