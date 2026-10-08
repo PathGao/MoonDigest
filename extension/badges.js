@@ -174,13 +174,61 @@
     return r;
   }
 
+  // ---- What each kind of B站 page shows (DESIGN §8). vtags: video tags after the AI verdict; ups: UP tags after
+  // author names; plus: when 「+ UP 标签」 shows; above: video marks get their own line above the title; quiet: covers
+  // keep the progress bar and the ✓ mark only; bare: the progress bar only. ----
+  const SURFACES = {
+    card: { vtags: true, ups: true, plus: "hover" }, // home and search (B站 and BewlyCat)
+    fav: { vtags: true, ups: false, plus: "", above: true },
+    later: { vtags: true, ups: true, plus: "hover", quiet: true }, // 稍后再看, 历史
+    feed: { vtags: false, ups: true, plus: "hover" }, // 动态
+    space: { vtags: true, ups: false, plus: "", quiet: true }, // the owner's nickname is `owner`
+    video: { vtags: false, ups: false, plus: "" }, // recommendations and lists beside a video
+    popover: { vtags: false, ups: false, plus: "", bare: true }, // header popovers (B站 and BewlyCat)
+    owner: { vtags: false, ups: true, plus: "always" } // the video page's UP name, a space page's nickname
+  };
+  // "" in the 分拣台's own player, which already shows both tag lines above it.
+  function surfaceOf({ host = "", path = "", search = "", viewer = false } = {}) {
+    if (viewer) return "";
+    const page = new URLSearchParams(search).get("page") || ""; // BewlyCat's pages
+    if (page === "Favorites" || (host === "space.bilibili.com" && /^\/\d+\/favlist/.test(path))) return "fav";
+    if (page === "History" || page === "WatchLater" || /^\/(?:history|account\/history|watchlater)(?:\/|$)/.test(path)) return "later";
+    if (host === "t.bilibili.com" || page === "Moments") return "feed";
+    if (host === "space.bilibili.com") return "space";
+    if (/^\/(?:video|list)\//.test(path)) return "video";
+    return "card";
+  }
+
+  // How many of a group's chips fit in `room` px: all, or as many whole ones as leave room for 「+N」; -1 when not even
+  // 「+N」 fits, so the group hides instead of leaving an empty marker. `fixed` always shows (AI verdict, 「+ UP 标签」).
+  function fitCount(widths, room, { gap = 0, fixed = [], more = 0 } = {}) {
+    const span = (ws) => ws.reduce((s, w) => s + w, 0) + gap * Math.max(ws.length - 1, 0);
+    if (span([...fixed, ...widths]) <= room) return widths.length;
+    for (let k = widths.length - 1; k >= 0; k--) if (span([...fixed, ...widths.slice(0, k), more]) <= room) return k;
+    return -1;
+  }
+
+  // B站's own 稍后再看 / 历史 cards say 已看完 on the cover; ours would say it twice.
+  const biliSaysSeen = (a) => [...a.querySelectorAll(".bili-cover-card__stat")].some((n) => n.textContent.trim() === "已看完");
+
   globalThis.BocBadges = {
     bvidFromHref, badgeInfo, mergeDecisions, midFromHref, upTagsOf, firstText, spotIn, upCounts, upHidden,
-    faceKey, whoIndex, resolveMid, pickRows, applyUpTag, saveUpTag
+    faceKey, whoIndex, resolveMid, pickRows, applyUpTag, saveUpTag, SURFACES, surfaceOf, fitCount, biliSaysSeen
   };
   if (typeof chrome === "undefined" || !chrome.storage?.local || typeof document === "undefined") return;
+  const surface = surfaceOf({
+    host: location.hostname,
+    path: location.pathname,
+    search: location.search,
+    viewer: document.documentElement.hasAttribute?.("data-mdg-viewer")
+  });
+  if (!surface) return;
+  // Header popovers draw the same video links in miniature: B站's own (.v-popover) and BewlyCat's (.bew-popover).
+  const POPOVER = ".bew-popover, .v-popover";
+  const ruleFor = (el) => (el.closest?.(POPOVER) ? SURFACES.popover : SURFACES[surface]);
 
   const SETTING = "showBiliTriageBadges";
+  const UP_SETTING = "showBiliUpTags";
   // 观看进度 on covers has its own setting (设置页「观看进度」, off by default); it or the triage marks turn the page scan on.
   const SEEN_DEFAULTS = { seenShow: "off", seenThreshold: 80, seenStyle: "badge" };
   let triageOn = false;
@@ -189,8 +237,6 @@
   const SEL = 'a[href*="/video/BV"], a[href*="bvid=BV"]';
   // Keys that every video's info depends on; a per-video title or analysis only redraws that video.
   const isSharedKey = (k) => k === "triage_tags" || k === "triage_video_tags" || k === "triage_kept" || k.startsWith("triage_decisions_");
-  // BewlyCat's 收藏 page (?page=Favorites) counts too.
-  const isFavPage = () => location.hostname === "space.bilibili.com" || new URLSearchParams(location.search).get("page") === "Favorites";
 
   const cache = new Map(); // bvid -> info | null
   let shared = null;
@@ -230,7 +276,7 @@
   // badges.css hides BewlyCat's own watch progress while ours is on.
   const markBewly = () => document.getElementById("bewly")?.toggleAttribute("data-mdg-seen", seenCfg.on);
 
-  const favFid = () => (isFavPage() ? new URLSearchParams(location.search).get("fid") || "" : "");
+  const favFid = () => (surface === "fav" ? new URLSearchParams(location.search).get("fid") || "" : "");
   const pageBvid = () => (location.pathname.startsWith("/video/") ? bvidFromHref(location.pathname) : "");
 
   // ponytail: rescans at most every 400ms; the video page's danmaku layer mutates constantly and this caps that cost.
@@ -254,6 +300,7 @@
       hookBewly();
       if (upOn) await markUps();
       if (triageOn || seenCfg.on) await markVideos(g);
+      fitBoxes(findAll(".mdg-badge, .mdg-ups").filter((b) => !b.dataset.fit));
     } finally {
       running = false;
       if (again) {
@@ -269,9 +316,10 @@
   const NAME_SEL = ".bili-dyn-title__text, .dyn-orig-author__name";
   // A space page's own nickname; its mid is in the URL.
   const OWNER_SEL = ".upinfo .nickname, .upinfo-detail__top .nickname, #h-name";
-  const MAX_UP_CHIPS = 3;
   const FILTER_KEY = "mdg-up-filter";
   let upOn = false;
+  let upHas = false;
+  let upSetting = true;
   let up = { tags: [], map: {}, followed: new Set() };
   let who = null; // whoIndex over followed UPs, read from follow_people on first need
   const pageOwner = () => (location.hostname === "space.bilibili.com" ? /^\/(\d+)/.exec(location.pathname)?.[1] || "" : "");
@@ -306,65 +354,77 @@
       const mid = midFromHref(a.getAttribute("href"));
       // On a space page the owner's own links (its video cards) would all say the same thing; the nickname carries it.
       const spot = mid && mid !== owner ? spotIn(a) : null;
-      if (spot) spots.push([spot, mid]);
+      if (!spot) continue;
+      // The video page's UP name: its tags get their own line under the name row.
+      const row = a.classList.contains("up-name") && a.closest(".up-detail-top");
+      spots.push(row ? [row, mid, SURFACES.owner, spot.textContent] : [spot, mid, ruleFor(a)]);
     }
-    if (owner) for (const el of findAll(OWNER_SEL)) spots.push([el, owner]);
+    // The nickname only on the space's own pages: its 收藏夹 page shows no UP tags.
+    if (owner) for (const el of findAll(OWNER_SEL)) spots.push([el, owner, surface === "space" ? SURFACES.owner : SURFACES.fav]);
     const nameEls = findAll(NAME_SEL);
     const idx = nameEls.length ? await whoIs() : null;
     const byEl = new Map(nameEls.map((el) => [el, nameMid(el, idx)]));
-    for (const [el, mid] of byEl) spots.push([el, mid]);
-    const writes = spots.map(([spot, mid]) => upChip(spot, mid));
+    for (const [el, mid] of byEl) spots.push([el, mid, ruleFor(el)]);
+    const writes = spots.map(([spot, mid, rule, name]) => upChip(spot, mid, rule, name));
     if (onFeed()) writes.push(...feedFilter(byEl));
     for (const w of writes) w?.();
   }
 
   // Keeps, replaces or removes the box right after `spot`; the DOM itself is the state, so a rerun changes nothing.
-  // A followed UP (or one with tags) gets the 「+」 too, which CSS keeps hidden until the card or name is hovered.
-  function upChip(spot, mid) {
-    const list = upTagsOf(mid, up.tags, up.map);
-    const plus = Boolean(mid) && (list.length > 0 || up.followed.has(mid));
+  // Where the page shows 「+ UP 标签」, a followed UP (or one with tags) gets it; on cards CSS shows it on hover only.
+  function upChip(spot, mid, rule, name) {
+    const list = rule.ups ? upTagsOf(mid, up.tags, up.map) : [];
+    const plus = rule.ups && rule.plus && Boolean(mid) && (list.length > 0 || up.followed.has(mid)) ? rule.plus : "";
     const next = spot.nextSibling;
     const old = next?.nodeType === 1 && next.classList.contains("mdg-ups") ? next : null;
     const key = list.length || plus ? `${mid}|${plus}|${list.map((t) => `${t.id}:${t.name}:${t.color}`).join(",")}` : "";
     if ((old?.dataset.key || "") === key) return;
     return () => {
       old?.remove();
-      if (key) spot.after(upChipEl(spot, mid, list, key, plus));
+      if (key) spot.after(upChipEl(spot, mid, list, key, plus, String(name ?? spot.textContent ?? "").trim()));
     };
   }
 
-  function upChipEl(spot, mid, list, key, plus) {
-    const box = document.createElement("span");
-    box.className = list.length ? "mdg-ups" : "mdg-ups mdg-ups-empty";
-    box.dataset.mid = mid;
-    box.dataset.key = key;
-    box.title = "MoonDigest 的 UP 标签 · 只存在扩展里";
-    const shown = list.slice(0, MAX_UP_CHIPS);
-    if (list.length > MAX_UP_CHIPS) shown.push({ id: list[MAX_UP_CHIPS].id, name: `+${list.length - MAX_UP_CHIPS}`, color: "#9499a0" });
-    for (const t of shown) {
+  // Every tag as a chip, then a 「+N」 that fitBoxes shows when they don't all fit; hovering or focusing it lists them all.
+  function appendChips(box, list, cls) {
+    for (const t of list) {
       const c = document.createElement("span");
-      c.className = "mdg-up";
-      c.dataset.tag = t.id;
-      c.setAttribute("role", "link");
-      c.tabIndex = 0;
+      c.className = `${cls} mdg-fit`;
       if (t.color) c.style.setProperty("--mdg-c", t.color);
       c.textContent = t.name;
       box.append(c);
     }
+    if (!list.length) return;
+    const more = document.createElement("span");
+    more.className = "mdg-more mdg-off";
+    more.tabIndex = 0;
+    more.dataset.names = list.map((t) => t.name).join("、");
+    more.setAttribute("aria-label", `全部标签：${more.dataset.names}`);
+    more.textContent = `+${list.length}`;
+    box.append(more);
+  }
+
+  function upChipEl(spot, mid, list, key, plus, name) {
+    const box = document.createElement("span");
+    box.className = `mdg-ups${list.length ? "" : " mdg-ups-empty"}${plus ? ` mdg-plus-${plus}` : ""}${spot.classList?.contains("up-detail-top") ? " mdg-ups-line" : ""}`;
+    box.dataset.mid = mid;
+    box.dataset.key = key;
+    box.title = "MoonDigest 的 UP 标签 · 只存在扩展里";
+    appendChips(box, list, "mdg-up");
     if (plus) {
       const add = document.createElement("span");
-      add.className = "mdg-up mdg-up-add";
-      add.dataset.name = String(spot.textContent || "").trim();
+      add.className = "mdg-up-add";
+      add.dataset.name = name;
       add.setAttribute("role", "button");
       add.tabIndex = 0;
       add.setAttribute("aria-haspopup", "dialog");
-      // A box rebuilt while its picker is open (a tag was just toggled) hands the picker its new 「+」.
+      // A box rebuilt while its picker is open (a tag was just toggled) hands the picker its new 「+ UP 标签」.
       const open = pick?.spot === spot;
       if (open) pick.add = add;
       add.setAttribute("aria-expanded", String(open));
-      add.setAttribute("aria-label", `给 ${add.dataset.name} 打 UP 标签`);
+      add.setAttribute("aria-label", `给 ${name} 打 UP 标签`);
       add.title = "给这个 UP 打标签 · 只存在扩展里，不改 B站";
-      add.textContent = "+";
+      add.textContent = "+ UP 标签";
       box.append(add);
     }
     return box;
@@ -432,27 +492,25 @@
 
   function clearUps() {
     closePick(false);
+    resizes?.disconnect();
     findAll(".mdg-ups, .mdg-upbar").forEach((n) => n.remove());
     document.querySelectorAll(".mdg-up-hide").forEach((n) => n.classList.remove("mdg-up-hide"));
   }
 
-  // A chip sits inside the author's link: it opens the triage page's 关注 mode on that tag instead of the space page;
-  // the 「+」 opens the tag picker. Events from BewlyCat's shadow root reach the document retargeted to #bewly;
-  // composedPath has the chip.
+  // Tag chips are not controls (they sit inside the author's link like the name). Only 「+ UP 标签」 acts: it opens the
+  // tag picker instead of the space page. Events from BewlyCat's shadow root reach the document retargeted to #bewly;
+  // composedPath has the button.
   function onChip(e) {
     if (globalThis.BocTyping.composing(e) || globalThis.BocTyping.typingIn(e)) return;
     if (e.type === "keydown" && e.key !== "Enter" && e.key !== " ") return;
-    const path = e.composedPath?.() || [];
-    const add = path.find((n) => n.classList?.contains("mdg-up-add"));
-    const chip = add || path.find((n) => n.classList?.contains("mdg-up"));
-    if (!chip || !chrome.runtime?.id || (e.key === " " && !add)) return;
+    const add = (e.composedPath?.() || []).find((n) => n.classList?.contains("mdg-up-add"));
+    if (!add || !chrome.runtime?.id) return;
     e.preventDefault();
     e.stopPropagation();
-    if (add) return pick?.add === add ? closePick(true) : openPick(add);
-    chrome.runtime.sendMessage({ type: "triage-open", hash: `follow&tag=${encodeURIComponent(chip.dataset.tag)}` }).catch(() => {});
+    return pick?.add === add ? closePick(true) : openPick(add);
   }
 
-  // ---- The 「+」 picker: the user's UP tags with checks, 新建标签; a click writes follow_tags / follow_tag_map at once.
+  // ---- The 「+ UP 标签」 picker: the user's UP tags with checks, 新建标签; a click writes follow_tags / follow_tag_map at once.
   // It lives in its own closed shadow root, so neither Bilibili's nor BewlyCat's CSS reaches it, and key events stop at
   // its host. Nothing in it writes to Bilibili.
   let pick = null; // { mid, spot, add, host, root, panel, rect, editing, focus }
@@ -478,7 +536,10 @@
 input { box-sizing: border-box; width: 100%; margin: 0; padding: 4px 8px; border: 1px solid var(--accent); border-radius: 6px;
   background: transparent; color: inherit; font: inherit; outline: none; }
 .empty, .foot { margin: 2px 6px; color: var(--muted); font-size: 12px; }
-.foot { margin-top: 6px; font-size: 11px; }`;
+.foot { margin-top: 6px; font-size: 11px; }
+.go { display: block; margin: 6px 6px 0; padding: 0; border: 0; background: none; color: var(--link); font: inherit; font-size: 12px;
+  cursor: pointer; text-align: left; }
+.go:hover, .go:focus-visible { text-decoration: underline; outline: none; }`;
 
   // Bilibili's dark theme is a class on <html>; BewlyCat's follows its own setting, so the name's own text color decides.
   function isDark(el) {
@@ -572,7 +633,10 @@ input { box-sizing: border-box; width: 100%; margin: 0; padding: 4px 8px; border
       b.append(el("span", "ck", "+"), el("span", "nm", "新建标签"));
       more.append(b);
     }
-    pick.panel.replaceChildren(el("div", "h", `给「${pick.add.dataset.name}」打标签`), list, more, el("div", "foot", "只存在 MoonDigest 里，不改 B站 · Esc 关闭"));
+    // The chips no longer open the 分拣台; this is the one way there from a B站 page.
+    const go = el("button", "go", "在分拣台「关注」里管理 UP 标签 ↗");
+    go.type = "button";
+    pick.panel.replaceChildren(el("div", "h", `给「${pick.add.dataset.name}」打标签`), list, more, go, el("div", "foot", "只存在 MoonDigest 里，不改 B站 · Esc 关闭"));
     placePick();
     const again = focus === "input" || focus === "new" ? more.firstChild : [...pickFocusables()].find((b) => b.dataset.id === focus);
     if (focus) (again || pickFocusables()[0])?.focus();
@@ -587,7 +651,7 @@ input { box-sizing: border-box; width: 100%; margin: 0; padding: 4px 8px; border
     pick.panel.style.top = `${r.bottom + 6 + h > innerHeight - 8 ? Math.max(8, r.top - h - 6) : r.bottom + 6}px`;
   }
 
-  const pickFocusables = () => (pick ? pick.panel.querySelectorAll(".opt, input") : []);
+  const pickFocusables = () => (pick ? pick.panel.querySelectorAll(".opt, input, .go") : []);
 
   function onPickKey(e) {
     if (globalThis.BocTyping.composing(e)) return; // Enter picks the IME candidate, Esc cancels the composition
@@ -609,6 +673,11 @@ input { box-sizing: border-box; width: 100%; margin: 0; padding: 4px 8px; border
   }
 
   function onPickClick(e) {
+    if (e.target.closest?.(".go")) {
+      closePick(false);
+      if (chrome.runtime?.id) chrome.runtime.sendMessage({ type: "triage-open", hash: "follow" }).catch(() => {});
+      return;
+    }
     const b = e.target.closest?.(".opt");
     if (!b) return;
     if (b.dataset.id) return pickWrite({ toggle: b.dataset.id });
@@ -637,8 +706,9 @@ input { box-sizing: border-box; width: 100%; margin: 0; padding: 4px 8px; border
     const list = got.follow_list?.list;
     up = { tags: Array.isArray(got.follow_tags) ? got.follow_tags : [], map: got.follow_tag_map || {}, followed: new Set(Array.isArray(list) ? list.map(String) : []) };
     who = null;
-    // Tags to show, or followed UPs to offer the 「+」 for.
-    upOn = (up.tags.length > 0 && Object.values(up.map).some((ids) => ids?.length)) || up.followed.size > 0;
+    // Tags to show, or followed UPs to offer 「+ UP 标签」 for, and the setting 「在 B站页面显示 UP 标签」 on.
+    upHas = (up.tags.length > 0 && Object.values(up.map).some((ids) => ids?.length)) || up.followed.size > 0;
+    upOn = upSetting && upHas;
     // A follow sync must not rebuild the picker under a tag name being typed; its own write redraws it.
     if (!upOn) clearUps();
     else if (!pick?.editing) renderPick();
@@ -708,21 +778,25 @@ input { box-sizing: border-box; width: 100%; margin: 0; padding: 4px 8px; border
   // Reads only; returns the DOM write for run() to apply after every card is read.
   function markCover(a) {
     const b = bvidFromHref(a.getAttribute("href"));
+    const rule = ruleFor(a);
     const known = seenCfg.on ? seenCache.get(b) || 0 : 0;
     const pct = seenCfg.bar ? known : 0;
-    const seen = seenCfg.mark && known >= seenCfg.threshold;
-    // Below the share, a faint 看到 N% says how far it got.
-    const faint = !seen && known > 0 && seenCfg.mark;
+    // Popovers get the bar only. Where B站 itself says 已看完, ours would say it twice.
+    const mark = seenCfg.mark && !rule.bare;
+    const seen = mark && known >= seenCfg.threshold && !biliSaysSeen(a);
+    // Below the share, a faint 看到 N% says how far it got; not on 稍后再看 / 历史 / UP 空间, where it covered most covers.
+    const faint = mark && !rule.quiet && known > 0 && known < seenCfg.threshold;
+    const style = rule.quiet ? "badge" : seenCfg.style;
     // On the image's own box: some links wrap the whole card, title included.
     const media = a.querySelector("picture") || a.querySelector("img");
     const host = media?.parentElement;
     if (!host) return;
     const old = host.querySelector(":scope > .mdg-seen");
-    const key = `${b}|${pct}|${seen}|${faint}|${known}|${seenCfg.style}`;
+    const key = `${b}|${pct}|${seen}|${faint}|${known}|${style}`;
     if (old?.dataset.key === key) return;
     if (!pct && !seen && !faint) return old && (() => old.remove());
     const box = document.createElement("span");
-    box.className = `mdg-seen mdg-seen-${seenCfg.style}`;
+    box.className = `mdg-seen mdg-seen-${style}`;
     box.dataset.key = key;
     // 100% reads 看完了, otherwise 看到 N%; ✓ (and the strong look) means it counts as 看完了.
     const words = known >= 100 ? "✓ 看完了" : seen ? `✓ 看到 ${known}%` : `看到 ${known}%`;
@@ -733,6 +807,7 @@ input { box-sizing: border-box; width: 100%; margin: 0; padding: 4px 8px; border
       bar.append(Object.assign(document.createElement("i"), { style: `width:${Math.max(pct, 2)}%` }));
       box.append(bar);
     }
+    if (!box.firstChild) return old && (() => old.remove());
     const fix = getComputedStyle(host).position === "static";
     return () => {
       old?.remove();
@@ -747,24 +822,46 @@ input { box-sizing: border-box; width: 100%; margin: 0; padding: 4px 8px; border
     if (a.querySelector(SEL)) return;
     const b = bvidFromHref(a.getAttribute("href"));
     const info = cache.get(b);
-    const old = a.querySelector(".mdg-badge");
+    const rule = ruleFor(a);
+    // Where the title is crowded (收藏夹), the marks get their own line above it: below would read as the next video's.
+    const above = rule.above ? aboveBox(a) : null;
+    const prev = above?.previousSibling;
+    const old = above ? (prev?.nodeType === 1 && prev.classList.contains("mdg-badge") ? prev : null) : a.querySelector(".mdg-badge");
     if (old && old.dataset.bvid === b && info) return;
     old?.remove();
     if (!info) return;
+    const tags = rule.vtags ? info.tags : [];
+    // Nothing this page shows (a tagged video without a verdict in a popover): no mark at all.
+    if (!info.label && !tags.length) return;
+    const badge = badgeEl(info, b, tags);
+    if (above) {
+      badge.classList.add("mdg-above");
+      return () => above.before(badge);
+    }
     const target = titleBox(a);
     if (!target) return;
-    // Favorites pages show every user tag; elsewhere a tag chip appears only when there is no verdict.
-    const tags = isFavPage() ? info.tags : info.verdict ? [] : info.tags.slice(0, 1);
-    const badge = badgeEl(info, b, tags);
     // Some titles hang their opening bracket with a negative text-indent, which would clip the badge.
     const indent = parseFloat(getComputedStyle(target).textIndent);
     if (indent < 0) badge.style.marginLeft = `${-indent}px`;
     return () => target.prepend(badge);
   }
 
-  // The block that holds the title's first text, so the badge sits inline before the title words.
+  // The title's own block (B站's .bili-video-card__title, BewlyCat's h3.video-card-title), or a bare title link; when
+  // that sits in a row (BewlyCat puts its ⋮ menu beside the title), the row, so the line goes above the whole row.
+  function aboveBox(a) {
+    let box = a.querySelector('[class*="title"]') || a.closest('[class*="title"]') || (!a.querySelector("img, picture") && a) || null;
+    for (let i = 0; i < 3 && box?.parentElement; i++) {
+      const cs = getComputedStyle(box.parentElement);
+      if (!/flex/.test(cs.display || "") || String(cs.flexDirection).startsWith("column")) break;
+      box = box.parentElement;
+    }
+    return box;
+  }
+
+  // The block that holds the title's first text, so the badge sits inline before the title words. BewlyCat's 稍后再看
+  // wraps a whole item in one link whose title is a plain .keep-two-lines.
   function titleBox(a) {
-    const root = a.querySelector('[class*="title"]') || (!a.querySelector("img, picture") && a);
+    const root = a.querySelector('[class*="title"], .keep-two-lines') || (!a.querySelector("img, picture") && a);
     if (!root || root.textContent.trim().length < 2) return null;
     const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, { acceptNode: (n) => (n.data.trim() ? 1 : 3) });
     let box = walker.nextNode()?.parentElement;
@@ -780,19 +877,79 @@ input { box-sizing: border-box; width: 100%; margin: 0; padding: 4px 8px; border
     el.setAttribute("aria-label", info.aria);
     if (info.label) {
       const v = document.createElement("span");
-      v.className = `mdg-v mdg-${info.action ? `act-${info.action}` : info.verdict}${info.stage === 1 ? " mdg-s1" : ""}${info.low ? " mdg-low" : ""}`;
+      // The dashed 粗看 frame and the low-confidence fade describe the AI's verdict, not your own decision.
+      v.className = info.action ? `mdg-v mdg-act-${info.action}` : `mdg-v mdg-${info.verdict}${info.stage === 1 ? " mdg-s1" : ""}${info.low ? " mdg-low" : ""}`;
       v.textContent = info.label;
       el.append(v);
     }
-    for (const t of tags) {
-      const c = document.createElement("span");
-      c.className = "mdg-chip";
-      if (t.color) c.style.setProperty("--mdg-c", t.color);
-      c.textContent = t.name;
-      el.append(c);
-    }
+    appendChips(el, tags, "mdg-chip");
     return el;
   }
+
+  // ---- Fitting: a group shows as many whole chips as its room holds, then 「+N」 (DESIGN §8). Measured after layout,
+  // again when a box's container changes size (BewlyCat's grid, a resized window) and when a box is redrawn.
+  // The box wraps its chips (badges.css), so its narrowest size is one chip and it never widens a card; laid out with
+  // every chip, it is as wide as the room it has, and fitCount picks from there. ----
+  const kids = (n) => [...n.childNodes].filter((k) => k.nodeType === 1);
+  const px = (v) => parseFloat(v) || 0;
+  function fitBoxes(boxes) {
+    // Every chip back first, then every read, then every write: one layout for the batch.
+    const live = boxes.filter((b) => b.isConnected && kids(b).some((k) => k.classList.contains("mdg-fit")));
+    for (const b of live) {
+      b.classList.remove("mdg-squeezed", "mdg-add-fits");
+      b.classList.add("mdg-fitting");
+      const all = kids(b);
+      for (const k of all) {
+        k.classList.remove("mdg-off");
+        if (k.classList.contains("mdg-more")) k.textContent = `+${all.filter((c) => c.classList.contains("mdg-fit")).length}`;
+      }
+    }
+    const plans = live.map((b) => {
+      const all = kids(b);
+      const chips = all.filter((k) => k.classList.contains("mdg-fit"));
+      const more = all.find((k) => k.classList.contains("mdg-more"));
+      const cs = getComputedStyle(b);
+      const w = (k) => k.getBoundingClientRect().width;
+      let room = b.clientWidth - px(cs.paddingLeft) - px(cs.paddingRight);
+      // In a line of text (BewlyCat's one-line name links) an inline box may run past its parent's edge, which clips it:
+      // the room ends there.
+      const pcs = getComputedStyle(b.parentNode);
+      if (!/flex|grid/.test(pcs.display || "")) {
+        const edge = b.parentNode.getBoundingClientRect().right - px(pcs.paddingRight) - px(pcs.borderRightWidth);
+        room = Math.min(room, edge - b.getBoundingClientRect().left - px(cs.borderLeftWidth) - px(cs.paddingLeft) - px(cs.paddingRight));
+      }
+      // A hover-only 「+ UP 标签」 needs no room of its own: shown, it goes beside the chips when they leave room for it
+      // (mdg-add-fits), else in their place (badges.css).
+      const hover = b.classList.contains("mdg-plus-hover") ? all.find((k) => k.classList.contains("mdg-up-add")) : null;
+      const fixed = all.filter((k) => k !== more && k !== hover && !chips.includes(k)).map(w);
+      // Half a pixel for sub-pixel widths that round the other way.
+      const opts = { gap: px(cs.columnGap), fixed, more: w(more) };
+      const k = fitCount(chips.map(w), room + 0.5, opts);
+      const addFits = Boolean(hover) && fitCount(chips.map(w), room + 0.5, { ...opts, fixed: [...fixed, w(hover)] }) === k;
+      return [b, chips, more, k, addFits];
+    });
+    for (const [b, chips, more, k, addFits] of plans) {
+      b.classList.remove("mdg-fitting");
+      b.classList.toggle("mdg-add-fits", addFits);
+      b.dataset.fit = "1";
+      resizes?.observe(b.parentNode);
+      chips.forEach((c, i) => i >= Math.max(k, 0) && c.classList.add("mdg-off"));
+      if (k === chips.length || k < 0) more.classList.add("mdg-off");
+      else more.textContent = `+${chips.length - k}`;
+      // Not even 「+N」 fits: no chips, and no purple rule unless something else (the verdict) still shows.
+      if (k < 0) b.classList.add("mdg-squeezed");
+    }
+  }
+  // ponytail: observed containers are only released by clearMarks/clearUps (disconnect); a long-lived feed keeps a few
+  // hundred detached nodes alive until then.
+  let refitFrame = 0;
+  const resizes = typeof ResizeObserver === "function" ? new ResizeObserver(() => {
+    if (refitFrame) return;
+    refitFrame = requestAnimationFrame(() => {
+      refitFrame = 0;
+      fitBoxes(findAll(".mdg-badge, .mdg-ups").filter((b) => b.dataset.fit));
+    });
+  }) : null;
 
   function markVideoLine(bvid) {
     const old = document.querySelector(".mdg-line");
@@ -820,24 +977,31 @@ input { box-sizing: border-box; width: 100%; margin: 0; padding: 4px 8px; border
     anchor.after(line);
   }
 
+  // The AI's reasons on a verdict, or every tag of a group on its 「+N」.
   function showPop(host) {
-    const badge = host.matches(".mdg-line") ? host.querySelector(".mdg-badge") : host;
-    const info = cache.get(badge?.dataset.bvid);
-    if (!info || (!info.reason && !info.oneLiner)) return;
-    pop ||= Object.assign(document.createElement("div"), { className: "mdg-pop", role: "tooltip" });
-    pop.replaceChildren();
     const add = (tag, cls, text) => {
       const n = document.createElement(tag);
       n.className = cls;
       n.textContent = text;
       return n;
     };
-    pop.append(add("div", "mdg-pop-head", info.aria));
-    if (info.oneLiner) pop.append(add("div", "mdg-pop-one", info.oneLiner));
-    for (const p of info.points) pop.append(add("div", "mdg-pop-pt", `• ${p}`));
-    if (info.reason) pop.append(add("div", "mdg-pop-reason", `理由：${info.reason}`));
+    let at = host;
+    const rows = [];
+    if (host.classList.contains("mdg-more")) {
+      rows.push(add("div", "mdg-pop-head", "全部标签"), add("div", "mdg-pop-one", host.dataset.names));
+    } else {
+      at = host.matches(".mdg-line") ? host.querySelector(".mdg-badge") : host;
+      const info = cache.get(at?.dataset.bvid);
+      if (!info || (!info.reason && !info.oneLiner)) return;
+      rows.push(add("div", "mdg-pop-head", info.aria));
+      if (info.oneLiner) rows.push(add("div", "mdg-pop-one", info.oneLiner));
+      for (const p of info.points) rows.push(add("div", "mdg-pop-pt", `• ${p}`));
+      if (info.reason) rows.push(add("div", "mdg-pop-reason", `理由：${info.reason}`));
+    }
+    pop ||= Object.assign(document.createElement("div"), { className: "mdg-pop", role: "tooltip" });
+    pop.replaceChildren(...rows);
     document.body.append(pop);
-    const r = badge.getBoundingClientRect();
+    const r = at.getBoundingClientRect();
     const w = pop.offsetWidth;
     const h = pop.offsetHeight;
     pop.style.left = `${Math.max(8, Math.min(r.left, innerWidth - w - 8))}px`;
@@ -848,19 +1012,20 @@ input { box-sizing: border-box; width: 100%; margin: 0; padding: 4px 8px; border
   // Events from inside BewlyCat's shadow root reach the document retargeted to #bewly; composedPath has the real node.
   const origin = (e) => e.composedPath?.()[0] || e.target;
   const onOver = (e) => {
-    const host = origin(e).closest?.(".mdg-badge, .mdg-line");
+    const host = origin(e).closest?.(".mdg-more, .mdg-badge, .mdg-line");
     if (host) showPop(host);
     else if (pop?.isConnected) hidePop();
   };
   const onFocus = (e) => {
     const t = origin(e);
-    const badge = t.closest?.(".mdg-badge") || t.querySelector?.(".mdg-badge");
-    if (badge) showPop(badge);
+    const host = t.closest?.(".mdg-more, .mdg-badge") || t.querySelector?.(".mdg-badge");
+    if (host) showPop(host);
     else hidePop();
   };
 
   function clearMarks() {
     hidePop();
+    resizes?.disconnect();
     findAll(".mdg-badge, .mdg-line, .mdg-seen").forEach((n) => n.remove());
     findAll(".mdg-seen-host").forEach((n) => n.classList.remove("mdg-seen-host"));
   }
@@ -891,7 +1056,7 @@ input { box-sizing: border-box; width: 100%; margin: 0; padding: 4px 8px; border
     }
   }
 
-  // The two switches and the 观看进度 options decide whether the page is scanned at all.
+  // The three switches and the 观看进度 options decide whether the page is scanned at all.
   function applySettings(v) {
     triageOn = v[SETTING] !== false;
     const before = seenCfg.on;
@@ -903,6 +1068,10 @@ input { box-sizing: border-box; width: 100%; margin: 0; padding: 4px 8px; border
     markBewly();
     // Only the top frame asks; the background reads what is new at most every 10 minutes.
     if (seenCfg.on && !before && window === window.top) chrome.runtime.sendMessage({ type: "triage-seen-sync" }).catch(() => {});
+    upSetting = v[UP_SETTING] !== false;
+    const wasUp = upOn;
+    upOn = upSetting && upHas;
+    if (wasUp && !upOn) clearUps();
     const on = triageOn || seenCfg.on || upOn;
     if (on && enabled) {
       gen++;
@@ -910,7 +1079,7 @@ input { box-sizing: border-box; width: 100%; margin: 0; padding: 4px 8px; border
       schedule();
     } else setEnabled(on);
   }
-  const readSettings = () => chrome.storage.sync.get({ [SETTING]: true, ...SEEN_DEFAULTS }).then(applySettings).catch(() => {});
+  const readSettings = () => chrome.storage.sync.get({ [SETTING]: true, [UP_SETTING]: true, ...SEEN_DEFAULTS }).then(applySettings).catch(() => {});
 
   chrome.storage.onChanged.addListener((changes, area) => {
     if (area === "local" && (changes.follow_tags || changes.follow_tag_map || changes.follow_list)) loadUps().catch(() => {});
@@ -918,7 +1087,7 @@ input { box-sizing: border-box; width: 100%; margin: 0; padding: 4px 8px; border
       who = null;
       schedule();
     }
-    if (area === "sync" && (SETTING in changes || Object.keys(SEEN_DEFAULTS).some((k) => k in changes))) readSettings();
+    if (area === "sync" && (SETTING in changes || UP_SETTING in changes || Object.keys(SEEN_DEFAULTS).some((k) => k in changes))) readSettings();
     if (area === "local" && enabled && Object.keys(changes).some((k) => k.startsWith("seen_"))) {
       for (const k of Object.keys(changes)) if (k.startsWith("seen_")) seenCache.delete(k.slice(5));
       gen++;

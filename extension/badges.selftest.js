@@ -7,7 +7,7 @@ const assert = require("assert");
 // The manifest loads typing.js and tag-core.js before badges.js in the same content-script world.
 const tagCoreJs = fs.readFileSync(path.join(__dirname, "tag-core.js"), "utf8");
 const badgesJs = fs.readFileSync(path.join(__dirname, "typing.js"), "utf8") + tagCoreJs + fs.readFileSync(path.join(__dirname, "badges.js"), "utf8");
-const ctx = vm.createContext({});
+const ctx = vm.createContext({ URLSearchParams });
 vm.runInContext(badgesJs, ctx);
 const { bvidFromHref, badgeInfo, mergeDecisions } = ctx.BocBadges;
 const plain = (v) => JSON.parse(JSON.stringify(v));
@@ -151,6 +151,43 @@ assert.strictEqual(applyUpTag(pt, {}, "9", { create: " ，" }), null, "an empty 
   process.exit(1);
 });
 
+// ---- Per-surface rules (DESIGN §8): which page is which, and what each shows ----
+const { SURFACES, surfaceOf, fitCount, biliSaysSeen } = ctx.BocBadges;
+const where = (url, viewer) => {
+  const u = new URL(url);
+  return surfaceOf({ host: u.hostname, path: u.pathname, search: u.search, viewer });
+};
+assert.strictEqual(where("https://www.bilibili.com/video/BV1GJ411x7h7", true), "", "the 分拣台's player iframe: nothing");
+assert.strictEqual(where("https://www.bilibili.com/video/BV1GJ411x7h7"), "video");
+assert.strictEqual(where("https://www.bilibili.com/list/watchlater?bvid=BV1GJ411x7h7"), "video");
+assert.strictEqual(where("https://www.bilibili.com/"), "card");
+assert.strictEqual(where("https://www.bilibili.com/?page=Home&tab=ForYou"), "card");
+assert.strictEqual(where("https://search.bilibili.com/all?keyword=x"), "card");
+assert.strictEqual(where("https://space.bilibili.com/2773586/favlist?fid=1"), "fav");
+assert.strictEqual(where("https://www.bilibili.com/?page=Favorites"), "fav");
+assert.strictEqual(where("https://www.bilibili.com/watchlater/list"), "later");
+assert.strictEqual(where("https://www.bilibili.com/history"), "later");
+assert.strictEqual(where("https://www.bilibili.com/account/history"), "later");
+assert.strictEqual(where("https://www.bilibili.com/?page=WatchLater"), "later");
+assert.strictEqual(where("https://www.bilibili.com/?page=History"), "later");
+assert.strictEqual(where("https://t.bilibili.com/"), "feed");
+assert.strictEqual(where("https://space.bilibili.com/2773586"), "space");
+assert.strictEqual(where("https://space.bilibili.com/2773586/video"), "space");
+const show = (k) => { const r = SURFACES[k]; return `${r.vtags ? "V" : "-"}${r.ups ? "U" : "-"}${r.plus[0] || "-"}${r.above ? "^" : ""}`; };
+assert.deepStrictEqual(Object.keys(SURFACES).map((k) => `${k}:${show(k)}`), [
+  "card:VUh", "fav:V--^", "later:VUh", "feed:-Uh", "space:V--", "video:---", "popover:---", "owner:-Ua"
+], "the approved matrix: popovers and recommendations show the verdict only, 收藏夹 no UP tags, owner names always offer 「+ UP 标签」");
+assert.ok(SURFACES.popover.bare && SURFACES.later.quiet && SURFACES.space.quiet, "popovers: bar only; 稍后再看 / 历史 / UP 空间: no faint 看到 N%, no veil");
+
+// Fitting by width, not count: as many whole chips as fit, then 「+N」; -1 rather than an empty marker.
+assert.strictEqual(fitCount([30, 30, 30], 96, { gap: 3 }), 3, "exactly fitting: 30+3+30+3+30 = 96, no 「+N」");
+assert.strictEqual(fitCount([30, 30, 30], 95, { gap: 3, more: 20 }), 2, "one px short: the last chip goes, 30+3+30+3+20 = 86");
+assert.strictEqual(fitCount([20, 120, 20], 100, { gap: 3, more: 20 }), 1, "a long name stops the row at the chip before it");
+assert.strictEqual(fitCount([12, 12, 12, 12, 12, 12], 60, { gap: 2, more: 18 }), 3, "short names: more of them fit");
+assert.strictEqual(fitCount([200], 100, { more: 20 }), 0, "one chip that doesn't fit: just 「+1」");
+assert.strictEqual(fitCount([30], 60, { gap: 3, fixed: [50], more: 20 }), -1, "not even 「+N」 beside the verdict: hide the group");
+assert.strictEqual(fitCount([], 60, { fixed: [50] }), 0, "no chips: the verdict alone");
+
 // A tiny DOM: enough for the selectors badges.js uses (tag, .class, #id, [attr*="x"], descendant).
 class Node_ {
   constructor() { this.parentNode = null; }
@@ -186,7 +223,8 @@ class El extends Node_ {
   removeEventListener(t, f) { const l = this.listeners[t]; if (l?.includes(f)) l.splice(l.indexOf(f), 1); }
   replaceChildren(...ns) { this.childNodes = []; this.append(...ns); }
   attachShadow() { this.shadow = h("#shadow"); this.shadow.parentNode = null; this.shadow.host = this; return this.shadow; }
-  getBoundingClientRect() { return { left: 100, top: 50, bottom: 70, right: 120 }; }
+  getBoundingClientRect() { const left = this.x ?? 100; const width = this.w ?? 20; return { left, top: 50, bottom: 70, right: left + width, width }; }
+  get clientWidth() { return this.cw ?? 1000; }
   get offsetWidth() { return 270; }
   get offsetHeight() { return 200; }
   get isConnected() { let n = this; while (n.parentNode) n = n.parentNode; return n.host ? n.host.isConnected : n.tagName === "HTML"; }
@@ -232,6 +270,11 @@ const spaceCard = h("a", { class: "bili-video-card__author" }, h("div", { class:
 assert.strictEqual(spotIn(spaceCard).getAttribute("title"), "木兰香事", "space page card: the titled name, not the name icon");
 assert.strictEqual(spotIn(h("a", {}, h("div", {}, h("img"), "  "))), null, "avatar links get no chip");
 
+// B站's own 已看完 on the cover: ours stays off.
+const stat = (t) => h("div", { class: "bili-cover-card__stat" }, h("span", {}, t));
+assert.ok(biliSaysSeen(h("a", {}, h("div", { class: "bili-cover-card__stats" }, stat("418"), stat("已看完")))));
+assert.ok(!biliSaysSeen(h("a", {}, h("div", { class: "bili-cover-card__stats" }, stat("418"), stat("02:31")))));
+
 // ---- the live script on a fake 动态 page (badges.js alone, as the manifest loads it) ----
 (async () => {
   const card = (name) => h("div", { class: "bili-dyn-list__item" }, h("div", { class: "bili-dyn-title" }, h("span", { class: "bili-dyn-title__text" }, ` ${name} `)));
@@ -250,11 +293,16 @@ assert.strictEqual(spotIn(h("a", {}, h("div", {}, h("img"), "  "))), null, "avat
   const sent = [];
   const reads = [];
   const session = {};
+  const syncVals = { showBiliTriageBadges: false };
+  const resized = [];
   const win = {
     document: doc,
     location: { hostname: "t.bilibili.com", pathname: "/", search: "" },
     sessionStorage: { getItem: (k) => session[k] ?? null, setItem: (k, v) => (session[k] = String(v)) },
     MutationObserver: class { observe() {} disconnect() {} },
+    ResizeObserver: class { constructor(f) { resized.push(f); } observe() {} disconnect() {} },
+    requestAnimationFrame: (f) => setTimeout(f, 0),
+    getComputedStyle: () => ({ columnGap: "3px", paddingLeft: "0px", paddingRight: "0px", position: "static", textIndent: "0px" }),
     setTimeout: (f) => setTimeout(f, 0),
     clearTimeout,
     console,
@@ -262,7 +310,7 @@ assert.strictEqual(spotIn(h("a", {}, h("div", {}, h("img"), "  "))), null, "avat
     chrome: {
       runtime: { id: "x", sendMessage: async (m) => sent.push(m), getURL: (p) => p },
       storage: {
-        sync: { get: async (d) => ({ ...d, showBiliTriageBadges: false }) },
+        sync: { get: async (d) => ({ ...d, ...syncVals }) },
         local: { get: async (k) => (reads.push(k), Object.fromEntries([].concat(k).map((x) => [x, store[x]]))) },
         onChanged: { addListener: (f) => changed.push(f) }
       }
@@ -321,20 +369,56 @@ assert.strictEqual(spotIn(h("a", {}, h("div", {}, h("img"), "  "))), null, "avat
   assert.strictEqual(tagsText(chipAfter(homeAuthor)), "常看游戏");
   assert.strictEqual(homeAuthor.parentNode.querySelectorAll(".mdg-ups").length, 1);
 
-  // A chip click opens the triage page's 关注 mode on that tag, not the space page behind it.
+  // UP tag chips are not controls: no role, no tab stop, and a click or Enter goes to B站's own link (the space page).
   const chip = chipAfter(homeAuthor).childNodes[1];
+  assert.deepStrictEqual([chip.attrs.role, chip.tabIndex], [undefined, undefined], "a chip is not a link or a button");
   let stopped = 0;
   const ev = { type: "click", composedPath: () => [chip, chip.parentNode, homeAuthor], preventDefault: () => stopped++, stopPropagation: () => stopped++ };
   doc.listeners.click.forEach((f) => f(ev));
-  assert.deepStrictEqual(plain(sent), [{ type: "triage-open", hash: "follow&tag=t2" }]);
-  assert.strictEqual(stopped, 2);
-  // Enter on a chip opens it too, but not an Enter that picks an IME candidate, nor one typed into a field.
-  const enter = (o) => doc.listeners.keydown.forEach((f) => f({ type: "keydown", key: "Enter", composedPath: () => [chip, chip.parentNode, homeAuthor], preventDefault: () => stopped++, stopPropagation: () => stopped++, ...o }));
-  enter({ isComposing: true });
-  enter({ composedPath: () => [{ closest: (sel) => (sel.includes("input") ? {} : null) }, chip, chip.parentNode] });
-  assert.strictEqual(sent.length, 1, "IME and typing skip the chip");
-  enter({});
-  assert.strictEqual(sent.length, 2);
+  doc.listeners.keydown.forEach((f) => f({ ...ev, type: "keydown", key: "Enter" }));
+  assert.deepStrictEqual([sent.length, stopped], [0, 0], "clicking a chip neither opens the 分拣台 nor stops B站's link");
+
+  // 「+N」: every chip fits in a wide box; a narrow one keeps whole chips and counts the rest (ResizeObserver refit).
+  // The room is the box's own width with every chip laid out (the chips wrap, so that is the room the card gives it).
+  const ups = chipAfter(homeAuthor);
+  const room = { set w(v) { ups.cw = v; ups.x = 0; Object.assign(homeAuthor.parentNode, { x: 0, w: v }); } };
+  const more = ups.querySelector(".mdg-more");
+  room.w = 1000;
+  resized.forEach((f) => f());
+  await settle();
+  assert.ok(more.classList.contains("mdg-off"), "all fit: no 「+N」");
+  assert.strictEqual(more.dataset.names, "常看、游戏", "「+N」 lists every tag on hover or focus");
+  // 「常看」 20, a long 「游戏」 60, 「+N」 20 and the hover 「+ UP 标签」 20 (it keeps its place), gaps 3: all = 106 > 70,
+  // one chip + 「+1」 + the button = 66 fits.
+  ups.querySelectorAll(".mdg-up")[1].w = 60;
+  room.w = 70;
+  resized.forEach((f) => f());
+  await settle();
+  assert.deepStrictEqual(ups.querySelectorAll(".mdg-up").map((c) => c.classList.contains("mdg-off")), [false, true], "the chip that doesn't fit hides whole");
+  assert.strictEqual(more.textContent, "+1");
+  assert.ok(!more.classList.contains("mdg-off"));
+  room.w = 1000;
+  resized.forEach((f) => f());
+  await settle();
+  assert.ok(more.classList.contains("mdg-off") && !ups.querySelectorAll(".mdg-up")[1].classList.contains("mdg-off"), "room again: all chips back");
+  // In a line of text the parent's edge bounds the box even when the box itself lays out wider (BewlyCat's names).
+  Object.assign(homeAuthor.parentNode, { x: 0, w: 70 });
+  resized.forEach((f) => f());
+  await settle();
+  assert.strictEqual(more.textContent, "+1", "the parent's edge is the limit, not the box's own width");
+  room.w = 1000;
+  resized.forEach((f) => f());
+  await settle();
+
+  // 「在 B站页面显示 UP 标签」 off: every box and the filter bar go; on again, they come back.
+  syncVals.showBiliUpTags = false;
+  changed.forEach((f) => f({ showBiliUpTags: { newValue: false } }, "sync"));
+  await settle();
+  assert.strictEqual(doc.querySelectorAll(".mdg-ups, .mdg-upbar").length, 0, "setting off: no UP tags");
+  syncVals.showBiliUpTags = true;
+  changed.forEach((f) => f({ showBiliUpTags: { newValue: true } }, "sync"));
+  await settle();
+  assert.strictEqual(tagsText(chipAfter(homeAuthor)), "常看游戏", "setting on: back");
 
   // No UP tags left: chips, bar and hidden cards all go.
   store.follow_tags = [];
@@ -343,6 +427,7 @@ assert.strictEqual(spotIn(h("a", {}, h("div", {}, h("img"), "  "))), null, "avat
   assert.strictEqual(doc.querySelectorAll(".mdg-ups, .mdg-upbar").length, 0);
   assert.deepStrictEqual(hidden(), [false, false, false, false]);
   await plusPage();
+  await surfacePages();
   console.log("badges selftest ok");
 })().catch((e) => {
   console.error(e);
@@ -513,4 +598,72 @@ async function plusPage() {
   textColor = "rgb(231, 233, 235)";
   doc.listeners.click.forEach((f) => f(ev(plusOf(title("d")))));
   assert.ok(doc.childNodes.at(-1).shadow.querySelector(".pick").classList.contains("dark"));
+}
+
+// ---- the live script on other surfaces: the 分拣台's player, a home page with a header popover, a 收藏夹 page ----
+async function surfacePages() {
+  const store = {
+    follow_tags: [{ id: "a", name: "常看", color: "#f00" }],
+    follow_tag_map: { 1: ["a"] },
+    follow_list: { list: ["1"] }
+  };
+  const page = async (location, body, viewer) => {
+    const doc = Object.assign(h("html", {}, body), { getElementById: () => null, createElement: (t) => h(t), hasAttribute: (k) => viewer && k === "data-mdg-viewer" });
+    doc.documentElement = doc;
+    const reads = [];
+    const listen = [];
+    const win = {
+      document: doc,
+      location: { search: "", ...location },
+      sessionStorage: { getItem: () => null, setItem() {} },
+      MutationObserver: class { observe() {} disconnect() {} },
+      setTimeout: (f) => setTimeout(f, 0),
+      clearTimeout,
+      console,
+      URLSearchParams,
+      getComputedStyle: () => ({ columnGap: "3px", paddingLeft: "0px", paddingRight: "0px", position: "static", textIndent: "0px", color: "" }),
+      chrome: {
+        runtime: { id: "x", sendMessage: async () => {}, getURL: (p) => p },
+        storage: {
+          sync: { get: async (d) => d },
+          local: { get: async (k) => (reads.push(k), Object.fromEntries([].concat(k).map((x) => [x, store[x]]))) },
+          onChanged: { addListener: (f) => listen.push(f) }
+        }
+      }
+    };
+    win.window = win;
+    win.top = win;
+    vm.runInContext(badgesJs, vm.createContext(win));
+    await new Promise((r) => setTimeout(r, 30));
+    return { doc, reads, listen };
+  };
+  const author = () => h("a", { href: "//space.bilibili.com/1" }, h("span", { class: "bili-video-card__info--author" }, "甲"));
+
+  // The 分拣台's player iframe: badges.js draws nothing and reads nothing.
+  const viewer = await page({ hostname: "www.bilibili.com", pathname: "/video/BV1GJ411x7h7" }, h("body", {}, author()), true);
+  assert.deepStrictEqual([viewer.reads.length, viewer.listen.length, viewer.doc.querySelectorAll(".mdg-ups").length], [0, 0, 0], "player iframe: no reads, no listeners, no marks");
+
+  // Home: a card's author gets its UP tags; the same author in a header popover gets nothing.
+  const inPop = author();
+  const onCard = author();
+  const home = await page({ hostname: "www.bilibili.com", pathname: "/" }, h("body", {}, h("div", { class: "bew-popover" }, inPop), onCard));
+  const boxAfter = (a) => a.querySelector(".mdg-ups");
+  assert.ok(boxAfter(onCard), "home card: UP tags");
+  assert.ok(boxAfter(onCard).classList.contains("mdg-plus-hover"), "home card: 「+ UP 标签」 on hover");
+  assert.strictEqual(boxAfter(inPop), null, "header popover: no UP tags, no 「+」 (so no orphaned picker)");
+  assert.strictEqual(home.doc.querySelectorAll(".mdg-ups").length, 1);
+
+  // 收藏夹 page: no UP tags at all.
+  const fav = await page({ hostname: "space.bilibili.com", pathname: "/9/favlist" }, h("body", {}, author()));
+  assert.strictEqual(fav.doc.querySelectorAll(".mdg-ups").length, 0, "收藏夹 page: no UP tags");
+
+  // The video page's UP name: its own line under the name row, 「+ UP 标签」 always shown.
+  const row = h("div", { class: "up-detail-top" }, h("a", { href: "//space.bilibili.com/1/", class: "up-name" }, " 甲 ", h("span", { class: "mask" })), h("a", { href: "//message.bilibili.com/" }, "发消息"));
+  const rec = author();
+  await page({ hostname: "www.bilibili.com", pathname: "/video/BV1GJ411x7h7" }, h("body", {}, h("div", { class: "up-detail" }, row), h("div", { class: "right-container" }, rec)));
+  const line = row.nextSibling;
+  assert.ok(line?.classList.contains("mdg-ups-line") && line.classList.contains("mdg-plus-always"), "UP name: a line of its own, 「+」 always");
+  assert.strictEqual(line.querySelector(".mdg-up-add").dataset.name, "甲", "the picker names the UP, not the whole row");
+  assert.strictEqual(line.querySelector(".mdg-up-add").textContent, "+ UP 标签");
+  assert.strictEqual(boxAfter(rec), null, "recommendations beside the video: no UP tags");
 }
