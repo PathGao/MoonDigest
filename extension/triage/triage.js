@@ -277,7 +277,6 @@ const S = {
   tab: "none",
   classFilter: { coarse: "all", fine: "all", read: "all" }, // each tab keeps its own AI-class chip; a folder switch resets them
   tagFilter: new Set(),
-  tagState: "", // row 3: "" | "untagged" | "tagged"
   query: "",
   focused: "",
   focusIndex: 0,
@@ -597,13 +596,12 @@ function kindOf(it) {
 }
 
 // skip leaves one filter group out, so that group's own counts never hide its siblings: a row-3 group ("seen", "recent",
-// "kind", "tagged"), "states" (all of row 3) or "tags" (row 4). 已出分拣范围's kind is its tab, never skipped.
+// "kind"), "states" (all of row 3) or "tags" (row 4). 已出分拣范围's kind is its tab, never skipped.
 function passFilter(it, skip = "") {
   const on = (g) => skip !== g && (skip !== "states" || g === "tags");
   if (on("seen") && S.finishedFilter && !isFinished(it)) return false;
   if (on("recent") && S.aiRecentFilter && !aiRecentSet().has(it.bvid)) return false;
   if ((S.mediaId === REMOVED || on("kind")) && S.kindFilter && kindOf(it) !== S.kindFilter) return false;
-  if (on("tagged") && S.tagState && (tagIdsOf(it.bvid).length > 0) !== (S.tagState === "tagged")) return false;
   if (on("tags") && S.tagFilter.size && !hasAllTags(tagIdsOf(it.bvid), S.tagFilter, (id) => tagById(id)?.name ?? id)) return false;
   const words = S.query.toLowerCase().split(/\s+/).filter(Boolean);
   if (!words.length) return true;
@@ -1047,7 +1045,6 @@ async function openFolder(mediaId) {
   S.itemMap = new Map();
   S.selected.clear();
   S.tagFilter.clear();
-  S.tagState = "";
   S.finishedFilter = false;
   S.aiRecentFilter = false;
   S.kindFilter = "";
@@ -1823,7 +1820,7 @@ function criteriaBtn() {
 }
 
 // Whether anything in row 3 is on (全部 is pressed when not).
-const statesOn = (t = S.tab) => (S.classFilter[t] && S.classFilter[t] !== "all") || Boolean(S.tagState || S.finishedFilter || S.aiRecentFilter || (S.mediaId !== REMOVED && S.kindFilter));
+const statesOn = (t = S.tab) => (S.classFilter[t] && S.classFilter[t] !== "all") || Boolean(S.finishedFilter || S.aiRecentFilter || (S.mediaId !== REMOVED && S.kindFilter));
 // Row 3: what the system knows about each video, in groups split by a thin rule. One pick per group (a second click
 // clears it), groups AND together, and each group counts with its own pick left out. 全部 clears row 3 only. The fixed
 // groups come first (a 0 stays, dimmed); the chips that exist only sometimes (看完了, 已失效, AI 刚打的) go last and
@@ -1841,7 +1838,6 @@ function stateRowHtml(t = S.tab) {
     const classes = [...Object.entries(VERDICTS), ...(t === "read" ? [["kept", "已保留"]] : [])];
     groups.push(group("按 AI 判断筛选", classes.map(([k, label]) => UI.filterBtn(`data-class-filter="${k}"`, label, cnt("class", (it) => classOf(it) === k), cf === k)).join("")));
   }
-  groups.push(group("按有没有标签", [["untagged", "未打标签", false], ["tagged", "已打标签", true]].map(([k, label, has]) => UI.filterBtn(`data-tagstate="${k}"`, label, cnt("tagged", (it) => (tagIdsOf(it.bvid).length > 0) === has), S.tagState === k)).join("")));
   const seenN = cnt("seen", isFinished);
   if ((S.seenCfg.mark && seenN) || S.finishedFilter) groups.push(group("看完了", UI.filterBtn('data-finishedfilter title="只看 B站历史记录里看完了的视频"', "看完了", seenN, S.finishedFilter)));
   // 已出分拣范围 has 已失效 as a tab instead.
@@ -1858,11 +1854,9 @@ function pickState(group, value = "") {
   const t = S.tab;
   if (group === "all") {
     S.classFilter[t] = "all";
-    S.tagState = "";
     S.finishedFilter = S.aiRecentFilter = false;
     if (S.mediaId !== REMOVED) S.kindFilter = "";
   } else if (group === "class") S.classFilter[t] = S.classFilter[t] === value ? "all" : value;
-  else if (group === "tagged") S.tagState = S.tagState === value ? "" : value;
   else if (group === "kind") S.kindFilter = S.kindFilter === value ? "" : value;
   else if (group === "seen") S.finishedFilter = !S.finishedFilter;
   else if (group === "recent") S.aiRecentFilter = !S.aiRecentFilter;
@@ -2078,7 +2072,7 @@ function renderList() {
   if (!list.length) {
     const empty = { none: "没有未分析的视频", coarse: "没有粗看完成的视频", fine: "没有细看完成的视频", done: "还没有处理过的视频" };
     const f = S.classFilter[S.tab];
-    const filtered = S.finishedFilter || S.aiRecentFilter || S.kindFilter || S.tagState || S.tagFilter.size || (f && f !== "all");
+    const filtered = S.finishedFilter || S.aiRecentFilter || S.kindFilter || S.tagFilter.size || (f && f !== "all");
     const text = UI.noMatch(S.query, filtered, "视频") || empty[S.tab] || "这里没有视频";
     el.list.innerHTML = `<p class="empty">${text}</p>${recent}`;
     return;
@@ -3714,7 +3708,6 @@ function bindEvents() {
     if (b.matches("[data-airecent-done]")) endAiRecent();
     else if (b.matches("[data-states-all]")) pickState("all");
     else if (b.dataset.classFilter) pickState("class", b.dataset.classFilter);
-    else if (b.dataset.tagstate) pickState("tagged", b.dataset.tagstate);
     else if (b.matches("[data-finishedfilter]")) pickState("seen");
     else if (b.dataset.kindfilter) pickState("kind", b.dataset.kindfilter);
     else if (b.matches("[data-airecent]")) pickState("recent");
