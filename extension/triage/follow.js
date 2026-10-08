@@ -360,6 +360,7 @@ main.innerHTML = `
   <div class="folder-head fw-head">
     <div class="folder-info"><div class="folder-text"><h1 id="fwTitle" class="folder-title">关注</h1><div id="fwMeta" class="folder-meta"></div></div>
       <button type="button" class="bili-link" data-fw="bili" aria-label="在 B站打开我的空间">在 B站打开 ↗</button>
+      ${UI.syncPill("fwSync")}
     </div>
     <span id="fwSort" class="sort-box"></span>
   </div>
@@ -375,6 +376,8 @@ main.innerHTML = `
   <div class="stagebar fw-bar"><span id="fwBar" class="fw-bar-dyn"></span><span id="fwTools" class="fw-tools"><span id="fwSelAll"></span>${UI.tagButtons({ manageAttrs: 'data-fw="tags"', aiAttrs: 'data-fw="ai" aria-label="AI 打标签"' })}</span></div>
   <div id="fwList" class="fw-list" aria-label="UP 主"></div>
   <div id="fwSel"></div>`;
+const SYNC = { pill: $("fwSyncViewBtn"), notice: $("fwSyncNotice"), text: $("fwSyncText"), detail: $("fwSyncDetail"), close: $("fwSyncCloseBtn") };
+UI.bindSync(SYNC);
 const E = { sort: $("fwSort"), title: $("fwTitle"), tools: $("fwTools"), selAll: $("fwSelAll"), meta: $("fwMeta"), tabs: $("fwTabs"), bar: $("fwBar"), list: $("fwList"), sel: $("fwSel"), q: $("fwQ"), qCount: $("fwQCount") };
 // Without the sidebar its items become a select in the top bar, where 收藏夹 shows its folder select.
 const sideSlot = document.createElement("span");
@@ -525,6 +528,22 @@ function renderSync() {
   UI.setActivity(pill, { text, done: j.done || 0, total: wait ? 0 : j.total || 0, warn: Boolean(wait), btn: { attrs: "data-fw-stop", label: "暂停" } });
 }
 
+// The last refresh's 新关注 / 在 B站取关 (follow_jobs.changes, see followDiff) as 收藏夹's 「B站已同步」 pill. Each refresh's
+// changes show once per page; 关闭 hides them until the next.
+let syncSeenAt = null;
+function renderSyncChanges() {
+  const c = D.jobs?.changes;
+  if (!c || c.at === syncSeenAt) return;
+  syncSeenAt = c.at;
+  if (!c.added.length && !c.removed.length) return UI.setSync(SYNC, null);
+  const names = (mids) => mids.map((m) => D.people?.[m]?.name || m);
+  UI.setSync(SYNC, {
+    label: `新关注 +${c.added.length} · 取关 −${c.removed.length}`,
+    text: `B站同步：新关注 ${c.added.length} · 在 B站取关 ${c.removed.length}`,
+    sections: [["新关注", names(c.added)], ["在 B站取关", names(c.removed)]]
+  });
+}
+
 // 关注 · N, when the list was read, and the last refresh's error, which stays until a refresh gets through.
 function renderHead() {
   const at = D.list?.at || 0;
@@ -533,6 +552,7 @@ function renderHead() {
   E.title.innerHTML = UI.titleHtml("关注", D.list ? following().length : null);
   E.meta.innerHTML = UI.headMeta([D.list ? UI.syncedText(at * 1000) : "还没有关注数据"], err);
   renderSync();
+  renderSyncChanges();
 }
 
 function renderTabs() {

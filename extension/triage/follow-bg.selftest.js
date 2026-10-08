@@ -84,6 +84,12 @@ const runSync = async () => {
     assert.deepStrictEqual(plain(d.gone), { 9: { at: 600, tagIds: ["a", "x"], source: "bili" } }, "vanished account recorded with its tags");
     const partial = t.followDiff(cur, { list: ["1"], followTime: { 1: 10 }, complete: false }, {}, {}, live, 500, 600);
     assert.deepStrictEqual(plain(partial.gone), {}, "a partial fetch never marks anyone gone");
+    // 新关注 +N · 取关 −M: only from a complete fetch against a list we had
+    assert.deepStrictEqual(plain(d.changes), { at: 600, added: [], removed: ["9"] });
+    assert.strictEqual(partial.changes, null, "a partial fetch gives no changes");
+    const grew = t.followDiff(cur, { list: ["5", "1", "2", "9"], followTime: {}, complete: true }, {}, {}, live, 500, 600);
+    assert.deepStrictEqual(plain(grew.changes), { at: 600, added: ["5"], removed: [] });
+    assert.strictEqual(t.followDiff({}, { list: ["1"], followTime: {}, complete: true }, {}, {}, live, 500, 600).changes, null, "the first sync lists nobody as new");
     // re-follow only when the follow time is newer than the unfollow
     const unf = { 3: { at: 200, tagIds: ["a", "dead"] }, 4: { at: 200 } };
     const r = t.followDiff({ list: [] }, { list: ["3", "4"], followTime: { 3: 300, 4: 150 }, complete: true }, unf, {}, live, 500, 600);
@@ -144,6 +150,7 @@ const runSync = async () => {
     assert.deepStrictEqual(plain(local.follow_groups), [{ id: 7, name: "数码", count: 1 }], "B站 分组 names stored, 默认分组 and 特别关注 left out");
     assert.strictEqual(calls.filter((c) => c === "relation/tags").length, 1, "group names fetched once per sync");
     assert.strictEqual(local.follow_unfollowed[9].source, "bili");
+    assert.deepStrictEqual([plain(local.follow_jobs.changes.added), plain(local.follow_jobs.changes.removed)], [["2", "3", "4", "5", "6"], ["9"]], "the sync's changes reach follow_jobs");
     assert.deepStrictEqual(plain(local.follow_unfollowed[9].tagIds), ["t1"]);
     assert.ok(!local.follow_tag_map[9] && local.follow_tag_map[1], "the vanished account's tags moved into the record");
     assert.strictEqual(local.follow_people[2].name, "UP2");
@@ -174,6 +181,7 @@ const runSync = async () => {
     await runSync();
     assert.ok(!local.follow_jobs.error, local.follow_jobs.error);
     assert.strictEqual(local.follow_list.complete, false);
+    assert.strictEqual(local.follow_jobs.changes, null, "a partial sync shows no changes");
     assert.deepStrictEqual(local.follow_unfollowed || {}, {});
   }
 
