@@ -10,9 +10,10 @@ const source = fs
   .replace(/^if \(!globalThis\.chrome\?\.runtime\?\.id\) await import.*$/m, "")
   .replace(/^init\(\);$/m, "");
 assert.ok(!/await import|^init\(\);$/m.test(source), "harness strips the page entry points");
-// 优先看 was renamed 播放列表: no page text or README still says the old name.
-for (const f of ["triage.html", "triage.js", "../../README.md"]) {
-  assert.ok(!fs.readFileSync(path.join(__dirname, f), "utf8").includes("优先看"), `${f} still says 优先看`);
+// 优先看, then 播放列表, was renamed 待播: no page text or README still says an old name ("YouTube 播放列表" in the README is YouTube's own).
+for (const f of ["triage.html", "triage.js", "follow.js", "shared.js", "../options.html", "../options.js", "../sidepanel.html", "../sidepanel.js", "../popup.html", "../popup.js", "../content.js", "../badges.js", "../../README.md"]) {
+  const text = fs.readFileSync(path.join(__dirname, f), "utf8").replaceAll("YouTube 播放列表", "");
+  for (const old of ["优先看", "播放列表"]) assert.ok(!text.includes(old), `${f} still says ${old}`);
 }
 
 const stubEl = () => new Proxy({ classList: { toggle() {}, add() {}, remove() {} }, style: {}, dataset: {} }, {
@@ -231,11 +232,20 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   const csvRows = t.buildCsv().replace(/^\uFEFF/, "").split("\r\n");
   assert.ok(csvRows[1].startsWith("'+夹,BV5,'=cmd|' /C calc'!A0,'@up,"), csvRows[1]);
 
-  // 播放列表: E adds in order, 移除 removes without touching decisions.
+  // 待播: E adds in order, 移除 removes without touching decisions.
   openFake("P", [item(1), item(2), item(3)], { BV2: { action: "keep", at: 1 } });
   t.S.basket = [{ bvid: "BVgone", title: "别的收藏夹" }];
   for (const b of ["BV1", "BV2", "BV3"]) t.toggleBasket(b);
   assert.deepStrictEqual(plain(store[t.K.basket]), [{ bvid: "BVgone", title: "别的收藏夹" }, ...[1, 2, 3].map((n) => ({ bvid: `BV${n}`, title: `视频${n}`, upper: "up", duration: 61 }))]);
+  // The card's button says what a click does: 「+ 待播 E」 outside, 「✓ 待播」 inside.
+  {
+    const btn = (b) => t.cardHtml(item(b), true, "").match(/<button[^>]*data-act="basket"[^]*?<\/button>/)[0];
+    assert.strictEqual(btn(1), '<button type="button" data-act="basket" class="on" aria-label="已在待播，点一下移出 (E)" title="已在待播，点一下移出">✓ 待播</button>');
+    const kept = t.S.basket;
+    t.S.basket = kept.filter((x) => x.bvid !== "BV1");
+    assert.strictEqual(btn(1), '<button type="button" data-act="basket" aria-label="加入待播 (E)" title="加入待播">+ 待播<kbd class="key">E</kbd></button>');
+    t.S.basket = kept;
+  }
   t.removeBasketItems([2]);
   t.toggleBasket("BV1");
   assert.deepStrictEqual(plain(store[t.K.basket].map((x) => x.bvid)), ["BVgone", "BV3"]);
@@ -249,11 +259,11 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   // Each item's button is 移除, not 已看: the list is a queue with no watched state.
   t.S.viewing = "";
   t.renderBasket();
-  assert.ok(t.el.basketList.innerHTML.includes('data-basket="remove" aria-label="从播放列表移除 ') && t.el.basketList.innerHTML.includes('title="从播放列表移除">移除</button>') && !t.el.basketList.innerHTML.includes("已看"), "播放列表 says 移除");
+  assert.ok(t.el.basketList.innerHTML.includes('data-basket="remove" aria-label="从待播移除 ') && t.el.basketList.innerHTML.includes('title="从待播移除">移除</button>') && !t.el.basketList.innerHTML.includes("已看"), "待播 says 移除");
   for (const f of ["triage.html", "../../README.md"]) assert.ok(!/「已看」/.test(fs.readFileSync(path.join(__dirname, f), "utf8")), `${f} still says 「已看」`);
   // 清空 empties the list in one undoable step.
   t.clearBasket();
-  assert.deepStrictEqual([plain(store[t.K.basket]), toasts.at(-1)], [[], "已清空播放列表 2 个 · U 撤销"]);
+  assert.deepStrictEqual([plain(store[t.K.basket]), toasts.at(-1)], [[], "已清空待播 2 个 · U 撤销"]);
   await t.undo();
   assert.deepStrictEqual(plain(store[t.K.basket].map((x) => x.bvid)), ["BVgone", "BV3"], "U undoes 清空 in order");
 
@@ -525,7 +535,7 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   assert.deepStrictEqual(backup.folders, { 7: { title: "夹", snapshot: { bvids: ["BVa"] }, decisions: { BVa: { action: "keep" } } } });
   assert.strictEqual(backup.schemaVersion, 3);
   assert.deepStrictEqual([backup.tags, backup.folderCriteria, backup.videoTags], [[{ id: "t1", name: "AI", color: "#111" }], { 7: "只留干货" }, { BVa: ["t1"] }]);
-  assert.ok(!("basket" in backup), "播放列表 is not backed up");
+  assert.ok(!("basket" in backup), "待播 is not backed up");
   assert.ok(!("schemes" in backup) && !("folderScheme" in backup) && !/"old"/.test(JSON.stringify(backup)), "old scheme keys are not exported");
   assert.deepStrictEqual([backup.titleResults, backup.analyses], [{ BVa: { verdict: "keep" } }, { BVa: { status: "done" } }]);
   assert.deepStrictEqual(backup.notes, { BVa: { text: "n", updatedAt: 1 } });
@@ -1152,8 +1162,8 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     const at = new Date(new Date().getFullYear(), 9, 5, 17, 25).getTime();
     const html = t.cardHtml({ ...item(1), removedAt: at, from: [{ id: "A", title: "甲", at: 1 }, { id: "B", title: "乙", at: 3 }, { id: "C", title: "丙", at: 5 }] }, true, "");
     assert.ok(html.includes('data-select="BV1"') && html.includes('class="danger" data-clean="BV1"') && !html.includes('data-act="keep"') && !html.includes('data-act="unfav"'), html);
-    assert.ok(html.includes('data-act="basket"') && html.includes('data-act="ask"') && !html.includes('data-act="tag"'), "已出分拣范围 keeps 播放列表 and 问 AI, not 标签");
-    // 保留 shows here too, and the table carries the note, origin and why it left (not 播放列表).
+    assert.ok(html.includes('data-act="basket"') && html.includes('data-act="ask"') && !html.includes('data-act="tag"'), "已出分拣范围 keeps 待播 and 问 AI, not 标签");
+    // 保留 shows here too, and the table carries the note, origin and why it left (not 待播).
     t.S.decisions = { BV1: { action: "keep", at } };
     assert.ok(t.cardHtml({ ...item(1), removedAt: at }, true, "").includes(">已保留<"));
     const savedNotes = t.S.notes, savedBasket = t.S.basket;
@@ -1162,7 +1172,7 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     const [head, row] = t.buildCsv().replace(/^\uFEFF/, "").split("\r\n");
     const col = (name) => row.split(",")[head.split(",").indexOf(name)];
     assert.deepStrictEqual([col("备注"), col("我的处理"), col("原在"), col("离开原因")], ["我的话", "保留", "甲", "10月5日 17:25 已取消收藏"]);
-    assert.ok(!head.includes("播放列表"));
+    assert.ok(!head.includes("待播"));
     t.S.items = [{ ...item(1), cover: "https://i0.hdslb.com/c.jpg", pubdate: 1759622400, favTime: 1759708800, intro: "简介文字" }];
     const [, row2] = t.buildCsv().replace(/^\uFEFF/, "").split("\r\n");
     const col2 = (name) => row2.split(",")[head.split(",").indexOf(name)];
@@ -2001,7 +2011,7 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
       const html = fs.readFileSync(path.join(__dirname, "triage.html"), "utf8");
       const viewer = html.slice(html.indexOf('<aside id="viewer"'), html.indexOf("</aside>", html.indexOf('<aside id="viewer"')));
       assert.ok(viewer && !/viewer-head|viewerTitle|viewerFocusBtn|viewerTabBtn|专注模式|在 B站打开/.test(viewer), "no top bar in the player");
-      // No 已看，下一个 either: the 播放列表 panel's 移除 and 清空 take videos out.
+      // No 已看，下一个 either: the 待播 panel's 移除 and 清空 take videos out.
       for (const f of ["triage.html", "triage.js", "follow.css", "../../README.md"]) {
         assert.ok(!/已看，下一个|viewerNextBtn|viewerBasket|basketDoneAndNext/.test(fs.readFileSync(path.join(__dirname, f), "utf8")), `${f} still has 已看，下一个`);
       }
@@ -2014,11 +2024,11 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
       t.openViewer(t.S.itemMap.get("BV1"));
       t.onKey(key("Escape", {}));
       assert.strictEqual(t.S.viewing, "", "Esc closes the player");
-      // 播放列表's 移除: out of the list, a toast that says so, U puts it back.
+      // 待播's 移除: out of the list, a toast that says so, U puts it back.
       t.S.basket = [{ bvid: "BV1" }, { bvid: "BV2" }];
       const btn = { closest: (s) => (s === "[data-basket]" ? { dataset: { basket: "remove" } } : { dataset: { i: "0" } }) };
       fire("basketList", "click", { target: btn });
-      assert.deepStrictEqual([t.S.basket.map((x) => x.bvid), toasts.at(-1)], [["BV2"], "已从播放列表移除 · U 撤销"]);
+      assert.deepStrictEqual([t.S.basket.map((x) => x.bvid), toasts.at(-1)], [["BV2"], "已从待播移除 · U 撤销"]);
       await t.undo();
       assert.deepStrictEqual(t.S.basket.map((x) => x.bvid), ["BV1", "BV2"], "U puts it back");
       t.S.basket = [];
@@ -2092,7 +2102,7 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     t.S.undo.push({ kind: "basket", removed: [] });
     t.onKey(ev("u"));
     await new Promise((r) => setTimeout(r, 20));
-    assert.ok(undone === 0 && toasts.at(-1) === "已撤销：放回播放列表 0 个" && t.S.modeUndo.length === 1, "收藏夹's U undoes its own step, not 关注's later one");
+    assert.ok(undone === 0 && toasts.at(-1) === "已撤销：放回待播 0 个" && t.S.modeUndo.length === 1, "收藏夹's U undoes its own step, not 关注's later one");
     t.onKey(ev("u"));
     await new Promise((r) => setTimeout(r, 20));
     assert.ok(undone === 0 && toasts.at(-1) === "没有可撤销的操作", "收藏夹's U never reaches a 关注 step");

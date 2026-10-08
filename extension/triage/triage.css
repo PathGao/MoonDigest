@@ -556,7 +556,7 @@ dialog h3 { margin: 8px 0 0; font-size: var(--fs-sm); font-weight: 600; }
 .viewer-line { padding-right: 28px; }
 .viewer-frame { flex: 1; width: 100%; border: 0; background: #fff; }
 
-/* 播放列表: a pill over the bottom of the list that opens upward into the queue */
+/* 待播: a pill over the bottom of the list that opens upward into the queue */
 .basket {
   grid-area: list;
   align-self: end;
