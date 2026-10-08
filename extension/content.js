@@ -1154,7 +1154,7 @@ async function runRefreshClip() {
     // 无字幕时也允许进入专注模式，只是字幕区域保持空态。
     if (state.subtitles.length === 0) {
       if (!state.meta?.gate) {
-        await showNoSubtitleState(runId);
+        await showNoSubtitleState(runId, subtitleBundle.needLogin ? "B站要求登录后才能看字幕，请登录 B站后刷新页面" : "");
         return;
       }
       // Gated for the cookieless player call; the transcript runs with cookies.
@@ -4082,11 +4082,15 @@ async function fetchSubtitleBundle() {
   if (!site || !ref) {
     throw new Error("当前页面不是支持的视频地址。");
   }
-  const bundle = await site.fetchTracks(ref, state.meta, siteIo());
+  let bundle = await site.fetchTracks(ref, state.meta, siteIo());
+  // The background request may go out without the page's cookies; the page's own request carries them.
+  if (bundle.needLogin && !site.pageOnly) {
+    bundle = await site.fetchTracks(ref, state.meta, { ...siteIo(), fetchJson });
+  }
   const chapters = bundle.chapters?.length
     ? bundle.chapters
     : BocSites.parseChaptersFromDescription(state.description);
-  return { tracks: bundle.tracks, chapters };
+  return { tracks: bundle.tracks, chapters, needLogin: bundle.needLogin };
 }
 
 async function fetchHotComments(count = 20) {
