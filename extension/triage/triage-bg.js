@@ -259,7 +259,9 @@ function triageError(error, code) {
   return Object.assign(new Error(error), code ? { code } : {});
 }
 
-// Risk control answers HTTP 412 with an HTML page, or code -352/-412 in JSON; both mean back off.
+// Risk control answers HTTP 412 with an HTML page, or one of these codes in JSON; both mean back off.
+// follow-bg.js uses the same set.
+const BILI_RISK_CODES = new Set([-352, -412, -799, -509]);
 async function triageBiliJson(res) {
   if (!res.ok) throw triageError(`B站请求失败 HTTP ${res.status}`, res.status === 412 ? "THROTTLED" : undefined);
   try {
@@ -270,7 +272,7 @@ async function triageBiliJson(res) {
 }
 
 function triageBiliData(json) {
-  if (json.code !== 0) throw triageError(`B站返回 ${json.code}：${json.message}`, json.code === -352 || json.code === -412 ? "THROTTLED" : undefined);
+  if (json.code !== 0) throw triageError(`B站返回 ${json.code}：${json.message}`, BILI_RISK_CODES.has(json.code) ? "THROTTLED" : undefined);
   return json.data;
 }
 
@@ -298,7 +300,7 @@ const TRIAGE_BILI_IO = {
     const json = await fetchJsonForAi(url).catch((e) => {
       throw e.status === 412 ? triageError("B站请求失败 HTTP 412", "THROTTLED") : e;
     });
-    if (json?.code === -352 || json?.code === -412) throw triageError(`B站返回 ${json.code}：${json.message}`, "THROTTLED");
+    if (BILI_RISK_CODES.has(json?.code)) throw triageError(`B站返回 ${json.code}：${json.message}`, "THROTTLED");
     if (json?.code === 0 && /\/x\/player\//.test(url) && !json.data?.subtitle) throw triageError("B站字幕接口限流，稍后重试", "THROTTLED");
     return json;
   }

@@ -21,7 +21,6 @@
 // ===== 纯函数 =====
 
 const FOLLOW_GONE_CODES = new Set([-404, -626]); // arc/search：账号没了，永久；其他错误码都算暂时
-const FOLLOW_RISK_CODES = new Set([-352, -412, -799, -509]);
 const FOLLOW_PLACEHOLDER_NAMES = new Set(["", "账号已注销"]);
 const followNow = () => Math.floor(Date.now() / 1000);
 const followIsDefaultFace = (f) => !f || /\/noface\.(jpg|gif|png)/.test(f);
@@ -241,7 +240,7 @@ async function followGetJson(url) {
       }
       if (e.code !== "THROTTLED") throw e;
     }
-    if (json && !FOLLOW_RISK_CODES.has(json.code)) return json;
+    if (json && !BILI_RISK_CODES.has(json.code)) return json;
     if (strike >= FOLLOW_CFG.strikes) throw triageError("被 B站 限流，已暂停", "THROTTLED");
     if (typeof url === "function") followWbiKey = { key: "", at: 0 };
     followHold(FOLLOW_CFG.backoffMs, "throttled");

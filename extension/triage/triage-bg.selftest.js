@@ -222,6 +222,11 @@ assert.throws(() => t.triageParseCommand('{"new_tags":[', cmdItems, cmdTags, {})
   await assert.rejects(t.triageBiliPost("/x", {}), (e) => e.code === "THROTTLED");
   t.fetch = jsonRes({ code: -412, message: "请求被拦截" });
   await assert.rejects(t.triageBiliGet("https://api.test"), (e) => e.code === "THROTTLED");
+  // -799 / -509 too, as 关注 has always treated them (one BILI_RISK_CODES for both).
+  for (const code of [-799, -509]) {
+    t.fetch = jsonRes({ code, message: "请求过于频繁" });
+    await assert.rejects(t.triageBiliGet("https://api.test"), (e) => e.code === "THROTTLED", String(code));
+  }
   t.fetch = async () => ({ ok: false, status: 412, json: async () => ({}) });
   await assert.rejects(t.triageBiliPost("/x", {}), (e) => e.code === "THROTTLED");
   t.fetch = jsonRes({ code: 11010, message: "内容不存在" });
@@ -347,6 +352,8 @@ assert.throws(() => t.triageParseCommand('{"new_tags":[', cmdItems, cmdTags, {})
   await assert.rejects(analyze(), (e) => e.code === "THROTTLED");
   routes = { ...baseRoutes(), "/x/player/wbi/v2": { code: -352, message: "风控" }, "/x/player/v2": { code: -352, message: "风控" } };
   await assert.rejects(analyze(), (e) => e.code === "THROTTLED");
+  routes = { ...baseRoutes(), "/x/player/wbi/v2": { code: -799, message: "请求过于频繁" }, "/x/player/v2": { code: -799, message: "请求过于频繁" } };
+  await assert.rejects(analyze(), (e) => e.code === "THROTTLED", "-799 through the sites.js fetchers");
   // A throttled wbi/v2 is not turned into "no subtitles" by an empty player/v2 answer, so nothing is cached.
   const noTracks = { code: 0, data: { subtitle: { subtitles: [] } } };
   delete store.triage_analysis_BVa;
