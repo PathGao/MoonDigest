@@ -765,7 +765,9 @@ const TRIAGE_HANDLERS = {
         intro: m.desc,
         invalid: m.state !== 0,
         // Seconds watched on Bilibili, -1 once finished; the card shows it as 看到 N% or 已看完.
-        seen: m.progress
+        seen: m.progress,
+        // 播放量 comes with the list; no extra request.
+        play: Number.isFinite(m.stat?.view) ? m.stat.view : undefined
       }));
       return { items, ids: items.map((it) => it.bvid), info: { title: "稍后再看", intro: "" } };
     }
@@ -795,7 +797,8 @@ const TRIAGE_HANDLERS = {
           pubdate: m.pubtime,
           favTime: m.fav_time,
           intro: m.intro,
-          invalid: m.attr !== 0
+          invalid: m.attr !== 0,
+          play: Number.isFinite(m.cnt_info?.play) ? m.cnt_info.play : undefined
         });
       }
       if (!data?.has_more || !data?.medias?.length) break;

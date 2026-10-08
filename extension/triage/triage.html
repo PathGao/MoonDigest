@@ -10,19 +10,14 @@
   </head>
   <body>
     <div class="app">
-      <!-- Top bar: brand, the search box in the middle, what is running and the tools on the right. -->
+      <!-- Top bar: only what both modes share (brand, mode switch); each mode keeps its own search in its filter row. -->
       <header class="topbar">
         <div class="brand"><span class="brand-mark" aria-hidden="true"></span>B站分拣台</div>
         <!-- 收藏夹 | 关注: follow.js owns the switch and the 关注 mode (body.follow-mode). -->
         <span id="modeSwitch" class="seg mode-switch" role="group" aria-label="分拣什么"><button type="button" data-mode="fav" aria-pressed="true">收藏夹</button><button type="button" data-mode="follow" aria-pressed="false">关注</button></span>
         <!-- The select holds the open folder (every reader and writer keeps using it); the sidebar list is drawn from its options. -->
         <select id="folderSelect" class="folder-select" aria-label="选择收藏夹"></select>
-        <span class="search">
-          <svg class="search-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
-          <input id="searchInput" type="search" placeholder="搜索标题、UP 主、总结、备注、标签" aria-label="搜索 (/)" autocomplete="off" />
-          <span id="searchCount" class="muted" aria-live="polite"></span>
-          <kbd class="search-key" aria-hidden="true">/</kbd>
-        </span>
+        <span class="spacer"></span>
         <span class="sync-wrap">
           <button id="syncViewBtn" type="button" class="pill sync-pill" aria-expanded="false" aria-controls="syncNotice" hidden></button>
           <div id="syncNotice" class="notice" hidden>
@@ -80,6 +75,14 @@
             <div id="stagebar" class="stagebar">
               <span id="classFilter" class="class-filter"></span>
               <span id="tagFilter" class="tagfilter"></span>
+              <span id="sortBox" class="sort-box"></span>
+              <!-- Search lives with this folder's filters so its scope is visible; it covers the open folder (or view) and tab. -->
+              <span class="search">
+                <svg class="search-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
+                <input id="searchInput" type="search" placeholder="搜这个收藏夹" aria-label="搜这个收藏夹 (/)" autocomplete="off" />
+                <span id="searchCount" class="muted" aria-live="polite"></span>
+                <kbd class="search-key" aria-hidden="true">/</kbd>
+              </span>
             </div>
             <div id="list" class="list" aria-label="视频列表"><p class="empty">正在加载收藏夹列表…</p></div>
 

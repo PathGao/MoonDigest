@@ -47,10 +47,10 @@ select { height: 28px; max-width: 240px; }
   display: flex;
   align-items: center;
   gap: 8px;
-  flex: 0 1 460px;
-  min-width: 160px;
-  height: 36px;
-  margin: 0 auto;
+  flex: 0 1 300px;
+  min-width: 180px;
+  height: 32px;
+  margin: 0 0 0 auto;
   padding: 0 12px;
   border-radius: var(--radius-md);
   background: var(--field-bg);
@@ -224,6 +224,16 @@ select { height: 28px; max-width: 240px; }
 /* ✦ 标签 opens 管理标签 and AI 批量打: an action, so a plain button (the 关注 side's ✦ AI 打标签 looks the same), not a filter chip. */
 .tags-btn { height: 30px; }
 .tags-btn .ai-spark { margin-right: 3px; }
+
+/* ---------- sort: a select and the direction button (three lines; longest on top = descending), as one control.
+   收藏夹 puts it at the right of the filter row; 关注 reuses it. ---------- */
+/* Sort follows the tag filters (the user wants it right after them), set apart by a thin rule; wraps with them. */
+.sort-box { display: inline-flex; align-items: center; gap: 8px; margin-left: 4px; padding-left: 12px; border-left: 1px solid var(--border); }
+.sort-ctl { display: inline-flex; }
+.sort-ctl select { border-top-right-radius: 0; border-bottom-right-radius: 0; }
+.sort-dir { width: 28px; padding: 0; margin-left: -1px; display: grid; place-items: center; border-color: var(--border-strong); border-radius: 0 var(--radius-sm) var(--radius-sm) 0; background: var(--field-bg); color: var(--text-2); }
+.sort-dir:hover { color: var(--text); }
+.sort-dir svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; }
 
 /* ---------- the selection bar floats over the bottom of the page while anything is selected ----------
    Centered with auto margins between left and right (not left: 50% + translate, which caps a fixed box at half the
@@ -640,7 +650,7 @@ dialog.wide { width: min(620px, calc(100% - 32px)); }
   .side { display: none; }
   .folder-select { display: block; }
   .brand { display: none; }
-  .search { flex-basis: 200px; }
+  .search { flex-basis: 200px; margin-left: 0; }
   .main { padding: 0 16px; }
 }
 
