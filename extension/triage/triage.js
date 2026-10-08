@@ -40,8 +40,8 @@ const K = {
   aiRecent: "triage_ai_recent" // { [mediaId]: { at, bvids } }: 「AI 刚打的」, the videos the last applied 批量打 changed
 };
 // 「AI 刚打的」: the videos the last applied 批量打 changed in a folder, to look over on their cards. Only these end it.
-const AI_RECENT_RULES = ["点 ×：不再标出，标签不变", "再批量打一次：换成新的一批"];
-const AI_RECENT_UNDO = "按 U 撤销这次批量打前会先问你；确认后这批视频的标签都回到批量打之前，包括你之后又改过的。";
+const AI_RECENT_RULES = ["点 ×：不再标出，标签不变", "再让 AI 打一次：换成新的一批"];
+const AI_RECENT_UNDO = "按 U 撤销这次 AI 打标签前会先问你；确认后这批视频的标签都回到 AI 打之前，包括你之后又改过的。";
 const ALL = "all"; // the 所有收藏夹 view's folder-select value
 const REMOVED = "removed"; // the 已出分拣范围 view
 const TOVIEW = "toview"; // 稍后再看, listed by triage-bg as one more folder
@@ -298,6 +298,8 @@ const S = {
   throttleLabel: "",
   undo: [],
   lastSyncAt: 0,
+  readAt: {}, // mediaId → when its list was last read from B站, for 「今天 HH:MM 刷新过」
+  syncError: "", // the open folder's last 刷新 failure; stays under the title until a read succeeds
   syncing: false,
   aiHistory: [],
   viewing: "",
@@ -347,17 +349,27 @@ function bindSearch(input, run, delay = 150) {
   input.addEventListener("compositionend", later);
 }
 
+const UI = globalThis.TriageUi;
+const { esc, pad, fmtDate, fmtDuration, fmtCount, cleanTagName, plainClick, img } = UI;
+// Row 2 and the sidebar foot are drawn by shared.js, as in 关注; here before el picks them up.
+$("favRowTools").insertAdjacentHTML("beforeend", UI.searchBox("searchInput", "searchCount", "搜这个收藏夹") + UI.rowButtons({
+  activityId: "activity", refreshId: "refreshBtn", refreshLabel: "从 B站刷新这个收藏夹", exportId: "exportBtn", menuId: "tools",
+  menuHtml: UI.menuItem('id="writeBtn" aria-label="批量导出"', "批量导出…", "摘录，或逐个视频的笔记") + UI.menuItem('id="csvBtn" aria-label="下载这个收藏夹的表格 CSV"', "这个收藏夹的表格 (CSV)", "标题、AI 判断、标签、备注") + "<hr>" + UI.BACKUP_ITEM,
+  settingsAttr: "data-open-settings", settingsLabel: "收藏夹设置"
+}));
+$("favSide").insertAdjacentHTML("beforeend", UI.sideFoot({ settingsAttrs: 'id="settingsBtn" aria-label="收藏夹设置"', settingsLabel: "收藏夹设置" }));
+const REFRESH_EMPTY = `<button type="button" data-refresh>${UI.ICON.refresh}刷新</button>`;
 const el = {};
 [
   "folderSelect", "folderList", "folderHead", "settingsHeading", "settingsFoldersHeading", "settingsAi", "settingsFirstRunHint", "searchInput", "searchCount", "refreshBtn", "activity", "settingsBtn", "helpBtn",
   "banner", "bannerText", "bannerBtn", "bannerClose", "syncNotice", "syncText", "syncViewBtn", "syncCloseBtn", "syncDetail",
-  "tabs", "stagebar", "sortBox", "classFilter", "sideFilter", "tagFilter", "listHeader", "list", "basket", "basketToggle", "basketCount",
+  "tabs", "stagebar", "sortBox", "classFilter", "tagFilter", "aiTagSlot", "listHeader", "list", "basket", "basketToggle", "basketCount",
   "basketList", "toast", "settingsDialog", "folderToggles", "thinkingRow", "intervalInput",
   "batchSizeInput", "tagLimitInput", "aiNewTagMaxInput", "aiRemoveTagsInput", "aiFormRemoveTagsInput", "openOptionsBtn", "thinkingInput", "titleMaxInput",
-  "titleMaxHint", "analyzeMaxInput", "analyzeMaxHint", "settingsError", "backupBtn", "csvBtn", "confirmDialog",
+  "titleMaxHint", "analyzeMaxInput", "analyzeMaxHint", "settingsError", "csvBtn", "confirmDialog",
   "confirmTitle", "confirmBody", "confirmOk", "transferDialog", "transferTitle", "transferBody", "transferTarget", "transferNewRow", "transferUnchosen", "transferHow", "transferName", "transferPrivate", "pickerDialog", "pickerTitle", "pickerInput", "pickerList",
   "criteriaDialog", "criteriaTitle", "criteriaInput", "tagsDialog", "tagsModeManage", "tagsModeBatch", "tagsManage", "tagsRows", "newTagInput", "addTagBtn", "helpDialog",
-  "aiBtn", "aiForm", "aiScope", "aiScopeCount", "aiInstruction", "aiHistory",
+  "aiForm", "aiScope", "aiScopeCount", "aiInstruction", "aiHistory",
   "aiTagsPreview", "aiProgress", "aiCloseBtn", "aiStopBtn", "aiRunBtn",
   "aiReview", "aiReviewSummary", "aiNotes", "aiNewTagsHead", "aiNewTags", "aiRows", "aiRecentRules", "aiRecentUndo", "aiDiscardBtn", "aiApplyBtn",
   "biliBtn", "main", "viewer", "viewerTitle", "viewerNextBtn", "viewerFocusBtn", "viewerTabBtn", "viewerCloseBtn", "viewerFrame",
@@ -395,8 +407,12 @@ function noteOwnWrites(obj) {
 let storeFailShown = false;
 function storeSet(key, value) {
   noteOwnWrites({ [key]: value });
-  return chrome.storage.local.set({ [key]: value }).catch((e) => {
-    console.error("[triage] storage write failed", key, e);
+  return store({ [key]: value });
+}
+// Writes obj to storage.local; a failure is logged and toasted once (关注 writes through this too).
+function store(obj) {
+  return chrome.storage.local.set(obj).catch((e) => {
+    console.error("[triage] storage write failed", Object.keys(obj), e);
     if (storeFailShown) return;
     storeFailShown = true;
     toast(`保存失败，本地存储可能已满：${e?.message || e}`, true);
@@ -411,26 +427,10 @@ function serialStore(fn) {
   return run;
 }
 
-function esc(v) {
-  return String(v ?? "")
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&#39;");
-}
-
-const pad = (n) => String(n).padStart(2, "0");
-function fmtDuration(sec) {
-  sec = Math.max(0, Number(sec) || 0);
-  return `${pad(Math.floor(sec / 60))}:${pad(Math.floor(sec % 60))}`;
-}
 function stamp(d = new Date(), withTime = true) {
   const day = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
   return withTime ? `${day}-${pad(d.getHours())}${pad(d.getMinutes())}` : day;
 }
-// pubdate is seconds since the epoch.
-const fmtDate = (sec) => (sec ? stamp(new Date(sec * 1000), false) : "");
 function fmtTime(ts) {
   if (!ts) return "";
   const d = new Date(ts);
@@ -475,12 +475,14 @@ function setBusy(btn, text) {
 
 let toastTimer = 0;
 let noteTimer = 0;
+// An error stays until the next toast or a click on it; anything else goes after 6 s.
 function toast(text, error = false) {
   el.toast.textContent = text;
   el.toast.classList.toggle("error", error);
+  el.toast.title = error ? "点一下关闭" : "";
   el.toast.hidden = false;
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => (el.toast.hidden = true), 6000);
+  if (!error) toastTimer = setTimeout(() => (el.toast.hidden = true), 6000);
 }
 
 function askConfirm(title, bodyHtml, okText, { danger = false } = {}) {
@@ -520,10 +522,10 @@ function handleAiError(error) {
   } else if (text.includes("配置 AI")) {
     showBanner("还没有配置 AI 平台", "去设置", () => send({ type: "open-options" }), "ai");
   } else if (text.includes("截断")) {
-    showBanner(`${text}。建议调大输出上限${hasThinkingToggle() ? "或关闭思考" : ""}`, "打开分拣设置", () => openSettings(true), "ai");
+    showBanner(`${text}。建议调大输出上限${hasThinkingToggle() ? "或关闭思考" : ""}`, "打开收藏夹设置", () => openSettings(true), "ai");
   } else toast(text, true);
 }
-// Only platforms with the 开启思考 switch in 分拣设置 can turn thinking off.
+// Only platforms with the 开启思考 switch in 收藏夹设置 can turn thinking off.
 const hasThinkingToggle = () => Boolean(S.settings.thinkingToggle);
 const clearAiBanner = () => {
   if (el.banner.dataset.kind === "ai") el.banner.hidden = true;
@@ -674,19 +676,12 @@ function sortItems(list, sort = "fav", dir = SORT_DIR[sort] || "desc") {
     return sign * (typeof x === "string" ? x.localeCompare(y, "zh") : x - y);
   });
 }
-// 播放量 on a card: 12.3万 from 万 up; nothing when it is not stored yet.
-const fmtPlay = (n) => (n >= 1e8 ? `${Math.round(n / 1e7) / 10}亿` : n >= 1e4 ? `${Math.round(n / 1e3) / 10}万` : String(n));
 const sortWords = (sort, dir) =>
   ({ title: ["A→Z", "Z→A"], play: ["从少到多", "从多到少"], dur: ["从短到长", "从长到短"] })[sort]?.[dir === "asc" ? 0 : 1] ?? (dir === "asc" ? "旧→新" : "新→旧");
-// The direction button's icon: three lines, longest on top = descending; mirrored = ascending. Shared with 关注.
-function sortDirIcon(dir) {
-  const ws = dir === "asc" ? [6, 10, 14] : [14, 10, 6];
-  return `<svg viewBox="0 0 20 20" aria-hidden="true">${[4, 8, 12].map((y, i) => `<path d="M3 ${y + 1.5}h${ws[i]}"/>`).join("")}</svg>`;
-}
 function renderSort() {
   const { sort, dir } = sortOf();
   const missing = sort === "play" && S.items.some((it) => !it.invalid && !Number.isFinite(it.play));
-  el.sortBox.innerHTML = `${missing ? `<span class="muted">播放量要再同步一次才有</span>` : ""}<span class="sort-ctl"><select data-sort aria-label="排序">${Object.entries(SORTS).map(([v, t]) => `<option value="${v}"${v === sort ? " selected" : ""}>${t}</option>`).join("")}</select><button type="button" class="sort-dir" data-sort-dir title="${sortWords(sort, dir)}" aria-label="排序方向：${sortWords(sort, dir)}">${sortDirIcon(dir)}</button></span>`;
+  el.sortBox.innerHTML = `${missing ? `<span class="muted">播放量要再同步一次才有</span>` : ""}${UI.sortControl({ sorts: SORTS, sort, dir, words: sortWords(sort, dir), selectAttr: "data-sort", dirAttr: "data-sort-dir" })}`;
 }
 function setSort(sort, dir) {
   S.sortBy = { ...S.sortBy, [String(S.mediaId)]: { sort, dir } };
@@ -731,9 +726,10 @@ function nextBatch() {
 init();
 // 关注 mode (follow.js) borrows the viewer, the toast and the confirm dialog; in that mode the keys below stay off.
 const followMode = () => Boolean(document.body?.classList.contains("follow-mode"));
-globalThis.MoonTriage = { bindSearch, openViewer, closeViewer, toast, askConfirm, send, esc, sortDirIcon, viewing: () => S.viewing };
+globalThis.MoonTriage = { bindSearch, openViewer, closeViewer, toast, askConfirm, send, store, handleAiError, THROTTLES, sleepWhile, viewing: () => S.viewing };
 
 async function init() {
+  UI.fillSetRows(document);
   bindEvents();
   // Read up front: sidePanel.open must run inside the click's user gesture, before any await.
   chrome.tabs.getCurrent().then((tab) => (ownTabId = tab?.id));
@@ -873,7 +869,7 @@ const seenWords = (p, done) => (p >= 100 ? "✓ 看完了" : done ? `✓ 看到 
 // The cover with its progress bar and, once 看完了, the corner tag or the veil (html[data-seen-style] picks one).
 // Below the share, a faint 看到 N% says how far it got.
 function coverHtml(it) {
-  const img = `<img class="cover" src="${esc(it.cover)}" alt="" loading="lazy" referrerpolicy="no-referrer" />`;
+  const pic = `<img class="cover" src="${esc(img(it.cover, "480w_270h_1c"))}" alt="" loading="lazy" referrerpolicy="no-referrer" />`;
   const known = seenPercentOf(it);
   const p = S.seenCfg.bar ? known : null;
   const seen = isFinished(it);
@@ -885,7 +881,7 @@ function coverHtml(it) {
   const tag = S.analyzing.has(it.bvid) ? `<span class="cover-tag running">分析中…</span>` : VERDICTS[v.verdict] ? `<span class="cover-tag ${v.verdict}" title="${esc(v.reason)}">${VERDICTS[v.verdict]}</span>` : "";
   const dur = it.duration ? `<span class="cover-dur">${fmtDuration(it.duration)}</span>` : "";
   // A real link (right-click 在新标签页中打开, ⌘-click), out of the tab order: the title is the same link for the keyboard.
-  return `<a class="cover-wrap${seen ? " seen" : ""}" href="${esc(videoUrl(it.bvid))}" data-act="open" tabindex="-1" aria-hidden="true">${img}${tag}${dur}${mark}${p ? `<span class="seen-bar" title="看到 ${p}%"><i style="width:${Math.max(p, 2)}%"></i></span>` : ""}</a>`;
+  return `<a class="cover-wrap${seen ? " seen" : ""}" href="${esc(videoUrl(it.bvid))}" data-act="open" tabindex="-1" aria-hidden="true">${pic}${tag}${dur}${mark}${p ? `<span class="seen-bar" title="看到 ${p}%"><i style="width:${Math.max(p, 2)}%"></i></span>` : ""}</a>`;
 }
 
 // Runs simplifyMigration once (flag key), then drops the old scheme keys it read.
@@ -1017,7 +1013,7 @@ async function loadFolders() {
   if (!S.folders.length) {
     el.list.innerHTML = S.allFolders.length
       ? `<div class="empty pick-folders"><p><strong>先选要分拣的收藏夹</strong></p>
-          <p>MoonDigest 只读取你勾选的收藏夹，没勾的不会读取里面的内容。<br>以后可以在「分拣设置」里随时改。</p>
+          <p>MoonDigest 只读取你勾选的收藏夹，没勾的不会读取里面的内容。<br>以后可以在「收藏夹设置」里随时改。</p>
           <button type="button" class="primary" data-pick-folders>选择收藏夹</button></div>`
       : `<p class="empty">没有找到收藏夹</p>`;
     return;
@@ -1056,6 +1052,7 @@ async function openFolder(mediaId) {
   S.undo = [];
   S.focused = "";
   S.focusIndex = 0;
+  S.syncError = "";
   hideSyncNotice();
   if (!all && !removed) storeSet(K.lastFolder, mediaId);
   el.folderSelect.value = mediaId;
@@ -1092,7 +1089,7 @@ async function checkCached(token, snap) {
   const r = await send({ type: "triage-folder-ids", mediaId: S.mediaId });
   if (token !== S.folderToken) return;
   if (!r.ok) syncFolder({ force: true });
-  else if (!idsChanged(snap.ids || snap.bvids, r.data.bvids)) S.lastSyncAt = Date.now();
+  else if (!idsChanged(snap.ids || snap.bvids, r.data.bvids)) S.lastSyncAt = S.readAt[S.mediaId] = Date.now();
   else syncFolder({ force: true, cached: { snap, ids: r.data.bvids } });
 }
 
@@ -1189,11 +1186,12 @@ async function syncFolder({ force = false, cached = null } = {}) {
     if (!r.ok) {
       const needLogin = /登录/.test(r.error || "");
       if (needLogin) showBanner(r.error, "去登录", () => openTab("https://passport.bilibili.com/login"));
-      else toast(`刷新收藏夹失败：${r.error}`, true);
-      if (!S.items.length) el.list.innerHTML = `<p class="empty">无法读取这个收藏夹</p>`;
+      else S.syncError = `刷新失败：${r.error}`;
+      if (!S.items.length) el.list.innerHTML = UI.emptyState("无法读取这个收藏夹", needLogin ? "登录 B站后点刷新。" : r.error, REFRESH_EMPTY);
       return false;
     }
-    S.lastSyncAt = Date.now();
+    S.lastSyncAt = S.readAt[mediaId] = Date.now();
+    S.syncError = "";
     if (r.data.info) S.folderIntro[mediaId] = r.data.info.intro;
     const snap = await storeGet(K.snapshot(mediaId), null);
     if (token !== S.folderToken) return false;
@@ -1377,7 +1375,7 @@ function dropRemoved(bvids) {
 async function cleanRemoved(list) {
   if (!list.length) return;
   const one = list.length === 1 ? `《${shortTitle(list[0])}》` : `这 ${list.length} 个视频`;
-  const body = `<p>删除${one}的 AI 分析、备注、标签和优先看记录，无法撤销。<br>要留存请先「批量导出」。</p>`;
+  const body = `<p>删除${one}的 AI 分析、备注、标签和优先看记录，无法撤销。<br>要留存请先从「导出」菜单导出。</p>`;
   if (!(await askConfirm(`清理${one}？`, body, `清理 ${list.length} 个`, { danger: true }))) return;
   return serialStore(async () => {
     const bvids = list.map((it) => it.bvid);
@@ -1641,14 +1639,16 @@ function renderTop() {
   el.biliBtn.title = S.mediaId === TOVIEW ? "B站稍后再看" : inFolderView() ? "B站收藏夹" : "B站主页";
   setBusy(el.refreshBtn, (S.syncing || S.loadAll?.running) && `刷新中…${S.syncing ? pageText(S.mediaId) : ""}`);
   const allOpt = el.folderSelect.querySelector(`option[value="${ALL}"]`);
-  if (allOpt) allOpt.hidden = !S.folders.length;
+  if (allOpt) {
+    allOpt.hidden = !S.folders.length;
+    allOpt.textContent = `所有收藏夹 (${S.folders.reduce((n, f) => n + (Number(f.count) || 0), 0)})`;
+  }
   const removedOpt = el.folderSelect.querySelector(`option[value="${REMOVED}"]`);
   const showRemoved = Boolean(S.removedCount) || S.mediaId === REMOVED;
   if (removedOpt) {
     removedOpt.textContent = `已出分拣范围 (${S.removedCount})`;
     removedOpt.hidden = !showRemoved;
   }
-  el.aiBtn.innerHTML = tagsBtnHtml();
   renderFolderList();
   renderFolderHead();
   renderStatus();
@@ -1688,10 +1688,10 @@ function folderThumb(id, cover) {
 function renderFolderHead() {
   if (!S.mediaId) return (el.folderHead.innerHTML = "");
   const invalid = S.items.filter((it) => it.invalid || it.hidden).length;
-  const explain = S.mediaId === REMOVED && "离开了你勾选的所有收藏夹，AI 分析、备注和标签都还留着，清理前可先批量导出";
-  const meta = [`${S.items.length} 个视频`, invalid && `${invalid} 个已失效`, explain].filter(Boolean).join(" · ");
+  const explain = S.mediaId === REMOVED && "离开了你勾选的所有收藏夹，AI 分析、备注和标签都还留着，清理前可先从「导出」菜单导出";
+  const meta = UI.headMeta([inFolderView() && UI.syncedText(S.readAt[S.mediaId]), invalid && `${invalid} 个已失效`, explain], S.syncError);
   const thumb = inFolderView() && S.mediaId !== TOVIEW ? folderThumb(S.mediaId, el.folderSelect.querySelector?.(`option[value="${S.mediaId}"]`)?.dataset.cover) : "";
-  el.folderHead.innerHTML = `${thumb}<div class="folder-text"><h1 class="folder-title">${esc(folderTitle())}</h1><div class="folder-meta">${meta}</div></div>`;
+  el.folderHead.innerHTML = `${thumb}<div class="folder-text"><h1 class="folder-title">${UI.titleHtml(folderTitle(), S.items.length)}</h1><div class="folder-meta">${meta}</div></div>`;
 }
 
 // What is running, in one place on every tab: the first that applies wins. done/total draws a bar,
@@ -1719,7 +1719,7 @@ function activityState() {
   if (S.syncing) return { text: `刷新中…${pageText(S.mediaId)}` };
   if (S.ai.running) {
     const where = S.ai.mediaId === String(S.mediaId) ? "" : `（${folderName(S.ai.mediaId)}）`;
-    return { text: `标签 AI 运行中${where}`, act: "tags", actLabel: "查看" };
+    return { text: `AI 打标签运行中${where}`, act: "tags", actLabel: "查看" };
   }
   if (S.ai.proposal) return { text: "标签建议待确认", act: "tags", actLabel: "查看" };
   const other = otherAiFolder();
@@ -1734,9 +1734,7 @@ function renderStatus() {
   el.activity.hidden = !a;
   if (!a) return;
   el.activity.classList.toggle("warn", Boolean(a.warn));
-  const bar = a.total ? `<span class="activity-bar" aria-hidden="true"><i style="width:${Math.round((a.done / a.total) * 100)}%"></i></span>` : "";
-  const btn = a.act ? `<button type="button" data-head="${a.act}" aria-label="${esc(a.actLabel)}"${a.stopping ? " disabled" : ""}>${esc(a.actLabel)}</button>` : "";
-  el.activity.innerHTML = `<span class="activity-text">${esc(a.text)}</span>${bar}${btn}`;
+  el.activity.innerHTML = UI.activityHtml({ ...a, btn: a.act && { attrs: `data-head="${a.act}"`, label: a.actLabel, disabled: a.stopping } });
 }
 
 function tick() {
@@ -1748,7 +1746,7 @@ function renderTabs() {
   const tab = (key, label, cls, n) =>
     `<button type="button" role="tab" class="${cls}" data-tab="${key}" aria-selected="${S.tab === key}" aria-label="${label} ${n}">${label}<span class="count">${n}</span></button>`;
   const steps = STAGES.map(([key, label]) => tab(key, label, c[key] ? "step" : "step zero", c[key]));
-  el.searchCount.textContent = S.query.trim() ? `${c.read} 个结果` : "";
+  el.searchCount.textContent = UI.resultCount(S.query, c.read);
   // Say what the box searches: the open folder (or 所有收藏夹 / 已出分拣范围) and the tab you are on.
   const tabName = Object.fromEntries([...STAGES, ["read", "全部"]])[S.tab];
   const scope = `在「${folderTitle()}」${tabName ? ` · ${tabName}` : ""}里搜`;
@@ -1763,11 +1761,11 @@ function renderTabs() {
     steps.join(`<span class="arrow" aria-hidden="true">→</span>`) + `<span class="tab-sep" aria-hidden="true"></span>` + tab("read", "阅览全部", "read-tab", c.read);
 
   const chips = tagChips();
-  // Each only when this view has such a video (or the filter is on, so it can be turned off).
-  const chip = (on, show, attr, label, aria) =>
-    !on && !show ? "" : `<button type="button" class="chip watched${on ? " on" : ""}" ${attr} aria-pressed="${on}" aria-label="${aria}">${label}</button>`;
+  // Always there, dimmed while this view has no such video; 看完了 only while 观看进度 marks are on.
+  const chip = (on, any, attr, label, aria) =>
+    `<button type="button" class="chip watched${on ? " on" : ""}${any ? "" : " zero"}" ${attr} aria-pressed="${on}" aria-label="${aria}">${label}</button>`;
   const watchedChip =
-    chip(S.finishedFilter, S.items.some(isFinished), "data-finishedfilter", "看完了", "只看 B站历史记录里看完了的视频") +
+    (S.seenCfg.mark || S.finishedFilter ? chip(S.finishedFilter, S.items.some(isFinished), "data-finishedfilter", "看完了", "只看 B站历史记录里看完了的视频") : "") +
     chip(S.watchedFilter, S.items.some((it) => S.watched[it.bvid]), "data-watchedfilter", "优先看过", "只看在优先看里点了已看的视频");
   // Only when this view has an invalid video, like those above; with 全选 it picks them all for 取消收藏 or 清理. 已出分拣范围
   // has it as a tab instead.
@@ -1775,7 +1773,7 @@ function renderTabs() {
   const invalidOn = S.kindFilter === "invalid";
   const invalidChip = S.mediaId === REMOVED || (!invalidOn && !invalidN) ? "" : `<button type="button" class="chip invalid${invalidOn ? " on" : ""}" data-kindfilter="invalid" aria-pressed="${invalidOn}" aria-label="只看已失效的视频">已失效 ${invalidN}</button>`;
   const recentN = S.items.filter((it) => aiRecentSet().has(it.bvid)).length;
-  const recentTip = `最近一次批量打改动的视频，在卡片上逐个看，不对的按 T 改。\n${AI_RECENT_RULES.map((r) => `· ${r}`).join("\n")}\n${AI_RECENT_UNDO}`;
+  const recentTip = `最近一次 AI 打标签改动的视频，在卡片上逐个看，不对的按 T 改。\n${AI_RECENT_RULES.map((r) => `· ${r}`).join("\n")}\n${AI_RECENT_UNDO}`;
   const recentChip = !recentN && !S.aiRecentFilter ? "" : `<span class="ai-recent"><button type="button" class="chip ai-recent-chip${S.aiRecentFilter ? " on" : ""}" data-airecent aria-pressed="${S.aiRecentFilter}" title="${esc(recentTip)}">${AI_SPARK}AI 刚打的 ${recentN}</button><button type="button" class="ai-recent-x" data-airecent-done aria-label="不再标出「AI 刚打的」，标签不变" title="不再标出，标签不变">×</button></span>`;
   el.tagFilter.innerHTML = recentChip + invalidChip + watchedChip + (chips.length
     ? chips
@@ -1784,16 +1782,13 @@ function renderTabs() {
           return `<button type="button" class="chip${on ? " on" : ""}" style="--c:${esc(c.color)}" data-tagfilter="${esc(c.ids.join(","))}" aria-pressed="${on}" aria-label="按标签筛选 ${esc(c.name)}" title="可多选：只显示同时带有所选标签的视频">${esc(c.name)}</button>`;
         })
         .join("")
-    : `<span class="muted">还没有自定义标签</span>`) + // created from the 标签 button
-    `<button type="button" class="tags-btn" data-tags aria-label="标签：管理标签和 AI 批量打标签">${tagsBtnHtml()}</button>`;
+    : `<span class="muted">还没有自定义标签</span>`); // created in 标签管理
+  // 标签管理 and ✦ AI 打标签 at the right end of the tags they act on, as in 关注; AI 打标签 says when a run or a proposal is pending.
+  el.aiTagSlot.innerHTML = UI.tagButtons({ manageAttrs: "data-tags-manage", aiAttrs: 'data-ai-tag aria-label="AI 打标签 (I)"', state: S.ai.running ? " · 运行中" : S.ai.proposal ? " · 待确认" : "" });
   renderSort();
 }
 
-// The 标签 entry's text, in the sidebar and as the chip after the tag filters.
-const tagsBtnHtml = () => `${AI_SPARK}标签${S.ai.running ? " · 运行中" : S.ai.proposal ? " · 待确认" : ""}`;
-
-// Marks a control that starts an AI request (tokens.css draws it in the text color).
-const AI_SPARK = '<span class="ai-spark" aria-hidden="true"></span>';
+const AI_SPARK = UI.AI_SPARK;
 
 const headBtn = (act, label, cls = "", disabled = false, verdict = "", title = "", busy = false, ai = false) =>
   `<button type="button"${cls ? ` class="${cls}"` : ""} data-head="${act}"${verdict ? ` data-verdict="${verdict}"` : ""} aria-label="${esc(label)}"${title ? ` title="${esc(title)}"` : ""}${busy ? ' aria-busy="true"' : ""}${disabled ? " disabled" : ""}>${ai ? AI_SPARK : ""}${esc(label)}</button>`;
@@ -1817,7 +1812,7 @@ function renderListHeader(list) {
   let segHtml = "";
   const inStage = S.items.filter((it) => (t === "read" || stageOf(it) === t) && passFilter(it));
   const n = (k) => (k === "all" ? inStage.length : inStage.filter((it) => classOf(it) === k).length);
-  const classBtn = (k, label, off) => `<button type="button" data-class-filter="${k}" aria-pressed="${!off && S.classFilter[t] === k}"${off ? " disabled" : ""}>${label} ${n(k)}</button>`;
+  const classBtn = (k, label) => UI.filterBtn(`data-class-filter="${k}"`, label, n(k), S.classFilter[t] === k);
   // 阅览 also holds decided videos; they leave the AI classes for 已保留 (已取消收藏 has its own folder).
   const CLASSES = [["all", "全部"], ...Object.entries(VERDICTS), ...(t === "read" ? [["kept", "已保留"]] : [])];
   const seg = () => {
@@ -1882,19 +1877,16 @@ function renderListHeader(list) {
       if (f === "all" || f === "drop") html += batchBtn("unfav", "drop");
       if (f === "all" || f === "keep") html += batchBtn("keep", "keep");
     }
-    if (!sel && list.length && f === "unsure") html += `<span class="muted">按 X 或全选后可批量保留、取消收藏、移动或复制</span>`;
   } else if (t === "read" && S.mediaId === REMOVED) {
     const c = S.removedCheck;
     html = seg();
     if (c) html += c.error ? `<span class="fail-text">${esc(c.error)}</span>` : `<span class="muted" aria-busy="true">正在核对 ${c.done} / ${c.total} ${c.what}</span>`;
-    html += `${headBtn("export-read", "批量导出…", "", !list.length)}${sel ? headBtn("clean-selected", `清理选中的 ${sel} 个`, "danger") : headBtn("clean-removed", `清理这 ${list.length} 个`, "danger", !list.length)}`;
+    html += `${sel ? headBtn("clean-selected", `清理选中的 ${sel} 个`, "danger") : headBtn("clean-removed", `清理这 ${list.length} 个`, "danger", !list.length)}`;
   } else if (t === "read") {
     // 阅览 mixes 粗看 guesses with 细看 conclusions, so no class-wide batch here: only the selection.
     html = seg();
     if (all) html += sortHint;
     else if (sel) selActs = batchBtn("keep");
-    else if (list.length) html += `<span class="muted">按 X 或全选后可批量保留、取消收藏、移动或复制</span>`;
-    html += headBtn("export-read", "批量导出…", "", !list.length);
   }
   // 移动/复制 works on a selection in any tab of a single folder; in 已出分拣范围 it is 收藏到. 取消收藏 goes last, set apart.
   if (sel && S.mediaId !== ALL) selActs += transferBtn();
@@ -1909,7 +1901,6 @@ function renderListHeader(list) {
     ? `<div class="selbar" role="toolbar" aria-label="选中的视频"><strong class="sel-count">已选中 ${shown} 个</strong>${hidden ? `<span class="muted">另有 ${hidden} 个被筛选隐藏</span>` : ""}<button type="button" class="link" data-head="clear-selected" aria-label="清空选中">清空选中</button>${selectAll}<span class="sel-actions">${selActs}</span></div>`
     : "";
   el.classFilter.innerHTML = segHtml;
-  el.sideFilter.innerHTML = CLASSES.map(([k, label]) => classBtn(k, label, !segHtml).replace('<button type="button"', '<button type="button" class="side-item"')).join("");
   el.listHeader.innerHTML = `${S.selected.size ? "" : `<span class="select-all">${selectAll}</span>`}<div class="step-actions">${html}</div>${selbar}`;
 }
 
@@ -2015,15 +2006,16 @@ function renderList() {
   // 保留 only marks the video here, while 取消收藏 changed Bilibili; say so where both end up.
   const recent = S.tab === "done" ? `<p class="muted tab-note">已保留：${KEEP_TIP}。<br>已取消收藏：已从 B站收藏夹移走，最近的操作可按 U 撤销。</p>${recentUnfavHtml()}` : "";
   if (!S.items.length) {
-    const empty = S.mediaId === REMOVED ? "没有已出分拣范围的视频" : S.loadAll?.queue.length ? "正在加载收藏夹…" : "这个收藏夹是空的";
-    el.list.innerHTML = `<p class="empty">${empty}</p>${recent}`;
+    const empty = S.mediaId === REMOVED ? `<p class="empty">没有已出分拣范围的视频</p>` : S.loadAll?.queue.length ? `<p class="empty">正在加载收藏夹…</p>`
+      : UI.emptyState("这个收藏夹是空的", "在 B站收藏了视频后，点刷新读进来。", REFRESH_EMPTY);
+    el.list.innerHTML = `${empty}${recent}`;
     return;
   }
   if (!list.length) {
     const empty = { none: "没有未分析的视频", coarse: "没有粗看完成的视频", fine: "没有细看完成的视频", done: "还没有处理过的视频" };
     const f = S.classFilter[S.tab];
     const filtered = S.watchedFilter || S.finishedFilter || S.aiRecentFilter || S.kindFilter || S.tagFilter.size || (f && f !== "all");
-    const text = filtered ? "没有符合筛选的视频" : S.query.trim() ? "没有匹配搜索的视频" : empty[S.tab] || "这里没有视频";
+    const text = S.query.trim() ? "没有匹配搜索的视频" : filtered ? "没有符合筛选的视频" : empty[S.tab] || "这里没有视频";
     el.list.innerHTML = `<p class="empty">${text}</p>${recent}`;
     return;
   }
@@ -2082,11 +2074,12 @@ function cardHtml(it, expanded, mark) {
   if (b === S.focused) cls.push("focused");
   if (S.selected.has(b)) cls.push("selected");
   if (mark) cls.push("in-batch");
+  if (b === S.viewing) cls.push("playing");
 
   const removed = S.mediaId === REMOVED;
   const basketBtn = `<button type="button" data-act="basket" class="${inBasket ? "on" : ""}" aria-pressed="${inBasket}" aria-label="${inBasket ? "移出" : "加入"}优先看 (E)">优先看<kbd class="key">E</kbd></button>`;
   const askBtn = `<button type="button" data-act="ask" aria-label="问 AI (Q)">${AI_SPARK}问 AI<kbd class="key">Q</kbd></button>`;
-  const meta = [it.upper, fmtDate(it.pubdate), Number.isFinite(it.play) && `▶ ${fmtPlay(it.play)}`, ["", "粗看", "细看"][v.stage], seenText(it), it.invalid && "已失效", it.folders?.length && `收藏夹：${folderNames(it)}`].filter(Boolean);
+  const meta = [it.upper, fmtDate(it.pubdate), Number.isFinite(it.play) && `▶ ${fmtCount(it.play)}`, ["", "粗看", "细看"][v.stage], seenText(it), it.invalid && "已失效", it.folders?.length && `收藏夹：${folderNames(it)}`].filter(Boolean);
   const left = removed && [originHtml(it), it.removedAt && `<span>${esc(leftText(it))}</span>`].filter(Boolean).join("");
 
   const verdict = decision ? "" : verdictBadge(b, v);
@@ -2104,7 +2097,7 @@ function cardHtml(it, expanded, mark) {
 
   const chips = tagIdsOf(b)
     .map((id) => tagById(id))
-    .map((t) => `<button type="button" class="chip card-tag" style="--c:${esc(t.color)}" data-untag="${esc(t.id)}" aria-label="去掉标签 ${esc(t.name)}" title="点一下去掉这个标签 · U 撤销">${esc(t.name)}<span class="x" aria-hidden="true">×</span></button>`)
+    .map((t) => UI.cardTagChip(t, "点一下去掉这个标签 · U 撤销"))
     .join("");
 
   const body = [];
@@ -2184,8 +2177,6 @@ function setFocus(bvid, scroll = true) {
 }
 
 const pointerMoved = (at, x, y) => !at || at.x !== x || at.y !== y;
-// A plain primary click on a card link opens the viewer here; with ⌘ / Ctrl / Shift / Alt the browser handles the link.
-const plainClick = (e) => e.button === 0 && !e.metaKey && !e.ctrlKey && !e.shiftKey && !e.altKey;
 
 function moveFocus(delta) {
   const list = visibleItems();
@@ -2308,7 +2299,7 @@ function batchUndoAsk(entry) {
   if (n < 2) return null;
   if (entry.kind === "keepMany") return [`撤销批量保留？`, `<p>上一步保留了 ${n} 个视频，撤销后它们不再标为保留。</p>`];
   if (entry.kind === "unfavMany") return [`撤销批量取消收藏？`, `<p>会把 ${n} 个视频重新收藏回 B站。</p>`];
-  return [`撤销这次批量打标签？`, `<p>这次批量打改过的 ${n} 个视频，标签都改回批量打之前，包括你之后又改过的。</p>`];
+  return [`撤销这次 AI 打标签？`, `<p>这次 AI 打标签改过的 ${n} 个视频，标签都改回 AI 打之前，包括你之后又改过的。</p>`];
 }
 
 async function undo() {
@@ -2387,7 +2378,7 @@ async function undo() {
     saveVideoTags();
     // Another tab, or a later batch here, may have replaced the folder's 「AI 刚打的」 since.
     if (S.aiRecent[entry.folder]?.at === entry.at) endAiRecent(entry.folder);
-    toast(`已撤销批量打标签：${entry.changes.length} 个视频改回批量打之前`);
+    toast(`已撤销 AI 打标签：${entry.changes.length} 个视频改回 AI 打之前`);
   }
   render();
   setFocus(S.focused);
@@ -2484,8 +2475,8 @@ function toggleTransferNew() {
   el.transferUnchosen.hidden = !out;
   if (out) {
     el.transferUnchosen.innerHTML = S.mediaId === REMOVED
-      ? `「${esc(folderName(v))}」没有勾选分拣：收藏后这些视频仍在「已出分拣范围」。<br>以后在分拣设置里勾选它，会自动找回。`
-      : `「${esc(folderName(v))}」没有勾选分拣：移动过去的视频会进「已出分拣范围」。<br>以后在分拣设置里勾选它，这些视频会自动找回。复制不受影响。`;
+      ? `「${esc(folderName(v))}」没有勾选分拣：收藏后这些视频仍在「已出分拣范围」。<br>以后在收藏夹设置里勾选它，会自动找回。`
+      : `「${esc(folderName(v))}」没有勾选分拣：移动过去的视频会进「已出分拣范围」。<br>以后在收藏夹设置里勾选它，这些视频会自动找回。复制不受影响。`;
   }
 }
 
@@ -2655,11 +2646,13 @@ const saveTags = () => storeSet(K.tags, S.tags);
 // Returns the folder's tag with this name, creating it if needed; the color comes from the palette in turn.
 // null (with a toast) outside a folder or when the folder already has tagLimit() tags.
 function createTag(name, folder = S.mediaId) {
+  name = cleanTagName(name);
+  if (!name) return toast("标签名不能为空", true), null;
   if (folder === ALL || folder === REMOVED || !folder) return toast(FOLDER_ONLY, true), null;
   const own = S.tags.filter((t) => t.folder === String(folder));
   const existing = own.find((t) => t.name === name);
   if (existing) return existing;
-  if (own.length >= tagLimit()) return toast(`这个收藏夹已经有 ${own.length} 个标签了，先删掉不用的，或在分拣设置里调高上限`, true), null;
+  if (own.length >= tagLimit()) return toast(`这个收藏夹已经有 ${own.length} 个标签了，先删掉不用的，或在收藏夹设置里调高上限`, true), null;
   const tag = { id: newTagId(), name, color: TAG_COLORS[own.length % TAG_COLORS.length], folder: String(folder) };
   S.tags.push(tag);
   saveTags();
@@ -2791,10 +2784,7 @@ async function saveCriteria() {
 }
 
 // ---------- 标签 dialog: 管理 / 批量打 ----------
-// The 标签 button opens 批量打 while a run or a proposal is pending, otherwise 管理.
-function tagsBtnMode() {
-  return S.ai.running || S.ai.proposal ? "batch" : "manage";
-}
+// 标签管理 (tag row) opens 管理, ✦ AI 打标签 (tag row) opens AI 打标签: one dialog, two sections.
 
 function openTags(mode = "manage") {
   S.ai.excluded.clear();
@@ -2815,7 +2805,7 @@ function showTagsMode(mode) {
 
 // A rename or rule edit from 管理; false (and nothing saved) for an empty or duplicate name.
 function saveTagEdit(t, field, value) {
-  const text = String(value ?? "").trim();
+  const text = field === "name" ? cleanTagName(value) : String(value ?? "").trim();
   if (field === "name") {
     if (!text || S.tags.some((x) => x !== t && x.folder === t.folder && x.name === text)) {
       toast(text ? "已有同名标签" : "标签名不能为空", true);
@@ -2843,7 +2833,7 @@ function renderTagManager() {
         .map(
           (t) => `<div class="tag-row" data-id="${esc(t.id)}">
       <span class="dot" style="--c:${esc(t.color)}"></span>
-      <input type="text" value="${esc(t.name)}" data-field="name" aria-label="标签名称" />
+      <input type="text" value="${esc(t.name)}" data-field="name" maxlength="12" aria-label="标签名称" />
       <input type="text" value="${esc(t.rule || "")}" data-field="rule" maxlength="80" placeholder="什么样的视频打这个标签（给 AI 看，可不写）" aria-label="${esc(t.name)} 的说明" />
       <span class="muted">${counts[t.id] || 0} 个视频</span>
       <button type="button" class="danger" data-field="delete" aria-label="删除标签 ${esc(t.name)}">删除</button>
@@ -3085,7 +3075,7 @@ function showAiReview() {
 
 function renderAiForm() {
   const counts = { filter: visibleItems().length, selected: visibleSelected().length, analyzed: visibleItems().filter(isAnalyzed).length };
-  const labels = { filter: "当前筛选", selected: "选中 (X)", analyzed: "细看过的" };
+  const labels = { filter: "当前筛选", selected: "选中", analyzed: "细看过的" };
   for (const o of el.aiScope.options) {
     o.textContent = `${labels[o.value]} · ${counts[o.value]} 个`;
     o.disabled = !counts[o.value];
@@ -3109,7 +3099,7 @@ function renderAiForm() {
     return `<button type="button" class="chip tag-use${on ? " on" : ""}" style="--c:${esc(t.color)}" data-use="${esc(t.id)}" aria-pressed="${on}" title="${on ? "点一下：这次不让 AI 用" : "点一下：让 AI 用"}">${esc(t.name)}</button>`;
   };
   el.aiTagsPreview.innerHTML = !inFolderView()
-    ? `<p class="dialog-hint">${FOLDER_ONLY}再批量打。</p>`
+    ? `<p class="dialog-hint">${FOLDER_ONLY}再让 AI 打标签。</p>`
     : tags.length
       ? `<span id="aiTagsLabel" class="grid-label">可用标签</span><div class="chips" role="group" aria-labelledby="aiTagsLabel">${tags.map(useChip).join("")}</div><p class="dialog-meta">点掉的标签这次不给 AI 用。<br>${roomHint}</p>`
       : `<p class="dialog-hint">这个收藏夹还没有自定义标签。${roomHint}想打得准，先在<button type="button" class="link" data-tags-mode="manage">「管理」</button>里建好标签、每个写一句说明。</p>`;
@@ -3184,7 +3174,7 @@ async function runAiCommand() {
     if (el.tagsDialog.open) renderAiForm();
     toast(`「${folderName(folder)}」的标签建议已完成，在状态栏点「查看」确认`);
   } else if (el.tagsDialog.open && el.tagsManage.hidden) showAiReview();
-  else toast("批量打标签已完成，按 I 查看建议");
+  else toast("AI 打标签已完成，按 I 查看建议");
 }
 
 function mergeAiBatch(p, data, opts, scopeSet) {
@@ -3252,7 +3242,7 @@ function rowResult(p, row, idOf) {
 const sameIds = (a, b) => a.length === b.length && a.every((id) => b.includes(id));
 // Before 应用: a new tag stands in as "new:key" (or the same-name tag createTag would return); a cleared name adds nothing.
 function previewId(p, key) {
-  const name = p.newTags.find((t) => t.key === key)?.name.trim();
+  const name = cleanTagName(p.newTags.find((t) => t.key === key)?.name);
   return name && (S.tags.find((t) => t.folder === String(S.mediaId) && t.name === name)?.id || `new:${key}`);
 }
 // [bvid, before, after] for every row that changes its video's tags.
@@ -3274,7 +3264,7 @@ function renderAiReview() {
       const n = uses(t);
       return `<div class="ai-newtag" data-i="${i}">
       <input type="checkbox" data-nt="checked"${t.checked ? " checked" : ""} aria-label="创建标签 ${esc(t.name)}" />
-      <input type="text" data-nt="name" value="${esc(t.name)}" aria-label="新标签名称" />
+      <input type="text" data-nt="name" value="${esc(t.name)}" maxlength="12" aria-label="新标签名称" />
       <span class="muted">${n ? `用在 ${n} 个视频` : "没有视频用到"}</span>
     </div>`;
     })
@@ -3285,7 +3275,7 @@ function renderAiReview() {
 // The 确认页 sums the changes up per tag ("+ 入门 4"); videos are judged afterwards on their cards, under 「AI 刚打的」.
 function aiTally(p) {
   const tally = new Map();
-  const name = (id) => (id.startsWith("new:") ? p.newTags.find((t) => t.key === id.slice(4))?.name.trim() : tagById(id)?.name) || "";
+  const name = (id) => (id.startsWith("new:") ? cleanTagName(p.newTags.find((t) => t.key === id.slice(4))?.name) : tagById(id)?.name) || "";
   for (const [, before, after] of rowChanges(p)) {
     const changes = after.filter((id) => !before.includes(id)).map((id) => ["add", `+ ${name(id)}`])
       .concat(before.filter((id) => !after.includes(id)).map((id) => ["remove", `− ${name(id)}`]));
@@ -3301,7 +3291,7 @@ function aiTally(p) {
 function renderAiRows() {
   const p = S.ai.proposal;
   const n = rowChanges(p).length;
-  const newTags = p.newTags.filter((t) => t.checked && t.name.trim()).length;
+  const newTags = p.newTags.filter((t) => t.checked && cleanTagName(t.name)).length;
   el.aiReviewSummary.textContent = `· ${n} 个视频有改动 · 新标签 ${newTags} 个 · 点「应用」前不会改动任何东西`;
   const tally = aiTally(p);
   el.aiRows.innerHTML = tally.length
@@ -3318,8 +3308,7 @@ function applyAiProposal() {
   const hadTags = new Set(S.tags.map((t) => t.id));
   const idFor = {};
   for (const t of p.newTags) {
-    const name = t.name.trim();
-    if (t.checked && name) idFor[t.key] = createTag(name)?.id;
+    if (t.checked && cleanTagName(t.name)) idFor[t.key] = createTag(t.name)?.id;
   }
   const changes = []; // [{ bvid, before }]: what U puts back
   for (const [bvid, before, after] of rowChanges(p, (key) => idFor[key])) {
@@ -3414,7 +3403,7 @@ function renderBasket() {
       const note = S.notes[x.bvid]?.text?.trim();
       return `<div class="basket-item${x.opened ? " opened" : ""}${x.bvid === S.viewing ? " playing" : ""}" data-i="${i}">
       <button type="button" class="basket-open" data-basket="open" aria-label="打开视频 ${title}">
-        ${it.cover ? `<img class="basket-cover" src="${esc(it.cover)}" alt="" loading="lazy" referrerpolicy="no-referrer" />` : ""}
+        ${it.cover ? `<img class="basket-cover" src="${esc(img(it.cover, "160w_90h_1c"))}" alt="" loading="lazy" referrerpolicy="no-referrer" />` : ""}
         <span class="basket-text"><span class="basket-title">${title}</span>${meta || x.opened ? `<span class="muted">${[meta, x.opened && "已打开"].filter(Boolean).join(" · ")}</span>` : ""}</span>
       </button>
       <div class="basket-actions">
@@ -3688,15 +3677,12 @@ async function buildBackup() {
     else if (k.startsWith("triage_title_")) out.titleResults[k.slice(13)] = v;
     else if (k.startsWith("triage_analysis_")) out.analyses[k.slice(16)] = v;
   }
+  // 关注's own data (UP tags, who has which, 已取消关注, the last AI batch); its copies of B站 data come back on 刷新.
+  out.follow = {};
+  for (const k of ["follow_tags", "follow_tag_map", "follow_unfollowed", "follow_ai_recent", "follow_ai_history"]) if (all?.[k] !== undefined) out.follow[k.slice(7)] = all[k];
   return out;
 }
 
-function csvField(v) {
-  let s = String(v ?? "");
-  // Spreadsheets run a cell that starts with = + - @ (or tab/CR) as a formula; a leading ' keeps it text.
-  if (/^[=+\-@\t\r]/.test(s)) s = `'${s}`;
-  return /[",\r\n]/.test(s) ? `"${s.replaceAll('"', '""')}"` : s;
-}
 
 function buildCsv() {
   const title = folderTitle();
@@ -3733,7 +3719,7 @@ function buildCsv() {
       it.removedAt ? leftText(it) : ""
     ]);
   }
-  return "﻿" + rows.map((r) => r.map(csvField).join(",")).join("\r\n") + "\r\n";
+  return UI.toCsv(rows);
 }
 
 // ---------- events ----------
@@ -3796,7 +3782,6 @@ function bindEvents() {
     render();
   });
   el.tagFilter.addEventListener("click", (e) => {
-    if (e.target.closest("[data-tags]")) return el.aiBtn.click();
     if (e.target.closest("[data-watchedfilter]")) {
       S.watchedFilter = !S.watchedFilter;
       return render();
@@ -3835,7 +3820,7 @@ function bindEvents() {
     const btn = e.target.closest("[data-head]");
     if (!btn) return;
     const act = btn.dataset.head;
-    if (act === "tags") el.aiBtn.click();
+    if (act === "tags") openTags("batch");
     else if (act === "aiOther") openFolder(otherAiFolder()).then(() => openTags("batch"));
     else if (act === "stage1") {
       if (!S.stage1.running) return runStage1();
@@ -3863,7 +3848,6 @@ function bindEvents() {
       S.loadAll.paused = false;
       runLoadAll(S.folderToken);
     }
-    else if (act === "export-read") openWrite({ scope: "filter", format: "digest" });
     else if (act === "clean-removed") cleanRemoved(visibleItems());
     else if (act === "clean-selected") cleanRemoved(selectedIn(visibleItems()));
     else if (act === "transfer") batchTransfer(transferList());
@@ -3882,11 +3866,11 @@ function bindEvents() {
   });
   el.stagebar.addEventListener("click", onHeadClick);
   el.listHeader.addEventListener("click", onHeadClick);
-  el.sideFilter.addEventListener("click", onHeadClick);
   el.activity.addEventListener("click", onHeadClick);
 
   el.list.addEventListener("click", (e) => {
     if (e.target.closest("[data-pick-folders]")) return openSettings(false, true);
+    if (e.target.closest("[data-refresh]")) return el.refreshBtn.click();
     const refav = e.target.closest("[data-refav]");
     if (refav) return refavRecent(refav.dataset.refav);
     const refavAll = e.target.closest("[data-refav-batch]");
@@ -4034,7 +4018,9 @@ function bindEvents() {
     if (S.write.running) S.write.stop = true;
   });
   el.openOptionsBtn.addEventListener("click", () => send({ type: "open-options" }));
-  el.backupBtn.addEventListener("click", async () => {
+  // Both modes' 导出 menus carry the same 完整备份 item.
+  document.addEventListener("click", async (e) => {
+    if (!e.target.closest("[data-backup]")) return;
     try {
       BocDownload.text(`MoonDigest备份-${stamp()}.json`, JSON.stringify(await buildBackup(), null, 2), "application/json");
     } catch (err) {
@@ -4050,8 +4036,10 @@ function bindEvents() {
     BocDownload.text(`MoonDigest-${title}-${stamp(new Date(), false)}.csv`, buildCsv(), "text/csv;charset=utf-8");
   });
   el.helpBtn.addEventListener("click", () => el.helpDialog.showModal());
-  // A download leaves the page as it was, so the ⋯ menu would stay open over it.
+  // A download leaves the page as it was, so the 导出 menu would stay open over it.
   el.tools.addEventListener("click", (e) => e.target.closest("button") && el.tools.hidePopover());
+  document.querySelector("[data-open-settings]")?.addEventListener("click", () => openSettings());
+  el.toast.addEventListener("click", () => (el.toast.hidden = true));
 
   el.syncViewBtn.addEventListener("click", () => {
     el.syncNotice.hidden = !el.syncNotice.hidden;
@@ -4101,7 +4089,10 @@ function bindEvents() {
   el.criteriaDialog.addEventListener("close", () => {
     if (el.criteriaDialog.returnValue === "save") saveCriteria();
   });
-  el.aiBtn.addEventListener("click", () => openTags(tagsBtnMode()));
+  el.aiTagSlot.addEventListener("click", (e) => {
+    if (e.target.closest("[data-tags-manage]")) openTags("manage");
+    else if (e.target.closest("[data-ai-tag]")) openTags("batch");
+  });
   el.tagsDialog.addEventListener("click", (e) => {
     const btn = e.target.closest("[data-tags-mode]");
     if (btn) showTagsMode(btn.dataset.tagsMode);
@@ -4140,7 +4131,7 @@ function bindEvents() {
 
   // 批量打
   el.aiScope.addEventListener("change", renderAiForm);
-  // The same switch as in 分拣设置, saved as soon as it flips.
+  // The same switch as in 收藏夹设置, saved as soon as it flips.
   el.aiFormRemoveTagsInput.addEventListener("change", async () => {
     const on = el.aiFormRemoveTagsInput.checked;
     const r = await send({ type: "triage-settings-save", triageAiRemoveTags: on });
@@ -4219,7 +4210,7 @@ function renderTokenHints() {
 
 // firstRun: the first open, before any folder is chosen, asks only for folders.
 function openSettings(scrollToLimits = false, firstRun = false) {
-  el.settingsHeading.textContent = firstRun ? "选择要分拣的收藏夹" : "分拣设置";
+  el.settingsHeading.textContent = firstRun ? "选择要分拣的收藏夹" : "收藏夹设置";
   el.settingsAi.hidden = firstRun;
   el.settingsFoldersHeading.hidden = firstRun;
   el.settingsFirstRunHint.hidden = !firstRun;
@@ -4298,8 +4289,10 @@ function onKey(e) {
   if ((e.key === "Enter" || e.key === " ") && t.closest?.("button, a")) return;
   const key = e.key.length === 1 ? e.key.toLowerCase() : e.key;
   if (followMode()) {
-    if (key !== "Escape" || !S.viewing) return;
-    closeViewer();
+    if (key === "?") el.helpDialog.showModal();
+    else if (key === "/") $("fwQ")?.focus();
+    else if (key === "Escape" && S.viewing) closeViewer();
+    else return;
     return e.preventDefault();
   }
   const map = {

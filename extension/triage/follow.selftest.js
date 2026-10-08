@@ -9,7 +9,7 @@ const source = fs.readFileSync(path.join(__dirname, "follow.js"), "utf8");
 const pure = source.slice(source.indexOf("// PURE-START"), source.indexOf("// PURE-END"));
 assert.ok(pure.includes("function followStatus") && !pure.includes("document"), "harness lifts the pure block");
 const ctx = vm.createContext({ setTimeout, clearTimeout });
-vm.runInContext(`${pure}\n;Object.assign(globalThis, { fmtFans, dirLabel, followAiSettings, aiRequests, normDays, settingsProblem, followStatus, lastPostOf, recentTitles, upRow, visibleUps, mergeFeed, feedMatch, sideIds, plainClick, feedList, feedLeaving, withTags, pickToggle, fromViewer, mergeAiBatch, aiChanges, aiTally, fmtAgo });`, ctx);
+vm.runInContext(`${pure}\n;Object.assign(globalThis, { dirLabel, followAiSettings, aiRequests, normDays, settingsProblem, followStatus, lastPostOf, recentTitles, upRow, visibleUps, mergeFeed, feedMatch, sideIds, feedList, feedLeaving, withTags, pickToggle, fromViewer, mergeAiBatch, aiChanges, aiTally, fmtAgo });`, ctx);
 const t = ctx;
 const plain = (v) => JSON.parse(JSON.stringify(v));
 
@@ -141,13 +141,6 @@ const base = () => ({ list: null, last: null, content: {}, people: {}, tags: [],
   assert.ok(t.feedMatch({ mid: "2" }, D, "g:8") && !t.feedMatch({ mid: "1" }, D, "g:8") && !t.feedMatch({ mid: "9" }, D, "g:7"));
 }
 
-// ----- video links: only a plain primary click plays here; modified clicks are the browser's -----
-{
-  const click = (o) => ({ button: 0, metaKey: false, ctrlKey: false, shiftKey: false, altKey: false, ...o });
-  assert.ok(t.plainClick(click({})));
-  for (const k of ["metaKey", "ctrlKey", "shiftKey", "altKey"]) assert.ok(!t.plainClick(click({ [k]: true })), k);
-  assert.ok(!t.plainClick(click({ button: 1 })), "middle click");
-}
 
 // ----- AI proposal: merge, cap, excluded, changes, tally -----
 {
@@ -198,10 +191,6 @@ const base = () => ({ list: null, last: null, content: {}, people: {}, tags: [],
   assert.strictEqual(t.settingsProblem("30", "200"), "");
 }
 
-assert.strictEqual(t.fmtFans(123456), "12.3万");
-assert.strictEqual(t.fmtFans(100000), "10万");
-assert.strictEqual(t.fmtFans(9999), "9999");
-assert.strictEqual(t.fmtFans(250000000), "2.5亿");
 assert.deepStrictEqual([t.dirLabel("last", "desc"), t.dirLabel("follow", "asc"), t.dirLabel("fans", "desc"), t.dirLabel("fans", "asc")], ["新→旧", "旧→新", "从多到少", "从少到多"]);
 assert.strictEqual(t.fmtAgo(now - 100, now), "今天");
 assert.strictEqual(t.fmtAgo(ago(3), now), "3 天前");

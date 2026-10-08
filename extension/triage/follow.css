@@ -5,53 +5,46 @@
 .mode-switch { flex: none; }
 .mode-switch button { height: 30px; padding: 0 14px; font-size: var(--fs-md); }
 
-/* ---------- 关注 mode hides the folder view and its tools ---------- */
-body.follow-mode :is(.shell > .side:not(.follow-side), .main > .folder-head, .main > #tabs, .main > .listpane, .topbar .search, .topbar .sync-wrap, #refreshBtn, #settingsBtn, #folderSelect, #viewerNextBtn) { display: none !important; }
-/* 关注's 刷新 and gear are copies of 收藏夹's in the same spot; ⋯ keeps its place (empty) so neither moves on a switch. */
-body:not(.follow-mode) :is(#fwActivity, #fwRefreshBtn, #fwSettingsBtn) { display: none !important; }
-body.follow-mode #moreBtn { visibility: hidden; }
-body.follow-mode .mode-switch { margin-right: auto; }
+/* ---------- 关注 mode hides the folder view; each mode keeps its own rows, the top bar is shared ---------- */
+body.follow-mode :is(.shell > .side:not(.follow-side), .main > .folder-head, .main > .tabrow, .main > .listpane, #folderSelect, #viewerNextBtn, .fav-help) { display: none !important; }
+body:not(.follow-mode) :is(.fw-side-slot, .follow-help) { display: none !important; }
 .follow-main { display: contents; }
+#fwExportBtn { anchor-name: --fw-export; }
+#fwExport { position-anchor: --fw-export; }
 
 /* ---------- left column ---------- */
-.follow-side .side-item.zero:not(.on) { opacity: 0.5; }
 .follow-side .side-item { height: 38px; }
-.follow-side .tag-btn { height: 44px; }
 .follow-side .dot { flex: none; }
 .follow-side .side-note { margin: 2px 10px; color: var(--faint); font-size: var(--fs-xs); }
 .star-mark { width: 10px; text-align: center; color: var(--text); }
 
 /* ---------- head, bar, list ---------- */
-.fw-head .step-actions { max-width: none; }
-.fw-head .activity button { height: 22px; padding: 0 8px; }
 .fw-bar .seg { flex-wrap: wrap; }
-.fw-bar .seg button.zero:not([aria-pressed="true"]) { opacity: 0.5; }
 .fw-bar .seg .dot { display: inline-block; margin-right: 6px; vertical-align: 0; }
 /* B站 分组 pills: their own labelled group after the tag pills, split by the same thin rule as .fw-sort. */
 .fw-bar .fw-groups { align-items: center; padding-left: 12px; border-left: 1px solid var(--border); }
 .fw-group-label { margin-right: 4px; color: var(--faint); font-size: var(--fs-xs); }
 .fw-bar-dyn { display: contents; }
+/* Row 3's right end: 全选这里的 N 个, then ✦ AI 打标签 (the same button as 收藏夹's tag row). */
 .fw-tools { display: flex; align-items: center; gap: 8px; margin-left: auto; }
-.fw-tools input[type="search"] { width: 200px; height: 30px; }
-.fw-tools select { height: 30px; }
-/* Sort (the shared .sort-ctl) sits right after the 状态 filters with a thin rule, as in 收藏夹; search and AI stay on the right. */
-.fw-sort { margin-left: 4px; padding-left: 12px; border-left: 1px solid var(--border); }
-.fw-sort select, .fw-sort .sort-dir { height: 30px; }
-.fw-sort .sort-dir { width: 30px; }
-.fw-tools button { height: 30px; }
-.fw-side-select { display: none; height: 30px; }
+.fw-tools .link { height: 32px; }
+.fw-side-slot { display: none; }
+.fw-side-select { height: 32px; max-width: 200px; font-weight: 600; }
 
 .fw-list { grid-area: list; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; margin: 0 -8px; padding: 2px 8px 90px; }
 .fw-hint { margin: 0; padding: 8px 12px; border: 1px solid var(--info-border); border-radius: var(--radius-md); background: var(--info-bg); color: var(--text-2); line-height: 1.6; }
 .fw-hint.warn { border-color: var(--warn-border); background: var(--warn-bg); color: var(--warn); }
 .fw-hint button { height: 26px; margin-left: 8px; font-size: var(--fs-xs); }
-.fw-empty { display: flex; flex-direction: column; align-items: center; gap: 10px; max-width: 460px; margin: 48px auto; text-align: center; }
-.fw-empty p { margin: 0; }
-.fw-empty strong { font-size: var(--fs-lg); }
-.fw-empty .primary { height: 36px; padding: 0 20px; }
 
 /* ---------- UP card: avatar | name, status, meta, sign, 3 titles, tags | ★ and 选中 ---------- */
 .fw-up { display: grid; grid-template-columns: 56px minmax(0, 1fr) auto; gap: 14px; padding: 12px 14px; }
+/* Hover as on 收藏夹's cards: the dark ring and the lift; the card's secondary action (选中 X) shows. */
+.fw-up:hover:not(.selected, .playing) { outline: 2px solid var(--text-2); outline-offset: -1px; box-shadow: var(--lift); }
+.fw-foot-row .more { display: flex; margin-left: auto; }
+.fw-foot-row .more button { height: 22px; padding: 0 8px; font-size: var(--fs-xs); }
+/* triage.css hides a card's .more until J/K focus; 关注 has no J/K yet, so hover shows it. */
+.fw-up.card:is(:hover, :focus-within) .more button:not(.on) { visibility: visible; }
+@media (hover: none) { .fw-up .more button { visibility: visible !important; } }
 .fw-avatar { width: 56px; height: 56px; border-radius: 50%; overflow: hidden; background: var(--field-bg); }
 .fw-avatar img { display: block; width: 100%; height: 100%; object-fit: cover; }
 .fw-name-row { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; }
@@ -65,24 +58,15 @@ body.follow-mode .mode-switch { margin-right: auto; }
 .fw-title { min-width: 0; height: auto; padding: 0; border: 0; background: none; color: var(--text); text-decoration: none; font-size: var(--fs-sm); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; }
 .fw-title::before { content: "▸ "; color: var(--faint); }
 a.fw-title:hover { background: none; color: var(--link); text-decoration: underline; }
-.fw-up .chips { align-items: center; gap: 4px 10px; }
-.fw-up .chips .chip { height: auto; padding: 0; border: 0; background: none; color: color-mix(in srgb, var(--c) 70%, var(--text)); }
-.fw-up .chips .chip.card-tag { margin: 0 -4px; padding: 0 4px; border-radius: 4px; cursor: pointer; font: inherit; font-size: var(--fs-xs); }
-.fw-up .chips .chip.card-tag:hover { background: color-mix(in srgb, var(--c) 12%, transparent); }
-.fw-up .chips .chip.card-tag .x { margin-left: 2px; opacity: 0.35; }
-.fw-up .chips .chip.card-tag:hover .x { opacity: 1; }
+/* The tag chips are 收藏夹's (triage.css .card-body > .chips). */
+.fw-up .chips { align-items: center; }
 .fw-tag-add { height: auto; font-size: var(--fs-xs); }
 .fw-right { display: flex; flex-direction: column; align-items: flex-end; gap: 8px; }
 .fw-right button { height: 30px; min-width: 76px; font-size: var(--fs-sm); }
 .fw-right .star { min-width: 0; width: 32px; padding: 0; border-color: transparent; background: none; color: var(--faint); font-size: 20px; line-height: 1; }
 .fw-right .star.on { color: var(--text); }
 .fw-right .star:hover { background: var(--surface-muted); }
-.fw-up:not(:hover, :focus-within, .selected) [data-select]:not(.on) { visibility: hidden; }
-@media (hover: none) { .fw-up [data-select] { visibility: visible !important; } }
-/* 更新状态 badges reuse the AI-verdict colors: 活跃 green, 慢更 / 待查 amber (待查 dashed), 断更 red, the rest gray. */
-.fw-up .badge.keep { background: var(--ok-bg); color: var(--ok); }
-.fw-up .badge.drop { background: var(--danger-bg); color: var(--danger); }
-.fw-up .badge.unsure { background: var(--warn-bg); color: var(--warn); }
+/* 更新状态 badges are triage.css's AI-verdict ones: 活跃 green, 慢更 / 待查 amber (待查 dashed), 断更 red, the rest gray. */
 
 /* ---------- 动态: a grid of videos; beside the viewer a single column of rows ---------- */
 .fw-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 20px 16px; }
@@ -96,10 +80,11 @@ a.fw-title:hover { background: none; color: var(--link); text-decoration: underl
 .fw-video-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; }
 .fw-up-link { display: inline-flex; align-items: center; gap: 6px; min-width: 0; color: var(--text-2); text-decoration: none; }
 .fw-up-link:hover { color: var(--link); }
-.fw-up-link img { width: 20px; height: 20px; border-radius: 50%; object-fit: cover; }
+.fw-up-link img, .fw-vline img { width: 20px; height: 20px; border-radius: 50%; object-fit: cover; }
 .fw-video .chips { margin: 0; }
-.fw-video .chip { height: 20px; padding: 0 6px; border-color: color-mix(in srgb, var(--c) 60%, transparent); background: color-mix(in srgb, var(--c) 12%, transparent); }
-.fw-video.playing { outline: 2px solid var(--action); outline-offset: 2px; background: var(--action-bg); }
+.fw-video .chip, .fw-vline .chip { height: 20px; padding: 0 6px; border-color: color-mix(in srgb, var(--c) 60%, transparent); background: color-mix(in srgb, var(--c) 12%, transparent); }
+/* Playing: pink, where you are, as in 收藏夹. */
+.fw-video.playing { outline: 2px solid var(--accent); outline-offset: 2px; }
 .fw-foot { display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 28px 0 8px; color: var(--muted); text-align: center; }
 .fw-foot p { margin: 0; }
 
@@ -109,7 +94,6 @@ a.fw-title:hover { background: none; color: var(--link); text-decoration: underl
 .main.viewing .fw-video.playing { outline-offset: -2px; }
 .main.viewing .fw-up { grid-template-columns: 40px minmax(0, 1fr) auto; gap: 10px; }
 .main.viewing .fw-avatar { width: 40px; height: 40px; }
-.main.viewing .fw-tools input[type="search"] { width: 140px; }
 
 /* ---------- dialogs ---------- */
 .fw-tag-row { grid-template-columns: 22px minmax(0, 9em) minmax(0, 1fr) 5.5em auto; }
@@ -121,26 +105,21 @@ a.fw-title:hover { background: none; color: var(--link); text-decoration: underl
 .fw-ai-tags > .dialog-meta, .fw-ai-tags > .dialog-hint { grid-column: 2; margin-top: -6px; }
 .fw-ai-tags > .dialog-hint { margin-top: 0; }
 #fwPickList .picker-opt .muted { margin-left: auto; }
-/* 关注设置 is laid out like 分拣设置: two cards side by side from 640px. */
+/* 关注设置 is laid out like 收藏夹设置: two cards side by side from 640px. */
 #fwSettingsDialog { width: min(800px, calc(100% - 32px)); }
 @media (min-width: 640px) { .fw-settings-cols { grid-template-columns: 1fr 1.15fr; } }
 
-@media (max-width: 1099px) {
-  .fw-tools { margin-left: 0; }
-}
 @media (max-width: 899px) {
   .main.viewing .fw-list { display: none; }
 }
-/* No sidebar: the left column becomes a select at the start of the bar. */
+/* No sidebar: the left column becomes a select in the top bar, right of the switch. */
 @media (max-width: 760px) {
-  .fw-side-select { display: block; }
+  .fw-side-slot { display: block; }
   .mode-switch button { padding: 0 10px; }
   .fw-up { grid-template-columns: 44px minmax(0, 1fr); }
   .fw-avatar { width: 44px; height: 44px; }
   .fw-right { grid-column: 2; flex-direction: row; justify-content: flex-start; }
-  .fw-up [data-select] { visibility: visible !important; }
-  .fw-tools { flex-wrap: wrap; width: 100%; }
-  .fw-tools input[type="search"] { flex: 1; width: auto; min-width: 120px; }
+  .fw-up .more button { visibility: visible !important; }
   .fw-tag-row { grid-template-columns: 22px minmax(0, 1fr) auto auto; }
   .fw-tag-row [data-field="rule"] { grid-column: 1 / -1; grid-row: 2; }
 }
@@ -153,19 +132,18 @@ a.fw-title:hover { background: none; color: var(--link); text-decoration: underl
 .fw-video:not(:hover, :focus-within, .fw-target) .fw-tag-add { visibility: hidden; }
 @media (hover: none) { .fw-video .fw-tag-add { visibility: visible; } }
 .fw-video.fw-target:not(.playing) { outline: 2px dashed var(--border-strong); outline-offset: 2px; }
-.fw-k { min-width: 14px; padding: 0 3px; border: 1px solid var(--border); border-radius: 3px; background: var(--surface); color: var(--muted); font: 600 10px/13px ui-monospace, Menlo, monospace; text-align: center; }
+/* A key as on 收藏夹's cards: a faint letter after the word. */
+.fw-k { padding: 0; border: 0; background: none; color: var(--faint); font: inherit; font-size: var(--fs-xs); }
 
 .fw-vline { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 8px; padding: 6px 12px; border-bottom: 1px solid var(--border); background: var(--surface-muted); color: var(--text-2); font-size: var(--fs-sm); }
 .fw-vline[hidden] { display: none; }
-.fw-vline img { width: 20px; height: 20px; border-radius: 50%; object-fit: cover; }
 .fw-vline .name { color: var(--text); font-weight: 600; text-decoration: none; }
 .fw-vline .name:hover { color: var(--link); }
 .fw-vline .sep, .fw-vline .none { color: var(--faint); }
-.fw-vline .chip { height: 20px; padding: 0 6px; border-color: color-mix(in srgb, var(--c) 60%, transparent); background: color-mix(in srgb, var(--c) 12%, transparent); }
 .fw-vline .fw-tag-add { color: var(--link); }
 
 #fwPickDialog:not(.fw-pop) .fw-pop-only, #fwPickDialog.fw-pop .fw-modal-only { display: none; }
-#fwPickDialog.fw-pop { position: fixed; z-index: 50; inset: auto; margin: 0; width: 248px; padding: 10px 8px 8px; border-color: var(--border-strong); box-shadow: 0 6px 16px rgba(0, 0, 0, 0.14); font-size: var(--fs-sm); outline: none; }
+#fwPickDialog.fw-pop { position: fixed; z-index: 50; inset: auto; margin: 0; width: 248px; padding: 10px 8px 8px; border-color: var(--border-strong); box-shadow: var(--lift); font-size: var(--fs-sm); outline: none; }
 .fw-pop h2 { margin: 0 6px; overflow: hidden; font-size: var(--fs-sm); font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
 .fw-pop form { gap: 4px; }
 .fw-pop #fwPickSrc { margin: 0 6px 2px; color: var(--faint); font-size: 11px; }

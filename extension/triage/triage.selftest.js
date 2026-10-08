@@ -59,7 +59,8 @@ const ctx = vm.createContext({
   }
 });
 vm.runInContext(fs.readFileSync(path.join(__dirname, "..", "limits.js"), "utf8"), ctx);
-vm.runInContext(`${source}\n;globalThis.S = S; globalThis.K = K; globalThis.el = el; globalThis.verdictBadge = verdictBadge; globalThis.seenText = seenText; globalThis.staleCoarse = staleCoarse; globalThis.staleFine = staleFine; globalThis.groupDone = groupDone; globalThis.mergeHead = mergeHead; globalThis.isFinished = isFinished; globalThis.pointerMoved = pointerMoved; globalThis.inferFrom = inferFrom; globalThis.hasAllTags = hasAllTags; globalThis.sortItems = sortItems; globalThis.fmtPlay = fmtPlay; globalThis.sortOf = sortOf; globalThis.visibleItems = visibleItems;`, ctx);
+vm.runInContext(fs.readFileSync(path.join(__dirname, "shared.js"), "utf8"), ctx);
+vm.runInContext(`${source}\n;globalThis.S = S; globalThis.K = K; globalThis.el = el; globalThis.verdictBadge = verdictBadge; globalThis.seenText = seenText; globalThis.staleCoarse = staleCoarse; globalThis.staleFine = staleFine; globalThis.groupDone = groupDone; globalThis.mergeHead = mergeHead; globalThis.isFinished = isFinished; globalThis.pointerMoved = pointerMoved; globalThis.inferFrom = inferFrom; globalThis.hasAllTags = hasAllTags; globalThis.sortItems = sortItems; globalThis.sortOf = sortOf; globalThis.visibleItems = visibleItems;`, ctx);
 const t = ctx;
 vm.runInContext("globalThis.plainClick = plainClick;", ctx);
 const plain = (v) => JSON.parse(JSON.stringify(v));
@@ -104,7 +105,6 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   assert.deepStrictEqual(plain(t.sortOf("7")), { sort: "play", dir: "asc" });
   assert.deepStrictEqual(plain(t.sortOf("8")), { sort: "fav", dir: "desc" });
   t.S.sortBy = {};
-  assert.deepStrictEqual([t.fmtPlay(123456), t.fmtPlay(9999), t.fmtPlay(250000000)], ["12.3万", "9999", "2.5亿"]);
 }
 
 (async () => {
@@ -194,10 +194,7 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   handlers["triage-refav"] = () => ({ ok: true });
 
   // B11: cells that a spreadsheet would run as a formula are prefixed with '.
-  for (const s of ["=1+1", "+cmd", "-2", "@SUM(A1)", "\tx", "\rx"]) assert.ok(t.csvField(s).replace(/^"/, "").startsWith(`'${s[0]}`), s);
-  assert.strictEqual(t.csvField('=HYPERLINK("x")'), `"'=HYPERLINK(""x"")"`);
-  assert.strictEqual(t.csvField("普通 标题"), "普通 标题");
-  assert.strictEqual(t.csvField("a,b"), '"a,b"');
+  // (the cell rule itself is in shared.selftest.js)
   openFake("E", [{ ...item(5), title: "=cmd|' /C calc'!A0", upper: "@up" }]);
   t.S.folders = t.S.allFolders = [{ id: "E", title: "+夹" }];
   const csvRows = t.buildCsv().replace(/^\uFEFF/, "").split("\r\n");
@@ -342,6 +339,7 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   t.renderListHeader(t.visibleItems());
   for (const part of ["取消收藏（AI：可清理）2 个", "保留（AI：值得留）0 个"]) assert.ok(t.el.listHeader.innerHTML.includes(part), part);
   for (const part of [">全部 2<", ">可清理 2<", ">值得留 0<", ">拿不准 0<"]) assert.ok(t.el.classFilter.innerHTML.includes(part), part);
+  assert.ok(t.el.classFilter.innerHTML.includes('class="zero">值得留 0<') && !t.el.classFilter.innerHTML.includes('class="zero">可清理'), "a 0 count stays, dimmed");
   assert.ok(t.verdictBadge("BV210", t.verdictOf(pool[10])).includes('class="badge drop"') && t.verdictBadge("BV210", t.verdictOf(pool[10])).includes('<span class="ai-mark">AI</span>可清理'));
   t.S.classFilter.fine = "keep";
   t.renderListHeader(t.visibleItems());
@@ -356,7 +354,7 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   t.S.classFilter.fine = "unsure";
   assert.deepStrictEqual(plain(t.visibleItems().map((it) => it.bvid)), ["BV200"]);
   t.renderListHeader(t.visibleItems());
-  assert.ok(!t.el.listHeader.innerHTML.includes("（AI") && t.el.listHeader.innerHTML.includes("按 X 或全选后"), "待定 has no verdict-scoped button");
+  assert.ok(!t.el.listHeader.innerHTML.includes("（AI") && !t.el.listHeader.innerHTML.includes("按 X 或全选后"), "待定 has no verdict-scoped button and no hint");
   // 全选 selects what this tab lists; the selection then offers 移动/复制 with 保留 ones included.
   assert.ok(t.el.listHeader.innerHTML.includes("全选这里的 1 个"));
   t.S.selected.add("BV200");
@@ -553,6 +551,10 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   assert.ok(t.saveTagEdit(ruled, "rule", "  讲老技术的  ") && ruled.rule === "讲老技术的");
   assert.deepStrictEqual(plain(store[t.K.tags][0]), { id: "a", name: "旧", color: "#111", folder: "K", rule: "讲老技术的" });
   assert.ok(!t.saveTagEdit(ruled, "name", "n1") && ruled.name === "旧", "a duplicate name is refused");
+  // Names are cleaned as 关注 and the AI clean them: no commas or 顿号, at most 12 characters.
+  assert.ok(!t.saveTagEdit(ruled, "name", "n1、") && ruled.name === "旧", "a cleaned duplicate is refused too");
+  assert.ok(t.saveTagEdit(ruled, "name", " 旧, ") && ruled.name === "旧");
+  assert.strictEqual(t.previewId({ newTags: [{ key: "k", name: "旧，", checked: true }] }, "k"), "a", "an edited AI name matches the cleaned tag");
   t.el.aiInstruction = { value: "按深度分" };
   t.el.aiScope = { value: "filter", options: [], selectedOptions: [] };
   Object.assign(t.S, { tab: "read", aiHistory: [] });
@@ -570,15 +572,16 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   assert.ok(!("rule" in ruled));
   t.S.ai.proposal = null;
 
-  // The 标签 button: its text shows a pending run or proposal, and it opens 批量打 then; I always opens 批量打.
+  // 标签管理 then ✦ AI 打标签 on the tag row (the sidebar has neither); AI 打标签 says when a run or a proposal is pending; I always opens its section.
   const spark = '<span class="ai-spark" aria-hidden="true"></span>';
-  const btnText = () => (t.renderTop(), t.el.aiBtn.innerHTML.replace(spark, ""));
-  assert.ok((t.renderTop(), t.el.aiBtn.innerHTML.startsWith(spark)), "the 标签 button carries the AI sparkle");
-  assert.deepStrictEqual([btnText(), t.tagsBtnMode()], ["标签", "manage"]);
+  const btnText = () => (t.renderTabs(), t.el.aiTagSlot.innerHTML.replace(/<[^>]+>/g, ""));
+  assert.ok((t.renderTabs(), t.el.aiTagSlot.innerHTML.includes(spark)), "AI 打标签 carries the AI sparkle");
+  assert.strictEqual(btnText(), "标签管理AI 打标签");
+  assert.ok(t.el.aiTagSlot.innerHTML.indexOf("标签管理") < t.el.aiTagSlot.innerHTML.indexOf(spark), "only AI 打标签 has the sparkle");
   t.S.ai.running = true;
-  assert.deepStrictEqual([btnText(), t.tagsBtnMode()], ["标签 · 运行中", "batch"]);
+  assert.strictEqual(btnText(), "标签管理AI 打标签 · 运行中");
   Object.assign(t.S.ai, { running: false, proposal: { newTags: [], rows: [], notes: [], errors: [] } });
-  assert.deepStrictEqual([btnText(), t.tagsBtnMode()], ["标签 · 待确认", "batch"]);
+  assert.strictEqual(btnText(), "标签管理AI 打标签 · 待确认");
   t.S.ai.proposal = null;
   t.el.tagsDialog = { showModal() {} };
   t.onKey({ key: "i", target: {}, preventDefault() {} });
@@ -606,6 +609,11 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   t.S.settings.triageTagLimit = 10;
   t.S.tags = t.S.tags.filter((x) => !/^c\d$/.test(x.name));
   assert.strictEqual(vm.runInContext("aiNewTagRoom()", ctx), 4);
+  const long = t.createTag("入门，进阶一二三四五六七八九十");
+  assert.strictEqual(long.name, "入门进阶一二三四五六七八");
+  assert.strictEqual(t.createTag(" 入门进阶一二三四五六七八 ").id, long.id);
+  assert.strictEqual(t.createTag("、"), null, "a name that cleans to nothing is refused");
+  t.S.tags = t.S.tags.filter((x) => x !== long);
   t.renderAiForm();
   assert.ok(t.el.aiTagsPreview.innerHTML.includes("AI 这次最多新建 4 个（这个收藏夹还剩 4 个名额）"));
   // 批量打 确认页 sums the changes per tag; applying records 「AI 刚打的」, which ends four ways.
@@ -1194,7 +1202,7 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
       openFake("L", [item(700)]);
       t.renderAiForm();
       assert.ok(t.el.aiScopeCount.textContent.startsWith("正在处理「夹K」的视频"), "the form in L says which folder runs");
-      assert.strictEqual(vm.runInContext("activityState()", ctx).text, "标签 AI 运行中（夹K）");
+      assert.strictEqual(vm.runInContext("activityState()", ctx).text, "AI 打标签运行中（夹K）");
     }
     return { ok: true, data: { assignments: { [items[0].bvid]: { add: ["旧"] } } } };
   };
@@ -1351,6 +1359,18 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   await t.syncFolder({ force: true });
   assert.deepStrictEqual(Object.keys(plain(store[t.K.decisions("M")])), ["BV40"], "BV40 stays unfavorited, BV41 was re-favorited");
   assert.ok(t.S.decisions.BV40 && !t.S.decisions.BV41);
+
+  // U9: a failed 刷新 stays under the title (no toast that fades) until a read gets through; the read time shows there.
+  handlers["triage-folder-items"] = () => ({ ok: false, error: "网络断了" });
+  Object.assign(t.S, { syncing: false, lastSyncAt: 0 });
+  await t.syncFolder({ force: true });
+  t.renderFolderHead();
+  assert.ok(t.el.folderHead.innerHTML.includes('<span class="fail-text">刷新失败：网络断了</span>') && !toasts.includes("刷新收藏夹失败：网络断了"), t.el.folderHead.innerHTML);
+  handlers["triage-folder-items"] = () => ({ ok: true, data: { items: [item(40)], ids: ["BV40"], info: { intro: "" } } });
+  Object.assign(t.S, { syncing: false, lastSyncAt: 0 });
+  await t.syncFolder({ force: true });
+  t.renderFolderHead();
+  assert.ok(!t.el.folderHead.innerHTML.includes("fail-text") && /今天 \d\d:\d\d 刷新过/.test(t.el.folderHead.innerHTML), t.el.folderHead.innerHTML);
 
   // R1: another triage tab's write to a shared list replaces this page's copy, so the next write here keeps it. This
   // page's own writes echo back too, and an older echo arriving after a newer edit is skipped.
