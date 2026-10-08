@@ -1777,13 +1777,13 @@ function renderTabs() {
   const hereTags = new Set(here.flatMap((it) => tagIdsOf(it.bvid)));
   const chips = tagChips().filter((c) => c.ids.some((id) => hereTags.has(id) || S.tagFilter.has(id)));
   const counted = here.filter((it) => inTab(it, S.tab) && passFilter(it, "tags")).map((it) => tagIdsOf(it.bvid));
-  el.tagFilter.innerHTML = chips
+  el.tagFilter.innerHTML = UI.labeledRow("标签", chips
     .map((c) => {
       const on = c.ids.some((id) => S.tagFilter.has(id));
       const n = counted.filter((ids) => c.ids.some((id) => ids.includes(id))).length;
       return `<button type="button" class="chip${on ? " on" : ""}${n ? "" : " zero"}" style="--c:${esc(c.color)}" data-tagfilter="${esc(c.ids.join(","))}" aria-pressed="${on}" aria-label="按标签筛选 ${esc(c.name)} ${n}" title="可多选：只显示同时带有所选标签的视频">${esc(c.name)}<span class="chip-n">${n}</span></button>`;
     })
-    .join("");
+    .join(""));
   renderTagButtons();
   renderSort();
 }
@@ -1961,7 +1961,7 @@ function renderListHeader(list) {
   if (all) html = loadAllLine() + html;
   const hidden = S.selected.size - sel;
   const selbar = S.selected.size ? UI.selbar({ label: "选中的视频", n: sel, hidden, clearAttrs: 'data-head="clear-selected"', acts: selActs }) : "";
-  el.classFilter.innerHTML = stateRowHtml(t);
+  el.classFilter.innerHTML = UI.labeledRow("状态", stateRowHtml(t));
   el.listHeader.innerHTML = `<div class="step-actions">${html}</div>${selbar}`;
 }
 

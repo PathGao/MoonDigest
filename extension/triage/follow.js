@@ -582,9 +582,9 @@ function renderUps() {
     : stateRowUps(counts);
   // 全选 heads the right-hand buttons, as in 收藏夹: it acts on the UP 主 listed now.
   const shows = Boolean(D.list || gone);
-  E.bar.innerHTML = shows ? seg : "";
+  E.bar.innerHTML = shows ? UI.labeledRow("状态", seg) : "";
   E.barR.innerHTML = shows ? UI.selectAllBox('data-fw="select-all"', list.length, list.filter((m) => F.sel.has(m)).length) : "";
-  E.tagRow.innerHTML = gone ? "" : tagRowHtml(counts.tags);
+  E.tagRow.innerHTML = gone ? "" : UI.labeledRow("标签", tagRowHtml(counts.tags));
   E.tools.hidden = !D.list && !gone;
   renderAiButton();
   E.sort.hidden = gone || !D.list;
@@ -698,9 +698,9 @@ function renderFeed() {
   // Row 3: 全部 | UP 未打标签 UP 已打标签; no count before the first page arrives. Row 4 counts videos. No 全选 here.
   const c = feedCounts(items, D, feedF());
   const n = (k) => (items.length ? c[k] : null);
-  E.bar.innerHTML = UI.stateGroup("全部", UI.filterBtn("data-fw-all", "全部", n(""), !F.tagState)) + tagStateGroup({ tagged: n("tagged"), untagged: n("untagged") }, "UP ");
+  E.bar.innerHTML = UI.labeledRow("状态", UI.stateGroup("全部", UI.filterBtn("data-fw-all", "全部", n(""), !F.tagState)) + tagStateGroup({ tagged: n("tagged"), untagged: n("untagged") }, "UP "));
   E.barR.innerHTML = "";
-  E.tagRow.innerHTML = tagRowHtml(c.tags);
+  E.tagRow.innerHTML = UI.labeledRow("标签", tagRowHtml(c.tags));
   const list = feedList(items, D, feedF(), pick.keep);
   E.qCount.textContent = UI.resultCount(F.fq.trim() || filtersOn(), list.length);
   const scroll = E.list.scrollTop;

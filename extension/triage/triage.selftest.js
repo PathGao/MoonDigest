@@ -1708,6 +1708,9 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     const has = (...parts) => parts.forEach((p) => assert.ok(row3().includes(p), p));
     assert.deepStrictEqual(groups(), ["全部", "按 AI 判断筛选", "按有没有标签", "已失效"], "fixed groups, then 已失效 (conditional) last");
     has(">全部 5<", ">值得留 2<", ">可清理 2<", ">拿不准 1<", ">未打标签 3<", ">已打标签 2<", ">已失效 1<");
+    assert.ok(row3().startsWith('<span class="row-label">状态</span>'), "row 3 starts with its name");
+    t.renderTabs();
+    assert.ok(t.el.tagFilter.innerHTML.startsWith('<span class="row-label">标签</span>'), "row 4 starts with its name");
     assert.ok(t.el.listHeader.innerHTML.startsWith('<div class="step-actions"><button type="button" role="checkbox"'), "全选 heads the right-hand buttons");
     assert.strictEqual(t.el.searchCount.textContent, "", "no 「N 个结果」 with nothing on");
     t.pickState("class", "keep");

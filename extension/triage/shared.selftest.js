@@ -295,4 +295,15 @@ for (const [file, fns] of [["triage.js", ["mergeAiBatch", "aiChanges"]], ["follo
   assert.ok(row.html.includes(">AI 打标签每批数量</label>") && row.html.includes("1–100 个一批。"), row.html);
 }
 
+// Rows 3 and 4 start with their name, 「状态」 and 「标签」, in 收藏夹 and in both 关注 tabs (UP 主, 视频投稿).
+{
+  assert.strictEqual(UI.labeledRow("状态", "<b>x</b>"), '<span class="row-label">状态</span><b>x</b>');
+  const count = (f, re) => (fs.readFileSync(path.join(__dirname, f), "utf8").match(re) || []).length;
+  assert.strictEqual(count("triage.js", /UI\.labeledRow\("状态", /g), 1, "收藏夹 row 3");
+  assert.strictEqual(count("triage.js", /UI\.labeledRow\("标签", /g), 1, "收藏夹 row 4");
+  assert.strictEqual(count("follow.js", /UI\.labeledRow\("状态", /g), 2, "关注 row 3, UP 主 and 视频投稿");
+  assert.strictEqual(count("follow.js", /UI\.labeledRow\("标签", /g), 2, "关注 row 4, UP 主 and 视频投稿");
+  for (const f of ["triage.js", "follow.js"]) assert.strictEqual(count(f, /row-label/g), 0, `${f} draws no label of its own`);
+}
+
 console.log("shared selftest: all passed");
