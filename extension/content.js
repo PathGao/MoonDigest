@@ -859,7 +859,10 @@ function bindUiEvents() {
       }
     });
     document.addEventListener("keydown", (e) => {
-      if (e.key !== "Escape" || !state.readingSettingsExpanded) return;
+      if (BocTyping.composing(e) || e.key !== "Escape" || !state.readingSettingsExpanded) return;
+      // Esc in Bilibili's own fields (the comment box, the danmaku box) is theirs; in the panel's own controls it closes it.
+      const from = e.composedPath?.()[0] || e.target;
+      if (BocTyping.typingIn(e) && !document.getElementById(ids.readingSettingsPanel)?.contains(from)) return;
       state.readingSettingsExpanded = false;
       renderReaderPanels();
       document.getElementById(ids.readingSettingsBtn)?.focus();
