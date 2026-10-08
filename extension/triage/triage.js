@@ -752,11 +752,7 @@ async function init() {
       });
     }
     if (area === "local") followSeen(changes);
-    // The side panel and history page edit the same notes; a pending local save is newer than any echo.
-    if (area === "local" && changes[K.notes] && !noteTimer) {
-      S.notes = changes[K.notes].newValue || {};
-      render();
-    }
+    if (area === "local") followNotes(changes);
     if (area === "local") followShared(changes);
   });
   chrome.runtime.onMessage.addListener((msg) => {
@@ -799,6 +795,14 @@ function followShared(changes) {
     changed = true;
   }
   if (changed) render();
+}
+// The side panel and history page edit the same notes. A pending local save is newer than any echo, and this page's
+// own saves coming back must not re-render: that rebuilds the note being typed (and its IME composition).
+function followNotes(changes) {
+  const c = changes[K.notes];
+  if (!c || noteTimer || ownEcho(K.notes, c)) return;
+  S.notes = c.newValue || {};
+  render();
 }
 function ownEcho(key, c) {
   const mine = ownWrites[key] || [];
@@ -1987,7 +1991,11 @@ async function refavRecent(bvid) {
   quickSync({ force: true });
 }
 
+let listDeferred = false;
 function renderList() {
+  // Rebuilding the list mid-IME in a note would drop the composition and leave the raw pinyin; compositionend renders.
+  if (BocTyping.isComposing() && document.activeElement?.closest?.("[data-note]")) return void (listDeferred = true);
+  listDeferred = false;
   const list = visibleItems();
   renderListHeader(list);
   // 保留 only marks the video here, while 取消收藏 changed Bilibili; say so where both end up.
@@ -3896,7 +3904,8 @@ function bindEvents() {
     if (bvid && bvid !== S.focused) setFocus(bvid, false);
   });
 
-  el.list.addEventListener("input", (e) => {
+  // A note saves 400 ms after typing stops, but never mid-IME: compositionend saves the committed text.
+  const noteEdit = (e) => {
     if (!e.target.matches("[data-note]")) return;
     const b = e.target.closest(".card").dataset.bvid;
     const text = e.target.value.trim();
@@ -3907,6 +3916,11 @@ function bindEvents() {
       noteTimer = 0;
       storeSet(K.notes, S.notes);
     }, 400);
+  };
+  el.list.addEventListener("input", (e) => !e.isComposing && noteEdit(e));
+  el.list.addEventListener("compositionend", (e) => {
+    noteEdit(e);
+    if (listDeferred) setTimeout(renderList);
   });
   // Enter (or Esc) saves now and leaves the note so card keys work again; Shift+Enter is a newline. Never mid-IME.
   el.list.addEventListener("keydown", (e) => {
@@ -4036,10 +4050,10 @@ function bindEvents() {
   el.bannerClose.addEventListener("click", () => (el.banner.hidden = true));
 
   // tag picker
-  el.pickerInput.addEventListener("input", () => {
+  bindLive(el.pickerInput, () => {
     picker.index = 0;
     renderPicker();
-  });
+  }, 0);
   el.pickerInput.addEventListener("keydown", (e) => {
     if (composing(e)) return; // Enter confirms the IME candidate, not the tag
     if (e.key === "ArrowDown" || e.key === "ArrowUp") {
@@ -4109,11 +4123,11 @@ function bindEvents() {
     render();
   };
   el.addTagBtn.addEventListener("click", addTag);
-  el.newTagInput.addEventListener("keydown", (e) => {
-    if (e.key === "Enter") {
-      e.preventDefault();
-      addTag();
-    }
+  // Enter in a name field: 新建 adds the tag; a rename or an AI tag name would submit the form and close the dialog (as in follow.js).
+  el.tagsDialog.addEventListener("keydown", (e) => {
+    if (composing(e) || e.key !== "Enter" || !e.target.matches?.('#newTagInput, [data-field="name"], [data-nt="name"]')) return;
+    e.preventDefault();
+    if (e.target === el.newTagInput) addTag();
   });
 
   // 批量打
