@@ -389,11 +389,11 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   t.S.throttleUntil = 0;
   assert.strictEqual(t.activityState(), null, "nothing running hides the pill");
   // 稍后再看 progress: seconds watched, -1 once finished, 0 or missing for not started.
-  assert.strictEqual(t.seenText({ seen: 98, duration: 768 }), "看过 13%");
+  assert.strictEqual(t.seenText({ seen: 98, duration: 768 }), "看到 13%");
   assert.strictEqual(t.seenText({ seen: -1, duration: 768 }), "看完了");
   assert.strictEqual(t.seenText({ seen: 0, duration: 768 }), "");
   assert.strictEqual(t.seenText({ duration: 768 }), "");
-  assert.strictEqual(t.seenText({ seen: 767, duration: 768 }), "看过 99%", "unfinished never reads 100%");
+  assert.strictEqual(t.seenText({ seen: 767, duration: 768 }), "看到 99%", "unfinished never reads 100%");
   // Results remember their 判断标准; after it changes, the old ones are offered for a redo. Unstamped ones count as current.
   const savedTitles = t.S.titleRes;
   const savedAnalyses = t.S.analyses;
@@ -1427,9 +1427,9 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     assert.ok(done.includes("✓ 看完了") && !done.includes("seen-bar"), "mark only");
     assert.ok(!t.isFinished(t.S.items[1]) && !t.coverHtml(t.S.items[2]).includes("seen-"), "50% is under the threshold; 优先看过 stays off the cover");
     t.S.seenCfg.threshold = 50;
-    assert.ok(t.coverHtml(t.S.items[1]).includes("✓ 看过 50%") && t.coverHtml(t.S.items[0]).includes("✓ 看完了"));
+    assert.ok(t.coverHtml(t.S.items[1]).includes("✓ 看到 50%") && t.coverHtml(t.S.items[0]).includes("✓ 看完了"));
     t.S.seenCfg.threshold = 80;
-    assert.ok(t.coverHtml(t.S.items[1]).includes('seen-tag faint">看过 50%'), "below the share: a faint 看过 N%");
+    assert.ok(t.coverHtml(t.S.items[1]).includes('seen-tag faint">看到 50%'), "below the share: a faint 看到 N%");
     t.S.seenCfg.bar = true;
     assert.ok(t.coverHtml(t.S.items[1]).includes("faint") && t.coverHtml(t.S.items[1]).includes("seen-bar"), "with the bar too");
     t.S.seenCfg.bar = false;

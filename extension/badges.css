@@ -84,3 +84,8 @@ html.bili_dark .mdg-brand { color: #cba6f7; }
 .mdg-seen .mdg-seen-mark { position: absolute; top: 6px; left: 6px; padding: 2px 8px; border-radius: 6px; background: #ff6699; color: #fff; font: 600 13px/18px system-ui, -apple-system, "PingFang SC", sans-serif; white-space: nowrap; }
 .mdg-seen-mark.mdg-faint { background: rgba(17, 17, 27, 0.6); font-weight: 400; }
 .mdg-seen-veil .mdg-seen-mark:not(.mdg-faint) { inset: 0; top: 0; left: 0; padding: 0; border-radius: 0; display: flex; align-items: center; justify-content: center; background: rgba(17, 17, 27, 0.55); font-size: 15px; font-weight: 700; }
+/* While 观看进度 is on it replaces BewlyCat's own: the 6px bar on its 历史 / 稍后再看 covers, its card progress and 已看 tag.
+   Only matches inside #bewly's shadow root, which gets this file too (badges.js). */
+:host([data-mdg-seen]) [pos="absolute bottom-0"]:has(> [h="6px"]),
+:host([data-mdg-seen]) .video-card-playback-progress,
+:host([data-mdg-seen]) .video-watched-tag { display: none !important; }

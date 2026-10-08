@@ -101,6 +101,7 @@
     const r = bewlyRoot();
     if (!r || r === bewlyHooked) return;
     bewlyHooked = r;
+    markBewly();
     observer.observe(r, OBSERVE);
     if (!r.querySelector("link[data-mdg]")) {
       const link = Object.assign(document.createElement("link"), { rel: "stylesheet", href: chrome.runtime.getURL("badges.css") });
@@ -108,6 +109,9 @@
       r.append(link);
     }
   }
+
+  // badges.css hides BewlyCat's own watch progress while ours is on.
+  const markBewly = () => document.getElementById("bewly")?.toggleAttribute("data-mdg-seen", seenCfg.on);
 
   const favFid = () => (isFavPage() ? new URLSearchParams(location.search).get("fid") || "" : "");
   const pageBvid = () => (location.pathname.startsWith("/video/") ? bvidFromHref(location.pathname) : "");
@@ -202,7 +206,7 @@
     const known = seenCfg.on ? seenCache.get(b) || 0 : 0;
     const pct = seenCfg.bar ? known : 0;
     const seen = seenCfg.mark && known >= seenCfg.threshold;
-    // Below the share, a faint 看过 N% says how far it got.
+    // Below the share, a faint 看到 N% says how far it got.
     const faint = !seen && known > 0 && seenCfg.mark;
     // On the image's own box: some links wrap the whole card, title included.
     const media = a.querySelector("picture") || a.querySelector("img");
@@ -215,8 +219,8 @@
     const box = document.createElement("span");
     box.className = `mdg-seen mdg-seen-${seenCfg.style}`;
     box.dataset.key = key;
-    // 100% reads 看完了, otherwise 看过 N%; ✓ (and the strong look) means it counts as 看完了.
-    const words = known >= 100 ? "✓ 看完了" : seen ? `✓ 看过 ${known}%` : `看过 ${known}%`;
+    // 100% reads 看完了, otherwise 看到 N%; ✓ (and the strong look) means it counts as 看完了.
+    const words = known >= 100 ? "✓ 看完了" : seen ? `✓ 看到 ${known}%` : `看到 ${known}%`;
     if (seen || faint) box.append(Object.assign(document.createElement("span"), { className: `mdg-seen-mark${faint ? " mdg-faint" : ""}`, textContent: words }));
     // Bilibili's history and 稍后再看 cards draw this bar themselves.
     if (pct && !host.querySelector(".bili-cover-card__progress")) {
@@ -386,6 +390,7 @@
     seenCfg = { on: bar || mark, bar, mark, threshold: Number(v.seenThreshold) || 80, style: v.seenStyle === "veil" ? "veil" : "badge" };
     // Turning it off clears the stored history (triage-bg.js), so a later re-enable starts from a fresh read.
     if (!seenCfg.on) seenCache.clear();
+    markBewly();
     // Only the top frame asks; the background reads what is new at most every 10 minutes.
     if (seenCfg.on && !before && window === window.top) chrome.runtime.sendMessage({ type: "triage-seen-sync" }).catch(() => {});
     const on = triageOn || seenCfg.on;
