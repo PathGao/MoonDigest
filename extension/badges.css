@@ -89,3 +89,101 @@ html.bili_dark .mdg-brand { color: #cba6f7; }
 :host([data-mdg-seen]) [pos="absolute bottom-0"]:has(> [h="6px"]),
 :host([data-mdg-seen]) .video-card-playback-progress,
 :host([data-mdg-seen]) .video-watched-tag { display: none !important; }
+
+/* UP tags after an author's name. The purple left rule (the .mdg-line accent) says it is MoonDigest's; chip text mixes the
+   tag color with Bilibili's (or BewlyCat's) own text variable, so it follows their dark themes. Selectors stay above
+   one class plus one tag for the header popups (see the top of this file). */
+/* In a flex row (card owner lines, the video page's owner) the chips take only the room the name and date leave
+   (basis 0, up to their own width). Chips that do not fit wrap onto a second row that the fixed height hides, so only
+   whole chips show. */
+span.mdg-ups[data-mid] {
+  display: inline-flex;
+  flex: 1 1 0%;
+  flex-wrap: wrap;
+  align-content: flex-start;
+  min-width: 0;
+  max-width: max-content;
+  height: 18px;
+  overflow: hidden;
+  gap: 3px;
+  margin: 0 4px;
+  padding: 0 0 0 4px;
+  border-left: 2px solid #7c3ed1;
+  vertical-align: middle;
+  white-space: nowrap;
+  line-height: 1;
+  text-indent: 0;
+  font-style: normal;
+  text-decoration: none;
+}
+/* Card owner lines grow the name from zero (flex: 1 1 0%), which would hand all the room to the chips; size it by its
+   text instead so it keeps priority (!important: the search page's scoped rules are more specific). */
+.bili-video-card__info--owner:has(> .mdg-ups) > .bili-video-card__info--author { flex: 0 1 auto !important; }
+.mdg-ups .mdg-up {
+  display: inline-block;
+  margin: 0;
+  padding: 1px 5px;
+  border: 1px solid color-mix(in srgb, var(--mdg-c, #9499a0) 60%, transparent);
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--mdg-c, #9499a0) 14%, transparent);
+  color: color-mix(in srgb, var(--mdg-c, #9499a0) 70%, var(--text1, var(--bew-text-1, #18191c)));
+  font: 500 11px/14px -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif;
+  cursor: pointer;
+}
+/* Inside BewlyCat's shadow root (its pages follow its own theme, not Bilibili's). */
+:host .mdg-ups .mdg-up { color: color-mix(in srgb, var(--mdg-c, #9499a0) 70%, var(--bew-text-1, #18191c)); }
+/* A space page's nickname sits on the banner image: opaque light chips read on any picture, in either theme. */
+.upinfo .mdg-ups .mdg-up,
+.upinfo-detail__top .mdg-ups .mdg-up {
+  background: color-mix(in srgb, var(--mdg-c, #9499a0) 16%, #fff);
+  color: color-mix(in srgb, var(--mdg-c, #9499a0) 70%, #18191c);
+}
+.mdg-ups .mdg-up:hover,
+.mdg-ups .mdg-up:focus-visible { background: color-mix(in srgb, var(--mdg-c, #9499a0) 26%, transparent); outline: none; }
+
+/* 动态 page: the UP tag filter above the list; a pick hides other UPs' cards with a class, nothing is removed. */
+.mdg-upbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 8px;
+  padding: 8px 12px;
+  border-left: 3px solid #7c3ed1;
+  border-radius: 6px;
+  background: var(--bg1, #fff);
+  color: var(--text2, #61666d);
+  font: 13px/18px -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif;
+}
+.mdg-upbar .mdg-brand { margin-right: 4px; }
+.mdg-upbar .mdg-upbar-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin: 0;
+  padding: 2px 10px;
+  border: 1px solid var(--line_regular, #e3e5e7);
+  border-radius: 14px;
+  background: transparent;
+  color: var(--text2, #61666d);
+  font: inherit;
+  cursor: pointer;
+}
+.mdg-upbar .mdg-upbar-tag[data-tag]:not([data-tag=""])::before {
+  content: "";
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--mdg-c, #9499a0);
+}
+.mdg-upbar .mdg-upbar-tag:hover { color: var(--text1, #18191c); }
+.mdg-upbar .mdg-upbar-tag[aria-pressed="true"] {
+  border-color: var(--mdg-c, var(--text3, #9499a0));
+  background: color-mix(in srgb, var(--mdg-c, #9499a0) 14%, transparent);
+  color: var(--text1, #18191c);
+  font-weight: 600;
+}
+.mdg-upbar-n { color: var(--text3, #9499a0); font-size: 12px; font-weight: 400; }
+.bili-dyn-list__item.mdg-up-hide { display: none !important; }
+html.bili_dark span.mdg-ups[data-mid] { border-left-color: #cba6f7; }
+html.bili_dark .mdg-upbar { border-left-color: #cba6f7; }

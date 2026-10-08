@@ -725,17 +725,20 @@ async function triageMigrateNotes() {
 }
 
 // One triage tab: each holds its own copy of 保留, tags and the rest, so a second one is focused instead of opened.
-async function triageOpenPage() {
-  const url = chrome.runtime.getURL("triage/triage.html");
+// hash: the deep link a Bilibili page's UP tag chip sends, `follow&tag=<id>` (关注 mode on that tag); an open triage tab
+// gets it as a hash change.
+async function triageOpenPage(hash) {
+  const page = chrome.runtime.getURL("triage/triage.html");
+  const url = /^follow(?:&tag=[\w%.~-]+)?$/.test(hash || "") ? `${page}#${hash}` : page;
   const tabs = (await chrome.runtime.getContexts?.({ contextTypes: ["TAB"] })) || [];
-  const open = tabs.find((c) => c.documentUrl?.startsWith(url) && c.tabId >= 0);
+  const open = tabs.find((c) => c.documentUrl?.startsWith(page) && c.tabId >= 0);
   if (!open) return void (await chrome.tabs.create({ url }));
-  await chrome.tabs.update(open.tabId, { active: true });
+  await chrome.tabs.update(open.tabId, url === page ? { active: true } : { active: true, url });
   await chrome.windows.update(open.windowId, { focused: true });
 }
 
 const TRIAGE_HANDLERS = {
-  "triage-open": () => triageOpenPage(),
+  "triage-open": (msg) => triageOpenPage(msg?.hash),
   "triage-write-note": (msg) => triageWriteNote(msg),
   "triage-build-note": async ({ bvid }) => {
     const settings = await getMergedSettings();

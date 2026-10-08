@@ -418,6 +418,20 @@ assert.throws(() => t.triageParseCommand('{"new_tags":[', cmdItems, cmdTags, {})
   t.chrome = fakeTabs([{ tabId: 4, windowId: 2, documentUrl: "chrome-extension://id/triage/triage.html" }]);
   await vm.runInContext("TRIAGE_HANDLERS", ctx)["triage-open"]();
   assert.deepStrictEqual(tabCalls, [["create", "chrome-extension://id/triage/triage.html"], ["update", 4, true], ["window", 2, true]]);
+  // A UP tag chip's deep link: a new tab opens on it, an open tab gets it as its new hash; anything else opens the plain page.
+  tabCalls.length = 0;
+  t.chrome = fakeTabs([]);
+  await vm.runInContext("TRIAGE_HANDLERS", ctx)["triage-open"]({ hash: "follow&tag=t%E5%AD%A61" });
+  await vm.runInContext("TRIAGE_HANDLERS", ctx)["triage-open"]({ hash: "javascript:alert(1)" });
+  t.chrome = fakeTabs([{ tabId: 4, windowId: 2, documentUrl: "chrome-extension://id/triage/triage.html#favorites" }]);
+  t.chrome.tabs.update = async (id, o) => tabCalls.push(["update", id, o.url]);
+  await vm.runInContext("TRIAGE_HANDLERS", ctx)["triage-open"]({ hash: "follow&tag=abc" });
+  assert.deepStrictEqual(tabCalls, [
+    ["create", "chrome-extension://id/triage/triage.html#follow&tag=t%E5%AD%A61"],
+    ["create", "chrome-extension://id/triage/triage.html"],
+    ["update", 4, "chrome-extension://id/triage/triage.html#follow&tag=abc"],
+    ["window", 2, true]
+  ]);
   // 移动/复制 is one batch request; from 稍后再看 or with no source (已取消收藏) one add per video, 稍后再看 removed only on a
   // move. 稍后再看 is never a target. A new folder answers with its id.
   {
