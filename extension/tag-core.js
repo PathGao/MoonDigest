@@ -5,7 +5,7 @@
   // Mauve, blue, green, red and yellow are left out: they mean where-you-are, next step, keep, delete and pending.
   const TAG_COLORS = ["#da86c3", "#298287", "#dc6d2d", "#3590a0", "#8595ea", "#cf5c66", "#2497c6", "#cf8686", "#ce9386"];
   // A tag name as both modes and the AI keep it: no commas or 顿号 (the CSV joins names with 、), trimmed, at most 12
-  // characters. triage-bg.js has the same rule as triageCleanTagName; shared.selftest.js checks they agree.
+  // characters. The background worker loads this file too (background.js), so its AI suggestions are cleaned alike.
   const cleanTagName = (s) => String(s ?? "").replace(/[,，、]/g, "").trim().slice(0, 12);
   // A new tag's color: the first one no tag in the list has, so deleting a tag frees its color.
   const nextTagColor = (tags) => TAG_COLORS.find((c) => !tags.some((t) => t.color === c)) || TAG_COLORS[tags.length % TAG_COLORS.length];

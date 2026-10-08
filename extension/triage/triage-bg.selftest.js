@@ -5,10 +5,11 @@ const vm = require("vm");
 const assert = require("assert");
 
 const ctx = vm.createContext({ TextEncoder, URL, URLSearchParams, console, setTimeout, clearTimeout, AbortController });
-// Browser order: background.js imports limits.js and sites.js before triage-bg.js.
-for (const file of ["../limits.js", "../sites.js", "../note.js", "triage-bg.js"]) vm.runInContext(fs.readFileSync(path.join(__dirname, file), "utf8"), ctx);
-// background.js owns supportsThinkingToggle; lift just that function.
+// The worker's own load order: every file background.js importScripts, up to triage-bg.js.
 const bg = fs.readFileSync(path.join(__dirname, "../background.js"), "utf8");
+const order = [...bg.matchAll(/importScripts\(([^)]*)\)/g)].flatMap((m) => m[1].match(/"[^"]+"/g).map((f) => JSON.parse(f)));
+for (const file of order.slice(0, order.indexOf("triage/triage-bg.js") + 1)) vm.runInContext(fs.readFileSync(path.join(__dirname, "..", file), "utf8"), ctx);
+// background.js owns supportsThinkingToggle; lift just that function.
 const at = bg.indexOf("function supportsThinkingToggle(");
 vm.runInContext(bg.slice(at, bg.indexOf("\n}\n", at) + 2), ctx);
 const t = ctx;
@@ -49,6 +50,14 @@ assert.strictEqual(
   `3|a b c|UP|2:05|2024-05-30|${"简".repeat(120)}`
 );
 assert.strictEqual(t.triageTitleLine({ title: "T", upper: "U", duration: 0, intro: "" }, 1), "1|T|U|0:00||", "no publish date leaves its field empty");
+// An hour and up reads 1:15:00, as on the cards (the old copy here wrote 75:00).
+assert.strictEqual(t.triageTitleLine({ title: "T", upper: "U", duration: 75 * 60 }, 1).split("|")[3], "1:15:00");
+assert.strictEqual(t.triageCommandLine({ title: "T", duration: 75 * 60 + 5 }, 1).split("|")[3], "1:15:05");
+// Dates, durations and tag names come from shared.js's TriageUi only: no background copy to drift.
+{
+  const src = fs.readFileSync(path.join(__dirname, "triage-bg.js"), "utf8") + fs.readFileSync(path.join(__dirname, "follow-bg.js"), "utf8");
+  assert.ok(!/padStart|getFullYear|% 60|\[,，、\]/.test(src), "a hand-written date, duration or tag-name rule in the background");
+}
 
 // stage-1 title batch
 const items = [{ bvid: "BV1" }, { bvid: "BV2" }, { bvid: "BV3" }];
@@ -99,8 +108,6 @@ assert.strictEqual(t.triageMaxTokens("command", 30, { ...off, triageTitleMaxToke
 
 // tag names
 assert.deepStrictEqual(plain(t.triageTagNames(["AI", " 编程 ", "", null])), ["AI", "编程"]);
-assert.strictEqual(t.triageCleanTagName(" 一二三四五六七八九十甲乙丙 "), "一二三四五六七八九十甲乙");
-assert.strictEqual(t.triageCleanTagName("a，b、c,d"), "abcd");
 
 // command line + messages
 assert.strictEqual(
@@ -235,6 +242,18 @@ assert.throws(() => t.triageParseCommand('{"new_tags":[', cmdItems, cmdTags, {})
   await assert.rejects(t.triageNav(), /不是 JSON/);
   t.fetch = async () => ({ ok: false, status: 502, json: async () => ({}) });
   await assert.rejects(t.triageNav(), /HTTP 502/);
+  // 收藏夹 reads use 关注's channel: no answer in time is NETWORK instead of hanging forever.
+  vm.runInContext("TRIAGE_BILI_CFG.timeoutMs = 20", ctx);
+  t.fetch = () => new Promise(() => {});
+  const within = (p) => Promise.race([p, new Promise((_, reject) => setTimeout(() => reject(new Error("hangs")), 500))]);
+  await assert.rejects(within(t.triageBiliGet("https://api.test")), (e) => e.code === "NETWORK" && /没有回应/.test(e.message));
+  await assert.rejects(within(t.triageNav()), (e) => e.code === "NETWORK");
+  // A write that gets no answer is not tried again and says the outcome is unknown.
+  let posts = 0;
+  t.fetch = () => (posts++, new Promise(() => {}));
+  await assert.rejects(within(t.triageBiliPost("/x", {})), (e) => e.code === "NETWORK" && /不确定 B站 是否已改/.test(e.message));
+  assert.strictEqual(posts, 1, "a write is sent once");
+  vm.runInContext("TRIAGE_BILI_CFG.timeoutMs = 30000", ctx);
 
   // A folder load that fails after page 1 keeps the fetched items and says so; a page-1 failure still throws.
   const media = (n) => ({ type: 2, bvid: `BV${n}`, id: n, title: `t${n}`, attr: 0 });

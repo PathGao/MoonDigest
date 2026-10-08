@@ -1,6 +1,6 @@
 // MoonDigest 收藏夹分拣台 background 层。classic script，由 background.js 末尾 importScripts 加载，
 // 与 background.js 共享全局作用域，所以顶层名字统一带 triage / TRIAGE_ 前缀。
-// 纯函数放顶部（selftest 用 vm 加载，chrome 为 undefined）。
+// 纯函数放顶部（selftest 用 vm 加载，chrome 为 undefined）。日期、时长、标签名用页面同一份的 TriageUi（shared.js，在本文件前加载）。
 
 // ===== 纯函数 =====
 
@@ -9,13 +9,6 @@ function triageSubtitleValid(body, dur) {
   if (!Array.isArray(body) || !body.length || !(dur > 0)) return false;
   const lastTo = Number(body[body.length - 1].to);
   return lastTo <= dur + 10 && lastTo >= dur * 0.5;
-}
-
-// pubdate is seconds since the epoch; YYYY-MM-DD in local time, "" when missing.
-function triageDate(sec) {
-  if (!(sec > 0)) return "";
-  const d = new Date(sec * 1000);
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
 // 从模型输出里取第一个完整的 {...} 或 [...]（去掉 ``` 围栏，跳过字符串里的括号）
@@ -69,11 +62,6 @@ function triageTagLines(tags) {
     .filter(Boolean);
 }
 
-// 新标签名：去掉逗号顿号和首尾空白，≤12 字
-function triageCleanTagName(name) {
-  return String(name ?? "").replace(/[,，、]/g, "").trim().slice(0, 12);
-}
-
 function triageParseLlm(content) {
   const obj = triageExtractJson(content, "{");
   const oneLiner = String(obj.one_liner ?? obj.oneLiner ?? "").trim();
@@ -110,18 +98,14 @@ function triageParseTitleBatch(content, items) {
 
 function triageTitleLine(item, n) {
   const clean = (s) => String(s ?? "").replace(/[|\r\n]+/g, " ").trim();
-  const d = Number(item.duration) || 0;
-  const dur = `${Math.floor(d / 60)}:${String(d % 60).padStart(2, "0")}`;
-  return `${n}|${clean(item.title)}|${clean(item.upper)}|${dur}|${triageDate(item.pubdate)}|${clean(item.intro).slice(0, 120)}`;
+  return `${n}|${clean(item.title)}|${clean(item.upper)}|${TriageUi.fmtDuration(item.duration)}|${TriageUi.fmtDate(item.pubdate)}|${clean(item.intro).slice(0, 120)}`;
 }
 
 // 序号|标题|UP|时长|现有标签|一句话|要点1；要点2；要点3（没有的字段留空）
 function triageCommandLine(item, n) {
   const clean = (s) => String(s ?? "").replace(/[|\r\n]+/g, " ").trim();
   const list = (a) => (Array.isArray(a) ? a.map(clean).filter(Boolean) : []);
-  const d = Number(item.duration) || 0;
-  const dur = d ? `${Math.floor(d / 60)}:${String(d % 60).padStart(2, "0")}` : "";
-  return [n, clean(item.title), clean(item.upper), dur, list(item.currentTags).join("、"), clean(item.oneLiner), list(item.points).join("；")].join("|");
+  return [n, clean(item.title), clean(item.upper), Number(item.duration) ? TriageUi.fmtDuration(item.duration) : "", list(item.currentTags).join("、"), clean(item.oneLiner), list(item.points).join("；")].join("|");
 }
 
 // 批量打标签的提案只改标签：add 只留已有标签或本次新建的标签（至多 maxNewTags 个），remove 只留视频现有标签且要 allowRemove；
@@ -132,7 +116,7 @@ function triageParseCommand(content, items, tags, { maxNewTags = 5, allowRemove 
   const newTags = [];
   for (const t of Array.isArray(obj.new_tags) ? obj.new_tags : []) {
     if (newTags.length >= maxNewTags) break;
-    const name = triageCleanTagName(t && typeof t === "object" ? t.name : t);
+    const name = TriageUi.cleanTagName(t && typeof t === "object" ? t.name : t);
     if (name && !existing.has(name) && !newTags.includes(name)) newTags.push(name);
   }
   const valid = new Set([...existing, ...newTags]);
@@ -146,7 +130,7 @@ function triageParseCommand(content, items, tags, { maxNewTags = 5, allowRemove 
     const r = byIndex.get(idx + 1);
     if (!r || !item?.bvid) return;
     const current = new Set(triageTagNames(item.currentTags));
-    const pick = (arr, ok) => [...new Set((Array.isArray(arr) ? arr : []).map((x) => triageCleanTagName(x)))].filter((x) => x && ok(x));
+    const pick = (arr, ok) => [...new Set((Array.isArray(arr) ? arr : []).map((x) => TriageUi.cleanTagName(x)))].filter((x) => x && ok(x));
     const a = {
       add: pick(r.add, (x) => valid.has(x) && !current.has(x)),
       remove: allowRemove ? pick(r.remove, (x) => current.has(x)) : []
@@ -279,18 +263,69 @@ function triageBiliData(json) {
   return json.data;
 }
 
+// The one B站 channel of both modes (GET and POST). No answer in TRIAGE_BILI_CFG.timeoutMs, or a dropped connection,
+// is NETWORK.
+const TRIAGE_BILI_CFG = { timeoutMs: 30000 };
+async function triageBiliFetch(url, init = {}) {
+  const ctl = new AbortController();
+  let timer;
+  const timeout = new Promise((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`${TRIAGE_BILI_CFG.timeoutMs / 1000} 秒没有回应`)), TRIAGE_BILI_CFG.timeoutMs);
+  });
+  try {
+    return await Promise.race([fetch(url, { ...init, credentials: "include", signal: ctl.signal }), timeout]);
+  } catch (e) {
+    ctl.abort();
+    throw triageError(`网络断了：${e?.message || e}`, "NETWORK");
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+// GET → the whole JSON, whatever its code. url may be an async function (WBI: signed again on every try).
+// Without pace (收藏夹) it is one try; the caller backs off on THROTTLED. pace (关注's long syncs) =
+// { slot, hold, cfg: { strikes, backoffMs, netRetry } }: every try waits for slot(); a dropped connection holds the
+// queue netRetry[i] ms and tries again; risk control holds it backoffMs (and drops the WBI key, a stale one answers
+// -352 too) and gives up with THROTTLED on the strikes-th time.
+async function triageBiliGetJson(url, pace) {
+  let net = 0;
+  for (let strike = 1; ; strike++) {
+    const u = typeof url === "function" ? await url() : url;
+    await pace?.slot();
+    let json = null;
+    try {
+      json = await triageBiliJson(await triageBiliFetch(u));
+    } catch (e) {
+      if (!pace) throw e;
+      if (e.code === "NETWORK" && net < pace.cfg.netRetry.length) {
+        pace.hold(pace.cfg.netRetry[net++], "network");
+        strike--;
+        continue;
+      }
+      if (e.code !== "THROTTLED") throw e;
+    }
+    if (json && !(pace && BILI_RISK_CODES.has(json.code))) return json;
+    if (strike >= pace.cfg.strikes) throw triageError("被 B站 限流，已暂停", "THROTTLED");
+    if (typeof url === "function") BocSites.biliWbiReset();
+    pace.hold(pace.cfg.backoffMs, "throttled");
+  }
+}
+
 async function triageBiliGet(url) {
-  return triageBiliData(await triageBiliJson(await fetch(url, { credentials: "include" })));
+  return triageBiliData(await triageBiliGetJson(url));
 }
 
 async function triageBiliPost(path, fields) {
   const cookie = await chrome.cookies.get({ url: "https://www.bilibili.com", name: "bili_jct" });
   if (!cookie?.value) throw triageError("未登录 B站");
-  const res = await fetch(`https://api.bilibili.com${path}`, {
+  // A write is tried once. Without an answer B站 may or may not have done it, so callers keep their state as before
+  // (no count change, no undo step) and the message says to look.
+  const res = await triageBiliFetch(`https://api.bilibili.com${path}`, {
     method: "POST",
-    credentials: "include",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body: triageForm({ ...fields, csrf: cookie.value })
+  }).catch((e) => {
+    throw e.code === "NETWORK" ? triageError("网络超时或断开：不确定 B站 是否已改，刷新后看一下", "NETWORK") : e;
   });
   return triageBiliData(await triageBiliJson(res));
 }
@@ -311,8 +346,7 @@ const TRIAGE_BILI_IO = {
 
 // nav 未登录时 code=-101，triageBiliGet 会当错误抛出，所以只查 HTTP 与 JSON，由 triageMid 判断登录
 async function triageNav() {
-  const res = await fetch("https://api.bilibili.com/x/web-interface/nav", { credentials: "include" });
-  return (await triageBiliJson(res)).data || {};
+  return (await triageBiliGetJson("https://api.bilibili.com/x/web-interface/nav")).data || {};
 }
 
 async function triageMid() {
@@ -624,7 +658,8 @@ async function triageClassifyTitles({ items, criteria, folder }) {
 }
 
 // 协作打标签：只返回提案，不缓存。新建标签至多 maxNewTags 个（收藏夹剩余名额与分拣设置里 AI 新建上限取小）
-async function triageAiCommand({ instruction, items, tags, maxNewTags = 5, allowRemove = false }) {
+// 关注 (follow-bg.js) calls it too, with UP 主 as items (mid in bvid) and its own unit.
+async function triageAiCommand({ instruction, items, tags, maxNewTags = 5, allowRemove = false }, unit = TRIAGE_AI_UNIT) {
   const text = String(instruction ?? "").trim();
   if (!text) throw triageError("缺少指令");
   const list = (Array.isArray(items) ? items : []).filter((it) => it && it.bvid);
@@ -632,7 +667,7 @@ async function triageAiCommand({ instruction, items, tags, maxNewTags = 5, allow
   const ai = await triageAiSettings();
   const opts = { maxNewTags: Math.max(0, Math.min(50, Math.floor(Number(maxNewTags)) || 0)), allowRemove: allowRemove === true };
   const { content } = await triageChat(
-    triageBuildCommandMessages({ instruction: text, tags, items: list, ...opts }),
+    triageBuildCommandMessages({ instruction: text, tags, items: list, ...opts, unit }),
     triageMaxTokens("command", list.length, ai),
     ai.triageThinking
   );
