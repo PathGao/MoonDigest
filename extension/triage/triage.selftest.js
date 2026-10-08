@@ -1919,6 +1919,9 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   assert.ok(!t.pointerMoved({ x: 10, y: 10 }, 10, 10), "same position is not movement");
   assert.ok(t.pointerMoved({ x: 10, y: 10 }, 10, 11), "a changed coordinate is movement");
 
+  // .ai-review-head styled nothing the pages draw.
+  assert.ok(!fs.readFileSync(path.join(__dirname, "triage.css"), "utf8").includes(".ai-review-head"), "unused .ai-review-head is gone");
+
   // 一篇摘录's title time comes from fmtTime, not formatted again by hand.
   assert.ok(t.buildMarkdown([], new Date(2026, 0, 2, 3, 4)).includes("title: B站摘录 2026-01-02 03:04\n"));
   assert.ok(!/pad\(now\.getHours\(\)\)/.test(source), "buildMarkdown uses fmtTime");
