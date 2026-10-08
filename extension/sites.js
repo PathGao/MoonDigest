@@ -444,7 +444,8 @@
             to: biliChapterTime(item?.to ?? item?.end)
           }))
         );
-        return { tracks, chapters };
+        // Bilibili hides every subtitle from a request it sees as logged out.
+        return { tracks, chapters, needLogin: !tracks.length && data.need_login_subtitle === true };
       };
 
       try {

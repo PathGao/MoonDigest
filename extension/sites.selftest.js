@@ -518,6 +518,9 @@ async function ytComments(next, byContinuation) {
   delete b.io.signWbi;
   await S.SITES.bilibili.fetchTracks(biliRef, biliMeta, b.io);
   eq(b.calls, [`https://api.bilibili.com/x/player/wbi/v2?aid=${biliMeta.aid}&cid=${biliMeta.cid}&bvid=${biliRef.id}`]);
+  // A logged-out answer is reported, not mistaken for a video without subtitles.
+  const loggedOut = { fetchJson: async () => ({ code: 0, data: { need_login_subtitle: true, subtitle: { subtitles: [] } } }) };
+  eq((await S.SITES.bilibili.fetchTracks(biliRef, biliMeta, loggedOut)).needLogin, true);
 
   // Subtitle cache: same key format content.js always wrote; entries hold the raw response.
   const cache = S.subtitleCache;
