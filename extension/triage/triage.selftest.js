@@ -2125,6 +2125,14 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     t.askConfirm = ask;
     t.S.modeUndo = [];
     delete t.document.body;
+    // 已出分拣范围: 清空待播 says 「U 撤销」, so U works there too.
+    openFake("removed", []);
+    t.S.undo.push({ kind: "basket", removed: [] });
+    const ur = ev("u");
+    t.onKey(ur);
+    await new Promise((r) => setTimeout(r, 20));
+    assert.ok(ur.prevented && !t.S.undo.length && toasts.at(-1) === "已撤销：放回待播 0 个", "U undoes in 已出分拣范围");
+    openFake("A", []);
     t.MoonTriage.setModeKeys(null);
   }
 

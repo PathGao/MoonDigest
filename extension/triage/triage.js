@@ -4088,9 +4088,9 @@ function onKey(e) {
     render();
   } else if (map[key]) map[key]();
   else if (nav[key]) moveFocus(nav[key]);
-  // 已出分拣范围 has no 保留 / 取消收藏 / 标签; 待播 and 问 AI work there.
-  else if (S.mediaId === REMOVED && key !== "e" && key !== "q") return;
   else if (key === "u") undo();
+  // 已出分拣范围 has no 保留 / 取消收藏 / 标签; 待播, 问 AI and U work there.
+  else if (S.mediaId === REMOVED && key !== "e" && key !== "q") return;
   else if (cardKeys[key] && S.focused) cardAction(cardKeys[key], S.focused);
   else return;
   e.preventDefault();
