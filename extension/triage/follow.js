@@ -519,13 +519,10 @@ function renderSync() {
   btn.disabled = Boolean(j.running);
   if (j.running) btn.setAttribute("aria-busy", "true");
   else btn.removeAttribute("aria-busy");
-  pill.hidden = !j.running;
-  if (!j.running) return;
-  const left = j.hold?.until ? Math.ceil(j.hold.until - nowSec()) : 0;
-  const wait = left > 0 && `${j.hold.why === "throttled" ? "B站限流" : "网络断了"}，${fmtDuration(left)} 后重试`;
+  if (!j.running) return UI.setActivity(pill, null);
+  const wait = j.hold?.until ? UI.waitText(j.hold.why === "throttled" ? "B站限流" : "网络断了", Math.ceil(j.hold.until - nowSec())) : "";
   const text = wait || `${j.step || PHASE[j.phase] || "刷新中"}${j.total ? ` ${j.done || 0}/${j.total}` : j.done ? ` ${j.done}` : ""}`;
-  pill.classList.toggle("warn", Boolean(wait));
-  pill.innerHTML = UI.activityHtml({ text, done: j.done || 0, total: wait ? 0 : j.total || 0, btn: { attrs: "data-fw-stop", label: "暂停" } });
+  UI.setActivity(pill, { text, done: j.done || 0, total: wait ? 0 : j.total || 0, warn: Boolean(wait), btn: { attrs: "data-fw-stop", label: "暂停" } });
 }
 
 // 关注 · N, when the list was read, and the last refresh's error, which stays until a refresh gets through.

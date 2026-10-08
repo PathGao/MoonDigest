@@ -1,5 +1,6 @@
 // What the 分拣台's two modes (triage.js 收藏夹, follow.js 关注) draw the same way, so they cannot drift apart.
-// A plain script loaded before both modules; everything here returns HTML, text or a comparator and touches no state.
+// A plain script loaded before both modules. Everything here returns HTML, text or a comparator; only setActivity
+// touches the element it is given.
 (() => {
   function esc(v) {
     return String(v ?? "")
@@ -120,6 +121,15 @@
     const b = btn ? `<button type="button" ${btn.attrs} aria-label="${esc(btn.label)}"${btn.disabled ? " disabled" : ""}>${esc(btn.label)}</button>` : "";
     return `<span class="activity-text">${esc(text)}</span>${bar}${b}`;
   }
+  // Draws the pill from state ({ text, done, total, btn, warn }: warn is amber, for a wait); null / false hides it.
+  function setActivity(el, a) {
+    el.hidden = !a;
+    if (!a) return;
+    el.classList.toggle("warn", Boolean(a.warn));
+    el.innerHTML = activityHtml(a);
+  }
+  // 「B站限流，01:30 后重试」 while sec > 0, else "".
+  const waitText = (why, sec) => (sec > 0 ? `${why}，${fmtDuration(sec)} 后重试` : "");
 
   // 标签管理 and ✦ AI 打标签 at the right end of the tag row, next to the tags they act on (in 收藏夹 those are the open
   // folder's, so they do not sit in the sidebar). state is 「 · 运行中」 or 「 · 待确认」.
@@ -147,5 +157,5 @@
     }
   }
 
-  globalThis.TriageUi = { esc, pad, fmtDate, fmtDuration, fmtCount, cleanTagName, plainClick, img, toCsv, cardTagChip, syncedText, headMeta, titleHtml, ICON, AI_SPARK, byValue, dirWords, sortControl, filterBtn, searchBox, resultCount, rowButtons, menuItem, BACKUP_ITEM, activityHtml, tagButtons, sideFoot, emptyState, fillSetRows };
+  globalThis.TriageUi = { esc, pad, fmtDate, fmtDuration, fmtCount, cleanTagName, plainClick, img, toCsv, cardTagChip, syncedText, headMeta, titleHtml, ICON, AI_SPARK, byValue, dirWords, sortControl, filterBtn, searchBox, resultCount, rowButtons, menuItem, BACKUP_ITEM, activityHtml, setActivity, waitText, tagButtons, sideFoot, emptyState, fillSetRows };
 })();

@@ -1688,7 +1688,7 @@ function renderFolderHead() {
 // act puts a button on it (handled like the step bar's buttons), warn turns it amber.
 function activityState() {
   const left = S.throttleUntil - Date.now();
-  const wait = left > 0 ? `${S.throttleLabel}，${fmtDuration(Math.ceil(left / 1000))} 后重试` : "";
+  const wait = UI.waitText(S.throttleLabel, Math.ceil(left / 1000));
   if (S.group) {
     const done = groupDone(S.group);
     const where = runWhere(S.group);
@@ -1721,10 +1721,7 @@ function activityState() {
 
 function renderStatus() {
   const a = activityState();
-  el.activity.hidden = !a;
-  if (!a) return;
-  el.activity.classList.toggle("warn", Boolean(a.warn));
-  el.activity.innerHTML = UI.activityHtml({ ...a, btn: a.act && { attrs: `data-head="${a.act}"`, label: a.actLabel, disabled: a.stopping } });
+  UI.setActivity(el.activity, a && { ...a, btn: a.act && { attrs: `data-head="${a.act}"`, label: a.actLabel, disabled: a.stopping } });
 }
 
 function tick() {
