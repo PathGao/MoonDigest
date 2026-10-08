@@ -2316,9 +2316,10 @@ async function decide(bvid, action) {
 // U undoes the last step wherever it was; a step that changed several videos asks first, so a stray U costs nothing.
 function batchUndoAsk(entry) {
   if (entry.kind === "mode") return entry.ask || null;
-  const n = entry.kind === "keepMany" ? entry.bvids.length : entry.kind === "unfavMany" ? entry.items.length : entry.kind === "aiApply" ? entry.changes.length : 0;
+  const n = entry.kind === "keepMany" ? entry.bvids.length : entry.kind === "unfavMany" ? entry.items.length : entry.kind === "aiApply" ? entry.changes.length : entry.kind === "tagsMany" ? Object.keys(entry.prevs).length : 0;
   if (n < 2) return null;
   if (entry.kind === "keepMany") return [`撤销批量保留？`, `<p>上一步保留了 ${n} 个视频，撤销后它们不再标为保留。</p>`, "撤销"];
+  if (entry.kind === "tagsMany") return [`撤销批量改标签？`, `<p>上一步改了 ${n} 个视频的标签，撤销后都改回去。</p>`, "撤销"];
   if (entry.kind === "unfavMany") return [`在 B站重新收藏这 ${n} 个视频？`, `<p>撤销上一步的批量取消收藏。</p>`, `重新收藏 ${n} 个`];
   return [`撤销这次 AI 打标签？`, `<p>这次 AI 打标签改过的 ${n} 个视频，标签都改回 AI 打之前，包括你之后又改过的。</p>`, "撤销"];
 }

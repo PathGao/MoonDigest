@@ -458,7 +458,7 @@ function renderSyncChanges() {
 // 标签管理 and ✦ AI 打标签 with its state, as in 收藏夹. AI 打标签 works on UP 主: not in 动态 or 已取消关注.
 function renderAiButton() {
   const slot = $("fwAiSlot");
-  slot.innerHTML = UI.tagButtons({ manageAttrs: 'data-fw="tags"', aiAttrs: 'data-fw="ai"', state: AI.running ? " · 运行中" : AI.proposal ? " · 待确认" : "" });
+  slot.innerHTML = UI.tagButtons({ manageAttrs: 'data-fw="tags"', aiAttrs: 'data-fw="ai"', noTags: !D.tags.length, state: AI.running ? " · 运行中" : AI.proposal ? " · 待确认" : "" });
   slot.querySelector("[data-fw=ai]").hidden = F.tab === "feed" || F.side === "gone";
 }
 function renderAiState() {

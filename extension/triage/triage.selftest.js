@@ -1981,6 +1981,13 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     assert.deepStrictEqual(plain(po.targets), ["BV901", "BV902"]);
     assert.deepStrictEqual(plain(t.S.videoTags), { BV901: ["ma", "mb"], BV902: ["mb"] });
     assert.strictEqual(t.S.undo.length, 1, "one step for the batch");
+    // 2+ videos: U asks first, like the other batch steps; declined, nothing changes.
+    const ask = t.askConfirm;
+    let asked = 0;
+    t.askConfirm = async () => (asked++, false);
+    await t.undo();
+    assert.ok(asked === 1 && t.S.undo.length === 1 && t.S.videoTags.BV902, "declined: the batch stays");
+    t.askConfirm = ask;
     await t.undo();
     assert.deepStrictEqual(plain(t.S.videoTags), { BV901: ["ma"] });
     Object.assign(t.S, { tags: [], videoTags: {} });
