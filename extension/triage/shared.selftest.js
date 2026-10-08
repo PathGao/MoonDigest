@@ -4,7 +4,8 @@ const path = require("path");
 const vm = require("vm");
 const assert = require("assert");
 
-const ctx = vm.createContext({});
+const ctx = vm.createContext({ setTimeout, clearTimeout });
+vm.runInContext(fs.readFileSync(path.join(__dirname, "../typing.js"), "utf8"), ctx);
 vm.runInContext(fs.readFileSync(path.join(__dirname, "shared.js"), "utf8"), ctx);
 const UI = ctx.TriageUi;
 const plain = (v) => JSON.parse(JSON.stringify(v));
@@ -144,6 +145,23 @@ for (const file of ["triage.js", "follow.js"]) {
   assert.ok(UI.tagPlusBtn('data-x="1"', "给 <b> 打标签").includes('data-x="1" aria-label="给 &lt;b&gt; 打标签">+ 标签 <kbd'));
 }
 
+// 标签管理 edits and deletes, one implementation for both modes: a cleared rule drops the field (关注 used to keep ""),
+// names are cleaned and checked, the color cycles; a deleted tag leaves every item, and an item left bare drops out.
+{
+  const t0 = { id: "a", name: "甲", color: UI.TAG_COLORS[0], rule: "旧说明" };
+  assert.deepStrictEqual(plain(UI.editedTag(t0, "rule", "  ").tag), { id: "a", name: "甲", color: UI.TAG_COLORS[0] });
+  assert.strictEqual(UI.editedTag(t0, "rule", ` ${"讲".repeat(90)} `).tag.rule.length, 80);
+  assert.strictEqual(UI.editedTag(t0, "name", " 乙, ", []).tag.name, "乙");
+  assert.deepStrictEqual(plain(UI.editedTag(t0, "name", "乙", [{ name: "乙" }])), { why: "已有同名标签" });
+  assert.strictEqual(UI.editedTag(t0, "color").tag.color, UI.TAG_COLORS[1]);
+  assert.strictEqual(t0.rule, "旧说明", "the tag itself is not changed");
+  assert.deepStrictEqual([...UI.tagsUndoAsk(3, "UP 主")], ["撤销批量改标签？", "<p>上一步改了 3 个 UP 主的标签，撤销后都改回去。</p>", "撤销"]);
+  assert.deepStrictEqual(plain(UI.withoutTag({ x: ["a", "b"], y: ["a"] }, "a")), { x: ["b"] });
+  // follow.js's page part is not in a harness; it must go through the same functions.
+  const follow = fs.readFileSync(path.join(__dirname, "follow.js"), "utf8");
+  assert.ok(follow.includes("UI.editedTag(") && follow.includes("UI.withoutTag("), "关注 edits and deletes tags with the shared functions");
+}
+
 // 全选: none / some / all of what is listed → unchecked / mixed / checked. Nothing listed: 「全选」 with no number, disabled
 // with a reason. A click deselects only when every listed one is selected, and never touches what is not listed.
 {
@@ -177,3 +195,26 @@ for (const file of ["triage.js", "follow.js"]) {
 }
 
 console.log("shared selftest: all passed");
+
+// The search box, both modes (收藏夹 and 关注 bind it the same way): Esc clears it; Esc on an empty box blurs it, so J / K
+// reach the cards again; Esc that belongs to the IME does nothing.
+{
+  const L = {};
+  let blurred = 0;
+  const got = [];
+  const input = { value: "", addEventListener: (type, f) => (L[type] ||= []).push(f), blur: () => blurred++ };
+  UI.bindSearch(input, (q) => got.push(q));
+  const esc = (o = {}) => {
+    const e = { key: "Escape", isComposing: false, keyCode: 27, prevented: 0, preventDefault() { this.prevented++; }, ...o };
+    L.keydown.forEach((f) => f(e));
+    return e;
+  };
+  input.value = "路";
+  assert.strictEqual(esc({ isComposing: true }).prevented, 0, "the IME's Esc");
+  esc();
+  assert.deepStrictEqual([input.value, got.join(), blurred], ["", "", 0], "Esc clears the box and the search");
+  esc();
+  assert.strictEqual(blurred, 1, "Esc on an empty box blurs it");
+  assert.ok(L.compositionend && L.input, "it filters through bindLive");
+  for (const f of ["triage.js", "follow.js"]) assert.ok(fs.readFileSync(path.join(__dirname, f), "utf8").includes("UI.bindSearch("), `${f} binds its search with bindSearch`);
+}

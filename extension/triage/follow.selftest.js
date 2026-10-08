@@ -11,7 +11,7 @@ assert.ok(pure.includes("function followStatus") && !pure.includes("document"), 
 const ctx = vm.createContext({ setTimeout, clearTimeout });
 // The pure block sorts with shared.js (UI.byValue / UI.dirWords), as the page does.
 vm.runInContext(fs.readFileSync(path.join(__dirname, "shared.js"), "utf8"), ctx);
-vm.runInContext(`const UI = globalThis.TriageUi;\n${pure}\n;Object.assign(globalThis, { dirLabel, followAiSettings, aiRequests, normDays, settingsProblem, followStatus, lastPostOf, recentTitles, upRow, visibleUps, mergeFeed, feedMatch, sideIds, feedList, feedLeaving, withTags, stepIn, tagsOf, restoreTags, fmtAgo });`, ctx);
+vm.runInContext(`const UI = globalThis.TriageUi;\n${pure}\n;Object.assign(globalThis, { syncFinished, dirLabel, followAiSettings, aiRequests, normDays, settingsProblem, followStatus, lastPostOf, recentTitles, upRow, visibleUps, mergeFeed, feedMatch, sideIds, feedList, feedLeaving, withTags, stepIn, tagsOf, restoreTags, fmtAgo });`, ctx);
 const t = ctx;
 const plain = (v) => JSON.parse(JSON.stringify(v));
 
@@ -229,5 +229,42 @@ assert.strictEqual(t.fmtAgo(ago(800), now), "2 年前");
   assert.ok(/const manageTags = \{\s*who: "UP 主"/.test(source) && /const aiTags = \{\s*who: "UP 主"[\s\S]*?manage: manageTags,/.test(source), "关注's adapters, linked");
   assert.ok(!/<dialog id="fwTagsDialog"|data-fwmode/.test(source), "no combined 「UP 主标签」 dialog");
 }
+
+// 刷新 then 动态: a finished sync drops the loaded feed, so the next look reads it again.
+{
+  assert.ok(t.syncFinished({ running: true, finishedAt: null }, { running: false, finishedAt: 5 }));
+  assert.ok(!t.syncFinished({ finishedAt: 5 }, { finishedAt: 5, beat: 6 }), "a tick of the same job is not a finish");
+  assert.ok(!t.syncFinished({ running: true }, { running: false, hold: null }), "stopped (no finishedAt) is not a finish");
+  assert.ok(/if \(syncFinished\(changes\.follow_jobs\?\.oldValue, changes\.follow_jobs\?\.newValue\)\) \{\s*F\.feed = null;/.test(source), "the page drops F.feed on it");
+}
+
+// The deep link's hash is dropped once read: the same tag clicked again changes the hash again (the worker sets it), and a
+// reload in 收藏夹 does not jump back to 关注.
+assert.ok(/if \(!\/\^follow\(&\|\$\)\/\.test\(h\)\) return false;\s*history\.replaceState\(null, "", location\.pathname \+ location\.search\);/.test(source), "followHash drops the hash");
+
+// 标签… on 2+ UP 主 is one step that asks before U, with 收藏夹's words (shared.js tagsUndoAsk).
+assert.ok(source.includes(`pushTagUndo(before, "标签修改", { ask: changes.length > 1 ? UI.tagsUndoAsk(changes.length, "UP 主") : null });`), "pickClosed asks for 2+");
+
+// B站 writes and U (DESIGN §5): a single 重新关注 has no confirm and U unfollows again with its 已取消关注 record; batch
+// 特别关注 is one step that asks before U; single 取消关注 keeps its confirm.
+{
+  const fn = (name) => source.slice(source.indexOf(`function ${name}(`), source.indexOf("\n}\n", source.indexOf(`function ${name}(`)));
+  const re = fn("refollow");
+  assert.ok(re.indexOf("mids.length === 1") < re.indexOf("askConfirm") && /act: 2, gone/.test(re) && re.includes("已在 B站重新关注「"), "single 重新关注: no confirm, U with the record");
+  assert.ok(/pushWriteUndo\(done, \{[\s\S]*ask: \[`在 B站把/.test(fn("setSpecial")), "batch 特别关注 is undoable, asked with 在 B站…");
+  assert.ok(source.includes("const starOne = (mid) => setSpecial([mid], !rows.get(mid).special);"), "★ goes the same way");
+  assert.ok(fn("pushWriteUndo").includes("ask: done.length > 1 ? ask : null"), "U asks for 2+ only");
+  assert.ok(/async function unfollow[\s\S]*?askConfirm/.test(source), "取消关注 still asks");
+}
+
+// 关注设置 and the AI settings it seeds: a failed chrome.storage.sync.set says so, as 收藏夹设置 does.
+assert.strictEqual((source.match(/chrome\.storage\.sync\.set\(/g) || []).length, 2);
+assert.ok(/\.set\(\{ follow_ai_settings: seed \}\)\.catch\(\(e\) => toast\(`保存设置失败：/.test(source) && /try \{\s*await chrome\.storage\.sync\.set\(\{ follow_ai_settings: ai, \.\.\.days \}\);\s*\} catch \(e\) \{\s*return toast\(`保存设置失败：/.test(source), "both writes catch");
+
+// The player's T / Esc reach 关注 through triage.js's one message listener (modeKeys), as page keys do.
+assert.ok(!/addEventListener\("message"/.test(source), "follow.js has no message listener of its own");
+
+// 已取消关注 is a filter like the others: the selection stays, the ones not listed show as 「另有 N 个被筛选隐藏」.
+assert.ok(source.includes("for (const m of [...F.sel]) if (!rows.has(m)) F.sel.delete(m);"), "renderUps drops only UP 主 that are gone from the data");
 
 console.log("follow selftest: all passed");

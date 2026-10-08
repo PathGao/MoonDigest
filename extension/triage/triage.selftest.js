@@ -614,13 +614,33 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     let calls = 0;
     handlers["triage-ai-command"] = () => (++calls === 1 ? { ok: false, code: "AI_THROTTLED", error: "HTTP 429" } : { ok: true, data: {} });
     const before = sent.length;
-    await t.runAiCommand();
+    await t.runAiCommand({ instruction: "按深度分", scope: "filter", allowRemove: false });
     const batches = sent.slice(before).filter((m) => m.type === "triage-ai-command");
     assert.strictEqual(batches.length, 2, "the throttled batch is sent again");
     assert.deepStrictEqual(plain(batches[1].items), plain(batches[0].items));
     assert.deepStrictEqual([waits[0], plain(t.S.ai.proposal.errors)], [60000, []]);
     t.sleepWhile = realSleep;
     t.S.ai.proposal = null;
+    handlers["triage-ai-command"] = () => ({ ok: true, data: {} });
+  }
+  // Every batch failed: nothing to confirm (no 待确认), the reason is toasted. A setup error (配置 AI) stops the run at
+  // the first batch, as in 关注.
+  {
+    const realSize = t.S.settings.triageTitleBatchSize;
+    const realScope = t.aiScopeItems;
+    t.aiScopeItems = () => [item(600), item(601)];
+    t.S.settings.triageTitleBatchSize = 1;
+    handlers["triage-ai-command"] = () => ({ ok: false, error: "请先配置 AI 服务" });
+    const before = sent.length;
+    await t.runAiCommand({ instruction: "按深度分", scope: "filter", allowRemove: false });
+    const batches = sent.slice(before).filter((m) => m.type === "triage-ai-command");
+    assert.strictEqual(batches.length, 1, "a 配置 AI error ends the run");
+    assert.strictEqual(t.S.ai.proposal, null, "no proposal when no batch got through");
+    t.renderTabs();
+    assert.ok(!t.el.aiTagSlot.innerHTML.includes("待确认"), "no 「待确认」 after a run that got nothing");
+    assert.strictEqual(toasts.at(-1), "AI 打标签没有成功：第 1 批失败：请先配置 AI 服务");
+    t.S.settings.triageTitleBatchSize = realSize;
+    t.aiScopeItems = realScope;
     handlers["triage-ai-command"] = () => ({ ok: true, data: {} });
   }
   t.S.settings.triageAiNewTagMax = 2;
@@ -1843,6 +1863,20 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
       assert.strictEqual(po, null, "another frame");
       msg(frame);
       assert.strictEqual(po?.anchor, "#viewerTags .tag-plus");
+      // Esc in the player closes it, as Esc on the page does.
+      const esc = () => W.message.forEach((f) => f({ source: frame, origin: "https://www.bilibili.com", data: { type: "mdg-viewer-key", key: "Escape" } }));
+      esc();
+      assert.strictEqual(t.S.viewing, "", "Esc from the player closes it");
+      // One listener for both modes: with 关注 on, its keys get the player's keys and 收藏夹's do not run.
+      assert.strictEqual(W.message.length, 1);
+      const got = [];
+      t.MoonTriage.setModeKeys((k) => (got.push(k), true));
+      t.S.viewing = "BV1";
+      po = null;
+      msg(frame);
+      esc();
+      assert.ok(got.join() === "t,Escape" && po === null && t.S.viewing === "BV1", "关注 gets T and Esc");
+      t.MoonTriage.setModeKeys(null);
       t.S.viewing = "";
     }
     const doc = (type) => docL[type].forEach((f) => f({}));
@@ -1911,18 +1945,29 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     t.onKey(ev("j", { target: { closest: (sel) => (sel.includes("input") ? {} : null) } }));
     assert.strictEqual(keys.join(), "j,u", "keys typed into a field or the IME skip the mode");
     t.MoonTriage.setModeKeys(() => null);
+    // Each mode keeps its own steps: U undoes only the steps of the mode it is pressed in.
     t.S.undo = [];
     let undone = 0;
     t.MoonTriage.pushUndo({ kind: "mode", undo: async () => (undone++, "已撤销：去掉「x」") });
+    t.S.undo.push({ kind: "basket", removed: [] });
     t.onKey(ev("u"));
     await new Promise((r) => setTimeout(r, 20));
-    assert.ok(undone === 1 && toasts.at(-1) === "已撤销：去掉「x」" && !t.S.undo.length, "mode off: U undoes a 关注 step");
+    assert.ok(undone === 0 && toasts.at(-1) === "已撤销：放回播放列表 0 个" && t.S.modeUndo.length === 1, "收藏夹's U undoes its own step, not 关注's later one");
+    t.onKey(ev("u"));
+    await new Promise((r) => setTimeout(r, 20));
+    assert.ok(undone === 0 && toasts.at(-1) === "没有可撤销的操作", "收藏夹's U never reaches a 关注 step");
+    t.S.undo.push({ kind: "basket", removed: [] });
+    t.document.body = { classList: { contains: (c) => c === "follow-mode" } };
+    await t.MoonTriage.undo();
+    assert.ok(undone === 1 && toasts.at(-1) === "已撤销：去掉「x」" && t.S.undo.length === 1 && !t.S.modeUndo.length, "关注's U undoes its step and leaves 收藏夹's");
     const ask = t.askConfirm;
     t.askConfirm = async () => false;
     t.MoonTriage.pushUndo({ kind: "mode", ask: ["撤销？", ""], undo: async () => (undone++, "") });
     await t.MoonTriage.undo();
-    assert.ok(undone === 1 && t.S.undo.length === 1, "a step that asks and is declined stays");
+    assert.ok(undone === 1 && t.S.modeUndo.length === 1, "a step that asks and is declined stays");
     t.askConfirm = ask;
+    t.S.modeUndo = [];
+    delete t.document.body;
     t.MoonTriage.setModeKeys(null);
   }
 

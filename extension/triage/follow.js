@@ -201,6 +201,9 @@ function normDays(slow, dead) {
   return { followSlowDays, followDeadDays: Math.min(3651, Math.max(followSlowDays + 1, num(dead, 365))) };
 }
 
+// A 刷新 finished between two follow_jobs: the 动态 already loaded is older than what it read.
+const syncFinished = (was, now) => Boolean(now?.finishedAt && now.finishedAt !== was?.finishedAt);
+
 // 「3 天前」 style ages for seconds; under a day is 今天.
 function fmtAgo(sec, now) {
   const d = Math.floor((now - sec) / DAY);
@@ -333,10 +336,11 @@ async function saveTags(tags) {
   await write({ follow_tags: tags });
 }
 const changeTags = (mids, add, remove) => setTagMap(withTags(D.map, mids, add, remove));
-// 关注's tag changes are steps on 收藏夹's undo stack (triage.js): U undoes the last step of either mode.
+// 关注's undo steps live in triage.js (S.modeUndo, apart from 收藏夹's): U in 关注 undoes only these.
 function pushTagUndo(before, label, { ask = null, created = [], recentAt = 0 } = {}) {
   T.pushUndo({
     kind: "mode",
+    tags: true, // dropped when a tag is deleted
     ask,
     undo: async () => {
       const map = restoreTags(D.map, before, new Set(D.tags.map((t) => t.id)));
@@ -498,7 +502,8 @@ function renderUps() {
   const gone = F.side === "gone";
   const { list, counts } = visibleUps(D, rows, { side: F.side, status: gone ? "" : F.status, q: F.q, sort: F.sort, dir: F.dir, recent, source: gone ? F.source : "" });
   shown = list;
-  for (const m of [...F.sel]) if (!rows.has(m) || (F.side === "gone") !== Boolean(rows.get(m).gone)) F.sel.delete(m);
+  // As 收藏夹: switching to 已取消关注 (or back) keeps the selection; the ones not listed count as 被筛选隐藏.
+  for (const m of [...F.sel]) if (!rows.has(m)) F.sel.delete(m);
   const goneN = (src) => Object.values(D.gone).filter((g) => !src || g.source === src).length;
   const seg = gone
     ? [["", "全部"], ["bili", "在 B站取关"], ["app", "在这里取关"]].map(([id, label]) => UI.filterBtn(`data-source="${id}"`, label, goneN(id), F.source === id)).join("")
@@ -774,8 +779,31 @@ async function unfollow(mids) {
   const ok = await askConfirm(`在 B站取消关注 ${mids.length} 个 UP 主？`, `<p>${names(mids)}</p><p class="dialog-hint">标签会记着，在「已取消关注」里可以重新关注，但关注日期会变成重新关注的那天。</p>`, `取消关注 ${mids.length} 个`, { danger: true });
   if (ok) await relationRun(mids, "取消关注", (mid) => ({ type: "follow-relation", mid, act: 2 }));
 }
+// U on a B站 write: done = the UP 主 it went through for, back(mid) = the message that reverses it for one. Undoing 2+
+// asks first (ask). A reversal that fails says why itself (relationRun's toast), so the step then returns "".
+function pushWriteUndo(done, { label, backLabel, back, ask = null }) {
+  const step = {
+    kind: "mode",
+    ask: done.length > 1 ? ask : null,
+    undo: async () => {
+      if (F.busy) return T.pushUndo(step), "上一批还没做完，稍后再按 U";
+      const n = await relationRun(done, backLabel, back, { quiet: true });
+      return n < done.length ? "" : `已撤销：${label}${done.length > 1 ? ` ${n} 个` : `「${upName(done[0])}」`}`;
+    }
+  };
+  T.pushUndo(step);
+}
+
 async function refollow(mids) {
   if (!mids.length) return;
+  // One: no confirm (nothing is lost); U unfollows again and puts back its 已取消关注 record: when, where and the tags.
+  if (mids.length === 1) {
+    const [mid] = mids;
+    const gone = D.gone[mid];
+    if (!(await relationRun(mids, "重新关注", () => ({ type: "follow-relation", mid, act: 1 }), { quiet: true }))) return;
+    pushWriteUndo(mids, { label: "重新关注", backLabel: "取消关注", back: () => ({ type: "follow-relation", mid, act: 2, gone }) });
+    return toast(`已在 B站重新关注「${upName(mid)}」 · U 撤销`);
+  }
   const ok = await askConfirm(`在 B站重新关注 ${mids.length} 个 UP 主？`, `<p>${names(mids)}</p><p class="dialog-hint">原来的标签会放回去。</p>`, `重新关注 ${mids.length} 个`);
   if (ok) await relationRun(mids, "重新关注", (mid) => ({ type: "follow-relation", mid, act: 1 }));
 }
@@ -788,25 +816,25 @@ async function special(mids, on) {
   if (!mids.length) return why && toast(why);
   const label = on ? "设为特别关注" : "取消特别关注";
   const push = on ? "特别关注的 UP 主发视频，手机 B站会推送。" : "取消后还关注着，只是不再推送。";
-  const ok = await askConfirm(`在 B站把 ${mids.length} 个 UP 主${on ? "设为" : "取消"}特别关注？`, `<p>${names(mids)}</p><p class="dialog-hint">${push}</p>`, `${label} ${mids.length} 个`);
-  if (ok) await relationRun(mids, label, (mid) => ({ type: "follow-special", mid, on }));
+  if (await askConfirm(`在 B站把 ${mids.length} 个 UP 主${on ? "设为" : "取消"}特别关注？`, `<p>${names(mids)}</p><p class="dialog-hint">${push}</p>`, `${label} ${mids.length} 个`)) await setSpecial(mids, on);
 }
-// A card's ★: one UP, no confirm; U sets it back.
-async function starOne(mid) {
-  const on = !rows.get(mid).special;
+// A card's ★: one UP, no confirm.
+const starOne = (mid) => setSpecial([mid], !rows.get(mid).special);
+// 特别关注 on or off on B站, one undo step for the ones that went through (U on 2+ asks first).
+async function setSpecial(mids, on) {
   const label = on ? "设为特别关注" : "取消特别关注";
-  if (!(await relationRun([mid], label, () => ({ type: "follow-special", mid, on }), { quiet: true }))) return;
-  // A step on the shared undo stack; a failed write already said why (relationRun's toast), so it returns "".
-  const step = {
-    kind: "mode",
-    undo: async () => {
-      if (F.busy) return T.pushUndo(step), "上一批还没做完，稍后再按 U";
-      const ok = await relationRun([mid], on ? "取消特别关注" : "设为特别关注", () => ({ type: "follow-special", mid, on: !on }), { quiet: true });
-      return ok ? `已撤销：${label}「${upName(mid)}」` : "";
-    }
-  };
-  T.pushUndo(step);
-  toast(`已${label}「${upName(mid)}」 · U 撤销`);
+  const backLabel = on ? "取消特别关注" : "设为特别关注";
+  const done = mids.slice(0, await relationRun(mids, label, (mid) => ({ type: "follow-special", mid, on }), { quiet: true }));
+  if (!done.length) return;
+  const n = done.length;
+  pushWriteUndo(done, {
+    label,
+    backLabel,
+    back: (mid) => ({ type: "follow-special", mid, on: !on }),
+    ask: [`在 B站把 ${n} 个 UP 主${on ? "取消" : "设为"}特别关注？`, `<p>撤销上一步的批量${label}。</p><p>${names(done)}</p>`, `${backLabel} ${n} 个`]
+  });
+  // A batch stopped by an error keeps relationRun's toast, which says how far it got.
+  if (n === mids.length) toast(n > 1 ? `已${label} ${n} 个 · U 撤销` : `已${label}「${upName(done[0])}」 · U 撤销`);
 }
 
 // ---------- dialogs ----------
@@ -872,7 +900,8 @@ async function aiSettings() {
   const own = (await chrome.storage.sync.get("follow_ai_settings")).follow_ai_settings;
   const triage = own ? null : await send({ type: "triage-settings-get" });
   const { value, seed } = followAiSettings(own, triage?.ok ? triage.data : null);
-  if (seed) await chrome.storage.sync.set({ follow_ai_settings: seed });
+  // Not stored (sync quota, …): the copied values still work this time, and the next use tries again.
+  if (seed) await chrome.storage.sync.set({ follow_ai_settings: seed }).catch((e) => toast(`保存设置失败：${e.message}`, true));
   return value;
 }
 async function openSettings() {
@@ -902,7 +931,11 @@ settingsDialog.addEventListener("close", async () => {
   const ai = normAi({ batchSize: $("fwBatchInput").value, intervalSec: $("fwIntervalInput").value, newTagMax: $("fwNewMaxInput").value, allowRemove: $("fwRemoveInput").checked });
   // followSlowDays / followDeadDays keep their keys, so values set on the old settings-page section carry over.
   const days = normDays($("fwSlowInput").value, $("fwDeadInput").value);
-  await chrome.storage.sync.set({ follow_ai_settings: ai, ...days });
+  try {
+    await chrome.storage.sync.set({ follow_ai_settings: ai, ...days });
+  } catch (e) {
+    return toast(`保存设置失败：${e.message}`, true);
+  }
   if (!AI.running) AI.settings = ai;
   cfg.slowDays = days.followSlowDays;
   cfg.deadDays = days.followDeadDays;
@@ -937,17 +970,12 @@ async function addTag(name) {
   await saveTags([...D.tags, t]);
   return t;
 }
+// A rename, rule or color edit from 标签管理 (shared.js editedTag, as 收藏夹's saveTagEdit).
 async function editTag(old, field, value) {
-  const id = old.id;
-  const t = { ...old };
-  if (field === "name") {
-    const name = cleanTagName(value);
-    const why = UI.tagNameError(name, D.tags.filter((x) => x.id !== id));
-    if (why) return toast(why, true), false;
-    t.name = name;
-  } else if (field === "rule") t.rule = String(value || "").trim().slice(0, 80);
-  else if (field === "color") t.color = UI.cycleTagColor(t.color);
-  await saveTags(D.tags.map((x) => (x.id === id ? t : x)));
+  const { tag, why } = UI.editedTag(old, field, value, D.tags.filter((x) => x.id !== old.id));
+  if (why) toast(why, true);
+  if (!tag) return false;
+  await saveTags(D.tags.map((x) => (x.id === old.id ? tag : x)));
   render();
   return true;
 }
@@ -956,13 +984,10 @@ async function deleteTag(id) {
   const n = following().filter((m) => rows.get(m)?.tagIds.includes(id)).length;
   // The confirm dialog is a second modal; the tag dialog stays open under it.
   if (!(await askConfirm(...UI.deleteTagAsk(t, n, "UP 主"), "删除", { danger: true }))) return;
-  const map = {};
-  for (const [m, ids] of Object.entries(D.map)) {
-    const rest = ids.filter((x) => x !== id);
-    if (rest.length) map[m] = rest;
-  }
-  await setTagMap(map);
+  await setTagMap(UI.withoutTag(D.map, id));
   await saveTags(D.tags.filter((x) => x.id !== id));
+  // As 收藏夹: tag steps undone now would work on a tag that is gone.
+  T.dropModeUndo((step) => step.tags);
   if (F.side === id) F.side = "all";
   render();
 }
@@ -1002,7 +1027,7 @@ async function pickClosed(changes) {
   if (changes.length) {
     const before = tagsOf(D.map, changes.map((c) => c.key));
     await setTagMap(map);
-    pushTagUndo(before, "标签修改");
+    pushTagUndo(before, "标签修改", { ask: changes.length > 1 ? UI.tagsUndoAsk(changes.length, "UP 主") : null });
   }
   if (F.mode !== "follow") return;
   render();
@@ -1022,7 +1047,8 @@ function tagByKey() {
 // A modal dialog (confirm, settings, the modal picker) owns the keys; the popover does not.
 const modalOpen = () => Boolean(document.querySelector("dialog[open]:not(.tp-pop)"));
 const NAV = { j: 1, ArrowDown: 1, k: -1, ArrowUp: -1 };
-// 关注's keys, from triage.js's one keydown handler (typing and IME already left out) and the player's T / Esc.
+// 关注's keys, from triage.js's one keydown handler (typing and IME already left out) and its one listener for the
+// player's T / Esc.
 function followKey(key) {
   if (modalOpen()) return false;
   else if (key === "Escape" && T.viewing()) T.closeViewer();
@@ -1118,39 +1144,24 @@ async function runAi({ instruction, scope, allowRemove }) {
   const tags = D.tags.filter((t) => !excluded.has(t.name)).map((t) => ({ name: t.name, rule: t.rule || "" }));
   const opts = { tags: D.tags, map: D.map, maxNewTags: AI.settings.newTagMax, excluded, scope: new Set(mids) };
   const { batches, intervalMs } = aiRequests(mids, AI.settings, instruction, tags, allowRemove);
-  const total = batches.length;
-  const p = { newTags: [], rows: [], notes: [], errors: [] };
   AI.running = true;
   AI.stop = false;
   renderAiState();
-  const keepGoing = () => !AI.stop;
-  for (let i = 0; i < total && keepGoing(); i++) {
-    progress(`AI 正在处理第 ${i + 1} / ${total} 批…`);
-    const r = await send({ ...batches[i], maxNewTags: Math.max(0, opts.maxNewTags - p.newTags.length) });
-    // An AI 429: wait as 收藏夹 does, then send the same batch again.
-    if (!r.ok && T.THROTTLES[r.code]) {
-      const [ms, label] = T.THROTTLES[r.code];
-      progress(`${label}，${Math.round(ms / 1000)} 秒后重试第 ${i + 1} 批…`);
-      await T.sleepWhile(ms, keepGoing);
-      i--;
-      continue;
-    }
-    if (!r.ok) {
-      p.errors.push(`第 ${i + 1} 批失败：${r.error}`);
-      // Setup problems (配置 AI, 未授权访问) fail every batch alike; 截断 is reported with what to change.
-      if (/截断|配置 AI|未授权访问/.test(r.error || "")) T.handleAiError(r.error);
-      if (/配置 AI|未授权访问/.test(r.error || "")) break;
-    } else UI.mergeAiBatch(p, r.data, opts);
-    if (i + 1 < total) await T.sleepWhile(intervalMs, keepGoing);
-  }
-  if (AI.stop) p.errors.push("已手动停止，这里只有已完成批次的建议");
-  for (const t of p.newTags) t.checked = p.rows.some((r) => r.add.includes(`new:${t.key}`));
+  // The same run loop as 收藏夹 (triage.js); each batch gets what is left of the run's new-tag cap.
+  const { proposal, errors } = await T.runAiBatches({
+    total: batches.length,
+    request: (i, p) => ({ ...batches[i], maxNewTags: Math.max(0, opts.maxNewTags - p.newTags.length) }),
+    merge: (p, data) => UI.mergeAiBatch(p, data, opts),
+    intervalMs,
+    keepGoing: () => !AI.stop,
+    progress
+  });
   AI.running = false;
-  AI.proposal = p;
-  progress("");
+  AI.proposal = proposal;
   renderAiState();
-  if (TagDialogs.ai.isOpen(aiTags)) TagDialogs.ai.render(aiTags);
-  else toast("AI 打标签已完成，在状态栏点「查看」确认");
+  const open = TagDialogs.ai.isOpen(aiTags);
+  if (open) TagDialogs.ai.render(aiTags);
+  else toast(proposal ? "AI 打标签已完成，在状态栏点「查看」确认" : `AI 打标签没有成功：${errors.at(-1)}`, !proposal);
 }
 
 const changesNow = (p) => UI.aiChanges(p, D.map, new Set(following()), (key) => UI.previewId(p, key, D.tags));
@@ -1288,7 +1299,7 @@ main.addEventListener("click", async (e) => {
 // The selection bar sits outside the list; its buttons share the handler above through #followMain.
 
 // One box, two searches: UP 主 and 动态 each keep their own text (setTab swaps it in).
-BocTyping.bindLive(E.q, (q) => {
+UI.bindSearch(E.q, (q) => {
   if (F.tab === "feed") F.fq = q;
   else F.q = q;
   render();
@@ -1306,10 +1317,6 @@ main.addEventListener("change", (e) => {
 vline.addEventListener("click", (e) => {
   const pk = e.target.closest("[data-pick]");
   if (pk) openPick([pk.dataset.pick], "#fwViewerUp .tag-plus");
-});
-window.addEventListener("message", (e) => {
-  const key = UI.viewerKeyFrom(e, $("viewerFrame").contentWindow);
-  if (key && F.mode === "follow") followKey(key);
 });
 E.list.addEventListener("mouseover", (e) => (F.hover = e.target.closest(".fw-video")?.dataset.bvid || ""));
 E.list.addEventListener("mouseleave", () => (F.hover = ""));
@@ -1333,6 +1340,10 @@ chrome.storage.onChanged.addListener((changes, area) => {
     return render();
   }
   if (area !== "local" || !F.loaded) return;
+  if (syncFinished(changes.follow_jobs?.oldValue, changes.follow_jobs?.newValue)) {
+    F.feed = null;
+    if (F.mode === "follow" && F.tab === "feed") render();
+  }
   const keys = Object.keys(changes).filter((k) => KEYS.includes(k));
   if (!keys.length) return;
   if (keys.every((k) => k === "follow_jobs")) {
@@ -1371,10 +1382,12 @@ if (view?.tab === "feed") F.tab = "feed";
 if (SORTS[view?.sort]) F.sort = view.sort;
 if (view?.dir === "asc" || view?.dir === "desc") F.dir = view.dir;
 // Deep link from the UP tag chips on B站 pages: #follow opens 关注, &tag=<id> picks that tag (unknown id → 全部).
-// A hash wins over the remembered mode; an open tab only gets its hash changed.
+// A hash wins over the remembered mode; an open tab only gets its hash changed. Handled once, the hash goes: the same
+// chip clicked again is a hash change again, and a reload opens the mode last used.
 async function followHash() {
   const h = decodeURIComponent(location.hash.slice(1));
   if (!/^follow(&|$)/.test(h)) return false;
+  history.replaceState(null, "", location.pathname + location.search);
   const tag = new URLSearchParams(h.slice(6)).get("tag");
   if (tag) {
     F.side = tag;

@@ -288,7 +288,8 @@ const S = {
   analyzing: new Set(),
   throttleUntil: 0,
   throttleLabel: "",
-  undo: [],
+  undo: [], // 收藏夹's steps; a folder switch clears them
+  modeUndo: [], // 关注's steps ({ kind: "mode" }): U undoes only the steps of the mode it is pressed in
   lastSyncAt: 0,
   readAt: {}, // K.readAt
   syncError: "", // the open folder's last 刷新 failure; stays under the title until a read succeeds
@@ -326,7 +327,7 @@ const folderContext = () => ({ title: folderTitle(), intro: S.folderIntro[S.medi
 
 const $ = (id) => document.getElementById(id);
 
-const { composing, typingIn, bindLive } = globalThis.BocTyping;
+const { composing, typingIn } = globalThis.BocTyping;
 
 const UI = globalThis.TriageUi;
 const { esc, pad, fmtDate, fmtDuration, fmtCount, cleanTagName, plainClick, img } = UI;
@@ -707,13 +708,14 @@ function nextBatch() {
 
 // ---------- init ----------
 init();
-// 关注 mode (follow.js) borrows the viewer, the toast, the confirm dialog and the undo stack, and takes the keys while on.
+// 关注 mode (follow.js) borrows the viewer, the toast and the confirm dialog, keeps its undo steps here (S.modeUndo) and
+// takes the keys while on.
 const followMode = () => Boolean(document.body?.classList.contains("follow-mode"));
 // modeKeys(key, e): null while that mode is off (the keys below run); otherwise true when it used the key.
 let modeKeys = null;
 globalThis.MoonTriage = {
-  openViewer, closeViewer, toast, askConfirm, send, store, handleAiError, THROTTLES, sleepWhile, viewing: () => S.viewing,
-  undo, pushUndo, help: () => el.helpDialog.showModal(), setModeKeys: (fn) => (modeKeys = fn)
+  openViewer, closeViewer, toast, askConfirm, send, store, runAiBatches, viewing: () => S.viewing,
+  undo, pushUndo, dropModeUndo: (drop) => (S.modeUndo = S.modeUndo.filter((e) => !drop(e))), help: () => el.helpDialog.showModal(), setModeKeys: (fn) => (modeKeys = fn)
 };
 
 async function init() {
@@ -2225,8 +2227,9 @@ function advanceFrom(bvid, before) {
 
 // ---------- decisions ----------
 function pushUndo(entry) {
-  S.undo.push(entry);
-  if (S.undo.length > BocLimits.TRIAGE_UNDO_STEPS) S.undo.shift();
+  const steps = entry.kind === "mode" ? S.modeUndo : S.undo;
+  steps.push(entry);
+  if (steps.length > BocLimits.TRIAGE_UNDO_STEPS) steps.shift();
 }
 // Patch one folder's decisions even after the user switched away from it; a null value deletes.
 // Merged into the stored record, not written from memory: a batch running for this folder may have written it after
@@ -2319,27 +2322,28 @@ async function decide(bvid, action) {
   advanceFrom(bvid, before);
 }
 
-// U undoes the last step wherever it was; a step that changed several videos asks first, so a stray U costs nothing.
+// U undoes the last step of the mode it is pressed in; a step that changed several videos asks first, so a stray U costs nothing.
 function batchUndoAsk(entry) {
   if (entry.kind === "mode") return entry.ask || null;
   const n = entry.kind === "keepMany" ? entry.bvids.length : entry.kind === "unfavMany" ? entry.items.length : entry.kind === "aiApply" ? entry.changes.length : entry.kind === "tagsMany" ? Object.keys(entry.prevs).length : 0;
   if (n < 2) return null;
   if (entry.kind === "keepMany") return [`撤销批量保留？`, `<p>上一步保留了 ${n} 个视频，撤销后它们不再标为保留。</p>`, "撤销"];
-  if (entry.kind === "tagsMany") return [`撤销批量改标签？`, `<p>上一步改了 ${n} 个视频的标签，撤销后都改回去。</p>`, "撤销"];
+  if (entry.kind === "tagsMany") return UI.tagsUndoAsk(n, "视频");
   if (entry.kind === "unfavMany") return [`在 B站重新收藏这 ${n} 个视频？`, `<p>撤销上一步的批量取消收藏。</p>`, `重新收藏 ${n} 个`];
   return [`撤销这次 AI 打标签？`, `<p>这次 AI 打标签改过的 ${n} 个视频，标签都改回 AI 打之前，包括你之后又改过的。</p>`, "撤销"];
 }
 
 async function undo() {
-  const top = S.undo.at(-1);
+  const steps = followMode() ? S.modeUndo : S.undo;
+  const top = steps.at(-1);
   const ask = top && batchUndoAsk(top);
-  if (ask && (!(await askConfirm(ask[0], ask[1], ask[2] || "撤销")) || S.undo.at(-1) !== top)) return;
-  const entry = S.undo.pop();
+  if (ask && (!(await askConfirm(ask[0], ask[1], ask[2] || "撤销")) || steps.at(-1) !== top)) return;
+  const entry = steps.pop();
   if (!entry) {
     toast("没有可撤销的操作");
     return;
   }
-  // A step of another mode (关注's tags): it undoes itself and redraws its own view.
+  // A 关注 step: it undoes itself and redraws its own view.
   if (entry.kind === "mode") {
     const text = await entry.undo();
     return text && toast(text);
@@ -2840,21 +2844,13 @@ const manageTags = {
 };
 const openManage = () => TagDialogs.manage.open(manageTags);
 
-// A rename, rule or color edit from 标签管理; false (and nothing saved) for an empty or duplicate name.
+// A rename, rule or color edit from 标签管理 (shared.js editedTag); false (and nothing saved) for an empty or duplicate name.
 function saveTagEdit(t, field, value) {
-  const text = field === "name" ? cleanTagName(value) : String(value ?? "").trim();
-  if (field === "name") {
-    const why = UI.tagNameError(text, S.tags.filter((x) => x !== t && x.folder === t.folder));
-    if (why) {
-      toast(why, true);
-      return false;
-    }
-    t.name = text;
-  } else if (field === "color") t.color = UI.cycleTagColor(t.color);
-  else if (field === "rule") {
-    if (text) t.rule = text.slice(0, 80);
-    else delete t.rule;
-  } else return false;
+  const { tag, why } = UI.editedTag(t, field, value, S.tags.filter((x) => x !== t && x.folder === t.folder));
+  if (why) toast(why, true);
+  if (!tag) return false;
+  delete t.rule;
+  Object.assign(t, tag);
   saveTags();
   render();
   return true;
@@ -2866,12 +2862,9 @@ async function deleteTag(id) {
   const ok = await askConfirm(...UI.deleteTagAsk(t, n, "视频"), "删除", { danger: true });
   if (!ok) return;
   S.tags = S.tags.filter((x) => x.id !== id);
-  for (const [b, ids] of Object.entries(S.videoTags)) {
-    const rest = ids.filter((x) => x !== id);
-    if (rest.length) S.videoTags[b] = rest;
-    else delete S.videoTags[b];
-  }
+  S.videoTags = UI.withoutTag(S.videoTags, id);
   S.tagFilter.delete(id);
+  // A tag step undone now would put the deleted tag's id back on its videos.
   S.undo = S.undo.filter((e) => e.kind !== "tags" && e.kind !== "tagsMany" && e.kind !== "aiApply");
   saveTags();
   saveVideoTags();
@@ -3135,6 +3128,39 @@ const aiTags = {
 };
 const openAi = () => TagDialogs.ai.open(aiTags);
 
+// One AI 打标签 run, for both modes: request(i, p) is batch i's message, merge(p, data) folds an answer in. An AI 429 waits
+// and sends the same batch again; a setup error (配置 AI, 未授权访问) fails every batch alike, so it ends the run. Returns
+// { proposal, errors }: proposal is null when no batch got through, so there is nothing to confirm (the progress line says why).
+async function runAiBatches({ total, request, merge, intervalMs, keepGoing, progress }) {
+  const p = { newTags: [], rows: [], notes: [], errors: [] };
+  let answered = 0;
+  for (let i = 0; i < total && keepGoing(); i++) {
+    progress(`AI 正在处理第 ${i + 1} / ${total} 批…`);
+    const r = await send(request(i, p));
+    if (!r.ok && THROTTLES[r.code]) {
+      const [ms, label] = THROTTLES[r.code];
+      progress(`${label}，${Math.round(ms / 1000)} 秒后重试第 ${i + 1} 批…`);
+      await sleepWhile(ms, keepGoing);
+      i--;
+      continue;
+    }
+    if (!r.ok) {
+      p.errors.push(`第 ${i + 1} 批失败：${r.error}`);
+      // 截断 is reported with what to change.
+      if (/截断|配置 AI|未授权访问/.test(r.error || "")) handleAiError(r.error);
+      if (/配置 AI|未授权访问/.test(r.error || "")) break;
+    } else {
+      answered++;
+      merge(p, r.data);
+    }
+    if (i + 1 < total) await sleepWhile(intervalMs, keepGoing);
+  }
+  if (!keepGoing()) p.errors.push("已手动停止，这里只有已完成批次的建议");
+  for (const t of p.newTags) t.checked = p.rows.some((r) => r.add.includes(`new:${t.key}`));
+  progress(answered ? "" : p.errors.join("；"));
+  return { proposal: answered ? p : null, errors: p.errors };
+}
+
 // instruction, scope and allowRemove come from the dialog, which has checked that there is an instruction and items.
 async function runAiCommand({ instruction, scope, allowRemove }) {
   if (S.ai.running || !inFolderView()) return;
@@ -3150,43 +3176,29 @@ async function runAiCommand({ instruction, scope, allowRemove }) {
   const payload = items.map(aiCommandItem);
   const size = Math.max(1, Number(S.settings.triageTitleBatchSize) || 30);
   const scopeSet = new Set(items.map((it) => it.bvid));
-  const total = Math.ceil(items.length / size);
-  const p = { newTags: [], rows: [], notes: [], errors: [] };
-  const keepGoing = () => !S.ai.stop;
   S.ai.running = true;
   S.ai.mediaId = folder;
   S.ai.stop = false;
   renderTop();
-  for (let i = 0; i < total && keepGoing(); i++) {
-    TagDialogs.ai.progress(aiTags, `AI 正在处理第 ${i + 1} / ${total} 批…`);
-    const batch = payload.slice(i * size, (i + 1) * size);
-    const r = await send({ type: "triage-ai-command", instruction, items: batch, tags, maxNewTags: opts.maxNewTags, allowRemove: opts.allowRemove });
-    // An AI 429: wait, then send the same batch again, as 关注 does.
-    if (!r.ok && THROTTLES[r.code]) {
-      const [ms, label] = THROTTLES[r.code];
-      el.aiProgress.textContent = `${label}，${Math.round(ms / 1000)} 秒后重试第 ${i + 1} 批…`;
-      await sleepWhile(ms, keepGoing);
-      i--;
-      continue;
-    }
-    if (!r.ok) {
-      p.errors.push(`第 ${i + 1} 批失败：${r.error}`);
-      if (/截断|配置 AI|未授权访问/.test(r.error || "")) handleAiError(r.error);
-    } else {
-      // not tagIdsOf: the open folder may have changed since the run started
-      UI.mergeAiBatch(p, r.data, { ...opts, tags: S.tags.filter((t) => t.folder === folder), map: S.videoTags, scope: scopeSet });
-    }
-    if (i + 1 < total) await sleepWhile(S.settings.triageIntervalSec * 1000, keepGoing);
-  }
+  const { proposal: p, errors } = await runAiBatches({
+    total: Math.ceil(items.length / size),
+    request: (i) => ({ type: "triage-ai-command", instruction, items: payload.slice(i * size, (i + 1) * size), tags, maxNewTags: opts.maxNewTags, allowRemove: opts.allowRemove }),
+    // not tagIdsOf: the open folder may have changed since the run started
+    merge: (p, data) => UI.mergeAiBatch(p, data, { ...opts, tags: S.tags.filter((t) => t.folder === folder), map: S.videoTags, scope: scopeSet }),
+    intervalMs: S.settings.triageIntervalSec * 1000,
+    keepGoing: () => !S.ai.stop,
+    progress: (text) => TagDialogs.ai.progress(aiTags, text)
+  });
   S.ai.running = false;
-  TagDialogs.ai.progress(aiTags, "");
-  if (S.ai.stop) p.errors.push("已手动停止，这里只有已完成批次的建议");
-  for (const t of p.newTags) t.checked = p.rows.some((r) => r.add.includes(`new:${t.key}`));
-  S.ai.proposals[folder] = p;
+  if (p) S.ai.proposals[folder] = p;
   renderTop();
   // Open, the dialog turns to the proposal (or, in another folder, back to its form).
   const open = TagDialogs.ai.isOpen(aiTags);
   if (open) TagDialogs.ai.render(aiTags);
+  if (!p) {
+    if (!open) toast(`AI 打标签没有成功：${errors.at(-1)}`, true);
+    return;
+  }
   if (folder !== String(S.mediaId)) toast(`「${folderName(folder)}」的标签建议已完成，在状态栏点「查看」确认`);
   else if (!open) toast("AI 打标签已完成，按 I 查看建议");
 }
@@ -3655,17 +3667,9 @@ function bindEvents() {
       render();
     }
   });
-  bindLive(el.searchInput, (q) => {
+  UI.bindSearch(el.searchInput, (q) => {
     S.query = q;
     S.focusIndex = 0;
-    render();
-  });
-  // Esc clears the box; on an empty box it hands the keys back to the cards.
-  el.searchInput.addEventListener("keydown", (e) => {
-    if (composing(e) || e.key !== "Escape") return;
-    e.preventDefault();
-    if (!el.searchInput.value) return el.searchInput.blur();
-    el.searchInput.value = S.query = "";
     render();
   });
   el.tagFilter.addEventListener("click", (e) => {
@@ -3931,8 +3935,14 @@ function bindEvents() {
   el.bannerClose.addEventListener("click", () => (el.banner.hidden = true));
 
   el.viewerTags.addEventListener("click", (e) => e.target.closest("[data-vtag]") && tagPlaying());
-  // T pressed while focus is in the player (viewer-frame.js); 关注 has its own listener in follow.js.
-  window.addEventListener("message", (e) => !followMode() && UI.viewerKeyFrom(e, el.viewerFrame.contentWindow) === "t" && tagPlaying());
+  // T / Esc pressed while focus is in the player (viewer-frame.js): the one listener for both modes, as onKey is. 关注 takes
+  // them through modeKeys; in 收藏夹, T tags the playing video and Esc closes the player, unless a dialog is open.
+  window.addEventListener("message", (e) => {
+    const key = UI.viewerKeyFrom(e, el.viewerFrame.contentWindow);
+    if (!key || modeKeys?.(key, e) != null || document.querySelector("dialog[open]")) return;
+    if (key === "Escape") closeViewer();
+    else tagPlaying();
+  });
 
   el.criteriaInput.addEventListener("keydown", (e) => {
     if (composing(e) || e.key !== "Enter" || e.shiftKey) return;
