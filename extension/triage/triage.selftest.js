@@ -26,7 +26,8 @@ const ctx = vm.createContext({
   TextEncoder,
   setTimeout: (f) => setImmediate(f),
   clearTimeout: (id) => clearImmediate(id),
-  document: { getElementById: stubEl, querySelector: () => null, querySelectorAll: () => [], addEventListener: (t, f) => (docL[t] ||= []).push(f) },
+  // No #tagPicker: tag-picker.js gives only its pure part; the tests stand in for the dialog (pickWith).
+  document: { getElementById: (id) => (id === "tagPicker" ? null : stubEl()), querySelector: () => null, querySelectorAll: () => [], addEventListener: (t, f) => (docL[t] ||= []).push(f) },
   window: { addEventListener() {} },
   chrome: {
     runtime: {
@@ -62,6 +63,7 @@ const ctx = vm.createContext({
 vm.runInContext(fs.readFileSync(path.join(__dirname, "..", "limits.js"), "utf8"), ctx);
 vm.runInContext(fs.readFileSync(path.join(__dirname, "..", "typing.js"), "utf8"), ctx);
 vm.runInContext(fs.readFileSync(path.join(__dirname, "shared.js"), "utf8"), ctx);
+vm.runInContext(fs.readFileSync(path.join(__dirname, "tag-picker.js"), "utf8"), ctx);
 vm.runInContext(`${source}\n;globalThis.S = S; globalThis.K = K; globalThis.el = el; globalThis.verdictBadge = verdictBadge; globalThis.seenText = seenText; globalThis.staleCoarse = staleCoarse; globalThis.staleFine = staleFine; globalThis.groupDone = groupDone; globalThis.mergeHead = mergeHead; globalThis.isFinished = isFinished; globalThis.pointerMoved = pointerMoved; globalThis.inferFrom = inferFrom; globalThis.hasAllTags = hasAllTags; globalThis.sortItems = sortItems; globalThis.sortOf = sortOf; globalThis.visibleItems = visibleItems;`, ctx);
 const t = ctx;
 vm.runInContext("globalThis.plainClick = plainClick;", ctx);
@@ -70,6 +72,19 @@ const realSync = t.syncFolder;
 const toasts = [];
 Object.assign(t, { render() {}, setFocus() {}, toast: (m) => toasts.push(m), askConfirm: async () => true });
 
+// The picker as triage.js opens it: po = the last open's options; pickWith ticks (fn gets the Map of Sets) and closes.
+let po = null;
+ctx.TagPicker.open = (o) => (po = o);
+function pickWith(bvid, fn, anchor) {
+  po = null;
+  t.openPicker(bvid, anchor);
+  if (!po) return false;
+  const sets = new Map(po.targets.map((k) => [k, new Set(po.idsOf(k))]));
+  const before = new Map([...sets].map(([k, s]) => [k, [...s]]));
+  fn(sets);
+  po.onClose(ctx.TagPicker.changesOf(before, sets));
+  return true;
+}
 const item = (n) => ({ bvid: `BV${n}`, aid: 1000 + n, title: `视频${n}`, upper: "up", duration: 61 });
 function openFake(mediaId, items, decisions = {}) {
   t.S.folderToken++;
@@ -618,6 +633,51 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   t.S.tags = t.S.tags.filter((x) => x !== long);
   t.renderAiForm();
   assert.ok(t.el.aiTagsPreview.innerHTML.includes("AI 这次最多新建 4 个（这个收藏夹还剩 4 个名额）"));
+  // A new tag takes the folder's first free color, so a deleted tag's color comes back instead of a taken one
+  // repeating; 管理's color button moves to the next color.
+  {
+    const C = ctx.TriageUi.TAG_COLORS;
+    openFake("K", [item(710)]);
+    t.S.tags = [{ id: "p0", name: "p0", color: C[0], folder: "K" }, { id: "p2", name: "p2", color: C[2], folder: "K" }, { id: "q", name: "q", color: C[1], folder: "Z" }];
+    t.S.videoTags = { BV710: ["p0"] };
+    const p1 = t.createTag("p1");
+    assert.strictEqual(p1.color, C[1], "not C[2] (two tags → third color), which p2 has");
+    assert.ok(t.saveTagEdit(p1, "color"));
+    assert.strictEqual(p1.color, C[2]);
+    t.renderTagManager();
+    assert.ok(t.el.tagsRows.innerHTML.includes("data-tag-color") && t.el.tagsRows.innerHTML.includes("1 个视频") && t.el.tagsRows.innerHTML.includes("什么样的视频打这个标签"));
+
+    // The picker saves once on close, as one undo step, on top of what changed meanwhile.
+    toasts.length = 0;
+    assert.ok(pickWith("BV710", (sets) => {
+      t.TagPicker.toggle(sets, "p2");
+      t.S.videoTags.BV710 = ["p0", p1.id]; // AI 批量打 or another tab, while the picker is open
+    }));
+    assert.deepStrictEqual(plain(t.S.videoTags.BV710), ["p0", p1.id, "p2"]);
+    assert.strictEqual(t.S.undo.length, 1, "one close, one undo step");
+    assert.deepStrictEqual(toasts, ["标签已更新 · U 撤销"]);
+    await t.undo();
+    assert.deepStrictEqual(plain(t.S.videoTags.BV710), ["p0", p1.id]);
+    assert.ok(pickWith("BV710", () => {}) && t.S.undo.length === 0, "closing without a change saves nothing");
+
+    // The viewer line: the playing video's tags and 「+ 标签 T」, which opens the picker under it.
+    t.S.viewing = "BV710";
+    t.renderViewerTags();
+    assert.ok(!t.el.viewerTags.hidden && t.el.viewerTags.innerHTML.includes("data-vtag>p0</span>") && t.el.viewerTags.innerHTML.includes('class="link tag-plus" data-vtag'));
+    po = null;
+    vm.runInContext("tagPlaying()", ctx);
+    assert.deepStrictEqual([po?.anchor, plain(po?.targets)], ["#viewerTags .tag-plus", ["BV710"]]);
+    // 已出分拣范围 shows the tags but cannot change them.
+    t.S.mediaId = "removed";
+    t.renderViewerTags();
+    assert.ok(t.el.viewerTags.innerHTML.includes(">p0</span>") && !t.el.viewerTags.innerHTML.includes("data-vtag"));
+    po = null;
+    vm.runInContext("tagPlaying()", ctx);
+    assert.strictEqual(po, null);
+    t.S.viewing = "";
+    t.renderViewerTags();
+    assert.ok(t.el.viewerTags.hidden && t.el.viewerTags.innerHTML === "");
+  }
   // 批量打 确认页 sums the changes per tag; applying records 「AI 刚打的」, which ends four ways.
   openFake("K", [item(700), item(701), item(702)]);
   Object.assign(t.S, { tags: [{ id: "ga", name: "A", color: "#1", folder: "K" }, { id: "gb", name: "B", color: "#2", folder: "K" }], videoTags: { BV702: ["ga"] }, aiRecent: {} });
@@ -731,10 +791,7 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   assert.ok(t.el.tagsRows.innerHTML.includes("请先打开一个具体收藏夹") && t.el.addTagBtn.disabled);
   t.renderAiForm();
   assert.ok(t.el.aiTagsPreview.innerHTML.includes("请先打开一个具体收藏夹"));
-  const pk = vm.runInContext("picker", ctx);
-  t.el.pickerInput = { value: "" };
-  t.el.pickerList = { innerHTML: "", querySelector: () => null };
-  const pickNames = (b, q = "") => ((pk.bvid = b), (t.el.pickerInput.value = q), t.renderPicker(), plain(pk.options.map((o) => o.create ? `+${o.create}` : o.tag.id)));
+  const pickNames = (b, q = "") => (t.openPicker(b), plain(t.TagPicker.rowsOf(po.tags(), q, po.canCreate).map((o) => (o.create ? `+${o.create}` : o.tag.id))));
   assert.deepStrictEqual(pickNames("BV1"), ["xa"]);
   assert.deepStrictEqual(pickNames("BV3"), ["xa", "xb", "yb"]);
   assert.deepStrictEqual(pickNames("BV1", "w"), ["+w"], "one folder: a new name can be created there");
@@ -769,17 +826,13 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     Object.assign(t.S, saved);
   }
   t.S.mediaId = "A";
-  t.el.pickerInput.focus = () => {};
-  t.openPicker("BV1");
-  t.pickOption(0);
-  t.closePicker();
+  pickWith("BV1", (sets) => t.TagPicker.toggle(sets, "xa"));
   assert.deepStrictEqual(plain(t.S.videoTags.BV1), ["yb"], "unticking 甲's x keeps 乙's y");
   // A 批量打 proposal skips a video that left the folder since.
   t.S.ai.proposal = { newTags: [], rows: [{ id: "BV1", add: ["id:xa"], remove: [] }, { id: "BV2", add: ["id:xa"], remove: [] }], notes: [], errors: [] };
   t.el.tagsDialog = { close() {} };
   t.applyAiProposal();
   assert.deepStrictEqual(plain([t.S.videoTags.BV1, t.S.videoTags.BV2]), [["yb", "xa"], ["xb", "yb"]]);
-  pk.bvid = "";
   Object.assign(t.S, { tags: [], videoTags: {}, folders: [] });
   openFake("K", [item(600), item(601)]);
 
@@ -1743,8 +1796,27 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     });
     const real = { ...t.el };
     for (const k of Object.keys(real)) t.el[k] = rec(k);
+    const W = {};
+    const realWin = ctx.window.addEventListener;
+    ctx.window.addEventListener = (type, f) => (W[type] ||= []).push(f);
     vm.runInContext("bindEvents()", ctx);
+    ctx.window.addEventListener = realWin;
     const fire = (n, type, e) => (L[n][type] || []).forEach((f) => f(e));
+
+    // T pressed in the player (viewer-frame.js) opens the picker under the viewer line; only from the viewer's frame.
+    {
+      openFake("A", [item(1)]);
+      const frame = {};
+      t.el.viewerFrame = { contentWindow: frame };
+      t.S.viewing = "BV1";
+      const msg = (source) => W.message.forEach((f) => f({ source, origin: "https://www.bilibili.com", data: { type: "mdg-viewer-key", key: "t" } }));
+      po = null;
+      msg({});
+      assert.strictEqual(po, null, "another frame");
+      msg(frame);
+      assert.strictEqual(po?.anchor, "#viewerTags .tag-plus");
+      t.S.viewing = "";
+    }
     const doc = (type) => docL[type].forEach((f) => f({}));
     const wait = () => new Promise((r) => setTimeout(r, 20));
     const key = (k, target, o = {}) => ({ key: k, target, isComposing: false, keyCode: 0, prevented: 0, preventDefault() { this.prevented++; }, ...o });
@@ -1770,21 +1842,6 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
       fire("tagsDialog", "keydown", c);
       assert.strictEqual(c.prevented, 0, `${sel}: the IME gets its Enter`);
     }
-
-    // the 打标签 filter does not run on pinyin; compositionend filters with the committed text.
-    const realPicker = t.renderPicker;
-    const filtered = [];
-    t.renderPicker = () => filtered.push(t.el.pickerInput.value);
-    t.el.pickerInput.value = "zhong";
-    fire("pickerInput", "compositionstart", {});
-    fire("pickerInput", "input", { isComposing: true });
-    await wait();
-    assert.deepStrictEqual(filtered, [], "no filtering mid-composition");
-    t.el.pickerInput.value = "中";
-    fire("pickerInput", "compositionend", {});
-    await wait();
-    assert.deepStrictEqual(filtered, ["中"]);
-    t.renderPicker = realPicker;
 
     // a card note saves nothing mid-composition, compositionend saves the committed text.
     delete store[t.K.notes];
