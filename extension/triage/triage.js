@@ -1751,13 +1751,15 @@ function renderTabs() {
   el.tabs.innerHTML = S.mediaId === REMOVED ? kindTabs() :
     steps.join(`<span class="arrow" aria-hidden="true">→</span>`) + `<span class="tab-sep" aria-hidden="true"></span>` + tab("read", "阅览全部", "read-tab", c.read);
 
-  const chips = tagChips();
-  // Always there, dimmed while this view has no such video; 看完了 only while 观看进度 marks are on.
+  // The tag row lists only what the tab on screen has (or a filter that is on, so it can be turned off).
+  const here = S.mediaId === REMOVED || S.tab === "read" ? S.items : S.items.filter((it) => stageOf(it) === S.tab);
+  const hereTags = new Set(here.flatMap((it) => tagIdsOf(it.bvid)));
+  const chips = tagChips().filter((c) => c.ids.some((id) => hereTags.has(id) || S.tagFilter.has(id)));
   const chip = (on, any, attr, label, aria) =>
-    `<button type="button" class="chip watched${on ? " on" : ""}${any ? "" : " zero"}" ${attr} aria-pressed="${on}" aria-label="${aria}">${label}</button>`;
+    !on && !any ? "" : `<button type="button" class="chip watched${on ? " on" : ""}" ${attr} aria-pressed="${on}" aria-label="${aria}">${label}</button>`;
   const watchedChip =
-    (S.seenCfg.mark || S.finishedFilter ? chip(S.finishedFilter, S.items.some(isFinished), "data-finishedfilter", "看完了", "只看 B站历史记录里看完了的视频") : "") +
-    chip(S.watchedFilter, S.items.some((it) => S.watched[it.bvid]), "data-watchedfilter", "优先看过", "只看在优先看里点了已看的视频");
+    (S.seenCfg.mark || S.finishedFilter ? chip(S.finishedFilter, here.some(isFinished), "data-finishedfilter", "看完了", "只看 B站历史记录里看完了的视频") : "") +
+    chip(S.watchedFilter, here.some((it) => S.watched[it.bvid]), "data-watchedfilter", "优先看过", "只看在优先看里点了已看的视频");
   // Only when this view has an invalid video, like those above; with 全选 it picks them all for 取消收藏 or 清理. 已出分拣范围
   // has it as a tab instead.
   const invalidN = S.items.filter((it) => kindOf(it) === "invalid").length;
@@ -1773,7 +1775,7 @@ function renderTabs() {
           return `<button type="button" class="chip${on ? " on" : ""}" style="--c:${esc(c.color)}" data-tagfilter="${esc(c.ids.join(","))}" aria-pressed="${on}" aria-label="按标签筛选 ${esc(c.name)}" title="可多选：只显示同时带有所选标签的视频">${esc(c.name)}</button>`;
         })
         .join("")
-    : `<span class="muted">还没有自定义标签</span>`); // created in 标签管理
+    : viewTags().length ? "" : `<span class="muted">还没有自定义标签</span>`); // created in 标签管理
   // 标签管理 and ✦ AI 打标签 at the right end of the tags they act on, as in 关注; AI 打标签 says when a run or a proposal is pending.
   el.aiTagSlot.innerHTML = UI.tagButtons({ manageAttrs: "data-tags-manage", aiAttrs: 'data-ai-tag aria-label="AI 打标签 (I)"', state: S.ai.running ? " · 运行中" : S.ai.proposal ? " · 待确认" : "" });
   renderSort();
