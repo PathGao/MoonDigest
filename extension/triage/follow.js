@@ -206,7 +206,7 @@ function normAi(s = {}) {
 function followAiSettings(own, triage) {
   if (own && typeof own === "object") return { value: normAi(own), seed: null };
   const t = triage || {};
-  const value = normAi({ batchSize: t.triageTitleBatchSize, intervalSec: t.triageIntervalSec, newTagMax: t.triageAiNewTagMax, allowRemove: t.triageAiRemoveTags });
+  const value = normAi({ batchSize: t.triageAiBatchSize ?? t.triageTitleBatchSize, intervalSec: t.triageIntervalSec, newTagMax: t.triageAiNewTagMax, allowRemove: t.triageAiRemoveTags });
   return { value, seed: value };
 }
 // The follow-ai-tag requests of one run: mids in batches of cfg.batchSize; maxNewTags is the run's cap (each batch gets
@@ -938,7 +938,9 @@ settingsDialog.querySelector("[data-open-options]").addEventListener("click", ()
 async function aiSettings() {
   const own = (await chrome.storage.sync.get("follow_ai_settings")).follow_ai_settings;
   const triage = own ? null : await send({ type: "triage-settings-get" });
-  const { value, seed } = followAiSettings(own, triage?.ok ? triage.data : null);
+  // 收藏夹's AI 打标签 batch size is stored by the page (triage.js), not by the background.
+  const aiBatch = own ? {} : await chrome.storage.sync.get({ triageAiBatchSize: null });
+  const { value, seed } = followAiSettings(own, triage?.ok ? { ...triage.data, triageAiBatchSize: aiBatch.triageAiBatchSize } : null);
   // Not stored (sync quota, …): the copied values still work this time, and the next use tries again.
   if (seed) await chrome.storage.sync.set({ follow_ai_settings: seed }).catch((e) => toast(`保存设置失败：${e.message}`, true));
   return value;

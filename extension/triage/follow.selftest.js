@@ -152,6 +152,8 @@ const base = () => ({ list: null, last: null, content: {}, people: {}, tags: [],
   const first = plain(t.followAiSettings(undefined, triage));
   assert.deepStrictEqual(first.value, { batchSize: 15, intervalSec: 2, newTagMax: 3, allowRemove: true }, "seeded from 收藏夹");
   assert.deepStrictEqual(first.seed, first.value, "the seed is stored");
+  assert.strictEqual(t.followAiSettings(undefined, { ...triage, triageAiBatchSize: 7 }).value.batchSize, 7, "收藏夹's own AI 打标签 batch size, once it has one");
+  assert.strictEqual(t.followAiSettings(undefined, { ...triage, triageAiBatchSize: null }).value.batchSize, 15, "else the 标题粗看 value it used to share");
   assert.deepStrictEqual(plain(t.followAiSettings(undefined, null)).value, { batchSize: 30, intervalSec: 8, newTagMax: 5, allowRemove: false }, "global defaults without 收藏夹 settings");
   const own = { batchSize: 40, intervalSec: 0, newTagMax: 0, allowRemove: false };
   const later = plain(t.followAiSettings(own, { ...triage, triageTitleBatchSize: 99, triageAiNewTagMax: 9 }));
