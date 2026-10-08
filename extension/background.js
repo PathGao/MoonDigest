@@ -45,6 +45,7 @@ const DEFAULT_SYNC_SETTINGS = {
   playerAiQuickPrompt: DEFAULT_PLAYER_AI_QUICK_PROMPT,
   includeTimestampInBody: true,
   showBiliTriageBadges: true,
+  showBiliUpTags: true,
   seenShow: "off",
   seenThreshold: 80,
   seenStyle: "badge",
@@ -1021,6 +1022,7 @@ function normalizeSyncSettings(settings) {
   merged.enablePlayerAiQuickAction = normalizeEnablePlayerAiQuickAction(merged.enablePlayerAiQuickAction);
   merged.playerAiQuickPrompt = normalizePlayerAiQuickPrompt(merged.playerAiQuickPrompt);
   merged.showBiliTriageBadges = merged.showBiliTriageBadges !== false;
+  merged.showBiliUpTags = merged.showBiliUpTags !== false;
   merged.seenShow = ["bar", "mark", "both"].includes(merged.seenShow) ? merged.seenShow : "off";
   // 0 is clamped to 1; only a missing or non-numeric value falls back to 80.
   merged.seenThreshold = Number.isFinite(parseFloat(merged.seenThreshold)) ? Math.min(100, Math.max(1, Math.round(parseFloat(merged.seenThreshold)))) : 80;

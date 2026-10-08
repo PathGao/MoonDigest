@@ -31,6 +31,7 @@ const DEFAULT_SETTINGS = {
   playerAiQuickPrompt: DEFAULT_PLAYER_AI_QUICK_PROMPT,
   includeTimestampInBody: true,
   showBiliTriageBadges: true,
+  showBiliUpTags: true,
   seenShow: "off",
   seenThreshold: 80,
   seenStyle: "badge",
@@ -91,6 +92,7 @@ const elements = {
   playerAiQuickPrompt: document.getElementById("playerAiQuickPrompt"),
   includeTimestampInBody: document.getElementById("includeTimestampInBody"),
   showBiliTriageBadges: document.getElementById("showBiliTriageBadges"),
+  showBiliUpTags: document.getElementById("showBiliUpTags"),
   seenShow: document.getElementById("seenShow"),
   seenThreshold: document.getElementById("seenThreshold"),
   seenStyle: document.getElementById("seenStyle"),
@@ -269,6 +271,7 @@ async function loadSettings() {
   elements.playerAiQuickPrompt.value = String(settings.playerAiQuickPrompt || "");
   elements.includeTimestampInBody.checked = Boolean(settings.includeTimestampInBody);
   elements.showBiliTriageBadges.checked = settings.showBiliTriageBadges !== false;
+  elements.showBiliUpTags.checked = settings.showBiliUpTags !== false;
   elements.seenShow.value = ["bar", "mark", "both"].includes(settings.seenShow) ? settings.seenShow : "off";
   elements.seenThreshold.value = String(settings.seenThreshold || 80);
   elements.seenStyle.value = settings.seenStyle === "veil" ? "veil" : "badge";
@@ -523,6 +526,7 @@ function readFormPayload() {
     playerAiQuickPrompt: normalizePlayerAiQuickPrompt(elements.playerAiQuickPrompt.value),
     includeTimestampInBody: elements.includeTimestampInBody.checked,
     showBiliTriageBadges: elements.showBiliTriageBadges.checked,
+    showBiliUpTags: elements.showBiliUpTags.checked,
     seenShow: elements.seenShow.value,
     seenThreshold: Number.isFinite(parseFloat(elements.seenThreshold.value)) ? Math.min(100, Math.max(1, Math.round(parseFloat(elements.seenThreshold.value)))) : 80,
     seenStyle: elements.seenStyle.value === "veil" ? "veil" : "badge",
