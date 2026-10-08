@@ -277,8 +277,19 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   Object.assign(t.S, { tab: "none", titleRes: {}, analyses: { BVgone: { status: "done", oneLiner: "一句话", points: ["要点"] } }, notes: { BV3: { text: " 我的笔记 " } }, videoTags: {} });
   const scope = (s) => plain(t.writeScopeItems(s, true).map((it) => it.bvid));
   assert.deepStrictEqual([scope("selected"), scope("all"), scope("filter")], [["BV3"], ["BV1", "BV2", "BV3"], ["BV1", "BV3"]]);
+  // A filter hides part of the selection: the bar counts only what is listed, and the hidden one stays selected.
+  t.S.selected.add("BV1");
+  t.S.query = "视频3";
   t.renderListHeader(t.visibleItems());
   assert.ok(t.el.listHeader.innerHTML.includes("已选中 1 个") && t.el.listHeader.innerHTML.includes("另有 1 个被筛选隐藏"), "the bar counts only what is listed");
+  assert.ok(t.S.selected.has("BV1"), "a video a filter hides stays selected");
+  t.S.query = "";
+  // The selection belongs to the tab: the kept BV2 is not in 未分析, so it leaves the selection, and so does one kept now.
+  await t.decide("BV1", "keep");
+  t.renderListHeader(t.visibleItems());
+  assert.deepStrictEqual(plain([...t.S.selected]), ["BV3"]);
+  assert.ok(t.el.listHeader.innerHTML.includes("已选中 1 个") && !t.el.listHeader.innerHTML.includes("被筛选隐藏"), t.el.listHeader.innerHTML);
+  delete t.S.kept.BV1;
   assert.deepStrictEqual(plain(t.writeScopeItems("all", false).map((it) => it.bvid)), ["BV1", "BV2", "BV3", "BV4"]);
   t.S.analyses.BV1 = { status: "done", oneLiner: "一句话", points: ["要点"] };
   const digest = t.buildMarkdown(t.writeScopeItems("all", false));
@@ -1873,6 +1884,17 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     releaseSnap();
     assert.strictEqual(await sync, false, "the stale sync gives up");
     assert.deepStrictEqual(plain(t.S.items.map((it) => it.bvid)), ["BV72"], "folder B keeps its own list");
+    // A move that starts while a full sync reads the folder: the list read is from before it, so the sync drops it.
+    openFake("PA", [item(71)]);
+    t.S.syncing = false;
+    const releaseSnap2 = holdRead(t.K.snapshot("PA"));
+    const sync2 = t.syncFolder({ force: true });
+    await settle();
+    t.S.transferRun = { mediaId: "PA", to: "PB" };
+    releaseSnap2();
+    assert.strictEqual(await sync2, false, "the sync read before the move gives up");
+    assert.deepStrictEqual([plain(t.S.items.map((it) => it.bvid)), store.triage_snapshot_PA.bvids], [["BV71"], ["BV71"]], "the moved list stays");
+    t.S.transferRun = null;
 
     // A read deferred for a folder being written is not dropped because another folder's read was waiting first.
     const ran = [];
@@ -1896,6 +1918,80 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   assert.ok(t.pointerMoved(null, 10, 10), "first pointer event counts as movement");
   assert.ok(!t.pointerMoved({ x: 10, y: 10 }, 10, 10), "same position is not movement");
   assert.ok(t.pointerMoved({ x: 10, y: 10 }, 10, 11), "a changed coordinate is movement");
+
+  // .ai-review-head styled nothing the pages draw.
+  assert.ok(!fs.readFileSync(path.join(__dirname, "triage.css"), "utf8").includes(".ai-review-head"), "unused .ai-review-head is gone");
+
+  // 一篇摘录's title time comes from fmtTime, not formatted again by hand.
+  assert.ok(t.buildMarkdown([], new Date(2026, 0, 2, 3, 4)).includes("title: B站摘录 2026-01-02 03:04\n"));
+  assert.ok(!/pad\(now\.getHours\(\)\)/.test(source), "buildMarkdown uses fmtTime");
+
+  // The list and its lookup map change together, in setItems only.
+  assert.strictEqual(source.match(/S\.itemMap = /g).length, 1, "S.itemMap is set only by setItems");
+
+  // The page opens on one round of storage reads: init awaits none of them one after another.
+  assert.ok(!/= await storeGet\(/.test(vm.runInContext("init.toString()", ctx)), "init reads storage in its Promise.all");
+
+  // passFilter runs per video several times a render: the 「AI 刚打的」 set and the search words are built once per change.
+  {
+    const [aiRecentSet, queryWords] = vm.runInContext("[aiRecentSet, queryWords]", ctx);
+    const saved = { mediaId: t.S.mediaId, aiRecent: t.S.aiRecent, query: t.S.query };
+    Object.assign(t.S, { mediaId: "R", aiRecent: { R: { at: 1, bvids: ["BV1"] } }, query: "A  b" });
+    const set = aiRecentSet();
+    assert.ok(set.has("BV1") && aiRecentSet() === set, "one set until the list changes");
+    t.S.aiRecent = { R: { at: 2, bvids: ["BV2"] } };
+    assert.ok(aiRecentSet().has("BV2") && !aiRecentSet().has("BV1"), "a new list, a new set");
+    const words = queryWords();
+    assert.ok(queryWords() === words && words.join() === "a,b");
+    t.S.query = "c";
+    assert.strictEqual(queryWords().join(), "c");
+    Object.assign(t.S, saved);
+  }
+
+  // X (and a card click) marks just that card and redraws the selection bar, not the whole list; 粗看完成 redraws all,
+  // since there the selection is the next batch (its order and labels).
+  {
+    const realList = t.el.list, realRender = t.render;
+    const marks = {};
+    const cards = ["BV1", "BV2"].map((bvid) => ({ dataset: { bvid }, classList: { toggle: (c, on) => (marks[bvid] = on) } }));
+    t.el.list = { querySelectorAll: () => cards, querySelector: () => null };
+    let renders = 0;
+    t.render = () => renders++;
+    openFake("A", [item(1), item(2)]);
+    Object.assign(t.S, { tab: "none" });
+    t.S.selected.clear();
+    t.cardAction("select", "BV2");
+    assert.deepStrictEqual([renders, marks, t.el.listHeader.innerHTML.includes("已选中 1 个")], [0, { BV1: false, BV2: true }, true]);
+    t.S.tab = "coarse";
+    t.cardAction("select", "BV2");
+    assert.ok(renders === 1 && !t.S.selected.size, "粗看完成 draws the list again");
+    Object.assign(t, { render: realRender });
+    t.el.list = realList;
+    t.S.tab = "none";
+  }
+
+  // J/K and a card that leaves the list go by the cards on screen; no focus index is kept (hovering cards stays cheap).
+  {
+    const realList = t.el.list, realFocus = t.setFocus;
+    const cards = ["BV1", "BV2", "BV3"].map((bvid) => ({ dataset: { bvid } }));
+    t.el.list = { querySelectorAll: (sel) => (sel === ".card" ? cards : []), querySelector: () => null, scrollTop: 0, innerHTML: "" };
+    const went = [];
+    t.setFocus = (b) => went.push(b);
+    assert.ok(!("focusIndex" in t.S), "no focus index state");
+    t.S.focused = "BV2";
+    t.moveFocus(1);
+    t.moveFocus(-1);
+    t.S.focused = "BV3";
+    t.moveFocus(1);
+    assert.deepStrictEqual(went, ["BV3", "BV1", "BV3"]);
+    // BV2 leaves the list: the card now in its place takes the focus.
+    openFake("A", [item(1), item(3)]);
+    Object.assign(t.S, { tab: "none", focused: "BV2" });
+    t.renderList();
+    assert.strictEqual(t.S.focused, "BV3");
+    Object.assign(t.el, { list: realList });
+    t.setFocus = realFocus;
+  }
 
   // Card links: cover and title are a[href] to the video (right-click / ⌘-click open it natively), no control inside a link;
   // a plain primary click stays in the page: on the title it opens the viewer, on the cover it selects the card.
@@ -2125,6 +2221,14 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     t.askConfirm = ask;
     t.S.modeUndo = [];
     delete t.document.body;
+    // 已出分拣范围: 清空待播 says 「U 撤销」, so U works there too.
+    openFake("removed", []);
+    t.S.undo.push({ kind: "basket", removed: [] });
+    const ur = ev("u");
+    t.onKey(ur);
+    await new Promise((r) => setTimeout(r, 20));
+    assert.ok(ur.prevented && !t.S.undo.length && toasts.at(-1) === "已撤销：放回待播 0 个", "U undoes in 已出分拣范围");
+    openFake("A", []);
     t.MoonTriage.setModeKeys(null);
   }
 

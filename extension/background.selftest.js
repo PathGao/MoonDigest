@@ -246,6 +246,12 @@ process.on("exit", (code) => {
   assert.strictEqual((await historyContext()).subtitleBody.length, 2);
   assert.ok("boc_subtitle_cache_BVa_11_id_5" in local);
 
+  // Dead keys go on install and update, the old 已看 mark (triage_watched) among them; the 待播 list stays.
+  const dead = { triage_watched: { BV1: 1 }, triage_tab: "none", triage_basket: [{ bvid: "BV1" }] };
+  ctx.chrome = { storage: { sync: area({}), local: { ...area(dead), getKeys: async () => Object.keys(dead) } } };
+  await ctx.removeDeadStorageKeys();
+  assert.deepStrictEqual(Object.keys(dead), ["triage_basket"]);
+
   finished = true;
   clearInterval(keepAlive);
   console.log("background selftest: all passed");

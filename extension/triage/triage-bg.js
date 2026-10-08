@@ -765,11 +765,6 @@ async function triageMigrateNotes() {
   await chrome.storage.local.set({ triage_notes: notes, triage_notes_migrated: true });
 }
 
-// The old 已看 mark (triage_watched) is gone: drop what older versions stored.
-async function triageDropWatched() {
-  await chrome.storage.local.remove("triage_watched");
-}
-
 // One triage tab: each holds its own copy of 保留, tags and the rest, so a second one is focused instead of opened.
 // hash: the deep link a Bilibili page's UP tag chip sends, `follow&tag=<id>` (关注 mode on that tag); an open triage tab
 // gets it as a hash change.
@@ -1049,7 +1044,6 @@ function triageListen(prefix, handlers) {
 if (typeof chrome !== "undefined" && chrome.runtime?.onMessage) {
   triageRegisterDnr();
   triageMigrateNotes().catch((e) => console.warn("[triage] 笔记迁移失败", e));
-  triageDropWatched().catch((e) => console.warn("[triage] 清除旧标记失败", e));
   chrome.runtime.onInstalled.addListener(triageRegisterDnr);
   chrome.runtime.onStartup.addListener(triageRegisterDnr);
   chrome.storage.onChanged.addListener((changes, area) => {

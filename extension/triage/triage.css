@@ -695,7 +695,6 @@ dialog.wide { width: min(620px, calc(100% - 32px)); }
 .ai-history { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
 .chip.add { --c: var(--ok); color: var(--ok); }
 .chip.remove { --c: var(--danger); color: var(--danger); text-decoration: line-through; }
-.ai-review-head { display: flex; align-items: center; gap: 8px; }
 #aiReviewSummary { font-weight: 400; }
 #aiNotes p { margin: 0; }
 .ai-tally .chips { margin: 0; }

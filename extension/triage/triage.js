@@ -279,7 +279,6 @@ const S = {
   tagFilter: new Set(),
   query: "",
   focused: "",
-  focusIndex: 0,
   selected: new Set(),
   group: null, // the running 细看 batch: { bvids: [], stop: bool }
   write: { running: false, stop: false },
@@ -603,11 +602,15 @@ function passFilter(it, skip = "") {
   if (on("recent") && S.aiRecentFilter && !aiRecentSet().has(it.bvid)) return false;
   if ((S.mediaId === REMOVED || on("kind")) && S.kindFilter && kindOf(it) !== S.kindFilter) return false;
   if (on("tags") && S.tagFilter.size && !hasAllTags(tagIdsOf(it.bvid), S.tagFilter, (id) => tagById(id)?.name ?? id)) return false;
-  const words = S.query.toLowerCase().split(/\s+/).filter(Boolean);
+  const words = queryWords();
   if (!words.length) return true;
   const text = searchText(it);
   return words.every((w) => text.includes(w));
 }
+
+// The search words, split once per query rather than once per video.
+let queryMemo = ["", []];
+const queryWords = () => (queryMemo[0] === S.query ? queryMemo[1] : (queryMemo = [S.query, S.query.toLowerCase().split(/\s+/).filter(Boolean)])[1]);
 
 // Which AI steps have run, not what they said. Invalid videos (可清理) can never be 细看'd, so they stop at 粗看;
 // a failed 细看 stays where its 粗看 put it.
@@ -739,20 +742,19 @@ async function init() {
   bindEvents();
   // Read up front: sidePanel.open must run inside the click's user gesture, before any await.
   chrome.tabs.getCurrent().then((tab) => (ownTabId = tab?.id));
-  const [{ tags, videoTags, folderCriteria }, kept, basket, notes, settingsResp] = await Promise.all([
+  const [{ tags, videoTags, folderCriteria }, kept, basket, notes, settingsResp, aiHistory, aiRecent, sortBy, readAt] = await Promise.all([
     loadTagsAndCriteria().then(async (r) => ({ ...r, ...(await loadTagsByFolder(r)) })),
     loadKept(),
     storeGet(K.basket, []),
     storeGet(K.notes, {}),
-    send({ type: "triage-settings-get" })
+    send({ type: "triage-settings-get" }),
+    storeGet(K.aiHistory, []),
+    storeGet(K.aiRecent, {}),
+    storeGet(K.sort, {}),
+    storeGet(K.readAt, {})
   ]);
-  Object.assign(S, { tags, videoTags, folderCriteria, kept });
+  Object.assign(S, { tags, videoTags, folderCriteria, kept, notes, aiHistory, aiRecent, sortBy, readAt });
   S.basket = basket.map(({ bvid, title, cover, upper, duration, opened }) => ({ bvid, title, cover, upper, duration, ...(opened ? { opened: true } : {}) }));
-  S.notes = notes;
-  S.aiHistory = await storeGet(K.aiHistory, []);
-  S.aiRecent = await storeGet(K.aiRecent, {});
-  S.sortBy = await storeGet(K.sort, {});
-  S.readAt = await storeGet(K.readAt, {});
   if (settingsResp.ok) Object.assign(S.settings, settingsResp.data);
   renderTagLimit();
   const syncObsidian = ({ obsidianEnabled }) => document.body.classList.toggle("obsidian-off", obsidianEnabled !== true);
@@ -1050,8 +1052,7 @@ async function openFolder(mediaId) {
   S.folderDecisions = {};
   S.loadAll = null;
   S.removedCheck = null;
-  S.items = [];
-  S.itemMap = new Map();
+  setItems([]);
   S.selected.clear();
   S.tagFilter.clear();
   S.finishedFilter = false;
@@ -1059,7 +1060,6 @@ async function openFolder(mediaId) {
   S.kindFilter = "";
   S.undo = [];
   S.focused = "";
-  S.focusIndex = 0;
   S.syncError = "";
   hideSyncNotice();
   if (!all && !removed) storeSet(K.lastFolder, mediaId);
@@ -1085,8 +1085,7 @@ async function openCached(token) {
   // Snapshots from before the intro was cached sync once, so the AI is not told an empty intro.
   if (token !== S.folderToken || !snap?.items || snap.intro === undefined) return false;
   S.folderIntro[mediaId] = snap.intro;
-  S.items = [...snap.items];
-  S.itemMap = new Map(S.items.map((it) => [it.bvid, it]));
+  setItems([...snap.items]);
   if (!(await loadResults(token))) return false;
   checkCached(token, snap);
   return true;
@@ -1169,6 +1168,12 @@ async function quickSync({ force = false } = {}) {
 // A chosen folder other than the open one with a proposal waiting.
 const otherAiFolder = () => Object.keys(S.ai.proposals).find((id) => id !== String(S.mediaId) && S.folders.some((f) => String(f.id) === id));
 
+// The folder's list and its bvid lookup, always replaced together.
+function setItems(list) {
+  S.items = list;
+  S.itemMap = new Map(list.map((it) => [it.bvid, it]));
+}
+
 // ---------- sync with bilibili ----------
 // cached ({ snap, ids }, from checkCached) fetches only the newest pages and takes the rest from the cached list.
 async function syncFolder({ force = false, cached = null } = {}) {
@@ -1182,6 +1187,7 @@ async function syncFolder({ force = false, cached = null } = {}) {
   S.syncing = token;
   S.loadPage = null;
   const mediaId = S.mediaId;
+  const started = Date.now();
   renderTop();
   try {
     // Videos MoonDigest already holds from another chosen folder or 已出分拣范围: added here, they reuse that info.
@@ -1203,6 +1209,11 @@ async function syncFolder({ force = false, cached = null } = {}) {
     if (r.data.info) S.folderIntro[mediaId] = r.data.info.intro;
     const snap = await storeGet(K.snapshot(mediaId), null);
     if (token !== S.folderToken) return false;
+    // A run that wrote here while the list was read makes it stale (it would bring moved videos back): read again later.
+    if (writingTo(mediaId) || (lastWrite[String(mediaId)] || 0) >= started) {
+      deferRead(() => syncFolder({ force: true }), true);
+      return false;
+    }
     const remote = keepInvalidInfo(r.data.items || [], snap?.items);
     // A partial list proves what exists, never what was removed, so it skips the removed diff and the snapshot.
     const partial = r.data.partial ? { ...r.data.partial, count: remote.length } : null;
@@ -1240,8 +1251,7 @@ async function syncFolder({ force = false, cached = null } = {}) {
     for (const it of S.items) {
       if (!remoteSet.has(it.bvid) && (partial || S.decisions[it.bvid]?.action === "unfav")) next.push(it);
     }
-    S.items = next;
-    S.itemMap = new Map(next.map((it) => [it.bvid, it]));
+    setItems(next);
     if (S.group?.mediaId === String(mediaId)) S.group.bvids = S.group.bvids.filter((b) => S.itemMap.has(b));
     for (const b of [...S.selected]) if (!S.itemMap.has(b)) S.selected.delete(b);
 
@@ -1297,10 +1307,9 @@ async function openRemoved() {
   if (token !== S.folderToken) return false;
   const rec = got[K.removed] || {};
   const decisionsByFolder = Object.fromEntries(keys.map((k) => [k.slice("triage_decisions_".length), got[k]]));
-  S.items = Object.values(rec)
+  setItems(Object.values(rec)
     .sort((x, y) => y.at - x.at)
-    .map(({ item, at, movedTo, hidden, inFolder, from }) => ({ ...item, removedAt: at, movedTo, hidden, inFolder, from: from || inferFrom(decisionsByFolder, item.bvid, folderName) }));
-  S.itemMap = new Map(S.items.map((it) => [it.bvid, it]));
+    .map(({ item, at, movedTo, hidden, inFolder, from }) => ({ ...item, removedAt: at, movedTo, hidden, inFolder, from: from || inferFrom(decisionsByFolder, item.bvid, folderName) })));
   if (!(await loadResults(token))) return false;
   checkRemoved(token);
   return true;
@@ -1378,8 +1387,7 @@ function dropRemoved(bvids) {
     await storeSet(K.removed, rec);
     S.removedCount = Object.keys(rec).length;
     if (S.mediaId === REMOVED) {
-      S.items = S.items.filter((it) => !back.includes(it.bvid));
-      S.itemMap = new Map(S.items.map((it) => [it.bvid, it]));
+      setItems(S.items.filter((it) => !back.includes(it.bvid)));
     }
     return back.length;
   });
@@ -1409,8 +1417,7 @@ async function cleanRemoved(list) {
     noteOwnWrites(write);
     await chrome.storage.local.set(write);
     S.removedCount = Object.keys(rec).length;
-    S.items = S.items.filter((it) => !set.has(it.bvid));
-    S.itemMap = new Map(S.items.map((it) => [it.bvid, it]));
+    setItems(S.items.filter((it) => !set.has(it.bvid)));
     for (const b of set) S.selected.delete(b);
     toast(`已清理 ${list.length} 个视频`);
     render();
@@ -1482,8 +1489,7 @@ function rebuildAll() {
       decisions[it.bvid] = S.decisions[it.bvid];
     }
   }
-  S.items = items;
-  S.itemMap = new Map(items.map((it) => [it.bvid, it]));
+  setItems(items);
   S.decisions = decisions;
   for (const b of [...S.selected]) if (!S.itemMap.has(b)) S.selected.delete(b);
 }
@@ -1873,6 +1879,11 @@ function pickState(group, value = "") {
 
 function renderListHeader(list) {
   const t = S.tab;
+  // The selection belongs to the tab: a video that left it (保留, 取消收藏, a run moved it on) leaves the selection.
+  for (const b of [...S.selected]) {
+    const it = S.itemMap.get(b);
+    if (!it || (t !== "read" && stageOf(it) !== t)) S.selected.delete(b);
+  }
   const all = S.mediaId === ALL;
   const sortHint = `<span class="muted">请在具体收藏夹里分拣</span>`;
   // Search, row 3 or row 4 on: how many the tab lists.
@@ -2088,10 +2099,11 @@ function renderList() {
     el.list.innerHTML = `<p class="empty">${text}</p>${recent}`;
     return;
   }
+  // The focused card left the list: the card now in its place takes the focus (its place read before the rebuild).
   if (!list.some((it) => it.bvid === S.focused)) {
-    S.focused = list[Math.min(S.focusIndex, list.length - 1)].bvid;
+    const was = [...el.list.querySelectorAll(".card")].findIndex((c) => c.dataset.bvid === S.focused);
+    S.focused = list[Math.min(Math.max(was, 0), list.length - 1)].bvid;
   }
-  S.focusIndex = list.findIndex((it) => it.bvid === S.focused);
   // 粗看完成 shows which cards the button will send (or is sending) before anything runs.
   // Those cards get a label before the title.
   let marked = new Set();
@@ -2235,8 +2247,6 @@ function folderTitle() {
 
 function setFocus(bvid, scroll = true) {
   S.focused = bvid;
-  const list = visibleItems();
-  S.focusIndex = Math.max(0, list.findIndex((it) => it.bvid === bvid));
   for (const node of el.list.querySelectorAll(".card.focused")) node.classList.remove("focused");
   const card = el.list.querySelector(`.card[data-bvid="${CSS.escape(bvid)}"]`);
   if (card) {
@@ -2248,11 +2258,11 @@ function setFocus(bvid, scroll = true) {
 const pointerMoved = (at, x, y) => !at || at.x !== x || at.y !== y;
 
 function moveFocus(delta) {
-  const list = visibleItems();
-  if (!list.length) return;
-  const i = list.findIndex((it) => it.bvid === S.focused);
-  const next = Math.max(0, Math.min(list.length - 1, (i < 0 ? 0 : i + delta)));
-  setFocus(list[next].bvid);
+  const cards = [...el.list.querySelectorAll(".card")];
+  if (!cards.length) return;
+  const i = cards.findIndex((c) => c.dataset.bvid === S.focused);
+  const next = Math.max(0, Math.min(cards.length - 1, (i < 0 ? 0 : i + delta)));
+  setFocus(cards[next].dataset.bvid);
 }
 
 // Focus the next unprocessed card after `bvid` in the given pre-change list.
@@ -2623,8 +2633,7 @@ async function batchTransfer(list) {
       await patchSnapshot(from, { drop: [...gone] });
       if (!chosen) await addMovedToRemoved(from, chunk, { id: to, title: toName });
       if (S.mediaId === from) {
-        S.items = S.items.filter((it) => !gone.has(it.bvid));
-        S.itemMap = new Map(S.items.map((it) => [it.bvid, it]));
+        setItems(S.items.filter((it) => !gone.has(it.bvid)));
       }
     }
     for (const it of chunk) S.selected.delete(it.bvid);
@@ -2663,7 +2672,7 @@ function addMovedToRemoved(from, items, movedTo) {
         if (shown) Object.assign(shown, { removedAt: at, movedTo, from: rec.from });
         else S.items.unshift({ ...it, removedAt: at, movedTo, from: rec.from });
       }
-      S.itemMap = new Map(S.items.map((x) => [x.bvid, x]));
+      setItems(S.items);
     }
     S.removedCount = Object.keys(removed).length;
     renderTop();
@@ -2736,7 +2745,13 @@ function removeVideoTag(bvid, id) {
 }
 
 // 「AI 刚打的」 of the open folder (a Set of bvids); empty in 所有收藏夹 and 已出分拣范围.
-const aiRecentSet = () => new Set(S.aiRecent[String(S.mediaId)]?.bvids || []);
+// Asked per video while filtering, so the set is built once per list (lists are replaced, never changed in place).
+let aiRecentMemo = [null, new Set()];
+const aiRecentSet = () => {
+  const bvids = S.aiRecent[String(S.mediaId)]?.bvids;
+  if (aiRecentMemo[0] !== bvids) aiRecentMemo = [bvids, new Set(bvids || [])];
+  return aiRecentMemo[1];
+};
 const saveAiRecent = () => storeSet(K.aiRecent, S.aiRecent);
 // × and U end the folder's 「AI 刚打的」; × leaves the tags as they are.
 function endAiRecent(folder = String(S.mediaId)) {
@@ -3337,7 +3352,7 @@ function mdLinkText(s) {
 function buildMarkdown(items, now = new Date()) {
   const lines = [
     "---",
-    `title: B站摘录 ${stamp(now, false)} ${pad(now.getHours())}:${pad(now.getMinutes())}`,
+    `title: B站摘录 ${fmtTime(now)}`,
     `created: ${stamp(now, false)}`,
     "tags:",
     "  - B站摘录",
@@ -3662,7 +3677,6 @@ function bindEvents() {
   const showTab = (tab) => {
     if (tab !== S.tab) S.selected.clear();
     S.tab = tab;
-    S.focusIndex = 0;
     S.focused = "";
     el.list.scrollTop = 0;
     render();
@@ -3679,7 +3693,9 @@ function bindEvents() {
   });
   UI.bindSearch(el.searchInput, (q) => {
     S.query = q;
-    S.focusIndex = 0;
+    // A search that hides the focused card starts the focus at the top.
+    const f = S.itemMap.get(S.focused);
+    if (!f || !passFilter(f)) S.focused = "";
     render();
   });
   // Row 3: one pick per group, a second click clears it; 全部 clears the whole row (not row 4's tags).
@@ -3766,7 +3782,7 @@ function bindEvents() {
       if (e.shiftKey) getSelection().removeAllRanges();
       setFocus(picked.dataset.bvid, false);
       pickAnchor = UI.pickCard(S.selected, visibleItems().map((it) => it.bvid), picked.dataset.bvid, pickAnchor, e.shiftKey);
-      return render();
+      return showPicks();
     }
     const clean = e.target.closest("[data-clean]");
     if (clean) return cleanRemoved([S.itemMap.get(clean.dataset.clean)].filter(Boolean));
@@ -4061,8 +4077,16 @@ function cardAction(act, bvid) {
   }
   else if (act === "select") {
     pickAnchor = UI.pickCard(S.selected, [], bvid);
-    render();
+    showPicks();
   }
+}
+
+// A pick changes only the cards' blue marks and the selection bar, so the list is not rebuilt; in 粗看完成 the selection
+// is the next batch (its order and labels), so that tab draws everything again.
+function showPicks() {
+  if (S.tab === "coarse") return render();
+  for (const card of el.list.querySelectorAll(".card[data-bvid]")) card.classList.toggle("selected", S.selected.has(card.dataset.bvid));
+  renderListHeader(visibleItems());
 }
 
 function onKey(e) {
@@ -4088,9 +4112,9 @@ function onKey(e) {
     render();
   } else if (map[key]) map[key]();
   else if (nav[key]) moveFocus(nav[key]);
-  // 已出分拣范围 has no 保留 / 取消收藏 / 标签; 待播 and 问 AI work there.
-  else if (S.mediaId === REMOVED && key !== "e" && key !== "q") return;
   else if (key === "u") undo();
+  // 已出分拣范围 has no 保留 / 取消收藏 / 标签; 待播, 问 AI and U work there.
+  else if (S.mediaId === REMOVED && key !== "e" && key !== "q") return;
   else if (cardKeys[key] && S.focused) cardAction(cardKeys[key], S.focused);
   else return;
   e.preventDefault();
