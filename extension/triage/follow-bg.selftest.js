@@ -26,7 +26,7 @@ const pick = (store, keys) => {
 };
 t.chrome = {
   storage: {
-    local: { get: async (k) => pick(local, k), set: async (o) => void Object.assign(local, plain(o)) },
+    local: { get: async (k) => pick(local, k), set: async (o) => void Object.assign(local, plain(o)), remove: async (k) => [k].flat().forEach((x) => delete local[x]) },
     sync: { get: async (k) => pick(sync, k) }
   },
   cookies: { get: async () => ({ value: "csrf" }) },
@@ -178,6 +178,27 @@ const runSync = async () => {
     assert.deepStrictEqual(calls.filter((c) => c.startsWith("space")), ["space/wbi/arc/search#1", "space/wbi/arc/search#6"]);
   }
 
+  // ---------- a feed walk cut off midway keeps the last complete one; continue finishes it ----------
+  {
+    const prev = { at: now() - 7 * 3600, since: now() - 40 * 86400, map: { 1: now() - 99, 4: now() - 99 }, v: {} };
+    local = { follow_list: { list: ["1", "2", "4"], followTime: { 1: 101, 2: 102, 4: 104 } }, follow_last: prev };
+    const pages = Array.from({ length: 12 }, (_, i) => [dyn(2, `BVw${i}`, now() - i)]);
+    pages.push([dyn(4, "BVend", now() - 40 * 86400)]);
+    const ok = feed(pages);
+    routes["/x/polymer/web-dynamic/v1/feed/all"] = (u) => (Number(u.searchParams.get("offset") || 0) === 11 ? json({ code: -352, message: "风控" }) : ok(u));
+    await runSync();
+    assert.strictEqual(local.follow_jobs.throttled, true);
+    assert.deepStrictEqual(plain(local.follow_last), prev, "a walk cut off midway does not replace the last complete one");
+    assert.strictEqual(local.follow_jobs.cursor.offset, "10", "cursor kept");
+    routes["/x/polymer/web-dynamic/v1/feed/all"] = ok;
+    calls = [];
+    await runSync();
+    assert.ok(local.follow_jobs.finishedAt && !local.follow_jobs.error, local.follow_jobs.error);
+    assert.ok(!calls.includes("polymer/web-dynamic/v1/feed/all#0"), "continue picks up at the cursor");
+    assert.deepStrictEqual(Object.keys(local.follow_last.map).sort(), ["2", "4"], "the finished walk replaces it");
+    assert.ok(!local.follow_last_wip, "the walk in progress is cleared");
+  }
+
   // ---------- partial followings: nobody marked gone ----------
   {
     local = { follow_list: { list: ["1", "9"], followTime: {} }, follow_last: { at: now(), since: 0, map: { 1: 1 } } };
@@ -303,6 +324,11 @@ const runSync = async () => {
     assert.strictEqual(local.follow_last.map[8], 5, "a newer post seen in the feed updates 最近更新");
     assert.strictEqual(local.follow_last.v[8][0].c, 5, "and leads its recent titles");
     assert.deepStrictEqual([local.follow_last.at, local.follow_last.since], [1, 0], "the sync's coverage is untouched");
+    assert.deepStrictEqual(plain(local.follow_last.v[8][0]), { t: "T-BV8", c: 5, bvid: "BV8" }, "the same entry shape as a sync, with its bvid");
+    await t.followNoteFeedPosts([{ ...page.items[0], title: "改了标题" }]);
+    t.followFoldFeed(local.follow_last, page.items);
+    assert.strictEqual(local.follow_last.v[8].length, 2, "the same video is not noted twice (by bvid)");
+    assert.deepStrictEqual([local.follow_last.at, local.follow_last.since], [1, 0]);
     assert.deepStrictEqual(plain(page.items.map((x) => x.bvid)), ["BV8"]);
     assert.deepStrictEqual([page.offset, page.hasMore], ["o2", true]);
     await t.followFeed({ offset: "" });
