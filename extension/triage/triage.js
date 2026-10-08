@@ -3806,6 +3806,7 @@ function bindEvents() {
     const act = e.target.closest("[data-act]")?.dataset.act;
     setFocus(bvid, false);
     if (act) cardAction(act, bvid);
+    else if (UI.cardPlayClick(e)) cardAction("open", bvid);
   });
 
   // The pointer makes a card current only when the hand moves it. A mousemove at the same position comes from the

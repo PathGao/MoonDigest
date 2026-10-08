@@ -65,6 +65,42 @@ assert.strictEqual(UI.img("https://i0.hdslb.com/a.jpg@1c.webp", "48w"), "https:/
   assert.ok(!UI.plainClick(click({ button: 1 })), "middle click");
 }
 
+// Whole video card: a plain click anywhere plays, except on a control inside the card or after a text-selection drag.
+// A tiny closest() for the selector shapes shared.js uses: tag, [attr], [attr=v], :not(...), comma lists.
+{
+  const split = (sel) => sel.split(/,(?![^(]*\))/).map((x) => x.trim());
+  const matches = (el, sel) =>
+    split(sel).some((one) => {
+      const [, tag, attrs, not] = one.match(/^([a-z]*)((?:\[[^\]]+\])*)(?::not\((.*)\))?$/);
+      if (tag && el.tag !== tag) return false;
+      for (const [, k, v] of attrs.matchAll(/\[([\w-]+)(?:=([^\]]+))?\]/g)) if (!(k in el.attrs) || (v !== undefined && el.attrs[k] !== v)) return false;
+      return !(not && matches(el, not));
+    });
+  const node = (tag, attrs = {}, parent = null) => ({ tag, attrs, parent, closest(sel) { for (let n = this; n; n = n.parent) if (matches(n, sel)) return n; return null; } });
+  const card = node("article", { "data-bvid": "BV1" });
+  const body = node("div", {}, card);
+  const click = (target, o) => ({ target, button: 0, metaKey: false, ctrlKey: false, shiftKey: false, altKey: false, ...o });
+  const plays = (target, o) => UI.cardPlayClick(click(target, o));
+  assert.ok(plays(body), "blank card area plays");
+  assert.ok(plays(node("span", {}, node("div", {}, body))), "meta text plays");
+  assert.ok(plays(node("a", { href: "x", "data-play": "BV1" }, body)), "视频投稿 title / cover");
+  assert.ok(plays(node("a", { href: "x", "data-act": "open" }, body)), "收藏夹 title / cover");
+  for (const k of ["metaKey", "ctrlKey", "shiftKey", "altKey"]) assert.ok(!plays(body, { [k]: true }), `${k}-click on the card does not play`);
+  assert.ok(!plays(body, { button: 1 }), "middle click does not play");
+  const plus = node("button", { "data-pick": "1" }, body);
+  assert.ok(!plays(node("kbd", {}, plus)), "「+ 标签 T」 does not play");
+  assert.ok(!plays(node("span", { "data-pick": "1" }, body)), "a 视频投稿 tag chip does not play");
+  assert.ok(!plays(node("span", {}, node("button", { "data-untag": "t" }, body))), "a 收藏夹 tag chip's × does not play");
+  assert.ok(!plays(node("button", { "data-act": "keep" }, body)), "保留 does not play");
+  assert.ok(!plays(node("textarea", { "data-note": "" }, body)), "the note box does not play");
+  assert.ok(!plays(node("span", {}, node("a", { href: "space", target: "_blank" }, body))), "the UP name link does not play");
+  ctx.getSelection = () => ({ isCollapsed: false });
+  assert.ok(!plays(body), "the click ending a text-selection drag does not play");
+  ctx.getSelection = () => ({ isCollapsed: true });
+  assert.ok(plays(body), "a collapsed selection is a plain click");
+  delete ctx.getSelection;
+}
+
 // CSV: cells a spreadsheet would run as a formula get a leading '; BOM and CRLF around the rows.
 {
   for (const s of ["=1+1", "+cmd", "-2", "@SUM(A1)", "\tx", "\rx"]) assert.ok(UI.toCsv([[s]]).slice(1).replace(/^"/, "").startsWith(`'${s[0]}`), JSON.stringify(s));

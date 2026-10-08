@@ -39,6 +39,10 @@
   const { TAG_COLORS, cleanTagName, nextTagColor, cycleTagColor } = globalThis.BocTagCore;
   // A plain primary click on a video link plays it in the viewer here; with ⌘ / Ctrl / Shift / Alt the browser opens it.
   const plainClick = (e) => e.button === 0 && !e.metaKey && !e.ctrlKey && !e.shiftKey && !e.altKey;
+  // A video card plays on a plain click anywhere on it (收藏夹 and 视频投稿 alike), except on a control inside it
+  // (button, field, 「+ 标签」 chip, a link other than the card's own video links) or at the end of a text-selection drag.
+  const CARD_CONTROLS = "button, input, textarea, select, label, [data-pick], a[href]:not([data-act=open], [data-play])";
+  const cardPlayClick = (e) => plainClick(e) && !e.target.closest(CARD_CONTROLS) && globalThis.getSelection?.()?.isCollapsed !== false;
   // hdslb images: https and a small webp copy (size like "480w_270h_1c"); other URLs as they are.
   const img = (u, size) => {
     const s = String(u || "").replace(/^(https?:)?\/\//, "https://");
@@ -422,5 +426,5 @@
     return [...tally.values()].sort((a, b) => (a.cls === "remove") - (b.cls === "remove") || b.n - a.n);
   }
 
-  globalThis.TriageUi = { esc, pad, dayText, fmtDate, fmtAgo, agoHtml, setSearchScope, confirmList, pickTitle, fmtDuration, fmtCount, cleanTagName, plainClick, img, toCsv, cardTagChip, syncedText, headMeta, titleHtml, ICON, AI_SPARK, byValue, dirWords, sortControl, filterBtn, labeledRow, stateGroup, aiRecentChip, searchBox, bindSearch, resultCount, rowButtons, menuItem, BACKUP_ITEM, reasonAttrs, setReason, WARN_DOT, selectAllState, selectAllBox, toggleAll, setActivity, waitText, syncPill, setSync, bindSync, tagButtons, sideFoot, selbar, sideItem, emptyState, refreshEmpty, noMatch, fillSetRows, mergeAiBatch, aiChanges, previewId, aiTally, TAG_COLORS, nextTagColor, cycleTagColor, tagNameError, deleteTagAsk, editedTag, withoutTag, undoAsk, tagRowHtml, sp, AI_RECENT_RULES, aiRecentUndo, tagPlusBtn, viewerKeyFrom };
+  globalThis.TriageUi = { esc, pad, dayText, fmtDate, fmtAgo, agoHtml, setSearchScope, confirmList, pickTitle, fmtDuration, fmtCount, cleanTagName, plainClick, cardPlayClick, img, toCsv, cardTagChip, syncedText, headMeta, titleHtml, ICON, AI_SPARK, byValue, dirWords, sortControl, filterBtn, labeledRow, stateGroup, aiRecentChip, searchBox, bindSearch, resultCount, rowButtons, menuItem, BACKUP_ITEM, reasonAttrs, setReason, WARN_DOT, selectAllState, selectAllBox, toggleAll, setActivity, waitText, syncPill, setSync, bindSync, tagButtons, sideFoot, selbar, sideItem, emptyState, refreshEmpty, noMatch, fillSetRows, mergeAiBatch, aiChanges, previewId, aiTally, TAG_COLORS, nextTagColor, cycleTagColor, tagNameError, deleteTagAsk, editedTag, withoutTag, undoAsk, tagRowHtml, sp, AI_RECENT_RULES, aiRecentUndo, tagPlusBtn, viewerKeyFrom };
 })();
