@@ -6,12 +6,15 @@
     <title>MoonDigest · B站收藏夹分拣台</title>
     <link rel="stylesheet" href="../tokens.css" />
     <link rel="stylesheet" href="./triage.css" />
+    <link rel="stylesheet" href="./follow.css" />
   </head>
   <body>
     <div class="app">
       <!-- Top bar: brand, the search box in the middle, what is running and the tools on the right. -->
       <header class="topbar">
         <div class="brand"><span class="brand-mark" aria-hidden="true"></span>B站分拣台</div>
+        <!-- 收藏夹 | 关注: follow.js owns the switch and the 关注 mode (body.follow-mode). -->
+        <span id="modeSwitch" class="seg mode-switch" role="group" aria-label="分拣什么"><button type="button" data-mode="fav" aria-pressed="true">收藏夹</button><button type="button" data-mode="follow" aria-pressed="false">关注</button></span>
         <!-- The select holds the open folder (every reader and writer keeps using it); the sidebar list is drawn from its options. -->
         <select id="folderSelect" class="folder-select" aria-label="选择收藏夹"></select>
         <span class="search">
@@ -59,8 +62,11 @@
           <hr />
           <button id="aiBtn" type="button" class="side-item tag-btn" aria-label="标签：管理标签和 AI 批量打标签"><span class="ai-spark" aria-hidden="true"></span>标签</button>
         </aside>
+        <aside id="followSide" class="side follow-side" aria-label="UP 主标签" hidden></aside>
 
         <div id="main" class="main">
+          <!-- 关注 mode: follow.js draws head, tabs, filters and list into the same grid areas as the folder view. -->
+          <div id="followMain" class="follow-main" hidden></div>
           <!-- The folder's name and counts on the left; the step's criteria line and buttons (listHeader) on the right. -->
           <div class="folder-head">
             <div class="folder-info">
@@ -349,5 +355,6 @@
     <script src="../limits.js"></script>
     <script src="../download.js"></script>
     <script type="module" src="./triage.js"></script>
+    <script type="module" src="./follow.js"></script>
   </body>
 </html>

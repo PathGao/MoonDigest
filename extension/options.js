@@ -34,6 +34,8 @@ const DEFAULT_SETTINGS = {
   seenShow: "off",
   seenThreshold: 80,
   seenStyle: "badge",
+  followSlowDays: 90,
+  followDeadDays: 365,
   enableDebugLogs: false,
   frontmatterFields: [
     "title",
@@ -95,6 +97,8 @@ const elements = {
   seenThreshold: document.getElementById("seenThreshold"),
   seenStyle: document.getElementById("seenStyle"),
   seenDemo: document.getElementById("seenDemo"),
+  followSlowDays: document.getElementById("followSlowDays"),
+  followDeadDays: document.getElementById("followDeadDays"),
   enableDebugLogs: document.getElementById("enableDebugLogs"),
   frontmatterFields: document.querySelectorAll('input[name="frontmatterField"]'),
   fixedPropertiesList: document.getElementById("fixedPropertiesList"),
@@ -158,6 +162,13 @@ function init() {
   document.getElementById("seen").addEventListener("input", syncSeenRows);
   // The box shows the value that would be saved, so 150 over a stored 100 is not a silent no-op.
   elements.seenThreshold.addEventListener("change", () => (elements.seenThreshold.value = String(readFormPayload().seenThreshold)));
+  for (const input of [elements.followSlowDays, elements.followDeadDays]) {
+    input.addEventListener("change", () => {
+      const { followSlowDays, followDeadDays } = readFormPayload();
+      elements.followSlowDays.value = String(followSlowDays);
+      elements.followDeadDays.value = String(followDeadDays);
+    });
+  }
   // Same for 追问: blank, repeated and past-12 lines are dropped from the box, not only from what is saved.
   elements.aiPresetPrompts.addEventListener("change", () => (elements.aiPresetPrompts.value = readFormPayload().aiPresetPrompts.join("\n")));
   // The side panel edits 追问 too. Follow it unless the box has an unsaved edit, so the next save does not put the old list back.
@@ -273,6 +284,10 @@ async function loadSettings() {
   elements.seenThreshold.value = String(settings.seenThreshold || 80);
   elements.seenStyle.value = settings.seenStyle === "veil" ? "veil" : "badge";
   syncSeenRows();
+  // The background's get-settings lists only its own keys; the 关注 days are read straight from sync storage.
+  const days = await chrome.storage.sync.get({ followSlowDays: DEFAULT_SETTINGS.followSlowDays, followDeadDays: DEFAULT_SETTINGS.followDeadDays });
+  elements.followSlowDays.value = String(days.followSlowDays);
+  elements.followDeadDays.value = String(days.followDeadDays);
   elements.enableDebugLogs.checked = Boolean(settings.enableDebugLogs);
   // "bvid" was the field name before the site registry.
   const selectedFields = new Set((settings.frontmatterFields || DEFAULT_SETTINGS.frontmatterFields).map((field) => (field === "bvid" ? "video_id" : field)));
@@ -341,6 +356,8 @@ async function saveSettings() {
     renderNoteSectionRows(payload.notePlaceholderSections);
     // The box shows what was saved: 150 is stored and shown as 100.
     elements.seenThreshold.value = String(payload.seenThreshold);
+    elements.followSlowDays.value = String(payload.followSlowDays);
+    elements.followDeadDays.value = String(payload.followDeadDays);
     elements.aiPresetPrompts.value = payload.aiPresetPrompts.join("\n");
 
     // AI 平台：list 走 sync、apiKey 走 local
@@ -526,6 +543,7 @@ function readFormPayload() {
     seenShow: elements.seenShow.value,
     seenThreshold: Number.isFinite(parseFloat(elements.seenThreshold.value)) ? Math.min(100, Math.max(1, Math.round(parseFloat(elements.seenThreshold.value)))) : 80,
     seenStyle: elements.seenStyle.value === "veil" ? "veil" : "badge",
+    ...followDays(elements.followSlowDays.value, elements.followDeadDays.value),
     enableDebugLogs: elements.enableDebugLogs.checked,
     frontmatterFields: selectedFields,
     fixedFrontmatterProperties: normalizeFixedFrontmatterProperties(collectFixedPropertyRows()),
@@ -533,6 +551,14 @@ function readFormPayload() {
     aiSystemPrompt: String(elements.aiSystemPrompt?.value || "").trim(),
     aiPresetPrompts: [...new Set(elements.aiPresetPrompts.value.split("\n").map((line) => line.trim()).filter(Boolean))].slice(0, 12)
   };
+}
+
+// 关注: 慢更 7–3650 days (90 when empty or not a number), 断更 at least one day more (365 by default).
+function followDays(slow, dead) {
+  const num = (v, fallback) => (Number.isFinite(parseFloat(v)) ? Math.round(parseFloat(v)) : fallback);
+  const followSlowDays = Math.min(3650, Math.max(7, num(slow, 90)));
+  const followDeadDays = Math.min(3651, Math.max(followSlowDays + 1, num(dead, 365)));
+  return { followSlowDays, followDeadDays };
 }
 
 function validateSettings(payload, { requireApiKey }) {

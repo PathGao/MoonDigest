@@ -671,6 +671,9 @@ function nextBatch() {
 
 // ---------- init ----------
 init();
+// 关注 mode (follow.js) borrows the viewer, the toast and the confirm dialog; in that mode the keys below stay off.
+const followMode = () => Boolean(document.body?.classList.contains("follow-mode"));
+globalThis.MoonTriage = { openViewer, closeViewer, toast, askConfirm, send, esc, viewing: () => S.viewing };
 
 async function init() {
   bindEvents();
@@ -4172,7 +4175,7 @@ function closeViewer() {
   el.viewer.hidden = true;
   el.main.classList.remove("viewing");
   render();
-  if (inFolderView()) quickSync({ force: true });
+  if (inFolderView() && !followMode()) quickSync({ force: true });
 }
 
 function cardAction(act, bvid) {
@@ -4205,6 +4208,11 @@ function onKey(e) {
   if (t.closest?.("input, textarea, select, [contenteditable]")) return;
   if ((e.key === "Enter" || e.key === " ") && t.closest?.("button, a")) return;
   const key = e.key.length === 1 ? e.key.toLowerCase() : e.key;
+  if (followMode()) {
+    if (key !== "Escape" || !S.viewing) return;
+    closeViewer();
+    return e.preventDefault();
+  }
   const map = {
     "?": () => el.helpDialog.showModal(),
     "/": () => el.searchInput.focus(),

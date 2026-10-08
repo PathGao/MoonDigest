@@ -347,6 +347,182 @@
     return { removed: victims.map((it) => it.title), reAdded: back?.[1].item.title || null };
   };
 
+
+  // ===== 关注 (follow.js): fake follow_* storage and follow-* answers. Made-up names; no real account. =====
+  // ?follow=empty starts with no follow data (sync fills it in); ?follow=partial has a feed that does not reach back
+  // 90 days, so the people it misses are 未查 instead of 待查.
+  {
+    const fmode = new URLSearchParams(location.search).get("follow") || "";
+    const nowS = Math.floor(Date.now() / 1000);
+    const DAY = 86400;
+    const face = (i, ch) =>
+      "data:image/svg+xml," + encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" width="96" height="96"><rect width="96" height="96" fill="hsl(${(i * 53) % 360},40%,58%)"/><text x="48" y="62" font-size="40" text-anchor="middle" fill="white" font-family="PingFang SC, sans-serif">${ch}</text></svg>`);
+    const vcover = (i, t) =>
+      "data:image/svg+xml," + encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" width="320" height="180"><rect width="320" height="180" fill="hsl(${(i * 37) % 360},38%,52%)"/><text x="18" y="100" font-size="26" font-weight="700" fill="white" font-family="PingFang SC, sans-serif">${t.slice(0, 10)}</text></svg>`);
+    // [name, sign, ov, zone, kind]: kind picks the 更新状态 the data gives: a = in the feed, s = 慢更, d = 断更, n = 没投过稿,
+    // x = account gone, q = not in the feed and not checked (待查 / 未查).
+    const P = [
+      ["量子土豆", "用画图讲清楚计算机原理", "知识区优质UP主", "科技", "a"], ["阿北的书房", "历史、读书和一点点地理", "", "知识", "a"],
+      ["慢慢学摄影", "手机也能拍好照片", "", "生活", "a"], ["表格研究社", "Excel / SQL / 数据分析", "知识区优质UP主", "知识", "a"],
+      ["码农阿杰", "写代码，也写生活", "", "科技", "a"], ["设计小周", "PPT、PS 和配色", "", "知识", "a"],
+      ["木子说数码", "只说真话的数码区", "数码区优质UP主", "数码", "a"], ["小周爱折腾", "NAS、博客和各种折腾", "", "科技", "a"],
+      ["像素游侠", "独立游戏推荐", "", "游戏", "a"], ["方块老王", "我的世界生存建筑", "游戏区优质UP主", "游戏", "a"],
+      ["早餐研究所", "十分钟早餐", "", "美食", "a"], ["深夜食堂小林", "一个人也要好好吃饭", "", "美食", "a"],
+      ["星图漫游", "天文科普", "", "科技", "a"], ["二分音符", "乐理和编曲", "", "音乐", "a"],
+      ["城市散步者", "走路看城市", "", "生活", "a"], ["跑步的猫", "从零开始跑马拉松", "", "运动", "a"],
+      ["卡牌研究员", "桌游和卡牌规则讲解", "", "游戏", "a"], ["英语每日一练", "每天五分钟", "", "知识", "a"],
+      ["老周讲电影", "", "", "影视", "a"], ["山野露营", "露营装备和路线", "", "生活", "a"],
+      ["机械键盘控", "轴体、键帽和客制化", "", "数码", "s"], ["旧书摊", "二手书和书店", "", "知识", "s"],
+      ["咖啡手记", "手冲咖啡入门", "", "美食", "s"], ["复古游戏机", "红白机到 PS2", "", "游戏", "s"],
+      ["水彩日记", "", "", "绘画", "d"], ["围棋小课堂", "从入门到业余 5 段", "", "知识", "d"], ["吉他弹唱阿明", "", "", "音乐", "d"],
+      ["只看不发的我", "", "", "", "n"], ["潜水员 0371", "", "", "", "n"], ["已注销账号", "", "", "", "x"],
+      ["地铁迷", "全国地铁线路图", "", "", "q"], ["模型手作", "高达和比例模型", "", "", "q"], ["法语入门", "", "", "", "q"],
+      ["拍拍小狗", "我家柴犬的日常", "", "", "q"], ["植物观察", "", "", "", "q"], ["海边小镇", "", "", "", "q"]
+    ];
+    const T = {
+      a: ["这期讲清楚一件事", "三分钟看懂原理", "实测一周的结果", "新手最容易踩的坑", "我的工作流分享", "从零开始做一个小项目"],
+      s: ["回来了，聊聊近况", "半年总结"], d: ["最后一期？", "好久不见"]
+    };
+    const mids = P.map((_, i) => String(300100 + i * 7));
+    const people = Object.fromEntries(P.map(([name, sign, ov], i) => [mids[i], { mid: mids[i], name, face: face(i, name[0]), sign, ov }]));
+    const feedV = {}; // mid -> [{ t, c, bvid }]
+    const content = {};
+    P.forEach(([name, , , zone, kind], i) => {
+      const mid = mids[i];
+      if (kind === "a") feedV[mid] = [0, 1, 2].map((k) => ({ t: `${name}：${T.a[(i + k) % T.a.length]}`, c: nowS - (i * 2 + k * 9 + 1) * DAY + 3600 * k, bvid: `BV1fw${String(i).padStart(3, "0")}${k}` }));
+      if (kind === "s") content[mid] = { code: 0, count: 40 + i, tlist: { [zone]: 30, 生活: 3 }, v: T.s.map((t, k) => ({ t: `${name}：${t}`, c: nowS - (120 + i * 3 + k * 40) * DAY })), at: nowS - DAY };
+      if (kind === "d") content[mid] = { code: 0, count: 12 + i, tlist: { [zone]: 10 }, v: T.d.map((t, k) => ({ t: `${name}：${t}`, c: nowS - (400 + i * 5 + k * 60) * DAY })), at: nowS - DAY };
+      if (kind === "n") content[mid] = { code: 0, count: 0, tlist: {}, v: [], at: nowS - DAY };
+      if (kind === "x") content[mid] = { code: -404, at: nowS - DAY };
+    });
+    // The 待查 people, as follow-sync's 查投稿 fills them in.
+    const later = Object.fromEntries(P.map(([name, , , zone, kind], i) => [mids[i], kind]).filter(([, k]) => k === "q").map(([mid], j) => {
+      const p = P[mids.indexOf(mid)];
+      const days = [5, 150, 500, 30, 220, 0][j];
+      return [mid, days ? { code: 0, count: 20 + j, tlist: { [p[3] || "生活"]: 12 }, v: [{ t: `${p[0]}：最近一期`, c: nowS - days * DAY }], at: nowS } : { code: 0, count: 0, tlist: {}, v: [], at: nowS }];
+    }));
+    const special = { [mids[0]]: 1, [mids[3]]: 1, [mids[8]]: 1 };
+    const followTime = Object.fromEntries(mids.map((m, i) => [m, nowS - (i * 37 + 3) * DAY]));
+    const goneMids = ["300900", "300907", "300914"];
+    [["前同事的频道", "生活"], ["抽卡区大佬", "游戏"], ["每日新闻速看", "资讯"]].forEach(([name], i) => (people[goneMids[i]] = { mid: goneMids[i], name, face: face(40 + i, name[0]), sign: "", ov: "" }));
+    const tags = [
+      { id: "ftsci", name: "硬核科普", color: "#3590a0", rule: "讲原理、讲方法的知识区 UP 主" },
+      { id: "ftgame", name: "游戏", color: "#dc6d2d", rule: "" },
+      { id: "ftlife", name: "生活", color: "#da86c3", rule: "日常、美食、户外" }
+    ];
+    const tagMap = { [mids[0]]: ["ftsci"], [mids[1]]: ["ftsci"], [mids[3]]: ["ftsci"], [mids[4]]: ["ftsci"], [mids[12]]: ["ftsci"], [mids[8]]: ["ftgame"], [mids[9]]: ["ftgame"], [mids[23]]: ["ftgame"], [mids[10]]: ["ftlife"], [mids[11]]: ["ftlife"], [mids[19]]: ["ftlife", "ftsci"] };
+    const listRec = { at: nowS - 3 * 3600, list: mids, followTime, special, complete: true };
+    const lastRec = { at: nowS - 3 * 3600, since: nowS - (fmode === "partial" ? 20 : 95) * DAY, map: Object.fromEntries(Object.entries(feedV).map(([m, v]) => [m, v[0].c])), v: feedV };
+    const unfollowed = {
+      [goneMids[0]]: { at: nowS - 2 * DAY, tagIds: ["ftlife"], source: "app" },
+      [goneMids[1]]: { at: nowS - 9 * DAY, tagIds: ["ftgame"], source: "bili" },
+      [goneMids[2]]: { at: nowS - 30 * DAY, tagIds: [], source: "bili" }
+    };
+    const full = {
+      follow_list: listRec,
+      follow_people: people,
+      follow_last: lastRec,
+      follow_content: content,
+      follow_tags: tags,
+      follow_tag_map: tagMap,
+      follow_unfollowed: unfollowed,
+      follow_jobs: { running: false, startedAt: nowS - 3 * 3600 - 300, finishedAt: nowS - 3 * 3600, lastFinishedAt: nowS - 3 * 3600 }
+    };
+    if (fmode !== "empty") Object.assign(store, structuredClone(full));
+
+    // A fake job: list → feed → arc, written step by step like follow-bg.js, with one 4-second 限流 wait in 查投稿.
+    let job = null;
+    const setJobs = (j) => chrome.storage.local.set({ follow_jobs: j });
+    handlers["follow-sync"] = () => {
+      if (job) return { ok: true, data: {} };
+      const steps = [];
+      const startedAt = Math.floor(Date.now() / 1000);
+      if (!store.follow_list) steps.push(["list", "读关注列表", 3, (k) => k === 2 && chrome.storage.local.set({ follow_list: listRec, follow_people: people, follow_unfollowed: unfollowed })]);
+      steps.push(["feed", "翻视频动态", 4, (k) => k === 3 && chrome.storage.local.set({ follow_last: lastRec, follow_content: { ...content, ...(store.follow_content || {}) } })]);
+      const todo = Object.keys(later).filter((m) => !store.follow_content?.[m]);
+      steps.push(["arc", "查投稿", todo.length, (k) => chrome.storage.local.set({ follow_content: { ...store.follow_content, [todo[k]]: later[todo[k]] } })]);
+      job = { stop: false };
+      (async () => {
+        for (const [phase, step, total, run] of steps) {
+          for (let k = 0; k < total && !job.stop; k++) {
+            await setJobs({ running: true, phase, step, done: k, total, startedAt });
+            if (phase === "arc" && k === 2 && !job.held) {
+              job.held = true;
+              await setJobs({ running: true, phase, step, done: k, total, startedAt, hold: { until: Math.floor(Date.now() / 1000) + 4, why: "throttled" } });
+              await wait(4000);
+            }
+            await wait(700);
+            await run(k);
+          }
+        }
+        const done = Math.floor(Date.now() / 1000);
+        await setJobs(job.stop ? { running: false, startedAt, finishedAt: store.follow_jobs?.finishedAt || 0 } : { running: false, startedAt, finishedAt: done, lastFinishedAt: done });
+        if (!job.stop) chrome.storage.local.set({ follow_list: { ...store.follow_list, at: done } });
+        job = null;
+      })();
+      return { ok: true, data: {} };
+    };
+    handlers["follow-sync-stop"] = () => {
+      if (job) job.stop = true;
+      return { ok: true, data: {} };
+    };
+    // Three pages of the feed: the feed people's videos, newest first, 12 a page.
+    const feedAll = Object.entries(feedV).flatMap(([mid, vs]) => vs.map((v, k) => ({ bvid: v.bvid, aid: 800000 + k, title: v.t, cover: vcover(Number(mid) + k, v.t.split("：")[1] || v.t), duration: 180 + ((Number(mid) * 7 + k * 131) % 1500), play: 1200 + ((Number(mid) * 97 + k) % 400000), mid, name: people[mid].name, face: people[mid].face, at: v.c })))
+      .sort((a, b) => b.at - a.at);
+    handlers["follow-feed"] = async ({ offset }) => {
+      await wait(400);
+      if (globalThis.__mockFeedError) return { ok: false, error: "B站返回 -352: 风控校验失败", code: "THROTTLED" };
+      const start = Number(offset || 0);
+      const items = feedAll.slice(start, start + 12);
+      const next = start + 12;
+      return { ok: true, data: { items, offset: next < feedAll.length ? String(next) : "", hasMore: next < feedAll.length } };
+    };
+    handlers["follow-relation"] = async ({ mid, act }) => {
+      await wait(300);
+      const fl = structuredClone(store.follow_list);
+      const gone = structuredClone(store.follow_unfollowed || {});
+      const map = structuredClone(store.follow_tag_map || {});
+      if (act === 2) {
+        fl.list = fl.list.filter((m) => m !== mid);
+        gone[mid] ||= { at: Math.floor(Date.now() / 1000), tagIds: map[mid] || [], source: "app" };
+        delete map[mid];
+      } else {
+        fl.list = [mid, ...fl.list.filter((m) => m !== mid)];
+        fl.followTime = { ...fl.followTime, [mid]: Math.floor(Date.now() / 1000) };
+        const live = new Set((store.follow_tags || []).map((t) => t.id));
+        const ids = (gone[mid]?.tagIds || []).filter((id) => live.has(id));
+        if (!map[mid]?.length && ids.length) map[mid] = ids;
+        delete gone[mid];
+      }
+      await chrome.storage.local.set({ follow_list: fl, follow_unfollowed: gone, follow_tag_map: map });
+      return { ok: true, data: {} };
+    };
+    handlers["follow-special"] = async ({ mid, on }) => {
+      await wait(300);
+      const fl = structuredClone(store.follow_list);
+      if (!fl.list.includes(mid)) return { ok: false, error: "没有关注这个 UP 主" };
+      fl.special = { ...fl.special };
+      if (on) fl.special[mid] = 1;
+      else delete fl.special[mid];
+      await chrome.storage.local.set({ follow_list: fl });
+      return { ok: true, data: {} };
+    };
+    // By zone: 科技/知识 → 硬核科普, 游戏 → 游戏, 生活/美食/运动 → 生活, 音乐/绘画 → a new 艺术.
+    handlers["follow-ai-tag"] = async ({ mids: asked, tags: tagList, maxNewTags }) => {
+      await wait(500);
+      if (globalThis.__mockNoAI) return noAi();
+      const names = (tagList || store.follow_tags || []).map((t) => t.name);
+      const newTags = maxNewTags > 0 && !names.includes("艺术") ? ["艺术"] : [];
+      const assignments = {};
+      for (const mid of asked) {
+        const zone = P[mids.indexOf(mid)]?.[3] || "";
+        const name = /科技|知识/.test(zone) ? "硬核科普" : /游戏/.test(zone) ? "游戏" : /生活|美食|运动/.test(zone) ? "生活" : /音乐|绘画/.test(zone) ? "艺术" : "";
+        if (name && (names.includes(name) || newTags.includes(name))) assignments[mid] = { add: [name], remove: [] };
+      }
+      return { ok: true, data: { newTags, assignments, note: `按主要分区给 ${Object.keys(assignments).length} 个 UP 主打了标签` } };
+    };
+  }
+
   const msgListeners = [];
   const prev = globalThis.chrome || {};
   globalThis.chrome = Object.assign(prev, {
@@ -387,5 +563,27 @@
       }
     }
   });
+  // 关注 mode follows follow_* changes; only those keys fire storage.onChanged here, so the folder view runs as before.
+  {
+    const listeners = [];
+    const local = chrome.storage.local;
+    const { set, remove } = local;
+    const fire = (keys, before) => {
+      const changes = Object.fromEntries(keys.filter((k) => k.startsWith("follow_")).map((k) => [k, { oldValue: before[k], newValue: clone(store[k]) }]));
+      if (Object.keys(changes).length) listeners.forEach((fn) => fn(changes, "local"));
+    };
+    local.set = async (obj) => {
+      const before = Object.fromEntries(Object.keys(obj).map((k) => [k, clone(store[k])]));
+      await set(obj);
+      fire(Object.keys(obj), before);
+    };
+    local.remove = async (keys) => {
+      const list = [].concat(keys);
+      const before = Object.fromEntries(list.map((k) => [k, clone(store[k])]));
+      await remove(keys);
+      fire(list, before);
+    };
+    chrome.storage.onChanged.addListener = (fn) => listeners.push(fn);
+  }
   console.info("[mock] chrome API mocked for triage dev");
 })();
