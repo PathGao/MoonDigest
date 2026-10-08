@@ -1,6 +1,6 @@
 // What the 分拣台's two modes (triage.js 收藏夹, follow.js 关注) draw the same way, so they cannot drift apart.
 // A plain script loaded before both modules. Everything here returns HTML, text or a comparator; only setActivity,
-// setSync and bindSync touch the elements they are given.
+// setSync and bindSync touch the elements they are given, and mergeAiBatch fills the proposal it is given.
 (() => {
   function esc(v) {
     return String(v ?? "")
@@ -186,5 +186,93 @@
     }
   }
 
-  globalThis.TriageUi = { esc, pad, fmtDate, fmtDuration, fmtCount, cleanTagName, plainClick, img, toCsv, cardTagChip, syncedText, headMeta, titleHtml, ICON, AI_SPARK, byValue, dirWords, sortControl, filterBtn, searchBox, resultCount, rowButtons, menuItem, BACKUP_ITEM, activityHtml, setActivity, waitText, syncPill, setSync, bindSync, tagButtons, sideFoot, emptyState, fillSetRows };
+  // ---------- AI 打标签: the proposal and what it changes, the same in both modes ----------
+  // p = { newTags: [{ key, name, checked }], rows: [{ id, add: ["id:<tag id>" | "new:<key>"], remove: [tag id] }], notes,
+  // errors }; a row's id is a bvid in 收藏夹, a mid in 关注. opts = { tags: the mode's tags (by name; 收藏夹 passes the
+  // folder's), map: row id → tag ids, maxNewTags, excluded: Set of names, scope: Set of the row ids this run sent }.
+  function mergeAiBatch(p, data, opts) {
+    const existing = (name) => opts.tags.find((t) => t.name === name);
+    const proposed = (name) => p.newTags.find((t) => t.key === name);
+    const addNew = (name) => {
+      if (p.newTags.length >= opts.maxNewTags) return null;
+      const t = { key: name, name, checked: true };
+      p.newTags.push(t);
+      return t;
+    };
+    const blocked = (name) => opts.excluded?.has(name);
+    for (const raw of data?.newTags || []) {
+      const name = String(raw ?? "").trim();
+      if (name && !blocked(name) && !existing(name) && !proposed(name)) addNew(name);
+    }
+    if (data?.note) p.notes.push(String(data.note));
+    for (const [id, a] of Object.entries(data?.assignments || {})) {
+      if (!opts.scope.has(id)) continue;
+      const current = opts.map[id] || [];
+      const add = [];
+      for (const raw of a?.add || []) {
+        const name = String(raw ?? "").trim();
+        if (!name || blocked(name)) continue;
+        const t = existing(name);
+        if (t) {
+          if (!current.includes(t.id)) add.push(`id:${t.id}`);
+          continue;
+        }
+        const nt = proposed(name) || addNew(name);
+        if (nt) add.push(`new:${nt.key}`);
+      }
+      const remove = (a?.remove || [])
+        .map((n) => existing(String(n ?? "").trim()))
+        .filter((t) => t && !blocked(t.name) && current.includes(t.id))
+        .map((t) => t.id);
+      if (!add.length && !remove.length) continue;
+      const row = p.rows.find((r) => r.id === id);
+      if (row) {
+        row.add = [...new Set([...row.add, ...add])];
+        row.remove = [...new Set([...row.remove, ...remove])];
+      } else p.rows.push({ id, add, remove });
+    }
+  }
+  // [id, before, after] for every row that changes its tags. live.has(id): the video is still in the folder, the UP still
+  // followed (others keep their tags). idOf(key) is a new tag's id; an unchecked new tag adds nothing.
+  function aiChanges(p, map, live, idOf) {
+    const out = [];
+    for (const r of p.rows) {
+      if (!live.has(r.id)) continue;
+      const before = map[r.id] || [];
+      const ids = new Set(before);
+      for (const ref of r.add) {
+        const key = ref.slice(4);
+        const id = ref.startsWith("id:") ? ref.slice(3) : p.newTags.find((t) => t.key === key)?.checked && idOf(key);
+        if (id) ids.add(id);
+      }
+      for (const id of r.remove) ids.delete(id);
+      const after = [...ids];
+      if (after.length !== before.length || after.some((id) => !before.includes(id))) out.push([r.id, before, after]);
+    }
+    return out;
+  }
+  // Before 应用: a new tag stands in as "new:key", or as the same-name tag in tags that creating it would return; a
+  // cleared name adds nothing.
+  function previewId(p, key, tags) {
+    const name = cleanTagName(p.newTags.find((t) => t.key === key)?.name);
+    return name && (tags.find((t) => t.name === name)?.id || `new:${key}`);
+  }
+  // The confirm page sums the changes up per tag ("+ 科普 12"); the items are judged afterwards on their cards.
+  // nameOf(id) names an existing tag.
+  function aiTally(p, changes, nameOf) {
+    const name = (id) => (id.startsWith("new:") ? cleanTagName(p.newTags.find((t) => t.key === id.slice(4))?.name) : nameOf(id)) || "";
+    const tally = new Map();
+    for (const [, before, after] of changes) {
+      const rows = after.filter((id) => !before.includes(id)).map((id) => ["add", `+ ${name(id)}`])
+        .concat(before.filter((id) => !after.includes(id)).map((id) => ["remove", `− ${name(id)}`]));
+      for (const [cls, text] of rows) {
+        const t = tally.get(text) || { cls, text, n: 0 };
+        t.n++;
+        tally.set(text, t);
+      }
+    }
+    return [...tally.values()].sort((a, b) => (a.cls === "remove") - (b.cls === "remove") || b.n - a.n);
+  }
+
+  globalThis.TriageUi = { esc, pad, fmtDate, fmtDuration, fmtCount, cleanTagName, plainClick, img, toCsv, cardTagChip, syncedText, headMeta, titleHtml, ICON, AI_SPARK, byValue, dirWords, sortControl, filterBtn, searchBox, resultCount, rowButtons, menuItem, BACKUP_ITEM, activityHtml, setActivity, waitText, syncPill, setSync, bindSync, tagButtons, sideFoot, emptyState, fillSetRows, mergeAiBatch, aiChanges, previewId, aiTally };
 })();

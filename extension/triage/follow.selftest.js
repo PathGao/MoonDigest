@@ -11,7 +11,7 @@ assert.ok(pure.includes("function followStatus") && !pure.includes("document"), 
 const ctx = vm.createContext({ setTimeout, clearTimeout });
 // The pure block sorts with shared.js (UI.byValue / UI.dirWords), as the page does.
 vm.runInContext(fs.readFileSync(path.join(__dirname, "shared.js"), "utf8"), ctx);
-vm.runInContext(`const UI = globalThis.TriageUi;\n${pure}\n;Object.assign(globalThis, { dirLabel, followAiSettings, aiRequests, normDays, settingsProblem, followStatus, lastPostOf, recentTitles, upRow, visibleUps, mergeFeed, feedMatch, sideIds, feedList, feedLeaving, withTags, pickToggle, fromViewer, stepIn, tagsOf, sameTags, restoreTags, mergeAiBatch, aiChanges, aiTally, fmtAgo });`, ctx);
+vm.runInContext(`const UI = globalThis.TriageUi;\n${pure}\n;Object.assign(globalThis, { dirLabel, followAiSettings, aiRequests, normDays, settingsProblem, followStatus, lastPostOf, recentTitles, upRow, visibleUps, mergeFeed, feedMatch, sideIds, feedList, feedLeaving, withTags, pickToggle, fromViewer, stepIn, tagsOf, sameTags, restoreTags, fmtAgo });`, ctx);
 const t = ctx;
 const plain = (v) => JSON.parse(JSON.stringify(v));
 
@@ -143,30 +143,6 @@ const base = () => ({ list: null, last: null, content: {}, people: {}, tags: [],
   assert.ok(t.feedMatch({ mid: "2" }, D, "g:8") && !t.feedMatch({ mid: "1" }, D, "g:8") && !t.feedMatch({ mid: "9" }, D, "g:7"));
 }
 
-
-// ----- AI proposal: merge, cap, excluded, changes, tally -----
-{
-  const tags = [{ id: "t1", name: "科普" }, { id: "t2", name: "游戏" }];
-  const map = { a: ["t1"], b: ["t2"] };
-  const opts = { tags, map, maxNewTags: 1, excluded: new Set(["游戏"]), scope: new Set(["a", "b", "c"]) };
-  const p = { newTags: [], rows: [], notes: [], errors: [] };
-  t.mergeAiBatch(p, { newTags: ["美食", "旅行"], assignments: { a: { add: ["科普", "美食"], remove: [] }, b: { add: ["旅行"], remove: ["游戏"] }, c: { add: ["游戏", "科普"] }, z: { add: ["科普"] } }, note: "n1" }, opts);
-  t.mergeAiBatch(p, { assignments: { c: { add: ["美食"], remove: ["科普"] } } }, opts);
-  assert.deepStrictEqual(plain(p.newTags).map((x) => x.name), ["美食"], "new tags capped at maxNewTags");
-  assert.deepStrictEqual(plain(p.rows), [
-    { mid: "a", add: ["new:美食"], remove: [] },
-    { mid: "c", add: ["id:t1", "new:美食"], remove: [] }
-  ], "existing tag on a → nothing; excluded 游戏 never added or removed; out-of-scope z dropped; batches merge per UP");
-  assert.deepStrictEqual(p.notes, ["n1"]);
-  const follow = new Set(["a", "b"]); // c was unfollowed while the proposal was open
-  const ch = plain(t.aiChanges(p, map, follow, (key) => `new-${key}`));
-  assert.deepStrictEqual(ch, [["a", ["t1"], ["t1", "new-美食"]]], "an unfollowed UP gets nothing");
-  p.newTags[0].checked = false;
-  assert.deepStrictEqual(plain(t.aiChanges(p, map, follow, (key) => `new-${key}`)), [], "an unchecked new tag adds nothing");
-  p.newTags[0].checked = true;
-  const tally = plain(t.aiTally([["a", ["t1"], ["t1", "n"]], ["b", ["t1"], ["n"]], ["c", ["t2"], ["t2", "n"]]], (id) => ({ t1: "科普", t2: "游戏", n: "美食" })[id]));
-  assert.deepStrictEqual(tally, [{ cls: "add", text: "+ 美食", n: 3 }, { cls: "remove", text: "− 科普", n: 1 }]);
-}
 
 // ----- 关注's own AI settings: first use copies 收藏夹's, then they are independent -----
 {

@@ -3159,7 +3159,8 @@ async function runAiCommand() {
       p.errors.push(`第 ${i + 1} 批失败：${r.error}`);
       if (/截断|配置 AI|未授权访问/.test(r.error || "")) handleAiError(r.error);
     } else {
-      mergeAiBatch(p, r.data, opts, scopeSet);
+      // not tagIdsOf: the open folder may have changed since the run started
+      UI.mergeAiBatch(p, r.data, { ...opts, tags: S.tags.filter((t) => t.folder === folder), map: S.videoTags, scope: scopeSet });
     }
     if (i + 1 < total) await sleepWhile(S.settings.triageIntervalSec * 1000, keepGoing);
   }
@@ -3176,87 +3177,16 @@ async function runAiCommand() {
   else toast("AI 打标签已完成，按 I 查看建议");
 }
 
-function mergeAiBatch(p, data, opts, scopeSet) {
-  const existing = (name) => S.tags.find((t) => t.folder === opts.folder && t.name === name);
-  const proposed = (name) => p.newTags.find((t) => t.key === name);
-  const addNew = (name) => {
-    if (p.newTags.length >= opts.maxNewTags) return null;
-    const t = { key: name, name, checked: true };
-    p.newTags.push(t);
-    return t;
-  };
-
-  const blocked = (name) => opts.excluded?.has(name);
-  for (const raw of data?.newTags || []) {
-    const name = String(raw ?? "").trim();
-    if (name && !blocked(name) && !existing(name) && !proposed(name)) addNew(name);
-  }
-  if (data?.note) p.notes.push(String(data.note));
-
-  for (const [bvid, a] of Object.entries(data?.assignments || {})) {
-    if (!scopeSet.has(bvid)) continue;
-    const current = S.videoTags[bvid] || []; // not tagIdsOf: the open folder may have changed since the run started
-    const add = [];
-    for (const raw of a?.add || []) {
-      const name = String(raw ?? "").trim();
-      if (!name || blocked(name)) continue;
-      const t = existing(name);
-      if (t) {
-        if (!current.includes(t.id)) add.push(`id:${t.id}`);
-        continue;
-      }
-      const nt = proposed(name) || addNew(name);
-      if (nt) add.push(`new:${nt.key}`);
-    }
-    const remove = (a?.remove || [])
-      .map((n) => String(n ?? "").trim())
-      .filter((n) => !blocked(n))
-      .map(existing)
-      .filter((t) => t && current.includes(t.id))
-      .map((t) => t.id);
-    if (!add.length && !remove.length) continue;
-    const row = p.rows.find((r) => r.bvid === bvid);
-    if (row) {
-      row.add = [...new Set([...row.add, ...add])];
-      row.remove = [...new Set([...row.remove, ...remove])];
-    } else {
-      p.rows.push({ bvid, add, remove });
-    }
-  }
-}
-
-// The tags a row leaves its video with; idOf(key) is a new tag's id, or nothing when it is unchecked or not created.
-// A video that left the folder since the proposal keeps its tags.
-function rowResult(p, row, idOf) {
-  const ids = new Set(S.videoTags[row.bvid] || []);
-  if (!S.itemMap.has(row.bvid)) return [...ids];
-  for (const ref of row.add) {
-    const key = ref.slice(4);
-    const id = ref.startsWith("id:") ? ref.slice(3) : p.newTags.find((t) => t.key === key)?.checked && idOf(key);
-    if (id) ids.add(id);
-  }
-  for (const id of row.remove) ids.delete(id);
-  return [...ids];
-}
-const sameIds = (a, b) => a.length === b.length && a.every((id) => b.includes(id));
-// Before 应用: a new tag stands in as "new:key" (or the same-name tag createTag would return); a cleared name adds nothing.
-function previewId(p, key) {
-  const name = cleanTagName(p.newTags.find((t) => t.key === key)?.name);
-  return name && (S.tags.find((t) => t.folder === String(S.mediaId) && t.name === name)?.id || `new:${key}`);
-}
-// [bvid, before, after] for every row that changes its video's tags.
-function rowChanges(p, idOf = (key) => previewId(p, key)) {
-  return p.rows
-    .map((r) => [r.bvid, S.videoTags[r.bvid] || [], rowResult(p, r, idOf)])
-    .filter(([, before, after]) => !sameIds(before, after));
-}
+// What a proposal changes (shared.js); a video that left the folder since keeps its tags.
+const rowChanges = (p, idOf = (key) => UI.previewId(p, key, viewTags())) => UI.aiChanges(p, S.videoTags, S.itemMap, idOf);
+const tallyNow = (p) => UI.aiTally(p, rowChanges(p), (id) => tagById(id)?.name);
 
 function renderAiReview() {
   const p = S.ai.proposal;
   el.aiNotes.innerHTML =
     p.errors.map((e) => `<p class="fail-text">${esc(e)}</p>`).join("") +
     p.notes.map((n) => `<p class="muted">AI 说明：${esc(n)}</p>`).join("");
-  const uses = (t) => p.rows.filter((r) => S.itemMap.has(r.bvid) && r.add.includes(`new:${t.key}`)).length;
+  const uses = (t) => p.rows.filter((r) => S.itemMap.has(r.id) && r.add.includes(`new:${t.key}`)).length;
   el.aiNewTagsHead.hidden = !p.newTags.length;
   el.aiNewTags.innerHTML = p.newTags
     .map((t, i) => {
@@ -3271,28 +3201,12 @@ function renderAiReview() {
   renderAiRows();
 }
 
-// The 确认页 sums the changes up per tag ("+ 入门 4"); videos are judged afterwards on their cards, under 「AI 刚打的」.
-function aiTally(p) {
-  const tally = new Map();
-  const name = (id) => (id.startsWith("new:") ? cleanTagName(p.newTags.find((t) => t.key === id.slice(4))?.name) : tagById(id)?.name) || "";
-  for (const [, before, after] of rowChanges(p)) {
-    const changes = after.filter((id) => !before.includes(id)).map((id) => ["add", `+ ${name(id)}`])
-      .concat(before.filter((id) => !after.includes(id)).map((id) => ["remove", `− ${name(id)}`]));
-    for (const [cls, text] of changes) {
-      const t = tally.get(text) || { cls, text, n: 0 };
-      t.n++;
-      tally.set(text, t);
-    }
-  }
-  return [...tally.values()].sort((a, b) => (a.cls === "remove") - (b.cls === "remove") || b.n - a.n);
-}
-
 function renderAiRows() {
   const p = S.ai.proposal;
   const n = rowChanges(p).length;
   const newTags = p.newTags.filter((t) => t.checked && cleanTagName(t.name)).length;
   el.aiReviewSummary.textContent = `· ${n} 个视频有改动 · 新标签 ${newTags} 个 · 点「应用」前不会改动任何东西`;
-  const tally = aiTally(p);
+  const tally = tallyNow(p);
   el.aiRows.innerHTML = tally.length
     ? `<div class="chips">${tally.map((t) => `<span class="chip ${t.cls}">${esc(t.text)} <b>${t.n}</b></span>`).join("")}</div>`
     : `<p class="empty">AI 没有提出改动</p>`;

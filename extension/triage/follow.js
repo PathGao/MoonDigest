@@ -182,86 +182,6 @@ function fromViewer(e, frameWin) {
   return ok && ["t", "Escape"].includes(e.data.key) ? e.data.key : "";
 }
 
-// AI 打标签 proposal, as the folder view's 批量打: p = { newTags: [{ key, name, checked }], rows: [{ mid, add: ["id:<id>" |
-// "new:<key>"], remove: [id] }], notes, errors }. opts = { tags, map, maxNewTags, excluded: Set of names, scope: Set of mids }.
-function mergeAiBatch(p, data, opts) {
-  const existing = (name) => opts.tags.find((t) => t.name === name);
-  const proposed = (name) => p.newTags.find((t) => t.key === name);
-  const addNew = (name) => {
-    if (p.newTags.length >= opts.maxNewTags) return null;
-    const t = { key: name, name, checked: true };
-    p.newTags.push(t);
-    return t;
-  };
-  const blocked = (name) => opts.excluded?.has(name);
-  for (const raw of data?.newTags || []) {
-    const name = String(raw ?? "").trim();
-    if (name && !blocked(name) && !existing(name) && !proposed(name)) addNew(name);
-  }
-  if (data?.note) p.notes.push(String(data.note));
-  for (const [mid, a] of Object.entries(data?.assignments || {})) {
-    if (!opts.scope.has(mid)) continue;
-    const current = opts.map[mid] || [];
-    const add = [];
-    for (const raw of a?.add || []) {
-      const name = String(raw ?? "").trim();
-      if (!name || blocked(name)) continue;
-      const t = existing(name);
-      if (t) {
-        if (!current.includes(t.id)) add.push(`id:${t.id}`);
-        continue;
-      }
-      const nt = proposed(name) || addNew(name);
-      if (nt) add.push(`new:${nt.key}`);
-    }
-    const remove = (a?.remove || [])
-      .map((n) => existing(String(n ?? "").trim()))
-      .filter((t) => t && !blocked(t.name) && current.includes(t.id))
-      .map((t) => t.id);
-    if (!add.length && !remove.length) continue;
-    const row = p.rows.find((r) => r.mid === mid);
-    if (row) {
-      row.add = [...new Set([...row.add, ...add])];
-      row.remove = [...new Set([...row.remove, ...remove])];
-    } else p.rows.push({ mid, add, remove });
-  }
-}
-
-// [mid, before, after] for every row that changes its UP's tags. idOf(key) is a new tag's id (or a stand-in before
-// 应用); an unchecked new tag adds nothing. Only UPs in follow (still followed) change.
-function aiChanges(p, map, follow, idOf) {
-  const out = [];
-  for (const r of p.rows) {
-    if (!follow.has(r.mid)) continue;
-    const before = map[r.mid] || [];
-    const ids = new Set(before);
-    for (const ref of r.add) {
-      const key = ref.slice(4);
-      const id = ref.startsWith("id:") ? ref.slice(3) : p.newTags.find((t) => t.key === key)?.checked && idOf(key);
-      if (id) ids.add(id);
-    }
-    for (const id of r.remove) ids.delete(id);
-    const after = [...ids];
-    if (after.length !== before.length || after.some((id) => !before.includes(id))) out.push([r.mid, before, after]);
-  }
-  return out;
-}
-
-// The confirm page sums the changes up per tag ("+ 科普 12"); UPs are judged afterwards on their cards.
-function aiTally(changes, nameOf) {
-  const tally = new Map();
-  for (const [, before, after] of changes) {
-    const rows = after.filter((id) => !before.includes(id)).map((id) => ["add", `+ ${nameOf(id)}`])
-      .concat(before.filter((id) => !after.includes(id)).map((id) => ["remove", `− ${nameOf(id)}`]));
-    for (const [cls, text] of rows) {
-      const t = tally.get(text) || { cls, text, n: 0 };
-      t.n++;
-      tally.set(text, t);
-    }
-  }
-  return [...tally.values()].sort((a, b) => (a.cls === "remove") - (b.cls === "remove") || b.n - a.n);
-}
-
 // 关注's own AI 打标签 settings (chrome.storage.sync follow_ai_settings), clamped like the 分拣设置 fields.
 function normAi(s = {}) {
   const int = (v, lo, hi, d) => (Number.isFinite(Number(v)) && v !== "" && v != null ? Math.min(hi, Math.max(lo, Math.round(Number(v)))) : d);
@@ -1311,7 +1231,7 @@ async function runAi() {
       // Setup problems (配置 AI, 未授权访问) fail every batch alike; 截断 is reported with what to change.
       if (/截断|配置 AI|未授权访问/.test(r.error || "")) T.handleAiError(r.error);
       if (/配置 AI|未授权访问/.test(r.error || "")) break;
-    } else mergeAiBatch(p, r.data, opts);
+    } else UI.mergeAiBatch(p, r.data, opts);
     if (i + 1 < total) await T.sleepWhile(intervalMs, keepGoing);
   }
   if (AI.stop) p.errors.push("已手动停止，这里只有已完成批次的建议");
@@ -1323,11 +1243,7 @@ async function runAi() {
   else toast("AI 打标签完成，点「AI 打标签」查看建议");
 }
 
-const previewId = (p, key) => {
-  const name = p.newTags.find((t) => t.key === key)?.name.trim();
-  return name && (D.tags.find((t) => t.name === name)?.id || `new:${key}`);
-};
-const changesNow = (p) => aiChanges(p, D.map, new Set(following()), (key) => previewId(p, key));
+const changesNow = (p) => UI.aiChanges(p, D.map, new Set(following()), (key) => UI.previewId(p, key, D.tags));
 
 function renderAiReview() {
   const p = AI.proposal;
@@ -1344,10 +1260,9 @@ function renderAiReview() {
 function renderAiTally() {
   const p = AI.proposal;
   const changes = changesNow(p);
-  const newN = p.newTags.filter((t) => t.checked && t.name.trim()).length;
+  const newN = p.newTags.filter((t) => t.checked && cleanTagName(t.name)).length;
   $("fwAiSummary").textContent = `· ${changes.length} 个 UP 主有改动 · 新标签 ${newN} 个 · 点「应用」前不会改动任何东西`;
-  const name = (id) => (id.startsWith("new:") ? p.newTags.find((t) => t.key === id.slice(4))?.name.trim() : tagOf(id)?.name) || "";
-  const tally = aiTally(changes, name);
+  const tally = UI.aiTally(p, changes, (id) => tagOf(id)?.name);
   $("fwAiTally").innerHTML = tally.length
     ? `<div class="chips">${tally.map((t) => `<span class="chip ${t.cls}">${esc(t.text)} <b>${t.n}</b></span>`).join("")}</div>`
     : `<p class="empty">AI 没有提出改动</p>`;
@@ -1360,8 +1275,8 @@ async function applyAi() {
   if (!p) return;
   const had = new Set(D.tags.map((t) => t.id));
   const idFor = {};
-  for (const t of p.newTags) if (t.checked && t.name.trim()) idFor[t.key] = (await addTag(t.name))?.id;
-  const changes = aiChanges(p, D.map, new Set(following()), (key) => idFor[key]);
+  for (const t of p.newTags) if (t.checked && cleanTagName(t.name)) idFor[t.key] = (await addTag(t.name))?.id;
+  const changes = UI.aiChanges(p, D.map, new Set(following()), (key) => idFor[key]);
   const before = tagsOf(D.map, changes.map(([mid]) => mid));
   const created = Object.values(idFor).filter((id) => id && !had.has(id));
   const map = { ...D.map };

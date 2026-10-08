@@ -537,9 +537,9 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   openFake("K", [item(600), item(601)]);
   Object.assign(t.S, { tags: [{ id: "a", name: "旧", color: "#111", folder: "K" }, { id: "o", name: "别处", color: "#222", folder: "L" }], videoTags: {}, titleRes: { BV600: { verdict: "drop", confidence: "high" } } });
   const prop = { newTags: [], rows: [], notes: [], errors: [] };
-  t.mergeAiBatch(prop, { newTags: ["n1", "n2", "旧", "n3", "n4", "n5", "n6"], assignments: { BV600: { add: ["n1", "旧"], verdict: "keep" }, BV601: { verdict: "t-must" } } }, { maxNewTags: 5, folder: "K" }, new Set(["BV600", "BV601"]));
+  t.TriageUi.mergeAiBatch(prop, { newTags: ["n1", "n2", "旧", "n3", "n4", "n5", "n6"], assignments: { BV600: { add: ["n1", "旧"], verdict: "keep" }, BV601: { verdict: "t-must" } } }, { tags: t.viewTags(), map: t.S.videoTags, maxNewTags: 5, scope: new Set(["BV600", "BV601"]) });
   assert.deepStrictEqual(plain(prop.newTags.map((x) => x.name)), ["n1", "n2", "n3", "n4", "n5"]);
-  assert.deepStrictEqual(plain(prop.rows), [{ bvid: "BV600", add: ["new:n1", "id:a"], remove: [] }]);
+  assert.deepStrictEqual(plain(prop.rows), [{ id: "BV600", add: ["new:n1", "id:a"], remove: [] }]);
   t.S.ai.proposal = prop;
   t.el.tagsDialog = { close() {} };
   t.applyAiProposal();
@@ -556,7 +556,7 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   // Names are cleaned as 关注 and the AI clean them: no commas or 顿号, at most 12 characters.
   assert.ok(!t.saveTagEdit(ruled, "name", "n1、") && ruled.name === "旧", "a cleaned duplicate is refused too");
   assert.ok(t.saveTagEdit(ruled, "name", " 旧, ") && ruled.name === "旧");
-  assert.strictEqual(t.previewId({ newTags: [{ key: "k", name: "旧，", checked: true }] }, "k"), "a", "an edited AI name matches the cleaned tag");
+  assert.strictEqual(t.TriageUi.previewId({ newTags: [{ key: "k", name: "旧，", checked: true }] }, "k", t.viewTags()), "a", "an edited AI name matches the cleaned tag");
   t.el.aiInstruction = { value: "按深度分" };
   t.el.aiScope = { value: "filter", options: [], selectedOptions: [] };
   Object.assign(t.S, { tab: "read", aiHistory: [] });
@@ -622,10 +622,10 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   openFake("K", [item(700), item(701), item(702)]);
   Object.assign(t.S, { tags: [{ id: "ga", name: "A", color: "#1", folder: "K" }, { id: "gb", name: "B", color: "#2", folder: "K" }], videoTags: { BV702: ["ga"] }, aiRecent: {} });
   const gp = { newTags: [{ key: "C", name: "C", checked: true }], notes: [], errors: [], rows: [
-    { bvid: "BV700", add: ["id:ga"], remove: [] },
-    { bvid: "BV701", add: ["id:ga", "id:gb"], remove: [] },
-    { bvid: "BV702", add: ["new:C"], remove: ["ga"] }] };
-  assert.deepStrictEqual(plain(vm.runInContext("aiTally", ctx)(gp).map((x) => `${x.text} ${x.n}`)), ["+ A 2", "+ B 1", "+ C 1", "− A 1"]);
+    { id: "BV700", add: ["id:ga"], remove: [] },
+    { id: "BV701", add: ["id:ga", "id:gb"], remove: [] },
+    { id: "BV702", add: ["new:C"], remove: ["ga"] }] };
+  assert.deepStrictEqual(plain(vm.runInContext("tallyNow", ctx)(gp).map((x) => `${x.text} ${x.n}`)), ["+ A 2", "+ B 1", "+ C 1", "− A 1"]);
   t.S.ai.proposal = gp;
   t.el.tagsDialog = { close() {} };
   t.applyAiProposal();
@@ -651,13 +651,13 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   openFake("K", [item(720), item(721), item(722), item(723)]);
   Object.assign(t.S, { tags: [{ id: "na", name: "A", color: "#1", folder: "K" }, { id: "nb", name: "B", color: "#2", folder: "K" }], videoTags: { BV721: ["na"], BV722: ["nb"] }, aiRecent: {} });
   t.S.ai.proposal = { newTags: [{ key: "E", name: "  ", checked: true }, { key: "F", name: "F", checked: true }], notes: [], errors: [], rows: [
-    { bvid: "BV720", add: ["new:E"], remove: [] },
-    { bvid: "BV721", add: ["id:na"], remove: [] },
-    { bvid: "BV722", add: ["id:na"], remove: [] },
-    { bvid: "BV723", add: ["new:F"], remove: [] }] };
+    { id: "BV720", add: ["new:E"], remove: [] },
+    { id: "BV721", add: ["id:na"], remove: [] },
+    { id: "BV722", add: ["id:na"], remove: [] },
+    { id: "BV723", add: ["new:F"], remove: [] }] };
   t.renderAiRows();
   assert.strictEqual(t.el.aiApplyBtn.textContent, "应用到 2 个视频", "no-op rows are not counted");
-  assert.deepStrictEqual(plain(vm.runInContext("aiTally", ctx)(t.S.ai.proposal).map((x) => `${x.text} ${x.n}`)), ["+ A 1", "+ F 1"], "no entry for a cleared name");
+  assert.deepStrictEqual(plain(vm.runInContext("tallyNow", ctx)(t.S.ai.proposal).map((x) => `${x.text} ${x.n}`)), ["+ A 1", "+ F 1"], "no entry for a cleared name");
   t.S.settings.triageTagLimit = 2;
   toasts.length = 0;
   t.applyAiProposal();
@@ -666,7 +666,7 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   assert.deepStrictEqual(plain([t.S.aiRecent.K.bvids, batchA.changes.map((c) => c.bvid)]), [["BV722"], ["BV722"]], "only BV722 changed");
   assert.ok(toasts.some((x) => x.includes("1 个视频")), toasts.join());
   // Nothing to change: no undo step.
-  t.S.ai.proposal = { newTags: [], notes: [], errors: [], rows: [{ bvid: "BV721", add: ["id:na"], remove: [] }] };
+  t.S.ai.proposal = { newTags: [], notes: [], errors: [], rows: [{ id: "BV721", add: ["id:na"], remove: [] }] };
   t.applyAiProposal();
   assert.strictEqual(t.S.undo.at(-1), batchA, "a batch that changed nothing pushes no undo");
   // Another tab ran batch B and deleted tag nb since: U on A keeps B's 「AI 刚打的」 and does not bring the deleted tag back.
@@ -690,7 +690,7 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
 
   // U after 批量打 restores the tags and video tags.
   const beforeApply = plain([t.S.tags, t.S.videoTags]);
-  t.S.ai.proposal = { newTags: [{ key: "z", name: "z", checked: true }], rows: [{ bvid: "BV600", add: ["new:z"], remove: [] }], notes: [], errors: [] };
+  t.S.ai.proposal = { newTags: [{ key: "z", name: "z", checked: true }], rows: [{ id: "BV600", add: ["new:z"], remove: [] }], notes: [], errors: [] };
   t.el.tagsDialog = { close() {} };
   t.applyAiProposal();
   const z = t.S.tags.find((x) => x.name === "z" && x.folder === "K");
@@ -775,7 +775,7 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   t.closePicker();
   assert.deepStrictEqual(plain(t.S.videoTags.BV1), ["yb"], "unticking 甲's x keeps 乙's y");
   // A 批量打 proposal skips a video that left the folder since.
-  t.S.ai.proposal = { newTags: [], rows: [{ bvid: "BV1", add: ["id:xa"], remove: [] }, { bvid: "BV2", add: ["id:xa"], remove: [] }], notes: [], errors: [] };
+  t.S.ai.proposal = { newTags: [], rows: [{ id: "BV1", add: ["id:xa"], remove: [] }, { id: "BV2", add: ["id:xa"], remove: [] }], notes: [], errors: [] };
   t.el.tagsDialog = { close() {} };
   t.applyAiProposal();
   assert.deepStrictEqual(plain([t.S.videoTags.BV1, t.S.videoTags.BV2]), [["yb", "xa"], ["xb", "yb"]]);
@@ -1192,7 +1192,7 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     assert.deepStrictEqual(plain(sent.at(-1).tags), [{ name: "留", rule: "" }]);
     assert.ok(!JSON.stringify(sent.at(-1)).includes("旧"), "not in the tag list nor in the video's current tags");
     assert.deepStrictEqual(plain(t.S.ai.proposal.newTags), [], "not created as a new tag");
-    assert.deepStrictEqual(plain(t.S.ai.proposal.rows), [{ bvid: "BV610", add: ["id:b"], remove: [] }], "not added, not removed");
+    assert.deepStrictEqual(plain(t.S.ai.proposal.rows), [{ id: "BV610", add: ["id:b"], remove: [] }], "not added, not removed");
     t.S.ai.proposal = null;
     t.S.ai.excluded.clear();
     t.S.settings.triageAiRemoveTags = false;
@@ -1223,7 +1223,7 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   assert.ok(/「夹K」的标签建议已完成，在状态栏点「查看」确认/.test(toasts.at(-1)), toasts.at(-1));
   assert.deepStrictEqual(plain(vm.runInContext("activityState()", ctx)), { text: "「夹K」的标签建议待确认", act: "aiOther", actLabel: "查看" }, "folder L points back to K");
   openFake("K", [item(600), item(601)]);
-  assert.deepStrictEqual(plain(t.S.ai.proposal.rows.map((r) => [r.bvid, r.add])), [["BV600", ["id:a"]], ["BV601", ["id:a"]]], "K's own 旧, not L's");
+  assert.deepStrictEqual(plain(t.S.ai.proposal.rows.map((r) => [r.id, r.add])), [["BV600", ["id:a"]], ["BV601", ["id:a"]]], "K's own 旧, not L's");
   t.S.ai.proposal = null;
   Object.assign(t.S.settings, { triageTitleBatchSize: 30 });
 
