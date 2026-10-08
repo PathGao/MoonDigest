@@ -1515,7 +1515,7 @@ window.addEventListener("blur", () => pick.anchor && closePick());
 addEventListener("resize", () => pick.anchor && placePick());
 E.list.addEventListener("mouseover", (e) => (F.hover = e.target.closest(".fw-video")?.dataset.bvid || ""));
 E.list.addEventListener("mouseleave", () => (F.hover = ""));
-$("fwPickInput").addEventListener("input", renderPick);
+BocTyping.bindLive($("fwPickInput"), () => renderPick(), 0);
 $("fwPickInput").addEventListener("keydown", async (e) => {
   if (BocTyping.composing(e) || e.key !== "Enter") return;
   e.preventDefault();
