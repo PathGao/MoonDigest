@@ -350,7 +350,7 @@ function bindSearch(input, run, delay = 150) {
 }
 
 const UI = globalThis.TriageUi;
-const esc = UI.esc;
+const { esc, pad, fmtDate, fmtDuration, fmtCount, cleanTagName, plainClick, img } = UI;
 // Row 2 and the sidebar foot are drawn by shared.js, as in 关注; here before el picks them up.
 $("favRowTools").insertAdjacentHTML("beforeend", UI.searchBox("searchInput", "searchCount", "搜这个收藏夹") + UI.rowButtons({
   activityId: "activity", refreshId: "refreshBtn", refreshLabel: "从 B站刷新这个收藏夹", exportId: "exportBtn", menuId: "tools",
@@ -407,8 +407,12 @@ function noteOwnWrites(obj) {
 let storeFailShown = false;
 function storeSet(key, value) {
   noteOwnWrites({ [key]: value });
-  return chrome.storage.local.set({ [key]: value }).catch((e) => {
-    console.error("[triage] storage write failed", key, e);
+  return store({ [key]: value });
+}
+// Writes obj to storage.local; a failure is logged and toasted once (关注 writes through this too).
+function store(obj) {
+  return chrome.storage.local.set(obj).catch((e) => {
+    console.error("[triage] storage write failed", Object.keys(obj), e);
     if (storeFailShown) return;
     storeFailShown = true;
     toast(`保存失败，本地存储可能已满：${e?.message || e}`, true);
@@ -423,17 +427,10 @@ function serialStore(fn) {
   return run;
 }
 
-const pad = (n) => String(n).padStart(2, "0");
-function fmtDuration(sec) {
-  sec = Math.max(0, Number(sec) || 0);
-  return `${pad(Math.floor(sec / 60))}:${pad(Math.floor(sec % 60))}`;
-}
 function stamp(d = new Date(), withTime = true) {
   const day = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
   return withTime ? `${day}-${pad(d.getHours())}${pad(d.getMinutes())}` : day;
 }
-// pubdate is seconds since the epoch.
-const fmtDate = (sec) => (sec ? stamp(new Date(sec * 1000), false) : "");
 function fmtTime(ts) {
   if (!ts) return "";
   const d = new Date(ts);
@@ -679,8 +676,6 @@ function sortItems(list, sort = "fav", dir = SORT_DIR[sort] || "desc") {
     return sign * (typeof x === "string" ? x.localeCompare(y, "zh") : x - y);
   });
 }
-// 播放量 on a card: 12.3万 from 万 up; nothing when it is not stored yet.
-const fmtPlay = (n) => (n >= 1e8 ? `${Math.round(n / 1e7) / 10}亿` : n >= 1e4 ? `${Math.round(n / 1e3) / 10}万` : String(n));
 const sortWords = (sort, dir) =>
   ({ title: ["A→Z", "Z→A"], play: ["从少到多", "从多到少"], dur: ["从短到长", "从长到短"] })[sort]?.[dir === "asc" ? 0 : 1] ?? (dir === "asc" ? "旧→新" : "新→旧");
 function renderSort() {
@@ -731,7 +726,7 @@ function nextBatch() {
 init();
 // 关注 mode (follow.js) borrows the viewer, the toast and the confirm dialog; in that mode the keys below stay off.
 const followMode = () => Boolean(document.body?.classList.contains("follow-mode"));
-globalThis.MoonTriage = { bindSearch, csvField, openViewer, closeViewer, toast, askConfirm, send, esc, viewing: () => S.viewing };
+globalThis.MoonTriage = { bindSearch, openViewer, closeViewer, toast, askConfirm, send, store, handleAiError, THROTTLES, sleepWhile, viewing: () => S.viewing };
 
 async function init() {
   UI.fillSetRows(document);
@@ -874,7 +869,7 @@ const seenWords = (p, done) => (p >= 100 ? "✓ 看完了" : done ? `✓ 看到 
 // The cover with its progress bar and, once 看完了, the corner tag or the veil (html[data-seen-style] picks one).
 // Below the share, a faint 看到 N% says how far it got.
 function coverHtml(it) {
-  const img = `<img class="cover" src="${esc(it.cover)}" alt="" loading="lazy" referrerpolicy="no-referrer" />`;
+  const pic = `<img class="cover" src="${esc(img(it.cover, "480w_270h_1c"))}" alt="" loading="lazy" referrerpolicy="no-referrer" />`;
   const known = seenPercentOf(it);
   const p = S.seenCfg.bar ? known : null;
   const seen = isFinished(it);
@@ -886,7 +881,7 @@ function coverHtml(it) {
   const tag = S.analyzing.has(it.bvid) ? `<span class="cover-tag running">分析中…</span>` : VERDICTS[v.verdict] ? `<span class="cover-tag ${v.verdict}" title="${esc(v.reason)}">${VERDICTS[v.verdict]}</span>` : "";
   const dur = it.duration ? `<span class="cover-dur">${fmtDuration(it.duration)}</span>` : "";
   // A real link (right-click 在新标签页中打开, ⌘-click), out of the tab order: the title is the same link for the keyboard.
-  return `<a class="cover-wrap${seen ? " seen" : ""}" href="${esc(videoUrl(it.bvid))}" data-act="open" tabindex="-1" aria-hidden="true">${img}${tag}${dur}${mark}${p ? `<span class="seen-bar" title="看到 ${p}%"><i style="width:${Math.max(p, 2)}%"></i></span>` : ""}</a>`;
+  return `<a class="cover-wrap${seen ? " seen" : ""}" href="${esc(videoUrl(it.bvid))}" data-act="open" tabindex="-1" aria-hidden="true">${pic}${tag}${dur}${mark}${p ? `<span class="seen-bar" title="看到 ${p}%"><i style="width:${Math.max(p, 2)}%"></i></span>` : ""}</a>`;
 }
 
 // Runs simplifyMigration once (flag key), then drops the old scheme keys it read.
@@ -2084,7 +2079,7 @@ function cardHtml(it, expanded, mark) {
   const removed = S.mediaId === REMOVED;
   const basketBtn = `<button type="button" data-act="basket" class="${inBasket ? "on" : ""}" aria-pressed="${inBasket}" aria-label="${inBasket ? "移出" : "加入"}优先看 (E)">优先看<kbd class="key">E</kbd></button>`;
   const askBtn = `<button type="button" data-act="ask" aria-label="问 AI (Q)">${AI_SPARK}问 AI<kbd class="key">Q</kbd></button>`;
-  const meta = [it.upper, fmtDate(it.pubdate), Number.isFinite(it.play) && `▶ ${fmtPlay(it.play)}`, ["", "粗看", "细看"][v.stage], seenText(it), it.invalid && "已失效", it.folders?.length && `收藏夹：${folderNames(it)}`].filter(Boolean);
+  const meta = [it.upper, fmtDate(it.pubdate), Number.isFinite(it.play) && `▶ ${fmtCount(it.play)}`, ["", "粗看", "细看"][v.stage], seenText(it), it.invalid && "已失效", it.folders?.length && `收藏夹：${folderNames(it)}`].filter(Boolean);
   const left = removed && [originHtml(it), it.removedAt && `<span>${esc(leftText(it))}</span>`].filter(Boolean).join("");
 
   const verdict = decision ? "" : verdictBadge(b, v);
@@ -2102,7 +2097,7 @@ function cardHtml(it, expanded, mark) {
 
   const chips = tagIdsOf(b)
     .map((id) => tagById(id))
-    .map((t) => `<button type="button" class="chip card-tag" style="--c:${esc(t.color)}" data-untag="${esc(t.id)}" aria-label="去掉标签 ${esc(t.name)}" title="点一下去掉这个标签 · U 撤销">${esc(t.name)}<span class="x" aria-hidden="true">×</span></button>`)
+    .map((t) => UI.cardTagChip(t, "点一下去掉这个标签 · U 撤销"))
     .join("");
 
   const body = [];
@@ -2182,8 +2177,6 @@ function setFocus(bvid, scroll = true) {
 }
 
 const pointerMoved = (at, x, y) => !at || at.x !== x || at.y !== y;
-// A plain primary click on a card link opens the viewer here; with ⌘ / Ctrl / Shift / Alt the browser handles the link.
-const plainClick = (e) => e.button === 0 && !e.metaKey && !e.ctrlKey && !e.shiftKey && !e.altKey;
 
 function moveFocus(delta) {
   const list = visibleItems();
@@ -2653,6 +2646,8 @@ const saveTags = () => storeSet(K.tags, S.tags);
 // Returns the folder's tag with this name, creating it if needed; the color comes from the palette in turn.
 // null (with a toast) outside a folder or when the folder already has tagLimit() tags.
 function createTag(name, folder = S.mediaId) {
+  name = cleanTagName(name);
+  if (!name) return toast("标签名不能为空", true), null;
   if (folder === ALL || folder === REMOVED || !folder) return toast(FOLDER_ONLY, true), null;
   const own = S.tags.filter((t) => t.folder === String(folder));
   const existing = own.find((t) => t.name === name);
@@ -2810,7 +2805,7 @@ function showTagsMode(mode) {
 
 // A rename or rule edit from 管理; false (and nothing saved) for an empty or duplicate name.
 function saveTagEdit(t, field, value) {
-  const text = String(value ?? "").trim();
+  const text = field === "name" ? cleanTagName(value) : String(value ?? "").trim();
   if (field === "name") {
     if (!text || S.tags.some((x) => x !== t && x.folder === t.folder && x.name === text)) {
       toast(text ? "已有同名标签" : "标签名不能为空", true);
@@ -2838,7 +2833,7 @@ function renderTagManager() {
         .map(
           (t) => `<div class="tag-row" data-id="${esc(t.id)}">
       <span class="dot" style="--c:${esc(t.color)}"></span>
-      <input type="text" value="${esc(t.name)}" data-field="name" aria-label="标签名称" />
+      <input type="text" value="${esc(t.name)}" data-field="name" maxlength="12" aria-label="标签名称" />
       <input type="text" value="${esc(t.rule || "")}" data-field="rule" maxlength="80" placeholder="什么样的视频打这个标签（给 AI 看，可不写）" aria-label="${esc(t.name)} 的说明" />
       <span class="muted">${counts[t.id] || 0} 个视频</span>
       <button type="button" class="danger" data-field="delete" aria-label="删除标签 ${esc(t.name)}">删除</button>
@@ -3247,7 +3242,7 @@ function rowResult(p, row, idOf) {
 const sameIds = (a, b) => a.length === b.length && a.every((id) => b.includes(id));
 // Before 应用: a new tag stands in as "new:key" (or the same-name tag createTag would return); a cleared name adds nothing.
 function previewId(p, key) {
-  const name = p.newTags.find((t) => t.key === key)?.name.trim();
+  const name = cleanTagName(p.newTags.find((t) => t.key === key)?.name);
   return name && (S.tags.find((t) => t.folder === String(S.mediaId) && t.name === name)?.id || `new:${key}`);
 }
 // [bvid, before, after] for every row that changes its video's tags.
@@ -3269,7 +3264,7 @@ function renderAiReview() {
       const n = uses(t);
       return `<div class="ai-newtag" data-i="${i}">
       <input type="checkbox" data-nt="checked"${t.checked ? " checked" : ""} aria-label="创建标签 ${esc(t.name)}" />
-      <input type="text" data-nt="name" value="${esc(t.name)}" aria-label="新标签名称" />
+      <input type="text" data-nt="name" value="${esc(t.name)}" maxlength="12" aria-label="新标签名称" />
       <span class="muted">${n ? `用在 ${n} 个视频` : "没有视频用到"}</span>
     </div>`;
     })
@@ -3280,7 +3275,7 @@ function renderAiReview() {
 // The 确认页 sums the changes up per tag ("+ 入门 4"); videos are judged afterwards on their cards, under 「AI 刚打的」.
 function aiTally(p) {
   const tally = new Map();
-  const name = (id) => (id.startsWith("new:") ? p.newTags.find((t) => t.key === id.slice(4))?.name.trim() : tagById(id)?.name) || "";
+  const name = (id) => (id.startsWith("new:") ? cleanTagName(p.newTags.find((t) => t.key === id.slice(4))?.name) : tagById(id)?.name) || "";
   for (const [, before, after] of rowChanges(p)) {
     const changes = after.filter((id) => !before.includes(id)).map((id) => ["add", `+ ${name(id)}`])
       .concat(before.filter((id) => !after.includes(id)).map((id) => ["remove", `− ${name(id)}`]));
@@ -3296,7 +3291,7 @@ function aiTally(p) {
 function renderAiRows() {
   const p = S.ai.proposal;
   const n = rowChanges(p).length;
-  const newTags = p.newTags.filter((t) => t.checked && t.name.trim()).length;
+  const newTags = p.newTags.filter((t) => t.checked && cleanTagName(t.name)).length;
   el.aiReviewSummary.textContent = `· ${n} 个视频有改动 · 新标签 ${newTags} 个 · 点「应用」前不会改动任何东西`;
   const tally = aiTally(p);
   el.aiRows.innerHTML = tally.length
@@ -3313,8 +3308,7 @@ function applyAiProposal() {
   const hadTags = new Set(S.tags.map((t) => t.id));
   const idFor = {};
   for (const t of p.newTags) {
-    const name = t.name.trim();
-    if (t.checked && name) idFor[t.key] = createTag(name)?.id;
+    if (t.checked && cleanTagName(t.name)) idFor[t.key] = createTag(t.name)?.id;
   }
   const changes = []; // [{ bvid, before }]: what U puts back
   for (const [bvid, before, after] of rowChanges(p, (key) => idFor[key])) {
@@ -3409,7 +3403,7 @@ function renderBasket() {
       const note = S.notes[x.bvid]?.text?.trim();
       return `<div class="basket-item${x.opened ? " opened" : ""}${x.bvid === S.viewing ? " playing" : ""}" data-i="${i}">
       <button type="button" class="basket-open" data-basket="open" aria-label="打开视频 ${title}">
-        ${it.cover ? `<img class="basket-cover" src="${esc(it.cover)}" alt="" loading="lazy" referrerpolicy="no-referrer" />` : ""}
+        ${it.cover ? `<img class="basket-cover" src="${esc(img(it.cover, "160w_90h_1c"))}" alt="" loading="lazy" referrerpolicy="no-referrer" />` : ""}
         <span class="basket-text"><span class="basket-title">${title}</span>${meta || x.opened ? `<span class="muted">${[meta, x.opened && "已打开"].filter(Boolean).join(" · ")}</span>` : ""}</span>
       </button>
       <div class="basket-actions">
@@ -3689,12 +3683,6 @@ async function buildBackup() {
   return out;
 }
 
-function csvField(v) {
-  let s = String(v ?? "");
-  // Spreadsheets run a cell that starts with = + - @ (or tab/CR) as a formula; a leading ' keeps it text.
-  if (/^[=+\-@\t\r]/.test(s)) s = `'${s}`;
-  return /[",\r\n]/.test(s) ? `"${s.replaceAll('"', '""')}"` : s;
-}
 
 function buildCsv() {
   const title = folderTitle();
@@ -3731,7 +3719,7 @@ function buildCsv() {
       it.removedAt ? leftText(it) : ""
     ]);
   }
-  return "﻿" + rows.map((r) => r.map(csvField).join(",")).join("\r\n") + "\r\n";
+  return UI.toCsv(rows);
 }
 
 // ---------- events ----------

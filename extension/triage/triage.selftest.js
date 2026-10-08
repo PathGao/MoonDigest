@@ -60,7 +60,7 @@ const ctx = vm.createContext({
 });
 vm.runInContext(fs.readFileSync(path.join(__dirname, "..", "limits.js"), "utf8"), ctx);
 vm.runInContext(fs.readFileSync(path.join(__dirname, "shared.js"), "utf8"), ctx);
-vm.runInContext(`${source}\n;globalThis.S = S; globalThis.K = K; globalThis.el = el; globalThis.verdictBadge = verdictBadge; globalThis.seenText = seenText; globalThis.staleCoarse = staleCoarse; globalThis.staleFine = staleFine; globalThis.groupDone = groupDone; globalThis.mergeHead = mergeHead; globalThis.isFinished = isFinished; globalThis.pointerMoved = pointerMoved; globalThis.inferFrom = inferFrom; globalThis.hasAllTags = hasAllTags; globalThis.sortItems = sortItems; globalThis.fmtPlay = fmtPlay; globalThis.sortOf = sortOf; globalThis.visibleItems = visibleItems;`, ctx);
+vm.runInContext(`${source}\n;globalThis.S = S; globalThis.K = K; globalThis.el = el; globalThis.verdictBadge = verdictBadge; globalThis.seenText = seenText; globalThis.staleCoarse = staleCoarse; globalThis.staleFine = staleFine; globalThis.groupDone = groupDone; globalThis.mergeHead = mergeHead; globalThis.isFinished = isFinished; globalThis.pointerMoved = pointerMoved; globalThis.inferFrom = inferFrom; globalThis.hasAllTags = hasAllTags; globalThis.sortItems = sortItems; globalThis.sortOf = sortOf; globalThis.visibleItems = visibleItems;`, ctx);
 const t = ctx;
 vm.runInContext("globalThis.plainClick = plainClick;", ctx);
 const plain = (v) => JSON.parse(JSON.stringify(v));
@@ -105,7 +105,6 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   assert.deepStrictEqual(plain(t.sortOf("7")), { sort: "play", dir: "asc" });
   assert.deepStrictEqual(plain(t.sortOf("8")), { sort: "fav", dir: "desc" });
   t.S.sortBy = {};
-  assert.deepStrictEqual([t.fmtPlay(123456), t.fmtPlay(9999), t.fmtPlay(250000000)], ["12.3万", "9999", "2.5亿"]);
 }
 
 (async () => {
@@ -195,10 +194,7 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   handlers["triage-refav"] = () => ({ ok: true });
 
   // B11: cells that a spreadsheet would run as a formula are prefixed with '.
-  for (const s of ["=1+1", "+cmd", "-2", "@SUM(A1)", "\tx", "\rx"]) assert.ok(t.csvField(s).replace(/^"/, "").startsWith(`'${s[0]}`), s);
-  assert.strictEqual(t.csvField('=HYPERLINK("x")'), `"'=HYPERLINK(""x"")"`);
-  assert.strictEqual(t.csvField("普通 标题"), "普通 标题");
-  assert.strictEqual(t.csvField("a,b"), '"a,b"');
+  // (the cell rule itself is in shared.selftest.js)
   openFake("E", [{ ...item(5), title: "=cmd|' /C calc'!A0", upper: "@up" }]);
   t.S.folders = t.S.allFolders = [{ id: "E", title: "+夹" }];
   const csvRows = t.buildCsv().replace(/^\uFEFF/, "").split("\r\n");
@@ -555,6 +551,10 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   assert.ok(t.saveTagEdit(ruled, "rule", "  讲老技术的  ") && ruled.rule === "讲老技术的");
   assert.deepStrictEqual(plain(store[t.K.tags][0]), { id: "a", name: "旧", color: "#111", folder: "K", rule: "讲老技术的" });
   assert.ok(!t.saveTagEdit(ruled, "name", "n1") && ruled.name === "旧", "a duplicate name is refused");
+  // Names are cleaned as 关注 and the AI clean them: no commas or 顿号, at most 12 characters.
+  assert.ok(!t.saveTagEdit(ruled, "name", "n1、") && ruled.name === "旧", "a cleaned duplicate is refused too");
+  assert.ok(t.saveTagEdit(ruled, "name", " 旧, ") && ruled.name === "旧");
+  assert.strictEqual(t.previewId({ newTags: [{ key: "k", name: "旧，", checked: true }] }, "k"), "a", "an edited AI name matches the cleaned tag");
   t.el.aiInstruction = { value: "按深度分" };
   t.el.aiScope = { value: "filter", options: [], selectedOptions: [] };
   Object.assign(t.S, { tab: "read", aiHistory: [] });
@@ -608,6 +608,11 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   t.S.settings.triageTagLimit = 10;
   t.S.tags = t.S.tags.filter((x) => !/^c\d$/.test(x.name));
   assert.strictEqual(vm.runInContext("aiNewTagRoom()", ctx), 4);
+  const long = t.createTag("入门，进阶一二三四五六七八九十");
+  assert.strictEqual(long.name, "入门进阶一二三四五六七八");
+  assert.strictEqual(t.createTag(" 入门进阶一二三四五六七八 ").id, long.id);
+  assert.strictEqual(t.createTag("、"), null, "a name that cleans to nothing is refused");
+  t.S.tags = t.S.tags.filter((x) => x !== long);
   t.renderAiForm();
   assert.ok(t.el.aiTagsPreview.innerHTML.includes("AI 这次最多新建 4 个（这个收藏夹还剩 4 个名额）"));
   // 批量打 确认页 sums the changes per tag; applying records 「AI 刚打的」, which ends four ways.

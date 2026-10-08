@@ -37,4 +37,41 @@ assert.strictEqual(UI.resultCount("x", 5), "5 个结果");
   assert.ok(html.includes('<option value="b" selected>乙') && !html.includes('value="a" selected') && html.includes('aria-label="排序方向：A→Z"'));
 }
 
+// Counts and durations read the same in both modes: one decimal for 万 and 亿, hours from 60 minutes up.
+assert.deepStrictEqual([123456, 100000, 9999, 250000000, 150000].map(UI.fmtCount), ["12.3万", "10万", "9999", "2.5亿", "15万"]);
+assert.deepStrictEqual([0, 65, 75 * 60, 3600, 59.9].map(UI.fmtDuration), ["00:00", "01:05", "1:15:00", "1:00:00", "00:59"]);
+assert.strictEqual(UI.fmtDate(0), "");
+assert.strictEqual(UI.fmtDate(new Date(2026, 0, 5, 12).getTime() / 1000), "2026-01-05");
+assert.strictEqual(UI.img("//i0.hdslb.com/a.jpg", "48w_48h_1c"), "https://i0.hdslb.com/a.jpg@48w_48h_1c.webp");
+assert.strictEqual(UI.img("https://i0.hdslb.com/a.jpg@1c.webp", "48w"), "https://i0.hdslb.com/a.jpg@1c.webp", "a sized URL stays");
+
+// Tag names: the pages and the background clean them the same way, so AI suggestions match what was typed.
+{
+  const bg = fs.readFileSync(path.join(__dirname, "triage-bg.js"), "utf8");
+  const at = bg.indexOf("function triageCleanTagName(");
+  vm.runInContext(bg.slice(at, bg.indexOf("\n}\n", at) + 2), ctx);
+  const cases = [["入门，进阶", "入门进阶"], ["入门, 进阶", "入门 进阶"], ["a，b、c,d", "abcd"], [" 一二三四五六七八九十甲乙丙 ", "一二三四五六七八九十甲乙"], ["、", ""], [null, ""], ["  AI  ", "AI"]];
+  for (const [raw, want] of cases) {
+    assert.strictEqual(UI.cleanTagName(raw), want, String(raw));
+    assert.strictEqual(ctx.triageCleanTagName(raw), want, `background: ${raw}`);
+  }
+}
+
+// Video links: only a plain primary click plays here; modified clicks are the browser's.
+{
+  const click = (o) => ({ button: 0, metaKey: false, ctrlKey: false, shiftKey: false, altKey: false, ...o });
+  assert.ok(UI.plainClick(click({})));
+  for (const k of ["metaKey", "ctrlKey", "shiftKey", "altKey"]) assert.ok(!UI.plainClick(click({ [k]: true })), k);
+  assert.ok(!UI.plainClick(click({ button: 1 })), "middle click");
+}
+
+// CSV: cells a spreadsheet would run as a formula get a leading '; BOM and CRLF around the rows.
+{
+  for (const s of ["=1+1", "+cmd", "-2", "@SUM(A1)", "\tx", "\rx"]) assert.ok(UI.toCsv([[s]]).slice(1).replace(/^"/, "").startsWith(`'${s[0]}`), JSON.stringify(s));
+  assert.strictEqual(UI.toCsv([['=HYPERLINK("x")', "普通 标题", "a,b"], [1, null]]), `\ufeff"'=HYPERLINK(""x"")",普通 标题,"a,b"\r\n1,\r\n`);
+}
+
+// A card's tag chip escapes its name and says what undoes it.
+assert.ok(UI.cardTagChip({ id: "t1", name: "<b>", color: "#fff" }, "点一下去掉").includes('data-untag="t1" aria-label="去掉标签 &lt;b&gt;" title="点一下去掉">&lt;b&gt;<span class="x"'));
+
 console.log("shared selftest: all passed");

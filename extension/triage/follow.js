@@ -127,11 +127,6 @@ function dirLabel(sort, dir) {
   if (sort === "fans") return dir === "asc" ? "从少到多" : "从多到少";
   return dir === "asc" ? "旧→新" : "新→旧";
 }
-// 粉丝 12.3万: one decimal from 万 up, none below.
-function fmtFans(n) {
-  const one = (v) => String(Math.round(v * 10) / 10);
-  return n >= 1e8 ? `${one(n / 1e8)}亿` : n >= 1e4 ? `${one(n / 1e4)}万` : String(n);
-}
 
 // Adds a feed page to the loaded videos without repeats, newest first (B站 pages overlap and come slightly out of
 // order); ties keep their order. add = the videos that were new.
@@ -300,17 +295,16 @@ function fmtAgo(sec, now) {
   if (d < 365) return `${Math.floor(d / 30)} 个月前`;
   return `${Math.floor(d / 365)} 年前`;
 }
-// A plain primary click on a video link plays it in the viewer here; with ⌘ / Ctrl / Shift / Alt the browser opens it.
-const plainClick = (e) => e.button === 0 && !e.metaKey && !e.ctrlKey && !e.shiftKey && !e.altKey;
 // PURE-END
 
 // ---------- page ----------
 const T = globalThis.MoonTriage;
 const UI = globalThis.TriageUi;
-const { esc, toast, askConfirm, send } = T;
+const { toast, askConfirm, send } = T;
+const { esc, fmtDate, fmtDuration, fmtCount, cleanTagName, plainClick, img } = UI;
 const KEYS = ["follow_list", "follow_people", "follow_last", "follow_content", "follow_tags", "follow_tag_map", "follow_unfollowed", "follow_jobs", "follow_ai_recent", "follow_stats", "follow_groups"];
 const VIEW_KEY = "follow_view"; // { mode: "fav" | "follow", tab: "ups" | "feed", sort, dir }
-const saveView = () => chrome.storage.local.set({ [VIEW_KEY]: { mode: F.mode, tab: F.tab, sort: F.sort, dir: F.dir } });
+const saveView = () => T.store({ [VIEW_KEY]: { mode: F.mode, tab: F.tab, sort: F.sort, dir: F.dir } });
 const AI_HISTORY_KEY = "follow_ai_history";
 const STATUS_TEXT = Object.fromEntries(STATUS);
 const STATUS_BADGE = { active: "keep", slow: "unsure", dead: "drop", stale: "unsure low", none: "none", unchecked: "none" };
@@ -320,18 +314,6 @@ const FEED_KEEP_MS = 3 * 60 * 1000; // as the background's cache; older lists st
 const space = (mid) => `https://space.bilibili.com/${mid}`;
 const video = (bvid) => `https://www.bilibili.com/video/${bvid}`;
 const nowSec = () => Date.now() / 1000;
-// hdslb images: https and a small webp copy.
-const img = (u, size) => {
-  const s = String(u || "").replace(/^(https?:)?\/\//, "https://");
-  return /hdslb\.com\//.test(s) && !s.includes("@") ? `${s}@${size}.webp` : s;
-};
-const pad = (n) => String(n).padStart(2, "0");
-const fmtDate = (sec) => {
-  const d = new Date(sec * 1000);
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
-};
-const fmtDur = (s) => (s >= 3600 ? `${Math.floor(s / 3600)}:` : "") + `${pad(Math.floor((s % 3600) / 60))}:${pad(Math.floor(s % 60))}`;
-const fmtCount = (n) => (n >= 1e4 ? `${(n / 1e4).toFixed(n >= 1e5 ? 0 : 1)}万` : String(n || 0));
 const AI_SPARK = UI.AI_SPARK;
 const PLACEHOLDER = { ups: "搜 UP 主：名字、签名、分区", feed: "搜动态：标题、UP 主" };
 
@@ -418,7 +400,7 @@ const following = () => D.list?.list || [];
 const tagOf = (id) => D.tags.find((t) => t.id === id);
 const nameOf = (mid) => rows.get(mid)?.name || mid;
 const upName = (mid) => D.people?.[mid]?.name || F.feed?.items.find((it) => it.mid === mid)?.name || nameOf(mid);
-const write = (obj) => chrome.storage.local.set(obj);
+const write = T.store;
 const names = (mids) => mids.slice(0, 20).map((m) => esc(nameOf(m))).join("、") + (mids.length > 20 ? ` 等 ${mids.length} 个` : "");
 
 async function setTagMap(map) {
@@ -436,7 +418,6 @@ function newTag(name) {
   const color = TAG_COLORS.find((c) => !D.tags.some((t) => t.color === c)) || TAG_COLORS[D.tags.length % TAG_COLORS.length];
   return { id: `ft${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`, name, color, rule: "" };
 }
-const cleanName = (s) => String(s ?? "").replace(/[,，、]/g, "").trim().slice(0, 12);
 
 // ---------- mode ----------
 async function setMode(mode, save = true) {
@@ -511,7 +492,7 @@ function renderSync() {
   pill.hidden = !j.running;
   if (!j.running) return;
   const left = j.hold?.until ? Math.ceil(j.hold.until - nowSec()) : 0;
-  const wait = left > 0 && `${j.hold.why === "throttled" ? "B站限流" : "网络断了"}，${fmtDur(left)} 后重试`;
+  const wait = left > 0 && `${j.hold.why === "throttled" ? "B站限流" : "网络断了"}，${fmtDuration(left)} 后重试`;
   const text = wait || `${j.step || PHASE[j.phase] || "刷新中"}${j.total ? ` ${j.done || 0}/${j.total}` : j.done ? ` ${j.done}` : ""}`;
   pill.classList.toggle("warn", Boolean(wait));
   pill.innerHTML = UI.activityHtml({ text, done: j.done || 0, total: wait ? 0 : j.total || 0, btn: { attrs: "data-fw-stop", label: "暂停" } });
@@ -605,12 +586,12 @@ function upCard(mid) {
     u.zone,
     u.last ? `最后投稿 ${fmtAgo(u.last, now)}` : u.status === "stale" && !u.gone ? `${cfg.slowDays} 天以上没投稿` : "",
     u.count && `${u.count} 个视频`,
-    u.fans != null ? `粉丝 ${fmtFans(u.fans)}` : F.sort === "fans" && !u.gone ? "粉丝数未查" : "",
+    u.fans != null ? `粉丝 ${fmtCount(u.fans)}` : F.sort === "fans" && !u.gone ? "粉丝数未查" : "",
     u.gone ? `${u.gone.source === "bili" ? "在 B站取关" : "在这里取关"} · ${fmtAgo(u.gone.at || now, now)}` : u.followed && `关注于 ${fmtDate(u.followed)}`
   ].filter(Boolean);
   const chips = u.tagIds.map(tagOf).map((t) => u.gone
     ? `<span class="chip" style="--c:${esc(t.color)}">${esc(t.name)}</span>`
-    : `<button type="button" class="chip card-tag" style="--c:${esc(t.color)}" data-untag="${esc(t.id)}" aria-label="去掉标签 ${esc(t.name)}" title="点一下去掉这个标签">${esc(t.name)}<span class="x" aria-hidden="true">×</span></button>`).join("");
+    : UI.cardTagChip(t, "点一下去掉这个标签")).join("");
   const titles = u.titles.length
     ? `<ul class="fw-titles">${u.titles.map((v) => `<li>${v.bvid ? `<a class="fw-title" href="${esc(video(v.bvid))}" data-play="${esc(v.bvid)}" title="在右侧播放">${esc(v.t)}</a>` : `<span class="fw-title">${esc(v.t)}</span>`}<span class="meta">${esc(fmtAgo(v.c, now))}</span></li>`).join("")}</ul>`
     : "";
@@ -702,7 +683,7 @@ function feedCard(it) {
   const chips = ids.map(tagOf).map((t) => `<span class="chip" style="--c:${esc(t.color)}" data-pick="${esc(it.mid)}">${esc(t.name)}</span>`).join("");
   const target = pick.anchor && pick.mids[0] === it.mid;
   return `<article class="fw-video${on ? " playing" : ""}${target ? " fw-target" : ""}" data-bvid="${esc(it.bvid)}"${on ? ' aria-current="true"' : ""}>
-    <a class="cover-wrap" href="${esc(video(it.bvid))}" data-play="${esc(it.bvid)}" tabindex="-1" aria-hidden="true">${it.cover ? `<img class="cover" src="${esc(img(it.cover, "480w_270h_1c"))}" alt="" loading="lazy" referrerpolicy="no-referrer">` : ""}<span class="cover-dur">${it.duration ? esc(fmtDur(it.duration)) : ""}</span></a>
+    <a class="cover-wrap" href="${esc(video(it.bvid))}" data-play="${esc(it.bvid)}" tabindex="-1" aria-hidden="true">${it.cover ? `<img class="cover" src="${esc(img(it.cover, "480w_270h_1c"))}" alt="" loading="lazy" referrerpolicy="no-referrer">` : ""}<span class="cover-dur">${it.duration ? esc(fmtDuration(it.duration)) : ""}</span></a>
     <div class="fw-video-body">
       <a class="title" href="${esc(video(it.bvid))}" data-play="${esc(it.bvid)}" title="${esc(it.title)}" aria-label="播放 ${esc(it.title)}">${esc(it.title)}</a>
       <div class="meta fw-video-meta"><a class="fw-up-link" href="${space(it.mid)}" target="_blank" rel="noopener">${it.face ? `<img src="${esc(img(it.face, "48w_48h_1c"))}" alt="" loading="lazy" referrerpolicy="no-referrer">` : ""}<span>${esc(it.name)}</span></a><span>${esc(fmtAgo(it.at, nowSec()))}</span>${it.play ? `<span>▶ ${esc(fmtCount(it.play))}</span>` : ""}</div>
@@ -905,7 +886,7 @@ $("fwActivity").addEventListener("click", (e) => {
 function upCsv() {
   const head = ["UP主", "mid", "主页", "标签", "更新状态", "最后投稿", "粉丝数", "关注于", "特别关注", "签名"];
   const out = [head, ...following().map((m) => rows.get(m)).filter(Boolean).map((u) => [u.name, u.mid, space(u.mid), u.tagIds.map((id) => tagOf(id)?.name).filter(Boolean).join("、"), STATUS_TEXT[u.status] || "", u.last ? fmtDate(u.last) : "", u.fans ?? "", u.followed ? fmtDate(u.followed) : "", u.special ? "是" : "", u.sign])];
-  return "\ufeff" + out.map((r) => r.map(T.csvField).join(",")).join("\r\n") + "\r\n";
+  return UI.toCsv(out);
 }
 $("fwExport").addEventListener("click", (e) => e.target.closest("button") && $("fwExport").hidePopover());
 document.body.insertAdjacentHTML("beforeend", `
@@ -1018,7 +999,7 @@ function renderTagRows() {
     : `<p class="muted">还没有 UP 主标签</p>`;
 }
 async function addTag(name) {
-  name = cleanName(name);
+  name = cleanTagName(name);
   if (!name) return null;
   const old = D.tags.find((t) => t.name === name);
   if (old) return old;
@@ -1029,7 +1010,7 @@ async function addTag(name) {
 async function editTag(id, field, value) {
   const t = { ...tagOf(id) };
   if (field === "name") {
-    const name = cleanName(value);
+    const name = cleanTagName(value);
     if (!name || D.tags.some((x) => x.id !== id && x.name === name)) {
       toast(name ? "已有同名标签" : "标签名不能为空", true);
       return renderTagRows();
@@ -1109,7 +1090,7 @@ function placePick() {
 }
 function renderPick() {
   const pop = Boolean(pick.anchor);
-  const q = cleanName($("fwPickInput").value);
+  const q = cleanTagName($("fwPickInput").value);
   $("fwPickInput").hidden = pop && !pick.typing;
   const list = D.tags.filter((t) => !q || t.name.includes(q));
   const have = (t) => pick.mids.filter((m) => (D.map[m] || []).includes(t.id)).length;
@@ -1208,7 +1189,7 @@ async function runAi() {
   }
   if (!mids.length) return (progress.textContent = "作用范围里没有 UP 主");
   AI.history = [instruction, ...AI.history.filter((x) => x !== instruction)].slice(0, 5);
-  chrome.storage.local.set({ [AI_HISTORY_KEY]: AI.history });
+  T.store({ [AI_HISTORY_KEY]: AI.history });
   const excluded = new Set(D.tags.filter((t) => AI.excluded.has(t.id)).map((t) => t.name));
   const tags = D.tags.filter((t) => !excluded.has(t.name)).map((t) => ({ name: t.name, rule: t.rule || "" }));
   const opts = { tags: D.tags, map: D.map, maxNewTags: AI.settings.newTagMax, excluded, scope: new Set(mids) };
@@ -1218,17 +1199,25 @@ async function runAi() {
   AI.running = true;
   AI.stop = false;
   renderAiForm();
-  for (let i = 0; i < total && !AI.stop; i++) {
+  const keepGoing = () => !AI.stop;
+  for (let i = 0; i < total && keepGoing(); i++) {
     progress.textContent = `AI 正在处理第 ${i + 1} / ${total} 批…`;
     const r = await send({ ...batches[i], maxNewTags: Math.max(0, opts.maxNewTags - p.newTags.length) });
+    // An AI 429: wait as 收藏夹 does, then send the same batch again.
+    if (!r.ok && T.THROTTLES[r.code]) {
+      const [ms, label] = T.THROTTLES[r.code];
+      progress.textContent = `${label}，${Math.round(ms / 1000)} 秒后重试第 ${i + 1} 批…`;
+      await T.sleepWhile(ms, keepGoing);
+      i--;
+      continue;
+    }
     if (!r.ok) {
       p.errors.push(`第 ${i + 1} 批失败：${r.error}`);
+      // Setup problems (配置 AI, 未授权访问) fail every batch alike; 截断 is reported with what to change.
+      if (/截断|配置 AI|未授权访问/.test(r.error || "")) T.handleAiError(r.error);
       if (/配置 AI|未授权访问/.test(r.error || "")) break;
     } else mergeAiBatch(p, r.data, opts);
-    if (i + 1 < total) {
-      const end = Date.now() + intervalMs;
-      while (Date.now() < end && !AI.stop) await new Promise((res) => setTimeout(res, 200));
-    }
+    if (i + 1 < total) await T.sleepWhile(intervalMs, keepGoing);
   }
   if (AI.stop) p.errors.push("已手动停止，这里只有已完成批次的建议");
   for (const t of p.newTags) t.checked = p.rows.some((r) => r.add.includes(`new:${t.key}`));
@@ -1430,7 +1419,7 @@ tagsDialog.addEventListener("click", async (e) => {
   if (row && t.closest("[data-del]")) return deleteTag(row.dataset.id);
   if (t.closest("#fwAddTag")) {
     const input = $("fwNewTag");
-    if (cleanName(input.value) && D.tags.some((x) => x.name === cleanName(input.value))) return toast("已有同名标签", true);
+    if (cleanTagName(input.value) && D.tags.some((x) => x.name === cleanTagName(input.value))) return toast("已有同名标签", true);
     if (await addTag(input.value)) {
       input.value = "";
       renderTagRows();
@@ -1467,7 +1456,7 @@ tagsDialog.addEventListener("change", (e) => {
   if (nt && AI.proposal) {
     const tag = AI.proposal.newTags[Number(nt.dataset.i)];
     if (t.dataset.nt === "checked") tag.checked = t.checked;
-    else tag.name = cleanName(t.value);
+    else tag.name = cleanTagName(t.value);
     renderAiTally();
   }
 });
