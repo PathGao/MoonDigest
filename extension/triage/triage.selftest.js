@@ -712,6 +712,14 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   });
   t.renderTabs();
   assert.ok(t.el.tagFilter.innerHTML.includes('data-tagfilter="xa,xb"') && t.el.tagFilter.innerHTML.includes('data-tagfilter="yb"') && !t.el.tagFilter.innerHTML.includes("zc"));
+  // A tag no video on this tab carries stays out of the row, unless its filter is on (so it can be turned off).
+  t.S.tags.push({ id: "wa", name: "w", color: "#5", folder: "A" });
+  t.renderTabs();
+  assert.ok(!t.el.tagFilter.innerHTML.includes('data-tagfilter="wa"'), "an unused tag is not shown");
+  t.S.tagFilter = new Set(["wa"]);
+  t.renderTabs();
+  assert.ok(t.el.tagFilter.innerHTML.includes('data-tagfilter="wa"'), "an unused tag with its filter on is shown");
+  t.S.tags.pop();
   t.S.tagFilter = new Set(t.tagChips()[0].ids);
   assert.deepStrictEqual(plain(t.S.items.filter((it) => t.passFilter(it)).map((it) => it.bvid)), ["BV1", "BV2"], "the merged chip matches either folder's tag");
   t.S.tagFilter = new Set();
