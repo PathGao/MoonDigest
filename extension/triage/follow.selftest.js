@@ -264,4 +264,7 @@ assert.ok(/\.set\(\{ follow_ai_settings: seed \}\)\.catch\(\(e\) => toast\(`保�
 // The player's T / Esc reach 关注 through triage.js's one message listener (modeKeys), as page keys do.
 assert.ok(!/addEventListener\("message"/.test(source), "follow.js has no message listener of its own");
 
+// 已取消关注 is a filter like the others: the selection stays, the ones not listed show as 「另有 N 个被筛选隐藏」.
+assert.ok(source.includes("for (const m of [...F.sel]) if (!rows.has(m)) F.sel.delete(m);"), "renderUps drops only UP 主 that are gone from the data");
+
 console.log("follow selftest: all passed");

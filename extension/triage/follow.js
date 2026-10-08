@@ -502,7 +502,8 @@ function renderUps() {
   const gone = F.side === "gone";
   const { list, counts } = visibleUps(D, rows, { side: F.side, status: gone ? "" : F.status, q: F.q, sort: F.sort, dir: F.dir, recent, source: gone ? F.source : "" });
   shown = list;
-  for (const m of [...F.sel]) if (!rows.has(m) || (F.side === "gone") !== Boolean(rows.get(m).gone)) F.sel.delete(m);
+  // As 收藏夹: switching to 已取消关注 (or back) keeps the selection; the ones not listed count as 被筛选隐藏.
+  for (const m of [...F.sel]) if (!rows.has(m)) F.sel.delete(m);
   const goneN = (src) => Object.values(D.gone).filter((g) => !src || g.source === src).length;
   const seg = gone
     ? [["", "全部"], ["bili", "在 B站取关"], ["app", "在这里取关"]].map(([id, label]) => UI.filterBtn(`data-source="${id}"`, label, goneN(id), F.source === id)).join("")
