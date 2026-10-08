@@ -108,7 +108,8 @@
   }
 }
 
-/* Base buttons for every page: gray by default; .primary = the one blue next step, .ok/.danger = keep/delete, .link = text. Pages only add size/layout. */
+/* Base buttons for every page: gray by default; .primary = the one blue next step, .ok/.danger = keep/delete, .quiet = a
+   light action inside a card or bar, .link = navigation text (never an action). Pages only add size/layout. */
 button {
   height: 32px;
   padding: 0 12px;
@@ -130,6 +131,8 @@ button.danger { color: var(--danger); border-color: var(--danger-border); backgr
 button.danger.solid { background: var(--danger); border-color: var(--danger); color: var(--surface); font-weight: 600; }
 button.link { border: 0; background: none; color: var(--link); padding: 0; }
 button.link:hover { color: var(--link-hover); text-decoration: underline; }
+button.quiet { height: 28px; padding: 0 8px; border: 0; background: none; color: var(--text-2); }
+button.quiet:hover { background: var(--field-bg); color: var(--text); }
 
 :where(input, select, textarea, button, summary, a):focus-visible {
   outline: 2px solid var(--accent);
