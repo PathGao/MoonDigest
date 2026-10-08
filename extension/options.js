@@ -306,8 +306,8 @@ function syncSeenRows() {
     fig.querySelector(".seen-tag").textContent = words;
     fig.querySelector("i").style.width = `${pct}%`;
   };
-  cover("full", share, share >= 100 ? "✓ 看完了" : `✓ 看过 ${share}%`);
-  cover("half", half, `看过 ${half}%`);
+  cover("full", share, share >= 100 ? "✓ 看完了" : `✓ 看到 ${share}%`);
+  cover("half", half, `看到 ${half}%`);
 }
 
 async function saveSettings() {

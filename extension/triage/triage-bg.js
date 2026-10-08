@@ -761,7 +761,7 @@ const TRIAGE_HANDLERS = {
         favTime: m.add_at,
         intro: m.desc,
         invalid: m.state !== 0,
-        // Seconds watched on Bilibili, -1 once finished; the card shows it as 看过 N% or 已看完.
+        // Seconds watched on Bilibili, -1 once finished; the card shows it as 看到 N% or 已看完.
         seen: m.progress
       }));
       return { items, ids: items.map((it) => it.bvid), info: { title: "稍后再看", intro: "" } };
