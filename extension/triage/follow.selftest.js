@@ -305,7 +305,7 @@ assert.ok(source.includes(`pushTagUndo(before, "标签修改", { ask: changes.le
   assert.ok(/UI\.askTransfer\(\{\s*title: `在 B站把这 \$\{mids\.length\} 个 UP 主\$\{verb\}到分组`,\s*n: mids\.length,\s*hows: \[how\],/.test(mc), "the batch confirm: 在 B站…, the count on its one button");
   assert.ok(mc.indexOf("createGroup(") < mc.indexOf("regroup("), "新建分组… first");
   const del = fn("deleteGroup");
-  assert.ok(del.indexOf("askConfirm(") < del.indexOf("follow-group-delete") && del.includes("默认分组") && del.includes("不能按 U 撤销") && del.includes("T.dropModeUndo((step) => step.groups)"), "删除: confirm first, members → 默认分组, no U");
+  assert.ok(/askConfirm\([\s\S]*?\);\s*if \(!ok\) return;\s*const r = await send\(\{ type: "follow-group-delete"/.test(del) && del.includes("默认分组") && del.includes("不能按 U 撤销") && del.includes("T.dropModeUndo((step) => step.groups)"), "删除: confirm first, members → 默认分组, no U");
   assert.ok(/T\.pushUndo\(\{\s*kind: "mode",\s*groups: true,\s*undo: async \(\) => \(\(await renameGroup\(\{ id: g\.id, name \}, old, true\)\)/.test(fn("renameGroup")), "改名: U renames back");
   assert.ok(!/follow-special|data-fw="special-|side-note|只读，在 B站 改/.test(source), "no 特别关注 toggle of its own, no read-only note");
 }
