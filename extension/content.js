@@ -1173,7 +1173,7 @@ async function runRefreshClip() {
           selected = await loadTranscriptFallback(error, runId);
         } else {
           const message = getErrorMessage(error, "");
-          const empty = error?.code === "SUBTITLE_EMPTY";
+          const empty = error?.anyEmpty === true;
           if (!empty && !message.includes("HTTP") && !error?.status && error?.code !== "SUBTITLE_DURATION_MISMATCH") {
             throw error;
           }
@@ -4311,6 +4311,7 @@ function buildSubtitleCandidates(subtitles, preferred) {
 // A refresh always goes to the network so an old cache entry cannot misalign the subtitles.
 async function tryLoadSubtitleCandidates(candidates, runId) {
   let lastError = null;
+  let anyEmpty = false;
   let backedOff = false;
   for (const item of candidates || []) {
     try {
@@ -4343,6 +4344,7 @@ async function tryLoadSubtitleCandidates(candidates, runId) {
         throw limited;
       }
       lastError = error;
+      anyEmpty ||= error?.code === "SUBTITLE_EMPTY";
       const reasonCode = toReadableText(error?.code, "");
       const reasonMessage = getErrorMessage(error, "unknown");
       const meta = {
@@ -4362,6 +4364,8 @@ async function tryLoadSubtitleCandidates(candidates, runId) {
   }
 
   if (lastError) {
+    // The caller's PO-token fallback looks at every track, not just the last one.
+    if (anyEmpty) lastError.anyEmpty = true;
     throw lastError;
   }
   throw new Error("这个视频暂时没有可用字幕。");
