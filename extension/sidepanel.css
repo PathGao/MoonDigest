@@ -1326,9 +1326,9 @@ body:has(#spInput:not(:placeholder-shown)) .sp-summary-btn {
   width: 64px;
   height: 30px;
   padding: 0;
-  border: 1px solid transparent;
+  border: 1px solid var(--border);
   border-radius: var(--radius-sm);
-  background: var(--field-bg);
+  background: var(--surface);
   color: var(--text-2);
   font: inherit;
   font-size: var(--fs-sm);
