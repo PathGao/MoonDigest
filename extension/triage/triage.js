@@ -3352,7 +3352,7 @@ function mdLinkText(s) {
 function buildMarkdown(items, now = new Date()) {
   const lines = [
     "---",
-    `title: B站摘录 ${stamp(now, false)} ${pad(now.getHours())}:${pad(now.getMinutes())}`,
+    `title: B站摘录 ${fmtTime(now)}`,
     `created: ${stamp(now, false)}`,
     "tags:",
     "  - B站摘录",
