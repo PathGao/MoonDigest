@@ -227,7 +227,8 @@ select { height: 28px; max-width: 240px; }
 
 /* ---------- sort: a select and the direction button (three lines; longest on top = descending), as one control.
    收藏夹 puts it at the right of the filter row; 关注 reuses it. ---------- */
-.sort-box { display: inline-flex; align-items: center; gap: 8px; margin-left: auto; }
+/* Sort follows the tag filters (the user wants it right after them), set apart by a thin rule; wraps with them. */
+.sort-box { display: inline-flex; align-items: center; gap: 8px; margin-left: 4px; padding-left: 12px; border-left: 1px solid var(--border); }
 .sort-ctl { display: inline-flex; }
 .sort-ctl select { border-top-right-radius: 0; border-bottom-right-radius: 0; }
 .sort-dir { width: 28px; padding: 0; margin-left: -1px; display: grid; place-items: center; border-color: var(--border-strong); border-radius: 0 var(--radius-sm) var(--radius-sm) 0; background: var(--field-bg); color: var(--text-2); }
