@@ -12,7 +12,7 @@ const ctx = vm.createContext({ setTimeout, clearTimeout });
 // The pure block sorts with shared.js (UI.byValue / UI.dirWords), as the page does.
 vm.runInContext(fs.readFileSync(path.join(__dirname, "../tag-core.js"), "utf8"), ctx);
 vm.runInContext(fs.readFileSync(path.join(__dirname, "shared.js"), "utf8"), ctx);
-vm.runInContext(`const UI = globalThis.TriageUi;\n${pure}\n;Object.assign(globalThis, { syncFinished, dirLabel, followAiSettings, aiRequests, normDays, settingsProblem, followStatus, lastPostOf, recentTitles, upRow, visibleUps, mergeFeed, feedMatch, sideIds, feedList, feedLeaving, withTags, stepIn, tagsOf, restoreTags, fmtAgo, feedCounts, STATUS, viewRecord, latestBvid, favUpMid, aiBlocked, withAllowRemove });`, ctx);
+vm.runInContext(`const UI = globalThis.TriageUi;\n${pure}\n;Object.assign(globalThis, { syncFinished, dirLabel, followAiSettings, aiRequests, normDays, settingsProblem, followStatus, lastPostOf, recentTitles, upRow, visibleUps, mergeFeed, feedMatch, sideIds, feedList, feedLeaving, withTags, stepIn, tagsOf, restoreTags, fmtAgo, feedCounts, STATUS, viewRecord, latestBvid, favUpMid, aiBlocked, withAllowRemove, groupsOf, regrouped, groupCalls, groupTargets, groupName });`, ctx);
 const t = ctx;
 const plain = (v) => JSON.parse(JSON.stringify(v));
 
@@ -82,7 +82,7 @@ const base = () => ({ list: null, last: null, content: {}, people: {}, tags: [],
   assert.deepStrictEqual(v({ sort: "follow" }).list, ["2", "3", "4", "1"]);
   assert.deepStrictEqual(v({ sort: "name" }).list, ["丙", "丁", "甲", "乙"].map((n) => Object.keys(D.people).find((m) => D.people[m].name === n)));
   assert.deepStrictEqual(v({ tagState: "untagged" }).list, ["1", "4"]);
-  assert.deepStrictEqual(v({ side: "special" }).list, ["3"]);
+  assert.deepStrictEqual(v({ side: "g:-10" }).list, ["3"], "特别关注 is the sidebar's group -10");
   assert.deepStrictEqual(v({ tags: new Set(["t1"]) }).list, ["3", "2"]);
   assert.deepStrictEqual(v({ side: "gone" }).list, ["8", "9"], "已取消关注: newest first, list order kept");
   assert.deepStrictEqual(v({ side: "gone", source: "bili" }).list, ["9"]);
@@ -121,30 +121,63 @@ const base = () => ({ list: null, last: null, content: {}, people: {}, tags: [],
   const L = (f) => plain(t.feedList(["1", "2", "3"].map(it), D, { side: "all", ...f }, null)).map((x) => x.mid);
   assert.deepStrictEqual(L({ tags: new Set(["t1"]) }), ["1"], "row 4 goes by the video's UP");
   assert.deepStrictEqual(L({ tagState: "untagged" }), ["2", "3"], "only a deleted tag = untagged");
-  assert.ok(t.feedMatch(it("3"), D, "special") && !t.feedMatch(it("1"), D, "special"));
+  assert.ok(t.feedMatch(it("3"), D, "g:-10") && !t.feedMatch(it("1"), D, "g:-10"));
   assert.ok(!t.feedMatch(it("1"), D, "gone"));
 }
 
-// ----- B站 分组: read-only filters "g:<tagid>" for the UP list and the feed, absent when there are none -----
+// ----- 关注分组 (B站's): the sidebar's "g:<tagid>" items, 默认分组 (0) and 特别关注 (-10) first -----
 {
   const D = base();
-  D.list = { list: ["1", "2", "3"], groups: { 1: [7], 2: [7, 8], 3: [0] } };
-  D.people = { 1: { name: "a" }, 2: { name: "b" }, 3: { name: "c" } };
+  D.list = { list: ["1", "2", "3", "4"], groups: { 1: [7], 2: [7, 8], 3: [0] }, special: { 4: 1, 2: 1 } };
+  D.people = { 1: { name: "a" }, 2: { name: "b" }, 3: { name: "c" }, 4: { name: "d" } };
   D.tags = [{ id: "t1" }];
-  assert.deepStrictEqual(plain(t.sideIds(D)), ["all", "special", "gone"], "the sidebar is scope only: no tag items");
-  D.groups = [];
-  assert.deepStrictEqual(plain(t.sideIds(D)), ["all", "special", "gone"], "no custom groups: nothing added");
+  assert.deepStrictEqual(plain(t.sideIds(D)), ["all", "g:0", "g:-10", "gone"], "scope only: no tag items; B站's fixed groups always");
   D.groups = [{ id: 7, name: "数码" }, { id: 8, name: "音乐" }];
-  assert.deepStrictEqual(plain(t.sideIds(D)).slice(3), ["g:7", "g:8"]);
+  assert.deepStrictEqual(plain(t.sideIds(D)), ["all", "g:0", "g:-10", "g:7", "g:8", "gone"]);
+  assert.deepStrictEqual([t.groupName(0, D), t.groupName(-10, D), t.groupName(8, D)], ["默认分组", "特别关注", "音乐"]);
+  assert.deepStrictEqual(plain(t.groupsOf("2", D)), [-10, 7, 8], "an UP's groups: -10 from special, then its own");
+  assert.deepStrictEqual(plain(t.groupsOf("3", D)), [], "0 is not a group of its own");
   const rows = new Map(D.list.list.map((m) => [m, t.upRow(m, D, now, {})]));
   const v = (side, status = "") => plain(t.visibleUps(D, rows, { side, status, q: "" }));
   assert.deepStrictEqual(v("g:7").list.sort(), ["1", "2"]);
   assert.deepStrictEqual(v("g:8").list, ["2"]);
+  assert.deepStrictEqual(v("g:0").list.sort(), ["3", "4"], "默认分组 = in none of your own; 特别关注 alone is still 默认分组");
+  assert.deepStrictEqual(v("g:-10").list.sort(), ["2", "4"]);
   assert.strictEqual(v("g:7").counts[""], 2, "counts are over the group's members");
   assert.deepStrictEqual(v("g:7", "active").list, [], "the 状态 filter applies on top");
   assert.ok(t.feedMatch({ mid: "2" }, D, "g:8") && !t.feedMatch({ mid: "1" }, D, "g:8") && !t.feedMatch({ mid: "9" }, D, "g:7"));
+  // Targets: every group but the one the sidebar is on; 默认分组 only for a move (B站 has no copy into it).
+  assert.deepStrictEqual(plain(t.groupTargets(D, 7, "move")), [[0, "默认分组"], [-10, "特别关注"], [8, "音乐"]]);
+  assert.deepStrictEqual(plain(t.groupTargets(D, null, "copy")), [[-10, "特别关注"], [7, "数码"], [8, "音乐"]]);
+  assert.deepStrictEqual(plain(t.groupTargets(D, -10, "copy")), [[7, "数码"], [8, "音乐"]]);
 }
 
+// ----- 关注分组 writes: the follow-group-move requests from where each UP is to where it should be -----
+{
+  // 移到 / 复制到 / ★ as the wanted groups.
+  assert.deepStrictEqual(plain(t.regrouped([7], 7, 8)), [8], "move");
+  assert.deepStrictEqual(plain(t.regrouped([7], null, 8)), [7, 8], "copy");
+  assert.deepStrictEqual(plain(t.regrouped([7, 8], null, 8)), [7, 8], "already there");
+  assert.deepStrictEqual(plain(t.regrouped([-10, 7], -10, 0)), [7], "out of 特别关注 to 默认分组");
+  assert.deepStrictEqual(plain(t.regrouped([], 0, 7)), [7], "from 默认分组");
+  const cur = { a: [7], b: [7], c: [7, 8], d: [], e: [-10] };
+  const calls = (want, mids = Object.keys(want), size) => plain(t.groupCalls(mids, (m) => cur[m], (m) => want[m], size));
+  const mv = (mids, from, to) => ({ type: "follow-group-move", mids, from, to });
+  // A copy is copyUsers (from []); UP 主 already there send nothing.
+  assert.deepStrictEqual(calls({ a: [7, 9], b: [7, 9], c: [7, 8, 9], d: [9], e: [-10, 9] }), [mv(["a", "b", "c", "d", "e"], [], [9])], "one request per (from, to)");
+  assert.deepStrictEqual(calls({ a: [7], c: [7, 8] }), [], "no change, no request");
+  // A move: from what leaves to what joins.
+  assert.deepStrictEqual(calls({ a: [9], b: [9], c: [8, 9] }), [mv(["a", "b", "c"], [7], [9])]);
+  // Leaving with nothing joining: to what is left (B站's own way out of 特别关注), else 默认分组 (0).
+  assert.deepStrictEqual(calls({ c: [8], a: [] }), [mv(["c"], [7], [8]), mv(["a"], [7], [0])]);
+  assert.deepStrictEqual(calls({ e: [] }), [mv(["e"], [-10], [0])], "★ off");
+  assert.deepStrictEqual(calls({ d: [-10] }), [mv(["d"], [], [-10])], "★ on");
+  // At most size UP 主 per request.
+  assert.deepStrictEqual(calls({ a: [9], b: [9] }, ["a", "b"], 1), [mv(["a"], [7], [9]), mv(["b"], [7], [9])]);
+  // U: the same function from now back to before.
+  const after = { a: [9], c: [8, 9] };
+  assert.deepStrictEqual(plain(t.groupCalls(["a", "c"], (m) => after[m], (m) => cur[m])), [mv(["a", "c"], [9], [7])]);
+}
 
 // ----- 关注's own AI settings: first use copies 收藏夹's, then they are independent -----
 {
@@ -256,10 +289,25 @@ assert.ok(source.includes(`pushTagUndo(before, "标签修改", { ask: changes.le
   const fn = (name) => source.slice(source.indexOf(`function ${name}(`), source.indexOf("\n}\n", source.indexOf(`function ${name}(`)));
   const re = fn("refollow");
   assert.ok(re.indexOf("mids.length === 1") < re.indexOf("askConfirm") && /act: 2, gone/.test(re) && re.includes("已在 B站重新关注「"), "single 重新关注: no confirm, U with the record");
-  assert.ok(/pushWriteUndo\(done, \{[\s\S]*ask: \[`在 B站把/.test(fn("setSpecial")), "batch 特别关注 is undoable, asked with 在 B站…");
-  assert.ok(source.includes("const starOne = (mid) => setSpecial([mid], !rows.get(mid).special);"), "★ goes the same way");
   assert.ok(fn("pushWriteUndo").includes("ask: done.length > 1 ? ask : null"), "U asks for 2+ only");
   assert.ok(/async function unfollow[\s\S]*?askConfirm/.test(source), "取消关注 still asks");
+}
+
+// 关注分组 on B站 (DESIGN §5): move / copy / ★ go through regroup, one undo step of only what B站 confirmed; a batch's
+// confirm is the 移动 / 复制 dialog titled 在 B站…; 删除 always asks, says where the members go, and drops the group steps.
+{
+  const fn = (name) => source.slice(source.indexOf(`function ${name}(`), source.indexOf("\n}\n", source.indexOf(`function ${name}(`)));
+  const rg = fn("regroup");
+  assert.ok(rg.includes("const done = calls.flatMap((c) => c.mids).slice(0, n);") && /if \(done\.length\) \{\s*pushWriteUndo\(done,/.test(rg), "U only for the UP 主 B站 confirmed (none after a timeout)");
+  assert.ok(/back: \(\) => groupCalls\(done, \(m\) => groupsOf\(m, D\), \(m\) => before\[m\]\)/.test(rg) && /ask: \[`在 B站撤销/.test(rg) && rg.includes("groups: true"), "U puts back the groups they had, asked for 2+");
+  assert.ok(/async function starOne\(mid\) \{[\s\S]*?await regroup\(\[mid\],[^\n]*SPECIAL/.test(source), "★ is a move of group -10");
+  const mc = fn("moveOrCopy");
+  assert.ok(/UI\.askTransfer\(\{\s*title: `在 B站把这 \$\{mids\.length\} 个 UP 主\$\{verb\}到分组`,\s*n: mids\.length,\s*hows: \[how\],/.test(mc), "the batch confirm: 在 B站…, the count on its one button");
+  assert.ok(mc.indexOf("createGroup(") < mc.indexOf("regroup("), "新建分组… first");
+  const del = fn("deleteGroup");
+  assert.ok(del.indexOf("askConfirm(") < del.indexOf("follow-group-delete") && del.includes("默认分组") && del.includes("不能按 U 撤销") && del.includes("T.dropModeUndo((step) => step.groups)"), "删除: confirm first, members → 默认分组, no U");
+  assert.ok(/T\.pushUndo\(\{\s*kind: "mode",\s*groups: true,\s*undo: async \(\) => \(\(await renameGroup\(\{ id: g\.id, name \}, old, true\)\)/.test(fn("renameGroup")), "改名: U renames back");
+  assert.ok(!/follow-special|data-fw="special-|side-note|只读，在 B站 改/.test(source), "no 特别关注 toggle of its own, no read-only note");
 }
 
 // 关注设置 and the AI settings it seeds: a failed chrome.storage.sync.set says so, as 收藏夹设置 does.
@@ -309,7 +357,7 @@ assert.ok(source.includes("for (const m of [...F.sel]) if (!rows.has(m)) F.sel.d
 
 // B12: the sidebar item is remembered with the rest of the view and checked against the data on load.
 assert.deepStrictEqual(plain(t.viewRecord({ mode: "follow", tab: "ups", sort: "last", dir: "desc", side: "g:7", q: "x" })), { mode: "follow", tab: "ups", sort: "last", dir: "desc", side: "g:7" });
-assert.ok(source.includes('if (typeof view?.side === "string") F.side = view.side;') && /function pickSide\(id\) \{[^}]*saveView\(\);/.test(source), "restored on load, saved on every pick");
+assert.ok(source.includes('if (typeof view?.side === "string") F.side = view.side === "special" ? `g:${SPECIAL}` : view.side;') && /function pickSide\(id\) \{[^}]*saveView\(\);/.test(source), "restored on load, saved on every pick");
 // B13: I = ✦ AI 打标签 (or why not), O / Enter plays the current UP's newest video that has a bvid.
 assert.strictEqual(t.latestBvid({ titles: [{ t: "a" }, { t: "b", bvid: "BV2" }, { t: "c", bvid: "BV3" }] }), "BV2");
 assert.strictEqual(t.latestBvid({ titles: [{ t: "a" }] }), "");

@@ -2,7 +2,8 @@
 // The top bar's 收藏夹 | 关注 switch puts body.follow-mode on; follow.css then hides the folder view and this file draws
 // into #followSide and #followMain (the same grid areas as the folder view, so the shared viewer sits beside the list).
 // Data comes from follow-bg.js through follow_* storage and the follow-* messages (see follow-port-contract.md).
-// Tags live only in this extension (follow_tags / follow_tag_map); writes to B站 (取消关注, 重新关注, 特别关注) ask first.
+// Tags live only in this extension (follow_tags / follow_tag_map). B站 writes: 取消关注, 重新关注 and the 关注分组 (新建, 改名,
+// 删除, 移到 / 复制到, ★ 特别关注 which is group -10), see DESIGN §5 for what asks first and what U undoes.
 import "./triage.js"; // runs first: it sets up the page and globalThis.MoonTriage (viewer, toast, confirm dialog)
 
 // ---------- pure: follow.selftest.js lifts everything between these markers ----------
@@ -70,11 +71,44 @@ function upRow(mid, D, now, cfg) {
   };
 }
 
-// B站 分组 (follow_groups, read-only) are left-column items "g:<tagid>"; members come from follow_list.groups.
-const groupId = (side) => (/^g:\d+$/.test(side) ? Number(side.slice(2)) : null);
-const inGroup = (mid, D, side) => (D.list?.groups?.[mid] || []).includes(groupId(side));
+// B站's 关注分组 are left-column items "g:<tagid>": its fixed 0 默认分组 and -10 特别关注, then your own (follow_groups).
+// An UP's groups are follow_list.special (-10) and follow_list.groups; 默认分组 = in none of your own.
+const SPECIAL = -10;
+const groupId = (side) => (/^g:-?\d+$/.test(side) ? Number(side.slice(2)) : null);
+const groupsOf = (mid, D) => [...(D.list?.special?.[mid] ? [SPECIAL] : []), ...(D.list?.groups?.[mid] || []).filter((id) => id > 0)];
+const inGroupId = (mid, D, id) => (id === 0 ? !groupsOf(mid, D).some((x) => x > 0) : groupsOf(mid, D).includes(id));
+const inGroup = (mid, D, side) => inGroupId(mid, D, groupId(side));
+const groupName = (id, D) => (id === 0 ? "默认分组" : id === SPECIAL ? "特别关注" : (D.groups || []).find((g) => g.id === id)?.name || "");
 // Every left-column id: the sidebar is scope only (tags are row 3 and row 4).
-const sideIds = (D) => ["all", "special", "gone", ...(D.groups || []).map((g) => `g:${g.id}`)];
+const sideIds = (D) => ["all", "g:0", `g:${SPECIAL}`, ...(D.groups || []).map((g) => `g:${g.id}`), "gone"];
+
+// An UP's groups after leaving from (null: nothing, a copy) and joining to (0: none).
+const regrouped = (ids, from, to) => [...ids.filter((id) => id !== from), ...(to !== 0 && !ids.includes(to) ? [to] : [])];
+// The follow-group-move requests that take mids from cur(mid) to want(mid): one per (from, to), at most size UP 主 each.
+// Only joining is a copy (from []); leaving moves to what joins, else to what is left, else to 默认分组 (0).
+function groupCalls(mids, cur, want, size = 20) {
+  const ops = new Map();
+  for (const m of mids) {
+    const c = cur(m);
+    const w = want(m);
+    const from = c.filter((id) => !w.includes(id));
+    const add = w.filter((id) => !c.includes(id));
+    const to = add.length ? add : from.length ? (w.length ? w : [0]) : [];
+    if (!to.length) continue;
+    const key = `${from}|${to}`;
+    if (!ops.has(key)) ops.set(key, { from, to, mids: [] });
+    ops.get(key).mids.push(m);
+  }
+  return [...ops.values()].flatMap(({ from, to, mids: list }) => {
+    const out = [];
+    for (let i = 0; i < list.length; i += size) out.push({ type: "follow-group-move", mids: list.slice(i, i + size), from, to });
+    return out;
+  });
+}
+// Where 移到分组… / 复制到分组… can go from the sidebar item's group (from; null in 全部): every group but that one, 默认分组
+// only for a move. [[id, name]].
+const groupTargets = (D, from, how) =>
+  [...(how === "move" ? [0] : []), SPECIAL, ...(D.groups || []).map((g) => g.id)].filter((id) => id !== from).map((id) => [id, groupName(id, D)]);
 // Row 3's 未打标签 / 已打标签 (f.tagState) and row 4's tags (f.tags, AND) on an UP's tag ids. skip leaves one out
 // ("tagged" or "tags"), for that group's own counts.
 const tagPass = (ids, f, skip = "") =>
@@ -84,7 +118,6 @@ const tagPass = (ids, f, skip = "") =>
 function sideMids(D, rows, side) {
   if (side === "gone") return Object.keys(D.gone || {}).sort((a, b) => (D.gone[b].at || 0) - (D.gone[a].at || 0));
   const list = (D.list?.list || []).filter((m) => rows.has(m));
-  if (side === "special") return list.filter((m) => rows.get(m).special);
   if (groupId(side) != null) return list.filter((m) => inGroup(m, D, side));
   return list;
 }
@@ -141,7 +174,6 @@ function mergeFeed(items, page) {
 function feedMatch(it, D, side) {
   if (side === "all") return true;
   if (side === "gone") return false;
-  if (side === "special") return Boolean(D.list?.special?.[it.mid]);
   if (groupId(side) != null) return inGroup(it.mid, D, side);
   return true;
 }
@@ -446,21 +478,20 @@ function render() {
   renderViewerUp();
 }
 
-// The sidebar is scope only: 全部 · ★ 特别关注 · B站 分组 · 已取消关注 (tags are rows 3 and 4).
-const sideLabel = (id) => (id === "all" ? "全部" : id === "special" ? "特别关注" : id === "gone" ? "已取消关注" : D.groups.find((g) => `g:${g.id}` === id)?.name || "");
+// The sidebar is scope only: 全部 · B站's 关注分组 (默认分组, ★ 特别关注, your own) · 已取消关注 (tags are rows 3 and 4).
+const sideLabel = (id) => (id === "all" ? "全部" : id === "gone" ? "已取消关注" : groupName(groupId(id), D));
 function sideCount(id) {
   if (id === "gone") return Object.keys(D.gone).length;
   const list = following().filter((m) => rows.has(m));
-  return id === "all" ? list.length : id === "special" ? list.filter((m) => rows.get(m).special).length : list.filter((m) => inGroup(m, D, id)).length;
+  return id === "all" ? list.length : list.filter((m) => inGroup(m, D, id)).length;
 }
+const STAR = '<span class="star-mark" aria-hidden="true">★</span>';
 function renderSide() {
-  const item = (id, pre = "") => UI.sideItem({ attrs: `data-side="${esc(id)}"`, label: sideLabel(id), count: sideCount(id), on: F.side === id, pre });
-  side.innerHTML = `<div class="side-head">UP 主</div><div class="folder-list">${item("all")}${item("special", '<span class="star-mark" aria-hidden="true">★</span>')}</div>${
-    D.groups.length
-      ? `<hr><div class="side-head">B站 分组</div><div class="folder-list">${D.groups.map((g) => item(`g:${g.id}`)).join("")}</div>
-  <p class="side-note">只读，在 B站 改</p>`
-      : ""
-  }<hr>${item("gone")}${UI.sideFoot({ settingsAttrs: 'data-fw="settings" aria-label="关注设置"', settingsLabel: "关注设置" })}`;
+  const item = (id) => UI.sideItem({ attrs: `data-side="${esc(id)}"`, label: sideLabel(id), count: sideCount(id), on: F.side === id, pre: id === `g:${SPECIAL}` ? STAR : "" });
+  const ids = sideIds(D);
+  side.innerHTML = `<div class="side-head">UP 主</div><div class="folder-list">${ids.slice(0, -1).map(item).join("")}</div>
+    <button type="button" class="quiet side-manage" data-fw="groups" title="新建、改名或删除 B站 的关注分组">分组管理</button>
+    <hr>${item("gone")}${UI.sideFoot({ settingsAttrs: 'data-fw="settings" aria-label="关注设置"', settingsLabel: "关注设置" })}`;
   sideSlot.innerHTML = sideSelect();
 }
 
@@ -544,8 +575,8 @@ function renderTabs() {
 
 // The left column as a select with the same counts, for widths without the sidebar (in the top bar, see sideSlot).
 const sideSelect = () =>
-  `<select class="fw-side-select" data-fw="side" aria-label="UP 主范围">${[["all", "全部"], ["special", "★ 特别关注"], ...D.groups.map((g) => [`g:${g.id}`, `B站 分组 · ${g.name}`]), ["gone", "已取消关注"]]
-    .map(([id, label]) => `<option value="${esc(id)}"${F.side === id ? " selected" : ""}>${esc(label)} (${sideCount(id)})</option>`).join("")}</select>`;
+  `<select class="fw-side-select" data-fw="side" aria-label="UP 主范围">${sideIds(D)
+    .map((id) => `<option value="${esc(id)}"${F.side === id ? " selected" : ""}>${id === `g:${SPECIAL}` ? "★ " : ""}${esc(sideLabel(id))} (${sideCount(id)})</option>`).join("")}</select>`;
 
 // Row 3's 未打标签 / 已打标签 (prefix 「UP 」 in 视频投稿, where it goes by the video's UP).
 const tagStateGroup = (counts, prefix = "") =>
@@ -678,14 +709,13 @@ function renderSel() {
   const none = !n && "选中的都被筛选隐藏了";
   // As 收藏夹's selection bar: the buttons that act on B站 say how many, label and aria-label alike.
   const btn = (act, label, reason, cls = "", pre = "") => `<button type="button"${cls ? ` class="${cls}"` : ""} data-fw="${act}" aria-label="${esc(label)}"${UI.reasonAttrs(reason)}>${pre}${esc(label)}</button>`;
-  const sel = selShown();
-  const nOf = (on) => toSpecial(sel, on).length;
+  // 移到分组… leaves the sidebar's group, so 全部 has none to leave.
   const acts = F.side === "gone"
     ? btn("refollow", `重新关注选中的 ${n} 个`, busy || none)
     : btn("pick-sel", "标签…", busy || none) +
       btn("ai", "AI 打标签", none, "", AI_SPARK) +
-      btn("special-on", `★ 设为特别关注 ${nOf(true)} 个`, busy || none || specialWhy(sel, true)) +
-      btn("special-off", `取消特别关注 ${nOf(false)} 个`, busy || none || specialWhy(sel, false)) +
+      btn("move-sel", "移到分组…", busy || none || (groupId(F.side) == null && "先在左边选一个分组：全部里不知道从哪个分组移走")) +
+      btn("copy-sel", "复制到分组…", busy || none) +
       btn("unfollow", `取消关注选中的 ${n} 个`, busy || none, "danger");
   E.sel.innerHTML = UI.selbar({ label: "选中的 UP 主", n, hidden, clearAttrs: 'data-fw="select-none"', acts });
 }
@@ -827,24 +857,28 @@ function play(bvid) {
   E.list.querySelector(`[data-bvid="${CSS.escape(bvid)}"]`)?.scrollIntoView({ block: "nearest" });
 }
 
-// ---------- B站 writes: one UP at a time, stopped by the first error ----------
-// Returns how many went through. Its progress shows in the row's progress pill, as a 收藏夹 batch does.
-async function relationRun(mids, label, msg, { quiet = false } = {}) {
-  F.busy = `${label}中 0/${mids.length}`;
-  F.busyN = [0, mids.length];
+// ---------- B站 writes: one request at a time, stopped by the first error ----------
+// calls = the requests, each with the mids it changes (a relation request one UP, a group request up to 20).
+// Returns how many UP 主 went through. Its progress shows in the row's progress pill, as a 收藏夹 batch does.
+const perUp = (mids, msg) => mids.map((mid) => msg(mid));
+async function relationRun(calls, label, { quiet = false } = {}) {
+  const midsOf = (c) => c.mids || [c.mid];
+  const total = calls.reduce((n, c) => n + midsOf(c).length, 0);
+  F.busy = `${label}中 0/${total}`;
+  F.busyN = [0, total];
   renderSel();
   renderSync();
   let done = 0;
   try {
-    for (const mid of mids) {
-      F.busy = `${label}中 ${done + 1}/${mids.length}`;
-      F.busyN = [done, mids.length];
+    for (const c of calls) {
+      F.busy = `${label}中 ${Math.min(total, done + midsOf(c).length)}/${total}`;
+      F.busyN = [done, total];
       renderSel();
       renderSync();
-      const r = await send(msg(mid));
+      const r = await send(c);
       if (!r.ok) throw new Error(r.code === "THROTTLED" ? "被 B站限流了，过一会儿再试" : r.error || "未知错误");
-      F.sel.delete(mid);
-      done++;
+      for (const mid of midsOf(c)) F.sel.delete(mid);
+      done += midsOf(c).length;
     }
     if (!quiet) toast(`已${label} ${done} 个`);
   } catch (e) {
@@ -861,18 +895,22 @@ async function unfollow(mids) {
   if (!mids.length) return;
   // Always asked, even for one: following again later loses the original follow date.
   const ok = await askConfirm(`在 B站取消关注 ${mids.length} 个 UP 主？`, `${names(mids)}<p class="dialog-hint">标签会记着，在「已取消关注」里可以重新关注，但关注日期会变成重新关注的那天。</p>`, `取消关注 ${mids.length} 个`, { danger: true });
-  if (ok) await relationRun(mids, "取消关注", (mid) => ({ type: "follow-relation", mid, act: 2 }));
+  if (ok) await relationRun(perUp(mids, (mid) => ({ type: "follow-relation", mid, act: 2 })), "取消关注");
 }
-// U on a B站 write: done = the UP 主 it went through for, back(mid) = the message that reverses it for one. Undoing 2+
-// asks first (ask). A reversal that fails says why itself (relationRun's toast), so the step then returns "".
-function pushWriteUndo(done, { label, backLabel, back, ask = null }) {
+// U on a B站 write: done = the UP 主 it went through for, back() = the requests that reverse it, built when U is pressed.
+// Undoing 2+ asks first (ask). A reversal that fails says why itself (relationRun's toast), so the step then returns "".
+// groups marks the 关注分组 steps, dropped when a group is deleted. undone: the toast after it, when 「已撤销：label…」 reads badly.
+function pushWriteUndo(done, { label, backLabel, back, ask = null, groups = false, undone = "" }) {
   const step = {
     kind: "mode",
+    groups,
     ask: done.length > 1 ? ask : null,
     undo: async () => {
       if (F.busy) return T.pushUndo(step), "上一批还没做完，稍后再按 U";
-      const n = await relationRun(done, backLabel, back, { quiet: true });
-      return n < done.length ? "" : `已撤销：${label}${done.length > 1 ? ` ${n} 个` : `「${upName(done[0])}」`}`;
+      const calls = back();
+      const want = calls.reduce((n, c) => n + (c.mids || [c.mid]).length, 0);
+      const n = await relationRun(calls, backLabel, { quiet: true });
+      return n < want ? "" : undone || `已撤销：${label}${done.length > 1 ? ` ${done.length} 个` : `「${upName(done[0])}」`}`;
     }
   };
   T.pushUndo(step);
@@ -884,42 +922,143 @@ async function refollow(mids) {
   if (mids.length === 1) {
     const [mid] = mids;
     const gone = D.gone[mid];
-    if (!(await relationRun(mids, "重新关注", () => ({ type: "follow-relation", mid, act: 1 }), { quiet: true }))) return;
-    pushWriteUndo(mids, { label: "重新关注", backLabel: "取消关注", back: () => ({ type: "follow-relation", mid, act: 2, gone }) });
+    if (!(await relationRun([{ type: "follow-relation", mid, act: 1 }], "重新关注", { quiet: true }))) return;
+    pushWriteUndo(mids, { label: "重新关注", backLabel: "取消关注", back: () => [{ type: "follow-relation", mid, act: 2, gone }] });
     return toast(`已在 B站重新关注「${upName(mid)}」 · U 撤销`);
   }
   const ok = await askConfirm(`在 B站重新关注 ${mids.length} 个 UP 主？`, `${names(mids)}<p class="dialog-hint">原来的标签会放回去。</p>`, `重新关注 ${mids.length} 个`);
-  if (ok) await relationRun(mids, "重新关注", (mid) => ({ type: "follow-relation", mid, act: 1 }));
+  if (ok) await relationRun(perUp(mids, (mid) => ({ type: "follow-relation", mid, act: 1 })), "重新关注");
 }
-// 特别关注 is B站's only group the phone app pushes new videos for.
-const toSpecial = (mids, on) => mids.filter((m) => rows.get(m) && !rows.get(m).gone && rows.get(m).special !== on);
-const specialWhy = (mids, on) => (mids.length && !toSpecial(mids, on).length ? (on ? "选中的都已经是特别关注了" : "选中的都不是特别关注") : "");
-async function special(mids, on) {
-  const why = specialWhy(mids, on);
-  mids = toSpecial(mids, on);
-  if (!mids.length) return why && toast(why);
-  const label = on ? "设为特别关注" : "取消特别关注";
-  const push = on ? "特别关注的 UP 主发视频，手机 B站会推送。" : "取消后还关注着，只是不再推送。";
-  if (await askConfirm(`在 B站把 ${mids.length} 个 UP 主${on ? "设为" : "取消"}特别关注？`, `${names(mids)}<p class="dialog-hint">${push}</p>`, `${label} ${mids.length} 个`)) await setSpecial(mids, on);
+// ---------- 关注分组 on B站 (DESIGN §5) ----------
+// mids from the groups they are in now to want(mid), as one undo step that puts back the groups they had (U on 2+ asks
+// first). Only what B站 confirmed is undone; a request with no answer is neither kept here nor undone (its toast says
+// to look after a 刷新). Returns { done: the UP 主 that changed, ok: no request failed }.
+async function regroup(mids, want, label) {
+  const before = Object.fromEntries(mids.map((m) => [m, groupsOf(m, D)]));
+  const calls = groupCalls(mids, (m) => before[m], want);
+  const n = await relationRun(calls, label, { quiet: true });
+  const done = calls.flatMap((c) => c.mids).slice(0, n);
+  if (done.length) {
+    pushWriteUndo(done, {
+      label,
+      backLabel: `撤销${label}`,
+      groups: true,
+      undone: done.length > 1 ? "" : `已撤销：把「${upName(done[0])}」${label}`,
+      back: () => groupCalls(done, (m) => groupsOf(m, D), (m) => before[m]),
+      ask: [`在 B站撤销${label}？`, `<p>这 ${done.length} 个 UP 主回到原来的分组。</p>${names(done)}`, `撤销 ${done.length} 个`]
+    });
+  }
+  return { done, ok: done.length === calls.reduce((k, c) => k + c.mids.length, 0) };
 }
-// A card's ★: one UP, no confirm.
-const starOne = (mid) => setSpecial([mid], !rows.get(mid).special);
-// 特别关注 on or off on B站, one undo step for the ones that went through (U on 2+ asks first).
-async function setSpecial(mids, on) {
+// A card's ★: 特别关注 is group -10, so it is a single move with no confirm and U.
+async function starOne(mid) {
+  const on = !rows.get(mid).special;
   const label = on ? "设为特别关注" : "取消特别关注";
-  const backLabel = on ? "取消特别关注" : "设为特别关注";
-  const done = mids.slice(0, await relationRun(mids, label, (mid) => ({ type: "follow-special", mid, on }), { quiet: true }));
-  if (!done.length) return;
-  const n = done.length;
-  pushWriteUndo(done, {
-    label,
-    backLabel,
-    back: (mid) => ({ type: "follow-special", mid, on: !on }),
-    ask: [`在 B站把 ${n} 个 UP 主${on ? "取消" : "设为"}特别关注？`, `<p>撤销上一步的批量${label}。</p>${names(done)}`, `${backLabel} ${n} 个`]
+  const { done } = await regroup([mid], (m) => regrouped(groupsOf(m, D), on ? null : SPECIAL, on ? SPECIAL : 0), label);
+  if (done.length) toast(`已${label}「${upName(mid)}」 · U 撤销`);
+}
+// 移到分组… / 复制到分组… on the selection: the shared 移动 / 复制 dialog, which is the batch's confirm (在 B站…, the count on
+// its button). A move leaves the sidebar's group; 新建分组… makes the group first.
+async function moveOrCopy(mids, how) {
+  const from = groupId(F.side);
+  if (!mids.length || (how === "move" && from == null)) return;
+  const move = how === "move";
+  const verb = move ? "移" : "复制";
+  const ask = await UI.askTransfer({
+    title: `在 B站把这 ${mids.length} 个 UP 主${verb}到分组`,
+    n: mids.length,
+    hows: [how],
+    list: names(mids),
+    label: "目标分组",
+    options: groupTargets(D, from, how).map(([id, name]) => [String(id), `${name} (${sideCount(`g:${id}`)})`]),
+    newText: "新建分组…",
+    newPlaceholder: "新分组名称（最多 16 个字）",
+    newMax: 16,
+    how: move ? (from === 0 ? "放进目标分组后，就不在默认分组里了。" : `从「${groupName(from, D)}」移走。`) : "原来的分组里也留着。",
+    note: (v) => (v === String(SPECIAL) ? "特别关注的 UP 主发视频，手机 B站会推送。" : v === "0" ? "不在别的分组的会回到默认分组，还关注着。" : "")
   });
-  // A batch stopped by an error keeps relationRun's toast, which says how far it got.
-  if (n === mids.length) toast(n > 1 ? `已${label} ${n} 个 · U 撤销` : `已${label}「${upName(done[0])}」 · U 撤销`);
+  if (!ask || F.busy) return;
+  let to = Number(ask.target.id);
+  if (ask.target.create != null) {
+    const g = await createGroup(ask.target.create);
+    if (!g) return;
+    to = g.id;
+  }
+  const label = `${verb}到「${groupName(to, D)}」`;
+  const { done, ok } = await regroup(mids, (m) => regrouped(groupsOf(m, D), move ? from : null, to), label);
+  // A stopped run has said how far it got (relationRun's toast).
+  const n = done.length;
+  if (!ok) return;
+  if (n) toast(`已把 ${n} 个 UP 主${label}${n < mids.length ? `（另外 ${mids.length - n} 个已经在里面）` : ""} · U 撤销`);
+  else toast(`选中的都已经在「${groupName(to, D)}」里了`);
 }
+
+// 分组管理: 标签管理's dialog (tag-dialogs.js) with B站's groups. 新建 and 改名 at once on B站 (改名 undoable with U);
+// 删除 always asks, says where the members go, and has no U.
+async function createGroup(name) {
+  const why = groupNameError(name);
+  if (why) return void toast(why, true);
+  const r = await send({ type: "follow-group-create", name: name.trim() });
+  if (!r.ok) return void toast(`新建分组失败：${r.error}`, true);
+  await load();
+  render();
+  return r.data;
+}
+const groupNameError = (name, self = null) => {
+  const n = String(name ?? "").trim();
+  return !n ? "分组名不能为空" : [...n].length > 16 ? "分组名最多 16 个字" : [0, SPECIAL, ...D.groups.map((g) => g.id)].some((id) => id !== self && groupName(id, D) === n) ? "已有同名分组" : "";
+};
+async function renameGroup(g, name, undo = false) {
+  name = String(name ?? "").trim();
+  if (name === g.name) return true;
+  const why = groupNameError(name, g.id);
+  if (why) return toast(why, true), false;
+  const r = await send({ type: "follow-group-rename", id: g.id, name });
+  if (!r.ok) return toast(`改名失败：${r.error}`, true), false;
+  const old = g.name;
+  await load();
+  render();
+  if (undo) return true;
+  T.pushUndo({
+    kind: "mode",
+    groups: true,
+    undo: async () => ((await renameGroup({ id: g.id, name }, old, true)) ? `已撤销：分组改名「${old}」` : "")
+  });
+  toast(`分组已改名为「${name}」 · U 撤销`);
+  return true;
+}
+async function deleteGroup(g) {
+  const n = sideCount(`g:${g.id}`);
+  const ok = await askConfirm(
+    `在 B站删除分组「${g.name}」？`,
+    `<p>${n ? `里面的 ${n} 个 UP 主还关注着，不在别的分组的会回到「默认分组」。` : "这个分组里没有 UP 主。"}</p><p class="dialog-hint">删除后不能按 U 撤销，要用的话得重新建分组、再把人放进去。</p>`,
+    "删除分组",
+    { danger: true }
+  );
+  if (!ok) return;
+  const r = await send({ type: "follow-group-delete", id: g.id });
+  if (!r.ok) return toast(`删除分组失败：${r.error}`, true);
+  // Moves into or out of it undone now would ask B站 about a group that is gone.
+  T.dropModeUndo((step) => step.groups);
+  await load();
+  render();
+  toast(`已删除分组「${g.name}」`);
+}
+const manageGroups = {
+  who: "UP 主",
+  text: { title: "分组管理", saved: "新建、改名和删除立即在 B站 生效。", newName: "新分组名称（最多 16 个字）", newMax: 16, add: "新建", addLabel: "新建分组" },
+  hint: () => "这里就是 B站 的关注分组。特别关注和默认分组是 B站 固定的，不能改名或删除；要把人放进分组，选中后用「移到分组…」「复制到分组…」。",
+  tags: () => D.groups,
+  count: (id) => sideCount(`g:${id}`),
+  row: (g, n) => `<div class="tag-row group-row" data-id="${esc(g.id)}">
+      <input type="text" value="${esc(g.name)}" data-field="name" maxlength="16" aria-label="分组名称" />
+      <span class="muted">${n} 个 UP 主</span>
+      <button type="button" class="danger" data-tag-del aria-label="删除分组 ${esc(g.name)}">删除</button>
+    </div>`,
+  add: createGroup,
+  edit: (g, field, value) => renameGroup(g, value),
+  remove: deleteGroup
+};
 
 // ---------- dialogs ----------
 
@@ -1271,6 +1410,7 @@ side.addEventListener("click", (e) => {
   const s = e.target.closest("[data-side]");
   if (s) return pickSide(s.dataset.side);
   if (e.target.closest("[data-fw=settings]")) openSettings();
+  if (e.target.closest("[data-fw=groups]")) TagDialogs.manage.open(manageGroups);
 });
 sideSlot.addEventListener("change", (e) => e.target.dataset.fw === "side" && pickSide(e.target.value));
 function pickSide(id) {
@@ -1381,7 +1521,7 @@ main.addEventListener("click", async (e) => {
   else if (act === "pick-sel") openPick(selShown());
   else if (act === "unfollow") unfollow(selShown());
   else if (act === "refollow") refollow(selShown());
-  else if (act === "special-on" || act === "special-off") special(selShown(), act === "special-on");
+  else if (act === "move-sel" || act === "copy-sel") moveOrCopy(selShown(), act === "move-sel" ? "move" : "copy");
 });
 // The selection bar sits outside the list; its buttons share the handler above through #followMain.
 
@@ -1468,7 +1608,7 @@ cfg.deadDays = Number(days.followDeadDays) || 365;
 if (view?.tab === "feed") F.tab = "feed";
 if (SORTS[view?.sort]) F.sort = view.sort;
 if (view?.dir === "asc" || view?.dir === "desc") F.dir = view.dir;
-if (typeof view?.side === "string") F.side = view.side; // checked against the data on load (derive)
+if (typeof view?.side === "string") F.side = view.side === "special" ? `g:${SPECIAL}` : view.side; // checked against the data on load (derive)
 // Deep link from the UP tag chips on B站 pages: #follow opens 关注, &tag=<id> picks that tag (unknown id → 全部).
 // A hash wins over the remembered mode; an open tab only gets its hash changed. Handled once, the hash goes: the same
 // chip clicked again is a hash change again, and a reload opens the mode last used.

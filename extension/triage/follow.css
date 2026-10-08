@@ -15,7 +15,7 @@ body:not(.follow-mode) :is(.fw-side-slot, .follow-help) { display: none !importa
 /* ---------- left column ---------- */
 .follow-side .side-item { height: 38px; }
 .follow-side .dot { flex: none; }
-.follow-side .side-note { margin: 2px 10px; color: var(--faint); font-size: var(--fs-xs); }
+.follow-side .side-manage { align-self: flex-start; height: 28px; margin: 2px 4px 0; padding: 0 6px; font-size: var(--fs-xs); }
 .star-mark { width: 10px; text-align: center; color: var(--text); }
 
 /* ---------- head, bar, list ---------- */
