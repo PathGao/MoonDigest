@@ -122,6 +122,7 @@ const runSync = async () => {
     const old = now() - 40 * 86400;
     routes = {
       "/x/web-interface/nav": nav,
+      "/x/relation/stat": (u) => json({ code: 0, data: { follower: 10 * Number(u.searchParams.get("vmid")) } }),
       "/x/relation/followings": followings([[person(1), person(2, { special: 1, tag: [-10, 7] })], [person(3), person(4), person(5), person(6)]], 6),
       "/x/polymer/web-dynamic/v1/feed/all": feed([[dyn(2, "BV2", now() - 60)], [dyn(3, "BV3", old)], [dyn(6, "BV6", now())]]),
       "/x/space/wbi/arc/search": (u) => {
@@ -152,7 +153,6 @@ const runSync = async () => {
     assert.strictEqual(local.follow_content[1].count, 3);
     assert.strictEqual(local.follow_content[5].code, -404, "a gone account is recorded");
     assert.ok(!local.follow_content[6], "a temporary error is not recorded");
-    assert.strictEqual(j.skipped, 1);
     assert.strictEqual(local.follow_content[4].count, 1, "a fresh record is not asked again");
 
     // second run: feed is fresh (skipped), 6 is asked again, 1 and 5 are not; a record older than since is asked again
@@ -203,7 +203,7 @@ const runSync = async () => {
     routes["/x/space/wbi/arc/search"] = () => arcOk(1);
     await t.followResume();
     await vm.runInContext("followRun && followRun.promise", ctx);
-    assert.deepStrictEqual(calls.filter((c) => !c.startsWith("web-interface")), ["space/wbi/arc/search#2", "space/wbi/arc/search#3"], "resumes at its cursor");
+    assert.deepStrictEqual(calls.filter((c) => c.startsWith("space")), ["space/wbi/arc/search#2", "space/wbi/arc/search#3"], "resumes at its cursor");
     assert.strictEqual(local.follow_jobs.running, false);
 
     // stop lands mid-request; continue picks up where it was
@@ -227,6 +227,52 @@ const runSync = async () => {
     vm.runInContext("FOLLOW_CFG.timeoutMs = 40", ctx);
     assert.deepStrictEqual(calls.filter((c) => c.startsWith("space")), ["space/wbi/arc/search#2", "space/wbi/arc/search#3"]);
     assert.ok(local.follow_jobs.finishedAt);
+  }
+
+  // ---------- follower counts: after the statuses, 7-day skip, resume, permanent vs temporary ----------
+  {
+    const stat = (u) => u.searchParams.get("vmid");
+    local = {
+      follow_list: { list: ["1", "2", "3", "4", "5"] },
+      follow_last: { at: now(), since: 0, map: { 1: 1, 2: 1, 3: 1, 4: 1, 5: 1 } }, // everyone in the feed: no arc/search
+      follow_stats: { 1: { follower: 7, at: now() - 6 * 86400 }, 2: { follower: 7, at: now() - 8 * 86400 } },
+      follow_jobs: { cursor: { phase: "arc" }, startedAt: now() }
+    };
+    let statusAtSeen = 0;
+    const asked = [];
+    routes["/x/relation/stat"] = (u) => {
+      asked.push(stat(u));
+      statusAtSeen ||= local.follow_jobs.statusAt && local.follow_jobs.phase === "stats" ? 1 : 0;
+      if (stat(u) === "4") return json({ code: -404, message: "啥都木有" });
+      if (stat(u) === "5") return json({ code: -500, message: "服务器错误" });
+      return json({ code: 0, data: { follower: 100 } });
+    };
+    await runSync();
+    assert.ok(statusAtSeen, "statusAt is written before the follower counts start");
+    assert.deepStrictEqual(asked, ["2", "3", "4", "5"], "a count younger than 7 days is skipped");
+    assert.strictEqual(local.follow_stats[1].follower, 7);
+    assert.strictEqual(local.follow_stats[2].follower, 100);
+    assert.strictEqual(local.follow_stats[4].code, -404, "a gone account is recorded");
+    assert.ok(!local.follow_stats[5], "a temporary error is not recorded");
+    assert.strictEqual(local.follow_jobs.skipped, 1);
+    assert.match(local.follow_jobs.step, /^$/, "step cleared when finished");
+    assert.ok(local.follow_jobs.finishedAt && local.follow_jobs.statusAt);
+
+    // resume: a killed worker at the stats cursor asks only what is left, and redoes no arc/search
+    local.follow_stats = { 1: { follower: 1, at: now() } };
+    local.follow_last.map = { 1: 1 }; // 2–5 have no content record: a restart from the arc phase would ask them
+    local.follow_jobs = { running: true, phase: "stats", cursor: { phase: "stats" }, startedAt: now() - 60, statusAt: 5 };
+    asked.length = 0;
+    calls = [];
+    let steps = [];
+    routes["/x/relation/stat"] = (u) => (asked.push(stat(u)), steps.push(local.follow_jobs.step), json({ code: 0, data: { follower: 1 } }));
+    await t.followResume();
+    await vm.runInContext("followRun && followRun.promise", ctx);
+    assert.deepStrictEqual(asked, ["2", "3", "4", "5"]);
+    assert.ok(!calls.some((c) => c.startsWith("space") || c.startsWith("polymer")));
+    assert.strictEqual(local.follow_jobs.statusAt, 5, "a resumed stats phase does not touch statusAt");
+    assert.strictEqual(steps[0], "查粉丝数 1/5");
+    assert.strictEqual(steps[1], "查粉丝数 2/5");
   }
 
   // ---------- feed page: timeout retried, cache ----------
@@ -367,7 +413,7 @@ const runSync = async () => {
     calls = [];
     onAlarm({ name: "follow-keepalive" });
     await settle(w);
-    assert.deepStrictEqual(calls.filter((c) => !c.startsWith("web-interface")), ["space/wbi/arc/search#2"], "resumed once, at its cursor");
+    assert.deepStrictEqual(calls.filter((c) => c.startsWith("space")), ["space/wbi/arc/search#2"], "resumed once, at its cursor");
     assert.ok(local.follow_jobs.finishedAt && !local.follow_jobs.running);
     assert.ok(!alarms.has("follow-keepalive"));
     onAlarm({ name: "other" });

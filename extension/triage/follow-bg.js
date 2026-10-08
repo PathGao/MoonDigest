@@ -14,6 +14,8 @@
 // 1 list：拉我的全部关注 → follow_list / follow_people；和上次比，消失的人进 follow_unfollowed（source "bili"），只在拉全时判断。
 // 2 feed：视频动态往回翻过 followSlowDays 天 → follow_last（谁最近发过、最近 3 个标题）。6 小时内翻过就跳过。
 // 3 arc：动态里没出现的人逐个 arc/search（约 1 秒 1 个）→ follow_content；已有记录且不早于 follow_last.since 的跳过。
+//   做完写 follow_jobs.statusAt：更新状态已齐，界面不用等第 4 步。
+// 4 stats：每个关注的人的粉丝数（x/relation/stat）→ follow_stats；7 天内查过的跳过。
 // 所有 GET 共用一个队列（间隔 1–1.5 秒），30 秒没回应算断网；风控（412、-352/-412/-799/-509）整队暂停 90 秒重试，第三次报 THROTTLED。
 
 // ===== 纯函数 =====
@@ -390,6 +392,7 @@ async function followSyncJob(ctx) {
     c.phase = "arc";
   }
 
+  if (c.phase === "stats") return followStatsPhase(ctx);
   const s = await chrome.storage.local.get(["follow_list", "follow_last", "follow_content"]);
   const seen = s.follow_last?.map || {};
   const since = s.follow_last?.since || 0;
@@ -417,6 +420,45 @@ async function followSyncJob(ctx) {
     }
     await followUpdate(["follow_content"], (st) => ({ follow_content: { ...st.follow_content, [mid]: { ...rec, at: followNow() } } }));
     await ctx.progress({ done: ++done });
+  }
+  // 到这里更新状态已经齐了：statusAt 告诉界面不用等后面的粉丝数。
+  if (c.phase !== "stats") {
+    c.phase = "stats";
+    await ctx.progress({ statusAt: followNow(), cursor: c });
+  }
+  await followStatsPhase(ctx);
+}
+
+// 第 4 步：每个关注的人的粉丝数（x/relation/stat，一人一次）→ follow_stats。7 天内查过的跳过，所以接着跑不重查。
+const FOLLOW_STATS_DAYS = 7;
+async function followStatsPhase(ctx) {
+  const s = await chrome.storage.local.get(["follow_list", "follow_stats"]);
+  const have = s.follow_stats || {};
+  const targets = s.follow_list?.list || [];
+  const known = (m) => have[m] && followNow() - (have[m].at || 0) < FOLLOW_STATS_DAYS * 86400;
+  let done = targets.filter(known).length;
+  let skipped = 0;
+  const step = () => `查粉丝数 ${done}/${targets.length}${skipped ? `（${skipped} 个暂时没查到，下次再查）` : ""}`;
+  await ctx.progress({ phase: "stats", step: step(), done, total: targets.length, skipped });
+  for (const mid of targets) {
+    if (known(mid)) continue;
+    let rec;
+    try {
+      const d = await ctx.get(() => followGetData(`${FOLLOW_API}/x/relation/stat?vmid=${mid}`));
+      rec = { follower: Number(d?.follower) || 0 };
+    } catch (e) {
+      // 同 arc：THROTTLED / NETWORK / STOPPED 停下；账号没了记下来；其他暂时的不记。
+      if (typeof e.code === "string") throw e;
+      if (!FOLLOW_GONE_CODES.has(e.code)) {
+        skipped++;
+        await ctx.progress({ skipped, step: step() });
+        continue;
+      }
+      rec = { code: e.code, follower: 0 };
+    }
+    await followUpdate(["follow_stats"], (st) => ({ follow_stats: { ...st.follow_stats, [mid]: { ...rec, at: followNow() } } }));
+    done++;
+    await ctx.progress({ done, step: step() });
   }
 }
 
