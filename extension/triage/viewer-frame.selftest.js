@@ -22,7 +22,7 @@ function frame({ parentOrigin = EXT, top = false, fullscreen = null, webscreen =
   win.window = win;
   Object.assign(win, {
     location: { ancestorOrigins: parentOrigin ? [parentOrigin] : [] },
-    chrome: { runtime: { getURL: (p) => `${EXT}/${p}` } },
+    chrome: { runtime: { id: EXT.slice("chrome-extension://".length), getURL: (p) => `${EXT}/${p}` } },
     // Node gives chrome-extension: URLs a "null" origin; Chrome gives the scheme and id.
     URL: function (u) {
       return { origin: new URL(u.replace("chrome-extension:", "https:")).origin.replace("https:", "chrome-extension:") };
