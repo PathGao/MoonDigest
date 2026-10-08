@@ -374,8 +374,8 @@ html[data-seen-style="veil"] .cover-wrap.seen .seen-veil { display: flex; }
 .actions button { height: 26px; padding: 0 8px; font-size: var(--fs-xs); }
 /* 保留 / 取消收藏 (选中 / 清理 in 已出分拣范围) are one pair and the secondary ones one group: each wraps whole. */
 .actions .pair, .actions .more { display: flex; gap: 4px; }
-.actions .more button { border-color: transparent; background: none; color: var(--text-2); }
-.actions .more button:hover { background: var(--field-bg); }
+.card .more button { border-color: transparent; background: none; color: var(--text-2); }
+.card .more button:hover { background: var(--field-bg); }
 /* Secondary actions show on the current or focused card; their keys work everywhere. A pressed one stays visible. */
 .card:not(.focused, :focus-within) .more button:not(.on) { visibility: hidden; }
 @media (hover: none) { .card:not(.focused) .more button:not(.on) { display: none; } }

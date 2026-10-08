@@ -40,10 +40,8 @@ body:not(.follow-mode) :is(.fw-side-slot, .follow-help) { display: none !importa
 .fw-up { display: grid; grid-template-columns: 56px minmax(0, 1fr) auto; gap: 14px; padding: 12px 14px; }
 /* Hover as on 收藏夹's cards: the dark ring and the lift; the card's secondary action (选中 X) shows. */
 .fw-up:hover:not(.selected, .playing) { outline: 2px solid var(--text-2); outline-offset: -1px; box-shadow: var(--lift); }
-.fw-up.playing:not(.selected) { outline: 2px solid var(--accent); outline-offset: -1px; }
 .fw-foot-row .more { display: flex; margin-left: auto; }
-.fw-foot-row .more button { height: 22px; padding: 0 8px; border-color: transparent; background: none; color: var(--text-2); font-size: var(--fs-xs); }
-.fw-foot-row .more button:hover { background: var(--field-bg); }
+.fw-foot-row .more button { height: 22px; padding: 0 8px; font-size: var(--fs-xs); }
 /* triage.css hides a card's .more until J/K focus; 关注 has no J/K yet, so hover shows it. */
 .fw-up.card:is(:hover, :focus-within) .more button:not(.on) { visibility: visible; }
 @media (hover: none) { .fw-up .more button { visibility: visible !important; } }
@@ -60,22 +58,15 @@ body:not(.follow-mode) :is(.fw-side-slot, .follow-help) { display: none !importa
 .fw-title { min-width: 0; height: auto; padding: 0; border: 0; background: none; color: var(--text); text-decoration: none; font-size: var(--fs-sm); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; }
 .fw-title::before { content: "▸ "; color: var(--faint); }
 a.fw-title:hover { background: none; color: var(--link); text-decoration: underline; }
-.fw-up .chips { align-items: center; gap: 4px 10px; }
-.fw-up .chips .chip { height: auto; padding: 0; border: 0; background: none; color: color-mix(in srgb, var(--c) 70%, var(--text)); }
-.fw-up .chips .chip.card-tag { margin: 0 -4px; padding: 0 4px; border-radius: 4px; cursor: pointer; font: inherit; font-size: var(--fs-xs); }
-.fw-up .chips .chip.card-tag:hover { background: color-mix(in srgb, var(--c) 12%, transparent); }
-.fw-up .chips .chip.card-tag .x { margin-left: 2px; opacity: 0.35; }
-.fw-up .chips .chip.card-tag:hover .x { opacity: 1; }
+/* The tag chips are 收藏夹's (triage.css .card-body > .chips). */
+.fw-up .chips { align-items: center; }
 .fw-tag-add { height: auto; font-size: var(--fs-xs); }
 .fw-right { display: flex; flex-direction: column; align-items: flex-end; gap: 8px; }
 .fw-right button { height: 30px; min-width: 76px; font-size: var(--fs-sm); }
 .fw-right .star { min-width: 0; width: 32px; padding: 0; border-color: transparent; background: none; color: var(--faint); font-size: 20px; line-height: 1; }
 .fw-right .star.on { color: var(--text); }
 .fw-right .star:hover { background: var(--surface-muted); }
-/* 更新状态 badges reuse the AI-verdict colors: 活跃 green, 慢更 / 待查 amber (待查 dashed), 断更 red, the rest gray. */
-.fw-up .badge.keep { background: var(--ok-bg); color: var(--ok); }
-.fw-up .badge.drop { background: var(--danger-bg); color: var(--danger); }
-.fw-up .badge.unsure { background: var(--warn-bg); color: var(--warn); }
+/* 更新状态 badges are triage.css's AI-verdict ones: 活跃 green, 慢更 / 待查 amber (待查 dashed), 断更 red, the rest gray. */
 
 /* ---------- 动态: a grid of videos; beside the viewer a single column of rows ---------- */
 .fw-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 20px 16px; }
@@ -89,9 +80,9 @@ a.fw-title:hover { background: none; color: var(--link); text-decoration: underl
 .fw-video-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; }
 .fw-up-link { display: inline-flex; align-items: center; gap: 6px; min-width: 0; color: var(--text-2); text-decoration: none; }
 .fw-up-link:hover { color: var(--link); }
-.fw-up-link img { width: 20px; height: 20px; border-radius: 50%; object-fit: cover; }
+.fw-up-link img, .fw-vline img { width: 20px; height: 20px; border-radius: 50%; object-fit: cover; }
 .fw-video .chips { margin: 0; }
-.fw-video .chip { height: 20px; padding: 0 6px; border-color: color-mix(in srgb, var(--c) 60%, transparent); background: color-mix(in srgb, var(--c) 12%, transparent); }
+.fw-video .chip, .fw-vline .chip { height: 20px; padding: 0 6px; border-color: color-mix(in srgb, var(--c) 60%, transparent); background: color-mix(in srgb, var(--c) 12%, transparent); }
 /* Playing: pink, where you are, as in 收藏夹. */
 .fw-video.playing { outline: 2px solid var(--accent); outline-offset: 2px; }
 .fw-foot { display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 28px 0 8px; color: var(--muted); text-align: center; }
@@ -146,11 +137,9 @@ a.fw-title:hover { background: none; color: var(--link); text-decoration: underl
 
 .fw-vline { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 8px; padding: 6px 12px; border-bottom: 1px solid var(--border); background: var(--surface-muted); color: var(--text-2); font-size: var(--fs-sm); }
 .fw-vline[hidden] { display: none; }
-.fw-vline img { width: 20px; height: 20px; border-radius: 50%; object-fit: cover; }
 .fw-vline .name { color: var(--text); font-weight: 600; text-decoration: none; }
 .fw-vline .name:hover { color: var(--link); }
 .fw-vline .sep, .fw-vline .none { color: var(--faint); }
-.fw-vline .chip { height: 20px; padding: 0 6px; border-color: color-mix(in srgb, var(--c) 60%, transparent); background: color-mix(in srgb, var(--c) 12%, transparent); }
 .fw-vline .fw-tag-add { color: var(--link); }
 
 #fwPickDialog:not(.fw-pop) .fw-pop-only, #fwPickDialog.fw-pop .fw-modal-only { display: none; }
