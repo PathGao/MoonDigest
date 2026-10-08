@@ -685,7 +685,7 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     // The viewer line: the playing video's tags and 「+ 标签 T」, which opens the picker under it.
     t.S.viewing = "BV710";
     t.renderViewerTags();
-    assert.ok(!t.el.viewerTags.hidden && t.el.viewerTags.innerHTML.includes("data-vtag>p0</span>") && t.el.viewerTags.innerHTML.includes('class="link tag-plus" data-vtag'));
+    assert.ok(!t.el.viewerTags.hidden && t.el.viewerTags.innerHTML.includes("data-vtag>p0</span>") && t.el.viewerTags.innerHTML.includes('class="quiet tag-plus" data-vtag'));
     po = null;
     vm.runInContext("tagPlaying()", ctx);
     assert.deepStrictEqual([po?.anchor, plain(po?.targets)], ["#viewerTags .tag-plus", ["BV710"]]);

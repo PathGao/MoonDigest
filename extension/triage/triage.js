@@ -2331,7 +2331,10 @@ async function undo() {
     return;
   }
   // A step of another mode (关注's tags): it undoes itself and redraws its own view.
-  if (entry.kind === "mode") return toast(await entry.undo());
+  if (entry.kind === "mode") {
+    const text = await entry.undo();
+    return text && toast(text);
+  }
   if (entry.kind === "decision") {
     const it = S.itemMap.get(entry.bvid);
     const token = S.folderToken;

@@ -510,7 +510,7 @@ dialog h3 { margin: 8px 0 0; font-size: var(--fs-sm); font-weight: 600; }
 .viewer-line .sep, .viewer-line .none { color: var(--faint); }
 .viewer-line .chip { height: 20px; padding: 0 6px; border-color: color-mix(in srgb, var(--c) 60%, transparent); background: color-mix(in srgb, var(--c) 12%, transparent); }
 .viewer-line .chip[data-pick], .viewer-line .chip[data-vtag] { cursor: pointer; }
-.viewer-line .tag-plus { display: inline-flex; align-items: center; gap: 4px; height: 20px; padding: 0 6px; border: 1px dashed transparent; border-radius: 4px; color: var(--link); text-decoration: none; }
+.viewer-line .tag-plus { display: inline-flex; align-items: center; gap: 4px; height: 20px; padding: 0 6px; border: 1px dashed transparent; border-radius: 4px; color: var(--text-2); text-decoration: none; }
 .viewer-line .tag-plus:hover { border-color: var(--border-strong); background: none; }
 .viewer { display: flex; flex-direction: column; min-height: 0; min-width: 0; background: var(--surface); border: 1px solid var(--border); border-radius: 9px; overflow: hidden; }
 .viewer-head { display: flex; align-items: center; gap: 6px; padding: 6px 6px 6px 12px; border-bottom: 1px solid var(--border); }

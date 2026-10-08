@@ -246,7 +246,8 @@ const F = {
   sort: "last",
   dir: "desc",
   sel: new Set(),
-  busy: "", // the B站 write running, e.g. 取消关注 3/10
+  busy: "", // the B站 write running, e.g. 取消关注中 3/10
+  busyN: [0, 0], // its done / total, for the progress pill's bar
   recentFilter: false,
   loaded: false,
   feed: null, // { items, offset, hasMore, loading, error, dry, at }
@@ -264,7 +265,7 @@ const main = $("followMain");
 main.innerHTML = `
   <div class="folder-head fw-head">
     <div class="folder-info"><div class="folder-text"><h1 id="fwTitle" class="folder-title">关注</h1><div id="fwMeta" class="folder-meta"></div></div>
-      <button type="button" class="bili-link" data-fw="bili" aria-label="在 B站打开我的空间">在 B站打开 ↗</button>
+      <button type="button" class="link bili-link" data-fw="bili" aria-label="在 B站打开我的空间">在 B站打开 ↗</button>
       ${UI.syncPill("fwSync")}
     </div>
     <span id="fwSort" class="sort-box"></span>
@@ -278,12 +279,12 @@ main.innerHTML = `
       settingsAttr: 'data-fw="settings"', settingsLabel: "关注设置"
     })}</span>
   </div>
-  <div class="stagebar fw-bar"><span id="fwBar" class="fw-bar-dyn"></span><span id="fwTools" class="fw-tools"><span id="fwSelAll"></span><span id="fwAiSlot"></span></span></div>
+  <div class="stagebar fw-bar"><span id="fwBar" class="fw-bar-dyn"></span><span id="fwTools" class="fw-tools"><span id="fwAiSlot"></span></span></div>
   <div id="fwList" class="fw-list" aria-label="UP 主"></div>
   <div id="fwSel"></div>`;
 const SYNC = { pill: $("fwSyncViewBtn"), notice: $("fwSyncNotice"), text: $("fwSyncText"), detail: $("fwSyncDetail"), close: $("fwSyncCloseBtn") };
 UI.bindSync(SYNC);
-const E = { sort: $("fwSort"), title: $("fwTitle"), tools: $("fwTools"), selAll: $("fwSelAll"), meta: $("fwMeta"), tabs: $("fwTabs"), bar: $("fwBar"), list: $("fwList"), sel: $("fwSel"), q: $("fwQ"), qCount: $("fwQCount") };
+const E = { sort: $("fwSort"), title: $("fwTitle"), tools: $("fwTools"), meta: $("fwMeta"), tabs: $("fwTabs"), bar: $("fwBar"), list: $("fwList"), sel: $("fwSel"), q: $("fwQ"), qCount: $("fwQCount") };
 // Without the sidebar its items become a select in the top bar, where 收藏夹 shows its folder select.
 const sideSlot = document.createElement("span");
 sideSlot.className = "fw-side-slot";
@@ -409,7 +410,7 @@ function renderSide() {
     item("untagged", "未打标签", n((u) => !u.tagIds.length)),
     item("special", "特别关注", n((u) => u.special), '<span class="star-mark" aria-hidden="true">★</span>'),
     ...D.tags.map((t) => item(t.id, t.name, n((u) => u.tagIds.includes(t.id)), `<i class="dot" style="--c:${esc(t.color)}"></i>`))
-  ].join("")}</div><p class="side-note">标签只存在扩展里，不改 B站</p><hr>${item("gone", "已取消关注", Object.keys(D.gone).length)}${
+  ].join("")}</div><hr>${item("gone", "已取消关注", Object.keys(D.gone).length)}${
     D.groups.length
       ? `<hr><div class="side-head">B站 分组</div><div class="folder-list">${D.groups.map((g) => item(`g:${g.id}`, g.name, n((u) => inGroup(u.mid, D, `g:${g.id}`)))).join("")}</div>
   <p class="side-note">只读，在 B站 改</p>`
@@ -428,6 +429,8 @@ function renderSync() {
   if (j.running) btn.setAttribute("aria-busy", "true");
   else btn.removeAttribute("aria-busy");
   if (!j.running) {
+    // A B站 write (取消关注 3/10…) first, as 收藏夹's batches show theirs here.
+    if (F.busy) return UI.setActivity(pill, { text: F.busy, done: F.busyN[0], total: F.busyN[1] });
     const ai = AI.running ? "AI 打标签运行中" : AI.proposal ? "标签建议待确认" : "";
     return UI.setActivity(pill, ai && { text: ai, btn: { attrs: 'data-fw="ai"', label: "查看" } });
   }
@@ -470,6 +473,10 @@ function renderHead() {
   const err = j.running ? "" : j.throttled ? "上次刷新被 B站限流暂停了，再点刷新接着查" : j.error ? `上次刷新出错：${j.error}` : "";
   E.title.innerHTML = UI.titleHtml("关注", D.list ? following().length : null);
   E.meta.innerHTML = UI.headMeta([D.list ? UI.syncedText(at * 1000) : "还没有关注数据"], err);
+  // 导出 → UP 主表格: nothing to put in it before the first refresh.
+  const csv = $("fwExport").querySelector('[data-fw="csv"]');
+  csv.querySelector("small").textContent = D.list ? "名字、标签、更新状态、最后投稿、粉丝数" : "还没有关注数据，先刷新";
+  UI.setReason(csv, D.list ? "" : "还没有关注数据，先刷新");
   renderSync();
   renderSyncChanges();
 }
@@ -502,11 +509,11 @@ function renderUps() {
   const recentChip = recentN || F.recentFilter
     ? `<span class="ai-recent"><button type="button" class="chip ai-recent-chip${F.recentFilter ? " on" : ""}" data-fw="recent" aria-pressed="${F.recentFilter}" title="最近一次 AI 打标签改动的 UP 主，在卡片上逐个看，不对的点卡片上的标签改。\n点 ×：不再标出，标签不变。再打一次：换成新的一批。">${AI_SPARK}AI 刚打的 ${recentN}</button><button type="button" class="ai-recent-x" data-fw="recent-done" aria-label="不再标出「AI 刚打的」，标签不变" title="不再标出，标签不变">×</button></span>`
     : "";
-  E.bar.innerHTML = D.list || gone ? `<span class="seg" role="group" aria-label="${gone ? "在哪取关" : "更新状态"}">${seg}</span>${gone ? "" : recentChip}` : "";
+  // 全选 after the pills, as in 收藏夹: it acts on the UP 主 listed now.
+  const selAll = UI.selectAllBox('data-fw="select-all"', list.length, list.filter((m) => F.sel.has(m)).length);
+  E.bar.innerHTML = D.list || gone ? `<span class="seg" role="group" aria-label="${gone ? "在哪取关" : "更新状态"}">${seg}</span>${gone ? "" : recentChip}${selAll}` : "";
   E.tools.hidden = !D.list && !gone;
   renderAiButton();
-  // 全选 is always on offer while nothing is selected, as in 收藏夹; with a selection it moves into the selection bar.
-  E.selAll.innerHTML = list.length && !F.sel.size ? `<button type="button" class="link" data-fw="select-all">全选这里的 ${list.length} 个</button>` : "";
   E.sort.hidden = gone || !D.list;
   E.sort.innerHTML = UI.sortControl({ sorts: SORTS, sort: F.sort, dir: F.dir, words: dirLabel(F.sort, F.dir), selectAttr: 'data-fw="sort"', dirAttr: 'data-fw="dir"' });
   E.qCount.textContent = UI.resultCount(F.q, list.length);
@@ -578,20 +585,27 @@ function upCard(mid) {
   </article>`;
 }
 
+// The selection the bar acts on: the selected UP 主 listed now. Switching the sidebar keeps the rest, as a filter does.
+const selShown = () => shown.filter((m) => F.sel.has(m));
+
 function renderSel() {
-  const n = F.sel.size;
-  if (F.tab !== "ups" || !n) return (E.sel.innerHTML = "");
-  const unselected = shown.filter((m) => !F.sel.has(m)).length;
-  const all = unselected ? `<button type="button" class="link" data-fw="select-all">全选这里的 ${shown.length} 个</button>` : "";
-  const busy = F.busy ? " disabled" : "";
+  const n = selShown().length;
+  const box = E.bar.querySelector("[data-fw=select-all]");
+  if (box) box.setAttribute("aria-checked", UI.selectAllState(shown.length, n));
+  if (F.tab !== "ups" || !F.sel.size) return (E.sel.innerHTML = "");
+  const hidden = F.sel.size - n;
+  const busy = F.busy && "上一批还没做完";
+  const none = !n && "选中的都被筛选隐藏了";
+  const btn = (act, label, reason, cls = "") => `<button type="button"${cls ? ` class="${cls}"` : ""} data-fw="${act}"${UI.reasonAttrs(reason)}>${label}</button>`;
+  const special = (on) => specialWhy(selShown(), on);
   const acts = F.side === "gone"
-    ? `<button type="button" data-fw="refollow"${busy}>重新关注</button>`
-    : `<button type="button" data-fw="pick-sel"${busy}>标签…</button>
-       <button type="button" data-fw="ai">${AI_SPARK}AI 打标签</button>
-       <button type="button" data-fw="special-on"${busy}>★ 设为特别关注</button>
-       <button type="button" data-fw="special-off"${busy}>取消特别关注</button>
-       <button type="button" class="danger" data-fw="unfollow"${busy}>取消关注</button>`;
-  E.sel.innerHTML = `<div class="selbar" role="toolbar" aria-label="选中的 UP 主"><strong class="sel-count">已选中 ${n} 个</strong>${F.busy ? `<span class="muted" aria-busy="true">${esc(F.busy)}</span>` : ""}<button type="button" class="link" data-fw="select-none">清空选中</button>${all}<span class="sel-actions">${acts}</span></div>`;
+    ? btn("refollow", "重新关注", busy || none)
+    : btn("pick-sel", "标签…", busy || none) +
+      btn("ai", `${AI_SPARK}AI 打标签`, none) +
+      btn("special-on", "★ 设为特别关注", busy || none || special(true)) +
+      btn("special-off", "取消特别关注", busy || none || special(false)) +
+      btn("unfollow", "取消关注", busy || none, "danger");
+  E.sel.innerHTML = `<div class="selbar" role="toolbar" aria-label="选中的 UP 主"><strong class="sel-count">已选中 ${n} 个</strong>${hidden ? `<span class="muted">另有 ${hidden} 个被筛选隐藏</span>` : ""}<button type="button" class="quiet" data-fw="select-none">清空选中</button><span class="sel-actions">${acts}</span></div>`;
 }
 
 // ----- 动态 -----
@@ -607,7 +621,6 @@ function renderFeed() {
   // Of the tools only 标签管理: AI 打标签 and 全选 work on UP 主.
   E.tools.hidden = false;
   renderAiButton();
-  E.selAll.innerHTML = "";
   E.bar.innerHTML = `<span class="seg fw-pills" role="group" aria-label="按标签看">${[pill("all", "全部"), pill("untagged", "未打标签"), pill("special", "★ 特别关注"), ...D.tags.map((t) => pill(t.id, t.name, t.color))].join("")}</span>${
     D.groups.length ? `<span class="seg fw-pills fw-groups" role="group" aria-label="按 B站 分组看"><span class="fw-group-label">B站 分组</span>${D.groups.map((g) => pill(`g:${g.id}`, g.name)).join("")}</span>` : ""
   }`;
@@ -726,20 +739,25 @@ function play(bvid) {
 }
 
 // ---------- B站 writes: one UP at a time, stopped by the first error ----------
-async function relationRun(mids, label, msg) {
-  F.busy = `${label} 0/${mids.length}`;
+// Returns how many went through. Its progress shows in the row's progress pill, as a 收藏夹 batch does.
+async function relationRun(mids, label, msg, { quiet = false } = {}) {
+  F.busy = `${label}中 0/${mids.length}`;
+  F.busyN = [0, mids.length];
   renderSel();
+  renderSync();
   let done = 0;
   try {
     for (const mid of mids) {
-      F.busy = `${label} ${done + 1}/${mids.length}`;
+      F.busy = `${label}中 ${done + 1}/${mids.length}`;
+      F.busyN = [done, mids.length];
       renderSel();
+      renderSync();
       const r = await send(msg(mid));
       if (!r.ok) throw new Error(r.code === "THROTTLED" ? "被 B站限流了，过一会儿再试" : r.error || "未知错误");
       F.sel.delete(mid);
       done++;
     }
-    toast(`已${label} ${done} 个`);
+    if (!quiet) toast(`已${label} ${done} 个`);
   } catch (e) {
     toast(`${label}第 ${done + 1} 个时出错：${e.message}${done ? `（前 ${done} 个已完成）` : ""}`, true);
   } finally {
@@ -747,26 +765,48 @@ async function relationRun(mids, label, msg) {
     await load();
     render();
   }
+  return done;
 }
 
 async function unfollow(mids) {
   if (!mids.length) return;
-  const ok = await askConfirm(`在 B站取消关注 ${mids.length} 个 UP 主？`, `<p>${names(mids)}</p><p class="dialog-hint">标签会记着，在「已取消关注」里可以重新关注。</p>`, "取消关注", { danger: true });
+  // Always asked, even for one: following again later loses the original follow date.
+  const ok = await askConfirm(`在 B站取消关注 ${mids.length} 个 UP 主？`, `<p>${names(mids)}</p><p class="dialog-hint">标签会记着，在「已取消关注」里可以重新关注，但关注日期会变成重新关注的那天。</p>`, `取消关注 ${mids.length} 个`, { danger: true });
   if (ok) await relationRun(mids, "取消关注", (mid) => ({ type: "follow-relation", mid, act: 2 }));
 }
 async function refollow(mids) {
   if (!mids.length) return;
-  const ok = await askConfirm(`在 B站重新关注 ${mids.length} 个 UP 主？`, `<p>${names(mids)}</p><p class="dialog-hint">原来的标签会放回去。</p>`, "重新关注");
+  const ok = await askConfirm(`在 B站重新关注 ${mids.length} 个 UP 主？`, `<p>${names(mids)}</p><p class="dialog-hint">原来的标签会放回去。</p>`, `重新关注 ${mids.length} 个`);
   if (ok) await relationRun(mids, "重新关注", (mid) => ({ type: "follow-relation", mid, act: 1 }));
 }
 // 特别关注 is B站's only group the phone app pushes new videos for.
+const toSpecial = (mids, on) => mids.filter((m) => rows.get(m) && !rows.get(m).gone && rows.get(m).special !== on);
+const specialWhy = (mids, on) => (mids.length && !toSpecial(mids, on).length ? (on ? "选中的都已经是特别关注了" : "选中的都不是特别关注") : "");
 async function special(mids, on) {
-  mids = mids.filter((m) => rows.get(m) && !rows.get(m).gone && rows.get(m).special !== on);
-  if (!mids.length) return toast(on ? "选中的都已经是特别关注了" : "选中的都不是特别关注");
+  const why = specialWhy(mids, on);
+  mids = toSpecial(mids, on);
+  if (!mids.length) return why && toast(why);
   const label = on ? "设为特别关注" : "取消特别关注";
-  const why = on ? "特别关注的 UP 主发视频，手机 B站会推送。" : "取消后还关注着，只是不再推送。";
-  const ok = await askConfirm(`在 B站把 ${mids.length} 个 UP 主${on ? "设为" : "取消"}特别关注？`, `<p>${names(mids)}</p><p class="dialog-hint">${why}</p>`, label);
+  const push = on ? "特别关注的 UP 主发视频，手机 B站会推送。" : "取消后还关注着，只是不再推送。";
+  const ok = await askConfirm(`在 B站把 ${mids.length} 个 UP 主${on ? "设为" : "取消"}特别关注？`, `<p>${names(mids)}</p><p class="dialog-hint">${push}</p>`, `${label} ${mids.length} 个`);
   if (ok) await relationRun(mids, label, (mid) => ({ type: "follow-special", mid, on }));
+}
+// A card's ★: one UP, no confirm; U sets it back.
+async function starOne(mid) {
+  const on = !rows.get(mid).special;
+  const label = on ? "设为特别关注" : "取消特别关注";
+  if (!(await relationRun([mid], label, () => ({ type: "follow-special", mid, on }), { quiet: true }))) return;
+  // A step on the shared undo stack; a failed write already said why (relationRun's toast), so it returns "".
+  const step = {
+    kind: "mode",
+    undo: async () => {
+      if (F.busy) return T.pushUndo(step), "上一批还没做完，稍后再按 U";
+      const ok = await relationRun([mid], on ? "取消特别关注" : "设为特别关注", () => ({ type: "follow-special", mid, on: !on }), { quiet: true });
+      return ok ? `已撤销：${label}「${upName(mid)}」` : "";
+    }
+  };
+  T.pushUndo(step);
+  toast(`已${label}「${upName(mid)}」 · U 撤销`);
 }
 
 // ---------- dialogs ----------
@@ -1086,13 +1126,13 @@ const AI = { running: false, stop: false, proposal: null, excluded: new Set(), s
 
 function aiScopeMids(scope = $("fwAiScope").value) {
   const live = new Set(following());
-  return (scope === "sel" ? [...F.sel] : F.side === "gone" ? [] : [...shown]).filter((m) => live.has(m));
+  return (scope === "sel" ? selShown() : F.side === "gone" ? [] : [...shown]).filter((m) => live.has(m));
 }
 async function loadAi() {
   AI.settings = await aiSettings();
   AI.history = (await chrome.storage.local.get(AI_HISTORY_KEY))[AI_HISTORY_KEY] || [];
   AI.excluded.clear();
-  $("fwAiScope").value = F.sel.size ? "sel" : "view";
+  $("fwAiScope").value = selShown().length ? "sel" : "view";
   $("fwAiRemove").checked = AI.settings.allowRemove;
 }
 async function openAi() {
@@ -1125,7 +1165,7 @@ function renderAiForm() {
     ? `<span class="muted">最近：</span>${AI.history.map((h, i) => `<button type="button" class="chip" data-h="${i}" title="${esc(h)}">${esc(h.length > 18 ? `${h.slice(0, 18)}…` : h)}</button>`).join("")}`
     : "";
   const run = $("fwAiRun");
-  run.disabled = AI.running;
+  UI.setReason(run, AI.running ? "正在运行" : mids.length ? "" : $("fwAiScopeCount").textContent);
   run.innerHTML = AI.running ? "运行中…" : `${AI_SPARK}运行`;
   if (AI.running) run.setAttribute("aria-busy", "true");
   else run.removeAttribute("aria-busy");
@@ -1255,7 +1295,6 @@ sideSlot.addEventListener("change", (e) => e.target.dataset.fw === "side" && pic
 function pickSide(id) {
   if (id === F.side) return;
   F.side = id;
-  F.sel.clear();
   if (F.feed) F.feed.dry = 0;
   render();
   E.list.scrollTop = 0;
@@ -1301,7 +1340,7 @@ main.addEventListener("click", async (e) => {
   const sel = t.closest("[data-select]");
   if (sel) return toggleSel(sel.dataset.select);
   const star = t.closest("[data-star]");
-  if (star) return F.busy ? toast("上一批还没做完") : special([star.dataset.star], !rows.get(star.dataset.star).special);
+  if (star) return F.busy ? toast("上一批还没做完") : starOne(star.dataset.star);
   const re = t.closest("[data-refollow]");
   if (re) return F.busy ? toast("上一批还没做完") : refollow([re.dataset.refollow]);
   const act = t.closest("[data-fw]")?.dataset.fw;
@@ -1332,16 +1371,16 @@ main.addEventListener("click", async (e) => {
     render();
   } else if (act === "more") more({ byHand: true });
   else if (act === "select-all") {
-    shown.forEach((m) => F.sel.add(m));
+    UI.toggleAll(shown, F.sel);
     render();
   } else if (act === "select-none") {
     F.sel.clear();
     render();
   } else if (F.busy) toast("上一批还没做完");
-  else if (act === "pick-sel") openPick([...F.sel]);
-  else if (act === "unfollow") unfollow([...F.sel]);
-  else if (act === "refollow") refollow([...F.sel]);
-  else if (act === "special-on" || act === "special-off") special([...F.sel], act === "special-on");
+  else if (act === "pick-sel") openPick(selShown());
+  else if (act === "unfollow") unfollow(selShown());
+  else if (act === "refollow") refollow(selShown());
+  else if (act === "special-on" || act === "special-off") special(selShown(), act === "special-on");
 });
 // The selection bar sits outside the list; its buttons share the handler above through #followMain.
 

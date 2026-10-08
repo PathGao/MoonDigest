@@ -218,7 +218,7 @@
     </div>`;
   // 「+ 标签 T」 on 动态 cards and the viewer line; attrs say what it tags.
   const tagPlusBtn = (attrs, label) =>
-    `<button type="button" class="link tag-plus" ${attrs} aria-label="${esc(label)}">+ 标签 <kbd class="k-faint" aria-hidden="true">T</kbd></button>`;
+    `<button type="button" class="quiet tag-plus" ${attrs} aria-label="${esc(label)}">+ 标签 <kbd class="k-faint" aria-hidden="true">T</kbd></button>`;
   // T / Esc forwarded by viewer-frame.js while focus is in the player: only from the viewer's own frame and B站's origin.
   function viewerKeyFrom(e, frameWin) {
     const ok = frameWin && e.source === frameWin && e.origin === "https://www.bilibili.com" && e.data?.type === "mdg-viewer-key";
