@@ -303,6 +303,11 @@ const runSync = async () => {
     assert.deepStrictEqual([page.offset, page.hasMore], ["o2", true]);
     await t.followFeed({ offset: "" });
     assert.strictEqual(n, 2, "cached");
+    // A finished 刷新 drops the cache: 动态 then shows what the sync found.
+    await runSync();
+    const afterSync = n;
+    await t.followFeed({ offset: "" });
+    assert.strictEqual(n, afterSync + 1, "read again after a sync");
   }
 
   // ---------- relation / special: local stores updated after success ----------

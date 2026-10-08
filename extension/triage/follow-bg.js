@@ -482,7 +482,8 @@ async function followStart() {
   const ctx = { cursor, startedAt, get, progress: (fields) => followPatchJob({ ...fields, hold: null, beat: followNow() }) };
   run.promise = followSyncJob(ctx)
     .then(
-      () => followPatchJob({ running: false, finishedAt: followNow(), lastFinishedAt: followNow(), step: "", cursor: null, hold: null }),
+      // The 动态 pages cached before it would hide what it just found.
+      () => (followFeedCache.clear(), followPatchJob({ running: false, finishedAt: followNow(), lastFinishedAt: followNow(), step: "", cursor: null, hold: null })),
       (e) =>
         followPatchJob(
           e.code === "STOPPED" ? { running: false, hold: null } : { running: false, hold: null, error: e.message, throttled: e.code === "THROTTLED" }

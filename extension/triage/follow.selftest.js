@@ -11,7 +11,7 @@ assert.ok(pure.includes("function followStatus") && !pure.includes("document"), 
 const ctx = vm.createContext({ setTimeout, clearTimeout });
 // The pure block sorts with shared.js (UI.byValue / UI.dirWords), as the page does.
 vm.runInContext(fs.readFileSync(path.join(__dirname, "shared.js"), "utf8"), ctx);
-vm.runInContext(`const UI = globalThis.TriageUi;\n${pure}\n;Object.assign(globalThis, { dirLabel, followAiSettings, aiRequests, normDays, settingsProblem, followStatus, lastPostOf, recentTitles, upRow, visibleUps, mergeFeed, feedMatch, sideIds, feedList, feedLeaving, withTags, stepIn, tagsOf, restoreTags, fmtAgo });`, ctx);
+vm.runInContext(`const UI = globalThis.TriageUi;\n${pure}\n;Object.assign(globalThis, { syncFinished, dirLabel, followAiSettings, aiRequests, normDays, settingsProblem, followStatus, lastPostOf, recentTitles, upRow, visibleUps, mergeFeed, feedMatch, sideIds, feedList, feedLeaving, withTags, stepIn, tagsOf, restoreTags, fmtAgo });`, ctx);
 const t = ctx;
 const plain = (v) => JSON.parse(JSON.stringify(v));
 
@@ -228,6 +228,14 @@ assert.strictEqual(t.fmtAgo(ago(800), now), "2 年前");
   assert.ok(source.includes("const openManage = () => TagDialogs.manage.open(manageTags);") && /async function openAi\(\) \{[^}]*\}\s*TagDialogs\.ai\.open\(aiTags\);/.test(source));
   assert.ok(/const manageTags = \{\s*who: "UP 主"/.test(source) && /const aiTags = \{\s*who: "UP 主"[\s\S]*?manage: manageTags,/.test(source), "关注's adapters, linked");
   assert.ok(!/<dialog id="fwTagsDialog"|data-fwmode/.test(source), "no combined 「UP 主标签」 dialog");
+}
+
+// 刷新 then 动态: a finished sync drops the loaded feed, so the next look reads it again.
+{
+  assert.ok(t.syncFinished({ running: true, finishedAt: null }, { running: false, finishedAt: 5 }));
+  assert.ok(!t.syncFinished({ finishedAt: 5 }, { finishedAt: 5, beat: 6 }), "a tick of the same job is not a finish");
+  assert.ok(!t.syncFinished({ running: true }, { running: false, hold: null }), "stopped (no finishedAt) is not a finish");
+  assert.ok(/if \(syncFinished\(changes\.follow_jobs\?\.oldValue, changes\.follow_jobs\?\.newValue\)\) \{\s*F\.feed = null;/.test(source), "the page drops F.feed on it");
 }
 
 console.log("follow selftest: all passed");

@@ -201,6 +201,9 @@ function normDays(slow, dead) {
   return { followSlowDays, followDeadDays: Math.min(3651, Math.max(followSlowDays + 1, num(dead, 365))) };
 }
 
+// A 刷新 finished between two follow_jobs: the 动态 already loaded is older than what it read.
+const syncFinished = (was, now) => Boolean(now?.finishedAt && now.finishedAt !== was?.finishedAt);
+
 // 「3 天前」 style ages for seconds; under a day is 今天.
 function fmtAgo(sec, now) {
   const d = Math.floor((now - sec) / DAY);
@@ -1311,6 +1314,10 @@ chrome.storage.onChanged.addListener((changes, area) => {
     return render();
   }
   if (area !== "local" || !F.loaded) return;
+  if (syncFinished(changes.follow_jobs?.oldValue, changes.follow_jobs?.newValue)) {
+    F.feed = null;
+    if (F.mode === "follow" && F.tab === "feed") render();
+  }
   const keys = Object.keys(changes).filter((k) => KEYS.includes(k));
   if (!keys.length) return;
   if (keys.every((k) => k === "follow_jobs")) {
