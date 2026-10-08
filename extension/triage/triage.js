@@ -288,7 +288,8 @@ const S = {
   analyzing: new Set(),
   throttleUntil: 0,
   throttleLabel: "",
-  undo: [],
+  undo: [], // 收藏夹's steps; a folder switch clears them
+  modeUndo: [], // 关注's steps ({ kind: "mode" }): U undoes only the steps of the mode it is pressed in
   lastSyncAt: 0,
   readAt: {}, // K.readAt
   syncError: "", // the open folder's last 刷新 failure; stays under the title until a read succeeds
@@ -707,7 +708,8 @@ function nextBatch() {
 
 // ---------- init ----------
 init();
-// 关注 mode (follow.js) borrows the viewer, the toast, the confirm dialog and the undo stack, and takes the keys while on.
+// 关注 mode (follow.js) borrows the viewer, the toast and the confirm dialog, keeps its undo steps here (S.modeUndo) and
+// takes the keys while on.
 const followMode = () => Boolean(document.body?.classList.contains("follow-mode"));
 // modeKeys(key, e): null while that mode is off (the keys below run); otherwise true when it used the key.
 let modeKeys = null;
@@ -2225,8 +2227,9 @@ function advanceFrom(bvid, before) {
 
 // ---------- decisions ----------
 function pushUndo(entry) {
-  S.undo.push(entry);
-  if (S.undo.length > BocLimits.TRIAGE_UNDO_STEPS) S.undo.shift();
+  const steps = entry.kind === "mode" ? S.modeUndo : S.undo;
+  steps.push(entry);
+  if (steps.length > BocLimits.TRIAGE_UNDO_STEPS) steps.shift();
 }
 // Patch one folder's decisions even after the user switched away from it; a null value deletes.
 // Merged into the stored record, not written from memory: a batch running for this folder may have written it after
@@ -2319,7 +2322,7 @@ async function decide(bvid, action) {
   advanceFrom(bvid, before);
 }
 
-// U undoes the last step wherever it was; a step that changed several videos asks first, so a stray U costs nothing.
+// U undoes the last step of the mode it is pressed in; a step that changed several videos asks first, so a stray U costs nothing.
 function batchUndoAsk(entry) {
   if (entry.kind === "mode") return entry.ask || null;
   const n = entry.kind === "keepMany" ? entry.bvids.length : entry.kind === "unfavMany" ? entry.items.length : entry.kind === "aiApply" ? entry.changes.length : entry.kind === "tagsMany" ? Object.keys(entry.prevs).length : 0;
@@ -2331,15 +2334,16 @@ function batchUndoAsk(entry) {
 }
 
 async function undo() {
-  const top = S.undo.at(-1);
+  const steps = followMode() ? S.modeUndo : S.undo;
+  const top = steps.at(-1);
   const ask = top && batchUndoAsk(top);
-  if (ask && (!(await askConfirm(ask[0], ask[1], ask[2] || "撤销")) || S.undo.at(-1) !== top)) return;
-  const entry = S.undo.pop();
+  if (ask && (!(await askConfirm(ask[0], ask[1], ask[2] || "撤销")) || steps.at(-1) !== top)) return;
+  const entry = steps.pop();
   if (!entry) {
     toast("没有可撤销的操作");
     return;
   }
-  // A step of another mode (关注's tags): it undoes itself and redraws its own view.
+  // A 关注 step: it undoes itself and redraws its own view.
   if (entry.kind === "mode") {
     const text = await entry.undo();
     return text && toast(text);

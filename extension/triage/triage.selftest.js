@@ -1911,18 +1911,29 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     t.onKey(ev("j", { target: { closest: (sel) => (sel.includes("input") ? {} : null) } }));
     assert.strictEqual(keys.join(), "j,u", "keys typed into a field or the IME skip the mode");
     t.MoonTriage.setModeKeys(() => null);
+    // Each mode keeps its own steps: U undoes only the steps of the mode it is pressed in.
     t.S.undo = [];
     let undone = 0;
     t.MoonTriage.pushUndo({ kind: "mode", undo: async () => (undone++, "已撤销：去掉「x」") });
+    t.S.undo.push({ kind: "basket", removed: [] });
     t.onKey(ev("u"));
     await new Promise((r) => setTimeout(r, 20));
-    assert.ok(undone === 1 && toasts.at(-1) === "已撤销：去掉「x」" && !t.S.undo.length, "mode off: U undoes a 关注 step");
+    assert.ok(undone === 0 && toasts.at(-1) === "已撤销：放回播放列表 0 个" && t.S.modeUndo.length === 1, "收藏夹's U undoes its own step, not 关注's later one");
+    t.onKey(ev("u"));
+    await new Promise((r) => setTimeout(r, 20));
+    assert.ok(undone === 0 && toasts.at(-1) === "没有可撤销的操作", "收藏夹's U never reaches a 关注 step");
+    t.S.undo.push({ kind: "basket", removed: [] });
+    t.document.body = { classList: { contains: (c) => c === "follow-mode" } };
+    await t.MoonTriage.undo();
+    assert.ok(undone === 1 && toasts.at(-1) === "已撤销：去掉「x」" && t.S.undo.length === 1 && !t.S.modeUndo.length, "关注's U undoes its step and leaves 收藏夹's");
     const ask = t.askConfirm;
     t.askConfirm = async () => false;
     t.MoonTriage.pushUndo({ kind: "mode", ask: ["撤销？", ""], undo: async () => (undone++, "") });
     await t.MoonTriage.undo();
-    assert.ok(undone === 1 && t.S.undo.length === 1, "a step that asks and is declined stays");
+    assert.ok(undone === 1 && t.S.modeUndo.length === 1, "a step that asks and is declined stays");
     t.askConfirm = ask;
+    t.S.modeUndo = [];
+    delete t.document.body;
     t.MoonTriage.setModeKeys(null);
   }
 
