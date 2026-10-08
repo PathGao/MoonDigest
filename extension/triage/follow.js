@@ -243,6 +243,13 @@ const latestBvid = (u) => u?.titles.find((v) => v.bvid)?.bvid || "";
 const aiBlocked = (tab, side) => (tab === "feed" ? "AI 打标签给 UP 主打，在「UP 主」页签用" : side === "gone" ? "已取消关注的 UP 主不打标签，重新关注后再打" : "");
 // The AI dialog's 「允许 AI 去掉已有标签」, stored with the rest of follow_ai_settings.
 const withAllowRemove = (settings, on) => normAi({ ...settings, allowRemove: on });
+// The 收藏夹 player's UP ({ mid, name }) among 关注's rows: by mid; items saved before mids were stored match by name
+// until the folder's next refresh. "" for an UP never followed.
+function favUpMid(up, rows) {
+  if (!up) return "";
+  if (up.mid) return rows.has(up.mid) ? up.mid : "";
+  return (up.name && [...rows.values()].find((u) => u.name === up.name)?.mid) || "";
+}
 // PURE-END
 
 // ---------- page ----------
@@ -722,13 +729,11 @@ vline.id = "fwViewerUp";
 vline.className = "viewer-line";
 vline.hidden = true;
 $("viewerTags").after(vline);
-// ponytail: 收藏夹 items carry only the UP's name, so the UP is found by name; a renamed UP shows no line until the
-// next 关注 刷新. Store the mid on folder items if that matters.
-const favMid = (upper) => (upper && [...rows.values()].find((u) => u.name === upper)?.mid) || "";
 function renderViewerUp() {
   const follow = F.mode === "follow";
-  if (!follow && T.viewingUpper() && !F.loaded) return void ensureLoaded().then(renderViewerUp);
-  const mid = follow ? (F.viewing && F.viewingMid) || "" : favMid(T.viewingUpper());
+  const up = !follow && T.viewingUp();
+  if (up && !F.loaded) return void ensureLoaded().then(renderViewerUp);
+  const mid = follow ? (F.viewing && F.viewingMid) || "" : favUpMid(up, rows);
   vline.hidden = !mid;
   if (!mid) return void (vline.innerHTML = "");
   const u = rows.get(mid);

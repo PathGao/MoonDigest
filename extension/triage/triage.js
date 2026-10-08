@@ -210,7 +210,7 @@ function keepInvalidInfo(items, oldItems) {
   const old = new Map((oldItems || []).map((it) => [it.bvid, it]));
   return items.map((it) => {
     const o = it.invalid && old.get(it.bvid);
-    return o ? { ...it, title: o.title || it.title, cover: o.cover || it.cover, upper: o.upper || it.upper, intro: o.intro || it.intro, duration: o.duration || it.duration } : it;
+    return o ? { ...it, title: o.title || it.title, cover: o.cover || it.cover, upper: o.upper || it.upper, upperMid: o.upperMid || it.upperMid, intro: o.intro || it.intro, duration: o.duration || it.duration } : it;
   });
 }
 
@@ -720,8 +720,12 @@ let modeKeys = null;
 let viewerHook = null;
 globalThis.MoonTriage = {
   openViewer, closeViewer, toast, askConfirm, send, store, runAiBatches, viewing: () => S.viewing,
-  // The playing 收藏夹 video's UP name, "" in 关注 or with nothing playing.
-  viewingUpper: () => (!followMode() && S.itemMap.get(S.viewing)?.upper) || "",
+  // The playing 收藏夹 video's UP as { mid, name } (mid "" on items saved before it was stored); null in 关注 or with
+  // nothing playing.
+  viewingUp() {
+    const it = !followMode() && S.itemMap.get(S.viewing);
+    return it ? { mid: it.upperMid || "", name: it.upper || "" } : null;
+  },
   // 关注's 没登录: the same 去登录 banner as 收藏夹's; off hides it only when it is that one.
   loginBanner(on) {
     if (on) showBanner("没登录 B站：先在这个浏览器里登录 B站", "去登录", () => openTab("https://passport.bilibili.com/login"), "login");
