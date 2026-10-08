@@ -858,9 +858,10 @@ input { box-sizing: border-box; width: 100%; margin: 0; padding: 4px 8px; border
     return box;
   }
 
-  // The block that holds the title's first text, so the badge sits inline before the title words.
+  // The block that holds the title's first text, so the badge sits inline before the title words. BewlyCat's 稍后再看
+  // wraps a whole item in one link whose title is a plain .keep-two-lines.
   function titleBox(a) {
-    const root = a.querySelector('[class*="title"]') || (!a.querySelector("img, picture") && a);
+    const root = a.querySelector('[class*="title"], .keep-two-lines') || (!a.querySelector("img, picture") && a);
     if (!root || root.textContent.trim().length < 2) return null;
     const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, { acceptNode: (n) => (n.data.trim() ? 1 : 3) });
     let box = walker.nextNode()?.parentElement;
