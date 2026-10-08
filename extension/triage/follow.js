@@ -218,10 +218,12 @@ function stepIn(list, cur, delta) {
   return list[i < 0 ? 0 : Math.max(0, Math.min(list.length - 1, i + delta))];
 }
 // U: the UPs one change touched get their tags back, edits to other UPs since stay; tags deleted since stay gone.
+// UPs unfollowed since are left out (followed: the mids still followed): their tags went into the 已取消关注 record.
 const tagsOf = (map, mids) => Object.fromEntries(mids.map((m) => [m, [...(map[m] || [])]]));
-function restoreTags(map, before, live) {
+function restoreTags(map, before, live, followed) {
   const out = { ...map };
   for (const [mid, ids] of Object.entries(before)) {
+    if (!followed.has(mid)) continue;
     const keep = ids.filter((id) => live.has(id));
     if (keep.length) out[mid] = keep;
     else delete out[mid];
@@ -424,7 +426,9 @@ function pushTagUndo(before, label, { ask = null, created = [], recentAt = 0 } =
     tags: true, // dropped when a tag is deleted
     ask,
     undo: async () => {
-      const map = restoreTags(D.map, before, new Set(D.tags.map((t) => t.id)));
+      const followed = new Set(following());
+      const map = restoreTags(D.map, before, new Set(D.tags.map((t) => t.id)), followed);
+      const gone = Object.keys(before).filter((m) => !followed.has(m)).length;
       await setTagMap(map);
       const used = new Set(Object.values(map).flat());
       if (created.some((id) => !used.has(id))) await saveTags(D.tags.filter((t) => !created.includes(t.id) || used.has(t.id)));
@@ -434,7 +438,7 @@ function pushTagUndo(before, label, { ask = null, created = [], recentAt = 0 } =
         await chrome.storage.local.remove("follow_ai_recent");
       }
       render();
-      return `已撤销：${label}`;
+      return `已撤销：${label}${gone ? `（${gone} 个已取消关注，标签没改）` : ""}`;
     }
   });
 }

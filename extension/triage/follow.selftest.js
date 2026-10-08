@@ -253,8 +253,11 @@ assert.strictEqual(t.fmtAgo(ago(800), now), "2 年前");
   const before = t.tagsOf({ a: ["x"], b: ["y"] }, ["a", "n"]);
   assert.deepStrictEqual(plain(before), { a: ["x"], n: [] });
   const now = { a: ["x", "z"], b: ["y", "w"], n: ["x"] };
-  assert.deepStrictEqual(plain(t.restoreTags(now, before, new Set(["x", "y", "z", "w"]))), { a: ["x"], b: ["y", "w"] }, "b's later edit stays");
-  assert.deepStrictEqual(plain(t.restoreTags({}, { a: ["x", "dead"] }, new Set(["x"]))), { a: ["x"] }, "a tag deleted since stays gone");
+  const all = new Set(["a", "b", "n"]);
+  assert.deepStrictEqual(plain(t.restoreTags(now, before, new Set(["x", "y", "z", "w"]), all)), { a: ["x"], b: ["y", "w"] }, "b's later edit stays");
+  assert.deepStrictEqual(plain(t.restoreTags({}, { a: ["x", "dead"] }, new Set(["x"]), all)), { a: ["x"] }, "a tag deleted since stays gone");
+  // Unfollowed since: their tags went into the 已取消关注 record; U leaves them out instead of a ghost entry.
+  assert.deepStrictEqual(plain(t.restoreTags({}, { a: ["x"], g: ["x"] }, new Set(["x"]), all)), { a: ["x"] }, "an UP unfollowed since is skipped");
 }
 
 // One keydown handler for the page (triage.js onKey): follow.js hands it its keys, and triage.js knows no 关注 ids.
