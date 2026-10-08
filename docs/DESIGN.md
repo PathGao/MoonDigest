@@ -123,6 +123,7 @@ B站 页面上的颜色是 `tokens.css` 的第三份拷贝：`content.css` 里�
   - 实时过滤的输入框用 `bindLive`。列表的搜索框用 `TriageUi.bindSearch`：Esc 清空，空框再按 Esc 移出焦点。
   - 这样以后新加的输入框，用输入法打字也不会出问题。
 - 键盘只有一个全局处理函数，在 `triage.js` 的 `onKey` 里。播放器里按的 T / Esc 也只有一个 message 监听，同在 `triage.js`。关注模式用 `MoonTriage.setModeKeys` 注册自己的按键，两处都先问它。
+- 播放器下的标签行只有一种写法：`TriageUi.viewerLine`，行名用第 3/4 行的 `labeledRow`。收藏夹的「视频标签」行在 `triage.js`，「UP 标签」行在 `follow.js`，收藏夹每次画完自己那行就通过 `MoonTriage.setViewerHook` 让关注重画 UP 那行。
 - 后台（`background.js` 的 service worker）也加载 `tag-core.js` 和 `shared.js`，日期、时长、标签名清洗直接用 `TriageUi`，不在 `triage-bg.js` 里另写。加载顺序以 `background.js` 的 `importScripts` 为准，后台的 selftest 照它读。
 - 「✦ AI 打标签」的后台只有一份：`triage-bg.js` 的 `triageAiCommand`（指令检查、新建上限 0–50、解析）。关注只把 UP 主整理成条目，带上自己的 unit 调它。
 - B站 的 GET 只有一个通道：`triage-bg.js` 的 `triageBiliGetJson`，30 秒没回应算断网。收藏夹每次只试一次，限流由页面退避；关注传入自己的队列（间隔、断网重试、风控整队暂停）。写操作 `triageBiliPost` 也有这 30 秒超时，但只发一次、从不自动重试；超时报「不确定 B站 是否已改」，调用方按失败处理，不改计数、不记撤销。风控码统一用 `BILI_RISK_CODES`，WBI 签名用 `sites.js`。
@@ -144,3 +145,4 @@ B站 页面上的颜色是 `tokens.css` 的第三份拷贝：`content.css` 里�
 - 按钮灰掉要写原因。说明文字不摆在外面，用琥珀色小点，说明写在里面的占位文字里（判断标准、标签管理）。
 - 「全部」后面有竖线，组和组之间也有竖线；组内单选，组和组同时生效。
 - 卡片上的时间写相对时间，悬停显示日期；时长写 `9:47`、`1:15:00`。
+- 播放器下的标签行前写明「视频标签」「UP 标签」，空的时候只留「+ 标签」。为什么：收藏夹的播放器下有两行标签，以前都只写「未打标签」，分不清哪行是视频的、哪行是 UP 主的。收藏夹两行都有（视频标签在上，UP 标签只在这个 UP 主是你关注或取关过的时候有，因为 UP 标签打在关注的 UP 主上）；关注只有「UP 标签」，因为视频投稿不在收藏夹里。T 只改它在的那一行（收藏夹改视频，关注改 UP），所以「T」只写在那一行的「+ 标签」上。
