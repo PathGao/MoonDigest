@@ -279,7 +279,6 @@ const S = {
   tagFilter: new Set(),
   query: "",
   focused: "",
-  focusIndex: 0,
   selected: new Set(),
   group: null, // the running 细看 batch: { bvids: [], stop: bool }
   write: { running: false, stop: false },
@@ -1059,7 +1058,6 @@ async function openFolder(mediaId) {
   S.kindFilter = "";
   S.undo = [];
   S.focused = "";
-  S.focusIndex = 0;
   S.syncError = "";
   hideSyncNotice();
   if (!all && !removed) storeSet(K.lastFolder, mediaId);
@@ -2099,10 +2097,11 @@ function renderList() {
     el.list.innerHTML = `<p class="empty">${text}</p>${recent}`;
     return;
   }
+  // The focused card left the list: the card now in its place takes the focus (its place read before the rebuild).
   if (!list.some((it) => it.bvid === S.focused)) {
-    S.focused = list[Math.min(S.focusIndex, list.length - 1)].bvid;
+    const was = [...el.list.querySelectorAll(".card")].findIndex((c) => c.dataset.bvid === S.focused);
+    S.focused = list[Math.min(Math.max(was, 0), list.length - 1)].bvid;
   }
-  S.focusIndex = list.findIndex((it) => it.bvid === S.focused);
   // 粗看完成 shows which cards the button will send (or is sending) before anything runs.
   // Those cards get a label before the title.
   let marked = new Set();
@@ -2246,8 +2245,6 @@ function folderTitle() {
 
 function setFocus(bvid, scroll = true) {
   S.focused = bvid;
-  const list = visibleItems();
-  S.focusIndex = Math.max(0, list.findIndex((it) => it.bvid === bvid));
   for (const node of el.list.querySelectorAll(".card.focused")) node.classList.remove("focused");
   const card = el.list.querySelector(`.card[data-bvid="${CSS.escape(bvid)}"]`);
   if (card) {
@@ -2259,11 +2256,11 @@ function setFocus(bvid, scroll = true) {
 const pointerMoved = (at, x, y) => !at || at.x !== x || at.y !== y;
 
 function moveFocus(delta) {
-  const list = visibleItems();
-  if (!list.length) return;
-  const i = list.findIndex((it) => it.bvid === S.focused);
-  const next = Math.max(0, Math.min(list.length - 1, (i < 0 ? 0 : i + delta)));
-  setFocus(list[next].bvid);
+  const cards = [...el.list.querySelectorAll(".card")];
+  if (!cards.length) return;
+  const i = cards.findIndex((c) => c.dataset.bvid === S.focused);
+  const next = Math.max(0, Math.min(cards.length - 1, (i < 0 ? 0 : i + delta)));
+  setFocus(cards[next].dataset.bvid);
 }
 
 // Focus the next unprocessed card after `bvid` in the given pre-change list.
@@ -3673,7 +3670,6 @@ function bindEvents() {
   const showTab = (tab) => {
     if (tab !== S.tab) S.selected.clear();
     S.tab = tab;
-    S.focusIndex = 0;
     S.focused = "";
     el.list.scrollTop = 0;
     render();
@@ -3690,7 +3686,9 @@ function bindEvents() {
   });
   UI.bindSearch(el.searchInput, (q) => {
     S.query = q;
-    S.focusIndex = 0;
+    // A search that hides the focused card starts the focus at the top.
+    const f = S.itemMap.get(S.focused);
+    if (!f || !passFilter(f)) S.focused = "";
     render();
   });
   // Row 3: one pick per group, a second click clears it; 全部 clears the whole row (not row 4's tags).

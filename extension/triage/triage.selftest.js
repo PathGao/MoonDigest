@@ -1919,6 +1919,29 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   assert.ok(!t.pointerMoved({ x: 10, y: 10 }, 10, 10), "same position is not movement");
   assert.ok(t.pointerMoved({ x: 10, y: 10 }, 10, 11), "a changed coordinate is movement");
 
+  // J/K and a card that leaves the list go by the cards on screen; no focus index is kept (hovering cards stays cheap).
+  {
+    const realList = t.el.list, realFocus = t.setFocus;
+    const cards = ["BV1", "BV2", "BV3"].map((bvid) => ({ dataset: { bvid } }));
+    t.el.list = { querySelectorAll: (sel) => (sel === ".card" ? cards : []), querySelector: () => null, scrollTop: 0, innerHTML: "" };
+    const went = [];
+    t.setFocus = (b) => went.push(b);
+    assert.ok(!("focusIndex" in t.S), "no focus index state");
+    t.S.focused = "BV2";
+    t.moveFocus(1);
+    t.moveFocus(-1);
+    t.S.focused = "BV3";
+    t.moveFocus(1);
+    assert.deepStrictEqual(went, ["BV3", "BV1", "BV3"]);
+    // BV2 leaves the list: the card now in its place takes the focus.
+    openFake("A", [item(1), item(3)]);
+    Object.assign(t.S, { tab: "none", focused: "BV2" });
+    t.renderList();
+    assert.strictEqual(t.S.focused, "BV3");
+    Object.assign(t.el, { list: realList });
+    t.setFocus = realFocus;
+  }
+
   // Card links: cover and title are a[href] to the video (right-click / ⌘-click open it natively), no control inside a link;
   // a plain primary click stays in the page: on the title it opens the viewer, on the cover it selects the card.
   {
