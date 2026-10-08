@@ -286,9 +286,9 @@
         const add = [];
         const d = depth(it.title);
         if (d && allowed.has(d)) add.push(d);
-        if (tags.length && i % 3 === 0) add.push(tags[i % tags.length]);
+        if (tags.length && (i % 3 === 0 || (d && i % 2 === 0))) add.push(tags[(i + 1) % tags.length]);
         const remove = it.currentTags && i % 4 === 0 ? [it.currentTags[0]] : [];
-        const a = { add, remove, reason: d ? `标题显示为${d}内容` : "按指令归类" };
+        const a = { add: [...new Set(add)], remove, reason: d ? `标题显示为${d}内容` : "按指令归类" };
         if (add.length || remove.length) assignments[it.bvid] = a;
       });
       return { ok: true, data: { newTags, assignments, note: `按指令处理了 ${items.length} 个视频` } };
