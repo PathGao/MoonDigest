@@ -621,6 +621,10 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   assert.strictEqual(btnText(), "标签管理AI 打标签 · 运行中");
   Object.assign(t.S.ai, { running: false, proposal: { newTags: [], rows: [], notes: [], errors: [] } });
   assert.strictEqual(btnText(), "标签管理AI 打标签 · 待确认");
+  // A run ends with renderTop only (no list render): the button turns to 待确认 then and there.
+  t.el.aiTagSlot.innerHTML = "";
+  t.renderTop();
+  assert.ok(t.el.aiTagSlot.innerHTML.includes("· 待确认"), "renderTop redraws AI 打标签");
   t.S.ai.proposal = null;
   t.el.tagsDialog = { showModal() {} };
   t.onKey({ key: "i", target: {}, preventDefault() {} });

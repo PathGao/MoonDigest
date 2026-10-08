@@ -1656,6 +1656,7 @@ function renderTop() {
   }
   renderFolderList();
   renderFolderHead();
+  renderTagButtons();
   renderStatus();
 }
 
@@ -1786,8 +1787,14 @@ function renderTabs() {
         })
         .join("")
     : "");
-  // 标签管理 and ✦ AI 打标签 at the right end of the tags they act on, as in 关注; AI 打标签 says when a run or a proposal is
-  // pending. Without tags 标签管理 has the warn dot (the new-tag box says what to do).
+  renderTagButtons();
+  renderSort();
+}
+
+// 标签管理 and ✦ AI 打标签 at the right end of the tags they act on, as in 关注; AI 打标签 says when a run or a proposal is
+// pending, so renderTop draws them too (a run ends without a list render). Without tags 标签管理 has the warn dot (the
+// new-tag box says what to do).
+function renderTagButtons() {
   el.aiTagSlot.innerHTML = UI.tagButtons({
     manageAttrs: "data-tags-manage",
     aiAttrs: 'data-ai-tag aria-label="AI 打标签 (I)"',
@@ -1796,7 +1803,6 @@ function renderTabs() {
     aiReason: aiTagReason(),
     noTags: !viewTags().length
   });
-  renderSort();
 }
 
 const AI_SPARK = UI.AI_SPARK;
