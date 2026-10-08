@@ -111,6 +111,9 @@ button.fw-title:hover { background: none; color: var(--link); text-decoration: u
 .fw-ai-tags > .dialog-meta, .fw-ai-tags > .dialog-hint { grid-column: 2; margin-top: -6px; }
 .fw-ai-tags > .dialog-hint { margin-top: 0; }
 #fwPickList .picker-opt .muted { margin-left: auto; }
+/* 关注设置 is laid out like 分拣设置: two cards side by side from 640px. */
+#fwSettingsDialog { width: min(800px, calc(100% - 32px)); }
+@media (min-width: 640px) { .fw-settings-cols { grid-template-columns: 1fr 1.15fr; } }
 
 @media (max-width: 1099px) {
   .fw-tools { margin-left: 0; }

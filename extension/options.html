@@ -18,7 +18,6 @@
         <a href="#note"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9zM14 3v6h6M8 14h8M8 17h5"/></svg><span class="lbl">笔记格式</span><span class="dot" hidden></span></a>
         <a href="#ai"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l2 5 5 2-5 2-2 5-2-5-5-2 5-2z"/></svg><span class="lbl">AI 平台</span><span class="dot" hidden></span><span id="aiPill" class="pill off">未配置</span></a>
         <a href="#triage"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg><span class="lbl">分拣台</span><span class="dot" hidden></span></a>
-        <a href="#follow"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 3.6-7 8-7s8 3 8 7"/></svg><span class="lbl">关注</span><span class="dot" hidden></span></a>
         <a href="#seen"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg><span class="lbl">观看进度</span><span class="dot" hidden></span></a>
         <a href="#obsidian"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 3l8 2 4 8-4 8H8l-4-8z"/></svg><span class="lbl">Obsidian</span><span class="dot" hidden></span><span id="obsidianPill" class="pill off">关</span></a>
         <a href="#data"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v14c0 1.7 3.6 3 8 3s8-1.3 8-3V5M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3"/></svg><span class="lbl">数据与存储</span><span class="dot" hidden></span></a>
@@ -193,31 +192,6 @@
               <p class="hint">粗看：每个视频的标题、UP 主、时长、发布日期和简介前 120 字，一次看一批（每批数量在分拣台里设置，默认 30 个）。</p>
               <p class="hint">细看：标题、UP 主、分区、时长、发布日期、标签、完整简介和字幕（最多 6 万字，更长的均匀抽取）；没有字幕时改读前 10 条热门评论。</p>
               <p class="hint">两步都会带上收藏夹的名字、简介和你写的判断标准。</p>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <section class="sec" id="follow" data-name="关注">
-        <div class="sec-head">
-          <h2>关注</h2>
-          <p>仅 B站。分拣台切到「关注」：给关注的 UP 主打标签，按更新状态筛选，看他们的新视频。</p>
-          <a class="jump" href="./triage/triage.html" target="_blank">打开分拣台 ↗</a>
-        </div>
-        <div class="rows">
-          <div class="row">
-            <div class="lab"><label class="name" for="followSlowDays">多少天没投稿算慢更</label><p class="hint">同步时视频动态往回翻这么多天，没在里面出现的人再一个个查投稿。天数越大，翻得越久。</p></div>
-            <div class="ctl"><input id="followSlowDays" type="number" min="7" max="3650" step="1" /> 天</div>
-          </div>
-          <div class="row">
-            <div class="lab"><label class="name" for="followDeadDays">多少天没投稿算断更</label><p class="hint">要比慢更的天数大。</p></div>
-            <div class="ctl"><input id="followDeadDays" type="number" min="8" max="3650" step="1" /> 天</div>
-          </div>
-          <div class="row wide">
-            <div class="lab">
-              <span class="name">AI 打标签</span>
-              <p class="hint">AI 看每个 UP 主的名字、签名、主要分区和最近的视频标题，只给建议，你确认后才改。标签只存在扩展里，不改 B站。</p>
-              <p class="hint">每批数量、请求间隔、最多新建几个标签、是否允许去掉已有标签，在分拣台「关注」右上角的齿轮里改，和收藏夹的分开。</p>
             </div>
           </div>
         </div>

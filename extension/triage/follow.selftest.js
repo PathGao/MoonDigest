@@ -9,7 +9,7 @@ const source = fs.readFileSync(path.join(__dirname, "follow.js"), "utf8");
 const pure = source.slice(source.indexOf("// PURE-START"), source.indexOf("// PURE-END"));
 assert.ok(pure.includes("function followStatus") && !pure.includes("document"), "harness lifts the pure block");
 const ctx = vm.createContext({});
-vm.runInContext(`${pure}\n;Object.assign(globalThis, { followAiSettings, aiRequests, normDays, followStatus, lastPostOf, recentTitles, upRow, visibleUps, mergeFeed, feedMatch, mergeAiBatch, aiChanges, aiTally, fmtAgo });`, ctx);
+vm.runInContext(`${pure}\n;Object.assign(globalThis, { followAiSettings, aiRequests, normDays, settingsProblem, followStatus, lastPostOf, recentTitles, upRow, visibleUps, mergeFeed, feedMatch, mergeAiBatch, aiChanges, aiTally, fmtAgo });`, ctx);
 const t = ctx;
 const plain = (v) => JSON.parse(JSON.stringify(v));
 
@@ -150,6 +150,11 @@ const base = () => ({ list: null, last: null, content: {}, people: {}, tags: [],
   assert.strictEqual(intervalMs, 3000);
   assert.deepStrictEqual(plain(t.normDays("", "")), { followSlowDays: 90, followDeadDays: 365 });
   assert.deepStrictEqual(plain(t.normDays("400", "100")), { followSlowDays: 400, followDeadDays: 401 });
+  assert.deepStrictEqual(plain(t.normDays("1", "99999")), { followSlowDays: 7, followDeadDays: 3651 }, "clamped");
+  assert.strictEqual(t.settingsProblem("90", "90"), "断更天数要比慢更大");
+  assert.strictEqual(t.settingsProblem("120", "60"), "断更天数要比慢更大");
+  assert.strictEqual(t.settingsProblem("", ""), "");
+  assert.strictEqual(t.settingsProblem("30", "200"), "");
 }
 
 assert.strictEqual(t.fmtAgo(now - 100, now), "今天");

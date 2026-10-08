@@ -218,7 +218,14 @@ function aiRequests(mids, cfg, instruction, tags, allowRemove) {
   for (let i = 0; i < mids.length; i += cfg.batchSize) out.push({ type: "follow-ai-tag", instruction, mids: mids.slice(i, i + cfg.batchSize), tags, maxNewTags: cfg.newTagMax, allowRemove });
   return { batches: out, intervalMs: cfg.intervalSec * 1000 };
 }
-// 慢更 7–3650 days, 断更 at least a day more (the settings page clamps the same way).
+// Why the days cannot be saved, or "" (empty boxes fall back to the defaults).
+function settingsProblem(slow, dead) {
+  const s = String(slow).trim() === "" ? 90 : Number(slow);
+  const d = String(dead).trim() === "" ? 365 : Number(dead);
+  if (!Number.isFinite(s) || !Number.isFinite(d)) return "天数要填数字";
+  return d > s ? "" : "断更天数要比慢更大";
+}
+// 慢更 7–3650 days, 断更 at least a day more.
 function normDays(slow, dead) {
   const num = (v, d) => (Number.isFinite(parseFloat(v)) ? Math.round(parseFloat(v)) : d);
   const followSlowDays = Math.min(3650, Math.max(7, num(slow, 90)));
@@ -773,27 +780,31 @@ document.body.insertAdjacentHTML("beforeend", `
   <dialog id="fwSettingsDialog" aria-label="关注设置">
     <form method="dialog">
       <h2>关注设置</h2>
-      <section class="set-group">
-        <h3>更新状态</h3>
-        <div class="set-card">
-          <div class="set-row"><div><label class="name" for="fwSlowInput">多少天没投稿算慢更</label><p class="hint">同步时视频动态往回翻这么多天。</p></div><input id="fwSlowInput" type="number" min="7" max="3650" step="1"></div>
-          <div class="set-row"><div><label class="name" for="fwDeadInput">多少天没投稿算断更</label><p class="hint">要比慢更的天数大。</p></div><input id="fwDeadInput" type="number" min="8" max="3651" step="1"></div>
-        </div>
-      </section>
-      <section class="set-group">
-        <h3>AI 打标签</h3>
-        <p class="dialog-hint">只管关注，和收藏夹的分拣设置分开。</p>
-        <div class="set-card">
-          <div class="set-row"><div><label class="name" for="fwBatchInput">每批数量</label><p class="hint">1–100 个 UP 主一批。</p></div><input id="fwBatchInput" type="number" min="1" max="100" step="1"></div>
-          <div class="set-row"><div><label class="name" for="fwIntervalInput">请求间隔（秒）</label></div><input id="fwIntervalInput" type="number" min="0" max="600" step="1"></div>
-          <div class="set-row"><div><label class="name" for="fwNewMaxInput">AI 最多新建几个标签</label><p class="hint">0–50，0 = 只用已有标签。</p></div><input id="fwNewMaxInput" type="number" min="0" max="50" step="1"></div>
-          <div class="set-row"><div><label class="name" for="fwRemoveInput">允许 AI 去掉已有标签</label><p class="hint">关时只加标签。开了也要你确认。</p></div><input id="fwRemoveInput" type="checkbox" class="switch"></div>
-        </div>
-      </section>
+      <div class="settings-cols fw-settings-cols">
+        <section class="set-group">
+          <h3>更新状态</h3>
+          <p class="dialog-hint">按最后投稿离现在多少天分活跃、慢更、断更。</p>
+          <div class="set-card">
+            <div class="set-row"><div><label class="name" for="fwSlowInput">多少天没投稿算慢更</label><p class="hint">7–3650。同步时视频动态往回翻这么多天，越大翻得越久。</p></div><input id="fwSlowInput" type="number" min="7" max="3650" step="1"></div>
+            <div class="set-row"><div><label class="name" for="fwDeadInput">多少天没投稿算断更</label><p class="hint">要比慢更的天数大。</p></div><input id="fwDeadInput" type="number" min="8" max="3651" step="1"></div>
+          </div>
+        </section>
+        <section class="set-group">
+          <h3>AI 打标签</h3>
+          <p class="dialog-hint">只管关注，和收藏夹的分拣设置分开。</p>
+          <div class="set-card">
+            <div class="set-row"><div><label class="name" for="fwBatchInput">每批数量</label><p class="hint">1–100 个 UP 主一批。</p></div><input id="fwBatchInput" type="number" min="1" max="100" step="1"></div>
+            <div class="set-row"><div><label class="name" for="fwIntervalInput">请求间隔（秒）</label></div><input id="fwIntervalInput" type="number" min="0" max="600" step="1"></div>
+            <div class="set-row"><div><label class="name" for="fwNewMaxInput">AI 最多新建几个标签</label><p class="hint">0–50，0 = 只用已有标签。</p></div><input id="fwNewMaxInput" type="number" min="0" max="50" step="1"></div>
+            <div class="set-row"><div><label class="name" for="fwRemoveInput">允许 AI 去掉已有标签</label><p class="hint">关时只加标签。开了也要你确认。</p></div><input id="fwRemoveInput" type="checkbox" class="switch"></div>
+          </div>
+        </section>
+      </div>
+      <p id="fwSettingsError" class="form-error" role="alert" hidden></p>
       <div class="dialog-actions">
         <span class="spacer"></span>
-        <button value="cancel" type="submit" formnovalidate>取消</button>
-        <button value="save" type="submit" class="primary">保存</button>
+        <button value="cancel" type="submit" formnovalidate aria-label="取消">取消</button>
+        <button value="save" type="submit" class="primary" aria-label="保存设置">保存</button>
       </div>
     </form>
   </dialog>`);
@@ -815,14 +826,25 @@ async function openSettings() {
   $("fwIntervalInput").value = ai.intervalSec;
   $("fwNewMaxInput").value = ai.newTagMax;
   $("fwRemoveInput").checked = ai.allowRemove;
+  $("fwSettingsError").hidden = true;
   settingsDialog.returnValue = "";
   settingsDialog.showModal();
 }
 gear.addEventListener("click", openSettings);
+// As 分拣设置: an invalid value keeps the dialog open with the reason; the rest is clamped on save.
+settingsDialog.querySelector("form").addEventListener("submit", (e) => {
+  if (e.submitter?.value !== "save") return;
+  const why = settingsProblem($("fwSlowInput").value, $("fwDeadInput").value);
+  $("fwSettingsError").hidden = !why;
+  if (!why) return;
+  e.preventDefault();
+  $("fwSettingsError").textContent = why;
+  $("fwDeadInput").focus();
+});
 settingsDialog.addEventListener("close", async () => {
   if (settingsDialog.returnValue !== "save") return;
   const ai = normAi({ batchSize: $("fwBatchInput").value, intervalSec: $("fwIntervalInput").value, newTagMax: $("fwNewMaxInput").value, allowRemove: $("fwRemoveInput").checked });
-  // The days are the settings page's 关注 values (same keys); the storage listener redraws with them.
+  // followSlowDays / followDeadDays keep their keys, so values set on the old settings-page section carry over.
   const days = normDays($("fwSlowInput").value, $("fwDeadInput").value);
   await chrome.storage.sync.set({ follow_ai_settings: ai, ...days });
   if (!AI.running) AI.settings = ai;
@@ -830,7 +852,7 @@ settingsDialog.addEventListener("close", async () => {
   cfg.deadDays = days.followDeadDays;
   if (F.loaded) derive();
   render();
-  toast("已保存关注设置");
+  toast("设置已保存");
 });
 const pickDialog = $("fwPickDialog");
 
