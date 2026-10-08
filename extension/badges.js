@@ -60,7 +60,60 @@
     return out;
   }
 
-  globalThis.BocBadges = { bvidFromHref, badgeInfo, mergeDecisions };
+  // ---- UP tags (follow_tags / follow_tag_map from the triage page's 关注 mode) next to an author's name ----
+  // Only a bare profile link names an author: /favlist, /video, /fans/follow are menu links.
+  const MID_RE = /(?:^|\/\/)space\.bilibili\.com\/(\d+)\/?(?:[?#]|$)/;
+  const midFromHref = (href) => MID_RE.exec(String(href || ""))?.[1] || "";
+
+  // [{ id, name, color }] of a mid, in follow_tags order.
+  function upTagsOf(mid, tags, map) {
+    const ids = new Set((mid && map?.[mid]) || []);
+    return ids.size ? (Array.isArray(tags) ? tags : []).filter((t) => ids.has(t.id)) : [];
+  }
+
+  // First text node with visible characters under `el`, depth first. Plain childNodes so the selftest needs no real DOM.
+  function firstText(el) {
+    for (const n of el.childNodes || []) {
+      if (n.nodeType === 3 && n.data.trim()) return n;
+      if (n.nodeType === 1 && !/^(svg|style|script|i)$/i.test(n.tagName)) {
+        const t = firstText(n);
+        if (t) return t;
+      }
+    }
+    return null;
+  }
+  // Cards that put a 直播中 badge or an icon before the name mark the name itself; measured on home, search, video and space.
+  const NAMED = /(?:^|\s)(?:bili-video-card__info--author|name)(?:\s|$)/;
+  function namedEl(el) {
+    for (const n of el.childNodes || []) {
+      if (n.nodeType !== 1) continue;
+      if (NAMED.test(n.className?.baseVal ?? n.className ?? "") || n.getAttribute?.("title")) return n;
+      const d = namedEl(n);
+      if (d) return d;
+    }
+    return null;
+  }
+  // The node a link's chip goes right after: the element that holds the name, or the bare name text. Null for avatars.
+  function spotIn(a) {
+    // The video page owner's name link cuts its own overflow off (ellipsis); the chip goes after the link there.
+    if (/(?:^|\s)up-name(?:\s|$)/.test(a.className || "")) return firstText(a) ? a : null;
+    const named = namedEl(a);
+    if (named && firstText(named)) return named;
+    const t = firstText(a);
+    if (!t) return null;
+    return t.parentNode === a ? t : t.parentNode;
+  }
+
+  // 动态 page filter: per tag, how many of the loaded cards (by author mid) it covers; "" is 全部.
+  function upCounts(mids, tags, map) {
+    const out = { "": mids.length };
+    for (const t of tags || []) out[t.id] = 0;
+    for (const mid of mids) for (const t of upTagsOf(mid, tags, map)) out[t.id]++;
+    return out;
+  }
+  const upHidden = (mid, tagId, map) => Boolean(tagId) && !(map?.[mid] || []).includes(tagId);
+
+  globalThis.BocBadges = { bvidFromHref, badgeInfo, mergeDecisions, midFromHref, upTagsOf, firstText, spotIn, upCounts, upHidden };
   if (typeof chrome === "undefined" || !chrome.storage?.local || typeof document === "undefined") return;
 
   const SETTING = "showBiliTriageBadges";
@@ -134,53 +187,9 @@
     running = true;
     const g = gen;
     try {
-      // Most Bilibili iframes hold no video link: nothing to mark, so no storage reads.
       hookBewly();
-      if (!pageBvid() && !findAll(SEL).length) return;
-      const fid = favFid();
-      if (seenCfg.on) await loadSeen(g);
-      if (g !== gen) return;
-      if (!triageOn) {
-        const writes = findAll(SEL).map(markCover);
-        for (const w of writes) w?.();
-        return;
-      }
-      if (!shared || fid !== sharedFid) {
-        // A favorites page shows its own folder's decisions; elsewhere every folder's decisions are merged.
-        // getKeys is Chrome 130+; before that only 保留 shows outside a favorites page.
-        const all = fid ? [] : (await chrome.storage.local.getKeys?.()) || [];
-        const decisionKeys = ["triage_kept", ...(fid ? [`triage_decisions_${fid}`] : all.filter((k) => k.startsWith("triage_decisions_")))];
-        const got = await chrome.storage.local.get(["triage_tags", "triage_video_tags", ...decisionKeys]);
-        if (g !== gen) return;
-        sharedFid = fid;
-        shared = { tags: got.triage_tags, videoTags: got.triage_video_tags || {}, decisions: mergeDecisions(got) };
-        cache.clear();
-      }
-      const anchors = findAll(SEL);
-      const here = pageBvid();
-      const want = new Set(anchors.map((a) => bvidFromHref(a.getAttribute("href"))).concat(here).filter((b) => b && !cache.has(b)));
-      if (want.size) {
-        const keys = [...want].flatMap((b) => [`triage_title_${b}`, `triage_analysis_${b}`]);
-        const got = await chrome.storage.local.get(keys);
-        if (g !== gen) return;
-        for (const b of want) {
-          cache.set(
-            b,
-            badgeInfo({
-              title: got[`triage_title_${b}`],
-              analysis: got[`triage_analysis_${b}`],
-              tagIds: shared.videoTags[b],
-              tags: shared.tags,
-              decision: shared.decisions[b]
-            })
-          );
-        }
-      }
-      if (!enabled) return;
-      // Every style read first, then every DOM write, so the page recalculates styles once rather than per card.
-      const writes = anchors.flatMap((a) => [markAnchor(a), markCover(a)]);
-      for (const w of writes) w?.();
-      markVideoLine(here);
+      if (upOn) await markUps();
+      if (triageOn || seenCfg.on) await markVideos(g);
     } finally {
       running = false;
       if (again) {
@@ -188,6 +197,220 @@
         schedule();
       }
     }
+  }
+
+  // ---- UP tags: chips after author names, and the tag filter bar on the 动态 page ----
+  const UP_SEL = 'a[href*="space.bilibili.com/"]';
+  // 动态 cards name the author without a profile link; the name is matched against follow_people.
+  const NAME_SEL = ".bili-dyn-title__text, .dyn-orig-author__name";
+  // A space page's own nickname; its mid is in the URL.
+  const OWNER_SEL = ".upinfo .nickname, .upinfo-detail__top .nickname, #h-name";
+  const MAX_UP_CHIPS = 3;
+  const FILTER_KEY = "mdg-up-filter";
+  let upOn = false;
+  let up = { tags: [], map: {} };
+  let byName = null; // name -> mid for tagged UPs, read from follow_people on first need
+  const pageOwner = () => (location.hostname === "space.bilibili.com" ? /^\/(\d+)/.exec(location.pathname)?.[1] || "" : "");
+  const onFeed = () => location.hostname === "t.bilibili.com" && window === window.top;
+  const readFilter = () => {
+    try {
+      return sessionStorage.getItem(FILTER_KEY) || "";
+    } catch {
+      return "";
+    }
+  };
+
+  async function names() {
+    if (byName) return byName;
+    const people = (await chrome.storage.local.get("follow_people")).follow_people || {};
+    const m = new Map();
+    for (const mid of Object.keys(up.map)) if (up.map[mid]?.length && people[mid]?.name && !m.has(people[mid].name)) m.set(people[mid].name, mid);
+    return (byName = m);
+  }
+
+  async function markUps() {
+    const owner = pageOwner();
+    const spots = [];
+    for (const a of findAll(UP_SEL)) {
+      const mid = midFromHref(a.getAttribute("href"));
+      // On a space page the owner's own links (its video cards) would all say the same thing; the nickname carries it.
+      const spot = mid && mid !== owner ? spotIn(a) : null;
+      if (spot) spots.push([spot, mid]);
+    }
+    if (owner) for (const el of findAll(OWNER_SEL)) spots.push([el, owner]);
+    const nameEls = findAll(NAME_SEL);
+    const items = onFeed() ? [...document.querySelectorAll(".bili-dyn-list__item")] : [];
+    const m = nameEls.length || items.length ? await names() : null;
+    for (const el of nameEls) spots.push([el, m.get(el.textContent.trim()) || ""]);
+    const writes = spots.map(([spot, mid]) => upChip(spot, mid));
+    if (onFeed()) writes.push(...feedFilter(items, m));
+    for (const w of writes) w?.();
+  }
+
+  // Keeps, replaces or removes the chip right after `spot`; the DOM itself is the state, so a rerun changes nothing.
+  function upChip(spot, mid) {
+    const list = upTagsOf(mid, up.tags, up.map);
+    const next = spot.nextSibling;
+    const old = next?.nodeType === 1 && next.classList.contains("mdg-ups") ? next : null;
+    const key = list.length ? `${mid}|${list.map((t) => `${t.id}:${t.name}:${t.color}`).join(",")}` : "";
+    if ((old?.dataset.key || "") === key) return;
+    return () => {
+      old?.remove();
+      if (key) spot.after(upChipEl(mid, list, key));
+    };
+  }
+
+  function upChipEl(mid, list, key) {
+    const box = document.createElement("span");
+    box.className = "mdg-ups";
+    box.dataset.mid = mid;
+    box.dataset.key = key;
+    box.title = "MoonDigest 的 UP 标签 · 只存在扩展里";
+    const shown = list.slice(0, MAX_UP_CHIPS);
+    if (list.length > MAX_UP_CHIPS) shown.push({ id: list[MAX_UP_CHIPS].id, name: `+${list.length - MAX_UP_CHIPS}`, color: "#9499a0" });
+    for (const t of shown) {
+      const c = document.createElement("span");
+      c.className = "mdg-up";
+      c.dataset.tag = t.id;
+      c.setAttribute("role", "link");
+      c.tabIndex = 0;
+      if (t.color) c.style.setProperty("--mdg-c", t.color);
+      c.textContent = t.name;
+      box.append(c);
+    }
+    return box;
+  }
+
+  // The 全部 / per-tag bar above the 动态 list. A pick only adds a class to other UPs' cards, so Bilibili's own tabs,
+  // its UP avatar strip and infinite scroll keep working, and newly loaded cards are filtered on the next scan.
+  function feedFilter(items, m) {
+    const list = document.querySelector(".bili-dyn-list");
+    if (!list) return [];
+    let sel = readFilter();
+    if (sel && !up.tags.some((t) => t.id === sel)) sel = "";
+    const mids = items.map((it) => m.get(it.querySelector(".bili-dyn-title__text")?.textContent.trim()) || "");
+    const counts = upCounts(mids, up.tags, up.map);
+    const writes = items.map((it, i) => {
+      const hide = upHidden(mids[i], sel, up.map);
+      return hide !== it.classList.contains("mdg-up-hide") ? () => it.classList.toggle("mdg-up-hide", hide) : null;
+    });
+    const bar = document.querySelector(".mdg-upbar");
+    const key = `${sel}|${up.tags.map((t) => `${t.id}:${t.name}:${t.color}:${counts[t.id]}`).join(",")}|${counts[""]}`;
+    if (bar?.dataset.key !== key || bar.nextElementSibling !== list) writes.push(() => {
+      bar?.remove();
+      list.before(upBarEl(sel, counts, key));
+    });
+    return writes;
+  }
+
+  function upBarEl(sel, counts, key) {
+    const bar = document.createElement("div");
+    bar.className = "mdg-upbar";
+    bar.dataset.key = key;
+    bar.setAttribute("role", "toolbar");
+    bar.setAttribute("aria-label", "MoonDigest UP 标签筛选");
+    bar.title = "MoonDigest 的 UP 标签 · 只存在扩展里";
+    const brand = document.createElement("span");
+    brand.className = "mdg-brand";
+    brand.textContent = "MoonDigest";
+    bar.append(brand);
+    for (const t of [{ id: "", name: "全部" }, ...up.tags]) {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.className = "mdg-upbar-tag";
+      b.dataset.tag = t.id;
+      b.setAttribute("aria-pressed", String(t.id === sel));
+      if (t.color) b.style.setProperty("--mdg-c", t.color);
+      const n = document.createElement("span");
+      n.className = "mdg-upbar-n";
+      n.textContent = counts[t.id] || 0;
+      b.append(t.name, n);
+      bar.append(b);
+    }
+    bar.addEventListener("click", (e) => {
+      const b = e.target.closest?.(".mdg-upbar-tag");
+      if (!b) return;
+      try {
+        sessionStorage.setItem(FILTER_KEY, b.dataset.tag);
+      } catch {}
+      run().catch(() => {});
+    });
+    return bar;
+  }
+
+  function clearUps() {
+    findAll(".mdg-ups, .mdg-upbar").forEach((n) => n.remove());
+    document.querySelectorAll(".mdg-up-hide").forEach((n) => n.classList.remove("mdg-up-hide"));
+  }
+
+  // A chip sits inside the author's link: it opens the triage page's 关注 mode on that tag instead of the space page.
+  // Events from BewlyCat's shadow root reach the document retargeted to #bewly; composedPath has the chip.
+  function onChip(e) {
+    if (e.type === "keydown" && e.key !== "Enter") return;
+    const chip = e.composedPath?.().find((n) => n.classList?.contains("mdg-up"));
+    if (!chip || !chrome.runtime?.id) return;
+    e.preventDefault();
+    e.stopPropagation();
+    chrome.runtime.sendMessage({ type: "triage-open", hash: `follow&tag=${encodeURIComponent(chip.dataset.tag)}` }).catch(() => {});
+  }
+
+  async function loadUps() {
+    const got = await chrome.storage.local.get(["follow_tags", "follow_tag_map"]);
+    up = { tags: Array.isArray(got.follow_tags) ? got.follow_tags : [], map: got.follow_tag_map || {} };
+    byName = null;
+    upOn = up.tags.length > 0 && Object.values(up.map).some((ids) => ids?.length);
+    if (!upOn) clearUps();
+    setEnabled(triageOn || seenCfg.on || upOn);
+    schedule();
+  }
+
+  async function markVideos(g) {
+    // Most Bilibili iframes hold no video link: nothing to mark, so no storage reads.
+    if (!pageBvid() && !findAll(SEL).length) return;
+    const fid = favFid();
+    if (seenCfg.on) await loadSeen(g);
+    if (g !== gen) return;
+    if (!triageOn) {
+      const writes = findAll(SEL).map(markCover);
+      for (const w of writes) w?.();
+      return;
+    }
+    if (!shared || fid !== sharedFid) {
+      // A favorites page shows its own folder's decisions; elsewhere every folder's decisions are merged.
+      // getKeys is Chrome 130+; before that only 保留 shows outside a favorites page.
+      const all = fid ? [] : (await chrome.storage.local.getKeys?.()) || [];
+      const decisionKeys = ["triage_kept", ...(fid ? [`triage_decisions_${fid}`] : all.filter((k) => k.startsWith("triage_decisions_")))];
+      const got = await chrome.storage.local.get(["triage_tags", "triage_video_tags", ...decisionKeys]);
+      if (g !== gen) return;
+      sharedFid = fid;
+      shared = { tags: got.triage_tags, videoTags: got.triage_video_tags || {}, decisions: mergeDecisions(got) };
+      cache.clear();
+    }
+    const anchors = findAll(SEL);
+    const here = pageBvid();
+    const want = new Set(anchors.map((a) => bvidFromHref(a.getAttribute("href"))).concat(here).filter((b) => b && !cache.has(b)));
+    if (want.size) {
+      const keys = [...want].flatMap((b) => [`triage_title_${b}`, `triage_analysis_${b}`]);
+      const got = await chrome.storage.local.get(keys);
+      if (g !== gen) return;
+      for (const b of want) {
+        cache.set(
+          b,
+          badgeInfo({
+            title: got[`triage_title_${b}`],
+            analysis: got[`triage_analysis_${b}`],
+            tagIds: shared.videoTags[b],
+            tags: shared.tags,
+            decision: shared.decisions[b]
+          })
+        );
+      }
+    }
+    if (!enabled) return;
+    // Every style read first, then every DOM write, so the page recalculates styles once rather than per card.
+    const writes = anchors.flatMap((a) => [markAnchor(a), markCover(a)]);
+    for (const w of writes) w?.();
+    markVideoLine(here);
   }
 
   // One key per video on screen, a few KB per page; the history itself is read by the background (triage-seen-sync).
@@ -368,6 +591,8 @@
       document.addEventListener("mouseover", onOver, true);
       document.addEventListener("focusin", onFocus, true);
       document.addEventListener("focusout", hidePop, true);
+      document.addEventListener("click", onChip, true);
+      document.addEventListener("keydown", onChip, true);
       schedule();
     } else {
       observer.disconnect();
@@ -375,9 +600,12 @@
       document.removeEventListener("mouseover", onOver, true);
       document.removeEventListener("focusin", onFocus, true);
       document.removeEventListener("focusout", hidePop, true);
+      document.removeEventListener("click", onChip, true);
+      document.removeEventListener("keydown", onChip, true);
       clearTimeout(timer);
       timer = 0;
       clearMarks();
+      clearUps();
     }
   }
 
@@ -393,7 +621,7 @@
     markBewly();
     // Only the top frame asks; the background reads what is new at most every 10 minutes.
     if (seenCfg.on && !before && window === window.top) chrome.runtime.sendMessage({ type: "triage-seen-sync" }).catch(() => {});
-    const on = triageOn || seenCfg.on;
+    const on = triageOn || seenCfg.on || upOn;
     if (on && enabled) {
       gen++;
       clearMarks();
@@ -403,6 +631,11 @@
   const readSettings = () => chrome.storage.sync.get({ [SETTING]: true, ...SEEN_DEFAULTS }).then(applySettings).catch(() => {});
 
   chrome.storage.onChanged.addListener((changes, area) => {
+    if (area === "local" && (changes.follow_tags || changes.follow_tag_map)) loadUps().catch(() => {});
+    else if (area === "local" && changes.follow_people && upOn) {
+      byName = null;
+      schedule();
+    }
     if (area === "sync" && (SETTING in changes || Object.keys(SEEN_DEFAULTS).some((k) => k in changes))) readSettings();
     if (area === "local" && enabled && Object.keys(changes).some((k) => k.startsWith("seen_"))) {
       for (const k of Object.keys(changes)) if (k.startsWith("seen_")) seenCache.delete(k.slice(5));
@@ -426,4 +659,5 @@
     }
   });
   readSettings();
+  loadUps().catch(() => {});
 })();
