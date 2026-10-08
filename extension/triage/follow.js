@@ -206,7 +206,7 @@ function normAi(s = {}) {
 function followAiSettings(own, triage) {
   if (own && typeof own === "object") return { value: normAi(own), seed: null };
   const t = triage || {};
-  const value = normAi({ batchSize: t.triageTitleBatchSize, intervalSec: t.triageIntervalSec, newTagMax: t.triageAiNewTagMax, allowRemove: t.triageAiRemoveTags });
+  const value = normAi({ batchSize: t.triageAiBatchSize ?? t.triageTitleBatchSize, intervalSec: t.triageIntervalSec, newTagMax: t.triageAiNewTagMax, allowRemove: t.triageAiRemoveTags });
   return { value, seed: value };
 }
 // The follow-ai-tag requests of one run: mids in batches of cfg.batchSize; maxNewTags is the run's cap (each batch gets
@@ -448,10 +448,7 @@ function sideCount(id) {
   return id === "all" ? list.length : id === "special" ? list.filter((m) => rows.get(m).special).length : list.filter((m) => inGroup(m, D, id)).length;
 }
 function renderSide() {
-  const item = (id, pre = "") => {
-    const count = sideCount(id);
-    return `<button type="button" class="side-item${F.side === id ? " on" : ""}${count ? "" : " zero"}" data-side="${esc(id)}"${F.side === id ? ' aria-current="true"' : ""}>${pre}<span class="side-name">${esc(sideLabel(id))}</span><span class="side-count">${count}</span></button>`;
-  };
+  const item = (id, pre = "") => UI.sideItem({ attrs: `data-side="${esc(id)}"`, label: sideLabel(id), count: sideCount(id), on: F.side === id, pre });
   side.innerHTML = `<div class="side-head">UP 主</div><div class="folder-list">${item("all")}${item("special", '<span class="star-mark" aria-hidden="true">★</span>')}</div>${
     D.groups.length
       ? `<hr><div class="side-head">B站 分组</div><div class="folder-list">${D.groups.map((g) => item(`g:${g.id}`)).join("")}</div>
@@ -547,7 +544,6 @@ const sideSelect = () =>
 // Row 3's 未打标签 / 已打标签 (prefix 「UP 」 in 视频投稿, where it goes by the video's UP).
 const tagStateGroup = (counts, prefix = "") =>
   UI.stateGroup("按有没有标签", [["untagged", "未打标签"], ["tagged", "已打标签"]].map(([k, label]) => UI.filterBtn(`data-fw-tagstate="${k}"`, prefix + label, counts[k], F.tagState === k)).join(""));
-const AI_RECENT_TIP = "最近一次 AI 打标签改动的 UP 主，在卡片上逐个看，不对的点卡片上的标签改。\n点 ×：不再标出，标签不变。再打一次：换成新的一批。";
 // Row 3 of UP 主: 全部 | 更新状态 | 未打标签 已打标签 | ✦ AI 刚打的 (only while there is one). 待查 always shows.
 function stateRowUps(counts) {
   const anyOn = F.status || F.tagState || F.recentFilter;
@@ -556,7 +552,7 @@ function stateRowUps(counts) {
     UI.stateGroup("更新状态", STATUS.slice(1).map(([id, label]) => UI.filterBtn(`data-status="${id}"${id === "stale" ? ` title="慢更或断更 · 待查：${cfg.slowDays} 天里没在视频投稿里出现，查完投稿才知道是哪种"` : ""}`, label, counts[id] || 0, F.status === id)).join("")),
     tagStateGroup(counts)
   ];
-  if (counts.recent || F.recentFilter) out.push(UI.stateGroup("AI 刚打的", UI.filterBtn(`data-fw="recent" title="${esc(AI_RECENT_TIP)}"`, "AI 刚打的", counts.recent, F.recentFilter, AI_SPARK) + UI.AI_RECENT_X('data-fw="recent-done"'), " ai-recent"));
+  out.push(UI.aiRecentChip({ attrs: 'data-fw="recent"', xAttrs: 'data-fw="recent-done"', n: counts.recent, on: F.recentFilter, who: "UP 主" }));
   return out.join("");
 }
 // Row 4: the tags listed UP 主 (or videos) have, or that are on, with counts; several = AND.
@@ -586,9 +582,9 @@ function renderUps() {
     : stateRowUps(counts);
   // 全选 heads the right-hand buttons, as in 收藏夹: it acts on the UP 主 listed now.
   const shows = Boolean(D.list || gone);
-  E.bar.innerHTML = shows ? seg : "";
+  E.bar.innerHTML = shows ? UI.labeledRow("状态", seg) : "";
   E.barR.innerHTML = shows ? UI.selectAllBox('data-fw="select-all"', list.length, list.filter((m) => F.sel.has(m)).length) : "";
-  E.tagRow.innerHTML = gone ? "" : tagRowHtml(counts.tags);
+  E.tagRow.innerHTML = gone ? "" : UI.labeledRow("标签", tagRowHtml(counts.tags));
   E.tools.hidden = !D.list && !gone;
   renderAiButton();
   E.sort.hidden = gone || !D.list;
@@ -598,7 +594,7 @@ function renderUps() {
   const scroll = E.list.scrollTop;
   let body;
   if (!D.list && F.side !== "gone") body = emptyHtml();
-  else if (!list.length) body = `<p class="empty">${F.side === "gone" && !Object.keys(D.gone).length ? "还没取消关注过谁" : F.q.trim() ? "没有匹配搜索的 UP 主" : "没有符合筛选的 UP 主"}</p>`;
+  else if (!list.length) body = `<p class="empty">${F.side === "gone" && !Object.keys(D.gone).length ? "还没取消关注过谁" : UI.noMatch(F.q, true, "UP 主")}</p>`;
   else body = list.map(upCard).join("");
   E.list.className = "fw-list";
   E.list.innerHTML = hint + body;
@@ -608,7 +604,7 @@ function renderUps() {
 
 function emptyHtml() {
   const j = D.jobs || {};
-  const act = j.running ? `<p class="muted" aria-busy="true">刷新中…读完就显示在这里</p>` : `<button type="button" class="primary" data-fw="sync">${UI.ICON.refresh}刷新</button>`;
+  const act = j.running ? `<p class="muted" aria-busy="true">刷新中…读完就显示在这里</p>` : UI.refreshEmpty('data-fw="sync"');
   return UI.emptyState("还没有关注数据", "先从 B站读你的关注列表，再翻视频投稿看谁最近发过视频，里面没出现的人再一个个查投稿。只读，不改 B站。", act);
 }
 
@@ -685,7 +681,7 @@ function renderSel() {
       btn("special-on", `★ 设为特别关注 ${nOf(true)} 个`, busy || none || specialWhy(sel, true)) +
       btn("special-off", `取消特别关注 ${nOf(false)} 个`, busy || none || specialWhy(sel, false)) +
       btn("unfollow", `取消关注选中的 ${n} 个`, busy || none, "danger");
-  E.sel.innerHTML = `<div class="selbar" role="toolbar" aria-label="选中的 UP 主"><strong class="sel-count">已选中 ${n} 个</strong>${hidden ? `<span class="muted">另有 ${hidden} 个被筛选隐藏</span>` : ""}<button type="button" class="quiet" data-fw="select-none">清空选中</button><span class="sel-actions">${acts}</span></div>`;
+  E.sel.innerHTML = UI.selbar({ label: "选中的 UP 主", n, hidden, clearAttrs: 'data-fw="select-none"', acts });
 }
 
 // ----- 视频投稿 -----
@@ -702,9 +698,9 @@ function renderFeed() {
   // Row 3: 全部 | UP 未打标签 UP 已打标签; no count before the first page arrives. Row 4 counts videos. No 全选 here.
   const c = feedCounts(items, D, feedF());
   const n = (k) => (items.length ? c[k] : null);
-  E.bar.innerHTML = UI.stateGroup("全部", UI.filterBtn("data-fw-all", "全部", n(""), !F.tagState)) + tagStateGroup({ tagged: n("tagged"), untagged: n("untagged") }, "UP ");
+  E.bar.innerHTML = UI.labeledRow("状态", UI.stateGroup("全部", UI.filterBtn("data-fw-all", "全部", n(""), !F.tagState)) + tagStateGroup({ tagged: n("tagged"), untagged: n("untagged") }, "UP "));
   E.barR.innerHTML = "";
-  E.tagRow.innerHTML = tagRowHtml(c.tags);
+  E.tagRow.innerHTML = UI.labeledRow("标签", tagRowHtml(c.tags));
   const list = feedList(items, D, feedF(), pick.keep);
   E.qCount.textContent = UI.resultCount(F.fq.trim() || filtersOn(), list.length);
   const scroll = E.list.scrollTop;
@@ -934,56 +930,17 @@ function upCsv() {
   return UI.toCsv(out);
 }
 $("fwExport").addEventListener("click", (e) => e.target.closest("button") && $("fwExport").hidePopover());
-document.body.insertAdjacentHTML("beforeend", `
-  <dialog id="fwSettingsDialog" aria-label="关注设置">
-    <form method="dialog">
-      <h2>关注设置</h2>
-      <div class="settings-cols fw-settings-cols">
-        <section class="set-group">
-          <h3>更新状态</h3>
-          <p class="dialog-hint">按最后投稿离现在多少天分活跃、慢更、断更。</p>
-          <div class="set-card">
-            <div class="set-row"><div><label class="name" for="fwSlowInput">多少天没投稿算慢更</label><p class="hint">7–3650。刷新时视频投稿往回翻这么多天，越大翻得越久。</p></div><input id="fwSlowInput" type="number" min="7" max="3650" step="1"></div>
-            <div class="set-row"><div><label class="name" for="fwDeadInput">多少天没投稿算断更</label><p class="hint">要比慢更的天数大。</p></div><input id="fwDeadInput" type="number" min="8" max="3651" step="1"></div>
-          </div>
-        </section>
-        <!-- Grouped as 收藏夹设置: 标签, then AI 参数. -->
-        <div class="settings-ai">
-          <section class="set-group">
-            <h3>标签</h3>
-            <div class="set-card">
-              <div class="set-row" data-set-row="newTagMax"><input id="fwNewMaxInput" type="number" min="0" max="50" step="1"></div>
-              <div class="set-row" data-set-row="allowRemove"><input id="fwRemoveInput" type="checkbox" class="switch"></div>
-            </div>
-          </section>
-          <section class="set-group">
-            <h3>AI 参数</h3>
-            <p class="dialog-hint">一般不用改。AI 平台在设置页。</p>
-            <div class="set-card">
-              <div class="set-row" data-set-row="interval"><input id="fwIntervalInput" type="number" min="0" max="600" step="1"></div>
-              <div class="set-row"><div><label class="name" for="fwBatchInput">AI 打标签每批数量</label><p class="hint">1–100 个 UP 主一批。</p></div><input id="fwBatchInput" type="number" min="1" max="100" step="1"></div>
-            </div>
-          </section>
-        </div>
-      </div>
-      <p id="fwSettingsError" class="form-error" role="alert" hidden></p>
-      <div class="dialog-actions">
-        <button type="button" class="link" data-open-options aria-label="打开设置页">打开设置页</button>
-        <span class="spacer"></span>
-        <button value="cancel" type="submit" formnovalidate aria-label="取消">取消</button>
-        <button value="save" type="submit" class="primary" aria-label="保存设置">保存</button>
-      </div>
-    </form>
-  </dialog>`);
+// The markup is in triage.html beside 收藏夹设置; triage.js fills the shared rows' names (UI.fillSetRows).
 const settingsDialog = $("fwSettingsDialog");
-UI.fillSetRows(settingsDialog);
 settingsDialog.querySelector("[data-open-options]").addEventListener("click", () => send({ type: "open-options" }));
 
 // follow_ai_settings, seeded from the 收藏夹 values on first use and stored then.
 async function aiSettings() {
   const own = (await chrome.storage.sync.get("follow_ai_settings")).follow_ai_settings;
   const triage = own ? null : await send({ type: "triage-settings-get" });
-  const { value, seed } = followAiSettings(own, triage?.ok ? triage.data : null);
+  // 收藏夹's AI 打标签 batch size is stored by the page (triage.js), not by the background.
+  const aiBatch = own ? {} : await chrome.storage.sync.get({ triageAiBatchSize: null });
+  const { value, seed } = followAiSettings(own, triage?.ok ? { ...triage.data, triageAiBatchSize: aiBatch.triageAiBatchSize } : null);
   // Not stored (sync quota, …): the copied values still work this time, and the next use tries again.
   if (seed) await chrome.storage.sync.set({ follow_ai_settings: seed }).catch((e) => toast(`保存设置失败：${e.message}`, true));
   return value;
@@ -1111,7 +1068,7 @@ async function pickClosed(changes) {
   if (changes.length) {
     const before = tagsOf(D.map, changes.map((c) => c.key));
     await setTagMap(map);
-    pushTagUndo(before, "标签修改", { ask: changes.length > 1 ? UI.tagsUndoAsk(changes.length, "UP 主") : null });
+    pushTagUndo(before, "标签修改", { ask: changes.length > 1 ? UI.undoAsk("tags", changes.length, "UP 主") : null });
   }
   if (F.mode !== "follow") return;
   render();
@@ -1227,9 +1184,9 @@ const aiTags = {
     renderAiState();
   },
   apply: () => applyAi(),
-  changes: (p) => changesNow(p),
-  tally: (p, changes) => UI.aiTally(p, changes, (id) => tagOf(id)?.name),
-  uses: (p, t) => p.rows.filter((r) => r.add.includes(`new:${t.key}`)).length
+  map: () => D.map,
+  live: () => new Set(following()),
+  tagName: (id) => tagOf(id)?.name
 };
 
 // instruction, scope and allowRemove come from the dialog, which has checked that there is an instruction and UP 主.
@@ -1263,7 +1220,6 @@ async function runAi({ instruction, scope, allowRemove }) {
   else toast(proposal ? "AI 打标签已完成，在状态栏点「查看」确认" : `AI 打标签没有成功：${errors.at(-1)}`, !proposal);
 }
 
-const changesNow = (p) => UI.aiChanges(p, D.map, new Set(following()), (key) => UI.previewId(p, key, D.tags));
 
 async function applyAi() {
   const p = AI.proposal;
@@ -1287,8 +1243,7 @@ async function applyAi() {
   await setTagMap(map);
   if (changes.length) await write({ follow_ai_recent: recent });
   const n = changes.length;
-  const ask = n > 1 && [`撤销这次 AI 打标签？`, `<p>这次 AI 打标签改过的 ${n} 个 UP 主，标签都改回 AI 打之前，包括你之后又改过的。</p>`];
-  if (n || created.length) pushTagUndo(before, `AI 打标签（${n} 个 UP 主）`, { ask: ask || null, created, recentAt: n ? recent.at : 0 });
+  if (n || created.length) pushTagUndo(before, `AI 打标签（${n} 个 UP 主）`, { ask: n > 1 ? UI.undoAsk("ai", n, "UP 主") : null, created, recentAt: n ? recent.at : 0 });
   render();
   toast(`已应用 AI 建议：${n} 个 UP 主，列表只显示这些 · U 撤销`);
 }

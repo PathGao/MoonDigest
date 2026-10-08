@@ -111,6 +111,8 @@
   const filterBtn = (attrs, label, n, pressed, extra = "") =>
     `<button type="button" ${attrs} aria-pressed="${Boolean(pressed)}"${n === 0 ? ' class="zero"' : ""}>${extra}${esc(label)}${n == null ? "" : ` ${n}`}</button>`;
 
+  // Rows 3 and 4 start with their name, 「状态」 and 「标签」, so the two rows of pills tell apart (triage.css .row-label).
+  const labeledRow = (label, html) => `<span class="row-label">${esc(label)}</span>${html}`;
   // Row 3 (both modes): one group of state pills; the CSS splits groups by a thin rule and wraps them whole.
   const stateGroup = (label, html, cls = "") => `<span class="seg${cls}" role="group" aria-label="${esc(label)}">${html}</span>`;
   // 「AI 刚打的」's ×: stop marking them, tags stay.
@@ -226,6 +228,12 @@
     const every = ids.every((id) => sel.has(id));
     for (const id of ids) every ? sel.delete(id) : sel.add(id);
   }
+  // The bar under row 3 while something is selected: n of them listed, hidden more behind filters, 清空选中, then acts.
+  const selbar = ({ label, n, hidden, clearAttrs, acts }) =>
+    `<div class="selbar" role="toolbar" aria-label="${esc(label)}"><strong class="sel-count">已选中 ${n} 个</strong>${hidden ? `<span class="muted">另有 ${hidden} 个被筛选隐藏</span>` : ""}<button type="button" class="quiet" ${clearAttrs} aria-label="清空选中">清空选中</button><span class="sel-actions">${acts}</span></div>`;
+  // One sidebar entry: pre (thumb, ★), the name, the count (dimmed at 0 as every filter's, DESIGN §4; none when null).
+  const sideItem = ({ attrs, label, count = null, on, pre = "" }) =>
+    `<button type="button" class="side-item${on ? " on" : ""}${count === 0 ? " zero" : ""}" ${attrs}${on ? ' aria-current="true"' : ""}>${pre}<span class="side-name">${esc(label)}</span>${count == null ? "" : `<span class="side-count">${count}</span>`}</button>`;
   // The sidebar's foot: the mode's own settings.
   const sideFoot = ({ settingsAttrs, settingsLabel }) =>
     `<div class="side-foot"><button type="button" class="side-item side-settings" ${settingsAttrs}>${ICON.gear}${esc(settingsLabel)}</button></div>`;
@@ -241,8 +249,17 @@
   const confirmList = (names) => `<ul>${names.slice(0, 10).map((n) => `<li>${esc(n)}</li>`).join("")}</ul>${names.length > 10 ? `<p>等 ${names.length} 个</p>` : ""}`;
   // The tag picker's title: 「给「名字」打标签」, or for several 「给选中的 N 个视频打标签」.
   const pickTitle = (n, name, who) => (n > 1 ? `给选中的 ${n} 个${sp(who)}打标签` : `给「${name}」打标签`);
-  // U on one 标签… save that changed n ≥ 2 items asks this first.
-  const tagsUndoAsk = (n, who) => [`撤销批量改标签？`, `<p>上一步改了 ${n} 个${sp(who)}的标签，撤销后都改回去。</p>`, "撤销"];
+  // U on a step that changed n ≥ 2 items asks this first: kind is tags (one 标签… save), ai (one applied AI 打标签) or
+  // keep (one batch 保留).
+  const UNDO_ASK = {
+    tags: (n, w) => [`撤销批量改标签？`, `上一步改了 ${n} 个${w}的标签，撤销后都改回去。`],
+    ai: (n, w) => [`撤销这次 AI 打标签？`, `这次 AI 打标签改过的 ${n} 个${w}，标签都改回 AI 打之前，包括你之后又改过的。`],
+    keep: (n, w) => [`撤销批量保留？`, `上一步保留了 ${n} 个${w}，撤销后它们不再标为保留。`]
+  };
+  function undoAsk(kind, n, who) {
+    const [title, body] = UNDO_ASK[kind](n, sp(who));
+    return [title, `<p>${body}</p>`, "撤销"];
+  }
   // A 标签管理 edit, for both modes: { tag } the edited copy, or { why } for an empty or duplicate name (others = the
   // other tags it must not repeat). A rule is trimmed and capped at 80; an empty one drops the field.
   function editedTag(t, field, value, others) {
@@ -269,6 +286,12 @@
   // 「AI 刚打的」: the items the last applied AI 打标签 changed, to look over on their cards. Only these end it.
   const AI_RECENT_RULES = ["点 ×：不再标出，标签不变", "再让 AI 打一次：换成新的一批"];
   const aiRecentUndo = (who) => `按 U 撤销这次 AI 打标签前会先问你；确认后这批${sp(who)}的标签都回到 AI 打之前，包括你之后又改过的。`;
+  // Row 3's 「✦ AI 刚打的」 and its ×, while there are some (n) or it is on; "" otherwise.
+  function aiRecentChip({ attrs, xAttrs, n, on, who }) {
+    if (!n && !on) return "";
+    const tip = `最近一次 AI 打标签改动的${sp(who)}，在卡片上逐个看，不对的按 T 改。\n${AI_RECENT_RULES.map((r) => `· ${r}`).join("\n")}\n${aiRecentUndo(who)}`;
+    return stateGroup("AI 刚打的", filterBtn(`${attrs} title="${esc(tip)}"`, "AI 刚打的", n, on, AI_SPARK) + AI_RECENT_X(xAttrs), " ai-recent");
+  }
   // One row of 标签管理: color, name, the line for the AI, how many carry it, 删除. Edits save on change.
   const tagRowHtml = (t, { count, who }) => `<div class="tag-row" data-id="${esc(t.id)}">
       <button type="button" class="tag-color" style="--c:${esc(t.color)}" data-tag-color title="换一个颜色" aria-label="换 ${esc(t.name)} 的颜色"></button>
@@ -290,9 +313,16 @@
   const emptyState = (title, text, actionHtml = "") =>
     `<div class="empty-state"><p><strong>${esc(title)}</strong></p>${text ? `<p class="dialog-hint">${esc(text)}</p>` : ""}${actionHtml}</div>`;
 
+  // 刷新 in an empty state: a plain button, since row 3 keeps the page's one .primary (DESIGN §1).
+  const refreshEmpty = (attrs) => `<button type="button" ${attrs}>${ICON.refresh}刷新</button>`;
+  // Why a list with items shows none: the search (q), else the filters (filtered); "" when it is neither.
+  const noMatch = (q, filtered, who) => (String(q ?? "").trim() ? `没有匹配搜索的${sp(who)}` : filtered ? `没有符合筛选的${sp(who)}` : "");
+
   // Settings rows both dialogs have: the same name and hint. Markup: <div class="set-row" data-set-row="key"><input …></div>.
   const SET_ROWS = {
     interval: ["请求间隔（秒）", ""],
+    // 收藏夹 stores it as triageAiBatchSize (triageTitleBatchSize until first saved), 关注 in follow_ai_settings.batchSize.
+    aiBatch: ["AI 打标签每批数量", "1–100 个一批。"],
     newTagMax: ["AI 打标签时最多新建几个标签", "0–50，0 = 只用已有标签。"],
     allowRemove: ["AI 打标签时允许去掉已有标签", "关时只加标签。开了也要你确认。"]
   };
@@ -392,5 +422,5 @@
     return [...tally.values()].sort((a, b) => (a.cls === "remove") - (b.cls === "remove") || b.n - a.n);
   }
 
-  globalThis.TriageUi = { esc, pad, dayText, fmtDate, fmtAgo, agoHtml, setSearchScope, confirmList, pickTitle, fmtDuration, fmtCount, cleanTagName, plainClick, img, toCsv, cardTagChip, syncedText, headMeta, titleHtml, ICON, AI_SPARK, byValue, dirWords, sortControl, filterBtn, stateGroup, AI_RECENT_X, searchBox, bindSearch, resultCount, rowButtons, menuItem, BACKUP_ITEM, activityHtml, reasonAttrs, setReason, WARN_DOT, selectAllState, selectAllBox, toggleAll, setActivity, waitText, syncPill, setSync, bindSync, tagButtons, sideFoot, emptyState, fillSetRows, mergeAiBatch, aiChanges, previewId, aiTally, TAG_COLORS, nextTagColor, cycleTagColor, tagNameError, deleteTagAsk, editedTag, withoutTag, tagsUndoAsk, tagRowHtml, sp, AI_RECENT_RULES, aiRecentUndo, tagPlusBtn, viewerKeyFrom };
+  globalThis.TriageUi = { esc, pad, dayText, fmtDate, fmtAgo, agoHtml, setSearchScope, confirmList, pickTitle, fmtDuration, fmtCount, cleanTagName, plainClick, img, toCsv, cardTagChip, syncedText, headMeta, titleHtml, ICON, AI_SPARK, byValue, dirWords, sortControl, filterBtn, labeledRow, stateGroup, aiRecentChip, searchBox, bindSearch, resultCount, rowButtons, menuItem, BACKUP_ITEM, reasonAttrs, setReason, WARN_DOT, selectAllState, selectAllBox, toggleAll, setActivity, waitText, syncPill, setSync, bindSync, tagButtons, sideFoot, selbar, sideItem, emptyState, refreshEmpty, noMatch, fillSetRows, mergeAiBatch, aiChanges, previewId, aiTally, TAG_COLORS, nextTagColor, cycleTagColor, tagNameError, deleteTagAsk, editedTag, withoutTag, undoAsk, tagRowHtml, sp, AI_RECENT_RULES, aiRecentUndo, tagPlusBtn, viewerKeyFrom };
 })();

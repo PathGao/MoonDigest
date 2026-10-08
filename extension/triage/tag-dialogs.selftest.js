@@ -77,9 +77,9 @@ function adapters(who) {
     stop: () => calls.push(["stop"]),
     discard: () => (ai.p = null),
     apply: async () => calls.push(["apply"]),
-    changes: (p) => p.rows.map((r) => [r.id, [], ["a"]]),
-    tally: () => [{ cls: "add", text: "+ 科普", n: 2 }],
-    uses: () => 1
+    map: () => ({}),
+    live: () => new Set(["x", "y"]),
+    tagName: (id) => tags.find((t) => t.id === id)?.name
   };
   return { manage, ai, calls, tags };
 }
@@ -153,11 +153,14 @@ function adapters(who) {
 
     // Done: the open dialog turns to the proposal, counted in the mode's unit; 应用 closes it.
     ai.isRunning = false;
-    ai.p = { newTags: [{ key: "n", name: "新", checked: true }], rows: [{ id: "x" }, { id: "y" }], notes: [], errors: [] };
+    // A row for an item that left (unfavorited, unfollowed) counts nowhere: not in 应用到, not in 用在.
+    const row = (id, add) => ({ id, add, remove: [] });
+    ai.p = { newTags: [{ key: "n", name: "新", checked: true }], rows: [row("x", ["new:n"]), row("y", ["id:a"]), row("left", ["new:n"])], notes: [], errors: [] };
     D.ai.render(ai);
     assert.ok(nodes.aiForm.hidden && !nodes.aiReview.hidden);
     assert.strictEqual(nodes.aiApplyBtn.textContent, `应用到 2 个${unit}`);
     assert.ok(nodes.aiReviewHint.textContent.includes(`这些${unit}，在卡片上逐个看`) && nodes.aiNewTags.innerHTML.includes(`用在 1 个${unit}`));
+    assert.ok(nodes.aiRows.innerHTML.includes("+ 新 <b>1</b>") && nodes.aiRows.innerHTML.includes("+ 科普 <b>1</b>"), nodes.aiRows.innerHTML);
     await fire("aiTagDialog", "click", { target: target("#aiApplyBtn", { id: "aiApplyBtn" }) });
     await wait();
     assert.ok(!nodes.aiTagDialog.open && calls.at(-1)[0] === "apply");

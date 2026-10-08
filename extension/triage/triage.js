@@ -63,7 +63,7 @@ function simplifyMigration({ schemes, folderScheme, tags, videoTags, criteria, f
     if (!name || !t.id || out.some((x) => x.id === t.id)) continue;
     const kept = out.find((x) => x.name === name);
     if (kept) remap[t.id] = kept.id;
-    else out.push({ id: t.id, name, color: t.color || UI.TAG_COLORS[out.length % UI.TAG_COLORS.length] });
+    else out.push({ id: t.id, name, color: t.color || UI.nextTagColor(out) });
   }
   const nextVideoTags = Object.fromEntries(Object.entries(vt).map(([b, ids]) => [b, [...new Set(ids.map((id) => remap[id] || id))]]));
   const crit = {};
@@ -277,7 +277,6 @@ const S = {
   tab: "none",
   classFilter: { coarse: "all", fine: "all", read: "all" }, // each tab keeps its own AI-class chip; a folder switch resets them
   tagFilter: new Set(),
-  tagState: "", // row 3: "" | "untagged" | "tagged"
   query: "",
   focused: "",
   focusIndex: 0,
@@ -340,14 +339,14 @@ $("favRowTools").insertAdjacentHTML("beforeend", UI.searchBox("searchInput", "se
 }));
 $("favSync").outerHTML = UI.syncPill("sync");
 $("favSide").insertAdjacentHTML("beforeend", UI.sideFoot({ settingsAttrs: 'id="settingsBtn" aria-label="收藏夹设置"', settingsLabel: "收藏夹设置" }));
-const REFRESH_EMPTY = `<button type="button" data-refresh>${UI.ICON.refresh}刷新</button>`;
+const REFRESH_EMPTY = UI.refreshEmpty("data-refresh");
 const el = {};
 [
   "folderSelect", "folderList", "folderHead", "settingsHeading", "settingsFoldersHeading", "settingsAi", "settingsFirstRunHint", "searchInput", "searchCount", "refreshBtn", "activity", "settingsBtn", "helpBtn",
   "banner", "bannerText", "bannerBtn", "bannerClose", "syncNotice", "syncText", "syncViewBtn", "syncCloseBtn", "syncDetail",
   "tabs", "stagebar", "sortBox", "classFilter", "tagFilter", "aiTagSlot", "listHeader", "list", "basket", "basketToggle", "basketCount",
   "basketList", "basketClearBtn", "toast", "settingsDialog", "folderToggles", "thinkingRow", "intervalInput",
-  "batchSizeInput", "tagLimitInput", "aiNewTagMaxInput", "aiRemoveTagsInput", "openOptionsBtn", "thinkingInput", "titleMaxInput",
+  "batchSizeInput", "aiBatchInput", "tagLimitInput", "aiNewTagMaxInput", "aiRemoveTagsInput", "openOptionsBtn", "thinkingInput", "titleMaxInput",
   "titleMaxHint", "analyzeMaxInput", "analyzeMaxHint", "settingsError", "csvBtn", "confirmDialog",
   "confirmTitle", "confirmBody", "confirmOk", "transferDialog", "transferTitle", "transferBody", "transferTarget", "transferNewRow", "transferUnchosen", "transferHow", "transferName", "transferPrivate",
   "criteriaDialog", "criteriaTitle", "criteriaInput", "helpDialog",
@@ -597,13 +596,12 @@ function kindOf(it) {
 }
 
 // skip leaves one filter group out, so that group's own counts never hide its siblings: a row-3 group ("seen", "recent",
-// "kind", "tagged"), "states" (all of row 3) or "tags" (row 4). 已出分拣范围's kind is its tab, never skipped.
+// "kind"), "states" (all of row 3) or "tags" (row 4). 已出分拣范围's kind is its tab, never skipped.
 function passFilter(it, skip = "") {
   const on = (g) => skip !== g && (skip !== "states" || g === "tags");
   if (on("seen") && S.finishedFilter && !isFinished(it)) return false;
   if (on("recent") && S.aiRecentFilter && !aiRecentSet().has(it.bvid)) return false;
   if ((S.mediaId === REMOVED || on("kind")) && S.kindFilter && kindOf(it) !== S.kindFilter) return false;
-  if (on("tagged") && S.tagState && (tagIdsOf(it.bvid).length > 0) !== (S.tagState === "tagged")) return false;
   if (on("tags") && S.tagFilter.size && !hasAllTags(tagIdsOf(it.bvid), S.tagFilter, (id) => tagById(id)?.name ?? id)) return false;
   const words = S.query.toLowerCase().split(/\s+/).filter(Boolean);
   if (!words.length) return true;
@@ -750,7 +748,8 @@ async function init() {
   if (settingsResp.ok) Object.assign(S.settings, settingsResp.data);
   renderTagLimit();
   const syncObsidian = ({ obsidianEnabled }) => document.body.classList.toggle("obsidian-off", obsidianEnabled !== true);
-  const sync = await chrome.storage.sync.get({ obsidianEnabled: false, ...SEEN_DEFAULTS });
+  const sync = await chrome.storage.sync.get({ obsidianEnabled: false, triageAiBatchSize: null, ...SEEN_DEFAULTS });
+  if (sync.triageAiBatchSize != null) S.settings.triageAiBatchSize = sync.triageAiBatchSize;
   syncObsidian(sync);
   setSeenCfg(sync);
   chrome.storage.onChanged.addListener((changes, area) => {
@@ -1046,7 +1045,6 @@ async function openFolder(mediaId) {
   S.itemMap = new Map();
   S.selected.clear();
   S.tagFilter.clear();
-  S.tagState = "";
   S.finishedFilter = false;
   S.aiRecentFilter = false;
   S.kindFilter = "";
@@ -1676,8 +1674,7 @@ function renderFolderList() {
       const m = /^(.*?)(?: \((\d+)\))?$/.exec(o.textContent);
       const real = o.value !== ALL && o.value !== REMOVED;
       const thumb = real ? folderThumb(o.value, o.dataset.cover) : "";
-      // A count of 0 stays, dimmed, as every filter's (DESIGN §4).
-      return `<button type="button" class="side-item${on ? " on" : ""}${m[2] === "0" ? " zero" : ""}" data-folder="${esc(o.value)}"${on ? ' aria-current="true"' : ""}${o.title ? ` title="${esc(o.title)}"` : ""}>${thumb}<span class="side-name">${esc(m[1])}</span>${m[2] ? `<span class="side-count">${m[2]}</span>` : ""}</button>`;
+      return UI.sideItem({ attrs: `data-folder="${esc(o.value)}"${o.title ? ` title="${esc(o.title)}"` : ""}`, label: m[1], count: m[2] == null ? null : Number(m[2]), on, pre: thumb });
     })
     .join("");
 }
@@ -1777,13 +1774,13 @@ function renderTabs() {
   const hereTags = new Set(here.flatMap((it) => tagIdsOf(it.bvid)));
   const chips = tagChips().filter((c) => c.ids.some((id) => hereTags.has(id) || S.tagFilter.has(id)));
   const counted = here.filter((it) => inTab(it, S.tab) && passFilter(it, "tags")).map((it) => tagIdsOf(it.bvid));
-  el.tagFilter.innerHTML = chips
+  el.tagFilter.innerHTML = UI.labeledRow("标签", chips
     .map((c) => {
       const on = c.ids.some((id) => S.tagFilter.has(id));
       const n = counted.filter((ids) => c.ids.some((id) => ids.includes(id))).length;
       return `<button type="button" class="chip${on ? " on" : ""}${n ? "" : " zero"}" style="--c:${esc(c.color)}" data-tagfilter="${esc(c.ids.join(","))}" aria-pressed="${on}" aria-label="按标签筛选 ${esc(c.name)} ${n}" title="可多选：只显示同时带有所选标签的视频">${esc(c.name)}<span class="chip-n">${n}</span></button>`;
     })
-    .join("");
+    .join(""));
   renderTagButtons();
   renderSort();
 }
@@ -1823,7 +1820,7 @@ function criteriaBtn() {
 }
 
 // Whether anything in row 3 is on (全部 is pressed when not).
-const statesOn = (t = S.tab) => (S.classFilter[t] && S.classFilter[t] !== "all") || Boolean(S.tagState || S.finishedFilter || S.aiRecentFilter || (S.mediaId !== REMOVED && S.kindFilter));
+const statesOn = (t = S.tab) => (S.classFilter[t] && S.classFilter[t] !== "all") || Boolean(S.finishedFilter || S.aiRecentFilter || (S.mediaId !== REMOVED && S.kindFilter));
 // Row 3: what the system knows about each video, in groups split by a thin rule. One pick per group (a second click
 // clears it), groups AND together, and each group counts with its own pick left out. 全部 clears row 3 only. The fixed
 // groups come first (a 0 stays, dimmed); the chips that exist only sometimes (看完了, 已失效, AI 刚打的) go last and
@@ -1841,7 +1838,6 @@ function stateRowHtml(t = S.tab) {
     const classes = [...Object.entries(VERDICTS), ...(t === "read" ? [["kept", "已保留"]] : [])];
     groups.push(group("按 AI 判断筛选", classes.map(([k, label]) => UI.filterBtn(`data-class-filter="${k}"`, label, cnt("class", (it) => classOf(it) === k), cf === k)).join("")));
   }
-  groups.push(group("按有没有标签", [["untagged", "未打标签", false], ["tagged", "已打标签", true]].map(([k, label, has]) => UI.filterBtn(`data-tagstate="${k}"`, label, cnt("tagged", (it) => (tagIdsOf(it.bvid).length > 0) === has), S.tagState === k)).join("")));
   const seenN = cnt("seen", isFinished);
   if ((S.seenCfg.mark && seenN) || S.finishedFilter) groups.push(group("看完了", UI.filterBtn('data-finishedfilter title="只看 B站历史记录里看完了的视频"', "看完了", seenN, S.finishedFilter)));
   // 已出分拣范围 has 已失效 as a tab instead.
@@ -1849,8 +1845,7 @@ function stateRowHtml(t = S.tab) {
   const invalidOn = S.kindFilter === "invalid";
   if (!removed && (invalidN || invalidOn)) groups.push(group("已失效", UI.filterBtn('data-kindfilter="invalid" class="st-danger" title="只看已失效的视频"', "已失效", invalidN, invalidOn)));
   const recentN = cnt("recent", (it) => aiRecentSet().has(it.bvid));
-  const recentTip = `最近一次 AI 打标签改动的视频，在卡片上逐个看，不对的按 T 改。\n${UI.AI_RECENT_RULES.map((r) => `· ${r}`).join("\n")}\n${UI.aiRecentUndo("视频")}`;
-  if (recentN || S.aiRecentFilter) groups.push(group("AI 刚打的", UI.filterBtn(`data-airecent title="${esc(recentTip)}"`, "AI 刚打的", recentN, S.aiRecentFilter, AI_SPARK) + UI.AI_RECENT_X("data-airecent-done"), " ai-recent"));
+  groups.push(UI.aiRecentChip({ attrs: "data-airecent", xAttrs: "data-airecent-done", n: recentN, on: S.aiRecentFilter, who: "视频" }));
   return groups.join("");
 }
 
@@ -1859,11 +1854,9 @@ function pickState(group, value = "") {
   const t = S.tab;
   if (group === "all") {
     S.classFilter[t] = "all";
-    S.tagState = "";
     S.finishedFilter = S.aiRecentFilter = false;
     if (S.mediaId !== REMOVED) S.kindFilter = "";
   } else if (group === "class") S.classFilter[t] = S.classFilter[t] === value ? "all" : value;
-  else if (group === "tagged") S.tagState = S.tagState === value ? "" : value;
   else if (group === "kind") S.kindFilter = S.kindFilter === value ? "" : value;
   else if (group === "seen") S.finishedFilter = !S.finishedFilter;
   else if (group === "recent") S.aiRecentFilter = !S.aiRecentFilter;
@@ -1961,10 +1954,8 @@ function renderListHeader(list) {
   if (!all) html = UI.selectAllBox('data-head="select-all"', list.length, sel) + html;
   if (all) html = loadAllLine() + html;
   const hidden = S.selected.size - sel;
-  const selbar = S.selected.size
-    ? `<div class="selbar" role="toolbar" aria-label="选中的视频"><strong class="sel-count">已选中 ${sel} 个</strong>${hidden ? `<span class="muted">另有 ${hidden} 个被筛选隐藏</span>` : ""}<button type="button" class="quiet" data-head="clear-selected" aria-label="清空选中">清空选中</button><span class="sel-actions">${selActs}</span></div>`
-    : "";
-  el.classFilter.innerHTML = stateRowHtml(t);
+  const selbar = S.selected.size ? UI.selbar({ label: "选中的视频", n: sel, hidden, clearAttrs: 'data-head="clear-selected"', acts: selActs }) : "";
+  el.classFilter.innerHTML = UI.labeledRow("状态", stateRowHtml(t));
   el.listHeader.innerHTML = `<div class="step-actions">${html}</div>${selbar}`;
 }
 
@@ -2081,8 +2072,8 @@ function renderList() {
   if (!list.length) {
     const empty = { none: "没有未分析的视频", coarse: "没有粗看完成的视频", fine: "没有细看完成的视频", done: "还没有处理过的视频" };
     const f = S.classFilter[S.tab];
-    const filtered = S.finishedFilter || S.aiRecentFilter || S.kindFilter || S.tagState || S.tagFilter.size || (f && f !== "all");
-    const text = S.query.trim() ? "没有匹配搜索的视频" : filtered ? "没有符合筛选的视频" : empty[S.tab] || "这里没有视频";
+    const filtered = S.finishedFilter || S.aiRecentFilter || S.kindFilter || S.tagFilter.size || (f && f !== "all");
+    const text = UI.noMatch(S.query, filtered, "视频") || empty[S.tab] || "这里没有视频";
     el.list.innerHTML = `<p class="empty">${text}</p>${recent}`;
     return;
   }
@@ -2366,10 +2357,8 @@ function batchUndoAsk(entry) {
   if (entry.kind === "mode") return entry.ask || null;
   const n = entry.kind === "keepMany" ? entry.bvids.length : entry.kind === "unfavMany" ? entry.items.length : entry.kind === "aiApply" ? entry.changes.length : entry.kind === "tagsMany" ? Object.keys(entry.prevs).length : 0;
   if (n < 2) return null;
-  if (entry.kind === "keepMany") return [`撤销批量保留？`, `<p>上一步保留了 ${n} 个视频，撤销后它们不再标为保留。</p>`, "撤销"];
-  if (entry.kind === "tagsMany") return UI.tagsUndoAsk(n, "视频");
   if (entry.kind === "unfavMany") return [`在 B站重新收藏这 ${n} 个视频？`, `<p>撤销上一步的批量取消收藏。</p>`, `重新收藏 ${n} 个`];
-  return [`撤销这次 AI 打标签？`, `<p>这次 AI 打标签改过的 ${n} 个视频，标签都改回 AI 打之前，包括你之后又改过的。</p>`, "撤销"];
+  return UI.undoAsk({ keepMany: "keep", tagsMany: "tags", aiApply: "ai" }[entry.kind], n, "视频");
 }
 
 async function undo() {
@@ -3107,11 +3096,15 @@ function aiCommandItem(it) {
   return out;
 }
 
+// The AI 打标签 batch size (shared.js SET_ROWS aiBatch). Until 收藏夹设置 is first saved it is the 标题粗看 value, which AI 打标签
+// used to share.
+const aiBatchSize = () => Math.max(1, Math.min(100, Number(S.settings.triageAiBatchSize ?? S.settings.triageTitleBatchSize) || 30));
+
 function aiScopeText(scope) {
   const items = aiScopeItems(scope);
   const n = items.length;
   const done = items.filter(isAnalyzed).length;
-  const size = Math.max(1, Number(S.settings.triageTitleBatchSize) || 30);
+  const size = aiBatchSize();
   const parts = [done && `${done} 个细看过（按总结和要点判断）`, n - done && `${n - done} 个只有标题和简介，标签可能不准`].filter(Boolean);
   return n ? `${n} 个视频：${parts.join("，")}。分 ${Math.ceil(n / size)} 批发送` : "作用范围里没有视频";
 }
@@ -3159,9 +3152,9 @@ const aiTags = {
     renderTop();
   },
   apply: () => applyAiProposal(),
-  changes: (p) => rowChanges(p),
-  tally: (p) => tallyNow(p),
-  uses: (p, t) => p.rows.filter((r) => S.itemMap.has(r.id) && r.add.includes(`new:${t.key}`)).length
+  map: () => S.videoTags,
+  live: () => S.itemMap,
+  tagName: (id) => tagById(id)?.name
 };
 const openAi = () => TagDialogs.ai.open(aiTags);
 
@@ -3211,7 +3204,7 @@ async function runAiCommand({ instruction, scope, allowRemove }) {
   const opts = { maxNewTags: aiNewTagRoom(), allowRemove, folder, excluded };
   const tags = viewTags().filter((t) => !excluded.has(t.name)).map((t) => ({ name: t.name, rule: t.rule || "" }));
   const payload = items.map(aiCommandItem);
-  const size = Math.max(1, Number(S.settings.triageTitleBatchSize) || 30);
+  const size = aiBatchSize();
   const scopeSet = new Set(items.map((it) => it.bvid));
   S.ai.running = true;
   S.ai.mediaId = folder;
@@ -3241,8 +3234,6 @@ async function runAiCommand({ instruction, scope, allowRemove }) {
 }
 
 // What a proposal changes (shared.js); a video that left the folder since keeps its tags.
-const rowChanges = (p, idOf = (key) => UI.previewId(p, key, viewTags())) => UI.aiChanges(p, S.videoTags, S.itemMap, idOf);
-const tallyNow = (p) => UI.aiTally(p, rowChanges(p), (id) => tagById(id)?.name);
 
 function applyAiProposal() {
   const p = S.ai.proposal;
@@ -3253,7 +3244,7 @@ function applyAiProposal() {
     if (t.checked && cleanTagName(t.name)) idFor[t.key] = createTag(t.name)?.id;
   }
   const changes = []; // [{ bvid, before }]: what U puts back
-  for (const [bvid, before, after] of rowChanges(p, (key) => idFor[key])) {
+  for (const [bvid, before, after] of UI.aiChanges(p, S.videoTags, S.itemMap, (key) => idFor[key])) {
     writeVideoTags(bvid, after);
     changes.push({ bvid, before });
   }
@@ -3588,7 +3579,8 @@ async function buildBackup() {
     extensionVersion: chrome.runtime.getManifest?.().version || "",
     settings: {
       triageIntervalSec: S.settings.triageIntervalSec,
-      triageTitleBatchSize: S.settings.triageTitleBatchSize
+      triageTitleBatchSize: S.settings.triageTitleBatchSize,
+      triageAiBatchSize: aiBatchSize()
     },
     tags: [],
     folderCriteria: {}, // mediaId → 判断标准
@@ -3717,7 +3709,6 @@ function bindEvents() {
     if (b.matches("[data-airecent-done]")) endAiRecent();
     else if (b.matches("[data-states-all]")) pickState("all");
     else if (b.dataset.classFilter) pickState("class", b.dataset.classFilter);
-    else if (b.dataset.tagstate) pickState("tagged", b.dataset.tagstate);
     else if (b.matches("[data-finishedfilter]")) pickState("seen");
     else if (b.dataset.kindfilter) pickState("kind", b.dataset.kindfilter);
     else if (b.matches("[data-airecent]")) pickState("recent");
@@ -3910,12 +3901,15 @@ function bindEvents() {
       triageAiNewTagMax: el.aiNewTagMaxInput.value === "" ? 5 : Math.max(0, Math.min(50, Math.floor(Number(el.aiNewTagMaxInput.value)) || 0)),
       triageAiRemoveTags: el.aiRemoveTagsInput.checked
     };
+    const triageAiBatchSize = Math.max(1, Math.min(100, Math.round(Number(el.aiBatchInput.value)) || 30));
     const r = await send({ type: "triage-settings-save", ...patch });
-    if (!r.ok) {
+    // The background's settings do not know this key; it is stored here, beside them in chrome.storage.sync.
+    const saved = r.ok && (await chrome.storage.sync.set({ triageAiBatchSize }).then(() => true, (e) => ((r.error = e.message), false)));
+    if (!saved) {
       toast(`保存设置失败：${r.error}`, true);
       return;
     }
-    Object.assign(S.settings, patch);
+    Object.assign(S.settings, patch, { triageAiBatchSize });
     renderTagLimit();
     toast("设置已保存");
     const included = [...el.folderToggles.querySelectorAll("input:checked")].map((x) => x.value);
@@ -4035,6 +4029,7 @@ function openSettings(scrollToLimits = false, firstRun = false) {
   el.thinkingRow.hidden = !hasThinkingToggle();
   el.intervalInput.value = S.settings.triageIntervalSec ?? 8;
   el.batchSizeInput.value = S.settings.triageTitleBatchSize ?? 30;
+  el.aiBatchInput.value = aiBatchSize();
   el.thinkingInput.checked = Boolean(S.settings.triageThinking);
   el.titleMaxInput.value = S.settings.triageTitleMaxTokens || "";
   el.analyzeMaxInput.value = S.settings.triageAnalyzeMaxTokens || "";
