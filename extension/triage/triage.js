@@ -1612,9 +1612,18 @@ function renderFolderList() {
 }
 
 // The folder's cover, or a fixed colored tint (never gray) when it has none or the image fails (the error listener drops it).
+// Pink means 「where you are」 and blue 「next step」 here, so a generated tint never lands on them.
+const thumbHue = (id) => {
+  let h = Math.round((Number(id) || [...String(id)].reduce((s, ch) => s + ch.charCodeAt(0), 0)) * 137.5) % 360;
+  while ((h >= 180 && h <= 240) || h >= 300 || h <= 10) h = (h + 47) % 360;
+  return h;
+};
+const TOVIEW_ICON = `<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/></svg>`;
 function folderThumb(id, cover) {
-  const hue = Math.round((Number(id) || [...String(id)].reduce((h, ch) => h + ch.charCodeAt(0), 0)) * 137.5) % 360;
-  return `<span class="folder-thumb" style="--h:${hue}" aria-hidden="true">${cover ? `<img src="${esc(cover)}" alt="" loading="lazy" referrerpolicy="no-referrer" />` : ""}</span>`;
+  const img = cover ? `<img src="${esc(cover)}" alt="" loading="lazy" referrerpolicy="no-referrer" />` : "";
+  // An empty 稍后再看 shows a gray clock, like Bilibili's own icon for it.
+  if (String(id) === TOVIEW) return `<span class="folder-thumb toview-thumb" aria-hidden="true">${img || TOVIEW_ICON}</span>`;
+  return `<span class="folder-thumb" style="--h:${thumbHue(id)}" aria-hidden="true">${img}</span>`;
 }
 
 function renderFolderHead() {
