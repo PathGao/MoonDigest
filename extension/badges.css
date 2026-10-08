@@ -1,16 +1,30 @@
 /* Injected into bilibili.com; every selector is mdg-prefixed. Neutrals use Bilibili's own theme variables (--bg1, --text1...), so they follow its dark theme.
    Bilibili's header popups set `.bili-header span { color: inherit }` and `.bili-header * { margin: 0; padding: 0 }`,
    so what shows there (badges, cover marks) needs a selector above one class plus one tag. */
+/* Every group MoonDigest adds starts with a 2px purple rule (DESIGN §1: 紫 = MoonDigest 在 B站 页面上加的东西); B站's and
+   BewlyCat's own tags never have it. A group shows the chips that fit and 「+N」 for the rest (badges.js fitBoxes): its
+   chips wrap, so the narrowest it gets is one chip and it never widens a card; fitBoxes hides what lands past row one.
+   display is !important: B站's card rules turn our spans into blocks otherwise. */
 span.mdg-badge {
-  display: inline-flex;
+  display: inline-flex !important;
+  flex-wrap: wrap;
+  align-items: center;
   gap: 3px;
+  max-width: 60%;
+  overflow: hidden;
   margin-right: 4px;
+  padding-left: 4px;
+  border-left: 2px solid #7c3ed1;
   vertical-align: 1px;
   white-space: nowrap;
   line-height: 1;
 }
+/* Its own line above the title (收藏夹): below would read as the next video's. */
+span.mdg-badge.mdg-above { display: flex !important; max-width: 100%; margin: 0 0 4px; vertical-align: baseline; }
 .mdg-badge .mdg-v,
-.mdg-badge .mdg-chip {
+.mdg-badge .mdg-chip,
+.mdg-more {
+  flex: none;
   display: inline-block;
   padding: 1px 4px;
   border: 1px solid transparent;
@@ -21,13 +35,30 @@ span.mdg-badge {
   font-style: normal;
   text-indent: 0;
 }
-.mdg-badge .mdg-keep, .mdg-badge .mdg-act-keep { color: #3a6f2e; background: rgba(75, 144, 59, 0.14); }
-.mdg-badge .mdg-drop, .mdg-badge .mdg-act-unfav { color: #b52a48; background: rgba(183, 42, 73, 0.12); }
+/* AI's verdict: tinted (a suggestion). Your own decision: solid (done). Same meaning, same color (§1). */
+.mdg-badge .mdg-keep { color: #3a6f2e; background: rgba(75, 144, 59, 0.14); }
+.mdg-badge .mdg-drop { color: #b52a48; background: rgba(183, 42, 73, 0.12); }
 .mdg-badge .mdg-unsure { color: #a04b1a; background: rgba(196, 138, 56, 0.16); }
+.mdg-badge .mdg-act-keep { background: #3a6f2e; color: #fff; }
+.mdg-badge .mdg-act-unfav { background: #b52a48; color: #fff; }
 .mdg-badge .mdg-s1 { background: transparent; border-style: dashed; border-color: currentColor; }
 .mdg-low { opacity: 0.7; }
-.mdg-badge .mdg-chip { color: var(--text2, #61666d); border-color: var(--mdg-c, currentColor); font-weight: 500; }
-/* Boxed with a left accent and a label so it reads as the extension's, not Bilibili's. */
+/* Video tags: the 分拣台's tag chip (tag color on the border and fill, body text color). */
+.mdg-badge .mdg-chip {
+  padding: 1px 6px;
+  border-color: color-mix(in srgb, var(--mdg-c, #9499a0) 60%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--mdg-c, #9499a0) 12%, transparent);
+  color: var(--text1, var(--bew-text-1, #18191c));
+  font-weight: 500;
+}
+.mdg-more { padding: 1px 4px; color: var(--text3, var(--bew-text-3, #9499a0)); background: var(--graph_bg_regular, rgba(148, 153, 160, 0.14)); font-weight: 500; cursor: default; }
+.mdg-more:focus-visible { outline: 1px solid #7c3ed1; outline-offset: 1px; }
+/* Above the chips' own !important display. */
+:is(.mdg-ups, .mdg-badge) > .mdg-off.mdg-off { display: none !important; }
+
+/* Not even 「+N」 fits: the chips are gone (badges.js) and the verdict stands alone; an UP box loses its rule (below). */
+/* The video page's line below the views / date row. */
 .mdg-line {
   display: flex;
   align-items: center;
@@ -45,10 +76,11 @@ span.mdg-badge {
 }
 /* Bilibili fixes the title block at 108px; let it grow so the player doesn't cover the line. */
 .video-info-container:has(.mdg-line) { height: auto !important; padding-bottom: 8px; }
-.mdg-line .mdg-badge { margin-right: 0; }
+.mdg-line span.mdg-badge { flex: 0 0 auto; flex-wrap: wrap; min-width: 0; max-width: 60%; margin-right: 0; padding-left: 0; border-left: 0; }
 .mdg-line .mdg-v,
-.mdg-line .mdg-chip { padding: 2px 6px; font-size: 13px; line-height: 16px; }
-.mdg-one { overflow: hidden; text-overflow: ellipsis; }
+.mdg-line .mdg-chip,
+.mdg-line .mdg-more { padding: 2px 6px; font-size: 13px; line-height: 16px; }
+.mdg-one { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .mdg-brand { flex: none; color: #7c3ed1; font-size: 12px; font-weight: 600; letter-spacing: 0.02em; }
 .mdg-pop {
   position: fixed;
@@ -68,20 +100,24 @@ span.mdg-badge {
 .mdg-pop-pt { padding-left: 1em; text-indent: -1em; }
 .mdg-pop-reason { color: var(--text2, #61666d); margin-top: 4px; }
 
-html.bili_dark .mdg-keep, html.bili_dark .mdg-act-keep { color: #a6e3a1; background: rgba(166, 227, 161, 0.16); }
-html.bili_dark .mdg-drop, html.bili_dark .mdg-act-unfav { color: #f38ba8; background: rgba(243, 139, 168, 0.16); }
+html.bili_dark .mdg-keep { color: #a6e3a1; background: rgba(166, 227, 161, 0.16); }
+html.bili_dark .mdg-drop { color: #f38ba8; background: rgba(243, 139, 168, 0.16); }
 html.bili_dark .mdg-unsure { color: #fab387; background: rgba(250, 179, 135, 0.16); }
+html.bili_dark .mdg-act-keep { background: #a6e3a1; color: #11111b; }
+html.bili_dark .mdg-act-unfav { background: #f38ba8; color: #11111b; }
 html.bili_dark .mdg-s1 { background: transparent; }
 html.bili_dark .mdg-line { border-left-color: #cba6f7; background: rgba(203, 166, 247, 0.1); }
 html.bili_dark .mdg-brand { color: #cba6f7; }
+html.bili_dark span.mdg-badge { border-left-color: #cba6f7; }
 
-/* 观看进度 on covers: Bilibili's own progress bar look (3px, #ff6699 on 50% black). The mark is #ff6699 too, the --accent
-   (tokens.css) that the triage page's .seen-tag uses; this page cannot read MoonDigest's CSS variables. */
+/* 观看进度 on covers: the bar is Bilibili's own progress bar look (3px, #ff6699 on 50% black), so it reads as B站's.
+   The ✓ mark is gray (§1: pink means 你在哪, and 看完了 is neither that nor a judgment); bold and ✓ set it apart from the
+   faint 看到 N%. */
 .mdg-seen-host { position: relative; }
 .mdg-seen { position: absolute; inset: 0; z-index: 3; pointer-events: none; overflow: hidden; border-radius: inherit; }
 .mdg-seen-bar { position: absolute; left: 0; right: 0; bottom: 0; height: 3px; background: rgba(0, 0, 0, 0.5); }
 .mdg-seen-bar i { display: block; height: 100%; background: #ff6699; }
-.mdg-seen .mdg-seen-mark { position: absolute; top: 6px; left: 6px; padding: 2px 8px; border-radius: 6px; background: #ff6699; color: #fff; font: 600 13px/18px system-ui, -apple-system, "PingFang SC", sans-serif; white-space: nowrap; }
+.mdg-seen .mdg-seen-mark { position: absolute; top: 6px; left: 6px; padding: 2px 8px; border-radius: 6px; background: rgba(17, 17, 27, 0.78); color: #fff; font: 600 13px/18px system-ui, -apple-system, "PingFang SC", sans-serif; white-space: nowrap; }
 .mdg-seen-mark.mdg-faint { background: rgba(17, 17, 27, 0.6); font-weight: 400; }
 .mdg-seen-veil .mdg-seen-mark:not(.mdg-faint) { inset: 0; top: 0; left: 0; padding: 0; border-radius: 0; display: flex; align-items: center; justify-content: center; background: rgba(17, 17, 27, 0.55); font-size: 15px; font-weight: 700; }
 /* While 观看进度 is on it replaces BewlyCat's own: the 6px bar on its 历史 / 稍后再看 covers, its card progress and 已看 tag.
@@ -90,20 +126,16 @@ html.bili_dark .mdg-brand { color: #cba6f7; }
 :host([data-mdg-seen]) .video-card-playback-progress,
 :host([data-mdg-seen]) .video-watched-tag { display: none !important; }
 
-/* UP tags after an author's name. The purple left rule (the .mdg-line accent) says it is MoonDigest's; chip text mixes the
-   tag color with Bilibili's (or BewlyCat's) own text variable, so it follows their dark themes. Selectors stay above
-   one class plus one tag for the header popups (see the top of this file). */
-/* In a flex row (card owner lines, the video page's owner) the chips take only the room the name and date leave
-   (basis 0, up to their own width). Chips that do not fit wrap onto a second row that the fixed height hides, so only
-   whole chips show. */
+/* UP tags after an author's name. In a flex row (card owner lines) the box takes only the room the name and date leave
+   (basis 0, up to its own width); fitBoxes then shows the chips that fit. Selectors stay above one class plus one tag
+   for the header popups (see the top of this file). */
 span.mdg-ups[data-mid] {
-  display: inline-flex;
-  flex: 1 1 0%;
+  display: inline-flex !important;
   flex-wrap: wrap;
-  align-content: flex-start;
+  align-items: center;
+  flex: 1 1 0%;
   min-width: 0;
   max-width: max-content;
-  height: 18px;
   overflow: hidden;
   gap: 3px;
   margin: 0 4px;
@@ -116,30 +148,33 @@ span.mdg-ups[data-mid] {
   font-style: normal;
   text-decoration: none;
 }
+/* The video page's UP name: its own line under the name row. */
+span.mdg-ups.mdg-ups-line[data-mid] { display: flex !important; max-width: 100%; margin: 4px 0 2px; }
 /* Card owner lines grow the name from zero (flex: 1 1 0%), which would hand all the room to the chips; size it by its
    text instead so it keeps priority (!important: the search page's scoped rules are more specific). */
 .bili-video-card__info--owner:has(> .mdg-ups) > .bili-video-card__info--author { flex: 0 1 auto !important; }
+/* UP tags: a dot in the tag color before the name, the dot rows of the 分拣台's UP tag picker and filter; video tags are
+   bordered pills. So the two kinds read apart even where they sit close. Not links: hovering shows the box's title. */
 .mdg-ups .mdg-up {
-  display: inline-block;
+  flex: none;
+  display: inline-flex !important;
+  align-items: center;
+  gap: 3px;
   margin: 0;
-  padding: 1px 5px;
-  border: 1px solid color-mix(in srgb, var(--mdg-c, #9499a0) 60%, transparent);
+  padding: 1px 5px 1px 4px;
   border-radius: 4px;
-  background: color-mix(in srgb, var(--mdg-c, #9499a0) 14%, transparent);
-  color: color-mix(in srgb, var(--mdg-c, #9499a0) 70%, var(--text1, var(--bew-text-1, #18191c)));
+  background: color-mix(in srgb, var(--mdg-c, #9499a0) 12%, transparent);
+  color: var(--text1, var(--bew-text-1, #18191c));
   font: 500 11px/14px -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif;
-  cursor: pointer;
 }
-/* Inside BewlyCat's shadow root (its pages follow its own theme, not Bilibili's). */
-:host .mdg-ups .mdg-up { color: color-mix(in srgb, var(--mdg-c, #9499a0) 70%, var(--bew-text-1, #18191c)); }
+.mdg-ups .mdg-up::before { content: ""; display: block; flex: none; width: 6px; height: 6px; border-radius: 50%; background: var(--mdg-c, #9499a0); }
 /* A space page's nickname sits on the banner image: opaque light chips read on any picture, in either theme. */
 .upinfo .mdg-ups .mdg-up,
-.upinfo-detail__top .mdg-ups .mdg-up {
-  background: color-mix(in srgb, var(--mdg-c, #9499a0) 16%, #fff);
-  color: color-mix(in srgb, var(--mdg-c, #9499a0) 70%, #18191c);
-}
-.mdg-ups .mdg-up:hover,
-.mdg-ups .mdg-up:focus-visible { background: color-mix(in srgb, var(--mdg-c, #9499a0) 26%, transparent); outline: none; }
+.upinfo-detail__top .mdg-ups .mdg-up,
+.upinfo .mdg-ups .mdg-more,
+.upinfo-detail__top .mdg-ups .mdg-more { background: color-mix(in srgb, var(--mdg-c, #9499a0) 16%, #fff); color: #18191c; }
+.upinfo .mdg-ups .mdg-up-add,
+.upinfo-detail__top .mdg-ups .mdg-up-add { background: rgba(255, 255, 255, 0.9); color: #61666d; }
 
 /* 动态 page: the UP tag filter above the list; a pick hides other UPs' cards with a class, nothing is removed. */
 .mdg-upbar {
@@ -188,24 +223,53 @@ span.mdg-ups[data-mid] {
 html.bili_dark span.mdg-ups[data-mid] { border-left-color: #cba6f7; }
 html.bili_dark .mdg-upbar { border-left-color: #cba6f7; }
 
-/* The 「+」 after an UP's chips opens MoonDigest's tag picker (badges.js draws the picker in its own shadow root).
-   Quiet: invisible until the card or the name is hovered, or it has keyboard focus. */
-.mdg-ups .mdg-up.mdg-up-add {
-  opacity: 0;
+/* 「+ UP 标签」 opens MoonDigest's tag picker (badges.js draws the picker in its own shadow root). Always shown beside the
+   video page's UP name and a space page's nickname; on cards it keeps its place but shows only while the card or the
+   name is hovered, or it has keyboard focus. */
+.mdg-ups .mdg-up-add {
+  flex: none;
+  display: inline-block;
+  margin: 0;
+  padding: 0 5px;
   border: 1px dashed var(--line_regular, var(--bew-border-color, #c9ccd0));
+  border-radius: 4px;
   background: transparent;
   color: var(--text3, var(--bew-text-3, #9499a0));
+  font: 400 11px/14px -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif;
+  cursor: pointer;
 }
-:hover > .mdg-ups .mdg-up.mdg-up-add,
-.bili-dyn-item:hover .mdg-ups .mdg-up.mdg-up-add,
-.bili-video-card:hover .mdg-ups .mdg-up.mdg-up-add,
-.mdg-ups .mdg-up.mdg-up-add:focus-visible,
-.mdg-ups .mdg-up.mdg-up-add[aria-expanded="true"] { opacity: 1; }
-.mdg-ups .mdg-up.mdg-up-add:hover,
-.mdg-ups .mdg-up.mdg-up-add:focus-visible,
-.mdg-ups .mdg-up.mdg-up-add[aria-expanded="true"] { border-color: #7c3ed1; background: transparent; color: #7c3ed1; }
-/* An UP with no tags yet: just the 「+」, without the purple rule that marks MoonDigest's chips. */
-span.mdg-ups.mdg-ups-empty[data-mid] { border-left-color: transparent; }
-html.bili_dark .mdg-ups .mdg-up.mdg-up-add:hover,
-html.bili_dark .mdg-ups .mdg-up.mdg-up-add:focus-visible,
-html.bili_dark .mdg-ups .mdg-up.mdg-up-add[aria-expanded="true"] { border-color: #cba6f7; color: #cba6f7; }
+/* Hover-only (cards): out of sight but still a tab stop. While the card is hovered or the box has focus it shows beside
+   the chips when they leave room for it (.mdg-add-fits), else in their place, so it never needs room of its own. */
+.mdg-ups.mdg-plus-hover .mdg-up-add { position: absolute; width: 1px; height: 1px; overflow: hidden; opacity: 0; pointer-events: none; }
+:hover > .mdg-ups.mdg-plus-hover .mdg-up-add,
+a:hover .mdg-ups.mdg-plus-hover .mdg-up-add,
+.bili-dyn-item:hover .mdg-ups.mdg-plus-hover .mdg-up-add,
+.bili-video-card:hover .mdg-ups.mdg-plus-hover .mdg-up-add,
+.mdg-ups.mdg-plus-hover:focus-within .mdg-up-add,
+.mdg-ups .mdg-up-add[aria-expanded="true"] { position: static; width: auto; height: auto; opacity: 1; pointer-events: auto; }
+:hover > .mdg-ups.mdg-plus-hover:not(.mdg-add-fits) > :is(.mdg-fit, .mdg-more),
+a:hover .mdg-ups.mdg-plus-hover:not(.mdg-add-fits) > :is(.mdg-fit, .mdg-more),
+.bili-dyn-item:hover .mdg-ups.mdg-plus-hover:not(.mdg-add-fits) > :is(.mdg-fit, .mdg-more),
+.bili-video-card:hover .mdg-ups.mdg-plus-hover:not(.mdg-add-fits) > :is(.mdg-fit, .mdg-more),
+.mdg-ups.mdg-plus-hover:not(.mdg-add-fits):focus-within > :is(.mdg-fit, .mdg-more),
+.mdg-ups.mdg-plus-hover:not(.mdg-add-fits):has(> .mdg-up-add[aria-expanded="true"]) > :is(.mdg-fit, .mdg-more) { display: none !important; }
+/* While fitBoxes measures, the button has its real width. */
+.mdg-ups.mdg-fitting .mdg-up-add { position: static; width: auto; height: auto; }
+.mdg-ups .mdg-up-add:hover,
+.mdg-ups .mdg-up-add:focus-visible,
+.mdg-ups .mdg-up-add[aria-expanded="true"] { border-color: #7c3ed1; color: #7c3ed1; outline: none; }
+/* Nothing to show (no tags yet, or not even 「+N」 fits): no purple rule, until a hover-only 「+ UP 标签」 shows. */
+span.mdg-ups.mdg-ups-empty:not(.mdg-plus-always)[data-mid],
+span.mdg-ups.mdg-squeezed:not(.mdg-plus-always)[data-mid] { border-left-color: transparent; }
+:hover > span.mdg-ups.mdg-plus-hover[data-mid],
+a:hover span.mdg-ups.mdg-plus-hover[data-mid],
+.bili-dyn-item:hover span.mdg-ups.mdg-plus-hover[data-mid],
+.bili-video-card:hover span.mdg-ups.mdg-plus-hover[data-mid],
+span.mdg-ups.mdg-plus-hover[data-mid]:focus-within { border-left-color: #7c3ed1; }
+html.bili_dark .mdg-ups .mdg-up-add:hover,
+html.bili_dark .mdg-ups .mdg-up-add:focus-visible,
+html.bili_dark .mdg-ups .mdg-up-add[aria-expanded="true"] { border-color: #cba6f7; color: #cba6f7; }
+html.bili_dark :hover > span.mdg-ups.mdg-plus-hover[data-mid],
+html.bili_dark a:hover span.mdg-ups.mdg-plus-hover[data-mid],
+html.bili_dark .bili-dyn-item:hover span.mdg-ups.mdg-plus-hover[data-mid],
+html.bili_dark .bili-video-card:hover span.mdg-ups.mdg-plus-hover[data-mid] { border-left-color: #cba6f7; }

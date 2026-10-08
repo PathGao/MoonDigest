@@ -54,14 +54,17 @@ assert.deepStrictEqual([...used].filter((k) => !declared.has(k)), [], "every var
 const badgeRules = rules(read("badges.css"));
 const tokensOf = { light: tokenRules[0].vars, dark: tokenRules[1].vars };
 const BADGE_TOKENS = [
-  [".mdg-badge .mdg-keep, .mdg-badge .mdg-act-keep", "color", "--ok", "light"],
-  [".mdg-badge .mdg-drop, .mdg-badge .mdg-act-unfav", "color", "--danger", "light"],
+  [".mdg-badge .mdg-keep", "color", "--ok", "light"],
+  [".mdg-badge .mdg-drop", "color", "--danger", "light"],
   [".mdg-badge .mdg-unsure", "color", "--warn", "light"],
-  ["html.bili_dark .mdg-keep, html.bili_dark .mdg-act-keep", "color", "--ok", "dark"],
-  ["html.bili_dark .mdg-drop, html.bili_dark .mdg-act-unfav", "color", "--danger", "dark"],
+  [".mdg-badge .mdg-act-keep", "background", "--ok", "light"],
+  [".mdg-badge .mdg-act-unfav", "background", "--danger", "light"],
+  ["html.bili_dark .mdg-keep", "color", "--ok", "dark"],
+  ["html.bili_dark .mdg-drop", "color", "--danger", "dark"],
   ["html.bili_dark .mdg-unsure", "color", "--warn", "dark"],
-  [".mdg-seen-bar i", "background", "--accent", "light"],
-  [".mdg-seen .mdg-seen-mark", "background", "--accent", "light"]
+  ["html.bili_dark .mdg-act-keep", "background", "--ok", "dark"],
+  ["html.bili_dark .mdg-act-unfav", "background", "--danger", "dark"],
+  [".mdg-seen-bar i", "background", "--accent", "light"]
 ];
 const declOf = (selector, prop) => {
   const r = badgeRules.find((r) => r.selector === selector);
@@ -73,5 +76,10 @@ const declOf = (selector, prop) => {
 for (const [selector, prop, token, theme] of BADGE_TOKENS) {
   assert.strictEqual(declOf(selector, prop), tokensOf[theme].get(token).toLowerCase(), `badges.css ${selector} ${prop} = ${theme} ${token}`);
 }
+
+// 看完了 is not 你在哪 (§1): the cover mark must not be the pink --accent.
+assert.notStrictEqual(declOf(".mdg-seen .mdg-seen-mark", "background"), tokenRules[0].vars.get("--accent").toLowerCase(), "the ✓ 看完了 mark is not pink");
+// 已取消收藏 (your decision) and AI 可清理 (a suggestion) share §1's red but not a look: one is solid, one tinted.
+assert.notStrictEqual(declOf(".mdg-badge .mdg-act-unfav", "background"), declOf(".mdg-badge .mdg-drop", "background"));
 
 console.log("content-tokens selftest passed");
