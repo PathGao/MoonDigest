@@ -1873,6 +1873,11 @@ function pickState(group, value = "") {
 
 function renderListHeader(list) {
   const t = S.tab;
+  // The selection belongs to the tab: a video that left it (保留, 取消收藏, a run moved it on) leaves the selection.
+  for (const b of [...S.selected]) {
+    const it = S.itemMap.get(b);
+    if (!it || (t !== "read" && stageOf(it) !== t)) S.selected.delete(b);
+  }
   const all = S.mediaId === ALL;
   const sortHint = `<span class="muted">请在具体收藏夹里分拣</span>`;
   // Search, row 3 or row 4 on: how many the tab lists.

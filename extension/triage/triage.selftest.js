@@ -277,8 +277,19 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   Object.assign(t.S, { tab: "none", titleRes: {}, analyses: { BVgone: { status: "done", oneLiner: "一句话", points: ["要点"] } }, notes: { BV3: { text: " 我的笔记 " } }, videoTags: {} });
   const scope = (s) => plain(t.writeScopeItems(s, true).map((it) => it.bvid));
   assert.deepStrictEqual([scope("selected"), scope("all"), scope("filter")], [["BV3"], ["BV1", "BV2", "BV3"], ["BV1", "BV3"]]);
+  // A filter hides part of the selection: the bar counts only what is listed, and the hidden one stays selected.
+  t.S.selected.add("BV1");
+  t.S.query = "视频3";
   t.renderListHeader(t.visibleItems());
   assert.ok(t.el.listHeader.innerHTML.includes("已选中 1 个") && t.el.listHeader.innerHTML.includes("另有 1 个被筛选隐藏"), "the bar counts only what is listed");
+  assert.ok(t.S.selected.has("BV1"), "a video a filter hides stays selected");
+  t.S.query = "";
+  // The selection belongs to the tab: the kept BV2 is not in 未分析, so it leaves the selection, and so does one kept now.
+  await t.decide("BV1", "keep");
+  t.renderListHeader(t.visibleItems());
+  assert.deepStrictEqual(plain([...t.S.selected]), ["BV3"]);
+  assert.ok(t.el.listHeader.innerHTML.includes("已选中 1 个") && !t.el.listHeader.innerHTML.includes("被筛选隐藏"), t.el.listHeader.innerHTML);
+  delete t.S.kept.BV1;
   assert.deepStrictEqual(plain(t.writeScopeItems("all", false).map((it) => it.bvid)), ["BV1", "BV2", "BV3", "BV4"]);
   t.S.analyses.BV1 = { status: "done", oneLiner: "一句话", points: ["要点"] };
   const digest = t.buildMarkdown(t.writeScopeItems("all", false));
