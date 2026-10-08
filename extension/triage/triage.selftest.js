@@ -610,6 +610,16 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   Object.assign(t.S, { tags: t.S.tags.filter((x) => x.folder !== "K" || !/^g[ab]$|^C$/.test(x.name === "C" ? "C" : x.id)), videoTags: {}, aiRecent: {} });
   openFake("K", [item(600), item(601)]);
 
+  // A card's tag chip takes that tag off the video in one click, and U puts it back.
+  openFake("K", [item(710)]);
+  Object.assign(t.S, { tags: [{ id: "ua", name: "A", color: "#1", folder: "K" }, { id: "ub", name: "B", color: "#2", folder: "K" }], videoTags: { BV710: ["ua", "ub"] } });
+  vm.runInContext("removeVideoTag", ctx)("BV710", "ua");
+  assert.deepStrictEqual(plain(t.S.videoTags.BV710), ["ub"]);
+  await t.undo();
+  assert.deepStrictEqual(plain(t.S.videoTags.BV710), ["ua", "ub"]);
+  Object.assign(t.S, { tags: t.S.tags.filter((x) => !/^u[ab]$/.test(x.id)), videoTags: {} });
+  openFake("K", [item(600), item(601)]);
+
   // U after 批量打 restores the tags and video tags.
   const beforeApply = plain([t.S.tags, t.S.videoTags]);
   t.S.ai.proposal = { newTags: [{ key: "z", name: "z", checked: true }], rows: [{ bvid: "BV600", add: ["new:z"], remove: [], checked: true }], notes: [], errors: [] };

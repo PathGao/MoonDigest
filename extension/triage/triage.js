@@ -2027,7 +2027,7 @@ function cardHtml(it, expanded, mark) {
 
   const chips = tagIdsOf(b)
     .map((id) => tagById(id))
-    .map((t) => `<span class="chip on" style="--c:${esc(t.color)}">${esc(t.name)}</span>`)
+    .map((t) => `<button type="button" class="chip card-tag" style="--c:${esc(t.color)}" data-untag="${esc(t.id)}" aria-label="去掉标签 ${esc(t.name)}" title="点一下去掉这个标签 · U 撤销">${esc(t.name)}<span class="x" aria-hidden="true">×</span></button>`)
     .join("");
 
   const body = [];
@@ -2597,6 +2597,15 @@ function setVideoTags(bvid, ids, prev) {
   saveVideoTags();
   pushUndo({ kind: "tags", bvid, prev });
   return true;
+}
+
+// A tag's chip on the card takes it off that video in one click; U puts it back.
+function removeVideoTag(bvid, id) {
+  const prev = (S.videoTags[bvid] || []).filter((x) => tagById(x));
+  const name = tagById(id)?.name;
+  if (!setVideoTags(bvid, prev.filter((x) => x !== id), prev)) return;
+  render();
+  toast(`已去掉「${name}」· U 撤销`);
 }
 
 // 「AI 刚打的」 of the open folder (a Set of bvids); empty in 所有收藏夹 and 已出分拣范围.
@@ -3800,6 +3809,8 @@ function bindEvents() {
     const card = e.target.closest(".card");
     if (!card) return;
     const bvid = card.dataset.bvid;
+    const untag = e.target.closest("[data-untag]");
+    if (untag) return removeVideoTag(bvid, untag.dataset.untag);
     const act = e.target.closest("[data-act]")?.dataset.act;
     setFocus(bvid, false);
     if (act) cardAction(act, bvid);
