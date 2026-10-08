@@ -347,4 +347,51 @@ for (const [file, fns] of [["triage.js", ["mergeAiBatch", "aiChanges"]], ["follo
   for (const f of ["triage.js", "follow.js"]) assert.strictEqual(count(f, /row-label/g), 0, `${f} draws no label of its own`);
 }
 
-console.log("shared selftest: all passed");
+// 移动 / 复制 (askTransfer): one dialog for 收藏夹's folders and 关注's groups; the mode passes its targets and words.
+(async () => {
+  const nodes = {};
+  const node = (id, extra = {}) => (nodes[id] = { id, hidden: false, value: "", textContent: "", innerHTML: "", attrs: {}, L: {}, setAttribute(k, v) { this.attrs[k] = v; }, addEventListener(t, f) { (this.L[t] ||= []).push(f); }, ...extra });
+  const btn = (value) => ({ value, hidden: false, textContent: "", attrs: {}, cls: new Set(), classList: { toggle(c, on) { on ? this.o.cls.add(c) : this.o.cls.delete(c); } }, setAttribute(k, v) { this.attrs[k] = v; } });
+  const buttons = ["copy", "move", "add"].map(btn);
+  for (const b of buttons) b.classList.o = b;
+  node("transferDialog", { returnValue: "", open: false, showModal() { this.open = true; }, querySelectorAll: () => buttons });
+  for (const id of ["transferTitle", "transferBody", "transferLabel", "transferHow", "transferTarget", "transferNewRow", "transferUnchosen", "transferName", "transferPrivate", "transferPrivateRow"]) node(id);
+  ctx.document = { getElementById: (id) => nodes[id] };
+  const close = (how, value, name = "") => {
+    nodes.transferTarget.value = value;
+    nodes.transferName.value = name;
+    nodes.transferDialog.returnValue = how;
+    nodes.transferDialog.L.close.at(-1)();
+  };
+  const group = {
+    title: "在 B站把这 2 个 UP 主复制到分组", n: 2, hows: ["copy"], list: "<ul></ul>", label: "目标分组",
+    options: [["-10", "特别关注 (3)"], ["7", "<数码> (2)"]], newText: "新建分组…", newPlaceholder: "新分组名称", newMax: 16, how: "原来的分组里也留着。",
+    note: (v) => (v === "-10" ? "会推送" : "")
+  };
+  let p = UI.askTransfer(group);
+  assert.ok(nodes.transferDialog.open && nodes.transferLabel.textContent === "目标分组" && nodes.transferName.maxLength === 16);
+  assert.deepStrictEqual(buttons.map((b) => [b.value, b.hidden, b.textContent, b.cls.has("primary")]), [["copy", false, "复制 2 个", true], ["move", true, "移动 2 个", false], ["add", true, "收藏 2 个", false]], "only the mode's button, blue, with the count");
+  assert.ok(nodes.transferTarget.innerHTML.includes("&lt;数码&gt;") && nodes.transferTarget.innerHTML.endsWith('<option value="new">新建分组…</option>'));
+  assert.ok(nodes.transferPrivateRow.hidden, "设为私密 is 收藏夹's");
+  nodes.transferTarget.value = "-10";
+  nodes.transferTarget.L.change[0]();
+  assert.deepStrictEqual([nodes.transferUnchosen.hidden, nodes.transferUnchosen.innerHTML, nodes.transferNewRow.hidden], [false, "会推送", true]);
+  nodes.transferTarget.value = "new";
+  nodes.transferTarget.L.change[0]();
+  assert.ok(!nodes.transferNewRow.hidden && nodes.transferName.required && nodes.transferUnchosen.hidden);
+  close("copy", "new", "  周末看 ");
+  assert.deepStrictEqual(plain(await p), { how: "copy", target: { create: "周末看", privacy: false } });
+  p = UI.askTransfer(group);
+  close("move", "7");
+  assert.strictEqual(await p, null, "a button the mode did not show is a cancel");
+  p = UI.askTransfer({ ...group, hows: ["copy", "move"], privacy: true, how: "" });
+  assert.ok(buttons[1].cls.has("primary") && !buttons[0].cls.has("primary") && !nodes.transferPrivateRow.hidden && nodes.transferHow.hidden, "收藏夹: 复制 and 移动, 移动 blue");
+  nodes.transferPrivate.checked = true;
+  close("move", "7");
+  assert.deepStrictEqual(plain(await p), { how: "move", target: { id: "7" } });
+  assert.strictEqual(nodes.transferTarget.L.change.length, 1, "bound once");
+  console.log("shared selftest: all passed");
+})().catch((e) => {
+  console.error(e);
+  process.exit(1);
+});

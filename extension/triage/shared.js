@@ -288,7 +288,7 @@
           const how = dlg.returnValue;
           if (!o.hows.includes(how)) return resolve(null);
           const v = $("transferTarget").value;
-          resolve({ how, target: v === "new" ? { create: name.value.trim(), privacy: o.privacy && $("transferPrivate").checked } : { id: v } });
+          resolve({ how, target: v === "new" ? { create: name.value.trim(), privacy: Boolean(o.privacy && $("transferPrivate").checked) } : { id: v } });
         },
         { once: true }
       );
