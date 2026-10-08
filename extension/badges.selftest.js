@@ -86,10 +86,73 @@ assert.strictEqual(upHidden("1", "a", { 1: ["a"] }), false);
 assert.strictEqual(upHidden("2", "a", { 1: ["a"] }), true);
 assert.strictEqual(upHidden("", "a", { 1: ["a"] }), true, "an unknown author is hidden under a tag");
 
+// ---- the 「+」: which UP a name is (only a reliable mid may be written to), the picker's rows, the storage write ----
+const { faceKey, whoIndex, resolveMid, pickRows, applyUpTag, saveUpTag } = ctx.BocBadges;
+assert.strictEqual(faceKey("//i0.hdslb.com/bfs/face/A69e0c.jpg@96w_96h_1c_1s.webp"), "a69e0c.jpg", "the avatar file, size suffix dropped");
+assert.strictEqual(faceKey("https://i1.hdslb.com/bfs/face/a69e0c.jpg"), "a69e0c.jpg", "follow_people stores the bare URL");
+assert.strictEqual(faceKey("//i0.hdslb.com/bfs/vip/dbe23f.png@40w"), "", "a vip badge is not a face");
+const folks = {
+  1: { name: "甲", face: "https://i0.hdslb.com/bfs/face/f1.jpg" },
+  2: { name: "重名", face: "https://i0.hdslb.com/bfs/face/f2.jpg" },
+  3: { name: "重名", face: "https://i0.hdslb.com/bfs/face/f3.jpg" },
+  4: { name: "丁", face: "https://i0.hdslb.com/bfs/face/noface.jpg" },
+  5: { name: "戊", face: "https://i0.hdslb.com/bfs/face/noface.jpg" },
+  6: { name: "未关注", face: "" }
+};
+const idx = whoIndex(folks, ["1", "2", "3", "4", "5"]);
+assert.strictEqual(resolveMid({ href: "//space.bilibili.com/42", name: "甲" }, idx), "42", "a profile link wins over everything");
+assert.strictEqual(resolveMid({ data: "77", name: "甲" }, idx), "77", "then a data attribute");
+assert.strictEqual(resolveMid({ data: "abc", name: "甲" }, idx), "1", "a non-numeric data value is ignored");
+assert.strictEqual(resolveMid({ face: "//i0.hdslb.com/bfs/face/f3.jpg@96w.webp", name: "重名" }, idx), "3", "the avatar tells same-named UPs apart");
+assert.strictEqual(resolveMid({ name: " 甲 " }, idx), "1", "a name exactly one followed UP has");
+assert.strictEqual(resolveMid({ name: "重名" }, idx), "", "a name two followed UPs share: no mid, no 「+」");
+assert.strictEqual(resolveMid({ face: "//i0.hdslb.com/bfs/face/noface.jpg", name: "丁" }, idx), "4", "a shared default avatar falls back to a unique name");
+assert.strictEqual(resolveMid({ face: "//i0.hdslb.com/bfs/face/noface.jpg", name: "重名" }, idx), "", "shared avatar and shared name: nothing");
+assert.strictEqual(resolveMid({ name: "未关注" }, idx), "", "only followed UPs are matched by name");
+assert.strictEqual(resolveMid({ name: "甲" }, null), "", "no index, no name match");
+
+const pt = [{ id: "a", name: "常看", color: "#f00" }, { id: "b", name: "游戏" }];
+assert.deepStrictEqual(plain(pickRows("1", pt, { 1: ["b"] })), [{ id: "a", name: "常看", color: "#f00", on: false }, { id: "b", name: "游戏", color: "", on: true }]);
+let r = applyUpTag(pt, { 1: ["b"], 2: ["a"] }, "1", { toggle: "a" });
+assert.deepStrictEqual(plain(r.map), { 1: ["b", "a"], 2: ["a"] }, "toggle on appends");
+assert.strictEqual(r.tags, pt, "a toggle leaves follow_tags alone");
+r = applyUpTag(pt, { 1: ["b"] }, "1", { toggle: "b" });
+assert.deepStrictEqual(plain(r.map), {}, "toggling the last tag off drops the UP's entry");
+assert.strictEqual(applyUpTag(pt, {}, "1", { toggle: "gone" }), null, "a deleted tag is not written");
+r = applyUpTag(pt, {}, "9", { create: " 学，习, " });
+assert.deepStrictEqual(plain(r.tags.slice(0, 2)), plain(pt));
+assert.strictEqual(r.tags.length, 3);
+assert.deepStrictEqual([r.tags[2].name, r.tags[2].color, r.tags[2].rule], ["学习", "#da86c3", ""], "triage page's name cleaning and first free color");
+assert.match(r.tags[2].id, /^ft[0-9a-z]+$/);
+assert.deepStrictEqual(plain(r.map), { 9: [r.tags[2].id] }, "the new tag is switched on for this UP");
+r = applyUpTag(pt, { 9: ["a"] }, "9", { create: "常看" });
+assert.strictEqual(r.tags, pt, "an existing name is reused, not duplicated");
+assert.deepStrictEqual(plain(r.map), { 9: ["a"] }, "and stays on");
+assert.strictEqual(applyUpTag(pt, {}, "9", { create: " ，" }), null, "an empty name writes nothing");
+
+(async () => {
+  const db = { follow_tags: pt, follow_tag_map: { 1: ["a"] } };
+  const sets = [];
+  const local = { get: async (k) => Object.fromEntries(k.map((x) => [x, db[x]])), set: async (o) => (sets.push(Object.keys(o)), Object.assign(db, o)) };
+  db.follow_tag_map = { 1: ["a"], 5: ["b"] }; // written by the triage page after this tab last read it
+  await saveUpTag(local, "1", { toggle: "b" });
+  assert.deepStrictEqual(plain(db.follow_tag_map), { 1: ["a", "b"], 5: ["b"] }, "reads fresh: another page's write survives");
+  assert.deepStrictEqual(sets, [["follow_tag_map"]], "a toggle writes only follow_tag_map");
+  await saveUpTag(local, "1", { create: "新" });
+  assert.deepStrictEqual(sets[1], ["follow_tags", "follow_tag_map"]);
+  assert.strictEqual(db.follow_tags.at(-1).name, "新");
+  assert.strictEqual(await saveUpTag(local, "1", { toggle: "nope" }), null);
+  assert.strictEqual(sets.length, 2, "nothing written for a tag that is gone");
+})().catch((e) => {
+  console.error(e);
+  process.exit(1);
+});
+
 // A tiny DOM: enough for the selectors badges.js uses (tag, .class, #id, [attr*="x"], descendant).
 class Node_ {
   constructor() { this.parentNode = null; }
   get nextSibling() { const k = this.parentNode?.childNodes; return k ? k[k.indexOf(this) + 1] || null : null; }
+  get previousSibling() { const k = this.parentNode?.childNodes; return k ? k[k.indexOf(this) - 1] || null : null; }
   after(n) { n.remove(); n.parentNode = this.parentNode; this.parentNode.childNodes.splice(this.parentNode.childNodes.indexOf(this) + 1, 0, n); muts.n++; }
   before(n) { n.remove(); n.parentNode = this.parentNode; this.parentNode.childNodes.splice(this.parentNode.childNodes.indexOf(this), 0, n); muts.n++; }
   remove() { if (!this.parentNode) return; this.parentNode.childNodes.splice(this.parentNode.childNodes.indexOf(this), 1); this.parentNode = null; muts.n++; }
@@ -109,12 +172,20 @@ class El extends Node_ {
   set className(v) { this.classList._s.clear(); for (const c of v.split(/\s+/).filter(Boolean)) this.classList._s.add(c); }
   get textContent() { return this.childNodes.map((n) => n.textContent).join(""); }
   set textContent(v) { this.childNodes = []; this.append(new Text_(String(v))); }
+  get firstChild() { return this.childNodes[0] || null; }
   get nextElementSibling() { let n = this.nextSibling; while (n && n.nodeType !== 1) n = n.nextSibling; return n; }
   getAttribute(k) { return this.attrs[k] ?? null; }
   setAttribute(k, v) { this.attrs[k] = String(v); }
   append(...ns) { for (const n of ns) { const x = typeof n === "string" ? new Text_(n) : n; x.parentNode = this; this.childNodes.push(x); } }
   addEventListener(t, f) { (this.listeners[t] ||= []).push(f); }
-  removeEventListener() {}
+  removeEventListener(t, f) { const l = this.listeners[t]; if (l?.includes(f)) l.splice(l.indexOf(f), 1); }
+  replaceChildren(...ns) { this.childNodes = []; this.append(...ns); }
+  attachShadow() { this.shadow = h("#shadow"); this.shadow.parentNode = null; this.shadow.host = this; return this.shadow; }
+  getBoundingClientRect() { return { left: 100, top: 50, bottom: 70, right: 120 }; }
+  get offsetWidth() { return 270; }
+  get offsetHeight() { return 200; }
+  get isConnected() { let n = this; while (n.parentNode) n = n.parentNode; return n.host ? n.host.isConnected : n.tagName === "HTML"; }
+  focus() { let n = this; while (n.parentNode) n = n.parentNode; if (n.host) n.activeElement = this; focused.el = this; }
   closest(sel) { for (let n = this; n?.nodeType === 1; n = n.parentNode) if (matches(n, sel)) return n; return null; }
   querySelectorAll(sel) { const out = []; const walk = (n) => { for (const k of n.childNodes) if (k.nodeType === 1) { if (matches(k, sel)) out.push(k); walk(k); } }; walk(this); return out; }
   querySelector(sel) { return this.querySelectorAll(sel)[0] || null; }
@@ -138,6 +209,7 @@ function matches(el, sel) {
   });
 }
 const muts = { n: 0 };
+const focused = { el: null };
 const h = (tag, attrs, ...kids) => new El(tag, attrs || {}, kids);
 
 // spotIn on markup measured on real pages.
@@ -197,15 +269,16 @@ assert.strictEqual(spotIn(h("a", {}, h("div", {}, h("img"), "  "))), null, "avat
   vm.runInContext(fs.readFileSync(path.join(__dirname, "badges.js"), "utf8"), live);
   const settle = () => new Promise((r) => setTimeout(r, 30));
   const chipAfter = (n) => (n.nextSibling?.classList?.contains("mdg-ups") ? n.nextSibling : null);
+  const tagsText = (box) => box?.querySelectorAll(".mdg-up").filter((c) => !c.classList.contains("mdg-up-add")).map((c) => c.textContent).join("");
   const bar = () => doc.querySelector(".mdg-upbar");
   const hidden = () => items.map((i) => i.classList.contains("mdg-up-hide"));
   await settle();
 
   const titles = items.map((i) => i.querySelector(".bili-dyn-title__text"));
-  assert.strictEqual(chipAfter(homeAuthor)?.textContent, "常看", "chip right after the author name inside the link");
+  assert.strictEqual(tagsText(chipAfter(homeAuthor)), "常看", "chip right after the author name inside the link");
   assert.strictEqual(chipAfter(homeAuthor).title, "MoonDigest 的 UP 标签 · 只存在扩展里");
-  assert.strictEqual(chipAfter(titles[0])?.textContent, "常看", "动态 card: name matched via follow_people");
-  assert.strictEqual(chipAfter(titles[1])?.textContent, "游戏");
+  assert.strictEqual(tagsText(chipAfter(titles[0])), "常看", "动态 card: name matched via follow_people");
+  assert.strictEqual(tagsText(chipAfter(titles[1])), "游戏");
   assert.strictEqual(chipAfter(titles[2]), null, "an UP without tags: no DOM change");
   assert.strictEqual(bar()?.nextElementSibling, list, "the filter bar sits right above the list");
   assert.deepStrictEqual(bar().querySelectorAll(".mdg-upbar-tag").map((b) => b.textContent), ["全部3", "常看1", "游戏1"]);
@@ -239,7 +312,7 @@ assert.strictEqual(spotIn(h("a", {}, h("div", {}, h("img"), "  "))), null, "avat
   store.follow_tag_map = { 1: ["t1", "t2"], 2: ["t2"] };
   changed.forEach((f) => f({ follow_tag_map: {} }, "local"));
   await settle();
-  assert.strictEqual(chipAfter(homeAuthor).textContent, "常看游戏");
+  assert.strictEqual(tagsText(chipAfter(homeAuthor)), "常看游戏");
   assert.strictEqual(homeAuthor.parentNode.querySelectorAll(".mdg-ups").length, 1);
 
   // A chip click opens the triage page's 关注 mode on that tag, not the space page behind it.
@@ -256,8 +329,162 @@ assert.strictEqual(spotIn(h("a", {}, h("div", {}, h("img"), "  "))), null, "avat
   await settle();
   assert.strictEqual(doc.querySelectorAll(".mdg-ups, .mdg-upbar").length, 0);
   assert.deepStrictEqual(hidden(), [false, false, false, false]);
+  await plusPage();
   console.log("badges selftest ok");
 })().catch((e) => {
   console.error(e);
   process.exit(1);
 });
+
+// ---- the 「+」 and its picker on a fake 动态 page: followed UPs only, a reliable mid only, writes redraw every box ----
+async function plusPage() {
+  const face = (f) => h("div", { class: "bili-dyn-item__avatar" }, h("img", { src: `//i0.hdslb.com/bfs/face/${f}.jpg@96w_96h_1c_1s.webp` }));
+  const card = (name, f, attrs = {}) =>
+    h("div", { class: "bili-dyn-list__item" }, h("div", { class: "bili-dyn-item", ...attrs }, f ? face(f) : h("div"), h("div", { class: "bili-dyn-title" }, h("span", { class: "bili-dyn-title__text" }, name))));
+  const cards = { a: card("甲", "f1"), dup: card("重名", "zz"), c: card("丙", ""), d: card("重名", "f3"), e: card("不在名单", "", { "data-mid": "7" }), a2: card("甲", "") };
+  const list = h("div", { class: "bili-dyn-list" }, h("div", { class: "bili-dyn-list__items" }, ...Object.values(cards)));
+  const linkName = h("span", { class: "bili-video-card__info--author" }, "重名");
+  const doc = Object.assign(h("html", {}, h("body", {}, list, h("a", { href: "//space.bilibili.com/3" }, linkName))), { getElementById: () => null, createElement: (t) => h(t) });
+  doc.documentElement = doc;
+  const store = {
+    follow_tags: [{ id: "a", name: "常看", color: "#f00" }, { id: "b", name: "游戏", color: "#0a0" }],
+    follow_tag_map: { 1: ["a"] },
+    follow_list: { list: ["1", "2", "3", "4", "7"] },
+    follow_people: {
+      1: { name: "甲", face: "https://i0.hdslb.com/bfs/face/f1.jpg" },
+      2: { name: "重名", face: "https://i0.hdslb.com/bfs/face/f2.jpg" },
+      3: { name: "重名", face: "https://i0.hdslb.com/bfs/face/f3.jpg" },
+      4: { name: "丙", face: "" },
+      7: { name: "改过名", face: "" }
+    }
+  };
+  const sets = [];
+  const winL = {};
+  let textColor = "rgb(24, 25, 28)";
+  const win = {
+    document: doc,
+    location: { hostname: "t.bilibili.com", pathname: "/", search: "" },
+    sessionStorage: { getItem: () => null, setItem() {} },
+    MutationObserver: class { observe() {} disconnect() {} },
+    setTimeout: (f) => setTimeout(f, 0),
+    clearTimeout,
+    console,
+    URLSearchParams,
+    innerWidth: 1440,
+    innerHeight: 900,
+    getComputedStyle: () => ({ color: textColor, position: "static", textIndent: "0px" }),
+    addEventListener: (t, f) => (winL[t] ||= []).push(f),
+    removeEventListener: (t, f) => winL[t]?.includes(f) && winL[t].splice(winL[t].indexOf(f), 1),
+    chrome: {
+      runtime: { id: "x", sendMessage: async () => {}, getURL: (p) => p },
+      storage: {
+        sync: { get: async (d) => ({ ...d, showBiliTriageBadges: false }) },
+        local: {
+          get: async (k) => JSON.parse(JSON.stringify(Object.fromEntries([].concat(k).map((x) => [x, store[x]])))),
+          set: async (o) => (sets.push(Object.keys(o)), Object.assign(store, JSON.parse(JSON.stringify(o))))
+        },
+        onChanged: { addListener() {} }
+      }
+    }
+  };
+  win.window = win;
+  win.top = win;
+  vm.runInContext(fs.readFileSync(path.join(__dirname, "badges.js"), "utf8"), vm.createContext(win));
+  const settle = () => new Promise((r) => setTimeout(r, 30));
+  await settle();
+  const title = (k) => cards[k].querySelector(".bili-dyn-title__text");
+  const boxOf = (n) => (n.nextSibling?.classList?.contains("mdg-ups") ? n.nextSibling : null);
+  const plusOf = (n) => boxOf(n)?.querySelector(".mdg-up-add") || null;
+  const tagsOf = (n) => boxOf(n)?.querySelectorAll(".mdg-up").filter((c) => !c.classList.contains("mdg-up-add")).map((c) => c.textContent).join("");
+  const counts = () => doc.querySelector(".mdg-upbar").querySelectorAll(".mdg-upbar-tag").map((b) => b.textContent);
+
+  assert.strictEqual(tagsOf(title("a")), "常看", "avatar match: 甲's chips");
+  assert.ok(plusOf(title("a")), "a tagged UP gets the 「+」 after its chips");
+  assert.strictEqual(tagsOf(title("a2")), "常看", "name match: the only followed 甲");
+  assert.strictEqual(boxOf(title("dup")), null, "a name two followed UPs share and an unknown avatar: no chips, no 「+」");
+  assert.ok(plusOf(title("d")), "the same name with a known avatar: 「+」 for mid 3");
+  assert.strictEqual(boxOf(title("d")).dataset.mid, "3");
+  assert.strictEqual(boxOf(title("e")).dataset.mid, "7", "a data attribute on the card names the UP even after a rename");
+  assert.strictEqual(boxOf(linkName).dataset.mid, "3", "a profile link names the UP outright");
+  const cBox = boxOf(title("c"));
+  assert.ok(cBox.classList.contains("mdg-ups-empty"), "an untagged followed UP: a box with only the 「+」");
+  assert.strictEqual(tagsOf(title("c")), "");
+  const plus = plusOf(title("c"));
+  assert.strictEqual(plus.title, "给这个 UP 打标签 · 只存在扩展里，不改 B站");
+  assert.deepStrictEqual([plus.attrs.role, plus.attrs["aria-label"], plus.attrs["aria-expanded"], plus.tabIndex], ["button", "给 丙 打 UP 标签", "false", 0]);
+  assert.deepStrictEqual(counts(), ["全部6", "常看2", "游戏0"]);
+
+  // Opening: a click on the 「+」 is kept from Bilibili's own handlers (the name opens the space page).
+  let stopped = 0;
+  const ev = (target, extra = {}) => ({ type: "click", composedPath: () => [target, target.parentNode, doc], preventDefault: () => stopped++, stopPropagation: () => stopped++, ...extra });
+  doc.listeners.click.forEach((f) => f(ev(plus)));
+  assert.strictEqual(stopped, 2);
+  const host = doc.childNodes.at(-1);
+  assert.ok(host.classList.contains("mdg-tagpick-host") && host.shadow, "the picker is its own shadow root on <html>");
+  const panel = host.shadow.querySelector(".pick");
+  assert.ok(!panel.classList.contains("dark"));
+  assert.strictEqual(plus.attrs["aria-expanded"], "true");
+  const rows = () => panel.querySelectorAll(".opt").filter((b) => b.dataset.id).map((b) => `${b.textContent}:${b.attrs["aria-checked"]}`);
+  assert.deepStrictEqual(rows(), ["常看:false", "游戏:false"]);
+  assert.strictEqual(panel.querySelector(".h").textContent, "给「丙」打标签");
+  assert.strictEqual(panel.querySelector(".new").textContent, "+新建标签");
+  assert.strictEqual(panel.querySelector(".foot").textContent, "只存在 MoonDigest 里，不改 B站 · Esc 关闭");
+  assert.strictEqual(focused.el, panel.querySelector(".opt"), "focus moves into the picker");
+  let hostStops = 0;
+  host.listeners.keydown.forEach((f) => f({ stopPropagation: () => hostStops++ }));
+  assert.strictEqual(hostStops, 1, "keys typed in the picker stop at its host (page hotkeys never see them)");
+
+  // A check writes follow_tag_map and redraws this UP's box and the bar counts at once (no storage event needed here).
+  panel.listeners.click[0]({ target: panel.querySelectorAll(".opt")[1] });
+  await settle();
+  assert.deepStrictEqual(store.follow_tag_map, { 1: ["a"], 4: ["b"] });
+  assert.deepStrictEqual(sets, [["follow_tag_map"]]);
+  assert.strictEqual(tagsOf(title("c")), "游戏");
+  assert.ok(!boxOf(title("c")).classList.contains("mdg-ups-empty"));
+  assert.deepStrictEqual(counts(), ["全部6", "常看2", "游戏1"]);
+  assert.deepStrictEqual(rows(), ["常看:false", "✓游戏:true"]);
+  assert.strictEqual(focused.el?.dataset.id, "b", "focus stays on the row just toggled");
+  assert.strictEqual(plusOf(title("c")).attrs["aria-expanded"], "true", "the rebuilt box's 「+」 still shows the picker open");
+
+  // 新建标签: the row turns into a name field; Enter creates the tag and switches it on.
+  panel.listeners.click[0]({ target: panel.querySelector(".new").firstChild });
+  const input = panel.querySelector("input");
+  assert.ok(input && focused.el === input);
+  input.value = "学习";
+  panel.listeners.keydown[0]({ key: "Enter", target: input, preventDefault() {} });
+  await settle();
+  const made = store.follow_tags.at(-1);
+  assert.strictEqual(made.name, "学习");
+  assert.deepStrictEqual(store.follow_tag_map[4], ["b", made.id]);
+  assert.strictEqual(tagsOf(title("c")), "游戏学习");
+  assert.deepStrictEqual(counts(), ["全部6", "常看2", "游戏1", "学习1"]);
+  assert.strictEqual(focused.el?.dataset.id, made.id);
+
+  // Esc closes and hands focus back to the (rebuilt) 「+」.
+  panel.listeners.keydown[0]({ key: "Escape", preventDefault() {} });
+  assert.ok(!host.isConnected);
+  assert.strictEqual(focused.el, plusOf(title("c")));
+  assert.strictEqual(plusOf(title("c")).attrs["aria-expanded"], "false");
+  assert.deepStrictEqual(winL.scroll, [], "page listeners go with it");
+
+  // Bilibili dark: the picker follows. Unchecking 甲's only tag empties every 甲 box on the page at once.
+  doc.classList.add("bili_dark");
+  doc.listeners.click.forEach((f) => f(ev(plusOf(title("a")))));
+  const host2 = doc.childNodes.at(-1);
+  const panel2 = host2.shadow.querySelector(".pick");
+  assert.ok(panel2.classList.contains("dark"));
+  panel2.listeners.click[0]({ target: panel2.querySelectorAll(".opt")[0] });
+  await settle();
+  assert.strictEqual(store.follow_tag_map[1], undefined);
+  assert.deepStrictEqual([tagsOf(title("a")), tagsOf(title("a2"))], ["", ""]);
+  assert.ok(boxOf(title("a2")).classList.contains("mdg-ups-empty"), "甲 is still followed: the 「+」 stays");
+  assert.deepStrictEqual(counts(), ["全部6", "常看0", "游戏1", "学习1"]);
+  // A pointerdown anywhere else closes it without touching the page's own handling.
+  doc.listeners.pointerdown.forEach((f) => f({ composedPath: () => [list, doc] }));
+  assert.ok(!host2.isConnected);
+  // BewlyCat's own dark theme (no bili_dark class): light name text means a dark picker.
+  doc.classList.remove("bili_dark");
+  textColor = "rgb(231, 233, 235)";
+  doc.listeners.click.forEach((f) => f(ev(plusOf(title("d")))));
+  assert.ok(doc.childNodes.at(-1).shadow.querySelector(".pick").classList.contains("dark"));
+}
