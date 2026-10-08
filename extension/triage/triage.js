@@ -3156,15 +3156,30 @@ function mergeAiBatch(p, data, opts, scopeSet) {
   }
 }
 
-// Row changes after dropping adds of unchecked new tags. A video that left the folder since the proposal is skipped.
-function effectiveRow(p, row) {
-  if (!S.itemMap.has(row.bvid)) return { add: [], empty: true };
-  const add = row.add.filter((ref) => !ref.startsWith("new:") || p.newTags.find((t) => t.key === ref.slice(4))?.checked);
-  return { add, empty: !add.length && !row.remove.length };
+// The tags a row leaves its video with; idOf(key) is a new tag's id, or nothing when it is unchecked or not created.
+// A video that left the folder since the proposal keeps its tags.
+function rowResult(p, row, idOf) {
+  const ids = new Set(S.videoTags[row.bvid] || []);
+  if (!S.itemMap.has(row.bvid)) return [...ids];
+  for (const ref of row.add) {
+    const key = ref.slice(4);
+    const id = ref.startsWith("id:") ? ref.slice(3) : p.newTags.find((t) => t.key === key)?.checked && idOf(key);
+    if (id) ids.add(id);
+  }
+  for (const id of row.remove) ids.delete(id);
+  return [...ids];
 }
-
-function refName(p, ref) {
-  return ref.startsWith("id:") ? tagById(ref.slice(3))?.name || "" : p.newTags.find((t) => t.key === ref.slice(4))?.name || "";
+const sameIds = (a, b) => a.length === b.length && a.every((id) => b.includes(id));
+// Before 应用: a new tag stands in as "new:key" (or the same-name tag createTag would return); a cleared name adds nothing.
+function previewId(p, key) {
+  const name = p.newTags.find((t) => t.key === key)?.name.trim();
+  return name && (S.tags.find((t) => t.folder === String(S.mediaId) && t.name === name)?.id || `new:${key}`);
+}
+// [bvid, before, after] for every row that changes its video's tags.
+function rowChanges(p, idOf = (key) => previewId(p, key)) {
+  return p.rows
+    .map((r) => [r.bvid, S.videoTags[r.bvid] || [], rowResult(p, r, idOf)])
+    .filter(([, before, after]) => !sameIds(before, after));
 }
 
 function renderAiReview() {
@@ -3190,10 +3205,10 @@ function renderAiReview() {
 // The 确认页 sums the changes up per tag ("+ 入门 4"); videos are judged afterwards on their cards, under 「AI 刚打的」.
 function aiTally(p) {
   const tally = new Map();
-  for (const r of p.rows) {
-    const e = effectiveRow(p, r);
-    if (e.empty) continue;
-    const changes = [...new Set(e.add)].map((ref) => ["add", `+ ${refName(p, ref)}`]).concat([...new Set(r.remove)].map((id) => ["remove", `− ${tagById(id)?.name || ""}`]));
+  const name = (id) => (id.startsWith("new:") ? p.newTags.find((t) => t.key === id.slice(4))?.name.trim() : tagById(id)?.name) || "";
+  for (const [, before, after] of rowChanges(p)) {
+    const changes = after.filter((id) => !before.includes(id)).map((id) => ["add", `+ ${name(id)}`])
+      .concat(before.filter((id) => !after.includes(id)).map((id) => ["remove", `− ${name(id)}`]));
     for (const [cls, text] of changes) {
       const t = tally.get(text) || { cls, text, n: 0 };
       t.n++;
@@ -3205,21 +3220,21 @@ function aiTally(p) {
 
 function renderAiRows() {
   const p = S.ai.proposal;
-  const n = p.rows.filter((r) => !effectiveRow(p, r).empty).length;
-  el.aiReviewSummary.textContent = `· ${n} 个视频有改动 · 新标签 ${p.newTags.filter((t) => t.checked).length} 个 · 点「应用」前不会改动任何东西`;
+  const n = rowChanges(p).length;
+  const newTags = p.newTags.filter((t) => t.checked && t.name.trim()).length;
+  el.aiReviewSummary.textContent = `· ${n} 个视频有改动 · 新标签 ${newTags} 个 · 点「应用」前不会改动任何东西`;
   const tally = aiTally(p);
   el.aiRows.innerHTML = tally.length
     ? `<div class="chips">${tally.map((t) => `<span class="chip ${t.cls}">${esc(t.text)} <b>${t.n}</b></span>`).join("")}</div>`
     : `<p class="empty">AI 没有提出改动</p>`;
   el.aiApplyBtn.textContent = n ? `应用到 ${n} 个视频` : "应用";
   el.aiApplyBtn.setAttribute("aria-label", el.aiApplyBtn.textContent);
-  el.aiApplyBtn.disabled = !n && !p.newTags.some((t) => t.checked);
+  el.aiApplyBtn.disabled = !n && !newTags;
 }
 
 function applyAiProposal() {
   const p = S.ai.proposal;
   if (!p) return;
-  const rows = p.rows.map((r) => ({ r, e: effectiveRow(p, r) })).filter((x) => !x.e.empty);
   const hadTags = new Set(S.tags.map((t) => t.id));
   const idFor = {};
   for (const t of p.newTags) {
@@ -3227,16 +3242,9 @@ function applyAiProposal() {
     if (t.checked && name) idFor[t.key] = createTag(name)?.id;
   }
   const changes = []; // [{ bvid, before }]: what U puts back
-  for (const { r, e } of rows) {
-    const ids = new Set(S.videoTags[r.bvid] || []);
-    for (const ref of e.add) {
-      const id = ref.startsWith("id:") ? ref.slice(3) : idFor[ref.slice(4)];
-      if (id) ids.add(id);
-    }
-    for (const id of r.remove) ids.delete(id);
-    const before = S.videoTags[r.bvid] || [];
-    writeVideoTags(r.bvid, [...ids]);
-    changes.push({ bvid: r.bvid, before });
+  for (const [bvid, before, after] of rowChanges(p, (key) => idFor[key])) {
+    writeVideoTags(bvid, after);
+    changes.push({ bvid, before });
   }
   saveTags();
   saveVideoTags();
@@ -3245,14 +3253,14 @@ function applyAiProposal() {
   pushUndo({ kind: "aiApply", changes, created, folder });
   S.ai.proposal = null;
   // This batch replaces the folder's last one; the list shows it to look over.
-  if (rows.length) {
-    S.aiRecent[folder] = { at: Date.now(), bvids: rows.map(({ r }) => r.bvid) };
+  if (changes.length) {
+    S.aiRecent[folder] = { at: Date.now(), bvids: changes.map((c) => c.bvid) };
     S.aiRecentFilter = true;
     saveAiRecent();
   }
   el.tagsDialog.close();
   render();
-  toast(`已应用 AI 建议：${rows.length} 个视频，列表只显示这些 · U 撤销`);
+  toast(`已应用 AI 建议：${changes.length} 个视频，列表只显示这些 · U 撤销`);
 }
 
 // ---------- 优先看 ----------

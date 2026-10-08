@@ -608,6 +608,27 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   vm.runInContext("endAiRecent", ctx)();
   assert.ok(!t.S.aiRecent.K && !t.S.aiRecentFilter, "× ends it");
   Object.assign(t.S, { tags: t.S.tags.filter((x) => x.folder !== "K" || !/^g[ab]$|^C$/.test(x.name === "C" ? "C" : x.id)), videoTags: {}, aiRecent: {} });
+
+  // A batch counts only the videos whose tags change: not a cleared new-tag name, a tag the user added since, or a
+  // new tag refused at the cap.
+  openFake("K", [item(720), item(721), item(722), item(723)]);
+  Object.assign(t.S, { tags: [{ id: "na", name: "A", color: "#1", folder: "K" }, { id: "nb", name: "B", color: "#2", folder: "K" }], videoTags: { BV721: ["na"], BV722: ["nb"] }, aiRecent: {} });
+  t.S.ai.proposal = { newTags: [{ key: "E", name: "  ", checked: true }, { key: "F", name: "F", checked: true }], notes: [], errors: [], rows: [
+    { bvid: "BV720", add: ["new:E"], remove: [] },
+    { bvid: "BV721", add: ["id:na"], remove: [] },
+    { bvid: "BV722", add: ["id:na"], remove: [] },
+    { bvid: "BV723", add: ["new:F"], remove: [] }] };
+  t.renderAiRows();
+  assert.strictEqual(t.el.aiApplyBtn.textContent, "应用到 2 个视频", "no-op rows are not counted");
+  assert.deepStrictEqual(plain(vm.runInContext("aiTally", ctx)(t.S.ai.proposal).map((x) => `${x.text} ${x.n}`)), ["+ A 1", "+ F 1"], "no entry for a cleared name");
+  t.S.settings.triageTagLimit = 2;
+  toasts.length = 0;
+  t.applyAiProposal();
+  t.S.settings.triageTagLimit = 10;
+  const batchA = t.S.undo.at(-1);
+  assert.deepStrictEqual(plain([t.S.aiRecent.K.bvids, batchA.changes.map((c) => c.bvid)]), [["BV722"], ["BV722"]], "only BV722 changed");
+  assert.ok(toasts.some((x) => x.includes("1 个视频")), toasts.join());
+  Object.assign(t.S, { tags: [], videoTags: {}, aiRecent: {}, aiRecentFilter: false });
   openFake("K", [item(600), item(601)]);
 
   // A card's tag chip takes that tag off the video in one click, and U puts it back.
