@@ -53,9 +53,9 @@
             <span id="favRowTools" class="row-tools" role="toolbar" aria-label="收藏夹的操作"></span>
           </div>
           <section class="listpane">
-            <!-- Row 3: AI-verdict filters | 全选 and the step's buttons. Row 4: my tags and the watch filters | ✦ AI 打标签. -->
+            <!-- Row 3: states (what the system knows) | 全选 and the step's buttons. Row 4: my tags | 标签管理 ✦ AI 打标签. -->
             <div id="stagebar" class="stagebar">
-              <span id="classFilter" class="class-filter"></span>
+              <span id="classFilter" class="class-filter state-row"></span>
               <div id="listHeader" class="list-header"></div>
             </div>
             <div id="tagbar" class="tagbar">
@@ -82,7 +82,7 @@
               <strong id="viewerTitle" class="viewer-title"></strong>
               <button id="viewerNextBtn" type="button" hidden aria-label="已看，在右侧打开播放列表的下一个">已看，下一个 ▸</button>
               <button id="viewerFocusBtn" type="button" aria-label="在视频栏里打开专注模式">专注模式</button>
-              <button id="viewerTabBtn" type="button" aria-label="在 B站打开">在 B站打开</button>
+              <button id="viewerTabBtn" type="button" class="link" aria-label="在 B站打开">在 B站打开 ↗</button>
               <button id="viewerCloseBtn" type="button" class="icon" aria-label="关闭视频栏 (Esc)">×</button>
             </div>
             <!-- 收藏夹: the playing video's tags and 「+ 标签」 (关注 adds its own line, follow.js). -->
@@ -142,9 +142,9 @@
       </form>
     </dialog>
 
-    <dialog id="writeDialog" aria-label="批量导出">
+    <dialog id="writeDialog" aria-label="摘录或笔记">
       <form method="dialog">
-        <h2>批量导出</h2>
+        <h2>摘录或笔记</h2>
         <div class="ai-grid">
           <label for="writeScope">范围</label>
           <select id="writeScope">
@@ -300,20 +300,23 @@
         <!-- 关注 mode shows its own two columns instead (body.follow-mode). -->
         <div class="stack follow-help">
         <h2>关注</h2>
-        <p class="dialog-hint"><strong>UP 主</strong>：按更新状态（活跃 / 慢更 / 断更）筛关注的人，给 UP 主打自己的标签，选中后可批量打标签、设为特别关注或取消关注。<br>取消关注、特别关注会改 B站，做之前都先问你。</p>
-        <p class="dialog-hint"><strong>动态</strong>：关注的人的新视频，按左边的标签只看一类 UP 主。点视频在右侧播放。</p>
+        <p class="dialog-hint"><strong>UP 主</strong>：第 3 行按更新状态（活跃、慢更、断更、待查…）和有没有标签筛，第 4 行按你的标签筛，左边只管范围（全部、特别关注、B站 分组、已取消关注）。选中后可以批量打标签、设为特别关注或取消关注。</p>
+        <p class="dialog-hint"><strong>视频投稿</strong>：关注的人新发的视频（不含图文和转发），第 3、4 行按 UP 主的标签筛。点视频在右侧播放。</p>
+        <p class="dialog-hint"><strong>改 B站 的操作</strong>：卡片上的 ★ 和单个「重新关注」不问，按 U 撤销；批量设为或取消特别关注、批量重新关注和取消关注先问你。取消关注一个也要问，因为重新关注后原来的关注时间就没了。</p>
         <p class="dialog-hint">标签只存在扩展里，不改 B站。标签在「✦ AI 打标签」左边的「标签管理」里改，「✦ AI 打标签」让 AI 按一句话给一批 UP 主打标签。</p>
         <p class="dialog-hint">UP 主表格和完整备份都在搜索框旁的「导出」菜单里。</p>
         </div>
         <div class="stack follow-help">
         <h2>快捷键</h2>
         <dl class="keys">
-          <dt><kbd>J</kbd> / <kbd>K</kbd></dt><dd>UP 主页签里移到下一张 / 上一张卡片</dd>
+          <dt><kbd>J</kbd><kbd>↓</kbd> / <kbd>K</kbd><kbd>↑</kbd></dt><dd>UP 主页签里移到下一张 / 上一张卡片</dd>
           <dt><kbd>X</kbd></dt><dd>选中或取消选中当前卡片</dd>
-          <dt><kbd>T</kbd></dt><dd>给鼠标所在的动态卡片、当前 UP 主卡片或正在播放的视频的 UP 主打标签</dd>
+          <dt><kbd>O</kbd><kbd>Enter</kbd></dt><dd>在右侧播放当前 UP 主最新的视频</dd>
+          <dt><kbd>T</kbd></dt><dd>给鼠标所在的视频投稿卡片、当前 UP 主卡片或正在播放的视频的 UP 主打标签</dd>
+          <dt><kbd>I</kbd></dt><dd>AI 打标签（UP 主页签）</dd>
           <dt><kbd>1</kbd>–<kbd>9</kbd></dt><dd>打标签时勾选或去掉第几个标签</dd>
           <dt><kbd>Esc</kbd></dt><dd>关闭打标签（并保存）或视频栏</dd>
-          <dt><kbd>U</kbd></dt><dd>撤销上一步标签修改（去掉标签、打标签、AI 打标签）</dd>
+          <dt><kbd>U</kbd></dt><dd>撤销关注里的上一步：标签修改、AI 打标签、特别关注、重新关注（改了多个的先问你）</dd>
           <dt><kbd>/</kbd></dt><dd>搜索（Esc 清空）</dd>
           <dt><kbd>?</kbd></dt><dd>显示本帮助</dd>
         </dl>
@@ -342,7 +345,7 @@
           <dt><kbd>T</kbd></dt><dd>打标签（视频在右侧播放时，在播放器里按 T 给它打）；打标签时 1–9 勾选第几个，Esc 关闭并保存</dd>
           <dt><kbd>E</kbd></dt><dd>加入 / 移出播放列表</dd>
           <dt><kbd>Q</kbd></dt><dd>问 AI（在侧边栏打开这个视频）</dd>
-          <dt><kbd>X</kbd></dt><dd>选中 / 取消选中。选中的视频可以批量处理；筛选按钮右边的「全选 N 个」一次勾上当前列出的，再点一次取消</dd>
+          <dt><kbd>X</kbd></dt><dd>选中 / 取消选中。选中的视频可以批量处理；第 3 行右边按钮最前面的「全选 N 个」一次勾上当前列出的，再点一次取消</dd>
           <dt><kbd>O</kbd><kbd>Enter</kbd></dt><dd>在右侧打开视频页（Esc 关闭）</dd>
           <dt><kbd>I</kbd></dt><dd>AI 打标签</dd>
           <dt><kbd>/</kbd></dt><dd>搜索（Esc 清空）</dd>

@@ -192,6 +192,12 @@
       [`seen_${history.bvid}`]: [40, now - 6 * day]
     });
     Object.assign(demoSync, { seenShow: "both", seenThreshold: 80, seenStyle: "badge", obsidianEnabled: true });
+    // &plain = no conditional chips (marks off); &cond = 已失效 and AI 刚打的 too.
+    if (/[?&]plain\b/.test(location.search)) demoSync.seenShow = "bar";
+    if (/[?&]cond\b/.test(location.search)) {
+      Object.assign(items[7], { invalid: true });
+      store.triage_ai_recent = { 2001: { at: now - 3600000, bvids: [items[0].bvid, items[1].bvid, items[3].bvid] } };
+    }
   }
 
   const removed = new Map(); // "mediaId:aid" -> { folder, item, index }
@@ -434,6 +440,7 @@
       follow_stats: Object.fromEntries(mids.filter((_, i) => i % 3).map((m, i) => [m, { follower: [1234567, 89012, 4321, 560000, 23, 150000, 9876][i % 7], at: nowS - DAY }])),
       follow_jobs: { running: false, startedAt: nowS - 3 * 3600 - 300, finishedAt: nowS - 3 * 3600, lastFinishedAt: nowS - 3 * 3600 }
     };
+    if (/[?&]cond\b/.test(location.search)) full.follow_ai_recent = { at: Date.now() - 3600000, mids: [mids[0], mids[8], mids[10]] };
     if (fmode !== "empty") Object.assign(store, structuredClone(full));
 
     // A fake job: list → feed → arc, written step by step like follow-bg.js, with one 4-second 限流 wait in 查投稿.
@@ -444,7 +451,7 @@
       const steps = [];
       const startedAt = Math.floor(Date.now() / 1000);
       if (!store.follow_list) steps.push(["list", "读关注列表", 3, (k) => k === 2 && chrome.storage.local.set({ follow_list: listRec, follow_people: people, follow_unfollowed: unfollowed })]);
-      steps.push(["feed", "翻视频动态", 4, (k) => k === 3 && chrome.storage.local.set({ follow_last: lastRec, follow_content: { ...content, ...(store.follow_content || {}) } })]);
+      steps.push(["feed", "翻视频投稿", 4, (k) => k === 3 && chrome.storage.local.set({ follow_last: lastRec, follow_content: { ...content, ...(store.follow_content || {}) } })]);
       const todo = Object.keys(later).filter((m) => !store.follow_content?.[m]);
       steps.push(["arc", "查投稿", todo.length, (k) => chrome.storage.local.set({ follow_content: { ...store.follow_content, [todo[k]]: later[todo[k]] } })]);
       job = { stop: false };

@@ -18,6 +18,7 @@ const plain = (v) => JSON.parse(JSON.stringify(v));
   assert.strictEqual(UI.syncedText(new Date(2026, 9, 8, 0, 5).getTime(), now), "今天 00:05 刷新过");
   assert.strictEqual(UI.syncedText(new Date(2026, 9, 7, 23, 59).getTime(), now), "昨天 23:59 刷新过", "an hour ago but before midnight");
   assert.strictEqual(UI.syncedText(new Date(2026, 9, 5, 17, 25).getTime(), now), "10月5日 17:25 刷新过");
+  assert.strictEqual(UI.dayText(new Date(2025, 9, 5, 17, 25).getTime(), now), "2025年10月5日", "another year: the year, no time");
 }
 
 // A 0 count stays and is dimmed; no count (null) is not 0.
@@ -31,8 +32,8 @@ const plain = (v) => JSON.parse(JSON.stringify(v));
 // Row 1's meta keeps the error after the parts; empty parts drop out.
 assert.strictEqual(UI.headMeta(["今天 10:00 刷新过", 0, "2 个已失效"], ""), "今天 10:00 刷新过 · 2 个已失效");
 assert.strictEqual(UI.headMeta(["a"], "出错了"), 'a · <span class="fail-text">出错了</span>');
-assert.strictEqual(UI.resultCount("  ", 5), "");
-assert.strictEqual(UI.resultCount("x", 5), "5 个结果");
+assert.strictEqual(UI.resultCount("", 5), "");
+assert.strictEqual(UI.resultCount(true, 5), "5 个结果");
 
 // The sort control marks the open sort and says the direction in words.
 {
@@ -42,7 +43,7 @@ assert.strictEqual(UI.resultCount("x", 5), "5 个结果");
 
 // Counts and durations read the same in both modes: one decimal for 万 and 亿, hours from 60 minutes up.
 assert.deepStrictEqual([123456, 100000, 9999, 250000000, 150000].map(UI.fmtCount), ["12.3万", "10万", "9999", "2.5亿", "15万"]);
-assert.deepStrictEqual([0, 65, 75 * 60, 3600, 59.9].map(UI.fmtDuration), ["00:00", "01:05", "1:15:00", "1:00:00", "00:59"]);
+assert.deepStrictEqual([0, 65, 587, 75 * 60, 3600, 3605, 59.9].map(UI.fmtDuration), ["0:00", "1:05", "9:47", "1:15:00", "1:00:00", "1:00:05", "0:59"]);
 assert.strictEqual(UI.fmtDate(0), "");
 assert.strictEqual(UI.fmtDate(new Date(2026, 0, 5, 12).getTime() / 1000), "2026-01-05");
 assert.strictEqual(UI.img("//i0.hdslb.com/a.jpg", "48w_48h_1c"), "https://i0.hdslb.com/a.jpg@48w_48h_1c.webp");
