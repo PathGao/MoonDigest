@@ -20,7 +20,8 @@ assert.strictEqual(lines.at(-1), "}");
     const g = {
       location: { ancestorOrigins: isTop ? [] : [parentOrigin] },
       document: { documentElement: { setAttribute: (k) => attrs.add(k), hasAttribute: (k) => attrs.has(k) } },
-      chrome: { runtime: { id: "abc" } }
+      chrome: { runtime: { id: "abc" } },
+      addEventListener() {} // viewer-frame.js may listen for keys in the viewer frame
     };
     g.window = g;
     g.top = isTop ? g : {};
