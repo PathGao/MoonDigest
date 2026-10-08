@@ -772,10 +772,13 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     t.S.viewing = "BV710";
     t.S.itemMap.get("BV710").upper = "甲";
     t.renderViewerTags();
-    assert.ok(!t.el.viewerTags.hidden && hooked === 1 && t.MoonTriage.viewingUpper() === "甲");
+    assert.ok(!t.el.viewerTags.hidden && hooked === 1);
+    assert.deepStrictEqual(plain(t.MoonTriage.viewingUp()), { mid: "", name: "甲" }, "an item saved before mids");
+    t.S.itemMap.get("BV710").upperMid = "42";
+    assert.deepStrictEqual(plain(t.MoonTriage.viewingUp()), { mid: "42", name: "甲" });
     t.document.body = { classList: { contains: (c) => c === "follow-mode" } };
     t.renderViewerTags();
-    assert.ok(t.el.viewerTags.hidden && t.el.viewerTags.innerHTML === "" && hooked === 2 && t.MoonTriage.viewingUpper() === "");
+    assert.ok(t.el.viewerTags.hidden && t.el.viewerTags.innerHTML === "" && hooked === 2 && t.MoonTriage.viewingUp() === null);
     delete t.document.body;
     t.MoonTriage.setViewerHook(null);
     t.S.viewing = "";
@@ -1670,9 +1673,9 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   // 失效: a video Bilibili turns into a placeholder keeps what was known; one it hides (still in the id list, no longer
   // listed) goes to 已出分拣范围 marked hidden, and an id check never takes it out again.
   {
-    const was = { bvid: "BV70", title: "原标题", cover: "c.jpg", upper: "UP", intro: "简介", duration: 90 };
+    const was = { bvid: "BV70", title: "原标题", cover: "c.jpg", upper: "UP", upperMid: "5", intro: "简介", duration: 90 };
     const now = { bvid: "BV70", title: "已失效视频", cover: "ph.jpg", upper: "", intro: "", duration: 0, invalid: true };
-    assert.deepStrictEqual(plain(t.keepInvalidInfo([now, item(71)], [was])), [{ ...now, title: "原标题", cover: "c.jpg", upper: "UP", intro: "简介", duration: 90 }, item(71)]);
+    assert.deepStrictEqual(plain(t.keepInvalidInfo([now, item(71)], [was])), [{ ...now, title: "原标题", cover: "c.jpg", upper: "UP", upperMid: "5", intro: "简介", duration: 90 }, item(71)]);
     const rec = t.updateRemoved({}, {}, [item(72), item(73)], [], new Set(), 9, ["BV72"], { id: "A", title: "甲" }).removed;
     const fromA = [{ id: "A", title: "甲", at: 9 }];
     assert.deepStrictEqual(plain(rec), { BV72: { item: item(72), at: 9, from: fromA, hidden: true }, BV73: { item: item(73), at: 9, from: fromA } });

@@ -275,6 +275,11 @@ assert.throws(() => t.triageParseCommand('{"new_tags":[', cmdItems, cmdTags, {})
   assert.deepStrictEqual([...(await folderItems({ mediaId: 1 })).items.map((it) => it.play)], [1234, undefined]);
   t.fetch = jsonRes({ code: 0, data: { list: [{ bvid: "BV6", aid: 6, title: "t6", state: 0, stat: { view: 77 } }, { bvid: "BV7", aid: 7, title: "t7", state: 0 }] } });
   assert.deepStrictEqual([...(await folderItems({ mediaId: "toview" })).items.map((it) => it.play)], [77, undefined]);
+  // The UP's mid is kept (as a string) for the player's UP 标签 line; none when B站 gives none.
+  t.fetch = jsonRes({ code: 0, data: { medias: [{ ...media(4), upper: { mid: 42, name: "甲" } }, media(5)], has_more: false } });
+  assert.deepStrictEqual([...(await folderItems({ mediaId: 1 })).items.map((it) => it.upperMid)], ["42", undefined]);
+  t.fetch = jsonRes({ code: 0, data: { list: [{ bvid: "BV6", aid: 6, title: "t6", state: 0, owner: { mid: 43, name: "乙" } }] } });
+  assert.strictEqual((await folderItems({ mediaId: "toview" })).items[0].upperMid, "43");
   // With known, loading stops after the first page that is all known and returns just those pages as head.
   const pages = [];
   t.fetch = async (url) => {

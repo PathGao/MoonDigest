@@ -804,6 +804,7 @@ const TRIAGE_HANDLERS = {
         title: m.title,
         cover: m.pic,
         upper: m.owner?.name || "",
+        upperMid: m.owner?.mid ? String(m.owner.mid) : undefined,
         duration: m.duration,
         pubdate: m.pubdate,
         favTime: m.add_at,
@@ -838,6 +839,8 @@ const TRIAGE_HANDLERS = {
           title: m.title,
           cover: m.cover,
           upper: m.upper?.name || "",
+          // The UP's mid finds its 关注 UP 标签 in the player; snapshots saved before have none (matched by name).
+          upperMid: m.upper?.mid ? String(m.upper.mid) : undefined,
           duration: m.duration,
           pubdate: m.pubtime,
           favTime: m.fav_time,

@@ -12,7 +12,7 @@ const ctx = vm.createContext({ setTimeout, clearTimeout });
 // The pure block sorts with shared.js (UI.byValue / UI.dirWords), as the page does.
 vm.runInContext(fs.readFileSync(path.join(__dirname, "../tag-core.js"), "utf8"), ctx);
 vm.runInContext(fs.readFileSync(path.join(__dirname, "shared.js"), "utf8"), ctx);
-vm.runInContext(`const UI = globalThis.TriageUi;\n${pure}\n;Object.assign(globalThis, { syncFinished, dirLabel, followAiSettings, aiRequests, normDays, settingsProblem, followStatus, lastPostOf, recentTitles, upRow, visibleUps, mergeFeed, feedMatch, sideIds, feedList, feedLeaving, withTags, stepIn, tagsOf, restoreTags, fmtAgo, feedCounts, STATUS, viewRecord, latestBvid, aiBlocked, withAllowRemove });`, ctx);
+vm.runInContext(`const UI = globalThis.TriageUi;\n${pure}\n;Object.assign(globalThis, { syncFinished, dirLabel, followAiSettings, aiRequests, normDays, settingsProblem, followStatus, lastPostOf, recentTitles, upRow, visibleUps, mergeFeed, feedMatch, sideIds, feedList, feedLeaving, withTags, stepIn, tagsOf, restoreTags, fmtAgo, feedCounts, STATUS, viewRecord, latestBvid, favUpMid, aiBlocked, withAllowRemove });`, ctx);
 const t = ctx;
 const plain = (v) => JSON.parse(JSON.stringify(v));
 
@@ -331,3 +331,13 @@ for (const f of ["triage.html", "triage.js", "follow.js", "follow-bg.js", "share
 }
 
 console.log("follow selftest: all passed");
+
+// ----- the 收藏夹 player's UP 标签 line finds its UP -----
+{
+  const rows = new Map([["7", { mid: "7", name: "新名字" }], ["8", { mid: "8", name: "乙" }]]);
+  assert.strictEqual(t.favUpMid({ mid: "7", name: "旧名字" }, rows), "7", "the mid wins over a renamed UP");
+  assert.strictEqual(t.favUpMid({ mid: "9", name: "乙" }, rows), "", "a mid not followed is not matched by name");
+  assert.strictEqual(t.favUpMid({ mid: "", name: "乙" }, rows), "8", "an item saved before mids falls back to the name");
+  assert.strictEqual(t.favUpMid({ mid: "", name: "" }, rows), "");
+  assert.strictEqual(t.favUpMid(null, rows), "");
+}
