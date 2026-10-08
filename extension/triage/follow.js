@@ -340,9 +340,9 @@ main.innerHTML = `
     <div id="fwActions" class="step-actions"></div>
   </div>
   <nav id="fwTabs" class="tabs fw-tabs" role="tablist" aria-label="关注"></nav>
-  <div class="stagebar fw-bar"><span id="fwBar" class="fw-bar-dyn"></span><span id="fwTools" class="fw-tools">
+  <div class="stagebar fw-bar"><span id="fwBar" class="fw-bar-dyn"></span>
+    <span class="fw-sort" data-sortbox><select data-fw="sort" aria-label="排序">${Object.entries(SORTS).map(([v, t]) => `<option value="${v}">${t}</option>`).join("")}</select><button type="button" class="fw-dir" data-fw="dir"></button></span><span id="fwTools" class="fw-tools">
     <input id="fwQ" type="search" placeholder="搜名字、签名、分区" aria-label="搜 UP 主" autocomplete="off">
-    <span class="fw-sort" data-sortbox><select data-fw="sort" aria-label="排序">${Object.entries(SORTS).map(([v, t]) => `<option value="${v}">${t}</option>`).join("")}</select><button type="button" class="fw-dir" data-fw="dir"></button></span>
     <button type="button" data-fw="ai" aria-label="AI 打标签">${AI_SPARK}AI 打标签</button>
   </span></div>
   <div id="fwList" class="fw-list" aria-label="UP 主"></div>
