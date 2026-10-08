@@ -602,6 +602,23 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   assert.deepStrictEqual(plain(sent.at(-1).tags.slice(0, 2)), [{ name: "旧", rule: "讲老技术的" }, { name: "n1", rule: "" }]);
   assert.ok(!sent.at(-1).tags.some((x) => x.name === "别处"), "批量打 sends only the open folder's tags");
   assert.strictEqual(sent.at(-1).maxNewTags, 4, "6 tags in K: min(5, 10 - 6)");
+  // An AI 429 waits and sends the same batch again; it is not a failed batch.
+  {
+    const realSleep = t.sleepWhile;
+    const waits = [];
+    t.sleepWhile = async (ms) => waits.push(ms);
+    let calls = 0;
+    handlers["triage-ai-command"] = () => (++calls === 1 ? { ok: false, code: "AI_THROTTLED", error: "HTTP 429" } : { ok: true, data: {} });
+    const before = sent.length;
+    await t.runAiCommand();
+    const batches = sent.slice(before).filter((m) => m.type === "triage-ai-command");
+    assert.strictEqual(batches.length, 2, "the throttled batch is sent again");
+    assert.deepStrictEqual(plain(batches[1].items), plain(batches[0].items));
+    assert.deepStrictEqual([waits[0], plain(t.S.ai.proposal.errors)], [60000, []]);
+    t.sleepWhile = realSleep;
+    t.S.ai.proposal = null;
+    handlers["triage-ai-command"] = () => ({ ok: true, data: {} });
+  }
   t.S.settings.triageAiNewTagMax = 2;
   assert.strictEqual(vm.runInContext("aiNewTagRoom()", ctx), 2, "分拣设置 caps AI new tags below the folder's room");
   t.S.settings.triageAiNewTagMax = 0;

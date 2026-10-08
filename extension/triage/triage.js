@@ -3190,6 +3190,14 @@ async function runAiCommand() {
     el.aiProgress.textContent = `AI 正在处理第 ${i + 1} / ${total} 批…`;
     const batch = payload.slice(i * size, (i + 1) * size);
     const r = await send({ type: "triage-ai-command", instruction, items: batch, tags, maxNewTags: opts.maxNewTags, allowRemove: opts.allowRemove });
+    // An AI 429: wait, then send the same batch again, as 关注 does.
+    if (!r.ok && THROTTLES[r.code]) {
+      const [ms, label] = THROTTLES[r.code];
+      el.aiProgress.textContent = `${label}，${Math.round(ms / 1000)} 秒后重试第 ${i + 1} 批…`;
+      await sleepWhile(ms, keepGoing);
+      i--;
+      continue;
+    }
     if (!r.ok) {
       p.errors.push(`第 ${i + 1} 批失败：${r.error}`);
       if (/截断|配置 AI|未授权访问/.test(r.error || "")) handleAiError(r.error);
