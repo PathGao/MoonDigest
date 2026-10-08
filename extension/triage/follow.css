@@ -147,3 +147,35 @@ a.fw-title:hover { background: none; color: var(--link); text-decoration: underl
   .fw-tag-row { grid-template-columns: 22px minmax(0, 1fr) auto auto; }
   .fw-tag-row [data-field="rule"] { grid-column: 1 / -1; grid-row: 2; }
 }
+
+/* ---------- tagging an UP from 动态: the card's chip row, the viewer line, the popover picker ---------- */
+.fw-video .chips { align-items: center; min-height: 20px; }
+.fw-video .chip[data-pick], .fw-vline .chip[data-pick] { cursor: pointer; }
+.fw-video .fw-tag-add, .fw-vline .fw-tag-add { display: inline-flex; align-items: center; gap: 4px; height: 20px; padding: 0 6px; border: 1px dashed transparent; border-radius: 4px; color: var(--faint); text-decoration: none; }
+.fw-video .fw-tag-add:hover, .fw-vline .fw-tag-add:hover { border-color: var(--border-strong); color: var(--link); background: none; }
+.fw-video:not(:hover, :focus-within, .fw-target) .fw-tag-add { visibility: hidden; }
+@media (hover: none) { .fw-video .fw-tag-add { visibility: visible; } }
+.fw-video.fw-target:not(.playing) { outline: 2px dashed var(--border-strong); outline-offset: 2px; }
+.fw-k { min-width: 14px; padding: 0 3px; border: 1px solid var(--border); border-radius: 3px; background: var(--surface); color: var(--muted); font: 600 10px/13px ui-monospace, Menlo, monospace; text-align: center; }
+
+.fw-vline { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 8px; padding: 6px 12px; border-bottom: 1px solid var(--border); background: var(--surface-muted); color: var(--text-2); font-size: var(--fs-sm); }
+.fw-vline[hidden] { display: none; }
+.fw-vline img { width: 20px; height: 20px; border-radius: 50%; object-fit: cover; }
+.fw-vline .name { color: var(--text); font-weight: 600; text-decoration: none; }
+.fw-vline .name:hover { color: var(--link); }
+.fw-vline .sep, .fw-vline .none { color: var(--faint); }
+.fw-vline .chip { height: 20px; padding: 0 6px; border-color: color-mix(in srgb, var(--c) 60%, transparent); background: color-mix(in srgb, var(--c) 12%, transparent); }
+.fw-vline .fw-tag-add { color: var(--link); }
+
+#fwPickDialog:not(.fw-pop) .fw-pop-only, #fwPickDialog.fw-pop .fw-modal-only { display: none; }
+#fwPickDialog.fw-pop { position: fixed; z-index: 50; inset: auto; margin: 0; width: 248px; padding: 10px 8px 8px; border-color: var(--border-strong); box-shadow: 0 6px 16px rgba(0, 0, 0, 0.14); font-size: var(--fs-sm); outline: none; }
+.fw-pop h2 { margin: 0 6px; overflow: hidden; font-size: var(--fs-sm); font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+.fw-pop form { gap: 4px; }
+.fw-pop #fwPickSrc { margin: 0 6px 2px; color: var(--faint); font-size: 11px; }
+.fw-pop #fwPickList { order: 1; margin: 0; max-height: 240px; }
+.fw-pop #fwPickInput { order: 2; height: 28px; }
+.fw-pop .picker-opt:hover { background: var(--secondary-bg); }
+.fw-pop .picker-opt .n { margin-left: auto; color: var(--faint); font: 11px ui-monospace, Menlo, monospace; }
+.fw-pop .fw-pick-new { margin-top: 4px; border-top: 1px solid var(--border); border-radius: 0 0 6px 6px; color: var(--link); }
+.fw-pick-keys { order: 3; display: flex; flex-wrap: wrap; gap: 4px 10px; margin: 2px 6px 0; color: var(--faint); font-size: 11px; }
+.fw-pick-keys span { display: inline-flex; align-items: center; gap: 3px; }

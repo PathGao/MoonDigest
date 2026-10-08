@@ -9,7 +9,7 @@ const source = fs.readFileSync(path.join(__dirname, "follow.js"), "utf8");
 const pure = source.slice(source.indexOf("// PURE-START"), source.indexOf("// PURE-END"));
 assert.ok(pure.includes("function followStatus") && !pure.includes("document"), "harness lifts the pure block");
 const ctx = vm.createContext({ setTimeout, clearTimeout });
-vm.runInContext(`${pure}\n;Object.assign(globalThis, { fmtFans, dirLabel, bindSearch, followAiSettings, aiRequests, normDays, settingsProblem, followStatus, lastPostOf, recentTitles, upRow, visibleUps, mergeFeed, feedMatch, sideIds, plainClick, mergeAiBatch, aiChanges, aiTally, fmtAgo });`, ctx);
+vm.runInContext(`${pure}\n;Object.assign(globalThis, { fmtFans, dirLabel, bindSearch, followAiSettings, aiRequests, normDays, settingsProblem, followStatus, lastPostOf, recentTitles, upRow, visibleUps, mergeFeed, feedMatch, sideIds, plainClick, feedList, feedLeaving, withTags, pickToggle, fromViewer, mergeAiBatch, aiChanges, aiTally, fmtAgo });`, ctx);
 const t = ctx;
 const plain = (v) => JSON.parse(JSON.stringify(v));
 
@@ -238,5 +238,42 @@ assert.strictEqual(t.fmtAgo(now - 100, now), "今天");
 assert.strictEqual(t.fmtAgo(ago(3), now), "3 天前");
 assert.strictEqual(t.fmtAgo(ago(65), now), "2 个月前");
 assert.strictEqual(t.fmtAgo(ago(800), now), "2 年前");
+
+// ----- tagging from 动态: the picker, deferred removal, keys from the viewer frame -----
+{
+  const D = { ...base(), tags: [{ id: "g", name: "游戏" }, { id: "s", name: "生活" }], map: { b: ["g"] } };
+  // the picker's tick: on for all unless all have it; an UP left with no tag leaves the map
+  let map = t.pickToggle(D.map, ["a"], "s");
+  assert.deepStrictEqual(plain(map), { b: ["g"], a: ["s"] });
+  map = t.pickToggle(map, ["a"], "s");
+  assert.deepStrictEqual(plain(map), { b: ["g"] }, "unticking the last tag drops the UP from the map");
+  assert.deepStrictEqual(plain(t.pickToggle({ a: ["s"], b: [] }, ["a", "b"], "s")), { a: ["s"], b: ["s"] }, "some have it → all get it");
+  assert.deepStrictEqual(plain(t.pickToggle({ a: ["s", "g"], b: ["s"] }, ["a", "b"], "s")), { a: ["g"] }, "all have it → off all");
+
+  // 未打标签: tagging 「a」 with the picker open keeps a's cards until it closes
+  const items = [{ bvid: "1", mid: "a" }, { bvid: "2", mid: "a" }, { bvid: "3", mid: "c" }, { bvid: "4", mid: "b" }];
+  const keep = new Set(t.feedList(items, D, "untagged", null).filter((it) => it.mid === "a").map((it) => it.bvid));
+  assert.deepStrictEqual([...keep], ["1", "2"]);
+  const tagged = { ...D, map: { b: ["g"], a: ["s"] } };
+  assert.deepStrictEqual(t.feedList(items, tagged, "untagged", keep).map((it) => it.bvid), ["1", "2", "3"], "open: a's cards stay");
+  assert.deepStrictEqual(t.feedList(items, tagged, "untagged", null).map((it) => it.bvid), ["3"], "closed: they leave");
+  assert.strictEqual(t.feedLeaving(items, tagged, "untagged", keep).length, 2, "the toast counts the cards that left");
+  assert.strictEqual(t.feedLeaving(items, D, "untagged", keep).length, 0, "nothing ticked → nothing leaves");
+  // keep never adds cards that were not showing (b is in 游戏, not 未打标签)
+  assert.deepStrictEqual(t.feedList(items, D, "untagged", new Set(["1"])).map((it) => it.bvid), ["1", "2", "3"]);
+  // ticking a tag into the filtered one shows the UP's other cards at once
+  assert.deepStrictEqual(t.feedList(items, tagged, "s", new Set()).map((it) => it.bvid), ["1", "2"]);
+
+  // keys from the viewer frame: only that frame, only B站's origin, only T / Esc
+  const frame = {};
+  const msg = (data, source = frame, origin = "https://www.bilibili.com") => ({ data, source, origin });
+  assert.strictEqual(t.fromViewer(msg({ type: "mdg-viewer-key", key: "t" }), frame), "t");
+  assert.strictEqual(t.fromViewer(msg({ type: "mdg-viewer-key", key: "Escape" }), frame), "Escape");
+  assert.strictEqual(t.fromViewer(msg({ type: "mdg-viewer-key", key: "t" }, {}), frame), "", "another frame / window");
+  assert.strictEqual(t.fromViewer(msg({ type: "mdg-viewer-key", key: "t" }, frame, "https://evil.example"), frame), "", "another origin");
+  assert.strictEqual(t.fromViewer(msg({ type: "mdg-viewer-key", key: "d" }), frame), "", "other keys");
+  assert.strictEqual(t.fromViewer(msg({ type: "x", key: "t" }), frame), "");
+  assert.strictEqual(t.fromViewer(msg({ type: "mdg-viewer-key", key: "t" }, null), null), "", "no frame loaded");
+}
 
 console.log("follow selftest: all passed");
