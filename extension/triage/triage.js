@@ -944,7 +944,7 @@ async function loadFolders() {
   if (!S.folders.length) {
     el.list.innerHTML = S.allFolders.length
       ? `<div class="empty pick-folders"><p><strong>先选要分拣的收藏夹</strong></p>
-          <p>MoonDigest 只读取你勾选的收藏夹，没勾的不会读取里面的内容。以后可以在「分拣设置」里随时改。</p>
+          <p>MoonDigest 只读取你勾选的收藏夹，没勾的不会读取里面的内容。<br>以后可以在「分拣设置」里随时改。</p>
           <button type="button" class="primary" data-pick-folders>选择收藏夹</button></div>`
       : `<p class="empty">没有找到收藏夹</p>`;
     return;
@@ -1303,7 +1303,7 @@ function dropRemoved(bvids) {
 async function cleanRemoved(list) {
   if (!list.length) return;
   const one = list.length === 1 ? `《${shortTitle(list[0])}》` : `这 ${list.length} 个视频`;
-  const body = `<p>删除${one}的 AI 分析、备注、标签和优先看记录，无法撤销。要留存请先「批量导出」。</p>`;
+  const body = `<p>删除${one}的 AI 分析、备注、标签和优先看记录，无法撤销。<br>要留存请先「批量导出」。</p>`;
   if (!(await askConfirm(`清理${one}？`, body, `清理 ${list.length} 个`, { danger: true }))) return;
   return serialStore(async () => {
     const bvids = list.map((it) => it.bvid);
@@ -1922,7 +1922,7 @@ function renderList() {
   const list = visibleItems();
   renderListHeader(list);
   // 保留 only marks the video here, while 取消收藏 changed Bilibili; say so where both end up.
-  const recent = S.tab === "done" ? `<p class="muted tab-note">已保留：${KEEP_TIP}。已取消收藏：已从 B站收藏夹移走，最近的操作可按 U 撤销。</p>${recentUnfavHtml()}` : "";
+  const recent = S.tab === "done" ? `<p class="muted tab-note">已保留：${KEEP_TIP}。<br>已取消收藏：已从 B站收藏夹移走，最近的操作可按 U 撤销。</p>${recentUnfavHtml()}` : "";
   if (!S.items.length) {
     const empty = S.mediaId === REMOVED ? "没有已出分拣范围的视频" : S.loadAll?.queue.length ? "正在加载收藏夹…" : "这个收藏夹是空的";
     el.list.innerHTML = `<p class="empty">${empty}</p>${recent}`;
@@ -2374,9 +2374,9 @@ function toggleTransferNew() {
   const out = !on && !S.included.includes(v);
   el.transferUnchosen.hidden = !out;
   if (out) {
-    el.transferUnchosen.textContent = S.mediaId === REMOVED
-      ? `「${folderName(v)}」没有勾选分拣：收藏后这些视频仍在「已出分拣范围」。以后在分拣设置里勾选它，会自动找回。`
-      : `「${folderName(v)}」没有勾选分拣：移动过去的视频会进「已出分拣范围」。以后在分拣设置里勾选它，这些视频会自动找回。复制不受影响。`;
+    el.transferUnchosen.innerHTML = S.mediaId === REMOVED
+      ? `「${esc(folderName(v))}」没有勾选分拣：收藏后这些视频仍在「已出分拣范围」。<br>以后在分拣设置里勾选它，会自动找回。`
+      : `「${esc(folderName(v))}」没有勾选分拣：移动过去的视频会进「已出分拣范围」。<br>以后在分拣设置里勾选它，这些视频会自动找回。复制不受影响。`;
   }
 }
 
