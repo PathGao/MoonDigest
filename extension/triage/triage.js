@@ -3150,9 +3150,8 @@ function mergeAiBatch(p, data, opts, scopeSet) {
     if (row) {
       row.add = [...new Set([...row.add, ...add])];
       row.remove = [...new Set([...row.remove, ...remove])];
-      row.reason = a?.reason || row.reason;
     } else {
-      p.rows.push({ bvid, add, remove, reason: a?.reason || "", checked: true });
+      p.rows.push({ bvid, add, remove });
     }
   }
 }
@@ -3206,7 +3205,7 @@ function aiTally(p) {
 
 function renderAiRows() {
   const p = S.ai.proposal;
-  const n = p.rows.filter((r) => r.checked && !effectiveRow(p, r).empty).length;
+  const n = p.rows.filter((r) => !effectiveRow(p, r).empty).length;
   el.aiReviewSummary.textContent = `· ${n} 个视频有改动 · 新标签 ${p.newTags.filter((t) => t.checked).length} 个 · 点「应用」前不会改动任何东西`;
   const tally = aiTally(p);
   el.aiRows.innerHTML = tally.length
@@ -3220,7 +3219,7 @@ function renderAiRows() {
 function applyAiProposal() {
   const p = S.ai.proposal;
   if (!p) return;
-  const rows = p.rows.filter((r) => r.checked).map((r) => ({ r, e: effectiveRow(p, r) })).filter((x) => !x.e.empty);
+  const rows = p.rows.map((r) => ({ r, e: effectiveRow(p, r) })).filter((x) => !x.e.empty);
   const hadTags = new Set(S.tags.map((t) => t.id));
   const idFor = {};
   for (const t of p.newTags) {

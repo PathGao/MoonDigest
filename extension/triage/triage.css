@@ -565,14 +565,12 @@ dialog.wide { width: min(620px, calc(100% - 32px)); }
 .chip.add { --c: var(--ok); color: var(--ok); }
 .chip.remove { --c: var(--danger); color: var(--danger); text-decoration: line-through; }
 .ai-review-head { display: flex; align-items: center; gap: 8px; }
-.ai-section > .ai-review-head:not(:first-child) { margin-top: 8px; }
-.ai-review-head h3 { margin: 0; }
 #aiReviewSummary { font-weight: 400; }
 #aiNotes p { margin: 0; }
 .ai-tally .chips { margin: 0; }
 .ai-tally b { font-weight: 600; margin-left: 2px; }
 .ai-recent-rules { margin: 2px 0 0; padding-left: 18px; }
-/* 「AI 刚打的」: the filter chip and its × (全部按现状确认) read as one pill. */
+/* 「AI 刚打的」: the filter chip and its × (不再标出，标签不变) read as one pill. */
 .ai-recent { display: inline-flex; align-items: center; }
 .ai-recent-chip { --c: var(--action); border-top-right-radius: 0; border-bottom-right-radius: 0; }
 .ai-recent-x { padding: 0 8px; align-self: stretch; border: 1px solid var(--border); border-left: 0; border-radius: 0 999px 999px 0; background: var(--surface); color: var(--muted); }

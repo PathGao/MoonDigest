@@ -118,7 +118,7 @@ assert.ok(ruleMsgs[0].content.includes("一个视频可以加多个标签"));
 // The folder's room: 批量打 tells the model how many new tags it may make, none at 0.
 const roomMsg = (n) => t.triageBuildCommandMessages({ instruction: "x", tags: [], items: [], maxNewTags: n })[0].content;
 assert.ok(roomMsg(3).includes("至多 3 个") && !roomMsg(0).includes("至多") && roomMsg(0).includes("这次不能新建标签"));
-assert.deepStrictEqual(plain(t.triageParseCommand('{"items":[{"i":1,"add":["AI","AI：讲大模型 的"]}]}', [{ bvid: "BV1" }], [{ name: "AI", rule: "讲大模型" }])).assignments, { BV1: { add: ["AI"], remove: [], reason: "" } }, "tag objects validate by name only");
+assert.deepStrictEqual(plain(t.triageParseCommand('{"items":[{"i":1,"add":["AI","AI：讲大模型 的"]}]}', [{ bvid: "BV1" }], [{ name: "AI", rule: "讲大模型" }])).assignments, { BV1: { add: ["AI"], remove: [] } }, "tag objects validate by name only");
 assert.ok(t.triageBuildCommandMessages({ instruction: "x", tags: [], items: [] })[0].content.endsWith("：\n（无）"));
 assert.ok(!cmdMsgs[0].content.includes('"verdict"'));
 assert.ok(cmdMsgs[1].content.includes("<<<指令>>>\n把讲 AI 的都标上\n<<<指令结束>>>"));
@@ -141,17 +141,17 @@ const cmdOut =
 assert.deepStrictEqual(plain(t.triageParseCommand(cmdOut, cmdItems, cmdTags, { maxNewTags: 2, allowRemove: true })), {
   newTags: ["数学", "物理力学"],
   assignments: {
-    BV2: { add: ["数学", "编程"], remove: [], reason: "讲 {数学}" },
-    BV1: { add: ["物理力学"], remove: ["旧"], reason: "r1" }
+    BV2: { add: ["数学", "编程"], remove: [] },
+    BV1: { add: ["物理力学"], remove: ["旧"] }
   },
   note: "已打标签"
-}, "verdict fields in the reply are dropped");
+}, "verdict and reason fields in the reply (the old shape) are dropped");
 assert.deepStrictEqual(plain(t.triageParseCommand('{"items":[{"i":2,"verdict":"keep","reason":"x"}]}', cmdItems, cmdTags)).assignments, {}, "a verdict-only item is no change");
 assert.deepStrictEqual(plain(t.triageParseCommand(cmdOut, cmdItems, cmdTags, { maxNewTags: 0, allowRemove: true })), {
   newTags: [],
   assignments: {
-    BV2: { add: ["编程"], remove: [], reason: "讲 {数学}" },
-    BV1: { add: [], remove: ["旧"], reason: "r1" }
+    BV2: { add: ["编程"], remove: [] },
+    BV1: { add: [], remove: ["旧"] }
   },
   note: "已打标签"
 });
