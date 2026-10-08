@@ -1421,6 +1421,7 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   await new Promise((r) => setImmediate(r));
   assert.deepStrictEqual(plain(itemCalls), [], "no full load when the ids match");
   assert.ok(Date.now() - t.S.lastSyncAt < 1000, "and it counts as a sync");
+  assert.ok(Date.now() - store.triage_read_at["6"] < 1000, "its read time is kept for a reopened page");
 
   // 所有收藏夹: a folder whose ids changed takes only the difference.
   handlers["triage-folder-ids"] = () => ({ ok: true, data: { bvids: ["BV5", ...store.triage_snapshot_6.ids] } });
@@ -1454,6 +1455,7 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   await t.syncFolder({ force: true });
   t.renderFolderHead();
   assert.ok(!t.el.folderHead.innerHTML.includes("fail-text") && /今天 \d\d:\d\d 刷新过/.test(t.el.folderHead.innerHTML), t.el.folderHead.innerHTML);
+  assert.ok(Date.now() - store[t.K.readAt].M < 1000, "a reopened page still says when");
 
   // R1: another triage tab's write to a shared list replaces this page's copy, so the next write here keeps it. This
   // page's own writes echo back too, and an older echo arriving after a newer edit is skipped.
