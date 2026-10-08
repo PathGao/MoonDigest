@@ -261,4 +261,7 @@ assert.ok(source.includes(`pushTagUndo(before, "标签修改", { ask: changes.le
 assert.strictEqual((source.match(/chrome\.storage\.sync\.set\(/g) || []).length, 2);
 assert.ok(/\.set\(\{ follow_ai_settings: seed \}\)\.catch\(\(e\) => toast\(`保存设置失败：/.test(source) && /try \{\s*await chrome\.storage\.sync\.set\(\{ follow_ai_settings: ai, \.\.\.days \}\);\s*\} catch \(e\) \{\s*return toast\(`保存设置失败：/.test(source), "both writes catch");
 
+// The player's T / Esc reach 关注 through triage.js's one message listener (modeKeys), as page keys do.
+assert.ok(!/addEventListener\("message"/.test(source), "follow.js has no message listener of its own");
+
 console.log("follow selftest: all passed");

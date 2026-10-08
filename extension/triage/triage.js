@@ -3943,8 +3943,14 @@ function bindEvents() {
   el.bannerClose.addEventListener("click", () => (el.banner.hidden = true));
 
   el.viewerTags.addEventListener("click", (e) => e.target.closest("[data-vtag]") && tagPlaying());
-  // T pressed while focus is in the player (viewer-frame.js); 关注 has its own listener in follow.js.
-  window.addEventListener("message", (e) => !followMode() && UI.viewerKeyFrom(e, el.viewerFrame.contentWindow) === "t" && tagPlaying());
+  // T / Esc pressed while focus is in the player (viewer-frame.js): the one listener for both modes, as onKey is. 关注 takes
+  // them through modeKeys; in 收藏夹, T tags the playing video and Esc closes the player, unless a dialog is open.
+  window.addEventListener("message", (e) => {
+    const key = UI.viewerKeyFrom(e, el.viewerFrame.contentWindow);
+    if (!key || modeKeys?.(key, e) != null || document.querySelector("dialog[open]")) return;
+    if (key === "Escape") closeViewer();
+    else tagPlaying();
+  });
 
   el.criteriaInput.addEventListener("keydown", (e) => {
     if (composing(e) || e.key !== "Enter" || e.shiftKey) return;

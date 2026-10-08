@@ -1863,6 +1863,20 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
       assert.strictEqual(po, null, "another frame");
       msg(frame);
       assert.strictEqual(po?.anchor, "#viewerTags .tag-plus");
+      // Esc in the player closes it, as Esc on the page does.
+      const esc = () => W.message.forEach((f) => f({ source: frame, origin: "https://www.bilibili.com", data: { type: "mdg-viewer-key", key: "Escape" } }));
+      esc();
+      assert.strictEqual(t.S.viewing, "", "Esc from the player closes it");
+      // One listener for both modes: with 关注 on, its keys get the player's keys and 收藏夹's do not run.
+      assert.strictEqual(W.message.length, 1);
+      const got = [];
+      t.MoonTriage.setModeKeys((k) => (got.push(k), true));
+      t.S.viewing = "BV1";
+      po = null;
+      msg(frame);
+      esc();
+      assert.ok(got.join() === "t,Escape" && po === null && t.S.viewing === "BV1", "关注 gets T and Esc");
+      t.MoonTriage.setModeKeys(null);
       t.S.viewing = "";
     }
     const doc = (type) => docL[type].forEach((f) => f({}));

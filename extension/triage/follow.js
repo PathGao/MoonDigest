@@ -1046,7 +1046,8 @@ function tagByKey() {
 // A modal dialog (confirm, settings, the modal picker) owns the keys; the popover does not.
 const modalOpen = () => Boolean(document.querySelector("dialog[open]:not(.tp-pop)"));
 const NAV = { j: 1, ArrowDown: 1, k: -1, ArrowUp: -1 };
-// 关注's keys, from triage.js's one keydown handler (typing and IME already left out) and the player's T / Esc.
+// 关注's keys, from triage.js's one keydown handler (typing and IME already left out) and its one listener for the
+// player's T / Esc.
 function followKey(key) {
   if (modalOpen()) return false;
   else if (key === "Escape" && T.viewing()) T.closeViewer();
@@ -1315,10 +1316,6 @@ main.addEventListener("change", (e) => {
 vline.addEventListener("click", (e) => {
   const pk = e.target.closest("[data-pick]");
   if (pk) openPick([pk.dataset.pick], "#fwViewerUp .tag-plus");
-});
-window.addEventListener("message", (e) => {
-  const key = UI.viewerKeyFrom(e, $("viewerFrame").contentWindow);
-  if (key && F.mode === "follow") followKey(key);
 });
 E.list.addEventListener("mouseover", (e) => (F.hover = e.target.closest(".fw-video")?.dataset.bvid || ""));
 E.list.addEventListener("mouseleave", () => (F.hover = ""));
