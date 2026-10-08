@@ -6,11 +6,12 @@
 .mode-switch button { height: 30px; padding: 0 14px; font-size: var(--fs-md); }
 
 /* ---------- 关注 mode hides the folder view and its tools ---------- */
-body.follow-mode :is(.shell > .side:not(.follow-side), .main > .folder-head, .main > #tabs, .main > .listpane, .topbar .search, .topbar .sync-wrap, #refreshBtn, #settingsBtn, #moreBtn, #folderSelect, #viewerNextBtn) { display: none !important; }
+body.follow-mode :is(.shell > .side:not(.follow-side), .main > .folder-head, .main > #tabs, .main > .listpane, .topbar .search, .topbar .sync-wrap, #refreshBtn, #settingsBtn, #folderSelect, #viewerNextBtn) { display: none !important; }
+/* 关注's 刷新 and gear are copies of 收藏夹's in the same spot; ⋯ keeps its place (empty) so neither moves on a switch. */
+body:not(.follow-mode) :is(#fwActivity, #fwRefreshBtn, #fwSettingsBtn) { display: none !important; }
+body.follow-mode #moreBtn { visibility: hidden; }
 body.follow-mode .mode-switch { margin-right: auto; }
 .follow-main { display: contents; }
-#fwSettingsBtn { display: none; }
-body.follow-mode #fwSettingsBtn { display: grid; }
 
 /* ---------- left column ---------- */
 .follow-side .side-item.zero:not(.on) { opacity: 0.5; }
@@ -26,6 +27,7 @@ body.follow-mode #fwSettingsBtn { display: grid; }
 .fw-bar .seg { flex-wrap: wrap; }
 .fw-bar .seg button.zero:not([aria-pressed="true"]) { opacity: 0.5; }
 .fw-bar .seg .dot { display: inline-block; margin-right: 6px; vertical-align: 0; }
+.fw-bar-dyn { display: contents; }
 .fw-tools { display: flex; align-items: center; gap: 8px; margin-left: auto; }
 .fw-tools input[type="search"] { width: 200px; height: 30px; }
 .fw-tools select { height: 30px; }

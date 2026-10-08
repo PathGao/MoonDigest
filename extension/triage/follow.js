@@ -232,6 +232,21 @@ function normDays(slow, dead) {
   return { followSlowDays, followDeadDays: Math.min(3651, Math.max(followSlowDays + 1, num(dead, 365))) };
 }
 
+// The search box runs run(value) 150 ms after typing stops, but never mid-IME: input events while composing are
+// skipped and compositionend searches with the committed text (Chrome sends no plain input after it).
+function bindSearch(input, run, delay = 150) {
+  let timer = 0;
+  const later = () => {
+    clearTimeout(timer);
+    timer = setTimeout(() => run(input.value), delay);
+  };
+  input.addEventListener("input", (e) => {
+    if (!e.isComposing) later();
+  });
+  input.addEventListener("compositionstart", () => clearTimeout(timer));
+  input.addEventListener("compositionend", later);
+}
+
 // 「3 天前」 style ages for seconds; under a day is 今天.
 function fmtAgo(sec, now) {
   const d = Math.floor((now - sec) / DAY);
@@ -298,10 +313,14 @@ main.innerHTML = `
     <div id="fwActions" class="step-actions"></div>
   </div>
   <nav id="fwTabs" class="tabs fw-tabs" role="tablist" aria-label="关注"></nav>
-  <div id="fwBar" class="stagebar fw-bar"></div>
+  <div class="stagebar fw-bar"><span id="fwBar" class="fw-bar-dyn"></span><span id="fwTools" class="fw-tools">
+    <input id="fwQ" type="search" placeholder="搜名字、签名、分区" aria-label="搜 UP 主" autocomplete="off">
+    <select data-fw="sort" aria-label="排序">${[["last", "按最后投稿"], ["follow", "按关注时间"], ["name", "按名字"]].map(([v, t]) => `<option value="${v}">${t}</option>`).join("")}</select>
+    <button type="button" data-fw="ai" aria-label="AI 打标签">${AI_SPARK}AI 打标签</button>
+  </span></div>
   <div id="fwList" class="fw-list" aria-label="UP 主"></div>
   <div id="fwSel"></div>`;
-const E = { meta: $("fwMeta"), actions: $("fwActions"), tabs: $("fwTabs"), bar: $("fwBar"), list: $("fwList"), sel: $("fwSel") };
+const E = { tools: $("fwTools"), meta: $("fwMeta"), actions: $("fwActions"), tabs: $("fwTabs"), bar: $("fwBar"), list: $("fwList"), sel: $("fwSel") };
 
 // ---------- data ----------
 async function load() {
@@ -411,28 +430,34 @@ function renderSide() {
 }
 
 // The sync job: live progress while it runs, otherwise when the list was read and the button to update.
-function jobLine() {
+// 刷新 sits in the top bar exactly where 收藏夹's is: the same button, and while it runs the same activity pill
+// before it (progress, the B站限流 countdown, 暂停).
+function renderSync() {
   const j = D.jobs || {};
-  if (j.running) {
-    const left = j.hold?.until ? Math.ceil(j.hold.until - nowSec()) : 0;
-    const wait = left > 0 && `${j.hold.why === "throttled" ? "被 B站限流" : "网络断了"}，${left} 秒后重试`;
-    const text = wait || `${j.step || PHASE[j.phase] || "同步中"}${j.total ? ` ${j.done || 0}/${j.total}` : j.done ? ` ${j.done}` : ""}`;
-    const bar = j.total && !wait ? `<span class="activity-bar" aria-hidden="true"><i style="width:${Math.round(((j.done || 0) / j.total) * 100)}%"></i></span>` : "";
-    return `<span class="activity${wait ? " warn" : ""}" aria-live="polite"><span class="activity-text">${esc(text)}</span>${bar}<button type="button" data-fw="stop" aria-label="暂停同步">暂停</button></span>`;
-  }
-  if (!D.list) return "";
-  const unfinished = j.startedAt && !(j.finishedAt >= j.startedAt);
-  const err = j.throttled ? "上次被 B站限流暂停了" : j.error ? `上次出错：${j.error}` : "";
-  return `${err ? `<span class="fail-text">${esc(err)}</span>` : ""}<button type="button" data-fw="sync" title="读关注列表、翻视频动态，再查动态里没出现的人">${unfinished ? "继续更新" : "更新"}</button>`;
+  const pill = $("fwActivity");
+  const btn = $("fwRefreshBtn");
+  btn.disabled = Boolean(j.running);
+  btn.innerHTML = j.running ? "刷新中…" : "↻ 刷新";
+  if (j.running) btn.setAttribute("aria-busy", "true");
+  else btn.removeAttribute("aria-busy");
+  pill.hidden = !j.running;
+  if (!j.running) return;
+  const left = j.hold?.until ? Math.ceil(j.hold.until - nowSec()) : 0;
+  const wait = left > 0 && `${j.hold.why === "throttled" ? "B站限流" : "网络断了"}，${fmtDur(left)} 后重试`;
+  const text = wait || `${j.step || PHASE[j.phase] || "刷新中"}${j.total ? ` ${j.done || 0}/${j.total}` : j.done ? ` ${j.done}` : ""}`;
+  const bar = j.total && !wait ? `<span class="activity-bar" aria-hidden="true"><i style="width:${Math.round(((j.done || 0) / j.total) * 100)}%"></i></span>` : "";
+  pill.classList.toggle("warn", Boolean(wait));
+  pill.innerHTML = `<span class="activity-text">${esc(text)}</span>${bar}<button type="button" data-fw-stop aria-label="暂停刷新">暂停</button>`;
 }
 
 function renderHead() {
   const list = following();
   const at = D.list?.at || 0;
-  E.meta.textContent = D.list
-    ? [`${list.length} 个 UP 主`, at && `关注列表${fmtAgo(at, nowSec())}更新`].filter(Boolean).join(" · ")
-    : "还没有关注数据";
-  E.actions.innerHTML = jobLine();
+  const j = D.jobs || {};
+  const err = j.running ? "" : j.throttled ? "上次刷新被 B站限流暂停了，再点刷新接着查" : j.error ? `上次刷新出错：${j.error}` : "";
+  E.meta.innerHTML = esc(D.list ? [`${list.length} 个 UP 主`, at && `${fmtAgo(at, nowSec())}刷新过`].filter(Boolean).join(" · ") : "还没有关注数据") + (err ? ` · <span class="fail-text">${esc(err)}</span>` : "");
+  E.actions.innerHTML = "";
+  renderSync();
 }
 
 function renderTabs() {
@@ -463,20 +488,13 @@ function renderUps() {
   const recentChip = recentN || F.recentFilter
     ? `<span class="ai-recent"><button type="button" class="chip ai-recent-chip${F.recentFilter ? " on" : ""}" data-fw="recent" aria-pressed="${F.recentFilter}" title="最近一次 AI 打标签改动的 UP 主，在卡片上逐个看，不对的点卡片上的标签改。\n点 ×：不再标出，标签不变。再打一次：换成新的一批。">${AI_SPARK}AI 刚打的 ${recentN}</button><button type="button" class="ai-recent-x" data-fw="recent-done" aria-label="不再标出「AI 刚打的」，标签不变" title="不再标出，标签不变">×</button></span>`
     : "";
-  const focusQ = document.activeElement?.id === "fwQ";
-  const caret = focusQ && [document.activeElement.selectionStart, document.activeElement.selectionEnd];
-  E.bar.innerHTML = `${sideSelect()}<span class="seg" role="group" aria-label="${gone ? "在哪取关" : "更新状态"}">${seg}</span>${gone ? "" : recentChip}
-    <span class="fw-tools">
-      <input id="fwQ" type="search" placeholder="搜名字、签名、分区" aria-label="搜 UP 主" autocomplete="off" value="${esc(F.q)}">
-      <select data-fw="sort" aria-label="排序"${gone ? " hidden" : ""}>${[["last", "按最后投稿"], ["follow", "按关注时间"], ["name", "按名字"]].map(([v, t]) => `<option value="${v}"${F.sort === v ? " selected" : ""}>${t}</option>`).join("")}</select>
-      ${gone ? "" : `<button type="button" data-fw="ai" aria-label="AI 打标签">${AI_SPARK}AI 打标签</button>`}
-    </span>`;
+  // The search box, sort and AI button stay in #fwTools and are never redrawn: replacing the box while an IME is
+  // composing breaks the composition (「l u」 → 「l 画」).
+  E.bar.innerHTML = `${sideSelect()}<span class="seg" role="group" aria-label="${gone ? "在哪取关" : "更新状态"}">${seg}</span>${gone ? "" : recentChip}`;
+  E.tools.hidden = !D.list && !gone;
   if (!D.list && !gone) E.bar.innerHTML = sideSelect();
-  if (focusQ) {
-    const q = $("fwQ");
-    q.focus();
-    q.setSelectionRange(...caret);
-  }
+  E.tools.querySelector("[data-fw=sort]").hidden = E.tools.querySelector("[data-fw=ai]").hidden = gone;
+  E.tools.querySelector("[data-fw=sort]").value = F.sort;
   const hint = hintHtml(counts);
   const scroll = E.list.scrollTop;
   let body;
@@ -493,19 +511,19 @@ function emptyHtml() {
   const j = D.jobs || {};
   return `<div class="fw-empty"><p><strong>还没有关注数据</strong></p>
     <p class="dialog-hint">先从 B站读你的关注列表，再翻视频动态看谁最近发过视频，动态里没出现的人再一个个查投稿。只读，不改 B站。</p>
-    ${j.running ? `<p class="muted" aria-busy="true">${esc(j.step || PHASE[j.phase] || "同步中")}，读完就显示在这里</p>` : `${j.error ? `<p class="fail-text">上次出错：${esc(j.error)}</p>` : ""}<button type="button" class="primary" data-fw="sync">开始同步</button>`}</div>`;
+    ${j.running ? `<p class="muted" aria-busy="true">刷新中…读完就显示在这里</p>` : `${j.error ? `<p class="fail-text">上次刷新出错：${esc(j.error)}</p>` : ""}<button type="button" class="primary" data-fw="sync">↻ 刷新</button>`}</div>`;
 }
 
 // Why some 更新状态 are missing, with the job's live state or the button that fills them in.
 function hintHtml(counts) {
   if (!D.list || F.side === "gone") return "";
   const parts = [];
-  if (D.list.complete === false) parts.push(`<p class="fw-hint warn">这次关注列表没读全，没有把任何人记成取关。下次更新会再读。</p>`);
+  if (D.list.complete === false) parts.push(`<p class="fw-hint warn">这次关注列表没读全，没有把任何人记成取关。下次刷新会再读。</p>`);
   const open = (counts.unchecked || 0) + (counts.stale || 0);
   if (open) {
     const running = D.jobs?.running;
     const stale = counts.stale ? `「待查」= ${cfg.slowDays} 天里没在视频动态出现，查完投稿才分得清慢更还是断更。` : "";
-    const act = running ? `<span class="muted" aria-busy="true">正在查，状态边查边更新</span>` : `<button type="button" data-fw="sync">查投稿（约 ${Math.max(1, Math.ceil(open / 60))} 分钟）</button>`;
+    const act = running ? `<span class="muted" aria-busy="true">正在查，状态边查边更新</span>` : `<button type="button" data-fw="sync">↻ 刷新（约 ${Math.max(1, Math.ceil(open / 60))} 分钟查完）</button>`;
     parts.push(`<p class="fw-hint">${open} 个 UP 主还不知道最后投稿时间。${stale}${act}</p>`);
   }
   return parts.join("");
@@ -571,6 +589,7 @@ function renderFeed() {
     const n = count(id);
     return `<button type="button" data-side="${esc(id)}" aria-pressed="${F.side === id}"${items.length && !n ? ' class="zero"' : ""}>${color ? `<i class="dot" style="--c:${esc(color)}"></i>` : ""}${esc(label)}${items.length ? ` ${n}` : ""}</button>`;
   };
+  E.tools.hidden = true;
   E.bar.innerHTML = `${sideSelect()}<span class="seg fw-pills" role="group" aria-label="按标签看">${[pill("all", "全部"), pill("untagged", "未打标签"), pill("special", "★ 特别关注"), ...D.tags.map((t) => pill(t.id, t.name, t.color))].join("")}</span>`;
   const list = items.filter((it) => feedMatch(it, D, F.side));
   const note = !D.tags.length ? `<p class="fw-hint">还没给 UP 主打标签。在「UP 主」页签打上标签，这里就能只看一类 UP 主的新视频。下面是全部关注的新视频。</p>` : "";
@@ -771,6 +790,23 @@ document.body.insertAdjacentHTML("beforeend", `
 const tagsDialog = $("fwTagsDialog");
 
 // ----- 关注设置: the top bar's gear in 关注 mode (a copy of the 收藏夹 gear) -----
+const refresh = $("refreshBtn").cloneNode(true);
+refresh.id = "fwRefreshBtn";
+refresh.setAttribute("aria-label", "从 B站刷新关注");
+refresh.title = "读关注列表、翻视频动态，再查动态里没出现的人";
+$("refreshBtn").after(refresh);
+refresh.insertAdjacentHTML("beforebegin", '<span id="fwActivity" class="activity" aria-live="polite" hidden></span>');
+refresh.addEventListener("click", async () => {
+  refresh.disabled = true;
+  const r = await send({ type: "follow-sync" });
+  if (!r.ok) {
+    toast(r.error || "刷新没开始", true);
+    refresh.disabled = false;
+  }
+});
+$("fwActivity").addEventListener("click", (e) => {
+  if (e.target.closest("[data-fw-stop]")) send({ type: "follow-sync-stop" });
+});
 const gear = $("settingsBtn").cloneNode(true);
 gear.id = "fwSettingsBtn";
 gear.title = "关注设置";
@@ -785,7 +821,7 @@ document.body.insertAdjacentHTML("beforeend", `
           <h3>更新状态</h3>
           <p class="dialog-hint">按最后投稿离现在多少天分活跃、慢更、断更。</p>
           <div class="set-card">
-            <div class="set-row"><div><label class="name" for="fwSlowInput">多少天没投稿算慢更</label><p class="hint">7–3650。同步时视频动态往回翻这么多天，越大翻得越久。</p></div><input id="fwSlowInput" type="number" min="7" max="3650" step="1"></div>
+            <div class="set-row"><div><label class="name" for="fwSlowInput">多少天没投稿算慢更</label><p class="hint">7–3650。刷新时视频动态往回翻这么多天，越大翻得越久。</p></div><input id="fwSlowInput" type="number" min="7" max="3650" step="1"></div>
             <div class="set-row"><div><label class="name" for="fwDeadInput">多少天没投稿算断更</label><p class="hint">要比慢更的天数大。</p></div><input id="fwDeadInput" type="number" min="8" max="3651" step="1"></div>
           </div>
         </section>
@@ -1166,11 +1202,10 @@ main.addEventListener("click", async (e) => {
     t.closest("button").disabled = true;
     const r = await send({ type: "follow-sync" });
     if (!r.ok) {
-      toast(r.error || "同步没开始", true);
+      toast(r.error || "刷新没开始", true);
       t.closest("button").disabled = false;
     }
-  } else if (act === "stop") send({ type: "follow-sync-stop" });
-  else if (act === "ai") openAi();
+  } else if (act === "ai") openAi();
   else if (act === "recent") {
     F.recentFilter = !F.recentFilter;
     render();
@@ -1194,14 +1229,9 @@ main.addEventListener("click", async (e) => {
 });
 // The selection bar sits outside the list; its buttons share the handler above through #followMain.
 
-let qTimer = 0;
-main.addEventListener("input", (e) => {
-  if (e.target.id !== "fwQ") return;
-  clearTimeout(qTimer);
-  qTimer = setTimeout(() => {
-    F.q = e.target.value;
-    render();
-  }, 150);
+bindSearch($("fwQ"), (q) => {
+  F.q = q;
+  render();
 });
 main.addEventListener("change", (e) => {
   const act = e.target.dataset.fw;
