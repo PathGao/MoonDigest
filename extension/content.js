@@ -594,6 +594,8 @@ function bindRuntimeEvents() {
     }
 
     if (message.type === "sidepanel-seek-video-time") {
+      // From 分拣台: only the viewer frame playing that video answers.
+      if (message.videoId && BocSites.parseRef(location.href)?.id !== message.videoId) return false;
       const seconds = Number(message.seconds);
       const video = getRuntimeVideoElement();
       if (!video) {

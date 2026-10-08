@@ -2677,21 +2677,23 @@ async function jumpToAssistantTimestamp(seconds, label) {
 
   showConversationContextNotice(`正在跳转到 ${label}…`, 1800);
 
+  // 分拣台 is an extension page: only its viewer frame playing this video seeks, and the tab stays put.
+  const inTriage = String(tab.url || "").startsWith(chrome.runtime.getURL("triage/"));
   try {
-    const sameVideo = doesTabMatchContextUrl(tab.url || "", targetUrl);
-    if (!sameVideo) {
+    if (!inTriage && !doesTabMatchContextUrl(tab.url || "", targetUrl)) {
       await chrome.tabs.update(tab.id, { url: targetUrl });
       await waitForTabComplete(tab.id);
     }
     const response = await sendMessageToActiveTab(tab.id, {
       type: "sidepanel-seek-video-time",
-      seconds: safeSeconds
-    });
+      seconds: safeSeconds,
+      videoId: inTriage ? BocSites.parseRef(targetUrl)?.id || "" : ""
+    }, inTriage ? 1 : undefined);
     if (!response?.ok) {
       throw new Error(response?.error || "视频时间跳转失败");
     }
   } catch (error) {
-    showConversationContextNotice(`时间跳转失败：${error?.message || error}`, 2600);
+    showConversationContextNotice(inTriage ? "先在分拣台里播放这个视频，再点时间" : `时间跳转失败：${error?.message || error}`, 2600);
   }
 }
 

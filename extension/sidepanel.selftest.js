@@ -143,6 +143,27 @@ const page = (id) => ({ ok: true, payload: { url: `https://example.com/${id}`, t
     assert.deepStrictEqual(calls, [["open", "BV1xx"], ["fill", "总结"]]);
   }
 
+  {
+    // A timestamp clicked while 分拣台's viewer plays the video seeks that frame; the 分拣台 tab is not navigated.
+    // A normal tab on another video still goes to the video first.
+    const updates = [];
+    const seeks = [];
+    const notices = [];
+    ctx.showConversationContextNotice = (text) => notices.push(text);
+    ctx.chrome.runtime.getURL = (p) => `chrome-extension://test/${p}`;
+    ctx.chrome.tabs.update = async (id, props) => updates.push(props.url);
+    ctx.chrome.tabs.get = async () => ({ status: "complete" });
+    ctx.chrome.tabs.sendMessage = (id, msg, cb) => (seeks.push(msg), cb({ ok: true }));
+    vm.runInContext('contextData = { url: "https://www.bilibili.com/video/BV1xx411c7mD" }', ctx);
+    activeTab = { id: 7, url: "chrome-extension://test/triage/triage.html" };
+    await ctx.jumpToAssistantTimestamp(75, "1:15");
+    activeTab = { id: 8, url: "https://www.bilibili.com/video/BV1GJ411x7h7" };
+    await ctx.jumpToAssistantTimestamp(5, "0:05");
+    assert.deepStrictEqual(updates, ["https://www.bilibili.com/video/BV1xx411c7mD"], "only the normal tab navigates");
+    assert.deepStrictEqual(seeks.map((m) => [m.seconds, m.videoId]), [[75, "BV1xx411c7mD"], [5, ""]]);
+    ctx.chrome.runtime.getURL = (p) => p;
+  }
+
   console.log("sidepanel selftest: all passed");
 })().catch((e) => {
   console.error(e);
