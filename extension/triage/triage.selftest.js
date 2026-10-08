@@ -1156,7 +1156,7 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   assert.deepStrictEqual(plain(store[t.K.snapshot("A")].ids), ["BVhidden"], "an id the paged list leaves out stays in the check baseline");
   assert.strictEqual(t.S.removedCount, 1);
 
-  // 已出分拣范围 renders the normal card: a line under the title with the origin chip and when / why it left, 选中 / 清理 as the pair, no 保留 / 取消收藏.
+  // 已出分拣范围 renders the normal card: a line under the title with the origin chip and when / why it left, the select box and 清理, no 保留 / 取消收藏.
   {
     openFake("removed", []);
     const at = new Date(new Date().getFullYear(), 9, 5, 17, 25).getTime();
@@ -1193,6 +1193,12 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     assert.strictEqual(leftOf({ hidden: true, inFolder: null }), "已失效（B站已隐藏）");
     openFake("A", [item(1)]);
     assert.ok(t.cardHtml(item(1), false, "").includes('<span class="pair">\n            <button type="button" data-act="keep"'), "a folder's card keeps 保留 / 取消收藏 as the pair");
+    // Selecting is the round box at the top-left (shared.js pickBox), checked once selected; no 「选中 X」 action any more.
+    const plainCard = t.cardHtml(item(1), false, "");
+    assert.ok(plainCard.includes('class="pick-box" role="checkbox" data-select="BV1" aria-checked="false"') && !plainCard.includes('data-act="select"') && !/>选中</.test(plainCard), plainCard);
+    t.S.selected.add("BV1");
+    assert.ok(t.cardHtml(item(1), false, "").includes('data-select="BV1" aria-checked="true"'), "a selected card's box is checked");
+    t.S.selected.clear();
     // Once decided, the decision replaces the AI verdict label; the reason stays.
     t.S.titleRes.BV1 = { verdict: "keep", reason: "好看" };
     assert.ok(t.cardHtml(item(1), false, "").includes("值得留"), "undecided shows the verdict");

@@ -2064,10 +2064,13 @@ async function refavRecent(bvid) {
 }
 
 let listDeferred = false;
+// The card a Shift+click picks from: the last one picked by click or X.
+let pickAnchor = "";
 function renderList() {
   // Rebuilding the list mid-IME in a note would drop the composition and leave the raw pinyin; compositionend renders.
   if (BocTyping.isComposing() && document.activeElement?.closest?.("[data-note]")) return void (listDeferred = true);
   listDeferred = false;
+  el.list.classList.toggle("picking", S.selected.size > 0);
   const list = visibleItems();
   renderListHeader(list);
   const recent = S.tab === "done" ? recentUnfavHtml() : "";
@@ -2175,7 +2178,7 @@ function cardHtml(it, expanded, mark) {
   if (done && expanded && a.points?.length) body.push(`<ol class="points">${a.points.map((p) => `<li>${esc(p)}</li>`).join("")}</ol>`);
 
   return `<article class="${cls.join(" ")}" data-bvid="${esc(b)}" aria-label="${esc(it.title)}">
-    ${coverHtml(it)}
+    ${UI.pickBox(b, S.selected.has(b), it.title)}${coverHtml(it)}
     <div class="card-body">
       <div class="title-row">${mark ? `<span class="batch-tag">${mark}</span>` : ""}<a class="title" href="${esc(videoUrl(b))}" data-act="open" aria-label="打开视频 ${esc(it.title)}">${esc(it.title)}</a></div>
       ${left ? `<div class="left-row">${left}</div>` : ""}
@@ -2190,7 +2193,6 @@ function cardHtml(it, expanded, mark) {
         <span class="spacer"></span>
         <div class="actions">
           ${removed ? `<span class="pair">
-            <button type="button" data-select="${esc(b)}" class="${S.selected.has(b) ? "on" : ""}" aria-pressed="${S.selected.has(b)}" aria-label="选中 ${esc(it.title)}">选中</button>
             <button type="button" class="danger" data-clean="${esc(b)}" aria-label="清理 ${esc(it.title)}">清理</button>
           </span>
           <span class="more">${basketBtn}${askBtn}</span>` : `<span class="pair">
@@ -2200,7 +2202,6 @@ function cardHtml(it, expanded, mark) {
           <span class="more">
             <button type="button" data-act="tag" aria-label="打标签 (T)">标签<kbd class="key">T</kbd></button>
             ${basketBtn}${askBtn}
-            <button type="button" data-act="select" class="${S.selected.has(b) ? "on" : ""}" aria-pressed="${S.selected.has(b)}" aria-label="选中 (X)">选中<kbd class="key">X</kbd></button>
           </span>`}
         </div>
       </div>
@@ -3759,11 +3760,12 @@ function bindEvents() {
     if (refav) return refavRecent(refav.dataset.refav);
     const refavAll = e.target.closest("[data-refav-batch]");
     if (refavAll) return refavBatch(Number(refavAll.dataset.refavBatch));
-    const pick = e.target.closest("[data-select]");
-    if (pick) {
-      const b = pick.dataset.select;
-      if (S.selected.has(b)) S.selected.delete(b);
-      else S.selected.add(b);
+    const picked = e.target.closest(".card[data-bvid]");
+    if (picked && UI.cardPickClick(e, S.selected.size > 0)) {
+      e.preventDefault();
+      if (e.shiftKey) getSelection().removeAllRanges();
+      setFocus(picked.dataset.bvid, false);
+      pickAnchor = UI.pickCard(S.selected, visibleItems().map((it) => it.bvid), picked.dataset.bvid, pickAnchor, e.shiftKey);
       return render();
     }
     const clean = e.target.closest("[data-clean]");
@@ -4058,8 +4060,7 @@ function cardAction(act, bvid) {
     el.list.querySelector(`.card[data-bvid="${CSS.escape(bvid)}"] [data-note]`)?.focus();
   }
   else if (act === "select") {
-    if (S.selected.has(bvid)) S.selected.delete(bvid);
-    else S.selected.add(bvid);
+    pickAnchor = UI.pickCard(S.selected, [], bvid);
     render();
   }
 }
@@ -4081,7 +4082,11 @@ function onKey(e) {
   const nav = { j: 1, ArrowDown: 1, k: -1, ArrowUp: -1 };
   const cardKeys = { d: "unfav", s: "keep", t: "tag", e: "basket", q: "ask", x: "select", o: "open", Enter: "open" };
   if (key === "Escape" && S.viewing) closeViewer();
-  else if (map[key]) map[key]();
+  // Esc with nothing else open clears the selection, so cards play on a click again.
+  else if (key === "Escape" && S.selected.size && !document.querySelector(":popover-open")) {
+    S.selected.clear();
+    render();
+  } else if (map[key]) map[key]();
   else if (nav[key]) moveFocus(nav[key]);
   // 已出分拣范围 has no 保留 / 取消收藏 / 标签; 待播 and 问 AI work there.
   else if (S.mediaId === REMOVED && key !== "e" && key !== "q") return;
