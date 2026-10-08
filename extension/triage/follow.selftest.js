@@ -257,4 +257,8 @@ assert.ok(source.includes(`pushTagUndo(before, "标签修改", { ask: changes.le
   assert.ok(/async function unfollow[\s\S]*?askConfirm/.test(source), "取消关注 still asks");
 }
 
+// 关注设置 and the AI settings it seeds: a failed chrome.storage.sync.set says so, as 收藏夹设置 does.
+assert.strictEqual((source.match(/chrome\.storage\.sync\.set\(/g) || []).length, 2);
+assert.ok(/\.set\(\{ follow_ai_settings: seed \}\)\.catch\(\(e\) => toast\(`保存设置失败：/.test(source) && /try \{\s*await chrome\.storage\.sync\.set\(\{ follow_ai_settings: ai, \.\.\.days \}\);\s*\} catch \(e\) \{\s*return toast\(`保存设置失败：/.test(source), "both writes catch");
+
 console.log("follow selftest: all passed");

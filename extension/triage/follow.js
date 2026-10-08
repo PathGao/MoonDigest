@@ -899,7 +899,8 @@ async function aiSettings() {
   const own = (await chrome.storage.sync.get("follow_ai_settings")).follow_ai_settings;
   const triage = own ? null : await send({ type: "triage-settings-get" });
   const { value, seed } = followAiSettings(own, triage?.ok ? triage.data : null);
-  if (seed) await chrome.storage.sync.set({ follow_ai_settings: seed });
+  // Not stored (sync quota, …): the copied values still work this time, and the next use tries again.
+  if (seed) await chrome.storage.sync.set({ follow_ai_settings: seed }).catch((e) => toast(`保存设置失败：${e.message}`, true));
   return value;
 }
 async function openSettings() {
@@ -929,7 +930,11 @@ settingsDialog.addEventListener("close", async () => {
   const ai = normAi({ batchSize: $("fwBatchInput").value, intervalSec: $("fwIntervalInput").value, newTagMax: $("fwNewMaxInput").value, allowRemove: $("fwRemoveInput").checked });
   // followSlowDays / followDeadDays keep their keys, so values set on the old settings-page section carry over.
   const days = normDays($("fwSlowInput").value, $("fwDeadInput").value);
-  await chrome.storage.sync.set({ follow_ai_settings: ai, ...days });
+  try {
+    await chrome.storage.sync.set({ follow_ai_settings: ai, ...days });
+  } catch (e) {
+    return toast(`保存设置失败：${e.message}`, true);
+  }
   if (!AI.running) AI.settings = ai;
   cfg.slowDays = days.followSlowDays;
   cfg.deadDays = days.followDeadDays;
