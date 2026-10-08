@@ -888,8 +888,9 @@ function coverHtml(it) {
   const v = isProcessed(it.bvid) ? { verdict: "none" } : verdictOf(it);
   const tag = S.analyzing.has(it.bvid) ? `<span class="cover-tag running">分析中…</span>` : VERDICTS[v.verdict] ? `<span class="cover-tag ${v.verdict}" title="${esc(v.reason)}">${VERDICTS[v.verdict]}</span>` : "";
   const dur = it.duration ? `<span class="cover-dur">${fmtDuration(it.duration)}</span>` : "";
-  // A real link (right-click 在新标签页中打开, ⌘-click), out of the tab order: the title is the same link for the keyboard.
-  return `<a class="cover-wrap${seen ? " seen" : ""}" href="${esc(videoUrl(it.bvid))}" data-act="open" tabindex="-1" aria-hidden="true">${pic}${tag}${dur}${mark}${p ? `<span class="seen-bar" title="看到 ${p}%"><i style="width:${Math.max(p, 2)}%"></i></span>` : ""}</a>`;
+  // A real link for right-click 在新标签页中打开 and ⌘-click; a plain click selects the card. Out of the tab order: the title
+  // is the same link for the keyboard, and the title is what plays.
+  return `<a class="cover-wrap${seen ? " seen" : ""}" href="${esc(videoUrl(it.bvid))}" tabindex="-1" aria-hidden="true">${pic}${tag}${dur}${mark}${p ? `<span class="seen-bar" title="看到 ${p}%"><i style="width:${Math.max(p, 2)}%"></i></span>` : ""}</a>`;
 }
 
 // Runs simplifyMigration once (flag key), then drops the old scheme keys it read.
@@ -2070,7 +2071,6 @@ function renderList() {
   // Rebuilding the list mid-IME in a note would drop the composition and leave the raw pinyin; compositionend renders.
   if (BocTyping.isComposing() && document.activeElement?.closest?.("[data-note]")) return void (listDeferred = true);
   listDeferred = false;
-  el.list.classList.toggle("picking", S.selected.size > 0);
   const list = visibleItems();
   renderListHeader(list);
   const recent = S.tab === "done" ? recentUnfavHtml() : "";
@@ -2178,7 +2178,7 @@ function cardHtml(it, expanded, mark) {
   if (done && expanded && a.points?.length) body.push(`<ol class="points">${a.points.map((p) => `<li>${esc(p)}</li>`).join("")}</ol>`);
 
   return `<article class="${cls.join(" ")}" data-bvid="${esc(b)}" aria-label="${esc(it.title)}">
-    ${UI.pickBox(b, S.selected.has(b), it.title)}${coverHtml(it)}
+    ${coverHtml(it)}
     <div class="card-body">
       <div class="title-row">${mark ? `<span class="batch-tag">${mark}</span>` : ""}<a class="title" href="${esc(videoUrl(b))}" data-act="open" aria-label="打开视频 ${esc(it.title)}">${esc(it.title)}</a></div>
       ${left ? `<div class="left-row">${left}</div>` : ""}
@@ -3761,7 +3761,7 @@ function bindEvents() {
     const refavAll = e.target.closest("[data-refav-batch]");
     if (refavAll) return refavBatch(Number(refavAll.dataset.refavBatch));
     const picked = e.target.closest(".card[data-bvid]");
-    if (picked && UI.cardPickClick(e, S.selected.size > 0)) {
+    if (picked && UI.cardPickClick(e)) {
       e.preventDefault();
       if (e.shiftKey) getSelection().removeAllRanges();
       setFocus(picked.dataset.bvid, false);

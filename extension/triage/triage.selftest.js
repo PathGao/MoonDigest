@@ -1161,7 +1161,7 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     openFake("removed", []);
     const at = new Date(new Date().getFullYear(), 9, 5, 17, 25).getTime();
     const html = t.cardHtml({ ...item(1), removedAt: at, from: [{ id: "A", title: "甲", at: 1 }, { id: "B", title: "乙", at: 3 }, { id: "C", title: "丙", at: 5 }] }, true, "");
-    assert.ok(html.includes('data-select="BV1"') && html.includes('class="danger" data-clean="BV1"') && !html.includes('data-act="keep"') && !html.includes('data-act="unfav"'), html);
+    assert.ok(html.includes('class="danger" data-clean="BV1"') && !html.includes('data-act="keep"') && !html.includes('data-act="unfav"'), html);
     assert.ok(html.includes('data-act="basket"') && html.includes('data-act="ask"') && !html.includes('data-act="tag"'), "已出分拣范围 keeps 待播 and 问 AI, not 标签");
     // 保留 shows here too, and the table carries the note, origin and why it left (not 待播).
     t.S.decisions = { BV1: { action: "keep", at } };
@@ -1193,11 +1193,11 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     assert.strictEqual(leftOf({ hidden: true, inFolder: null }), "已失效（B站已隐藏）");
     openFake("A", [item(1)]);
     assert.ok(t.cardHtml(item(1), false, "").includes('<span class="pair">\n            <button type="button" data-act="keep"'), "a folder's card keeps 保留 / 取消收藏 as the pair");
-    // Selecting is the round box at the top-left (shared.js pickBox), checked once selected; no 「选中 X」 action any more.
+    // Selecting is a click on the card: no select box or 「选中 X」 action on it; a selected card carries .selected.
     const plainCard = t.cardHtml(item(1), false, "");
-    assert.ok(plainCard.includes('class="pick-box" role="checkbox" data-select="BV1" aria-checked="false"') && !plainCard.includes('data-act="select"') && !/>选中</.test(plainCard), plainCard);
+    assert.ok(!plainCard.includes("pick-box") && !plainCard.includes('data-act="select"') && !/>选中</.test(plainCard) && !/class="card[^"]* selected/.test(plainCard), plainCard);
     t.S.selected.add("BV1");
-    assert.ok(t.cardHtml(item(1), false, "").includes('data-select="BV1" aria-checked="true"'), "a selected card's box is checked");
+    assert.ok(/class="card[^"]* selected/.test(t.cardHtml(item(1), false, "")), "a selected card carries .selected");
     t.S.selected.clear();
     // Once decided, the decision replaces the AI verdict label; the reason stays.
     t.S.titleRes.BV1 = { verdict: "keep", reason: "好看" };
@@ -1898,12 +1898,13 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   assert.ok(t.pointerMoved({ x: 10, y: 10 }, 10, 11), "a changed coordinate is movement");
 
   // Card links: cover and title are a[href] to the video (right-click / ⌘-click open it natively), no control inside a link;
-  // only a plain primary click stays in the page (opens the viewer).
+  // a plain primary click stays in the page: on the title it opens the viewer, on the cover it selects the card.
   {
     const html = t.cardHtml(item(1), false, "");
     const links = [...html.matchAll(/<a\b[^>]*>/g)].map((m) => m[0]);
     assert.strictEqual(links.length, 2, html);
-    for (const a of links) assert.ok(a.includes(`href="https://www.bilibili.com/video/${item(1).bvid}"`) && a.includes('data-act="open"'), a);
+    for (const a of links) assert.ok(a.includes(`href="https://www.bilibili.com/video/${item(1).bvid}"`), a);
+    assert.deepStrictEqual(links.map((a) => a.includes('data-act="open"')), [false, true], "only the title plays");
     assert.ok(!/<a\b(?:(?!<\/a>).)*<(button|a|input)\b/s.test(html), "nothing interactive inside a link");
     const click = (o) => ({ button: 0, metaKey: false, ctrlKey: false, shiftKey: false, altKey: false, ...o });
     assert.ok(t.plainClick(click({})), "plain click opens the viewer");

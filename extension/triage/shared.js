@@ -43,13 +43,13 @@
   // (button, field, 「+ 标签」 chip, a link other than the card's own video links) or at the end of a text-selection drag.
   const CARD_CONTROLS = "button, input, textarea, select, label, [data-pick], a[href]:not([data-act=open], [data-play])";
   const cardPlayClick = (e) => plainClick(e) && !e.target.closest(CARD_CONTROLS) && globalThis.getSelection?.()?.isCollapsed !== false;
-  // Selecting (收藏夹 and 关注 UP 主): the round box at the card's top-left (pickBox) always picks. While anything is
-  // selected, a click anywhere on the card picks instead of playing, its own links included; the controls inside keep
-  // their own. Shift picks the run from the last picked card; ⌘ / Ctrl / middle on a link still open B站.
-  const PICK_CONTROLS = "button:not([data-select]), input, textarea, select, label, [data-pick]";
-  const cardPickClick = (e, selecting) =>
+  // Selecting (收藏夹 and 关注 UP 主): a click anywhere on the card picks it, cover and UP links included. The video
+  // titles play and the controls inside keep their own. Shift picks the run from the last picked card; ⌘ / Ctrl /
+  // middle on a link still open B站.
+  const PICK_CONTROLS = "button, input, textarea, select, label, [data-pick], [data-act=open], [data-play]";
+  const cardPickClick = (e) =>
     e.button === 0 && !e.metaKey && !e.ctrlKey && !e.altKey &&
-    Boolean(e.target.closest("[data-select]") || (selecting && !e.target.closest(PICK_CONTROLS) && (e.shiftKey || globalThis.getSelection?.()?.isCollapsed !== false)));
+    !e.target.closest(PICK_CONTROLS) && (e.shiftKey || globalThis.getSelection?.()?.isCollapsed !== false);
   // One pick in sel (a Set, changed in place): a toggle, or with range every listed id from anchor to id. Returns the new anchor.
   function pickCard(sel, ids, id, anchor, range) {
     const a = range ? ids.indexOf(anchor) : -1;
@@ -58,8 +58,6 @@
     else for (const x of ids.slice(Math.min(a, b), Math.max(a, b) + 1)) sel.add(x);
     return id;
   }
-  const pickBox = (id, on, name) =>
-    `<button type="button" class="pick-box" role="checkbox" data-select="${esc(id)}" aria-checked="${Boolean(on)}" aria-label="选中 ${esc(name)} (X)" title="选中（X）· Shift 连选"></button>`;
   // hdslb images: https and a small webp copy (size like "480w_270h_1c"); other URLs as they are.
   const img = (u, size) => {
     const s = String(u || "").replace(/^(https?:)?\/\//, "https://");
@@ -508,5 +506,5 @@
     return [...tally.values()].sort((a, b) => (a.cls === "remove") - (b.cls === "remove") || b.n - a.n);
   }
 
-  globalThis.TriageUi = { esc, pad, dayText, fmtDate, fmtAgo, agoHtml, setSearchScope, confirmList, pickTitle, fmtDuration, fmtCount, cleanTagName, plainClick, cardPlayClick, cardPickClick, pickCard, pickBox, img, toCsv, cardTagChip, syncedText, headMeta, titleHtml, ICON, AI_SPARK, byValue, dirWords, sortControl, filterBtn, labeledRow, stateGroup, aiRecentChip, searchBox, bindSearch, resultCount, rowButtons, menuItem, BACKUP_ITEM, reasonAttrs, setReason, WARN_DOT, selectAllState, selectAllBox, toggleAll, setActivity, waitText, syncPill, setSync, bindSync, tagButtons, sideFoot, selbar, askTransfer, sideItem, emptyState, refreshEmpty, noMatch, fillSetRows, mergeAiBatch, aiChanges, previewId, aiTally, TAG_COLORS, nextTagColor, cycleTagColor, tagNameError, deleteTagAsk, editedTag, withoutTag, undoAsk, tagRowHtml, sp, AI_RECENT_RULES, aiRecentUndo, tagPlusBtn, viewerLine, viewerKeyFrom };
+  globalThis.TriageUi = { esc, pad, dayText, fmtDate, fmtAgo, agoHtml, setSearchScope, confirmList, pickTitle, fmtDuration, fmtCount, cleanTagName, plainClick, cardPlayClick, cardPickClick, pickCard, img, toCsv, cardTagChip, syncedText, headMeta, titleHtml, ICON, AI_SPARK, byValue, dirWords, sortControl, filterBtn, labeledRow, stateGroup, aiRecentChip, searchBox, bindSearch, resultCount, rowButtons, menuItem, BACKUP_ITEM, reasonAttrs, setReason, WARN_DOT, selectAllState, selectAllBox, toggleAll, setActivity, waitText, syncPill, setSync, bindSync, tagButtons, sideFoot, selbar, askTransfer, sideItem, emptyState, refreshEmpty, noMatch, fillSetRows, mergeAiBatch, aiChanges, previewId, aiTally, TAG_COLORS, nextTagColor, cycleTagColor, tagNameError, deleteTagAsk, editedTag, withoutTag, undoAsk, tagRowHtml, sp, AI_RECENT_RULES, aiRecentUndo, tagPlusBtn, viewerLine, viewerKeyFrom };
 })();

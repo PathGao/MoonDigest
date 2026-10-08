@@ -634,7 +634,7 @@ function renderUps() {
   if (!D.list && F.side !== "gone") body = emptyHtml();
   else if (!list.length) body = `<p class="empty">${F.side === "gone" && !Object.keys(D.gone).length ? "还没取消关注过谁" : UI.noMatch(F.q, true, "UP 主")}</p>`;
   else body = list.map(upCard).join("");
-  E.list.className = F.sel.size ? "fw-list picking" : "fw-list";
+  E.list.className = "fw-list";
   E.list.innerHTML = hint + body;
   E.list.scrollTop = scroll;
   renderSel();
@@ -685,7 +685,7 @@ function upCard(mid) {
     : `<button type="button" class="star${u.special ? " on" : ""}" data-star="${esc(mid)}" aria-pressed="${u.special}" title="${u.special ? "取消特别关注" : "设为特别关注"}（改 B站）" aria-label="${u.special ? "取消特别关注" : "设为特别关注"} ${esc(u.name)}">${u.special ? "★" : "☆"}</button>`;
   const playing = F.viewing && u.titles.some((v) => v.bvid === F.viewing);
   return `<article class="card fw-up${sel ? " selected" : ""}${playing ? " playing" : ""}${F.cur === mid ? " focused" : ""}" data-mid="${esc(mid)}" aria-label="${esc(u.name)}">
-    ${UI.pickBox(mid, sel, u.name)}<a class="fw-avatar" href="${space(mid)}" target="_blank" rel="noopener" tabindex="-1" aria-hidden="true">${u.face ? `<img src="${esc(img(u.face, "96w_96h_1c"))}" alt="" loading="lazy" referrerpolicy="no-referrer">` : ""}</a>
+    <a class="fw-avatar" href="${space(mid)}" target="_blank" rel="noopener" tabindex="-1" aria-hidden="true">${u.face ? `<img src="${esc(img(u.face, "96w_96h_1c"))}" alt="" loading="lazy" referrerpolicy="no-referrer">` : ""}</a>
     <div class="card-body">
       <div class="fw-name-row"><a class="fw-name" href="${space(mid)}" target="_blank" rel="noopener" title="在 B站打开空间">${esc(u.name)}</a>${u.gone ? "" : `<span class="badge ${STATUS_BADGE[u.status]}">${STATUS_TEXT[u.status]}</span>`}${u.ov ? `<span class="meta fw-ov" title="${esc(u.ov)}">${esc(u.ov)}</span>` : ""}</div>
       ${meta.length ? `<div class="meta">${meta.join(" · ")}</div>` : ""}
@@ -1277,8 +1277,6 @@ function toggleSel(mid) {
   const on = F.sel.has(mid);
   const card = E.list.querySelector(`.fw-up[data-mid="${CSS.escape(mid)}"]`);
   card?.classList.toggle("selected", on);
-  card?.querySelector("[data-select]")?.setAttribute("aria-checked", String(on));
-  E.list.classList.toggle("picking", F.sel.size > 0);
   F.anchor = mid;
   renderSel();
 }
@@ -1460,9 +1458,9 @@ main.addEventListener("click", async (e) => {
     F.source = src.dataset.source;
     return render();
   }
-  // The UP cards pick as 收藏夹's do (UI.cardPickClick): the box always, the whole card while anything is selected.
+  // The UP cards pick as 收藏夹's do (UI.cardPickClick): a click anywhere but the video titles and controls.
   const up = t.closest(".fw-up");
-  if (up && UI.cardPickClick(e, F.sel.size > 0)) {
+  if (up && UI.cardPickClick(e)) {
     e.preventDefault();
     if (!e.shiftKey) return toggleSel(up.dataset.mid);
     getSelection().removeAllRanges();
