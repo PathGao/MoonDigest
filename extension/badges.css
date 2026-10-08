@@ -187,3 +187,25 @@ span.mdg-ups[data-mid] {
 .bili-dyn-list__item.mdg-up-hide { display: none !important; }
 html.bili_dark span.mdg-ups[data-mid] { border-left-color: #cba6f7; }
 html.bili_dark .mdg-upbar { border-left-color: #cba6f7; }
+
+/* The 「+」 after an UP's chips opens MoonDigest's tag picker (badges.js draws the picker in its own shadow root).
+   Quiet: invisible until the card or the name is hovered, or it has keyboard focus. */
+.mdg-ups .mdg-up.mdg-up-add {
+  opacity: 0;
+  border: 1px dashed var(--line_regular, var(--bew-border-color, #c9ccd0));
+  background: transparent;
+  color: var(--text3, var(--bew-text-3, #9499a0));
+}
+:hover > .mdg-ups .mdg-up.mdg-up-add,
+.bili-dyn-item:hover .mdg-ups .mdg-up.mdg-up-add,
+.bili-video-card:hover .mdg-ups .mdg-up.mdg-up-add,
+.mdg-ups .mdg-up.mdg-up-add:focus-visible,
+.mdg-ups .mdg-up.mdg-up-add[aria-expanded="true"] { opacity: 1; }
+.mdg-ups .mdg-up.mdg-up-add:hover,
+.mdg-ups .mdg-up.mdg-up-add:focus-visible,
+.mdg-ups .mdg-up.mdg-up-add[aria-expanded="true"] { border-color: #7c3ed1; background: transparent; color: #7c3ed1; }
+/* An UP with no tags yet: just the 「+」, without the purple rule that marks MoonDigest's chips. */
+span.mdg-ups.mdg-ups-empty[data-mid] { border-left-color: transparent; }
+html.bili_dark .mdg-ups .mdg-up.mdg-up-add:hover,
+html.bili_dark .mdg-ups .mdg-up.mdg-up-add:focus-visible,
+html.bili_dark .mdg-ups .mdg-up.mdg-up-add[aria-expanded="true"] { border-color: #cba6f7; color: #cba6f7; }

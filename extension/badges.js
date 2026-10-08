@@ -113,7 +113,72 @@
   }
   const upHidden = (mid, tagId, map) => Boolean(tagId) && !(map?.[mid] || []).includes(tagId);
 
-  globalThis.BocBadges = { bvidFromHref, badgeInfo, mergeDecisions, midFromHref, upTagsOf, firstText, spotIn, upCounts, upHidden };
+  // ---- Which UP a name belongs to, for writing tags: a link or data attribute names the UP outright; a 动态 card only
+  // has the avatar image and the name, each trusted only when exactly one followed UP has it. ----
+  const FACE_RE = /\/bfs\/face\/([^/@?#]+)/;
+  const faceKey = (url) => FACE_RE.exec(String(url || ""))?.[1].toLowerCase() || "";
+  // name -> mid and avatar file -> mid over `mids`; a key two UPs share maps to "" so it is never guessed.
+  function whoIndex(people, mids) {
+    const byName = new Map();
+    const byFace = new Map();
+    const put = (m, k, mid) => k && m.set(k, m.has(k) && m.get(k) !== mid ? "" : mid);
+    for (const mid of mids || []) {
+      const p = people?.[mid];
+      if (!p) continue;
+      put(byName, String(p.name || "").trim(), String(mid));
+      put(byFace, faceKey(p.face), String(mid));
+    }
+    return { byName, byFace };
+  }
+  function resolveMid({ href, data, face, name } = {}, idx) {
+    const id = midFromHref(href) || (/^\d+$/.test(String(data || "")) ? String(data) : "");
+    if (id || !idx) return id;
+    return idx.byFace.get(faceKey(face)) || idx.byName.get(String(name || "").trim()) || "";
+  }
+
+  // ---- The 「+」 picker's data: same tag shape, colors and name rules as the triage page's 关注 mode (triage/follow.js). ----
+  const TAG_COLORS = ["#da86c3", "#298287", "#dc6d2d", "#3590a0", "#8595ea", "#cf5c66", "#2497c6", "#cf8686", "#ce9386"];
+  const cleanTagName = (s) => String(s ?? "").replace(/[,，、]/g, "").trim().slice(0, 12);
+  const pickRows = (mid, tags, map) => {
+    const on = new Set(map?.[mid] || []);
+    return (Array.isArray(tags) ? tags : []).map((t) => ({ id: t.id, name: String(t.name || ""), color: String(t.color || ""), on: on.has(t.id) }));
+  };
+  // One change to one UP: { toggle: tagId }, or { create: name } which reuses a tag of that name and switches it on.
+  function applyUpTag(tags, map, mid, op) {
+    tags = Array.isArray(tags) ? tags : [];
+    map = { ...(map || {}) };
+    let id = op.toggle;
+    const create = op.create != null;
+    if (create) {
+      const name = cleanTagName(op.create);
+      if (!name) return null;
+      let t = tags.find((x) => x.name === name);
+      if (!t) {
+        const color = TAG_COLORS.find((c) => !tags.some((x) => x.color === c)) || TAG_COLORS[tags.length % TAG_COLORS.length];
+        t = { id: `ft${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`, name, color, rule: "" };
+        tags = [...tags, t];
+      }
+      id = t.id;
+    } else if (!tags.some((x) => x.id === id)) return null;
+    const ids = map[mid] || [];
+    const next = ids.includes(id) ? (create ? ids : ids.filter((x) => x !== id)) : [...ids, id];
+    if (next.length) map[mid] = next;
+    else delete map[mid];
+    return { tags, map, id };
+  }
+  // Reads both keys fresh (the triage page may have written since) and writes back only what changed.
+  async function saveUpTag(local, mid, op) {
+    const got = await local.get(["follow_tags", "follow_tag_map"]);
+    const r = applyUpTag(got.follow_tags, got.follow_tag_map, mid, op);
+    if (!r) return null;
+    await local.set(r.tags !== got.follow_tags ? { follow_tags: r.tags, follow_tag_map: r.map } : { follow_tag_map: r.map });
+    return r;
+  }
+
+  globalThis.BocBadges = {
+    bvidFromHref, badgeInfo, mergeDecisions, midFromHref, upTagsOf, firstText, spotIn, upCounts, upHidden,
+    faceKey, whoIndex, resolveMid, pickRows, applyUpTag, saveUpTag
+  };
   if (typeof chrome === "undefined" || !chrome.storage?.local || typeof document === "undefined") return;
 
   const SETTING = "showBiliTriageBadges";
@@ -199,17 +264,17 @@
     }
   }
 
-  // ---- UP tags: chips after author names, and the tag filter bar on the 动态 page ----
+  // ---- UP tags: chips after author names, the 「+」 tag picker, and the tag filter bar on the 动态 page ----
   const UP_SEL = 'a[href*="space.bilibili.com/"]';
-  // 动态 cards name the author without a profile link; the name is matched against follow_people.
+  // 动态 cards name the author without a profile link; the avatar file or the name is matched against follow_people.
   const NAME_SEL = ".bili-dyn-title__text, .dyn-orig-author__name";
   // A space page's own nickname; its mid is in the URL.
   const OWNER_SEL = ".upinfo .nickname, .upinfo-detail__top .nickname, #h-name";
   const MAX_UP_CHIPS = 3;
   const FILTER_KEY = "mdg-up-filter";
   let upOn = false;
-  let up = { tags: [], map: {} };
-  let byName = null; // name -> mid for tagged UPs, read from follow_people on first need
+  let up = { tags: [], map: {}, followed: new Set() };
+  let who = null; // whoIndex over followed UPs, read from follow_people on first need
   const pageOwner = () => (location.hostname === "space.bilibili.com" ? /^\/(\d+)/.exec(location.pathname)?.[1] || "" : "");
   const onFeed = () => location.hostname === "t.bilibili.com" && window === window.top;
   const readFilter = () => {
@@ -220,12 +285,19 @@
     }
   };
 
-  async function names() {
-    if (byName) return byName;
+  async function whoIs() {
+    if (who) return who;
     const people = (await chrome.storage.local.get("follow_people")).follow_people || {};
-    const m = new Map();
-    for (const mid of Object.keys(up.map)) if (up.map[mid]?.length && people[mid]?.name && !m.has(people[mid].name)) m.set(people[mid].name, mid);
-    return (byName = m);
+    return (who = whoIndex(people, up.followed.size ? [...up.followed] : Object.keys(up.map)));
+  }
+
+  // A 动态 card's author: a data attribute up to the card, else its avatar file, else its name (each only when unique).
+  function nameMid(el, idx) {
+    const card = el.closest(".dyn-orig-author, .bili-dyn-item, .bili-dyn-list__item");
+    let data = "";
+    for (let n = el; n?.nodeType === 1 && !data; n = n === card ? null : n.parentNode) data = n.getAttribute("data-mid") || n.getAttribute("data-uid") || "";
+    const face = card?.querySelector('img[src*="/bfs/face/"]')?.getAttribute("src");
+    return resolveMid({ data, face, name: el.textContent }, idx);
   }
 
   async function markUps() {
@@ -239,30 +311,32 @@
     }
     if (owner) for (const el of findAll(OWNER_SEL)) spots.push([el, owner]);
     const nameEls = findAll(NAME_SEL);
-    const items = onFeed() ? [...document.querySelectorAll(".bili-dyn-list__item")] : [];
-    const m = nameEls.length || items.length ? await names() : null;
-    for (const el of nameEls) spots.push([el, m.get(el.textContent.trim()) || ""]);
+    const idx = nameEls.length ? await whoIs() : null;
+    const byEl = new Map(nameEls.map((el) => [el, nameMid(el, idx)]));
+    for (const [el, mid] of byEl) spots.push([el, mid]);
     const writes = spots.map(([spot, mid]) => upChip(spot, mid));
-    if (onFeed()) writes.push(...feedFilter(items, m));
+    if (onFeed()) writes.push(...feedFilter(byEl));
     for (const w of writes) w?.();
   }
 
-  // Keeps, replaces or removes the chip right after `spot`; the DOM itself is the state, so a rerun changes nothing.
+  // Keeps, replaces or removes the box right after `spot`; the DOM itself is the state, so a rerun changes nothing.
+  // A followed UP (or one with tags) gets the 「+」 too, which CSS keeps hidden until the card or name is hovered.
   function upChip(spot, mid) {
     const list = upTagsOf(mid, up.tags, up.map);
+    const plus = Boolean(mid) && (list.length > 0 || up.followed.has(mid));
     const next = spot.nextSibling;
     const old = next?.nodeType === 1 && next.classList.contains("mdg-ups") ? next : null;
-    const key = list.length ? `${mid}|${list.map((t) => `${t.id}:${t.name}:${t.color}`).join(",")}` : "";
+    const key = list.length || plus ? `${mid}|${plus}|${list.map((t) => `${t.id}:${t.name}:${t.color}`).join(",")}` : "";
     if ((old?.dataset.key || "") === key) return;
     return () => {
       old?.remove();
-      if (key) spot.after(upChipEl(mid, list, key));
+      if (key) spot.after(upChipEl(spot, mid, list, key, plus));
     };
   }
 
-  function upChipEl(mid, list, key) {
+  function upChipEl(spot, mid, list, key, plus) {
     const box = document.createElement("span");
-    box.className = "mdg-ups";
+    box.className = list.length ? "mdg-ups" : "mdg-ups mdg-ups-empty";
     box.dataset.mid = mid;
     box.dataset.key = key;
     box.title = "MoonDigest 的 UP 标签 · 只存在扩展里";
@@ -278,22 +352,41 @@
       c.textContent = t.name;
       box.append(c);
     }
+    if (plus) {
+      const add = document.createElement("span");
+      add.className = "mdg-up mdg-up-add";
+      add.dataset.name = String(spot.textContent || "").trim();
+      add.setAttribute("role", "button");
+      add.tabIndex = 0;
+      add.setAttribute("aria-haspopup", "dialog");
+      // A box rebuilt while its picker is open (a tag was just toggled) hands the picker its new 「+」.
+      const open = pick?.spot === spot;
+      if (open) pick.add = add;
+      add.setAttribute("aria-expanded", String(open));
+      add.setAttribute("aria-label", `给 ${add.dataset.name} 打 UP 标签`);
+      add.title = "给这个 UP 打标签 · 只存在扩展里，不改 B站";
+      add.textContent = "+";
+      box.append(add);
+    }
     return box;
   }
 
   // The 全部 / per-tag bar above the 动态 list. A pick only adds a class to other UPs' cards, so Bilibili's own tabs,
   // its UP avatar strip and infinite scroll keep working, and newly loaded cards are filtered on the next scan.
-  function feedFilter(items, m) {
+  function feedFilter(byEl) {
     const list = document.querySelector(".bili-dyn-list");
     if (!list) return [];
+    const items = [...document.querySelectorAll(".bili-dyn-list__item")];
     let sel = readFilter();
     if (sel && !up.tags.some((t) => t.id === sel)) sel = "";
-    const mids = items.map((it) => m.get(it.querySelector(".bili-dyn-title__text")?.textContent.trim()) || "");
+    const mids = items.map((it) => byEl.get(it.querySelector(".bili-dyn-title__text")) || "");
     const counts = upCounts(mids, up.tags, up.map);
     const writes = items.map((it, i) => {
       const hide = upHidden(mids[i], sel, up.map);
       return hide !== it.classList.contains("mdg-up-hide") ? () => it.classList.toggle("mdg-up-hide", hide) : null;
     });
+    // No UP tags yet: only the 「+」s, no bar.
+    if (!up.tags.length) return writes;
     const bar = document.querySelector(".mdg-upbar");
     const key = `${sel}|${up.tags.map((t) => `${t.id}:${t.name}:${t.color}:${counts[t.id]}`).join(",")}|${counts[""]}`;
     if (bar?.dataset.key !== key || bar.nextElementSibling !== list) writes.push(() => {
@@ -339,27 +432,214 @@
   }
 
   function clearUps() {
+    closePick(false);
     findAll(".mdg-ups, .mdg-upbar").forEach((n) => n.remove());
     document.querySelectorAll(".mdg-up-hide").forEach((n) => n.classList.remove("mdg-up-hide"));
   }
 
-  // A chip sits inside the author's link: it opens the triage page's 关注 mode on that tag instead of the space page.
-  // Events from BewlyCat's shadow root reach the document retargeted to #bewly; composedPath has the chip.
+  // A chip sits inside the author's link: it opens the triage page's 关注 mode on that tag instead of the space page;
+  // the 「+」 opens the tag picker. Events from BewlyCat's shadow root reach the document retargeted to #bewly;
+  // composedPath has the chip.
   function onChip(e) {
-    if (e.type === "keydown" && e.key !== "Enter") return;
-    const chip = e.composedPath?.().find((n) => n.classList?.contains("mdg-up"));
-    if (!chip || !chrome.runtime?.id) return;
+    if (e.type === "keydown" && e.key !== "Enter" && e.key !== " ") return;
+    const path = e.composedPath?.() || [];
+    const add = path.find((n) => n.classList?.contains("mdg-up-add"));
+    const chip = add || path.find((n) => n.classList?.contains("mdg-up"));
+    if (!chip || !chrome.runtime?.id || (e.key === " " && !add)) return;
     e.preventDefault();
     e.stopPropagation();
+    if (add) return pick?.add === add ? closePick(true) : openPick(add);
     chrome.runtime.sendMessage({ type: "triage-open", hash: `follow&tag=${encodeURIComponent(chip.dataset.tag)}` }).catch(() => {});
   }
 
+  // ---- The 「+」 picker: the user's UP tags with checks, 新建标签; a click writes follow_tags / follow_tag_map at once.
+  // It lives in its own closed shadow root, so neither Bilibili's nor BewlyCat's CSS reaches it, and key events stop at
+  // its host. Nothing in it writes to Bilibili.
+  let pick = null; // { mid, spot, add, host, root, panel, rect, editing, focus }
+  const PICK_CSS = `
+:host { all: initial; }
+.pick { --bg: #fff; --text: #18191c; --muted: #9499a0; --line: #e3e5e7; --hover: #f1f2f3; --accent: #7c3ed1; --link: #00aeec;
+  position: fixed; z-index: 2147483000; box-sizing: border-box; width: 270px; max-height: calc(100vh - 16px); overflow: auto;
+  padding: 10px 8px 8px; border: 1px solid var(--line); border-left: 3px solid var(--accent); border-radius: 8px;
+  background: var(--bg); color: var(--text); box-shadow: 0 6px 24px rgba(0, 0, 0, 0.14); text-align: left;
+  font: 13px/1.5 -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif; }
+.pick.dark { --bg: #232527; --text: #e3e5e7; --muted: #8d9198; --line: #3a3d42; --hover: #303236; --accent: #cba6f7; --link: #4fc3f7;
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.5); }
+.h { margin: 0 6px 6px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.opt { display: flex; align-items: center; gap: 8px; box-sizing: border-box; width: 100%; margin: 0; padding: 5px 6px; border: 0;
+  border-radius: 6px; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.opt:hover, .opt:focus-visible { background: var(--hover); outline: none; }
+.opt:focus-visible { box-shadow: inset 0 0 0 1px var(--accent); }
+.ck { flex: none; width: 12px; font-weight: 700; }
+.dot { flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--c, var(--muted)); }
+.nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.new { margin-top: 4px; padding-top: 4px; border-top: 1px solid var(--line); }
+.new .opt { color: var(--link); }
+input { box-sizing: border-box; width: 100%; margin: 0; padding: 4px 8px; border: 1px solid var(--accent); border-radius: 6px;
+  background: transparent; color: inherit; font: inherit; outline: none; }
+.empty, .foot { margin: 2px 6px; color: var(--muted); font-size: 12px; }
+.foot { margin-top: 6px; font-size: 11px; }`;
+
+  // Bilibili's dark theme is a class on <html>; BewlyCat's follows its own setting, so the name's own text color decides.
+  function isDark(el) {
+    if (document.documentElement.classList.contains("bili_dark")) return true;
+    const m = /(\d+)\D+(\d+)\D+(\d+)/.exec(getComputedStyle(el).color || "");
+    return Boolean(m) && 0.299 * m[1] + 0.587 * m[2] + 0.114 * m[3] > 150;
+  }
+
+  function openPick(add) {
+    closePick(false);
+    const box = add.parentNode;
+    const host = document.createElement("div");
+    host.className = "mdg-tagpick-host";
+    const root = host.attachShadow({ mode: "closed" });
+    const style = document.createElement("style");
+    style.textContent = PICK_CSS;
+    const panel = document.createElement("div");
+    panel.className = isDark(box) ? "pick dark" : "pick";
+    panel.setAttribute("role", "dialog");
+    panel.setAttribute("aria-label", `给「${add.dataset.name}」打 UP 标签`);
+    root.append(style, panel);
+    // Typing a tag name must not reach page hotkeys (the player's space, arrows).
+    for (const t of ["keydown", "keyup", "keypress"]) host.addEventListener(t, (e) => e.stopPropagation());
+    panel.addEventListener("keydown", onPickKey);
+    panel.addEventListener("click", onPickClick);
+    pick = { mid: box.dataset.mid, spot: box.previousSibling, add, host, root, panel, rect: add.getBoundingClientRect(), editing: false, focus: null };
+    document.documentElement.append(host);
+    add.setAttribute("aria-expanded", "true");
+    renderPick();
+    pickFocusables()[0]?.focus();
+    document.addEventListener("pointerdown", onPickOutside, true);
+    window.addEventListener("scroll", onPickAway);
+    window.addEventListener("resize", onPickAway);
+  }
+
+  function closePick(refocus) {
+    if (!pick) return;
+    const p = pick;
+    pick = null;
+    p.host.remove();
+    document.removeEventListener("pointerdown", onPickOutside, true);
+    window.removeEventListener("scroll", onPickAway);
+    window.removeEventListener("resize", onPickAway);
+    p.add.setAttribute("aria-expanded", "false");
+    if (refocus && p.add.isConnected) p.add.focus();
+  }
+  const onPickAway = () => closePick(false);
+  function onPickOutside(e) {
+    const path = e.composedPath?.() || [];
+    if (pick && !path.includes(pick.host) && !path.includes(pick.add)) closePick(false);
+  }
+
+  function renderPick() {
+    if (!pick) return;
+    const el = (tag, cls, text) => {
+      const n = document.createElement(tag);
+      if (cls) n.className = cls;
+      if (text != null) n.textContent = text;
+      return n;
+    };
+    const was = pick.root.activeElement;
+    const focus = pick.focus ?? (was?.dataset?.id || (was?.classList?.contains("opt") ? "new" : was ? "input" : null));
+    pick.focus = null;
+    const rows = pickRows(pick.mid, up.tags, up.map);
+    const list = el("div", "list");
+    list.setAttribute("role", "menu");
+    for (const r of rows) {
+      const b = el("button", "opt");
+      b.type = "button";
+      b.dataset.id = r.id;
+      b.setAttribute("role", "menuitemcheckbox");
+      b.setAttribute("aria-checked", String(r.on));
+      const dot = el("span", "dot");
+      if (r.color) dot.style.setProperty("--c", r.color);
+      b.append(el("span", "ck", r.on ? "✓" : ""), dot, el("span", "nm", r.name));
+      list.append(b);
+    }
+    if (!rows.length) list.append(el("div", "empty", "还没有 UP 标签"));
+    const more = el("div", "new");
+    if (pick.editing) {
+      const input = el("input");
+      input.type = "text";
+      input.maxLength = 12;
+      input.placeholder = "标签名，回车新建";
+      input.setAttribute("aria-label", "新标签名");
+      more.append(input);
+    } else {
+      const b = el("button", "opt");
+      b.type = "button";
+      b.dataset.new = "";
+      b.append(el("span", "ck", "+"), el("span", "nm", "新建标签"));
+      more.append(b);
+    }
+    pick.panel.replaceChildren(el("div", "h", `给「${pick.add.dataset.name}」打标签`), list, more, el("div", "foot", "只存在 MoonDigest 里，不改 B站 · Esc 关闭"));
+    placePick();
+    const again = focus === "input" || focus === "new" ? more.firstChild : [...pickFocusables()].find((b) => b.dataset.id === focus);
+    if (focus) (again || pickFocusables()[0])?.focus();
+  }
+
+  // Under the 「+」 where it was when opened (it moves as chips are added), above it when there is no room below.
+  function placePick() {
+    const r = pick.rect;
+    const w = pick.panel.offsetWidth || 270;
+    const h = pick.panel.offsetHeight || 0;
+    pick.panel.style.left = `${Math.max(8, Math.min(r.left, innerWidth - w - 8))}px`;
+    pick.panel.style.top = `${r.bottom + 6 + h > innerHeight - 8 ? Math.max(8, r.top - h - 6) : r.bottom + 6}px`;
+  }
+
+  const pickFocusables = () => (pick ? pick.panel.querySelectorAll(".opt, input") : []);
+
+  function onPickKey(e) {
+    if (e.key === "Escape") {
+      e.preventDefault();
+      return closePick(true);
+    }
+    const all = [...pickFocusables()];
+    const i = all.indexOf(pick.root.activeElement);
+    if (e.key === "ArrowDown" || e.key === "ArrowUp" || e.key === "Tab") {
+      // Tab stays inside the picker like a dialog; Esc is the way out.
+      e.preventDefault();
+      const step = e.key === "ArrowUp" || (e.key === "Tab" && e.shiftKey) ? -1 : 1;
+      all[(i + step + all.length) % all.length]?.focus();
+    } else if (e.key === "Enter" && e.target.tagName === "INPUT") {
+      e.preventDefault();
+      pickWrite({ create: e.target.value });
+    }
+  }
+
+  function onPickClick(e) {
+    const b = e.target.closest?.(".opt");
+    if (!b) return;
+    if (b.dataset.id) return pickWrite({ toggle: b.dataset.id });
+    pick.editing = true;
+    pick.focus = "input";
+    renderPick();
+  }
+
+  // Writes at once; every box of this UP on the page and the 动态 bar counts redraw right away, not after the debounce.
+  async function pickWrite(op) {
+    if (!pick || !chrome.runtime?.id) return;
+    const r = await saveUpTag(chrome.storage.local, pick.mid, op).catch(() => null);
+    if (!r) return;
+    up = { ...up, tags: r.tags, map: r.map };
+    upOn = true;
+    if (pick) {
+      pick.editing = false;
+      pick.focus = r.id;
+    }
+    renderPick();
+    run().catch(() => {});
+  }
+
   async function loadUps() {
-    const got = await chrome.storage.local.get(["follow_tags", "follow_tag_map"]);
-    up = { tags: Array.isArray(got.follow_tags) ? got.follow_tags : [], map: got.follow_tag_map || {} };
-    byName = null;
-    upOn = up.tags.length > 0 && Object.values(up.map).some((ids) => ids?.length);
+    const got = await chrome.storage.local.get(["follow_tags", "follow_tag_map", "follow_list"]);
+    const list = got.follow_list?.list;
+    up = { tags: Array.isArray(got.follow_tags) ? got.follow_tags : [], map: got.follow_tag_map || {}, followed: new Set(Array.isArray(list) ? list.map(String) : []) };
+    who = null;
+    // Tags to show, or followed UPs to offer the 「+」 for.
+    upOn = (up.tags.length > 0 && Object.values(up.map).some((ids) => ids?.length)) || up.followed.size > 0;
     if (!upOn) clearUps();
+    else renderPick();
     setEnabled(triageOn || seenCfg.on || upOn);
     schedule();
   }
@@ -631,9 +911,9 @@
   const readSettings = () => chrome.storage.sync.get({ [SETTING]: true, ...SEEN_DEFAULTS }).then(applySettings).catch(() => {});
 
   chrome.storage.onChanged.addListener((changes, area) => {
-    if (area === "local" && (changes.follow_tags || changes.follow_tag_map)) loadUps().catch(() => {});
+    if (area === "local" && (changes.follow_tags || changes.follow_tag_map || changes.follow_list)) loadUps().catch(() => {});
     else if (area === "local" && changes.follow_people && upOn) {
-      byName = null;
+      who = null;
       schedule();
     }
     if (area === "sync" && (SETTING in changes || Object.keys(SEEN_DEFAULTS).some((k) => k in changes))) readSettings();
