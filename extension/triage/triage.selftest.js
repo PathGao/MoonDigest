@@ -755,7 +755,14 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     { id: "BV700", add: ["id:ga"], remove: [] },
     { id: "BV701", add: ["id:ga", "id:gb"], remove: [] },
     { id: "BV702", add: ["new:C"], remove: ["ga"] }] };
-  assert.deepStrictEqual(plain(vm.runInContext("tallyNow", ctx)(gp).map((x) => `${x.text} ${x.n}`)), ["+ A 2", "+ B 1", "+ C 1", "− A 1"]);
+  // What tag-dialogs.js's review computes from the adapter: the changes 应用 would make, summed per tag.
+  const preview = (p) => {
+    const a = vm.runInContext("aiTags", ctx);
+    const U = ctx.TriageUi;
+    const changes = U.aiChanges(p, a.map(), a.live(), (key) => U.previewId(p, key, a.tags()));
+    return { changes, tally: U.aiTally(p, changes, a.tagName).map((x) => `${x.text} ${x.n}`) };
+  };
+  assert.deepStrictEqual(plain(preview(gp).tally), ["+ A 2", "+ B 1", "+ C 1", "− A 1"]);
   t.S.ai.proposal = gp;
   t.applyAiProposal();
   assert.deepStrictEqual([plain(t.S.aiRecent.K.bvids), t.S.aiRecentFilter], [["BV700", "BV701", "BV702"], true], "applying shows the batch");
@@ -784,8 +791,8 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     { id: "BV721", add: ["id:na"], remove: [] },
     { id: "BV722", add: ["id:na"], remove: [] },
     { id: "BV723", add: ["new:F"], remove: [] }] };
-  assert.strictEqual(vm.runInContext("aiTags", ctx).changes(t.S.ai.proposal).length, 2, "no-op rows are not counted");
-  assert.deepStrictEqual(plain(vm.runInContext("tallyNow", ctx)(t.S.ai.proposal).map((x) => `${x.text} ${x.n}`)), ["+ A 1", "+ F 1"], "no entry for a cleared name");
+  assert.strictEqual(preview(t.S.ai.proposal).changes.length, 2, "no-op rows are not counted");
+  assert.deepStrictEqual(plain(preview(t.S.ai.proposal).tally), ["+ A 1", "+ F 1"], "no entry for a cleared name");
   t.S.settings.triageTagLimit = 2;
   toasts.length = 0;
   t.applyAiProposal();

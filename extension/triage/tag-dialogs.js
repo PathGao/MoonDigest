@@ -71,8 +71,10 @@
   // tags(), scopes() → [{ value, label, n }] (filter / selected / …), scopeText(scope), roomHint() (html: how many new
   // tags the AI may make), blocked() ("" or why it cannot run here now), history(), allowRemove(), setAllowRemove?(on)
   // → saved?, running(), proposal(), run({ instruction, scope, allowRemove }) (sets running before its first await),
-  // stop(), discard(), apply(), changes(p) → [[id, before, after]], tally(p, changes), uses(p, newTag) → n, manage (the
-  // mode's 标签管理 adapter, for the link) }.
+  // stop(), discard(), apply(), map() (item id → tag ids), live() (has(id): still in the folder / still followed),
+  // tagName(id), manage (the mode's 标签管理 adapter, for the link) }.
+  // The review counts what 应用 would change now, new tags standing in by name (UI.previewId).
+  const changesOf = (a, p) => UI.aiChanges(p, a.map(), a.live(), (key) => UI.previewId(p, key, a.tags()));
   let ai = null;
   const progressOf = new Map(); // adapter → its run's progress line, kept while the dialog is closed
   const scopeSel = $("aiScope");
@@ -132,11 +134,12 @@
   function renderReview(p) {
     const a = ai;
     const who = sp(a.who);
+    const live = a.live();
     $("aiNotes").innerHTML = p.errors.map((e) => `<p class="fail-text">${esc(e)}</p>`).join("") + p.notes.map((n) => `<p class="muted">AI 说明：${esc(n)}</p>`).join("");
     $("aiNewTagsHead").hidden = !p.newTags.length;
     $("aiNewTags").innerHTML = p.newTags
       .map((t, i) => {
-        const n = a.uses(p, t);
+        const n = p.rows.filter((r) => live.has(r.id) && r.add.includes(`new:${t.key}`)).length;
         return `<div class="ai-newtag" data-i="${i}">
       <input type="checkbox" data-nt="checked"${t.checked ? " checked" : ""} aria-label="创建标签 ${esc(t.name)}" />
       <input type="text" data-nt="name" value="${esc(t.name)}" maxlength="12" aria-label="新标签名称" />
@@ -151,10 +154,10 @@
   function renderTally(p) {
     const a = ai;
     const who = sp(a.who);
-    const changes = a.changes(p);
+    const changes = changesOf(a, p);
     const newN = p.newTags.filter((t) => t.checked && cleanTagName(t.name)).length;
     $("aiReviewSummary").textContent = `· ${changes.length} 个${who}有改动 · 新标签 ${newN} 个 · 点「应用」前不会改动任何东西`;
-    const tally = a.tally(p, changes);
+    const tally = UI.aiTally(p, changes, a.tagName);
     $("aiRows").innerHTML = tally.length
       ? `<div class="chips">${tally.map((t) => `<span class="chip ${t.cls}">${esc(t.text)} <b>${t.n}</b></span>`).join("")}</div>`
       : `<p class="empty">AI 没有提出改动</p>`;

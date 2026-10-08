@@ -3159,9 +3159,9 @@ const aiTags = {
     renderTop();
   },
   apply: () => applyAiProposal(),
-  changes: (p) => rowChanges(p),
-  tally: (p) => tallyNow(p),
-  uses: (p, t) => p.rows.filter((r) => S.itemMap.has(r.id) && r.add.includes(`new:${t.key}`)).length
+  map: () => S.videoTags,
+  live: () => S.itemMap,
+  tagName: (id) => tagById(id)?.name
 };
 const openAi = () => TagDialogs.ai.open(aiTags);
 
@@ -3241,8 +3241,6 @@ async function runAiCommand({ instruction, scope, allowRemove }) {
 }
 
 // What a proposal changes (shared.js); a video that left the folder since keeps its tags.
-const rowChanges = (p, idOf = (key) => UI.previewId(p, key, viewTags())) => UI.aiChanges(p, S.videoTags, S.itemMap, idOf);
-const tallyNow = (p) => UI.aiTally(p, rowChanges(p), (id) => tagById(id)?.name);
 
 function applyAiProposal() {
   const p = S.ai.proposal;
@@ -3253,7 +3251,7 @@ function applyAiProposal() {
     if (t.checked && cleanTagName(t.name)) idFor[t.key] = createTag(t.name)?.id;
   }
   const changes = []; // [{ bvid, before }]: what U puts back
-  for (const [bvid, before, after] of rowChanges(p, (key) => idFor[key])) {
+  for (const [bvid, before, after] of UI.aiChanges(p, S.videoTags, S.itemMap, (key) => idFor[key])) {
     writeVideoTags(bvid, after);
     changes.push({ bvid, before });
   }

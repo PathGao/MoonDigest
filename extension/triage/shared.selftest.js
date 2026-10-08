@@ -98,13 +98,13 @@ assert.ok(UI.cardTagChip({ id: "t1", name: "<b>", color: "#fff" }, "点一下去
   assert.deepStrictEqual(tally, [{ cls: "add", text: "+ 美食", n: 3 }, { cls: "remove", text: "− 科普", n: 1 }]);
 }
 
-// Both modes take the proposal functions from here and keep no copy of their own.
-for (const file of ["triage.js", "follow.js"]) {
+// Both modes take the proposal functions from here and keep no copy of their own; the review page's counts
+// (changes before 应用, the tally, 用在 N 个) are tag-dialogs.js's alone, from the adapter's map / live / tagName.
+for (const [file, fns] of [["triage.js", ["mergeAiBatch", "aiChanges"]], ["follow.js", ["mergeAiBatch", "aiChanges"]], ["tag-dialogs.js", ["aiChanges", "aiTally", "previewId"]]]) {
   const src = fs.readFileSync(path.join(__dirname, file), "utf8");
-  for (const fn of ["mergeAiBatch", "aiChanges", "aiTally", "previewId"]) {
-    assert.ok(!new RegExp(`(function|const|let) ${fn}\\b`).test(src), `${file} has its own ${fn}`);
-    assert.ok(src.includes(`UI.${fn}(`), `${file} calls the shared ${fn}`);
-  }
+  for (const fn of [...fns, "aiTally", "previewId"]) assert.ok(!new RegExp(`(function|const|let) ${fn}\\b`).test(src), `${file} has its own ${fn}`);
+  for (const fn of fns) assert.ok(src.includes(`UI.${fn}(`), `${file} calls the shared ${fn}`);
+  if (file !== "tag-dialogs.js") assert.ok(!/UI\.(aiTally|previewId)\(|\b(changes|tally|uses): \(p/.test(src), `${file} counts the review itself`);
 }
 
 // Keys from the viewer frame: only that frame, only B站's origin, only T / Esc.

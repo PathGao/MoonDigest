@@ -1227,9 +1227,9 @@ const aiTags = {
     renderAiState();
   },
   apply: () => applyAi(),
-  changes: (p) => changesNow(p),
-  tally: (p, changes) => UI.aiTally(p, changes, (id) => tagOf(id)?.name),
-  uses: (p, t) => p.rows.filter((r) => r.add.includes(`new:${t.key}`)).length
+  map: () => D.map,
+  live: () => new Set(following()),
+  tagName: (id) => tagOf(id)?.name
 };
 
 // instruction, scope and allowRemove come from the dialog, which has checked that there is an instruction and UP 主.
@@ -1263,7 +1263,6 @@ async function runAi({ instruction, scope, allowRemove }) {
   else toast(proposal ? "AI 打标签已完成，在状态栏点「查看」确认" : `AI 打标签没有成功：${errors.at(-1)}`, !proposal);
 }
 
-const changesNow = (p) => UI.aiChanges(p, D.map, new Set(following()), (key) => UI.previewId(p, key, D.tags));
 
 async function applyAi() {
   const p = AI.proposal;
