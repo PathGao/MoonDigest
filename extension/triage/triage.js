@@ -350,7 +350,7 @@ const el = {};
   "titleMaxHint", "analyzeMaxInput", "analyzeMaxHint", "settingsError", "csvBtn", "confirmDialog",
   "confirmTitle", "confirmBody", "confirmOk",
   "criteriaDialog", "criteriaTitle", "criteriaInput", "helpDialog",
-  "biliBtn", "main", "viewer", "viewerTitle", "viewerNextBtn", "viewerFocusBtn", "viewerTabBtn", "viewerCloseBtn", "viewerFrame", "viewerTags",
+  "biliBtn", "main", "viewer", "viewerCloseBtn", "viewerFrame", "viewerTags",
   "tools", "writeBtn", "writeDialog", "writeScope", "writeFormat", "writeScopeCount", "writeOverwriteRow", "writeOverwrite", "writeProgress", "writeFailed", "writeStopBtn", "writeCopyBtn", "writeRunBtn", "writeMdBtn"
 ].forEach((id) => (el[id] = $(id)));
 
@@ -3276,7 +3276,7 @@ function toggleBasket(bvid) {
   render();
 }
 
-// The list keeps the order videos were added in. Opening one only marks it; only 已看 removes it —
+// The list keeps the order videos were added in. Opening one only marks it; only 移除 removes it —
 // opening a video isn't watching it.
 function openBasketItem(i) {
   const x = S.basket[i];
@@ -3286,17 +3286,7 @@ function openBasketItem(i) {
   openViewer(x);
 }
 
-// 已看，下一个 in the viewer: the playing video leaves the list and the next one takes its place.
-function basketDoneAndNext() {
-  removeBasketItems([S.basket.findIndex((x) => x.bvid === S.viewing)]);
-  if (S.basket.length) openBasketItem(Math.max(0, S.basket.findIndex((x) => !x.opened)));
-  else {
-    closeViewer();
-    toast("播放列表已经看完了");
-  }
-}
-
-// 已看 and 清空 take videos out of the list, nothing else; favorites and decisions are untouched. U puts them back.
+// 移除 and 清空 take videos out of the list, nothing else; favorites and decisions are untouched. U puts them back.
 function removeBasketItems(indexes) {
   const removed = indexes.filter((i) => S.basket[i]).sort((a, b) => a - b).map((i) => ({ i, x: S.basket[i] }));
   if (!removed.length) return;
@@ -3328,13 +3318,12 @@ function renderBasket() {
         <span class="basket-text"><span class="basket-title">${title}</span>${meta || x.opened ? `<span class="muted">${[meta, x.opened && "已打开"].filter(Boolean).join(" · ")}</span>` : ""}</span>
       </button>
       <div class="basket-actions">
-        <button type="button" data-basket="done" aria-label="已看，移出 ${title}">已看</button>
+        <button type="button" data-basket="remove" aria-label="从播放列表移除 ${title}" title="从播放列表移除">移除</button>
       </div>
       ${note ? `<div class="muted basket-note">${esc(note)}</div>` : ""}
     </div>`;
     })
     .join("");
-  el.viewerNextBtn.hidden = !S.basket.some((x) => x.bvid === S.viewing);
 }
 
 function mdLinkText(s) {
@@ -3850,10 +3839,6 @@ function bindEvents() {
         : `https://space.bilibili.com/${S.mid}${inFolderView() ? `/favlist?fid=${S.mediaId}&ftype=create` : ""}`
     )
   );
-  el.viewerNextBtn.addEventListener("click", basketDoneAndNext);
-  el.viewerTabBtn.addEventListener("click", () => openTab(videoUrl(S.viewing)));
-  // The viewer frame is the only one in this tab running content.js, so this reaches it like the popup's 专注模式.
-  el.viewerFocusBtn.addEventListener("click", () => chrome.tabs.sendMessage(ownTabId, { type: "popup-trigger-reading-view" }).catch(() => toast("视频页还没加载好，稍后再试", true)));
 
   el.settingsBtn.addEventListener("click", () => openSettings());
   for (const input of [el.thinkingInput, el.batchSizeInput, el.titleMaxInput, el.analyzeMaxInput]) {
@@ -3974,7 +3959,10 @@ function bindEvents() {
     if (!act) return;
     const i = Number(e.target.closest(".basket-item").dataset.i);
     if (act === "open") openBasketItem(i);
-    else if (act === "done") removeBasketItems([i]);
+    else if (act === "remove") {
+      removeBasketItems([i]);
+      toast("已从播放列表移除 · U 撤销");
+    }
   });
 }
 
@@ -4030,7 +4018,6 @@ function openSettings(scrollToLimits = false, firstRun = false) {
 
 function openViewer(it) {
   S.viewing = it.bvid;
-  el.viewerTitle.textContent = it.title;
   el.viewerFrame.src = videoUrl(it.bvid);
   el.viewer.hidden = false;
   el.main.classList.add("viewing");

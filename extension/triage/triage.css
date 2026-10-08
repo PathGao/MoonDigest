@@ -546,9 +546,14 @@ dialog h3 { margin: 8px 0 0; font-size: var(--fs-sm); font-weight: 600; }
 .viewer-line { --row-label-w: 4.5em; padding-left: calc(12px + var(--row-label-w) + 8px); }
 .viewer-line > .row-label { margin-left: calc(-1 * var(--row-label-w) - 8px); font-size: inherit; line-height: inherit; }
 .viewer-line .chip[data-pick], .viewer-line .chip[data-vtag] { cursor: pointer; }
-.viewer { display: flex; flex-direction: column; min-height: 0; min-width: 0; background: var(--surface); border: 1px solid var(--border); border-radius: 9px; overflow: hidden; }
-.viewer-head { display: flex; align-items: center; gap: 6px; padding: 6px 6px 6px 12px; border-bottom: 1px solid var(--border); }
-.viewer-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--fs-sm); }
+.viewer { display: flex; flex-direction: column; min-height: 0; min-width: 0; margin-top: 8px; background: var(--surface); border: 1px solid var(--border); border-radius: 9px; overflow: hidden; }
+/* No top bar. × rides on the panel's top-right corner, half outside (its own grid item, so .viewer's overflow does not
+   clip it); the lines keep their right end clear of it. The panel starts 8px down, as the list's first card does, so
+   the × clears row 4's buttons. */
+.viewer-close { grid-area: viewer; justify-self: end; align-self: start; z-index: 2; width: 28px; height: 28px; margin: -6px -14px 0 0; padding: 0; border-radius: 50%; box-shadow: var(--lift); color: var(--text-2); font-size: 18px; line-height: 1; }
+.viewer-close:hover { background: var(--surface); color: var(--text); }
+#viewer[hidden] + .viewer-close { display: none; }
+.viewer-line { padding-right: 28px; }
 .viewer-frame { flex: 1; width: 100%; border: 0; background: #fff; }
 
 /* 播放列表: a pill over the bottom of the list that opens upward into the queue */

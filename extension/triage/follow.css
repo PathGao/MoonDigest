@@ -6,7 +6,7 @@
 .mode-switch button { height: 30px; padding: 0 14px; font-size: var(--fs-md); }
 
 /* ---------- 关注 mode hides the folder view; each mode keeps its own rows, the top bar is shared ---------- */
-body.follow-mode :is(.shell > .side:not(.follow-side), .main > .folder-head, .main > .tabrow, .main > .listpane, #folderSelect, #viewerNextBtn, .fav-help) { display: none !important; }
+body.follow-mode :is(.shell > .side:not(.follow-side), .main > .folder-head, .main > .tabrow, .main > .listpane, #folderSelect, .fav-help) { display: none !important; }
 body:not(.follow-mode) :is(.fw-side-slot, .follow-help) { display: none !important; }
 .follow-main { display: contents; }
 #fwExportBtn { anchor-name: --fw-export; }

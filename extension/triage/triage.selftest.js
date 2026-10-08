@@ -231,7 +231,7 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   const csvRows = t.buildCsv().replace(/^\uFEFF/, "").split("\r\n");
   assert.ok(csvRows[1].startsWith("'+夹,BV5,'=cmd|' /C calc'!A0,'@up,"), csvRows[1]);
 
-  // 播放列表: E adds in order, 已看 removes without touching decisions.
+  // 播放列表: E adds in order, 移除 removes without touching decisions.
   openFake("P", [item(1), item(2), item(3)], { BV2: { action: "keep", at: 1 } });
   t.S.basket = [{ bvid: "BVgone", title: "别的收藏夹" }];
   for (const b of ["BV1", "BV2", "BV3"]) t.toggleBasket(b);
@@ -239,14 +239,18 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   t.removeBasketItems([2]);
   t.toggleBasket("BV1");
   assert.deepStrictEqual(plain(store[t.K.basket].map((x) => x.bvid)), ["BVgone", "BV3"]);
-  assert.deepStrictEqual(plain(t.S.decisions), { BV2: { action: "keep", at: 1 } }, "已看 leaves decisions alone");
-  // 已看，下一个 takes the playing one out and opens the next, leaving no mark behind; U puts it back.
-  t.S.viewing = "BVgone";
-  t.basketDoneAndNext();
-  assert.deepStrictEqual([plain(store[t.K.basket].map((x) => x.bvid)), t.S.viewing], [["BV3"], "BV3"]);
-  assert.ok(!("triage_watched" in store), "已看 writes no 优先看过 mark");
+  assert.deepStrictEqual(plain(t.S.decisions), { BV2: { action: "keep", at: 1 } }, "移除 leaves decisions alone");
+  // 移除 takes one out, leaving no mark behind; U puts it back.
+  t.removeBasketItems([0]);
+  assert.deepStrictEqual(plain(store[t.K.basket].map((x) => x.bvid)), ["BV3"]);
+  assert.ok(!("triage_watched" in store), "移除 writes no 优先看过 mark");
   await t.undo();
-  assert.deepStrictEqual(plain(store[t.K.basket].map((x) => x.bvid)), ["BVgone", "BV3"], "U puts 已看 back in place");
+  assert.deepStrictEqual(plain(store[t.K.basket].map((x) => x.bvid)), ["BVgone", "BV3"], "U puts 移除 back in place");
+  // Each item's button is 移除, not 已看: the list is a queue with no watched state.
+  t.S.viewing = "";
+  t.renderBasket();
+  assert.ok(t.el.basketList.innerHTML.includes('data-basket="remove" aria-label="从播放列表移除 ') && t.el.basketList.innerHTML.includes('title="从播放列表移除">移除</button>') && !t.el.basketList.innerHTML.includes("已看"), "播放列表 says 移除");
+  for (const f of ["triage.html", "../../README.md"]) assert.ok(!/「已看」/.test(fs.readFileSync(path.join(__dirname, f), "utf8")), `${f} still says 「已看」`);
   // 清空 empties the list in one undoable step.
   t.clearBasket();
   assert.deepStrictEqual([plain(store[t.K.basket]), toasts.at(-1)], [[], "已清空播放列表 2 个 · U 撤销"]);
@@ -1991,6 +1995,34 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     const wait = () => new Promise((r) => setTimeout(r, 20));
     const key = (k, target, o = {}) => ({ key: k, target, isComposing: false, keyCode: 0, prevented: 0, preventDefault() { this.prevented++; }, ...o });
     const field = (sel, value = "") => ({ value, matches: (s) => s.split(", ").includes(sel), closest: () => ({ dataset: { bvid: "BV1" } }) });
+
+    // The player has no top bar; its only control is the round × on the corner (outside #viewer), and Esc.
+    {
+      const html = fs.readFileSync(path.join(__dirname, "triage.html"), "utf8");
+      const viewer = html.slice(html.indexOf('<aside id="viewer"'), html.indexOf("</aside>", html.indexOf('<aside id="viewer"')));
+      assert.ok(viewer && !/viewer-head|viewerTitle|viewerFocusBtn|viewerTabBtn|专注模式|在 B站打开/.test(viewer), "no top bar in the player");
+      // No 已看，下一个 either: the 播放列表 panel's 移除 and 清空 take videos out.
+      for (const f of ["triage.html", "triage.js", "follow.css", "../../README.md"]) {
+        assert.ok(!/已看，下一个|viewerNextBtn|viewerBasket|basketDoneAndNext/.test(fs.readFileSync(path.join(__dirname, f), "utf8")), `${f} still has 已看，下一个`);
+      }
+      assert.ok(!/viewer-head/.test(fs.readFileSync(path.join(__dirname, "triage.css"), "utf8")), "no top bar CSS");
+      assert.ok(/<\/aside>\s*<!--[^>]*-->\s*<button id="viewerCloseBtn" type="button" class="viewer-close" aria-label="关闭播放（Esc）" title="关闭播放（Esc）">×<\/button>/.test(html), "× right after #viewer, labeled");
+      openFake("A", [item(1)]);
+      t.openViewer(t.S.itemMap.get("BV1"));
+      fire("viewerCloseBtn", "click");
+      assert.strictEqual(t.S.viewing, "", "× closes the player");
+      t.openViewer(t.S.itemMap.get("BV1"));
+      t.onKey(key("Escape", {}));
+      assert.strictEqual(t.S.viewing, "", "Esc closes the player");
+      // 播放列表's 移除: out of the list, a toast that says so, U puts it back.
+      t.S.basket = [{ bvid: "BV1" }, { bvid: "BV2" }];
+      const btn = { closest: (s) => (s === "[data-basket]" ? { dataset: { basket: "remove" } } : { dataset: { i: "0" } }) };
+      fire("basketList", "click", { target: btn });
+      assert.deepStrictEqual([t.S.basket.map((x) => x.bvid), toasts.at(-1)], [["BV2"], "已从播放列表移除 · U 撤销"]);
+      await t.undo();
+      assert.deepStrictEqual(t.S.basket.map((x) => x.bvid), ["BV1", "BV2"], "U puts it back");
+      t.S.basket = [];
+    }
     openFake("A", [item(1)]);
 
     // The tag row: 标签管理 opens 标签管理, ✦ AI 打标签 opens AI 打标签, each its own dialog.
