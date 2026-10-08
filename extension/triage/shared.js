@@ -168,6 +168,37 @@
   const sideFoot = ({ settingsAttrs, settingsLabel }) =>
     `<div class="side-foot"><button type="button" class="side-item side-settings" ${settingsAttrs}>${ICON.gear}${esc(settingsLabel)}</button></div>`;
 
+  // ----- tags: both modes' 标签管理 and the 「+ 标签」 button (the picker itself is tag-picker.js) -----
+  // Catppuccin Latte accents (desaturated); chips keep --text on top, so these are only borders and tints.
+  // Mauve, blue, green, red and yellow are left out: they mean where-you-are, next step, keep, delete and pending.
+  const TAG_COLORS = ["#da86c3", "#298287", "#dc6d2d", "#3590a0", "#8595ea", "#cf5c66", "#2497c6", "#cf8686", "#ce9386"];
+  // A new tag's color: the first one no tag in the list has, so deleting a tag frees its color.
+  const nextTagColor = (tags) => TAG_COLORS.find((c) => !tags.some((t) => t.color === c)) || TAG_COLORS[tags.length % TAG_COLORS.length];
+  // 管理's color button: the next color in the palette.
+  const cycleTagColor = (color) => TAG_COLORS[(TAG_COLORS.indexOf(color) + 1) % TAG_COLORS.length];
+  // Why name cannot be a tag among others (the list it would join, itself left out), or "".
+  const tagNameError = (name, others) => (!name ? "标签名不能为空" : others.some((t) => t.name === name) ? "已有同名标签" : "");
+  // who is 视频 or UP 主; a Latin word gets a space before it (「个 UP 主」, 「个视频」).
+  const sp = (who) => (/^[A-Za-z]/.test(who) ? ` ${who}` : who);
+  // The delete confirm's title and body.
+  const deleteTagAsk = (t, n, who) => [`删除标签「${t.name}」？`, `<p>将从 ${n} 个${sp(who)}上去掉这个标签，无法撤销。</p>`];
+  // One row of 管理: color, name, the line for the AI, how many carry it, 删除. Edits save on change.
+  const tagRowHtml = (t, { count, who }) => `<div class="tag-row" data-id="${esc(t.id)}">
+      <button type="button" class="tag-color" style="--c:${esc(t.color)}" data-tag-color title="换一个颜色" aria-label="换 ${esc(t.name)} 的颜色"></button>
+      <input type="text" value="${esc(t.name)}" data-field="name" maxlength="12" aria-label="标签名称" />
+      <input type="text" value="${esc(t.rule || "")}" data-field="rule" maxlength="80" placeholder="什么样的${esc(sp(who))}打这个标签（给 AI 看，可不写）" aria-label="${esc(t.name)} 的说明" />
+      <span class="muted">${count} 个${esc(sp(who))}</span>
+      <button type="button" class="danger" data-tag-del aria-label="删除标签 ${esc(t.name)}">删除</button>
+    </div>`;
+  // 「+ 标签 T」 on 动态 cards and the viewer line; attrs say what it tags.
+  const tagPlusBtn = (attrs, label) =>
+    `<button type="button" class="link tag-plus" ${attrs} aria-label="${esc(label)}">+ 标签 <kbd class="k-faint" aria-hidden="true">T</kbd></button>`;
+  // T / Esc forwarded by viewer-frame.js while focus is in the player: only from the viewer's own frame and B站's origin.
+  function viewerKeyFrom(e, frameWin) {
+    const ok = frameWin && e.source === frameWin && e.origin === "https://www.bilibili.com" && e.data?.type === "mdg-viewer-key";
+    return ok && ["t", "Escape"].includes(e.data.key) ? e.data.key : "";
+  }
+
   // An empty list with a title, why it is empty, and what to do (actionHtml, usually 刷新).
   const emptyState = (title, text, actionHtml = "") =>
     `<div class="empty-state"><p><strong>${esc(title)}</strong></p>${text ? `<p class="dialog-hint">${esc(text)}</p>` : ""}${actionHtml}</div>`;
@@ -274,5 +305,5 @@
     return [...tally.values()].sort((a, b) => (a.cls === "remove") - (b.cls === "remove") || b.n - a.n);
   }
 
-  globalThis.TriageUi = { esc, pad, fmtDate, fmtDuration, fmtCount, cleanTagName, plainClick, img, toCsv, cardTagChip, syncedText, headMeta, titleHtml, ICON, AI_SPARK, byValue, dirWords, sortControl, filterBtn, searchBox, resultCount, rowButtons, menuItem, BACKUP_ITEM, activityHtml, setActivity, waitText, syncPill, setSync, bindSync, tagButtons, sideFoot, emptyState, fillSetRows, mergeAiBatch, aiChanges, previewId, aiTally };
+  globalThis.TriageUi = { esc, pad, fmtDate, fmtDuration, fmtCount, cleanTagName, plainClick, img, toCsv, cardTagChip, syncedText, headMeta, titleHtml, ICON, AI_SPARK, byValue, dirWords, sortControl, filterBtn, searchBox, resultCount, rowButtons, menuItem, BACKUP_ITEM, activityHtml, setActivity, waitText, syncPill, setSync, bindSync, tagButtons, sideFoot, emptyState, fillSetRows, mergeAiBatch, aiChanges, previewId, aiTally, TAG_COLORS, nextTagColor, cycleTagColor, tagNameError, deleteTagAsk, tagRowHtml, tagPlusBtn, viewerKeyFrom };
 })();
