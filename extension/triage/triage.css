@@ -530,6 +530,8 @@ dialog :is(p, div):empty { display: none; }
   .tag-row [data-field="rule"] { grid-column: 1 / -1; grid-row: 2; }
 }
 .tag-row .muted { text-align: right; font-size: var(--fs-xs); }
+/* 关注's 分组管理 in the same dialog: name, count, 删除. */
+.tag-row.group-row { grid-template-columns: minmax(0, 1fr) 6em auto; }
 .tag-add { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 .tag-add input { flex: 1; min-width: 120px; }
 dialog h3 { margin: 8px 0 0; font-size: var(--fs-sm); font-weight: 600; }
