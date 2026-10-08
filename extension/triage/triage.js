@@ -2299,8 +2299,8 @@ async function undo() {
     toast("已撤销标签修改");
     S.focused = entry.bvid;
   } else if (entry.kind === "aiApply") {
-    // Every video the batch changed goes back to before it, edits made since included.
-    for (const c of entry.changes) writeVideoTags(c.bvid, c.before);
+    // Every video the batch changed goes back to before it, edits made since included; a tag deleted since stays gone.
+    for (const c of entry.changes) writeVideoTags(c.bvid, c.before.filter((id) => tagById(id)));
     const used = new Set(Object.values(S.videoTags).flat());
     S.tags = S.tags.filter((t) => !entry.created.includes(t.id) || used.has(t.id));
     for (const id of [...S.tagFilter]) if (!tagById(id)) S.tagFilter.delete(id);

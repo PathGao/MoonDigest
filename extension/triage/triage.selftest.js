@@ -632,10 +632,12 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   t.S.ai.proposal = { newTags: [], notes: [], errors: [], rows: [{ bvid: "BV721", add: ["id:na"], remove: [] }] };
   t.applyAiProposal();
   assert.strictEqual(t.S.undo.at(-1), batchA, "a batch that changed nothing pushes no undo");
-  // Another tab ran batch B since: U on A keeps B's 「AI 刚打的」.
+  // Another tab ran batch B and deleted tag nb since: U on A keeps B's 「AI 刚打的」 and does not bring the deleted tag back.
   t.S.aiRecent.K = { at: t.S.aiRecent.K.at + 1, bvids: ["BV723"] };
+  t.S.tags = t.S.tags.filter((x) => x.id !== "nb");
   await t.undo();
   assert.deepStrictEqual(plain(t.S.aiRecent.K.bvids), ["BV723"], "undoing A leaves the newer batch B");
+  assert.strictEqual(t.S.videoTags.BV722, undefined, "a tag deleted since is not written back");
   Object.assign(t.S, { tags: [], videoTags: {}, aiRecent: {}, aiRecentFilter: false });
   openFake("K", [item(600), item(601)]);
 
