@@ -359,8 +359,7 @@ html[data-seen-style="veil"] .cover-wrap.seen .seen-veil { display: flex; }
 .badge.keep { background: var(--ok-bg); color: var(--ok); }
 .badge.unsure { background: var(--warn-bg); color: var(--warn); }
 .badge .ai-mark { margin-right: 3px; font-size: 0.8em; font-weight: 500; opacity: 0.7; }
-.badge.watched { border: 0; background: var(--surface-muted); color: var(--text-2); cursor: pointer; }
-/* A card's tag: one click takes it off (like 优先看过×); the × stays faint until the pointer is on it. */
+/* A card's tag: one click takes it off; the × stays faint until the pointer is on it. */
 /* Padding (taken back by the margin, so the text stays put) gives the hover tint and the focus ring room off the letters. */
 .card-body > .chips .chip.card-tag { margin: 0 -4px; padding: 0 4px; border-radius: 4px; cursor: pointer; font: inherit; }
 .card-body > .chips .chip.card-tag:hover { background: color-mix(in srgb, var(--c) 12%, transparent); }
@@ -517,7 +516,7 @@ dialog h3 { margin: 8px 0 0; font-size: var(--fs-sm); font-weight: 600; }
 .viewer-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--fs-sm); }
 .viewer-frame { flex: 1; width: 100%; border: 0; background: #fff; }
 
-/* 优先看: a pill over the bottom of the list that opens upward into the queue */
+/* 播放列表: a pill over the bottom of the list that opens upward into the queue */
 .basket {
   grid-area: list;
   align-self: end;
@@ -552,6 +551,8 @@ dialog h3 { margin: 8px 0 0; font-size: var(--fs-sm); font-weight: 600; }
 .basket-item.opened .basket-title { color: var(--muted); font-weight: 500; }
 .basket-item .muted { font-size: var(--fs-xs); }
 .basket-note { grid-column: 1 / -1; white-space: pre-wrap; }
+.basket-foot { display: flex; justify-content: flex-end; padding: 0 8px 4px; }
+.basket-foot .link { height: 24px; font-size: var(--fs-xs); }
 .basket-actions { display: flex; align-items: flex-start; }
 .basket-actions button { height: 22px; min-width: 24px; font-size: var(--fs-xs); padding: 0 6px; }
 .tab-note { margin: 4px 0 8px; font-size: var(--fs-xs); }

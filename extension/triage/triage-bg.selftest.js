@@ -418,6 +418,11 @@ assert.throws(() => t.triageParseCommand('{"new_tags":[', cmdItems, cmdTags, {})
   await t.triageMigrateNotes();
   assert.deepStrictEqual(Object.keys(store.triage_notes), ["BV2"], "second run is a no-op");
 
+  // 优先看过 is gone: its old store goes on startup and update, the playlist stays.
+  store.triage_watched = { BV1: 1 };
+  await t.triageDropWatched();
+  assert.ok(!("triage_watched" in store) && store.triage_basket.length, "triage_watched removed, triage_basket kept");
+
   // R1: the triage page opens once; a second open focuses the tab already showing it.
   const tabCalls = [];
   const fakeTabs = (contexts) => ({

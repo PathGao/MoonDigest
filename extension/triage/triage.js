@@ -27,7 +27,6 @@ const K = {
   decisions: (id) => `triage_decisions_${id}`, // 取消收藏 only: it changes one Bilibili folder
   kept: "triage_kept", // { [bvid]: { action: "keep", at } }: 保留 belongs to the video, so it shows in every folder
   keptMigrated: "triage_kept_v1",
-  watched: "triage_watched", // { [bvid]: at }: 优先看过, set when a video leaves 优先看 as watched; it shows in every folder
   removed: "triage_removed", // { [bvid]: { item, at, movedTo?, hidden?, inFolder?: { id, title } | null, from?: [{ id, title, at }] } }: videos that left every folder, kept until the user cleans them
   left: "triage_left", // { [bvid]: { [folderId]: { title, at } } }: folders a video left while still in another chosen one; becomes the record's from
   included: "triage_included_folders", // [mediaId]: the folders the user chose; only these are listed and read
@@ -258,8 +257,6 @@ const S = {
   videoTags: {},
   basket: [],
   notes: {},
-  watched: {},
-  watchedFilter: false, // 优先看过
   finishedFilter: false, // 看完了
   aiRecent: {},
   sortBy: {}, // triage_sort
@@ -349,7 +346,7 @@ const el = {};
   "folderSelect", "folderList", "folderHead", "settingsHeading", "settingsFoldersHeading", "settingsAi", "settingsFirstRunHint", "searchInput", "searchCount", "refreshBtn", "activity", "settingsBtn", "helpBtn",
   "banner", "bannerText", "bannerBtn", "bannerClose", "syncNotice", "syncText", "syncViewBtn", "syncCloseBtn", "syncDetail",
   "tabs", "stagebar", "sortBox", "classFilter", "tagFilter", "aiTagSlot", "listHeader", "list", "basket", "basketToggle", "basketCount",
-  "basketList", "toast", "settingsDialog", "folderToggles", "thinkingRow", "intervalInput",
+  "basketList", "basketClearBtn", "toast", "settingsDialog", "folderToggles", "thinkingRow", "intervalInput",
   "batchSizeInput", "tagLimitInput", "aiNewTagMaxInput", "aiRemoveTagsInput", "aiFormRemoveTagsInput", "openOptionsBtn", "thinkingInput", "titleMaxInput",
   "titleMaxHint", "analyzeMaxInput", "analyzeMaxHint", "settingsError", "csvBtn", "confirmDialog",
   "confirmTitle", "confirmBody", "confirmOk", "transferDialog", "transferTitle", "transferBody", "transferTarget", "transferNewRow", "transferUnchosen", "transferHow", "transferName", "transferPrivate",
@@ -603,7 +600,6 @@ function kindOf(it) {
 }
 
 function passFilter(it) {
-  if (S.watchedFilter && !S.watched[it.bvid]) return false;
   if (S.finishedFilter && !isFinished(it)) return false;
   if (S.aiRecentFilter && !aiRecentSet().has(it.bvid)) return false;
   if (S.kindFilter && kindOf(it) !== S.kindFilter) return false;
@@ -717,18 +713,16 @@ async function init() {
   bindEvents();
   // Read up front: sidePanel.open must run inside the click's user gesture, before any await.
   chrome.tabs.getCurrent().then((tab) => (ownTabId = tab?.id));
-  const [{ tags, videoTags, folderCriteria }, kept, basket, notes, watched, settingsResp] = await Promise.all([
+  const [{ tags, videoTags, folderCriteria }, kept, basket, notes, settingsResp] = await Promise.all([
     loadTagsAndCriteria().then(async (r) => ({ ...r, ...(await loadTagsByFolder(r)) })),
     loadKept(),
     storeGet(K.basket, []),
     storeGet(K.notes, {}),
-    storeGet(K.watched, {}),
     send({ type: "triage-settings-get" })
   ]);
   Object.assign(S, { tags, videoTags, folderCriteria, kept });
   S.basket = basket.map(({ bvid, title, cover, upper, duration, opened }) => ({ bvid, title, cover, upper, duration, ...(opened ? { opened: true } : {}) }));
   S.notes = notes;
-  S.watched = watched;
   S.aiHistory = await storeGet(K.aiHistory, []);
   S.aiRecent = await storeGet(K.aiRecent, {});
   S.sortBy = await storeGet(K.sort, {});
@@ -767,7 +761,7 @@ async function init() {
 // Another triage tab wrote one of the lists every page writes whole: take its value, so the next
 // write here does not put back what it removed. This page's own writes come back as events too and are skipped: an
 // older one arriving after a newer edit would undo that edit.
-const SHARED = { kept: {}, videoTags: {}, tags: [], basket: [], watched: {}, folderCriteria: {}, aiRecent: {} };
+const SHARED = { kept: {}, videoTags: {}, tags: [], basket: [], folderCriteria: {}, aiRecent: {} };
 function followShared(changes) {
   let changed = false;
   for (const [name, empty] of Object.entries(SHARED)) {
@@ -850,7 +844,7 @@ function seenPercentOf(it) {
   if (it.seen == null || it.seen === 0) return null;
   return it.seen < 0 ? 100 : it.duration > 0 ? Math.min(100, Math.round((it.seen / it.duration) * 100)) : null;
 }
-// 看完了: the history says at least the set share was watched (only while that mark is shown). 优先看过 is separate.
+// 看完了: the history says at least the set share was watched (only while that mark is shown).
 const isFinished = (it) => S.seenCfg.mark && (seenPercentOf(it) ?? 0) >= S.seenCfg.threshold;
 // 100% reads 看完了, otherwise 看到 N%; ✓ (and the strong look) means it counts as 看完了.
 const seenWords = (p, done) => (p >= 100 ? "✓ 看完了" : done ? `✓ 看到 ${p}%` : `看到 ${p}%`);
@@ -1033,7 +1027,6 @@ async function openFolder(mediaId) {
   S.itemMap = new Map();
   S.selected.clear();
   S.tagFilter.clear();
-  S.watchedFilter = false;
   S.finishedFilter = false;
   S.aiRecentFilter = false;
   S.kindFilter = "";
@@ -1359,11 +1352,11 @@ function dropRemoved(bvids) {
   });
 }
 
-// Deletes everything MoonDigest holds for these videos (AI results, 保留, note, tags, 优先看, 取消收藏 records) and their record.
+// Deletes everything MoonDigest holds for these videos (AI results, 保留, note, tags, 播放列表, 取消收藏 records) and their record.
 async function cleanRemoved(list) {
   if (!list.length) return;
   const one = list.length === 1 ? `《${shortTitle(list[0])}》` : `这 ${list.length} 个视频`;
-  const body = `<p>删除${one}的 AI 分析、备注、标签和优先看记录，无法撤销。<br>要留存请先从「导出」菜单导出。</p>`;
+  const body = `<p>删除${one}的 AI 分析、备注、标签和播放列表记录，无法撤销。<br>要留存请先从「导出」菜单导出。</p>`;
   if (!(await askConfirm(`清理${one}？`, body, `清理 ${list.length} 个`, { danger: true }))) return;
   return serialStore(async () => {
     const bvids = list.map((it) => it.bvid);
@@ -1755,8 +1748,7 @@ function renderTabs() {
   const chip = (on, any, attr, label, aria) =>
     !on && !any ? "" : `<button type="button" class="chip watched${on ? " on" : ""}" ${attr} aria-pressed="${on}" aria-label="${aria}">${label}</button>`;
   const watchedChip =
-    (S.seenCfg.mark || S.finishedFilter ? chip(S.finishedFilter, here.some(isFinished), "data-finishedfilter", "看完了", "只看 B站历史记录里看完了的视频") : "") +
-    chip(S.watchedFilter, here.some((it) => S.watched[it.bvid]), "data-watchedfilter", "优先看过", "只看在优先看里点了已看的视频");
+    S.seenCfg.mark || S.finishedFilter ? chip(S.finishedFilter, here.some(isFinished), "data-finishedfilter", "看完了", "只看 B站历史记录里看完了的视频") : "";
   // Only when this view has an invalid video, like those above; with 全选 it picks them all for 取消收藏 or 清理. 已出分拣范围
   // has it as a tab instead.
   const invalidN = S.items.filter((it) => kindOf(it) === "invalid").length;
@@ -2008,7 +2000,7 @@ function renderList() {
   if (!list.length) {
     const empty = { none: "没有未分析的视频", coarse: "没有粗看完成的视频", fine: "没有细看完成的视频", done: "还没有处理过的视频" };
     const f = S.classFilter[S.tab];
-    const filtered = S.watchedFilter || S.finishedFilter || S.aiRecentFilter || S.kindFilter || S.tagFilter.size || (f && f !== "all");
+    const filtered = S.finishedFilter || S.aiRecentFilter || S.kindFilter || S.tagFilter.size || (f && f !== "all");
     const text = S.query.trim() ? "没有匹配搜索的视频" : filtered ? "没有符合筛选的视频" : empty[S.tab] || "这里没有视频";
     el.list.innerHTML = `<p class="empty">${text}</p>${recent}`;
     return;
@@ -2071,7 +2063,7 @@ function cardHtml(it, expanded, mark) {
   if (b === S.viewing) cls.push("playing");
 
   const removed = S.mediaId === REMOVED;
-  const basketBtn = `<button type="button" data-act="basket" class="${inBasket ? "on" : ""}" aria-pressed="${inBasket}" aria-label="${inBasket ? "移出" : "加入"}优先看 (E)">优先看<kbd class="key">E</kbd></button>`;
+  const basketBtn = `<button type="button" data-act="basket" class="${inBasket ? "on" : ""}" aria-pressed="${inBasket}" aria-label="${inBasket ? "移出" : "加入"}播放列表 (E)">播放列表<kbd class="key">E</kbd></button>`;
   const askBtn = `<button type="button" data-act="ask" aria-label="问 AI (Q)">${AI_SPARK}问 AI<kbd class="key">Q</kbd></button>`;
   const meta = [it.upper, fmtDate(it.pubdate), Number.isFinite(it.play) && `▶ ${fmtCount(it.play)}`, ["", "粗看", "细看"][v.stage], seenText(it), it.invalid && "已失效", it.folders?.length && `收藏夹：${folderNames(it)}`].filter(Boolean);
   const left = removed && [originHtml(it), it.removedAt && `<span>${esc(leftText(it))}</span>`].filter(Boolean).join("");
@@ -2105,7 +2097,7 @@ function cardHtml(it, expanded, mark) {
       ${left ? `<div class="left-row">${left}</div>` : ""}
       <div class="meta">${meta.map(esc).join(" · ")}</div>
       ${body.join("")}
-      <div class="card-foot verdict-row">${verdict}${S.watched[b] ? `<button type="button" class="badge watched" data-act="unwatch" aria-label="优先看过，点一下取消" title="${esc(fmtTime(S.watched[b]))} 在优先看里点了已看 · 点一下取消">优先看过×</button>` : ""}<span class="reason">${esc(v.reason)}</span>${failed}</div>
+      <div class="card-foot verdict-row">${verdict}<span class="reason">${esc(v.reason)}</span>${failed}</div>
       ${chips ? `<div class="chips">${chips}</div>` : ""}
       ${noteHtml}
       <div class="card-foot">
@@ -2345,15 +2337,10 @@ async function undo() {
       toast(`撤销中断（已重新收藏 ${n} 个，剩余 ${rest.length} 个可再按 U 重试）：${error}`, true);
     } else if (error) toast(`${where}撤销中断（已重新收藏 ${n} 个，剩余 ${rest.length} 个在它的最近取消收藏里）：${error}`, true);
     else toast(`${where}已重新收藏 ${n} 个`);
-  } else if (entry.kind === "watched") {
-    if (entry.prev) S.watched[entry.bvid] = entry.prev;
-    else delete S.watched[entry.bvid];
-    saveWatched();
-    if (entry.basketEntry) {
-      S.basket.splice(entry.basketEntry.i, 0, entry.basketEntry.x);
-      saveBasket();
-    }
-    toast(entry.prev ? "已撤销：取消优先看过" : "已撤销：优先看过");
+  } else if (entry.kind === "basket") {
+    for (const { i, x } of entry.removed) if (!S.basket.some((y) => y.bvid === x.bvid)) S.basket.splice(i, 0, x);
+    saveBasket();
+    toast(`已撤销：放回播放列表 ${entry.removed.length} 个`);
     render();
   } else if (entry.kind === "keepMany") {
     patchKept(Object.fromEntries(entry.bvids.map((b) => [b, null])));
@@ -3219,8 +3206,8 @@ function applyAiProposal() {
   toast(`已应用 AI 建议：${changes.length} 个视频，列表只显示这些 · U 撤销`);
 }
 
-// ---------- 优先看 ----------
-// triage_basket is the 优先看 list in order: [{ bvid, title, cover?, upper?, duration?, opened? }]; the copied
+// ---------- 播放列表 ----------
+// triage_basket is the 播放列表 in order: [{ bvid, title, cover?, upper?, duration?, opened? }]; the copied
 // fields show videos outside the open folder (entries from before they were copied have only the title).
 const saveBasket = () => storeSet(K.basket, S.basket);
 
@@ -3229,10 +3216,10 @@ function toggleBasket(bvid) {
   const it = S.itemMap.get(bvid);
   if (i >= 0) {
     S.basket.splice(i, 1);
-    toast("已移出优先看");
+    toast("已移出播放列表");
   } else if (it) {
     S.basket.push({ bvid, title: it.title, cover: it.cover, upper: it.upper, duration: it.duration });
-    toast(`已加入优先看《${shortTitle(it)}》`);
+    toast(`已加入播放列表《${shortTitle(it)}》`);
     el.basket.classList.remove("bump");
     void el.basket.offsetWidth;
     el.basket.classList.add("bump");
@@ -3251,31 +3238,31 @@ function openBasketItem(i) {
   openViewer(x);
 }
 
-// 已看，下一个 in the viewer: the playing video is marked watched, leaves the queue, and the next one takes its place.
+// 已看，下一个 in the viewer: the playing video leaves the list and the next one takes its place.
 function basketDoneAndNext() {
-  removeBasketItem(S.basket.findIndex((x) => x.bvid === S.viewing));
+  removeBasketItems([S.basket.findIndex((x) => x.bvid === S.viewing)]);
   if (S.basket.length) openBasketItem(Math.max(0, S.basket.findIndex((x) => !x.opened)));
   else {
     closeViewer();
-    toast("优先看已经看完了");
+    toast("播放列表已经看完了");
   }
 }
 
-// 已看 marks the video 优先看过 and takes it out of 优先看; favorites and decisions are untouched. U undoes both.
-function removeBasketItem(i) {
-  const [x] = S.basket.splice(i, 1);
-  if (!x) return;
+// 已看 and 清空 take videos out of the list, nothing else; favorites and decisions are untouched. U puts them back.
+function removeBasketItems(indexes) {
+  const removed = indexes.filter((i) => S.basket[i]).sort((a, b) => a - b).map((i) => ({ i, x: S.basket[i] }));
+  if (!removed.length) return;
+  const gone = new Set(removed.map((r) => r.x.bvid));
+  S.basket = S.basket.filter((x) => !gone.has(x.bvid));
   saveBasket();
-  setWatched(x.bvid, true, { i, x });
+  pushUndo({ kind: "basket", removed });
+  render();
 }
 
-const saveWatched = () => storeSet(K.watched, S.watched);
-function setWatched(bvid, on, basketEntry = null) {
-  pushUndo({ kind: "watched", bvid, prev: S.watched[bvid] || 0, basketEntry });
-  if (on) S.watched[bvid] = Date.now();
-  else delete S.watched[bvid];
-  saveWatched();
-  render();
+function clearBasket() {
+  const n = S.basket.length;
+  removeBasketItems(S.basket.map((_, i) => i));
+  toast(`已清空播放列表 ${n} 个 · U 撤销`);
 }
 
 function renderBasket() {
@@ -3333,7 +3320,7 @@ function buildMarkdown(items, now = new Date()) {
 }
 
 // ---------- 批量导出 ----------
-// 优先看 videos outside the open folder export with their stored title. 逐个视频笔记 leaves out invalid videos (no
+// 播放列表 videos outside the open folder export with their stored title. 逐个视频笔记 leaves out invalid videos (no
 // subtitle to fetch); 一篇摘录 keeps them, marked, so their notes and tags still go out.
 function writeScopeItems(scope = el.writeScope.value, notes = el.writeFormat?.value === "notes") {
   const list =
@@ -3372,7 +3359,7 @@ function renderWriteScope() {
   el.writeScope.disabled = el.writeFormat.disabled = el.writeOverwrite.disabled = busy;
 }
 
-// 一篇摘录 needs summaries of 优先看 videos from other folders too.
+// 一篇摘录 needs summaries of 播放列表 videos from other folders too.
 async function digestMarkdown() {
   const items = writeScopeItems();
   const missing = items.map((it) => it.bvid).filter((b) => !S.analyses[b]);
@@ -3523,7 +3510,7 @@ async function runWrite(md = false) {
 }
 
 // ---------- data export ----------
-const BACKUP_PREFIXES = [K.kept, K.watched, K.removed, K.left, K.tags, K.folderCriteria, "triage_video_tags", "triage_basket", K.notes, "triage_snapshot_", "triage_decisions_", "triage_title_", "triage_analysis_"];
+const BACKUP_PREFIXES = [K.kept, K.removed, K.left, K.tags, K.folderCriteria, "triage_video_tags", "triage_basket", K.notes, "triage_snapshot_", "triage_decisions_", "triage_title_", "triage_analysis_"];
 
 async function buildBackup() {
   const all = await chrome.storage.local.get(null);
@@ -3551,7 +3538,6 @@ async function buildBackup() {
     if (!BACKUP_PREFIXES.some((p) => k.startsWith(p))) continue;
     if (k === K.tags) out.tags = v;
     else if (k === K.kept) out.kept = v;
-    else if (k === K.watched) out.watched = v;
     else if (k === K.removed) out.removed = v;
     else if (k === K.left) out.left = v;
     else if (k === K.folderCriteria) out.folderCriteria = v;
@@ -3572,7 +3558,7 @@ async function buildBackup() {
 
 function buildCsv() {
   const title = folderTitle();
-  const header = ["收藏夹", "BV号", "标题", "UP主", "时长", "链接", "封面", "发布时间", "收藏时间", "简介", "AI判断", "判断来源", "理由", "一句话", "要点", "标签", "备注", "优先看", "我的处理", "处理时间", "是否失效", "原在", "离开原因"];
+  const header = ["收藏夹", "BV号", "标题", "UP主", "时长", "链接", "封面", "发布时间", "收藏时间", "简介", "AI判断", "判断来源", "理由", "一句话", "要点", "标签", "备注", "播放列表", "我的处理", "处理时间", "是否失效", "原在", "离开原因"];
   const rows = [header];
   for (const it of S.items) {
     const v = verdictOf(it);
@@ -3597,7 +3583,7 @@ function buildCsv() {
       done ? (a.points || []).join(" | ") : "",
       tagIdsOf(it.bvid).map((id) => tagById(id).name).join("、"),
       S.notes[it.bvid]?.text?.trim() || "",
-      S.basket.some((x) => x.bvid === it.bvid) ? "在优先看" : S.watched[it.bvid] ? "优先看过" : "",
+      S.basket.some((x) => x.bvid === it.bvid) ? "在播放列表" : "",
       d ? (d.action === "unfav" ? "取消收藏" : "保留") : "",
       d ? fmtTime(d.at) : "",
       it.invalid ? "是" : "否",
@@ -3668,10 +3654,6 @@ function bindEvents() {
     render();
   });
   el.tagFilter.addEventListener("click", (e) => {
-    if (e.target.closest("[data-watchedfilter]")) {
-      S.watchedFilter = !S.watchedFilter;
-      return render();
-    }
     if (e.target.closest("[data-airecent-done]")) {
       endAiRecent();
       return render();
@@ -4038,12 +4020,13 @@ function bindEvents() {
 
   // basket
   el.basketToggle.addEventListener("click", () => setBasketOpen(el.basket.classList.contains("collapsed")));
+  el.basketClearBtn.addEventListener("click", clearBasket);
   el.basketList.addEventListener("click", (e) => {
     const act = e.target.closest("[data-basket]")?.dataset.basket;
     if (!act) return;
     const i = Number(e.target.closest(".basket-item").dataset.i);
     if (act === "open") openBasketItem(i);
-    else if (act === "done") removeBasketItem(i);
+    else if (act === "done") removeBasketItems([i]);
   });
 }
 
@@ -4131,7 +4114,6 @@ function cardAction(act, bvid) {
   else if (act === "tag") openPicker(bvid);
   else if (act === "basket") toggleBasket(bvid);
   else if (act === "retry") retry(bvid);
-  else if (act === "unwatch") setWatched(bvid, false);
   else if (act === "note") {
     S.noteOpen.add(bvid);
     renderList();
@@ -4163,7 +4145,7 @@ function onKey(e) {
   if (key === "Escape" && S.viewing) closeViewer();
   else if (map[key]) map[key]();
   else if (nav[key]) moveFocus(nav[key]);
-  // 已出分拣范围 has no 保留 / 取消收藏 / 标签; 优先看 and 问 AI work there.
+  // 已出分拣范围 has no 保留 / 取消收藏 / 标签; 播放列表 and 问 AI work there.
   else if (S.mediaId === REMOVED && key !== "e" && key !== "q") return;
   else if (key === "u") undo();
   else if (cardKeys[key] && S.focused) cardAction(cardKeys[key], S.focused);
