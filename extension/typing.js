@@ -33,6 +33,8 @@
   let open = false;
   globalThis.document?.addEventListener?.("compositionstart", () => (open = true), true);
   globalThis.document?.addEventListener?.("compositionend", () => (open = false), true);
+  // Esc that reaches the page mid-composition (keyCode 27, not 229) would cancel an open <dialog> and lose or save the half-typed text.
+  globalThis.document?.addEventListener?.("cancel", (e) => open && e.preventDefault(), true);
 
   globalThis.BocTyping = { composing, typingIn, bindLive, isComposing: () => open };
 })();

@@ -30,6 +30,16 @@ docL.compositionstart[0].f();
 assert.strictEqual(T.isComposing(), true);
 docL.compositionend[0].f();
 assert.strictEqual(T.isComposing(), false);
+// A <dialog>'s Esc cancel is held while composing (Chrome fires it when Esc reaches the page as keyCode 27), not otherwise.
+const cancel = () => {
+  const e = { prevented: false, preventDefault() { this.prevented = true; } };
+  docL.cancel?.forEach(({ f }) => f(e));
+  return e.prevented;
+};
+assert.strictEqual(cancel(), false);
+docL.compositionstart[0].f();
+assert.strictEqual(cancel(), true);
+docL.compositionend[0].f();
 
 // bindLive: nothing runs mid-composition, compositionend runs the committed text, a pending run dies on compositionstart.
 (async () => {
