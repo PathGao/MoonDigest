@@ -321,7 +321,6 @@ function logWarn(...args) {
 const ids = {
   root: "boc-root",
   readingView: "boc-reading-view",
-  readingPlayerSlot: "boc-reading-player-slot",
   readingStatus: "boc-reading-status",
   readingCloseBtn: "boc-reading-close-btn",
   readingAutoScroll: "boc-reading-autoscroll",
@@ -756,7 +755,7 @@ function buildUiHtml() {
           </section>
 
           <div class="boc-reading-player-shell">
-            <div id="${ids.readingPlayerSlot}" class="boc-reading-player-slot"></div>
+            <div class="boc-reading-player-slot"></div>
           </div>
 
           <section class="boc-reading-main">
