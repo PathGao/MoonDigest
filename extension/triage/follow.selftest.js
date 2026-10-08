@@ -216,9 +216,18 @@ assert.strictEqual(t.fmtAgo(ago(800), now), "2 年前");
 
 // One keydown handler for the page (triage.js onKey): follow.js hands it its keys, and triage.js knows no 关注 ids.
 {
-  assert.ok(!/addEventListener\("keydown"/.test(source.replace(/tagsDialog\.addEventListener\("keydown"/g, "")), "follow.js has no page-wide keydown listener");
+  assert.ok(!/addEventListener\("keydown"/.test(source), "follow.js has no page-wide keydown listener");
   assert.ok(source.includes("T.setModeKeys("), "follow.js registers its keys");
   assert.ok(!/fw[A-Z]/.test(fs.readFileSync(path.join(__dirname, "triage.js"), "utf8")), "triage.js names no 关注 element");
+}
+
+// The tag row's buttons open the shared dialogs (tag-dialogs.js) with 关注's adapters: 标签管理 → 标签管理, ✦ AI 打标签
+// (and 查看 in the progress pill, data-fw="ai") → AI 打标签. 关注 draws no tag dialog of its own.
+{
+  assert.ok(source.includes('else if (act === "ai") openAi();') && source.includes('else if (act === "tags") openManage();'), "each button its own dialog");
+  assert.ok(source.includes("const openManage = () => TagDialogs.manage.open(manageTags);") && /async function openAi\(\) \{[^}]*\}\s*TagDialogs\.ai\.open\(aiTags\);/.test(source));
+  assert.ok(/const manageTags = \{\s*who: "UP 主"/.test(source) && /const aiTags = \{\s*who: "UP 主"[\s\S]*?manage: manageTags,/.test(source), "关注's adapters, linked");
+  assert.ok(!/<dialog id="fwTagsDialog"|data-fwmode/.test(source), "no combined 「UP 主标签」 dialog");
 }
 
 console.log("follow selftest: all passed");
