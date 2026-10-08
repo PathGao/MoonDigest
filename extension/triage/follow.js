@@ -198,6 +198,33 @@ function aiTally(changes, nameOf) {
   return [...tally.values()].sort((a, b) => (a.cls === "remove") - (b.cls === "remove") || b.n - a.n);
 }
 
+// 关注's own AI 打标签 settings (chrome.storage.sync follow_ai_settings), clamped like the 分拣设置 fields.
+function normAi(s = {}) {
+  const int = (v, lo, hi, d) => (Number.isFinite(Number(v)) && v !== "" && v != null ? Math.min(hi, Math.max(lo, Math.round(Number(v)))) : d);
+  return { batchSize: int(s.batchSize, 1, 100, 30), intervalSec: int(s.intervalSec, 0, 600, 8), newTagMax: int(s.newTagMax, 0, 50, 5), allowRemove: s.allowRemove === true };
+}
+// The first use copies the 收藏夹 values (triage-settings-get, or the defaults); seed is what to store then. After that the
+// two are independent: a stored value always wins.
+function followAiSettings(own, triage) {
+  if (own && typeof own === "object") return { value: normAi(own), seed: null };
+  const t = triage || {};
+  const value = normAi({ batchSize: t.triageTitleBatchSize, intervalSec: t.triageIntervalSec, newTagMax: t.triageAiNewTagMax, allowRemove: t.triageAiRemoveTags });
+  return { value, seed: value };
+}
+// The follow-ai-tag requests of one run: mids in batches of cfg.batchSize; maxNewTags is the run's cap (each batch gets
+// what is left of it), allowRemove the dialog's switch.
+function aiRequests(mids, cfg, instruction, tags, allowRemove) {
+  const out = [];
+  for (let i = 0; i < mids.length; i += cfg.batchSize) out.push({ type: "follow-ai-tag", instruction, mids: mids.slice(i, i + cfg.batchSize), tags, maxNewTags: cfg.newTagMax, allowRemove });
+  return { batches: out, intervalMs: cfg.intervalSec * 1000 };
+}
+// 慢更 7–3650 days, 断更 at least a day more (the settings page clamps the same way).
+function normDays(slow, dead) {
+  const num = (v, d) => (Number.isFinite(parseFloat(v)) ? Math.round(parseFloat(v)) : d);
+  const followSlowDays = Math.min(3650, Math.max(7, num(slow, 90)));
+  return { followSlowDays, followDeadDays: Math.min(3651, Math.max(followSlowDays + 1, num(dead, 365))) };
+}
+
 // 「3 天前」 style ages for seconds; under a day is 今天.
 function fmtAgo(sec, now) {
   const d = Math.floor((now - sec) / DAY);
@@ -398,7 +425,7 @@ function renderHead() {
   E.meta.textContent = D.list
     ? [`${list.length} 个 UP 主`, at && `关注列表${fmtAgo(at, nowSec())}更新`].filter(Boolean).join(" · ")
     : "还没有关注数据";
-  E.actions.innerHTML = `${jobLine()}<button type="button" class="more-btn gear-btn" data-fw="options" title="慢更、断更天数（设置页）" aria-label="关注设置"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9.671 4.136a2.34 2.34 0 0 1 4.659 0 2.34 2.34 0 0 0 3.319 1.915 2.34 2.34 0 0 1 2.33 4.033 2.34 2.34 0 0 0 0 3.831 2.34 2.34 0 0 1-2.33 4.033 2.34 2.34 0 0 0-3.319 1.915 2.34 2.34 0 0 1-4.659 0 2.34 2.34 0 0 0-3.32-1.915 2.34 2.34 0 0 1-2.33-4.033 2.34 2.34 0 0 0 0-3.831A2.34 2.34 0 0 1 6.35 6.051a2.34 2.34 0 0 0 3.319-1.915"/><circle cx="12" cy="12" r="3"/></svg></button>`;
+  E.actions.innerHTML = jobLine();
 }
 
 function renderTabs() {
@@ -735,6 +762,76 @@ document.body.insertAdjacentHTML("beforeend", `
     </form>
   </dialog>`);
 const tagsDialog = $("fwTagsDialog");
+
+// ----- 关注设置: the top bar's gear in 关注 mode (a copy of the 收藏夹 gear) -----
+const gear = $("settingsBtn").cloneNode(true);
+gear.id = "fwSettingsBtn";
+gear.title = "关注设置";
+gear.setAttribute("aria-label", "关注设置");
+$("settingsBtn").after(gear);
+document.body.insertAdjacentHTML("beforeend", `
+  <dialog id="fwSettingsDialog" aria-label="关注设置">
+    <form method="dialog">
+      <h2>关注设置</h2>
+      <section class="set-group">
+        <h3>更新状态</h3>
+        <div class="set-card">
+          <div class="set-row"><div><label class="name" for="fwSlowInput">多少天没投稿算慢更</label><p class="hint">同步时视频动态往回翻这么多天。</p></div><input id="fwSlowInput" type="number" min="7" max="3650" step="1"></div>
+          <div class="set-row"><div><label class="name" for="fwDeadInput">多少天没投稿算断更</label><p class="hint">要比慢更的天数大。</p></div><input id="fwDeadInput" type="number" min="8" max="3651" step="1"></div>
+        </div>
+      </section>
+      <section class="set-group">
+        <h3>AI 打标签</h3>
+        <p class="dialog-hint">只管关注，和收藏夹的分拣设置分开。</p>
+        <div class="set-card">
+          <div class="set-row"><div><label class="name" for="fwBatchInput">每批数量</label><p class="hint">1–100 个 UP 主一批。</p></div><input id="fwBatchInput" type="number" min="1" max="100" step="1"></div>
+          <div class="set-row"><div><label class="name" for="fwIntervalInput">请求间隔（秒）</label></div><input id="fwIntervalInput" type="number" min="0" max="600" step="1"></div>
+          <div class="set-row"><div><label class="name" for="fwNewMaxInput">AI 最多新建几个标签</label><p class="hint">0–50，0 = 只用已有标签。</p></div><input id="fwNewMaxInput" type="number" min="0" max="50" step="1"></div>
+          <div class="set-row"><div><label class="name" for="fwRemoveInput">允许 AI 去掉已有标签</label><p class="hint">关时只加标签。开了也要你确认。</p></div><input id="fwRemoveInput" type="checkbox" class="switch"></div>
+        </div>
+      </section>
+      <div class="dialog-actions">
+        <span class="spacer"></span>
+        <button value="cancel" type="submit" formnovalidate>取消</button>
+        <button value="save" type="submit" class="primary">保存</button>
+      </div>
+    </form>
+  </dialog>`);
+const settingsDialog = $("fwSettingsDialog");
+
+// follow_ai_settings, seeded from the 收藏夹 values on first use and stored then.
+async function aiSettings() {
+  const own = (await chrome.storage.sync.get("follow_ai_settings")).follow_ai_settings;
+  const triage = own ? null : await send({ type: "triage-settings-get" });
+  const { value, seed } = followAiSettings(own, triage?.ok ? triage.data : null);
+  if (seed) await chrome.storage.sync.set({ follow_ai_settings: seed });
+  return value;
+}
+async function openSettings() {
+  const ai = await aiSettings();
+  $("fwSlowInput").value = cfg.slowDays;
+  $("fwDeadInput").value = cfg.deadDays;
+  $("fwBatchInput").value = ai.batchSize;
+  $("fwIntervalInput").value = ai.intervalSec;
+  $("fwNewMaxInput").value = ai.newTagMax;
+  $("fwRemoveInput").checked = ai.allowRemove;
+  settingsDialog.returnValue = "";
+  settingsDialog.showModal();
+}
+gear.addEventListener("click", openSettings);
+settingsDialog.addEventListener("close", async () => {
+  if (settingsDialog.returnValue !== "save") return;
+  const ai = normAi({ batchSize: $("fwBatchInput").value, intervalSec: $("fwIntervalInput").value, newTagMax: $("fwNewMaxInput").value, allowRemove: $("fwRemoveInput").checked });
+  // The days are the settings page's 关注 values (same keys); the storage listener redraws with them.
+  const days = normDays($("fwSlowInput").value, $("fwDeadInput").value);
+  await chrome.storage.sync.set({ follow_ai_settings: ai, ...days });
+  if (!AI.running) AI.settings = ai;
+  cfg.slowDays = days.followSlowDays;
+  cfg.deadDays = days.followDeadDays;
+  if (F.loaded) derive();
+  render();
+  toast("已保存关注设置");
+});
 const pickDialog = $("fwPickDialog");
 
 // ----- 管理 -----
@@ -841,14 +938,12 @@ function aiScopeMids(scope = $("fwAiScope").value) {
   const live = new Set(following());
   return (scope === "sel" ? [...F.sel] : F.side === "gone" ? [] : [...shown]).filter((m) => live.has(m));
 }
-// The 分拣台's own AI settings: batch size, interval, new-tag cap and 允许去掉 are shared with the folder view's 批量打.
 async function loadAi() {
-  const r = await send({ type: "triage-settings-get" });
-  AI.settings = { triageAiNewTagMax: 5, triageAiRemoveTags: false, triageTitleBatchSize: 30, triageIntervalSec: 8, ...(r.ok ? r.data : {}) };
+  AI.settings = await aiSettings();
   AI.history = (await chrome.storage.local.get(AI_HISTORY_KEY))[AI_HISTORY_KEY] || [];
   AI.excluded.clear();
   $("fwAiScope").value = F.sel.size ? "sel" : "view";
-  $("fwAiRemove").checked = AI.settings.triageAiRemoveTags === true;
+  $("fwAiRemove").checked = AI.settings.allowRemove;
 }
 async function openAi() {
   if (!AI.running) await loadAi();
@@ -862,13 +957,13 @@ function renderAiForm() {
   }
   if ($("fwAiScope").selectedOptions[0]?.disabled) $("fwAiScope").value = counts.view ? "view" : "sel";
   const mids = aiScopeMids();
-  const size = Math.max(1, Number(AI.settings.triageTitleBatchSize) || 30);
+  const size = AI.settings.batchSize;
   const bare = mids.filter((m) => !rows.get(m)?.titles.length && !rows.get(m)?.zone).length;
   $("fwAiScopeCount").textContent = mids.length
     ? `${mids.length} 个 UP 主${bare ? `，其中 ${bare} 个还没查投稿，AI 只能看名字和签名` : ""}。分 ${Math.ceil(mids.length / size)} 批发送`
     : "作用范围里没有 UP 主";
-  const max = Number(AI.settings.triageAiNewTagMax ?? 5);
-  const roomHint = max ? `AI 这次最多新建 ${max} 个标签，你确认后才创建。` : "AI 只会用已有标签（新建上限在分拣设置里改）。";
+  const max = AI.settings.newTagMax;
+  const roomHint = `${max ? `AI 这次最多新建 ${max} 个标签，你确认后才创建。` : "AI 只会用已有标签。"}<br>每批数量、间隔和新建上限在右上角的齿轮里改。`;
   const useChip = (t) => {
     const on = !AI.excluded.has(t.id);
     return `<button type="button" class="chip tag-use${on ? " on" : ""}" style="--c:${esc(t.color)}" data-use="${esc(t.id)}" aria-pressed="${on}" title="${on ? "点一下：这次不让 AI 用" : "点一下：让 AI 用"}">${esc(t.name)}</button>`;
@@ -901,23 +996,22 @@ async function runAi() {
   chrome.storage.local.set({ [AI_HISTORY_KEY]: AI.history });
   const excluded = new Set(D.tags.filter((t) => AI.excluded.has(t.id)).map((t) => t.name));
   const tags = D.tags.filter((t) => !excluded.has(t.name)).map((t) => ({ name: t.name, rule: t.rule || "" }));
-  const opts = { tags: D.tags, map: D.map, maxNewTags: Number(AI.settings.triageAiNewTagMax ?? 5), excluded, scope: new Set(mids) };
-  const allowRemove = $("fwAiRemove").checked;
-  const size = Math.max(1, Number(AI.settings.triageTitleBatchSize) || 30);
-  const total = Math.ceil(mids.length / size);
+  const opts = { tags: D.tags, map: D.map, maxNewTags: AI.settings.newTagMax, excluded, scope: new Set(mids) };
+  const { batches, intervalMs } = aiRequests(mids, AI.settings, instruction, tags, $("fwAiRemove").checked);
+  const total = batches.length;
   const p = { newTags: [], rows: [], notes: [], errors: [] };
   AI.running = true;
   AI.stop = false;
   renderAiForm();
   for (let i = 0; i < total && !AI.stop; i++) {
     progress.textContent = `AI 正在处理第 ${i + 1} / ${total} 批…`;
-    const r = await send({ type: "follow-ai-tag", instruction, mids: mids.slice(i * size, (i + 1) * size), tags, maxNewTags: Math.max(0, opts.maxNewTags - p.newTags.length), allowRemove });
+    const r = await send({ ...batches[i], maxNewTags: Math.max(0, opts.maxNewTags - p.newTags.length) });
     if (!r.ok) {
       p.errors.push(`第 ${i + 1} 批失败：${r.error}`);
       if (/配置 AI|未授权访问/.test(r.error || "")) break;
     } else mergeAiBatch(p, r.data, opts);
     if (i + 1 < total) {
-      const end = Date.now() + (Number(AI.settings.triageIntervalSec) || 0) * 1000;
+      const end = Date.now() + intervalMs;
       while (Date.now() < end && !AI.stop) await new Promise((res) => setTimeout(res, 200));
     }
   }
@@ -1054,7 +1148,6 @@ main.addEventListener("click", async (e) => {
       t.closest("button").disabled = false;
     }
   } else if (act === "stop") send({ type: "follow-sync-stop" });
-  else if (act === "options") chrome.tabs.create({ url: chrome.runtime.getURL("options.html#follow") });
   else if (act === "ai") openAi();
   else if (act === "recent") {
     F.recentFilter = !F.recentFilter;

@@ -9,6 +9,8 @@
 body.follow-mode :is(.shell > .side:not(.follow-side), .main > .folder-head, .main > #tabs, .main > .listpane, .topbar .search, .topbar .sync-wrap, #refreshBtn, #settingsBtn, #moreBtn, #folderSelect, #viewerNextBtn) { display: none !important; }
 body.follow-mode .mode-switch { margin-right: auto; }
 .follow-main { display: contents; }
+#fwSettingsBtn { display: none; }
+body.follow-mode #fwSettingsBtn { display: grid; }
 
 /* ---------- left column ---------- */
 .follow-side .side-item.zero:not(.on) { opacity: 0.5; }
@@ -20,9 +22,6 @@ body.follow-mode .mode-switch { margin-right: auto; }
 
 /* ---------- head, bar, list ---------- */
 .fw-head .step-actions { max-width: none; }
-.fw-head .gear-btn { width: 32px; height: 32px; padding: 0; border-color: transparent; background: transparent; color: var(--text-2); }
-.fw-head .gear-btn:hover { background: var(--surface-muted); }
-.fw-head .gear-btn svg { width: 18px; height: 18px; }
 .fw-head .activity button { height: 22px; padding: 0 8px; }
 .fw-bar .seg { flex-wrap: wrap; }
 .fw-bar .seg button.zero:not([aria-pressed="true"]) { opacity: 0.5; }

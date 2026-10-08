@@ -576,10 +576,12 @@ async function followAiTag({ instruction, mids, tags, maxNewTags, allowRemove })
     };
   });
   const tagList = Array.isArray(tags) ? tags : (s.follow_tags || []).map((t) => ({ name: t.name, rule: t.rule || "" }));
-  const set = await chrome.storage.sync.get({ triageAiNewTagMax: 5, triageAiRemoveTags: false });
+  // 关注's own settings (follow_ai_settings, written by the page's 关注设置); the 收藏夹 values only before it exists.
+  const set = await chrome.storage.sync.get({ follow_ai_settings: null, triageAiNewTagMax: 5, triageAiRemoveTags: false });
+  const own = set.follow_ai_settings || {};
   const opts = {
-    maxNewTags: Math.max(0, Math.min(50, Math.floor(Number(maxNewTags ?? set.triageAiNewTagMax)) || 0)),
-    allowRemove: (allowRemove ?? set.triageAiRemoveTags) === true
+    maxNewTags: Math.max(0, Math.min(50, Math.floor(Number(maxNewTags ?? own.newTagMax ?? set.triageAiNewTagMax)) || 0)),
+    allowRemove: (allowRemove ?? own.allowRemove ?? set.triageAiRemoveTags) === true
   };
   const ai = await triageAiSettings();
   const { content } = await triageChat(followBuildAiMessages({ instruction: text, tags: tagList, items, ...opts }), triageMaxTokens("command", items.length, ai), ai.triageThinking);

@@ -309,6 +309,12 @@ const runSync = async () => {
     t.triageChat = async () => ({ content: '{"new_tags":[],"items":[{"i":1,"add":["硬核"' });
     await assert.rejects(t.followAiTag({ instruction: "x", mids: ["1"] }), /不完整/, "truncated answer");
     await assert.rejects(t.followAiTag({ instruction: "x", mids: ["99"] }), /缺少 mids/);
+    // 关注's own follow_ai_settings win over the 收藏夹 values when the page sends none.
+    sync = { follow_ai_settings: { newTagMax: 0, allowRemove: true }, triageAiNewTagMax: 5, triageAiRemoveTags: false };
+    t.triageChat = async (...a) => (await chat(...a), { content: '{"new_tags":["新"],"items":[{"i":1,"add":["新"],"remove":["硬核"]}],"note":"n"}' });
+    const r3 = plain(await t.followAiTag({ instruction: "x", mids: ["2"] }));
+    assert.deepStrictEqual(r3, { newTags: [], assignments: { 2: { add: [], remove: ["硬核"] } }, note: "n" }, "follow_ai_settings used, not triageAi*");
+    sync = {};
   }
 
   // ---------- keepalive alarm: a killed worker is woken by it and resumes; cleared when idle ----------

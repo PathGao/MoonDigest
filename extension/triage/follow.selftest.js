@@ -9,7 +9,7 @@ const source = fs.readFileSync(path.join(__dirname, "follow.js"), "utf8");
 const pure = source.slice(source.indexOf("// PURE-START"), source.indexOf("// PURE-END"));
 assert.ok(pure.includes("function followStatus") && !pure.includes("document"), "harness lifts the pure block");
 const ctx = vm.createContext({});
-vm.runInContext(`${pure}\n;Object.assign(globalThis, { followStatus, lastPostOf, recentTitles, upRow, visibleUps, mergeFeed, feedMatch, mergeAiBatch, aiChanges, aiTally, fmtAgo });`, ctx);
+vm.runInContext(`${pure}\n;Object.assign(globalThis, { followAiSettings, aiRequests, normDays, followStatus, lastPostOf, recentTitles, upRow, visibleUps, mergeFeed, feedMatch, mergeAiBatch, aiChanges, aiTally, fmtAgo });`, ctx);
 const t = ctx;
 const plain = (v) => JSON.parse(JSON.stringify(v));
 
@@ -130,6 +130,26 @@ const base = () => ({ list: null, last: null, content: {}, people: {}, tags: [],
   p.newTags[0].checked = true;
   const tally = plain(t.aiTally([["a", ["t1"], ["t1", "n"]], ["b", ["t1"], ["n"]], ["c", ["t2"], ["t2", "n"]]], (id) => ({ t1: "科普", t2: "游戏", n: "美食" })[id]));
   assert.deepStrictEqual(tally, [{ cls: "add", text: "+ 美食", n: 3 }, { cls: "remove", text: "− 科普", n: 1 }]);
+}
+
+// ----- 关注's own AI settings: first use copies 收藏夹's, then they are independent -----
+{
+  const triage = { triageTitleBatchSize: 15, triageIntervalSec: 2, triageAiNewTagMax: 3, triageAiRemoveTags: true };
+  const first = plain(t.followAiSettings(undefined, triage));
+  assert.deepStrictEqual(first.value, { batchSize: 15, intervalSec: 2, newTagMax: 3, allowRemove: true }, "seeded from 收藏夹");
+  assert.deepStrictEqual(first.seed, first.value, "the seed is stored");
+  assert.deepStrictEqual(plain(t.followAiSettings(undefined, null)).value, { batchSize: 30, intervalSec: 8, newTagMax: 5, allowRemove: false }, "global defaults without 收藏夹 settings");
+  const own = { batchSize: 40, intervalSec: 0, newTagMax: 0, allowRemove: false };
+  const later = plain(t.followAiSettings(own, { ...triage, triageTitleBatchSize: 99, triageAiNewTagMax: 9 }));
+  assert.deepStrictEqual(later, { value: own, seed: null }, "a stored 关注 value wins; 收藏夹 changes do not leak in");
+  assert.deepStrictEqual(plain(t.followAiSettings({ batchSize: 500, intervalSec: -3, newTagMax: "x" }, null)).value, { batchSize: 100, intervalSec: 0, newTagMax: 5, allowRemove: false }, "clamped");
+  // The requests use 关注's values
+  const { batches, intervalMs } = plain(t.aiRequests(["a", "b", "c", "d", "e"], { batchSize: 2, intervalSec: 3, newTagMax: 1, allowRemove: false }, "分", [], true));
+  assert.deepStrictEqual(batches.map((b) => b.mids), [["a", "b"], ["c", "d"], ["e"]]);
+  assert.ok(batches.every((b) => b.type === "follow-ai-tag" && b.maxNewTags === 1 && b.allowRemove === true && b.instruction === "分"));
+  assert.strictEqual(intervalMs, 3000);
+  assert.deepStrictEqual(plain(t.normDays("", "")), { followSlowDays: 90, followDeadDays: 365 });
+  assert.deepStrictEqual(plain(t.normDays("400", "100")), { followSlowDays: 400, followDeadDays: 401 });
 }
 
 assert.strictEqual(t.fmtAgo(now - 100, now), "今天");
