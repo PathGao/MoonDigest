@@ -628,6 +628,14 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   const batchA = t.S.undo.at(-1);
   assert.deepStrictEqual(plain([t.S.aiRecent.K.bvids, batchA.changes.map((c) => c.bvid)]), [["BV722"], ["BV722"]], "only BV722 changed");
   assert.ok(toasts.some((x) => x.includes("1 个视频")), toasts.join());
+  // Nothing to change: no undo step.
+  t.S.ai.proposal = { newTags: [], notes: [], errors: [], rows: [{ bvid: "BV721", add: ["id:na"], remove: [] }] };
+  t.applyAiProposal();
+  assert.strictEqual(t.S.undo.at(-1), batchA, "a batch that changed nothing pushes no undo");
+  // Another tab ran batch B since: U on A keeps B's 「AI 刚打的」.
+  t.S.aiRecent.K = { at: t.S.aiRecent.K.at + 1, bvids: ["BV723"] };
+  await t.undo();
+  assert.deepStrictEqual(plain(t.S.aiRecent.K.bvids), ["BV723"], "undoing A leaves the newer batch B");
   Object.assign(t.S, { tags: [], videoTags: {}, aiRecent: {}, aiRecentFilter: false });
   openFake("K", [item(600), item(601)]);
 

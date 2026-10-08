@@ -2306,7 +2306,8 @@ async function undo() {
     for (const id of [...S.tagFilter]) if (!tagById(id)) S.tagFilter.delete(id);
     saveTags();
     saveVideoTags();
-    endAiRecent(entry.folder);
+    // Another tab, or a later batch here, may have replaced the folder's 「AI 刚打的」 since.
+    if (S.aiRecent[entry.folder]?.at === entry.at) endAiRecent(entry.folder);
     toast(`已撤销批量打标签：${entry.changes.length} 个视频改回批量打之前`);
   }
   render();
@@ -3250,14 +3251,15 @@ function applyAiProposal() {
   saveVideoTags();
   const folder = String(S.mediaId);
   const created = S.tags.filter((t) => !hadTags.has(t.id)).map((t) => t.id);
-  pushUndo({ kind: "aiApply", changes, created, folder });
   S.ai.proposal = null;
-  // This batch replaces the folder's last one; the list shows it to look over.
-  if (changes.length) {
-    S.aiRecent[folder] = { at: Date.now(), bvids: changes.map((c) => c.bvid) };
+  // This batch replaces the folder's last one; the list shows it to look over. U ends it only while it is still this one.
+  const at = changes.length ? Date.now() : 0;
+  if (at) {
+    S.aiRecent[folder] = { at, bvids: changes.map((c) => c.bvid) };
     S.aiRecentFilter = true;
     saveAiRecent();
   }
+  if (at || created.length) pushUndo({ kind: "aiApply", changes, created, folder, at });
   el.tagsDialog.close();
   render();
   toast(`已应用 AI 建议：${changes.length} 个视频，列表只显示这些 · U 撤销`);
