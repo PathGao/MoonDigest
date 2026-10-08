@@ -1497,6 +1497,11 @@ async function addPresetPrompt() {
   }
   const nextPrompts = [...(aiPrefs.aiPresetPrompts || [])];
   if (!nextPrompts.includes(text)) {
+    // A 13th would be cut by the slice below; keep the input so the text is not lost.
+    if (nextPrompts.length >= 12) {
+      showConversationContextNotice("最多 12 条快捷追问，先删掉一条再添加。", 2600);
+      return;
+    }
     nextPrompts.push(text);
   }
   aiPrefs.aiPresetPrompts = nextPrompts.slice(0, 12);
