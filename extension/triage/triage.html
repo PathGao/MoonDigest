@@ -234,20 +234,15 @@
       </form>
     </dialog>
 
-    <dialog id="tagsDialog" class="wide" aria-label="标签">
+    <!-- 标签管理 and ✦ AI 打标签: one of each for both modes; tag-dialogs.js fills them from the mode's adapter. -->
+    <dialog id="tagManageDialog" class="wide" aria-labelledby="tagManageTitle">
       <form method="dialog">
-        <div class="ai-review-head">
-          <h2>标签</h2>
-          <span class="seg" role="group" aria-label="标签">
-            <button id="tagsModeManage" type="button" data-tags-mode="manage" aria-pressed="true">管理</button>
-            <button id="tagsModeBatch" type="button" data-tags-mode="batch" aria-pressed="false">AI 打标签</button>
-          </span>
-        </div>
-        <section id="tagsManage" class="ai-section">
-          <p class="dialog-hint">这里是这个收藏夹的标签，最多 <span data-tag-limit>10</span> 个（在收藏夹设置里改），改名、颜色、说明和删除立即保存。</p>
+        <h2 id="tagManageTitle">标签管理</h2>
+        <section class="ai-section">
+          <p id="tagManageHint" class="dialog-hint"></p>
           <div id="tagsRows" class="tag-rows"></div>
           <div class="tag-add">
-            <input id="newTagInput" type="text" maxlength="12" placeholder="新标签名称，例如：入门、进阶、待复习" aria-label="新标签名称" />
+            <input id="newTagInput" type="text" maxlength="12" placeholder="新标签名称" aria-label="新标签名称" autocomplete="off" />
             <button id="addTagBtn" type="button" aria-label="添加标签">添加</button>
           </div>
           <div class="dialog-actions">
@@ -255,21 +250,23 @@
             <button type="submit" class="primary">完成</button>
           </div>
         </section>
+      </form>
+    </dialog>
+
+    <dialog id="aiTagDialog" class="wide" aria-labelledby="aiTagTitle">
+      <form method="dialog">
+        <h2 id="aiTagTitle">AI 打标签</h2>
         <section id="aiForm" class="ai-section">
-          <p class="dialog-hint">用一句话让 AI 给一批视频打标签。AI 只给建议，你点「应用」后才生效，AI 判断不受影响。</p>
+          <p id="aiHint" class="dialog-hint"></p>
           <div class="ai-grid">
             <label for="aiInstruction">指令</label>
-            <textarea id="aiInstruction" rows="3" placeholder="例如：把这些按技术深度分成 入门/进阶/硬核 三个标签"></textarea>
+            <textarea id="aiInstruction" rows="3"></textarea>
             <div id="aiHistory" class="ai-history"></div>
             <label for="aiScope">作用范围</label>
-            <select id="aiScope">
-              <option value="filter">当前筛选</option>
-              <option value="selected">选中 (X)</option>
-              <option value="analyzed">细看过的</option>
-            </select>
+            <select id="aiScope"></select>
             <p id="aiScopeCount" class="dialog-meta"></p>
             <div id="aiTagsPreview"></div>
-            <label class="toggle"><input id="aiFormRemoveTagsInput" type="checkbox" class="switch" /> 允许 AI 去掉已有标签</label>
+            <label class="toggle"><input id="aiRemoveInput" type="checkbox" class="switch" /> 允许 AI 去掉已有标签</label>
           </div>
           <p id="aiProgress" class="dialog-meta" aria-live="polite"></p>
           <div class="dialog-actions">
@@ -286,8 +283,8 @@
           <div id="aiNewTags" class="tag-rows"></div>
           <h3>改动汇总</h3>
           <div id="aiRows" class="ai-tally"></div>
-          <p class="dialog-hint">应用后列表只显示「✦ AI 刚打的」这些视频，在卡片上逐个看，不对的按 T 改。</p>
-          <div class="dialog-meta">「AI 刚打的」只显示最近一次 AI 打标签改动的视频：<ul id="aiRecentRules" class="ai-recent-rules"></ul><span id="aiRecentUndo"></span></div>
+          <p id="aiReviewHint" class="dialog-hint"></p>
+          <div id="aiRecentMeta" class="dialog-meta"></div>
           <div class="dialog-actions">
             <span class="spacer"></span>
             <button id="aiDiscardBtn" type="button" aria-label="放弃这些建议">放弃</button>
@@ -364,6 +361,7 @@
     <script src="../download.js"></script>
     <script src="./shared.js"></script>
     <script src="./tag-picker.js"></script>
+    <script src="./tag-dialogs.js"></script>
     <script type="module" src="./triage.js"></script>
     <script type="module" src="./follow.js"></script>
   </body>

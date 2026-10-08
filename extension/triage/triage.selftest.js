@@ -24,10 +24,17 @@ const syncStore = {};
 const handlers = {};
 const sent = [];
 const docL = {}; // document listeners: typing.js's composition flag, onKey
+// tag-dialogs.js stands in: each open records [which dialog, the mode's adapter] (tag-dialogs.selftest.js tests the dialogs).
+const dialogs = [];
+const TagDialogs = {
+  manage: { open: (a) => dialogs.push(["manage", a]), isOpen: () => false },
+  ai: { open: (a) => dialogs.push(["ai", a]), isOpen: () => false, render() {}, progress() {} }
+};
 const ctx = vm.createContext({
   console,
   structuredClone,
   TextEncoder,
+  TagDialogs,
   setTimeout: (f) => setImmediate(f),
   clearTimeout: (id) => clearImmediate(id),
   // No #tagPicker: tag-picker.js gives only its pure part; the tests stand in for the dialog (pickWith).
@@ -578,7 +585,6 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   assert.deepStrictEqual(plain(prop.newTags.map((x) => x.name)), ["n1", "n2", "n3", "n4", "n5"]);
   assert.deepStrictEqual(plain(prop.rows), [{ id: "BV600", add: ["new:n1", "id:a"], remove: [] }]);
   t.S.ai.proposal = prop;
-  t.el.tagsDialog = { close() {} };
   t.applyAiProposal();
   assert.deepStrictEqual(plain(t.S.tags.map((x) => x.name)), ["旧", "别处", "n1", "n2", "n3", "n4", "n5"]);
   assert.ok(t.S.tags.slice(2).every((x) => Object.keys(x).join() === "id,name,color,folder" && x.folder === "K"), "new tags belong to the open folder, no rule");
@@ -594,11 +600,9 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   assert.ok(!t.saveTagEdit(ruled, "name", "n1、") && ruled.name === "旧", "a cleaned duplicate is refused too");
   assert.ok(t.saveTagEdit(ruled, "name", " 旧, ") && ruled.name === "旧");
   assert.strictEqual(t.TriageUi.previewId({ newTags: [{ key: "k", name: "旧，", checked: true }] }, "k", t.viewTags()), "a", "an edited AI name matches the cleaned tag");
-  t.el.aiInstruction = { value: "按深度分" };
-  t.el.aiScope = { value: "filter", options: [], selectedOptions: [] };
   Object.assign(t.S, { tab: "read", aiHistory: [] });
   handlers["triage-ai-command"] = () => ({ ok: true, data: {} });
-  await t.runAiCommand();
+  await t.runAiCommand({ instruction: "按深度分", scope: "filter", allowRemove: false });
   assert.deepStrictEqual(plain(sent.at(-1).tags.slice(0, 2)), [{ name: "旧", rule: "讲老技术的" }, { name: "n1", rule: "" }]);
   assert.ok(!sent.at(-1).tags.some((x) => x.name === "别处"), "批量打 sends only the open folder's tags");
   assert.strictEqual(sent.at(-1).maxNewTags, 4, "6 tags in K: min(5, 10 - 6)");
@@ -622,11 +626,14 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   Object.assign(t.S.ai, { running: false, proposal: { newTags: [], rows: [], notes: [], errors: [] } });
   assert.strictEqual(btnText(), "标签管理AI 打标签 · 待确认");
   t.S.ai.proposal = null;
-  t.el.tagsDialog = { showModal() {} };
+  // I opens the AI 打标签 dialog with 收藏夹's adapter; its link to 标签管理 carries 收藏夹's 标签管理 adapter.
+  const aiTags = vm.runInContext("aiTags", ctx);
+  const manageTags = vm.runInContext("manageTags", ctx);
+  dialogs.length = 0;
   t.onKey({ key: "i", target: {}, preventDefault() {} });
-  assert.deepStrictEqual([t.el.tagsManage.hidden, t.el.aiForm.hidden, t.el.aiReview.hidden], [true, false, true], "I opens the 批量打 form");
-  t.openTags();
-  assert.deepStrictEqual([t.el.tagsManage.hidden, t.el.aiForm.hidden, t.el.aiReview.hidden], [false, true, true], "openTags opens 管理");
+  assert.deepStrictEqual(dialogs, [["ai", aiTags]], "I opens AI 打标签, not 标签管理");
+  assert.ok(aiTags.who === "视频" && manageTags.who === "视频" && aiTags.manage === manageTags);
+  assert.deepStrictEqual(plain(aiTags.scopes().map((x) => x.value)), ["filter", "selected", "analyzed"]);
 
   // Cap: 10 tags per folder. Creating an 11th is refused, a same-name one is reused; 批量打's room shrinks to 0.
   for (const n of ["c1", "c2", "c3", "c4"]) assert.ok(t.createTag(n));
@@ -636,8 +643,7 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   assert.ok(/已经有 10 个标签/.test(toasts.at(-1)) && !t.S.tags.some((x) => x.name === "c5"));
   assert.strictEqual(t.createTag("c1").folder, "K", "an existing name is still found at the cap");
   assert.strictEqual(vm.runInContext("aiNewTagRoom()", ctx), 0);
-  t.renderAiForm();
-  assert.ok(t.el.aiTagsPreview.innerHTML.includes("名额已满"));
+  assert.ok(aiTags.roomHint().includes("名额已满"));
   // The cap comes from 分拣设置: raising it lets c5 in, lowering it keeps existing tags but refuses new ones.
   t.S.settings.triageTagLimit = 11;
   assert.strictEqual(vm.runInContext("aiNewTagRoom()", ctx), 1);
@@ -653,8 +659,7 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   assert.strictEqual(t.createTag(" 入门进阶一二三四五六七八 ").id, long.id);
   assert.strictEqual(t.createTag("、"), null, "a name that cleans to nothing is refused");
   t.S.tags = t.S.tags.filter((x) => x !== long);
-  t.renderAiForm();
-  assert.ok(t.el.aiTagsPreview.innerHTML.includes("AI 这次最多新建 4 个（这个收藏夹还剩 4 个名额）"));
+  assert.ok(aiTags.roomHint().includes("AI 这次最多新建 4 个（这个收藏夹还剩 4 个名额）"));
   // A new tag takes the folder's first free color, so a deleted tag's color comes back instead of a taken one
   // repeating; 管理's color button moves to the next color.
   {
@@ -666,8 +671,7 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     assert.strictEqual(p1.color, C[1], "not C[2] (two tags → third color), which p2 has");
     assert.ok(t.saveTagEdit(p1, "color"));
     assert.strictEqual(p1.color, C[2]);
-    t.renderTagManager();
-    assert.ok(t.el.tagsRows.innerHTML.includes("data-tag-color") && t.el.tagsRows.innerHTML.includes("1 个视频") && t.el.tagsRows.innerHTML.includes("什么样的视频打这个标签"));
+    assert.deepStrictEqual([manageTags.count("p0"), manageTags.count("p1")], [1, 0], "标签管理 counts the videos per tag");
 
     // The picker saves once on close, as one undo step, on top of what changed meanwhile.
     toasts.length = 0;
@@ -709,7 +713,6 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     { id: "BV702", add: ["new:C"], remove: ["ga"] }] };
   assert.deepStrictEqual(plain(vm.runInContext("tallyNow", ctx)(gp).map((x) => `${x.text} ${x.n}`)), ["+ A 2", "+ B 1", "+ C 1", "− A 1"]);
   t.S.ai.proposal = gp;
-  t.el.tagsDialog = { close() {} };
   t.applyAiProposal();
   assert.deepStrictEqual([plain(t.S.aiRecent.K.bvids), t.S.aiRecentFilter], [["BV700", "BV701", "BV702"], true], "applying shows the batch");
   t.writeVideoTags("BV701", ["gb"]); // an edit made after the batch
@@ -737,8 +740,7 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     { id: "BV721", add: ["id:na"], remove: [] },
     { id: "BV722", add: ["id:na"], remove: [] },
     { id: "BV723", add: ["new:F"], remove: [] }] };
-  t.renderAiRows();
-  assert.strictEqual(t.el.aiApplyBtn.textContent, "应用到 2 个视频", "no-op rows are not counted");
+  assert.strictEqual(vm.runInContext("aiTags", ctx).changes(t.S.ai.proposal).length, 2, "no-op rows are not counted");
   assert.deepStrictEqual(plain(vm.runInContext("tallyNow", ctx)(t.S.ai.proposal).map((x) => `${x.text} ${x.n}`)), ["+ A 1", "+ F 1"], "no entry for a cleared name");
   t.S.settings.triageTagLimit = 2;
   toasts.length = 0;
@@ -773,7 +775,6 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   // U after 批量打 restores the tags and video tags.
   const beforeApply = plain([t.S.tags, t.S.videoTags]);
   t.S.ai.proposal = { newTags: [{ key: "z", name: "z", checked: true }], rows: [{ id: "BV600", add: ["new:z"], remove: [] }], notes: [], errors: [] };
-  t.el.tagsDialog = { close() {} };
   t.applyAiProposal();
   const z = t.S.tags.find((x) => x.name === "z" && x.folder === "K");
   assert.ok(z && t.S.videoTags.BV600.includes(z.id));
@@ -809,10 +810,8 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   assert.deepStrictEqual(plain(t.S.items.filter((it) => t.passFilter(it)).map((it) => it.bvid)), ["BV2"], "search by tag name");
   t.S.query = "";
   assert.strictEqual(t.createTag("新"), null, "no new tag outside a folder");
-  t.renderTagManager();
-  assert.ok(t.el.tagsRows.innerHTML.includes("先打开一个具体收藏夹") && t.el.addTagBtn.disabled);
-  t.renderAiForm();
-  assert.ok(t.el.aiTagsPreview.innerHTML.includes("先打开一个具体收藏夹"));
+  assert.ok(manageTags.reason().includes("先打开一个具体收藏夹") && !manageTags.tags().length);
+  assert.ok(aiTags.blocked().includes("先打开一个具体收藏夹"));
   const pickNames = (b, q = "") => (t.openPicker(b), plain(t.TagPicker.rowsOf(po.tags(), q, po.canCreate).map((o) => (o.create ? `+${o.create}` : o.tag.id))));
   assert.deepStrictEqual(pickNames("BV1"), ["xa"]);
   assert.deepStrictEqual(pickNames("BV3"), ["xa", "xb", "yb"]);
@@ -849,7 +848,6 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   assert.deepStrictEqual(plain(t.S.videoTags.BV1), ["yb"], "unticking 甲's x keeps 乙's y");
   // A 批量打 proposal skips a video that left the folder since.
   t.S.ai.proposal = { newTags: [], rows: [{ id: "BV1", add: ["id:xa"], remove: [] }, { id: "BV2", add: ["id:xa"], remove: [] }], notes: [], errors: [] };
-  t.el.tagsDialog = { close() {} };
   t.applyAiProposal();
   assert.deepStrictEqual(plain([t.S.videoTags.BV1, t.S.videoTags.BV2]), [["yb", "xa"], ["xb", "yb"]]);
   Object.assign(t.S, { tags: [], videoTags: {}, folders: [] });
@@ -886,8 +884,7 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
 
   // 只处理细看过的: only videos with a done 细看 from the current filter results.
   Object.assign(t.S, { tab: "read", analyses: { BV600: { status: "done", oneLiner: "x" } }, titleRes: { BV601: { verdict: "drop", confidence: "high" } } });
-  t.el.aiScope = { value: "analyzed" };
-  assert.deepStrictEqual(plain(t.aiScopeItems().map((it) => it.bvid)), ["BV600"]);
+  assert.deepStrictEqual(plain(t.aiScopeItems("analyzed").map((it) => it.bvid)), ["BV600"]);
   t.S.analyses = {};
 
   // Migration (pure): criteria per seen folder, the default scheme's tags plus used ones, same names merged.
@@ -1258,10 +1255,8 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     Object.assign(t.S, { tags: [{ id: "a", name: "旧", color: "#111", folder: "K" }, { id: "b", name: "留", color: "#222", folder: "K" }], videoTags: { BV610: ["a"] }, aiHistory: [], tab: "read" });
     t.S.settings.triageAiRemoveTags = true;
     t.S.ai.excluded.add("a");
-    t.el.aiInstruction = { value: "分" };
-    t.el.aiScope = { value: "filter", options: [], selectedOptions: [] };
     handlers["triage-ai-command"] = () => ({ ok: true, data: { newTags: ["旧"], assignments: { BV610: { add: ["旧", "留"], remove: ["旧"] } } } });
-    await t.runAiCommand();
+    await t.runAiCommand({ instruction: "分", scope: "filter", allowRemove: true });
     assert.deepStrictEqual(plain(sent.at(-1).tags), [{ name: "留", rule: "" }]);
     assert.ok(!JSON.stringify(sent.at(-1)).includes("旧"), "not in the tag list nor in the video's current tags");
     assert.deepStrictEqual(plain(t.S.ai.proposal.newTags), [], "not created as a new tag");
@@ -1276,21 +1271,17 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   t.S.folders = t.S.allFolders = [{ id: "K", title: "夹K" }, { id: "L", title: "夹L" }];
   Object.assign(t.S, { tags: [{ id: "a", name: "旧", color: "#111", folder: "K" }, { id: "b", name: "旧", color: "#222", folder: "L" }], videoTags: {}, aiHistory: [], tab: "read", query: "", tagFilter: new Set(), classFilter: { coarse: "all", fine: "all", read: "all" } });
   Object.assign(t.S.settings, { triageTitleBatchSize: 1, triageIntervalSec: 0 });
-  t.el.aiInstruction = { value: "分一下" };
-  t.el.aiScope = { value: "filter", options: [], selectedOptions: [] };
-  t.el.tagsDialog = { open: false };
   let aiCalls = 0;
   handlers["triage-ai-command"] = ({ items }) => {
     if (++aiCalls === 1) {
       openFake("L", [item(700)]);
-      t.renderAiForm();
-      assert.ok(t.el.aiScopeCount.textContent.startsWith("正在处理「夹K」的视频"), "the form in L says which folder runs");
+      assert.ok(vm.runInContext("aiTags", ctx).blocked().startsWith("正在处理「夹K」的视频"), "the form in L says which folder runs");
       assert.strictEqual(vm.runInContext("activityState()", ctx).text, "AI 打标签运行中（夹K）");
     }
     return { ok: true, data: { assignments: { [items[0].bvid]: { add: ["旧"] } } } };
   };
   toasts.length = 0;
-  await t.runAiCommand();
+  await t.runAiCommand({ instruction: "分一下", scope: "filter", allowRemove: false });
   assert.strictEqual(aiCalls, 2, "the second batch is still sent after the switch");
   assert.ok(!t.S.ai.running && t.S.ai.proposal === null, "folder L sees no proposal");
   assert.ok(/「夹K」的标签建议已完成，在状态栏点「查看」确认/.test(toasts.at(-1)), toasts.at(-1));
@@ -1837,25 +1828,12 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     const field = (sel, value = "") => ({ value, matches: (s) => s.split(", ").includes(sel), closest: () => ({ dataset: { bvid: "BV1" } }) });
     openFake("A", [item(1)]);
 
-    // 新建标签 — Enter that picks an IME candidate creates nothing; a plain Enter creates the tag.
-    const tagsBefore = t.S.tags.length;
-    t.el.newTagInput = Object.assign(field("#newTagInput", "zhong"), { focus() {} });
-    fire("tagsDialog", "keydown", key("Enter", t.el.newTagInput, { isComposing: true, keyCode: 229 }));
-    assert.strictEqual(t.S.tags.length, tagsBefore, "no tag named after half-typed pinyin");
-    t.el.newTagInput.value = "中文";
-    fire("tagsDialog", "keydown", key("Enter", t.el.newTagInput));
-    assert.strictEqual(t.S.tags.at(-1).name, "中文");
-    t.S.tags = t.S.tags.slice(0, tagsBefore);
-
-    // Enter in a rename or AI new-tag field stays in the dialog (it would submit the form and close it), but not mid-IME.
-    for (const sel of ['[data-field="name"]', '[data-nt="name"]']) {
-      const e = key("Enter", field(sel));
-      fire("tagsDialog", "keydown", e);
-      assert.strictEqual(e.prevented, 1, `${sel}: Enter does not close the dialog`);
-      const c = key("Enter", field(sel), { isComposing: true });
-      fire("tagsDialog", "keydown", c);
-      assert.strictEqual(c.prevented, 0, `${sel}: the IME gets its Enter`);
-    }
+    // The tag row: 标签管理 opens 标签管理, ✦ AI 打标签 opens AI 打标签, each its own dialog.
+    const hit = (sel) => ({ target: { closest: (s) => (s === sel ? {} : null) } });
+    dialogs.length = 0;
+    fire("aiTagSlot", "click", hit("[data-tags-manage]"));
+    fire("aiTagSlot", "click", hit("[data-ai-tag]"));
+    assert.deepStrictEqual(dialogs.map(([kind, a]) => [kind, a.who]), [["manage", "视频"], ["ai", "视频"]], "each button opens its own dialog");
 
     // a card note saves nothing mid-composition, compositionend saves the committed text.
     delete store[t.K.notes];

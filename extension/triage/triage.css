@@ -621,7 +621,7 @@ dialog textarea { resize: vertical; }
   .toast { bottom: 64px; }
 }
 
-/* 标签 dialog: 管理 + 批量打 */
+/* 标签管理 and AI 打标签 dialogs (tag-dialogs.js) */
 dialog.wide { width: min(620px, calc(100% - 32px)); }
 .ai-section { display: flex; flex-direction: column; gap: 6px; }
 /* Label column on the left; anything that is not a label or a field (counts, switches, chips) sits under its field. */

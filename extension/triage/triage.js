@@ -35,9 +35,6 @@ const K = {
   sort: "triage_sort", // { [mediaId]: { sort, dir } }: each folder's card order; none = 收藏时间 新→旧
   aiRecent: "triage_ai_recent" // { [mediaId]: { at, bvids } }: 「AI 刚打的」, the videos the last applied 批量打 changed
 };
-// 「AI 刚打的」: the videos the last applied 批量打 changed in a folder, to look over on their cards. Only these end it.
-const AI_RECENT_RULES = ["点 ×：不再标出，标签不变", "再让 AI 打一次：换成新的一批"];
-const AI_RECENT_UNDO = "按 U 撤销这次 AI 打标签前会先问你；确认后这批视频的标签都回到 AI 打之前，包括你之后又改过的。";
 const ALL = "all"; // the 所有收藏夹 view's folder-select value
 const REMOVED = "removed"; // the 已出分拣范围 view
 const TOVIEW = "toview"; // 稍后再看, listed by triage-bg as one more folder
@@ -347,13 +344,10 @@ const el = {};
   "banner", "bannerText", "bannerBtn", "bannerClose", "syncNotice", "syncText", "syncViewBtn", "syncCloseBtn", "syncDetail",
   "tabs", "stagebar", "sortBox", "classFilter", "tagFilter", "aiTagSlot", "listHeader", "list", "basket", "basketToggle", "basketCount",
   "basketList", "basketClearBtn", "toast", "settingsDialog", "folderToggles", "thinkingRow", "intervalInput",
-  "batchSizeInput", "tagLimitInput", "aiNewTagMaxInput", "aiRemoveTagsInput", "aiFormRemoveTagsInput", "openOptionsBtn", "thinkingInput", "titleMaxInput",
+  "batchSizeInput", "tagLimitInput", "aiNewTagMaxInput", "aiRemoveTagsInput", "openOptionsBtn", "thinkingInput", "titleMaxInput",
   "titleMaxHint", "analyzeMaxInput", "analyzeMaxHint", "settingsError", "csvBtn", "confirmDialog",
   "confirmTitle", "confirmBody", "confirmOk", "transferDialog", "transferTitle", "transferBody", "transferTarget", "transferNewRow", "transferUnchosen", "transferHow", "transferName", "transferPrivate",
-  "criteriaDialog", "criteriaTitle", "criteriaInput", "tagsDialog", "tagsModeManage", "tagsModeBatch", "tagsManage", "tagsRows", "newTagInput", "addTagBtn", "helpDialog",
-  "aiForm", "aiScope", "aiScopeCount", "aiInstruction", "aiHistory",
-  "aiTagsPreview", "aiProgress", "aiCloseBtn", "aiStopBtn", "aiRunBtn",
-  "aiReview", "aiReviewSummary", "aiNotes", "aiNewTagsHead", "aiNewTags", "aiRows", "aiRecentRules", "aiRecentUndo", "aiDiscardBtn", "aiApplyBtn",
+  "criteriaDialog", "criteriaTitle", "criteriaInput", "helpDialog",
   "biliBtn", "main", "viewer", "viewerTitle", "viewerNextBtn", "viewerFocusBtn", "viewerTabBtn", "viewerCloseBtn", "viewerFrame", "viewerTags",
   "tools", "writeBtn", "writeDialog", "writeScope", "writeFormat", "writeScopeCount", "writeOverwriteRow", "writeOverwrite", "writeProgress", "writeFailed", "writeStopBtn", "writeCopyBtn", "writeRunBtn", "writeMdBtn"
 ].forEach((id) => (el[id] = $(id)));
@@ -741,8 +735,6 @@ async function init() {
   S.sortBy = await storeGet(K.sort, {});
   if (settingsResp.ok) Object.assign(S.settings, settingsResp.data);
   renderTagLimit();
-  el.aiRecentRules.innerHTML = AI_RECENT_RULES.map((r) => `<li>${esc(r)}</li>`).join("");
-  el.aiRecentUndo.textContent = AI_RECENT_UNDO;
   const syncObsidian = ({ obsidianEnabled }) => document.body.classList.toggle("obsidian-off", obsidianEnabled !== true);
   const sync = await chrome.storage.sync.get({ obsidianEnabled: false, ...SEEN_DEFAULTS });
   syncObsidian(sync);
@@ -1768,7 +1760,7 @@ function renderTabs() {
   const invalidOn = S.kindFilter === "invalid";
   const invalidChip = S.mediaId === REMOVED || (!invalidOn && !invalidN) ? "" : `<button type="button" class="chip invalid${invalidOn ? " on" : ""}" data-kindfilter="invalid" aria-pressed="${invalidOn}" aria-label="只看已失效的视频">已失效 ${invalidN}</button>`;
   const recentN = S.items.filter((it) => aiRecentSet().has(it.bvid)).length;
-  const recentTip = `最近一次 AI 打标签改动的视频，在卡片上逐个看，不对的按 T 改。\n${AI_RECENT_RULES.map((r) => `· ${r}`).join("\n")}\n${AI_RECENT_UNDO}`;
+  const recentTip = `最近一次 AI 打标签改动的视频，在卡片上逐个看，不对的按 T 改。\n${UI.AI_RECENT_RULES.map((r) => `· ${r}`).join("\n")}\n${UI.aiRecentUndo("视频")}`;
   const recentChip = !recentN && !S.aiRecentFilter ? "" : `<span class="ai-recent"><button type="button" class="chip ai-recent-chip${S.aiRecentFilter ? " on" : ""}" data-airecent aria-pressed="${S.aiRecentFilter}" title="${esc(recentTip)}">${AI_SPARK}AI 刚打的 ${recentN}</button><button type="button" class="ai-recent-x" data-airecent-done aria-label="不再标出「AI 刚打的」，标签不变" title="不再标出，标签不变">×</button></span>`;
   el.tagFilter.innerHTML = recentChip + invalidChip + watchedChip + (chips.length
     ? chips
@@ -2809,27 +2801,32 @@ async function saveCriteria() {
   if (ok) runStage1(stale);
 }
 
-// ---------- 标签 dialog: 管理 / 批量打 ----------
-// 标签管理 (tag row) opens 管理, ✦ AI 打标签 (tag row) opens AI 打标签: one dialog, two sections.
+// ---------- 标签管理 (tag-dialogs.js): the open folder's tags ----------
+const tagCounts = () => {
+  const counts = {};
+  for (const ids of Object.values(S.videoTags)) for (const id of ids) counts[id] = (counts[id] || 0) + 1;
+  return counts;
+};
+const manageTags = {
+  who: "视频",
+  hint: () => `这里是这个收藏夹的标签，最多 ${tagLimit()} 个（在收藏夹设置里改）。`,
+  reason: () => (inFolderView() ? "" : FOLDER_ONLY),
+  tags: () => (inFolderView() ? viewTags() : []),
+  count: (id) => tagCounts()[id] || 0,
+  add(value) {
+    const name = cleanTagName(value);
+    const why = UI.tagNameError(name, viewTags());
+    if (why) return void toast(why, true);
+    const t = createTag(name);
+    if (t) render();
+    return t;
+  },
+  edit: (t, field, value) => saveTagEdit(t, field, value),
+  remove: (t) => deleteTag(t.id)
+};
+const openManage = () => TagDialogs.manage.open(manageTags);
 
-function openTags(mode = "manage") {
-  S.ai.excluded.clear();
-  showTagsMode(mode);
-  el.tagsDialog.showModal();
-  if (mode === "manage") el.newTagInput.focus();
-}
-
-function showTagsMode(mode) {
-  const manage = mode === "manage";
-  el.tagsModeManage.setAttribute("aria-pressed", String(manage));
-  el.tagsModeBatch.setAttribute("aria-pressed", String(!manage));
-  el.tagsManage.hidden = !manage;
-  if (!manage) return S.ai.proposal && !S.ai.running ? showAiReview() : showAiForm();
-  el.aiForm.hidden = el.aiReview.hidden = true;
-  renderTagManager();
-}
-
-// A rename, rule or color edit from 管理; false (and nothing saved) for an empty or duplicate name.
+// A rename, rule or color edit from 标签管理; false (and nothing saved) for an empty or duplicate name.
 function saveTagEdit(t, field, value) {
   const text = field === "name" ? cleanTagName(value) : String(value ?? "").trim();
   if (field === "name") {
@@ -2849,18 +2846,6 @@ function saveTagEdit(t, field, value) {
   return true;
 }
 
-function renderTagManager() {
-  const own = inFolderView();
-  el.newTagInput.disabled = el.addTagBtn.disabled = !own;
-  if (!own) return (el.tagsRows.innerHTML = `<p class="muted">${FOLDER_ONLY}</p>`);
-  const counts = {};
-  for (const ids of Object.values(S.videoTags)) for (const id of ids) counts[id] = (counts[id] || 0) + 1;
-  const tags = viewTags();
-  el.tagsRows.innerHTML = tags.length
-    ? tags.map((t) => UI.tagRowHtml(t, { count: counts[t.id] || 0, who: "视频" })).join("")
-    : `<p class="muted">这个收藏夹还没有自定义标签</p>`;
-}
-
 async function deleteTag(id) {
   const t = tagById(id);
   const n = Object.values(S.videoTags).filter((ids) => ids.includes(id)).length;
@@ -2876,7 +2861,6 @@ async function deleteTag(id) {
   S.undo = S.undo.filter((e) => e.kind !== "tags" && e.kind !== "tagsMany" && e.kind !== "aiApply");
   saveTags();
   saveVideoTags();
-  renderTagManager();
   render();
 }
 
@@ -3057,11 +3041,10 @@ async function retry(bvid) {
   render();
 }
 
-// ---------- AI command ----------
+// ---------- AI 打标签 (tag-dialogs.js) ----------
 const isAnalyzed = (it) => S.analyses[it.bvid]?.status === "done";
 
-function aiScopeItems() {
-  const scope = el.aiScope.value;
+function aiScopeItems(scope) {
   if (scope === "selected") return visibleSelected();
   if (scope === "analyzed") return visibleItems().filter(isAnalyzed);
   return visibleItems();
@@ -3080,86 +3063,75 @@ function aiCommandItem(it) {
   return out;
 }
 
-function showAiForm() {
-  el.aiForm.hidden = false;
-  el.aiReview.hidden = true;
-  renderAiForm();
-}
-
-function showAiReview() {
-  el.aiForm.hidden = true;
-  el.aiReview.hidden = false;
-  renderAiReview();
-}
-
-function renderAiForm() {
-  const counts = { filter: visibleItems().length, selected: visibleSelected().length, analyzed: visibleItems().filter(isAnalyzed).length };
-  const labels = { filter: "当前筛选", selected: "选中", analyzed: "细看过的" };
-  for (const o of el.aiScope.options) {
-    o.textContent = `${labels[o.value]} · ${counts[o.value]} 个`;
-    o.disabled = !counts[o.value];
-  }
-  if (el.aiScope.selectedOptions[0]?.disabled) el.aiScope.value = "filter";
-  el.aiFormRemoveTagsInput.checked = S.settings.triageAiRemoveTags === true;
-  const items = aiScopeItems();
+function aiScopeText(scope) {
+  const items = aiScopeItems(scope);
   const n = items.length;
   const done = items.filter(isAnalyzed).length;
   const size = Math.max(1, Number(S.settings.triageTitleBatchSize) || 30);
   const parts = [done && `${done} 个细看过（按总结和要点判断）`, n - done && `${n - done} 个只有标题和简介，标签可能不准`].filter(Boolean);
-  el.aiScopeCount.textContent = n ? `${n} 个视频：${parts.join("，")}。分 ${Math.ceil(n / size)} 批发送` : "作用范围里没有视频";
+  return n ? `${n} 个视频：${parts.join("，")}。分 ${Math.ceil(n / size)} 批发送` : "作用范围里没有视频";
+}
+
+function aiRoomHint() {
   const tags = viewTags();
   const room = aiNewTagRoom();
   const noneUsable = tags.length > 0 && tags.every((t) => S.ai.excluded.has(t.id));
-  const roomHint = noneUsable
+  return noneUsable
     ? room ? `已有标签都不给 AI 用，AI 只会新建标签（这次最多 ${room} 个），你确认后才创建。` : "已有标签都不给 AI 用，名额也满了，AI 打不了标签。"
     : room ? `AI 这次最多新建 ${room} 个（这个收藏夹还剩 ${tagLimit() - tags.length} 个名额），你确认后才创建。` : "名额已满，AI 只会用已有标签。";
-  const useChip = (t) => {
-    const on = !S.ai.excluded.has(t.id);
-    return `<button type="button" class="chip tag-use${on ? " on" : ""}" style="--c:${esc(t.color)}" data-use="${esc(t.id)}" aria-pressed="${on}" title="${on ? "点一下：这次不让 AI 用" : "点一下：让 AI 用"}">${esc(t.name)}</button>`;
-  };
-  el.aiTagsPreview.innerHTML = !inFolderView()
-    ? `<p class="dialog-hint">${FOLDER_ONLY}再让 AI 打标签。</p>`
-    : tags.length
-      ? `<span id="aiTagsLabel" class="grid-label">可用标签</span><div class="chips" role="group" aria-labelledby="aiTagsLabel">${tags.map(useChip).join("")}</div><p class="dialog-meta">点掉的标签这次不给 AI 用。<br>${roomHint}</p>`
-      : `<p class="dialog-hint">这个收藏夹还没有自定义标签。${roomHint}想打得准，先在<button type="button" class="link" data-tags-mode="manage">「管理」</button>里建好标签、每个写一句说明。</p>`;
-  el.aiHistory.innerHTML = S.aiHistory.length
-    ? `<span class="muted">最近：</span>` +
-      S.aiHistory
-        .map((h, i) => `<button type="button" class="chip" data-h="${i}" title="${esc(h)}" aria-label="使用指令 ${esc(h)}">${esc(h.length > 18 ? `${h.slice(0, 18)}…` : h)}</button>`)
-        .join("")
-    : "";
-  if (S.ai.running && S.ai.mediaId !== String(S.mediaId)) {
-    el.aiScopeCount.textContent = `正在处理「${folderName(S.ai.mediaId)}」的视频，完成后可在状态栏点「查看」确认`;
-    el.aiTagsPreview.innerHTML = "";
-  }
-  setBusy(el.aiRunBtn, S.ai.running && "运行中…");
-  if (!S.ai.running) UI.setReason(el.aiRunBtn, !inFolderView() ? FOLDER_ONLY : n ? "" : el.aiScopeCount.textContent);
-  el.aiStopBtn.hidden = !S.ai.running;
 }
 
-async function runAiCommand() {
-  if (S.ai.running) return;
-  const instruction = el.aiInstruction.value.trim();
-  const items = aiScopeItems();
-  if (!inFolderView()) {
-    el.aiProgress.textContent = FOLDER_ONLY;
-    return;
-  }
-  if (!instruction) {
-    el.aiProgress.textContent = "请先写指令";
-    el.aiInstruction.focus();
-    return;
-  }
-  if (!items.length) {
-    el.aiProgress.textContent = "作用范围里没有视频";
-    return;
-  }
+const aiTags = {
+  who: "视频",
+  sees: "标题和简介（细看过的还看总结和要点），不改 AI 判断",
+  example: "把这些按技术深度分成 入门/进阶/硬核 三个标签",
+  excluded: S.ai.excluded,
+  manage: manageTags,
+  tags: () => viewTags(),
+  scopes: () => [
+    { value: "filter", label: "当前筛选", n: visibleItems().length },
+    { value: "selected", label: "选中", n: visibleSelected().length },
+    { value: "analyzed", label: "细看过的", n: visibleItems().filter(isAnalyzed).length }
+  ],
+  scopeText: aiScopeText,
+  roomHint: aiRoomHint,
+  blocked: () =>
+    !inFolderView() ? `${FOLDER_ONLY}再让 AI 打标签。` : S.ai.running && S.ai.mediaId !== String(S.mediaId) ? `正在处理「${folderName(S.ai.mediaId)}」的视频，完成后可在状态栏点「查看」确认` : "",
+  history: () => S.aiHistory,
+  allowRemove: () => S.settings.triageAiRemoveTags === true,
+  // The same switch as in 收藏夹设置, saved as soon as it flips.
+  async setAllowRemove(on) {
+    const r = await send({ type: "triage-settings-save", triageAiRemoveTags: on });
+    if (!r.ok) return toast(`保存设置失败：${r.error}`, true), false;
+    S.settings.triageAiRemoveTags = on;
+    return true;
+  },
+  running: () => S.ai.running,
+  proposal: () => S.ai.proposal,
+  run: runAiCommand,
+  stop: () => (S.ai.stop = true),
+  discard() {
+    S.ai.proposal = null;
+    renderTop();
+  },
+  apply: () => applyAiProposal(),
+  changes: (p) => rowChanges(p),
+  tally: (p) => tallyNow(p),
+  uses: (p, t) => p.rows.filter((r) => S.itemMap.has(r.id) && r.add.includes(`new:${t.key}`)).length
+};
+const openAi = () => TagDialogs.ai.open(aiTags);
+
+// instruction, scope and allowRemove come from the dialog, which has checked that there is an instruction and items.
+async function runAiCommand({ instruction, scope, allowRemove }) {
+  if (S.ai.running || !inFolderView()) return;
+  const items = aiScopeItems(scope);
+  if (!items.length) return;
   S.aiHistory = [instruction, ...S.aiHistory.filter((x) => x !== instruction)].slice(0, 5);
   storeSet(K.aiHistory, S.aiHistory);
   // Everything the run sends is taken now: the run outlives a folder switch, and the page then holds another folder.
   const folder = String(S.mediaId);
   const excluded = new Set(viewTags().filter((t) => S.ai.excluded.has(t.id)).map((t) => t.name));
-  const opts = { maxNewTags: aiNewTagRoom(), allowRemove: S.settings.triageAiRemoveTags === true, folder, excluded };
+  const opts = { maxNewTags: aiNewTagRoom(), allowRemove, folder, excluded };
   const tags = viewTags().filter((t) => !excluded.has(t.name)).map((t) => ({ name: t.name, rule: t.rule || "" }));
   const payload = items.map(aiCommandItem);
   const size = Math.max(1, Number(S.settings.triageTitleBatchSize) || 30);
@@ -3170,10 +3142,9 @@ async function runAiCommand() {
   S.ai.running = true;
   S.ai.mediaId = folder;
   S.ai.stop = false;
-  renderAiForm();
   renderTop();
   for (let i = 0; i < total && keepGoing(); i++) {
-    el.aiProgress.textContent = `AI 正在处理第 ${i + 1} / ${total} 批…`;
+    TagDialogs.ai.progress(aiTags, `AI 正在处理第 ${i + 1} / ${total} 批…`);
     const batch = payload.slice(i * size, (i + 1) * size);
     const r = await send({ type: "triage-ai-command", instruction, items: batch, tags, maxNewTags: opts.maxNewTags, allowRemove: opts.allowRemove });
     if (!r.ok) {
@@ -3186,55 +3157,21 @@ async function runAiCommand() {
     if (i + 1 < total) await sleepWhile(S.settings.triageIntervalSec * 1000, keepGoing);
   }
   S.ai.running = false;
-  el.aiProgress.textContent = "";
+  TagDialogs.ai.progress(aiTags, "");
   if (S.ai.stop) p.errors.push("已手动停止，这里只有已完成批次的建议");
   for (const t of p.newTags) t.checked = p.rows.some((r) => r.add.includes(`new:${t.key}`));
   S.ai.proposals[folder] = p;
   renderTop();
-  if (folder !== String(S.mediaId)) {
-    if (el.tagsDialog.open) renderAiForm();
-    toast(`「${folderName(folder)}」的标签建议已完成，在状态栏点「查看」确认`);
-  } else if (el.tagsDialog.open && el.tagsManage.hidden) showAiReview();
-  else toast("AI 打标签已完成，按 I 查看建议");
+  // Open, the dialog turns to the proposal (or, in another folder, back to its form).
+  const open = TagDialogs.ai.isOpen(aiTags);
+  if (open) TagDialogs.ai.render(aiTags);
+  if (folder !== String(S.mediaId)) toast(`「${folderName(folder)}」的标签建议已完成，在状态栏点「查看」确认`);
+  else if (!open) toast("AI 打标签已完成，按 I 查看建议");
 }
 
 // What a proposal changes (shared.js); a video that left the folder since keeps its tags.
 const rowChanges = (p, idOf = (key) => UI.previewId(p, key, viewTags())) => UI.aiChanges(p, S.videoTags, S.itemMap, idOf);
 const tallyNow = (p) => UI.aiTally(p, rowChanges(p), (id) => tagById(id)?.name);
-
-function renderAiReview() {
-  const p = S.ai.proposal;
-  el.aiNotes.innerHTML =
-    p.errors.map((e) => `<p class="fail-text">${esc(e)}</p>`).join("") +
-    p.notes.map((n) => `<p class="muted">AI 说明：${esc(n)}</p>`).join("");
-  const uses = (t) => p.rows.filter((r) => S.itemMap.has(r.id) && r.add.includes(`new:${t.key}`)).length;
-  el.aiNewTagsHead.hidden = !p.newTags.length;
-  el.aiNewTags.innerHTML = p.newTags
-    .map((t, i) => {
-      const n = uses(t);
-      return `<div class="ai-newtag" data-i="${i}">
-      <input type="checkbox" data-nt="checked"${t.checked ? " checked" : ""} aria-label="创建标签 ${esc(t.name)}" />
-      <input type="text" data-nt="name" value="${esc(t.name)}" maxlength="12" aria-label="新标签名称" />
-      <span class="muted">${n ? `用在 ${n} 个视频` : "没有视频用到"}</span>
-    </div>`;
-    })
-    .join("");
-  renderAiRows();
-}
-
-function renderAiRows() {
-  const p = S.ai.proposal;
-  const n = rowChanges(p).length;
-  const newTags = p.newTags.filter((t) => t.checked && cleanTagName(t.name)).length;
-  el.aiReviewSummary.textContent = `· ${n} 个视频有改动 · 新标签 ${newTags} 个 · 点「应用」前不会改动任何东西`;
-  const tally = tallyNow(p);
-  el.aiRows.innerHTML = tally.length
-    ? `<div class="chips">${tally.map((t) => `<span class="chip ${t.cls}">${esc(t.text)} <b>${t.n}</b></span>`).join("")}</div>`
-    : `<p class="empty">AI 没有提出改动</p>`;
-  el.aiApplyBtn.textContent = n ? `应用到 ${n} 个视频` : "应用";
-  el.aiApplyBtn.setAttribute("aria-label", el.aiApplyBtn.textContent);
-  el.aiApplyBtn.disabled = !n && !newTags;
-}
 
 function applyAiProposal() {
   const p = S.ai.proposal;
@@ -3262,7 +3199,6 @@ function applyAiProposal() {
     saveAiRecent();
   }
   if (at || created.length) pushUndo({ kind: "aiApply", changes, created, folder, at });
-  el.tagsDialog.close();
   render();
   toast(`已应用 AI 建议：${changes.length} 个视频，列表只显示这些 · U 撤销`);
 }
@@ -3745,8 +3681,8 @@ function bindEvents() {
     const btn = e.target.closest("[data-head]");
     if (!btn) return;
     const act = btn.dataset.head;
-    if (act === "tags") openTags("batch");
-    else if (act === "aiOther") openFolder(otherAiFolder()).then(() => openTags("batch"));
+    if (act === "tags") openAi();
+    else if (act === "aiOther") openFolder(otherAiFolder()).then(openAi);
     else if (act === "stage1") {
       if (!S.stage1.running) return runStage1();
       S.stage1.stop = true;
@@ -3985,92 +3921,9 @@ function bindEvents() {
     if (el.criteriaDialog.returnValue === "save") saveCriteria();
   });
   el.aiTagSlot.addEventListener("click", (e) => {
-    if (e.target.closest("[data-tags-manage]")) openTags("manage");
-    else if (e.target.closest("[data-ai-tag]")) openTags("batch");
+    if (e.target.closest("[data-tags-manage]")) openManage();
+    else if (e.target.closest("[data-ai-tag]")) openAi();
   });
-  el.tagsDialog.addEventListener("click", (e) => {
-    const btn = e.target.closest("[data-tags-mode]");
-    if (btn) showTagsMode(btn.dataset.tagsMode);
-  });
-  el.aiTagsPreview.addEventListener("click", (e) => {
-    const id = e.target.closest("[data-use]")?.dataset.use;
-    if (!id) return;
-    if (!S.ai.excluded.delete(id)) S.ai.excluded.add(id);
-    renderAiForm();
-    el.aiTagsPreview.querySelector(`[data-use="${CSS.escape(id)}"]`)?.focus();
-  });
-  el.tagsRows.addEventListener("change", (e) => {
-    const row = e.target.closest(".tag-row");
-    const t = row && tagById(row.dataset.id);
-    const field = e.target.dataset.field;
-    if (t && field && !saveTagEdit(t, field, e.target.value) && field === "name") e.target.value = t.name;
-  });
-  el.tagsRows.addEventListener("click", (e) => {
-    const row = e.target.closest(".tag-row");
-    const t = row && tagById(row.dataset.id);
-    if (t && e.target.closest("[data-tag-del]")) deleteTag(t.id);
-    else if (t && e.target.closest("[data-tag-color]") && saveTagEdit(t, "color")) renderTagManager();
-  });
-  const addTag = () => {
-    const name = cleanTagName(el.newTagInput.value);
-    const why = UI.tagNameError(name, viewTags());
-    if (why) return toast(why, true);
-    if (!createTag(name)) return;
-    el.newTagInput.value = "";
-    renderTagManager();
-    render();
-  };
-  el.addTagBtn.addEventListener("click", addTag);
-  // Enter in a name field: 新建 adds the tag; a rename or an AI tag name would submit the form and close the dialog (as in follow.js).
-  el.tagsDialog.addEventListener("keydown", (e) => {
-    if (composing(e) || e.key !== "Enter" || !e.target.matches?.('#newTagInput, [data-field="name"], [data-nt="name"]')) return;
-    e.preventDefault();
-    if (e.target === el.newTagInput) addTag();
-  });
-
-  // 批量打
-  el.aiScope.addEventListener("change", renderAiForm);
-  // The same switch as in 收藏夹设置, saved as soon as it flips.
-  el.aiFormRemoveTagsInput.addEventListener("change", async () => {
-    const on = el.aiFormRemoveTagsInput.checked;
-    const r = await send({ type: "triage-settings-save", triageAiRemoveTags: on });
-    if (!r.ok) {
-      el.aiFormRemoveTagsInput.checked = !on;
-      toast(`保存设置失败：${r.error}`, true);
-      return;
-    }
-    S.settings.triageAiRemoveTags = on;
-  });
-  el.aiHistory.addEventListener("click", (e) => {
-    const btn = e.target.closest("[data-h]");
-    if (btn) el.aiInstruction.value = S.aiHistory[Number(btn.dataset.h)];
-  });
-  el.aiRunBtn.addEventListener("click", runAiCommand);
-  el.aiStopBtn.addEventListener("click", () => {
-    S.ai.stop = true;
-    el.aiProgress.textContent = "将在当前批次完成后停止…";
-  });
-  el.aiCloseBtn.addEventListener("click", () => el.tagsDialog.close());
-  el.aiNewTags.addEventListener("change", (e) => {
-    const t = S.ai.proposal?.newTags[Number(e.target.closest(".ai-newtag")?.dataset.i)];
-    if (t && e.target.dataset.nt === "checked") {
-      t.checked = e.target.checked;
-      renderAiRows();
-    }
-  });
-  el.aiNewTags.addEventListener("input", (e) => {
-    const t = S.ai.proposal?.newTags[Number(e.target.closest(".ai-newtag")?.dataset.i)];
-    const field = e.target.dataset.nt;
-    if (!t || field !== "name") return;
-    t.name = e.target.value;
-    renderAiRows();
-  });
-  el.aiDiscardBtn.addEventListener("click", () => {
-    S.ai.proposal = null;
-    showAiForm();
-    renderTop();
-  });
-  el.aiApplyBtn.addEventListener("click", applyAiProposal);
 
   // basket
   el.basketToggle.addEventListener("click", () => setBasketOpen(el.basket.classList.contains("collapsed")));
@@ -4093,7 +3946,7 @@ function parseMaxTokens(value) {
   return n === 0 || (n >= 200 && n <= 32000) ? n : null;
 }
 
-// The tag caps are written into the static hints of the 标签 and help dialogs.
+// The tag caps are written into the help dialog's static hints.
 function renderTagLimit() {
   for (const node of document.querySelectorAll("[data-tag-limit]")) node.textContent = tagLimit();
   for (const node of document.querySelectorAll("[data-ai-new-tag-max]")) node.textContent = S.settings.triageAiNewTagMax;
@@ -4192,7 +4045,7 @@ function onKey(e) {
   const map = {
     "?": () => el.helpDialog.showModal(),
     "/": () => el.searchInput.focus(),
-    i: () => (aiTagReason() ? toast(aiTagReason()) : openTags("batch"))
+    i: () => (aiTagReason() ? toast(aiTagReason()) : openAi())
   };
   const nav = { j: 1, ArrowDown: 1, k: -1, ArrowUp: -1 };
   const cardKeys = { d: "unfav", s: "keep", t: "tag", e: "basket", q: "ask", x: "select", o: "open", Enter: "open" };

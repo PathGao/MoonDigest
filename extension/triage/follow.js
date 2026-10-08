@@ -810,63 +810,6 @@ async function starOne(mid) {
 }
 
 // ---------- dialogs ----------
-document.body.insertAdjacentHTML("beforeend", `
-  <dialog id="fwTagsDialog" class="wide" aria-label="UP 主标签">
-    <form method="dialog">
-      <div class="ai-review-head">
-        <h2>UP 主标签</h2>
-        <span class="seg" role="group" aria-label="UP 主标签">
-          <button type="button" data-fwmode="manage" aria-pressed="true">管理</button>
-          <button type="button" data-fwmode="ai" aria-pressed="false">AI 打标签</button>
-        </span>
-      </div>
-      <section id="fwManage" class="ai-section">
-        <p class="dialog-hint">UP 主的标签和收藏夹的视频标签分开，只存在扩展里，不改 B站。改名、颜色、说明和删除立即保存。</p>
-        <div id="fwTagRows" class="tag-rows"></div>
-        <div class="tag-add">
-          <input id="fwNewTag" type="text" maxlength="12" placeholder="新标签名称" aria-label="新标签名称" autocomplete="off">
-          <button id="fwAddTag" type="button">添加</button>
-        </div>
-        <div class="dialog-actions"><span class="spacer"></span><button type="submit" class="primary">完成</button></div>
-      </section>
-      <section id="fwAiForm" class="ai-section" hidden>
-        <p class="dialog-hint">用一句话让 AI 给一批 UP 主打标签。AI 看名字、签名、主要分区和最近的视频标题，只给建议，你点「应用」后才生效。</p>
-        <div class="ai-grid">
-          <label for="fwAiInstruction">指令</label>
-          <textarea id="fwAiInstruction" rows="3" placeholder="例如：按内容分成 科普、游戏、生活，每人只打一个"></textarea>
-          <div id="fwAiHistory" class="ai-history"></div>
-          <label for="fwAiScope">作用范围</label>
-          <select id="fwAiScope"><option value="view">当前筛选</option><option value="sel">选中</option></select>
-          <p id="fwAiScopeCount" class="dialog-meta"></p>
-          <div id="fwAiTags" class="fw-ai-tags"></div>
-          <label class="toggle"><input id="fwAiRemove" type="checkbox" class="switch"> 允许 AI 去掉已有标签</label>
-        </div>
-        <p id="fwAiProgress" class="dialog-meta" aria-live="polite"></p>
-        <div class="dialog-actions">
-          <span class="spacer"></span>
-          <button type="button" data-fwai="close">关闭</button>
-          <button id="fwAiStop" type="button" class="danger" data-fwai="stop" hidden>停止</button>
-          <button id="fwAiRun" type="button" class="primary" data-fwai="run">${AI_SPARK}运行</button>
-        </div>
-      </section>
-      <section id="fwAiReview" class="ai-section" hidden>
-        <h3>检查 AI 的建议 <span id="fwAiSummary" class="dialog-meta"></span></h3>
-        <div id="fwAiNotes"></div>
-        <h3 id="fwAiNewHead">新标签</h3>
-        <div id="fwAiNew" class="tag-rows"></div>
-        <h3>改动汇总</h3>
-        <div id="fwAiTally" class="ai-tally"></div>
-        <p class="dialog-hint">应用后列表只显示「✦ AI 刚打的」这些 UP 主，在卡片上逐个看，不对的点卡片上的标签改。</p>
-        <div class="dialog-actions">
-          <span class="spacer"></span>
-          <button type="button" data-fwai="discard">放弃</button>
-          <button id="fwAiApply" type="button" class="primary" data-fwai="apply">应用</button>
-        </div>
-      </section>
-    </form>
-  </dialog>
-`);
-const tagsDialog = $("fwTagsDialog");
 
 // ----- 刷新, 导出, 关注设置 -----
 const refresh = $("fwRefreshBtn");
@@ -968,28 +911,23 @@ settingsDialog.addEventListener("close", async () => {
   toast("设置已保存");
 });
 
-// ----- 管理 -----
-function openTags(mode) {
-  showTagsMode(mode);
-  tagsDialog.showModal();
-  if (mode === "manage") $("fwNewTag").focus();
-}
-function showTagsMode(mode) {
-  for (const b of tagsDialog.querySelectorAll("[data-fwmode]")) b.setAttribute("aria-pressed", String(b.dataset.fwmode === mode));
-  $("fwManage").hidden = mode !== "manage";
-  $("fwAiForm").hidden = mode !== "ai" || Boolean(AI.proposal && !AI.running);
-  $("fwAiReview").hidden = mode !== "ai" || !AI.proposal || AI.running;
-  if (mode === "manage") renderTagRows();
-  else if (AI.proposal && !AI.running) renderAiReview();
-  else renderAiForm();
-}
-function renderTagRows() {
-  const counts = {};
-  for (const m of following()) for (const id of rows.get(m)?.tagIds || []) counts[id] = (counts[id] || 0) + 1;
-  $("fwTagRows").innerHTML = D.tags.length
-    ? D.tags.map((t) => UI.tagRowHtml(t, { count: counts[t.id] || 0, who: "UP 主" })).join("")
-    : `<p class="muted">还没有 UP 主标签</p>`;
-}
+// ----- 标签管理 (tag-dialogs.js) -----
+const manageTags = {
+  who: "UP 主",
+  hint: () => "UP 主的标签和收藏夹的视频标签分开，只存在扩展里，不改 B站。",
+  tags: () => D.tags,
+  count: (id) => following().filter((m) => rows.get(m)?.tagIds.includes(id)).length,
+  async add(value) {
+    const why = UI.tagNameError(cleanTagName(value), D.tags);
+    if (why) return void toast(why, true);
+    const t = await addTag(value);
+    if (t) render();
+    return t;
+  },
+  edit: editTag,
+  remove: (t) => deleteTag(t.id)
+};
+const openManage = () => TagDialogs.manage.open(manageTags);
 async function addTag(name) {
   name = cleanTagName(name);
   if (!name) return null;
@@ -999,21 +937,19 @@ async function addTag(name) {
   await saveTags([...D.tags, t]);
   return t;
 }
-async function editTag(id, field, value) {
-  const t = { ...tagOf(id) };
+async function editTag(old, field, value) {
+  const id = old.id;
+  const t = { ...old };
   if (field === "name") {
     const name = cleanTagName(value);
     const why = UI.tagNameError(name, D.tags.filter((x) => x.id !== id));
-    if (why) {
-      toast(why, true);
-      return renderTagRows();
-    }
+    if (why) return toast(why, true), false;
     t.name = name;
   } else if (field === "rule") t.rule = String(value || "").trim().slice(0, 80);
   else if (field === "color") t.color = UI.cycleTagColor(t.color);
   await saveTags(D.tags.map((x) => (x.id === id ? t : x)));
-  renderTagRows();
   render();
+  return true;
 }
 async function deleteTag(id) {
   const t = tagOf(id);
@@ -1028,7 +964,6 @@ async function deleteTag(id) {
   await setTagMap(map);
   await saveTags(D.tags.filter((x) => x.id !== id));
   if (F.side === id) F.side = "all";
-  renderTagRows();
   render();
 }
 
@@ -1124,84 +1059,78 @@ function toggleSel(mid) {
 // ----- AI 打标签: the folder view's 批量打 flow, one UP per line -----
 const AI = { running: false, stop: false, proposal: null, excluded: new Set(), settings: {}, history: [] };
 
-function aiScopeMids(scope = $("fwAiScope").value) {
+function aiScopeMids(scope) {
   const live = new Set(following());
-  return (scope === "sel" ? selShown() : F.side === "gone" ? [] : [...shown]).filter((m) => live.has(m));
-}
-async function loadAi() {
-  AI.settings = await aiSettings();
-  AI.history = (await chrome.storage.local.get(AI_HISTORY_KEY))[AI_HISTORY_KEY] || [];
-  AI.excluded.clear();
-  $("fwAiScope").value = selShown().length ? "sel" : "view";
-  $("fwAiRemove").checked = AI.settings.allowRemove;
+  return (scope === "selected" ? selShown() : F.side === "gone" ? [] : [...shown]).filter((m) => live.has(m));
 }
 async function openAi() {
-  if (!AI.running) await loadAi();
-  openTags("ai");
-}
-function renderAiForm() {
-  const counts = { view: aiScopeMids("view").length, sel: aiScopeMids("sel").length };
-  for (const o of $("fwAiScope").options) {
-    o.textContent = `${o.value === "sel" ? "选中" : "当前筛选"} · ${counts[o.value]} 个`;
-    o.disabled = !counts[o.value];
+  if (!AI.running) {
+    AI.settings = await aiSettings();
+    AI.history = (await chrome.storage.local.get(AI_HISTORY_KEY))[AI_HISTORY_KEY] || [];
   }
-  if ($("fwAiScope").selectedOptions[0]?.disabled) $("fwAiScope").value = counts.view ? "view" : "sel";
-  const mids = aiScopeMids();
-  const size = AI.settings.batchSize;
+  TagDialogs.ai.open(aiTags);
+}
+function aiScopeText(scope) {
+  const mids = aiScopeMids(scope);
   const bare = mids.filter((m) => !rows.get(m)?.titles.length && !rows.get(m)?.zone).length;
-  $("fwAiScopeCount").textContent = mids.length
-    ? `${mids.length} 个 UP 主${bare ? `，其中 ${bare} 个还没查投稿，AI 只能看名字和签名` : ""}。分 ${Math.ceil(mids.length / size)} 批发送`
+  return mids.length
+    ? `${mids.length} 个 UP 主${bare ? `，其中 ${bare} 个还没查投稿，AI 只能看名字和签名` : ""}。分 ${Math.ceil(mids.length / AI.settings.batchSize)} 批发送`
     : "作用范围里没有 UP 主";
-  const max = AI.settings.newTagMax;
-  const roomHint = `${max ? `AI 这次最多新建 ${max} 个标签，你确认后才创建。` : "AI 只会用已有标签。"}<br>每批数量、间隔和新建上限在左下角的「关注设置」里改。`;
-  const useChip = (t) => {
-    const on = !AI.excluded.has(t.id);
-    return `<button type="button" class="chip tag-use${on ? " on" : ""}" style="--c:${esc(t.color)}" data-use="${esc(t.id)}" aria-pressed="${on}" title="${on ? "点一下：这次不让 AI 用" : "点一下：让 AI 用"}">${esc(t.name)}</button>`;
-  };
-  $("fwAiTags").innerHTML = D.tags.length
-    ? `<span class="grid-label">可用标签</span><div class="chips">${D.tags.map(useChip).join("")}</div><p class="dialog-meta">点掉的标签这次不给 AI 用。<br>${roomHint}</p>`
-    : `<p class="dialog-hint">还没有 UP 主标签。${roomHint}想打得准，先在<button type="button" class="link" data-fwmode="manage">「管理」</button>里建好标签、每个写一句说明。</p>`;
-  $("fwAiHistory").innerHTML = AI.history.length
-    ? `<span class="muted">最近：</span>${AI.history.map((h, i) => `<button type="button" class="chip" data-h="${i}" title="${esc(h)}">${esc(h.length > 18 ? `${h.slice(0, 18)}…` : h)}</button>`).join("")}`
-    : "";
-  const run = $("fwAiRun");
-  UI.setReason(run, AI.running ? "正在运行" : mids.length ? "" : $("fwAiScopeCount").textContent);
-  run.innerHTML = AI.running ? "运行中…" : `${AI_SPARK}运行`;
-  if (AI.running) run.setAttribute("aria-busy", "true");
-  else run.removeAttribute("aria-busy");
-  $("fwAiStop").hidden = !AI.running;
 }
+const aiTags = {
+  who: "UP 主",
+  sees: "名字、签名、主要分区和最近的视频标题",
+  example: "按内容分成 科普、游戏、生活，每人只打一个",
+  excluded: AI.excluded,
+  manage: manageTags,
+  tags: () => D.tags,
+  scopes: () => [
+    { value: "filter", label: "当前筛选", n: aiScopeMids("filter").length },
+    { value: "selected", label: "选中", n: aiScopeMids("selected").length }
+  ],
+  scopeText: aiScopeText,
+  roomHint: () => `${AI.settings.newTagMax ? `AI 这次最多新建 ${AI.settings.newTagMax} 个标签，你确认后才创建。` : "AI 只会用已有标签。"}<br>每批数量、间隔和新建上限在左下角的「关注设置」里改。`,
+  blocked: () => "",
+  history: () => AI.history,
+  allowRemove: () => AI.settings.allowRemove,
+  running: () => AI.running,
+  proposal: () => AI.proposal,
+  run: runAi,
+  stop: () => (AI.stop = true),
+  discard() {
+    AI.proposal = null;
+    renderAiState();
+  },
+  apply: () => applyAi(),
+  changes: (p) => changesNow(p),
+  tally: (p, changes) => UI.aiTally(p, changes, (id) => tagOf(id)?.name),
+  uses: (p, t) => p.rows.filter((r) => r.add.includes(`new:${t.key}`)).length
+};
 
-async function runAi() {
-  if (AI.running) return;
-  const instruction = $("fwAiInstruction").value.trim();
-  const mids = aiScopeMids();
-  const progress = $("fwAiProgress");
-  if (!instruction) {
-    progress.textContent = "请先写指令";
-    return $("fwAiInstruction").focus();
-  }
-  if (!mids.length) return (progress.textContent = "作用范围里没有 UP 主");
+// instruction, scope and allowRemove come from the dialog, which has checked that there is an instruction and UP 主.
+async function runAi({ instruction, scope, allowRemove }) {
+  const mids = aiScopeMids(scope);
+  if (AI.running || !mids.length) return;
+  const progress = (text) => TagDialogs.ai.progress(aiTags, text);
   AI.history = [instruction, ...AI.history.filter((x) => x !== instruction)].slice(0, 5);
   T.store({ [AI_HISTORY_KEY]: AI.history });
   const excluded = new Set(D.tags.filter((t) => AI.excluded.has(t.id)).map((t) => t.name));
   const tags = D.tags.filter((t) => !excluded.has(t.name)).map((t) => ({ name: t.name, rule: t.rule || "" }));
   const opts = { tags: D.tags, map: D.map, maxNewTags: AI.settings.newTagMax, excluded, scope: new Set(mids) };
-  const { batches, intervalMs } = aiRequests(mids, AI.settings, instruction, tags, $("fwAiRemove").checked);
+  const { batches, intervalMs } = aiRequests(mids, AI.settings, instruction, tags, allowRemove);
   const total = batches.length;
   const p = { newTags: [], rows: [], notes: [], errors: [] };
   AI.running = true;
   AI.stop = false;
-  renderAiForm();
   renderAiState();
   const keepGoing = () => !AI.stop;
   for (let i = 0; i < total && keepGoing(); i++) {
-    progress.textContent = `AI 正在处理第 ${i + 1} / ${total} 批…`;
+    progress(`AI 正在处理第 ${i + 1} / ${total} 批…`);
     const r = await send({ ...batches[i], maxNewTags: Math.max(0, opts.maxNewTags - p.newTags.length) });
     // An AI 429: wait as 收藏夹 does, then send the same batch again.
     if (!r.ok && T.THROTTLES[r.code]) {
       const [ms, label] = T.THROTTLES[r.code];
-      progress.textContent = `${label}，${Math.round(ms / 1000)} 秒后重试第 ${i + 1} 批…`;
+      progress(`${label}，${Math.round(ms / 1000)} 秒后重试第 ${i + 1} 批…`);
       await T.sleepWhile(ms, keepGoing);
       i--;
       continue;
@@ -1218,39 +1147,14 @@ async function runAi() {
   for (const t of p.newTags) t.checked = p.rows.some((r) => r.add.includes(`new:${t.key}`));
   AI.running = false;
   AI.proposal = p;
-  progress.textContent = "";
+  progress("");
   renderAiState();
-  if (tagsDialog.open) showTagsMode("ai");
+  if (TagDialogs.ai.isOpen(aiTags)) TagDialogs.ai.render(aiTags);
   else toast("AI 打标签已完成，在状态栏点「查看」确认");
 }
 
 const changesNow = (p) => UI.aiChanges(p, D.map, new Set(following()), (key) => UI.previewId(p, key, D.tags));
 
-function renderAiReview() {
-  const p = AI.proposal;
-  $("fwAiNotes").innerHTML = p.errors.map((e) => `<p class="fail-text">${esc(e)}</p>`).join("") + p.notes.map((n) => `<p class="muted">AI 说明：${esc(n)}</p>`).join("");
-  const uses = (t) => p.rows.filter((r) => r.add.includes(`new:${t.key}`)).length;
-  $("fwAiNewHead").hidden = !p.newTags.length;
-  $("fwAiNew").innerHTML = p.newTags.map((t, i) => `<div class="ai-newtag" data-i="${i}">
-      <input type="checkbox" data-nt="checked"${t.checked ? " checked" : ""} aria-label="创建标签 ${esc(t.name)}">
-      <input type="text" data-nt="name" value="${esc(t.name)}" maxlength="12" aria-label="新标签名称">
-      <span class="muted">${uses(t) ? `用在 ${uses(t)} 个 UP 主` : "没有 UP 主用到"}</span>
-    </div>`).join("");
-  renderAiTally();
-}
-function renderAiTally() {
-  const p = AI.proposal;
-  const changes = changesNow(p);
-  const newN = p.newTags.filter((t) => t.checked && cleanTagName(t.name)).length;
-  $("fwAiSummary").textContent = `· ${changes.length} 个 UP 主有改动 · 新标签 ${newN} 个 · 点「应用」前不会改动任何东西`;
-  const tally = UI.aiTally(p, changes, (id) => tagOf(id)?.name);
-  $("fwAiTally").innerHTML = tally.length
-    ? `<div class="chips">${tally.map((t) => `<span class="chip ${t.cls}">${esc(t.text)} <b>${t.n}</b></span>`).join("")}</div>`
-    : `<p class="empty">AI 没有提出改动</p>`;
-  const apply = $("fwAiApply");
-  apply.textContent = changes.length ? `应用到 ${changes.length} 个 UP 主` : "应用";
-  apply.disabled = !changes.length && !newN;
-}
 async function applyAi() {
   const p = AI.proposal;
   if (!p) return;
@@ -1275,7 +1179,6 @@ async function applyAi() {
   const n = changes.length;
   const ask = n > 1 && [`撤销这次 AI 打标签？`, `<p>这次 AI 打标签改过的 ${n} 个 UP 主，标签都改回 AI 打之前，包括你之后又改过的。</p>`];
   if (n || created.length) pushTagUndo(before, `AI 打标签（${n} 个 UP 主）`, { ask: ask || null, created, recentAt: n ? recent.at : 0 });
-  tagsDialog.close();
   render();
   toast(`已应用 AI 建议：${n} 个 UP 主，列表只显示这些 · U 撤销`);
 }
@@ -1357,7 +1260,7 @@ main.addEventListener("click", async (e) => {
     saveView();
     render();
   } else if (act === "ai") openAi();
-  else if (act === "tags") openTags("manage");
+  else if (act === "tags") openManage();
   else if (act === "settings") openSettings();
   else if (act === "bili") window.open("https://space.bilibili.com/", "_blank", "noopener");
   else if (act === "csv") BocDownload.text(`MoonDigest-关注-${fmtDate(nowSec())}.csv`, upCsv(), "text/csv;charset=utf-8");
@@ -1398,70 +1301,6 @@ main.addEventListener("change", (e) => {
     saveView();
     render();
   } else if (act === "side") pickSide(e.target.value);
-});
-
-tagsDialog.addEventListener("click", async (e) => {
-  const t = e.target;
-  const mode = t.closest("[data-fwmode]");
-  if (mode) {
-    if (mode.dataset.fwmode === "ai" && !AI.running) await loadAi();
-    return showTagsMode(mode.dataset.fwmode);
-  }
-  const row = t.closest("#fwTagRows .tag-row");
-  if (row && t.closest("[data-tag-color]")) return editTag(row.dataset.id, "color");
-  if (row && t.closest("[data-tag-del]")) return deleteTag(row.dataset.id);
-  if (t.closest("#fwAddTag")) {
-    const input = $("fwNewTag");
-    const why = UI.tagNameError(cleanTagName(input.value), D.tags);
-    if (why) return toast(why, true);
-    if (await addTag(input.value)) {
-      input.value = "";
-      renderTagRows();
-      render();
-    }
-    return;
-  }
-  const use = t.closest("[data-use]");
-  if (use) {
-    if (AI.excluded.has(use.dataset.use)) AI.excluded.delete(use.dataset.use);
-    else AI.excluded.add(use.dataset.use);
-    return renderAiForm();
-  }
-  const h = t.closest("[data-h]");
-  if (h) {
-    $("fwAiInstruction").value = AI.history[Number(h.dataset.h)] || "";
-    return $("fwAiInstruction").focus();
-  }
-  const ai = t.closest("[data-fwai]")?.dataset.fwai;
-  if (ai === "run") runAi();
-  else if (ai === "stop") AI.stop = true;
-  else if (ai === "close") tagsDialog.close();
-  else if (ai === "discard") {
-    AI.proposal = null;
-    renderAiState();
-    showTagsMode("ai");
-  } else if (ai === "apply") applyAi();
-});
-tagsDialog.addEventListener("change", (e) => {
-  const t = e.target;
-  const row = t.closest("#fwTagRows .tag-row");
-  if (row && t.dataset.field) return editTag(row.dataset.id, t.dataset.field, t.value);
-  if (t.id === "fwAiScope") return renderAiForm();
-  const nt = t.closest(".ai-newtag");
-  if (nt && AI.proposal) {
-    const tag = AI.proposal.newTags[Number(nt.dataset.i)];
-    if (t.dataset.nt === "checked") tag.checked = t.checked;
-    else tag.name = cleanTagName(t.value);
-    renderAiTally();
-  }
-});
-tagsDialog.addEventListener("keydown", (e) => {
-  if (BocTyping.composing(e)) return;
-  if (e.key === "Enter" && e.target.id === "fwNewTag") {
-    e.preventDefault();
-    $("fwAddTag").click();
-  }
-  if (e.key === "Enter" && e.target.matches?.("#fwTagRows input")) e.preventDefault();
 });
 
 vline.addEventListener("click", (e) => {
