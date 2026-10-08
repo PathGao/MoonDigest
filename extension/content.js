@@ -1186,7 +1186,13 @@ async function runRefreshClip() {
         selected = await tryLoadSubtitleCandidates(candidates, runId);
       } catch (error) {
         if (error?.status === 429) {
-          selected = await loadTranscriptFallback(error, runId);
+          selected = await loadTranscriptFallback(error, runId).catch((finalError) => {
+            const mismatch = subtitleMismatchOf(error);
+            if (!mismatch || isStaleRunError(finalError)) {
+              throw finalError;
+            }
+            return acceptMismatchedSubtitle(mismatch, runId);
+          });
         } else {
           const message = getErrorMessage(error, "");
           const empty = error?.anyEmpty === true;
@@ -4402,6 +4408,7 @@ async function tryLoadSubtitleCandidates(candidates, runId) {
       if (error?.status === 429) {
         const limited = new Error("字幕接口限流（429），稍后再试");
         limited.status = 429;
+        if (mismatch) limited.mismatch = mismatch;
         throw limited;
       }
       lastError = error;

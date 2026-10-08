@@ -359,6 +359,13 @@ const settle = async () => {
       throw fails.shift();
     };
     await assert.rejects(t.tryLoadSubtitleCandidates([{ id: ".zh", url: "u1" }, { id: ".en", url: "u2" }], state.fetchRunId), (e) => e.message === "HTTP 404" && t.subtitleMismatchOf(e) === mismatch);
+    // A 429 on a later track still carries the mismatch, so the caller can fall back to it.
+    const realSleep = t.sleep;
+    t.sleep = async () => {};
+    const limited = Object.assign(new Error("HTTP 429"), { status: 429 });
+    fails.push(mismatch, limited, limited);
+    await assert.rejects(t.tryLoadSubtitleCandidates([{ id: ".zh", url: "u1" }, { id: ".en", url: "u2" }], state.fetchRunId), (e) => e.status === 429 && t.subtitleMismatchOf(e) === mismatch);
+    t.sleep = realSleep;
     t.loadSubtitle = realLoad;
 
     const track = await t.acceptMismatchedSubtitle(mismatch, state.fetchRunId);
