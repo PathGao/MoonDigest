@@ -10,35 +10,14 @@
   </head>
   <body>
     <div class="app">
-      <!-- Top bar: only what both modes share (brand, mode switch); each mode keeps its own search in its filter row. -->
+      <!-- Top bar: only what both modes share (brand, mode switch, the narrow-width folder or tag select, 帮助). -->
       <header class="topbar">
         <div class="brand"><span class="brand-mark" aria-hidden="true"></span>B站分拣台</div>
         <!-- 收藏夹 | 关注: follow.js owns the switch and the 关注 mode (body.follow-mode). -->
         <span id="modeSwitch" class="seg mode-switch" role="group" aria-label="分拣什么"><button type="button" data-mode="fav" aria-pressed="true">收藏夹</button><button type="button" data-mode="follow" aria-pressed="false">关注</button></span>
         <!-- The select holds the open folder (every reader and writer keeps using it); the sidebar list is drawn from its options. -->
         <select id="folderSelect" class="folder-select" aria-label="选择收藏夹"></select>
-        <span class="spacer"></span>
-        <span class="sync-wrap">
-          <button id="syncViewBtn" type="button" class="pill sync-pill" aria-expanded="false" aria-controls="syncNotice" hidden></button>
-          <div id="syncNotice" class="notice" hidden>
-            <p id="syncText"></p>
-            <div id="syncDetail" class="sync-detail"></div>
-            <div class="notice-actions"><button id="syncCloseBtn" type="button" aria-label="关闭同步提示">关闭</button></div>
-          </div>
-        </span>
-        <span id="activity" class="activity" aria-live="polite" hidden></span>
-        <button id="refreshBtn" type="button" class="ghost-btn" aria-label="从 B站刷新收藏夹">↻ 刷新</button>
-        <button id="settingsBtn" type="button" class="more-btn gear-btn" title="分拣设置" aria-label="分拣设置">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9.671 4.136a2.34 2.34 0 0 1 4.659 0 2.34 2.34 0 0 0 3.319 1.915 2.34 2.34 0 0 1 2.33 4.033 2.34 2.34 0 0 0 0 3.831 2.34 2.34 0 0 1-2.33 4.033 2.34 2.34 0 0 0-3.319 1.915 2.34 2.34 0 0 1-4.659 0 2.34 2.34 0 0 0-3.32-1.915 2.34 2.34 0 0 1-2.33-4.033 2.34 2.34 0 0 0 0-3.831A2.34 2.34 0 0 1 6.35 6.051a2.34 2.34 0 0 0 3.319-1.915"/><circle cx="12" cy="12" r="3"/></svg>
-        </button>
-        <button id="moreBtn" type="button" class="more-btn" popovertarget="tools" aria-label="更多操作">⋯</button>
-        <div id="tools" class="tools" popover>
-          <div class="tools-brand">MoonDigest · B站分拣台</div>
-          <button id="writeBtn" type="button" aria-label="批量导出">批量导出</button>
-          <button id="backupBtn" type="button" aria-label="下载完整备份 JSON">完整备份 (JSON)</button>
-          <button id="csvBtn" type="button" aria-label="下载当前收藏夹表格 CSV">当前收藏夹表格 (CSV)</button>
-          <button id="helpBtn" type="button" aria-label="帮助">帮助（?）</button>
-        </div>
+        <button id="helpBtn" type="button" class="help-btn" title="帮助和快捷键 (?)" aria-label="帮助 (?)">?</button>
       </header>
 
       <div id="banner" class="banner" hidden>
@@ -48,41 +27,46 @@
       </div>
 
       <div class="shell">
-        <aside class="side" aria-label="收藏夹">
+        <!-- The foot (标签管理, 收藏夹设置) comes from shared.js, as in 关注. -->
+        <aside id="favSide" class="side" aria-label="收藏夹">
           <div class="side-head">收藏夹</div>
           <div id="folderList" class="folder-list"></div>
-          <hr />
-          <!-- The same AI-class filter as the chips above the list; both read and write S.classFilter[S.tab]. -->
-          <div id="sideFilter" class="folder-list side-filter" role="group" aria-label="按 AI 判断筛选"></div>
-          <hr />
-          <button id="aiBtn" type="button" class="side-item tag-btn" aria-label="标签：管理标签和 AI 批量打标签"><span class="ai-spark" aria-hidden="true"></span>标签</button>
         </aside>
         <aside id="followSide" class="side follow-side" aria-label="UP 主标签" hidden></aside>
 
         <div id="main" class="main">
           <!-- 关注 mode: follow.js draws head, tabs, filters and list into the same grid areas as the folder view. -->
           <div id="followMain" class="follow-main" hidden></div>
-          <!-- The folder's name and counts on the left; the step's criteria line and buttons (listHeader) on the right. -->
+          <!-- Row 1: name · count, 在 B站打开, when it was read | sort. -->
           <div class="folder-head">
             <div class="folder-info">
               <div id="folderHead" class="folder-name"></div>
               <button id="biliBtn" type="button" class="bili-link" aria-label="在 B站打开当前收藏夹（所有收藏夹时打开个人主页）" hidden>在 B站打开 ↗</button>
+              <span class="sync-wrap">
+                <button id="syncViewBtn" type="button" class="pill sync-pill" aria-expanded="false" aria-controls="syncNotice" hidden></button>
+                <div id="syncNotice" class="notice" hidden>
+                  <p id="syncText"></p>
+                  <div id="syncDetail" class="sync-detail"></div>
+                  <div class="notice-actions"><button id="syncCloseBtn" type="button" aria-label="关闭同步提示">关闭</button></div>
+                </div>
+              </span>
             </div>
-            <div id="listHeader" class="list-header"></div>
+            <span id="sortBox" class="sort-box"></span>
           </div>
-          <nav id="tabs" class="tabs" role="tablist" aria-label="分拣进度"></nav>
+          <!-- Row 2: the steps | search, what is running, 刷新, 导出 (shared.js fills it; ⚙ joins without the sidebar). -->
+          <div class="tabrow">
+            <nav id="tabs" class="tabs" role="tablist" aria-label="分拣进度"></nav>
+            <span id="favRowTools" class="row-tools" role="toolbar" aria-label="收藏夹的操作"></span>
+          </div>
           <section class="listpane">
+            <!-- Row 3: AI-verdict filters | 全选 and the step's buttons. Row 4: my tags and the watch filters | ✦ AI 打标签. -->
             <div id="stagebar" class="stagebar">
               <span id="classFilter" class="class-filter"></span>
+              <div id="listHeader" class="list-header"></div>
+            </div>
+            <div id="tagbar" class="tagbar">
               <span id="tagFilter" class="tagfilter"></span>
-              <span id="sortBox" class="sort-box"></span>
-              <!-- Search lives with this folder's filters so its scope is visible; it covers the open folder (or view) and tab. -->
-              <span class="search">
-                <svg class="search-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
-                <input id="searchInput" type="search" placeholder="搜这个收藏夹" aria-label="搜这个收藏夹 (/)" autocomplete="off" />
-                <span id="searchCount" class="muted" aria-live="polite"></span>
-                <kbd class="search-key" aria-hidden="true">/</kbd>
-              </span>
+              <span id="aiTagSlot"></span>
             </div>
             <div id="list" class="list" aria-label="视频列表"><p class="empty">正在加载收藏夹列表…</p></div>
 
@@ -103,7 +87,7 @@
               <strong id="viewerTitle" class="viewer-title"></strong>
               <button id="viewerNextBtn" type="button" hidden aria-label="已看，在右侧打开优先看的下一个">已看，下一个 ▸</button>
               <button id="viewerFocusBtn" type="button" aria-label="在视频栏里打开专注模式">专注模式</button>
-              <button id="viewerTabBtn" type="button" aria-label="在新标签页打开">新标签页打开</button>
+              <button id="viewerTabBtn" type="button" aria-label="在 B站打开">在 B站打开</button>
               <button id="viewerCloseBtn" type="button" class="icon" aria-label="关闭视频栏 (Esc)">×</button>
             </div>
             <!-- No allow-top-navigation: the page breaks out of frames by navigating the top window. -->
@@ -115,9 +99,9 @@
 
     <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
 
-    <dialog id="settingsDialog" aria-label="分拣设置">
+    <dialog id="settingsDialog" aria-label="收藏夹设置">
       <form method="dialog">
-        <h2 id="settingsHeading">分拣设置</h2>
+        <h2 id="settingsHeading">收藏夹设置</h2>
         <div class="settings-cols">
         <section class="set-group">
           <div class="set-head">
@@ -126,23 +110,23 @@
           </div>
           <p class="dialog-hint">只读取勾选的。B站新建的默认不勾，B站上不受影响。</p>
           <div id="folderToggles" class="folder-toggles"></div>
-          <p id="settingsFirstRunHint" class="dialog-hint" hidden>AI 参数一般不用改，以后点右上角的齿轮可以再调。</p>
+          <p id="settingsFirstRunHint" class="dialog-hint" hidden>AI 参数一般不用改，以后点左下角的「收藏夹设置」可以再调。</p>
         </section>
-        <!-- The first open only asks for folders; this part shows from the 分拣设置 gear. -->
+        <!-- The first open only asks for folders; this part shows from 收藏夹设置. -->
         <div id="settingsAi" class="settings-ai">
           <section class="set-group">
             <h3>标签</h3>
             <div class="set-card">
               <div class="set-row"><div><label class="name" for="tagLimitInput">每个收藏夹最多几个</label><p class="hint">1–50。调低不删已有标签，只是不能再新建。</p></div><input id="tagLimitInput" type="number" min="1" max="50" step="1" /></div>
-              <div class="set-row"><div><label class="name" for="aiNewTagMaxInput">批量打时 AI 最多新建</label><p class="hint">0–50，0 = 只用已有标签。</p></div><input id="aiNewTagMaxInput" type="number" min="0" max="50" step="1" /></div>
-              <div class="set-row"><div><label class="name" for="aiRemoveTagsInput">批量打时允许 AI 去掉已有标签</label><p class="hint">关时只加标签。开了也要你勾选确认。</p></div><input id="aiRemoveTagsInput" type="checkbox" class="switch" /></div>
+              <div class="set-row" data-set-row="newTagMax"><input id="aiNewTagMaxInput" type="number" min="0" max="50" step="1" /></div>
+              <div class="set-row" data-set-row="allowRemove"><input id="aiRemoveTagsInput" type="checkbox" class="switch" /></div>
             </div>
           </section>
           <section class="set-group">
             <h3>AI 参数</h3>
             <p class="dialog-hint">一般不用改。AI 平台在设置页，判断标准在粗看、细看按钮旁边。</p>
             <div class="set-card">
-              <div class="set-row"><div><label class="name" for="intervalInput">请求间隔（秒）</label></div><input id="intervalInput" type="number" min="0" step="1" /></div>
+              <div class="set-row" data-set-row="interval"><input id="intervalInput" type="number" min="0" step="1" /></div>
               <div id="thinkingRow" class="set-row"><div><label class="name" for="thinkingInput">开启思考</label><p class="hint">判断更细，但慢得多、token 多几倍。</p></div><input id="thinkingInput" type="checkbox" class="switch" /></div>
               <div class="set-row"><div><label class="name" for="batchSizeInput">标题粗看每批数量</label></div><input id="batchSizeInput" type="number" min="1" max="100" step="1" /></div>
               <div class="set-row"><div><label class="name" for="titleMaxInput">粗看输出上限（token）</label><p id="titleMaxHint" class="hint"></p></div><input id="titleMaxInput" type="number" min="0" max="32000" step="1" placeholder="自动" /></div>
@@ -258,11 +242,11 @@
           <h2>标签</h2>
           <span class="seg" role="group" aria-label="标签">
             <button id="tagsModeManage" type="button" data-tags-mode="manage" aria-pressed="true">管理</button>
-            <button id="tagsModeBatch" type="button" data-tags-mode="batch" aria-pressed="false">批量打</button>
+            <button id="tagsModeBatch" type="button" data-tags-mode="batch" aria-pressed="false">AI 打标签</button>
           </span>
         </div>
         <section id="tagsManage" class="ai-section">
-          <p class="dialog-hint">这里是这个收藏夹的标签，最多 <span data-tag-limit>10</span> 个（在分拣设置里改），改名、说明和删除立即保存。</p>
+          <p class="dialog-hint">这里是这个收藏夹的标签，最多 <span data-tag-limit>10</span> 个（在收藏夹设置里改），改名、说明和删除立即保存。</p>
           <div id="tagsRows" class="tag-rows"></div>
           <div class="tag-add">
             <input id="newTagInput" type="text" placeholder="新标签名称" aria-label="新标签名称" />
@@ -274,7 +258,7 @@
           </div>
         </section>
         <section id="aiForm" class="ai-section">
-          <p class="dialog-hint">用一句话让 AI 给一批视频打标签。AI 只给建议，你点「应用选中」后才生效，AI 判断不受影响。</p>
+          <p class="dialog-hint">用一句话让 AI 给一批视频打标签。AI 只给建议，你点「应用」后才生效，AI 判断不受影响。</p>
           <div class="ai-grid">
             <label for="aiInstruction">指令</label>
             <textarea id="aiInstruction" rows="3" placeholder="例如：把这些按技术深度分成 入门/进阶/硬核 三个标签"></textarea>
@@ -294,7 +278,7 @@
             <span class="spacer"></span>
             <button id="aiCloseBtn" type="button" aria-label="关闭">关闭</button>
             <button id="aiStopBtn" type="button" class="danger" aria-label="停止" hidden>停止</button>
-            <button id="aiRunBtn" type="button" class="primary" aria-label="运行批量打标签"><span class="ai-spark" aria-hidden="true"></span>运行</button>
+            <button id="aiRunBtn" type="button" class="primary" aria-label="运行 AI 打标签"><span class="ai-spark" aria-hidden="true"></span>运行</button>
           </div>
         </section>
         <section id="aiReview" class="ai-section" hidden>
@@ -305,7 +289,7 @@
           <h3>改动汇总</h3>
           <div id="aiRows" class="ai-tally"></div>
           <p class="dialog-hint">应用后列表只显示「✦ AI 刚打的」这些视频，在卡片上逐个看，不对的按 T 改。</p>
-          <div class="dialog-meta">「AI 刚打的」只显示最近一次批量打改动的视频：<ul id="aiRecentRules" class="ai-recent-rules"></ul><span id="aiRecentUndo"></span></div>
+          <div class="dialog-meta">「AI 刚打的」只显示最近一次 AI 打标签改动的视频：<ul id="aiRecentRules" class="ai-recent-rules"></ul><span id="aiRecentUndo"></span></div>
           <div class="dialog-actions">
             <span class="spacer"></span>
             <button id="aiDiscardBtn" type="button" aria-label="放弃这些建议">放弃</button>
@@ -318,7 +302,25 @@
     <dialog id="helpDialog" aria-label="帮助">
       <form method="dialog">
         <div class="help-cols">
-        <div class="stack">
+        <!-- 关注 mode shows its own two columns instead (body.follow-mode). -->
+        <div class="stack follow-help">
+        <h2>关注</h2>
+        <p class="dialog-hint"><strong>UP 主</strong>：按更新状态（活跃 / 慢更 / 断更）筛关注的人，给 UP 主打自己的标签，选中后可批量打标签、设为特别关注或取消关注。<br>取消关注、特别关注会改 B站，做之前都先问你。</p>
+        <p class="dialog-hint"><strong>动态</strong>：关注的人的新视频，按左边的标签只看一类 UP 主。点视频在右侧播放。</p>
+        <p class="dialog-hint">标签只存在扩展里，不改 B站。标签在左下角「标签管理」里改，「✦ AI 打标签」让 AI 按一句话给一批 UP 主打标签。</p>
+        <p class="dialog-hint">UP 主表格和完整备份都在搜索框旁的「导出」菜单里。</p>
+        </div>
+        <div class="stack follow-help">
+        <h2>快捷键</h2>
+        <dl class="keys">
+          <dt><kbd>T</kbd></dt><dd>给鼠标所在的动态卡片（或正在播放的视频）的 UP 主打标签</dd>
+          <dt><kbd>1</kbd>–<kbd>9</kbd></dt><dd>标签弹层里勾选或去掉第几个标签</dd>
+          <dt><kbd>Esc</kbd></dt><dd>关闭标签弹层或视频栏</dd>
+          <dt><kbd>/</kbd></dt><dd>搜索（Esc 清空）</dd>
+          <dt><kbd>?</kbd></dt><dd>显示本帮助</dd>
+        </dl>
+        </div>
+        <div class="stack fav-help">
         <h2>四步分拣</h2>
         <ol class="steps">
           <li><strong>未分析</strong>：点「标题粗看」，AI 只看标题和简介，快、省。</li>
@@ -326,12 +328,12 @@
           <li><strong>细看完成</strong>：按 AI 判断批量取消收藏或保留，也可以一个个按 D / S。</li>
           <li><strong>处理完成</strong>：取消收藏或保留过的视频；最近取消收藏的可以重新收藏。</li>
         </ol>
-        <p class="dialog-hint"><strong>分拣分两层</strong>：第一层是收藏夹的判断标准，AI 按它给出 AI 判断（值得留 / 可清理 / 拿不准），决定留不留；第二层是你的标签，按每个标签的说明给视频分类，决定怎么找。<br>判断标准在粗看、细看按钮旁边写，标签说明在「标签 → 管理」里写。</p>
-        <p class="dialog-hint">AI 判断是每步里的筛选。判断标准不写时，AI 从收藏夹名和简介推测用途。<br>每个收藏夹最多 <span data-tag-limit>10</span> 个标签：按 T 逐个打，按 I 批量打（AI 每次最多新建 <span data-ai-new-tag-max>5</span> 个）。两个上限都在分拣设置里改。<br>AI 只在本页打开时运行。</p>
+        <p class="dialog-hint"><strong>分拣分两层</strong>：第一层是收藏夹的判断标准，AI 按它给出 AI 判断（值得留 / 可清理 / 拿不准），决定留不留；第二层是你的标签，按每个标签的说明给视频分类，决定怎么找。<br>判断标准在粗看、细看按钮旁边写，标签说明在左下角「标签管理」里写。</p>
+        <p class="dialog-hint">AI 判断是每步里的筛选。判断标准不写时，AI 从收藏夹名和简介推测用途。<br>每个收藏夹最多 <span data-tag-limit>10</span> 个标签：按 T 逐个打，按 I 让 AI 打标签（AI 每次最多新建 <span data-ai-new-tag-max>5</span> 个）。两个上限都在收藏夹设置里改。<br>AI 只在本页打开时运行。</p>
         <p class="dialog-hint"><strong>优先看</strong>：按 E 把要看的视频放进清单（列表右下角），按加入先后排。<br>点一条在右侧打开，看完点「已看」：移出清单，卡片标「优先看过」（点它取消，U 撤销）。右侧顶栏「已看，下一个」直接打开下一条。<br>不影响收藏和处理结果。</p>
-        <p class="dialog-hint">「保留」只在 MoonDigest 里标记，B站收藏夹不变。<br>导出摘录和逐个笔记在「批量导出」，数据备份和表格在右上角 ⋯ 菜单。</p>
+        <p class="dialog-hint">「保留」只在 MoonDigest 里标记，B站收藏夹不变。<br>摘录、笔记、表格和完整备份都在搜索框旁的「导出」菜单里。</p>
         </div>
-        <div class="stack">
+        <div class="stack fav-help">
         <h2>快捷键</h2>
         <p class="dialog-hint">D、S、T、E、Q、X、O 作用于当前卡片：鼠标所在或 J / K 停在的那张，显示为浮起的卡片。</p>
         <dl class="keys">
@@ -344,7 +346,7 @@
           <dt><kbd>Q</kbd></dt><dd>问 AI（在侧边栏打开这个视频）</dd>
           <dt><kbd>X</kbd></dt><dd>选中 / 取消选中。选中的视频可以批量处理；列表上方「全选这里的 N 个」一次全选当前列出的</dd>
           <dt><kbd>O</kbd><kbd>Enter</kbd></dt><dd>在右侧打开视频页（Esc 关闭）</dd>
-          <dt><kbd>I</kbd></dt><dd>批量打标签</dd>
+          <dt><kbd>I</kbd></dt><dd>AI 打标签</dd>
           <dt><kbd>/</kbd></dt><dd>搜索（Esc 清空）</dd>
           <dt><kbd>U</kbd></dt><dd>撤销上一步（改了多个视频的会先问你）</dd>
           <dt><kbd>?</kbd></dt><dd>显示本帮助</dd>
@@ -358,6 +360,7 @@
 
     <script src="../limits.js"></script>
     <script src="../download.js"></script>
+    <script src="./shared.js"></script>
     <script type="module" src="./triage.js"></script>
     <script type="module" src="./follow.js"></script>
   </body>

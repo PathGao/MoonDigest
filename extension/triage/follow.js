@@ -306,6 +306,7 @@ const plainClick = (e) => e.button === 0 && !e.metaKey && !e.ctrlKey && !e.shift
 
 // ---------- page ----------
 const T = globalThis.MoonTriage;
+const UI = globalThis.TriageUi;
 const { esc, toast, askConfirm, send } = T;
 const KEYS = ["follow_list", "follow_people", "follow_last", "follow_content", "follow_tags", "follow_tag_map", "follow_unfollowed", "follow_jobs", "follow_ai_recent", "follow_stats", "follow_groups"];
 const VIEW_KEY = "follow_view"; // { mode: "fav" | "follow", tab: "ups" | "feed", sort, dir }
@@ -331,7 +332,8 @@ const fmtDate = (sec) => {
 };
 const fmtDur = (s) => (s >= 3600 ? `${Math.floor(s / 3600)}:` : "") + `${pad(Math.floor((s % 3600) / 60))}:${pad(Math.floor(s % 60))}`;
 const fmtCount = (n) => (n >= 1e4 ? `${(n / 1e4).toFixed(n >= 1e5 ? 0 : 1)}万` : String(n || 0));
-const AI_SPARK = '<span class="ai-spark" aria-hidden="true"></span>';
+const AI_SPARK = UI.AI_SPARK;
+const PLACEHOLDER = { ups: "搜 UP 主：名字、签名、分区", feed: "搜动态：标题、UP 主" };
 
 let D = { tags: [], map: {}, gone: {}, people: {}, content: {}, jobs: {}, list: null, last: null, recent: null };
 let rows = new Map();
@@ -343,7 +345,8 @@ const F = {
   side: "all",
   status: "",
   source: "", // 已取消关注: "" | "bili" (在 B站取关) | "app" (在这里取关)
-  q: "",
+  q: "", // UP 主's search; 动态 keeps its own (fq)
+  fq: "",
   sort: "last",
   dir: "desc",
   sel: new Set(),
@@ -359,20 +362,32 @@ const $ = (id) => document.getElementById(id);
 const side = $("followSide");
 const main = $("followMain");
 
+// The same four rows as 收藏夹, from the same shared.js pieces: 关注 · N | sort; UP 主 | 动态 | search, 刷新, 导出;
+// filters | 全选 and ✦ AI 打标签; the list.
 main.innerHTML = `
   <div class="folder-head fw-head">
-    <div class="folder-info"><div class="folder-text"><h1 class="folder-title">关注</h1><div id="fwMeta" class="folder-meta"></div></div></div>
-    <div id="fwActions" class="step-actions"></div>
+    <div class="folder-info"><div class="folder-text"><h1 id="fwTitle" class="folder-title">关注</h1><div id="fwMeta" class="folder-meta"></div></div>
+      <button type="button" class="bili-link" data-fw="bili" aria-label="在 B站打开我的空间">在 B站打开 ↗</button>
+    </div>
+    <span id="fwSort" class="sort-box"></span>
   </div>
-  <nav id="fwTabs" class="tabs fw-tabs" role="tablist" aria-label="关注"></nav>
-  <div class="stagebar fw-bar"><span id="fwBar" class="fw-bar-dyn"></span>
-    <span class="sort-ctl fw-sort" data-sortbox><select data-fw="sort" aria-label="排序">${Object.entries(SORTS).map(([v, t]) => `<option value="${v}">${t}</option>`).join("")}</select><button type="button" class="sort-dir" data-fw="dir"></button></span><span id="fwTools" class="fw-tools">
-    <input id="fwQ" type="search" placeholder="搜名字、签名、分区" aria-label="搜 UP 主" autocomplete="off">
-    <button type="button" data-fw="ai" aria-label="AI 打标签">${AI_SPARK}AI 打标签</button>
-  </span></div>
+  <div class="tabrow">
+    <nav id="fwTabs" class="tabs fw-tabs" role="tablist" aria-label="关注"></nav>
+    <span class="row-tools" role="toolbar" aria-label="关注的操作">${UI.searchBox("fwQ", "fwQCount", PLACEHOLDER.ups)}${UI.rowButtons({
+      activityId: "fwActivity", refreshId: "fwRefreshBtn", refreshLabel: "从 B站刷新关注", refreshTitle: "读关注列表、翻视频动态，再查动态里没出现的人",
+      exportId: "fwExportBtn", menuId: "fwExport",
+      menuHtml: UI.menuItem('data-fw="csv" aria-label="下载 UP 主表格 CSV"', "UP 主表格 (CSV)", "名字、标签、更新状态、最后投稿、粉丝数") + "<hr>" + UI.BACKUP_ITEM,
+      settingsAttr: 'data-fw="settings"', settingsLabel: "关注设置"
+    })}</span>
+  </div>
+  <div class="stagebar fw-bar"><span id="fwBar" class="fw-bar-dyn"></span><span id="fwTools" class="fw-tools"><span id="fwSelAll"></span>${UI.aiTagBtn('data-fw="ai" aria-label="AI 打标签"')}</span></div>
   <div id="fwList" class="fw-list" aria-label="UP 主"></div>
   <div id="fwSel"></div>`;
-const E = { sort: main.querySelector("[data-sortbox]"), tools: $("fwTools"), meta: $("fwMeta"), actions: $("fwActions"), tabs: $("fwTabs"), bar: $("fwBar"), list: $("fwList"), sel: $("fwSel") };
+const E = { sort: $("fwSort"), title: $("fwTitle"), tools: $("fwTools"), selAll: $("fwSelAll"), meta: $("fwMeta"), tabs: $("fwTabs"), bar: $("fwBar"), list: $("fwList"), sel: $("fwSel"), q: $("fwQ"), qCount: $("fwQCount") };
+// Without the sidebar its items become a select in the top bar, where 收藏夹 shows its folder select.
+const sideSlot = document.createElement("span");
+sideSlot.className = "fw-side-slot";
+$("folderSelect").after(sideSlot);
 
 // ---------- data ----------
 async function load() {
@@ -433,10 +448,6 @@ async function setMode(mode, save = true) {
   document.body.classList.toggle("follow-mode", on);
   side.hidden = main.hidden = !on;
   for (const b of document.querySelectorAll("#modeSwitch [data-mode]")) b.setAttribute("aria-pressed", String(b.dataset.mode === mode));
-  // The shared viewer's tab button: both open the video's B站 page; 关注 says so.
-  const tabBtn = $("viewerTabBtn");
-  tabBtn.textContent = on ? "在 B站打开" : "新标签页打开";
-  tabBtn.setAttribute("aria-label", tabBtn.textContent);
   if (save) saveView();
   if (on && !F.loaded) {
     F.loaded = true;
@@ -450,6 +461,7 @@ function setTab(tab) {
   closePick();
   if (T.viewing()) T.closeViewer();
   F.tab = tab;
+  E.q.value = tab === "feed" ? F.fq : F.q;
   saveView();
   render();
 }
@@ -457,6 +469,10 @@ function setTab(tab) {
 // ---------- render ----------
 function render() {
   if (F.mode !== "follow") return;
+  if (E.q.placeholder !== PLACEHOLDER[F.tab]) {
+    E.q.placeholder = PLACEHOLDER[F.tab];
+    E.q.setAttribute("aria-label", `${PLACEHOLDER[F.tab]} (/)`);
+  }
   renderSide();
   renderHead();
   renderTabs();
@@ -475,25 +491,21 @@ function renderSide() {
     item("untagged", "未打标签", n((u) => !u.tagIds.length)),
     item("special", "特别关注", n((u) => u.special), '<span class="star-mark" aria-hidden="true">★</span>'),
     ...D.tags.map((t) => item(t.id, t.name, n((u) => u.tagIds.includes(t.id)), `<i class="dot" style="--c:${esc(t.color)}"></i>`))
-  ].join("")}</div><hr>${item("gone", "已取消关注", Object.keys(D.gone).length)}<hr>
-  <button type="button" class="side-item tag-btn" data-fw="tags" aria-label="管理 UP 主标签">管理标签</button>
-  <p class="side-note">标签只存在扩展里，不改 B站</p>${
+  ].join("")}</div><p class="side-note">标签只存在扩展里，不改 B站</p><hr>${item("gone", "已取消关注", Object.keys(D.gone).length)}${
     D.groups.length
       ? `<hr><div class="side-head">B站 分组</div><div class="folder-list">${D.groups.map((g) => item(`g:${g.id}`, g.name, n((u) => inGroup(u.mid, D, `g:${g.id}`)))).join("")}</div>
   <p class="side-note">只读，在 B站 改</p>`
       : ""
-  }`;
+  }${UI.sideFoot({ tagsAttrs: 'data-fw="tags"', settingsAttrs: 'data-fw="settings" aria-label="关注设置"', settingsLabel: "关注设置" })}`;
+  sideSlot.innerHTML = sideSelect();
 }
 
-// The sync job: live progress while it runs, otherwise when the list was read and the button to update.
-// 刷新 sits in the top bar exactly where 收藏夹's is: the same button, and while it runs the same activity pill
-// before it (progress, the B站限流 countdown, 暂停).
+// The sync job: while it runs the progress pill (progress, the B站限流 countdown, 暂停) takes 刷新's place, as in 收藏夹.
 function renderSync() {
   const j = D.jobs || {};
   const pill = $("fwActivity");
   const btn = $("fwRefreshBtn");
   btn.disabled = Boolean(j.running);
-  btn.innerHTML = j.running ? "刷新中…" : "↻ 刷新";
   if (j.running) btn.setAttribute("aria-busy", "true");
   else btn.removeAttribute("aria-busy");
   pill.hidden = !j.running;
@@ -501,18 +513,17 @@ function renderSync() {
   const left = j.hold?.until ? Math.ceil(j.hold.until - nowSec()) : 0;
   const wait = left > 0 && `${j.hold.why === "throttled" ? "B站限流" : "网络断了"}，${fmtDur(left)} 后重试`;
   const text = wait || `${j.step || PHASE[j.phase] || "刷新中"}${j.total ? ` ${j.done || 0}/${j.total}` : j.done ? ` ${j.done}` : ""}`;
-  const bar = j.total && !wait ? `<span class="activity-bar" aria-hidden="true"><i style="width:${Math.round(((j.done || 0) / j.total) * 100)}%"></i></span>` : "";
   pill.classList.toggle("warn", Boolean(wait));
-  pill.innerHTML = `<span class="activity-text">${esc(text)}</span>${bar}<button type="button" data-fw-stop aria-label="暂停刷新">暂停</button>`;
+  pill.innerHTML = UI.activityHtml({ text, done: j.done || 0, total: wait ? 0 : j.total || 0, btn: { attrs: "data-fw-stop", label: "暂停" } });
 }
 
+// 关注 · N, when the list was read, and the last refresh's error, which stays until a refresh gets through.
 function renderHead() {
-  const list = following();
   const at = D.list?.at || 0;
   const j = D.jobs || {};
   const err = j.running ? "" : j.throttled ? "上次刷新被 B站限流暂停了，再点刷新接着查" : j.error ? `上次刷新出错：${j.error}` : "";
-  E.meta.innerHTML = esc(D.list ? [`${list.length} 个 UP 主`, at && `${fmtAgo(at, nowSec())}刷新过`].filter(Boolean).join(" · ") : "还没有关注数据") + (err ? ` · <span class="fail-text">${esc(err)}</span>` : "");
-  E.actions.innerHTML = "";
+  E.title.innerHTML = UI.titleHtml("关注", D.list ? following().length : null);
+  E.meta.innerHTML = UI.headMeta([D.list ? UI.syncedText(at * 1000) : "还没有关注数据"], err);
   renderSync();
 }
 
@@ -522,7 +533,7 @@ function renderTabs() {
   E.tabs.innerHTML = tab("ups", "UP 主", following().length) + tab("feed", "动态");
 }
 
-// The left column as a select, for widths without the sidebar.
+// The left column as a select, for widths without the sidebar (in the top bar, see sideSlot).
 const sideSelect = () =>
   `<select class="fw-side-select" data-fw="side" aria-label="UP 主标签">${[["all", "全部"], ["untagged", "未打标签"], ["special", "★ 特别关注"], ...D.tags.map((t) => [t.id, t.name]), ...D.groups.map((g) => [`g:${g.id}`, `B站 分组 · ${g.name}`]), ["gone", "已取消关注"]]
     .map(([id, label]) => `<option value="${esc(id)}"${F.side === id ? " selected" : ""}>${esc(label)}</option>`).join("")}</select>`;
@@ -536,28 +547,22 @@ function renderUps() {
   for (const m of [...F.sel]) if (!rows.has(m) || (F.side === "gone") !== Boolean(rows.get(m).gone)) F.sel.delete(m);
   const goneN = (src) => Object.values(D.gone).filter((g) => !src || g.source === src).length;
   const seg = gone
-    ? [["", "全部"], ["bili", "在 B站取关"], ["app", "在这里取关"]].map(([id, label]) => `<button type="button" data-source="${id}" aria-pressed="${F.source === id}"${goneN(id) ? "" : ' class="zero"'}>${label} ${goneN(id)}</button>`).join("")
-    : STATUS.filter(([id]) => id !== "stale" || counts.stale || F.status === "stale")
-      .map(([id, label]) => `<button type="button" data-status="${id}" aria-pressed="${F.status === id}"${counts[id] ? "" : ' class="zero"'}>${label} ${counts[id] || 0}</button>`)
+    ? [["", "全部"], ["bili", "在 B站取关"], ["app", "在这里取关"]].map(([id, label]) => UI.filterBtn(`data-source="${id}"`, label, goneN(id), F.source === id)).join("")
+    : STATUS.filter(([id]) => id !== "stale" || counts.stale || F.status === "stale") // 待查 exists only while someone is
+      .map(([id, label]) => UI.filterBtn(`data-status="${id}"`, label, counts[id] || 0, F.status === id))
       .join("");
   const recentN = (D.recent?.mids || []).filter((m) => rows.has(m) && !rows.get(m).gone).length;
   const recentChip = recentN || F.recentFilter
     ? `<span class="ai-recent"><button type="button" class="chip ai-recent-chip${F.recentFilter ? " on" : ""}" data-fw="recent" aria-pressed="${F.recentFilter}" title="最近一次 AI 打标签改动的 UP 主，在卡片上逐个看，不对的点卡片上的标签改。\n点 ×：不再标出，标签不变。再打一次：换成新的一批。">${AI_SPARK}AI 刚打的 ${recentN}</button><button type="button" class="ai-recent-x" data-fw="recent-done" aria-label="不再标出「AI 刚打的」，标签不变" title="不再标出，标签不变">×</button></span>`
     : "";
-  // The search box, sort and AI button stay in #fwTools and are never redrawn: replacing the box while an IME is
-  // composing breaks the composition (「l u」 → 「l 画」).
-  E.bar.innerHTML = `${sideSelect()}<span class="seg" role="group" aria-label="${gone ? "在哪取关" : "更新状态"}">${seg}</span>${gone ? "" : recentChip}`;
+  E.bar.innerHTML = D.list || gone ? `<span class="seg" role="group" aria-label="${gone ? "在哪取关" : "更新状态"}">${seg}</span>${gone ? "" : recentChip}` : "";
   E.tools.hidden = !D.list && !gone;
-  if (!D.list && !gone) E.bar.innerHTML = sideSelect();
-  // The sort sits right after the 状态 filters (outside #fwTools), so it is shown and hidden on its own.
-  E.sort.hidden = gone || !D.list;
   E.tools.querySelector("[data-fw=ai]").hidden = gone;
-  E.sort.querySelector("[data-fw=sort]").value = F.sort;
-  // The 收藏夹 sort's direction button and icon (triage.js sortDirIcon).
-  const dirBtn = E.sort.querySelector("[data-fw=dir]");
-  dirBtn.innerHTML = T.sortDirIcon(F.dir);
-  dirBtn.title = dirLabel(F.sort, F.dir);
-  dirBtn.setAttribute("aria-label", `排序方向：${dirLabel(F.sort, F.dir)}`);
+  // 全选 is always on offer while nothing is selected, as in 收藏夹; with a selection it moves into the selection bar.
+  E.selAll.innerHTML = list.length && !F.sel.size ? `<button type="button" class="link" data-fw="select-all">全选这里的 ${list.length} 个</button>` : "";
+  E.sort.hidden = gone || !D.list;
+  E.sort.innerHTML = UI.sortControl({ sorts: SORTS, sort: F.sort, dir: F.dir, words: dirLabel(F.sort, F.dir), selectAttr: 'data-fw="sort"', dirAttr: 'data-fw="dir"' });
+  E.qCount.textContent = UI.resultCount(F.q, list.length);
   const hint = hintHtml(counts);
   const scroll = E.list.scrollTop;
   let body;
@@ -572,9 +577,8 @@ function renderUps() {
 
 function emptyHtml() {
   const j = D.jobs || {};
-  return `<div class="fw-empty"><p><strong>还没有关注数据</strong></p>
-    <p class="dialog-hint">先从 B站读你的关注列表，再翻视频动态看谁最近发过视频，动态里没出现的人再一个个查投稿。只读，不改 B站。</p>
-    ${j.running ? `<p class="muted" aria-busy="true">刷新中…读完就显示在这里</p>` : `${j.error ? `<p class="fail-text">上次刷新出错：${esc(j.error)}</p>` : ""}<button type="button" class="primary" data-fw="sync">↻ 刷新</button>`}</div>`;
+  const act = j.running ? `<p class="muted" aria-busy="true">刷新中…读完就显示在这里</p>` : `<button type="button" class="primary" data-fw="sync">${UI.ICON.refresh}刷新</button>`;
+  return UI.emptyState("还没有关注数据", "先从 B站读你的关注列表，再翻视频动态看谁最近发过视频，动态里没出现的人再一个个查投稿。只读，不改 B站。", act);
 }
 
 // Why some 更新状态 are missing, with the job's live state or the button that fills them in.
@@ -586,7 +590,7 @@ function hintHtml(counts) {
   if (open) {
     const running = D.jobs?.running;
     const stale = counts.stale ? `「待查」= ${cfg.slowDays} 天里没在视频动态出现，查完投稿才分得清慢更还是断更。` : "";
-    const act = running ? `<span class="muted" aria-busy="true">正在查，状态边查边更新</span>` : `<button type="button" data-fw="sync">↻ 刷新（约 ${Math.max(1, Math.ceil(open / 60))} 分钟查完）</button>`;
+    const act = running ? `<span class="muted" aria-busy="true">正在查，状态边查边更新</span>` : `<button type="button" data-fw="sync">查投稿时间（约 ${Math.max(1, Math.ceil(open / 60))} 分钟）</button>`;
     parts.push(`<p class="fw-hint">${open} 个 UP 主还不知道最后投稿时间。${stale}${act}</p>`);
   }
   return parts.join("");
@@ -613,16 +617,17 @@ function upCard(mid) {
   const right = u.gone
     ? `<button type="button" data-refollow="${esc(mid)}" aria-label="重新关注 ${esc(u.name)}">重新关注</button>`
     : `<button type="button" class="star${u.special ? " on" : ""}" data-star="${esc(mid)}" aria-pressed="${u.special}" title="${u.special ? "取消特别关注" : "设为特别关注"}（改 B站）" aria-label="${u.special ? "取消特别关注" : "设为特别关注"} ${esc(u.name)}">${u.special ? "★" : "☆"}</button>`;
-  return `<article class="card fw-up${sel ? " selected" : ""}" data-mid="${esc(mid)}" aria-label="${esc(u.name)}">
+  const playing = F.viewing && u.titles.some((v) => v.bvid === F.viewing);
+  return `<article class="card fw-up${sel ? " selected" : ""}${playing ? " playing" : ""}" data-mid="${esc(mid)}" aria-label="${esc(u.name)}">
     <a class="fw-avatar" href="${space(mid)}" target="_blank" rel="noopener" tabindex="-1" aria-hidden="true">${u.face ? `<img src="${esc(img(u.face, "96w_96h_1c"))}" alt="" loading="lazy" referrerpolicy="no-referrer">` : ""}</a>
     <div class="card-body">
       <div class="fw-name-row"><a class="fw-name" href="${space(mid)}" target="_blank" rel="noopener" title="在 B站打开空间">${esc(u.name)}</a>${u.gone ? "" : `<span class="badge ${STATUS_BADGE[u.status]}">${STATUS_TEXT[u.status]}</span>`}${u.ov ? `<span class="meta fw-ov" title="${esc(u.ov)}">${esc(u.ov)}</span>` : ""}</div>
       ${meta.length ? `<div class="meta">${meta.map(esc).join(" · ")}</div>` : ""}
       ${u.sign ? `<div class="fw-sign" title="${esc(u.sign)}">${esc(u.sign)}</div>` : ""}
       ${titles}
-      <div class="chips">${chips}${u.gone ? "" : `<button type="button" class="link fw-tag-add" data-pick="${esc(mid)}" aria-label="给 ${esc(u.name)} 打标签">+ 标签</button>`}</div>
+      <div class="chips fw-foot-row">${chips}${u.gone ? "" : `<button type="button" class="link fw-tag-add" data-pick="${esc(mid)}" aria-label="给 ${esc(u.name)} 打标签">+ 标签</button>`}<span class="more"><button type="button" data-select="${esc(mid)}" class="${sel ? "on" : ""}" aria-pressed="${sel}" aria-label="选中 ${esc(u.name)} (X)">选中<kbd class="key">X</kbd></button></span></div>
     </div>
-    <div class="fw-right">${right}<button type="button" data-select="${esc(mid)}" class="${sel ? "on" : ""}" aria-pressed="${sel}" aria-label="选中 ${esc(u.name)}">选中</button></div>
+    <div class="fw-right">${right}</div>
   </article>`;
 }
 
@@ -649,15 +654,15 @@ function renderFeed() {
   if (!F.feed || (!F.feed.loading && Date.now() - F.feed.at > FEED_KEEP_MS)) F.feed = freshFeed();
   const items = F.feed.items;
   const count = (side) => items.filter((it) => feedMatch(it, D, side)).length;
-  const pill = (id, label, color = "") => {
-    const n = count(id);
-    return `<button type="button" data-side="${esc(id)}" aria-pressed="${F.side === id}"${items.length && !n ? ' class="zero"' : ""}>${color ? `<i class="dot" style="--c:${esc(color)}"></i>` : ""}${esc(label)}${items.length ? ` ${n}` : ""}</button>`;
-  };
-  E.tools.hidden = E.sort.hidden = true;
-  E.bar.innerHTML = `${sideSelect()}<span class="seg fw-pills" role="group" aria-label="按标签看">${[pill("all", "全部"), pill("untagged", "未打标签"), pill("special", "★ 特别关注"), ...D.tags.map((t) => pill(t.id, t.name, t.color))].join("")}</span>${
+  // No count before the first page arrives.
+  const pill = (id, label, color = "") => UI.filterBtn(`data-side="${esc(id)}"`, label, items.length ? count(id) : null, F.side === id, color ? `<i class="dot" style="--c:${esc(color)}"></i>` : "");
+  E.tools.hidden = E.sort.hidden = true; // 动态 comes newest first from B站: no sort
+  E.bar.innerHTML = `<span class="seg fw-pills" role="group" aria-label="按标签看">${[pill("all", "全部"), pill("untagged", "未打标签"), pill("special", "★ 特别关注"), ...D.tags.map((t) => pill(t.id, t.name, t.color))].join("")}</span>${
     D.groups.length ? `<span class="seg fw-pills fw-groups" role="group" aria-label="按 B站 分组看"><span class="fw-group-label">B站 分组</span>${D.groups.map((g) => pill(`g:${g.id}`, g.name)).join("")}</span>` : ""
   }`;
-  const list = feedList(items, D, F.side, pick.keep);
+  const q = F.fq.trim().toLowerCase();
+  const list = feedList(items, D, F.side, pick.keep).filter((it) => !q || `${it.title}\n${it.name}`.toLowerCase().includes(q));
+  E.qCount.textContent = UI.resultCount(F.fq, list.length);
   const note = !D.tags.length ? `<p class="fw-hint">还没给 UP 主打标签。在「UP 主」页签打上标签，这里就能只看一类 UP 主的新视频。下面是全部关注的新视频。</p>` : "";
   const scroll = E.list.scrollTop;
   E.list.className = "fw-list fw-feed";
@@ -883,13 +888,8 @@ document.body.insertAdjacentHTML("beforeend", `
   </dialog>`);
 const tagsDialog = $("fwTagsDialog");
 
-// ----- 关注设置: the top bar's gear in 关注 mode (a copy of the 收藏夹 gear) -----
-const refresh = $("refreshBtn").cloneNode(true);
-refresh.id = "fwRefreshBtn";
-refresh.setAttribute("aria-label", "从 B站刷新关注");
-refresh.title = "读关注列表、翻视频动态，再查动态里没出现的人";
-$("refreshBtn").after(refresh);
-refresh.insertAdjacentHTML("beforebegin", '<span id="fwActivity" class="activity" aria-live="polite" hidden></span>');
+// ----- 刷新, 导出, 关注设置 -----
+const refresh = $("fwRefreshBtn");
 refresh.addEventListener("click", async () => {
   refresh.disabled = true;
   const r = await send({ type: "follow-sync" });
@@ -901,11 +901,18 @@ refresh.addEventListener("click", async () => {
 $("fwActivity").addEventListener("click", (e) => {
   if (e.target.closest("[data-fw-stop]")) send({ type: "follow-sync-stop" });
 });
-const gear = $("settingsBtn").cloneNode(true);
-gear.id = "fwSettingsBtn";
-gear.title = "关注设置";
-gear.setAttribute("aria-label", "关注设置");
-$("settingsBtn").after(gear);
+// The UP 主 table: built from what the page already has. 完整备份 is triage.js's ([data-backup]).
+function upCsv() {
+  const f = (v) => {
+    let x = String(v ?? "");
+    if (/^[=+\-@\t\r]/.test(x)) x = `'${x}`; // a spreadsheet would run it as a formula
+    return /[",\r\n]/.test(x) ? `"${x.replaceAll('"', '""')}"` : x;
+  };
+  const head = ["UP主", "mid", "主页", "标签", "更新状态", "最后投稿", "粉丝数", "关注于", "特别关注", "签名"];
+  const out = [head, ...following().map((m) => rows.get(m)).filter(Boolean).map((u) => [u.name, u.mid, space(u.mid), u.tagIds.map((id) => tagOf(id)?.name).filter(Boolean).join("、"), STATUS_TEXT[u.status] || "", u.last ? fmtDate(u.last) : "", u.fans ?? "", u.followed ? fmtDate(u.followed) : "", u.special ? "是" : "", u.sign])];
+  return "\ufeff" + out.map((r) => r.map(f).join(",")).join("\r\n") + "\r\n";
+}
+$("fwExport").addEventListener("click", (e) => e.target.closest("button") && $("fwExport").hidePopover());
 document.body.insertAdjacentHTML("beforeend", `
   <dialog id="fwSettingsDialog" aria-label="关注设置">
     <form method="dialog">
@@ -921,17 +928,17 @@ document.body.insertAdjacentHTML("beforeend", `
         </section>
         <section class="set-group">
           <h3>AI 打标签</h3>
-          <p class="dialog-hint">只管关注，和收藏夹的分拣设置分开。</p>
           <div class="set-card">
             <div class="set-row"><div><label class="name" for="fwBatchInput">每批数量</label><p class="hint">1–100 个 UP 主一批。</p></div><input id="fwBatchInput" type="number" min="1" max="100" step="1"></div>
-            <div class="set-row"><div><label class="name" for="fwIntervalInput">请求间隔（秒）</label></div><input id="fwIntervalInput" type="number" min="0" max="600" step="1"></div>
-            <div class="set-row"><div><label class="name" for="fwNewMaxInput">AI 最多新建几个标签</label><p class="hint">0–50，0 = 只用已有标签。</p></div><input id="fwNewMaxInput" type="number" min="0" max="50" step="1"></div>
-            <div class="set-row"><div><label class="name" for="fwRemoveInput">允许 AI 去掉已有标签</label><p class="hint">关时只加标签。开了也要你确认。</p></div><input id="fwRemoveInput" type="checkbox" class="switch"></div>
+            <div class="set-row" data-set-row="interval"><input id="fwIntervalInput" type="number" min="0" max="600" step="1"></div>
+            <div class="set-row" data-set-row="newTagMax"><input id="fwNewMaxInput" type="number" min="0" max="50" step="1"></div>
+            <div class="set-row" data-set-row="allowRemove"><input id="fwRemoveInput" type="checkbox" class="switch"></div>
           </div>
         </section>
       </div>
       <p id="fwSettingsError" class="form-error" role="alert" hidden></p>
       <div class="dialog-actions">
+        <button type="button" class="link" data-open-options aria-label="打开设置页">打开设置页</button>
         <span class="spacer"></span>
         <button value="cancel" type="submit" formnovalidate aria-label="取消">取消</button>
         <button value="save" type="submit" class="primary" aria-label="保存设置">保存</button>
@@ -939,6 +946,8 @@ document.body.insertAdjacentHTML("beforeend", `
     </form>
   </dialog>`);
 const settingsDialog = $("fwSettingsDialog");
+UI.fillSetRows(settingsDialog);
+settingsDialog.querySelector("[data-open-options]").addEventListener("click", () => send({ type: "open-options" }));
 
 // follow_ai_settings, seeded from the 收藏夹 values on first use and stored then.
 async function aiSettings() {
@@ -960,8 +969,7 @@ async function openSettings() {
   settingsDialog.returnValue = "";
   settingsDialog.showModal();
 }
-gear.addEventListener("click", openSettings);
-// As 分拣设置: an invalid value keeps the dialog open with the reason; the rest is clamped on save.
+// As 收藏夹设置: an invalid value keeps the dialog open with the reason; the rest is clamped on save.
 settingsDialog.querySelector("form").addEventListener("submit", (e) => {
   if (e.submitter?.value !== "save") return;
   const why = settingsProblem($("fwSlowInput").value, $("fwDeadInput").value);
@@ -1076,7 +1084,7 @@ function openPick(mids, anchor = "") {
     return $("fwPickInput").focus();
   }
   const n = pick.keep?.size || 0;
-  $("fwPickSrc").textContent = `${n ? `这里有 TA 的 ${n} 个视频，` : ""}改了马上生效`;
+  $("fwPickSrc").textContent = n ? `这里有 TA 的 ${n} 个视频` : "";
   pickDialog.show();
   placePick();
   pickDialog.focus(); // also takes the keys back from the player's frame
@@ -1175,7 +1183,7 @@ function renderAiForm() {
     ? `${mids.length} 个 UP 主${bare ? `，其中 ${bare} 个还没查投稿，AI 只能看名字和签名` : ""}。分 ${Math.ceil(mids.length / size)} 批发送`
     : "作用范围里没有 UP 主";
   const max = AI.settings.newTagMax;
-  const roomHint = `${max ? `AI 这次最多新建 ${max} 个标签，你确认后才创建。` : "AI 只会用已有标签。"}<br>每批数量、间隔和新建上限在右上角的齿轮里改。`;
+  const roomHint = `${max ? `AI 这次最多新建 ${max} 个标签，你确认后才创建。` : "AI 只会用已有标签。"}<br>每批数量、间隔和新建上限在左下角的「关注设置」里改。`;
   const useChip = (t) => {
     const on = !AI.excluded.has(t.id);
     return `<button type="button" class="chip tag-use${on ? " on" : ""}" style="--c:${esc(t.color)}" data-use="${esc(t.id)}" aria-pressed="${on}" title="${on ? "点一下：这次不让 AI 用" : "点一下：让 AI 用"}">${esc(t.name)}</button>`;
@@ -1301,7 +1309,9 @@ side.addEventListener("click", (e) => {
   const s = e.target.closest("[data-side]");
   if (s) return pickSide(s.dataset.side);
   if (e.target.closest("[data-fw=tags]")) openTags("manage");
+  else if (e.target.closest("[data-fw=settings]")) openSettings();
 });
+sideSlot.addEventListener("change", (e) => e.target.dataset.fw === "side" && pickSide(e.target.value));
 function pickSide(id) {
   if (id === F.side) return;
   F.side = id;
@@ -1371,6 +1381,9 @@ main.addEventListener("click", async (e) => {
     saveView();
     render();
   } else if (act === "ai") openAi();
+  else if (act === "settings") openSettings();
+  else if (act === "bili") window.open("https://space.bilibili.com/", "_blank", "noopener");
+  else if (act === "csv") BocDownload.text(`MoonDigest-关注-${fmtDate(nowSec())}.csv`, upCsv(), "text/csv;charset=utf-8");
   else if (act === "recent") {
     F.recentFilter = !F.recentFilter;
     render();
@@ -1394,8 +1407,10 @@ main.addEventListener("click", async (e) => {
 });
 // The selection bar sits outside the list; its buttons share the handler above through #followMain.
 
-T.bindSearch($("fwQ"), (q) => {
-  F.q = q;
+// One box, two searches: UP 主 and 动态 each keep their own text (setTab swaps it in).
+T.bindSearch(E.q, (q) => {
+  if (F.tab === "feed") F.fq = q;
+  else F.q = q;
   render();
 });
 main.addEventListener("change", (e) => {
