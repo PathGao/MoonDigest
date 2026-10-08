@@ -32,6 +32,7 @@ const K = {
   included: "triage_included_folders", // [mediaId]: the folders the user chose; only these are listed and read
   snapshot: (id) => `triage_snapshot_${id}`,
   aiHistory: "triage_ai_command_history",
+  readAt: "triage_read_at", // { [mediaId]: ms }: when each folder's list was last read from B站, for 「今天 HH:MM 刷新过」
   sort: "triage_sort", // { [mediaId]: { sort, dir } }: each folder's card order; none = 收藏时间 新→旧
   aiRecent: "triage_ai_recent" // { [mediaId]: { at, bvids } }: 「AI 刚打的」, the videos the last applied 批量打 changed
 };
@@ -292,7 +293,7 @@ const S = {
   throttleLabel: "",
   undo: [],
   lastSyncAt: 0,
-  readAt: {}, // mediaId → when its list was last read from B站, for 「今天 HH:MM 刷新过」
+  readAt: {}, // K.readAt
   syncError: "", // the open folder's last 刷新 failure; stays under the title until a read succeeds
   syncing: false,
   aiHistory: [],
@@ -739,6 +740,7 @@ async function init() {
   S.aiHistory = await storeGet(K.aiHistory, []);
   S.aiRecent = await storeGet(K.aiRecent, {});
   S.sortBy = await storeGet(K.sort, {});
+  S.readAt = await storeGet(K.readAt, {});
   if (settingsResp.ok) Object.assign(S.settings, settingsResp.data);
   renderTagLimit();
   el.aiRecentRules.innerHTML = AI_RECENT_RULES.map((r) => `<li>${esc(r)}</li>`).join("");
@@ -1083,7 +1085,7 @@ async function checkCached(token, snap) {
   const r = await send({ type: "triage-folder-ids", mediaId: S.mediaId });
   if (token !== S.folderToken) return;
   if (!r.ok) syncFolder({ force: true });
-  else if (!idsChanged(snap.ids || snap.bvids, r.data.bvids)) S.lastSyncAt = S.readAt[S.mediaId] = Date.now();
+  else if (!idsChanged(snap.ids || snap.bvids, r.data.bvids)) markRead(S.mediaId);
   else syncFolder({ force: true, cached: { snap, ids: r.data.bvids } });
 }
 
@@ -1184,7 +1186,7 @@ async function syncFolder({ force = false, cached = null } = {}) {
       if (!S.items.length) el.list.innerHTML = UI.emptyState("无法读取这个收藏夹", needLogin ? "登录 B站后点刷新。" : r.error, REFRESH_EMPTY);
       return false;
     }
-    S.lastSyncAt = S.readAt[mediaId] = Date.now();
+    markRead(mediaId);
     S.syncError = "";
     if (r.data.info) S.folderIntro[mediaId] = r.data.info.intro;
     const snap = await storeGet(K.snapshot(mediaId), null);
@@ -1240,6 +1242,12 @@ async function syncFolder({ force = false, cached = null } = {}) {
     if (S.syncing === token) S.syncing = false;
     renderTop();
   }
+}
+
+// A read of the folder's list from B站 got through: kept, so a reopened page still says when.
+function markRead(mediaId) {
+  S.lastSyncAt = S.readAt[mediaId] = Date.now();
+  storeSet(K.readAt, S.readAt);
 }
 
 // The full item list doubles as the 所有收藏夹 cache; bvids/invalid/titles drive the sync diff. Videos that left every
@@ -1648,6 +1656,7 @@ function renderTop() {
   }
   renderFolderList();
   renderFolderHead();
+  renderTagButtons();
   renderStatus();
 }
 
@@ -1778,8 +1787,14 @@ function renderTabs() {
         })
         .join("")
     : "");
-  // 标签管理 and ✦ AI 打标签 at the right end of the tags they act on, as in 关注; AI 打标签 says when a run or a proposal is
-  // pending. Without tags 标签管理 has the warn dot (the new-tag box says what to do).
+  renderTagButtons();
+  renderSort();
+}
+
+// 标签管理 and ✦ AI 打标签 at the right end of the tags they act on, as in 关注; AI 打标签 says when a run or a proposal is
+// pending, so renderTop draws them too (a run ends without a list render). Without tags 标签管理 has the warn dot (the
+// new-tag box says what to do).
+function renderTagButtons() {
   el.aiTagSlot.innerHTML = UI.tagButtons({
     manageAttrs: "data-tags-manage",
     aiAttrs: 'data-ai-tag aria-label="AI 打标签 (I)"',
@@ -1788,7 +1803,6 @@ function renderTabs() {
     aiReason: aiTagReason(),
     noTags: !viewTags().length
   });
-  renderSort();
 }
 
 const AI_SPARK = UI.AI_SPARK;
@@ -3176,6 +3190,14 @@ async function runAiCommand() {
     el.aiProgress.textContent = `AI 正在处理第 ${i + 1} / ${total} 批…`;
     const batch = payload.slice(i * size, (i + 1) * size);
     const r = await send({ type: "triage-ai-command", instruction, items: batch, tags, maxNewTags: opts.maxNewTags, allowRemove: opts.allowRemove });
+    // An AI 429: wait, then send the same batch again, as 关注 does.
+    if (!r.ok && THROTTLES[r.code]) {
+      const [ms, label] = THROTTLES[r.code];
+      el.aiProgress.textContent = `${label}，${Math.round(ms / 1000)} 秒后重试第 ${i + 1} 批…`;
+      await sleepWhile(ms, keepGoing);
+      i--;
+      continue;
+    }
     if (!r.ok) {
       p.errors.push(`第 ${i + 1} 批失败：${r.error}`);
       if (/截断|配置 AI|未授权访问/.test(r.error || "")) handleAiError(r.error);

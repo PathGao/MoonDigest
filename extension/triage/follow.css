@@ -65,6 +65,8 @@ a.fw-title:hover { background: none; color: var(--link); text-decoration: underl
 .fw-right .star.on { color: var(--text); }
 .fw-right .star:hover { background: var(--surface-muted); }
 /* 更新状态 badges are triage.css's AI-verdict ones: 活跃 green, 慢更 / 待查 amber (待查 dashed), 断更 red, the rest gray. */
+/* 待查 keeps the amber fill under its dash: it waits for a check (warn). triage.css's .badge.low clears it, as 收藏夹's 低置信 wants. */
+.fw-up .badge.unsure.low { background: var(--warn-bg); }
 
 /* ---------- 动态: a grid of videos; beside the viewer a single column of rows ---------- */
 .fw-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 20px 16px; }

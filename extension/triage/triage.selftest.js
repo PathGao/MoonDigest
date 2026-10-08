@@ -602,6 +602,23 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   assert.deepStrictEqual(plain(sent.at(-1).tags.slice(0, 2)), [{ name: "旧", rule: "讲老技术的" }, { name: "n1", rule: "" }]);
   assert.ok(!sent.at(-1).tags.some((x) => x.name === "别处"), "批量打 sends only the open folder's tags");
   assert.strictEqual(sent.at(-1).maxNewTags, 4, "6 tags in K: min(5, 10 - 6)");
+  // An AI 429 waits and sends the same batch again; it is not a failed batch.
+  {
+    const realSleep = t.sleepWhile;
+    const waits = [];
+    t.sleepWhile = async (ms) => waits.push(ms);
+    let calls = 0;
+    handlers["triage-ai-command"] = () => (++calls === 1 ? { ok: false, code: "AI_THROTTLED", error: "HTTP 429" } : { ok: true, data: {} });
+    const before = sent.length;
+    await t.runAiCommand();
+    const batches = sent.slice(before).filter((m) => m.type === "triage-ai-command");
+    assert.strictEqual(batches.length, 2, "the throttled batch is sent again");
+    assert.deepStrictEqual(plain(batches[1].items), plain(batches[0].items));
+    assert.deepStrictEqual([waits[0], plain(t.S.ai.proposal.errors)], [60000, []]);
+    t.sleepWhile = realSleep;
+    t.S.ai.proposal = null;
+    handlers["triage-ai-command"] = () => ({ ok: true, data: {} });
+  }
   t.S.settings.triageAiNewTagMax = 2;
   assert.strictEqual(vm.runInContext("aiNewTagRoom()", ctx), 2, "分拣设置 caps AI new tags below the folder's room");
   t.S.settings.triageAiNewTagMax = 0;
@@ -621,6 +638,10 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   assert.strictEqual(btnText(), "标签管理AI 打标签 · 运行中");
   Object.assign(t.S.ai, { running: false, proposal: { newTags: [], rows: [], notes: [], errors: [] } });
   assert.strictEqual(btnText(), "标签管理AI 打标签 · 待确认");
+  // A run ends with renderTop only (no list render): the button turns to 待确认 then and there.
+  t.el.aiTagSlot.innerHTML = "";
+  t.renderTop();
+  assert.ok(t.el.aiTagSlot.innerHTML.includes("· 待确认"), "renderTop redraws AI 打标签");
   t.S.ai.proposal = null;
   t.el.tagsDialog = { showModal() {} };
   t.onKey({ key: "i", target: {}, preventDefault() {} });
@@ -1421,6 +1442,7 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   await new Promise((r) => setImmediate(r));
   assert.deepStrictEqual(plain(itemCalls), [], "no full load when the ids match");
   assert.ok(Date.now() - t.S.lastSyncAt < 1000, "and it counts as a sync");
+  assert.ok(Date.now() - store.triage_read_at["6"] < 1000, "its read time is kept for a reopened page");
 
   // 所有收藏夹: a folder whose ids changed takes only the difference.
   handlers["triage-folder-ids"] = () => ({ ok: true, data: { bvids: ["BV5", ...store.triage_snapshot_6.ids] } });
@@ -1454,6 +1476,7 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   await t.syncFolder({ force: true });
   t.renderFolderHead();
   assert.ok(!t.el.folderHead.innerHTML.includes("fail-text") && /今天 \d\d:\d\d 刷新过/.test(t.el.folderHead.innerHTML), t.el.folderHead.innerHTML);
+  assert.ok(Date.now() - store[t.K.readAt].M < 1000, "a reopened page still says when");
 
   // R1: another triage tab's write to a shared list replaces this page's copy, so the next write here keeps it. This
   // page's own writes echo back too, and an older echo arriving after a newer edit is skipped.

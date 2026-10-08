@@ -231,6 +231,21 @@ const settle = async () => {
     assert.deepStrictEqual(state.aiTurns, [], "a storage echo for the old video is dropped");
   }
 
+  // A seek from 分拣台 names its video: a frame on another video keeps quiet, so the panel never seeks the wrong one.
+  {
+    const video = { paused: true, currentTime: 0 };
+    t.getRuntimeVideoElement = () => video;
+    const seek = (videoId) => {
+      let answered;
+      for (const f of listeners.message) f({ type: "sidepanel-seek-video-time", seconds: 75, videoId }, {}, (r) => (answered = r));
+      return answered;
+    };
+    assert.strictEqual(seek("BV1xx411c7mD"), undefined);
+    assert.strictEqual(video.currentTime, 0, "another video's seek is ignored");
+    assert.strictEqual(seek("BV1GJ411x7h7")?.ok, true);
+    assert.strictEqual(video.currentTime, 75);
+  }
+
   // G5: focus mode is one value; every event outside the table is refused and changes nothing.
   {
     const phase = () => [state.readerPhase, state.readerMode, state.readingViewOpen, state.readingViewReady];
