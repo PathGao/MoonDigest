@@ -1919,6 +1919,9 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   assert.ok(!t.pointerMoved({ x: 10, y: 10 }, 10, 10), "same position is not movement");
   assert.ok(t.pointerMoved({ x: 10, y: 10 }, 10, 11), "a changed coordinate is movement");
 
+  // The list and its lookup map change together, in setItems only.
+  assert.strictEqual(source.match(/S\.itemMap = /g).length, 1, "S.itemMap is set only by setItems");
+
   // The page opens on one round of storage reads: init awaits none of them one after another.
   assert.ok(!/= await storeGet\(/.test(vm.runInContext("init.toString()", ctx)), "init reads storage in its Promise.all");
 

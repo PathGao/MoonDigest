@@ -1052,8 +1052,7 @@ async function openFolder(mediaId) {
   S.folderDecisions = {};
   S.loadAll = null;
   S.removedCheck = null;
-  S.items = [];
-  S.itemMap = new Map();
+  setItems([]);
   S.selected.clear();
   S.tagFilter.clear();
   S.finishedFilter = false;
@@ -1086,8 +1085,7 @@ async function openCached(token) {
   // Snapshots from before the intro was cached sync once, so the AI is not told an empty intro.
   if (token !== S.folderToken || !snap?.items || snap.intro === undefined) return false;
   S.folderIntro[mediaId] = snap.intro;
-  S.items = [...snap.items];
-  S.itemMap = new Map(S.items.map((it) => [it.bvid, it]));
+  setItems([...snap.items]);
   if (!(await loadResults(token))) return false;
   checkCached(token, snap);
   return true;
@@ -1170,6 +1168,12 @@ async function quickSync({ force = false } = {}) {
 // A chosen folder other than the open one with a proposal waiting.
 const otherAiFolder = () => Object.keys(S.ai.proposals).find((id) => id !== String(S.mediaId) && S.folders.some((f) => String(f.id) === id));
 
+// The folder's list and its bvid lookup, always replaced together.
+function setItems(list) {
+  S.items = list;
+  S.itemMap = new Map(list.map((it) => [it.bvid, it]));
+}
+
 // ---------- sync with bilibili ----------
 // cached ({ snap, ids }, from checkCached) fetches only the newest pages and takes the rest from the cached list.
 async function syncFolder({ force = false, cached = null } = {}) {
@@ -1247,8 +1251,7 @@ async function syncFolder({ force = false, cached = null } = {}) {
     for (const it of S.items) {
       if (!remoteSet.has(it.bvid) && (partial || S.decisions[it.bvid]?.action === "unfav")) next.push(it);
     }
-    S.items = next;
-    S.itemMap = new Map(next.map((it) => [it.bvid, it]));
+    setItems(next);
     if (S.group?.mediaId === String(mediaId)) S.group.bvids = S.group.bvids.filter((b) => S.itemMap.has(b));
     for (const b of [...S.selected]) if (!S.itemMap.has(b)) S.selected.delete(b);
 
@@ -1304,10 +1307,9 @@ async function openRemoved() {
   if (token !== S.folderToken) return false;
   const rec = got[K.removed] || {};
   const decisionsByFolder = Object.fromEntries(keys.map((k) => [k.slice("triage_decisions_".length), got[k]]));
-  S.items = Object.values(rec)
+  setItems(Object.values(rec)
     .sort((x, y) => y.at - x.at)
-    .map(({ item, at, movedTo, hidden, inFolder, from }) => ({ ...item, removedAt: at, movedTo, hidden, inFolder, from: from || inferFrom(decisionsByFolder, item.bvid, folderName) }));
-  S.itemMap = new Map(S.items.map((it) => [it.bvid, it]));
+    .map(({ item, at, movedTo, hidden, inFolder, from }) => ({ ...item, removedAt: at, movedTo, hidden, inFolder, from: from || inferFrom(decisionsByFolder, item.bvid, folderName) })));
   if (!(await loadResults(token))) return false;
   checkRemoved(token);
   return true;
@@ -1385,8 +1387,7 @@ function dropRemoved(bvids) {
     await storeSet(K.removed, rec);
     S.removedCount = Object.keys(rec).length;
     if (S.mediaId === REMOVED) {
-      S.items = S.items.filter((it) => !back.includes(it.bvid));
-      S.itemMap = new Map(S.items.map((it) => [it.bvid, it]));
+      setItems(S.items.filter((it) => !back.includes(it.bvid)));
     }
     return back.length;
   });
@@ -1416,8 +1417,7 @@ async function cleanRemoved(list) {
     noteOwnWrites(write);
     await chrome.storage.local.set(write);
     S.removedCount = Object.keys(rec).length;
-    S.items = S.items.filter((it) => !set.has(it.bvid));
-    S.itemMap = new Map(S.items.map((it) => [it.bvid, it]));
+    setItems(S.items.filter((it) => !set.has(it.bvid)));
     for (const b of set) S.selected.delete(b);
     toast(`已清理 ${list.length} 个视频`);
     render();
@@ -1489,8 +1489,7 @@ function rebuildAll() {
       decisions[it.bvid] = S.decisions[it.bvid];
     }
   }
-  S.items = items;
-  S.itemMap = new Map(items.map((it) => [it.bvid, it]));
+  setItems(items);
   S.decisions = decisions;
   for (const b of [...S.selected]) if (!S.itemMap.has(b)) S.selected.delete(b);
 }
@@ -2634,8 +2633,7 @@ async function batchTransfer(list) {
       await patchSnapshot(from, { drop: [...gone] });
       if (!chosen) await addMovedToRemoved(from, chunk, { id: to, title: toName });
       if (S.mediaId === from) {
-        S.items = S.items.filter((it) => !gone.has(it.bvid));
-        S.itemMap = new Map(S.items.map((it) => [it.bvid, it]));
+        setItems(S.items.filter((it) => !gone.has(it.bvid)));
       }
     }
     for (const it of chunk) S.selected.delete(it.bvid);
@@ -2674,7 +2672,7 @@ function addMovedToRemoved(from, items, movedTo) {
         if (shown) Object.assign(shown, { removedAt: at, movedTo, from: rec.from });
         else S.items.unshift({ ...it, removedAt: at, movedTo, from: rec.from });
       }
-      S.itemMap = new Map(S.items.map((x) => [x.bvid, x]));
+      setItems(S.items);
     }
     S.removedCount = Object.keys(removed).length;
     renderTop();
