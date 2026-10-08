@@ -23,6 +23,16 @@
     const m = Math.floor((sec % 3600) / 60);
     return (sec >= 3600 ? `${Math.floor(sec / 3600)}:${pad(m)}` : m) + `:${pad(sec % 60)}`;
   }
+  // 「3 天前」 style ages, both in seconds; under a day is 今天.
+  function fmtAgo(sec, now = Date.now() / 1000) {
+    const d = Math.floor((now - sec) / 86400);
+    if (d < 1) return "今天";
+    if (d < 31) return `${d} 天前`;
+    if (d < 365) return `${Math.floor(d / 30)} 个月前`;
+    return `${Math.floor(d / 365)} 年前`;
+  }
+  // A card's time: relative, the date on hover.
+  const agoHtml = (sec, now) => `<time title="${fmtDate(sec)}">${fmtAgo(sec, now)}</time>`;
   // 播放量 / 粉丝: 12.3万 and 2.5亿 (one decimal, dropped when 0), plain below 万.
   const fmtCount = (n) => (n >= 1e8 ? `${Math.round(n / 1e7) / 10}亿` : n >= 1e4 ? `${Math.round(n / 1e3) / 10}万` : String(n));
   // A tag name as both modes and the AI keep it: no commas or 顿号 (the CSV joins names with 、), trimmed, at most 12
@@ -100,6 +110,11 @@
   const filterBtn = (attrs, label, n, pressed, extra = "") =>
     `<button type="button" ${attrs} aria-pressed="${Boolean(pressed)}"${n === 0 ? ' class="zero"' : ""}>${extra}${esc(label)}${n == null ? "" : ` ${n}`}</button>`;
 
+  // Row 3 (both modes): one group of state pills; the CSS splits groups by a thin rule and wraps them whole.
+  const stateGroup = (label, html, cls = "") => `<span class="seg${cls}" role="group" aria-label="${esc(label)}">${html}</span>`;
+  // 「AI 刚打的」's ×: stop marking them, tags stay.
+  const AI_RECENT_X = (attrs) => `<button type="button" class="ai-recent-x" ${attrs} aria-label="不再标出「AI 刚打的」，标签不变" title="不再标出，标签不变">×</button>`;
+
   // The search box's behavior, both modes: it filters as you type (bindLive, IME-safe); Esc clears it, and on an empty
   // box gives the keys back to the cards (J / K work again).
   function bindSearch(input, run) {
@@ -115,7 +130,14 @@
   // Row 2's search box. Each mode binds its own input (and keeps its own query); countId shows 「N 个结果」.
   const searchBox = (id, countId, placeholder) =>
     `<span class="search"><svg class="search-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg><input id="${id}" type="search" placeholder="${esc(placeholder)}" aria-label="${esc(placeholder)} (/)" autocomplete="off" /><span id="${countId}" class="muted" aria-live="polite"></span><kbd class="search-key" aria-hidden="true">/</kbd></span>`;
-  const resultCount = (q, n) => (String(q || "").trim() ? `${n} 个结果` : "");
+  // 「N 个结果」 while a search or any filter is on (on: truthy).
+  const resultCount = (on, n) => (on ? `${n} 个结果` : "");
+  // The box says what it searches (「在「想学的技能」· 未分析里搜」), for the eye and the screen reader alike.
+  function setSearchScope(input, scope) {
+    if (input.placeholder === scope) return;
+    input.placeholder = scope;
+    input.setAttribute("aria-label", `${scope} (/)`);
+  }
 
   // Row 2's buttons after the search: what is running (the pill takes 刷新's place, see triage.css), 刷新, 导出 and its
   // menu, and the settings gear that only shows without the sidebar.
@@ -221,6 +243,10 @@
   const sp = (who) => (/^[A-Za-z]/.test(who) ? ` ${who}` : who);
   // The delete confirm's title and body.
   const deleteTagAsk = (t, n, who) => [`删除标签「${t.name}」？`, `<p>将从 ${n} 个${sp(who)}上去掉这个标签，无法撤销。</p>`];
+  // A batch confirm's list: the first 10 names, then 「等 N 个」.
+  const confirmList = (names) => `<ul>${names.slice(0, 10).map((n) => `<li>${esc(n)}</li>`).join("")}</ul>${names.length > 10 ? `<p>等 ${names.length} 个</p>` : ""}`;
+  // The tag picker's title: 「给「名字」打标签」, or for several 「给选中的 N 个视频打标签」.
+  const pickTitle = (n, name, who) => (n > 1 ? `给选中的 ${n} 个${sp(who)}打标签` : `给「${name}」打标签`);
   // U on one 标签… save that changed n ≥ 2 items asks this first.
   const tagsUndoAsk = (n, who) => [`撤销批量改标签？`, `<p>上一步改了 ${n} 个${sp(who)}的标签，撤销后都改回去。</p>`, "撤销"];
   // A 标签管理 edit, for both modes: { tag } the edited copy, or { why } for an empty or duplicate name (others = the
@@ -372,5 +398,5 @@
     return [...tally.values()].sort((a, b) => (a.cls === "remove") - (b.cls === "remove") || b.n - a.n);
   }
 
-  globalThis.TriageUi = { esc, pad, fmtDate, fmtDuration, fmtCount, cleanTagName, plainClick, img, toCsv, cardTagChip, syncedText, headMeta, titleHtml, ICON, AI_SPARK, byValue, dirWords, sortControl, filterBtn, searchBox, bindSearch, resultCount, rowButtons, menuItem, BACKUP_ITEM, activityHtml, reasonAttrs, setReason, WARN_DOT, selectAllState, selectAllBox, toggleAll, setActivity, waitText, syncPill, setSync, bindSync, tagButtons, sideFoot, emptyState, fillSetRows, mergeAiBatch, aiChanges, previewId, aiTally, TAG_COLORS, nextTagColor, cycleTagColor, tagNameError, deleteTagAsk, editedTag, withoutTag, tagsUndoAsk, tagRowHtml, sp, AI_RECENT_RULES, aiRecentUndo, tagPlusBtn, viewerKeyFrom };
+  globalThis.TriageUi = { esc, pad, fmtDate, fmtAgo, agoHtml, setSearchScope, confirmList, pickTitle, fmtDuration, fmtCount, cleanTagName, plainClick, img, toCsv, cardTagChip, syncedText, headMeta, titleHtml, ICON, AI_SPARK, byValue, dirWords, sortControl, filterBtn, stateGroup, AI_RECENT_X, searchBox, bindSearch, resultCount, rowButtons, menuItem, BACKUP_ITEM, activityHtml, reasonAttrs, setReason, WARN_DOT, selectAllState, selectAllBox, toggleAll, setActivity, waitText, syncPill, setSync, bindSync, tagButtons, sideFoot, emptyState, fillSetRows, mergeAiBatch, aiChanges, previewId, aiTally, TAG_COLORS, nextTagColor, cycleTagColor, tagNameError, deleteTagAsk, editedTag, withoutTag, tagsUndoAsk, tagRowHtml, sp, AI_RECENT_RULES, aiRecentUndo, tagPlusBtn, viewerKeyFrom };
 })();

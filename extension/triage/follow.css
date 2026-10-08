@@ -19,14 +19,9 @@ body:not(.follow-mode) :is(.fw-side-slot, .follow-help) { display: none !importa
 .star-mark { width: 10px; text-align: center; color: var(--text); }
 
 /* ---------- head, bar, list ---------- */
-.fw-bar .seg { flex-wrap: wrap; }
-.fw-bar .seg .dot { display: inline-block; margin-right: 6px; vertical-align: 0; }
-/* B站 分组 pills: their own labelled group after the tag pills, split by the same thin rule as .fw-sort. */
-.fw-bar .fw-groups { align-items: center; padding-left: 12px; border-left: 1px solid var(--border); }
-.fw-group-label { margin-right: 4px; color: var(--faint); font-size: var(--fs-xs); }
-.fw-bar-dyn { display: contents; }
-/* Row 3's right end: 标签管理 and ✦ AI 打标签 (the same buttons as 收藏夹's tag row). */
-.fw-tools { display: flex; align-items: center; gap: 8px; margin-left: auto; }
+/* Row 4's right end: 标签管理 and ✦ AI 打标签 (the same buttons as 收藏夹's). Row 3's right end holds 全选 only. */
+.fw-tools { display: flex; align-items: center; gap: 8px; }
+.fw-bar .step-actions:empty { display: none; }
 .fw-side-slot { display: none; }
 .fw-side-select { height: 32px; max-width: 200px; font-weight: 600; }
 

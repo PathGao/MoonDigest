@@ -277,6 +277,7 @@ const S = {
   tab: "none",
   classFilter: { coarse: "all", fine: "all", read: "all" }, // each tab keeps its own AI-class chip; a folder switch resets them
   tagFilter: new Set(),
+  tagState: "", // row 3: "" | "untagged" | "tagged"
   query: "",
   focused: "",
   focusIndex: 0,
@@ -595,11 +596,15 @@ function kindOf(it) {
   return at ? "out" : it.inFolder === null ? "unfav" : "";
 }
 
-function passFilter(it) {
-  if (S.finishedFilter && !isFinished(it)) return false;
-  if (S.aiRecentFilter && !aiRecentSet().has(it.bvid)) return false;
-  if (S.kindFilter && kindOf(it) !== S.kindFilter) return false;
-  if (S.tagFilter.size && !hasAllTags(tagIdsOf(it.bvid), S.tagFilter, (id) => tagById(id)?.name ?? id)) return false;
+// skip leaves one filter group out, so that group's own counts never hide its siblings: a row-3 group ("seen", "recent",
+// "kind", "tagged"), "states" (all of row 3) or "tags" (row 4). 已出分拣范围's kind is its tab, never skipped.
+function passFilter(it, skip = "") {
+  const on = (g) => skip !== g && (skip !== "states" || g === "tags");
+  if (on("seen") && S.finishedFilter && !isFinished(it)) return false;
+  if (on("recent") && S.aiRecentFilter && !aiRecentSet().has(it.bvid)) return false;
+  if ((S.mediaId === REMOVED || on("kind")) && S.kindFilter && kindOf(it) !== S.kindFilter) return false;
+  if (on("tagged") && S.tagState && (tagIdsOf(it.bvid).length > 0) !== (S.tagState === "tagged")) return false;
+  if (on("tags") && S.tagFilter.size && !hasAllTags(tagIdsOf(it.bvid), S.tagFilter, (id) => tagById(id)?.name ?? id)) return false;
   const words = S.query.toLowerCase().split(/\s+/).filter(Boolean);
   if (!words.length) return true;
   const text = searchText(it);
@@ -715,6 +720,11 @@ const followMode = () => Boolean(document.body?.classList.contains("follow-mode"
 let modeKeys = null;
 globalThis.MoonTriage = {
   openViewer, closeViewer, toast, askConfirm, send, store, runAiBatches, viewing: () => S.viewing,
+  // 关注's 没登录: the same 去登录 banner as 收藏夹's; off hides it only when it is that one.
+  loginBanner(on) {
+    if (on) showBanner("没登录 B站：先在这个浏览器里登录 B站", "去登录", () => openTab("https://passport.bilibili.com/login"), "login");
+    else if (el.banner.dataset.kind === "login") el.banner.hidden = true;
+  },
   undo, pushUndo, dropModeUndo: (drop) => (S.modeUndo = S.modeUndo.filter((e) => !drop(e))), help: () => el.helpDialog.showModal(), setModeKeys: (fn) => (modeKeys = fn)
 };
 
@@ -1036,6 +1046,7 @@ async function openFolder(mediaId) {
   S.itemMap = new Map();
   S.selected.clear();
   S.tagFilter.clear();
+  S.tagState = "";
   S.finishedFilter = false;
   S.aiRecentFilter = false;
   S.kindFilter = "";
@@ -1743,11 +1754,10 @@ function renderTabs() {
   const tab = (key, label, cls, n) =>
     `<button type="button" role="tab" class="${cls}" data-tab="${key}" aria-selected="${S.tab === key}" aria-label="${label} ${n}">${label}<span class="count">${n}</span></button>`;
   const steps = STAGES.map(([key, label]) => tab(key, label, c[key] ? "step" : "step zero", c[key]));
-  el.searchCount.textContent = UI.resultCount(S.query, c.read);
   // Say what the box searches: the open folder (or 所有收藏夹 / 已出分拣范围) and the tab you are on.
   const tabName = Object.fromEntries([...STAGES, ["read", "全部"]])[S.tab];
   const scope = `在「${folderTitle()}」${tabName ? ` · ${tabName}` : ""}里搜`;
-  if (el.searchInput.placeholder !== scope) el.searchInput.placeholder = scope;
+  UI.setSearchScope(el.searchInput, scope);
   // 已出分拣范围 has no steps; its tabs are why the videos left (kindOf), 全部 first for the ones not checked yet.
   const kindTabs = () =>
     [["", "全部"], ...KINDS].map(([kind, label]) => {
@@ -1757,30 +1767,19 @@ function renderTabs() {
   el.tabs.innerHTML = S.mediaId === REMOVED ? kindTabs() :
     steps.join(`<span class="arrow" aria-hidden="true">→</span>`) + `<span class="tab-sep" aria-hidden="true"></span>` + tab("read", "阅览全部", "read-tab", c.read);
 
-  // The tag row lists only what the tab on screen has (or a filter that is on, so it can be turned off).
+  // Row 4: only the tags the tab on screen has (or a filter that is on, so it can be turned off), each with how many
+  // videos listed here carry it (row 3 and search applied, row 4's own picks left out).
   const here = S.mediaId === REMOVED || S.tab === "read" ? S.items : S.items.filter((it) => stageOf(it) === S.tab);
   const hereTags = new Set(here.flatMap((it) => tagIdsOf(it.bvid)));
   const chips = tagChips().filter((c) => c.ids.some((id) => hereTags.has(id) || S.tagFilter.has(id)));
-  const chip = (on, any, attr, label, aria) =>
-    !on && !any ? "" : `<button type="button" class="chip watched${on ? " on" : ""}" ${attr} aria-pressed="${on}" aria-label="${aria}">${label}</button>`;
-  const watchedChip =
-    S.seenCfg.mark || S.finishedFilter ? chip(S.finishedFilter, here.some(isFinished), "data-finishedfilter", "看完了", "只看 B站历史记录里看完了的视频") : "";
-  // Only when this view has an invalid video, like those above; with 全选 it picks them all for 取消收藏 or 清理. 已出分拣范围
-  // has it as a tab instead.
-  const invalidN = S.items.filter((it) => kindOf(it) === "invalid").length;
-  const invalidOn = S.kindFilter === "invalid";
-  const invalidChip = S.mediaId === REMOVED || (!invalidOn && !invalidN) ? "" : `<button type="button" class="chip invalid${invalidOn ? " on" : ""}" data-kindfilter="invalid" aria-pressed="${invalidOn}" aria-label="只看已失效的视频">已失效 ${invalidN}</button>`;
-  const recentN = S.items.filter((it) => aiRecentSet().has(it.bvid)).length;
-  const recentTip = `最近一次 AI 打标签改动的视频，在卡片上逐个看，不对的按 T 改。\n${UI.AI_RECENT_RULES.map((r) => `· ${r}`).join("\n")}\n${UI.aiRecentUndo("视频")}`;
-  const recentChip = !recentN && !S.aiRecentFilter ? "" : `<span class="ai-recent"><button type="button" class="chip ai-recent-chip${S.aiRecentFilter ? " on" : ""}" data-airecent aria-pressed="${S.aiRecentFilter}" title="${esc(recentTip)}">${AI_SPARK}AI 刚打的 ${recentN}</button><button type="button" class="ai-recent-x" data-airecent-done aria-label="不再标出「AI 刚打的」，标签不变" title="不再标出，标签不变">×</button></span>`;
-  el.tagFilter.innerHTML = recentChip + invalidChip + watchedChip + (chips.length
-    ? chips
-        .map((c) => {
-          const on = c.ids.some((id) => S.tagFilter.has(id));
-          return `<button type="button" class="chip${on ? " on" : ""}" style="--c:${esc(c.color)}" data-tagfilter="${esc(c.ids.join(","))}" aria-pressed="${on}" aria-label="按标签筛选 ${esc(c.name)}" title="可多选：只显示同时带有所选标签的视频">${esc(c.name)}</button>`;
-        })
-        .join("")
-    : "");
+  const counted = here.filter((it) => inTab(it, S.tab) && passFilter(it, "tags")).map((it) => tagIdsOf(it.bvid));
+  el.tagFilter.innerHTML = chips
+    .map((c) => {
+      const on = c.ids.some((id) => S.tagFilter.has(id));
+      const n = counted.filter((ids) => c.ids.some((id) => ids.includes(id))).length;
+      return `<button type="button" class="chip${on ? " on" : ""}${n ? "" : " zero"}" style="--c:${esc(c.color)}" data-tagfilter="${esc(c.ids.join(","))}" aria-pressed="${on}" aria-label="按标签筛选 ${esc(c.name)} ${n}" title="可多选：只显示同时带有所选标签的视频">${esc(c.name)}<span class="chip-n">${n}</span></button>`;
+    })
+    .join("");
   renderTagButtons();
   renderSort();
 }
@@ -1819,22 +1818,59 @@ function criteriaBtn() {
   return `<button type="button" class="act-btn" data-head="criteria" title="${esc(text ? `判断标准：${text}` : "还没写判断标准")}" aria-label="${text ? "判断标准" : "判断标准（还没写）"}">${pen}判断标准${text ? "" : UI.WARN_DOT}</button>`;
 }
 
+// Whether anything in row 3 is on (全部 is pressed when not).
+const statesOn = (t = S.tab) => (S.classFilter[t] && S.classFilter[t] !== "all") || Boolean(S.tagState || S.finishedFilter || S.aiRecentFilter || (S.mediaId !== REMOVED && S.kindFilter));
+// Row 3: what the system knows about each video, in groups split by a thin rule. One pick per group (a second click
+// clears it), groups AND together, and each group counts with its own pick left out. 全部 clears row 3 only. The fixed
+// groups come first (a 0 stays, dimmed); the chips that exist only sometimes (看完了, 已失效, AI 刚打的) go last and
+// leave at 0, so their coming and going moves nothing else.
+function stateRowHtml(t = S.tab) {
+  const removed = S.mediaId === REMOVED;
+  const base = removed || t === "read" ? S.items : S.items.filter((it) => stageOf(it) === t);
+  const cf = S.classFilter[t];
+  const inClass = (it) => !cf || cf === "all" || classOf(it) === cf;
+  const cnt = (skip, fn) => base.filter((it) => (skip === "class" || skip === "states" || inClass(it)) && passFilter(it, skip) && fn(it)).length;
+  const group = UI.stateGroup;
+  const groups = [group("全部", UI.filterBtn("data-states-all", "全部", cnt("states", () => true), !statesOn(t)))];
+  // 未分析 has no AI verdict to filter by. 阅览 also holds decided videos: they leave the AI classes for 已保留.
+  if (t !== "none") {
+    const classes = [...Object.entries(VERDICTS), ...(t === "read" ? [["kept", "已保留"]] : [])];
+    groups.push(group("按 AI 判断筛选", classes.map(([k, label]) => UI.filterBtn(`data-class-filter="${k}"`, label, cnt("class", (it) => classOf(it) === k), cf === k)).join("")));
+  }
+  groups.push(group("按有没有标签", [["untagged", "未打标签", false], ["tagged", "已打标签", true]].map(([k, label, has]) => UI.filterBtn(`data-tagstate="${k}"`, label, cnt("tagged", (it) => (tagIdsOf(it.bvid).length > 0) === has), S.tagState === k)).join("")));
+  const seenN = cnt("seen", isFinished);
+  if ((S.seenCfg.mark && seenN) || S.finishedFilter) groups.push(group("看完了", UI.filterBtn('data-finishedfilter title="只看 B站历史记录里看完了的视频"', "看完了", seenN, S.finishedFilter)));
+  // 已出分拣范围 has 已失效 as a tab instead.
+  const invalidN = cnt("kind", (it) => kindOf(it) === "invalid");
+  const invalidOn = S.kindFilter === "invalid";
+  if (!removed && (invalidN || invalidOn)) groups.push(group("已失效", UI.filterBtn('data-kindfilter="invalid" class="st-danger" title="只看已失效的视频"', "已失效", invalidN, invalidOn)));
+  const recentN = cnt("recent", (it) => aiRecentSet().has(it.bvid));
+  const recentTip = `最近一次 AI 打标签改动的视频，在卡片上逐个看，不对的按 T 改。\n${UI.AI_RECENT_RULES.map((r) => `· ${r}`).join("\n")}\n${UI.aiRecentUndo("视频")}`;
+  if (recentN || S.aiRecentFilter) groups.push(group("AI 刚打的", UI.filterBtn(`data-airecent title="${esc(recentTip)}"`, "AI 刚打的", recentN, S.aiRecentFilter, AI_SPARK) + UI.AI_RECENT_X("data-airecent-done"), " ai-recent"));
+  return groups.join("");
+}
+
+// A row-3 click: the pick, or clearing it when it is on already; "all" clears the row (row 4's tags stay).
+function pickState(group, value = "") {
+  const t = S.tab;
+  if (group === "all") {
+    S.classFilter[t] = "all";
+    S.tagState = "";
+    S.finishedFilter = S.aiRecentFilter = false;
+    if (S.mediaId !== REMOVED) S.kindFilter = "";
+  } else if (group === "class") S.classFilter[t] = S.classFilter[t] === value ? "all" : value;
+  else if (group === "tagged") S.tagState = S.tagState === value ? "" : value;
+  else if (group === "kind") S.kindFilter = S.kindFilter === value ? "" : value;
+  else if (group === "seen") S.finishedFilter = !S.finishedFilter;
+  else if (group === "recent") S.aiRecentFilter = !S.aiRecentFilter;
+}
+
 function renderListHeader(list) {
   const t = S.tab;
   const all = S.mediaId === ALL;
   const sortHint = `<span class="muted">请在具体收藏夹里分拣</span>`;
-  // AI-class chips with per-class counts inside the tab (search and tag filter applied).
-  // It renders into its own slot at the left of the row, so it adds nothing to the action html.
-  let segHtml = "";
-  const inStage = S.items.filter((it) => (t === "read" || stageOf(it) === t) && passFilter(it));
-  const n = (k) => (k === "all" ? inStage.length : inStage.filter((it) => classOf(it) === k).length);
-  const classBtn = (k, label) => UI.filterBtn(`data-class-filter="${k}"`, label, n(k), S.classFilter[t] === k);
-  // 阅览 also holds decided videos; they leave the AI classes for 已保留 (已取消收藏 has its own folder).
-  const CLASSES = [["all", "全部"], ...Object.entries(VERDICTS), ...(t === "read" ? [["kept", "已保留"]] : [])];
-  const seg = () => {
-    segHtml = `<span class="seg" role="group" aria-label="按 AI 判断筛选">${CLASSES.map(([k, label]) => classBtn(k, label)).join("")}</span>`;
-    return "";
-  };
+  // Search, row 3 or row 4 on: how many the tab lists.
+  el.searchCount.textContent = UI.resultCount(S.query.trim() || statesOn(t) || S.tagFilter.size, list.length);
   const batchBtn = (route, verdict = "") => {
     const run = S.unfavBatch;
     if (route === "unfav" && run && !runWhere(run)) return headBtn("batch-unfav", `取消收藏中 ${run.done}/${run.total}`, "danger", "正在取消收藏", "", "", true);
@@ -1872,7 +1908,7 @@ function renderListHeader(list) {
   let html = "";
   let selActs = "";
   if (all && t === "none") html = sortHint;
-  else if (all && t === "coarse") html = seg() + sortHint;
+  else if (all && t === "coarse") html = sortHint;
   else if (t === "none") {
     // The criteria the AI reads sits just before the button that sends it.
     html = criteriaBtn();
@@ -1885,14 +1921,14 @@ function renderListHeader(list) {
     if (sel) selActs = batchBtn("keep");
   } else if (t === "coarse") {
     // A selection gets 细看 plus both batch buttons; 可清理 / 值得留 lead with their batch button, 细看 stays secondary.
-    html = seg() + criteriaBtn() + redoBtn("redo-coarse", "粗看", redoCoarseList().length, staleCoarse().length);
+    html = criteriaBtn() + redoBtn("redo-coarse", "粗看", redoCoarseList().length, staleCoarse().length);
     if (sel) selActs = groupBtn("primary") + batchBtn("keep");
     else if (f === "drop") html += batchBtn("unfav", "drop") + groupBtn("");
     else if (f === "keep") html += batchBtn("keep", "keep") + groupBtn("");
     else html += groupBtn("primary");
   } else if (t === "fine") {
     // A selection gets both buttons; without one 值得留 and 可清理 each get a button, 拿不准 none.
-    html = seg();
+    html = "";
     const staleN = staleFine().length;
     if (staleN && !all) html += criteriaBtn() + redoBtn("redo-fine", "细看", redoFineList().length, staleN);
     if (all) html += sortHint;
@@ -1903,12 +1939,12 @@ function renderListHeader(list) {
     }
   } else if (t === "read" && S.mediaId === REMOVED) {
     const c = S.removedCheck;
-    html = seg();
+    html = "";
     if (c) html += c.error ? `<span class="fail-text">${esc(c.error)}</span>` : `<span class="muted" aria-busy="true">正在核对 ${c.done} / ${c.total} ${c.what}</span>`;
     html += `${sel ? headBtn("clean-selected", `清理选中的 ${sel} 个`, "danger") : headBtn("clean-removed", `清理这 ${list.length} 个`, "danger", list.length ? "" : "这里没有列出视频")}`;
   } else if (t === "read") {
     // 阅览 mixes 粗看 guesses with 细看 conclusions, so no class-wide batch here: only the selection.
-    html = seg();
+    html = "";
     if (all) html += sortHint;
     else if (sel) selActs = batchBtn("keep");
   }
@@ -1917,14 +1953,14 @@ function renderListHeader(list) {
   if (sel && inFolderView()) selActs += headBtn("sel-tags", "标签…");
   if (sel && S.mediaId !== ALL) selActs += transferBtn();
   if (sel && !all && S.mediaId !== REMOVED) selActs += batchBtn("unfav");
-  // 全选 at the end of the filters, always in the same place: it acts on what is listed (current tab and filters).
-  const selectAll = all ? "" : UI.selectAllBox('data-head="select-all"', list.length, sel);
+  // 全选 heads the right-hand buttons, so row 3's chips coming and going never move it. It acts on what is listed.
+  if (!all) html = UI.selectAllBox('data-head="select-all"', list.length, sel) + html;
   if (all) html = loadAllLine() + html;
   const hidden = S.selected.size - sel;
   const selbar = S.selected.size
     ? `<div class="selbar" role="toolbar" aria-label="选中的视频"><strong class="sel-count">已选中 ${sel} 个</strong>${hidden ? `<span class="muted">另有 ${hidden} 个被筛选隐藏</span>` : ""}<button type="button" class="quiet" data-head="clear-selected" aria-label="清空选中">清空选中</button><span class="sel-actions">${selActs}</span></div>`
     : "";
-  el.classFilter.innerHTML = segHtml + selectAll;
+  el.classFilter.innerHTML = stateRowHtml(t);
   el.listHeader.innerHTML = `<div class="step-actions">${html}</div>${selbar}`;
 }
 
@@ -2042,7 +2078,7 @@ function renderList() {
   if (!list.length) {
     const empty = { none: "没有未分析的视频", coarse: "没有粗看完成的视频", fine: "没有细看完成的视频", done: "还没有处理过的视频" };
     const f = S.classFilter[S.tab];
-    const filtered = S.finishedFilter || S.aiRecentFilter || S.kindFilter || S.tagFilter.size || (f && f !== "all");
+    const filtered = S.finishedFilter || S.aiRecentFilter || S.kindFilter || S.tagState || S.tagFilter.size || (f && f !== "all");
     const text = S.query.trim() ? "没有匹配搜索的视频" : filtered ? "没有符合筛选的视频" : empty[S.tab] || "这里没有视频";
     el.list.innerHTML = `<p class="empty">${text}</p>${recent}`;
     return;
@@ -2107,7 +2143,8 @@ function cardHtml(it, expanded, mark) {
   const removed = S.mediaId === REMOVED;
   const basketBtn = `<button type="button" data-act="basket" class="${inBasket ? "on" : ""}" aria-pressed="${inBasket}" aria-label="${inBasket ? "移出" : "加入"}播放列表 (E)">播放列表<kbd class="key">E</kbd></button>`;
   const askBtn = `<button type="button" data-act="ask" aria-label="问 AI (Q)">${AI_SPARK}问 AI<kbd class="key">Q</kbd></button>`;
-  const meta = [it.upper, fmtDate(it.pubdate), Number.isFinite(it.play) && `▶ ${fmtCount(it.play)}`, ["", "粗看", "细看"][v.stage], seenText(it), it.invalid && "已失效", it.folders?.length && `收藏夹：${folderNames(it)}`].filter(Boolean);
+  // The 发布时间 is relative, the date on hover; the rest is text.
+  const meta = [esc(it.upper), it.pubdate && UI.agoHtml(it.pubdate), Number.isFinite(it.play) && esc(`▶ ${fmtCount(it.play)}`), ["", "粗看", "细看"][v.stage], esc(seenText(it)), it.invalid && "已失效", it.folders?.length && esc(`收藏夹：${folderNames(it)}`)].filter(Boolean);
   const left = removed && [originHtml(it), it.removedAt && `<span>${esc(leftText(it))}</span>`].filter(Boolean).join("");
 
   const verdict = decision ? "" : verdictBadge(b, v);
@@ -2137,7 +2174,7 @@ function cardHtml(it, expanded, mark) {
     <div class="card-body">
       <div class="title-row">${mark ? `<span class="batch-tag">${mark}</span>` : ""}<a class="title" href="${esc(videoUrl(b))}" data-act="open" aria-label="打开视频 ${esc(it.title)}">${esc(it.title)}</a></div>
       ${left ? `<div class="left-row">${left}</div>` : ""}
-      <div class="meta">${meta.map(esc).join(" · ")}</div>
+      <div class="meta">${meta.join(" · ")}</div>
       ${body.join("")}
       <div class="card-foot verdict-row">${verdict}<span class="reason">${esc(v.reason)}</span>${failed}</div>
       ${chips ? `<div class="chips">${chips}</div>` : ""}
@@ -2429,9 +2466,7 @@ function batchList(verdict) {
 
 async function batchUnfav(list) {
   if (!list.length || S.unfavBatch || S.transferRun) return;
-  const titles = list.slice(0, 10).map((it) => `<li>${esc(it.title)}</li>`).join("");
-  const more = list.length > 10 ? `<p>等 ${list.length} 个</p>` : "";
-  const ok = await askConfirm(`在 B站取消收藏这 ${list.length} 个视频？`, `<ul>${titles}</ul>${more}`, `取消收藏 ${list.length} 个`, { danger: true });
+  const ok = await askConfirm(`在 B站取消收藏这 ${list.length} 个视频？`, UI.confirmList(list.map((it) => it.title)), `取消收藏 ${list.length} 个`, { danger: true });
   if (!ok || S.unfavBatch) return;
   // It changes Bilibili, so it runs to the end even after another folder opens.
   const mediaId = String(S.mediaId);
@@ -2741,7 +2776,7 @@ function openPicker(bvids, anchor = "") {
   const folders = pickerFolders(bvid);
   const one = folders.length === 1;
   TagPicker.open({
-    title: bvids.length > 1 ? `打标签 · 选中的 ${bvids.length} 个` : `打标签 ·《${shortTitle(S.itemMap.get(bvid))}》`,
+    title: UI.pickTitle(bvids.length, shortTitle(S.itemMap.get(bvid)), "视频"),
     targets: bvids,
     // Every tag of the video, so saving keeps the ones of other folders the picker does not list.
     idsOf: (b) => (S.videoTags[b] || []).filter((id) => tagById(id)),
@@ -3672,24 +3707,22 @@ function bindEvents() {
     S.focusIndex = 0;
     render();
   });
+  // Row 3: one pick per group, a second click clears it; 全部 clears the whole row (not row 4's tags).
+  el.classFilter.addEventListener("click", (e) => {
+    const b = e.target.closest("button");
+    if (!b) return;
+    e.stopPropagation();
+    if (b.matches("[data-airecent-done]")) endAiRecent();
+    else if (b.matches("[data-states-all]")) pickState("all");
+    else if (b.dataset.classFilter) pickState("class", b.dataset.classFilter);
+    else if (b.dataset.tagstate) pickState("tagged", b.dataset.tagstate);
+    else if (b.matches("[data-finishedfilter]")) pickState("seen");
+    else if (b.dataset.kindfilter) pickState("kind", b.dataset.kindfilter);
+    else if (b.matches("[data-airecent]")) pickState("recent");
+    else return;
+    render();
+  });
   el.tagFilter.addEventListener("click", (e) => {
-    if (e.target.closest("[data-airecent-done]")) {
-      endAiRecent();
-      return render();
-    }
-    if (e.target.closest("[data-airecent]")) {
-      S.aiRecentFilter = !S.aiRecentFilter;
-      return render();
-    }
-    if (e.target.closest("[data-finishedfilter]")) {
-      S.finishedFilter = !S.finishedFilter;
-      return render();
-    }
-    const kind = e.target.closest("[data-kindfilter]")?.dataset.kindfilter;
-    if (kind) {
-      S.kindFilter = S.kindFilter === kind ? "" : kind;
-      return render();
-    }
     const btn = e.target.closest("[data-tagfilter]");
     if (!btn) return;
     const ids = btn.dataset.tagfilter.split(",");
@@ -3699,11 +3732,6 @@ function bindEvents() {
   });
 
   const onHeadClick = (e) => {
-    const filter = e.target.closest("[data-class-filter]");
-    if (filter) {
-      S.classFilter[S.tab] = filter.dataset.classFilter;
-      return render();
-    }
     const btn = e.target.closest("[data-head]");
     if (!btn) return;
     const act = btn.dataset.head;

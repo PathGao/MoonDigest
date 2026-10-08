@@ -30,8 +30,8 @@ const plain = (v) => JSON.parse(JSON.stringify(v));
 // Row 1's meta keeps the error after the parts; empty parts drop out.
 assert.strictEqual(UI.headMeta(["今天 10:00 刷新过", 0, "2 个已失效"], ""), "今天 10:00 刷新过 · 2 个已失效");
 assert.strictEqual(UI.headMeta(["a"], "出错了"), 'a · <span class="fail-text">出错了</span>');
-assert.strictEqual(UI.resultCount("  ", 5), "");
-assert.strictEqual(UI.resultCount("x", 5), "5 个结果");
+assert.strictEqual(UI.resultCount("", 5), "");
+assert.strictEqual(UI.resultCount(true, 5), "5 个结果");
 
 // The sort control marks the open sort and says the direction in words.
 {

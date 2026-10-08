@@ -79,6 +79,8 @@ vm.runInContext(`${source}\n;globalThis.S = S; globalThis.K = K; globalThis.el =
 const t = ctx;
 vm.runInContext("globalThis.plainClick = plainClick;", ctx);
 const plain = (v) => JSON.parse(JSON.stringify(v));
+// Row 3 as drawn now.
+const row3 = () => (t.renderListHeader(t.visibleItems()), t.el.classFilter.innerHTML);
 const realSync = t.syncFolder;
 const toasts = [];
 Object.assign(t, { render() {}, setFocus() {}, toast: (m) => toasts.push(m), askConfirm: async () => true });
@@ -396,10 +398,10 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   t.renderListHeader(t.visibleItems());
   assert.ok(!t.el.listHeader.innerHTML.includes("（AI") && !t.el.listHeader.innerHTML.includes("按 X 或全选后"), "待定 has no verdict-scoped button and no hint");
   // 全选 selects what this tab lists; the selection then offers 移动/复制 with 保留 ones included.
-  assert.ok(t.el.classFilter.innerHTML.includes('aria-checked="false"') && t.el.classFilter.innerHTML.includes("全选 1 个"));
+  assert.ok(t.el.listHeader.innerHTML.includes('aria-checked="false"') && t.el.listHeader.innerHTML.includes("全选 1 个"));
   t.S.selected.add("BV200");
   t.renderListHeader(t.visibleItems());
-  assert.ok(t.el.classFilter.innerHTML.includes('aria-checked="true"') && t.el.listHeader.innerHTML.includes("移动/复制选中的 1 个"));
+  assert.ok(t.el.listHeader.innerHTML.includes('aria-checked="true"') && t.el.listHeader.innerHTML.includes("移动/复制选中的 1 个"));
   t.S.selected.clear();
   assert.strictEqual(t.batchList("keep").length, 0, "without a selection 待定 has no verdict-scoped batch");
   t.S.selected.add("BV200");
@@ -1223,7 +1225,7 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     t.renderTabs();
     const tabs = () => [...t.el.tabs.innerHTML.matchAll(/aria-label="([^"]+)"/g)].map((m) => m[1]);
     assert.deepStrictEqual(tabs(), ["全部 5", "已取消收藏 1", "在未勾选收藏夹 1", "已失效 1"], "why they left are the tabs here");
-    assert.ok(!t.el.tagFilter.innerHTML.includes("data-kindfilter"), "no 已失效 chip beside the tab");
+    assert.ok(!row3().includes("data-kindfilter"), "no 已失效 chip beside the tab");
     t.S.kindFilter = "out";
     assert.deepStrictEqual(plain(t.visibleItems().map((it) => it.bvid)), ["BV1"]);
     t.S.kindFilter = "";
@@ -1639,9 +1641,8 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     // The 已失效 chip appears when the view has one and filters to them.
     openFake("I", [{ ...item(74), invalid: true }, item(75)]);
     t.S.tab = "read";
-    t.renderTabs();
-    assert.ok(t.el.tagFilter.innerHTML.includes("已失效 1"));
-    assert.ok(!t.el.tagFilter.innerHTML.includes("已取消收藏") && !t.el.tagFilter.innerHTML.includes("在未勾选收藏夹"), "why a video left is told only in 已出分拣范围");
+    assert.ok(row3().includes(">已失效 1<"));
+    assert.ok(!row3().includes("已取消收藏") && !row3().includes("在未勾选收藏夹"), "why a video left is told only in 已出分拣范围");
     t.S.kindFilter = "invalid";
     assert.deepStrictEqual(plain(t.visibleItems().map((it) => it.bvid)), ["BV74"]);
     t.S.kindFilter = "";
@@ -1670,12 +1671,68 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     t.S.seenCfg.threshold = 50;
     // 看完了 chip from the history.
     t.S.tab = "read";
-    t.renderTabs();
-    assert.ok(t.el.tagFilter.innerHTML.includes(">看完了<"));
+    assert.ok(row3().includes(">看完了 2<"));
     t.S.finishedFilter = true;
     assert.deepStrictEqual(plain(t.visibleItems().map((it) => it.bvid)), ["BV80", "BV81"]);
     t.S.finishedFilter = false;
     cfg(false, false);
+  }
+
+  // Row 3: one pick per group (again = clear), AND across groups, each group counted without its own pick; the
+  // conditional chips last and gone at 0; 全部 clears row 3 only; 全选 heads the right-hand buttons.
+  {
+    openFake("R", [1, 2, 3, 4, 5, 6].map((n) => item(90 + n)));
+    t.S.items[4].invalid = true; // BV95: 已失效, so 粗看完成 · 可清理
+    const v = (verdict) => ({ verdict, confidence: "high" });
+    Object.assign(t.S, { analyses: {}, titleRes: { BV91: v("keep"), BV92: v("keep"), BV93: v("drop"), BV94: v("unsure") }, classFilter: { coarse: "all", fine: "all", read: "all" }, tagState: "", tab: "coarse", query: "" });
+    t.S.tags = [{ id: "ra", name: "甲", folder: "R", color: "#da86c3" }, { id: "rb", name: "乙", folder: "R", color: "#298287" }];
+    t.S.videoTags = { BV91: ["ra"], BV93: ["ra", "rb"] };
+    t.S.tagFilter.clear();
+    t.S.selected.clear();
+    const groups = () => [...row3().matchAll(/role="group" aria-label="([^"]+)"/g)].map((m) => m[1]);
+    const has = (...parts) => parts.forEach((p) => assert.ok(row3().includes(p), p));
+    assert.deepStrictEqual(groups(), ["全部", "按 AI 判断筛选", "按有没有标签", "已失效"], "fixed groups, then 已失效 (conditional) last");
+    has(">全部 5<", ">值得留 2<", ">可清理 2<", ">拿不准 1<", ">未打标签 3<", ">已打标签 2<", ">已失效 1<");
+    assert.ok(t.el.listHeader.innerHTML.startsWith('<div class="step-actions"><button type="button" role="checkbox"'), "全选 heads the right-hand buttons");
+    assert.strictEqual(t.el.searchCount.textContent, "", "no 「N 个结果」 with nothing on");
+    t.pickState("class", "keep");
+    has('aria-pressed="true">值得留 2<', ">未打标签 1<", ">已打标签 1<", '<button type="button" data-states-all aria-pressed="false">');
+    t.pickState("tagged", "tagged");
+    assert.deepStrictEqual(plain(t.visibleItems().map((it) => it.bvid)), ["BV91"], "groups AND together");
+    has(">值得留 1<", 'class="zero">拿不准 0<', ">可清理 1<", ">未打标签 1<", ">已打标签 1<");
+    assert.strictEqual(t.el.searchCount.textContent, "1 个结果", "filters on: 「N 个结果」 without a search");
+    t.pickState("class", "keep");
+    assert.strictEqual(t.S.classFilter.coarse, "all", "a second click clears the pick");
+    t.pickState("tagged", "untagged");
+    assert.strictEqual(t.S.tagState, "untagged", "one pick per group: the other one replaces it");
+    // Conditional chips: 看完了 and AI 刚打的 join after 已失效; at 0 they go (unless on).
+    t.S.seenCfg = { on: true, bar: false, mark: true, threshold: 80, style: "badge" };
+    t.S.seenPct = { BV93: [100, 1] };
+    t.S.aiRecent = { R: { bvids: ["BV94"] } };
+    t.pickState("tagged", "untagged");
+    assert.deepStrictEqual(groups(), ["全部", "按 AI 判断筛选", "按有没有标签", "看完了", "已失效", "AI 刚打的"]);
+    t.pickState("tagged", "untagged");
+    assert.ok(!row3().includes("data-finishedfilter"), "看完了 at 0 (BV93 is tagged) is not shown");
+    t.S.tagFilter.add("rb");
+    t.pickState("seen");
+    assert.ok(row3().includes("data-finishedfilter"), "but stays while on");
+    t.pickState("all");
+    assert.ok(!t.S.finishedFilter && !t.S.tagState && t.S.classFilter.coarse === "all" && t.S.tagFilter.has("rb"), "全部 clears row 3, not row 4");
+    t.S.tagFilter.clear();
+    // Row 4 counts the videos of the tab, row 3 applied; 未分析 has no AI group; 已保留 is 阅览全部's.
+    t.pickState("class", "drop");
+    t.renderTabs();
+    assert.ok(t.el.tagFilter.innerHTML.includes('甲<span class="chip-n">1</span>') && t.el.tagFilter.innerHTML.includes('乙<span class="chip-n">1</span>'));
+    t.pickState("all");
+    t.S.tab = "none";
+    assert.deepStrictEqual(groups(), ["全部", "按有没有标签"], "未分析: no AI verdict group");
+    t.S.decisions = { BV92: { action: "keep", at: 1 } };
+    t.S.tab = "read";
+    has(">已保留 1<");
+    t.S.tab = "coarse";
+    assert.ok(!row3().includes("已保留"));
+    Object.assign(t.S, { decisions: {}, aiRecent: {}, seenPct: {}, titleRes: {}, tags: [], videoTags: {} });
+    t.S.seenCfg = { on: false, bar: false, mark: false, threshold: 80, style: "badge" };
   }
 
   {

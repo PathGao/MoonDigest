@@ -224,13 +224,33 @@ select { height: 28px; max-width: 240px; }
 .tabs .arrow { margin: 0 -18px; color: var(--border-strong); font-size: var(--fs-xs); }
 .tabs .tab-sep { flex: 0 0 4px; height: 16px; border-left: 1px solid var(--border-strong); }
 
-/* ---------- row 3: AI-verdict pills (the open one dark) | 全选 and the step's buttons. Row 4: tag chips | ✦ AI 打标签 ---------- */
-.stagebar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 12px 0 6px; }
-.tagbar { display: flex; align-items: center; gap: 8px; padding: 0 0 12px; }
-.tagbar .tagfilter { flex: 1 1 auto; min-width: 0; }
-.tags-acts { display: flex; flex: none; flex-wrap: wrap; justify-content: flex-end; gap: 8px; margin-left: auto; }
-.class-filter { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 8px; }
-.class-filter:empty { display: none; }
+/* ---------- row 3: state pills in groups | 全选 and the step's buttons. Row 4: my tags | 标签管理 ✦ AI 打标签 ----------
+   Both rows: filters on the left, their buttons top-right, so the two right ends line up. */
+.stagebar, .tagbar { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: start; column-gap: 16px; row-gap: 8px; }
+.stagebar { padding: 12px 0 8px; }
+.tagbar { padding: 0 0 12px; }
+.stagebar .list-header { grid-column: 2; margin-left: 0; }
+.stagebar .step-actions { flex-wrap: nowrap; }
+.stagebar .class-filter, .tagbar .tagfilter { min-height: 32px; }
+.tagbar > :last-child { grid-column: 2; }
+.tags-acts { display: flex; flex: none; flex-wrap: nowrap; justify-content: flex-end; gap: 8px; }
+/* Row 3's groups (shared.js stateGroup), split by a thin rule. A group wraps whole (inside only when it alone is too
+   wide); the rule trails its group. */
+.state-row { display: flex; flex-wrap: wrap; align-items: center; row-gap: 8px; min-width: 0; }
+.state-row > .seg { position: relative; flex: none; flex-wrap: wrap; row-gap: 8px; max-width: 100%; }
+.state-row > .seg:not(:last-child) { margin-right: 17px; }
+.state-row > .seg:not(:last-child)::after { content: ""; position: absolute; top: 5px; right: -9px; height: 16px; border-left: 1px solid var(--border-strong); }
+.seg button.st-danger:not([aria-pressed="true"]) { color: var(--danger); }
+/* 「AI 刚打的」 and its × (不再标出，标签不变) read as one pill. */
+.state-row .ai-recent { gap: 0; }
+.state-row .ai-recent > button[aria-pressed] { border-radius: var(--radius-pill) 0 0 var(--radius-pill); }
+.state-row .ai-recent > .ai-recent-x { height: 26px; padding: 0 9px 0 6px; border: 0; border-left: 1px solid var(--surface); border-radius: 0 var(--radius-pill) var(--radius-pill) 0; background: var(--field-bg); color: var(--muted); }
+/* No sidebar: row 3's pills take the whole line; its buttons go under them at the right, just above row 4's. */
+@media (max-width: 760px) {
+  .stagebar { grid-template-columns: minmax(0, 1fr); }
+  .stagebar .list-header { grid-column: 1; justify-self: end; }
+  .stagebar .step-actions { flex-wrap: wrap; }
+}
 /* 全选 (shared.js selectAllBox): a checkbox drawn in a button. Empty box, blue bar = some, blue ✓ = all listed. */
 .sel-all .box { position: relative; width: 14px; height: 14px; flex: none; border: 1.5px solid var(--border-strong); border-radius: 3px; background: var(--surface); }
 .sel-all[aria-checked="true"] .box, .sel-all[aria-checked="mixed"] .box { border-color: var(--action); background: var(--action); }
@@ -241,13 +261,11 @@ select { height: 28px; max-width: 240px; }
 .seg { display: inline-flex; gap: 8px; }
 .seg button { height: 26px; padding: 0 12px; border: 0; border-radius: var(--radius-pill); background: var(--field-bg); color: var(--text-2); font-variant-numeric: tabular-nums; }
 .seg button:hover { background: var(--border); }
-/* In the filter rows 全部 is not one of the kinds: a thin rule sets it apart (gap 8 + margin 8, rule centered). */
-.class-filter .seg > button:first-child, .fw-bar .seg > button:first-child { position: relative; margin-right: 8px; }
-.class-filter .seg > button:first-child::after, .fw-bar .seg > button:first-child::after { content: ""; position: absolute; top: 5px; right: -8px; height: 16px; border-left: 1px solid var(--border-strong); }
 .seg button[aria-pressed="true"] { background: var(--text); color: var(--bg); font-weight: 600; }
-/* A count of 0 stays, dimmed; only chips that exist for a condition (已失效, AI 刚打的) leave at 0. */
+/* A count of 0 stays, dimmed; only chips that exist for a condition (看完了, 已失效, AI 刚打的) leave at 0. */
 .seg button.zero:not([aria-pressed="true"]), .chip.zero:not(.on), .side-item.zero:not(.on) { opacity: 0.5; }
-.tagfilter { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
+.tagfilter { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; padding-top: 5px; }
+.chip .chip-n { margin-left: 4px; color: var(--faint); font-variant-numeric: tabular-nums; }
 
 /* ---------- sort (shared.js sortControl): a select and the direction button (three lines; longest on top =
    descending) as one control, at the right end of row 1 in both modes ---------- */
@@ -649,10 +667,6 @@ dialog.wide { width: min(620px, calc(100% - 32px)); }
 .ai-tally .chips { margin: 0; }
 .ai-tally b { font-weight: 600; margin-left: 2px; }
 .ai-recent-rules { margin: 2px 0 0; padding-left: 18px; }
-/* 「AI 刚打的」: the filter chip and its × (不再标出，标签不变) read as one pill. */
-.ai-recent { display: inline-flex; align-items: center; }
-.ai-recent-chip { --c: var(--action); border-top-right-radius: 0; border-bottom-right-radius: 0; }
-.ai-recent-x { padding: 0 8px; align-self: stretch; border: 1px solid var(--border); border-left: 0; border-radius: 0 999px 999px 0; background: var(--surface); color: var(--muted); }
 .ai-newtag { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
 .ai-newtag input[type="text"] { flex: 0 1 240px; min-width: 120px; }
 .stack { display: flex; flex-direction: column; gap: 6px; }
