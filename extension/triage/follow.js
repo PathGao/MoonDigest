@@ -114,19 +114,9 @@ const SORTS = { last: "最近更新", follow: "关注时间", fans: "粉丝数",
 const SORT_DIR = { last: "desc", follow: "desc", fans: "desc", name: "asc" }; // each sort's default direction
 function sortCmp(sort, dir = SORT_DIR[sort] || "desc") {
   const val = { last: (u) => u.last || null, follow: (u) => u.followed || null, fans: (u) => u.fans ?? null, name: (u) => u.name }[sort] || ((u) => u.last || null);
-  const sign = dir === "asc" ? 1 : -1;
-  return (a, b) => {
-    const [x, y] = [val(a), val(b)];
-    if (x == null || y == null) return (x == null) - (y == null);
-    return sign * (typeof x === "string" ? x.localeCompare(y, "zh") : x - y);
-  };
+  return UI.byValue(val, dir);
 }
-// The direction button's words: time sorts 新→旧 / 旧→新, counts 从多到少 / 从少到多, names A→Z / Z→A.
-function dirLabel(sort, dir) {
-  if (sort === "name") return dir === "asc" ? "A→Z" : "Z→A";
-  if (sort === "fans") return dir === "asc" ? "从少到多" : "从多到少";
-  return dir === "asc" ? "旧→新" : "新→旧";
-}
+const dirLabel = (sort, dir) => UI.dirWords({ name: "name", fans: "count" }[sort], dir);
 
 // Adds a feed page to the loaded videos without repeats, newest first (B站 pages overlap and come slightly out of
 // order); ties keep their order. add = the videos that were new.
@@ -370,6 +360,7 @@ main.innerHTML = `
   <div class="folder-head fw-head">
     <div class="folder-info"><div class="folder-text"><h1 id="fwTitle" class="folder-title">关注</h1><div id="fwMeta" class="folder-meta"></div></div>
       <button type="button" class="bili-link" data-fw="bili" aria-label="在 B站打开我的空间">在 B站打开 ↗</button>
+      ${UI.syncPill("fwSync")}
     </div>
     <span id="fwSort" class="sort-box"></span>
   </div>
@@ -385,6 +376,8 @@ main.innerHTML = `
   <div class="stagebar fw-bar"><span id="fwBar" class="fw-bar-dyn"></span><span id="fwTools" class="fw-tools"><span id="fwSelAll"></span>${UI.tagButtons({ manageAttrs: 'data-fw="tags"', aiAttrs: 'data-fw="ai" aria-label="AI 打标签"' })}</span></div>
   <div id="fwList" class="fw-list" aria-label="UP 主"></div>
   <div id="fwSel"></div>`;
+const SYNC = { pill: $("fwSyncViewBtn"), notice: $("fwSyncNotice"), text: $("fwSyncText"), detail: $("fwSyncDetail"), close: $("fwSyncCloseBtn") };
+UI.bindSync(SYNC);
 const E = { sort: $("fwSort"), title: $("fwTitle"), tools: $("fwTools"), selAll: $("fwSelAll"), meta: $("fwMeta"), tabs: $("fwTabs"), bar: $("fwBar"), list: $("fwList"), sel: $("fwSel"), q: $("fwQ"), qCount: $("fwQCount") };
 // Without the sidebar its items become a select in the top bar, where 收藏夹 shows its folder select.
 const sideSlot = document.createElement("span");
@@ -529,13 +522,26 @@ function renderSync() {
   btn.disabled = Boolean(j.running);
   if (j.running) btn.setAttribute("aria-busy", "true");
   else btn.removeAttribute("aria-busy");
-  pill.hidden = !j.running;
-  if (!j.running) return;
-  const left = j.hold?.until ? Math.ceil(j.hold.until - nowSec()) : 0;
-  const wait = left > 0 && `${j.hold.why === "throttled" ? "B站限流" : "网络断了"}，${fmtDuration(left)} 后重试`;
+  if (!j.running) return UI.setActivity(pill, null);
+  const wait = j.hold?.until ? UI.waitText(j.hold.why === "throttled" ? "B站限流" : "网络断了", Math.ceil(j.hold.until - nowSec())) : "";
   const text = wait || `${j.step || PHASE[j.phase] || "刷新中"}${j.total ? ` ${j.done || 0}/${j.total}` : j.done ? ` ${j.done}` : ""}`;
-  pill.classList.toggle("warn", Boolean(wait));
-  pill.innerHTML = UI.activityHtml({ text, done: j.done || 0, total: wait ? 0 : j.total || 0, btn: { attrs: "data-fw-stop", label: "暂停" } });
+  UI.setActivity(pill, { text, done: j.done || 0, total: wait ? 0 : j.total || 0, warn: Boolean(wait), btn: { attrs: "data-fw-stop", label: "暂停" } });
+}
+
+// The last refresh's 新关注 / 在 B站取关 (follow_jobs.changes, see followDiff) as 收藏夹's 「B站已同步」 pill. Each refresh's
+// changes show once per page; 关闭 hides them until the next.
+let syncSeenAt = null;
+function renderSyncChanges() {
+  const c = D.jobs?.changes;
+  if (!c || c.at === syncSeenAt) return;
+  syncSeenAt = c.at;
+  if (!c.added.length && !c.removed.length) return UI.setSync(SYNC, null);
+  const names = (mids) => mids.map((m) => D.people?.[m]?.name || m);
+  UI.setSync(SYNC, {
+    label: `新关注 +${c.added.length} · 取关 −${c.removed.length}`,
+    text: `B站同步：新关注 ${c.added.length} · 在 B站取关 ${c.removed.length}`,
+    sections: [["新关注", names(c.added)], ["在 B站取关", names(c.removed)]]
+  });
 }
 
 // 关注 · N, when the list was read, and the last refresh's error, which stays until a refresh gets through.
@@ -546,6 +552,7 @@ function renderHead() {
   E.title.innerHTML = UI.titleHtml("关注", D.list ? following().length : null);
   E.meta.innerHTML = UI.headMeta([D.list ? UI.syncedText(at * 1000) : "还没有关注数据"], err);
   renderSync();
+  renderSyncChanges();
 }
 
 function renderTabs() {

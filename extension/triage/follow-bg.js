@@ -44,6 +44,7 @@ function followMergePerson(old, nu) {
 // - 同步开始后在这里关注、B站 列表还没反映的人保留。
 // - unf 里的人只有关注时间晚于取关时间才算重新关注（back，标签进 restore）；否则仍算取关、不进列表。
 // - cur 里有、fresh 里没有、unf 里也没有的人是在 B站 取关的：gone[mid] = { at, tagIds, source: "bili" }。只在 fresh 拉全时判断。
+// - changes = { at, added, removed }：新列表比 cur 多的人、gone 的人，给界面的「新关注 +N · 取关 −M」。没拉全或没有上次的列表时为 null。
 function followDiff(cur, fresh, unf, tagMap, live, startedAt, at) {
   const inFresh = new Set(fresh.list);
   const ft = { ...fresh.followTime };
@@ -68,9 +69,11 @@ function followDiff(cur, fresh, unf, tagMap, live, startedAt, at) {
   }
   const inList = new Set(list);
   const only = (o) => Object.fromEntries(Object.entries(o || {}).filter(([m]) => inList.has(m)));
+  const old = new Set(cur.list || []);
   return {
     list: { at, list, followTime: only(ft), special: only(fresh.special), groups: only(fresh.groups), complete: !!fresh.complete },
     gone,
+    changes: fresh.complete && cur.list ? { at, added: list.filter((m) => !old.has(m)), removed: Object.keys(gone) } : null,
     back,
     restore
   };
@@ -242,7 +245,7 @@ async function followGetJson(url) {
     }
     if (json && !BILI_RISK_CODES.has(json.code)) return json;
     if (strike >= FOLLOW_CFG.strikes) throw triageError("被 B站 限流，已暂停", "THROTTLED");
-    if (typeof url === "function") followWbiKey = { key: "", at: 0 };
+    if (typeof url === "function") BocSites.biliWbiReset();
     followHold(FOLLOW_CFG.backoffMs, "throttled");
   }
 }
@@ -263,19 +266,19 @@ async function followAgain(once, empty) {
 
 const followQuery = (params) => new URLSearchParams(Object.entries(params).filter(([, v]) => v !== "" && v != null)).toString();
 
-let followWbiKey = { key: "", at: 0 };
+// The key is sites.js's (one per worker); nav goes through this queue like every other GET.
+const FOLLOW_WBI_IO = { fetchJson: followGetJson };
 async function followWbiData(base, params) {
   const signed = async () => {
-    if (!followWbiKey.key || Date.now() - followWbiKey.at > 10 * 60 * 1000) {
-      const img = (await followGetJson(`${FOLLOW_API}/x/web-interface/nav`))?.data?.wbi_img;
-      if (!img?.img_url || !img?.sub_url) throw triageError("拿不到 WBI 签名密钥");
-      followWbiKey = { key: BocSites.biliMixinKey(img.img_url, img.sub_url), at: Date.now() };
+    try {
+      return `${base}?${await BocSites.biliWbiSigned(params, FOLLOW_WBI_IO)}`;
+    } catch (e) {
+      throw e.code ? e : triageError("拿不到 WBI 签名密钥");
     }
-    return `${base}?${BocSites.biliWbiSign(params, followWbiKey.key, followNow())}`;
   };
   let j = await followGetJson(signed);
   if (j.code === -403) {
-    followWbiKey = { key: "", at: 0 };
+    BocSites.biliWbiReset();
     j = await followGetJson(signed);
   }
   if (j.code !== 0) throw triageError(`B站返回 ${j.code}：${j.message}`, j.code);
@@ -352,11 +355,13 @@ async function followSyncJob(ctx) {
     // B站 关注分组 names, shown read-only in 关注. 0 默认分组 and -10 特别关注 are left out (特别关注 has its own filter).
     const tags = await get(() => followGetData(`${FOLLOW_API}/x/relation/tags`));
     const groups = (Array.isArray(tags) ? tags : []).filter((g) => g.tagid > 0).map((g) => ({ id: g.tagid, name: String(g.name || ""), count: Number(g.count) || 0 }));
+    let changes = null;
     await followUpdate(["follow_list", "follow_people", "follow_unfollowed", "follow_tag_map", "follow_tags"], (s) => {
       const unf = { ...s.follow_unfollowed };
       const tagMap = { ...s.follow_tag_map };
       const live = new Set((s.follow_tags || []).map((t) => t.id));
       const d = followDiff(s.follow_list || {}, fresh, unf, tagMap, live, ctx.startedAt, followNow());
+      changes = d.changes;
       for (const [mid, rec] of Object.entries(d.gone)) {
         unf[mid] = rec;
         delete tagMap[mid];
@@ -367,6 +372,7 @@ async function followSyncJob(ctx) {
       for (const [mid, p] of Object.entries(people)) ppl[mid] = followMergePerson(ppl[mid], p);
       return { follow_list: d.list, follow_people: ppl, follow_unfollowed: unf, follow_tag_map: tagMap, follow_groups: groups };
     });
+    if (changes) await ctx.progress({ changes });
     Object.assign(c, { phase: "feed", offset: "" });
   }
 
@@ -491,7 +497,7 @@ async function followStart() {
   const startedAt = cursor ? prev.startedAt : followNow();
   await followPatchJob({
     running: true, error: null, throttled: false, hold: null, finishedAt: null,
-    ...(cursor ? {} : { startedAt, phase: "list", step: "", done: 0, total: 0, skipped: 0, cursor: null })
+    ...(cursor ? {} : { startedAt, phase: "list", step: "", done: 0, total: 0, skipped: 0, cursor: null, changes: null })
   });
   followOnHold = (hold) => followPatchJob({ hold }).catch(() => {});
   // 停下立即生效，退避中也一样：正在等的请求直接丢掉。
@@ -669,18 +675,5 @@ if (typeof chrome !== "undefined" && chrome.runtime?.onMessage) {
   chrome.alarms?.onAlarm.addListener((alarm) => {
     if (alarm.name === FOLLOW_ALARM) followResume().catch((e) => console.warn("[follow] 接着同步失败", e));
   });
-  chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-    const type = message?.type;
-    if (typeof type !== "string" || !type.startsWith("follow-")) return false;
-    const handler = FOLLOW_HANDLERS[type];
-    if (!handler) {
-      sendResponse({ ok: false, error: `未知消息类型 ${type}` });
-      return false;
-    }
-    Promise.resolve()
-      .then(() => handler(message))
-      .then((data) => sendResponse({ ok: true, data }))
-      .catch((e) => sendResponse({ ok: false, error: e?.message || String(e), ...(e?.code ? { code: e.code } : {}) }));
-    return true;
-  });
+  triageListen("follow-", FOLLOW_HANDLERS);
 }

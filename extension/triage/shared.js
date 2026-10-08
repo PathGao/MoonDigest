@@ -1,5 +1,6 @@
 // What the 分拣台's two modes (triage.js 收藏夹, follow.js 关注) draw the same way, so they cannot drift apart.
-// A plain script loaded before both modules; everything here returns HTML or text and touches no state.
+// A plain script loaded before both modules. Everything here returns HTML, text or a comparator; only setActivity,
+// setSync and bindSync touch the elements they are given.
 (() => {
   function esc(v) {
     return String(v ?? "")
@@ -74,6 +75,20 @@
     const ws = dir === "asc" ? [6, 10, 14] : [14, 10, 6];
     return `<svg viewBox="0 0 20 20" aria-hidden="true">${[4, 8, 12].map((y, i) => `<path d="M3 ${y + 1.5}h${ws[i]}"/>`).join("")}</svg>`;
   }
+  // A sort comparator by val(item); dir "asc" = small / old / A first. An item without a value (null) sinks to the bottom
+  // in both directions; strings compare as Chinese. Array sort is stable, so ties keep list order.
+  function byValue(val, dir) {
+    const sign = dir === "asc" ? 1 : -1;
+    return (a, b) => {
+      const [x, y] = [val(a), val(b)];
+      if (x == null || y == null) return (x == null) - (y == null);
+      return sign * (typeof x === "string" ? x.localeCompare(y, "zh") : x - y);
+    };
+  }
+  // The direction button's words by what is sorted: time 新→旧 / 旧→新 (the default), count, length, name.
+  const DIR_WORDS = { time: ["旧→新", "新→旧"], count: ["从少到多", "从多到少"], length: ["从短到长", "从长到短"], name: ["A→Z", "Z→A"] };
+  const dirWords = (kind, dir) => (DIR_WORDS[kind] || DIR_WORDS.time)[dir === "asc" ? 0 : 1];
+
   // Row 1's sort: a select and the direction button as one control. selectAttr / dirAttr are what each mode listens for.
   function sortControl({ sorts, sort, dir, words, selectAttr, dirAttr }) {
     const opts = Object.entries(sorts).map(([v, t]) => `<option value="${esc(v)}"${v === sort ? " selected" : ""}>${esc(t)}</option>`).join("");
@@ -106,6 +121,44 @@
     const b = btn ? `<button type="button" ${btn.attrs} aria-label="${esc(btn.label)}"${btn.disabled ? " disabled" : ""}>${esc(btn.label)}</button>` : "";
     return `<span class="activity-text">${esc(text)}</span>${bar}${b}`;
   }
+  // Draws the pill from state ({ text, done, total, btn, warn }: warn is amber, for a wait); null / false hides it.
+  function setActivity(el, a) {
+    el.hidden = !a;
+    if (!a) return;
+    el.classList.toggle("warn", Boolean(a.warn));
+    el.innerHTML = activityHtml(a);
+  }
+  // 「B站限流，01:30 后重试」 while sec > 0, else "".
+  const waitText = (why, sec) => (sec > 0 ? `${why}，${fmtDuration(sec)} 后重试` : "");
+
+  // Row 1's 「B站已同步 +N −M」 pill and the notice it opens below it. Ids are prefix + ViewBtn / Notice / Text / Detail /
+  // CloseBtn; each mode passes those elements as { pill, notice, text, detail, close }.
+  const syncPill = (p) =>
+    `<span class="sync-wrap"><button id="${p}ViewBtn" type="button" class="pill sync-pill" aria-expanded="false" aria-controls="${p}Notice" hidden></button>` +
+    `<div id="${p}Notice" class="notice" hidden><p id="${p}Text"></p><div id="${p}Detail" class="sync-detail"></div>` +
+    `<div class="notice-actions"><button id="${p}CloseBtn" type="button" aria-label="关闭同步提示">关闭</button></div></div></span>`;
+  // s = { label, text, sections: [[heading, lines]], warn } shows the pill with its notice closed (empty sections drop
+  // out); null hides both.
+  function setSync(e, s) {
+    e.notice.hidden = true;
+    e.pill.hidden = !s;
+    e.pill.setAttribute("aria-expanded", "false");
+    if (!s) return;
+    e.pill.textContent = s.label;
+    e.pill.classList.toggle("warn", Boolean(s.warn));
+    e.text.textContent = s.text;
+    e.detail.innerHTML = s.sections
+      .map(([h, lines]) => (lines.length ? `<div><strong>${esc(h)}</strong><ul>${lines.map((l) => `<li>${esc(l)}</li>`).join("")}</ul></div>` : ""))
+      .join("");
+  }
+  // The pill opens and closes its notice; 关闭 hides both.
+  function bindSync(e) {
+    e.pill.addEventListener("click", () => {
+      e.notice.hidden = !e.notice.hidden;
+      e.pill.setAttribute("aria-expanded", String(!e.notice.hidden));
+    });
+    e.close.addEventListener("click", () => setSync(e, null));
+  }
 
   // 标签管理 and ✦ AI 打标签 at the right end of the tag row, next to the tags they act on (in 收藏夹 those are the open
   // folder's, so they do not sit in the sidebar). state is 「 · 运行中」 or 「 · 待确认」.
@@ -133,5 +186,5 @@
     }
   }
 
-  globalThis.TriageUi = { esc, pad, fmtDate, fmtDuration, fmtCount, cleanTagName, plainClick, img, toCsv, cardTagChip, syncedText, headMeta, titleHtml, ICON, AI_SPARK, sortControl, filterBtn, searchBox, resultCount, rowButtons, menuItem, BACKUP_ITEM, activityHtml, tagButtons, sideFoot, emptyState, fillSetRows };
+  globalThis.TriageUi = { esc, pad, fmtDate, fmtDuration, fmtCount, cleanTagName, plainClick, img, toCsv, cardTagChip, syncedText, headMeta, titleHtml, ICON, AI_SPARK, byValue, dirWords, sortControl, filterBtn, searchBox, resultCount, rowButtons, menuItem, BACKUP_ITEM, activityHtml, setActivity, waitText, syncPill, setSync, bindSync, tagButtons, sideFoot, emptyState, fillSetRows };
 })();

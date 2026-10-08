@@ -42,14 +42,8 @@
             <div class="folder-info">
               <div id="folderHead" class="folder-name"></div>
               <button id="biliBtn" type="button" class="bili-link" aria-label="在 B站打开当前收藏夹（所有收藏夹时打开个人主页）" hidden>在 B站打开 ↗</button>
-              <span class="sync-wrap">
-                <button id="syncViewBtn" type="button" class="pill sync-pill" aria-expanded="false" aria-controls="syncNotice" hidden></button>
-                <div id="syncNotice" class="notice" hidden>
-                  <p id="syncText"></p>
-                  <div id="syncDetail" class="sync-detail"></div>
-                  <div class="notice-actions"><button id="syncCloseBtn" type="button" aria-label="关闭同步提示">关闭</button></div>
-                </div>
-              </span>
+              <!-- The B站已同步 pill and its notice, from shared.js (as in 关注). -->
+              <span id="favSync"></span>
             </div>
             <span id="sortBox" class="sort-box"></span>
           </div>

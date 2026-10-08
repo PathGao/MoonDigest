@@ -557,5 +557,24 @@ assert.throws(() => t.triageParseCommand('{"new_tags":[', cmdItems, cmdTags, {})
     assert.strictEqual(urls.length, before, "no request while backing off");
   }
 
+  // triageListen: its prefix only; unknown types and handler errors answer { ok: false }, the code passed through.
+  {
+    let listener = null;
+    const realChrome = t.chrome;
+    t.chrome = { runtime: { onMessage: { addListener: (f) => (listener = f) } } };
+    const L = t.triageListen("x-", { "x-ok": (m) => ({ got: m.n }), "x-fail": () => Promise.reject(t.triageError("坏了", "THROTTLED")) });
+    t.chrome = realChrome;
+    assert.strictEqual(L, listener, "registers the listener it returns");
+    const ask = (message) => new Promise((resolve) => {
+      const kept = L(message, {}, resolve);
+      if (kept === false) setTimeout(() => resolve("unanswered"), 0);
+    });
+    assert.deepStrictEqual(plain(await ask({ type: "x-ok", n: 3 })), { ok: true, data: { got: 3 } });
+    assert.deepStrictEqual(plain(await ask({ type: "x-fail" })), { ok: false, error: "坏了", code: "THROTTLED" });
+    assert.deepStrictEqual(plain(await ask({ type: "x-none" })), { ok: false, error: "未知消息类型 x-none" });
+    assert.strictEqual(await ask({ type: "y-ok" }), "unanswered", "other prefixes are left to other listeners");
+    assert.strictEqual(await ask({}), "unanswered");
+  }
+
 console.log("triage-bg selftest: all passed");
 })();

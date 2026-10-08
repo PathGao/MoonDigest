@@ -344,6 +344,7 @@ $("favRowTools").insertAdjacentHTML("beforeend", UI.searchBox("searchInput", "se
   menuHtml: UI.menuItem('id="writeBtn" aria-label="批量导出"', "批量导出…", "摘录，或逐个视频的笔记") + UI.menuItem('id="csvBtn" aria-label="下载这个收藏夹的表格 CSV"', "这个收藏夹的表格 (CSV)", "标题、AI 判断、标签、备注") + "<hr>" + UI.BACKUP_ITEM,
   settingsAttr: "data-open-settings", settingsLabel: "收藏夹设置"
 }));
+$("favSync").outerHTML = UI.syncPill("sync");
 $("favSide").insertAdjacentHTML("beforeend", UI.sideFoot({ settingsAttrs: 'id="settingsBtn" aria-label="收藏夹设置"', settingsLabel: "收藏夹设置" }));
 const REFRESH_EMPTY = `<button type="button" data-refresh>${UI.ICON.refresh}刷新</button>`;
 const el = {};
@@ -656,15 +657,9 @@ const sortOf = (id = S.mediaId) => {
 function sortItems(list, sort = "fav", dir = SORT_DIR[sort] || "desc") {
   if (sort === "fav" || !SORTS[sort]) return dir === "asc" ? [...list].reverse() : [...list];
   const val = { pub: (it) => it.pubdate || null, play: (it) => (Number.isFinite(it.play) ? it.play : null), dur: (it) => it.duration || null, title: (it) => it.title || null }[sort];
-  const sign = dir === "asc" ? 1 : -1;
-  return [...list].sort((a, b) => {
-    const [x, y] = [val(a), val(b)];
-    if (x == null || y == null) return (x == null) - (y == null);
-    return sign * (typeof x === "string" ? x.localeCompare(y, "zh") : x - y);
-  });
+  return [...list].sort(UI.byValue(val, dir));
 }
-const sortWords = (sort, dir) =>
-  ({ title: ["A→Z", "Z→A"], play: ["从少到多", "从多到少"], dur: ["从短到长", "从长到短"] })[sort]?.[dir === "asc" ? 0 : 1] ?? (dir === "asc" ? "旧→新" : "新→旧");
+const sortWords = (sort, dir) => UI.dirWords({ title: "name", play: "count", dur: "length" }[sort], dir);
 function renderSort() {
   const { sort, dir } = sortOf();
   const missing = sort === "play" && S.items.some((it) => !it.invalid && !Number.isFinite(it.play));
@@ -1587,6 +1582,11 @@ async function pickUnfavFolders(it) {
   return ok ? [...el.confirmBody.querySelectorAll("input:checked")].map((x) => x.value) : [];
 }
 
+// Row 1's sync pill (shared.js draws it, as in 关注). Declarations, not consts: init() runs above them.
+function syncEls() {
+  return { pill: el.syncViewBtn, notice: el.syncNotice, text: el.syncText, detail: el.syncDetail, close: el.syncCloseBtn };
+}
+
 function showSyncNotice(diff, partial) {
   const { added, removed, invalid, restored } = diff;
   if (!partial && !added.length && !removed.length && !invalid.length && !restored.length) {
@@ -1598,27 +1598,24 @@ function showSyncNotice(diff, partial) {
   const parts = [`新增 ${added.length - fromOthers}`, ...(fromOthers ? [`来自其他收藏夹 ${fromOthers}`] : []), ...(partial ? [] : [`已在B站移除 ${removed.length}`]), `已失效 ${invalid.length}`];
   if (restored.length) parts.push(`恢复 ${restored.length}`);
   const head = partial ? `只加载了前 ${partial.count} 个（第 ${partial.page} 页失败：${partial.error}），可稍后重试同步。` : "";
-  el.syncText.textContent = `${head}B站同步：${parts.join(" · ")}`;
-  el.syncViewBtn.textContent = `B站已同步${partial ? "（部分）" : ""} +${added.length}${partial ? "" : ` −${removed.length}`}`;
-  // A partial load is a notice to retry later, not a blocker: amber, per the color rules in tokens.css.
-  el.syncViewBtn.classList.toggle("warn", Boolean(partial));
-  const section = (label, titles) =>
-    titles.length ? `<div><strong>${label}</strong><ul>${titles.map((t) => `<li>${esc(t)}</li>`).join("")}</ul></div>` : "";
   const where = (it) => (it.from === REMOVED ? "原在已出分拣范围" : `也在「${folderName(it.from)}」`);
-  el.syncDetail.innerHTML =
-    section("新增", added.filter((it) => !it.from).map((it) => it.title)) +
-    section("来自其他收藏夹", added.filter((it) => it.from).map((it) => `${it.title}（${where(it)}）`)) +
-    section("已在B站移除", removed) +
-    section("已失效", invalid) +
-    section("恢复（在B站重新收藏）", restored);
-  el.syncNotice.hidden = true;
-  el.syncViewBtn.hidden = false;
-  el.syncViewBtn.setAttribute("aria-expanded", "false");
+  UI.setSync(syncEls(), {
+    label: `B站已同步${partial ? "（部分）" : ""} +${added.length}${partial ? "" : ` −${removed.length}`}`,
+    text: `${head}B站同步：${parts.join(" · ")}`,
+    // A partial load is a notice to retry later, not a blocker: amber, per the color rules in tokens.css.
+    warn: Boolean(partial),
+    sections: [
+      ["新增", added.filter((it) => !it.from).map((it) => it.title)],
+      ["来自其他收藏夹", added.filter((it) => it.from).map((it) => `${it.title}（${where(it)}）`)],
+      ["已在B站移除", removed],
+      ["已失效", invalid],
+      ["恢复（在B站重新收藏）", restored]
+    ]
+  });
 }
 
 function hideSyncNotice() {
-  el.syncNotice.hidden = true;
-  el.syncViewBtn.hidden = true;
+  UI.setSync(syncEls(), null);
 }
 
 // ---------- render ----------
@@ -1694,7 +1691,7 @@ function renderFolderHead() {
 // act puts a button on it (handled like the step bar's buttons), warn turns it amber.
 function activityState() {
   const left = S.throttleUntil - Date.now();
-  const wait = left > 0 ? `${S.throttleLabel}，${fmtDuration(Math.ceil(left / 1000))} 后重试` : "";
+  const wait = UI.waitText(S.throttleLabel, Math.ceil(left / 1000));
   if (S.group) {
     const done = groupDone(S.group);
     const where = runWhere(S.group);
@@ -1727,10 +1724,7 @@ function activityState() {
 
 function renderStatus() {
   const a = activityState();
-  el.activity.hidden = !a;
-  if (!a) return;
-  el.activity.classList.toggle("warn", Boolean(a.warn));
-  el.activity.innerHTML = UI.activityHtml({ ...a, btn: a.act && { attrs: `data-head="${a.act}"`, label: a.actLabel, disabled: a.stopping } });
+  UI.setActivity(el.activity, a && { ...a, btn: a.act && { attrs: `data-head="${a.act}"`, label: a.actLabel, disabled: a.stopping } });
 }
 
 function tick() {
@@ -4052,11 +4046,7 @@ function bindEvents() {
   document.querySelector("[data-open-settings]")?.addEventListener("click", () => openSettings());
   el.toast.addEventListener("click", () => (el.toast.hidden = true));
 
-  el.syncViewBtn.addEventListener("click", () => {
-    el.syncNotice.hidden = !el.syncNotice.hidden;
-    el.syncViewBtn.setAttribute("aria-expanded", String(!el.syncNotice.hidden));
-  });
-  el.syncCloseBtn.addEventListener("click", hideSyncNotice);
+  UI.bindSync(syncEls());
   el.bannerClose.addEventListener("click", () => (el.banner.hidden = true));
 
   // tag picker
