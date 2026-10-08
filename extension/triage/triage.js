@@ -602,11 +602,15 @@ function passFilter(it, skip = "") {
   if (on("recent") && S.aiRecentFilter && !aiRecentSet().has(it.bvid)) return false;
   if ((S.mediaId === REMOVED || on("kind")) && S.kindFilter && kindOf(it) !== S.kindFilter) return false;
   if (on("tags") && S.tagFilter.size && !hasAllTags(tagIdsOf(it.bvid), S.tagFilter, (id) => tagById(id)?.name ?? id)) return false;
-  const words = S.query.toLowerCase().split(/\s+/).filter(Boolean);
+  const words = queryWords();
   if (!words.length) return true;
   const text = searchText(it);
   return words.every((w) => text.includes(w));
 }
+
+// The search words, split once per query rather than once per video.
+let queryMemo = ["", []];
+const queryWords = () => (queryMemo[0] === S.query ? queryMemo[1] : (queryMemo = [S.query, S.query.toLowerCase().split(/\s+/).filter(Boolean)])[1]);
 
 // Which AI steps have run, not what they said. Invalid videos (可清理) can never be 细看'd, so they stop at 粗看;
 // a failed 细看 stays where its 粗看 put it.
@@ -2744,7 +2748,13 @@ function removeVideoTag(bvid, id) {
 }
 
 // 「AI 刚打的」 of the open folder (a Set of bvids); empty in 所有收藏夹 and 已出分拣范围.
-const aiRecentSet = () => new Set(S.aiRecent[String(S.mediaId)]?.bvids || []);
+// Asked per video while filtering, so the set is built once per list (lists are replaced, never changed in place).
+let aiRecentMemo = [null, new Set()];
+const aiRecentSet = () => {
+  const bvids = S.aiRecent[String(S.mediaId)]?.bvids;
+  if (aiRecentMemo[0] !== bvids) aiRecentMemo = [bvids, new Set(bvids || [])];
+  return aiRecentMemo[1];
+};
 const saveAiRecent = () => storeSet(K.aiRecent, S.aiRecent);
 // × and U end the folder's 「AI 刚打的」; × leaves the tags as they are.
 function endAiRecent(folder = String(S.mediaId)) {

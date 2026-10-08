@@ -1919,6 +1919,22 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   assert.ok(!t.pointerMoved({ x: 10, y: 10 }, 10, 10), "same position is not movement");
   assert.ok(t.pointerMoved({ x: 10, y: 10 }, 10, 11), "a changed coordinate is movement");
 
+  // passFilter runs per video several times a render: the 「AI 刚打的」 set and the search words are built once per change.
+  {
+    const [aiRecentSet, queryWords] = vm.runInContext("[aiRecentSet, queryWords]", ctx);
+    const saved = { mediaId: t.S.mediaId, aiRecent: t.S.aiRecent, query: t.S.query };
+    Object.assign(t.S, { mediaId: "R", aiRecent: { R: { at: 1, bvids: ["BV1"] } }, query: "A  b" });
+    const set = aiRecentSet();
+    assert.ok(set.has("BV1") && aiRecentSet() === set, "one set until the list changes");
+    t.S.aiRecent = { R: { at: 2, bvids: ["BV2"] } };
+    assert.ok(aiRecentSet().has("BV2") && !aiRecentSet().has("BV1"), "a new list, a new set");
+    const words = queryWords();
+    assert.ok(queryWords() === words && words.join() === "a,b");
+    t.S.query = "c";
+    assert.strictEqual(queryWords().join(), "c");
+    Object.assign(t.S, saved);
+  }
+
   // J/K and a card that leaves the list go by the cards on screen; no focus index is kept (hovering cards stays cheap).
   {
     const realList = t.el.list, realFocus = t.setFocus;
