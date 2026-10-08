@@ -79,6 +79,8 @@
       favTime: 1720000000 + i * 3600,
       intro: invalid ? "" : `这是《${title}》的简介。`,
       invalid,
+      // 播放量; every 6th has none, like a video synced before 播放量 was stored.
+      play: i % 6 === 5 ? undefined : (i * 7919) % 900000,
       _i: i
     };
   }

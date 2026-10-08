@@ -246,6 +246,11 @@ assert.throws(() => t.triageParseCommand('{"new_tags":[', cmdItems, cmdTags, {})
   await assert.rejects(folderItems({ mediaId: 1 }), (e) => e.code === "THROTTLED");
   t.fetch = jsonRes({ code: 0, data: { medias: [media(3)], has_more: false } });
   assert.strictEqual((await folderItems({ mediaId: 1 })).partial, undefined);
+  // 播放量 is mapped from the list itself: cnt_info.play for a folder, stat.view for 稍后再看; none stays undefined.
+  t.fetch = jsonRes({ code: 0, data: { medias: [{ ...media(4), cnt_info: { play: 1234 } }, media(5)], has_more: false } });
+  assert.deepStrictEqual([...(await folderItems({ mediaId: 1 })).items.map((it) => it.play)], [1234, undefined]);
+  t.fetch = jsonRes({ code: 0, data: { list: [{ bvid: "BV6", aid: 6, title: "t6", state: 0, stat: { view: 77 } }, { bvid: "BV7", aid: 7, title: "t7", state: 0 }] } });
+  assert.deepStrictEqual([...(await folderItems({ mediaId: "toview" })).items.map((it) => it.play)], [77, undefined]);
   // With known, loading stops after the first page that is all known and returns just those pages as head.
   const pages = [];
   t.fetch = async (url) => {

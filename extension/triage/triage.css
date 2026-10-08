@@ -225,6 +225,15 @@ select { height: 28px; max-width: 240px; }
 .tags-btn { height: 30px; }
 .tags-btn .ai-spark { margin-right: 3px; }
 
+/* ---------- sort: a select and the direction button (three lines; longest on top = descending), as one control.
+   收藏夹 puts it at the right of the filter row; 关注 reuses it. ---------- */
+.sort-box { display: inline-flex; align-items: center; gap: 8px; margin-left: auto; }
+.sort-ctl { display: inline-flex; }
+.sort-ctl select { border-top-right-radius: 0; border-bottom-right-radius: 0; }
+.sort-dir { width: 28px; padding: 0; margin-left: -1px; display: grid; place-items: center; border-color: var(--border-strong); border-radius: 0 var(--radius-sm) var(--radius-sm) 0; background: var(--field-bg); color: var(--text-2); }
+.sort-dir:hover { color: var(--text); }
+.sort-dir svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; }
+
 /* ---------- the selection bar floats over the bottom of the page while anything is selected ----------
    Centered with auto margins between left and right (not left: 50% + translate, which caps a fixed box at half the
    viewport), so the count stays on one line and the button group wraps instead. */

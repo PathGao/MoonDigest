@@ -352,7 +352,7 @@ main.innerHTML = `
   </div>
   <nav id="fwTabs" class="tabs fw-tabs" role="tablist" aria-label="关注"></nav>
   <div class="stagebar fw-bar"><span id="fwBar" class="fw-bar-dyn"></span>
-    <span class="fw-sort" data-sortbox><select data-fw="sort" aria-label="排序">${Object.entries(SORTS).map(([v, t]) => `<option value="${v}">${t}</option>`).join("")}</select><button type="button" class="fw-dir" data-fw="dir"></button></span><span id="fwTools" class="fw-tools">
+    <span class="sort-ctl fw-sort" data-sortbox><select data-fw="sort" aria-label="排序">${Object.entries(SORTS).map(([v, t]) => `<option value="${v}">${t}</option>`).join("")}</select><button type="button" class="sort-dir" data-fw="dir"></button></span><span id="fwTools" class="fw-tools">
     <input id="fwQ" type="search" placeholder="搜名字、签名、分区" aria-label="搜 UP 主" autocomplete="off">
     <button type="button" data-fw="ai" aria-label="AI 打标签">${AI_SPARK}AI 打标签</button>
   </span></div>
@@ -543,10 +543,9 @@ function renderUps() {
   E.sort.hidden = gone || !D.list;
   E.tools.querySelector("[data-fw=ai]").hidden = gone;
   E.sort.querySelector("[data-fw=sort]").value = F.sort;
-  // Three lines, longest on top = 从大到小 (desc); mirrored = asc.
+  // The 收藏夹 sort's direction button and icon (triage.js sortDirIcon).
   const dirBtn = E.sort.querySelector("[data-fw=dir]");
-  const ys = F.dir === "asc" ? [6, 10, 14] : [14, 10, 6];
-  dirBtn.innerHTML = `<svg viewBox="0 0 20 20" aria-hidden="true">${[4, 8, 12].map((y, i) => `<path d="M3 ${y + 1.5}h${ys[i]}"/>`).join("")}</svg>`;
+  dirBtn.innerHTML = T.sortDirIcon(F.dir);
   dirBtn.title = dirLabel(F.sort, F.dir);
   dirBtn.setAttribute("aria-label", `排序方向：${dirLabel(F.sort, F.dir)}`);
   const hint = hintHtml(counts);

@@ -59,7 +59,7 @@ const ctx = vm.createContext({
   }
 });
 vm.runInContext(fs.readFileSync(path.join(__dirname, "..", "limits.js"), "utf8"), ctx);
-vm.runInContext(`${source}\n;globalThis.S = S; globalThis.K = K; globalThis.el = el; globalThis.verdictBadge = verdictBadge; globalThis.seenText = seenText; globalThis.staleCoarse = staleCoarse; globalThis.staleFine = staleFine; globalThis.groupDone = groupDone; globalThis.mergeHead = mergeHead; globalThis.isFinished = isFinished; globalThis.pointerMoved = pointerMoved; globalThis.inferFrom = inferFrom; globalThis.hasAllTags = hasAllTags;`, ctx);
+vm.runInContext(`${source}\n;globalThis.S = S; globalThis.K = K; globalThis.el = el; globalThis.verdictBadge = verdictBadge; globalThis.seenText = seenText; globalThis.staleCoarse = staleCoarse; globalThis.staleFine = staleFine; globalThis.groupDone = groupDone; globalThis.mergeHead = mergeHead; globalThis.isFinished = isFinished; globalThis.pointerMoved = pointerMoved; globalThis.inferFrom = inferFrom; globalThis.hasAllTags = hasAllTags; globalThis.sortItems = sortItems; globalThis.fmtPlay = fmtPlay; globalThis.sortOf = sortOf; globalThis.visibleItems = visibleItems;`, ctx);
 const t = ctx;
 vm.runInContext("globalThis.plainClick = plainClick;", ctx);
 const plain = (v) => JSON.parse(JSON.stringify(v));
@@ -80,6 +80,32 @@ function openFake(mediaId, items, decisions = {}) {
   if (Object.keys(decisions).length) store[t.K.decisions(mediaId)] = structuredClone(unfavOnlyOf(decisions));
 }
 const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) => v?.action === "unfav"));
+
+// 收藏夹 sort: 收藏时间 keeps or reverses the list; the others order by value, missing values last in both directions.
+{
+  const L = [
+    { bvid: "a", title: "乙", pubdate: 30, play: 500, duration: 60 },
+    { bvid: "b", title: "甲", pubdate: 10, duration: 600 },
+    { bvid: "c", title: "丙", pubdate: 20, play: 9000, duration: 0 },
+    { bvid: "d", title: "丁", pubdate: 0, play: 0, duration: 120 }
+  ];
+  const ids = (sort, dir) => t.sortItems(L, sort, dir).map((it) => it.bvid).join("");
+  assert.strictEqual(ids("fav", "desc"), "abcd", "收藏时间 新→旧 = Bilibili's order");
+  assert.strictEqual(ids("fav", "asc"), "dcba");
+  assert.strictEqual(ids("play", "desc"), "cadb", "no 播放量 (b) last; 0 is a count");
+  assert.strictEqual(ids("play", "asc"), "dacb", "no 播放量 still last");
+  assert.strictEqual(ids("pub", "desc"), "acbd", "no 发布时间 last");
+  assert.strictEqual(ids("pub", "asc"), "bcad");
+  assert.strictEqual(ids("dur", "desc"), "bdac", "no 时长 last");
+  assert.strictEqual(ids("title", "asc"), t.sortItems(L, "title", "desc").map((it) => it.bvid).reverse().join(""));
+  assert.strictEqual(L.map((it) => it.bvid).join(""), "abcd", "the list itself is not reordered");
+  // remembered per folder; none = 收藏时间 新→旧
+  t.S.sortBy = { 7: { sort: "play", dir: "asc" } };
+  assert.deepStrictEqual(plain(t.sortOf("7")), { sort: "play", dir: "asc" });
+  assert.deepStrictEqual(plain(t.sortOf("8")), { sort: "fav", dir: "desc" });
+  t.S.sortBy = {};
+  assert.deepStrictEqual([t.fmtPlay(123456), t.fmtPlay(9999), t.fmtPlay(250000000)], ["12.3万", "9999", "2.5亿"]);
+}
 
 (async () => {
   // B8: a batch unfavorite runs to the end after another folder opens, every chunk recorded under its folder, aid and

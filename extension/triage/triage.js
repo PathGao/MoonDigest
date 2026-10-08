@@ -36,6 +36,7 @@ const K = {
   included: "triage_included_folders", // [mediaId]: the folders the user chose; only these are listed and read
   snapshot: (id) => `triage_snapshot_${id}`,
   aiHistory: "triage_ai_command_history",
+  sort: "triage_sort", // { [mediaId]: { sort, dir } }: each folder's card order; none = 收藏时间 新→旧
   aiRecent: "triage_ai_recent" // { [mediaId]: { at, bvids } }: 「AI 刚打的」, the videos the last applied 批量打 changed
 };
 // 「AI 刚打的」: the videos the last applied 批量打 changed in a folder, to look over on their cards. Only these end it.
@@ -264,6 +265,7 @@ const S = {
   watchedFilter: false, // 优先看过
   finishedFilter: false, // 看完了
   aiRecent: {},
+  sortBy: {}, // triage_sort
   aiRecentFilter: false, // AI 刚打的
   kindFilter: "", // kindOf: "invalid" (已失效) anywhere; "unfav" / "out" in 已出分拣范围 only
   seenCfg: { on: false, bar: false, mark: false, threshold: 80, style: "badge" }, // 设置页「观看进度 → 封面显示」
@@ -333,7 +335,7 @@ const el = {};
 [
   "folderSelect", "folderList", "folderHead", "settingsHeading", "settingsFoldersHeading", "settingsAi", "settingsFirstRunHint", "searchInput", "searchCount", "refreshBtn", "activity", "settingsBtn", "helpBtn",
   "banner", "bannerText", "bannerBtn", "bannerClose", "syncNotice", "syncText", "syncViewBtn", "syncCloseBtn", "syncDetail",
-  "tabs", "stagebar", "classFilter", "sideFilter", "tagFilter", "listHeader", "list", "basket", "basketToggle", "basketCount",
+  "tabs", "stagebar", "sortBox", "classFilter", "sideFilter", "tagFilter", "listHeader", "list", "basket", "basketToggle", "basketCount",
   "basketList", "toast", "settingsDialog", "folderToggles", "thinkingRow", "intervalInput",
   "batchSizeInput", "tagLimitInput", "aiNewTagMaxInput", "aiRemoveTagsInput", "aiFormRemoveTagsInput", "openOptionsBtn", "thinkingInput", "titleMaxInput",
   "titleMaxHint", "analyzeMaxInput", "analyzeMaxHint", "settingsError", "backupBtn", "csvBtn", "confirmDialog",
@@ -637,9 +639,49 @@ const unsureFirst = (it) => {
   return v.verdict === "unsure" || v.low ? 0 : 1;
 };
 
+// ---------- sort: the card order inside a tab, kept per folder ----------
+const SORTS = { fav: "收藏时间", pub: "发布时间", play: "播放量", dur: "时长", title: "标题" };
+const SORT_DIR = { fav: "desc", pub: "desc", play: "desc", dur: "desc", title: "asc" };
+const sortOf = (id = S.mediaId) => {
+  const s = S.sortBy?.[id];
+  return SORTS[s?.sort] ? { sort: s.sort, dir: s.dir === "asc" || s.dir === "desc" ? s.dir : SORT_DIR[s.sort] } : { sort: "fav", dir: "desc" };
+};
+// (pure) 收藏时间 新→旧 is the list as Bilibili gives it, 旧→新 that reversed. The others order by value; a video without
+// one (a 播放量 from before it was stored, no 发布时间 or 时长) sinks to the bottom in both directions. Ties keep list order.
+function sortItems(list, sort = "fav", dir = SORT_DIR[sort] || "desc") {
+  if (sort === "fav" || !SORTS[sort]) return dir === "asc" ? [...list].reverse() : [...list];
+  const val = { pub: (it) => it.pubdate || null, play: (it) => (Number.isFinite(it.play) ? it.play : null), dur: (it) => it.duration || null, title: (it) => it.title || null }[sort];
+  const sign = dir === "asc" ? 1 : -1;
+  return [...list].sort((a, b) => {
+    const [x, y] = [val(a), val(b)];
+    if (x == null || y == null) return (x == null) - (y == null);
+    return sign * (typeof x === "string" ? x.localeCompare(y, "zh") : x - y);
+  });
+}
+// 播放量 on a card: 12.3万 from 万 up; nothing when it is not stored yet.
+const fmtPlay = (n) => (n >= 1e8 ? `${Math.round(n / 1e7) / 10}亿` : n >= 1e4 ? `${Math.round(n / 1e3) / 10}万` : String(n));
+const sortWords = (sort, dir) =>
+  ({ title: ["A→Z", "Z→A"], play: ["从少到多", "从多到少"], dur: ["从短到长", "从长到短"] })[sort]?.[dir === "asc" ? 0 : 1] ?? (dir === "asc" ? "旧→新" : "新→旧");
+// The direction button's icon: three lines, longest on top = descending; mirrored = ascending. Shared with 关注.
+function sortDirIcon(dir) {
+  const ws = dir === "asc" ? [6, 10, 14] : [14, 10, 6];
+  return `<svg viewBox="0 0 20 20" aria-hidden="true">${[4, 8, 12].map((y, i) => `<path d="M3 ${y + 1.5}h${ws[i]}"/>`).join("")}</svg>`;
+}
+function renderSort() {
+  const { sort, dir } = sortOf();
+  const missing = sort === "play" && S.items.some((it) => !it.invalid && !Number.isFinite(it.play));
+  el.sortBox.innerHTML = `${missing ? `<span class="muted">播放量要再同步一次才有</span>` : ""}<span class="sort-ctl"><select data-sort aria-label="排序">${Object.entries(SORTS).map(([v, t]) => `<option value="${v}"${v === sort ? " selected" : ""}>${t}</option>`).join("")}</select><button type="button" class="sort-dir" data-sort-dir title="${sortWords(sort, dir)}" aria-label="排序方向：${sortWords(sort, dir)}">${sortDirIcon(dir)}</button></span>`;
+}
+function setSort(sort, dir) {
+  S.sortBy = { ...S.sortBy, [String(S.mediaId)]: { sort, dir } };
+  storeSet(K.sort, S.sortBy);
+  render();
+}
+
 // 粗看完成 lists the batch the button will send (or is sending) first, then 拿不准 / low confidence, failed cards last.
+// Within that, and in every other tab, cards follow the folder's sort.
 function visibleItems() {
-  const list = S.items.filter((it) => inTab(it, S.tab) && passFilter(it));
+  const list = sortItems(S.items.filter((it) => inTab(it, S.tab) && passFilter(it)), sortOf().sort, sortOf().dir);
   if (S.tab !== "coarse") return list;
   const batch = new Set(ownGroup()?.bvids || nextBatch());
   const rank = (it) => (failedAnalysis(it.bvid) ? 3 : batch.has(it.bvid) ? 0 : 1 + unsureFirst(it));
@@ -673,7 +715,7 @@ function nextBatch() {
 init();
 // 关注 mode (follow.js) borrows the viewer, the toast and the confirm dialog; in that mode the keys below stay off.
 const followMode = () => Boolean(document.body?.classList.contains("follow-mode"));
-globalThis.MoonTriage = { openViewer, closeViewer, toast, askConfirm, send, esc, viewing: () => S.viewing };
+globalThis.MoonTriage = { openViewer, closeViewer, toast, askConfirm, send, esc, sortDirIcon, viewing: () => S.viewing };
 
 async function init() {
   bindEvents();
@@ -693,6 +735,7 @@ async function init() {
   S.watched = watched;
   S.aiHistory = await storeGet(K.aiHistory, []);
   S.aiRecent = await storeGet(K.aiRecent, {});
+  S.sortBy = await storeGet(K.sort, {});
   if (settingsResp.ok) Object.assign(S.settings, settingsResp.data);
   renderTagLimit();
   el.aiRecentRules.innerHTML = AI_RECENT_RULES.map((r) => `<li>${esc(r)}</li>`).join("");
@@ -1723,6 +1766,7 @@ function renderTabs() {
         .join("")
     : `<span class="muted">还没有自定义标签</span>`) + // created from the 标签 button
     `<button type="button" class="tags-btn" data-tags aria-label="标签：管理标签和 AI 批量打标签">${tagsBtnHtml()}</button>`;
+  renderSort();
 }
 
 // The 标签 entry's text, in the sidebar and as the chip after the tag filters.
@@ -2022,7 +2066,7 @@ function cardHtml(it, expanded, mark) {
   const removed = S.mediaId === REMOVED;
   const basketBtn = `<button type="button" data-act="basket" class="${inBasket ? "on" : ""}" aria-pressed="${inBasket}" aria-label="${inBasket ? "移出" : "加入"}优先看 (E)">优先看<kbd class="key">E</kbd></button>`;
   const askBtn = `<button type="button" data-act="ask" aria-label="问 AI (Q)">${AI_SPARK}问 AI<kbd class="key">Q</kbd></button>`;
-  const meta = [it.upper, fmtDate(it.pubdate), ["", "粗看", "细看"][v.stage], seenText(it), it.invalid && "已失效", it.folders?.length && `收藏夹：${folderNames(it)}`].filter(Boolean);
+  const meta = [it.upper, fmtDate(it.pubdate), Number.isFinite(it.play) && `▶ ${fmtPlay(it.play)}`, ["", "粗看", "细看"][v.stage], seenText(it), it.invalid && "已失效", it.folders?.length && `收藏夹：${folderNames(it)}`].filter(Boolean);
   const left = removed && [originHtml(it), it.removedAt && `<span>${esc(leftText(it))}</span>`].filter(Boolean).join("");
 
   const verdict = decision ? "" : verdictBadge(b, v);
@@ -3674,6 +3718,14 @@ function buildCsv() {
 
 // ---------- events ----------
 function bindEvents() {
+  el.sortBox.addEventListener("change", (e) => {
+    if (e.target.matches("[data-sort]")) setSort(e.target.value, SORT_DIR[e.target.value]);
+  });
+  el.sortBox.addEventListener("click", (e) => {
+    if (!e.target.closest("[data-sort-dir]")) return;
+    const { sort, dir } = sortOf();
+    setSort(sort, dir === "asc" ? "desc" : "asc");
+  });
   el.folderSelect.addEventListener("change", () => openFolder(el.folderSelect.value));
   // A cover that fails to load leaves the colored tint behind it.
   for (const box of [el.folderList, el.folderHead]) box.addEventListener("error", (e) => e.target.remove?.(), true);
