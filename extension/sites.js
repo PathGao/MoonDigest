@@ -718,15 +718,17 @@
   // Tracks of one client with final URLs. The PO token is captured from the
   // page player only when a track's URL demands one (exp=xpe/xpv); such
   // tracks are dropped when no token can be had, as yt-dlp does.
+  // io.withoutPot (token rejected) drops them without capturing.
   async function ytClientTracks(ref, io, clientName) {
     const cache = ytPlayerCache(ref);
     const tracks = ytCaptionTracks(await ytPlayerResponse(ref, io, clientName), clientName);
-    if (!cache.pot && io.capturePot && tracks.some((track) => ytNeedsPot(track.url))) {
+    if (!io.withoutPot && !cache.pot && io.capturePot && tracks.some((track) => ytNeedsPot(track.url))) {
       cache.pot = (await io.capturePot(ref.id).catch(() => null)) || null;
     }
+    const pot = io.withoutPot ? null : cache.pot;
     return tracks
-      .filter((track) => cache.pot || !ytNeedsPot(track.url))
-      .map((track) => ({ ...track, url: ytCaptionUrl(track.url, { pot: io.withoutPot ? null : cache.pot }) }));
+      .filter((track) => pot || !ytNeedsPot(track.url))
+      .map((track) => ({ ...track, url: ytCaptionUrl(track.url, { pot }) }));
   }
 
   // Signed-in page player first, ANDROID when it yields nothing, and for a
