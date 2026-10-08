@@ -54,14 +54,16 @@
   // Rows of cells → CSV text with a BOM (Excel reads it as UTF-8) and CRLF lines.
   const toCsv = (rows) => "\ufeff" + rows.map((r) => r.map(csvField).join(",")).join("\r\n") + "\r\n";
 
-  // 「今天 14:02 刷新过」, 「昨天 …」, older 「10月5日 …」; at and now in ms. "" before the first read.
-  function syncedText(at, now = Date.now()) {
-    if (!at) return "";
+  // 「今天 14:02」, 「昨天 …」, 「10月5日 …」 this year, 「2025年10月5日」 (no time) before; at and now in ms.
+  function dayText(at, now = Date.now()) {
     const d = new Date(at);
+    if (d.getFullYear() !== new Date(now).getFullYear()) return `${d.getFullYear()}年${d.getMonth() + 1}月${d.getDate()}日`;
     const days = Math.round((new Date(now).setHours(0, 0, 0, 0) - new Date(at).setHours(0, 0, 0, 0)) / 86400000);
     const day = days <= 0 ? "今天" : days === 1 ? "昨天" : `${d.getMonth() + 1}月${d.getDate()}日`;
-    return `${day} ${pad(d.getHours())}:${pad(d.getMinutes())} 刷新过`;
+    return `${day} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
   }
+  // 「今天 14:02 刷新过」; "" before the first read.
+  const syncedText = (at, now = Date.now()) => (at ? `${dayText(at, now)} 刷新过` : "");
 
   // Row 1's meta line: the parts joined by ·, then the last refresh's error, which stays until the next one succeeds.
   const headMeta = (parts, error = "") =>
@@ -283,7 +285,7 @@
       <span class="muted">${count} 个${esc(sp(who))}</span>
       <button type="button" class="danger" data-tag-del aria-label="删除标签 ${esc(t.name)}">删除</button>
     </div>`;
-  // 「+ 标签 T」 on 动态 cards and the viewer line; attrs say what it tags.
+  // 「+ 标签 T」 on 视频投稿 cards and the viewer line; attrs say what it tags.
   const tagPlusBtn = (attrs, label) =>
     `<button type="button" class="quiet tag-plus" ${attrs} aria-label="${esc(label)}">+ 标签 <kbd class="k-faint" aria-hidden="true">T</kbd></button>`;
   // T / Esc forwarded by viewer-frame.js while focus is in the player: only from the viewer's own frame and B站's origin.
@@ -398,5 +400,5 @@
     return [...tally.values()].sort((a, b) => (a.cls === "remove") - (b.cls === "remove") || b.n - a.n);
   }
 
-  globalThis.TriageUi = { esc, pad, fmtDate, fmtAgo, agoHtml, setSearchScope, confirmList, pickTitle, fmtDuration, fmtCount, cleanTagName, plainClick, img, toCsv, cardTagChip, syncedText, headMeta, titleHtml, ICON, AI_SPARK, byValue, dirWords, sortControl, filterBtn, stateGroup, AI_RECENT_X, searchBox, bindSearch, resultCount, rowButtons, menuItem, BACKUP_ITEM, activityHtml, reasonAttrs, setReason, WARN_DOT, selectAllState, selectAllBox, toggleAll, setActivity, waitText, syncPill, setSync, bindSync, tagButtons, sideFoot, emptyState, fillSetRows, mergeAiBatch, aiChanges, previewId, aiTally, TAG_COLORS, nextTagColor, cycleTagColor, tagNameError, deleteTagAsk, editedTag, withoutTag, tagsUndoAsk, tagRowHtml, sp, AI_RECENT_RULES, aiRecentUndo, tagPlusBtn, viewerKeyFrom };
+  globalThis.TriageUi = { esc, pad, dayText, fmtDate, fmtAgo, agoHtml, setSearchScope, confirmList, pickTitle, fmtDuration, fmtCount, cleanTagName, plainClick, img, toCsv, cardTagChip, syncedText, headMeta, titleHtml, ICON, AI_SPARK, byValue, dirWords, sortControl, filterBtn, stateGroup, AI_RECENT_X, searchBox, bindSearch, resultCount, rowButtons, menuItem, BACKUP_ITEM, activityHtml, reasonAttrs, setReason, WARN_DOT, selectAllState, selectAllBox, toggleAll, setActivity, waitText, syncPill, setSync, bindSync, tagButtons, sideFoot, emptyState, fillSetRows, mergeAiBatch, aiChanges, previewId, aiTally, TAG_COLORS, nextTagColor, cycleTagColor, tagNameError, deleteTagAsk, editedTag, withoutTag, tagsUndoAsk, tagRowHtml, sp, AI_RECENT_RULES, aiRecentUndo, tagPlusBtn, viewerKeyFrom };
 })();

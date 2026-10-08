@@ -252,7 +252,7 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   await t.undo();
   assert.deepStrictEqual(plain(store[t.K.basket].map((x) => x.bvid)), ["BVgone", "BV3"], "U undoes 清空 in order");
 
-  // 批量导出 scopes: 逐个视频笔记 leaves invalid videos out, 一篇摘录 keeps them, marked.
+  // 摘录或笔记 scopes: 逐个视频笔记 leaves invalid videos out, 一篇摘录 keeps them, marked.
   t.S.items.push({ ...item(4), invalid: true });
   t.S.itemMap.set("BV4", t.S.items[3]);
   t.S.basket.push({ bvid: "BV4" });
@@ -1127,6 +1127,7 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     const hidden = t.cardHtml({ ...item(3), removedAt: new Date(2020, 9, 2).getTime(), hidden: true }, true, "");
     assert.ok(!hidden.includes("原在") && hidden.includes('<div class="left-row"><span>2020年10月2日 已失效（B站已隐藏）</span></div>'), "a record without an origin shows no chip; another year shows the year and no time");
     assert.ok(t.cardHtml({ ...item(4), removedAt: at, movedTo: { id: "Z", title: "外" } }, true, "").includes("10月5日 17:25 移到「外」（未勾选）"));
+    assert.ok(t.leftText({ ...item(6), removedAt: Date.now(), inFolder: null }).startsWith("今天 "), "the day text 刷新过 uses: 今天 / 昨天");
     // Once looked up, where the video is now wins over where a 移动 sent it.
     const leftOf = (extra) => t.leftText({ ...item(5), removedAt: at, ...extra }).slice(12);
     assert.strictEqual(leftOf({ inFolder: { id: "Y", title: "别处" } }), "在「别处」（未勾选）");

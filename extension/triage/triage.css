@@ -73,7 +73,8 @@ select { height: 28px; max-width: 240px; }
 .act-btn.gear-only { display: none; width: 32px; padding: 0; justify-content: center; }
 
 /* Whatever is running (粗看, 细看, unfavorite batch, loading, refresh, tag AI, a wait) shows here on every tab. */
-.activity { display: inline-flex; align-items: center; gap: 8px; height: 32px; padding: 0 4px 0 12px; border: 1px solid var(--action-border); border-radius: 15px; background: var(--action-bg); color: var(--link); font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; }
+/* What is running: gray (blue is for the next step, DESIGN §1); a wait turns it amber. */
+.activity { display: inline-flex; align-items: center; gap: 8px; height: 32px; padding: 0 4px 0 12px; border: 1px solid var(--border-strong); border-radius: 15px; background: var(--surface-muted); color: var(--text-2); font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .activity[hidden] { display: none; }
 .activity:not(:has(button)) { padding-right: 12px; }
 .activity.warn { border-color: var(--warn-border); background: var(--warn-bg); color: var(--warn); }
@@ -155,10 +156,11 @@ select { height: 28px; max-width: 240px; }
   text-align: left;
 }
 .side-item:hover { background: var(--surface-muted); }
-.side-item.on { background: var(--action-bg); color: var(--link); font-weight: 600; }
+/* Where you are: the pink marker (DESIGN §1), text stays --text. */
+.side-item.on { background: var(--surface-muted); color: var(--text); font-weight: 600; box-shadow: inset 3px 0 0 var(--accent); }
 .side-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .side-count { color: var(--faint); font-size: var(--fs-xs); font-variant-numeric: tabular-nums; }
-.side-item.on .side-count { color: var(--link); }
+.side-item.on .side-count { color: var(--text-2); }
 /* The foot: the mode's settings, at the bottom of the sidebar. */
 .side-foot { display: flex; flex-direction: column; gap: 2px; margin-top: auto; padding-top: 8px; border-top: 1px solid var(--border); }
 .side-foot .side-item { height: 38px; color: var(--text-2); font-size: var(--fs-sm); }
@@ -335,7 +337,7 @@ select { height: 28px; max-width: 240px; }
 .cover { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; display: block; }
 .cover-dur { position: absolute; right: 8px; bottom: 6px; z-index: 1; font-size: var(--fs-xs); font-variant-numeric: tabular-nums; }
 .cover-tag { position: absolute; left: 6px; top: 6px; z-index: 1; height: 20px; padding: 0 6px; border-radius: 4px; font-size: var(--fs-xs); font-weight: 600; line-height: 20px; white-space: nowrap; }
-.cover-tag.keep { background: var(--action); color: #fff; }
+.cover-tag.keep { background: var(--ok); color: var(--surface); }
 .cover-tag.drop { background: rgba(0, 0, 0, 0.55); color: #fff; }
 .cover-tag.unsure { background: #fff; color: var(--warn); }
 .cover-tag.running { background: rgba(0, 0, 0, 0.55); color: #fff; font-weight: 400; }
@@ -382,10 +384,9 @@ html[data-seen-style="veil"] .cover-wrap.seen .seen-veil { display: flex; }
 .badge.unsure { background: var(--warn-bg); color: var(--warn); }
 .badge .ai-mark { margin-right: 3px; font-size: 0.8em; font-weight: 500; opacity: 0.7; }
 /* A card's tag: one click takes it off; the × stays faint until the pointer is on it. */
-/* Padding (taken back by the margin, so the text stays put) gives the hover tint and the focus ring room off the letters. */
-.card-body > .chips .chip.card-tag { margin: 0 -4px; padding: 0 4px; border-radius: 4px; cursor: pointer; font: inherit; }
-.card-body > .chips .chip.card-tag:hover { background: color-mix(in srgb, var(--c) 12%, transparent); }
-.card-body > .chips .chip.card-tag:focus-visible { outline-offset: 1px; }
+.chip.card-tag { cursor: pointer; }
+.chips .chip.card-tag:hover { background: color-mix(in srgb, var(--c) 24%, transparent); }
+.chip.card-tag:focus-visible { outline-offset: 1px; }
 .chip.card-tag .x { margin-left: 2px; opacity: 0.35; }
 .chip.card-tag:hover .x, .chip.card-tag:focus-visible .x { opacity: 1; }
 .badge.none, .badge.running { background: var(--surface-muted); color: var(--muted); }
@@ -470,9 +471,9 @@ button.icon { width: 26px; height: 24px; padding: 0; }
 .chip.on { background: color-mix(in srgb, var(--c) 20%, transparent); }
 .chip.invalid { --c: var(--danger); color: var(--danger); }
 .chips { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
-/* A card's own tags are labels, not filters: plain tinted text, so they do not read as buttons. */
-.card-body > .chips { gap: 4px 10px; }
-.card-body > .chips .chip { height: auto; padding: 0; border: 0; background: none; color: color-mix(in srgb, var(--c) 70%, var(--text)); cursor: default; }
+/* A tag on a card or the viewer line: one look everywhere, a small pill in the tag's color (border and tint) with
+   --text on it. The tag color never colors text (DESIGN §1). */
+.card-body > .chips .chip, .fw-video .chip, .viewer-line .chip { height: 20px; padding: 0 6px; border: 1px solid color-mix(in srgb, var(--c) 60%, transparent); border-radius: var(--radius-pill); background: color-mix(in srgb, var(--c) 12%, transparent); color: var(--text); }
 
 .key { font: inherit; margin-left: 4px; opacity: 0.7; }
 @media (hover: none) { .key { display: none; } }
@@ -529,7 +530,6 @@ dialog h3 { margin: 8px 0 0; font-size: var(--fs-sm); font-weight: 600; }
 .viewer-line { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 8px; padding: 6px 12px; border-bottom: 1px solid var(--border); background: var(--surface-muted); color: var(--text-2); font-size: var(--fs-sm); }
 .viewer-line[hidden] { display: none; }
 .viewer-line .sep, .viewer-line .none { color: var(--faint); }
-.viewer-line .chip { height: 20px; padding: 0 6px; border-color: color-mix(in srgb, var(--c) 60%, transparent); background: color-mix(in srgb, var(--c) 12%, transparent); }
 .viewer-line .chip[data-pick], .viewer-line .chip[data-vtag] { cursor: pointer; }
 .viewer-line .tag-plus { display: inline-flex; align-items: center; gap: 4px; height: 20px; padding: 0 6px; border: 1px dashed transparent; border-radius: 4px; color: var(--text-2); text-decoration: none; }
 .viewer-line .tag-plus:hover { border-color: var(--border-strong); background: none; }
@@ -579,7 +579,6 @@ dialog h3 { margin: 8px 0 0; font-size: var(--fs-sm); font-weight: 600; }
 .basket-foot .quiet { height: 24px; font-size: var(--fs-xs); }
 .basket-actions { display: flex; align-items: flex-start; }
 .basket-actions button { height: 22px; min-width: 24px; font-size: var(--fs-xs); padding: 0 6px; }
-.tab-note { margin: 4px 0 8px; font-size: var(--fs-xs); }
 
 .obsidian-off #writeRunBtn, .obsidian-off label:has(#writeOverwrite) { display: none; }
 .write-failed { margin: 4px 0 0; padding-left: 18px; font-size: var(--fs-xs); color: var(--danger); }

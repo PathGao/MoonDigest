@@ -335,7 +335,7 @@ const { esc, pad, fmtDate, fmtDuration, fmtCount, cleanTagName, plainClick, img 
 // Row 2 and the sidebar foot are drawn by shared.js, as in 关注; here before el picks them up.
 $("favRowTools").insertAdjacentHTML("beforeend", UI.searchBox("searchInput", "searchCount", "搜这个收藏夹") + UI.rowButtons({
   activityId: "activity", refreshId: "refreshBtn", refreshLabel: "从 B站刷新这个收藏夹", exportId: "exportBtn", menuId: "tools",
-  menuHtml: UI.menuItem('id="writeBtn" aria-label="批量导出"', "批量导出…", "摘录，或逐个视频的笔记") + UI.menuItem('id="csvBtn" aria-label="下载这个收藏夹的表格 CSV"', "这个收藏夹的表格 (CSV)", "标题、AI 判断、标签、备注") + "<hr>" + UI.BACKUP_ITEM,
+  menuHtml: UI.menuItem('id="writeBtn" aria-label="导出摘录或笔记"', "摘录或笔记…", "摘录，或逐个视频的笔记") + UI.menuItem('id="csvBtn" aria-label="下载这个收藏夹的表格 CSV"', "这个收藏夹的表格 (CSV)", "标题、AI 判断、标签、备注") + "<hr>" + UI.BACKUP_ITEM,
   settingsAttr: "data-open-settings", settingsLabel: "收藏夹设置"
 }));
 $("favSync").outerHTML = UI.syncPill("sync");
@@ -659,7 +659,7 @@ function renderSort() {
   const missing = S.items.some((it) => !it.invalid && !Number.isFinite(it.play));
   const sorts = missing ? { ...SORTS, play: "播放量（刷新后才有）" } : SORTS;
   el.sortBox.innerHTML = UI.sortControl({ sorts, sort, dir, words: sortWords(sort, dir), selectAttr: "data-sort", dirAttr: "data-sort-dir" });
-  // 导出 → 批量导出 and this folder's table: nothing to put in them without videos (a running export stays reachable).
+  // 导出 → 摘录或笔记 and this folder's table: nothing to put in them without videos (a running export stays reachable).
   const empty = S.items.length ? "" : "这个收藏夹没有视频";
   for (const [btn, sub, on] of [[el.writeBtn, "摘录，或逐个视频的笔记", S.write.running], [el.csvBtn, "标题、AI 判断、标签、备注", false]]) {
     const small = btn.querySelector("small");
@@ -1676,7 +1676,8 @@ function renderFolderList() {
       const m = /^(.*?)(?: \((\d+)\))?$/.exec(o.textContent);
       const real = o.value !== ALL && o.value !== REMOVED;
       const thumb = real ? folderThumb(o.value, o.dataset.cover) : "";
-      return `<button type="button" class="side-item${on ? " on" : ""}" data-folder="${esc(o.value)}"${on ? ' aria-current="true"' : ""}${o.title ? ` title="${esc(o.title)}"` : ""}>${thumb}<span class="side-name">${esc(m[1])}</span>${m[2] ? `<span class="side-count">${m[2]}</span>` : ""}</button>`;
+      // A count of 0 stays, dimmed, as every filter's (DESIGN §4).
+      return `<button type="button" class="side-item${on ? " on" : ""}${m[2] === "0" ? " zero" : ""}" data-folder="${esc(o.value)}"${on ? ' aria-current="true"' : ""}${o.title ? ` title="${esc(o.title)}"` : ""}>${thumb}<span class="side-name">${esc(m[1])}</span>${m[2] ? `<span class="side-count">${m[2]}</span>` : ""}</button>`;
     })
     .join("");
 }
@@ -1751,8 +1752,11 @@ function tick() {
 
 function renderTabs() {
   const c = stageCounts();
+  // 处理完成 says what 保留 and 取消收藏 did (one only marks the video here, the other changed B站): in its tooltip, with
+  // the dot while it is open.
+  const tip = (key) => (key === "done" ? DONE_TIP : "");
   const tab = (key, label, cls, n) =>
-    `<button type="button" role="tab" class="${cls}" data-tab="${key}" aria-selected="${S.tab === key}" aria-label="${label} ${n}">${label}<span class="count">${n}</span></button>`;
+    `<button type="button" role="tab" class="${cls}" data-tab="${key}" aria-selected="${S.tab === key}" aria-label="${label} ${n}"${tip(key) ? ` title="${esc(tip(key))}" aria-description="${esc(tip(key))}"` : ""}>${label}${tip(key) && S.tab === key ? UI.WARN_DOT : ""}<span class="count">${n}</span></button>`;
   const steps = STAGES.map(([key, label]) => tab(key, label, c[key] ? "step" : "step zero", c[key]));
   // Say what the box searches: the open folder (or 所有收藏夹 / 已出分拣范围) and the tab you are on.
   const tabName = Object.fromEntries([...STAGES, ["read", "全部"]])[S.tab];
@@ -2067,8 +2071,7 @@ function renderList() {
   listDeferred = false;
   const list = visibleItems();
   renderListHeader(list);
-  // 保留 only marks the video here, while 取消收藏 changed Bilibili; say so where both end up.
-  const recent = S.tab === "done" ? `<p class="muted tab-note">已保留：${KEEP_TIP}。<br>已取消收藏：已从 B站收藏夹移走，最近的操作可按 U 撤销。</p>${recentUnfavHtml()}` : "";
+  const recent = S.tab === "done" ? recentUnfavHtml() : "";
   if (!S.items.length) {
     const empty = S.mediaId === REMOVED ? `<p class="empty">没有已出分拣范围的视频</p>` : S.loadAll?.queue.length ? `<p class="empty">正在加载收藏夹…</p>`
       : UI.emptyState("这个收藏夹是空的", "在 B站收藏了视频后，点刷新读进来。", REFRESH_EMPTY);
@@ -2126,6 +2129,7 @@ const verdictBadge = (b, v, low = v.low) =>
     : `<span class="badge ${VERDICTS[v.verdict] ? v.verdict : "none"}${low ? " low" : ""}">${VERDICTS[v.verdict] ? `<span class="ai-mark">AI</span>` : ""}${esc(verdictLabel(v.verdict))}${low ? " · 低置信" : ""}</span>`;
 const ACTION_LABEL = { unfav: "已取消收藏", keep: "已保留" };
 const KEEP_TIP = "只在 MoonDigest 里标记，B站收藏夹不变";
+const DONE_TIP = `已保留：${KEEP_TIP}。\n已取消收藏：已从 B站收藏夹移走，最近的操作可按 U 撤销。`;
 
 function cardHtml(it, expanded, mark) {
   const b = it.bvid;
@@ -2203,11 +2207,9 @@ function cardHtml(it, expanded, mark) {
   </article>`;
 }
 
-// 已出分拣范围: when and why the video left. 「10月5日 17:25」 this year, 「2025年10月5日」 before.
+// 已出分拣范围: when (the shared day text: 「今天 17:25」, 「10月5日 17:25」, 「2025年10月5日」) and why the video left.
 function leftText(it) {
-  const d = new Date(it.removedAt);
-  const day = `${d.getMonth() + 1}月${d.getDate()}日`;
-  const when = d.getFullYear() === new Date().getFullYear() ? `${day} ${pad(d.getHours())}:${pad(d.getMinutes())}` : `${d.getFullYear()}年${day}`;
+  const when = UI.dayText(it.removedAt);
   const kind = kindOf(it);
   const at = it.inFolder || it.movedTo;
   const why = it.hidden ? "已失效（B站已隐藏）"
@@ -3385,7 +3387,7 @@ function buildMarkdown(items, now = new Date()) {
   return lines.join("\n");
 }
 
-// ---------- 批量导出 ----------
+// ---------- 摘录或笔记 (导出) ----------
 // 逐个视频笔记 leaves out invalid videos (no subtitle to fetch); 一篇摘录 keeps them, marked, so their notes and tags
 // still go out. 播放列表 is a list to watch from, not an export scope.
 function writeScopeItems(scope = el.writeScope.value, notes = el.writeFormat?.value === "notes") {

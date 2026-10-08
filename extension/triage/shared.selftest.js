@@ -17,6 +17,7 @@ const plain = (v) => JSON.parse(JSON.stringify(v));
   assert.strictEqual(UI.syncedText(new Date(2026, 9, 8, 0, 5).getTime(), now), "今天 00:05 刷新过");
   assert.strictEqual(UI.syncedText(new Date(2026, 9, 7, 23, 59).getTime(), now), "昨天 23:59 刷新过", "an hour ago but before midnight");
   assert.strictEqual(UI.syncedText(new Date(2026, 9, 5, 17, 25).getTime(), now), "10月5日 17:25 刷新过");
+  assert.strictEqual(UI.dayText(new Date(2025, 9, 5, 17, 25).getTime(), now), "2025年10月5日", "another year: the year, no time");
 }
 
 // A 0 count stays and is dimmed; no count (null) is not 0.
