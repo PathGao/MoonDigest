@@ -5,7 +5,7 @@ const OWN_TAB = await chrome.tabs.getCurrent();
 const KEY = BocLimits.KEYS.aiConversations;
 const NOTE_PATHS_KEY = BocLimits.KEYS.obsidianNotePaths;
 const $ = (id) => document.getElementById(id);
-const els = { list: $("list"), search: $("search"), count: $("count"), selectAll: $("selectAll"), bulkMd: $("bulkMd"), bulkDelete: $("bulkDelete"), clearAll: $("clearAll"), status: $("status") };
+const els = { list: $("list"), search: $("search"), count: $("count"), selectAll: $("selectAll"), selectAllLabel: $("selectAllLabel"), bulkMd: $("bulkMd"), bulkDelete: $("bulkDelete"), clearAll: $("clearAll"), status: $("status") };
 
 let conversations = [];
 let analyses = {}; // bvid → done triage analysis
@@ -145,7 +145,7 @@ function render() {
             <div class="entry-meta">${[site, formatTime(g.updatedAt), untitled && g.context.videoId, kind].filter(Boolean).map(esc).join(" · ")}</div>
           </div>
           <div class="entry-actions">
-            <button type="button" class="ask" data-act="ask" ${g.context.videoId ? "" : "disabled title=\"不是视频，不能问\""}><span class="ai-spark" aria-hidden="true"></span>继续问</button>
+            <button type="button" class="ask" data-act="ask" ${g.context.videoId ? "" : "disabled title=\"不是视频，不能问\" aria-description=\"不是视频，不能问\""}><span class="ai-spark" aria-hidden="true"></span>继续问</button>
             <button type="button" data-act="md">下载 .md</button>
             ${!obsidianEnabled ? "" : `<button type="button" data-act="obsidian"${writing.has(g.key) ? " disabled" : ""}><img class="obsidian-mark" src="/icons/obsidian.svg" alt=""> <span class="write-label" data-idle="写入 Obsidian">${writing.has(g.key) ? '<span aria-busy="true">写入中…</span>' : "<span>写入 Obsidian</span>"}</span></button>`}
             ${g.convs.length ? `<button type="button" data-act="delete" class="danger">删除</button>` : `<button type="button" class="danger slot" tabindex="-1" aria-hidden="true" disabled>删除</button>`}
@@ -168,11 +168,24 @@ function render() {
   syncBulk(groups);
 }
 
+// Same as TriageUi.setReason: a control that cannot be used says why, in the tooltip and aria-description.
+function setReason(node, reason) {
+  node.disabled = Boolean(reason);
+  node.title = reason;
+  if (reason) node.setAttribute("aria-description", reason);
+  else node.removeAttribute("aria-description");
+}
+
 function syncBulk(groups = visibleGroups()) {
-  els.selectAll.checked = groups.length > 0 && groups.every((g) => selected.has(g.key));
-  els.bulkMd.disabled = selected.size === 0;
-  els.bulkDelete.disabled = !deletableKeys([...selected]).length;
-  els.clearAll.disabled = !conversations.length;
+  // 全选 is three-state over the listed videos: none, some (indeterminate) or all of them selected.
+  const picked = groups.filter((g) => selected.has(g.key)).length;
+  els.selectAll.checked = groups.length > 0 && picked === groups.length;
+  els.selectAll.indeterminate = picked > 0 && picked < groups.length;
+  els.selectAllLabel.textContent = groups.length ? `全选 ${groups.length} 个` : "全选";
+  setReason(els.selectAll, groups.length ? "" : "这里没有列出视频");
+  setReason(els.bulkMd, selected.size ? "" : "先勾选视频");
+  setReason(els.bulkDelete, !selected.size ? "先勾选视频" : deletableKeys([...selected]).length ? "" : "所选视频没有 AI 对话，没有可删的");
+  setReason(els.clearAll, conversations.length ? "" : "还没有 AI 对话");
 }
 
 // 「正在…」 lines are in progress: aria-busy grays them (tokens.css) until the result replaces them.
