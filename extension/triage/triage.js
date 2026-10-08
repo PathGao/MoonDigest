@@ -3276,7 +3276,7 @@ function toggleBasket(bvid) {
   render();
 }
 
-// The list keeps the order videos were added in. Opening one only marks it; only 已看 removes it —
+// The list keeps the order videos were added in. Opening one only marks it; only 移除 removes it —
 // opening a video isn't watching it.
 function openBasketItem(i) {
   const x = S.basket[i];
@@ -3286,7 +3286,7 @@ function openBasketItem(i) {
   openViewer(x);
 }
 
-// 已看 and 清空 take videos out of the list, nothing else; favorites and decisions are untouched. U puts them back.
+// 移除 and 清空 take videos out of the list, nothing else; favorites and decisions are untouched. U puts them back.
 function removeBasketItems(indexes) {
   const removed = indexes.filter((i) => S.basket[i]).sort((a, b) => a - b).map((i) => ({ i, x: S.basket[i] }));
   if (!removed.length) return;
@@ -3318,7 +3318,7 @@ function renderBasket() {
         <span class="basket-text"><span class="basket-title">${title}</span>${meta || x.opened ? `<span class="muted">${[meta, x.opened && "已打开"].filter(Boolean).join(" · ")}</span>` : ""}</span>
       </button>
       <div class="basket-actions">
-        <button type="button" data-basket="done" aria-label="已看，移出 ${title}">已看</button>
+        <button type="button" data-basket="remove" aria-label="从播放列表移除 ${title}" title="从播放列表移除">移除</button>
       </div>
       ${note ? `<div class="muted basket-note">${esc(note)}</div>` : ""}
     </div>`;
@@ -3959,7 +3959,10 @@ function bindEvents() {
     if (!act) return;
     const i = Number(e.target.closest(".basket-item").dataset.i);
     if (act === "open") openBasketItem(i);
-    else if (act === "done") removeBasketItems([i]);
+    else if (act === "remove") {
+      removeBasketItems([i]);
+      toast("已从播放列表移除 · U 撤销");
+    }
   });
 }
 
