@@ -344,6 +344,7 @@ $("favRowTools").insertAdjacentHTML("beforeend", UI.searchBox("searchInput", "se
   menuHtml: UI.menuItem('id="writeBtn" aria-label="批量导出"', "批量导出…", "摘录，或逐个视频的笔记") + UI.menuItem('id="csvBtn" aria-label="下载这个收藏夹的表格 CSV"', "这个收藏夹的表格 (CSV)", "标题、AI 判断、标签、备注") + "<hr>" + UI.BACKUP_ITEM,
   settingsAttr: "data-open-settings", settingsLabel: "收藏夹设置"
 }));
+$("favSync").outerHTML = UI.syncPill("sync");
 $("favSide").insertAdjacentHTML("beforeend", UI.sideFoot({ settingsAttrs: 'id="settingsBtn" aria-label="收藏夹设置"', settingsLabel: "收藏夹设置" }));
 const REFRESH_EMPTY = `<button type="button" data-refresh>${UI.ICON.refresh}刷新</button>`;
 const el = {};
@@ -1581,6 +1582,11 @@ async function pickUnfavFolders(it) {
   return ok ? [...el.confirmBody.querySelectorAll("input:checked")].map((x) => x.value) : [];
 }
 
+// Row 1's sync pill (shared.js draws it, as in 关注). Declarations, not consts: init() runs above them.
+function syncEls() {
+  return { pill: el.syncViewBtn, notice: el.syncNotice, text: el.syncText, detail: el.syncDetail, close: el.syncCloseBtn };
+}
+
 function showSyncNotice(diff, partial) {
   const { added, removed, invalid, restored } = diff;
   if (!partial && !added.length && !removed.length && !invalid.length && !restored.length) {
@@ -1592,27 +1598,24 @@ function showSyncNotice(diff, partial) {
   const parts = [`新增 ${added.length - fromOthers}`, ...(fromOthers ? [`来自其他收藏夹 ${fromOthers}`] : []), ...(partial ? [] : [`已在B站移除 ${removed.length}`]), `已失效 ${invalid.length}`];
   if (restored.length) parts.push(`恢复 ${restored.length}`);
   const head = partial ? `只加载了前 ${partial.count} 个（第 ${partial.page} 页失败：${partial.error}），可稍后重试同步。` : "";
-  el.syncText.textContent = `${head}B站同步：${parts.join(" · ")}`;
-  el.syncViewBtn.textContent = `B站已同步${partial ? "（部分）" : ""} +${added.length}${partial ? "" : ` −${removed.length}`}`;
-  // A partial load is a notice to retry later, not a blocker: amber, per the color rules in tokens.css.
-  el.syncViewBtn.classList.toggle("warn", Boolean(partial));
-  const section = (label, titles) =>
-    titles.length ? `<div><strong>${label}</strong><ul>${titles.map((t) => `<li>${esc(t)}</li>`).join("")}</ul></div>` : "";
   const where = (it) => (it.from === REMOVED ? "原在已出分拣范围" : `也在「${folderName(it.from)}」`);
-  el.syncDetail.innerHTML =
-    section("新增", added.filter((it) => !it.from).map((it) => it.title)) +
-    section("来自其他收藏夹", added.filter((it) => it.from).map((it) => `${it.title}（${where(it)}）`)) +
-    section("已在B站移除", removed) +
-    section("已失效", invalid) +
-    section("恢复（在B站重新收藏）", restored);
-  el.syncNotice.hidden = true;
-  el.syncViewBtn.hidden = false;
-  el.syncViewBtn.setAttribute("aria-expanded", "false");
+  UI.setSync(syncEls(), {
+    label: `B站已同步${partial ? "（部分）" : ""} +${added.length}${partial ? "" : ` −${removed.length}`}`,
+    text: `${head}B站同步：${parts.join(" · ")}`,
+    // A partial load is a notice to retry later, not a blocker: amber, per the color rules in tokens.css.
+    warn: Boolean(partial),
+    sections: [
+      ["新增", added.filter((it) => !it.from).map((it) => it.title)],
+      ["来自其他收藏夹", added.filter((it) => it.from).map((it) => `${it.title}（${where(it)}）`)],
+      ["已在B站移除", removed],
+      ["已失效", invalid],
+      ["恢复（在B站重新收藏）", restored]
+    ]
+  });
 }
 
 function hideSyncNotice() {
-  el.syncNotice.hidden = true;
-  el.syncViewBtn.hidden = true;
+  UI.setSync(syncEls(), null);
 }
 
 // ---------- render ----------
@@ -4043,11 +4046,7 @@ function bindEvents() {
   document.querySelector("[data-open-settings]")?.addEventListener("click", () => openSettings());
   el.toast.addEventListener("click", () => (el.toast.hidden = true));
 
-  el.syncViewBtn.addEventListener("click", () => {
-    el.syncNotice.hidden = !el.syncNotice.hidden;
-    el.syncViewBtn.setAttribute("aria-expanded", String(!el.syncNotice.hidden));
-  });
-  el.syncCloseBtn.addEventListener("click", hideSyncNotice);
+  UI.bindSync(syncEls());
   el.bannerClose.addEventListener("click", () => (el.banner.hidden = true));
 
   // tag picker
