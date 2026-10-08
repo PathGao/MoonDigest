@@ -411,12 +411,3 @@ body {
   height: 14px;
   color: var(--faint);
 }
-
-.link-hint {
-  font-size: var(--fs-xs);
-  color: var(--faint);
-}
-
-.link-hint[hidden] {
-  display: none;
-}
