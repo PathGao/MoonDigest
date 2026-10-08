@@ -292,21 +292,6 @@ function normDays(slow, dead) {
   return { followSlowDays, followDeadDays: Math.min(3651, Math.max(followSlowDays + 1, num(dead, 365))) };
 }
 
-// The search box runs run(value) 150 ms after typing stops, but never mid-IME: input events while composing are
-// skipped and compositionend searches with the committed text (Chrome sends no plain input after it).
-function bindSearch(input, run, delay = 150) {
-  let timer = 0;
-  const later = () => {
-    clearTimeout(timer);
-    timer = setTimeout(() => run(input.value), delay);
-  };
-  input.addEventListener("input", (e) => {
-    if (!e.isComposing) later();
-  });
-  input.addEventListener("compositionstart", () => clearTimeout(timer));
-  input.addEventListener("compositionend", later);
-}
-
 // 「3 天前」 style ages for seconds; under a day is 今天.
 function fmtAgo(sec, now) {
   const d = Math.floor((now - sec) / DAY);
@@ -1409,7 +1394,7 @@ main.addEventListener("click", async (e) => {
 });
 // The selection bar sits outside the list; its buttons share the handler above through #followMain.
 
-bindSearch($("fwQ"), (q) => {
+T.bindSearch($("fwQ"), (q) => {
   F.q = q;
   render();
 });

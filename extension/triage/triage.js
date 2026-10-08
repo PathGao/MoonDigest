@@ -331,6 +331,22 @@ const staleFine = () => (inFolderOnly() ? S.items.filter((it) => stageOf(it) ===
 const folderContext = () => ({ title: folderTitle(), intro: S.folderIntro[S.mediaId] || "" });
 
 const $ = (id) => document.getElementById(id);
+
+// The search box runs run(value) 150 ms after typing stops, but never mid-IME: input events while composing are
+// skipped and compositionend searches with the committed text (Chrome sends no plain input after it).
+function bindSearch(input, run, delay = 150) {
+  let timer = 0;
+  const later = () => {
+    clearTimeout(timer);
+    timer = setTimeout(() => run(input.value), delay);
+  };
+  input.addEventListener("input", (e) => {
+    if (!e.isComposing) later();
+  });
+  input.addEventListener("compositionstart", () => clearTimeout(timer));
+  input.addEventListener("compositionend", later);
+}
+
 const el = {};
 [
   "folderSelect", "folderList", "folderHead", "settingsHeading", "settingsFoldersHeading", "settingsAi", "settingsFirstRunHint", "searchInput", "searchCount", "refreshBtn", "activity", "settingsBtn", "helpBtn",
@@ -715,7 +731,7 @@ function nextBatch() {
 init();
 // 关注 mode (follow.js) borrows the viewer, the toast and the confirm dialog; in that mode the keys below stay off.
 const followMode = () => Boolean(document.body?.classList.contains("follow-mode"));
-globalThis.MoonTriage = { openViewer, closeViewer, toast, askConfirm, send, esc, sortDirIcon, viewing: () => S.viewing };
+globalThis.MoonTriage = { bindSearch, openViewer, closeViewer, toast, askConfirm, send, esc, sortDirIcon, viewing: () => S.viewing };
 
 async function init() {
   bindEvents();
@@ -3766,9 +3782,8 @@ function bindEvents() {
       render();
     }
   });
-  el.searchInput.addEventListener("input", (e) => {
-    if (e.isComposing) return;
-    S.query = el.searchInput.value;
+  bindSearch(el.searchInput, (q) => {
+    S.query = q;
     S.focusIndex = 0;
     render();
   });
