@@ -1,5 +1,5 @@
 // What the 分拣台's two modes (triage.js 收藏夹, follow.js 关注) draw the same way, so they cannot drift apart.
-// A plain script loaded before both modules; everything here returns HTML or text and touches no state.
+// A plain script loaded before both modules; everything here returns HTML, text or a comparator and touches no state.
 (() => {
   function esc(v) {
     return String(v ?? "")
@@ -74,6 +74,20 @@
     const ws = dir === "asc" ? [6, 10, 14] : [14, 10, 6];
     return `<svg viewBox="0 0 20 20" aria-hidden="true">${[4, 8, 12].map((y, i) => `<path d="M3 ${y + 1.5}h${ws[i]}"/>`).join("")}</svg>`;
   }
+  // A sort comparator by val(item); dir "asc" = small / old / A first. An item without a value (null) sinks to the bottom
+  // in both directions; strings compare as Chinese. Array sort is stable, so ties keep list order.
+  function byValue(val, dir) {
+    const sign = dir === "asc" ? 1 : -1;
+    return (a, b) => {
+      const [x, y] = [val(a), val(b)];
+      if (x == null || y == null) return (x == null) - (y == null);
+      return sign * (typeof x === "string" ? x.localeCompare(y, "zh") : x - y);
+    };
+  }
+  // The direction button's words by what is sorted: time 新→旧 / 旧→新 (the default), count, length, name.
+  const DIR_WORDS = { time: ["旧→新", "新→旧"], count: ["从少到多", "从多到少"], length: ["从短到长", "从长到短"], name: ["A→Z", "Z→A"] };
+  const dirWords = (kind, dir) => (DIR_WORDS[kind] || DIR_WORDS.time)[dir === "asc" ? 0 : 1];
+
   // Row 1's sort: a select and the direction button as one control. selectAttr / dirAttr are what each mode listens for.
   function sortControl({ sorts, sort, dir, words, selectAttr, dirAttr }) {
     const opts = Object.entries(sorts).map(([v, t]) => `<option value="${esc(v)}"${v === sort ? " selected" : ""}>${esc(t)}</option>`).join("");
@@ -133,5 +147,5 @@
     }
   }
 
-  globalThis.TriageUi = { esc, pad, fmtDate, fmtDuration, fmtCount, cleanTagName, plainClick, img, toCsv, cardTagChip, syncedText, headMeta, titleHtml, ICON, AI_SPARK, sortControl, filterBtn, searchBox, resultCount, rowButtons, menuItem, BACKUP_ITEM, activityHtml, tagButtons, sideFoot, emptyState, fillSetRows };
+  globalThis.TriageUi = { esc, pad, fmtDate, fmtDuration, fmtCount, cleanTagName, plainClick, img, toCsv, cardTagChip, syncedText, headMeta, titleHtml, ICON, AI_SPARK, byValue, dirWords, sortControl, filterBtn, searchBox, resultCount, rowButtons, menuItem, BACKUP_ITEM, activityHtml, tagButtons, sideFoot, emptyState, fillSetRows };
 })();

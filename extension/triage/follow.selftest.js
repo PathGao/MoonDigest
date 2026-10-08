@@ -9,7 +9,9 @@ const source = fs.readFileSync(path.join(__dirname, "follow.js"), "utf8");
 const pure = source.slice(source.indexOf("// PURE-START"), source.indexOf("// PURE-END"));
 assert.ok(pure.includes("function followStatus") && !pure.includes("document"), "harness lifts the pure block");
 const ctx = vm.createContext({ setTimeout, clearTimeout });
-vm.runInContext(`${pure}\n;Object.assign(globalThis, { dirLabel, followAiSettings, aiRequests, normDays, settingsProblem, followStatus, lastPostOf, recentTitles, upRow, visibleUps, mergeFeed, feedMatch, sideIds, feedList, feedLeaving, withTags, pickToggle, fromViewer, stepIn, tagsOf, sameTags, restoreTags, mergeAiBatch, aiChanges, aiTally, fmtAgo });`, ctx);
+// The pure block sorts with shared.js (UI.byValue / UI.dirWords), as the page does.
+vm.runInContext(fs.readFileSync(path.join(__dirname, "shared.js"), "utf8"), ctx);
+vm.runInContext(`const UI = globalThis.TriageUi;\n${pure}\n;Object.assign(globalThis, { dirLabel, followAiSettings, aiRequests, normDays, settingsProblem, followStatus, lastPostOf, recentTitles, upRow, visibleUps, mergeFeed, feedMatch, sideIds, feedList, feedLeaving, withTags, pickToggle, fromViewer, stepIn, tagsOf, sameTags, restoreTags, mergeAiBatch, aiChanges, aiTally, fmtAgo });`, ctx);
 const t = ctx;
 const plain = (v) => JSON.parse(JSON.stringify(v));
 

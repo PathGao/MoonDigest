@@ -114,19 +114,9 @@ const SORTS = { last: "最近更新", follow: "关注时间", fans: "粉丝数",
 const SORT_DIR = { last: "desc", follow: "desc", fans: "desc", name: "asc" }; // each sort's default direction
 function sortCmp(sort, dir = SORT_DIR[sort] || "desc") {
   const val = { last: (u) => u.last || null, follow: (u) => u.followed || null, fans: (u) => u.fans ?? null, name: (u) => u.name }[sort] || ((u) => u.last || null);
-  const sign = dir === "asc" ? 1 : -1;
-  return (a, b) => {
-    const [x, y] = [val(a), val(b)];
-    if (x == null || y == null) return (x == null) - (y == null);
-    return sign * (typeof x === "string" ? x.localeCompare(y, "zh") : x - y);
-  };
+  return UI.byValue(val, dir);
 }
-// The direction button's words: time sorts 新→旧 / 旧→新, counts 从多到少 / 从少到多, names A→Z / Z→A.
-function dirLabel(sort, dir) {
-  if (sort === "name") return dir === "asc" ? "A→Z" : "Z→A";
-  if (sort === "fans") return dir === "asc" ? "从少到多" : "从多到少";
-  return dir === "asc" ? "旧→新" : "新→旧";
-}
+const dirLabel = (sort, dir) => UI.dirWords({ name: "name", fans: "count" }[sort], dir);
 
 // Adds a feed page to the loaded videos without repeats, newest first (B站 pages overlap and come slightly out of
 // order); ties keep their order. add = the videos that were new.

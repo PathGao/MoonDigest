@@ -656,15 +656,9 @@ const sortOf = (id = S.mediaId) => {
 function sortItems(list, sort = "fav", dir = SORT_DIR[sort] || "desc") {
   if (sort === "fav" || !SORTS[sort]) return dir === "asc" ? [...list].reverse() : [...list];
   const val = { pub: (it) => it.pubdate || null, play: (it) => (Number.isFinite(it.play) ? it.play : null), dur: (it) => it.duration || null, title: (it) => it.title || null }[sort];
-  const sign = dir === "asc" ? 1 : -1;
-  return [...list].sort((a, b) => {
-    const [x, y] = [val(a), val(b)];
-    if (x == null || y == null) return (x == null) - (y == null);
-    return sign * (typeof x === "string" ? x.localeCompare(y, "zh") : x - y);
-  });
+  return [...list].sort(UI.byValue(val, dir));
 }
-const sortWords = (sort, dir) =>
-  ({ title: ["A→Z", "Z→A"], play: ["从少到多", "从多到少"], dur: ["从短到长", "从长到短"] })[sort]?.[dir === "asc" ? 0 : 1] ?? (dir === "asc" ? "旧→新" : "新→旧");
+const sortWords = (sort, dir) => UI.dirWords({ title: "name", play: "count", dur: "length" }[sort], dir);
 function renderSort() {
   const { sort, dir } = sortOf();
   const missing = sort === "play" && S.items.some((it) => !it.invalid && !Number.isFinite(it.play));
