@@ -1565,6 +1565,7 @@ function confirmOverwriteNote(filepath, { hasAiSection = false } = {}) {
       resolve(value);
     };
     const onKeydown = (event) => {
+      if (BocTyping.composing(event)) return;
       if (event.key === "Escape") {
         event.preventDefault();
         cleanup("");
