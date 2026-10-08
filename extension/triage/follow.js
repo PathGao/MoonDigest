@@ -778,8 +778,31 @@ async function unfollow(mids) {
   const ok = await askConfirm(`在 B站取消关注 ${mids.length} 个 UP 主？`, `<p>${names(mids)}</p><p class="dialog-hint">标签会记着，在「已取消关注」里可以重新关注，但关注日期会变成重新关注的那天。</p>`, `取消关注 ${mids.length} 个`, { danger: true });
   if (ok) await relationRun(mids, "取消关注", (mid) => ({ type: "follow-relation", mid, act: 2 }));
 }
+// U on a B站 write: done = the UP 主 it went through for, back(mid) = the message that reverses it for one. Undoing 2+
+// asks first (ask). A reversal that fails says why itself (relationRun's toast), so the step then returns "".
+function pushWriteUndo(done, { label, backLabel, back, ask = null }) {
+  const step = {
+    kind: "mode",
+    ask: done.length > 1 ? ask : null,
+    undo: async () => {
+      if (F.busy) return T.pushUndo(step), "上一批还没做完，稍后再按 U";
+      const n = await relationRun(done, backLabel, back, { quiet: true });
+      return n < done.length ? "" : `已撤销：${label}${done.length > 1 ? ` ${n} 个` : `「${upName(done[0])}」`}`;
+    }
+  };
+  T.pushUndo(step);
+}
+
 async function refollow(mids) {
   if (!mids.length) return;
+  // One: no confirm (nothing is lost); U unfollows again and puts back its 已取消关注 record: when, where and the tags.
+  if (mids.length === 1) {
+    const [mid] = mids;
+    const gone = D.gone[mid];
+    if (!(await relationRun(mids, "重新关注", () => ({ type: "follow-relation", mid, act: 1 }), { quiet: true }))) return;
+    pushWriteUndo(mids, { label: "重新关注", backLabel: "取消关注", back: () => ({ type: "follow-relation", mid, act: 2, gone }) });
+    return toast(`已在 B站重新关注「${upName(mid)}」 · U 撤销`);
+  }
   const ok = await askConfirm(`在 B站重新关注 ${mids.length} 个 UP 主？`, `<p>${names(mids)}</p><p class="dialog-hint">原来的标签会放回去。</p>`, `重新关注 ${mids.length} 个`);
   if (ok) await relationRun(mids, "重新关注", (mid) => ({ type: "follow-relation", mid, act: 1 }));
 }
@@ -792,25 +815,25 @@ async function special(mids, on) {
   if (!mids.length) return why && toast(why);
   const label = on ? "设为特别关注" : "取消特别关注";
   const push = on ? "特别关注的 UP 主发视频，手机 B站会推送。" : "取消后还关注着，只是不再推送。";
-  const ok = await askConfirm(`在 B站把 ${mids.length} 个 UP 主${on ? "设为" : "取消"}特别关注？`, `<p>${names(mids)}</p><p class="dialog-hint">${push}</p>`, `${label} ${mids.length} 个`);
-  if (ok) await relationRun(mids, label, (mid) => ({ type: "follow-special", mid, on }));
+  if (await askConfirm(`在 B站把 ${mids.length} 个 UP 主${on ? "设为" : "取消"}特别关注？`, `<p>${names(mids)}</p><p class="dialog-hint">${push}</p>`, `${label} ${mids.length} 个`)) await setSpecial(mids, on);
 }
-// A card's ★: one UP, no confirm; U sets it back.
-async function starOne(mid) {
-  const on = !rows.get(mid).special;
+// A card's ★: one UP, no confirm.
+const starOne = (mid) => setSpecial([mid], !rows.get(mid).special);
+// 特别关注 on or off on B站, one undo step for the ones that went through (U on 2+ asks first).
+async function setSpecial(mids, on) {
   const label = on ? "设为特别关注" : "取消特别关注";
-  if (!(await relationRun([mid], label, () => ({ type: "follow-special", mid, on }), { quiet: true }))) return;
-  // A step on the shared undo stack; a failed write already said why (relationRun's toast), so it returns "".
-  const step = {
-    kind: "mode",
-    undo: async () => {
-      if (F.busy) return T.pushUndo(step), "上一批还没做完，稍后再按 U";
-      const ok = await relationRun([mid], on ? "取消特别关注" : "设为特别关注", () => ({ type: "follow-special", mid, on: !on }), { quiet: true });
-      return ok ? `已撤销：${label}「${upName(mid)}」` : "";
-    }
-  };
-  T.pushUndo(step);
-  toast(`已${label}「${upName(mid)}」 · U 撤销`);
+  const backLabel = on ? "取消特别关注" : "设为特别关注";
+  const done = mids.slice(0, await relationRun(mids, label, (mid) => ({ type: "follow-special", mid, on }), { quiet: true }));
+  if (!done.length) return;
+  const n = done.length;
+  pushWriteUndo(done, {
+    label,
+    backLabel,
+    back: (mid) => ({ type: "follow-special", mid, on: !on }),
+    ask: [`在 B站把 ${n} 个 UP 主${on ? "取消" : "设为"}特别关注？`, `<p>撤销上一步的批量${label}。</p><p>${names(done)}</p>`, `${backLabel} ${n} 个`]
+  });
+  // A batch stopped by an error keeps relationRun's toast, which says how far it got.
+  if (n === mids.length) toast(n > 1 ? `已${label} ${n} 个 · U 撤销` : `已${label}「${upName(done[0])}」 · U 撤销`);
 }
 
 // ---------- dialogs ----------

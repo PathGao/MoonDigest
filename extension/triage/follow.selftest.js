@@ -245,4 +245,16 @@ assert.ok(/if \(!\/\^follow\(&\|\$\)\/\.test\(h\)\) return false;\s*history\.rep
 // 标签… on 2+ UP 主 is one step that asks before U, with 收藏夹's words (shared.js tagsUndoAsk).
 assert.ok(source.includes(`pushTagUndo(before, "标签修改", { ask: changes.length > 1 ? UI.tagsUndoAsk(changes.length, "UP 主") : null });`), "pickClosed asks for 2+");
 
+// B站 writes and U (DESIGN §5): a single 重新关注 has no confirm and U unfollows again with its 已取消关注 record; batch
+// 特别关注 is one step that asks before U; single 取消关注 keeps its confirm.
+{
+  const fn = (name) => source.slice(source.indexOf(`function ${name}(`), source.indexOf("\n}\n", source.indexOf(`function ${name}(`)));
+  const re = fn("refollow");
+  assert.ok(re.indexOf("mids.length === 1") < re.indexOf("askConfirm") && /act: 2, gone/.test(re) && re.includes("已在 B站重新关注「"), "single 重新关注: no confirm, U with the record");
+  assert.ok(/pushWriteUndo\(done, \{[\s\S]*ask: \[`在 B站把/.test(fn("setSpecial")), "batch 特别关注 is undoable, asked with 在 B站…");
+  assert.ok(source.includes("const starOne = (mid) => setSpecial([mid], !rows.get(mid).special);"), "★ goes the same way");
+  assert.ok(fn("pushWriteUndo").includes("ask: done.length > 1 ? ask : null"), "U asks for 2+ only");
+  assert.ok(/async function unfollow[\s\S]*?askConfirm/.test(source), "取消关注 still asks");
+}
+
 console.log("follow selftest: all passed");

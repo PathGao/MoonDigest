@@ -5,7 +5,7 @@
 // - follow-sync {}            开始或接着跑同步，立即返回 {}；进度在 storage follow_jobs。
 // - follow-sync-stop {}       停下；再发 follow-sync 从游标接着跑。
 // - follow-feed { offset }    一页视频动态 { items: [{ bvid, aid, title, cover, duration, play, mid, name, face, at }], offset, hasMore }，缓存 3 分钟。
-// - follow-relation { mid, act }  1 关注 / 2 取关，成功后改好 follow_list、follow_unfollowed、follow_tag_map。
+// - follow-relation { mid, act, gone? }  1 关注 / 2 取关，成功后改好 follow_list、follow_unfollowed、follow_tag_map；gone = 撤销重新关注时放回的取关记录。
 // - follow-special { mid, on }    特别关注开 / 关，成功后改好 follow_list.special。
 // - follow-ai-tag { instruction, mids, tags?, maxNewTags?, allowRemove? }
 //                             提案 { newTags, assignments: { mid: { add, remove } }, note }，不写任何东西。
@@ -514,7 +514,8 @@ async function followResume() {
 
 // ===== 关注 / 特别关注 / 动态 / AI =====
 
-async function followRelation({ mid, act }) {
+// gone (with act 2): the 已取消关注 record a 重新关注 took, put back as it was when that 重新关注 is undone.
+async function followRelation({ mid, act, gone }) {
   mid = String(mid ?? "");
   act = Number(act);
   if (!/^\d+$/.test(mid) || (act !== 1 && act !== 2)) throw triageError("缺少 mid 或 act 不对");
@@ -529,8 +530,9 @@ async function followRelation({ mid, act }) {
     const groups = { ...f.groups };
     const list = (f.list || []).filter((x) => x !== mid);
     if (act === 2) {
-      // 重复取关不覆盖已有记录；标签挪进记录
-      if (!unf[mid]) unf[mid] = { at, tagIds: tagMap[mid] || [], source: "app" };
+      // 重复取关不覆盖已有记录；标签挪进记录。撤销重新关注时放回原记录。
+      if (gone && typeof gone === "object") unf[mid] = { at: Number(gone.at) || at, tagIds: (Array.isArray(gone.tagIds) ? gone.tagIds : []).map(String), source: gone.source === "bili" ? "bili" : "app" };
+      else if (!unf[mid]) unf[mid] = { at, tagIds: tagMap[mid] || [], source: "app" };
       delete tagMap[mid];
       delete followTime[mid];
       delete special[mid];

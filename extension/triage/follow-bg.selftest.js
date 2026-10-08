@@ -332,6 +332,11 @@ const runSync = async () => {
     assert.strictEqual(local.follow_list.list[0], "1");
     assert.ok(local.follow_list.followTime[1] >= now() - 5);
     await assert.rejects(t.followRelation({ mid: "x", act: 2 }), /mid/);
+    // U on a single 重新关注: unfollow again with the record it took, which comes back as it was (not a new 在这里取关).
+    await t.followRelation({ mid: "1", act: 2, gone: { at: 7, tagIds: ["a", "b"], source: "bili", extra: "<x>" } });
+    assert.deepStrictEqual(plain(local.follow_unfollowed[1]), { at: 7, tagIds: ["a", "b"], source: "bili" });
+    assert.ok(!local.follow_tag_map[1] && !local.follow_list.list.includes("1"));
+    await t.followRelation({ mid: "1", act: 1 });
 
     posts = [];
     local.follow_list.groups = { 2: [5, 6] };
