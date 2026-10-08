@@ -111,7 +111,7 @@
     };
   }
 
-  // ?demo swaps in the README screenshot data: B站-style titles and covers, every step filled, tags, 播放列表, notes and
+  // ?demo swaps in the README screenshot data: B站-style titles and covers, every step filled, tags, 待播, notes and
   // watch progress (seenShow 进度条和看完了标记). Nothing here is a real account's data.
   const demoSync = {};
   if (/[?&]demo\b/.test(location.search)) {

@@ -1384,11 +1384,11 @@ function dropRemoved(bvids) {
   });
 }
 
-// Deletes everything MoonDigest holds for these videos (AI results, 保留, note, tags, 播放列表, 取消收藏 records) and their record.
+// Deletes everything MoonDigest holds for these videos (AI results, 保留, note, tags, 待播, 取消收藏 records) and their record.
 async function cleanRemoved(list) {
   if (!list.length) return;
   const one = list.length === 1 ? `《${shortTitle(list[0])}》` : `这 ${list.length} 个视频`;
-  const body = `<p>删除${one}的 AI 分析、备注、标签和播放列表记录，无法撤销。<br>要留存请先从「导出」菜单导出。</p>`;
+  const body = `<p>删除${one}的 AI 分析、备注、标签和待播记录，无法撤销。<br>要留存请先从「导出」菜单导出。</p>`;
   if (!(await askConfirm(`清理${one}？`, body, `清理 ${list.length} 个`, { danger: true }))) return;
   return serialStore(async () => {
     const bvids = list.map((it) => it.bvid);
@@ -2144,7 +2144,9 @@ function cardHtml(it, expanded, mark) {
   if (b === S.viewing) cls.push("playing");
 
   const removed = S.mediaId === REMOVED;
-  const basketBtn = `<button type="button" data-act="basket" class="${inBasket ? "on" : ""}" aria-pressed="${inBasket}" aria-label="${inBasket ? "移出" : "加入"}播放列表 (E)">播放列表<kbd class="key">E</kbd></button>`;
+  const basketBtn = inBasket
+    ? `<button type="button" data-act="basket" class="on" aria-label="已在待播，点一下移出 (E)" title="已在待播，点一下移出">✓ 待播</button>`
+    : `<button type="button" data-act="basket" aria-label="加入待播 (E)" title="加入待播">+ 待播<kbd class="key">E</kbd></button>`;
   const askBtn = `<button type="button" data-act="ask" aria-label="问 AI (Q)">${AI_SPARK}问 AI<kbd class="key">Q</kbd></button>`;
   // The 发布时间 is relative, the date on hover; the rest is text.
   const meta = [esc(it.upper), it.pubdate && UI.agoHtml(it.pubdate), Number.isFinite(it.play) && esc(`▶ ${fmtCount(it.play)}`), ["", "粗看", "细看"][v.stage], esc(seenText(it)), it.invalid && "已失效", it.folders?.length && esc(`收藏夹：${folderNames(it)}`)].filter(Boolean);
@@ -2424,7 +2426,7 @@ async function undo() {
   } else if (entry.kind === "basket") {
     for (const { i, x } of entry.removed) if (!S.basket.some((y) => y.bvid === x.bvid)) S.basket.splice(i, 0, x);
     saveBasket();
-    toast(`已撤销：放回播放列表 ${entry.removed.length} 个`);
+    toast(`已撤销：放回待播 ${entry.removed.length} 个`);
     render();
   } else if (entry.kind === "keepMany") {
     patchKept(Object.fromEntries(entry.bvids.map((b) => [b, null])));
@@ -3254,8 +3256,8 @@ function applyAiProposal() {
   toast(`已应用 AI 建议：${changes.length} 个视频，列表只显示这些 · U 撤销`);
 }
 
-// ---------- 播放列表 ----------
-// triage_basket is the 播放列表 in order: [{ bvid, title, cover?, upper?, duration?, opened? }]; the copied
+// ---------- 待播 ----------
+// triage_basket is the 待播 in order: [{ bvid, title, cover?, upper?, duration?, opened? }]; the copied
 // fields show videos outside the open folder (entries from before they were copied have only the title).
 const saveBasket = () => storeSet(K.basket, S.basket);
 
@@ -3264,10 +3266,10 @@ function toggleBasket(bvid) {
   const it = S.itemMap.get(bvid);
   if (i >= 0) {
     S.basket.splice(i, 1);
-    toast("已移出播放列表");
+    toast("已从待播移出");
   } else if (it) {
     S.basket.push({ bvid, title: it.title, cover: it.cover, upper: it.upper, duration: it.duration });
-    toast(`已加入播放列表《${shortTitle(it)}》`);
+    toast(`已加入待播《${shortTitle(it)}》`);
     el.basket.classList.remove("bump");
     void el.basket.offsetWidth;
     el.basket.classList.add("bump");
@@ -3300,7 +3302,7 @@ function removeBasketItems(indexes) {
 function clearBasket() {
   const n = S.basket.length;
   removeBasketItems(S.basket.map((_, i) => i));
-  toast(`已清空播放列表 ${n} 个 · U 撤销`);
+  toast(`已清空待播 ${n} 个 · U 撤销`);
 }
 
 function renderBasket() {
@@ -3318,7 +3320,7 @@ function renderBasket() {
         <span class="basket-text"><span class="basket-title">${title}</span>${meta || x.opened ? `<span class="muted">${[meta, x.opened && "已打开"].filter(Boolean).join(" · ")}</span>` : ""}</span>
       </button>
       <div class="basket-actions">
-        <button type="button" data-basket="remove" aria-label="从播放列表移除 ${title}" title="从播放列表移除">移除</button>
+        <button type="button" data-basket="remove" aria-label="从待播移除 ${title}" title="从待播移除">移除</button>
       </div>
       ${note ? `<div class="muted basket-note">${esc(note)}</div>` : ""}
     </div>`;
@@ -3358,7 +3360,7 @@ function buildMarkdown(items, now = new Date()) {
 
 // ---------- 摘录或笔记 (导出) ----------
 // 逐个视频笔记 leaves out invalid videos (no subtitle to fetch); 一篇摘录 keeps them, marked, so their notes and tags
-// still go out. 播放列表 is a list to watch from, not an export scope.
+// still go out. 待播 is a list to watch from, not an export scope.
 function writeScopeItems(scope = el.writeScope.value, notes = el.writeFormat?.value === "notes") {
   const list =
     scope === "all" ? S.items
@@ -3545,7 +3547,7 @@ async function runWrite(md = false) {
 }
 
 // ---------- data export ----------
-// 播放列表 stays out: a list to watch from, not something to keep.
+// 待播 stays out: a list to watch from, not something to keep.
 const BACKUP_PREFIXES = [K.kept, K.removed, K.left, K.tags, K.folderCriteria, "triage_video_tags", K.notes, "triage_snapshot_", "triage_decisions_", "triage_title_", "triage_analysis_"];
 
 async function buildBackup() {
@@ -3961,7 +3963,7 @@ function bindEvents() {
     if (act === "open") openBasketItem(i);
     else if (act === "remove") {
       removeBasketItems([i]);
-      toast("已从播放列表移除 · U 撤销");
+      toast("已从待播移除 · U 撤销");
     }
   });
 }
@@ -4081,7 +4083,7 @@ function onKey(e) {
   if (key === "Escape" && S.viewing) closeViewer();
   else if (map[key]) map[key]();
   else if (nav[key]) moveFocus(nav[key]);
-  // 已出分拣范围 has no 保留 / 取消收藏 / 标签; 播放列表 and 问 AI work there.
+  // 已出分拣范围 has no 保留 / 取消收藏 / 标签; 待播 and 问 AI work there.
   else if (S.mediaId === REMOVED && key !== "e" && key !== "q") return;
   else if (key === "u") undo();
   else if (cardKeys[key] && S.focused) cardAction(cardKeys[key], S.focused);

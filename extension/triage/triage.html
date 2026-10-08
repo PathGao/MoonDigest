@@ -64,14 +64,14 @@
             </div>
             <div id="list" class="list" aria-label="视频列表"><p class="empty">正在加载收藏夹列表…</p></div>
 
-            <!-- 播放列表 floats over the bottom of the list while it holds videos and opens upward, so it never covers the viewer. Only its own button folds it. -->
+            <!-- 待播 floats over the bottom of the list while it holds videos and opens upward, so it never covers the viewer. Only its own button folds it. -->
             <aside id="basket" class="basket collapsed" hidden>
               <div class="basket-body">
                 <div id="basketList" class="basket-list"></div>
-                <div class="basket-foot"><button id="basketClearBtn" type="button" class="quiet" aria-label="清空播放列表，U 撤销">清空</button></div>
+                <div class="basket-foot"><button id="basketClearBtn" type="button" class="quiet" aria-label="清空待播，U 撤销">清空</button></div>
               </div>
-              <button id="basketToggle" type="button" class="basket-toggle" aria-expanded="false" aria-label="展开或收起播放列表">
-                播放列表 <span id="basketCount">0</span> <span class="chev" aria-hidden="true">▴</span>
+              <button id="basketToggle" type="button" class="basket-toggle" aria-expanded="false" aria-label="展开或收起待播">
+                待播 <span id="basketCount">0</span> <span class="chev" aria-hidden="true">▴</span>
               </button>
             </aside>
           </section>
@@ -370,7 +370,7 @@
         </ol>
         <p class="dialog-hint"><strong>分拣分两层</strong>：第一层是收藏夹的判断标准，AI 按它给出 AI 判断（值得留 / 可清理 / 拿不准），决定留不留；第二层是你的标签，按每个标签的说明给视频分类，决定怎么找。<br>判断标准在粗看、细看按钮旁边写，标签说明在「✦ AI 打标签」左边的「标签管理」里写。</p>
         <p class="dialog-hint">AI 判断是每步里的筛选。判断标准不写时，AI 从收藏夹名和简介推测用途。<br>每个收藏夹最多 <span data-tag-limit>10</span> 个标签：按 T 逐个打，按 I 让 AI 打标签（AI 每次最多新建 <span data-ai-new-tag-max>5</span> 个）。两个上限都在收藏夹设置里改。<br>AI 只在本页打开时运行。</p>
-        <p class="dialog-hint"><strong>播放列表</strong>：分拣时按 E 把想先看或要核对的视频放进列表（列表右下角），可以跨收藏夹，按加入先后排。<br>点一条在右侧打开，点「移除」移出列表。「清空」一次移出全部。都可以按 U 撤销。<br>不影响收藏和处理结果。</p>
+        <p class="dialog-hint"><strong>待播</strong>：分拣时按 E（或卡片上的「+ 待播」）把想先看或要核对的视频加入待播（右下角），可以跨收藏夹，按加入先后排。已加入的卡片显示「✓ 待播」，再按 E 或点它移出。<br>点一条在右侧打开，点「移除」移出待播。「清空」一次移出全部。都可以按 U 撤销。<br>不影响收藏和处理结果。</p>
         <p class="dialog-hint">「保留」只在 MoonDigest 里标记，B站收藏夹不变。<br>摘录、笔记、表格和完整备份都在搜索框旁的「导出」菜单里。</p>
         </div>
         <div class="stack fav-help">
@@ -382,7 +382,7 @@
           <dt><kbd>D</kbd></dt><dd>取消收藏</dd>
           <dt><kbd>S</kbd></dt><dd>保留</dd>
           <dt><kbd>T</kbd></dt><dd>打标签（视频在右侧播放时，在播放器里按 T 给它打）；打标签时 1–9 勾选第几个，Esc 关闭并保存</dd>
-          <dt><kbd>E</kbd></dt><dd>加入 / 移出播放列表</dd>
+          <dt><kbd>E</kbd></dt><dd>加入 / 移出待播</dd>
           <dt><kbd>Q</kbd></dt><dd>问 AI（在侧边栏打开这个视频）</dd>
           <dt><kbd>X</kbd></dt><dd>选中 / 取消选中。选中的视频可以批量处理；第 3 行右边按钮最前面的「全选 N 个」一次勾上当前列出的，再点一次取消</dd>
           <dt><kbd>O</kbd><kbd>Enter</kbd></dt><dd>在右侧打开视频页（Esc 关闭）</dd>
