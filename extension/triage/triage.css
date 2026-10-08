@@ -197,18 +197,14 @@ select { height: 28px; max-width: 240px; }
 .title-count { color: var(--faint); font-weight: 400; }
 .folder-name, .folder-text { display: contents; }
 .folder-name .folder-thumb { grid-area: thumb; width: 72px; height: 45px; border-radius: var(--radius-sm); }
-.bili-link { grid-area: btn; height: 28px; padding: 0 10px; border: 1px solid var(--border-strong); border-radius: var(--radius-sm); background: var(--surface); color: var(--text); font-size: var(--fs-sm); white-space: nowrap; }
+.bili-link { grid-area: btn; height: 28px; font-size: var(--fs-sm); }
 .folder-title { grid-area: title; margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 20px; font-weight: 600; line-height: 1.3; }
 .folder-meta { grid-area: meta; margin-top: 2px; color: var(--faint); font-size: var(--fs-sm); }
 .list-header { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 6px 8px; margin-left: auto; }
 .step-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 6px 8px; min-width: 0; }
 .step-actions:empty { display: none; }
-.step-actions button:not(.link) { height: 32px; padding: 0 14px; }
+.step-actions button { height: 32px; padding: 0 14px; }
 .step-actions .primary { border: 0; }
-.select-all:empty { display: none; }
-.select-all .link { height: 32px; }
-/* The criteria note is capped and ends in an ellipsis (full text in its title). */
-.run-line { flex: 0 1 auto; min-width: 6em; max-width: 24em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-2); font-size: var(--fs-sm); }
 
 /* ---------- steps: text tabs, a pink underline on the open one, counts faint; 阅览 sits apart on the right ---------- */
 .tabs:empty { display: none; }
@@ -232,7 +228,15 @@ select { height: 28px; max-width: 240px; }
 .tagbar { display: flex; align-items: center; gap: 8px; padding: 0 0 12px; }
 .tagbar .tagfilter { flex: 1 1 auto; min-width: 0; }
 .tags-acts { display: flex; flex: none; flex-wrap: wrap; justify-content: flex-end; gap: 8px; margin-left: auto; }
+.class-filter { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .class-filter:empty { display: none; }
+/* 全选 (shared.js selectAllBox): a checkbox drawn in a button. Empty box, blue bar = some, blue ✓ = all listed. */
+.sel-all .box { position: relative; width: 14px; height: 14px; flex: none; border: 1.5px solid var(--border-strong); border-radius: 3px; background: var(--surface); }
+.sel-all[aria-checked="true"] .box, .sel-all[aria-checked="mixed"] .box { border-color: var(--action); background: var(--action); }
+.sel-all[aria-checked="mixed"] .box::after { content: ""; position: absolute; left: 2px; right: 2px; top: 4.5px; height: 2px; border-radius: 1px; background: var(--on-action); }
+.sel-all[aria-checked="true"] .box::after { content: ""; position: absolute; left: 3.5px; top: 0.5px; width: 3.5px; height: 7.5px; border: solid var(--on-action); border-width: 0 2px 2px 0; transform: rotate(45deg); }
+/* Something not set up yet (判断标准, the first tag): a notice, nothing is blocked. */
+.dot-warn { width: 6px; height: 6px; flex: none; align-self: flex-start; margin: 6px 0 0 -2px; border-radius: 50%; background: var(--warn); }
 .seg { display: inline-flex; gap: 8px; }
 .seg button { height: 26px; padding: 0 12px; border: 0; border-radius: var(--radius-pill); background: var(--field-bg); color: var(--text-2); font-variant-numeric: tabular-nums; }
 .seg button:hover { background: var(--border); }
@@ -279,7 +283,6 @@ select { height: 28px; max-width: 240px; }
 }
 .selbar > * { flex: none; white-space: nowrap; }
 .sel-count { font-weight: 600; font-variant-numeric: tabular-nums; color: var(--link); }
-.selbar .link { height: 28px; }
 .selbar > .sel-actions { flex: 0 1 auto; }
 .sel-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 6px; padding-left: 10px; border-left: 1px solid var(--border); }
 .sel-actions:empty { display: none; }
@@ -384,7 +387,7 @@ html[data-seen-style="veil"] .cover-wrap.seen .seen-veil { display: flex; }
 .note { width: 100%; max-width: 560px; margin-top: 6px; padding: 4px 8px; border: 0; border-radius: var(--radius-sm); background: var(--bg); resize: vertical; min-height: 28px; font-size: var(--fs-sm); color: var(--text-2); field-sizing: content; }
 .note-add { font-size: var(--fs-xs); height: auto; }
 .group-head { margin-top: 10px; padding: 2px 0; color: var(--muted); font-size: var(--fs-xs); }
-.group-head .link { height: auto; font-size: inherit; }
+.group-head button { height: 24px; padding: 0 8px; font-size: inherit; }
 .title-row { display: flex; align-items: center; gap: 6px; min-width: 0; }
 .batch-tag { flex: none; padding: 1px 6px; border-radius: 4px; background: var(--action-bg); color: var(--link); font-size: var(--fs-xs); font-weight: 600; }
 .key { font: 11px var(--font-mono); margin-left: 4px; opacity: 0.7; }
@@ -450,8 +453,6 @@ button.icon { width: 26px; height: 24px; padding: 0; }
 .card-body > .chips { gap: 4px 10px; }
 .card-body > .chips .chip { height: auto; padding: 0; border: 0; background: none; color: color-mix(in srgb, var(--c) 70%, var(--text)); cursor: default; }
 
-/* The criteria note is capped and ends in an ellipsis (full text in its title). */
-.run-line { max-width: 24em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); font-size: var(--fs-xs); }
 .key { font: inherit; margin-left: 4px; opacity: 0.7; }
 @media (hover: none) { .key { display: none; } }
 .badge.low { background: transparent; outline: 1px dashed currentColor; outline-offset: -1px; }
@@ -532,9 +533,9 @@ dialog h3 { margin: 8px 0 0; font-size: var(--fs-sm); font-weight: 600; }
   border-radius: 12px;
   box-shadow: 0 4px 18px rgba(0, 0, 0, 0.16);
 }
-.basket.collapsed { width: auto; border-radius: 999px; }
+.basket.collapsed { width: auto; border-color: var(--border-strong); border-radius: var(--radius-md); }
 .basket.collapsed .basket-body { display: none; }
-.basket-toggle { font-weight: 600; border: 0; background: transparent; border-radius: 999px; }
+.basket-toggle { font-weight: 600; border: 0; background: transparent; border-radius: var(--radius-md); }
 .basket:not(.collapsed) .basket-toggle { border-top: 1px solid var(--border); border-radius: 0 0 12px 12px; }
 .basket:not(.collapsed) .chev { display: inline-block; transform: rotate(180deg); }
 .basket.bump { animation: basket-bump 0.5s ease; }
