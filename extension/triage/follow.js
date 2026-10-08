@@ -230,7 +230,7 @@ function normDays(slow, dead) {
   return { followSlowDays, followDeadDays: Math.min(3651, Math.max(followSlowDays + 1, num(dead, 365))) };
 }
 
-// A 刷新 finished between two follow_jobs: the 动态 already loaded is older than what it read.
+// A 刷新 finished between two follow_jobs: the 视频投稿 already loaded is older than what it read.
 const syncFinished = (was, now) => Boolean(now?.finishedAt && now.finishedAt !== was?.finishedAt);
 
 const fmtAgo = (sec, now) => UI.fmtAgo(sec, now);
@@ -256,7 +256,7 @@ const saveView = () => T.store({ [VIEW_KEY]: viewRecord(F) });
 const AI_HISTORY_KEY = "follow_ai_history";
 const STATUS_TEXT = Object.fromEntries(STATUS);
 const STATUS_BADGE = { active: "keep", slow: "unsure", dead: "drop", stale: "unsure low", none: "none", unchecked: "none" };
-const PHASE = { list: "读关注列表", feed: "翻视频动态", arc: "查投稿" };
+const PHASE = { list: "读关注列表", feed: "翻视频投稿", arc: "查投稿" };
 const DRY_PAGES = 3; // the feed stops loading by itself after this many pages in a row without a video for the picked item
 const FEED_KEEP_MS = 3 * 60 * 1000; // as the background's cache; older lists start over
 const space = (mid) => `https://space.bilibili.com/${mid}`;
@@ -274,7 +274,7 @@ const F = {
   side: "all",
   status: "",
   source: "", // 已取消关注: "" | "bili" (在 B站取关) | "app" (在这里取关)
-  q: "", // UP 主's search; 动态 keeps its own (fq)
+  q: "", // UP 主's search; 视频投稿 keeps its own (fq)
   fq: "",
   sort: "last",
   dir: "desc",
@@ -288,14 +288,14 @@ const F = {
   feed: null, // { items, offset, hasMore, loading, error, dry, at }
   viewing: "",
   viewingMid: "", // the playing video's UP
-  hover: "", // the 动态 card under the mouse (bvid), for T
+  hover: "", // the 视频投稿 card under the mouse (bvid), for T
   cur: "" // the current UP card (mid): J / K, X, T
 };
 const $ = (id) => document.getElementById(id);
 const side = $("followSide");
 const main = $("followMain");
 
-// The same four rows as 收藏夹, from the same shared.js pieces: 关注 · N | sort; UP 主 | 动态 | search, 刷新, 导出;
+// The same four rows as 收藏夹, from the same shared.js pieces: 关注 · N | sort; UP 主 | 视频投稿 | search, 刷新, 导出;
 // filters | 全选 and ✦ AI 打标签; the list.
 main.innerHTML = `
   <div class="folder-head fw-head">
@@ -308,7 +308,7 @@ main.innerHTML = `
   <div class="tabrow">
     <nav id="fwTabs" class="tabs fw-tabs" role="tablist" aria-label="关注"></nav>
     <span class="row-tools" role="toolbar" aria-label="关注的操作">${UI.searchBox("fwQ", "fwQCount", "在「关注」· UP 主里搜")}${UI.rowButtons({
-      activityId: "fwActivity", refreshId: "fwRefreshBtn", refreshLabel: "从 B站刷新关注", refreshTitle: "读关注列表、翻视频动态，再查动态里没出现的人",
+      activityId: "fwActivity", refreshId: "fwRefreshBtn", refreshLabel: "从 B站刷新关注", refreshTitle: "读关注列表、翻视频投稿，再查里面没出现的人",
       exportId: "fwExportBtn", menuId: "fwExport",
       menuHtml: UI.menuItem('data-fw="csv" aria-label="下载 UP 主表格 CSV"', "UP 主表格 (CSV)", "名字、标签、更新状态、最后投稿、粉丝数") + "<hr>" + UI.BACKUP_ITEM,
       settingsAttr: 'data-fw="settings"', settingsLabel: "关注设置"
@@ -569,8 +569,8 @@ const tagRowHtml = (counts) =>
       return `<button type="button" class="chip${on ? " on" : ""}${n ? "" : " zero"}" style="--c:${esc(t.color)}" data-fw-tag="${esc(t.id)}" aria-pressed="${on}" aria-label="按标签筛选 ${esc(t.name)} ${n}" title="可多选：只显示同时带有所选标签的">${esc(t.name)}<span class="chip-n">${n}</span></button>`;
     })
     .join("");
-// Anything in rows 3 and 4 or the sidebar narrowing the list (for 「N 个结果」).
-const filtersOn = () => Boolean(F.tagState || F.tags.size || F.side !== "all" || (F.tab === "ups" && (F.status || F.recentFilter)));
+// Anything in rows 3 and 4 narrowing the list (for 「N 个结果」); the sidebar is scope, as 收藏夹's folder.
+const filtersOn = () => (F.side === "gone" ? Boolean(F.source) : Boolean(F.tagState || F.tags.size || (F.tab === "ups" && (F.status || F.recentFilter))));
 
 // ----- UP 主 -----
 function renderUps() {
@@ -593,7 +593,7 @@ function renderUps() {
   renderAiButton();
   E.sort.hidden = gone || !D.list;
   E.sort.innerHTML = UI.sortControl({ sorts: SORTS, sort: F.sort, dir: F.dir, words: dirLabel(F.sort, F.dir), selectAttr: 'data-fw="sort"', dirAttr: 'data-fw="dir"' });
-  E.qCount.textContent = UI.resultCount(F.q.trim() || filtersOn() || F.source, list.length);
+  E.qCount.textContent = UI.resultCount(F.q.trim() || filtersOn(), list.length);
   const hint = hintHtml(counts);
   const scroll = E.list.scrollTop;
   let body;
@@ -609,7 +609,7 @@ function renderUps() {
 function emptyHtml() {
   const j = D.jobs || {};
   const act = j.running ? `<p class="muted" aria-busy="true">刷新中…读完就显示在这里</p>` : `<button type="button" class="primary" data-fw="sync">${UI.ICON.refresh}刷新</button>`;
-  return UI.emptyState("还没有关注数据", "先从 B站读你的关注列表，再翻视频动态看谁最近发过视频，动态里没出现的人再一个个查投稿。只读，不改 B站。", act);
+  return UI.emptyState("还没有关注数据", "先从 B站读你的关注列表，再翻视频投稿看谁最近发过视频，里面没出现的人再一个个查投稿。只读，不改 B站。", act);
 }
 
 // Why some 更新状态 are missing, with the job's live state or the button that fills them in.
@@ -688,7 +688,7 @@ function renderSel() {
   E.sel.innerHTML = `<div class="selbar" role="toolbar" aria-label="选中的 UP 主"><strong class="sel-count">已选中 ${n} 个</strong>${hidden ? `<span class="muted">另有 ${hidden} 个被筛选隐藏</span>` : ""}<button type="button" class="quiet" data-fw="select-none">清空选中</button><span class="sel-actions">${acts}</span></div>`;
 }
 
-// ----- 动态 -----
+// ----- 视频投稿 -----
 const freshFeed = () => ({ items: [], offset: "", hasMore: true, loading: false, error: "", dry: 0, at: Date.now() });
 
 // What the 视频投稿 list and its counts go by.
@@ -760,7 +760,7 @@ function renderFoot(n = feedList(F.feed.items, D, feedF(), null).length) {
   if (!foot) return;
   const f = F.feed;
   const oldest = f.items.length ? Math.min(...f.items.map((it) => it.at)) : 0;
-  const where = F.side === "gone" ? "已取消关注的人不在动态里。" : "";
+  const where = F.side === "gone" ? "已取消关注的人不在视频投稿里。" : "";
   const reach = oldest ? `已往前看到 ${fmtDate(oldest)}（${fmtAgo(oldest, nowSec())}），共 ${f.items.length} 个视频。` : "";
   let text;
   if (f.error) text = f.error;
@@ -943,19 +943,28 @@ document.body.insertAdjacentHTML("beforeend", `
           <h3>更新状态</h3>
           <p class="dialog-hint">按最后投稿离现在多少天分活跃、慢更、断更。</p>
           <div class="set-card">
-            <div class="set-row"><div><label class="name" for="fwSlowInput">多少天没投稿算慢更</label><p class="hint">7–3650。刷新时视频动态往回翻这么多天，越大翻得越久。</p></div><input id="fwSlowInput" type="number" min="7" max="3650" step="1"></div>
+            <div class="set-row"><div><label class="name" for="fwSlowInput">多少天没投稿算慢更</label><p class="hint">7–3650。刷新时视频投稿往回翻这么多天，越大翻得越久。</p></div><input id="fwSlowInput" type="number" min="7" max="3650" step="1"></div>
             <div class="set-row"><div><label class="name" for="fwDeadInput">多少天没投稿算断更</label><p class="hint">要比慢更的天数大。</p></div><input id="fwDeadInput" type="number" min="8" max="3651" step="1"></div>
           </div>
         </section>
-        <section class="set-group">
-          <h3>AI 打标签</h3>
-          <div class="set-card">
-            <div class="set-row"><div><label class="name" for="fwBatchInput">每批数量</label><p class="hint">1–100 个 UP 主一批。</p></div><input id="fwBatchInput" type="number" min="1" max="100" step="1"></div>
-            <div class="set-row" data-set-row="interval"><input id="fwIntervalInput" type="number" min="0" max="600" step="1"></div>
-            <div class="set-row" data-set-row="newTagMax"><input id="fwNewMaxInput" type="number" min="0" max="50" step="1"></div>
-            <div class="set-row" data-set-row="allowRemove"><input id="fwRemoveInput" type="checkbox" class="switch"></div>
-          </div>
-        </section>
+        <!-- Grouped as 收藏夹设置: 标签, then AI 参数. -->
+        <div class="settings-ai">
+          <section class="set-group">
+            <h3>标签</h3>
+            <div class="set-card">
+              <div class="set-row" data-set-row="newTagMax"><input id="fwNewMaxInput" type="number" min="0" max="50" step="1"></div>
+              <div class="set-row" data-set-row="allowRemove"><input id="fwRemoveInput" type="checkbox" class="switch"></div>
+            </div>
+          </section>
+          <section class="set-group">
+            <h3>AI 参数</h3>
+            <p class="dialog-hint">一般不用改。AI 平台在设置页。</p>
+            <div class="set-card">
+              <div class="set-row" data-set-row="interval"><input id="fwIntervalInput" type="number" min="0" max="600" step="1"></div>
+              <div class="set-row"><div><label class="name" for="fwBatchInput">AI 打标签每批数量</label><p class="hint">1–100 个 UP 主一批。</p></div><input id="fwBatchInput" type="number" min="1" max="100" step="1"></div>
+            </div>
+          </section>
+        </div>
       </div>
       <p id="fwSettingsError" class="form-error" role="alert" hidden></p>
       <div class="dialog-actions">
@@ -1068,7 +1077,7 @@ async function deleteTag(id) {
 }
 
 // ----- 打标签 (one UP from its card, or the selection): the shared picker, tag-picker.js -----
-// A modal for the UP 主 cards and the selection; anchored (the 动态 card's or the viewer line's 「+ 标签」, a CSS selector
+// A modal for the UP 主 cards and the selection; anchored (the 视频投稿 card's or the viewer line's 「+ 标签」, a CSS selector
 // so it survives redraws) a popover. While the popover is open, pick.keep holds the cards it was opened over (see
 // feedList), so the cards that no longer match the filter leave when it closes, with a toast.
 const pick = { mids: [], anchor: "", keep: null };
@@ -1111,7 +1120,7 @@ async function pickClosed(changes) {
   if (msg) toast(`${msg} · U 撤销`);
 }
 
-// T: the UP of the 动态 card under the mouse, else the current UP card, else the video playing in the viewer.
+// T: the UP of the 视频投稿 card under the mouse, else the current UP card, else the video playing in the viewer.
 function tagByKey() {
   const it = F.tab === "feed" && F.hover && F.feed?.items.find((x) => x.bvid === F.hover);
   if (it) openPick([it.mid], `.fw-video[data-bvid="${CSS.escape(it.bvid)}"] .tag-plus`);
@@ -1406,7 +1415,7 @@ main.addEventListener("click", async (e) => {
 });
 // The selection bar sits outside the list; its buttons share the handler above through #followMain.
 
-// One box, two searches: UP 主 and 动态 each keep their own text (setTab swaps it in).
+// One box, two searches: UP 主 and 视频投稿 each keep their own text (setTab swaps it in).
 UI.bindSearch(E.q, (q) => {
   if (F.tab === "feed") F.fq = q;
   else F.q = q;

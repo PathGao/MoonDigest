@@ -1,5 +1,5 @@
 // The 分拣台's one tag picker (#tagPicker in triage.html), for 收藏夹's videos and 关注's UP 主: a modal, or a small
-// popover under an anchor (the viewer line's 「+ 标签」, a 动态 card's). Keys: ↑↓ move, Enter ticks or creates,
+// popover under an anchor (the viewer line's 「+ 标签」, a 视频投稿 card's). Keys: ↑↓ move, Enter ticks or creates,
 // 1–9 tick the n-th tag while the filter is empty, Esc closes. Ticks stay here until it closes (完成, Esc, a click
 // outside); then opts.onClose gets what changed per target, so one close is one save (and one undo step).
 (() => {

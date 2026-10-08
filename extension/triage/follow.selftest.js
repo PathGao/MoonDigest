@@ -320,4 +320,11 @@ assert.ok(t.aiBlocked("feed", "all") && t.aiBlocked("ups", "gone"), "视频投�
 assert.deepStrictEqual(plain(t.withAllowRemove({ batchSize: 10, intervalSec: 2, newTagMax: 1, allowRemove: false }, true)), { batchSize: 10, intervalSec: 2, newTagMax: 1, allowRemove: true });
 assert.ok(/async setAllowRemove\(on\) \{\s*const next = withAllowRemove\(await aiSettings\(\), on\);\s*try \{\s*await chrome\.storage\.sync\.set\(\{ follow_ai_settings: next \}\);/.test(source), "the AI dialog's switch saves");
 
+// The 关注 tab is 视频投稿 (we read only B站's video posts, which B站 itself calls 视频投稿): no page text says 动态.
+// Comments may; B站 page scripts outside triage/ talk about B站's own 动态 page.
+for (const f of ["triage.html", "triage.js", "follow.js", "follow-bg.js", "shared.js", "tag-picker.js", "tag-dialogs.js"]) {
+  const text = fs.readFileSync(path.join(__dirname, f), "utf8").replace(/<!--[\s\S]*?-->/g, "").replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:])\/\/[^\n]*/g, "$1");
+  assert.ok(!text.includes("动态"), `${f} still says 动态 to the user`);
+}
+
 console.log("follow selftest: all passed");

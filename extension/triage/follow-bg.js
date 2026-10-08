@@ -354,7 +354,7 @@ async function followSyncJob(ctx) {
     const fresh = lp && followNow() - lp.at < 6 * 3600 && lp.since <= followNow() - slowDays * 86400;
     if (!fresh) {
       const last = c.offset && lp ? { ...lp, v: lp.v || {} } : { at: followNow(), since: followNow(), map: {}, v: {} };
-      await ctx.progress({ phase: "feed", step: `翻视频动态，找 ${slowDays} 天内发过视频的人`, done: 0, total: 0, cursor: c });
+      await ctx.progress({ phase: "feed", step: `翻视频投稿，找 ${slowDays} 天内发过视频的人`, done: 0, total: 0, cursor: c });
       // ponytail: 600 页（约 12000 个视频）封顶，slowDays 内发得更多要调大
       for (let p = 0; p < 600; p++) {
         const r = await get(() => followFeedPage(c.offset));
@@ -381,7 +381,7 @@ async function followSyncJob(ctx) {
   const known = (m) => have[m] && (!have[m].code || FOLLOW_GONE_CODES.has(have[m].code)) && have[m].at >= since;
   let done = targets.filter(known).length;
   let skipped = 0;
-  const step = "查动态里没出现的人的投稿";
+  const step = "查视频投稿里没出现的人";
   await ctx.progress({ phase: "arc", step, done, total: targets.length, skipped, cursor: c });
   for (const mid of targets) {
     if (known(mid)) continue;
