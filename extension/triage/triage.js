@@ -350,7 +350,7 @@ const el = {};
   "titleMaxHint", "analyzeMaxInput", "analyzeMaxHint", "settingsError", "csvBtn", "confirmDialog",
   "confirmTitle", "confirmBody", "confirmOk",
   "criteriaDialog", "criteriaTitle", "criteriaInput", "helpDialog",
-  "biliBtn", "main", "viewer", "viewerBasket", "viewerNextBtn", "viewerCloseBtn", "viewerFrame", "viewerTags",
+  "biliBtn", "main", "viewer", "viewerCloseBtn", "viewerFrame", "viewerTags",
   "tools", "writeBtn", "writeDialog", "writeScope", "writeFormat", "writeScopeCount", "writeOverwriteRow", "writeOverwrite", "writeProgress", "writeFailed", "writeStopBtn", "writeCopyBtn", "writeRunBtn", "writeMdBtn"
 ].forEach((id) => (el[id] = $(id)));
 
@@ -3286,16 +3286,6 @@ function openBasketItem(i) {
   openViewer(x);
 }
 
-// 已看，下一个 in the viewer: the playing video leaves the list and the next one takes its place.
-function basketDoneAndNext() {
-  removeBasketItems([S.basket.findIndex((x) => x.bvid === S.viewing)]);
-  if (S.basket.length) openBasketItem(Math.max(0, S.basket.findIndex((x) => !x.opened)));
-  else {
-    closeViewer();
-    toast("播放列表已经看完了");
-  }
-}
-
 // 已看 and 清空 take videos out of the list, nothing else; favorites and decisions are untouched. U puts them back.
 function removeBasketItems(indexes) {
   const removed = indexes.filter((i) => S.basket[i]).sort((a, b) => a - b).map((i) => ({ i, x: S.basket[i] }));
@@ -3334,7 +3324,6 @@ function renderBasket() {
     </div>`;
     })
     .join("");
-  el.viewerBasket.hidden = !S.basket.some((x) => x.bvid === S.viewing);
 }
 
 function mdLinkText(s) {
@@ -3850,7 +3839,6 @@ function bindEvents() {
         : `https://space.bilibili.com/${S.mid}${inFolderView() ? `/favlist?fid=${S.mediaId}&ftype=create` : ""}`
     )
   );
-  el.viewerNextBtn.addEventListener("click", basketDoneAndNext);
 
   el.settingsBtn.addEventListener("click", () => openSettings());
   for (const input of [el.thinkingInput, el.batchSizeInput, el.titleMaxInput, el.analyzeMaxInput]) {

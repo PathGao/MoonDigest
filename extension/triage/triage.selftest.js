@@ -240,10 +240,9 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   t.toggleBasket("BV1");
   assert.deepStrictEqual(plain(store[t.K.basket].map((x) => x.bvid)), ["BVgone", "BV3"]);
   assert.deepStrictEqual(plain(t.S.decisions), { BV2: { action: "keep", at: 1 } }, "已看 leaves decisions alone");
-  // 已看，下一个 takes the playing one out and opens the next, leaving no mark behind; U puts it back.
-  t.S.viewing = "BVgone";
-  t.basketDoneAndNext();
-  assert.deepStrictEqual([plain(store[t.K.basket].map((x) => x.bvid)), t.S.viewing], [["BV3"], "BV3"]);
+  // 已看 takes one out, leaving no mark behind; U puts it back.
+  t.removeBasketItems([0]);
+  assert.deepStrictEqual(plain(store[t.K.basket].map((x) => x.bvid)), ["BV3"]);
   assert.ok(!("triage_watched" in store), "已看 writes no 优先看过 mark");
   await t.undo();
   assert.deepStrictEqual(plain(store[t.K.basket].map((x) => x.bvid)), ["BVgone", "BV3"], "U puts 已看 back in place");
@@ -1997,6 +1996,10 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
       const html = fs.readFileSync(path.join(__dirname, "triage.html"), "utf8");
       const viewer = html.slice(html.indexOf('<aside id="viewer"'), html.indexOf("</aside>", html.indexOf('<aside id="viewer"')));
       assert.ok(viewer && !/viewer-head|viewerTitle|viewerFocusBtn|viewerTabBtn|专注模式|在 B站打开/.test(viewer), "no top bar in the player");
+      // No 已看，下一个 either: the 播放列表 panel's 已看 and 清空 take videos out.
+      for (const f of ["triage.html", "triage.js", "follow.css", "../../README.md"]) {
+        assert.ok(!/已看，下一个|viewerNextBtn|viewerBasket|basketDoneAndNext/.test(fs.readFileSync(path.join(__dirname, f), "utf8")), `${f} still has 已看，下一个`);
+      }
       assert.ok(!/viewer-head/.test(fs.readFileSync(path.join(__dirname, "triage.css"), "utf8")), "no top bar CSS");
       assert.ok(/<\/aside>\s*<!--[^>]*-->\s*<button id="viewerCloseBtn" type="button" class="viewer-close" aria-label="关闭播放（Esc）" title="关闭播放（Esc）">×<\/button>/.test(html), "× right after #viewer, labeled");
       openFake("A", [item(1)]);
