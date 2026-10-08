@@ -1823,6 +1823,37 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     Object.assign(t.el, real);
   }
 
+  // 关注 (follow.js) takes the keys through setModeKeys while on; typing and IME never reach it; its steps share U.
+  {
+    const keys = [];
+    const ev = (key, extra = {}) => ({ key, target: { closest: () => null }, preventDefault() { this.prevented = true; }, ...extra });
+    t.MoonTriage.setModeKeys((key) => (keys.push(key), key === "j"));
+    const j = ev("j");
+    t.onKey(j);
+    assert.ok(j.prevented && keys.join() === "j", "the mode used J");
+    t.S.undo = [{ kind: "watched", bvid: "BVx", prev: null }];
+    const u = ev("u");
+    t.onKey(u);
+    assert.ok(!u.prevented && t.S.undo.length === 1, "mode on: 收藏夹's U does not run");
+    t.onKey(ev("j", { isComposing: true }));
+    t.onKey(ev("j", { target: { closest: (sel) => (sel.includes("input") ? {} : null) } }));
+    assert.strictEqual(keys.join(), "j,u", "keys typed into a field or the IME skip the mode");
+    t.MoonTriage.setModeKeys(() => null);
+    t.S.undo = [];
+    let undone = 0;
+    t.MoonTriage.pushUndo({ kind: "mode", undo: async () => (undone++, "已撤销：去掉「x」") });
+    t.onKey(ev("u"));
+    await new Promise((r) => setTimeout(r, 20));
+    assert.ok(undone === 1 && toasts.at(-1) === "已撤销：去掉「x」" && !t.S.undo.length, "mode off: U undoes a 关注 step");
+    const ask = t.askConfirm;
+    t.askConfirm = async () => false;
+    t.MoonTriage.pushUndo({ kind: "mode", ask: ["撤销？", ""], undo: async () => (undone++, "") });
+    await t.MoonTriage.undo();
+    assert.ok(undone === 1 && t.S.undo.length === 1, "a step that asks and is declined stays");
+    t.askConfirm = ask;
+    t.MoonTriage.setModeKeys(null);
+  }
+
   console.log("triage selftest: all passed");
 })().catch((e) => {
   console.error(e);

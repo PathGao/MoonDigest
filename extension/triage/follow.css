@@ -42,8 +42,8 @@ body:not(.follow-mode) :is(.fw-side-slot, .follow-help) { display: none !importa
 .fw-up:hover:not(.selected, .playing) { outline: 2px solid var(--text-2); outline-offset: -1px; box-shadow: var(--lift); }
 .fw-foot-row .more { display: flex; margin-left: auto; }
 .fw-foot-row .more button { height: 22px; padding: 0 8px; font-size: var(--fs-xs); }
-/* triage.css hides a card's .more until J/K focus; 关注 has no J/K yet, so hover shows it. */
-.fw-up.card:is(:hover, :focus-within) .more button:not(.on) { visibility: visible; }
+/* As triage.css: a card shows its .more on hover and while current (J/K). */
+.fw-up.card:is(:hover, :focus-within, .focused) .more button:not(.on) { visibility: visible; }
 @media (hover: none) { .fw-up .more button { visibility: visible !important; } }
 .fw-avatar { width: 56px; height: 56px; border-radius: 50%; overflow: hidden; background: var(--field-bg); }
 .fw-avatar img { display: block; width: 100%; height: 100%; object-fit: cover; }

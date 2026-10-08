@@ -711,9 +711,14 @@ function nextBatch() {
 
 // ---------- init ----------
 init();
-// 关注 mode (follow.js) borrows the viewer, the toast and the confirm dialog; in that mode the keys below stay off.
+// 关注 mode (follow.js) borrows the viewer, the toast, the confirm dialog and the undo stack, and takes the keys while on.
 const followMode = () => Boolean(document.body?.classList.contains("follow-mode"));
-globalThis.MoonTriage = { openViewer, closeViewer, toast, askConfirm, send, store, handleAiError, THROTTLES, sleepWhile, viewing: () => S.viewing };
+// modeKeys(key, e): null while that mode is off (the keys below run); otherwise true when it used the key.
+let modeKeys = null;
+globalThis.MoonTriage = {
+  openViewer, closeViewer, toast, askConfirm, send, store, handleAiError, THROTTLES, sleepWhile, viewing: () => S.viewing,
+  undo, pushUndo, help: () => el.helpDialog.showModal(), setModeKeys: (fn) => (modeKeys = fn)
+};
 
 async function init() {
   UI.fillSetRows(document);
@@ -2292,6 +2297,7 @@ async function decide(bvid, action) {
 
 // U undoes the last step wherever it was; a step that changed several videos asks first, so a stray U costs nothing.
 function batchUndoAsk(entry) {
+  if (entry.kind === "mode") return entry.ask || null;
   const n = entry.kind === "keepMany" ? entry.bvids.length : entry.kind === "unfavMany" ? entry.items.length : entry.kind === "aiApply" ? entry.changes.length : 0;
   if (n < 2) return null;
   if (entry.kind === "keepMany") return [`撤销批量保留？`, `<p>上一步保留了 ${n} 个视频，撤销后它们不再标为保留。</p>`];
@@ -2308,6 +2314,8 @@ async function undo() {
     toast("没有可撤销的操作");
     return;
   }
+  // A step of another mode (关注's tags): it undoes itself and redraws its own view.
+  if (entry.kind === "mode") return toast(await entry.undo());
   if (entry.kind === "decision") {
     const it = S.itemMap.get(entry.bvid);
     const token = S.folderToken;
@@ -4286,17 +4294,13 @@ function cardAction(act, bvid) {
 
 function onKey(e) {
   if (composing(e) || typingIn(e) || e.metaKey || e.ctrlKey || e.altKey) return;
-  if (document.querySelector("dialog[open]")) return;
   const t = e.target;
   if ((e.key === "Enter" || e.key === " ") && t.closest?.("button, a")) return;
   const key = e.key.length === 1 ? e.key.toLowerCase() : e.key;
-  if (followMode()) {
-    if (key === "?") el.helpDialog.showModal();
-    else if (key === "/") $("fwQ")?.focus();
-    else if (key === "Escape" && S.viewing) closeViewer();
-    else return;
-    return e.preventDefault();
-  }
+  // Before the open-dialog check: the mode decides which of its dialogs own the keys.
+  const used = modeKeys?.(key, e);
+  if (used != null) return used && e.preventDefault();
+  if (document.querySelector("dialog[open]")) return;
   const map = {
     "?": () => el.helpDialog.showModal(),
     "/": () => el.searchInput.focus(),

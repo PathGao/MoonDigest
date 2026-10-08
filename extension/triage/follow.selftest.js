@@ -9,7 +9,7 @@ const source = fs.readFileSync(path.join(__dirname, "follow.js"), "utf8");
 const pure = source.slice(source.indexOf("// PURE-START"), source.indexOf("// PURE-END"));
 assert.ok(pure.includes("function followStatus") && !pure.includes("document"), "harness lifts the pure block");
 const ctx = vm.createContext({ setTimeout, clearTimeout });
-vm.runInContext(`${pure}\n;Object.assign(globalThis, { dirLabel, followAiSettings, aiRequests, normDays, settingsProblem, followStatus, lastPostOf, recentTitles, upRow, visibleUps, mergeFeed, feedMatch, sideIds, feedList, feedLeaving, withTags, pickToggle, fromViewer, mergeAiBatch, aiChanges, aiTally, fmtAgo });`, ctx);
+vm.runInContext(`${pure}\n;Object.assign(globalThis, { dirLabel, followAiSettings, aiRequests, normDays, settingsProblem, followStatus, lastPostOf, recentTitles, upRow, visibleUps, mergeFeed, feedMatch, sideIds, feedList, feedLeaving, withTags, pickToggle, fromViewer, stepIn, tagsOf, sameTags, restoreTags, mergeAiBatch, aiChanges, aiTally, fmtAgo });`, ctx);
 const t = ctx;
 const plain = (v) => JSON.parse(JSON.stringify(v));
 
@@ -232,6 +232,33 @@ assert.strictEqual(t.fmtAgo(ago(800), now), "2 年前");
   assert.strictEqual(t.fromViewer(msg({ type: "mdg-viewer-key", key: "d" }), frame), "", "other keys");
   assert.strictEqual(t.fromViewer(msg({ type: "x", key: "t" }), frame), "");
   assert.strictEqual(t.fromViewer(msg({ type: "mdg-viewer-key", key: "t" }, null), null), "", "no frame loaded");
+}
+
+// J / K over the cards on screen; U gives the touched UPs their tags back and leaves the rest
+{
+  assert.strictEqual(t.stepIn([], "", 1), "");
+  assert.strictEqual(t.stepIn(["a", "b", "c"], "", 1), "a", "none current: J starts at the top");
+  assert.strictEqual(t.stepIn(["a", "b", "c"], "a", 1), "b");
+  assert.strictEqual(t.stepIn(["a", "b", "c"], "c", 1), "c", "stops at the end");
+  assert.strictEqual(t.stepIn(["a", "b", "c"], "b", -1), "a");
+  assert.strictEqual(t.stepIn(["a", "b", "c"], "a", -1), "a", "stops at the top");
+  assert.strictEqual(t.stepIn(["a", "b"], "gone", -1), "a", "a current card that left the list: back to the top");
+
+  const before = t.tagsOf({ a: ["x"], b: ["y"] }, ["a", "n"]);
+  assert.deepStrictEqual(plain(before), { a: ["x"], n: [] });
+  const now = { a: ["x", "z"], b: ["y", "w"], n: ["x"] };
+  assert.ok(!t.sameTags(now, before));
+  assert.ok(t.sameTags({ a: ["x"], b: ["q"] }, before), "only the touched UPs count");
+  assert.ok(t.sameTags({ a: ["x"], n: [] }, before));
+  assert.deepStrictEqual(plain(t.restoreTags(now, before, new Set(["x", "y", "z", "w"]))), { a: ["x"], b: ["y", "w"] }, "b's later edit stays");
+  assert.deepStrictEqual(plain(t.restoreTags({}, { a: ["x", "dead"] }, new Set(["x"]))), { a: ["x"] }, "a tag deleted since stays gone");
+}
+
+// One keydown handler for the page (triage.js onKey): follow.js hands it its keys, and triage.js knows no 关注 ids.
+{
+  assert.ok(!/addEventListener\("keydown"/.test(source.replace(/(tagsDialog|\$\("fwPickInput"\))\.addEventListener\("keydown"/g, "")), "follow.js has no page-wide keydown listener");
+  assert.ok(source.includes("T.setModeKeys("), "follow.js registers its keys");
+  assert.ok(!/fw[A-Z]/.test(fs.readFileSync(path.join(__dirname, "triage.js"), "utf8")), "triage.js names no 关注 element");
 }
 
 console.log("follow selftest: all passed");
