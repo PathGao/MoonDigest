@@ -624,7 +624,8 @@ async function triageClassifyTitles({ items, criteria, folder }) {
 }
 
 // 协作打标签：只返回提案，不缓存。新建标签至多 maxNewTags 个（收藏夹剩余名额与分拣设置里 AI 新建上限取小）
-async function triageAiCommand({ instruction, items, tags, maxNewTags = 5, allowRemove = false }) {
+// 关注 (follow-bg.js) calls it too, with UP 主 as items (mid in bvid) and its own unit.
+async function triageAiCommand({ instruction, items, tags, maxNewTags = 5, allowRemove = false }, unit = TRIAGE_AI_UNIT) {
   const text = String(instruction ?? "").trim();
   if (!text) throw triageError("缺少指令");
   const list = (Array.isArray(items) ? items : []).filter((it) => it && it.bvid);
@@ -632,7 +633,7 @@ async function triageAiCommand({ instruction, items, tags, maxNewTags = 5, allow
   const ai = await triageAiSettings();
   const opts = { maxNewTags: Math.max(0, Math.min(50, Math.floor(Number(maxNewTags)) || 0)), allowRemove: allowRemove === true };
   const { content } = await triageChat(
-    triageBuildCommandMessages({ instruction: text, tags, items: list, ...opts }),
+    triageBuildCommandMessages({ instruction: text, tags, items: list, ...opts, unit }),
     triageMaxTokens("command", list.length, ai),
     ai.triageThinking
   );

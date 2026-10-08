@@ -602,8 +602,6 @@ async function followNoteFeedPosts(items) {
 }
 
 async function followAiTag({ instruction, mids, tags, maxNewTags, allowRemove }) {
-  const text = String(instruction ?? "").trim();
-  if (!text) throw triageError("缺少指令");
   const s = await chrome.storage.local.get(["follow_list", "follow_people", "follow_content", "follow_last", "follow_tags", "follow_tag_map"]);
   const followed = new Set(s.follow_list?.list || []);
   const list = [...new Set((Array.isArray(mids) ? mids : []).map(String))].filter((m) => followed.has(m));
@@ -627,13 +625,13 @@ async function followAiTag({ instruction, mids, tags, maxNewTags, allowRemove })
   // 关注's own settings (follow_ai_settings, written by the page's 关注设置); the 收藏夹 values only before it exists.
   const set = await chrome.storage.sync.get({ follow_ai_settings: null, triageAiNewTagMax: 5, triageAiRemoveTags: false });
   const own = set.follow_ai_settings || {};
-  const opts = {
-    maxNewTags: Math.max(0, Math.min(50, Math.floor(Number(maxNewTags ?? own.newTagMax ?? set.triageAiNewTagMax)) || 0)),
+  return triageAiCommand({
+    instruction,
+    items,
+    tags: tagList,
+    maxNewTags: maxNewTags ?? own.newTagMax ?? set.triageAiNewTagMax,
     allowRemove: (allowRemove ?? own.allowRemove ?? set.triageAiRemoveTags) === true
-  };
-  const ai = await triageAiSettings();
-  const { content } = await triageChat(triageBuildCommandMessages({ instruction: text, tags: tagList, items, ...opts, unit: FOLLOW_AI_UNIT }), triageMaxTokens("command", items.length, ai), ai.triageThinking);
-  return triageParseCommand(content, items, tagList, opts);
+  }, FOLLOW_AI_UNIT);
 }
 
 const FOLLOW_HANDLERS = {

@@ -354,6 +354,8 @@ const runSync = async () => {
 
   // ---------- AI proposal ----------
   {
+    // The checks, the 0–50 cap and the parsing are triage-bg.js's triageAiCommand; 关注 only builds the UP 主 items.
+    assert.ok(!/triageChat\(|triageParseCommand\(|Math\.min\(50/.test(fs.readFileSync(path.join(__dirname, "follow-bg.js"), "utf8")), "follow-bg.js has its own AI command");
     assert.strictEqual(t.followAiLine({ name: "U|p", sign: "s\nx", tname: "知识", titles: ["a", "b"], currentTags: ["A"] }, 2), "2|U p|s x|知识|a；b|A");
     local = {
       follow_list: { list: ["1", "2"] },
