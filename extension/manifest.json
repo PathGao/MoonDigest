@@ -4,7 +4,7 @@
   "version": "3.2.0",
   "description": "用 AI 读 B站和 YouTube 视频：字幕、总结、追问；整理收藏夹，挑出真正要看的。笔记可导出 Markdown，也可写入 Obsidian。",
 
-  "permissions": ["storage", "unlimitedStorage", "scripting", "sidePanel", "cookies", "declarativeNetRequest"],
+  "permissions": ["storage", "unlimitedStorage", "scripting", "sidePanel", "cookies", "declarativeNetRequest", "alarms"],
   "host_permissions": [
     "https://www.bilibili.com/*",
     "https://api.bilibili.com/*",

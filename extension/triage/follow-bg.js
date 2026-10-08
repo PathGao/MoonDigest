@@ -10,7 +10,7 @@
 // - follow-ai-tag { instruction, mids, tags?, maxNewTags?, allowRemove? }
 //                             提案 { newTags, assignments: { mid: { add, remove } }, note }，不写任何东西。
 //
-// 同步分三步，每步做完记进 follow_jobs.cursor，worker 被杀后（下次醒来时）从游标接着跑：
+// 同步分三步，每步做完记进 follow_jobs.cursor；跑着时开 1 分钟的 follow-keepalive 闹钟，worker 被杀后由它叫醒、从游标接着跑：
 // 1 list：拉我的全部关注 → follow_list / follow_people；和上次比，消失的人进 follow_unfollowed（source "bili"），只在拉全时判断。
 // 2 feed：视频动态往回翻过 followSlowDays 天 → follow_last（谁最近发过、最近 3 个标题）。6 小时内翻过就跳过。
 // 3 arc：动态里没出现的人逐个 arc/search（约 1 秒 1 个）→ follow_content；已有记录且不早于 follow_last.since 的跳过。
@@ -420,13 +420,18 @@ async function followSyncJob(ctx) {
   }
 }
 
+const FOLLOW_ALARM = "follow-keepalive";
 let followPinger = null;
+// 跑着时每 20 秒调一次扩展 API，重置 worker 的空闲计时；另开 1 分钟的闹钟，worker 被杀后由它叫醒，按游标接着跑。没在跑就清掉。
 function followKeepAlive(on) {
-  // 有扩展 API 调用就重置 worker 的空闲计时；被杀了也没关系，下次醒来按游标接着跑。
-  if (on && !followPinger) followPinger = setInterval(() => chrome.runtime?.getPlatformInfo?.(), 20000);
+  if (on && !followPinger) {
+    followPinger = setInterval(() => chrome.runtime?.getPlatformInfo?.(), 20000);
+    chrome.alarms?.create(FOLLOW_ALARM, { periodInMinutes: 1 });
+  }
   if (!on && followPinger) {
     clearInterval(followPinger);
     followPinger = null;
+    chrome.alarms?.clear(FOLLOW_ALARM);
   }
 }
 
@@ -481,6 +486,7 @@ async function followStop() {
 async function followResume() {
   const j = (await chrome.storage.local.get("follow_jobs")).follow_jobs;
   if (j?.running) await followStart();
+  else if (!followRun) chrome.alarms?.clear(FOLLOW_ALARM);
 }
 
 // ===== 关注 / 特别关注 / 动态 / AI =====
@@ -591,6 +597,9 @@ const FOLLOW_HANDLERS = {
 
 if (typeof chrome !== "undefined" && chrome.runtime?.onMessage) {
   followResume().catch((e) => console.warn("[follow] 接着同步失败", e));
+  chrome.alarms?.onAlarm.addListener((alarm) => {
+    if (alarm.name === FOLLOW_ALARM) followResume().catch((e) => console.warn("[follow] 接着同步失败", e));
+  });
   chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     const type = message?.type;
     if (typeof type !== "string" || !type.startsWith("follow-")) return false;

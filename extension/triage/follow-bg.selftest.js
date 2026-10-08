@@ -311,6 +311,64 @@ const runSync = async () => {
     await assert.rejects(t.followAiTag({ instruction: "x", mids: ["99"] }), /缺少 mids/);
   }
 
+  // ---------- keepalive alarm: a killed worker is woken by it and resumes; cleared when idle ----------
+  {
+    const alarms = new Map();
+    let onAlarm = null;
+    // A new worker: same files, same order, now with chrome present at load like the real service worker.
+    const worker = () => {
+      const w = vm.createContext({ TextEncoder, URL, URLSearchParams, console, setTimeout, clearTimeout, setInterval, clearInterval, AbortController, fetch: t.fetch });
+      w.chrome = {
+        ...t.chrome,
+        // triage-bg.js's own start-up needs these
+        runtime: { ...t.chrome.runtime, onMessage: { addListener() {} }, onInstalled: { addListener() {} }, onStartup: { addListener() {} } },
+        storage: { ...t.chrome.storage, onChanged: { addListener() {} } },
+        declarativeNetRequest: { updateSessionRules: async () => {} },
+        tabs: { TAB_ID_NONE: -1 },
+        alarms: {
+          create: (name, info) => void alarms.set(name, info),
+          clear: async (name) => alarms.delete(name),
+          onAlarm: { addListener: (fn) => (onAlarm = fn) }
+        }
+      };
+      for (const file of ["../limits.js", "../sites.js", "../note.js", "triage-bg.js", "follow-bg.js"]) vm.runInContext(fs.readFileSync(path.join(__dirname, file), "utf8"), w);
+      vm.runInContext("Object.assign(FOLLOW_CFG, { gapMs: 0, jitterMs: 0, backoffMs: 5, emptyRetryMs: 0, timeoutMs: 40, netRetry: [1, 1, 1] })", w);
+      return w;
+    };
+    const settle = async (w) => {
+      for (let i = 0; i < 20; i++) await new Promise((r) => setTimeout(r, 5));
+      await vm.runInContext("followRun && followRun.promise", w);
+    };
+    local = { follow_list: { list: ["1", "2"] }, follow_last: { at: now(), since: 0, map: {} }, follow_jobs: { finishedAt: 1 } };
+    alarms.set("follow-keepalive", { periodInMinutes: 1 }); // left over from a worker killed after its job ended
+    let w = worker();
+    await settle(w);
+    assert.ok(!alarms.has("follow-keepalive"), "an idle worker clears a leftover alarm");
+    // a job runs: the alarm is set while it runs and cleared once it ends
+    let seenAlarm = false;
+    routes["/x/space/wbi/arc/search"] = () => ((seenAlarm ||= alarms.get("follow-keepalive")?.periodInMinutes === 1), arcOk(1));
+    await w.followStart();
+    await settle(w);
+    assert.ok(seenAlarm, "alarm set while the job runs");
+    assert.ok(!alarms.has("follow-keepalive"), "alarm cleared when nothing runs");
+    // the worker is killed mid-job (storage still says running). A woken worker resumes at load; the alarm itself also
+    // resumes when the worker is up but holds no run for a job storage marks running.
+    w = worker();
+    await settle(w);
+    local.follow_list = { list: ["1", "2"] };
+    local.follow_content = { 1: { code: 0, count: 1, tlist: {}, v: [], at: now() } };
+    local.follow_jobs = { running: true, phase: "arc", cursor: { phase: "arc" }, startedAt: now() - 60 };
+    calls = [];
+    onAlarm({ name: "follow-keepalive" });
+    await settle(w);
+    assert.deepStrictEqual(calls.filter((c) => !c.startsWith("web-interface")), ["space/wbi/arc/search#2"], "resumed once, at its cursor");
+    assert.ok(local.follow_jobs.finishedAt && !local.follow_jobs.running);
+    assert.ok(!alarms.has("follow-keepalive"));
+    onAlarm({ name: "other" });
+    await settle(w);
+    assert.strictEqual(calls.filter((c) => c.startsWith("space")).length, 1, "other alarms ignored");
+  }
+
   finished = true;
   console.log("follow-bg selftest ok");
 })().catch((e) => {
