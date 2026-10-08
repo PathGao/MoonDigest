@@ -17,7 +17,6 @@ const el = {
   sendBtn: document.getElementById("sendBtn"),
   summaryBtn: document.getElementById("summaryBtn"),
   triageBtn: document.getElementById("triageBtn"),
-  triageHint: document.getElementById("triageHint"),
   historyBtn: document.getElementById("historyBtn"),
   readingViewBtn: document.getElementById("readingViewBtn"),
   settingsBtn: document.getElementById("settingsBtn")
@@ -44,7 +43,6 @@ async function init() {
   });
   getActiveTab().then((tab) => {
     // Any bilibili host, so favorites pages on space.bilibili.com count too.
-    el.triageHint.hidden = /(^|\.)bilibili\.com$/.test(URL.parse(tab?.url || "")?.hostname || "");
   });
   await refreshFromTab();
 }
