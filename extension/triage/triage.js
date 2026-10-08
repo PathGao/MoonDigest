@@ -3164,7 +3164,7 @@ async function runAiCommand({ instruction, scope, allowRemove }) {
     // An AI 429: wait, then send the same batch again, as 关注 does.
     if (!r.ok && THROTTLES[r.code]) {
       const [ms, label] = THROTTLES[r.code];
-      el.aiProgress.textContent = `${label}，${Math.round(ms / 1000)} 秒后重试第 ${i + 1} 批…`;
+      TagDialogs.ai.progress(aiTags, `${label}，${Math.round(ms / 1000)} 秒后重试第 ${i + 1} 批…`);
       await sleepWhile(ms, keepGoing);
       i--;
       continue;

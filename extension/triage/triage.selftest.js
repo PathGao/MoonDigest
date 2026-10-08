@@ -614,7 +614,7 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     let calls = 0;
     handlers["triage-ai-command"] = () => (++calls === 1 ? { ok: false, code: "AI_THROTTLED", error: "HTTP 429" } : { ok: true, data: {} });
     const before = sent.length;
-    await t.runAiCommand();
+    await t.runAiCommand({ instruction: "按深度分", scope: "filter", allowRemove: false });
     const batches = sent.slice(before).filter((m) => m.type === "triage-ai-command");
     assert.strictEqual(batches.length, 2, "the throttled batch is sent again");
     assert.deepStrictEqual(plain(batches[1].items), plain(batches[0].items));
