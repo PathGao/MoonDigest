@@ -293,7 +293,7 @@ main.innerHTML = `
       settingsAttr: 'data-fw="settings"', settingsLabel: "关注设置"
     })}</span>
   </div>
-  <div class="stagebar fw-bar"><span id="fwBar" class="fw-bar-dyn"></span><span id="fwTools" class="fw-tools"><span id="fwSelAll"></span>${UI.tagButtons({ manageAttrs: 'data-fw="tags"', aiAttrs: 'data-fw="ai" aria-label="AI 打标签"' })}</span></div>
+  <div class="stagebar fw-bar"><span id="fwBar" class="fw-bar-dyn"></span><span id="fwTools" class="fw-tools"><span id="fwSelAll"></span><span id="fwAiSlot"></span></span></div>
   <div id="fwList" class="fw-list" aria-label="UP 主"></div>
   <div id="fwSel"></div>`;
 const SYNC = { pill: $("fwSyncViewBtn"), notice: $("fwSyncNotice"), text: $("fwSyncText"), detail: $("fwSyncDetail"), close: $("fwSyncCloseBtn") };
@@ -434,7 +434,8 @@ function renderSide() {
   sideSlot.innerHTML = sideSelect();
 }
 
-// The sync job: while it runs the progress pill (progress, the B站限流 countdown, 暂停) takes 刷新's place, as in 收藏夹.
+// The progress pill, as in 收藏夹: while the sync job runs it takes 刷新's place (progress, the B站限流 countdown, 暂停);
+// otherwise it shows AI 打标签 running or waiting to be confirmed, with 查看.
 function renderSync() {
   const j = D.jobs || {};
   const pill = $("fwActivity");
@@ -442,7 +443,10 @@ function renderSync() {
   btn.disabled = Boolean(j.running);
   if (j.running) btn.setAttribute("aria-busy", "true");
   else btn.removeAttribute("aria-busy");
-  if (!j.running) return UI.setActivity(pill, null);
+  if (!j.running) {
+    const ai = AI.running ? "AI 打标签运行中" : AI.proposal ? "标签建议待确认" : "";
+    return UI.setActivity(pill, ai && { text: ai, btn: { attrs: 'data-fw="ai"', label: "查看" } });
+  }
   const wait = j.hold?.until ? UI.waitText(j.hold.why === "throttled" ? "B站限流" : "网络断了", Math.ceil(j.hold.until - nowSec())) : "";
   const text = wait || `${j.step || PHASE[j.phase] || "刷新中"}${j.total ? ` ${j.done || 0}/${j.total}` : j.done ? ` ${j.done}` : ""}`;
   UI.setActivity(pill, { text, done: j.done || 0, total: wait ? 0 : j.total || 0, warn: Boolean(wait), btn: { attrs: "data-fw-stop", label: "暂停" } });
@@ -462,6 +466,17 @@ function renderSyncChanges() {
     text: `B站同步：新关注 ${c.added.length} · 在 B站取关 ${c.removed.length}`,
     sections: [["新关注", names(c.added)], ["在 B站取关", names(c.removed)]]
   });
+}
+
+// 标签管理 and ✦ AI 打标签 with its state, as in 收藏夹. AI 打标签 works on UP 主: not in 动态 or 已取消关注.
+function renderAiButton() {
+  const slot = $("fwAiSlot");
+  slot.innerHTML = UI.tagButtons({ manageAttrs: 'data-fw="tags"', aiAttrs: 'data-fw="ai"', state: AI.running ? " · 运行中" : AI.proposal ? " · 待确认" : "" });
+  slot.querySelector("[data-fw=ai]").hidden = F.tab === "feed" || F.side === "gone";
+}
+function renderAiState() {
+  renderSync();
+  renderAiButton();
 }
 
 // 关注 · N, when the list was read, and the last refresh's error, which stays until a refresh gets through.
@@ -505,7 +520,7 @@ function renderUps() {
     : "";
   E.bar.innerHTML = D.list || gone ? `<span class="seg" role="group" aria-label="${gone ? "在哪取关" : "更新状态"}">${seg}</span>${gone ? "" : recentChip}` : "";
   E.tools.hidden = !D.list && !gone;
-  E.tools.querySelector("[data-fw=ai]").hidden = gone;
+  renderAiButton();
   // 全选 is always on offer while nothing is selected, as in 收藏夹; with a selection it moves into the selection bar.
   E.selAll.innerHTML = list.length && !F.sel.size ? `<button type="button" class="link" data-fw="select-all">全选这里的 ${list.length} 个</button>` : "";
   E.sort.hidden = gone || !D.list;
@@ -607,7 +622,7 @@ function renderFeed() {
   E.sort.hidden = true; // 动态 comes newest first from B站: no sort
   // Of the tools only 标签管理: AI 打标签 and 全选 work on UP 主.
   E.tools.hidden = false;
-  E.tools.querySelector("[data-fw=ai]").hidden = true;
+  renderAiButton();
   E.selAll.innerHTML = "";
   E.bar.innerHTML = `<span class="seg fw-pills" role="group" aria-label="按标签看">${[pill("all", "全部"), pill("untagged", "未打标签"), pill("special", "★ 特别关注"), ...D.tags.map((t) => pill(t.id, t.name, t.color))].join("")}</span>${
     D.groups.length ? `<span class="seg fw-pills fw-groups" role="group" aria-label="按 B站 分组看"><span class="fw-group-label">B站 分组</span>${D.groups.map((g) => pill(`g:${g.id}`, g.name)).join("")}</span>` : ""
@@ -1214,6 +1229,7 @@ async function runAi() {
   AI.running = true;
   AI.stop = false;
   renderAiForm();
+  renderAiState();
   const keepGoing = () => !AI.stop;
   for (let i = 0; i < total && keepGoing(); i++) {
     progress.textContent = `AI 正在处理第 ${i + 1} / ${total} 批…`;
@@ -1239,8 +1255,9 @@ async function runAi() {
   AI.running = false;
   AI.proposal = p;
   progress.textContent = "";
+  renderAiState();
   if (tagsDialog.open) showTagsMode("ai");
-  else toast("AI 打标签完成，点「AI 打标签」查看建议");
+  else toast("AI 打标签已完成，在状态栏点「查看」确认");
 }
 
 const changesNow = (p) => UI.aiChanges(p, D.map, new Set(following()), (key) => UI.previewId(p, key, D.tags));
@@ -1457,6 +1474,7 @@ tagsDialog.addEventListener("click", async (e) => {
   else if (ai === "close") tagsDialog.close();
   else if (ai === "discard") {
     AI.proposal = null;
+    renderAiState();
     showTagsMode("ai");
   } else if (ai === "apply") applyAi();
 });
