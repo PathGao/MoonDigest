@@ -220,9 +220,9 @@ select { height: 28px; max-width: 240px; }
 .seg button[aria-pressed="true"] { background: var(--text); color: var(--bg); font-weight: 600; }
 .tagfilter { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
 .class-filter:not(:empty) + .tagfilter { margin-left: 4px; padding-left: 12px; border-left: 1px solid var(--border-strong); }
-.tag-chip { --c: var(--border-strong); color: var(--text-2); }
-.tag-chip:hover { background: var(--field-bg); }
-.tag-chip .ai-spark { margin-right: 3px; }
+/* ✦ 标签 opens 管理标签 and AI 批量打: an action, so a plain button (the 关注 side's ✦ AI 打标签 looks the same), not a filter chip. */
+.tags-btn { height: 30px; }
+.tags-btn .ai-spark { margin-right: 3px; }
 
 /* ---------- the selection bar floats over the bottom of the page while anything is selected ----------
    Centered with auto margins between left and right (not left: 50% + translate, which caps a fixed box at half the
