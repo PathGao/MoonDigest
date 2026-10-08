@@ -1991,6 +1991,22 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     const wait = () => new Promise((r) => setTimeout(r, 20));
     const key = (k, target, o = {}) => ({ key: k, target, isComposing: false, keyCode: 0, prevented: 0, preventDefault() { this.prevented++; }, ...o });
     const field = (sel, value = "") => ({ value, matches: (s) => s.split(", ").includes(sel), closest: () => ({ dataset: { bvid: "BV1" } }) });
+
+    // The player has no top bar; its only control is the round × on the corner (outside #viewer), and Esc.
+    {
+      const html = fs.readFileSync(path.join(__dirname, "triage.html"), "utf8");
+      const viewer = html.slice(html.indexOf('<aside id="viewer"'), html.indexOf("</aside>", html.indexOf('<aside id="viewer"')));
+      assert.ok(viewer && !/viewer-head|viewerTitle|viewerFocusBtn|viewerTabBtn|专注模式|在 B站打开/.test(viewer), "no top bar in the player");
+      assert.ok(!/viewer-head/.test(fs.readFileSync(path.join(__dirname, "triage.css"), "utf8")), "no top bar CSS");
+      assert.ok(/<\/aside>\s*<!--[^>]*-->\s*<button id="viewerCloseBtn" type="button" class="viewer-close" aria-label="关闭播放（Esc）" title="关闭播放（Esc）">×<\/button>/.test(html), "× right after #viewer, labeled");
+      openFake("A", [item(1)]);
+      t.openViewer(t.S.itemMap.get("BV1"));
+      fire("viewerCloseBtn", "click");
+      assert.strictEqual(t.S.viewing, "", "× closes the player");
+      t.openViewer(t.S.itemMap.get("BV1"));
+      t.onKey(key("Escape", {}));
+      assert.strictEqual(t.S.viewing, "", "Esc closes the player");
+    }
     openFake("A", [item(1)]);
 
     // The tag row: 标签管理 opens 标签管理, ✦ AI 打标签 opens AI 打标签, each its own dialog.

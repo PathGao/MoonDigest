@@ -350,7 +350,7 @@ const el = {};
   "titleMaxHint", "analyzeMaxInput", "analyzeMaxHint", "settingsError", "csvBtn", "confirmDialog",
   "confirmTitle", "confirmBody", "confirmOk",
   "criteriaDialog", "criteriaTitle", "criteriaInput", "helpDialog",
-  "biliBtn", "main", "viewer", "viewerTitle", "viewerNextBtn", "viewerFocusBtn", "viewerTabBtn", "viewerCloseBtn", "viewerFrame", "viewerTags",
+  "biliBtn", "main", "viewer", "viewerBasket", "viewerNextBtn", "viewerCloseBtn", "viewerFrame", "viewerTags",
   "tools", "writeBtn", "writeDialog", "writeScope", "writeFormat", "writeScopeCount", "writeOverwriteRow", "writeOverwrite", "writeProgress", "writeFailed", "writeStopBtn", "writeCopyBtn", "writeRunBtn", "writeMdBtn"
 ].forEach((id) => (el[id] = $(id)));
 
@@ -3334,7 +3334,7 @@ function renderBasket() {
     </div>`;
     })
     .join("");
-  el.viewerNextBtn.hidden = !S.basket.some((x) => x.bvid === S.viewing);
+  el.viewerBasket.hidden = !S.basket.some((x) => x.bvid === S.viewing);
 }
 
 function mdLinkText(s) {
@@ -3851,9 +3851,6 @@ function bindEvents() {
     )
   );
   el.viewerNextBtn.addEventListener("click", basketDoneAndNext);
-  el.viewerTabBtn.addEventListener("click", () => openTab(videoUrl(S.viewing)));
-  // The viewer frame is the only one in this tab running content.js, so this reaches it like the popup's 专注模式.
-  el.viewerFocusBtn.addEventListener("click", () => chrome.tabs.sendMessage(ownTabId, { type: "popup-trigger-reading-view" }).catch(() => toast("视频页还没加载好，稍后再试", true)));
 
   el.settingsBtn.addEventListener("click", () => openSettings());
   for (const input of [el.thinkingInput, el.batchSizeInput, el.titleMaxInput, el.analyzeMaxInput]) {
@@ -4030,7 +4027,6 @@ function openSettings(scrollToLimits = false, firstRun = false) {
 
 function openViewer(it) {
   S.viewing = it.bvid;
-  el.viewerTitle.textContent = it.title;
   el.viewerFrame.src = videoUrl(it.bvid);
   el.viewer.hidden = false;
   el.main.classList.add("viewing");

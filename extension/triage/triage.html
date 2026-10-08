@@ -77,19 +77,17 @@
           </section>
 
           <!-- The video page itself: likes, coins, favorites and comments work as on Bilibili. -->
+          <!-- No top bar: the title is on the B站 page, 在 B站打开 is a right-click on the card. -->
           <aside id="viewer" class="viewer" hidden>
-            <div class="viewer-head">
-              <strong id="viewerTitle" class="viewer-title"></strong>
-              <button id="viewerNextBtn" type="button" hidden aria-label="已看，在右侧打开播放列表的下一个">已看，下一个 ▸</button>
-              <button id="viewerFocusBtn" type="button" aria-label="在视频栏里打开专注模式">专注模式</button>
-              <button id="viewerTabBtn" type="button" class="link" aria-label="在 B站打开">在 B站打开 ↗</button>
-              <button id="viewerCloseBtn" type="button" class="icon" aria-label="关闭视频栏 (Esc)">×</button>
-            </div>
             <!-- 收藏夹's 「视频标签」 line; follow.js puts the 「UP 标签」 line under it. -->
             <div id="viewerTags" class="viewer-line" hidden></div>
+            <!-- A 播放列表 video is playing: 已看，下一个. -->
+            <div id="viewerBasket" class="viewer-line" hidden><span class="row-label">播放列表</span><button id="viewerNextBtn" type="button" aria-label="已看，在右侧打开播放列表的下一个">已看，下一个 ▸</button></div>
             <!-- No allow-top-navigation: the page breaks out of frames by navigating the top window. -->
             <iframe id="viewerFrame" class="viewer-frame" title="视频页" sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox allow-modals allow-presentation" allow="autoplay; fullscreen; picture-in-picture; clipboard-write"></iframe>
           </aside>
+          <!-- Rides on the player's top-right corner, outside #viewer so its overflow does not clip it. -->
+          <button id="viewerCloseBtn" type="button" class="viewer-close" aria-label="关闭播放（Esc）" title="关闭播放（Esc）">×</button>
         </div>
       </div>
     </div>
@@ -374,7 +372,7 @@
         </ol>
         <p class="dialog-hint"><strong>分拣分两层</strong>：第一层是收藏夹的判断标准，AI 按它给出 AI 判断（值得留 / 可清理 / 拿不准），决定留不留；第二层是你的标签，按每个标签的说明给视频分类，决定怎么找。<br>判断标准在粗看、细看按钮旁边写，标签说明在「✦ AI 打标签」左边的「标签管理」里写。</p>
         <p class="dialog-hint">AI 判断是每步里的筛选。判断标准不写时，AI 从收藏夹名和简介推测用途。<br>每个收藏夹最多 <span data-tag-limit>10</span> 个标签：按 T 逐个打，按 I 让 AI 打标签（AI 每次最多新建 <span data-ai-new-tag-max>5</span> 个）。两个上限都在收藏夹设置里改。<br>AI 只在本页打开时运行。</p>
-        <p class="dialog-hint"><strong>播放列表</strong>：分拣时按 E 把想先看或要核对的视频放进列表（列表右下角），可以跨收藏夹，按加入先后排。<br>点一条在右侧打开，看完点「已看」移出列表；右侧顶栏「已看，下一个」移出这条并打开下一条。「清空」一次移出全部。都可以按 U 撤销。<br>不影响收藏和处理结果。</p>
+        <p class="dialog-hint"><strong>播放列表</strong>：分拣时按 E 把想先看或要核对的视频放进列表（列表右下角），可以跨收藏夹，按加入先后排。<br>点一条在右侧打开，看完点「已看」移出列表；播放器上方「已看，下一个」移出这条并打开下一条。「清空」一次移出全部。都可以按 U 撤销。<br>不影响收藏和处理结果。</p>
         <p class="dialog-hint">「保留」只在 MoonDigest 里标记，B站收藏夹不变。<br>摘录、笔记、表格和完整备份都在搜索框旁的「导出」菜单里。</p>
         </div>
         <div class="stack fav-help">

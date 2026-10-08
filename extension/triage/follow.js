@@ -1591,7 +1591,7 @@ setInterval(() => {
   if (F.mode === "follow" && D.jobs?.running && D.jobs.hold?.until) renderHead();
 }, 1000);
 
-// Leaving the viewer (×, Esc, the tab button) clears the playing mark.
+// Leaving the viewer (× or Esc) clears the playing mark.
 new MutationObserver(() => {
   if (F.viewing && !T.viewing()) {
     F.viewing = "";
