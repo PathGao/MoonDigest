@@ -1884,6 +1884,17 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     releaseSnap();
     assert.strictEqual(await sync, false, "the stale sync gives up");
     assert.deepStrictEqual(plain(t.S.items.map((it) => it.bvid)), ["BV72"], "folder B keeps its own list");
+    // A move that starts while a full sync reads the folder: the list read is from before it, so the sync drops it.
+    openFake("PA", [item(71)]);
+    t.S.syncing = false;
+    const releaseSnap2 = holdRead(t.K.snapshot("PA"));
+    const sync2 = t.syncFolder({ force: true });
+    await settle();
+    t.S.transferRun = { mediaId: "PA", to: "PB" };
+    releaseSnap2();
+    assert.strictEqual(await sync2, false, "the sync read before the move gives up");
+    assert.deepStrictEqual([plain(t.S.items.map((it) => it.bvid)), store.triage_snapshot_PA.bvids], [["BV71"], ["BV71"]], "the moved list stays");
+    t.S.transferRun = null;
 
     // A read deferred for a folder being written is not dropped because another folder's read was waiting first.
     const ran = [];

@@ -1182,6 +1182,7 @@ async function syncFolder({ force = false, cached = null } = {}) {
   S.syncing = token;
   S.loadPage = null;
   const mediaId = S.mediaId;
+  const started = Date.now();
   renderTop();
   try {
     // Videos MoonDigest already holds from another chosen folder or 已出分拣范围: added here, they reuse that info.
@@ -1203,6 +1204,11 @@ async function syncFolder({ force = false, cached = null } = {}) {
     if (r.data.info) S.folderIntro[mediaId] = r.data.info.intro;
     const snap = await storeGet(K.snapshot(mediaId), null);
     if (token !== S.folderToken) return false;
+    // A run that wrote here while the list was read makes it stale (it would bring moved videos back): read again later.
+    if (writingTo(mediaId) || (lastWrite[String(mediaId)] || 0) >= started) {
+      deferRead(() => syncFolder({ force: true }), true);
+      return false;
+    }
     const remote = keepInvalidInfo(r.data.items || [], snap?.items);
     // A partial list proves what exists, never what was removed, so it skips the removed diff and the snapshot.
     const partial = r.data.partial ? { ...r.data.partial, count: remote.length } : null;
