@@ -265,4 +265,11 @@ for (const [file, fns] of [["triage.js", ["mergeAiBatch", "aiChanges"]], ["follo
   neither(/\$\{UI\.ICON\.refresh\}刷新/, "draws its own 刷新");
 }
 
+// 「+ 标签 T」 has one look, in triage.css, wherever it shows (视频投稿 cards, UP cards, the viewer line).
+{
+  const [tc, fc] = ["triage.css", "follow.css"].map((f) => fs.readFileSync(path.join(__dirname, f), "utf8"));
+  assert.strictEqual((tc.match(/tag-plus \{/g) || []).length, 1, "triage.css styles 「+ 标签」 once, for every place");
+  assert.ok(!/tag-plus(:hover)? \{[^}]*(border|color|height|padding)/.test(fc), "follow.css has no 「+ 标签」 style of its own");
+}
+
 console.log("shared selftest: all passed");

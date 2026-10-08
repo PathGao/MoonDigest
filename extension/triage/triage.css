@@ -500,8 +500,10 @@ button.icon { width: 26px; height: 24px; padding: 0; }
 .tp-pop .tp-keys { order: 3; margin: 2px 6px 0; color: var(--faint); font-size: 11px; }
 .tp-pop .dialog-actions { order: 4; }
 .tp-pop .dialog-actions button { height: 26px; font-size: var(--fs-sm); }
-/* 「+ 标签 T」: T is a faint letter after the word, as the card keys. */
-.tag-plus { height: auto; font-size: var(--fs-xs); }
+/* 「+ 标签 T」 (shared.js tagPlusBtn) on cards and the viewer line: quiet, a dashed outline on hover; T is a faint letter
+   after the word, as the card keys. button. to win over tokens.css button.quiet. */
+button.tag-plus { display: inline-flex; align-items: center; gap: 4px; height: 20px; padding: 0 6px; border: 1px dashed transparent; border-radius: 4px; color: var(--text-2); font-size: var(--fs-xs); text-decoration: none; }
+button.tag-plus:hover { border-color: var(--border-strong); color: var(--text); background: none; }
 .k-faint { padding: 0; border: 0; background: none; color: var(--faint); font: inherit; font-size: var(--fs-xs); }
 .dot { --c: var(--border-strong); width: 10px; height: 10px; border-radius: 50%; background: var(--c); }
 /* Two text levels in dialogs: .dialog-hint explains, .dialog-meta reports (counts, progress, key tips). */
@@ -531,8 +533,6 @@ dialog h3 { margin: 8px 0 0; font-size: var(--fs-sm); font-weight: 600; }
 .viewer-line[hidden] { display: none; }
 .viewer-line .sep, .viewer-line .none { color: var(--faint); }
 .viewer-line .chip[data-pick], .viewer-line .chip[data-vtag] { cursor: pointer; }
-.viewer-line .tag-plus { display: inline-flex; align-items: center; gap: 4px; height: 20px; padding: 0 6px; border: 1px dashed transparent; border-radius: 4px; color: var(--text-2); text-decoration: none; }
-.viewer-line .tag-plus:hover { border-color: var(--border-strong); background: none; }
 .viewer { display: flex; flex-direction: column; min-height: 0; min-width: 0; background: var(--surface); border: 1px solid var(--border); border-radius: 9px; overflow: hidden; }
 .viewer-head { display: flex; align-items: center; gap: 6px; padding: 6px 6px 6px 12px; border-bottom: 1px solid var(--border); }
 .viewer-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--fs-sm); }

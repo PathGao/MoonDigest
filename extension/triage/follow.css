@@ -52,11 +52,10 @@ body:not(.follow-mode) :is(.fw-side-slot, .follow-help) { display: none !importa
 .fw-title { min-width: 0; height: auto; padding: 0; border: 0; background: none; color: var(--text); text-decoration: none; font-size: var(--fs-sm); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; }
 .fw-title::before { content: "▸ "; color: var(--faint); }
 a.fw-title:hover { background: none; color: var(--link); text-decoration: underline; }
-/* The tag chips are 收藏夹's (triage.css .card-body > .chips). 「+ 标签 T」 shows on the hovered or current card, as the
-   secondary actions do. */
+/* The tag chips are 收藏夹's (triage.css .card-body > .chips). 「+ 标签 T」 (triage.css) shows on the hovered or current
+   card, as the secondary actions do; on touch always. */
 .fw-up .chips { align-items: center; }
-.fw-up:not(:hover, :focus-within, .focused) .tag-plus { visibility: hidden; }
-@media (hover: none) { .fw-up .tag-plus { visibility: visible !important; } }
+@media (hover: hover) { .fw-up:not(:hover, :focus-within, .focused) .tag-plus, .fw-video:not(:hover, :focus-within, .fw-target) .tag-plus { visibility: hidden; } }
 .fw-right { display: flex; flex-direction: column; align-items: flex-end; gap: 8px; }
 .fw-right button { height: 30px; min-width: 76px; font-size: var(--fs-sm); }
 .fw-right .star { min-width: 0; width: 32px; padding: 0; border-color: transparent; background: none; color: var(--faint); font-size: 20px; line-height: 1; }
@@ -112,10 +111,6 @@ a.fw-title:hover { background: none; color: var(--link); text-decoration: underl
 /* ---------- tagging an UP from 视频投稿: the card's chip row (the viewer line and the picker are triage.css's) ---------- */
 .fw-video .chips { align-items: center; min-height: 20px; }
 .fw-video .chip[data-pick] { cursor: pointer; }
-.fw-video .tag-plus { display: inline-flex; align-items: center; gap: 4px; height: 20px; padding: 0 6px; border: 1px dashed transparent; border-radius: 4px; color: var(--faint); text-decoration: none; }
-.fw-video .tag-plus:hover { border-color: var(--border-strong); color: var(--text); background: none; }
-.fw-video:not(:hover, :focus-within, .fw-target) .tag-plus { visibility: hidden; }
-@media (hover: none) { .fw-video .tag-plus { visibility: visible; } }
 .fw-video.fw-target:not(.playing) { outline: 2px dashed var(--border-strong); outline-offset: 2px; }
 .viewer-line .name { color: var(--text); font-weight: 600; text-decoration: none; }
 .viewer-line .name:hover { color: var(--link); }
