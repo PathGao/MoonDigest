@@ -773,7 +773,7 @@ const TRIAGE_HANDLERS = {
       if (pn > 1) await new Promise((r) => setTimeout(r, 300));
       let data;
       try {
-        data = await triageBiliGet(`https://api.bilibili.com/x/v3/fav/resource/list?media_id=${mediaId}&ps=20&pn=${pn}`);
+        data = await triageBiliGet(`https://api.bilibili.com/x/v3/fav/resource/list?media_id=${mediaId}&ps=40&pn=${pn}`);
       } catch (e) {
         // Keep what earlier pages returned; the page must not treat a partial list as the whole folder.
         if (pn === 1) throw e;

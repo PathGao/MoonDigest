@@ -909,10 +909,10 @@ function seenText(it) {
   return it.duration > 0 ? `看过 ${Math.min(99, Math.max(1, Math.round((it.seen / it.duration) * 100)))}%` : "";
 }
 
-// 「（p/P 页）」 while a folder of more than one page (20 videos each) loads.
+// 「（p/P 页）」 while a folder of more than one page (40 videos each, the most Bilibili allows) loads.
 function pageText(mediaId) {
   if (String(mediaId) === TOVIEW) return ""; // read in one request, no pages
-  const pages = Math.ceil(Number(S.folders.find((f) => String(f.id) === String(mediaId))?.count || 0) / 20);
+  const pages = Math.ceil(Number(S.folders.find((f) => String(f.id) === String(mediaId))?.count || 0) / 40);
   const done = S.loadPage?.mediaId === String(mediaId) ? S.loadPage.page : 0;
   return pages > 1 ? `（${Math.min(done, pages)}/${pages} 页）` : "";
 }
