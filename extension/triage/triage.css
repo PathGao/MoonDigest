@@ -369,7 +369,9 @@ select { height: 28px; max-width: 240px; }
    Bilibili's. html[data-seen-style] picks the corner tag or the veil (设置页「看完了标记样式」). */
 .seen-bar { position: absolute; left: 0; right: 0; bottom: 0; z-index: 2; height: 3px; background: rgba(0, 0, 0, 0.5); pointer-events: none; }
 .seen-bar i { display: block; height: 100%; background: #ff6699; }
-.seen-tag { position: absolute; top: 6px; right: 6px; z-index: 1; padding: 1px 6px; border-radius: 4px; background: var(--accent); color: #fff; font-size: var(--fs-xs); font-weight: 600; line-height: 18px; white-space: nowrap; pointer-events: none; }
+/* The bar copies B站's own progress bar (pink on 50% black), as on B站 pages. 看完了 is gray (DESIGN §1: pink is 你在哪),
+   the same dark gray as badges.css. */
+.seen-tag { position: absolute; top: 6px; right: 6px; z-index: 1; padding: 1px 6px; border-radius: 4px; background: rgba(17, 17, 27, 0.78); color: #fff; font-size: var(--fs-xs); font-weight: 600; line-height: 18px; white-space: nowrap; pointer-events: none; }
 .seen-veil { position: absolute; inset: 0; z-index: 1; display: none; align-items: center; justify-content: center; background: rgba(17, 17, 27, 0.55); color: #fff; font-size: var(--fs-sm); font-weight: 700; pointer-events: none; }
 .seen-tag.faint { background: rgba(17, 17, 27, 0.6); font-weight: 400; }
 html[data-seen-style="veil"] .seen-tag:not(.faint) { display: none; }
