@@ -264,8 +264,11 @@
           </div>
         </section>
         <section id="aiForm" class="ai-section">
-          <p class="dialog-hint">用一句话让 AI 给一批视频打标签，比如「按技术深度分成 入门 / 进阶 / 硬核」。AI 只给建议，你点「应用选中」后才生效，AI 判断不受影响。</p>
+          <p class="dialog-hint">用一句话让 AI 给一批视频打标签。AI 只给建议，你点「应用选中」后才生效，AI 判断不受影响。</p>
           <div class="ai-grid">
+            <label for="aiInstruction">指令</label>
+            <textarea id="aiInstruction" rows="3" placeholder="例如：把这些按技术深度分成 入门/进阶/硬核 三个标签"></textarea>
+            <div id="aiHistory" class="ai-history"></div>
             <label for="aiScope">作用范围</label>
             <select id="aiScope">
               <option value="filter">当前筛选</option>
@@ -273,9 +276,6 @@
               <option value="analyzed">细看过的</option>
             </select>
             <p id="aiScopeCount" class="dialog-meta"></p>
-            <label for="aiInstruction">指令</label>
-            <textarea id="aiInstruction" rows="3" placeholder="例如：把这些按技术深度分成 入门/进阶/硬核 三个标签"></textarea>
-            <div id="aiHistory" class="ai-history"></div>
             <div id="aiTagsPreview"></div>
             <label class="toggle"><input id="aiFormRemoveTagsInput" type="checkbox" class="switch" /> 允许 AI 去掉已有标签</label>
           </div>
@@ -288,10 +288,9 @@
           </div>
         </section>
         <section id="aiReview" class="ai-section" hidden>
-          <h3>检查 AI 的建议</h3>
-          <p id="aiReviewSummary" class="dialog-meta"></p>
+          <h3>检查 AI 的建议 <span id="aiReviewSummary" class="dialog-meta"></span></h3>
           <div id="aiNotes"></div>
-          <h3>新标签</h3>
+          <h3 id="aiNewTagsHead">新标签</h3>
           <div id="aiNewTags" class="tag-rows"></div>
           <div class="ai-review-head">
             <h3>视频改动</h3>

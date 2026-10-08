@@ -580,6 +580,20 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   assert.strictEqual(vm.runInContext("aiNewTagRoom()", ctx), 4);
   t.renderAiForm();
   assert.ok(t.el.aiTagsPreview.innerHTML.includes("AI 这次最多新建 4 个（这个收藏夹还剩 4 个名额）"));
+  // 批量打 review: one group per tag change; a video with two changes shows in both, naming the other one.
+  openFake("K", [item(700), item(701), item(702)]);
+  Object.assign(t.S, { tags: [{ id: "ga", name: "A", color: "#1", folder: "K" }, { id: "gb", name: "B", color: "#2", folder: "K" }], videoTags: { BV702: ["ga"] } });
+  const gp = { newTags: [{ key: "C", name: "C", checked: true }], notes: [], errors: [], rows: [
+    { bvid: "BV700", add: ["id:ga"], remove: [], checked: true },
+    { bvid: "BV701", add: ["id:ga", "id:gb"], remove: [], checked: true },
+    { bvid: "BV702", add: ["new:C"], remove: ["ga"], checked: true }] };
+  const shape = () => plain(vm.runInContext("aiGroups", ctx)(gp).map((g) => [g.change.text, g.rows.map((x) => `${x.r.bvid}${x.others.map((o) => " " + o.text).join("")}`)]));
+  assert.deepStrictEqual(shape(), [["+ A", ["BV700", "BV701 + B"]], ["+ B", ["BV701 + A"]], ["+ C", ["BV702 − A"]], ["− A", ["BV702 + C"]]]);
+  gp.newTags[0].checked = false;
+  assert.deepStrictEqual(shape().at(-1), ["− A", ["BV702"]], "an unticked new tag drops out of the other changes too");
+  Object.assign(t.S, { tags: t.S.tags.filter((x) => x.folder !== "K" || !/^g[ab]$/.test(x.id)), videoTags: {} });
+  openFake("K", [item(600), item(601)]);
+
   // U after 批量打 restores the tags and video tags.
   const beforeApply = plain([t.S.tags, t.S.videoTags]);
   t.S.ai.proposal = { newTags: [{ key: "z", name: "z", checked: true }], rows: [{ bvid: "BV600", add: ["new:z"], remove: [], checked: true }], notes: [], errors: [] };

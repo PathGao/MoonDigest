@@ -560,12 +560,21 @@ dialog.wide { width: min(620px, calc(100% - 32px)); }
 .ai-review-head { display: flex; align-items: center; gap: 8px; }
 .ai-section > .ai-review-head:not(:first-child) { margin-top: 8px; }
 .ai-review-head h3 { margin: 0; }
+#aiReviewSummary { font-weight: 400; }
 #aiNotes p { margin: 0; }
-.ai-rows { display: flex; flex-direction: column; gap: 6px; max-height: 50vh; overflow-y: auto; }
-.ai-row { display: flex; gap: 8px; align-items: flex-start; padding: 6px 8px; border: 1px solid var(--border); border-radius: var(--radius-sm); }
+/* One box per tag change: the head ticks the whole group; each video is one line, its other changes and the AI's reason on the right. */
+.ai-rows { display: flex; flex-direction: column; gap: 8px; max-height: 50vh; overflow-y: auto; }
+.ai-group { display: flex; flex-direction: column; gap: 2px; padding: 6px 8px; border: 1px solid var(--border); border-radius: var(--radius-sm); }
+.ai-rows label { font-size: var(--fs-sm); color: var(--text); }
+.ai-group-head { display: flex; align-items: center; gap: 8px; }
+.ai-group-head .chips { margin: 0; }
+.ai-row { display: flex; align-items: center; gap: 8px; padding-left: 24px; }
+.ai-row-title { flex: 1; min-width: 0; }
+.ai-row-also { display: inline-flex; align-items: center; gap: 4px; flex: none; font-size: var(--fs-xs); color: var(--muted); }
+.ai-row-also .chip { font-size: var(--fs-xs); }
 .ai-row.off { opacity: 0.5; }
-.ai-row-body { min-width: 0; flex: 1; }
-.ai-row-title { font-weight: 600; }
+.ai-row-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ai-row-reason { flex: none; max-width: 14em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--fs-xs); }
 .ai-newtag { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
 .ai-newtag input[type="text"] { flex: 0 1 240px; min-width: 120px; }
 .stack { display: flex; flex-direction: column; gap: 6px; }

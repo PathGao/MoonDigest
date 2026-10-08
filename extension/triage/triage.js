@@ -335,7 +335,7 @@ const el = {};
   "criteriaDialog", "criteriaTitle", "criteriaInput", "tagsDialog", "tagsModeManage", "tagsModeBatch", "tagsManage", "tagsRows", "newTagInput", "addTagBtn", "helpDialog",
   "aiBtn", "aiForm", "aiScope", "aiScopeCount", "aiInstruction", "aiHistory",
   "aiTagsPreview", "aiProgress", "aiCloseBtn", "aiStopBtn", "aiRunBtn",
-  "aiReview", "aiReviewSummary", "aiNotes", "aiNewTags", "aiAllBtn", "aiNoneBtn", "aiRows", "aiDiscardBtn", "aiApplyBtn",
+  "aiReview", "aiReviewSummary", "aiNotes", "aiNewTagsHead", "aiNewTags", "aiAllBtn", "aiNoneBtn", "aiRows", "aiDiscardBtn", "aiApplyBtn",
   "biliBtn", "main", "viewer", "viewerTitle", "viewerNextBtn", "viewerTabBtn", "viewerCloseBtn", "viewerFrame",
   "tools", "writeBtn", "writeDialog", "writeScope", "writeFormat", "writeScopeCount", "writeOverwriteRow", "writeOverwrite", "writeProgress", "writeFailed", "writeStopBtn", "writeCopyBtn", "writeRunBtn", "writeMdBtn"
 ].forEach((id) => (el[id] = $(id)));
@@ -2983,7 +2983,7 @@ function renderAiForm() {
   el.aiTagsPreview.innerHTML = !inFolderView()
     ? `<p class="dialog-hint">${FOLDER_ONLY}再批量打。</p>`
     : tags.length
-      ? `<span id="aiTagsLabel" class="grid-label">可用标签</span><div class="chips" role="group" aria-labelledby="aiTagsLabel">${tags.map(useChip).join("")}</div><p class="dialog-meta">${roomHint}</p>`
+      ? `<span id="aiTagsLabel" class="grid-label">可用标签</span><div class="chips" role="group" aria-labelledby="aiTagsLabel">${tags.map(useChip).join("")}</div><p class="dialog-meta">点掉的标签这次不给 AI 用。<br>${roomHint}</p>`
       : `<p class="dialog-hint">这个收藏夹还没有自定义标签。${roomHint}想打得准，先在<button type="button" class="link" data-tags-mode="manage">「管理」</button>里建好标签、每个写一句说明。</p>`;
   el.aiHistory.innerHTML = S.aiHistory.length
     ? `<span class="muted">最近：</span>` +
@@ -3049,6 +3049,7 @@ async function runAiCommand() {
   S.ai.running = false;
   el.aiProgress.textContent = "";
   if (S.ai.stop) p.errors.push("已手动停止，这里只有已完成批次的建议");
+  for (const t of p.newTags) t.checked = p.rows.some((r) => r.add.includes(`new:${t.key}`));
   S.ai.proposals[folder] = p;
   renderTop();
   if (folder !== String(S.mediaId)) {
@@ -3124,42 +3125,68 @@ function renderAiReview() {
   el.aiNotes.innerHTML =
     p.errors.map((e) => `<p class="fail-text">${esc(e)}</p>`).join("") +
     p.notes.map((n) => `<p class="muted">AI 说明：${esc(n)}</p>`).join("");
-  el.aiNewTags.innerHTML = p.newTags.length
-    ? p.newTags
-        .map(
-          (t, i) => `<div class="ai-newtag" data-i="${i}">
+  const uses = (t) => p.rows.filter((r) => S.itemMap.has(r.bvid) && r.add.includes(`new:${t.key}`)).length;
+  el.aiNewTagsHead.hidden = !p.newTags.length;
+  el.aiNewTags.innerHTML = p.newTags
+    .map((t, i) => {
+      const n = uses(t);
+      return `<div class="ai-newtag" data-i="${i}">
       <input type="checkbox" data-nt="checked"${t.checked ? " checked" : ""} aria-label="创建标签 ${esc(t.name)}" />
       <input type="text" data-nt="name" value="${esc(t.name)}" aria-label="新标签名称" />
-    </div>`
-        )
-        .join("")
-    : `<p class="muted">没有新标签</p>`;
+      <span class="muted">${n ? `用在 ${n} 个视频` : "没有视频用到"}</span>
+    </div>`;
+    })
+    .join("");
   renderAiRows();
+}
+
+// One group per tag change, adds first, bigger groups first. A video with several changes shows in each of their
+// groups; its ticks are one per video, so they move together, and each line names the video's other changes.
+function aiGroups(p) {
+  const groups = new Map();
+  for (const r of p.rows) {
+    const e = effectiveRow(p, r);
+    if (e.empty) continue;
+    const changes = [
+      ...[...new Set(e.add)].map((ref) => ({ key: ref, cls: "add", text: `+ ${refName(p, ref)}` })),
+      ...[...new Set(r.remove)].map((id) => ({ key: `rm:${id}`, cls: "remove", text: `− ${tagById(id)?.name || ""}` }))
+    ];
+    for (const c of changes) {
+      if (!groups.has(c.key)) groups.set(c.key, { change: c, rows: [] });
+      groups.get(c.key).rows.push({ r, others: changes.filter((o) => o !== c) });
+    }
+  }
+  return [...groups.values()].sort((a, b) => (a.change.cls === "remove") - (b.change.cls === "remove") || b.rows.length - a.rows.length);
 }
 
 function renderAiRows() {
   const p = S.ai.proposal;
-  const rows = p.rows.map((r) => ({ r, e: effectiveRow(p, r) })).filter((x) => !x.e.empty);
-  const checked = rows.filter((x) => x.r.checked).length;
-  el.aiReviewSummary.textContent = `${rows.length} 个视频有改动 · 新标签 ${p.newTags.filter((t) => t.checked).length} 个 · 点「应用选中」前不会改动任何东西`;
-  el.aiRows.innerHTML = rows.length
-    ? rows
-        .map(({ r, e }) => {
-          const it = S.itemMap.get(r.bvid);
-          const chips =
-            e.add.map((ref) => `<span class="chip add">+ ${esc(refName(p, ref))}</span>`).join("") +
-            r.remove.map((id) => `<span class="chip remove">− ${esc(tagById(id)?.name)}</span>`).join("");
-          return `<div class="ai-row${r.checked ? "" : " off"}" data-bvid="${esc(r.bvid)}">
-        <input type="checkbox" data-row${r.checked ? " checked" : ""} aria-label="应用到 ${esc(it?.title)}" />
-        <div class="ai-row-body">
-          <div class="ai-row-title">${esc(it?.title || r.bvid)}</div>
-          <div class="chips">${chips}</div>
-          ${r.reason ? `<div class="muted">${esc(r.reason)}</div>` : ""}
-        </div>
+  const groups = aiGroups(p);
+  const rows = [...new Set(groups.flatMap((g) => g.rows.map((x) => x.r)))];
+  const checked = rows.filter((r) => r.checked).length;
+  el.aiReviewSummary.textContent = `· ${rows.length} 个视频有改动 · 新标签 ${p.newTags.filter((t) => t.checked).length} 个 · 点「应用选中」前不会改动任何东西`;
+  el.aiRows.innerHTML = groups.length
+    ? groups
+        .map((g, i) => {
+          const on = g.rows.filter((x) => x.r.checked).length;
+          return `<div class="ai-group">
+        <label class="ai-group-head"><input type="checkbox" data-group="${i}"${on === g.rows.length ? " checked" : ""} aria-label="这一组 ${g.rows.length} 个" /><span class="chip ${g.change.cls}">${esc(g.change.text)}</span><span class="muted">${g.rows.length} 个</span></label>
+        ${g.rows
+          .map(({ r, others }) => {
+            const title = S.itemMap.get(r.bvid)?.title || r.bvid;
+            const also = others.length ? `<span class="ai-row-also">另有 ${others.map((o) => `<span class="chip ${o.cls}">${esc(o.text)}</span>`).join("")}</span>` : "";
+            return `<label class="ai-row${r.checked ? "" : " off"}" data-bvid="${esc(r.bvid)}"><input type="checkbox" data-row${r.checked ? " checked" : ""} aria-label="应用到 ${esc(title)}" /><span class="ai-row-title" title="${esc(title)}">${esc(title)}</span>${also}${r.reason ? `<span class="muted ai-row-reason" title="${esc(r.reason)}">${esc(r.reason)}</span>` : ""}</label>`;
+          })
+          .join("")}
       </div>`;
         })
         .join("")
     : `<p class="empty">AI 没有提出改动</p>`;
+  el.aiRows.querySelectorAll("[data-group]").forEach((box) => {
+    const g = groups[Number(box.dataset.group)];
+    const on = g.rows.filter((x) => x.r.checked).length;
+    box.indeterminate = on > 0 && on < g.rows.length;
+  });
   el.aiApplyBtn.textContent = `应用选中 (${checked})`;
   el.aiApplyBtn.setAttribute("aria-label", el.aiApplyBtn.textContent);
   el.aiApplyBtn.disabled = !checked && !p.newTags.some((t) => t.checked);
@@ -4004,9 +4031,14 @@ function bindEvents() {
     renderAiRows();
   });
   el.aiRows.addEventListener("change", (e) => {
-    if (!e.target.matches("[data-row]")) return;
-    const row = S.ai.proposal?.rows.find((r) => r.bvid === e.target.closest(".ai-row").dataset.bvid);
-    if (row) row.checked = e.target.checked;
+    const p = S.ai.proposal;
+    if (!p) return;
+    if (e.target.matches("[data-group]")) {
+      for (const { r } of aiGroups(p)[Number(e.target.dataset.group)]?.rows || []) r.checked = e.target.checked;
+    } else if (e.target.matches("[data-row]")) {
+      const row = p.rows.find((r) => r.bvid === e.target.closest(".ai-row").dataset.bvid);
+      if (row) row.checked = e.target.checked;
+    } else return;
     renderAiRows();
   });
   const setAllRows = (checked) => {
