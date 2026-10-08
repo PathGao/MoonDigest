@@ -99,4 +99,13 @@ assert.ok(UI.cardTagChip({ id: "t1", name: "<b>", color: "#fff" }, "点一下去
   assert.deepStrictEqual(tally, [{ cls: "add", text: "+ 美食", n: 3 }, { cls: "remove", text: "− 科普", n: 1 }]);
 }
 
+// Both modes take the proposal functions from here and keep no copy of their own.
+for (const file of ["triage.js", "follow.js"]) {
+  const src = fs.readFileSync(path.join(__dirname, file), "utf8");
+  for (const fn of ["mergeAiBatch", "aiChanges", "aiTally", "previewId"]) {
+    assert.ok(!new RegExp(`(function|const|let) ${fn}\\b`).test(src), `${file} has its own ${fn}`);
+    assert.ok(src.includes(`UI.${fn}(`), `${file} calls the shared ${fn}`);
+  }
+}
+
 console.log("shared selftest: all passed");
