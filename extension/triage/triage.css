@@ -236,6 +236,9 @@ select { height: 28px; max-width: 240px; }
 .seg { display: inline-flex; gap: 8px; }
 .seg button { height: 26px; padding: 0 12px; border: 0; border-radius: var(--radius-pill); background: var(--field-bg); color: var(--text-2); font-variant-numeric: tabular-nums; }
 .seg button:hover { background: var(--border); }
+/* In the filter rows 全部 is not one of the kinds: a thin rule sets it apart (gap 8 + margin 8, rule centered). */
+.class-filter .seg > button:first-child, .fw-bar .seg > button:first-child { position: relative; margin-right: 8px; }
+.class-filter .seg > button:first-child::after, .fw-bar .seg > button:first-child::after { content: ""; position: absolute; top: 5px; right: -8px; height: 16px; border-left: 1px solid var(--border-strong); }
 .seg button[aria-pressed="true"] { background: var(--text); color: var(--bg); font-weight: 600; }
 /* A count of 0 stays, dimmed; only chips that exist for a condition (已失效, AI 刚打的) leave at 0. */
 .seg button.zero:not([aria-pressed="true"]), .chip.zero:not(.on), .side-item.zero:not(.on) { opacity: 0.5; }
