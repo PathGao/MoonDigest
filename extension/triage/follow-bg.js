@@ -6,7 +6,10 @@
 // - follow-sync-stop {}       停下；再发 follow-sync 从游标接着跑。
 // - follow-feed { offset }    一页视频动态 { items: [{ bvid, aid, title, cover, duration, play, mid, name, face, at }], offset, hasMore }，缓存 3 分钟。
 // - follow-relation { mid, act, gone? }  1 关注 / 2 取关，成功后改好 follow_list、follow_unfollowed、follow_tag_map；gone = 撤销重新关注时放回的取关记录。
-// - follow-special { mid, on }    特别关注开 / 关，成功后改好 follow_list.special。
+// - follow-group-move { mids, from, to }  关注分组：from 为空是复制到 to（copyUsers），否则从 from 移到 to（moveUsers）。
+//                             -10 是特别关注，0 是默认分组。成功后改好 follow_list.special / groups。
+// - follow-group-create { name } → { id, name }；follow-group-rename { id, name }；follow-group-delete { id }
+//                             新建、改名、删除 B站 的关注分组，成功后改好 follow_groups（删除时成员的 groups 也去掉它）。
 // - follow-ai-tag { instruction, mids, tags?, maxNewTags?, allowRemove? }
 //                             提案 { newTags, assignments: { mid: { add, remove } }, note }，不写任何东西。
 //
@@ -278,8 +281,8 @@ async function followSyncJob(ctx) {
         if (people[mid]) continue;
         fresh.list.push(mid);
         if (x.mtime) fresh.followTime[mid] = Number(x.mtime);
-        if (x.special === 1 || (x.tag || []).includes(-10)) fresh.special[mid] = 1;
-        const groups = (x.tag || []).filter((t) => t >= 0);
+        if (x.special === 1 || (x.tag || []).includes(FOLLOW_SPECIAL)) fresh.special[mid] = 1;
+        const groups = (x.tag || []).filter((t) => t > 0);
         if (groups.length) fresh.groups[mid] = groups;
         people[mid] = { mid, name: x.uname || "", face: x.face || "", sign: String(x.sign || "").slice(0, 60), ov: x.official_verify?.desc || "" };
       }
@@ -287,7 +290,7 @@ async function followSyncJob(ctx) {
       if (!page.length || fresh.list.length >= total) break;
     }
     fresh.complete = fresh.list.length >= total;
-    // B站 关注分组 names, shown read-only in 关注. 0 默认分组 and -10 特别关注 are left out (特别关注 has its own filter).
+    // B站 关注分组 names. 0 默认分组 and -10 特别关注 are B站's fixed ones; the page names them itself.
     const tags = await get(() => followGetData(`${FOLLOW_API}/x/relation/tags`));
     const groups = (Array.isArray(tags) ? tags : []).filter((g) => g.tagid > 0).map((g) => ({ id: g.tagid, name: String(g.name || ""), count: Number(g.count) || 0 }));
     let changes = null;
@@ -475,7 +478,7 @@ async function followResume() {
   else if (!followRun) chrome.alarms?.clear(FOLLOW_ALARM);
 }
 
-// ===== 关注 / 特别关注 / 动态 / AI =====
+// ===== 关注 / 动态 / AI =====
 
 // gone (with act 2): the 已取消关注 record a 重新关注 took, put back as it was when that 重新关注 is undone.
 async function followRelation({ mid, act, gone }) {
@@ -513,18 +516,91 @@ async function followRelation({ mid, act, gone }) {
   return {};
 }
 
-// 关掉时从 -10 挪回原来的分组（没有就默认分组 0），关注本身不变。
-async function followSpecial({ mid, on }) {
-  mid = String(mid ?? "");
+// ===== 关注分组 =====
+// B站's fixed groups: -10 特别关注, 0 默认分组 (in none of your own). follow_list keeps -10 as special[mid] and the
+// custom ones in groups[mid].
+const FOLLOW_SPECIAL = -10;
+const FOLLOW_GROUP_NAME_MAX = 16; // B站: 最长 16 字符 (22103 分组名过长)
+
+// An UP's groups after from leaves and to joins (pure); 0 is no group.
+function followGroupsApply(ids, from, to) {
+  const out = ids.filter((id) => !from.includes(id));
+  for (const id of to) if (id !== 0 && !out.includes(id)) out.push(id);
+  return out;
+}
+
+const followGroupName = (name) => {
+  const n = String(name ?? "").trim();
+  if (!n) throw triageError("分组名不能为空");
+  if ([...n].length > FOLLOW_GROUP_NAME_MAX) throw triageError(`分组名最长 ${FOLLOW_GROUP_NAME_MAX} 个字`);
+  return n;
+};
+const followIds = (a) => (Array.isArray(a) ? a : []).map(Number);
+
+// Copy (no from) or move the mids on B站 in one request; follow_list follows only once B站 said yes.
+async function followGroupMove({ mids, from, to }) {
+  const list = [...new Set((Array.isArray(mids) ? mids : []).map(String))];
+  from = followIds(from);
+  to = followIds(to);
+  if (!list.length || !list.every((m) => /^\d+$/.test(m)) || !to.length || ![...from, ...to].every(Number.isInteger)) throw triageError("缺少 mids 或分组");
+  if (!from.length && to.includes(0)) throw triageError("默认分组不能复制进去");
   const f = (await chrome.storage.local.get("follow_list")).follow_list || {};
-  if (!f.list?.includes(mid)) throw triageError("还没关注这个人，不能设特别关注");
-  if (on) await triageBiliPost("/x/relation/tags/copyUsers", { fids: mid, tagids: -10 });
-  else await triageBiliPost("/x/relation/tags/moveUsers", { fids: mid, beforeTagids: -10, afterTagids: (f.groups?.[mid]?.length ? f.groups[mid] : [0]).join(",") });
+  if (list.some((m) => !f.list?.includes(m))) throw triageError("还没关注这个人，不能改分组");
+  const fids = list.join(",");
+  if (from.length) await triageBiliPost("/x/relation/tags/moveUsers", { fids, beforeTagids: from.join(","), afterTagids: to.join(",") });
+  else await triageBiliPost("/x/relation/tags/copyUsers", { fids, tagids: to.join(",") });
   await followUpdate(["follow_list"], (s) => {
-    const special = { ...s.follow_list?.special };
-    if (on) special[mid] = 1;
-    else delete special[mid];
-    return { follow_list: { ...s.follow_list, special } };
+    const fl = s.follow_list || {};
+    const special = { ...fl.special };
+    const groups = { ...fl.groups };
+    for (const m of list) {
+      const ids = followGroupsApply([...(special[m] ? [FOLLOW_SPECIAL] : []), ...(groups[m] || [])], from, to);
+      if (ids.includes(FOLLOW_SPECIAL)) special[m] = 1;
+      else delete special[m];
+      const own = ids.filter((id) => id > 0);
+      if (own.length) groups[m] = own;
+      else delete groups[m];
+    }
+    return { follow_list: { ...fl, special, groups } };
+  });
+  return {};
+}
+
+async function followGroupCreate({ name }) {
+  name = followGroupName(name);
+  const data = await triageBiliPost("/x/relation/tag/create", { tag: name });
+  const id = Number(data?.tagid);
+  if (!(id > 0)) throw triageError("B站没有给出新分组的编号，刷新后看一下");
+  await followUpdate(["follow_groups"], (s) => ({ follow_groups: [...(s.follow_groups || []).filter((g) => g.id !== id), { id, name, count: 0 }] }));
+  return { id, name };
+}
+
+const followOwnGroup = (id) => {
+  id = Number(id);
+  if (!(id > 0)) throw triageError("特别关注和默认分组是 B站 固定的，不能改名或删除");
+  return id;
+};
+
+async function followGroupRename({ id, name }) {
+  id = followOwnGroup(id);
+  name = followGroupName(name);
+  await triageBiliPost("/x/relation/tag/update", { tagid: id, name });
+  await followUpdate(["follow_groups"], (s) => ({ follow_groups: (s.follow_groups || []).map((g) => (g.id === id ? { ...g, name } : g)) }));
+  return {};
+}
+
+// B站 keeps following its members; the ones in no other group are back in 默认分组.
+async function followGroupDelete({ id }) {
+  id = followOwnGroup(id);
+  await triageBiliPost("/x/relation/tag/del", { tagid: id });
+  await followUpdate(["follow_groups", "follow_list"], (s) => {
+    const fl = s.follow_list || {};
+    const groups = {};
+    for (const [m, ids] of Object.entries(fl.groups || {})) {
+      const own = ids.filter((x) => x !== id);
+      if (own.length) groups[m] = own;
+    }
+    return { follow_groups: (s.follow_groups || []).filter((g) => g.id !== id), follow_list: { ...fl, groups } };
   });
   return {};
 }
@@ -602,7 +678,10 @@ const FOLLOW_HANDLERS = {
   "follow-sync-stop": async () => (await followStop(), {}),
   "follow-feed": (msg) => followFeed(msg),
   "follow-relation": (msg) => followRelation(msg),
-  "follow-special": (msg) => followSpecial(msg),
+  "follow-group-move": (msg) => followGroupMove(msg),
+  "follow-group-create": (msg) => followGroupCreate(msg),
+  "follow-group-rename": (msg) => followGroupRename(msg),
+  "follow-group-delete": (msg) => followGroupDelete(msg),
   "follow-ai-tag": (msg) => followAiTag(msg)
 };
 
