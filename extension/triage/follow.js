@@ -288,6 +288,8 @@ function fmtAgo(sec, now) {
   if (d < 365) return `${Math.floor(d / 30)} 个月前`;
   return `${Math.floor(d / 365)} 年前`;
 }
+// A plain primary click on a video link plays it in the viewer here; with ⌘ / Ctrl / Shift / Alt the browser opens it.
+const plainClick = (e) => e.button === 0 && !e.metaKey && !e.ctrlKey && !e.shiftKey && !e.altKey;
 // PURE-END
 
 // ---------- page ----------
@@ -303,6 +305,7 @@ const PHASE = { list: "读关注列表", feed: "翻视频动态", arc: "查投�
 const DRY_PAGES = 3; // the feed stops loading by itself after this many pages in a row without a video for the picked item
 const FEED_KEEP_MS = 3 * 60 * 1000; // as the background's cache; older lists start over
 const space = (mid) => `https://space.bilibili.com/${mid}`;
+const video = (bvid) => `https://www.bilibili.com/video/${bvid}`;
 const nowSec = () => Date.now() / 1000;
 // hdslb images: https and a small webp copy.
 const img = (u, size) => {
@@ -596,7 +599,7 @@ function upCard(mid) {
     ? `<span class="chip" style="--c:${esc(t.color)}">${esc(t.name)}</span>`
     : `<button type="button" class="chip card-tag" style="--c:${esc(t.color)}" data-untag="${esc(t.id)}" aria-label="去掉标签 ${esc(t.name)}" title="点一下去掉这个标签">${esc(t.name)}<span class="x" aria-hidden="true">×</span></button>`).join("");
   const titles = u.titles.length
-    ? `<ul class="fw-titles">${u.titles.map((v) => `<li>${v.bvid ? `<button type="button" class="fw-title" data-play="${esc(v.bvid)}" title="在右侧播放">${esc(v.t)}</button>` : `<span class="fw-title">${esc(v.t)}</span>`}<span class="meta">${esc(fmtAgo(v.c, now))}</span></li>`).join("")}</ul>`
+    ? `<ul class="fw-titles">${u.titles.map((v) => `<li>${v.bvid ? `<a class="fw-title" href="${esc(video(v.bvid))}" data-play="${esc(v.bvid)}" title="在右侧播放">${esc(v.t)}</a>` : `<span class="fw-title">${esc(v.t)}</span>`}<span class="meta">${esc(fmtAgo(v.c, now))}</span></li>`).join("")}</ul>`
     : "";
   const right = u.gone
     ? `<button type="button" data-refollow="${esc(mid)}" aria-label="重新关注 ${esc(u.name)}">重新关注</button>`
@@ -662,9 +665,9 @@ function feedCard(it) {
   const on = F.viewing === it.bvid;
   const chips = ids.map(tagOf).map((t) => `<span class="chip" style="--c:${esc(t.color)}">${esc(t.name)}</span>`).join("");
   return `<article class="fw-video${on ? " playing" : ""}" data-bvid="${esc(it.bvid)}"${on ? ' aria-current="true"' : ""}>
-    <button type="button" class="cover-wrap" data-play="${esc(it.bvid)}" aria-label="播放 ${esc(it.title)}">${it.cover ? `<img class="cover" src="${esc(img(it.cover, "480w_270h_1c"))}" alt="" loading="lazy" referrerpolicy="no-referrer">` : ""}<span class="cover-dur">${it.duration ? esc(fmtDur(it.duration)) : ""}</span></button>
+    <a class="cover-wrap" href="${esc(video(it.bvid))}" data-play="${esc(it.bvid)}" tabindex="-1" aria-hidden="true">${it.cover ? `<img class="cover" src="${esc(img(it.cover, "480w_270h_1c"))}" alt="" loading="lazy" referrerpolicy="no-referrer">` : ""}<span class="cover-dur">${it.duration ? esc(fmtDur(it.duration)) : ""}</span></a>
     <div class="fw-video-body">
-      <button type="button" class="title" data-play="${esc(it.bvid)}" title="${esc(it.title)}">${esc(it.title)}</button>
+      <a class="title" href="${esc(video(it.bvid))}" data-play="${esc(it.bvid)}" title="${esc(it.title)}" aria-label="播放 ${esc(it.title)}">${esc(it.title)}</a>
       <div class="meta fw-video-meta"><a class="fw-up-link" href="${space(it.mid)}" target="_blank" rel="noopener">${it.face ? `<img src="${esc(img(it.face, "48w_48h_1c"))}" alt="" loading="lazy" referrerpolicy="no-referrer">` : ""}<span>${esc(it.name)}</span></a><span>${esc(fmtAgo(it.at, nowSec()))}</span>${it.play ? `<span>▶ ${esc(fmtCount(it.play))}</span>` : ""}</div>
       ${chips ? `<div class="chips">${chips}</div>` : ""}
     </div>
@@ -1228,7 +1231,11 @@ main.addEventListener("click", async (e) => {
     return render();
   }
   const playBtn = t.closest("[data-play]");
-  if (playBtn) return play(playBtn.dataset.play);
+  if (playBtn) {
+    if (!plainClick(e)) return;
+    e.preventDefault();
+    return play(playBtn.dataset.play);
+  }
   const untag = t.closest("[data-untag]");
   if (untag) {
     await changeTags([untag.closest("[data-mid]").dataset.mid], [], [untag.dataset.untag]);

@@ -65,9 +65,9 @@ body.follow-mode .mode-switch { margin-right: auto; }
 .fw-titles { margin: 4px 0 0; padding: 0; list-style: none; }
 .fw-titles li { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
 .fw-titles .meta { flex: none; }
-.fw-title { min-width: 0; height: auto; padding: 0; border: 0; background: none; color: var(--text); font-size: var(--fs-sm); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; }
+.fw-title { min-width: 0; height: auto; padding: 0; border: 0; background: none; color: var(--text); text-decoration: none; font-size: var(--fs-sm); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; }
 .fw-title::before { content: "▸ "; color: var(--faint); }
-button.fw-title:hover { background: none; color: var(--link); text-decoration: underline; }
+a.fw-title:hover { background: none; color: var(--link); text-decoration: underline; }
 .fw-up .chips { align-items: center; gap: 4px 10px; }
 .fw-up .chips .chip { height: auto; padding: 0; border: 0; background: none; color: color-mix(in srgb, var(--c) 70%, var(--text)); }
 .fw-up .chips .chip.card-tag { margin: 0 -4px; padding: 0 4px; border-radius: 4px; cursor: pointer; font: inherit; font-size: var(--fs-xs); }
@@ -90,11 +90,12 @@ button.fw-title:hover { background: none; color: var(--link); text-decoration: u
 /* ---------- 动态: a grid of videos; beside the viewer a single column of rows ---------- */
 .fw-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 20px 16px; }
 .fw-video { min-width: 0; display: flex; flex-direction: column; gap: 8px; border-radius: var(--radius-md); }
-.fw-video .cover-wrap { height: auto; padding: 0; border: 0; aspect-ratio: 16 / 9; cursor: pointer; }
+.fw-video .cover-wrap { height: auto; padding: 0; border: 0; text-decoration: none; aspect-ratio: 16 / 9; cursor: pointer; }
 .fw-video .cover-wrap:hover .cover { transform: scale(1.03); }
 .fw-video .cover { width: 100%; height: 100%; transition: transform 0.2s; }
 .fw-video-body { min-width: 0; display: flex; flex-direction: column; gap: 4px; }
-.fw-video .title { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; font-size: var(--fs-md); line-height: 1.4; }
+.fw-video .title { color: var(--text); text-decoration: none; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; font-size: var(--fs-md); line-height: 1.4; }
+.fw-video .title:hover { text-decoration: underline; }
 .fw-video-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; }
 .fw-up-link { display: inline-flex; align-items: center; gap: 6px; min-width: 0; color: var(--text-2); text-decoration: none; }
 .fw-up-link:hover { color: var(--link); }
