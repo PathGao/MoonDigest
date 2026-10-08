@@ -15,9 +15,17 @@ html[data-mdg-viewer] .left-container {
   padding: 0 16px !important;
 }
 
-html[data-mdg-viewer] #playerWrap,
+/* B站 sizes the player for its own two-column page (a style tag with fixed px, set from the window width): height =
+   width × 9/16 + the 46px 发弹幕 bar under the video. Here the player takes the frame's width, so the height follows
+   that width by the same formula; a 16:9 box over the whole player would leave the video area short and pillarboxed.
+   Not in 网页全屏 (body.webscreen-fix), where B站 fixes the player to the whole frame. */
+html[data-mdg-viewer] #playerWrap {
+  height: auto !important;
+  container-type: inline-size;
+}
 html[data-mdg-viewer] #bilibili-player {
   width: 100% !important;
-  height: auto !important;
-  aspect-ratio: 16 / 9;
+}
+html[data-mdg-viewer] body:not(.webscreen-fix) #bilibili-player {
+  height: calc(100cqw * 9 / 16 + 46px) !important;
 }
