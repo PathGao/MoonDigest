@@ -8,7 +8,8 @@
 // Track    { id, lang, label, url, kind: "manual" | "auto" | "ai" | "translated" | "transcript", isDefault }
 // Segment  { from, to, content } in seconds
 // io       { fetchJson(url), fetchText?(url), postJson?(url, body, headers?), doc?, subtitleLang?,
-//            readPlayer?() -> the page player's own response, capturePot?(videoId) -> { pot, client } }
+//            readPlayer?() -> the page player's own response, capturePot?(videoId) -> { pot, client },
+//            withoutPot? -> only tracks that need no PO token }
 (() => {
   if (globalThis.BocSites) {
     return;
@@ -725,14 +726,15 @@
     }
     return tracks
       .filter((track) => cache.pot || !ytNeedsPot(track.url))
-      .map((track) => ({ ...track, url: ytCaptionUrl(track.url, { pot: cache.pot }) }));
+      .map((track) => ({ ...track, url: ytCaptionUrl(track.url, { pot: io.withoutPot ? null : cache.pot }) }));
   }
 
   // Signed-in page player first, ANDROID when it yields nothing, and for a
   // gated video the embedded player, which YouTube lets through for
   // embeddable age-gated videos. Resolves [] when every source is dry.
+  // io.withoutPot skips WEB, whose tracks need the PO token.
   async function ytResolveTracks(ref, io) {
-    for (const clientName of ["WEB", "ANDROID"]) {
+    for (const clientName of io.withoutPot ? ["ANDROID"] : ["WEB", "ANDROID"]) {
       const tracks = await ytClientTracks(ref, io, clientName).catch(() => []);
       if (tracks.length) return tracks;
     }

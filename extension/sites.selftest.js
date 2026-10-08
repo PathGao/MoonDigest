@@ -464,6 +464,8 @@ async function ytComments(next, byContinuation) {
   eq(captures, 1);
   // Capture fails: token-demanding tracks are dropped and ANDROID answers.
   eq(await sourcesOf({ "player:ANDROID:dQw4w9WgXcQ": ytPlayer([freeTrack]) }, { readPlayer: async () => ytPlayer([potTrack]), capturePot: async () => null }), { calls: ["player:ANDROID:dQw4w9WgXcQ"], tracks: ["ANDROID:.de:-"] });
+  // Token rejected (every WEB track came back empty): withoutPot skips WEB and sends ANDROID's tracks without the token.
+  eq(await sourcesOf({ "player:ANDROID:dQw4w9WgXcQ": ytPlayer([freeTrack]) }, { readPlayer: async () => ytPlayer([potTrack]), capturePot: capture, withoutPot: true }), { calls: ["player:ANDROID:dQw4w9WgXcQ"], tracks: ["ANDROID:.de:-"] });
   // Page player names another video (SPA leftovers): a WEB player call replaces it.
   eq(await sourcesOf({ "player:WEB:dQw4w9WgXcQ": ytPlayer([freeTrack]) }, { readPlayer: async () => ({ ...ytPlayer([potTrack]), videoDetails: { videoId: "other000000" } }) }), { calls: ["player:WEB:dQw4w9WgXcQ"], tracks: ["WEB:.de:-"] });
   // A WEB player call answering with another video is rejected, not used.
