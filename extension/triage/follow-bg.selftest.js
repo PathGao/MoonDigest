@@ -182,8 +182,11 @@ const runSync = async () => {
     local = { follow_list: { list: ["1"] }, follow_last: { at: now(), since: 0, map: {} }, follow_jobs: { cursor: { phase: "arc" }, startedAt: now() } };
     let holds = 0;
     routes["/x/space/wbi/arc/search"] = () => (holds++, json({ code: -352, message: "风控" }));
+    calls = [];
     await runSync();
     assert.strictEqual(holds, 3);
+    // The WBI key was cached by the syncs above; each risk answer drops it, so strikes 2 and 3 read nav again.
+    assert.strictEqual(calls.filter((c) => c === "web-interface/nav").length, 2, calls.join(","));
     assert.strictEqual(local.follow_jobs.throttled, true);
     assert.match(local.follow_jobs.error, /限流/);
     assert.ok(!local.follow_content?.[1]);

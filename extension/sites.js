@@ -304,16 +304,23 @@
   }
 
   // The wbi endpoints want a w_rid signature keyed by nav's wbi_img (present even when logged out,
-  // code -101). Without a key the request goes unsigned.
+  // code -101). One key per worker, read through io.fetchJson and kept 10 minutes; biliWbiReset drops it
+  // (a stale key answers -352 / -403). biliWbiSigned throws without a key; biliWbiQuery sends it unsigned.
   let biliWbiKey = { key: "", at: 0 };
+  const biliWbiReset = () => {
+    biliWbiKey = { key: "", at: 0 };
+  };
+  async function biliWbiSigned(params, io) {
+    if (!biliWbiKey.key || Date.now() - biliWbiKey.at > 10 * 60 * 1000) {
+      const img = (await io.fetchJson(`${BILI_API}/x/web-interface/nav`))?.data?.wbi_img;
+      if (!img?.img_url || !img?.sub_url) throw new Error("no wbi_img");
+      biliWbiKey = { key: biliMixinKey(img.img_url, img.sub_url), at: Date.now() };
+    }
+    return biliWbiSign(params, biliWbiKey.key, Math.floor(Date.now() / 1000));
+  }
   async function biliWbiQuery(params, io) {
     try {
-      if (!biliWbiKey.key || Date.now() - biliWbiKey.at > 10 * 60 * 1000) {
-        const img = (await io.fetchJson(`${BILI_API}/x/web-interface/nav`))?.data?.wbi_img;
-        if (!img?.img_url || !img?.sub_url) throw new Error("no wbi_img");
-        biliWbiKey = { key: biliMixinKey(img.img_url, img.sub_url), at: Date.now() };
-      }
-      return biliWbiSign(params, biliWbiKey.key, Math.floor(Date.now() / 1000));
+      return await biliWbiSigned(params, io);
     } catch {
       return Object.entries(params).map(([k, v]) => `${k}=${encodeURIComponent(String(v))}`).join("&");
     }
@@ -454,7 +461,7 @@
       } catch (primaryError) {
         // A stale wbi key answers -352, so the next signed call refetches nav.
         if (io.signWbi) {
-          biliWbiKey = { key: "", at: 0 };
+          biliWbiReset();
         }
         // Throttling must reach the caller: under risk control player/v2 tends to answer with no tracks.
         if (requests.length < 2 || primaryError?.code === "THROTTLED") {
@@ -1339,6 +1346,8 @@
     fetchRawCached,
     biliMixinKey,
     biliWbiSign,
+    biliWbiSigned,
+    biliWbiReset,
     normalizeChapters,
     parseChaptersFromDescription,
     decodeXmlEntities,

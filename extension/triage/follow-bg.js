@@ -242,7 +242,7 @@ async function followGetJson(url) {
     }
     if (json && !BILI_RISK_CODES.has(json.code)) return json;
     if (strike >= FOLLOW_CFG.strikes) throw triageError("被 B站 限流，已暂停", "THROTTLED");
-    if (typeof url === "function") followWbiKey = { key: "", at: 0 };
+    if (typeof url === "function") BocSites.biliWbiReset();
     followHold(FOLLOW_CFG.backoffMs, "throttled");
   }
 }
@@ -263,19 +263,19 @@ async function followAgain(once, empty) {
 
 const followQuery = (params) => new URLSearchParams(Object.entries(params).filter(([, v]) => v !== "" && v != null)).toString();
 
-let followWbiKey = { key: "", at: 0 };
+// The key is sites.js's (one per worker); nav goes through this queue like every other GET.
+const FOLLOW_WBI_IO = { fetchJson: followGetJson };
 async function followWbiData(base, params) {
   const signed = async () => {
-    if (!followWbiKey.key || Date.now() - followWbiKey.at > 10 * 60 * 1000) {
-      const img = (await followGetJson(`${FOLLOW_API}/x/web-interface/nav`))?.data?.wbi_img;
-      if (!img?.img_url || !img?.sub_url) throw triageError("拿不到 WBI 签名密钥");
-      followWbiKey = { key: BocSites.biliMixinKey(img.img_url, img.sub_url), at: Date.now() };
+    try {
+      return `${base}?${await BocSites.biliWbiSigned(params, FOLLOW_WBI_IO)}`;
+    } catch (e) {
+      throw e.code ? e : triageError("拿不到 WBI 签名密钥");
     }
-    return `${base}?${BocSites.biliWbiSign(params, followWbiKey.key, followNow())}`;
   };
   let j = await followGetJson(signed);
   if (j.code === -403) {
-    followWbiKey = { key: "", at: 0 };
+    BocSites.biliWbiReset();
     j = await followGetJson(signed);
   }
   if (j.code !== 0) throw triageError(`B站返回 ${j.code}：${j.message}`, j.code);
