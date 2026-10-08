@@ -747,4 +747,8 @@ dialog.wide { width: min(620px, calc(100% - 32px)); }
   .list .card { padding-right: 12px; }
   .list .actions, .list .pair { display: flex; }
   .list .pair > button { position: static; width: auto; height: 26px; padding: 0 8px; font-size: var(--fs-xs); }
+  /* No room for 在 B站打开 and 「B站已同步 +N −M」 beside the name and the sort: they go under the meta line (both modes). */
+  .folder-info { grid-template-areas: "thumb title title" "thumb meta meta" "thumb btn sync"; grid-template-columns: auto auto auto; }
+  .folder-info:not(:has(.folder-thumb)) { grid-template-areas: "title title" "meta meta" "btn sync"; grid-template-columns: auto auto; }
+  .bili-link { justify-self: start; }
 }
