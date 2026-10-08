@@ -4,8 +4,10 @@ const path = require("path");
 const vm = require("vm");
 const assert = require("assert");
 
+// The manifest loads typing.js before badges.js in the same content-script world.
+const badgesJs = fs.readFileSync(path.join(__dirname, "typing.js"), "utf8") + fs.readFileSync(path.join(__dirname, "badges.js"), "utf8");
 const ctx = vm.createContext({});
-vm.runInContext(fs.readFileSync(path.join(__dirname, "badges.js"), "utf8"), ctx);
+vm.runInContext(badgesJs, ctx);
 const { bvidFromHref, badgeInfo, mergeDecisions } = ctx.BocBadges;
 const plain = (v) => JSON.parse(JSON.stringify(v));
 
@@ -383,13 +385,14 @@ async function plusPage() {
           get: async (k) => JSON.parse(JSON.stringify(Object.fromEntries([].concat(k).map((x) => [x, store[x]])))),
           set: async (o) => (sets.push(Object.keys(o)), Object.assign(store, JSON.parse(JSON.stringify(o))))
         },
-        onChanged: { addListener() {} }
+        onChanged: { addListener: (f) => changed.push(f) }
       }
     }
   };
+  const changed = [];
   win.window = win;
   win.top = win;
-  vm.runInContext(fs.readFileSync(path.join(__dirname, "badges.js"), "utf8"), vm.createContext(win));
+  vm.runInContext(badgesJs, vm.createContext(win));
   const settle = () => new Promise((r) => setTimeout(r, 30));
   await settle();
   const title = (k) => cards[k].querySelector(".bili-dyn-title__text");
@@ -450,6 +453,18 @@ async function plusPage() {
   panel.listeners.click[0]({ target: panel.querySelector(".new").firstChild });
   const input = panel.querySelector("input");
   assert.ok(input && focused.el === input);
+  // Enter picking an IME candidate creates nothing, Esc cancelling the composition keeps the panel and the text.
+  input.value = "zhong";
+  panel.listeners.keydown[0]({ key: "Enter", target: input, isComposing: true, keyCode: 229, preventDefault() {} });
+  await settle();
+  assert.ok(!store.follow_tags.some((t) => t.name === "zhong"), "no UP tag named after half-typed pinyin");
+  panel.listeners.keydown[0]({ key: "Escape", target: input, isComposing: true, keyCode: 229, preventDefault() {} });
+  assert.ok(host.isConnected, "Esc mid-IME leaves the picker open");
+  // a follow sync rewriting follow_list does not rebuild the picker under the name being typed.
+  changed.forEach((f) => f({ follow_list: { newValue: store.follow_list } }, "local"));
+  await settle();
+  assert.strictEqual(panel.querySelector("input"), input, "the name field survives the sync");
+  assert.strictEqual(input.value, "zhong");
   input.value = "学习";
   panel.listeners.keydown[0]({ key: "Enter", target: input, preventDefault() {} });
   await settle();
