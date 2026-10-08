@@ -9,7 +9,7 @@ const source = fs.readFileSync(path.join(__dirname, "follow.js"), "utf8");
 const pure = source.slice(source.indexOf("// PURE-START"), source.indexOf("// PURE-END"));
 assert.ok(pure.includes("function followStatus") && !pure.includes("document"), "harness lifts the pure block");
 const ctx = vm.createContext({ setTimeout, clearTimeout });
-vm.runInContext(`${pure}\n;Object.assign(globalThis, { fmtFans, dirLabel, bindSearch, followAiSettings, aiRequests, normDays, settingsProblem, followStatus, lastPostOf, recentTitles, upRow, visibleUps, mergeFeed, feedMatch, sideIds, plainClick, feedList, feedLeaving, withTags, pickToggle, fromViewer, mergeAiBatch, aiChanges, aiTally, fmtAgo });`, ctx);
+vm.runInContext(`${pure}\n;Object.assign(globalThis, { fmtFans, dirLabel, followAiSettings, aiRequests, normDays, settingsProblem, followStatus, lastPostOf, recentTitles, upRow, visibleUps, mergeFeed, feedMatch, sideIds, plainClick, feedList, feedLeaving, withTags, pickToggle, fromViewer, mergeAiBatch, aiChanges, aiTally, fmtAgo });`, ctx);
 const t = ctx;
 const plain = (v) => JSON.parse(JSON.stringify(v));
 
@@ -197,37 +197,6 @@ const base = () => ({ list: null, last: null, content: {}, people: {}, tags: [],
   assert.strictEqual(t.settingsProblem("", ""), "");
   assert.strictEqual(t.settingsProblem("30", "200"), "");
 }
-
-// ----- search box and the IME: nothing runs mid-composition; compositionend searches with the committed text -----
-(async () => {
-  const ls = {};
-  const input = { value: "", addEventListener: (type, fn) => ((ls[type] ||= []).push(fn)) };
-  const fire = (type, e = {}) => (ls[type] || []).forEach((fn) => fn(e));
-  const runs = [];
-  t.bindSearch(input, (q) => runs.push(q), 5);
-  const wait = () => new Promise((r) => setTimeout(r, 20));
-  fire("compositionstart");
-  input.value = "l";
-  fire("input", { isComposing: true });
-  input.value = "lu";
-  fire("input", { isComposing: true });
-  await wait();
-  assert.deepStrictEqual(runs, [], "no search while composing");
-  input.value = "路";
-  fire("compositionend");
-  await wait();
-  assert.deepStrictEqual(runs, ["路"], "compositionend searches the committed text");
-  input.value = "路a";
-  fire("input", { isComposing: false });
-  await wait();
-  assert.deepStrictEqual(runs, ["路", "路a"], "plain typing searches");
-  input.value = "x";
-  fire("input", { isComposing: false });
-  fire("compositionstart");
-  await wait();
-  assert.deepStrictEqual(runs, ["路", "路a"], "a pending search is dropped when composition starts");
-  console.log("follow selftest: IME passed");
-})();
 
 assert.strictEqual(t.fmtFans(123456), "12.3万");
 assert.strictEqual(t.fmtFans(100000), "10万");

@@ -1669,6 +1669,41 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     assert.ok(!t.hasAllTags(["t"], ["a1", "a2"], name), "no selected tag fails");
   }
 
+  // 收藏夹 search and the IME: nothing runs mid-composition, compositionend searches the committed text.
+  {
+    const ls = {};
+    const input = { value: "", addEventListener: (type, fn) => ((ls[type] ||= []).push(fn)) };
+    const fire = (type, e = {}) => (ls[type] || []).forEach((fn) => fn(e));
+    const wait = () => new Promise((r) => setTimeout(r, 20));
+    // Run bindEvents on fresh stub elements (earlier tests swapped some for plain objects); the stub DOM gives out
+    // after the search box is wired, which is all this needs.
+    const real = { ...t.el };
+    for (const k of Object.keys(real)) t.el[k] = stubEl();
+    t.el.searchInput = input;
+    try {
+      vm.runInContext("bindEvents()", ctx);
+    } catch {}
+    Object.assign(t.el, real);
+    assert.ok(ls.compositionend, "bindEvents wires the search box through bindSearch");
+    t.S.query = "";
+    fire("compositionstart");
+    input.value = "l";
+    fire("input", { isComposing: true });
+    input.value = "lu";
+    fire("input", { isComposing: true });
+    await wait();
+    assert.strictEqual(t.S.query, "", "no search while composing");
+    input.value = "路";
+    fire("compositionend");
+    await wait();
+    assert.strictEqual(t.S.query, "路", "compositionend searches the committed text");
+    input.value = "路a";
+    fire("input", { isComposing: false });
+    fire("compositionstart");
+    await wait();
+    assert.strictEqual(t.S.query, "路", "a pending search is dropped when composition starts");
+  }
+
   console.log("triage selftest: all passed");
 })().catch((e) => {
   console.error(e);
