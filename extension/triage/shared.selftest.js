@@ -7,6 +7,7 @@ const assert = require("assert");
 const ctx = vm.createContext({});
 vm.runInContext(fs.readFileSync(path.join(__dirname, "shared.js"), "utf8"), ctx);
 const UI = ctx.TriageUi;
+const plain = (v) => JSON.parse(JSON.stringify(v));
 
 // 「今天 / 昨天 / 10月5日 HH:MM 刷新过」, by calendar day, not by 24 hours.
 {
@@ -73,5 +74,38 @@ assert.strictEqual(UI.img("https://i0.hdslb.com/a.jpg@1c.webp", "48w"), "https:/
 
 // A card's tag chip escapes its name and says what undoes it.
 assert.ok(UI.cardTagChip({ id: "t1", name: "<b>", color: "#fff" }, "点一下去掉").includes('data-untag="t1" aria-label="去掉标签 &lt;b&gt;" title="点一下去掉">&lt;b&gt;<span class="x"'));
+
+// AI 打标签's proposal, as both modes use it: merge, cap, excluded, changes, tally. Rows are UPs here, videos in 收藏夹.
+{
+  const tags = [{ id: "t1", name: "科普" }, { id: "t2", name: "游戏" }];
+  const map = { a: ["t1"], b: ["t2"] };
+  const opts = { tags, map, maxNewTags: 1, excluded: new Set(["游戏"]), scope: new Set(["a", "b", "c"]) };
+  const p = { newTags: [], rows: [], notes: [], errors: [] };
+  UI.mergeAiBatch(p, { newTags: ["美食", "旅行"], assignments: { a: { add: ["科普", "美食"], remove: [] }, b: { add: ["旅行"], remove: ["游戏"] }, c: { add: ["游戏", "科普"] }, z: { add: ["科普"] } }, note: "n1" }, opts);
+  UI.mergeAiBatch(p, { assignments: { c: { add: ["美食"], remove: ["科普"] } } }, opts);
+  assert.deepStrictEqual(plain(p.newTags).map((x) => x.name), ["美食"], "new tags capped at maxNewTags");
+  assert.deepStrictEqual(plain(p.rows), [
+    { id: "a", add: ["new:美食"], remove: [] },
+    { id: "c", add: ["id:t1", "new:美食"], remove: [] }
+  ], "existing tag on a → nothing; excluded 游戏 never added or removed; out-of-scope z dropped; batches merge per UP");
+  assert.deepStrictEqual(p.notes, ["n1"]);
+  const follow = new Set(["a", "b"]); // c was unfollowed while the proposal was open
+  const ch = plain(UI.aiChanges(p, map, follow, (key) => `new-${key}`));
+  assert.deepStrictEqual(ch, [["a", ["t1"], ["t1", "new-美食"]]], "an unfollowed UP gets nothing");
+  p.newTags[0].checked = false;
+  assert.deepStrictEqual(plain(UI.aiChanges(p, map, follow, (key) => `new-${key}`)), [], "an unchecked new tag adds nothing");
+  p.newTags[0].checked = true;
+  const tally = plain(UI.aiTally(p, [["a", ["t1"], ["t1", "n"]], ["b", ["t1"], ["n"]], ["c", ["t2"], ["t2", "n"]]], (id) => ({ t1: "科普", t2: "游戏", n: "美食" })[id]));
+  assert.deepStrictEqual(tally, [{ cls: "add", text: "+ 美食", n: 3 }, { cls: "remove", text: "− 科普", n: 1 }]);
+}
+
+// Both modes take the proposal functions from here and keep no copy of their own.
+for (const file of ["triage.js", "follow.js"]) {
+  const src = fs.readFileSync(path.join(__dirname, file), "utf8");
+  for (const fn of ["mergeAiBatch", "aiChanges", "aiTally", "previewId"]) {
+    assert.ok(!new RegExp(`(function|const|let) ${fn}\\b`).test(src), `${file} has its own ${fn}`);
+    assert.ok(src.includes(`UI.${fn}(`), `${file} calls the shared ${fn}`);
+  }
+}
 
 console.log("shared selftest: all passed");

@@ -216,37 +216,40 @@ function triageBuildMessages(meta, subtitle, comments, criteria, folder) {
   ];
 }
 
-function triageBuildCommandMessages({ instruction, tags, items, maxNewTags = 5, allowRemove = false }) {
+// 批量打标签的提示词：收藏夹给视频打，关注（follow-bg.js 的 FOLLOW_AI_UNIT）给 UP 主打，规则同一份。unit 说明对象是谁
+// （noun 前后的空格按中文排版给）、主要看什么（basis）、列表每行的格式（header、line）。
+const TRIAGE_AI_UNIT = {
+  intro: "你是 B站收藏整理助手，按用户指令给视频打标签、做分类。",
+  noun: "视频",
+  basis: "- 有“一句话”和“要点”的视频以它们为主要依据，它们比标题可靠得多。",
+  header: "视频列表，每行格式：序号|标题|UP主|时长|现有标签|一句话|要点1；要点2；要点3（没有的字段留空）：",
+  line: triageCommandLine
+};
+function triageBuildCommandMessages({ instruction, tags, items, maxNewTags = 5, allowRemove = false, unit = TRIAGE_AI_UNIT }) {
   const lines = triageTagLines(tags);
+  const { noun } = unit;
   const example = `{"new_tags": ["标签名"], "items": [{"i": 序号, "add": ["标签"], "remove": ["标签"]}], "note": "≤60字"}`;
   const system = [
-    "你是 B站收藏整理助手，按用户指令给视频打标签、做分类。",
+    unit.intro,
     "用户指令写在 <<<指令>>> 和 <<<指令结束>>> 之间，它就是本次任务的要求。",
     "规则：",
     "- add 只能用已有标签名，或本次 new_tags 里列出的新标签名。",
     maxNewTags > 0
       ? `- 可以新建标签，至多 ${maxNewTags} 个，名称 ≤12字、不含逗号；已有标签能用就先用，不要重复造。`
       : "- 这次不能新建标签，new_tags 留空，只用已有标签。",
-    allowRemove ? "- remove 只能填该视频“现有标签”里的名称。" : "- 这次不能去掉视频已有的标签，remove 留空，只加标签。",
-    "- 标签带说明（冒号后）的，按说明决定给视频加上还是去掉这个标签。",
-    "- 一个视频可以加多个标签，也可以一个都不加；指令或标签说明要求只选一个时（比如分档：入门 / 进阶 / 硬核），每个视频只加其中一个。",
-    "- 指令不适用的视频不要放进 items。",
+    allowRemove ? `- remove 只能填该${noun}“现有标签”里的名称。` : `- 这次不能去掉${noun}已有的标签，remove 留空，只加标签。`,
+    `- 标签带说明（冒号后）的，按说明决定给${noun}加上还是去掉这个标签。`,
+    `- 一个${noun}可以加多个标签，也可以一个都不加；指令或标签说明要求只选一个时（比如分档：入门 / 进阶 / 硬核），每个${noun}只加其中一个。`,
+    `- 指令不适用的${noun}不要放进 items。`,
     "- note ≤60字，总结做了什么，或者为什么没有合适的。",
-    "- 有“一句话”和“要点”的视频以它们为主要依据，它们比标题可靠得多。",
+    unit.basis,
     "只输出严格 JSON，不要任何其他文字、不要代码块：",
     example,
     "",
     "已有标签（每行一个，格式：名称：说明，没有说明只写名称）：",
     ...(lines.length ? lines : ["（无）"])
   ].join("\n");
-  const user = [
-    "<<<指令>>>",
-    String(instruction ?? "").trim(),
-    "<<<指令结束>>>",
-    "",
-    "视频列表，每行格式：序号|标题|UP主|时长|现有标签|一句话|要点1；要点2；要点3（没有的字段留空）：",
-    ...items.map((it, idx) => triageCommandLine(it, idx + 1))
-  ].join("\n");
+  const user = ["<<<指令>>>", String(instruction ?? "").trim(), "<<<指令结束>>>", "", unit.header, ...items.map((it, idx) => unit.line(it, idx + 1))].join("\n");
   return [
     { role: "system", content: system },
     { role: "user", content: user }

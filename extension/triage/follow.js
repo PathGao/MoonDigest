@@ -182,86 +182,6 @@ function fromViewer(e, frameWin) {
   return ok && ["t", "Escape"].includes(e.data.key) ? e.data.key : "";
 }
 
-// AI 打标签 proposal, as the folder view's 批量打: p = { newTags: [{ key, name, checked }], rows: [{ mid, add: ["id:<id>" |
-// "new:<key>"], remove: [id] }], notes, errors }. opts = { tags, map, maxNewTags, excluded: Set of names, scope: Set of mids }.
-function mergeAiBatch(p, data, opts) {
-  const existing = (name) => opts.tags.find((t) => t.name === name);
-  const proposed = (name) => p.newTags.find((t) => t.key === name);
-  const addNew = (name) => {
-    if (p.newTags.length >= opts.maxNewTags) return null;
-    const t = { key: name, name, checked: true };
-    p.newTags.push(t);
-    return t;
-  };
-  const blocked = (name) => opts.excluded?.has(name);
-  for (const raw of data?.newTags || []) {
-    const name = String(raw ?? "").trim();
-    if (name && !blocked(name) && !existing(name) && !proposed(name)) addNew(name);
-  }
-  if (data?.note) p.notes.push(String(data.note));
-  for (const [mid, a] of Object.entries(data?.assignments || {})) {
-    if (!opts.scope.has(mid)) continue;
-    const current = opts.map[mid] || [];
-    const add = [];
-    for (const raw of a?.add || []) {
-      const name = String(raw ?? "").trim();
-      if (!name || blocked(name)) continue;
-      const t = existing(name);
-      if (t) {
-        if (!current.includes(t.id)) add.push(`id:${t.id}`);
-        continue;
-      }
-      const nt = proposed(name) || addNew(name);
-      if (nt) add.push(`new:${nt.key}`);
-    }
-    const remove = (a?.remove || [])
-      .map((n) => existing(String(n ?? "").trim()))
-      .filter((t) => t && !blocked(t.name) && current.includes(t.id))
-      .map((t) => t.id);
-    if (!add.length && !remove.length) continue;
-    const row = p.rows.find((r) => r.mid === mid);
-    if (row) {
-      row.add = [...new Set([...row.add, ...add])];
-      row.remove = [...new Set([...row.remove, ...remove])];
-    } else p.rows.push({ mid, add, remove });
-  }
-}
-
-// [mid, before, after] for every row that changes its UP's tags. idOf(key) is a new tag's id (or a stand-in before
-// 应用); an unchecked new tag adds nothing. Only UPs in follow (still followed) change.
-function aiChanges(p, map, follow, idOf) {
-  const out = [];
-  for (const r of p.rows) {
-    if (!follow.has(r.mid)) continue;
-    const before = map[r.mid] || [];
-    const ids = new Set(before);
-    for (const ref of r.add) {
-      const key = ref.slice(4);
-      const id = ref.startsWith("id:") ? ref.slice(3) : p.newTags.find((t) => t.key === key)?.checked && idOf(key);
-      if (id) ids.add(id);
-    }
-    for (const id of r.remove) ids.delete(id);
-    const after = [...ids];
-    if (after.length !== before.length || after.some((id) => !before.includes(id))) out.push([r.mid, before, after]);
-  }
-  return out;
-}
-
-// The confirm page sums the changes up per tag ("+ 科普 12"); UPs are judged afterwards on their cards.
-function aiTally(changes, nameOf) {
-  const tally = new Map();
-  for (const [, before, after] of changes) {
-    const rows = after.filter((id) => !before.includes(id)).map((id) => ["add", `+ ${nameOf(id)}`])
-      .concat(before.filter((id) => !after.includes(id)).map((id) => ["remove", `− ${nameOf(id)}`]));
-    for (const [cls, text] of rows) {
-      const t = tally.get(text) || { cls, text, n: 0 };
-      t.n++;
-      tally.set(text, t);
-    }
-  }
-  return [...tally.values()].sort((a, b) => (a.cls === "remove") - (b.cls === "remove") || b.n - a.n);
-}
-
 // 关注's own AI 打标签 settings (chrome.storage.sync follow_ai_settings), clamped like the 分拣设置 fields.
 function normAi(s = {}) {
   const int = (v, lo, hi, d) => (Number.isFinite(Number(v)) && v !== "" && v != null ? Math.min(hi, Math.max(lo, Math.round(Number(v)))) : d);
@@ -373,7 +293,7 @@ main.innerHTML = `
       settingsAttr: 'data-fw="settings"', settingsLabel: "关注设置"
     })}</span>
   </div>
-  <div class="stagebar fw-bar"><span id="fwBar" class="fw-bar-dyn"></span><span id="fwTools" class="fw-tools"><span id="fwSelAll"></span>${UI.tagButtons({ manageAttrs: 'data-fw="tags"', aiAttrs: 'data-fw="ai" aria-label="AI 打标签"' })}</span></div>
+  <div class="stagebar fw-bar"><span id="fwBar" class="fw-bar-dyn"></span><span id="fwTools" class="fw-tools"><span id="fwSelAll"></span><span id="fwAiSlot"></span></span></div>
   <div id="fwList" class="fw-list" aria-label="UP 主"></div>
   <div id="fwSel"></div>`;
 const SYNC = { pill: $("fwSyncViewBtn"), notice: $("fwSyncNotice"), text: $("fwSyncText"), detail: $("fwSyncDetail"), close: $("fwSyncCloseBtn") };
@@ -514,7 +434,8 @@ function renderSide() {
   sideSlot.innerHTML = sideSelect();
 }
 
-// The sync job: while it runs the progress pill (progress, the B站限流 countdown, 暂停) takes 刷新's place, as in 收藏夹.
+// The progress pill, as in 收藏夹: while the sync job runs it takes 刷新's place (progress, the B站限流 countdown, 暂停);
+// otherwise it shows AI 打标签 running or waiting to be confirmed, with 查看.
 function renderSync() {
   const j = D.jobs || {};
   const pill = $("fwActivity");
@@ -522,7 +443,10 @@ function renderSync() {
   btn.disabled = Boolean(j.running);
   if (j.running) btn.setAttribute("aria-busy", "true");
   else btn.removeAttribute("aria-busy");
-  if (!j.running) return UI.setActivity(pill, null);
+  if (!j.running) {
+    const ai = AI.running ? "AI 打标签运行中" : AI.proposal ? "标签建议待确认" : "";
+    return UI.setActivity(pill, ai && { text: ai, btn: { attrs: 'data-fw="ai"', label: "查看" } });
+  }
   const wait = j.hold?.until ? UI.waitText(j.hold.why === "throttled" ? "B站限流" : "网络断了", Math.ceil(j.hold.until - nowSec())) : "";
   const text = wait || `${j.step || PHASE[j.phase] || "刷新中"}${j.total ? ` ${j.done || 0}/${j.total}` : j.done ? ` ${j.done}` : ""}`;
   UI.setActivity(pill, { text, done: j.done || 0, total: wait ? 0 : j.total || 0, warn: Boolean(wait), btn: { attrs: "data-fw-stop", label: "暂停" } });
@@ -542,6 +466,17 @@ function renderSyncChanges() {
     text: `B站同步：新关注 ${c.added.length} · 在 B站取关 ${c.removed.length}`,
     sections: [["新关注", names(c.added)], ["在 B站取关", names(c.removed)]]
   });
+}
+
+// 标签管理 and ✦ AI 打标签 with its state, as in 收藏夹. AI 打标签 works on UP 主: not in 动态 or 已取消关注.
+function renderAiButton() {
+  const slot = $("fwAiSlot");
+  slot.innerHTML = UI.tagButtons({ manageAttrs: 'data-fw="tags"', aiAttrs: 'data-fw="ai"', state: AI.running ? " · 运行中" : AI.proposal ? " · 待确认" : "" });
+  slot.querySelector("[data-fw=ai]").hidden = F.tab === "feed" || F.side === "gone";
+}
+function renderAiState() {
+  renderSync();
+  renderAiButton();
 }
 
 // 关注 · N, when the list was read, and the last refresh's error, which stays until a refresh gets through.
@@ -585,7 +520,7 @@ function renderUps() {
     : "";
   E.bar.innerHTML = D.list || gone ? `<span class="seg" role="group" aria-label="${gone ? "在哪取关" : "更新状态"}">${seg}</span>${gone ? "" : recentChip}` : "";
   E.tools.hidden = !D.list && !gone;
-  E.tools.querySelector("[data-fw=ai]").hidden = gone;
+  renderAiButton();
   // 全选 is always on offer while nothing is selected, as in 收藏夹; with a selection it moves into the selection bar.
   E.selAll.innerHTML = list.length && !F.sel.size ? `<button type="button" class="link" data-fw="select-all">全选这里的 ${list.length} 个</button>` : "";
   E.sort.hidden = gone || !D.list;
@@ -687,7 +622,7 @@ function renderFeed() {
   E.sort.hidden = true; // 动态 comes newest first from B站: no sort
   // Of the tools only 标签管理: AI 打标签 and 全选 work on UP 主.
   E.tools.hidden = false;
-  E.tools.querySelector("[data-fw=ai]").hidden = true;
+  renderAiButton();
   E.selAll.innerHTML = "";
   E.bar.innerHTML = `<span class="seg fw-pills" role="group" aria-label="按标签看">${[pill("all", "全部"), pill("untagged", "未打标签"), pill("special", "★ 特别关注"), ...D.tags.map((t) => pill(t.id, t.name, t.color))].join("")}</span>${
     D.groups.length ? `<span class="seg fw-pills fw-groups" role="group" aria-label="按 B站 分组看"><span class="fw-group-label">B站 分组</span>${D.groups.map((g) => pill(`g:${g.id}`, g.name)).join("")}</span>` : ""
@@ -1294,6 +1229,7 @@ async function runAi() {
   AI.running = true;
   AI.stop = false;
   renderAiForm();
+  renderAiState();
   const keepGoing = () => !AI.stop;
   for (let i = 0; i < total && keepGoing(); i++) {
     progress.textContent = `AI 正在处理第 ${i + 1} / ${total} 批…`;
@@ -1311,7 +1247,7 @@ async function runAi() {
       // Setup problems (配置 AI, 未授权访问) fail every batch alike; 截断 is reported with what to change.
       if (/截断|配置 AI|未授权访问/.test(r.error || "")) T.handleAiError(r.error);
       if (/配置 AI|未授权访问/.test(r.error || "")) break;
-    } else mergeAiBatch(p, r.data, opts);
+    } else UI.mergeAiBatch(p, r.data, opts);
     if (i + 1 < total) await T.sleepWhile(intervalMs, keepGoing);
   }
   if (AI.stop) p.errors.push("已手动停止，这里只有已完成批次的建议");
@@ -1319,15 +1255,12 @@ async function runAi() {
   AI.running = false;
   AI.proposal = p;
   progress.textContent = "";
+  renderAiState();
   if (tagsDialog.open) showTagsMode("ai");
-  else toast("AI 打标签完成，点「AI 打标签」查看建议");
+  else toast("AI 打标签已完成，在状态栏点「查看」确认");
 }
 
-const previewId = (p, key) => {
-  const name = p.newTags.find((t) => t.key === key)?.name.trim();
-  return name && (D.tags.find((t) => t.name === name)?.id || `new:${key}`);
-};
-const changesNow = (p) => aiChanges(p, D.map, new Set(following()), (key) => previewId(p, key));
+const changesNow = (p) => UI.aiChanges(p, D.map, new Set(following()), (key) => UI.previewId(p, key, D.tags));
 
 function renderAiReview() {
   const p = AI.proposal;
@@ -1344,10 +1277,9 @@ function renderAiReview() {
 function renderAiTally() {
   const p = AI.proposal;
   const changes = changesNow(p);
-  const newN = p.newTags.filter((t) => t.checked && t.name.trim()).length;
+  const newN = p.newTags.filter((t) => t.checked && cleanTagName(t.name)).length;
   $("fwAiSummary").textContent = `· ${changes.length} 个 UP 主有改动 · 新标签 ${newN} 个 · 点「应用」前不会改动任何东西`;
-  const name = (id) => (id.startsWith("new:") ? p.newTags.find((t) => t.key === id.slice(4))?.name.trim() : tagOf(id)?.name) || "";
-  const tally = aiTally(changes, name);
+  const tally = UI.aiTally(p, changes, (id) => tagOf(id)?.name);
   $("fwAiTally").innerHTML = tally.length
     ? `<div class="chips">${tally.map((t) => `<span class="chip ${t.cls}">${esc(t.text)} <b>${t.n}</b></span>`).join("")}</div>`
     : `<p class="empty">AI 没有提出改动</p>`;
@@ -1360,8 +1292,8 @@ async function applyAi() {
   if (!p) return;
   const had = new Set(D.tags.map((t) => t.id));
   const idFor = {};
-  for (const t of p.newTags) if (t.checked && t.name.trim()) idFor[t.key] = (await addTag(t.name))?.id;
-  const changes = aiChanges(p, D.map, new Set(following()), (key) => idFor[key]);
+  for (const t of p.newTags) if (t.checked && cleanTagName(t.name)) idFor[t.key] = (await addTag(t.name))?.id;
+  const changes = UI.aiChanges(p, D.map, new Set(following()), (key) => idFor[key]);
   const before = tagsOf(D.map, changes.map(([mid]) => mid));
   const created = Object.values(idFor).filter((id) => id && !had.has(id));
   const map = { ...D.map };
@@ -1542,6 +1474,7 @@ tagsDialog.addEventListener("click", async (e) => {
   else if (ai === "close") tagsDialog.close();
   else if (ai === "discard") {
     AI.proposal = null;
+    renderAiState();
     showTagsMode("ai");
   } else if (ai === "apply") applyAi();
 });

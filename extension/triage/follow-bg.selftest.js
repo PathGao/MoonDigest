@@ -362,6 +362,11 @@ const runSync = async () => {
     const r = plain(await t.followAiTag({ instruction: "按内容分", mids: [1, "2", "99"] }));
     assert.ok(sent.messages[1].content.endsWith("1|甲|讲物理|知识|量子|\n2|乙|||新番|硬核"), sent.messages[1].content);
     assert.ok(sent.messages[0].content.includes("硬核：讲科学") && sent.messages[0].content.includes("remove 留空"), "add-only by default");
+    // 关注's rules are 收藏夹's word for word with 视频 → UP 主; only the 依据 line is its own.
+    const rules = (s) => s.slice(s.indexOf("规则："), s.indexOf("只输出")).split("\n").filter((l) => !l.includes("主要依据"));
+    const video = t.triageBuildCommandMessages({ instruction: "x", tags: [], items: [] })[0].content.replaceAll("视频", " UP 主");
+    assert.deepStrictEqual(rules(sent.messages[0].content), rules(video), "video and UP prompts share their rule lines");
+    assert.ok(rules(video).length > 6);
     assert.strictEqual(sent.thinking, false);
     assert.deepStrictEqual(r.newTags, ["动画", "x1", "x2", "x3", "x4"], "new-tag cap 5");
     assert.deepStrictEqual(r.assignments, { 1: { add: ["硬核"], remove: [] }, 2: { add: ["动画"], remove: [] } }, "unknown tags and removes dropped; 99 not followed");
