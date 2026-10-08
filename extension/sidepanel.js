@@ -381,6 +381,9 @@ async function handlePlayerAiQuickActionRequest(value, { fromStorageChange = tru
 
   if (request.contextRef) {
     await openRequestedVideoContext(request.contextRef);
+    // A new conversation would fall back to this tab's own page (分拣台), so the prompt goes into the video's one.
+    fillPrompt(request.prompt);
+    return true;
   }
   await runPlayerAiQuickActionPrompt(request.prompt);
   return true;

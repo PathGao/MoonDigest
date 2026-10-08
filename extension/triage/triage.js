@@ -342,7 +342,7 @@ const el = {};
   "aiBtn", "aiForm", "aiScope", "aiScopeCount", "aiInstruction", "aiHistory",
   "aiTagsPreview", "aiProgress", "aiCloseBtn", "aiStopBtn", "aiRunBtn",
   "aiReview", "aiReviewSummary", "aiNotes", "aiNewTagsHead", "aiNewTags", "aiRows", "aiRecentRules", "aiRecentUndo", "aiDiscardBtn", "aiApplyBtn",
-  "biliBtn", "main", "viewer", "viewerTitle", "viewerNextBtn", "viewerTabBtn", "viewerCloseBtn", "viewerFrame",
+  "biliBtn", "main", "viewer", "viewerTitle", "viewerNextBtn", "viewerFocusBtn", "viewerTabBtn", "viewerCloseBtn", "viewerFrame",
   "tools", "writeBtn", "writeDialog", "writeScope", "writeFormat", "writeScopeCount", "writeOverwriteRow", "writeOverwrite", "writeProgress", "writeFailed", "writeStopBtn", "writeCopyBtn", "writeRunBtn", "writeMdBtn"
 ].forEach((id) => (el[id] = $(id)));
 
@@ -3885,6 +3885,8 @@ function bindEvents() {
   );
   el.viewerNextBtn.addEventListener("click", basketDoneAndNext);
   el.viewerTabBtn.addEventListener("click", () => openTab(videoUrl(S.viewing)));
+  // The viewer frame is the only one in this tab running content.js, so this reaches it like the popup's 专注模式.
+  el.viewerFocusBtn.addEventListener("click", () => chrome.tabs.sendMessage(ownTabId, { type: "popup-trigger-reading-view" }).catch(() => toast("视频页还没加载好，稍后再试", true)));
 
   el.settingsBtn.addEventListener("click", () => openSettings());
   for (const input of [el.thinkingInput, el.batchSizeInput, el.titleMaxInput, el.analyzeMaxInput]) {

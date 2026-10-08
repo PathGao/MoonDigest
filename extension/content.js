@@ -1,7 +1,9 @@
 // background.js re-injects this file when its version probe misses
 // (e.g. mid-navigation). A repeat run must be a no-op, and top-level const would
 // throw on redeclaration, so the body sits in this block.
-if (!globalThis.__BOC_CONTENT_SCRIPT_LOADED__) {
+// Bilibili video pages load this in every frame; a subframe only runs it when viewer-frame.js (document_start)
+// marked it as 分拣台's viewer. Bilibili iframes on other sites stay inert.
+if (!globalThis.__BOC_CONTENT_SCRIPT_LOADED__ && (window === window.top || document.documentElement.hasAttribute("data-mdg-viewer"))) {
 const DEFAULT_SETTINGS = {
   obsidianEnabled: false,
   noteFolder: "MoonDigest/{{site}}",
@@ -32,6 +34,8 @@ const { formatCompactTimestamp, buildSubtitlePreview, buildSrt, buildTxt, should
 const subtitleCache = BocSites.subtitleCache;
 
 const BOC_VERSION = chrome.runtime.getManifest().version;
+// In 分拣台's viewer the tab is 分拣台 itself: the side panel takes the video by reference, not from the tab.
+const IN_VIEWER = window !== window.top;
 globalThis.__BOC_CONTENT_SCRIPT_LOADED__ = BOC_VERSION;
 const state = {
   fetchRunId: 0,
@@ -877,7 +881,7 @@ function bindUiEvents() {
   byId(ids.readingStatus).addEventListener("click", () => setReadingNotice(""));
   // Same request as the popup's AI 总结, so it works even when the player button is turned off.
   byId(ids.readingAiBtn).addEventListener("click", () => {
-    sendRuntimeMessage({ type: "player-ai-quick-action", source: "popup" })
+    sendRuntimeMessage({ type: "player-ai-quick-action", source: "popup", contextRef: viewerContextRef() })
       .then((resp) => setReadingNotice(resp?.ok ? "" : `打开侧边栏失败：${resp?.error || "未知错误"}`))
       .catch((error) => setReadingNotice(`打开侧边栏失败：${getErrorMessage(error)}`));
   });
@@ -913,7 +917,7 @@ function checkUrlChange() {
 
   state.currentClipSignature = nextSignature;
   try {
-    chrome.runtime.sendMessage({ type: "boc-video-changed", url: nextUrl })?.catch?.(() => {});
+    if (!IN_VIEWER) chrome.runtime.sendMessage({ type: "boc-video-changed", url: nextUrl })?.catch?.(() => {});
   } catch {}
   enforceNormalPageStateIfNeeded();
   ensureUiReady();
@@ -3576,7 +3580,7 @@ async function handlePlayerAiQuickActionClick(event) {
     if (!state.settings?.enablePlayerAiQuickAction) {
       throw new Error("✦ AI 按钮未开启");
     }
-    const resp = await sendRuntimeMessage({ type: "player-ai-quick-action" });
+    const resp = await sendRuntimeMessage({ type: "player-ai-quick-action", contextRef: viewerContextRef() });
     if (!resp?.ok) {
       throw new Error(resp?.error || "未知错误");
     }
@@ -3590,6 +3594,13 @@ async function handlePlayerAiQuickActionClick(event) {
       button.disabled = false;
     }
   }
+}
+
+// The video playing in 分拣台's viewer, in the shape 分拣台's 问 AI hands the side panel; null in a normal tab.
+function viewerContextRef() {
+  const ref = IN_VIEWER ? BocSites.parseRef(location.href) : null;
+  if (!ref) return null;
+  return { site: ref.site, videoId: ref.id, pageIndex: ref.part?.index || 1, title: state.title, author: state.author, url: ref.url };
 }
 
 function isVisibleReaderControl(node) {

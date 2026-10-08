@@ -34,7 +34,7 @@ const ctx = vm.createContext({
       }
     },
     tabs: { query: async () => [activeTab], onActivated: { addListener() {} }, onUpdated: { addListener() {} } },
-    storage: { local: { get: async () => ({}), set: async () => {} }, onChanged: { addListener() {} } }
+    storage: { local: { get: async () => ({}), set: async () => {}, remove: async () => {} }, onChanged: { addListener() {} } }
   }
 });
 ctx.globalThis = ctx;
@@ -128,6 +128,19 @@ const page = (id) => ({ ok: true, payload: { url: `https://example.com/${id}`, t
     const section = sent.filter((m) => m.type === "update-obsidian-ai-section").pop();
     assert.ok(section.filepath === "B站/UP/T.md" && section.section.includes("这个视频") && !section.section.includes("别的视频"), section.section);
     ctx.sendRuntimeMessage = realSend;
+  }
+
+  {
+    // 分拣台's viewer asks for AI 总结 with a video reference: the prompt lands in that video's conversation,
+    // not in a new one, which would fall back to the tab's own page (分拣台).
+    const calls = [];
+    activeTab = { id: 7, url: "chrome-extension://test/triage/triage.html" };
+    ctx.openRequestedVideoContext = async (ref) => calls.push(["open", ref.videoId]);
+    ctx.startNewConversation = async () => calls.push(["new"]);
+    ctx.fillPrompt = (text) => calls.push(["fill", text]);
+    const req = { id: "q1", tabId: 7, prompt: "总结", createdAt: Date.now(), contextRef: { site: "bilibili", videoId: "BV1xx" } };
+    assert.strictEqual(await ctx.handlePlayerAiQuickActionRequest(req), true);
+    assert.deepStrictEqual(calls, [["open", "BV1xx"], ["fill", "总结"]]);
   }
 
   console.log("sidepanel selftest: all passed");

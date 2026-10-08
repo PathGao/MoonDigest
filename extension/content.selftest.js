@@ -7,9 +7,36 @@ const assert = require("assert");
 // content.js is a page script: lift its body out of the run-once block, drop init(), stub the DOM, and drive the
 // async flows by hand. Top-level functions are then globals, so a test can stand in for the DOM-heavy ones.
 const lines = fs.readFileSync(path.join(__dirname, "content.js"), "utf8").replace(/\s+$/, "").split("\n");
-assert.strictEqual(lines[3], "if (!globalThis.__BOC_CONTENT_SCRIPT_LOADED__) {", "harness lifts the run-once block");
+const runGate = lines[5].match(/^if \((.*)\) \{$/)?.[1];
+assert.ok(runGate?.startsWith("!globalThis.__BOC_CONTENT_SCRIPT_LOADED__"), "harness lifts the run-once block");
 assert.strictEqual(lines.at(-1), "}");
-const source = lines.slice(4, -1).join("\n").replace(/^init\(\);$/m, "");
+
+// Frame gate, in load order: viewer-frame.js (document_start) marks the frame, then content.js decides whether to run.
+// Only the top frame and 分拣台's own viewer frame run it; a Bilibili iframe on any other page stays inert.
+{
+  const ext = "chrome-extension://abc";
+  const runs = (isTop, parentOrigin) => {
+    const attrs = new Set();
+    const g = {
+      location: { ancestorOrigins: isTop ? [] : [parentOrigin] },
+      document: { documentElement: { setAttribute: (k) => attrs.add(k), hasAttribute: (k) => attrs.has(k) } },
+      chrome: { runtime: { id: "abc" } },
+      addEventListener() {} // viewer-frame.js may listen for keys in the viewer frame
+    };
+    g.window = g;
+    g.top = isTop ? g : {};
+    g.globalThis = g;
+    const c = vm.createContext(g);
+    vm.runInContext(fs.readFileSync(path.join(__dirname, "triage/viewer-frame.js"), "utf8"), c);
+    return vm.runInContext(runGate, c);
+  };
+  assert.strictEqual(runs(true), true, "normal Bilibili tab");
+  assert.strictEqual(runs(false, ext), true, "分拣台 viewer frame");
+  assert.strictEqual(runs(false, "https://example.com"), false, "Bilibili iframe on another site");
+  assert.strictEqual(runs(false, "https://www.bilibili.com"), false, "Bilibili's own iframe");
+  assert.strictEqual(runs(false, "chrome-extension://other"), false, "another extension's page");
+}
+const source = lines.slice(6, -1).join("\n").replace(/^init\(\);$/m, "");
 
 const stubEl = () => new Proxy({ classList: { toggle() {}, add() {}, remove() {}, contains: () => false }, style: { setProperty() {}, removeProperty() {} }, dataset: {} }, {
   get: (o, k) => (k in o ? o[k] : () => {}),
