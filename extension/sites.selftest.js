@@ -466,6 +466,9 @@ async function ytComments(next, byContinuation) {
   eq(await sourcesOf({ "player:ANDROID:dQw4w9WgXcQ": ytPlayer([freeTrack]) }, { readPlayer: async () => ytPlayer([potTrack]), capturePot: async () => null }), { calls: ["player:ANDROID:dQw4w9WgXcQ"], tracks: ["ANDROID:.de:-"] });
   // Token rejected (every WEB track came back empty): withoutPot skips WEB and sends ANDROID's tracks without the token.
   eq(await sourcesOf({ "player:ANDROID:dQw4w9WgXcQ": ytPlayer([freeTrack]) }, { readPlayer: async () => ytPlayer([potTrack]), capturePot: capture, withoutPot: true }), { calls: ["player:ANDROID:dQw4w9WgXcQ"], tracks: ["ANDROID:.de:-"] });
+  // The retry keeps the first attempt's cached token, but still drops ANDROID's token-demanding tracks and captures nothing.
+  eq(await sourcesOf({ "player:ANDROID:dQw4w9WgXcQ": ytPlayer([potTrack, freeTrack]) }, { readPlayer: async () => ytPlayer([potTrack]), capturePot: capture, withoutPot: true }), { calls: ["player:ANDROID:dQw4w9WgXcQ"], tracks: ["ANDROID:.de:-"] });
+  eq(captures, 1);
   // Page player names another video (SPA leftovers): a WEB player call replaces it.
   eq(await sourcesOf({ "player:WEB:dQw4w9WgXcQ": ytPlayer([freeTrack]) }, { readPlayer: async () => ({ ...ytPlayer([potTrack]), videoDetails: { videoId: "other000000" } }) }), { calls: ["player:WEB:dQw4w9WgXcQ"], tracks: ["WEB:.de:-"] });
   // A WEB player call answering with another video is rejected, not used.

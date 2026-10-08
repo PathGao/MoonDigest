@@ -284,6 +284,21 @@ const settle = async () => {
     state.readingManualScrollPauseUntil = 0;
   }
 
+  // An empty track followed by an HTTP failure still marks the error for the PO-token fallback.
+  {
+    const realLoad = t.loadSubtitle;
+    const fails = [Object.assign(new Error("empty"), { code: "SUBTITLE_EMPTY" }), new Error("HTTP 404")];
+    t.loadSubtitle = async () => {
+      throw fails.shift();
+    };
+    await assert.rejects(t.tryLoadSubtitleCandidates([{ id: "1", url: "u1" }, { id: "2", url: "u2" }], state.fetchRunId), (e) => e.message === "HTTP 404" && e.anyEmpty === true);
+    t.loadSubtitle = async () => {
+      throw new Error("HTTP 404");
+    };
+    await assert.rejects(t.tryLoadSubtitleCandidates([{ id: "1", url: "u1" }], state.fetchRunId), (e) => e.anyEmpty === undefined);
+    t.loadSubtitle = realLoad;
+  }
+
   console.log("content selftest: all passed");
 })().catch((e) => {
   console.error(e);
