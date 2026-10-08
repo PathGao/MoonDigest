@@ -344,6 +344,8 @@ async function load() {
   };
   derive();
 }
+// 关注's data, read once: on entering 关注, or for the 收藏夹 player's 「UP 标签」 line. F.loaded holds the read.
+const ensureLoaded = () => (F.loaded ||= load());
 function derive() {
   const now = nowSec();
   rows = new Map();
@@ -407,10 +409,7 @@ async function setMode(mode, save = true) {
   side.hidden = main.hidden = !on;
   for (const b of document.querySelectorAll("#modeSwitch [data-mode]")) b.setAttribute("aria-pressed", String(b.dataset.mode === mode));
   if (save) saveView();
-  if (on && !F.loaded) {
-    F.loaded = true;
-    await load();
-  }
+  if (on) await ensureLoaded();
   // One feed page (cached a few minutes in the worker) brings posts made since the last 刷新 into 最近更新.
   if (on) send({ type: "follow-feed", offset: "" }).catch(() => {});
   if (on) render();
@@ -427,7 +426,7 @@ function setTab(tab) {
 
 // ---------- render ----------
 function render() {
-  if (F.mode !== "follow") return;
+  if (F.mode !== "follow") return renderViewerUp();
   // Say what the box searches, as 收藏夹: where (the sidebar item or row 4's tags) · what (更新状态 or the tab).
   const where = F.side === "gone" ? "已取消关注" : [F.side !== "all" && sideLabel(F.side), ...[...F.tags].map((id) => tagOf(id)?.name)].filter(Boolean).join("、") || "关注";
   const what = F.tab === "feed" ? "视频投稿" : F.side !== "gone" && F.status ? STATUS_TEXT[F.status] : "UP 主";
@@ -715,24 +714,33 @@ function renderFeed() {
 
 const addBtn = (mid, name) => UI.tagPlusBtn(`data-pick="${esc(mid)}"`, `给 ${name} 打标签`);
 
-// The viewer's second line in 关注: the playing video's UP · its tags · + 标签 (the same picker as the cards).
+// The viewer's 「UP 标签」 line: the playing video's UP, its tags, + 标签 (the same picker as the cards). In 关注 it is
+// the only line and T tags this UP; in 收藏夹 it sits under 「视频标签」, where T tags the video, and shows only for an
+// UP you follow (or did), since UP tags live on 关注's UP 主.
 const vline = document.createElement("div");
 vline.id = "fwViewerUp";
 vline.className = "viewer-line";
 vline.hidden = true;
-document.querySelector("#viewer .viewer-head").after(vline);
+$("viewerTags").after(vline);
+// ponytail: 收藏夹 items carry only the UP's name, so the UP is found by name; a renamed UP shows no line until the
+// next 关注 刷新. Store the mid on folder items if that matters.
+const favMid = (upper) => (upper && [...rows.values()].find((u) => u.name === upper)?.mid) || "";
 function renderViewerUp() {
-  const mid = F.mode === "follow" && F.viewing ? F.viewingMid : "";
+  const follow = F.mode === "follow";
+  if (!follow && T.viewingUpper() && !F.loaded) return void ensureLoaded().then(renderViewerUp);
+  const mid = follow ? (F.viewing && F.viewingMid) || "" : favMid(T.viewingUpper());
   vline.hidden = !mid;
-  if (!mid) return (vline.innerHTML = "");
+  if (!mid) return void (vline.innerHTML = "");
   const u = rows.get(mid);
   const it = F.feed?.items.find((x) => x.mid === mid);
   const name = upName(mid);
   const face = u?.face || it?.face;
   const ids = u ? u.tagIds : liveTags(mid, D);
   const chips = ids.map(tagOf).map((t) => `<span class="chip" style="--c:${esc(t.color)}"${u?.gone ? "" : ` data-pick="${esc(mid)}"`}>${esc(t.name)}</span>`).join("");
-  vline.innerHTML = `${face ? `<img src="${esc(img(face, "48w_48h_1c"))}" alt="" referrerpolicy="no-referrer">` : ""}<a class="name" href="${space(mid)}" target="_blank" rel="noopener">${esc(name)}</a><span class="sep">·</span>${chips || `<span class="none">未打标签</span>`}${u?.gone ? "" : `<span class="sep">·</span>${addBtn(mid, name)}`}`;
+  const pre = `${face ? `<img src="${esc(img(face, "48w_48h_1c"))}" alt="" referrerpolicy="no-referrer">` : ""}<a class="name" href="${space(mid)}" target="_blank" rel="noopener">${esc(name)}</a>`;
+  vline.innerHTML = UI.viewerLine({ label: "UP 标签", pre, chips, plus: !u?.gone && { attrs: `data-pick="${esc(mid)}"`, label: `给 ${name} 打标签`, key: follow } });
 }
+T.setViewerHook(renderViewerUp);
 
 function feedCard(it) {
   const ids = liveTags(it.mid, D);
@@ -1070,7 +1078,7 @@ async function pickClosed(changes) {
     await setTagMap(map);
     pushTagUndo(before, "标签修改", { ask: changes.length > 1 ? UI.undoAsk("tags", changes.length, "UP 主") : null });
   }
-  if (F.mode !== "follow") return;
+  if (F.mode !== "follow") return renderViewerUp();
   render();
   const left = anchor && F.tab === "feed" && F.feed ? feedLeaving(F.feed.items, D, feedF(), keep).length : 0;
   const msg = left ? `「${upName(mids[0])}」的 ${left} 个视频已移出当前筛选` : changes.length ? "标签已更新" : "";
@@ -1442,7 +1450,7 @@ setInterval(() => {
 new MutationObserver(() => {
   if (F.viewing && !T.viewing()) {
     F.viewing = "";
-    if (F.mode === "follow") render();
+    render();
   }
 }).observe($("viewer"), { attributes: true, attributeFilter: ["hidden"] });
 
