@@ -15,7 +15,7 @@
 //
 // 同步分三步，每步做完记进 follow_jobs.cursor；跑着时开 1 分钟的 follow-keepalive 闹钟，worker 被杀后由它叫醒、从游标接着跑：
 // 1 list：拉我的全部关注 → follow_list / follow_people；和上次比，消失的人进 follow_unfollowed（source "bili"），只在拉全时判断。
-// 2 feed：视频动态往回翻过 followSlowDays 天 → follow_last（谁最近发过、最近 3 个标题）。6 小时内翻过就跳过。
+// 2 feed：视频动态往回翻过 followSlowDays 天 → follow_last（谁最近发过、最近 3 个标题），翻完才写，翻到一半的在 follow_last_wip。6 小时内翻过就跳过。
 // 3 arc：动态里没出现的人逐个 arc/search（约 1 秒 1 个）→ follow_content；已有记录且不早于 follow_last.since 的跳过。
 //   做完写 follow_jobs.statusAt：更新状态已齐，界面不用等第 4 步。
 // 4 stats：每个关注的人的粉丝数（x/relation/stat）→ follow_stats；7 天内查过的跳过。
@@ -328,20 +328,25 @@ async function followSyncJob(ctx) {
 
   const slowDays = Math.max(1, Number((await chrome.storage.sync.get({ followSlowDays: 90 })).followSlowDays) || 90);
   if (c.phase === "feed") {
-    const lp = (await chrome.storage.local.get("follow_last")).follow_last;
+    const st = await chrome.storage.local.get(["follow_last", "follow_last_wip"]);
+    const lp = st.follow_last;
     const fresh = lp && followNow() - lp.at < 6 * 3600 && lp.since <= followNow() - slowDays * 86400;
     if (!fresh) {
-      const last = c.offset && lp ? { ...lp, v: lp.v || {} } : { at: followNow(), since: followNow(), map: {}, v: {} };
+      // 翻到一半的存在 follow_last_wip，翻完才换掉 follow_last：中途停下或限流时，上次翻全的还在。
+      const wip = c.offset && st.follow_last_wip;
+      if (!wip) c.offset = "";
+      const last = wip ? { ...wip, v: wip.v || {} } : { at: followNow(), since: followNow(), map: {}, v: {} };
       await ctx.progress({ phase: "feed", step: `翻视频投稿，找 ${slowDays} 天内发过视频的人`, done: 0, total: 0, cursor: c });
       // ponytail: 600 页（约 12000 个视频）封顶，slowDays 内发得更多要调大
       for (let p = 0; p < 600; p++) {
         const r = await get(() => followFeedPage(c.offset));
         followFoldFeed(last, r.items);
         c.offset = r.offset;
-        const end = !r.hasMore || !r.offset || last.since <= followNow() - slowDays * 86400;
+        const end = !r.hasMore || !r.offset || last.since <= followNow() - slowDays * 86400 || p === 599;
         if (p % 10 === 9 || end) {
           last.at = followNow();
-          await chrome.storage.local.set({ follow_last: last });
+          await chrome.storage.local.set({ [end ? "follow_last" : "follow_last_wip"]: last });
+          if (end) await chrome.storage.local.remove("follow_last_wip");
           await ctx.progress({ done: Object.keys(last.map).length, cursor: c });
         }
         if (end) break;

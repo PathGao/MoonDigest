@@ -26,7 +26,7 @@ const pick = (store, keys) => {
 };
 t.chrome = {
   storage: {
-    local: { get: async (k) => pick(local, k), set: async (o) => void Object.assign(local, plain(o)) },
+    local: { get: async (k) => pick(local, k), set: async (o) => void Object.assign(local, plain(o)), remove: async (k) => [k].flat().forEach((x) => delete local[x]) },
     sync: { get: async (k) => pick(sync, k) }
   },
   cookies: { get: async () => ({ value: "csrf" }) },
@@ -176,6 +176,27 @@ const runSync = async () => {
     await runSync();
     assert.ok(!calls.some((c) => c.startsWith("polymer")), "fresh feed skipped");
     assert.deepStrictEqual(calls.filter((c) => c.startsWith("space")), ["space/wbi/arc/search#1", "space/wbi/arc/search#6"]);
+  }
+
+  // ---------- a feed walk cut off midway keeps the last complete one; continue finishes it ----------
+  {
+    const prev = { at: now() - 7 * 3600, since: now() - 40 * 86400, map: { 1: now() - 99, 4: now() - 99 }, v: {} };
+    local = { follow_list: { list: ["1", "2", "4"], followTime: { 1: 101, 2: 102, 4: 104 } }, follow_last: prev };
+    const pages = Array.from({ length: 12 }, (_, i) => [dyn(2, `BVw${i}`, now() - i)]);
+    pages.push([dyn(4, "BVend", now() - 40 * 86400)]);
+    const ok = feed(pages);
+    routes["/x/polymer/web-dynamic/v1/feed/all"] = (u) => (Number(u.searchParams.get("offset") || 0) === 11 ? json({ code: -352, message: "风控" }) : ok(u));
+    await runSync();
+    assert.strictEqual(local.follow_jobs.throttled, true);
+    assert.deepStrictEqual(plain(local.follow_last), prev, "a walk cut off midway does not replace the last complete one");
+    assert.strictEqual(local.follow_jobs.cursor.offset, "10", "cursor kept");
+    routes["/x/polymer/web-dynamic/v1/feed/all"] = ok;
+    calls = [];
+    await runSync();
+    assert.ok(local.follow_jobs.finishedAt && !local.follow_jobs.error, local.follow_jobs.error);
+    assert.ok(!calls.includes("polymer/web-dynamic/v1/feed/all#0"), "continue picks up at the cursor");
+    assert.deepStrictEqual(Object.keys(local.follow_last.map).sort(), ["2", "4"], "the finished walk replaces it");
+    assert.ok(!local.follow_last_wip, "the walk in progress is cleared");
   }
 
   // ---------- partial followings: nobody marked gone ----------
