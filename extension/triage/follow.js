@@ -1118,39 +1118,24 @@ async function runAi({ instruction, scope, allowRemove }) {
   const tags = D.tags.filter((t) => !excluded.has(t.name)).map((t) => ({ name: t.name, rule: t.rule || "" }));
   const opts = { tags: D.tags, map: D.map, maxNewTags: AI.settings.newTagMax, excluded, scope: new Set(mids) };
   const { batches, intervalMs } = aiRequests(mids, AI.settings, instruction, tags, allowRemove);
-  const total = batches.length;
-  const p = { newTags: [], rows: [], notes: [], errors: [] };
   AI.running = true;
   AI.stop = false;
   renderAiState();
-  const keepGoing = () => !AI.stop;
-  for (let i = 0; i < total && keepGoing(); i++) {
-    progress(`AI 正在处理第 ${i + 1} / ${total} 批…`);
-    const r = await send({ ...batches[i], maxNewTags: Math.max(0, opts.maxNewTags - p.newTags.length) });
-    // An AI 429: wait as 收藏夹 does, then send the same batch again.
-    if (!r.ok && T.THROTTLES[r.code]) {
-      const [ms, label] = T.THROTTLES[r.code];
-      progress(`${label}，${Math.round(ms / 1000)} 秒后重试第 ${i + 1} 批…`);
-      await T.sleepWhile(ms, keepGoing);
-      i--;
-      continue;
-    }
-    if (!r.ok) {
-      p.errors.push(`第 ${i + 1} 批失败：${r.error}`);
-      // Setup problems (配置 AI, 未授权访问) fail every batch alike; 截断 is reported with what to change.
-      if (/截断|配置 AI|未授权访问/.test(r.error || "")) T.handleAiError(r.error);
-      if (/配置 AI|未授权访问/.test(r.error || "")) break;
-    } else UI.mergeAiBatch(p, r.data, opts);
-    if (i + 1 < total) await T.sleepWhile(intervalMs, keepGoing);
-  }
-  if (AI.stop) p.errors.push("已手动停止，这里只有已完成批次的建议");
-  for (const t of p.newTags) t.checked = p.rows.some((r) => r.add.includes(`new:${t.key}`));
+  // The same run loop as 收藏夹 (triage.js); each batch gets what is left of the run's new-tag cap.
+  const { proposal, errors } = await T.runAiBatches({
+    total: batches.length,
+    request: (i, p) => ({ ...batches[i], maxNewTags: Math.max(0, opts.maxNewTags - p.newTags.length) }),
+    merge: (p, data) => UI.mergeAiBatch(p, data, opts),
+    intervalMs,
+    keepGoing: () => !AI.stop,
+    progress
+  });
   AI.running = false;
-  AI.proposal = p;
-  progress("");
+  AI.proposal = proposal;
   renderAiState();
-  if (TagDialogs.ai.isOpen(aiTags)) TagDialogs.ai.render(aiTags);
-  else toast("AI 打标签已完成，在状态栏点「查看」确认");
+  const open = TagDialogs.ai.isOpen(aiTags);
+  if (open) TagDialogs.ai.render(aiTags);
+  else toast(proposal ? "AI 打标签已完成，在状态栏点「查看」确认" : `AI 打标签没有成功：${errors.at(-1)}`, !proposal);
 }
 
 const changesNow = (p) => UI.aiChanges(p, D.map, new Set(following()), (key) => UI.previewId(p, key, D.tags));

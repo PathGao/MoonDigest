@@ -714,7 +714,7 @@ const followMode = () => Boolean(document.body?.classList.contains("follow-mode"
 // modeKeys(key, e): null while that mode is off (the keys below run); otherwise true when it used the key.
 let modeKeys = null;
 globalThis.MoonTriage = {
-  openViewer, closeViewer, toast, askConfirm, send, store, handleAiError, THROTTLES, sleepWhile, viewing: () => S.viewing,
+  openViewer, closeViewer, toast, askConfirm, send, store, runAiBatches, viewing: () => S.viewing,
   undo, pushUndo, help: () => el.helpDialog.showModal(), setModeKeys: (fn) => (modeKeys = fn)
 };
 
@@ -3139,6 +3139,39 @@ const aiTags = {
 };
 const openAi = () => TagDialogs.ai.open(aiTags);
 
+// One AI 打标签 run, for both modes: request(i, p) is batch i's message, merge(p, data) folds an answer in. An AI 429 waits
+// and sends the same batch again; a setup error (配置 AI, 未授权访问) fails every batch alike, so it ends the run. Returns
+// { proposal, errors }: proposal is null when no batch got through, so there is nothing to confirm (the progress line says why).
+async function runAiBatches({ total, request, merge, intervalMs, keepGoing, progress }) {
+  const p = { newTags: [], rows: [], notes: [], errors: [] };
+  let answered = 0;
+  for (let i = 0; i < total && keepGoing(); i++) {
+    progress(`AI 正在处理第 ${i + 1} / ${total} 批…`);
+    const r = await send(request(i, p));
+    if (!r.ok && THROTTLES[r.code]) {
+      const [ms, label] = THROTTLES[r.code];
+      progress(`${label}，${Math.round(ms / 1000)} 秒后重试第 ${i + 1} 批…`);
+      await sleepWhile(ms, keepGoing);
+      i--;
+      continue;
+    }
+    if (!r.ok) {
+      p.errors.push(`第 ${i + 1} 批失败：${r.error}`);
+      // 截断 is reported with what to change.
+      if (/截断|配置 AI|未授权访问/.test(r.error || "")) handleAiError(r.error);
+      if (/配置 AI|未授权访问/.test(r.error || "")) break;
+    } else {
+      answered++;
+      merge(p, r.data);
+    }
+    if (i + 1 < total) await sleepWhile(intervalMs, keepGoing);
+  }
+  if (!keepGoing()) p.errors.push("已手动停止，这里只有已完成批次的建议");
+  for (const t of p.newTags) t.checked = p.rows.some((r) => r.add.includes(`new:${t.key}`));
+  progress(answered ? "" : p.errors.join("；"));
+  return { proposal: answered ? p : null, errors: p.errors };
+}
+
 // instruction, scope and allowRemove come from the dialog, which has checked that there is an instruction and items.
 async function runAiCommand({ instruction, scope, allowRemove }) {
   if (S.ai.running || !inFolderView()) return;
@@ -3154,43 +3187,29 @@ async function runAiCommand({ instruction, scope, allowRemove }) {
   const payload = items.map(aiCommandItem);
   const size = Math.max(1, Number(S.settings.triageTitleBatchSize) || 30);
   const scopeSet = new Set(items.map((it) => it.bvid));
-  const total = Math.ceil(items.length / size);
-  const p = { newTags: [], rows: [], notes: [], errors: [] };
-  const keepGoing = () => !S.ai.stop;
   S.ai.running = true;
   S.ai.mediaId = folder;
   S.ai.stop = false;
   renderTop();
-  for (let i = 0; i < total && keepGoing(); i++) {
-    TagDialogs.ai.progress(aiTags, `AI 正在处理第 ${i + 1} / ${total} 批…`);
-    const batch = payload.slice(i * size, (i + 1) * size);
-    const r = await send({ type: "triage-ai-command", instruction, items: batch, tags, maxNewTags: opts.maxNewTags, allowRemove: opts.allowRemove });
-    // An AI 429: wait, then send the same batch again, as 关注 does.
-    if (!r.ok && THROTTLES[r.code]) {
-      const [ms, label] = THROTTLES[r.code];
-      TagDialogs.ai.progress(aiTags, `${label}，${Math.round(ms / 1000)} 秒后重试第 ${i + 1} 批…`);
-      await sleepWhile(ms, keepGoing);
-      i--;
-      continue;
-    }
-    if (!r.ok) {
-      p.errors.push(`第 ${i + 1} 批失败：${r.error}`);
-      if (/截断|配置 AI|未授权访问/.test(r.error || "")) handleAiError(r.error);
-    } else {
-      // not tagIdsOf: the open folder may have changed since the run started
-      UI.mergeAiBatch(p, r.data, { ...opts, tags: S.tags.filter((t) => t.folder === folder), map: S.videoTags, scope: scopeSet });
-    }
-    if (i + 1 < total) await sleepWhile(S.settings.triageIntervalSec * 1000, keepGoing);
-  }
+  const { proposal: p, errors } = await runAiBatches({
+    total: Math.ceil(items.length / size),
+    request: (i) => ({ type: "triage-ai-command", instruction, items: payload.slice(i * size, (i + 1) * size), tags, maxNewTags: opts.maxNewTags, allowRemove: opts.allowRemove }),
+    // not tagIdsOf: the open folder may have changed since the run started
+    merge: (p, data) => UI.mergeAiBatch(p, data, { ...opts, tags: S.tags.filter((t) => t.folder === folder), map: S.videoTags, scope: scopeSet }),
+    intervalMs: S.settings.triageIntervalSec * 1000,
+    keepGoing: () => !S.ai.stop,
+    progress: (text) => TagDialogs.ai.progress(aiTags, text)
+  });
   S.ai.running = false;
-  TagDialogs.ai.progress(aiTags, "");
-  if (S.ai.stop) p.errors.push("已手动停止，这里只有已完成批次的建议");
-  for (const t of p.newTags) t.checked = p.rows.some((r) => r.add.includes(`new:${t.key}`));
-  S.ai.proposals[folder] = p;
+  if (p) S.ai.proposals[folder] = p;
   renderTop();
   // Open, the dialog turns to the proposal (or, in another folder, back to its form).
   const open = TagDialogs.ai.isOpen(aiTags);
   if (open) TagDialogs.ai.render(aiTags);
+  if (!p) {
+    if (!open) toast(`AI 打标签没有成功：${errors.at(-1)}`, true);
+    return;
+  }
   if (folder !== String(S.mediaId)) toast(`「${folderName(folder)}」的标签建议已完成，在状态栏点「查看」确认`);
   else if (!open) toast("AI 打标签已完成，按 I 查看建议");
 }
