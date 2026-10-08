@@ -31,6 +31,11 @@ body.follow-mode .mode-switch { margin-right: auto; }
 .fw-tools { display: flex; align-items: center; gap: 8px; margin-left: auto; }
 .fw-tools input[type="search"] { width: 200px; height: 30px; }
 .fw-tools select { height: 30px; }
+.fw-sort { display: inline-flex; }
+.fw-sort select { border-top-right-radius: 0; border-bottom-right-radius: 0; }
+.fw-tools .fw-dir { width: 30px; padding: 0; margin-left: -1px; display: grid; place-items: center; border-color: var(--border-strong); border-radius: 0 var(--radius-sm) var(--radius-sm) 0; background: var(--field-bg); color: var(--text-2); }
+.fw-tools .fw-dir:hover { color: var(--text); }
+.fw-dir svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; }
 .fw-tools button { height: 30px; }
 .fw-side-select { display: none; height: 30px; }
 

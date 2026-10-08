@@ -65,6 +65,7 @@ function upRow(mid, D, now, cfg) {
     zone: Object.entries(c?.tlist || {}).sort((a, b) => b[1] - a[1])[0]?.[0] || "",
     titles: recentTitles(mid, D),
     followed: D.list?.followTime?.[mid] || 0,
+    fans: Number.isFinite(D.stats?.[mid]?.follower) ? D.stats[mid].follower : null,
     special: Boolean(D.list?.special?.[mid]),
     gone,
     // An unfollowed UP keeps the tags it had, to put back on 重新关注.
@@ -94,11 +95,35 @@ function visibleUps(D, rows, f) {
   for (const m of base) counts[rows.get(m).status] = (counts[rows.get(m).status] || 0) + 1;
   let list = base.filter((m) => !f.status || rows.get(m).status === f.status);
   if (f.side !== "gone") {
-    const by = { name: (a, b) => a.name.localeCompare(b.name, "zh"), follow: (a, b) => b.followed - a.followed, last: (a, b) => b.last - a.last };
-    const cmp = by[f.sort] || by.last;
+    const cmp = sortCmp(f.sort, f.dir);
     list = [...list].sort((a, b) => cmp(rows.get(a), rows.get(b)));
   }
   return { list, counts };
+}
+
+// UP 主 sort: 最近更新 (last post), 关注时间, 粉丝数, 名字; dir "desc" = big / new first. An UP with no value (never
+// posted or unknown, no follow time, 粉丝数未查) sinks to the bottom in both directions; ties keep the list order.
+const SORTS = { last: "最近更新", follow: "关注时间", fans: "粉丝数", name: "名字" };
+const SORT_DIR = { last: "desc", follow: "desc", fans: "desc", name: "asc" }; // each sort's default direction
+function sortCmp(sort, dir = SORT_DIR[sort] || "desc") {
+  const val = { last: (u) => u.last || null, follow: (u) => u.followed || null, fans: (u) => u.fans ?? null, name: (u) => u.name }[sort] || ((u) => u.last || null);
+  const sign = dir === "asc" ? 1 : -1;
+  return (a, b) => {
+    const [x, y] = [val(a), val(b)];
+    if (x == null || y == null) return (x == null) - (y == null);
+    return sign * (typeof x === "string" ? x.localeCompare(y, "zh") : x - y);
+  };
+}
+// The direction button's words: time sorts 新→旧 / 旧→新, counts 从多到少 / 从少到多, names A→Z / Z→A.
+function dirLabel(sort, dir) {
+  if (sort === "name") return dir === "asc" ? "A→Z" : "Z→A";
+  if (sort === "fans") return dir === "asc" ? "从少到多" : "从多到少";
+  return dir === "asc" ? "旧→新" : "新→旧";
+}
+// 粉丝 12.3万: one decimal from 万 up, none below.
+function fmtFans(n) {
+  const one = (v) => String(Math.round(v * 10) / 10);
+  return n >= 1e8 ? `${one(n / 1e8)}亿` : n >= 1e4 ? `${one(n / 1e4)}万` : String(n);
 }
 
 // Adds a feed page to the loaded videos without repeats, newest first (B站 pages overlap and come slightly out of
@@ -260,8 +285,9 @@ function fmtAgo(sec, now) {
 // ---------- page ----------
 const T = globalThis.MoonTriage;
 const { esc, toast, askConfirm, send } = T;
-const KEYS = ["follow_list", "follow_people", "follow_last", "follow_content", "follow_tags", "follow_tag_map", "follow_unfollowed", "follow_jobs", "follow_ai_recent"];
-const VIEW_KEY = "follow_view"; // { mode: "fav" | "follow", tab: "ups" | "feed" }
+const KEYS = ["follow_list", "follow_people", "follow_last", "follow_content", "follow_tags", "follow_tag_map", "follow_unfollowed", "follow_jobs", "follow_ai_recent", "follow_stats"];
+const VIEW_KEY = "follow_view"; // { mode: "fav" | "follow", tab: "ups" | "feed", sort, dir }
+const saveView = () => chrome.storage.local.set({ [VIEW_KEY]: { mode: F.mode, tab: F.tab, sort: F.sort, dir: F.dir } });
 const AI_HISTORY_KEY = "follow_ai_history";
 const STATUS_TEXT = Object.fromEntries(STATUS);
 const STATUS_BADGE = { active: "keep", slow: "unsure", dead: "drop", stale: "unsure low", none: "none", unchecked: "none" };
@@ -296,6 +322,7 @@ const F = {
   source: "", // 已取消关注: "" | "bili" (在 B站取关) | "app" (在这里取关)
   q: "",
   sort: "last",
+  dir: "desc",
   sel: new Set(),
   busy: "", // the B站 write running, e.g. 取消关注 3/10
   recentFilter: false,
@@ -315,7 +342,7 @@ main.innerHTML = `
   <nav id="fwTabs" class="tabs fw-tabs" role="tablist" aria-label="关注"></nav>
   <div class="stagebar fw-bar"><span id="fwBar" class="fw-bar-dyn"></span><span id="fwTools" class="fw-tools">
     <input id="fwQ" type="search" placeholder="搜名字、签名、分区" aria-label="搜 UP 主" autocomplete="off">
-    <select data-fw="sort" aria-label="排序">${[["last", "按最后投稿"], ["follow", "按关注时间"], ["name", "按名字"]].map(([v, t]) => `<option value="${v}">${t}</option>`).join("")}</select>
+    <span class="fw-sort" data-sortbox><select data-fw="sort" aria-label="排序">${Object.entries(SORTS).map(([v, t]) => `<option value="${v}">${t}</option>`).join("")}</select><button type="button" class="fw-dir" data-fw="dir"></button></span>
     <button type="button" data-fw="ai" aria-label="AI 打标签">${AI_SPARK}AI 打标签</button>
   </span></div>
   <div id="fwList" class="fw-list" aria-label="UP 主"></div>
@@ -334,7 +361,8 @@ async function load() {
     map: got.follow_tag_map || {},
     gone: got.follow_unfollowed || {},
     jobs: got.follow_jobs || {},
-    recent: got.follow_ai_recent || null
+    recent: got.follow_ai_recent || null,
+    stats: got.follow_stats || {}
   };
   derive();
 }
@@ -390,7 +418,7 @@ async function setMode(mode, save = true) {
   const tabBtn = $("viewerTabBtn");
   tabBtn.textContent = on ? "在 B站打开" : "新标签页打开";
   tabBtn.setAttribute("aria-label", tabBtn.textContent);
-  if (save) chrome.storage.local.set({ [VIEW_KEY]: { mode, tab: F.tab } });
+  if (save) saveView();
   if (on && !F.loaded) {
     F.loaded = true;
     await load();
@@ -400,7 +428,7 @@ async function setMode(mode, save = true) {
 function setTab(tab) {
   if (T.viewing()) T.closeViewer();
   F.tab = tab;
-  chrome.storage.local.set({ [VIEW_KEY]: { mode: F.mode, tab } });
+  saveView();
   render();
 }
 
@@ -475,7 +503,7 @@ const sideSelect = () =>
 function renderUps() {
   const recent = F.recentFilter ? new Set(D.recent?.mids || []) : null;
   const gone = F.side === "gone";
-  const { list, counts } = visibleUps(D, rows, { side: F.side, status: gone ? "" : F.status, q: F.q, sort: F.sort, recent, source: gone ? F.source : "" });
+  const { list, counts } = visibleUps(D, rows, { side: F.side, status: gone ? "" : F.status, q: F.q, sort: F.sort, dir: F.dir, recent, source: gone ? F.source : "" });
   shown = list;
   for (const m of [...F.sel]) if (!rows.has(m) || (F.side === "gone") !== Boolean(rows.get(m).gone)) F.sel.delete(m);
   const goneN = (src) => Object.values(D.gone).filter((g) => !src || g.source === src).length;
@@ -493,8 +521,14 @@ function renderUps() {
   E.bar.innerHTML = `${sideSelect()}<span class="seg" role="group" aria-label="${gone ? "在哪取关" : "更新状态"}">${seg}</span>${gone ? "" : recentChip}`;
   E.tools.hidden = !D.list && !gone;
   if (!D.list && !gone) E.bar.innerHTML = sideSelect();
-  E.tools.querySelector("[data-fw=sort]").hidden = E.tools.querySelector("[data-fw=ai]").hidden = gone;
+  E.tools.querySelector("[data-sortbox]").hidden = E.tools.querySelector("[data-fw=ai]").hidden = gone;
   E.tools.querySelector("[data-fw=sort]").value = F.sort;
+  // Three lines, longest on top = 从大到小 (desc); mirrored = asc.
+  const dirBtn = E.tools.querySelector("[data-fw=dir]");
+  const ys = F.dir === "asc" ? [6, 10, 14] : [14, 10, 6];
+  dirBtn.innerHTML = `<svg viewBox="0 0 20 20" aria-hidden="true">${[4, 8, 12].map((y, i) => `<path d="M3 ${y + 1.5}h${ys[i]}"/>`).join("")}</svg>`;
+  dirBtn.title = dirLabel(F.sort, F.dir);
+  dirBtn.setAttribute("aria-label", `排序方向：${dirLabel(F.sort, F.dir)}`);
   const hint = hintHtml(counts);
   const scroll = E.list.scrollTop;
   let body;
@@ -538,6 +572,7 @@ function upCard(mid) {
     u.zone,
     u.last ? `最后投稿 ${fmtAgo(u.last, now)}` : u.status === "stale" && !u.gone ? `${cfg.slowDays} 天以上没投稿` : "",
     u.count && `${u.count} 个视频`,
+    u.fans != null ? `粉丝 ${fmtFans(u.fans)}` : F.sort === "fans" && !u.gone ? "粉丝数未查" : "",
     u.gone ? `${u.gone.source === "bili" ? "在 B站取关" : "在这里取关"} · ${fmtAgo(u.gone.at || now, now)}` : u.followed && `关注于 ${fmtDate(u.followed)}`
   ].filter(Boolean);
   const chips = u.tagIds.map(tagOf).map((t) => u.gone
@@ -1205,6 +1240,10 @@ main.addEventListener("click", async (e) => {
       toast(r.error || "刷新没开始", true);
       t.closest("button").disabled = false;
     }
+  } else if (act === "dir") {
+    F.dir = F.dir === "asc" ? "desc" : "asc";
+    saveView();
+    render();
   } else if (act === "ai") openAi();
   else if (act === "recent") {
     F.recentFilter = !F.recentFilter;
@@ -1237,6 +1276,8 @@ main.addEventListener("change", (e) => {
   const act = e.target.dataset.fw;
   if (act === "sort") {
     F.sort = e.target.value;
+    F.dir = SORT_DIR[F.sort];
+    saveView();
     render();
   } else if (act === "side") pickSide(e.target.value);
 });
@@ -1365,6 +1406,8 @@ const [{ [VIEW_KEY]: view }, days] = await Promise.all([
 cfg.slowDays = Number(days.followSlowDays) || 90;
 cfg.deadDays = Number(days.followDeadDays) || 365;
 if (view?.tab === "feed") F.tab = "feed";
+if (SORTS[view?.sort]) F.sort = view.sort;
+if (view?.dir === "asc" || view?.dir === "desc") F.dir = view.dir;
 // Deep link from the UP tag chips on B站 pages: #follow opens 关注, &tag=<id> picks that tag (unknown id → 全部).
 // A hash wins over the remembered mode; an open tab only gets its hash changed.
 async function followHash() {

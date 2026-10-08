@@ -9,7 +9,7 @@ const source = fs.readFileSync(path.join(__dirname, "follow.js"), "utf8");
 const pure = source.slice(source.indexOf("// PURE-START"), source.indexOf("// PURE-END"));
 assert.ok(pure.includes("function followStatus") && !pure.includes("document"), "harness lifts the pure block");
 const ctx = vm.createContext({ setTimeout, clearTimeout });
-vm.runInContext(`${pure}\n;Object.assign(globalThis, { bindSearch, followAiSettings, aiRequests, normDays, settingsProblem, followStatus, lastPostOf, recentTitles, upRow, visibleUps, mergeFeed, feedMatch, mergeAiBatch, aiChanges, aiTally, fmtAgo });`, ctx);
+vm.runInContext(`${pure}\n;Object.assign(globalThis, { fmtFans, dirLabel, bindSearch, followAiSettings, aiRequests, normDays, settingsProblem, followStatus, lastPostOf, recentTitles, upRow, visibleUps, mergeFeed, feedMatch, mergeAiBatch, aiChanges, aiTally, fmtAgo });`, ctx);
 const t = ctx;
 const plain = (v) => JSON.parse(JSON.stringify(v));
 
@@ -88,6 +88,19 @@ const base = () => ({ list: null, last: null, content: {}, people: {}, tags: [],
   assert.deepStrictEqual(c.list, ["1", "3"]);
   assert.deepStrictEqual(c.counts, { "": 4, active: 2, slow: 1, stale: 1 }, "counts ignore the status filter");
   assert.deepStrictEqual(v({ recent: new Set(["4", "2"]) }).list, ["2", "4"], "「AI 刚打的」 narrows the list");
+  // direction toggle; a missing value sinks in both directions (4 never posted)
+  assert.deepStrictEqual(v({ sort: "last", dir: "asc" }).list, ["2", "3", "1", "4"], "很久没更新在前, never-posted still last");
+  assert.deepStrictEqual(v({ sort: "follow", dir: "asc" }).list, ["1", "4", "3", "2"], "最早关注 first");
+  const names = (list) => list.map((m) => D.people[m].name);
+  assert.deepStrictEqual(names(v({ sort: "name", dir: "desc" }).list), names(v({ sort: "name", dir: "asc" }).list).reverse());
+  D.stats = { 1: { follower: 500 }, 3: { follower: 123456 }, 4: { follower: 0 } };
+  const rows2 = new Map([...D.list.list].map((m) => [m, t.upRow(m, D, now, { slowDays: 90, deadDays: 365 })]));
+  const v2 = (f) => plain(t.visibleUps(D, rows2, { side: "all", status: "", q: "", recent: null, ...f })).list;
+  assert.strictEqual(rows2.get("2").fans, null, "no count = 粉丝数未查");
+  assert.strictEqual(rows2.get("4").fans, 0, "0 fans is a count");
+  assert.deepStrictEqual(v2({ sort: "fans", dir: "desc" }), ["3", "1", "4", "2"], "多→少, 未查 last");
+  assert.deepStrictEqual(v2({ sort: "fans", dir: "asc" }), ["4", "1", "3", "2"], "少→多, 未查 still last");
+  delete D.stats;
 }
 
 // ----- feed: merge without repeats, newest first; tag match -----
@@ -188,6 +201,11 @@ const base = () => ({ list: null, last: null, content: {}, people: {}, tags: [],
   console.log("follow selftest: IME passed");
 })();
 
+assert.strictEqual(t.fmtFans(123456), "12.3万");
+assert.strictEqual(t.fmtFans(100000), "10万");
+assert.strictEqual(t.fmtFans(9999), "9999");
+assert.strictEqual(t.fmtFans(250000000), "2.5亿");
+assert.deepStrictEqual([t.dirLabel("last", "desc"), t.dirLabel("follow", "asc"), t.dirLabel("fans", "desc"), t.dirLabel("fans", "asc")], ["新→旧", "旧→新", "从多到少", "从少到多"]);
 assert.strictEqual(t.fmtAgo(now - 100, now), "今天");
 assert.strictEqual(t.fmtAgo(ago(3), now), "3 天前");
 assert.strictEqual(t.fmtAgo(ago(65), now), "2 个月前");

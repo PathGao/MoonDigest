@@ -426,6 +426,8 @@
       follow_tags: tags,
       follow_tag_map: tagMap,
       follow_unfollowed: unfollowed,
+      // 粉丝数 for two thirds of them; the rest are 粉丝数未查.
+      follow_stats: Object.fromEntries(mids.filter((_, i) => i % 3).map((m, i) => [m, { follower: [1234567, 89012, 4321, 560000, 23, 150000, 9876][i % 7], at: nowS - DAY }])),
       follow_jobs: { running: false, startedAt: nowS - 3 * 3600 - 300, finishedAt: nowS - 3 * 3600, lastFinishedAt: nowS - 3 * 3600 }
     };
     if (fmode !== "empty") Object.assign(store, structuredClone(full));
