@@ -684,6 +684,9 @@ function visibleItems() {
 const selectedIn = (list) => list.filter((it) => S.selected.has(it.bvid));
 // Of these videos, those the open tab lists now: a step button counts and runs only what is on screen.
 const listed = (list) => list.filter((it) => inTab(it, S.tab) && passFilter(it));
+// What 按新标准重新粗看 / 细看 count and send (细看 one batch at a time).
+const redoCoarseList = () => listed(staleCoarse());
+const redoFineList = () => listed(staleFine()).slice(0, GROUP_SIZE);
 // The selection belongs to the open tab (switching tabs clears it). A filter may hide part of it: every action and count
 // takes only what is listed, and the selection bar says how many are hidden.
 const visibleSelected = () => selectedIn(visibleItems());
@@ -1874,7 +1877,7 @@ function renderListHeader(list) {
     if (sel) selActs = batchBtn("keep");
   } else if (t === "coarse") {
     // A selection gets 细看 plus both batch buttons; 可清理 / 值得留 lead with their batch button, 细看 stays secondary.
-    html = seg() + criteriaBtn() + redoBtn("redo-coarse", "粗看", listed(staleCoarse()).length, staleCoarse().length);
+    html = seg() + criteriaBtn() + redoBtn("redo-coarse", "粗看", redoCoarseList().length, staleCoarse().length);
     if (sel) selActs = groupBtn("primary") + batchBtn("keep");
     else if (f === "drop") html += batchBtn("unfav", "drop") + groupBtn("");
     else if (f === "keep") html += batchBtn("keep", "keep") + groupBtn("");
@@ -1883,7 +1886,7 @@ function renderListHeader(list) {
     // A selection gets both buttons; without one 值得留 and 可清理 each get a button, 拿不准 none.
     html = seg();
     const staleN = staleFine().length;
-    if (staleN && !all) html += criteriaBtn() + redoBtn("redo-fine", "细看", Math.min(listed(staleFine()).length, GROUP_SIZE), staleN);
+    if (staleN && !all) html += criteriaBtn() + redoBtn("redo-fine", "细看", redoFineList().length, staleN);
     if (all) html += sortHint;
     else if (sel) selActs = batchBtn("keep");
     else {
@@ -3761,8 +3764,8 @@ function bindEvents() {
     } else if (act === "batch-unfav") batchUnfav(batchList(btn.dataset.verdict || null));
     else if (act === "batch-keep") batchKeep(batchList(btn.dataset.verdict || null));
     else if (act === "criteria") openCriteria();
-    else if (act === "redo-coarse") runStage1(listed(staleCoarse()));
-    else if (act === "redo-fine") startGroup(listed(staleFine()).slice(0, GROUP_SIZE).map((it) => it.bvid), true);
+    else if (act === "redo-coarse") runStage1(redoCoarseList());
+    else if (act === "redo-fine") startGroup(redoFineList().map((it) => it.bvid), true);
     else if (act === "sel-tags") openPicker(visibleSelected().map((it) => it.bvid));
     else if (act === "all-pause") {
       S.loadAll.paused = true;
