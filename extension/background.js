@@ -1645,5 +1645,5 @@ async function probeAiChatCompletion({ baseUrl, apiKey, model }) {
   return { ok: false, error: `HTTP ${response.status}${detail ? `: ${detail}` : ""}` };
 }
 
-importScripts("triage/triage-bg.js");
-importScripts("triage/follow-bg.js");
+// shared.js is the pages' TriageUi; it touches no DOM until called, so the worker reuses its formatters and tag rules.
+importScripts("tag-core.js", "triage/shared.js", "triage/triage-bg.js", "triage/follow-bg.js");

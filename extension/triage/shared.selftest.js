@@ -49,15 +49,11 @@ assert.strictEqual(UI.fmtDate(new Date(2026, 0, 5, 12).getTime() / 1000), "2026-
 assert.strictEqual(UI.img("//i0.hdslb.com/a.jpg", "48w_48h_1c"), "https://i0.hdslb.com/a.jpg@48w_48h_1c.webp");
 assert.strictEqual(UI.img("https://i0.hdslb.com/a.jpg@1c.webp", "48w"), "https://i0.hdslb.com/a.jpg@1c.webp", "a sized URL stays");
 
-// Tag names: the pages and the background clean them the same way, so AI suggestions match what was typed.
+// Tag names (the background uses this same function, so AI suggestions match what was typed).
 {
-  const bg = fs.readFileSync(path.join(__dirname, "triage-bg.js"), "utf8");
-  const at = bg.indexOf("function triageCleanTagName(");
-  vm.runInContext(bg.slice(at, bg.indexOf("\n}\n", at) + 2), ctx);
   const cases = [["入门，进阶", "入门进阶"], ["入门, 进阶", "入门 进阶"], ["a，b、c,d", "abcd"], [" 一二三四五六七八九十甲乙丙 ", "一二三四五六七八九十甲乙"], ["、", ""], [null, ""], ["  AI  ", "AI"]];
   for (const [raw, want] of cases) {
     assert.strictEqual(UI.cleanTagName(raw), want, String(raw));
-    assert.strictEqual(ctx.triageCleanTagName(raw), want, `background: ${raw}`);
   }
 }
 

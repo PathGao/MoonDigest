@@ -1,6 +1,6 @@
 // MoonDigest 收藏夹分拣台 background 层。classic script，由 background.js 末尾 importScripts 加载，
 // 与 background.js 共享全局作用域，所以顶层名字统一带 triage / TRIAGE_ 前缀。
-// 纯函数放顶部（selftest 用 vm 加载，chrome 为 undefined）。
+// 纯函数放顶部（selftest 用 vm 加载，chrome 为 undefined）。日期、时长、标签名用页面同一份的 TriageUi（shared.js，在本文件前加载）。
 
 // ===== 纯函数 =====
 
@@ -9,13 +9,6 @@ function triageSubtitleValid(body, dur) {
   if (!Array.isArray(body) || !body.length || !(dur > 0)) return false;
   const lastTo = Number(body[body.length - 1].to);
   return lastTo <= dur + 10 && lastTo >= dur * 0.5;
-}
-
-// pubdate is seconds since the epoch; YYYY-MM-DD in local time, "" when missing.
-function triageDate(sec) {
-  if (!(sec > 0)) return "";
-  const d = new Date(sec * 1000);
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
 // 从模型输出里取第一个完整的 {...} 或 [...]（去掉 ``` 围栏，跳过字符串里的括号）
@@ -69,11 +62,6 @@ function triageTagLines(tags) {
     .filter(Boolean);
 }
 
-// 新标签名：去掉逗号顿号和首尾空白，≤12 字
-function triageCleanTagName(name) {
-  return String(name ?? "").replace(/[,，、]/g, "").trim().slice(0, 12);
-}
-
 function triageParseLlm(content) {
   const obj = triageExtractJson(content, "{");
   const oneLiner = String(obj.one_liner ?? obj.oneLiner ?? "").trim();
@@ -110,18 +98,14 @@ function triageParseTitleBatch(content, items) {
 
 function triageTitleLine(item, n) {
   const clean = (s) => String(s ?? "").replace(/[|\r\n]+/g, " ").trim();
-  const d = Number(item.duration) || 0;
-  const dur = `${Math.floor(d / 60)}:${String(d % 60).padStart(2, "0")}`;
-  return `${n}|${clean(item.title)}|${clean(item.upper)}|${dur}|${triageDate(item.pubdate)}|${clean(item.intro).slice(0, 120)}`;
+  return `${n}|${clean(item.title)}|${clean(item.upper)}|${TriageUi.fmtDuration(item.duration)}|${TriageUi.fmtDate(item.pubdate)}|${clean(item.intro).slice(0, 120)}`;
 }
 
 // 序号|标题|UP|时长|现有标签|一句话|要点1；要点2；要点3（没有的字段留空）
 function triageCommandLine(item, n) {
   const clean = (s) => String(s ?? "").replace(/[|\r\n]+/g, " ").trim();
   const list = (a) => (Array.isArray(a) ? a.map(clean).filter(Boolean) : []);
-  const d = Number(item.duration) || 0;
-  const dur = d ? `${Math.floor(d / 60)}:${String(d % 60).padStart(2, "0")}` : "";
-  return [n, clean(item.title), clean(item.upper), dur, list(item.currentTags).join("、"), clean(item.oneLiner), list(item.points).join("；")].join("|");
+  return [n, clean(item.title), clean(item.upper), Number(item.duration) ? TriageUi.fmtDuration(item.duration) : "", list(item.currentTags).join("、"), clean(item.oneLiner), list(item.points).join("；")].join("|");
 }
 
 // 批量打标签的提案只改标签：add 只留已有标签或本次新建的标签（至多 maxNewTags 个），remove 只留视频现有标签且要 allowRemove；
@@ -132,7 +116,7 @@ function triageParseCommand(content, items, tags, { maxNewTags = 5, allowRemove 
   const newTags = [];
   for (const t of Array.isArray(obj.new_tags) ? obj.new_tags : []) {
     if (newTags.length >= maxNewTags) break;
-    const name = triageCleanTagName(t && typeof t === "object" ? t.name : t);
+    const name = TriageUi.cleanTagName(t && typeof t === "object" ? t.name : t);
     if (name && !existing.has(name) && !newTags.includes(name)) newTags.push(name);
   }
   const valid = new Set([...existing, ...newTags]);
@@ -146,7 +130,7 @@ function triageParseCommand(content, items, tags, { maxNewTags = 5, allowRemove 
     const r = byIndex.get(idx + 1);
     if (!r || !item?.bvid) return;
     const current = new Set(triageTagNames(item.currentTags));
-    const pick = (arr, ok) => [...new Set((Array.isArray(arr) ? arr : []).map((x) => triageCleanTagName(x)))].filter((x) => x && ok(x));
+    const pick = (arr, ok) => [...new Set((Array.isArray(arr) ? arr : []).map((x) => TriageUi.cleanTagName(x)))].filter((x) => x && ok(x));
     const a = {
       add: pick(r.add, (x) => valid.has(x) && !current.has(x)),
       remove: allowRemove ? pick(r.remove, (x) => current.has(x)) : []
