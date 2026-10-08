@@ -79,6 +79,7 @@ html.bili_dark .mdg-brand { color: #cba6f7; }
 .mdg-seen { position: absolute; inset: 0; z-index: 3; pointer-events: none; overflow: hidden; border-radius: inherit; }
 .mdg-seen-bar { position: absolute; left: 0; right: 0; bottom: 0; height: 3px; background: rgba(0, 0, 0, 0.5); }
 .mdg-seen-bar i { display: block; height: 100%; background: #ff6699; }
-.mdg-seen-mark { position: absolute; top: 6px; left: 6px; padding: 2px 8px; border-radius: 6px; background: #ff6699; color: #fff; font: 600 13px/18px system-ui, -apple-system, "PingFang SC", sans-serif; white-space: nowrap; }
+/* Two classes: Bilibili's header popups set `.bili-header span { color: inherit }` and `.bili-header * { padding: 0 }`. */
+.mdg-seen .mdg-seen-mark { position: absolute; top: 6px; left: 6px; padding: 2px 8px; border-radius: 6px; background: #ff6699; color: #fff; font: 600 13px/18px system-ui, -apple-system, "PingFang SC", sans-serif; white-space: nowrap; }
 .mdg-seen-mark.mdg-faint { background: rgba(17, 17, 27, 0.6); font-weight: 400; }
 .mdg-seen-veil .mdg-seen-mark:not(.mdg-faint) { inset: 0; top: 0; left: 0; padding: 0; border-radius: 0; display: flex; align-items: center; justify-content: center; background: rgba(17, 17, 27, 0.55); font-size: 15px; font-weight: 700; }
