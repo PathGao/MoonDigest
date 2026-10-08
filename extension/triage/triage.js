@@ -1709,7 +1709,7 @@ function renderTabs() {
         })
         .join("")
     : `<span class="muted">还没有自定义标签</span>`) + // created from the 标签 button
-    `<button type="button" class="chip tag-chip" data-tags aria-label="标签：管理标签和 AI 批量打标签">${tagsBtnHtml()}</button>`;
+    `<button type="button" class="tags-btn" data-tags aria-label="标签：管理标签和 AI 批量打标签">${tagsBtnHtml()}</button>`;
 }
 
 // The 标签 entry's text, in the sidebar and as the chip after the tag filters.
