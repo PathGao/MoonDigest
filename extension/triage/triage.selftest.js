@@ -740,6 +740,8 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     t.S.viewing = "BV710";
     t.renderViewerTags();
     assert.ok(!t.el.viewerTags.hidden && t.el.viewerTags.innerHTML.includes("data-vtag>p0</span>") && t.el.viewerTags.innerHTML.includes('class="quiet tag-plus" data-vtag'));
+    // It is named 「视频标签」, and T (which tags the playing video in 收藏夹) shows on its 「+ 标签」.
+    assert.ok(t.el.viewerTags.innerHTML.startsWith('<span class="row-label">视频标签</span>') && t.el.viewerTags.innerHTML.includes('<kbd class="k-faint" aria-hidden="true">T</kbd>'));
     po = null;
     vm.runInContext("tagPlaying()", ctx);
     assert.deepStrictEqual([po?.anchor, plain(po?.targets)], ["#viewerTags .tag-plus", ["BV710"]]);
@@ -747,12 +749,36 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     t.S.mediaId = "removed";
     t.renderViewerTags();
     assert.ok(t.el.viewerTags.innerHTML.includes(">p0</span>") && !t.el.viewerTags.innerHTML.includes("data-vtag"));
+    // No tags: no 「未打标签」, only the name (and 「+ 标签」 where it can change them).
+    const p0s = t.S.videoTags.BV710;
+    t.S.videoTags.BV710 = [];
+    t.renderViewerTags();
+    assert.strictEqual(t.el.viewerTags.innerHTML, '<span class="row-label">视频标签</span>');
+    t.S.mediaId = "K";
+    t.renderViewerTags();
+    assert.ok(!t.el.viewerTags.innerHTML.includes("未打标签") && t.el.viewerTags.innerHTML.endsWith("</kbd></button>"));
+    t.S.videoTags.BV710 = p0s;
+    t.S.mediaId = "removed";
     po = null;
     vm.runInContext("tagPlaying()", ctx);
     assert.strictEqual(po, null);
     t.S.viewing = "";
     t.renderViewerTags();
     assert.ok(t.el.viewerTags.hidden && t.el.viewerTags.innerHTML === "");
+    // 关注 has no 「视频标签」 line (视频投稿 are in no folder); each draw also redraws 关注's 「UP 标签」 line (the hook),
+    // which in 收藏夹 asks for the playing video's UP.
+    let hooked = 0;
+    t.MoonTriage.setViewerHook(() => hooked++);
+    t.S.viewing = "BV710";
+    t.S.itemMap.get("BV710").upper = "甲";
+    t.renderViewerTags();
+    assert.ok(!t.el.viewerTags.hidden && hooked === 1 && t.MoonTriage.viewingUpper() === "甲");
+    t.document.body = { classList: { contains: (c) => c === "follow-mode" } };
+    t.renderViewerTags();
+    assert.ok(t.el.viewerTags.hidden && t.el.viewerTags.innerHTML === "" && hooked === 2 && t.MoonTriage.viewingUpper() === "");
+    delete t.document.body;
+    t.MoonTriage.setViewerHook(null);
+    t.S.viewing = "";
   }
   // 批量打 确认页 sums the changes per tag; applying records 「AI 刚打的」, which ends four ways.
   openFake("K", [item(700), item(701), item(702)]);

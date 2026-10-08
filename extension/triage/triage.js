@@ -716,14 +716,18 @@ init();
 const followMode = () => Boolean(document.body?.classList.contains("follow-mode"));
 // modeKeys(key, e): null while that mode is off (the keys below run); otherwise true when it used the key.
 let modeKeys = null;
+// 关注's 「UP 标签」 line, redrawn with the 「视频标签」 line.
+let viewerHook = null;
 globalThis.MoonTriage = {
   openViewer, closeViewer, toast, askConfirm, send, store, runAiBatches, viewing: () => S.viewing,
+  // The playing 收藏夹 video's UP name, "" in 关注 or with nothing playing.
+  viewingUpper: () => (!followMode() && S.itemMap.get(S.viewing)?.upper) || "",
   // 关注's 没登录: the same 去登录 banner as 收藏夹's; off hides it only when it is that one.
   loginBanner(on) {
     if (on) showBanner("没登录 B站：先在这个浏览器里登录 B站", "去登录", () => openTab("https://passport.bilibili.com/login"), "login");
     else if (el.banner.dataset.kind === "login") el.banner.hidden = true;
   },
-  undo, pushUndo, dropModeUndo: (drop) => (S.modeUndo = S.modeUndo.filter((e) => !drop(e))), help: () => el.helpDialog.showModal(), setModeKeys: (fn) => (modeKeys = fn)
+  undo, pushUndo, dropModeUndo: (drop) => (S.modeUndo = S.modeUndo.filter((e) => !drop(e))), help: () => el.helpDialog.showModal(), setModeKeys: (fn) => (modeKeys = fn), setViewerHook: (fn) => (viewerHook = fn)
 };
 
 async function init() {
@@ -2805,17 +2809,21 @@ function savePicked(changes) {
   setFocus(S.focused, true);
 }
 
-// The viewer's second line, as 关注's: the playing video's tags and 「+ 标签 T」; a tag opens the picker too.
+// The viewer's 「视频标签」 line: the playing video's tags and 「+ 标签 T」; a tag opens the picker too. 关注 then draws
+// its 「UP 标签」 line under it (viewerHook).
 function renderViewerTags() {
   const it = !followMode() && S.viewing && S.itemMap.get(S.viewing);
   el.viewerTags.hidden = !it;
-  if (!it) return void (el.viewerTags.innerHTML = "");
-  const edit = S.mediaId !== REMOVED;
-  const chips = tagIdsOf(it.bvid)
-    .map(tagById)
-    .map((t) => `<span class="chip" style="--c:${esc(t.color)}"${edit ? " data-vtag" : ""}>${esc(t.name)}</span>`)
-    .join("");
-  el.viewerTags.innerHTML = (chips || `<span class="none">未打标签</span>`) + (edit ? `<span class="sep">·</span>${UI.tagPlusBtn("data-vtag", "给这个视频打标签")}` : "");
+  if (!it) el.viewerTags.innerHTML = "";
+  else {
+    const edit = S.mediaId !== REMOVED;
+    const chips = tagIdsOf(it.bvid)
+      .map(tagById)
+      .map((t) => `<span class="chip" style="--c:${esc(t.color)}"${edit ? " data-vtag" : ""}>${esc(t.name)}</span>`)
+      .join("");
+    el.viewerTags.innerHTML = UI.viewerLine({ label: "视频标签", chips, plus: edit && { attrs: "data-vtag", label: "给这个视频打标签" } });
+  }
+  viewerHook?.();
 }
 const tagPlaying = () => S.viewing && openPicker(S.viewing, "#viewerTags .tag-plus");
 

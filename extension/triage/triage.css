@@ -536,10 +536,13 @@ dialog h3 { margin: 8px 0 0; font-size: var(--fs-sm); font-weight: 600; }
 .ai-section > h3:first-child { margin-top: 0; }
 
 /* viewer: the video page next to the list */
-/* Its second line: the playing video's tags (收藏夹) or its UP and the UP's tags (关注), then 「+ 标签 T」. */
+/* Its tag lines: 「视频标签」 (收藏夹) and 「UP 标签」 (the UP and its tags; 收藏夹 for a followed UP, and 关注). */
 .viewer-line { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 8px; padding: 6px 12px; border-bottom: 1px solid var(--border); background: var(--surface-muted); color: var(--text-2); font-size: var(--fs-sm); }
 .viewer-line[hidden] { display: none; }
-.viewer-line .sep, .viewer-line .none { color: var(--faint); }
+/* Each line starts with its name, 「视频标签」 or 「UP 标签」 (shared.js viewerLine → labeledRow): rows 3 and 4's .row-label at
+   the line's size, one width so both lines' chips line up; wrapped chips keep the indent. */
+.viewer-line { --row-label-w: 4.5em; padding-left: calc(12px + var(--row-label-w) + 8px); }
+.viewer-line > .row-label { margin-left: calc(-1 * var(--row-label-w) - 8px); font-size: inherit; line-height: inherit; }
 .viewer-line .chip[data-pick], .viewer-line .chip[data-vtag] { cursor: pointer; }
 .viewer { display: flex; flex-direction: column; min-height: 0; min-width: 0; background: var(--surface); border: 1px solid var(--border); border-radius: 9px; overflow: hidden; }
 .viewer-head { display: flex; align-items: center; gap: 6px; padding: 6px 6px 6px 12px; border-bottom: 1px solid var(--border); }
