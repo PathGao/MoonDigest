@@ -1298,7 +1298,7 @@ main.addEventListener("click", async (e) => {
 // The selection bar sits outside the list; its buttons share the handler above through #followMain.
 
 // One box, two searches: UP 主 and 动态 each keep their own text (setTab swaps it in).
-BocTyping.bindLive(E.q, (q) => {
+UI.bindSearch(E.q, (q) => {
   if (F.tab === "feed") F.fq = q;
   else F.q = q;
   render();

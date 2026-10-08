@@ -4,7 +4,8 @@ const path = require("path");
 const vm = require("vm");
 const assert = require("assert");
 
-const ctx = vm.createContext({});
+const ctx = vm.createContext({ setTimeout, clearTimeout });
+vm.runInContext(fs.readFileSync(path.join(__dirname, "../typing.js"), "utf8"), ctx);
 vm.runInContext(fs.readFileSync(path.join(__dirname, "shared.js"), "utf8"), ctx);
 const UI = ctx.TriageUi;
 const plain = (v) => JSON.parse(JSON.stringify(v));
@@ -194,3 +195,26 @@ for (const file of ["triage.js", "follow.js"]) {
 }
 
 console.log("shared selftest: all passed");
+
+// The search box, both modes (收藏夹 and 关注 bind it the same way): Esc clears it; Esc on an empty box blurs it, so J / K
+// reach the cards again; Esc that belongs to the IME does nothing.
+{
+  const L = {};
+  let blurred = 0;
+  const got = [];
+  const input = { value: "", addEventListener: (type, f) => (L[type] ||= []).push(f), blur: () => blurred++ };
+  UI.bindSearch(input, (q) => got.push(q));
+  const esc = (o = {}) => {
+    const e = { key: "Escape", isComposing: false, keyCode: 27, prevented: 0, preventDefault() { this.prevented++; }, ...o };
+    L.keydown.forEach((f) => f(e));
+    return e;
+  };
+  input.value = "路";
+  assert.strictEqual(esc({ isComposing: true }).prevented, 0, "the IME's Esc");
+  esc();
+  assert.deepStrictEqual([input.value, got.join(), blurred], ["", "", 0], "Esc clears the box and the search");
+  esc();
+  assert.strictEqual(blurred, 1, "Esc on an empty box blurs it");
+  assert.ok(L.compositionend && L.input, "it filters through bindLive");
+  for (const f of ["triage.js", "follow.js"]) assert.ok(fs.readFileSync(path.join(__dirname, f), "utf8").includes("UI.bindSearch("), `${f} binds its search with bindSearch`);
+}

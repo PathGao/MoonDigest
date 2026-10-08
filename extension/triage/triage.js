@@ -327,7 +327,7 @@ const folderContext = () => ({ title: folderTitle(), intro: S.folderIntro[S.medi
 
 const $ = (id) => document.getElementById(id);
 
-const { composing, typingIn, bindLive } = globalThis.BocTyping;
+const { composing, typingIn } = globalThis.BocTyping;
 
 const UI = globalThis.TriageUi;
 const { esc, pad, fmtDate, fmtDuration, fmtCount, cleanTagName, plainClick, img } = UI;
@@ -3667,17 +3667,9 @@ function bindEvents() {
       render();
     }
   });
-  bindLive(el.searchInput, (q) => {
+  UI.bindSearch(el.searchInput, (q) => {
     S.query = q;
     S.focusIndex = 0;
-    render();
-  });
-  // Esc clears the box; on an empty box it hands the keys back to the cards.
-  el.searchInput.addEventListener("keydown", (e) => {
-    if (composing(e) || e.key !== "Escape") return;
-    e.preventDefault();
-    if (!el.searchInput.value) return el.searchInput.blur();
-    el.searchInput.value = S.query = "";
     render();
   });
   el.tagFilter.addEventListener("click", (e) => {
