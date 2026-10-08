@@ -1173,10 +1173,12 @@ async function runRefreshClip() {
           selected = await loadTranscriptFallback(error, runId);
         } else {
           const message = getErrorMessage(error, "");
-          if (!message.includes("HTTP") && !error?.status && error?.code !== "SUBTITLE_DURATION_MISMATCH") {
+          const empty = error?.code === "SUBTITLE_EMPTY";
+          if (!empty && !message.includes("HTTP") && !error?.status && error?.code !== "SUBTITLE_DURATION_MISMATCH") {
             throw error;
           }
-          selected = await retrySubtitleCandidates(preferred, runId).catch((retryError) => {
+          // YouTube answers every track with an empty body when it rejects the PO token; ask for tracks that need none.
+          selected = await retrySubtitleCandidates(preferred, runId, empty ? { withoutPot: true } : {}).catch((retryError) => {
             if (isStaleRunError(retryError)) {
               throw retryError;
             }
@@ -1235,8 +1237,8 @@ async function runRefreshClip() {
 }
 
 // Signed subtitle URLs expire quickly, so a failed track list is fetched again once.
-async function retrySubtitleCandidates(preferred, runId) {
-  const subtitleBundle = await retryAsync(() => fetchSubtitleBundle(), 2, 500);
+async function retrySubtitleCandidates(preferred, runId, extraIo = {}) {
+  const subtitleBundle = await retryAsync(() => fetchSubtitleBundle(extraIo), 2, 500);
   ensureRunActive(runId);
   state.subtitles = BocSites.rankTracks(subtitleBundle.tracks, subtitleLangTarget());
   state.chapters = BocSites.normalizeChapters(subtitleBundle.chapters);
@@ -1327,7 +1329,9 @@ async function commitSubtitleBody(raw, { url, lang, subtitleId }, runId) {
   ensureRunActive(runId);
   const body = currentSite().parseSegments(raw);
   if (body.length === 0) {
-    throw new Error("字幕文件为空。");
+    const emptyError = new Error("字幕文件为空。");
+    emptyError.code = "SUBTITLE_EMPTY";
+    throw emptyError;
   }
   const durationCheck = BocSites.validateSubtitleByDuration(body, state.videoDuration);
   if (!durationCheck.ok) {
@@ -4076,16 +4080,16 @@ function cleanVideoUrl(href = location.href) {
   return BocSites.cleanUrl(href);
 }
 
-async function fetchSubtitleBundle() {
+async function fetchSubtitleBundle(extraIo = {}) {
   const site = currentSite();
   const ref = currentRef();
   if (!site || !ref) {
     throw new Error("当前页面不是支持的视频地址。");
   }
-  let bundle = await site.fetchTracks(ref, state.meta, siteIo());
+  let bundle = await site.fetchTracks(ref, state.meta, { ...siteIo(), ...extraIo });
   // The background request may go out without the page's cookies; the page's own request carries them.
   if (bundle.needLogin && !site.pageOnly) {
-    bundle = await site.fetchTracks(ref, state.meta, { ...siteIo(), fetchJson });
+    bundle = await site.fetchTracks(ref, state.meta, { ...siteIo(), ...extraIo, fetchJson });
   }
   const chapters = bundle.chapters?.length
     ? bundle.chapters
