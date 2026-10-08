@@ -12,7 +12,7 @@ const ctx = vm.createContext({ setTimeout, clearTimeout });
 // The pure block sorts with shared.js (UI.byValue / UI.dirWords), as the page does.
 vm.runInContext(fs.readFileSync(path.join(__dirname, "../tag-core.js"), "utf8"), ctx);
 vm.runInContext(fs.readFileSync(path.join(__dirname, "shared.js"), "utf8"), ctx);
-vm.runInContext(`const UI = globalThis.TriageUi;\n${pure}\n;Object.assign(globalThis, { syncFinished, dirLabel, followAiSettings, aiRequests, normDays, settingsProblem, followStatus, lastPostOf, recentTitles, upRow, visibleUps, mergeFeed, feedMatch, sideIds, feedList, feedLeaving, withTags, stepIn, tagsOf, restoreTags, fmtAgo, feedCounts, STATUS, viewRecord, latestBvid, favUpMid, aiBlocked, withAllowRemove, groupsOf, regrouped, groupCalls, groupTargets, groupName });`, ctx);
+vm.runInContext(`const UI = globalThis.TriageUi;\n${pure}\n;Object.assign(globalThis, { syncFinished, dirLabel, followAiSettings, aiRequests, normDays, settingsProblem, followStatus, lastPostOf, recentTitles, upRow, visibleUps, mergeFeed, feedMatch, sideIds, feedList, feedLeaving, withTags, stepIn, tagsOf, restoreTags, fmtAgo, feedCounts, STATUS, viewRecord, latestBvid, favUpMid, aiBlocked, withAllowRemove, groupsOf, regrouped, groupCalls, groupTargets, groupName, groupMoveLabel });`, ctx);
 const t = ctx;
 const plain = (v) => JSON.parse(JSON.stringify(v));
 
@@ -160,6 +160,11 @@ const base = () => ({ list: null, last: null, content: {}, people: {}, tags: [],
   assert.deepStrictEqual(plain(t.regrouped([7, 8], null, 8)), [7, 8], "already there");
   assert.deepStrictEqual(plain(t.regrouped([-10, 7], -10, 0)), [7], "out of 特别关注 to 默认分组");
   assert.deepStrictEqual(plain(t.regrouped([], 0, 7)), [7], "from 默认分组");
+  // 特别关注 is a flag on top of the groups: 默认分组 → 特别关注 adds, the UP stays in 默认分组; the words say so.
+  assert.strictEqual(t.groupMoveLabel(0, -10, true, { groups: [] }), "加进「特别关注」", "默认分组 → 特别关注 is an add");
+  assert.strictEqual(t.groupMoveLabel(0, 7, true, { groups: [{ id: 7, name: "数码" }] }), "移到「数码」");
+  assert.strictEqual(t.groupMoveLabel(7, -10, true, { groups: [] }), "移到「特别关注」");
+  assert.strictEqual(t.groupMoveLabel(null, -10, false, { groups: [] }), "复制到「特别关注」");
   const cur = { a: [7], b: [7], c: [7, 8], d: [], e: [-10] };
   const calls = (want, mids = Object.keys(want), size) => plain(t.groupCalls(mids, (m) => cur[m], (m) => want[m], size));
   const mv = (mids, from, to) => ({ type: "follow-group-move", mids, from, to });
@@ -304,6 +309,8 @@ assert.ok(source.includes(`pushTagUndo(before, "标签修改", { ask: changes.le
   const mc = fn("moveOrCopy");
   assert.ok(/UI\.askTransfer\(\{\s*title: `在 B站把这 \$\{mids\.length\} 个 UP 主\$\{verb\}到分组`,\s*n: mids\.length,\s*hows: \[how\],/.test(mc), "the batch confirm: 在 B站…, the count on its one button");
   assert.ok(mc.indexOf("createGroup(") < mc.indexOf("regroup("), "新建分组… first");
+  assert.ok(mc.includes("const label = groupMoveLabel(move ? from : null, to, move, D);") && mc.includes("放进自己建的分组后，就不在默认分组里了。"), "toast and U use the add words");
+  assert.ok(/note: \(v\) => \(v === String\(SPECIAL\) \? `\$\{move && from === 0 \? "还留在默认分组里/.test(mc), "the dialog says 特别关注 keeps them in 默认分组");
   const del = fn("deleteGroup");
   assert.ok(/askConfirm\([\s\S]*?\);\s*if \(!ok\) return;\s*const r = await send\(\{ type: "follow-group-delete"/.test(del) && del.includes("默认分组") && del.includes("不能按 U 撤销") && del.includes("T.dropModeUndo((step) => step.groups)"), "删除: confirm first, members → 默认分组, no U");
   assert.ok(/T\.pushUndo\(\{\s*kind: "mode",\s*groups: true,\s*undo: async \(\) => \(\(await renameGroup\(\{ id: g\.id, name \}, old, true\)\)/.test(fn("renameGroup")), "改名: U renames back");

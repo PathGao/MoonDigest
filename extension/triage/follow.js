@@ -82,6 +82,8 @@ const groupName = (id, D) => (id === 0 ? "默认分组" : id === SPECIAL ? "特�
 // Every left-column id: the sidebar is scope only (tags are row 3 and row 4).
 const sideIds = (D) => ["all", "g:0", `g:${SPECIAL}`, ...(D.groups || []).map((g) => `g:${g.id}`), "gone"];
 
+// 移到 / 复制到 in the toast and U. 特别关注 is a flag on top of the groups (B站): from 默认分组 into it is an add, the UP stays.
+const groupMoveLabel = (from, to, move, D) => `${move && from === 0 && to === SPECIAL ? "加进" : move ? "移到" : "复制到"}「${groupName(to, D)}」`;
 // An UP's groups after leaving from (null: nothing, a copy) and joining to (0: none).
 const regrouped = (ids, from, to) => [...ids.filter((id) => id !== from), ...(to !== 0 && !ids.includes(to) ? [to] : [])];
 // The follow-group-move requests that take mids from cur(mid) to want(mid): one per (from, to), at most size UP 主 each.
@@ -977,8 +979,8 @@ async function moveOrCopy(mids, how) {
     newText: "新建分组…",
     newPlaceholder: "新分组名称（最多 16 个字）",
     newMax: 16,
-    how: move ? (from === 0 ? "放进目标分组后，就不在默认分组里了。" : `从「${groupName(from, D)}」移走。`) : "原来的分组里也留着。",
-    note: (v) => (v === String(SPECIAL) ? "特别关注的 UP 主发视频，手机 B站会推送。" : v === "0" ? "不在别的分组的会回到默认分组，还关注着。" : "")
+    how: move ? (from === 0 ? "放进自己建的分组后，就不在默认分组里了。" : `从「${groupName(from, D)}」移走。`) : "原来的分组里也留着。",
+    note: (v) => (v === String(SPECIAL) ? `${move && from === 0 ? "还留在默认分组里：特别关注只是多一个标记。" : ""}特别关注的 UP 主发视频，手机 B站会推送。` : v === "0" ? "不在别的分组的会回到默认分组，还关注着。" : "")
   });
   if (!ask || F.busy) return;
   let to = Number(ask.target.id);
@@ -987,7 +989,7 @@ async function moveOrCopy(mids, how) {
     if (!g) return;
     to = g.id;
   }
-  const label = `${verb}到「${groupName(to, D)}」`;
+  const label = groupMoveLabel(move ? from : null, to, move, D);
   const { done, ok } = await regroup(mids, (m) => regrouped(groupsOf(m, D), move ? from : null, to), label);
   // A stopped run has said how far it got (relationRun's toast).
   const n = done.length;
