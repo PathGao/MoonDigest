@@ -111,7 +111,7 @@
     };
   }
 
-  // ?demo swaps in the README screenshot data: B站-style titles and covers, every step filled, tags, 优先看, notes and
+  // ?demo swaps in the README screenshot data: B站-style titles and covers, every step filled, tags, 播放列表, notes and
   // watch progress (seenShow 进度条和看完了标记). Nothing here is a real account's data.
   const demoSync = {};
   if (/[?&]demo\b/.test(location.search)) {
@@ -183,7 +183,6 @@
       triage_tags: [tag("t-basic", "入门", "#da86c3"), tag("t-adv", "进阶", "#298287"), tag("t-tool", "办公", "#dc6d2d")],
       triage_video_tags: { [pivot.bvid]: ["t-basic", "t-tool"], [py.bvid]: ["t-basic"], [git.bvid]: ["t-adv"], [items[12].bvid]: ["t-basic"], [items[13].bvid]: ["t-adv"] },
       triage_kept: { [items[12].bvid]: { action: "keep", at: now - 2 * day }, [items[13].bvid]: { action: "keep", at: now - 2 * day } },
-      triage_watched: { [py.bvid]: now - day },
       triage_basket: [pivot, git, blog].map(({ bvid, title, cover, upper, duration }) => ({ bvid, title, cover, upper, duration })),
       triage_notes: { [git.bvid]: { text: "周末配合官方文档一起看，第 3 节的图要截下来", updatedAt: now - 3 * day } },
       triage_removed: {},

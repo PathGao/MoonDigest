@@ -10,6 +10,10 @@ const source = fs
   .replace(/^if \(!globalThis\.chrome\?\.runtime\?\.id\) await import.*$/m, "")
   .replace(/^init\(\);$/m, "");
 assert.ok(!/await import|^init\(\);$/m.test(source), "harness strips the page entry points");
+// 优先看 was renamed 播放列表: no page text or README still says the old name.
+for (const f of ["triage.html", "triage.js", "../../README.md"]) {
+  assert.ok(!fs.readFileSync(path.join(__dirname, f), "utf8").includes("优先看"), `${f} still says 优先看`);
+}
 
 const stubEl = () => new Proxy({ classList: { toggle() {}, add() {}, remove() {} }, style: {}, dataset: {} }, {
   get: (o, k) => (k in o ? o[k] : () => {}),
@@ -217,17 +221,29 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   const csvRows = t.buildCsv().replace(/^\uFEFF/, "").split("\r\n");
   assert.ok(csvRows[1].startsWith("'+夹,BV5,'=cmd|' /C calc'!A0,'@up,"), csvRows[1]);
 
-  // 优先看: E adds in order, 已看 removes and marks 真人已看 without touching decisions.
+  // 播放列表: E adds in order, 已看 removes without touching decisions.
   openFake("P", [item(1), item(2), item(3)], { BV2: { action: "keep", at: 1 } });
   t.S.basket = [{ bvid: "BVgone", title: "别的收藏夹" }];
   for (const b of ["BV1", "BV2", "BV3"]) t.toggleBasket(b);
   assert.deepStrictEqual(plain(store[t.K.basket]), [{ bvid: "BVgone", title: "别的收藏夹" }, ...[1, 2, 3].map((n) => ({ bvid: `BV${n}`, title: `视频${n}`, upper: "up", duration: 61 }))]);
-  t.removeBasketItem(2);
+  t.removeBasketItems([2]);
   t.toggleBasket("BV1");
   assert.deepStrictEqual(plain(store[t.K.basket].map((x) => x.bvid)), ["BVgone", "BV3"]);
   assert.deepStrictEqual(plain(t.S.decisions), { BV2: { action: "keep", at: 1 } }, "已看 leaves decisions alone");
+  // 已看，下一个 takes the playing one out and opens the next, leaving no mark behind; U puts it back.
+  t.S.viewing = "BVgone";
+  t.basketDoneAndNext();
+  assert.deepStrictEqual([plain(store[t.K.basket].map((x) => x.bvid)), t.S.viewing], [["BV3"], "BV3"]);
+  assert.ok(!("triage_watched" in store), "已看 writes no 优先看过 mark");
+  await t.undo();
+  assert.deepStrictEqual(plain(store[t.K.basket].map((x) => x.bvid)), ["BVgone", "BV3"], "U puts 已看 back in place");
+  // 清空 empties the list in one undoable step.
+  t.clearBasket();
+  assert.deepStrictEqual([plain(store[t.K.basket]), toasts.at(-1)], [[], "已清空播放列表 2 个 · U 撤销"]);
+  await t.undo();
+  assert.deepStrictEqual(plain(store[t.K.basket].map((x) => x.bvid)), ["BVgone", "BV3"], "U undoes 清空 in order");
 
-  // 批量导出 scopes: 优先看 keeps its order and videos outside the folder; 逐个视频笔记 leaves invalid videos out,
+  // 批量导出 scopes: 播放列表 keeps its order and videos outside the folder; 逐个视频笔记 leaves invalid videos out,
   // 一篇摘录 keeps them, marked.
   t.S.items.push({ ...item(4), invalid: true });
   t.S.itemMap.set("BV4", t.S.items[3]);
@@ -807,19 +823,16 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   assert.deepStrictEqual(plain(t.tagIdsOf("BV1")), ["xa"], "a folder: its own tags");
   t.S.mediaId = "removed";
   assert.deepStrictEqual(plain(t.tagIdsOf("BV1")), ["xa", "yb"], "已取消收藏: every tag");
-  // 已出分拣范围 filters by AI class, 真人已看 and tags like 阅览.
+  // 已出分拣范围 filters by AI class and tags like 阅览.
   {
-    const saved = { items: t.S.items, tab: t.S.tab, titleRes: t.S.titleRes, watched: t.S.watched, classFilter: t.S.classFilter };
-    Object.assign(t.S, { items: [item(1), item(2), item(3)], tab: "read", titleRes: { BV1: { verdict: "keep" }, BV2: { verdict: "drop" } }, watched: { BV2: true }, classFilter: { coarse: "all", fine: "all", read: "all" } });
+    const saved = { items: t.S.items, tab: t.S.tab, titleRes: t.S.titleRes, classFilter: t.S.classFilter };
+    Object.assign(t.S, { items: [item(1), item(2), item(3)], tab: "read", titleRes: { BV1: { verdict: "keep" }, BV2: { verdict: "drop" } }, classFilter: { coarse: "all", fine: "all", read: "all" } });
     const shown = () => plain(t.visibleItems().map((it) => it.bvid));
     t.renderListHeader(t.visibleItems());
     for (const part of [">全部 3<", ">值得留 1<", ">可清理 1<", ">拿不准 0<"]) assert.ok(t.el.classFilter.innerHTML.includes(part), part);
     t.S.classFilter.read = "drop";
     assert.deepStrictEqual(shown(), ["BV2"], "已取消收藏: AI class chip");
     t.S.classFilter.read = "all";
-    t.S.watchedFilter = true;
-    assert.deepStrictEqual(shown(), ["BV2"], "已取消收藏: 真人已看 chip");
-    t.S.watchedFilter = false;
     t.S.tagFilter.add("xa");
     assert.deepStrictEqual(shown(), ["BV1"], "已取消收藏: tag chip");
     t.S.tagFilter.clear();
@@ -1046,8 +1059,8 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     const at = new Date(new Date().getFullYear(), 9, 5, 17, 25).getTime();
     const html = t.cardHtml({ ...item(1), removedAt: at, from: [{ id: "A", title: "甲", at: 1 }, { id: "B", title: "乙", at: 3 }, { id: "C", title: "丙", at: 5 }] }, true, "");
     assert.ok(html.includes('data-select="BV1"') && html.includes('class="danger" data-clean="BV1"') && !html.includes('data-act="keep"') && !html.includes('data-act="unfav"'), html);
-    assert.ok(html.includes('data-act="basket"') && html.includes('data-act="ask"') && !html.includes('data-act="tag"'), "已出分拣范围 keeps 优先看 and 问 AI, not 标签");
-    // 保留 shows here too, and the table carries the note, 优先看, origin and why it left.
+    assert.ok(html.includes('data-act="basket"') && html.includes('data-act="ask"') && !html.includes('data-act="tag"'), "已出分拣范围 keeps 播放列表 and 问 AI, not 标签");
+    // 保留 shows here too, and the table carries the note, 播放列表, origin and why it left.
     t.S.decisions = { BV1: { action: "keep", at } };
     assert.ok(t.cardHtml({ ...item(1), removedAt: at }, true, "").includes(">已保留<"));
     const savedNotes = t.S.notes, savedBasket = t.S.basket;
@@ -1055,7 +1068,7 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     t.S.items = [{ ...item(1), removedAt: at, from: [{ id: "A", title: "甲", at: 1 }], inFolder: null }];
     const [head, row] = t.buildCsv().replace(/^\uFEFF/, "").split("\r\n");
     const col = (name) => row.split(",")[head.split(",").indexOf(name)];
-    assert.deepStrictEqual([col("备注"), col("优先看"), col("我的处理"), col("原在"), col("离开原因")], ["我的话", "在优先看", "保留", "甲", "10月5日 17:25 已取消收藏"]);
+    assert.deepStrictEqual([col("备注"), col("播放列表"), col("我的处理"), col("原在"), col("离开原因")], ["我的话", "在播放列表", "保留", "甲", "10月5日 17:25 已取消收藏"]);
     t.S.items = [{ ...item(1), cover: "https://i0.hdslb.com/c.jpg", pubdate: 1759622400, favTime: 1759708800, intro: "简介文字" }];
     const [, row2] = t.buildCsv().replace(/^\uFEFF/, "").split("\r\n");
     const col2 = (name) => row2.split(",")[head.split(",").indexOf(name)];
@@ -1442,13 +1455,13 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   const keep = { action: "keep", at: 5 };
   t.patchKept({ BV50: keep });
   const echo1 = { triage_kept: { newValue: structuredClone(store.triage_kept) } };
-  t.S.watched = { BV50: 1 };
-  vm.runInContext("saveWatched()", ctx);
-  t.S.watched.BV51 = 2;
-  vm.runInContext("saveWatched()", ctx);
-  t.followShared({ triage_watched: { newValue: { BV50: 1 } } });
+  t.S.basket = [{ bvid: "BV50" }];
+  vm.runInContext("saveBasket()", ctx);
+  t.S.basket.push({ bvid: "BV51" });
+  vm.runInContext("saveBasket()", ctx);
+  t.followShared({ triage_basket: { newValue: [{ bvid: "BV50" }] } });
   t.followShared(echo1);
-  assert.deepStrictEqual(plain(t.S.watched), { BV50: 1, BV51: 2 }, "an older echo of this page's write is skipped");
+  assert.deepStrictEqual(plain(t.S.basket), [{ bvid: "BV50" }, { bvid: "BV51" }], "an older echo of this page's write is skipped");
   t.followShared({ triage_kept: { newValue: { BV51: keep } }, triage_tags: { newValue: [{ id: "n", name: "新", folder: "N" }] } });
   assert.deepStrictEqual(plain([t.S.kept, t.S.decisions, t.S.tags.map((x) => x.id)]), [{ BV51: keep }, { BV51: { action: "unfav", at: 1 } }, ["n"]],
     "the other tab's 保留 list replaces this one; 取消收藏 still wins in the folder; tags follow");
@@ -1456,7 +1469,7 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   assert.deepStrictEqual(plain(t.S.basket), [], "a removed key reads as empty");
   t.patchKept({ BV50: keep });
   assert.deepStrictEqual(Object.keys(store.triage_kept), ["BV51", "BV50"], "the next write keeps the other tab's 保留");
-  Object.assign(t.S, { kept: {}, watched: {}, tags: [], basket: [] });
+  Object.assign(t.S, { kept: {}, tags: [], basket: [] });
 
   // R3: another tab's 取消收藏 records for the open folder are followed, and a restore here does not wipe the ones this
   // page never saw. In 所有收藏夹 the loaded folders' records follow too.
@@ -1593,11 +1606,10 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     t.S.kindFilter = "";
   }
 
-  // 观看进度 on covers: bar and 看完了 mark each follow the setting; 看完了 counts the set share only (优先看过 is separate).
+  // 观看进度 on covers: bar and 看完了 mark each follow the setting; 看完了 counts the set share only.
   {
     openFake("S", [item(80), item(81), item(82)]);
     t.S.seenPct = { BV80: [100, 1], BV81: [50, 1], BV82: null };
-    t.S.watched = { BV82: 1 };
     const cfg = (bar, mark) => (t.S.seenCfg = { on: bar || mark, bar, mark, threshold: 80, style: "badge" });
     cfg(false, false);
     assert.ok(!t.coverHtml(t.S.items[0]).includes("seen-") && !t.isFinished(t.S.items[0]), "both off: nothing");
@@ -1606,7 +1618,7 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     cfg(false, true);
     const done = t.coverHtml(t.S.items[0]);
     assert.ok(done.includes("✓ 看完了") && !done.includes("seen-bar"), "mark only");
-    assert.ok(!t.isFinished(t.S.items[1]) && !t.coverHtml(t.S.items[2]).includes("seen-"), "50% is under the threshold; 优先看过 stays off the cover");
+    assert.ok(!t.isFinished(t.S.items[1]) && !t.coverHtml(t.S.items[2]).includes("seen-"), "50% is under the threshold; no record, no mark");
     t.S.seenCfg.threshold = 50;
     assert.ok(t.coverHtml(t.S.items[1]).includes("✓ 看到 50%") && t.coverHtml(t.S.items[0]).includes("✓ 看完了"));
     t.S.seenCfg.threshold = 80;
@@ -1615,18 +1627,13 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     assert.ok(t.coverHtml(t.S.items[1]).includes("faint") && t.coverHtml(t.S.items[1]).includes("seen-bar"), "with the bar too");
     t.S.seenCfg.bar = false;
     t.S.seenCfg.threshold = 50;
-    // Two chips, each for its own source: 看完了 from the history, 优先看过 from 优先看.
-    t.S.watched = { BV82: 1 };
+    // 看完了 chip from the history.
     t.S.tab = "read";
     t.renderTabs();
-    assert.ok(t.el.tagFilter.innerHTML.includes(">看完了<") && t.el.tagFilter.innerHTML.includes(">优先看过<"));
+    assert.ok(t.el.tagFilter.innerHTML.includes(">看完了<"));
     t.S.finishedFilter = true;
     assert.deepStrictEqual(plain(t.visibleItems().map((it) => it.bvid)), ["BV80", "BV81"]);
     t.S.finishedFilter = false;
-    t.S.watchedFilter = true;
-    assert.deepStrictEqual(plain(t.visibleItems().map((it) => it.bvid)), ["BV82"]);
-    t.S.watchedFilter = false;
-    t.S.watched = {};
     cfg(false, false);
   }
 
@@ -1888,7 +1895,7 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     const j = ev("j");
     t.onKey(j);
     assert.ok(j.prevented && keys.join() === "j", "the mode used J");
-    t.S.undo = [{ kind: "watched", bvid: "BVx", prev: null }];
+    t.S.undo = [{ kind: "basket", removed: [] }];
     const u = ev("u");
     t.onKey(u);
     assert.ok(!u.prevented && t.S.undo.length === 1, "mode on: 收藏夹's U does not run");
