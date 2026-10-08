@@ -515,15 +515,19 @@ dialog label { font-size: var(--fs-xs); color: var(--muted); }
 dialog textarea { resize: vertical; }
 .dialog-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: 6px; margin-top: 10px; }
 .confirm-body ul { margin: 0; padding-left: 18px; }
-.help-cols { display: grid; gap: 6px 32px; }
+.help-cols { display: grid; gap: 24px 32px; }
 .help-cols h2 { margin: 0 0 4px; }
 @media (min-width: 760px) {
   #helpDialog { width: min(920px, calc(100% - 32px)); }
   .help-cols { grid-template-columns: 1.2fr 1fr; }
 }
-.keys { display: grid; grid-template-columns: auto 1fr; gap: 4px 16px; margin: 0; }
-.keys dt { font-family: ui-monospace, Menlo, monospace; font-weight: 600; }
+/* The four-step notes are what the dialog is for, so they read as body text; the key column is key caps. */
+#helpDialog .stack { gap: 10px; }
+#helpDialog .stack:first-child .dialog-hint { color: var(--text); }
+.keys { display: grid; grid-template-columns: auto 1fr; gap: 6px 16px; align-items: center; margin: 0; }
+.keys dt { display: flex; gap: 4px; }
 .keys dd { margin: 0; }
+.keys kbd { min-width: 1.6em; padding: 1px 5px; border: 1px solid var(--border); border-bottom-width: 2px; border-radius: 5px; background: var(--surface); font: 600 var(--fs-xs)/1.4 ui-monospace, Menlo, monospace; text-align: center; }
 
 @media (max-width: 899px) {
   /* Too narrow for two columns: the viewer takes the list's place until it closes. */
@@ -538,7 +542,9 @@ dialog textarea { resize: vertical; }
 dialog.wide { width: min(620px, calc(100% - 32px)); }
 .ai-section { display: flex; flex-direction: column; gap: 6px; }
 /* Label column on the left; anything that is not a label or a field (counts, switches, chips) sits under its field. */
-.ai-grid { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 6px 12px; align-items: baseline; }
+.ai-grid { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 10px 12px; align-items: baseline; }
+/* A count or quota line hangs under the field it describes. */
+.ai-grid > .dialog-meta, #aiTagsPreview > .dialog-meta { margin-top: -6px; }
 .ai-grid > label:not(.toggle), .ai-grid .grid-label { grid-column: 1; font-size: var(--fs-sm); color: var(--text-2); }
 .ai-grid > :not(label, select, textarea, input), .ai-grid > .toggle, #aiTagsPreview > :not(.grid-label) { grid-column: 2; }
 /* Its label, chips and hint join the grid as if they were the grid's own children. */
