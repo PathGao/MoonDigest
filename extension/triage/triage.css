@@ -534,6 +534,8 @@ dialog h3 { margin: 8px 0 0; font-size: var(--fs-sm); font-weight: 600; }
   box-shadow: 0 4px 18px rgba(0, 0, 0, 0.16);
 }
 .basket.collapsed { width: auto; border-color: var(--border-strong); border-radius: var(--radius-md); }
+/* The selection bar floats over the same bottom edge: the button moves up above it. */
+.listpane:has(.selbar) .basket { margin-bottom: 84px; }
 .basket.collapsed .basket-body { display: none; }
 .basket-toggle { font-weight: 600; border: 0; background: transparent; border-radius: var(--radius-md); }
 .basket:not(.collapsed) .basket-toggle { border-top: 1px solid var(--border); border-radius: 0 0 12px 12px; }
@@ -553,7 +555,7 @@ dialog h3 { margin: 8px 0 0; font-size: var(--fs-sm); font-weight: 600; }
 .basket-item .muted { font-size: var(--fs-xs); }
 .basket-note { grid-column: 1 / -1; white-space: pre-wrap; }
 .basket-foot { display: flex; justify-content: flex-end; padding: 0 8px 4px; }
-.basket-foot .link { height: 24px; font-size: var(--fs-xs); }
+.basket-foot .quiet { height: 24px; font-size: var(--fs-xs); }
 .basket-actions { display: flex; align-items: flex-start; }
 .basket-actions button { height: 22px; min-width: 24px; font-size: var(--fs-xs); padding: 0 6px; }
 .tab-note { margin: 4px 0 8px; font-size: var(--fs-xs); }
