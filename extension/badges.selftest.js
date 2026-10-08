@@ -177,6 +177,8 @@ class El extends Node_ {
   set textContent(v) { this.childNodes = []; this.append(new Text_(String(v))); }
   get firstChild() { return this.childNodes[0] || null; }
   get nextElementSibling() { let n = this.nextSibling; while (n && n.nodeType !== 1) n = n.nextSibling; return n; }
+  get title() { return this.attrs.title ?? ""; }
+  set title(v) { this.attrs.title = String(v); }
   getAttribute(k) { return this.attrs[k] ?? null; }
   setAttribute(k, v) { this.attrs[k] = String(v); }
   append(...ns) { for (const n of ns) { const x = typeof n === "string" ? new Text_(n) : n; x.parentNode = this; this.childNodes.push(x); } }
@@ -236,7 +238,7 @@ assert.strictEqual(spotIn(h("a", {}, h("div", {}, h("img"), "  "))), null, "avat
   const items = [card("甲"), card("乙"), card("丙")];
   const list = h("div", { class: "bili-dyn-list" }, h("div", { class: "bili-dyn-list__items" }, ...items));
   const homeAuthor = h("span", { class: "bili-video-card__info--author" }, "甲");
-  const body = h("body", {}, h("div", { class: "bili-dyn-list-tabs" }), list, h("a", { href: "//space.bilibili.com/1", class: "bili-video-card__info--owner" }, homeAuthor), h("a", { href: "//space.bilibili.com/9" }, h("img")));
+  const body = h("body", {}, h("div", { class: "bili-dyn-list-tabs" }), list, h("a", { href: "//space.bilibili.com/1", class: "bili-video-card__info--owner" }, homeAuthor), h("a", { href: "//space.bilibili.com/9" }, h("img")), h("a", { href: "//space.bilibili.com/2", class: "channel-name" }, "乙"));
   const doc = Object.assign(h("html", {}, body), { getElementById: () => null, createElement: (t) => h(t), documentElement: null });
   doc.documentElement = doc;
   const store = {
@@ -293,7 +295,8 @@ assert.strictEqual(spotIn(h("a", {}, h("div", {}, h("img"), "  "))), null, "avat
   changed.forEach((f) => f({ follow_people: {} }, "local"));
   await settle();
   assert.strictEqual(muts.n, 0, "rerun is idempotent");
-  assert.strictEqual(doc.querySelectorAll(".mdg-ups").length, 3);
+  assert.strictEqual(doc.querySelectorAll(".mdg-ups").length, 4);
+  assert.strictEqual(body.childNodes.at(-1).querySelectorAll(".mdg-ups").length, 1, "a bare-text name link: our own titled box is not taken for the name");
 
   // Picking 常看 hides the other UPs' cards with a class and is remembered for the session.
   const pick = (id) => bar().listeners.click[0]({ target: bar().querySelectorAll(".mdg-upbar-tag").find((b) => b.dataset.tag === id) });

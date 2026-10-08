@@ -86,7 +86,8 @@
   const NAMED = /(?:^|\s)(?:bili-video-card__info--author|name)(?:\s|$)/;
   function namedEl(el) {
     for (const n of el.childNodes || []) {
-      if (n.nodeType !== 1) continue;
+      // Our own box carries a title too; skipping it keeps a rescan from taking the box for the name.
+      if (n.nodeType !== 1 || n.classList?.contains("mdg-ups")) continue;
       if (NAMED.test(n.className?.baseVal ?? n.className ?? "") || n.getAttribute?.("title")) return n;
       const d = namedEl(n);
       if (d) return d;
