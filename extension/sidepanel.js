@@ -2532,13 +2532,12 @@ function getErrorMessage(error, fallback = "未知错误") {
   return getReadableText(error?.message || error, fallback);
 }
 
-function confirmOverwriteNote(filepath) {
-  return new Promise((resolve) => {
-    const existing = document.querySelector(".sp-confirm-overlay");
-    if (existing) {
-      existing.remove();
-    }
+let cancelOverwriteNote = null;
 
+function confirmOverwriteNote(filepath) {
+  // A second dialog answers the first with 取消, so its caller does not wait forever.
+  cancelOverwriteNote?.();
+  return new Promise((resolve) => {
     const overlay = document.createElement("div");
     overlay.className = "sp-confirm-overlay";
     overlay.innerHTML = `
@@ -2555,6 +2554,7 @@ function confirmOverwriteNote(filepath) {
     overlay.querySelector(".sp-confirm-path").textContent = String(filepath || "");
 
     const cleanup = (value) => {
+      cancelOverwriteNote = null;
       overlay.remove();
       document.removeEventListener("keydown", onKeydown, true);
       resolve(value);
@@ -2573,9 +2573,11 @@ function confirmOverwriteNote(filepath) {
     });
     overlay.querySelector(".sp-confirm-cancel")?.addEventListener("click", () => cleanup(false));
     overlay.querySelector(".sp-confirm-primary")?.addEventListener("click", () => cleanup(true));
+    cancelOverwriteNote = () => cleanup(false);
     document.addEventListener("keydown", onKeydown, true);
     document.body.appendChild(overlay);
-    overlay.querySelector(".sp-confirm-primary")?.focus();
+    // 覆盖 is destructive: Enter on the focused button must not overwrite by default.
+    overlay.querySelector(".sp-confirm-cancel")?.focus();
   });
 }
 

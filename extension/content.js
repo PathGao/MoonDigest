@@ -1516,15 +1516,14 @@ async function writeNoteByLocalApi(baseUrl, apiKey, filepath, content, cover, no
   }
 }
 
+let cancelOverwriteNote = null;
+
 // Resolves "ai" (replace only the marked AI 问答 section), "full" (rewrite the note) or "" (cancel).
 // 整篇覆盖 never sits next to the default button: a slip must not turn an update into a rewrite.
 function confirmOverwriteNote(filepath, { hasAiSection = false } = {}) {
+  // A second dialog answers the first with 取消, so its caller does not wait forever.
+  cancelOverwriteNote?.();
   return new Promise((resolve) => {
-    const existing = document.querySelector(".boc-confirm-overlay");
-    if (existing) {
-      existing.remove();
-    }
-
     const overlay = document.createElement("div");
     overlay.className = "boc-confirm-overlay";
     overlay.innerHTML = hasAiSection
@@ -1554,6 +1553,7 @@ function confirmOverwriteNote(filepath, { hasAiSection = false } = {}) {
     overlay.querySelector(".boc-confirm-path").textContent = String(filepath || "");
 
     const cleanup = (value) => {
+      cancelOverwriteNote = null;
       overlay.remove();
       document.removeEventListener("keydown", onKeydown, true);
       resolve(value);
@@ -1573,6 +1573,7 @@ function confirmOverwriteNote(filepath, { hasAiSection = false } = {}) {
     overlay.querySelectorAll("[data-choice]").forEach((button) => {
       button.addEventListener("click", () => cleanup(button.dataset.choice));
     });
+    cancelOverwriteNote = () => cleanup("");
     document.addEventListener("keydown", onKeydown, true);
     document.body.appendChild(overlay);
     (overlay.querySelector(".boc-confirm-primary") || overlay.querySelector(".boc-confirm-cancel")).focus();
