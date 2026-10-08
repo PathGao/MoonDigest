@@ -59,7 +59,7 @@ const ctx = vm.createContext({
   }
 });
 vm.runInContext(fs.readFileSync(path.join(__dirname, "..", "limits.js"), "utf8"), ctx);
-vm.runInContext(`${source}\n;globalThis.S = S; globalThis.K = K; globalThis.el = el; globalThis.verdictBadge = verdictBadge; globalThis.seenText = seenText; globalThis.staleCoarse = staleCoarse; globalThis.staleFine = staleFine; globalThis.groupDone = groupDone; globalThis.mergeHead = mergeHead; globalThis.isFinished = isFinished; globalThis.pointerMoved = pointerMoved; globalThis.inferFrom = inferFrom; globalThis.hasAllTags = hasAllTags;`, ctx);
+vm.runInContext(`${source}\n;globalThis.S = S; globalThis.K = K; globalThis.el = el; globalThis.verdictBadge = verdictBadge; globalThis.seenText = seenText; globalThis.staleCoarse = staleCoarse; globalThis.staleFine = staleFine; globalThis.groupDone = groupDone; globalThis.mergeHead = mergeHead; globalThis.isFinished = isFinished; globalThis.pointerMoved = pointerMoved; globalThis.plainClick = plainClick; globalThis.inferFrom = inferFrom; globalThis.hasAllTags = hasAllTags;`, ctx);
 const t = ctx;
 const plain = (v) => JSON.parse(JSON.stringify(v));
 const realSync = t.syncFolder;
@@ -1610,6 +1610,20 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   assert.ok(t.pointerMoved(null, 10, 10), "first pointer event counts as movement");
   assert.ok(!t.pointerMoved({ x: 10, y: 10 }, 10, 10), "same position is not movement");
   assert.ok(t.pointerMoved({ x: 10, y: 10 }, 10, 11), "a changed coordinate is movement");
+
+  // Card links: cover and title are a[href] to the video (right-click / ⌘-click open it natively), no control inside a link;
+  // only a plain primary click stays in the page (opens the viewer).
+  {
+    const html = t.cardHtml(item(1), false, "");
+    const links = [...html.matchAll(/<a\b[^>]*>/g)].map((m) => m[0]);
+    assert.strictEqual(links.length, 2, html);
+    for (const a of links) assert.ok(a.includes(`href="https://www.bilibili.com/video/${item(1).bvid}"`) && a.includes('data-act="open"'), a);
+    assert.ok(!/<a\b(?:(?!<\/a>).)*<(button|a|input)\b/s.test(html), "nothing interactive inside a link");
+    const click = (o) => ({ button: 0, metaKey: false, ctrlKey: false, shiftKey: false, altKey: false, ...o });
+    assert.ok(t.plainClick(click({})), "plain click opens the viewer");
+    for (const k of ["metaKey", "ctrlKey", "shiftKey", "altKey"]) assert.ok(!t.plainClick(click({ [k]: true })), `${k}-click is the browser's`);
+    assert.ok(!t.plainClick(click({ button: 1 })), "middle click is the browser's");
+  }
 
   // An old 已出分拣范围 record without `from` gets its folder from a 取消收藏 decision made there; keep/none give nothing.
   {

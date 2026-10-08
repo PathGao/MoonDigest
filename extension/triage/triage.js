@@ -822,7 +822,8 @@ function coverHtml(it) {
   const v = isProcessed(it.bvid) ? { verdict: "none" } : verdictOf(it);
   const tag = S.analyzing.has(it.bvid) ? `<span class="cover-tag running">分析中…</span>` : VERDICTS[v.verdict] ? `<span class="cover-tag ${v.verdict}" title="${esc(v.reason)}">${VERDICTS[v.verdict]}</span>` : "";
   const dur = it.duration ? `<span class="cover-dur">${fmtDuration(it.duration)}</span>` : "";
-  return `<span class="cover-wrap${seen ? " seen" : ""}">${img}${tag}${dur}${mark}${p ? `<span class="seen-bar" title="看到 ${p}%"><i style="width:${Math.max(p, 2)}%"></i></span>` : ""}</span>`;
+  // A real link (right-click 在新标签页中打开, ⌘-click), out of the tab order: the title is the same link for the keyboard.
+  return `<a class="cover-wrap${seen ? " seen" : ""}" href="${esc(videoUrl(it.bvid))}" data-act="open" tabindex="-1" aria-hidden="true">${img}${tag}${dur}${mark}${p ? `<span class="seen-bar" title="看到 ${p}%"><i style="width:${Math.max(p, 2)}%"></i></span>` : ""}</a>`;
 }
 
 // Runs simplifyMigration once (flag key), then drops the old scheme keys it read.
@@ -2037,7 +2038,7 @@ function cardHtml(it, expanded, mark) {
   return `<article class="${cls.join(" ")}" data-bvid="${esc(b)}" aria-label="${esc(it.title)}">
     ${coverHtml(it)}
     <div class="card-body">
-      <div class="title-row">${mark ? `<span class="batch-tag">${mark}</span>` : ""}<button type="button" class="title" data-act="open" aria-label="打开视频 ${esc(it.title)}">${esc(it.title)}</button></div>
+      <div class="title-row">${mark ? `<span class="batch-tag">${mark}</span>` : ""}<a class="title" href="${esc(videoUrl(b))}" data-act="open" aria-label="打开视频 ${esc(it.title)}">${esc(it.title)}</a></div>
       ${left ? `<div class="left-row">${left}</div>` : ""}
       <div class="meta">${meta.map(esc).join(" · ")}</div>
       ${body.join("")}
@@ -2107,6 +2108,8 @@ function setFocus(bvid, scroll = true) {
 }
 
 const pointerMoved = (at, x, y) => !at || at.x !== x || at.y !== y;
+// A plain primary click on a card link opens the viewer here; with ⌘ / Ctrl / Shift / Alt the browser handles the link.
+const plainClick = (e) => e.button === 0 && !e.metaKey && !e.ctrlKey && !e.shiftKey && !e.altKey;
 
 function moveFocus(delta) {
   const list = visibleItems();
@@ -3817,6 +3820,10 @@ function bindEvents() {
     if (e.target.closest("[data-retry-failed]")) return retryFailed();
     const card = e.target.closest(".card");
     if (!card) return;
+    if (e.target.closest("a[href]")) {
+      if (!plainClick(e)) return;
+      e.preventDefault();
+    }
     const bvid = card.dataset.bvid;
     const untag = e.target.closest("[data-untag]");
     if (untag) return removeVideoTag(bvid, untag.dataset.untag);

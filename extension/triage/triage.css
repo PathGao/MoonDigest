@@ -270,7 +270,7 @@ select { height: 28px; max-width: 240px; }
 .empty { padding: 40px 0; text-align: center; color: var(--muted); }
 
 /* ---------- cover: progress bar and marks, the duration bottom-right, the AI verdict top-left ---------- */
-.cover-wrap { position: relative; display: block; align-self: start; width: 100%; aspect-ratio: 16 / 10; border-radius: var(--radius-md); overflow: hidden; background: var(--action-bg); color: #fff; }
+.cover-wrap { position: relative; display: block; text-decoration: none; align-self: start; width: 100%; aspect-ratio: 16 / 10; border-radius: var(--radius-md); overflow: hidden; background: var(--action-bg); color: #fff; }
 .cover-wrap::after { content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 38%; background: linear-gradient(transparent, rgba(0, 0, 0, 0.6)); pointer-events: none; }
 .cover { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; display: block; }
 .cover-dur { position: absolute; right: 8px; bottom: 6px; z-index: 1; font-size: var(--fs-xs); font-variant-numeric: tabular-nums; }
@@ -305,6 +305,8 @@ html[data-seen-style="veil"] .cover-wrap.seen .seen-veil { display: flex; }
   line-height: 1.5;
   text-align: left;
   white-space: normal;
+  color: var(--text);
+  text-decoration: none;
 }
 .title:hover { background: none; text-decoration: underline; }
 .meta { color: var(--faint); font-size: var(--fs-xs); }
