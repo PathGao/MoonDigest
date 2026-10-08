@@ -143,42 +143,14 @@ function followAiLine(item, n) {
   return [n, clean(item.name), clean(item.sign), clean(item.tname), list(item.titles, "；"), list(item.currentTags, "、")].join("|");
 }
 
-// 规则照分拣台批量打标签（triageBuildCommandMessages），单位换成 UP 主。
-function followBuildAiMessages({ instruction, tags, items, maxNewTags = 5, allowRemove = false }) {
-  const lines = triageTagLines(tags);
-  const system = [
-    "你是 B站关注整理助手，按用户指令给关注的 UP 主打标签、做分类。",
-    "用户指令写在 <<<指令>>> 和 <<<指令结束>>> 之间，它就是本次任务的要求。",
-    "规则：",
-    "- add 只能用已有标签名，或本次 new_tags 里列出的新标签名。",
-    maxNewTags > 0
-      ? `- 可以新建标签，至多 ${maxNewTags} 个，名称 ≤12字、不含逗号；已有标签能用就先用，不要重复造。`
-      : "- 这次不能新建标签，new_tags 留空，只用已有标签。",
-    allowRemove ? "- remove 只能填该 UP 主“现有标签”里的名称。" : "- 这次不能去掉 UP 主已有的标签，remove 留空，只加标签。",
-    "- 标签带说明（冒号后）的，按说明决定给 UP 主加上还是去掉这个标签。",
-    "- 一个 UP 主可以加多个标签，也可以一个都不加；指令或标签说明要求只选一个时，每个 UP 主只加其中一个。",
-    "- 指令不适用的 UP 主不要放进 items。",
-    "- note ≤60字，总结做了什么，或者为什么没有合适的。",
-    "- 主要依据是最近标题和主要分区，签名只作参考。",
-    "只输出严格 JSON，不要任何其他文字、不要代码块：",
-    `{"new_tags": ["标签名"], "items": [{"i": 序号, "add": ["标签"], "remove": ["标签"]}], "note": "≤60字"}`,
-    "",
-    "已有标签（每行一个，格式：名称：说明，没有说明只写名称）：",
-    ...(lines.length ? lines : ["（无）"])
-  ].join("\n");
-  const user = [
-    "<<<指令>>>",
-    String(instruction ?? "").trim(),
-    "<<<指令结束>>>",
-    "",
-    "UP 主列表，每行格式：序号|名字|签名|主要分区|最近标题（；分隔）|现有标签（没有的字段留空）：",
-    ...items.map((it, idx) => followAiLine(it, idx + 1))
-  ].join("\n");
-  return [
-    { role: "system", content: system },
-    { role: "user", content: user }
-  ];
-}
+// 批量打标签的对象换成 UP 主，规则和收藏夹同一份（triageBuildCommandMessages）。
+const FOLLOW_AI_UNIT = {
+  intro: "你是 B站关注整理助手，按用户指令给关注的 UP 主打标签、做分类。",
+  noun: " UP 主",
+  basis: "- 主要依据是最近标题和主要分区，签名只作参考。",
+  header: "UP 主列表，每行格式：序号|名字|签名|主要分区|最近标题（；分隔）|现有标签（没有的字段留空）：",
+  line: followAiLine
+};
 
 // ===== B站 请求 =====
 
@@ -657,7 +629,7 @@ async function followAiTag({ instruction, mids, tags, maxNewTags, allowRemove })
     allowRemove: (allowRemove ?? own.allowRemove ?? set.triageAiRemoveTags) === true
   };
   const ai = await triageAiSettings();
-  const { content } = await triageChat(followBuildAiMessages({ instruction: text, tags: tagList, items, ...opts }), triageMaxTokens("command", items.length, ai), ai.triageThinking);
+  const { content } = await triageChat(triageBuildCommandMessages({ instruction: text, tags: tagList, items, ...opts, unit: FOLLOW_AI_UNIT }), triageMaxTokens("command", items.length, ai), ai.triageThinking);
   return triageParseCommand(content, items, tagList, opts);
 }
 
