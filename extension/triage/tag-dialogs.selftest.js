@@ -38,7 +38,7 @@ const fire = (id, type, e = {}) => {
 const target = (sel, o = {}) => ({ dataset: {}, closest: (s) => (s === sel || s === "button" ? { id: o.id || "", dataset: o.dataset || {} } : null), matches: (s) => s.split(", ").includes(sel), ...o });
 const docL = {};
 const ctx = vm.createContext({ document: { getElementById: (id) => nodes[id] || null, addEventListener: (t, f) => (docL[t] ||= []).push(f) }, CSS: { escape: (s) => s }, setTimeout, clearTimeout });
-for (const f of ["../typing.js", "shared.js", "tag-dialogs.js"]) vm.runInContext(fs.readFileSync(path.join(__dirname, f), "utf8"), ctx);
+for (const f of ["../typing.js", "../tag-core.js", "shared.js", "tag-dialogs.js"]) vm.runInContext(fs.readFileSync(path.join(__dirname, f), "utf8"), ctx);
 const D = ctx.TagDialogs;
 const wait = () => new Promise((r) => setTimeout(r, 5));
 

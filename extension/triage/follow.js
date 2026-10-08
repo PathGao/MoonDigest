@@ -358,7 +358,7 @@ function pushTagUndo(before, label, { ask = null, created = [], recentAt = 0 } =
   });
 }
 function newTag(name) {
-  return { id: `ft${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`, name, color: UI.nextTagColor(D.tags), rule: "" };
+  return { id: BocTagCore.newTagId("ft"), name, color: UI.nextTagColor(D.tags), rule: "" };
 }
 
 // ---------- mode ----------

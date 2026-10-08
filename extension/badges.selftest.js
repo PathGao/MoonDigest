@@ -4,8 +4,9 @@ const path = require("path");
 const vm = require("vm");
 const assert = require("assert");
 
-// The manifest loads typing.js before badges.js in the same content-script world.
-const badgesJs = fs.readFileSync(path.join(__dirname, "typing.js"), "utf8") + fs.readFileSync(path.join(__dirname, "badges.js"), "utf8");
+// The manifest loads typing.js and tag-core.js before badges.js in the same content-script world.
+const tagCoreJs = fs.readFileSync(path.join(__dirname, "tag-core.js"), "utf8");
+const badgesJs = fs.readFileSync(path.join(__dirname, "typing.js"), "utf8") + tagCoreJs + fs.readFileSync(path.join(__dirname, "badges.js"), "utf8");
 const ctx = vm.createContext({});
 vm.runInContext(badgesJs, ctx);
 const { bvidFromHref, badgeInfo, mergeDecisions } = ctx.BocBadges;

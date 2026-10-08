@@ -6,6 +6,7 @@ const assert = require("assert");
 
 const ctx = vm.createContext({ setTimeout, clearTimeout });
 vm.runInContext(fs.readFileSync(path.join(__dirname, "../typing.js"), "utf8"), ctx);
+vm.runInContext(fs.readFileSync(path.join(__dirname, "../tag-core.js"), "utf8"), ctx);
 vm.runInContext(fs.readFileSync(path.join(__dirname, "shared.js"), "utf8"), ctx);
 const UI = ctx.TriageUi;
 const plain = (v) => JSON.parse(JSON.stringify(v));
