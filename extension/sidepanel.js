@@ -109,7 +109,8 @@ async function init() {
 
 function bindEvents() {
   els.input.addEventListener("keydown", (e) => {
-    if (e.key === "Enter" && !e.shiftKey && !e.isComposing) {
+    if (BocTyping.composing(e)) return;
+    if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       sendMessage();
     }
@@ -147,7 +148,7 @@ function bindEvents() {
   });
   // Enter or Esc saves and closes, like the triage card; Shift+Enter is a newline. Never mid-IME.
   els.noteInput.addEventListener("keydown", (e) => {
-    if (e.isComposing || e.keyCode === 229 || !(e.key === "Escape" || (e.key === "Enter" && !e.shiftKey))) return;
+    if (BocTyping.composing(e) || !(e.key === "Escape" || (e.key === "Enter" && !e.shiftKey))) return;
     e.preventDefault();
     void saveNote();
   });
@@ -185,7 +186,8 @@ function bindEvents() {
   });
   els.presetAddBtn.addEventListener("click", addPresetPrompt);
   els.presetInput.addEventListener("keydown", (e) => {
-    if (e.key === "Enter" && !e.shiftKey && !e.isComposing) {
+    if (BocTyping.composing(e)) return;
+    if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       addPresetPrompt();
     }
@@ -2563,6 +2565,7 @@ function confirmOverwriteNote(filepath) {
       resolve(value);
     };
     const onKeydown = (event) => {
+      if (BocTyping.composing(event)) return;
       if (event.key === "Escape") {
         event.preventDefault();
         cleanup(false);

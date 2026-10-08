@@ -1396,7 +1396,7 @@ main.addEventListener("click", async (e) => {
 // The selection bar sits outside the list; its buttons share the handler above through #followMain.
 
 // One box, two searches: UP 主 and 动态 each keep their own text (setTab swaps it in).
-T.bindSearch(E.q, (q) => {
+BocTyping.bindLive(E.q, (q) => {
   if (F.tab === "feed") F.fq = q;
   else F.q = q;
   render();
@@ -1465,11 +1465,12 @@ tagsDialog.addEventListener("change", (e) => {
   }
 });
 tagsDialog.addEventListener("keydown", (e) => {
-  if (e.key === "Enter" && e.target.id === "fwNewTag" && !e.isComposing) {
+  if (BocTyping.composing(e)) return;
+  if (e.key === "Enter" && e.target.id === "fwNewTag") {
     e.preventDefault();
     $("fwAddTag").click();
   }
-  if (e.key === "Enter" && e.target.matches?.(".fw-tag-row input") && !e.isComposing) e.preventDefault();
+  if (e.key === "Enter" && e.target.matches?.(".fw-tag-row input")) e.preventDefault();
 });
 
 pickDialog.addEventListener("click", async (e) => {
@@ -1495,9 +1496,9 @@ vline.addEventListener("click", (e) => {
 });
 // The popover: Esc and 1–9 (before triage.js's keys), a click outside or into the player closes it.
 document.addEventListener("keydown", (e) => {
-  if (F.mode !== "follow" || e.metaKey || e.ctrlKey || e.altKey || e.isComposing) return;
+  if (F.mode !== "follow" || BocTyping.composing(e) || e.metaKey || e.ctrlKey || e.altKey) return;
   const key = e.key.length === 1 ? e.key.toLowerCase() : e.key;
-  const typing = e.target.closest?.("input, textarea, select, [contenteditable]");
+  const typing = BocTyping.typingIn(e);
   if ((key === "Escape" ? pick.anchor : !typing && key !== "Escape") && followKey(key)) {
     e.preventDefault();
     e.stopPropagation();
@@ -1514,9 +1515,9 @@ window.addEventListener("blur", () => pick.anchor && closePick());
 addEventListener("resize", () => pick.anchor && placePick());
 E.list.addEventListener("mouseover", (e) => (F.hover = e.target.closest(".fw-video")?.dataset.bvid || ""));
 E.list.addEventListener("mouseleave", () => (F.hover = ""));
-$("fwPickInput").addEventListener("input", renderPick);
+BocTyping.bindLive($("fwPickInput"), () => renderPick(), 0);
 $("fwPickInput").addEventListener("keydown", async (e) => {
-  if (e.key !== "Enter" || e.isComposing) return;
+  if (BocTyping.composing(e) || e.key !== "Enter") return;
   e.preventDefault();
   const first = $("fwPickList").querySelector(".picker-opt");
   if (first) first.click();

@@ -6,7 +6,8 @@ const path = require("path");
 const vm = require("vm");
 const assert = require("assert");
 
-const src = fs.readFileSync(path.join(__dirname, "viewer-frame.js"), "utf8");
+// The manifest loads typing.js before it in the same content-script world.
+const src = fs.readFileSync(path.join(__dirname, "..", "typing.js"), "utf8") + fs.readFileSync(path.join(__dirname, "viewer-frame.js"), "utf8");
 const EXT = "chrome-extension://abcdefghijklmnop";
 
 function frame({ parentOrigin = EXT, top = false, fullscreen = null, webscreen = false } = {}) {

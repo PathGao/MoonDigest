@@ -590,6 +590,7 @@ input { box-sizing: border-box; width: 100%; margin: 0; padding: 4px 8px; border
   const pickFocusables = () => (pick ? pick.panel.querySelectorAll(".opt, input") : []);
 
   function onPickKey(e) {
+    if (globalThis.BocTyping.composing(e)) return; // Enter picks the IME candidate, Esc cancels the composition
     if (e.key === "Escape") {
       e.preventDefault();
       return closePick(true);
@@ -638,8 +639,9 @@ input { box-sizing: border-box; width: 100%; margin: 0; padding: 4px 8px; border
     who = null;
     // Tags to show, or followed UPs to offer the 「+」 for.
     upOn = (up.tags.length > 0 && Object.values(up.map).some((ids) => ids?.length)) || up.followed.size > 0;
+    // A follow sync must not rebuild the picker under a tag name being typed; its own write redraws it.
     if (!upOn) clearUps();
-    else renderPick();
+    else if (!pick?.editing) renderPick();
     setEnabled(triageOn || seenCfg.on || upOn);
     schedule();
   }

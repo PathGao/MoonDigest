@@ -19,13 +19,14 @@ const store = {};
 const syncStore = {};
 const handlers = {};
 const sent = [];
+const docL = {}; // document listeners: typing.js's composition flag, onKey
 const ctx = vm.createContext({
   console,
   structuredClone,
   TextEncoder,
   setTimeout: (f) => setImmediate(f),
   clearTimeout: (id) => clearImmediate(id),
-  document: { getElementById: stubEl, querySelector: () => null, querySelectorAll: () => [], addEventListener() {} },
+  document: { getElementById: stubEl, querySelector: () => null, querySelectorAll: () => [], addEventListener: (t, f) => (docL[t] ||= []).push(f) },
   window: { addEventListener() {} },
   chrome: {
     runtime: {
@@ -59,6 +60,7 @@ const ctx = vm.createContext({
   }
 });
 vm.runInContext(fs.readFileSync(path.join(__dirname, "..", "limits.js"), "utf8"), ctx);
+vm.runInContext(fs.readFileSync(path.join(__dirname, "..", "typing.js"), "utf8"), ctx);
 vm.runInContext(fs.readFileSync(path.join(__dirname, "shared.js"), "utf8"), ctx);
 vm.runInContext(`${source}\n;globalThis.S = S; globalThis.K = K; globalThis.el = el; globalThis.verdictBadge = verdictBadge; globalThis.seenText = seenText; globalThis.staleCoarse = staleCoarse; globalThis.staleFine = staleFine; globalThis.groupDone = groupDone; globalThis.mergeHead = mergeHead; globalThis.isFinished = isFinished; globalThis.pointerMoved = pointerMoved; globalThis.inferFrom = inferFrom; globalThis.hasAllTags = hasAllTags; globalThis.sortItems = sortItems; globalThis.sortOf = sortOf; globalThis.visibleItems = visibleItems;`, ctx);
 const t = ctx;
@@ -1704,7 +1706,7 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
       vm.runInContext("bindEvents()", ctx);
     } catch {}
     Object.assign(t.el, real);
-    assert.ok(ls.compositionend, "bindEvents wires the search box through bindSearch");
+    assert.ok(ls.compositionend, "bindEvents wires the search box through bindLive");
     t.S.query = "";
     fire("compositionstart");
     input.value = "l";
@@ -1722,6 +1724,95 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     fire("compositionstart");
     await wait();
     assert.strictEqual(t.S.query, "路", "a pending search is dropped when composition starts");
+  }
+
+  // IME: Enter or a pause mid-composition never acts on the half-typed pinyin. bindEvents runs on recording stubs.
+  {
+    const L = {};
+    const rec = (n) => new Proxy({ classList: { toggle() {}, add() {}, remove() {}, contains: () => false }, style: {}, dataset: {}, addEventListener: (type, f) => ((L[n] ||= {})[type] ||= []).push(f), querySelector: () => rec(`${n}?`), querySelectorAll: () => [] }, {
+      get: (o, k) => (k in o ? o[k] : () => {}),
+      set: (o, k, v) => ((o[k] = v), true)
+    });
+    const real = { ...t.el };
+    for (const k of Object.keys(real)) t.el[k] = rec(k);
+    vm.runInContext("bindEvents()", ctx);
+    const fire = (n, type, e) => (L[n][type] || []).forEach((f) => f(e));
+    const doc = (type) => docL[type].forEach((f) => f({}));
+    const wait = () => new Promise((r) => setTimeout(r, 20));
+    const key = (k, target, o = {}) => ({ key: k, target, isComposing: false, keyCode: 0, prevented: 0, preventDefault() { this.prevented++; }, ...o });
+    const field = (sel, value = "") => ({ value, matches: (s) => s.split(", ").includes(sel), closest: () => ({ dataset: { bvid: "BV1" } }) });
+    openFake("A", [item(1)]);
+
+    // 新建标签 — Enter that picks an IME candidate creates nothing; a plain Enter creates the tag.
+    const tagsBefore = t.S.tags.length;
+    t.el.newTagInput = Object.assign(field("#newTagInput", "zhong"), { focus() {} });
+    fire("tagsDialog", "keydown", key("Enter", t.el.newTagInput, { isComposing: true, keyCode: 229 }));
+    assert.strictEqual(t.S.tags.length, tagsBefore, "no tag named after half-typed pinyin");
+    t.el.newTagInput.value = "中文";
+    fire("tagsDialog", "keydown", key("Enter", t.el.newTagInput));
+    assert.strictEqual(t.S.tags.at(-1).name, "中文");
+    t.S.tags = t.S.tags.slice(0, tagsBefore);
+
+    // Enter in a rename or AI new-tag field stays in the dialog (it would submit the form and close it), but not mid-IME.
+    for (const sel of ['[data-field="name"]', '[data-nt="name"]']) {
+      const e = key("Enter", field(sel));
+      fire("tagsDialog", "keydown", e);
+      assert.strictEqual(e.prevented, 1, `${sel}: Enter does not close the dialog`);
+      const c = key("Enter", field(sel), { isComposing: true });
+      fire("tagsDialog", "keydown", c);
+      assert.strictEqual(c.prevented, 0, `${sel}: the IME gets its Enter`);
+    }
+
+    // the 打标签 filter does not run on pinyin; compositionend filters with the committed text.
+    const realPicker = t.renderPicker;
+    const filtered = [];
+    t.renderPicker = () => filtered.push(t.el.pickerInput.value);
+    t.el.pickerInput.value = "zhong";
+    fire("pickerInput", "compositionstart", {});
+    fire("pickerInput", "input", { isComposing: true });
+    await wait();
+    assert.deepStrictEqual(filtered, [], "no filtering mid-composition");
+    t.el.pickerInput.value = "中";
+    fire("pickerInput", "compositionend", {});
+    await wait();
+    assert.deepStrictEqual(filtered, ["中"]);
+    t.renderPicker = realPicker;
+
+    // a card note saves nothing mid-composition, compositionend saves the committed text.
+    delete store[t.K.notes];
+    t.S.notes = {};
+    const note = field("[data-note]", "zhong");
+    fire("list", "input", { target: note, isComposing: true });
+    await wait();
+    assert.strictEqual(store[t.K.notes], undefined, "no save while composing");
+    assert.strictEqual(t.S.notes.BV1, undefined);
+    note.value = "中";
+    fire("list", "compositionend", { target: note });
+    await wait();
+    assert.strictEqual(store[t.K.notes].BV1.text, "中");
+    // this page's own save coming back is not a re-render; another page's edit is.
+    let renders = 0;
+    const realRender = t.render;
+    t.render = () => renders++;
+    t.followNotes({ [t.K.notes]: { newValue: structuredClone(store[t.K.notes]) } });
+    assert.strictEqual(renders, 0, "own echo ignored");
+    t.followNotes({ [t.K.notes]: { newValue: { BV1: { text: "侧边栏改的", updatedAt: 1 } } } });
+    assert.strictEqual(renders, 1);
+    assert.strictEqual(t.S.notes.BV1.text, "侧边栏改的");
+    t.render = realRender;
+    // a background re-render waits while a note is composing, and runs on compositionend.
+    t.S.items = [];
+    t.document.activeElement = { closest: (s) => (s === "[data-note]" ? note : null) };
+    t.el.list.innerHTML = "before";
+    doc("compositionstart");
+    t.renderList();
+    assert.strictEqual(t.el.list.innerHTML, "before", "the list is not rebuilt under the composition");
+    doc("compositionend");
+    fire("list", "compositionend", { target: note });
+    await wait();
+    assert.notStrictEqual(t.el.list.innerHTML, "before", "compositionend renders what waited");
+    delete t.document.activeElement;
+    Object.assign(t.el, real);
   }
 
   console.log("triage selftest: all passed");

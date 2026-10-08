@@ -86,7 +86,7 @@ const ctx = vm.createContext({
 });
 ctx.window = ctx;
 ctx.globalThis = ctx;
-for (const f of ["limits.js", "sites.js", "note.js"]) vm.runInContext(fs.readFileSync(path.join(__dirname, f), "utf8"), ctx);
+for (const f of ["limits.js", "typing.js", "sites.js", "note.js"]) vm.runInContext(fs.readFileSync(path.join(__dirname, f), "utf8"), ctx);
 vm.runInContext(`${source}\n;globalThis.state = state;`, ctx);
 const t = ctx;
 const { state } = t;
