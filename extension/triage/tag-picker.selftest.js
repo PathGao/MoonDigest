@@ -32,7 +32,7 @@ const dlg = node({
 const doc = node({ getElementById: (id) => (id === "tagPicker" ? dlg : null), querySelector: () => ({ getBoundingClientRect: () => ({ left: 50, right: 90, top: 300, bottom: 320 }) }), body: {} });
 const win = node();
 const ctx = vm.createContext({ document: doc, addEventListener: win.addEventListener, innerWidth: 1440, innerHeight: 900, setTimeout, clearTimeout });
-for (const f of ["../typing.js", "shared.js", "tag-picker.js"]) vm.runInContext(fs.readFileSync(path.join(__dirname, f), "utf8"), ctx);
+for (const f of ["../typing.js", "../tag-core.js", "shared.js", "tag-picker.js"]) vm.runInContext(fs.readFileSync(path.join(__dirname, f), "utf8"), ctx);
 const P = ctx.TagPicker;
 const plain = (v) => JSON.parse(JSON.stringify(v));
 const wait = () => new Promise((r) => setTimeout(r, 10));

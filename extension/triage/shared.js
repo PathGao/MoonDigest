@@ -24,9 +24,8 @@
   }
   // 播放量 / 粉丝: 12.3万 and 2.5亿 (one decimal, dropped when 0), plain below 万.
   const fmtCount = (n) => (n >= 1e8 ? `${Math.round(n / 1e7) / 10}亿` : n >= 1e4 ? `${Math.round(n / 1e3) / 10}万` : String(n));
-  // A tag name as both modes and the AI keep it: no commas or 顿号 (the CSV joins names with 、), trimmed, at most 12
-  // characters. triage-bg.js has the same rule as triageCleanTagName; shared.selftest.js checks they agree.
-  const cleanTagName = (s) => String(s ?? "").replace(/[,，、]/g, "").trim().slice(0, 12);
+  // Tag names, colors and ids: ../tag-core.js, which badges.js on B站 pages loads too.
+  const { TAG_COLORS, cleanTagName, nextTagColor, cycleTagColor } = globalThis.BocTagCore;
   // A plain primary click on a video link plays it in the viewer here; with ⌘ / Ctrl / Shift / Alt the browser opens it.
   const plainClick = (e) => e.button === 0 && !e.metaKey && !e.ctrlKey && !e.shiftKey && !e.altKey;
   // hdslb images: https and a small webp copy (size like "480w_270h_1c"); other URLs as they are.
@@ -207,13 +206,6 @@
     `<div class="side-foot"><button type="button" class="side-item side-settings" ${settingsAttrs}>${ICON.gear}${esc(settingsLabel)}</button></div>`;
 
   // ----- tags: both modes' 标签管理 and the 「+ 标签」 button (the picker itself is tag-picker.js) -----
-  // Catppuccin Latte accents (desaturated); chips keep --text on top, so these are only borders and tints.
-  // Mauve, blue, green, red and yellow are left out: they mean where-you-are, next step, keep, delete and pending.
-  const TAG_COLORS = ["#da86c3", "#298287", "#dc6d2d", "#3590a0", "#8595ea", "#cf5c66", "#2497c6", "#cf8686", "#ce9386"];
-  // A new tag's color: the first one no tag in the list has, so deleting a tag frees its color.
-  const nextTagColor = (tags) => TAG_COLORS.find((c) => !tags.some((t) => t.color === c)) || TAG_COLORS[tags.length % TAG_COLORS.length];
-  // 管理's color button: the next color in the palette.
-  const cycleTagColor = (color) => TAG_COLORS[(TAG_COLORS.indexOf(color) + 1) % TAG_COLORS.length];
   // Why name cannot be a tag among others (the list it would join, itself left out), or "".
   const tagNameError = (name, others) => (!name ? "标签名不能为空" : others.some((t) => t.name === name) ? "已有同名标签" : "");
   // who is 视频 or UP 主; a Latin word gets a space before it (「个 UP 主」, 「个视频」).

@@ -763,7 +763,7 @@ details.adv[open] > summary::before {
 }
 
 .guide-box > summary {
-  color: var(--link);
+  color: var(--text-2);
   font-size: var(--fs-sm);
 }
 
@@ -849,7 +849,7 @@ button.var {
 }
 
 button.var .mono {
-  color: var(--link);
+  color: var(--text-2);
   font-size: var(--fs-xs);
 }
 

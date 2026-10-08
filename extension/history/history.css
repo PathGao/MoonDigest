@@ -62,9 +62,9 @@ a.entry-title:hover { color: var(--link-hover); text-decoration: underline; }
 .entry-actions .danger { margin-left: var(--space-3); }
 /* Rows that cannot delete keep the button's space, so every row's buttons line up. */
 .entry-actions .slot { visibility: hidden; }
-/* 继续问 is each row's main action: the light action fill, never the solid blue. */
-button.ask { background: var(--action-bg); border-color: var(--action-border); color: var(--action); }
-button.ask:hover { border-color: var(--action); }
+/* 继续问 is each row's main action: a gray fill with plain text (buttons never use blue text, DESIGN.md §1). */
+button.ask { background: var(--field-bg); }
+button.ask:hover { background: var(--border); }
 button.ask:disabled { background: var(--surface); border-color: var(--border-strong); color: var(--text); }
 /* 写入中… sits in a cell sized by the idle label, so the button keeps its width and its row does not shift. */
 .write-label { display: inline-grid; justify-items: center; }

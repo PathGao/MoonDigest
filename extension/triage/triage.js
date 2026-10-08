@@ -74,7 +74,7 @@ function simplifyMigration({ schemes, folderScheme, tags, videoTags, criteria, f
   return { tags: out, videoTags: nextVideoTags, folderCriteria: { ...crit, ...folderCriteria } };
 }
 
-const newTagId = () => `t${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+const newTagId = () => BocTagCore.newTagId("t");
 
 // One-time move of the global tags into folders (pure). folders = [{ id, bvids }], chosen first. A tag without a folder
 // goes to the folder its videos are in; used in several, the first keeps it and each other gets a copy (new id), and

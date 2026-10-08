@@ -8,6 +8,7 @@ const read = (name) => fs.readFileSync(path.join(__dirname, name), "utf8").repla
 const rules = (css) =>
   [...css.matchAll(/([^{}]+)\{([^{}]*)\}/g)].map(([, selector, body]) => ({
     selector: selector.trim().replace(/\s+/g, " "),
+    body,
     vars: new Map([...body.matchAll(/(--[\w-]+)\s*:\s*([^;]+);/g)].map(([, k, v]) => [k, v.trim().replace(/\s+/g, " ")]))
   }));
 const asBoc = (vars) => new Map([...vars].map(([k, v]) => [`--boc-${k.slice(2)}`, v]));
@@ -47,5 +48,30 @@ for (const r of contentRules) {
 const used = new Set([...read("content.css").matchAll(/var\((--boc-[\w-]+)\)/g)].map((m) => m[1]));
 const declared = new Set(contentRules.flatMap((r) => [...r.vars.keys()]));
 assert.deepStrictEqual([...used].filter((k) => !declared.has(k)), [], "every var() without a fallback is declared");
+
+// badges.css cannot read the tokens either and writes the colors out. Every literal that stands for a token is listed
+// here: [selector as written, property, token, theme]. A new hard-coded token color in badges.css goes in this list.
+const badgeRules = rules(read("badges.css"));
+const tokensOf = { light: tokenRules[0].vars, dark: tokenRules[1].vars };
+const BADGE_TOKENS = [
+  [".mdg-badge .mdg-keep, .mdg-badge .mdg-act-keep", "color", "--ok", "light"],
+  [".mdg-badge .mdg-drop, .mdg-badge .mdg-act-unfav", "color", "--danger", "light"],
+  [".mdg-badge .mdg-unsure", "color", "--warn", "light"],
+  ["html.bili_dark .mdg-keep, html.bili_dark .mdg-act-keep", "color", "--ok", "dark"],
+  ["html.bili_dark .mdg-drop, html.bili_dark .mdg-act-unfav", "color", "--danger", "dark"],
+  ["html.bili_dark .mdg-unsure", "color", "--warn", "dark"],
+  [".mdg-seen-bar i", "background", "--accent", "light"],
+  [".mdg-seen .mdg-seen-mark", "background", "--accent", "light"]
+];
+const declOf = (selector, prop) => {
+  const r = badgeRules.find((r) => r.selector === selector);
+  assert.ok(r, `badges.css has no rule ${selector}`);
+  const m = r.body.match(new RegExp(`(?:^|;)\\s*${prop}\\s*:\\s*([^;]+)`));
+  assert.ok(m, `${selector} sets no ${prop}`);
+  return m[1].trim().toLowerCase();
+};
+for (const [selector, prop, token, theme] of BADGE_TOKENS) {
+  assert.strictEqual(declOf(selector, prop), tokensOf[theme].get(token).toLowerCase(), `badges.css ${selector} ${prop} = ${theme} ${token}`);
+}
 
 console.log("content-tokens selftest passed");

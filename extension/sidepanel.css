@@ -466,8 +466,8 @@ body {
 
 /* One filled button per view: once something is typed, send is the next step and the summary steps back. */
 body:has(#spInput:not(:placeholder-shown)) .sp-summary-btn {
-  background: var(--action-bg);
-  color: var(--link);
+  background: var(--field-bg);
+  color: var(--text);
 }
 
 .sp-triage-summary {
@@ -1326,10 +1326,10 @@ body:has(#spInput:not(:placeholder-shown)) .sp-summary-btn {
   width: 64px;
   height: 30px;
   padding: 0;
-  border: 1px solid transparent;
+  border: 1px solid var(--border);
   border-radius: var(--radius-sm);
-  background: var(--action-bg);
-  color: var(--link);
+  background: var(--surface);
+  color: var(--text-2);
   font: inherit;
   font-size: var(--fs-sm);
   font-weight: 600;
@@ -1337,7 +1337,7 @@ body:has(#spInput:not(:placeholder-shown)) .sp-summary-btn {
 }
 
 .sp-send-btn:hover {
-  border-color: var(--action-border);
+  border-color: var(--border-strong);
 }
 
 .sp-send-btn.is-stop {

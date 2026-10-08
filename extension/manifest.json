@@ -54,7 +54,7 @@
         "https://search.bilibili.com/*",
         "https://t.bilibili.com/*"
       ],
-      "js": ["typing.js", "badges.js"],
+      "js": ["typing.js", "tag-core.js", "badges.js"],
       "css": ["badges.css"],
       "all_frames": true,
       "run_at": "document_idle"

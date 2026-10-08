@@ -2,7 +2,7 @@
 
 这里记的是界面和交互上已经定下来的规则。改界面前先读一遍。如果代码和这里写的不一致，先改代码；要是规则本身该变，就在同一个 PR 里一起改这份文件。颜色和尺寸的具体数值看 `extension/tokens.css`，这里只写每个值代表什么。
 
-B站 页面上的颜色是 `tokens.css` 的第三份拷贝：`content.css` 里的 `--boc-*`（`content-tokens.selftest.js` 会核对）和 `badges.css` 里直接写的色值（没人核对）。改 token 时，在同一个 PR 里把这两处一起改。
+B站 页面上的颜色是 `tokens.css` 的第三份拷贝：`content.css` 里的 `--boc-*`（`content-tokens.selftest.js` 会核对）和 `badges.css` 里直接写的色值（也由 `content-tokens.selftest.js` 核对，新写死的色值要加进它的 `BADGE_TOKENS` 表）。改 token 时，在同一个 PR 里把这两处一起改。
 
 ## 1. 颜色：一种颜色只表示一件事
 
@@ -118,8 +118,8 @@ B站 页面上的颜色是 `tokens.css` 的第三份拷贝：`content.css` 里�
 
 ## 7. 代码怎么共用
 
-- 两种模式都画的东西，只在 `extension/triage/shared.js`（`TriageUi`）里写一份：标题行、排序、搜索框、筛选片、刷新和导出按钮、进度胶囊、空状态、设置行、格式化函数、标签名清洗、标签颜色、AI 建议的合并。发现两边各写了一份，就合并进去。
-- 打标签面板只有一个：`extension/triage/tag-picker.js`。例外：B站 页面上的「+」标签面板（`badges.js`）在封闭的 shadow DOM 里，暂时用不了 tag-picker.js，它自己又写了一份标签颜色和标签名清洗。计划：先把这些纯函数抽到一个小文件里，在 `badges.js` 之前加载，以后再迁过去。「标签管理」和「✦ AI 打标签」弹窗也各只有一个：`extension/triage/tag-dialogs.js`。模式打开它们时只传一个 adapter，里面是单位（视频 / UP 主）、上限和数据，文字和布局都在弹窗里。
+- 两种模式都画的东西，只在 `extension/triage/shared.js`（`TriageUi`）里写一份：标题行、排序、搜索框、筛选片、刷新和导出按钮、进度胶囊、空状态、设置行、格式化函数、AI 建议的合并（标签名清洗和标签颜色在 `extension/tag-core.js`）。发现两边各写了一份，就合并进去。
+- 打标签面板只有一个：`extension/triage/tag-picker.js`。例外：B站 页面上的「+」标签面板（`badges.js`）在封闭的 shadow DOM 里，暂时用不了 tag-picker.js，标签的纯函数（颜色、标签名清洗、新标签 id、下一个颜色）放在 `extension/tag-core.js`（`BocTagCore`）里，`badges.js`、`shared.js`、`follow.js` 和 `triage.js` 都用它，manifest 和 `triage.html` 都在它们之前加载。`tag-core.selftest.js` 会查别处有没有再写一份。面板本身以后再迁到 tag-picker.js。「标签管理」和「✦ AI 打标签」弹窗也各只有一个：`extension/triage/tag-dialogs.js`。模式打开它们时只传一个 adapter，里面是单位（视频 / UP 主）、上限和数据，文字和布局都在弹窗里。
 - 所有输入框和快捷键都要走 `extension/typing.js`（`BocTyping`）：
   - 回车和 Esc 的处理函数，开头先写 `if (BocTyping.composing(e)) return;`。
   - 全局快捷键，开头写 `if (composing(e) || typingIn(e)) return;`。

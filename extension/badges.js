@@ -136,9 +136,8 @@
     return idx.byFace.get(faceKey(face)) || idx.byName.get(String(name || "").trim()) || "";
   }
 
-  // ---- The 「+」 picker's data: same tag shape, colors and name rules as the triage page's 关注 mode (triage/follow.js). ----
-  const TAG_COLORS = ["#da86c3", "#298287", "#dc6d2d", "#3590a0", "#8595ea", "#cf5c66", "#2497c6", "#cf8686", "#ce9386"];
-  const cleanTagName = (s) => String(s ?? "").replace(/[,，、]/g, "").trim().slice(0, 12);
+  // ---- The 「+」 picker's data: same tag shape, colors and name rules as the triage page's 关注 mode (tag-core.js). ----
+  const { cleanTagName, nextTagColor, newTagId } = globalThis.BocTagCore;
   const pickRows = (mid, tags, map) => {
     const on = new Set(map?.[mid] || []);
     return (Array.isArray(tags) ? tags : []).map((t) => ({ id: t.id, name: String(t.name || ""), color: String(t.color || ""), on: on.has(t.id) }));
@@ -154,8 +153,7 @@
       if (!name) return null;
       let t = tags.find((x) => x.name === name);
       if (!t) {
-        const color = TAG_COLORS.find((c) => !tags.some((x) => x.color === c)) || TAG_COLORS[tags.length % TAG_COLORS.length];
-        t = { id: `ft${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`, name, color, rule: "" };
+        t = { id: newTagId("ft"), name, color: nextTagColor(tags), rule: "" };
         tags = [...tags, t];
       }
       id = t.id;

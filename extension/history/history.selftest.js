@@ -15,10 +15,15 @@ const node = (id) =>
     checked: false,
     textContent: "",
     innerHTML: "",
+    attrs: {},
+    setAttribute(k, v) { this.attrs[k] = String(v); },
+    removeAttribute(k) { delete this.attrs[k]; },
     classList: { toggle() {}, add() {}, remove() {} },
     querySelectorAll: () => [],
     addEventListener: (t, f) => ((L[id] ||= {})[t] ||= []).push(f)
   });
+const conv = (key) => ({ id: key, contextKey: key, title: key, createdAt: 1, updatedAt: 1, messages: [{ role: "user", content: "q" }, { role: "assistant", content: "a" }] });
+const store = { boc_ai_conversations_v1: [conv("a"), conv("b")] };
 const ctx = vm.createContext({
   console,
   setTimeout,
@@ -28,7 +33,7 @@ const ctx = vm.createContext({
   chrome: {
     runtime: { id: "test", sendMessage: async () => ({}) },
     tabs: { getCurrent: async () => ({ id: 1 }) },
-    storage: { local: { get: async () => ({}), set: async () => {} }, onChanged: { addListener() {} } }
+    storage: { local: { get: async () => store, set: async () => {} }, onChanged: { addListener() {} } }
   }
 });
 ctx.globalThis = ctx;
@@ -54,6 +59,27 @@ for (const f of ["limits.js", "typing.js", "sites.js", "note.js", "download.js"]
   fire("compositionend");
   await wait(200);
   assert.strictEqual(renders, 1, "compositionend renders the committed text once");
+
+  // 全选 is three-state over the listed videos, says how many it covers, and disabled bulk buttons say why.
+  els.search.value = "";
+  fire("input", {});
+  await wait(200);
+  const sa = els.selectAll;
+  const reason = (id) => [els[id].disabled, els[id].title, els[id].attrs["aria-description"]];
+  assert.deepStrictEqual([sa.checked, sa.indeterminate], [false, false], "none selected: empty box");
+  assert.deepStrictEqual(reason("bulkMd"), [true, "先勾选视频", "先勾选视频"]);
+  assert.deepStrictEqual(reason("bulkDelete"), [true, "先勾选视频", "先勾选视频"]);
+  assert.deepStrictEqual(reason("clearAll"), [false, "", undefined], "conversations exist: clear-all usable, no reason");
+  const pick = (key, checked) => {
+    const target = { checked, dataset: { act: "pick" }, closest: (s) => (s === ".entry" ? { dataset: { key } } : target) };
+    (L.list.click || []).forEach((f) => f({ target }));
+  };
+  pick("a", true);
+  assert.deepStrictEqual([sa.checked, sa.indeterminate], [false, true], "some selected: indeterminate");
+  assert.deepStrictEqual(reason("bulkMd"), [false, "", undefined]);
+  pick("b", true);
+  assert.deepStrictEqual([sa.checked, sa.indeterminate], [true, false], "all selected: checked");
+  assert.strictEqual(els.selectAllLabel?.textContent, "全选 2 个");
   console.log("history selftest: all passed");
 })().catch((e) => {
   console.error(e);
