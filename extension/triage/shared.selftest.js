@@ -84,7 +84,7 @@ assert.strictEqual(UI.img("https://i0.hdslb.com/a.jpg@1c.webp", "48w"), "https:/
   assert.ok(plays(body), "blank card area plays");
   assert.ok(plays(node("span", {}, node("div", {}, body))), "meta text plays");
   assert.ok(plays(node("a", { href: "x", "data-play": "BV1" }, body)), "视频投稿 title / cover");
-  assert.ok(plays(node("a", { href: "x", "data-act": "open" }, body)), "收藏夹 title / cover");
+  assert.ok(plays(node("a", { href: "x", "data-act": "open" }, body)), "收藏夹 title");
   for (const k of ["metaKey", "ctrlKey", "shiftKey", "altKey"]) assert.ok(!plays(body, { [k]: true }), `${k}-click on the card does not play`);
   assert.ok(!plays(body, { button: 1 }), "middle click does not play");
   const plus = node("button", { "data-pick": "1" }, body);
@@ -99,24 +99,23 @@ assert.strictEqual(UI.img("https://i0.hdslb.com/a.jpg@1c.webp", "48w"), "https:/
   ctx.getSelection = () => ({ isCollapsed: true });
   assert.ok(plays(body), "a collapsed selection is a plain click");
 
-  // Selecting: the round box always picks; with anything selected the whole card picks (links too), its controls do not.
-  const picks = (target, selecting, o) => UI.cardPickClick(click(target, o), selecting);
-  const box = node("button", { "data-select": "BV1" }, card);
-  assert.ok(picks(box, false), "the box picks with nothing selected");
-  assert.ok(!picks(body, false), "with nothing selected a card click is not a pick (it plays)");
-  assert.ok(picks(body, true), "with something selected a card click picks");
-  assert.ok(!plays(box), "the box never plays");
-  for (const a of [node("a", { href: "x", "data-act": "open" }, body), node("a", { href: "x", "data-play": "BV1" }, body), node("a", { href: "space", target: "_blank" }, body)]) {
-    assert.ok(picks(a, true), "a card link picks while selecting");
-    for (const k of ["metaKey", "ctrlKey"]) assert.ok(!picks(a, true, { [k]: true }), `${k}-click on a link stays the browser's`);
+  // Selecting: a click anywhere on the card picks (cover and UP links too); the video titles play, the controls keep their own.
+  const picks = (target, o) => UI.cardPickClick(click(target, o));
+  assert.ok(picks(body), "a card click picks, with nothing selected too");
+  for (const a of [node("a", { href: "x" }, body), node("a", { href: "space", target: "_blank" }, body)]) {
+    assert.ok(picks(a), "the cover and the UP links pick");
+    for (const k of ["metaKey", "ctrlKey"]) assert.ok(!picks(a, { [k]: true }), `${k}-click on a link stays the browser's`);
   }
-  assert.ok(!picks(body, true, { button: 1 }), "middle click does not pick");
-  assert.ok(picks(body, true, { shiftKey: true }), "Shift+click picks (a range)");
+  for (const a of [node("a", { href: "x", "data-act": "open" }, body), node("a", { href: "x", "data-play": "BV1" }, body)]) {
+    assert.ok(!picks(a) && plays(a), "a video title plays, it does not pick");
+  }
+  assert.ok(!picks(body, { button: 1 }), "middle click does not pick");
+  assert.ok(picks(body, { shiftKey: true }), "Shift+click picks (a range)");
   for (const c of [node("button", { "data-act": "keep" }, body), node("button", { "data-act": "unfav" }, body), node("button", { "data-act": "note" }, body), node("button", { "data-star": "1" }, body), node("span", {}, plus), node("textarea", { "data-note": "" }, body), node("button", { "data-untag": "t" }, body)]) {
-    assert.ok(!picks(c, true), `${c.attrs["data-act"] || Object.keys(c.attrs)[0] || c.tag} keeps its own click`);
+    assert.ok(!picks(c), `${c.attrs["data-act"] || Object.keys(c.attrs)[0] || c.tag} keeps its own click`);
   }
   ctx.getSelection = () => ({ isCollapsed: false });
-  assert.ok(!picks(body, true), "the end of a text-selection drag does not pick");
+  assert.ok(!picks(body), "the end of a text-selection drag does not pick");
   delete ctx.getSelection;
 
   // pickCard: a toggle, or with range every listed id between the anchor and this one; returns the new anchor.
@@ -132,8 +131,6 @@ assert.strictEqual(UI.img("https://i0.hdslb.com/a.jpg@1c.webp", "48w"), "https:/
   assert.ok(!sel.has("d"), "a plain pick on a selected card clears it");
   UI.pickCard(sel, ids, "e", "gone", true);
   assert.ok(sel.has("e"), "an anchor no longer listed: Shift picks just this one");
-  assert.ok(UI.pickBox("BV<1>", true, "标题").includes('aria-checked="true"') && UI.pickBox("x", false, "t").includes('aria-checked="false"'));
-  assert.ok(!UI.pickBox("BV<1>", true, "a\"b").includes("<1>"), "the box escapes its id");
 }
 
 // CSV: cells a spreadsheet would run as a formula get a leading '; BOM and CRLF around the rows.

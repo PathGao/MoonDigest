@@ -321,25 +321,13 @@ select { height: 28px; max-width: 240px; }
 .sel-actions .danger { margin-left: 4px; }
 
 .list { min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 12px; margin: 0 -8px; padding: 8px 8px 80px; }
-/* Two card states. Current (hover or J/K) is the lifted box; selected (X or the round box) is the blue outline, tint and ✓. Both can show at once. */
+/* Two card states. Current (hover or J/K) is the lifted box; selected (a click on the card or X) is the blue outline and tint. Both can show at once. */
 .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); transition: border-color 0.12s, box-shadow 0.12s; }
 /* Current: a dark ring plus the lift, so it reads at a glance; selected (below) swaps the ring for blue. */
 .card.focused { outline: 2px solid var(--text-2); outline-offset: -1px; box-shadow: var(--lift); }
 .card.selected { outline: 2px solid var(--action); outline-offset: -1px; background: var(--action-bg); }
 /* Playing in the viewer: pink, where you are. Blue stays for 选中. */
 .card.playing:not(.selected) { outline: 2px solid var(--accent); outline-offset: -1px; }
-/* The round select box (shared.js pickBox) on the cover's / avatar's top-left: on the hovered or current card, always on a
-   selected one, and on every card while anything is selected (.picking), when a click on the card selects it; on touch
-   always. While selecting, the current card's ring and its empty box turn blue: the click selects, it does not play. */
-.pick-box { position: absolute; z-index: 2; top: 18px; left: 18px; width: 20px; min-width: 0; height: 20px; padding: 0; border: 1.5px solid var(--border-strong); border-radius: 50%; background: var(--surface); box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3); }
-.pick-box:hover { border-color: var(--action); background: var(--surface); }
-.pick-box[aria-checked="true"] { border-color: var(--action); background: var(--action); }
-.pick-box[aria-checked="true"]::after { content: ""; position: absolute; left: 6px; top: 2.5px; width: 4px; height: 8px; border: solid var(--on-action); border-width: 0 2px 2px 0; transform: rotate(45deg); }
-.fw-up .pick-box { top: 8px; left: 10px; }
-@media (hover: hover) { :is(.list, .fw-list):not(.picking) .card:not(:hover, .focused, :focus-within, .selected) .pick-box { visibility: hidden; } }
-.picking .card { user-select: none; }
-.picking .card:is(:hover, .focused):not(.selected, .playing) { outline: 2px solid var(--action); outline-offset: -1px; }
-.picking .card:is(:hover, .focused) .pick-box[aria-checked="false"] { border-color: var(--action); }
 :root { --lift: 0 8px 22px rgba(0, 0, 0, 0.14); }
 @media (prefers-color-scheme: dark) { :root { --lift: 0 6px 16px rgba(0, 0, 0, 0.5); } }
 .empty { padding: 40px 0; text-align: center; color: var(--muted); }
@@ -355,7 +343,7 @@ select { height: 28px; max-width: 240px; }
 .cover-wrap::after { content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 38%; background: linear-gradient(transparent, rgba(0, 0, 0, 0.6)); pointer-events: none; }
 .cover { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; display: block; }
 .cover-dur { position: absolute; right: 8px; bottom: 6px; z-index: 1; font-size: var(--fs-xs); font-variant-numeric: tabular-nums; }
-.cover-tag { position: absolute; left: 30px; top: 6px; z-index: 1; height: 20px; padding: 0 6px; border-radius: 4px; font-size: var(--fs-xs); font-weight: 600; line-height: 20px; white-space: nowrap; }
+.cover-tag { position: absolute; left: 6px; top: 6px; z-index: 1; height: 20px; padding: 0 6px; border-radius: 4px; font-size: var(--fs-xs); font-weight: 600; line-height: 20px; white-space: nowrap; }
 .cover-tag.keep { background: var(--ok); color: var(--surface); }
 .cover-tag.drop { background: rgba(0, 0, 0, 0.55); color: #fff; }
 .cover-tag.unsure { background: #fff; color: var(--warn); }
