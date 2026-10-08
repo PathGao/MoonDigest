@@ -593,7 +593,7 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   t.el.tagsDialog = { close() {} };
   t.applyAiProposal();
   assert.deepStrictEqual([plain(t.S.aiRecent.K.bvids), t.S.aiRecentFilter], [["BV700", "BV701", "BV702"], true], "applying shows the batch");
-  t.writeVideoTags("BV701", ["gb"]); // changed where U never saw it, e.g. another triage tab
+  t.writeVideoTags("BV701", ["gb"]); // an edit made after the batch
   vm.runInContext("__realAsk = askConfirm; __asked = 0; __answer = false; askConfirm = async () => (__asked++, __answer)", ctx);
   await t.undo();
   assert.ok(vm.runInContext("__asked", ctx) === 1 && t.S.aiRecent.K, "U on a batch asks first; 取消 keeps it");
@@ -601,7 +601,7 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   await t.undo();
   vm.runInContext("askConfirm = __realAsk", ctx);
   assert.ok(!t.S.aiRecent.K && !t.S.aiRecentFilter, "U ends the batch");
-  assert.deepStrictEqual(plain([t.S.videoTags.BV700, t.S.videoTags.BV701, t.S.videoTags.BV702]), [null, ["gb"], ["ga"]], "U puts back only videos still as the batch left them");
+  assert.deepStrictEqual(plain([t.S.videoTags.BV700, t.S.videoTags.BV701, t.S.videoTags.BV702]), [null, null, ["ga"]], "U puts every video of the batch back, later edits included");
   assert.ok(!t.S.tags.some((x) => x.name === "C"), "a tag the batch created and nothing uses any more goes");
   t.S.aiRecent.K = { at: 1, bvids: ["BV701"] };
   t.S.aiRecentFilter = true;

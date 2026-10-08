@@ -40,7 +40,7 @@ const K = {
 };
 // 「AI 刚打的」: the videos the last applied 批量打 changed in a folder, to look over on their cards. Only these end it.
 const AI_RECENT_RULES = ["点 ×：不再标出，标签不变", "再批量打一次：换成新的一批"];
-const AI_RECENT_UNDO = "按 U 撤销这次批量打前会先问你，确认后标签回到批量打之前。";
+const AI_RECENT_UNDO = "按 U 撤销这次批量打前会先问你；确认后这批视频的标签都回到批量打之前，包括你之后又改过的。";
 const ALL = "all"; // the 所有收藏夹 view's folder-select value
 const REMOVED = "removed"; // the 已出分拣范围 view
 const TOVIEW = "toview"; // 稍后再看, listed by triage-bg as one more folder
@@ -2229,7 +2229,7 @@ function batchUndoAsk(entry) {
   if (n < 2) return null;
   if (entry.kind === "keepMany") return [`撤销批量保留？`, `<p>上一步保留了 ${n} 个视频，撤销后它们不再标为保留。</p>`];
   if (entry.kind === "unfavMany") return [`撤销批量取消收藏？`, `<p>会把 ${n} 个视频重新收藏回 B站。</p>`];
-  return [`撤销这次批量打标签？`, `<p>会把 ${n} 个视频的标签改回批量打之前。</p>`];
+  return [`撤销这次批量打标签？`, `<p>这次批量打改过的 ${n} 个视频，标签都改回批量打之前，包括你之后又改过的。</p>`];
 }
 
 async function undo() {
@@ -2299,23 +2299,15 @@ async function undo() {
     toast("已撤销标签修改");
     S.focused = entry.bvid;
   } else if (entry.kind === "aiApply") {
-    // Only videos still as the batch left them go back: U undoes later edits first, so this matters only for edits
-    // U never saw (another triage tab), which keep their tags.
-    const same = (a, b) => a.length === b.length && a.every((id) => b.includes(id));
-    let back = 0;
-    for (const c of entry.changes) {
-      if (!same(S.videoTags[c.bvid] || [], c.after)) continue;
-      writeVideoTags(c.bvid, c.before);
-      back++;
-    }
+    // Every video the batch changed goes back to before it, edits made since included.
+    for (const c of entry.changes) writeVideoTags(c.bvid, c.before);
     const used = new Set(Object.values(S.videoTags).flat());
     S.tags = S.tags.filter((t) => !entry.created.includes(t.id) || used.has(t.id));
     for (const id of [...S.tagFilter]) if (!tagById(id)) S.tagFilter.delete(id);
     saveTags();
     saveVideoTags();
     endAiRecent(entry.folder);
-    const kept = entry.changes.length - back;
-    toast(`已撤销批量打标签：${back} 个视频改回原样${kept ? `，${kept} 个已在别处改过，保持不变` : ""}`);
+    toast(`已撤销批量打标签：${entry.changes.length} 个视频改回批量打之前`);
   }
   render();
   setFocus(S.focused);
@@ -3226,7 +3218,7 @@ function applyAiProposal() {
     const name = t.name.trim();
     if (t.checked && name) idFor[t.key] = createTag(name)?.id;
   }
-  const changes = []; // [{ bvid, before, after }]: what U puts back, for videos still as the batch left them
+  const changes = []; // [{ bvid, before }]: what U puts back
   for (const { r, e } of rows) {
     const ids = new Set(S.videoTags[r.bvid] || []);
     for (const ref of e.add) {
@@ -3236,7 +3228,7 @@ function applyAiProposal() {
     for (const id of r.remove) ids.delete(id);
     const before = S.videoTags[r.bvid] || [];
     writeVideoTags(r.bvid, [...ids]);
-    changes.push({ bvid: r.bvid, before, after: [...ids] });
+    changes.push({ bvid: r.bvid, before });
   }
   saveTags();
   saveVideoTags();
