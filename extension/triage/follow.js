@@ -347,7 +347,7 @@ main.innerHTML = `
   </span></div>
   <div id="fwList" class="fw-list" aria-label="UP 主"></div>
   <div id="fwSel"></div>`;
-const E = { tools: $("fwTools"), meta: $("fwMeta"), actions: $("fwActions"), tabs: $("fwTabs"), bar: $("fwBar"), list: $("fwList"), sel: $("fwSel") };
+const E = { sort: main.querySelector("[data-sortbox]"), tools: $("fwTools"), meta: $("fwMeta"), actions: $("fwActions"), tabs: $("fwTabs"), bar: $("fwBar"), list: $("fwList"), sel: $("fwSel") };
 
 // ---------- data ----------
 async function load() {
@@ -521,10 +521,12 @@ function renderUps() {
   E.bar.innerHTML = `${sideSelect()}<span class="seg" role="group" aria-label="${gone ? "在哪取关" : "更新状态"}">${seg}</span>${gone ? "" : recentChip}`;
   E.tools.hidden = !D.list && !gone;
   if (!D.list && !gone) E.bar.innerHTML = sideSelect();
-  E.tools.querySelector("[data-sortbox]").hidden = E.tools.querySelector("[data-fw=ai]").hidden = gone;
-  E.tools.querySelector("[data-fw=sort]").value = F.sort;
+  // The sort sits right after the 状态 filters (outside #fwTools), so it is shown and hidden on its own.
+  E.sort.hidden = gone || !D.list;
+  E.tools.querySelector("[data-fw=ai]").hidden = gone;
+  E.sort.querySelector("[data-fw=sort]").value = F.sort;
   // Three lines, longest on top = 从大到小 (desc); mirrored = asc.
-  const dirBtn = E.tools.querySelector("[data-fw=dir]");
+  const dirBtn = E.sort.querySelector("[data-fw=dir]");
   const ys = F.dir === "asc" ? [6, 10, 14] : [14, 10, 6];
   dirBtn.innerHTML = `<svg viewBox="0 0 20 20" aria-hidden="true">${[4, 8, 12].map((y, i) => `<path d="M3 ${y + 1.5}h${ys[i]}"/>`).join("")}</svg>`;
   dirBtn.title = dirLabel(F.sort, F.dir);
@@ -624,7 +626,7 @@ function renderFeed() {
     const n = count(id);
     return `<button type="button" data-side="${esc(id)}" aria-pressed="${F.side === id}"${items.length && !n ? ' class="zero"' : ""}>${color ? `<i class="dot" style="--c:${esc(color)}"></i>` : ""}${esc(label)}${items.length ? ` ${n}` : ""}</button>`;
   };
-  E.tools.hidden = true;
+  E.tools.hidden = E.sort.hidden = true;
   E.bar.innerHTML = `${sideSelect()}<span class="seg fw-pills" role="group" aria-label="按标签看">${[pill("all", "全部"), pill("untagged", "未打标签"), pill("special", "★ 特别关注"), ...D.tags.map((t) => pill(t.id, t.name, t.color))].join("")}</span>`;
   const list = items.filter((it) => feedMatch(it, D, F.side));
   const note = !D.tags.length ? `<p class="fw-hint">还没给 UP 主打标签。在「UP 主」页签打上标签，这里就能只看一类 UP 主的新视频。下面是全部关注的新视频。</p>` : "";
