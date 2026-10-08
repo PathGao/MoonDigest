@@ -2,7 +2,7 @@
 
 这里记的是界面和交互上已经定下来的规则。改界面前先读一遍。如果代码和这里写的不一致，先改代码；要是规则本身该变，就在同一个 PR 里一起改这份文件。颜色和尺寸的具体数值看 `extension/tokens.css`，这里只写每个值代表什么。
 
-B站 页面上的颜色是 `tokens.css` 的第三份拷贝：`content.css` 里的 `--boc-*`（`content-tokens.selftest.js` 会核对）和 `badges.css` 里直接写的色值（没人核对）。改 token 时，在同一个 PR 里把这两处一起改。
+B站 页面上的颜色是 `tokens.css` 的第三份拷贝：`content.css` 里的 `--boc-*`（`content-tokens.selftest.js` 会核对）和 `badges.css` 里直接写的色值（也由 `content-tokens.selftest.js` 核对，新写死的色值要加进它的 `BADGE_TOKENS` 表）。改 token 时，在同一个 PR 里把这两处一起改。
 
 ## 1. 颜色：一种颜色只表示一件事
 
