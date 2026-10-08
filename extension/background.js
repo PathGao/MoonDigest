@@ -989,7 +989,7 @@ async function initializeSettingsStorage() {
 async function removeDeadStorageKeys() {
   const keys = (await chrome.storage.local.getKeys?.()) ?? Object.keys((await chrome.storage.local.get(null)) || {});
   const { triage_simplified_v1: migrated } = await chrome.storage.local.get("triage_simplified_v1");
-  const dead = ["triage_tab", "triage_read_verdict", "triage_tag_presets", "triage_schemes_migrated"];
+  const dead = ["triage_tab", "triage_read_verdict", "triage_tag_presets", "triage_schemes_migrated", "triage_watched"];
   if (migrated) dead.push("triage_schemes", "triage_folder_scheme");
   await chrome.storage.local.remove(keys.filter((k) => dead.includes(k) || k.startsWith("triage_verdict_override_")));
   await chrome.storage.sync.remove(["triageExportFolder", "readerChapterVisibility", ...(migrated ? ["triageCriteria"] : [])]);
