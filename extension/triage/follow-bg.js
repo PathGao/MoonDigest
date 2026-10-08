@@ -123,18 +123,30 @@ function followArcRecord(d) {
   };
 }
 
-// 把一页动态并进 follow_last：map 记每人最新发布时间，v 记每人最近 ≤3 个视频，since 是翻到的最早时间。
+// 一个视频并进 follow_last：map 记每人最新发布时间，v 记每人最近 ≤3 个视频 { t, c, bvid }，按 bvid 去重。返回有没有改。
+// 以前从动态记下的条目没有 bvid：同标题同时间的就是它，换成带 bvid 的。
+function followNoteVideo(last, it) {
+  let changed = false;
+  if (!(last.map[it.mid] >= it.at)) {
+    last.map[it.mid] = it.at;
+    changed = true;
+  }
+  const v = (last.v[it.mid] ||= []);
+  const i = v.findIndex((x) => (x.bvid ? x.bvid === it.bvid : x.c === it.at && x.t === it.title));
+  if (i >= 0 && v[i].bvid) return changed;
+  if (i >= 0) v.splice(i, 1);
+  v.push({ t: it.title, c: it.at, bvid: it.bvid });
+  v.sort((x, y) => y.c - x.c);
+  v.length = Math.min(v.length, 3);
+  return true;
+}
+
+// 把一页动态并进 follow_last，since 是翻到的最早时间。
 function followFoldFeed(last, items) {
   for (const it of items) {
     if (!it.mid || !it.at) continue;
-    if (!(last.map[it.mid] >= it.at)) last.map[it.mid] = it.at;
+    followNoteVideo(last, it);
     if (it.at < last.since) last.since = it.at;
-    const v = (last.v[it.mid] ||= []);
-    if (!v.some((x) => x.bvid === it.bvid)) {
-      v.push({ t: it.title, c: it.at, bvid: it.bvid });
-      v.sort((x, y) => y.c - x.c);
-      v.length = Math.min(v.length, 3);
-    }
   }
   return last;
 }
@@ -627,15 +639,7 @@ async function followNoteFeedPosts(items) {
     if (!L?.map) return null;
     let changed = false;
     L.v ||= {};
-    for (const it of items) {
-      if (!it.mid || !it.at) continue;
-      if (it.at > (L.map[it.mid] || 0)) { L.map[it.mid] = it.at; changed = true; }
-      const v = L.v[it.mid] || [];
-      if (!v.some((x) => x.c === it.at && x.t === it.title)) {
-        L.v[it.mid] = [...v, { t: it.title, c: it.at }].sort((x, y) => y.c - x.c).slice(0, 3);
-        changed = true;
-      }
-    }
+    for (const it of items) if (it.mid && it.at && followNoteVideo(L, it)) changed = true;
     return changed ? { follow_last: L } : null;
   });
 }

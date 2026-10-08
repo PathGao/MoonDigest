@@ -303,6 +303,11 @@ const runSync = async () => {
     assert.strictEqual(local.follow_last.map[8], 5, "a newer post seen in the feed updates 最近更新");
     assert.strictEqual(local.follow_last.v[8][0].c, 5, "and leads its recent titles");
     assert.deepStrictEqual([local.follow_last.at, local.follow_last.since], [1, 0], "the sync's coverage is untouched");
+    assert.deepStrictEqual(plain(local.follow_last.v[8][0]), { t: "T-BV8", c: 5, bvid: "BV8" }, "the same entry shape as a sync, with its bvid");
+    await t.followNoteFeedPosts([{ ...page.items[0], title: "改了标题" }]);
+    t.followFoldFeed(local.follow_last, page.items);
+    assert.strictEqual(local.follow_last.v[8].length, 2, "the same video is not noted twice (by bvid)");
+    assert.deepStrictEqual([local.follow_last.at, local.follow_last.since], [1, 0]);
     assert.deepStrictEqual(plain(page.items.map((x) => x.bvid)), ["BV8"]);
     assert.deepStrictEqual([page.offset, page.hasMore], ["o2", true]);
     await t.followFeed({ offset: "" });
