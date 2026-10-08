@@ -2396,7 +2396,7 @@ async function saveBuiltVideoNoteToObsidian(context, ref, settingsBundle) {
     }
     return;
   }
-  const filepath = videoNotePathFor({ ...context, title: built.data.title || context.title }, settings);
+  const { path: filepath, cover } = built.data;
   const choice = (await checkObsidianNoteExists(baseUrl, apiKey, filepath)) ? await BocOverwriteDialog.choose(filepath, { hasAiSection: true }) : "full";
   if (!choice) {
     showConversationContextNotice("已取消写入 Obsidian，原笔记未被覆盖。", 2200);
@@ -2404,7 +2404,7 @@ async function saveBuiltVideoNoteToObsidian(context, ref, settingsBundle) {
   }
   const noteKey = BocSites.buildContextKey(ref);
   if (choice === "full") {
-    const written = await sendRuntimeMessage({ type: "write-obsidian-note", baseUrl, apiKey, filepath, content: built.data.markdown, noteKey });
+    const written = await sendRuntimeMessage({ type: "write-obsidian-note", baseUrl, apiKey, filepath, content: built.data.markdown, cover, noteKey });
     if (!written?.ok) {
       throw new Error(getReadableText(written?.error, "Local API 写入失败"));
     }

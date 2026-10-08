@@ -375,6 +375,16 @@ assert.throws(() => t.triageParseCommand('{"new_tags":[', cmdItems, cmdTags, {})
   routes = baseRoutes();
   assert.strictEqual((await buildNote()).body.length, 2);
 
+  // triage-build-note gives the side panel and 视频记录 the path and cover triage writes with: {{author}} and
+  // {{upload_date}} need the API meta, and the cover is downloaded into the vault.
+  routes = baseRoutes();
+  routes["/view/detail"].data.View.pic = "http://i0.hdslb.com/bfs/archive/a.jpg";
+  t.getMergedSettings = async () => ({ noteFolder: "B站/{{author}}/{{upload_date}}" });
+  const builtNote = await vm.runInContext("TRIAGE_HANDLERS", ctx)["triage-build-note"]({ bvid: "BVa" });
+  assert.strictEqual(builtNote.path, `B站/UP/2024-05-30/${builtNote.filename}`);
+  assert.deepStrictEqual(plain(builtNote.cover), { url: "https://i0.hdslb.com/bfs/archive/a.jpg", name: "bilibili-BVa" });
+  delete t.getMergedSettings;
+
   // The note section comes from triage_notes (per video), not from the basket item.
   store.triage_basket = [{ bvid: "BVa", note: "篮子里的旧笔记" }];
   store.triage_notes = { BVa: { text: "视频笔记", updatedAt: 1 } };
