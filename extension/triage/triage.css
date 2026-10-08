@@ -188,8 +188,25 @@ select { height: 28px; max-width: 240px; }
 .tabrow { grid-area: tabs; }
 .stagebar { grid-area: bar; }
 .tagbar { grid-area: tagbar; }
-.list { grid-area: list; }
-.viewer { grid-area: viewer; }
+.list, .fw-list { grid-area: list; }
+.viewer, .viewer-close { grid-area: viewer; }
+/* Headroom (DESIGN §3, shared.js headroom): the list and the viewer start at the grid's top. The list scrolls under the
+   rows, which carry the page background, so folding them is only a transform and the cards never move. Folded: rows 1, 3
+   and 4 fade out, row 2 slides up by row 1's height and gets 「名字 · 数量」 in front; the viewer starts under what shows.
+   --head-h (all rows), --head1-h (row 1) and --slim-h (row 2) are measured. */
+.main { position: relative; isolation: isolate; --head-vis: var(--head-h, 0px); }
+.main.head-folded { --head-vis: var(--slim-h, 0px); }
+.list, .fw-list, .viewer, .viewer-close { grid-row-start: head-start; }
+.list, .fw-list { z-index: -1; scroll-padding-top: calc(var(--head-h, 0px) + 8px); }
+.folder-head, .tabrow, .stagebar, .tagbar { background: var(--bg); transition: transform 0.15s, opacity 0.15s, visibility 0.15s; }
+.viewer, .viewer-close { transition: margin-top 0.15s; }
+.head-folded :is(.folder-head, .stagebar, .tagbar) { visibility: hidden; opacity: 0; }
+.head-folded .tabrow { transform: translateY(calc(-1 * var(--head1-h, 0px))); box-shadow: 0 1px 0 var(--border); }
+.slim-title { display: none; flex: 0 1 auto; min-width: 0; max-width: 40%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--fs-lg); font-weight: 600; }
+.head-folded .slim-title { display: block; }
+@media (prefers-reduced-motion: reduce) {
+  .folder-head, .tabrow, .stagebar, .tagbar, .viewer, .viewer-close { transition: none; }
+}
 
 /* ---------- row 1: name · count, 在 B站打开 and the sync pill, when it was read | sort ---------- */
 .folder-head { display: flex; align-items: flex-start; gap: 8px 16px; padding: 18px 0 0; min-height: 60px; }
@@ -212,7 +229,7 @@ select { height: 28px; max-width: 240px; }
 /* ---------- steps: text tabs, a pink underline on the open one, counts faint; 阅览 sits apart on the right ---------- */
 .tabs:empty { display: none; }
 /* Row 2: the tabs keep their underline; search and the mode's buttons sit on the right of the same line. */
-.tabrow { display: flex; flex-wrap: wrap; align-items: center; column-gap: 24px; margin-top: 10px; border-bottom: 1px solid var(--border); }
+.tabrow { display: flex; flex-wrap: wrap; align-items: center; column-gap: 24px; padding-top: 10px; border-bottom: 1px solid var(--border); }
 .row-tools { display: flex; align-items: center; gap: 8px; margin-left: auto; padding: 5px 0; }
 /* While it reads, 刷新 gives its place to the progress pill: one thing on screen, not two. */
 .row-tools:has(.activity:not([hidden])) .act-btn[aria-busy="true"] { display: none; }
@@ -320,7 +337,7 @@ select { height: 28px; max-width: 240px; }
 .sel-actions .primary:hover { background: var(--action-hover); }
 .sel-actions .danger { margin-left: 4px; }
 
-.list { min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 12px; margin: 0 -8px; padding: 8px 8px 80px; }
+.list { min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 12px; margin: 0 -8px; padding: calc(var(--head-h, 0px) + 8px) 8px 80px; }
 /* Two card states. Current (hover or J/K) is the lifted box; selected (a click on the card or X) is the blue outline and tint. Both can show at once. */
 .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); transition: border-color 0.12s, box-shadow 0.12s; }
 /* Current: a dark ring plus the lift, so it reads at a glance; selected (below) swaps the ring for blue. */
@@ -546,11 +563,11 @@ dialog h3 { margin: 8px 0 0; font-size: var(--fs-sm); font-weight: 600; }
 .viewer-line { --row-label-w: 4.5em; padding-left: calc(12px + var(--row-label-w) + 8px); }
 .viewer-line > .row-label { margin-left: calc(-1 * var(--row-label-w) - 8px); font-size: inherit; line-height: inherit; }
 .viewer-line .chip[data-pick], .viewer-line .chip[data-vtag] { cursor: pointer; }
-.viewer { display: flex; flex-direction: column; min-height: 0; min-width: 0; margin-top: 8px; background: var(--surface); border: 1px solid var(--border); border-radius: 9px; overflow: hidden; }
+.viewer { display: flex; flex-direction: column; min-height: 0; min-width: 0; margin-top: calc(var(--head-vis) + 8px); background: var(--surface); border: 1px solid var(--border); border-radius: 9px; overflow: hidden; }
 /* No top bar. × rides on the panel's top-right corner, half outside (its own grid item, so .viewer's overflow does not
    clip it); the lines keep their right end clear of it. The panel starts 8px down, as the list's first card does, so
    the × clears row 4's buttons. */
-.viewer-close { grid-area: viewer; justify-self: end; align-self: start; z-index: 2; width: 28px; height: 28px; margin: -6px -14px 0 0; padding: 0; border-radius: 50%; box-shadow: var(--lift); color: var(--text-2); font-size: 18px; line-height: 1; }
+.viewer-close { justify-self: end; align-self: start; z-index: 2; width: 28px; height: 28px; margin: calc(var(--head-vis) + 2px) -14px 0 0; padding: 0; border-radius: 50%; box-shadow: var(--lift); color: var(--text-2); font-size: 18px; line-height: 1; }
 .viewer-close:hover { background: var(--surface); color: var(--text); }
 #viewer[hidden] + .viewer-close { display: none; }
 .viewer-line { padding-right: 28px; }
@@ -738,6 +755,8 @@ dialog:has(.settings-ai:not([hidden])) { width: min(800px, calc(100% - 32px)); }
   /* Row 2 is two lines here and its rule sits under the tabs: row 3 gets its own above it. */
   .stagebar { border-top: 1px solid var(--border); }
   .row-tools .search { flex: 1 1 auto; width: auto; min-width: 150px; }
+  /* Folded: 「名字 · 数量」 shares the tabs' line, so the slim bar stays two lines. */
+  .head-folded .tabrow .tabs { flex: 1 1 0; }
 }
 
 @media (max-width: 899px) {

@@ -11,6 +11,29 @@ vm.runInContext(fs.readFileSync(path.join(__dirname, "shared.js"), "utf8"), ctx)
 const UI = ctx.TriageUi;
 const plain = (v) => JSON.parse(JSON.stringify(v));
 
+// Headroom: reading down past the header folds it; any step back up, the top, or focus in the header unfolds it.
+{
+  const step = (s, top, full = 200) => plain(UI.headroomStep(s, { top, full }));
+  let s = { collapsed: false, last: 0 };
+  s = step(s, 150);
+  assert.deepStrictEqual(s, { collapsed: false, last: 150 }, "within the header's height: stays full");
+  s = step(s, 260);
+  assert.deepStrictEqual(s, { collapsed: true, last: 260 }, "forward past the header: folds");
+  assert.deepStrictEqual(step(s, 265), s, "a step under 8px is ignored");
+  assert.deepStrictEqual(step(s, 253), { collapsed: true, last: 260 }, "so is a small step back");
+  assert.deepStrictEqual(step(s, 250), { collapsed: false, last: 250 }, "any real step back unfolds");
+  assert.deepStrictEqual(step({ collapsed: true, last: 5000 }, 4990), { collapsed: false, last: 4990 }, "far from the top too");
+  let slow = s;
+  for (const top of [263, 266, 269]) slow = step(slow, top);
+  assert.deepStrictEqual(slow, { collapsed: true, last: 269 }, "slow 3px steps add up: last moves only on a counted step");
+  slow = { collapsed: false, last: 300 };
+  for (const top of [303, 306, 309]) slow = step(slow, top);
+  assert.deepStrictEqual(slow, { collapsed: true, last: 309 }, "slow forward steps fold too once they reach 8px");
+  assert.deepStrictEqual(step({ collapsed: true, last: 5 }, 0), { collapsed: false, last: 0 }, "the top is always full, even by a small step");
+  assert.deepStrictEqual(plain(UI.headroomStep({ collapsed: true, last: 900 }, { focus: true })), { collapsed: false, last: 900 }, "focus in the header unfolds");
+  assert.deepStrictEqual(step({ collapsed: false, last: 900 }, 1000), { collapsed: true, last: 1000 }, "after a focus, the next read down folds again");
+}
+
 // 「今天 / 昨天 / 10月5日 HH:MM 刷新过」, by calendar day, not by 24 hours.
 {
   const now = new Date(2026, 9, 8, 0, 30).getTime();
@@ -352,11 +375,12 @@ for (const [file, fns] of [["triage.js", ["mergeAiBatch", "aiChanges"]], ["follo
   assert.ok(!/@media \(hover: none\) \{[^}]*\.more/.test(css), "no touch rule of a mode's own for .more");
 }
 
-// Rows 3 and 4 have 8px above and below, and both modes' lists start 8px under row 4 (DESIGN §3).
+// Rows 3 and 4 have 8px above and below, and both modes' lists start 8px under row 4 (DESIGN §3): the list runs under
+// the header, so its top padding is the header's measured height plus 8px.
 {
   const css = ["triage.css", "follow.css"].map((f) => fs.readFileSync(path.join(__dirname, f), "utf8")).join("\n");
   for (const sel of ["stagebar", "tagbar"]) assert.ok(new RegExp(`^\\.${sel} \\{ padding: 8px 0;`, "m").test(css), `${sel} pads 8px`);
-  for (const sel of ["list", "fw-list"]) assert.ok(new RegExp(`^\\.${sel} \\{[^}]*padding: 8px 8px \\d+px;`, "m").test(css), `${sel} starts 8px down`);
+  for (const sel of ["list", "fw-list"]) assert.ok(new RegExp(`^\\.${sel} \\{[^}]*padding: calc\\(var\\(--head-h, 0px\\) \\+ 8px\\) 8px \\d+px;`, "m").test(css), `${sel} starts 8px under the header`);
 }
 
 // 收藏夹设置 and 关注设置 both live in triage.html; every row they share (AI 打标签每批数量 included) is a data-set-row that

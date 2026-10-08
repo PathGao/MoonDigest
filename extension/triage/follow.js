@@ -358,6 +358,8 @@ main.innerHTML = `
   <div class="tagbar fw-tagbar"><span id="fwTagRow" class="tagfilter"></span><span id="fwTools" class="fw-tools"><span id="fwAiSlot"></span></span></div>
   <div id="fwList" class="fw-list" aria-label="UP 主"></div>
   <div id="fwSel"></div>`;
+// Both modes' rows exist from here on (收藏夹's are in triage.html), so the shared fold-on-scroll starts here.
+UI.headroom($("main"));
 const SYNC = { pill: $("fwSyncViewBtn"), notice: $("fwSyncNotice"), text: $("fwSyncText"), detail: $("fwSyncDetail"), close: $("fwSyncCloseBtn") };
 UI.bindSync(SYNC);
 const E = { sort: $("fwSort"), title: $("fwTitle"), tools: $("fwTools"), meta: $("fwMeta"), tabs: $("fwTabs"), bar: $("fwBar"), barR: $("fwBarR"), tagRow: $("fwTagRow"), list: $("fwList"), sel: $("fwSel"), q: $("fwQ"), qCount: $("fwQCount") };

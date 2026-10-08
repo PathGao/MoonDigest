@@ -506,5 +506,60 @@
     return [...tally.values()].sort((a, b) => (a.cls === "remove") - (b.cls === "remove") || b.n - a.n);
   }
 
-  globalThis.TriageUi = { esc, pad, dayText, fmtDate, fmtAgo, agoHtml, setSearchScope, confirmList, pickTitle, fmtDuration, fmtCount, cleanTagName, plainClick, cardPlayClick, cardPickClick, pickCard, img, toCsv, cardTagChip, syncedText, headMeta, titleHtml, ICON, AI_SPARK, byValue, dirWords, sortControl, filterBtn, labeledRow, stateGroup, aiRecentChip, searchBox, bindSearch, resultCount, rowButtons, menuItem, BACKUP_ITEM, reasonAttrs, setReason, WARN_DOT, selectAllState, selectAllBox, toggleAll, setActivity, waitText, syncPill, setSync, bindSync, tagButtons, sideFoot, selbar, askTransfer, sideItem, emptyState, refreshEmpty, noMatch, fillSetRows, mergeAiBatch, aiChanges, previewId, aiTally, TAG_COLORS, nextTagColor, cycleTagColor, tagNameError, deleteTagAsk, editedTag, withoutTag, undoAsk, tagRowHtml, sp, AI_RECENT_RULES, aiRecentUndo, tagPlusBtn, viewerLine, viewerKeyFrom };
+  // Headroom (DESIGN §3): reading down folds rows 1–4 into the slim bar (name · count, row 2); any scroll back up, the
+  // top, or focus in the header brings them back. s = { collapsed, last }; ev = { top, full } on a scroll of the list
+  // (full: the whole header's height) or { focus: true }. last moves only on a step of HEADROOM_MIN px or more, so a slow
+  // scroll still counts and jitter does not.
+  const HEADROOM_MIN = 8;
+  function headroomStep(s, ev) {
+    if (ev.focus) return { ...s, collapsed: false };
+    if (ev.top <= 0) return { collapsed: false, last: 0 };
+    const d = ev.top - s.last;
+    if (Math.abs(d) < HEADROOM_MIN) return s;
+    return { collapsed: d > 0 && ev.top > ev.full, last: ev.top };
+  }
+  const HEAD_ROWS = ".folder-head, .tabrow, .stagebar, .tagbar";
+  // Both modes' rows sit in .main's grid; the list runs under them (padding-top --head-h), so folding them is a transform
+  // and the cards never move. Row 2 slides up by row 1's height (--head1-h); the viewer starts under what is shown.
+  function headroom(main) {
+    let s = { collapsed: false, last: 0 };
+    let full = 0;
+    let list = null;
+    const set = (next) => {
+      s = next;
+      main.classList.toggle("head-folded", s.collapsed);
+    };
+    const shown = (sel) => [...main.querySelectorAll(sel)].filter((x) => x.offsetParent);
+    // Another list (mode switch, or back from the viewer at narrow width) starts full.
+    const track = (now) => now !== list && set({ collapsed: false, last: (list = now)?.scrollTop || 0 });
+    const measure = () => {
+      track(shown(".list, .fw-list")[0] || null);
+      const rows = shown(HEAD_ROWS);
+      if (rows.length < 2) return;
+      const last = rows[rows.length - 1];
+      if (!s.collapsed) full = last.offsetTop + last.offsetHeight;
+      main.style.setProperty("--head-h", `${full}px`);
+      main.style.setProperty("--head1-h", `${rows[1].offsetTop}px`);
+      main.style.setProperty("--slim-h", `${rows[1].offsetHeight}px`);
+    };
+    const ro = new ResizeObserver(measure);
+    for (const row of main.querySelectorAll(HEAD_ROWS)) {
+      ro.observe(row);
+      // The slim bar's 「名字 · 数量」: a copy of row 1's title, kept in step with it.
+      if (!row.classList.contains("folder-head")) continue;
+      const slim = Object.assign(document.createElement("span"), { className: "slim-title" });
+      row.nextElementSibling.prepend(slim);
+      const copy = () => (slim.innerHTML = row.querySelector(".folder-title")?.innerHTML || "");
+      new MutationObserver(copy).observe(row, { childList: true, subtree: true, characterData: true });
+      copy();
+    }
+    main.addEventListener("scroll", (e) => {
+      if (!e.target.matches(".list, .fw-list")) return;
+      track(e.target);
+      set(headroomStep(s, { top: list.scrollTop, full }));
+    }, true);
+    main.addEventListener("focusin", (e) => e.target.closest(HEAD_ROWS) && set(headroomStep(s, { focus: true })));
+  }
+
+  globalThis.TriageUi = { esc, pad, dayText, fmtDate, fmtAgo, agoHtml, setSearchScope, confirmList, pickTitle, fmtDuration, fmtCount, cleanTagName, plainClick, cardPlayClick, cardPickClick, pickCard, img, toCsv, cardTagChip, syncedText, headMeta, titleHtml, ICON, AI_SPARK, byValue, dirWords, sortControl, filterBtn, labeledRow, stateGroup, aiRecentChip, searchBox, bindSearch, resultCount, rowButtons, menuItem, BACKUP_ITEM, reasonAttrs, setReason, WARN_DOT, selectAllState, selectAllBox, toggleAll, setActivity, waitText, syncPill, setSync, bindSync, tagButtons, sideFoot, selbar, askTransfer, sideItem, emptyState, refreshEmpty, noMatch, fillSetRows, mergeAiBatch, aiChanges, previewId, aiTally, TAG_COLORS, nextTagColor, cycleTagColor, tagNameError, deleteTagAsk, editedTag, withoutTag, undoAsk, tagRowHtml, sp, AI_RECENT_RULES, aiRecentUndo, tagPlusBtn, viewerLine, viewerKeyFrom, headroomStep, headroom };
 })();
