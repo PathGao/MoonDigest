@@ -1,0 +1,149 @@
+/* 关注 mode (follow.js). Everything here is scoped to body.follow-mode, #followSide, #followMain or the fw- dialogs, so the
+   收藏夹 mode renders as before. Pieces reuse the folder view's classes (side-item, tabs, seg, card, chip, badge, selbar). */
+
+/* ---------- the 收藏夹 | 关注 switch ---------- */
+.mode-switch { flex: none; }
+.mode-switch button { height: 30px; padding: 0 14px; font-size: var(--fs-md); }
+
+/* ---------- 关注 mode hides the folder view and its tools ---------- */
+body.follow-mode :is(.shell > .side:not(.follow-side), .main > .folder-head, .main > #tabs, .main > .listpane, .topbar .search, .topbar .sync-wrap, #refreshBtn, #settingsBtn, #folderSelect, #viewerNextBtn) { display: none !important; }
+/* 关注's 刷新 and gear are copies of 收藏夹's in the same spot; ⋯ keeps its place (empty) so neither moves on a switch. */
+body:not(.follow-mode) :is(#fwActivity, #fwRefreshBtn, #fwSettingsBtn) { display: none !important; }
+body.follow-mode #moreBtn { visibility: hidden; }
+body.follow-mode .mode-switch { margin-right: auto; }
+.follow-main { display: contents; }
+
+/* ---------- left column ---------- */
+.follow-side .side-item.zero:not(.on) { opacity: 0.5; }
+.follow-side .side-item { height: 38px; }
+.follow-side .tag-btn { height: 44px; }
+.follow-side .dot { flex: none; }
+.follow-side .side-note { margin: 2px 10px; color: var(--faint); font-size: var(--fs-xs); }
+.star-mark { width: 10px; text-align: center; color: var(--text); }
+
+/* ---------- head, bar, list ---------- */
+.fw-head .step-actions { max-width: none; }
+.fw-head .activity button { height: 22px; padding: 0 8px; }
+.fw-bar .seg { flex-wrap: wrap; }
+.fw-bar .seg button.zero:not([aria-pressed="true"]) { opacity: 0.5; }
+.fw-bar .seg .dot { display: inline-block; margin-right: 6px; vertical-align: 0; }
+/* B站 分组 pills: their own labelled group after the tag pills, split by the same thin rule as .fw-sort. */
+.fw-bar .fw-groups { align-items: center; padding-left: 12px; border-left: 1px solid var(--border); }
+.fw-group-label { margin-right: 4px; color: var(--faint); font-size: var(--fs-xs); }
+.fw-bar-dyn { display: contents; }
+.fw-tools { display: flex; align-items: center; gap: 8px; margin-left: auto; }
+.fw-tools input[type="search"] { width: 200px; height: 30px; }
+.fw-tools select { height: 30px; }
+/* Sort sits right after the 状态 filters, as in 收藏夹 (same thin rule as .sort-box); search and AI stay on the right. */
+.fw-sort { display: inline-flex; margin-left: 4px; padding-left: 12px; border-left: 1px solid var(--border); }
+.fw-sort select { height: 30px; }
+.fw-sort select { border-top-right-radius: 0; border-bottom-right-radius: 0; }
+.fw-sort .fw-dir { width: 30px; padding: 0; margin-left: -1px; display: grid; place-items: center; border-color: var(--border-strong); border-radius: 0 var(--radius-sm) var(--radius-sm) 0; background: var(--field-bg); color: var(--text-2); }
+.fw-sort .fw-dir:hover { color: var(--text); }
+.fw-dir svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; }
+.fw-tools button { height: 30px; }
+.fw-side-select { display: none; height: 30px; }
+
+.fw-list { grid-area: list; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; margin: 0 -8px; padding: 2px 8px 90px; }
+.fw-hint { margin: 0; padding: 8px 12px; border: 1px solid var(--info-border); border-radius: var(--radius-md); background: var(--info-bg); color: var(--text-2); line-height: 1.6; }
+.fw-hint.warn { border-color: var(--warn-border); background: var(--warn-bg); color: var(--warn); }
+.fw-hint button { height: 26px; margin-left: 8px; font-size: var(--fs-xs); }
+.fw-empty { display: flex; flex-direction: column; align-items: center; gap: 10px; max-width: 460px; margin: 48px auto; text-align: center; }
+.fw-empty p { margin: 0; }
+.fw-empty strong { font-size: var(--fs-lg); }
+.fw-empty .primary { height: 36px; padding: 0 20px; }
+
+/* ---------- UP card: avatar | name, status, meta, sign, 3 titles, tags | ★ and 选中 ---------- */
+.fw-up { display: grid; grid-template-columns: 56px minmax(0, 1fr) auto; gap: 14px; padding: 12px 14px; }
+.fw-avatar { width: 56px; height: 56px; border-radius: 50%; overflow: hidden; background: var(--field-bg); }
+.fw-avatar img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.fw-name-row { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; }
+.fw-name { color: var(--text); font-size: var(--fs-lg); font-weight: 600; text-decoration: none; }
+.fw-name:hover { color: var(--link); text-decoration: underline; }
+.fw-ov { max-width: 24em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fw-sign { overflow: hidden; color: var(--text-2); text-overflow: ellipsis; white-space: nowrap; }
+.fw-titles { margin: 4px 0 0; padding: 0; list-style: none; }
+.fw-titles li { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
+.fw-titles .meta { flex: none; }
+.fw-title { min-width: 0; height: auto; padding: 0; border: 0; background: none; color: var(--text); text-decoration: none; font-size: var(--fs-sm); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; }
+.fw-title::before { content: "▸ "; color: var(--faint); }
+a.fw-title:hover { background: none; color: var(--link); text-decoration: underline; }
+.fw-up .chips { align-items: center; gap: 4px 10px; }
+.fw-up .chips .chip { height: auto; padding: 0; border: 0; background: none; color: color-mix(in srgb, var(--c) 70%, var(--text)); }
+.fw-up .chips .chip.card-tag { margin: 0 -4px; padding: 0 4px; border-radius: 4px; cursor: pointer; font: inherit; font-size: var(--fs-xs); }
+.fw-up .chips .chip.card-tag:hover { background: color-mix(in srgb, var(--c) 12%, transparent); }
+.fw-up .chips .chip.card-tag .x { margin-left: 2px; opacity: 0.35; }
+.fw-up .chips .chip.card-tag:hover .x { opacity: 1; }
+.fw-tag-add { height: auto; font-size: var(--fs-xs); }
+.fw-right { display: flex; flex-direction: column; align-items: flex-end; gap: 8px; }
+.fw-right button { height: 30px; min-width: 76px; font-size: var(--fs-sm); }
+.fw-right .star { min-width: 0; width: 32px; padding: 0; border-color: transparent; background: none; color: var(--faint); font-size: 20px; line-height: 1; }
+.fw-right .star.on { color: var(--text); }
+.fw-right .star:hover { background: var(--surface-muted); }
+.fw-up:not(:hover, :focus-within, .selected) [data-select]:not(.on) { visibility: hidden; }
+@media (hover: none) { .fw-up [data-select] { visibility: visible !important; } }
+/* 更新状态 badges reuse the AI-verdict colors: 活跃 green, 慢更 / 待查 amber (待查 dashed), 断更 red, the rest gray. */
+.fw-up .badge.keep { background: var(--ok-bg); color: var(--ok); }
+.fw-up .badge.drop { background: var(--danger-bg); color: var(--danger); }
+.fw-up .badge.unsure { background: var(--warn-bg); color: var(--warn); }
+
+/* ---------- 动态: a grid of videos; beside the viewer a single column of rows ---------- */
+.fw-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 20px 16px; }
+.fw-video { min-width: 0; display: flex; flex-direction: column; gap: 8px; border-radius: var(--radius-md); }
+.fw-video .cover-wrap { height: auto; padding: 0; border: 0; text-decoration: none; aspect-ratio: 16 / 9; cursor: pointer; }
+.fw-video .cover-wrap:hover .cover { transform: scale(1.03); }
+.fw-video .cover { width: 100%; height: 100%; transition: transform 0.2s; }
+.fw-video-body { min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.fw-video .title { color: var(--text); text-decoration: none; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; font-size: var(--fs-md); line-height: 1.4; }
+.fw-video .title:hover { text-decoration: underline; }
+.fw-video-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; }
+.fw-up-link { display: inline-flex; align-items: center; gap: 6px; min-width: 0; color: var(--text-2); text-decoration: none; }
+.fw-up-link:hover { color: var(--link); }
+.fw-up-link img { width: 20px; height: 20px; border-radius: 50%; object-fit: cover; }
+.fw-video .chips { margin: 0; }
+.fw-video .chip { height: 20px; padding: 0 6px; border-color: color-mix(in srgb, var(--c) 60%, transparent); background: color-mix(in srgb, var(--c) 12%, transparent); }
+.fw-video.playing { outline: 2px solid var(--action); outline-offset: 2px; background: var(--action-bg); }
+.fw-foot { display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 28px 0 8px; color: var(--muted); text-align: center; }
+.fw-foot p { margin: 0; }
+
+.main.viewing .fw-grid { grid-template-columns: minmax(0, 1fr); gap: 4px; }
+.main.viewing .fw-video { display: grid; grid-template-columns: 128px minmax(0, 1fr); gap: 10px; padding: 6px; }
+.main.viewing .fw-video .title { font-size: var(--fs-sm); }
+.main.viewing .fw-video.playing { outline-offset: -2px; }
+.main.viewing .fw-up { grid-template-columns: 40px minmax(0, 1fr) auto; gap: 10px; }
+.main.viewing .fw-avatar { width: 40px; height: 40px; }
+.main.viewing .fw-tools input[type="search"] { width: 140px; }
+
+/* ---------- dialogs ---------- */
+.fw-tag-row { grid-template-columns: 22px minmax(0, 9em) minmax(0, 1fr) 5.5em auto; }
+.fw-color { width: 18px; height: 18px; padding: 0; border: 2px solid var(--surface); border-radius: 50%; background: var(--c); box-shadow: 0 0 0 1px var(--border-strong); }
+.fw-color:hover { background: var(--c); box-shadow: 0 0 0 2px var(--c); }
+.fw-ai-tags { display: contents; }
+#fwAiNotes p { margin: 0; }
+.fw-ai-tags .chips { margin: 0; grid-column: 2; }
+.fw-ai-tags > .dialog-meta, .fw-ai-tags > .dialog-hint { grid-column: 2; margin-top: -6px; }
+.fw-ai-tags > .dialog-hint { margin-top: 0; }
+#fwPickList .picker-opt .muted { margin-left: auto; }
+/* 关注设置 is laid out like 分拣设置: two cards side by side from 640px. */
+#fwSettingsDialog { width: min(800px, calc(100% - 32px)); }
+@media (min-width: 640px) { .fw-settings-cols { grid-template-columns: 1fr 1.15fr; } }
+
+@media (max-width: 1099px) {
+  .fw-tools { margin-left: 0; }
+}
+@media (max-width: 899px) {
+  .main.viewing .fw-list { display: none; }
+}
+/* No sidebar: the left column becomes a select at the start of the bar. */
+@media (max-width: 760px) {
+  .fw-side-select { display: block; }
+  .mode-switch button { padding: 0 10px; }
+  .fw-up { grid-template-columns: 44px minmax(0, 1fr); }
+  .fw-avatar { width: 44px; height: 44px; }
+  .fw-right { grid-column: 2; flex-direction: row; justify-content: flex-start; }
+  .fw-up [data-select] { visibility: visible !important; }
+  .fw-tools { flex-wrap: wrap; width: 100%; }
+  .fw-tools input[type="search"] { flex: 1; width: auto; min-width: 120px; }
+  .fw-tag-row { grid-template-columns: 22px minmax(0, 1fr) auto auto; }
+  .fw-tag-row [data-field="rule"] { grid-column: 1 / -1; grid-row: 2; }
+}

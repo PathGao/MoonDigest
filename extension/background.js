@@ -1646,3 +1646,4 @@ async function probeAiChatCompletion({ baseUrl, apiKey, model }) {
 }
 
 importScripts("triage/triage-bg.js");
+importScripts("triage/follow-bg.js");
