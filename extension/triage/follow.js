@@ -423,6 +423,8 @@ async function setMode(mode, save = true) {
     F.loaded = true;
     await load();
   }
+  // One feed page (cached a few minutes in the worker) brings posts made since the last 刷新 into 最近更新.
+  if (on) send({ type: "follow-feed", offset: "" }).catch(() => {});
   if (on) render();
 }
 function setTab(tab) {

@@ -279,8 +279,12 @@ const runSync = async () => {
   {
     let n = 0;
     routes["/x/polymer/web-dynamic/v1/feed/all"] = () => (++n === 1 ? new Promise(() => {}) : json({ code: 0, data: { items: [dyn(8, "BV8", 5), { modules: {} }], offset: "o2", has_more: true } }));
+    local.follow_last = { at: 1, since: 0, map: { 8: 3 }, v: { 8: [{ t: "old", c: 3 }] } };
     const page = await t.followFeed({ offset: "" });
     assert.strictEqual(n, 2, "a request with no answer in time is retried");
+    assert.strictEqual(local.follow_last.map[8], 5, "a newer post seen in the feed updates 最近更新");
+    assert.strictEqual(local.follow_last.v[8][0].c, 5, "and leads its recent titles");
+    assert.deepStrictEqual([local.follow_last.at, local.follow_last.since], [1, 0], "the sync's coverage is untouched");
     assert.deepStrictEqual(plain(page.items.map((x) => x.bvid)), ["BV8"]);
     assert.deepStrictEqual([page.offset, page.hasMore], ["o2", true]);
     await t.followFeed({ offset: "" });

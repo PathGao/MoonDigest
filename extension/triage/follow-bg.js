@@ -592,7 +592,30 @@ async function followFeed({ offset = "" } = {}) {
   const data = await followFeedPage(key);
   for (const [k, v] of followFeedCache) if (Date.now() - v.at >= FOLLOW_FEED_TTL_MS) followFeedCache.delete(k);
   followFeedCache.set(key, { at: Date.now(), data });
+  await followNoteFeedPosts(data.items);
   return data;
+}
+
+// Posts seen in the live feed are newer than the last sync: fold them into follow_last so 「最近更新」 and 更新状态
+// on the UP 主 tab match the 动态 tab without a full 刷新. Only map / v grow; at and since (the sync's coverage) stay.
+async function followNoteFeedPosts(items) {
+  if (!items?.length) return;
+  await followUpdate(["follow_last"], (s) => {
+    const L = s.follow_last;
+    if (!L?.map) return null;
+    let changed = false;
+    L.v ||= {};
+    for (const it of items) {
+      if (!it.mid || !it.at) continue;
+      if (it.at > (L.map[it.mid] || 0)) { L.map[it.mid] = it.at; changed = true; }
+      const v = L.v[it.mid] || [];
+      if (!v.some((x) => x.c === it.at && x.t === it.title)) {
+        L.v[it.mid] = [...v, { t: it.title, c: it.at }].sort((x, y) => y.c - x.c).slice(0, 3);
+        changed = true;
+      }
+    }
+    return changed ? { follow_last: L } : null;
+  });
 }
 
 async function followAiTag({ instruction, mids, tags, maxNewTags, allowRemove }) {
