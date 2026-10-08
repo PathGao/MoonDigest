@@ -347,7 +347,7 @@ const el = {};
   "banner", "bannerText", "bannerBtn", "bannerClose", "syncNotice", "syncText", "syncViewBtn", "syncCloseBtn", "syncDetail",
   "tabs", "stagebar", "sortBox", "classFilter", "tagFilter", "aiTagSlot", "listHeader", "list", "basket", "basketToggle", "basketCount",
   "basketList", "basketClearBtn", "toast", "settingsDialog", "folderToggles", "thinkingRow", "intervalInput",
-  "batchSizeInput", "tagLimitInput", "aiNewTagMaxInput", "aiRemoveTagsInput", "openOptionsBtn", "thinkingInput", "titleMaxInput",
+  "batchSizeInput", "aiBatchInput", "tagLimitInput", "aiNewTagMaxInput", "aiRemoveTagsInput", "openOptionsBtn", "thinkingInput", "titleMaxInput",
   "titleMaxHint", "analyzeMaxInput", "analyzeMaxHint", "settingsError", "csvBtn", "confirmDialog",
   "confirmTitle", "confirmBody", "confirmOk", "transferDialog", "transferTitle", "transferBody", "transferTarget", "transferNewRow", "transferUnchosen", "transferHow", "transferName", "transferPrivate",
   "criteriaDialog", "criteriaTitle", "criteriaInput", "helpDialog",
@@ -750,7 +750,8 @@ async function init() {
   if (settingsResp.ok) Object.assign(S.settings, settingsResp.data);
   renderTagLimit();
   const syncObsidian = ({ obsidianEnabled }) => document.body.classList.toggle("obsidian-off", obsidianEnabled !== true);
-  const sync = await chrome.storage.sync.get({ obsidianEnabled: false, ...SEEN_DEFAULTS });
+  const sync = await chrome.storage.sync.get({ obsidianEnabled: false, triageAiBatchSize: null, ...SEEN_DEFAULTS });
+  if (sync.triageAiBatchSize != null) S.settings.triageAiBatchSize = sync.triageAiBatchSize;
   syncObsidian(sync);
   setSeenCfg(sync);
   chrome.storage.onChanged.addListener((changes, area) => {
@@ -3101,11 +3102,15 @@ function aiCommandItem(it) {
   return out;
 }
 
+// The AI 打标签 batch size (shared.js SET_ROWS aiBatch). Until 收藏夹设置 is first saved it is the 标题粗看 value, which AI 打标签
+// used to share.
+const aiBatchSize = () => Math.max(1, Math.min(100, Number(S.settings.triageAiBatchSize ?? S.settings.triageTitleBatchSize) || 30));
+
 function aiScopeText(scope) {
   const items = aiScopeItems(scope);
   const n = items.length;
   const done = items.filter(isAnalyzed).length;
-  const size = Math.max(1, Number(S.settings.triageTitleBatchSize) || 30);
+  const size = aiBatchSize();
   const parts = [done && `${done} 个细看过（按总结和要点判断）`, n - done && `${n - done} 个只有标题和简介，标签可能不准`].filter(Boolean);
   return n ? `${n} 个视频：${parts.join("，")}。分 ${Math.ceil(n / size)} 批发送` : "作用范围里没有视频";
 }
@@ -3205,7 +3210,7 @@ async function runAiCommand({ instruction, scope, allowRemove }) {
   const opts = { maxNewTags: aiNewTagRoom(), allowRemove, folder, excluded };
   const tags = viewTags().filter((t) => !excluded.has(t.name)).map((t) => ({ name: t.name, rule: t.rule || "" }));
   const payload = items.map(aiCommandItem);
-  const size = Math.max(1, Number(S.settings.triageTitleBatchSize) || 30);
+  const size = aiBatchSize();
   const scopeSet = new Set(items.map((it) => it.bvid));
   S.ai.running = true;
   S.ai.mediaId = folder;
@@ -3902,12 +3907,15 @@ function bindEvents() {
       triageAiNewTagMax: el.aiNewTagMaxInput.value === "" ? 5 : Math.max(0, Math.min(50, Math.floor(Number(el.aiNewTagMaxInput.value)) || 0)),
       triageAiRemoveTags: el.aiRemoveTagsInput.checked
     };
+    const triageAiBatchSize = Math.max(1, Math.min(100, Math.round(Number(el.aiBatchInput.value)) || 30));
     const r = await send({ type: "triage-settings-save", ...patch });
-    if (!r.ok) {
+    // The background's settings do not know this key; it is stored here, beside them in chrome.storage.sync.
+    const saved = r.ok && (await chrome.storage.sync.set({ triageAiBatchSize }).then(() => true, (e) => ((r.error = e.message), false)));
+    if (!saved) {
       toast(`保存设置失败：${r.error}`, true);
       return;
     }
-    Object.assign(S.settings, patch);
+    Object.assign(S.settings, patch, { triageAiBatchSize });
     renderTagLimit();
     toast("设置已保存");
     const included = [...el.folderToggles.querySelectorAll("input:checked")].map((x) => x.value);
@@ -4027,6 +4035,7 @@ function openSettings(scrollToLimits = false, firstRun = false) {
   el.thinkingRow.hidden = !hasThinkingToggle();
   el.intervalInput.value = S.settings.triageIntervalSec ?? 8;
   el.batchSizeInput.value = S.settings.triageTitleBatchSize ?? 30;
+  el.aiBatchInput.value = aiBatchSize();
   el.thinkingInput.checked = Boolean(S.settings.triageThinking);
   el.titleMaxInput.value = S.settings.triageTitleMaxTokens || "";
   el.analyzeMaxInput.value = S.settings.triageAnalyzeMaxTokens || "";

@@ -319,6 +319,8 @@
   // Settings rows both dialogs have: the same name and hint. Markup: <div class="set-row" data-set-row="key"><input …></div>.
   const SET_ROWS = {
     interval: ["请求间隔（秒）", ""],
+    // 收藏夹 stores it as triageAiBatchSize (triageTitleBatchSize until first saved), 关注 in follow_ai_settings.batchSize.
+    aiBatch: ["AI 打标签每批数量", "1–100 个一批。"],
     newTagMax: ["AI 打标签时最多新建几个标签", "0–50，0 = 只用已有标签。"],
     allowRemove: ["AI 打标签时允许去掉已有标签", "关时只加标签。开了也要你确认。"]
   };

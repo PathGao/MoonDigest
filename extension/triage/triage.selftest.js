@@ -643,6 +643,12 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     assert.ok(!t.el.aiTagSlot.innerHTML.includes("待确认"), "no 「待确认」 after a run that got nothing");
     assert.strictEqual(toasts.at(-1), "AI 打标签没有成功：第 1 批失败：请先配置 AI 服务");
     t.S.settings.triageTitleBatchSize = realSize;
+    // The AI 打标签 batch size: its own setting; until it is first saved, the 标题粗看 value it used to share.
+    const aiBatchSize = vm.runInContext("aiBatchSize", ctx);
+    assert.strictEqual(aiBatchSize(), realSize, "no triageAiBatchSize yet: the old shared value");
+    t.S.settings.triageAiBatchSize = 7;
+    assert.strictEqual(aiBatchSize(), 7);
+    delete t.S.settings.triageAiBatchSize;
     t.aiScopeItems = realScope;
     handlers["triage-ai-command"] = () => ({ ok: true, data: {} });
   }

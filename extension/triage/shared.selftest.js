@@ -279,4 +279,20 @@ for (const [file, fns] of [["triage.js", ["mergeAiBatch", "aiChanges"]], ["follo
   assert.ok(!/@media \(hover: none\) \{[^}]*\.more/.test(css), "no touch rule of a mode's own for .more");
 }
 
+// 收藏夹设置 and 关注设置 both live in triage.html; every row they share (AI 打标签每批数量 included) is a data-set-row that
+// fillSetRows names, so the words exist once.
+{
+  const html = fs.readFileSync(path.join(__dirname, "triage.html"), "utf8");
+  const dlg = (id) => html.slice(html.indexOf(`<dialog id="${id}"`), html.indexOf("</dialog>", html.indexOf(`<dialog id="${id}"`)));
+  for (const id of ["settingsDialog", "fwSettingsDialog"]) {
+    for (const row of Object.keys({ interval: 1, newTagMax: 1, allowRemove: 1, aiBatch: 1 })) assert.ok(dlg(id).includes(`data-set-row="${row}"`), `${id} has the shared ${row} row`);
+  }
+  for (const f of ["triage.html", "triage.js", "follow.js"]) assert.ok(!fs.readFileSync(path.join(__dirname, f), "utf8").includes("AI 打标签每批数量"), `${f} names the batch row itself`);
+  assert.ok(!/<dialog/.test(fs.readFileSync(path.join(__dirname, "follow.js"), "utf8")), "follow.js builds no dialog markup");
+  const root = { querySelectorAll: () => [row] };
+  const row = { dataset: { setRow: "aiBatch" }, querySelector: () => ({ id: "x" }), insertAdjacentHTML(_, h) { this.html = h; } };
+  UI.fillSetRows(root);
+  assert.ok(row.html.includes(">AI 打标签每批数量</label>") && row.html.includes("1–100 个一批。"), row.html);
+}
+
 console.log("shared selftest: all passed");

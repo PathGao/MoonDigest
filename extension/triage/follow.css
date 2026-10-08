@@ -90,10 +90,6 @@ a.fw-title:hover { background: none; color: var(--link); text-decoration: underl
 .main.viewing .fw-up { grid-template-columns: 40px minmax(0, 1fr) auto; gap: 10px; }
 .main.viewing .fw-avatar { width: 40px; height: 40px; }
 
-/* ---------- dialogs ---------- */
-/* 关注设置 is laid out like 收藏夹设置: two cards side by side from 640px. */
-#fwSettingsDialog { width: min(800px, calc(100% - 32px)); }
-@media (min-width: 640px) { .fw-settings-cols { grid-template-columns: 1fr 1.15fr; } }
 
 @media (max-width: 899px) {
   .main.viewing .fw-list { display: none; }

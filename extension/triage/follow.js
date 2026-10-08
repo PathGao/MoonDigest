@@ -930,49 +930,8 @@ function upCsv() {
   return UI.toCsv(out);
 }
 $("fwExport").addEventListener("click", (e) => e.target.closest("button") && $("fwExport").hidePopover());
-document.body.insertAdjacentHTML("beforeend", `
-  <dialog id="fwSettingsDialog" aria-label="关注设置">
-    <form method="dialog">
-      <h2>关注设置</h2>
-      <div class="settings-cols fw-settings-cols">
-        <section class="set-group">
-          <h3>更新状态</h3>
-          <p class="dialog-hint">按最后投稿离现在多少天分活跃、慢更、断更。</p>
-          <div class="set-card">
-            <div class="set-row"><div><label class="name" for="fwSlowInput">多少天没投稿算慢更</label><p class="hint">7–3650。刷新时视频投稿往回翻这么多天，越大翻得越久。</p></div><input id="fwSlowInput" type="number" min="7" max="3650" step="1"></div>
-            <div class="set-row"><div><label class="name" for="fwDeadInput">多少天没投稿算断更</label><p class="hint">要比慢更的天数大。</p></div><input id="fwDeadInput" type="number" min="8" max="3651" step="1"></div>
-          </div>
-        </section>
-        <!-- Grouped as 收藏夹设置: 标签, then AI 参数. -->
-        <div class="settings-ai">
-          <section class="set-group">
-            <h3>标签</h3>
-            <div class="set-card">
-              <div class="set-row" data-set-row="newTagMax"><input id="fwNewMaxInput" type="number" min="0" max="50" step="1"></div>
-              <div class="set-row" data-set-row="allowRemove"><input id="fwRemoveInput" type="checkbox" class="switch"></div>
-            </div>
-          </section>
-          <section class="set-group">
-            <h3>AI 参数</h3>
-            <p class="dialog-hint">一般不用改。AI 平台在设置页。</p>
-            <div class="set-card">
-              <div class="set-row" data-set-row="interval"><input id="fwIntervalInput" type="number" min="0" max="600" step="1"></div>
-              <div class="set-row"><div><label class="name" for="fwBatchInput">AI 打标签每批数量</label><p class="hint">1–100 个 UP 主一批。</p></div><input id="fwBatchInput" type="number" min="1" max="100" step="1"></div>
-            </div>
-          </section>
-        </div>
-      </div>
-      <p id="fwSettingsError" class="form-error" role="alert" hidden></p>
-      <div class="dialog-actions">
-        <button type="button" class="link" data-open-options aria-label="打开设置页">打开设置页</button>
-        <span class="spacer"></span>
-        <button value="cancel" type="submit" formnovalidate aria-label="取消">取消</button>
-        <button value="save" type="submit" class="primary" aria-label="保存设置">保存</button>
-      </div>
-    </form>
-  </dialog>`);
+// The markup is in triage.html beside 收藏夹设置; triage.js fills the shared rows' names (UI.fillSetRows).
 const settingsDialog = $("fwSettingsDialog");
-UI.fillSetRows(settingsDialog);
 settingsDialog.querySelector("[data-open-options]").addEventListener("click", () => send({ type: "open-options" }));
 
 // follow_ai_settings, seeded from the 收藏夹 values on first use and stored then.
