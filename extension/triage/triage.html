@@ -292,17 +292,14 @@
           <div id="aiNotes"></div>
           <h3 id="aiNewTagsHead">新标签</h3>
           <div id="aiNewTags" class="tag-rows"></div>
-          <div class="ai-review-head">
-            <h3>视频改动</h3>
-            <span class="spacer"></span>
-            <button id="aiAllBtn" type="button" class="link" aria-label="全选">全选</button>
-            <button id="aiNoneBtn" type="button" class="link" aria-label="全不选">全不选</button>
-          </div>
-          <div id="aiRows" class="ai-rows"></div>
+          <h3>改动汇总</h3>
+          <div id="aiRows" class="ai-tally"></div>
+          <p class="dialog-hint">应用后列表只显示「✦ AI 刚打的」这些视频，在卡片上逐个看，不对的按 T 改。</p>
+          <div class="dialog-meta">「AI 刚打的」只显示最近一次批量打改动的视频：<ul id="aiRecentRules" class="ai-recent-rules"></ul><span id="aiRecentUndo"></span></div>
           <div class="dialog-actions">
             <span class="spacer"></span>
             <button id="aiDiscardBtn" type="button" aria-label="放弃这些建议">放弃</button>
-            <button id="aiApplyBtn" type="button" class="primary">应用选中</button>
+            <button id="aiApplyBtn" type="button" class="primary">应用</button>
           </div>
         </section>
       </form>
@@ -339,7 +336,7 @@
           <dt><kbd>O</kbd><kbd>Enter</kbd></dt><dd>在右侧打开视频页（Esc 关闭）</dd>
           <dt><kbd>I</kbd></dt><dd>批量打标签</dd>
           <dt><kbd>/</kbd></dt><dd>搜索（Esc 清空）</dd>
-          <dt><kbd>U</kbd></dt><dd>撤销上一步</dd>
+          <dt><kbd>U</kbd></dt><dd>撤销上一步（改了多个视频的会先问你）</dd>
           <dt><kbd>?</kbd></dt><dd>显示本帮助</dd>
         </dl>
         <p class="dialog-hint">「已出分拣范围」里卡片键只有 E、Q 可用，U 也不可用，选中用卡片上的「选中」按钮，选中后可收藏到任一收藏夹或只清理选中的。</p>

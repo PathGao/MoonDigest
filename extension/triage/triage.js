@@ -35,8 +35,12 @@ const K = {
   left: "triage_left", // { [bvid]: { [folderId]: { title, at } } }: folders a video left while still in another chosen one; becomes the record's from
   included: "triage_included_folders", // [mediaId]: the folders the user chose; only these are listed and read
   snapshot: (id) => `triage_snapshot_${id}`,
-  aiHistory: "triage_ai_command_history"
+  aiHistory: "triage_ai_command_history",
+  aiRecent: "triage_ai_recent" // { [mediaId]: { at, bvids } }: 「AI 刚打的」, the videos the last applied 批量打 changed
 };
+// 「AI 刚打的」: the videos the last applied 批量打 changed in a folder, to look over on their cards. Only these end it.
+const AI_RECENT_RULES = ["点 ×：不再标出，标签不变", "再批量打一次：换成新的一批"];
+const AI_RECENT_UNDO = "按 U 撤销这次批量打前会先问你，确认后标签回到批量打之前。";
 const ALL = "all"; // the 所有收藏夹 view's folder-select value
 const REMOVED = "removed"; // the 已出分拣范围 view
 const TOVIEW = "toview"; // 稍后再看, listed by triage-bg as one more folder
@@ -259,6 +263,8 @@ const S = {
   watched: {},
   watchedFilter: false, // 优先看过
   finishedFilter: false, // 看完了
+  aiRecent: {},
+  aiRecentFilter: false, // AI 刚打的
   kindFilter: "", // kindOf: "invalid" (已失效) anywhere; "unfav" / "out" in 已出分拣范围 only
   seenCfg: { on: false, bar: false, mark: false, threshold: 80, style: "badge" }, // 设置页「观看进度 → 封面显示」
   seenPct: {}, // bvid → [percent, view_at] from the history, null when it has none
@@ -335,7 +341,7 @@ const el = {};
   "criteriaDialog", "criteriaTitle", "criteriaInput", "tagsDialog", "tagsModeManage", "tagsModeBatch", "tagsManage", "tagsRows", "newTagInput", "addTagBtn", "helpDialog",
   "aiBtn", "aiForm", "aiScope", "aiScopeCount", "aiInstruction", "aiHistory",
   "aiTagsPreview", "aiProgress", "aiCloseBtn", "aiStopBtn", "aiRunBtn",
-  "aiReview", "aiReviewSummary", "aiNotes", "aiNewTagsHead", "aiNewTags", "aiAllBtn", "aiNoneBtn", "aiRows", "aiDiscardBtn", "aiApplyBtn",
+  "aiReview", "aiReviewSummary", "aiNotes", "aiNewTagsHead", "aiNewTags", "aiRows", "aiRecentRules", "aiRecentUndo", "aiDiscardBtn", "aiApplyBtn",
   "biliBtn", "main", "viewer", "viewerTitle", "viewerNextBtn", "viewerTabBtn", "viewerCloseBtn", "viewerFrame",
   "tools", "writeBtn", "writeDialog", "writeScope", "writeFormat", "writeScopeCount", "writeOverwriteRow", "writeOverwrite", "writeProgress", "writeFailed", "writeStopBtn", "writeCopyBtn", "writeRunBtn", "writeMdBtn"
 ].forEach((id) => (el[id] = $(id)));
@@ -594,6 +600,7 @@ function kindOf(it) {
 function passFilter(it) {
   if (S.watchedFilter && !S.watched[it.bvid]) return false;
   if (S.finishedFilter && !isFinished(it)) return false;
+  if (S.aiRecentFilter && !aiRecentSet().has(it.bvid)) return false;
   if (S.kindFilter && kindOf(it) !== S.kindFilter) return false;
   if (S.tagFilter.size && !hasAllTags(tagIdsOf(it.bvid), S.tagFilter, (id) => tagById(id)?.name ?? id)) return false;
   const words = S.query.toLowerCase().split(/\s+/).filter(Boolean);
@@ -682,8 +689,11 @@ async function init() {
   S.notes = notes;
   S.watched = watched;
   S.aiHistory = await storeGet(K.aiHistory, []);
+  S.aiRecent = await storeGet(K.aiRecent, {});
   if (settingsResp.ok) Object.assign(S.settings, settingsResp.data);
   renderTagLimit();
+  el.aiRecentRules.innerHTML = AI_RECENT_RULES.map((r) => `<li>${esc(r)}</li>`).join("");
+  el.aiRecentUndo.textContent = AI_RECENT_UNDO;
   const syncObsidian = ({ obsidianEnabled }) => document.body.classList.toggle("obsidian-off", obsidianEnabled !== true);
   const sync = await chrome.storage.sync.get({ obsidianEnabled: false, ...SEEN_DEFAULTS });
   syncObsidian(sync);
@@ -719,7 +729,7 @@ async function init() {
 // Another triage tab wrote one of the lists every page writes whole: take its value, so the next
 // write here does not put back what it removed. This page's own writes come back as events too and are skipped: an
 // older one arriving after a newer edit would undo that edit.
-const SHARED = { kept: {}, videoTags: {}, tags: [], basket: [], watched: {}, folderCriteria: {} };
+const SHARED = { kept: {}, videoTags: {}, tags: [], basket: [], watched: {}, folderCriteria: {}, aiRecent: {} };
 function followShared(changes) {
   let changed = false;
   for (const [name, empty] of Object.entries(SHARED)) {
@@ -978,6 +988,7 @@ async function openFolder(mediaId) {
   S.tagFilter.clear();
   S.watchedFilter = false;
   S.finishedFilter = false;
+  S.aiRecentFilter = false;
   S.kindFilter = "";
   S.undo = [];
   S.focused = "";
@@ -1687,7 +1698,10 @@ function renderTabs() {
   const invalidN = S.items.filter((it) => kindOf(it) === "invalid").length;
   const invalidOn = S.kindFilter === "invalid";
   const invalidChip = S.mediaId === REMOVED || (!invalidOn && !invalidN) ? "" : `<button type="button" class="chip invalid${invalidOn ? " on" : ""}" data-kindfilter="invalid" aria-pressed="${invalidOn}" aria-label="只看已失效的视频">已失效 ${invalidN}</button>`;
-  el.tagFilter.innerHTML = invalidChip + watchedChip + (chips.length
+  const recentN = S.items.filter((it) => aiRecentSet().has(it.bvid)).length;
+  const recentTip = `最近一次批量打改动的视频，在卡片上逐个看，不对的按 T 改。\n${AI_RECENT_RULES.map((r) => `· ${r}`).join("\n")}\n${AI_RECENT_UNDO}`;
+  const recentChip = !recentN && !S.aiRecentFilter ? "" : `<span class="ai-recent"><button type="button" class="chip ai-recent-chip${S.aiRecentFilter ? " on" : ""}" data-airecent aria-pressed="${S.aiRecentFilter}" title="${esc(recentTip)}">${AI_SPARK}AI 刚打的 ${recentN}</button><button type="button" class="ai-recent-x" data-airecent-done aria-label="不再标出「AI 刚打的」，标签不变" title="不再标出，标签不变">×</button></span>`;
+  el.tagFilter.innerHTML = recentChip + invalidChip + watchedChip + (chips.length
     ? chips
         .map((c) => {
           const on = c.ids.some((id) => S.tagFilter.has(id));
@@ -1931,7 +1945,7 @@ function renderList() {
   if (!list.length) {
     const empty = { none: "没有未分析的视频", coarse: "没有粗看完成的视频", fine: "没有细看完成的视频", done: "还没有处理过的视频" };
     const f = S.classFilter[S.tab];
-    const filtered = S.watchedFilter || S.finishedFilter || S.kindFilter || S.tagFilter.size || (f && f !== "all");
+    const filtered = S.watchedFilter || S.finishedFilter || S.aiRecentFilter || S.kindFilter || S.tagFilter.size || (f && f !== "all");
     const text = filtered ? "没有符合筛选的视频" : S.query.trim() ? "没有匹配搜索的视频" : empty[S.tab] || "这里没有视频";
     el.list.innerHTML = `<p class="empty">${text}</p>${recent}`;
     return;
@@ -2209,7 +2223,19 @@ async function decide(bvid, action) {
   advanceFrom(bvid, before);
 }
 
+// U undoes the last step wherever it was; a step that changed several videos asks first, so a stray U costs nothing.
+function batchUndoAsk(entry) {
+  const n = entry.kind === "keepMany" ? entry.bvids.length : entry.kind === "unfavMany" ? entry.items.length : entry.kind === "aiApply" ? entry.changes.length : 0;
+  if (n < 2) return null;
+  if (entry.kind === "keepMany") return [`撤销批量保留？`, `<p>上一步保留了 ${n} 个视频，撤销后它们不再标为保留。</p>`];
+  if (entry.kind === "unfavMany") return [`撤销批量取消收藏？`, `<p>会把 ${n} 个视频重新收藏回 B站。</p>`];
+  return [`撤销这次批量打标签？`, `<p>会把 ${n} 个视频的标签改回批量打之前。</p>`];
+}
+
 async function undo() {
+  const top = S.undo.at(-1);
+  const ask = top && batchUndoAsk(top);
+  if (ask && (!(await askConfirm(ask[0], ask[1], "撤销")) || S.undo.at(-1) !== top)) return;
   const entry = S.undo.pop();
   if (!entry) {
     toast("没有可撤销的操作");
@@ -2273,12 +2299,23 @@ async function undo() {
     toast("已撤销标签修改");
     S.focused = entry.bvid;
   } else if (entry.kind === "aiApply") {
-    S.tags = entry.prevTags;
-    S.videoTags = entry.prevVideoTags;
+    // Only videos still as the batch left them go back: U undoes later edits first, so this matters only for edits
+    // U never saw (another triage tab), which keep their tags.
+    const same = (a, b) => a.length === b.length && a.every((id) => b.includes(id));
+    let back = 0;
+    for (const c of entry.changes) {
+      if (!same(S.videoTags[c.bvid] || [], c.after)) continue;
+      writeVideoTags(c.bvid, c.before);
+      back++;
+    }
+    const used = new Set(Object.values(S.videoTags).flat());
+    S.tags = S.tags.filter((t) => !entry.created.includes(t.id) || used.has(t.id));
     for (const id of [...S.tagFilter]) if (!tagById(id)) S.tagFilter.delete(id);
     saveTags();
     saveVideoTags();
-    toast(`已撤销批量打标签对 ${entry.count} 个视频的改动`);
+    endAiRecent(entry.folder);
+    const kept = entry.changes.length - back;
+    toast(`已撤销批量打标签：${back} 个视频改回原样${kept ? `，${kept} 个已在别处改过，保持不变` : ""}`);
   }
   render();
   setFocus(S.focused);
@@ -2568,6 +2605,16 @@ function setVideoTags(bvid, ids, prev) {
   saveVideoTags();
   pushUndo({ kind: "tags", bvid, prev });
   return true;
+}
+
+// 「AI 刚打的」 of the open folder (a Set of bvids); empty in 所有收藏夹 and 已出分拣范围.
+const aiRecentSet = () => new Set(S.aiRecent[String(S.mediaId)]?.bvids || []);
+const saveAiRecent = () => storeSet(K.aiRecent, S.aiRecent);
+// × and U end the folder's 「AI 刚打的」; × leaves the tags as they are.
+function endAiRecent(folder = String(S.mediaId)) {
+  delete S.aiRecent[folder];
+  if (folder === String(S.mediaId)) S.aiRecentFilter = false;
+  saveAiRecent();
 }
 
 const picker = { bvid: "", prev: [], ids: [], index: 0, options: [] };
@@ -3140,69 +3187,46 @@ function renderAiReview() {
   renderAiRows();
 }
 
-// One group per tag change, adds first, bigger groups first. A video with several changes shows in each of their
-// groups; its ticks are one per video, so they move together, and each line names the video's other changes.
-function aiGroups(p) {
-  const groups = new Map();
+// The 确认页 sums the changes up per tag ("+ 入门 4"); videos are judged afterwards on their cards, under 「AI 刚打的」.
+function aiTally(p) {
+  const tally = new Map();
   for (const r of p.rows) {
     const e = effectiveRow(p, r);
     if (e.empty) continue;
-    const changes = [
-      ...[...new Set(e.add)].map((ref) => ({ key: ref, cls: "add", text: `+ ${refName(p, ref)}` })),
-      ...[...new Set(r.remove)].map((id) => ({ key: `rm:${id}`, cls: "remove", text: `− ${tagById(id)?.name || ""}` }))
-    ];
-    for (const c of changes) {
-      if (!groups.has(c.key)) groups.set(c.key, { change: c, rows: [] });
-      groups.get(c.key).rows.push({ r, others: changes.filter((o) => o !== c) });
+    const changes = [...new Set(e.add)].map((ref) => ["add", `+ ${refName(p, ref)}`]).concat([...new Set(r.remove)].map((id) => ["remove", `− ${tagById(id)?.name || ""}`]));
+    for (const [cls, text] of changes) {
+      const t = tally.get(text) || { cls, text, n: 0 };
+      t.n++;
+      tally.set(text, t);
     }
   }
-  return [...groups.values()].sort((a, b) => (a.change.cls === "remove") - (b.change.cls === "remove") || b.rows.length - a.rows.length);
+  return [...tally.values()].sort((a, b) => (a.cls === "remove") - (b.cls === "remove") || b.n - a.n);
 }
 
 function renderAiRows() {
   const p = S.ai.proposal;
-  const groups = aiGroups(p);
-  const rows = [...new Set(groups.flatMap((g) => g.rows.map((x) => x.r)))];
-  const checked = rows.filter((r) => r.checked).length;
-  el.aiReviewSummary.textContent = `· ${rows.length} 个视频有改动 · 新标签 ${p.newTags.filter((t) => t.checked).length} 个 · 点「应用选中」前不会改动任何东西`;
-  el.aiRows.innerHTML = groups.length
-    ? groups
-        .map((g, i) => {
-          const on = g.rows.filter((x) => x.r.checked).length;
-          return `<div class="ai-group">
-        <label class="ai-group-head"><input type="checkbox" data-group="${i}"${on === g.rows.length ? " checked" : ""} aria-label="这一组 ${g.rows.length} 个" /><span class="chip ${g.change.cls}">${esc(g.change.text)}</span><span class="muted">${g.rows.length} 个</span></label>
-        ${g.rows
-          .map(({ r, others }) => {
-            const title = S.itemMap.get(r.bvid)?.title || r.bvid;
-            const also = others.length ? `<span class="ai-row-also">另有 ${others.map((o) => `<span class="chip ${o.cls}">${esc(o.text)}</span>`).join("")}</span>` : "";
-            return `<label class="ai-row${r.checked ? "" : " off"}" data-bvid="${esc(r.bvid)}"><input type="checkbox" data-row${r.checked ? " checked" : ""} aria-label="应用到 ${esc(title)}" /><span class="ai-row-title" title="${esc(title)}">${esc(title)}</span>${also}${r.reason ? `<span class="muted ai-row-reason" title="${esc(r.reason)}">${esc(r.reason)}</span>` : ""}</label>`;
-          })
-          .join("")}
-      </div>`;
-        })
-        .join("")
+  const n = p.rows.filter((r) => r.checked && !effectiveRow(p, r).empty).length;
+  el.aiReviewSummary.textContent = `· ${n} 个视频有改动 · 新标签 ${p.newTags.filter((t) => t.checked).length} 个 · 点「应用」前不会改动任何东西`;
+  const tally = aiTally(p);
+  el.aiRows.innerHTML = tally.length
+    ? `<div class="chips">${tally.map((t) => `<span class="chip ${t.cls}">${esc(t.text)} <b>${t.n}</b></span>`).join("")}</div>`
     : `<p class="empty">AI 没有提出改动</p>`;
-  el.aiRows.querySelectorAll("[data-group]").forEach((box) => {
-    const g = groups[Number(box.dataset.group)];
-    const on = g.rows.filter((x) => x.r.checked).length;
-    box.indeterminate = on > 0 && on < g.rows.length;
-  });
-  el.aiApplyBtn.textContent = `应用选中 (${checked})`;
+  el.aiApplyBtn.textContent = n ? `应用到 ${n} 个视频` : "应用";
   el.aiApplyBtn.setAttribute("aria-label", el.aiApplyBtn.textContent);
-  el.aiApplyBtn.disabled = !checked && !p.newTags.some((t) => t.checked);
+  el.aiApplyBtn.disabled = !n && !p.newTags.some((t) => t.checked);
 }
 
 function applyAiProposal() {
   const p = S.ai.proposal;
   if (!p) return;
   const rows = p.rows.filter((r) => r.checked).map((r) => ({ r, e: effectiveRow(p, r) })).filter((x) => !x.e.empty);
-  const prevTags = structuredClone(S.tags);
-  const prevVideoTags = structuredClone(S.videoTags);
+  const hadTags = new Set(S.tags.map((t) => t.id));
   const idFor = {};
   for (const t of p.newTags) {
     const name = t.name.trim();
     if (t.checked && name) idFor[t.key] = createTag(name)?.id;
   }
+  const changes = []; // [{ bvid, before, after }]: what U puts back, for videos still as the batch left them
   for (const { r, e } of rows) {
     const ids = new Set(S.videoTags[r.bvid] || []);
     for (const ref of e.add) {
@@ -3210,16 +3234,25 @@ function applyAiProposal() {
       if (id) ids.add(id);
     }
     for (const id of r.remove) ids.delete(id);
-    if (ids.size) S.videoTags[r.bvid] = [...ids];
-    else delete S.videoTags[r.bvid];
+    const before = S.videoTags[r.bvid] || [];
+    writeVideoTags(r.bvid, [...ids]);
+    changes.push({ bvid: r.bvid, before, after: [...ids] });
   }
   saveTags();
   saveVideoTags();
-  pushUndo({ kind: "aiApply", prevTags, prevVideoTags, count: rows.length });
+  const folder = String(S.mediaId);
+  const created = S.tags.filter((t) => !hadTags.has(t.id)).map((t) => t.id);
+  pushUndo({ kind: "aiApply", changes, created, folder });
   S.ai.proposal = null;
+  // This batch replaces the folder's last one; the list shows it to look over.
+  if (rows.length) {
+    S.aiRecent[folder] = { at: Date.now(), bvids: rows.map(({ r }) => r.bvid) };
+    S.aiRecentFilter = true;
+    saveAiRecent();
+  }
   el.tagsDialog.close();
   render();
-  toast(`已应用 AI 建议：${rows.length} 个视频 · U 撤销`);
+  toast(`已应用 AI 建议：${rows.length} 个视频，列表只显示这些 · U 撤销`);
 }
 
 // ---------- 优先看 ----------
@@ -3672,6 +3705,14 @@ function bindEvents() {
       S.watchedFilter = !S.watchedFilter;
       return render();
     }
+    if (e.target.closest("[data-airecent-done]")) {
+      endAiRecent();
+      return render();
+    }
+    if (e.target.closest("[data-airecent]")) {
+      S.aiRecentFilter = !S.aiRecentFilter;
+      return render();
+    }
     if (e.target.closest("[data-finishedfilter]")) {
       S.finishedFilter = !S.finishedFilter;
       return render();
@@ -4030,23 +4071,6 @@ function bindEvents() {
     t.name = e.target.value;
     renderAiRows();
   });
-  el.aiRows.addEventListener("change", (e) => {
-    const p = S.ai.proposal;
-    if (!p) return;
-    if (e.target.matches("[data-group]")) {
-      for (const { r } of aiGroups(p)[Number(e.target.dataset.group)]?.rows || []) r.checked = e.target.checked;
-    } else if (e.target.matches("[data-row]")) {
-      const row = p.rows.find((r) => r.bvid === e.target.closest(".ai-row").dataset.bvid);
-      if (row) row.checked = e.target.checked;
-    } else return;
-    renderAiRows();
-  });
-  const setAllRows = (checked) => {
-    for (const r of S.ai.proposal?.rows || []) r.checked = checked;
-    renderAiRows();
-  };
-  el.aiAllBtn.addEventListener("click", () => setAllRows(true));
-  el.aiNoneBtn.addEventListener("click", () => setAllRows(false));
   el.aiDiscardBtn.addEventListener("click", () => {
     S.ai.proposal = null;
     showAiForm();

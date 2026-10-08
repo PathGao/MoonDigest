@@ -74,6 +74,7 @@ function openFake(mediaId, items, decisions = {}) {
   t.S.itemMap = new Map(items.map((it) => [it.bvid, it]));
   t.S.decisions = decisions;
   t.S.undo = [];
+  t.S.aiRecentFilter = false;
   // In the page every unfavorite record is stored too; patchDecisions merges into the stored one.
   if (Object.keys(decisions).length) store[t.K.decisions(mediaId)] = structuredClone(unfavOnlyOf(decisions));
 }
@@ -580,18 +581,33 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   assert.strictEqual(vm.runInContext("aiNewTagRoom()", ctx), 4);
   t.renderAiForm();
   assert.ok(t.el.aiTagsPreview.innerHTML.includes("AI 这次最多新建 4 个（这个收藏夹还剩 4 个名额）"));
-  // 批量打 review: one group per tag change; a video with two changes shows in both, naming the other one.
+  // 批量打 确认页 sums the changes per tag; applying records 「AI 刚打的」, which ends four ways.
   openFake("K", [item(700), item(701), item(702)]);
-  Object.assign(t.S, { tags: [{ id: "ga", name: "A", color: "#1", folder: "K" }, { id: "gb", name: "B", color: "#2", folder: "K" }], videoTags: { BV702: ["ga"] } });
+  Object.assign(t.S, { tags: [{ id: "ga", name: "A", color: "#1", folder: "K" }, { id: "gb", name: "B", color: "#2", folder: "K" }], videoTags: { BV702: ["ga"] }, aiRecent: {} });
   const gp = { newTags: [{ key: "C", name: "C", checked: true }], notes: [], errors: [], rows: [
     { bvid: "BV700", add: ["id:ga"], remove: [], checked: true },
     { bvid: "BV701", add: ["id:ga", "id:gb"], remove: [], checked: true },
     { bvid: "BV702", add: ["new:C"], remove: ["ga"], checked: true }] };
-  const shape = () => plain(vm.runInContext("aiGroups", ctx)(gp).map((g) => [g.change.text, g.rows.map((x) => `${x.r.bvid}${x.others.map((o) => " " + o.text).join("")}`)]));
-  assert.deepStrictEqual(shape(), [["+ A", ["BV700", "BV701 + B"]], ["+ B", ["BV701 + A"]], ["+ C", ["BV702 − A"]], ["− A", ["BV702 + C"]]]);
-  gp.newTags[0].checked = false;
-  assert.deepStrictEqual(shape().at(-1), ["− A", ["BV702"]], "an unticked new tag drops out of the other changes too");
-  Object.assign(t.S, { tags: t.S.tags.filter((x) => x.folder !== "K" || !/^g[ab]$/.test(x.id)), videoTags: {} });
+  assert.deepStrictEqual(plain(vm.runInContext("aiTally", ctx)(gp).map((x) => `${x.text} ${x.n}`)), ["+ A 2", "+ B 1", "+ C 1", "− A 1"]);
+  t.S.ai.proposal = gp;
+  t.el.tagsDialog = { close() {} };
+  t.applyAiProposal();
+  assert.deepStrictEqual([plain(t.S.aiRecent.K.bvids), t.S.aiRecentFilter], [["BV700", "BV701", "BV702"], true], "applying shows the batch");
+  t.writeVideoTags("BV701", ["gb"]); // changed where U never saw it, e.g. another triage tab
+  vm.runInContext("__realAsk = askConfirm; __asked = 0; __answer = false; askConfirm = async () => (__asked++, __answer)", ctx);
+  await t.undo();
+  assert.ok(vm.runInContext("__asked", ctx) === 1 && t.S.aiRecent.K, "U on a batch asks first; 取消 keeps it");
+  vm.runInContext("__answer = true", ctx);
+  await t.undo();
+  vm.runInContext("askConfirm = __realAsk", ctx);
+  assert.ok(!t.S.aiRecent.K && !t.S.aiRecentFilter, "U ends the batch");
+  assert.deepStrictEqual(plain([t.S.videoTags.BV700, t.S.videoTags.BV701, t.S.videoTags.BV702]), [null, ["gb"], ["ga"]], "U puts back only videos still as the batch left them");
+  assert.ok(!t.S.tags.some((x) => x.name === "C"), "a tag the batch created and nothing uses any more goes");
+  t.S.aiRecent.K = { at: 1, bvids: ["BV701"] };
+  t.S.aiRecentFilter = true;
+  vm.runInContext("endAiRecent", ctx)();
+  assert.ok(!t.S.aiRecent.K && !t.S.aiRecentFilter, "× ends it");
+  Object.assign(t.S, { tags: t.S.tags.filter((x) => x.folder !== "K" || !/^g[ab]$|^C$/.test(x.name === "C" ? "C" : x.id)), videoTags: {}, aiRecent: {} });
   openFake("K", [item(600), item(601)]);
 
   // U after 批量打 restores the tags and video tags.

@@ -562,19 +562,13 @@ dialog.wide { width: min(620px, calc(100% - 32px)); }
 .ai-review-head h3 { margin: 0; }
 #aiReviewSummary { font-weight: 400; }
 #aiNotes p { margin: 0; }
-/* One box per tag change: the head ticks the whole group; each video is one line, its other changes and the AI's reason on the right. */
-.ai-rows { display: flex; flex-direction: column; gap: 8px; max-height: 50vh; overflow-y: auto; }
-.ai-group { display: flex; flex-direction: column; gap: 2px; padding: 6px 8px; border: 1px solid var(--border); border-radius: var(--radius-sm); }
-.ai-rows label { font-size: var(--fs-sm); color: var(--text); }
-.ai-group-head { display: flex; align-items: center; gap: 8px; }
-.ai-group-head .chips { margin: 0; }
-.ai-row { display: flex; align-items: center; gap: 8px; padding-left: 24px; }
-.ai-row-title { flex: 1; min-width: 0; }
-.ai-row-also { display: inline-flex; align-items: center; gap: 4px; flex: none; font-size: var(--fs-xs); color: var(--muted); }
-.ai-row-also .chip { font-size: var(--fs-xs); }
-.ai-row.off { opacity: 0.5; }
-.ai-row-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.ai-row-reason { flex: none; max-width: 14em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--fs-xs); }
+.ai-tally .chips { margin: 0; }
+.ai-tally b { font-weight: 600; margin-left: 2px; }
+.ai-recent-rules { margin: 2px 0 0; padding-left: 18px; }
+/* 「AI 刚打的」: the filter chip and its × (全部按现状确认) read as one pill. */
+.ai-recent { display: inline-flex; align-items: center; }
+.ai-recent-chip { --c: var(--action); border-top-right-radius: 0; border-bottom-right-radius: 0; }
+.ai-recent-x { padding: 0 8px; align-self: stretch; border: 1px solid var(--border); border-left: 0; border-radius: 0 999px 999px 0; background: var(--surface); color: var(--muted); }
 .ai-newtag { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
 .ai-newtag input[type="text"] { flex: 0 1 240px; min-width: 120px; }
 .stack { display: flex; flex-direction: column; gap: 6px; }
