@@ -32,13 +32,19 @@
   "content_scripts": [
     {
       "matches": [
-        "https://www.bilibili.com/video/*",
         "https://www.bilibili.com/list/watchlater",
         "https://www.bilibili.com/list/watchlater/*",
         "https://www.youtube.com/*"
       ],
       "js": ["limits.js", "sites.js", "note.js", "content.js"],
       "css": ["content.css"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": ["https://www.bilibili.com/video/*"],
+      "js": ["limits.js", "sites.js", "note.js", "content.js"],
+      "css": ["content.css"],
+      "all_frames": true,
       "run_at": "document_idle"
     },
     {

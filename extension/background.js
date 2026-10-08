@@ -80,7 +80,9 @@ const DEFAULT_LOCAL_SETTINGS = {
   obsidianApiKey: ""
 };
 const EXPECTED_CONTENT_SCRIPT_VERSION = chrome.runtime.getManifest().version || "";
-const READER_SCRIPTS = chrome.runtime.getManifest().content_scripts[0];
+// content.js has two manifest entries with the same files: Bilibili video pages also run in 分拣台's viewer frame.
+const READER_ENTRIES = chrome.runtime.getManifest().content_scripts.filter((entry) => entry.js.includes("content.js"));
+const READER_SCRIPTS = { ...READER_ENTRIES[0], matches: READER_ENTRIES.flatMap((entry) => entry.matches) };
 
 chrome.runtime.onInstalled.addListener(async () => {
   await initializeSettingsStorage();
@@ -623,6 +625,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         }
         await openPromise;
         const request = buildPlayerAiQuickActionRequest(tabId, settings.playerAiQuickPrompt);
+        // From 分拣台's viewer frame: the tab is 分拣台, so the panel takes the video by reference like 问 AI.
+        if (sender?.frameId && message.contextRef) {
+          request.contextRef = message.contextRef;
+        }
         await chrome.storage.local.set({ [PLAYER_AI_QUICK_ACTION_STORAGE_KEY]: request });
         sendResponse({ ok: true });
       })
