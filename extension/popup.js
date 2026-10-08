@@ -41,9 +41,6 @@ async function init() {
   getSettingsFromRuntime().then((settings) => {
     el.sendBtn.hidden = settings.obsidianEnabled !== true;
   });
-  getActiveTab().then((tab) => {
-    // Any bilibili host, so favorites pages on space.bilibili.com count too.
-  });
   await refreshFromTab();
 }
 
