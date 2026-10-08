@@ -9,7 +9,7 @@ const source = fs.readFileSync(path.join(__dirname, "follow.js"), "utf8");
 const pure = source.slice(source.indexOf("// PURE-START"), source.indexOf("// PURE-END"));
 assert.ok(pure.includes("function followStatus") && !pure.includes("document"), "harness lifts the pure block");
 const ctx = vm.createContext({ setTimeout, clearTimeout });
-vm.runInContext(`${pure}\n;Object.assign(globalThis, { fmtFans, dirLabel, bindSearch, followAiSettings, aiRequests, normDays, settingsProblem, followStatus, lastPostOf, recentTitles, upRow, visibleUps, mergeFeed, feedMatch, mergeAiBatch, aiChanges, aiTally, fmtAgo });`, ctx);
+vm.runInContext(`${pure}\n;Object.assign(globalThis, { fmtFans, dirLabel, bindSearch, followAiSettings, aiRequests, normDays, settingsProblem, followStatus, lastPostOf, recentTitles, upRow, visibleUps, mergeFeed, feedMatch, sideIds, mergeAiBatch, aiChanges, aiTally, fmtAgo });`, ctx);
 const t = ctx;
 const plain = (v) => JSON.parse(JSON.stringify(v));
 
@@ -119,6 +119,26 @@ const base = () => ({ list: null, last: null, content: {}, people: {}, tags: [],
   assert.ok(t.feedMatch(it("2"), D, "untagged"), "only a deleted tag = untagged");
   assert.ok(t.feedMatch(it("3"), D, "special") && !t.feedMatch(it("1"), D, "special"));
   assert.ok(!t.feedMatch(it("1"), D, "gone"));
+}
+
+// ----- B站 分组: read-only filters "g:<tagid>" for the UP list and the feed, absent when there are none -----
+{
+  const D = base();
+  D.list = { list: ["1", "2", "3"], groups: { 1: [7], 2: [7, 8], 3: [0] } };
+  D.people = { 1: { name: "a" }, 2: { name: "b" }, 3: { name: "c" } };
+  D.tags = [{ id: "t1" }];
+  assert.deepStrictEqual(plain(t.sideIds(D)), ["all", "untagged", "special", "gone", "t1"], "no follow_groups: the same items as before");
+  D.groups = [];
+  assert.deepStrictEqual(plain(t.sideIds(D)), ["all", "untagged", "special", "gone", "t1"], "no custom groups: nothing added");
+  D.groups = [{ id: 7, name: "数码" }, { id: 8, name: "音乐" }];
+  assert.deepStrictEqual(plain(t.sideIds(D)).slice(5), ["g:7", "g:8"]);
+  const rows = new Map(D.list.list.map((m) => [m, t.upRow(m, D, now, {})]));
+  const v = (side, status = "") => plain(t.visibleUps(D, rows, { side, status, q: "" }));
+  assert.deepStrictEqual(v("g:7").list.sort(), ["1", "2"]);
+  assert.deepStrictEqual(v("g:8").list, ["2"]);
+  assert.strictEqual(v("g:7").counts[""], 2, "counts are over the group's members");
+  assert.deepStrictEqual(v("g:7", "active").list, [], "the 状态 filter applies on top");
+  assert.ok(t.feedMatch({ mid: "2" }, D, "g:8") && !t.feedMatch({ mid: "1" }, D, "g:8") && !t.feedMatch({ mid: "9" }, D, "g:7"));
 }
 
 // ----- AI proposal: merge, cap, excluded, changes, tally -----

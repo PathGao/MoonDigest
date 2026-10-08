@@ -124,6 +124,7 @@ const runSync = async () => {
       "/x/web-interface/nav": nav,
       "/x/relation/stat": (u) => json({ code: 0, data: { follower: 10 * Number(u.searchParams.get("vmid")) } }),
       "/x/relation/followings": followings([[person(1), person(2, { special: 1, tag: [-10, 7] })], [person(3), person(4), person(5), person(6)]], 6),
+      "/x/relation/tags": () => json({ code: 0, data: [{ tagid: -10, name: "特别关注", count: 1 }, { tagid: 0, name: "默认分组", count: 5 }, { tagid: 7, name: "数码", count: 1 }] }),
       "/x/polymer/web-dynamic/v1/feed/all": feed([[dyn(2, "BV2", now() - 60)], [dyn(3, "BV3", old)], [dyn(6, "BV6", now())]]),
       "/x/space/wbi/arc/search": (u) => {
         const mid = u.searchParams.get("mid");
@@ -140,6 +141,8 @@ const runSync = async () => {
     assert.deepStrictEqual(plain(local.follow_list.list), ["1", "2", "3", "4", "5", "6"]);
     assert.deepStrictEqual(plain(local.follow_list.special), { 2: 1 });
     assert.deepStrictEqual(plain(local.follow_list.groups), { 2: [7] });
+    assert.deepStrictEqual(plain(local.follow_groups), [{ id: 7, name: "数码", count: 1 }], "B站 分组 names stored, 默认分组 and 特别关注 left out");
+    assert.strictEqual(calls.filter((c) => c === "relation/tags").length, 1, "group names fetched once per sync");
     assert.strictEqual(local.follow_unfollowed[9].source, "bili");
     assert.deepStrictEqual(plain(local.follow_unfollowed[9].tagIds), ["t1"]);
     assert.ok(!local.follow_tag_map[9] && local.follow_tag_map[1], "the vanished account's tags moved into the record");

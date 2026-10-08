@@ -27,6 +27,9 @@ body.follow-mode .mode-switch { margin-right: auto; }
 .fw-bar .seg { flex-wrap: wrap; }
 .fw-bar .seg button.zero:not([aria-pressed="true"]) { opacity: 0.5; }
 .fw-bar .seg .dot { display: inline-block; margin-right: 6px; vertical-align: 0; }
+/* B站 分组 pills: their own labelled group after the tag pills, split by the same thin rule as .fw-sort. */
+.fw-bar .fw-groups { align-items: center; padding-left: 12px; border-left: 1px solid var(--border); }
+.fw-group-label { margin-right: 4px; color: var(--faint); font-size: var(--fs-xs); }
 .fw-bar-dyn { display: contents; }
 .fw-tools { display: flex; align-items: center; gap: 8px; margin-left: auto; }
 .fw-tools input[type="search"] { width: 200px; height: 30px; }

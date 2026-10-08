@@ -350,6 +350,9 @@ async function followSyncJob(ctx) {
       if (!page.length || fresh.list.length >= total) break;
     }
     fresh.complete = fresh.list.length >= total;
+    // B站 关注分组 names, shown read-only in 关注. 0 默认分组 and -10 特别关注 are left out (特别关注 has its own filter).
+    const tags = await get(() => followGetData(`${FOLLOW_API}/x/relation/tags`));
+    const groups = (Array.isArray(tags) ? tags : []).filter((g) => g.tagid > 0).map((g) => ({ id: g.tagid, name: String(g.name || ""), count: Number(g.count) || 0 }));
     await followUpdate(["follow_list", "follow_people", "follow_unfollowed", "follow_tag_map", "follow_tags"], (s) => {
       const unf = { ...s.follow_unfollowed };
       const tagMap = { ...s.follow_tag_map };
@@ -363,7 +366,7 @@ async function followSyncJob(ctx) {
       for (const [mid, ids] of Object.entries(d.restore)) if (!tagMap[mid]?.length) tagMap[mid] = ids;
       const ppl = { ...s.follow_people };
       for (const [mid, p] of Object.entries(people)) ppl[mid] = followMergePerson(ppl[mid], p);
-      return { follow_list: d.list, follow_people: ppl, follow_unfollowed: unf, follow_tag_map: tagMap };
+      return { follow_list: d.list, follow_people: ppl, follow_unfollowed: unf, follow_tag_map: tagMap, follow_groups: groups };
     });
     Object.assign(c, { phase: "feed", offset: "" });
   }

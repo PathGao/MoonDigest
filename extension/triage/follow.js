@@ -73,6 +73,12 @@ function upRow(mid, D, now, cfg) {
   };
 }
 
+// B站 分组 (follow_groups, read-only) are left-column items "g:<tagid>"; members come from follow_list.groups.
+const groupId = (side) => (/^g:\d+$/.test(side) ? Number(side.slice(2)) : null);
+const inGroup = (mid, D, side) => (D.list?.groups?.[mid] || []).includes(groupId(side));
+// Every left-column id, B站 分组 last. No custom groups = the same ids as before groups existed.
+const sideIds = (D) => ["all", "untagged", "special", "gone", ...D.tags.map((t) => t.id), ...(D.groups || []).map((g) => `g:${g.id}`)];
+
 // The UPs of a left-column item, before 更新状态 / search: the follow list (or the unfollowed, newest first).
 function sideMids(D, rows, side) {
   if (side === "gone") return Object.keys(D.gone || {}).sort((a, b) => (D.gone[b].at || 0) - (D.gone[a].at || 0));
@@ -80,6 +86,7 @@ function sideMids(D, rows, side) {
   if (side === "all") return list;
   if (side === "untagged") return list.filter((m) => !rows.get(m).tagIds.length);
   if (side === "special") return list.filter((m) => rows.get(m).special);
+  if (groupId(side) != null) return list.filter((m) => inGroup(m, D, side));
   return list.filter((m) => rows.get(m).tagIds.includes(side));
 }
 
@@ -139,6 +146,7 @@ function feedMatch(it, D, side) {
   if (side === "all") return true;
   if (side === "gone") return false;
   if (side === "special") return Boolean(D.list?.special?.[it.mid]);
+  if (groupId(side) != null) return inGroup(it.mid, D, side);
   const ids = liveTags(it.mid, D);
   return side === "untagged" ? !ids.length : ids.includes(side);
 }
@@ -285,7 +293,7 @@ function fmtAgo(sec, now) {
 // ---------- page ----------
 const T = globalThis.MoonTriage;
 const { esc, toast, askConfirm, send } = T;
-const KEYS = ["follow_list", "follow_people", "follow_last", "follow_content", "follow_tags", "follow_tag_map", "follow_unfollowed", "follow_jobs", "follow_ai_recent", "follow_stats"];
+const KEYS = ["follow_list", "follow_people", "follow_last", "follow_content", "follow_tags", "follow_tag_map", "follow_unfollowed", "follow_jobs", "follow_ai_recent", "follow_stats", "follow_groups"];
 const VIEW_KEY = "follow_view"; // { mode: "fav" | "follow", tab: "ups" | "feed", sort, dir }
 const saveView = () => chrome.storage.local.set({ [VIEW_KEY]: { mode: F.mode, tab: F.tab, sort: F.sort, dir: F.dir } });
 const AI_HISTORY_KEY = "follow_ai_history";
@@ -362,7 +370,8 @@ async function load() {
     gone: got.follow_unfollowed || {},
     jobs: got.follow_jobs || {},
     recent: got.follow_ai_recent || null,
-    stats: got.follow_stats || {}
+    stats: got.follow_stats || {},
+    groups: got.follow_groups || []
   };
   derive();
 }
@@ -370,8 +379,7 @@ function derive() {
   const now = nowSec();
   rows = new Map();
   for (const mid of [...(D.list?.list || []), ...Object.keys(D.gone)]) if (!rows.has(mid)) rows.set(mid, upRow(mid, D, now, cfg));
-  const sides = ["all", "untagged", "special", "gone", ...D.tags.map((t) => t.id)];
-  if (!sides.includes(F.side)) F.side = "all";
+  if (!sideIds(D).includes(F.side)) F.side = "all";
   if (!D.recent?.mids?.length) F.recentFilter = false;
 }
 const following = () => D.list?.list || [];
@@ -456,7 +464,12 @@ function renderSide() {
     ...D.tags.map((t) => item(t.id, t.name, n((u) => u.tagIds.includes(t.id)), `<i class="dot" style="--c:${esc(t.color)}"></i>`))
   ].join("")}</div><hr>${item("gone", "已取消关注", Object.keys(D.gone).length)}<hr>
   <button type="button" class="side-item tag-btn" data-fw="tags" aria-label="管理 UP 主标签">管理标签</button>
-  <p class="side-note">标签只存在扩展里，不改 B站</p>`;
+  <p class="side-note">标签只存在扩展里，不改 B站</p>${
+    D.groups.length
+      ? `<hr><div class="side-head">B站 分组</div><div class="folder-list">${D.groups.map((g) => item(`g:${g.id}`, g.name, n((u) => inGroup(u.mid, D, `g:${g.id}`)))).join("")}</div>
+  <p class="side-note">只读，在 B站 改</p>`
+      : ""
+  }`;
 }
 
 // The sync job: live progress while it runs, otherwise when the list was read and the button to update.
@@ -498,7 +511,7 @@ function renderTabs() {
 
 // The left column as a select, for widths without the sidebar.
 const sideSelect = () =>
-  `<select class="fw-side-select" data-fw="side" aria-label="UP 主标签">${[["all", "全部"], ["untagged", "未打标签"], ["special", "★ 特别关注"], ...D.tags.map((t) => [t.id, t.name]), ["gone", "已取消关注"]]
+  `<select class="fw-side-select" data-fw="side" aria-label="UP 主标签">${[["all", "全部"], ["untagged", "未打标签"], ["special", "★ 特别关注"], ...D.tags.map((t) => [t.id, t.name]), ...D.groups.map((g) => [`g:${g.id}`, `B站 分组 · ${g.name}`]), ["gone", "已取消关注"]]
     .map(([id, label]) => `<option value="${esc(id)}"${F.side === id ? " selected" : ""}>${esc(label)}</option>`).join("")}</select>`;
 
 // ----- UP 主 -----
@@ -629,7 +642,9 @@ function renderFeed() {
     return `<button type="button" data-side="${esc(id)}" aria-pressed="${F.side === id}"${items.length && !n ? ' class="zero"' : ""}>${color ? `<i class="dot" style="--c:${esc(color)}"></i>` : ""}${esc(label)}${items.length ? ` ${n}` : ""}</button>`;
   };
   E.tools.hidden = E.sort.hidden = true;
-  E.bar.innerHTML = `${sideSelect()}<span class="seg fw-pills" role="group" aria-label="按标签看">${[pill("all", "全部"), pill("untagged", "未打标签"), pill("special", "★ 特别关注"), ...D.tags.map((t) => pill(t.id, t.name, t.color))].join("")}</span>`;
+  E.bar.innerHTML = `${sideSelect()}<span class="seg fw-pills" role="group" aria-label="按标签看">${[pill("all", "全部"), pill("untagged", "未打标签"), pill("special", "★ 特别关注"), ...D.tags.map((t) => pill(t.id, t.name, t.color))].join("")}</span>${
+    D.groups.length ? `<span class="seg fw-pills fw-groups" role="group" aria-label="按 B站 分组看"><span class="fw-group-label">B站 分组</span>${D.groups.map((g) => pill(`g:${g.id}`, g.name)).join("")}</span>` : ""
+  }`;
   const list = items.filter((it) => feedMatch(it, D, F.side));
   const note = !D.tags.length ? `<p class="fw-hint">还没给 UP 主打标签。在「UP 主」页签打上标签，这里就能只看一类 UP 主的新视频。下面是全部关注的新视频。</p>` : "";
   const scroll = E.list.scrollTop;

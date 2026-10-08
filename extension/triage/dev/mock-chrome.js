@@ -350,7 +350,7 @@
 
   // ===== 关注 (follow.js): fake follow_* storage and follow-* answers. Made-up names; no real account. =====
   // ?follow=empty starts with no follow data (sync fills it in); ?follow=partial has a feed that does not reach back
-  // 90 days, so the people it misses are 未查 instead of 待查.
+  // 90 days, so the people it misses are 未查 instead of 待查. &groups adds two custom B站 关注分组 (follow_groups).
   {
     const fmode = new URLSearchParams(location.search).get("follow") || "";
     const nowS = Math.floor(Date.now() / 1000);
@@ -412,6 +412,8 @@
     ];
     const tagMap = { [mids[0]]: ["ftsci"], [mids[1]]: ["ftsci"], [mids[3]]: ["ftsci"], [mids[4]]: ["ftsci"], [mids[12]]: ["ftsci"], [mids[8]]: ["ftgame"], [mids[9]]: ["ftgame"], [mids[23]]: ["ftgame"], [mids[10]]: ["ftlife"], [mids[11]]: ["ftlife"], [mids[19]]: ["ftlife", "ftsci"] };
     const listRec = { at: nowS - 3 * 3600, list: mids, followTime, special, complete: true };
+    const withGroups = new URLSearchParams(location.search).has("groups");
+    if (withGroups) listRec.groups = Object.fromEntries(mids.map((m, i) => [m, i % 4 === 0 ? [101] : i % 4 === 1 ? [101, 102] : i % 4 === 2 ? [102] : [0]]));
     const lastRec = { at: nowS - 3 * 3600, since: nowS - (fmode === "partial" ? 20 : 95) * DAY, map: Object.fromEntries(Object.entries(feedV).map(([m, v]) => [m, v[0].c])), v: feedV };
     const unfollowed = {
       [goneMids[0]]: { at: nowS - 2 * DAY, tagIds: ["ftlife"], source: "app" },
@@ -426,6 +428,7 @@
       follow_tags: tags,
       follow_tag_map: tagMap,
       follow_unfollowed: unfollowed,
+      ...(withGroups ? { follow_groups: [{ id: 101, name: "每周必看", count: 18 }, { id: 102, name: "学习区", count: 18 }] } : {}),
       // 粉丝数 for two thirds of them; the rest are 粉丝数未查.
       follow_stats: Object.fromEntries(mids.filter((_, i) => i % 3).map((m, i) => [m, { follower: [1234567, 89012, 4321, 560000, 23, 150000, 9876][i % 7], at: nowS - DAY }])),
       follow_jobs: { running: false, startedAt: nowS - 3 * 3600 - 300, finishedAt: nowS - 3 * 3600, lastFinishedAt: nowS - 3 * 3600 }
