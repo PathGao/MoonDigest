@@ -66,7 +66,6 @@ for (const f of ["limits.js", "typing.js", "sites.js", "note.js", "download.js"]
   await wait(200);
   const sa = els.selectAll;
   const reason = (id) => [els[id].disabled, els[id].title, els[id].attrs["aria-description"]];
-  assert.strictEqual(els.selectAllLabel.textContent, "全选 2 个");
   assert.deepStrictEqual([sa.checked, sa.indeterminate], [false, false], "none selected: empty box");
   assert.deepStrictEqual(reason("bulkMd"), [true, "先勾选视频", "先勾选视频"]);
   assert.deepStrictEqual(reason("bulkDelete"), [true, "先勾选视频", "先勾选视频"]);
@@ -80,6 +79,7 @@ for (const f of ["limits.js", "typing.js", "sites.js", "note.js", "download.js"]
   assert.deepStrictEqual(reason("bulkMd"), [false, "", undefined]);
   pick("b", true);
   assert.deepStrictEqual([sa.checked, sa.indeterminate], [true, false], "all selected: checked");
+  assert.strictEqual(els.selectAllLabel?.textContent, "全选 2 个");
   console.log("history selftest: all passed");
 })().catch((e) => {
   console.error(e);
