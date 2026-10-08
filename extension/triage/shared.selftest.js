@@ -272,4 +272,11 @@ for (const [file, fns] of [["triage.js", ["mergeAiBatch", "aiChanges"]], ["follo
   assert.ok(!/tag-plus(:hover)? \{[^}]*(border|color|height|padding)/.test(fc), "follow.css has no 「+ 标签」 style of its own");
 }
 
+// Touch has no hover: a card's secondary actions (「更多」) show on every card, in both modes, by one triage.css rule.
+{
+  const css = ["triage.css", "follow.css"].map((f) => fs.readFileSync(path.join(__dirname, f), "utf8")).join("\n");
+  assert.ok(css.includes("@media (hover: hover) { .card:not(.focused, :focus-within) .more button:not(.on) { visibility: hidden; } }"), "only a mouse hides them");
+  assert.ok(!/@media \(hover: none\) \{[^}]*\.more/.test(css), "no touch rule of a mode's own for .more");
+}
+
 console.log("shared selftest: all passed");

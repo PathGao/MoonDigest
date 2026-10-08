@@ -401,9 +401,9 @@ html[data-seen-style="veil"] .cover-wrap.seen .seen-veil { display: flex; }
 .actions .pair, .actions .more { display: flex; gap: 4px; }
 .card .more button { border-color: transparent; background: none; color: var(--text-2); }
 .card .more button:hover { background: var(--field-bg); }
-/* Secondary actions show on the current or focused card; their keys work everywhere. A pressed one stays visible. */
-.card:not(.focused, :focus-within) .more button:not(.on) { visibility: hidden; }
-@media (hover: none) { .card:not(.focused) .more button:not(.on) { display: none; } }
+/* Secondary actions show on the current or focused card; their keys work everywhere. A pressed one stays visible.
+   Touch has no hover and no keys, so there they always show (both modes). */
+@media (hover: hover) { .card:not(.focused, :focus-within) .more button:not(.on) { visibility: hidden; } }
 .note { width: 100%; max-width: 560px; margin-top: 6px; padding: 4px 8px; border: 0; border-radius: var(--radius-sm); background: var(--bg); resize: vertical; min-height: 28px; font-size: var(--fs-sm); color: var(--text-2); field-sizing: content; }
 .note-add { font-size: var(--fs-xs); height: auto; }
 .group-head { margin-top: 10px; padding: 2px 0; color: var(--muted); font-size: var(--fs-xs); }
