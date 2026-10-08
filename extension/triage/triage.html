@@ -41,7 +41,7 @@
           <div class="folder-head">
             <div class="folder-info">
               <div id="folderHead" class="folder-name"></div>
-              <button id="biliBtn" type="button" class="bili-link" aria-label="在 B站打开当前收藏夹（所有收藏夹时打开个人主页）" hidden>在 B站打开 ↗</button>
+              <button id="biliBtn" type="button" class="link bili-link" aria-label="在 B站打开当前收藏夹（所有收藏夹时打开个人主页）" hidden>在 B站打开 ↗</button>
               <!-- The B站已同步 pill and its notice, from shared.js (as in 关注). -->
               <span id="favSync"></span>
             </div>
@@ -68,7 +68,7 @@
             <aside id="basket" class="basket collapsed" hidden>
               <div class="basket-body">
                 <div id="basketList" class="basket-list"></div>
-                <div class="basket-foot"><button id="basketClearBtn" type="button" class="link" aria-label="清空播放列表，U 撤销">清空</button></div>
+                <div class="basket-foot"><button id="basketClearBtn" type="button" class="quiet" aria-label="清空播放列表，U 撤销">清空</button></div>
               </div>
               <button id="basketToggle" type="button" class="basket-toggle" aria-expanded="false" aria-label="展开或收起播放列表">
                 播放列表 <span id="basketCount">0</span> <span class="chev" aria-hidden="true">▴</span>
@@ -103,7 +103,7 @@
         <section class="set-group">
           <div class="set-head">
             <h3 id="settingsFoldersHeading">参与分拣的收藏夹</h3>
-            <button type="button" class="link" data-folders-all aria-label="全选收藏夹">全选</button><button type="button" class="link" data-folders-none aria-label="全不选收藏夹">全不选</button>
+            <button type="button" class="quiet" data-folders-all aria-label="全选收藏夹">全选</button><button type="button" class="quiet" data-folders-none aria-label="全不选收藏夹">全不选</button>
           </div>
           <p class="dialog-hint">只读取勾选的。B站新建的默认不勾，B站上不受影响。</p>
           <div id="folderToggles" class="folder-toggles"></div>
@@ -121,7 +121,7 @@
           </section>
           <section class="set-group">
             <h3>AI 参数</h3>
-            <p class="dialog-hint">一般不用改。AI 平台在设置页，判断标准在粗看、细看按钮旁边。</p>
+            <p class="dialog-hint">一般不用改。AI 平台在设置页，判断标准是粗看、细看左边的按钮。</p>
             <div class="set-card">
               <div class="set-row" data-set-row="interval"><input id="intervalInput" type="number" min="0" step="1" /></div>
               <div id="thinkingRow" class="set-row"><div><label class="name" for="thinkingInput">开启思考</label><p class="hint">判断更细，但慢得多、token 多几倍。</p></div><input id="thinkingInput" type="checkbox" class="switch" /></div>
@@ -150,7 +150,6 @@
           <select id="writeScope">
             <option value="filter">当前筛选</option>
             <option value="selected">选中 (X)</option>
-            <option value="basket">播放列表</option>
             <option value="all">整个收藏夹</option>
           </select>
           <label for="writeFormat">格式</label>
@@ -225,9 +224,8 @@
     <dialog id="criteriaDialog" aria-label="判断标准">
       <form method="dialog">
         <h2 id="criteriaTitle">判断标准</h2>
-        <p class="dialog-hint">只对这个收藏夹生效。粗看和细看时，AI 按它判断值得留还是可清理；不写时从收藏夹名和简介推测。回车保存，Shift+回车换行。</p>
-        <p class="dialog-hint">例子：「只留能跟着做的菜谱，探店和吃播可清理」「只留还会想再看的，看过就忘的可清理」「只留 AI 工程实践的深度内容，资讯可清理」。</p>
-        <textarea id="criteriaInput" rows="4" aria-label="判断标准" placeholder="一句话写清这个收藏夹留什么、清什么"></textarea>
+        <textarea id="criteriaInput" rows="4" aria-label="判断标准" placeholder="这个收藏夹留什么、清什么（给 AI 看，粗看和细看都按它判断；可不写，不写时按收藏夹名和简介推测）&#10;例如：只留能跟着做的菜谱，探店和吃播可清理"></textarea>
+        <p class="dialog-meta">只对这个收藏夹生效 · 回车保存，Shift+回车换行</p>
         <div class="dialog-actions">
           <span class="spacer"></span>
           <button value="cancel" type="submit" aria-label="取消">取消</button>
@@ -249,7 +247,7 @@
           <p class="dialog-hint">这里是这个收藏夹的标签，最多 <span data-tag-limit>10</span> 个（在收藏夹设置里改），改名、颜色、说明和删除立即保存。</p>
           <div id="tagsRows" class="tag-rows"></div>
           <div class="tag-add">
-            <input id="newTagInput" type="text" maxlength="12" placeholder="新标签名称" aria-label="新标签名称" />
+            <input id="newTagInput" type="text" maxlength="12" placeholder="新标签名称，例如：入门、进阶、待复习" aria-label="新标签名称" />
             <button id="addTagBtn" type="button" aria-label="添加标签">添加</button>
           </div>
           <div class="dialog-actions">
@@ -347,7 +345,7 @@
           <dt><kbd>T</kbd></dt><dd>打标签（视频在右侧播放时，在播放器里按 T 给它打）；打标签时 1–9 勾选第几个，Esc 关闭并保存</dd>
           <dt><kbd>E</kbd></dt><dd>加入 / 移出播放列表</dd>
           <dt><kbd>Q</kbd></dt><dd>问 AI（在侧边栏打开这个视频）</dd>
-          <dt><kbd>X</kbd></dt><dd>选中 / 取消选中。选中的视频可以批量处理；列表上方「全选这里的 N 个」一次全选当前列出的</dd>
+          <dt><kbd>X</kbd></dt><dd>选中 / 取消选中。选中的视频可以批量处理；筛选按钮右边的「全选 N 个」一次勾上当前列出的，再点一次取消</dd>
           <dt><kbd>O</kbd><kbd>Enter</kbd></dt><dd>在右侧打开视频页（Esc 关闭）</dd>
           <dt><kbd>I</kbd></dt><dd>AI 打标签</dd>
           <dt><kbd>/</kbd></dt><dd>搜索（Esc 清空）</dd>

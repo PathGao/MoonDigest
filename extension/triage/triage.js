@@ -535,7 +535,7 @@ function tagChips() {
 // How many new tags 批量打 may propose: at most triageAiNewTagMax, within the folder's room.
 const tagLimit = () => S.settings.triageTagLimit;
 const aiNewTagRoom = () => Math.max(0, Math.min(S.settings.triageAiNewTagMax, tagLimit() - viewTags().length));
-const FOLDER_ONLY = "标签按收藏夹分开，请先打开一个具体收藏夹";
+const FOLDER_ONLY = "标签按收藏夹分开，先打开一个具体收藏夹";
 // A video's tags in the open view. A tag belongs to one folder and stays there when the video moves, so a folder shows
 // only its own; 所有收藏夹 those of the video's folders (as the picker) and of the ones it was just unfavorited from;
 // 已出分拣范围 every one.
@@ -655,8 +655,16 @@ function sortItems(list, sort = "fav", dir = SORT_DIR[sort] || "desc") {
 const sortWords = (sort, dir) => UI.dirWords({ title: "name", play: "count", dur: "length" }[sort], dir);
 function renderSort() {
   const { sort, dir } = sortOf();
-  const missing = sort === "play" && S.items.some((it) => !it.invalid && !Number.isFinite(it.play));
-  el.sortBox.innerHTML = `${missing ? `<span class="muted">播放量要再同步一次才有</span>` : ""}${UI.sortControl({ sorts: SORTS, sort, dir, words: sortWords(sort, dir), selectAttr: "data-sort", dirAttr: "data-sort-dir" })}`;
+  const missing = S.items.some((it) => !it.invalid && !Number.isFinite(it.play));
+  const sorts = missing ? { ...SORTS, play: "播放量（刷新后才有）" } : SORTS;
+  el.sortBox.innerHTML = UI.sortControl({ sorts, sort, dir, words: sortWords(sort, dir), selectAttr: "data-sort", dirAttr: "data-sort-dir" });
+  // 导出 → 批量导出 and this folder's table: nothing to put in them without videos (a running export stays reachable).
+  const empty = S.items.length ? "" : "这个收藏夹没有视频";
+  for (const [btn, sub, on] of [[el.writeBtn, "摘录，或逐个视频的笔记", S.write.running], [el.csvBtn, "标题、AI 判断、标签、备注", false]]) {
+    const small = btn.querySelector("small");
+    if (small) small.textContent = empty && !on ? empty : sub;
+    UI.setReason(btn, on ? "" : empty);
+  }
 }
 function setSort(sort, dir) {
   S.sortBy = { ...S.sortBy, [String(S.mediaId)]: { sort, dir } };
@@ -674,6 +682,11 @@ function visibleItems() {
   return list.sort((x, y) => rank(x) - rank(y));
 }
 const selectedIn = (list) => list.filter((it) => S.selected.has(it.bvid));
+// Of these videos, those the open tab lists now: a step button counts and runs only what is on screen.
+const listed = (list) => list.filter((it) => inTab(it, S.tab) && passFilter(it));
+// What 按新标准重新粗看 / 细看 count and send (细看 one batch at a time).
+const redoCoarseList = () => listed(staleCoarse());
+const redoFineList = () => listed(staleFine()).slice(0, GROUP_SIZE);
 // The selection belongs to the open tab (switching tabs clears it). A filter may hide part of it: every action and count
 // takes only what is listed, and the selection bar says how many are hidden.
 const visibleSelected = () => selectedIn(visibleItems());
@@ -1547,9 +1560,9 @@ function loadAllLine() {
     ? `${busy ? "正在核对" : "已核对"} ${L.checkTotal - L.check.length} / ${L.checkTotal} 个收藏夹`
     : `已加载 ${loaded} / ${n} 个收藏夹${partial}${now}（第一次较慢，之后只核对变化）`;
   const btn = L.paused
-    ? `<button type="button" class="link" data-head="all-resume" aria-label="继续加载收藏夹">继续</button>`
-    : `<button type="button" class="link" data-head="all-pause" aria-label="暂停加载收藏夹">暂停</button>`;
-  return `<span class="muted"${busy ? ' aria-busy="true"' : ""}>${text} · ${btn}</span>${L.error ? `<span class="fail-text">${esc(L.error)}</span>` : ""}`;
+    ? `<button type="button" data-head="all-resume" aria-label="继续加载收藏夹">继续</button>`
+    : `<button type="button" data-head="all-pause" aria-label="暂停加载收藏夹">暂停</button>`;
+  return `<span class="muted"${busy ? ' aria-busy="true"' : ""}>${text}</span>${btn}${L.error ? `<span class="fail-text">${esc(L.error)}</span>` : ""}`;
 }
 
 const folderName = (id) => id === REMOVED ? "已出分拣范围" : S.allFolders.find((f) => String(f.id) === String(id))?.title || String(id);
@@ -1715,7 +1728,7 @@ function activityState() {
 
 function renderStatus() {
   const a = activityState();
-  UI.setActivity(el.activity, a && { ...a, btn: a.act && { attrs: `data-head="${a.act}"`, label: a.actLabel, disabled: a.stopping } });
+  UI.setActivity(el.activity, a && { ...a, btn: a.act && { attrs: `data-head="${a.act}"`, label: a.actLabel, reason: a.stopping ? "当前这一步做完就暂停" : "" } });
 }
 
 function tick() {
@@ -1764,29 +1777,42 @@ function renderTabs() {
           return `<button type="button" class="chip${on ? " on" : ""}" style="--c:${esc(c.color)}" data-tagfilter="${esc(c.ids.join(","))}" aria-pressed="${on}" aria-label="按标签筛选 ${esc(c.name)}" title="可多选：只显示同时带有所选标签的视频">${esc(c.name)}</button>`;
         })
         .join("")
-    : viewTags().length ? "" : `<span class="muted">还没有自定义标签</span>`); // created in 标签管理
-  // 标签管理 and ✦ AI 打标签 at the right end of the tags they act on, as in 关注; AI 打标签 says when a run or a proposal is pending.
-  el.aiTagSlot.innerHTML = UI.tagButtons({ manageAttrs: "data-tags-manage", aiAttrs: 'data-ai-tag aria-label="AI 打标签 (I)"', state: S.ai.running ? " · 运行中" : S.ai.proposal ? " · 待确认" : "" });
+    : "");
+  // 标签管理 and ✦ AI 打标签 at the right end of the tags they act on, as in 关注; AI 打标签 says when a run or a proposal is
+  // pending. Without tags 标签管理 has the warn dot (the new-tag box says what to do).
+  el.aiTagSlot.innerHTML = UI.tagButtons({
+    manageAttrs: "data-tags-manage",
+    aiAttrs: 'data-ai-tag aria-label="AI 打标签 (I)"',
+    state: S.ai.running ? " · 运行中" : S.ai.proposal ? " · 待确认" : "",
+    manageReason: inFolderView() ? "" : FOLDER_ONLY,
+    aiReason: aiTagReason(),
+    noTags: !viewTags().length
+  });
   renderSort();
 }
 
 const AI_SPARK = UI.AI_SPARK;
 
-const headBtn = (act, label, cls = "", disabled = false, verdict = "", title = "", busy = false, ai = false) =>
-  `<button type="button"${cls ? ` class="${cls}"` : ""} data-head="${act}"${verdict ? ` data-verdict="${verdict}"` : ""} aria-label="${esc(label)}"${title ? ` title="${esc(title)}"` : ""}${busy ? ' aria-busy="true"' : ""}${disabled ? " disabled" : ""}>${ai ? AI_SPARK : ""}${esc(label)}</button>`;
+// reason: why it is disabled ("" = enabled); it then replaces title as the tooltip.
+const headBtn = (act, label, cls = "", reason = "", verdict = "", title = "", busy = false, ai = false) =>
+  `<button type="button"${cls ? ` class="${cls}"` : ""} data-head="${act}"${verdict ? ` data-verdict="${verdict}"` : ""} aria-label="${esc(label)}"${UI.reasonAttrs(reason, title)}${busy ? ' aria-busy="true"' : ""}>${ai ? AI_SPARK : ""}${esc(label)}</button>`;
 
-// The folder's 判断标准 next to the 粗看/细看 button; clicking it opens the editor.
-function criteriaLine() {
+// Why ✦ AI 打标签 cannot open: not in one folder, or nothing to tag and nothing pending.
+const aiTagReason = () => (!inFolderView() ? FOLDER_ONLY : !S.items.length && !S.ai.running && !S.ai.proposal ? "这里没有视频" : "");
+
+// Why 粗看 / 细看 cannot start: another AI run goes first.
+const aiBusyReason = () => (S.stage1.running ? "粗看还在跑，等它完成" : S.group ? "细看还在跑，等它完成" : "");
+
+// The folder's 判断标准, before the 粗看/细看 button it is for. Written: the text in the tooltip. Not written: the warn
+// dot (the AI then guesses from the folder name; the editor's placeholder says so).
+function criteriaBtn() {
   const text = criteria();
-  const short = text.length > 24 ? `${text.slice(0, 24)}…` : text;
-  return text
-    ? `<span class="run-line" title="${esc(text)}">判断标准：${esc(short)}</span><button type="button" class="link" data-head="criteria" aria-label="修改判断标准">改判断标准</button>`
-    : `<span class="run-line" title="没写判断标准时，AI 从收藏夹名和简介推测用途，按它判断值得留还是可清理">未设判断标准，AI 按收藏夹名「${esc(folderTitle())}」推测用途</span><button type="button" class="link" data-head="criteria" aria-label="写一句判断标准">写判断标准</button>`;
+  const pen = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20h4L19 9l-4-4L4 16v4zM13.5 6.5l4 4"/></svg>';
+  return `<button type="button" class="act-btn" data-head="criteria" title="${esc(text ? `判断标准：${text}` : "还没写判断标准")}" aria-label="${text ? "判断标准" : "判断标准（还没写）"}">${pen}判断标准${text ? "" : UI.WARN_DOT}</button>`;
 }
 
 function renderListHeader(list) {
   const t = S.tab;
-  const busy = S.stage1.running || Boolean(S.group);
   const all = S.mediaId === ALL;
   const sortHint = `<span class="muted">请在具体收藏夹里分拣</span>`;
   // AI-class chips with per-class counts inside the tab (search and tag filter applied).
@@ -1803,28 +1829,35 @@ function renderListHeader(list) {
   };
   const batchBtn = (route, verdict = "") => {
     const run = S.unfavBatch;
-    if (route === "unfav" && run && !runWhere(run)) return headBtn("batch-unfav", `取消收藏中 ${run.done}/${run.total}`, "danger", true, "", "", true);
+    if (route === "unfav" && run && !runWhere(run)) return headBtn("batch-unfav", `取消收藏中 ${run.done}/${run.total}`, "danger", "正在取消收藏", "", "", true);
     const n = batchList(verdict || null).length;
     const verb = route === "unfav" ? "取消收藏" : "保留";
     // One batch 取消收藏 at a time: while another folder's runs, this one waits.
-    return headBtn(`batch-${route}`, verdict ? `${verb}（AI：${VERDICTS[verdict]}）${n} 个` : `${verb}选中的 ${n} 个`, route === "unfav" ? "danger" : "", !n || (route === "unfav" && Boolean(run || S.transferRun)), verdict, route === "keep" ? KEEP_TIP : "");
+    const reason = !n ? (verdict ? `这里没有 AI 判断为${VERDICTS[verdict]}、还没处理的视频` : "选中的都已经处理过了")
+      : route === "unfav" && run ? `「${folderName(run.mediaId)}」的批量取消收藏还在跑`
+      : route === "unfav" && S.transferRun ? "移动/复制还在跑，等它完成" : "";
+    return headBtn(`batch-${route}`, verdict ? `${verb}（AI：${VERDICTS[verdict]}）${n} 个` : `${verb}选中的 ${n} 个`, route === "unfav" ? "danger" : "", reason, verdict, route === "keep" ? KEEP_TIP : "");
   };
   const transferBtn = () => {
     const run = S.transferRun;
-    if (run) return headBtn("transfer", `${run.verb}中 ${run.done}/${run.total}${runWhere(run)}`, "", true, "", "", true);
+    if (run) return headBtn("transfer", `${run.verb}中 ${run.done}/${run.total}${runWhere(run)}`, "", `正在${run.verb}`, "", "", true);
     const n = transferList().length;
-    return headBtn("transfer", S.mediaId === REMOVED ? `收藏选中的 ${n} 个到…` : `移动/复制选中的 ${n} 个…`, "", !n || Boolean(S.unfavBatch));
+    const reason = !n ? "选中的视频已取消收藏，或缺少视频编号" : S.unfavBatch ? "批量取消收藏还在跑，等它完成" : "";
+    return headBtn("transfer", S.mediaId === REMOVED ? `收藏选中的 ${n} 个到…` : `移动/复制选中的 ${n} 个…`, "", reason);
   };
   const groupBtn = (cls) => {
-    if (ownGroup()) return headBtn("group", `${S.group.stop ? "暂停中" : "暂停细看"} ${groupDone(S.group)}/${S.group.bvids.length}`, "primary", S.group.stop);
+    if (ownGroup()) return headBtn("group", `${S.group.stop ? "暂停中" : "暂停细看"} ${groupDone(S.group)}/${S.group.bvids.length}`, "primary", S.group.stop ? "当前视频细看完就暂停" : "");
     const batch = nextBatch();
     const label = batch.some((b) => S.selected.has(b)) ? selectedIn(list).length > batch.length ? `细看选中的前 ${batch.length} 个` : `细看选中 ${batch.length} 个` : batch.length ? `细看下一批 ${batch.length} 个` : "细看";
-    return headBtn("group", label, cls, !batch.length || busy, "", "", false, true);
+    const none = S.items.some((it) => inTab(it, "coarse") && needsAnalysis(it.bvid)) ? "当前筛选下没有要细看的视频" : "没有要细看的视频";
+    return headBtn("group", label, cls, aiBusyReason() || (batch.length ? "" : none), "", "", false, true);
   };
   // Pausing waits for the current batch or video; until then the button says so and takes no second click.
-  const stage1Pause = () => headBtn("stage1", `${S.stage1.stop ? "暂停中" : "暂停粗看"} ${S.stage1.done}/${S.stage1.total}`, "primary", S.stage1.stop);
-  // Results made under an older 判断标准 can be redone; 细看 goes one batch at a time like a normal run.
-  const redoBtn = (act, verb, n) => (n ? headBtn(act, `按新标准重新${verb} ${n} 个`, "", busy, "", `这些视频是按旧的判断标准${verb}的`, false, true) : "");
+  const stage1Pause = () => headBtn("stage1", `${S.stage1.stop ? "暂停中" : "暂停粗看"} ${S.stage1.done}/${S.stage1.total}`, "primary", S.stage1.stop ? "当前批次粗看完就暂停" : "");
+  // Results made under an older 判断标准 can be redone, only those listed; 细看 goes one batch at a time like a normal
+  // run. all: how many the folder has, so the button stays (disabled) while filters hide them.
+  const redoBtn = (act, verb, n, all) =>
+    all ? headBtn(act, `按新标准重新${verb} ${n} 个`, "", aiBusyReason() || (n ? "" : `当前筛选下没有要重新${verb}的视频`), "", `这些视频是按旧的判断标准${verb}的`, false, true) : "";
   const sel = selectedIn(list).length;
   const f = S.classFilter[t];
   // html is what this step does; selActs acts on the selection and goes to its own bar below the filters.
@@ -1834,16 +1867,17 @@ function renderListHeader(list) {
   else if (all && t === "coarse") html = seg() + sortHint;
   else if (t === "none") {
     // The criteria the AI reads sits just before the button that sends it.
-    html = criteriaLine();
+    html = criteriaBtn();
     if (ownStage1()) html += stage1Pause();
     else {
       const n = stage1Pending().length;
-      html += headBtn("stage1", n ? `标题粗看这 ${n} 个` : "标题粗看", "primary", !n || busy, "", "", false, true);
+      const none = S.items.some((it) => stageOf(it) === "none" && !S.stage1Skip.has(it.bvid)) ? "当前筛选下没有要粗看的视频" : "没有要粗看的视频";
+      html += headBtn("stage1", n ? `标题粗看这 ${n} 个` : "标题粗看", "primary", aiBusyReason() || (n ? "" : none), "", "", false, true);
     }
     if (sel) selActs = batchBtn("keep");
   } else if (t === "coarse") {
     // A selection gets 细看 plus both batch buttons; 可清理 / 值得留 lead with their batch button, 细看 stays secondary.
-    html = seg() + criteriaLine() + redoBtn("redo-coarse", "粗看", staleCoarse().length);
+    html = seg() + criteriaBtn() + redoBtn("redo-coarse", "粗看", redoCoarseList().length, staleCoarse().length);
     if (sel) selActs = groupBtn("primary") + batchBtn("keep");
     else if (f === "drop") html += batchBtn("unfav", "drop") + groupBtn("");
     else if (f === "keep") html += batchBtn("keep", "keep") + groupBtn("");
@@ -1852,7 +1886,7 @@ function renderListHeader(list) {
     // A selection gets both buttons; without one 值得留 and 可清理 each get a button, 拿不准 none.
     html = seg();
     const staleN = staleFine().length;
-    if (staleN && !all) html += criteriaLine() + redoBtn("redo-fine", "细看", Math.min(staleN, GROUP_SIZE));
+    if (staleN && !all) html += criteriaBtn() + redoBtn("redo-fine", "细看", redoFineList().length, staleN);
     if (all) html += sortHint;
     else if (sel) selActs = batchBtn("keep");
     else {
@@ -1863,27 +1897,27 @@ function renderListHeader(list) {
     const c = S.removedCheck;
     html = seg();
     if (c) html += c.error ? `<span class="fail-text">${esc(c.error)}</span>` : `<span class="muted" aria-busy="true">正在核对 ${c.done} / ${c.total} ${c.what}</span>`;
-    html += `${sel ? headBtn("clean-selected", `清理选中的 ${sel} 个`, "danger") : headBtn("clean-removed", `清理这 ${list.length} 个`, "danger", !list.length)}`;
+    html += `${sel ? headBtn("clean-selected", `清理选中的 ${sel} 个`, "danger") : headBtn("clean-removed", `清理这 ${list.length} 个`, "danger", list.length ? "" : "这里没有列出视频")}`;
   } else if (t === "read") {
     // 阅览 mixes 粗看 guesses with 细看 conclusions, so no class-wide batch here: only the selection.
     html = seg();
     if (all) html += sortHint;
     else if (sel) selActs = batchBtn("keep");
   }
-  // 移动/复制 works on a selection in any tab of a single folder; in 已出分拣范围 it is 收藏到. 取消收藏 goes last, set apart.
+  // 标签… and 移动/复制 work on a selection in any tab of a single folder; in 已出分拣范围 移动 is 收藏到. 取消收藏 goes last,
+  // set apart.
+  if (sel && inFolderView()) selActs += headBtn("sel-tags", "标签…");
   if (sel && S.mediaId !== ALL) selActs += transferBtn();
   if (sel && !all && S.mediaId !== REMOVED) selActs += batchBtn("unfav");
-  // 全选 adds every card listed under the current tab and filters; other tabs keep their selection.
-  const unselected = S.mediaId !== ALL ? list.filter((it) => !S.selected.has(it.bvid)).length : 0;
-  const selectAll = unselected ? `<button type="button" class="link" data-head="select-all" aria-label="全选这里列出的 ${list.length} 个">全选这里的 ${list.length} 个</button>` : "";
+  // 全选 at the end of the filters, always in the same place: it acts on what is listed (current tab and filters).
+  const selectAll = all ? "" : UI.selectAllBox('data-head="select-all"', list.length, sel);
   if (all) html = loadAllLine() + html;
-  const shown = selectedIn(list).length;
-  const hidden = S.selected.size - shown;
+  const hidden = S.selected.size - sel;
   const selbar = S.selected.size
-    ? `<div class="selbar" role="toolbar" aria-label="选中的视频"><strong class="sel-count">已选中 ${shown} 个</strong>${hidden ? `<span class="muted">另有 ${hidden} 个被筛选隐藏</span>` : ""}<button type="button" class="link" data-head="clear-selected" aria-label="清空选中">清空选中</button>${selectAll}<span class="sel-actions">${selActs}</span></div>`
+    ? `<div class="selbar" role="toolbar" aria-label="选中的视频"><strong class="sel-count">已选中 ${sel} 个</strong>${hidden ? `<span class="muted">另有 ${hidden} 个被筛选隐藏</span>` : ""}<button type="button" class="quiet" data-head="clear-selected" aria-label="清空选中">清空选中</button><span class="sel-actions">${selActs}</span></div>`
     : "";
-  el.classFilter.innerHTML = segHtml;
-  el.listHeader.innerHTML = `${S.selected.size ? "" : `<span class="select-all">${selectAll}</span>`}<div class="step-actions">${html}</div>${selbar}`;
+  el.classFilter.innerHTML = segHtml + selectAll;
+  el.listHeader.innerHTML = `<div class="step-actions">${html}</div>${selbar}`;
 }
 
 function recentUnfavs() {
@@ -2020,7 +2054,7 @@ function renderList() {
   }
   const expanded = S.tab === "fine" || S.tab === "read" || S.tab === "done";
   const failed = S.tab === "coarse" ? list.filter((it) => failedAnalysis(it.bvid)).length : 0;
-  const failedHead = `<div class="group-head">分析失败 ${failed} · <button type="button" class="link" data-retry-failed aria-label="全部重试"${S.group || S.stage1.running ? " disabled" : ""}>${AI_SPARK}全部重试</button></div>`;
+  const failedHead = `<div class="group-head">分析失败 ${failed} · <button type="button" data-retry-failed aria-label="全部重试"${UI.reasonAttrs(aiBusyReason())}>${AI_SPARK}全部重试</button></div>`;
   // Background progress re-renders the list; keep a note being typed in focus.
   const typing = document.activeElement?.closest?.("[data-note]");
   const caret = typing && [typing.closest(".card").dataset.bvid, typing.selectionStart, typing.selectionEnd];
@@ -2102,7 +2136,7 @@ function cardHtml(it, expanded, mark) {
       ${noteHtml}
       <div class="card-foot">
         ${decision ? `<span class="badge ${decision.action === "keep" ? "keep" : "drop"}">${ACTION_LABEL[decision.action]}</span>` : ""}
-        ${noteHtml ? "" : `<button type="button" class="link note-add" data-act="note" aria-label="添加备注">✎ 备注</button>`}
+        ${noteHtml ? "" : `<button type="button" class="quiet note-add" data-act="note" aria-label="添加备注">✎ 备注</button>`}
         <span class="spacer"></span>
         <div class="actions">
           ${removed ? `<span class="pair">
@@ -2110,8 +2144,8 @@ function cardHtml(it, expanded, mark) {
             <button type="button" class="danger" data-clean="${esc(b)}" aria-label="清理 ${esc(it.title)}">清理</button>
           </span>
           <span class="more">${basketBtn}${askBtn}</span>` : `<span class="pair">
-            <button type="button" data-act="keep" class="${keepCls}" aria-label="保留 (S)" title="只在 MoonDigest 里标记，B站收藏夹不变"${decision ? " disabled" : ""}>保留<kbd class="key">S</kbd></button>
-            ${moving.has(b) ? `<button type="button" aria-busy="true" disabled>正在${S.transferRun?.verb || "移动"}…</button>` : deciding.has(b) ? `<button type="button" aria-busy="true" disabled>正在取消收藏…</button>` : `<button type="button" data-act="unfav" class="${unfavCls}" aria-label="取消收藏 (D)"${decision?.action === "unfav" ? " disabled" : ""}>取消收藏<kbd class="key">D</kbd></button>`}
+            <button type="button" data-act="keep" class="${keepCls}" aria-label="保留 (S)"${UI.reasonAttrs(decision ? (decision.action === "keep" ? "已经保留了" : "已经取消收藏了") : "", "只在 MoonDigest 里标记，B站收藏夹不变")}>保留<kbd class="key">S</kbd></button>
+            ${moving.has(b) ? `<button type="button" aria-busy="true" disabled>正在${S.transferRun?.verb || "移动"}…</button>` : deciding.has(b) ? `<button type="button" aria-busy="true" disabled>正在取消收藏…</button>` : `<button type="button" data-act="unfav" class="${unfavCls}" aria-label="取消收藏 (D)"${UI.reasonAttrs(decision?.action === "unfav" ? "已经取消收藏了" : "")}>取消收藏<kbd class="key">D</kbd></button>`}
           </span>
           <span class="more">
             <button type="button" data-act="tag" aria-label="打标签 (T)">标签<kbd class="key">T</kbd></button>
@@ -2282,24 +2316,28 @@ async function decide(bvid, action) {
 // U undoes the last step wherever it was; a step that changed several videos asks first, so a stray U costs nothing.
 function batchUndoAsk(entry) {
   if (entry.kind === "mode") return entry.ask || null;
-  const n = entry.kind === "keepMany" ? entry.bvids.length : entry.kind === "unfavMany" ? entry.items.length : entry.kind === "aiApply" ? entry.changes.length : 0;
+  const n = entry.kind === "keepMany" ? entry.bvids.length : entry.kind === "unfavMany" ? entry.items.length : entry.kind === "aiApply" ? entry.changes.length : entry.kind === "tagsMany" ? Object.keys(entry.prevs).length : 0;
   if (n < 2) return null;
-  if (entry.kind === "keepMany") return [`撤销批量保留？`, `<p>上一步保留了 ${n} 个视频，撤销后它们不再标为保留。</p>`];
-  if (entry.kind === "unfavMany") return [`撤销批量取消收藏？`, `<p>会把 ${n} 个视频重新收藏回 B站。</p>`];
-  return [`撤销这次 AI 打标签？`, `<p>这次 AI 打标签改过的 ${n} 个视频，标签都改回 AI 打之前，包括你之后又改过的。</p>`];
+  if (entry.kind === "keepMany") return [`撤销批量保留？`, `<p>上一步保留了 ${n} 个视频，撤销后它们不再标为保留。</p>`, "撤销"];
+  if (entry.kind === "tagsMany") return [`撤销批量改标签？`, `<p>上一步改了 ${n} 个视频的标签，撤销后都改回去。</p>`, "撤销"];
+  if (entry.kind === "unfavMany") return [`在 B站重新收藏这 ${n} 个视频？`, `<p>撤销上一步的批量取消收藏。</p>`, `重新收藏 ${n} 个`];
+  return [`撤销这次 AI 打标签？`, `<p>这次 AI 打标签改过的 ${n} 个视频，标签都改回 AI 打之前，包括你之后又改过的。</p>`, "撤销"];
 }
 
 async function undo() {
   const top = S.undo.at(-1);
   const ask = top && batchUndoAsk(top);
-  if (ask && (!(await askConfirm(ask[0], ask[1], "撤销")) || S.undo.at(-1) !== top)) return;
+  if (ask && (!(await askConfirm(ask[0], ask[1], ask[2] || "撤销")) || S.undo.at(-1) !== top)) return;
   const entry = S.undo.pop();
   if (!entry) {
     toast("没有可撤销的操作");
     return;
   }
   // A step of another mode (关注's tags): it undoes itself and redraws its own view.
-  if (entry.kind === "mode") return toast(await entry.undo());
+  if (entry.kind === "mode") {
+    const text = await entry.undo();
+    return text && toast(text);
+  }
   if (entry.kind === "decision") {
     const it = S.itemMap.get(entry.bvid);
     const token = S.folderToken;
@@ -2352,6 +2390,10 @@ async function undo() {
     saveVideoTags();
     toast("已撤销标签修改");
     S.focused = entry.bvid;
+  } else if (entry.kind === "tagsMany") {
+    for (const [b, prev] of Object.entries(entry.prevs)) writeVideoTags(b, prev);
+    saveVideoTags();
+    toast(`已撤销 ${Object.keys(entry.prevs).length} 个视频的标签修改`);
   } else if (entry.kind === "aiApply") {
     // Every video the batch changed goes back to before it, edits made since included; a tag deleted since stays gone.
     for (const c of entry.changes) writeVideoTags(c.bvid, c.before.filter((id) => tagById(id)));
@@ -2379,7 +2421,7 @@ async function batchUnfav(list) {
   if (!list.length || S.unfavBatch || S.transferRun) return;
   const titles = list.slice(0, 10).map((it) => `<li>${esc(it.title)}</li>`).join("");
   const more = list.length > 10 ? `<p>等 ${list.length} 个</p>` : "";
-  const ok = await askConfirm(`取消收藏这 ${list.length} 个视频？`, `<ul>${titles}</ul>${more}`, `取消收藏 ${list.length} 个`, { danger: true });
+  const ok = await askConfirm(`在 B站取消收藏这 ${list.length} 个视频？`, `<ul>${titles}</ul>${more}`, `取消收藏 ${list.length} 个`, { danger: true });
   if (!ok || S.unfavBatch) return;
   // It changes Bilibili, so it runs to the end even after another folder opens.
   const mediaId = String(S.mediaId);
@@ -2424,7 +2466,11 @@ function askTransfer(list) {
   const from = String(S.mediaId);
   const add = from === REMOVED;
   const targets = S.allFolders.filter((f) => String(f.id) !== from && String(f.id) !== TOVIEW);
-  el.transferTitle.textContent = add ? `把这 ${list.length} 个视频收藏到` : `移动或复制这 ${list.length} 个视频`;
+  el.transferTitle.textContent = add ? `在 B站把这 ${list.length} 个视频收藏到` : `在 B站移动或复制这 ${list.length} 个视频`;
+  for (const b of el.transferDialog.querySelectorAll("button[value=copy], button[value=move], button[value=add]")) {
+    b.textContent = `${{ copy: "复制", move: "移动", add: "收藏" }[b.value]} ${list.length} 个`;
+    b.setAttribute("aria-label", b.textContent);
+  }
   el.transferHow.hidden = add;
   for (const btn of el.transferDialog.querySelectorAll("button[value=copy], button[value=move]")) btn.hidden = add;
   el.transferDialog.querySelector("button[value=add]").hidden = !add;
@@ -2676,15 +2722,17 @@ function endAiRecent(folder = String(S.mediaId)) {
 }
 
 // T on a card opens the shared picker (tag-picker.js) as a modal; T in the player or 「+ 标签」 on the viewer line opens
-// it under that line. One video at a time; closing saves once, as one undo step.
-function openPicker(bvid, anchor = "") {
-  const it = S.itemMap.get(bvid);
-  if (!it || S.mediaId === REMOVED) return;
+// it under that line. The selection bar's 标签… opens it for the selected videos (one folder). Closing saves once, as
+// one undo step.
+function openPicker(bvids, anchor = "") {
+  bvids = [].concat(bvids).filter((b) => S.itemMap.has(b));
+  if (!bvids.length || S.mediaId === REMOVED) return;
+  const bvid = bvids[0];
   const folders = pickerFolders(bvid);
   const one = folders.length === 1;
   TagPicker.open({
-    title: `打标签 ·《${shortTitle(it)}》`,
-    targets: [bvid],
+    title: bvids.length > 1 ? `打标签 · 选中的 ${bvids.length} 个` : `打标签 ·《${shortTitle(S.itemMap.get(bvid))}》`,
+    targets: bvids,
     // Every tag of the video, so saving keeps the ones of other folders the picker does not list.
     idsOf: (b) => (S.videoTags[b] || []).filter((id) => tagById(id)),
     tags: () => S.tags.filter((t) => folders.includes(t.folder)),
@@ -2701,10 +2749,21 @@ function pickerFolders(bvid) {
   return inFolderView() ? [String(S.mediaId)] : (S.itemMap.get(bvid)?.folders || []).map(String);
 }
 
+// Several videos changed (标签… on a selection) are one undo step too.
 function savePicked(changes) {
-  for (const c of changes) {
+  if (changes.length === 1) {
+    const [c] = changes;
     const prev = (S.videoTags[c.key] || []).filter((id) => tagById(id));
     if (setVideoTags(c.key, TagPicker.applyChange(prev, c), prev)) toast("标签已更新 · U 撤销");
+  } else if (changes.length) {
+    const prevs = {};
+    for (const c of changes) {
+      prevs[c.key] = (S.videoTags[c.key] || []).filter((id) => tagById(id));
+      writeVideoTags(c.key, TagPicker.applyChange(prevs[c.key], c));
+    }
+    saveVideoTags();
+    pushUndo({ kind: "tagsMany", prevs });
+    toast(`${changes.length} 个视频的标签已更新 · U 撤销`);
   }
   render();
   setFocus(S.focused, true);
@@ -2814,7 +2873,7 @@ async function deleteTag(id) {
     else delete S.videoTags[b];
   }
   S.tagFilter.delete(id);
-  S.undo = S.undo.filter((e) => e.kind !== "tags" && e.kind !== "aiApply");
+  S.undo = S.undo.filter((e) => e.kind !== "tags" && e.kind !== "tagsMany" && e.kind !== "aiApply");
   saveTags();
   saveVideoTags();
   renderTagManager();
@@ -2836,7 +2895,8 @@ async function throttleWait(code, keepGoing) {
   renderStatus();
 }
 
-const stage1Pending = () => S.items.filter((it) => stageOf(it) === "none" && !S.stage1Skip.has(it.bvid));
+// What 标题粗看 counts and sends: the 未分析 videos listed now (search and filters applied), not the hidden ones.
+const stage1Pending = () => S.items.filter((it) => stageOf(it) === "none" && !S.stage1Skip.has(it.bvid) && passFilter(it));
 
 // list: 未分析 by default; 重新粗看 passes the cards whose 粗看 used an older 判断标准. Their old results stay on the
 // cards until new ones replace them, so a stopped or failed run loses nothing.
@@ -3073,6 +3133,7 @@ function renderAiForm() {
     el.aiTagsPreview.innerHTML = "";
   }
   setBusy(el.aiRunBtn, S.ai.running && "运行中…");
+  if (!S.ai.running) UI.setReason(el.aiRunBtn, !inFolderView() ? FOLDER_ONLY : n ? "" : el.aiScopeCount.textContent);
   el.aiStopBtn.hidden = !S.ai.running;
 }
 
@@ -3320,12 +3381,11 @@ function buildMarkdown(items, now = new Date()) {
 }
 
 // ---------- 批量导出 ----------
-// 播放列表 videos outside the open folder export with their stored title. 逐个视频笔记 leaves out invalid videos (no
-// subtitle to fetch); 一篇摘录 keeps them, marked, so their notes and tags still go out.
+// 逐个视频笔记 leaves out invalid videos (no subtitle to fetch); 一篇摘录 keeps them, marked, so their notes and tags
+// still go out. 播放列表 is a list to watch from, not an export scope.
 function writeScopeItems(scope = el.writeScope.value, notes = el.writeFormat?.value === "notes") {
   const list =
     scope === "all" ? S.items
-    : scope === "basket" ? S.basket.map((x) => S.itemMap.get(x.bvid) || { bvid: x.bvid, title: x.title || x.bvid })
     : scope === "selected" ? visibleSelected()
     : visibleItems();
   return notes ? list.filter((it) => !it.invalid) : list;
@@ -3342,6 +3402,13 @@ function openWrite({ scope, format } = {}) {
 }
 
 function renderWriteScope() {
+  const labels = { filter: "当前筛选", selected: "选中 (X)", all: "整个收藏夹" };
+  for (const o of el.writeScope.options) {
+    const c = writeScopeItems(o.value).length;
+    o.textContent = `${labels[o.value]} · ${c} 个`;
+    o.disabled = !c;
+  }
+  if (el.writeScope.selectedOptions[0]?.disabled) el.writeScope.value = [...el.writeScope.options].find((o) => !o.disabled)?.value || "filter";
   const n = writeScopeItems().length;
   const notes = el.writeFormat.value === "notes";
   const busy = S.write.running;
@@ -3359,16 +3426,8 @@ function renderWriteScope() {
   el.writeScope.disabled = el.writeFormat.disabled = el.writeOverwrite.disabled = busy;
 }
 
-// 一篇摘录 needs summaries of 播放列表 videos from other folders too.
-async function digestMarkdown() {
-  const items = writeScopeItems();
-  const missing = items.map((it) => it.bvid).filter((b) => !S.analyses[b]);
-  if (missing.length) {
-    const r = await send({ type: "triage-analysis-get", bvids: missing });
-    for (const b of missing) if (r.ok && r.data?.[b]) S.analyses[b] = r.data[b];
-  }
-  return buildMarkdown(items);
-}
+// Every scope is the open folder's videos, whose summaries loadResults has already read.
+const digestMarkdown = () => buildMarkdown(writeScopeItems());
 
 // how: copy | download | obsidian
 async function exportDigest(how) {
@@ -3510,7 +3569,8 @@ async function runWrite(md = false) {
 }
 
 // ---------- data export ----------
-const BACKUP_PREFIXES = [K.kept, K.removed, K.left, K.tags, K.folderCriteria, "triage_video_tags", "triage_basket", K.notes, "triage_snapshot_", "triage_decisions_", "triage_title_", "triage_analysis_"];
+// 播放列表 stays out: a list to watch from, not something to keep.
+const BACKUP_PREFIXES = [K.kept, K.removed, K.left, K.tags, K.folderCriteria, "triage_video_tags", K.notes, "triage_snapshot_", "triage_decisions_", "triage_title_", "triage_analysis_"];
 
 async function buildBackup() {
   const all = await chrome.storage.local.get(null);
@@ -3526,7 +3586,6 @@ async function buildBackup() {
     tags: [],
     folderCriteria: {}, // mediaId → 判断标准
     videoTags: {},
-    basket: [],
     notes: {},
     folders: {},
     titleResults: {},
@@ -3542,7 +3601,6 @@ async function buildBackup() {
     else if (k === K.left) out.left = v;
     else if (k === K.folderCriteria) out.folderCriteria = v;
     else if (k === "triage_video_tags") out.videoTags = v;
-    else if (k === "triage_basket") out.basket = v;
     else if (k === K.notes) out.notes = v;
     else if (k.startsWith("triage_snapshot_")) folder(k.slice(16)).snapshot = v;
     else if (k.startsWith("triage_decisions_")) folder(k.slice(17)).decisions = v;
@@ -3558,7 +3616,7 @@ async function buildBackup() {
 
 function buildCsv() {
   const title = folderTitle();
-  const header = ["收藏夹", "BV号", "标题", "UP主", "时长", "链接", "封面", "发布时间", "收藏时间", "简介", "AI判断", "判断来源", "理由", "一句话", "要点", "标签", "备注", "播放列表", "我的处理", "处理时间", "是否失效", "原在", "离开原因"];
+  const header = ["收藏夹", "BV号", "标题", "UP主", "时长", "链接", "封面", "发布时间", "收藏时间", "简介", "AI判断", "判断来源", "理由", "一句话", "要点", "标签", "备注", "我的处理", "处理时间", "是否失效", "原在", "离开原因"];
   const rows = [header];
   for (const it of S.items) {
     const v = verdictOf(it);
@@ -3583,7 +3641,6 @@ function buildCsv() {
       done ? (a.points || []).join(" | ") : "",
       tagIdsOf(it.bvid).map((id) => tagById(id).name).join("、"),
       S.notes[it.bvid]?.text?.trim() || "",
-      S.basket.some((x) => x.bvid === it.bvid) ? "在播放列表" : "",
       d ? (d.action === "unfav" ? "取消收藏" : "保留") : "",
       d ? fmtTime(d.at) : "",
       it.invalid ? "是" : "否",
@@ -3707,8 +3764,9 @@ function bindEvents() {
     } else if (act === "batch-unfav") batchUnfav(batchList(btn.dataset.verdict || null));
     else if (act === "batch-keep") batchKeep(batchList(btn.dataset.verdict || null));
     else if (act === "criteria") openCriteria();
-    else if (act === "redo-coarse") runStage1(staleCoarse());
-    else if (act === "redo-fine") startGroup(staleFine().slice(0, GROUP_SIZE).map((it) => it.bvid), true);
+    else if (act === "redo-coarse") runStage1(redoCoarseList());
+    else if (act === "redo-fine") startGroup(redoFineList().map((it) => it.bvid), true);
+    else if (act === "sel-tags") openPicker(visibleSelected().map((it) => it.bvid));
     else if (act === "all-pause") {
       S.loadAll.paused = true;
       render();
@@ -3720,7 +3778,7 @@ function bindEvents() {
     else if (act === "clean-selected") cleanRemoved(selectedIn(visibleItems()));
     else if (act === "transfer") batchTransfer(transferList());
     else if (act === "select-all") {
-      for (const it of visibleItems()) S.selected.add(it.bvid);
+      UI.toggleAll(visibleItems().map((it) => it.bvid), S.selected);
       render();
     } else if (act === "clear-selected") {
       S.selected.clear();
@@ -3902,10 +3960,6 @@ function bindEvents() {
     }
   });
   el.csvBtn.addEventListener("click", () => {
-    if (!S.items.length) {
-      toast("当前收藏夹没有视频可导出", true);
-      return;
-    }
     const title = folderTitle().replace(/[\\/:*?"<>|]/g, "_");
     BocDownload.text(`MoonDigest-${title}-${stamp(new Date(), false)}.csv`, buildCsv(), "text/csv;charset=utf-8");
   });
@@ -4138,7 +4192,7 @@ function onKey(e) {
   const map = {
     "?": () => el.helpDialog.showModal(),
     "/": () => el.searchInput.focus(),
-    i: () => openTags("batch")
+    i: () => (aiTagReason() ? toast(aiTagReason()) : openTags("batch"))
   };
   const nav = { j: 1, ArrowDown: 1, k: -1, ArrowUp: -1 };
   const cardKeys = { d: "unfav", s: "keep", t: "tag", e: "basket", q: "ask", x: "select", o: "open", Enter: "open" };

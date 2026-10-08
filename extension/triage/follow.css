@@ -25,9 +25,8 @@ body:not(.follow-mode) :is(.fw-side-slot, .follow-help) { display: none !importa
 .fw-bar .fw-groups { align-items: center; padding-left: 12px; border-left: 1px solid var(--border); }
 .fw-group-label { margin-right: 4px; color: var(--faint); font-size: var(--fs-xs); }
 .fw-bar-dyn { display: contents; }
-/* Row 3's right end: 全选这里的 N 个, then ✦ AI 打标签 (the same button as 收藏夹's tag row). */
+/* Row 3's right end: 标签管理 and ✦ AI 打标签 (the same buttons as 收藏夹's tag row). */
 .fw-tools { display: flex; align-items: center; gap: 8px; margin-left: auto; }
-.fw-tools .link { height: 32px; }
 .fw-side-slot { display: none; }
 .fw-side-select { height: 32px; max-width: 200px; font-weight: 600; }
 
@@ -121,7 +120,7 @@ a.fw-title:hover { background: none; color: var(--link); text-decoration: underl
 .fw-video .chips { align-items: center; min-height: 20px; }
 .fw-video .chip[data-pick] { cursor: pointer; }
 .fw-video .tag-plus { display: inline-flex; align-items: center; gap: 4px; height: 20px; padding: 0 6px; border: 1px dashed transparent; border-radius: 4px; color: var(--faint); text-decoration: none; }
-.fw-video .tag-plus:hover { border-color: var(--border-strong); color: var(--link); background: none; }
+.fw-video .tag-plus:hover { border-color: var(--border-strong); color: var(--text); background: none; }
 .fw-video:not(:hover, :focus-within, .fw-target) .tag-plus { visibility: hidden; }
 @media (hover: none) { .fw-video .tag-plus { visibility: visible; } }
 .fw-video.fw-target:not(.playing) { outline: 2px dashed var(--border-strong); outline-offset: 2px; }

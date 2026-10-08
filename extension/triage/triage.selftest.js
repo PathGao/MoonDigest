@@ -243,8 +243,7 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   await t.undo();
   assert.deepStrictEqual(plain(store[t.K.basket].map((x) => x.bvid)), ["BVgone", "BV3"], "U undoes 清空 in order");
 
-  // 批量导出 scopes: 播放列表 keeps its order and videos outside the folder; 逐个视频笔记 leaves invalid videos out,
-  // 一篇摘录 keeps them, marked.
+  // 批量导出 scopes: 逐个视频笔记 leaves invalid videos out, 一篇摘录 keeps them, marked.
   t.S.items.push({ ...item(4), invalid: true });
   t.S.itemMap.set("BV4", t.S.items[3]);
   t.S.basket.push({ bvid: "BV4" });
@@ -253,13 +252,14 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   t.S.selected.add("BV3");
   Object.assign(t.S, { tab: "none", titleRes: {}, analyses: { BVgone: { status: "done", oneLiner: "一句话", points: ["要点"] } }, notes: { BV3: { text: " 我的笔记 " } }, videoTags: {} });
   const scope = (s) => plain(t.writeScopeItems(s, true).map((it) => it.bvid));
-  assert.deepStrictEqual([scope("basket"), scope("selected"), scope("all"), scope("filter")], [["BVgone", "BV3"], ["BV3"], ["BV1", "BV2", "BV3"], ["BV1", "BV3"]]);
+  assert.deepStrictEqual([scope("selected"), scope("all"), scope("filter")], [["BV3"], ["BV1", "BV2", "BV3"], ["BV1", "BV3"]]);
   t.renderListHeader(t.visibleItems());
   assert.ok(t.el.listHeader.innerHTML.includes("已选中 1 个") && t.el.listHeader.innerHTML.includes("另有 1 个被筛选隐藏"), "the bar counts only what is listed");
-  assert.deepStrictEqual(plain(t.writeScopeItems("basket", false).map((it) => it.bvid)), ["BVgone", "BV3", "BV4"]);
-  const digest = t.buildMarkdown(t.writeScopeItems("basket", false));
+  assert.deepStrictEqual(plain(t.writeScopeItems("all", false).map((it) => it.bvid)), ["BV1", "BV2", "BV3", "BV4"]);
+  t.S.analyses.BV1 = { status: "done", oneLiner: "一句话", points: ["要点"] };
+  const digest = t.buildMarkdown(t.writeScopeItems("all", false));
   assert.ok(digest.includes("## [视频4](https://www.bilibili.com/video/BV4)\n\nUP：up · 已失效"), digest);
-  assert.ok(digest.includes("## [别的收藏夹](https://www.bilibili.com/video/BVgone)\n\n> 一句话\n\n- 要点"), digest);
+  assert.ok(digest.includes("## [视频1](https://www.bilibili.com/video/BV1)\n\nUP：up\n\n> 一句话\n\n- 要点"), digest);
   assert.ok(digest.includes("## [视频3](https://www.bilibili.com/video/BV3)\n\nUP：up\n\n备注：我的笔记"), digest);
   t.S.selected.clear();
 
@@ -389,10 +389,10 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   t.renderListHeader(t.visibleItems());
   assert.ok(!t.el.listHeader.innerHTML.includes("（AI") && !t.el.listHeader.innerHTML.includes("按 X 或全选后"), "待定 has no verdict-scoped button and no hint");
   // 全选 selects what this tab lists; the selection then offers 移动/复制 with 保留 ones included.
-  assert.ok(t.el.listHeader.innerHTML.includes("全选这里的 1 个"));
+  assert.ok(t.el.classFilter.innerHTML.includes('aria-checked="false"') && t.el.classFilter.innerHTML.includes("全选 1 个"));
   t.S.selected.add("BV200");
   t.renderListHeader(t.visibleItems());
-  assert.ok(!t.el.listHeader.innerHTML.includes("全选这里") && t.el.listHeader.innerHTML.includes("移动/复制选中的 1 个"));
+  assert.ok(t.el.classFilter.innerHTML.includes('aria-checked="true"') && t.el.listHeader.innerHTML.includes("移动/复制选中的 1 个"));
   t.S.selected.clear();
   assert.strictEqual(t.batchList("keep").length, 0, "without a selection 待定 has no verdict-scoped batch");
   t.S.selected.add("BV200");
@@ -435,9 +435,9 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   t.S.group.stop = true;
   assert.strictEqual(t.activityState().actLabel, "暂停中");
   t.renderStatus();
-  assert.ok(t.el.activity.innerHTML.includes('aria-label="暂停中" disabled>暂停中</button>'), t.el.activity.innerHTML);
+  assert.ok(t.el.activity.innerHTML.includes('aria-label="暂停中" disabled title="当前这一步做完就暂停" aria-description="当前这一步做完就暂停">暂停中</button>'), t.el.activity.innerHTML);
   t.renderListHeader(t.visibleItems());
-  assert.ok(t.el.listHeader.innerHTML.includes('aria-label="暂停中 0/1" disabled>暂停中 0/1</button>'), t.el.listHeader.innerHTML);
+  assert.ok(t.el.listHeader.innerHTML.includes('aria-label="暂停中 0/1" disabled title="当前视频细看完就暂停" aria-description="当前视频细看完就暂停">暂停中 0/1</button>'), t.el.listHeader.innerHTML);
   t.S.group = null;
   assert.deepStrictEqual(plain(t.activityState()), { text: "标题粗看中 2/5", done: 2, total: 5, act: "stage1", actLabel: "暂停粗看", stopping: false, warn: false });
   Object.assign(t.S, { throttleUntil: Date.now() + 61000, throttleLabel: "B站限流" });
@@ -462,6 +462,10 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   assert.deepStrictEqual(plain(t.staleCoarse().map((it) => it.bvid)), ["BV200"]);
   assert.deepStrictEqual(plain(t.staleFine().map((it) => it.bvid)), ["BV203"]);
   t.S.tab = "fine";
+  t.renderListHeader(t.visibleItems());
+  // G10: the redo button counts only what is listed; filtered out, it stays, disabled, and says why.
+  assert.ok(t.el.listHeader.innerHTML.includes('aria-label="按新标准重新细看 0 个" disabled title="当前筛选下没有要重新细看的视频"'));
+  t.S.classFilter.fine = "all";
   t.renderListHeader(t.visibleItems());
   assert.ok(t.el.listHeader.innerHTML.includes("按新标准重新细看 1 个"));
   // A redo batch counts by what it has redone, not by whether a result exists.
@@ -506,7 +510,8 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   const backup = plain(await t.buildBackup());
   assert.deepStrictEqual(backup.folders, { 7: { title: "夹", snapshot: { bvids: ["BVa"] }, decisions: { BVa: { action: "keep" } } } });
   assert.strictEqual(backup.schemaVersion, 3);
-  assert.deepStrictEqual([backup.tags, backup.folderCriteria, backup.videoTags, backup.basket], [[{ id: "t1", name: "AI", color: "#111" }], { 7: "只留干货" }, { BVa: ["t1"] }, [{ bvid: "BVa" }]]);
+  assert.deepStrictEqual([backup.tags, backup.folderCriteria, backup.videoTags], [[{ id: "t1", name: "AI", color: "#111" }], { 7: "只留干货" }, { BVa: ["t1"] }]);
+  assert.ok(!("basket" in backup), "播放列表 is not backed up");
   assert.ok(!("schemes" in backup) && !("folderScheme" in backup) && !/"old"/.test(JSON.stringify(backup)), "old scheme keys are not exported");
   assert.deepStrictEqual([backup.titleResults, backup.analyses], [{ BVa: { verdict: "keep" } }, { BVa: { status: "done" } }]);
   assert.deepStrictEqual(backup.notes, { BVa: { text: "n", updatedAt: 1 } });
@@ -533,12 +538,13 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   assert.deepStrictEqual(plain(sent.at(-1)), { type: "triage-classify-titles", items: [{ bvid: "BV500", title: "视频500", upper: "up", duration: 61 }], criteria: "只留干货", folder: { title: "干货", intro: "学习用" } });
   t.S.tab = "none";
   t.renderListHeader(t.visibleItems());
-  assert.ok(t.el.listHeader.innerHTML.includes("判断标准：只留干货"));
+  // 判断标准 written: the button, its text in the tooltip, no dot. Not written: the warn dot and the label says so.
+  assert.ok(t.el.listHeader.innerHTML.includes('title="判断标准：只留干货" aria-label="判断标准">') && !t.el.listHeader.innerHTML.includes("dot-warn"));
   t.el.criteriaInput = { value: "  " };
   t.saveCriteria();
   assert.deepStrictEqual(plain(store[t.K.folderCriteria]), {});
   t.renderListHeader(t.visibleItems());
-  assert.ok(t.el.listHeader.innerHTML.includes("未设判断标准") && t.el.listHeader.innerHTML.includes(">写判断标准<"));
+  assert.ok(t.el.listHeader.innerHTML.includes('aria-label="判断标准（还没写）"') && t.el.listHeader.innerHTML.includes('判断标准<i class="dot-warn"'));
   // Clearing the 判断标准 offered 重新粗看 (askConfirm says yes here); stop it before the next block swaps the state.
   await new Promise((r) => setTimeout(r, 0));
   t.S.stage1.stop = true;
@@ -679,7 +685,7 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     // The viewer line: the playing video's tags and 「+ 标签 T」, which opens the picker under it.
     t.S.viewing = "BV710";
     t.renderViewerTags();
-    assert.ok(!t.el.viewerTags.hidden && t.el.viewerTags.innerHTML.includes("data-vtag>p0</span>") && t.el.viewerTags.innerHTML.includes('class="link tag-plus" data-vtag'));
+    assert.ok(!t.el.viewerTags.hidden && t.el.viewerTags.innerHTML.includes("data-vtag>p0</span>") && t.el.viewerTags.innerHTML.includes('class="quiet tag-plus" data-vtag'));
     po = null;
     vm.runInContext("tagPlaying()", ctx);
     assert.deepStrictEqual([po?.anchor, plain(po?.targets)], ["#viewerTags .tag-plus", ["BV710"]]);
@@ -804,9 +810,9 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   t.S.query = "";
   assert.strictEqual(t.createTag("新"), null, "no new tag outside a folder");
   t.renderTagManager();
-  assert.ok(t.el.tagsRows.innerHTML.includes("请先打开一个具体收藏夹") && t.el.addTagBtn.disabled);
+  assert.ok(t.el.tagsRows.innerHTML.includes("先打开一个具体收藏夹") && t.el.addTagBtn.disabled);
   t.renderAiForm();
-  assert.ok(t.el.aiTagsPreview.innerHTML.includes("请先打开一个具体收藏夹"));
+  assert.ok(t.el.aiTagsPreview.innerHTML.includes("先打开一个具体收藏夹"));
   const pickNames = (b, q = "") => (t.openPicker(b), plain(t.TagPicker.rowsOf(po.tags(), q, po.canCreate).map((o) => (o.create ? `+${o.create}` : o.tag.id))));
   assert.deepStrictEqual(pickNames("BV1"), ["xa"]);
   assert.deepStrictEqual(pickNames("BV3"), ["xa", "xb", "yb"]);
@@ -1060,7 +1066,7 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     const html = t.cardHtml({ ...item(1), removedAt: at, from: [{ id: "A", title: "甲", at: 1 }, { id: "B", title: "乙", at: 3 }, { id: "C", title: "丙", at: 5 }] }, true, "");
     assert.ok(html.includes('data-select="BV1"') && html.includes('class="danger" data-clean="BV1"') && !html.includes('data-act="keep"') && !html.includes('data-act="unfav"'), html);
     assert.ok(html.includes('data-act="basket"') && html.includes('data-act="ask"') && !html.includes('data-act="tag"'), "已出分拣范围 keeps 播放列表 and 问 AI, not 标签");
-    // 保留 shows here too, and the table carries the note, 播放列表, origin and why it left.
+    // 保留 shows here too, and the table carries the note, origin and why it left (not 播放列表).
     t.S.decisions = { BV1: { action: "keep", at } };
     assert.ok(t.cardHtml({ ...item(1), removedAt: at }, true, "").includes(">已保留<"));
     const savedNotes = t.S.notes, savedBasket = t.S.basket;
@@ -1068,7 +1074,8 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     t.S.items = [{ ...item(1), removedAt: at, from: [{ id: "A", title: "甲", at: 1 }], inFolder: null }];
     const [head, row] = t.buildCsv().replace(/^\uFEFF/, "").split("\r\n");
     const col = (name) => row.split(",")[head.split(",").indexOf(name)];
-    assert.deepStrictEqual([col("备注"), col("播放列表"), col("我的处理"), col("原在"), col("离开原因")], ["我的话", "在播放列表", "保留", "甲", "10月5日 17:25 已取消收藏"]);
+    assert.deepStrictEqual([col("备注"), col("我的处理"), col("原在"), col("离开原因")], ["我的话", "保留", "甲", "10月5日 17:25 已取消收藏"]);
+    assert.ok(!head.includes("播放列表"));
     t.S.items = [{ ...item(1), cover: "https://i0.hdslb.com/c.jpg", pubdate: 1759622400, favTime: 1759708800, intro: "简介文字" }];
     const [, row2] = t.buildCsv().replace(/^\uFEFF/, "").split("\r\n");
     const col2 = (name) => row2.split(",")[head.split(",").indexOf(name)];
@@ -1916,6 +1923,74 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     assert.ok(undone === 1 && t.S.undo.length === 1, "a step that asks and is declined stays");
     t.askConfirm = ask;
     t.MoonTriage.setModeKeys(null);
+  }
+
+  // G10: 标题粗看 counts and sends exactly the 未分析 videos listed (search applied); filtered to none, it is disabled
+  // and says so.
+  {
+    openFake("G", [item(701), { ...item(702), title: "数学课" }, { ...item(703), title: "数学题" }]);
+    t.S.folders = t.S.allFolders = [{ id: "G", title: "甲" }];
+    Object.assign(t.S, { tab: "none", titleRes: {}, analyses: {}, query: "数学", stage1: { running: false, stop: false, done: 0, total: 0 }, group: null });
+    t.S.stage1Skip.clear();
+    Object.assign(t.S.settings, { triageIntervalSec: 0, triageTitleBatchSize: 30 });
+    t.renderListHeader(t.visibleItems());
+    assert.ok(t.el.listHeader.innerHTML.includes("标题粗看这 2 个"), t.el.listHeader.innerHTML);
+    let sentBvids = [];
+    handlers["triage-classify-titles"] = (m) => ((sentBvids = m.items.map((x) => x.bvid)), { ok: true, data: { results: {} } });
+    await t.runStage1();
+    assert.deepStrictEqual(plain(sentBvids), plain(t.visibleItems().map((it) => it.bvid)), "the run sends the listed ones");
+    assert.deepStrictEqual(plain(sentBvids), ["BV702", "BV703"]);
+    t.S.query = "没有这个词";
+    t.renderListHeader(t.visibleItems());
+    assert.ok(t.el.listHeader.innerHTML.includes('aria-label="标题粗看" disabled title="当前筛选下没有要粗看的视频"'), t.el.listHeader.innerHTML);
+    t.S.query = "";
+    // N1: another AI run first.
+    t.S.group = { bvids: ["x"], stop: false, mediaId: "other" };
+    t.renderListHeader(t.visibleItems());
+    assert.ok(t.el.listHeader.innerHTML.includes('disabled title="细看还在跑，等它完成"'), t.el.listHeader.innerHTML);
+    t.S.group = null;
+    // G1 / G7: ✦ AI 打标签 needs one folder with videos, unless a run or a proposal waits.
+    t.aiTagReason = () => vm.runInContext("aiTagReason()", ctx);
+    assert.strictEqual(t.aiTagReason(), "");
+    t.S.mediaId = "all";
+    assert.strictEqual(t.aiTagReason(), "标签按收藏夹分开，先打开一个具体收藏夹");
+    openFake("E", []);
+    assert.strictEqual(t.aiTagReason(), "这里没有视频");
+    t.S.ai.running = true;
+    assert.strictEqual(t.aiTagReason(), "", "while it runs it opens the progress");
+    t.S.ai.running = false;
+  }
+
+  // U8: a B站 batch asks in a dialog that starts with 在 B站 and whose button carries the count.
+  {
+    openFake("C", [item(801), item(802)]);
+    const asked = [];
+    t.askConfirm = async (...a) => (asked.push(a), false);
+    await t.batchUnfav(t.S.items);
+    assert.deepStrictEqual(plain(asked[0].slice(0, 1).concat(asked[0][2])), ["在 B站取消收藏这 2 个视频？", "取消收藏 2 个"]);
+    const ask = t.batchUndoAsk({ kind: "unfavMany", items: t.S.items });
+    assert.ok(ask[0].startsWith("在 B站") && ask[2] === "重新收藏 2 个", ask);
+    t.askConfirm = async () => true;
+  }
+
+  // 标签… on a selection opens the shared picker for the selected videos; the save is one U step.
+  {
+    openFake("M", [item(901), item(902)]);
+    Object.assign(t.S, { tags: [{ id: "ma", name: "甲", color: "#111", folder: "M" }, { id: "mb", name: "乙", color: "#222", folder: "M" }], videoTags: { BV901: ["ma"] } });
+    pickWith(["BV901", "BV902"], (sets) => t.TagPicker.toggle(sets, "mb"));
+    assert.deepStrictEqual(plain(po.targets), ["BV901", "BV902"]);
+    assert.deepStrictEqual(plain(t.S.videoTags), { BV901: ["ma", "mb"], BV902: ["mb"] });
+    assert.strictEqual(t.S.undo.length, 1, "one step for the batch");
+    // 2+ videos: U asks first, like the other batch steps; declined, nothing changes.
+    const ask = t.askConfirm;
+    let asked = 0;
+    t.askConfirm = async () => (asked++, false);
+    await t.undo();
+    assert.ok(asked === 1 && t.S.undo.length === 1 && t.S.videoTags.BV902, "declined: the batch stays");
+    t.askConfirm = ask;
+    await t.undo();
+    assert.deepStrictEqual(plain(t.S.videoTags), { BV901: ["ma"] });
+    Object.assign(t.S, { tags: [], videoTags: {} });
   }
 
   console.log("triage selftest: all passed");

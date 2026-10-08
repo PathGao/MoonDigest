@@ -115,10 +115,11 @@
   const menuItem = (attrs, label, sub) => `<button type="button" ${attrs}>${esc(label)}<small>${esc(sub)}</small></button>`;
   const BACKUP_ITEM = menuItem('data-backup aria-label="下载完整备份 JSON"', "完整备份 (JSON)", "收藏夹和关注一起，换电脑时用");
 
-  // The running-state pill's inside: text, a bar when done/total is known, and one button (btn = { attrs, label, disabled }).
+  // The running-state pill's inside: text, a bar when done/total is known, and one button (btn = { attrs, label, reason };
+  // a reason disables it).
   function activityHtml({ text, done = 0, total = 0, btn = null }) {
     const bar = total ? `<span class="activity-bar" aria-hidden="true"><i style="width:${Math.round((done / total) * 100)}%"></i></span>` : "";
-    const b = btn ? `<button type="button" ${btn.attrs} aria-label="${esc(btn.label)}"${btn.disabled ? " disabled" : ""}>${esc(btn.label)}</button>` : "";
+    const b = btn ? `<button type="button" ${btn.attrs} aria-label="${esc(btn.label)}"${reasonAttrs(btn.reason)}>${esc(btn.label)}</button>` : "";
     return `<span class="activity-text">${esc(text)}</span>${bar}${b}`;
   }
   // Draws the pill from state ({ text, done, total, btn, warn }: warn is amber, for a wait); null / false hides it.
@@ -160,10 +161,35 @@
     e.close.addEventListener("click", () => setSync(e, null));
   }
 
+  // A control that cannot be used says why: the tooltip, and aria-description for screen readers. Without a reason it
+  // is enabled and keeps its usual tooltip (title).
+  const reasonAttrs = (reason, title = "") =>
+    reason ? ` disabled title="${esc(reason)}" aria-description="${esc(reason)}"` : title ? ` title="${esc(title)}"` : "";
+  // The same for a control already on the page.
+  function setReason(node, reason, title = "") {
+    node.disabled = Boolean(reason);
+    node.title = reason || title;
+    if (reason) node.setAttribute("aria-description", reason);
+    else node.removeAttribute("aria-description");
+  }
+  // A --warn dot after a button's label: something is not set up yet, and nothing is blocked by it.
+  const WARN_DOT = '<i class="dot-warn" aria-hidden="true"></i>';
+
   // 标签管理 and ✦ AI 打标签 at the right end of the tag row, next to the tags they act on (in 收藏夹 those are the open
-  // folder's, so they do not sit in the sidebar). state is 「 · 运行中」 or 「 · 待确认」.
-  const tagButtons = ({ manageAttrs, aiAttrs, state = "" }) =>
-    `<span class="tags-acts"><button type="button" class="act-btn" ${manageAttrs}>标签管理</button><button type="button" class="act-btn" ${aiAttrs}>${AI_SPARK}AI 打标签${esc(state)}</button></span>`;
+  // folder's, so they do not sit in the sidebar). state is 「 · 运行中」 or 「 · 待确认」. noTags puts the dot on 标签管理.
+  const tagButtons = ({ manageAttrs, aiAttrs, state = "", manageReason = "", aiReason = "", noTags = false }) =>
+    `<span class="tags-acts"><button type="button" class="act-btn" ${manageAttrs}${noTags && !manageReason ? ' aria-label="标签管理（还没有标签）"' : ""}${reasonAttrs(manageReason)}>标签管理${noTags && !manageReason ? WARN_DOT : ""}</button><button type="button" class="act-btn" ${aiAttrs}${reasonAttrs(aiReason)}>${AI_SPARK}AI 打标签${esc(state)}</button></span>`;
+
+  // Row 3's 全选: a checkbox drawn as a button, for what is listed now (n, of which picked are selected). Unchecked or
+  // mixed: a click selects them all; checked: it deselects them. Selections hidden by filters are not its business.
+  const selectAllState = (n, picked) => (!n || !picked ? "false" : picked >= n ? "true" : "mixed");
+  const selectAllBox = (attrs, n, picked) =>
+    `<button type="button" role="checkbox" class="act-btn sel-all" ${attrs} aria-checked="${selectAllState(n, picked)}"${reasonAttrs(n ? "" : "这里没有列出可选的")}><span class="box" aria-hidden="true"></span>全选${n ? ` ${n} 个` : ""}</button>`;
+  // The click: every listed id selected → deselect them, else select them all (sel is a Set, changed in place).
+  function toggleAll(ids, sel) {
+    const every = ids.every((id) => sel.has(id));
+    for (const id of ids) every ? sel.delete(id) : sel.add(id);
+  }
   // The sidebar's foot: the mode's own settings.
   const sideFoot = ({ settingsAttrs, settingsLabel }) =>
     `<div class="side-foot"><button type="button" class="side-item side-settings" ${settingsAttrs}>${ICON.gear}${esc(settingsLabel)}</button></div>`;
@@ -192,7 +218,7 @@
     </div>`;
   // 「+ 标签 T」 on 动态 cards and the viewer line; attrs say what it tags.
   const tagPlusBtn = (attrs, label) =>
-    `<button type="button" class="link tag-plus" ${attrs} aria-label="${esc(label)}">+ 标签 <kbd class="k-faint" aria-hidden="true">T</kbd></button>`;
+    `<button type="button" class="quiet tag-plus" ${attrs} aria-label="${esc(label)}">+ 标签 <kbd class="k-faint" aria-hidden="true">T</kbd></button>`;
   // T / Esc forwarded by viewer-frame.js while focus is in the player: only from the viewer's own frame and B站's origin.
   function viewerKeyFrom(e, frameWin) {
     const ok = frameWin && e.source === frameWin && e.origin === "https://www.bilibili.com" && e.data?.type === "mdg-viewer-key";
@@ -305,5 +331,5 @@
     return [...tally.values()].sort((a, b) => (a.cls === "remove") - (b.cls === "remove") || b.n - a.n);
   }
 
-  globalThis.TriageUi = { esc, pad, fmtDate, fmtDuration, fmtCount, cleanTagName, plainClick, img, toCsv, cardTagChip, syncedText, headMeta, titleHtml, ICON, AI_SPARK, byValue, dirWords, sortControl, filterBtn, searchBox, resultCount, rowButtons, menuItem, BACKUP_ITEM, activityHtml, setActivity, waitText, syncPill, setSync, bindSync, tagButtons, sideFoot, emptyState, fillSetRows, mergeAiBatch, aiChanges, previewId, aiTally, TAG_COLORS, nextTagColor, cycleTagColor, tagNameError, deleteTagAsk, tagRowHtml, tagPlusBtn, viewerKeyFrom };
+  globalThis.TriageUi = { esc, pad, fmtDate, fmtDuration, fmtCount, cleanTagName, plainClick, img, toCsv, cardTagChip, syncedText, headMeta, titleHtml, ICON, AI_SPARK, byValue, dirWords, sortControl, filterBtn, searchBox, resultCount, rowButtons, menuItem, BACKUP_ITEM, activityHtml, reasonAttrs, setReason, WARN_DOT, selectAllState, selectAllBox, toggleAll, setActivity, waitText, syncPill, setSync, bindSync, tagButtons, sideFoot, emptyState, fillSetRows, mergeAiBatch, aiChanges, previewId, aiTally, TAG_COLORS, nextTagColor, cycleTagColor, tagNameError, deleteTagAsk, tagRowHtml, tagPlusBtn, viewerKeyFrom };
 })();

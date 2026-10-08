@@ -144,4 +144,36 @@ for (const file of ["triage.js", "follow.js"]) {
   assert.ok(UI.tagPlusBtn('data-x="1"', "给 <b> 打标签").includes('data-x="1" aria-label="给 &lt;b&gt; 打标签">+ 标签 <kbd'));
 }
 
+// 全选: none / some / all of what is listed → unchecked / mixed / checked. Nothing listed: 「全选」 with no number, disabled
+// with a reason. A click deselects only when every listed one is selected, and never touches what is not listed.
+{
+  assert.deepStrictEqual([UI.selectAllState(3, 0), UI.selectAllState(3, 1), UI.selectAllState(3, 3), UI.selectAllState(0, 0)], ["false", "mixed", "true", "false"]);
+  const box = UI.selectAllBox('data-x="all"', 3, 1);
+  assert.ok(box.includes('role="checkbox"') && box.includes('aria-checked="mixed"') && box.includes("全选 3 个") && !box.includes("disabled"), box);
+  const none = UI.selectAllBox('data-x="all"', 0, 0);
+  assert.ok(none.includes(">全选</button>") && none.includes('disabled title="这里没有列出可选的" aria-description="这里没有列出可选的"'), none);
+  const sel = new Set(["hidden", "a"]);
+  UI.toggleAll(["a", "b"], sel);
+  assert.deepStrictEqual([...sel].sort(), ["a", "b", "hidden"], "some selected → all listed selected");
+  UI.toggleAll(["a", "b"], sel);
+  assert.deepStrictEqual([...sel], ["hidden"], "all selected → listed ones deselected, the hidden one stays");
+}
+
+// A disabled control says why (tooltip + aria-description); an enabled one keeps its usual tooltip.
+{
+  assert.strictEqual(UI.reasonAttrs("", "提示"), ' title="提示"');
+  assert.strictEqual(UI.reasonAttrs("", ""), "");
+  assert.strictEqual(UI.reasonAttrs("没有<视频>", "提示"), ' disabled title="没有&lt;视频&gt;" aria-description="没有&lt;视频&gt;"');
+  const attrs = {};
+  const node = { setAttribute: (k, v) => (attrs[k] = v), removeAttribute: (k) => delete attrs[k] };
+  UI.setReason(node, "作用范围里没有视频");
+  assert.deepStrictEqual([node.disabled, node.title, attrs["aria-description"]], [true, "作用范围里没有视频", "作用范围里没有视频"]);
+  UI.setReason(node, "");
+  assert.deepStrictEqual([node.disabled, node.title, attrs["aria-description"]], [false, "", undefined]);
+  // 标签管理: the warn dot while there are no tags, not when it is disabled anyway.
+  assert.ok(UI.tagButtons({ manageAttrs: "data-m", aiAttrs: "data-a", noTags: true }).includes('aria-label="标签管理（还没有标签）">标签管理<i class="dot-warn"'));
+  const off = UI.tagButtons({ manageAttrs: "data-m", aiAttrs: "data-a", noTags: true, manageReason: "先打开", aiReason: "先打开" });
+  assert.ok(!off.includes("dot-warn") && (off.match(/disabled title="先打开"/g) || []).length === 2, off);
+}
+
 console.log("shared selftest: all passed");
