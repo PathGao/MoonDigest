@@ -742,20 +742,19 @@ async function init() {
   bindEvents();
   // Read up front: sidePanel.open must run inside the click's user gesture, before any await.
   chrome.tabs.getCurrent().then((tab) => (ownTabId = tab?.id));
-  const [{ tags, videoTags, folderCriteria }, kept, basket, notes, settingsResp] = await Promise.all([
+  const [{ tags, videoTags, folderCriteria }, kept, basket, notes, settingsResp, aiHistory, aiRecent, sortBy, readAt] = await Promise.all([
     loadTagsAndCriteria().then(async (r) => ({ ...r, ...(await loadTagsByFolder(r)) })),
     loadKept(),
     storeGet(K.basket, []),
     storeGet(K.notes, {}),
-    send({ type: "triage-settings-get" })
+    send({ type: "triage-settings-get" }),
+    storeGet(K.aiHistory, []),
+    storeGet(K.aiRecent, {}),
+    storeGet(K.sort, {}),
+    storeGet(K.readAt, {})
   ]);
-  Object.assign(S, { tags, videoTags, folderCriteria, kept });
+  Object.assign(S, { tags, videoTags, folderCriteria, kept, notes, aiHistory, aiRecent, sortBy, readAt });
   S.basket = basket.map(({ bvid, title, cover, upper, duration, opened }) => ({ bvid, title, cover, upper, duration, ...(opened ? { opened: true } : {}) }));
-  S.notes = notes;
-  S.aiHistory = await storeGet(K.aiHistory, []);
-  S.aiRecent = await storeGet(K.aiRecent, {});
-  S.sortBy = await storeGet(K.sort, {});
-  S.readAt = await storeGet(K.readAt, {});
   if (settingsResp.ok) Object.assign(S.settings, settingsResp.data);
   renderTagLimit();
   const syncObsidian = ({ obsidianEnabled }) => document.body.classList.toggle("obsidian-off", obsidianEnabled !== true);

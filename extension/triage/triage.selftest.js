@@ -1919,6 +1919,9 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   assert.ok(!t.pointerMoved({ x: 10, y: 10 }, 10, 10), "same position is not movement");
   assert.ok(t.pointerMoved({ x: 10, y: 10 }, 10, 11), "a changed coordinate is movement");
 
+  // The page opens on one round of storage reads: init awaits none of them one after another.
+  assert.ok(!/= await storeGet\(/.test(vm.runInContext("init.toString()", ctx)), "init reads storage in its Promise.all");
+
   // passFilter runs per video several times a render: the 「AI 刚打的」 set and the search words are built once per change.
   {
     const [aiRecentSet, queryWords] = vm.runInContext("[aiRecentSet, queryWords]", ctx);
