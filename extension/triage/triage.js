@@ -340,7 +340,7 @@ $("favRowTools").insertAdjacentHTML("beforeend", UI.searchBox("searchInput", "se
 }));
 $("favSync").outerHTML = UI.syncPill("sync");
 $("favSide").insertAdjacentHTML("beforeend", UI.sideFoot({ settingsAttrs: 'id="settingsBtn" aria-label="收藏夹设置"', settingsLabel: "收藏夹设置" }));
-const REFRESH_EMPTY = `<button type="button" data-refresh>${UI.ICON.refresh}刷新</button>`;
+const REFRESH_EMPTY = UI.refreshEmpty("data-refresh");
 const el = {};
 [
   "folderSelect", "folderList", "folderHead", "settingsHeading", "settingsFoldersHeading", "settingsAi", "settingsFirstRunHint", "searchInput", "searchCount", "refreshBtn", "activity", "settingsBtn", "helpBtn",
@@ -1676,8 +1676,7 @@ function renderFolderList() {
       const m = /^(.*?)(?: \((\d+)\))?$/.exec(o.textContent);
       const real = o.value !== ALL && o.value !== REMOVED;
       const thumb = real ? folderThumb(o.value, o.dataset.cover) : "";
-      // A count of 0 stays, dimmed, as every filter's (DESIGN §4).
-      return `<button type="button" class="side-item${on ? " on" : ""}${m[2] === "0" ? " zero" : ""}" data-folder="${esc(o.value)}"${on ? ' aria-current="true"' : ""}${o.title ? ` title="${esc(o.title)}"` : ""}>${thumb}<span class="side-name">${esc(m[1])}</span>${m[2] ? `<span class="side-count">${m[2]}</span>` : ""}</button>`;
+      return UI.sideItem({ attrs: `data-folder="${esc(o.value)}"${o.title ? ` title="${esc(o.title)}"` : ""}`, label: m[1], count: m[2] == null ? null : Number(m[2]), on, pre: thumb });
     })
     .join("");
 }
@@ -1849,8 +1848,7 @@ function stateRowHtml(t = S.tab) {
   const invalidOn = S.kindFilter === "invalid";
   if (!removed && (invalidN || invalidOn)) groups.push(group("已失效", UI.filterBtn('data-kindfilter="invalid" class="st-danger" title="只看已失效的视频"', "已失效", invalidN, invalidOn)));
   const recentN = cnt("recent", (it) => aiRecentSet().has(it.bvid));
-  const recentTip = `最近一次 AI 打标签改动的视频，在卡片上逐个看，不对的按 T 改。\n${UI.AI_RECENT_RULES.map((r) => `· ${r}`).join("\n")}\n${UI.aiRecentUndo("视频")}`;
-  if (recentN || S.aiRecentFilter) groups.push(group("AI 刚打的", UI.filterBtn(`data-airecent title="${esc(recentTip)}"`, "AI 刚打的", recentN, S.aiRecentFilter, AI_SPARK) + UI.AI_RECENT_X("data-airecent-done"), " ai-recent"));
+  groups.push(UI.aiRecentChip({ attrs: "data-airecent", xAttrs: "data-airecent-done", n: recentN, on: S.aiRecentFilter, who: "视频" }));
   return groups.join("");
 }
 
@@ -1961,9 +1959,7 @@ function renderListHeader(list) {
   if (!all) html = UI.selectAllBox('data-head="select-all"', list.length, sel) + html;
   if (all) html = loadAllLine() + html;
   const hidden = S.selected.size - sel;
-  const selbar = S.selected.size
-    ? `<div class="selbar" role="toolbar" aria-label="选中的视频"><strong class="sel-count">已选中 ${sel} 个</strong>${hidden ? `<span class="muted">另有 ${hidden} 个被筛选隐藏</span>` : ""}<button type="button" class="quiet" data-head="clear-selected" aria-label="清空选中">清空选中</button><span class="sel-actions">${selActs}</span></div>`
-    : "";
+  const selbar = S.selected.size ? UI.selbar({ label: "选中的视频", n: sel, hidden, clearAttrs: 'data-head="clear-selected"', acts: selActs }) : "";
   el.classFilter.innerHTML = stateRowHtml(t);
   el.listHeader.innerHTML = `<div class="step-actions">${html}</div>${selbar}`;
 }
@@ -2082,7 +2078,7 @@ function renderList() {
     const empty = { none: "没有未分析的视频", coarse: "没有粗看完成的视频", fine: "没有细看完成的视频", done: "还没有处理过的视频" };
     const f = S.classFilter[S.tab];
     const filtered = S.finishedFilter || S.aiRecentFilter || S.kindFilter || S.tagState || S.tagFilter.size || (f && f !== "all");
-    const text = S.query.trim() ? "没有匹配搜索的视频" : filtered ? "没有符合筛选的视频" : empty[S.tab] || "这里没有视频";
+    const text = UI.noMatch(S.query, filtered, "视频") || empty[S.tab] || "这里没有视频";
     el.list.innerHTML = `<p class="empty">${text}</p>${recent}`;
     return;
   }
@@ -2366,10 +2362,8 @@ function batchUndoAsk(entry) {
   if (entry.kind === "mode") return entry.ask || null;
   const n = entry.kind === "keepMany" ? entry.bvids.length : entry.kind === "unfavMany" ? entry.items.length : entry.kind === "aiApply" ? entry.changes.length : entry.kind === "tagsMany" ? Object.keys(entry.prevs).length : 0;
   if (n < 2) return null;
-  if (entry.kind === "keepMany") return [`撤销批量保留？`, `<p>上一步保留了 ${n} 个视频，撤销后它们不再标为保留。</p>`, "撤销"];
-  if (entry.kind === "tagsMany") return UI.tagsUndoAsk(n, "视频");
   if (entry.kind === "unfavMany") return [`在 B站重新收藏这 ${n} 个视频？`, `<p>撤销上一步的批量取消收藏。</p>`, `重新收藏 ${n} 个`];
-  return [`撤销这次 AI 打标签？`, `<p>这次 AI 打标签改过的 ${n} 个视频，标签都改回 AI 打之前，包括你之后又改过的。</p>`, "撤销"];
+  return UI.undoAsk({ keepMany: "keep", tagsMany: "tags", aiApply: "ai" }[entry.kind], n, "视频");
 }
 
 async function undo() {

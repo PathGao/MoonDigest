@@ -448,10 +448,7 @@ function sideCount(id) {
   return id === "all" ? list.length : id === "special" ? list.filter((m) => rows.get(m).special).length : list.filter((m) => inGroup(m, D, id)).length;
 }
 function renderSide() {
-  const item = (id, pre = "") => {
-    const count = sideCount(id);
-    return `<button type="button" class="side-item${F.side === id ? " on" : ""}${count ? "" : " zero"}" data-side="${esc(id)}"${F.side === id ? ' aria-current="true"' : ""}>${pre}<span class="side-name">${esc(sideLabel(id))}</span><span class="side-count">${count}</span></button>`;
-  };
+  const item = (id, pre = "") => UI.sideItem({ attrs: `data-side="${esc(id)}"`, label: sideLabel(id), count: sideCount(id), on: F.side === id, pre });
   side.innerHTML = `<div class="side-head">UP 主</div><div class="folder-list">${item("all")}${item("special", '<span class="star-mark" aria-hidden="true">★</span>')}</div>${
     D.groups.length
       ? `<hr><div class="side-head">B站 分组</div><div class="folder-list">${D.groups.map((g) => item(`g:${g.id}`)).join("")}</div>
@@ -547,7 +544,6 @@ const sideSelect = () =>
 // Row 3's 未打标签 / 已打标签 (prefix 「UP 」 in 视频投稿, where it goes by the video's UP).
 const tagStateGroup = (counts, prefix = "") =>
   UI.stateGroup("按有没有标签", [["untagged", "未打标签"], ["tagged", "已打标签"]].map(([k, label]) => UI.filterBtn(`data-fw-tagstate="${k}"`, prefix + label, counts[k], F.tagState === k)).join(""));
-const AI_RECENT_TIP = "最近一次 AI 打标签改动的 UP 主，在卡片上逐个看，不对的点卡片上的标签改。\n点 ×：不再标出，标签不变。再打一次：换成新的一批。";
 // Row 3 of UP 主: 全部 | 更新状态 | 未打标签 已打标签 | ✦ AI 刚打的 (only while there is one). 待查 always shows.
 function stateRowUps(counts) {
   const anyOn = F.status || F.tagState || F.recentFilter;
@@ -556,7 +552,7 @@ function stateRowUps(counts) {
     UI.stateGroup("更新状态", STATUS.slice(1).map(([id, label]) => UI.filterBtn(`data-status="${id}"${id === "stale" ? ` title="慢更或断更 · 待查：${cfg.slowDays} 天里没在视频投稿里出现，查完投稿才知道是哪种"` : ""}`, label, counts[id] || 0, F.status === id)).join("")),
     tagStateGroup(counts)
   ];
-  if (counts.recent || F.recentFilter) out.push(UI.stateGroup("AI 刚打的", UI.filterBtn(`data-fw="recent" title="${esc(AI_RECENT_TIP)}"`, "AI 刚打的", counts.recent, F.recentFilter, AI_SPARK) + UI.AI_RECENT_X('data-fw="recent-done"'), " ai-recent"));
+  out.push(UI.aiRecentChip({ attrs: 'data-fw="recent"', xAttrs: 'data-fw="recent-done"', n: counts.recent, on: F.recentFilter, who: "UP 主" }));
   return out.join("");
 }
 // Row 4: the tags listed UP 主 (or videos) have, or that are on, with counts; several = AND.
@@ -598,7 +594,7 @@ function renderUps() {
   const scroll = E.list.scrollTop;
   let body;
   if (!D.list && F.side !== "gone") body = emptyHtml();
-  else if (!list.length) body = `<p class="empty">${F.side === "gone" && !Object.keys(D.gone).length ? "还没取消关注过谁" : F.q.trim() ? "没有匹配搜索的 UP 主" : "没有符合筛选的 UP 主"}</p>`;
+  else if (!list.length) body = `<p class="empty">${F.side === "gone" && !Object.keys(D.gone).length ? "还没取消关注过谁" : UI.noMatch(F.q, true, "UP 主")}</p>`;
   else body = list.map(upCard).join("");
   E.list.className = "fw-list";
   E.list.innerHTML = hint + body;
@@ -608,7 +604,7 @@ function renderUps() {
 
 function emptyHtml() {
   const j = D.jobs || {};
-  const act = j.running ? `<p class="muted" aria-busy="true">刷新中…读完就显示在这里</p>` : `<button type="button" class="primary" data-fw="sync">${UI.ICON.refresh}刷新</button>`;
+  const act = j.running ? `<p class="muted" aria-busy="true">刷新中…读完就显示在这里</p>` : UI.refreshEmpty('data-fw="sync"');
   return UI.emptyState("还没有关注数据", "先从 B站读你的关注列表，再翻视频投稿看谁最近发过视频，里面没出现的人再一个个查投稿。只读，不改 B站。", act);
 }
 
@@ -685,7 +681,7 @@ function renderSel() {
       btn("special-on", `★ 设为特别关注 ${nOf(true)} 个`, busy || none || specialWhy(sel, true)) +
       btn("special-off", `取消特别关注 ${nOf(false)} 个`, busy || none || specialWhy(sel, false)) +
       btn("unfollow", `取消关注选中的 ${n} 个`, busy || none, "danger");
-  E.sel.innerHTML = `<div class="selbar" role="toolbar" aria-label="选中的 UP 主"><strong class="sel-count">已选中 ${n} 个</strong>${hidden ? `<span class="muted">另有 ${hidden} 个被筛选隐藏</span>` : ""}<button type="button" class="quiet" data-fw="select-none">清空选中</button><span class="sel-actions">${acts}</span></div>`;
+  E.sel.innerHTML = UI.selbar({ label: "选中的 UP 主", n, hidden, clearAttrs: 'data-fw="select-none"', acts });
 }
 
 // ----- 视频投稿 -----
@@ -1111,7 +1107,7 @@ async function pickClosed(changes) {
   if (changes.length) {
     const before = tagsOf(D.map, changes.map((c) => c.key));
     await setTagMap(map);
-    pushTagUndo(before, "标签修改", { ask: changes.length > 1 ? UI.tagsUndoAsk(changes.length, "UP 主") : null });
+    pushTagUndo(before, "标签修改", { ask: changes.length > 1 ? UI.undoAsk("tags", changes.length, "UP 主") : null });
   }
   if (F.mode !== "follow") return;
   render();
@@ -1286,8 +1282,7 @@ async function applyAi() {
   await setTagMap(map);
   if (changes.length) await write({ follow_ai_recent: recent });
   const n = changes.length;
-  const ask = n > 1 && [`撤销这次 AI 打标签？`, `<p>这次 AI 打标签改过的 ${n} 个 UP 主，标签都改回 AI 打之前，包括你之后又改过的。</p>`];
-  if (n || created.length) pushTagUndo(before, `AI 打标签（${n} 个 UP 主）`, { ask: ask || null, created, recentAt: n ? recent.at : 0 });
+  if (n || created.length) pushTagUndo(before, `AI 打标签（${n} 个 UP 主）`, { ask: n > 1 ? UI.undoAsk("ai", n, "UP 主") : null, created, recentAt: n ? recent.at : 0 });
   render();
   toast(`已应用 AI 建议：${n} 个 UP 主，列表只显示这些 · U 撤销`);
 }

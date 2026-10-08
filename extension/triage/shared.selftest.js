@@ -153,7 +153,7 @@ for (const [file, fns] of [["triage.js", ["mergeAiBatch", "aiChanges"]], ["follo
   assert.deepStrictEqual(plain(UI.editedTag(t0, "name", "乙", [{ name: "乙" }])), { why: "已有同名标签" });
   assert.strictEqual(UI.editedTag(t0, "color").tag.color, UI.TAG_COLORS[1]);
   assert.strictEqual(t0.rule, "旧说明", "the tag itself is not changed");
-  assert.deepStrictEqual([...UI.tagsUndoAsk(3, "UP 主")], ["撤销批量改标签？", "<p>上一步改了 3 个 UP 主的标签，撤销后都改回去。</p>", "撤销"]);
+  assert.deepStrictEqual([...UI.undoAsk("tags", 3, "UP 主")], ["撤销批量改标签？", "<p>上一步改了 3 个 UP 主的标签，撤销后都改回去。</p>", "撤销"]);
   assert.deepStrictEqual(plain(UI.withoutTag({ x: ["a", "b"], y: ["a"] }, "a")), { x: ["b"] });
   // follow.js's page part is not in a harness; it must go through the same functions.
   const follow = fs.readFileSync(path.join(__dirname, "follow.js"), "utf8");
@@ -192,7 +192,6 @@ for (const [file, fns] of [["triage.js", ["mergeAiBatch", "aiChanges"]], ["follo
   assert.ok(!off.includes("dot-warn") && (off.match(/disabled title="先打开"/g) || []).length === 2, off);
 }
 
-console.log("shared selftest: all passed");
 
 // The search box, both modes (收藏夹 and 关注 bind it the same way): Esc clears it; Esc on an empty box blurs it, so J / K
 // reach the cards again; Esc that belongs to the IME does nothing.
@@ -216,3 +215,54 @@ console.log("shared selftest: all passed");
   assert.ok(L.compositionend && L.input, "it filters through bindLive");
   for (const f of ["triage.js", "follow.js"]) assert.ok(fs.readFileSync(path.join(__dirname, f), "utf8").includes("UI.bindSearch("), `${f} binds its search with bindSearch`);
 }
+
+// The pieces both modes draw once, here: each mode calls the shared one and keeps no markup or wording of its own.
+{
+  const src = (f) => fs.readFileSync(path.join(__dirname, f), "utf8");
+  const [fav, fw] = [src("triage.js"), src("follow.js")];
+  const both = (needle, why) => [["triage.js", fav], ["follow.js", fw]].forEach(([f, s]) => assert.ok(s.includes(needle), `${f}: ${why}`));
+  const neither = (re, why) => [["triage.js", fav], ["follow.js", fw]].forEach(([f, s]) => assert.ok(!re.test(s), `${f}: ${why}`));
+
+  // U's confirm: the same words in both units.
+  assert.deepStrictEqual([...UI.undoAsk("ai", 3, "UP 主")], ["撤销这次 AI 打标签？", "<p>这次 AI 打标签改过的 3 个 UP 主，标签都改回 AI 打之前，包括你之后又改过的。</p>", "撤销"]);
+  assert.deepStrictEqual([...UI.undoAsk("keep", 2, "视频")], ["撤销批量保留？", "<p>上一步保留了 2 个视频，撤销后它们不再标为保留。</p>", "撤销"]);
+  both("UI.undoAsk(", "asks before undoing with undoAsk");
+  neither(/撤销这次 AI 打标签？|撤销批量[^ ]*？/, "writes its own undo confirm");
+
+  // The selection bar.
+  const bar = UI.selbar({ label: "选中的视频", n: 2, hidden: 1, clearAttrs: 'data-x="clear"', acts: "<b>A</b>" });
+  assert.ok(bar.startsWith('<div class="selbar" role="toolbar" aria-label="选中的视频"><strong class="sel-count">已选中 2 个</strong><span class="muted">另有 1 个被筛选隐藏</span><button type="button" class="quiet" data-x="clear" aria-label="清空选中">清空选中</button>') && bar.endsWith('<span class="sel-actions"><b>A</b></span></div>'), bar);
+  assert.ok(!UI.selbar({ label: "x", n: 1, hidden: 0, clearAttrs: "", acts: "" }).includes("隐藏"));
+  both("UI.selbar({", "draws its selection bar with selbar");
+  neither(/class="selbar"|已选中 \$\{/, "draws its own selection bar");
+
+  // 「✦ AI 刚打的」: one chip, its × and the same tooltip (with the mode's unit); gone at 0 unless it is on.
+  const chip = UI.aiRecentChip({ attrs: "data-r", xAttrs: "data-rx", n: 2, on: false, who: "UP 主" });
+  assert.ok(chip.includes('class="seg ai-recent"') && chip.includes("data-r title=\"最近一次 AI 打标签改动的 UP 主，在卡片上逐个看，不对的按 T 改。") && chip.includes("AI 刚打的 2</button>") && chip.includes('class="ai-recent-x" data-rx'), chip);
+  assert.ok(chip.includes(UI.aiRecentUndo("UP 主")), "the tooltip says how U undoes it");
+  assert.strictEqual(UI.aiRecentChip({ attrs: "", xAttrs: "", n: 0, on: false, who: "视频" }), "");
+  assert.ok(UI.aiRecentChip({ attrs: "", xAttrs: "", n: 0, on: true, who: "视频" }).includes("AI 刚打的 0"), "on at 0 stays, to switch off");
+  both("UI.aiRecentChip({", "draws 「AI 刚打的」 with aiRecentChip");
+  neither(/AI_RECENT_X|"AI 刚打的", UI\.filterBtn/, "builds 「AI 刚打的」 itself");
+
+  // A sidebar entry: a 0 stays, dimmed; no count when there is none.
+  const side = UI.sideItem({ attrs: 'data-s="a"', label: "<全部>", count: 0, on: true, pre: "★" });
+  assert.strictEqual(side, '<button type="button" class="side-item on zero" data-s="a" aria-current="true">★<span class="side-name">&lt;全部&gt;</span><span class="side-count">0</span></button>');
+  assert.ok(!UI.sideItem({ attrs: "", label: "x", count: null, on: false }).includes("side-count"));
+  both("UI.sideItem({", "draws its sidebar entries with sideItem");
+  neither(/class="side-item\$\{/, "draws its own sidebar entry");
+
+  // Nothing listed: search first, then filters; neither → the mode's own text.
+  assert.strictEqual(UI.noMatch(" 甲 ", true, "UP 主"), "没有匹配搜索的 UP 主");
+  assert.strictEqual(UI.noMatch("", true, "视频"), "没有符合筛选的视频");
+  assert.strictEqual(UI.noMatch("  ", false, "视频"), "");
+  both("UI.noMatch(", "says why nothing is listed with noMatch");
+  neither(/没有匹配搜索的(视频| UP 主)|没有符合筛选的(视频| UP 主)/, "words the empty list itself");
+
+  // 刷新 in an empty state: one look in both modes, never a second solid blue.
+  assert.strictEqual(UI.refreshEmpty("data-r"), `<button type="button" data-r>${UI.ICON.refresh}刷新</button>`);
+  both("UI.refreshEmpty(", "draws the empty state's 刷新 with refreshEmpty");
+  neither(/\$\{UI\.ICON\.refresh\}刷新/, "draws its own 刷新");
+}
+
+console.log("shared selftest: all passed");

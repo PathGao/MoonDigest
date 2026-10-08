@@ -245,8 +245,8 @@ assert.strictEqual(t.fmtAgo(ago(800), now), "2 年前");
 // reload in 收藏夹 does not jump back to 关注.
 assert.ok(/if \(!\/\^follow\(&\|\$\)\/\.test\(h\)\) return false;\s*history\.replaceState\(null, "", location\.pathname \+ location\.search\);/.test(source), "followHash drops the hash");
 
-// 标签… on 2+ UP 主 is one step that asks before U, with 收藏夹's words (shared.js tagsUndoAsk).
-assert.ok(source.includes(`pushTagUndo(before, "标签修改", { ask: changes.length > 1 ? UI.tagsUndoAsk(changes.length, "UP 主") : null });`), "pickClosed asks for 2+");
+// 标签… on 2+ UP 主 is one step that asks before U, with 收藏夹's words (shared.js undoAsk).
+assert.ok(source.includes(`pushTagUndo(before, "标签修改", { ask: changes.length > 1 ? UI.undoAsk("tags", changes.length, "UP 主") : null });`), "pickClosed asks for 2+");
 
 // B站 writes and U (DESIGN §5): a single 重新关注 has no confirm and U unfollows again with its 已取消关注 record; batch
 // 特别关注 is one step that asks before U; single 取消关注 keeps its confirm.
