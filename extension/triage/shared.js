@@ -208,6 +208,29 @@
   const sp = (who) => (/^[A-Za-z]/.test(who) ? ` ${who}` : who);
   // The delete confirm's title and body.
   const deleteTagAsk = (t, n, who) => [`删除标签「${t.name}」？`, `<p>将从 ${n} 个${sp(who)}上去掉这个标签，无法撤销。</p>`];
+  // A 标签管理 edit, for both modes: { tag } the edited copy, or { why } for an empty or duplicate name (others = the
+  // other tags it must not repeat). A rule is trimmed and capped at 80; an empty one drops the field.
+  function editedTag(t, field, value, others) {
+    if (field === "name") {
+      const name = cleanTagName(value);
+      const why = tagNameError(name, others);
+      return why ? { why } : { tag: { ...t, name } };
+    }
+    if (field === "color") return { tag: { ...t, color: cycleTagColor(t.color) } };
+    if (field !== "rule") return {};
+    const { rule: _, ...rest } = t;
+    const rule = String(value ?? "").trim().slice(0, 80);
+    return { tag: rule ? { ...rest, rule } : rest };
+  }
+  // A tag map ({ key: [tag ids] }) without one tag; a key left with none drops out.
+  function withoutTag(map, id) {
+    const out = {};
+    for (const [k, ids] of Object.entries(map)) {
+      const rest = ids.filter((x) => x !== id);
+      if (rest.length) out[k] = rest;
+    }
+    return out;
+  }
   // 「AI 刚打的」: the items the last applied AI 打标签 changed, to look over on their cards. Only these end it.
   const AI_RECENT_RULES = ["点 ×：不再标出，标签不变", "再让 AI 打一次：换成新的一批"];
   const aiRecentUndo = (who) => `按 U 撤销这次 AI 打标签前会先问你；确认后这批${sp(who)}的标签都回到 AI 打之前，包括你之后又改过的。`;
@@ -334,5 +357,5 @@
     return [...tally.values()].sort((a, b) => (a.cls === "remove") - (b.cls === "remove") || b.n - a.n);
   }
 
-  globalThis.TriageUi = { esc, pad, fmtDate, fmtDuration, fmtCount, cleanTagName, plainClick, img, toCsv, cardTagChip, syncedText, headMeta, titleHtml, ICON, AI_SPARK, byValue, dirWords, sortControl, filterBtn, searchBox, resultCount, rowButtons, menuItem, BACKUP_ITEM, activityHtml, reasonAttrs, setReason, WARN_DOT, selectAllState, selectAllBox, toggleAll, setActivity, waitText, syncPill, setSync, bindSync, tagButtons, sideFoot, emptyState, fillSetRows, mergeAiBatch, aiChanges, previewId, aiTally, TAG_COLORS, nextTagColor, cycleTagColor, tagNameError, deleteTagAsk, tagRowHtml, sp, AI_RECENT_RULES, aiRecentUndo, tagPlusBtn, viewerKeyFrom };
+  globalThis.TriageUi = { esc, pad, fmtDate, fmtDuration, fmtCount, cleanTagName, plainClick, img, toCsv, cardTagChip, syncedText, headMeta, titleHtml, ICON, AI_SPARK, byValue, dirWords, sortControl, filterBtn, searchBox, resultCount, rowButtons, menuItem, BACKUP_ITEM, activityHtml, reasonAttrs, setReason, WARN_DOT, selectAllState, selectAllBox, toggleAll, setActivity, waitText, syncPill, setSync, bindSync, tagButtons, sideFoot, emptyState, fillSetRows, mergeAiBatch, aiChanges, previewId, aiTally, TAG_COLORS, nextTagColor, cycleTagColor, tagNameError, deleteTagAsk, editedTag, withoutTag, tagRowHtml, sp, AI_RECENT_RULES, aiRecentUndo, tagPlusBtn, viewerKeyFrom };
 })();

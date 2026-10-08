@@ -333,10 +333,11 @@ async function saveTags(tags) {
   await write({ follow_tags: tags });
 }
 const changeTags = (mids, add, remove) => setTagMap(withTags(D.map, mids, add, remove));
-// 关注's tag changes are steps on 收藏夹's undo stack (triage.js): U undoes the last step of either mode.
+// 关注's undo steps live in triage.js (S.modeUndo, apart from 收藏夹's): U in 关注 undoes only these.
 function pushTagUndo(before, label, { ask = null, created = [], recentAt = 0 } = {}) {
   T.pushUndo({
     kind: "mode",
+    tags: true, // dropped when a tag is deleted
     ask,
     undo: async () => {
       const map = restoreTags(D.map, before, new Set(D.tags.map((t) => t.id)));
@@ -937,17 +938,12 @@ async function addTag(name) {
   await saveTags([...D.tags, t]);
   return t;
 }
+// A rename, rule or color edit from 标签管理 (shared.js editedTag, as 收藏夹's saveTagEdit).
 async function editTag(old, field, value) {
-  const id = old.id;
-  const t = { ...old };
-  if (field === "name") {
-    const name = cleanTagName(value);
-    const why = UI.tagNameError(name, D.tags.filter((x) => x.id !== id));
-    if (why) return toast(why, true), false;
-    t.name = name;
-  } else if (field === "rule") t.rule = String(value || "").trim().slice(0, 80);
-  else if (field === "color") t.color = UI.cycleTagColor(t.color);
-  await saveTags(D.tags.map((x) => (x.id === id ? t : x)));
+  const { tag, why } = UI.editedTag(old, field, value, D.tags.filter((x) => x.id !== old.id));
+  if (why) toast(why, true);
+  if (!tag) return false;
+  await saveTags(D.tags.map((x) => (x.id === old.id ? tag : x)));
   render();
   return true;
 }
@@ -956,13 +952,10 @@ async function deleteTag(id) {
   const n = following().filter((m) => rows.get(m)?.tagIds.includes(id)).length;
   // The confirm dialog is a second modal; the tag dialog stays open under it.
   if (!(await askConfirm(...UI.deleteTagAsk(t, n, "UP 主"), "删除", { danger: true }))) return;
-  const map = {};
-  for (const [m, ids] of Object.entries(D.map)) {
-    const rest = ids.filter((x) => x !== id);
-    if (rest.length) map[m] = rest;
-  }
-  await setTagMap(map);
+  await setTagMap(UI.withoutTag(D.map, id));
   await saveTags(D.tags.filter((x) => x.id !== id));
+  // As 收藏夹: tag steps undone now would work on a tag that is gone.
+  T.dropModeUndo((step) => step.tags);
   if (F.side === id) F.side = "all";
   render();
 }

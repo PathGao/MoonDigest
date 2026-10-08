@@ -144,6 +144,22 @@ for (const file of ["triage.js", "follow.js"]) {
   assert.ok(UI.tagPlusBtn('data-x="1"', "给 <b> 打标签").includes('data-x="1" aria-label="给 &lt;b&gt; 打标签">+ 标签 <kbd'));
 }
 
+// 标签管理 edits and deletes, one implementation for both modes: a cleared rule drops the field (关注 used to keep ""),
+// names are cleaned and checked, the color cycles; a deleted tag leaves every item, and an item left bare drops out.
+{
+  const t0 = { id: "a", name: "甲", color: UI.TAG_COLORS[0], rule: "旧说明" };
+  assert.deepStrictEqual(plain(UI.editedTag(t0, "rule", "  ").tag), { id: "a", name: "甲", color: UI.TAG_COLORS[0] });
+  assert.strictEqual(UI.editedTag(t0, "rule", ` ${"讲".repeat(90)} `).tag.rule.length, 80);
+  assert.strictEqual(UI.editedTag(t0, "name", " 乙, ", []).tag.name, "乙");
+  assert.deepStrictEqual(plain(UI.editedTag(t0, "name", "乙", [{ name: "乙" }])), { why: "已有同名标签" });
+  assert.strictEqual(UI.editedTag(t0, "color").tag.color, UI.TAG_COLORS[1]);
+  assert.strictEqual(t0.rule, "旧说明", "the tag itself is not changed");
+  assert.deepStrictEqual(plain(UI.withoutTag({ x: ["a", "b"], y: ["a"] }, "a")), { x: ["b"] });
+  // follow.js's page part is not in a harness; it must go through the same functions.
+  const follow = fs.readFileSync(path.join(__dirname, "follow.js"), "utf8");
+  assert.ok(follow.includes("UI.editedTag(") && follow.includes("UI.withoutTag("), "关注 edits and deletes tags with the shared functions");
+}
+
 // 全选: none / some / all of what is listed → unchecked / mixed / checked. Nothing listed: 「全选」 with no number, disabled
 // with a reason. A click deselects only when every listed one is selected, and never touches what is not listed.
 {

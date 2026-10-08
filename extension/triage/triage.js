@@ -715,7 +715,7 @@ const followMode = () => Boolean(document.body?.classList.contains("follow-mode"
 let modeKeys = null;
 globalThis.MoonTriage = {
   openViewer, closeViewer, toast, askConfirm, send, store, runAiBatches, viewing: () => S.viewing,
-  undo, pushUndo, help: () => el.helpDialog.showModal(), setModeKeys: (fn) => (modeKeys = fn)
+  undo, pushUndo, dropModeUndo: (drop) => (S.modeUndo = S.modeUndo.filter((e) => !drop(e))), help: () => el.helpDialog.showModal(), setModeKeys: (fn) => (modeKeys = fn)
 };
 
 async function init() {
@@ -2844,21 +2844,13 @@ const manageTags = {
 };
 const openManage = () => TagDialogs.manage.open(manageTags);
 
-// A rename, rule or color edit from 标签管理; false (and nothing saved) for an empty or duplicate name.
+// A rename, rule or color edit from 标签管理 (shared.js editedTag); false (and nothing saved) for an empty or duplicate name.
 function saveTagEdit(t, field, value) {
-  const text = field === "name" ? cleanTagName(value) : String(value ?? "").trim();
-  if (field === "name") {
-    const why = UI.tagNameError(text, S.tags.filter((x) => x !== t && x.folder === t.folder));
-    if (why) {
-      toast(why, true);
-      return false;
-    }
-    t.name = text;
-  } else if (field === "color") t.color = UI.cycleTagColor(t.color);
-  else if (field === "rule") {
-    if (text) t.rule = text.slice(0, 80);
-    else delete t.rule;
-  } else return false;
+  const { tag, why } = UI.editedTag(t, field, value, S.tags.filter((x) => x !== t && x.folder === t.folder));
+  if (why) toast(why, true);
+  if (!tag) return false;
+  delete t.rule;
+  Object.assign(t, tag);
   saveTags();
   render();
   return true;
@@ -2870,12 +2862,9 @@ async function deleteTag(id) {
   const ok = await askConfirm(...UI.deleteTagAsk(t, n, "视频"), "删除", { danger: true });
   if (!ok) return;
   S.tags = S.tags.filter((x) => x.id !== id);
-  for (const [b, ids] of Object.entries(S.videoTags)) {
-    const rest = ids.filter((x) => x !== id);
-    if (rest.length) S.videoTags[b] = rest;
-    else delete S.videoTags[b];
-  }
+  S.videoTags = UI.withoutTag(S.videoTags, id);
   S.tagFilter.delete(id);
+  // A tag step undone now would put the deleted tag's id back on its videos.
   S.undo = S.undo.filter((e) => e.kind !== "tags" && e.kind !== "tagsMany" && e.kind !== "aiApply");
   saveTags();
   saveVideoTags();
