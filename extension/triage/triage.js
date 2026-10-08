@@ -63,7 +63,7 @@ function simplifyMigration({ schemes, folderScheme, tags, videoTags, criteria, f
     if (!name || !t.id || out.some((x) => x.id === t.id)) continue;
     const kept = out.find((x) => x.name === name);
     if (kept) remap[t.id] = kept.id;
-    else out.push({ id: t.id, name, color: t.color || UI.TAG_COLORS[out.length % UI.TAG_COLORS.length] });
+    else out.push({ id: t.id, name, color: t.color || UI.nextTagColor(out) });
   }
   const nextVideoTags = Object.fromEntries(Object.entries(vt).map(([b, ids]) => [b, [...new Set(ids.map((id) => remap[id] || id))]]));
   const crit = {};

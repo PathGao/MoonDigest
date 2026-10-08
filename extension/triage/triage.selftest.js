@@ -951,7 +951,7 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     folderIds: ["1", "2"],
     folderCriteria: { 9: "已有" }
   }));
-  assert.deepStrictEqual(mig.tags, [{ id: "d1", name: "AI", color: "#d" }, { id: "d2", name: "工具", color: "#298287" }, { id: "x1", name: "数学", color: "#1" }]);
+  assert.deepStrictEqual(mig.tags, [{ id: "d1", name: "AI", color: "#d" }, { id: "d2", name: "工具", color: "#da86c3" }, { id: "x1", name: "数学", color: "#1" }], "a tag without a color gets the first free one (nextTagColor)");
   assert.deepStrictEqual(mig.videoTags, { BVa: ["d1", "x1"], BVb: ["zz"] }, "a same-name tag is remapped; unknown ids stay");
   assert.deepStrictEqual(mig.folderCriteria, { 1: "只留干货", 2: "只留课程", 4: "只留干货", 9: "已有" }, "unmapped or missing scheme → default; empty criteria are not written");
   // Pre-scheme users: the global tags and criteria carry over.
