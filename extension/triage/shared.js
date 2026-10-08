@@ -107,11 +107,13 @@
     return `<span class="activity-text">${esc(text)}</span>${bar}${b}`;
   }
 
-  // ✦ AI 打标签 at the right end of the tag row; state is 「 · 运行中」 or 「 · 待确认」.
-  const aiTagBtn = (attrs, state = "") => `<button type="button" class="act-btn tags-act" ${attrs}>${AI_SPARK}AI 打标签${esc(state)}</button>`;
-  // The sidebar's foot: 标签管理, then the mode's own settings.
-  const sideFoot = ({ tagsAttrs, settingsAttrs, settingsLabel }) =>
-    `<div class="side-foot"><button type="button" class="side-item" ${tagsAttrs}>标签管理</button><button type="button" class="side-item side-settings" ${settingsAttrs}>${ICON.gear}${esc(settingsLabel)}</button></div>`;
+  // 标签管理 and ✦ AI 打标签 at the right end of the tag row, next to the tags they act on (in 收藏夹 those are the open
+  // folder's, so they do not sit in the sidebar). state is 「 · 运行中」 or 「 · 待确认」.
+  const tagButtons = ({ manageAttrs, aiAttrs, state = "" }) =>
+    `<span class="tags-acts"><button type="button" class="act-btn" ${manageAttrs}>标签管理</button><button type="button" class="act-btn" ${aiAttrs}>${AI_SPARK}AI 打标签${esc(state)}</button></span>`;
+  // The sidebar's foot: the mode's own settings.
+  const sideFoot = ({ settingsAttrs, settingsLabel }) =>
+    `<div class="side-foot"><button type="button" class="side-item side-settings" ${settingsAttrs}>${ICON.gear}${esc(settingsLabel)}</button></div>`;
 
   // An empty list with a title, why it is empty, and what to do (actionHtml, usually 刷新).
   const emptyState = (title, text, actionHtml = "") =>
@@ -131,5 +133,5 @@
     }
   }
 
-  globalThis.TriageUi = { esc, pad, fmtDate, fmtDuration, fmtCount, cleanTagName, plainClick, img, toCsv, cardTagChip, syncedText, headMeta, titleHtml, ICON, AI_SPARK, sortControl, filterBtn, searchBox, resultCount, rowButtons, menuItem, BACKUP_ITEM, activityHtml, aiTagBtn, sideFoot, emptyState, fillSetRows };
+  globalThis.TriageUi = { esc, pad, fmtDate, fmtDuration, fmtCount, cleanTagName, plainClick, img, toCsv, cardTagChip, syncedText, headMeta, titleHtml, ICON, AI_SPARK, sortControl, filterBtn, searchBox, resultCount, rowButtons, menuItem, BACKUP_ITEM, activityHtml, tagButtons, sideFoot, emptyState, fillSetRows };
 })();

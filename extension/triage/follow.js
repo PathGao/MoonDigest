@@ -362,7 +362,7 @@ main.innerHTML = `
       settingsAttr: 'data-fw="settings"', settingsLabel: "关注设置"
     })}</span>
   </div>
-  <div class="stagebar fw-bar"><span id="fwBar" class="fw-bar-dyn"></span><span id="fwTools" class="fw-tools"><span id="fwSelAll"></span>${UI.aiTagBtn('data-fw="ai" aria-label="AI 打标签"')}</span></div>
+  <div class="stagebar fw-bar"><span id="fwBar" class="fw-bar-dyn"></span><span id="fwTools" class="fw-tools"><span id="fwSelAll"></span>${UI.tagButtons({ manageAttrs: 'data-fw="tags"', aiAttrs: 'data-fw="ai" aria-label="AI 打标签"' })}</span></div>
   <div id="fwList" class="fw-list" aria-label="UP 主"></div>
   <div id="fwSel"></div>`;
 const E = { sort: $("fwSort"), title: $("fwTitle"), tools: $("fwTools"), selAll: $("fwSelAll"), meta: $("fwMeta"), tabs: $("fwTabs"), bar: $("fwBar"), list: $("fwList"), sel: $("fwSel"), q: $("fwQ"), qCount: $("fwQCount") };
@@ -477,7 +477,7 @@ function renderSide() {
       ? `<hr><div class="side-head">B站 分组</div><div class="folder-list">${D.groups.map((g) => item(`g:${g.id}`, g.name, n((u) => inGroup(u.mid, D, `g:${g.id}`)))).join("")}</div>
   <p class="side-note">只读，在 B站 改</p>`
       : ""
-  }${UI.sideFoot({ tagsAttrs: 'data-fw="tags"', settingsAttrs: 'data-fw="settings" aria-label="关注设置"', settingsLabel: "关注设置" })}`;
+  }${UI.sideFoot({ settingsAttrs: 'data-fw="settings" aria-label="关注设置"', settingsLabel: "关注设置" })}`;
   sideSlot.innerHTML = sideSelect();
 }
 
@@ -637,7 +637,11 @@ function renderFeed() {
   const count = (side) => items.filter((it) => feedMatch(it, D, side)).length;
   // No count before the first page arrives.
   const pill = (id, label, color = "") => UI.filterBtn(`data-side="${esc(id)}"`, label, items.length ? count(id) : null, F.side === id, color ? `<i class="dot" style="--c:${esc(color)}"></i>` : "");
-  E.tools.hidden = E.sort.hidden = true; // 动态 comes newest first from B站: no sort
+  E.sort.hidden = true; // 动态 comes newest first from B站: no sort
+  // Of the tools only 标签管理: AI 打标签 and 全选 work on UP 主.
+  E.tools.hidden = false;
+  E.tools.querySelector("[data-fw=ai]").hidden = true;
+  E.selAll.innerHTML = "";
   E.bar.innerHTML = `<span class="seg fw-pills" role="group" aria-label="按标签看">${[pill("all", "全部"), pill("untagged", "未打标签"), pill("special", "★ 特别关注"), ...D.tags.map((t) => pill(t.id, t.name, t.color))].join("")}</span>${
     D.groups.length ? `<span class="seg fw-pills fw-groups" role="group" aria-label="按 B站 分组看"><span class="fw-group-label">B站 分组</span>${D.groups.map((g) => pill(`g:${g.id}`, g.name)).join("")}</span>` : ""
   }`;
@@ -1292,8 +1296,7 @@ document.getElementById("modeSwitch").addEventListener("click", (e) => {
 side.addEventListener("click", (e) => {
   const s = e.target.closest("[data-side]");
   if (s) return pickSide(s.dataset.side);
-  if (e.target.closest("[data-fw=tags]")) openTags("manage");
-  else if (e.target.closest("[data-fw=settings]")) openSettings();
+  if (e.target.closest("[data-fw=settings]")) openSettings();
 });
 sideSlot.addEventListener("change", (e) => e.target.dataset.fw === "side" && pickSide(e.target.value));
 function pickSide(id) {
@@ -1365,6 +1368,7 @@ main.addEventListener("click", async (e) => {
     saveView();
     render();
   } else if (act === "ai") openAi();
+  else if (act === "tags") openTags("manage");
   else if (act === "settings") openSettings();
   else if (act === "bili") window.open("https://space.bilibili.com/", "_blank", "noopener");
   else if (act === "csv") BocDownload.text(`MoonDigest-关注-${fmtDate(nowSec())}.csv`, upCsv(), "text/csv;charset=utf-8");

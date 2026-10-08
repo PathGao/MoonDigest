@@ -572,15 +572,16 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   assert.ok(!("rule" in ruled));
   t.S.ai.proposal = null;
 
-  // ✦ AI 打标签 on the tag row says when a run or a proposal is pending; I always opens its section.
+  // 标签管理 then ✦ AI 打标签 on the tag row (the sidebar has neither); AI 打标签 says when a run or a proposal is pending; I always opens its section.
   const spark = '<span class="ai-spark" aria-hidden="true"></span>';
   const btnText = () => (t.renderTabs(), t.el.aiTagSlot.innerHTML.replace(/<[^>]+>/g, ""));
   assert.ok((t.renderTabs(), t.el.aiTagSlot.innerHTML.includes(spark)), "AI 打标签 carries the AI sparkle");
-  assert.strictEqual(btnText(), "AI 打标签");
+  assert.strictEqual(btnText(), "标签管理AI 打标签");
+  assert.ok(t.el.aiTagSlot.innerHTML.indexOf("标签管理") < t.el.aiTagSlot.innerHTML.indexOf(spark), "only AI 打标签 has the sparkle");
   t.S.ai.running = true;
-  assert.strictEqual(btnText(), "AI 打标签 · 运行中");
+  assert.strictEqual(btnText(), "标签管理AI 打标签 · 运行中");
   Object.assign(t.S.ai, { running: false, proposal: { newTags: [], rows: [], notes: [], errors: [] } });
-  assert.strictEqual(btnText(), "AI 打标签 · 待确认");
+  assert.strictEqual(btnText(), "标签管理AI 打标签 · 待确认");
   t.S.ai.proposal = null;
   t.el.tagsDialog = { showModal() {} };
   t.onKey({ key: "i", target: {}, preventDefault() {} });

@@ -357,7 +357,7 @@ $("favRowTools").insertAdjacentHTML("beforeend", UI.searchBox("searchInput", "se
   menuHtml: UI.menuItem('id="writeBtn" aria-label="批量导出"', "批量导出…", "摘录，或逐个视频的笔记") + UI.menuItem('id="csvBtn" aria-label="下载这个收藏夹的表格 CSV"', "这个收藏夹的表格 (CSV)", "标题、AI 判断、标签、备注") + "<hr>" + UI.BACKUP_ITEM,
   settingsAttr: "data-open-settings", settingsLabel: "收藏夹设置"
 }));
-$("favSide").insertAdjacentHTML("beforeend", UI.sideFoot({ tagsAttrs: 'id="tagsManageBtn"', settingsAttrs: 'id="settingsBtn" aria-label="收藏夹设置"', settingsLabel: "收藏夹设置" }));
+$("favSide").insertAdjacentHTML("beforeend", UI.sideFoot({ settingsAttrs: 'id="settingsBtn" aria-label="收藏夹设置"', settingsLabel: "收藏夹设置" }));
 const REFRESH_EMPTY = `<button type="button" data-refresh>${UI.ICON.refresh}刷新</button>`;
 const el = {};
 [
@@ -369,7 +369,7 @@ const el = {};
   "titleMaxHint", "analyzeMaxInput", "analyzeMaxHint", "settingsError", "csvBtn", "confirmDialog",
   "confirmTitle", "confirmBody", "confirmOk", "transferDialog", "transferTitle", "transferBody", "transferTarget", "transferNewRow", "transferUnchosen", "transferHow", "transferName", "transferPrivate", "pickerDialog", "pickerTitle", "pickerInput", "pickerList",
   "criteriaDialog", "criteriaTitle", "criteriaInput", "tagsDialog", "tagsModeManage", "tagsModeBatch", "tagsManage", "tagsRows", "newTagInput", "addTagBtn", "helpDialog",
-  "tagsManageBtn", "aiForm", "aiScope", "aiScopeCount", "aiInstruction", "aiHistory",
+  "aiForm", "aiScope", "aiScopeCount", "aiInstruction", "aiHistory",
   "aiTagsPreview", "aiProgress", "aiCloseBtn", "aiStopBtn", "aiRunBtn",
   "aiReview", "aiReviewSummary", "aiNotes", "aiNewTagsHead", "aiNewTags", "aiRows", "aiRecentRules", "aiRecentUndo", "aiDiscardBtn", "aiApplyBtn",
   "biliBtn", "main", "viewer", "viewerTitle", "viewerNextBtn", "viewerFocusBtn", "viewerTabBtn", "viewerCloseBtn", "viewerFrame",
@@ -1783,8 +1783,8 @@ function renderTabs() {
         })
         .join("")
     : `<span class="muted">还没有自定义标签</span>`); // created in 标签管理
-  // ✦ AI 打标签 at the right end of the tags it acts on, as in 关注; it says when a run or a proposal is pending.
-  el.aiTagSlot.innerHTML = UI.aiTagBtn('data-ai-tag aria-label="AI 打标签 (I)"', S.ai.running ? " · 运行中" : S.ai.proposal ? " · 待确认" : "");
+  // 标签管理 and ✦ AI 打标签 at the right end of the tags they act on, as in 关注; AI 打标签 says when a run or a proposal is pending.
+  el.aiTagSlot.innerHTML = UI.tagButtons({ manageAttrs: "data-tags-manage", aiAttrs: 'data-ai-tag aria-label="AI 打标签 (I)"', state: S.ai.running ? " · 运行中" : S.ai.proposal ? " · 待确认" : "" });
   renderSort();
 }
 
@@ -2784,7 +2784,7 @@ async function saveCriteria() {
 }
 
 // ---------- 标签 dialog: 管理 / 批量打 ----------
-// 标签管理 (sidebar) opens 管理, ✦ AI 打标签 (tag row) opens AI 打标签: one dialog, two sections.
+// 标签管理 (tag row) opens 管理, ✦ AI 打标签 (tag row) opens AI 打标签: one dialog, two sections.
 
 function openTags(mode = "manage") {
   S.ai.excluded.clear();
@@ -4089,8 +4089,10 @@ function bindEvents() {
   el.criteriaDialog.addEventListener("close", () => {
     if (el.criteriaDialog.returnValue === "save") saveCriteria();
   });
-  el.tagsManageBtn.addEventListener("click", () => openTags("manage"));
-  el.aiTagSlot.addEventListener("click", (e) => e.target.closest("[data-ai-tag]") && openTags("batch"));
+  el.aiTagSlot.addEventListener("click", (e) => {
+    if (e.target.closest("[data-tags-manage]")) openTags("manage");
+    else if (e.target.closest("[data-ai-tag]")) openTags("batch");
+  });
   el.tagsDialog.addEventListener("click", (e) => {
     const btn = e.target.closest("[data-tags-mode]");
     if (btn) showTagsMode(btn.dataset.tagsMode);
