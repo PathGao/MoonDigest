@@ -17,10 +17,11 @@
     const d = new Date(sec * 1000);
     return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
   }
-  // Seconds as 04:05, 1:15:00 from an hour up.
+  // Seconds as 9:47, 1:15:00 from an hour up (minutes padded only after hours).
   function fmtDuration(sec) {
     sec = Math.max(0, Math.floor(Number(sec) || 0));
-    return (sec >= 3600 ? `${Math.floor(sec / 3600)}:` : "") + `${pad(Math.floor((sec % 3600) / 60))}:${pad(sec % 60)}`;
+    const m = Math.floor((sec % 3600) / 60);
+    return (sec >= 3600 ? `${Math.floor(sec / 3600)}:${pad(m)}` : m) + `:${pad(sec % 60)}`;
   }
   // 播放量 / 粉丝: 12.3万 and 2.5亿 (one decimal, dropped when 0), plain below 万.
   const fmtCount = (n) => (n >= 1e8 ? `${Math.round(n / 1e7) / 10}亿` : n >= 1e4 ? `${Math.round(n / 1e3) / 10}万` : String(n));

@@ -41,7 +41,7 @@ assert.strictEqual(UI.resultCount("x", 5), "5 个结果");
 
 // Counts and durations read the same in both modes: one decimal for 万 and 亿, hours from 60 minutes up.
 assert.deepStrictEqual([123456, 100000, 9999, 250000000, 150000].map(UI.fmtCount), ["12.3万", "10万", "9999", "2.5亿", "15万"]);
-assert.deepStrictEqual([0, 65, 75 * 60, 3600, 59.9].map(UI.fmtDuration), ["00:00", "01:05", "1:15:00", "1:00:00", "00:59"]);
+assert.deepStrictEqual([0, 65, 587, 75 * 60, 3600, 3605, 59.9].map(UI.fmtDuration), ["0:00", "1:05", "9:47", "1:15:00", "1:00:00", "1:00:05", "0:59"]);
 assert.strictEqual(UI.fmtDate(0), "");
 assert.strictEqual(UI.fmtDate(new Date(2026, 0, 5, 12).getTime() / 1000), "2026-01-05");
 assert.strictEqual(UI.img("//i0.hdslb.com/a.jpg", "48w_48h_1c"), "https://i0.hdslb.com/a.jpg@48w_48h_1c.webp");
