@@ -320,6 +320,13 @@ for (const [file, fns] of [["triage.js", ["mergeAiBatch", "aiChanges"]], ["follo
   assert.ok(!/@media \(hover: none\) \{[^}]*\.more/.test(css), "no touch rule of a mode's own for .more");
 }
 
+// Rows 3 and 4 have 8px above and below, and both modes' lists start 8px under row 4 (DESIGN §3).
+{
+  const css = ["triage.css", "follow.css"].map((f) => fs.readFileSync(path.join(__dirname, f), "utf8")).join("\n");
+  for (const sel of ["stagebar", "tagbar"]) assert.ok(new RegExp(`^\\.${sel} \\{ padding: 8px 0;`, "m").test(css), `${sel} pads 8px`);
+  for (const sel of ["list", "fw-list"]) assert.ok(new RegExp(`^\\.${sel} \\{[^}]*padding: 8px 8px \\d+px;`, "m").test(css), `${sel} starts 8px down`);
+}
+
 // 收藏夹设置 and 关注设置 both live in triage.html; every row they share (AI 打标签每批数量 included) is a data-set-row that
 // fillSetRows names, so the words exist once.
 {
