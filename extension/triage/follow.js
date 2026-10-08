@@ -998,7 +998,7 @@ async function pickClosed(changes) {
   if (changes.length) {
     const before = tagsOf(D.map, changes.map((c) => c.key));
     await setTagMap(map);
-    pushTagUndo(before, "标签修改");
+    pushTagUndo(before, "标签修改", { ask: changes.length > 1 ? UI.tagsUndoAsk(changes.length, "UP 主") : null });
   }
   if (F.mode !== "follow") return;
   render();

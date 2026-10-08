@@ -242,4 +242,7 @@ assert.strictEqual(t.fmtAgo(ago(800), now), "2 年前");
 // reload in 收藏夹 does not jump back to 关注.
 assert.ok(/if \(!\/\^follow\(&\|\$\)\/\.test\(h\)\) return false;\s*history\.replaceState\(null, "", location\.pathname \+ location\.search\);/.test(source), "followHash drops the hash");
 
+// 标签… on 2+ UP 主 is one step that asks before U, with 收藏夹's words (shared.js tagsUndoAsk).
+assert.ok(source.includes(`pushTagUndo(before, "标签修改", { ask: changes.length > 1 ? UI.tagsUndoAsk(changes.length, "UP 主") : null });`), "pickClosed asks for 2+");
+
 console.log("follow selftest: all passed");

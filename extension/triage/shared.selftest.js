@@ -154,6 +154,7 @@ for (const file of ["triage.js", "follow.js"]) {
   assert.deepStrictEqual(plain(UI.editedTag(t0, "name", "乙", [{ name: "乙" }])), { why: "已有同名标签" });
   assert.strictEqual(UI.editedTag(t0, "color").tag.color, UI.TAG_COLORS[1]);
   assert.strictEqual(t0.rule, "旧说明", "the tag itself is not changed");
+  assert.deepStrictEqual([...UI.tagsUndoAsk(3, "UP 主")], ["撤销批量改标签？", "<p>上一步改了 3 个 UP 主的标签，撤销后都改回去。</p>", "撤销"]);
   assert.deepStrictEqual(plain(UI.withoutTag({ x: ["a", "b"], y: ["a"] }, "a")), { x: ["b"] });
   // follow.js's page part is not in a harness; it must go through the same functions.
   const follow = fs.readFileSync(path.join(__dirname, "follow.js"), "utf8");
