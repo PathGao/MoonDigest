@@ -11,9 +11,6 @@ const DAY = 86400;
 // -404 / -626: the account is gone for good; it has no videos to wait for.
 const GONE_CODES = [-404, -626];
 const STATUS = [["", "全部"], ["active", "活跃"], ["slow", "慢更"], ["dead", "断更"], ["stale", "慢更或断更 · 待查"], ["none", "没投过稿"], ["unchecked", "未查"]];
-// Catppuccin Latte accents, as the folder view's TAG_COLORS: mauve, blue, green, red and yellow are left out (they mean
-// where-you-are, next step, keep, delete and pending).
-const TAG_COLORS = ["#da86c3", "#298287", "#dc6d2d", "#3590a0", "#8595ea", "#cf5c66", "#2497c6", "#cf8686", "#ce9386"];
 
 // The newest post we know of, in seconds: the video feed (re-read on every sync) first, then the UP's own videos
 // (follow_content, fetched once for people the feed did not show). 0 = none known.
@@ -151,12 +148,6 @@ function withTags(map, mids, add, remove) {
   }
   return out;
 }
-// The picker's click: all of mids have the tag → take it off all, otherwise put it on all.
-function pickToggle(map, mids, id) {
-  const all = mids.every((m) => (map[m] || []).includes(id));
-  return withTags(map, mids, all ? [] : [id], all ? [id] : []);
-}
-
 // J / K: the card after or before the current one; with none current (or it left the list) the first.
 function stepIn(list, cur, delta) {
   if (!list.length) return "";
@@ -165,7 +156,6 @@ function stepIn(list, cur, delta) {
 }
 // U: the UPs one change touched get their tags back, edits to other UPs since stay; tags deleted since stay gone.
 const tagsOf = (map, mids) => Object.fromEntries(mids.map((m) => [m, [...(map[m] || [])]]));
-const sameTags = (map, before) => Object.entries(before).every(([m, ids]) => (map[m] || []).length === ids.length && ids.every((id) => map[m].includes(id)));
 function restoreTags(map, before, live) {
   const out = { ...map };
   for (const [mid, ids] of Object.entries(before)) {
@@ -176,11 +166,6 @@ function restoreTags(map, before, live) {
   return out;
 }
 
-// T / Esc forwarded by viewer-frame.js while focus is in the player: only from the viewer's own frame and B站's origin.
-function fromViewer(e, frameWin) {
-  const ok = frameWin && e.source === frameWin && e.origin === "https://www.bilibili.com" && e.data?.type === "mdg-viewer-key";
-  return ok && ["t", "Escape"].includes(e.data.key) ? e.data.key : "";
-}
 
 // 关注's own AI 打标签 settings (chrome.storage.sync follow_ai_settings), clamped like the 分拣设置 fields.
 function normAi(s = {}) {
@@ -368,14 +353,13 @@ function pushTagUndo(before, label, { ask = null, created = [], recentAt = 0 } =
   });
 }
 function newTag(name) {
-  const color = TAG_COLORS.find((c) => !D.tags.some((t) => t.color === c)) || TAG_COLORS[D.tags.length % TAG_COLORS.length];
-  return { id: `ft${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`, name, color, rule: "" };
+  return { id: `ft${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`, name, color: UI.nextTagColor(D.tags), rule: "" };
 }
 
 // ---------- mode ----------
 async function setMode(mode, save = true) {
   if (mode === F.mode) return;
-  closePick();
+  TagPicker.close();
   if (T.viewing()) T.closeViewer();
   F.mode = mode;
   const on = mode === "follow";
@@ -392,7 +376,7 @@ async function setMode(mode, save = true) {
   if (on) render();
 }
 function setTab(tab) {
-  closePick();
+  TagPicker.close();
   if (T.viewing()) T.closeViewer();
   F.tab = tab;
   E.q.value = tab === "feed" ? F.fq : F.q;
@@ -588,7 +572,7 @@ function upCard(mid) {
       ${meta.length ? `<div class="meta">${meta.map(esc).join(" · ")}</div>` : ""}
       ${u.sign ? `<div class="fw-sign" title="${esc(u.sign)}">${esc(u.sign)}</div>` : ""}
       ${titles}
-      <div class="chips fw-foot-row">${chips}${u.gone ? "" : addBtn(mid, u.name)}<span class="more"><button type="button" data-select="${esc(mid)}" class="${sel ? "on" : ""}" aria-pressed="${sel}" aria-label="选中 ${esc(u.name)} (X)">选中 <kbd class="fw-k" aria-hidden="true">X</kbd></button></span></div>
+      <div class="chips fw-foot-row">${chips}${u.gone ? "" : addBtn(mid, u.name)}<span class="more"><button type="button" data-select="${esc(mid)}" class="${sel ? "on" : ""}" aria-pressed="${sel}" aria-label="选中 ${esc(u.name)} (X)">选中 <kbd class="k-faint" aria-hidden="true">X</kbd></button></span></div>
     </div>
     <div class="fw-right">${right}</div>
   </article>`;
@@ -641,13 +625,12 @@ function renderFeed() {
   if (!items.length && F.feed.hasMore && !F.feed.loading && !F.feed.error) more();
 }
 
-const addBtn = (mid, name) =>
-  `<button type="button" class="link fw-tag-add" data-pick="${esc(mid)}" aria-label="给 ${esc(name)} 打标签">+ 标签 <kbd class="fw-k" aria-hidden="true">T</kbd></button>`;
+const addBtn = (mid, name) => UI.tagPlusBtn(`data-pick="${esc(mid)}"`, `给 ${name} 打标签`);
 
 // The viewer's second line in 关注: the playing video's UP · its tags · + 标签 (the same picker as the cards).
 const vline = document.createElement("div");
 vline.id = "fwViewerUp";
-vline.className = "fw-vline";
+vline.className = "viewer-line";
 vline.hidden = true;
 document.querySelector("#viewer .viewer-head").after(vline);
 function renderViewerUp() {
@@ -842,17 +825,7 @@ document.body.insertAdjacentHTML("beforeend", `
       </section>
     </form>
   </dialog>
-  <dialog id="fwPickDialog" aria-label="打标签" tabindex="-1">
-    <form method="dialog">
-      <h2 id="fwPickTitle">打标签</h2>
-      <p id="fwPickSrc" class="fw-pop-only dialog-meta"></p>
-      <input id="fwPickInput" type="text" maxlength="12" placeholder="输入筛选，或输入新名称后回车新建" aria-label="筛选或新建标签" autocomplete="off">
-      <ul id="fwPickList" class="picker-list" role="listbox" aria-label="标签"></ul>
-      <p class="dialog-meta fw-modal-only">点一下勾选或去掉，立即保存 · 只存在扩展里，不改 B站</p>
-      <p class="fw-pop-only fw-pick-keys"><span><kbd class="fw-k">1</kbd>–<kbd class="fw-k">9</kbd> 勾选</span><span><kbd class="fw-k">T</kbd> 打开</span><span><kbd class="fw-k">Esc</kbd> 关闭</span></p>
-      <div class="dialog-actions fw-modal-only"><span class="spacer"></span><button type="submit" class="primary">完成</button></div>
-    </form>
-  </dialog>`);
+`);
 const tagsDialog = $("fwTagsDialog");
 
 // ----- 刷新, 导出, 关注设置 -----
@@ -954,7 +927,6 @@ settingsDialog.addEventListener("close", async () => {
   render();
   toast("设置已保存");
 });
-const pickDialog = $("fwPickDialog");
 
 // ----- 管理 -----
 function openTags(mode) {
@@ -975,13 +947,7 @@ function renderTagRows() {
   const counts = {};
   for (const m of following()) for (const id of rows.get(m)?.tagIds || []) counts[id] = (counts[id] || 0) + 1;
   $("fwTagRows").innerHTML = D.tags.length
-    ? D.tags.map((t) => `<div class="tag-row fw-tag-row" data-id="${esc(t.id)}">
-        <button type="button" class="fw-color" style="--c:${esc(t.color)}" data-color title="换一个颜色" aria-label="换 ${esc(t.name)} 的颜色"></button>
-        <input type="text" value="${esc(t.name)}" data-field="name" maxlength="12" aria-label="标签名称">
-        <input type="text" value="${esc(t.rule || "")}" data-field="rule" maxlength="80" placeholder="什么样的 UP 主打这个标签（给 AI 看，可不写）" aria-label="${esc(t.name)} 的说明">
-        <span class="muted">${counts[t.id] || 0} 个 UP 主</span>
-        <button type="button" class="danger" data-del aria-label="删除标签 ${esc(t.name)}">删除</button>
-      </div>`).join("")
+    ? D.tags.map((t) => UI.tagRowHtml(t, { count: counts[t.id] || 0, who: "UP 主" })).join("")
     : `<p class="muted">还没有 UP 主标签</p>`;
 }
 async function addTag(name) {
@@ -997,13 +963,14 @@ async function editTag(id, field, value) {
   const t = { ...tagOf(id) };
   if (field === "name") {
     const name = cleanTagName(value);
-    if (!name || D.tags.some((x) => x.id !== id && x.name === name)) {
-      toast(name ? "已有同名标签" : "标签名不能为空", true);
+    const why = UI.tagNameError(name, D.tags.filter((x) => x.id !== id));
+    if (why) {
+      toast(why, true);
       return renderTagRows();
     }
     t.name = name;
   } else if (field === "rule") t.rule = String(value || "").trim().slice(0, 80);
-  else if (field === "color") t.color = TAG_COLORS[(TAG_COLORS.indexOf(t.color) + 1) % TAG_COLORS.length];
+  else if (field === "color") t.color = UI.cycleTagColor(t.color);
   await saveTags(D.tags.map((x) => (x.id === id ? t : x)));
   renderTagRows();
   render();
@@ -1012,7 +979,7 @@ async function deleteTag(id) {
   const t = tagOf(id);
   const n = following().filter((m) => rows.get(m)?.tagIds.includes(id)).length;
   // The confirm dialog is a second modal; the tag dialog stays open under it.
-  if (!(await askConfirm(`删除标签「${t.name}」？`, `<p>将从 ${n} 个 UP 主上去掉这个标签，无法撤销。</p>`, "删除", { danger: true }))) return;
+  if (!(await askConfirm(...UI.deleteTagAsk(t, n, "UP 主"), "删除", { danger: true }))) return;
   const map = {};
   for (const [m, ids] of Object.entries(D.map)) {
     const rest = ids.filter((x) => x !== id);
@@ -1025,109 +992,66 @@ async function deleteTag(id) {
   render();
 }
 
-// ----- 打标签 (one UP from its card, or the selection) -----
-// The same picker two ways: a modal for the UP 主 cards and the selection; anchored to an element (the 动态 card's or
-// the viewer line's 「+ 标签」, a CSS selector so it survives redraws) it is a small popover: 1–9 tick, Esc or a click
-// outside closes. While the popover is open, pick.keep holds the cards it was opened over (see feedList).
-const pick = { mids: [], anchor: "", keep: null, typing: false, before: null };
+// ----- 打标签 (one UP from its card, or the selection): the shared picker, tag-picker.js -----
+// A modal for the UP 主 cards and the selection; anchored (the 动态 card's or the viewer line's 「+ 标签」, a CSS selector
+// so it survives redraws) a popover. While the popover is open, pick.keep holds the cards it was opened over (see
+// feedList), so the cards that no longer match the filter leave when it closes, with a toast.
+const pick = { mids: [], anchor: "", keep: null };
 function openPick(mids, anchor = "") {
-  closePick();
   if (anchor && rows.get(mids[0])?.gone) return;
+  TagPicker.close(); // saves the open one before pick is reset for this one
   pick.mids = mids;
-  pick.before = tagsOf(D.map, mids);
   pick.anchor = anchor;
-  pick.typing = false;
   pick.keep = anchor && F.feed ? new Set(feedList(F.feed.items, D, F.side, null).filter((it) => it.mid === mids[0]).map((it) => it.bvid)) : null;
-  $("fwPickTitle").textContent = mids.length === 1 ? `给「${upName(mids[0])}」打标签` : `给选中的 ${mids.length} 个 UP 主打标签`;
-  $("fwPickInput").value = "";
-  pickDialog.classList.toggle("fw-pop", Boolean(anchor));
-  renderPick();
-  if (!anchor) {
-    pickDialog.showModal();
-    return $("fwPickInput").focus();
-  }
   const n = pick.keep?.size || 0;
-  $("fwPickSrc").textContent = n ? `这里有 TA 的 ${n} 个视频` : "";
-  pickDialog.show();
-  placePick();
-  pickDialog.focus(); // also takes the keys back from the player's frame
-  render();
+  TagPicker.open({
+    title: mids.length === 1 ? `给「${upName(mids[0])}」打标签` : `给选中的 ${mids.length} 个 UP 主打标签`,
+    note: n ? `这里有 TA 的 ${n} 个视频` : "",
+    targets: mids,
+    idsOf: (m) => liveTags(m, D),
+    tags: () => D.tags,
+    canCreate: true,
+    create: addTag,
+    anchor,
+    onClose: pickClosed
+  });
+  if (anchor) render();
 }
-// One picker session is one undo step, as 收藏夹's picker.
-function endPick() {
-  const before = pick.before;
-  pick.before = null;
-  if (!before || sameTags(D.map, before)) return false;
-  pushTagUndo(before, "标签修改");
-  return true;
-}
-// Closes either way; for the popover, the cards that no longer match the filter leave now.
-function closePick() {
-  const changed = endPick();
-  if (!pick.anchor) {
-    if (pickDialog.open) pickDialog.close();
-    if (changed) toast("标签已更新 · U 撤销");
-    return;
-  }
-  const { keep, mids } = pick;
+async function pickClosed(changes) {
+  const { keep, mids, anchor } = pick;
   pick.anchor = "";
   pick.keep = null;
-  pickDialog.close();
+  // One close is one save and one undo step, as 收藏夹's picker.
+  let map = D.map;
+  for (const c of changes) map = withTags(map, [c.key], c.add, c.remove);
+  if (changes.length) {
+    const before = tagsOf(D.map, changes.map((c) => c.key));
+    await setTagMap(map);
+    pushTagUndo(before, "标签修改");
+  }
   if (F.mode !== "follow") return;
   render();
-  const left = F.tab === "feed" && F.feed ? feedLeaving(F.feed.items, D, F.side, keep).length : 0;
-  const msg = left ? `「${upName(mids[0])}」的 ${left} 个视频已移出「${sideName(F.side)}」` : changed ? "标签已更新" : "";
-  if (msg) toast(changed ? `${msg} · U 撤销` : msg);
+  const left = anchor && F.tab === "feed" && F.feed ? feedLeaving(F.feed.items, D, F.side, keep).length : 0;
+  const msg = left ? `「${upName(mids[0])}」的 ${left} 个视频已移出「${sideName(F.side)}」` : changes.length ? "标签已更新" : "";
+  if (msg) toast(`${msg} · U 撤销`);
 }
 const sideName = (id) => ({ all: "全部", untagged: "未打标签", special: "特别关注", gone: "已取消关注" })[id] || tagOf(id)?.name || "";
-function placePick() {
-  const r = (document.querySelector(pick.anchor) || E.list).getBoundingClientRect();
-  const w = pickDialog.offsetWidth;
-  const h = pickDialog.offsetHeight;
-  let y = r.bottom + 6;
-  if (y + h > innerHeight - 8) y = Math.max(8, r.top - h - 6);
-  pickDialog.style.left = `${Math.min(Math.max(8, r.left), innerWidth - w - 8)}px`;
-  pickDialog.style.top = `${y}px`;
-}
-function renderPick() {
-  const pop = Boolean(pick.anchor);
-  const q = cleanTagName($("fwPickInput").value);
-  $("fwPickInput").hidden = pop && !pick.typing;
-  const list = D.tags.filter((t) => !q || t.name.includes(q));
-  const have = (t) => pick.mids.filter((m) => (D.map[m] || []).includes(t.id)).length;
-  const create = q && !D.tags.some((t) => t.name === q)
-    ? `<li class="picker-opt" role="option" data-new="${esc(q)}"><span class="check">+</span>新建「${esc(q)}」</li>`
-    : pop && !pick.typing ? `<li class="picker-opt fw-pick-new" role="option" data-typing><span class="check">+</span>新建标签</li>` : "";
-  $("fwPickList").innerHTML = list.map((t, i) => {
-    const n = have(t);
-    const mark = n === pick.mids.length ? "✓" : n ? "–" : "";
-    const key = pop && !q && i < 9 ? `<span class="n">${i + 1}</span>` : "";
-    return `<li class="picker-opt" role="option" data-id="${esc(t.id)}" aria-selected="${n === pick.mids.length}"><span class="check">${mark}</span><span class="dot" style="--c:${esc(t.color)}"></span>${esc(t.name)}${pick.mids.length > 1 && n ? `<span class="muted">${n} 个有</span>` : ""}${key}</li>`;
-  }).join("") + create || `<li class="muted">还没有标签，输入名称后回车新建</li>`;
-}
-async function togglePick(id) {
-  await setTagMap(pickToggle(D.map, pick.mids, id));
-  renderPick();
-  render();
-}
 
 // T: the UP of the 动态 card under the mouse, else the current UP card, else the video playing in the viewer.
 function tagByKey() {
   const it = F.tab === "feed" && F.hover && F.feed?.items.find((x) => x.bvid === F.hover);
-  if (it) openPick([it.mid], `.fw-video[data-bvid="${CSS.escape(it.bvid)}"] .fw-tag-add`);
+  if (it) openPick([it.mid], `.fw-video[data-bvid="${CSS.escape(it.bvid)}"] .tag-plus`);
   else if (F.tab === "ups" && shown.includes(F.cur) && !rows.get(F.cur)?.gone) openPick([F.cur]);
-  else if (F.viewing && F.viewingMid && !rows.get(F.viewingMid)?.gone) openPick([F.viewingMid], "#fwViewerUp .fw-tag-add");
+  else if (F.viewing && F.viewingMid && !rows.get(F.viewingMid)?.gone) openPick([F.viewingMid], "#fwViewerUp .tag-plus");
 }
 // A modal dialog (confirm, settings, the modal picker) owns the keys; the popover does not.
-const modalOpen = () => Boolean(document.querySelector("dialog[open]:not(.fw-pop)"));
+const modalOpen = () => Boolean(document.querySelector("dialog[open]:not(.tp-pop)"));
 const NAV = { j: 1, ArrowDown: 1, k: -1, ArrowUp: -1 };
 // 关注's keys, from triage.js's one keydown handler (typing and IME already left out) and the player's T / Esc.
 function followKey(key) {
-  if (key === "Escape" && pick.anchor) closePick();
-  else if (modalOpen()) return false;
+  if (modalOpen()) return false;
   else if (key === "Escape" && T.viewing()) T.closeViewer();
   else if (key === "t") tagByKey();
-  else if (/^[1-9]$/.test(key) && pick.anchor && D.tags[key - 1]) togglePick(D.tags[key - 1].id);
   else if (key === "?") T.help();
   else if (key === "/") E.q.focus();
   else if (key === "u") T.undo();
@@ -1372,7 +1296,7 @@ main.addEventListener("click", async (e) => {
   const pk = t.closest("[data-pick]");
   if (pk) {
     const card = pk.closest(".fw-video");
-    return openPick([pk.dataset.pick], card ? `.fw-video[data-bvid="${CSS.escape(card.dataset.bvid)}"] .fw-tag-add` : "");
+    return openPick([pk.dataset.pick], card ? `.fw-video[data-bvid="${CSS.escape(card.dataset.bvid)}"] .tag-plus` : "");
   }
   const sel = t.closest("[data-select]");
   if (sel) return toggleSel(sel.dataset.select);
@@ -1444,12 +1368,13 @@ tagsDialog.addEventListener("click", async (e) => {
     if (mode.dataset.fwmode === "ai" && !AI.running) await loadAi();
     return showTagsMode(mode.dataset.fwmode);
   }
-  const row = t.closest(".fw-tag-row");
-  if (row && t.closest("[data-color]")) return editTag(row.dataset.id, "color");
-  if (row && t.closest("[data-del]")) return deleteTag(row.dataset.id);
+  const row = t.closest("#fwTagRows .tag-row");
+  if (row && t.closest("[data-tag-color]")) return editTag(row.dataset.id, "color");
+  if (row && t.closest("[data-tag-del]")) return deleteTag(row.dataset.id);
   if (t.closest("#fwAddTag")) {
     const input = $("fwNewTag");
-    if (cleanTagName(input.value) && D.tags.some((x) => x.name === cleanTagName(input.value))) return toast("已有同名标签", true);
+    const why = UI.tagNameError(cleanTagName(input.value), D.tags);
+    if (why) return toast(why, true);
     if (await addTag(input.value)) {
       input.value = "";
       renderTagRows();
@@ -1480,7 +1405,7 @@ tagsDialog.addEventListener("click", async (e) => {
 });
 tagsDialog.addEventListener("change", (e) => {
   const t = e.target;
-  const row = t.closest(".fw-tag-row");
+  const row = t.closest("#fwTagRows .tag-row");
   if (row && t.dataset.field) return editTag(row.dataset.id, t.dataset.field, t.value);
   if (t.id === "fwAiScope") return renderAiForm();
   const nt = t.closest(".ai-newtag");
@@ -1497,42 +1422,17 @@ tagsDialog.addEventListener("keydown", (e) => {
     e.preventDefault();
     $("fwAddTag").click();
   }
-  if (e.key === "Enter" && e.target.matches?.(".fw-tag-row input")) e.preventDefault();
+  if (e.key === "Enter" && e.target.matches?.("#fwTagRows input")) e.preventDefault();
 });
 
-// The modal picker closed by Esc or its form button.
-pickDialog.addEventListener("close", () => endPick() && toast("标签已更新 · U 撤销"));
-pickDialog.addEventListener("click", async (e) => {
-  const opt = e.target.closest(".picker-opt");
-  if (!opt) return;
-  if ("typing" in opt.dataset) {
-    pick.typing = true;
-    renderPick();
-    placePick();
-    return $("fwPickInput").focus();
-  }
-  if (opt.dataset.new) {
-    const tag = await addTag(opt.dataset.new);
-    $("fwPickInput").value = "";
-    pick.typing = false;
-    if (tag) await togglePick(tag.id);
-    if (pick.anchor) pickDialog.focus();
-  } else await togglePick(opt.dataset.id);
-});
 vline.addEventListener("click", (e) => {
   const pk = e.target.closest("[data-pick]");
-  if (pk) openPick([pk.dataset.pick], "#fwViewerUp .fw-tag-add");
+  if (pk) openPick([pk.dataset.pick], "#fwViewerUp .tag-plus");
 });
-// The popover: a click outside or into the player closes it.
 window.addEventListener("message", (e) => {
-  const key = fromViewer(e, $("viewerFrame").contentWindow);
+  const key = UI.viewerKeyFrom(e, $("viewerFrame").contentWindow);
   if (key && F.mode === "follow") followKey(key);
 });
-document.addEventListener("click", (e) => {
-  if (pick.anchor && !pickDialog.contains(e.target) && !e.target.closest("[data-pick]")) closePick();
-}, true);
-window.addEventListener("blur", () => pick.anchor && closePick());
-addEventListener("resize", () => pick.anchor && placePick());
 E.list.addEventListener("mouseover", (e) => (F.hover = e.target.closest(".fw-video")?.dataset.bvid || ""));
 E.list.addEventListener("mouseleave", () => (F.hover = ""));
 let pointerAt = "";
@@ -1542,19 +1442,6 @@ E.list.addEventListener("mousemove", (e) => {
   pointerAt = at;
   const mid = e.target.closest(".fw-up")?.dataset.mid;
   if (mid && mid !== F.cur) setCur(mid, false);
-});
-BocTyping.bindLive($("fwPickInput"), () => renderPick(), 0);
-$("fwPickInput").addEventListener("keydown", async (e) => {
-  if (BocTyping.composing(e)) return;
-  // The popover's own field: the page's keys skip typing, and a non-modal dialog has no Esc of its own.
-  if (e.key === "Escape" && pick.anchor) {
-    e.preventDefault();
-    return closePick();
-  }
-  if (e.key !== "Enter") return;
-  e.preventDefault();
-  const first = $("fwPickList").querySelector(".picker-opt");
-  if (first) first.click();
 });
 
 // Storage: follow_jobs ticks often while a sync runs, so it redraws only the head and hint; data changes redraw all,

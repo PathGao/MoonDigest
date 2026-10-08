@@ -108,4 +108,40 @@ for (const file of ["triage.js", "follow.js"]) {
   }
 }
 
+// Keys from the viewer frame: only that frame, only B站's origin, only T / Esc.
+{
+  const frame = {};
+  const msg = (data, source = frame, origin = "https://www.bilibili.com") => ({ data, source, origin });
+  assert.strictEqual(UI.viewerKeyFrom(msg({ type: "mdg-viewer-key", key: "t" }), frame), "t");
+  assert.strictEqual(UI.viewerKeyFrom(msg({ type: "mdg-viewer-key", key: "Escape" }), frame), "Escape");
+  assert.strictEqual(UI.viewerKeyFrom(msg({ type: "mdg-viewer-key", key: "t" }, {}), frame), "", "another frame / window");
+  assert.strictEqual(UI.viewerKeyFrom(msg({ type: "mdg-viewer-key", key: "t" }, frame, "https://evil.example"), frame), "", "another origin");
+  assert.strictEqual(UI.viewerKeyFrom(msg({ type: "mdg-viewer-key", key: "d" }), frame), "", "other keys");
+  assert.strictEqual(UI.viewerKeyFrom(msg({ type: "x", key: "t" }), frame), "");
+  assert.strictEqual(UI.viewerKeyFrom(msg({ type: "mdg-viewer-key", key: "t" }, null), null), "", "no frame loaded");
+}
+
+// Tags: a new tag takes the first free color, so deleting a tag frees its color (counting would reuse a taken one).
+{
+  const C = UI.TAG_COLORS;
+  assert.strictEqual(UI.nextTagColor([]), C[0]);
+  assert.strictEqual(UI.nextTagColor([{ color: C[0] }, { color: C[2] }]), C[1], "a deleted tag's color is reused, not a taken one");
+  assert.strictEqual(UI.nextTagColor(C.map((color) => ({ color }))), C[0], "all taken: round again");
+  assert.strictEqual(UI.cycleTagColor(C[0]), C[1]);
+  assert.strictEqual(UI.cycleTagColor(C.at(-1)), C[0]);
+  assert.strictEqual(UI.cycleTagColor("#000"), C[0], "a color from elsewhere starts the palette");
+  assert.strictEqual(UI.tagNameError("", []), "标签名不能为空");
+  assert.strictEqual(UI.tagNameError("a", [{ name: "a" }]), "已有同名标签");
+  assert.strictEqual(UI.tagNameError("a", [{ name: "b" }]), "");
+  // Both modes' 管理 rows: the color button, the who in placeholder and count, escaped names.
+  const row = (who) => UI.tagRowHtml({ id: "x", name: "<i>", color: "#fff", rule: "r" }, { count: 3, who });
+  for (const [who, words] of [["视频", "视频"], ["UP 主", " UP 主"]]) {
+    assert.ok(row(who).includes("data-tag-color") && row(who).includes("data-tag-del") && row(who).includes(`3 个${words}<`) && row(who).includes(`什么样的${words}打这个标签`));
+    assert.ok(row(who).includes('value="&lt;i&gt;"') && !row(who).includes("<i>"));
+  }
+  assert.ok(UI.deleteTagAsk({ name: "甲" }, 2, "UP 主")[1].includes("2 个 UP 主上"));
+  assert.deepStrictEqual([...UI.deleteTagAsk({ name: "甲" }, 2, "视频")], ["删除标签「甲」？", "<p>将从 2 个视频上去掉这个标签，无法撤销。</p>"]);
+  assert.ok(UI.tagPlusBtn('data-x="1"', "给 <b> 打标签").includes('data-x="1" aria-label="给 &lt;b&gt; 打标签">+ 标签 <kbd'));
+}
+
 console.log("shared selftest: all passed");

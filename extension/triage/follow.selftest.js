@@ -11,7 +11,7 @@ assert.ok(pure.includes("function followStatus") && !pure.includes("document"), 
 const ctx = vm.createContext({ setTimeout, clearTimeout });
 // The pure block sorts with shared.js (UI.byValue / UI.dirWords), as the page does.
 vm.runInContext(fs.readFileSync(path.join(__dirname, "shared.js"), "utf8"), ctx);
-vm.runInContext(`const UI = globalThis.TriageUi;\n${pure}\n;Object.assign(globalThis, { dirLabel, followAiSettings, aiRequests, normDays, settingsProblem, followStatus, lastPostOf, recentTitles, upRow, visibleUps, mergeFeed, feedMatch, sideIds, feedList, feedLeaving, withTags, pickToggle, fromViewer, stepIn, tagsOf, sameTags, restoreTags, fmtAgo });`, ctx);
+vm.runInContext(`const UI = globalThis.TriageUi;\n${pure}\n;Object.assign(globalThis, { dirLabel, followAiSettings, aiRequests, normDays, settingsProblem, followStatus, lastPostOf, recentTitles, upRow, visibleUps, mergeFeed, feedMatch, sideIds, feedList, feedLeaving, withTags, stepIn, tagsOf, restoreTags, fmtAgo });`, ctx);
 const t = ctx;
 const plain = (v) => JSON.parse(JSON.stringify(v));
 
@@ -175,16 +175,12 @@ assert.strictEqual(t.fmtAgo(ago(3), now), "3 天前");
 assert.strictEqual(t.fmtAgo(ago(65), now), "2 个月前");
 assert.strictEqual(t.fmtAgo(ago(800), now), "2 年前");
 
-// ----- tagging from 动态: the picker, deferred removal, keys from the viewer frame -----
+// ----- tagging from 动态: deferred removal (the picker itself is tag-picker.selftest.js) -----
 {
   const D = { ...base(), tags: [{ id: "g", name: "游戏" }, { id: "s", name: "生活" }], map: { b: ["g"] } };
-  // the picker's tick: on for all unless all have it; an UP left with no tag leaves the map
-  let map = t.pickToggle(D.map, ["a"], "s");
-  assert.deepStrictEqual(plain(map), { b: ["g"], a: ["s"] });
-  map = t.pickToggle(map, ["a"], "s");
-  assert.deepStrictEqual(plain(map), { b: ["g"] }, "unticking the last tag drops the UP from the map");
-  assert.deepStrictEqual(plain(t.pickToggle({ a: ["s"], b: [] }, ["a", "b"], "s")), { a: ["s"], b: ["s"] }, "some have it → all get it");
-  assert.deepStrictEqual(plain(t.pickToggle({ a: ["s", "g"], b: ["s"] }, ["a", "b"], "s")), { a: ["g"] }, "all have it → off all");
+  // what the picker's close saves: an UP left with no tag leaves the map
+  assert.deepStrictEqual(plain(t.withTags(D.map, ["a"], ["s"], [])), { b: ["g"], a: ["s"] });
+  assert.deepStrictEqual(plain(t.withTags(D.map, ["b"], [], ["g"])), {}, "unticking the last tag drops the UP from the map");
 
   // 未打标签: tagging 「a」 with the picker open keeps a's cards until it closes
   const items = [{ bvid: "1", mid: "a" }, { bvid: "2", mid: "a" }, { bvid: "3", mid: "c" }, { bvid: "4", mid: "b" }];
@@ -199,17 +195,6 @@ assert.strictEqual(t.fmtAgo(ago(800), now), "2 年前");
   assert.deepStrictEqual(t.feedList(items, D, "untagged", new Set(["1"])).map((it) => it.bvid), ["1", "2", "3"]);
   // ticking a tag into the filtered one shows the UP's other cards at once
   assert.deepStrictEqual(t.feedList(items, tagged, "s", new Set()).map((it) => it.bvid), ["1", "2"]);
-
-  // keys from the viewer frame: only that frame, only B站's origin, only T / Esc
-  const frame = {};
-  const msg = (data, source = frame, origin = "https://www.bilibili.com") => ({ data, source, origin });
-  assert.strictEqual(t.fromViewer(msg({ type: "mdg-viewer-key", key: "t" }), frame), "t");
-  assert.strictEqual(t.fromViewer(msg({ type: "mdg-viewer-key", key: "Escape" }), frame), "Escape");
-  assert.strictEqual(t.fromViewer(msg({ type: "mdg-viewer-key", key: "t" }, {}), frame), "", "another frame / window");
-  assert.strictEqual(t.fromViewer(msg({ type: "mdg-viewer-key", key: "t" }, frame, "https://evil.example"), frame), "", "another origin");
-  assert.strictEqual(t.fromViewer(msg({ type: "mdg-viewer-key", key: "d" }), frame), "", "other keys");
-  assert.strictEqual(t.fromViewer(msg({ type: "x", key: "t" }), frame), "");
-  assert.strictEqual(t.fromViewer(msg({ type: "mdg-viewer-key", key: "t" }, null), null), "", "no frame loaded");
 }
 
 // J / K over the cards on screen; U gives the touched UPs their tags back and leaves the rest
@@ -225,16 +210,13 @@ assert.strictEqual(t.fmtAgo(ago(800), now), "2 年前");
   const before = t.tagsOf({ a: ["x"], b: ["y"] }, ["a", "n"]);
   assert.deepStrictEqual(plain(before), { a: ["x"], n: [] });
   const now = { a: ["x", "z"], b: ["y", "w"], n: ["x"] };
-  assert.ok(!t.sameTags(now, before));
-  assert.ok(t.sameTags({ a: ["x"], b: ["q"] }, before), "only the touched UPs count");
-  assert.ok(t.sameTags({ a: ["x"], n: [] }, before));
   assert.deepStrictEqual(plain(t.restoreTags(now, before, new Set(["x", "y", "z", "w"]))), { a: ["x"], b: ["y", "w"] }, "b's later edit stays");
   assert.deepStrictEqual(plain(t.restoreTags({}, { a: ["x", "dead"] }, new Set(["x"]))), { a: ["x"] }, "a tag deleted since stays gone");
 }
 
 // One keydown handler for the page (triage.js onKey): follow.js hands it its keys, and triage.js knows no 关注 ids.
 {
-  assert.ok(!/addEventListener\("keydown"/.test(source.replace(/(tagsDialog|\$\("fwPickInput"\))\.addEventListener\("keydown"/g, "")), "follow.js has no page-wide keydown listener");
+  assert.ok(!/addEventListener\("keydown"/.test(source.replace(/tagsDialog\.addEventListener\("keydown"/g, "")), "follow.js has no page-wide keydown listener");
   assert.ok(source.includes("T.setModeKeys("), "follow.js registers its keys");
   assert.ok(!/fw[A-Z]/.test(fs.readFileSync(path.join(__dirname, "triage.js"), "utf8")), "triage.js names no 关注 element");
 }

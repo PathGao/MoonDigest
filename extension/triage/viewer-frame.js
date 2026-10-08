@@ -2,7 +2,7 @@
 // player, the description and the comments. Pages opened any other way are left alone.
 if (window !== window.top && location.ancestorOrigins?.[0] === `chrome-extension://${chrome.runtime.id}`) {
   document.documentElement.setAttribute("data-mdg-viewer", "");
-  // While a video plays the keys go to this frame: T (tag the UP) and Esc go up to the 分拣台 page (follow.js).
+  // While a video plays the keys go to this frame: T (tag the video, or its UP in 关注) and Esc go up to the 分拣台 page.
   const to = location.ancestorOrigins[0];
   addEventListener("keydown", (e) => {
     const key = viewerKey(e);

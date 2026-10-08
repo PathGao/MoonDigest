@@ -84,6 +84,8 @@
               <button id="viewerTabBtn" type="button" aria-label="在 B站打开">在 B站打开</button>
               <button id="viewerCloseBtn" type="button" class="icon" aria-label="关闭视频栏 (Esc)">×</button>
             </div>
+            <!-- 收藏夹: the playing video's tags and 「+ 标签」 (关注 adds its own line, follow.js). -->
+            <div id="viewerTags" class="viewer-line" hidden></div>
             <!-- No allow-top-navigation: the page breaks out of frames by navigating the top window. -->
             <iframe id="viewerFrame" class="viewer-frame" title="视频页" sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox allow-modals allow-presentation" allow="autoplay; fullscreen; picture-in-picture; clipboard-write"></iframe>
           </aside>
@@ -207,12 +209,15 @@
       </form>
     </dialog>
 
-    <dialog id="pickerDialog" aria-label="打标签">
+    <!-- Both modes' tag picker (tag-picker.js): a modal, or a popover under 「+ 标签」 (.tp-pop). -->
+    <dialog id="tagPicker" aria-label="打标签">
       <form method="dialog">
-        <h2 id="pickerTitle">打标签</h2>
-        <input id="pickerInput" type="text" maxlength="12" placeholder="输入筛选，或输入新名称后回车新建" aria-label="筛选或新建标签" autocomplete="off" />
-        <ul id="pickerList" class="picker-list" role="listbox" aria-label="标签"></ul>
-        <p class="dialog-meta">↑↓ 选择 · 回车 勾选或新建 · Esc 关闭并保存</p>
+        <h2 class="tp-title">打标签</h2>
+        <p class="tp-note dialog-meta"></p>
+        <input class="tp-input" type="text" maxlength="12" placeholder="输入筛选，或输入新名称后回车新建" aria-label="筛选或新建标签" autocomplete="off" />
+        <ul class="picker-list" role="listbox" aria-label="标签"></ul>
+        <p class="dialog-meta tp-keys">↑↓ 选择 · 回车 勾选或新建 · 1–9 勾选 · Esc 关闭并保存</p>
+        <div class="dialog-actions"><span class="spacer"></span><button type="submit" class="primary">完成</button></div>
       </form>
     </dialog>
 
@@ -240,7 +245,7 @@
           </span>
         </div>
         <section id="tagsManage" class="ai-section">
-          <p class="dialog-hint">这里是这个收藏夹的标签，最多 <span data-tag-limit>10</span> 个（在收藏夹设置里改），改名、说明和删除立即保存。</p>
+          <p class="dialog-hint">这里是这个收藏夹的标签，最多 <span data-tag-limit>10</span> 个（在收藏夹设置里改），改名、颜色、说明和删除立即保存。</p>
           <div id="tagsRows" class="tag-rows"></div>
           <div class="tag-add">
             <input id="newTagInput" type="text" maxlength="12" placeholder="新标签名称" aria-label="新标签名称" />
@@ -310,9 +315,9 @@
           <dt><kbd>J</kbd> / <kbd>K</kbd></dt><dd>UP 主页签里移到下一张 / 上一张卡片</dd>
           <dt><kbd>X</kbd></dt><dd>选中或取消选中当前卡片</dd>
           <dt><kbd>T</kbd></dt><dd>给鼠标所在的动态卡片、当前 UP 主卡片或正在播放的视频的 UP 主打标签</dd>
-          <dt><kbd>1</kbd>–<kbd>9</kbd></dt><dd>标签弹层里勾选或去掉第几个标签</dd>
-          <dt><kbd>Esc</kbd></dt><dd>关闭标签弹层或视频栏</dd>
-          <dt><kbd>U</kbd></dt><dd>撤销上一步标签修改（去掉标签、标签弹层、AI 打标签）</dd>
+          <dt><kbd>1</kbd>–<kbd>9</kbd></dt><dd>打标签时勾选或去掉第几个标签</dd>
+          <dt><kbd>Esc</kbd></dt><dd>关闭打标签（并保存）或视频栏</dd>
+          <dt><kbd>U</kbd></dt><dd>撤销上一步标签修改（去掉标签、打标签、AI 打标签）</dd>
           <dt><kbd>/</kbd></dt><dd>搜索（Esc 清空）</dd>
           <dt><kbd>?</kbd></dt><dd>显示本帮助</dd>
         </dl>
@@ -338,7 +343,7 @@
           <dt><kbd>K</kbd><kbd>↑</kbd></dt><dd>上一个</dd>
           <dt><kbd>D</kbd></dt><dd>取消收藏</dd>
           <dt><kbd>S</kbd></dt><dd>保留</dd>
-          <dt><kbd>T</kbd></dt><dd>打标签</dd>
+          <dt><kbd>T</kbd></dt><dd>打标签（视频在右侧播放时，在播放器里按 T 给它打）；打标签时 1–9 勾选第几个，Esc 关闭并保存</dd>
           <dt><kbd>E</kbd></dt><dd>加入优先看 / 移出</dd>
           <dt><kbd>Q</kbd></dt><dd>问 AI（在侧边栏打开这个视频）</dd>
           <dt><kbd>X</kbd></dt><dd>选中 / 取消选中。选中的视频可以批量处理；列表上方「全选这里的 N 个」一次全选当前列出的</dd>
@@ -359,6 +364,7 @@
     <script src="../typing.js"></script>
     <script src="../download.js"></script>
     <script src="./shared.js"></script>
+    <script src="./tag-picker.js"></script>
     <script type="module" src="./triage.js"></script>
     <script type="module" src="./follow.js"></script>
   </body>

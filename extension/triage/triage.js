@@ -7,9 +7,6 @@ const THROTTLE_MS = globalThis.__TRIAGE_THROTTLE_MS || 10 * 60 * 1000;
 const THROTTLES = { THROTTLED: [THROTTLE_MS, "B站限流"], AI_THROTTLED: [60 * 1000, "AI 平台限流"] };
 const GROUP_SIZE = 10;
 const SYNC_MIN_GAP_MS = 60 * 1000;
-// Catppuccin Latte accents (desaturated); chips keep --text on top, so these are only borders and tints.
-// Mauve, blue, green, red and yellow are left out: they mean where-you-are, next step, keep, delete and pending.
-const TAG_COLORS = ["#da86c3", "#298287", "#dc6d2d", "#3590a0", "#8595ea", "#cf5c66", "#2497c6", "#cf8686", "#ce9386"];
 // Progress tabs: how far a video has been looked at. The AI class is a filter inside a tab, never a tab.
 // 阅览 sits apart after them.
 const STAGES = [
@@ -69,7 +66,7 @@ function simplifyMigration({ schemes, folderScheme, tags, videoTags, criteria, f
     if (!name || !t.id || out.some((x) => x.id === t.id)) continue;
     const kept = out.find((x) => x.name === name);
     if (kept) remap[t.id] = kept.id;
-    else out.push({ id: t.id, name, color: t.color || TAG_COLORS[out.length % TAG_COLORS.length] });
+    else out.push({ id: t.id, name, color: t.color || UI.TAG_COLORS[out.length % UI.TAG_COLORS.length] });
   }
   const nextVideoTags = Object.fromEntries(Object.entries(vt).map(([b, ids]) => [b, [...new Set(ids.map((id) => remap[id] || id))]]));
   const crit = {};
@@ -355,12 +352,12 @@ const el = {};
   "basketList", "toast", "settingsDialog", "folderToggles", "thinkingRow", "intervalInput",
   "batchSizeInput", "tagLimitInput", "aiNewTagMaxInput", "aiRemoveTagsInput", "aiFormRemoveTagsInput", "openOptionsBtn", "thinkingInput", "titleMaxInput",
   "titleMaxHint", "analyzeMaxInput", "analyzeMaxHint", "settingsError", "csvBtn", "confirmDialog",
-  "confirmTitle", "confirmBody", "confirmOk", "transferDialog", "transferTitle", "transferBody", "transferTarget", "transferNewRow", "transferUnchosen", "transferHow", "transferName", "transferPrivate", "pickerDialog", "pickerTitle", "pickerInput", "pickerList",
+  "confirmTitle", "confirmBody", "confirmOk", "transferDialog", "transferTitle", "transferBody", "transferTarget", "transferNewRow", "transferUnchosen", "transferHow", "transferName", "transferPrivate",
   "criteriaDialog", "criteriaTitle", "criteriaInput", "tagsDialog", "tagsModeManage", "tagsModeBatch", "tagsManage", "tagsRows", "newTagInput", "addTagBtn", "helpDialog",
   "aiForm", "aiScope", "aiScopeCount", "aiInstruction", "aiHistory",
   "aiTagsPreview", "aiProgress", "aiCloseBtn", "aiStopBtn", "aiRunBtn",
   "aiReview", "aiReviewSummary", "aiNotes", "aiNewTagsHead", "aiNewTags", "aiRows", "aiRecentRules", "aiRecentUndo", "aiDiscardBtn", "aiApplyBtn",
-  "biliBtn", "main", "viewer", "viewerTitle", "viewerNextBtn", "viewerFocusBtn", "viewerTabBtn", "viewerCloseBtn", "viewerFrame",
+  "biliBtn", "main", "viewer", "viewerTitle", "viewerNextBtn", "viewerFocusBtn", "viewerTabBtn", "viewerCloseBtn", "viewerFrame", "viewerTags",
   "tools", "writeBtn", "writeDialog", "writeScope", "writeFormat", "writeScopeCount", "writeOverwriteRow", "writeOverwrite", "writeProgress", "writeFailed", "writeStopBtn", "writeCopyBtn", "writeRunBtn", "writeMdBtn"
 ].forEach((id) => (el[id] = $(id)));
 
@@ -1624,6 +1621,7 @@ function render() {
   renderTabs();
   renderList();
   renderBasket();
+  renderViewerTags();
 }
 
 function renderTop() {
@@ -2646,13 +2644,13 @@ const saveTags = () => storeSet(K.tags, S.tags);
 // null (with a toast) outside a folder or when the folder already has tagLimit() tags.
 function createTag(name, folder = S.mediaId) {
   name = cleanTagName(name);
-  if (!name) return toast("标签名不能为空", true), null;
+  if (!name) return toast(UI.tagNameError(name, []), true), null;
   if (folder === ALL || folder === REMOVED || !folder) return toast(FOLDER_ONLY, true), null;
   const own = S.tags.filter((t) => t.folder === String(folder));
   const existing = own.find((t) => t.name === name);
   if (existing) return existing;
   if (own.length >= tagLimit()) return toast(`这个收藏夹已经有 ${own.length} 个标签了，先删掉不用的，或在收藏夹设置里调高上限`, true), null;
-  const tag = { id: newTagId(), name, color: TAG_COLORS[own.length % TAG_COLORS.length], folder: String(folder) };
+  const tag = { id: newTagId(), name, color: UI.nextTagColor(own), folder: String(folder) };
   S.tags.push(tag);
   saveTags();
   return tag;
@@ -2690,21 +2688,25 @@ function endAiRecent(folder = String(S.mediaId)) {
   saveAiRecent();
 }
 
-const picker = { bvid: "", prev: [], ids: [], index: 0, options: [] };
-
-function openPicker(bvid) {
+// T on a card opens the shared picker (tag-picker.js) as a modal; T in the player or 「+ 标签」 on the viewer line opens
+// it under that line. One video at a time; closing saves once, as one undo step.
+function openPicker(bvid, anchor = "") {
   const it = S.itemMap.get(bvid);
-  if (!it) return;
-  picker.bvid = bvid;
-  // Every tag of the video, so saving keeps the ones of other folders the picker does not list.
-  picker.prev = (S.videoTags[bvid] || []).filter((id) => tagById(id));
-  picker.ids = [...picker.prev];
-  picker.index = 0;
-  el.pickerTitle.textContent = `打标签 ·《${shortTitle(it)}》`;
-  el.pickerInput.value = "";
-  renderPicker();
-  el.pickerDialog.showModal();
-  el.pickerInput.focus();
+  if (!it || S.mediaId === REMOVED) return;
+  const folders = pickerFolders(bvid);
+  const one = folders.length === 1;
+  TagPicker.open({
+    title: `打标签 ·《${shortTitle(it)}》`,
+    targets: [bvid],
+    // Every tag of the video, so saving keeps the ones of other folders the picker does not list.
+    idsOf: (b) => (S.videoTags[b] || []).filter((id) => tagById(id)),
+    tags: () => S.tags.filter((t) => folders.includes(t.folder)),
+    canCreate: one,
+    create: (name) => createTag(name, folders[0]),
+    empty: one ? "输入名称后回车新建标签" : "在具体收藏夹里新建标签",
+    anchor,
+    onClose: savePicked
+  });
 }
 
 // The picker's tags: the open folder's; in 所有收藏夹 those of the folders the video is in. New tags need one folder.
@@ -2712,49 +2714,28 @@ function pickerFolders(bvid) {
   return inFolderView() ? [String(S.mediaId)] : (S.itemMap.get(bvid)?.folders || []).map(String);
 }
 
-function renderPicker() {
-  const q = el.pickerInput.value.trim();
-  const folders = pickerFolders(picker.bvid);
-  const tags = S.tags.filter((t) => folders.includes(t.folder));
-  const opts = tags.filter((t) => !q || t.name.toLowerCase().includes(q.toLowerCase())).map((t) => ({ tag: t }));
-  if (q && folders.length === 1 && !tags.some((t) => t.name === q)) opts.unshift({ create: q });
-  picker.options = opts;
-  picker.index = Math.min(picker.index, Math.max(0, opts.length - 1));
-  el.pickerList.innerHTML = opts.length
-    ? opts
-        .map((o, i) => {
-          const active = i === picker.index ? " active" : "";
-          if (o.create) return `<li role="option" class="picker-opt${active}" data-i="${i}" aria-selected="${i === picker.index}">新建「${esc(o.create)}」</li>`;
-          const on = picker.ids.includes(o.tag.id);
-          return `<li role="option" class="picker-opt${active}" data-i="${i}" aria-selected="${i === picker.index}" aria-checked="${on}"><span class="check">${on ? "✓" : ""}</span><span class="dot" style="--c:${esc(o.tag.color)}"></span>${esc(o.tag.name)}</li>`;
-        })
-        .join("")
-    : `<li class="muted">${folders.length === 1 ? "输入名称后回车新建标签" : "在具体收藏夹里新建标签"}</li>`;
-  el.pickerList.querySelector(".active")?.scrollIntoView({ block: "nearest" });
-}
-
-function pickOption(i) {
-  const o = picker.options[i];
-  if (!o) return;
-  if (o.create) {
-    const t = createTag(o.create, pickerFolders(picker.bvid)[0]);
-    if (t) picker.ids.push(t.id);
-    el.pickerInput.value = "";
-    picker.index = 0;
-  } else if (picker.ids.includes(o.tag.id)) {
-    picker.ids = picker.ids.filter((id) => id !== o.tag.id);
-  } else {
-    picker.ids.push(o.tag.id);
+function savePicked(changes) {
+  for (const c of changes) {
+    const prev = (S.videoTags[c.key] || []).filter((id) => tagById(id));
+    if (setVideoTags(c.key, TagPicker.applyChange(prev, c), prev)) toast("标签已更新 · U 撤销");
   }
-  renderPicker();
-}
-
-function closePicker() {
-  const changed = setVideoTags(picker.bvid, picker.ids, picker.prev);
   render();
-  if (changed) toast("标签已更新 · U 撤销");
   setFocus(S.focused, true);
 }
+
+// The viewer's second line, as 关注's: the playing video's tags and 「+ 标签 T」; a tag opens the picker too.
+function renderViewerTags() {
+  const it = !followMode() && S.viewing && S.itemMap.get(S.viewing);
+  el.viewerTags.hidden = !it;
+  if (!it) return void (el.viewerTags.innerHTML = "");
+  const edit = S.mediaId !== REMOVED;
+  const chips = tagIdsOf(it.bvid)
+    .map(tagById)
+    .map((t) => `<span class="chip" style="--c:${esc(t.color)}"${edit ? " data-vtag" : ""}>${esc(t.name)}</span>`)
+    .join("");
+  el.viewerTags.innerHTML = (chips || `<span class="none">未打标签</span>`) + (edit ? `<span class="sep">·</span>${UI.tagPlusBtn("data-vtag", "给这个视频打标签")}` : "");
+}
+const tagPlaying = () => S.viewing && openPicker(S.viewing, "#viewerTags .tag-plus");
 
 // ---------- 判断标准 ----------
 function openCriteria() {
@@ -2802,16 +2783,18 @@ function showTagsMode(mode) {
   renderTagManager();
 }
 
-// A rename or rule edit from 管理; false (and nothing saved) for an empty or duplicate name.
+// A rename, rule or color edit from 管理; false (and nothing saved) for an empty or duplicate name.
 function saveTagEdit(t, field, value) {
   const text = field === "name" ? cleanTagName(value) : String(value ?? "").trim();
   if (field === "name") {
-    if (!text || S.tags.some((x) => x !== t && x.folder === t.folder && x.name === text)) {
-      toast(text ? "已有同名标签" : "标签名不能为空", true);
+    const why = UI.tagNameError(text, S.tags.filter((x) => x !== t && x.folder === t.folder));
+    if (why) {
+      toast(why, true);
       return false;
     }
     t.name = text;
-  } else if (field === "rule") {
+  } else if (field === "color") t.color = UI.cycleTagColor(t.color);
+  else if (field === "rule") {
     if (text) t.rule = text.slice(0, 80);
     else delete t.rule;
   } else return false;
@@ -2828,24 +2811,14 @@ function renderTagManager() {
   for (const ids of Object.values(S.videoTags)) for (const id of ids) counts[id] = (counts[id] || 0) + 1;
   const tags = viewTags();
   el.tagsRows.innerHTML = tags.length
-    ? tags
-        .map(
-          (t) => `<div class="tag-row" data-id="${esc(t.id)}">
-      <span class="dot" style="--c:${esc(t.color)}"></span>
-      <input type="text" value="${esc(t.name)}" data-field="name" maxlength="12" aria-label="标签名称" />
-      <input type="text" value="${esc(t.rule || "")}" data-field="rule" maxlength="80" placeholder="什么样的视频打这个标签（给 AI 看，可不写）" aria-label="${esc(t.name)} 的说明" />
-      <span class="muted">${counts[t.id] || 0} 个视频</span>
-      <button type="button" class="danger" data-field="delete" aria-label="删除标签 ${esc(t.name)}">删除</button>
-    </div>`
-        )
-        .join("")
+    ? tags.map((t) => UI.tagRowHtml(t, { count: counts[t.id] || 0, who: "视频" })).join("")
     : `<p class="muted">这个收藏夹还没有自定义标签</p>`;
 }
 
 async function deleteTag(id) {
   const t = tagById(id);
   const n = Object.values(S.videoTags).filter((ids) => ids.includes(id)).length;
-  const ok = await askConfirm(`删除标签「${t.name}」？`, `<p>将从 ${n} 个视频上移除这个标签，无法撤销。</p>`, "删除", { danger: true });
+  const ok = await askConfirm(...UI.deleteTagAsk(t, n, "视频"), "删除", { danger: true });
   if (!ok) return;
   S.tags = S.tags.filter((x) => x.id !== id);
   for (const [b, ids] of Object.entries(S.videoTags)) {
@@ -3963,38 +3936,9 @@ function bindEvents() {
   UI.bindSync(syncEls());
   el.bannerClose.addEventListener("click", () => (el.banner.hidden = true));
 
-  // tag picker
-  bindLive(el.pickerInput, () => {
-    picker.index = 0;
-    renderPicker();
-  }, 0);
-  el.pickerInput.addEventListener("keydown", (e) => {
-    if (composing(e)) return; // Enter confirms the IME candidate, not the tag
-    if (e.key === "ArrowDown" || e.key === "ArrowUp") {
-      e.preventDefault();
-      const n = picker.options.length;
-      if (n) picker.index = (picker.index + (e.key === "ArrowDown" ? 1 : n - 1)) % n;
-      renderPicker();
-    } else if (e.key === "Enter") {
-      e.preventDefault();
-      pickOption(picker.index);
-    }
-  });
-  el.pickerList.addEventListener("mousedown", (e) => {
-    const li = e.target.closest("[data-i]");
-    if (!li) return;
-    e.preventDefault();
-    picker.index = Number(li.dataset.i);
-    pickOption(picker.index);
-    el.pickerInput.focus();
-  });
-  el.pickerDialog.addEventListener("close", closePicker);
-  // A backdrop click closes and saves like Esc. The dialog's own padding is also the dialog element, so check the point too.
-  el.pickerDialog.addEventListener("click", (e) => {
-    if (e.target !== el.pickerDialog) return;
-    const r = el.pickerDialog.getBoundingClientRect();
-    if (e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom) el.pickerDialog.close();
-  });
+  el.viewerTags.addEventListener("click", (e) => e.target.closest("[data-vtag]") && tagPlaying());
+  // T pressed while focus is in the player (viewer-frame.js); 关注 has its own listener in follow.js.
+  window.addEventListener("message", (e) => !followMode() && UI.viewerKeyFrom(e, el.viewerFrame.contentWindow) === "t" && tagPlaying());
 
   el.criteriaInput.addEventListener("keydown", (e) => {
     if (composing(e) || e.key !== "Enter" || e.shiftKey) return;
@@ -4026,12 +3970,16 @@ function bindEvents() {
     if (t && field && !saveTagEdit(t, field, e.target.value) && field === "name") e.target.value = t.name;
   });
   el.tagsRows.addEventListener("click", (e) => {
-    const btn = e.target.closest('[data-field="delete"]');
-    if (btn) deleteTag(btn.closest(".tag-row").dataset.id);
+    const row = e.target.closest(".tag-row");
+    const t = row && tagById(row.dataset.id);
+    if (t && e.target.closest("[data-tag-del]")) deleteTag(t.id);
+    else if (t && e.target.closest("[data-tag-color]") && saveTagEdit(t, "color")) renderTagManager();
   });
   const addTag = () => {
-    const name = el.newTagInput.value.trim();
-    if (!name || !createTag(name)) return;
+    const name = cleanTagName(el.newTagInput.value);
+    const why = UI.tagNameError(name, viewTags());
+    if (why) return toast(why, true);
+    if (!createTag(name)) return;
     el.newTagInput.value = "";
     renderTagManager();
     render();

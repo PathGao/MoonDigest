@@ -463,6 +463,24 @@ button.icon { width: 26px; height: 24px; padding: 0; }
 .picker-opt { display: flex; align-items: center; gap: 8px; padding: 5px 8px; border-radius: 6px; cursor: pointer; }
 .picker-opt.active { background: var(--secondary-bg); }
 .picker-opt .check { width: 14px; color: var(--text); font-weight: 700; }
+.picker-opt .muted, .picker-opt .n { margin-left: auto; }
+.picker-opt .n { color: var(--faint); font: 11px ui-monospace, Menlo, monospace; }
+.picker-opt .muted + .n { margin-left: 6px; }
+.picker-opt.tp-new { color: var(--link); }
+/* The picker as a popover under 「+ 标签」 (tag-picker.js): small, list first, filter and 完成 under it. */
+#tagPicker.tp-pop { position: fixed; z-index: 50; inset: auto; margin: 0; width: 312px; padding: 10px 8px 8px; border-color: var(--border-strong); box-shadow: var(--lift); font-size: var(--fs-sm); }
+.tp-pop form { gap: 4px; }
+.tp-pop h2 { margin: 0 6px; overflow: hidden; font-size: var(--fs-sm); font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+.tp-pop .tp-note { margin: 0 6px 2px; color: var(--faint); font-size: 11px; }
+.tp-pop .picker-list { order: 1; margin: 0; max-height: 240px; }
+.tp-pop .picker-opt:hover { background: var(--secondary-bg); }
+.tp-pop .tp-input { order: 2; height: 28px; }
+.tp-pop .tp-keys { order: 3; margin: 2px 6px 0; color: var(--faint); font-size: 11px; }
+.tp-pop .dialog-actions { order: 4; }
+.tp-pop .dialog-actions button { height: 26px; font-size: var(--fs-sm); }
+/* 「+ 标签 T」: T is a faint letter after the word, as the card keys. */
+.tag-plus { height: auto; font-size: var(--fs-xs); }
+.k-faint { padding: 0; border: 0; background: none; color: var(--faint); font: inherit; font-size: var(--fs-xs); }
 .dot { --c: var(--border-strong); width: 10px; height: 10px; border-radius: 50%; background: var(--c); }
 /* Two text levels in dialogs: .dialog-hint explains, .dialog-meta reports (counts, progress, key tips). */
 .dialog-hint { margin: 0; font-size: var(--fs-sm); color: var(--text-2); line-height: 1.5; }
@@ -472,7 +490,13 @@ button.icon { width: 26px; height: 24px; padding: 0; }
 dialog :is(p, div):empty { display: none; }
 
 .tag-rows { display: flex; flex-direction: column; gap: 6px; max-height: 320px; overflow-y: auto; }
-.tag-row { display: grid; grid-template-columns: 10px minmax(0, 9em) minmax(0, 1fr) 4.5em auto; align-items: center; gap: 6px; }
+.tag-row { display: grid; grid-template-columns: 22px minmax(0, 9em) minmax(0, 1fr) 5.5em auto; align-items: center; gap: 6px; }
+.tag-color { width: 18px; height: 18px; padding: 0; border: 2px solid var(--surface); border-radius: 50%; background: var(--c); box-shadow: 0 0 0 1px var(--border-strong); }
+.tag-color:hover { background: var(--c); box-shadow: 0 0 0 2px var(--c); }
+@media (max-width: 760px) {
+  .tag-row { grid-template-columns: 22px minmax(0, 1fr) auto auto; }
+  .tag-row [data-field="rule"] { grid-column: 1 / -1; grid-row: 2; }
+}
 .tag-row .muted { text-align: right; font-size: var(--fs-xs); }
 .tag-add { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 .tag-add input { flex: 1; min-width: 120px; }
@@ -480,6 +504,14 @@ dialog h3 { margin: 8px 0 0; font-size: var(--fs-sm); font-weight: 600; }
 .ai-section > h3:first-child { margin-top: 0; }
 
 /* viewer: the video page next to the list */
+/* Its second line: the playing video's tags (收藏夹) or its UP and the UP's tags (关注), then 「+ 标签 T」. */
+.viewer-line { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 8px; padding: 6px 12px; border-bottom: 1px solid var(--border); background: var(--surface-muted); color: var(--text-2); font-size: var(--fs-sm); }
+.viewer-line[hidden] { display: none; }
+.viewer-line .sep, .viewer-line .none { color: var(--faint); }
+.viewer-line .chip { height: 20px; padding: 0 6px; border-color: color-mix(in srgb, var(--c) 60%, transparent); background: color-mix(in srgb, var(--c) 12%, transparent); }
+.viewer-line .chip[data-pick], .viewer-line .chip[data-vtag] { cursor: pointer; }
+.viewer-line .tag-plus { display: inline-flex; align-items: center; gap: 4px; height: 20px; padding: 0 6px; border: 1px dashed transparent; border-radius: 4px; color: var(--link); text-decoration: none; }
+.viewer-line .tag-plus:hover { border-color: var(--border-strong); background: none; }
 .viewer { display: flex; flex-direction: column; min-height: 0; min-width: 0; background: var(--surface); border: 1px solid var(--border); border-radius: 9px; overflow: hidden; }
 .viewer-head { display: flex; align-items: center; gap: 6px; padding: 6px 6px 6px 12px; border-bottom: 1px solid var(--border); }
 .viewer-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--fs-sm); }
