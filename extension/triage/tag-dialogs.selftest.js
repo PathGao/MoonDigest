@@ -28,7 +28,7 @@ let focused = "";
 const dialog = (id) => node(id, { open: false, showModal() { this.open = true; }, close() { this.open = false; }, querySelector: () => null });
 dialog("tagManageDialog");
 dialog("aiTagDialog");
-for (const id of ["tagManageHint", "tagsRows", "newTagInput", "addTagBtn", "aiForm", "aiReview", "aiHint", "aiInstruction", "aiHistory", "aiScope", "aiScopeCount", "aiTagsPreview", "aiRemoveInput", "aiProgress", "aiCloseBtn", "aiStopBtn", "aiRunBtn", "aiReviewSummary", "aiNotes", "aiNewTagsHead", "aiNewTags", "aiRows", "aiReviewHint", "aiRecentMeta", "aiDiscardBtn", "aiApplyBtn"]) node(id);
+for (const id of ["tagManageTitle", "tagManageHint", "tagsRows", "newTagInput", "addTagBtn", "aiForm", "aiReview", "aiHint", "aiInstruction", "aiHistory", "aiScope", "aiScopeCount", "aiTagsPreview", "aiRemoveInput", "aiProgress", "aiCloseBtn", "aiStopBtn", "aiRunBtn", "aiReviewSummary", "aiNotes", "aiNewTagsHead", "aiNewTags", "aiRows", "aiReviewHint", "aiRecentMeta", "aiDiscardBtn", "aiApplyBtn"]) node(id);
 const fire = (id, type, e = {}) => {
   const ev = { prevented: 0, preventDefault() { this.prevented++; }, isComposing: false, keyCode: 0, ...e };
   for (const f of nodes[id].L[type] || []) f(ev);
@@ -172,6 +172,37 @@ function adapters(who) {
   nodes.aiForm.hidden = true;
   D.ai.render(other);
   assert.ok(nodes.aiForm.hidden, "render(a) only draws a's open dialog");
+
+  // 关注's 分组管理 is the same dialog with its own title, words and rows; B站's group ids are numbers.
+  {
+    const calls = [];
+    const groups = [{ id: 101, name: "每周必看" }];
+    const g = {
+      who: "UP 主",
+      text: { title: "分组管理", saved: "立即在 B站 生效。", newName: "新分组名称", newMax: 16, add: "新建", addLabel: "新建分组" },
+      hint: () => "B站 的分组。",
+      tags: () => groups,
+      count: () => 4,
+      row: (x, n) => `<div class="group-row">${x.name}/${n}</div>`,
+      add: async (name) => (calls.push(["add", name]), { id: 7, name }),
+      edit: async (x, field, value) => (calls.push(["edit", x.id, field, value]), true),
+      remove: async (x) => calls.push(["remove", x.id])
+    };
+    D.manage.open(g);
+    assert.deepStrictEqual([nodes.tagManageTitle.textContent, nodes.newTagInput.placeholder, nodes.newTagInput.maxLength, nodes.addTagBtn.textContent, nodes.addTagBtn.attrs["aria-label"]], ["分组管理", "新分组名称", 16, "新建", "新建分组"]);
+    assert.strictEqual(nodes.tagManageHint.textContent, "B站 的分组。立即在 B站 生效。");
+    assert.strictEqual(nodes.tagsRows.innerHTML, '<div class="group-row">每周必看/4</div>', "its own rows");
+    fire("tagsRows", "change", { target: { value: "新名", dataset: { field: "name" }, closest: () => ({ dataset: { id: "101" } }) } });
+    await wait();
+    assert.deepStrictEqual(calls.at(-1), ["edit", 101, "name", "新名"], "a number id is found from the row's data-id");
+    fire("tagsRows", "click", { target: { closest: (s) => (s === ".tag-row" ? { dataset: { id: "101" } } : s === "[data-tag-del]" ? {} : null) } });
+    await wait();
+    assert.deepStrictEqual(calls.at(-1), ["remove", 101]);
+    // Back to 标签管理: its own words again.
+    D.manage.open(adapters("视频").manage);
+    assert.deepStrictEqual([nodes.tagManageTitle.textContent, nodes.newTagInput.maxLength, nodes.addTagBtn.textContent], ["标签管理", 12, "添加"]);
+    assert.ok(nodes.tagsRows.innerHTML.includes("data-tag-color"));
+  }
 
   console.log("tag-dialogs selftest: all passed");
 })().catch((e) => {

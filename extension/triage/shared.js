@@ -235,6 +235,66 @@
   // The bar under row 3 while something is selected: n of them listed, hidden more behind filters, 清空选中, then acts.
   const selbar = ({ label, n, hidden, clearAttrs, acts }) =>
     `<div class="selbar" role="toolbar" aria-label="${esc(label)}"><strong class="sel-count">已选中 ${n} 个</strong>${hidden ? `<span class="muted">另有 ${hidden} 个被筛选隐藏</span>` : ""}<button type="button" class="quiet" ${clearAttrs} aria-label="清空选中">清空选中</button><span class="sel-actions">${acts}</span></div>`;
+  // ----- 移动 / 复制 (#transferDialog): 收藏夹's folders and 关注's groups -----
+  // o = { title, list (html), n, hows ("copy" / "move" / "add" buttons shown; the last is the blue one), label (目标收藏夹 /
+  // 目标分组), options [[value, text]], newText (新建收藏夹… / 新建分组…), newPlaceholder, newMax, privacy (show 设为私密),
+  // how (the hint under it, "" hides it), note(value) (html of the amber line for that target, "" hides it) }.
+  // Resolves { how, target: { id } | { create, privacy } }, or null when cancelled.
+  let transferNote = null;
+  function askTransfer(o) {
+    const $ = (id) => document.getElementById(id);
+    const dlg = $("transferDialog");
+    const name = $("transferName");
+    if (!transferNote) {
+      $("transferTarget").addEventListener("change", () => transferNote());
+      // Enter would submit with the form's first button, 取消; 移动 or 复制 has to be chosen.
+      name.addEventListener("keydown", (e) => {
+        if (!BocTyping.composing(e) && e.key === "Enter") e.preventDefault();
+      });
+    }
+    $("transferTitle").textContent = o.title;
+    $("transferBody").innerHTML = o.list;
+    $("transferLabel").textContent = o.label;
+    for (const b of dlg.querySelectorAll("button[value=copy], button[value=move], button[value=add]")) {
+      b.hidden = !o.hows.includes(b.value);
+      b.classList.toggle("primary", b.value === o.hows.at(-1));
+      b.textContent = `${{ copy: "复制", move: "移动", add: "收藏" }[b.value]} ${o.n} 个`;
+      b.setAttribute("aria-label", b.textContent);
+    }
+    $("transferHow").textContent = o.how || "";
+    $("transferHow").hidden = !o.how;
+    $("transferTarget").innerHTML = [...o.options, ["new", o.newText]].map(([v, text]) => `<option value="${esc(v)}">${esc(text)}</option>`).join("");
+    name.value = "";
+    name.maxLength = o.newMax;
+    name.placeholder = o.newPlaceholder;
+    name.setAttribute("aria-label", o.newPlaceholder);
+    $("transferPrivate").checked = false;
+    $("transferPrivateRow").hidden = !o.privacy;
+    transferNote = () => {
+      const v = $("transferTarget").value;
+      $("transferNewRow").hidden = v !== "new";
+      name.required = v === "new";
+      const note = o.note?.(v) || "";
+      $("transferUnchosen").hidden = !note;
+      $("transferUnchosen").innerHTML = note;
+    };
+    transferNote();
+    dlg.returnValue = "";
+    dlg.showModal();
+    return new Promise((resolve) => {
+      dlg.addEventListener(
+        "close",
+        () => {
+          const how = dlg.returnValue;
+          if (!o.hows.includes(how)) return resolve(null);
+          const v = $("transferTarget").value;
+          resolve({ how, target: v === "new" ? { create: name.value.trim(), privacy: Boolean(o.privacy && $("transferPrivate").checked) } : { id: v } });
+        },
+        { once: true }
+      );
+    });
+  }
+
   // One sidebar entry: pre (thumb, ★), the name, the count (dimmed at 0 as every filter's, DESIGN §4; none when null).
   const sideItem = ({ attrs, label, count = null, on, pre = "" }) =>
     `<button type="button" class="side-item${on ? " on" : ""}${count === 0 ? " zero" : ""}" ${attrs}${on ? ' aria-current="true"' : ""}>${pre}<span class="side-name">${esc(label)}</span>${count == null ? "" : `<span class="side-count">${count}</span>`}</button>`;
@@ -431,5 +491,5 @@
     return [...tally.values()].sort((a, b) => (a.cls === "remove") - (b.cls === "remove") || b.n - a.n);
   }
 
-  globalThis.TriageUi = { esc, pad, dayText, fmtDate, fmtAgo, agoHtml, setSearchScope, confirmList, pickTitle, fmtDuration, fmtCount, cleanTagName, plainClick, cardPlayClick, img, toCsv, cardTagChip, syncedText, headMeta, titleHtml, ICON, AI_SPARK, byValue, dirWords, sortControl, filterBtn, labeledRow, stateGroup, aiRecentChip, searchBox, bindSearch, resultCount, rowButtons, menuItem, BACKUP_ITEM, reasonAttrs, setReason, WARN_DOT, selectAllState, selectAllBox, toggleAll, setActivity, waitText, syncPill, setSync, bindSync, tagButtons, sideFoot, selbar, sideItem, emptyState, refreshEmpty, noMatch, fillSetRows, mergeAiBatch, aiChanges, previewId, aiTally, TAG_COLORS, nextTagColor, cycleTagColor, tagNameError, deleteTagAsk, editedTag, withoutTag, undoAsk, tagRowHtml, sp, AI_RECENT_RULES, aiRecentUndo, tagPlusBtn, viewerLine, viewerKeyFrom };
+  globalThis.TriageUi = { esc, pad, dayText, fmtDate, fmtAgo, agoHtml, setSearchScope, confirmList, pickTitle, fmtDuration, fmtCount, cleanTagName, plainClick, cardPlayClick, img, toCsv, cardTagChip, syncedText, headMeta, titleHtml, ICON, AI_SPARK, byValue, dirWords, sortControl, filterBtn, labeledRow, stateGroup, aiRecentChip, searchBox, bindSearch, resultCount, rowButtons, menuItem, BACKUP_ITEM, reasonAttrs, setReason, WARN_DOT, selectAllState, selectAllBox, toggleAll, setActivity, waitText, syncPill, setSync, bindSync, tagButtons, sideFoot, selbar, askTransfer, sideItem, emptyState, refreshEmpty, noMatch, fillSetRows, mergeAiBatch, aiChanges, previewId, aiTally, TAG_COLORS, nextTagColor, cycleTagColor, tagNameError, deleteTagAsk, editedTag, withoutTag, undoAsk, tagRowHtml, sp, AI_RECENT_RULES, aiRecentUndo, tagPlusBtn, viewerLine, viewerKeyFrom };
 })();

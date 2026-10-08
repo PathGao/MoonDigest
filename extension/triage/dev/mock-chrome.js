@@ -420,7 +420,8 @@
     const tagMap = { [mids[0]]: ["ftsci"], [mids[1]]: ["ftsci"], [mids[3]]: ["ftsci"], [mids[4]]: ["ftsci"], [mids[12]]: ["ftsci"], [mids[8]]: ["ftgame"], [mids[9]]: ["ftgame"], [mids[23]]: ["ftgame"], [mids[10]]: ["ftlife"], [mids[11]]: ["ftlife"], [mids[19]]: ["ftlife", "ftsci"] };
     const listRec = { at: nowS - 3 * 3600, list: mids, followTime, special, complete: true };
     const withGroups = new URLSearchParams(location.search).has("groups");
-    if (withGroups) listRec.groups = Object.fromEntries(mids.map((m, i) => [m, i % 4 === 0 ? [101] : i % 4 === 1 ? [101, 102] : i % 4 === 2 ? [102] : [0]]));
+    // Every fourth UP is in none of the two (默认分组).
+    if (withGroups) listRec.groups = Object.fromEntries(mids.flatMap((m, i) => (i % 4 === 3 ? [] : [[m, i % 4 === 0 ? [101] : i % 4 === 1 ? [101, 102] : [102]]])));
     const lastRec = { at: nowS - 3 * 3600, since: nowS - (fmode === "partial" ? 20 : 95) * DAY, map: Object.fromEntries(Object.entries(feedV).map(([m, v]) => [m, v[0].c])), v: feedV };
     const unfollowed = {
       [goneMids[0]]: { at: nowS - 2 * DAY, tagIds: ["ftlife"], source: "app" },
@@ -510,16 +511,41 @@
       await chrome.storage.local.set({ follow_list: fl, follow_unfollowed: gone, follow_tag_map: map });
       return { ok: true, data: {} };
     };
-    handlers["follow-special"] = async ({ mid, on }) => {
+    // 关注分组, as follow-bg.js: -10 特别关注 (follow_list.special), 0 默认分组; local data changes only on success.
+    // globalThis.__mockGroupTimeout makes the next writes time out (NETWORK); __mockGroupCalls records what was sent.
+    const groupWrite = async (msg, apply) => {
       await wait(300);
-      const fl = structuredClone(store.follow_list);
-      if (!fl.list.includes(mid)) return { ok: false, error: "没有关注这个 UP 主" };
-      fl.special = { ...fl.special };
-      if (on) fl.special[mid] = 1;
-      else delete fl.special[mid];
-      await chrome.storage.local.set({ follow_list: fl });
-      return { ok: true, data: {} };
+      (globalThis.__mockGroupCalls ||= []).push(msg);
+      if (globalThis.__mockGroupTimeout) return { ok: false, error: "网络超时或断开：不确定 B站 是否已改，刷新后看一下", code: "NETWORK" };
+      return { ok: true, data: (await apply()) || {} };
     };
+    handlers["follow-group-move"] = (msg) => groupWrite(msg, async () => {
+      const fl = structuredClone(store.follow_list);
+      fl.special = { ...fl.special };
+      fl.groups = { ...fl.groups };
+      for (const m of msg.mids) {
+        const ids = [...(fl.special[m] ? [-10] : []), ...(fl.groups[m] || [])].filter((id) => !msg.from.includes(id));
+        for (const id of msg.to) if (id !== 0 && !ids.includes(id)) ids.push(id);
+        if (ids.includes(-10)) fl.special[m] = 1;
+        else delete fl.special[m];
+        const own = ids.filter((id) => id > 0);
+        if (own.length) fl.groups[m] = own;
+        else delete fl.groups[m];
+      }
+      await chrome.storage.local.set({ follow_list: fl });
+    });
+    let nextGroup = 200;
+    handlers["follow-group-create"] = (msg) => groupWrite(msg, async () => {
+      const g = { id: nextGroup++, name: String(msg.name).trim(), count: 0 };
+      await chrome.storage.local.set({ follow_groups: [...(store.follow_groups || []), g] });
+      return { id: g.id, name: g.name };
+    });
+    handlers["follow-group-rename"] = (msg) => groupWrite(msg, () => chrome.storage.local.set({ follow_groups: (store.follow_groups || []).map((g) => (g.id === msg.id ? { ...g, name: msg.name } : g)) }));
+    handlers["follow-group-delete"] = (msg) => groupWrite(msg, async () => {
+      const fl = structuredClone(store.follow_list);
+      fl.groups = Object.fromEntries(Object.entries(fl.groups || {}).map(([m, ids]) => [m, ids.filter((id) => id !== msg.id)]).filter(([, ids]) => ids.length));
+      await chrome.storage.local.set({ follow_list: fl, follow_groups: (store.follow_groups || []).filter((g) => g.id !== msg.id) });
+    });
     // By zone: 科技/知识 → 硬核科普, 游戏 → 游戏, 生活/美食/运动 → 生活, 音乐/绘画 → a new 艺术.
     handlers["follow-ai-tag"] = async ({ mids: asked, tags: tagList, maxNewTags }) => {
       await wait(500);

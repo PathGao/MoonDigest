@@ -227,16 +227,17 @@
       </form>
     </dialog>
 
+    <!-- 移动 / 复制 for both modes (shared.js askTransfer): 收藏夹's folders, 关注's groups. -->
     <dialog id="transferDialog" aria-label="移动或复制">
       <form method="dialog">
         <h2 id="transferTitle"></h2>
         <div id="transferBody" class="confirm-body"></div>
         <div class="ai-grid">
-          <label for="transferTarget">目标收藏夹</label>
+          <label id="transferLabel" for="transferTarget">目标收藏夹</label>
           <select id="transferTarget"></select>
           <div id="transferNewRow" class="field-row" hidden>
             <input id="transferName" type="text" maxlength="20" placeholder="新收藏夹名称" aria-label="新收藏夹名称" autocomplete="off" />
-            <label class="toggle"><input id="transferPrivate" type="checkbox" class="switch" /> 设为私密</label>
+            <label id="transferPrivateRow" class="toggle"><input id="transferPrivate" type="checkbox" class="switch" /> 设为私密</label>
           </div>
         </div>
         <p id="transferUnchosen" class="dialog-hint warn" hidden></p>

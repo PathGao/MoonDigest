@@ -38,10 +38,11 @@ const json = (body, status = 200) => ({ ok: status >= 200 && status < 300, statu
 let calls = [];
 let posts = [];
 let routes = {};
+let postReply = null; // () => a fetch answer (or a promise that never settles) for the next POSTs; null = code 0
 t.fetch = async (url, init = {}) => {
   if (init.method === "POST") {
     posts.push([url.replace("https://api.bilibili.com", ""), Object.fromEntries(new URLSearchParams(init.body))]);
-    return json({ code: 0, data: {} });
+    return postReply ? postReply() : json({ code: 0, data: {} });
   }
   const u = new URL(url);
   calls.push(u.pathname.replace(/^\/x\//, "") + (u.searchParams.get("mid") ? `#${u.searchParams.get("mid")}` : u.searchParams.has("pn") ? `#${u.searchParams.get("pn")}` : u.searchParams.has("offset") ? `#${u.searchParams.get("offset") || "0"}` : ""));
@@ -341,18 +342,70 @@ const runSync = async () => {
     assert.ok(!local.follow_tag_map[1] && !local.follow_list.list.includes("1"));
     await t.followRelation({ mid: "1", act: 1 });
 
+  }
+
+  // ---------- 关注分组: B站 params, follow_list / follow_groups changed only after B站 said yes ----------
+  {
+    local = {
+      follow_list: { list: ["1", "2", "3"], special: { 1: 1 }, groups: { 1: [5], 2: [5, 6] } },
+      follow_groups: [{ id: 5, name: "五", count: 2 }, { id: 6, name: "六", count: 1 }]
+    };
     posts = [];
-    local.follow_list.groups = { 2: [5, 6] };
-    await t.followSpecial({ mid: "2", on: true });
-    assert.deepStrictEqual(posts[0], ["/x/relation/tags/copyUsers", { fids: "2", tagids: "-10", csrf: "csrf" }]);
-    assert.strictEqual(local.follow_list.special[2], 1);
-    await t.followSpecial({ mid: "2", on: false });
-    assert.deepStrictEqual(posts[1], ["/x/relation/tags/moveUsers", { fids: "2", beforeTagids: "-10", afterTagids: "5,6", csrf: "csrf" }]);
-    assert.ok(!local.follow_list.special[2]);
-    await t.followSpecial({ mid: "1", on: false });
-    assert.strictEqual(posts[2][1].afterTagids, "0", "no groups → 默认分组");
-    await assert.rejects(t.followSpecial({ mid: "77", on: true }), /还没关注/);
-    assert.strictEqual(posts.length, 3, "nothing sent for someone not followed");
+    const g = () => plain(local.follow_list.groups);
+    // 复制 (no from): copyUsers; the ones copied keep their groups.
+    await t.followGroupMove({ mids: ["2", "3"], from: [], to: [7] });
+    assert.deepStrictEqual(posts[0], ["/x/relation/tags/copyUsers", { fids: "2,3", tagids: "7", csrf: "csrf" }]);
+    assert.deepStrictEqual(g(), { 1: [5], 2: [5, 6, 7], 3: [7] });
+    // 移动: moveUsers from → to.
+    await t.followGroupMove({ mids: ["2"], from: [5], to: [8] });
+    assert.deepStrictEqual(posts[1], ["/x/relation/tags/moveUsers", { fids: "2", beforeTagids: "5", afterTagids: "8", csrf: "csrf" }]);
+    assert.deepStrictEqual(g()[2], [6, 7, 8]);
+    // 特别关注 is group -10: in and out through the same calls; out to 默认分组 (0) leaves no group.
+    await t.followGroupMove({ mids: ["3"], from: [], to: [-10] });
+    assert.deepStrictEqual([posts[2][1].tagids, local.follow_list.special[3]], ["-10", 1]);
+    await t.followGroupMove({ mids: ["1"], from: [-10], to: [5] });
+    assert.deepStrictEqual([posts[3][1].beforeTagids, posts[3][1].afterTagids], ["-10", "5"]);
+    assert.ok(!local.follow_list.special[1] && g()[1].length === 1, "out of 特别关注, still in 五 once");
+    await t.followGroupMove({ mids: ["3"], from: [7], to: [0] });
+    assert.ok(!(3 in g()) && local.follow_list.special[3] === 1, "the last own group left: 默认分组, 特别关注 kept");
+    // Refused before anything is sent.
+    const sent = posts.length;
+    await assert.rejects(t.followGroupMove({ mids: ["9"], from: [], to: [5] }), /还没关注/);
+    await assert.rejects(t.followGroupMove({ mids: ["1"], from: [], to: [0] }), /默认分组/);
+    await assert.rejects(t.followGroupMove({ mids: ["x"], from: [], to: [5] }), /缺少/);
+    await assert.rejects(t.followGroupMove({ mids: ["1"], from: [5], to: [] }), /缺少/);
+    assert.strictEqual(posts.length, sent);
+
+    // B站 says no, or no answer in time: nothing changes here; the timeout says to look.
+    const before = JSON.stringify(local);
+    postReply = () => json({ code: 22104, message: "分组不存在" });
+    await assert.rejects(t.followGroupMove({ mids: ["2"], from: [], to: [99] }), /22104/);
+    await assert.rejects(t.followGroupCreate({ name: "新" }), /22104/);
+    postReply = () => new Promise(() => {});
+    await assert.rejects(t.followGroupMove({ mids: ["2"], from: [6], to: [5] }), (e) => e.code === "NETWORK" && /不确定 B站 是否已改，刷新后看一下/.test(e.message));
+    await assert.rejects(t.followGroupRename({ id: 5, name: "x" }), (e) => e.code === "NETWORK");
+    await assert.rejects(t.followGroupDelete({ id: 5 }), (e) => e.code === "NETWORK");
+    postReply = null;
+    assert.strictEqual(JSON.stringify(local), before, "no local change without B站's yes");
+
+    // 新建 / 改名 / 删除.
+    postReply = () => json({ code: 0, data: { tagid: 42 } });
+    assert.deepStrictEqual(plain(await t.followGroupCreate({ name: "  学习  " })), { id: 42, name: "学习" });
+    postReply = null;
+    assert.deepStrictEqual(posts.at(-1), ["/x/relation/tag/create", { tag: "学习", csrf: "csrf" }]);
+    assert.deepStrictEqual(plain(local.follow_groups.at(-1)), { id: 42, name: "学习", count: 0 });
+    await assert.rejects(t.followGroupCreate({ name: "一二三四五六七八九十一二三四五六七" }), /16/, "17 characters");
+    await assert.rejects(t.followGroupCreate({ name: " " }), /不能为空/);
+    await t.followGroupRename({ id: 6, name: "六六" });
+    assert.deepStrictEqual(posts.at(-1), ["/x/relation/tag/update", { tagid: "6", name: "六六", csrf: "csrf" }]);
+    assert.strictEqual(local.follow_groups.find((x) => x.id === 6).name, "六六");
+    await assert.rejects(t.followGroupRename({ id: -10, name: "x" }), /固定/);
+    await assert.rejects(t.followGroupDelete({ id: 0 }), /固定/);
+    await t.followGroupDelete({ id: 5 });
+    assert.deepStrictEqual(posts.at(-1), ["/x/relation/tag/del", { tagid: "5", csrf: "csrf" }]);
+    assert.ok(!local.follow_groups.some((x) => x.id === 5));
+    assert.deepStrictEqual(g(), { 2: [6, 7, 8] }, "members lose the group; 1 (only in 五) is back in 默认分组");
+    assert.deepStrictEqual(plain(t.followGroupsApply([-10, 5], [5], [0])), [-10]);
   }
 
   // ---------- AI proposal ----------

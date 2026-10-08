@@ -9,15 +9,26 @@
   const aiDlg = $("aiTagDialog");
   if (!manageDlg || !aiDlg) return;
 
-  // ----- 标签管理 -----
+  // ----- 标签管理 (and 关注's 分组管理, the same list of named things) -----
   // a = { who: 视频 | UP 主, hint() (where the tags live, the limit), reason() ("" or why nothing can be edited here),
   // tags(), count(id), add(name) → tag | null, edit(t, field, value) → saved?, remove(t) }; all may be async.
+  // 分组管理 also passes text: { title, saved (what saves at once), newName, newMax, add, addLabel } and row(t, count)
+  // (its row html).
+  const TAG_TEXT = { title: "标签管理", saved: "改名、颜色、说明和删除立即保存。", newName: "新标签名称", newMax: 12, add: "添加", addLabel: "添加标签" };
   let man = null;
   const rows = $("tagsRows");
   const newInput = $("newTagInput");
 
   function openManage(a) {
     man = a;
+    const text = { ...TAG_TEXT, ...a.text };
+    $("tagManageTitle").textContent = text.title;
+    newInput.value = "";
+    newInput.placeholder = text.newName;
+    newInput.maxLength = text.newMax;
+    newInput.setAttribute("aria-label", text.newName);
+    $("addTagBtn").textContent = text.add;
+    $("addTagBtn").setAttribute("aria-label", text.addLabel);
     renderManage();
     manageDlg.showModal();
     if (!newInput.disabled) newInput.focus();
@@ -25,18 +36,18 @@
   function renderManage() {
     const a = man;
     const why = a.reason?.() || "";
-    $("tagManageHint").textContent = `${a.hint()}改名、颜色、说明和删除立即保存。`;
+    $("tagManageHint").textContent = `${a.hint()}${{ ...TAG_TEXT, ...a.text }.saved}`;
     newInput.disabled = $("addTagBtn").disabled = Boolean(why);
     const tags = a.tags();
     rows.innerHTML = why
       ? `<p class="muted">${esc(why)}</p>`
       : tags.length
-        ? tags.map((t) => UI.tagRowHtml(t, { count: a.count(t.id), who: a.who })).join("")
-        : `<p class="muted">还没有${esc(sp(a.who))}标签</p>`;
+        ? tags.map((t) => (a.row ? a.row(t, a.count(t.id)) : UI.tagRowHtml(t, { count: a.count(t.id), who: a.who }))).join("")
+        : `<p class="muted">还没有${a.row ? "自己建的分组" : `${esc(sp(a.who))}标签`}</p>`;
   }
   const rowTag = (target) => {
     const id = target.closest(".tag-row")?.dataset.id;
-    return id && man.tags().find((t) => t.id === id);
+    return id && man.tags().find((t) => String(t.id) === id);
   };
   async function addTag() {
     if (await man.add(newInput.value)) {

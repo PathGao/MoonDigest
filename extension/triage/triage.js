@@ -348,7 +348,7 @@ const el = {};
   "basketList", "basketClearBtn", "toast", "settingsDialog", "folderToggles", "thinkingRow", "intervalInput",
   "batchSizeInput", "aiBatchInput", "tagLimitInput", "aiNewTagMaxInput", "aiRemoveTagsInput", "openOptionsBtn", "thinkingInput", "titleMaxInput",
   "titleMaxHint", "analyzeMaxInput", "analyzeMaxHint", "settingsError", "csvBtn", "confirmDialog",
-  "confirmTitle", "confirmBody", "confirmOk", "transferDialog", "transferTitle", "transferBody", "transferTarget", "transferNewRow", "transferUnchosen", "transferHow", "transferName", "transferPrivate",
+  "confirmTitle", "confirmBody", "confirmOk",
   "criteriaDialog", "criteriaTitle", "criteriaInput", "helpDialog",
   "biliBtn", "main", "viewer", "viewerTitle", "viewerNextBtn", "viewerFocusBtn", "viewerTabBtn", "viewerCloseBtn", "viewerFrame", "viewerTags",
   "tools", "writeBtn", "writeDialog", "writeScope", "writeFormat", "writeScopeCount", "writeOverwriteRow", "writeOverwrite", "writeProgress", "writeFailed", "writeStopBtn", "writeCopyBtn", "writeRunBtn", "writeMdBtn"
@@ -2505,53 +2505,30 @@ async function batchUnfav(list) {
 // 移动/复制 takes every selected card still in the folder here, 保留 ones too (unlike 取消收藏, which skips them).
 const transferList = () => selectedIn(visibleItems()).filter((it) => it.aid && S.decisions[it.bvid]?.action !== "unfav");
 
-// Resolves { move, target } (target: { id } or { create, privacy }), or null when cancelled.
+// The shared 移动 / 复制 dialog (shared.js askTransfer) with this folder's targets.
 function askTransfer(list) {
   const from = String(S.mediaId);
   const add = from === REMOVED;
-  const targets = S.allFolders.filter((f) => String(f.id) !== from && String(f.id) !== TOVIEW);
-  el.transferTitle.textContent = add ? `在 B站把这 ${list.length} 个视频收藏到` : `在 B站移动或复制这 ${list.length} 个视频`;
-  for (const b of el.transferDialog.querySelectorAll("button[value=copy], button[value=move], button[value=add]")) {
-    b.textContent = `${{ copy: "复制", move: "移动", add: "收藏" }[b.value]} ${list.length} 个`;
-    b.setAttribute("aria-label", b.textContent);
-  }
-  el.transferHow.hidden = add;
-  for (const btn of el.transferDialog.querySelectorAll("button[value=copy], button[value=move]")) btn.hidden = add;
-  el.transferDialog.querySelector("button[value=add]").hidden = !add;
   const noAid = selectedIn(visibleItems()).filter((it) => !it.aid).length;
-  el.transferBody.innerHTML = `<ul>${list.slice(0, 10).map((it) => `<li>${esc(it.title)}</li>`).join("")}</ul>${list.length > 10 ? `<p>等 ${list.length} 个</p>` : ""}${noAid ? `<p class="dialog-hint">另有 ${noAid} 个缺少视频编号（很早以前留下的记录），不能${add ? "收藏" : "移动或复制"}。</p>` : ""}`;
-  el.transferTarget.innerHTML =
-    targets.map((f) => `<option value="${esc(f.id)}">${esc(f.title)} (${esc(f.count)})</option>`).join("") + `<option value="new">新建收藏夹…</option>`;
-  el.transferName.value = "";
-  el.transferPrivate.checked = false;
-  toggleTransferNew();
-  el.transferDialog.returnValue = "";
-  el.transferDialog.showModal();
-  return new Promise((resolve) => {
-    el.transferDialog.addEventListener(
-      "close",
-      () => {
-        const how = el.transferDialog.returnValue;
-        if (!["move", "copy", "add"].includes(how)) return resolve(null);
-        const v = el.transferTarget.value;
-        resolve({ how, target: v === "new" ? { create: el.transferName.value.trim(), privacy: el.transferPrivate.checked } : { id: v } });
-      },
-      { once: true }
-    );
+  return UI.askTransfer({
+    title: add ? `在 B站把这 ${list.length} 个视频收藏到` : `在 B站移动或复制这 ${list.length} 个视频`,
+    n: list.length,
+    hows: add ? ["add"] : ["copy", "move"],
+    list: `<ul>${list.slice(0, 10).map((it) => `<li>${esc(it.title)}</li>`).join("")}</ul>${list.length > 10 ? `<p>等 ${list.length} 个</p>` : ""}${noAid ? `<p class="dialog-hint">另有 ${noAid} 个缺少视频编号（很早以前留下的记录），不能${add ? "收藏" : "移动或复制"}。</p>` : ""}`,
+    label: "目标收藏夹",
+    options: S.allFolders.filter((f) => String(f.id) !== from && String(f.id) !== TOVIEW).map((f) => [String(f.id), `${f.title} (${f.count})`]),
+    newText: "新建收藏夹…",
+    newPlaceholder: "新收藏夹名称",
+    newMax: 20,
+    privacy: true,
+    how: add ? "" : "复制：原收藏夹里也留着。移动：从原收藏夹移走。",
+    note: (v) =>
+      v === "new" || S.included.includes(v)
+        ? ""
+        : add
+          ? `「${esc(folderName(v))}」没有勾选分拣：收藏后这些视频仍在「已出分拣范围」。<br>以后在收藏夹设置里勾选它，会自动找回。`
+          : `「${esc(folderName(v))}」没有勾选分拣：移动过去的视频会进「已出分拣范围」。<br>以后在收藏夹设置里勾选它，这些视频会自动找回。复制不受影响。`
   });
-}
-function toggleTransferNew() {
-  const v = el.transferTarget.value;
-  const on = v === "new";
-  el.transferNewRow.hidden = !on;
-  el.transferName.required = on;
-  const out = !on && !S.included.includes(v);
-  el.transferUnchosen.hidden = !out;
-  if (out) {
-    el.transferUnchosen.innerHTML = S.mediaId === REMOVED
-      ? `「${esc(folderName(v))}」没有勾选分拣：收藏后这些视频仍在「已出分拣范围」。<br>以后在收藏夹设置里勾选它，会自动找回。`
-      : `「${esc(folderName(v))}」没有勾选分拣：移动过去的视频会进「已出分拣范围」。<br>以后在收藏夹设置里勾选它，这些视频会自动找回。复制不受影响。`;
-  }
 }
 
 // Folders are not read while a run writes them (writingTo), so both cached lists change here instead of by a sync: the target
@@ -3780,11 +3757,6 @@ function bindEvents() {
       render();
     }
   };
-  el.transferTarget.addEventListener("change", toggleTransferNew);
-  // Enter would submit with the form's first button, 取消; 移动 or 复制 has to be chosen.
-  el.transferName.addEventListener("keydown", (e) => {
-    if (!composing(e) && e.key === "Enter") e.preventDefault();
-  });
   el.stagebar.addEventListener("click", onHeadClick);
   el.listHeader.addEventListener("click", onHeadClick);
   el.activity.addEventListener("click", onHeadClick);
