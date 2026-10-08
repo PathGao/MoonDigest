@@ -24,7 +24,7 @@ const html = read("triage/triage.html");
 assert.ok(html.indexOf("../tag-core.js") > -1 && html.indexOf("../tag-core.js") < html.indexOf("./shared.js"), "triage.html loads tag-core.js before shared.js");
 
 // No second copy of the palette, the name rule or the id recipe outside tag-core.js.
-for (const f of ["badges.js", "triage/shared.js", "triage/follow.js"]) {
+for (const f of ["badges.js", "triage/shared.js", "triage/follow.js", "triage/triage.js"]) {
   const src = read(f);
   assert.ok(!src.includes('"#da86c3"'), `${f} has its own tag palette`);
   assert.ok(!/cleanTagName\s*=\s*\(/.test(src), `${f} defines its own cleanTagName`);
