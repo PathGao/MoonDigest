@@ -334,20 +334,7 @@ const folderContext = () => ({ title: folderTitle(), intro: S.folderIntro[S.medi
 
 const $ = (id) => document.getElementById(id);
 
-// The search box runs run(value) 150 ms after typing stops, but never mid-IME: input events while composing are
-// skipped and compositionend searches with the committed text (Chrome sends no plain input after it).
-function bindSearch(input, run, delay = 150) {
-  let timer = 0;
-  const later = () => {
-    clearTimeout(timer);
-    timer = setTimeout(() => run(input.value), delay);
-  };
-  input.addEventListener("input", (e) => {
-    if (!e.isComposing) later();
-  });
-  input.addEventListener("compositionstart", () => clearTimeout(timer));
-  input.addEventListener("compositionend", later);
-}
+const { composing, typingIn, bindLive } = globalThis.BocTyping;
 
 const UI = globalThis.TriageUi;
 const { esc, pad, fmtDate, fmtDuration, fmtCount, cleanTagName, plainClick, img } = UI;
@@ -726,7 +713,7 @@ function nextBatch() {
 init();
 // 关注 mode (follow.js) borrows the viewer, the toast and the confirm dialog; in that mode the keys below stay off.
 const followMode = () => Boolean(document.body?.classList.contains("follow-mode"));
-globalThis.MoonTriage = { bindSearch, openViewer, closeViewer, toast, askConfirm, send, store, handleAiError, THROTTLES, sleepWhile, viewing: () => S.viewing };
+globalThis.MoonTriage = { openViewer, closeViewer, toast, askConfirm, send, store, handleAiError, THROTTLES, sleepWhile, viewing: () => S.viewing };
 
 async function init() {
   UI.fillSetRows(document);
@@ -3768,14 +3755,14 @@ function bindEvents() {
       render();
     }
   });
-  bindSearch(el.searchInput, (q) => {
+  bindLive(el.searchInput, (q) => {
     S.query = q;
     S.focusIndex = 0;
     render();
   });
   // Esc clears the box; on an empty box it hands the keys back to the cards.
   el.searchInput.addEventListener("keydown", (e) => {
-    if (e.key !== "Escape" || e.isComposing) return;
+    if (composing(e) || e.key !== "Escape") return;
     e.preventDefault();
     if (!el.searchInput.value) return el.searchInput.blur();
     el.searchInput.value = S.query = "";
@@ -3862,7 +3849,7 @@ function bindEvents() {
   el.transferTarget.addEventListener("change", toggleTransferNew);
   // Enter would submit with the form's first button, 取消; 移动 or 复制 has to be chosen.
   el.transferName.addEventListener("keydown", (e) => {
-    if (e.key === "Enter" && !e.isComposing) e.preventDefault();
+    if (!composing(e) && e.key === "Enter") e.preventDefault();
   });
   el.stagebar.addEventListener("click", onHeadClick);
   el.listHeader.addEventListener("click", onHeadClick);
@@ -3923,7 +3910,7 @@ function bindEvents() {
   });
   // Enter (or Esc) saves now and leaves the note so card keys work again; Shift+Enter is a newline. Never mid-IME.
   el.list.addEventListener("keydown", (e) => {
-    if (!e.target.matches("[data-note]") || e.isComposing || e.keyCode === 229) return;
+    if (composing(e) || !e.target.matches("[data-note]")) return;
     if (!(e.key === "Escape" || (e.key === "Enter" && !e.shiftKey))) return;
     e.preventDefault();
     if (noteTimer) {
@@ -4054,7 +4041,7 @@ function bindEvents() {
     renderPicker();
   });
   el.pickerInput.addEventListener("keydown", (e) => {
-    if (e.isComposing) return; // Enter confirms the IME candidate, not the tag
+    if (composing(e)) return; // Enter confirms the IME candidate, not the tag
     if (e.key === "ArrowDown" || e.key === "ArrowUp") {
       e.preventDefault();
       const n = picker.options.length;
@@ -4082,7 +4069,7 @@ function bindEvents() {
   });
 
   el.criteriaInput.addEventListener("keydown", (e) => {
-    if (e.key !== "Enter" || e.shiftKey || e.isComposing || e.keyCode === 229) return;
+    if (composing(e) || e.key !== "Enter" || e.shiftKey) return;
     e.preventDefault();
     el.criteriaDialog.close("save");
   });
@@ -4282,10 +4269,9 @@ function cardAction(act, bvid) {
 }
 
 function onKey(e) {
-  if (e.metaKey || e.ctrlKey || e.altKey || e.isComposing) return;
+  if (composing(e) || typingIn(e) || e.metaKey || e.ctrlKey || e.altKey) return;
   if (document.querySelector("dialog[open]")) return;
   const t = e.target;
-  if (t.closest?.("input, textarea, select, [contenteditable]")) return;
   if ((e.key === "Enter" || e.key === " ") && t.closest?.("button, a")) return;
   const key = e.key.length === 1 ? e.key.toLowerCase() : e.key;
   if (followMode()) {

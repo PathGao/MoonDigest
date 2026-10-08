@@ -59,6 +59,7 @@ const ctx = vm.createContext({
   }
 });
 vm.runInContext(fs.readFileSync(path.join(__dirname, "..", "limits.js"), "utf8"), ctx);
+vm.runInContext(fs.readFileSync(path.join(__dirname, "..", "typing.js"), "utf8"), ctx);
 vm.runInContext(fs.readFileSync(path.join(__dirname, "shared.js"), "utf8"), ctx);
 vm.runInContext(`${source}\n;globalThis.S = S; globalThis.K = K; globalThis.el = el; globalThis.verdictBadge = verdictBadge; globalThis.seenText = seenText; globalThis.staleCoarse = staleCoarse; globalThis.staleFine = staleFine; globalThis.groupDone = groupDone; globalThis.mergeHead = mergeHead; globalThis.isFinished = isFinished; globalThis.pointerMoved = pointerMoved; globalThis.inferFrom = inferFrom; globalThis.hasAllTags = hasAllTags; globalThis.sortItems = sortItems; globalThis.sortOf = sortOf; globalThis.visibleItems = visibleItems;`, ctx);
 const t = ctx;
@@ -1704,7 +1705,7 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
       vm.runInContext("bindEvents()", ctx);
     } catch {}
     Object.assign(t.el, real);
-    assert.ok(ls.compositionend, "bindEvents wires the search box through bindSearch");
+    assert.ok(ls.compositionend, "bindEvents wires the search box through bindLive");
     t.S.query = "";
     fire("compositionstart");
     input.value = "l";

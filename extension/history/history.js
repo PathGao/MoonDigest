@@ -339,7 +339,7 @@ els.list.addEventListener("input", (event) => {
 });
 // Enter (or Esc) saves and closes; Shift+Enter is a newline. Never mid-IME.
 els.list.addEventListener("keydown", (event) => {
-  if (!event.target.matches("[data-note]") || event.isComposing || event.keyCode === 229) return;
+  if (BocTyping.composing(event) || !event.target.matches("[data-note]")) return;
   if (!(event.key === "Escape" || (event.key === "Enter" && !event.shiftKey))) return;
   event.preventDefault();
   void closeNote();
