@@ -47,10 +47,10 @@ select { height: 28px; max-width: 240px; }
   display: flex;
   align-items: center;
   gap: 8px;
-  flex: 0 1 460px;
-  min-width: 160px;
-  height: 36px;
-  margin: 0 auto;
+  flex: 0 1 300px;
+  min-width: 180px;
+  height: 32px;
+  margin: 0 0 0 auto;
   padding: 0 12px;
   border-radius: var(--radius-md);
   background: var(--field-bg);
@@ -650,7 +650,7 @@ dialog.wide { width: min(620px, calc(100% - 32px)); }
   .side { display: none; }
   .folder-select { display: block; }
   .brand { display: none; }
-  .search { flex-basis: 200px; }
+  .search { flex-basis: 200px; margin-left: 0; }
   .main { padding: 0 16px; }
 }
 

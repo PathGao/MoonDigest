@@ -1732,7 +1732,11 @@ function renderTabs() {
   const tab = (key, label, cls, n) =>
     `<button type="button" role="tab" class="${cls}" data-tab="${key}" aria-selected="${S.tab === key}" aria-label="${label} ${n}">${label}<span class="count">${n}</span></button>`;
   const steps = STAGES.map(([key, label]) => tab(key, label, c[key] ? "step" : "step zero", c[key]));
-  el.searchCount.textContent = S.query.trim() ? `搜索：${c.read} 个结果` : "";
+  el.searchCount.textContent = S.query.trim() ? `${c.read} 个结果` : "";
+  // Say what the box searches: the open folder (or 所有收藏夹 / 已出分拣范围) and the tab you are on.
+  const tabName = Object.fromEntries([...STAGES, ["read", "全部"]])[S.tab];
+  const scope = `在「${folderTitle()}」${tabName ? ` · ${tabName}` : ""}里搜`;
+  if (el.searchInput.placeholder !== scope) el.searchInput.placeholder = scope;
   // 已出分拣范围 has no steps; its tabs are why the videos left (kindOf), 全部 first for the ones not checked yet.
   const kindTabs = () =>
     [["", "全部"], ...KINDS].map(([kind, label]) => {
