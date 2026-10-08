@@ -1935,6 +1935,28 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     Object.assign(t.S, saved);
   }
 
+  // X (and a card click) marks just that card and redraws the selection bar, not the whole list; 粗看完成 redraws all,
+  // since there the selection is the next batch (its order and labels).
+  {
+    const realList = t.el.list, realRender = t.render;
+    const marks = {};
+    const cards = ["BV1", "BV2"].map((bvid) => ({ dataset: { bvid }, classList: { toggle: (c, on) => (marks[bvid] = on) } }));
+    t.el.list = { querySelectorAll: () => cards, querySelector: () => null };
+    let renders = 0;
+    t.render = () => renders++;
+    openFake("A", [item(1), item(2)]);
+    Object.assign(t.S, { tab: "none" });
+    t.S.selected.clear();
+    t.cardAction("select", "BV2");
+    assert.deepStrictEqual([renders, marks, t.el.listHeader.innerHTML.includes("已选中 1 个")], [0, { BV1: false, BV2: true }, true]);
+    t.S.tab = "coarse";
+    t.cardAction("select", "BV2");
+    assert.ok(renders === 1 && !t.S.selected.size, "粗看完成 draws the list again");
+    Object.assign(t, { render: realRender });
+    t.el.list = realList;
+    t.S.tab = "none";
+  }
+
   // J/K and a card that leaves the list go by the cards on screen; no focus index is kept (hovering cards stays cheap).
   {
     const realList = t.el.list, realFocus = t.setFocus;

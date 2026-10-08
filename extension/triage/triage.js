@@ -3785,7 +3785,7 @@ function bindEvents() {
       if (e.shiftKey) getSelection().removeAllRanges();
       setFocus(picked.dataset.bvid, false);
       pickAnchor = UI.pickCard(S.selected, visibleItems().map((it) => it.bvid), picked.dataset.bvid, pickAnchor, e.shiftKey);
-      return render();
+      return showPicks();
     }
     const clean = e.target.closest("[data-clean]");
     if (clean) return cleanRemoved([S.itemMap.get(clean.dataset.clean)].filter(Boolean));
@@ -4080,8 +4080,16 @@ function cardAction(act, bvid) {
   }
   else if (act === "select") {
     pickAnchor = UI.pickCard(S.selected, [], bvid);
-    render();
+    showPicks();
   }
+}
+
+// A pick changes only the cards' blue marks and the selection bar, so the list is not rebuilt; in 粗看完成 the selection
+// is the next batch (its order and labels), so that tab draws everything again.
+function showPicks() {
+  if (S.tab === "coarse") return render();
+  for (const card of el.list.querySelectorAll(".card[data-bvid]")) card.classList.toggle("selected", S.selected.has(card.dataset.bvid));
+  renderListHeader(visibleItems());
 }
 
 function onKey(e) {
