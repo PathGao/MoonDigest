@@ -979,6 +979,27 @@ function triageRegisterDnr() {
     .catch((e) => console.warn("[triage] DNR 规则注册失败", e));
 }
 
+// Answers the messages whose type starts with prefix from handlers[type](message): { ok: true, data } or
+// { ok: false, error, code? }. Other types are left to the other listeners. Returns the listener.
+function triageListen(prefix, handlers) {
+  const listener = (message, sender, sendResponse) => {
+    const type = message?.type;
+    if (typeof type !== "string" || !type.startsWith(prefix)) return false;
+    const handler = handlers[type];
+    if (!handler) {
+      sendResponse({ ok: false, error: `未知消息类型 ${type}` });
+      return false;
+    }
+    Promise.resolve()
+      .then(() => handler(message))
+      .then((data) => sendResponse({ ok: true, data }))
+      .catch((e) => sendResponse({ ok: false, error: e?.message || String(e), ...(e?.code ? { code: e.code } : {}) }));
+    return true;
+  };
+  chrome.runtime.onMessage.addListener(listener);
+  return listener;
+}
+
 if (typeof chrome !== "undefined" && chrome.runtime?.onMessage) {
   triageRegisterDnr();
   triageMigrateNotes().catch((e) => console.warn("[triage] 笔记迁移失败", e));
@@ -990,18 +1011,5 @@ if (typeof chrome !== "undefined" && chrome.runtime?.onMessage) {
     if (c && on(c.oldValue) && !on(c.newValue)) seenClear().catch((e) => console.warn("[triage] 清除观看进度失败", e));
   });
 
-  chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-    const type = message?.type;
-    if (typeof type !== "string" || !type.startsWith("triage-")) return false;
-    const handler = TRIAGE_HANDLERS[type];
-    if (!handler) {
-      sendResponse({ ok: false, error: `未知消息类型 ${type}` });
-      return false;
-    }
-    Promise.resolve()
-      .then(() => handler(message))
-      .then((data) => sendResponse({ ok: true, data }))
-      .catch((e) => sendResponse({ ok: false, error: e?.message || String(e), ...(e?.code ? { code: e.code } : {}) }));
-    return true;
-  });
+  triageListen("triage-", TRIAGE_HANDLERS);
 }

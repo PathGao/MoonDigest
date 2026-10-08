@@ -669,18 +669,5 @@ if (typeof chrome !== "undefined" && chrome.runtime?.onMessage) {
   chrome.alarms?.onAlarm.addListener((alarm) => {
     if (alarm.name === FOLLOW_ALARM) followResume().catch((e) => console.warn("[follow] 接着同步失败", e));
   });
-  chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-    const type = message?.type;
-    if (typeof type !== "string" || !type.startsWith("follow-")) return false;
-    const handler = FOLLOW_HANDLERS[type];
-    if (!handler) {
-      sendResponse({ ok: false, error: `未知消息类型 ${type}` });
-      return false;
-    }
-    Promise.resolve()
-      .then(() => handler(message))
-      .then((data) => sendResponse({ ok: true, data }))
-      .catch((e) => sendResponse({ ok: false, error: e?.message || String(e), ...(e?.code ? { code: e.code } : {}) }));
-    return true;
-  });
+  triageListen("follow-", FOLLOW_HANDLERS);
 }
