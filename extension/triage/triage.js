@@ -731,7 +731,7 @@ function nextBatch() {
 init();
 // 关注 mode (follow.js) borrows the viewer, the toast and the confirm dialog; in that mode the keys below stay off.
 const followMode = () => Boolean(document.body?.classList.contains("follow-mode"));
-globalThis.MoonTriage = { bindSearch, openViewer, closeViewer, toast, askConfirm, send, esc, viewing: () => S.viewing };
+globalThis.MoonTriage = { bindSearch, csvField, openViewer, closeViewer, toast, askConfirm, send, esc, viewing: () => S.viewing };
 
 async function init() {
   UI.fillSetRows(document);

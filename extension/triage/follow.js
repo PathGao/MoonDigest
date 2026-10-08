@@ -903,14 +903,9 @@ $("fwActivity").addEventListener("click", (e) => {
 });
 // The UP 主 table: built from what the page already has. 完整备份 is triage.js's ([data-backup]).
 function upCsv() {
-  const f = (v) => {
-    let x = String(v ?? "");
-    if (/^[=+\-@\t\r]/.test(x)) x = `'${x}`; // a spreadsheet would run it as a formula
-    return /[",\r\n]/.test(x) ? `"${x.replaceAll('"', '""')}"` : x;
-  };
   const head = ["UP主", "mid", "主页", "标签", "更新状态", "最后投稿", "粉丝数", "关注于", "特别关注", "签名"];
   const out = [head, ...following().map((m) => rows.get(m)).filter(Boolean).map((u) => [u.name, u.mid, space(u.mid), u.tagIds.map((id) => tagOf(id)?.name).filter(Boolean).join("、"), STATUS_TEXT[u.status] || "", u.last ? fmtDate(u.last) : "", u.fans ?? "", u.followed ? fmtDate(u.followed) : "", u.special ? "是" : "", u.sign])];
-  return "\ufeff" + out.map((r) => r.map(f).join(",")).join("\r\n") + "\r\n";
+  return "\ufeff" + out.map((r) => r.map(T.csvField).join(",")).join("\r\n") + "\r\n";
 }
 $("fwExport").addEventListener("click", (e) => e.target.closest("button") && $("fwExport").hidePopover());
 document.body.insertAdjacentHTML("beforeend", `
