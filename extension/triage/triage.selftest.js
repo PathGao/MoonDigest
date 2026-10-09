@@ -1485,6 +1485,17 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   assert.deepStrictEqual([t.S.titleRes.BV811?.criteria, t.S.stage1.running], ["K 标准", false]);
   assert.strictEqual(toasts.at(-1), "「夹K」标题粗看完成 2 个");
 
+  // Between batches the line counts the batch that came back, not only once the next one starts.
+  openFake("K", [item(840), item(841)]);
+  Object.assign(t.S, { titleRes: {}, stage1Skip: new Set() });
+  t.S.settings.triageIntervalSec = 0.2;
+  handlers["triage-classify-titles"] = ({ items }) => ({ ok: true, data: { results: { [items[0].bvid]: { verdict: "keep", confidence: "high" } } } });
+  const between = t.runStage1();
+  await new Promise((r) => setTimeout(r, 80));
+  assert.strictEqual(t.activityState().text, "标题粗看中 1/2");
+  await between;
+  t.S.settings.triageIntervalSec = 0;
+
   // 细看 too: the run judges by its own items, not the open folder's.
   openFake("K", [item(830), item(831)]);
   const analyzed = [];
