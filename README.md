@@ -7,7 +7,7 @@
 收藏了却没看的视频，用 AI 帮你读完、整理好，挑出真正要看的。
 
 [![Chrome MV3](https://img.shields.io/badge/Chrome-MV3-4285F4?logo=googlechrome&logoColor=white)](https://developer.chrome.com/docs/extensions/develop/migrate/what-is-mv3)
-[![Version](https://img.shields.io/badge/version-3.5.0-7c6cf2)](extension/manifest.json)
+[![Version](https://img.shields.io/badge/version-3.5.1-7c6cf2)](extension/manifest.json)
 [![Platforms](https://img.shields.io/badge/platforms-Bilibili%20%7C%20YouTube-fb7299)](#功能)
 [![License](https://img.shields.io/badge/license-GPL--3.0-blue)](LICENSE)
 
@@ -189,6 +189,7 @@
 - 设置、分拣结果、备注和对话都存在浏览器本地。API Key 也存在本地，不会出现在任何导出文件里。
 - 插件只连这些地方：B站和 YouTube、你配置的 AI 平台、你本机的 Obsidian。没有作者的服务器，没有统计。
 - 分拣台只读取你勾选的收藏夹的内容。为了列出可勾选和可移动到的收藏夹，会读收藏夹的名称和数量。
+- 分拣台的「关注」读你的关注列表、关注分组、每个人的粉丝数，以及关注的人新发的视频。只在你打开「关注」或点刷新时读。
 - **观看进度**不是「关」时，会读你自己的 B站历史记录：只在你打开分拣台或 B站页面时读，最多 10 分钟一次，只读上次之后新增的部分。每个视频只在本地存两个数：看了百分之多少、最后观看时间，留 1 年、最多 5000 个（勾选收藏夹里的视频不删）。这些数据不发往任何地方。选「关」就不读。
 - 每类数据怎么保存、会不会自动删，都写在设置页的「数据与存储」里。字幕缓存和 AI 对话有上限，超出自动删最旧的。分拣结果、备注和标签不会自动删。
 
@@ -197,9 +198,10 @@
 | `storage`、`unlimitedStorage` | 在本地保存设置、分拣结果、字幕和对话 |
 | `scripting` | 在视频页按需注入脚本（抓字幕、专注模式、播放器 AI 按钮） |
 | `sidePanel` | 显示 AI 侧边栏 |
-| `cookies` | 读取 B站的 `bili_jct`，分拣台改动收藏（取消收藏、移动、复制、新建收藏夹）时要用 |
+| `cookies` | 读取 B站的 `bili_jct`，分拣台改动收藏（取消收藏、移动、复制、新建收藏夹）和关注（取消或重新关注、特别关注、关注分组）时要用 |
 | `declarativeNetRequest` | 给分拣台发往 B站接口的请求加上 B站的 Referer 和 Origin |
-| B站、YouTube 域名 | 读取视频信息、字幕和评论；读写你的收藏夹和稍后再看；观看进度打开时读历史记录；在 B站页面显示分拣标记和观看进度 |
+| `alarms` | 同步关注列表时，后台被浏览器回收后从断点接着同步。同步完就清除 |
+| B站、YouTube 域名 | 读取视频信息、字幕和评论；读写你的收藏夹、稍后再看和关注列表；观看进度打开时读历史记录；在 B站页面显示分拣标记和观看进度 |
 | `127.0.0.1`、`localhost` | 连接本机的 Obsidian Local REST API |
 | 可选：任意 http/https 地址 | 只在你添加 AI 平台时，针对那个地址弹窗申请 |
 
