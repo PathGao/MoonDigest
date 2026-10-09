@@ -1627,15 +1627,26 @@ if (view?.tab === "feed") F.tab = "feed";
 if (SORTS[view?.sort]) F.sort = view.sort;
 if (view?.dir === "asc" || view?.dir === "desc") F.dir = view.dir;
 if (typeof view?.side === "string") F.side = view.side === "special" ? `g:${SPECIAL}` : view.side; // checked against the data on load (derive)
-// Deep link from the UP tag chips on B站 pages: #follow opens 关注, &tag=<id> picks that tag (unknown id → 全部).
+// Deep link from the UP tag picker on B站 pages: #follow opens 关注, &tag=<id> picks that tag (unknown id → 全部),
+// &up=<mid> clears the filters and makes that UP's card current (unknown mid → just the list).
 // A hash wins over the remembered mode; an open tab only gets its hash changed. Handled once, the hash goes: the same
-// chip clicked again is a hash change again, and a reload opens the mode last used.
+// link clicked again is a hash change again, and a reload opens the mode last used.
 async function followHash() {
   const h = decodeURIComponent(location.hash.slice(1));
   if (!/^follow(&|$)/.test(h)) return false;
   history.replaceState(null, "", location.pathname + location.search);
-  const tag = new URLSearchParams(h.slice(6)).get("tag");
+  const params = new URLSearchParams(h.slice(6));
+  const tag = params.get("tag");
+  const up = params.get("up");
   if (F.mode !== "follow") await setMode("follow");
+  if (up) {
+    F.tab = "ups";
+    F.side = D.gone[up] ? "gone" : "all";
+    F.status = F.tagState = F.source = F.q = "";
+    E.q.value = "";
+    F.recentFilter = false;
+    F.tags = new Set();
+  }
   // The tag becomes row 4's only pick over all of 关注 (an unknown id → nothing picked).
   if (tag) {
     F.side = "all";
@@ -1645,6 +1656,10 @@ async function followHash() {
   }
   derive();
   render();
+  if (up) {
+    setCur(up, false);
+    E.list.querySelector(".fw-up.focused")?.scrollIntoView({ block: "center" });
+  }
   return true;
 }
 window.addEventListener("hashchange", followHash);

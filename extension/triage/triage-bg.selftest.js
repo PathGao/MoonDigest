@@ -459,11 +459,15 @@ assert.throws(() => t.triageParseCommand('{"new_tags":[', cmdItems, cmdTags, {})
   t.chrome = fakeTabs([]);
   await vm.runInContext("TRIAGE_HANDLERS", ctx)["triage-open"]({ hash: "follow&tag=t%E5%AD%A61" });
   await vm.runInContext("TRIAGE_HANDLERS", ctx)["triage-open"]({ hash: "javascript:alert(1)" });
+  await vm.runInContext("TRIAGE_HANDLERS", ctx)["triage-open"]({ hash: "follow&up=546195" });
+  await vm.runInContext("TRIAGE_HANDLERS", ctx)["triage-open"]({ hash: "follow&up=1&tag=x" });
   t.chrome = fakeTabs([{ tabId: 4, windowId: 2, documentUrl: "chrome-extension://id/triage/triage.html#favorites" }]);
   t.chrome.tabs.update = async (id, o) => tabCalls.push(["update", id, o.url]);
   await vm.runInContext("TRIAGE_HANDLERS", ctx)["triage-open"]({ hash: "follow&tag=abc" });
   assert.deepStrictEqual(tabCalls, [
     ["create", "chrome-extension://id/triage/triage.html#follow&tag=t%E5%AD%A61"],
+    ["create", "chrome-extension://id/triage/triage.html"],
+    ["create", "chrome-extension://id/triage/triage.html#follow&up=546195"],
     ["create", "chrome-extension://id/triage/triage.html"],
     ["update", 4, "chrome-extension://id/triage/triage.html#follow&tag=abc"],
     ["window", 2, true]

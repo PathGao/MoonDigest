@@ -634,7 +634,7 @@ input { box-sizing: border-box; width: 100%; margin: 0; padding: 4px 8px; border
       more.append(b);
     }
     // The chips no longer open the 分拣台; this is the one way there from a B站 page.
-    const go = el("button", "go", "在分拣台「关注」里管理 UP 标签 ↗");
+    const go = el("button", "go", "在分拣台「关注」里打开这个 UP ↗");
     go.type = "button";
     pick.panel.replaceChildren(el("div", "h", `给「${pick.add.dataset.name}」打标签`), list, more, go, el("div", "foot", "只存在 MoonDigest 里，不改 B站 · Esc 关闭"));
     placePick();
@@ -674,8 +674,9 @@ input { box-sizing: border-box; width: 100%; margin: 0; padding: 4px 8px; border
 
   function onPickClick(e) {
     if (e.target.closest?.(".go")) {
+      const hash = `follow&up=${pick.mid}`;
       closePick(false);
-      if (chrome.runtime?.id) chrome.runtime.sendMessage({ type: "triage-open", hash: "follow" }).catch(() => {});
+      if (chrome.runtime?.id) chrome.runtime.sendMessage({ type: "triage-open", hash }).catch(() => {});
       return;
     }
     const b = e.target.closest?.(".opt");
