@@ -274,6 +274,7 @@ YouTube 字幕的取法参照 yt-dlp：读页面播放器的字幕轨。需要�
 
 - 基于 [haixiong1997/Bilibili-Obsidian-Clipper](https://github.com/haixiong1997/Bilibili-Obsidian-Clipper)（MIT）。
 - YouTube 字幕的取法参照 [yt-dlp](https://github.com/yt-dlp/yt-dlp)。
+- 感谢 [oil-ui](https://github.com/oil-oil/oil-ui) 在多轮 UI 设计迭代中的支持。
 
 ## 许可
 
