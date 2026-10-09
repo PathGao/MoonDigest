@@ -50,14 +50,14 @@ select { height: 28px; max-width: 240px; }
   align-items: center;
   gap: 8px;
   flex: none;
-  width: 300px;
-  height: 32px;
-  padding: 0 12px;
-  border-radius: var(--radius-md);
+  width: 280px;
+  height: 28px;
+  padding: 0 8px;
+  border-radius: var(--radius-sm);
   background: var(--field-bg);
   color: var(--faint);
 }
-.search-icon { width: 16px; height: 16px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; }
+.search-icon { width: 14px; height: 14px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; }
 .search input { flex: 1; min-width: 0; height: 100%; padding: 0; border: 0; background: none; color: var(--text); }
 .search input:focus-visible { outline: none; box-shadow: none; }
 .search:focus-within { box-shadow: 0 0 0 2px var(--focus-ring); }
@@ -65,16 +65,17 @@ select { height: 28px; max-width: 240px; }
 .search-key { font: 12px var(--font-mono); padding: 0 5px; border: 1px solid var(--border); border-radius: 4px; background: var(--surface); color: var(--faint); }
 .search:focus-within .search-key, .search:has(input:not(:placeholder-shown)) .search-key { display: none; }
 
-/* Row 2's 刷新 / 导出 and the tag rows' ✦ AI 打标签: bordered, icon and word, as tall as the search box. */
-.act-btn { display: inline-flex; align-items: center; gap: 6px; flex: none; height: 32px; padding: 0 12px; border-color: var(--border-strong); background: var(--surface); color: var(--text); white-space: nowrap; }
-.act-btn:hover { background: var(--surface-muted); }
-.act-btn svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+/* The head's buttons (刷新, 导出, 全选, 判断标准, 标签管理, ✦ AI 打标签): no border, gray icon and word, as tall as the
+   search box; only the step's .primary is filled (DESIGN §2). */
+.act-btn { display: inline-flex; align-items: center; gap: 6px; flex: none; height: 28px; padding: 0 8px; border-color: transparent; background: none; color: var(--text-2); white-space: nowrap; }
+.act-btn:hover { background: var(--field-bg); color: var(--text); }
+.act-btn svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 .act-btn .ai-spark { margin: 0; }
-.act-btn.gear-only { display: none; width: 32px; padding: 0; justify-content: center; }
+.act-btn.gear-only { display: none; width: 28px; padding: 0; justify-content: center; }
 
 /* Whatever is running (粗看, 细看, unfavorite batch, loading, refresh, tag AI, a wait) shows here on every tab. */
 /* What is running: gray (blue is for the next step, DESIGN §1); a wait turns it amber. */
-.activity { display: inline-flex; align-items: center; gap: 8px; height: 32px; padding: 0 4px 0 12px; border: 1px solid var(--border-strong); border-radius: 15px; background: var(--surface-muted); color: var(--text-2); font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.activity { display: inline-flex; align-items: center; gap: 8px; height: 28px; padding: 0 4px 0 12px; border: 1px solid var(--border-strong); border-radius: 15px; background: var(--surface-muted); color: var(--text-2); font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .activity[hidden] { display: none; }
 .activity:not(:has(button)) { padding-right: 12px; }
 .activity.warn { border-color: var(--warn-border); background: var(--warn-bg); color: var(--warn); }
@@ -180,7 +181,8 @@ select { height: 28px; max-width: 240px; }
   grid-template-rows: auto auto auto auto minmax(0, 1fr);
   grid-template-areas: "head" "tabs" "bar" "tagbar" "list";
   column-gap: 16px;
-  padding: 0 24px;
+  --head-top: 14px;
+  padding: var(--head-top) 20px 0;
 }
 .main.viewing { grid-template-columns: minmax(320px, 2fr) minmax(0, 3fr); grid-template-areas: "head head" "tabs tabs" "bar bar" "tagbar tagbar" "list viewer"; }
 .listpane { display: contents; }
@@ -199,48 +201,57 @@ select { height: 28px; max-width: 240px; }
 .list, .fw-list, .viewer, .viewer-close { grid-row-start: head-start; }
 .list, .fw-list { z-index: -1; scroll-padding-top: calc(var(--head-h, 0px) + 8px); }
 .folder-head, .tabrow, .stagebar, .tagbar { background: var(--bg); transition: transform 0.15s, opacity 0.15s, visibility 0.15s; }
+/* The four rows read as one white card (DESIGN §3). Each row draws its slice in ::before over the page background, so
+   the rounded corners never show the list scrolling underneath; the rules between rows are the slices' bottom edges. */
+.folder-head, .tabrow, .stagebar, .tagbar { position: relative; isolation: isolate; padding-left: 16px; padding-right: 16px; }
+:is(.folder-head, .tabrow, .stagebar, .tagbar)::before { content: ""; position: absolute; inset: 0; z-index: -1; border: 1px solid var(--border); border-width: 0 1px; background: var(--surface); }
+.folder-head::before { border-top-width: 1px; border-radius: var(--radius-lg) var(--radius-lg) 0 0; }
+:is(.tabrow, .stagebar)::before { border-bottom-width: 1px; }
+.tagbar::before { border-bottom-width: 1px; border-radius: 0 0 var(--radius-lg) var(--radius-lg); box-shadow: 0 1px 2px rgba(16, 24, 40, 0.05); }
 .viewer, .viewer-close { transition: margin-top 0.15s; }
 .head-folded :is(.folder-head, .stagebar, .tagbar) { visibility: hidden; opacity: 0; }
-.head-folded .tabrow { transform: translateY(calc(-1 * var(--head1-h, 0px))); box-shadow: 0 1px 0 var(--border); }
-.slim-title { display: none; flex: 0 1 auto; min-width: 0; max-width: 40%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--fs-lg); font-weight: 600; }
+/* --head1-h is measured from .main's padding edge, so the slim bar keeps the gap above the card. */
+.head-folded .tabrow { transform: translateY(calc(var(--head-top) - var(--head1-h, 0px))); }
+.head-folded .tabrow::before { border-top-width: 1px; border-radius: var(--radius-lg); }
+.slim-title { display: none; flex: 0 1 auto; min-width: 0; max-width: 40%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--fs-md); font-weight: 600; }
 .head-folded .slim-title { display: block; }
 @media (prefers-reduced-motion: reduce) {
   .folder-head, .tabrow, .stagebar, .tagbar, .viewer, .viewer-close { transition: none; }
 }
 
 /* ---------- row 1: name · count, 在 B站打开 and the sync pill, when it was read | sort ---------- */
-.folder-head { display: flex; align-items: flex-start; gap: 8px 16px; padding: 18px 0 0; min-height: 60px; }
-/* thumb | name + 在 B 站打开 / counts. The button sits on the name's line and keeps its width; the name ellipsizes. */
-.folder-info { display: grid; grid-template-areas: "thumb title btn sync" "thumb meta meta meta"; grid-template-columns: auto minmax(0, auto) auto auto; justify-content: start; column-gap: 12px; align-items: center; min-width: 0; margin-right: auto; }
-.folder-info:not(:has(.folder-thumb)) { grid-template-areas: "title btn sync" "meta meta meta"; grid-template-columns: minmax(0, auto) auto auto; }
+.folder-head { display: flex; align-items: center; gap: 8px 16px; padding-top: 12px; padding-bottom: 12px; }
+/* thumb | name, 在 B站打开, sync, counts on one line. The button keeps its width; the name and the counts ellipsize. */
+.folder-info { display: grid; grid-template-areas: "thumb title btn sync meta"; grid-template-columns: auto minmax(0, auto) auto auto minmax(0, auto); justify-content: start; column-gap: 12px; align-items: center; min-width: 0; margin-right: auto; }
+.folder-info:not(:has(.folder-thumb)) { grid-template-areas: "title btn sync meta"; grid-template-columns: minmax(0, auto) auto auto minmax(0, auto); }
 .folder-info .sync-wrap { grid-area: sync; }
 .title-count { color: var(--faint); font-weight: 400; }
 .folder-name, .folder-text { display: contents; }
-.folder-name .folder-thumb { grid-area: thumb; width: 72px; height: 45px; border-radius: var(--radius-sm); }
+.folder-name .folder-thumb { grid-area: thumb; width: 64px; height: 40px; border-radius: var(--radius-sm); }
 .bili-link { grid-area: btn; height: 28px; font-size: var(--fs-sm); }
-.folder-title { grid-area: title; margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 20px; font-weight: 600; line-height: 1.3; }
-.folder-meta { grid-area: meta; margin-top: 2px; color: var(--faint); font-size: var(--fs-sm); }
+.folder-title { grid-area: title; margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 18px; font-weight: 600; line-height: 1.3; }
+.folder-meta { grid-area: meta; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--faint); font-size: var(--fs-xs); }
 .list-header { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 6px 8px; margin-left: auto; }
 .step-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 6px 8px; min-width: 0; }
 .step-actions:empty { display: none; }
-.step-actions button { height: 32px; padding: 0 14px; }
+.step-actions button { height: 28px; padding: 0 12px; }
 .step-actions .primary { border: 0; }
 
 /* ---------- steps: text tabs, a pink underline on the open one, counts faint; 阅览 sits apart on the right ---------- */
 .tabs:empty { display: none; }
 /* Row 2: the tabs keep their underline; search and the mode's buttons sit on the right of the same line. */
-.tabrow { display: flex; flex-wrap: wrap; align-items: center; column-gap: 24px; padding-top: 10px; border-bottom: 1px solid var(--border); }
-.row-tools { display: flex; align-items: center; gap: 8px; margin-left: auto; padding: 5px 0; }
+.tabrow { display: flex; flex-wrap: wrap; align-items: center; column-gap: 24px; }
+.row-tools { display: flex; align-items: center; gap: 2px; margin-left: auto; padding: 6px 0; }
 /* While it reads, 刷新 gives its place to the progress pill: one thing on screen, not two. */
 .row-tools:has(.activity:not([hidden])) .act-btn[aria-busy="true"] { display: none; }
-.tabs { display: flex; flex: 0 1 auto; min-width: 0; align-items: center; gap: 28px; }
-.tabs button { position: relative; display: flex; align-items: center; gap: 6px; height: 42px; padding: 0; border: 0; border-radius: 0; background: none; color: var(--text-2); font-size: var(--fs-lg); }
+.tabs { display: flex; flex: 0 1 auto; min-width: 0; align-items: center; gap: 20px; }
+.tabs button { position: relative; display: flex; align-items: center; gap: 6px; height: 40px; padding: 0; border: 0; border-radius: 0; background: none; color: var(--text-2); font-size: var(--fs-sm); }
 .tabs button:hover { background: none; color: var(--text); }
 .tabs button[aria-selected="true"] { color: var(--text); font-weight: 600; }
-.tabs button[aria-selected="true"]::after { content: ""; position: absolute; left: 0; right: 0; bottom: -1px; height: 2px; border-radius: 2px; background: var(--accent); }
-.tabs .count { color: var(--faint); font-size: var(--fs-xs); font-variant-numeric: tabular-nums; }
+.tabs button[aria-selected="true"]::after { content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 2px; border-radius: 2px; background: var(--accent); }
+.tabs .count { color: var(--faint); font: 11px var(--font-mono); }
 .tabs .step.zero:not([aria-selected="true"]) { color: var(--faint); }
-.tabs .arrow { margin: 0 -18px; color: var(--border-strong); font-size: var(--fs-xs); }
+.tabs .arrow { margin: 0 -12px; color: var(--border-strong); font-size: var(--fs-xs); }
 .tabs .tab-sep { flex: 0 0 4px; height: 16px; border-left: 1px solid var(--border-strong); }
 
 /* ---------- row 3: state pills in groups | 全选 and the step's buttons. Row 4: my tags | 标签管理 ✦ AI 打标签 ----------
@@ -248,19 +259,18 @@ select { height: 28px; max-width: 240px; }
 .stagebar, .tagbar { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: start; column-gap: 16px; row-gap: 8px; }
 /* Each row reads as one line left to right: more room between rows 2, 3 and 4, and a thin rule under row 3 as under
    row 2 (the tabs). */
-.stagebar { padding: 8px 0; border-bottom: 1px solid var(--border); }
-.tagbar { padding: 8px 0; border-bottom: 1px solid var(--border); }
+.stagebar, .tagbar { padding-top: 8px; padding-bottom: 8px; }
 .stagebar .list-header { grid-column: 2; margin-left: 0; }
 .stagebar .step-actions { flex-wrap: nowrap; }
-.stagebar .class-filter, .tagbar .tagfilter { min-height: 32px; }
+.stagebar .class-filter, .tagbar .tagfilter { min-height: 28px; }
 .tagbar > :last-child { grid-column: 2; }
-.tags-acts { display: flex; flex: none; flex-wrap: nowrap; justify-content: flex-end; gap: 8px; }
+.tags-acts { display: flex; flex: none; flex-wrap: nowrap; justify-content: flex-end; gap: 2px; }
 /* Row 3's groups (shared.js stateGroup), split by a thin rule. A group wraps whole (inside only when it alone is too
    wide); the rule trails its group. */
 /* Rows 3 and 4 start with their name (shared.js labeledRow), a gray row heading of one width, so both rows' first pills
    line up; wrapped pills keep the indent. In row 4 the label's -4px takes back the chips' gap. */
-.state-row, .tagfilter { --row-label-w: 52px; padding-left: var(--row-label-w); }
-.row-label { flex: none; width: var(--row-label-w); margin-left: calc(-1 * var(--row-label-w)); color: var(--text-2); font-size: 15px; font-weight: 600; line-height: 26px; }
+.state-row, .tagfilter { --row-label-w: 44px; padding-left: var(--row-label-w); }
+.row-label { flex: none; width: var(--row-label-w); margin-left: calc(-1 * var(--row-label-w)); color: var(--faint); font-size: var(--fs-xs); line-height: 26px; }
 .tagfilter > .row-label { margin-right: -4px; }
 .state-row { display: flex; flex-wrap: wrap; align-items: center; row-gap: 8px; min-width: 0; }
 .state-row > .seg { position: relative; flex: none; flex-wrap: wrap; row-gap: 8px; max-width: 100%; }
@@ -288,9 +298,13 @@ select { height: 28px; max-width: 240px; }
 .seg button { height: 26px; padding: 0 12px; border: 0; border-radius: var(--radius-pill); background: var(--field-bg); color: var(--text-2); font-variant-numeric: tabular-nums; }
 .seg button:hover { background: var(--border); }
 .seg button[aria-pressed="true"] { background: var(--text); color: var(--bg); font-weight: 600; }
+/* Row 3's pills sit on the white card with no fill; only the picked one is solid. */
+.state-row .seg { gap: 2px; }
+.state-row .seg button:not([aria-pressed="true"]), .state-row .ai-recent > .ai-recent-x { background: none; }
+.state-row .seg button:not([aria-pressed="true"]):hover, .state-row .ai-recent > .ai-recent-x:hover { background: var(--field-bg); }
 /* A count of 0 stays, dimmed; only chips that exist for a condition (看完了, 已失效, AI 刚打的) leave at 0. */
 .seg button.zero:not([aria-pressed="true"]), .chip.zero:not(.on), .side-item.zero:not(.on) { opacity: 0.5; }
-.tagfilter { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; padding-top: 5px; }
+.tagfilter { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; padding-top: 1px; }
 .chip .chip-n { margin-left: 4px; color: var(--faint); font-variant-numeric: tabular-nums; }
 
 /* ---------- sort (shared.js sortControl): a select and the direction button (three lines; longest on top =
@@ -298,10 +312,10 @@ select { height: 28px; max-width: 240px; }
 .sort-box { display: inline-flex; flex: none; align-items: center; gap: 8px; margin-left: auto; }
 .sort-box:empty { display: none; }
 .sort-ctl { display: inline-flex; }
-.sort-ctl select { height: 32px; border-top-right-radius: 0; border-bottom-right-radius: 0; }
-.sort-dir { width: 32px; height: 32px; padding: 0; margin-left: -1px; display: grid; place-items: center; border-color: var(--border-strong); border-radius: 0 var(--radius-sm) var(--radius-sm) 0; background: var(--field-bg); color: var(--text-2); }
+.sort-ctl select { height: 28px; border-top-right-radius: 0; border-bottom-right-radius: 0; }
+.sort-dir { width: 28px; height: 28px; padding: 0; margin-left: -1px; display: grid; place-items: center; border-color: var(--border-strong); border-radius: 0 var(--radius-sm) var(--radius-sm) 0; background: var(--field-bg); color: var(--text-2); }
 .sort-dir:hover { color: var(--text); }
-.sort-dir svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; }
+.sort-dir svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; }
 
 /* ---------- the selection bar floats over the bottom of the page while anything is selected ----------
    Centered with auto margins between left and right (not left: 50% + translate, which caps a fixed box at half the
@@ -747,11 +761,11 @@ dialog:has(.settings-ai:not([hidden])) { width: min(800px, calc(100% - 32px)); }
 
 @media (max-width: 1099px) {
   .brand { width: auto; }
-  .tabs { gap: 20px; overflow-x: auto; }
+  .tabs { overflow-x: auto; }
   .tabs button, .tabs .arrow { flex: none; }
   /* Search and the buttons go under the tabs; the search takes what is left. */
-  .tabrow { border-bottom: 0; }
   .tabrow .tabs { flex-basis: 100%; border-bottom: 1px solid var(--border); }
+  .tabs button[aria-selected="true"]::after { bottom: -1px; }
   .row-tools { width: 100%; padding: 8px 0; }
   /* Row 2 is two lines here and its rule sits under the tabs: row 3 gets its own above it. */
   .stagebar { border-top: 1px solid var(--border); }
@@ -774,7 +788,7 @@ dialog:has(.settings-ai:not([hidden])) { width: min(800px, calc(100% - 32px)); }
   .folder-select { display: block; }
   .brand { display: none; }
   .act-btn.gear-only { display: inline-flex; }
-  .main { padding: 0 16px; }
+  .main { padding-left: 16px; padding-right: 16px; }
 }
 
 /* At phone width the top bar keeps folder + ⋯, and the steps scroll sideways instead of wrapping. */
@@ -783,7 +797,7 @@ dialog:has(.settings-ai:not([hidden])) { width: min(800px, calc(100% - 32px)); }
   .folder-select { max-width: 50vw; }
   .act-btn .lbl { display: none; }
   .act-btn { padding: 0 9px; }
-  .main { padding: 0 8px; }
+  .main { --head-top: 8px; padding-left: 8px; padding-right: 8px; }
   .list .card { padding-right: 12px; }
   .list .actions, .list .pair { display: flex; }
   .list .pair > button { position: static; width: auto; height: 26px; padding: 0 8px; font-size: var(--fs-xs); }
