@@ -2982,6 +2982,7 @@ async function runStage1(list = stage1Pending()) {
     }
     done += batch.length;
     S.stage1.done = done;
+    if (!S.stage1.stop) S.stage1.text = `标题粗看中 ${done}/${total}`;
     render();
     if (pending().length) await sleepWhile(S.settings.triageIntervalSec * 1000, keepGoing);
   }
