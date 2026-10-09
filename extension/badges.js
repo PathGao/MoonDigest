@@ -674,8 +674,9 @@ input { box-sizing: border-box; width: 100%; margin: 0; padding: 4px 8px; border
 
   function onPickClick(e) {
     if (e.target.closest?.(".go")) {
+      const hash = `follow&up=${pick.mid}`;
       closePick(false);
-      if (chrome.runtime?.id) chrome.runtime.sendMessage({ type: "triage-open", hash: "follow" }).catch(() => {});
+      if (chrome.runtime?.id) chrome.runtime.sendMessage({ type: "triage-open", hash }).catch(() => {});
       return;
     }
     const b = e.target.closest?.(".opt");
