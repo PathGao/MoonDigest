@@ -379,7 +379,7 @@ for (const [file, fns] of [["triage.js", ["mergeAiBatch", "aiChanges"]], ["follo
 // the header, so its top padding is the header's measured height plus 8px.
 {
   const css = ["triage.css", "follow.css"].map((f) => fs.readFileSync(path.join(__dirname, f), "utf8")).join("\n");
-  for (const sel of ["stagebar", "tagbar"]) assert.ok(new RegExp(`^\\.${sel} \\{ padding: 8px 0;`, "m").test(css), `${sel} pads 8px`);
+  assert.ok(/^\.stagebar, \.tagbar \{ padding-top: 8px; padding-bottom: 8px; \}/m.test(css), "rows 3 and 4 pad 8px");
   for (const sel of ["list", "fw-list"]) assert.ok(new RegExp(`^\\.${sel} \\{[^}]*padding: calc\\(var\\(--head-h, 0px\\) \\+ 8px\\) 8px \\d+px;`, "m").test(css), `${sel} starts 8px under the header`);
 }
 
