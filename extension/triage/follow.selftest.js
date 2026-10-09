@@ -290,7 +290,7 @@ assert.ok(/if \(!\/\^follow\(&\|\$\)\/\.test\(h\)\) return false;\s*history\.rep
 
 // #follow&up=<mid> (the B站 tag picker's button) clears what could hide the card, then makes it current.
 assert.ok(/if \(up\) \{\s*F\.tab = "ups";\s*F\.side = D\.gone\[up\] \? "gone" : "all";\s*F\.status = F\.tagState = F\.source = F\.q = "";[\s\S]*?F\.tags = new Set\(\);\s*\}/.test(source), "followHash clears the filters for up");
-assert.ok(/render\(\);\s*if \(up\) setCur\(up\);\s*return true;/.test(source), "followHash makes the UP current");
+assert.ok(/render\(\);\s*if \(up\) \{\s*setCur\(up, false\);\s*E\.list\.querySelector\("\.fw-up\.focused"\)\?\.scrollIntoView\(\{ block: "center" \}\);/.test(source), "followHash makes the UP current, centered");
 
 // 标签… on 2+ UP 主 is one step that asks before U, with 收藏夹's words (shared.js undoAsk).
 assert.ok(source.includes(`pushTagUndo(before, "标签修改", { ask: changes.length > 1 ? UI.undoAsk("tags", changes.length, "UP 主") : null });`), "pickClosed asks for 2+");

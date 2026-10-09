@@ -1656,7 +1656,10 @@ async function followHash() {
   }
   derive();
   render();
-  if (up) setCur(up);
+  if (up) {
+    setCur(up, false);
+    E.list.querySelector(".fw-up.focused")?.scrollIntoView({ block: "center" });
+  }
   return true;
 }
 window.addEventListener("hashchange", followHash);
