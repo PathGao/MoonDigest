@@ -343,12 +343,14 @@ async function followSyncJob(ctx) {
         followFoldFeed(last, r.items);
         c.offset = r.offset;
         const end = !r.hasMore || !r.offset || last.since <= followNow() - slowDays * 86400 || p === 599;
+        // 进度每页都报；断点（游标和 follow_last_wip）每 10 页存一次，游标只跟着断点走，接着跑才对得上。
+        const done = Object.keys(last.map).length;
         if (p % 10 === 9 || end) {
           last.at = followNow();
           await chrome.storage.local.set({ [end ? "follow_last" : "follow_last_wip"]: last });
           if (end) await chrome.storage.local.remove("follow_last_wip");
-          await ctx.progress({ done: Object.keys(last.map).length, cursor: c });
-        }
+          await ctx.progress({ done, cursor: c });
+        } else await ctx.progress({ done });
         if (end) break;
       }
     }

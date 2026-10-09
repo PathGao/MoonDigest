@@ -199,6 +199,18 @@ const runSync = async () => {
     assert.ok(!local.follow_last_wip, "the walk in progress is cleared");
   }
 
+  // ---------- the feed walk reports progress every page, not only at each 10-page checkpoint ----------
+  {
+    local = { follow_list: { list: ["1", "2", "3", "4"], followTime: { 1: 101, 2: 102, 3: 103, 4: 104 } } };
+    const pages = [1, 2, 3].map((m) => [dyn(m, `BVp${m}`, now() - m)]);
+    pages.push([dyn(4, "BVpend", now() - 40 * 86400)]);
+    const ok = feed(pages);
+    const seen = [];
+    routes["/x/polymer/web-dynamic/v1/feed/all"] = (u) => (seen.push(local.follow_jobs?.done), ok(u));
+    await runSync();
+    assert.deepStrictEqual(seen, [0, 1, 2, 3], "each page's count shows before the next page is read");
+  }
+
   // ---------- partial followings: nobody marked gone ----------
   {
     local = { follow_list: { list: ["1", "9"], followTime: {} }, follow_last: { at: now(), since: 0, map: { 1: 1 } } };
