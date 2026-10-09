@@ -766,8 +766,8 @@ async function triageMigrateNotes() {
 }
 
 // One triage tab: each holds its own copy of 保留, tags and the rest, so a second one is focused instead of opened.
-// hash: the deep link a Bilibili page's UP tag picker sends, `follow&tag=<id>` (关注 mode on that tag) or `follow&up=<mid>`
-// (关注 mode on that UP's card); an open triage tab gets it as a hash change.
+// hash: a deep link into 关注, `follow&tag=<id>` (on that tag) or `follow&up=<mid>` (on that UP's card, what a Bilibili
+// page's UP tag picker sends); an open triage tab gets it as a hash change.
 async function triageOpenPage(hash) {
   const page = chrome.runtime.getURL("triage/triage.html");
   const url = /^follow(?:&tag=[\w%.~-]+|&up=\d+)?$/.test(hash || "") ? `${page}#${hash}` : page;
