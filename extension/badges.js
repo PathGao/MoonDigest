@@ -61,8 +61,9 @@
   }
 
   // ---- UP tags (follow_tags / follow_tag_map from the triage page's 关注 mode) next to an author's name ----
-  // Only a bare profile link names an author: /favlist, /video, /fans/follow are menu links.
-  const MID_RE = /(?:^|\/\/)space\.bilibili\.com\/(\d+)\/?(?:[?#]|$)/;
+  // Only a bare profile link names an author: /favlist, /video, /fans/follow are menu links. The header's 动态 popover
+  // names its authors with /dynamic links.
+  const MID_RE = /(?:^|\/\/)space\.bilibili\.com\/(\d+)(?:\/dynamic)?\/?(?:[?#]|$)/;
   const midFromHref = (href) => MID_RE.exec(String(href || ""))?.[1] || "";
 
   // [{ id, name, color }] of a mid, in follow_tags order.

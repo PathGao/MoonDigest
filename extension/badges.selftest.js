@@ -75,6 +75,7 @@ assert.strictEqual(midFromHref("//space.bilibili.com/591081863"), "591081863");
 assert.strictEqual(midFromHref("https://space.bilibili.com/276268291/?spm_id_from=333.788.upinfo.detail.click"), "276268291");
 assert.strictEqual(midFromHref("//space.bilibili.com/1629915907?spm_id_from=333.1387.homepage.video_card.click"), "1629915907");
 assert.strictEqual(midFromHref("//space.bilibili.com/6823116#/album"), "6823116");
+assert.strictEqual(midFromHref("//space.bilibili.com/85846467/dynamic"), "85846467", "the 动态 popover's author links");
 assert.strictEqual(midFromHref("//space.bilibili.com/2773586/favlist"), "", "menu links are not authors");
 assert.strictEqual(midFromHref("https://space.bilibili.com/2773586/fans/follow"), "");
 assert.strictEqual(midFromHref("https://www.bilibili.com/video/BV1xx411c7mD"), "");
