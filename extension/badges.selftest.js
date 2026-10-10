@@ -186,8 +186,8 @@ const { ROWS, COLS, allowed, normalizeOff, rulesWith } = ctx.BocSurfaces;
 assert.deepStrictEqual(Object.keys(ROWS).sort(), Object.keys(SURFACES).sort(), "a row per surface");
 const grid = (k) => Object.keys(COLS).map((c) => (allowed(k, c) ? "✓" : "-")).join("");
 assert.deepStrictEqual(Object.keys(ROWS).map((k) => `${k}:${grid(k)}`), [
-  "card:✓✓✓✓✓", "popover:✓✓✓-✓", "popfeed:--✓-✓", "video:✓✓✓-✓", "owner:--✓✓-",
-  "fav:✓✓--✓", "later:✓✓✓✓✓", "history:✓✓✓✓✓", "feed:--✓✓✓", "space:✓✓--✓"
+  "card:✓✓✓✓✓", "popover:✓✓✓-✓", "popfeed:--✓-✓", "feed:--✓✓✓", "video:✓✓✓-✓", "owner:--✓✓-",
+  "fav:✓✓--✓", "later:✓✓✓✓✓", "history:✓✓✓✓✓", "space:✓✓--✓"
 ], "columns: AI 判断, 视频标签, UP 标签, 「+ UP 标签」, 观看进度");
 assert.deepStrictEqual(plain(normalizeOff(["fav.vtags", "fav.ups", "nope.seen", "card.vtags", "card.vtags", 3, null])), ["fav.vtags", "card.vtags"], "only cells that exist, once");
 const all = rulesWith([]);
