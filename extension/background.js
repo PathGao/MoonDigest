@@ -575,6 +575,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
+  if (message.type === "settings-export" || message.type === "settings-import") {
+    (message.type === "settings-export" ? exportSettings() : importSettings(message.file))
+      .then((file) => sendResponse({ ok: true, file }))
+      .catch((error) => sendResponse({ ok: false, error: error.message }));
+    return true;
+  }
+
   // The content script's isolated world cannot reach the player API; a
   // MAIN-world read can, and chrome.scripting is not subject to the page CSP.
   // Only the watch page's own content script may ask, and only for its tab.
@@ -1069,6 +1076,39 @@ async function saveSettings(settings) {
     chrome.storage.sync.set(syncPayload),
     "obsidianApiKey" in payload && chrome.storage.local.set({ obsidianApiKey: normalizeApiKey(payload.obsidianApiKey) })
   ]);
+}
+
+// Every setting (收藏夹 and 关注 included) lives in sync; keys and data live in local, so the file never carries them.
+// The key filter only guards against a copy left in sync by an older version.
+const SETTINGS_FILE_VERSION = 1;
+
+async function exportSettings() {
+  const settings = await chrome.storage.sync.get(null);
+  delete settings.obsidianApiKey;
+  delete settings[AI_PROVIDER_KEYS_STORAGE];
+  if (Array.isArray(settings.aiProviders)) settings.aiProviders = settings.aiProviders.map(({ apiKey, ...p }) => p);
+  return {
+    app: "moondigest",
+    kind: "settings",
+    schemaVersion: SETTINGS_FILE_VERSION,
+    exportedAt: new Date().toISOString(),
+    extensionVersion: chrome.runtime.getManifest().version || "",
+    settings
+  };
+}
+
+// Replaces every setting with the file's. Set first, then remove the rest, so a failed write (sync quota) changes nothing;
+// initializeSettingsStorage then migrates an older file's keys and fills in what it lacks.
+async function importSettings(file) {
+  if (file?.app !== "moondigest" || file.kind !== "settings" || !file.settings || typeof file.settings !== "object" || Array.isArray(file.settings)) {
+    throw new Error("不是 MoonDigest 的设置文件");
+  }
+  if (!(file.schemaVersion <= SETTINGS_FILE_VERSION)) throw new Error("这个文件来自更新的版本，先更新 MoonDigest 再导入");
+  const { obsidianApiKey, [AI_PROVIDER_KEYS_STORAGE]: keys, ...settings } = file.settings;
+  const current = Object.keys(await chrome.storage.sync.get(null));
+  await chrome.storage.sync.set(settings);
+  await chrome.storage.sync.remove(current.filter((k) => !(k in settings)));
+  await initializeSettingsStorage();
 }
 
 function toString(value) {

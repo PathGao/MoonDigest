@@ -109,6 +109,7 @@ process.on("exit", (code) => {
   const area = (data) => ({
     data,
     async get(keys) {
+      if (keys == null) return JSON.parse(JSON.stringify(data));
       if (keys && typeof keys === "object" && !Array.isArray(keys)) {
         return Object.fromEntries(Object.entries(keys).map(([k, d]) => [k, k in data ? data[k] : d]));
       }
@@ -251,6 +252,32 @@ process.on("exit", (code) => {
   ctx.chrome = { storage: { sync: area({}), local: { ...area(dead), getKeys: async () => Object.keys(dead) } } };
   await ctx.removeDeadStorageKeys();
   assert.deepStrictEqual(Object.keys(dead), ["triage_basket"]);
+
+  // Settings file: everything in sync (收藏夹 and 关注 included), never a key, even one an older version left in sync.
+  const exportSync = { noteFolder: "X", triageFineBatchSize: 20, follow_ai_settings: { batchSize: 7 }, aiProviders: [{ id: "p", apiKey: "sk-old" }], obsidianApiKey: "leak" };
+  ctx.chrome = { runtime: { getManifest: () => ({ version: "9" }) }, storage: { sync: area(exportSync), local: area({ obsidianApiKey: "k", aiProviderKeys: { p: "sk" } }) } };
+  const file = JSON.parse(JSON.stringify(await ctx.exportSettings()));
+  assert.deepStrictEqual([file.kind, file.extensionVersion, file.settings.triageFineBatchSize, file.settings.follow_ai_settings], ["settings", "9", 20, { batchSize: 7 }]);
+  assert.deepStrictEqual(file.settings.aiProviders, [{ id: "p" }]);
+  assert.ok(!/sk|leak|"k"/.test(JSON.stringify(file)), "no keys in the file");
+
+  // Import replaces every setting, migrates an older file's keys, fills defaults, and leaves local keys alone.
+  const importSync = { noteFolder: "Y", stray: 1 };
+  const importLocal = { obsidianApiKey: "k2", aiProviderKeys: { q: "sk2" } };
+  ctx.chrome = { storage: { sync: area(importSync), local: area(importLocal) } };
+  const old = { ...file, settings: { ...file.settings, aiInitialQuickPrompts: ["旧"], obsidianApiKey: "x" } };
+  await ctx.importSettings(old);
+  assert.deepStrictEqual([importSync.noteFolder, importSync.triageFineBatchSize, importSync.follow_ai_settings], ["X", 20, { batchSize: 7 }]);
+  assert.ok(!("stray" in importSync) && !("aiInitialQuickPrompts" in importSync) && !("obsidianApiKey" in importSync));
+  assert.ok(importSync.aiPresetPrompts.includes("旧"));
+  assert.strictEqual(importSync.seenThreshold, 80);
+  assert.deepStrictEqual(importLocal, { obsidianApiKey: "k2", aiProviderKeys: { q: "sk2" } });
+
+  // 分拣台's 完整备份 and a newer file are refused without touching anything.
+  const before = JSON.stringify(importSync);
+  await assert.rejects(ctx.importSettings({ app: "moondigest", schemaVersion: 3, settings: {} }), /不是 MoonDigest 的设置文件/);
+  await assert.rejects(ctx.importSettings({ ...file, schemaVersion: 2 }), /更新的版本/);
+  assert.strictEqual(JSON.stringify(importSync), before);
 
   finished = true;
   clearInterval(keepAlive);
