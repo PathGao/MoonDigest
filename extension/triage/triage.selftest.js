@@ -929,7 +929,39 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   t.S.query = "";
   assert.strictEqual(t.createTag("新"), null, "no new tag outside a folder");
   assert.ok(manageTags.reason().includes("先打开一个具体收藏夹") && !manageTags.tags().length);
-  assert.ok(aiTags.blocked().includes("先打开一个具体收藏夹"));
+  // AI 打标签 runs in 所有收藏夹: one chip per name (off = that name in every folder); one part per folder with its own tags
+  // and new-tag room, a video in two folders in both; same-name new tags stay apart and go into their own folder.
+  {
+    assert.strictEqual(aiTags.blocked(), "");
+    assert.deepStrictEqual(plain(aiTags.tags().map((x) => x.id)), ["xa", "yb"]);
+    Object.assign(t.S, { tab: "none", titleRes: {}, analyses: {}, undo: [], allFolders: t.S.folders });
+    Object.assign(t.S.settings, { triageAiBatchSize: 1, triageIntervalSec: 0, triageAiNewTagMax: 5 });
+    t.S.ai.excluded.add("xa");
+    assert.ok(aiTags.scopeText("filter").includes("按收藏夹分开打") && aiTags.scopeText("filter").endsWith("2 个收藏夹共 4 批发送"), aiTags.scopeText("filter"));
+    const reqs = [];
+    const lines = [];
+    const savedProgress = t.TagDialogs.ai.progress;
+    t.TagDialogs.ai.progress = (_, text) => lines.push(text);
+    handlers["triage-ai-command"] = (m) => {
+      reqs.push([m.items[0].bvid, plain(m.tags), m.items[0].currentTags || []]);
+      return { ok: true, data: { newTags: ["新"], assignments: { [m.items[0].bvid]: { add: ["新"] } } } };
+    };
+    await t.runAiCommand({ instruction: "分", scope: "filter", allowRemove: false });
+    t.TagDialogs.ai.progress = savedProgress;
+    t.S.ai.excluded.clear();
+    assert.deepStrictEqual(reqs, [["BV1", [], []], ["BV3", [], []], ["BV2", [{ name: "y", rule: "" }], ["y"]], ["BV3", [{ name: "y", rule: "" }], []]]);
+    assert.ok(lines.includes("AI 正在处理「乙」第 2/2 批…"), lines.join("|"));
+    const prop = t.S.ai.proposals.all;
+    assert.deepStrictEqual(plain(prop.newTags), [{ key: "A/新", name: "新", checked: true, folder: "A", where: "甲" }, { key: "B/新", name: "新", checked: true, folder: "B", where: "乙" }]);
+    assert.strictEqual(t.S.ai.proposal, prop, "kept under 所有收藏夹");
+    t.applyAiProposal();
+    const made = t.S.tags.filter((x) => x.name === "新");
+    assert.deepStrictEqual(plain(made.map((x) => x.folder)), ["A", "B"]);
+    assert.deepStrictEqual(plain(t.S.videoTags.BV3.map((id) => t.S.tags.find((x) => x.id === id).folder)), ["A", "B"], "a video in two folders is tagged in both");
+    t.undo();
+    await new Promise((r) => setTimeout(r, 0));
+    assert.ok(!t.S.tags.some((x) => x.name === "新"), "one undo step");
+  }
   const pickNames = (b, q = "") => (t.openPicker(b), plain(t.TagPicker.rowsOf(po.tags(), q, po.canCreate).map((o) => (o.create ? `+${o.create}` : o.tag.id))));
   assert.deepStrictEqual(pickNames("BV1"), ["xa"]);
   assert.deepStrictEqual(pickNames("BV3"), ["xa", "xb", "yb"]);
@@ -1527,6 +1559,54 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   t.startGroup(["BV820"]);
   for (let i = 0; i < 20 && t.S.group; i++) await new Promise((r) => setImmediate(r));
   assert.strictEqual(t.el.banner.hidden, true, "a run that works clears the AI banner wherever it ran");
+
+  // 所有收藏夹: each video is judged under its first chosen folder's 判断标准 and context; a 粗看 batch holds one folder.
+  {
+    const savedStage1 = t.S.stage1;
+    const vids = [{ ...item(850), folders: ["K"] }, { ...item(851), folders: ["L", "K"] }, { ...item(852), folders: ["L"] }, { ...item(853), folders: ["K"] }];
+    openFake("all", vids);
+    t.S.folders = t.S.allFolders = [{ id: "K", title: "夹K" }, { id: "L", title: "夹L" }];
+    Object.assign(t.S, { titleRes: {}, analyses: {}, decisions: {}, folderCriteria: { K: "K 标准", L: "L 标准" }, folderIntro: { L: "L 简介" }, stage1Skip: new Set(), tab: "none", loadAll: { lists: {}, check: [], checkTotal: 0, queue: [], paused: false, running: false, error: "", partial: 0 } });
+    Object.assign(t.S.settings, { triageTitleBatchSize: 5, triageIntervalSec: 0 });
+    assert.deepStrictEqual(vids.map((it) => vm.runInContext("homeOf", ctx)(it)), ["K", "K", "L", "K"], "the first chosen folder it is in");
+    // The step bar offers the run (no single 判断标准 button); the run asks first, listing each folder's count and 判断标准.
+    t.renderListHeader(t.visibleItems());
+    assert.ok(t.el.listHeader.innerHTML.includes("标题粗看这 4 个") && !t.el.listHeader.innerHTML.includes('data-head="criteria"'), t.el.listHeader.innerHTML);
+    const batches = [];
+    handlers["triage-classify-titles"] = ({ items, criteria, folder }) => {
+      batches.push([items.map((x) => x.bvid), criteria, folder.title, folder.intro]);
+      return { ok: true, data: { results: Object.fromEntries(items.map((x) => [x.bvid, { verdict: "keep", confidence: "high" }])) } };
+    };
+    let asked = null;
+    t.askConfirm = async (title, body, ok) => ((asked = [title, body, ok]), true);
+    t.el.confirmBody = { querySelectorAll: () => [{ dataset: { crit: "L" }, value: " L 新标准 " }] };
+    await vm.runInContext("startJudging", ctx)("标题粗看", "粗看", t.S.items, () => t.runStage1(t.S.items));
+    while (t.S.stage1.running) await new Promise((r) => setTimeout(r, 0));
+    assert.deepStrictEqual([asked[0], asked[2]], ["标题粗看", "开始粗看 4 个"]);
+    assert.ok(asked[1].includes("「夹K」· 3 个") && asked[1].includes(">L 标准</textarea>") && asked[1].indexOf("夹K") < asked[1].indexOf("夹L"), asked[1]);
+    assert.deepStrictEqual(plain(store[t.K.folderCriteria]), { K: "K 标准", L: "L 新标准" }, "edits save like the 判断标准 dialog");
+    assert.deepStrictEqual(batches, [[["BV850", "BV851", "BV853"], "K 标准", "夹K", ""], [["BV852"], "L 新标准", "夹L", "L 简介"]]);
+    // Staleness goes by each video's own folder.
+    t.S.folderCriteria = { K: "K 改了", L: "L 新标准" };
+    t.S.tab = "coarse";
+    assert.deepStrictEqual(plain(t.staleCoarse().map((it) => it.bvid)), ["BV850", "BV851", "BV853"]);
+    t.renderListHeader(t.visibleItems());
+    assert.ok(t.el.listHeader.innerHTML.includes("按新标准重新粗看 3 个") && t.el.listHeader.innerHTML.includes("细看下一批"), t.el.listHeader.innerHTML);
+    // 细看: one video per request, each with its own folder's 判断标准.
+    const fine = [];
+    handlers["triage-analyze"] = ({ bvid, criteria, folder }) => (fine.push([bvid, criteria, folder.title]), { ok: true, data: { bvid, status: "done", verdict: "keep" } });
+    t.startGroup(["BV851", "BV852"]);
+    for (let i = 0; i < 20 && t.S.group; i++) await new Promise((r) => setImmediate(r));
+    assert.deepStrictEqual(fine, [["BV851", "K 改了", "夹K"], ["BV852", "L 新标准", "夹L"]]);
+    assert.strictEqual(t.S.analyses.BV852.criteria, "L 新标准");
+    // 取消 starts nothing and saves nothing.
+    t.askConfirm = async () => false;
+    let started = false;
+    await vm.runInContext("startJudging", ctx)("细看", "细看", [vids[0]], () => (started = true));
+    assert.ok(!started);
+    Object.assign(t, { askConfirm: async () => true });
+    Object.assign(t.S, { titleRes: {}, analyses: {}, folderCriteria: {}, folderIntro: {}, stage1: savedStage1, loadAll: null });
+  }
   for (const thinkingToggle of [false, true]) {
     t.S.settings.thinkingToggle = thinkingToggle;
     t.handleAiError("输出被截断");
@@ -2274,10 +2354,12 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     t.renderListHeader(t.visibleItems());
     assert.ok(t.el.listHeader.innerHTML.includes('disabled title="细看还在跑，等它完成"'), t.el.listHeader.innerHTML);
     t.S.group = null;
-    // G1 / G7: ✦ AI 打标签 needs one folder with videos, unless a run or a proposal waits.
+    // G1 / G7: ✦ AI 打标签 needs videos (and not 已出分拣范围), unless a run or a proposal waits.
     t.aiTagReason = () => vm.runInContext("aiTagReason()", ctx);
     assert.strictEqual(t.aiTagReason(), "");
     t.S.mediaId = "all";
+    assert.strictEqual(t.aiTagReason(), "", "所有收藏夹 runs per folder");
+    t.S.mediaId = "removed";
     assert.strictEqual(t.aiTagReason(), "标签按收藏夹分开，先打开一个具体收藏夹");
     openFake("E", []);
     assert.strictEqual(t.aiTagReason(), "这里没有视频");

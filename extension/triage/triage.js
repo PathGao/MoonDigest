@@ -314,15 +314,24 @@ const S = {
   }
 };
 
-const criteria = () => S.folderCriteria[S.mediaId] || "";
+const criteriaFor = (id) => S.folderCriteria[id] || "";
+const criteria = () => criteriaFor(S.mediaId);
+// The folder a video is judged under: the open one, or in 所有收藏夹 the first chosen folder (list order) it is in.
+const homeOf = (it) => (S.mediaId === ALL ? S.folders.map((f) => String(f.id)).find((id) => it?.folders?.includes(id)) : String(S.mediaId));
+// What the AI is told about a folder; its 判断标准 is relative to this.
+const folderContext = (id = S.mediaId) => ({ title: folderTitle(id), intro: S.folderIntro[id] || "" });
+// Everything a 粗看 or 细看 request about this video carries, taken when its run starts.
+const judgeOf = (it) => {
+  const home = homeOf(it);
+  return { home, crit: criteriaFor(home), ctx: folderContext(home) };
+};
 // A 粗看 or 细看 result remembers the 判断标准 it was made under (loadResults stamps older ones with the folder's
 // current one), so after the criteria change the old results can be redone.
-const isStale = (r) => Boolean(r) && (r.criteria ?? criteria()) !== criteria();
+const isStale = (r, crit = criteria()) => Boolean(r) && (r.criteria ?? crit) !== crit;
 const inFolderOnly = () => S.mediaId && S.mediaId !== ALL && S.mediaId !== REMOVED;
-const staleCoarse = () => (inFolderOnly() ? S.items.filter((it) => !it.invalid && stageOf(it) === "coarse" && isStale(S.titleRes[it.bvid])) : []);
-const staleFine = () => (inFolderOnly() ? S.items.filter((it) => stageOf(it) === "fine" && isStale(S.analyses[it.bvid])) : []);
-// What the AI is told about the open folder; its 判断标准 is relative to this.
-const folderContext = () => ({ title: folderTitle(), intro: S.folderIntro[S.mediaId] || "" });
+const judged = () => S.mediaId && S.mediaId !== REMOVED;
+const staleCoarse = () => (judged() ? S.items.filter((it) => !it.invalid && stageOf(it) === "coarse" && isStale(S.titleRes[it.bvid], criteriaFor(homeOf(it)))) : []);
+const staleFine = () => (judged() ? S.items.filter((it) => stageOf(it) === "fine" && isStale(S.analyses[it.bvid], criteriaFor(homeOf(it)))) : []);
 
 const $ = (id) => document.getElementById(id);
 
@@ -529,7 +538,7 @@ function tagChips() {
 }
 // How many new tags 批量打 may propose: at most triageAiNewTagMax, within the folder's room.
 const tagLimit = () => S.settings.triageTagLimit;
-const aiNewTagRoom = () => Math.max(0, Math.min(S.settings.triageAiNewTagMax, tagLimit() - viewTags().length));
+const aiNewTagRoom = (folder = S.mediaId) => Math.max(0, Math.min(S.settings.triageAiNewTagMax, tagLimit() - S.tags.filter((t) => t.folder === String(folder)).length));
 const FOLDER_ONLY = "标签按收藏夹分开，先打开一个具体收藏夹";
 // A video's tags in the open view. A tag belongs to one folder and stays there when the video moves, so a folder shows
 // only its own; 所有收藏夹 those of the video's folders (as the picker) and of the ones it was just unfavorited from;
@@ -1168,7 +1177,7 @@ async function quickSync({ force = false } = {}) {
 }
 
 // A chosen folder other than the open one with a proposal waiting.
-const otherAiFolder = () => Object.keys(S.ai.proposals).find((id) => id !== String(S.mediaId) && S.folders.some((f) => String(f.id) === id));
+const otherAiFolder = () => Object.keys(S.ai.proposals).find((id) => id !== String(S.mediaId) && (id === ALL || S.folders.some((f) => String(f.id) === id)));
 
 // The folder's list and its bvid lookup, always replaced together.
 function setItems(list) {
@@ -1593,7 +1602,7 @@ function loadAllLine() {
   return `<span class="muted"${busy ? ' aria-busy="true"' : ""}>${text}</span>${btn}${L.error ? `<span class="fail-text">${esc(L.error)}</span>` : ""}`;
 }
 
-const folderName = (id) => id === REMOVED ? "已出分拣范围" : S.allFolders.find((f) => String(f.id) === String(id))?.title || String(id);
+const folderName = (id) => id === REMOVED ? "已出分拣范围" : id === ALL ? "所有收藏夹" : S.allFolders.find((f) => String(f.id) === String(id))?.title || String(id);
 // The folder select's counts follow our own writes at once instead of waiting for the next folder-list load.
 function bumpCount(id, delta) {
   const f = S.allFolders.find((x) => String(x.id) === String(id));
@@ -1823,7 +1832,7 @@ const headBtn = (act, label, cls = "", reason = "", verdict = "", title = "", bu
   `<button type="button"${cls ? ` class="${cls}"` : ""} data-head="${act}"${verdict ? ` data-verdict="${verdict}"` : ""} aria-label="${esc(label)}"${UI.reasonAttrs(reason, title)}${busy ? ' aria-busy="true"' : ""}>${ai ? AI_SPARK : ""}${esc(label)}</button>`;
 
 // Why ✦ AI 打标签 cannot open: not in one folder, or nothing to tag and nothing pending.
-const aiTagReason = () => (!inFolderView() ? FOLDER_ONLY : !S.items.length && !S.ai.running && !S.ai.proposal ? "这里没有视频" : "");
+const aiTagReason = () => (S.mediaId === REMOVED ? FOLDER_ONLY : !S.items.length && !S.ai.running && !S.ai.proposal ? "这里没有视频" : "");
 
 // Why 粗看 / 细看 cannot start: another AI run goes first.
 const aiBusyReason = () => (S.stage1.running ? "粗看还在跑，等它完成" : S.group ? "细看还在跑，等它完成" : "");
@@ -1926,22 +1935,23 @@ function renderListHeader(list) {
   // html is what this step does; selActs acts on the selection and goes to its own bar below the filters.
   let html = "";
   let selActs = "";
-  if (all && t === "none") html = sortHint;
-  else if (all && t === "coarse") html = sortHint;
-  else if (t === "none") {
+  // 所有收藏夹 has no one 判断标准 to show: its runs ask for each folder's first (askAllCriteria).
+  const critBtn = all ? "" : criteriaBtn();
+  if (t === "none") {
     // The criteria the AI reads sits just before the button that sends it.
-    html = criteriaBtn();
+    html = critBtn;
     if (ownStage1()) html += stage1Pause();
     else {
       const n = stage1Pending().length;
       const none = S.items.some((it) => stageOf(it) === "none" && !S.stage1Skip.has(it.bvid)) ? "当前筛选下没有要粗看的视频" : "没有要粗看的视频";
       html += headBtn("stage1", n ? `标题粗看这 ${n} 个` : "标题粗看", "primary", aiBusyReason() || (n ? "" : none), "", "", false, true);
     }
-    if (sel) selActs = batchBtn("keep");
+    if (sel && !all) selActs = batchBtn("keep");
   } else if (t === "coarse") {
     // A selection gets 细看 plus both batch buttons; 可清理 / 值得留 lead with their batch button, 细看 stays secondary.
-    html = criteriaBtn() + redoBtn("redo-coarse", "粗看", redoCoarseList().length, staleCoarse().length);
-    if (sel) selActs = groupBtn("primary") + batchBtn("keep");
+    html = critBtn + redoBtn("redo-coarse", "粗看", redoCoarseList().length, staleCoarse().length);
+    if (all) html += groupBtn("primary");
+    else if (sel) selActs = groupBtn("primary") + batchBtn("keep");
     else if (f === "drop") html += batchBtn("unfav", "drop") + groupBtn("");
     else if (f === "keep") html += batchBtn("keep", "keep") + groupBtn("");
     else html += groupBtn("primary");
@@ -1949,7 +1959,7 @@ function renderListHeader(list) {
     // A selection gets both buttons; without one 值得留 and 可清理 each get a button, 拿不准 none.
     html = "";
     const staleN = staleFine().length;
-    if (staleN && !all) html += criteriaBtn() + redoBtn("redo-fine", "细看", redoFineList().length, staleN);
+    if (staleN) html += critBtn + redoBtn("redo-fine", "细看", redoFineList().length, staleN);
     if (all) html += sortHint;
     else if (sel) selActs = batchBtn("keep");
     else {
@@ -2241,10 +2251,10 @@ function originHtml(it) {
   return `<span class="origin-chip" title="${esc(`原在${names.join("")}`)}">${esc(text)}</span>`;
 }
 
-function folderTitle() {
-  if (S.mediaId === ALL) return "所有收藏夹";
-  if (S.mediaId === REMOVED) return "已出分拣范围";
-  return S.folders.find((f) => String(f.id) === String(S.mediaId))?.title || "收藏夹";
+function folderTitle(id = S.mediaId) {
+  if (id === ALL) return "所有收藏夹";
+  if (id === REMOVED) return "已出分拣范围";
+  return S.folders.find((f) => String(f.id) === String(id))?.title || "收藏夹";
 }
 
 function setFocus(bvid, scroll = true) {
@@ -2837,11 +2847,16 @@ function openCriteria() {
   el.criteriaInput.focus();
 }
 
+// One folder's 判断标准; empty removes it. The caller stores S.folderCriteria.
+function setCriteria(id, text) {
+  text = text.trim();
+  if (text) S.folderCriteria[id] = text;
+  else delete S.folderCriteria[id];
+}
+
 async function saveCriteria() {
-  const text = el.criteriaInput.value.trim();
-  const changed = text !== criteria();
-  if (text) S.folderCriteria[S.mediaId] = text;
-  else delete S.folderCriteria[S.mediaId];
+  const changed = el.criteriaInput.value.trim() !== criteria();
+  setCriteria(S.mediaId, el.criteriaInput.value);
   storeSet(K.folderCriteria, S.folderCriteria);
   render();
   const stale = staleCoarse();
@@ -2852,6 +2867,29 @@ async function saveCriteria() {
     "重新粗看"
   );
   if (ok) runStage1(stale);
+}
+
+// 所有收藏夹 has no one 判断标准: before a 粗看 or 细看 run it lists each folder the run touches, with its videos and its
+// 判断标准 to edit (saved as in the 判断标准 dialog). false on 取消.
+async function askAllCriteria(title, verb, items) {
+  const n = new Map();
+  for (const it of items) n.set(homeOf(it), (n.get(homeOf(it)) || 0) + 1);
+  const rows = S.folders
+    .map((f) => String(f.id))
+    .filter((id) => n.has(id))
+    .map((id, i) => `<div class="crit-row"><label for="critAll${i}">「${esc(folderName(id))}」· ${n.get(id)} 个</label><textarea id="critAll${i}" rows="2" data-crit="${esc(id)}" placeholder="还没写判断标准，AI 按收藏夹名和简介推测">${esc(criteriaFor(id))}</textarea></div>`)
+    .join("");
+  const ok = await askConfirm(title, `<p>每个视频按它所在收藏夹的判断标准判断；在几个收藏夹里的，按排在最前的那个。</p>${rows}`, `开始${verb} ${items.length} 个`);
+  if (!ok) return false;
+  for (const box of el.confirmBody.querySelectorAll("[data-crit]")) setCriteria(box.dataset.crit, box.value);
+  storeSet(K.folderCriteria, S.folderCriteria);
+  render();
+  return true;
+}
+// A 粗看 / 细看 button: in 所有收藏夹 after askAllCriteria, elsewhere at once.
+async function startJudging(title, verb, items, start) {
+  if (S.mediaId === ALL && !(await askAllCriteria(title, verb, items))) return;
+  start();
 }
 
 // ---------- 标签管理 (tag-dialogs.js): the open folder's tags ----------
@@ -2930,12 +2968,11 @@ async function runStage1(list = stage1Pending()) {
   if (S.stage1.running) return;
   // Everything the run needs is taken now: it keeps going after another folder opens.
   const folder = String(S.mediaId);
-  const crit = criteria();
-  const ctx = folderContext();
+  const judge = new Map(list.map((it) => [it.bvid, judgeOf(it)]));
   // Due: no 粗看 yet, or one made under another 判断标准.
   const due = (it) => {
     const r = S.titleRes[it.bvid];
-    return !VERDICTS[r?.verdict] || (r.criteria ?? crit) !== crit;
+    return !VERDICTS[r?.verdict] || isStale(r, judge.get(it.bvid).crit);
   };
   // Timed-out batches are skipped for this run only, so clicking 标题粗看 again retries them.
   const timedOut = new Set();
@@ -2952,8 +2989,11 @@ async function runStage1(list = stage1Pending()) {
   let failedOut = false;
   render();
   while (keepGoing()) {
-    const batch = pending().slice(0, size);
-    if (!batch.length) break;
+    // One request carries one 判断标准: in 所有收藏夹 a batch is the first pending video's folder only.
+    const left = pending();
+    if (!left.length) break;
+    const { home, crit, ctx } = judge.get(left[0].bvid);
+    const batch = left.filter((it) => judge.get(it.bvid).home === home).slice(0, size);
     S.stage1.text = `标题粗看中 ${done}/${total}`;
     for (const it of batch) S.analyzing.add(it.bvid);
     render();
@@ -3016,8 +3056,7 @@ function startGroup(bvids, redo = false) {
     redo: redo ? new Set(bvids) : null,
     mediaId: String(S.mediaId),
     items: new Map(bvids.map((b) => [b, S.itemMap.get(b)])),
-    crit: criteria(),
-    ctx: folderContext()
+    judge: new Map(bvids.map((b) => [b, judgeOf(S.itemMap.get(b))]))
   };
   runGroup();
 }
@@ -3025,7 +3064,7 @@ function startGroup(bvids, redo = false) {
 const groupPending = (group, b) => (group.redo ? group.redo.has(b) : needsAnalysis(b, group));
 const groupDone = (group) => group.bvids.filter((b) => !groupPending(group, b)).length;
 
-async function analyzeOne(bvid, force = false, crit = criteria(), ctx = folderContext()) {
+async function analyzeOne(bvid, force, { crit, ctx }) {
   S.analyzing.add(bvid);
   render();
   const r = await send({ type: "triage-analyze", bvid, force, criteria: crit, folder: ctx });
@@ -3041,7 +3080,8 @@ async function runGroup() {
     const b = group.bvids.find((x) => groupPending(group, x));
     if (!b) break;
     group.text = `${group.redo ? "按新标准重新细看" : "字幕细看"} ${groupDone(group) + 1}/${group.bvids.length}`;
-    const r = await analyzeOne(b, Boolean(group.redo), group.crit, group.ctx);
+    const judge = group.judge.get(b);
+    const r = await analyzeOne(b, Boolean(group.redo), judge);
     if (!r.ok && THROTTLES[r.code]) {
       render();
       await throttleWait(r.code, keepGoing);
@@ -3050,7 +3090,7 @@ async function runGroup() {
     group.redo?.delete(b);
     const keepOld = !r.ok && group.redo && S.analyses[b]?.status === "done";
     if (keepOld) toast(`重新细看失败，保留原来的结果：${r.error}`, true);
-    else S.analyses[b] = r.ok ? { criteria: group.crit, ...r.data } : { bvid: b, status: "error", error: r.error };
+    else S.analyses[b] = r.ok ? { criteria: judge.crit, ...r.data } : { bvid: b, status: "error", error: r.error };
     const err = r.ok ? "" : String(r.error || "");
     if (/配置 AI|截断|未授权访问/.test(err)) handleAiError(err);
     if (/配置 AI|未授权访问/.test(err)) group.stop = true;
@@ -3073,13 +3113,14 @@ function retryFailed() {
 }
 
 async function retry(bvid) {
-  const r = await analyzeOne(bvid, true);
+  const judge = judgeOf(S.itemMap.get(bvid));
+  const r = await analyzeOne(bvid, true, judge);
   if (!r.ok) {
     S.analyses[bvid] = { bvid, status: "error", error: r.error };
     if (THROTTLES[r.code]) toast(`${THROTTLES[r.code][1]}，请稍后再试`, true);
     else handleAiError(r.error);
   } else {
-    S.analyses[bvid] = { criteria: criteria(), ...r.data };
+    S.analyses[bvid] = { criteria: judge.crit, ...r.data };
   }
   render();
 }
@@ -3093,15 +3134,15 @@ function aiScopeItems(scope) {
   return visibleItems();
 }
 
-function aiCommandItem(it) {
+// folder: the one this request tags in; excluded: tag names the AI may not see.
+function aiCommandItem(it, folder, excluded) {
   const out = aiItem(it);
   const a = S.analyses[it.bvid];
   if (isAnalyzed(it)) {
     out.oneLiner = a.oneLiner || "";
     out.points = a.points || [];
   }
-  const own = new Set(viewTags().map((t) => t.id));
-  const names = tagIdsOf(it.bvid).filter((id) => own.has(id) && !S.ai.excluded.has(id)).map((id) => tagById(id).name);
+  const names = tagIdsOf(it.bvid).map(tagById).filter((t) => t.folder === folder && !excluded.has(t.name)).map((t) => t.name);
   if (names.length) out.currentTags = names;
   return out;
 }
@@ -3110,19 +3151,36 @@ function aiCommandItem(it) {
 // used to share.
 const aiBatchSize = () => Math.max(1, Math.min(100, Number(S.settings.triageAiBatchSize ?? S.settings.triageTitleBatchSize) || 30));
 
+// AI 打标签 tags each folder with its own tags: one part per folder, in 所有收藏夹 every chosen folder the items are in
+// (a video in several folders is in each of their parts).
+function aiParts(items) {
+  if (S.mediaId !== ALL) return [{ folder: String(S.mediaId), items }];
+  return S.folders.map((f) => String(f.id)).map((folder) => ({ folder, items: items.filter((it) => it.folders?.includes(folder)) })).filter((p) => p.items.length);
+}
+
 function aiScopeText(scope) {
   const items = aiScopeItems(scope);
   const n = items.length;
   const done = items.filter(isAnalyzed).length;
   const size = aiBatchSize();
   const parts = [done && `${done} 个细看过（按总结和要点判断）`, n - done && `${n - done} 个只有标题和简介，标签可能不准`].filter(Boolean);
-  return n ? `${n} 个视频：${parts.join("，")}。分 ${Math.ceil(n / size)} 批发送` : "作用范围里没有视频";
+  if (!n) return "作用范围里没有视频";
+  if (S.mediaId !== ALL) return `${n} 个视频：${parts.join("，")}。分 ${Math.ceil(n / size)} 批发送`;
+  const folders = aiParts(items);
+  const batches = folders.reduce((sum, p) => sum + Math.ceil(p.items.length / size), 0);
+  return `${n} 个视频：${parts.join("，")}。按收藏夹分开打，各用各的标签（在几个收藏夹里的视频每个都打），${folders.length} 个收藏夹共 ${batches} 批发送`;
 }
 
 function aiRoomHint() {
-  const tags = viewTags();
-  const room = aiNewTagRoom();
+  const tags = aiTags.tags();
   const noneUsable = tags.length > 0 && tags.every((t) => S.ai.excluded.has(t.id));
+  if (S.mediaId === ALL) {
+    const room = Math.max(0, ...S.folders.map((f) => aiNewTagRoom(f.id)));
+    return noneUsable
+      ? room ? `已有标签都不给 AI 用，AI 只会新建标签（每个收藏夹最多 ${room} 个），你确认后才创建。` : "已有标签都不给 AI 用，名额也满了，AI 打不了标签。"
+      : room ? `AI 这次在每个收藏夹最多新建 ${room} 个（不超过它剩下的名额），你确认后才创建。` : "各收藏夹名额已满，AI 只会用已有标签。";
+  }
+  const room = aiNewTagRoom();
   return noneUsable
     ? room ? `已有标签都不给 AI 用，AI 只会新建标签（这次最多 ${room} 个），你确认后才创建。` : "已有标签都不给 AI 用，名额也满了，AI 打不了标签。"
     : room ? `AI 这次最多新建 ${room} 个（这个收藏夹还剩 ${tagLimit() - tags.length} 个名额），你确认后才创建。` : "名额已满，AI 只会用已有标签。";
@@ -3134,7 +3192,8 @@ const aiTags = {
   example: "把这些按技术深度分成 入门/进阶/硬核 三个标签",
   excluded: S.ai.excluded,
   manage: manageTags,
-  tags: () => viewTags(),
+  // 所有收藏夹: one chip per name, as in row 4; turning it off keeps that name from the AI in every folder.
+  tags: () => viewTags().filter((t, i, all) => all.findIndex((x) => x.name === t.name) === i),
   scopes: () => [
     { value: "filter", label: "当前筛选", n: visibleItems().length },
     { value: "selected", label: "选中", n: visibleSelected().length },
@@ -3143,7 +3202,7 @@ const aiTags = {
   scopeText: aiScopeText,
   roomHint: aiRoomHint,
   blocked: () =>
-    !inFolderView() ? `${FOLDER_ONLY}再让 AI 打标签。` : S.ai.running && S.ai.mediaId !== String(S.mediaId) ? `正在处理「${folderName(S.ai.mediaId)}」的视频，完成后可在状态栏点「查看」确认` : "",
+    S.mediaId === REMOVED ? `${FOLDER_ONLY}再让 AI 打标签。` : S.ai.running && S.ai.mediaId !== String(S.mediaId) ? `正在处理「${folderName(S.ai.mediaId)}」的视频，完成后可在状态栏点「查看」确认` : "",
   history: () => S.aiHistory,
   allowRemove: () => S.settings.triageAiRemoveTags === true,
   // The same switch as in 收藏夹设置, saved as soon as it flips.
@@ -3171,27 +3230,29 @@ const openAi = () => TagDialogs.ai.open(aiTags);
 // One AI 打标签 run, for both modes: request(i, p) is batch i's message, merge(p, data) folds an answer in. An AI 429 waits
 // and sends the same batch again; a setup error (配置 AI, 未授权访问) fails every batch alike, so it ends the run. Returns
 // { proposal, errors }: proposal is null when no batch got through, so there is nothing to confirm (the progress line says why).
-async function runAiBatches({ total, request, merge, intervalMs, keepGoing, progress }) {
+// name(i), when given, says which batch in the progress line and errors (所有收藏夹 names the folder).
+async function runAiBatches({ total, request, merge, intervalMs, keepGoing, progress, name = null }) {
+  const which = (i, full = false) => (name ? name(i) : full ? `第 ${i + 1} / ${total} 批` : `第 ${i + 1} 批`);
   const p = { newTags: [], rows: [], notes: [], errors: [] };
   let answered = 0;
   for (let i = 0; i < total && keepGoing(); i++) {
-    progress(`AI 正在处理第 ${i + 1} / ${total} 批…`);
+    progress(`AI 正在处理${which(i, true)}…`);
     const r = await send(request(i, p));
     if (!r.ok && THROTTLES[r.code]) {
       const [ms, label] = THROTTLES[r.code];
-      progress(`${label}，${Math.round(ms / 1000)} 秒后重试第 ${i + 1} 批…`);
+      progress(`${label}，${Math.round(ms / 1000)} 秒后重试${which(i)}…`);
       await sleepWhile(ms, keepGoing);
       i--;
       continue;
     }
     if (!r.ok) {
-      p.errors.push(`第 ${i + 1} 批失败：${r.error}`);
+      p.errors.push(`${which(i)}失败：${r.error}`);
       // 截断 is reported with what to change.
       if (/截断|配置 AI|未授权访问/.test(r.error || "")) handleAiError(r.error);
       if (/配置 AI|未授权访问/.test(r.error || "")) break;
     } else {
       answered++;
-      merge(p, r.data);
+      merge(p, r.data, i);
     }
     if (i + 1 < total) await sleepWhile(intervalMs, keepGoing);
   }
@@ -3203,34 +3264,64 @@ async function runAiBatches({ total, request, merge, intervalMs, keepGoing, prog
 
 // instruction, scope and allowRemove come from the dialog, which has checked that there is an instruction and items.
 async function runAiCommand({ instruction, scope, allowRemove }) {
-  if (S.ai.running || !inFolderView()) return;
+  if (S.ai.running || S.mediaId === REMOVED) return;
   const items = aiScopeItems(scope);
   if (!items.length) return;
   S.aiHistory = [instruction, ...S.aiHistory.filter((x) => x !== instruction)].slice(0, 5);
   storeSet(K.aiHistory, S.aiHistory);
   // Everything the run sends is taken now: the run outlives a folder switch, and the page then holds another folder.
+  // The proposal is kept under the open view (所有收藏夹 too); each part tags in its own folder.
   const folder = String(S.mediaId);
+  const all = folder === ALL;
   const excluded = new Set(viewTags().filter((t) => S.ai.excluded.has(t.id)).map((t) => t.name));
-  const opts = { maxNewTags: aiNewTagRoom(), allowRemove, folder, excluded };
-  const tags = viewTags().filter((t) => !excluded.has(t.name)).map((t) => ({ name: t.name, rule: t.rule || "" }));
-  const payload = items.map(aiCommandItem);
   const size = aiBatchSize();
-  const scopeSet = new Set(items.map((it) => it.bvid));
+  let from = 0;
+  const parts = aiParts(items).map(({ folder: f, items: list }) => {
+    const own = S.tags.filter((t) => t.folder === f);
+    const part = {
+      folder: f,
+      from,
+      n: Math.ceil(list.length / size),
+      payload: list.map((it) => aiCommandItem(it, f, excluded)),
+      tags: own.filter((t) => !excluded.has(t.name)).map((t) => ({ name: t.name, rule: t.rule || "" })),
+      // newTagFolder keeps same-name new tags of two folders apart in the one proposal.
+      opts: { maxNewTags: aiNewTagRoom(f), allowRemove, excluded, newTagFolder: all ? f : undefined, scope: new Set(list.map((it) => it.bvid)) }
+    };
+    from += part.n;
+    return part;
+  });
+  const partOf = (i) => {
+    const part = parts.findLast((x) => x.from <= i);
+    return [part, i - part.from];
+  };
   S.ai.running = true;
   S.ai.mediaId = folder;
   S.ai.stop = false;
   renderTop();
   const { proposal: p, errors } = await runAiBatches({
-    total: Math.ceil(items.length / size),
-    request: (i) => ({ type: "triage-ai-command", instruction, items: payload.slice(i * size, (i + 1) * size), tags, maxNewTags: opts.maxNewTags, allowRemove: opts.allowRemove }),
+    total: from,
+    request: (i) => {
+      const [part, j] = partOf(i);
+      return { type: "triage-ai-command", instruction, items: part.payload.slice(j * size, (j + 1) * size), tags: part.tags, maxNewTags: part.opts.maxNewTags, allowRemove };
+    },
     // not tagIdsOf: the open folder may have changed since the run started
-    merge: (p, data) => UI.mergeAiBatch(p, data, { ...opts, tags: S.tags.filter((t) => t.folder === folder), map: S.videoTags, scope: scopeSet }),
+    merge: (p, data, i) => {
+      const [part] = partOf(i);
+      UI.mergeAiBatch(p, data, { ...part.opts, tags: S.tags.filter((t) => t.folder === part.folder), map: S.videoTags });
+    },
+    name: all ? (i) => {
+      const [part, j] = partOf(i);
+      return `「${folderName(part.folder)}」第 ${j + 1}/${part.n} 批`;
+    } : undefined,
     intervalMs: S.settings.triageIntervalSec * 1000,
     keepGoing: () => !S.ai.stop,
     progress: (text) => TagDialogs.ai.progress(aiTags, text)
   });
   S.ai.running = false;
-  if (p) S.ai.proposals[folder] = p;
+  if (p) {
+    for (const t of p.newTags) if (t.folder) t.where = folderName(t.folder);
+    S.ai.proposals[folder] = p;
+  }
   renderTop();
   // Open, the dialog turns to the proposal (or, in another folder, back to its form).
   const open = TagDialogs.ai.isOpen(aiTags);
@@ -3251,7 +3342,7 @@ function applyAiProposal() {
   const hadTags = new Set(S.tags.map((t) => t.id));
   const idFor = {};
   for (const t of p.newTags) {
-    if (t.checked && cleanTagName(t.name)) idFor[t.key] = createTag(t.name)?.id;
+    if (t.checked && cleanTagName(t.name)) idFor[t.key] = createTag(t.name, t.folder || S.mediaId)?.id;
   }
   const changes = []; // [{ bvid, before }]: what U puts back
   for (const [bvid, before, after] of UI.aiChanges(p, S.videoTags, S.itemMap, (key) => idFor[key])) {
@@ -3731,7 +3822,10 @@ function bindEvents() {
     if (act === "tags") openAi();
     else if (act === "aiOther") openFolder(otherAiFolder()).then(openAi);
     else if (act === "stage1") {
-      if (!S.stage1.running) return runStage1();
+      if (!S.stage1.running) {
+        const list = stage1Pending();
+        return startJudging("标题粗看", "粗看", list, () => runStage1(list));
+      }
       S.stage1.stop = true;
       S.stage1.text = "粗看将在当前批次后暂停";
       render();
@@ -3742,13 +3836,20 @@ function bindEvents() {
         return render();
       }
       const batch = nextBatch();
-      for (const b of batch) S.selected.delete(b);
-      startGroup(batch);
+      startJudging("细看", "细看", batch.map((b) => S.itemMap.get(b)), () => {
+        for (const b of batch) S.selected.delete(b);
+        startGroup(batch);
+      });
     } else if (act === "batch-unfav") batchUnfav(batchList(btn.dataset.verdict || null));
     else if (act === "batch-keep") batchKeep(batchList(btn.dataset.verdict || null));
     else if (act === "criteria") openCriteria();
-    else if (act === "redo-coarse") runStage1(redoCoarseList());
-    else if (act === "redo-fine") startGroup(redoFineList().map((it) => it.bvid), true);
+    else if (act === "redo-coarse") {
+      const list = redoCoarseList();
+      startJudging("按新标准重新粗看", "重新粗看", list, () => runStage1(list));
+    } else if (act === "redo-fine") {
+      const list = redoFineList();
+      startJudging("按新标准重新细看", "重新细看", list, () => startGroup(list.map((it) => it.bvid), true));
+    }
     else if (act === "sel-tags") openPicker(visibleSelected().map((it) => it.bvid));
     else if (act === "all-pause") {
       S.loadAll.paused = true;

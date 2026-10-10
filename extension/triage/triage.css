@@ -669,6 +669,8 @@ dialog label { font-size: var(--fs-xs); color: var(--muted); }
 dialog textarea { resize: vertical; }
 .dialog-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: 6px; margin-top: 10px; }
 .confirm-body ul { margin: 0; padding-left: 18px; }
+/* 所有收藏夹's runs: each folder's 判断标准 under its name. */
+.crit-row { display: grid; gap: 4px; margin-top: 8px; }
 .help-cols { display: grid; gap: 24px 32px; }
 .help-cols h2 { margin: 0 0 4px; }
 @media (min-width: 760px) {
