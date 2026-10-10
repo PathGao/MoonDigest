@@ -2968,7 +2968,7 @@ async function askAllCriteria(title, verb, items) {
     .filter((id) => n.has(id))
     .map((id, i) => `<div class="crit-row"><label for="critAll${i}">「${esc(folderName(id))}」· ${n.get(id)} 个</label><textarea id="critAll${i}" rows="2" data-crit="${esc(id)}" placeholder="还没写判断标准，AI 按收藏夹名和简介推测">${esc(criteriaFor(id))}</textarea></div>`)
     .join("");
-  const ok = await askConfirm(title, `<p>每个视频按它所在收藏夹的判断标准判断；在几个收藏夹里的，按排在最前的那个。</p>${rows}`, `开始${verb} ${items.length} 个`);
+  const ok = await askConfirm(title, `<p>每个视频按它所在收藏夹的判断标准判断。</p><p>在几个收藏夹里的，按排在最前的那个。</p>${rows}`, `开始${verb} ${items.length} 个`);
   if (!ok) return false;
   for (const box of el.confirmBody.querySelectorAll("[data-crit]")) setCriteria(box.dataset.crit, box.value);
   storeSet(K.folderCriteria, S.folderCriteria);
