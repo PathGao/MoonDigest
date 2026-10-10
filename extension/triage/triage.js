@@ -346,7 +346,7 @@ const el = {};
   "tabs", "stagebar", "sortBox", "classFilter", "tagFilter", "aiTagSlot", "listHeader", "list", "basket", "basketToggle", "basketCount",
   "basketList", "basketClearBtn", "toast", "settingsDialog", "folderToggles", "thinkingRow", "intervalInput",
   "batchSizeInput", "fineBatchInput", "aiBatchInput", "tagLimitInput", "aiNewTagMaxInput", "aiRemoveTagsInput", "openOptionsBtn", "thinkingInput", "titleMaxInput",
-  "titleMaxHint", "analyzeMaxInput", "analyzeMaxHint", "settingsError", "csvBtn", "confirmDialog",
+  "titleMaxHint", "analyzeMaxInput", "analyzeMaxHint", "csvBtn", "confirmDialog",
   "confirmTitle", "confirmBody", "confirmOk",
   "criteriaDialog", "criteriaTitle", "criteriaInput", "helpDialog",
   "biliBtn", "main", "viewer", "viewerCloseBtn", "viewerFrame", "viewerTags",
@@ -740,6 +740,7 @@ globalThis.MoonTriage = {
 
 async function init() {
   UI.fillSetRows(document);
+  UI.clampNumbers(document);
   bindEvents();
   // Read up front: sidePanel.open must run inside the click's user gesture, before any await.
   chrome.tabs.getCurrent().then((tab) => (ownTabId = tab?.id));
@@ -3866,16 +3867,6 @@ function bindEvents() {
   for (const input of [el.thinkingInput, el.batchSizeInput, el.titleMaxInput, el.analyzeMaxInput]) {
     input.addEventListener("input", renderTokenHints);
   }
-  el.settingsDialog.querySelector("form").addEventListener("submit", (e) => {
-    if (e.submitter?.value !== "save") return;
-    const bad = [el.titleMaxInput, el.analyzeMaxInput].filter((input) => parseMaxTokens(input.value) === null);
-    el.settingsError.hidden = !bad.length;
-    if (bad.length) {
-      e.preventDefault();
-      el.settingsError.textContent = "输出上限需为整数：0 或留空表示自动，否则在 200–32000 之间";
-      bad[0].focus();
-    }
-  });
   el.settingsDialog.addEventListener("click", (e) => {
     const all = e.target.closest("[data-folders-all]");
     if (!all && !e.target.closest("[data-folders-none]")) return;
@@ -3888,8 +3879,8 @@ function bindEvents() {
       triageTitleBatchSize: Math.max(1, Math.min(100, Number(el.batchSizeInput.value) || 30)),
       triageFineBatchSize: Math.max(1, Math.min(50, Math.floor(Number(el.fineBatchInput.value)) || 10)),
       triageThinking: el.thinkingInput.checked,
-      triageTitleMaxTokens: parseMaxTokens(el.titleMaxInput.value),
-      triageAnalyzeMaxTokens: parseMaxTokens(el.analyzeMaxInput.value),
+      triageTitleMaxTokens: Number(el.titleMaxInput.value) || 0,
+      triageAnalyzeMaxTokens: Number(el.analyzeMaxInput.value) || 0,
       triageTagLimit: Math.max(1, Math.min(50, Math.floor(Number(el.tagLimitInput.value)) || 10)),
       triageAiNewTagMax: el.aiNewTagMaxInput.value === "" ? 5 : Math.max(0, Math.min(50, Math.floor(Number(el.aiNewTagMaxInput.value)) || 0)),
       triageAiRemoveTags: el.aiRemoveTagsInput.checked
@@ -3989,15 +3980,6 @@ function bindEvents() {
   });
 }
 
-// Returns 0 for auto, the integer for 200–32000, or null when invalid.
-function parseMaxTokens(value) {
-  const s = String(value ?? "").trim();
-  if (!s) return 0;
-  const n = Number(s);
-  if (!Number.isInteger(n)) return null;
-  return n === 0 || (n >= 200 && n <= 32000) ? n : null;
-}
-
 // The tag caps are written into the help dialog's static hints.
 function renderTagLimit() {
   for (const node of document.querySelectorAll("[data-tag-limit]")) node.textContent = tagLimit();
@@ -4033,7 +4015,6 @@ function openSettings(scrollToLimits = false, firstRun = false) {
   el.tagLimitInput.value = tagLimit();
   el.aiNewTagMaxInput.value = S.settings.triageAiNewTagMax;
   el.aiRemoveTagsInput.checked = S.settings.triageAiRemoveTags === true;
-  el.settingsError.hidden = true;
   renderTokenHints();
   el.settingsDialog.returnValue = "";
   el.settingsDialog.showModal();

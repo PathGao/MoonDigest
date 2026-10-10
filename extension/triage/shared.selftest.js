@@ -399,6 +399,18 @@ for (const [file, fns] of [["triage.js", ["mergeAiBatch", "aiChanges"]], ["follo
   assert.ok(row.html.includes(">AI 打标签每批数量</label>") && row.html.includes("1–100 个一批。"), row.html);
 }
 
+// A number field out of range snaps back into it; empty stays empty; data-zero-ok keeps 0 below min.
+{
+  const num = (value, min, max, zeroOk) => {
+    const input = { type: "number", value, min, max, dataset: zeroOk ? { zeroOk: "" } : {} };
+    UI.clampNumber(input);
+    return String(input.value);
+  };
+  assert.deepStrictEqual(["60", "0", "-3", "7.6", ""].map((v) => num(v, "1", "50")), ["50", "1", "1", "8", ""]);
+  assert.strictEqual(num("9999", "0", ""), "9999", "no max");
+  assert.deepStrictEqual(["0", "-5", "50", "40000"].map((v) => num(v, "200", "32000", true)), ["0", "0", "200", "32000"]);
+}
+
 // Rows 3 and 4 start with their name, 「状态」 and 「标签」, in 收藏夹 and in both 关注 tabs (UP 主, 视频投稿).
 {
   assert.strictEqual(UI.labeledRow("状态", "<b>x</b>"), '<span class="row-label">状态</span><b>x</b>');

@@ -418,6 +418,22 @@
     }
   }
 
+  // A number field out of its min–max snaps back into it (rounded to a whole number) when left or saved, instead of the
+  // browser refusing to save. Empty stays empty (the default). data-zero-ok: 0 is allowed below min (0 = 自动).
+  function clampNumber(input) {
+    if (input?.type !== "number" || input.value === "") return;
+    const n = Math.round(Number(input.value));
+    const lo = Number(input.min);
+    const hi = input.max === "" ? Infinity : Number(input.max);
+    input.value = "zeroOk" in input.dataset && n <= 0 ? 0 : Math.min(hi, Math.max(lo, n));
+  }
+  function clampNumbers(root) {
+    for (const form of root.querySelectorAll("form:has(input[type=number])")) form.noValidate = true;
+    root.addEventListener("change", (e) => clampNumber(e.target));
+    // Capture: before the dialogs' own submit checks read the values.
+    root.addEventListener("submit", (e) => e.target.querySelectorAll("input[type=number]").forEach(clampNumber), true);
+  }
+
   // ---------- AI 打标签: the proposal and what it changes, the same in both modes ----------
   // p = { newTags: [{ key, name, checked }], rows: [{ id, add: ["id:<tag id>" | "new:<key>"], remove: [tag id] }], notes,
   // errors }; a row's id is a bvid in 收藏夹, a mid in 关注. opts = { tags: the mode's tags (by name; 收藏夹 passes the
@@ -561,5 +577,5 @@
     main.addEventListener("focusin", (e) => e.target.closest(HEAD_ROWS) && set(headroomStep(s, { focus: true })));
   }
 
-  globalThis.TriageUi = { esc, pad, dayText, fmtDate, fmtAgo, agoHtml, setSearchScope, confirmList, pickTitle, fmtDuration, fmtCount, cleanTagName, plainClick, cardPlayClick, cardPickClick, pickCard, img, toCsv, cardTagChip, syncedText, headMeta, titleHtml, ICON, AI_SPARK, byValue, dirWords, sortControl, filterBtn, labeledRow, stateGroup, aiRecentChip, searchBox, bindSearch, resultCount, rowButtons, menuItem, BACKUP_ITEM, reasonAttrs, setReason, WARN_DOT, selectAllState, selectAllBox, toggleAll, setActivity, waitText, syncPill, setSync, bindSync, tagButtons, sideFoot, selbar, askTransfer, sideItem, emptyState, refreshEmpty, noMatch, fillSetRows, mergeAiBatch, aiChanges, previewId, aiTally, TAG_COLORS, nextTagColor, cycleTagColor, tagNameError, deleteTagAsk, editedTag, withoutTag, undoAsk, tagRowHtml, sp, AI_RECENT_RULES, aiRecentUndo, tagPlusBtn, viewerLine, viewerKeyFrom, headroomStep, headroom };
+  globalThis.TriageUi = { esc, pad, dayText, fmtDate, fmtAgo, agoHtml, setSearchScope, confirmList, pickTitle, fmtDuration, fmtCount, cleanTagName, plainClick, cardPlayClick, cardPickClick, pickCard, img, toCsv, cardTagChip, syncedText, headMeta, titleHtml, ICON, AI_SPARK, byValue, dirWords, sortControl, filterBtn, labeledRow, stateGroup, aiRecentChip, searchBox, bindSearch, resultCount, rowButtons, menuItem, BACKUP_ITEM, reasonAttrs, setReason, WARN_DOT, selectAllState, selectAllBox, toggleAll, setActivity, waitText, syncPill, setSync, bindSync, tagButtons, sideFoot, selbar, askTransfer, sideItem, emptyState, refreshEmpty, noMatch, fillSetRows, clampNumber, clampNumbers, mergeAiBatch, aiChanges, previewId, aiTally, TAG_COLORS, nextTagColor, cycleTagColor, tagNameError, deleteTagAsk, editedTag, withoutTag, undoAsk, tagRowHtml, sp, AI_RECENT_RULES, aiRecentUndo, tagPlusBtn, viewerLine, viewerKeyFrom, headroomStep, headroom };
 })();
