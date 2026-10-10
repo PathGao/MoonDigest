@@ -9,24 +9,26 @@
     later: { vtags: true, ups: true, plus: "hover" }, // 稍后再看
     history: { vtags: true, ups: true, plus: "hover", corner: true }, // 历史
     feed: { vtags: false, ups: true, plus: "hover", novideo: true }, // 动态
-    space: { vtags: true, ups: false, plus: "" }, // the owner's nickname is `owner`
-    owner: { vtags: false, ups: true, plus: "always", novideo: true, names: true }, // the video page's UP name, a space page's nickname
+    space: { vtags: true, ups: false, plus: "" }, // the owner's nickname is `nick`
+    owner: { vtags: false, ups: true, plus: "always", novideo: true, names: true }, // the video page's UP name
+    nick: { vtags: false, ups: true, plus: "always", novideo: true, names: true }, // a space page's nickname
     video: { vtags: true, ups: true, plus: "" }, // recommendations and lists beside a video
     popover: { vtags: true, ups: true, plus: "", tight: true }, // header popovers (B站 and BewlyCat)
     popfeed: { vtags: false, ups: true, plus: "", tight: true, novideo: true } // the header's 动态 popover
   };
-  // The settings page's table: a row per surface, a column per kind of mark. Most met first: the home page and its
-  // header popovers, then the video page, then the pages one goes to on purpose.
+  // The settings page's table: a row per surface, a column per kind of mark. Most met first: the home page, its header
+  // popovers and 动态, then the video page, then the pages one goes to on purpose.
   const ROWS = {
     card: "首页、搜索",
     popover: "顶栏弹窗（收藏、历史、稍后再看）",
     popfeed: "顶栏动态弹窗",
+    feed: "动态页（UP 标签含筛选条）",
     video: "视频页右侧推荐",
-    owner: "视频页和 UP 空间的 UP 名字",
+    owner: "视频页 UP 名字",
     fav: "收藏夹页",
     later: "稍后再看",
     history: "历史",
-    feed: "动态页（UP 标签含筛选条）",
+    nick: "UP 空间的 UP 名字",
     space: "UP 空间的视频卡"
   };
   const COLS = { verdict: "AI 判断", vtags: "视频标签", ups: "UP 标签", plus: "「+ UP 标签」", seen: "观看进度" };

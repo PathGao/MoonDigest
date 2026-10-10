@@ -176,7 +176,7 @@ assert.strictEqual(where("https://space.bilibili.com/2773586"), "space");
 assert.strictEqual(where("https://space.bilibili.com/2773586/video"), "space");
 const show = (k) => { const r = SURFACES[k]; return `${r.novideo ? "x" : r.vtags ? "V" : "-"}${r.ups ? "U" : "-"}${r.plus[0] || "-"}${r.above ? "^" : ""}`; };
 assert.deepStrictEqual(Object.keys(SURFACES).map((k) => `${k}:${show(k)}`), [
-  "card:VUh", "fav:V--^", "later:VUh", "history:VUh", "feed:xUh", "space:V--", "owner:xUa", "video:VU-", "popover:VU-", "popfeed:xU-"
+  "card:VUh", "fav:V--^", "later:VUh", "history:VUh", "feed:xUh", "space:V--", "owner:xUa", "nick:xUa", "video:VU-", "popover:VU-", "popfeed:xU-"
 ], "the approved matrix: 动态 (page and popover) shows no video marks, popovers and recommendations no 「+」, 收藏夹 no UP tags, owner names always offer 「+ UP 标签」");
 assert.ok(SURFACES.popover.tight && SURFACES.popfeed.tight, "popovers: 看到 N% without ✓");
 assert.deepStrictEqual(Object.keys(SURFACES).filter((k) => SURFACES[k].corner), ["history"], "only 历史 swaps the veil for the corner tag");
@@ -186,8 +186,8 @@ const { ROWS, COLS, allowed, normalizeOff, rulesWith } = ctx.BocSurfaces;
 assert.deepStrictEqual(Object.keys(ROWS).sort(), Object.keys(SURFACES).sort(), "a row per surface");
 const grid = (k) => Object.keys(COLS).map((c) => (allowed(k, c) ? "✓" : "-")).join("");
 assert.deepStrictEqual(Object.keys(ROWS).map((k) => `${k}:${grid(k)}`), [
-  "card:✓✓✓✓✓", "popover:✓✓✓-✓", "popfeed:--✓-✓", "video:✓✓✓-✓", "owner:--✓✓-",
-  "fav:✓✓--✓", "later:✓✓✓✓✓", "history:✓✓✓✓✓", "feed:--✓✓✓", "space:✓✓--✓"
+  "card:✓✓✓✓✓", "popover:✓✓✓-✓", "popfeed:--✓-✓", "feed:--✓✓✓", "video:✓✓✓-✓", "owner:--✓✓-",
+  "fav:✓✓--✓", "later:✓✓✓✓✓", "history:✓✓✓✓✓", "nick:--✓✓-", "space:✓✓--✓"
 ], "columns: AI 判断, 视频标签, UP 标签, 「+ UP 标签」, 观看进度");
 assert.deepStrictEqual(plain(normalizeOff(["fav.vtags", "fav.ups", "nope.seen", "card.vtags", "card.vtags", 3, null])), ["fav.vtags", "card.vtags"], "only cells that exist, once");
 const all = rulesWith([]);
@@ -644,7 +644,7 @@ async function surfacePages() {
     follow_tag_map: { 1: ["a"] },
     follow_list: { list: ["1"] }
   };
-  const page = async (location, body, viewer) => {
+  const page = async (location, body, viewer, sync = {}) => {
     const doc = Object.assign(h("html", {}, body), { getElementById: () => null, createElement: (t) => h(t), hasAttribute: (k) => viewer && k === "data-mdg-viewer" });
     doc.documentElement = doc;
     const reads = [];
@@ -662,7 +662,7 @@ async function surfacePages() {
       chrome: {
         runtime: { id: "x", sendMessage: async () => {}, getURL: (p) => p },
         storage: {
-          sync: { get: async (d) => d },
+          sync: { get: async (d) => ({ ...d, ...sync }) },
           local: { get: async (k) => (reads.push(k), Object.fromEntries([].concat(k).map((x) => [x, store[x]]))) },
           onChanged: { addListener: (f) => listen.push(f) }
         }
@@ -693,6 +693,10 @@ async function surfacePages() {
 
   // 收藏夹 page: no UP tags at all.
   const fav = await page({ hostname: "space.bilibili.com", pathname: "/9/favlist" }, h("body", {}, author()));
+  // A space page's nickname has its own row: turning the video page's UP name off leaves it, and the other way round.
+  const nickPage = (off) => page({ hostname: "space.bilibili.com", pathname: "/1" }, h("body", {}, h("div", { class: "upinfo" }, h("span", { class: "nickname" }, "甲"))), false, { biliMarksOff: off });
+  assert.strictEqual((await nickPage(["owner.ups"])).doc.querySelectorAll(".mdg-ups").length, 1, "video page's UP name off: the nickname keeps its tags");
+  assert.strictEqual((await nickPage(["nick.ups"])).doc.querySelectorAll(".mdg-ups").length, 0, "the nickname's own cell off: no tags");
   assert.strictEqual(fav.doc.querySelectorAll(".mdg-ups").length, 0, "收藏夹 page: no UP tags");
 
   // The video page's UP name: its own line under the name row, 「+ UP 标签」 always shown.
