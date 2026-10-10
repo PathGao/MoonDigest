@@ -1644,11 +1644,11 @@ function showSyncNotice(diff, partial) {
   const fromOthers = added.filter((it) => it.from).length;
   const parts = [`新增 ${added.length - fromOthers}`, ...(fromOthers ? [`来自其他收藏夹 ${fromOthers}`] : []), ...(partial ? [] : [`已在B站移除 ${removed.length}`]), `已失效 ${invalid.length}`];
   if (restored.length) parts.push(`恢复 ${restored.length}`);
-  const head = partial ? `只加载了前 ${partial.count} 个（第 ${partial.page} 页失败：${partial.error}），可稍后重试同步。` : "";
+  const head = partial ? `只加载了前 ${partial.count} 个（第 ${partial.page} 页失败：${partial.error}），可稍后再刷新。` : "";
   const where = (it) => (it.from === REMOVED ? "原在已出分拣范围" : `也在「${folderName(it.from)}」`);
   UI.setSync(syncEls(), {
-    label: `B站已同步${partial ? "（部分）" : ""} +${added.length}${partial ? "" : ` −${removed.length}`}`,
-    text: `${head}B站同步：${parts.join(" · ")}`,
+    label: `已刷新${partial ? "（部分）" : ""} +${added.length}${partial ? "" : ` −${removed.length}`}`,
+    text: `${head}刷新结果：${parts.join(" · ")}`,
     // A partial load is a notice to retry later, not a blocker: amber, per the color rules in tokens.css.
     warn: Boolean(partial),
     sections: [

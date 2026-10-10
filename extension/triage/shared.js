@@ -189,12 +189,12 @@
   // 「B站限流，01:30 后重试」 while sec > 0, else "".
   const waitText = (why, sec) => (sec > 0 ? `${why}，${fmtDuration(sec)} 后重试` : "");
 
-  // Row 1's 「B站已同步 +N −M」 pill and the notice it opens below it. Ids are prefix + ViewBtn / Notice / Text / Detail /
+  // Row 1's 「已刷新 +N −M」 pill and the notice it opens below it. Ids are prefix + ViewBtn / Notice / Text / Detail /
   // CloseBtn; each mode passes those elements as { pill, notice, text, detail, close }.
   const syncPill = (p) =>
     `<span class="sync-wrap"><button id="${p}ViewBtn" type="button" class="pill sync-pill" aria-expanded="false" aria-controls="${p}Notice" hidden></button>` +
     `<div id="${p}Notice" class="notice" hidden><p id="${p}Text"></p><div id="${p}Detail" class="sync-detail"></div>` +
-    `<div class="notice-actions"><button id="${p}CloseBtn" type="button" aria-label="关闭同步提示">关闭</button></div></div></span>`;
+    `<div class="notice-actions"><button id="${p}CloseBtn" type="button" aria-label="关闭刷新提示">关闭</button></div></div></span>`;
   // s = { label, text, sections: [[heading, lines]], warn } shows the pill with its notice closed (empty sections drop
   // out); null hides both.
   function setSync(e, s) {
