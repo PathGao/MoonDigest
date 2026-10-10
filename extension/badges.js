@@ -61,8 +61,9 @@
   }
 
   // ---- UP tags (follow_tags / follow_tag_map from the triage page's 关注 mode) next to an author's name ----
-  // Only a bare profile link names an author: /favlist, /video, /fans/follow are menu links.
-  const MID_RE = /(?:^|\/\/)space\.bilibili\.com\/(\d+)\/?(?:[?#]|$)/;
+  // Only a bare profile link names an author: /favlist, /video, /fans/follow are menu links. The header's 动态 popover
+  // names its authors with /dynamic links.
+  const MID_RE = /(?:^|\/\/)space\.bilibili\.com\/(\d+)(?:\/dynamic)?\/?(?:[?#]|$)/;
   const midFromHref = (href) => MID_RE.exec(String(href || ""))?.[1] || "";
 
   // [{ id, name, color }] of a mid, in follow_tags order.
@@ -175,16 +176,19 @@
   }
 
   // ---- What each kind of B站 page shows (DESIGN §8). vtags: video tags after the AI verdict; ups: UP tags after
-  // author names; plus: when 「+ UP 标签」 shows; above: video marks get their own line above the title; quiet: covers
-  // keep the progress bar and the ✓ mark only; tight: small covers, so 看到 N% drops its ✓. ----
+  // author names; plus: when 「+ UP 标签」 shows; above: video marks get their own line above the title; novideo: no
+  // video marks at all (new videos, never triaged); corner: the corner tag, never the veil;
+  // tight: small covers, so 看到 N% drops its ✓. ----
   const SURFACES = {
     card: { vtags: true, ups: true, plus: "hover" }, // home and search (B站 and BewlyCat)
     fav: { vtags: true, ups: false, plus: "", above: true },
-    later: { vtags: true, ups: true, plus: "hover", quiet: true }, // 稍后再看, 历史
-    feed: { vtags: false, ups: true, plus: "hover" }, // 动态
-    space: { vtags: true, ups: false, plus: "", quiet: true }, // the owner's nickname is `owner`
-    video: { vtags: false, ups: false, plus: "" }, // recommendations and lists beside a video
-    popover: { vtags: false, ups: true, plus: "", tight: true }, // header popovers (B站 and BewlyCat)
+    later: { vtags: true, ups: true, plus: "hover" }, // 稍后再看
+    history: { vtags: true, ups: true, plus: "hover", corner: true }, // 历史
+    feed: { vtags: false, ups: true, plus: "hover", novideo: true }, // 动态
+    space: { vtags: true, ups: false, plus: "" }, // the owner's nickname is `owner`
+    video: { vtags: true, ups: true, plus: "" }, // recommendations and lists beside a video
+    popover: { vtags: true, ups: true, plus: "", tight: true }, // header popovers (B站 and BewlyCat)
+    popfeed: { vtags: false, ups: true, plus: "", tight: true, novideo: true }, // the header's 动态 popover
     owner: { vtags: false, ups: true, plus: "always" } // the video page's UP name, a space page's nickname
   };
   // "" in the 分拣台's own player, which already shows both tag lines above it.
@@ -192,7 +196,8 @@
     if (viewer) return "";
     const page = new URLSearchParams(search).get("page") || ""; // BewlyCat's pages
     if (page === "Favorites" || (host === "space.bilibili.com" && /^\/\d+\/favlist/.test(path))) return "fav";
-    if (page === "History" || page === "WatchLater" || /^\/(?:history|account\/history|watchlater)(?:\/|$)/.test(path)) return "later";
+    if (page === "History" || /^\/(?:history|account\/history)(?:\/|$)/.test(path)) return "history";
+    if (page === "WatchLater" || /^\/watchlater(?:\/|$)/.test(path)) return "later";
     if (host === "t.bilibili.com" || page === "Moments") return "feed";
     if (host === "space.bilibili.com") return "space";
     if (/^\/(?:video|list)\//.test(path)) return "video";
@@ -225,7 +230,8 @@
   if (!surface) return;
   // Header popovers draw the same video links in miniature: B站's own (.v-popover) and BewlyCat's (.bew-popover).
   const POPOVER = ".bew-popover, .v-popover";
-  const ruleFor = (el) => (el.closest?.(POPOVER) ? SURFACES.popover : SURFACES[surface]);
+  const POPFEED = ".dynamic-entry .v-popover, .moments-pop";
+  const ruleFor = (el) => (el.closest?.(POPFEED) ? SURFACES.popfeed : el.closest?.(POPOVER) ? SURFACES.popover : SURFACES[surface]);
 
   const SETTING = "showBiliTriageBadges";
   const UP_SETTING = "showBiliUpTags";
@@ -785,9 +791,10 @@ input { box-sizing: border-box; width: 100%; margin: 0; padding: 4px 8px; border
     // Where B站 itself says 已看完, ours would say it twice.
     const mark = seenCfg.mark;
     const seen = mark && known >= seenCfg.threshold && !biliSaysSeen(a);
-    // Below the share, a faint 看到 N% says how far it got; not on 稍后再看 / 历史 / UP 空间, where it covered most covers.
-    const faint = mark && !rule.quiet && known > 0 && known < seenCfg.threshold;
-    const style = rule.quiet ? "badge" : seenCfg.style;
+    // Below the share, a faint 看到 N% says how far it got. 历史 takes the corner tag: every cover there was watched,
+    // and the veil hid them all.
+    const faint = mark && known > 0 && known < seenCfg.threshold;
+    const style = rule.corner ? "badge" : seenCfg.style;
     // On the image's own box: some links wrap the whole card, title included.
     const media = a.querySelector("picture") || a.querySelector("img");
     const host = media?.parentElement;
@@ -830,7 +837,7 @@ input { box-sizing: border-box; width: 100%; margin: 0; padding: 4px 8px; border
     const old = above ? (prev?.nodeType === 1 && prev.classList.contains("mdg-badge") ? prev : null) : a.querySelector(".mdg-badge");
     if (old && old.dataset.bvid === b && info) return;
     old?.remove();
-    if (!info) return;
+    if (!info || rule.novideo) return;
     const tags = rule.vtags ? info.tags : [];
     // Nothing this page shows (a tagged video without a verdict in a popover): no mark at all.
     if (!info.label && !tags.length) return;

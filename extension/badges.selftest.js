@@ -75,6 +75,7 @@ assert.strictEqual(midFromHref("//space.bilibili.com/591081863"), "591081863");
 assert.strictEqual(midFromHref("https://space.bilibili.com/276268291/?spm_id_from=333.788.upinfo.detail.click"), "276268291");
 assert.strictEqual(midFromHref("//space.bilibili.com/1629915907?spm_id_from=333.1387.homepage.video_card.click"), "1629915907");
 assert.strictEqual(midFromHref("//space.bilibili.com/6823116#/album"), "6823116");
+assert.strictEqual(midFromHref("//space.bilibili.com/85846467/dynamic"), "85846467", "the 动态 popover's author links");
 assert.strictEqual(midFromHref("//space.bilibili.com/2773586/favlist"), "", "menu links are not authors");
 assert.strictEqual(midFromHref("https://space.bilibili.com/2773586/fans/follow"), "");
 assert.strictEqual(midFromHref("https://www.bilibili.com/video/BV1xx411c7mD"), "");
@@ -166,18 +167,19 @@ assert.strictEqual(where("https://search.bilibili.com/all?keyword=x"), "card");
 assert.strictEqual(where("https://space.bilibili.com/2773586/favlist?fid=1"), "fav");
 assert.strictEqual(where("https://www.bilibili.com/?page=Favorites"), "fav");
 assert.strictEqual(where("https://www.bilibili.com/watchlater/list"), "later");
-assert.strictEqual(where("https://www.bilibili.com/history"), "later");
-assert.strictEqual(where("https://www.bilibili.com/account/history"), "later");
+assert.strictEqual(where("https://www.bilibili.com/history"), "history");
+assert.strictEqual(where("https://www.bilibili.com/account/history"), "history");
 assert.strictEqual(where("https://www.bilibili.com/?page=WatchLater"), "later");
-assert.strictEqual(where("https://www.bilibili.com/?page=History"), "later");
+assert.strictEqual(where("https://www.bilibili.com/?page=History"), "history");
 assert.strictEqual(where("https://t.bilibili.com/"), "feed");
 assert.strictEqual(where("https://space.bilibili.com/2773586"), "space");
 assert.strictEqual(where("https://space.bilibili.com/2773586/video"), "space");
-const show = (k) => { const r = SURFACES[k]; return `${r.vtags ? "V" : "-"}${r.ups ? "U" : "-"}${r.plus[0] || "-"}${r.above ? "^" : ""}`; };
+const show = (k) => { const r = SURFACES[k]; return `${r.novideo ? "x" : r.vtags ? "V" : "-"}${r.ups ? "U" : "-"}${r.plus[0] || "-"}${r.above ? "^" : ""}`; };
 assert.deepStrictEqual(Object.keys(SURFACES).map((k) => `${k}:${show(k)}`), [
-  "card:VUh", "fav:V--^", "later:VUh", "feed:-Uh", "space:V--", "video:---", "popover:-U-", "owner:-Ua"
-], "the approved matrix: popovers show the verdict and UP tags, recommendations the verdict only, 收藏夹 no UP tags, owner names always offer 「+ UP 标签」");
-assert.ok(SURFACES.popover.tight && SURFACES.later.quiet && SURFACES.space.quiet, "popovers: 看到 N% without ✓; 稍后再看 / 历史 / UP 空间: no faint 看到 N%, no veil");
+  "card:VUh", "fav:V--^", "later:VUh", "history:VUh", "feed:xUh", "space:V--", "video:VU-", "popover:VU-", "popfeed:xU-", "owner:-Ua"
+], "the approved matrix: 动态 (page and popover) shows no video marks, popovers and recommendations no 「+」, 收藏夹 no UP tags, owner names always offer 「+ UP 标签」");
+assert.ok(SURFACES.popover.tight && SURFACES.popfeed.tight, "popovers: 看到 N% without ✓");
+assert.deepStrictEqual(Object.keys(SURFACES).filter((k) => SURFACES[k].corner), ["history"], "only 历史 swaps the veil for the corner tag");
 
 // Fitting by width, not count: as many whole chips as fit, then 「+N」; -1 rather than an empty marker.
 assert.strictEqual(fitCount([30, 30, 30], 96, { gap: 3 }), 3, "exactly fitting: 30+3+30+3+30 = 96, no 「+N」");
@@ -666,5 +668,6 @@ async function surfacePages() {
   assert.ok(line?.classList.contains("mdg-ups-line") && line.classList.contains("mdg-plus-always"), "UP name: a line of its own, 「+」 always");
   assert.strictEqual(line.querySelector(".mdg-up-add").dataset.name, "甲", "the picker names the UP, not the whole row");
   assert.strictEqual(line.querySelector(".mdg-up-add").textContent, "+ UP 标签");
-  assert.strictEqual(boxAfter(rec), null, "recommendations beside the video: no UP tags");
+  assert.ok(boxAfter(rec), "recommendations beside the video: UP tags");
+  assert.strictEqual(boxAfter(rec).querySelector(".mdg-up-add"), null, "recommendations beside the video: no 「+」");
 }

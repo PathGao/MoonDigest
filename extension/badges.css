@@ -153,6 +153,8 @@ span.mdg-ups.mdg-ups-line[data-mid] { display: flex !important; max-width: 100%;
 /* Card owner lines grow the name from zero (flex: 1 1 0%), which would hand all the room to the chips; size it by its
    text instead so it keeps priority (!important: the search page's scoped rules are more specific). */
 .bili-video-card__info--owner:has(> .mdg-ups) > .bili-video-card__info--author { flex: 0 1 auto !important; }
+/* The video page's recommendations give the name a fixed width that fills the row; size it by its text the same way. */
+.upname a:has(> .mdg-ups) > .name { width: auto !important; flex: 0 1 auto !important; }
 /* UP tags: a dot in the tag color before the name, the dot rows of the 分拣台's UP tag picker and filter; video tags are
    bordered pills. So the two kinds read apart even where they sit close. Not links: hovering shows the box's title. */
 .mdg-ups .mdg-up {
