@@ -388,7 +388,7 @@ for (const [file, fns] of [["triage.js", ["mergeAiBatch", "aiChanges"]], ["follo
   assert.ok(!/@media \(hover: none\) \{[^}]*\.more/.test(css), "no touch rule of a mode's own for .more");
 }
 
-// Rows 3 and 4 have 8px above and below, and both modes' lists start 8px under row 4 (DESIGN §3): the list runs under
+// Rows 3 and 4 have 8px above and below, and both modes' lists start 8px under row 4 (DESIGN 视觉设计 · 分拣台): the list runs under
 // the header, so its top padding is the header's measured height plus 8px.
 {
   const css = ["triage.css", "follow.css"].map((f) => fs.readFileSync(path.join(__dirname, f), "utf8")).join("\n");

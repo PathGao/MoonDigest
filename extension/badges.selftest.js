@@ -162,7 +162,7 @@ assert.strictEqual(applyUpTag(pt, {}, "9", { create: " ，" }), null, "an empty 
   process.exit(1);
 });
 
-// ---- Per-surface rules (DESIGN §8): which page is which, and what each shows ----
+// ---- Per-surface rules (DESIGN 产品决策 · B站 页面上的标记): which page is which, and what each shows ----
 const { SURFACES, surfaceOf, fitCount, biliSaysSeen } = ctx.BocBadges;
 const where = (url, viewer) => {
   const u = new URL(url);

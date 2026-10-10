@@ -295,7 +295,7 @@ assert.ok(/render\(\);\s*if \(up\) \{\s*setCur\(up, false\);\s*E\.list\.querySel
 // 标签… on 2+ UP 主 is one step that asks before U, with 收藏夹's words (shared.js undoAsk).
 assert.ok(source.includes(`pushTagUndo(before, "标签修改", { ask: changes.length > 1 ? UI.undoAsk("tags", changes.length, "UP 主") : null });`), "pickClosed asks for 2+");
 
-// B站 writes and U (DESIGN §5): a single 重新关注 has no confirm and U unfollows again with its 已取消关注 record; batch
+// B站 writes and U (DESIGN 产品决策 · 改 B站 的操作和撤销): a single 重新关注 has no confirm and U unfollows again with its 已取消关注 record; batch
 // 特别关注 is one step that asks before U; single 取消关注 keeps its confirm.
 {
   const fn = (name) => source.slice(source.indexOf(`function ${name}(`), source.indexOf("\n}\n", source.indexOf(`function ${name}(`)));
@@ -305,7 +305,7 @@ assert.ok(source.includes(`pushTagUndo(before, "标签修改", { ask: changes.le
   assert.ok(/async function unfollow[\s\S]*?askConfirm/.test(source), "取消关注 still asks");
 }
 
-// 关注分组 on B站 (DESIGN §5): move / copy / ★ go through regroup, one undo step of only what B站 confirmed; a batch's
+// 关注分组 on B站 (DESIGN 产品决策 · 改 B站 的操作和撤销): move / copy / ★ go through regroup, one undo step of only what B站 confirmed; a batch's
 // confirm is the 移动 / 复制 dialog titled 在 B站…; 删除 always asks, says where the members go, and drops the group steps.
 {
   const fn = (name) => source.slice(source.indexOf(`function ${name}(`), source.indexOf("\n}\n", source.indexOf(`function ${name}(`)));
@@ -334,7 +334,7 @@ assert.ok(!/addEventListener\("message"/.test(source), "follow.js has no message
 // 已取消关注 is a filter like the others: the selection stays, the ones not listed show as 「另有 N 个被筛选隐藏」.
 assert.ok(source.includes("for (const m of [...F.sel]) if (!rows.has(m)) F.sel.delete(m);"), "renderUps drops only UP 主 that are gone from the data");
 
-// Rows 3 and 4 (DESIGN §3): row 3's groups AND together, one pick each, and each group counts with its own pick left out;
+// Rows 3 and 4 (DESIGN 产品决策 · 分拣台): row 3's groups AND together, one pick each, and each group counts with its own pick left out;
 // row 4's tags AND, counted with row 4's picks left out; 全部 counts row 3 cleared.
 {
   const D = base();

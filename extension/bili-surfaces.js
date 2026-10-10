@@ -1,4 +1,4 @@
-// What each kind of B站 page shows (DESIGN §8), shared by badges.js and the settings page's table. Pure data, no DOM.
+// What each kind of B站 page shows (DESIGN 产品决策 · B站 页面上的标记), shared by badges.js and the settings page's table. Pure data, no DOM.
 (() => {
   // vtags: video tags after the AI verdict; ups: UP tags after author names; plus: when 「+ UP 标签」 shows; above: video
   // marks get their own line above the title; novideo: no video marks at all (new videos, never triaged); names: author

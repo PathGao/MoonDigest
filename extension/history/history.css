@@ -62,7 +62,7 @@ a.entry-title:hover { color: var(--link-hover); text-decoration: underline; }
 .entry-actions .danger { margin-left: var(--space-3); }
 /* Rows that cannot delete keep the button's space, so every row's buttons line up. */
 .entry-actions .slot { visibility: hidden; }
-/* 继续问 is each row's main action: a gray fill with plain text (buttons never use blue text, DESIGN.md §1). */
+/* 继续问 is each row's main action: a gray fill with plain text (buttons never use blue text, DESIGN.md 视觉设计 · 颜色). */
 button.ask { background: var(--field-bg); }
 button.ask:hover { background: var(--border); }
 button.ask:disabled { background: var(--surface); border-color: var(--border-strong); color: var(--text); }
