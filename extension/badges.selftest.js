@@ -197,6 +197,8 @@ assert.deepStrictEqual([off.card.verdict, off.card.vtags, off.card.ups, off.card
 assert.strictEqual(off.popover.seen, false);
 assert.strictEqual(off.fav.ups, false, "a cell that does not exist stays off");
 assert.strictEqual(off.later.plus, "hover", "other surfaces untouched");
+const noVerdicts = rulesWith([], ["verdict"]);
+assert.ok(Object.keys(SURFACES).every((k) => !noVerdicts[k].verdict) && noVerdicts.card.vtags, "a switch that is off turns its whole column off");
 
 // Fitting by width, not count: as many whole chips as fit, then 「+N」; -1 rather than an empty marker.
 assert.strictEqual(fitCount([30, 30, 30], 96, { gap: 3 }), 3, "exactly fitting: 30+3+30+3+30 = 96, no 「+N」");

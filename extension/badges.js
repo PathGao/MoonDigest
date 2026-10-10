@@ -223,6 +223,8 @@
 
   const SETTING = "showBiliTriageBadges";
   const UP_SETTING = "showBiliUpTags";
+  // Off by default: the AI's verdicts are for the 分拣台; on B站 pages only for those who ask.
+  const VERDICT_SETTING = "showBiliVerdicts";
   // 观看进度 on covers has its own setting (设置页「观看进度」, off by default); it or the triage marks turn the page scan on.
   const SEEN_DEFAULTS = { seenShow: "off", seenThreshold: 80, seenStyle: "badge" };
   let triageOn = false;
@@ -1053,11 +1055,13 @@ input { box-sizing: border-box; width: 100%; margin: 0; padding: 4px 8px; border
     }
   }
 
-  // The three switches and the 观看进度 options decide whether the page is scanned at all; the settings table's cells
+  // The switches and the 观看进度 options decide whether the page is scanned at all; the settings table's cells
   // turn single marks off per surface.
   function applySettings(v) {
-    rules = globalThis.BocSurfaces.rulesWith(v.biliMarksOff);
-    triageOn = v[SETTING] !== false;
+    const verdicts = v[VERDICT_SETTING] === true;
+    const tags = v[SETTING] !== false;
+    rules = globalThis.BocSurfaces.rulesWith(v.biliMarksOff, [!verdicts && "verdict", !tags && "vtags"].filter(Boolean));
+    triageOn = verdicts || tags;
     const before = seenCfg.on;
     const bar = v.seenShow === "bar" || v.seenShow === "both";
     const mark = v.seenShow === "mark" || v.seenShow === "both";
@@ -1078,7 +1082,7 @@ input { box-sizing: border-box; width: 100%; margin: 0; padding: 4px 8px; border
       schedule();
     } else setEnabled(on);
   }
-  const readSettings = () => chrome.storage.sync.get({ [SETTING]: true, [UP_SETTING]: true, ...SEEN_DEFAULTS, biliMarksOff: [] }).then(applySettings).catch(() => {});
+  const readSettings = () => chrome.storage.sync.get({ [SETTING]: true, [VERDICT_SETTING]: false, [UP_SETTING]: true, ...SEEN_DEFAULTS, biliMarksOff: [] }).then(applySettings).catch(() => {});
 
   chrome.storage.onChanged.addListener((changes, area) => {
     if (area === "local" && (changes.follow_tags || changes.follow_tag_map || changes.follow_list)) loadUps().catch(() => {});
@@ -1086,7 +1090,7 @@ input { box-sizing: border-box; width: 100%; margin: 0; padding: 4px 8px; border
       who = null;
       schedule();
     }
-    if (area === "sync" && (SETTING in changes || UP_SETTING in changes || "biliMarksOff" in changes || Object.keys(SEEN_DEFAULTS).some((k) => k in changes))) readSettings();
+    if (area === "sync" && (SETTING in changes || VERDICT_SETTING in changes || UP_SETTING in changes || "biliMarksOff" in changes || Object.keys(SEEN_DEFAULTS).some((k) => k in changes))) readSettings();
     if (area === "local" && enabled && Object.keys(changes).some((k) => k.startsWith("seen_"))) {
       for (const k of Object.keys(changes)) if (k.startsWith("seen_")) seenCache.delete(k.slice(5));
       gen++;

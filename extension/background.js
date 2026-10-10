@@ -46,6 +46,7 @@ const DEFAULT_SYNC_SETTINGS = {
   includeTimestampInBody: true,
   showBiliTriageBadges: true,
   showBiliUpTags: true,
+  showBiliVerdicts: false,
   biliMarksOff: [],
   seenShow: "off",
   seenThreshold: 80,
@@ -1024,6 +1025,7 @@ function normalizeSyncSettings(settings) {
   merged.playerAiQuickPrompt = normalizePlayerAiQuickPrompt(merged.playerAiQuickPrompt);
   merged.showBiliTriageBadges = merged.showBiliTriageBadges !== false;
   merged.showBiliUpTags = merged.showBiliUpTags !== false;
+  merged.showBiliVerdicts = merged.showBiliVerdicts === true;
   // The settings table's cells turned off (bili-surfaces.js); options.js and badges.js drop cells that do not exist.
   merged.biliMarksOff = Array.isArray(merged.biliMarksOff) ? merged.biliMarksOff.filter((c) => typeof c === "string") : [];
   merged.seenShow = ["bar", "mark", "both"].includes(merged.seenShow) ? merged.seenShow : "off";

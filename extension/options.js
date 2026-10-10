@@ -31,6 +31,7 @@ const DEFAULT_SETTINGS = {
   playerAiQuickPrompt: DEFAULT_PLAYER_AI_QUICK_PROMPT,
   includeTimestampInBody: true,
   showBiliTriageBadges: true,
+  showBiliVerdicts: false,
   showBiliUpTags: true,
   biliMarksOff: [],
   seenShow: "off",
@@ -94,6 +95,7 @@ const elements = {
   includeTimestampInBody: document.getElementById("includeTimestampInBody"),
   showBiliTriageBadges: document.getElementById("showBiliTriageBadges"),
   showBiliUpTags: document.getElementById("showBiliUpTags"),
+  showBiliVerdicts: document.getElementById("showBiliVerdicts"),
   biliMarks: document.getElementById("biliMarks"),
   seenShow: document.getElementById("seenShow"),
   seenThreshold: document.getElementById("seenThreshold"),
@@ -161,7 +163,7 @@ function init() {
   });
   elements.saveBtn.addEventListener("click", saveSettings);
   document.getElementById("seen").addEventListener("input", syncSeenRows);
-  [elements.showBiliTriageBadges, elements.showBiliUpTags, elements.seenShow].forEach((el) => el.addEventListener("change", syncBiliMarks));
+  [elements.showBiliVerdicts, elements.showBiliTriageBadges, elements.showBiliUpTags, elements.seenShow].forEach((el) => el.addEventListener("change", syncBiliMarks));
   // The box shows the value that would be saved, so 150 over a stored 100 is not a silent no-op.
   elements.seenThreshold.addEventListener("change", () => (elements.seenThreshold.value = String(readFormPayload().seenThreshold)));
   // Same for 追问: blank, repeated and past-12 lines are dropped from the box, not only from what is saved.
@@ -276,6 +278,7 @@ async function loadSettings() {
   elements.includeTimestampInBody.checked = Boolean(settings.includeTimestampInBody);
   elements.showBiliTriageBadges.checked = settings.showBiliTriageBadges !== false;
   elements.showBiliUpTags.checked = settings.showBiliUpTags !== false;
+  elements.showBiliVerdicts.checked = settings.showBiliVerdicts === true;
   renderBiliMarks(settings.biliMarksOff);
   elements.seenShow.value = ["bar", "mark", "both"].includes(settings.seenShow) ? settings.seenShow : "off";
   elements.seenThreshold.value = String(settings.seenThreshold || 80);
@@ -331,7 +334,7 @@ function renderBiliMarks(off) {
 // A column whose switch is off (above, or 封面显示 in 观看进度) keeps its boxes but greys them out.
 function syncBiliMarks() {
   const off = {
-    verdict: !elements.showBiliTriageBadges.checked,
+    verdict: !elements.showBiliVerdicts.checked,
     vtags: !elements.showBiliTriageBadges.checked,
     ups: !elements.showBiliUpTags.checked,
     plus: !elements.showBiliUpTags.checked,
@@ -574,6 +577,7 @@ function readFormPayload() {
     includeTimestampInBody: elements.includeTimestampInBody.checked,
     showBiliTriageBadges: elements.showBiliTriageBadges.checked,
     showBiliUpTags: elements.showBiliUpTags.checked,
+    showBiliVerdicts: elements.showBiliVerdicts.checked,
     biliMarksOff: Array.from(elements.biliMarks.querySelectorAll("input[data-cell]:not(:checked)"), (input) => input.dataset.cell),
     seenShow: elements.seenShow.value,
     seenThreshold: Number.isFinite(parseFloat(elements.seenThreshold.value)) ? Math.min(100, Math.max(1, Math.round(parseFloat(elements.seenThreshold.value)))) : 80,

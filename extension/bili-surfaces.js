@@ -40,10 +40,10 @@
   }
   // The stored setting: the "surface.col" cells turned off, only ones that exist.
   const normalizeOff = (list) => [...new Set((Array.isArray(list) ? list : []).filter((c) => typeof c === "string" && allowed(...c.split("."))))];
-  // Each surface's rule with the cells turned off.
-  function rulesWith(off) {
+  // Each surface's rule with the cells turned off, and the columns whose switch is off.
+  function rulesWith(off, cols = []) {
     const no = new Set(normalizeOff(off));
-    const on = (key, col) => allowed(key, col) && !no.has(`${key}.${col}`);
+    const on = (key, col) => allowed(key, col) && !no.has(`${key}.${col}`) && !cols.includes(col);
     return Object.fromEntries(
       Object.entries(SURFACES).map(([key, r]) => [
         key,
