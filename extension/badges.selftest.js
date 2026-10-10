@@ -179,7 +179,6 @@ assert.deepStrictEqual(Object.keys(SURFACES).map((k) => `${k}:${show(k)}`), [
   "card:VUh", "fav:V--^", "later:VUh", "history:VUh", "feed:xUh", "space:V--", "video:VU-", "popover:VU-", "popfeed:xU-", "owner:-Ua"
 ], "the approved matrix: 动态 (page and popover) shows no video marks, popovers and recommendations no 「+」, 收藏夹 no UP tags, owner names always offer 「+ UP 标签」");
 assert.ok(SURFACES.popover.tight && SURFACES.popfeed.tight, "popovers: 看到 N% without ✓");
-assert.ok(SURFACES.later.quiet && SURFACES.history.quiet && SURFACES.space.quiet, "稍后再看 / 历史 / UP 空间: no faint 看到 N%");
 assert.deepStrictEqual(Object.keys(SURFACES).filter((k) => SURFACES[k].corner), ["history"], "only 历史 swaps the veil for the corner tag");
 
 // Fitting by width, not count: as many whole chips as fit, then 「+N」; -1 rather than an empty marker.

@@ -177,15 +177,15 @@
 
   // ---- What each kind of B站 page shows (DESIGN §8). vtags: video tags after the AI verdict; ups: UP tags after
   // author names; plus: when 「+ UP 标签」 shows; above: video marks get their own line above the title; novideo: no
-  // video marks at all (new videos, never triaged); quiet: no faint 看到 N%; corner: the corner tag, never the veil;
+  // video marks at all (new videos, never triaged); corner: the corner tag, never the veil;
   // tight: small covers, so 看到 N% drops its ✓. ----
   const SURFACES = {
     card: { vtags: true, ups: true, plus: "hover" }, // home and search (B站 and BewlyCat)
     fav: { vtags: true, ups: false, plus: "", above: true },
-    later: { vtags: true, ups: true, plus: "hover", quiet: true }, // 稍后再看
-    history: { vtags: true, ups: true, plus: "hover", quiet: true, corner: true }, // 历史
+    later: { vtags: true, ups: true, plus: "hover" }, // 稍后再看
+    history: { vtags: true, ups: true, plus: "hover", corner: true }, // 历史
     feed: { vtags: false, ups: true, plus: "hover", novideo: true }, // 动态
-    space: { vtags: true, ups: false, plus: "", quiet: true }, // the owner's nickname is `owner`
+    space: { vtags: true, ups: false, plus: "" }, // the owner's nickname is `owner`
     video: { vtags: true, ups: true, plus: "" }, // recommendations and lists beside a video
     popover: { vtags: true, ups: true, plus: "", tight: true }, // header popovers (B站 and BewlyCat)
     popfeed: { vtags: false, ups: true, plus: "", tight: true, novideo: true }, // the header's 动态 popover
@@ -791,9 +791,9 @@ input { box-sizing: border-box; width: 100%; margin: 0; padding: 4px 8px; border
     // Where B站 itself says 已看完, ours would say it twice.
     const mark = seenCfg.mark;
     const seen = mark && known >= seenCfg.threshold && !biliSaysSeen(a);
-    // Below the share, a faint 看到 N% says how far it got; not on 稍后再看 / 历史 / UP 空间, where it covered most covers.
-    // 历史 also takes the corner tag: there every cover was watched, and the veil hid them all.
-    const faint = mark && !rule.quiet && known > 0 && known < seenCfg.threshold;
+    // Below the share, a faint 看到 N% says how far it got. 历史 takes the corner tag: every cover there was watched,
+    // and the veil hid them all.
+    const faint = mark && known > 0 && known < seenCfg.threshold;
     const style = rule.corner ? "badge" : seenCfg.style;
     // On the image's own box: some links wrap the whole card, title included.
     const media = a.querySelector("picture") || a.querySelector("img");
