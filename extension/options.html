@@ -17,8 +17,8 @@
         <a href="#basic"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M7 13h4M13 13h4M7 16h10"/></svg><span class="lbl">读字幕</span><span class="dot" hidden></span></a>
         <a href="#note"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9zM14 3v6h6M8 14h8M8 17h5"/></svg><span class="lbl">笔记格式</span><span class="dot" hidden></span></a>
         <a href="#ai"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l2 5 5 2-5 2-2 5-2-5-5-2 5-2z"/></svg><span class="lbl">AI 平台</span><span class="dot" hidden></span><span id="aiPill" class="pill off">未配置</span></a>
-        <a href="#triage"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg><span class="lbl">分拣台</span><span class="dot" hidden></span></a>
         <a href="#seen"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg><span class="lbl">观看进度</span><span class="dot" hidden></span></a>
+        <a href="#triage"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg><span class="lbl">分拣台</span><span class="dot" hidden></span></a>
         <a href="#obsidian"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 3l8 2 4 8-4 8H8l-4-8z"/></svg><span class="lbl">Obsidian</span><span class="dot" hidden></span><span id="obsidianPill" class="pill off">关</span></a>
         <a href="#data"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v14c0 1.7 3.6 3 8 3s8-1.3 8-3V5M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3"/></svg><span class="lbl">数据与存储</span><span class="dot" hidden></span></a>
         <a href="#more"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M14.7 6.3a4 4 0 0 0 5 5L22 14l-8 8-2.3-2.3a4 4 0 0 0-5-5L4 12l8-8z"/></svg><span class="lbl">高级</span><span class="dot" hidden></span></a>
@@ -175,39 +175,6 @@
         </div>
       </section>
 
-      <section class="sec" id="triage" data-name="分拣台">
-        <div class="sec-head">
-          <h2>B站分拣台</h2>
-          <p>仅 B站。把一个收藏夹的视频批量粗看、细看，判断哪些值得看。</p>
-          <a class="jump" href="./triage/triage.html" target="_blank">打开B站分拣台 ↗</a>
-        </div>
-        <div class="rows">
-          <div class="row">
-            <div class="lab"><label class="name" for="showBiliTriageBadges">在 B站页面显示分拣标记</label><p class="hint">分拣过或打过标签的视频，在收藏夹、视频页、首页和搜索结果里带一个小标记。虚线框 = 只做过标题粗看。</p></div>
-            <div class="ctl"><input id="showBiliTriageBadges" type="checkbox" class="switch" /></div>
-          </div>
-          <div class="row">
-            <div class="lab"><label class="name" for="showBiliUpTags">在 B站页面显示 UP 标签</label><p class="hint">你在分拣台「关注」里给 UP 打的标签，显示在 B站页面的 UP 名字后面，旁边有「+ UP 标签」。</p></div>
-            <div class="ctl"><input id="showBiliUpTags" type="checkbox" class="switch" /></div>
-          </div>
-          <div class="row wide">
-            <div class="lab"><span class="name">B站页面上显示什么</span><p class="hint">取消勾选，那个位置就不显示。「–」是那里不放的。上面的开关关着时，对应的列不起作用；「看到哪里」还要在「观看进度」里打开。</p></div>
-            <table class="data marks">
-              <thead><tr id="biliMarksHead"></tr></thead>
-              <tbody id="biliMarks"></tbody>
-            </table>
-          </div>
-          <div class="row wide">
-            <div class="lab">
-              <span class="name">AI 看哪些内容</span>
-              <p class="hint">粗看：每个视频的标题、UP 主、时长、发布日期和简介前 120 字，一次看一批（每批数量在分拣台里设置，默认 30 个）。</p>
-              <p class="hint">细看：标题、UP 主、分区、时长、发布日期、标签、完整简介和字幕（最多 6 万字，更长的均匀抽取）；无字幕时读前 10 条热门评论。每批数量在分拣台里设置，默认 10 个，最多 50。</p>
-              <p class="hint">两步都会带上收藏夹的名字、简介和你写的判断标准。</p>
-            </div>
-          </div>
-        </div>
-      </section>
-
       <section class="sec" id="seen" data-name="观看进度">
         <div class="sec-head">
           <h2>观看进度</h2>
@@ -245,6 +212,39 @@
               <figure data-seen-at="half"><div class="cover c3"><span class="seen-tag faint-tag">看到 40%</span><i style="width: 40%"></i></div><figcaption>没到比例，淡色</figcaption></figure>
             </div>
             <p class="hint">进度条和 B站自己的一样。</p>
+          </div>
+        </div>
+      </section>
+
+      <section class="sec" id="triage" data-name="分拣台">
+        <div class="sec-head">
+          <h2>B站分拣台</h2>
+          <p>仅 B站。把一个收藏夹的视频批量粗看、细看，判断哪些值得看。</p>
+          <a class="jump" href="./triage/triage.html" target="_blank">打开B站分拣台 ↗</a>
+        </div>
+        <div class="rows">
+          <div class="row">
+            <div class="lab"><label class="name" for="showBiliTriageBadges">在 B站页面显示分拣标记</label><p class="hint">分拣过或打过标签的视频，在收藏夹、视频页、首页和搜索结果里带一个小标记。虚线框 = 只做过标题粗看。</p></div>
+            <div class="ctl"><input id="showBiliTriageBadges" type="checkbox" class="switch" /></div>
+          </div>
+          <div class="row">
+            <div class="lab"><label class="name" for="showBiliUpTags">在 B站页面显示 UP 标签</label><p class="hint">你在分拣台「关注」里给 UP 打的标签，显示在 B站页面的 UP 名字后面，旁边有「+ UP 标签」。</p></div>
+            <div class="ctl"><input id="showBiliUpTags" type="checkbox" class="switch" /></div>
+          </div>
+          <div class="row wide">
+            <div class="lab"><span class="name">B站页面上显示什么</span><p class="hint">取消勾选，那个位置就不显示。「–」是那里不放的。上面的开关关着时，对应的列不起作用；「看到哪里」还要在「观看进度」里打开。</p></div>
+            <table class="data marks">
+              <thead><tr id="biliMarksHead"></tr></thead>
+              <tbody id="biliMarks"></tbody>
+            </table>
+          </div>
+          <div class="row wide">
+            <div class="lab">
+              <span class="name">AI 看哪些内容</span>
+              <p class="hint">粗看：每个视频的标题、UP 主、时长、发布日期和简介前 120 字，一次看一批（每批数量在分拣台里设置，默认 30 个）。</p>
+              <p class="hint">细看：标题、UP 主、分区、时长、发布日期、标签、完整简介和字幕（最多 6 万字，更长的均匀抽取）；无字幕时读前 10 条热门评论。每批数量在分拣台里设置，默认 10 个，最多 50。</p>
+              <p class="hint">两步都会带上收藏夹的名字、简介和你写的判断标准。</p>
+            </div>
           </div>
         </div>
       </section>
