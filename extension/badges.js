@@ -175,22 +175,8 @@
     return r;
   }
 
-  // ---- What each kind of B站 page shows (DESIGN §8). vtags: video tags after the AI verdict; ups: UP tags after
-  // author names; plus: when 「+ UP 标签」 shows; above: video marks get their own line above the title; novideo: no
-  // video marks at all (new videos, never triaged); corner: the corner tag, never the veil;
-  // tight: small covers, so 看到 N% drops its ✓. ----
-  const SURFACES = {
-    card: { vtags: true, ups: true, plus: "hover" }, // home and search (B站 and BewlyCat)
-    fav: { vtags: true, ups: false, plus: "", above: true },
-    later: { vtags: true, ups: true, plus: "hover" }, // 稍后再看
-    history: { vtags: true, ups: true, plus: "hover", corner: true }, // 历史
-    feed: { vtags: false, ups: true, plus: "hover", novideo: true }, // 动态
-    space: { vtags: true, ups: false, plus: "" }, // the owner's nickname is `owner`
-    video: { vtags: true, ups: true, plus: "" }, // recommendations and lists beside a video
-    popover: { vtags: true, ups: true, plus: "", tight: true }, // header popovers (B站 and BewlyCat)
-    popfeed: { vtags: false, ups: true, plus: "", tight: true, novideo: true }, // the header's 动态 popover
-    owner: { vtags: false, ups: true, plus: "always" } // the video page's UP name, a space page's nickname
-  };
+  // What each kind of B站 page shows: bili-surfaces.js, loaded first (manifest).
+  const { SURFACES } = globalThis.BocSurfaces;
   // "" in the 分拣台's own player, which already shows both tag lines above it.
   function surfaceOf({ host = "", path = "", search = "", viewer = false } = {}) {
     if (viewer) return "";
@@ -231,10 +217,14 @@
   // Header popovers draw the same video links in miniature: B站's own (.v-popover) and BewlyCat's (.bew-popover).
   const POPOVER = ".bew-popover, .v-popover";
   const POPFEED = ".dynamic-entry .v-popover, .moments-pop";
-  const ruleFor = (el) => (el.closest?.(POPFEED) ? SURFACES.popfeed : el.closest?.(POPOVER) ? SURFACES.popover : SURFACES[surface]);
+  // SURFACES with the cells the settings page's table turned off.
+  let rules = globalThis.BocSurfaces.rulesWith([]);
+  const ruleFor = (el) => (el.closest?.(POPFEED) ? rules.popfeed : el.closest?.(POPOVER) ? rules.popover : rules[surface]);
 
   const SETTING = "showBiliTriageBadges";
   const UP_SETTING = "showBiliUpTags";
+  // Off by default: the AI's verdicts are for the 分拣台; on B站 pages only for those who ask.
+  const VERDICT_SETTING = "showBiliVerdicts";
   // 观看进度 on covers has its own setting (设置页「观看进度」, off by default); it or the triage marks turn the page scan on.
   const SEEN_DEFAULTS = { seenShow: "off", seenThreshold: 80, seenStyle: "badge" };
   let triageOn = false;
@@ -363,10 +353,10 @@
       if (!spot) continue;
       // The video page's UP name: its tags get their own line under the name row.
       const row = a.classList.contains("up-name") && a.closest(".up-detail-top");
-      spots.push(row ? [row, mid, SURFACES.owner, spot.textContent] : [spot, mid, ruleFor(a)]);
+      spots.push(row ? [row, mid, rules.owner, spot.textContent] : [spot, mid, ruleFor(a)]);
     }
     // The nickname only on the space's own pages: its 收藏夹 page shows no UP tags.
-    if (owner) for (const el of findAll(OWNER_SEL)) spots.push([el, owner, surface === "space" ? SURFACES.owner : SURFACES.fav]);
+    if (owner) for (const el of findAll(OWNER_SEL)) spots.push([el, owner, surface === "space" ? rules.owner : rules.fav]);
     const nameEls = findAll(NAME_SEL);
     const idx = nameEls.length ? await whoIs() : null;
     const byEl = new Map(nameEls.map((el) => [el, nameMid(el, idx)]));
@@ -439,6 +429,12 @@
   // The 全部 / per-tag bar above the 动态 list. A pick only adds a class to other UPs' cards, so Bilibili's own tabs,
   // its UP avatar strip and infinite scroll keep working, and newly loaded cards are filtered on the next scan.
   function feedFilter(byEl) {
+    // The bar filters by UP tags: with 动态页's UP tags off in the settings table, it goes too and every card shows.
+    if (!rules.feed.ups) {
+      const hidden = document.querySelectorAll(".mdg-up-hide");
+      const bar = document.querySelector(".mdg-upbar");
+      return bar || hidden.length ? [() => (bar?.remove(), hidden.forEach((n) => n.classList.remove("mdg-up-hide")))] : [];
+    }
     const list = document.querySelector(".bili-dyn-list");
     if (!list) return [];
     const items = [...document.querySelectorAll(".bili-dyn-list__item")];
@@ -786,7 +782,7 @@ input { box-sizing: border-box; width: 100%; margin: 0; padding: 4px 8px; border
   function markCover(a) {
     const b = bvidFromHref(a.getAttribute("href"));
     const rule = ruleFor(a);
-    const known = seenCfg.on ? seenCache.get(b) || 0 : 0;
+    const known = seenCfg.on && rule.seen ? seenCache.get(b) || 0 : 0;
     const pct = seenCfg.bar ? known : 0;
     // Where B站 itself says 已看完, ours would say it twice.
     const mark = seenCfg.mark;
@@ -837,11 +833,12 @@ input { box-sizing: border-box; width: 100%; margin: 0; padding: 4px 8px; border
     const old = above ? (prev?.nodeType === 1 && prev.classList.contains("mdg-badge") ? prev : null) : a.querySelector(".mdg-badge");
     if (old && old.dataset.bvid === b && info) return;
     old?.remove();
-    if (!info || rule.novideo) return;
+    if (!info) return;
     const tags = rule.vtags ? info.tags : [];
+    const label = rule.verdict ? info.label : "";
     // Nothing this page shows (a tagged video without a verdict in a popover): no mark at all.
-    if (!info.label && !tags.length) return;
-    const badge = badgeEl(info, b, tags);
+    if (!label && !tags.length) return;
+    const badge = badgeEl(label ? info : { ...info, label, aria: `MoonDigest 分拣，标签：${tags.map((t) => t.name).join("、")}` }, b, tags);
     if (above) {
       badge.classList.add("mdg-above");
       return () => above.before(badge);
@@ -1064,9 +1061,13 @@ input { box-sizing: border-box; width: 100%; margin: 0; padding: 4px 8px; border
     }
   }
 
-  // The three switches and the 观看进度 options decide whether the page is scanned at all.
+  // The switches and the 观看进度 options decide whether the page is scanned at all; the settings table's cells
+  // turn single marks off per surface.
   function applySettings(v) {
-    triageOn = v[SETTING] !== false;
+    const verdicts = v[VERDICT_SETTING] === true;
+    const tags = v[SETTING] !== false;
+    rules = globalThis.BocSurfaces.rulesWith(v.biliMarksOff, [!verdicts && "verdict", !tags && "vtags"].filter(Boolean));
+    triageOn = verdicts || tags;
     const before = seenCfg.on;
     const bar = v.seenShow === "bar" || v.seenShow === "both";
     const mark = v.seenShow === "mark" || v.seenShow === "both";
@@ -1087,7 +1088,7 @@ input { box-sizing: border-box; width: 100%; margin: 0; padding: 4px 8px; border
       schedule();
     } else setEnabled(on);
   }
-  const readSettings = () => chrome.storage.sync.get({ [SETTING]: true, [UP_SETTING]: true, ...SEEN_DEFAULTS }).then(applySettings).catch(() => {});
+  const readSettings = () => chrome.storage.sync.get({ [SETTING]: true, [VERDICT_SETTING]: false, [UP_SETTING]: true, ...SEEN_DEFAULTS, biliMarksOff: [] }).then(applySettings).catch(() => {});
 
   chrome.storage.onChanged.addListener((changes, area) => {
     if (area === "local" && (changes.follow_tags || changes.follow_tag_map || changes.follow_list)) loadUps().catch(() => {});
@@ -1095,7 +1096,7 @@ input { box-sizing: border-box; width: 100%; margin: 0; padding: 4px 8px; border
       who = null;
       schedule();
     }
-    if (area === "sync" && (SETTING in changes || UP_SETTING in changes || Object.keys(SEEN_DEFAULTS).some((k) => k in changes))) readSettings();
+    if (area === "sync" && (SETTING in changes || VERDICT_SETTING in changes || UP_SETTING in changes || "biliMarksOff" in changes || Object.keys(SEEN_DEFAULTS).some((k) => k in changes))) readSettings();
     if (area === "local" && enabled && Object.keys(changes).some((k) => k.startsWith("seen_"))) {
       for (const k of Object.keys(changes)) if (k.startsWith("seen_")) seenCache.delete(k.slice(5));
       gen++;

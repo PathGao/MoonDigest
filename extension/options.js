@@ -31,7 +31,9 @@ const DEFAULT_SETTINGS = {
   playerAiQuickPrompt: DEFAULT_PLAYER_AI_QUICK_PROMPT,
   includeTimestampInBody: true,
   showBiliTriageBadges: true,
+  showBiliVerdicts: false,
   showBiliUpTags: true,
+  biliMarksOff: [],
   seenShow: "off",
   seenThreshold: 80,
   seenStyle: "badge",
@@ -93,6 +95,8 @@ const elements = {
   includeTimestampInBody: document.getElementById("includeTimestampInBody"),
   showBiliTriageBadges: document.getElementById("showBiliTriageBadges"),
   showBiliUpTags: document.getElementById("showBiliUpTags"),
+  showBiliVerdicts: document.getElementById("showBiliVerdicts"),
+  biliMarks: document.getElementById("biliMarks"),
   seenShow: document.getElementById("seenShow"),
   seenThreshold: document.getElementById("seenThreshold"),
   seenStyle: document.getElementById("seenStyle"),
@@ -137,7 +141,8 @@ const STATE_KEY_NODES = {
   frontmatterFields: elements.frontmatterFields[0],
   fixedFrontmatterProperties: elements.fixedPropertiesList,
   notePlaceholderSections: elements.noteSectionsList,
-  providers: elements.aiProvidersList
+  providers: elements.aiProvidersList,
+  biliMarksOff: elements.biliMarks
 };
 
 // The form differs from what was last loaded or saved; a passed provider test reminds the user to save.
@@ -158,6 +163,7 @@ function init() {
   });
   elements.saveBtn.addEventListener("click", saveSettings);
   document.getElementById("seen").addEventListener("input", syncSeenRows);
+  [elements.showBiliVerdicts, elements.showBiliTriageBadges, elements.showBiliUpTags, elements.seenShow].forEach((el) => el.addEventListener("change", syncBiliMarks));
   // The box shows the value that would be saved, so 150 over a stored 100 is not a silent no-op.
   elements.seenThreshold.addEventListener("change", () => (elements.seenThreshold.value = String(readFormPayload().seenThreshold)));
   // Same for 追问: blank, repeated and past-12 lines are dropped from the box, not only from what is saved.
@@ -272,10 +278,13 @@ async function loadSettings() {
   elements.includeTimestampInBody.checked = Boolean(settings.includeTimestampInBody);
   elements.showBiliTriageBadges.checked = settings.showBiliTriageBadges !== false;
   elements.showBiliUpTags.checked = settings.showBiliUpTags !== false;
+  elements.showBiliVerdicts.checked = settings.showBiliVerdicts === true;
+  renderBiliMarks(settings.biliMarksOff);
   elements.seenShow.value = ["bar", "mark", "both"].includes(settings.seenShow) ? settings.seenShow : "off";
   elements.seenThreshold.value = String(settings.seenThreshold || 80);
   elements.seenStyle.value = settings.seenStyle === "veil" ? "veil" : "badge";
   syncSeenRows();
+  syncBiliMarks();
   elements.enableDebugLogs.checked = Boolean(settings.enableDebugLogs);
   // "bvid" was the field name before the site registry.
   const selectedFields = new Set((settings.frontmatterFields || DEFAULT_SETTINGS.frontmatterFields).map((field) => (field === "bvid" ? "video_id" : field)));
@@ -291,6 +300,47 @@ async function loadSettings() {
   renderAiProviders(providers);
   renderHostPermissionBanner(hostPermissionUrls(settings, providers));
   markSaved();
+}
+
+// B站页面上显示什么: a row per kind of page, a box per mark that page offers (bili-surfaces.js); the rest show 「–」.
+function renderBiliMarks(off) {
+  const { ROWS, COLS, allowed, normalizeOff } = BocSurfaces;
+  const no = new Set(normalizeOff(off));
+  const head = document.getElementById("biliMarksHead");
+  head.replaceChildren(document.createElement("th"), ...Object.values(COLS).map((name) => Object.assign(document.createElement("th"), { textContent: name, scope: "col" })));
+  elements.biliMarks.replaceChildren(
+    ...Object.entries(ROWS).map(([key, name]) => {
+      const tr = document.createElement("tr");
+      tr.append(Object.assign(document.createElement("th"), { textContent: name, scope: "row" }));
+      for (const [col, colName] of Object.entries(COLS)) {
+        const td = document.createElement("td");
+        if (allowed(key, col)) {
+          const box = Object.assign(document.createElement("input"), { type: "checkbox", checked: !no.has(`${key}.${col}`) });
+          box.dataset.cell = `${key}.${col}`;
+          box.dataset.col = col;
+          box.setAttribute("aria-label", `${name}：${colName}`);
+          td.append(box);
+        } else {
+          td.textContent = "–";
+          td.className = "none";
+        }
+        tr.append(td);
+      }
+      return tr;
+    })
+  );
+}
+
+// A column whose switch is off (above, or 封面显示 in 观看进度) keeps its boxes but greys them out.
+function syncBiliMarks() {
+  const off = {
+    verdict: !elements.showBiliVerdicts.checked,
+    vtags: !elements.showBiliTriageBadges.checked,
+    ups: !elements.showBiliUpTags.checked,
+    plus: !elements.showBiliUpTags.checked,
+    seen: elements.seenShow.value === "off"
+  };
+  elements.biliMarks.querySelectorAll("input[data-col]").forEach((box) => (box.disabled = off[box.dataset.col]));
 }
 
 // 看多少算看完了 and the mark style only matter while the mark is shown. The example covers follow the unsaved form:
@@ -527,6 +577,8 @@ function readFormPayload() {
     includeTimestampInBody: elements.includeTimestampInBody.checked,
     showBiliTriageBadges: elements.showBiliTriageBadges.checked,
     showBiliUpTags: elements.showBiliUpTags.checked,
+    showBiliVerdicts: elements.showBiliVerdicts.checked,
+    biliMarksOff: Array.from(elements.biliMarks.querySelectorAll("input[data-cell]:not(:checked)"), (input) => input.dataset.cell),
     seenShow: elements.seenShow.value,
     seenThreshold: Number.isFinite(parseFloat(elements.seenThreshold.value)) ? Math.min(100, Math.max(1, Math.round(parseFloat(elements.seenThreshold.value)))) : 80,
     seenStyle: elements.seenStyle.value === "veil" ? "veil" : "badge",

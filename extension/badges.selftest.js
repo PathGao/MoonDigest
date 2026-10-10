@@ -4,9 +4,9 @@ const path = require("path");
 const vm = require("vm");
 const assert = require("assert");
 
-// The manifest loads typing.js and tag-core.js before badges.js in the same content-script world.
+// The manifest loads typing.js, tag-core.js and bili-surfaces.js before badges.js in the same content-script world.
 const tagCoreJs = fs.readFileSync(path.join(__dirname, "tag-core.js"), "utf8");
-const badgesJs = fs.readFileSync(path.join(__dirname, "typing.js"), "utf8") + tagCoreJs + fs.readFileSync(path.join(__dirname, "badges.js"), "utf8");
+const badgesJs = fs.readFileSync(path.join(__dirname, "typing.js"), "utf8") + tagCoreJs + fs.readFileSync(path.join(__dirname, "bili-surfaces.js"), "utf8") + fs.readFileSync(path.join(__dirname, "badges.js"), "utf8");
 const ctx = vm.createContext({ URLSearchParams });
 vm.runInContext(badgesJs, ctx);
 const { bvidFromHref, badgeInfo, mergeDecisions } = ctx.BocBadges;
@@ -176,10 +176,29 @@ assert.strictEqual(where("https://space.bilibili.com/2773586"), "space");
 assert.strictEqual(where("https://space.bilibili.com/2773586/video"), "space");
 const show = (k) => { const r = SURFACES[k]; return `${r.novideo ? "x" : r.vtags ? "V" : "-"}${r.ups ? "U" : "-"}${r.plus[0] || "-"}${r.above ? "^" : ""}`; };
 assert.deepStrictEqual(Object.keys(SURFACES).map((k) => `${k}:${show(k)}`), [
-  "card:VUh", "fav:V--^", "later:VUh", "history:VUh", "feed:xUh", "space:V--", "video:VU-", "popover:VU-", "popfeed:xU-", "owner:-Ua"
+  "card:VUh", "fav:V--^", "later:VUh", "history:VUh", "feed:xUh", "space:V--", "owner:xUa", "video:VU-", "popover:VU-", "popfeed:xU-"
 ], "the approved matrix: 动态 (page and popover) shows no video marks, popovers and recommendations no 「+」, 收藏夹 no UP tags, owner names always offer 「+ UP 标签」");
 assert.ok(SURFACES.popover.tight && SURFACES.popfeed.tight, "popovers: 看到 N% without ✓");
 assert.deepStrictEqual(Object.keys(SURFACES).filter((k) => SURFACES[k].corner), ["history"], "only 历史 swaps the veil for the corner tag");
+
+// The settings table: which cells exist (the others show 「–」 and cannot be turned on), and what turning one off does.
+const { ROWS, COLS, allowed, normalizeOff, rulesWith } = ctx.BocSurfaces;
+assert.deepStrictEqual(Object.keys(ROWS), Object.keys(SURFACES), "a row per surface");
+const grid = (k) => Object.keys(COLS).map((c) => (allowed(k, c) ? "✓" : "-")).join("");
+assert.deepStrictEqual(Object.keys(ROWS).map((k) => `${k}:${grid(k)}`), [
+  "card:✓✓✓✓✓", "fav:✓✓--✓", "later:✓✓✓✓✓", "history:✓✓✓✓✓", "feed:--✓✓✓", "space:✓✓--✓",
+  "owner:--✓✓-", "video:✓✓✓-✓", "popover:✓✓✓-✓", "popfeed:--✓-✓"
+], "columns: AI 判断, 视频标签, UP 标签, 「+ UP 标签」, 观看进度");
+assert.deepStrictEqual(plain(normalizeOff(["fav.vtags", "fav.ups", "nope.seen", "card.vtags", "card.vtags", 3, null])), ["fav.vtags", "card.vtags"], "only cells that exist, once");
+const all = rulesWith([]);
+assert.ok(Object.keys(SURFACES).every((k) => all[k].ups === allowed(k, "ups") && all[k].seen === allowed(k, "seen")), "nothing off: each surface as offered");
+const off = rulesWith(["card.verdict", "card.plus", "popover.seen", "fav.ups"]);
+assert.deepStrictEqual([off.card.verdict, off.card.vtags, off.card.ups, off.card.plus, off.card.seen], [false, true, true, "", true], "首页: verdict and 「+」 off, the rest stays");
+assert.strictEqual(off.popover.seen, false);
+assert.strictEqual(off.fav.ups, false, "a cell that does not exist stays off");
+assert.strictEqual(off.later.plus, "hover", "other surfaces untouched");
+const noVerdicts = rulesWith([], ["verdict"]);
+assert.ok(Object.keys(SURFACES).every((k) => !noVerdicts[k].verdict) && noVerdicts.card.vtags, "a switch that is off turns its whole column off");
 
 // Fitting by width, not count: as many whole chips as fit, then 「+N」; -1 rather than an empty marker.
 assert.strictEqual(fitCount([30, 30, 30], 96, { gap: 3 }), 3, "exactly fitting: 30+3+30+3+30 = 96, no 「+N」");
@@ -421,6 +440,22 @@ assert.ok(!biliSaysSeen(h("a", {}, h("div", { class: "bili-cover-card__stats" },
   changed.forEach((f) => f({ showBiliUpTags: { newValue: true } }, "sync"));
   await settle();
   assert.strictEqual(tagsText(chipAfter(homeAuthor)), "常看游戏", "setting on: back");
+
+  // 动态页's UP tags off in the settings table: the filter bar goes with them and every card shows; on again, back.
+  pick("t1");
+  await settle();
+  assert.ok(hidden().some(Boolean), "a tag picked: some cards hidden");
+  syncVals.biliMarksOff = ["feed.ups"];
+  changed.forEach((f) => f({ biliMarksOff: { newValue: ["feed.ups"] } }, "sync"));
+  await settle();
+  assert.strictEqual(bar(), null, "feed.ups off: no filter bar");
+  assert.deepStrictEqual(hidden(), [false, false, false, false], "feed.ups off: every card shows");
+  syncVals.biliMarksOff = [];
+  changed.forEach((f) => f({ biliMarksOff: { newValue: [] } }, "sync"));
+  await settle();
+  assert.ok(bar(), "feed.ups on: the bar is back");
+  pick("");
+  await settle();
 
   // No UP tags left: chips, bar and hidden cards all go.
   store.follow_tags = [];
