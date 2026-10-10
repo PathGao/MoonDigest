@@ -356,7 +356,7 @@
       spots.push(row ? [row, mid, rules.owner, spot.textContent] : [spot, mid, ruleFor(a)]);
     }
     // The nickname only on the space's own pages: its 收藏夹 page shows no UP tags.
-    if (owner) for (const el of findAll(OWNER_SEL)) spots.push([el, owner, surface === "space" ? rules.owner : rules.fav]);
+    if (owner) for (const el of findAll(OWNER_SEL)) spots.push([el, owner, surface === "space" ? rules.nick : rules.fav]);
     const nameEls = findAll(NAME_SEL);
     const idx = nameEls.length ? await whoIs() : null;
     const byEl = new Map(nameEls.map((el) => [el, nameMid(el, idx)]));
