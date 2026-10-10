@@ -524,7 +524,7 @@ function renderSync() {
   UI.setActivity(pill, { text, done: j.done || 0, total: wait ? 0 : j.total || 0, warn: Boolean(wait), btn: { attrs: "data-fw-stop", label: "暂停" } });
 }
 
-// The last refresh's 新关注 / 在 B站取关 (follow_jobs.changes, see followDiff) as 收藏夹's 「B站已同步」 pill. Each refresh's
+// The last refresh's 新关注 / 在 B站取关 (follow_jobs.changes, see followDiff) as 收藏夹's 「已刷新」 pill. Each refresh's
 // changes show once per page; 关闭 hides them until the next.
 let syncSeenAt = null;
 function renderSyncChanges() {
@@ -534,9 +534,9 @@ function renderSyncChanges() {
   if (!c.added.length && !c.removed.length) return UI.setSync(SYNC, null);
   const names = (mids) => mids.map((m) => D.people?.[m]?.name || m);
   UI.setSync(SYNC, {
-    label: `新关注 +${c.added.length} · 取关 −${c.removed.length}`,
-    text: `B站同步：新关注 ${c.added.length} · 在 B站取关 ${c.removed.length}`,
-    sections: [["新关注", names(c.added)], ["在 B站取关", names(c.removed)]]
+    label: `新关注 +${c.added.length} · 取消关注 −${c.removed.length}`,
+    text: `刷新结果：新关注 ${c.added.length} · 在 B站取消关注 ${c.removed.length}`,
+    sections: [["新关注", names(c.added)], ["在 B站取消关注", names(c.removed)]]
   });
 }
 
@@ -624,7 +624,7 @@ function renderUps() {
   for (const m of [...F.sel]) if (!rows.has(m)) F.sel.delete(m);
   const goneN = (src) => Object.values(D.gone).filter((g) => !src || g.source === src).length;
   const seg = gone
-    ? UI.stateGroup("在哪取关", [["", "全部"], ["bili", "在 B站取关"], ["app", "在这里取关"]].map(([id, label]) => UI.filterBtn(`data-source="${id}"`, label, goneN(id), F.source === id)).join(""))
+    ? UI.stateGroup("在哪取消关注", [["", "全部"], ["bili", "在 B站取消关注"], ["app", "在这里取消关注"]].map(([id, label]) => UI.filterBtn(`data-source="${id}"`, label, goneN(id), F.source === id)).join(""))
     : stateRowUps(counts);
   // 全选 heads the right-hand buttons, as in 收藏夹: it acts on the UP 主 listed now.
   const shows = Boolean(D.list || gone);
@@ -658,7 +658,7 @@ function emptyHtml() {
 function hintHtml(counts) {
   if (!D.list || F.side === "gone") return "";
   const parts = [];
-  if (D.list.complete === false) parts.push(`<p class="fw-hint warn">这次关注列表没读全，没有把任何人记成取关。下次刷新会再读。</p>`);
+  if (D.list.complete === false) parts.push(`<p class="fw-hint warn">这次关注列表没读全，没有把任何人记成已取消关注。下次刷新会再读。</p>`);
   const open = (counts.unchecked || 0) + (counts.stale || 0);
   if (open) {
     const running = D.jobs?.running;
@@ -680,7 +680,7 @@ function upCard(mid) {
     u.last ? `最后投稿 ${UI.agoHtml(u.last, now)}` : u.status === "stale" && !u.gone ? esc(`${cfg.slowDays} 天以上没投稿`) : "",
     u.count && `${u.count} 个视频`,
     u.fans != null ? `粉丝 ${esc(fmtCount(u.fans))}` : F.sort === "fans" && !u.gone ? "粉丝数未查" : "",
-    u.gone ? `${u.gone.source === "bili" ? "在 B站取关" : "在这里取关"} · ${UI.agoHtml(u.gone.at || now, now)}` : u.followed && `关注于 ${UI.agoHtml(u.followed, now)}`
+    u.gone ? `${u.gone.source === "bili" ? "在 B站取消关注" : "在这里取消关注"} · ${UI.agoHtml(u.gone.at || now, now)}` : u.followed && `关注于 ${UI.agoHtml(u.followed, now)}`
   ].filter(Boolean);
   const chips = u.tagIds.map(tagOf).map((t) => u.gone
     ? `<span class="chip" style="--c:${esc(t.color)}">${esc(t.name)}</span>`
