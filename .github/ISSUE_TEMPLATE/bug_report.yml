@@ -1,0 +1,40 @@
+name: 问题报告
+description: MoonDigest 出错或行为不符合预期
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: 一个 issue 只报一个问题。截图和日志前请遮挡 API Key、账号等个人信息。
+  - type: textarea
+    id: behavior
+    attributes:
+      label: 发生了什么，本来应该怎样？
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: 复现步骤
+      description: 写出最短的复现步骤和视频链接；偶发问题请说明出现频率。
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: MoonDigest 版本和安装方式
+      description: 版本在 chrome://extensions 的扩展卡片上查看；安装方式是商店版还是 zip。
+      placeholder: "3.5.2 · 商店版"
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: 浏览器和版本
+      placeholder: "Chrome 141 · macOS 26"
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: 截图、日志或其他证据
+      description: 扩展报错可在 chrome://extensions 的扩展卡片上点「错误」查看。
