@@ -191,6 +191,13 @@
             <div class="ctl"><input id="showBiliUpTags" type="checkbox" class="switch" /></div>
           </div>
           <div class="row wide">
+            <div class="lab"><span class="name">B站页面上显示什么</span><p class="hint">取消勾选，那个位置就不显示。「–」是那里不放的。上面的开关关着时，对应的列不起作用；「看到哪里」还要在「观看进度」里打开。</p></div>
+            <table class="data marks">
+              <thead><tr id="biliMarksHead"></tr></thead>
+              <tbody id="biliMarks"></tbody>
+            </table>
+          </div>
+          <div class="row wide">
             <div class="lab">
               <span class="name">AI 看哪些内容</span>
               <p class="hint">粗看：每个视频的标题、UP 主、时长、发布日期和简介前 120 字，一次看一批（每批数量在分拣台里设置，默认 30 个）。</p>
@@ -338,6 +345,7 @@
     </div>
 
     <script src="./limits.js"></script>
+    <script src="./bili-surfaces.js"></script>
     <script src="./options.js"></script>
   </body>
 </html>

@@ -886,6 +886,30 @@ table.data tr + tr > * {
   border-top: 1px solid var(--border);
 }
 
+/* B站页面上显示什么: page names down the side, a column per mark. */
+table.marks :is(thead th, td) {
+  padding-right: 0;
+  text-align: center;
+  white-space: nowrap;
+}
+
+table.marks thead th {
+  color: var(--muted);
+  font-size: var(--fs-xs);
+}
+
+table.marks tbody th {
+  padding-right: 12px;
+}
+
+table.marks td.none {
+  color: var(--muted);
+}
+
+table.marks input:disabled {
+  opacity: 0.4;
+}
+
 #storageLimits tr:last-child:not(:first-child) > * {
   border-top-color: var(--border-strong);
 }
