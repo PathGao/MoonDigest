@@ -162,6 +162,14 @@ function init() {
     }
   });
   elements.saveBtn.addEventListener("click", saveSettings);
+  document.getElementById("exportSettingsBtn").addEventListener("click", exportSettingsFile);
+  const importFile = document.getElementById("importSettingsFile");
+  document.getElementById("importSettingsBtn").addEventListener("click", () => importFile.click());
+  importFile.addEventListener("change", () => {
+    const file = importFile.files[0];
+    importFile.value = "";
+    if (file) void importSettingsFile(file);
+  });
   document.getElementById("seen").addEventListener("input", syncSeenRows);
   [elements.showBiliVerdicts, elements.showBiliTriageBadges, elements.showBiliUpTags, elements.seenShow].forEach((el) => el.addEventListener("change", syncBiliMarks));
   // The box shows the value that would be saved, so 150 over a stored 100 is not a silent no-op.
@@ -237,6 +245,32 @@ function trackCurrentSection() {
   );
   addEventListener("scroll", update, { passive: true });
   update();
+}
+
+// Exports what is saved, not unsaved edits in the form.
+async function exportSettingsFile() {
+  const resp = await sendRuntimeMessage({ type: "settings-export" }).catch((e) => ({ error: e.message }));
+  if (!resp?.ok) return setStatus(`导出失败：${resp?.error || "未知错误"}`, true);
+  const d = new Date();
+  const date = `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, "0")}${String(d.getDate()).padStart(2, "0")}`;
+  BocDownload.text(`MoonDigest设置-${date}.json`, JSON.stringify(resp.file, null, 2), "application/json");
+  setStatus(hasUnsavedChanges ? "已导出已保存的设置，未保存的修改不在文件里" : "已导出设置");
+}
+
+async function importSettingsFile(file) {
+  let data;
+  try {
+    data = JSON.parse(await file.text());
+  } catch {
+    return setStatus("导入失败：文件不是有效的 JSON", true);
+  }
+  const lost = hasUnsavedChanges ? "本页未保存的修改会丢失。" : "";
+  if (!confirm(`用「${file.name}」替换当前的全部设置？${lost}已保存的 Key 不变。`)) return;
+  const resp = await sendRuntimeMessage({ type: "settings-import", file: data }).catch((e) => ({ error: e.message }));
+  if (!resp?.ok) return setStatus(`导入失败：${resp?.error || "未知错误"}`, true);
+  // Reload so every control, the AI list and the host-permission banner show the imported values.
+  hasUnsavedChanges = false;
+  location.reload();
 }
 
 async function renderStorageLimits() {

@@ -382,11 +382,13 @@ main {
   border-top: 0;
 }
 
-.row:has(> .ctl > .switch) {
+.row:has(> .ctl > .switch),
+.row:has(> .ctl.end) {
   grid-template-columns: minmax(0, 1fr) auto;
 }
 
-.ctl:has(> .switch) {
+.ctl:has(> .switch),
+.ctl.end {
   justify-self: end;
 }
 
@@ -1046,7 +1048,8 @@ table.marks input:disabled {
     gap: 8px;
   }
 
-  .row:has(> .ctl > .switch) {
+  .row:has(> .ctl > .switch),
+  .row:has(> .ctl.end) {
     grid-template-columns: minmax(0, 1fr) auto;
   }
 }

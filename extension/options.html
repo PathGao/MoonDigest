@@ -330,6 +330,17 @@
             <div class="lab"><label class="name" for="enableDebugLogs">调试日志</label><p class="hint">排查问题时再开。</p></div>
             <div class="ctl"><input id="enableDebugLogs" type="checkbox" class="switch" /></div>
           </div>
+          <div class="row">
+            <div class="lab"><span class="name">导出设置</span><p class="hint">本页、收藏夹和关注的全部设置存成一个 JSON 文件，换电脑或换浏览器时导入。不含 Key 和分拣数据。</p></div>
+            <div class="ctl end"><button id="exportSettingsBtn" class="sm" type="button">导出设置</button></div>
+          </div>
+          <div class="row">
+            <div class="lab"><span class="name">导入设置</span><p class="hint">用导出的文件替换当前的全部设置。已保存的 Key 不变，文件里新的 AI 平台要重新填 Key。</p></div>
+            <div class="ctl end">
+              <button id="importSettingsBtn" class="sm" type="button">导入设置…</button>
+              <input id="importSettingsFile" type="file" accept=".json,application/json" hidden />
+            </div>
+          </div>
           <div class="sub">项目地址</div>
           <p class="about">
             <a href="https://github.com/PathGao/MoonDigest" target="_blank" rel="noopener noreferrer">GitHub · github.com/PathGao/MoonDigest ↗</a>
@@ -349,6 +360,7 @@
     </div>
 
     <script src="./limits.js"></script>
+    <script src="./download.js"></script>
     <script src="./bili-surfaces.js"></script>
     <script src="./options.js"></script>
   </body>
