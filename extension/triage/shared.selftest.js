@@ -189,6 +189,19 @@ assert.ok(UI.cardTagChip({ id: "t1", name: "<b>", color: "#fff" }, "点一下去
   assert.deepStrictEqual(tally, [{ cls: "add", text: "+ 美食", n: 3 }, { cls: "remove", text: "− 科普", n: 1 }]);
 }
 
+// 所有收藏夹: one proposal, each folder's new tags apart (same name, two entries), each within its own cap; the preview
+// matches a same-name tag only in the new tag's folder.
+{
+  const p = { newTags: [], rows: [], notes: [], errors: [] };
+  const base = { map: {}, maxNewTags: 1, scope: new Set(["v"]) };
+  UI.mergeAiBatch(p, { newTags: ["科普", "多余"], assignments: { v: { add: ["科普"] } } }, { ...base, tags: [], newTagFolder: "A" });
+  UI.mergeAiBatch(p, { newTags: ["科普"], assignments: { v: { add: ["科普"] } } }, { ...base, tags: [], newTagFolder: "B" });
+  assert.deepStrictEqual(plain(p.newTags), [{ key: "A/科普", name: "科普", checked: true, folder: "A" }, { key: "B/科普", name: "科普", checked: true, folder: "B" }]);
+  assert.deepStrictEqual(plain(p.rows), [{ id: "v", add: ["new:A/科普", "new:B/科普"], remove: [] }]);
+  const tags = [{ id: "b1", name: "科普", folder: "B" }];
+  assert.deepStrictEqual([UI.previewId(p, "A/科普", tags), UI.previewId(p, "B/科普", tags)], ["new:A/科普", "b1"]);
+}
+
 // Both modes take the proposal functions from here and keep no copy of their own; the review page's counts
 // (changes before 应用, the tally, 用在 N 个) are tag-dialogs.js's alone, from the adapter's map / live / tagName.
 for (const [file, fns] of [["triage.js", ["mergeAiBatch", "aiChanges"]], ["follow.js", ["mergeAiBatch", "aiChanges"]], ["tag-dialogs.js", ["aiChanges", "aiTally", "previewId"]]]) {

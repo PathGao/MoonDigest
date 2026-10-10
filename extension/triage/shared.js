@@ -437,13 +437,18 @@
   // ---------- AI 打标签: the proposal and what it changes, the same in both modes ----------
   // p = { newTags: [{ key, name, checked }], rows: [{ id, add: ["id:<tag id>" | "new:<key>"], remove: [tag id] }], notes,
   // errors }; a row's id is a bvid in 收藏夹, a mid in 关注. opts = { tags: the mode's tags (by name; 收藏夹 passes the
-  // folder's), map: row id → tag ids, maxNewTags, excluded: Set of names, scope: Set of the row ids this run sent }.
+  // folder's), map: row id → tag ids, maxNewTags, excluded: Set of names, scope: Set of the row ids this run sent,
+  // newTagFolder: 所有收藏夹 only, the folder this batch's new tags go into; one proposal then holds several folders' new
+  // tags, each folder's apart (key "<folder>/<name>", .folder) and within its own maxNewTags }.
   function mergeAiBatch(p, data, opts) {
+    const folder = opts.newTagFolder;
+    const keyOf = (name) => (folder ? `${folder}/${name}` : name);
     const existing = (name) => opts.tags.find((t) => t.name === name);
-    const proposed = (name) => p.newTags.find((t) => t.key === name);
+    const proposed = (name) => p.newTags.find((t) => t.key === keyOf(name));
     const addNew = (name) => {
-      if (p.newTags.length >= opts.maxNewTags) return null;
-      const t = { key: name, name, checked: true };
+      if (p.newTags.filter((t) => t.folder === folder).length >= opts.maxNewTags) return null;
+      const t = { key: keyOf(name), name, checked: true };
+      if (folder) t.folder = folder;
       p.newTags.push(t);
       return t;
     };
@@ -499,11 +504,12 @@
     }
     return out;
   }
-  // Before 应用: a new tag stands in as "new:key", or as the same-name tag in tags that creating it would return; a
-  // cleared name adds nothing.
+  // Before 应用: a new tag stands in as "new:key", or as the same-name tag in tags (of its folder, when it has one) that
+  // creating it would return; a cleared name adds nothing.
   function previewId(p, key, tags) {
-    const name = cleanTagName(p.newTags.find((t) => t.key === key)?.name);
-    return name && (tags.find((t) => t.name === name)?.id || `new:${key}`);
+    const nt = p.newTags.find((t) => t.key === key);
+    const name = cleanTagName(nt?.name);
+    return name && (tags.find((t) => t.name === name && (!nt.folder || t.folder === nt.folder))?.id || `new:${key}`);
   }
   // The confirm page sums the changes up per tag ("+ 科普 12"); the items are judged afterwards on their cards.
   // nameOf(id) names an existing tag.
