@@ -6,7 +6,7 @@ B站 页面上的颜色是 `tokens.css` 的第三份拷贝：`content.css` 里�
 
 ## 代码怎么共用
 
-- 两种模式都画的东西，只在 `extension/triage/shared.js`（`TriageUi`）里写一份：标题行、排序、搜索框、筛选片、第 3/4 行的行名（`labeledRow`）、「AI 刚打的」片（`aiRecentChip`）、选中栏（`selbar`）、移动 / 复制弹窗（`askTransfer`：收藏夹传收藏夹，关注传分组）、侧栏项（`sideItem`）、刷新和导出按钮、进度胶囊、空状态和里面的刷新（`refreshEmpty`）、头部随滚动收起（`headroom`）、列表为空的原因（`noMatch`）、撤销前的确认（`undoAsk`）、设置行（`fillSetRows`，包括「AI 打标签每批数量」）、格式化函数、AI 建议的合并（标签名清洗和标签颜色在 `extension/tag-core.js`）。「收藏夹设置」和「关注设置」两个弹窗的结构都写在 `triage.html` 里。发现两边各写了一份，就合并进去。
+- 两种模式都画的东西，只在 `extension/triage/shared.js`（`TriageUi`）里写一份：标题行、排序、搜索框、筛选片、第 3/4 行的行名（`labeledRow`）、「AI 刚打的」片（`aiRecentChip`）、选中栏（`selbar`）、移动 / 复制弹窗（`askTransfer`：收藏夹传收藏夹，关注传分组）、左栏项（`sideItem`）、刷新和导出按钮、进度胶囊、空状态和里面的刷新（`refreshEmpty`）、头部随滚动收起（`headroom`）、列表为空的原因（`noMatch`）、撤销前的确认（`undoAsk`）、设置行（`fillSetRows`，包括「AI 打标签每批数量」）、格式化函数、AI 建议的合并（标签名清洗和标签颜色在 `extension/tag-core.js`）。「收藏夹设置」和「关注设置」两个弹窗的结构都写在 `triage.html` 里。发现两边各写了一份，就合并进去。
 - 打标签面板只有一个：`extension/triage/tag-picker.js`。例外：B站 页面上的「+」标签面板（`badges.js`）在封闭的 shadow DOM 里，暂时用不了 tag-picker.js，标签的纯函数（颜色、标签名清洗、新标签 id、下一个颜色）放在 `extension/tag-core.js`（`BocTagCore`）里，`badges.js`、`shared.js`、`follow.js` 和 `triage.js` 都用它，manifest 和 `triage.html` 都在它们之前加载。`tag-core.selftest.js` 会查别处有没有再写一份。面板本身以后再迁到 tag-picker.js。「标签管理」和「✦ AI 打标签」弹窗也各只有一个：`extension/triage/tag-dialogs.js`；关注的「分组管理」也用「标签管理」这个弹窗，adapter 换掉标题、文字和每行的样子。模式打开它们时只传一个 adapter，里面是单位（视频 / UP 主）、上限和数据，文字、布局和确认页的计数（改动数、按标签汇总、「用在 N 个」）都在弹窗里。
 - 所有输入框和快捷键都要走 `extension/typing.js`（`BocTyping`）：
   - 回车和 Esc 的处理函数，开头先写 `if (BocTyping.composing(e)) return;`。
