@@ -15,18 +15,19 @@
     popover: { vtags: true, ups: true, plus: "", tight: true }, // header popovers (B站 and BewlyCat)
     popfeed: { vtags: false, ups: true, plus: "", tight: true, novideo: true } // the header's 动态 popover
   };
-  // The settings page's table: a row per surface, a column per kind of mark.
+  // The settings page's table: a row per surface, a column per kind of mark. Most met first: the home page and its
+  // header popovers, then the video page, then the pages one goes to on purpose.
   const ROWS = {
     card: "首页、搜索",
+    popover: "顶栏弹窗（收藏、历史、稍后再看）",
+    popfeed: "顶栏动态弹窗",
+    video: "视频页右侧推荐",
+    owner: "视频页和 UP 空间的 UP 名字",
     fav: "收藏夹页",
     later: "稍后再看",
     history: "历史",
     feed: "动态页（UP 标签含筛选条）",
-    space: "UP 空间的视频卡",
-    owner: "视频页和 UP 空间的 UP 名字",
-    video: "视频页右侧推荐",
-    popover: "顶栏弹窗（收藏、历史、稍后再看）",
-    popfeed: "顶栏动态弹窗"
+    space: "UP 空间的视频卡"
   };
   const COLS = { verdict: "AI 判断", vtags: "视频标签", ups: "UP 标签", plus: "「+ UP 标签」", seen: "观看进度" };
   // Which cells a surface offers; the others are not for the user to turn on.
