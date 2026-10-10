@@ -183,11 +183,11 @@ assert.deepStrictEqual(Object.keys(SURFACES).filter((k) => SURFACES[k].corner), 
 
 // The settings table: which cells exist (the others show 「–」 and cannot be turned on), and what turning one off does.
 const { ROWS, COLS, allowed, normalizeOff, rulesWith } = ctx.BocSurfaces;
-assert.deepStrictEqual(Object.keys(ROWS), Object.keys(SURFACES), "a row per surface");
+assert.deepStrictEqual(Object.keys(ROWS).sort(), Object.keys(SURFACES).sort(), "a row per surface");
 const grid = (k) => Object.keys(COLS).map((c) => (allowed(k, c) ? "✓" : "-")).join("");
 assert.deepStrictEqual(Object.keys(ROWS).map((k) => `${k}:${grid(k)}`), [
-  "card:✓✓✓✓✓", "fav:✓✓--✓", "later:✓✓✓✓✓", "history:✓✓✓✓✓", "feed:--✓✓✓", "space:✓✓--✓",
-  "owner:--✓✓-", "video:✓✓✓-✓", "popover:✓✓✓-✓", "popfeed:--✓-✓"
+  "card:✓✓✓✓✓", "popover:✓✓✓-✓", "popfeed:--✓-✓", "video:✓✓✓-✓", "owner:--✓✓-",
+  "fav:✓✓--✓", "later:✓✓✓✓✓", "history:✓✓✓✓✓", "feed:--✓✓✓", "space:✓✓--✓"
 ], "columns: AI 判断, 视频标签, UP 标签, 「+ UP 标签」, 观看进度");
 assert.deepStrictEqual(plain(normalizeOff(["fav.vtags", "fav.ups", "nope.seen", "card.vtags", "card.vtags", 3, null])), ["fav.vtags", "card.vtags"], "only cells that exist, once");
 const all = rulesWith([]);
