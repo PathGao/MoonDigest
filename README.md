@@ -7,7 +7,7 @@
 收藏了却没看的视频，用 AI 帮你读完、整理好，挑出真正要看的。
 
 [![Chrome MV3](https://img.shields.io/badge/Chrome-MV3-4285F4?logo=googlechrome&logoColor=white)](https://developer.chrome.com/docs/extensions/develop/migrate/what-is-mv3)
-[![Version](https://img.shields.io/badge/version-3.5.1-7c6cf2)](extension/manifest.json)
+[![Version](https://img.shields.io/badge/version-3.5.2-7c6cf2)](extension/manifest.json)
 [![Platforms](https://img.shields.io/badge/platforms-Bilibili%20%7C%20YouTube-fb7299)](#功能)
 [![License](https://img.shields.io/badge/license-GPL--3.0-blue)](LICENSE)
 
@@ -107,7 +107,7 @@
 
 #### B站页面上的标记
 
-分拣过的视频，在 B站页面上也能看到结果。视频页标题下面多一行，写着 AI 判断、你的标签和一句话总结。推荐、搜索、收藏夹这些列表里，视频标题前面带一个小标记，比如「AI 值得留」「已保留」「已取消收藏」。虚线框表示只做过标题粗看。不想看到可以在设置页关掉。
+分拣过的视频，在 B站页面上也能看到结果：视频标题前面带你的视频标签，UP 名字后面带 UP 标签。AI 判断（「AI 值得留」「已保留」「已取消收藏」，虚线框表示只做过标题粗看）默认只在分拣台里看，想在 B站页面也看到，在设置页「B站分拣台」里打开；打开后视频页标题下面还多一行一句话总结。设置页那里还有一张表，按页面（首页、顶栏弹窗、动态、视频页、收藏夹、稍后再看、历史、UP 空间）勾选每种标记显示不显示。
 
 <p align="center">
   <img src="docs/images/bili-marks.png" alt="B站视频页：标题下方的 MoonDigest 一行写着 AI 值得留和一句话总结；右侧接下来播放的视频标题前带 AI 值得留、AI 可清理、AI 拿不准标记，封面上有观看进度条和「✓ 看完了」「✓ 看过 83%」「看过 40%」" width="900">
