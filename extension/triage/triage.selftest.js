@@ -976,6 +976,26 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   t.S.query = "";
   assert.strictEqual(t.createTag("新"), null, "no new tag outside a folder");
   assert.ok(manageTags.reason().includes("先打开一个具体收藏夹") && !manageTags.tags().length);
+  // 重复收藏 (所有收藏夹 only, right after 全部): videos in more than one chosen folder; gone at 0 and outside 所有收藏夹.
+  {
+    const isDup = vm.runInContext("isDup", ctx);
+    assert.deepStrictEqual(plain(t.S.items.map(isDup)), [false, false, true]);
+    assert.ok(!isDup(item(9)), "a folder's items have no .folders");
+    Object.assign(t.S, { tab: "none", loadAll: { lists: {}, check: [], checkTotal: 0, queue: [], paused: false, running: false, error: "", partial: 0 } });
+    const r3 = row3();
+    assert.ok(r3.includes('全部 3</button></span><span class="seg" role="group" aria-label="重复收藏">') && r3.includes(">重复收藏 1<"), r3);
+    t.pickState("dup");
+    assert.deepStrictEqual(plain(t.visibleItems().map((it) => it.bvid)), ["BV3"]);
+    t.pickState("all");
+    assert.strictEqual(t.S.dupFilter, false, "全部 clears it");
+    const saved = t.S.items;
+    t.S.items = saved.filter((it) => !isDup(it));
+    assert.ok(!row3().includes("重复收藏"), "none: no chip");
+    t.S.items = saved;
+    t.S.mediaId = "A";
+    assert.ok(!row3().includes("重复收藏"), "not in a single folder");
+    Object.assign(t.S, { mediaId: "all", loadAll: null });
+  }
   // AI 打标签 runs in 所有收藏夹: one chip per name (off = that name in every folder); one part per folder with its own tags
   // and new-tag room, a video in two folders in both; same-name new tags stay apart and go into their own folder.
   {

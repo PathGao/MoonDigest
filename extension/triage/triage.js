@@ -255,6 +255,7 @@ const S = {
   basket: [],
   notes: {},
   finishedFilter: false, // 看完了
+  dupFilter: false, // 所有收藏夹 only: 重复收藏
   aiRecent: {},
   sortBy: {}, // triage_sort
   aiRecentFilter: false, // AI 刚打的
@@ -603,10 +604,14 @@ function kindOf(it) {
   return at ? "out" : it.inFolder === null ? "unfav" : "";
 }
 
+// 重复收藏: in more than one chosen folder (所有收藏夹 only; elsewhere items have no .folders).
+const isDup = (it) => it.folders?.length > 1;
+
 // skip leaves one filter group out, so that group's own counts never hide its siblings: a row-3 group ("seen", "recent",
 // "kind"), "states" (all of row 3) or "tags" (row 4). 已出分拣范围's kind is its tab, never skipped.
 function passFilter(it, skip = "") {
   const on = (g) => skip !== g && (skip !== "states" || g === "tags");
+  if (on("dup") && S.dupFilter && !isDup(it)) return false;
   if (on("seen") && S.finishedFilter && !isFinished(it)) return false;
   if (on("recent") && S.aiRecentFilter && !aiRecentSet().has(it.bvid)) return false;
   if ((S.mediaId === REMOVED || on("kind")) && S.kindFilter && kindOf(it) !== S.kindFilter) return false;
@@ -1066,7 +1071,7 @@ async function openFolder(mediaId) {
   setItems([]);
   S.selected.clear();
   S.tagFilter.clear();
-  S.finishedFilter = false;
+  S.finishedFilter = S.dupFilter = false;
   S.aiRecentFilter = false;
   S.kindFilter = "";
   S.undo = [];
@@ -1848,7 +1853,7 @@ function criteriaBtn() {
 }
 
 // Whether anything in row 3 is on (全部 is pressed when not).
-const statesOn = (t = S.tab) => (S.classFilter[t] && S.classFilter[t] !== "all") || Boolean(S.finishedFilter || S.aiRecentFilter || (S.mediaId !== REMOVED && S.kindFilter));
+const statesOn = (t = S.tab) => (S.classFilter[t] && S.classFilter[t] !== "all") || Boolean(S.finishedFilter || S.dupFilter || S.aiRecentFilter || (S.mediaId !== REMOVED && S.kindFilter));
 // Row 3: what the system knows about each video, in groups split by a thin rule. One pick per group (a second click
 // clears it), groups AND together, and each group counts with its own pick left out. 全部 clears row 3 only. The fixed
 // groups come first (a 0 stays, dimmed); the chips that exist only sometimes (看完了, 已失效, AI 刚打的) go last and
@@ -1861,6 +1866,9 @@ function stateRowHtml(t = S.tab) {
   const cnt = (skip, fn) => base.filter((it) => (skip === "class" || skip === "states" || inClass(it)) && passFilter(it, skip) && fn(it)).length;
   const group = UI.stateGroup;
   const groups = [group("全部", UI.filterBtn("data-states-all", "全部", cnt("states", () => true), !statesOn(t)))];
+  // 所有收藏夹 only, right after 全部 (asked for there); like 已失效 it leaves at 0 unless on.
+  const dupN = S.mediaId === ALL ? cnt("dup", isDup) : 0;
+  if (dupN || S.dupFilter) groups.push(group("重复收藏", UI.filterBtn('data-dupfilter title="只看在几个收藏夹里都有的视频"', "重复收藏", dupN, S.dupFilter)));
   // 未分析 has no AI verdict to filter by. 阅览 also holds decided videos: they leave the AI classes for 已保留.
   if (t !== "none") {
     const classes = [...Object.entries(VERDICTS), ...(t === "read" ? [["kept", "已保留"]] : [])];
@@ -1882,11 +1890,12 @@ function pickState(group, value = "") {
   const t = S.tab;
   if (group === "all") {
     S.classFilter[t] = "all";
-    S.finishedFilter = S.aiRecentFilter = false;
+    S.finishedFilter = S.dupFilter = S.aiRecentFilter = false;
     if (S.mediaId !== REMOVED) S.kindFilter = "";
   } else if (group === "class") S.classFilter[t] = S.classFilter[t] === value ? "all" : value;
   else if (group === "kind") S.kindFilter = S.kindFilter === value ? "" : value;
   else if (group === "seen") S.finishedFilter = !S.finishedFilter;
+  else if (group === "dup") S.dupFilter = !S.dupFilter;
   else if (group === "recent") S.aiRecentFilter = !S.aiRecentFilter;
 }
 
@@ -2104,7 +2113,7 @@ function renderList() {
   if (!list.length) {
     const empty = { none: "没有未分析的视频", coarse: "没有粗看完成的视频", fine: "没有细看完成的视频", done: "还没有处理过的视频" };
     const f = S.classFilter[S.tab];
-    const filtered = S.finishedFilter || S.aiRecentFilter || S.kindFilter || S.tagFilter.size || (f && f !== "all");
+    const filtered = S.finishedFilter || S.dupFilter || S.aiRecentFilter || S.kindFilter || S.tagFilter.size || (f && f !== "all");
     const text = UI.noMatch(S.query, filtered, "视频") || empty[S.tab] || "这里没有视频";
     el.list.innerHTML = `<p class="empty">${text}</p>${recent}`;
     return;
@@ -3881,6 +3890,7 @@ function bindEvents() {
     else if (b.matches("[data-states-all]")) pickState("all");
     else if (b.dataset.classFilter) pickState("class", b.dataset.classFilter);
     else if (b.matches("[data-finishedfilter]")) pickState("seen");
+    else if (b.matches("[data-dupfilter]")) pickState("dup");
     else if (b.dataset.kindfilter) pickState("kind", b.dataset.kindfilter);
     else if (b.matches("[data-airecent]")) pickState("recent");
     else return;
