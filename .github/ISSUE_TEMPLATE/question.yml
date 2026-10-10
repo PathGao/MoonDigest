@@ -1,0 +1,11 @@
+name: 使用问题
+description: 问怎么用 MoonDigest
+labels: [question]
+body:
+  - type: textarea
+    id: question
+    attributes:
+      label: 想做什么？
+      description: 写上已经试过的办法，以及 MoonDigest 版本、浏览器和版本。
+    validations:
+      required: true
