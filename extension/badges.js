@@ -429,6 +429,12 @@
   // The 全部 / per-tag bar above the 动态 list. A pick only adds a class to other UPs' cards, so Bilibili's own tabs,
   // its UP avatar strip and infinite scroll keep working, and newly loaded cards are filtered on the next scan.
   function feedFilter(byEl) {
+    // The bar filters by UP tags: with 动态页's UP tags off in the settings table, it goes too and every card shows.
+    if (!rules.feed.ups) {
+      const hidden = document.querySelectorAll(".mdg-up-hide");
+      const bar = document.querySelector(".mdg-upbar");
+      return bar || hidden.length ? [() => (bar?.remove(), hidden.forEach((n) => n.classList.remove("mdg-up-hide")))] : [];
+    }
     const list = document.querySelector(".bili-dyn-list");
     if (!list) return [];
     const items = [...document.querySelectorAll(".bili-dyn-list__item")];

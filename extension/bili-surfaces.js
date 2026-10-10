@@ -21,7 +21,7 @@
     fav: "收藏夹页",
     later: "稍后再看",
     history: "历史",
-    feed: "动态页",
+    feed: "动态页（UP 标签含筛选条）",
     space: "UP 空间的视频卡",
     owner: "视频页和 UP 空间的 UP 名字",
     video: "视频页右侧推荐",

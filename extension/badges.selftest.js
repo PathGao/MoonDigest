@@ -441,6 +441,22 @@ assert.ok(!biliSaysSeen(h("a", {}, h("div", { class: "bili-cover-card__stats" },
   await settle();
   assert.strictEqual(tagsText(chipAfter(homeAuthor)), "常看游戏", "setting on: back");
 
+  // 动态页's UP tags off in the settings table: the filter bar goes with them and every card shows; on again, back.
+  pick("t1");
+  await settle();
+  assert.ok(hidden().some(Boolean), "a tag picked: some cards hidden");
+  syncVals.biliMarksOff = ["feed.ups"];
+  changed.forEach((f) => f({ biliMarksOff: { newValue: ["feed.ups"] } }, "sync"));
+  await settle();
+  assert.strictEqual(bar(), null, "feed.ups off: no filter bar");
+  assert.deepStrictEqual(hidden(), [false, false, false, false], "feed.ups off: every card shows");
+  syncVals.biliMarksOff = [];
+  changed.forEach((f) => f({ biliMarksOff: { newValue: [] } }, "sync"));
+  await settle();
+  assert.ok(bar(), "feed.ups on: the bar is back");
+  pick("");
+  await settle();
+
   // No UP tags left: chips, bar and hidden cards all go.
   store.follow_tags = [];
   changed.forEach((f) => f({ follow_tags: {} }, "local"));
