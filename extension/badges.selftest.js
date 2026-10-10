@@ -188,7 +188,7 @@ const grid = (k) => Object.keys(COLS).map((c) => (allowed(k, c) ? "✓" : "-")).
 assert.deepStrictEqual(Object.keys(ROWS).map((k) => `${k}:${grid(k)}`), [
   "card:✓✓✓✓✓", "fav:✓✓--✓", "later:✓✓✓✓✓", "history:✓✓✓✓✓", "feed:--✓✓✓", "space:✓✓--✓",
   "owner:--✓✓-", "video:✓✓✓-✓", "popover:✓✓✓-✓", "popfeed:--✓-✓"
-], "columns: AI 判断, 视频标签, UP 标签, 「+ UP 标签」, 看到哪里");
+], "columns: AI 判断, 视频标签, UP 标签, 「+ UP 标签」, 观看进度");
 assert.deepStrictEqual(plain(normalizeOff(["fav.vtags", "fav.ups", "nope.seen", "card.vtags", "card.vtags", 3, null])), ["fav.vtags", "card.vtags"], "only cells that exist, once");
 const all = rulesWith([]);
 assert.ok(Object.keys(SURFACES).every((k) => all[k].ups === allowed(k, "ups") && all[k].seen === allowed(k, "seen")), "nothing off: each surface as offered");

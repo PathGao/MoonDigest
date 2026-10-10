@@ -28,7 +28,7 @@
     popover: "顶栏弹窗（收藏、历史、稍后再看）",
     popfeed: "顶栏动态弹窗"
   };
-  const COLS = { verdict: "AI 判断", vtags: "视频标签", ups: "UP 标签", plus: "「+ UP 标签」", seen: "看到哪里" };
+  const COLS = { verdict: "AI 判断", vtags: "视频标签", ups: "UP 标签", plus: "「+ UP 标签」", seen: "观看进度" };
   // Which cells a surface offers; the others are not for the user to turn on.
   function allowed(key, col) {
     const r = SURFACES[key];
