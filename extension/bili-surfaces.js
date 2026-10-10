@@ -28,7 +28,7 @@
     fav: "收藏夹页",
     later: "稍后再看",
     history: "历史",
-    nick: "UP 空间的 UP 名字",
+    nick: "UP 空间的昵称",
     space: "UP 空间的视频卡"
   };
   const COLS = { verdict: "AI 判断", vtags: "视频标签", ups: "UP 标签", plus: "「+ UP 标签」", seen: "观看进度" };
