@@ -384,7 +384,7 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   assert.strictEqual(st({ decisions: { BVv: { action: "unfav" } } }), "done");
   Object.assign(t.S, { videoTags: {}, tags: [], notes: {} });
 
-  // 细看 batch: first GROUP_SIZE open cards of 粗看完成, or the selected ones; 细看完成 buttons follow the selection too.
+  // 细看 batch: first fineBatchSize() open cards of 粗看完成, or the selected ones; 细看完成 buttons follow the selection too.
   const pool = Array.from({ length: 12 }, (_, i) => item(200 + i));
   openFake("F", pool);
   t.S.titleRes = Object.fromEntries(pool.map((it, i) => [it.bvid, { verdict: i < 10 ? "unsure" : "drop", confidence: "high" }]));
@@ -443,6 +443,13 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   t.renderListHeader(t.visibleItems());
   for (const part of [">全部 12<", ">值得留 3<", ">可清理 3<", ">拿不准 6<"]) assert.ok(t.el.classFilter.innerHTML.includes(part), part);
   assert.ok(t.el.listHeader.innerHTML.includes("细看下一批 10 个"));
+  t.S.settings.triageFineBatchSize = 4;
+  t.renderListHeader(t.visibleItems());
+  assert.ok(t.el.listHeader.innerHTML.includes("细看下一批 4 个"), "细看 batch size comes from the setting");
+  t.S.settings.triageFineBatchSize = 999;
+  assert.strictEqual(t.nextBatch().length, 12, "clamped to 50, so all 12 fit");
+  t.S.settings.triageFineBatchSize = 10;
+  t.renderListHeader(t.visibleItems());
   // AI-starting buttons lead with the sparkle; plain actions do not.
   assert.ok(t.el.listHeader.innerHTML.includes('<span class="ai-spark" aria-hidden="true"></span>细看下一批 10 个</button>'), "细看 carries the AI sparkle");
   assert.ok(t.verdictBadge("BV206", t.verdictOf(pool[6])).includes("低置信"), "low confidence is a badge in 粗看完成");

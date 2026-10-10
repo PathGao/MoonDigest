@@ -505,6 +505,7 @@ async function triageCreatedFolders() {
 const TRIAGE_SETTINGS_DEFAULTS = {
   triageIntervalSec: 8,
   triageTitleBatchSize: 30,
+  triageFineBatchSize: 10,
   triageThinking: false,
   triageTitleMaxTokens: 0,
   triageAnalyzeMaxTokens: 0,
@@ -950,6 +951,7 @@ const TRIAGE_HANDLERS = {
     return {
       triageIntervalSec: Number(s.triageIntervalSec) >= 0 ? Number(s.triageIntervalSec) : TRIAGE_SETTINGS_DEFAULTS.triageIntervalSec,
       triageTitleBatchSize: Number(s.triageTitleBatchSize) > 0 ? Number(s.triageTitleBatchSize) : 30,
+      triageFineBatchSize: Math.max(1, Math.min(50, Math.floor(Number(s.triageFineBatchSize)) || 10)),
       triageThinking: s.triageThinking === true,
       triageTitleMaxTokens: Number(s.triageTitleMaxTokens) > 0 ? Number(s.triageTitleMaxTokens) : 0,
       triageAnalyzeMaxTokens: Number(s.triageAnalyzeMaxTokens) > 0 ? Number(s.triageAnalyzeMaxTokens) : 0,

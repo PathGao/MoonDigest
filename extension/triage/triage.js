@@ -5,7 +5,6 @@ if (!globalThis.chrome?.runtime?.id) await import("./dev/mock-chrome.js");
 const THROTTLE_MS = globalThis.__TRIAGE_THROTTLE_MS || 10 * 60 * 1000;
 // Error code -> [backoff ms, status label]. AI 429s clear far sooner than B站 risk control.
 const THROTTLES = { THROTTLED: [THROTTLE_MS, "B站限流"], AI_THROTTLED: [60 * 1000, "AI 平台限流"] };
-const GROUP_SIZE = 10;
 const SYNC_MIN_GAP_MS = 60 * 1000;
 // Progress tabs: how far a video has been looked at. The AI class is a filter inside a tab, never a tab.
 // 阅览 sits apart after them.
@@ -266,6 +265,7 @@ const S = {
   settings: {
     triageIntervalSec: 8,
     triageTitleBatchSize: 30,
+    triageFineBatchSize: 10, // 细看每批数量, 1–50
     triageThinking: false,
     triageTitleMaxTokens: 0,
     triageAnalyzeMaxTokens: 0,
@@ -345,7 +345,7 @@ const el = {};
   "banner", "bannerText", "bannerBtn", "bannerClose", "syncNotice", "syncText", "syncViewBtn", "syncCloseBtn", "syncDetail",
   "tabs", "stagebar", "sortBox", "classFilter", "tagFilter", "aiTagSlot", "listHeader", "list", "basket", "basketToggle", "basketCount",
   "basketList", "basketClearBtn", "toast", "settingsDialog", "folderToggles", "thinkingRow", "intervalInput",
-  "batchSizeInput", "aiBatchInput", "tagLimitInput", "aiNewTagMaxInput", "aiRemoveTagsInput", "openOptionsBtn", "thinkingInput", "titleMaxInput",
+  "batchSizeInput", "fineBatchInput", "aiBatchInput", "tagLimitInput", "aiNewTagMaxInput", "aiRemoveTagsInput", "openOptionsBtn", "thinkingInput", "titleMaxInput",
   "titleMaxHint", "analyzeMaxInput", "analyzeMaxHint", "settingsError", "csvBtn", "confirmDialog",
   "confirmTitle", "confirmBody", "confirmOk",
   "criteriaDialog", "criteriaTitle", "criteriaInput", "helpDialog",
@@ -688,7 +688,8 @@ const selectedIn = (list) => list.filter((it) => S.selected.has(it.bvid));
 const listed = (list) => list.filter((it) => inTab(it, S.tab) && passFilter(it));
 // What 按新标准重新粗看 / 细看 count and send (细看 one batch at a time).
 const redoCoarseList = () => listed(staleCoarse());
-const redoFineList = () => listed(staleFine()).slice(0, GROUP_SIZE);
+const fineBatchSize = () => Math.max(1, Math.min(50, Math.floor(Number(S.settings.triageFineBatchSize)) || 10));
+const redoFineList = () => listed(staleFine()).slice(0, fineBatchSize());
 // The selection belongs to the open tab (switching tabs clears it). A filter may hide part of it: every action and count
 // takes only what is listed, and the selection bar says how many are hidden.
 const visibleSelected = () => selectedIn(visibleItems());
@@ -705,11 +706,11 @@ function stageCounts() {
 // The earliest step that still has videos.
 const currentStage = (c) => STAGES.find(([k]) => c[k])?.[0] || "none";
 
-// The 细看 batch: the first GROUP_SIZE selected cards of 粗看完成, otherwise its first GROUP_SIZE, 拿不准 / low confidence first.
+// The 细看 batch: the first fineBatchSize() selected cards of 粗看完成, otherwise its first fineBatchSize(), 拿不准 / low confidence first.
 function nextBatch() {
   const open = S.items.filter((it) => inTab(it, "coarse") && passFilter(it) && needsAnalysis(it.bvid));
   const sel = selectedIn(open);
-  return (sel.length ? sel : open.sort((x, y) => unsureFirst(x) - unsureFirst(y))).slice(0, GROUP_SIZE).map((it) => it.bvid);
+  return (sel.length ? sel : open.sort((x, y) => unsureFirst(x) - unsureFirst(y))).slice(0, fineBatchSize()).map((it) => it.bvid);
 }
 
 // ---------- init ----------
@@ -3885,6 +3886,7 @@ function bindEvents() {
     const patch = {
       triageIntervalSec: Math.max(0, Number(el.intervalInput.value) || 0),
       triageTitleBatchSize: Math.max(1, Math.min(100, Number(el.batchSizeInput.value) || 30)),
+      triageFineBatchSize: Math.max(1, Math.min(50, Math.floor(Number(el.fineBatchInput.value)) || 10)),
       triageThinking: el.thinkingInput.checked,
       triageTitleMaxTokens: parseMaxTokens(el.titleMaxInput.value),
       triageAnalyzeMaxTokens: parseMaxTokens(el.analyzeMaxInput.value),
@@ -4023,6 +4025,7 @@ function openSettings(scrollToLimits = false, firstRun = false) {
   el.thinkingRow.hidden = !hasThinkingToggle();
   el.intervalInput.value = S.settings.triageIntervalSec ?? 8;
   el.batchSizeInput.value = S.settings.triageTitleBatchSize ?? 30;
+  el.fineBatchInput.value = fineBatchSize();
   el.aiBatchInput.value = aiBatchSize();
   el.thinkingInput.checked = Boolean(S.settings.triageThinking);
   el.titleMaxInput.value = S.settings.triageTitleMaxTokens || "";
