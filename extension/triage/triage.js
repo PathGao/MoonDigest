@@ -1868,7 +1868,7 @@ function stateRowHtml(t = S.tab) {
   const groups = [group("全部", UI.filterBtn("data-states-all", "全部", cnt("states", () => true), !statesOn(t)))];
   // 所有收藏夹 only, right after 全部 (asked for there); like 已失效 it leaves at 0 unless on.
   const dupN = S.mediaId === ALL ? cnt("dup", isDup) : 0;
-  if (dupN || S.dupFilter) groups.push(group("重复收藏", UI.filterBtn('data-dupfilter title="只看在几个收藏夹里都有的视频"', "重复收藏", dupN, S.dupFilter)));
+  if (dupN || S.dupFilter) groups.push(group("重复收藏", UI.filterBtn('data-dupfilter title="只看同时在两个以上收藏夹里的视频"', "重复收藏", dupN, S.dupFilter)));
   // 未分析 has no AI verdict to filter by. 阅览 also holds decided videos: they leave the AI classes for 已保留.
   if (t !== "none") {
     const classes = [...Object.entries(VERDICTS), ...(t === "read" ? [["kept", "已保留"]] : [])];
@@ -2509,7 +2509,7 @@ async function pickBatchUnfavFolders(list) {
   const boxes = ids
     .map((f) => `<label class="toggle"><input type="checkbox" value="${esc(f)}" checked /> 「${esc(folderName(f))}」· ${list.filter((it) => it.folders.includes(f)).length} 个</label>`)
     .join("");
-  const ask = askConfirm(`在 B站取消收藏这 ${list.length} 个视频？`, `<p>从勾选的收藏夹取消收藏；在几个收藏夹里的视频，每个勾选的都取消。</p>${boxes}${UI.confirmList(list.map((it) => it.title))}`, `取消收藏 ${list.length} 个`, { danger: true });
+  const ask = askConfirm(`在 B站取消收藏这 ${list.length} 个视频？`, `<p>从勾选的收藏夹取消收藏。重复收藏的视频，从每个勾选的收藏夹都取消。</p>${boxes}${UI.confirmList(list.map((it) => it.title))}`, `取消收藏 ${list.length} 个`, { danger: true });
   const checked = () => [...el.confirmBody.querySelectorAll("input:checked")].map((x) => x.value);
   el.confirmBody.onchange = () => {
     const n = list.filter((it) => it.folders.some((f) => checked().includes(f))).length;
@@ -2968,7 +2968,7 @@ async function askAllCriteria(title, verb, items) {
     .filter((id) => n.has(id))
     .map((id, i) => `<div class="crit-row"><label for="critAll${i}">「${esc(folderName(id))}」· ${n.get(id)} 个</label><textarea id="critAll${i}" rows="2" data-crit="${esc(id)}" placeholder="还没写判断标准，AI 按收藏夹名和简介推测">${esc(criteriaFor(id))}</textarea></div>`)
     .join("");
-  const ok = await askConfirm(title, `<p>每个视频按它所在收藏夹的判断标准判断。</p><p>在几个收藏夹里的，按排在最前的那个。</p>${rows}`, `开始${verb} ${items.length} 个`);
+  const ok = await askConfirm(title, `<p>每个视频按它所在收藏夹的判断标准判断。</p><p>重复收藏的视频，按收藏夹列表里排最前的那个。</p>${rows}`, `开始${verb} ${items.length} 个`);
   if (!ok) return false;
   for (const box of el.confirmBody.querySelectorAll("[data-crit]")) setCriteria(box.dataset.crit, box.value);
   storeSet(K.folderCriteria, S.folderCriteria);
@@ -3257,7 +3257,7 @@ function aiScopeText(scope) {
   if (S.mediaId !== ALL) return `${n} 个视频：${parts.join("，")}。分 ${Math.ceil(n / size)} 批发送`;
   const folders = aiParts(items);
   const batches = folders.reduce((sum, p) => sum + Math.ceil(p.items.length / size), 0);
-  return `${n} 个视频：${parts.join("，")}。按收藏夹分开打，各用各的标签（在几个收藏夹里的视频每个都打），${folders.length} 个收藏夹共 ${batches} 批发送`;
+  return `${n} 个视频：${parts.join("，")}。按收藏夹分开打，各用各的标签（重复收藏的视频在每个收藏夹各打一次），${folders.length} 个收藏夹共 ${batches} 批发送`;
 }
 
 function aiRoomHint() {
