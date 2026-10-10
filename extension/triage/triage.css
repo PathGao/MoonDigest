@@ -66,7 +66,7 @@ select { height: 28px; max-width: 240px; }
 .search:focus-within .search-key, .search:has(input:not(:placeholder-shown)) .search-key { display: none; }
 
 /* The head's buttons (刷新, 导出, 全选, 判断标准, 标签管理, ✦ AI 打标签): no border, gray icon and word, as tall as the
-   search box; only the step's .primary is filled (DESIGN §2). */
+   search box; only the step's .primary is filled (DESIGN 视觉设计 · 控件). */
 .act-btn { display: inline-flex; align-items: center; gap: 6px; flex: none; height: 28px; padding: 0 8px; border-color: transparent; background: none; color: var(--text-2); white-space: nowrap; }
 .act-btn:hover { background: var(--field-bg); color: var(--text); }
 .act-btn svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
@@ -74,7 +74,7 @@ select { height: 28px; max-width: 240px; }
 .act-btn.gear-only { display: none; width: 28px; padding: 0; justify-content: center; }
 
 /* Whatever is running (粗看, 细看, unfavorite batch, loading, refresh, tag AI, a wait) shows here on every tab. */
-/* What is running: gray (blue is for the next step, DESIGN §1); a wait turns it amber. */
+/* What is running: gray (blue is for the next step, DESIGN 视觉设计 · 颜色); a wait turns it amber. */
 .activity { display: inline-flex; align-items: center; gap: 8px; height: 28px; padding: 0 4px 0 12px; border: 1px solid var(--border-strong); border-radius: 15px; background: var(--surface-muted); color: var(--text-2); font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .activity[hidden] { display: none; }
 .activity:not(:has(button)) { padding-right: 12px; }
@@ -157,7 +157,7 @@ select { height: 28px; max-width: 240px; }
   text-align: left;
 }
 .side-item:hover { background: var(--surface-muted); }
-/* Where you are: the pink marker (DESIGN §1), text stays --text. */
+/* Where you are: the pink marker (DESIGN 视觉设计 · 颜色), text stays --text. */
 .side-item.on { background: var(--surface-muted); color: var(--text); font-weight: 600; box-shadow: inset 3px 0 0 var(--accent); }
 .side-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .side-count { color: var(--faint); font-size: var(--fs-xs); font-variant-numeric: tabular-nums; }
@@ -192,7 +192,7 @@ select { height: 28px; max-width: 240px; }
 .tagbar { grid-area: tagbar; }
 .list, .fw-list { grid-area: list; }
 .viewer, .viewer-close { grid-area: viewer; }
-/* Headroom (DESIGN §3, shared.js headroom): the list and the viewer start at the grid's top. The list scrolls under the
+/* Headroom (DESIGN 视觉设计 · 分拣台, shared.js headroom): the list and the viewer start at the grid's top. The list scrolls under the
    rows, which carry the page background, so folding them is only a transform and the cards never move. Folded: rows 1, 3
    and 4 fade out, row 2 slides up by row 1's height and gets 「名字 · 数量」 in front; the viewer starts under what shows.
    --head-h (all rows), --head1-h (row 1) and --slim-h (row 2) are measured. */
@@ -201,7 +201,7 @@ select { height: 28px; max-width: 240px; }
 .list, .fw-list, .viewer, .viewer-close { grid-row-start: head-start; }
 .list, .fw-list { z-index: -1; scroll-padding-top: calc(var(--head-h, 0px) + 8px); }
 .folder-head, .tabrow, .stagebar, .tagbar { background: var(--bg); transition: transform 0.15s, opacity 0.15s, visibility 0.15s; }
-/* The four rows read as one white card (DESIGN §3). Each row draws its slice in ::before over the page background, so
+/* The four rows read as one white card (DESIGN 视觉设计 · 分拣台). Each row draws its slice in ::before over the page background, so
    the rounded corners never show the list scrolling underneath; the rules between rows are the slices' bottom edges. */
 .folder-head, .tabrow, .stagebar, .tagbar { position: relative; isolation: isolate; padding-left: 16px; padding-right: 16px; }
 :is(.folder-head, .tabrow, .stagebar, .tagbar)::before { content: ""; position: absolute; inset: 0; z-index: -1; border: 1px solid var(--border); border-width: 0 1px; background: var(--surface); }
@@ -383,7 +383,7 @@ select { height: 28px; max-width: 240px; }
    Bilibili's. html[data-seen-style] picks the corner tag or the veil (设置页「看完了标记样式」). */
 .seen-bar { position: absolute; left: 0; right: 0; bottom: 0; z-index: 2; height: 3px; background: rgba(0, 0, 0, 0.5); pointer-events: none; }
 .seen-bar i { display: block; height: 100%; background: #ff6699; }
-/* The bar copies B站's own progress bar (pink on 50% black), as on B站 pages. 看完了 is gray (DESIGN §1: pink is 你在哪),
+/* The bar copies B站's own progress bar (pink on 50% black), as on B站 pages. 看完了 is gray (DESIGN 视觉设计 · 颜色: pink is 你在哪),
    the same dark gray as badges.css. */
 .seen-tag { position: absolute; top: 6px; right: 6px; z-index: 1; padding: 1px 6px; border-radius: 4px; background: rgba(17, 17, 27, 0.78); color: #fff; font-size: var(--fs-xs); font-weight: 600; line-height: 18px; white-space: nowrap; pointer-events: none; }
 .seen-veil { position: absolute; inset: 0; z-index: 1; display: none; align-items: center; justify-content: center; background: rgba(17, 17, 27, 0.55); color: #fff; font-size: var(--fs-sm); font-weight: 700; pointer-events: none; }
@@ -513,7 +513,7 @@ button.icon { width: 26px; height: 24px; padding: 0; }
 .chip.invalid { --c: var(--danger); color: var(--danger); }
 .chips { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
 /* A tag on a card or the viewer line: one look everywhere, a small pill in the tag's color (border and tint) with
-   --text on it. The tag color never colors text (DESIGN §1). */
+   --text on it. The tag color never colors text (DESIGN 视觉设计 · 颜色). */
 .card-body > .chips .chip, .fw-video .chip, .viewer-line .chip { height: 20px; padding: 0 6px; border: 1px solid color-mix(in srgb, var(--c) 60%, transparent); border-radius: var(--radius-pill); background: color-mix(in srgb, var(--c) 12%, transparent); color: var(--text); }
 
 .key { font: inherit; margin-left: 4px; opacity: 0.7; }

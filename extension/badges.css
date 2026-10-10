@@ -1,7 +1,7 @@
 /* Injected into bilibili.com; every selector is mdg-prefixed. Neutrals use Bilibili's own theme variables (--bg1, --text1...), so they follow its dark theme.
    Bilibili's header popups set `.bili-header span { color: inherit }` and `.bili-header * { margin: 0; padding: 0 }`,
    so what shows there (badges, cover marks) needs a selector above one class plus one tag. */
-/* Every group MoonDigest adds starts with a 2px purple rule (DESIGN §1: 紫 = MoonDigest 在 B站 页面上加的东西); B站's and
+/* Every group MoonDigest adds starts with a 2px purple rule (DESIGN 视觉设计 · 颜色: 紫 = MoonDigest 在 B站 页面上加的东西); B站's and
    BewlyCat's own tags never have it. A group shows the chips that fit and 「+N」 for the rest (badges.js fitBoxes): its
    chips wrap, so the narrowest it gets is one chip and it never widens a card; fitBoxes hides what lands past row one.
    display is !important: B站's card rules turn our spans into blocks otherwise. */
@@ -35,7 +35,7 @@ span.mdg-badge.mdg-above { display: flex !important; max-width: 100%; margin: 0 
   font-style: normal;
   text-indent: 0;
 }
-/* AI's verdict: tinted (a suggestion). Your own decision: solid (done). Same meaning, same color (§1). */
+/* AI's verdict: tinted (a suggestion). Your own decision: solid (done). Same meaning, same color (DESIGN 视觉设计 · 颜色). */
 .mdg-badge .mdg-keep { color: #3a6f2e; background: rgba(75, 144, 59, 0.14); }
 .mdg-badge .mdg-drop { color: #b52a48; background: rgba(183, 42, 73, 0.12); }
 .mdg-badge .mdg-unsure { color: #a04b1a; background: rgba(196, 138, 56, 0.16); }
@@ -111,7 +111,7 @@ html.bili_dark .mdg-brand { color: #cba6f7; }
 html.bili_dark span.mdg-badge { border-left-color: #cba6f7; }
 
 /* 观看进度 on covers: the bar is Bilibili's own progress bar look (3px, #ff6699 on 50% black), so it reads as B站's.
-   The ✓ mark is gray (§1: pink means 你在哪, and 看完了 is neither that nor a judgment); bold and ✓ set it apart from the
+   The ✓ mark is gray (DESIGN 视觉设计 · 颜色: pink means 你在哪, and 看完了 is neither that nor a judgment); bold and ✓ set it apart from the
    faint 看到 N%. */
 .mdg-seen-host { position: relative; }
 .mdg-seen { position: absolute; inset: 0; z-index: 3; pointer-events: none; overflow: hidden; border-radius: inherit; }

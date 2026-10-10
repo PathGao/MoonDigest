@@ -900,7 +900,7 @@ input { box-sizing: border-box; width: 100%; margin: 0; padding: 4px 8px; border
     return el;
   }
 
-  // ---- Fitting: a group shows as many whole chips as its room holds, then 「+N」 (DESIGN §8). Measured after layout,
+  // ---- Fitting: a group shows as many whole chips as its room holds, then 「+N」 (DESIGN 视觉设计 · B站 页面上的标记). Measured after layout,
   // again when a box's container changes size (BewlyCat's grid, a resized window) and when a box is redrawn.
   // The box wraps its chips (badges.css), so its narrowest size is one chip and it never widens a card; laid out with
   // every chip, it is as wide as the room it has, and fitCount picks from there. ----

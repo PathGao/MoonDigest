@@ -77,13 +77,13 @@ for (const [selector, prop, token, theme] of BADGE_TOKENS) {
   assert.strictEqual(declOf(selector, prop), tokensOf[theme].get(token).toLowerCase(), `badges.css ${selector} ${prop} = ${theme} ${token}`);
 }
 
-// 看完了 is not 你在哪 (§1): the cover mark must not be the pink --accent.
+// 看完了 is not 你在哪 (DESIGN 视觉设计 · 颜色): the cover mark must not be the pink --accent.
 assert.notStrictEqual(declOf(".mdg-seen .mdg-seen-mark", "background"), tokenRules[0].vars.get("--accent").toLowerCase(), "the ✓ 看完了 mark is not pink");
 // The 分拣台's own 看完了 tag: the same gray, never pink (the --accent token or its value).
 const seenTag = rules(read("triage/triage.css")).find((r) => r.selector === ".seen-tag").body.match(/(?:^|;)\s*background\s*:\s*([^;]+)/)[1].trim().toLowerCase();
 assert.ok(!/var\(--accent\)|#ff6699/.test(seenTag), "the 分拣台's 看完了 tag is not pink");
 assert.strictEqual(seenTag, declOf(".mdg-seen .mdg-seen-mark", "background"), "and matches the B站 pages' mark");
-// 已取消收藏 (your decision) and AI 可清理 (a suggestion) share §1's red but not a look: one is solid, one tinted.
+// 已取消收藏 (your decision) and AI 可清理 (a suggestion) share DESIGN 视觉设计 · 颜色's red but not a look: one is solid, one tinted.
 assert.notStrictEqual(declOf(".mdg-badge .mdg-act-unfav", "background"), declOf(".mdg-badge .mdg-drop", "background"));
 
 console.log("content-tokens selftest passed");

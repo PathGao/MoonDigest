@@ -310,7 +310,7 @@
     });
   }
 
-  // One sidebar entry: pre (thumb, ★), the name, the count (dimmed at 0 as every filter's, DESIGN §4; none when null).
+  // One sidebar entry: pre (thumb, ★), the name, the count (dimmed at 0 as every filter's, DESIGN 产品决策 · 筛选和计数; none when null).
   const sideItem = ({ attrs, label, count = null, on, pre = "" }) =>
     `<button type="button" class="side-item${on ? " on" : ""}${count === 0 ? " zero" : ""}" ${attrs}${on ? ' aria-current="true"' : ""}>${pre}<span class="side-name">${esc(label)}</span>${count == null ? "" : `<span class="side-count">${count}</span>`}</button>`;
   // The sidebar's foot: the mode's own settings.
@@ -397,7 +397,7 @@
   const emptyState = (title, text, actionHtml = "") =>
     `<div class="empty-state"><p><strong>${esc(title)}</strong></p>${text ? `<p class="dialog-hint">${esc(text)}</p>` : ""}${actionHtml}</div>`;
 
-  // 刷新 in an empty state: a plain button, since row 3 keeps the page's one .primary (DESIGN §1).
+  // 刷新 in an empty state: a plain button, since row 3 keeps the page's one .primary (DESIGN 视觉设计 · 颜色).
   const refreshEmpty = (attrs) => `<button type="button" ${attrs}>${ICON.refresh}刷新</button>`;
   // Why a list with items shows none: the search (q), else the filters (filtered); "" when it is neither.
   const noMatch = (q, filtered, who) => (String(q ?? "").trim() ? `没有匹配搜索的${sp(who)}` : filtered ? `没有符合筛选的${sp(who)}` : "");
@@ -528,7 +528,7 @@
     return [...tally.values()].sort((a, b) => (a.cls === "remove") - (b.cls === "remove") || b.n - a.n);
   }
 
-  // Headroom (DESIGN §3): reading down folds rows 1–4 into the slim bar (name · count, row 2); any scroll back up, the
+  // Headroom (DESIGN 视觉设计 · 分拣台): reading down folds rows 1–4 into the slim bar (name · count, row 2); any scroll back up, the
   // top, or focus in the header brings them back. s = { collapsed, last }; ev = { top, full } on a scroll of the list
   // (full: the whole header's height) or { focus: true }. last moves only on a step of HEADROOM_MIN px or more, so a slow
   // scroll still counts and jitter does not.

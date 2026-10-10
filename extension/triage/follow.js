@@ -3,7 +3,7 @@
 // into #followSide and #followMain (the same grid areas as the folder view, so the shared viewer sits beside the list).
 // Data comes from follow-bg.js through follow_* storage and the follow-* messages (see follow-port-contract.md).
 // Tags live only in this extension (follow_tags / follow_tag_map). B站 writes: 取消关注, 重新关注 and the 关注分组 (新建, 改名,
-// 删除, 移到 / 复制到, ★ 特别关注 which is group -10), see DESIGN §5 for what asks first and what U undoes.
+// 删除, 移到 / 复制到, ★ 特别关注 which is group -10), see DESIGN 产品决策 · 改 B站 的操作和撤销 for what asks first and what U undoes.
 import "./triage.js"; // runs first: it sets up the page and globalThis.MoonTriage (viewer, toast, confirm dialog)
 
 // ---------- pure: follow.selftest.js lifts everything between these markers ----------
@@ -938,7 +938,7 @@ async function refollow(mids) {
   const ok = await askConfirm(`在 B站重新关注 ${mids.length} 个 UP 主？`, `${names(mids)}<p class="dialog-hint">原来的标签会放回去。</p>`, `重新关注 ${mids.length} 个`);
   if (ok) await relationRun(perUp(mids, (mid) => ({ type: "follow-relation", mid, act: 1 })), "重新关注");
 }
-// ---------- 关注分组 on B站 (DESIGN §5) ----------
+// ---------- 关注分组 on B站 (DESIGN 产品决策 · 改 B站 的操作和撤销) ----------
 // mids from the groups they are in now to want(mid), as one undo step that puts back the groups they had (U on 2+ asks
 // first). Only what B站 confirmed is undone; a request with no answer is neither kept here nor undone (its toast says
 // to look after a 刷新). Returns { done: the UP 主 that changed, ok: no request failed }.
