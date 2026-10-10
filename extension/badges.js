@@ -199,12 +199,22 @@
     return -1;
   }
 
+  // What a video's mark shows under `on` (a surface's rule, or the two switches for the video page's line under the
+  // title): the AI's verdict and its one-liner, your tags. Null when neither has anything to say.
+  function lineParts(info, { verdict, vtags }) {
+    const tags = vtags ? info.tags : [];
+    const label = verdict ? info.label : "";
+    if (!label && !tags.length) return null;
+    const aria = label ? info.aria : `MoonDigest 分拣，标签：${tags.map((t) => t.name).join("、")}`;
+    return { info: { ...info, label, aria }, tags, text: verdict ? info.oneLiner || info.reason : "" };
+  }
+
   // B站's own 稍后再看 / 历史 cards say 已看完 on the cover; ours would say it twice.
   const biliSaysSeen = (a) => [...a.querySelectorAll(".bili-cover-card__stat")].some((n) => n.textContent.trim() === "已看完");
 
   globalThis.BocBadges = {
     bvidFromHref, badgeInfo, mergeDecisions, midFromHref, upTagsOf, firstText, spotIn, upCounts, upHidden,
-    faceKey, whoIndex, resolveMid, pickRows, applyUpTag, saveUpTag, SURFACES, surfaceOf, fitCount, biliSaysSeen
+    faceKey, whoIndex, resolveMid, pickRows, applyUpTag, saveUpTag, SURFACES, surfaceOf, fitCount, biliSaysSeen, lineParts
   };
   if (typeof chrome === "undefined" || !chrome.storage?.local || typeof document === "undefined") return;
   const surface = surfaceOf({
@@ -228,6 +238,7 @@
   // 观看进度 on covers has its own setting (设置页「观看进度」, off by default); it or the triage marks turn the page scan on.
   const SEEN_DEFAULTS = { seenShow: "off", seenThreshold: 80, seenStyle: "badge" };
   let triageOn = false;
+  let lineOn = { verdict: false, vtags: true }; // the video page's line: the AI 判断 and 视频标签 switches
   let seenCfg = { on: false, bar: false, mark: false, threshold: 80, style: "badge" };
   const seenCache = new Map(); // bvid -> percent | 0
   const SEL = 'a[href*="/video/BV"], a[href*="bvid=BV"]';
@@ -833,12 +844,10 @@ input { box-sizing: border-box; width: 100%; margin: 0; padding: 4px 8px; border
     const old = above ? (prev?.nodeType === 1 && prev.classList.contains("mdg-badge") ? prev : null) : a.querySelector(".mdg-badge");
     if (old && old.dataset.bvid === b && info) return;
     old?.remove();
-    if (!info) return;
-    const tags = rule.vtags ? info.tags : [];
-    const label = rule.verdict ? info.label : "";
     // Nothing this page shows (a tagged video without a verdict in a popover): no mark at all.
-    if (!label && !tags.length) return;
-    const badge = badgeEl(label ? info : { ...info, label, aria: `MoonDigest 分拣，标签：${tags.map((t) => t.name).join("、")}` }, b, tags);
+    const parts = info && lineParts(info, rule);
+    if (!parts) return;
+    const badge = badgeEl(parts.info, b, parts.tags);
     if (above) {
       badge.classList.add("mdg-above");
       return () => above.before(badge);
@@ -961,7 +970,8 @@ input { box-sizing: border-box; width: 100%; margin: 0; padding: 4px 8px; border
     const info = cache.get(bvid);
     if (old && old.dataset.bvid === bvid && info) return;
     old?.remove();
-    if (!info) return;
+    const parts = info && lineParts(info, lineOn);
+    if (!parts) return;
     // Below the views / danmaku / date row; the title alone when that row isn't there.
     const anchor = document.querySelector(".video-info-meta") || document.querySelector(".video-info-title") || document.querySelector("h1.video-title");
     if (!anchor) return;
@@ -971,8 +981,8 @@ input { box-sizing: border-box; width: 100%; margin: 0; padding: 4px 8px; border
     const brand = document.createElement("span");
     brand.className = "mdg-brand";
     brand.textContent = "MoonDigest";
-    line.append(brand, badgeEl(info, bvid, info.tags));
-    const text = info.oneLiner || info.reason;
+    line.append(brand, badgeEl(parts.info, bvid, parts.tags));
+    const text = parts.text;
     if (text) {
       const s = document.createElement("span");
       s.className = "mdg-one";
@@ -1066,6 +1076,7 @@ input { box-sizing: border-box; width: 100%; margin: 0; padding: 4px 8px; border
   function applySettings(v) {
     const verdicts = v[VERDICT_SETTING] === true;
     const tags = v[SETTING] !== false;
+    lineOn = { verdict: verdicts, vtags: tags };
     rules = globalThis.BocSurfaces.rulesWith(v.biliMarksOff, [!verdicts && "verdict", !tags && "vtags"].filter(Boolean));
     triageOn = verdicts || tags;
     const before = seenCfg.on;

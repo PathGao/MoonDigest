@@ -9,7 +9,7 @@ const tagCoreJs = fs.readFileSync(path.join(__dirname, "tag-core.js"), "utf8");
 const badgesJs = fs.readFileSync(path.join(__dirname, "typing.js"), "utf8") + tagCoreJs + fs.readFileSync(path.join(__dirname, "bili-surfaces.js"), "utf8") + fs.readFileSync(path.join(__dirname, "badges.js"), "utf8");
 const ctx = vm.createContext({ URLSearchParams });
 vm.runInContext(badgesJs, ctx);
-const { bvidFromHref, badgeInfo, mergeDecisions } = ctx.BocBadges;
+const { bvidFromHref, badgeInfo, mergeDecisions, lineParts } = ctx.BocBadges;
 const plain = (v) => JSON.parse(JSON.stringify(v));
 
 assert.strictEqual(bvidFromHref("//www.bilibili.com/video/BV1GJ411x7h7?spm_id_from=333"), "BV1GJ411x7h7");
@@ -42,6 +42,16 @@ const s2 = badgeInfo({ title: { verdict: "drop", reason: "x", confidence: "high"
 assert.strictEqual(s2.label, "AI 值得留", "stage 2 beats stage 1");
 assert.strictEqual(s2.stage, 2);
 assert.strictEqual(s2.oneLiner, "讲 Rust 所有权");
+// The video page's line and every mark follow the switches: AI 判断 brings the verdict and the one-liner, 视频标签 the tags.
+{
+  const info = badgeInfo({ analysis, tagIds: ["t"], tags: [{ id: "t", name: "Rust" }] });
+  const show = (on) => { const p = lineParts(info, on); return p && [p.info.label, p.tags.map((t) => t.name).join(), p.text]; };
+  assert.deepStrictEqual(plain(show({ verdict: true, vtags: true })), ["AI 值得留", "Rust", "讲 Rust 所有权"]);
+  assert.deepStrictEqual(plain(show({ verdict: false, vtags: true })), ["", "Rust", ""], "AI 判断 off: no verdict, no AI one-liner");
+  assert.deepStrictEqual(plain(show({ verdict: true, vtags: false })), ["AI 值得留", "", "讲 Rust 所有权"]);
+  assert.strictEqual(show({ verdict: false, vtags: false }), null, "both off: no line");
+  assert.ok(!lineParts(info, { verdict: false, vtags: true }).info.aria.includes("AI"), "the label read aloud says no verdict either");
+}
 assert.deepStrictEqual(plain(s2.points), ["a", "b"]);
 
 const tags = [{ id: "t1", name: "Rust", color: "#f60" }];
