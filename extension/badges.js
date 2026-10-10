@@ -176,7 +176,7 @@
 
   // ---- What each kind of B站 page shows (DESIGN §8). vtags: video tags after the AI verdict; ups: UP tags after
   // author names; plus: when 「+ UP 标签」 shows; above: video marks get their own line above the title; quiet: covers
-  // keep the progress bar and the ✓ mark only; bare: the progress bar only. ----
+  // keep the progress bar and the ✓ mark only; tight: small covers, so 看到 N% drops its ✓. ----
   const SURFACES = {
     card: { vtags: true, ups: true, plus: "hover" }, // home and search (B站 and BewlyCat)
     fav: { vtags: true, ups: false, plus: "", above: true },
@@ -184,7 +184,7 @@
     feed: { vtags: false, ups: true, plus: "hover" }, // 动态
     space: { vtags: true, ups: false, plus: "", quiet: true }, // the owner's nickname is `owner`
     video: { vtags: false, ups: false, plus: "" }, // recommendations and lists beside a video
-    popover: { vtags: false, ups: false, plus: "", bare: true }, // header popovers (B站 and BewlyCat)
+    popover: { vtags: false, ups: true, plus: "", tight: true }, // header popovers (B站 and BewlyCat)
     owner: { vtags: false, ups: true, plus: "always" } // the video page's UP name, a space page's nickname
   };
   // "" in the 分拣台's own player, which already shows both tag lines above it.
@@ -782,8 +782,8 @@ input { box-sizing: border-box; width: 100%; margin: 0; padding: 4px 8px; border
     const rule = ruleFor(a);
     const known = seenCfg.on ? seenCache.get(b) || 0 : 0;
     const pct = seenCfg.bar ? known : 0;
-    // Popovers get the bar only. Where B站 itself says 已看完, ours would say it twice.
-    const mark = seenCfg.mark && !rule.bare;
+    // Where B站 itself says 已看完, ours would say it twice.
+    const mark = seenCfg.mark;
     const seen = mark && known >= seenCfg.threshold && !biliSaysSeen(a);
     // Below the share, a faint 看到 N% says how far it got; not on 稍后再看 / 历史 / UP 空间, where it covered most covers.
     const faint = mark && !rule.quiet && known > 0 && known < seenCfg.threshold;
@@ -800,7 +800,7 @@ input { box-sizing: border-box; width: 100%; margin: 0; padding: 4px 8px; border
     box.className = `mdg-seen mdg-seen-${style}`;
     box.dataset.key = key;
     // 100% reads 看完了, otherwise 看到 N%; ✓ (and the strong look) means it counts as 看完了.
-    const words = known >= 100 ? "✓ 看完了" : seen ? `✓ 看到 ${known}%` : `看到 ${known}%`;
+    const words = known >= 100 ? "✓ 看完了" : seen && !rule.tight ? `✓ 看到 ${known}%` : `看到 ${known}%`;
     if (seen || faint) box.append(Object.assign(document.createElement("span"), { className: `mdg-seen-mark${faint ? " mdg-faint" : ""}`, textContent: words }));
     // Bilibili's history and 稍后再看 cards draw this bar themselves.
     if (pct && !host.querySelector(".bili-cover-card__progress")) {

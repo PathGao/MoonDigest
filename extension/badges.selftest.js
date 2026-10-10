@@ -175,9 +175,9 @@ assert.strictEqual(where("https://space.bilibili.com/2773586"), "space");
 assert.strictEqual(where("https://space.bilibili.com/2773586/video"), "space");
 const show = (k) => { const r = SURFACES[k]; return `${r.vtags ? "V" : "-"}${r.ups ? "U" : "-"}${r.plus[0] || "-"}${r.above ? "^" : ""}`; };
 assert.deepStrictEqual(Object.keys(SURFACES).map((k) => `${k}:${show(k)}`), [
-  "card:VUh", "fav:V--^", "later:VUh", "feed:-Uh", "space:V--", "video:---", "popover:---", "owner:-Ua"
-], "the approved matrix: popovers and recommendations show the verdict only, 收藏夹 no UP tags, owner names always offer 「+ UP 标签」");
-assert.ok(SURFACES.popover.bare && SURFACES.later.quiet && SURFACES.space.quiet, "popovers: bar only; 稍后再看 / 历史 / UP 空间: no faint 看到 N%, no veil");
+  "card:VUh", "fav:V--^", "later:VUh", "feed:-Uh", "space:V--", "video:---", "popover:-U-", "owner:-Ua"
+], "the approved matrix: popovers show the verdict and UP tags, recommendations the verdict only, 收藏夹 no UP tags, owner names always offer 「+ UP 标签」");
+assert.ok(SURFACES.popover.tight && SURFACES.later.quiet && SURFACES.space.quiet, "popovers: 看到 N% without ✓; 稍后再看 / 历史 / UP 空间: no faint 看到 N%, no veil");
 
 // Fitting by width, not count: as many whole chips as fit, then 「+N」; -1 rather than an empty marker.
 assert.strictEqual(fitCount([30, 30, 30], 96, { gap: 3 }), 3, "exactly fitting: 30+3+30+3+30 = 96, no 「+N」");
@@ -643,15 +643,16 @@ async function surfacePages() {
   const viewer = await page({ hostname: "www.bilibili.com", pathname: "/video/BV1GJ411x7h7" }, h("body", {}, author()), true);
   assert.deepStrictEqual([viewer.reads.length, viewer.listen.length, viewer.doc.querySelectorAll(".mdg-ups").length], [0, 0, 0], "player iframe: no reads, no listeners, no marks");
 
-  // Home: a card's author gets its UP tags; the same author in a header popover gets nothing.
+  // Home: a card's author gets its UP tags and 「+」; the same author in a header popover gets the tags, no 「+」.
   const inPop = author();
   const onCard = author();
   const home = await page({ hostname: "www.bilibili.com", pathname: "/" }, h("body", {}, h("div", { class: "bew-popover" }, inPop), onCard));
   const boxAfter = (a) => a.querySelector(".mdg-ups");
   assert.ok(boxAfter(onCard), "home card: UP tags");
   assert.ok(boxAfter(onCard).classList.contains("mdg-plus-hover"), "home card: 「+ UP 标签」 on hover");
-  assert.strictEqual(boxAfter(inPop), null, "header popover: no UP tags, no 「+」 (so no orphaned picker)");
-  assert.strictEqual(home.doc.querySelectorAll(".mdg-ups").length, 1);
+  assert.ok(boxAfter(inPop), "header popover: UP tags");
+  assert.strictEqual(boxAfter(inPop).querySelector(".mdg-up-add"), null, "header popover: no 「+」 (so no orphaned picker)");
+  assert.ok(boxAfter(inPop).querySelector(".mdg-more"), "header popover: the 「+N」 that fitBoxes shows when the tags don't fit");
 
   // 收藏夹 page: no UP tags at all.
   const fav = await page({ hostname: "space.bilibili.com", pathname: "/9/favlist" }, h("body", {}, author()));
