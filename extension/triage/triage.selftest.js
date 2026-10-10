@@ -223,6 +223,53 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   };
   await t.undo();
   assert.deepStrictEqual([refavs, store[t.K.decisions("D")], toasts.at(-1)], [3, {}, "「D」已重新收藏 3 个"]);
+
+  // 所有收藏夹: batch 取消收藏 asks which folders (each with its count), then goes folder by folder, naming it; a video
+  // leaves each checked folder it is in, and the view only once it is in none. One U puts it back in every one.
+  {
+    const vids = [{ ...item(60), folders: ["W1"] }, { ...item(61), folders: ["W1", "W2"] }, { ...item(62), folders: ["W2", "W3"] }];
+    openFake("all", vids);
+    const savedFolders = [t.S.folders, t.S.allFolders];
+    t.S.folders = t.S.allFolders = [{ id: "W1", title: "夹1" }, { id: "W2", title: "夹2" }, { id: "W3", title: "夹3" }];
+    t.S.folderDecisions = { W1: {}, W2: {}, W3: {} };
+    t.S.loadAll = { lists: {}, check: [], checkTotal: 0, queue: [], paused: false, running: false, error: "", partial: 0 };
+    let asked = null;
+    const savedAsk = t.askConfirm;
+    const savedBody = t.el.confirmBody;
+    t.askConfirm = async (title, body, ok) => ((asked = [title, body, ok]), true);
+    t.el.confirmBody = { querySelectorAll: () => [{ value: "W1" }, { value: "W2" }] }; // R unchecked
+    const calls = [];
+    handlers["triage-unfav"] = (m) => (calls.push([m.mediaId, m.aids, t.activityState().text]), { ok: true });
+    await t.batchUnfav(vids);
+    assert.deepStrictEqual(asked[0], "在 B站取消收藏这 3 个视频？");
+    assert.ok(asked[1].includes("「夹1」· 2 个") && asked[1].includes("「夹2」· 2 个") && asked[1].includes("「夹3」· 1 个"), asked[1]);
+    assert.strictEqual(asked[2], "取消收藏 3 个");
+    assert.deepStrictEqual(calls, [["W1", [1060, 1061], "取消收藏中「夹1」 0/4"], ["W2", [1061, 1062], "取消收藏中「夹2」 2/4"]]);
+    assert.deepStrictEqual(plain(vids.map((it) => it.folders)), [[], [], ["W3"]]);
+    assert.deepStrictEqual(plain(Object.keys(t.S.decisions)), ["BV60", "BV61"], "out of every folder: 处理完成");
+    assert.deepStrictEqual([Object.keys(store[t.K.decisions("W1")]), Object.keys(store[t.K.decisions("W2")])], [["BV60", "BV61"], ["BV61", "BV62"]]);
+    assert.deepStrictEqual(plain(t.batchUndoAsk(t.S.undo.at(-1))).at(-1), "重新收藏 3 个");
+    const refav = [];
+    handlers["triage-refav"] = (m) => (refav.push([m.mediaId, m.aid]), { ok: true });
+    await t.undo();
+    assert.deepStrictEqual(refav, [["W1", 1060], ["W1", 1061], ["W2", 1061], ["W2", 1062]]);
+    assert.deepStrictEqual(plain(vids.map((it) => [...it.folders].sort())), [["W1"], ["W1", "W2"], ["W2", "W3"]]);
+    assert.deepStrictEqual([t.S.decisions, store[t.K.decisions("W1")], store[t.K.decisions("W2")], t.S.undo.length], [{}, {}, {}, 0]);
+    // 保留 is one list for every folder: the batch marks it everywhere, one U takes it back.
+    t.S.tab = "read";
+    t.S.selected = new Set(["BV61", "BV62"]);
+    t.renderListHeader(t.visibleItems());
+    assert.ok(["保留选中的 2 个", "取消收藏选中的 2 个"].every((x) => t.el.listHeader.innerHTML.includes(x)), t.el.listHeader.innerHTML);
+    t.batchKeep(t.batchList(null));
+    assert.deepStrictEqual(plain(Object.keys(t.S.kept).filter((b) => b.startsWith("BV6"))), ["BV61", "BV62"]);
+    await t.undo();
+    assert.ok(!t.S.kept.BV61 && !t.S.kept.BV62);
+    t.askConfirm = savedAsk;
+    t.el.confirmBody = savedBody;
+    t.S.selected.clear();
+    [t.S.folders, t.S.allFolders] = savedFolders;
+    t.S.loadAll = null;
+  }
   handlers["triage-refav"] = () => ({ ok: true });
 
   // B11: cells that a spreadsheet would run as a formula are prefixed with '.
