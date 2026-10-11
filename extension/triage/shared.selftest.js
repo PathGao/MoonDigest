@@ -505,6 +505,14 @@ for (const [file, fns] of [["triage.js", ["mergeAiBatch", "aiChanges"]], ["follo
     assertInert(UI.tagPlusBtn('data-x="1"', `给 ${bad} 打 UP 标签`), "tagPlusBtn");
     assertInert(UI.sideItem({ attrs: "", label: bad }), "sideItem");
   }
+  {
+    // A stuck pill: the countdown sits apart from the line (a narrow window cuts the line only), the whole text on hover.
+    const el = { classList: { toggle() {} } };
+    const text = "加载收藏夹 1/3（电影） · B站限流卡住，1:29 后重试";
+    UI.setActivity(el, { text, wait: "B站限流卡住，1:29 后重试", stuck: true, done: 1, total: 3 });
+    assert.strictEqual(el.title, text);
+    assert.ok(el.innerHTML.includes('<span class="activity-text">加载收藏夹 1/3（电影）</span><span>· B站限流卡住，1:29 后重试</span>'), el.innerHTML);
+  }
   console.log("shared selftest: all passed");
 })().catch((e) => {
   console.error(e);

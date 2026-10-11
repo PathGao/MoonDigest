@@ -173,7 +173,7 @@
     const head = wait && text.endsWith(` · ${wait}`) ? text.slice(0, -wait.length - 3) : text;
     const bar = total ? `<span class="activity-bar" aria-hidden="true"><i style="width:${Math.round((done / total) * 100)}%"></i></span>` : "";
     const b = btn ? `<button type="button" ${btn.attrs} aria-label="${esc(btn.label)}"${reasonAttrs(btn.reason)}>${esc(btn.label)}</button>` : "";
-    return `${stuck ? `<span class="activity-stuck">${ICON.alert}</span>` : ""}<span class="activity-text" title="${esc(text)}">${esc(head)}</span>${head === text ? "" : `<span>· ${esc(wait)}</span>`}${bar}${b}`;
+    return `${stuck ? `<span class="activity-stuck">${ICON.alert}</span>` : ""}<span class="activity-text">${esc(head)}</span>${head === text ? "" : `<span>· ${esc(wait)}</span>`}${bar}${b}`;
   }
   // Draws the pill from state ({ text, done, total, btn, stuck, slowed, finished }); null / false hides it. Blue while
   // running; stuck (B站限流 or offline, waiting to retry) is amber with a red ⚠; slowed (going on slower after B站限流)
@@ -183,6 +183,7 @@
     if (!a) return;
     el.classList.toggle("warn", Boolean(a.stuck || a.slowed));
     el.classList.toggle("done", Boolean(a.finished));
+    el.title = a.text; // the whole line on hover, for a narrow window that cuts it
     el.innerHTML = activityHtml(a);
   }
   // 「B站限流卡住，01:30 后重试」 while sec > 0, else "".
