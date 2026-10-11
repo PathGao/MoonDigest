@@ -69,6 +69,14 @@ const turn = () => new Promise((r) => setImmediate(r));
     open();
     assert.deepStrictEqual(await running, { done: 1, total: 2, error: "", stopped: true });
     assert.deepStrictEqual([log.length, w.pending("m2")], [1, ""]);
+    // Pressed while the last chunk is in flight: nothing was left, so it is not stopped.
+    const [last, openLast] = gate();
+    const s2 = setup(() => last);
+    const whole = s2.w.run("follow", "取消关注", { verb: "取消关注", chunks: [chunk(1, ["m1"], [])] });
+    await turn();
+    s2.w.stop();
+    openLast();
+    assert.deepStrictEqual(await whole, { done: 1, total: 1, error: "", stopped: false });
   }
 
   // A plan given as a function runs once the lane is taken; null ends the batch without a request.

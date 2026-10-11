@@ -220,7 +220,7 @@ runs.put("aiOther", () => otherAiFolder() && { text: `「${folderName(otherAiFol
 runs.put("seen", () => S.seenCfg.on && S.seenRead.until > Date.now() && { text: "观看进度", wait: { until: S.seenRead.until, label: THROTTLES.THROTTLED.label } });
 runs.put("seenRead", () => S.seenCfg.on && S.seenRead.busy && S.seenRead.pages && { text: `读观看进度… 已读 ${S.seenRead.pages} 页` });
 // The pill's button per job: [data-head, label, label while it stops (it then waits for the step in flight)].
-const PILL_BTN = { group: ["group", "暂停细看", "暂停中"], stage1: ["stage1", "暂停粗看", "暂停中"], write: ["write", "停止", "停止中"], ai: ["tags", "查看"], proposal: ["tags", "查看"], aiOther: ["aiOther", "查看"] };
+const PILL_BTN = { group: ["group", "暂停细看", "暂停中"], stage1: ["stage1", "暂停粗看", "暂停中"], write: ["write", "停止", "停止中"], fav: ["fav", "停止", "停止中"], ai: ["tags", "查看"], proposal: ["tags", "查看"], aiOther: ["aiOther", "查看"] };
 const aiRunning = () => Boolean(runs.get("ai"));
 const writeRunning = () => Boolean(runs.get("write"));
 
@@ -1731,7 +1731,7 @@ function activityState() {
 
 function renderStatus() {
   const a = activityState();
-  UI.setActivity(el.activity, a && { ...a, btn: a.act && { attrs: `data-head="${a.act}"`, label: a.actLabel, reason: a.stopping ? (a.act === "write" ? "当前视频做完就停止" : "当前这一步做完就暂停") : "" } });
+  UI.setActivity(el.activity, a && { ...a, btn: a.act && { attrs: `data-head="${a.act}"`, label: a.actLabel, reason: a.stopping ? { write: "当前视频做完就停止", fav: UI.WRITE_STOPPING }[a.act] || "当前这一步做完就暂停" : "" } });
 }
 
 // 观看进度's countdown each second (runs' own waits redraw themselves).
@@ -2302,6 +2302,8 @@ async function refavDone({ folders: [f], keys: [bvid] }) {
   await patchDecisions(f, { [bvid]: null });
   renderStatus();
 }
+// 停止 on the pill (as 关注's): what went through stays.
+const stopWords = (what, r) => `已停止${what}：完成 ${r.done} 个，未完成 ${r.total - r.done} 个`;
 const undoBlocked = () => (W.busy() ? `${W.busy()}还在跑，等它完成再撤销` : "");
 const busyError = (r) => r.error || (r.busy ? `${r.busy}还在跑，等它完成` : "");
 
@@ -2310,7 +2312,7 @@ const busyError = (r) => r.error || (r.busy ? `${r.busy}还在跑，等它完成
 async function refavInto(mediaId, items) {
   const r = await W.run("refav", "重新收藏", { verb: "重新收藏", chunks: items.map((it) => refavChunk(mediaId, it)), folders: [mediaId], meta: { mediaId, verb: "重新收藏" }, onChunk: refavDone });
   render();
-  return { n: r.done, rest: items.slice(r.done), error: busyError(r) };
+  return { n: r.done, rest: items.slice(r.done), error: busyError(r), stopped: r.stopped };
 }
 
 // 所有收藏夹's batch 取消收藏 undone: each video back in every folder it was taken out of, as one run.
@@ -2334,7 +2336,7 @@ async function refavGone(gone) {
   render();
   const rest = {};
   for (const c of chunks.slice(r.done)) (rest[c.folders[0]] ||= []).push({ bvid: c.keys[0], aid: c.msg.aid });
-  return { n: r.done, rest, error: busyError(r) };
+  return { n: r.done, rest, error: busyError(r), stopped: r.stopped };
 }
 
 // The U step of a 取消收藏: Bilibili favorites them again, so it waits for a running batch.
@@ -2342,16 +2344,19 @@ const favStep = (n, ask, undo) => ({ kind: "fav", ask: n > 1 ? ask : null, block
 const refavAsk = (n) => [`在 B站重新收藏这 ${n} 个视频？`, `<p>撤销上一步的批量取消收藏。</p>`, `重新收藏 ${n} 个`];
 const redraw = () => (render(), setFocus(S.focused), "");
 
+// A batch undo cut short: by a failure, or by 停止 (what went through stays undone). [what happened, U again, why].
+const cutWords = (error, stopped) => (error ? ["撤销中断", "重试", `：${error}`] : stopped ? ["已停止撤销", "撤销", ""] : null);
 // U on a batch 取消收藏 in one folder: back into it. Elsewhere the ones left stay under its 最近取消收藏.
 function unfavManyStep(mediaId, items) {
   return favStep(items.length, refavAsk(items.length), async () => {
-    const { n, rest, error } = await refavInto(mediaId, items);
+    const { n, rest, error, stopped } = await refavInto(mediaId, items);
     const here = S.mediaId === mediaId;
     const where = here ? "" : `「${folderName(mediaId)}」`;
-    if (error && here) {
+    const cut = cutWords(error, stopped);
+    if (cut && here) {
       pushUndo(unfavManyStep(mediaId, rest));
-      toast(`撤销中断（已重新收藏 ${n} 个，剩余 ${rest.length} 个可再按 U 重试）：${error}`, true);
-    } else if (error) toast(`${where}撤销中断（已重新收藏 ${n} 个，剩余 ${rest.length} 个在它的最近取消收藏里）：${error}`, true);
+      toast(`${cut[0]}（已重新收藏 ${n} 个，剩余 ${rest.length} 个可再按 U ${cut[1]}）${cut[2]}`, Boolean(error));
+    } else if (cut) toast(`${where}${cut[0]}（已重新收藏 ${n} 个，剩余 ${rest.length} 个在它的最近取消收藏里）${cut[2]}`, Boolean(error));
     else toast(`${where}已重新收藏 ${n} 个`);
     return redraw();
   });
@@ -2360,13 +2365,14 @@ function unfavManyStep(mediaId, items) {
 // the ones left stay under each folder's 最近取消收藏.
 function goneStep(items, gone) {
   return favStep(items.length, refavAsk(items.length), async () => {
-    const { rest, error } = await refavGone(gone);
+    const { rest, error, stopped } = await refavGone(gone);
     const here = S.mediaId === ALL;
     const left = items.filter((x) => Object.values(rest).some((list) => list.some((y) => y.bvid === x.bvid)));
-    if (error && here) {
+    const cut = cutWords(error, stopped);
+    if (cut && here) {
       pushUndo(goneStep(left, rest));
-      toast(`撤销中断（剩余 ${left.length} 个可再按 U 重试）：${error}`, true);
-    } else if (error) toast(`「${folderName(ALL)}」撤销中断（剩余 ${left.length} 个在各收藏夹的最近取消收藏里）：${error}`, true);
+      toast(`${cut[0]}（剩余 ${left.length} 个可再按 U ${cut[1]}）${cut[2]}`, Boolean(error));
+    } else if (cut) toast(`「${folderName(ALL)}」${cut[0]}（剩余 ${left.length} 个在各收藏夹的最近取消收藏里）${cut[2]}`, Boolean(error));
     else toast(`已重新收藏 ${items.length} 个`);
     return redraw();
   });
@@ -2464,9 +2470,10 @@ const fav = {
     if (r.busy) return;
     const done = r.done;
     const fail = r.error && `${all || S.mediaId !== mediaId ? `「${folderName(chunks[sent].folders[0])}」` : ""}批量取消收藏失败（已完成 ${done} 个）：${r.error}`;
-    // After a failure the ones done are still recorded and undoable; the toast is the failure's.
-    const tell = (msg, undoHint) => toast(fail ? `${fail}${undoHint}` : msg, Boolean(fail));
-    if (!done && fail) toast(fail, true);
+    const stop = r.stopped && `${S.mediaId !== mediaId ? `「${folderName(mediaId)}」` : ""}${stopWords("批量取消收藏", r)}`;
+    // After a failure or 停止 the ones done are still recorded and undoable; the toast says how far it got.
+    const tell = (msg, undoHint) => toast(fail || stop ? `${fail || stop}${undoHint}` : msg, Boolean(fail));
+    if (!done && (fail || stop)) toast(fail || stop, Boolean(fail));
     else if (done && all && token === S.folderToken) {
       // As a single 取消收藏 here: the video leaves those folders, and the view once it is in none.
       const at = Date.now();
@@ -2551,14 +2558,15 @@ const fav = {
     });
     if (!r.total) return;
     const { to, toName } = meta;
-    if (r.error) toast(`${S.mediaId === from ? "" : `「${folderName(from)}」`}${verb}到「${toName}」中断（已完成 ${r.done} 个）：${r.error}`, true);
+    const where = S.mediaId === from ? "" : `「${folderName(from)}」`;
+    if (r.error) toast(`${where}${verb}到「${toName}」中断（已完成 ${r.done} 个）：${r.error}`, true);
+    else if (r.stopped) toast(`${where}${stopWords(`${verb}到「${toName}」`, r)}`);
     // A folder-list load meanwhile (分拣设置 saved) may have listed it already, or dropped it while Bilibili lagged.
     const made = target.create && S.allFolders.find((x) => String(x.id) === to);
     if (made && !el.folderSelect.querySelector(`option[value="${to}"]`)) {
       el.folderSelect.querySelector(`option[value="${REMOVED}"]`)?.previousElementSibling?.before(new Option(`${toName} (${made.count})`, to));
     }
     if (r.done === list.length) {
-      const where = S.mediaId === from ? "" : `「${folderName(from)}」`;
       toast(`${where}已${verb} ${r.done} 个到「${toName}」${(move || add) && !S.included.includes(to) ? "，它们在「已出分拣范围」里，勾选这个收藏夹后会自动找回" : ""}`);
     }
     render();
@@ -2581,9 +2589,10 @@ const fav = {
     const items = unfavBatchItems(batch);
     if (!items.length || W.busy()) return;
     const mediaId = String(S.mediaId);
-    const { n, rest, error } = await refavInto(mediaId, items);
+    const { n, rest, error, stopped } = await refavInto(mediaId, items);
     const where = S.mediaId === mediaId ? "" : `「${folderName(mediaId)}」`;
     if (error) toast(`${where}重新收藏中断（已完成 ${n} 个，剩余 ${rest.length} 个可再点重试）：${error}`, true);
+    else if (stopped) toast(`${where}${stopWords("重新收藏", { done: n, total: items.length })}`);
     else toast(`${where}已重新收藏这批 ${n} 个`);
     if (!where) quickSync({ force: true });
   },
@@ -3935,6 +3944,7 @@ function bindEvents() {
     else if (act === "batch-keep") batchKeep(batchList(btn.dataset.verdict || null));
     else if (act === "criteria") openCriteria();
     else if (act === "write") stopWrite();
+    else if (act === "fav") W.stop();
     else if (act === "redo-coarse") {
       const list = redoCoarseList();
       startJudging("按新标准重新粗看", "重新粗看", list, () => runStage1(list));

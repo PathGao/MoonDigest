@@ -640,6 +640,20 @@ async function followPage({ store = {}, handlers = {}, setup = () => {} } = {}) 
     const pill = p.$("fwFoot").lastChild;
     assert.ok(p.FW.F.feed.loading && /^B站限流卡住，[01]:\d\d 后重试$/.test(pill.title) && pill.classList.contains("warn"), `the foot counts down: ${pill.title}`);
   }
+
+  // 停止 on a 关注 write's pill: 停止中 (disabled, with why) until the request in flight lands, as 收藏夹's.
+  {
+    let release;
+    const p = await followPage({ store: page(), handlers: { "follow-relation": (m) => (m.mid === "u1" ? new Promise((r) => (release = r)) : { ok: true }) } });
+    const running = p.FW.relationRun(["u1", "u2"].map((mid) => ({ type: "follow-relation", mid, act: 2 })), "取消关注");
+    await p.until(() => release);
+    p.click("fwActivity", "[data-fw-busystop]", {});
+    const pill = p.$("fwActivity").innerHTML;
+    assert.ok(pill.includes('aria-label="停止中" disabled title="当前这一批做完就停止"'), pill);
+    release({ ok: true });
+    await running;
+    assert.deepStrictEqual([p.sent.filter((m) => m.type === "follow-relation").length, p.toasts.at(-1)], [1, "已停止取消关注：完成 1 个，未完成 1 个"]);
+  }
 })().catch((e) => {
   console.error(e);
   process.exit(1);

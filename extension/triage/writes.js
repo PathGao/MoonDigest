@@ -4,7 +4,8 @@
 // 收藏夹 (keys are bvids) and 关注 (keys are mids).
 // - run: a batch, chunk by chunk with each chunk's gap before it; any failure other than a limit stops it. onChunk(chunk)
 //   runs after each chunk that went through. plan may be a function, called once the lane is taken (work that must not
-//   race another batch, such as creating the target). stop() ends it after the chunk in flight.
+//   race another batch, such as creating the target). stop() ends it after the chunk in flight (stopped: some were
+//   left).
 // - single: a write that does not wait for the batch (one key press). A limit fails at once.
 // - Every key of a running batch (until its chunk goes through) and of a single write is pending, with its verb.
 // - A folder is being written while the batch names it (folders) or is on its current chunk, and for settleMs after a
@@ -49,7 +50,8 @@
           }
         });
         if (r.busy) return { done: 0, total: 0, error: "", busy: r.busy };
-        return { done: r.done, total: r.total, error: r.error, stopped: r.stopped };
+        // Stopped while its last chunk was in flight, the batch is whole: not stopped.
+        return { done: r.done, total: r.total, error: r.error, stopped: r.stopped && r.done < r.total };
       } finally {
         if (took) {
           if (p) for (const c of p.chunks) release(c.keys, p.verb);

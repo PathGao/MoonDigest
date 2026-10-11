@@ -190,6 +190,8 @@
   const waitText = (why, sec) => (sec > 0 ? `${why}，${fmtDuration(sec)} 后重试` : "");
   // 关注's wait on B站限流: follow-bg.js's queue pause, and the page's wait before a write or a 视频投稿 page goes again.
   const BILI_HOLD_MS = 90000;
+  // Why 停止 on a B站 batch write's pill (both modes) is off once pressed: the request in flight lands first.
+  const WRITE_STOPPING = "当前这一批做完就停止";
 
   // Row 1's 「已刷新 +N −M」 pill and the notice it opens below it. Ids are prefix + ViewBtn / Notice / Text / Detail /
   // CloseBtn; each mode passes those elements as { pill, notice, text, detail, close }.
@@ -591,6 +593,6 @@
     main.addEventListener("focusin", (e) => e.target.closest(HEAD_ROWS) && set(headroomStep(s, { focus: true })));
   }
 
-  globalThis.TriageUi = { esc, pad, dayText, fmtDate, fmtAgo, agoHtml, setSearchScope, confirmList, pickTitle, fmtDuration, fmtCount, cleanTagName, plainClick, cardPlayClick, cardPickClick, pickCard, img, toCsv, cardTagChip, syncedText, headMeta, titleHtml, ICON, AI_SPARK, byValue, dirWords, sortControl, filterBtn, labeledRow, stateGroup, aiRecentChip, searchBox, bindSearch, resultCount, rowButtons, menuItem, BACKUP_ITEM, reasonAttrs, setReason, WARN_DOT, selectAllState, selectAllBox, toggleAll, setActivity, waitText, BILI_HOLD_MS, syncPill
+  globalThis.TriageUi = { esc, pad, dayText, fmtDate, fmtAgo, agoHtml, setSearchScope, confirmList, pickTitle, fmtDuration, fmtCount, cleanTagName, plainClick, cardPlayClick, cardPickClick, pickCard, img, toCsv, cardTagChip, syncedText, headMeta, titleHtml, ICON, AI_SPARK, byValue, dirWords, sortControl, filterBtn, labeledRow, stateGroup, aiRecentChip, searchBox, bindSearch, resultCount, rowButtons, menuItem, BACKUP_ITEM, reasonAttrs, setReason, WARN_DOT, selectAllState, selectAllBox, toggleAll, setActivity, waitText, BILI_HOLD_MS, WRITE_STOPPING, syncPill
 , setSync, bindSync, tagButtons, sideFoot, selbar, askTransfer, sideItem, emptyState, refreshEmpty, noMatch, fillSetRows, clampNumber, clampNumbers, mergeAiBatch, aiChanges, aiProposalOk, previewId, aiTally, nextTagColor, tagNameError, deleteTagAsk, editedTag, withoutTag, undoAsk, tagRowHtml, sp, tagsWord, AI_RECENT_RULES, aiRecentUndo, tagPlusBtn, viewerLine, viewerKeyFrom, headroomStep, headroom };
 })();

@@ -547,7 +547,8 @@ function renderSync() {
   if (j.running) btn.setAttribute("aria-busy", "true");
   else btn.removeAttribute("aria-busy");
   const { job, stopping, ...a } = runs.pill(PILL) || {};
-  UI.setActivity($("fwActivity"), a.text && { ...a, btn: PILL_BTN[job] });
+  const stop = job === "follow-write" && stopping && { ...PILL_BTN[job], label: "停止中", reason: UI.WRITE_STOPPING };
+  UI.setActivity($("fwActivity"), a.text && { ...a, btn: stop || PILL_BTN[job] });
 }
 
 // The last refresh's 新关注 / 在 B站取关 (follow_jobs.changes, see followDiff) as 收藏夹's 「已刷新」 pill. Each refresh's
