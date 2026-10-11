@@ -565,6 +565,84 @@ async function ytComments(next, byContinuation) {
   eq([fetched, store.boc_subtitle_cache_BV1_9_id_7.raw], [2, raw(10)]);
   eq(await S.fetchRawCached(bili, track, ids, rawIo({ body: [] })), raw(10));
 
+  // loadSubtitle: the one subtitle step of the video page, the side panel follow-up and 分拣台. A fake site answers
+  // each track id from `bodies` (a segment list, or an Error to throw) and logs every request.
+  const fit = [{ from: 0, to: 95, content: "ok" }];
+  const tooLong = [{ from: 0, to: 2, content: "a" }, { from: 1200, to: 1202, content: "b" }];
+  const limit = () => Object.assign(new Error("请求失败：429"), { status: 429 });
+  const fake = (tracks, bodies, extra = {}) => {
+    const calls = [];
+    const site = {
+      id: "x",
+      fetchTracks: async (ref, meta, io) => (calls.push(io.withoutPot ? "list:noPot" : "list"), tracks instanceof Error ? Promise.reject(tracks) : { tracks }),
+      fetchRaw: async (t) => (calls.push(t.id), bodies[t.id] instanceof Error ? Promise.reject(bodies[t.id]) : bodies[t.id]),
+      parseSegments: (raw) => raw || [],
+      ...extra
+    };
+    return { calls, site };
+  };
+  const load = (f, opts, io = { fresh: true }, meta = { duration: 100, cid: "1" }) => S.loadSubtitle(f.site, { id: "V" }, meta, io, opts);
+  const two = [{ id: "a", url: "https://x/a", lang: "zh" }, { id: "b", url: "https://x/b", lang: "en" }];
+  let f;
+
+  // The saved choice goes first; the first track matching the video's length wins and is cached.
+  f = fake(two, { a: fit, b: fit });
+  let got = await load(f, { prefer: { previousId: "b" } }, {});
+  eq([got.track.id, got.mismatch, got.failure, f.calls], ["b", null, "", ["list", "b"]]);
+  eq(store.boc_subtitle_cache_V_1_id_b.raw, fit);
+  // A later read takes the cached body; io.fresh (the video page's load) goes to the network.
+  f = fake(two, { a: fit, b: fit });
+  eq([(await load(f, { prefer: { previousId: "b" } }, {})).track.id, f.calls], ["b", ["list"]]);
+  f = fake(two, { a: fit, b: fit });
+  await load(f, { prefer: { previousId: "b" } });
+  eq(f.calls, ["list", "b"]);
+
+  // Nothing matches: the list is read and walked once more, then the first mismatched body is used with its check,
+  // and not cached.
+  delete store.boc_subtitle_cache_V_1_id_a;
+  f = fake(two, { a: tooLong, b: new Error("请求失败：404") });
+  got = await load(f);
+  eq([got.track.id, got.body.length, got.mismatch.reason, f.calls], ["a", 2, "too-long", ["list", "a", "b", "list", "a", "b"]]);
+  eq("boc_subtitle_cache_V_1_id_a" in store, false);
+
+  // A limit ends the walk at once, no second list: a mismatched body already read is used, otherwise the limit throws.
+  f = fake(two, { a: tooLong, b: limit() });
+  got = await load(f);
+  eq([got.track.id, got.mismatch.reason, f.calls], ["a", "too-long", ["list", "a", "b"]]);
+  f = fake(two, { a: limit(), b: fit });
+  await assert.rejects(load(f), (e) => e.status === 429);
+  eq(f.calls, ["list", "a"]);
+  f = fake(Object.assign(new Error("风控"), { code: "THROTTLED" }), {});
+  await assert.rejects(load(f), (e) => e.code === "THROTTLED");
+
+  // Empty bodies (YouTube's answer to a rejected PO token), even next to another failure: the second list goes without
+  // the token, and nothing usable is a failure with its reason.
+  f = fake(two, { a: [], b: new Error("请求失败：404") });
+  got = await load(f);
+  eq([got.track, got.failure, f.calls], [null, "字幕文件为空", ["list", "a", "b", "list:noPot", "a", "b"]]);
+  // A failed list is a failure, reason without the full stop; no tracks at all is not.
+  eq((await load(fake(new Error("网络断了。"), {}))).failure, "网络断了");
+  got = await load(fake([], {}));
+  eq([got.track, got.failure], [null, ""]);
+
+  // YouTube's transcript, when the tracks are limited or all fail, or the video is gated; a failed transcript leaves
+  // the gate as the reason.
+  const transcript = { track: { id: "transcript", url: "https://x/t", label: "文字稿" }, raw: fit };
+  f = fake(two, { a: limit() }, { fetchTranscript: async () => transcript });
+  got = await load(f);
+  eq([got.track.id, got.tracks.map((t) => t.id)], ["transcript", ["transcript", "a", "b"]]);
+  f = fake([], {}, { fetchTranscript: async () => transcript });
+  eq((await load(f, {}, { fresh: true }, { duration: 100, gate: "要登录" })).track.id, "transcript");
+  f = fake([], {}, { fetchTranscript: async () => Promise.reject(new Error("没有文字稿")) });
+  eq((await load(f, {}, { fresh: true }, { duration: 100, gate: "要登录" })).failure, "要登录");
+
+  // step sees every wait: once it throws (the video page's run guard) nothing more is asked.
+  f = fake(two, { a: tooLong, b: fit });
+  let waits = 0;
+  const stale = Object.assign(new Error("stale"), { code: "STALE_RUN" });
+  await assert.rejects(load(f, { step: async (p) => ((await p), ++waits === 2 ? Promise.reject(stale) : (await p)) }), (e) => e === stale);
+  eq(f.calls, ["list", "a"]);
+
   console.log("sites selftest ok");
 })().catch((error) => {
   console.error(error);

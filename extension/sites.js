@@ -1291,10 +1291,11 @@
     } catch {}
   }
 
-  // A cached body that accept() rejects is fetched again; only an accepted body is cached.
+  // A cached body that accept() rejects is fetched again; only an accepted body is cached. io.fresh skips the read (the
+  // video page's load, so an old entry never stands in for what the site serves now).
   async function fetchRawCached(site, track, { videoId, cid }, io, accept = (body) => body.length > 0) {
     const key = subtitleCacheKey({ videoId, cid, subtitleId: track.id, subtitleUrl: track.url, lang: track.lang });
-    const cached = await loadSubtitleCache(key);
+    const cached = io.fresh ? null : await loadSubtitleCache(key);
     if (cached !== null && accept(site.parseSegments(cached))) {
       return cached;
     }
@@ -1305,44 +1306,91 @@
     return raw;
   }
 
-  // The background readers' track walk (side panel follow-up, 分拣台 细看 and notes), like the video page's: tracks in
-  // order until one matches the video's duration (cached when it does). With none matching, the first non-empty one is
-  // used anyway, not cached, with its failed check in `mismatch` for the video page's warning. Throttling stops the walk,
-  // since every track hits the same host; another failure moves on and is returned as `error` when nothing was usable.
-  async function loadFirstTrack(site, tracks, ids, io, duration) {
-    const matches = (body) => validateSubtitleByDuration(body, duration).ok;
-    let kept = null;
+  // What stops a subtitle read instead of moving on: B站 risk control (THROTTLED) or HTTP 429. Every track and the
+  // list hit the same host, so trying more only extends the limit.
+  const isLimit = (error) => error?.code === "THROTTLED" || error?.status === 429;
+  const settle = (promise) => promise.then((value) => ({ value }), (error) => ({ error }));
+  const noStep = (promise) => promise;
+
+  // One pass over tracks in order: the first whose body matches the video's duration wins (cached when it does).
+  // Without one, the first non-empty body is kept with its failed check in `mismatch`. A limit ends the pass
+  // (`limited`); any other failure, or an empty body, moves on and the first such is `error`. `empty` says some body
+  // was empty (YouTube's answer to a rejected PO token). step: see loadSubtitle.
+  async function loadFirstTrack(site, tracks, ids, io, duration, step = noStep) {
+    const check = (body) => validateSubtitleByDuration(body, duration);
+    let kept = { track: null, body: [], mismatch: null };
     let error = null;
+    let empty = false;
     for (const track of tracks) {
-      try {
-        const body = site.parseSegments(await fetchRawCached(site, track, ids, io, matches));
-        if (matches(body)) return { track, body, mismatch: null, error: null };
-        if (body.length) kept ||= { track, body, mismatch: validateSubtitleByDuration(body, duration) };
-      } catch (e) {
-        if (e?.code === "THROTTLED") throw e;
-        error ||= e;
+      const got = await step(settle(fetchRawCached(site, track, ids, io, (body) => check(body).ok)));
+      if (got.error && isLimit(got.error)) return { ...kept, error: got.error, limited: true, empty };
+      const body = got.error ? [] : site.parseSegments(got.value);
+      const result = check(body);
+      if (result.ok) return { track, body, mismatch: null, error: null, limited: false, empty };
+      if (body.length) {
+        if (!kept.track) kept = { track, body, mismatch: result };
+      } else {
+        empty ||= !got.error;
+        error ||= got.error || new Error("字幕文件为空");
       }
     }
-    return { track: null, body: [], mismatch: null, ...kept, error };
+    return { ...kept, error, limited: false, empty };
   }
 
-  // The background readers' subtitle step (side panel follow-up, 分拣台 细看 and notes), like the video page's: the track
-  // list, then loadFirstTrack over order(ranked tracks). A B站 limit throws, so the caller waits and tries again. Any other
-  // failure of either step (network, timeout, expired link) leaves no subtitle and `failure`, the reason without its full
-  // stop, which every reader shows as the video page does (字幕抓取失败：原因).
-  async function loadSubtitle(site, ref, meta, io, order = (tracks) => tracks) {
-    let bundle = { tracks: [] };
-    let listError = null;
-    try {
-      bundle = await site.fetchTracks(ref, meta, io);
-    } catch (e) {
-      if (e?.code === "THROTTLED") throw e;
-      listError = e;
+  // The one subtitle step of every reader (video page, side panel follow-up, 分拣台 细看 and notes): how a track is
+  // picked, fetched, checked, and what is a failure or a limit.
+  //   1. The track list, ranked (io.subtitleLang), the preferred one first (prefer: the saved choice, as
+  //      pickPreferredTrack takes it).
+  //   2. loadFirstTrack over it. When tracks were listed but none matched (signed URLs expire, B站 sometimes serves
+  //      another video's subtitle), the list is read and walked once more; after empty bodies without the PO token.
+  //   3. YouTube only, when nothing matched or the video is gated: the watch page's transcript.
+  //   4. Still nothing matching: the first mismatched body, used with its check in `mismatch` (the reader shows
+  //      BocNote.subtitleMismatchWarning; it is never cached).
+  // A limit with nothing usable throws, so the caller waits and tries again. Any other failure (network, timeout,
+  // expired link, empty files) leaves no subtitle with `error` and `failure`, its reason without the full stop, which
+  // every reader shows as 字幕抓取失败：原因. step(promise) wraps every wait (it sees settled results, never a rejection):
+  // the video page's run guard throws there once the video has changed.
+  async function loadSubtitle(site, ref, meta, io, { prefer = {}, step = noStep } = {}) {
+    const ids = { videoId: ref.id, cid: meta.cid };
+    const list = async (extra = {}) => {
+      const got = await step(settle(site.fetchTracks(ref, meta, { ...io, ...extra })));
+      if (got.error && isLimit(got.error)) throw got.error;
+      return got;
+    };
+    const ranked = (bundle) => {
+      const tracks = rankTracks(bundle.tracks || [], io.subtitleLang);
+      const first = pickPreferredTrack(tracks, prefer);
+      return first ? [first, ...tracks.filter((track) => track !== first)] : [];
+    };
+
+    const got = await list();
+    let bundle = got.value || { tracks: [] };
+    let tracks = ranked(bundle);
+    let pass = await loadFirstTrack(site, tracks, ids, io, meta.duration, step);
+    if (tracks.length && (!pass.track || pass.mismatch) && !pass.limited) {
+      const again = await list(pass.empty ? { withoutPot: true } : {});
+      if (again.value?.tracks?.length) {
+        bundle = again.value;
+        tracks = ranked(bundle);
+        const next = await loadFirstTrack(site, tracks, ids, io, meta.duration, step);
+        pass = next.track ? next : { ...pass, error: next.error || pass.error, limited: next.limited };
+      }
     }
-    const tracks = rankTracks(bundle.tracks || []);
-    const found = await loadFirstTrack(site, order(tracks), { videoId: ref.id, cid: meta.cid }, io, meta.duration);
-    const why = !found.body.length && (listError || found.error);
-    return { ...found, bundle, tracks, failure: why ? String(why.message || why).replace(/[。.！!；;，,\s]+$/u, "") : "" };
+    if ((!pass.track || pass.mismatch) && site.fetchTranscript && (tracks.length || meta.gate)) {
+      const transcript = await step(settle(site.fetchTranscript(ref, io)));
+      if (transcript.value) {
+        const { track } = transcript.value;
+        const body = site.parseSegments(transcript.value.raw);
+        const result = validateSubtitleByDuration(body, meta.duration);
+        tracks = [track, ...tracks.filter((item) => item.id !== track.id)];
+        if (result.ok) pass = { ...pass, track, body, mismatch: null };
+        else if (!pass.track && body.length) pass = { ...pass, track, body, mismatch: result };
+      }
+    }
+    if (pass.track) return { track: pass.track, body: pass.body, mismatch: pass.mismatch, bundle, tracks, error: null, failure: "" };
+    if (pass.limited) throw pass.error;
+    const why = pass.error || got.error || (!tracks.length && meta.gate ? new Error(meta.gate) : null);
+    return { track: null, body: [], mismatch: null, bundle, tracks, error: why, failure: why ? String(why.message || why).replace(/[。.！!；;，,\s]+$/u, "") : "" };
   }
 
   // ----------------------------------------------------------------- registry
