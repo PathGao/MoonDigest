@@ -543,7 +543,7 @@ function bindRuntimeEvents() {
       }
 
       const runId = state.fetchRunId;
-      fetchHotComments(20)
+      fetchHotComments()
         .then((hotComments) => {
           if (runId === state.fetchRunId) {
             state.hotComments = hotComments;
@@ -4133,13 +4133,13 @@ async function fetchSubtitleBundle(extraIo = {}) {
   return { tracks: bundle.tracks, chapters, needLogin: bundle.needLogin };
 }
 
-async function fetchHotComments(count = 20) {
+async function fetchHotComments() {
   const site = currentSite();
   const ref = currentRef();
   if (!site?.fetchComments || !ref) {
     return [];
   }
-  return site.fetchComments(ref, state.meta, siteIo(), count);
+  return site.fetchComments(ref, state.meta, siteIo());
 }
 
 function toReadableText(value, fallback = "") {
@@ -4525,7 +4525,7 @@ async function refreshDerivedContent() {
     const shouldFetchComments = !Array.isArray(hotComments) || hotComments.length === 0;
     if (shouldFetchComments) {
       try {
-        hotComments = await fetchHotComments(20);
+        hotComments = await fetchHotComments();
       } catch (error) {
         hotComments = [];
         logWarn("[BOC] failed to fetch hot comments for note export", error);

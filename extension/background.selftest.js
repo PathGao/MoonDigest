@@ -276,13 +276,16 @@ process.on("exit", (code) => {
   let routes = sidepanelRoutes(400);
   // The side panel reads B站 through triage-bg.js's channel (fetch), with the B站 referrer.
   const inits = [];
-  ctx.fetch = async (url, init) => (inits.push(init), { ok: true, status: 200, json: async () => routes[Object.keys(routes).find((part) => url.includes(part))] });
+  const urls = [];
+  ctx.fetch = async (url, init) => (inits.push(init), urls.push(url), { ok: true, status: 200, json: async () => routes[Object.keys(routes).find((part) => url.includes(part))] });
   await assert.rejects(historyContext(), /时长不匹配/);
   assert.deepStrictEqual(Object.keys(local).filter((k) => k.startsWith("boc_subtitle_cache_")), []);
   // Speech ending at 100 s (a long silent outro) passes the video page's loose guard, so the side panel takes it too.
   routes = sidepanelRoutes(100);
   const resolved = await historyContext();
   assert.strictEqual(resolved.subtitleBody.length, 2);
+  // As many hot comments as the video page and 分拣台 notes ask for: one count, BocSites.HOT_COMMENTS.
+  assert.ok(urls.some((u) => u.includes("/reply/main") && u.includes(`&ps=${ctx.BocSites.HOT_COMMENTS}&`)) && ctx.BocSites.HOT_COMMENTS === 20);
   // The AI gets the same note the video page sends (BocNote.buildAiContext): front matter and subtitles, no player embed.
   assert.match(resolved.subtitleMarkdown, /^---\ntitle: "T"\n/);
   assert.match(resolved.subtitleMarkdown, /subtitle_lang: "中文"/);

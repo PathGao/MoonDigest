@@ -333,7 +333,7 @@ async function resolveAiSidepanelContext(contextRef) {
     throw new Error(body.length ? "原视频字幕与视频时长不匹配" : "原视频字幕为空");
   }
 
-  const hotComments = site.fetchComments ? await site.fetchComments(videoRef, meta, io, 18).catch(() => []) : [];
+  const hotComments = site.fetchComments ? await site.fetchComments(videoRef, meta, io).catch(() => []) : [];
   const chapters = BocSites.normalizeChapters(bundle.chapters?.length ? bundle.chapters : BocSites.parseChaptersFromDescription(meta.description));
   const title = String(meta.title || ref.title || "").trim();
   const subtitleLang = String(selectedTrack?.label || selectedTrack?.lang || "").trim();

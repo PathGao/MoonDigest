@@ -727,7 +727,7 @@ async function triageBuildNote(bvid, settings) {
   const fetched = track ? site.parseSegments(await BocSites.fetchRawCached(site, track, { videoId: bvid, cid: meta.cid }, io, valid)) : [];
   const body = valid(fetched) ? fetched : [];
   const hotComments =
-    settings.includeHotCommentsInNote || !body.length ? await site.fetchComments(ref, meta, io, 20).catch(() => []) : [];
+    settings.includeHotCommentsInNote || !body.length ? await site.fetchComments(ref, meta, io).catch(() => []) : [];
   const noteMeta = {
     site: "bilibili",
     videoId: bvid,

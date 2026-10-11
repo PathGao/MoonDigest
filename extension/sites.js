@@ -184,6 +184,9 @@
     return list[0];
   }
 
+  // Hot comments a note or the AI gets, on every reader (video page, side panel follow-up, 分拣台 notes).
+  const HOT_COMMENTS = 20;
+
   function normalizeSegments(items) {
     return (items || [])
       .map((item) => ({
@@ -480,7 +483,7 @@
     parseSegments(raw) {
       return normalizeSegments(raw?.body);
     },
-    async fetchComments(ref, meta, io, count = 20) {
+    async fetchComments(ref, meta, io, count = HOT_COMMENTS) {
       const aid = Number(meta?.aid || 0) || 0;
       if (!aid || !count) {
         return [];
@@ -1140,7 +1143,7 @@
       };
     },
     // Same two /next calls the watch page makes, the first shared with fetchTracks.
-    async fetchComments(ref, meta, io, count = 20) {
+    async fetchComments(ref, meta, io, count = HOT_COMMENTS) {
       if (!io.postJson || !count) {
         return [];
       }
@@ -1340,6 +1343,7 @@
     buildContextKey,
     isBiliVideoGone,
     BILI_RISK_CODES,
+    HOT_COMMENTS,
     rankTracks,
     normalizeSubtitleLang,
     pickPreferredTrack,
