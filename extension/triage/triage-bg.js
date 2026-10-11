@@ -781,6 +781,7 @@ function triageObsidianError(e) {
   return e?.status ? triageError(error) : e;
 }
 // Before a 逐个视频笔记 run: the settings and one request to the API root (it answers authenticated: false to a wrong key).
+// A 404 there is a wrong address (去设置); any other HTTP error is Obsidian's own, which the settings page cannot fix.
 async function triageObsidianCheck() {
   const { baseUrl, apiKey } = triageObsidianConfig(await getMergedSettings());
   const res = await fetchWithTimeout(`${baseUrl.replace(/\/+$/, "")}/`, { headers: { Authorization: `Bearer ${apiKey}` }, cache: "no-store" }, OBSIDIAN_TIMEOUT_MS).catch((e) => {
@@ -788,7 +789,7 @@ async function triageObsidianCheck() {
   });
   const data = await res.json().catch(() => null);
   if (data?.authenticated === false || res.status === 401 || res.status === 403) throw triageObsidianError({ status: 401 });
-  if (!res.ok) throw triageError(`Obsidian 返回 HTTP ${res.status}`, "OBSIDIAN");
+  if (!res.ok) throw triageError(`Obsidian 返回 HTTP ${res.status}`, res.status === 404 ? "OBSIDIAN" : "");
 }
 
 // Returns { path, skipped, aiUpdated, title, source }; skipped means the note existed and overwrite was off,

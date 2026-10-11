@@ -37,6 +37,20 @@ assert.strictEqual(t.triageObsidianError({ status: 500, message: 'HTTP 500. {"er
 const noteErr = new Error("生成笔记失败");
 assert.strictEqual(t.triageObsidianError(noteErr), noteErr);
 assert.throws(() => t.triageObsidianConfig({ obsidianEnabled: true, obsidianApiBaseUrl: "http://127.0.0.1:27123" }), (e) => e.code === "OBSIDIAN");
+// The pre-run check: a wrong key or address is OBSIDIAN (去设置); Obsidian's own HTTP 500 is a plain error.
+{
+  t.getMergedSettings = async () => ({ obsidianEnabled: true, obsidianApiBaseUrl: "http://127.0.0.1:27123", obsidianApiKey: "k" });
+  t.OBSIDIAN_TIMEOUT_MS = 1000;
+  const check = (status) => ((t.fetchWithTimeout = async () => ({ ok: status < 300, status, json: async () => ({}) })), t.triageObsidianCheck().then(() => "ok", (e) => e.code ?? e.message));
+  (async () => {
+    const codes = [];
+    for (const status of [401, 403, 404, 500, 200]) codes.push(await check(status));
+    assert.deepStrictEqual(codes, ["OBSIDIAN", "OBSIDIAN", "OBSIDIAN", "Obsidian 返回 HTTP 500", "ok"]);
+  })().catch((e) => {
+    console.error(e);
+    process.exit(1);
+  });
+}
 
 
 // LLM parse: fixed three classes; ids in any case or the Chinese names; anything else is unsure.
