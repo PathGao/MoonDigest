@@ -111,10 +111,10 @@ assert.deepStrictEqual(plain(t.triageTagNames(["AI", " 编程 ", "", null])), ["
 
 // command line + messages
 assert.strictEqual(
-  t.triageCommandLine({ title: "T|x", upper: "U", duration: 61, currentTags: ["AI", "编程"], oneLiner: "一句", points: ["p1", "p2", "p3"] }, 2),
-  "2|T x|U|1:01|AI、编程|一句|p1；p2；p3"
+  t.triageCommandLine({ title: "T|x", upper: "U", duration: 61, intro: "简介|第二行\n" + "长".repeat(200), currentTags: ["AI", "编程"], oneLiner: "一句", points: ["p1", "p2", "p3"] }, 2),
+  `2|T x|U|1:01|${("简介 第二行 " + "长".repeat(200)).slice(0, 120)}|AI、编程|一句|p1；p2；p3`
 );
-assert.strictEqual(t.triageCommandLine({ title: "T" }, 1), "1|T|||||");
+assert.strictEqual(t.triageCommandLine({ title: "T" }, 1), "1|T||||||");
 const cmdMsgs = t.triageBuildCommandMessages({ instruction: "把讲 AI 的都标上", tags: ["AI", "编程"], items: [{ bvid: "BV1", title: "T" }] });
 assert.ok(cmdMsgs[0].content.includes("至多 5 个"));
 assert.ok(cmdMsgs[0].content.endsWith("没有说明只写名称）：\nAI\n编程"));
@@ -129,7 +129,7 @@ assert.deepStrictEqual(plain(t.triageParseCommand('{"items":[{"i":1,"add":["AI",
 assert.ok(t.triageBuildCommandMessages({ instruction: "x", tags: [], items: [] })[0].content.endsWith("：\n（无）"));
 assert.ok(!cmdMsgs[0].content.includes('"verdict"'));
 assert.ok(cmdMsgs[1].content.includes("<<<指令>>>\n把讲 AI 的都标上\n<<<指令结束>>>"));
-assert.ok(cmdMsgs[1].content.endsWith("\n1|T|||||"));
+assert.ok(cmdMsgs[1].content.endsWith("\n1|T||||||"));
 assert.ok(!/verdict|值得留|可清理|拿不准/.test(cmdMsgs[0].content), "the command prompt never asks for a verdict");
 
 // command parse

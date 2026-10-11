@@ -101,11 +101,11 @@ function triageTitleLine(item, n) {
   return `${n}|${clean(item.title)}|${clean(item.upper)}|${TriageUi.fmtDuration(item.duration)}|${TriageUi.fmtDate(item.pubdate)}|${clean(item.intro).slice(0, 120)}`;
 }
 
-// 序号|标题|UP|时长|现有标签|一句话|要点1；要点2；要点3（没有的字段留空）
+// 序号|标题|UP|时长|简介前120字|现有标签|一句话|要点1；要点2；要点3（没有的字段留空）
 function triageCommandLine(item, n) {
   const clean = (s) => String(s ?? "").replace(/[|\r\n]+/g, " ").trim();
   const list = (a) => (Array.isArray(a) ? a.map(clean).filter(Boolean) : []);
-  return [n, clean(item.title), clean(item.upper), Number(item.duration) ? TriageUi.fmtDuration(item.duration) : "", list(item.currentTags).join("、"), clean(item.oneLiner), list(item.points).join("；")].join("|");
+  return [n, clean(item.title), clean(item.upper), Number(item.duration) ? TriageUi.fmtDuration(item.duration) : "", clean(item.intro).slice(0, 120), list(item.currentTags).join("、"), clean(item.oneLiner), list(item.points).join("；")].join("|");
 }
 
 // 批量打标签的提案只改标签：add 只留已有标签或本次新建的标签（至多 maxNewTags 个），remove 只留视频现有标签且要 allowRemove；
@@ -206,7 +206,7 @@ const TRIAGE_AI_UNIT = {
   intro: "你是 B站收藏整理助手，按用户指令给视频打标签、做分类。",
   noun: "视频",
   basis: "- 有“一句话”和“要点”的视频以它们为主要依据，它们比标题可靠得多。",
-  header: "视频列表，每行格式：序号|标题|UP主|时长|现有标签|一句话|要点1；要点2；要点3（没有的字段留空）：",
+  header: "视频列表，每行格式：序号|标题|UP主|时长|简介前120字|现有标签|一句话|要点1；要点2；要点3（没有的字段留空）：",
   line: triageCommandLine
 };
 function triageBuildCommandMessages({ instruction, tags, items, maxNewTags = 5, allowRemove = false, unit = TRIAGE_AI_UNIT }) {
