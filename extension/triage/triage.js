@@ -507,6 +507,18 @@ const aiEnds = (r) => AI_END_CODES.has(r.code) || /配置 AI|未授权访问/.te
 const AI_TIMEOUT_TRIES = 2;
 const AI_THROTTLE_WAITS = 5;
 const aiGaveUp = () => ({ ok: false, code: "AI_GAVE_UP", error: `AI 平台持续限流，已等待重试 ${AI_THROTTLE_WAITS} 次，已停止` });
+// What a run does with one AI answer r, by the rule above; n = { timeouts, waits } counts in a row and is updated here.
+// ends(r) says which errors end the run (粗看 passes () => true: it stops on any). Returns [step, r]: "ok"; "retry" (the
+// same request at once); "wait" (THROTTLES[r.code], then the same request); "stop" (r may now be AI_GAVE_UP); "item"
+// (only this request failed, the run goes on).
+function aiNext(r, n, ends = aiEnds) {
+  if (!r.ok && r.code === "AI_TIMEOUT" && ++n.timeouts < AI_TIMEOUT_TRIES) return ["retry", r];
+  if (!r.ok && r.code === "AI_THROTTLED" && n.waits++ === AI_THROTTLE_WAITS) r = aiGaveUp();
+  if (!r.ok && THROTTLES[r.code]) return ["wait", r];
+  if (!r.ok && ends(r)) return ["stop", r];
+  n.timeouts = n.waits = 0;
+  return [r.ok ? "ok" : "item", r];
+}
 
 function handleAiError(error, code = "") {
   const text = String(error || "AI 调用失败");
@@ -3225,8 +3237,7 @@ async function runStage1(list = stage1Pending()) {
   const keepGoing = () => !S.stage1.stop;
   const size = Math.max(1, Number(S.settings.triageTitleBatchSize) || 30);
   let done = 0;
-  let timeouts = 0;
-  let aiWaits = 0;
+  const n = { timeouts: 0, waits: 0 };
   let failedOut = false;
   render();
   while (keepGoing()) {
@@ -3238,21 +3249,20 @@ async function runStage1(list = stage1Pending()) {
     S.stage1.text = `标题粗看中 ${done}/${total}`;
     for (const it of batch) S.analyzing.add(it.bvid);
     render();
-    let r = await send({ type: "triage-classify-titles", items: batch.map(aiItem), criteria: crit, folder: ctx });
+    const sent = await send({ type: "triage-classify-titles", items: batch.map(aiItem), criteria: crit, folder: ctx });
     for (const it of batch) S.analyzing.delete(it.bvid);
-    if (!r.ok) {
-      // A timeout sends the same batch again; the second in a row ends the run, as any other error does.
-      if (r.code === "AI_TIMEOUT" && ++timeouts < AI_TIMEOUT_TRIES) continue;
-      if (r.code === "AI_THROTTLED" && aiWaits++ === AI_THROTTLE_WAITS) r = aiGaveUp();
-      if (THROTTLES[r.code]) {
-        await throttleWait(r.code, keepGoing, "stage1");
-        continue;
-      }
+    // Any error that is not a timeout or a limit ends the run.
+    const [step, r] = aiNext(sent, n, () => true);
+    if (step === "retry") continue;
+    if (step === "wait") {
+      await throttleWait(r.code, keepGoing, "stage1");
+      continue;
+    }
+    if (step === "stop") {
       handleAiError(r.error, r.code);
       failedOut = true;
       break;
     }
-    timeouts = aiWaits = 0;
     const results = r.data?.results || {};
     for (const it of batch) {
       if (results[it.bvid]) S.titleRes[it.bvid] = { criteria: crit, ...results[it.bvid] };
@@ -3309,29 +3319,26 @@ async function analyzeOne(bvid, force, { crit, ctx }) {
 async function runGroup() {
   const group = S.group;
   const keepGoing = () => !group.stop && S.group === group;
-  let timeouts = 0;
-  let aiWaits = 0;
+  const n = { timeouts: 0, waits: 0 };
   render();
   while (keepGoing()) {
     const b = group.bvids.find((x) => groupPending(group, x));
     if (!b) break;
     group.text = `${group.redo ? "按新标准重新细看" : "字幕细看"} ${groupDone(group) + 1}/${group.bvids.length}`;
     const judge = group.judge.get(b);
-    let r = await analyzeOne(b, Boolean(group.redo), judge);
-    // An error that is not this video's ends the run and leaves the card as it was; a timeout first tries it again.
-    if (!r.ok && r.code === "AI_TIMEOUT" && ++timeouts < AI_TIMEOUT_TRIES) continue;
-    if (!r.ok && r.code === "AI_THROTTLED" && aiWaits++ === AI_THROTTLE_WAITS) r = aiGaveUp();
-    if (!r.ok && THROTTLES[r.code]) {
+    // An error that is not this video's ends the run and leaves the card as it was.
+    const [step, r] = aiNext(await analyzeOne(b, Boolean(group.redo), judge), n);
+    if (step === "retry") continue;
+    if (step === "wait") {
       render();
       await throttleWait(r.code, keepGoing, "group");
       continue;
     }
-    if (!r.ok && aiEnds(r)) {
+    if (step === "stop") {
       handleAiError(r.error, r.code);
       group.stop = true;
       break;
     }
-    timeouts = aiWaits = 0;
     group.redo?.delete(b);
     const keepOld = !r.ok && group.redo && S.analyses[b]?.status === "done";
     if (keepOld) toast(`重新细看失败，保留原来的结果：${r.error}`, true);
@@ -3482,19 +3489,17 @@ async function runAiBatches({ total, request, merge, intervalMs, keepGoing, prog
   const which = (i, full = false) => (name ? name(i) : full ? `第 ${i + 1} / ${total} 批` : `第 ${i + 1} 批`);
   const p = { newTags: [], rows: [], notes: [], errors: [] };
   let answered = 0;
-  let timeouts = 0;
-  let aiWaits = 0;
+  const n = { timeouts: 0, waits: 0 };
   Object.assign(at, { done: 0, total, until: 0 });
   for (let i = 0; i < total && keepGoing(); i++) {
     at.done = i;
     progress(`AI 正在处理${which(i, true)}…`);
-    let r = await send(request(i, p));
-    if (!r.ok && r.code === "AI_TIMEOUT" && ++timeouts < AI_TIMEOUT_TRIES) {
+    const [step, r] = aiNext(await send(request(i, p)), n);
+    if (step === "retry") {
       i--;
       continue;
     }
-    if (!r.ok && r.code === "AI_THROTTLED" && aiWaits++ === AI_THROTTLE_WAITS) r = aiGaveUp();
-    if (!r.ok && THROTTLES[r.code]) {
+    if (step === "wait") {
       const [ms, label] = THROTTLES[r.code];
       Object.assign(at, { until: Date.now() + ms, label });
       for (let sec = Math.round(ms / 1000); sec > 0 && keepGoing(); sec--) {
@@ -3505,8 +3510,7 @@ async function runAiBatches({ total, request, merge, intervalMs, keepGoing, prog
       i--;
       continue;
     }
-    const ends = !r.ok && aiEnds(r);
-    timeouts = aiWaits = 0;
+    const ends = step === "stop";
     if (!r.ok) {
       p.errors.push(`${which(i)}失败：${r.error}`);
       // 截断 is reported with what to change.

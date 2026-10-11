@@ -804,6 +804,21 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     t.el.banner.hidden = true;
     handlers["triage-ai-command"] = () => ({ ok: true, data: {} });
   }
+  // X3: one rule for 粗看, 细看 and AI 打标签 (aiNext). A video's own error ends 粗看 (ends: any) but not the others.
+  {
+    const steps = (rs, ends) => {
+      const n = { timeouts: 0, waits: 0 };
+      return rs.map((r) => t.aiNext(r, n, ends)[0]);
+    };
+    const T = { ok: false, code: "AI_TIMEOUT" }, L = { ok: false, code: "AI_THROTTLED" }, own = { ok: false, error: "字幕取不到" };
+    assert.deepStrictEqual(steps([T, T]), ["retry", "stop"], "the second timeout in a row ends the run");
+    assert.deepStrictEqual(steps([T, { ok: true }, T]), ["retry", "ok", "retry"], "an answer resets the count");
+    assert.deepStrictEqual(steps([L, L, L, L, L, L]), ["wait", "wait", "wait", "wait", "wait", "stop"]);
+    assert.strictEqual(t.aiNext(L, { timeouts: 0, waits: 5 })[1].code, "AI_GAVE_UP");
+    assert.deepStrictEqual(steps([T, own, T]), ["retry", "item", "retry"], "细看 / AI 打标签: only this video failed");
+    assert.deepStrictEqual(steps([own], () => true), ["stop"], "粗看 stops on any error");
+    assert.deepStrictEqual(steps([{ ok: false, code: "AI_QUOTA" }]), ["stop"]);
+  }
   // Every batch failed: nothing to confirm (no 待确认), the reason is toasted. A setup error (配置 AI) stops the run at
   // the first batch, as in 关注.
   {
