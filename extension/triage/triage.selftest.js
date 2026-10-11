@@ -11,7 +11,7 @@ const source = fs
   .replace(/^init\(\);$/m, "");
 assert.ok(!/await import|^init\(\);$/m.test(source), "harness strips the page entry points");
 // 优先看, then 播放列表, was renamed 待播: no page text or README still says an old name ("YouTube 播放列表" in the README is YouTube's own).
-for (const f of ["triage.html", "triage.js", "follow.js", "shared.js", "../options.html", "../options.js", "../sidepanel.html", "../sidepanel.js", "../popup.html", "../popup.js", "../content.js", "../badges.js", "../../README.md"]) {
+for (const f of ["triage.html", "triage.js", "triage-core.js", "follow.js", "shared.js", "../options.html", "../options.js", "../sidepanel.html", "../sidepanel.js", "../popup.html", "../popup.js", "../content.js", "../badges.js", "../../README.md"]) {
   const text = fs.readFileSync(path.join(__dirname, f), "utf8").replaceAll("YouTube 播放列表", "");
   for (const old of ["优先看", "播放列表"]) assert.ok(!text.includes(old), `${f} still says ${old}`);
 }
@@ -74,15 +74,33 @@ const ctx = vm.createContext({
     }
   }
 });
-vm.runInContext(fs.readFileSync(path.join(__dirname, "..", "limits.js"), "utf8"), ctx);
-vm.runInContext(fs.readFileSync(path.join(__dirname, "..", "errors.js"), "utf8"), ctx);
-vm.runInContext(fs.readFileSync(path.join(__dirname, "..", "typing.js"), "utf8"), ctx);
-vm.runInContext(fs.readFileSync(path.join(__dirname, "../tag-core.js"), "utf8"), ctx);
-vm.runInContext(fs.readFileSync(path.join(__dirname, "../bili-surfaces.js"), "utf8"), ctx);
-vm.runInContext(fs.readFileSync(path.join(__dirname, "shared.js"), "utf8"), ctx);
-vm.runInContext(fs.readFileSync(path.join(__dirname, "tag-picker.js"), "utf8"), ctx);
+// The classic scripts triage.html loads, read from the page so the test cannot load a different set; they all run before
+// its modules (triage.js, then follow.js). tag-dialogs.js is left out: TagDialogs above stands in for it.
+const pageScripts = [...fs.readFileSync(path.join(__dirname, "triage.html"), "utf8").matchAll(/<script([^>]*) src="([^"]+)"/g)];
+assert.deepStrictEqual(pageScripts.filter((m) => /type="module"/.test(m[1])).map((m) => m[2]), ["./triage.js", "./follow.js"], "triage.html's modules");
+for (const [, attrs, src] of pageScripts) {
+  if (!/type="module"/.test(attrs) && !src.endsWith("/tag-dialogs.js")) vm.runInContext(fs.readFileSync(path.join(__dirname, src), "utf8"), ctx);
+}
+// Registration: every extension page that loads a reader of TriageCore loads triage-core.js before it.
+{
+  const root = path.join(__dirname, "..");
+  const pages = [];
+  const walk = (dir) => fs.readdirSync(dir, { withFileTypes: true }).forEach((e) => (e.isDirectory() ? walk(path.join(dir, e.name)) : e.name.endsWith(".html") && pages.push(path.join(dir, e.name))));
+  walk(root);
+  let readers = 0;
+  for (const page of pages) {
+    const files = [...fs.readFileSync(page, "utf8").matchAll(/<script[^>]*src="([^"]+)"/g)].map((m) => path.join(path.dirname(page), m[1])).filter((p) => fs.existsSync(p));
+    const first = files.findIndex((p) => !p.endsWith("triage-core.js") && /\bTriageCore\b/.test(fs.readFileSync(p, "utf8")));
+    if (first < 0) continue;
+    readers++;
+    const core = files.findIndex((p) => p.endsWith(`${path.sep}triage-core.js`));
+    assert.ok(core >= 0 && core < first, `${path.relative(root, page)} loads triage-core.js before ${path.basename(files[first])}`);
+  }
+  assert.ok(readers >= 1, "found the pages that read TriageCore");
+}
 vm.runInContext(`${source}\n;globalThis.S = S; globalThis.K = K; globalThis.el = el; globalThis.verdictBadge = verdictBadge; globalThis.seenText = seenText; globalThis.staleCoarse = staleCoarse; globalThis.staleFine = staleFine; globalThis.groupDone = groupDone; globalThis.mergeHead = mergeHead; globalThis.isFinished = isFinished; globalThis.pointerMoved = pointerMoved; globalThis.inferFrom = inferFrom; globalThis.hasAllTags = hasAllTags; globalThis.sortItems = sortItems; globalThis.sortOf = sortOf; globalThis.visibleItems = visibleItems;`, ctx);
 const t = ctx;
+Object.assign(t, t.TriageCore);
 vm.runInContext("globalThis.plainClick = plainClick;", ctx);
 const plain = (v) => JSON.parse(JSON.stringify(v));
 // Row 3 as drawn now.
