@@ -623,6 +623,13 @@ async function followPage({ store = {}, handlers = {}, setup = () => {} } = {}) 
     await p.until(() => p.toasts.at(-1) === "已撤销：取消关注 2 个");
     assert.deepStrictEqual([plain(p.asked), p.ctx.S.modeUndo.length, p.sent.filter((m) => m.act === 1).map((m) => m.mid).join()], [["在 B站撤销取消关注？"], 0, "u1,u2"], "once it is done, U asks and undoes");
   }
+
+  // The refresh held by the background (follow_jobs.hold): its pill says why and counts down.
+  for (const [why, words] of [["throttled", "B站限流卡住"], ["offline", "网络断了"]]) {
+    const p = await followPage({ store: page({ follow_jobs: { running: true, phase: "list", hold: { until: Math.ceil(Date.now() / 1000) + 60, why } } }) });
+    const pill = p.$("fwActivity");
+    assert.ok(new RegExp(`^读取关注列表 · ${words}，[01]:\\d\\d 后重试$`).test(pill.title) && pill.classList.contains("warn"), pill.title);
+  }
 })().catch((e) => {
   console.error(e);
   process.exit(1);

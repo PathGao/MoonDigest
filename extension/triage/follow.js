@@ -845,16 +845,13 @@ function renderFoot(n = feedList(F.feed.items, D, feedF(), null).length) {
   const oldest = f.items.length ? Math.min(...f.items.map((it) => it.at)) : 0;
   const where = F.side === "gone" ? "已取消关注的人不在视频投稿里。" : "";
   const reach = oldest ? `已加载到 ${fmtDate(oldest)}（${fmtAgo(oldest, nowSec())}），共 ${f.items.length} 个视频。` : "";
-  // B站限流: the follow sync's amber pill with the red ⚠ and the countdown, then more() tries again by itself.
-  if (f.wait) {
-    foot.innerHTML = `<p>${esc(reach)}</p><span class="activity" role="status"></span>`;
-    return UI.setActivity(foot.lastChild, { text: runs.get("follow-feed")?.wait || "B站限流卡住", stuck: true });
-  }
-  // The background holding its queue (risk control, a dropped connection) while this page waits for a page.
+  // Stuck, as the sync's amber pill with the red ⚠ and the countdown: B站限流 (then more() tries again by itself), or the
+  // background holding its queue (risk control, a dropped connection) while this page waits for a page.
   const hold = f.loading && F.hold?.until > nowSec() ? F.hold : null;
-  if (hold) {
+  const stuck = f.wait ? runs.get("follow-feed")?.wait || "B站限流卡住" : hold && UI.waitText(holdLabel(hold), Math.ceil(hold.until - nowSec()));
+  if (stuck) {
     foot.innerHTML = `<p>${esc(reach)}</p><span class="activity" role="status"></span>`;
-    return UI.setActivity(foot.lastChild, { text: UI.waitText(hold.why === "throttled" ? "B站限流卡住" : "网络断了", Math.ceil(hold.until - nowSec())), stuck: true });
+    return UI.setActivity(foot.lastChild, { text: stuck, stuck: true });
   }
   let text;
   if (f.error) text = f.error;
@@ -937,6 +934,8 @@ const runs = BocRuns.create({
   },
   hold: (r) => (r.code === "THROTTLED" ? { ms: UI.BILI_HOLD_MS, label: "B站限流卡住" } : T.hold(r))
 });
+// The background's queue pause (follow_jobs.hold, follow_hold) in words.
+const holdLabel = (h) => (h.why === "throttled" ? "B站限流卡住" : "网络断了");
 // The refresh's line, its hold (B站 risk control or a dropped connection) counting down after it; once the hold is over
 // the requests go slower for a while (follow-bg.js FOLLOW_CFG.slowForMs).
 runs.put("sync", () => {
@@ -945,7 +944,7 @@ runs.put("sync", () => {
   const held = j.hold?.until > nowSec();
   const slowed = !held && (j.slowUntil || 0) > nowSec();
   const text = `${slowed ? "B站限流变慢 · " : ""}${j.step || PHASE[j.phase] || "刷新中"}${j.total ? ` ${j.done || 0}/${j.total}` : j.done ? ` ${j.done}` : ""}`;
-  return { text, done: j.done || 0, total: j.total || 0, slowed, wait: held && { until: j.hold.until * 1000, label: j.hold.why === "throttled" ? "B站限流卡住" : "网络断了" } };
+  return { text, done: j.done || 0, total: j.total || 0, slowed, wait: held && { until: j.hold.until * 1000, label: holdLabel(j.hold) } };
 });
 runs.put("proposal", () => AI.proposal && { text: "标签建议待确认" });
 // 关注's writes to B站 (writes.js), on their own lane: their keys are mids, their undo steps 关注's, and a 收藏夹 batch
