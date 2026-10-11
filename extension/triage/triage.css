@@ -634,6 +634,7 @@ dialog h3 { margin: 8px 0 0; font-size: var(--fs-sm); font-weight: 600; }
 
 .obsidian-off #writeRunBtn, .obsidian-off label:has(#writeOverwrite) { display: none; }
 .write-failed { margin: 4px 0 0; padding-left: 18px; font-size: var(--fs-xs); color: var(--danger); }
+.write-failed .warn { color: var(--warn); }
 #writeProgress.fail-text { color: var(--danger); }
 
 /* toast */

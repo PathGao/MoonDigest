@@ -474,10 +474,14 @@ assert.throws(() => t.triageParseCommand('{"new_tags":[', cmdItems, cmdTags, {})
   routes = { ...baseRoutes(), [subUrl]: http412 };
   await assert.rejects(analyze(), (e) => e.code === "THROTTLED");
   assert.strictEqual("triage_analysis_BVa" in store, false);
-  routes = { ...baseRoutes(), [subUrl]: new Error("network") };
-  assert.strictEqual((await analyze()).source, "meta");
+  // A failed download: judged on the description and comments, and the card says 字幕抓取失败 with the reason.
+  routes = { ...baseRoutes(), [subUrl]: new TypeError("Failed to fetch") };
+  const failedSub = await analyze();
+  assert.deepStrictEqual([failedSub.source, failedSub.subtitleFailure], ["meta", "网络断了"]);
+  assert.strictEqual((await (routes = { ...baseRoutes(), "/x/player/wbi/v2": emptyList }, analyze())).subtitleFailure, undefined, "no subtitles is not a failure");
 
-  // Notes: throttling or a failed subtitle fetch writes nothing; another video's subtitle is dropped, not cached.
+  // Notes: throttling writes nothing (the caller waits and retries); a failed subtitle download writes the note without
+  // it, saying so like the video page's note; another video's subtitle is dropped, not cached.
   const buildNote = () => t.triageBuildNote("BVa", {});
   routes = { ...baseRoutes(), "/x/player/wbi/v2": { code: -352, message: "风控" }, "/x/player/v2": { code: -352, message: "风控" } };
   await assert.rejects(buildNote(), (e) => e.code === "THROTTLED");
@@ -486,8 +490,10 @@ assert.throws(() => t.triageParseCommand('{"new_tags":[', cmdItems, cmdTags, {})
   await assert.rejects(buildNote(), (e) => e.code === -404 && e.message === "啥都木有" && t.BocSites.isBiliVideoGone(e.code));
   routes = { ...baseRoutes(), "/view/detail": { code: -352, message: "风控" }, "/web-interface/view?": { code: -352, message: "风控" } };
   await assert.rejects(buildNote(), (e) => e.code === "THROTTLED" && !t.BocSites.isBiliVideoGone(e.code));
-  routes = { ...baseRoutes(), [subUrl]: new Error("network") };
-  await assert.rejects(buildNote(), /network/);
+  routes = { ...baseRoutes(), [subUrl]: Object.assign(new Error("HTTP 403"), { status: 403 }) };
+  const noSub = await buildNote();
+  assert.deepStrictEqual([noSub.body.length, noSub.subtitleWarning], [0, "字幕抓取失败：B站请求失败 HTTP 403。"]);
+  assert.ok(noSub.markdown.includes("> 字幕抓取失败（B站请求失败 HTTP 403），以下为简介与热门评论。"), noSub.markdown);
   // A subtitle that does not match the video's length is kept with the video page's warning, and is not cached.
   routes = { ...baseRoutes(), [subUrl]: subtitleRaw(400) };
   const keptNote = await buildNote();

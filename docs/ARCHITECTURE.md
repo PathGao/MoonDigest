@@ -31,7 +31,7 @@ B站 页面上的颜色是 `tokens.css` 的第三份拷贝：`content.css` 里�
 - 存储键名只写一份：不止一个文件用到的 `chrome.storage.local` 键名都在 `extension/limits.js` 的 `BocLimits.KEYS` 里，运行时拼出来的键（`triage_analysis_<bvid>` 等）在那里有前缀和函数。键名的值不能改，改了用户的数据就找不到了。`limits.selftest.js` 核对这些值，并在别的文件把它们写成字符串、`x.键名` 或 `{ 键名: … }` 时报错（selftest 和 dev 下的 mock 除外）。例外：`badges.js` 不加载 `limits.js`，自己照抄读到的五个名字，selftest 核对它们还在 KEYS 里；只有一个文件用的键留在那个文件（分拣台的 `K`）。关注的 `follow_*` 也还没进 KEYS：它们主要在 `follow-bg.js` 和 `follow.js` 里当属性名用（约 200 处），以后拆这两个文件时再收。
 - 读一个视频（字幕、评论、分拣台的附加内容）有三处：视频页（`content.js`，自己的重试、换轨和取消流程）、侧边栏接着问 AI（`background.js` 的 `resolveAiSidepanelContext`）和分拣台的细看 / 笔记（`triage-bg.js` 的 `triageAnalyze` / `triageBuildNote`）。它们共用这些，不各写一份：
   - 字幕时长检查只有 `BocSites.validateSubtitleByDuration`。对不上的字幕照样用，配视频页那句「字幕时间轴到 X，视频长 Y，字幕时间可能对不上。」（`BocNote.subtitleMismatchWarning`），只是不进字幕缓存；没有时长就不查。
-  - 后台两处按顺序试字幕轨：`BocSites.loadFirstTrack`（第一条对不上或抓失败就试下一条，限流立即停；都对不上时用第一条对不上的并带回检查结果）。
+  - 后台两处按顺序试字幕轨：`BocSites.loadFirstTrack`（第一条对不上或抓失败就试下一条，限流立即停；都对不上时用第一条对不上的并带回检查结果）。分拣台的细看和笔记在每条都抓失败（不是限流）时不报错，按简介和评论来：`triageAnalyze` 把原因记在 `subtitleFailure` 给卡片，`triageBuildNote` 照写笔记（`noteMeta.subtitleFailure`，和视频页笔记同一句开头），`subtitleWarning` 带上「字幕抓取失败：原因。」，视频记录页、侧边栏和「逐个视频笔记」都显示它。
   - 热门评论条数是 `BocSites.HOT_COMMENTS`（`fetchComments` 的默认值）。
   - 后台两处的笔记字段由 `BocNote.noteMetaOf` 从 `sites.js` 的结果拼出（章节没有时从简介里解析，和视频页一样）。
   - 分拣台的附加内容（AI 总结只给 B站 P1、我的备注、分拣标签）由 `BocNote.triageExtrasKeys` 列出要读的键、`BocNote.triageExtras` 取出来；视频页、分拣台笔记和侧边栏的对话笔记都用它。视频记录页一次读出全部存储再按视频分组，不走它。

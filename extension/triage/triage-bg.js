@@ -543,6 +543,11 @@ async function triageAiSettings() {
   };
 }
 
+// Why no subtitle was read when a track download failed (network, timeout, expired link; a limit throws before this),
+// without the trailing full stop, as the video page's 「字幕抓取失败：原因」 has it. Empty when a subtitle was read or the
+// video has none.
+const subtitleFailureOf = (found) => (!found.body.length && found.error ? String(found.error.message || found.error).replace(/[。.！!；;，,\s]+$/u, "") : "");
+
 async function triageAnalyze({ bvid, force, criteria, folder, aiProviderId }) {
   if (!bvid) throw triageError("缺少 bvid");
   const cacheKey = BocLimits.KEYS.triageAnalysis(bvid);
@@ -559,8 +564,8 @@ async function triageAnalyze({ bvid, force, criteria, folder, aiProviderId }) {
   let source = "meta";
   let subtitle = "";
   const found = await site.fetchTracks(ref, m, TRIAGE_BILI_IO);
-  // Throttling reaches the page so it backs off; other failures fall back to comments. A subtitle that does not
-  // match the video's length is used with the video page's warning, as everywhere else.
+  // Throttling reaches the page so it backs off; a failed download falls back to comments and the card says 字幕抓取失败
+  // with the reason. A subtitle that does not match the video's length is used with the video page's warning.
   const got = await BocSites.loadFirstTrack(site, BocSites.rankTracks(found.tracks), { videoId: bvid, cid: m.cid }, TRIAGE_BILI_IO, m.duration);
   if (got.body.length) {
     source = "subtitle";
@@ -576,6 +581,7 @@ async function triageAnalyze({ bvid, force, criteria, folder, aiProviderId }) {
     source,
     // Bilibili hides subtitles from a logged-out user; the card says so.
     ...(source === "meta" && found.needLogin ? { needLogin: true } : {}),
+    ...(subtitleFailureOf(got) ? { subtitleFailure: subtitleFailureOf(got) } : {}),
     ...(got.mismatch ? { subtitleWarning: BocNote.subtitleMismatchWarning(got.mismatch) } : {}),
     ...triageParseLlm(content),
     model,
@@ -712,17 +718,18 @@ async function triageBuildNote(bvid, settings) {
   const ref = { site: "bilibili", id: bvid, part: null, url: "" };
   const meta = await site.fetchMeta(ref, io);
   ref.url = site.canonicalUrl(bvid, meta.pageCount > 1 ? meta.pageIndex : 1);
-  // Tracks are tried in order like on the video page (BocSites.loadFirstTrack). Throttling, or a fetch failure with no
-  // track to use, rejects so no subtitle-less note is written; a subtitle that does not match the video's length is
-  // kept with the video page's warning (subtitleWarning), which the callers show.
+  // Tracks are tried in order like on the video page (BocSites.loadFirstTrack). Throttling rejects, so the caller waits
+  // and tries again. A failed download with no track to use writes the note without subtitles, as the video page does:
+  // the note opens with 字幕抓取失败（原因）. subtitleWarning, which the callers show, is the video page's sentence for that
+  // or for a subtitle that does not match the video's length (kept, not cached).
   const bundle = await site.fetchTracks(ref, meta, io);
   const found = await BocSites.loadFirstTrack(site, BocSites.rankTracks(bundle.tracks || []), { videoId: bvid, cid: meta.cid }, io, meta.duration);
-  if (!found.track && found.error) throw found.error;
   const { track, body } = found;
-  const subtitleWarning = found.mismatch ? BocNote.subtitleMismatchWarning(found.mismatch) : "";
+  const subtitleFailure = subtitleFailureOf(found);
+  const subtitleWarning = found.mismatch ? BocNote.subtitleMismatchWarning(found.mismatch) : subtitleFailure ? `字幕抓取失败：${subtitleFailure}。` : "";
   const hotComments =
     settings.includeHotCommentsInNote || !body.length ? await site.fetchComments(ref, meta, io).catch(() => []) : [];
-  const noteMeta = { ...BocNote.noteMetaOf({ site: "bilibili", videoId: bvid, meta, bundle, track }), hotComments };
+  const noteMeta = { ...BocNote.noteMetaOf({ site: "bilibili", videoId: bvid, meta, bundle, track }), hotComments, subtitleFailure };
   const { aiConversations } = BocLimits.KEYS;
   // 分拣台 notes always summarize the video's P1 (the analysis is per bvid).
   const extrasRef = { site: "bilibili", videoId: bvid, pageIndex: 1 };
@@ -767,14 +774,16 @@ async function triageObsidianCheck() {
   if (!res.ok) throw triageError(`Obsidian 返回 HTTP ${res.status}`, res.status === 404 ? "OBSIDIAN" : "");
 }
 
-// Returns { path, skipped, aiUpdated, title, source }; skipped means the note existed and overwrite was off,
+// Returns { path, skipped, aiUpdated, title, source, subtitleWarning? }; skipped means the note existed and overwrite was off,
 // aiUpdated that its AI 问答 section was rewritten anyway.
 async function triageWriteNote({ bvid, overwrite }) {
   const settings = await getMergedSettings();
   const { baseUrl, apiKey } = triageObsidianConfig(settings);
-  const { meta, noteMeta, body, markdown, path, cover } = await triageBuildNote(bvid, settings);
+  const { meta, noteMeta, body, markdown, path, cover, subtitleWarning } = await triageBuildNote(bvid, settings);
   try {
-    return await triageVaultWrite({ settings, baseUrl, apiKey, meta, noteMeta, body, markdown, path, cover, overwrite });
+    const done = await triageVaultWrite({ settings, baseUrl, apiKey, meta, noteMeta, body, markdown, path, cover, overwrite });
+    // A note written without its subtitle, or with one that may not match, says so in 逐个视频笔记's list.
+    return done.skipped || !subtitleWarning ? done : { ...done, subtitleWarning };
   } catch (e) {
     throw triageObsidianError(e);
   }

@@ -494,7 +494,8 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     assert.strictEqual(btn(1), '<button type="button" data-act="basket" aria-label="加入待播 (E)" title="加入待播">+ 待播<kbd class="key">E</kbd></button>');
     t.S.basket = kept;
   }
-  // F27: a 细看 judged without subtitles says so on the card, and why when it was the login.
+  // F27: a 细看 judged without subtitles says so on the card, and why (the login, a failed download); a subtitle that may
+  // not match the video gets the video page's warning.
   {
     const meta = () => t.cardHtml(item(1), false, "").match(/<div class="meta">([^]*?)<\/div>/)[1];
     t.S.analyses.BV1 = { status: "done", source: "subtitle", verdict: "keep" };
@@ -503,6 +504,10 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     assert.ok(meta().includes("没有字幕，按简介和评论判断"), meta());
     t.S.analyses.BV1.needLogin = true;
     assert.ok(meta().includes("未登录 B站拿不到字幕，按简介和评论判断"), meta());
+    t.S.analyses.BV1 = { status: "done", source: "meta", verdict: "keep", subtitleFailure: "网络断了" };
+    assert.ok(meta().includes("字幕抓取失败：网络断了，按简介和评论判断") && !meta().includes("没有字幕"), meta());
+    t.S.analyses.BV1 = { status: "done", source: "subtitle", verdict: "keep", subtitleWarning: "字幕时间轴到 06:40，视频长 04:33，字幕时间可能对不上。" };
+    assert.ok(meta().includes(" · 字幕时间轴到 06:40，视频长 04:33，字幕时间可能对不上"), meta());
     delete t.S.analyses.BV1;
   }
   t.removeBasketItems([2]);
@@ -2969,6 +2974,13 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
       assert.ok(stuck?.stuck && stuck.act === "write" && stuck.text === "写入笔记 1/3 · B站限流卡住，0:01 后重试" && stuck.total === 3, JSON.stringify(stuck));
 
       assert.strictEqual(t.S.write.text, "逐个视频笔记完成：写入 3 篇");
+
+      // A note written without its subtitle, or with one that may not match, is listed with the warning, in amber.
+      calls = [];
+      fail = (b) => (b === "BV803" ? { ok: true, data: { path: "BV803.md", title: "BV803", subtitleWarning: "字幕抓取失败：网络断了。" } } : null);
+      await t.runWrite();
+      assert.strictEqual(t.el.writeFailed.innerHTML, '<li class="warn">视频803：字幕抓取失败：网络断了。</li>');
+      assert.ok(!t.el.writeFailed.hidden && t.S.write.text === "逐个视频笔记完成：写入 3 篇", "written, not failed");
       assert.deepStrictEqual(plain(t.activityState()), { text: "逐个视频笔记完成：写入 3 篇", finished: true });
 
       calls = [];
