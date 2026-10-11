@@ -2283,7 +2283,7 @@ function renderAssistantMessage(node, raw) {
 
 // The conversation as its own note: copy, download, and 写入 Obsidian on pages that are not videos.
 // Like the 视频记录 page's export, the triage summary (bilibili P1 only) and the video's note lead it.
-async function buildCurrentConversationNote() {
+async function buildCurrentConversationNote(sourcePath = "") {
   const turns = buildConversationTurns(chatHistory);
   if (!turns.length) {
     return null;
@@ -2294,7 +2294,7 @@ async function buildCurrentConversationNote() {
   const ref = buildConversationContextRef(context);
   const extrasRef = { site: ref.site, videoId: noteId, pageIndex: ref.pageIndex };
   const { analysis, note } = BocNote.triageExtras(await chrome.storage.local.get(BocNote.triageExtrasKeys(extrasRef)), extrasRef);
-  const markdown = buildAiConversationMarkdown({ context, turns, filename });
+  const markdown = buildAiConversationMarkdown({ context, turns, filename, sourcePath });
   return { context, filename, content: BocNote.withTriageSummary(markdown, analysis, note) };
 }
 
@@ -2459,7 +2459,15 @@ async function saveCurrentConversationToObsidian() {
         await saveBuiltVideoNoteToObsidian(ref, messages, epoch, settingsBundle);
         return;
       }
-      showConversationContextNotice("这个视频还没有视频笔记，打开视频页后再写入 Obsidian。", 4000);
+      // Only a B站 P1 note can be built without the page; others get the conversation as its own note, as on 视频记录.
+      if (epoch !== conversationEpoch) {
+        throw new Error("对话已切换");
+      }
+      const sourcePath = await resolveVideoNotePath(context, settingsBundle.settings);
+      const filepath = await saveConversationNoteToObsidian(settingsBundle, sourcePath);
+      if (filepath) {
+        showConversationContextNotice(`已写入 Obsidian：${filepath}（单独的对话笔记）`, 4000);
+      }
       return;
     }
     const resp = await sendMessageToActiveTab(tab.id, { type: "popup-send-obsidian" }, 1);
@@ -2481,9 +2489,9 @@ async function saveCurrentConversationToObsidian() {
   }
 }
 
-// The conversation as its own note, at the folder template's path.
-async function saveConversationNoteToObsidian(settingsBundle) {
-  const note = await buildCurrentConversationNote();
+// The conversation as its own note, at the folder template's path. sourcePath: the video note it links to, if any.
+async function saveConversationNoteToObsidian(settingsBundle, sourcePath = "") {
+  const note = await buildCurrentConversationNote(sourcePath);
   const folder = resolveFolderTemplate(settingsBundle.settings.noteFolder || "", note.context);
   const filepath = folder ? `${folder}/${note.filename}` : note.filename;
   return (await saveMarkdownToObsidian({ button: els.saveConversationBtn, filepath, content: note.content, ...settingsBundle })) ? filepath : "";

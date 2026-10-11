@@ -195,6 +195,20 @@ const page = (id) => ({ ok: true, payload: { url: `https://example.com/${id}`, t
     await ctx.saveCurrentConversationToObsidian();
     assert.deepStrictEqual(notices.filter(([text]) => !text.startsWith("正在")), [[`写入 Obsidian 失败：${E.TEXT.obsidianDown}`, true], ["视频已切换，未写入 Obsidian。", undefined]]);
     assert.strictEqual(settings, 1, "a closed Obsidian does not open the settings page");
+
+    // A YouTube video (or a B站 P2+) without a note and with its page closed: no note can be built, so the
+    // conversation is written as its own note, as on 视频记录, linking the video note's path.
+    const realRuntimeSend = ctx.chrome.runtime.sendMessage;
+    const sent = [];
+    ctx.chrome.runtime.sendMessage = async (m) => (sent.push(m), { ok: true, exists: false });
+    vm.runInContext('liveTabUrl = "https://example.com/"', ctx);
+    notices.length = 0;
+    await ctx.saveCurrentConversationToObsidian();
+    const writes = sent.filter((m) => m.type === "write-obsidian-note");
+    assert.strictEqual(writes.length, 1, JSON.stringify(notices));
+    assert.ok(writes[0].content.includes("q") && writes[0].content.includes("a"), writes[0].content);
+    assert.strictEqual(notices.at(-1)[0], `已写入 Obsidian：${writes[0].filepath}（单独的对话笔记）`);
+    ctx.chrome.runtime.sendMessage = realRuntimeSend;
     Object.assign(ctx, saved);
   }
 
