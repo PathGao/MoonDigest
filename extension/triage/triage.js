@@ -310,14 +310,17 @@ function storeSet(key, value) {
   noteOwnWrites({ [key]: value });
   return store({ [key]: value });
 }
-// Writes obj to storage.local; a failure is logged and toasted once (关注 writes through this too).
+// Writes obj to storage.local; a failure is logged and toasted once (关注 writes through this too). Resolves false on failure.
 function store(obj) {
-  return chrome.storage.local.set(obj).catch((e) => {
-    console.error("[triage] storage write failed", Object.keys(obj), e);
-    if (storeFailShown) return;
-    storeFailShown = true;
-    toast(`保存失败，本地存储可能已满：${e?.message || e}`, true);
-  });
+  return chrome.storage.local.set(obj).then(
+    () => true,
+    (e) => {
+      console.error("[triage] storage write failed", Object.keys(obj), e);
+      if (!storeFailShown) toast(`保存失败，本地存储可能已满：${e?.message || e}`, true);
+      storeFailShown = true;
+      return false;
+    }
+  );
 }
 // Read-modify-writes of a shared record (已出分拣范围, the left trail, a folder's list or 取消收藏) run one at a time: two overlapping ones each
 // write back what they read, and the first one's change is lost. A queued fn must not queue another (it would wait on itself).
@@ -952,7 +955,7 @@ function retireUnchosenFolders() {
       const oldItems = old?.items || (old?.bvids || []).map((bvid) => ({ bvid, title: old.titles?.[bvid] || bvid }));
       out = updateRemoved(out.removed, out.left, oldItems, [], otherBvids, Date.now(), null, { id, title: folderName(id) });
     }
-    await chrome.storage.local.set({ [K.removed]: out.removed, [K.left]: out.left });
+    if (!(await store({ [K.removed]: out.removed, [K.left]: out.left }))) return; // keep the old lists until it is recorded
     await chrome.storage.local.remove(gone.flatMap((id) => [K.snapshot(id), K.decisions(id)]));
   });
 }
@@ -1261,7 +1264,7 @@ function saveSnapshot(mediaId, items, ids = null) {
     const oldItems = old?.items || (old?.bvids || []).map((bvid) => ({ bvid, title: old.titles?.[bvid] || bvid }));
     const otherBvids = new Set(others.flatMap((id) => got[K.snapshot(id)]?.bvids || []));
     const { removed, left } = updateRemoved(got[K.removed] || {}, got[K.left] || {}, oldItems, items, otherBvids, Date.now(), ids, { id: String(mediaId), title: folderName(mediaId) });
-    await chrome.storage.local.set({
+    const saved = await store({
       [K.snapshot(mediaId)]: {
         bvids: items.map((it) => it.bvid),
         invalid: items.filter((it) => it.invalid).map((it) => it.bvid),
@@ -1273,6 +1276,7 @@ function saveSnapshot(mediaId, items, ids = null) {
       [K.removed]: removed,
       [K.left]: left
     });
+    if (!saved) return;
     S.removedCount = Object.keys(removed).length;
     renderTop();
   });
@@ -2725,7 +2729,7 @@ function patchSnapshot(mediaId, { add = [], drop = [] }, created = false) {
     const folder = { id: String(mediaId), title: folderName(mediaId) };
     const at = Date.now();
     for (const b of drop) noteLeft(left, b, folder, at);
-    await chrome.storage.local.set({
+    await store({
       [K.left]: left,
       [key]: {
         ...old,
@@ -2749,7 +2753,7 @@ function addMovedToRemoved(from, items, movedTo) {
     const at = Date.now();
     const source = from === REMOVED ? null : { id: from, title: folderName(from) };
     const { removed, left } = moveToRemoved(got[K.removed] || {}, got[K.left] || {}, items, otherBvids, source, at, movedTo);
-    await chrome.storage.local.set({ [K.removed]: removed, [K.left]: left });
+    if (!(await store({ [K.removed]: removed, [K.left]: left }))) return;
     if (S.mediaId === REMOVED) {
       for (const it of items) {
         const rec = removed[it.bvid];

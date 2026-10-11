@@ -1802,6 +1802,20 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   store.triage_snapshot_8 = { bvids: ["BV3"], items: [item(3)] };
   await t.retireUnchosenFolders();
   assert.ok(store.triage_snapshot_8, "an empty folder list never retires anything");
+  // A full storage: 保存失败 is shown, nothing rejects, and a list whose videos could not be recorded is kept.
+  {
+    const realSet = ctx.chrome.storage.local.set;
+    ctx.chrome.storage.local.set = async () => { throw new Error("QUOTA_BYTES quota exceeded"); };
+    t.S.folders = t.S.allFolders = [{ id: 1 }];
+    t.S.removedCount = 0;
+    await t.retireUnchosenFolders();
+    assert.ok(store.triage_snapshot_8 && !store[t.K.removed]?.BV3, "retire: the old list stays");
+    assert.ok(toasts.at(-1).startsWith("保存失败"), toasts.at(-1));
+    await t.saveSnapshot("1", []);
+    assert.strictEqual(t.S.removedCount, 0, "saveSnapshot: the count follows what was saved");
+    ctx.chrome.storage.local.set = realSet;
+    delete store.triage_snapshot_8;
+  }
 
   // An unticked folder is retired like a deleted one, on the reload after the settings save; zero chosen retires nothing.
   for (const k of Object.keys(store)) delete store[k];
