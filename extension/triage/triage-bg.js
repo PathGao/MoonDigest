@@ -720,12 +720,13 @@ async function triageBuildNote(bvid, settings) {
   const ref = { site: "bilibili", id: bvid, part: null, url: "" };
   const meta = await site.fetchMeta(ref, io);
   ref.url = site.canonicalUrl(bvid, meta.pageCount > 1 ? meta.pageIndex : 1);
-  // Throttling and fetch failures reject so no subtitle-less note is written; another video's subtitle is dropped.
+  // Tracks are tried in order like on the video page. Throttling, or a fetch failure with no track to use, rejects so no
+  // subtitle-less note is written; another video's subtitle (strict check) is dropped.
   const bundle = await site.fetchTracks(ref, meta, io);
-  const track = BocSites.pickPreferredTrack(BocSites.rankTracks(bundle.tracks || []), {});
   const valid = (segments) => triageSubtitleValid(segments, meta.duration);
-  const fetched = track ? site.parseSegments(await BocSites.fetchRawCached(site, track, { videoId: bvid, cid: meta.cid }, io, valid)) : [];
-  const body = valid(fetched) ? fetched : [];
+  const found = await BocSites.loadFirstTrack(site, BocSites.rankTracks(bundle.tracks || []), { videoId: bvid, cid: meta.cid }, io, valid);
+  if (!found.track && found.error) throw found.error;
+  const { track, body } = found;
   const hotComments =
     settings.includeHotCommentsInNote || !body.length ? await site.fetchComments(ref, meta, io).catch(() => []) : [];
   const noteMeta = { ...BocNote.noteMetaOf({ site: "bilibili", videoId: bvid, meta, bundle, track }), hotComments };

@@ -1304,6 +1304,25 @@
     return raw;
   }
 
+  // The background readers' track walk (side panel follow-up, 分拣台 notes), like the video page's: tracks in order
+  // until one passes accept (cached when it does). Throttling stops the walk, since every track hits the same host.
+  // With none passing: the first non-empty body accept refused (mismatch) and the first fetch error, for the caller.
+  async function loadFirstTrack(site, tracks, ids, io, accept) {
+    let mismatch = null;
+    let error = null;
+    for (const track of tracks) {
+      try {
+        const body = site.parseSegments(await fetchRawCached(site, track, ids, io, accept));
+        if (accept(body)) return { track, body };
+        if (body.length) mismatch ||= { track, body };
+      } catch (e) {
+        if (e?.code === "THROTTLED") throw e;
+        error ||= e;
+      }
+    }
+    return { track: null, body: [], mismatch, error };
+  }
+
   // ----------------------------------------------------------------- registry
 
   const SITES = { bilibili, youtube };
@@ -1351,6 +1370,7 @@
     subtitleCache: { key: subtitleCacheKey, load: loadSubtitleCache, save: saveSubtitleCache, remove: removeSubtitleCache },
     validateSubtitleByDuration,
     fetchRawCached,
+    loadFirstTrack,
     biliMixinKey,
     biliWbiSign,
     biliWbiSigned,

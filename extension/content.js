@@ -6,7 +6,7 @@
 if (!globalThis.__BOC_CONTENT_SCRIPT_LOADED__ && (window === window.top || document.documentElement.hasAttribute("data-mdg-viewer"))) {
 // Only for when get-settings fails; the background owns the stored settings.
 const DEFAULT_SETTINGS = { ...BocSettings.DEFAULTS, ...BocSettings.LOCAL_DEFAULTS };
-const { formatCompactTimestamp, buildSubtitlePreview, buildSrt, buildTxt, shouldShowHoursInNote } = BocNote;
+const { formatCompactTimestamp, buildSubtitlePreview, buildSrt, buildTxt, shouldShowHoursInNote, subtitleMismatchWarning } = BocNote;
 const subtitleCache = BocSites.subtitleCache;
 const { escapeHtml } = BocErrors;
 
@@ -996,6 +996,7 @@ function buildSidepanelContext() {
       subtitleMarkdown,
       subtitleFailure: state.subtitleFailure,
       subtitleNeedLogin: state.subtitleFailure === SUBTITLE_NEED_LOGIN,
+      subtitleWarning: state.subtitleWarning || "",
       subtitleLang: state.selectedSubtitleLang || "",
       selectedSubtitleId: state.selectedSubtitleId || "",
       selectedSubtitleUrl: state.selectedSubtitleUrl || "",
@@ -1353,11 +1354,6 @@ async function commitSubtitleBody(raw, { url, lang, subtitleId }, runId, { allow
     renderReadingView();
     syncReadingViewPlayback(true);
   }
-}
-
-function subtitleMismatchWarning({ maxTo, videoDuration }) {
-  const withHours = Math.max(maxTo, videoDuration) >= 3600;
-  return `字幕时间轴到 ${formatCompactTimestamp(maxTo, withHours)}，视频长 ${formatCompactTimestamp(videoDuration, withHours)}，字幕时间可能对不上。`;
 }
 
 // The duration mismatch behind an error, if any: thrown by one track, or attached by tryLoadSubtitleCandidates.

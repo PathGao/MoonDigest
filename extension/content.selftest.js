@@ -385,6 +385,8 @@ const settle = async () => {
     assert.strictEqual(state.subtitleBody.length, 2);
     assert.strictEqual(state.subtitleWarning, "字幕时间轴到 20:02，视频长 16:01，字幕时间可能对不上。");
     assert.deepStrictEqual(saved, [], "a mismatched body is not cached");
+    // The side panel gets the warning too, and shows it with the reply (background.js buildAiMessages).
+    assert.strictEqual(t.buildSidepanelContext().payload.subtitleWarning, state.subtitleWarning);
     t.BocSites.subtitleCache.save = realSave;
   }
 

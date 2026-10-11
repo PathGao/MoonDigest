@@ -325,19 +325,22 @@ async function resolveAiSidepanelContext(contextRef) {
     previousUrl: ref.selectedSubtitleUrl,
     previousLang: ref.subtitleLang
   });
-  // Same duration guard as the video page, so another video's subtitle is neither shown nor cached.
+  // Like the video page: the chosen track first, then the others, under the same duration guard. When none matches,
+  // the first mismatched one is used with the video page's warning and is not cached; a fetch error with nothing
+  // to use fails the follow-up, and tracks with only empty bodies leave the AI the title, description and comments.
   const valid = (segments) => BocSites.validateSubtitleByDuration(segments, meta.duration).ok;
-  const body = selectedTrack
-    ? site.parseSegments(await BocSites.fetchRawCached(site, selectedTrack, { videoId: videoRef.id, cid: meta.cid }, io, valid))
-    : [];
-  if (selectedTrack && !valid(body)) {
-    throw new Error(body.length ? "原视频字幕与视频时长不匹配" : "原视频字幕为空");
-  }
+  const ordered = selectedTrack ? [selectedTrack, ...tracks.filter((item) => item !== selectedTrack)] : [];
+  const found = await BocSites.loadFirstTrack(site, ordered, { videoId: videoRef.id, cid: meta.cid }, io, valid);
+  const used = found.track ? found : found.mismatch;
+  if (!used && found.error) throw found.error;
+  const body = used?.body || [];
+  const track = used?.track || null;
+  const subtitleWarning = used && !found.track ? BocNote.subtitleMismatchWarning(BocSites.validateSubtitleByDuration(body, meta.duration)) : "";
 
   const hotComments = site.fetchComments ? await site.fetchComments(videoRef, meta, io).catch(() => []) : [];
   const title = String(meta.title || ref.title || "").trim();
   // The same note the video page sends (content.js buildSidepanelContext), with the fields its state carries.
-  const noteMeta = { ...BocNote.noteMetaOf({ site: site.id, videoId: videoRef.id, meta, bundle, track: selectedTrack }), title };
+  const noteMeta = { ...BocNote.noteMetaOf({ site: site.id, videoId: videoRef.id, meta, bundle, track }), title };
   const subtitleLang = noteMeta.selectedSubtitleLang;
   const noteRef = { site: site.id, id: videoRef.id, part: { index: meta.pageIndex || 1, cid: meta.cid }, url: canonicalVideoUrl({ ...meta, site: site.id, videoId: videoRef.id }) };
   return {
@@ -353,9 +356,11 @@ async function resolveAiSidepanelContext(contextRef) {
     pageTitle: String(meta.pageTitle || ref.pageTitle || "").trim(),
     description: String(meta.description || ""),
     subtitleLang,
-    selectedSubtitleId: String(selectedTrack?.id || "").trim(),
-    selectedSubtitleUrl: String(selectedTrack?.url || "").trim(),
+    selectedSubtitleId: String(track?.id || "").trim(),
+    selectedSubtitleUrl: String(track?.url || "").trim(),
     subtitleBody: body,
+    subtitleWarning,
+    subtitleFailure: ordered.length && !body.length ? "字幕文件为空" : "",
     subtitleMarkdown: body.length ? BocNote.buildAiContext(noteMeta, body, settings, noteRef) : "",
     subtitleOptions: tracks.map((item) => ({
       id: String(item.id || "").trim(),
@@ -1069,6 +1074,10 @@ function buildAiMessages({ context, userPrompt, history, systemPrompt }) {
     if (description) {
       sections.push(`以下是视频简介：\n\n${description}`);
     }
+  }
+  // The video page's warning for a subtitle whose time range does not match the video (sent anyway, as there).
+  if (subtitle.text && ctx.subtitleWarning) {
+    notices.push(String(ctx.subtitleWarning).replace(/。$/, ""));
   }
   if (Array.isArray(ctx.hotComments) && ctx.hotComments.length) {
     const block = ctx.hotComments

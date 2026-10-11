@@ -1020,6 +1020,12 @@
       });
   }
 
+  // The warning shown with a subtitle whose time range does not match the video (validateSubtitleByDuration's result).
+  function subtitleMismatchWarning({ maxTo, videoDuration }) {
+    const withHours = Math.max(maxTo, videoDuration) >= 3600;
+    return `字幕时间轴到 ${formatCompactTimestamp(maxTo, withHours)}，视频长 ${formatCompactTimestamp(videoDuration, withHours)}，字幕时间可能对不上。`;
+  }
+
   // The note fields the background readers (side panel follow-up, 分拣台 notes) take from the sites.js fetchers;
   // the video page's state already carries them. Chapters fall back to the description, as on the video page.
   function noteMetaOf({ site, videoId, meta, bundle, track }) {
@@ -1044,6 +1050,7 @@
     buildMarkdown,
     buildAiContext,
     noteMetaOf,
+    subtitleMismatchWarning,
     AI_SECTION_START,
     AI_SECTION_END,
     TIMESTAMP_PATTERN,

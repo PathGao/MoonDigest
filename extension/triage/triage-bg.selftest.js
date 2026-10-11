@@ -479,6 +479,15 @@ assert.throws(() => t.triageParseCommand('{"new_tags":[', cmdItems, cmdTags, {})
   assert.strictEqual((await buildNote()).body.length, 0);
   routes = baseRoutes();
   assert.strictEqual((await buildNote()).body.length, 2);
+  // Like the video page, the next track is tried when the first is another video's (or fails to load).
+  const enUrl = "https://aisubtitle.hdslb.com/bfs/ai_subtitle/BVa-en.json";
+  const twoTracks = { code: 0, data: { subtitle: { subtitles: [...withTracks.data.subtitle.subtitles, { id: 6, lan: "ai-en", lan_doc: "English", subtitle_url: enUrl }] } } };
+  delete store[subtitleKey];
+  for (const first of [subtitleRaw(100), new Error("network")]) {
+    routes = { ...baseRoutes(), "/x/player/wbi/v2": twoTracks, [subUrl]: first, [enUrl]: subtitleRaw(272) };
+    const built = await buildNote();
+    assert.deepStrictEqual([built.body.length, built.noteMeta.selectedSubtitleLang], [2, "English"]);
+  }
   // Without chapters from the player, the description's timestamps give them, as on the video page.
   routes = baseRoutes();
   routes["/view/detail"].data.View.desc = "00:00 开场\n01:30 正题";

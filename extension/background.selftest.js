@@ -176,6 +176,8 @@ process.on("exit", (code) => {
   assert.deepStrictEqual(noticesFor({ subtitleFailure: "429" }), ["字幕抓取失败，只根据标题、简介和评论回答"]);
   assert.deepStrictEqual(noticesFor({ subtitleFailure: "要登录", subtitleNeedLogin: true }), ["B站要求登录后才提供字幕，只根据标题、简介和评论回答"]);
   assert.deepStrictEqual(noticesFor({ subtitleMarkdown: "字幕" }), [], "with subtitles there is nothing to say");
+  // A subtitle that does not match the video's length is sent with the video page's warning.
+  assert.deepStrictEqual(noticesFor({ subtitleMarkdown: "字幕", subtitleWarning: "字幕时间轴到 06:40，视频长 04:33，字幕时间可能对不上。" }), ["字幕时间轴到 06:40，视频长 04:33，字幕时间可能对不上"]);
 
   // A long subtitle is sampled across the whole video and capped; the model and the user are both told.
   const subtitleLines = Array.from({ length: 4000 }, (_, i) => `\`${i}\` ${"字".repeat(40)}`);
@@ -261,7 +263,7 @@ process.on("exit", (code) => {
   const early = await contextFor("https://www.bilibili.com/video/BV1xx411c7mD/?boc_reader=1", { videoId: "" });
   assert.strictEqual(early.url, "https://www.bilibili.com/video/BV1xx411c7mD/");
 
-  // A history conversation's context rejects another video's subtitle and keeps it out of the shared cache.
+  // A history conversation's context takes the video page's way with a subtitle that does not match the video.
   const local = {};
   ctx.chrome = { storage: { sync: area({}), local: area(local) } };
   const subUrl = "https://aisubtitle.hdslb.com/a.json";
@@ -273,14 +275,29 @@ process.on("exit", (code) => {
     "/reply/main": { code: 0, data: { replies: [] } }
   });
   const historyContext = () => ctx.resolveAiSidepanelContext({ site: "bilibili", videoId: "BVa", cid: "11" });
-  // A subtitle running far past the 273 s video belongs to another video.
+  // A subtitle running far past the 273 s video is still used, with the video page's warning, and not cached.
   let routes = sidepanelRoutes(400);
   // The side panel reads B站 through triage-bg.js's channel (fetch), with the B站 referrer.
   const inits = [];
   const urls = [];
   ctx.fetch = async (url, init) => (inits.push(init), urls.push(url), { ok: true, status: 200, json: async () => routes[Object.keys(routes).find((part) => url.includes(part))] });
-  await assert.rejects(historyContext(), /时长不匹配/);
+  const mismatched = await historyContext();
+  assert.strictEqual(mismatched.subtitleBody.length, 2);
+  assert.match(mismatched.subtitleMarkdown, /## 字幕/);
+  assert.strictEqual(mismatched.subtitleWarning, "字幕时间轴到 06:40，视频长 04:33，字幕时间可能对不上。");
   assert.deepStrictEqual(Object.keys(local).filter((k) => k.startsWith("boc_subtitle_cache_")), []);
+  // Like the video page, the next track is tried when the chosen one does not match; the match wins, without a warning.
+  const otherUrl = "https://aisubtitle.hdslb.com/b.json";
+  routes = sidepanelRoutes(400);
+  routes["/x/player/wbi/v2"].data.subtitle.subtitles.push({ id: 6, lan: "ai-en", lan_doc: "English", subtitle_url: otherUrl });
+  routes[otherUrl] = { body: [{ from: 0, to: 270, content: "c" }] };
+  const second = await historyContext();
+  assert.deepStrictEqual([second.selectedSubtitleId, second.subtitleWarning, second.subtitleBody.length], ["6", "", 1]);
+  delete local.boc_subtitle_cache_BVa_11_id_6;
+  // Tracks with empty bodies leave the AI the title, description and comments, flagged as a failed fetch.
+  routes = { ...sidepanelRoutes(100), [subUrl]: { body: [] } };
+  const empty = await historyContext();
+  assert.deepStrictEqual([empty.subtitleBody.length, empty.subtitleMarkdown, empty.subtitleFailure], [0, "", "字幕文件为空"]);
   // Speech ending at 100 s (a long silent outro) passes the video page's loose guard, so the side panel takes it too.
   routes = sidepanelRoutes(100);
   const resolved = await historyContext();
