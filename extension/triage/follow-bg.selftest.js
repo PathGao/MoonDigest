@@ -189,7 +189,8 @@ const runSync = async () => {
     await runSync();
     assert.strictEqual(local.follow_jobs.throttled, true);
     assert.deepStrictEqual(plain(local.follow_last), prev, "a walk cut off midway does not replace the last complete one");
-    assert.strictEqual(local.follow_jobs.cursor.offset, "10", "cursor kept");
+    assert.strictEqual(local.follow_jobs.cursor.offset, "11", "cursor kept at the last page read");
+    assert.deepStrictEqual(Object.keys(local.follow_last_wip.map).sort(), ["2"], "the pages read so far are stored for the page");
     routes["/x/polymer/web-dynamic/v1/feed/all"] = ok;
     calls = [];
     await runSync();
@@ -199,16 +200,38 @@ const runSync = async () => {
     assert.ok(!local.follow_last_wip, "the walk in progress is cleared");
   }
 
-  // ---------- the feed walk reports progress every page, not only at each 10-page checkpoint ----------
+  // ---------- the feed walk reports progress and stores the walk so far every page ----------
   {
     local = { follow_list: { list: ["1", "2", "3", "4"], followTime: { 1: 101, 2: 102, 3: 103, 4: 104 } } };
     const pages = [1, 2, 3].map((m) => [dyn(m, `BVp${m}`, now() - m)]);
     pages.push([dyn(4, "BVpend", now() - 40 * 86400)]);
     const ok = feed(pages);
     const seen = [];
-    routes["/x/polymer/web-dynamic/v1/feed/all"] = (u) => (seen.push(local.follow_jobs?.done), ok(u));
+    const wip = [];
+    routes["/x/polymer/web-dynamic/v1/feed/all"] = (u) => (seen.push(local.follow_jobs?.done), wip.push(Object.keys(local.follow_last_wip?.map || {}).length), ok(u));
     await runSync();
     assert.deepStrictEqual(seen, [0, 1, 2, 3], "each page's count shows before the next page is read");
+    assert.deepStrictEqual(wip, [0, 1, 2, 3], "each page's posters reach follow_last_wip before the next page is read");
+  }
+
+  // ---------- first sync: each followings page shows before the next is read ----------
+  {
+    local = {};
+    const sizes = [];
+    const ok = followings([[person(1), person(2)], [person(3)]], 3);
+    routes = { ...routes, "/x/relation/followings": (u) => (sizes.push([plain(local.follow_list?.list || []), local.follow_list?.partial]), ok(u)) };
+    await runSync();
+    assert.ok(!local.follow_jobs.error, local.follow_jobs.error);
+    assert.deepStrictEqual(sizes, [[[], undefined], [["1", "2"], true]], "page 1 is stored, marked partial, before page 2 is read");
+    assert.strictEqual(local.follow_people[1].name, "UP1");
+    assert.deepStrictEqual(plain(local.follow_list.list), ["1", "2", "3"]);
+    assert.ok(!local.follow_list.partial && local.follow_list.complete, "the full read replaces it");
+    assert.strictEqual(local.follow_jobs.changes, null, "a first sync shows no changes");
+
+    // a later sync keeps the stored list until the full read
+    sizes.length = 0;
+    await runSync();
+    assert.deepStrictEqual(sizes.map(([l]) => l.length), [3, 3]);
   }
 
   // ---------- partial followings: nobody marked gone ----------

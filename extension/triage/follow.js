@@ -36,6 +36,22 @@ function followStatus(mid, D, now, slowDays = 90, deadDays = 365) {
   return "unchecked";
 }
 
+// The feed read still going (follow_last_wip, newest pages first) over the last finished one, so 更新状态 change as it
+// goes. since stays the finished read's: only it says how far back someone did not post.
+function withFeedInProgress(last, wip) {
+  if (!wip) return last || null;
+  if (!last) return wip;
+  const map = { ...last.map };
+  const v = { ...last.v };
+  for (const [mid, at] of Object.entries(wip.map || {})) {
+    if (!(map[mid] >= at)) map[mid] = at;
+    const fresh = wip.v?.[mid] || [];
+    const same = (x, y) => (x.bvid && x.bvid === y.bvid) || (x.c === y.c && x.t === y.t);
+    v[mid] = [...fresh, ...(v[mid] || []).filter((x) => !fresh.some((y) => same(x, y)))].sort((a, b) => (b.c || 0) - (a.c || 0)).slice(0, 3);
+  }
+  return { ...last, map, v };
+}
+
 // The 3 newest titles from both sources, newest first, one per title.
 function recentTitles(mid, D) {
   const c = D.content?.[mid];
@@ -293,7 +309,7 @@ const T = globalThis.MoonTriage;
 const UI = globalThis.TriageUi;
 const { toast, askConfirm, send } = T;
 const { esc, fmtDate, fmtDuration, fmtCount, cleanTagName, plainClick, img } = UI;
-const KEYS = ["follow_list", "follow_people", "follow_last", "follow_content", "follow_tags", "follow_tag_map", "follow_unfollowed", "follow_jobs", "follow_ai_recent", "follow_stats", "follow_groups"];
+const KEYS = ["follow_list", "follow_people", "follow_last", "follow_last_wip", "follow_content", "follow_tags", "follow_tag_map", "follow_unfollowed", "follow_jobs", "follow_ai_recent", "follow_stats", "follow_groups"];
 const VIEW_KEY = "follow_view"; // { mode: "fav" | "follow", tab: "ups" | "feed", sort, dir }
 const saveView = () => T.store({ [VIEW_KEY]: viewRecord(F) });
 const AI_HISTORY_KEY = "follow_ai_history";
@@ -378,7 +394,7 @@ async function load() {
   D = {
     list: got.follow_list || null,
     people: got.follow_people || {},
-    last: got.follow_last || null,
+    last: withFeedInProgress(got.follow_last, got.follow_last_wip),
     content: got.follow_content || {},
     tags: got.follow_tags || [],
     map: got.follow_tag_map || {},
@@ -650,7 +666,7 @@ function renderUps() {
 
 function emptyHtml() {
   const j = D.jobs || {};
-  const act = j.running ? `<p class="muted" aria-busy="true">刷新中…读完就显示在这里</p>` : UI.refreshEmpty('data-fw="sync"');
+  const act = j.running ? `<p class="muted" aria-busy="true">刷新中…读到就显示在这里</p>` : UI.refreshEmpty('data-fw="sync"');
   return UI.emptyState("还没有关注数据", "先从 B站读你的关注列表，再翻视频投稿看谁最近发过视频，里面没出现的人再一个个查投稿。只读，不改 B站。", act);
 }
 
@@ -658,7 +674,7 @@ function emptyHtml() {
 function hintHtml(counts) {
   if (!D.list || F.side === "gone") return "";
   const parts = [];
-  if (D.list.complete === false) parts.push(`<p class="fw-hint warn">这次关注列表没读全，没有把任何人记成已取消关注。下次刷新会再读。</p>`);
+  if (D.list.complete === false && !D.jobs?.running) parts.push(`<p class="fw-hint warn">这次关注列表没读全，没有把任何人记成已取消关注。下次刷新会再读。</p>`);
   const open = (counts.unchecked || 0) + (counts.stale || 0);
   if (open) {
     const running = D.jobs?.running;

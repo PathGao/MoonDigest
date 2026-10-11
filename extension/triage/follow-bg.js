@@ -15,7 +15,8 @@
 //
 // 同步分三步，每步做完记进 follow_jobs.cursor；跑着时开 1 分钟的 follow-keepalive 闹钟，worker 被杀后由它叫醒、从游标接着跑：
 // 1 list：拉我的全部关注 → follow_list / follow_people；和上次比，消失的人进 follow_unfollowed（source "bili"），只在拉全时判断。
-// 2 feed：视频动态往回翻过 followSlowDays 天 → follow_last（谁最近发过、最近 3 个标题），翻完才写，翻到一半的在 follow_last_wip。6 小时内翻过就跳过。
+//   第一次同步每拉一页就先写进 follow_list（partial: true），界面不用等拉完。
+// 2 feed：视频动态往回翻过 followSlowDays 天 → follow_last（谁最近发过、最近 3 个标题），翻完才写，翻到一半的每页存进 follow_last_wip，界面边翻边读。6 小时内翻过就跳过。
 // 3 arc：动态里没出现的人逐个 arc/search（约 1 秒 1 个）→ follow_content；已有记录且不早于 follow_last.since 的跳过。
 //   做完写 follow_jobs.statusAt：更新状态已齐，界面不用等第 4 步。
 // 4 stats：每个关注的人的粉丝数（x/relation/stat）→ follow_stats；7 天内查过的跳过。
@@ -281,6 +282,8 @@ async function followSyncJob(ctx) {
     const fresh = { list: [], followTime: {}, special: {}, groups: {} };
     const people = {};
     let total = 0;
+    const stored = (await chrome.storage.local.get("follow_list")).follow_list;
+    const showPages = !stored || stored.partial;
     // ponytail: 100 页 = 5000 人，B站 关注上限也是这个数
     for (let pn = 1; pn <= 100; pn++) {
       const url = `${FOLLOW_API}/x/relation/followings?${followQuery({ vmid: nav.mid, pn, ps: 50, order: "desc" })}`;
@@ -298,6 +301,15 @@ async function followSyncJob(ctx) {
         if (groups.length) fresh.groups[mid] = groups;
         people[mid] = { mid, name: x.uname || "", face: x.face || "", sign: String(x.sign || "").slice(0, 60), ov: x.official_verify?.desc || "" };
       }
+      if (showPages) {
+        await followUpdate(["follow_list", "follow_people", "follow_unfollowed", "follow_tags"], (s) => {
+          const live = new Set((s.follow_tags || []).map((t) => t.id));
+          const d = followDiff(s.follow_list || {}, fresh, { ...s.follow_unfollowed }, {}, live, ctx.startedAt, followNow());
+          const ppl = { ...s.follow_people };
+          for (const x of page) ppl[String(x.mid)] = followMergePerson(ppl[String(x.mid)], people[String(x.mid)]);
+          return { follow_list: { ...d.list, partial: true }, follow_people: ppl };
+        });
+      }
       await ctx.progress({ done: fresh.list.length, total: Math.max(total, fresh.list.length) });
       if (!page.length || fresh.list.length >= total) break;
     }
@@ -311,7 +323,8 @@ async function followSyncJob(ctx) {
       const tagMap = { ...s.follow_tag_map };
       const live = new Set((s.follow_tags || []).map((t) => t.id));
       const d = followDiff(s.follow_list || {}, fresh, unf, tagMap, live, ctx.startedAt, followNow());
-      changes = d.changes;
+      // 拉到一半先显示的列表不算上次的列表，不报「新关注」。
+      changes = s.follow_list?.partial ? null : d.changes;
       for (const [mid, rec] of Object.entries(d.gone)) {
         unf[mid] = rec;
         delete tagMap[mid];
@@ -343,14 +356,11 @@ async function followSyncJob(ctx) {
         followFoldFeed(last, r.items);
         c.offset = r.offset;
         const end = !r.hasMore || !r.offset || last.since <= followNow() - slowDays * 86400 || p === 599;
-        // 进度每页都报；断点（游标和 follow_last_wip）每 10 页存一次，游标只跟着断点走，接着跑才对得上。
-        const done = Object.keys(last.map).length;
-        if (p % 10 === 9 || end) {
-          last.at = followNow();
-          await chrome.storage.local.set({ [end ? "follow_last" : "follow_last_wip"]: last });
-          if (end) await chrome.storage.local.remove("follow_last_wip");
-          await ctx.progress({ done, cursor: c });
-        } else await ctx.progress({ done });
+        // 断点（游标和 follow_last_wip）每页都存，界面读 follow_last_wip 边翻边更新状态。
+        last.at = followNow();
+        await chrome.storage.local.set({ [end ? "follow_last" : "follow_last_wip"]: last });
+        if (end) await chrome.storage.local.remove("follow_last_wip");
+        await ctx.progress({ done: Object.keys(last.map).length, cursor: c });
         if (end) break;
       }
     }

@@ -12,7 +12,7 @@ const ctx = vm.createContext({ setTimeout, clearTimeout });
 // The pure block sorts with shared.js (UI.byValue / UI.dirWords), as the page does.
 vm.runInContext(fs.readFileSync(path.join(__dirname, "../tag-core.js"), "utf8"), ctx);
 vm.runInContext(fs.readFileSync(path.join(__dirname, "shared.js"), "utf8"), ctx);
-vm.runInContext(`const UI = globalThis.TriageUi;\n${pure}\n;Object.assign(globalThis, { syncFinished, dirLabel, followAiSettings, aiRequests, normDays, settingsProblem, followStatus, lastPostOf, recentTitles, upRow, visibleUps, mergeFeed, feedMatch, sideIds, feedList, feedLeaving, withTags, stepIn, tagsOf, restoreTags, fmtAgo, feedCounts, STATUS, viewRecord, latestBvid, favUpMid, aiBlocked, withAllowRemove, groupsOf, regrouped, groupCalls, groupTargets, groupName, groupMoveLabel });`, ctx);
+vm.runInContext(`const UI = globalThis.TriageUi;\n${pure}\n;Object.assign(globalThis, { syncFinished, dirLabel, followAiSettings, aiRequests, normDays, settingsProblem, followStatus, withFeedInProgress, lastPostOf, recentTitles, upRow, visibleUps, mergeFeed, feedMatch, sideIds, feedList, feedLeaving, withTags, stepIn, tagsOf, restoreTags, fmtAgo, feedCounts, STATUS, viewRecord, latestBvid, favUpMid, aiBlocked, withAllowRemove, groupsOf, regrouped, groupCalls, groupTargets, groupName, groupMoveLabel });`, ctx);
 const t = ctx;
 const plain = (v) => JSON.parse(JSON.stringify(v));
 
@@ -43,6 +43,16 @@ const base = () => ({ list: null, last: null, content: {}, people: {}, tags: [],
   assert.strictEqual(t.followStatus("q", D, now), "stale");
   // custom days
   assert.strictEqual(t.followStatus("s", D, now, 120, 365), "active");
+{
+  const last = { at: 1, since: 100, map: { a: 500, b: 900 }, v: { a: [{ t: "A1", c: 500, bvid: "BVa1" }], b: [{ t: "B1", c: 900, bvid: "BVb1" }] } };
+  const wip = { at: 2, since: 800, map: { a: 950, c: 990 }, v: { a: [{ t: "A2", c: 950, bvid: "BVa2" }, { t: "A1", c: 500, bvid: "BVa1" }], c: [{ t: "C1", c: 990, bvid: "BVc1" }] } };
+  const m = t.withFeedInProgress(last, wip);
+  assert.deepStrictEqual({ ...m.map }, { a: 950, b: 900, c: 990 }, "the walk in progress adds newer posts");
+  assert.strictEqual(m.since, 100, "since stays the finished walk's");
+  assert.deepStrictEqual([...m.v.a.map((x) => x.t)], ["A2", "A1"], "titles merged once each, newest first");
+  assert.strictEqual(t.withFeedInProgress(null, wip), wip, "a first walk is shown as it goes");
+  assert.strictEqual(t.withFeedInProgress(last, undefined), last);
+}
   assert.strictEqual(t.followStatus("d", D, now, 90, 500), "slow");
   // a feed that does not reach back slowDays cannot tell: 未查
   D.last.since = ago(20);
