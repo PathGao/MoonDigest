@@ -12,7 +12,9 @@
     obsidianKey: "Obsidian 的 API Key 无效或未授权",
     obsidianDown: "连不上 Obsidian，请确认它已打开并启用了 Local REST API",
     // The extension reloaded under a page whose content script still runs: chrome.runtime no longer answers.
-    reloaded: "扩展刚刚更新，请刷新网页"
+    reloaded: "扩展刚刚更新，请刷新网页",
+    // B站 risk control (HTTP 412 or BocSites.BILI_RISK_CODES), the background's code THROTTLED.
+    biliThrottled: "B站限流，请稍后再试"
   });
 
   // Error code → what the page shows. action: "settings" (去设置), "login" (去登录); any other code is "none".
@@ -26,6 +28,7 @@
     OBSIDIAN: { action: "settings" },
     NOT_LOGGED_IN: { action: "login" },
     [-101]: { action: "login" },
+    THROTTLED: { text: TEXT.biliThrottled },
     62004: { text: "视频审核中，过后再试" }
   });
 

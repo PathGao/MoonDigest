@@ -442,6 +442,7 @@ const settle = async () => {
   assert.strictEqual(t.fetchErrorText(Object.assign(new Error("风控校验失败"), { code: -352 })), "B站限流，请稍后再试");
   assert.strictEqual(t.fetchErrorText(new TypeError("Failed to fetch")), "网络断了");
   assert.strictEqual(t.fetchErrorText(Object.assign(new Error("啥都木有"), { code: -404 })), "啥都木有");
+  assert.strictEqual(t.fetchErrorText(Object.assign(new Error("稿件审核中"), { code: 62004 })), "视频审核中，过后再试", "BocErrors' words, as elsewhere");
   // X8: risk control is not retried (that only digs deeper); a dropped connection or another negative code still is.
   {
     const tries = async (error) => {

@@ -26,6 +26,9 @@ const E = ctx.BocErrors;
   assert.strictEqual(E.text({ ok: false, error: "  笔记内容为空 " }, "x"), "笔记内容为空");
   assert.strictEqual(E.text({ ok: false, error: { a: 1 } }, "生成视频笔记失败"), "生成视频笔记失败");
   assert.strictEqual(E.text(undefined, "x"), "x");
+  // A B站 limit reads the same as on the video page, wherever the background reports it (history page, side panel notes).
+  assert.strictEqual(E.text({ ok: false, code: "THROTTLED", error: "B站返回 -352：风控校验失败" }), "B站限流，请稍后再试");
+  assert.strictEqual(E.text({ ok: false, code: "AI_THROTTLED", error: "AI 平台限流" }), "AI 平台限流");
   const err = E.fromResp({ ok: false, error: E.TEXT.obsidianKey, code: "OBSIDIAN" }, "Local API 写入失败");
   assert.strictEqual(err.message, E.TEXT.obsidianKey);
   assert.strictEqual(err.action, "settings");

@@ -4170,12 +4170,13 @@ function toReadableText(value, fallback = "") {
 // and no raw English, HTTP status or B站 code is shown. getErrorMessage keeps the raw text for logs and retry checks.
 function fetchErrorText(error) {
   if (isBiliRiskError(error)) {
-    return "B站限流，请稍后再试";
+    return BocErrors.TEXT.biliThrottled;
   }
   if (/failed to fetch|networkerror|load failed/i.test(toReadableText(error?.message, ""))) {
     return "网络断了";
   }
-  return toReadableText(error?.message, "") || getErrorMessage(error);
+  // B站 codes with their own words (62004 审核中) read as in 分拣台 and the other pages.
+  return BocErrors.text({ error: toReadableText(error?.message, ""), code: error?.code }, getErrorMessage(error));
 }
 
 function getErrorMessage(error, fallback = "未知错误") {
