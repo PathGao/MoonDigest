@@ -794,6 +794,7 @@ async function init() {
     if (area === "local") followSeen(changes);
     if (area === "local") followNotes(changes);
     if (area === "local") followShared(changes);
+    if (area === "local") followIncluded(changes);
   });
   chrome.runtime.onMessage.addListener((msg) => {
     if (msg?.type !== "triage-folder-page") return;
@@ -805,6 +806,21 @@ async function init() {
   renderBasket();
   await loadFolders();
   setInterval(tick, 1000);
+}
+
+// A new folder choice (收藏夹设置, or 导入设置 on the options page, which writes it here): the folder list reloads and
+// newly ticked folders take back their videos; unticked ones move theirs to 已出分拣范围 (retireUnchosenFolders).
+async function applyIncluded(included) {
+  const ticked = included.filter((id) => !S.included.includes(id));
+  await loadFolders();
+  recoverRemoved(ticked);
+}
+function followIncluded(changes) {
+  const c = changes[K.included];
+  if (!c || ownEcho(K.included, c) || !S.allFolders.length) return;
+  const included = (c.newValue || []).map(String);
+  if (included.length === S.included.length && included.every((id) => S.included.includes(id))) return;
+  applyIncluded(included);
 }
 
 // Another triage tab wrote one of the lists every page writes whole: take its value, so the next
@@ -4246,10 +4262,8 @@ function bindEvents() {
     const included = [...el.folderToggles.querySelectorAll("input:checked")].map((x) => x.value);
     const same = included.length === S.included.length && included.every((id) => S.included.includes(id));
     if (S.allFolders.length && !same) {
-      const ticked = included.filter((id) => !S.included.includes(id));
       await storeSet(K.included, included);
-      await loadFolders();
-      recoverRemoved(ticked);
+      await applyIncluded(included);
     }
   });
   el.writeBtn.addEventListener("click", () => openWrite());

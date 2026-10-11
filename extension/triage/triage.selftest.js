@@ -1567,6 +1567,21 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   store.triage_snapshot_9 = { bvids: ["BV3"], items: [item(3)] };
   await t.saveSnapshot("2", [item(2)]);
   assert.deepStrictEqual(Object.keys(store[t.K.removed]).sort(), ["BV1", "BV3"]);
+  // L4: 导入设置 on the options page writes the folder choice and 判断标准 here; the open page takes both, as a save does.
+  {
+    const realLoad = t.loadFolders;
+    let loads = 0;
+    t.loadFolders = async () => (loads++, realLoad());
+    store.triage_included_folders = ["1", "2"];
+    await t.followIncluded({ triage_included_folders: { newValue: ["1", "2"] } });
+    for (let i = 0; i < 20; i++) await new Promise((r) => setImmediate(r));
+    assert.deepStrictEqual([loads, plain(t.S.included)], [1, ["1", "2"]]);
+    t.followIncluded({ triage_included_folders: { newValue: ["2", "1"] } });
+    assert.strictEqual(loads, 1, "the same choice: no reload");
+    t.loadFolders = realLoad;
+    t.followShared({ [t.K.folderCriteria]: { newValue: { 2: "只留教程" } } });
+    assert.strictEqual(t.S.folderCriteria[2], "只留教程");
+  }
 
   // A tag greyed out in 批量打 is nowhere in what the AI gets; a reply that still adds, creates or removes it is dropped.
   {
