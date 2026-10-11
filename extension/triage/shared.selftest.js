@@ -69,6 +69,14 @@ assert.deepStrictEqual([123456, 100000, 9999, 250000000, 150000].map(UI.fmtCount
 assert.deepStrictEqual([0, 65, 587, 75 * 60, 3600, 3605, 59.9].map(UI.fmtDuration), ["0:00", "1:05", "9:47", "1:15:00", "1:00:00", "1:00:05", "0:59"]);
 assert.strictEqual(UI.fmtDate(0), "");
 assert.strictEqual(UI.fmtDate(new Date(2026, 0, 5, 12).getTime() / 1000), "2026-01-05");
+{
+  const now = 1_800_000_000;
+  const ago = (d) => now - d * 86400;
+  assert.strictEqual(UI.fmtAgo(now - 100, now), "今天");
+  assert.strictEqual(UI.fmtAgo(ago(3), now), "3 天前");
+  assert.strictEqual(UI.fmtAgo(ago(65), now), "2 个月前");
+  assert.strictEqual(UI.fmtAgo(ago(800), now), "2 年前");
+}
 assert.strictEqual(UI.img("//i0.hdslb.com/a.jpg", "48w_48h_1c"), "https://i0.hdslb.com/a.jpg@48w_48h_1c.webp");
 assert.strictEqual(UI.img("https://i0.hdslb.com/a.jpg@1c.webp", "48w"), "https://i0.hdslb.com/a.jpg@1c.webp", "a sized URL stays");
 

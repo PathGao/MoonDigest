@@ -285,8 +285,6 @@ function normDays(slow, dead) {
 // A 刷新 finished between two follow_jobs: the 视频投稿 already loaded is older than what it read.
 const syncFinished = (was, now) => Boolean(now?.finishedAt && now.finishedAt !== was?.finishedAt);
 
-const fmtAgo = (sec, now) => UI.fmtAgo(sec, now);
-
 // What 关注 remembers across reloads (follow_view): mode, tab, sort and the sidebar item.
 const viewRecord = (F) => ({ mode: F.mode, tab: F.tab, sort: F.sort, dir: F.dir, side: F.side });
 // O / Enter on an UP card: its newest video that can play here (one with a bvid), or "".
@@ -308,7 +306,7 @@ function favUpMid(up, rows) {
 const T = globalThis.MoonTriage;
 const UI = globalThis.TriageUi;
 const { toast, askConfirm, send } = T;
-const { esc, fmtDate, fmtDuration, fmtCount, cleanTagName, plainClick, img } = UI;
+const { esc, fmtDate, fmtAgo, fmtDuration, fmtCount, cleanTagName, plainClick, img } = UI;
 const KEYS = ["follow_list", "follow_people", "follow_last", "follow_last_wip", "follow_content", "follow_tags", "follow_tag_map", "follow_unfollowed", "follow_jobs", "follow_ai_recent", "follow_stats", "follow_groups"];
 const VIEW_KEY = "follow_view"; // { mode: "fav" | "follow", tab: "ups" | "feed", sort, dir }
 const saveView = () => T.store({ [VIEW_KEY]: viewRecord(F) });
