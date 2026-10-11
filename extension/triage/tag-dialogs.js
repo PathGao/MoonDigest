@@ -3,9 +3,7 @@
 // them with its adapter; the words, layout and behavior are here, the mode's unit, limits and data are in the adapter.
 (() => {
   const UI = globalThis.TriageUi;
-  const { esc, cleanTagName, sp } = UI;
-  // 「视频标签」, 「 UP 标签」 (DESIGN's name for the tags on an UP, not 「UP 主标签」).
-  const tagsOf = (who) => (who === "UP 主" ? " UP 标签" : `${sp(who)}标签`);
+  const { esc, cleanTagName, sp, tagsWord } = UI;
   const $ = (id) => document.getElementById(id);
   const manageDlg = $("tagManageDialog");
   const aiDlg = $("aiTagDialog");
@@ -45,7 +43,7 @@
       ? `<p class="muted">${esc(why)}</p>`
       : tags.length
         ? tags.map((t) => (a.row ? a.row(t, a.count(t.id)) : UI.tagRowHtml(t, { count: a.count(t.id), who: a.who }))).join("")
-        : `<p class="muted">还没有${a.row ? "自己建的分组" : esc(tagsOf(a.who))}</p>`;
+        : `<p class="muted">还没有${a.row ? "自己建的分组" : esc(tagsWord(a.who))}</p>`;
   }
   const rowTag = (target) => {
     const id = target.closest(".tag-row")?.dataset.id;
@@ -137,7 +135,7 @@
       ? `<p class="dialog-hint">${esc(blocked)}</p>`
       : tags.length
         ? `<span id="aiTagsLabel" class="grid-label">可用标签</span><div class="chips" role="group" aria-labelledby="aiTagsLabel">${tags.map(useChip).join("")}</div><p class="dialog-meta">点掉的标签这次不给 AI 用。<br>${a.roomHint()}</p>`
-        : `<p class="dialog-hint">还没有${esc(tagsOf(a.who))}。${a.roomHint()}想打得准，先在${manageLink}里建好标签、每个写一句说明。</p>`;
+        : `<p class="dialog-hint">还没有${esc(tagsWord(a.who))}。${a.roomHint()}想打得准，先在${manageLink}里建好标签、每个写一句说明。</p>`;
     const history = a.history();
     $("aiHistory").innerHTML = history.length
       ? `<span class="muted">最近：</span>${history.map((h, i) => `<button type="button" class="chip" data-h="${i}" title="${esc(h)}" aria-label="使用指令 ${esc(h)}">${esc(h.length > 18 ? `${h.slice(0, 18)}…` : h)}</button>`).join("")}`
