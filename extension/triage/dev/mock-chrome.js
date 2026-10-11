@@ -444,7 +444,7 @@
     if (/[?&]cond\b/.test(location.search)) full.follow_ai_recent = { at: Date.now() - 3600000, mids: [mids[0], mids[8], mids[10]] };
     if (fmode !== "empty") Object.assign(store, structuredClone(full));
 
-    // A fake job: list → feed → arc, written step by step like follow-bg.js, with one 4-second 限流 wait in 查投稿.
+    // A fake job: list → feed → arc, written step by step like follow-bg.js, with one 4-second 限流 wait in 查投稿, slower after it.
     let job = null;
     const setJobs = (j) => chrome.storage.local.set({ follow_jobs: j });
     handlers["follow-sync"] = () => {
@@ -459,10 +459,12 @@
       (async () => {
         for (const [phase, step, total, run] of steps) {
           for (let k = 0; k < total && !job.stop; k++) {
-            await setJobs({ running: true, phase, step, done: k, total, startedAt, ...(phase === "arc" ? { cur: todo[k] } : {}) });
+            await setJobs({ running: true, phase, step, done: k, total, startedAt, slowUntil: job.slowUntil || 0, ...(phase === "arc" ? { cur: todo[k] } : {}) });
             if (phase === "arc" && k === 2 && !job.held) {
               job.held = true;
-              await setJobs({ running: true, phase, step, done: k, total, startedAt, cur: todo[k], hold: { until: Math.floor(Date.now() / 1000) + 4, why: "throttled" } });
+              // After the wait it goes on 「B站限流变慢」 for the rest of this run.
+              job.slowUntil = Math.floor(Date.now() / 1000) + 600;
+              await setJobs({ running: true, phase, step, done: k, total, startedAt, cur: todo[k], slowUntil: job.slowUntil, hold: { until: Math.floor(Date.now() / 1000) + 4, why: "throttled" } });
               await wait(4000);
             }
             await wait(700);

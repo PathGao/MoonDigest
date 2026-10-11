@@ -543,8 +543,10 @@ function renderSync() {
     return UI.setActivity(pill, ai && { text: ai, btn: { attrs: 'data-fw="ai"', label: "查看" } });
   }
   const wait = j.hold?.until ? UI.waitText(j.hold.why === "throttled" ? "B站限流卡住" : "网络断了", Math.ceil(j.hold.until - nowSec())) : "";
-  const text = wait || `${j.step || PHASE[j.phase] || "刷新中"}${j.total ? ` ${j.done || 0}/${j.total}` : j.done ? ` ${j.done}` : ""}`;
-  UI.setActivity(pill, { text, done: j.done || 0, total: wait ? 0 : j.total || 0, stuck: Boolean(wait), btn: { attrs: "data-fw-stop", label: "暂停" } });
+  // After a hold the requests go slower for a while (follow-bg.js FOLLOW_CFG.slowForMs).
+  const slowed = !wait && (j.slowUntil || 0) > nowSec();
+  const text = wait || `${slowed ? "B站限流变慢 · " : ""}${j.step || PHASE[j.phase] || "刷新中"}${j.total ? ` ${j.done || 0}/${j.total}` : j.done ? ` ${j.done}` : ""}`;
+  UI.setActivity(pill, { text, done: j.done || 0, total: wait ? 0 : j.total || 0, stuck: Boolean(wait), slowed, btn: { attrs: "data-fw-stop", label: "暂停" } });
 }
 
 // The last refresh's 新关注 / 在 B站取关 (follow_jobs.changes, see followDiff) as 收藏夹's 「已刷新」 pill. Each refresh's

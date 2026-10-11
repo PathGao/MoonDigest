@@ -8,7 +8,7 @@ const ctx = vm.createContext({ TextEncoder, URL, URLSearchParams, console, setTi
 // The worker's own load order: every file background.js importScripts, in that order.
 const order = [...fs.readFileSync(path.join(__dirname, "../background.js"), "utf8").matchAll(/importScripts\(([^)]*)\)/g)].flatMap((m) => m[1].match(/"[^"]+"/g).map((f) => JSON.parse(f)));
 const load = (c) => order.forEach((file) => vm.runInContext(fs.readFileSync(path.join(__dirname, "..", file), "utf8"), c));
-const FAST = "Object.assign(FOLLOW_CFG, { gapMs: 0, jitterMs: 0, backoffMs: 5, emptyRetryMs: 0, netRetry: [1, 1, 1] }); TRIAGE_BILI_CFG.timeoutMs = 40;";
+const FAST = "Object.assign(FOLLOW_CFG, { gapMs: 0, jitterMs: 0, backoffMs: 5, emptyRetryMs: 0, netRetry: [1, 1, 1], slowGapMs: 0 }); TRIAGE_BILI_CFG.timeoutMs = 40;";
 load(ctx);
 vm.runInContext(FAST, ctx);
 const t = ctx;
@@ -258,6 +258,12 @@ const runSync = async () => {
     assert.strictEqual(local.follow_jobs.throttled, true);
     assert.match(local.follow_jobs.error, /限流/);
     assert.ok(!local.follow_content?.[1]);
+    // Risk control slows the queue down for a while, and the job says until when (the page's 「B站限流变慢」).
+    vm.runInContext("FOLLOW_CFG.slowGapMs = 7", ctx);
+    assert.strictEqual(vm.runInContext("followGap()", ctx), 7, "slower gap after risk control");
+    assert.ok(local.follow_jobs.slowUntil >= now() + 500, String(local.follow_jobs.slowUntil));
+    vm.runInContext("followSlowUntil = 0; FOLLOW_CFG.slowGapMs = 0", ctx);
+    assert.strictEqual(vm.runInContext("followGap()", ctx), 0, "back to the usual gap once the while is over");
     // HTTP 412 counts the same; the third strike stops
     holds = 0;
     routes["/x/space/wbi/arc/search"] = () => (holds++, holds < 3 ? json({}, 412) : arcOk(1));

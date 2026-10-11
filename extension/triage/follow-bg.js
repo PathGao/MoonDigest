@@ -21,6 +21,7 @@
 //   follow_jobs.cur 是正在查的人。做完写 follow_jobs.statusAt：更新状态已齐，界面不用等第 4 步。
 // 4 stats：每个关注的人的粉丝数（x/relation/stat）→ follow_stats；7 天内查过的跳过。
 // 所有 GET 共用一个队列（间隔 1–1.5 秒），30 秒没回应算断网；风控（412、-352/-412/-799/-509）整队暂停 90 秒重试，第三次报 THROTTLED。
+// 被风控拦过之后放慢：之后 10 分钟间隔改成 3 秒，再被拦就从那时重新算（follow_jobs.slowUntil，界面写「B站限流变慢」）。
 
 // ===== 纯函数 =====
 
@@ -171,18 +172,20 @@ const FOLLOW_AI_UNIT = {
 // ===== B站 请求 =====
 
 const FOLLOW_API = "https://api.bilibili.com";
-const FOLLOW_CFG = { gapMs: 1000, jitterMs: 500, backoffMs: 90000, strikes: 3, emptyRetryMs: 1500, netRetry: [5000, 15000, 60000] };
+const FOLLOW_CFG = { gapMs: 1000, jitterMs: 500, backoffMs: 90000, strikes: 3, emptyRetryMs: 1500, netRetry: [5000, 15000, 60000], slowGapMs: 3000, slowForMs: 10 * 60 * 1000 };
 const followSleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 let followQueue = Promise.resolve();
 let followLastAt = -Infinity;
 let followHoldUntil = 0;
 let followOnHold = null; // ({ until, why }) 队列暂停时告诉正在跑的同步
+let followSlowUntil = 0; // 毫秒；之前放慢间隔
+const followGap = () => (Date.now() < followSlowUntil ? FOLLOW_CFG.slowGapMs : FOLLOW_CFG.gapMs);
 
 // 每个 GET 等上一个的时间再加间隔；风控或断网暂停整个队列。
 function followSlot() {
   const turn = followQueue.then(async () => {
-    const wait = Math.max(followLastAt + FOLLOW_CFG.gapMs + Math.random() * FOLLOW_CFG.jitterMs, followHoldUntil) - Date.now();
+    const wait = Math.max(followLastAt + followGap() + Math.random() * FOLLOW_CFG.jitterMs, followHoldUntil) - Date.now();
     if (wait > 0) await followSleep(wait);
     followLastAt = Date.now();
   });
@@ -192,6 +195,7 @@ function followSlot() {
 
 function followHold(ms, why) {
   followHoldUntil = Math.max(followHoldUntil, Date.now() + ms);
+  if (why === "throttled") followSlowUntil = followHoldUntil + FOLLOW_CFG.slowForMs;
   try {
     followOnHold?.({ until: Math.ceil(followHoldUntil / 1000), why });
   } catch {}
@@ -464,10 +468,10 @@ async function followStart() {
   const cursor = prev.cursor && !prev.finishedAt && followNow() - (prev.startedAt || 0) < 86400 ? prev.cursor : null;
   const startedAt = cursor ? prev.startedAt : followNow();
   await followPatchJob({
-    running: true, error: null, throttled: false, hold: null, finishedAt: null,
+    running: true, error: null, throttled: false, hold: null, finishedAt: null, slowUntil: Math.ceil(followSlowUntil / 1000),
     ...(cursor ? {} : { startedAt, phase: "list", step: "", done: 0, total: 0, skipped: 0, cursor: null, changes: null })
   });
-  followOnHold = (hold) => followPatchJob({ hold }).catch(() => {});
+  followOnHold = (hold) => followPatchJob({ hold, slowUntil: Math.ceil(followSlowUntil / 1000) }).catch(() => {});
   // 停下立即生效，退避中也一样：正在等的请求直接丢掉。
   const get = async (call) => {
     if (run.stop) throw triageError("已停止", "STOPPED");

@@ -180,12 +180,13 @@
     const b = btn ? `<button type="button" ${btn.attrs} aria-label="${esc(btn.label)}"${reasonAttrs(btn.reason)}>${esc(btn.label)}</button>` : "";
     return `${stuck ? `<span class="activity-stuck">${ICON.alert}</span>` : ""}<span class="activity-text">${esc(text)}</span>${bar}${b}`;
   }
-  // Draws the pill from state ({ text, done, total, btn, stuck, finished }); null / false hides it. Blue while running;
-  // stuck (B站限流 or offline, waiting to retry) is amber with a red ⚠; finished is green, for a finished run's line.
+  // Draws the pill from state ({ text, done, total, btn, stuck, slowed, finished }); null / false hides it. Blue while
+  // running; stuck (B站限流 or offline, waiting to retry) is amber with a red ⚠; slowed (going on slower after B站限流)
+  // is amber; finished is green, for a finished run's line.
   function setActivity(el, a) {
     el.hidden = !a;
     if (!a) return;
-    el.classList.toggle("stuck", Boolean(a.stuck));
+    el.classList.toggle("warn", Boolean(a.stuck || a.slowed));
     el.classList.toggle("done", Boolean(a.finished));
     el.innerHTML = activityHtml(a);
   }

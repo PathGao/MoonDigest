@@ -80,7 +80,7 @@ select { height: 28px; max-width: 240px; }
 .activity:not(:has(button)) { padding-right: 12px; }
 .activity-stuck { display: inline-flex; margin-right: -4px; color: var(--danger); }
 .activity-stuck svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
-.activity.stuck { border-color: var(--warn-border); background: var(--warn-bg); color: var(--warn); }
+.activity.warn { border-color: var(--warn-border); background: var(--warn-bg); color: var(--warn); }
 .activity.done { border-color: var(--ok-border); background: var(--ok-bg); color: var(--ok); }
 .activity-bar { width: 56px; height: 4px; border-radius: 2px; background: color-mix(in srgb, currentColor 18%, transparent); overflow: hidden; }
 .activity-bar i { display: block; height: 100%; background: currentColor; }
