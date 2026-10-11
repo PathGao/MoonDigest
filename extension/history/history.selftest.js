@@ -22,8 +22,13 @@ const node = (id) =>
     querySelectorAll: () => [],
     addEventListener: (t, f) => ((L[id] ||= {})[t] ||= []).push(f)
   });
-const conv = (key) => ({ id: key, contextKey: key, title: key, createdAt: 1, updatedAt: 1, messages: [{ role: "user", content: "q" }, { role: "assistant", content: "a" }] });
-const store = { boc_ai_conversations_v1: [conv("a"), conv("b")] };
+// Untrusted text (titles, UP names, comments, AI replies, tag names, paths) stays text: no tag of its own, no way out of
+// a quoted attribute.
+const XSS = ["<img src=x onerror=alert(1)>", `"'><script>alert(1)</script>`];
+const assertInert = (html, where) => assert.ok(!/<img src=x|<script|"'>/i.test(html) && /&lt;|&#60;/.test(html), `${where}: ${html}`);
+// Each video's title, link, question and AI answer come from the page or the AI.
+const conv = (key, bad) => ({ id: key, contextKey: key, title: bad, contextUrl: `https://example.com/${bad}`, createdAt: 1, updatedAt: 1, messages: [{ role: "user", content: bad }, { role: "assistant", content: bad }] });
+const store = { boc_ai_conversations_v1: [conv("a", XSS[0]), conv("b", XSS[1])] };
 const ctx = vm.createContext({
   console,
   setTimeout,
@@ -64,6 +69,7 @@ for (const f of ["limits.js", "errors.js", "settings.js", "typing.js", "sites.js
   els.search.value = "";
   fire("input", {});
   await wait(200);
+  assertInert(html, "history list");
   const sa = els.selectAll;
   const reason = (id) => [els[id].disabled, els[id].title, els[id].attrs["aria-description"]];
   assert.deepStrictEqual([sa.checked, sa.indeterminate], [false, false], "none selected: empty box");

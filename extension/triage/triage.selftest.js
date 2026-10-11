@@ -105,6 +105,10 @@ function pickWith(bvid, fn, anchor) {
   return true;
 }
 const item = (n) => ({ bvid: `BV${n}`, aid: 1000 + n, title: `视频${n}`, upper: "up", duration: 61 });
+// Untrusted text (titles, UP names, comments, AI replies, tag names, paths) stays text: no tag of its own, no way out of
+// a quoted attribute.
+const XSS = ["<img src=x onerror=alert(1)>", `"'><script>alert(1)</script>`];
+const assertInert = (html, where) => assert.ok(!/<img src=x|<script|"'>/i.test(html) && /&lt;|&#60;/.test(html), `${where}: ${html}`);
 function openFake(mediaId, items, decisions = {}) {
   t.S.folderToken++;
   t.S.mediaId = mediaId;
@@ -2883,6 +2887,19 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   assert.match(folderThumb("toview", ""), /toview-thumb[^>]*><svg/);
   assert.doesNotMatch(folderThumb("toview", ""), /--h:/);
   assert.match(folderThumb("toview", "https://i1.hdslb.com/t.jpg"), /<img src="https:\/\/i1\.hdslb\.com\/t\.jpg"/);
+}
+
+// A card shows the video's title, UP, cover, the AI's words and the user's note as text.
+{
+  const [analysis, note] = [t.S.analyses.BV1, t.S.notes.BV1];
+  for (const bad of XSS) {
+    t.S.analyses.BV1 = { status: "done", source: "subtitle", verdict: "keep", oneLiner: bad, points: [bad], reason: bad };
+    t.S.notes.BV1 = { text: bad };
+    assertInert(t.cardHtml({ ...item(1), title: bad, upper: bad, cover: bad, folders: [{ id: 1, title: bad }] }, true, ""), "cardHtml");
+  }
+  [t.S.analyses.BV1, t.S.notes.BV1] = [analysis, note];
+  if (!analysis) delete t.S.analyses.BV1;
+  if (!note) delete t.S.notes.BV1;
 }
 
 // N5: NOT_LOGGED_IN on any request (a write too: D, 批量取消收藏, U, 关注's writes) brings up the 去登录 banner.

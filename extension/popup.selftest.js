@@ -9,7 +9,7 @@ const source = fs.readFileSync(path.join(__dirname, "popup.js"), "utf8").replace
 assert.ok(source.includes("(async () => {})().catch("), "harness strips the page entry point");
 const button = () => {
   const attrs = {};
-  return { disabled: false, title: "", attrs, setAttribute: (k, v) => (attrs[k] = v), removeAttribute: (k) => delete attrs[k] };
+  return { disabled: false, title: "", attrs, classList: { toggle() {} }, getAttribute: (k) => attrs[k] ?? null, setAttribute: (k, v) => (attrs[k] = v), removeAttribute: (k) => delete attrs[k] };
 };
 const ctx = vm.createContext({ document: { getElementById: button } });
 vm.runInContext(fs.readFileSync(path.join(__dirname, "settings.js"), "utf8"), ctx);
@@ -28,5 +28,15 @@ ctx.syncTools({ markdown: "# t", srt: "", txt: "" });
 assert.deepStrictEqual(state(), { downloadBtn: "当前视频没有可下载的字幕", readingViewBtn: "", copyBtn: "", mdBtn: "", sendBtn: "" }, "no subtitles");
 ctx.syncTools({ markdown: "# t", srt: "1", txt: "a" });
 assert.deepStrictEqual(new Set(Object.values(state())), new Set([""]), "everything ready");
+
+// Untrusted text (titles, UP names, comments, AI replies, tag names, paths) stays text: no tag of its own, no way out of
+// a quoted attribute.
+const XSS = ["<img src=x onerror=alert(1)>", `"'><script>alert(1)</script>`];
+const assertInert = (html, where) => assert.ok(!/<img src=x|<script|"'>/i.test(html) && /&lt;|&#60;/.test(html), `${where}: ${html}`);
+// The video's subtitle names and links come from the site.
+for (const bad of XSS) {
+  ctx.render({ subtitleOptions: [{ url: bad, id: bad, lang: bad, optionLabel: bad }] }, { preserveStatus: true });
+  assertInert(ctx.el.subtitleSelect.innerHTML, "subtitle options");
+}
 
 console.log("popup selftest: all passed");

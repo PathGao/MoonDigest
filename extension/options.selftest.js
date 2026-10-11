@@ -26,4 +26,13 @@ assert.strictEqual(ctx.droppedFolders(["11"], ["11", "22"]), 0);
 assert.strictEqual(ctx.droppedFolders(["11"], undefined), 0);
 assert.strictEqual(ctx.droppedFolders(undefined, ["11"]), 0);
 
+// Untrusted text (titles, UP names, comments, AI replies, tag names, paths) stays text: no tag of its own, no way out of
+// a quoted attribute.
+const XSS = ["<img src=x onerror=alert(1)>", `"'><script>alert(1)</script>`];
+const assertInert = (html, where) => assert.ok(!/<img src=x|<script|"'>/i.test(html) && /&lt;|&#60;/.test(html), `${where}: ${html}`);
+// An imported settings file fills the property rows.
+vm.runInContext(fs.readFileSync(path.join(__dirname, "settings.js"), "utf8"), ctx);
+vm.runInContext([fn("escapeAttribute"), fn("buildFixedPropertyValueControl")].join("\n"), ctx);
+for (const bad of XSS) assertInert(ctx.buildFixedPropertyValueControl("text", bad), "property value");
+
 console.log("options selftest: all passed");

@@ -14,6 +14,10 @@ assert.strictEqual(UI.BILI_HOLD_MS, 90000);
 for (const f of ["follow.js", "follow-bg.js"]) assert.ok(/\.BILI_HOLD_MS/.test(fs.readFileSync(path.join(__dirname, f), "utf8")) && !/WAIT_SEC = 90|backoffMs: 90000/.test(fs.readFileSync(path.join(__dirname, f), "utf8")), f);
 const TAG = ctx.BocTagCore;
 const plain = (v) => JSON.parse(JSON.stringify(v));
+// Untrusted text (titles, UP names, comments, AI replies, tag names, paths) stays text: no tag of its own, no way out of
+// a quoted attribute.
+const XSS = ["<img src=x onerror=alert(1)>", `"'><script>alert(1)</script>`];
+const assertInert = (html, where) => assert.ok(!/<img src=x|<script|"'>/i.test(html) && /&lt;|&#60;/.test(html), `${where}: ${html}`);
 
 // Headroom: reading down past the header folds it; any step back up, the top, or focus in the header unfolds it.
 {
@@ -500,6 +504,13 @@ for (const [file, fns] of [["triage.js", ["mergeAiBatch", "aiChanges"]], ["follo
     assert.ok(w.stuck && !w.total && w.text === "AI 打标签 · AI 平台限流卡住，1:00 后重试（稍后）", w.text);
     assert.strictEqual(UI.aiActivity(a, UI.waitText("x", 0)).stuck, undefined, "a past wait is over");
     assert.strictEqual(UI.aiActivity({}).text, "AI 打标签运行中", "before the first batch");
+  }
+  for (const bad of XSS) {
+    assertInert(UI.titleHtml(bad, 2), "titleHtml");
+    assertInert(UI.cardTagChip({ id: bad, name: bad, color: "#fff" }, bad), "cardTagChip");
+    assertInert(UI.tagRowHtml({ id: bad, name: bad, color: "#fff", rule: bad }, { count: 1, who: "视频" }), "tagRowHtml");
+    assertInert(UI.tagPlusBtn('data-x="1"', `给 ${bad} 打 UP 标签`), "tagPlusBtn");
+    assertInert(UI.sideItem({ attrs: "", label: bad }), "sideItem");
   }
   console.log("shared selftest: all passed");
 })().catch((e) => {

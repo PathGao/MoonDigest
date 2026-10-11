@@ -39,7 +39,16 @@ const ctx = vm.createContext({
 });
 ctx.globalThis = ctx;
 for (const f of ["limits.js", "errors.js", "settings.js", "typing.js", "sites.js", "tag-core.js", "note.js", "download.js"]) vm.runInContext(fs.readFileSync(path.join(__dirname, f), "utf8"), ctx);
-vm.runInContext(`${source}\n;globalThis.peek = () => ({ live: liveContextData, ctx: contextData });`, ctx);
+vm.runInContext(
+  `${source}\n;globalThis.peek = () => ({ live: liveContextData, ctx: contextData });
+  globalThis.showConversations = (saved) => { savedConversations = saved; currentConversationId = saved[0].id; previousVideoConversationId = saved[1].id; previousVideoExpanded = true; previousVideoBarSignature = ""; };`,
+  ctx
+);
+const realRenderHistoryList = ctx.renderHistoryList;
+// Untrusted text (titles, UP names, comments, AI replies, tag names, paths) stays text: no tag of its own, no way out of
+// a quoted attribute.
+const XSS = ["<img src=x onerror=alert(1)>", `"'><script>alert(1)</script>`];
+const assertInert = (html, where) => assert.ok(!/<img src=x|<script|"'>/i.test(html) && /&lt;|&#60;/.test(html), `${where}: ${html}`);
 for (const f of ["updateContextChip", "renderHistoryList", "restartChat", "renderSuggestions", "renderInitialState", "resetConversationView"]) ctx[f] = () => {};
 ctx.restoreLatestConversationForCurrentContext = async () => {};
 
@@ -242,6 +251,17 @@ const page = (id) => ({ ok: true, payload: { url: `https://example.com/${id}`, t
     };
     assert.deepStrictEqual(errorButtons("AI_QUOTA"), ["去设置", "重试"]);
     assert.deepStrictEqual(errorButtons("AI_NETWORK"), ["重试"]);
+  }
+
+  // Saved conversations: the video's title, the question and the AI's answer, in the history list and 上一个视频.
+  for (const bad of XSS) {
+    const conv = (id) => ({ id, title: bad, contextTitle: bad, updatedAt: 1, messages: [{ role: "user", content: bad }, { role: "assistant", content: bad }] });
+    ctx.showConversations([conv("now"), conv("before")]);
+    const els = vm.runInContext("els", ctx);
+    els.historyList.querySelectorAll = () => [];
+    realRenderHistoryList();
+    assertInert(els.historyList.innerHTML, "history list");
+    assertInert(els.previousVideoBar.innerHTML, "previous video");
   }
 
   console.log("sidepanel selftest: all passed");

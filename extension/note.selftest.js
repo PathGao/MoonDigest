@@ -419,4 +419,10 @@ assert.strictEqual(
   const md = N.buildAiConversationMarkdown({ context: p2, turns: [], filename: "x.md" });
   assert.ok(md.includes('url: "https://www.bilibili.com/video/BV1GJ411x7h7/?p=2"'), "P2's url points at P2");
 }
+// Untrusted text (titles, UP names, comments, AI replies, tag names, paths) stays text: no tag of its own, no way out of
+// a quoted attribute.
+const XSS = ["<img src=x onerror=alert(1)>", `"'><script>alert(1)</script>`];
+const assertInert = (html, where) => assert.ok(!/<img src=x|<script|"'>/i.test(html) && /&lt;|&#60;/.test(html), `${where}: ${html}`);
+for (const bad of XSS) assertInert(N.renderMarkdown(`${bad}\n\n- **${bad}**\n\n\`${bad}\``), "renderMarkdown");
+assert.ok(N.renderMarkdown("[x](javascript:alert(1))").includes('href="#"'), "only http, mailto and # links");
 console.log("note selftest ok");

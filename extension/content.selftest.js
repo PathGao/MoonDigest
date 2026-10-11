@@ -90,6 +90,11 @@ ctx.globalThis = ctx;
 for (const f of ["limits.js", "errors.js", "settings.js", "typing.js", "sites.js", "tag-core.js", "note.js"]) vm.runInContext(fs.readFileSync(path.join(__dirname, f), "utf8"), ctx);
 vm.runInContext(`${source}\n;globalThis.state = state;`, ctx);
 const t = ctx;
+const realRenderReadingView = t.renderReadingView;
+// Untrusted text (titles, UP names, comments, AI replies, tag names, paths) stays text: no tag of its own, no way out of
+// a quoted attribute.
+const XSS = ["<img src=x onerror=alert(1)>", `"'><script>alert(1)</script>`];
+const assertInert = (html, where) => assert.ok(!/<img src=x|<script|"'>/i.test(html) && /&lt;|&#60;/.test(html), `${where}: ${html}`);
 const { state } = t;
 for (const f of ["setStatus", "setMessage", "setReadingNotice", "renderReadingView", "syncReadingViewPlayback", "rebuildDerivedContent", "logInfo", "logWarn"]) t[f] = () => {};
 t.byId = stubEl;
@@ -433,6 +438,31 @@ const settle = async () => {
     assert.strictEqual(await tries(Object.assign(new Error("请求失败：412"), { status: 412 })), 1, "HTTP 412");
     assert.strictEqual(await tries(new TypeError("Failed to fetch")), 2, "a dropped connection is retried");
     assert.strictEqual(await tries(Object.assign(new Error("x"), { code: -500, retryable: true })), 2);
+  }
+
+  // The video's subtitle names, chapter titles and subtitle lines come from the site.
+  {
+    const saved = Object.fromEntries(["subtitles", "chapters", "subtitleBody"].map((k) => [k, state[k]]));
+    const after = ["updateReaderChapterPresence", "renderReadingInfoPanel", "renderReadingSubtitleSelect", "renderReaderPanels", "applyReadingViewPresentation", "updateReadingTranscriptTailSpacer"];
+    const real = after.map((f) => t[f]);
+    after.forEach((f) => (t[f] = () => {}));
+    const realById = t.byId;
+    for (const bad of XSS) {
+      state.subtitles = [{ url: bad, id: bad, label: bad, lang: bad }];
+      const select = {};
+      t.renderSubtitleOptions(select);
+      assertInert(select.innerHTML, "subtitle options");
+      const nodes = {};
+      t.byId = (id) => (nodes[id] ||= { insertAdjacentHTML() {} });
+      state.chapters = [{ from: 0, title: bad }];
+      state.subtitleBody = [{ from: 0, to: 1, content: bad }];
+      realRenderReadingView();
+      const ids = vm.runInContext("ids", ctx);
+      for (const id of [ids.readingChapterList, ids.readingTranscriptList]) assertInert(nodes[id].innerHTML, id);
+    }
+    t.byId = realById;
+    after.forEach((f, i) => (t[f] = real[i]));
+    Object.assign(state, saved);
   }
 
   console.log("content selftest: all passed");
