@@ -2912,7 +2912,7 @@ function renderViewerTags() {
       .filter((t) => t && (!v.folders || v.folders.includes(t.folder)))
       .map((t) => `<span class="chip" style="--c:${esc(t.color)}"${edit ? " data-vtag" : ""}>${esc(t.name)}</span>`)
       .join("");
-    el.viewerTags.innerHTML = UI.viewerLine({ label: "视频标签", chips, plus: edit && { attrs: "data-vtag", label: "给这个视频打标签" } });
+    el.viewerTags.innerHTML = UI.viewerLine({ label: "视频标签", chips, plus: edit && { attrs: "data-vtag", label: "打视频标签" } });
   }
   viewerHook?.();
 }

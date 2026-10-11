@@ -1107,6 +1107,7 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     const play = (b) => ((t.S.viewing = b), (t.S.viewer = t.viewerOf(b)), t.renderViewerTags());
     play("BV710");
     assert.ok(!t.el.viewerTags.hidden && t.el.viewerTags.innerHTML.includes("data-vtag>p0</span>") && t.el.viewerTags.innerHTML.includes('class="quiet tag-plus" data-vtag'));
+    assert.ok(t.el.viewerTags.innerHTML.includes('data-vtag aria-label="打视频标签"'), "the button says what it does, as the picker's title (给「…」打视频标签)");
     // It is named 「视频标签」, and T (which tags the playing video in 收藏夹) shows on its 「+ 标签」.
     assert.ok(t.el.viewerTags.innerHTML.startsWith('<span class="row-label">视频标签</span>') && t.el.viewerTags.innerHTML.includes('<kbd class="k-faint" aria-hidden="true">T</kbd>'));
     po = null;
