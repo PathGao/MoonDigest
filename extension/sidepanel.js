@@ -54,34 +54,24 @@ const els = {
 };
 const NOTES_STORAGE_KEY = BocLimits.KEYS.triageNotes;
 
-let contextData = null;
-let currentContextKey = "";
+const { buildConversationContextRef, doesTabMatchContextUrl, needsConversationPageHydration } = SidepanelState;
+
+// The conversation, its context and the tab's, with every rule about them (sidepanel-state.js). This page does the
+// I/O, runs the effects it returns (act) and draws what view() says.
+const state = SidepanelState.create();
 let providers = [];
+// The reply in flight: its port and the node it streams into. state knows it as streaming.
 let activeStream = null;
 let sendPending = false;
-let chatHistory = [];
 let suggestionsNode = null;
 // The AI settings as get-settings returns them; BocSettings.DEFAULTS until then or when it fails.
 let aiPrefs = aiPrefsOf(BocSettings.DEFAULTS);
-let savedConversations = [];
-let currentConversationId = "";
-let currentConversationMeta = null;
-// Bumped whenever another conversation is shown, so a context fetch started for the old one can tell it is stale.
-let conversationEpoch = 0;
-let liveContextData = null;
-let liveContextKey = "";
-let liveTabUrl = "";
 let contextNoticeTimer = 0;
 let shouldAutoScrollMessages = true;
 let liveContextSyncTimer = 0;
 let streamSlowNoticeTimer = 0;
 let streamFirstTokenReceived = false;
 let initCompleted = false;
-let lastLiveVideoUrl = "";
-// The conversationEpoch a video switch asked for the AI 总结 prompt in: once that conversation's subtitles arrive,
-// renderSuggestions fills it like a click on AI 总结, once. Any conversation shown since has a newer epoch, so it never gets it.
-let summaryFillEpoch = -1;
-let previousVideoConversationId = "";
 let previousVideoExpanded = false;
 let previousVideoBarSignature = "";
 
@@ -95,7 +85,6 @@ async function init() {
   await loadSavedConversations();
   await loadPreviousVideoConversationId();
   await loadContextState();
-  await restoreLatestConversationForCurrentContext();
   renderInitialState();
   autosizeInput();
   initCompleted = true;
@@ -228,15 +217,9 @@ function bindEvents() {
     }
     // The history page deletes conversations too; without this the next save here would bring them back.
     if (areaName === "local" && changes[CONVERSATIONS_STORAGE_KEY]) {
-      savedConversations = normalizeConversations(changes[CONVERSATIONS_STORAGE_KEY].newValue);
-      renderHistoryList();
-      // The shown conversation was deleted there: drop it like a delete here, so the next question cannot save it back.
-      // A reply in flight is left to finish and saves the conversation again.
-      const wasStored = (list) => Array.isArray(list) && list.some((item) => item?.id === currentConversationId);
       const change = changes[CONVERSATIONS_STORAGE_KEY];
-      if (currentConversationId && !activeStream && wasStored(change.oldValue) && !wasStored(change.newValue)) {
-        showLiveContextInFreshConversation();
-      }
+      void act({ type: "SAVED_CHANGED", list: change.newValue, previous: change.oldValue });
+      renderHistoryList();
     }
     if (areaName === "local" && changes[NOTES_STORAGE_KEY] && els.noteInput.hidden) {
       void renderNote();
@@ -255,14 +238,14 @@ function autosizeInput() {
 }
 
 function setStreamingUiState(isStreaming, { stopping = false } = {}) {
-  const blocked = !isStreaming && isNonVideoConversation();
+  const blocked = !isStreaming && state.view().nonVideo;
   els.input.disabled = isStreaming || blocked;
   renderFollowups();
   els.generating.hidden = !isStreaming;
   els.sendBtn.disabled = stopping || blocked;
   els.sendBtn.classList.toggle("is-stop", isStreaming);
   els.sendBtn.innerHTML = isStreaming ? (stopping ? "停止中" : "停止") : `${AI_SPARK}发送`;
-  setDisabledReason(els.exportBtn, buildConversationTurns(chatHistory).length ? "" : "当前没有可导出的对话", "导出整段对话");
+  setDisabledReason(els.exportBtn, buildConversationTurns(state.view().messages).length ? "" : "当前没有可导出的对话", "导出整段对话");
 }
 
 // A control that cannot work is disabled and says why, in its tooltip and to screen readers.
@@ -384,53 +367,10 @@ async function handlePlayerAiQuickActionRequest(value, { fromStorageChange = tru
     await chrome.storage.local.remove(PLAYER_AI_QUICK_ACTION_STORAGE_KEY).catch(() => null);
   }
 
-  // AI 总结 (popup, player ✦, 专注模式, 分拣台's viewer) on a video that already has a conversation opens its latest one;
-  // only a video without one gets the summary prompt.
-  if (request.contextRef) {
-    // A new conversation would fall back to this tab's own page (分拣台), so the prompt goes into the video's one.
-    if (!(await openRequestedVideoContext(request.contextRef))) fillPrompt(request.prompt);
-    return true;
-  }
-  if (!(await showLiveVideoConversation())) await runPlayerAiQuickActionPrompt(request.prompt);
+  // A reference (分拣台, 视频记录) names its video; otherwise AI 总结 is about the tab's, so read it first.
+  if (!request.contextRef) await loadContextState({ silent: true });
+  await act({ type: "SUMMARY", prompt: request.prompt, ref: request.contextRef });
   return true;
-}
-
-// The triage and history pages hand over a video that is not open: continue its latest conversation,
-// else start one bound to it, and resolve the context like a history conversation. True when one was continued.
-async function openRequestedVideoContext(ref) {
-  await detachActiveStream();
-  const contextRef = normalizeConversationContextRef(ref);
-  const placeholder = buildContextPlaceholder(contextRef);
-  const restored = await restoreLatestConversationForCurrentContext(placeholder, buildContextKey(placeholder));
-  if (!restored) {
-    applyConversation({ id: "", contextKey: "", contextTitle: placeholder.title, contextUrl: placeholder.url, contextRef, messages: [] });
-  }
-  // Until the video's context resolves, its placeholder has no subtitles: say it is loading, not 「没有字幕」.
-  if (contextData && !currentConversationMeta?.resolvedContext) contextData = { ...contextData, pending: true };
-  renderInitialState();
-  showConversationContextNotice("正在加载原视频信息…");
-  await hydratePinnedConversationContext();
-  return restored;
-}
-
-// The tab's video has a saved conversation: show its latest one, even over an unrelated history conversation the
-// open panel was showing. False when it has none.
-async function showLiveVideoConversation() {
-  await loadContextState({ silent: true });
-  const latest = savedConversations.find((item) => doesConversationMatchCurrentContext(item, liveContextData, liveContextKey));
-  if (latest) await loadConversationById(latest.id);
-  return Boolean(latest);
-}
-
-async function runPlayerAiQuickActionPrompt(prompt) {
-  const text = String(prompt || "").trim();
-  if (!text) {
-    autosizeInput();
-    els.input?.focus?.();
-    return;
-  }
-  await startNewConversation();
-  fillPrompt(text);
 }
 
 // AI 总结 never sends by itself: it fills an empty input and leaves the send to the user.
@@ -444,15 +384,67 @@ function fillPrompt(prompt) {
   els.input.setSelectionRange(end, end);
 }
 
-// A conversation owns the context its first question was asked in. Tab changes only update the live context
-// (and contextData while no conversation or reply holds it), so they never relabel an existing or in-flight one.
-function isContextBound() {
-  return currentConversationMeta?.pinnedContext === true || Boolean(activeStream);
+// Runs an event through the state and does what it asks. A reply leaving the conversation is let go first; another
+// conversation is then drawn afresh, before the effects that show on it (the draft, AI 总结, 正在加载原视频信息…).
+async function act(event) {
+  const epoch = state.view().epoch;
+  const effects = state.dispatch(event);
+  for (const effect of effects) {
+    if (effect.type === "detach" || effect.type === "dropStream") releaseActiveStream(effect);
+  }
+  if (state.view().epoch !== epoch) {
+    clearStreamRuntimeState();
+    updateContextChip();
+    renderHistoryList();
+    renderInitialState();
+  }
+  for (const effect of effects) await runEffect(effect);
+  return effects;
 }
 
-// Only videos can be asked about: a web page gives the AI nothing to read, and a conversation saved on one stays read-only.
-function isNonVideoConversation() {
-  return (currentConversationMeta?.pinnedContext ? currentConversationMeta : contextData)?.isVideoContext === false;
+async function runEffect(effect) {
+  switch (effect.type) {
+    case "save":
+      return saveConversations();
+    case "autoSync":
+      return scheduleAutoSync(effect.id);
+    case "clearDraft":
+      els.input.value = "";
+      return autosizeInput();
+    case "fill":
+      return fillPrompt(effect.prompt);
+    case "focus":
+      autosizeInput();
+      return els.input?.focus?.();
+    case "previous":
+      return setPreviousVideoConversation(effect.id);
+    case "followed":
+      return flashContextChip();
+    case "hidePopovers":
+      hidePresetPopover();
+      return hideHistoryPopover();
+    case "resolve":
+      showConversationContextNotice("正在加载原视频信息…");
+      return hydratePinnedConversationContext({ silent: effect.silent });
+  }
+}
+
+// Switching videos or conversations mid-reply hands the reply to its saved conversation (state saved the question
+// there), which then becomes the previous-video bar. The port stays open, so the background keeps streaming while the
+// new one is usable at once. A dropped reply (its conversation deleted) is cut off.
+function releaseActiveStream({ type, conversationId, promptIndex }) {
+  const stream = activeStream;
+  activeStream = null;
+  clearStreamRuntimeState();
+  if (!stream) {
+    return;
+  }
+  if (type === "dropStream") {
+    closeStream(stream);
+    return;
+  }
+  stream.conversationId = conversationId;
+  stream.promptIndex = promptIndex;
 }
 
 // Tab switches and sends overlap their loads; only the newest one writes the context, and an older caller gets the
@@ -475,31 +467,14 @@ function loadContextState(opts = {}) {
 async function readContextState({ forceRefresh = false, silent = false, follow = false }, superseded) {
   const tab = await getActiveTab();
   if (superseded()) return contextLoad;
+  const atTab = await act({ type: "TAB_READ", tab: tab?.id ? { url: tab.url, title: tab.title } : null, follow });
+  const followed = atTab.some((effect) => effect.type === "followed");
   if (!tab?.id) {
-    liveContextData = null;
-    liveContextKey = "";
-    liveTabUrl = "";
-    if (!isContextBound()) {
-      contextData = null;
-      currentContextKey = "";
-    }
     updateContextChip();
-    if (!silent && !isContextBound()) {
-      resetConversationView("找不到当前标签页。");
+    if (!silent && !state.view().bound) {
+      resetConversationView(state.view().live.error);
     }
     return false;
-  }
-
-  liveTabUrl = String(tab.url || "").trim();
-  // Subtitles and comments take seconds to load, but the tab URL already names the new video, so following
-  // switches now and the full reply below fills the context in.
-  const tabRef = BocSites.parseRef(liveTabUrl);
-  const atTab = decideFollow(snapshotFollowState(), { stage: "tab", toUrl: tabRef?.url || "", oid: Boolean(tabRef?.part?.oid), follow });
-  lastLiveVideoUrl = atTab.lastVideoUrl;
-  const followed = atTab.action === "follow";
-  if (followed) {
-    await detachActiveStream();
-    await followLiveVideo(buildTabVideoPlaceholder(tab, tabRef));
   }
 
   const resp = await sendRuntimeMessage({
@@ -509,106 +484,26 @@ async function readContextState({ forceRefresh = false, silent = false, follow =
   }).catch((error) => ({ ok: false, error: error.message }));
   if (superseded()) return contextLoad;
 
-  if (!resp?.ok || !resp.payload) {
-    liveContextData = null;
-    liveContextKey = "";
-    if (!isContextBound()) {
-      contextData = null;
-      currentContextKey = "";
-    }
+  const ok = Boolean(resp?.ok && resp.payload);
+  const effects = await act({ type: "CONTEXT_ARRIVED", payload: ok ? resp.payload : null, error: resp?.error, follow });
+  if (!ok) {
     updateContextChip();
-    if (!silent && !isContextBound()) {
-      resetConversationView(escapeHtml(resp?.error || "读取当前页面失败"), { retry: true });
+    if (!silent && !state.view().bound) {
+      resetConversationView(escapeHtml(state.view().live.error), { retry: true });
     }
     return false;
   }
-
-  liveContextData = resp.payload;
-  liveContextKey = buildContextKey(resp.payload);
-  const liveVideoUrl = resp.payload.isVideoContext !== false && liveContextKey.startsWith("video:") ? String(resp.payload.url || "") : "";
-  const decision = decideFollow(snapshotFollowState(), { stage: "payload", toUrl: liveVideoUrl, follow, keyChanged: contextKeyChanges(resp.payload) });
-  lastLiveVideoUrl = decision.lastVideoUrl;
-  if (decision.action === "follow") {
-    await detachActiveStream();
-    await followLiveVideo(liveContextData);
+  if (effects.some((effect) => effect.type === "followed")) {
     return FOLLOWED_LIVE_VIDEO;
   }
-  if (decision.action === "keep") {
-    renderHistoryList();
-    updateContextChip();
-    return followed ? FOLLOWED_LIVE_VIDEO : true;
-  }
-
-  const contextChanged = applyContextPayload(resp.payload);
   renderHistoryList();
-  if (contextChanged) {
-    await restoreLatestConversationForCurrentContext();
-    renderInitialState();
-  }
+  updateContextChip();
+  renderSuggestions();
   return followed ? FOLLOWED_LIVE_VIDEO : true;
 }
 
-// Stands in for a followed video until its subtitles load; sending always waits for the full context.
-function buildTabVideoPlaceholder(tab, ref) {
-  const title = String(tab.title || "").replace(/_哔哩哔哩_bilibili$| - YouTube$/, "").trim();
-  return {
-    ...buildContextPlaceholder({ site: ref.site, videoId: ref.id, url: ref.url, pageIndex: ref.part?.index || 1 }),
-    // Right after an in-page navigation the tab can still carry the previous video's title.
-    title: title === contextData?.title ? "" : title,
-    pending: true
-  };
-}
-
-// An empty key (loading or blank tab) is a different context too, so returning to a video restores its conversation.
-// A followed video's placeholder has no cid yet, so its full context is matched by URL.
-function contextKeyChanges(payload) {
-  const fillsPlaceholder = Boolean(contextData?.pending && doesTabMatchContextUrl(payload?.url || "", contextData.url));
-  return !fillsPlaceholder && buildContextKey(payload) !== currentContextKey;
-}
-
-function applyContextPayload(payload) {
-  const nextContext = payload && typeof payload === "object" ? payload : null;
-  const contextChanged = contextKeyChanges(nextContext);
-  contextData = nextContext;
-  currentContextKey = buildContextKey(nextContext);
-  updateContextChip();
-
-  if (contextChanged) {
-    restartChat();
-  } else {
-    renderSuggestions();
-  }
-  return contextChanged;
-}
-
-function buildContextKey(payload) {
-  if (!payload) {
-    return "";
-  }
-  const videoKey = BocSites.buildContextKey(buildConversationContextRef(payload) || {});
-  if (videoKey) {
-    return videoKey;
-  }
-  const normalizedUrl = normalizeContextUrlForKey(payload.url);
-  return normalizedUrl ? `url:${normalizedUrl}` : "";
-}
-
-function normalizeContextUrlForKey(value) {
-  const text = String(value || "").trim();
-  if (!text) {
-    return "";
-  }
-  try {
-    const parsed = new URL(text);
-    parsed.hash = "";
-    return `${parsed.origin}${parsed.pathname}`;
-  } catch {
-    return text;
-  }
-}
-
 // The note belongs to the video (multi-part videos share one); web pages have none.
-function noteVideoId(context = contextData) {
+function noteVideoId(context = state.view().context) {
   const ref = context?.isVideoContext === false ? null : buildConversationContextRef(context);
   return ref?.site ? ref.videoId : "";
 }
@@ -646,7 +541,8 @@ async function saveNote() {
 function updateContextChip() {
   void renderNote();
   renderFollowups();
-  if (!contextData) {
+  const { context, mismatch } = state.view();
+  if (!context) {
     setContextChipText("读取失败");
     els.contextChip.title = "";
     els.contextChip.disabled = true;
@@ -654,14 +550,13 @@ function updateContextChip() {
     return;
   }
 
-  const shortTitle = contextData.title || (contextData.pending ? "加载中…" : "未知视频");
-  setContextChipText(shortTitle, contextData.isVideoContext === false ? "" : contextData.author);
-  const mismatch = isBoundConversationMismatched();
+  const shortTitle = context.title || (context.pending ? "加载中…" : "未知视频");
+  setContextChipText(shortTitle, context.isVideoContext === false ? "" : context.author);
   els.contextChip.classList.toggle("is-mismatch", mismatch);
-  els.contextChip.title = contextData.url
-    ? `${contextData.title || ""}${mismatch ? "\n当前页不是这段对话绑定的视频" : ""}\n点击跳转目标视频`
-    : contextData.title || "";
-  els.contextChip.disabled = !String(contextData.url || "").trim();
+  els.contextChip.title = context.url
+    ? `${context.title || ""}${mismatch ? "\n当前页不是这段对话绑定的视频" : ""}\n点击跳转目标视频`
+    : context.title || "";
+  els.contextChip.disabled = !String(context.url || "").trim();
 }
 
 function setContextChipText(title, meta = "") {
@@ -670,22 +565,9 @@ function setContextChipText(title, meta = "") {
   els.contextMeta.hidden = !els.contextMeta.textContent;
 }
 
-function isBoundConversationMismatched() {
-  if (currentConversationMeta?.pinnedContext !== true) {
-    return false;
-  }
-  const targetUrl = String(currentConversationMeta?.contextUrl || contextData?.url || "").trim();
-  if (!targetUrl) {
-    return false;
-  }
-  if (!liveTabUrl) {
-    return true;
-  }
-  return !doesTabMatchContextUrl(liveTabUrl, targetUrl);
-}
-
 async function openCurrentContextUrl() {
-  const targetUrl = String(contextData?.url || currentConversationMeta?.contextUrl || "").trim();
+  const { context, pinned } = state.view();
+  const targetUrl = String(context?.url || pinned?.contextUrl || "").trim();
   if (!targetUrl) {
     return;
   }
@@ -710,15 +592,16 @@ function renderInitialState() {
     resetConversationView("");
     return;
   }
-  if (!contextData) {
+  const { context, messages } = state.view();
+  if (!context) {
     resetConversationView("读取当前页面失败", { retry: true });
     return;
   }
-  if (chatHistory.length) {
+  if (messages.length) {
     renderConversationMessages();
     return;
   }
-  if (contextData.isVideoContext === false) {
+  if (context.isVideoContext === false) {
     resetConversationView(NON_VIDEO_CONTEXT_MESSAGE);
     return;
   }
@@ -756,13 +639,14 @@ function resetConversationView(stateHtml = "", { retry = false } = {}) {
 
 // What the AI will read: the intro says so when there are no subtitles (background.js tells the AI the same).
 function introText() {
-  if (String(contextData?.subtitleMarkdown || "").trim()) {
+  const context = state.view().context;
+  if (String(context?.subtitleMarkdown || "").trim()) {
     return EMPTY_INTRO;
   }
-  if (contextData?.subtitleNeedLogin) {
+  if (context?.subtitleNeedLogin) {
     return "B站要求登录后才提供字幕，AI 只能读标题、简介和评论。登录 B站后刷新网页。";
   }
-  return contextData?.subtitleFailure
+  return context?.subtitleFailure
     ? "字幕抓取失败，AI 只能读标题、简介和评论。可以稍后刷新网页重试。"
     : "这期视频没有字幕，AI 只能读标题、简介和评论。";
 }
@@ -773,7 +657,8 @@ function renderSuggestions() {
   }
   suggestionsNode.innerHTML = "";
   renderFollowups();
-  if (chatHistory.length) {
+  const { context, messages } = state.view();
+  if (messages.length) {
     return;
   }
   if (!providers.length) {
@@ -781,11 +666,11 @@ function renderSuggestions() {
     suggestionsNode.querySelector("button").addEventListener("click", () => chrome.runtime.openOptionsPage());
     return;
   }
-  if (!contextData || contextData.isVideoContext === false) {
+  if (!context || context.isVideoContext === false) {
     return;
   }
   // A followed video's placeholder: no summary to offer until its subtitles arrive (sending still waits for them).
-  if (contextData.pending) {
+  if (context.pending) {
     suggestionsNode.innerHTML = '<p class="sp-empty-intro" aria-busy="true">正在读取视频字幕…</p>';
     return;
   }
@@ -793,23 +678,21 @@ function renderSuggestions() {
   const prompt = aiPrefs.playerAiQuickPrompt;
   suggestionsNode.innerHTML = `<p class="sp-empty-intro">${escapeHtml(introText())}</p>${prompt ? `<button type="button" class="sp-summary-btn" title="${escapeHtml(prompt)}">${AI_SPARK}AI 总结</button>` : ""}`;
   suggestionsNode.querySelector(".sp-summary-btn")?.addEventListener("click", () => fillPrompt(prompt));
-  if (summaryFillEpoch === conversationEpoch && prompt) {
-    summaryFillEpoch = -1;
-    fillPrompt(prompt);
-  }
+  void act({ type: "SUMMARY_SHOWN", prompt });
   void renderTriageSummary(suggestionsNode);
 }
 
 // A summary the triage page already paid for, shown before the first question; nothing is requested here.
 // It is per bvid and summarizes P1, so other parts don't show it.
 async function renderTriageSummary(node) {
-  const ref = buildConversationContextRef(contextData);
+  const ref = buildConversationContextRef(state.view().context);
   if (ref?.site !== "bilibili" || ref.pageIndex !== 1) {
     return;
   }
   const key = BocLimits.KEYS.triageAnalysis(ref.videoId);
   const summary = BocNote.buildTriageSummary((await chrome.storage.local.get(key))[key]);
-  if (!summary || node !== suggestionsNode || chatHistory.length || buildConversationContextRef(contextData)?.videoId !== ref.videoId) {
+  const now = state.view();
+  if (!summary || node !== suggestionsNode || now.messages.length || buildConversationContextRef(now.context)?.videoId !== ref.videoId) {
     return;
   }
   node.querySelector(".sp-triage-summary")?.remove();
@@ -827,16 +710,17 @@ function followupBlockReason() {
   if (!providers.length) {
     return "先在设置页添加一个 AI 平台";
   }
-  if (isNonVideoConversation()) {
+  const { context, messages, pinned, nonVideo } = state.view();
+  if (nonVideo) {
     return "不是视频，不能问";
   }
   if (activeStream || els.input.disabled) {
     return "正在生成，等这条回复结束";
   }
-  if (contextData?.pending) {
+  if (context?.pending) {
     return "正在读取视频字幕…";
   }
-  if (!chatHistory.length && !currentConversationMeta?.pinnedContext && !contextData) {
+  if (!messages.length && !pinned && !context) {
     return "打开一个视频后才能用快捷追问";
   }
   return "";
@@ -932,9 +816,7 @@ function renderHistoryList() {
     return;
   }
   // Only the shown video's conversations; the history page lists and searches all of them.
-  const conversations = savedConversations.filter(
-    (conversation) => conversation.id === currentConversationId || doesConversationMatchCurrentContext(conversation, contextData, currentContextKey)
-  );
+  const { history: conversations, id: currentId } = state.view();
   if (!conversations.length) {
     els.historyList.innerHTML = '<span class="sp-history-empty">这里还没有历史对话</span>';
     return;
@@ -942,7 +824,7 @@ function renderHistoryList() {
 
   els.historyList.innerHTML = conversations
     .map((conversation) => {
-      const isActive = conversation.id === currentConversationId;
+      const isActive = conversation.id === currentId;
       const metaText = formatConversationTimestamp(conversation.updatedAt || conversation.createdAt);
       const titleDisplay = buildConversationTitleDisplay(conversation.title, 30);
       return `
@@ -985,68 +867,13 @@ function renderHistoryList() {
 
 async function loadSavedConversations() {
   const data = await chrome.storage.local.get([CONVERSATIONS_STORAGE_KEY]).catch(() => ({}));
-  savedConversations = normalizeConversations(data?.[CONVERSATIONS_STORAGE_KEY]);
+  await act({ type: "SAVED_CHANGED", list: data?.[CONVERSATIONS_STORAGE_KEY] });
   renderHistoryList();
   void hydrateConversationPageMetadata();
 }
 
-function normalizeConversations(value) {
-  if (!Array.isArray(value)) {
-    return [];
-  }
-  return value
-    .map((item) => {
-      const messages = Array.isArray(item?.messages)
-        ? item.messages
-            .filter((msg) => msg && (msg.role === "user" || msg.role === "assistant") && typeof msg.content === "string")
-            .map((msg) => ({ role: msg.role, content: String(msg.content) }))
-        : [];
-      const id = String(item?.id || "").trim();
-      if (!id || !messages.length) {
-        return null;
-      }
-      const contextTitle = String(item?.contextTitle || "").trim();
-      const contextRef = normalizeConversationContextRef(item?.contextRef || item?.contextSnapshot || item);
-      const contextUrl = String(item?.contextUrl || "").trim();
-      return {
-        id,
-        title: normalizeConversationTitle(item?.title, contextTitle, contextRef, contextUrl),
-        contextKey: resolveConversationStorageKey(item?.contextKey, contextRef, contextUrl),
-        contextTitle,
-        contextUrl,
-        isVideoContext: item?.isVideoContext !== false,
-        createdAt: Number(item?.createdAt) || Date.now(),
-        updatedAt: Number(item?.updatedAt) || Date.now(),
-        contextRef,
-        pageHydrated: item?.pageHydrated === true,
-        messages
-      };
-    })
-    .filter(Boolean)
-    .sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0))
-    .slice(0, BocLimits.AI_CONVERSATIONS);
-}
-
-function resolveConversationStorageKey(rawKey, contextRef, contextUrl = "") {
-  const normalizedRefKey = buildContextKey(contextRef);
-  if (normalizedRefKey) {
-    return normalizedRefKey;
-  }
-  const normalizedUrlKey = buildContextKey({ url: contextUrl });
-  if (normalizedUrlKey) {
-    return normalizedUrlKey;
-  }
-  return String(rawKey || "").trim();
-}
-
 async function hydrateConversationPageMetadata() {
-  const candidates = savedConversations
-    .filter((item) => needsConversationPageHydration(item))
-    .slice(0, 12);
-  if (!candidates.length) {
-    return;
-  }
-
+  const candidates = state.view().saved.filter(needsConversationPageHydration).slice(0, 12);
   let changed = false;
   for (const conversation of candidates) {
     const contextRef = conversation.contextRef || null;
@@ -1057,200 +884,32 @@ async function hydrateConversationPageMetadata() {
       type: "ai-sidepanel-resolve-page-ref",
       contextRef
     }).catch(() => null);
-    if (!response?.ok || !response.payload) {
-      continue;
+    if (response?.ok && response.payload) {
+      changed = state.dispatch({ type: "PAGE_HYDRATED", id: conversation.id, payload: response.payload }).length > 0 || changed;
     }
-    // One successful lookup settles the page metadata; without the flag every open refetched it.
-    conversation.pageHydrated = true;
-    changed = true;
-
-    const payload = response.payload;
-    const nextPageIndex = Number(payload.pageIndex) > 0 ? Number(payload.pageIndex) : 1;
-    const nextUrl = String(payload.url || conversation.contextUrl || contextRef.url || "").trim();
-    const nextContextRef = {
-      ...contextRef,
-      url: nextUrl,
-      cid: String(payload.cid || contextRef.cid || "").trim(),
-      pageIndex: nextPageIndex,
-      pageTitle: String(payload.pageTitle || contextRef.pageTitle || "").trim()
-    };
-    const nextTitle = normalizeConversationTitle(conversation.title, conversation.contextTitle, nextContextRef, nextUrl);
-    const nextContextKey = resolveConversationStorageKey(conversation.contextKey, nextContextRef, nextUrl);
-    if (
-      nextTitle === conversation.title &&
-      nextUrl === conversation.contextUrl &&
-      nextContextKey === conversation.contextKey &&
-      Number(conversation.contextRef?.pageIndex || 1) === nextPageIndex
-    ) {
-      continue;
-    }
-
-    conversation.title = nextTitle;
-    conversation.contextUrl = nextUrl;
-    conversation.contextKey = nextContextKey;
-    conversation.contextRef = nextContextRef;
   }
-
   if (!changed) {
     return;
-  }
-
-  if (currentConversationId) {
-    const activeConversation = savedConversations.find((item) => item.id === currentConversationId);
-    if (activeConversation) {
-      currentConversationMeta = {
-        ...currentConversationMeta,
-        title: activeConversation.title,
-        contextKey: activeConversation.contextKey,
-        contextUrl: activeConversation.contextUrl,
-        contextRef: activeConversation.contextRef
-      };
-    }
   }
   renderHistoryList();
   updateContextChip();
   await saveConversations();
 }
 
-function needsConversationPageHydration(conversation) {
-  if (!conversation?.isVideoContext || conversation.pageHydrated) {
-    return false;
-  }
-  if (/-P\d+$/i.test(String(conversation.title || "").trim())) {
-    return false;
-  }
-  const pageIndex = Number(conversation.contextRef?.pageIndex || 0) || 0;
-  if (pageIndex > 1) {
-    return true;
-  }
-  const urlPageIndex = extractPageIndexFromContextUrl(conversation.contextUrl || conversation.contextRef?.url || "");
-  if (urlPageIndex > 1) {
-    return true;
-  }
-  return conversation.contextRef?.site === "bilibili" && Boolean(conversation.contextRef?.videoId && conversation.contextRef?.cid);
-}
-
 async function saveConversations() {
-  savedConversations = normalizeConversations(savedConversations);
-  await chrome.storage.local.set({
-    [CONVERSATIONS_STORAGE_KEY]: savedConversations.slice(0, BocLimits.AI_CONVERSATIONS)
-  });
+  await chrome.storage.local.set({ [CONVERSATIONS_STORAGE_KEY]: state.view().saved });
   renderHistoryList();
 }
 
-// Finding none does not bump conversationEpoch: callers have just started a fresh conversation (restartChat bumped it)
-// or show nothing yet (init).
-async function restoreLatestConversationForCurrentContext(currentRef = liveContextData || contextData, targetContextKey = liveContextKey || currentContextKey) {
-  const latest = savedConversations.find((item) => doesConversationMatchCurrentContext(item, currentRef, targetContextKey));
-  if (!latest) {
-    currentConversationId = "";
-    currentConversationMeta = null;
-    chatHistory = [];
-    return false;
-  }
-  applyConversation(latest);
-  return true;
-}
-
-function doesConversationMatchCurrentContext(conversation, currentRef, targetContextKey = "") {
-  if (!conversation) {
-    return false;
-  }
-  const normalizedConversationKey = resolveConversationStorageKey(
-    conversation.contextKey,
-    conversation.contextRef,
-    conversation.contextUrl
-  );
-  const normalizedTargetKey = String(targetContextKey || buildContextKey(currentRef)).trim();
-  if (normalizedConversationKey && normalizedTargetKey && normalizedConversationKey === normalizedTargetKey) {
-    return true;
-  }
-
-  const conversationUrl = String(conversation.contextUrl || conversation.contextRef?.url || "").trim();
-  const currentUrl = String(currentRef?.url || "").trim();
-  if (conversationUrl && currentUrl) {
-    return doesTabMatchContextUrl(currentUrl, conversationUrl);
-  }
-  return false;
-}
-
-function applyConversation(conversation) {
-  if (!conversation) {
-    return;
-  }
-  conversationEpoch += 1;
-  // The input draft belongs to the conversation: another one starts empty (restartChat clears it for a fresh one).
-  if (!conversation.id || conversation.id !== currentConversationId) {
-    els.input.value = "";
-    autosizeInput();
-  }
-  currentConversationId = conversation.id;
-  currentConversationMeta = {
-    id: conversation.id,
-    title: conversation.title,
-    createdAt: conversation.createdAt,
-    updatedAt: conversation.updatedAt,
-    contextKey: conversation.contextKey,
-    contextTitle: conversation.contextTitle,
-    contextUrl: conversation.contextUrl,
-    isVideoContext: conversation.isVideoContext !== false,
-    pinnedContext: true,
-    contextRef: conversation.contextRef || null,
-    resolvedContext: null
-  };
-  chatHistory = Array.isArray(conversation.messages)
-    ? conversation.messages.map((item) => ({ role: item.role, content: String(item.content || "") }))
-    : [];
-  if (liveContextData && conversation.contextKey && conversation.contextKey === liveContextKey) {
-    contextData = { ...liveContextData };
-    currentContextKey = liveContextKey;
-    currentConversationMeta.resolvedContext = { ...liveContextData };
-  } else if (conversation.contextRef) {
-    contextData = buildContextPlaceholder(conversation.contextRef);
-    currentContextKey = conversation.contextKey || buildContextKey(contextData);
-  }
-  updateContextChip();
-  renderHistoryList();
-}
-
-async function loadConversationById(id) {
-  const conversation = savedConversations.find((item) => item.id === id);
-  if (!conversation || (activeStream && id === currentConversationId)) {
-    return;
-  }
-  // The reply in flight belongs to the conversation it was asked in, not to the one being opened.
-  await detachActiveStream();
-  applyConversation(conversation);
-  renderInitialState();
-  if (conversation.isVideoContext && conversation.contextKey && conversation.contextKey !== liveContextKey) {
-    showConversationContextNotice("正在加载原视频信息…");
-    void hydratePinnedConversationContext({ silent: true });
-  }
+function loadConversationById(id) {
+  return act({ type: "OPEN", id });
 }
 
 async function deleteConversation(id) {
   if (!confirm("删除这条历史对话？删除后不能恢复。")) {
     return;
   }
-  if (id && id === currentConversationId) {
-    showLiveContextInFreshConversation();
-  }
-  savedConversations = savedConversations.filter((item) => item.id !== id);
-  await saveConversations();
-}
-
-// A fresh conversation takes the current tab's context. When the tab could not be read it starts without one (the
-// empty state then shows the read error and 重试), never with the video of the conversation that was open.
-function adoptLiveContext() {
-  contextData = liveContextData ? { ...liveContextData } : null;
-  currentContextKey = liveContextData ? liveContextKey || buildContextKey(liveContextData) : "";
-}
-
-// restartChat also drops the reply in flight without saving it, so it cannot bring the conversation back.
-function showLiveContextInFreshConversation() {
-  adoptLiveContext();
-  restartChat();
-  renderInitialState();
+  await act({ type: "DELETED", id });
 }
 
 function togglePresetPopover(event) {
@@ -1336,112 +995,16 @@ async function syncLiveContextState() {
   if (ok === FOLLOWED_LIVE_VIDEO) {
     return;
   }
-  if (isContextBound()) {
+  const { bound, context, messages } = state.view();
+  if (bound) {
     updateContextChip();
     return;
   }
-  if (!ok || !contextData || !providers.length || !chatHistory.length) {
+  if (!ok || !context || !providers.length || !messages.length) {
     renderInitialState();
     return;
   }
   renderSuggestions();
-}
-
-// What a context load does with the tab's video (跟随播放). Pure; snapshotFollowState() reads the page's state.
-// state: shownUrl (the shown conversation's video), hasMessages, bound (isContextBound), lastVideoUrl (the tab's video
-// when a load last took or watched it), hasContext (a context was read before; false on the panel's first load).
-// ev: stage "tab" (only the tab URL is known yet) or "payload" (the full context came back); toUrl (the tab's video,
-// "" when it is not one); oid (a watch-later URL names the part by oid, not ?p=, so only the payload can place it);
-// follow (a tab event asked to follow); keyChanged (payload: the tab's context is not the shown one).
-// action: "follow" (show the tab's video: its latest conversation or a fresh one), "keep" (the conversation holds its
-// context), "adopt" (the unbound conversation takes the payload), "none" (tab stage: wait for the payload).
-// Videos compare by URL (site, id, part). Following only leaves a conversation that belongs to the video just played,
-// or one with nothing asked yet (opened on a web page, an empty 问 AI one); a history conversation the user opened stays.
-// An unbound conversation on another video follows whichever load saw the change, so every entry ends alike; the panel's
-// first load only adopts, without the AI 总结 fill. lastVideoUrl moves when the panel takes the tab's video or a follow
-// load watches it, never on a load that leaves a bound conversation in place.
-function decideFollow({ shownUrl, hasMessages, bound, lastVideoUrl, hasContext }, { stage, toUrl, oid, follow, keyChanged }) {
-  const same = doesTabMatchContextUrl;
-  const candidate = Boolean(toUrl) && (hasMessages ? Boolean(lastVideoUrl) && !same(toUrl, lastVideoUrl) && same(shownUrl, lastVideoUrl) : !same(toUrl, shownUrl));
-  if (stage === "tab") {
-    return follow && hasContext && !oid && candidate ? { action: "follow", lastVideoUrl: toUrl } : { action: "none", lastVideoUrl };
-  }
-  const taken = toUrl || lastVideoUrl;
-  if (!hasContext) return { action: "adopt", lastVideoUrl: taken };
-  if ((follow && candidate) || (!bound && keyChanged && toUrl)) return { action: "follow", lastVideoUrl: toUrl };
-  if (bound) return { action: "keep", lastVideoUrl: follow ? taken : lastVideoUrl };
-  return { action: "adopt", lastVideoUrl: taken };
-}
-
-function snapshotFollowState() {
-  return {
-    shownUrl: currentConversationMeta?.contextUrl || contextData?.url || "",
-    hasMessages: chatHistory.length > 0,
-    bound: isContextBound(),
-    lastVideoUrl: lastLiveVideoUrl,
-    hasContext: Boolean(contextData)
-  };
-}
-
-// Switching videos mid-reply hands the reply to its saved conversation, which then becomes the previous-video bar.
-// The port stays open, so the background keeps streaming while the new video is usable at once.
-async function detachActiveStream() {
-  const stream = activeStream;
-  if (!stream) {
-    return;
-  }
-  activeStream = null;
-  clearStreamRuntimeState();
-  chatHistory.push({ role: "user", content: stream.prompt });
-  // The id is assigned before the first await, so a reply ending during the save still finds its conversation.
-  const saving = persistCurrentConversation(stream);
-  stream.conversationId = currentConversationId;
-  stream.promptIndex = chatHistory.length - 1;
-  await saving;
-}
-
-// Puts the answer after its question, or drops the question when nothing came back.
-// chatHistory gets the same patch when the user has reopened that conversation meanwhile.
-async function finishDetachedStream({ conversationId, promptIndex, prompt, raw }) {
-  const conversation = savedConversations.find((item) => item.id === conversationId);
-  if (!conversation) {
-    return;
-  }
-  const isCurrent = conversationId === currentConversationId;
-  [conversation.messages, ...(isCurrent ? [chatHistory] : [])].forEach((messages) => {
-    if (messages[promptIndex]?.role !== "user" || messages[promptIndex].content !== prompt || messages[promptIndex + 1]?.role === "assistant") {
-      return;
-    }
-    if (raw.trim()) {
-      messages.splice(promptIndex + 1, 0, { role: "assistant", content: raw });
-    } else {
-      messages.splice(promptIndex, 1);
-    }
-  });
-  conversation.updatedAt = Date.now();
-  await saveConversations();
-  scheduleAutoSync(conversationId);
-  if (isCurrent && !activeStream) {
-    renderConversationMessages();
-  }
-}
-
-async function followLiveVideo(context) {
-  const previous = currentConversationId && chatHistory.length
-    ? savedConversations.find((item) => item.id === currentConversationId)
-    : null;
-  if (previous) {
-    setPreviousVideoConversation(previous.id);
-  }
-  contextData = { ...context };
-  currentContextKey = buildContextKey(context);
-  restartChat();
-  await restoreLatestConversationForCurrentContext(contextData, currentContextKey);
-  if (!chatHistory.length) summaryFillEpoch = conversationEpoch;
-  renderHistoryList();
-  updateContextChip();
-  renderInitialState();
-  flashContextChip();
 }
 
 // A video switch lights up the chip that names the video; the animation fades it back on its own.
@@ -1454,15 +1017,15 @@ function flashContextChip() {
 
 async function loadPreviousVideoConversationId() {
   const data = await chrome.storage.session?.get([PREVIOUS_VIDEO_CONVERSATION_KEY]).catch(() => ({}));
-  previousVideoConversationId = String(data?.[PREVIOUS_VIDEO_CONVERSATION_KEY] || "").trim();
+  state.dispatch({ type: "PREVIOUS_LOADED", id: String(data?.[PREVIOUS_VIDEO_CONVERSATION_KEY] || "").trim() });
   renderPreviousVideoBar();
 }
 
+// state already names the bar's conversation (id); this keeps it for the session and draws the bar collapsed.
 function setPreviousVideoConversation(id) {
-  previousVideoConversationId = String(id || "");
   previousVideoExpanded = false;
-  if (previousVideoConversationId) {
-    void chrome.storage.session?.set({ [PREVIOUS_VIDEO_CONVERSATION_KEY]: previousVideoConversationId }).catch(() => {});
+  if (id) {
+    void chrome.storage.session?.set({ [PREVIOUS_VIDEO_CONVERSATION_KEY]: id }).catch(() => {});
   } else {
     void chrome.storage.session?.remove(PREVIOUS_VIDEO_CONVERSATION_KEY).catch(() => {});
   }
@@ -1474,18 +1037,17 @@ function renderPreviousVideoBar() {
   if (!bar) {
     return;
   }
-  const conversation = previousVideoConversationId
-    ? savedConversations.find((item) => item.id === previousVideoConversationId)
-    : null;
+  const { previousId, saved, id: currentId } = state.view();
+  const conversation = previousId ? saved.find((item) => item.id === previousId) : null;
   if (!conversation) {
     previousVideoBarSignature = "";
     bar.hidden = true;
-    if (previousVideoConversationId) {
-      setPreviousVideoConversation("");
+    if (previousId) {
+      void act({ type: "PREVIOUS_DISMISSED" });
     }
     return;
   }
-  const isCurrent = conversation.id === currentConversationId;
+  const isCurrent = conversation.id === currentId;
   const signature = [conversation.id, conversation.updatedAt, conversation.messages.length, previousVideoExpanded, isCurrent].join("|");
   if (signature === previousVideoBarSignature) {
     return;
@@ -1528,7 +1090,8 @@ function renderPreviousVideoBar() {
 
 function handlePreviousVideoBarClick(event) {
   const action = event.target instanceof Element ? event.target.closest("[data-action]")?.getAttribute("data-action") : "";
-  const conversation = savedConversations.find((item) => item.id === previousVideoConversationId);
+  const { previousId, saved } = state.view();
+  const conversation = saved.find((item) => item.id === previousId);
   if (!action || !conversation) {
     return;
   }
@@ -1536,7 +1099,7 @@ function handlePreviousVideoBarClick(event) {
     previousVideoExpanded = !previousVideoExpanded;
     renderPreviousVideoBar();
   } else if (action === "dismiss") {
-    setPreviousVideoConversation("");
+    void act({ type: "PREVIOUS_DISMISSED" });
   } else if (action === "resume") {
     previousVideoExpanded = false;
     loadConversationById(conversation.id);
@@ -1591,12 +1154,8 @@ async function persistAiPresetPrompts() {
 }
 
 function updateSidepanelLayoutState() {
-  const useCompactInput = Boolean(
-    contextData &&
-    contextData.isVideoContext === false &&
-    !chatHistory.length &&
-    !currentConversationMeta?.pinnedContext
-  );
+  const { context, messages, pinned } = state.view();
+  const useCompactInput = Boolean(context && context.isVideoContext === false && !messages.length && !pinned);
   document.body.classList.toggle("sp-non-video-context", useCompactInput);
   if (!activeStream) {
     setStreamingUiState(false);
@@ -1615,7 +1174,8 @@ async function refreshContextManually() {
   try {
     const ok = await loadContextState({ forceRefresh: true });
     if (ok) {
-      if (!contextData || !providers.length || !chatHistory.length) {
+      const { context, messages } = state.view();
+      if (!context || !providers.length || !messages.length) {
         renderInitialState();
       } else {
         renderSuggestions();
@@ -1627,14 +1187,11 @@ async function refreshContextManually() {
 }
 
 // A reply in flight goes on into the conversation it was asked in, as when switching video or conversation.
+// The new one takes the tab's context; when the tab cannot be read it starts without one (the empty state then shows
+// the read error and 重试), never with the video of the conversation that was open.
 async function startNewConversation() {
-  hidePresetPopover();
-  hideHistoryPopover();
-  await detachActiveStream();
   await loadContextState({ silent: true });
-  adoptLiveContext();
-  restartChat();
-  renderInitialState();
+  await act({ type: "NEW" });
 }
 
 // The note card leads the conversation and survives every redraw.
@@ -1646,11 +1203,12 @@ function renderConversationMessages() {
   updateSidepanelLayoutState();
   clearMessages();
   suggestionsNode = null;
-  if (!chatHistory.length) {
+  const { messages, nonVideo } = state.view();
+  if (!messages.length) {
     resetConversationView("");
     return;
   }
-  chatHistory.forEach((message) => {
+  messages.forEach((message) => {
     if (message.role === "user") {
       appendUserMessage(message.content, false);
       return;
@@ -1660,94 +1218,12 @@ function renderConversationMessages() {
     renderAssistantMessage(node, String(message.content || ""));
     els.messages.appendChild(node);
   });
-  if (isNonVideoConversation()) {
+  if (nonVideo) {
     showConversationContextError(NON_VIDEO_CONTEXT_MESSAGE);
   }
   renderFollowups();
   shouldAutoScrollMessages = true;
   scrollToBottom(true);
-}
-
-function buildConversationTitle(context) {
-  const rawTitle = String(context?.title || "当前页面").trim() || "当前页面";
-  const baseTitle = extractConversationBaseTitle(rawTitle);
-  return appendConversationPageSuffix(baseTitle, context);
-}
-
-function buildConversationContextRef(context) {
-  if (!context || typeof context !== "object") {
-    return null;
-  }
-  return {
-    title: String(context.title || "").trim(),
-    url: String(context.url || "").trim(),
-    author: String(context.author || "").trim(),
-    uploadDate: String(context.uploadDate || "").trim(),
-    // Conversations saved before the site registry carry bvid instead of site/videoId.
-    site: String(context.site || (context.bvid ? "bilibili" : BocSites.matchSite(context.url)?.id || "")).trim(),
-    videoId: String(context.videoId || context.bvid || BocSites.parseRef(context.url)?.id || "").trim(),
-    cid: String(context.cid || "").trim(),
-    aid: String(context.aid || "").trim(),
-    pageIndex: Number(context.pageIndex) > 0 ? Number(context.pageIndex) : 1,
-    pageCount: Number(context.pageCount) > 0 ? Number(context.pageCount) : 0,
-    pageTitle: String(context.pageTitle || "").trim(),
-    subtitleLang: String(context.subtitleLang || "").trim(),
-    selectedSubtitleId: String(context.selectedSubtitleId || "").trim(),
-    selectedSubtitleUrl: String(context.selectedSubtitleUrl || "").trim(),
-    isVideoContext: context.isVideoContext !== false
-  };
-}
-
-function normalizeConversationContextRef(ref) {
-  return buildConversationContextRef(ref);
-}
-
-function buildContextPlaceholder(ref) {
-  if (!ref || typeof ref !== "object") {
-    return null;
-  }
-  return {
-    title: String(ref.title || "").trim(),
-    url: String(ref.url || "").trim(),
-    author: String(ref.author || "").trim(),
-    uploadDate: String(ref.uploadDate || "").trim(),
-    site: String(ref.site || "").trim(),
-    videoId: String(ref.videoId || "").trim(),
-    cid: String(ref.cid || "").trim(),
-    aid: String(ref.aid || "").trim(),
-    pageIndex: Number(ref.pageIndex) > 0 ? Number(ref.pageIndex) : 1,
-    pageCount: Number(ref.pageCount) > 0 ? Number(ref.pageCount) : 0,
-    pageTitle: String(ref.pageTitle || "").trim(),
-    subtitleLang: String(ref.subtitleLang || "").trim(),
-    selectedSubtitleId: String(ref.selectedSubtitleId || "").trim(),
-    selectedSubtitleUrl: String(ref.selectedSubtitleUrl || "").trim(),
-    subtitleMarkdown: "",
-    hotComments: [],
-    isVideoContext: ref.isVideoContext !== false
-  };
-}
-
-function normalizeConversationTitle(title, contextTitle = "", contextRef = null, contextUrl = "") {
-  const preferredTitle = String(contextTitle || "").trim() || String(title || "").trim();
-  const baseTitle = extractConversationBaseTitle(preferredTitle);
-  return appendConversationPageSuffix(baseTitle || "历史对话", contextRef || { url: contextUrl });
-}
-
-function generateConversationId() {
-  return `conv_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
-}
-
-function extractConversationBaseTitle(title) {
-  const raw = String(title || "").trim();
-  if (!raw) {
-    return "当前页面";
-  }
-  const normalizedRaw = raw.replace(/-P\d+$/i, "").trim();
-  const parts = normalizedRaw
-    .split(/\s+[|｜]\s+|\s+-\s+|\s+[—–]\s+|\s+[·•]\s+|\r?\n+/)
-    .map((item) => item.trim())
-    .filter(Boolean);
-  return parts[0] || normalizedRaw;
 }
 
 function buildConversationTitleDisplay(title, maxChars = 22) {
@@ -1770,29 +1246,6 @@ function buildConversationTitleDisplay(title, maxChars = 22) {
   };
 }
 
-function appendConversationPageSuffix(title, context) {
-  const baseTitle = String(title || "").trim() || "历史对话";
-  const existingSuffixMatch = baseTitle.match(/-P\d+$/i);
-  const cleanTitle = existingSuffixMatch ? baseTitle.replace(/-P\d+$/i, "").trim() : baseTitle;
-  const pageSuffix = extractConversationPageSuffix(context);
-  return pageSuffix ? `${cleanTitle}${pageSuffix}` : cleanTitle;
-}
-
-function extractConversationPageSuffix(context) {
-  const pageIndex = Number(context?.pageIndex || context?.page || 0) || extractPageIndexFromContextUrl(context?.url);
-  return pageIndex > 1 ? `-P${pageIndex}` : "";
-}
-
-function extractPageIndexFromContextUrl(url) {
-  try {
-    const parsed = new URL(String(url || "").trim());
-    const page = Number(parsed.searchParams.get("p") || "1");
-    return Number.isFinite(page) && page > 0 ? page : 1;
-  } catch {
-    return 1;
-  }
-}
-
 function formatConversationTimestamp(value) {
   const date = new Date(Number(value) || Date.now());
   const year = date.getFullYear();
@@ -1803,66 +1256,12 @@ function formatConversationTimestamp(value) {
   return `${year}-${month}-${day} ${hours}:${minutes}`;
 }
 
-// A new conversation takes the context its reply was asked in (the stream's), not whatever the tab shows now.
-async function persistCurrentConversation({ context = contextData, contextKey = currentContextKey } = {}) {
-  if (!chatHistory.length || !context) {
-    return;
-  }
-  const now = Date.now();
-  if (!currentConversationId) {
-    currentConversationId = generateConversationId();
-    currentConversationMeta = {
-      id: currentConversationId,
-      title: buildConversationTitle(context),
-      createdAt: now,
-      contextKey,
-      contextTitle: String(context.title || "").trim(),
-      contextUrl: String(context.url || "").trim(),
-      isVideoContext: context.isVideoContext !== false,
-      pinnedContext: true,
-      contextRef: buildConversationContextRef(context),
-      resolvedContext: { ...context }
-    };
-  }
-  const nextConversation = {
-    id: currentConversationId,
-    title: currentConversationMeta?.title || buildConversationTitle(context),
-    contextKey: String(currentConversationMeta?.contextKey || contextKey || "").trim(),
-    contextTitle: String(currentConversationMeta?.contextTitle || context.title || "").trim(),
-    contextUrl: String(currentConversationMeta?.contextUrl || context.url || "").trim(),
-    isVideoContext: currentConversationMeta?.isVideoContext !== false,
-    createdAt: Number(currentConversationMeta?.createdAt) || now,
-    updatedAt: now,
-    contextRef: currentConversationMeta?.contextRef || buildConversationContextRef(context),
-    pageHydrated: savedConversations.find((item) => item.id === currentConversationId)?.pageHydrated === true,
-    messages: chatHistory.map((item) => ({ role: item.role, content: String(item.content || "") }))
-  };
-  savedConversations = [
-    nextConversation,
-    ...savedConversations.filter((item) => item.id !== currentConversationId)
-  ];
-  currentConversationMeta = {
-    id: nextConversation.id,
-    title: nextConversation.title,
-    createdAt: nextConversation.createdAt,
-    updatedAt: nextConversation.updatedAt,
-    contextKey: nextConversation.contextKey,
-    contextTitle: nextConversation.contextTitle,
-    contextUrl: nextConversation.contextUrl,
-    isVideoContext: nextConversation.isVideoContext,
-    pinnedContext: true,
-    contextRef: nextConversation.contextRef,
-    resolvedContext: currentConversationMeta?.resolvedContext ? { ...currentConversationMeta.resolvedContext } : { ...context }
-  };
-  await saveConversations();
-}
-
 async function ensureCurrentContextForSend() {
-  if (currentConversationMeta?.pinnedContext) {
+  if (state.view().pinned) {
     await loadContextState({ forceRefresh: false, silent: true }).catch(() => null);
     return hydratePinnedConversationContext();
   }
-  const loadingNotice = contextData?.pending;
+  const loadingNotice = state.view().context?.pending;
   if (loadingNotice) {
     showConversationContextNotice("正在加载视频信息…");
   }
@@ -1871,45 +1270,24 @@ async function ensureCurrentContextForSend() {
     removeConversationContextNotice();
   }
   // A placeholder still standing means the subtitles never arrived; never answer from it.
-  if (!ok || !contextData || contextData.pending) {
+  const context = state.view().context;
+  if (!ok || !context || context.pending) {
     resetConversationView("读取当前页面失败", { retry: true });
     return false;
   }
   return true;
 }
 
+// Loads the shown conversation's own context (state decides when: resolve effects). A load the conversation was
+// switched away from meanwhile does nothing.
 async function hydratePinnedConversationContext({ silent = false } = {}) {
-  const epoch = conversationEpoch;
-  const targetKey = String(currentConversationMeta?.contextKey || "").trim();
-  const cachedResolvedContext = currentConversationMeta?.resolvedContext;
-  if (cachedResolvedContext && typeof cachedResolvedContext === "object") {
-    contextData = { ...cachedResolvedContext };
-    currentContextKey = targetKey || buildContextKey(contextData);
+  const { epoch, pinned, resolved } = state.view();
+  if (resolved) {
     updateContextChip();
     removeConversationContextNotice();
     return true;
   }
-
-  if (targetKey && liveContextKey && targetKey === liveContextKey) {
-    const ok = await loadContextState({ forceRefresh: false, silent: true });
-    if (epoch !== conversationEpoch) {
-      return false;
-    }
-    // contextData of a bound conversation is not refreshed from the tab; the live payload is its resolved context.
-    if (ok && liveContextData && liveContextKey === targetKey) {
-      contextData = { ...liveContextData };
-      currentContextKey = targetKey;
-      currentConversationMeta = {
-        ...currentConversationMeta,
-        resolvedContext: { ...contextData }
-      };
-      updateContextChip();
-      removeConversationContextNotice();
-      return true;
-    }
-  }
-
-  const contextRef = currentConversationMeta?.contextRef || null;
+  const contextRef = pinned?.contextRef || null;
   if (!contextRef) {
     removeConversationContextNotice();
     if (!silent) {
@@ -1922,37 +1300,25 @@ async function hydratePinnedConversationContext({ silent = false } = {}) {
     ok: false,
     error: error?.message || String(error || "")
   }));
-  if (epoch !== conversationEpoch) {
+  const ok = Boolean(response?.ok && response.payload);
+  const [result] = state.dispatch({ type: "CONTEXT_RESOLVED", epoch, payload: ok ? response.payload : null });
+  if (!result) {
     return false;
   }
-  if (!response?.ok || !response.payload) {
-    removeConversationContextNotice();
-    // Nothing is loading any more: the error below is the state, and a send tries again.
-    if (contextData?.pending) {
-      contextData = { ...contextData, pending: false };
-      updateContextChip();
-      suggestionsNode?.replaceChildren();
-    }
-    if (!silent) {
-      // Deleted or hidden on B站 (as the 分拣台 and 视频记录 tell it): no retry will bring it back.
-      showConversationContextError(BocSites.isBiliVideoGone(response?.code) ? "视频已失效，这段对话只能查看，不能继续提问。" : `读取原视频失败：${response?.error || "未知错误"}`);
-    }
-    return false;
-  }
-
-  contextData = response.payload;
-  currentContextKey = targetKey || buildContextKey(contextData);
-  currentConversationMeta = {
-    ...currentConversationMeta,
-    contextKey: currentContextKey,
-    contextTitle: String(contextData.title || currentConversationMeta?.contextTitle || "").trim(),
-    contextUrl: String(contextData.url || currentConversationMeta?.contextUrl || "").trim(),
-    contextRef: buildConversationContextRef(contextData),
-    resolvedContext: { ...contextData }
-  };
   updateContextChip();
   removeConversationContextNotice();
-  return true;
+  if (ok) {
+    return true;
+  }
+  // Nothing is loading any more: the error below is the state, and a send tries again.
+  if (result.wasPending) {
+    suggestionsNode?.replaceChildren();
+  }
+  if (!silent) {
+    // Deleted or hidden on B站 (as the 分拣台 and 视频记录 tell it): no retry will bring it back.
+    showConversationContextError(BocSites.isBiliVideoGone(response?.code) ? "视频已失效，这段对话只能查看，不能继续提问。" : `读取原视频失败：${response?.error || "未知错误"}`);
+  }
+  return false;
 }
 
 async function resolveConversationContext(contextRef) {
@@ -1967,7 +1333,7 @@ async function resolveConversationContext(contextRef) {
 async function sendMessage() {
   const text = els.input.value.trim();
   // sendPending closes the window while the context loads, when a second Enter or chip click would send twice.
-  if (!text || activeStream || sendPending || isNonVideoConversation()) {
+  if (!text || activeStream || sendPending || state.view().nonVideo) {
     return;
   }
   hidePresetPopover();
@@ -1992,7 +1358,8 @@ async function sendMessage() {
     return;
   }
   // The tab may have left the video while the context loaded, or a saved video no longer resolves to one.
-  if (!contextData.isVideoContext) {
+  const context = state.view().context;
+  if (!context.isVideoContext) {
     showConversationContextError(NON_VIDEO_CONTEXT_MESSAGE);
     return;
   }
@@ -2008,14 +1375,14 @@ async function sendMessage() {
     port: chrome.runtime.connect({ name: "sidepanel-chat" }),
     node: appendAssistantPlaceholder(),
     prompt: text,
-    context: contextData,
-    contextKey: currentContextKey,
     raw: "",
     notice: "",
     frame: 0,
     ended: false
   };
   activeStream = stream;
+  // The reply belongs to the conversation and the context it is asked in (state keeps both until it ends).
+  state.dispatch({ type: "SEND", prompt: text });
   setStreamingUiState(true);
   startStreamSlowNoticeTimer();
 
@@ -2048,11 +1415,11 @@ async function sendMessage() {
     action: "chat",
     providerId,
     context: {
-      ...stream.context,
+      ...context,
       aiSystemPrompt: aiPrefs.aiSystemPrompt
     },
     prompt: text,
-    history: chatHistory
+    history: state.view().messages
   });
 }
 
@@ -2103,6 +1470,15 @@ function closeStream(stream) {
   } catch {}
 }
 
+// A reply that left its conversation ended: state puts it after its question, also in the shown conversation when
+// the user reopened it meanwhile.
+async function finishDetachedStream({ conversationId, promptIndex, prompt, raw }) {
+  const effects = await act({ type: "REPLY_FINISHED", conversationId, promptIndex, prompt, raw });
+  if (effects.length && conversationId === state.view().id && !activeStream) {
+    renderConversationMessages();
+  }
+}
+
 // Every way a reply ends lands here. A partial answer is kept and saved, also when the stream fails.
 function endStream(stream, { stopped = "", error = "", code = "" } = {}) {
   closeStream(stream);
@@ -2114,17 +1490,13 @@ function endStream(stream, { stopped = "", error = "", code = "" } = {}) {
   }
   activeStream = null;
   clearStreamRuntimeState();
-  const { node, prompt, raw } = stream;
+  const { node, raw } = stream;
   const saved = Boolean(raw.trim());
+  void act({ type: "STREAM_ENDED", raw });
   if (saved || !(stopped || error)) {
     renderAssistantMessage(node, raw);
   } else {
     node.innerHTML = "";
-  }
-  if (saved) {
-    chatHistory.push({ role: "user", content: prompt }, { role: "assistant", content: raw });
-    void persistCurrentConversation(stream);
-    scheduleAutoSync(currentConversationId);
   }
   [stopped, stream.notice].filter(Boolean).forEach((text) => {
     const note = document.createElement("div");
@@ -2175,10 +1547,7 @@ function appendStreamError({ node, prompt, raw }, error, saved, code = "") {
   // The retry replaces the failed turn instead of repeating the question below it.
   retry.addEventListener("click", () => {
     if (activeStream || sendPending) return;
-    const last = chatHistory.length - 2;
-    if (saved && chatHistory[last]?.content === prompt && chatHistory[last + 1]?.content === raw) {
-      chatHistory.splice(last, 2);
-    }
+    state.dispatch({ type: "RETRY", prompt, raw, saved });
     if (node.previousElementSibling?.classList.contains("sp-msg-user")) {
       node.previousElementSibling.remove();
     }
@@ -2278,11 +1647,12 @@ function renderAssistantMessage(node, raw) {
 // The conversation as its own note, for copy and download (obsidian.js builds the one it writes the same way).
 // Like the 视频记录 page's export, the triage summary (bilibili P1 only) and the video's note lead it.
 async function buildCurrentConversationNote() {
-  const turns = buildConversationTurns(chatHistory);
+  const { messages, resolved, context: shown, pinned } = state.view();
+  const turns = buildConversationTurns(messages);
   if (!turns.length) {
     return null;
   }
-  const context = currentConversationMeta?.resolvedContext || contextData || currentConversationMeta?.contextRef || {};
+  const context = resolved || shown || pinned?.contextRef || {};
   const filename = buildAiConversationFilename(context);
   const noteId = noteVideoId(context);
   const ref = buildConversationContextRef(context);
@@ -2311,7 +1681,7 @@ function scheduleAutoSync(conversationId) {
 }
 
 async function autoSyncConversation(conversationId) {
-  const conversation = savedConversations.find((item) => item.id === conversationId);
+  const conversation = state.view().saved.find((item) => item.id === conversationId);
   if (!conversation?.contextRef) {
     return;
   }
@@ -2377,9 +1747,9 @@ async function copyCurrentConversationMarkdown() {
 // tab shows this video, and asks before an existing note is touched.
 async function saveCurrentConversationToObsidian() {
   // Taken before any await: switching video mid-write must not put another video's chat into this note.
-  const epoch = conversationEpoch;
-  const context = currentConversationMeta?.resolvedContext || contextData || currentConversationMeta?.contextRef || {};
-  const messages = chatHistory.slice();
+  const { epoch, resolved, context: shown, pinned, messages: shownMessages } = state.view();
+  const context = resolved || shown || pinned?.contextRef || {};
+  const messages = shownMessages.slice();
   if (!buildConversationTurns(messages).length) {
     showConversationContextNotice("当前没有可写入 Obsidian 的对话。", 2200);
     return;
@@ -2395,7 +1765,7 @@ async function saveCurrentConversationToObsidian() {
         showConversationContextNotice(BocErrors.TEXT.obsidianCancelled, 2200);
         return;
       }
-      if (epoch !== conversationEpoch) {
+      if (epoch !== state.view().epoch) {
         throw new Error("对话已切换");
       }
       resp = await sendRuntimeMessage({ ...request, mode });
@@ -2412,7 +1782,8 @@ async function saveCurrentConversationToObsidian() {
 // The note the popup's 写入 Obsidian would write, when the active tab shows this video; settled like the popup's read.
 async function openPageNote(ref) {
   const tab = await getActiveTab();
-  if (!ref.videoId || !tab?.id || !liveContextData || !doesTabMatchContextUrl(liveTabUrl, ref.url)) {
+  const { live } = state.view();
+  if (!ref.videoId || !tab?.id || !live.context || !doesTabMatchContextUrl(live.tabUrl, ref.url)) {
     return undefined;
   }
   const resp = await sendMessageToActiveTab(tab.id, { type: "popup-refresh" }, 1).catch(() => null);
@@ -2514,7 +1885,8 @@ function parseTimestampToSeconds(value) {
 
 async function jumpToAssistantTimestamp(seconds, label) {
   const safeSeconds = Math.max(0, Number(seconds || 0) || 0);
-  const targetUrl = String(contextData?.url || currentConversationMeta?.contextUrl || "").trim();
+  const { context, pinned } = state.view();
+  const targetUrl = String(context?.url || pinned?.contextUrl || "").trim();
   if (!targetUrl) {
     showConversationContextNotice("没有可跳转的视频", 2200);
     return;
@@ -2546,15 +1918,6 @@ async function jumpToAssistantTimestamp(seconds, label) {
   } catch (error) {
     showConversationContextNotice(inTriage ? "先在分拣台里播放这个视频，再点时间" : `时间跳转失败：${error?.message || error}`, 2600);
   }
-}
-
-function doesTabMatchContextUrl(tabUrl, targetUrl) {
-  const current = BocSites.parseRef(tabUrl);
-  const target = BocSites.parseRef(targetUrl);
-  if (!current || !target) {
-    return String(tabUrl || "").trim() === String(targetUrl || "").trim();
-  }
-  return current.site === target.site && current.id === target.id && (current.part?.index || 1) === (target.part?.index || 1);
 }
 
 async function waitForTabComplete(tabId, timeoutMs = 15000) {
@@ -2592,24 +1955,6 @@ async function sendMessageToActiveTab(tabId, message, retries = 12) {
 
 function delay(ms) {
   return new Promise((resolve) => window.setTimeout(resolve, ms));
-}
-
-function restartChat() {
-  conversationEpoch += 1;
-  clearStreamRuntimeState();
-  if (activeStream) {
-    closeStream(activeStream);
-    activeStream = null;
-  }
-  chatHistory = [];
-  currentConversationId = "";
-  currentConversationMeta = null;
-  updateContextChip();
-  resetConversationView("");
-  setStreamingUiState(false);
-  els.input.value = "";
-  autosizeInput();
-  renderPreviousVideoBar();
 }
 
 function removeCenteredState() {
