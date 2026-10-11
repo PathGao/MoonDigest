@@ -139,11 +139,6 @@ button.add {
   line-height: 1.55;
 }
 
-.faint {
-  color: var(--muted);
-  font-size: var(--fs-xs);
-}
-
 .empty {
   margin: 0 0 8px;
   color: var(--muted);
