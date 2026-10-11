@@ -607,53 +607,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
+  // The settings page validates both fields before it asks.
   if (message.type === "test-obsidian-connection") {
-    const baseUrl = String(message.baseUrl || "").trim();
-    const apiKey = String(message.apiKey || "").trim();
-
-    if (!baseUrl || !apiKey) {
-      sendResponse({ ok: false, error: "Obsidian 未配置" });
-      return false;
-    }
-
-    const endpoint = `${baseUrl.replace(/\/+$/g, "")}/`;
-    fetchWithTimeout(endpoint, {
-      method: "GET",
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        Accept: "application/json, text/plain, */*"
-      },
-      cache: "no-store"
-    }, OBSIDIAN_TIMEOUT_MS)
-      .then(async (response) => {
-        const bodyText = await response.text().catch(() => "");
-        let data = null;
-        try {
-          data = bodyText ? JSON.parse(bodyText) : null;
-        } catch {
-          data = null;
-        }
-
-        if (!response.ok) {
-          const detail = bodyText ? ` ${bodyText.slice(0, 200)}` : "";
-          sendResponse({ ok: false, error: `HTTP ${response.status}.${detail}` });
-          return;
-        }
-
-        if (data && data.authenticated === false) {
-          sendResponse({ ok: false, error: "API Key 无效或未授权" });
-          return;
-        }
-
-        sendResponse({
-          ok: true,
-          service: typeof data?.service === "string" ? data.service : "Obsidian Local REST API"
-        });
-      })
-      .catch((error) => {
-        sendResponse({ ok: false, error: formatConnectionError(error) });
-      });
-
+    testObsidianConnection(String(message.baseUrl || "").trim(), String(message.apiKey || "").trim()).then(sendResponse);
     return true;
   }
 
@@ -1000,17 +956,6 @@ function normalizeAiPresetPrompts(value) {
     .slice(0, 12);
 }
 
-function formatConnectionError(error) {
-  const message = String(error?.message || "").trim();
-  if (!message) {
-    return "未知错误";
-  }
-  if (message.includes("Failed to fetch")) {
-    return "无法连接 Local REST API。请检查地址、HTTP/HTTPS 模式和证书信任。";
-  }
-  return message;
-}
-
 // ===== AI 模型平台存储 =====
 
 const AI_PROVIDER_KEYS_STORAGE = "aiProviderKeys";
@@ -1237,6 +1182,23 @@ function obsidianFailure(error) {
   if (error?.status === 401 || error?.status === 403) return { ok: false, error: BocErrors.TEXT.obsidianKey, code: "OBSIDIAN" };
   if (error?.status === 408 || error?.name === "TypeError") return { ok: false, error: BocErrors.TEXT.obsidianDown, code: "OBSIDIAN_DOWN" };
   return { ok: false, error: error?.status ? `Obsidian 返回 HTTP ${error.status}` : String(error?.message || error || "未知错误") };
+}
+
+// The settings page's 测试连接: the API root answers authenticated: false to a wrong key. Same words as every write.
+async function testObsidianConnection(baseUrl, apiKey) {
+  try {
+    const response = await fetchWithTimeout(`${baseUrl.replace(/\/+$/g, "")}/`, {
+      headers: { Authorization: `Bearer ${apiKey}`, Accept: "application/json, text/plain, */*" },
+      cache: "no-store"
+    }, OBSIDIAN_TIMEOUT_MS);
+    const data = await response.json().catch(() => null);
+    if (data?.authenticated === false) throw { status: 401 };
+    if (!response.ok) throw { status: response.status };
+    return { ok: true, service: typeof data?.service === "string" ? data.service : "Obsidian Local REST API" };
+  } catch (error) {
+    const failure = obsidianFailure(error);
+    return failure.code === "OBSIDIAN_DOWN" ? { ...failure, error: `${failure.error}；也检查地址、HTTP/HTTPS 和证书信任` } : failure;
+  }
 }
 
 async function httpError(response) {

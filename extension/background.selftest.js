@@ -335,6 +335,18 @@ process.on("exit", (code) => {
   const tooLong = (n) => vm.runInContext(`oversizedSyncItem({ tags: "a", aiSystemPrompt: "字".repeat(${n}) })`, ctx);
   assert.deepStrictEqual([tooLong(2700), tooLong(2800)], ["", "aiSystemPrompt"]);
 
+  // 测试连接 on the settings page reports with the words every Obsidian write uses.
+  const E = ctx.BocErrors.TEXT;
+  const probe = async (fetch) => ((ctx.fetch = fetch), ctx.testObsidianConnection("http://127.0.0.1:27123", "k"));
+  const reply = (status, body) => async () => ({ ok: status < 300, status, json: async () => body });
+  assert.strictEqual((await probe(reply(401, null))).error, E.obsidianKey);
+  assert.strictEqual((await probe(reply(403, null))).error, E.obsidianKey);
+  assert.strictEqual((await probe(reply(200, { authenticated: false }))).error, E.obsidianKey);
+  assert.strictEqual((await probe(reply(500, null))).error, "Obsidian 返回 HTTP 500");
+  const down = await probe(async () => { throw new TypeError("Failed to fetch"); });
+  assert.ok(down.error.startsWith(E.obsidianDown) && /证书/.test(down.error), down.error);
+  assert.deepStrictEqual({ ...(await probe(reply(200, { authenticated: true, service: "S" }))) }, { ok: true, service: "S" });
+
   finished = true;
   clearInterval(keepAlive);
   console.log("background selftest: all passed");
