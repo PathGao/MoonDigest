@@ -2151,7 +2151,8 @@ function appendStreamError({ node, prompt, raw }, error, saved, code = "") {
     });
     node.appendChild(grant);
   }
-  // Errors that only a settings change fixes (codes from triageAiHttpError in triage-bg.js): 去设置 comes before 重试.
+  // Errors that only a settings change fixes (codes from triageAiHttpError in triage-bg.js, and background.js for a
+  // missing key, base URL or model): 去设置 comes before 重试.
   if (BocErrors.action(code) === "settings") {
     const settings = document.createElement("button");
     settings.type = "button";

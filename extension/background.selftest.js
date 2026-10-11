@@ -227,6 +227,18 @@ process.on("exit", (code) => {
   out = await chat();
   assert.deepStrictEqual([out[0].error, out[0].code], ["连不上 AI 平台，请检查网络和接口地址", "AI_NETWORK"]);
 
+  // Setup the settings page fixes (key, base URL, model) carries a code, so the panel offers 去设置, not only 重试.
+  const setupError = async (provider) => {
+    const was = ctx.loadAiProviders;
+    ctx.loadAiProviders = async () => [{ id: "p", baseUrl: "https://ai.test", model: "m", requiresKey: false, ...provider }];
+    const [m] = await chat();
+    ctx.loadAiProviders = was;
+    return [m.error, m.code];
+  };
+  assert.deepStrictEqual(await setupError({ requiresKey: true }), ["该平台 API Key 未配置", "AI_AUTH"]);
+  assert.deepStrictEqual(await setupError({ baseUrl: "" }), ["接口地址未配置", "AI_SETUP"]);
+  assert.deepStrictEqual(await setupError({ model: "" }), ["模型未配置", "AI_SETUP"]);
+
   // A request that never answers fails with a retryable timeout instead of hanging the caller.
   ctx.fetch = (url, { signal }) => new Promise((_, reject) => signal.addEventListener("abort", () => reject(signal.reason)));
   await assert.rejects(ctx.fetchWithTimeout("https://api.bilibili.com/x", {}, 30), (e) => e.status === 408 && /超时/.test(e.message));

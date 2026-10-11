@@ -784,14 +784,14 @@ chrome.runtime.onConnect.addListener((port) => {
       const providers = await loadAiProviders();
       const provider = providers.find((p) => p.id === msg.providerId);
       if (!provider) {
-        port.postMessage({ type: "error", error: "未找到选中的平台" });
+        port.postMessage({ type: "error", error: "未找到选中的平台", code: "AI_SETUP" });
         clearActiveRequestState();
         return;
       }
       const keys = await loadAiProviderKeys();
       const apiKey = keys[provider.id] || "";
       if (provider.requiresKey !== false && !apiKey) {
-        port.postMessage({ type: "error", error: "该平台 API Key 未配置" });
+        port.postMessage({ type: "error", error: "该平台 API Key 未配置", code: "AI_AUTH" });
         clearActiveRequestState();
         return;
       }
@@ -1348,11 +1348,11 @@ async function streamChat({ provider, context, userPrompt, history, port, signal
   if (!port) return;
   const baseUrl = String(provider?.baseUrl || "").trim().replace(/\/+$/, "");
   if (!baseUrl) {
-    port.postMessage({ type: "error", error: "接口地址未配置" });
+    port.postMessage({ type: "error", error: "接口地址未配置", code: "AI_SETUP" });
     return;
   }
   if (!provider.model) {
-    port.postMessage({ type: "error", error: "模型未配置" });
+    port.postMessage({ type: "error", error: "模型未配置", code: "AI_SETUP" });
     return;
   }
 
