@@ -44,8 +44,8 @@
     return CODES[resp?.code]?.text || own || fallback;
   }
 
-  // The reply as an Error to throw; error.action says which button the catch shows.
-  const fromResp = (resp, fallback) => Object.assign(new Error(text(resp, fallback)), { action: action(resp?.code) });
+  // The reply as an Error to throw; error.action says which button the catch shows, error.cause is the reply.
+  const fromResp = (resp, fallback) => Object.assign(new Error(text(resp, fallback), { cause: resp }), { action: action(resp?.code) });
 
   // The background's "未授权访问 <origin>，授权后重试" (hostPermissionError): an upgraded install lacks the AI provider's
   // origin. request() must run in a click handler: permissions.request needs the user gesture, the worker cannot ask.

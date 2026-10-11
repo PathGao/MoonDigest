@@ -174,6 +174,28 @@ const page = (id) => ({ ok: true, payload: { url: `https://example.com/${id}`, t
     ctx.showObsidianFailure(E.fromResp({ ok: false, error: E.TEXT.obsidianDown, code: "OBSIDIAN_DOWN" }, "Local API 写入失败"));
     assert.deepStrictEqual(notices, [[`写入 Obsidian 失败：${E.TEXT.obsidianKey}`, true], ["写入 Obsidian 失败：Obsidian 返回 HTTP 500", true], [`写入 Obsidian 失败：${E.TEXT.obsidianDown}`, true]]);
     assert.strictEqual(settings, 1);
+
+    // The same write with the video page open: the page's failure shows once, with one prefix, and a write the page
+    // did not make for another reason (the video switched) is said as it is, not as a failure.
+    const saved = Object.fromEntries(["loadObsidianSettings", "syncVideoNoteAiSection", "sendMessageToActiveTab"].map((k) => [k, ctx[k]]));
+    const url = "https://www.youtube.com/watch?v=dQw4w9WgXcQ";
+    let reply;
+    Object.assign(ctx, {
+      loadObsidianSettings: async () => ({ settings: {}, baseUrl: "http://127.0.0.1:27123", apiKey: "k" }),
+      syncVideoNoteAiSection: async () => ({ exists: false, filepath: "p.md" }),
+      sendMessageToActiveTab: async () => reply,
+      yt: { url, site: "youtube", videoId: "dQw4w9WgXcQ", isVideoContext: true, title: "Y" }
+    });
+    activeTab = { id: 4, url };
+    vm.runInContext('contextData = yt; liveContextData = yt; liveTabUrl = yt.url; currentConversationMeta = null; chatHistory = [{ role: "user", content: "q" }, { role: "assistant", content: "a" }]', ctx);
+    notices.length = 0;
+    reply = { ok: false, error: E.TEXT.obsidianDown, code: "OBSIDIAN_DOWN", payload: { message: `写入 Obsidian 失败：${E.TEXT.obsidianDown}` } };
+    await ctx.saveCurrentConversationToObsidian();
+    reply = { ok: true, payload: { message: "视频已切换，未写入 Obsidian。" } };
+    await ctx.saveCurrentConversationToObsidian();
+    assert.deepStrictEqual(notices.filter(([text]) => !text.startsWith("正在")), [[`写入 Obsidian 失败：${E.TEXT.obsidianDown}`, true], ["视频已切换，未写入 Obsidian。", undefined]]);
+    assert.strictEqual(settings, 1, "a closed Obsidian does not open the settings page");
+    Object.assign(ctx, saved);
   }
 
   {

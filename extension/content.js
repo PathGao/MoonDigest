@@ -492,7 +492,7 @@ function bindRuntimeEvents() {
 
     if (message.type === "popup-send-obsidian") {
       sendToObsidian()
-        .then(() => sendResponse({ ok: true, payload: getPopupPayload() }))
+        .then((failure) => sendResponse({ ok: true, ...failure, payload: getPopupPayload() }))
         .catch((error) =>
           sendResponse({ ok: false, error: getErrorMessage(error), payload: getPopupPayload() })
         );
@@ -1441,6 +1441,7 @@ function getPopupPayload() {
   };
 }
 
+// Resolves { ok: false, error, code } when the write failed; nothing otherwise (written, cancelled, video switched).
 async function sendToObsidian() {
   state.settings = await getSettings();
   if (!state.settings.obsidianEnabled) {
@@ -1509,6 +1510,7 @@ async function sendToObsidian() {
     report(`写入 Obsidian 失败：${getErrorMessage(error)}`);
     // A wrong key: the settings page, as for 未配置. A closed Obsidian only gets the red line.
     if (error.action === "settings") requestOpenOptions();
+    return { ok: false, error: getErrorMessage(error), code: error.cause?.code };
   }
 }
 

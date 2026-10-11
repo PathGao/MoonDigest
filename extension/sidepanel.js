@@ -2463,11 +2463,17 @@ async function saveCurrentConversationToObsidian() {
       return;
     }
     const resp = await sendMessageToActiveTab(tab.id, { type: "popup-send-obsidian" }, 1);
+    // The page replies its reason and code when the write failed, as the background does.
+    if (!resp?.ok) {
+      throw BocErrors.fromResp(resp, "没能新建视频笔记");
+    }
     // The page's note carries its latest conversation; the live context (the page's own key and path)
     // finds the note it just wrote, and this conversation replaces that section.
-    const created = resp?.ok ? await syncVideoNoteAiSection({ context: live, messages, ...settingsBundle }) : null;
+    const created = await syncVideoNoteAiSection({ context: live, messages, ...settingsBundle });
+    // Not written and not failed (the overwrite declined, the video switched): the page's own line says why.
     if (!created?.exists) {
-      throw new Error(resp?.error || resp?.payload?.message || "没能新建视频笔记");
+      showConversationContextNotice(resp.payload?.message || "没能新建视频笔记", 4000);
+      return;
     }
     showConversationContextNotice(`已写入 Obsidian：${created.filepath}`, 4000);
   } catch (error) {

@@ -434,6 +434,9 @@ const settle = async () => {
         assert.strictEqual(written, "# 视频 A", "the content taken before the dialog");
       }
     }
+    // A failed write answers the popup and the side panel with the reason and code, not a success.
+    t.sendRuntimeMessage = async () => ({ ok: false, error: t.BocErrors.TEXT.obsidianDown, code: "OBSIDIAN_DOWN" });
+    assert.deepStrictEqual({ ...(await t.sendToObsidian()) }, { ok: false, error: t.BocErrors.TEXT.obsidianDown, code: "OBSIDIAN_DOWN" });
     Object.assign(t, saved);
   }
 
