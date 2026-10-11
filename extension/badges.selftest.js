@@ -269,6 +269,7 @@ class El extends Node_ {
   append(...ns) { for (const n of ns) { const x = typeof n === "string" ? new Text_(n) : n; x.parentNode = this; this.childNodes.push(x); } }
   addEventListener(t, f) { (this.listeners[t] ||= []).push(f); }
   removeEventListener(t, f) { const l = this.listeners[t]; if (l?.includes(f)) l.splice(l.indexOf(f), 1); }
+  dispatchEvent(e) { for (const f of [...(this.listeners[e.type] || [])]) f(e); }
   replaceChildren(...ns) { this.childNodes = []; this.append(...ns); }
   attachShadow() { this.shadow = h("#shadow"); this.shadow.parentNode = null; this.shadow.host = this; return this.shadow; }
   getBoundingClientRect() { const left = this.x ?? 100; const width = this.w ?? 20; return { left, top: 50, bottom: 70, right: left + width, width }; }
@@ -355,6 +356,7 @@ assert.ok(!biliSaysSeen(h("a", {}, h("div", { class: "bili-cover-card__stats" },
     clearTimeout,
     console,
     URLSearchParams,
+    Event,
     chrome: {
       runtime: { id: "x", sendMessage: async (m) => sent.push(m), getURL: (p) => p },
       storage: {
@@ -493,6 +495,7 @@ assert.ok(!biliSaysSeen(h("a", {}, h("div", { class: "bili-cover-card__stats" },
   assert.deepStrictEqual(hidden(), [false, false, false, false]);
   await plusPage();
   await surfacePages();
+  await reloadedCopy();
   console.log("badges selftest ok");
 })().catch((e) => {
   console.error(e);
@@ -533,6 +536,7 @@ async function plusPage() {
     clearTimeout,
     console,
     URLSearchParams,
+    Event,
     innerWidth: 1440,
     innerHeight: 900,
     getComputedStyle: () => ({ color: textColor, position: "static", textIndent: "0px" }),
@@ -703,6 +707,7 @@ async function surfacePages() {
       clearTimeout,
       console,
       URLSearchParams,
+    Event,
       getComputedStyle: () => ({ columnGap: "3px", paddingLeft: "0px", paddingRight: "0px", position: "static", textIndent: "0px", color: "" }),
       chrome: {
         runtime: { id: "x", sendMessage: async () => {}, getURL: (p) => p },
@@ -776,4 +781,60 @@ async function surfacePages() {
   assert.strictEqual(line.querySelector(".mdg-up-add").textContent, "+ UP 标签");
   assert.ok(boxAfter(rec), "recommendations beside the video: UP tags");
   assert.strictEqual(boxAfter(rec).querySelector(".mdg-up-add"), null, "recommendations beside the video: no 「+」");
+}
+
+// ---- an extension reload: background.js injects a fresh copy next to the old one in the same page ----
+async function reloadedCopy() {
+  const name = h("span", { class: "bili-video-card__info--author" }, "甲");
+  const doc = Object.assign(h("html", {}, h("body", {}, h("a", { href: "//space.bilibili.com/1" }, name))), { getElementById: () => null, createElement: (t) => h(t) });
+  doc.documentElement = doc;
+  const settle = () => new Promise((r) => setTimeout(r, 30));
+  const load = (tagName) => {
+    const copy = { reads: 0, listen: [], observing: false };
+    const store = { follow_tags: [{ id: "a", name: tagName }], follow_tag_map: { 1: ["a"] }, follow_list: { list: ["1"] } };
+    const win = {
+      document: doc,
+      location: { hostname: "www.bilibili.com", pathname: "/", search: "" },
+      sessionStorage: { getItem: () => null, setItem() {} },
+      MutationObserver: class { constructor(f) { copy.mutate = f; } observe() { copy.observing = true; } disconnect() { copy.observing = false; } },
+      setTimeout: (f) => setTimeout(f, 0),
+      clearTimeout,
+      console,
+      URLSearchParams,
+      Event,
+      getComputedStyle: () => ({ columnGap: "3px", paddingLeft: "0px", paddingRight: "0px", position: "static", textIndent: "0px", color: "" }),
+      chrome: {
+        runtime: { id: "x", sendMessage: async () => {}, getURL: (p) => p },
+        storage: {
+          sync: { get: async (d) => d },
+          local: { get: async (k) => (copy.reads++, Object.fromEntries([].concat(k).map((x) => [x, store[x]]))) },
+          onChanged: { addListener: (f) => copy.listen.push(f) }
+        }
+      }
+    };
+    win.window = win;
+    win.top = win;
+    vm.runInContext(badgesJs, vm.createContext(win));
+    return copy;
+  };
+  const shown = () => doc.querySelectorAll(".mdg-ups").map((b) => b.querySelector(".mdg-up").textContent);
+
+  const old = load("旧");
+  await settle();
+  assert.deepStrictEqual(shown(), ["旧"]);
+  const fresh = load("新");
+  assert.deepStrictEqual([shown(), old.observing], [[], false], "the old copy takes its marks down and stops observing at once");
+  await settle();
+  assert.deepStrictEqual(shown(), ["新"], "only the fresh copy draws");
+
+  // The old copy no longer reacts to page changes or storage changes.
+  const reads = old.reads;
+  doc.querySelector("body").append(h("a", { href: "//space.bilibili.com/1" }, h("span", { class: "bili-video-card__info--author" }, "甲")));
+  old.mutate();
+  old.listen.forEach((f) => f({ follow_tag_map: {} }, "local"));
+  await settle();
+  assert.strictEqual(old.reads, reads, "the old copy reads nothing more");
+  fresh.mutate();
+  await settle();
+  assert.deepStrictEqual(shown(), ["新", "新"], "the fresh copy marks the new card");
 }

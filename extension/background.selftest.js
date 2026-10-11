@@ -398,6 +398,38 @@ process.on("exit", (code) => {
   assert.ok(down.error.startsWith(E.obsidianDown) && /证书/.test(down.error), down.error);
   assert.deepStrictEqual({ ...(await probe(reply(200, { authenticated: true, service: "S" }))) }, { ok: true, service: "S" });
 
+  // An install or update re-injects into open tabs: the reader into the top frame, the B站 marks into every frame,
+  // each with the manifest entry's own files.
+  {
+    const manifest = JSON.parse(fs.readFileSync(path.join(__dirname, "manifest.json"), "utf8"));
+    const injected = [];
+    const installed = [];
+    const tabsByMatch = { "https://www.bilibili.com/video/*": [{ id: 1 }], "https://www.bilibili.com/*": [{ id: 1 }, { id: 2 }] };
+    const fake = (over) => new Proxy(over, { get: (o, k) => (k in o ? o[k] : anything) });
+    const ictx = vm.createContext({
+      console, setTimeout, clearTimeout, URL, URLSearchParams, TextDecoder, TextEncoder, AbortController, AbortSignal,
+      chrome: fake({
+        runtime: fake({ getManifest: () => manifest, onInstalled: { addListener: (fn) => installed.push(fn) } }),
+        tabs: fake({ query: async ({ url }) => [...new Map(url.flatMap((u) => tabsByMatch[u] || []).map((t) => [t.id, t])).values()] }),
+        scripting: fake({
+          insertCSS: async ({ target, files }) => injected.push(["css", target.tabId, Boolean(target.allFrames), files.join()]),
+          executeScript: async ({ target, files }) => injected.push(["js", target.tabId, Boolean(target.allFrames), files.at(-1)])
+        })
+      }),
+      importScripts: (...files) => files.forEach((file) => vm.runInContext(fs.readFileSync(path.join(__dirname, file), "utf8"), ictx))
+    });
+    vm.runInContext(fs.readFileSync(path.join(__dirname, "background.js"), "utf8"), ictx);
+    ictx.migrateRenamedStorage = async () => {};
+    ictx.initializeSettingsStorage = async () => {};
+    await Promise.allSettled(installed.map((fn) => fn()));
+    const sorted = (list) => list.map(String).sort();
+    assert.deepStrictEqual(sorted(injected), sorted([
+      ["css", 1, false, "content.css"], ["js", 1, false, "content.js"],
+      ["css", 1, true, "badges.css"], ["js", 1, true, "badges.js"],
+      ["css", 2, true, "badges.css"], ["js", 2, true, "badges.js"]
+    ]));
+  }
+
   finished = true;
   clearInterval(keepAlive);
   console.log("background selftest: all passed");

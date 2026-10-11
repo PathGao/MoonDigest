@@ -250,6 +250,7 @@
   let again = false;
   let pop = null;
   let gen = 0; // bumped when triage data changes so an in-flight scan drops its stale reads
+  let superseded = false; // a fresh copy took over (standDown)
   const observer = new MutationObserver(() => schedule());
   const OBSERVE = { childList: true, subtree: true, attributes: true, attributeFilter: ["href"] };
 
@@ -378,6 +379,7 @@
     if (owner) for (const el of findAll(OWNER_SEL)) spots.push([el, owner, surface === "space" ? rules.nick : rules.fav]);
     const nameEls = findAll(NAME_SEL);
     const idx = nameEls.length ? await whoIs() : null;
+    if (!enabled) return; // stood down (or switched off) while reading
     const byEl = new Map(nameEls.map((el) => [el, nameMid(el, idx)]));
     for (const [el, mid] of byEl) spots.push([el, mid, ruleFor(el)]);
     const writes = spots.map(([spot, mid, rule, name]) => upChip(spot, mid, rule, name));
@@ -1067,6 +1069,7 @@ input { box-sizing: border-box; width: 100%; margin: 0; padding: 4px 8px; border
   }
 
   function setEnabled(on) {
+    on &&= !superseded;
     if (on === enabled) return;
     enabled = on;
     if (on) {
@@ -1121,6 +1124,7 @@ input { box-sizing: border-box; width: 100%; margin: 0; padding: 4px 8px; border
   const readSettings = () => chrome.storage.sync.get({ [SETTING]: true, [VERDICT_SETTING]: false, [UP_SETTING]: true, ...SEEN_DEFAULTS, biliMarksOff: [] }).then(applySettings).catch(() => {});
 
   chrome.storage.onChanged.addListener((changes, area) => {
+    if (superseded) return;
     if (area === "local" && (changes.follow_tags || changes.follow_tag_map || changes.follow_list)) loadUps().catch(() => {});
     else if (area === "local" && changes.follow_people && upOn) {
       who = null;
@@ -1148,6 +1152,18 @@ input { box-sizing: border-box; width: 100%; margin: 0; padding: 4px 8px; border
       schedule();
     }
   });
+  // An extension reload or update leaves this copy running with a dead chrome.runtime, and background.js injects a
+  // fresh one. The fresh copy announces itself; the old one stops scanning and takes its marks with it, so one copy draws.
+  function standDown() {
+    superseded = true;
+    gen++; // an in-flight scan drops its reads
+    setEnabled(false);
+    document.getElementById("bewly")?.removeAttribute("data-mdg-seen");
+    bewlyRoot()?.querySelector("link[data-mdg]")?.remove();
+  }
+  document.dispatchEvent(new Event("mdg-badges-superseded"));
+  document.addEventListener("mdg-badges-superseded", standDown, { once: true });
+
   readSettings();
   loadUps().catch(() => {});
 })();

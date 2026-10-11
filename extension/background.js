@@ -15,6 +15,8 @@ const EXPECTED_CONTENT_SCRIPT_VERSION = chrome.runtime.getManifest().version || 
 // content.js has two manifest entries with the same files: Bilibili video pages also run in 分拣台's viewer frame.
 const READER_ENTRIES = chrome.runtime.getManifest().content_scripts.filter((entry) => entry.js.includes("content.js"));
 const READER_SCRIPTS = { ...READER_ENTRIES[0], matches: READER_ENTRIES.flatMap((entry) => entry.matches) };
+// The marks on B站 pages (badges.js) run in every frame.
+const BADGES_SCRIPTS = chrome.runtime.getManifest().content_scripts.find((entry) => entry.js.includes("badges.js"));
 
 // The 3.6 storage key rename (MdgLimits.migrateRenamedKeys). Runs on update and on every browser start until nothing is left to move.
 async function migrateRenamedStorage() {
@@ -27,9 +29,13 @@ chrome.runtime.onInstalled.addListener(async () => {
   await migrateRenamedStorage();
   await initializeSettingsStorage();
   // Chrome leaves tabs opened before an install or update without our content script, and an
-  // update leaves the old copy running with a dead chrome.runtime. The fresh copy replaces it.
-  const tabs = await chrome.tabs.query({ url: READER_SCRIPTS.matches });
-  await Promise.allSettled(tabs.map((tab) => injectReaderContent(tab.id)));
+  // update leaves the old copy running with a dead chrome.runtime. The fresh copy replaces it
+  // (content.js and badges.js each tell the old copy to stand down).
+  const [readerTabs, badgeTabs] = await Promise.all([READER_SCRIPTS, BADGES_SCRIPTS].map((entry) => chrome.tabs.query({ url: entry.matches })));
+  await Promise.allSettled([
+    ...readerTabs.map((tab) => injectReaderContent(tab.id)),
+    ...badgeTabs.map((tab) => injectEntry(tab.id, BADGES_SCRIPTS))
+  ]);
 });
 
 async function ensureReaderContentReady(tabId) {
@@ -68,16 +74,16 @@ async function probeContentScriptVersion(tabId) {
   }
 }
 
-async function injectReaderContent(tabId) {
-  await chrome.scripting.insertCSS({
-    target: { tabId },
-    files: READER_SCRIPTS.css
-  });
+function injectReaderContent(tabId) {
+  return injectEntry(tabId, READER_SCRIPTS);
+}
 
-  await chrome.scripting.executeScript({
-    target: { tabId },
-    files: READER_SCRIPTS.js
-  });
+// A manifest content_scripts entry into an open tab: every frame for an all_frames entry.
+// ponytail: all_frames goes to every frame we have host access to, not only the entry's matches; badges.js finds nothing to mark elsewhere.
+async function injectEntry(tabId, entry) {
+  const target = { tabId, allFrames: Boolean(entry.all_frames) };
+  await chrome.scripting.insertCSS({ target, files: entry.css });
+  await chrome.scripting.executeScript({ target, files: entry.js });
 }
 
 async function sendMessageToTab(tabId, message) {
