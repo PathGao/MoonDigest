@@ -25,6 +25,7 @@ const syncStore = {};
 const handlers = {};
 const sent = [];
 const docL = {}; // document listeners: typing.js's composition flag, onKey
+const winL = {}; // window listeners: beforeunload
 // tag-dialogs.js stands in: each open records [which dialog, the mode's adapter] (tag-dialogs.selftest.js tests the dialogs).
 const dialogs = [];
 const TagDialogs = {
@@ -41,7 +42,7 @@ const ctx = vm.createContext({
   clearTimeout: (id) => clearImmediate(id),
   // No #tagPicker: tag-picker.js gives only its pure part; the tests stand in for the dialog (pickWith).
   document: { getElementById: (id) => (id === "tagPicker" ? null : stubEl()), querySelector: () => null, querySelectorAll: () => [], addEventListener: (t, f) => (docL[t] ||= []).push(f) },
-  window: { addEventListener() {} },
+  window: { addEventListener: (t, f) => (winL[t] ||= []).push(f) },
   chrome: {
     runtime: {
       id: "test",
@@ -1649,6 +1650,22 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     t.S.settings.triageAiRemoveTags = false;
   }
 
+  // G1: while a notes export or a B站 batch write runs, closing or reloading the page asks first.
+  {
+    const leave = () => {
+      let asked = false;
+      winL.beforeunload.forEach((f) => f({ preventDefault: () => (asked = true) }));
+      return asked;
+    };
+    assert.strictEqual(leave(), false, "nothing running: no prompt");
+    t.S.write.running = true;
+    assert.strictEqual(leave(), true, "notes export");
+    t.S.write.running = false;
+    t.S.refavRun = { mediaId: "K", done: 0, total: 3 };
+    assert.strictEqual(leave(), true, "batch re-favorite");
+    t.S.refavRun = null;
+  }
+
   // 批量打标签 keeps running when another folder opens; its proposal stays with its folder and shows on return.
   openFake("K", [item(600), item(601)]);
   t.S.folders = t.S.allFolders = [{ id: "K", title: "夹K" }, { id: "L", title: "夹L" }];
@@ -1671,7 +1688,13 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   assert.deepStrictEqual(plain(vm.runInContext("activityState()", ctx)), { text: "「夹K」的标签建议待确认", act: "aiOther", actLabel: "查看" }, "folder L points back to K");
   openFake("K", [item(600), item(601)]);
   assert.deepStrictEqual(plain(t.S.ai.proposal.rows.map((r) => [r.id, r.add])), [["BV600", ["id:a"]], ["BV601", ["id:a"]]], "K's own 旧, not L's");
+  // G1: the proposal is saved, so a reload keeps it; one naming a deleted tag is dropped, and discarding removes it.
+  assert.deepStrictEqual(plain(store[t.K.aiProposals].K), plain(t.S.ai.proposal));
+  t.S.ai.proposals = { K: t.S.ai.proposal, L: { newTags: [], notes: [], errors: [], rows: [{ id: "BV700", add: ["id:gone"], remove: [] }] } };
+  t.pruneAiProposals();
+  assert.deepStrictEqual([Object.keys(t.S.ai.proposals), Object.keys(store[t.K.aiProposals])], [["K"], ["K"]], "L's names a deleted tag");
   t.S.ai.proposal = null;
+  assert.deepStrictEqual(store[t.K.aiProposals], {});
   Object.assign(t.S.settings, { triageTitleBatchSize: 30 });
 
   // Opening a folder with a cached list shows it without the full sync; changed ids still sync once.

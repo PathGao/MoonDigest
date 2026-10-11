@@ -33,7 +33,8 @@ const K = {
   aiHistory: "triage_ai_command_history",
   readAt: "triage_read_at", // { [mediaId]: ms }: when each folder's list was last read from B站, for 「今天 HH:MM 刷新过」
   sort: "triage_sort", // { [mediaId]: { sort, dir } }: each folder's card order; none = 收藏时间 新→旧
-  aiRecent: "triage_ai_recent" // { [mediaId]: { at, bvids } }: 「AI 刚打的」, the videos the last applied 批量打 changed
+  aiRecent: "triage_ai_recent", // { [mediaId]: { at, bvids } }: 「AI 刚打的」, the videos the last applied 批量打 changed
+  aiProposals: "triage_ai_proposals" // { [mediaId]: proposal }: AI 打标签 proposals waiting for 应用, kept across a reload
 };
 const ALL = "all"; // the 所有收藏夹 view's folder-select value
 const REMOVED = "removed"; // the 已出分拣范围 view
@@ -316,6 +317,7 @@ const S = {
     set proposal(p) {
       if (p) this.proposals[S.mediaId] = p;
       else delete this.proposals[S.mediaId];
+      saveAiProposals();
     }
   }
 };
@@ -780,7 +782,7 @@ async function init() {
   bindEvents();
   // Read up front: sidePanel.open must run inside the click's user gesture, before any await.
   chrome.tabs.getCurrent().then((tab) => (ownTabId = tab?.id));
-  const [{ tags, videoTags, folderCriteria }, kept, basket, notes, settingsResp, aiHistory, aiRecent, sortBy, readAt] = await Promise.all([
+  const [{ tags, videoTags, folderCriteria }, kept, basket, notes, settingsResp, aiHistory, aiRecent, sortBy, readAt, aiProposals] = await Promise.all([
     loadTagsAndCriteria().then(async (r) => ({ ...r, ...(await loadTagsByFolder(r)) })),
     loadKept(),
     storeGet(K.basket, []),
@@ -789,9 +791,12 @@ async function init() {
     storeGet(K.aiHistory, []),
     storeGet(K.aiRecent, {}),
     storeGet(K.sort, {}),
-    storeGet(K.readAt, {})
+    storeGet(K.readAt, {}),
+    storeGet(K.aiProposals, {})
   ]);
   Object.assign(S, { tags, videoTags, folderCriteria, kept, notes, aiHistory, aiRecent, sortBy, readAt });
+  S.ai.proposals = aiProposals;
+  pruneAiProposals();
   S.basket = basket.map(({ bvid, title, cover, upper, duration, opened }) => ({ bvid, title, cover, upper, duration, ...(opened ? { opened: true } : {}) }));
   if (settingsResp.ok) Object.assign(S.settings, settingsResp.data);
   renderTagLimit();
@@ -2156,6 +2161,12 @@ function recentUnfavHtml() {
 
 // The batch write running now (取消收藏, 移动/复制, 重新收藏), by name; only one at a time, as they may touch one folder.
 const batchWriting = () => (S.unfavBatch ? "批量取消收藏" : S.transferRun ? "移动/复制" : S.refavRun ? "重新收藏" : "");
+// Closing or reloading the page stops a batch write halfway and loses a notes export: the browser asks first.
+window.addEventListener("beforeunload", (e) => {
+  if (!S.write.running && !batchWriting()) return;
+  e.preventDefault();
+  e.returnValue = true;
+});
 
 // Re-favorites items ([{ bvid, aid }]) into mediaId one by one, stopping at the first failure. It changes Bilibili, so
 // it runs to the end even after another folder opens. It counts in the pill's S.refavRun: its own, or run when the
@@ -3182,7 +3193,17 @@ async function deleteTag(id) {
   S.undo = S.undo.filter((e) => e.kind !== "tags" && e.kind !== "tagsMany" && e.kind !== "aiApply");
   saveTags();
   saveVideoTags();
+  pruneAiProposals();
   render();
+}
+
+const saveAiProposals = () => storeSet(K.aiProposals, S.ai.proposals);
+// A proposal naming a deleted tag no longer fits; it is dropped rather than applied.
+function pruneAiProposals() {
+  const fits = Object.entries(S.ai.proposals).filter(([, p]) => UI.aiProposalOk(p, (id) => Boolean(tagById(id))));
+  if (fits.length === Object.keys(S.ai.proposals).length) return;
+  S.ai.proposals = Object.fromEntries(fits);
+  saveAiProposals();
 }
 
 // ---------- AI stage 1: titles ----------
@@ -3583,6 +3604,7 @@ async function runAiCommand({ instruction, scope, allowRemove }) {
   if (p) {
     for (const t of p.newTags) if (t.folder) t.where = folderName(t.folder);
     S.ai.proposals[folder] = p;
+    saveAiProposals();
   }
   renderTop();
   // Open, the dialog turns to the proposal (or, in another folder, back to its form).

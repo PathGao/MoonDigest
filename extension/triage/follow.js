@@ -393,7 +393,7 @@ $("folderSelect").after(sideSlot);
 
 // ---------- data ----------
 async function load() {
-  const got = await chrome.storage.local.get(KEYS);
+  const got = await chrome.storage.local.get([...KEYS, "follow_ai_proposal"]);
   D = {
     list: got.follow_list || null,
     people: got.follow_people || {},
@@ -407,6 +407,8 @@ async function load() {
     stats: got.follow_stats || {},
     groups: got.follow_groups || []
   };
+  // An AI 打标签 proposal waiting for 应用 survives a reload; the one in memory (maybe edited on the review page) wins.
+  if (!AI.proposal && !AI.running) AI.proposal = got.follow_ai_proposal || null;
   derive();
 }
 // 关注's data, read once: on entering 关注, or for the 收藏夹 player's 「UP 标签」 line. F.loaded holds the read.
@@ -418,6 +420,8 @@ function derive() {
   if (!sideIds(D).includes(F.side)) F.side = "all";
   for (const id of [...F.tags]) if (!D.tags.some((t) => t.id === id)) F.tags.delete(id);
   if (!D.recent?.mids?.length) F.recentFilter = false;
+  // A proposal naming a deleted tag no longer fits; it is dropped rather than applied.
+  if (AI.proposal && !UI.aiProposalOk(AI.proposal, tagOf)) setAiProposal(null);
 }
 const following = () => D.list?.list || [];
 const tagOf = (id) => D.tags.find((t) => t.id === id);
@@ -1381,6 +1385,11 @@ function toggleSel(mid) {
 
 // ----- AI 打标签: the folder view's 批量打 flow, one UP per line -----
 const AI = { running: false, stop: false, proposal: null, excluded: new Set(), settings: {}, history: [] };
+function setAiProposal(p) {
+  AI.proposal = p;
+  if (p) write({ follow_ai_proposal: p });
+  else chrome.storage.local.remove("follow_ai_proposal");
+}
 
 function aiScopeMids(scope) {
   const live = new Set(following());
@@ -1433,7 +1442,7 @@ const aiTags = {
   run: runAi,
   stop: () => (AI.stop = true),
   discard() {
-    AI.proposal = null;
+    setAiProposal(null);
     renderAiState();
   },
   apply: () => applyAi(),
@@ -1467,7 +1476,7 @@ async function runAi({ instruction, scope, allowRemove }) {
     at: AI
   });
   AI.running = false;
-  AI.proposal = proposal;
+  setAiProposal(proposal);
   renderAiState();
   const open = TagDialogs.ai.isOpen(aiTags);
   if (open) TagDialogs.ai.render(aiTags);
@@ -1489,7 +1498,7 @@ async function applyAi() {
     if (after.length) map[mid] = after;
     else delete map[mid];
   }
-  AI.proposal = null;
+  setAiProposal(null);
   // This batch replaces the last one; the list shows it to look over.
   const recent = changes.length ? { at: Date.now(), mids: changes.map(([mid]) => mid) } : D.recent;
   D.recent = recent;
@@ -1758,4 +1767,10 @@ async function followHash() {
   return true;
 }
 window.addEventListener("hashchange", followHash);
+// As 收藏夹: closing or reloading the page would stop a B站 batch write halfway, so the browser asks first.
+window.addEventListener("beforeunload", (e) => {
+  if (!F.busy) return;
+  e.preventDefault();
+  e.returnValue = true;
+});
 if (!(await followHash()) && view?.mode === "follow") setMode("follow", false);
