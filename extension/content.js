@@ -1199,7 +1199,8 @@ async function runRefreshClip() {
       state.subtitleWarning + (state.settings.obsidianEnabled ? "抓取完成，可以复制、下载或写入 Obsidian。" : "抓取完成，可以复制或下载。")
     );
   } catch (error) {
-    if (isStaleRunError(error)) {
+    // A newer run (the video changed) owns the state now: an old video's late failure must not reset or mark it.
+    if (isStaleRunError(error) || runId !== state.fetchRunId) {
       return;
     }
     // Reasons arrive with or without a trailing full stop; strip it so the sentences below join cleanly.
@@ -1213,7 +1214,7 @@ async function runRefreshClip() {
       try {
         await showNoSubtitleState(runId, reason);
       } catch (degradeError) {
-        if (isStaleRunError(degradeError)) {
+        if (isStaleRunError(degradeError) || runId !== state.fetchRunId) {
           return;
         }
         throw degradeError;

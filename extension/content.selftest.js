@@ -187,6 +187,31 @@ const settle = async () => {
     Object.assign(state, was);
   }
 
+  // F1: a run the video change superseded fails late (timeout, 429, transcript); the new video keeps its state.
+  {
+    const saved = Object.fromEntries(["getSettings", "currentSite", "retryAsync", "fetchSubtitleBundle", "refreshDerivedContent"].map((k) => [k, t[k]]));
+    Object.assign(t, { getSettings: async () => ({}), retryAsync: (f) => f(), refreshDerivedContent: async () => {} });
+    const newVideo = { videoId: "BV_B", title: "B", subtitleBody: [{ from: 0, to: 1, content: "B" }], subtitleFetchState: "ready", subtitleFailure: "" };
+    for (const step of ["meta", "subtitle"]) {
+      let fail;
+      const late = new Promise((_, reject) => (fail = reject));
+      t.currentSite = () => ({
+        parseRef: () => ({ site: "bilibili", id: "BV_A" }),
+        readDom: () => ({}),
+        fetchMeta: step === "meta" ? () => late : async () => ({ duration: 100, title: "A" })
+      });
+      t.fetchSubtitleBundle = () => late;
+      const run = t.runRefreshClip();
+      await settle();
+      state.fetchRunId++; // the URL watcher saw the change
+      Object.assign(state, newVideo);
+      fail(new Error("请求超时"));
+      await run;
+      assert.deepStrictEqual(Object.fromEntries(Object.keys(newVideo).map((k) => [k, state[k]])), newVideo, `old ${step} failure`);
+    }
+    Object.assign(t, saved);
+  }
+
   // G4: a refresh waiting for the player's metadata is dropped when the video changed during the wait.
   {
     const refreshed = [];
