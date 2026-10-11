@@ -16,7 +16,7 @@ const {
 const PLAYER_AI_QUICK_ACTION_STORAGE_KEY = BocLimits.KEYS.playerAiQuickAction;
 // Marks a control that starts an AI request (tokens.css draws it in the text color).
 const AI_SPARK = '<span class="ai-spark" aria-hidden="true"></span>';
-const NON_VIDEO_CONTEXT_MESSAGE = "这不是支持的视频页。";
+const NON_VIDEO_CONTEXT_MESSAGE = "当前网页不是支持的视频页";
 const EMPTY_INTRO = "AI 会读这期视频的字幕和评论，回答你的问题。";
 const STREAM_SLOW_NOTICE_MS = 15000;
 const PREVIOUS_VIDEO_CONVERSATION_KEY = "boc_sp_previous_video_conversation";

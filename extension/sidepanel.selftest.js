@@ -112,7 +112,7 @@ const page = (id) => ({ ok: true, payload: { url: `https://example.com/${id}`, t
   ctx.current = page("b").payload;
   vm.runInContext("contextData = { ...current, isVideoContext: true }; currentConversationMeta = null", ctx);
   await ctx.sendMessage();
-  assert.deepStrictEqual([loads, ...errors], [1, "这不是支持的视频页。"], "the context that came back is checked too");
+  assert.deepStrictEqual([loads, ...errors], [1, "当前网页不是支持的视频页"], "the context that came back is checked too");
   // No enabled platform: the conversation and the typed text stay, and the settings page opens.
   let resets = 0;
   let opened = 0;

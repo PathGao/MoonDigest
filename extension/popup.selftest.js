@@ -17,7 +17,7 @@ const scripts = [...fs.readFileSync(path.join(__dirname, "popup.html"), "utf8").
 assert.strictEqual(scripts.pop(), "./popup.js", "popup.js loads last");
 for (const f of scripts) vm.runInContext(fs.readFileSync(path.join(__dirname, f), "utf8"), ctx);
 vm.runInContext(`${source}\n;globalThis.el = el;`, ctx);
-const state = () => Object.fromEntries(["downloadBtn", "readingViewBtn", "copyBtn", "mdBtn", "sendBtn"].map((k) => {
+const state = () => Object.fromEntries(["downloadBtn", "readingViewBtn", "summaryBtn", "copyBtn", "mdBtn", "sendBtn"].map((k) => {
   const b = ctx.el[k];
   assert.strictEqual(b.title, b.attrs["aria-description"] || "", `${k}: tooltip and aria-description agree`);
   return [k, b.disabled ? b.title : ""];
@@ -28,7 +28,7 @@ assert.deepStrictEqual(new Set(Object.values(state())), new Set(["当前网页�
 ctx.syncTools(null);
 assert.deepStrictEqual(new Set(Object.values(state())), new Set([""]), "a video page before its first reply keeps them usable");
 ctx.syncTools({ markdown: "# t", srt: "", txt: "" });
-assert.deepStrictEqual(state(), { downloadBtn: "当前视频没有可下载的字幕", readingViewBtn: "", copyBtn: "", mdBtn: "", sendBtn: "" }, "no subtitles");
+assert.deepStrictEqual(state(), { downloadBtn: "当前视频没有可下载的字幕", readingViewBtn: "", summaryBtn: "", copyBtn: "", mdBtn: "", sendBtn: "" }, "no subtitles");
 ctx.syncTools({ markdown: "# t", srt: "1", txt: "a" });
 assert.deepStrictEqual(new Set(Object.values(state())), new Set([""]), "everything ready");
 

@@ -23,6 +23,7 @@ const el = {
   settingsBtn: document.getElementById("settingsBtn")
 };
 
+const NOT_VIDEO_PAGE = "当前网页不是支持的视频页";
 let latestPayload = null;
 // Set from the tab's URL in init(): a content script that still answers on a non-video page must not re-enable the tools.
 let onVideoPage = true;
@@ -110,7 +111,7 @@ function bindEvents() {
   el.readingViewBtn?.addEventListener("click", async () => {
     const tab = await getActiveTab();
     if (!isSupportedSubtitlePage(tab?.url || "")) {
-      setStatus("请先打开一个支持的视频页", true);
+      setStatus(NOT_VIDEO_PAGE, true);
       return;
     }
 
@@ -163,7 +164,7 @@ function bindEvents() {
   el.summaryBtn.addEventListener("click", async () => {
     const tab = await getActiveTab();
     if (!isSupportedSubtitlePage(tab?.url || "")) {
-      setStatus("请先打开一个支持的视频页", true);
+      setStatus(NOT_VIDEO_PAGE, true);
       return;
     }
     setStatus("正在打开侧边栏…", false, true);
@@ -209,7 +210,7 @@ async function refreshFromTab() {
   const resp = await sendToContent({ type: "popup-refresh" }).finally(() => setBusy(el.refreshBtn, false));
   el.refreshBtn.classList.toggle("is-error", !resp?.ok);
   if (!resp?.ok) {
-    const errorText = resp?.error || "请在支持的视频页使用";
+    const errorText = resp?.error || NOT_VIDEO_PAGE;
     setStatus(`抓取失败：${errorText}`, true);
     render(resp?.payload || latestPayload, { preserveStatus: true });
     return;
@@ -296,10 +297,12 @@ function render(payload, { preserveStatus = false } = {}) {
 
 // A tool that cannot work is disabled and says why; without a payload yet a video page keeps them usable.
 function syncTools(payload, onVideoPage = true) {
-  const pageReason = onVideoPage ? "" : "当前网页不是支持的视频页";
+  const pageReason = onVideoPage ? "" : NOT_VIDEO_PAGE;
   const contentReason = pageReason || (payload && !payload.markdown ? "还没有读取到视频内容" : "");
   const subtitleReason = pageReason || (payload && !(payload.srt || payload.txt) ? "当前视频没有可下载的字幕" : "");
   setDisabledReason(el.readingViewBtn, pageReason);
+  // A web page has no video to summarize; no AI platform still leaves it usable (the side panel offers 去设置).
+  setDisabledReason(el.summaryBtn, pageReason);
   setDisabledReason(el.copyBtn, contentReason);
   setDisabledReason(el.mdBtn, contentReason);
   setDisabledReason(el.sendBtn, contentReason);

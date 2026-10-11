@@ -1045,7 +1045,7 @@ async function runRefreshClip() {
     const site = currentSite();
     const ref = site?.parseRef(location.href);
     if (!ref) {
-      throw new Error("当前页面不是支持的视频地址，无法抓取字幕。");
+      throw new Error("当前网页不是支持的视频页");
     }
     state.site = ref.site;
     state.videoId = ref.id;
