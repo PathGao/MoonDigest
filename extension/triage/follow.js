@@ -594,7 +594,8 @@ function renderAiState() {
 let loginSeen = "";
 function renderLogin() {
   const j = D.jobs || {};
-  const err = F.mode !== "follow" ? "" : [j.running ? "" : j.error, F.feed?.error].find((x) => /登录/.test(x || "")) || "";
+  const login = (code) => code === "NOT_LOGGED_IN" || code === -101; // -101: B站's own code, passed through by follow-bg.js
+  const err = F.mode !== "follow" ? "" : !j.running && login(j.errorCode) ? j.error : login(F.feed?.errorCode) ? F.feed.error : "";
   if (err !== loginSeen) T.loginBanner(Boolean(err));
   loginSeen = err;
 }
@@ -902,13 +903,17 @@ async function more({ byHand = false } = {}) {
   if (byHand) f.dry = 0;
   f.loading = true;
   f.error = "";
+  f.errorCode = null;
   renderFoot();
   const tick = setInterval(() => F.feed === f && F.tab === "feed" && renderFoot(), 1000);
   const r = await send({ type: "follow-feed", offset: f.offset }).finally(() => clearInterval(tick));
   f.loading = false;
   if (F.feed !== f) return;
   if (r.code === "THROTTLED") waitFeed(f);
-  else if (!r.ok) f.error = r.code === "NOT_LOGGED_IN" ? "没登录 B站，登录后点重试" : `读取失败：${r.error || "未知错误"}`;
+  else if (!r.ok) {
+    f.errorCode = r.code;
+    f.error = r.code === "NOT_LOGGED_IN" ? "没登录 B站，登录后点重试" : `读取失败：${r.error || "未知错误"}`;
+  }
   else {
     const { items, add } = mergeFeed(f.items, r.data.items || []);
     f.items = items;

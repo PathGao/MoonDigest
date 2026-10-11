@@ -257,6 +257,7 @@ const runSync = async () => {
     assert.strictEqual(calls.filter((c) => c === "web-interface/nav").length, 2, calls.join(","));
     assert.strictEqual(local.follow_jobs.throttled, true);
     assert.match(local.follow_jobs.error, /限流/);
+    assert.strictEqual(local.follow_jobs.errorCode, "THROTTLED", "the job keeps the code; the page shows 去登录 by code, not by text");
     assert.ok(!local.follow_content?.[1]);
     // Risk control slows the queue down for a while, and the job says until when (the page's 「B站限流变慢」).
     vm.runInContext("FOLLOW_CFG.slowGapMs = 7", ctx);

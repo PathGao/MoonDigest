@@ -1938,6 +1938,29 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   await t.syncFolder({ force: true });
   t.renderFolderHead();
   assert.ok(t.el.folderHead.innerHTML.includes('<span class="fail-text">刷新失败：网络断了</span>') && !toasts.includes("刷新收藏夹失败：网络断了"), t.el.folderHead.innerHTML);
+  // X1: not logged in, a read shows the 去登录 banner once (send()'s, kind "login", so 关注's loginBanner(false) hides
+  // it); a read error that only mentions 登录 is not a login and offers 重试.
+  {
+    const realBanner = t.showBanner, banners = [];
+    t.showBanner = (...a) => (banners.push(a[0]), realBanner(...a));
+    const realFolders = handlers["triage-folders"];
+    for (const [type, run] of [["triage-folder-items", () => (Object.assign(t.S, { syncing: false, lastSyncAt: 0 }), t.syncFolder({ force: true }))], ["triage-folders", () => t.loadFolders()]]) {
+      const real = handlers[type];
+      handlers[type] = () => ({ ok: false, error: "未登录 B站", code: "NOT_LOGGED_IN" });
+      banners.length = 0;
+      await run();
+      assert.deepStrictEqual([banners.length, t.el.banner.dataset.kind, t.el.banner.hidden], [1, "login", false], type);
+      t.MoonTriage.loginBanner(false);
+      assert.strictEqual(t.el.banner.hidden, true, type);
+      handlers[type] = real;
+    }
+    handlers["triage-folders"] = () => ({ ok: false, error: "B站返回的不是 JSON（可能被风控拦截或需要重新登录）" });
+    await t.loadFolders();
+    assert.deepStrictEqual([t.el.banner.dataset.kind, t.el.bannerBtn.textContent], ["", "重试"]);
+    t.el.banner.hidden = true;
+    handlers["triage-folders"] = realFolders;
+    t.showBanner = realBanner;
+  }
   handlers["triage-folder-items"] = () => ({ ok: true, data: { items: [item(40)], ids: ["BV40"], info: { intro: "" } } });
   Object.assign(t.S, { syncing: false, lastSyncAt: 0 });
   await t.syncFolder({ force: true });

@@ -471,7 +471,7 @@ async function followStart() {
   const cursor = prev.cursor && !prev.finishedAt && followNow() - (prev.startedAt || 0) < 86400 ? prev.cursor : null;
   const startedAt = cursor ? prev.startedAt : followNow();
   await followPatchJob({
-    running: true, error: null, throttled: false, hold: null, finishedAt: null, slowUntil: Math.ceil(followSlowUntil / 1000),
+    running: true, error: null, errorCode: null, throttled: false, hold: null, finishedAt: null, slowUntil: Math.ceil(followSlowUntil / 1000),
     ...(cursor ? {} : { startedAt, phase: "list", step: "", done: 0, total: 0, skipped: 0, cursor: null, changes: null })
   });
   followOnHold = (hold) => followPatchJob({ hold, slowUntil: Math.ceil(followSlowUntil / 1000) }).catch(() => {});
@@ -489,7 +489,7 @@ async function followStart() {
       () => (followFeedCache.clear(), followPatchJob({ running: false, finishedAt: followNow(), lastFinishedAt: followNow(), step: "", cursor: null, hold: null })),
       (e) =>
         followPatchJob(
-          e.code === "STOPPED" ? { running: false, hold: null } : { running: false, hold: null, error: e.message, throttled: e.code === "THROTTLED" }
+          e.code === "STOPPED" ? { running: false, hold: null } : { running: false, hold: null, error: e.message, errorCode: e.code ?? null, throttled: e.code === "THROTTLED" }
         )
     )
     .catch((e) => console.warn("[follow] 同步状态写入失败", e))

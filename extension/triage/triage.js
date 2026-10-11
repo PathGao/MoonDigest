@@ -1072,9 +1072,7 @@ async function loadFolders() {
   el.list.innerHTML = `<p class="empty">正在加载收藏夹列表…</p>`;
   const r = await send({ type: "triage-folders" });
   if (!r.ok) {
-    const needLogin = /登录/.test(r.error || "");
-    if (needLogin) showBanner(r.error, "去登录", () => openTab("https://passport.bilibili.com/login"));
-    else showBanner(`读取收藏夹失败：${r.error}`, "重试", loadFolders);
+    if (r.code !== "NOT_LOGGED_IN") showBanner(`读取收藏夹失败：${r.error}`, "重试", loadFolders); // send() showed 去登录
     el.list.innerHTML = `<p class="empty">无法读取收藏夹</p>`;
     return;
   }
@@ -1268,9 +1266,8 @@ async function syncFolder({ force = false, cached = null } = {}) {
     r ||= await send({ type: "triage-folder-items", mediaId });
     if (token !== S.folderToken) return false;
     if (!r.ok) {
-      const needLogin = /登录/.test(r.error || "");
-      if (needLogin) showBanner(r.error, "去登录", () => openTab("https://passport.bilibili.com/login"));
-      else S.syncError = `刷新失败：${r.error}`;
+      const needLogin = r.code === "NOT_LOGGED_IN"; // send() showed 去登录
+      if (!needLogin) S.syncError = `刷新失败：${r.error}`;
       if (!S.items.length) el.list.innerHTML = UI.emptyState("无法读取这个收藏夹", needLogin ? "登录 B站后点刷新。" : r.error, REFRESH_EMPTY);
       return false;
     }
