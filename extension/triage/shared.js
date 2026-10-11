@@ -168,10 +168,12 @@
 
   // The running-state pill's inside: text, a bar when done/total is known, and one button (btn = { attrs, label, reason };
   // a reason disables it).
-  function activityHtml({ text, done = 0, total = 0, btn = null, stuck = false }) {
+  // text ends in 「 · ‹wait›」 when wait is given; a narrow window cuts the text before it, never the countdown.
+  function activityHtml({ text, done = 0, total = 0, btn = null, stuck = false, wait = "" }) {
+    const head = wait && text.endsWith(` · ${wait}`) ? text.slice(0, -wait.length - 3) : text;
     const bar = total ? `<span class="activity-bar" aria-hidden="true"><i style="width:${Math.round((done / total) * 100)}%"></i></span>` : "";
     const b = btn ? `<button type="button" ${btn.attrs} aria-label="${esc(btn.label)}"${reasonAttrs(btn.reason)}>${esc(btn.label)}</button>` : "";
-    return `${stuck ? `<span class="activity-stuck">${ICON.alert}</span>` : ""}<span class="activity-text">${esc(text)}</span>${bar}${b}`;
+    return `${stuck ? `<span class="activity-stuck">${ICON.alert}</span>` : ""}<span class="activity-text" title="${esc(text)}">${esc(head)}</span>${head === text ? "" : `<span>· ${esc(wait)}</span>`}${bar}${b}`;
   }
   // Draws the pill from state ({ text, done, total, btn, stuck, slowed, finished }); null / false hides it. Blue while
   // running; stuck (B站限流 or offline, waiting to retry) is amber with a red ⚠; slowed (going on slower after B站限流)

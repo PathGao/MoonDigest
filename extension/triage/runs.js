@@ -9,7 +9,6 @@
 //   runs once the job is taken and may add total / next / act / line, or return null to end without a request.
 //   o.line(done, total, stopping) is its pill text; o.finished(done) its line after it ends (green), until it starts again;
 //   o.tick() runs each second of its countdowns.
-
 // - wait(job, hold, alive): a countdown on its own (a loop with its own flow). put(job, row | () => row): a row mirrored
 //   from elsewhere ({ text, done, total, wait: { until, label }, slowed }).
 // - pill(order): the first job in order that runs, waits or has a row, else the first finished line. A wait always
@@ -114,7 +113,7 @@
       if (!row) return null;
       const { wait: w, ...rest } = row;
       const left = waitText(waits.get(job) || w);
-      return left ? { ...rest, job, text: `${row.text} · ${left}`, stuck: true } : { ...rest, job };
+      return left ? { ...rest, job, text: `${row.text} · ${left}`, wait: left, stuck: true } : { ...rest, job };
     }
 
     return {

@@ -75,7 +75,10 @@ select { height: 28px; max-width: 240px; }
 
 /* Whatever is running (粗看, 细看, unfavorite batch, loading, refresh, tag AI, a wait) shows here on every tab. */
 /* What is running: gray (blue is for the next step, DESIGN 视觉设计 · 颜色); a wait turns it amber. */
-.activity { display: inline-flex; align-items: center; gap: 8px; height: 28px; padding: 0 4px 0 12px; border: 1px solid var(--action-border); border-radius: 15px; background: var(--action-bg); color: var(--link); font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.activity { display: inline-flex; align-items: center; gap: 8px; height: 28px; padding: 0 4px 0 12px; border: 1px solid var(--action-border); border-radius: 15px; background: var(--action-bg); color: var(--link); font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; min-width: 0; }
+/* A narrow window cuts the line, not the buttons after it; the whole line is its title. */
+.activity-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.activity > :not(.activity-text) { flex: none; }
 .activity[hidden] { display: none; }
 .activity:not(:has(button)) { padding-right: 12px; }
 .activity-stuck { display: inline-flex; margin-right: -4px; color: var(--danger); }

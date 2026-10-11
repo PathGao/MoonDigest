@@ -1299,7 +1299,6 @@ async function checkRemoved(token) {
   let i = 0;
   const r = await runs.run("check", {
     total: ids.length,
-
     gap: 300,
     alive,
     line: (d, t) => `核对收藏夹 ${d}/${t}`,

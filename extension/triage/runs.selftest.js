@@ -98,6 +98,7 @@ const line = (d, t, stopping) => `跑 ${d}/${t}${stopping ? " 停" : ""}`;
     assert.deepStrictEqual(runs.pill(["j"]), { text: "跑 1/2 · B站限流卡住，1:30 后重试", done: 1, total: 2, stopping: false, job: "j", stuck: true });
     await until(() => runs.get("j")?.wait === "B站限流卡住，1:29 后重试");
     assert.strictEqual(runs.pill(["j"]).text, "跑 1/2 · B站限流卡住，1:29 后重试");
+    assert.strictEqual(runs.pill(["j"]).wait, "B站限流卡住，1:29 后重试", "the countdown on its own, so a narrow pill cuts the line before it");
     await p;
     assert.deepStrictEqual(log.filter(([k]) => k === "send").map(([, id]) => id), [1, 2, 2]);
   }
