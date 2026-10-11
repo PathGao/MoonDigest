@@ -16,7 +16,7 @@ const EXPECTED_CONTENT_SCRIPT_VERSION = chrome.runtime.getManifest().version || 
 const READER_ENTRIES = chrome.runtime.getManifest().content_scripts.filter((entry) => entry.js.includes("content.js"));
 const READER_SCRIPTS = { ...READER_ENTRIES[0], matches: READER_ENTRIES.flatMap((entry) => entry.matches) };
 
-// The boc_* → mdg_* key rename (3.6). Runs on update and on every browser start until nothing is left to move.
+// The 3.6 storage key rename (MdgLimits.migrateRenamedKeys). Runs on update and on every browser start until nothing is left to move.
 async function migrateRenamedStorage() {
   await MdgLimits.migrateRenamedKeys(chrome.storage.local);
   if (chrome.storage.session) await MdgLimits.migrateRenamedKeys(chrome.storage.session);

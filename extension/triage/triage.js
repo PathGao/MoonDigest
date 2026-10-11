@@ -281,7 +281,7 @@ const showLogin = () => showBanner("没登录 B站：先在这个浏览器里登
 // The AI platform picked at the top of the side panel: sidepanel.js keeps it in this extension's localStorage under
 // this key (SELECTED_PROVIDER_KEY there). Every request carries it; the background's AI calls use it (triageChat).
 const AI_PROVIDER_KEY = "mdg_ai_selected_provider";
-// Before the first read: 3.5 and older kept it as boc_ai_selected_provider. Either page may open first after the update.
+// Before the first read: 3.5 and older kept it under the old key prefix. Either page may open first after the update.
 try {
   MdgLimits.migrateRenamedLocalStorage(localStorage);
 } catch {}
