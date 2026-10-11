@@ -27,7 +27,7 @@ assert.deepStrictEqual(plain(B.seenConfig({ seenShow: "mark", seenThreshold: 0, 
 assert.deepStrictEqual([B.seenWords(100, false), B.seenWords(85, true), B.seenWords(40, false)], ["✓ 看完了", "✓ 看到 85%", "看到 40%"]);
 const triageHtml = fs.readFileSync(path.join(__dirname, "triage/triage.html"), "utf8");
 assert.ok(triageHtml.indexOf("../bili-surfaces.js") > -1 && triageHtml.indexOf("../bili-surfaces.js") < triageHtml.indexOf("./triage.js"), "triage.html loads bili-surfaces.js before triage.js");
-for (const f of ["badges.js", "triage/triage.js"]) {
+for (const f of ["badges.js", "triage/triage.js", "options.js"]) {
   const src = fs.readFileSync(path.join(__dirname, f), "utf8");
   assert.ok(!src.includes('seenShow: "off"') && !src.includes("✓ 看完了") && !/seenShow === "both"/.test(src), `${f} keeps its own 观看进度 defaults or words`);
 }
