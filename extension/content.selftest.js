@@ -377,6 +377,48 @@ const settle = async () => {
     t.BocSites.subtitleCache.save = realSave;
   }
 
+  // S1: autoplay changes the video while the overwrite dialog is open. Nothing is written and the user is told;
+  // on the same video the note gets the content taken before the dialog, even if state was reset meanwhile.
+  {
+    const realUrl = t.location.href;
+    const saved = Object.fromEntries(["getSettings", "refreshDerivedContent", "sendRuntimeMessage", "confirmOverwriteNote", "setMessage", "computeCurrentClipSignature"].map((k) => [k, t[k]]));
+    const settings = { ...vm.runInContext("DEFAULT_SETTINGS", ctx), obsidianEnabled: true, obsidianApiKey: "k" };
+    let sent, messages, onDialog;
+    Object.assign(t, {
+      getSettings: async () => settings,
+      refreshDerivedContent: async () => (state.markdown = "# 视频 A"),
+      confirmOverwriteNote: async () => (onDialog(), "full"),
+      setMessage: (text) => messages.push(text),
+      // An earlier test stubs it; the clip is the page address.
+      computeCurrentClipSignature: () => t.location.href
+    });
+    Object.assign(state, { site: "bilibili", videoId: "BV1GJ411x7h7", cid: "1", title: "A" });
+    for (const switched of [true, false]) {
+      [sent, messages] = [[], []];
+      let written = null;
+      t.sendRuntimeMessage = async (m) => (sent.push(m.type), m.type === "write-obsidian-note" && (written = m.content), m.type === "obsidian-note-exists" ? { ok: true, exists: true } : { ok: true });
+      onDialog = () => {
+        state.markdown = "";
+        if (switched) t.location.href = "https://www.bilibili.com/video/BV1xx411c7mD/";
+      };
+      await t.sendToObsidian();
+      t.location.href = realUrl;
+      if (switched) {
+        assert.deepStrictEqual(sent, ["obsidian-note-exists"], "no write after the video changed");
+        assert.strictEqual(messages.at(-1), "视频已切换，未写入 Obsidian。");
+      } else {
+        assert.strictEqual(written, "# 视频 A", "the content taken before the dialog");
+      }
+    }
+    Object.assign(t, saved);
+  }
+
+  // N6: what the user reads for a failed fetch: risk control and a dropped connection in words, no codes.
+  assert.strictEqual(t.fetchErrorText(Object.assign(new Error("请求失败：412"), { status: 412 })), "B站限流，请稍后再试");
+  assert.strictEqual(t.fetchErrorText(Object.assign(new Error("风控校验失败"), { code: -352 })), "B站限流，请稍后再试");
+  assert.strictEqual(t.fetchErrorText(new TypeError("Failed to fetch")), "网络断了");
+  assert.strictEqual(t.fetchErrorText(Object.assign(new Error("啥都木有"), { code: -404 })), "啥都木有");
+
   console.log("content selftest: all passed");
 })().catch((e) => {
   console.error(e);

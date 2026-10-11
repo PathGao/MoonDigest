@@ -3728,6 +3728,8 @@ async function exportDigest(how) {
     const r = await send({ type: "triage-export", filename, markdown });
     setBusy(el.writeRunBtn, false);
     el.writeProgress.textContent = r.ok ? `已写入 ${r.data?.path || filename}` : `写入 Obsidian 失败：${r.error}`;
+    el.writeProgress.classList.toggle("fail-text", !r.ok);
+    el.writeSettingsBtn.hidden = r.code !== "OBSIDIAN";
   }
 }
 

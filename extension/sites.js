@@ -217,6 +217,8 @@
   // The view API's codes for a video that is gone or hidden: -404 稿件不存在, 62002 稿件不可见, 62012 仅 UP 主自己可见.
   // 62004 稿件审核中 comes back later, and risk control (-352/-412, THROTTLED) and network errors are not among them.
   const BILI_GONE_CODES = new Set([-404, 62002, 62012]);
+  // Risk control: these codes in JSON (or HTTP 412 with an HTML page) mean back off and try later.
+  const BILI_RISK_CODES = new Set([-352, -412, -799, -509]);
   function isBiliVideoGone(code) {
     return BILI_GONE_CODES.has(code);
   }
@@ -1337,6 +1339,7 @@
     isAllowedFetchUrl,
     buildContextKey,
     isBiliVideoGone,
+    BILI_RISK_CODES,
     rankTracks,
     normalizeSubtitleLang,
     pickPreferredTrack,

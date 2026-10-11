@@ -503,7 +503,7 @@ function bindRuntimeEvents() {
       refreshClipShared()
         .then(() => sendResponse({ ok: true, payload: getPopupPayload() }))
         .catch((error) =>
-          sendResponse({ ok: false, error: getErrorMessage(error), payload: getPopupPayload() })
+          sendResponse({ ok: false, error: fetchErrorText(error), payload: getPopupPayload() })
         );
       return true;
     }
@@ -528,7 +528,7 @@ function bindRuntimeEvents() {
           sendResponse({ ok: true, payload: getPopupPayload() });
         })
         .catch((error) =>
-          sendResponse({ ok: false, error: getErrorMessage(error), payload: getPopupPayload() })
+          sendResponse({ ok: false, error: fetchErrorText(error), payload: getPopupPayload() })
         );
       return true;
     }
@@ -955,7 +955,7 @@ function checkUrlChange() {
       }
       refreshClip().catch((error) => {
         if (!isStaleRunError(error)) {
-          setReadingNotice(`自动刷新失败：${getErrorMessage(error)}`);
+          setReadingNotice(`自动刷新失败：${fetchErrorText(error)}`);
         }
       });
     });
@@ -1247,7 +1247,7 @@ async function runRefreshClip() {
     const reason = (
       error?.code === "SUBTITLE_DURATION_MISMATCH"
         ? "没找到和视频时长匹配的字幕，可能没有可用字幕"
-        : getErrorMessage(error)
+        : fetchErrorText(error)
     ).replace(/[。.！!；;，,\s]+$/u, "");
     // Only the subtitle step failed: keep the video info and degrade to the no-subtitle state.
     if (metaLoaded) {
@@ -1511,33 +1511,42 @@ async function sendToObsidian() {
   }
 
   const noteKey = BocSites.buildContextKey({ site: state.site, videoId: state.videoId, cid: state.cid });
+  // Taken before the overwrite dialog: autoplay or a link can change the video (and reset state) while it is open.
+  const clip = computeCurrentClipSignature();
+  const markdown = state.markdown;
+  const cover = { url: state.cover, name: `${state.site}-${state.videoId}` };
+  const aiSection = state.settings.includeAiChatInNote === false ? "" : BocNote.buildAiSection(state.aiTurns);
   // Answering the dialog closes the popup, so after it progress and results also show on the page.
   let onPage = false;
   const report = (text, ok) => {
     setMessage(text);
-    if (onPage) setReadingNotice(text, { hideMs: ok ? 3000 : 0 });
+    if (onPage) setReadingNotice(text, { hideMs: ok ? 3000 : 0, error: !ok });
   };
   try {
     const exists = await checkObsidianNoteExists(baseUrl, apiKey, filepath);
     if (exists) {
-      const aiSection = state.settings.includeAiChatInNote === false ? "" : BocNote.buildAiSection(state.aiTurns);
       const choice = await confirmOverwriteNote(filepath, { hasAiSection: Boolean(aiSection) });
       if (!choice) {
         setMessage(aiSection ? "已取消写入 Obsidian，原笔记未被覆盖。" : "笔记已存在，无 AI 问答，未改动。");
         return;
       }
       onPage = true;
+      if (computeCurrentClipSignature() !== clip) {
+        setMessage("视频已切换，未写入 Obsidian。");
+        setReadingNotice("视频已切换，未写入 Obsidian。");
+        return;
+      }
       setReadingNotice("正在写入 Obsidian…", { busy: true });
       if (choice === "ai") {
         const resp = await sendRuntimeMessage({ type: "update-obsidian-ai-section", baseUrl, apiKey, filepath, section: aiSection, noteKey });
         if (!resp?.ok) {
-          throw new Error(toReadableText(resp?.error, "Local API 写入失败"));
+          throw obsidianError(resp, "Local API 写入失败");
         }
         report(`已更新 AI 问答：${filepath}`, true);
         return;
       }
     }
-    await writeNoteByLocalApi(baseUrl, apiKey, filepath, state.markdown, { url: state.cover, name: `${state.site}-${state.videoId}` }, noteKey);
+    await writeNoteByLocalApi(baseUrl, apiKey, filepath, markdown, cover, noteKey);
     report(`已写入 Obsidian：${filepath}`, true);
   } catch (error) {
     if (isExtensionContextInvalidated(error)) {
@@ -1545,7 +1554,14 @@ async function sendToObsidian() {
       return;
     }
     report(`写入 Obsidian 失败：${getErrorMessage(error)}`);
+    // Obsidian itself is unusable (closed, wrong address or key): the settings page, as for 未配置.
+    if (error.setup) requestOpenOptions();
   }
+}
+
+// The background's Obsidian failure (already in the user's words); setup: the fix is in the settings page.
+function obsidianError(resp, fallback) {
+  return Object.assign(new Error(toReadableText(resp?.error, fallback)), { setup: resp?.setup === true });
 }
 
 async function checkObsidianNoteExists(baseUrl, apiKey, filepath) {
@@ -1556,7 +1572,7 @@ async function checkObsidianNoteExists(baseUrl, apiKey, filepath) {
     filepath
   });
   if (!resp?.ok) {
-    throw new Error(toReadableText(resp?.error, "Local API 检查失败"));
+    throw obsidianError(resp, "Local API 检查失败");
   }
   return Boolean(resp.exists);
 }
@@ -1572,7 +1588,7 @@ async function writeNoteByLocalApi(baseUrl, apiKey, filepath, content, cover, no
     noteKey
   });
   if (!resp?.ok) {
-    throw new Error(toReadableText(resp?.error, "Local API 写入失败"));
+    throw obsidianError(resp, "Local API 写入失败");
   }
 }
 
@@ -1798,7 +1814,7 @@ function maybeRefreshReaderSubtitleInBackground() {
     }
     refreshClipShared().catch((error) => {
       if (!isStaleRunError(error)) {
-        setReadingNotice(`字幕加载失败：${getErrorMessage(error)}`);
+        setReadingNotice(`字幕加载失败：${fetchErrorText(error)}`);
       }
     });
   });
@@ -2404,13 +2420,14 @@ function buildReadingMetaLine() {
 
 // Errors and waits only; an empty text hides the notice. It sits outside the
 // reading view, which stays invisible until the player is ready.
-// busy: a 正在… notice (gray, spinner); hideMs: a result that clears itself.
-function setReadingNotice(text, { busy = false, hideMs = 0 } = {}) {
+// busy: a 正在… notice (gray, spinner); hideMs: a result that clears itself; error: one the user must handle (red).
+function setReadingNotice(text, { busy = false, hideMs = 0, error = false } = {}) {
   const notice = byId(ids.readingStatus);
   window.clearTimeout(state.readingNoticeTimer);
   notice.textContent = text;
   notice.hidden = !text;
   notice.setAttribute("aria-busy", String(busy));
+  notice.toggleAttribute("data-error", error);
   if (hideMs) state.readingNoticeTimer = window.setTimeout(() => setReadingNotice(""), hideMs);
 }
 
@@ -3975,7 +3992,7 @@ function onReadingTranscriptClick(event) {
   if (event.target.closest(".boc-reading-retry")) {
     refreshClipShared().catch((error) => {
       if (!isStaleRunError(error)) {
-        setReadingNotice(`字幕加载失败：${getErrorMessage(error)}`);
+        setReadingNotice(`字幕加载失败：${fetchErrorText(error)}`);
       }
     });
     return;
@@ -4199,6 +4216,18 @@ function toReadableText(value, fallback = "") {
     return fallback;
   }
   return text;
+}
+
+// A failed fetch in the user's words: B站 risk control (HTTP 412 or its codes) and a dropped connection are named,
+// and no raw English, HTTP status or B站 code is shown. getErrorMessage keeps the raw text for logs and retry checks.
+function fetchErrorText(error) {
+  if (error?.status === 412 || BocSites.BILI_RISK_CODES.has(error?.code)) {
+    return "B站限流，请稍后再试";
+  }
+  if (/failed to fetch|networkerror|load failed/i.test(toReadableText(error?.message, ""))) {
+    return "网络断了";
+  }
+  return toReadableText(error?.message, "") || getErrorMessage(error);
 }
 
 function getErrorMessage(error, fallback = "未知错误") {

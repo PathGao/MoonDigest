@@ -2307,7 +2307,7 @@ async function syncVideoNoteAiSection({ context, messages, settings, baseUrl, ap
   const filepath = await resolveVideoNotePath(context, settings);
   const resp = await sendRuntimeMessage({ type: "update-obsidian-ai-section", baseUrl, apiKey, filepath, section, noteKey });
   if (!resp?.ok) {
-    throw new Error(getReadableText(resp?.error, "Local API 写入失败"));
+    throw obsidianError(resp, "Local API 写入失败");
   }
   return { ...resp, filepath };
 }
@@ -2355,21 +2355,28 @@ async function autoSyncConversation(conversationId) {
     }
     showSyncStatus(`已更新 AI 问答：${notePath}`, { autoHideMs: 3000 });
   } catch (error) {
-    showSyncStatus(`写入 Obsidian 失败：${readableObsidianError(error)}`, { retry: () => autoSyncConversation(conversationId) });
+    showSyncStatus(`写入 Obsidian 失败：${getErrorMessage(error)}`, { retry: () => autoSyncConversation(conversationId), error: true });
   }
 }
 
-function readableObsidianError(error) {
-  const text = getErrorMessage(error);
-  return /failed to fetch|networkerror|load failed/i.test(text) ? "连不上 Obsidian，请确认它已打开并启用了 Local REST API" : text;
+// The background's Obsidian failure (already in the user's words); setup: the fix is in the settings page.
+function obsidianError(resp, fallback) {
+  return Object.assign(new Error(getReadableText(resp?.error, fallback)), { setup: resp?.setup === true });
+}
+
+// A failed manual write is red; when Obsidian itself is unusable the settings page opens, as for 未配置.
+function showObsidianFailure(error) {
+  showConversationContextNotice(`写入 Obsidian 失败：${getErrorMessage(error)}`, 4000, { error: true });
+  if (error?.setup) chrome.runtime.openOptionsPage?.();
 }
 
 let syncStatusTimer = 0;
-function showSyncStatus(text, { autoHideMs = 0, retry = null } = {}) {
+function showSyncStatus(text, { autoHideMs = 0, retry = null, error = false } = {}) {
   if (!els.syncStatus) {
     return;
   }
   window.clearTimeout(syncStatusTimer);
+  els.syncStatus.classList.toggle("is-error", error);
   els.syncStatus.querySelector("span").textContent = text;
   const button = els.syncStatus.querySelector("button");
   button.hidden = !retry;
@@ -2445,7 +2452,7 @@ async function saveCurrentConversationToObsidian() {
     }
     showConversationContextNotice(`已写入 Obsidian：${created.filepath}`, 4000);
   } catch (error) {
-    showConversationContextNotice(`写入 Obsidian 失败：${readableObsidianError(error)}`, 4000);
+    showObsidianFailure(error);
   }
 }
 
@@ -2488,13 +2495,13 @@ async function saveBuiltVideoNoteToObsidian(ref, messages, epoch, settingsBundle
   if (choice === "full") {
     const written = await sendRuntimeMessage({ type: "write-obsidian-note", baseUrl, apiKey, filepath, content: built.data.markdown, cover, noteKey });
     if (!written?.ok) {
-      throw new Error(getReadableText(written?.error, "Local API 写入失败"));
+      throw obsidianError(written, "Local API 写入失败");
     }
   }
   const section = BocNote.buildAiSection(buildConversationTurns(messages));
   const updated = await sendRuntimeMessage({ type: "update-obsidian-ai-section", baseUrl, apiKey, filepath, section, noteKey });
   if (!updated?.ok) {
-    throw new Error(getReadableText(updated?.error, "Local API 写入失败"));
+    throw obsidianError(updated, "Local API 写入失败");
   }
   showConversationContextNotice(choice === "full" ? `已写入 Obsidian：${filepath}` : `已更新 AI 问答：${filepath}`, 4000);
 }
@@ -2539,7 +2546,7 @@ async function saveMarkdownToObsidian({ button, filepath, content, baseUrl, apiK
     showConversationContextNotice(`已写入 Obsidian：${filepath}`, 2600);
     return true;
   } catch (error) {
-    showConversationContextNotice(`写入 Obsidian 失败：${getErrorMessage(error)}`, 4000);
+    showObsidianFailure(error);
   } finally {
     if (button) {
       window.setTimeout(() => {
@@ -2557,7 +2564,7 @@ async function checkObsidianNoteExists(baseUrl, apiKey, filepath) {
     filepath
   });
   if (!resp?.ok) {
-    throw new Error(getReadableText(resp?.error, "Local API 检查失败"));
+    throw obsidianError(resp, "Local API 检查失败");
   }
   return Boolean(resp.exists);
 }
@@ -2571,7 +2578,7 @@ async function writeNoteByLocalApi(baseUrl, apiKey, filepath, content) {
     content
   });
   if (!resp?.ok) {
-    throw new Error(getReadableText(resp?.error, "Local API 写入失败"));
+    throw obsidianError(resp, "Local API 写入失败");
   }
 }
 
@@ -2835,10 +2842,12 @@ function showConversationContextError(message) {
   scrollToBottom();
 }
 
-function showConversationContextNotice(message, autoHideMs = 0) {
+// error: a failure the user must handle (red).
+function showConversationContextNotice(message, autoHideMs = 0, { error = false } = {}) {
   removeConversationContextNotice();
   const notice = document.createElement("div");
   notice.className = "sp-context-notice";
+  notice.classList.toggle("is-error", error);
   notice.textContent = String(message || "").trim();
   // Notices that stay up are the 正在… ones; they get the shared spinner.
   notice.setAttribute("aria-busy", String(!(autoHideMs > 0)));

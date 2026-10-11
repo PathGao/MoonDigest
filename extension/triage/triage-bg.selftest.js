@@ -9,9 +9,11 @@ const ctx = vm.createContext({ TextEncoder, URL, URLSearchParams, console, setTi
 const bg = fs.readFileSync(path.join(__dirname, "../background.js"), "utf8");
 const order = [...bg.matchAll(/importScripts\(([^)]*)\)/g)].flatMap((m) => m[1].match(/"[^"]+"/g).map((f) => JSON.parse(f)));
 for (const file of order.slice(0, order.indexOf("triage/triage-bg.js") + 1)) vm.runInContext(fs.readFileSync(path.join(__dirname, "..", file), "utf8"), ctx);
-// background.js owns supportsThinkingToggle; lift just that function.
-const at = bg.indexOf("function supportsThinkingToggle(");
-vm.runInContext(bg.slice(at, bg.indexOf("\n}\n", at) + 2), ctx);
+// background.js owns supportsThinkingToggle and obsidianFailure; lift just those functions.
+for (const name of ["supportsThinkingToggle", "obsidianFailure"]) {
+  const at = bg.indexOf(`function ${name}(`);
+  vm.runInContext(bg.slice(at, bg.indexOf("\n}\n", at) + 2), ctx);
+}
 const t = ctx;
 const plain = (x) => JSON.parse(JSON.stringify(x));
 
@@ -28,7 +30,9 @@ assert.strictEqual(t.triageSubtitleValid(null, 273), false);
 // Obsidian itself unusable carries code OBSIDIAN (it ends a 逐个视频笔记 run); one note's own error passes through.
 assert.strictEqual(t.triageObsidianError(vm.runInContext('new TypeError("Failed to fetch")', ctx)).code, "OBSIDIAN");
 assert.strictEqual(t.triageObsidianError({ status: 401 }).code, "OBSIDIAN");
-const noteErr = { status: 500 };
+// An HTTP failure of one note shows the status, never the response body.
+assert.strictEqual(t.triageObsidianError({ status: 500, message: 'HTTP 500. {"errorCode":50000}' }).message, "Obsidian 返回 HTTP 500");
+const noteErr = new Error("生成笔记失败");
 assert.strictEqual(t.triageObsidianError(noteErr), noteErr);
 assert.throws(() => t.triageObsidianConfig({ obsidianEnabled: true, obsidianApiBaseUrl: "http://127.0.0.1:27123" }), (e) => e.code === "OBSIDIAN");
 
@@ -187,6 +191,11 @@ assert.throws(() => t.triageParseCommand('{"new_tags":[', cmdItems, cmdTags, {})
   await assert.rejects(t.triageChat([], 100), (e) => e.code === "AI_THROTTLED");
   t.fetch = async () => ({ ok: false, status: 500, text: async () => "" });
   await assert.rejects(t.triageChat([], 100), (e) => e.code === undefined);
+  // A dropped B站 connection says 网络断了, without fetch's English.
+  t.fetch = async () => {
+    throw new TypeError("Failed to fetch");
+  };
+  await assert.rejects(t.triageBiliFetch("https://api.bilibili.com/x"), (e) => e.code === "NETWORK" && e.message === "网络断了");
 
   // 开启思考 reaches DeepSeek, 智谱 and Kimi only; other platforms get no thinking field.
   for (const [url, on] of [

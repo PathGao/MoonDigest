@@ -23,6 +23,7 @@ input { font: inherit; color: inherit; }
 .topbar { background: var(--surface); border-bottom: 1px solid var(--border); }
 .brand { font-size: var(--fs-lg); }
 .count, .status { color: var(--muted); }
+.status.is-error { color: var(--danger); }
 #search {
   flex: 1 1 240px;
   height: 30px;

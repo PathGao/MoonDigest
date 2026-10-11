@@ -87,6 +87,15 @@ const send = (message) => new Promise((resolve) => onMessageListeners.forEach((f
   assert.strictEqual(local[ctx.BocLimits.KEYS.obsidianNotePaths][noteKey].path, filepath, "manual save binds the video to its note");
   assert.deepStrictEqual(log.splice(0), [`PUT ${filepath}`]);
 
+  // An empty body never reaches the vault: a video that changed mid-write must not blank its note.
+  assert.deepStrictEqual(await send({ type: "write-obsidian-note", ...auth, filepath, content: " \n", noteKey }), { ok: false, error: "笔记内容为空" });
+  assert.strictEqual(vault.get(filepath), first);
+  assert.deepStrictEqual(log.splice(0), []);
+
+  // A refused key is said in words, with setup so the page offers the settings page; no status body reaches the user.
+  assert.deepStrictEqual(await send({ type: "obsidian-note-exists", baseUrl, apiKey: "wrong", filepath }), { ok: false, error: "Obsidian 的 API Key 无效或未授权", setup: true });
+  log.splice(0);
+
   // 2. The user edits around the section; a follow-up answer updates only the marked block.
   const edited = `${vault.get(filepath).replace("你好", "你好（我改的）")}\n\n我的后记\n`;
   vault.set(filepath, edited);
@@ -117,10 +126,15 @@ const send = (message) => new Promise((resolve) => onMessageListeners.forEach((f
   const snapshot = vault.get(filepath);
   await new Promise((resolve) => server.close(resolve));
   resp = await send({ type: "update-obsidian-ai-section", ...auth, filepath, section: N.buildAiSection([{ prompt: "x", answer: "y" }]), noteKey });
-  assert.strictEqual(resp.ok, false);
-  assert.ok(resp.error, "error names the failure for the retry status");
+  assert.deepStrictEqual(resp, { ok: false, error: "连不上 Obsidian，请确认它已打开并启用了 Local REST API", setup: true });
   assert.strictEqual(vault.get(filepath), snapshot);
   assert.strictEqual(local[ctx.BocLimits.KEYS.obsidianNotePaths][noteKey].path, filepath, "a failed sync keeps the binding for retry");
+
+  // 汇总一篇 (triage-export) goes through the same PUT and words; code OBSIDIAN gives the triage page its 去设置.
+  Object.assign(sync, { obsidianEnabled: true, obsidianApiBaseUrl: baseUrl });
+  local.obsidianApiKey = "k";
+  resp = await send({ type: "triage-export", filename: "汇总.md", markdown: "# x" });
+  assert.deepStrictEqual(resp, { ok: false, error: "连不上 Obsidian，请确认它已打开并启用了 Local REST API", code: "OBSIDIAN" });
 
   console.log("obsidian sync selftest ok");
 })().catch((error) => {

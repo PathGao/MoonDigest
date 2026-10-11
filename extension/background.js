@@ -703,7 +703,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     const content = typeof message.content === "string" ? message.content : "";
 
     if (!baseUrl || !apiKey || !filepath) {
-      sendResponse({ ok: false, error: "Obsidian 未配置" });
+      sendResponse(OBSIDIAN_UNSET);
+      return false;
+    }
+    // Last guard: no writer means to empty a note, so an empty body is a caller's bug (a video that changed mid-write).
+    if (!content.trim()) {
+      sendResponse({ ok: false, error: "笔记内容为空" });
       return false;
     }
 
@@ -711,7 +716,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       .then((body) => putVaultNote(baseUrl, apiKey, filepath, body))
       .then(() => rememberObsidianNotePath(message.noteKey, filepath))
       .then(() => sendResponse({ ok: true }))
-      .catch((error) => sendResponse({ ok: false, error: error.message }));
+      .catch((error) => sendResponse(obsidianFailure(error)));
 
     return true;
   }
@@ -722,13 +727,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     const filepath = String(message.filepath || "").trim();
 
     if (!baseUrl || !apiKey || !filepath) {
-      sendResponse({ ok: false, error: "Obsidian 未配置" });
+      sendResponse(OBSIDIAN_UNSET);
       return false;
     }
 
     updateAiSectionInVault({ baseUrl, apiKey, filepath, section: message.section, noteKey: message.noteKey })
       .then((result) => sendResponse({ ok: true, ...result }))
-      .catch((error) => sendResponse({ ok: false, error: error.message }));
+      .catch((error) => sendResponse(obsidianFailure(error)));
 
     return true;
   }
@@ -739,7 +744,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     const filepath = String(message.filepath || "").trim();
 
     if (!baseUrl || !apiKey || !filepath) {
-      sendResponse({ ok: false, error: "Obsidian 未配置" });
+      sendResponse(OBSIDIAN_UNSET);
       return false;
     }
 
@@ -757,14 +762,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           return;
         }
         if (!response.ok) {
-          const bodyText = await response.text().catch(() => "");
-          const detail = bodyText ? ` ${bodyText.slice(0, 200)}` : "";
-          sendResponse({ ok: false, error: `HTTP ${response.status}.${detail}` });
-          return;
+          throw await httpError(response);
         }
         sendResponse({ ok: true, exists: true });
       })
-      .catch((error) => sendResponse({ ok: false, error: error.message }));
+      .catch((error) => sendResponse(obsidianFailure(error)));
 
     return true;
   }
@@ -1463,6 +1465,15 @@ async function putVaultNote(baseUrl, apiKey, filepath, body) {
   if (!response.ok) {
     throw await httpError(response);
   }
+}
+
+// Every Obsidian write path reports with these words; setup: Obsidian itself is unusable (closed, plugin off, wrong
+// address or key), so every write fails alike and the fix is in the settings page. 408 is fetchWithTimeout's timeout.
+const OBSIDIAN_UNSET = { ok: false, error: "请先在设置页填写 Obsidian Local REST API 地址和 API Key", setup: true };
+function obsidianFailure(error) {
+  if (error?.status === 401 || error?.status === 403) return { ok: false, error: "Obsidian 的 API Key 无效或未授权", setup: true };
+  if (error?.status === 408 || error?.name === "TypeError") return { ok: false, error: "连不上 Obsidian，请确认它已打开并启用了 Local REST API", setup: true };
+  return { ok: false, error: error?.status ? `Obsidian 返回 HTTP ${error.status}` : String(error?.message || error || "未知错误"), setup: false };
 }
 
 async function httpError(response) {

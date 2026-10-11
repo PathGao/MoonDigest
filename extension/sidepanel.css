@@ -897,6 +897,16 @@ body:has(#spInput:not(:placeholder-shown)) .sp-summary-btn {
   backdrop-filter: blur(8px);
 }
 
+.sp-context-notice.is-error,
+.sp-sync-status.is-error {
+  color: var(--danger);
+}
+
+.sp-context-notice.is-error {
+  border-color: var(--danger-border);
+  background: var(--danger-bg);
+}
+
 .sp-footer {
   display: flex;
   flex-direction: column;

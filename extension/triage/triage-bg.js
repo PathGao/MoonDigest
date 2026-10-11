@@ -247,8 +247,8 @@ function triageError(error, code) {
 }
 
 // Risk control answers HTTP 412 with an HTML page, or one of these codes in JSON; both mean back off.
-// follow-bg.js uses the same set.
-const BILI_RISK_CODES = new Set([-352, -412, -799, -509]);
+// follow-bg.js and the video page (content.js) use the same set.
+const BILI_RISK_CODES = BocSites.BILI_RISK_CODES;
 async function triageBiliJson(res) {
   if (!res.ok) throw triageError(`B站请求失败 HTTP ${res.status}`, res.status === 412 ? "THROTTLED" : undefined);
   try {
@@ -276,7 +276,8 @@ async function triageBiliFetch(url, init = {}) {
     return await Promise.race([fetch(url, { ...init, credentials: "include", signal: ctl.signal }), timeout]);
   } catch (e) {
     ctl.abort();
-    throw triageError(`网络断了：${e?.message || e}`, "NETWORK");
+    // A dropped connection is fetch's TypeError, whose English text the user does not need.
+    throw triageError(e?.name === "TypeError" ? "网络断了" : `网络断了：${e?.message || e}`, "NETWORK");
   } finally {
     clearTimeout(timer);
   }
@@ -741,10 +742,11 @@ function triageObsidianConfig(settings) {
   return { baseUrl, apiKey };
 }
 // A failed fetch (closed, plugin off, wrong address), a timeout or 401/403 is Obsidian's; anything else is this note's.
+// The words are background.js obsidianFailure's, shared by every Obsidian write path.
 function triageObsidianError(e) {
-  if (e?.status === 401 || e?.status === 403) return triageError("Obsidian 的 API Key 无效或未授权", "OBSIDIAN");
-  if (e?.status === 408 || e instanceof TypeError) return triageError("连不上 Obsidian，请确认它已打开并启用了 Local REST API", "OBSIDIAN");
-  return e;
+  const { error, setup } = obsidianFailure(e);
+  if (setup) return triageError(error, "OBSIDIAN");
+  return e?.status ? triageError(error) : e;
 }
 // Before a 逐个视频笔记 run: the settings and one request to the API root (it answers authenticated: false to a wrong key).
 async function triageObsidianCheck() {
@@ -1012,20 +1014,12 @@ const TRIAGE_HANDLERS = {
     if (!name) throw triageError("缺少文件名");
     const settings = await getMergedSettings();
     const folder = BocNote.resolveFolderTemplate(settings.noteFolder, { site: "bilibili" });
-    const baseUrl = String(settings.obsidianApiBaseUrl || "").trim();
-    const apiKey = String(settings.obsidianApiKey || "").trim();
-    if (!baseUrl || !apiKey) throw triageError("Obsidian 未配置");
+    const { baseUrl, apiKey } = triageObsidianConfig(settings);
     const path = folder ? `${folder}/${name}` : name;
-    const encodedPath = path.split("/").filter(Boolean).map((s) => encodeURIComponent(s)).join("/");
-    const res = await fetch(`${baseUrl.replace(/\/+$/g, "")}/vault/${encodedPath}`, {
-      method: "PUT",
-      headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "text/markdown; charset=utf-8" },
-      body: typeof markdown === "string" ? markdown : ""
+    // putVaultNote gives up after OBSIDIAN_TIMEOUT_MS, so a hung Obsidian ends 写入中….
+    await putVaultNote(baseUrl, apiKey, path, typeof markdown === "string" ? markdown : "").catch((e) => {
+      throw triageObsidianError(e);
     });
-    if (!res.ok) {
-      const detail = await res.text().catch(() => "");
-      throw triageError(`HTTP ${res.status}${detail ? `: ${detail.slice(0, 200)}` : ""}`);
-    }
     return { path };
   }
 };
