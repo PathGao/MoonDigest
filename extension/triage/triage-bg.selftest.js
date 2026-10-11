@@ -184,13 +184,32 @@ assert.throws(() => t.triageParseCommand('{"new_tags":[', cmdItems, cmdTags, {})
 
 
 (async () => {
-  // AI HTTP 429 is its own throttle code; other HTTP errors carry none.
+  // AI errors get one code each: a 429 that says the balance or quota ran out is AI_QUOTA, not a throttle to wait out;
+  // 5xx carries none (that request only). The body never reaches the message.
   t.loadAiProviders = async () => [{ id: "p", baseUrl: "https://ai.test", model: "m" }];
   t.loadAiProviderKeys = async () => ({});
-  t.fetch = async () => ({ ok: false, status: 429, text: async () => "slow down" });
-  await assert.rejects(t.triageChat([], 100), (e) => e.code === "AI_THROTTLED");
-  t.fetch = async () => ({ ok: false, status: 500, text: async () => "" });
-  await assert.rejects(t.triageChat([], 100), (e) => e.code === undefined);
+  for (const [status, body, code] of [
+    [429, "slow down", "AI_THROTTLED"],
+    [429, '{"error":{"message":"Rate limit reached for gpt-4o on requests per min (RPM)"}}', "AI_THROTTLED"],
+    [429, '{"error":{"message":"Quota exceeded for metric generate_content_requests per minute"}}', "AI_THROTTLED"],
+    [429, '{"error":{"message":"You exceeded your current quota, please check your plan and billing details.","type":"insufficient_quota"}}', "AI_QUOTA"],
+    [429, '{"error":{"code":"1113","message":"余额不足或无可用资源包,请充值。"}}', "AI_QUOTA"],
+    [402, '{"error":{"message":"Insufficient Balance"}}', "AI_QUOTA"],
+    [401, '{"error":{"message":"Incorrect API key provided"}}', "AI_AUTH"],
+    [403, "", "AI_AUTH"],
+    [404, '{"error":{"code":"model_not_found"}}', "AI_SETUP"],
+    [500, "", undefined]
+  ]) {
+    t.fetch = async () => ({ ok: false, status, text: async () => body });
+    await assert.rejects(t.triageChat([], 100), (e) => e.code === code && !/error|\{/.test(e.message), `${status} ${body}`);
+  }
+  t.hostPermissionError = async () => "";
+  t.fetch = async () => {
+    throw new TypeError("Failed to fetch");
+  };
+  await assert.rejects(t.triageChat([], 100), (e) => e.code === "AI_NETWORK" && e.message === "连不上 AI 平台，请检查网络和接口地址");
+  t.hostPermissionError = async () => "未授权访问 https://ai.test，授权后重试";
+  await assert.rejects(t.triageChat([], 100), (e) => e.code === undefined && /未授权访问/.test(e.message), "a missing permission keeps its own text");
   // A dropped B站 connection says 网络断了, without fetch's English.
   t.fetch = async () => {
     throw new TypeError("Failed to fetch");
@@ -221,7 +240,7 @@ assert.throws(() => t.triageParseCommand('{"new_tags":[', cmdItems, cmdTags, {})
     signal.addEventListener("abort", () => (aborted = true));
     return new Promise(() => {});
   };
-  await assert.rejects(t.triageChat([], 100), (e) => e.code === "AI_TIMEOUT" && e.message === "AI 超时（0.03 秒），已跳过，可重试");
+  await assert.rejects(t.triageChat([], 100), (e) => e.code === "AI_TIMEOUT" && e.message === "AI 平台 0.03 秒没有回应");
   assert.strictEqual(aborted, true);
   const started = Date.now();
   await assert.rejects(t.triageChat([], 100, true), (e) => e.code === "AI_TIMEOUT");

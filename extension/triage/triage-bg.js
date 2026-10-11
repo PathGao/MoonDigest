@@ -596,6 +596,25 @@ async function triageAnalyze({ bvid, force, criteria, folder }) {
   return analysis;
 }
 
+// AI 平台的 HTTP 错误，粗看 / 细看 / AI 打标签和侧边栏（background.js streamChat）共用这一份分类。
+// AI_AUTH、AI_QUOTA、AI_SETUP 之后每个请求都会一样失败，分拣台第一次遇到就停；AI_THROTTLED 等一会儿重试；
+// 其余（5xx、400）只算这一个视频或这一批。很多平台余额不足也回 429（OpenAI insufficient_quota、Moonshot
+// exceeded_current_quota_error、智谱「余额不足」「欠费」），所以 429 看返回内容；写着限流或「每分钟」的仍算限流
+// （Gemini 的每分钟配额也叫 quota）。
+const AI_QUOTA_RE = /quota|balance|billing|余额|欠费|额度/i;
+const AI_RATE_RE = /rate.?limit|per.?minute|频率|并发/i;
+function triageAiHttpError(status, detail = "") {
+  const text = String(detail);
+  if (status === 401 || status === 403) return triageError("AI 平台的 API Key 无效或没有权限", "AI_AUTH");
+  if (status === 402 || (status === 429 && AI_QUOTA_RE.test(text) && !AI_RATE_RE.test(text))) {
+    return triageError("AI 平台余额不足或额度已用完，请充值或换一个平台", "AI_QUOTA");
+  }
+  if (status === 404) return triageError("AI 平台找不到这个接口或模型，请检查接口地址和模型名", "AI_SETUP");
+  if (status === 429) return triageError("AI 平台限流", "AI_THROTTLED");
+  return triageError(`AI 平台出错（HTTP ${status}）`);
+}
+const AI_NETWORK_TEXT = "连不上 AI 平台，请检查网络和接口地址";
+
 // 单次 AI 请求的超时（毫秒）。思考模式慢得多；两档都要短于 MV3 单个消息事件约 5 分钟的上限
 const TRIAGE_AI_TIMEOUT_MS = { normal: 120000, thinking: 240000 };
 
@@ -618,7 +637,7 @@ async function triageChat(messages, maxTokens, thinking = false) {
   const timeout = new Promise((_, reject) => {
     timer = setTimeout(() => {
       controller.abort();
-      reject(triageError(`AI 超时（${ms / 1000} 秒），已跳过，可重试`, "AI_TIMEOUT"));
+      reject(triageError(`AI 平台 ${ms / 1000} 秒没有回应`, "AI_TIMEOUT"));
     }, ms);
   });
   const request = async () => {
@@ -627,13 +646,11 @@ async function triageChat(messages, maxTokens, thinking = false) {
       headers,
       body: JSON.stringify(body),
       signal: controller.signal
-    }).catch(async (e) => {
-      throw triageError((await hostPermissionError(baseUrl)) || e?.message || String(e));
+    }).catch(async () => {
+      const denied = await hostPermissionError(baseUrl);
+      throw denied ? triageError(denied) : triageError(AI_NETWORK_TEXT, "AI_NETWORK");
     });
-    if (!res.ok) {
-      const detail = await res.text().catch(() => "");
-      throw triageError(`HTTP ${res.status}: ${detail.slice(0, 200)}`, res.status === 429 ? "AI_THROTTLED" : undefined);
-    }
+    if (!res.ok) throw triageAiHttpError(res.status, await res.text().catch(() => ""));
     const json = await res.json();
     const choice = json.choices?.[0];
     if (!choice?.message?.content && choice?.finish_reason === "length") {

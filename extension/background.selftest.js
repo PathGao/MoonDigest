@@ -208,7 +208,17 @@ process.on("exit", (code) => {
   ]);
   out = await chat();
   assert.deepStrictEqual(out.map((m) => m.type), ["token", "error"]);
-  assert.strictEqual(out[1].error, "接口返回错误：quota exceeded");
+  assert.deepStrictEqual([out[1].error, out[1].code], ["AI 平台余额不足或额度已用完，请充值或换一个平台", "AI_QUOTA"]);
+
+  // HTTP and network errors reach the panel in Chinese with the 分拣台's code, never the body.
+  ctx.fetch = async () => ({ ok: false, status: 401, text: async () => '{"error":{"message":"Incorrect API key provided"}}' });
+  out = await chat();
+  assert.deepStrictEqual([out[0].error, out[0].code], ["AI 平台的 API Key 无效或没有权限", "AI_AUTH"]);
+  ctx.fetch = async () => {
+    throw new TypeError("Failed to fetch");
+  };
+  out = await chat();
+  assert.deepStrictEqual([out[0].error, out[0].code], ["连不上 AI 平台，请检查网络和接口地址", "AI_NETWORK"]);
 
   // A request that never answers fails with a retryable timeout instead of hanging the caller.
   ctx.fetch = (url, { signal }) => new Promise((_, reject) => signal.addEventListener("abort", () => reject(signal.reason)));

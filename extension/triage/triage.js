@@ -504,7 +504,17 @@ function showBanner(text, btnText, onClick, kind = "") {
   el.banner.hidden = false;
 }
 
-function handleAiError(error) {
+// AI errors after which every later request fails alike (codes from triageAiHttpError in triage-bg.js; 配置 AI and
+// 未授权访问 carry none): 粗看, 细看 and AI 打标签 stop at the first one and the banner offers 去设置. AI_TIMEOUT sends the
+// same request again and ends the run after AI_TIMEOUT_TRIES in a row; AI_THROTTLED waits, AI_THROTTLE_WAITS times in a
+// row at most, then ends the run as AI_GAVE_UP.
+const AI_END_CODES = new Set(["AI_AUTH", "AI_QUOTA", "AI_SETUP", "AI_NETWORK", "AI_TIMEOUT", "AI_GAVE_UP"]);
+const aiEnds = (r) => AI_END_CODES.has(r.code) || /配置 AI|未授权访问/.test(r.error || "");
+const AI_TIMEOUT_TRIES = 2;
+const AI_THROTTLE_WAITS = 5;
+const aiGaveUp = () => ({ ok: false, code: "AI_GAVE_UP", error: `AI 平台持续限流，已等待重试 ${AI_THROTTLE_WAITS} 次，已停止` });
+
+function handleAiError(error, code = "") {
   const text = String(error || "AI 调用失败");
   const origin = /未授权访问 (https?:\/\/[^\s，]+)/.exec(text)?.[1];
   if (origin) {
@@ -517,6 +527,8 @@ function handleAiError(error) {
     }, "ai");
   } else if (text.includes("配置 AI")) {
     showBanner("还没有配置 AI 平台", "去设置", () => send({ type: "open-options" }), "ai");
+  } else if (AI_END_CODES.has(code)) {
+    showBanner(text, "去设置", () => send({ type: "open-options" }), "ai");
   } else if (text.includes("截断")) {
     showBanner(`${text}。建议调大输出上限${hasThinkingToggle() ? "或关闭思考" : ""}`, "打开收藏夹设置", () => openSettings(true), "ai");
   } else toast(text, true);
@@ -3179,18 +3191,17 @@ async function runStage1(list = stage1Pending()) {
     const r = S.titleRes[it.bvid];
     return !VERDICTS[r?.verdict] || isStale(r, judge.get(it.bvid).crit);
   };
-  // Timed-out batches are skipped for this run only, so clicking 标题粗看 again retries them.
-  const timedOut = new Set();
   // In its own folder the live step decides (a card may have been sorted meanwhile); elsewhere only the result does.
   const pending = () =>
-    list.filter((it) => !timedOut.has(it.bvid) && !S.stage1Skip.has(it.bvid) && !it.invalid && due(it) && (S.mediaId !== folder || ["none", "coarse"].includes(stageOf(it))));
+    list.filter((it) => !S.stage1Skip.has(it.bvid) && !it.invalid && due(it) && (S.mediaId !== folder || ["none", "coarse"].includes(stageOf(it))));
   const total = pending().length;
   // The run owns its line (text); the activity bar reads it, in its folder or as a hint elsewhere.
   S.stage1 = { running: true, stop: false, done: 0, total, mediaId: folder, text: "" };
   const keepGoing = () => !S.stage1.stop;
   const size = Math.max(1, Number(S.settings.triageTitleBatchSize) || 30);
   let done = 0;
-  let retried = false;
+  let timeouts = 0;
+  let aiWaits = 0;
   let failedOut = false;
   render();
   while (keepGoing()) {
@@ -3202,26 +3213,21 @@ async function runStage1(list = stage1Pending()) {
     S.stage1.text = `标题粗看中 ${done}/${total}`;
     for (const it of batch) S.analyzing.add(it.bvid);
     render();
-    const r = await send({ type: "triage-classify-titles", items: batch.map(aiItem), criteria: crit, folder: ctx });
+    let r = await send({ type: "triage-classify-titles", items: batch.map(aiItem), criteria: crit, folder: ctx });
     for (const it of batch) S.analyzing.delete(it.bvid);
     if (!r.ok) {
+      // A timeout sends the same batch again; the second in a row ends the run, as any other error does.
+      if (r.code === "AI_TIMEOUT" && ++timeouts < AI_TIMEOUT_TRIES) continue;
+      if (r.code === "AI_THROTTLED" && aiWaits++ === AI_THROTTLE_WAITS) r = aiGaveUp();
       if (THROTTLES[r.code]) {
         await throttleWait(r.code, keepGoing);
         continue;
       }
-      if (r.code === "AI_TIMEOUT") {
-        // First timeout retries the same batch; a second one skips it and moves on.
-        retried = !retried;
-        if (retried) continue;
-        batch.forEach((it) => timedOut.add(it.bvid));
-        toast(r.error, true);
-        continue;
-      }
-      handleAiError(r.error);
+      handleAiError(r.error, r.code);
       failedOut = true;
       break;
     }
-    retried = false;
+    timeouts = aiWaits = 0;
     const results = r.data?.results || {};
     for (const it of batch) {
       if (results[it.bvid]) S.titleRes[it.bvid] = { criteria: crit, ...results[it.bvid] };
@@ -3235,9 +3241,7 @@ async function runStage1(list = stage1Pending()) {
   }
   S.stage1.running = false;
   if (!failedOut) clearAiBanner();
-  S.stage1.text = timedOut.size
-    ? `标题粗看完成 ${done} 个，${timedOut.size} 个因 AI 超时跳过，再点标题粗看可重试`
-    : done ? `标题粗看完成 ${done} 个` : "";
+  S.stage1.text = done ? `标题粗看完成 ${done} 个` : "";
   if (S.stage1.text && runWhere(S.stage1)) toast(`「${folderName(folder)}」${S.stage1.text}`);
   render();
 }
@@ -3280,25 +3284,34 @@ async function analyzeOne(bvid, force, { crit, ctx }) {
 async function runGroup() {
   const group = S.group;
   const keepGoing = () => !group.stop && S.group === group;
+  let timeouts = 0;
+  let aiWaits = 0;
   render();
   while (keepGoing()) {
     const b = group.bvids.find((x) => groupPending(group, x));
     if (!b) break;
     group.text = `${group.redo ? "按新标准重新细看" : "字幕细看"} ${groupDone(group) + 1}/${group.bvids.length}`;
     const judge = group.judge.get(b);
-    const r = await analyzeOne(b, Boolean(group.redo), judge);
+    let r = await analyzeOne(b, Boolean(group.redo), judge);
+    // An error that is not this video's ends the run and leaves the card as it was; a timeout first tries it again.
+    if (!r.ok && r.code === "AI_TIMEOUT" && ++timeouts < AI_TIMEOUT_TRIES) continue;
+    if (!r.ok && r.code === "AI_THROTTLED" && aiWaits++ === AI_THROTTLE_WAITS) r = aiGaveUp();
     if (!r.ok && THROTTLES[r.code]) {
       render();
       await throttleWait(r.code, keepGoing);
       continue;
     }
+    if (!r.ok && aiEnds(r)) {
+      handleAiError(r.error, r.code);
+      group.stop = true;
+      break;
+    }
+    timeouts = aiWaits = 0;
     group.redo?.delete(b);
     const keepOld = !r.ok && group.redo && S.analyses[b]?.status === "done";
     if (keepOld) toast(`重新细看失败，保留原来的结果：${r.error}`, true);
     else S.analyses[b] = r.ok ? { criteria: judge.crit, ...r.data } : { bvid: b, status: "error", error: r.error };
-    const err = r.ok ? "" : String(r.error || "");
-    if (/配置 AI|截断|未授权访问/.test(err)) handleAiError(err);
-    if (/配置 AI|未授权访问/.test(err)) group.stop = true;
+    if (/截断/.test(r.error || "")) handleAiError(r.error);
     render();
     if (group.bvids.some((x) => groupPending(group, x))) await sleepWhile(S.settings.triageIntervalSec * 1000, keepGoing);
   }
@@ -3323,7 +3336,7 @@ async function retry(bvid) {
   if (!r.ok) {
     S.analyses[bvid] = { bvid, status: "error", error: r.error };
     if (THROTTLES[r.code]) toast(`${THROTTLES[r.code][1]}，请稍后再试`, true);
-    else handleAiError(r.error);
+    else handleAiError(r.error, r.code);
   } else {
     S.analyses[bvid] = { criteria: judge.crit, ...r.data };
   }
@@ -3432,8 +3445,9 @@ const aiTags = {
 };
 const openAi = () => TagDialogs.ai.open(aiTags);
 
-// One AI 打标签 run, for both modes: request(i, p) is batch i's message, merge(p, data) folds an answer in. An AI 429 waits
-// and sends the same batch again; a setup error (配置 AI, 未授权访问) fails every batch alike, so it ends the run. Returns
+// One AI 打标签 run, for both modes: request(i, p) is batch i's message, merge(p, data) folds an answer in. An AI 429 or
+// timeout sends the same batch again, up to AI_THROTTLE_WAITS / AI_TIMEOUT_TRIES in a row; an error that fails every
+// batch alike (aiEnds) ends the run. Returns
 // { proposal, errors }: proposal is null when no batch got through, so there is nothing to confirm (the progress line says why).
 // name(i), when given, says which batch in the progress line and errors (所有收藏夹 names the folder).
 // at, the mode's run state, gets { done, total, until, label } for the pill; progress runs at least once a second while
@@ -3442,11 +3456,18 @@ async function runAiBatches({ total, request, merge, intervalMs, keepGoing, prog
   const which = (i, full = false) => (name ? name(i) : full ? `第 ${i + 1} / ${total} 批` : `第 ${i + 1} 批`);
   const p = { newTags: [], rows: [], notes: [], errors: [] };
   let answered = 0;
+  let timeouts = 0;
+  let aiWaits = 0;
   Object.assign(at, { done: 0, total, until: 0 });
   for (let i = 0; i < total && keepGoing(); i++) {
     at.done = i;
     progress(`AI 正在处理${which(i, true)}…`);
-    const r = await send(request(i, p));
+    let r = await send(request(i, p));
+    if (!r.ok && r.code === "AI_TIMEOUT" && ++timeouts < AI_TIMEOUT_TRIES) {
+      i--;
+      continue;
+    }
+    if (!r.ok && r.code === "AI_THROTTLED" && aiWaits++ === AI_THROTTLE_WAITS) r = aiGaveUp();
     if (!r.ok && THROTTLES[r.code]) {
       const [ms, label] = THROTTLES[r.code];
       Object.assign(at, { until: Date.now() + ms, label });
@@ -3458,11 +3479,13 @@ async function runAiBatches({ total, request, merge, intervalMs, keepGoing, prog
       i--;
       continue;
     }
+    const ends = !r.ok && aiEnds(r);
+    timeouts = aiWaits = 0;
     if (!r.ok) {
       p.errors.push(`${which(i)}失败：${r.error}`);
       // 截断 is reported with what to change.
-      if (/截断|配置 AI|未授权访问/.test(r.error || "")) handleAiError(r.error);
-      if (/配置 AI|未授权访问/.test(r.error || "")) break;
+      if (ends || /截断/.test(r.error || "")) handleAiError(r.error, r.code);
+      if (ends) break;
     } else {
       answered++;
       merge(p, r.data, i);

@@ -2025,7 +2025,7 @@ async function sendMessage() {
     } else if (msg.type === "stopped") {
       endStream(stream, { stopped: msg.reason || "已停止生成" });
     } else if (msg.type === "error") {
-      endStream(stream, { error: msg.error || "未知错误" });
+      endStream(stream, { error: msg.error || "未知错误", code: msg.code });
     }
   });
   // Only the background end can trigger this: the extension reloaded or the service worker died mid-reply.
@@ -2095,7 +2095,7 @@ function closeStream(stream) {
 }
 
 // Every way a reply ends lands here. A partial answer is kept and saved, also when the stream fails.
-function endStream(stream, { stopped = "", error = "" } = {}) {
+function endStream(stream, { stopped = "", error = "", code = "" } = {}) {
   closeStream(stream);
   if (stream !== activeStream) {
     if (stream.conversationId) {
@@ -2124,14 +2124,17 @@ function endStream(stream, { stopped = "", error = "" } = {}) {
     node.appendChild(note);
   });
   if (error) {
-    appendStreamError(stream, error, saved);
+    appendStreamError(stream, error, saved, code);
   }
   setStreamingUiState(false);
   els.input.focus();
   scrollToBottom();
 }
 
-function appendStreamError({ node, prompt, raw }, error, saved) {
+// Errors that only a settings change fixes (codes from triageAiHttpError in triage-bg.js): 去设置 comes before 重试.
+const AI_SETTINGS_CODES = new Set(["AI_AUTH", "AI_QUOTA", "AI_SETUP"]);
+
+function appendStreamError({ node, prompt, raw }, error, saved, code = "") {
   const err = document.createElement("div");
   err.className = "sp-msg-error";
   err.textContent = `错误：${error}`;
@@ -2150,6 +2153,14 @@ function appendStreamError({ node, prompt, raw }, error, saved) {
       }
     });
     node.appendChild(grant);
+  }
+  if (AI_SETTINGS_CODES.has(code)) {
+    const settings = document.createElement("button");
+    settings.type = "button";
+    settings.className = "sp-chip sp-grant-btn";
+    settings.textContent = "去设置";
+    settings.addEventListener("click", () => chrome.runtime.openOptionsPage());
+    node.appendChild(settings);
   }
   const retry = document.createElement("button");
   retry.type = "button";

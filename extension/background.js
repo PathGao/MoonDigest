@@ -1429,10 +1429,11 @@ async function* parseOpenAISSE(response, onActivity) {
       } catch {
         continue;
       }
-      // Some providers report quota and moderation failures inside an HTTP 200 stream.
+      // Some providers report quota and moderation failures inside an HTTP 200 stream. Only a Chinese message is shown.
       if (json?.error) {
         const detail = typeof json.error === "string" ? json.error : json.error.message || JSON.stringify(json.error);
-        throw new Error(`接口返回错误：${detail}`);
+        if (AI_QUOTA_RE.test(detail)) throw triageAiHttpError(402, detail);
+        throw new Error(/[\u4e00-\u9fff]/.test(detail) ? `AI 平台返回错误：${detail}` : "AI 平台返回错误");
       }
       const delta = json?.choices?.[0]?.delta?.content;
       if (delta) yield String(delta);
@@ -1636,14 +1637,15 @@ async function streamChat({ provider, context, userPrompt, history, port, signal
       postStreamAbort(port, getAbortMeta?.());
       return;
     }
-    port.postMessage({ type: "error", error: (await hostPermissionError(baseUrl)) || `网络错误：${e?.message || e}` });
+    const denied = await hostPermissionError(baseUrl);
+    port.postMessage(denied ? { type: "error", error: denied } : { type: "error", error: AI_NETWORK_TEXT, code: "AI_NETWORK" });
     return;
   }
 
+  // The 分拣台's classification (triage-bg.js); the code tells the panel whether 重试 can help.
   if (!response.ok) {
-    let detail = "";
-    try { detail = (await response.text()).slice(0, 200); } catch {}
-    port.postMessage({ type: "error", error: `HTTP ${response.status}${detail ? `: ${detail}` : ""}` });
+    const e = triageAiHttpError(response.status, await response.text().catch(() => ""));
+    port.postMessage({ type: "error", error: e.message, ...(e.code && { code: e.code }) });
     return;
   }
 
@@ -1657,7 +1659,9 @@ async function streamChat({ provider, context, userPrompt, history, port, signal
       postStreamAbort(port, getAbortMeta?.());
       return;
     }
-    port.postMessage({ type: "error", error: String(e?.message || e) });
+    // A connection dropped mid-reply is a TypeError ("network error").
+    const err = e instanceof TypeError ? triageError(AI_NETWORK_TEXT, "AI_NETWORK") : e;
+    port.postMessage({ type: "error", error: String(err?.message || err), ...(err?.code && { code: err.code }) });
   }
 }
 

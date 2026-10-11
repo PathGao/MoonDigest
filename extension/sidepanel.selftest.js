@@ -215,6 +215,17 @@ const page = (id) => ({ ok: true, payload: { url: `https://example.com/${id}`, t
     ctx.resolveConversationContext = realResolve;
   }
 
+  // A bad key or used-up quota offers 去设置 before 重试; a network error only 重试.
+  {
+    const errorButtons = (code) => {
+      const kids = [];
+      ctx.appendStreamError({ node: { appendChild: (c) => kids.push(c) }, prompt: "q", raw: "" }, "x", false, code);
+      return kids.slice(1).map((k) => (typeof k.textContent === "string" ? k.textContent : k.innerHTML.replace(/<[^>]*>/g, "")));
+    };
+    assert.deepStrictEqual(errorButtons("AI_QUOTA"), ["去设置", "重试"]);
+    assert.deepStrictEqual(errorButtons("AI_NETWORK"), ["重试"]);
+  }
+
   console.log("sidepanel selftest: all passed");
 })().catch((e) => {
   console.error(e);

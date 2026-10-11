@@ -760,6 +760,21 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     t.S.ai.proposal = null;
     handlers["triage-ai-command"] = () => ({ ok: true, data: {} });
   }
+  // An AI that keeps answering 429 is waited out AI_THROTTLE_WAITS (5) times in a row, then the run ends with a banner.
+  {
+    const realSleep = t.sleepWhile;
+    const waits = [];
+    t.sleepWhile = async (ms) => waits.push(ms);
+    handlers["triage-ai-command"] = () => ({ ok: false, code: "AI_THROTTLED", error: "AI 平台限流" });
+    const before = sent.length;
+    await t.runAiCommand({ instruction: "按深度分", scope: "filter", allowRemove: false });
+    assert.strictEqual(sent.slice(before).filter((m) => m.type === "triage-ai-command").length, 6);
+    assert.deepStrictEqual([waits.reduce((a, b) => a + b), t.S.ai.proposal], [5 * 60000, null]);
+    assert.deepStrictEqual([t.el.bannerText.textContent, t.el.bannerBtn.textContent], ["AI 平台持续限流，已等待重试 5 次，已停止", "去设置"]);
+    t.sleepWhile = realSleep;
+    t.el.banner.hidden = true;
+    handlers["triage-ai-command"] = () => ({ ok: true, data: {} });
+  }
   // Every batch failed: nothing to confirm (no 待确认), the reason is toasted. A setup error (配置 AI) stops the run at
   // the first batch, as in 关注.
   {
@@ -1742,6 +1757,32 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   t.startGroup(["BV820"]);
   for (let i = 0; i < 20 && t.S.group; i++) await new Promise((r) => setImmediate(r));
   assert.strictEqual(t.el.banner.hidden, true, "a run that works clears the AI banner wherever it ran");
+  // An AI error that fails every video (bad key, quota, network) ends 细看 at the first video, leaves its card as it was
+  // and shows the banner with 去设置; a timeout sends the same video again once, the second ends the run.
+  {
+    openFake("K", [item(860), item(861)]);
+    t.S.analyses = {};
+    const calls = [];
+    const failWith = (code, error) => (handlers["triage-analyze"] = ({ bvid }) => (calls.push(bvid), { ok: false, code, error }));
+    const runFine = async () => {
+      calls.length = 0;
+      t.startGroup(["BV860", "BV861"]);
+      for (let i = 0; i < 20 && t.S.group; i++) await new Promise((r) => setImmediate(r));
+    };
+    failWith("AI_AUTH", "AI 平台的 API Key 无效或没有权限");
+    await runFine();
+    assert.deepStrictEqual([calls, t.S.analyses.BV860, t.S.group], [["BV860"], undefined, null]);
+    assert.deepStrictEqual([t.el.banner.hidden, t.el.bannerText.textContent, t.el.bannerBtn.textContent], [false, "AI 平台的 API Key 无效或没有权限", "去设置"]);
+    failWith("AI_TIMEOUT", "AI 平台 120 秒没有回应");
+    await runFine();
+    assert.deepStrictEqual([calls, t.S.analyses.BV860], [["BV860", "BV860"], undefined]);
+    // A bad answer is that video's own: its card fails and the run goes on.
+    failWith(undefined, "AI 回复格式不对");
+    await runFine();
+    assert.deepStrictEqual([calls, t.S.analyses.BV861.status], [["BV860", "BV861"], "error"]);
+    t.S.analyses = {};
+    t.el.banner.hidden = true;
+  }
 
   // 所有收藏夹: each video is judged under its first chosen folder's 判断标准 and context; a 粗看 batch holds one folder.
   {
