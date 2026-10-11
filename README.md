@@ -251,10 +251,10 @@ extension/
 └── dev/            设置页的开发用假数据
 ```
 
-自检：
+自检（用 `/usr/local/bin/node`，Node 24；`node` 指向 bun 套壳或 v26 时有几个会卡住或报错）：
 
 ```bash
-for f in extension/*.selftest.js extension/triage/*.selftest.js; do node "$f" || break; done
+for f in extension/*.selftest.js extension/triage/*.selftest.js extension/history/*.selftest.js; do /usr/local/bin/node "$f" || break; done
 ```
 
 不装插件预览页面：在 `extension/` 下起静态服务（`python3 -m http.server 8000`），打开 `/triage/triage.html` 或 `/history/history.html`，会自动加载各自 `dev/mock-chrome.js` 里的假数据。侧边栏先运行 `node extension/dev-sidepanel/build.mjs`，再打开 `/dev-sidepanel/index.html`。设置页要在页面脚本运行前注入 `dev/options-mock.js`（比如用 CDP 的 `Page.addScriptToEvaluateOnNewDocument`），再打开 `/options.html`。分拣台、视频记录和侧边栏的地址加 `?demo`，换成 README 截图用的演示数据（设置页的假数据本身就是）。
