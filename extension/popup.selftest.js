@@ -12,6 +12,7 @@ const button = () => {
   return { disabled: false, title: "", attrs, setAttribute: (k, v) => (attrs[k] = v), removeAttribute: (k) => delete attrs[k] };
 };
 const ctx = vm.createContext({ document: { getElementById: button } });
+vm.runInContext(fs.readFileSync(path.join(__dirname, "settings.js"), "utf8"), ctx);
 vm.runInContext(`${source}\n;globalThis.el = el;`, ctx);
 const state = () => Object.fromEntries(["downloadBtn", "readingViewBtn", "copyBtn", "mdBtn", "sendBtn"].map((k) => {
   const b = ctx.el[k];

@@ -25,9 +25,8 @@ const el = {
 let latestPayload = null;
 // The side panel's request slot (sidepanel.js, background.js).
 const QUICK_ACTION_STORAGE_KEY = "boc_player_ai_quick_action_v1";
-const DEFAULT_SETTINGS = {
-  downloadFormat: "srt"
-};
+// Only for when get-settings fails. Its downloadFormat ("srt") wins over the page's payload.downloadFormat.
+const DEFAULT_SETTINGS = BocSettings.DEFAULTS;
 
 function formatLocalDate(value = Date.now()) {
   const date = value instanceof Date ? new Date(value.getTime()) : new Date(value);
@@ -76,7 +75,7 @@ function bindEvents() {
   el.downloadBtn.addEventListener("click", async () => {
     const payload = await ensurePayload();
     const settings = await getSettingsFromRuntime();
-    const format = normalizeDownloadFormat(settings?.downloadFormat || payload?.downloadFormat);
+    const format = BocSettings.normalizeDownloadFormat(settings?.downloadFormat || payload?.downloadFormat);
     const content =
       format === "txt" ? payload?.txt || payload?.subtitlePreview || "" : payload?.srt || "";
     if (!content) {
@@ -352,10 +351,6 @@ function sanitizeFileName(value) {
     .replace(/\s+/g, " ")
     .trim()
     .slice(0, 120);
-}
-
-function normalizeDownloadFormat(value) {
-  return value === "txt" ? "txt" : "srt";
 }
 
 function escapeHtml(value) {

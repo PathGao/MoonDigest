@@ -140,8 +140,8 @@ process.on("exit", (code) => {
   const fresh = {};
   init = install(fresh);
   await init();
-  assert.deepStrictEqual(fresh.aiPresetPrompts, JSON.parse(vm.runInContext("JSON.stringify(DEFAULT_PRESET_PROMPTS)", ctx)));
-  assert.strictEqual(fresh.playerAiQuickPrompt, vm.runInContext("DEFAULT_PLAYER_AI_QUICK_PROMPT", ctx));
+  assert.deepStrictEqual(fresh.aiPresetPrompts, [...ctx.BocSettings.DEFAULTS.aiPresetPrompts]);
+  assert.strictEqual(fresh.playerAiQuickPrompt, ctx.BocSettings.DEFAULTS.playerAiQuickPrompt);
   assert.ok(!("aiInitialQuickPrompts" in fresh));
 
   // Saving a partial payload (the options page has no reading-view controls) keeps every key it omits.

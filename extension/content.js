@@ -4,32 +4,8 @@
 // Bilibili video pages load this in every frame; a subframe only runs it when viewer-frame.js (document_start)
 // marked it as 分拣台's viewer. Bilibili iframes on other sites stay inert.
 if (!globalThis.__BOC_CONTENT_SCRIPT_LOADED__ && (window === window.top || document.documentElement.hasAttribute("data-mdg-viewer"))) {
-const DEFAULT_SETTINGS = {
-  obsidianEnabled: false,
-  noteFolder: "MoonDigest/{{site}}",
-  obsidianApiBaseUrl: "http://127.0.0.1:27123",
-  obsidianApiKey: "",
-  tags: "MoonDigest",
-  downloadFormat: "srt",
-  youtubeSubtitleLang: "auto",
-  includeDateInFilename: true,
-  includeHotCommentsInNote: false,
-  includeCoverInNote: true,
-  includeAiChatInNote: true,
-  enablePlayerAiQuickAction: true,
-  playerAiQuickPrompt: "整理这期视频的内容，输出结构化总结：主题、核心观点、关键细节、结论与可执行启发。",
-  includeTimestampInBody: true,
-  enableDebugLogs: false,
-  readerTheme: "light",
-  readerFontScale: "m",
-  readerLetterSpacing: "normal",
-  readerLineHeight: "tight",
-  readerContentWidth: "medium",
-  readerChapterVisible: true,
-  frontmatterFields: BocNote.DEFAULT_FRONTMATTER_FIELDS,
-  fixedFrontmatterProperties: [],
-  notePlaceholderSections: []
-};
+// Only for when get-settings fails; the background owns the stored settings.
+const DEFAULT_SETTINGS = { ...BocSettings.DEFAULTS, ...BocSettings.LOCAL_DEFAULTS };
 const { formatCompactTimestamp, buildSubtitlePreview, buildSrt, buildTxt, shouldShowHoursInNote } = BocNote;
 const subtitleCache = BocSites.subtitleCache;
 
@@ -287,26 +263,6 @@ function hasNativeReaderPlayerLayoutIssue(playerHost = state.readingPlayerHost) 
 
   const wrapRect = wrapNode.getBoundingClientRect();
   return wrapRect.height <= 8 && playerRect.height > 120;
-}
-
-function normalizeReaderTheme(value) {
-  return value === "dark" || value === "paper" ? value : "light";
-}
-
-function normalizeReaderFontScale(value) {
-  return ["xs", "s", "m", "l", "xl"].includes(value) ? value : "m";
-}
-
-function normalizeReaderLetterSpacing(value) {
-  return ["tighter", "tight", "normal", "relaxed", "loose"].includes(value) ? value : "normal";
-}
-
-function normalizeReaderLineHeight(value) {
-  return ["compact", "tight", "normal", "relaxed", "loose"].includes(value) ? value : "tight";
-}
-
-function normalizeReaderContentWidth(value) {
-  return ["compact", "narrow", "medium", "wide", "full"].includes(value) ? value : "medium";
 }
 
 function shouldDebugLog() {
@@ -1483,7 +1439,7 @@ function getPopupPayload() {
     markdown: state.markdown || "",
     srt: state.srt || "",
     txt: state.txt || "",
-    downloadFormat: normalizeDownloadFormat(state.settings?.downloadFormat),
+    downloadFormat: BocSettings.normalizeDownloadFormat(state.settings?.downloadFormat),
     subtitleOptions
   };
 }
@@ -2126,11 +2082,11 @@ function updateReadingTranscriptTailSpacer() {
 }
 
 function hydrateReaderStateFromSettings(settings = state.settings) {
-  state.readingTheme = normalizeReaderTheme(settings?.readerTheme);
-  state.readingFontScale = normalizeReaderFontScale(settings?.readerFontScale);
-  state.readingLetterSpacing = normalizeReaderLetterSpacing(settings?.readerLetterSpacing ?? settings?.readerLineHeight);
-  state.readingLineHeight = normalizeReaderLineHeight(settings?.readerLineHeight);
-  state.readingContentWidth = normalizeReaderContentWidth(settings?.readerContentWidth);
+  state.readingTheme = BocSettings.normalizeReaderTheme(settings?.readerTheme);
+  state.readingFontScale = BocSettings.normalizeReaderFontScale(settings?.readerFontScale);
+  state.readingLetterSpacing = BocSettings.normalizeReaderLetterSpacing(settings?.readerLetterSpacing ?? settings?.readerLineHeight);
+  state.readingLineHeight = BocSettings.normalizeReaderLineHeight(settings?.readerLineHeight);
+  state.readingContentWidth = BocSettings.normalizeReaderContentWidth(settings?.readerContentWidth);
   state.readingChapterVisible = settings?.readerChapterVisible !== undefined ? Boolean(settings.readerChapterVisible) : true;
 }
 
@@ -2358,13 +2314,13 @@ function buildReadingSummaryItems() {
 }
 
 function updateReaderPreferences(next, { persist = true } = {}) {
-  state.readingTheme = normalizeReaderTheme(next.readerTheme ?? state.readingTheme);
-  state.readingFontScale = normalizeReaderFontScale(next.readerFontScale ?? state.readingFontScale);
-  state.readingLetterSpacing = normalizeReaderLetterSpacing(
+  state.readingTheme = BocSettings.normalizeReaderTheme(next.readerTheme ?? state.readingTheme);
+  state.readingFontScale = BocSettings.normalizeReaderFontScale(next.readerFontScale ?? state.readingFontScale);
+  state.readingLetterSpacing = BocSettings.normalizeReaderLetterSpacing(
     next.readerLetterSpacing ?? state.readingLetterSpacing
   );
-  state.readingLineHeight = normalizeReaderLineHeight(next.readerLineHeight ?? state.readingLineHeight);
-  state.readingContentWidth = normalizeReaderContentWidth(next.readerContentWidth ?? state.readingContentWidth);
+  state.readingLineHeight = BocSettings.normalizeReaderLineHeight(next.readerLineHeight ?? state.readingLineHeight);
+  state.readingContentWidth = BocSettings.normalizeReaderContentWidth(next.readerContentWidth ?? state.readingContentWidth);
   state.readingChapterVisible = next.readerChapterVisible !== undefined ? Boolean(next.readerChapterVisible) : state.readingChapterVisible;
   state.settings = {
     ...state.settings,
@@ -4582,10 +4538,6 @@ async function refreshDerivedContent() {
   }
   Object.assign(state, { hotComments, aiTurns, triageExtras });
   rebuildDerivedContent();
-}
-
-function normalizeDownloadFormat(value) {
-  return value === "txt" ? "txt" : "srt";
 }
 
 function escapeHtml(value) {

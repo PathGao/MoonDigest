@@ -1,14 +1,6 @@
 // Shared modules must load before the top-level code below reads them (e.g. BocLimits).
-importScripts("limits.js", "errors.js", "sites.js", "note.js");
+importScripts("limits.js", "errors.js", "settings.js", "sites.js", "note.js");
 
-// Follow-up quick questions. The one-click summary lives in playerAiQuickPrompt, so none of these summarize.
-const DEFAULT_PRESET_PROMPTS = [
-  "按时间顺序整理这期视频的内容",
-  "根据评论总结观众的看法",
-  "按章节整理视频内容",
-  "生成带时间轴的笔记"
-];
-const DEFAULT_PLAYER_AI_QUICK_PROMPT = "整理这期视频的内容，输出结构化总结：主题、核心观点、关键细节、结论与可执行启发。";
 const PLAYER_AI_QUICK_ACTION_STORAGE_KEY = "boc_player_ai_quick_action_v1";
 // Side panel stream watchdog: "first" until any SSE chunk arrives (reasoning chunks count), then "idle" between chunks.
 const STREAM_TIMEOUT_MS = { first: 90000, idle: 60000 };
@@ -20,54 +12,6 @@ const LEGACY_DEFAULT_AI_SYSTEM_PROMPT = [
   "信息不足时明确说明，不得猜测或编造；涉及专业内容时，区分事实、数据、推测与作者观点。",
   "输出时间戳时请使用普通正文格式，如 09:15、01:09:15，不要使用反引号、代码块或表格代码格式包裹时间戳。"
 ].join("\n");
-const DEFAULT_AI_SYSTEM_PROMPT = [
-  "你是一名专业的视频内容分析助手。",
-  "基于字幕与评论提炼高价值信息，不要复述内容，不要输出思考过程或 think 标签。",
-  "优先输出：主题与核心观点、关键数据与事实、逻辑链路与重要结论、可执行建议。",
-  "回答应结构化、信息密度高、便于收藏和复习，可适当使用 Emoji、列表和表格。",
-  "自动过滤广告、废话和重复表达。",
-  "信息不足时明确说明，不得猜测或编造；涉及专业内容时，区分事实、数据、推测与作者观点。",
-  "输出时间戳时请使用普通正文格式，如 09:15、01:09:15，不要使用反引号、代码块或表格代码格式包裹时间戳。"
-].join("\n");
-
-const DEFAULT_SYNC_SETTINGS = {
-  obsidianEnabled: false,
-  noteFolder: "MoonDigest/{{site}}",
-  obsidianApiBaseUrl: "http://127.0.0.1:27123",
-  tags: "MoonDigest",
-  downloadFormat: "srt",
-  youtubeSubtitleLang: "auto",
-  includeDateInFilename: true,
-  includeHotCommentsInNote: false,
-  includeCoverInNote: true,
-  includeAiChatInNote: true,
-  enablePlayerAiQuickAction: true,
-  playerAiQuickPrompt: DEFAULT_PLAYER_AI_QUICK_PROMPT,
-  includeTimestampInBody: true,
-  showBiliTriageBadges: true,
-  showBiliUpTags: true,
-  showBiliVerdicts: false,
-  biliMarksOff: [],
-  seenShow: "off",
-  seenThreshold: 80,
-  seenStyle: "badge",
-  enableDebugLogs: false,
-  readerTheme: "light",
-  readerFontScale: "m",
-  readerLetterSpacing: "normal",
-  readerLineHeight: "tight",
-  readerContentWidth: "medium",
-  readerChapterVisible: true,
-  frontmatterFields: BocNote.DEFAULT_FRONTMATTER_FIELDS,
-  fixedFrontmatterProperties: [],
-  notePlaceholderSections: [],
-  aiSystemPrompt: DEFAULT_AI_SYSTEM_PROMPT,
-  aiPresetPrompts: DEFAULT_PRESET_PROMPTS.slice()
-};
-
-const DEFAULT_LOCAL_SETTINGS = {
-  obsidianApiKey: ""
-};
 const EXPECTED_CONTENT_SCRIPT_VERSION = chrome.runtime.getManifest().version || "";
 // content.js has two manifest entries with the same files: Bilibili video pages also run in 分拣台's viewer frame.
 const READER_ENTRIES = chrome.runtime.getManifest().content_scripts.filter((entry) => entry.js.includes("content.js"));
@@ -255,7 +199,7 @@ function buildPlayerAiQuickActionRequest(tabId, prompt) {
   return {
     id: `player-ai-${createdAt}-${Math.random().toString(36).slice(2, 8)}`,
     tabId: Number(tabId || 0) || 0,
-    prompt: normalizePlayerAiQuickPrompt(prompt),
+    prompt: BocSettings.normalizePlayerAiQuickPrompt(prompt),
     createdAt
   };
 }
@@ -875,17 +819,17 @@ async function initializeSettingsStorage() {
   const { obsidianEnabled: storedObsidianEnabled } = await chrome.storage.sync.get("obsidianEnabled");
   await migrateInitialQuickPrompts();
   await removeDeadStorageKeys();
-  const syncCurrent = await chrome.storage.sync.get(DEFAULT_SYNC_SETTINGS);
-  const localCurrent = await chrome.storage.local.get(DEFAULT_LOCAL_SETTINGS);
+  const syncCurrent = await chrome.storage.sync.get(BocSettings.DEFAULTS);
+  const localCurrent = await chrome.storage.local.get(BocSettings.LOCAL_DEFAULTS);
 
-  await chrome.storage.sync.set({ ...DEFAULT_SYNC_SETTINGS, ...syncCurrent });
+  await chrome.storage.sync.set({ ...BocSettings.DEFAULTS, ...syncCurrent });
   await chrome.storage.local.set({
-    obsidianApiKey: normalizeApiKey(localCurrent.obsidianApiKey)
+    obsidianApiKey: BocSettings.normalizeApiKey(localCurrent.obsidianApiKey)
   });
 
   // A configured key means the user was already writing to Obsidian.
   if (typeof storedObsidianEnabled !== "boolean") {
-    await chrome.storage.sync.set({ obsidianEnabled: Boolean(normalizeApiKey(localCurrent.obsidianApiKey)) });
+    await chrome.storage.sync.set({ obsidianEnabled: Boolean(BocSettings.normalizeApiKey(localCurrent.obsidianApiKey)) });
   }
 }
 
@@ -919,12 +863,12 @@ async function migrateInitialQuickPrompts() {
 function normalizeSyncSettings(settings) {
   const merged = { ...settings };
   merged.obsidianEnabled = merged.obsidianEnabled === true;
-  merged.downloadFormat = normalizeDownloadFormat(merged.downloadFormat);
+  merged.downloadFormat = BocSettings.normalizeDownloadFormat(merged.downloadFormat);
   merged.youtubeSubtitleLang = BocSites.normalizeSubtitleLang(merged.youtubeSubtitleLang);
   merged.includeHotCommentsInNote = normalizeIncludeHotCommentsInNote(merged.includeHotCommentsInNote);
   merged.includeAiChatInNote = merged.includeAiChatInNote !== false;
   merged.enablePlayerAiQuickAction = normalizeEnablePlayerAiQuickAction(merged.enablePlayerAiQuickAction);
-  merged.playerAiQuickPrompt = normalizePlayerAiQuickPrompt(merged.playerAiQuickPrompt);
+  merged.playerAiQuickPrompt = BocSettings.normalizePlayerAiQuickPrompt(merged.playerAiQuickPrompt);
   merged.showBiliTriageBadges = merged.showBiliTriageBadges !== false;
   merged.showBiliUpTags = merged.showBiliUpTags !== false;
   merged.showBiliVerdicts = merged.showBiliVerdicts === true;
@@ -934,14 +878,14 @@ function normalizeSyncSettings(settings) {
   // 0 is clamped to 1; only a missing or non-numeric value falls back to 80.
   merged.seenThreshold = Number.isFinite(parseFloat(merged.seenThreshold)) ? Math.min(100, Math.max(1, Math.round(parseFloat(merged.seenThreshold)))) : 80;
   merged.seenStyle = merged.seenStyle === "veil" ? "veil" : "badge";
-  merged.readerTheme = normalizeReaderTheme(merged.readerTheme);
-  merged.readerFontScale = normalizeReaderFontScale(merged.readerFontScale);
-  merged.readerLetterSpacing = normalizeReaderLetterSpacing(merged.readerLetterSpacing);
-  merged.readerLineHeight = normalizeReaderLineHeight(merged.readerLineHeight);
-  merged.readerContentWidth = normalizeReaderContentWidth(merged.readerContentWidth);
+  merged.readerTheme = BocSettings.normalizeReaderTheme(merged.readerTheme);
+  merged.readerFontScale = BocSettings.normalizeReaderFontScale(merged.readerFontScale);
+  merged.readerLetterSpacing = BocSettings.normalizeReaderLetterSpacing(merged.readerLetterSpacing);
+  merged.readerLineHeight = BocSettings.normalizeReaderLineHeight(merged.readerLineHeight);
+  merged.readerContentWidth = BocSettings.normalizeReaderContentWidth(merged.readerContentWidth);
   merged.readerChapterVisible = merged.readerChapterVisible !== false;
-  merged.fixedFrontmatterProperties = normalizeFixedFrontmatterProperties(merged.fixedFrontmatterProperties);
-  merged.notePlaceholderSections = normalizeNotePlaceholderSections(merged.notePlaceholderSections);
+  merged.fixedFrontmatterProperties = BocSettings.normalizeFixedFrontmatterProperties(merged.fixedFrontmatterProperties);
+  merged.notePlaceholderSections = BocSettings.normalizeNotePlaceholderSections(merged.notePlaceholderSections);
   merged.aiSystemPrompt = normalizeAiSystemPrompt(merged.aiSystemPrompt);
   merged.aiPresetPrompts = normalizeAiPresetPrompts(merged.aiPresetPrompts);
   return merged;
@@ -949,14 +893,14 @@ function normalizeSyncSettings(settings) {
 
 async function getMergedSettings() {
   const [syncSettings, localSettings] = await Promise.all([
-    chrome.storage.sync.get(DEFAULT_SYNC_SETTINGS),
-    chrome.storage.local.get(DEFAULT_LOCAL_SETTINGS)
+    chrome.storage.sync.get(BocSettings.DEFAULTS),
+    chrome.storage.local.get(BocSettings.LOCAL_DEFAULTS)
   ]);
 
-  const merged = normalizeSyncSettings({ ...DEFAULT_SYNC_SETTINGS, ...syncSettings });
+  const merged = normalizeSyncSettings({ ...BocSettings.DEFAULTS, ...syncSettings });
   return {
     ...merged,
-    obsidianApiKey: normalizeApiKey(localSettings.obsidianApiKey)
+    obsidianApiKey: BocSettings.normalizeApiKey(localSettings.obsidianApiKey)
   };
 }
 
@@ -969,15 +913,15 @@ const oversizedSyncItem = (payload) => Object.keys(payload).find((k) => k.length
 // Callers send partial settings (the options page has no reading-view controls), so keys they omit keep their stored values.
 async function saveSettings(settings) {
   const payload = settings && typeof settings === "object" ? settings : {};
-  const stored = await chrome.storage.sync.get(DEFAULT_SYNC_SETTINGS);
-  const syncPayload = normalizeSyncSettings({ ...DEFAULT_SYNC_SETTINGS, ...stored, ...payload });
+  const stored = await chrome.storage.sync.get(BocSettings.DEFAULTS);
+  const syncPayload = normalizeSyncSettings({ ...BocSettings.DEFAULTS, ...stored, ...payload });
   delete syncPayload.obsidianApiKey;
   const big = oversizedSyncItem(syncPayload);
   if (big) throw Object.assign(new Error(`${SYNC_ITEM_NAMES[big] || big}太长，存不下：最多约 2700 个汉字（英文约 8000 个字符）`), { field: big });
 
   await Promise.all([
     chrome.storage.sync.set(syncPayload),
-    "obsidianApiKey" in payload && chrome.storage.local.set({ obsidianApiKey: normalizeApiKey(payload.obsidianApiKey) })
+    "obsidianApiKey" in payload && chrome.storage.local.set({ obsidianApiKey: BocSettings.normalizeApiKey(payload.obsidianApiKey) })
   ]);
 }
 
@@ -1029,36 +973,6 @@ function toString(value) {
   return typeof value === "string" ? value : "";
 }
 
-function normalizeApiKey(value) {
-  return toString(value).trim().replace(/^Bearer\s+/i, "").trim();
-}
-
-function normalizeNotePlaceholderSections(items) {
-  const allowedPositions = new Set(["before_intro", "before_chapters", "before_subtitle"]);
-  if (!Array.isArray(items)) {
-    return [];
-  }
-  return items
-    .map((item) => {
-      const title = toString(item?.title).trim();
-      const content = toString(item?.content).trim();
-      const position = allowedPositions.has(toString(item?.position).trim())
-        ? toString(item?.position).trim()
-        : "before_intro";
-      return {
-        title,
-        position,
-        content
-      };
-    })
-    .filter((item) => item.title)
-    .slice(0, 5);
-}
-
-function normalizeDownloadFormat(value) {
-  return value === "txt" ? "txt" : "srt";
-}
-
 function normalizeIncludeHotCommentsInNote(value) {
   return value === true;
 }
@@ -1067,48 +981,10 @@ function normalizeEnablePlayerAiQuickAction(value) {
   return value === true;
 }
 
-function normalizePlayerAiQuickPrompt(value) {
-  return toString(value).trim();
-}
-
-function normalizeReaderTheme(value) {
-  return value === "dark" || value === "paper" ? value : "light";
-}
-
-function normalizeReaderFontScale(value) {
-  return ["xs", "s", "m", "l", "xl"].includes(value) ? value : "m";
-}
-
-function normalizeReaderLetterSpacing(value) {
-  return ["tighter", "tight", "normal", "relaxed", "loose"].includes(value) ? value : "normal";
-}
-
-function normalizeReaderLineHeight(value) {
-  return ["compact", "tight", "normal", "relaxed", "loose"].includes(value) ? value : "tight";
-}
-
-function normalizeReaderContentWidth(value) {
-  return ["compact", "narrow", "medium", "wide", "full"].includes(value) ? value : "medium";
-}
-
-function normalizeFixedFrontmatterProperties(value) {
-  if (!Array.isArray(value)) {
-    return [];
-  }
-
-  return value
-    .map((item) => ({
-      key: toString(item?.key).trim(),
-      type: normalizeFixedPropertyType(item?.type),
-      value: normalizeFixedPropertyValue(item?.type, item?.value)
-    }))
-    .filter((item) => item.key && !isFixedPropertyRowEffectivelyEmpty(item.type, item.value));
-}
-
 function normalizeAiSystemPrompt(value) {
   const normalized = toString(value).trim();
   if (normalized === LEGACY_DEFAULT_AI_SYSTEM_PROMPT) {
-    return DEFAULT_AI_SYSTEM_PROMPT;
+    return BocSettings.DEFAULTS.aiSystemPrompt;
   }
   return normalized;
 }
@@ -1121,23 +997,6 @@ function normalizeAiPresetPrompts(value) {
     .map((item) => toString(item).trim())
     .filter(Boolean)
     .slice(0, 12);
-}
-
-function normalizeFixedPropertyType(value) {
-  const type = toString(value).trim().toLowerCase();
-  return type === "number" || type === "checkbox" || type === "list" || type === "date" ? type : "text";
-}
-
-function normalizeFixedPropertyValue(type, value) {
-  const normalizedType = normalizeFixedPropertyType(type);
-  if (normalizedType === "checkbox") {
-    return toString(value).trim().toLowerCase();
-  }
-  return toString(value).trim();
-}
-
-function isFixedPropertyRowEffectivelyEmpty(type, value) {
-  return !toString(value).trim();
 }
 
 function formatConnectionError(error) {
