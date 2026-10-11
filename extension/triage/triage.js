@@ -368,7 +368,12 @@ const el = {};
 ].forEach((id) => (el[id] = $(id)));
 
 // ---------- utils ----------
+// Not logged in to B站 (the background's NOT_LOGGED_IN, B站's -101), on a read or a write in either mode: the 去登录 banner.
 function send(msg) {
+  return sendRaw(msg).then((r) => (r.code === "NOT_LOGGED_IN" && showLogin(), r));
+}
+const showLogin = () => showBanner("没登录 B站：先在这个浏览器里登录 B站", "去登录", () => openTab("https://passport.bilibili.com/login"), "login");
+function sendRaw(msg) {
   return new Promise((resolve) => {
     try {
       chrome.runtime.sendMessage(msg, (resp) => {
@@ -750,7 +755,7 @@ globalThis.MoonTriage = {
   },
   // 关注's 没登录: the same 去登录 banner as 收藏夹's; off hides it only when it is that one.
   loginBanner(on) {
-    if (on) showBanner("没登录 B站：先在这个浏览器里登录 B站", "去登录", () => openTab("https://passport.bilibili.com/login"), "login");
+    if (on) showLogin();
     else if (el.banner.dataset.kind === "login") el.banner.hidden = true;
   },
   undo, pushUndo, dropModeUndo: (drop) => (S.modeUndo = S.modeUndo.filter((e) => !drop(e))), help: () => el.helpDialog.showModal(), setModeKeys: (fn) => (modeKeys = fn), setViewerHook: (fn) => (viewerHook = fn)

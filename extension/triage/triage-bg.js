@@ -258,7 +258,9 @@ async function triageBiliJson(res) {
   }
 }
 
+// -101 (and a missing bili_jct or nav's isLogin) is NOT_LOGGED_IN, which the page answers with its 去登录 banner.
 function triageBiliData(json) {
+  if (json.code === -101) throw triageError("未登录 B站", "NOT_LOGGED_IN");
   if (json.code !== 0) throw triageError(`B站返回 ${json.code}：${json.message}`, BILI_RISK_CODES.has(json.code) ? "THROTTLED" : undefined);
   return json.data;
 }
@@ -317,7 +319,7 @@ async function triageBiliGet(url) {
 
 async function triageBiliPost(path, fields) {
   const cookie = await chrome.cookies.get({ url: "https://www.bilibili.com", name: "bili_jct" });
-  if (!cookie?.value) throw triageError("未登录 B站");
+  if (!cookie?.value) throw triageError("未登录 B站", "NOT_LOGGED_IN");
   // A write is tried once. Without an answer B站 may or may not have done it, so callers keep their state as before
   // (no count change, no undo step) and the message says to look.
   const res = await triageBiliFetch(`https://api.bilibili.com${path}`, {
@@ -351,7 +353,7 @@ async function triageNav() {
 
 async function triageMid() {
   const nav = await triageNav();
-  if (!nav.isLogin || !nav.mid) throw triageError("未登录 B站");
+  if (!nav.isLogin || !nav.mid) throw triageError("未登录 B站", "NOT_LOGGED_IN");
   return nav.mid;
 }
 

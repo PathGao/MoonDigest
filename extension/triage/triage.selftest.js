@@ -2633,3 +2633,10 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   assert.doesNotMatch(folderThumb("toview", ""), /--h:/);
   assert.match(folderThumb("toview", "https://i1.hdslb.com/t.jpg"), /<img src="https:\/\/i1\.hdslb\.com\/t\.jpg"/);
 }
+
+// N5: NOT_LOGGED_IN on any request (a write too: D, 批量取消收藏, U, 关注's writes) brings up the 去登录 banner.
+handlers["test-login"] = () => ({ ok: false, error: "未登录 B站", code: "NOT_LOGGED_IN" });
+t.el.banner.hidden = true;
+t.MoonTriage.send({ type: "test-login" }).then((r) => {
+  assert.ok(r.code === "NOT_LOGGED_IN" && t.el.banner.hidden === false && t.el.banner.dataset.kind === "login" && t.el.bannerBtn.textContent === "去登录", "去登录 banner");
+});

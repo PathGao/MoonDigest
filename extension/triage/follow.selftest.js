@@ -282,7 +282,41 @@ assert.strictEqual(t.fmtAgo(ago(800), now), "2 年前");
   assert.ok(source.includes('if (r.code === "THROTTLED") waitFeed(f);') && /if \(!f\.hasMore \|\| f\.loading \|\| f\.wait\) return;/.test(source), "限流 waits instead of an error, and nothing loads during the wait");
   assert.ok(/function waitFeed[\s\S]*?f\.wait = 0;\s*more\(\);/.test(source) && /if \(f\.wait\) \{[\s\S]*?stuck: true/.test(source), "countdown, then retry");
   assert.ok(/function setTab\(tab\) \{[^}]*if \(tab !== F\.tab\) F\.sel\.clear\(\);/.test(source), "switching UP 主 / 视频投稿 clears the selection");
+  // S3: both tabs share #fwList, so the other tab starts at the top.
+  assert.ok(/function setTab\(tab\) \{[^}]*E\.list\.scrollTop = 0;\s*render\(\);/.test(source), "switching tabs scrolls to the top");
 }
+// S4: with the viewer open, T tags the playing video's UP before the card under the mouse or the current card.
+assert.ok(/function tagByKey\(\) \{\s*if \(F\.viewing && F\.viewingMid\) return/.test(source), "T in the viewer tags the playing UP");
+
+// G5 / L2: B站 writes go one by one with a gap; on B站限流 the pill counts down and the same request goes again; 停止 keeps
+// what went through.
+(async () => {
+  const code = source.slice(source.indexOf("const WRITE_GAP_MS"), source.indexOf("async function unfollow("));
+  const env = { F: { sel: new Set(), busyN: [0, 0] }, toasts: [], sent: [], answers: [], stopAfter: Infinity, waits: 0 };
+  const run = new Function("env", `const { F } = env; const nowSec = () => Date.now() / 1000;
+    const send = async (c) => (env.sent.push(c.mid), env.answers.shift() || { ok: true });
+    const toast = (m) => env.toasts.push(m); const load = async () => {}; const render = () => {}; const renderSel = () => {};
+    const renderSync = () => { if (F.busyUntil) env.waits++; if (env.sent.length >= env.stopAfter) F.busyStop = true; };
+    const setTimeout = (f) => setImmediate(f); const Date = { now: () => (env.clock += 1000) };
+    ${code}; return { relationRun, WRITE_GAP_MS, WRITE_WAIT_SEC };`);
+  env.clock = 0;
+  const fns = run(env);
+  const calls = ["1", "2", "3"].map((mid) => ({ mid }));
+  env.answers = [{ ok: true }, { ok: false, code: "THROTTLED" }, { ok: true }, { ok: true }];
+  assert.strictEqual(await fns.relationRun(calls, "取消关注"), 3);
+  assert.deepStrictEqual(env.sent, ["1", "2", "2", "3"], "the throttled request goes again, then the rest");
+  assert.ok(env.waits > 10, "the pill counts down the wait");
+  assert.deepStrictEqual(env.toasts, ["已取消关注 3 个"]);
+  // 停止 during the wait: what went through stays, the run says how far it got.
+  Object.assign(env, { sent: [], toasts: [], stopAfter: 2, answers: [{ ok: true }, { ok: false, code: "THROTTLED" }] });
+  assert.strictEqual(await fns.relationRun(calls, "取消关注", { quiet: true }), 1);
+  assert.deepStrictEqual(env.sent, ["1", "2"]);
+  assert.deepStrictEqual(env.toasts, ["已停止取消关注：完成 1 个，未完成 2 个"]);
+  assert.ok(!/过一会儿再试/.test(source), "no 「过一会儿再试」 without a countdown");
+})().catch((e) => {
+  console.error(e);
+  process.exit(1);
+});
 
 // The tag row's buttons open the shared dialogs (tag-dialogs.js) with 关注's adapters: 标签管理 → 标签管理, ✦ AI 打标签
 // (and 查看 in the progress pill, data-fw="ai") → AI 打标签. 关注 draws no tag dialog of its own.

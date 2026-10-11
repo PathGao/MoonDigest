@@ -342,6 +342,8 @@ const F = {
   anchor: "", // the UP a Shift+click picks from: the last one picked
   busy: "", // the B站 write running, e.g. 取消关注中 3/10
   busyN: [0, 0], // its done / total, for the progress pill's bar
+  busyUntil: 0, // B站限流: when it tries the same request again (ms)
+  busyStop: false, // 停止 pressed
   recentFilter: false,
   tagState: "", // row 3: "" | "untagged" | "tagged" (in 视频投稿 the video's UP)
   tags: new Set(), // row 4: tag ids, AND; both tabs
@@ -487,6 +489,8 @@ function setTab(tab) {
   F.tab = tab;
   E.q.value = tab === "feed" ? F.fq : F.q;
   saveView();
+  // Both tabs draw into #fwList, whose redraws keep scrollTop: start the other tab at its top (and the header full), as 收藏夹.
+  E.list.scrollTop = 0;
   render();
 }
 
@@ -540,7 +544,10 @@ function renderSync() {
   else btn.removeAttribute("aria-busy");
   if (!j.running) {
     // A B站 write (取消关注 3/10…) first, as 收藏夹's batches show theirs here.
-    if (F.busy) return UI.setActivity(pill, { text: F.busy, done: F.busyN[0], total: F.busyN[1] });
+    const stop = { attrs: "data-fw-busystop", label: "停止" };
+    const wait = F.busy && UI.waitText(`${F.busy} · B站限流卡住`, Math.ceil((F.busyUntil - Date.now()) / 1000));
+    if (wait) return UI.setActivity(pill, { text: wait, stuck: true, btn: stop });
+    if (F.busy) return UI.setActivity(pill, { text: F.busy, done: F.busyN[0], total: F.busyN[1], btn: stop });
     const btn = { attrs: 'data-fw="ai"', label: "查看" };
     if (AI.running) return UI.setActivity(pill, { ...UI.aiActivity(AI), btn });
     return UI.setActivity(pill, AI.proposal && { text: "标签建议待确认", btn });
@@ -925,32 +932,56 @@ function play(bvid) {
 
 // ---------- B站 writes: one request at a time, stopped by the first error ----------
 // calls = the requests, each with the mids it changes (a relation request one UP, a group request up to 20).
-// Returns how many UP 主 went through. Its progress shows in the row's progress pill, as a 收藏夹 batch does.
+// Returns how many UP 主 went through. Its progress shows in the row's progress pill, as a 收藏夹 batch does, with 停止.
+// WRITE_GAP_MS between requests, as 收藏夹's batches. B站限流 (THROTTLED): the pill counts down WRITE_WAIT_SEC, amber,
+// then the same request goes again; 停止 ends the run there, keeping what went through (and its undo).
+const WRITE_GAP_MS = 1000;
+const WRITE_WAIT_SEC = 90; // as follow-bg.js FOLLOW_CFG.backoffMs
 const perUp = (mids, msg) => mids.map((mid) => msg(mid));
+// Waits until the time (ms), redrawing the pill each second, or until 停止.
+async function busyWait(until) {
+  while (!F.busyStop && Date.now() < until) {
+    renderSync();
+    await new Promise((r) => setTimeout(r, Math.min(1000, until - Date.now())));
+  }
+}
 async function relationRun(calls, label, { quiet = false } = {}) {
   const midsOf = (c) => c.mids || [c.mid];
   const total = calls.reduce((n, c) => n + midsOf(c).length, 0);
   F.busy = `${label}中 0/${total}`;
   F.busyN = [0, total];
+  F.busyStop = false;
   renderSel();
   renderSync();
   let done = 0;
   try {
     for (const c of calls) {
+      if (done) await busyWait(Date.now() + WRITE_GAP_MS);
+      if (F.busyStop) break;
       F.busy = `${label}中 ${Math.min(total, done + midsOf(c).length)}/${total}`;
       F.busyN = [done, total];
       renderSel();
       renderSync();
-      const r = await send(c);
-      if (!r.ok) throw new Error(r.code === "THROTTLED" ? "被 B站限流了，过一会儿再试" : r.error || "未知错误");
+      let r = await send(c);
+      while (r.code === "THROTTLED" && !F.busyStop) {
+        F.busyUntil = Date.now() + WRITE_WAIT_SEC * 1000;
+        await busyWait(F.busyUntil);
+        F.busyUntil = 0;
+        renderSync();
+        if (!F.busyStop) r = await send(c);
+      }
+      if (!r.ok && F.busyStop) break;
+      if (!r.ok) throw new Error(r.error || "未知错误");
       for (const mid of midsOf(c)) F.sel.delete(mid);
       done += midsOf(c).length;
     }
-    if (!quiet) toast(`已${label} ${done} 个`);
+    if (F.busyStop) toast(`已停止${label}：完成 ${done} 个，未完成 ${total - done} 个`);
+    else if (!quiet) toast(`已${label} ${done} 个`);
   } catch (e) {
     toast(`${label}第 ${done + 1} 个时出错：${e.message}${done ? `（前 ${done} 个已完成）` : ""}`, true);
   } finally {
     F.busy = "";
+    F.busyStop = false;
     await load();
     render();
   }
@@ -1140,6 +1171,7 @@ refresh.addEventListener("click", async () => {
 });
 $("fwActivity").addEventListener("click", (e) => {
   if (e.target.closest("[data-fw-stop]")) send({ type: "follow-sync-stop" });
+  if (e.target.closest("[data-fw-busystop]")) F.busyStop = true;
 });
 // The UP 主 table: built from what the page already has. 完整备份 is triage.js's ([data-backup]).
 function upCsv() {
@@ -1295,12 +1327,13 @@ async function pickClosed(changes) {
   if (msg) toast(`${msg} · U 撤销`);
 }
 
-// T: the UP of the 视频投稿 card under the mouse, else the current UP card, else the video playing in the viewer.
+// T: with the viewer open, the playing video's UP (its 「UP 标签」 line), as 收藏夹's T tags the playing video; else the
+// UP of the 视频投稿 card under the mouse, else the current UP card.
 function tagByKey() {
+  if (F.viewing && F.viewingMid) return void (!rows.get(F.viewingMid)?.gone && openPick([F.viewingMid], "#fwViewerUp .tag-plus"));
   const it = F.tab === "feed" && F.hover && F.feed?.items.find((x) => x.bvid === F.hover);
   if (it) openPick([it.mid], `.fw-video[data-bvid="${CSS.escape(it.bvid)}"] .tag-plus`);
   else if (F.tab === "ups" && shown.includes(F.cur) && !rows.get(F.cur)?.gone) openPick([F.cur]);
-  else if (F.viewing && F.viewingMid && !rows.get(F.viewingMid)?.gone) openPick([F.viewingMid], "#fwViewerUp .tag-plus");
 }
 // A modal dialog (confirm, settings, the modal picker) owns the keys; the popover does not.
 const modalOpen = () => Boolean(document.querySelector("dialog[open]:not(.tp-pop)"));
