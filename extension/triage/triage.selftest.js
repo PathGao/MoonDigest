@@ -82,7 +82,7 @@ assert.deepStrictEqual(pageScripts.filter((m) => /type="module"/.test(m[1])).map
 for (const [, attrs, src] of pageScripts) {
   if (!/type="module"/.test(attrs) && !src.endsWith("/tag-dialogs.js")) vm.runInContext(fs.readFileSync(path.join(__dirname, src), "utf8"), ctx);
 }
-vm.runInContext(`${source}\n;globalThis.S = S; globalThis.K = K; globalThis.el = el; globalThis.verdictBadge = verdictBadge; globalThis.seenText = seenText; globalThis.staleCoarse = staleCoarse; globalThis.staleFine = staleFine; globalThis.groupDone = groupDone; globalThis.mergeHead = mergeHead; globalThis.isFinished = isFinished; globalThis.pointerMoved = pointerMoved; globalThis.inferFrom = inferFrom; globalThis.hasAllTags = hasAllTags; globalThis.sortItems = sortItems; globalThis.sortOf = sortOf; globalThis.visibleItems = visibleItems; globalThis.fav = fav;`, ctx);
+vm.runInContext(`${source}\n;globalThis.S = S; globalThis.K = K; globalThis.el = el; globalThis.verdictBadge = verdictBadge; globalThis.seenText = seenText; globalThis.staleCoarse = staleCoarse; globalThis.staleFine = staleFine; globalThis.mergeHead = mergeHead; globalThis.isFinished = isFinished; globalThis.pointerMoved = pointerMoved; globalThis.inferFrom = inferFrom; globalThis.hasAllTags = hasAllTags; globalThis.sortItems = sortItems; globalThis.sortOf = sortOf; globalThis.visibleItems = visibleItems; globalThis.fav = fav;`, ctx);
 const t = ctx;
 Object.assign(t, t.TriageCore);
 vm.runInContext("globalThis.plainClick = plainClick;", ctx);
@@ -807,11 +807,12 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   t.S.classFilter.fine = "all";
   t.renderListHeader(t.visibleItems());
   assert.ok(t.el.listHeader.innerHTML.includes("按新标准重新细看 1 个"));
-  // A redo batch counts by what it has redone, not by whether a result exists.
-  const redo = { bvids: ["BV203", "BV204"], stop: false, redo: new Set(["BV203", "BV204"]) };
-  assert.strictEqual(t.groupDone(redo), 0);
+  // A redo batch goes by what it has redone, not by whether a result exists.
+  const redo = { bvids: ["BV203", "BV204"], redo: new Set(["BV203", "BV204"]) };
+  const pendingOf = (g) => g.bvids.filter((b) => vm.runInContext("groupPending", ctx)(g, b));
+  assert.deepStrictEqual(pendingOf(redo), ["BV203", "BV204"]);
   redo.redo.delete("BV203");
-  assert.strictEqual(t.groupDone(redo), 1);
+  assert.deepStrictEqual(pendingOf(redo), ["BV204"]);
   t.S.folderCriteria = {};
   t.S.titleRes = savedTitles;
   t.S.analyses = savedAnalyses;

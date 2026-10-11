@@ -3125,7 +3125,6 @@ function startGroup(bvids, redo = false) {
 }
 
 const groupPending = (group, b) => (group.redo ? group.redo.has(b) : needsAnalysis(b, group));
-const groupDone = (group) => group.bvids.filter((b) => !groupPending(group, b)).length;
 
 async function analyzeOne(bvid, force, { crit, ctx }) {
   S.analyzing.add(bvid);
