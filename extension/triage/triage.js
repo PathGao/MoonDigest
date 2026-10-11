@@ -422,12 +422,13 @@ function showBanner(text, btnText, onClick, kind = "") {
   el.banner.hidden = false;
 }
 
-// AI errors after which every later request fails alike (codes from triageAiHttpError in triage-bg.js; 配置 AI and
-// 未授权访问 carry none): 粗看, 细看 and AI 打标签 stop at the first one and the banner offers 去设置. AI_TIMEOUT sends the
+// AI errors after which every later request fails alike: the AI_ codes BocErrors.CODES sends to 去设置 (the side panel
+// offers 去设置 on the same list), plus 未授权访问 (no code; the banner offers the grant). 粗看, 细看 and AI 打标签 stop at
+// the first one. AI_TIMEOUT sends the
 // same request again and ends the run after AI_TIMEOUT_TRIES in a row; AI_THROTTLED waits, AI_THROTTLE_WAITS times in a
 // row at most, then ends the run as AI_GAVE_UP.
-const AI_END_CODES = new Set(["AI_AUTH", "AI_QUOTA", "AI_SETUP", "AI_NETWORK", "AI_TIMEOUT", "AI_GAVE_UP"]);
-const aiEnds = (r) => AI_END_CODES.has(r.code) || /配置 AI|未授权访问/.test(r.error || "");
+const aiSettingsCode = (code) => String(code || "").startsWith("AI_") && BocErrors.action(code) === "settings";
+const aiEnds = (r) => aiSettingsCode(r.code) || /未授权访问/.test(r.error || "");
 const AI_TIMEOUT_TRIES = 2;
 const AI_THROTTLE_WAITS = 5;
 const aiGaveUp = () => ({ ok: false, code: "AI_GAVE_UP", error: `AI 平台持续限流，已等待重试 ${AI_THROTTLE_WAITS} 次，已停止` });
@@ -458,7 +459,7 @@ function handleAiError(error, code = "") {
     }, "ai");
   } else if (text.includes("配置 AI")) {
     showBanner("还没有配置 AI 平台", "去设置", () => send({ type: "open-options" }), "ai");
-  } else if (AI_END_CODES.has(code)) {
+  } else if (aiSettingsCode(code)) {
     showBanner(text, "去设置", () => send({ type: "open-options" }), "ai");
   } else if (text.includes("截断")) {
     showBanner(`${text}。建议调大输出上限${hasThinkingToggle() ? "或关闭思考" : ""}`, "打开收藏夹设置", () => openSettings(true), "ai");

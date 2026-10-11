@@ -614,7 +614,7 @@ const TRIAGE_AI_TIMEOUT_MS = { normal: 120000, thinking: 240000 };
 async function triageChat(messages, maxTokens, thinking = false, providerId = "") {
   const enabled = (await loadAiProviders()).filter((p) => p.enabled !== false);
   const provider = enabled.find((p) => p.id === providerId) || enabled[0];
-  if (!provider) throw triageError("请先在设置页配置 AI 平台");
+  if (!provider) throw triageError("请先在设置页配置 AI 平台", "AI_SETUP");
   const apiKey = (await loadAiProviderKeys())[provider.id];
   const headers = { "Content-Type": "application/json" };
   if (apiKey) headers.Authorization = `Bearer ${apiKey}`;

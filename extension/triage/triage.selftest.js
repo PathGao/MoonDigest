@@ -998,6 +998,10 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     t.el.banner.hidden = true;
     handlers["triage-ai-command"] = () => ({ ok: true, data: {} });
   }
+  // Which AI errors end a run is BocErrors' 去设置 list (the side panel's too), not a list of its own.
+  for (const code of ["AI_AUTH", "AI_QUOTA", "AI_SETUP", "AI_NETWORK", "AI_TIMEOUT", "AI_GAVE_UP"])
+    assert.ok(vm.runInContext("aiEnds", ctx)({ ok: false, code }) && ctx.BocErrors.action(code) === "settings", code);
+  assert.ok(!vm.runInContext("aiEnds", ctx)({ ok: false, code: "AI_BAD_JSON" }) && !vm.runInContext("aiEnds", ctx)({ ok: false, code: "OBSIDIAN" }), "a video's own error or a non-AI code goes on");
   // X3: one judge for 粗看, 细看 and AI 打标签 (aiJudge, a run's own counts). A video's own error ends 粗看 (ends: any)
   // but not the others.
   {
@@ -1026,7 +1030,7 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     const realScope = t.aiScopeItems;
     t.aiScopeItems = () => [item(600), item(601)];
     t.S.settings.triageTitleBatchSize = 1;
-    handlers["triage-ai-command"] = () => ({ ok: false, error: "请先配置 AI 服务" });
+    handlers["triage-ai-command"] = () => ({ ok: false, code: "AI_SETUP", error: "请先在设置页配置 AI 平台" });
     const before = sent.length;
     await t.runAiCommand({ instruction: "按深度分", scope: "filter", allowRemove: false });
     const batches = sent.slice(before).filter((m) => m.type === "triage-ai-command");
@@ -1034,7 +1038,7 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     assert.strictEqual(t.S.ai.proposal, null, "no proposal when no batch got through");
     t.renderTabs();
     assert.ok(!t.el.aiTagSlot.innerHTML.includes("待确认"), "no 「待确认」 after a run that got nothing");
-    assert.strictEqual(toasts.at(-1), "AI 打标签没有成功：第 1 批失败：请先配置 AI 服务");
+    assert.strictEqual(toasts.at(-1), "AI 打标签没有成功：第 1 批失败：请先在设置页配置 AI 平台");
     t.S.settings.triageTitleBatchSize = realSize;
     // The AI 打标签 batch size: its own setting; until it is first saved, the 标题粗看 value it used to share.
     const aiBatchSize = vm.runInContext("aiBatchSize", ctx);

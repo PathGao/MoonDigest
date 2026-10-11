@@ -29,6 +29,8 @@
     AI_SETUP: { action: "settings" },
     AI_NETWORK: { action: "settings" },
     AI_TIMEOUT: { action: "settings" },
+    // 分拣台 only: AI 平台 still limited after AI_THROTTLE_WAITS waits in a row.
+    AI_GAVE_UP: { action: "settings" },
     // Obsidian itself is unusable (not set up, off, wrong key): every write fails alike and the fix is in the settings
     // page. OBSIDIAN_DOWN (closed, plugin off, timeout) also fails every write, but the settings page cannot fix it.
     OBSIDIAN: { action: "settings" },
