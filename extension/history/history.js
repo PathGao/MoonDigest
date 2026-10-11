@@ -283,7 +283,8 @@ async function saveToObsidian(group) {
       setStatus("正在写入…");
       const choice = await BocOverwriteDialog.writeBuiltNote({ baseUrl, apiKey, built: built.data, section, noteKey });
       if (!choice) return;
-      setStatus(`${choice === "full" ? "已写入 Obsidian" : "已更新 AI 问答"}：${built.data.path}`);
+      // A subtitle that does not match the video's length leads the line, as on the video page.
+      setStatus(`${built.data.subtitleWarning || ""}${choice === "full" ? "已写入 Obsidian" : "已更新 AI 问答"}：${built.data.path}`);
       return;
     }
     const videoFolder = BocNote.resolveFolderTemplate(settings.noteFolder || "", group.context);

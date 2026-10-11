@@ -1196,8 +1196,9 @@
     }
   };
 
-  // Loose duration guard shared by the video page and the side panel: rejects a body that runs past the
-  // video or covers too little of a long one (another video's subtitle). Triage keeps its stricter check.
+  // The one duration guard, on every reader (video page, side panel follow-up, 分拣台 细看 and notes): rejects a body
+  // that runs past the video or covers too little of a long one (likely another video's subtitle). Without a duration
+  // it passes. A rejected body is still used with a warning; it only stays out of the subtitle cache.
   function validateSubtitleByDuration(body, videoDuration) {
     const duration = Number(videoDuration || 0);
     if (!Array.isArray(body) || body.length === 0) {
@@ -1304,23 +1305,25 @@
     return raw;
   }
 
-  // The background readers' track walk (side panel follow-up, 分拣台 notes), like the video page's: tracks in order
-  // until one passes accept (cached when it does). Throttling stops the walk, since every track hits the same host.
-  // With none passing: the first non-empty body accept refused (mismatch) and the first fetch error, for the caller.
-  async function loadFirstTrack(site, tracks, ids, io, accept) {
-    let mismatch = null;
+  // The background readers' track walk (side panel follow-up, 分拣台 细看 and notes), like the video page's: tracks in
+  // order until one matches the video's duration (cached when it does). With none matching, the first non-empty one is
+  // used anyway, not cached, with its failed check in `mismatch` for the video page's warning. Throttling stops the walk,
+  // since every track hits the same host; another failure moves on and is returned as `error` when nothing was usable.
+  async function loadFirstTrack(site, tracks, ids, io, duration) {
+    const matches = (body) => validateSubtitleByDuration(body, duration).ok;
+    let kept = null;
     let error = null;
     for (const track of tracks) {
       try {
-        const body = site.parseSegments(await fetchRawCached(site, track, ids, io, accept));
-        if (accept(body)) return { track, body };
-        if (body.length) mismatch ||= { track, body };
+        const body = site.parseSegments(await fetchRawCached(site, track, ids, io, matches));
+        if (matches(body)) return { track, body, mismatch: null, error: null };
+        if (body.length) kept ||= { track, body, mismatch: validateSubtitleByDuration(body, duration) };
       } catch (e) {
         if (e?.code === "THROTTLED") throw e;
         error ||= e;
       }
     }
-    return { track: null, body: [], mismatch, error };
+    return { track: null, body: [], mismatch: null, ...kept, error };
   }
 
   // ----------------------------------------------------------------- registry

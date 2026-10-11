@@ -325,17 +325,13 @@ async function resolveAiSidepanelContext(contextRef) {
     previousUrl: ref.selectedSubtitleUrl,
     previousLang: ref.subtitleLang
   });
-  // Like the video page: the chosen track first, then the others, under the same duration guard. When none matches,
-  // the first mismatched one is used with the video page's warning and is not cached; a fetch error with nothing
-  // to use fails the follow-up, and tracks with only empty bodies leave the AI the title, description and comments.
-  const valid = (segments) => BocSites.validateSubtitleByDuration(segments, meta.duration).ok;
+  // Like the video page: the chosen track first, then the others (BocSites.loadFirstTrack). A fetch error with nothing
+  // usable fails the follow-up; tracks with only empty bodies leave the AI the title, description and comments.
   const ordered = selectedTrack ? [selectedTrack, ...tracks.filter((item) => item !== selectedTrack)] : [];
-  const found = await BocSites.loadFirstTrack(site, ordered, { videoId: videoRef.id, cid: meta.cid }, io, valid);
-  const used = found.track ? found : found.mismatch;
-  if (!used && found.error) throw found.error;
-  const body = used?.body || [];
-  const track = used?.track || null;
-  const subtitleWarning = used && !found.track ? BocNote.subtitleMismatchWarning(BocSites.validateSubtitleByDuration(body, meta.duration)) : "";
+  const found = await BocSites.loadFirstTrack(site, ordered, { videoId: videoRef.id, cid: meta.cid }, io, meta.duration);
+  if (!found.track && found.error) throw found.error;
+  const { track, body } = found;
+  const subtitleWarning = found.mismatch ? BocNote.subtitleMismatchWarning(found.mismatch) : "";
 
   const hotComments = site.fetchComments ? await site.fetchComments(videoRef, meta, io).catch(() => []) : [];
   const title = String(meta.title || ref.title || "").trim();

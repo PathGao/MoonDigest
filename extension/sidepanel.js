@@ -2485,7 +2485,8 @@ async function saveBuiltVideoNoteToObsidian(ref, messages, epoch, settingsBundle
     showConversationContextNotice("已取消写入 Obsidian，原笔记未被覆盖。", 2200);
     return;
   }
-  showConversationContextNotice(`${choice === "full" ? "已写入 Obsidian" : "已更新 AI 问答"}：${built.data.path}`, 4000);
+  // A subtitle that does not match the video's length leads the line, as on the video page.
+  showConversationContextNotice(`${built.data.subtitleWarning || ""}${choice === "full" ? "已写入 Obsidian" : "已更新 AI 问答"}：${built.data.path}`, 4000);
 }
 
 async function loadObsidianSettings() {
