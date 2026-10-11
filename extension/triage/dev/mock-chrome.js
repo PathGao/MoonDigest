@@ -462,7 +462,7 @@
             await setJobs({ running: true, phase, step, done: k, total, startedAt, ...(phase === "arc" ? { cur: todo[k] } : {}) });
             if (phase === "arc" && k === 2 && !job.held) {
               job.held = true;
-              await setJobs({ running: true, phase, step, done: k, total, startedAt, hold: { until: Math.floor(Date.now() / 1000) + 4, why: "throttled" } });
+              await setJobs({ running: true, phase, step, done: k, total, startedAt, cur: todo[k], hold: { until: Math.floor(Date.now() / 1000) + 4, why: "throttled" } });
               await wait(4000);
             }
             await wait(700);

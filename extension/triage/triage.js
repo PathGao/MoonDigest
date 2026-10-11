@@ -4,7 +4,7 @@ if (!globalThis.chrome?.runtime?.id) await import("./dev/mock-chrome.js");
 // ---------- constants ----------
 const THROTTLE_MS = globalThis.__TRIAGE_THROTTLE_MS || 10 * 60 * 1000;
 // Error code -> [backoff ms, status label]. AI 429s clear far sooner than B站 risk control.
-const THROTTLES = { THROTTLED: [THROTTLE_MS, "B站限流"], AI_THROTTLED: [60 * 1000, "AI 平台限流"] };
+const THROTTLES = { THROTTLED: [THROTTLE_MS, "B站限流卡住"], AI_THROTTLED: [60 * 1000, "AI 平台限流卡住"] };
 const SYNC_MIN_GAP_MS = 60 * 1000;
 // Progress tabs: how far a video has been looked at. The AI class is a filter inside a tab, never a tab.
 // 阅览 sits apart after them.
@@ -1745,18 +1745,18 @@ function activityState() {
     const done = groupDone(S.group);
     const where = runWhere(S.group);
     const text = where ? `字幕细看 ${done}/${S.group.bvids.length}${where}` : S.group.text || `字幕细看 ${done}/${S.group.bvids.length}`;
-    return { text: wait || text, done, total: S.group.bvids.length, act: "group", actLabel: S.group.stop ? "暂停中" : "暂停细看", stopping: S.group.stop, warn: Boolean(wait) };
+    return { text: wait || text, done, total: S.group.bvids.length, act: "group", actLabel: S.group.stop ? "暂停中" : "暂停细看", stopping: S.group.stop, stuck: Boolean(wait) };
   }
   if (S.stage1.running) {
     const where = runWhere(S.stage1);
     const text = where ? `标题粗看中 ${S.stage1.done}/${S.stage1.total}${where}` : S.stage1.text;
-    return { text: wait || text, done: S.stage1.done, total: S.stage1.total, act: "stage1", actLabel: S.stage1.stop ? "暂停中" : "暂停粗看", stopping: S.stage1.stop, warn: Boolean(wait) };
+    return { text: wait || text, done: S.stage1.done, total: S.stage1.total, act: "stage1", actLabel: S.stage1.stop ? "暂停中" : "暂停粗看", stopping: S.stage1.stop, stuck: Boolean(wait) };
   }
   const move = S.transferRun;
   if (move) return { text: `${move.verb}到「${move.toName}」${move.done}/${move.total}${runWhere(move)}`, done: move.done, total: move.total };
   const unfav = S.unfavBatch;
   if (unfav) return { text: `取消收藏中${unfavWhere(unfav)} ${unfav.done}/${unfav.total}${runWhere(unfav)}`, done: unfav.done, total: unfav.total };
-  if (wait) return { text: wait, warn: true };
+  if (wait) return { text: wait, stuck: true };
   // Loading 所有收藏夹 is not here: its own line leads the step bar on every tab of that view.
   if (S.syncing) return { text: `刷新中…${pageText(S.mediaId)}` };
   if (S.ai.running) {
@@ -1767,7 +1767,7 @@ function activityState() {
   const other = otherAiFolder();
   if (other) return { text: `「${folderName(other)}」的标签建议待确认`, act: "aiOther", actLabel: "查看" };
   // A finished 粗看 keeps its last line for its own folder.
-  if (S.stage1.text && !runWhere(S.stage1)) return { text: S.stage1.text };
+  if (S.stage1.text && !runWhere(S.stage1)) return { text: S.stage1.text, quiet: true };
   return null;
 }
 

@@ -93,6 +93,7 @@
   const ICON = {
     refresh: svg('<path d="M20 12a8 8 0 1 1-2.34-5.66M20 4v5h-5"/>'),
     export: svg('<path d="M12 4v11m-4.5-4.5L12 15l4.5-4.5M5 19h14"/>'),
+    alert: svg('<path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><path d="M12 9v4M12 17h.01"/>'),
     gear: svg('<path d="M9.671 4.136a2.34 2.34 0 0 1 4.659 0 2.34 2.34 0 0 0 3.319 1.915 2.34 2.34 0 0 1 2.33 4.033 2.34 2.34 0 0 0 0 3.831 2.34 2.34 0 0 1-2.33 4.033 2.34 2.34 0 0 0-3.319 1.915 2.34 2.34 0 0 1-4.659 0 2.34 2.34 0 0 0-3.32-1.915 2.34 2.34 0 0 1-2.33-4.033 2.34 2.34 0 0 0 0-3.831A2.34 2.34 0 0 1 6.35 6.051a2.34 2.34 0 0 0 3.319-1.915"/><circle cx="12" cy="12" r="3"/>')
   };
   // A card's tag: one click takes it off. title says what else undoes it.
@@ -174,19 +175,21 @@
 
   // The running-state pill's inside: text, a bar when done/total is known, and one button (btn = { attrs, label, reason };
   // a reason disables it).
-  function activityHtml({ text, done = 0, total = 0, btn = null }) {
+  function activityHtml({ text, done = 0, total = 0, btn = null, stuck = false }) {
     const bar = total ? `<span class="activity-bar" aria-hidden="true"><i style="width:${Math.round((done / total) * 100)}%"></i></span>` : "";
     const b = btn ? `<button type="button" ${btn.attrs} aria-label="${esc(btn.label)}"${reasonAttrs(btn.reason)}>${esc(btn.label)}</button>` : "";
-    return `<span class="activity-text">${esc(text)}</span>${bar}${b}`;
+    return `${stuck ? `<span class="activity-stuck">${ICON.alert}</span>` : ""}<span class="activity-text">${esc(text)}</span>${bar}${b}`;
   }
-  // Draws the pill from state ({ text, done, total, btn, warn }: warn is amber, for a wait); null / false hides it.
+  // Draws the pill from state ({ text, done, total, btn, stuck, quiet }); null / false hides it. Amber, as something is
+  // running or waiting; stuck (B站限流 or offline, waiting to retry) adds a red ⚠; quiet is grey, for a line left over
+  // from a finished run.
   function setActivity(el, a) {
     el.hidden = !a;
     if (!a) return;
-    el.classList.toggle("warn", Boolean(a.warn));
+    el.classList.toggle("quiet", Boolean(a.quiet));
     el.innerHTML = activityHtml(a);
   }
-  // 「B站限流，01:30 后重试」 while sec > 0, else "".
+  // 「B站限流卡住，01:30 后重试」 while sec > 0, else "".
   const waitText = (why, sec) => (sec > 0 ? `${why}，${fmtDuration(sec)} 后重试` : "");
 
   // Row 1's 「已刷新 +N −M」 pill and the notice it opens below it. Ids are prefix + ViewBtn / Notice / Text / Detail /

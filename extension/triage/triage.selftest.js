@@ -519,7 +519,7 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   // The activity pill names what runs, whatever the tab: 细看 first, then 粗看; a wait keeps the job's pause button.
   t.S.group = { bvids: ["BV207"], stop: false, mediaId: String(t.S.mediaId), items: t.S.itemMap, text: "字幕细看 1/1" };
   t.S.stage1 = { ...t.S.stage1, running: true, done: 2, total: 5, mediaId: String(t.S.mediaId), text: "标题粗看中 2/5" };
-  assert.deepStrictEqual(plain(t.activityState()), { text: "字幕细看 1/1", done: 0, total: 1, act: "group", actLabel: "暂停细看", stopping: false, warn: false });
+  assert.deepStrictEqual(plain(t.activityState()), { text: "字幕细看 1/1", done: 0, total: 1, act: "group", actLabel: "暂停细看", stopping: false, stuck: false });
   // Paused but still finishing the current video: the button says so and is disabled, on the pill and in the step bar.
   t.S.group.stop = true;
   assert.strictEqual(t.activityState().actLabel, "暂停中");
@@ -528,12 +528,12 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   t.renderListHeader(t.visibleItems());
   assert.ok(t.el.listHeader.innerHTML.includes('aria-label="暂停中 0/1" disabled title="当前视频细看完就暂停" aria-description="当前视频细看完就暂停">暂停中 0/1</button>'), t.el.listHeader.innerHTML);
   t.S.group = null;
-  assert.deepStrictEqual(plain(t.activityState()), { text: "标题粗看中 2/5", done: 2, total: 5, act: "stage1", actLabel: "暂停粗看", stopping: false, warn: false });
-  Object.assign(t.S, { throttleUntil: Date.now() + 61000, throttleLabel: "B站限流" });
+  assert.deepStrictEqual(plain(t.activityState()), { text: "标题粗看中 2/5", done: 2, total: 5, act: "stage1", actLabel: "暂停粗看", stopping: false, stuck: false });
+  Object.assign(t.S, { throttleUntil: Date.now() + 61000, throttleLabel: "B站限流卡住" });
   const waiting = t.activityState();
-  assert.ok(waiting.warn && waiting.text.startsWith("B站限流，") && waiting.act === "stage1", "a wait shows its countdown and keeps 暂停粗看");
+  assert.ok(waiting.stuck && waiting.text.startsWith("B站限流卡住，") && waiting.act === "stage1", "a wait shows its countdown and keeps 暂停粗看");
   t.S.stage1 = { ...t.S.stage1, running: false, text: "" };
-  assert.ok(t.activityState().warn && !t.activityState().act, "a wait alone has no button");
+  assert.ok(t.activityState().stuck && !t.activityState().act, "a wait alone has no button");
   t.S.throttleUntil = 0;
   assert.strictEqual(t.activityState(), null, "nothing running hides the pill");
   // 稍后再看 progress: seconds watched, -1 once finished, 0 or missing for not started.
