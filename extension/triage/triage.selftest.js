@@ -244,6 +244,22 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   await t.undo();
   assert.deepStrictEqual([refavs, store[t.K.decisions("D")], toasts.at(-1)], [3, {}, "「D」已重新收藏 3 个"]);
 
+  // G7: while a 重新收藏 runs, no batch 取消收藏 / 移动 starts and U leaves the next batch undo for later.
+  {
+    openFake("D", three);
+    t.S.undo = [{ kind: "unfavMany", items: [{ bvid: "BV1", aid: 1001 }] }];
+    t.S.refavRun = { mediaId: "D", folder: "D", done: 1, total: 5 };
+    let asked = 0;
+    const savedAsk = t.askConfirm;
+    t.askConfirm = async () => (asked++, true);
+    await t.batchUnfav(three);
+    await t.undo();
+    t.askConfirm = savedAsk;
+    assert.deepStrictEqual([asked, t.S.undo.length, toasts.at(-1)], [0, 1, "重新收藏还在跑，等它完成再撤销"]);
+    t.S.refavRun = null;
+    t.S.undo = [];
+  }
+
   // 所有收藏夹: batch 取消收藏 asks which folders (each with its count), then goes folder by folder, naming it; a video
   // leaves each checked folder it is in, and the view only once it is in none. One U puts it back in every one.
   {
@@ -270,9 +286,13 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     assert.deepStrictEqual([Object.keys(store[t.K.decisions("W1")]), Object.keys(store[t.K.decisions("W2")])], [["BV60", "BV61"], ["BV61", "BV62"]]);
     assert.deepStrictEqual(plain(t.batchUndoAsk(t.S.undo.at(-1))).at(-1), "重新收藏 3 个");
     const refav = [];
-    handlers["triage-refav"] = (m) => (refav.push([m.mediaId, m.aid]), { ok: true });
+    const pills = [];
+    handlers["triage-refav"] = (m) => (refav.push([m.mediaId, m.aid]), pills.push([t.activityState().text, vm.runInContext("batchWriting()", ctx), t.writingTo(m.mediaId)]), { ok: true });
     await t.undo();
     assert.deepStrictEqual(refav, [["W1", 1060], ["W1", 1061], ["W2", 1061], ["W2", 1062]]);
+    // G7: the undo shows in the pill, folder by folder, and counts as a batch write on the folder it writes to.
+    assert.deepStrictEqual(pills, [["重新收藏中「夹1」 0/4", "重新收藏", true], ["重新收藏中「夹1」 1/4", "重新收藏", true], ["重新收藏中「夹2」 2/4", "重新收藏", true], ["重新收藏中「夹2」 3/4", "重新收藏", true]]);
+    assert.strictEqual(t.S.refavRun, null);
     assert.deepStrictEqual(plain(vids.map((it) => [...it.folders].sort())), [["W1"], ["W1", "W2"], ["W2", "W3"]]);
     assert.deepStrictEqual([t.S.decisions, store[t.K.decisions("W1")], store[t.K.decisions("W2")], t.S.undo.length], [{}, {}, {}, 0]);
     // 保留 is one list for every folder: the batch marks it everywhere, one U takes it back.

@@ -1219,7 +1219,7 @@ const lastWrite = {}; // mediaId → when a run last wrote to it
 const markWritten = (...ids) => ids.forEach((id) => (lastWrite[String(id)] = Date.now()));
 function writingTo(id) {
   const k = String(id);
-  return [S.unfavBatch, S.transferRun].some((run) => run && (run.mediaId === k || run.to === k || run.folder === k)) || Date.now() - (lastWrite[k] || 0) < WRITE_SETTLE_MS;
+  return [S.unfavBatch, S.transferRun, S.refavRun].some((run) => run && (run.mediaId === k || run.to === k || run.folder === k)) || Date.now() - (lastWrite[k] || 0) < WRITE_SETTLE_MS;
 }
 // The latest request replaces a waiting one (it may be for the folder opened since), except that a waiting full sync
 // is not traded for the light check.
@@ -1714,7 +1714,7 @@ function bumpCount(id, delta) {
   const opt = el.folderSelect.querySelector?.(`option[value="${f.id}"]`);
   if (opt) opt.textContent = `${f.title} (${f.count})`;
 }
-// 所有收藏夹's batch 取消收藏 names the folder it is taking videos out of now.
+// 所有收藏夹's batch 取消收藏 (and its undo) names the folder it is writing to now.
 const unfavWhere = (run) => (run.folder && run.folder !== run.mediaId ? `「${folderName(run.folder)}」` : "");
 const folderNames = (it) => it.folders.map(folderName).join("、");
 
@@ -1853,7 +1853,12 @@ function activityState() {
   const move = S.transferRun;
   if (move) return { text: `${move.verb}到「${move.toName}」${move.done}/${move.total}${runWhere(move)}`, done: move.done, total: move.total };
   const unfav = S.unfavBatch;
-  if (unfav) return { text: wait || `取消收藏中${unfavWhere(unfav)} ${unfav.done}/${unfav.total}${runWhere(unfav)}`, done: unfav.done, total: unfav.total, stuck: Boolean(wait) };
+  if (unfav) {
+    const wait = waitOf("unfav");
+    return { text: wait || `取消收藏中${unfavWhere(unfav)} ${unfav.done}/${unfav.total}${runWhere(unfav)}`, done: unfav.done, total: unfav.total, stuck: Boolean(wait) };
+  }
+  const refav = S.refavRun;
+  if (refav) return { text: `重新收藏中${unfavWhere(refav)} ${refav.done}/${refav.total}${runWhere(refav)}`, done: refav.done, total: refav.total };
   const w = S.write;
   if (w.running) {
     const wait = waitOf("write");
@@ -2036,14 +2041,14 @@ function renderListHeader(list) {
     // One batch 取消收藏 at a time: while another folder's runs, this one waits.
     const reason = !n ? (verdict ? `这里没有 AI 判断为${VERDICTS[verdict]}、还没处理的视频` : "选中的都已经处理过了")
       : route === "unfav" && run ? `「${folderName(run.mediaId)}」的批量取消收藏还在跑`
-      : route === "unfav" && S.transferRun ? "移动/复制还在跑，等它完成" : "";
+      : route === "unfav" && batchWriting() ? `${batchWriting()}还在跑，等它完成` : "";
     return headBtn(`batch-${route}`, verdict ? `${verb}（AI：${VERDICTS[verdict]}）${n} 个` : `${verb}选中的 ${n} 个`, route === "unfav" ? "danger" : "", reason, verdict, route === "keep" ? KEEP_TIP : "");
   };
   const transferBtn = () => {
     const run = S.transferRun;
     if (run) return headBtn("transfer", `${run.verb}中 ${run.done}/${run.total}${runWhere(run)}`, "", `正在${run.verb}`, "", "", true);
     const n = transferList().length;
-    const reason = !n ? "选中的视频已取消收藏，或缺少视频编号" : S.unfavBatch ? "批量取消收藏还在跑，等它完成" : "";
+    const reason = !n ? "选中的视频已取消收藏，或缺少视频编号" : batchWriting() ? `${batchWriting()}还在跑，等它完成` : "";
     return headBtn("transfer", S.mediaId === REMOVED ? `收藏选中的 ${n} 个到…` : `移动/复制选中的 ${n} 个…`, "", reason);
   };
   const groupBtn = (cls) => {
@@ -2142,15 +2147,23 @@ function recentUnfavHtml() {
   const batchRows = batches
     .map(({ batch, n }) => {
       const busy = unfavBatchItems(batch).some((it) => refaving.has(it.bvid));
-      return `<p class="recent-batch"><span>${esc(fmtTime(batch))} 批量取消收藏 ${n} 个</span>${busy ? `<button type="button" aria-busy="true" disabled>重新收藏中…</button>` : `<button type="button" data-refav-batch="${batch}" aria-label="这批 ${n} 个全部重新收藏">这批全部重新收藏</button>`}</p>`;
+      const wait = batchWriting() ? `${batchWriting()}还在跑，等它完成` : "";
+      return `<p class="recent-batch"><span>${esc(fmtTime(batch))} 批量取消收藏 ${n} 个</span>${busy ? `<button type="button" aria-busy="true" disabled>重新收藏中…</button>` : `<button type="button" data-refav-batch="${batch}" aria-label="这批 ${n} 个全部重新收藏"${UI.reasonAttrs(wait)}>这批全部重新收藏</button>`}</p>`;
     })
     .join("");
   return `<section class="recent-unfav" aria-label="最近取消收藏"><h3>最近取消收藏 <span class="muted">${list.length}</span></h3>${batchRows}<ul>${rows}</ul></section>`;
 }
 
+// The batch write running now (取消收藏, 移动/复制, 重新收藏), by name; only one at a time, as they may touch one folder.
+const batchWriting = () => (S.unfavBatch ? "批量取消收藏" : S.transferRun ? "移动/复制" : S.refavRun ? "重新收藏" : "");
+
 // Re-favorites items ([{ bvid, aid }]) into mediaId one by one, stopping at the first failure. It changes Bilibili, so
-// it runs to the end even after another folder opens.
-async function refavMany(mediaId, items) {
+// it runs to the end even after another folder opens. It counts in the pill's S.refavRun: its own, or run when the
+// caller spans several folders.
+async function refavMany(mediaId, items, run = null) {
+  const own = !run;
+  if (own) run = S.refavRun = { mediaId, done: 0, total: items.length };
+  run.folder = mediaId;
   const rest = items.slice();
   let n = 0;
   let error = "";
@@ -2158,7 +2171,6 @@ async function refavMany(mediaId, items) {
   render();
   while (rest.length) {
     if (n) await new Promise((r) => setTimeout(r, 300));
-    if (S.mediaId === mediaId) toast(`正在重新收藏 ${n + 1}/${items.length}…`);
     const r = await send({ type: "triage-refav", mediaId, aid: rest[0].aid });
     if (!r.ok) {
       error = r.error;
@@ -2168,9 +2180,13 @@ async function refavMany(mediaId, items) {
     const { bvid } = rest.shift();
     refaving.delete(bvid);
     await patchDecisions(mediaId, { [bvid]: null });
+    markWritten(mediaId);
     n++;
+    run.done++;
+    renderStatus();
   }
   for (const it of rest) refaving.delete(it.bvid);
+  if (own) S.refavRun = null;
   render();
   return { n, rest, error };
 }
@@ -2183,7 +2199,7 @@ const unfavBatchItems = (batch) =>
 
 async function refavBatch(batch) {
   const items = unfavBatchItems(batch).filter((it) => !refaving.has(it.bvid));
-  if (!items.length) return;
+  if (!items.length || batchWriting()) return;
   const mediaId = String(S.mediaId);
   const { n, rest, error } = await refavMany(mediaId, items);
   const where = S.mediaId === mediaId ? "" : `「${folderName(mediaId)}」`;
@@ -2524,8 +2540,9 @@ function batchUndoAsk(entry) {
 async function undo() {
   const steps = followMode() ? S.modeUndo : S.undo;
   const top = steps.at(-1);
+  if (top?.kind === "unfavMany" && batchWriting()) return toast(`${batchWriting()}还在跑，等它完成再撤销`, true);
   const ask = top && batchUndoAsk(top);
-  if (ask && (!(await askConfirm(ask[0], ask[1], ask[2] || "撤销")) || steps.at(-1) !== top)) return;
+  if (ask && (!(await askConfirm(ask[0], ask[1], ask[2] || "撤销")) || steps.at(-1) !== top || (top.kind === "unfavMany" && batchWriting()))) return;
   const entry = steps.pop();
   if (!entry) {
     toast("没有可撤销的操作");
@@ -2644,12 +2661,12 @@ async function pickBatchUnfavFolders(list) {
 }
 
 async function batchUnfav(list) {
-  if (!list.length || S.unfavBatch || S.transferRun) return;
+  if (!list.length || batchWriting()) return;
   const all = S.mediaId === ALL;
   const folders = all
     ? await pickBatchUnfavFolders(list)
     : (await askConfirm(`在 B站取消收藏这 ${list.length} 个视频？`, UI.confirmList(list.map((it) => it.title)), `取消收藏 ${list.length} 个`, { danger: true })) ? [String(S.mediaId)] : [];
-  if (!folders.length || S.unfavBatch) return;
+  if (!folders.length || batchWriting()) return;
   // It changes Bilibili, so it runs to the end even after another folder opens. 所有收藏夹 goes folder by folder.
   const mediaId = String(S.mediaId);
   const token = S.folderToken;
@@ -2673,7 +2690,7 @@ async function batchUnfav(list) {
       chunk.forEach((it) => deciding.delete(it.bvid));
       // B站 risk control: wait out the countdown, then the same chunk again.
       if (!r.ok && THROTTLES[r.code]) {
-        await throttleWait(r.code, () => true);
+        await throttleWait(r.code, () => true, "unfav");
         i -= size;
         continue;
       }
@@ -2726,12 +2743,13 @@ async function refavGone(gone) {
   let n = 0;
   let error = "";
   const rest = {};
+  const run = (S.refavRun = { mediaId: String(S.mediaId), done: 0, total: Object.values(gone).reduce((sum, items) => sum + items.length, 0) });
   for (const [f, items] of Object.entries(gone)) {
     if (error) {
       rest[f] = items;
       continue;
     }
-    const r = await refavMany(f, items);
+    const r = await refavMany(f, items, run);
     n += r.n;
     for (const { bvid } of items.slice(0, r.n)) {
       const it = S.itemMap.get(bvid);
@@ -2745,6 +2763,7 @@ async function refavGone(gone) {
       if (r.rest.length) rest[f] = r.rest;
     }
   }
+  S.refavRun = null;
   return { n, rest, error };
 }
 
@@ -2812,10 +2831,10 @@ function patchSnapshot(mediaId, { add = [], drop = [] }, created = false) {
 
 // It changes Bilibili, so like 取消收藏 it runs to the end even after another folder opens.
 async function batchTransfer(list) {
-  if (!list.length || S.transferRun || S.unfavBatch) return;
+  if (!list.length || batchWriting()) return;
   const from = String(S.mediaId);
   const ask = await askTransfer(list);
-  if (!ask || S.transferRun || S.unfavBatch) return;
+  if (!ask || batchWriting()) return;
   const { how, target } = ask;
   const add = how === "add"; // from 已出分拣范围: no source folder on Bilibili
   const move = how === "move";
