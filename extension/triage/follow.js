@@ -1,7 +1,7 @@
 // 关注 mode of the 分拣台: UP 主 cards sorted into my own UP tags, and the video feed of the people I follow.
 // The top bar's 收藏夹 | 关注 switch puts body.follow-mode on; follow.css then hides the folder view and this file draws
 // into #followSide and #followMain (the same grid areas as the folder view, so the shared viewer sits beside the list).
-// Data comes from follow-bg.js through follow_* storage and the follow-* messages (see follow-port-contract.md).
+// Data comes from follow-bg.js through follow_* storage and the follow-* messages (the message list is in follow-bg.js's header).
 // Tags live only in this extension (follow_tags / follow_tag_map). B站 writes: 取消关注, 重新关注 and the 关注分组 (新建, 改名,
 // 删除, 移到 / 复制到, ★ 特别关注 which is group -10), see DESIGN 产品决策 · 改 B站 的操作和撤销 for what asks first and what U undoes.
 import "./triage.js"; // runs first: it sets up the page and globalThis.MoonTriage (viewer, toast, confirm dialog)

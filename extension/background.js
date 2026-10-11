@@ -1425,7 +1425,7 @@ async function forgetObsidianNotePath(noteKey) {
 
 // Obsidian requests remote images with an app://obsidian.md Referer, which hdslb.com answers with 403,
 // so the cover goes into the vault next to the note and the note links it. Any failure keeps the remote URL.
-// The two rewritten forms mirror content.js buildFrontMatter ("cover") and buildMarkdown (cover image line).
+// The two rewritten forms mirror note.js buildFrontMatter ("cover") and buildMarkdown (cover image line).
 async function linkCoverInVault(content, cover, { baseUrl, apiKey, filepath }) {
   const url = String(cover?.url || "");
   const name = String(cover?.name || "").replace(/[\\/:*?"<>|#^[\]]/g, "_");
