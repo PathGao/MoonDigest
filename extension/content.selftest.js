@@ -488,6 +488,38 @@ const settle = async () => {
     assert.deepStrictEqual(saved, [], "a mismatched body is not cached");
     // The side panel gets the warning too, and shows it with the reply (background.js buildAiMessages).
     assert.strictEqual(t.buildSidepanelContext().payload.subtitleWarning, state.subtitleWarning);
+
+    // Switching subtitle (popup and focus mode alike): a track of a video no longer shown is refused; a track whose time
+    // range does not match the video is used with the warning, as the video's first load does.
+    {
+      const stubs = Object.fromEntries(["loadSubtitle", "renderReadingSubtitleSelect"].map((k) => [k, t[k]]));
+      const was = Object.fromEntries(["subtitles", "subtitleBody", "subtitleWarning"].map((k) => [k, state[k]]));
+      let loads = 0;
+      t.loadSubtitle = async () => {
+        loads++;
+        throw mismatch;
+      };
+      const popupSelect = (url) => new Promise((resolve) => listeners.message.forEach((f) => f({ type: "popup-select-subtitle", url, lang: "英文", subtitleId: ".en" }, {}, resolve)));
+      state.subtitles = [{ id: ".zh", url: "u1" }];
+      const gone = await popupSelect("old-video-track");
+      assert.deepStrictEqual([gone.ok, gone.error, loads], [false, "视频已切换，请刷新", 0], "F4");
+
+      // F4 again in focus mode: the dropdown goes back to what is shown.
+      let redrawn = 0;
+      t.renderReadingSubtitleSelect = () => redrawn++;
+      const pick = (url) => t.onReadingSubtitleChange({ target: { selectedIndex: 0, options: [{ value: url, dataset: { lang: "英文", id: ".en" } }] } });
+      await pick("old-video-track");
+      assert.deepStrictEqual([loads, redrawn], [0, 1]);
+
+      for (const how of ["popup", "focus mode"]) {
+        Object.assign(state, { subtitles: [{ id: ".zh", url: "u1" }, { id: ".en", url: "u2" }], subtitleBody: [], subtitleWarning: "" });
+        const resp = how === "popup" ? await popupSelect("u2") : await pick("u2");
+        if (resp) assert.strictEqual(resp.ok, true);
+        assert.deepStrictEqual([state.subtitleBody.length, state.subtitleWarning], [2, "字幕时间轴到 20:02，视频长 16:01，字幕时间可能对不上。"], how);
+      }
+      Object.assign(t, stubs);
+      Object.assign(state, was);
+    }
     t.BocSites.subtitleCache.save = realSave;
   }
 

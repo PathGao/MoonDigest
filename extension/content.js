@@ -15,6 +15,8 @@ const BOC_VERSION = chrome.runtime.getManifest().version;
 const IN_VIEWER = window !== window.top;
 // The subtitle failure B站 gives a logged-out viewer; the side panel and the AI say login is why.
 const SUBTITLE_NEED_LOGIN = "B站要求登录后才提供字幕，请登录 B站后刷新网页";
+// A subtitle picked from a list the page has since replaced with another video's.
+const VIDEO_SWITCHED = "视频已切换，请刷新";
 globalThis.__BOC_CONTENT_SCRIPT_LOADED__ = BOC_VERSION;
 const state = {
   fetchRunId: 0,
@@ -467,27 +469,9 @@ function bindRuntimeEvents() {
     }
 
     if (message.type === "popup-select-subtitle") {
-      const url = String(message.url || "").trim();
-      const lang = String(message.lang || "unknown");
-      const subtitleId = String(message.subtitleId || "");
-      if (!url) {
-        sendResponse({ ok: false, error: "Missing subtitle URL", payload: getPopupPayload() });
-        return false;
-      }
-      const runId = state.fetchRunId;
-      loadSubtitle(url, lang, runId, subtitleId)
-        .catch((error) => {
-          const mismatch = subtitleMismatchOf(error);
-          if (!mismatch) throw error;
-          return acceptMismatchedSubtitle(mismatch, runId);
-        })
-        .then(() => {
-          setStatus(`${state.subtitleWarning}字幕切换完成。`);
-          sendResponse({ ok: true, payload: getPopupPayload() });
-        })
-        .catch((error) =>
-          sendResponse({ ok: false, error: fetchErrorText(error), payload: getPopupPayload() })
-        );
+      switchSubtitle(String(message.url || "").trim(), String(message.lang || "unknown"), String(message.subtitleId || ""))
+        .then(() => sendResponse({ ok: true, payload: getPopupPayload() }))
+        .catch((error) => sendResponse({ ok: false, error: fetchErrorText(error), payload: getPopupPayload() }));
       return true;
     }
 
@@ -772,20 +756,7 @@ function bindUiEvents() {
   bindReaderStepperControl(readingLineHeightSelect, "readerLineHeight");
   bindReaderStepperControl(readingContentWidthSelect, "readerContentWidth");
 
-  const readingSubtitleSelect = byId(ids.readingSubtitleSelect);
-  readingSubtitleSelect.addEventListener("change", (event) => {
-    const option = event.target.options[event.target.selectedIndex];
-    const url = String(option?.value || "");
-    if (!url) return;
-    loadSubtitle(url, String(option.dataset.lang || "unknown"), state.fetchRunId, String(option.dataset.id || ""))
-      .then(() => {
-        renderReadingView();
-        syncReadingViewPlayback(true);
-      })
-      .catch((error) => {
-        logWarn("[BOC] failed to switch subtitle in reading view", error);
-      });
-  });
+  byId(ids.readingSubtitleSelect).addEventListener("change", onReadingSubtitleChange);
 
   if (!state.readingDocumentClickBound) {
     document.addEventListener("click", (e) => {
@@ -1372,6 +1343,42 @@ async function acceptMismatchedSubtitle(mismatch, runId) {
   await commitSubtitleBody(raw, { url, lang, subtitleId }, runId, { allowMismatch: true });
   logInfo("[BOC] accepted subtitle despite duration mismatch", { subtitleId, ...mismatch.details });
   return state.subtitles.find((item) => item.id === subtitleId) || { id: subtitleId, lang, label: lang };
+}
+
+// The popup's and focus mode's subtitle pickers. Only a track of the video shown: the list may belong to a video the
+// page has since left. A track whose time range does not match the video is used with the warning, as on first load.
+async function switchSubtitle(url, lang, subtitleId) {
+  if (!url || !state.subtitles.some((item) => item.url === url)) {
+    throw new Error(VIDEO_SWITCHED);
+  }
+  const runId = state.fetchRunId;
+  await loadSubtitle(url, lang, runId, subtitleId)
+    .catch((error) => {
+      const mismatch = subtitleMismatchOf(error);
+      if (!mismatch) throw error;
+      return acceptMismatchedSubtitle(mismatch, runId);
+    })
+    .catch((error) => {
+      throw isStaleRunError(error) ? new Error(VIDEO_SWITCHED) : error;
+    });
+  setStatus(`${state.subtitleWarning}字幕切换完成。`);
+}
+
+function onReadingSubtitleChange(event) {
+  const option = event.target.options[event.target.selectedIndex];
+  const url = String(option?.value || "");
+  if (!url) return;
+  return switchSubtitle(url, String(option.dataset.lang || "unknown"), String(option.dataset.id || ""))
+    .then(() => {
+      renderReadingView();
+      syncReadingViewPlayback(true);
+      setReadingNotice(state.subtitleWarning);
+    })
+    .catch((error) => {
+      // The dropdown goes back to the track still shown.
+      renderReadingSubtitleSelect();
+      setReadingNotice(`字幕切换失败：${fetchErrorText(error)}`);
+    });
 }
 
 function renderReadingSubtitleSelect() {
