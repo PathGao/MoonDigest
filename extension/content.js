@@ -4221,7 +4221,7 @@ function toReadableText(value, fallback = "") {
 // A failed fetch in the user's words: B站 risk control (HTTP 412 or its codes) and a dropped connection are named,
 // and no raw English, HTTP status or B站 code is shown. getErrorMessage keeps the raw text for logs and retry checks.
 function fetchErrorText(error) {
-  if (error?.status === 412 || BocSites.BILI_RISK_CODES.has(error?.code)) {
+  if (isBiliRiskError(error)) {
     return "B站限流，请稍后再试";
   }
   if (/failed to fetch|networkerror|load failed/i.test(toReadableText(error?.message, ""))) {
@@ -4323,6 +4323,9 @@ function isStaleRunError(error) {
   return error?.code === "STALE_RUN";
 }
 
+// B站 risk control (HTTP 412 or its codes): retrying at once only digs deeper, so it is never retried.
+const isBiliRiskError = (error) => error?.status === 412 || BocSites.BILI_RISK_CODES.has(error?.code);
+
 async function retryAsync(task, retries = 1, delayMs = 180) {
   let lastError = null;
   for (let attempt = 0; attempt <= retries; attempt += 1) {
@@ -4330,6 +4333,9 @@ async function retryAsync(task, retries = 1, delayMs = 180) {
       return await task();
     } catch (error) {
       lastError = error;
+      if (isBiliRiskError(error)) {
+        throw error;
+      }
       const isNetworkError = isRetryableNetworkError(error);
       const isRetryable = error?.retryable === true;
       if (!isNetworkError && !isRetryable) {

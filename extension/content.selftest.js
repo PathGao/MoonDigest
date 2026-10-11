@@ -419,6 +419,21 @@ const settle = async () => {
   assert.strictEqual(t.fetchErrorText(Object.assign(new Error("风控校验失败"), { code: -352 })), "B站限流，请稍后再试");
   assert.strictEqual(t.fetchErrorText(new TypeError("Failed to fetch")), "网络断了");
   assert.strictEqual(t.fetchErrorText(Object.assign(new Error("啥都木有"), { code: -404 })), "啥都木有");
+  // X8: risk control is not retried (that only digs deeper); a dropped connection or another negative code still is.
+  {
+    const tries = async (error) => {
+      let n = 0;
+      await t.retryAsync(async () => {
+        if (++n === 1) throw error;
+      }, 2, 0).catch(() => {});
+      return n;
+    };
+    // sites.js marks every negative B站 code retryable; risk codes stop here all the same.
+    for (const code of [-352, -412, -799, -509]) assert.strictEqual(await tries(Object.assign(new Error("x"), { code, retryable: true })), 1, String(code));
+    assert.strictEqual(await tries(Object.assign(new Error("请求失败：412"), { status: 412 })), 1, "HTTP 412");
+    assert.strictEqual(await tries(new TypeError("Failed to fetch")), 2, "a dropped connection is retried");
+    assert.strictEqual(await tries(Object.assign(new Error("x"), { code: -500, retryable: true })), 2);
+  }
 
   console.log("content selftest: all passed");
 })().catch((e) => {
