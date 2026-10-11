@@ -137,7 +137,8 @@ function render() {
         // A video whose title never arrived falls back to its id; show that as 未获取标题 with the id in the meta line.
         const untitled = g.title === g.context.videoId;
         const label = untitled ? "未获取标题" : g.title;
-        const title = g.context.url ? `<a class="entry-title" href="${esc(g.context.url)}" target="_blank" rel="noopener">${esc(label)}</a>` : `<span class="entry-title">${esc(label)}</span>`;
+        // Only web links: a saved context URL is shown as a link, never as a javascript: or other scheme.
+        const title = /^https?:\/\//i.test(g.context.url || "") ? `<a class="entry-title" href="${esc(g.context.url)}" target="_blank" rel="noopener">${esc(label)}</a>` : `<span class="entry-title">${esc(label)}</span>`;
         const kind = g.convs.length ? (g.convs.length > 1 ? `${g.convs.length} 段对话` : "") : `仅${[g.analysis && "分拣台 AI 总结", g.note && "备注"].filter(Boolean).join("和")}，没有 AI 对话`;
         return `<article class="entry" data-key="${esc(g.key)}">
           <input type="checkbox" data-act="pick" aria-label="选择" ${selected.has(g.key) ? "checked" : ""} />
