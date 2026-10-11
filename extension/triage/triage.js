@@ -3446,7 +3446,8 @@ const aiTags = {
   apply: () => applyAiProposal(),
   map: () => S.videoTags,
   live: () => S.itemMap,
-  tagName: (id) => tagById(id)?.name
+  tagName: (id) => tagById(id)?.name,
+  where: () => String(S.mediaId)
 };
 const openAi = () => TagDialogs.ai.open(aiTags);
 
@@ -3556,7 +3557,7 @@ async function runAiCommand({ instruction, scope, allowRemove }) {
     } : undefined,
     intervalMs: S.settings.triageIntervalSec * 1000,
     keepGoing: () => !S.ai.stop,
-    progress: (text) => (TagDialogs.ai.progress(aiTags, text), renderStatus()),
+    progress: (text) => (TagDialogs.ai.progress(aiTags, text, folder), renderStatus()),
     at: S.ai
   });
   S.ai.running = false;

@@ -167,6 +167,29 @@ function adapters(who) {
     ai.p = null;
   }
 
+  // S6: a run's progress line shows only in its own folder; an instruction stays with its mode and folder.
+  {
+    const { ai } = adapters("视频");
+    let folder = "A";
+    ai.where = () => folder;
+    D.ai.open(ai);
+    nodes.aiInstruction.value = "A 的指令";
+    D.ai.progress(ai, "第 1 批失败", "A");
+    assert.strictEqual(nodes.aiProgress.textContent, "第 1 批失败");
+    nodes.aiTagDialog.close();
+    D.ai.open(ai);
+    assert.strictEqual(nodes.aiInstruction.value, "A 的指令", "reopened in the same folder, the instruction stays");
+    folder = "B";
+    D.ai.open(ai);
+    assert.deepStrictEqual([nodes.aiProgress.textContent, nodes.aiInstruction.value], ["", ""], "folder A's failure and instruction stay out of B");
+    folder = "A";
+    D.ai.open(ai);
+    assert.strictEqual(nodes.aiProgress.textContent, "第 1 批失败", "back in A, its line is there again");
+    D.ai.open(adapters("UP 主").ai);
+    assert.strictEqual(nodes.aiInstruction.value, "", "another mode starts with an empty instruction");
+    nodes.aiTagDialog.close();
+  }
+
   // A redraw for the mode whose dialog is not open does nothing.
   const other = adapters("视频").ai;
   nodes.aiForm.hidden = true;

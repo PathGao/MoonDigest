@@ -85,15 +85,22 @@
   // tags the AI may make), blocked() ("" or why it cannot run here now), history(), allowRemove(), setAllowRemove?(on)
   // → saved?, running(), proposal(), run({ instruction, scope, allowRemove }) (sets running before its first await),
   // stop(), discard(), apply(), map() (item id → tag ids), live() (has(id): still in the folder / still followed),
-  // tagName(id), manage (the mode's 标签管理 adapter, for the link) }.
+  // tagName(id), manage (the mode's 标签管理 adapter, for the link), where?() (the open folder; "" when the mode has none) }.
   // The review counts what 应用 would change now, new tags standing in by name (UI.previewId).
   const changesOf = (a, p) => UI.aiChanges(p, a.map(), a.live(), (key) => UI.previewId(p, key, a.tags()));
   let ai = null;
-  const progressOf = new Map(); // adapter → its run's progress line, kept while the dialog is closed
+  // adapter → { where, text }: its run's progress line and the folder the run is in, kept while the dialog is closed and
+  // shown only there.
+  const progressOf = new Map();
+  const whereOf = (a) => a.where?.() ?? "";
+  const progressText = (a) => (progressOf.get(a)?.where === whereOf(a) ? progressOf.get(a).text : "");
   const scopeSel = $("aiScope");
   const instr = $("aiInstruction");
+  let instrKey = null; // [adapter, where] the instruction was written for; another mode or folder starts empty
 
   function openAi(a) {
+    if (instrKey?.[0] !== a || instrKey[1] !== whereOf(a)) instr.value = "";
+    instrKey = [a, whereOf(a)];
     ai = a;
     a.excluded.clear();
     // 选中 when something is selected, else 当前筛选.
@@ -142,7 +149,7 @@
     if (running) run.setAttribute("aria-busy", "true");
     else run.removeAttribute("aria-busy");
     $("aiStopBtn").hidden = !running;
-    $("aiProgress").textContent = progressOf.get(a) || "";
+    $("aiProgress").textContent = progressText(a);
   }
   function renderReview(p) {
     const a = ai;
@@ -258,9 +265,10 @@
       isOpen,
       // Redraw for a mode whose run moved on; nothing when the dialog is closed or shows the other mode.
       render: (a) => isOpen(a) && renderAi(),
-      progress(a, text) {
-        progressOf.set(a, text);
-        if (isOpen(a) && !$("aiForm").hidden) $("aiProgress").textContent = text;
+      // where: the folder the run is in (a.where() when it started).
+      progress(a, text, where = "") {
+        progressOf.set(a, { where, text });
+        if (isOpen(a) && !$("aiForm").hidden) $("aiProgress").textContent = progressText(a);
       }
     }
   };
