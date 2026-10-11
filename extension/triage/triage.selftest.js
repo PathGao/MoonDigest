@@ -194,9 +194,14 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   assert.ok(t.recentUnfavHtml().includes('data-refav="BV0"'));
   handlers["triage-refav"] = () => ({ ok: true });
   t.syncFolder = async () => true;
+  const settled = () => vm.runInContext("clearTimeout(deferredRead?.timer); deferredRead = null; for (const k in lastWrite) delete lastWrite[k];", ctx);
+  settled();
   await t.refavRecent("BV7");
   assert.deepStrictEqual(plain(sent.at(-1)), { type: "triage-refav", mediaId: "A", aid: 1007 });
   assert.ok(!("BV7" in store[t.K.decisions("A")]), "re-favorited video leaves the recent list");
+  // X10: it goes through refavMany, so the folder is marked written and the read after it waits for B站 to catch up.
+  assert.ok(t.writingTo("A"), "the read after a 重新收藏 waits for B站 to catch up");
+  settled();
   const capped = Object.fromEntries(Array.from({ length: 60 }, (_, i) => [`BVx${i}`, { action: "unfav", at: i, aid: i, title: "x" }]));
   openFake("C", [], capped);
   assert.strictEqual(t.recentUnfavs().length, 50, "the recent list is capped");
@@ -1501,6 +1506,8 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     openFake("A", [item(1)]);
   }
 
+  // The 重新收藏 of the undo tests above marked A and B written a moment ago (markWritten); B站 has long caught up here.
+  settled();
   // Cleaning a removed video deletes its AI results, note, tags, 保留, basket entry and 取消收藏 records, and nothing else.
   Object.assign(store, { triage_analysis_BV1: {}, triage_title_BV1: {}, triage_analysis_BV5: {} });
   Object.assign(store, { triage_decisions_A: { BV1: { action: "unfav" }, BV5: { action: "unfav" } }, triage_decisions_B: { BV1: { action: "unfav" } } });

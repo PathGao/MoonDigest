@@ -2165,8 +2165,9 @@ window.addEventListener("beforeunload", (e) => {
   e.returnValue = true;
 });
 
-// Re-favorites items ([{ bvid, aid }]) into mediaId one by one, stopping at the first failure. It changes Bilibili, so
-// it runs to the end even after another folder opens. It counts in the pill's S.refavRun: its own, or run when the
+// Re-favorites items ([{ bvid, aid }]) into mediaId one by one, stopping at the first failure; every 重新收藏 goes
+// through here, so each marks the folder written (markWritten). It changes Bilibili, so it runs to the end even after
+// another folder opens. It counts in the pill's S.refavRun: its own, or run when the
 // caller spans several folders.
 async function refavMany(mediaId, items, run = null) {
   const own = !run;
@@ -2221,20 +2222,10 @@ async function refavRecent(bvid) {
   const d = S.decisions[bvid];
   if (!d?.aid || refaving.has(bvid)) return;
   const mediaId = S.mediaId;
-  refaving.add(bvid);
-  render();
-  const r = await send({ type: "triage-refav", mediaId, aid: d.aid });
-  refaving.delete(bvid);
-  if (!r.ok) {
-    render();
-    toast(`重新收藏失败：${r.error}`, true);
-    return;
-  }
-  bumpCount(mediaId, 1);
-  await patchDecisions(mediaId, { [bvid]: null });
+  const { error } = await refavMany(String(mediaId), [{ bvid, aid: d.aid }]);
+  if (error) return toast(`重新收藏失败：${error}`, true);
   if (mediaId !== S.mediaId) return;
   toast(`已重新收藏《${d.title || bvid}》`);
-  render();
   quickSync({ force: true });
 }
 
@@ -2567,12 +2558,11 @@ async function undo() {
     if (entry.action === "unfav") toast(`正在重新收藏《${shortTitle(it)}》…`);
     for (const [mediaId, prev] of Object.entries(entry.prevs)) {
       if (entry.action === "unfav") {
-        const r = await send({ type: "triage-refav", mediaId, aid: it.aid });
-        if (!r.ok) {
-          if (token === S.folderToken) toast(`撤销失败：${r.error}。可到 B站手动重新收藏`, true);
+        const { error } = await refavMany(mediaId, [{ bvid: entry.bvid, aid: it.aid }]);
+        if (error) {
+          if (token === S.folderToken) toast(`撤销失败：${error}。可到 B站手动重新收藏`, true);
           return;
         }
-        bumpCount(mediaId, 1);
       }
       await patchDecisions(mediaId, { [entry.bvid]: prev });
     }
