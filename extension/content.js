@@ -607,7 +607,8 @@ function bindSettingsWatcher() {
         rebuildDerivedContent();
       });
     }
-    if ((changes[BocLimits.KEYS.triageAnalysis(state.videoId)] || changes[BocLimits.KEYS.triageNotes]) && state.markdown) {
+    const extrasRef = { site: state.site, videoId: state.videoId, pageIndex: state.pageIndex };
+    if (BocNote.triageExtrasKeys(extrasRef).some((key) => changes[key]) && state.markdown) {
       loadTriageExtras().then((extras) => {
         if (runId !== state.fetchRunId) return;
         state.triageExtras = extras;
@@ -4484,17 +4485,14 @@ async function loadAiTurns() {
   }
 }
 
-// The triage page's summary and the video's note, so this note matches what triage exports for the video.
-// The note is per video id on every site and part; the analysis is per bvid and summarizes P1, so only B 站 P1 gets it.
+// The 分拣台 summary, the video's 我的备注 and its 分拣 tags, so this note matches what 分拣台 writes for the video.
 async function loadTriageExtras() {
   if (!state.videoId) {
     return null;
   }
   try {
-    const notesKey = BocLimits.KEYS.triageNotes;
-    const analysisKey = state.site === "bilibili" && !(Number(state.pageIndex) > 1) ? BocLimits.KEYS.triageAnalysis(state.videoId) : "";
-    const stored = await chrome.storage.local.get([analysisKey, notesKey].filter(Boolean));
-    return { analysis: analysisKey ? stored[analysisKey] : null, note: stored[notesKey]?.[state.videoId]?.text || "" };
+    const ref = { site: state.site, videoId: state.videoId, pageIndex: state.pageIndex };
+    return BocNote.triageExtras(await chrome.storage.local.get(BocNote.triageExtrasKeys(ref)), ref);
   } catch (error) {
     logWarn("[BOC] failed to load triage summary for note export", error);
     return null;
@@ -4505,7 +4503,11 @@ function rebuildDerivedContent() {
   const body = Array.isArray(state.subtitleBody) ? state.subtitleBody : [];
   state.markdown =
     body.length || state.subtitleFetchState === "empty"
-      ? BocNote.withTriageSummary(BocNote.buildMarkdown(state, body, state.settings, currentRef()), state.triageExtras?.analysis, state.triageExtras?.note)
+      ? BocNote.withTriageSummary(
+          BocNote.buildMarkdown({ ...state, userTags: state.triageExtras?.userTags }, body, state.settings, currentRef()),
+          state.triageExtras?.analysis,
+          state.triageExtras?.note
+        )
       : "";
   state.srt = body.length ? buildSrt(body) : "";
   state.txt = body.length ? buildTxt(body, state.settings) : "";

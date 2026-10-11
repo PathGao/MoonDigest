@@ -101,6 +101,7 @@ const realRenderReadingView = t.renderReadingView;
 const XSS = ["<img src=x onerror=alert(1)>", `"'><script>alert(1)</script>`];
 const assertInert = (html, where) => assert.ok(!/<img src=x|<script|"'>/i.test(html) && /&lt;|&#60;/.test(html), `${where}: ${html}`);
 const { state } = t;
+const realRebuild = t.rebuildDerivedContent;
 for (const f of ["setStatus", "setMessage", "setReadingNotice", "renderReadingView", "syncReadingViewPlayback", "rebuildDerivedContent", "logInfo", "logWarn"]) t[f] = () => {};
 t.byId = stubEl;
 
@@ -174,6 +175,16 @@ const settle = async () => {
     turns.open();
     await derived;
     assert.deepStrictEqual([state.aiTurns.length, state.triageExtras], [0, null]);
+  }
+
+  // The video page's note carries the video's 分拣 tags, like the note 分拣台 writes.
+  {
+    const was = { subtitleBody: state.subtitleBody, triageExtras: state.triageExtras, markdown: state.markdown };
+    state.subtitleBody = [{ from: 0, to: 1, content: "a" }];
+    state.triageExtras = t.BocNote.triageExtras({ triage_tags: [{ id: "t1", name: "入门 教程" }], triage_video_tags: { [state.videoId]: ["t1"] } }, { site: "bilibili", videoId: state.videoId, pageIndex: 2 });
+    realRebuild();
+    assert.match(state.markdown, /\ntags: \[[^\]\n]*"入门_教程"\]\n/);
+    Object.assign(state, was);
   }
 
   // G4: a refresh waiting for the player's metadata is dropped when the video changed during the wait.

@@ -1,6 +1,6 @@
 // Note builder shared by content.js (manifest js list), background.js (importScripts)
 // and the extension pages (<script>). Pure: everything it reads arrives as arguments.
-// Needs BocSites (sites.js) and BocSettings (settings.js) loaded first. Idempotent like sites.js.
+// Needs BocLimits (limits.js), BocSites (sites.js) and BocSettings (settings.js) loaded first. Idempotent like sites.js.
 //
 // meta     the content-script state shape: title, site, videoId, cid, aid, author, authorUrl,
 //          uploadDate, videoDuration, cover, videoTags, selectedSubtitleLang, description,
@@ -359,6 +359,33 @@
     const verdict = BocTagCore.VERDICTS[analysis.verdict];
     if (verdict) lines.push(`AI 判断：${verdict}${analysis.reason ? `，${analysis.reason}` : ""}`);
     return lines.join("\n").trim();
+  }
+
+  // The 分拣台 data a video's note carries, read the same way by every note writer: the AI 总结 (per bvid; it
+  // summarizes P1, so B站 P1 only), 我的备注 (per video id, any site) and the 分拣 tags (B站, every part).
+  // triageExtrasKeys names the storage keys to read; triageExtras picks from what was read.
+  const isBiliP1 = ({ site, pageIndex }) => site === "bilibili" && !(Number(pageIndex) > 1);
+  function triageExtrasKeys({ site, videoId, pageIndex }) {
+    if (!videoId) {
+      return [];
+    }
+    const { triageNotes, triageTags, triageVideoTags, triageAnalysis } = BocLimits.KEYS;
+    return [
+      triageNotes,
+      ...(site === "bilibili" ? [triageTags, triageVideoTags] : []),
+      ...(isBiliP1({ site, pageIndex }) ? [triageAnalysis(videoId)] : [])
+    ];
+  }
+  function triageExtras(stored, { site, videoId, pageIndex }) {
+    const { triageNotes, triageTags, triageVideoTags, triageAnalysis } = BocLimits.KEYS;
+    const all = stored || {};
+    const names = new Map((all[triageTags] || []).map((tag) => [tag.id, tag.name]));
+    const tagIds = site === "bilibili" ? all[triageVideoTags]?.[videoId] || [] : [];
+    return {
+      analysis: (isBiliP1({ site, pageIndex }) && all[triageAnalysis(videoId)]) || null,
+      note: String(all[triageNotes]?.[videoId]?.text || ""),
+      userTags: [...new Set(tagIds.map((id) => names.get(id)).filter(Boolean))]
+    };
   }
 
   // The summary and the user's basket note go right after the frontmatter so they are read first.
@@ -1065,6 +1092,8 @@
     buildAiConversationMarkdown,
     buildTriageSummary,
     withTriageSummary,
+    triageExtras,
+    triageExtrasKeys,
     buildNoteFilename,
     resolveFolderTemplate,
     buildSubtitlePreview,

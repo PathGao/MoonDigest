@@ -730,15 +730,15 @@ async function triageBuildNote(bvid, settings) {
   const hotComments =
     settings.includeHotCommentsInNote || !body.length ? await site.fetchComments(ref, meta, io).catch(() => []) : [];
   const noteMeta = { ...BocNote.noteMetaOf({ site: "bilibili", videoId: bvid, meta, bundle, track }), hotComments };
-  const { aiConversations, triageNotes, triageTags, triageVideoTags } = BocLimits.KEYS;
-  const cacheKey = BocLimits.KEYS.triageAnalysis(bvid);
-  const stored = await chrome.storage.local.get([cacheKey, aiConversations, triageNotes, triageTags, triageVideoTags]);
-  const analysis = stored[cacheKey];
+  const { aiConversations } = BocLimits.KEYS;
+  // 分拣台 notes always summarize the video's P1 (the analysis is per bvid).
+  const extrasRef = { site: "bilibili", videoId: bvid, pageIndex: 1 };
+  const stored = await chrome.storage.local.get([aiConversations, ...BocNote.triageExtrasKeys(extrasRef)]);
+  const { analysis, note, userTags } = BocNote.triageExtras(stored, extrasRef);
   // The user's 分拣 tags, every folder's, go into the note's tags next to the fixed ones from the settings page.
-  const tagNames = new Map((stored[triageTags] || []).map((t) => [t.id, t.name]));
-  noteMeta.userTags = [...new Set((stored[triageVideoTags]?.[bvid] || []).map((id) => tagNames.get(id)).filter(Boolean))];
+  noteMeta.userTags = userTags;
   noteMeta.aiTurns = BocNote.buildConversationTurns(BocNote.pickConversation(stored[aiConversations], noteMeta)?.messages);
-  const markdown = BocNote.withTriageSummary(BocNote.buildMarkdown(noteMeta, body, settings, ref), analysis, stored[triageNotes]?.[bvid]?.text);
+  const markdown = BocNote.withTriageSummary(BocNote.buildMarkdown(noteMeta, body, settings, ref), analysis, note);
   // Every writer of this note uses this path and downloads this cover into the vault (hdslb links 403 in Obsidian).
   const folder = BocNote.resolveFolderTemplate(settings.noteFolder, noteMeta);
   const filename = BocNote.buildNoteFilename(noteMeta, settings);

@@ -7,6 +7,7 @@ const vm = require("vm");
 const assert = require("assert");
 
 const ctx = vm.createContext({ URL, URLSearchParams, console });
+vm.runInContext(fs.readFileSync(path.join(__dirname, "limits.js"), "utf8"), ctx);
 vm.runInContext(fs.readFileSync(path.join(__dirname, "errors.js"), "utf8"), ctx);
 vm.runInContext(fs.readFileSync(path.join(__dirname, "settings.js"), "utf8"), ctx);
 vm.runInContext(fs.readFileSync(path.join(__dirname, "sites.js"), "utf8"), ctx);
@@ -404,6 +405,25 @@ assert.strictEqual(N.withTriageSummary(front, undefined), front);
 assert.strictEqual(N.withTriageSummary("## 简介", { status: "done", verdict: "drop" }, " 我的话 "), "## AI 总结\n\nAI 判断：可清理\n\n## 我的备注\n\n我的话\n\n## 简介");
 assert.strictEqual(N.withTriageSummary(front, undefined, "n"), "---\ntitle: \"x\"\n---\n\n## 我的备注\n\nn\n\n![cover](u)\n\n## 简介\n\nhi");
 assert.strictEqual(N.withTriageSummary(front, undefined, "  "), front);
+
+// One read of the 分拣台 extras for every note writer: the summary only on B站 P1, the note on any site and part,
+// the 分拣 tags on every B站 part (ids → names, unknown ids dropped, duplicate names once).
+{
+  const stored = {
+    triage_analysis_BVa: { status: "done" },
+    triage_notes: { BVa: { text: "备注" }, yt1: { text: "yt 备注" } },
+    triage_tags: [{ id: "t1", name: "甲" }, { id: "t2", name: "甲" }, { id: "t3", name: "乙" }],
+    triage_video_tags: { BVa: ["t1", "t2", "t3", "gone"], yt1: ["t3"] }
+  };
+  const plain = (v) => JSON.parse(JSON.stringify(v));
+  assert.deepStrictEqual(plain(N.triageExtras(stored, { site: "bilibili", videoId: "BVa", pageIndex: 1 })), { analysis: { status: "done" }, note: "备注", userTags: ["甲", "乙"] });
+  assert.deepStrictEqual(plain(N.triageExtras(stored, { site: "bilibili", videoId: "BVa", pageIndex: 2 })), { analysis: null, note: "备注", userTags: ["甲", "乙"] });
+  assert.deepStrictEqual(plain(N.triageExtras(stored, { site: "youtube", videoId: "yt1" })), { analysis: null, note: "yt 备注", userTags: [] });
+  assert.deepStrictEqual(plain(N.triageExtrasKeys({ site: "bilibili", videoId: "BVa" })), ["triage_notes", "triage_tags", "triage_video_tags", "triage_analysis_BVa"]);
+  assert.deepStrictEqual(plain(N.triageExtrasKeys({ site: "bilibili", videoId: "BVa", pageIndex: 2 })), ["triage_notes", "triage_tags", "triage_video_tags"]);
+  assert.deepStrictEqual(plain(N.triageExtrasKeys({ site: "youtube", videoId: "yt1" })), ["triage_notes"]);
+  assert.deepStrictEqual(plain(N.triageExtrasKeys({ site: "bilibili", videoId: "" })), []);
+}
 assert.strictEqual(N.buildTriageSummary({ status: "done", verdict: "unsure", reason: "核心" }), "AI 判断：拿不准，核心");
 
 assert.strictEqual(N.buildTriageSummary({ status: "done", oneLiner: "一句话", points: ["a", "", ""] }), "> 一句话\n\n- a", "padded empty points are dropped");

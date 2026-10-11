@@ -2267,10 +2267,10 @@ async function buildCurrentConversationNote() {
   const filename = buildAiConversationFilename(context);
   const noteId = noteVideoId(context);
   const ref = buildConversationContextRef(context);
-  const analysisKey = noteId && ref.site === "bilibili" && ref.pageIndex === 1 ? BocLimits.KEYS.triageAnalysis(noteId) : "";
-  const stored = noteId ? await chrome.storage.local.get([NOTES_STORAGE_KEY, analysisKey].filter(Boolean)) : {};
+  const extrasRef = { site: ref.site, videoId: noteId, pageIndex: ref.pageIndex };
+  const { analysis, note } = BocNote.triageExtras(await chrome.storage.local.get(BocNote.triageExtrasKeys(extrasRef)), extrasRef);
   const markdown = buildAiConversationMarkdown({ context, turns, filename });
-  return { context, filename, content: BocNote.withTriageSummary(markdown, stored[analysisKey], stored[NOTES_STORAGE_KEY]?.[noteId]?.text) };
+  return { context, filename, content: BocNote.withTriageSummary(markdown, analysis, note) };
 }
 
 // Where the page's 写入 Obsidian puts this video's note: same folder template and filename builder.

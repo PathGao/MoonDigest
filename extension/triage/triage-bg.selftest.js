@@ -508,6 +508,10 @@ assert.throws(() => t.triageParseCommand('{"new_tags":[', cmdItems, cmdTags, {})
   store.triage_notes = { BVa: { text: "视频笔记", updatedAt: 1 } };
   const noted = (await buildNote()).markdown;
   assert.ok(noted.includes("## 我的备注\n\n视频笔记") && !noted.includes("篮子里的旧笔记"));
+  // The 分拣 tags go into the note's tags, read the same way as on the video page (BocNote.triageExtras).
+  store.triage_tags = [{ id: "t1", name: "好看" }];
+  store.triage_video_tags = { BVa: ["t1", "t1"] };
+  assert.match((await buildNote()).markdown, /\ntags: \["好看"\]\n/);
 
   // Migration: copies non-empty basket notes, never overwrites, keeps the basket, runs once.
   for (const k of Object.keys(store)) delete store[k];
