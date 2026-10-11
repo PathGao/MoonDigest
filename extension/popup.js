@@ -24,6 +24,8 @@ const el = {
 };
 
 let latestPayload = null;
+// Set from the tab's URL in init(): a content script that still answers on a non-video page must not re-enable the tools.
+let onVideoPage = true;
 // Only for when get-settings fails. Its downloadFormat ("srt") wins over the page's payload.downloadFormat.
 const DEFAULT_SETTINGS = BocSettings.DEFAULTS;
 
@@ -39,9 +41,8 @@ init().catch((error) => {
 async function init() {
   bindEvents();
   const tab = await getActiveTab();
-  if (!isSupportedSubtitlePage(tab?.url || "")) {
-    syncTools(null, false);
-  }
+  onVideoPage = isSupportedSubtitlePage(tab?.url || "");
+  if (!onVideoPage) syncTools(null, false);
   getSettingsFromRuntime().then((settings) => {
     el.sendBtn.hidden = settings.obsidianEnabled !== true;
   });
@@ -290,7 +291,7 @@ function render(payload, { preserveStatus = false } = {}) {
 
   el.preview.value = payload.subtitlePreview || "";
   el.preview.hidden = !el.preview.value;
-  syncTools(payload);
+  syncTools(payload, onVideoPage);
 }
 
 // A tool that cannot work is disabled and says why; without a payload yet a video page keeps them usable.

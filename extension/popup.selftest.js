@@ -29,6 +29,12 @@ assert.deepStrictEqual(state(), { downloadBtn: "当前视频没有可下载的�
 ctx.syncTools({ markdown: "# t", srt: "1", txt: "a" });
 assert.deepStrictEqual(new Set(Object.values(state())), new Set([""]), "everything ready");
 
+// A non-video page whose content script still answers (youtube.com home): its payload keeps the tools disabled.
+vm.runInContext("onVideoPage = false", ctx);
+ctx.render({ markdown: "# t", srt: "1", txt: "a" }, { preserveStatus: true });
+assert.deepStrictEqual(new Set(Object.values(state())), new Set(["当前网页不是支持的视频页"]), "a web page's payload does not re-enable the tools");
+vm.runInContext("onVideoPage = true", ctx);
+
 // Untrusted text (titles, UP names, comments, AI replies, tag names, paths) stays text: no tag of its own, no way out of
 // a quoted attribute.
 const XSS = ["<img src=x onerror=alert(1)>", `"'><script>alert(1)</script>`];
