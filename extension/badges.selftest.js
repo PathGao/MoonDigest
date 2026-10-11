@@ -756,6 +756,15 @@ async function surfacePages() {
   const favMarks = await page({ hostname: "space.bilibili.com", pathname: "/9/favlist", search: "?fid=5" }, h("body", {}, h("div", {}, card)), false, { showBiliTriageBadges: true, showBiliVerdicts: true });
   assert.ok(favMarks.reads.some((k) => [].concat(k).includes("triage_snapshot_5")), "the folder's snapshot is read");
   assert.deepStrictEqual(favMarks.doc.querySelectorAll(".mdg-v").map((v) => [v.className, v.textContent]), [["mdg-v mdg-drop", "AI 可清理"]]);
+  // Another folder's snapshot changing (the 分拣台 loading 所有收藏夹) leaves the marks alone; this folder's redraws them.
+  const snapReads = () => favMarks.reads.filter((k) => [].concat(k).includes("triage_snapshot_5")).length;
+  const readsBefore = snapReads();
+  favMarks.listen.forEach((f) => f({ triage_snapshot_6: { newValue: {} } }, "local"));
+  await new Promise((r) => setTimeout(r, 30));
+  assert.deepStrictEqual([favMarks.doc.querySelectorAll(".mdg-v").length, snapReads()], [1, readsBefore], "another folder's snapshot: no redraw");
+  favMarks.listen.forEach((f) => f({ triage_snapshot_5: { newValue: {} } }, "local"));
+  await new Promise((r) => setTimeout(r, 30));
+  assert.strictEqual(snapReads(), readsBefore + 1, "this folder's snapshot: read again");
 
   // The video page's UP name: its own line under the name row, 「+ UP 标签」 always shown.
   const row = h("div", { class: "up-detail-top" }, h("a", { href: "//space.bilibili.com/1/", class: "up-name" }, " 甲 ", h("span", { class: "mask" })), h("a", { href: "//message.bilibili.com/" }, "发消息"));

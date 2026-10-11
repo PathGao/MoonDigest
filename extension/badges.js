@@ -237,8 +237,9 @@
   let seenCfg = seenConfig(SEEN_DEFAULTS);
   const seenCache = new Map(); // bvid -> percent | 0
   const SEL = 'a[href*="/video/BV"], a[href*="bvid=BV"]';
-  // Keys that every video's info depends on; a per-video title or analysis only redraws that video.
-  const isSharedKey = (k) => k === "triage_tags" || k === "triage_video_tags" || k === "triage_kept" || k.startsWith("triage_decisions_") || k.startsWith("triage_snapshot_");
+  // Keys that every video's info depends on; a per-video title or analysis only redraws that video. Only a favorites
+  // page reads a snapshot, and only its own folder's: the 分拣台 saves other folders' snapshots often.
+  const isSharedKey = (k) => k === "triage_tags" || k === "triage_video_tags" || k === "triage_kept" || k.startsWith("triage_decisions_") || (!!favFid() && k === `triage_snapshot_${favFid()}`);
 
   const cache = new Map(); // bvid -> info | null
   let shared = null;
