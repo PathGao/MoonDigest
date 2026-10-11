@@ -1078,12 +1078,14 @@ async function saveSettings(settings) {
   ]);
 }
 
-// Every setting (收藏夹 and 关注 included) lives in sync; keys and data live in local, so the file never carries them.
-// The key filter only guards against a copy left in sync by an older version.
+// Every setting (收藏夹 and 关注 included) lives in sync, except the 分拣台's folder choice (收藏夹设置), kept in local
+// beside the data; the file carries that one as `local`. Keys and data stay out of the file. The key filter only guards
+// against a copy left in sync by an older version.
 const SETTINGS_FILE_VERSION = 1;
+const LOCAL_SETTING_KEYS = ["triage_included_folders"];
 
 async function exportSettings() {
-  const settings = await chrome.storage.sync.get(null);
+  const [settings, local] = await Promise.all([chrome.storage.sync.get(null), chrome.storage.local.get(LOCAL_SETTING_KEYS)]);
   delete settings.obsidianApiKey;
   delete settings[AI_PROVIDER_KEYS_STORAGE];
   if (Array.isArray(settings.aiProviders)) settings.aiProviders = settings.aiProviders.map(({ apiKey, ...p }) => p);
@@ -1093,14 +1095,19 @@ async function exportSettings() {
     schemaVersion: SETTINGS_FILE_VERSION,
     exportedAt: new Date().toISOString(),
     extensionVersion: chrome.runtime.getManifest().version || "",
-    settings
+    settings,
+    local
   };
 }
 
 // Replaces every setting with the file's. Set first, then remove the rest, so a failed write (sync quota) changes nothing;
-// initializeSettingsStorage then migrates an older file's keys and fills in what it lacks.
+// initializeSettingsStorage then migrates an older file's keys and fills in what it lacks. A file without the folder
+// choice (older than it) leaves the current one.
 async function importSettings(file) {
-  if (file?.app !== "moondigest" || file.kind !== "settings" || !file.settings || typeof file.settings !== "object" || Array.isArray(file.settings)) {
+  const isMap = (v) => Boolean(v) && typeof v === "object" && !Array.isArray(v);
+  const folders = file?.local?.triage_included_folders;
+  const foldersOk = folders === undefined || (Array.isArray(folders) && folders.every((id) => /^\w+$/.test(String(id))));
+  if (file?.app !== "moondigest" || file.kind !== "settings" || !isMap(file.settings) || (file.local !== undefined && !isMap(file.local)) || !foldersOk) {
     throw new Error("不是 MoonDigest 的设置文件");
   }
   if (!(file.schemaVersion <= SETTINGS_FILE_VERSION)) throw new Error("这个文件来自更新的版本，先更新 MoonDigest 再导入");
@@ -1108,6 +1115,7 @@ async function importSettings(file) {
   const current = Object.keys(await chrome.storage.sync.get(null));
   await chrome.storage.sync.set(settings);
   await chrome.storage.sync.remove(current.filter((k) => !(k in settings)));
+  if (folders) await chrome.storage.local.set({ triage_included_folders: folders.map(String) });
   await initializeSettingsStorage();
 }
 

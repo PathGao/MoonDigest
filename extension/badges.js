@@ -31,7 +31,7 @@
       "MoonDigest 分拣",
       action && ACTION[action],
       v && `AI 判断 ${name}（${STAGE[v.stage]}${v.low ? "，低置信" : ""}）`,
-      userTags.length && `标签：${userTags.map((t) => t.name).join("、")}`
+      userTags.length && `视频标签：${userTags.map((t) => t.name).join("、")}`
     ]
       .filter(Boolean)
       .join("，");
@@ -205,7 +205,7 @@
     const tags = vtags ? info.tags : [];
     const label = verdict ? info.label : "";
     if (!label && !tags.length) return null;
-    const aria = label ? info.aria : `MoonDigest 分拣，标签：${tags.map((t) => t.name).join("、")}`;
+    const aria = label ? info.aria : `MoonDigest 分拣，视频标签：${tags.map((t) => t.name).join("、")}`;
     return { info: { ...info, label, aria }, tags, text: verdict ? info.oneLiner || info.reason : "" };
   }
 
@@ -217,13 +217,10 @@
     faceKey, whoIndex, resolveMid, pickRows, applyUpTag, saveUpTag, SURFACES, surfaceOf, fitCount, biliSaysSeen, lineParts
   };
   if (typeof chrome === "undefined" || !chrome.storage?.local || typeof document === "undefined") return;
-  const surface = surfaceOf({
-    host: location.hostname,
-    path: location.pathname,
-    search: location.search,
-    viewer: document.documentElement.hasAttribute?.("data-mdg-viewer")
-  });
-  if (!surface) return;
+  if (document.documentElement.hasAttribute?.("data-mdg-viewer")) return;
+  const surfaceNow = () => surfaceOf({ host: location.hostname, path: location.pathname, search: location.search });
+  // Recomputed on in-page navigation (followNav).
+  let surface = surfaceNow();
   // Header popovers draw the same video links in miniature: B站's own (.v-popover) and BewlyCat's (.bew-popover).
   const POPOVER = ".bew-popover, .v-popover";
   const POPFEED = ".dynamic-entry .v-popover, .moments-pop";
@@ -284,6 +281,17 @@
   const markBewly = () => document.getElementById("bewly")?.toggleAttribute("data-mdg-seen", seenCfg.on);
 
   const favFid = () => (surface === "fav" ? new URLSearchParams(location.search).get("fid") || "" : "");
+  // In-page navigation (a space page's tabs, BewlyCat's ?page=) changes the page without a reload, and its DOM changes
+  // schedule a run. Marks drawn under the old page's rules or folder go, so the run redraws them under the new ones.
+  let shownFor = `${surface}|${favFid()}`;
+  function followNav() {
+    surface = surfaceNow();
+    const now = `${surface}|${favFid()}`;
+    if (now === shownFor) return;
+    shownFor = now;
+    clearMarks();
+    clearUps();
+  }
   const pageBvid = () => (location.pathname.startsWith("/video/") ? bvidFromHref(location.pathname) : "");
 
   // ponytail: rescans at most every 400ms; the video page's danmaku layer mutates constantly and this caps that cost.
@@ -302,8 +310,9 @@
       return;
     }
     running = true;
-    const g = gen;
     try {
+      followNav();
+      const g = gen;
       hookBewly();
       if (upOn) await markUps();
       if (triageOn || seenCfg.on) await markVideos(g);

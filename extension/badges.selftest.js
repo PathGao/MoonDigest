@@ -58,7 +58,7 @@ const tags = [{ id: "t1", name: "Rust", color: "#f60" }];
 const tagOnly = badgeInfo({ tagIds: ["t1"], tags });
 assert.strictEqual(tagOnly.label, "");
 assert.deepStrictEqual(plain(tagOnly.tags), [{ name: "Rust", color: "#f60" }]);
-assert.strictEqual(tagOnly.aria, "MoonDigest 分拣，标签：Rust");
+assert.strictEqual(tagOnly.aria, "MoonDigest 分拣，视频标签：Rust");
 
 const decided = badgeInfo({ title: { verdict: "keep", confidence: "high" }, decision: { action: "unfav", at: 1 } });
 assert.strictEqual(decided.label, "已取消收藏", "a user decision outranks the AI verdict in the label");
@@ -663,7 +663,7 @@ async function surfacePages() {
       document: doc,
       location: { search: "", ...location },
       sessionStorage: { getItem: () => null, setItem() {} },
-      MutationObserver: class { observe() {} disconnect() {} },
+      MutationObserver: class { constructor(f) { win.mutate = f; } observe() {} disconnect() {} },
       setTimeout: (f) => setTimeout(f, 0),
       clearTimeout,
       console,
@@ -682,7 +682,7 @@ async function surfacePages() {
     win.top = win;
     vm.runInContext(badgesJs, vm.createContext(win));
     await new Promise((r) => setTimeout(r, 30));
-    return { doc, reads, listen };
+    return { doc, reads, listen, win };
   };
   const author = () => h("a", { href: "//space.bilibili.com/1" }, h("span", { class: "bili-video-card__info--author" }, "甲"));
 
@@ -700,6 +700,12 @@ async function surfacePages() {
   assert.ok(boxAfter(inPop), "header popover: UP tags");
   assert.strictEqual(boxAfter(inPop).querySelector(".mdg-up-add"), null, "header popover: no 「+」 (so no orphaned picker)");
   assert.ok(boxAfter(inPop).querySelector(".mdg-more"), "header popover: the 「+N」 that fitBoxes shows when the tags don't fit");
+
+  // In-page navigation to a 收藏夹 page (no reload, only DOM changes): the card's UP tags go under the new page's rules.
+  home.win.location = { hostname: "space.bilibili.com", pathname: "/9/favlist", search: "?fid=5" };
+  home.win.mutate();
+  await new Promise((r) => setTimeout(r, 30));
+  assert.strictEqual(boxAfter(onCard), null, "in-page navigation to 收藏夹: the page type is recomputed, no UP tags");
 
   // 收藏夹 page: no UP tags at all.
   const fav = await page({ hostname: "space.bilibili.com", pathname: "/9/favlist" }, h("body", {}, author()));

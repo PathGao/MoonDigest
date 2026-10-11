@@ -377,7 +377,7 @@ function syncBiliMarks() {
   elements.biliMarks.querySelectorAll("input[data-col]").forEach((box) => (box.disabled = off[box.dataset.col]));
 }
 
-// 看多少算看完了 and the mark style only matter while the mark is shown. The example covers follow the unsaved form:
+// 看到多少算看完了 and the mark style only matter while the mark is shown. The example covers follow the unsaved form:
 // options.css reads data-show and data-style, and the 2nd and 3rd covers sit at the share and at half of it.
 function syncSeenRows() {
   const mark = elements.seenShow.value === "mark" || elements.seenShow.value === "both";
