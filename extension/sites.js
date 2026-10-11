@@ -1326,6 +1326,25 @@
     return { track: null, body: [], mismatch: null, ...kept, error };
   }
 
+  // The background readers' subtitle step (side panel follow-up, 分拣台 细看 and notes), like the video page's: the track
+  // list, then loadFirstTrack over order(ranked tracks). A B站 limit throws, so the caller waits and tries again. Any other
+  // failure of either step (network, timeout, expired link) leaves no subtitle and `failure`, the reason without its full
+  // stop, which every reader shows as the video page does (字幕抓取失败：原因).
+  async function loadSubtitle(site, ref, meta, io, order = (tracks) => tracks) {
+    let bundle = { tracks: [] };
+    let listError = null;
+    try {
+      bundle = await site.fetchTracks(ref, meta, io);
+    } catch (e) {
+      if (e?.code === "THROTTLED") throw e;
+      listError = e;
+    }
+    const tracks = rankTracks(bundle.tracks || []);
+    const found = await loadFirstTrack(site, order(tracks), { videoId: ref.id, cid: meta.cid }, io, meta.duration);
+    const why = !found.body.length && (listError || found.error);
+    return { ...found, bundle, tracks, failure: why ? String(why.message || why).replace(/[。.！!；;，,\s]+$/u, "") : "" };
+  }
+
   // ----------------------------------------------------------------- registry
 
   const SITES = { bilibili, youtube };
@@ -1374,6 +1393,7 @@
     validateSubtitleByDuration,
     fetchRawCached,
     loadFirstTrack,
+    loadSubtitle,
     biliMixinKey,
     biliWbiSign,
     biliWbiSigned,

@@ -543,11 +543,6 @@ async function triageAiSettings() {
   };
 }
 
-// Why no subtitle was read when a track download failed (network, timeout, expired link; a limit throws before this),
-// without the trailing full stop, as the video page's 「字幕抓取失败：原因」 has it. Empty when a subtitle was read or the
-// video has none.
-const subtitleFailureOf = (found) => (!found.body.length && found.error ? String(found.error.message || found.error).replace(/[。.！!；;，,\s]+$/u, "") : "");
-
 async function triageAnalyze({ bvid, force, criteria, folder, aiProviderId }) {
   if (!bvid) throw triageError("缺少 bvid");
   const cacheKey = BocLimits.KEYS.triageAnalysis(bvid);
@@ -563,10 +558,9 @@ async function triageAnalyze({ bvid, force, criteria, folder, aiProviderId }) {
 
   let source = "meta";
   let subtitle = "";
-  const found = await site.fetchTracks(ref, m, TRIAGE_BILI_IO);
-  // Throttling reaches the page so it backs off; a failed download falls back to comments and the card says 字幕抓取失败
-  // with the reason. A subtitle that does not match the video's length is used with the video page's warning.
-  const got = await BocSites.loadFirstTrack(site, BocSites.rankTracks(found.tracks), { videoId: bvid, cid: m.cid }, TRIAGE_BILI_IO, m.duration);
+  // Throttling reaches the page so it backs off; a failed track list or download falls back to comments and the card
+  // says 字幕抓取失败 with the reason. A subtitle that does not match the video's length is used with the video page's warning.
+  const got = await BocSites.loadSubtitle(site, ref, m, TRIAGE_BILI_IO);
   if (got.body.length) {
     source = "subtitle";
     subtitle = BocLimits.sampleAiSubtitle(got.body.map((l) => l.content).join("\n")).text;
@@ -580,8 +574,8 @@ async function triageAnalyze({ bvid, force, criteria, folder, aiProviderId }) {
     status: "done",
     source,
     // Bilibili hides subtitles from a logged-out user; the card says so.
-    ...(source === "meta" && found.needLogin ? { needLogin: true } : {}),
-    ...(subtitleFailureOf(got) ? { subtitleFailure: subtitleFailureOf(got) } : {}),
+    ...(source === "meta" && got.bundle.needLogin ? { needLogin: true } : {}),
+    ...(got.failure ? { subtitleFailure: got.failure } : {}),
     ...(got.mismatch ? { subtitleWarning: BocNote.subtitleMismatchWarning(got.mismatch) } : {}),
     ...triageParseLlm(content),
     model,
@@ -718,14 +712,13 @@ async function triageBuildNote(bvid, settings) {
   const ref = { site: "bilibili", id: bvid, part: null, url: "" };
   const meta = await site.fetchMeta(ref, io);
   ref.url = site.canonicalUrl(bvid, meta.pageCount > 1 ? meta.pageIndex : 1);
-  // Tracks are tried in order like on the video page (BocSites.loadFirstTrack). Throttling rejects, so the caller waits
-  // and tries again. A failed download with no track to use writes the note without subtitles, as the video page does:
-  // the note opens with 字幕抓取失败（原因）. subtitleWarning, which the callers show, is the video page's sentence for that
+  // Tracks are tried in order like on the video page (BocSites.loadSubtitle). Throttling rejects, so the caller waits
+  // and tries again. A failed track list or download writes the note without subtitles, as the video page does: the
+  // note opens with 字幕抓取失败（原因）. subtitleWarning, which the callers show, is the video page's sentence for that
   // or for a subtitle that does not match the video's length (kept, not cached).
-  const bundle = await site.fetchTracks(ref, meta, io);
-  const found = await BocSites.loadFirstTrack(site, BocSites.rankTracks(bundle.tracks || []), { videoId: bvid, cid: meta.cid }, io, meta.duration);
-  const { track, body } = found;
-  const subtitleFailure = subtitleFailureOf(found);
+  const found = await BocSites.loadSubtitle(site, ref, meta, io);
+  const { track, body, bundle } = found;
+  const subtitleFailure = found.failure;
   const subtitleWarning = found.mismatch ? BocNote.subtitleMismatchWarning(found.mismatch) : subtitleFailure ? `字幕抓取失败：${subtitleFailure}。` : "";
   const hotComments =
     settings.includeHotCommentsInNote || !body.length ? await site.fetchComments(ref, meta, io).catch(() => []) : [];

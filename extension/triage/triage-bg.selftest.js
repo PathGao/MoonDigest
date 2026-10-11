@@ -479,6 +479,11 @@ assert.throws(() => t.triageParseCommand('{"new_tags":[', cmdItems, cmdTags, {})
   const failedSub = await analyze();
   assert.deepStrictEqual([failedSub.source, failedSub.subtitleFailure], ["meta", "网络断了"]);
   assert.strictEqual((await (routes = { ...baseRoutes(), "/x/player/wbi/v2": emptyList }, analyze())).subtitleFailure, undefined, "no subtitles is not a failure");
+  // So does a track list that cannot be read (the player API drops the connection), as on the video page.
+  const listDown = () => ({ ...baseRoutes(), "/x/player/wbi/v2": new TypeError("Failed to fetch"), "/x/player/v2": new TypeError("Failed to fetch") });
+  routes = listDown();
+  const listFailed = await analyze();
+  assert.deepStrictEqual([listFailed.source, listFailed.subtitleFailure], ["meta", "网络断了"]);
 
   // Notes: throttling writes nothing (the caller waits and retries); a failed subtitle download writes the note without
   // it, saying so like the video page's note; another video's subtitle is dropped, not cached.
@@ -494,6 +499,8 @@ assert.throws(() => t.triageParseCommand('{"new_tags":[', cmdItems, cmdTags, {})
   const noSub = await buildNote();
   assert.deepStrictEqual([noSub.body.length, noSub.subtitleWarning], [0, "字幕抓取失败：B站请求失败 HTTP 403。"]);
   assert.ok(noSub.markdown.includes("> 字幕抓取失败（B站请求失败 HTTP 403），以下为简介与热门评论。"), noSub.markdown);
+  routes = listDown();
+  assert.deepStrictEqual([(await buildNote()).body.length, (await buildNote()).subtitleWarning], [0, "字幕抓取失败：网络断了。"]);
   // A subtitle that does not match the video's length is kept with the video page's warning, and is not cached.
   routes = { ...baseRoutes(), [subUrl]: subtitleRaw(400) };
   const keptNote = await buildNote();
