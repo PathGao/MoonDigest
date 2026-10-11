@@ -36,6 +36,8 @@ const subtitleCache = BocSites.subtitleCache;
 const BOC_VERSION = chrome.runtime.getManifest().version;
 // In 分拣台's viewer the tab is 分拣台 itself: the side panel takes the video by reference, not from the tab.
 const IN_VIEWER = window !== window.top;
+// The subtitle failure B站 gives a logged-out viewer; the side panel and the AI say login is why.
+const SUBTITLE_NEED_LOGIN = "B站要求登录后才能看字幕，请登录 B站后刷新页面";
 globalThis.__BOC_CONTENT_SCRIPT_LOADED__ = BOC_VERSION;
 const state = {
   fetchRunId: 0,
@@ -1036,6 +1038,7 @@ function buildSidepanelContext() {
       subtitleBody: body,
       subtitleMarkdown,
       subtitleFailure: state.subtitleFailure,
+      subtitleNeedLogin: state.subtitleFailure === SUBTITLE_NEED_LOGIN,
       subtitleLang: state.selectedSubtitleLang || "",
       selectedSubtitleId: state.selectedSubtitleId || "",
       selectedSubtitleUrl: state.selectedSubtitleUrl || "",
@@ -1170,7 +1173,7 @@ async function runRefreshClip() {
     // 无字幕时也允许进入专注模式，只是字幕区域保持空态。
     if (state.subtitles.length === 0) {
       if (!state.meta?.gate) {
-        await showNoSubtitleState(runId, subtitleBundle.needLogin ? "B站要求登录后才能看字幕，请登录 B站后刷新页面" : "");
+        await showNoSubtitleState(runId, subtitleBundle.needLogin ? SUBTITLE_NEED_LOGIN : "");
         return;
       }
       // Gated for the cookieless player call; the transcript runs with cookies.

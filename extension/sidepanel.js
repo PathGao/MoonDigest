@@ -745,6 +745,9 @@ function introText() {
   if (String(contextData?.subtitleMarkdown || "").trim()) {
     return EMPTY_INTRO;
   }
+  if (contextData?.subtitleNeedLogin) {
+    return "B站要求登录后才提供字幕，AI 只能读标题、简介和评论。登录 B站后刷新网页。";
+  }
   return contextData?.subtitleFailure
     ? "字幕没取到，AI 只能读标题、简介和评论。可以稍后刷新重试。"
     : "这期视频没有字幕，AI 只能读标题、简介和评论。";
@@ -1928,8 +1931,10 @@ async function sendMessage() {
   hideHistoryPopover();
 
   const providerId = els.modelSelect.value;
+  // No enabled platform: keep the conversation and the typed text, and go to settings like 去设置页添加平台.
   if (!providerId) {
-    resetConversationView("请先在设置页配置并启用一个 AI 平台。");
+    showConversationContextNotice("没有启用的 AI 平台，已打开设置页。", 3000);
+    chrome.runtime.openOptionsPage();
     return;
   }
 

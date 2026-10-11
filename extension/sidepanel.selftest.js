@@ -101,6 +101,17 @@ const page = (id) => ({ ok: true, payload: { url: `https://example.com/${id}`, t
   vm.runInContext("contextData = { ...current, isVideoContext: true }; currentConversationMeta = null", ctx);
   await ctx.sendMessage();
   assert.deepStrictEqual([loads, ...errors], [1, "这不是支持的视频页。"], "the context that came back is checked too");
+  // No enabled platform: the conversation and the typed text stay, and the settings page opens.
+  let resets = 0;
+  let opened = 0;
+  ctx.resetConversationView = () => resets++;
+  ctx.showConversationContextNotice = () => {};
+  ctx.chrome.runtime.openOptionsPage = () => opened++;
+  blocked(video, null);
+  vm.runInContext('els.input.value = "q"; els.modelSelect.value = ""', ctx);
+  await ctx.sendMessage();
+  assert.deepStrictEqual([resets, opened, loads, vm.runInContext("els.input.value", ctx)], [0, 1, 1, "q"]);
+  ctx.resetConversationView = () => {};
 
   // 写入 Obsidian with the video page closed: the built note goes to the background's path with its cover, and the
   // conversation switched during the write does not replace this video's chat.

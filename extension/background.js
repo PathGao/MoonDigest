@@ -1354,7 +1354,7 @@ function buildAiMessages({ context, userPrompt, history, systemPrompt }) {
         ? `这个视频的字幕抓取失败（${failure}），视频本身可能有字幕，不要说视频没有字幕。你拿不到视频里说了什么或画面内容，以下仅基于简介和评论回答，不要假装看过视频；简介和评论回答不了的，告诉用户字幕抓取失败、可稍后刷新重试。`
         : "这个视频没有字幕，你拿不到视频里说了什么或画面内容。只能依据下面的简介和评论回答，不要假装看过视频；简介和评论回答不了的，直接告诉用户无法确认。"
     );
-    notices.push(`${failure ? "字幕没取到" : "这期视频没有字幕"}，只根据标题、简介和评论回答`);
+    notices.push(`${ctx.subtitleNeedLogin ? "没有登录 B站，拿不到字幕" : failure ? "字幕没取到" : "这期视频没有字幕"}，只根据标题、简介和评论回答`);
     const description = String(ctx.description || "").trim();
     if (description) {
       sections.push(`以下是视频简介：\n\n${description}`);
