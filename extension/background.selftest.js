@@ -264,10 +264,10 @@ process.on("exit", (code) => {
   routes = sidepanelRoutes(100);
   const resolved = await historyContext();
   assert.strictEqual(resolved.subtitleBody.length, 2);
-  // The AI gets the same note the video page sends (BocNote.buildMarkdown): front matter, player embed, subtitles.
+  // The AI gets the same note the video page sends (BocNote.buildAiContext): front matter and subtitles, no player embed.
   assert.match(resolved.subtitleMarkdown, /^---\ntitle: "T"\n/);
   assert.match(resolved.subtitleMarkdown, /subtitle_lang: "中文"/);
-  assert.match(resolved.subtitleMarkdown, /player\.bilibili\.com\/player\.html\?aid=22&bvid=BVa&cid=11/);
+  assert.ok(!/<iframe|player\.bilibili\.com/.test(resolved.subtitleMarkdown), "the AI context carries no player embed");
   assert.match(resolved.subtitleMarkdown, /\n## 字幕\n\n`00:00` a\n`00:01` b$/);
   assert.ok("boc_subtitle_cache_BVa_11_id_5" in local);
   assert.ok(inits.length && inits.every((i) => i.referrer === "https://www.bilibili.com/" && i.cache === "no-store" && i.credentials === "include"));

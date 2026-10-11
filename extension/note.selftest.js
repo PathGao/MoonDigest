@@ -345,6 +345,15 @@ const withAi = N.buildMarkdown({ ...cases.biliSingle.meta, aiTurns: turns }, bod
 assert.strictEqual(withAi, `${plain}\n\n${section}`);
 assert.strictEqual(N.buildMarkdown({ ...cases.biliSingle.meta, aiTurns: turns }, body, { ...baseSettings, includeAiChatInNote: false }, refOf(bili), CREATED), plain);
 
+// The AI context is the note without the player embed (Obsidian's only) and hot comments; the note keeps the embed.
+for (const c of [cases.biliSingle, cases.youtube]) {
+  const note = N.buildMarkdown(c.meta, c.body, { ...c.settings, includeHotCommentsInNote: false }, refOf(c.meta));
+  const ai = N.buildAiContext(c.meta, c.body, { ...c.settings, includeHotCommentsInNote: true }, refOf(c.meta));
+  assert.ok(!ai.includes("## 评论"), "no hot comments");
+  assert.ok(note.includes("<iframe") && !ai.includes("<iframe"), c.meta.title);
+  assert.strictEqual(ai, note.replace(/<iframe[^\n]*\n\n/, ""), "nothing else differs");
+}
+
 // upsert: present → replaced, absent → appended, outside bytes identical, idempotent, empty section leaves the note alone.
 const userNote = "---\ntitle: x\n---\n\n## 字幕\n\n正文  \n\n我的批注\n";
 const appended = N.upsertAiSection(userNote, section);

@@ -94,7 +94,7 @@
     );
     const frontMatter = buildFrontMatter(meta, settings, url, created, tagsCsv, tagsYaml);
 
-    const embedIframe = (ref && BocSites.SITES[ref.site]?.embedHtml(ref, meta)) || "";
+    const embedIframe = (settings.playerEmbed !== false && ref && BocSites.SITES[ref.site]?.embedHtml(ref, meta)) || "";
     const intro = String(meta.description || "").trim();
     const noteSectionContext = buildNotePlaceholderTemplateContext(meta, url, intro);
     const noteSections = groupNotePlaceholderSections(settings, noteSectionContext);
@@ -1072,9 +1072,15 @@
       .replaceAll("'", "&#39;");
   }
 
+  // The note as the AI reads it (video page and background): no hot comments, and no player embed, which is for
+  // Obsidian only; the note written or downloaded keeps it.
+  const buildAiContext = (meta, body, settings, ref) =>
+    buildMarkdown(meta, body, { ...settings, includeHotCommentsInNote: false, playerEmbed: false }, ref);
+
   globalThis.BocNote = {
     DEFAULT_FRONTMATTER_FIELDS,
     buildMarkdown,
+    buildAiContext,
     AI_SECTION_START,
     AI_SECTION_END,
     TIMESTAMP_PATTERN,

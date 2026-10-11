@@ -1014,7 +1014,7 @@ function buildSidepanelContext() {
   let subtitleMarkdown = "";
   try {
     subtitleMarkdown = body.length
-      ? BocNote.buildMarkdown(state, body, { ...settings, includeHotCommentsInNote: false }, currentRef())
+      ? BocNote.buildAiContext(state, body, settings, currentRef())
       : "";
   } catch (e) {
     subtitleMarkdown = "";

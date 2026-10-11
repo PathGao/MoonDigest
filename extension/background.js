@@ -413,7 +413,7 @@ async function resolveAiSidepanelContext(contextRef) {
     selectedSubtitleId: String(selectedTrack?.id || "").trim(),
     selectedSubtitleUrl: String(selectedTrack?.url || "").trim(),
     subtitleBody: body,
-    subtitleMarkdown: body.length ? BocNote.buildMarkdown(noteMeta, body, { ...settings, includeHotCommentsInNote: false }, noteRef) : "",
+    subtitleMarkdown: body.length ? BocNote.buildAiContext(noteMeta, body, settings, noteRef) : "",
     subtitleOptions: tracks.map((item) => ({
       id: String(item.id || "").trim(),
       url: String(item.url || "").trim(),
