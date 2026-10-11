@@ -47,6 +47,7 @@ async function init() {
   getSettingsFromRuntime().then((settings) => {
     el.sendBtn.hidden = settings.obsidianEnabled !== true;
   });
+  // Opening shows the video as the page has it (starting a read only when nothing is loaded); 刷新 reads it again.
   await refreshFromTab();
 }
 
@@ -56,7 +57,7 @@ function bindEvents() {
     el.videoCover.hidden = true;
   });
   el.refreshBtn.addEventListener("click", async () => {
-    await refreshFromTab();
+    await refreshFromTab(true);
   });
 
   el.copyBtn.addEventListener("click", async () => {
@@ -191,10 +192,10 @@ function bindEvents() {
   });
 }
 
-async function refreshFromTab() {
+async function refreshFromTab(force = false) {
   setStatus("正在抓取字幕…", false, true);
   setBusy(el.refreshBtn, true);
-  const resp = await sendToContent({ type: "popup-refresh" }).finally(() => setBusy(el.refreshBtn, false));
+  const resp = await sendToContent({ type: "popup-refresh", force }).finally(() => setBusy(el.refreshBtn, false));
   el.refreshBtn.classList.toggle("is-error", !resp?.ok);
   if (!resp?.ok) {
     const errorText = resp?.error || NOT_VIDEO_PAGE;

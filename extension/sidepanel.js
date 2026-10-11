@@ -77,7 +77,6 @@ let liveTabUrl = "";
 let contextNoticeTimer = 0;
 let shouldAutoScrollMessages = true;
 let liveContextSyncTimer = 0;
-let liveContextSyncForceRefresh = false;
 let streamSlowNoticeTimer = 0;
 let streamFirstTokenReceived = false;
 let initCompleted = false;
@@ -134,7 +133,7 @@ function bindEvents() {
     void getActiveTab()
       .then((tab) => {
         if (tab?.id && sender?.tab?.id === tab.id) {
-          scheduleLiveContextSync(true);
+          scheduleLiveContextSync();
         }
       })
       .catch(() => {});
@@ -200,14 +199,14 @@ function bindEvents() {
   document.addEventListener("click", handleDocumentClick);
   document.addEventListener("visibilitychange", () => {
     if (!document.hidden) {
-      scheduleLiveContextSync(true);
+      scheduleLiveContextSync();
     }
   });
   window.addEventListener("focus", () => {
-    scheduleLiveContextSync(true);
+    scheduleLiveContextSync();
   });
   chrome.tabs.onActivated.addListener(() => {
-    scheduleLiveContextSync(true);
+    scheduleLiveContextSync();
   });
   chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
     if (!tab?.active) {
@@ -216,7 +215,7 @@ function bindEvents() {
     if (!changeInfo.url && changeInfo.status !== "complete") {
       return;
     }
-    scheduleLiveContextSync(Boolean(changeInfo.url));
+    scheduleLiveContextSync();
   });
   chrome.storage.onChanged.addListener((changes, areaName) => {
     if (
@@ -703,7 +702,7 @@ async function openCurrentContextUrl() {
       await chrome.tabs.update(tab.id, { url: targetUrl });
       await waitForTabComplete(tab.id);
     }
-    await loadContextState({ forceRefresh: true, silent: true });
+    await loadContextState({ silent: true });
   } catch {}
 }
 
@@ -1324,21 +1323,19 @@ function handleDocumentClick(event) {
   hideExportPopover();
 }
 
-function scheduleLiveContextSync(forceRefresh = false) {
-  liveContextSyncForceRefresh = liveContextSyncForceRefresh || forceRefresh;
+// Following the tab never forces a read: the page follows its own URL changes and reads a new video once. Only 刷新 forces.
+function scheduleLiveContextSync() {
   if (liveContextSyncTimer) {
     window.clearTimeout(liveContextSyncTimer);
   }
   liveContextSyncTimer = window.setTimeout(() => {
-    const nextForceRefresh = liveContextSyncForceRefresh;
     liveContextSyncTimer = 0;
-    liveContextSyncForceRefresh = false;
-    void syncLiveContextState(nextForceRefresh);
-  }, forceRefresh ? 120 : 220);
+    void syncLiveContextState();
+  }, 120);
 }
 
-async function syncLiveContextState(forceRefresh = false) {
-  const ok = await loadContextState({ forceRefresh, silent: true, follow: true }).catch(() => false);
+async function syncLiveContextState() {
+  const ok = await loadContextState({ silent: true, follow: true }).catch(() => false);
   if (ok === FOLLOWED_LIVE_VIDEO) {
     return;
   }
@@ -1637,7 +1634,7 @@ async function startNewConversation() {
   hidePresetPopover();
   hideHistoryPopover();
   await detachActiveStream();
-  await loadContextState({ forceRefresh: true, silent: true });
+  await loadContextState({ silent: true });
   adoptLiveContext();
   restartChat();
   renderInitialState();
