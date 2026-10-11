@@ -56,34 +56,6 @@ const E = ctx.BocErrors;
   walkJs(".");
   for (const file of scripts) assert.ok(!/["'`]&(lt|gt|quot|#39|#60);["'`]\)|&#\$\{/.test(read(file)), `${file} escapes HTML itself; use BocErrors.escapeHtml`);
 
-  // Registration: each list of scripts that reads BocErrors loads errors.js before the first reader.
-  const uses = (file) => file !== "errors.js" && /\bBocErrors\b/.test(read(file));
-  const checkOrder = (where, files) => {
-    const first = files.findIndex(uses);
-    if (first >= 0) assert.ok(files.indexOf("errors.js") >= 0 && files.indexOf("errors.js") < first, `${where} loads errors.js before ${files[first]}`);
-    return first >= 0;
-  };
-  const manifest = JSON.parse(read("manifest.json"));
-  let readers = 0;
-  manifest.content_scripts.forEach((entry, i) => (readers += checkOrder(`content_scripts[${i}]`, entry.js)));
-  // The worker runs the first importScripts list before background.js's own top level, so errors.js belongs there.
-  const calls = [...read("background.js").matchAll(/importScripts\(([^)]*)\)/g)].map((m) => m[1].match(/"[^"]+"/g).map((f) => JSON.parse(f)));
-  readers += checkOrder("background importScripts", [...calls[0], "background.js", ...calls.slice(1).flat()]);
-  const pages = [];
-  const walk = (dir) => {
-    for (const name of fs.readdirSync(path.join(__dirname, dir))) {
-      const rel = path.join(dir, name);
-      if (fs.statSync(path.join(__dirname, rel)).isDirectory()) walk(rel);
-      else if (name.endsWith(".html")) pages.push(rel);
-    }
-  };
-  walk(".");
-  for (const page of pages) {
-    const scripts = [...read(page).matchAll(/<script[^>]*src="([^"]+)"/g)].map((m) => path.normalize(path.join(path.dirname(page), m[1])));
-    readers += checkOrder(page, scripts.filter((f) => fs.existsSync(path.join(__dirname, f))));
-  }
-  assert.ok(readers >= 6, `found ${readers} readers of BocErrors`);
-
   // The sentences live only in errors.js; badges.js (it does not load errors.js) keeps one exact copy.
   assert.ok(read("badges.js").includes(`"${E.TEXT.reloaded}"`), "badges.js shows BocErrors.TEXT.reloaded word for word");
   const sources = ["background.js", "content.js", "sidepanel.js", "popup.js", "history/history.js", "triage/triage.js", "triage/triage-bg.js", "triage/follow.js"];

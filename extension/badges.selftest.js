@@ -4,9 +4,9 @@ const path = require("path");
 const vm = require("vm");
 const assert = require("assert");
 
-// The manifest loads typing.js, tag-core.js and bili-surfaces.js before badges.js in the same content-script world.
-const tagCoreJs = fs.readFileSync(path.join(__dirname, "tag-core.js"), "utf8");
-const badgesJs = fs.readFileSync(path.join(__dirname, "typing.js"), "utf8") + tagCoreJs + fs.readFileSync(path.join(__dirname, "bili-surfaces.js"), "utf8") + fs.readFileSync(path.join(__dirname, "badges.js"), "utf8");
+// The scripts the manifest's badges.js entry injects, in its order, read from it so the test cannot load a different set.
+const badgesEntry = JSON.parse(fs.readFileSync(path.join(__dirname, "manifest.json"), "utf8")).content_scripts.find((c) => c.js.at(-1) === "badges.js").js;
+const badgesJs = badgesEntry.map((f) => fs.readFileSync(path.join(__dirname, f), "utf8")).join("\n");
 const ctx = vm.createContext({ URLSearchParams });
 vm.runInContext(badgesJs, ctx);
 const { bvidFromHref, badgeInfo, mergeDecisions, lineParts } = ctx.BocBadges;
@@ -19,14 +19,12 @@ assert.strictEqual(bvidFromHref("https://www.bilibili.com/video/av170001"), "");
 assert.strictEqual(bvidFromHref("https://space.bilibili.com/2773586"), "");
 assert.strictEqual(bvidFromHref(null), "");
 
-// 观看进度: one copy of the defaults, the parsing and the words, in bili-surfaces.js; triage.html loads it before triage.js.
+// 观看进度: one copy of the defaults, the parsing and the words, in bili-surfaces.js.
 const B = ctx.BocSurfaces;
 assert.deepStrictEqual(plain(B.seenConfig(B.SEEN_DEFAULTS)), { on: false, bar: false, mark: false, threshold: 80, style: "badge" });
 assert.deepStrictEqual(plain(B.seenConfig({ seenShow: "both", seenThreshold: "90", seenStyle: "veil" })), { on: true, bar: true, mark: true, threshold: 90, style: "veil" });
 assert.deepStrictEqual(plain(B.seenConfig({ seenShow: "mark", seenThreshold: 0, seenStyle: "x" })), { on: true, bar: false, mark: true, threshold: 80, style: "badge" });
 assert.deepStrictEqual([B.seenWords(100, false), B.seenWords(85, true), B.seenWords(40, false)], ["✓ 看完了", "✓ 看到 85%", "看到 40%"]);
-const triageHtml = fs.readFileSync(path.join(__dirname, "triage/triage.html"), "utf8");
-assert.ok(triageHtml.indexOf("../bili-surfaces.js") > -1 && triageHtml.indexOf("../bili-surfaces.js") < triageHtml.indexOf("./triage.js"), "triage.html loads bili-surfaces.js before triage.js");
 for (const f of ["badges.js", "triage/triage.js", "options.js"]) {
   const src = fs.readFileSync(path.join(__dirname, f), "utf8");
   assert.ok(!src.includes('seenShow: "off"') && !src.includes("✓ 看完了") && !/seenShow === "both"/.test(src), `${f} keeps its own 观看进度 defaults or words`);

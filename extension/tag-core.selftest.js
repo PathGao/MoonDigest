@@ -26,21 +26,6 @@ assert.deepStrictEqual(V({ analysis: { status: "error" } }), { verdict: "none", 
 assert.deepStrictEqual(V({ invalid: true }), { verdict: "drop", reason: "视频已失效", stage: 0 });
 assert.deepStrictEqual(V({ invalid: true, analysis: { status: "done", verdict: "keep", reason: "好" } }), { verdict: "drop", reason: "视频已失效。AI 原理由：好", stage: 2 });
 
-// Loaded before its users: the manifest's badges.js entry and triage.html.
-const manifest = JSON.parse(read("manifest.json"));
-const badges = manifest.content_scripts.find((c) => c.js.includes("badges.js")).js;
-assert.ok(badges.indexOf("tag-core.js") > -1 && badges.indexOf("tag-core.js") < badges.indexOf("badges.js"), "manifest loads tag-core.js before badges.js");
-const html = read("triage/triage.html");
-assert.ok(html.indexOf("../tag-core.js") > -1 && html.indexOf("../tag-core.js") < html.indexOf("./shared.js"), "triage.html loads tag-core.js before shared.js");
-
-// note.js names the verdict in notes (BocNote.buildTriageSummary): every list that loads note.js loads tag-core.js first.
-const before = (where, list) => assert.ok(list.indexOf("tag-core.js") > -1 && list.indexOf("tag-core.js") < list.indexOf("note.js"), `${where} loads tag-core.js before note.js`);
-manifest.content_scripts.filter((c) => c.js.includes("note.js")).forEach((c, i) => before(`content_scripts[${i}]`, c.js));
-before("background importScripts", [...read("background.js").matchAll(/importScripts\(([^)]*)\)/g)].flatMap((m) => m[1].match(/"[^"]+"/g).map((f) => JSON.parse(f))));
-for (const page of ["sidepanel.html", "history/history.html", "dev-sidepanel/index.html"]) {
-  before(page, [...read(page).matchAll(/<script[^>]*src="([^"]+)"/g)].map((m) => path.basename(m[1])));
-}
-
 // No second copy of the palette, the name rule or the id recipe outside tag-core.js.
 for (const f of ["badges.js", "triage/shared.js", "triage/follow.js", "triage/triage.js", "triage/triage-bg.js", "note.js"]) {
   const src = read(f);

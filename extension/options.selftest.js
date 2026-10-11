@@ -41,7 +41,10 @@ assert.deepStrictEqual(marked.map((n) => n.set.size), [0, 0], "every red box is 
 const XSS = ["<img src=x onerror=alert(1)>", `"'><script>alert(1)</script>`];
 const assertInert = (html, where) => assert.ok(!/<img src=x|<script|"'>/i.test(html) && /&lt;|&#60;/.test(html), `${where}: ${html}`);
 // An imported settings file fills the property rows.
-for (const f of ["errors.js", "settings.js"]) vm.runInContext(fs.readFileSync(path.join(__dirname, f), "utf8"), ctx);
+// The scripts options.html loads before options.js, read from the page so the test cannot load a different set.
+const scripts = [...fs.readFileSync(path.join(__dirname, "options.html"), "utf8").matchAll(/<script[^>]*src="([^"]+)"/g)].map((m) => m[1]);
+assert.strictEqual(scripts.pop(), "./options.js", "options.js loads last");
+for (const f of scripts) vm.runInContext(fs.readFileSync(path.join(__dirname, f), "utf8"), ctx);
 vm.runInContext(["const { escapeHtml } = BocErrors;", fn("buildFixedPropertyValueControl")].join("\n"), ctx);
 for (const bad of XSS) assertInert(ctx.buildFixedPropertyValueControl("text", bad), "property value");
 

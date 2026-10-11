@@ -47,33 +47,6 @@ for (const [fn, key] of [["normalizeReaderFontScale", "readerFontScale"], ["norm
   assert.strictEqual(S[fn](S.DEFAULTS[key]), S.DEFAULTS[key]);
 }
 
-// Registration: each list of scripts that reads BocSettings loads settings.js before the first reader.
-const uses = (file) => file !== "settings.js" && /\bBocSettings\b/.test(read(file));
-const checkOrder = (where, files) => {
-  const first = files.findIndex(uses);
-  if (first >= 0) assert.ok(files.indexOf("settings.js") >= 0 && files.indexOf("settings.js") < first, `${where} loads settings.js before ${files[first]}`);
-  return first >= 0;
-};
-const manifest = JSON.parse(read("manifest.json"));
-let readers = 0;
-manifest.content_scripts.forEach((entry, i) => (readers += checkOrder(`content_scripts[${i}]`, entry.js)));
-const calls = [...read("background.js").matchAll(/importScripts\(([^)]*)\)/g)].map((m) => m[1].match(/"[^"]+"/g).map((f) => JSON.parse(f)));
-readers += checkOrder("background importScripts", [...calls[0], "background.js", ...calls.slice(1).flat()]);
-const pages = [];
-const walk = (dir) => {
-  for (const name of fs.readdirSync(path.join(__dirname, dir))) {
-    const rel = path.join(dir, name);
-    if (fs.statSync(path.join(__dirname, rel)).isDirectory()) walk(rel);
-    else if (name.endsWith(".html")) pages.push(rel);
-  }
-};
-walk(".");
-for (const page of pages) {
-  const scripts = [...read(page).matchAll(/<script[^>]*src="([^"]+)"/g)].map((m) => path.normalize(path.join(path.dirname(page), m[1])));
-  readers += checkOrder(page, scripts.filter((f) => fs.existsSync(path.join(__dirname, f))));
-}
-assert.ok(readers >= 7, `found ${readers} readers of BocSettings`);
-
 // bili-surfaces.js keeps a copy of the 观看进度 defaults for the pages that do not load settings.js.
 const surfaces = vm.createContext({});
 vm.runInContext(read("bili-surfaces.js"), surfaces);

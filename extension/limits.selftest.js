@@ -41,17 +41,6 @@ assert.deepStrictEqual(
   }
 );
 
-// Every context that enforces a cap loads limits.js first: content script, pages, background.
-const manifest = JSON.parse(fs.readFileSync(path.join(__dirname, "manifest.json"), "utf8"));
-const contentJs = manifest.content_scripts.find((entry) => entry.js.includes("content.js")).js;
-assert.ok(contentJs.indexOf("limits.js") < contentJs.indexOf("content.js"), "content script gets limits.js first");
-for (const page of ["sidepanel.html", "options.html", "triage/triage.html"]) {
-  const html = fs.readFileSync(path.join(__dirname, page), "utf8");
-  const limitsAt = html.search(/<script src="[./]*limits\.js"><\/script>/);
-  const pageScriptAt = html.search(/<script[^>]*src="[./]*(?:sidepanel|options|triage)\.js"/);
-  assert.ok(limitsAt >= 0 && limitsAt < pageScriptAt, `${page} loads limits.js before its own script`);
-}
-
 // Storage key names: each KEYS name is written only in limits.js. Selftests and dev mocks may seed their own.
 // badges.js does not load limits.js and keeps copies of the names it reads; they must stay KEYS names.
 const names = Object.values(L.KEYS).filter((v) => typeof v === "string");

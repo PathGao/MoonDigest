@@ -12,7 +12,10 @@ const button = () => {
   return { disabled: false, title: "", attrs, classList: { toggle() {} }, getAttribute: (k) => attrs[k] ?? null, setAttribute: (k, v) => (attrs[k] = v), removeAttribute: (k) => delete attrs[k] };
 };
 const ctx = vm.createContext({ document: { getElementById: button } });
-for (const f of ["errors.js", "settings.js"]) vm.runInContext(fs.readFileSync(path.join(__dirname, f), "utf8"), ctx);
+// The scripts popup.html loads before popup.js, read from the page so the test cannot load a different set.
+const scripts = [...fs.readFileSync(path.join(__dirname, "popup.html"), "utf8").matchAll(/<script[^>]*src="([^"]+)"/g)].map((m) => m[1]);
+assert.strictEqual(scripts.pop(), "./popup.js", "popup.js loads last");
+for (const f of scripts) vm.runInContext(fs.readFileSync(path.join(__dirname, f), "utf8"), ctx);
 vm.runInContext(`${source}\n;globalThis.el = el;`, ctx);
 const state = () => Object.fromEntries(["downloadBtn", "readingViewBtn", "copyBtn", "mdBtn", "sendBtn"].map((k) => {
   const b = ctx.el[k];

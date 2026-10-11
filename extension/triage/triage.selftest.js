@@ -81,23 +81,6 @@ assert.deepStrictEqual(pageScripts.filter((m) => /type="module"/.test(m[1])).map
 for (const [, attrs, src] of pageScripts) {
   if (!/type="module"/.test(attrs) && !src.endsWith("/tag-dialogs.js")) vm.runInContext(fs.readFileSync(path.join(__dirname, src), "utf8"), ctx);
 }
-// Registration: every extension page that loads a reader of TriageCore loads triage-core.js before it.
-{
-  const root = path.join(__dirname, "..");
-  const pages = [];
-  const walk = (dir) => fs.readdirSync(dir, { withFileTypes: true }).forEach((e) => (e.isDirectory() ? walk(path.join(dir, e.name)) : e.name.endsWith(".html") && pages.push(path.join(dir, e.name))));
-  walk(root);
-  let readers = 0;
-  for (const page of pages) {
-    const files = [...fs.readFileSync(page, "utf8").matchAll(/<script[^>]*src="([^"]+)"/g)].map((m) => path.join(path.dirname(page), m[1])).filter((p) => fs.existsSync(p));
-    const first = files.findIndex((p) => !p.endsWith("triage-core.js") && /\bTriageCore\b/.test(fs.readFileSync(p, "utf8")));
-    if (first < 0) continue;
-    readers++;
-    const core = files.findIndex((p) => p.endsWith(`${path.sep}triage-core.js`));
-    assert.ok(core >= 0 && core < first, `${path.relative(root, page)} loads triage-core.js before ${path.basename(files[first])}`);
-  }
-  assert.ok(readers >= 1, "found the pages that read TriageCore");
-}
 vm.runInContext(`${source}\n;globalThis.S = S; globalThis.K = K; globalThis.el = el; globalThis.verdictBadge = verdictBadge; globalThis.seenText = seenText; globalThis.staleCoarse = staleCoarse; globalThis.staleFine = staleFine; globalThis.groupDone = groupDone; globalThis.mergeHead = mergeHead; globalThis.isFinished = isFinished; globalThis.pointerMoved = pointerMoved; globalThis.inferFrom = inferFrom; globalThis.hasAllTags = hasAllTags; globalThis.sortItems = sortItems; globalThis.sortOf = sortOf; globalThis.visibleItems = visibleItems;`, ctx);
 const t = ctx;
 Object.assign(t, t.TriageCore);

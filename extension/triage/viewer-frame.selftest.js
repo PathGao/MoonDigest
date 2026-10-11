@@ -6,8 +6,9 @@ const path = require("path");
 const vm = require("vm");
 const assert = require("assert");
 
-// The manifest loads typing.js before it in the same content-script world.
-const src = fs.readFileSync(path.join(__dirname, "..", "typing.js"), "utf8") + fs.readFileSync(path.join(__dirname, "viewer-frame.js"), "utf8");
+// The scripts the manifest's viewer-frame.js entry injects, in its order, read from it so the test cannot load a different set.
+const entry = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "manifest.json"), "utf8")).content_scripts.find((c) => c.js.at(-1) === "triage/viewer-frame.js").js;
+const src = entry.map((f) => fs.readFileSync(path.join(__dirname, "..", f), "utf8")).join("\n");
 const EXT = "chrome-extension://abcdefghijklmnop";
 
 function frame({ parentOrigin = EXT, top = false, fullscreen = null, webscreen = false } = {}) {
