@@ -1380,7 +1380,7 @@ function postStreamAbort(port, abortMeta) {
   if (abortMeta?.type === "stopped") {
     port.postMessage({ type: "stopped", reason: abortMeta.reason || "已停止生成" });
   } else if (abortMeta?.type === "timeout") {
-    port.postMessage({ type: "error", error: abortMeta.reason || "请求超时，已自动中断" });
+    port.postMessage({ type: "error", error: abortMeta.reason || "请求超时，已自动中断", code: "AI_TIMEOUT" });
   }
 }
 

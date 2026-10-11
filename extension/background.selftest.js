@@ -82,12 +82,14 @@ process.on("exit", (code) => {
   out = await chat();
   assert.strictEqual(out.at(-1).type, "error");
   assert.match(out.at(-1).error, /^回复中断：.* 秒没有新内容，可重试$/);
+  assert.strictEqual(out.at(-1).code, "AI_TIMEOUT");
 
   // No response at all ends with the first-response error, not a generic network error.
   ctx.fetch = (url, { signal }) => new Promise((_, reject) => signal.addEventListener("abort", () => reject(abortError())));
   out = await chat();
   assert.deepStrictEqual(out.map((m) => m.type), ["error"]);
   assert.match(out[0].error, /^请求超时：.* 秒没有返回/);
+  assert.strictEqual(out[0].code, "AI_TIMEOUT");
 
   // The side panel and 测试连接 turn thinking off where the platform takes the switch, and send nothing elsewhere.
   for (const [url, on] of [

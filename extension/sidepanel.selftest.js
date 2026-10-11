@@ -405,7 +405,7 @@ const page = (id) => ({ ok: true, payload: { url: `https://example.com/${id}`, t
     ctx.resolveConversationContext = realResolve;
   }
 
-  // A bad key or used-up quota offers 去设置 before 重试; a network error only 重试.
+  // A bad key, used-up quota, unreachable platform or timeout offers 去设置 before 重试, as 分拣台 does; others only 重试.
   {
     const errorButtons = (code) => {
       const kids = [];
@@ -413,7 +413,9 @@ const page = (id) => ({ ok: true, payload: { url: `https://example.com/${id}`, t
       return kids.slice(1).map((k) => (typeof k.textContent === "string" ? k.textContent : k.innerHTML.replace(/<[^>]*>/g, "")));
     };
     assert.deepStrictEqual(errorButtons("AI_QUOTA"), ["去设置", "重试"]);
-    assert.deepStrictEqual(errorButtons("AI_NETWORK"), ["重试"]);
+    assert.deepStrictEqual(errorButtons("AI_NETWORK"), ["去设置", "重试"]);
+    assert.deepStrictEqual(errorButtons("AI_TIMEOUT"), ["去设置", "重试"]);
+    assert.deepStrictEqual(errorButtons("AI_THROTTLED"), ["重试"]);
   }
 
   // Saved conversations: the video's title, the question and the AI's answer, in the history list and 上一个视频.
