@@ -1483,7 +1483,7 @@ async function sendToObsidian() {
     if (exists) {
       const choice = await confirmOverwriteNote(filepath, { hasAiSection: Boolean(aiSection) });
       if (!choice) {
-        setMessage(aiSection ? "已取消写入 Obsidian，原笔记未被覆盖。" : "笔记已存在，无 AI 问答，未改动。");
+        setMessage("已取消写入 Obsidian，原笔记未被覆盖。");
         return;
       }
       onPage = true;
