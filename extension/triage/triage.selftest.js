@@ -752,7 +752,7 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     let n = 0;
     handlers["triage-classify-titles"] = () => (++n === 1 ? { ok: false, code: "AI_THROTTLED", error: "429" } : { ok: true, data: { results: { BV950: { verdict: "keep" } } } });
     await t.runStage1([item(950)]);
-    assert.deepStrictEqual(stuck, [{ text: "标题粗看中 0/1 · AI 平台限流卡住，1:00 后重试", done: 0, total: 1, stuck: true, act: "stage1", actLabel: "暂停粗看", stopping: false }]);
+    assert.deepStrictEqual(stuck, [{ text: "标题粗看中 0/1 · AI 平台限流卡住，1:00 后重试", done: 0, total: 1, wait: "AI 平台限流卡住，1:00 后重试", stuck: true, act: "stage1", actLabel: "暂停粗看", stopping: false }]);
     assert.deepStrictEqual([n, t.activityState().text], [2, "标题粗看完成 1 个"]);
     // A timeout sends the same batch once more (aiJudge), as 细看 and AI 打标签 do.
     n = 0;
