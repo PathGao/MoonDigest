@@ -131,6 +131,9 @@ const page = (id) => ({ ok: true, payload: { url: `https://example.com/${id}`, t
       if (msg.type === "update-obsidian-ai-section") return { ok: true, exists: updates++ > 0, updated: true };
       return { ok: true };
     };
+    // BocOverwriteDialog.writeBuiltNote sends its own messages.
+    const realRuntimeSend = ctx.chrome.runtime.sendMessage;
+    ctx.chrome.runtime.sendMessage = ctx.sendRuntimeMessage;
     ctx.video = { ...video, pageIndex: 1, title: "T" };
     vm.runInContext('contextData = video; currentConversationMeta = null; chatHistory = [{ role: "user", content: "这个视频" }, { role: "assistant", content: "回答" }]', ctx);
     await ctx.saveCurrentConversationToObsidian();
@@ -139,6 +142,7 @@ const page = (id) => ({ ok: true, payload: { url: `https://example.com/${id}`, t
     const section = sent.filter((m) => m.type === "update-obsidian-ai-section").pop();
     assert.ok(section.filepath === "B站/UP/T.md" && section.section.includes("这个视频") && !section.section.includes("别的视频"), section.section);
     ctx.sendRuntimeMessage = realSend;
+    ctx.chrome.runtime.sendMessage = realRuntimeSend;
   }
 
   {

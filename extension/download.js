@@ -23,14 +23,17 @@
     return;
   }
 
-  // The video page's overwrite choice (content.js confirmOverwriteNote) for extension pages. Resolves "full",
-  // "ai" or "" (取消, Esc, a click outside). 整篇覆盖 never sits next to the focused default button.
-  function choose(filepath, { hasAiSection = false } = {}) {
+  // The video page's overwrite choice (content.js confirmOverwriteNote, same words) for extension pages. Resolves
+  // "full", "ai" or "" (取消, Esc, a click outside). hasAiSection true offers 只更新 AI 问答; false says why it is
+  // missing; left out (a note with no AI 问答 section, such as a conversation note) offers only 整篇覆盖.
+  // 整篇覆盖 never sits next to the focused default button. A second dialog answers the first with 取消.
+  function choose(filepath, { hasAiSection } = {}) {
+    document.querySelector("dialog.boc-overwrite[open]")?.close("");
     const dialog = document.createElement("dialog");
     dialog.className = "boc-overwrite";
     dialog.innerHTML = `<form method="dialog">
       <h2>该笔记已存在</h2>
-      <p>${hasAiSection ? "只更新 AI 问答：保留原笔记，只替换标记之间的「AI 问答」。整篇覆盖：替换全部内容。" : "没有新的 AI 问答可更新。整篇覆盖会替换全部内容："}</p>
+      <p>${hasAiSection ? "只更新 AI 问答：保留原笔记，只替换标记之间的「AI 问答」。整篇覆盖：替换全部内容。" : `${hasAiSection === false ? "没有 AI 问答可更新。" : ""}整篇覆盖会替换全部内容：`}</p>
       <code></code>
       <div class="actions">
         <button class="danger" value="full">整篇覆盖</button>
@@ -53,5 +56,22 @@
     });
   }
 
-  globalThis.BocOverwriteDialog = Object.freeze({ choose });
+  // A B 站 video note the background built (triage-build-note's data) into Obsidian, as the side panel and the
+  // 视频记录 page write it: ask when the note exists, write it on 整篇覆盖, then put section (the AI 问答, may be "")
+  // into it. Resolves the choice ("full", "ai" or "" for 取消); a failed check or write throws BocErrors.fromResp.
+  async function writeBuiltNote({ baseUrl, apiKey, built, section, noteKey }) {
+    const filepath = built.path;
+    const send = async (message, fallback) => {
+      const resp = await chrome.runtime.sendMessage({ baseUrl, apiKey, filepath, ...message });
+      if (!resp?.ok) throw BocErrors.fromResp(resp, fallback);
+      return resp;
+    };
+    const exists = await send({ type: "obsidian-note-exists" }, "Local API 检查失败");
+    const choice = exists.exists ? await choose(filepath, { hasAiSection: Boolean(section) }) : "full";
+    if (choice === "full") await send({ type: "write-obsidian-note", content: built.markdown, cover: built.cover, noteKey }, "Local API 写入失败");
+    if (choice && section) await send({ type: "update-obsidian-ai-section", section, noteKey }, "Local API 写入失败");
+    return choice;
+  }
+
+  globalThis.BocOverwriteDialog = Object.freeze({ choose, writeBuiltNote });
 })();

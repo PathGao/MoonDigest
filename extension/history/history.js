@@ -280,21 +280,9 @@ async function saveToObsidian(group) {
     }
     if (built?.ok) {
       setStatus("正在写入…");
-      const { path: filepath, cover } = built.data;
-      const exists = await chrome.runtime.sendMessage({ type: "obsidian-note-exists", baseUrl, apiKey, filepath });
-      if (!exists?.ok) throw BocErrors.fromResp(exists, "Local API 检查失败");
-      const choice = exists.exists ? await BocOverwriteDialog.choose(filepath, { hasAiSection: Boolean(section) }) : "full";
+      const choice = await BocOverwriteDialog.writeBuiltNote({ baseUrl, apiKey, built: built.data, section, noteKey });
       if (!choice) return;
-      const overwrite = choice === "full";
-      if (overwrite) {
-        const written = await chrome.runtime.sendMessage({ type: "write-obsidian-note", baseUrl, apiKey, filepath, content: built.data.markdown, cover, noteKey });
-        if (!written?.ok) throw BocErrors.fromResp(written, "Local API 写入失败");
-      }
-      if (section) {
-        const resp = await chrome.runtime.sendMessage({ type: "update-obsidian-ai-section", baseUrl, apiKey, filepath, section, noteKey });
-        if (!resp?.ok) throw BocErrors.fromResp(resp, "Local API 写入失败");
-      }
-      setStatus(overwrite ? `已写入 Obsidian：${filepath}` : `已更新 AI 问答：${filepath}`);
+      setStatus(`${choice === "full" ? "已写入 Obsidian" : "已更新 AI 问答"}：${built.data.path}`);
       return;
     }
     const videoFolder = BocNote.resolveFolderTemplate(settings.noteFolder || "", group.context);
@@ -304,7 +292,7 @@ async function saveToObsidian(group) {
     const filepath = videoFolder ? `${videoFolder}/${note.filename}` : note.filename;
     const exists = await chrome.runtime.sendMessage({ type: "obsidian-note-exists", baseUrl, apiKey, filepath });
     if (!exists?.ok) throw BocErrors.fromResp(exists, "Local API 检查失败");
-    if (exists.exists && !confirm(`该笔记已存在，继续会覆盖原内容：${filepath}`)) return;
+    if (exists.exists && !(await BocOverwriteDialog.choose(filepath))) return;
     const written = await chrome.runtime.sendMessage({ type: "write-obsidian-note", baseUrl, apiKey, filepath, content: note.content });
     if (!written?.ok) throw BocErrors.fromResp(written, "Local API 写入失败");
     if (built) setStatus(`已写入 Obsidian：${filepath}（视频已失效，只写了对话）`);

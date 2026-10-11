@@ -2489,25 +2489,13 @@ async function saveBuiltVideoNoteToObsidian(ref, messages, epoch, settingsBundle
     }
     return;
   }
-  const { path: filepath, cover } = built.data;
-  const choice = (await checkObsidianNoteExists(baseUrl, apiKey, filepath)) ? await BocOverwriteDialog.choose(filepath, { hasAiSection: true }) : "full";
+  const section = BocNote.buildAiSection(buildConversationTurns(messages));
+  const choice = await BocOverwriteDialog.writeBuiltNote({ baseUrl, apiKey, built: built.data, section, noteKey: BocSites.buildContextKey(ref) });
   if (!choice) {
     showConversationContextNotice("已取消写入 Obsidian，原笔记未被覆盖。", 2200);
     return;
   }
-  const noteKey = BocSites.buildContextKey(ref);
-  if (choice === "full") {
-    const written = await sendRuntimeMessage({ type: "write-obsidian-note", baseUrl, apiKey, filepath, content: built.data.markdown, cover, noteKey });
-    if (!written?.ok) {
-      throw BocErrors.fromResp(written, "Local API 写入失败");
-    }
-  }
-  const section = BocNote.buildAiSection(buildConversationTurns(messages));
-  const updated = await sendRuntimeMessage({ type: "update-obsidian-ai-section", baseUrl, apiKey, filepath, section, noteKey });
-  if (!updated?.ok) {
-    throw BocErrors.fromResp(updated, "Local API 写入失败");
-  }
-  showConversationContextNotice(choice === "full" ? `已写入 Obsidian：${filepath}` : `已更新 AI 问答：${filepath}`, 4000);
+  showConversationContextNotice(`${choice === "full" ? "已写入 Obsidian" : "已更新 AI 问答"}：${built.data.path}`, 4000);
 }
 
 async function loadObsidianSettings() {
@@ -2540,8 +2528,7 @@ async function saveMarkdownToObsidian({ button, filepath, content, baseUrl, apiK
     }
     const exists = await checkObsidianNoteExists(baseUrl, apiKey, filepath);
     if (exists) {
-      const shouldOverwrite = await confirmOverwriteNote(filepath);
-      if (!shouldOverwrite) {
+      if (!(await BocOverwriteDialog.choose(filepath))) {
         showConversationContextNotice("已取消写入 Obsidian，原笔记未被覆盖。", 2200);
         return false;
       }
@@ -2602,56 +2589,6 @@ function getReadableText(value, fallback = "") {
 
 function getErrorMessage(error, fallback = "未知错误") {
   return getReadableText(error?.message || error, fallback);
-}
-
-let cancelOverwriteNote = null;
-
-function confirmOverwriteNote(filepath) {
-  // A second dialog answers the first with 取消, so its caller does not wait forever.
-  cancelOverwriteNote?.();
-  return new Promise((resolve) => {
-    const overlay = document.createElement("div");
-    overlay.className = "sp-confirm-overlay";
-    overlay.innerHTML = `
-      <div class="sp-confirm-dialog" role="dialog" aria-modal="true" aria-labelledby="spConfirmTitle">
-        <div id="spConfirmTitle" class="sp-confirm-title">该笔记已存在</div>
-        <div class="sp-confirm-body">继续会覆盖原内容：</div>
-        <div class="sp-confirm-path"></div>
-        <div class="sp-confirm-actions">
-          <button type="button" class="sp-confirm-cancel">取消</button>
-          <button type="button" class="sp-confirm-primary">覆盖</button>
-        </div>
-      </div>
-    `;
-    overlay.querySelector(".sp-confirm-path").textContent = String(filepath || "");
-
-    const cleanup = (value) => {
-      cancelOverwriteNote = null;
-      overlay.remove();
-      document.removeEventListener("keydown", onKeydown, true);
-      resolve(value);
-    };
-    const onKeydown = (event) => {
-      if (BocTyping.composing(event)) return;
-      if (event.key === "Escape") {
-        event.preventDefault();
-        cleanup(false);
-      }
-    };
-
-    overlay.addEventListener("click", (event) => {
-      if (event.target === overlay) {
-        cleanup(false);
-      }
-    });
-    overlay.querySelector(".sp-confirm-cancel")?.addEventListener("click", () => cleanup(false));
-    overlay.querySelector(".sp-confirm-primary")?.addEventListener("click", () => cleanup(true));
-    cancelOverwriteNote = () => cleanup(false);
-    document.addEventListener("keydown", onKeydown, true);
-    document.body.appendChild(overlay);
-    // 覆盖 is destructive: Enter on the focused button must not overwrite by default.
-    overlay.querySelector(".sp-confirm-cancel")?.focus();
-  });
 }
 
 function linkifyAssistantTimestamps(root) {
