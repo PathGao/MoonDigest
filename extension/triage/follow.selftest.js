@@ -630,6 +630,16 @@ async function followPage({ store = {}, handlers = {}, setup = () => {} } = {}) 
     const pill = p.$("fwActivity");
     assert.ok(new RegExp(`^读取关注列表 · ${words}，[01]:\\d\\d 后重试$`).test(pill.title) && pill.classList.contains("warn"), pill.title);
   }
+
+  // Reloaded during the background's queue pause (follow_hold): the 视频投稿 page it waits for shows the countdown at once.
+  {
+    const p = await followPage({
+      store: page({ follow_view: { mode: "follow", tab: "feed" }, follow_hold: { until: Math.ceil(Date.now() / 1000) + 60, why: "throttled" } }),
+      handlers: { "follow-feed": () => new Promise(() => {}) }
+    });
+    const pill = p.$("fwFoot").lastChild;
+    assert.ok(p.FW.F.feed.loading && /^B站限流卡住，[01]:\d\d 后重试$/.test(pill.title) && pill.classList.contains("warn"), `the foot counts down: ${pill.title}`);
+  }
 })().catch((e) => {
   console.error(e);
   process.exit(1);

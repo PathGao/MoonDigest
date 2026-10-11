@@ -390,7 +390,7 @@ $("folderSelect").after(sideSlot);
 
 // ---------- data ----------
 async function load() {
-  const got = await chrome.storage.local.get([...KEYS, "follow_ai_proposal"]);
+  const got = await chrome.storage.local.get([...KEYS, "follow_ai_proposal", "follow_hold"]);
   D = {
     list: got.follow_list || null,
     people: got.follow_people || {},
@@ -404,6 +404,8 @@ async function load() {
     stats: got.follow_stats || {},
     groups: got.follow_groups || []
   };
+  // A pause that began before this page opened: storage.onChanged keeps it from here on.
+  F.hold = got.follow_hold || null;
   // An AI 打标签 proposal waiting for 应用 survives a reload; the one in memory (maybe edited on the review page) wins.
   if (!AI.proposal && !aiRunning()) AI.proposal = got.follow_ai_proposal || null;
   derive();
