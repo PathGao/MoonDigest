@@ -604,6 +604,25 @@ async function followPage({ store = {}, handlers = {}, setup = () => {} } = {}) 
     await p.until(() => F.feed.items.length);
     assert.deepStrictEqual([feedSends(p), F.feed.wait, plain(F.feed.items.map((x) => x.bvid))], [3, false, ["BVb", "BVc"]], "then it loads again by itself");
   }
+
+  // U on a 关注 write while another runs: refused before its confirm, with 收藏夹's words; the step stays for later.
+  {
+    let release;
+    const p = await followPage({ store: page(), handlers: { "follow-relation": (m) => (m.act === 2 ? new Promise((r) => (release = r)) : { ok: true }) } });
+    const { FW } = p;
+    const back = () => ["u1", "u2"].map((mid) => ({ type: "follow-relation", mid, act: 1 }));
+    FW.pushWriteUndo(["u1", "u2"], { label: "取消关注", backLabel: "重新关注", back, ask: ["在 B站撤销取消关注？", "", "撤销 2 个"] });
+    const running = FW.relationRun([{ type: "follow-relation", mid: "u3", act: 2 }], "取消关注");
+    await p.until(() => release);
+    p.key("u");
+    await p.settle();
+    assert.deepStrictEqual([p.toasts.at(-1), p.asked.length, p.ctx.S.modeUndo.length], ["取消关注还在跑，等它完成再撤销", 0, 1], "refused before the confirm; the step stays");
+    release({ ok: true });
+    await running;
+    p.key("u");
+    await p.until(() => p.toasts.at(-1) === "已撤销：取消关注 2 个");
+    assert.deepStrictEqual([plain(p.asked), p.ctx.S.modeUndo.length, p.sent.filter((m) => m.act === 1).map((m) => m.mid).join()], [["在 B站撤销取消关注？"], 0, "u1,u2"], "once it is done, U asks and undoes");
+  }
 })().catch((e) => {
   console.error(e);
   process.exit(1);

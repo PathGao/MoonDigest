@@ -987,20 +987,20 @@ async function unfollow(mids) {
 // U on a B站 write: done = the UP 主 it went through for, back() = the requests that reverse it, built when U is pressed.
 // Undoing 2+ asks first (ask). A reversal that fails says why itself (relationRun's toast), so the step then returns "".
 // groups marks the 关注分组 steps, dropped when a group is deleted. undone: the toast after it, when 「已撤销：label…」 reads badly.
+// As 收藏夹's write steps, U refuses while a 关注 write runs (blocked), before any confirm.
 function pushWriteUndo(done, { label, backLabel, back, ask = null, groups = false, undone = "" }) {
-  const step = {
+  T.pushUndo({
     kind: "mode",
     groups,
     ask: done.length > 1 ? ask : null,
+    blocked: () => (W.busy() ? `${W.busy()}还在跑，等它完成再撤销` : ""),
     undo: async () => {
-      if (W.busy()) return T.pushUndo(step), "上一批还没做完，稍后再按 U";
       const calls = back();
       const want = calls.reduce((n, c) => n + (c.mids || [c.mid]).length, 0);
       const n = await relationRun(calls, backLabel, { quiet: true });
       return n < want ? "" : undone || `已撤销：${label}${done.length > 1 ? ` ${done.length} 个` : `「${upName(done[0])}」`}`;
     }
-  };
-  T.pushUndo(step);
+  });
 }
 
 async function refollow(mids) {
