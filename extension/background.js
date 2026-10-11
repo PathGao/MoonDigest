@@ -318,19 +318,18 @@ async function resolveAiSidepanelContext(contextRef) {
   // risk control as THROTTLED), so a B站 limit fails the follow-up as a limit instead of reading as 没有字幕.
   const io = TRIAGE_BILI_IO;
   const meta = await site.fetchMeta(videoRef, io);
-  const bundle = await site.fetchTracks(videoRef, meta, io);
-  const tracks = BocSites.rankTracks(bundle.tracks || []);
-  const selectedTrack = BocSites.pickPreferredTrack(tracks, {
-    previousId: ref.selectedSubtitleId,
-    previousUrl: ref.selectedSubtitleUrl,
-    previousLang: ref.subtitleLang
+  // Like the video page: the chosen track first, then the others (BocSites.loadSubtitle). A B站 limit fails the
+  // follow-up; a failed track list or download, like tracks with only empty bodies, leaves the AI the title, description
+  // and comments, with the reason in subtitleFailure (the side panel and the AI read it as 字幕抓取失败).
+  const found = await BocSites.loadSubtitle(site, videoRef, meta, io, (tracks) => {
+    const selectedTrack = BocSites.pickPreferredTrack(tracks, {
+      previousId: ref.selectedSubtitleId,
+      previousUrl: ref.selectedSubtitleUrl,
+      previousLang: ref.subtitleLang
+    });
+    return selectedTrack ? [selectedTrack, ...tracks.filter((item) => item !== selectedTrack)] : [];
   });
-  // Like the video page: the chosen track first, then the others (BocSites.loadFirstTrack). A fetch error with nothing
-  // usable fails the follow-up; tracks with only empty bodies leave the AI the title, description and comments.
-  const ordered = selectedTrack ? [selectedTrack, ...tracks.filter((item) => item !== selectedTrack)] : [];
-  const found = await BocSites.loadFirstTrack(site, ordered, { videoId: videoRef.id, cid: meta.cid }, io, meta.duration);
-  if (!found.track && found.error) throw found.error;
-  const { track, body } = found;
+  const { track, body, bundle, tracks } = found;
   const subtitleWarning = found.mismatch ? BocNote.subtitleMismatchWarning(found.mismatch) : "";
 
   const hotComments = site.fetchComments ? await site.fetchComments(videoRef, meta, io).catch(() => []) : [];
@@ -356,7 +355,7 @@ async function resolveAiSidepanelContext(contextRef) {
     selectedSubtitleUrl: String(track?.url || "").trim(),
     subtitleBody: body,
     subtitleWarning,
-    subtitleFailure: ordered.length && !body.length ? "字幕文件为空" : "",
+    subtitleFailure: found.failure || (tracks.length && !body.length ? "字幕文件为空" : ""),
     subtitleMarkdown: body.length ? BocNote.buildAiContext(noteMeta, body, settings, noteRef) : "",
     subtitleOptions: tracks.map((item) => ({
       id: String(item.id || "").trim(),

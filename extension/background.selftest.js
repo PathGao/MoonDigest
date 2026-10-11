@@ -280,7 +280,14 @@ process.on("exit", (code) => {
   // The side panel reads B站 through triage-bg.js's channel (fetch), with the B站 referrer.
   const inits = [];
   const urls = [];
-  ctx.fetch = async (url, init) => (inits.push(init), urls.push(url), { ok: true, status: 200, json: async () => routes[Object.keys(routes).find((part) => url.includes(part))] });
+  // A route's Error is a dropped connection.
+  ctx.fetch = async (url, init) => {
+    inits.push(init);
+    urls.push(url);
+    const answer = routes[Object.keys(routes).find((part) => url.includes(part))];
+    if (answer instanceof Error) throw answer;
+    return { ok: true, status: 200, json: async () => answer };
+  };
   const mismatched = await historyContext();
   assert.strictEqual(mismatched.subtitleBody.length, 2);
   assert.match(mismatched.subtitleMarkdown, /## 字幕/);
@@ -298,6 +305,13 @@ process.on("exit", (code) => {
   routes = { ...sidepanelRoutes(100), [subUrl]: { body: [] } };
   const empty = await historyContext();
   assert.deepStrictEqual([empty.subtitleBody.length, empty.subtitleMarkdown, empty.subtitleFailure], [0, "", "字幕文件为空"]);
+  // A failed download or track list (not a limit) answers like the video page: no subtitle, and why, for 字幕抓取失败.
+  const dropConn = () => new TypeError("Failed to fetch");
+  routes = { ...sidepanelRoutes(100), [subUrl]: dropConn() };
+  const dropped = await historyContext();
+  assert.deepStrictEqual([dropped.subtitleBody.length, dropped.subtitleMarkdown, dropped.subtitleFailure], [0, "", "网络断了"]);
+  routes = { ...sidepanelRoutes(100), "/x/player/wbi/v2": dropConn(), "/x/player/v2": dropConn() };
+  assert.strictEqual((await historyContext()).subtitleFailure, "网络断了");
   // Speech ending at 100 s (a long silent outro) passes the video page's loose guard, so the side panel takes it too.
   routes = sidepanelRoutes(100);
   const resolved = await historyContext();
