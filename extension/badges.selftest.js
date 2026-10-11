@@ -679,7 +679,9 @@ async function plusPage() {
   stopped = 0;
   doc.listeners.click.forEach((f) => f(ev(plusOf(title("c")))));
   assert.strictEqual(stopped, 2, "a stale page's 「+」 click does not fall through to the author link");
-  assert.strictEqual(doc.childNodes.at(-1).shadow.querySelector(".empty")?.textContent, "扩展刚刚更新，请刷新网页");
+  const stale = doc.childNodes.at(-1).shadow.querySelector(".pick");
+  assert.strictEqual(stale.querySelector(".empty")?.textContent, "扩展刚刚更新，请刷新网页");
+  assert.ok(stale.style.top && stale.style.left, "the notice is placed under the 「+」, not left off-screen");
 }
 
 // ---- the live script on other surfaces: the 分拣台's player, a home page with a header popover, a 收藏夹 page ----

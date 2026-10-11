@@ -625,7 +625,10 @@ input { box-sizing: border-box; width: 100%; margin: 0; padding: 4px 8px; border
     };
     const head = el("div", "h", `给「${pick.add.dataset.name}」打 UP 标签`);
     // The extension reloaded under this page: storage and messages no longer reach it.
-    if (!chrome.runtime?.id) return pick.panel.replaceChildren(head, el("div", "empty", "扩展刚刚更新，请刷新网页"));
+    if (!chrome.runtime?.id) {
+      pick.panel.replaceChildren(head, el("div", "empty", "扩展刚刚更新，请刷新网页"));
+      return placePick();
+    }
     const was = pick.root.activeElement;
     const focus = pick.focus ?? (was?.dataset?.id || (was?.classList?.contains("opt") ? "new" : was ? "input" : null));
     pick.focus = null;
