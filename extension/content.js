@@ -1505,7 +1505,7 @@ async function sendToObsidian() {
   const baseUrl = String(state.settings.obsidianApiBaseUrl || "").trim();
   const apiKey = String(state.settings.obsidianApiKey || "").trim();
   if (!baseUrl || !apiKey) {
-    setMessage("请先在设置页填写 Obsidian Local REST API 地址和 API Key。");
+    setMessage(BocErrors.TEXT.obsidianUnset);
     requestOpenOptions();
     return;
   }
@@ -1540,7 +1540,7 @@ async function sendToObsidian() {
       if (choice === "ai") {
         const resp = await sendRuntimeMessage({ type: "update-obsidian-ai-section", baseUrl, apiKey, filepath, section: aiSection, noteKey });
         if (!resp?.ok) {
-          throw obsidianError(resp, "Local API 写入失败");
+          throw BocErrors.fromResp(resp, "Local API 写入失败");
         }
         report(`已更新 AI 问答：${filepath}`, true);
         return;
@@ -1549,19 +1549,14 @@ async function sendToObsidian() {
     await writeNoteByLocalApi(baseUrl, apiKey, filepath, markdown, cover, noteKey);
     report(`已写入 Obsidian：${filepath}`, true);
   } catch (error) {
-    if (isExtensionContextInvalidated(error)) {
-      report("扩展刚刚更新，请刷新网页重试");
+    if (BocErrors.reloaded(error)) {
+      report(BocErrors.TEXT.reloaded);
       return;
     }
     report(`写入 Obsidian 失败：${getErrorMessage(error)}`);
     // Obsidian itself is unusable (closed, wrong address or key): the settings page, as for 未配置.
-    if (error.setup) requestOpenOptions();
+    if (error.action === "settings") requestOpenOptions();
   }
-}
-
-// The background's Obsidian failure (already in the user's words); setup: the fix is in the settings page.
-function obsidianError(resp, fallback) {
-  return Object.assign(new Error(toReadableText(resp?.error, fallback)), { setup: resp?.setup === true });
 }
 
 async function checkObsidianNoteExists(baseUrl, apiKey, filepath) {
@@ -1572,7 +1567,7 @@ async function checkObsidianNoteExists(baseUrl, apiKey, filepath) {
     filepath
   });
   if (!resp?.ok) {
-    throw obsidianError(resp, "Local API 检查失败");
+    throw BocErrors.fromResp(resp, "Local API 检查失败");
   }
   return Boolean(resp.exists);
 }
@@ -1588,7 +1583,7 @@ async function writeNoteByLocalApi(baseUrl, apiKey, filepath, content, cover, no
     noteKey
   });
   if (!resp?.ok) {
-    throw obsidianError(resp, "Local API 写入失败");
+    throw BocErrors.fromResp(resp, "Local API 写入失败");
   }
 }
 
@@ -4258,11 +4253,6 @@ function sendRuntimeMessage(message) {
   });
 }
 
-function isExtensionContextInvalidated(error) {
-  const msg = String(error?.message || "");
-  return msg.includes("Extension context invalidated");
-}
-
 function requestOpenOptions() {
   sendRuntimeMessage({ type: "open-options" })
     .then((resp) => {
@@ -4271,8 +4261,8 @@ function requestOpenOptions() {
       }
     })
     .catch((error) => {
-      if (isExtensionContextInvalidated(error)) {
-        setMessage("扩展刚刚更新，请刷新网页重试");
+      if (BocErrors.reloaded(error)) {
+        setMessage(BocErrors.TEXT.reloaded);
         return;
       }
       setMessage(`打开设置失败：${getErrorMessage(error)}`);
@@ -4523,8 +4513,8 @@ async function fetchJsonInBackground(url) {
     }
     return resp.data;
   } catch (error) {
-    if (isExtensionContextInvalidated(error)) {
-      throw new Error("扩展刚刚更新，请刷新网页重试");
+    if (BocErrors.reloaded(error)) {
+      throw new Error(BocErrors.TEXT.reloaded);
     }
     throw error;
   }

@@ -2131,30 +2131,27 @@ function endStream(stream, { stopped = "", error = "", code = "" } = {}) {
   scrollToBottom();
 }
 
-// Errors that only a settings change fixes (codes from triageAiHttpError in triage-bg.js): 去设置 comes before 重试.
-const AI_SETTINGS_CODES = new Set(["AI_AUTH", "AI_QUOTA", "AI_SETUP"]);
-
 function appendStreamError({ node, prompt, raw }, error, saved, code = "") {
   const err = document.createElement("div");
   err.className = "sp-msg-error";
   err.textContent = `错误：${error}`;
   node.appendChild(err);
-  const origin = /未授权访问 (https?:\/\/[^\s，]+)/.exec(String(error))?.[1];
-  if (origin) {
+  const access = BocErrors.grantOrigin(error);
+  if (access) {
     const grant = document.createElement("button");
     grant.type = "button";
     grant.className = "sp-chip sp-grant-btn";
-    grant.textContent = `授权访问 ${origin}`;
-    // The click is the user gesture permissions.request needs; the service worker cannot ask.
+    grant.textContent = `授权访问 ${access.origin}`;
     grant.addEventListener("click", async () => {
-      if (await chrome.permissions.request({ origins: [`${origin}/*`] }).catch(() => false)) {
+      if (await access.request()) {
         err.textContent = "已授权，请重新发送";
         grant.remove();
       }
     });
     node.appendChild(grant);
   }
-  if (AI_SETTINGS_CODES.has(code)) {
+  // Errors that only a settings change fixes (codes from triageAiHttpError in triage-bg.js): 去设置 comes before 重试.
+  if (BocErrors.action(code) === "settings") {
     const settings = document.createElement("button");
     settings.type = "button";
     settings.className = "sp-chip sp-grant-btn";
@@ -2319,7 +2316,7 @@ async function syncVideoNoteAiSection({ context, messages, settings, baseUrl, ap
   const filepath = await resolveVideoNotePath(context, settings);
   const resp = await sendRuntimeMessage({ type: "update-obsidian-ai-section", baseUrl, apiKey, filepath, section, noteKey });
   if (!resp?.ok) {
-    throw obsidianError(resp, "Local API 写入失败");
+    throw BocErrors.fromResp(resp, "Local API 写入失败");
   }
   return { ...resp, filepath };
 }
@@ -2371,15 +2368,10 @@ async function autoSyncConversation(conversationId) {
   }
 }
 
-// The background's Obsidian failure (already in the user's words); setup: the fix is in the settings page.
-function obsidianError(resp, fallback) {
-  return Object.assign(new Error(getReadableText(resp?.error, fallback)), { setup: resp?.setup === true });
-}
-
 // A failed manual write is red; when Obsidian itself is unusable the settings page opens, as for 未配置.
 function showObsidianFailure(error) {
   showConversationContextNotice(`写入 Obsidian 失败：${getErrorMessage(error)}`, 4000, { error: true });
-  if (error?.setup) chrome.runtime.openOptionsPage?.();
+  if (error?.action === "settings") chrome.runtime.openOptionsPage?.();
 }
 
 let syncStatusTimer = 0;
@@ -2485,7 +2477,7 @@ async function saveBuiltVideoNoteToObsidian(ref, messages, epoch, settingsBundle
   const built = await sendRuntimeMessage({ type: "triage-build-note", bvid: ref.videoId });
   if (!built?.ok) {
     if (!BocSites.isBiliVideoGone(built?.code)) {
-      throw new Error(built?.code === 62004 ? "视频审核中，过后再试" : getReadableText(built?.error, "生成视频笔记失败"));
+      throw new Error(BocErrors.text(built, "生成视频笔记失败"));
     }
     // The conversation-only note is built from the panel's current conversation.
     if (epoch !== conversationEpoch) {
@@ -2507,13 +2499,13 @@ async function saveBuiltVideoNoteToObsidian(ref, messages, epoch, settingsBundle
   if (choice === "full") {
     const written = await sendRuntimeMessage({ type: "write-obsidian-note", baseUrl, apiKey, filepath, content: built.data.markdown, cover, noteKey });
     if (!written?.ok) {
-      throw obsidianError(written, "Local API 写入失败");
+      throw BocErrors.fromResp(written, "Local API 写入失败");
     }
   }
   const section = BocNote.buildAiSection(buildConversationTurns(messages));
   const updated = await sendRuntimeMessage({ type: "update-obsidian-ai-section", baseUrl, apiKey, filepath, section, noteKey });
   if (!updated?.ok) {
-    throw obsidianError(updated, "Local API 写入失败");
+    throw BocErrors.fromResp(updated, "Local API 写入失败");
   }
   showConversationContextNotice(choice === "full" ? `已写入 Obsidian：${filepath}` : `已更新 AI 问答：${filepath}`, 4000);
 }
@@ -2532,7 +2524,7 @@ async function loadObsidianSettings() {
   const baseUrl = String(settings.obsidianApiBaseUrl || "").trim();
   const apiKey = String(settings.obsidianApiKey || "").trim();
   if (!baseUrl || !apiKey) {
-    showConversationContextNotice("请先在设置页填写 Obsidian Local REST API 地址和 API Key。", 3500);
+    showConversationContextNotice(BocErrors.TEXT.obsidianUnset, 3500);
     chrome.runtime.openOptionsPage?.();
     return null;
   }
@@ -2576,7 +2568,7 @@ async function checkObsidianNoteExists(baseUrl, apiKey, filepath) {
     filepath
   });
   if (!resp?.ok) {
-    throw obsidianError(resp, "Local API 检查失败");
+    throw BocErrors.fromResp(resp, "Local API 检查失败");
   }
   return Boolean(resp.exists);
 }
@@ -2590,7 +2582,7 @@ async function writeNoteByLocalApi(baseUrl, apiKey, filepath, content) {
     content
   });
   if (!resp?.ok) {
-    throw obsidianError(resp, "Local API 写入失败");
+    throw BocErrors.fromResp(resp, "Local API 写入失败");
   }
 }
 

@@ -365,7 +365,7 @@ const el = {};
 // ---------- utils ----------
 // Not logged in to B站 (the background's NOT_LOGGED_IN, B站's -101), on a read or a write in either mode: the 去登录 banner.
 function send(msg) {
-  return sendRaw(msg).then((r) => (r.code === "NOT_LOGGED_IN" && showLogin(), r));
+  return sendRaw(msg).then((r) => (BocErrors.action(r.code) === "login" && showLogin(), r));
 }
 const showLogin = () => showBanner("没登录 B站：先在这个浏览器里登录 B站", "去登录", () => openTab("https://passport.bilibili.com/login"), "login");
 function sendRaw(msg) {
@@ -523,11 +523,10 @@ function aiNext(r, n, ends = aiEnds) {
 
 function handleAiError(error, code = "") {
   const text = String(error || "AI 调用失败");
-  const origin = /未授权访问 (https?:\/\/[^\s，]+)/.exec(text)?.[1];
-  if (origin) {
-    // The click is the user gesture permissions.request needs; the service worker cannot ask.
-    showBanner(text, `授权访问 ${origin}`, async () => {
-      if (await chrome.permissions.request({ origins: [`${origin}/*`] }).catch(() => false)) {
+  const access = BocErrors.grantOrigin(text);
+  if (access) {
+    showBanner(text, `授权访问 ${access.origin}`, async () => {
+      if (await access.request()) {
         el.banner.hidden = true;
         toast("已授权，请重试");
       }
@@ -1085,7 +1084,7 @@ async function loadFolders() {
   el.list.innerHTML = `<p class="empty">正在加载收藏夹列表…</p>`;
   const r = await send({ type: "triage-folders" });
   if (!r.ok) {
-    if (r.code !== "NOT_LOGGED_IN") showBanner(`读取收藏夹失败：${r.error}`, "重试", loadFolders); // send() showed 去登录
+    if (BocErrors.action(r.code) !== "login") showBanner(`读取收藏夹失败：${r.error}`, "重试", loadFolders); // send() showed 去登录
     el.list.innerHTML = `<p class="empty">无法读取收藏夹</p>`;
     return;
   }
@@ -1279,7 +1278,7 @@ async function syncFolder({ force = false, cached = null } = {}) {
     r ||= await send({ type: "triage-folder-items", mediaId });
     if (token !== S.folderToken) return false;
     if (!r.ok) {
-      const needLogin = r.code === "NOT_LOGGED_IN"; // send() showed 去登录
+      const needLogin = BocErrors.action(r.code) === "login"; // send() showed 去登录
       if (!needLogin) S.syncError = `刷新失败：${r.error}`;
       if (!S.items.length) el.list.innerHTML = UI.emptyState("无法读取这个收藏夹", needLogin ? "登录 B站后点刷新。" : r.error, REFRESH_EMPTY);
       return false;

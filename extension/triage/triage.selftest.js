@@ -75,6 +75,7 @@ const ctx = vm.createContext({
   }
 });
 vm.runInContext(fs.readFileSync(path.join(__dirname, "..", "limits.js"), "utf8"), ctx);
+vm.runInContext(fs.readFileSync(path.join(__dirname, "..", "errors.js"), "utf8"), ctx);
 vm.runInContext(fs.readFileSync(path.join(__dirname, "..", "typing.js"), "utf8"), ctx);
 vm.runInContext(fs.readFileSync(path.join(__dirname, "../tag-core.js"), "utf8"), ctx);
 vm.runInContext(fs.readFileSync(path.join(__dirname, "shared.js"), "utf8"), ctx);

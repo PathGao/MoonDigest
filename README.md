@@ -244,6 +244,7 @@ extension/
 ├── options.*       设置页
 ├── badges.*        B站页面上的分拣标记和观看进度
 ├── limits.js       各类数据的上限，和设置页「数据与存储」共用
+├── errors.js       页面怎么显示错误：共用的错误文案、错误码对应的按钮
 ├── tokens.css      共享的颜色、字号、间距（含深色主题）
 ├── triage/         B站分拣台页面和后台接口（triage-bg.js）
 ├── history/        视频记录页

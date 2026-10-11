@@ -593,7 +593,7 @@ function renderAiState() {
 let loginSeen = "";
 function renderLogin() {
   const j = D.jobs || {};
-  const login = (code) => code === "NOT_LOGGED_IN" || code === -101; // -101: B站's own code, passed through by follow-bg.js
+  const login = (code) => BocErrors.action(code) === "login"; // also B站's own -101, passed through by follow-bg.js
   const err = F.mode !== "follow" ? "" : !j.running && login(j.errorCode) ? j.error : login(F.feed?.errorCode) ? F.feed.error : "";
   if (err !== loginSeen) T.loginBanner(Boolean(err));
   loginSeen = err;
@@ -907,7 +907,7 @@ async function more({ byHand = false } = {}) {
   if (r.code === "THROTTLED") waitFeed(f);
   else if (!r.ok) {
     f.errorCode = r.code;
-    f.error = r.code === "NOT_LOGGED_IN" ? "没登录 B站，登录后点重试" : `读取失败：${r.error || "未知错误"}`;
+    f.error = BocErrors.action(r.code) === "login" ? "没登录 B站，登录后点重试" : `读取失败：${r.error || "未知错误"}`;
   }
   else {
     const { items, add } = mergeFeed(f.items, r.data.items || []);

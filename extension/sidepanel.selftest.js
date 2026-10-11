@@ -38,7 +38,7 @@ const ctx = vm.createContext({
   }
 });
 ctx.globalThis = ctx;
-for (const f of ["limits.js", "typing.js", "sites.js", "note.js", "download.js"]) vm.runInContext(fs.readFileSync(path.join(__dirname, f), "utf8"), ctx);
+for (const f of ["limits.js", "errors.js", "typing.js", "sites.js", "note.js", "download.js"]) vm.runInContext(fs.readFileSync(path.join(__dirname, f), "utf8"), ctx);
 vm.runInContext(`${source}\n;globalThis.peek = () => ({ live: liveContextData, ctx: contextData });`, ctx);
 for (const f of ["updateContextChip", "renderHistoryList", "restartChat", "renderSuggestions", "renderInitialState", "resetConversationView"]) ctx[f] = () => {};
 ctx.restoreLatestConversationForCurrentContext = async () => {};
@@ -139,6 +139,19 @@ const page = (id) => ({ ok: true, payload: { url: `https://example.com/${id}`, t
     const section = sent.filter((m) => m.type === "update-obsidian-ai-section").pop();
     assert.ok(section.filepath === "B站/UP/T.md" && section.section.includes("这个视频") && !section.section.includes("别的视频"), section.section);
     ctx.sendRuntimeMessage = realSend;
+  }
+
+  {
+    // A failed write is red; only an Obsidian-wide failure (code OBSIDIAN) opens the settings page.
+    const notices = [];
+    let settings = 0;
+    ctx.showConversationContextNotice = (text, ms, opts) => notices.push([text, opts?.error]);
+    ctx.chrome.runtime.openOptionsPage = () => settings++;
+    const E = ctx.BocErrors;
+    ctx.showObsidianFailure(E.fromResp({ ok: false, error: E.TEXT.obsidianKey, code: "OBSIDIAN" }, "Local API 写入失败"));
+    ctx.showObsidianFailure(E.fromResp({ ok: false, error: "Obsidian 返回 HTTP 500" }, "Local API 写入失败"));
+    assert.deepStrictEqual(notices, [[`写入 Obsidian 失败：${E.TEXT.obsidianKey}`, true], ["写入 Obsidian 失败：Obsidian 返回 HTTP 500", true]]);
+    assert.strictEqual(settings, 1);
   }
 
   {

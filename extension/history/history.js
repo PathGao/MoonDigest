@@ -253,7 +253,7 @@ async function saveToObsidian(group) {
     const baseUrl = String(settings.obsidianApiBaseUrl || "").trim();
     const apiKey = String(settings.obsidianApiKey || "").trim();
     if (!baseUrl || !apiKey) {
-      setStatus("请先在设置页填写 Obsidian Local REST API 地址和 API Key", true);
+      setStatus(BocErrors.TEXT.obsidianUnset, true);
       chrome.runtime.openOptionsPage();
       return;
     }
@@ -263,7 +263,7 @@ async function saveToObsidian(group) {
     const section = newest ? BocNote.buildAiSection(BocNote.buildConversationTurns(newest.messages)) : "";
     if (section && boundPath) {
       const resp = await chrome.runtime.sendMessage({ type: "update-obsidian-ai-section", baseUrl, apiKey, filepath: boundPath, section, noteKey });
-      if (!resp?.ok) throw obsidianError(resp, "Local API 写入失败");
+      if (!resp?.ok) throw BocErrors.fromResp(resp, "Local API 写入失败");
       if (resp.exists !== false) {
         setStatus(`已更新 AI 问答：${boundPath}`);
         return;
@@ -275,23 +275,23 @@ async function saveToObsidian(group) {
     if (!boundPath && group.context.site === "bilibili" && (Number(group.context.pageIndex) || 1) === 1) {
       setStatus("正在生成视频笔记…");
       built = await chrome.runtime.sendMessage({ type: "triage-build-note", bvid: group.context.videoId });
-      if (!built?.ok && !BocSites.isBiliVideoGone(built?.code)) throw new Error(built?.code === 62004 ? "视频审核中，过后再试" : built?.error || "生成视频笔记失败");
+      if (!built?.ok && !BocSites.isBiliVideoGone(built?.code)) throw new Error(BocErrors.text(built, "生成视频笔记失败"));
     }
     if (built?.ok) {
       setStatus("正在写入…");
       const { path: filepath, cover } = built.data;
       const exists = await chrome.runtime.sendMessage({ type: "obsidian-note-exists", baseUrl, apiKey, filepath });
-      if (!exists?.ok) throw obsidianError(exists, "Local API 检查失败");
+      if (!exists?.ok) throw BocErrors.fromResp(exists, "Local API 检查失败");
       const choice = exists.exists ? await BocOverwriteDialog.choose(filepath, { hasAiSection: Boolean(section) }) : "full";
       if (!choice) return;
       const overwrite = choice === "full";
       if (overwrite) {
         const written = await chrome.runtime.sendMessage({ type: "write-obsidian-note", baseUrl, apiKey, filepath, content: built.data.markdown, cover, noteKey });
-        if (!written?.ok) throw obsidianError(written, "Local API 写入失败");
+        if (!written?.ok) throw BocErrors.fromResp(written, "Local API 写入失败");
       }
       if (section) {
         const resp = await chrome.runtime.sendMessage({ type: "update-obsidian-ai-section", baseUrl, apiKey, filepath, section, noteKey });
-        if (!resp?.ok) throw obsidianError(resp, "Local API 写入失败");
+        if (!resp?.ok) throw BocErrors.fromResp(resp, "Local API 写入失败");
       }
       setStatus(overwrite ? `已写入 Obsidian：${filepath}` : `已更新 AI 问答：${filepath}`);
       return;
@@ -302,27 +302,22 @@ async function saveToObsidian(group) {
     const note = buildNote(group, sourcePath);
     const filepath = videoFolder ? `${videoFolder}/${note.filename}` : note.filename;
     const exists = await chrome.runtime.sendMessage({ type: "obsidian-note-exists", baseUrl, apiKey, filepath });
-    if (!exists?.ok) throw obsidianError(exists, "Local API 检查失败");
+    if (!exists?.ok) throw BocErrors.fromResp(exists, "Local API 检查失败");
     if (exists.exists && !confirm(`该笔记已存在，继续会覆盖原内容：${filepath}`)) return;
     const written = await chrome.runtime.sendMessage({ type: "write-obsidian-note", baseUrl, apiKey, filepath, content: note.content });
-    if (!written?.ok) throw obsidianError(written, "Local API 写入失败");
+    if (!written?.ok) throw BocErrors.fromResp(written, "Local API 写入失败");
     if (built) setStatus(`已写入 Obsidian：${filepath}（视频已失效，只写了对话）`);
     else setStatus(group.context.videoId ? `已写入 Obsidian：${filepath}（单独的对话笔记）` : `已写入 Obsidian：${filepath}`);
   } catch (error) {
     setStatus(`写入 Obsidian 失败：${error?.message || error}`, true);
     // Obsidian itself is unusable (closed, wrong address or key): the settings page, as for 未配置.
-    if (error?.setup) chrome.runtime.openOptionsPage();
+    if (error?.action === "settings") chrome.runtime.openOptionsPage();
   } finally {
     // A declined overwrite returns without a result line; drop the in-progress one.
     if (els.status.textContent.startsWith("正在")) setStatus("");
     writing.delete(group.key);
     render();
   }
-}
-
-// The background's Obsidian failure (already in the user's words); setup: the fix is in the settings page.
-function obsidianError(resp, fallback) {
-  return Object.assign(new Error(resp?.error || fallback), { setup: resp?.setup === true });
 }
 
 els.list.addEventListener("click", (event) => {

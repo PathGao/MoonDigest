@@ -768,14 +768,14 @@ function triageObsidianConfig(settings) {
   if (!settings.obsidianEnabled) throw triageError("Obsidian 写入未启用", "OBSIDIAN");
   const baseUrl = String(settings.obsidianApiBaseUrl || "").trim();
   const apiKey = String(settings.obsidianApiKey || "").trim();
-  if (!baseUrl || !apiKey) throw triageError("请先在设置页填写 Obsidian Local REST API 地址和 API Key", "OBSIDIAN");
+  if (!baseUrl || !apiKey) throw triageError(BocErrors.TEXT.obsidianUnset, "OBSIDIAN");
   return { baseUrl, apiKey };
 }
 // A failed fetch (closed, plugin off, wrong address), a timeout or 401/403 is Obsidian's; anything else is this note's.
 // The words are background.js obsidianFailure's, shared by every Obsidian write path.
 function triageObsidianError(e) {
-  const { error, setup } = obsidianFailure(e);
-  if (setup) return triageError(error, "OBSIDIAN");
+  const { error, code } = obsidianFailure(e);
+  if (code) return triageError(error, code);
   return e?.status ? triageError(error) : e;
 }
 // Before a 逐个视频笔记 run: the settings and one request to the API root (it answers authenticated: false to a wrong key).
