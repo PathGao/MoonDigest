@@ -876,6 +876,15 @@
     return `${baseName || "video-subtitle"}.md`;
   }
 
+  // Where a video's note and a conversation's own note go when no path is recorded (obsidian.js): the folder template,
+  // then the file name.
+  function inNoteFolder(meta, settings, filename) {
+    const folder = resolveFolderTemplate(settings?.noteFolder || "", meta);
+    return folder ? `${folder}/${filename}` : filename;
+  }
+  const videoNotePath = (meta, settings) => inNoteFolder(meta, settings, buildNoteFilename(meta, settings || {}));
+  const conversationNotePath = (context, settings) => inNoteFolder(context, settings, buildAiConversationFilename(context));
+
   function normalizeFolder(input) {
     return String(input || "").trim().replace(/^\/+|\/+$/g, "");
   }
@@ -1096,6 +1105,8 @@
     triageExtrasKeys,
     buildNoteFilename,
     resolveFolderTemplate,
+    videoNotePath,
+    conversationNotePath,
     buildSubtitlePreview,
     buildSrt,
     buildTxt,
