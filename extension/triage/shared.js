@@ -2,14 +2,7 @@
 // A plain script loaded before both modules. Everything here returns HTML, text or a comparator; only setActivity,
 // setSync and bindSync touch the elements they are given, and mergeAiBatch fills the proposal it is given.
 (() => {
-  function esc(v) {
-    return String(v ?? "")
-      .replaceAll("&", "&amp;")
-      .replaceAll("<", "&lt;")
-      .replaceAll(">", "&gt;")
-      .replaceAll('"', "&quot;")
-      .replaceAll("'", "&#39;");
-  }
+  const esc = BocErrors.escapeHtml;
   const pad = (n) => String(n).padStart(2, "0");
   // pubdate and friends are seconds since the epoch: 2026-10-08, "" without one.
   function fmtDate(sec) {

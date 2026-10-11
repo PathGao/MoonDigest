@@ -15,6 +15,7 @@
   }
 
   const S = globalThis.BocSettings;
+  const { escapeHtml } = globalThis.BocErrors;
   const DEFAULT_FRONTMATTER_FIELDS = S.DEFAULTS.frontmatterFields;
   // Every field a note can carry; DEFAULT_FRONTMATTER_FIELDS is the subset on by default.
   const FRONTMATTER_FIELDS = [...DEFAULT_FRONTMATTER_FIELDS, "video_tags"];
@@ -1017,15 +1018,6 @@
         const safeUrl = /^(https?:|mailto:|#)/i.test(u) ? u : "#";
         return `<a href="${safeUrl}" target="_blank" rel="noopener noreferrer">${t}</a>`;
       });
-  }
-
-  function escapeHtml(value) {
-    return String(value)
-      .replaceAll("&", "&amp;")
-      .replaceAll("<", "&lt;")
-      .replaceAll(">", "&gt;")
-      .replaceAll('"', "&quot;")
-      .replaceAll("'", "&#39;");
   }
 
   // The note as the AI reads it (video page and background): no hot comments, and no player embed, which is for

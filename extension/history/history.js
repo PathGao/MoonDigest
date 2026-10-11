@@ -21,7 +21,7 @@ let editing = null; // { id, draft } while a 备注 is open; storage reloads wai
 let reloadPending = false;
 let rendering = false;
 
-const esc = (value) => String(value ?? "").replace(/[&<>"']/g, (ch) => `&#${ch.charCodeAt(0)};`);
+const esc = BocErrors.escapeHtml;
 const formatTime = (value) => new Date(Number(value) || 0).toLocaleString("zh-CN", { hour12: false, year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" });
 
 // One entry per video: the side panel's contextKey (site|videoId|cid) is how it ties a conversation to a video.

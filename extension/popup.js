@@ -1,3 +1,4 @@
+const { escapeHtml } = BocErrors;
 const el = {
   status: document.getElementById("status"),
   videoCover: document.getElementById("videoCover"),
@@ -349,15 +350,6 @@ function sanitizeFileName(value) {
     .replace(/\s+/g, " ")
     .trim()
     .slice(0, 120);
-}
-
-function escapeHtml(value) {
-  return String(value)
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&#39;");
 }
 
 async function getActiveTab() {

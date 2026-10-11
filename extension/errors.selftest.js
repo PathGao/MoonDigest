@@ -40,6 +40,22 @@ const E = ctx.BocErrors;
   assert.ok(E.reloaded(new Error("Extension context invalidated.")));
   assert.ok(!E.reloaded(new Error("Failed to fetch")));
 
+  // HTML escaping: all five characters, so text is inert in content and in either kind of quoted attribute.
+  assert.strictEqual(E.escapeHtml(`<img src=x onerror=alert(1)>"'&`), "&lt;img src=x onerror=alert(1)&gt;&quot;&#39;&amp;");
+  assert.strictEqual(E.escapeHtml("&lt;"), "&amp;lt;", "already-escaped text is escaped again, shown as typed");
+  assert.deepStrictEqual([E.escapeHtml(null), E.escapeHtml(undefined), E.escapeHtml(0)], ["", "", "0"]);
+  // Written once: no other script escapes HTML itself (a weaker copy once skipped > and ').
+  const scripts = [];
+  const walkJs = (dir) => {
+    for (const name of fs.readdirSync(path.join(__dirname, dir))) {
+      const rel = path.join(dir, name);
+      if (fs.statSync(path.join(__dirname, rel)).isDirectory()) name !== "dev" && walkJs(rel);
+      else if (name.endsWith(".js") && !name.endsWith(".selftest.js") && rel !== "errors.js") scripts.push(rel);
+    }
+  };
+  walkJs(".");
+  for (const file of scripts) assert.ok(!/["'`]&(lt|gt|quot|#39|#60);["'`]\)|&#\$\{/.test(read(file)), `${file} escapes HTML itself; use BocErrors.escapeHtml`);
+
   // Registration: each list of scripts that reads BocErrors loads errors.js before the first reader.
   const uses = (file) => file !== "errors.js" && /\bBocErrors\b/.test(read(file));
   const checkOrder = (where, files) => {

@@ -1,6 +1,7 @@
 const SELECTED_PROVIDER_KEY = "boc_ai_selected_provider";
 const CONVERSATIONS_STORAGE_KEY = BocLimits.KEYS.aiConversations;
 const NOTE_PATHS_STORAGE_KEY = BocLimits.KEYS.obsidianNotePaths;
+const { escapeHtml } = BocErrors;
 const {
   stripThinkBlocks,
   normalizeMarkdownForSectionPaste,
@@ -2835,13 +2836,4 @@ function sendRuntimeMessage(message) {
       resolve(resp);
     });
   });
-}
-
-function escapeHtml(value) {
-  return String(value)
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&#39;");
 }

@@ -1,5 +1,5 @@
 // How pages show an error the background already classified: the shared sentences, what each error code asks the
-// user to do, and the helpers every page used to copy. The background classifies (triage-bg.js triageAiHttpError,
+// user to do, and the helpers every page used to copy, HTML escaping among them. The background classifies (triage-bg.js triageAiHttpError,
 // background.js obsidianFailure) and reads TEXT from here too. Loaded by the content script (manifest), background
 // (importScripts) and the pages; errors.selftest.js checks every user of BocErrors loads it. Idempotent like limits.js.
 (() => {
@@ -51,5 +51,16 @@
   // chrome.runtime.id instead and copies TEXT.reloaded; errors.selftest.js keeps the copy equal).
   const reloaded = (error) => /Extension context invalidated/.test(String(error?.message || ""));
 
-  globalThis.BocErrors = Object.freeze({ TEXT, action, text, fromResp, grantOrigin, reloaded });
+  // Text into markup, in element content and in quoted attributes: the one copy every page, the video page and 分拣台
+  // (TriageUi.esc) build HTML with. Titles, UP names, comments, AI replies and tag names all pass through it.
+  // badges.js does not load this file: it builds its DOM with textContent.
+  const escapeHtml = (value) =>
+    String(value ?? "")
+      .replaceAll("&", "&amp;")
+      .replaceAll("<", "&lt;")
+      .replaceAll(">", "&gt;")
+      .replaceAll('"', "&quot;")
+      .replaceAll("'", "&#39;");
+
+  globalThis.BocErrors = Object.freeze({ TEXT, action, text, fromResp, grantOrigin, reloaded, escapeHtml });
 })();

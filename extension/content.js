@@ -8,6 +8,7 @@ if (!globalThis.__BOC_CONTENT_SCRIPT_LOADED__ && (window === window.top || docum
 const DEFAULT_SETTINGS = { ...BocSettings.DEFAULTS, ...BocSettings.LOCAL_DEFAULTS };
 const { formatCompactTimestamp, buildSubtitlePreview, buildSrt, buildTxt, shouldShowHoursInNote } = BocNote;
 const subtitleCache = BocSites.subtitleCache;
+const { escapeHtml } = BocErrors;
 
 const BOC_VERSION = chrome.runtime.getManifest().version;
 // In 分拣台's viewer the tab is 分拣台 itself: the side panel takes the video by reference, not from the tab.
@@ -4539,14 +4540,5 @@ async function refreshDerivedContent() {
   }
   Object.assign(state, { hotComments, aiTurns, triageExtras });
   rebuildDerivedContent();
-}
-
-function escapeHtml(value) {
-  return String(value)
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&#39;");
 }
 }

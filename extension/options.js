@@ -1,5 +1,6 @@
 // Only for when get-settings fails; the background owns the stored settings.
 const DEFAULT_SETTINGS = { ...BocSettings.DEFAULTS, ...BocSettings.LOCAL_DEFAULTS };
+const { escapeHtml } = BocErrors;
 
 const CUSTOM_PROPERTY_KEY_PATTERN = /^[\p{L}\p{N}_\-\s]+$/u;
 const FRONTMATTER_TEMPLATE_TOKEN_RE = /\{\{\s*([a-zA-Z0-9_]+)\s*\}\}/;
@@ -731,7 +732,7 @@ function addFixedPropertyRow(item = {}) {
     <div class="fixed-property-fields">
       <div class="fixed-property-field fixed-property-field-type">${buildFixedPropertyTypePicker(type)}</div>
       <div class="fixed-property-field fixed-property-field-key">
-        <input class="fixed-property-key" type="text" placeholder="属性名" value="${escapeAttribute(item.key)}" />
+        <input class="fixed-property-key" type="text" placeholder="属性名" value="${escapeHtml(item.key)}" />
       </div>
       <div class="fixed-property-field fixed-property-field-value">
         <div class="fixed-property-value-slot">${buildFixedPropertyValueControl(type, item.value)}</div>
@@ -841,10 +842,10 @@ function addNoteSectionRow(item = {}, { skipLimit = false } = {}) {
         </select>
       </div>
       <div class="note-section-field note-section-field-title">
-        <input class="note-section-title" type="text" placeholder="段落标题，例：总结" value="${escapeAttribute(item.title)}" />
+        <input class="note-section-title" type="text" placeholder="段落标题，例：总结" value="${escapeHtml(item.title)}" />
       </div>
       <div class="note-section-field note-section-field-content">
-        <input class="note-section-content" type="text" placeholder="默认内容（可空）" value="${escapeAttribute(item.content)}" />
+        <input class="note-section-content" type="text" placeholder="默认内容（可空）" value="${escapeHtml(item.content)}" />
       </div>
       <div class="note-section-field note-section-field-remove">
         <button class="note-section-remove" type="button" aria-label="删除段落" title="删除段落">
@@ -1042,7 +1043,7 @@ function buildFixedPropertyValueControl(type, value) {
           : normalizedType === "date"
             ? "YYYY-MM-DD 或 {{upload_date}}"
           : "属性值";
-  return `<input class="fixed-property-value" type="text" placeholder="${placeholder}" value="${escapeAttribute(value)}" />`;
+  return `<input class="fixed-property-value" type="text" placeholder="${placeholder}" value="${escapeHtml(value)}" />`;
 }
 
 function buildFixedPropertyTypePicker(type) {
@@ -1124,10 +1125,6 @@ function closeAllFixedPropertyMenus() {
       menu.hidden = true;
     }
   });
-}
-
-function escapeAttribute(value) {
-  return String(value || "").replaceAll("&", "&amp;").replaceAll('"', "&quot;").replaceAll("<", "&lt;");
 }
 
 function normalizeBaseUrl(value) {
@@ -1248,10 +1245,10 @@ function addAiProviderRow(item = {}) {
   row.dataset.currentPresetId = presetId;
   row.innerHTML = `
     <select class="ai-provider-preset" aria-label="平台">
-      ${AI_PRESETS.map((p) => `<option value="${escapeAttribute(p.id)}" ${p.id === presetId ? "selected" : ""}>${escapeAttribute(p.name)}</option>`).join("")}
+      ${AI_PRESETS.map((p) => `<option value="${escapeHtml(p.id)}" ${p.id === presetId ? "selected" : ""}>${escapeHtml(p.name)}</option>`).join("")}
     </select>
-    <input class="ai-provider-baseurl" type="text" aria-label="接口地址" placeholder="如 https://api.openai.com/v1" value="${escapeAttribute(baseUrl)}" />
-    <input class="ai-provider-model" type="text" aria-label="模型" placeholder="如 gpt-6-luna" value="${escapeAttribute(model)}" />
+    <input class="ai-provider-baseurl" type="text" aria-label="接口地址" placeholder="如 https://api.openai.com/v1" value="${escapeHtml(baseUrl)}" />
+    <input class="ai-provider-model" type="text" aria-label="模型" placeholder="如 gpt-6-luna" value="${escapeHtml(model)}" />
     <div class="key">
       <input class="ai-provider-apikey" type="password" aria-label="API Key" placeholder="${apiKeyPlaceholder(hasSavedKey, requiresKey)}" autocomplete="off" />
       <span class="keytag"${hasSavedKey ? "" : " hidden"}>已保存</span>
