@@ -2426,7 +2426,7 @@ const fav = {
     const it = S.itemMap.get(bvid);
     const pending = W.pending(bvid);
     if (!it || S.decisions[bvid]?.action === "unfav") return;
-    if (pending) return pending !== "取消收藏" && toast(`这个视频在等待${pending}，结束后再取消收藏`, true);
+    if (pending) return toast(pending === "取消收藏" ? "这个视频已在等待取消收藏" : `这个视频在等待${pending}，结束后再取消收藏`, true);
     const prev = S.decisions[bvid] || null;
     const before = visibleItems();
     const token = S.folderToken;
