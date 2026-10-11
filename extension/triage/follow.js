@@ -300,6 +300,8 @@ function favUpMid(up, rows) {
   if (up.mid) return rows.has(up.mid) ? up.mid : "";
   return (up.name && [...rows.values()].find((u) => u.name === up.name)?.mid) || "";
 }
+// The UP of a video 关注 plays: from 视频投稿 (feed items), else an UP card's recent titles; "" when neither lists it.
+const playingMid = (bvid, feed, rows) => feed?.find((x) => x.bvid === bvid)?.mid || [...rows.values()].find((u) => u.titles.some((v) => v.bvid === bvid))?.mid || "";
 // PURE-END
 
 // ---------- page ----------
@@ -824,7 +826,14 @@ function renderViewerUp() {
   const pre = `${face ? `<img src="${esc(img(face, "48w_48h_1c"))}" alt="" referrerpolicy="no-referrer">` : ""}<a class="name" href="${space(mid)}" target="_blank" rel="noopener">${esc(name)}</a>`;
   vline.innerHTML = UI.viewerLine({ label: "UP 标签", pre, chips, plus: !u?.gone && { attrs: `data-pick="${esc(mid)}"`, label: `给 ${name} 打 UP 标签`, key: follow } });
 }
-T.setViewerHook(renderViewerUp);
+// B站's autoplay moved the player on (triage.js showViewing): the pink card, this line and T follow the new video.
+T.setViewerHook(() => {
+  const b = T.viewing();
+  if (F.mode !== "follow" || !b || b === F.viewing) return renderViewerUp();
+  F.viewing = b;
+  F.viewingMid = playingMid(b, F.feed?.items, rows);
+  render();
+});
 
 function feedCard(it) {
   const ids = liveTags(it.mid, D);
@@ -926,7 +935,7 @@ function play(bvid) {
   const it = fed || up?.titles.find((v) => v.bvid === bvid);
   if (!it) return;
   F.viewing = bvid;
-  F.viewingMid = fed?.mid || up?.mid || "";
+  F.viewingMid = playingMid(bvid, F.feed?.items, rows);
   T.openViewer({ bvid, title: it.title || it.t });
   render();
   E.list.querySelector(`[data-bvid="${CSS.escape(bvid)}"]`)?.scrollIntoView({ block: "nearest" });
@@ -1319,9 +1328,9 @@ async function pickClosed(changes) {
 }
 
 // T: with the viewer open, the playing video's UP (its 「UP 标签」 line), as 收藏夹's T tags the playing video; else the
-// UP of the 视频投稿 card under the mouse, else the current UP card.
+// UP of the 视频投稿 card under the mouse, else the current UP card. A playing video whose UP is unknown: nothing.
 function tagByKey() {
-  if (F.viewing && F.viewingMid) return void (!rows.get(F.viewingMid)?.gone && openPick([F.viewingMid], "#fwViewerUp .tag-plus"));
+  if (F.viewing) return void (F.viewingMid && !rows.get(F.viewingMid)?.gone && openPick([F.viewingMid], "#fwViewerUp .tag-plus"));
   const it = F.tab === "feed" && F.hover && F.feed?.items.find((x) => x.bvid === F.hover);
   if (it) openPick([it.mid], `.fw-video[data-bvid="${CSS.escape(it.bvid)}"] .tag-plus`);
   else if (F.tab === "ups" && shown.includes(F.cur) && !rows.get(F.cur)?.gone) openPick([F.cur]);

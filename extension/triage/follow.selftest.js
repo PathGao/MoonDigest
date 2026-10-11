@@ -13,7 +13,7 @@ const ctx = vm.createContext({ setTimeout, clearTimeout });
 vm.runInContext(fs.readFileSync(path.join(__dirname, "../errors.js"), "utf8"), ctx);
 vm.runInContext(fs.readFileSync(path.join(__dirname, "../tag-core.js"), "utf8"), ctx);
 vm.runInContext(fs.readFileSync(path.join(__dirname, "shared.js"), "utf8"), ctx);
-vm.runInContext(`const UI = globalThis.TriageUi;\n${pure}\n;Object.assign(globalThis, { syncFinished, dirLabel, followAiSettings, aiRequests, normDays, settingsProblem, followStatus, withFeedInProgress, lastPostOf, recentTitles, upRow, visibleUps, mergeFeed, feedMatch, sideIds, feedList, feedLeaving, withTags, stepIn, tagsOf, restoreTags, feedCounts, STATUS, viewRecord, latestBvid, favUpMid, aiBlocked, withAllowRemove, groupsOf, regrouped, groupCalls, groupTargets, groupName, groupMoveLabel });`, ctx);
+vm.runInContext(`const UI = globalThis.TriageUi;\n${pure}\n;Object.assign(globalThis, { syncFinished, dirLabel, followAiSettings, aiRequests, normDays, settingsProblem, followStatus, withFeedInProgress, lastPostOf, recentTitles, upRow, visibleUps, mergeFeed, feedMatch, sideIds, feedList, feedLeaving, withTags, stepIn, tagsOf, restoreTags, feedCounts, STATUS, viewRecord, latestBvid, favUpMid, playingMid, aiBlocked, withAllowRemove, groupsOf, regrouped, groupCalls, groupTargets, groupName, groupMoveLabel });`, ctx);
 const t = ctx;
 const plain = (v) => JSON.parse(JSON.stringify(v));
 
@@ -283,7 +283,15 @@ assert.deepStrictEqual([t.dirLabel("last", "desc"), t.dirLabel("follow", "asc"),
   assert.ok(/function setTab\(tab\) \{[^}]*E\.list\.scrollTop = 0;\s*render\(\);/.test(source), "switching tabs scrolls to the top");
 }
 // S4: with the viewer open, T tags the playing video's UP before the card under the mouse or the current card.
-assert.ok(/function tagByKey\(\) \{\s*if \(F\.viewing && F\.viewingMid\) return/.test(source), "T in the viewer tags the playing UP");
+assert.ok(/function tagByKey\(\) \{\s*if \(F\.viewing\) return void \(F\.viewingMid && /.test(source), "T in the viewer tags the playing UP, or nothing when it is unknown");
+// R2: B站's autoplay moves the 关注 player on; the playing mark and its UP follow (unknown UP: "", the line hides).
+{
+  assert.ok(/T\.setViewerHook\(\(\) => \{[\s*\S]*?F\.viewing = b;\s*F\.viewingMid = playingMid\(b, F\.feed\?\.items, rows\);/.test(source), "the viewer hook follows the new video");
+  const ups = new Map([["u1", { mid: "u1", titles: [{ bvid: "BVa" }] }], ["u2", { mid: "u2", titles: [{ bvid: "BVb" }] }]]);
+  const feed = [{ bvid: "BVb", mid: "u3" }];
+  assert.deepStrictEqual(["BVa", "BVb", "BVz"].map((b) => t.playingMid(b, feed, ups)), ["u1", "u3", ""]);
+  assert.strictEqual(t.playingMid("BVa", undefined, ups), "u1", "no 视频投稿 loaded");
+}
 
 // G5 / L2: B站 writes go one by one with a gap; on B站限流 the pill counts down and the same request goes again; 停止 keeps
 // what went through.
