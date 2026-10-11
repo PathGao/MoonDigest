@@ -301,6 +301,7 @@ async function fetchWithTimeout(url, options = {}, ms = FETCH_TIMEOUT_MS) {
   }
 }
 
+// The video page's fetch-json proxy (content.js); the background's own B站 reads go through triageBiliGetJson.
 async function fetchJsonForAi(url) {
   const options = {
     method: "GET",
@@ -370,7 +371,8 @@ async function resolveAiSidepanelContext(contextRef) {
   }
 
   const settings = await getMergedSettings();
-  const io = { fetchJson: fetchJsonForAi };
+  // Only bilibili gets here (YouTube is pageOnly): triage-bg.js's B站 channel, one try, codes left to sites.js.
+  const io = { fetchJson: (url) => triageBiliGetJson(url) };
   const meta = await site.fetchMeta(videoRef, io);
   const bundle = await site.fetchTracks(videoRef, meta, io);
   const tracks = BocSites.rankTracks(bundle.tracks || []);
@@ -437,7 +439,7 @@ async function resolveAiSidepanelPageRef(contextRef) {
   if (!site || site.pageOnly) {
     return fallback;
   }
-  const meta = await site.fetchMeta(videoRef, { fetchJson: fetchJsonForAi });
+  const meta = await site.fetchMeta(videoRef, { fetchJson: (url) => triageBiliGetJson(url) });
   return {
     ...fallback,
     url: canonicalVideoUrl({ ...meta, site: site.id, videoId: videoRef.id }),

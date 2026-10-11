@@ -255,7 +255,9 @@ process.on("exit", (code) => {
   const historyContext = () => ctx.resolveAiSidepanelContext({ site: "bilibili", videoId: "BVa", cid: "11" });
   // A subtitle running far past the 273 s video belongs to another video.
   let routes = sidepanelRoutes(400);
-  ctx.fetchJsonForAi = async (url) => routes[Object.keys(routes).find((part) => url.includes(part))];
+  // The side panel reads B站 through triage-bg.js's channel (fetch), with the B站 referrer.
+  const inits = [];
+  ctx.fetch = async (url, init) => (inits.push(init), { ok: true, status: 200, json: async () => routes[Object.keys(routes).find((part) => url.includes(part))] });
   await assert.rejects(historyContext(), /时长不匹配/);
   assert.deepStrictEqual(Object.keys(local).filter((k) => k.startsWith("boc_subtitle_cache_")), []);
   // Speech ending at 100 s (a long silent outro) passes the video page's loose guard, so the side panel takes it too.
@@ -268,6 +270,7 @@ process.on("exit", (code) => {
   assert.match(resolved.subtitleMarkdown, /player\.bilibili\.com\/player\.html\?aid=22&bvid=BVa&cid=11/);
   assert.match(resolved.subtitleMarkdown, /\n## 字幕\n\n`00:00` a\n`00:01` b$/);
   assert.ok("boc_subtitle_cache_BVa_11_id_5" in local);
+  assert.ok(inits.length && inits.every((i) => i.referrer === "https://www.bilibili.com/" && i.cache === "no-store" && i.credentials === "include"));
 
   // Dead keys go on install and update, the old 已看 mark (triage_watched) among them; the 待播 list stays.
   const dead = { triage_watched: { BV1: 1 }, triage_tab: "none", triage_schemes: [], triage_excluded_folders: ["2"], triage_basket: [{ bvid: "BV1" }] };

@@ -341,21 +341,23 @@ assert.throws(() => t.triageParseCommand('{"new_tags":[', cmdItems, cmdTags, {})
     }
   };
   let prompt = "";
-  t.fetch = async (url, { body }) => {
-    prompt = JSON.parse(body).messages[1].content;
-    return { ok: true, json: async () => ({ choices: [{ message: { content: '{"one_liner":"x","points":["a"],"verdict":"keep","reason":"r"}' } }] }) };
-  };
+  const aiAnswer = { ok: true, json: async () => ({ choices: [{ message: { content: '{"one_liner":"x","points":["a"],"verdict":"keep","reason":"r"}' } }] }) };
   const subUrl = "https://aisubtitle.hdslb.com/bfs/ai_subtitle/BVa.json";
   const subtitleKey = "boc_subtitle_cache_BVa_11_id_5";
   const subtitleRaw = (to) => ({ body: [{ from: 0, to: 1, content: "第一句" }, { from: 1, to, content: "最后一句" }] });
   let routes;
   const calls = [];
-  t.fetchJsonForAi = async (url) => {
+  const inits = [];
+  // B站 reads go through triageBiliFetch (fetch); a route's Error with a status is that HTTP answer, without one a
+  // dropped connection. Anything else is the AI.
+  t.fetch = async (url, init) => {
+    if (!/bilibili\.com|hdslb\.com/.test(url)) return (prompt = JSON.parse(init.body).messages[1].content), aiAnswer;
     calls.push(url);
-    const hit = Object.keys(routes).find((part) => url.includes(part));
-    const answer = routes[hit];
-    if (answer instanceof Error) throw answer;
-    return answer;
+    inits.push(init);
+    const answer = routes[Object.keys(routes).find((part) => url.includes(part))];
+    if (answer === "hang") return new Promise(() => {});
+    if (answer instanceof Error && !answer.status) throw answer;
+    return answer instanceof Error ? { ok: false, status: answer.status } : { ok: true, status: 200, json: async () => answer };
   };
   const withTracks = { code: 0, data: { subtitle: { subtitles: [{ id: 5, lan: "ai-zh", lan_doc: "中文", subtitle_url: subUrl }] } } };
   const baseRoutes = () => ({
@@ -372,6 +374,8 @@ assert.throws(() => t.triageParseCommand('{"new_tags":[', cmdItems, cmdTags, {})
   store[subtitleKey] = { raw: subtitleRaw(270), timestamp: Date.now() };
   assert.strictEqual((await analyze()).source, "subtitle");
   assert.ok(!calls.includes(subUrl), "cached subtitle is not refetched");
+  // X5: one B站 channel: 细看 reads carry the B站 referrer, uncached, with the cookies.
+  assert.ok(inits.length && inits.every((i) => i.referrer === "https://www.bilibili.com/" && i.referrerPolicy === "strict-origin-when-cross-origin" && i.cache === "no-store" && i.credentials === "include"), JSON.stringify(inits[0]));
   assert.ok(prompt.includes("分区：知识") && prompt.includes("标签：标签") && prompt.includes("发布：2024-05-30") && prompt.includes("第一句\n最后一句"));
   assert.ok(prompt.includes("字幕：\n第一句") && !prompt.includes("热门评论") && !calls.some((u) => u.includes("/reply/main")), "with subtitles no comments are fetched or sent");
 
@@ -418,6 +422,11 @@ assert.throws(() => t.triageParseCommand('{"new_tags":[', cmdItems, cmdTags, {})
   const http412 = Object.assign(new Error("HTTP 412"), { status: 412 });
   routes = { ...baseRoutes(), "/view/detail": http412, "/view": http412 };
   await assert.rejects(analyze(), (e) => e.code === "THROTTLED");
+  // X5: no answer in TRIAGE_BILI_CFG.timeoutMs (30 s) is NETWORK, in Chinese.
+  vm.runInContext("TRIAGE_BILI_CFG.timeoutMs = 30;", ctx);
+  routes = { ...baseRoutes(), "/view/detail": "hang", "/view": "hang" };
+  await assert.rejects(analyze(), (e) => e.code === "NETWORK" && e.message.startsWith("网络断了"));
+  vm.runInContext("TRIAGE_BILI_CFG.timeoutMs = 30000;", ctx);
   routes = { ...baseRoutes(), "/x/player/wbi/v2": { code: -352, message: "风控" }, "/x/player/v2": { code: -352, message: "风控" } };
   await assert.rejects(analyze(), (e) => e.code === "THROTTLED");
   routes = { ...baseRoutes(), "/x/player/wbi/v2": { code: -799, message: "请求过于频繁" }, "/x/player/v2": { code: -799, message: "请求过于频繁" } };

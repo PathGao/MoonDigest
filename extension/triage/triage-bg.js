@@ -285,6 +285,9 @@ async function triageBiliFetch(url, init = {}) {
   }
 }
 
+// What a B站 page's own requests send; from the worker fetch would send no referrer.
+const TRIAGE_BILI_GET = { cache: "no-store", referrer: "https://www.bilibili.com/", referrerPolicy: "strict-origin-when-cross-origin" };
+
 // GET → the whole JSON, whatever its code. url may be an async function (WBI: signed again on every try).
 // Without pace (收藏夹) it is one try; the caller backs off on THROTTLED. pace (关注's long syncs) =
 // { slot, hold, cfg: { strikes, backoffMs, netRetry } }: every try waits for slot(); a dropped connection holds the
@@ -297,7 +300,7 @@ async function triageBiliGetJson(url, pace) {
     await pace?.slot();
     let json = null;
     try {
-      json = await triageBiliJson(await triageBiliFetch(u));
+      json = await triageBiliJson(await triageBiliFetch(u, TRIAGE_BILI_GET));
     } catch (e) {
       if (!pace) throw e;
       if (e.code === "NETWORK" && net < pace.cfg.netRetry.length) {
@@ -333,14 +336,12 @@ async function triageBiliPost(path, fields) {
   return triageBiliData(await triageBiliJson(res));
 }
 
-// The sites.js fetchers through background fetch, with risk control mapped to THROTTLED like triageBiliGet.
-// A player answer without a subtitle object is risk control too.
+// The sites.js fetchers (细看, notes) through the same channel, one try, with risk control mapped to THROTTLED like
+// triageBiliGet. A player answer without a subtitle object is risk control too.
 const TRIAGE_BILI_IO = {
   signWbi: true,
   async fetchJson(url) {
-    const json = await fetchJsonForAi(url).catch((e) => {
-      throw e.status === 412 ? triageError("B站请求失败 HTTP 412", "THROTTLED") : e;
-    });
+    const json = await triageBiliGetJson(url);
     if (BILI_RISK_CODES.has(json?.code)) throw triageError(`B站返回 ${json.code}：${json.message}`, "THROTTLED");
     if (json?.code === 0 && /\/x\/player\//.test(url) && !json.data?.subtitle) throw triageError("B站字幕接口限流，稍后重试", "THROTTLED");
     return json;
