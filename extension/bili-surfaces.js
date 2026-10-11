@@ -1,4 +1,5 @@
-// What each kind of B站 page shows (DESIGN 产品决策 · B站 页面上的标记), shared by badges.js and the settings page's table. Pure data, no DOM.
+// What each kind of B站 page shows (DESIGN 产品决策 · B站 页面上的标记), shared by badges.js and the settings page's table,
+// and the 观看进度 settings and words that B站 pages and the 分拣台 (triage.html) both draw. Pure data, no DOM.
 (() => {
   // vtags: video tags after the AI verdict; ups: UP tags after author names; plus: when 「+ UP 标签」 shows; above: video
   // marks get their own line above the title; novideo: no video marks at all (new videos, never triaged); names: author
@@ -55,5 +56,16 @@
     );
   }
 
-  globalThis.BocSurfaces = { SURFACES, ROWS, COLS, allowed, normalizeOff, rulesWith };
+  // 观看进度 (sync settings) and what they mean. B站 pages and triage.html do not load settings.js, so its DEFAULTS'
+  // three values are copied here; settings.selftest.js checks they match.
+  const SEEN_DEFAULTS = Object.freeze({ seenShow: "off", seenThreshold: 80, seenStyle: "badge" });
+  function seenConfig(v) {
+    const bar = v.seenShow === "bar" || v.seenShow === "both";
+    const mark = v.seenShow === "mark" || v.seenShow === "both";
+    return { on: bar || mark, bar, mark, threshold: Number(v.seenThreshold) || 80, style: v.seenStyle === "veil" ? "veil" : "badge" };
+  }
+  // 100% reads 看完了, otherwise 看到 N%; ✓ (and the strong look) means it counts as 看完了.
+  const seenWords = (p, done) => (p >= 100 ? "✓ 看完了" : done ? `✓ 看到 ${p}%` : `看到 ${p}%`);
+
+  globalThis.BocSurfaces = { SURFACES, ROWS, COLS, allowed, normalizeOff, rulesWith, SEEN_DEFAULTS, seenConfig, seenWords };
 })();

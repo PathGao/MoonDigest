@@ -19,6 +19,19 @@ assert.strictEqual(bvidFromHref("https://www.bilibili.com/video/av170001"), "");
 assert.strictEqual(bvidFromHref("https://space.bilibili.com/2773586"), "");
 assert.strictEqual(bvidFromHref(null), "");
 
+// 观看进度: one copy of the defaults, the parsing and the words, in bili-surfaces.js; triage.html loads it before triage.js.
+const B = ctx.BocSurfaces;
+assert.deepStrictEqual(plain(B.seenConfig(B.SEEN_DEFAULTS)), { on: false, bar: false, mark: false, threshold: 80, style: "badge" });
+assert.deepStrictEqual(plain(B.seenConfig({ seenShow: "both", seenThreshold: "90", seenStyle: "veil" })), { on: true, bar: true, mark: true, threshold: 90, style: "veil" });
+assert.deepStrictEqual(plain(B.seenConfig({ seenShow: "mark", seenThreshold: 0, seenStyle: "x" })), { on: true, bar: false, mark: true, threshold: 80, style: "badge" });
+assert.deepStrictEqual([B.seenWords(100, false), B.seenWords(85, true), B.seenWords(40, false)], ["✓ 看完了", "✓ 看到 85%", "看到 40%"]);
+const triageHtml = fs.readFileSync(path.join(__dirname, "triage/triage.html"), "utf8");
+assert.ok(triageHtml.indexOf("../bili-surfaces.js") > -1 && triageHtml.indexOf("../bili-surfaces.js") < triageHtml.indexOf("./triage.js"), "triage.html loads bili-surfaces.js before triage.js");
+for (const f of ["badges.js", "triage/triage.js"]) {
+  const src = fs.readFileSync(path.join(__dirname, f), "utf8");
+  assert.ok(!src.includes('seenShow: "off"') && !src.includes("✓ 看完了") && !/seenShow === "both"/.test(src), `${f} keeps its own 观看进度 defaults or words`);
+}
+
 assert.strictEqual(badgeInfo({}), null, "no data, no mark");
 assert.strictEqual(badgeInfo({ analysis: { status: "error", error: "x" } }), null, "failed analysis alone is not a mark");
 assert.strictEqual(badgeInfo({ tagIds: ["gone"], tags: [] }), null, "dangling tag ids are not a mark");

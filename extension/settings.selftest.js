@@ -74,6 +74,11 @@ for (const page of pages) {
 }
 assert.ok(readers >= 7, `found ${readers} readers of BocSettings`);
 
+// bili-surfaces.js keeps a copy of the 观看进度 defaults for the pages that do not load settings.js.
+const surfaces = vm.createContext({});
+vm.runInContext(read("bili-surfaces.js"), surfaces);
+for (const [k, v] of Object.entries(surfaces.BocSurfaces.SEEN_DEFAULTS)) assert.strictEqual(v, S.DEFAULTS[k], `bili-surfaces.js ${k} matches settings.js`);
+
 // The default prompts are written only in settings.js (dev mocks may seed their own).
 const sources = ["background.js", "content.js", "options.js", "popup.js", "sidepanel.js", "note.js", "history/history.js", "triage/triage.js", "triage/triage-bg.js"];
 const texts = [S.DEFAULTS.playerAiQuickPrompt, ...S.DEFAULTS.aiPresetPrompts, S.DEFAULTS.aiSystemPrompt.split("\n").find((line) => line.includes("Emoji"))];

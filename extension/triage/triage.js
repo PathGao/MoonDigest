@@ -254,7 +254,7 @@ const S = {
   sortBy: {}, // triage_sort
   aiRecentFilter: false, // AI 刚打的
   kindFilter: "", // kindOf: "invalid" (已失效) anywhere; "unfav" / "out" in 已出分拣范围 only
-  seenCfg: { on: false, bar: false, mark: false, threshold: 80, style: "badge" }, // 设置页「观看进度 → 封面显示」
+  seenCfg: BocSurfaces.seenConfig(BocSurfaces.SEEN_DEFAULTS), // 设置页「观看进度 → 封面显示」
   seenPct: {}, // bvid → [percent, view_at] from the history, null when it has none
   noteOpen: new Set(), // empty notes the user opened for editing
   settings: {
@@ -897,11 +897,9 @@ function followKept(kept) {
 }
 
 // ---------- 观看进度：看完了 ----------
-const SEEN_DEFAULTS = { seenShow: "off", seenThreshold: 80, seenStyle: "badge" };
+const { SEEN_DEFAULTS, seenConfig, seenWords } = BocSurfaces;
 function setSeenCfg(v) {
-  const bar = v.seenShow === "bar" || v.seenShow === "both";
-  const mark = v.seenShow === "mark" || v.seenShow === "both";
-  S.seenCfg = { on: bar || mark, bar, mark, threshold: Number(v.seenThreshold) || 80, style: v.seenStyle === "veil" ? "veil" : "badge" };
+  S.seenCfg = seenConfig(v);
   document.documentElement.dataset.seenStyle = S.seenCfg.style;
   // The background reads only what is new, at most every 10 minutes (triage-seen-sync); its writes come back through followSeen.
   if (S.seenCfg.on) seenSync(false);
@@ -955,8 +953,6 @@ function seenPercentOf(it) {
 }
 // 看完了: the history says at least the set share was watched (only while that mark is shown).
 const isFinished = (it) => S.seenCfg.mark && (seenPercentOf(it) ?? 0) >= S.seenCfg.threshold;
-// 100% reads 看完了, otherwise 看到 N%; ✓ (and the strong look) means it counts as 看完了.
-const seenWords = (p, done) => (p >= 100 ? "✓ 看完了" : done ? `✓ 看到 ${p}%` : `看到 ${p}%`);
 // The cover with its progress bar and, once 看完了, the corner tag or the veil (html[data-seen-style] picks one).
 // Below the share, a faint 看到 N% says how far it got.
 function coverHtml(it) {

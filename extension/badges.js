@@ -231,10 +231,10 @@
   // Off by default: the AI's verdicts are for the 分拣台; on B站 pages only for those who ask.
   const VERDICT_SETTING = "showBiliVerdicts";
   // 观看进度 on covers has its own setting (设置页「观看进度」, off by default); it or the triage marks turn the page scan on.
-  const SEEN_DEFAULTS = { seenShow: "off", seenThreshold: 80, seenStyle: "badge" };
+  const { SEEN_DEFAULTS, seenConfig, seenWords } = globalThis.BocSurfaces;
   let triageOn = false;
   let lineOn = { verdict: false, vtags: true }; // the video page's line: the AI 判断 and 视频标签 switches
-  let seenCfg = { on: false, bar: false, mark: false, threshold: 80, style: "badge" };
+  let seenCfg = seenConfig(SEEN_DEFAULTS);
   const seenCache = new Map(); // bvid -> percent | 0
   const SEL = 'a[href*="/video/BV"], a[href*="bvid=BV"]';
   // Keys that every video's info depends on; a per-video title or analysis only redraws that video.
@@ -831,8 +831,7 @@ input { box-sizing: border-box; width: 100%; margin: 0; padding: 4px 8px; border
     const box = document.createElement("span");
     box.className = `mdg-seen mdg-seen-${style}`;
     box.dataset.key = key;
-    // 100% reads 看完了, otherwise 看到 N%; ✓ (and the strong look) means it counts as 看完了.
-    const words = known >= 100 ? "✓ 看完了" : seen && !rule.tight ? `✓ 看到 ${known}%` : `看到 ${known}%`;
+    const words = seenWords(known, seen && !rule.tight);
     if (seen || faint) box.append(Object.assign(document.createElement("span"), { className: `mdg-seen-mark${faint ? " mdg-faint" : ""}`, textContent: words }));
     // Bilibili's history and 稍后再看 cards draw this bar themselves.
     if (pct && !host.querySelector(".bili-cover-card__progress")) {
@@ -1098,9 +1097,7 @@ input { box-sizing: border-box; width: 100%; margin: 0; padding: 4px 8px; border
     rules = globalThis.BocSurfaces.rulesWith(v.biliMarksOff, [!verdicts && "verdict", !tags && "vtags"].filter(Boolean));
     triageOn = verdicts || tags;
     const before = seenCfg.on;
-    const bar = v.seenShow === "bar" || v.seenShow === "both";
-    const mark = v.seenShow === "mark" || v.seenShow === "both";
-    seenCfg = { on: bar || mark, bar, mark, threshold: Number(v.seenThreshold) || 80, style: v.seenStyle === "veil" ? "veil" : "badge" };
+    seenCfg = seenConfig(v);
     // Turning it off clears the stored history (triage-bg.js), so a later re-enable starts from a fresh read.
     if (!seenCfg.on) seenCache.clear();
     markBewly();
