@@ -9,6 +9,7 @@ vm.runInContext(fs.readFileSync(path.join(__dirname, "../typing.js"), "utf8"), c
 vm.runInContext(fs.readFileSync(path.join(__dirname, "../tag-core.js"), "utf8"), ctx);
 vm.runInContext(fs.readFileSync(path.join(__dirname, "shared.js"), "utf8"), ctx);
 const UI = ctx.TriageUi;
+const TAG = ctx.BocTagCore;
 const plain = (v) => JSON.parse(JSON.stringify(v));
 
 // Headroom: reading down past the header folds it; any step back up, the top, or focus in the header unfolds it.
@@ -234,13 +235,13 @@ for (const [file, fns] of [["triage.js", ["mergeAiBatch", "aiChanges"]], ["follo
 
 // Tags: a new tag takes the first free color, so deleting a tag frees its color (counting would reuse a taken one).
 {
-  const C = UI.TAG_COLORS;
+  const C = TAG.TAG_COLORS;
   assert.strictEqual(UI.nextTagColor([]), C[0]);
   assert.strictEqual(UI.nextTagColor([{ color: C[0] }, { color: C[2] }]), C[1], "a deleted tag's color is reused, not a taken one");
   assert.strictEqual(UI.nextTagColor(C.map((color) => ({ color }))), C[0], "all taken: round again");
-  assert.strictEqual(UI.cycleTagColor(C[0]), C[1]);
-  assert.strictEqual(UI.cycleTagColor(C.at(-1)), C[0]);
-  assert.strictEqual(UI.cycleTagColor("#000"), C[0], "a color from elsewhere starts the palette");
+  assert.strictEqual(TAG.cycleTagColor(C[0]), C[1]);
+  assert.strictEqual(TAG.cycleTagColor(C.at(-1)), C[0]);
+  assert.strictEqual(TAG.cycleTagColor("#000"), C[0], "a color from elsewhere starts the palette");
   assert.strictEqual(UI.tagNameError("", []), "标签名不能为空");
   assert.strictEqual(UI.tagNameError("a", [{ name: "a" }]), "已有同名标签");
   assert.strictEqual(UI.tagNameError("a", [{ name: "b" }]), "");
@@ -265,12 +266,12 @@ for (const [file, fns] of [["triage.js", ["mergeAiBatch", "aiChanges"]], ["follo
 // 标签管理 edits and deletes, one implementation for both modes: a cleared rule drops the field (关注 used to keep ""),
 // names are cleaned and checked, the color cycles; a deleted tag leaves every item, and an item left bare drops out.
 {
-  const t0 = { id: "a", name: "甲", color: UI.TAG_COLORS[0], rule: "旧说明" };
-  assert.deepStrictEqual(plain(UI.editedTag(t0, "rule", "  ").tag), { id: "a", name: "甲", color: UI.TAG_COLORS[0] });
+  const t0 = { id: "a", name: "甲", color: TAG.TAG_COLORS[0], rule: "旧说明" };
+  assert.deepStrictEqual(plain(UI.editedTag(t0, "rule", "  ").tag), { id: "a", name: "甲", color: TAG.TAG_COLORS[0] });
   assert.strictEqual(UI.editedTag(t0, "rule", ` ${"讲".repeat(90)} `).tag.rule.length, 80);
   assert.strictEqual(UI.editedTag(t0, "name", " 乙, ", []).tag.name, "乙");
   assert.deepStrictEqual(plain(UI.editedTag(t0, "name", "乙", [{ name: "乙" }])), { why: "已有同名标签" });
-  assert.strictEqual(UI.editedTag(t0, "color").tag.color, UI.TAG_COLORS[1]);
+  assert.strictEqual(UI.editedTag(t0, "color").tag.color, TAG.TAG_COLORS[1]);
   assert.strictEqual(t0.rule, "旧说明", "the tag itself is not changed");
   assert.deepStrictEqual([...UI.undoAsk("tags", 3, "UP 主")], ["撤销批量改标签？", "<p>上一步改了 3 个 UP 主的标签，撤销后都改回去。</p>", "撤销"]);
   assert.deepStrictEqual(plain(UI.withoutTag({ x: ["a", "b"], y: ["a"] }, "a")), { x: ["b"] });

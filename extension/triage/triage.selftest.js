@@ -891,7 +891,7 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   // A new tag takes the folder's first free color, so a deleted tag's color comes back instead of a taken one
   // repeating; 管理's color button moves to the next color.
   {
-    const C = ctx.TriageUi.TAG_COLORS;
+    const C = ctx.BocTagCore.TAG_COLORS;
     openFake("K", [item(710)]);
     t.S.tags = [{ id: "p0", name: "p0", color: C[0], folder: "K" }, { id: "p2", name: "p2", color: C[2], folder: "K" }, { id: "q", name: "q", color: C[1], folder: "Z" }];
     t.S.videoTags = { BV710: ["p0"] };
