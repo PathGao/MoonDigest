@@ -456,8 +456,9 @@ function bindRuntimeEvents() {
       return false;
     }
 
+    // Opening the popup reads the video as it is; its 刷新 button sends force.
     if (message.type === "popup-refresh") {
-      refreshClipShared()
+      settledClip(message.force === true)
         .then(() => sendResponse({ ok: true, payload: getPopupPayload() }))
         .catch((error) =>
           sendResponse({ ok: false, error: fetchErrorText(error), payload: getPopupPayload() })
@@ -523,39 +524,11 @@ function bindRuntimeEvents() {
       return false;
     }
 
+    // The side panel and the player's ✦ (through background.js) read the video here; refresh is their 刷新.
     if (message.type === "sidepanel-get-context") {
-      const respond = () => sendResponse(buildSidepanelContext());
-      // Mid-run the state already holds the title but no subtitles, and background.js
-      // reads that as "loaded, no subtitles"; answer once the run has settled.
-      if (state.refreshPromise) {
-        waitForRefreshIdle().then(respond);
-        return true;
-      }
-      respond();
-      return false;
-    }
-
-    if (message.type === "sidepanel-get-hot-comments") {
-      if (!currentSite()?.fetchComments || !state.videoId) {
-        state.hotComments = [];
-        sendResponse({ ok: true, comments: [], note: "当前站点不支持评论" });
-        return false;
-      }
-
-      const runId = state.fetchRunId;
-      fetchHotComments()
-        .then((hotComments) => {
-          if (runId === state.fetchRunId) {
-            state.hotComments = hotComments;
-          }
-          sendResponse({ ok: true, comments: hotComments });
-        })
-        .catch((error) => {
-          if (runId === state.fetchRunId) {
-            state.hotComments = [];
-          }
-          sendResponse({ ok: true, comments: [], note: String(error?.message || error) });
-        });
+      clipContext(message.refresh === true)
+        .then(sendResponse)
+        .catch((error) => sendResponse({ ok: false, error: fetchErrorText(error) }));
       return true;
     }
 
@@ -895,6 +868,7 @@ function checkUrlChange() {
   ensureUiReady();
   // Invalidate the previous video's run so nothing waiting on it gets its subtitles.
   state.fetchRunId++;
+  state.refreshPromise = null;
   resetClipState();
   const shouldEnterReaderMode = hasReaderParam(nextUrl);
   if (!state.readingViewOpen && shouldEnterReaderMode) {
@@ -1002,25 +976,53 @@ function buildSidepanelContext() {
       selectedSubtitleId: state.selectedSubtitleId || "",
       selectedSubtitleUrl: state.selectedSubtitleUrl || "",
       subtitleOptions: state.subtitles || [],
-      hotComments: []
+      hotComments: state.hotComments || []
     }
   };
 }
 
-// A newer run (e.g. the video changed) may start while we wait; wait until none is in flight.
-async function waitForRefreshIdle() {
-  while (state.refreshPromise) {
-    await state.refreshPromise.catch(() => {});
+// The tab's current video, settled: every entry point (popup, side panel, player ✦, focus mode) reads it here.
+// It first takes up a URL change the 1.2 s watcher has not seen yet, so nothing returns the old video or races a second
+// fetch. It joins the run in flight, or starts one when forced or nothing is loaded. A run the video change
+// superseded is never the answer: it waits for the run that replaced it, or starts one for the current video.
+// Rejects with the current video's failure.
+async function settledClip(force = false) {
+  for (;;) {
+    checkUrlChange();
+    let run = state.refreshPromise;
+    if (!run && (force || !state.videoId)) {
+      run = refreshClip();
+      force = false;
+    }
+    if (!run) return;
+    const runId = state.fetchRunId;
+    const failure = await run.then(() => null, (error) => error);
+    if (runId !== state.fetchRunId) continue;
+    if (failure) throw failure;
+    return;
   }
 }
 
-// A refresh that lands while one is in flight joins it instead of cancelling it.
-function refreshClipShared() {
-  return state.refreshPromise || refreshClip();
+// The context the side panel and the AI get, with the hot comments of the same video.
+async function clipContext(refresh) {
+  for (;;) {
+    await settledClip(refresh);
+    refresh = false;
+    const runId = state.fetchRunId;
+    let comments = state.hotComments;
+    if (!comments?.length && currentSite()?.fetchComments && state.videoId) {
+      comments = await fetchHotComments().catch((error) => {
+        logWarn("[BOC] failed to fetch hot comments for the side panel", error);
+        return [];
+      });
+    }
+    if (runId !== state.fetchRunId) continue;
+    state.hotComments = comments;
+    return buildSidepanelContext();
+  }
 }
 
-// Every run registers itself, whoever started it (popup, URL watcher, refresh button),
-// so sidepanel-get-context can wait for it.
+// Every run registers itself, whoever started it (popup, URL watcher, refresh button), so settledClip can join it.
 function refreshClip() {
   const run = runRefreshClip().finally(() => {
     if (state.refreshPromise === run) {
@@ -1764,11 +1766,7 @@ function maybeRefreshReaderSubtitleInBackground() {
     if (runId !== state.fetchRunId) {
       return;
     }
-    refreshClipShared().catch((error) => {
-      if (!isStaleRunError(error)) {
-        setReadingNotice(`字幕加载失败：${fetchErrorText(error)}`);
-      }
-    });
+    settledClip(true).catch((error) => setReadingNotice(`字幕加载失败：${fetchErrorText(error)}`));
   });
 }
 
@@ -3942,11 +3940,7 @@ function onReadingChapterClick(event) {
 
 function onReadingTranscriptClick(event) {
   if (event.target.closest(".boc-reading-retry")) {
-    refreshClipShared().catch((error) => {
-      if (!isStaleRunError(error)) {
-        setReadingNotice(`字幕加载失败：${fetchErrorText(error)}`);
-      }
-    });
+    settledClip(true).catch((error) => setReadingNotice(`字幕加载失败：${fetchErrorText(error)}`));
     return;
   }
   const target = event.target.closest(".boc-reading-item");

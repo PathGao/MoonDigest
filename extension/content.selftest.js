@@ -95,6 +95,8 @@ assert.strictEqual(scripts.pop(), "content.js", "content.js loads last");
 for (const f of scripts) vm.runInContext(fs.readFileSync(path.join(__dirname, f), "utf8"), ctx);
 vm.runInContext(`${source}\n;globalThis.state = state;`, ctx);
 const t = ctx;
+// Real versions of what some tests stub, for the tests that need the real flow.
+const real = Object.fromEntries(["checkUrlChange", "resetClipState", "computeCurrentClipSignature", "refreshClip", "settledClip"].map((k) => [k, t[k]]));
 const realRenderReadingView = t.renderReadingView;
 // Untrusted text (titles, UP names, comments, AI replies, tag names, paths) stays text: no tag of its own, no way out of
 // a quoted attribute.
@@ -215,7 +217,7 @@ const settle = async () => {
   // G4: a refresh waiting for the player's metadata is dropped when the video changed during the wait.
   {
     const refreshed = [];
-    t.refreshClipShared = t.refreshClip = async () => refreshed.push(state.fetchRunId);
+    t.settledClip = t.refreshClip = async () => refreshed.push(state.fetchRunId);
     let meta = gate();
     t.waitForVideoMetadata = () => meta.promise;
     state.subtitleBody = [];
@@ -251,23 +253,83 @@ const settle = async () => {
     t.stepReader("close");
   }
 
-  // G4: comments asked for by the side panel and storage echoes for the old video stay out of the new one.
+  // The one context message (side panel, player ✦): whatever the timing, it answers with the tab's video, settled,
+  // and that video's comments.
   {
+    const keep = ["currentSite", "getSettings", "retryAsync", "fetchSubtitleBundle", "fetchHotComments", "refreshDerivedContent", "sleep", "ensureUiReady", "enforceNormalPageStateIfNeeded", ...Object.keys(real)];
+    const saved = Object.fromEntries(keep.map((k) => [k, t[k]]));
+    const realUrl = t.location.href;
+    Object.assign(t, real, { getSettings: async () => ({}), retryAsync: (f) => f(), refreshDerivedContent: async () => {}, sleep: async () => {}, ensureUiReady() {}, enforceNormalPageStateIfNeeded() {} });
+    t.fetchSubtitleBundle = async () => ({ tracks: [], chapters: [] });
+    const [A, B] = ["BV1GJ411x7h7", "BV1xx411c7mD"];
+    const go = (id) => (t.location.href = `https://www.bilibili.com/video/${id}/`);
+    let metaCalls = [];
+    let metaGates = {}; // a video whose meta the test answers when it chooses; the others answer at once
+    let commentsGate = null;
+    t.currentSite = () => ({
+      parseRef: (url) => t.BocSites.parseRef(url),
+      readDom: () => ({}),
+      fetchComments() {},
+      fetchMeta: async (ref) => (metaCalls.push(ref.id), metaGates[ref.id] ? metaGates[ref.id].promise : { duration: 100, title: ref.id })
+    });
+    t.fetchHotComments = async () => {
+      const of = state.videoId;
+      await commentsGate?.promise;
+      return [{ content: of }];
+    };
+    const ask = (refresh) => new Promise((resolve) => listeners.message.forEach((f) => f({ type: "sidepanel-get-context", refresh }, {}, resolve)));
     t.bindRuntimeEvents();
-    t.bindSettingsWatcher();
-    state.videoId = "BV1";
-    state.hotComments = [];
-    t.currentSite = () => ({ fetchComments() {} });
-    const comments = gate([{ content: "旧评论" }]);
-    t.fetchHotComments = () => comments.promise;
-    let answered;
-    for (const f of listeners.message) f({ type: "sidepanel-get-hot-comments" }, {}, (r) => (answered = r));
-    state.fetchRunId++;
-    comments.open();
-    await settle();
-    assert.strictEqual(answered?.comments?.length, 1, "the side panel still gets its answer");
-    assert.deepStrictEqual(state.hotComments, [], "but the new video keeps no old comments");
+    go(A);
+    Object.assign(state, { currentClipSignature: t.computeCurrentClipSignature(), videoId: "", refreshPromise: null });
 
+    // Nothing loaded: the first ask starts a run; 刷新 meanwhile joins it.
+    metaGates = { [A]: gate({ duration: 100, title: A }) };
+    const first = ask(false);
+    const forced = ask(true);
+    await settle();
+    metaGates[A].open();
+    for (const r of await Promise.all([first, forced])) assert.strictEqual(r.payload.title, A);
+    assert.deepStrictEqual(metaCalls, [A], "刷新 joins the run in flight");
+    assert.deepStrictEqual(state.hotComments.map((c) => c.content), [A], "with the video's comments");
+    await ask(false);
+    assert.deepStrictEqual(metaCalls, [A], "a loaded video is not read again");
+
+    // F2: the tab moves on mid-run and nothing restarts (focus mode is off): the ask gets the new video, not an empty ok.
+    metaCalls = [];
+    metaGates = { [A]: gate({ duration: 100, title: A }) };
+    const superseded = ask(true);
+    await settle();
+    go(B);
+    t.checkUrlChange();
+    metaGates[A].open();
+    const r = await superseded;
+    assert.deepStrictEqual([r.ok, r.payload.title, r.payload.hotComments.map((c) => c.content)], [true, B, [B]]);
+
+    // F3: the panel asks right after an in-site switch, before the URL watcher's next tick: the tab's video, read once.
+    metaCalls = [];
+    metaGates = {};
+    go(A);
+    assert.strictEqual((await ask(false)).payload.videoId, A, "not the video before");
+    await ask(false); // the change's echo (boc-video-changed)
+    assert.deepStrictEqual(metaCalls, [A], "meta read once");
+
+    // The video changes while its comments load: the answer never pairs one video with another's comments.
+    state.hotComments = [];
+    commentsGate = gate();
+    const mid = ask(false);
+    await settle();
+    go(B);
+    t.checkUrlChange();
+    commentsGate.open();
+    const m = await mid;
+    assert.deepStrictEqual([m.payload.videoId, m.payload.hotComments.map((c) => c.content)], [B, [B]]);
+    t.location.href = realUrl;
+    Object.assign(t, saved);
+  }
+
+  // G4: storage echoes for the old video stay out of the new one.
+  {
+    t.bindSettingsWatcher();
     state.markdown = "md";
     const turns = gate(["旧回答"]);
     t.loadAiTurns = () => turns.promise;

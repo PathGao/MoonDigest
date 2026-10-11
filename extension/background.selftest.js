@@ -251,8 +251,11 @@ process.on("exit", (code) => {
   const contextFor = async (tabUrl, payload) => {
     ctx.chrome = { tabs: { get: async () => ({ id: 1, url: tabUrl }) } };
     ctx.ensureReaderContentReady = async () => {};
-    ctx.sendMessageToTab = async (_, { type }) =>
-      type === "sidepanel-get-context" ? { ok: true, payload: { url: tabUrl, title: "T", ...payload } } : { ok: true, comments: [] };
+    // One request: the page settles its video and answers with the comments.
+    ctx.sendMessageToTab = async (_, { type }) => {
+      assert.strictEqual(type, "sidepanel-get-context");
+      return payload.ok === false ? payload : { ok: true, payload: { url: tabUrl, title: "T", ...payload } };
+    };
     return ctx.getAiSidepanelState(1);
   };
   const bili = await contextFor("https://www.bilibili.com/video/BV1xx411c7mD/?p=2&boc_reader=1&spm_id_from=333.1", {
@@ -264,6 +267,8 @@ process.on("exit", (code) => {
   // Before the page has read its video id, the URL itself is cleaned.
   const early = await contextFor("https://www.bilibili.com/video/BV1xx411c7mD/?boc_reader=1", { videoId: "" });
   assert.strictEqual(early.url, "https://www.bilibili.com/video/BV1xx411c7mD/");
+  // The page's failure for the current video is the side panel's error.
+  await assert.rejects(contextFor("https://www.bilibili.com/video/BV1xx411c7mD/", { ok: false, error: "B站限流，请稍后再试" }), /B站限流/);
 
   // A history conversation's context takes the video page's way with a subtitle that does not match the video.
   const local = {};

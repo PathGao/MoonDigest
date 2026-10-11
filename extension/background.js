@@ -139,42 +139,12 @@ async function getAiSidepanelState(tabId, { forceRefresh = false } = {}) {
 
   await ensureReaderContentReady(tab.id);
 
-  let contextResp = await sendMessageToTab(tab.id, { type: "sidepanel-get-context" });
-  const hasPayload = Boolean(contextResp?.ok && contextResp?.payload);
-  const hasLoadedClip = Boolean(contextResp?.payload?.videoId || contextResp?.payload?.title);
-  const needsRefresh =
-    forceRefresh ||
-    !hasPayload ||
-    (!hasLoadedClip && (!Array.isArray(contextResp.payload.subtitleBody) || !contextResp.payload.subtitleBody.length));
-
-  if (needsRefresh) {
-    const refreshResp = await sendMessageToTab(tab.id, { type: "popup-refresh" });
-    if (!refreshResp?.ok) {
-      throw new Error(refreshResp?.error || "读取当前视频失败");
-    }
-    contextResp = await sendMessageToTab(tab.id, { type: "sidepanel-get-context" });
+  // The page settles its current video (joins a run, follows a URL change) and answers with its comments.
+  const resp = await sendMessageToTab(tab.id, { type: "sidepanel-get-context", refresh: forceRefresh });
+  if (!resp?.ok || !resp.payload) {
+    throw new Error(resp?.error || "读取当前页面失败");
   }
-
-  if (!contextResp?.ok || !contextResp?.payload) {
-    throw new Error("读取当前页面失败");
-  }
-
-  let hotComments = [];
-  try {
-    const commentsResp = await sendMessageToTab(tab.id, { type: "sidepanel-get-hot-comments" });
-    if (commentsResp?.ok && Array.isArray(commentsResp.comments)) {
-      hotComments = commentsResp.comments;
-    }
-  } catch {
-    // 评论失败时静默降级，避免阻断主流程
-  }
-
-  return {
-    ...contextResp.payload,
-    url: canonicalVideoUrl(contextResp.payload),
-    hotComments,
-    isVideoContext: true
-  };
+  return { ...resp.payload, url: canonicalVideoUrl(resp.payload), isVideoContext: true };
 }
 
 // The content script reports location.href, which can carry reader mode (boc_reader) and tracking params;
