@@ -549,7 +549,8 @@ async function triageAnalyze({ bvid, force, criteria, folder }) {
 
   let source = "meta";
   let subtitle = "";
-  const track = BocSites.pickPreferredTrack(BocSites.rankTracks((await site.fetchTracks(ref, m, TRIAGE_BILI_IO)).tracks), {});
+  const found = await site.fetchTracks(ref, m, TRIAGE_BILI_IO);
+  const track = BocSites.pickPreferredTrack(BocSites.rankTracks(found.tracks), {});
   if (track) {
     const valid = (body) => triageSubtitleValid(body, m.duration);
     const raw = await BocSites.fetchRawCached(site, track, { videoId: bvid, cid: m.cid }, TRIAGE_BILI_IO, valid).catch((e) => {
@@ -571,6 +572,8 @@ async function triageAnalyze({ bvid, force, criteria, folder }) {
     bvid,
     status: "done",
     source,
+    // Bilibili hides subtitles from a logged-out user; the card says so.
+    ...(source === "meta" && found.needLogin ? { needLogin: true } : {}),
     ...triageParseLlm(content),
     model,
     analyzedAt: Date.now(),

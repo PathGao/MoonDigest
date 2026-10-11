@@ -294,6 +294,17 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     assert.strictEqual(btn(1), '<button type="button" data-act="basket" aria-label="加入待播 (E)" title="加入待播">+ 待播<kbd class="key">E</kbd></button>');
     t.S.basket = kept;
   }
+  // F27: a 细看 judged without subtitles says so on the card, and why when it was the login.
+  {
+    const meta = () => t.cardHtml(item(1), false, "").match(/<div class="meta">([^]*?)<\/div>/)[1];
+    t.S.analyses.BV1 = { status: "done", source: "subtitle", verdict: "keep" };
+    assert.ok(!meta().includes("字幕"));
+    t.S.analyses.BV1 = { status: "done", source: "meta", verdict: "keep" };
+    assert.ok(meta().includes("没有字幕，按简介和评论判断"), meta());
+    t.S.analyses.BV1.needLogin = true;
+    assert.ok(meta().includes("未登录 B站拿不到字幕，按简介和评论判断"), meta());
+    delete t.S.analyses.BV1;
+  }
   t.removeBasketItems([2]);
   t.toggleBasket("BV1");
   assert.deepStrictEqual(plain(store[t.K.basket].map((x) => x.bvid)), ["BVgone", "BV3"]);
@@ -714,7 +725,7 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     const batches = sent.slice(before).filter((m) => m.type === "triage-ai-command");
     assert.strictEqual(batches.length, 2, "the throttled batch is sent again");
     assert.deepStrictEqual(plain(batches[1].items), plain(batches[0].items));
-    assert.deepStrictEqual([waits[0], plain(t.S.ai.proposal.errors)], [60000, []]);
+    assert.deepStrictEqual([waits.reduce((a, b) => a + b), plain(t.S.ai.proposal.errors)], [60000, []]);
     t.sleepWhile = realSleep;
     t.S.ai.proposal = null;
     handlers["triage-ai-command"] = () => ({ ok: true, data: {} });
@@ -830,8 +841,8 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     assert.ok(pickWith("BV710", () => {}) && t.S.undo.length === 0, "closing without a change saves nothing");
 
     // The viewer line: the playing video's tags and 「+ 标签 T」, which opens the picker under it.
-    t.S.viewing = "BV710";
-    t.renderViewerTags();
+    const play = (b) => ((t.S.viewing = b), (t.S.viewer = t.viewerOf(b)), t.renderViewerTags());
+    play("BV710");
     assert.ok(!t.el.viewerTags.hidden && t.el.viewerTags.innerHTML.includes("data-vtag>p0</span>") && t.el.viewerTags.innerHTML.includes('class="quiet tag-plus" data-vtag'));
     // It is named 「视频标签」, and T (which tags the playing video in 收藏夹) shows on its 「+ 标签」.
     assert.ok(t.el.viewerTags.innerHTML.startsWith('<span class="row-label">视频标签</span>') && t.el.viewerTags.innerHTML.includes('<kbd class="k-faint" aria-hidden="true">T</kbd>'));
@@ -840,7 +851,7 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     assert.deepStrictEqual([po?.anchor, plain(po?.targets)], ["#viewerTags .tag-plus", ["BV710"]]);
     // 已出分拣范围 shows the tags but cannot change them.
     t.S.mediaId = "removed";
-    t.renderViewerTags();
+    play("BV710");
     assert.ok(t.el.viewerTags.innerHTML.includes(">p0</span>") && !t.el.viewerTags.innerHTML.includes("data-vtag"));
     // No tags: no 「未打标签」, only the name (and 「+ 标签」 where it can change them).
     const p0s = t.S.videoTags.BV710;
@@ -848,23 +859,23 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     t.renderViewerTags();
     assert.strictEqual(t.el.viewerTags.innerHTML, '<span class="row-label">视频标签</span>');
     t.S.mediaId = "K";
-    t.renderViewerTags();
+    play("BV710");
     assert.ok(!t.el.viewerTags.innerHTML.includes("未打标签") && t.el.viewerTags.innerHTML.endsWith("</kbd></button>"));
     t.S.videoTags.BV710 = p0s;
     t.S.mediaId = "removed";
+    play("BV710");
     po = null;
     vm.runInContext("tagPlaying()", ctx);
     assert.strictEqual(po, null);
-    t.S.viewing = "";
-    t.renderViewerTags();
+    play("");
     assert.ok(t.el.viewerTags.hidden && t.el.viewerTags.innerHTML === "");
     // 关注 has no 「视频标签」 line (视频投稿 are in no folder); each draw also redraws 关注's 「UP 标签」 line (the hook),
     // which in 收藏夹 asks for the playing video's UP.
     let hooked = 0;
     t.MoonTriage.setViewerHook(() => hooked++);
-    t.S.viewing = "BV710";
+    t.S.mediaId = "K";
     t.S.itemMap.get("BV710").upper = "甲";
-    t.renderViewerTags();
+    play("BV710");
     assert.ok(!t.el.viewerTags.hidden && hooked === 1);
     assert.deepStrictEqual(plain(t.MoonTriage.viewingUp()), { mid: "", name: "甲" }, "an item saved before mids");
     t.S.itemMap.get("BV710").upperMid = "42";
@@ -875,6 +886,38 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     delete t.document.body;
     t.MoonTriage.setViewerHook(null);
     t.S.viewing = "";
+    t.S.viewer = null;
+  }
+  // F3: the viewer keeps its video's folder across a folder switch: its tag line, T and the refresh on close. A 待播
+  // video from a folder not open finds its folder in the cached lists.
+  {
+    const realEl = { viewerFrame: t.el.viewerFrame, viewer: t.el.viewer, main: t.el.main };
+    Object.assign(t.el, { viewerFrame: {}, viewer: {}, main: { classList: { add() {}, remove() {} } } });
+    const savedTags = t.S.tags;
+    t.S.tags = [{ id: "ka", name: "甲标签", color: "#1", folder: "K" }, { id: "la", name: "乙标签", color: "#2", folder: "L" }];
+    t.S.videoTags.BV880 = ["ka", "la"];
+    openFake("K", [item(880)]);
+    t.openViewer(item(880));
+    openFake("L", [item(881)]);
+    t.renderViewerTags();
+    assert.ok(t.el.viewerTags.innerHTML.includes(">甲标签<") && !t.el.viewerTags.innerHTML.includes("乙标签"), t.el.viewerTags.innerHTML);
+    po = null;
+    vm.runInContext("tagPlaying()", ctx);
+    assert.deepStrictEqual([plain(po?.targets), plain(po?.tags().map((x) => x.id))], [["BV880"], ["ka"]], "T tags it in K");
+    const synced = sent.length;
+    t.closeViewer();
+    assert.ok(!sent.slice(synced).some((m) => m.type === "triage-folder-ids"), "closing does not refresh L");
+    store[t.K.snapshot("K")] = { items: [item(880)] };
+    const savedFolders = t.S.folders;
+    t.S.folders = [{ id: "K" }, { id: "L" }];
+    t.openViewer({ bvid: "BV880", title: "视频880" });
+    for (let i = 0; i < 20 && !t.S.viewer; i++) await new Promise((r) => setImmediate(r));
+    assert.deepStrictEqual(plain(t.S.viewer.folders), ["K"], "from 待播: K's cached list holds it");
+    t.closeViewer();
+    Object.assign(t.el, realEl);
+    Object.assign(t.S, { tags: savedTags, folders: savedFolders });
+    delete t.S.videoTags.BV880;
+    delete store[t.K.snapshot("K")];
   }
   // 批量打 确认页 sums the changes per tag; applying records 「AI 刚打的」, which ends four ways.
   openFake("K", [item(700), item(701), item(702)]);
@@ -1433,6 +1476,17 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     for (let i = 0; i < 50 && !t.S.removedCheck?.error; i++) await new Promise((r) => setImmediate(r));
     assert.ok(t.S.removedCheck.error.includes("offline"), t.S.removedCheck.error);
     assert.deepStrictEqual(plain(store[t.K.removed].BV1.inFolder), { id: "X", title: "外" });
+    // F13: the check is in the pill; a B站 limit waits (amber countdown) and asks the same video again.
+    let n = 0;
+    const pills = [];
+    handlers["triage-fav-where"] = () => (pills.push(t.activityState().text), ++n === 1 ? { ok: false, code: "THROTTLED", error: "412" } : { ok: true, data: { folders: [] } });
+    const realWait = t.throttleWait;
+    t.throttleWait = async () => pills.push("wait");
+    await t.openRemoved();
+    for (let i = 0; i < 100 && t.S.removedCheck; i++) await new Promise((r) => setImmediate(r));
+    t.throttleWait = realWait;
+    assert.deepStrictEqual(plain(pills), ["核对视频的收藏状态 0/3", "wait", "核对视频的收藏状态 0/3", "核对视频的收藏状态 1/3", "核对视频的收藏状态 2/3"]);
+    assert.strictEqual(t.S.removedCheck, null, "went on to the end, no red line");
     delete handlers["triage-fav-where"];
     t.S.removedCheck = null;
   }
@@ -1514,7 +1568,7 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     if (++aiCalls === 1) {
       openFake("L", [item(700)]);
       assert.ok(vm.runInContext("aiTags", ctx).blocked().startsWith("正在处理「夹K」的视频"), "the form in L says which folder runs");
-      assert.strictEqual(vm.runInContext("activityState()", ctx).text, "AI 打标签运行中（夹K）");
+      assert.strictEqual(vm.runInContext("activityState()", ctx).text, "AI 打标签 第 1/2 批（夹K）");
     }
     return { ok: true, data: { assignments: { [items[0].bvid]: { add: ["旧"] } } } };
   };
@@ -1720,6 +1774,29 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   assert.deepStrictEqual([itemCalls.length, t.S.loadAll.queue.length], [1, 0], "one head request, no full load queued");
   assert.strictEqual(t.S.loadAll.lists["6"].items[0].bvid, "BV5");
   assert.strictEqual(store.triage_snapshot_6.ids[0], "BV5");
+
+  // F12: loading 所有收藏夹 shows in the pill with counts; a B站 limit waits with the amber countdown and goes on.
+  {
+    let calls = 0;
+    const seen = [];
+    handlers["triage-folder-items"] = () => {
+      seen.push(t.activityState().text);
+      return ++calls === 1 ? { ok: false, code: "THROTTLED", error: "412" } : { ok: true, data: { items: [item(7)], ids: ["BV7"], info: { intro: "" } } };
+    };
+    const realWait = t.throttleWait;
+    t.throttleWait = async (code) => {
+      t.S.throttleUntil = Date.now() + 90000;
+      t.S.throttleLabel = "B站限流卡住";
+      const a = t.activityState();
+      seen.push([a.text, a.stuck, a.actLabel]);
+      t.S.throttleUntil = 0;
+    };
+    t.S.loadAll = { lists: {}, check: [], checkTotal: 0, queue: ["6"], paused: false, running: false, error: "", partial: 0 };
+    await t.runLoadAll(t.S.folderToken);
+    t.throttleWait = realWait;
+    assert.deepStrictEqual(plain(seen), ["加载收藏夹 0/1 · 「夹6」", ["B站限流卡住，1:30 后重试", true, "暂停"], "加载收藏夹 0/1 · 「夹6」"]);
+    assert.ok(!t.S.loadAll.error && !t.S.loadAll.queue.length && t.activityState() === null, "loaded, no red line, pill gone");
+  }
 
   // R2: a list fetched before a 取消收藏, or lagging behind it, still holds the video with its old favTime. Only a
   // favorite time not older than the 取消收藏 counts as re-favorited.
@@ -2261,6 +2338,7 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
       const frame = {};
       t.el.viewerFrame = { contentWindow: frame };
       t.S.viewing = "BV1";
+      t.S.viewer = t.viewerOf("BV1");
       const msg = (source) => W.message.forEach((f) => f({ source, origin: "https://www.bilibili.com", data: { type: "mdg-viewer-key", key: "t" } }));
       po = null;
       msg({});

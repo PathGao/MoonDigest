@@ -361,6 +361,12 @@ assert.throws(() => t.triageParseCommand('{"new_tags":[', cmdItems, cmdTags, {})
   assert.strictEqual((await analyze()).source, "meta");
   assert.ok(prompt.includes("（无可用字幕）\n热门评论：\n无"));
 
+  // Subtitles hidden from a logged-out user: judged without them, and the result says why (the card shows it).
+  routes = { ...baseRoutes(), "/x/player/wbi/v2": { code: 0, data: { subtitle: { subtitles: [] }, need_login_subtitle: true } } };
+  assert.deepStrictEqual([(await analyze()).source, (await analyze()).needLogin], ["meta", true]);
+  routes = { ...baseRoutes(), [subUrl]: subtitleRaw(100) };
+  assert.strictEqual((await analyze()).needLogin, undefined, "a bad subtitle is not a login problem");
+
   // A subtitle up to the cap goes in whole; a longer one is sampled down to the cap.
   const line = "一句字幕".repeat(10);
   const longRaw = (n) => ({ body: Array.from({ length: n }, (_, i) => ({ from: i, to: i === n - 1 ? 272 : i + 1, content: line })) });

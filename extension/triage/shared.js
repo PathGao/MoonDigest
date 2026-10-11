@@ -192,6 +192,13 @@
   }
   // 「B站限流卡住，01:30 后重试」 while sec > 0, else "".
   const waitText = (why, sec) => (sec > 0 ? `${why}，${fmtDuration(sec)} 后重试` : "");
+  // A running ✦ AI 打标签's pill, from the run state runAiBatches keeps ({ done, total, until, label }): 第 N/M 批, or
+  // the AI 429 countdown, amber. where names another folder's run.
+  function aiActivity(a, where = "", now = Date.now()) {
+    const wait = waitText(a.label, Math.ceil(((a.until || 0) - now) / 1000));
+    if (wait) return { text: `AI 打标签 · ${wait}${where}`, stuck: true };
+    return a.total ? { text: `AI 打标签 第 ${a.done + 1}/${a.total} 批${where}`, done: a.done, total: a.total } : { text: `AI 打标签运行中${where}` };
+  }
 
   // Row 1's 「已刷新 +N −M」 pill and the notice it opens below it. Ids are prefix + ViewBtn / Notice / Text / Detail /
   // CloseBtn; each mode passes those elements as { pill, notice, text, detail, close }.
@@ -587,5 +594,5 @@
     main.addEventListener("focusin", (e) => e.target.closest(HEAD_ROWS) && set(headroomStep(s, { focus: true })));
   }
 
-  globalThis.TriageUi = { esc, pad, dayText, fmtDate, fmtAgo, agoHtml, setSearchScope, confirmList, pickTitle, fmtDuration, fmtCount, cleanTagName, plainClick, cardPlayClick, cardPickClick, pickCard, img, toCsv, cardTagChip, syncedText, headMeta, titleHtml, ICON, AI_SPARK, byValue, dirWords, sortControl, filterBtn, labeledRow, stateGroup, aiRecentChip, searchBox, bindSearch, resultCount, rowButtons, menuItem, BACKUP_ITEM, reasonAttrs, setReason, WARN_DOT, selectAllState, selectAllBox, toggleAll, setActivity, waitText, syncPill, setSync, bindSync, tagButtons, sideFoot, selbar, askTransfer, sideItem, emptyState, refreshEmpty, noMatch, fillSetRows, clampNumber, clampNumbers, mergeAiBatch, aiChanges, previewId, aiTally, TAG_COLORS, nextTagColor, cycleTagColor, tagNameError, deleteTagAsk, editedTag, withoutTag, undoAsk, tagRowHtml, sp, AI_RECENT_RULES, aiRecentUndo, tagPlusBtn, viewerLine, viewerKeyFrom, headroomStep, headroom };
+  globalThis.TriageUi = { esc, pad, dayText, fmtDate, fmtAgo, agoHtml, setSearchScope, confirmList, pickTitle, fmtDuration, fmtCount, cleanTagName, plainClick, cardPlayClick, cardPickClick, pickCard, img, toCsv, cardTagChip, syncedText, headMeta, titleHtml, ICON, AI_SPARK, byValue, dirWords, sortControl, filterBtn, labeledRow, stateGroup, aiRecentChip, searchBox, bindSearch, resultCount, rowButtons, menuItem, BACKUP_ITEM, reasonAttrs, setReason, WARN_DOT, selectAllState, selectAllBox, toggleAll, setActivity, waitText, aiActivity, syncPill, setSync, bindSync, tagButtons, sideFoot, selbar, askTransfer, sideItem, emptyState, refreshEmpty, noMatch, fillSetRows, clampNumber, clampNumbers, mergeAiBatch, aiChanges, previewId, aiTally, TAG_COLORS, nextTagColor, cycleTagColor, tagNameError, deleteTagAsk, editedTag, withoutTag, undoAsk, tagRowHtml, sp, AI_RECENT_RULES, aiRecentUndo, tagPlusBtn, viewerLine, viewerKeyFrom, headroomStep, headroom };
 })();

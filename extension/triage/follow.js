@@ -539,8 +539,9 @@ function renderSync() {
   if (!j.running) {
     // A B站 write (取消关注 3/10…) first, as 收藏夹's batches show theirs here.
     if (F.busy) return UI.setActivity(pill, { text: F.busy, done: F.busyN[0], total: F.busyN[1] });
-    const ai = AI.running ? "AI 打标签运行中" : AI.proposal ? "标签建议待确认" : "";
-    return UI.setActivity(pill, ai && { text: ai, btn: { attrs: 'data-fw="ai"', label: "查看" } });
+    const btn = { attrs: 'data-fw="ai"', label: "查看" };
+    if (AI.running) return UI.setActivity(pill, { ...UI.aiActivity(AI), btn });
+    return UI.setActivity(pill, AI.proposal && { text: "标签建议待确认", btn });
   }
   const wait = j.hold?.until ? UI.waitText(j.hold.why === "throttled" ? "B站限流卡住" : "网络断了", Math.ceil(j.hold.until - nowSec())) : "";
   // After a hold the requests go slower for a while (follow-bg.js FOLLOW_CFG.slowForMs).
@@ -1401,7 +1402,8 @@ async function runAi({ instruction, scope, allowRemove }) {
     merge: (p, data) => UI.mergeAiBatch(p, data, opts),
     intervalMs,
     keepGoing: () => !AI.stop,
-    progress
+    progress: (text) => (progress(text), renderSync()),
+    at: AI
   });
   AI.running = false;
   AI.proposal = proposal;

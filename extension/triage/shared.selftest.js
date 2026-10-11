@@ -478,6 +478,15 @@ for (const [file, fns] of [["triage.js", ["mergeAiBatch", "aiChanges"]], ["follo
   close("move", "7");
   assert.deepStrictEqual(plain(await p), { how: "move", target: { id: "7" } });
   assert.strictEqual(nodes.transferTarget.L.change.length, 1, "bound once");
+  // ✦ AI 打标签's pill: 第 N/M 批 with a bar; the AI 429 wait is amber with its countdown and no bar.
+  {
+    const a = { done: 1, total: 4, until: 0, label: "" };
+    assert.deepStrictEqual(plain(UI.aiActivity(a)), { text: "AI 打标签 第 2/4 批", done: 1, total: 4 });
+    const w = plain(UI.aiActivity({ ...a, until: 61000, label: "AI 平台限流卡住" }, "（稍后）", 1000));
+    assert.ok(w.stuck && !w.total && /^AI 打标签 · AI 平台限流卡住，.+ 后重试（稍后）$/.test(w.text), w.text);
+    assert.strictEqual(UI.aiActivity({ ...a, until: 500, label: "x" }, "", 1000).stuck, undefined, "a past wait is over");
+    assert.strictEqual(UI.aiActivity({}).text, "AI 打标签运行中", "before the first batch");
+  }
   console.log("shared selftest: all passed");
 })().catch((e) => {
   console.error(e);

@@ -236,7 +236,7 @@ const S = {
   allFolders: [], // every folder on Bilibili
   folders: [], // the ones taking part in triage
   included: [],
-  removedCheck: null, // 已出分拣范围 only: { done, total, what, error } while its folders, then its videos, are checked
+  removedCheck: null, // 已出分拣范围 only: { done, total, what, error } while its folders, then its videos, are checked (what: the pill's 核对… word)
   mediaId: "",
   folderToken: 0,
   items: [],
@@ -297,6 +297,9 @@ const S = {
   syncing: false,
   aiHistory: [],
   viewing: "",
+  // The 收藏夹 video in the viewer, taken when it opens so its lines outlive a folder switch: { item, folders } (folders:
+  // the ones whose tags it shows and the picker offers; null in 已出分拣范围, where every tag shows and none is edited).
+  viewer: null,
   // One 批量打标签 run at a time (mediaId is its folder); it keeps going when another folder is opened. Each folder keeps
   // its own proposal, and proposal reads and writes the open folder's.
   ai: {
@@ -742,7 +745,7 @@ globalThis.MoonTriage = {
   // The playing 收藏夹 video's UP as { mid, name } (mid "" on items saved before it was stored); null in 关注 or with
   // nothing playing.
   viewingUp() {
-    const it = !followMode() && S.itemMap.get(S.viewing);
+    const it = !followMode() && S.viewer?.item;
     return it ? { mid: it.upperMid || "", name: it.upper || "" } : null;
   },
   // 关注's 没登录: the same 去登录 banner as 收藏夹's; off hides it only when it is that one.
@@ -1355,10 +1358,13 @@ async function openRemoved() {
 
 // Re-favorited videos leave 已出分拣范围 as soon as one chosen folder's id list has them again; then each one left is
 // asked where it is now (checkWhere).
+// A B站 limit waits with the pill's countdown and asks again.
 async function checkRemoved(token) {
   const ids = S.folders.map((f) => String(f.id));
-  S.removedCheck = { done: 0, total: ids.length, what: "个收藏夹，重新收藏的会自动移出", error: "" };
-  for (const id of ids) {
+  const keepGoing = () => token === S.folderToken;
+  S.removedCheck = { done: 0, total: ids.length, what: "收藏夹", error: "" };
+  for (let i = 0; i < ids.length; i++) {
+    const id = ids[i];
     if (token !== S.folderToken) return;
     if (writingTo(id)) {
       S.removedCheck.done++; // checked next time; its list is changing now
@@ -1366,6 +1372,11 @@ async function checkRemoved(token) {
     }
     const r = await send({ type: "triage-folder-ids", mediaId: id });
     if (token !== S.folderToken) return;
+    if (!r.ok && THROTTLES[r.code]) {
+      await throttleWait(r.code, keepGoing);
+      i--;
+      continue;
+    }
     if (!r.ok) {
       S.removedCheck.error = `核对「${folderName(id)}」失败：${r.error}，可点刷新重试`;
       render();
@@ -1386,12 +1397,19 @@ async function checkRemoved(token) {
 async function checkWhere(token) {
   if (token !== S.folderToken) return;
   const list = S.items.filter((it) => it.aid && kindOf(it) !== "invalid");
-  S.removedCheck = { done: 0, total: list.length, what: "个视频还在不在收藏夹里", error: "" };
+  const keepGoing = () => token === S.folderToken;
+  S.removedCheck = { done: 0, total: list.length, what: "视频的收藏状态", error: "" };
   const found = {};
-  for (const it of list) {
+  for (let i = 0; i < list.length; i++) {
+    const it = list[i];
     if (token !== S.folderToken) break;
     const r = await send({ type: "triage-fav-where", aid: it.aid });
     if (token !== S.folderToken) break;
+    if (!r.ok && THROTTLES[r.code]) {
+      await throttleWait(r.code, keepGoing);
+      i--;
+      continue;
+    }
     if (!r.ok) {
       S.removedCheck.error = `核对《${shortTitle(it)}》的收藏状态失败：${r.error}，可点刷新重试`;
       break;
@@ -1553,6 +1571,10 @@ async function runLoadAll(token) {
       const id = L.check[0];
       const r = await send({ type: "triage-folder-ids", mediaId: id });
       if (token !== S.folderToken) return;
+      if (!r.ok && THROTTLES[r.code]) {
+        await throttleWait(r.code, keepGoing);
+        continue;
+      }
       if (!r.ok) {
         L.error = `核对「${folderName(id)}」失败：${r.error}`;
         L.paused = true;
@@ -1579,8 +1601,16 @@ async function runLoadAll(token) {
     }
     const id = L.queue[0];
     S.loadPage = null;
+    // The folder being read, for the pill; not the next one while waiting between two.
+    L.current = id;
+    renderStatus();
     const r = await send({ type: "triage-folder-items", mediaId: id });
+    L.current = "";
     if (token !== S.folderToken) return;
+    if (!r.ok && THROTTLES[r.code]) {
+      await throttleWait(r.code, keepGoing);
+      continue;
+    }
     if (!r.ok) {
       L.error = `「${folderName(id)}」加载失败：${r.error}`;
       L.paused = true;
@@ -1612,21 +1642,25 @@ function refreshAll() {
   runLoadAll(S.folderToken);
 }
 
+// Row 3 of 所有收藏夹: what was loaded once done, else only a failure (the progress is in the pill, loadAllActivity).
 function loadAllLine() {
   const L = S.loadAll;
   const n = S.folders.length;
-  const loaded = n - L.queue.length;
   const partial = L.partial ? `（${L.partial} 个只加载了部分）` : "";
   if (!L.queue.length && !L.check.length) return `<span class="muted">${n} 个收藏夹 · ${S.items.length} 个视频${partial}</span>`;
-  const busy = L.running && !L.paused;
-  const now = busy ? ` · 正在加载「${esc(folderName(L.queue[0]))}」${pageText(L.queue[0])}` : "";
-  const text = L.check.length
-    ? `${busy ? "正在核对" : "已核对"} ${L.checkTotal - L.check.length} / ${L.checkTotal} 个收藏夹`
-    : `已加载 ${loaded} / ${n} 个收藏夹${partial}${now}（第一次较慢，之后只核对变化）`;
-  const btn = L.paused
-    ? `<button type="button" data-head="all-resume" aria-label="继续加载收藏夹">继续</button>`
-    : `<button type="button" data-head="all-pause" aria-label="暂停加载收藏夹">暂停</button>`;
-  return `<span class="muted"${busy ? ' aria-busy="true"' : ""}>${text}</span>${btn}${L.error ? `<span class="fail-text">${esc(L.error)}</span>` : ""}`;
+  return L.error ? `<span class="fail-text">${esc(L.error)}</span>` : "";
+}
+
+// The pill while 所有收藏夹 checks or loads its folders: counts, the folder being read and its pages, the B站限流
+// countdown; 暂停 / 继续 on it.
+function loadAllActivity(wait) {
+  const L = S.loadAll;
+  if (!L || (!L.queue.length && !L.check.length)) return null;
+  const n = S.folders.length;
+  const [verb, done, total] = L.check.length ? ["核对", L.checkTotal - L.check.length, L.checkTotal] : ["加载", n - L.queue.length, n];
+  const now = L.current ? ` · 「${folderName(L.current)}」${pageText(L.current)}` : "";
+  const text = L.paused ? `${verb}收藏夹 ${done}/${total} · 已暂停` : wait || `${verb}收藏夹 ${done}/${total}${now}`;
+  return { text, done, total, stuck: Boolean(wait) && !L.paused, act: L.paused ? "all-resume" : "all-pause", actLabel: L.paused ? "继续" : "暂停" };
 }
 
 const folderName = (id) => id === REMOVED ? "已出分拣范围" : id === ALL ? "所有收藏夹" : S.allFolders.find((f) => String(f.id) === String(id))?.title || String(id);
@@ -1783,12 +1817,15 @@ function activityState() {
     const text = `${w.md ? "生成" : "写入"}笔记 ${w.done}/${w.total}${runWhere(w)}`;
     return { text: wait || text, done: w.done, total: w.total, act: "write", actLabel: w.stop ? "停止中" : "停止", stopping: w.stop, stuck: Boolean(wait) };
   }
+  const all = loadAllActivity(wait);
+  if (all) return all;
+  const c = S.removedCheck;
+  if (c && !c.error) return { text: wait || `核对${c.what} ${c.done}/${c.total}`, done: c.done, total: c.total, stuck: Boolean(wait) };
   if (wait) return { text: wait, stuck: true };
-  // Loading 所有收藏夹 is not here: its own line leads the step bar on every tab of that view.
   if (S.syncing) return { text: `刷新中…${pageText(S.mediaId)}` };
   if (S.ai.running) {
     const where = S.ai.mediaId === String(S.mediaId) ? "" : `（${folderName(S.ai.mediaId)}）`;
-    return { text: `AI 打标签运行中${where}`, act: "tags", actLabel: "查看" };
+    return { ...UI.aiActivity(S.ai, where), act: "tags", actLabel: "查看" };
   }
   if (S.ai.proposal) return { text: "标签建议待确认", act: "tags", actLabel: "查看" };
   const other = otherAiFolder();
@@ -2014,7 +2051,8 @@ function renderListHeader(list) {
   } else if (t === "read" && S.mediaId === REMOVED) {
     const c = S.removedCheck;
     html = "";
-    if (c) html += c.error ? `<span class="fail-text">${esc(c.error)}</span>` : `<span class="muted" aria-busy="true">正在核对 ${c.done} / ${c.total} ${c.what}</span>`;
+    // Its progress is in the pill (activityState); a failure stays here.
+    if (c?.error) html += `<span class="fail-text">${esc(c.error)}</span>`;
     html += `${sel ? headBtn("clean-selected", `清理选中的 ${sel} 个`, "danger") : headBtn("clean-removed", `清理这 ${list.length} 个`, "danger", list.length ? "" : "这里没有列出视频")}`;
   } else if (t === "read") {
     // 阅览 mixes 粗看 guesses with 细看 conclusions, so no class-wide batch here: only the selection.
@@ -2220,7 +2258,7 @@ function cardHtml(it, expanded, mark) {
     : `<button type="button" data-act="basket" aria-label="加入待播 (E)" title="加入待播">+ 待播<kbd class="key">E</kbd></button>`;
   const askBtn = `<button type="button" data-act="ask" aria-label="问 AI (Q)">${AI_SPARK}问 AI<kbd class="key">Q</kbd></button>`;
   // The 发布时间 is relative, the date on hover; the rest is text.
-  const meta = [esc(it.upper), it.pubdate && UI.agoHtml(it.pubdate), Number.isFinite(it.play) && esc(`▶ ${fmtCount(it.play)}`), ["", "粗看", "细看"][v.stage], esc(seenText(it)), it.invalid && "已失效", it.folders?.length && esc(`收藏夹：${folderNames(it)}`)].filter(Boolean);
+  const meta = [esc(it.upper), it.pubdate && UI.agoHtml(it.pubdate), Number.isFinite(it.play) && esc(`▶ ${fmtCount(it.play)}`), ["", "粗看", "细看"][v.stage], done && a.source === "meta" && (a.needLogin ? "未登录 B站拿不到字幕，按简介和评论判断" : "没有字幕，按简介和评论判断"), esc(seenText(it)), it.invalid && "已失效", it.folders?.length && esc(`收藏夹：${folderNames(it)}`)].filter(Boolean);
   const left = removed && [originHtml(it), it.removedAt && `<span>${esc(leftText(it))}</span>`].filter(Boolean).join("");
 
   const verdict = decision ? "" : verdictBadge(b, v);
@@ -2900,15 +2938,15 @@ function endAiRecent(folder = String(S.mediaId)) {
 
 // T on a card opens the shared picker (tag-picker.js) as a modal; T in the player or 「+ 标签」 on the viewer line opens
 // it under that line. The selection bar's 标签… opens it for the selected videos (one folder). Closing saves once, as
-// one undo step.
-function openPicker(bvids, anchor = "") {
-  bvids = [].concat(bvids).filter((b) => S.itemMap.has(b));
-  if (!bvids.length || S.mediaId === REMOVED) return;
+// one undo step. home ({ item, folders }, the viewer's) tags that video in its own folders, whatever is open.
+function openPicker(bvids, anchor = "", home = null) {
+  bvids = [].concat(bvids).filter((b) => home || S.itemMap.has(b));
+  if (!bvids.length || (!home && S.mediaId === REMOVED)) return;
   const bvid = bvids[0];
-  const folders = pickerFolders(bvid);
+  const folders = home?.folders || pickerFolders(bvid);
   const one = folders.length === 1;
   TagPicker.open({
-    title: UI.pickTitle(bvids.length, shortTitle(S.itemMap.get(bvid)), "视频"),
+    title: UI.pickTitle(bvids.length, shortTitle(home?.item || S.itemMap.get(bvid)), "视频"),
     targets: bvids,
     // Every tag of the video, so saving keeps the ones of other folders the picker does not list.
     idsOf: (b) => (S.videoTags[b] || []).filter((id) => tagById(id)),
@@ -2949,20 +2987,21 @@ function savePicked(changes) {
 // The viewer's 「视频标签」 line: the playing video's tags and 「+ 标签 T」; a tag opens the picker too. 关注 then draws
 // its 「UP 标签」 line under it (viewerHook).
 function renderViewerTags() {
-  const it = !followMode() && S.viewing && S.itemMap.get(S.viewing);
-  el.viewerTags.hidden = !it;
-  if (!it) el.viewerTags.innerHTML = "";
+  const v = !followMode() && S.viewer;
+  el.viewerTags.hidden = !v;
+  if (!v) el.viewerTags.innerHTML = "";
   else {
-    const edit = S.mediaId !== REMOVED;
-    const chips = tagIdsOf(it.bvid)
+    const edit = Boolean(v.folders?.length);
+    const chips = (S.videoTags[v.item.bvid] || [])
       .map(tagById)
+      .filter((t) => t && (!v.folders || v.folders.includes(t.folder)))
       .map((t) => `<span class="chip" style="--c:${esc(t.color)}"${edit ? " data-vtag" : ""}>${esc(t.name)}</span>`)
       .join("");
     el.viewerTags.innerHTML = UI.viewerLine({ label: "视频标签", chips, plus: edit && { attrs: "data-vtag", label: "给这个视频打标签" } });
   }
   viewerHook?.();
 }
-const tagPlaying = () => S.viewing && openPicker(S.viewing, "#viewerTags .tag-plus");
+const tagPlaying = () => S.viewer?.folders?.length && openPicker(S.viewing, "#viewerTags .tag-plus", S.viewer);
 
 // ---------- 判断标准 ----------
 function openCriteria() {
@@ -3357,17 +3396,25 @@ const openAi = () => TagDialogs.ai.open(aiTags);
 // and sends the same batch again; a setup error (配置 AI, 未授权访问) fails every batch alike, so it ends the run. Returns
 // { proposal, errors }: proposal is null when no batch got through, so there is nothing to confirm (the progress line says why).
 // name(i), when given, says which batch in the progress line and errors (所有收藏夹 names the folder).
-async function runAiBatches({ total, request, merge, intervalMs, keepGoing, progress, name = null }) {
+// at, the mode's run state, gets { done, total, until, label } for the pill; progress runs at least once a second while
+// waiting, so the pill and the dialog count down.
+async function runAiBatches({ total, request, merge, intervalMs, keepGoing, progress, at, name = null }) {
   const which = (i, full = false) => (name ? name(i) : full ? `第 ${i + 1} / ${total} 批` : `第 ${i + 1} 批`);
   const p = { newTags: [], rows: [], notes: [], errors: [] };
   let answered = 0;
+  Object.assign(at, { done: 0, total, until: 0 });
   for (let i = 0; i < total && keepGoing(); i++) {
+    at.done = i;
     progress(`AI 正在处理${which(i, true)}…`);
     const r = await send(request(i, p));
     if (!r.ok && THROTTLES[r.code]) {
       const [ms, label] = THROTTLES[r.code];
-      progress(`${label}，${Math.round(ms / 1000)} 秒后重试${which(i)}…`);
-      await sleepWhile(ms, keepGoing);
+      Object.assign(at, { until: Date.now() + ms, label });
+      for (let sec = Math.round(ms / 1000); sec > 0 && keepGoing(); sec--) {
+        progress(`${UI.waitText(label, sec)}${which(i)}…`);
+        await sleepWhile(1000, keepGoing);
+      }
+      at.until = 0;
       i--;
       continue;
     }
@@ -3441,7 +3488,8 @@ async function runAiCommand({ instruction, scope, allowRemove }) {
     } : undefined,
     intervalMs: S.settings.triageIntervalSec * 1000,
     keepGoing: () => !S.ai.stop,
-    progress: (text) => TagDialogs.ai.progress(aiTags, text)
+    progress: (text) => (TagDialogs.ai.progress(aiTags, text), renderStatus()),
+    at: S.ai
   });
   S.ai.running = false;
   if (p) {
@@ -4300,11 +4348,33 @@ function openSettings(scrollToLimits = false, firstRun = false) {
 }
 
 function openViewer(it) {
-  S.viewing = it.bvid;
-  el.viewerFrame.src = videoUrl(it.bvid);
+  const b = it.bvid;
+  S.viewing = b;
+  const own = viewerOf(b);
+  S.viewer = own;
+  el.viewerFrame.src = videoUrl(b);
   el.viewer.hidden = false;
   el.main.classList.add("viewing");
   render();
+  // A 待播 video from a folder not open: its folders are the chosen ones whose cached list holds it.
+  if (!own && !followMode()) {
+    viewerHome(b).then((v) => {
+      if (S.viewing !== b || !v) return;
+      S.viewer = v;
+      renderViewerTags();
+    });
+  }
+}
+
+// S.viewer for a video of the open view; null when it is not in it.
+function viewerOf(b) {
+  return S.itemMap.has(b) ? { item: S.itemMap.get(b), folders: S.mediaId === REMOVED ? null : pickerFolders(b) } : null;
+}
+async function viewerHome(bvid) {
+  const ids = S.folders.map((f) => String(f.id));
+  const got = await chrome.storage.local.get(ids.map(K.snapshot));
+  const folders = ids.filter((id) => got[K.snapshot(id)]?.items?.some((x) => x.bvid === bvid));
+  return folders.length ? { item: got[K.snapshot(folders[0])].items.find((x) => x.bvid === bvid), folders } : null;
 }
 
 function setBasketOpen(open) {
@@ -4313,14 +4383,17 @@ function setBasketOpen(open) {
 }
 
 // Likes, coins and favorites happen on Bilibili's own page, so the folder is re-read once the viewer closes.
+// Only the video's own folder, when it is the one open; another folder checks its list when it is opened.
 function closeViewer() {
   if (!S.viewing) return;
+  const home = S.viewer?.folders || [];
   S.viewing = "";
+  S.viewer = null;
   el.viewerFrame.src = "about:blank";
   el.viewer.hidden = true;
   el.main.classList.remove("viewing");
   render();
-  if (inFolderView() && !followMode()) quickSync({ force: true });
+  if (inFolderView() && !followMode() && home.includes(String(S.mediaId))) quickSync({ force: true });
 }
 
 function cardAction(act, bvid) {
