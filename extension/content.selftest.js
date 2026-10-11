@@ -38,6 +38,11 @@ assert.strictEqual(lines.at(-1), "}");
   assert.strictEqual(runs(false, "chrome-extension://other"), false, "another extension's page");
 }
 const source = lines.slice(6, -1).join("\n").replace(/^init\(\);$/m, "");
+// How a subtitle is picked, fetched, checked, and what is a failure or a limit lives once, in sites.js
+// (BocSites.loadSubtitle / loadFirstTrack); the page only wraps its fetches and shows the result.
+for (const own of [/function (loadSubtitle|loadFirstTrack|tryLoadSubtitleCandidates|fetchRawCached)\(/, /validateSubtitleByDuration|rankTracks|pickPreferredTrack|fetchTranscript/]) {
+  assert.doesNotMatch(source, own, "content.js has its own subtitle pipeline");
+}
 
 const stubEl = () => new Proxy({ classList: { toggle() {}, add() {}, remove() {}, contains: () => false }, style: { setProperty() {}, removeProperty() {} }, dataset: {} }, {
   get: (o, k) => (k in o ? o[k] : () => {}),
@@ -147,21 +152,19 @@ const settle = async () => {
     Object.assign(t, { removePlayerAiQuickActionButton: realRemove, hasPlayerSubtitleControl: realHas, byId: realById });
   }
 
-  // G4: the video changes while a subtitle body is being cached; the old body must not land under the new video.
+  // G4: the video changes while a subtitle body is being fetched; the old body must not land under the new video.
   {
     state.videoDuration = 100;
     state.subtitleBody = [];
-    t.currentSite = () => ({ parseSegments: () => [{ from: 0, to: 1, content: "旧视频" }] });
-    const realSave = t.BocSites.subtitleCache.save;
-    const save = gate();
-    t.BocSites.subtitleCache.save = () => save.promise;
-    const commit = t.commitSubtitleBody("raw", { url: "u", lang: "zh", subtitleId: "1" }, state.fetchRunId);
+    state.subtitles = [{ id: "1", url: "u" }];
+    const body = gate("raw");
+    t.currentSite = () => ({ fetchRaw: () => body.promise, parseSegments: () => [{ from: 0, to: 1, content: "旧视频" }] });
+    const switching = t.switchSubtitle("u");
     await settle();
     state.fetchRunId++;
-    save.open();
-    await assert.rejects(commit, (e) => t.isStaleRunError(e));
+    body.open();
+    await assert.rejects(switching, (e) => e.message === "视频已切换，请刷新");
     assert.deepStrictEqual(state.subtitleBody, [], "the new video keeps an empty body");
-    t.BocSites.subtitleCache.save = realSave;
   }
 
   // G4: the note's AI turns and triage extras read for the old video are dropped once it changed.
@@ -191,7 +194,7 @@ const settle = async () => {
 
   // F1: a run the video change superseded fails late (timeout, 429, transcript); the new video keeps its state.
   {
-    const saved = Object.fromEntries(["getSettings", "currentSite", "retryAsync", "fetchSubtitleBundle", "refreshDerivedContent"].map((k) => [k, t[k]]));
+    const saved = Object.fromEntries(["getSettings", "currentSite", "retryAsync", "refreshDerivedContent"].map((k) => [k, t[k]]));
     Object.assign(t, { getSettings: async () => ({}), retryAsync: (f) => f(), refreshDerivedContent: async () => {} });
     const newVideo = { videoId: "BV_B", title: "B", subtitleBody: [{ from: 0, to: 1, content: "B" }], subtitleFetchState: "ready", subtitleFailure: "" };
     for (const step of ["meta", "subtitle"]) {
@@ -200,9 +203,9 @@ const settle = async () => {
       t.currentSite = () => ({
         parseRef: () => ({ site: "bilibili", id: "BV_A" }),
         readDom: () => ({}),
-        fetchMeta: step === "meta" ? () => late : async () => ({ duration: 100, title: "A" })
+        fetchMeta: step === "meta" ? () => late : async () => ({ duration: 100, title: "A" }),
+        fetchTracks: () => late
       });
-      t.fetchSubtitleBundle = () => late;
       const run = t.runRefreshClip();
       await settle();
       state.fetchRunId++; // the URL watcher saw the change
@@ -256,11 +259,10 @@ const settle = async () => {
   // The one context message (side panel, player ✦): whatever the timing, it answers with the tab's video, settled,
   // and that video's comments.
   {
-    const keep = ["currentSite", "getSettings", "retryAsync", "fetchSubtitleBundle", "fetchHotComments", "refreshDerivedContent", "sleep", "ensureUiReady", "enforceNormalPageStateIfNeeded", ...Object.keys(real)];
+    const keep = ["currentSite", "getSettings", "retryAsync", "fetchHotComments", "refreshDerivedContent", "sleep", "ensureUiReady", "enforceNormalPageStateIfNeeded", ...Object.keys(real)];
     const saved = Object.fromEntries(keep.map((k) => [k, t[k]]));
     const realUrl = t.location.href;
     Object.assign(t, real, { getSettings: async () => ({}), retryAsync: (f) => f(), refreshDerivedContent: async () => {}, sleep: async () => {}, ensureUiReady() {}, enforceNormalPageStateIfNeeded() {} });
-    t.fetchSubtitleBundle = async () => ({ tracks: [], chapters: [] });
     const [A, B] = ["BV1GJ411x7h7", "BV1xx411c7mD"];
     const go = (id) => (t.location.href = `https://www.bilibili.com/video/${id}/`);
     let metaCalls = [];
@@ -270,6 +272,7 @@ const settle = async () => {
       parseRef: (url) => t.BocSites.parseRef(url),
       readDom: () => ({}),
       fetchComments() {},
+      fetchTracks: async () => ({ tracks: [], chapters: [] }),
       fetchMeta: async (ref) => (metaCalls.push(ref.id), metaGates[ref.id] ? metaGates[ref.id].promise : { duration: 100, title: ref.id })
     });
     t.fetchHotComments = async () => {
@@ -439,88 +442,77 @@ const settle = async () => {
     state.readingManualScrollPauseUntil = 0;
   }
 
-  // An empty track followed by an HTTP failure still marks the error for the PO-token fallback.
+  // The page's reads under the shared subtitle step (which tracks, in what order, what counts as a limit is
+  // sites.selftest.js): a rate-limited file waits once, then the limit reads as one; B站's empty list is asked again
+  // once; a logged-out answer from the background is asked again with the page's cookies.
   {
-    const realLoad = t.loadSubtitle;
-    const fails = [Object.assign(new Error("empty"), { code: "SUBTITLE_EMPTY" }), new Error("HTTP 404")];
-    t.loadSubtitle = async () => {
-      throw fails.shift();
+    const was = Object.fromEntries(["sleep", "retryAsync"].map((k) => [k, t[k]]));
+    Object.assign(t, { sleep: async () => {}, retryAsync: (f) => f() });
+    const limited = () => Object.assign(new Error("请求失败：429"), { status: 429 });
+    const answers = (list) => async () => {
+      const next = list.shift();
+      if (next instanceof Error) throw next;
+      return next;
     };
-    await assert.rejects(t.tryLoadSubtitleCandidates([{ id: "1", url: "u1" }, { id: "2", url: "u2" }], state.fetchRunId), (e) => e.message === "HTTP 404" && e.anyEmpty === true);
-    t.loadSubtitle = async () => {
-      throw new Error("HTTP 404");
-    };
-    await assert.rejects(t.tryLoadSubtitleCandidates([{ id: "1", url: "u1" }], state.fetchRunId), (e) => e.anyEmpty === undefined);
-    t.loadSubtitle = realLoad;
+    let site = t.pageSubtitleSite({ fetchRaw: answers([limited(), "raw"]) }, state.fetchRunId);
+    assert.strictEqual(await site.fetchRaw({}, {}), "raw");
+    site = t.pageSubtitleSite({ fetchRaw: answers([limited(), limited()]) }, state.fetchRunId);
+    await assert.rejects(site.fetchRaw({}, {}), (e) => e.status === 429 && e.message === "字幕接口限流（429），稍后再试");
+    site = t.pageSubtitleSite({ id: "bilibili", fetchTracks: answers([{ tracks: [] }, { tracks: ["t"] }]) }, state.fetchRunId);
+    assert.deepStrictEqual((await site.fetchTracks()).tracks, ["t"]);
+    const ios = [];
+    site = t.pageSubtitleSite({ id: "bilibili", fetchTracks: async (ref, meta, io) => (ios.push(io.fetchJson), ios.length === 1 ? { tracks: [], needLogin: true } : { tracks: ["t"] }) }, state.fetchRunId);
+    assert.deepStrictEqual((await site.fetchTracks({}, {}, { fetchJson: "background" })).tracks, ["t"]);
+    assert.deepStrictEqual(ios, ["background", t.fetchJson]);
+    Object.assign(t, was);
   }
 
-  // A subtitle longer than the video (uploader's subtitle for a longer cut) is rejected per track, carried through
-  // the candidate loop, and as the last resort shown with a warning but never cached.
+  // A subtitle longer than the video (uploader's subtitle for a longer cut) is shown with a warning, on first load and
+  // when switching (popup and focus mode alike), and never cached. A track of a video no longer shown is refused.
   {
-    state.videoDuration = 961;
-    state.subtitles = [];
-    t.currentSite = () => ({ parseSegments: () => [{ from: 0, to: 2, content: "嗨" }, { from: 1200, to: 1202, content: "拜拜" }] });
-    const realSave = t.BocSites.subtitleCache.save;
+    const keep = Object.fromEntries(["currentSite", "getSettings", "retryAsync", "refreshDerivedContent", "renderReadingSubtitleSelect"].map((k) => [k, t[k]]));
+    const was = Object.fromEntries(["subtitles", "subtitleBody", "subtitleWarning", "videoId"].map((k) => [k, state[k]]));
+    const realSet = t.chrome.storage.local.set;
     const saved = [];
-    t.BocSites.subtitleCache.save = async (key) => saved.push(key);
-    let mismatch;
-    await assert.rejects(t.commitSubtitleBody("raw", { url: "u", lang: "中文", subtitleId: ".zh" }, state.fetchRunId), (e) => ((mismatch = e), e.code === "SUBTITLE_DURATION_MISMATCH"));
-
-    const realLoad = t.loadSubtitle;
-    const fails = [mismatch, new Error("HTTP 404")];
-    t.loadSubtitle = async () => {
-      throw fails.shift();
-    };
-    await assert.rejects(t.tryLoadSubtitleCandidates([{ id: ".zh", url: "u1" }, { id: ".en", url: "u2" }], state.fetchRunId), (e) => e.message === "HTTP 404" && t.subtitleMismatchOf(e) === mismatch);
-    // A 429 on a later track still carries the mismatch, so the caller can fall back to it.
-    const realSleep = t.sleep;
-    t.sleep = async () => {};
-    const limited = Object.assign(new Error("HTTP 429"), { status: 429 });
-    fails.push(mismatch, limited, limited);
-    await assert.rejects(t.tryLoadSubtitleCandidates([{ id: ".zh", url: "u1" }, { id: ".en", url: "u2" }], state.fetchRunId), (e) => e.status === 429 && t.subtitleMismatchOf(e) === mismatch);
-    t.sleep = realSleep;
-    t.loadSubtitle = realLoad;
-
-    const track = await t.acceptMismatchedSubtitle(mismatch, state.fetchRunId);
-    assert.strictEqual(track.id, ".zh");
-    assert.strictEqual(state.subtitleBody.length, 2);
-    assert.strictEqual(state.subtitleWarning, "字幕时间轴到 20:02，视频长 16:01，字幕时间可能对不上。");
-    assert.deepStrictEqual(saved, [], "a mismatched body is not cached");
+    t.chrome.storage.local.set = async (items) => saved.push(...Object.keys(items));
+    const warning = "字幕时间轴到 20:02，视频长 16:01，字幕时间可能对不上。";
+    let loads = 0;
+    t.currentSite = () => ({
+      parseRef: () => ({ site: "bilibili", id: "BV_A" }),
+      readDom: () => ({}),
+      fetchMeta: async () => ({ duration: 961, title: "A" }),
+      fetchTracks: async () => ({ tracks: [{ id: ".zh", url: "u1", label: "中文" }] }),
+      fetchRaw: async () => (loads++, "raw"),
+      parseSegments: () => [{ from: 0, to: 2, content: "嗨" }, { from: 1200, to: 1202, content: "拜拜" }]
+    });
+    Object.assign(t, { getSettings: async () => ({}), retryAsync: (f) => f(), refreshDerivedContent: async () => {} });
+    await t.runRefreshClip();
+    assert.deepStrictEqual([state.selectedSubtitleId, state.subtitleBody.length, state.subtitleWarning, state.subtitleFetchState], [".zh", 2, warning, "ready"]);
     // The side panel gets the warning too, and shows it with the reply (background.js buildAiMessages).
-    assert.strictEqual(t.buildSidepanelContext().payload.subtitleWarning, state.subtitleWarning);
+    assert.strictEqual(t.buildSidepanelContext().payload.subtitleWarning, warning);
 
-    // Switching subtitle (popup and focus mode alike): a track of a video no longer shown is refused; a track whose time
-    // range does not match the video is used with the warning, as the video's first load does.
-    {
-      const stubs = Object.fromEntries(["loadSubtitle", "renderReadingSubtitleSelect"].map((k) => [k, t[k]]));
-      const was = Object.fromEntries(["subtitles", "subtitleBody", "subtitleWarning"].map((k) => [k, state[k]]));
-      let loads = 0;
-      t.loadSubtitle = async () => {
-        loads++;
-        throw mismatch;
-      };
-      const popupSelect = (url) => new Promise((resolve) => listeners.message.forEach((f) => f({ type: "popup-select-subtitle", url, lang: "英文", subtitleId: ".en" }, {}, resolve)));
-      state.subtitles = [{ id: ".zh", url: "u1" }];
-      const gone = await popupSelect("old-video-track");
-      assert.deepStrictEqual([gone.ok, gone.error, loads], [false, "视频已切换，请刷新", 0], "F4");
+    loads = 0;
+    const popupSelect = (url) => new Promise((resolve) => listeners.message.forEach((f) => f({ type: "popup-select-subtitle", url, lang: "英文", subtitleId: ".en" }, {}, resolve)));
+    state.subtitles = [{ id: ".zh", url: "u1" }];
+    const gone = await popupSelect("old-video-track");
+    assert.deepStrictEqual([gone.ok, gone.error, loads], [false, "视频已切换，请刷新", 0], "F4");
+    // F4 again in focus mode: the dropdown goes back to what is shown.
+    let redrawn = 0;
+    t.renderReadingSubtitleSelect = () => redrawn++;
+    const pick = (url) => t.onReadingSubtitleChange({ target: { selectedIndex: 0, options: [{ value: url, dataset: { lang: "英文", id: ".en" } }] } });
+    await pick("old-video-track");
+    assert.deepStrictEqual([loads, redrawn], [0, 1]);
 
-      // F4 again in focus mode: the dropdown goes back to what is shown.
-      let redrawn = 0;
-      t.renderReadingSubtitleSelect = () => redrawn++;
-      const pick = (url) => t.onReadingSubtitleChange({ target: { selectedIndex: 0, options: [{ value: url, dataset: { lang: "英文", id: ".en" } }] } });
-      await pick("old-video-track");
-      assert.deepStrictEqual([loads, redrawn], [0, 1]);
-
-      for (const how of ["popup", "focus mode"]) {
-        Object.assign(state, { subtitles: [{ id: ".zh", url: "u1" }, { id: ".en", url: "u2" }], subtitleBody: [], subtitleWarning: "" });
-        const resp = how === "popup" ? await popupSelect("u2") : await pick("u2");
-        if (resp) assert.strictEqual(resp.ok, true);
-        assert.deepStrictEqual([state.subtitleBody.length, state.subtitleWarning], [2, "字幕时间轴到 20:02，视频长 16:01，字幕时间可能对不上。"], how);
-      }
-      Object.assign(t, stubs);
-      Object.assign(state, was);
+    for (const how of ["popup", "focus mode"]) {
+      Object.assign(state, { subtitles: [{ id: ".zh", url: "u1" }, { id: ".en", url: "u2" }], subtitleBody: [], subtitleWarning: "" });
+      const resp = how === "popup" ? await popupSelect("u2") : await pick("u2");
+      if (resp) assert.strictEqual(resp.ok, true);
+      assert.deepStrictEqual([state.selectedSubtitleId, state.subtitleBody.length, state.subtitleWarning], [".en", 2, warning], how);
     }
-    t.BocSites.subtitleCache.save = realSave;
+    assert.deepStrictEqual(saved, [], "a mismatched body is not cached");
+    t.chrome.storage.local.set = realSet;
+    Object.assign(t, keep);
+    Object.assign(state, was);
   }
 
   // S1: autoplay changes the video while the overwrite dialog is open. Nothing is written and the user is told;

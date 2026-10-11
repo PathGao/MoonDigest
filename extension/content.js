@@ -7,7 +7,6 @@ if (!globalThis.__BOC_CONTENT_SCRIPT_LOADED__ && (window === window.top || docum
 // Only for when get-settings fails; the background owns the stored settings.
 const DEFAULT_SETTINGS = { ...BocSettings.DEFAULTS, ...BocSettings.LOCAL_DEFAULTS };
 const { formatCompactTimestamp, buildSubtitlePreview, buildSrt, buildTxt, shouldShowHoursInNote, subtitleMismatchWarning } = BocNote;
-const subtitleCache = BocSites.subtitleCache;
 const { escapeHtml } = BocErrors;
 
 const BOC_VERSION = chrome.runtime.getManifest().version;
@@ -469,7 +468,7 @@ function bindRuntimeEvents() {
     }
 
     if (message.type === "popup-select-subtitle") {
-      switchSubtitle(String(message.url || "").trim(), String(message.lang || "unknown"), String(message.subtitleId || ""))
+      switchSubtitle(String(message.url || "").trim())
         .then(() => sendResponse({ ok: true, payload: getPopupPayload() }))
         .catch((error) => sendResponse({ ok: false, error: fetchErrorText(error), payload: getPopupPayload() }));
       return true;
@@ -1066,101 +1065,28 @@ async function runRefreshClip() {
     });
 
     setStatus("正在获取可用字幕…");
-    let subtitleBundle = await retryAsync(
-      () => fetchSubtitleBundle(),
-      3,
-      500
+    const found = await BocSites.loadSubtitle(
+      pageSubtitleSite(site, runId),
+      currentRef(),
+      { ...state.meta, duration: state.videoDuration },
+      { ...siteIo(), fresh: true },
+      {
+        prefer: { previousId: state.selectedSubtitleId, previousUrl: state.selectedSubtitleUrl, previousLang: state.selectedSubtitleLang },
+        step: runStep(runId)
+      }
     );
-    ensureRunActive(runId);
-    // Bilibili sometimes answers code 0 with an empty list under risk control; one late retry is cheap.
-    if (!subtitleBundle.tracks.length && state.site === "bilibili") {
-      await sleep(1500);
-      ensureRunActive(runId);
-      subtitleBundle = await fetchSubtitleBundle();
-      ensureRunActive(runId);
-    }
-    state.subtitles = BocSites.rankTracks(subtitleBundle.tracks, subtitleLangTarget());
-    state.chapters = BocSites.normalizeChapters(subtitleBundle.chapters);
-    logInfo(
-      "[BOC] chapters",
-      state.chapters.map((item) => ({
-        from: item.from,
-        to: item.to,
-        title: item.title
-      }))
+    state.subtitles = found.tracks;
+    state.chapters = BocSites.normalizeChapters(
+      found.bundle.chapters?.length ? found.bundle.chapters : BocSites.parseChaptersFromDescription(state.description)
     );
-    logInfo(
-      "[BOC] subtitle tracks",
-      state.subtitles.map((item) => ({
-        id: item.id,
-        lang: item.lang,
-        label: item.label,
-        kind: item.kind,
-        source: item.source,
-        url: item.url
-      }))
-    );
-
-    let selected = null;
+    logInfo("[BOC] subtitle tracks", state.subtitles.map(({ id, lang, label, kind, url }) => ({ id, lang, label, kind, url })));
     // 无字幕时也允许进入专注模式，只是字幕区域保持空态。
-    if (state.subtitles.length === 0) {
-      if (!state.meta?.gate) {
-        await showNoSubtitleState(runId, subtitleBundle.needLogin ? SUBTITLE_NEED_LOGIN : "");
-        return;
-      }
-      // Gated for the cookieless player call; the transcript runs with cookies.
-      selected = await loadTranscriptFallback(new Error(state.meta.gate), runId);
-    } else {
-      const preferred = BocSites.pickPreferredTrack(state.subtitles, {
-        previousId: state.selectedSubtitleId,
-        previousUrl: state.selectedSubtitleUrl,
-        previousLang: state.selectedSubtitleLang
-      });
-      const candidates = buildSubtitleCandidates(state.subtitles, preferred);
-      try {
-        selected = await tryLoadSubtitleCandidates(candidates, runId);
-      } catch (error) {
-        if (error?.status === 429) {
-          selected = await loadTranscriptFallback(error, runId).catch((finalError) => {
-            const mismatch = subtitleMismatchOf(error);
-            if (!mismatch || isStaleRunError(finalError)) {
-              throw finalError;
-            }
-            return acceptMismatchedSubtitle(mismatch, runId);
-          });
-        } else {
-          const message = getErrorMessage(error, "");
-          const empty = error?.anyEmpty === true;
-          if (!empty && !message.includes("HTTP") && !error?.status && !subtitleMismatchOf(error)) {
-            throw error;
-          }
-          // YouTube answers every track with an empty body when it rejects the PO token; ask for tracks that need none.
-          selected = await retrySubtitleCandidates(preferred, runId, empty ? { withoutPot: true } : {})
-            .catch((retryError) => {
-              if (isStaleRunError(retryError)) {
-                throw retryError;
-              }
-              return loadTranscriptFallback(retryError, runId);
-            })
-            .catch((finalError) => {
-              const mismatch = subtitleMismatchOf(finalError) || subtitleMismatchOf(error);
-              if (!mismatch || isStaleRunError(finalError)) {
-                throw finalError;
-              }
-              return acceptMismatchedSubtitle(mismatch, runId);
-            });
-        }
-      }
+    if (!found.track) {
+      await showNoSubtitleState(runId, found.error ? failureReason(found.error) : found.bundle.needLogin ? SUBTITLE_NEED_LOGIN : "");
+      return;
     }
-    ensureRunActive(runId);
-    if (selected) {
-      logInfo("[BOC] selected subtitle track", {
-        id: selected.id,
-        lang: selected.lang,
-        label: selected.label
-      });
-    }
-    state.subtitleFetchState = "ready";
+    logInfo("[BOC] selected subtitle track", { id: found.track.id, lang: found.track.lang, label: found.track.label });
+    await showSubtitle(found, runId);
     if (state.readingViewOpen) {
       moveReadingMainInline();
       renderReadingView();
@@ -1176,12 +1102,7 @@ async function runRefreshClip() {
     if (isStaleRunError(error) || runId !== state.fetchRunId) {
       return;
     }
-    // Reasons arrive with or without a trailing full stop; strip it so the sentences below join cleanly.
-    const reason = (
-      error?.code === "SUBTITLE_DURATION_MISMATCH"
-        ? "没找到和视频时长匹配的字幕，可能没有可用字幕"
-        : fetchErrorText(error)
-    ).replace(/[。.！!；;，,\s]+$/u, "");
+    const reason = failureReason(error);
     // Only the subtitle step failed: keep the video info and degrade to the no-subtitle state.
     if (metaLoaded) {
       try {
@@ -1204,124 +1125,50 @@ async function runRefreshClip() {
   }
 }
 
-// Signed subtitle URLs expire quickly, so a failed track list is fetched again once.
-async function retrySubtitleCandidates(preferred, runId, extraIo = {}) {
-  const subtitleBundle = await retryAsync(() => fetchSubtitleBundle(extraIo), 2, 500);
-  ensureRunActive(runId);
-  state.subtitles = BocSites.rankTracks(subtitleBundle.tracks, subtitleLangTarget());
-  state.chapters = BocSites.normalizeChapters(subtitleBundle.chapters);
-  const retryPreferred = BocSites.pickPreferredTrack(state.subtitles, {
-    previousId: preferred.id,
-    previousUrl: preferred.url,
-    previousLang: preferred.label || preferred.lang || ""
-  });
-  if (!retryPreferred) {
-    throw new Error("字幕列表为空。");
-  }
-  return tryLoadSubtitleCandidates(buildSubtitleCandidates(state.subtitles, retryPreferred), runId);
+// Reasons arrive with or without a trailing full stop; strip it so the sentences after them join cleanly.
+function failureReason(error) {
+  return fetchErrorText(error).replace(/[。.！!；;，,\s]+$/u, "");
 }
 
-// YouTube only: the watch page's transcript panel, tried after the subtitle
-// tracks are rate-limited, all fail, or the video is gated. When it fails too
-// the original `cause` is rethrown so its message (429, gate) reaches the user.
-async function loadTranscriptFallback(cause, runId) {
-  const site = currentSite();
-  const ref = currentRef();
-  if (!site?.fetchTranscript || !ref) {
-    throw cause;
-  }
-  let result;
-  try {
-    result = await site.fetchTranscript(ref, siteIo());
-  } catch (error) {
-    logWarn("[BOC] transcript fallback failed", { cause: getErrorMessage(cause), error: getErrorMessage(error) });
-    throw cause;
-  }
-  ensureRunActive(runId);
-  state.subtitles = [result.track, ...state.subtitles.filter((item) => item.id !== result.track.id)];
-  await commitSubtitleBody(result.raw, { url: result.track.url, lang: result.track.label, subtitleId: result.track.id }, runId);
-  return result.track;
-}
-
-async function loadSubtitle(url, lang, runId = state.fetchRunId, subtitleId = "", forceRefresh = false) {
-  if (!url) {
-    throw new Error("字幕地址为空");
-  }
-
-  const cacheKey = subtitleCache.key({
-    videoId: state.videoId,
-    cid: state.cid,
-    subtitleId,
-    subtitleUrl: url,
-    lang
-  });
-
-  if (!forceRefresh) {
-    const cachedRaw = await subtitleCache.load(cacheKey);
-    const cachedBody = cachedRaw === null ? [] : currentSite().parseSegments(cachedRaw);
-    if (cachedBody.length > 0) {
-      const cachedCheck = BocSites.validateSubtitleByDuration(cachedBody, state.videoDuration);
-      if (!cachedCheck.ok) {
-        logWarn("[BOC] cached subtitle duration mismatch, clearing cache", {
-          cacheKey,
-          reason: cachedCheck.reason
-        });
-        await subtitleCache.remove(cacheKey);
-      } else {
-        logInfo("[BOC] using cached subtitle", { cacheKey, itemCount: cachedBody.length });
-        ensureRunActive(runId);
-        state.selectedSubtitleId = subtitleId ? String(subtitleId) : state.selectedSubtitleId;
-        state.selectedSubtitleUrl = url;
-        state.selectedSubtitleLang = lang;
-        state.subtitleBody = cachedBody;
-        state.subtitleWarning = "";
-        state.subtitleFetchState = "ready";
-        await refreshDerivedContent();
-        ensureRunActive(runId);
-        if (state.readingViewOpen) {
-          renderReadingView();
-          syncReadingViewPlayback(true);
-        }
-        return;
+// The page's reads under the shared subtitle step (BocSites.loadSubtitle). The track list is retried; B站 sometimes
+// answers it empty under risk control (one more try 1.5s later), and as logged out when the background request goes
+// without the page's cookies (asked again from the page). A rate-limited subtitle file waits a few seconds once.
+function pageSubtitleSite(site, runId) {
+  const fetchTracks = async (ref, meta, io) => {
+    const bundle = await site.fetchTracks(ref, meta, io);
+    return bundle.needLogin && !site.pageOnly ? site.fetchTracks(ref, meta, { ...io, fetchJson }) : bundle;
+  };
+  return {
+    ...site,
+    async fetchTracks(ref, meta, io) {
+      const bundle = await retryAsync(() => fetchTracks(ref, meta, io), 3, 500);
+      if (bundle.tracks.length || site.id !== "bilibili") return bundle;
+      await sleep(1500);
+      ensureRunActive(runId);
+      return fetchTracks(ref, meta, io);
+    },
+    async fetchRaw(track, io) {
+      try {
+        return await site.fetchRaw(track, io);
+      } catch (error) {
+        if (error?.status !== 429) throw error;
       }
+      await sleep(3000 + Math.random() * 2000);
+      ensureRunActive(runId);
+      return site.fetchRaw(track, io).catch((error) => {
+        throw error?.status === 429 ? Object.assign(new Error("字幕接口限流（429），稍后再试"), { status: 429 }) : error;
+      });
     }
-  }
-
-  logInfo("[BOC] fetch subtitle body", { url });
-  const raw = await currentSite().fetchRaw({ id: subtitleId, url, lang }, siteIo());
-  await commitSubtitleBody(raw, { url, lang, subtitleId }, runId);
+  };
 }
 
-// Validates, caches and installs a freshly fetched raw body as the selected track.
-async function commitSubtitleBody(raw, { url, lang, subtitleId }, runId, { allowMismatch = false } = {}) {
-  const cacheKey = subtitleCache.key({ videoId: state.videoId, cid: state.cid, subtitleId, subtitleUrl: url, lang });
-  ensureRunActive(runId);
-  const body = currentSite().parseSegments(raw);
-  if (body.length === 0) {
-    const emptyError = new Error("字幕文件为空。");
-    emptyError.code = "SUBTITLE_EMPTY";
-    throw emptyError;
-  }
-  const durationCheck = BocSites.validateSubtitleByDuration(body, state.videoDuration);
-  if (!durationCheck.ok && !allowMismatch) {
-    const mismatchError = new Error("字幕时长与当前视频不匹配。");
-    mismatchError.code = "SUBTITLE_DURATION_MISMATCH";
-    mismatchError.details = durationCheck;
-    mismatchError.commit = { raw, url, lang, subtitleId };
-    throw mismatchError;
-  }
-
-  // A mismatched body is shown but not cached: the cache only holds bodies that pass the check.
-  if (durationCheck.ok) {
-    await subtitleCache.save(cacheKey, raw);
-    ensureRunActive(runId);
-  }
-
-  state.selectedSubtitleId = subtitleId ? String(subtitleId) : state.selectedSubtitleId;
-  state.selectedSubtitleUrl = url;
-  state.selectedSubtitleLang = lang;
+// Shows the track BocSites.loadSubtitle or loadFirstTrack chose, with the warning when its time range does not match.
+async function showSubtitle({ track, body, mismatch }, runId) {
+  state.selectedSubtitleId = track.id ? String(track.id) : state.selectedSubtitleId;
+  state.selectedSubtitleUrl = track.url;
+  state.selectedSubtitleLang = track.label || track.lang || "unknown";
   state.subtitleBody = body;
-  state.subtitleWarning = durationCheck.ok ? "" : subtitleMismatchWarning(durationCheck);
+  state.subtitleWarning = mismatch ? subtitleMismatchWarning(mismatch) : "";
   state.subtitleFetchState = "ready";
   await refreshDerivedContent();
   ensureRunActive(runId);
@@ -1331,36 +1178,21 @@ async function commitSubtitleBody(raw, { url, lang, subtitleId }, runId, { allow
   }
 }
 
-// The duration mismatch behind an error, if any: thrown by one track, or attached by tryLoadSubtitleCandidates.
-function subtitleMismatchOf(error) {
-  return error?.code === "SUBTITLE_DURATION_MISMATCH" ? error : error?.mismatch || null;
-}
-
-// Last resort when no track matches the video's duration: show the mismatched one with a warning
-// (the uploader's subtitle for a longer cut, or one covering only part of the video).
-async function acceptMismatchedSubtitle(mismatch, runId) {
-  const { raw, url, lang, subtitleId } = mismatch.commit;
-  await commitSubtitleBody(raw, { url, lang, subtitleId }, runId, { allowMismatch: true });
-  logInfo("[BOC] accepted subtitle despite duration mismatch", { subtitleId, ...mismatch.details });
-  return state.subtitles.find((item) => item.id === subtitleId) || { id: subtitleId, lang, label: lang };
-}
-
 // The popup's and focus mode's subtitle pickers. Only a track of the video shown: the list may belong to a video the
 // page has since left. A track whose time range does not match the video is used with the warning, as on first load.
-async function switchSubtitle(url, lang, subtitleId) {
-  if (!url || !state.subtitles.some((item) => item.url === url)) {
+async function switchSubtitle(url) {
+  const track = url && state.subtitles.find((item) => item.url === url);
+  if (!track) {
     throw new Error(VIDEO_SWITCHED);
   }
   const runId = state.fetchRunId;
-  await loadSubtitle(url, lang, runId, subtitleId)
-    .catch((error) => {
-      const mismatch = subtitleMismatchOf(error);
-      if (!mismatch) throw error;
-      return acceptMismatchedSubtitle(mismatch, runId);
-    })
-    .catch((error) => {
-      throw isStaleRunError(error) ? new Error(VIDEO_SWITCHED) : error;
-    });
+  try {
+    const got = await BocSites.loadFirstTrack(currentSite(), [track], { videoId: state.videoId, cid: state.cid }, siteIo(), state.videoDuration, runStep(runId));
+    if (!got.track) throw got.error;
+    await showSubtitle(got, runId);
+  } catch (error) {
+    throw isStaleRunError(error) ? new Error(VIDEO_SWITCHED) : error;
+  }
   setStatus(`${state.subtitleWarning}字幕切换完成。`);
 }
 
@@ -1368,7 +1200,7 @@ function onReadingSubtitleChange(event) {
   const option = event.target.options[event.target.selectedIndex];
   const url = String(option?.value || "");
   if (!url) return;
-  return switchSubtitle(url, String(option.dataset.lang || "unknown"), String(option.dataset.id || ""))
+  return switchSubtitle(url)
     .then(() => {
       renderReadingView();
       syncReadingViewPlayback(true);
@@ -4118,22 +3950,6 @@ function cleanVideoUrl(href = location.href) {
   return BocSites.cleanUrl(href);
 }
 
-async function fetchSubtitleBundle(extraIo = {}) {
-  const site = currentSite();
-  const ref = currentRef();
-  if (!site || !ref) {
-    throw new Error("当前页面不是支持的视频地址。");
-  }
-  let bundle = await site.fetchTracks(ref, state.meta, { ...siteIo(), ...extraIo });
-  // The background request may go out without the page's cookies; the page's own request carries them.
-  if (bundle.needLogin && !site.pageOnly) {
-    bundle = await site.fetchTracks(ref, state.meta, { ...siteIo(), ...extraIo, fetchJson });
-  }
-  const chapters = bundle.chapters?.length
-    ? bundle.chapters
-    : BocSites.parseChaptersFromDescription(state.description);
-  return { tracks: bundle.tracks, chapters, needLogin: bundle.needLogin };
-}
 
 async function fetchHotComments() {
   const site = currentSite();
@@ -4268,6 +4084,11 @@ function ensureRunActive(runId) {
   }
 }
 
+// The shared subtitle step's step hook: a run the video change superseded stops at its next wait.
+function runStep(runId) {
+  return (promise) => promise.then((value) => (ensureRunActive(runId), value));
+}
+
 function isStaleRunError(error) {
   return error?.code === "STALE_RUN";
 }
@@ -4334,99 +4155,6 @@ async function sleep(ms) {
   return new Promise((resolve) => window.setTimeout(resolve, ms));
 }
 
-function buildSubtitleCandidates(subtitles, preferred) {
-  const tracks = subtitles || [];
-  const seen = new Set();
-  const list = [];
-
-  const pushUnique = (item) => {
-    if (!item) {
-      return;
-    }
-    const key =
-      `${String(item.id || "").trim()}|` +
-      `${BocSites.trackUrlKey(item.url)}|` +
-      `${String(item.lang || "").trim().toLowerCase()}`;
-    if (seen.has(key)) {
-      return;
-    }
-    seen.add(key);
-    list.push(item);
-  };
-
-  pushUnique(preferred);
-  for (const item of tracks) {
-    pushUnique(item);
-  }
-  return list;
-}
-
-// A refresh always goes to the network so an old cache entry cannot misalign the subtitles.
-async function tryLoadSubtitleCandidates(candidates, runId) {
-  let lastError = null;
-  let anyEmpty = false;
-  let mismatch = null;
-  let backedOff = false;
-  for (const item of candidates || []) {
-    try {
-      logInfo("[BOC] try subtitle track", {
-        id: item.id,
-        lang: item.lang,
-        label: item.label,
-        kind: item.kind,
-        url: item.url
-      });
-      const load = () => loadSubtitle(item.url, item.label || item.lang || "unknown", runId, item.id, true);
-      try {
-        await load();
-      } catch (error) {
-        // A short burst often clears after a few seconds; one backed-off retry, then stop.
-        if (error?.status !== 429 || backedOff) {
-          throw error;
-        }
-        backedOff = true;
-        await sleep(3000 + Math.random() * 2000);
-        ensureRunActive(runId);
-        await load();
-      }
-      return item;
-    } catch (error) {
-      // Every track hits the same endpoint, so trying the rest only extends the rate limit.
-      if (error?.status === 429) {
-        const limited = new Error("字幕接口限流（429），稍后再试");
-        limited.status = 429;
-        if (mismatch) limited.mismatch = mismatch;
-        throw limited;
-      }
-      lastError = error;
-      anyEmpty ||= error?.code === "SUBTITLE_EMPTY";
-      mismatch ||= subtitleMismatchOf(error);
-      const reasonCode = toReadableText(error?.code, "");
-      const reasonMessage = getErrorMessage(error, "unknown");
-      const meta = {
-        id: item.id,
-        lang: item.lang,
-        label: item.label,
-        reason: reasonCode || reasonMessage
-      };
-      if (reasonCode === "SUBTITLE_DURATION_MISMATCH") {
-        logInfo(`[BOC] subtitle track skipped ${JSON.stringify(meta)}`);
-      } else {
-        logWarn(`[BOC] subtitle track rejected ${JSON.stringify(meta)}`);
-      }
-      ensureRunActive(runId);
-      continue;
-    }
-  }
-
-  if (lastError) {
-    // The caller's PO-token fallback looks at every track, not just the last one.
-    if (anyEmpty) lastError.anyEmpty = true;
-    if (mismatch) lastError.mismatch = mismatch;
-    throw lastError;
-  }
-  throw new Error("这个视频暂时没有可用字幕。");
-}
 
 function readRuntimeVideoDuration() {
   const video = getRuntimeVideoElement();
