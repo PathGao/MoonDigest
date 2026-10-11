@@ -318,6 +318,17 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     await t.undo();
     t.askConfirm = savedAsk;
     assert.deepStrictEqual([asked, t.S.undo.length, toasts.at(-1)], [0, 1, "重新收藏还在跑，等它完成再撤销"]);
+    // R1: a single 重新收藏 (its button or U on a single 取消收藏) waits too, so it cannot take over the batch's run.
+    const run = t.S.refavRun;
+    t.S.decisions.BV9 = { action: "unfav", at: 1, aid: 1009, title: "视频9" };
+    const sentBefore = sent.length;
+    await t.refavRecent("BV9");
+    t.S.undo = [{ kind: "decision", bvid: "BV1", action: "unfav", prev: null, prevs: { D: null } }];
+    await t.undo();
+    assert.strictEqual(sent.length, sentBefore, "nothing sent to B站");
+    assert.ok(t.S.refavRun === run && t.S.undo.length === 1 && toasts.at(-1) === "重新收藏还在跑，等它完成再撤销");
+    assert.ok(/data-refav="BV9"[^>]* disabled title="重新收藏还在跑，等它完成"/.test(t.recentUnfavHtml()));
+    delete t.S.decisions.BV9;
     t.S.refavRun = null;
     t.S.undo = [];
   }

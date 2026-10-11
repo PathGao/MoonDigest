@@ -2026,11 +2026,12 @@ function recentUnfavs() {
 function recentUnfavHtml() {
   const list = recentUnfavs();
   if (!list.length) return "";
+  const wait = batchWriting() ? `${batchWriting()}还在跑，等它完成` : "";
   const rows = list
     .map(([b, d]) => {
       const title = esc(d.title || b);
       return `<li><span class="recent-title">${title}</span><span class="muted">${esc(fmtTime(d.at))}</span>
-        ${refaving.has(b) ? `<button type="button" aria-busy="true" disabled>重新收藏中…</button>` : `<button type="button" data-refav="${esc(b)}" aria-label="重新收藏 ${title}">重新收藏</button>`}</li>`;
+        ${refaving.has(b) ? `<button type="button" aria-busy="true" disabled>重新收藏中…</button>` : `<button type="button" data-refav="${esc(b)}" aria-label="重新收藏 ${title}"${UI.reasonAttrs(wait)}>重新收藏</button>`}</li>`;
     })
     .join("");
   // One line per batch 取消收藏 of two or more still listed, newest first.
@@ -2040,7 +2041,6 @@ function recentUnfavHtml() {
   const batchRows = batches
     .map(({ batch, n }) => {
       const busy = unfavBatchItems(batch).some((it) => refaving.has(it.bvid));
-      const wait = batchWriting() ? `${batchWriting()}还在跑，等它完成` : "";
       return `<p class="recent-batch"><span>${esc(fmtTime(batch))} 批量取消收藏 ${n} 个</span>${busy ? `<button type="button" aria-busy="true" disabled>重新收藏中…</button>` : `<button type="button" data-refav-batch="${batch}" aria-label="这批 ${n} 个全部重新收藏"${UI.reasonAttrs(wait)}>这批全部重新收藏</button>`}</p>`;
     })
     .join("");
@@ -2048,6 +2048,7 @@ function recentUnfavHtml() {
 }
 
 // The batch write running now (取消收藏, 移动/复制, 重新收藏), by name; only one at a time, as they may touch one folder.
+// A single 重新收藏 (its button or U) also waits for it: it shares S.refavRun and the "refav" wait with the batch one.
 const batchWriting = () => (S.unfavBatch ? "批量取消收藏" : S.transferRun ? "移动/复制" : S.refavRun ? "重新收藏" : "");
 // Closing or reloading the page stops a batch write halfway and loses a notes export: the browser asks first.
 window.addEventListener("beforeunload", (e) => {
@@ -2116,7 +2117,7 @@ async function refavBatch(batch) {
 const refaving = new Set();
 async function refavRecent(bvid) {
   const d = S.decisions[bvid];
-  if (!d?.aid || refaving.has(bvid)) return;
+  if (!d?.aid || refaving.has(bvid) || batchWriting()) return;
   const mediaId = S.mediaId;
   const { error } = await refavMany(String(mediaId), [{ bvid, aid: d.aid }]);
   if (error) return toast(`重新收藏失败：${error}`, true);
@@ -2435,9 +2436,10 @@ function batchUndoAsk(entry) {
 async function undo() {
   const steps = followMode() ? S.modeUndo : S.undo;
   const top = steps.at(-1);
-  if (top?.kind === "unfavMany" && batchWriting()) return toast(`${batchWriting()}还在跑，等它完成再撤销`, true);
+  const refavs = top?.kind === "unfavMany" || (top?.kind === "decision" && top.action === "unfav");
+  if (refavs && batchWriting()) return toast(`${batchWriting()}还在跑，等它完成再撤销`, true);
   const ask = top && batchUndoAsk(top);
-  if (ask && (!(await askConfirm(ask[0], ask[1], ask[2] || "撤销")) || steps.at(-1) !== top || (top.kind === "unfavMany" && batchWriting()))) return;
+  if (ask && (!(await askConfirm(ask[0], ask[1], ask[2] || "撤销")) || steps.at(-1) !== top || (refavs && batchWriting()))) return;
   const entry = steps.pop();
   if (!entry) {
     toast("没有可撤销的操作");
