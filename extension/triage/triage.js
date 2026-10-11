@@ -2580,8 +2580,11 @@ const fav = {
           }
           if (move) {
             const gone = new Set(items.map((it) => it.bvid));
-            await patchSnapshot(from, { drop: [...gone] });
-            if (!chosen) await addMovedToRemoved(from, items, { id: to, title: toName });
+            // One queued step, so a folder save in between never sees the videos gone from here but not yet recorded.
+            await serialStore(async () => {
+              await patchSnapshotNow(from, { drop: [...gone] });
+              if (!chosen) await addMovedNow(from, items, { id: to, title: toName });
+            });
             if (S.mediaId === from) setItems(S.items.filter((it) => !gone.has(it.bvid)));
           }
           for (const it of items) S.selected.delete(it.bvid);
@@ -2712,61 +2715,65 @@ function askTransfer(list) {
 // Folders are not read while a run writes them (fav.state().writing), so both cached lists change here instead of by a sync: the target
 // gains the videos (a new folder starts with exactly these), the source loses them without counting them as having left
 // every folder (已出分拣范围). A folder with no cached list is left to its first load.
-function patchSnapshot(mediaId, { add = [], drop = [] }, created = false) {
-  return serialStore(async () => {
-    const key = K.snapshot(mediaId);
-    const got = await chrome.storage.local.get([key, K.left]);
-    const snap = got[key];
-    if (!snap && !created) return;
-    const old = snap || { bvids: [], invalid: [], titles: {}, items: [], ids: [], intro: "" };
-    const gone = new Set(drop);
-    const fresh = add.filter((it) => !old.bvids.includes(it.bvid));
-    const added = fresh.map((it) => it.bvid);
-    const keep = (b) => !gone.has(b);
-    // The trail follows this move like a folder diff would: added here forgets this folder, dropped from here adds it.
-    const left = { ...got[K.left] };
-    for (const it of add) forgetLeft(left, it.bvid, String(mediaId));
-    const folder = { id: String(mediaId), title: folderName(mediaId) };
-    const at = Date.now();
-    for (const b of drop) noteLeft(left, b, folder, at);
-    await store({
-      [K.left]: left,
-      [key]: {
-        ...old,
-        bvids: [...added, ...old.bvids.filter(keep)],
-        invalid: (old.invalid || []).filter(keep),
-        titles: { ...old.titles, ...Object.fromEntries(fresh.map((it) => [it.bvid, it.title])) },
-        items: [...fresh, ...(old.items || []).filter((it) => keep(it.bvid))],
-        ids: old.ids ? [...added, ...old.ids.filter(keep)] : old.ids
-      }
-    });
+function patchSnapshot(...args) {
+  return serialStore(() => patchSnapshotNow(...args));
+}
+// patchSnapshot for a fn already running in serialStore.
+async function patchSnapshotNow(mediaId, { add = [], drop = [] }, created = false) {
+  const key = K.snapshot(mediaId);
+  const got = await chrome.storage.local.get([key, K.left]);
+  const snap = got[key];
+  if (!snap && !created) return;
+  const old = snap || { bvids: [], invalid: [], titles: {}, items: [], ids: [], intro: "" };
+  const gone = new Set(drop);
+  const fresh = add.filter((it) => !old.bvids.includes(it.bvid));
+  const added = fresh.map((it) => it.bvid);
+  const keep = (b) => !gone.has(b);
+  // The trail follows this move like a folder diff would: added here forgets this folder, dropped from here adds it.
+  const left = { ...got[K.left] };
+  for (const it of add) forgetLeft(left, it.bvid, String(mediaId));
+  const folder = { id: String(mediaId), title: folderName(mediaId) };
+  const at = Date.now();
+  for (const b of drop) noteLeft(left, b, folder, at);
+  await store({
+    [K.left]: left,
+    [key]: {
+      ...old,
+      bvids: [...added, ...old.bvids.filter(keep)],
+      invalid: (old.invalid || []).filter(keep),
+      titles: { ...old.titles, ...Object.fromEntries(fresh.map((it) => [it.bvid, it.title])) },
+      items: [...fresh, ...(old.items || []).filter((it) => keep(it.bvid))],
+      ids: old.ids ? [...added, ...old.ids.filter(keep)] : old.ids
+    }
   });
 }
 
 // Moved to a folder outside triage: like any video that left every chosen folder, it goes to 已出分拣范围, marked with
 // where it went. Ticking that folder brings it back (recoverRemoved).
-function addMovedToRemoved(from, items, movedTo) {
-  return serialStore(async () => {
-    const others = chosenOtherIds(from);
-    const got = await chrome.storage.local.get([K.removed, K.left, ...others.map(K.snapshot)]);
-    const otherBvids = new Set(others.flatMap((id) => got[K.snapshot(id)]?.bvids || []));
-    const at = Date.now();
-    const source = from === REMOVED ? null : { id: from, title: folderName(from) };
-    const { removed, left } = moveToRemoved(got[K.removed] || {}, got[K.left] || {}, items, otherBvids, source, at, movedTo);
-    if (!(await store({ [K.removed]: removed, [K.left]: left }))) return;
-    if (S.mediaId === REMOVED) {
-      for (const it of items) {
-        const rec = removed[it.bvid];
-        if (!rec) continue;
-        const shown = S.itemMap.get(it.bvid);
-        if (shown) Object.assign(shown, { removedAt: at, movedTo, from: rec.from });
-        else S.items.unshift({ ...it, removedAt: at, movedTo, from: rec.from });
-      }
-      setItems(S.items);
+function addMovedToRemoved(...args) {
+  return serialStore(() => addMovedNow(...args));
+}
+// addMovedToRemoved for a fn already running in serialStore.
+async function addMovedNow(from, items, movedTo) {
+  const others = chosenOtherIds(from);
+  const got = await chrome.storage.local.get([K.removed, K.left, ...others.map(K.snapshot)]);
+  const otherBvids = new Set(others.flatMap((id) => got[K.snapshot(id)]?.bvids || []));
+  const at = Date.now();
+  const source = from === REMOVED ? null : { id: from, title: folderName(from) };
+  const { removed, left } = moveToRemoved(got[K.removed] || {}, got[K.left] || {}, items, otherBvids, source, at, movedTo);
+  if (!(await store({ [K.removed]: removed, [K.left]: left }))) return;
+  if (S.mediaId === REMOVED) {
+    for (const it of items) {
+      const rec = removed[it.bvid];
+      if (!rec) continue;
+      const shown = S.itemMap.get(it.bvid);
+      if (shown) Object.assign(shown, { removedAt: at, movedTo, from: rec.from });
+      else S.items.unshift({ ...it, removedAt: at, movedTo, from: rec.from });
     }
-    S.removedCount = Object.keys(removed).length;
-    renderTop();
-  });
+    setItems(S.items);
+  }
+  S.removedCount = Object.keys(removed).length;
+  renderTop();
 }
 
 // Newly ticked folders take back their videos from 已出分拣范围 at once, without waiting for the folder to be opened.
