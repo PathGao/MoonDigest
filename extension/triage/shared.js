@@ -194,10 +194,9 @@
   const waitText = (why, sec) => (sec > 0 ? `${why}，${fmtDuration(sec)} 后重试` : "");
   // 关注's wait on B站限流: follow-bg.js's queue pause, and the page's wait before a write or a 视频投稿 page goes again.
   const BILI_HOLD_MS = 90000;
-  // A running ✦ AI 打标签's pill, from the run state runAiBatches keeps ({ done, total, until, label }): 第 N/M 批, or
-  // the AI 429 countdown, amber. where names another folder's run.
-  function aiActivity(a, where = "", now = Date.now()) {
-    const wait = waitText(a.label, Math.ceil(((a.until || 0) - now) / 1000));
+  // A running ✦ AI 打标签's pill, from the run state runAiBatches keeps ({ done, total }): 第 N/M 批, or wait (the AI
+  // 429 countdown, MoonTriage.waitOf), amber. where names another folder's run.
+  function aiActivity(a, wait = "", where = "") {
     if (wait) return { text: `AI 打标签 · ${wait}${where}`, stuck: true };
     return a.total ? { text: `AI 打标签 第 ${a.done + 1}/${a.total} 批${where}`, done: a.done, total: a.total } : { text: `AI 打标签运行中${where}` };
   }

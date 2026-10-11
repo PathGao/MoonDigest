@@ -276,7 +276,7 @@ assert.deepStrictEqual([t.dirLabel("last", "desc"), t.dirLabel("follow", "asc"),
 // 视频投稿 paging on B站限流: the stuck pill counts down, then loads again by itself; a selection belongs to its tab.
 {
   assert.ok(source.includes('if (r.code === "THROTTLED") waitFeed(f);') && /if \(!f\.hasMore \|\| f\.loading \|\| f\.wait\) return;/.test(source), "限流 waits instead of an error, and nothing loads during the wait");
-  assert.ok(/function waitFeed[\s\S]*?f\.wait = 0;\s*more\(\);/.test(source) && /if \(f\.wait\) \{[\s\S]*?stuck: true/.test(source), "countdown, then retry");
+  assert.ok(/function waitFeed[\s\S]*?T\.waitOut\("follow-feed", \{ ms: UI\.BILI_HOLD_MS[\s\S]*?f\.wait = false;\s*if \(here\(\)\) more\(\);/.test(source) && /if \(f\.wait\) \{[\s\S]*?stuck: true/.test(source), "countdown, then retry");
   assert.ok(/function setTab\(tab\) \{[^}]*if \(tab !== F\.tab\) F\.sel\.clear\(\);/.test(source), "switching UP 主 / 视频投稿 clears the selection");
   // S3: both tabs share #fwList, so the other tab starts at the top.
   assert.ok(/function setTab\(tab\) \{[^}]*E\.list\.scrollTop = 0;\s*render\(\);/.test(source), "switching tabs scrolls to the top");
@@ -288,11 +288,23 @@ assert.ok(/function tagByKey\(\) \{\s*if \(F\.viewing && F\.viewingMid\) return/
 // what went through.
 (async () => {
   const code = source.slice(source.indexOf("const WRITE_GAP_MS"), source.indexOf("async function unfollow("));
-  const env = { F: { sel: new Set(), busyN: [0, 0] }, UI: t.TriageUi, toasts: [], sent: [], answers: [], stopAfter: Infinity, waits: 0 };
-  const run = new Function("env", `const { F, UI } = env; const nowSec = () => Date.now() / 1000;
+  const env = { F: { sel: new Set(), busyN: [0, 0] }, UI: t.TriageUi, toasts: [], sent: [], answers: [], stopAfter: Infinity, waits: [], jobs: [] };
+  // MoonTriage's waitOut / waitOf (triage.js; triage.selftest.js tests them) stand in: one job's countdown, redrawn by onTick.
+  const slots = {};
+  env.T = {
+    waitOf: (job) => (slots[job] ? t.TriageUi.waitText(slots[job].label, Math.ceil((slots[job].until - env.clock) / 1000)) : ""),
+    async waitOut(job, { ms, label }, keepGoing, onTick) {
+      env.jobs.push([job, ms]);
+      slots[job] = { until: env.clock + ms, label };
+      while (keepGoing() && env.clock < slots[job].until) (onTick(), (env.clock += 1000), await new Promise((r) => setImmediate(r)));
+      delete slots[job];
+      onTick();
+    }
+  };
+  const run = new Function("env", `const { F, UI, T } = env; const nowSec = () => Date.now() / 1000;
     const send = async (c) => (env.sent.push(c.mid), env.answers.shift() || { ok: true });
     const toast = (m) => env.toasts.push(m); const load = async () => {}; const render = () => {}; const renderSel = () => {};
-    const renderSync = () => { if (F.busyUntil) env.waits++; if (env.sent.length >= env.stopAfter) F.busyStop = true; };
+    const renderSync = () => { const w = F.busy && T.waitOf("follow-write"); if (w) env.waits.push(w); if (env.sent.length >= env.stopAfter) F.busyStop = true; };
     const setTimeout = (f) => setImmediate(f); const Date = { now: () => (env.clock += 1000) };
     ${code}; return { relationRun, WRITE_GAP_MS };`);
   env.clock = 0;
@@ -301,7 +313,9 @@ assert.ok(/function tagByKey\(\) \{\s*if \(F\.viewing && F\.viewingMid\) return/
   env.answers = [{ ok: true }, { ok: false, code: "THROTTLED" }, { ok: true }, { ok: true }];
   assert.strictEqual(await fns.relationRun(calls, "取消关注"), 3);
   assert.deepStrictEqual(env.sent, ["1", "2", "2", "3"], "the throttled request goes again, then the rest");
-  assert.ok(env.waits > 10, "the pill counts down the wait");
+  assert.ok(env.waits.length > 10, "the pill counts down the wait");
+  assert.strictEqual(env.waits[0], "取消关注中 2/3 · B站限流卡住，1:30 后重试");
+  assert.deepStrictEqual(env.jobs, [["follow-write", 90000]], "关注's own job: it never takes the 收藏夹 pill's slot");
   assert.deepStrictEqual(env.toasts, ["已取消关注 3 个"]);
   // 停止 during the wait: what went through stays, the run says how far it got.
   Object.assign(env, { sent: [], toasts: [], stopAfter: 2, answers: [{ ok: true }, { ok: false, code: "THROTTLED" }] });

@@ -600,6 +600,23 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   assert.ok(t.activityState().stuck && !t.activityState().act, "a wait alone has no button");
   t.S.waits = {};
   assert.strictEqual(t.activityState(), null, "nothing running hides the pill");
+  // X4: waitOut is the one wait of both modes. A 关注 job ("follow-…") counts down on its own line (onTick, redrawn by
+  // tick) and never takes the 收藏夹 pill; "ai" shows only as AI 打标签's countdown, with 查看.
+  {
+    const lines = [];
+    const p = t.waitOut("follow-write", { ms: 60, label: "取消关注中 3/10 · B站限流卡住" }, () => true, () => lines.push(t.waitOf("follow-write")));
+    assert.ok(t.waitOf("follow-write") === "取消关注中 3/10 · B站限流卡住，0:01 后重试" && t.activityState() === null, t.waitOf("follow-write"));
+    t.tick();
+    await p;
+    assert.deepStrictEqual([lines.length, lines[0], lines.at(-1), plain(t.S.waits)], [3, "取消关注中 3/10 · B站限流卡住，0:01 后重试", "", {}]);
+    t.S.waits.ai = { until: Date.now() + 61000, label: "AI 平台限流卡住" };
+    assert.strictEqual(t.activityState(), null, "the AI wait alone is not a 收藏夹 wait");
+    Object.assign(t.S.ai, { running: true, mediaId: String(t.S.mediaId), done: 0, total: 2 });
+    const a = t.activityState();
+    assert.ok(a.stuck && a.act === "tags" && /^AI 打标签 · AI 平台限流卡住，1:0[01] 后重试$/.test(a.text), a.text);
+    t.S.ai.running = false;
+    t.S.waits = {};
+  }
   // 观看进度: pages read while this page waits on the read; B站 risk control shows the wait, and 刷新 during it says so.
   t.S.seenCfg.on = true;
   Object.assign(t.S.seenRead, { busy: true, pages: 3 });
@@ -1552,11 +1569,11 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     let n = 0;
     const pills = [];
     handlers["triage-fav-where"] = () => (pills.push(t.activityState().text), ++n === 1 ? { ok: false, code: "THROTTLED", error: "412" } : { ok: true, data: { folders: [] } });
-    const realWait = t.throttleWait;
-    t.throttleWait = async () => pills.push("wait");
+    const realWait = t.waitOut;
+    t.waitOut = async () => pills.push("wait");
     await t.openRemoved();
     for (let i = 0; i < 100 && t.S.removedCheck; i++) await new Promise((r) => setImmediate(r));
-    t.throttleWait = realWait;
+    t.waitOut = realWait;
     assert.deepStrictEqual(plain(pills), ["核对视频的收藏状态 0/3", "wait", "核对视频的收藏状态 0/3", "核对视频的收藏状态 1/3", "核对视频的收藏状态 2/3"]);
     assert.strictEqual(t.S.removedCheck, null, "went on to the end, no red line");
     delete handlers["triage-fav-where"];
@@ -1922,8 +1939,8 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
       seen.push(t.activityState().text);
       return ++calls === 1 ? { ok: false, code: "THROTTLED", error: "412" } : { ok: true, data: { items: [item(7)], ids: ["BV7"], info: { intro: "" } } };
     };
-    const realWait = t.throttleWait;
-    t.throttleWait = async (code, keepGoing, job) => {
+    const realWait = t.waitOut;
+    t.waitOut = async (job) => {
       t.S.waits[job] = { until: Date.now() + 90000, label: "B站限流卡住" };
       const a = t.activityState();
       seen.push([a.text, a.stuck, a.actLabel]);
@@ -1931,7 +1948,7 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     };
     t.S.loadAll = { lists: {}, check: [], checkTotal: 0, queue: ["6"], paused: false, running: false, error: "", partial: 0 };
     await t.runLoadAll(t.S.folderToken);
-    t.throttleWait = realWait;
+    t.waitOut = realWait;
     assert.deepStrictEqual(plain(seen), ["加载收藏夹 0/1 · 「夹6」", ["B站限流卡住，1:30 后重试", true, "暂停"], "加载收藏夹 0/1 · 「夹6」"]);
     assert.ok(!t.S.loadAll.error && !t.S.loadAll.queue.length && t.activityState() === null, "loaded, no red line, pill gone");
   }

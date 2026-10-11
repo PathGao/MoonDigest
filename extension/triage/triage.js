@@ -3,8 +3,8 @@ if (!globalThis.chrome?.runtime?.id) await import("./dev/mock-chrome.js");
 
 // ---------- constants ----------
 const THROTTLE_MS = globalThis.__TRIAGE_THROTTLE_MS || 10 * 60 * 1000;
-// Error code -> [backoff ms, status label]. AI 429s clear far sooner than B站 risk control.
-const THROTTLES = { THROTTLED: [THROTTLE_MS, "B站限流卡住"], AI_THROTTLED: [60 * 1000, "AI 平台限流卡住"] };
+// Error code -> the wait (waitOut's { ms, label }). AI 429s clear far sooner than B站 risk control.
+const THROTTLES = { THROTTLED: { ms: THROTTLE_MS, label: "B站限流卡住" }, AI_THROTTLED: { ms: 60 * 1000, label: "AI 平台限流卡住" } };
 const SYNC_MIN_GAP_MS = 60 * 1000;
 // Progress tabs: how far a video has been looked at. The AI class is a filter inside a tab, never a tab.
 // 阅览 sits apart after them.
@@ -278,8 +278,9 @@ const S = {
   stage1: { running: false, stop: false, done: 0, total: 0 },
   stage1Skip: new Set(),
   analyzing: new Set(),
-  // B站 / AI limit waits, one per job ("stage1", "group", "write", "load", "check"): { until, label }. Each job shows
-  // and clears only its own countdown.
+  // Every B站 / AI limit wait of both modes (waitOut), one per job: { until, label, onTick }. 收藏夹's jobs are "stage1",
+  // "group", "unfav", "write", "load", "check" and "ai"; 关注's start with "follow-". Each job
+  // shows and clears only its own countdown.
   waits: {},
   seenRead: { busy: false, pages: 0, until: 0 }, // the background's read of the watch history (triage_seen_meta)
   undo: [], // 收藏夹's steps; a folder switch clears them
@@ -764,7 +765,7 @@ let modeKeys = null;
 // 关注's 「UP 标签」 line, redrawn with the 「视频标签」 line.
 let viewerHook = null;
 globalThis.MoonTriage = {
-  openViewer, closeViewer, toast, askConfirm, send, store, runAiBatches, viewing: () => S.viewing,
+  openViewer, closeViewer, toast, askConfirm, send, store, runAiBatches, waitOut, waitOf, viewing: () => S.viewing,
   // The playing 收藏夹 video's UP as { mid, name } (mid "" on items saved before it was stored); null in 关注 or with
   // nothing playing.
   viewingUp() {
@@ -1411,7 +1412,7 @@ async function checkRemoved(token) {
     const r = await send({ type: "triage-folder-ids", mediaId: id });
     if (token !== S.folderToken) return;
     if (!r.ok && THROTTLES[r.code]) {
-      await throttleWait(r.code, keepGoing, "check");
+      await waitOut("check", THROTTLES[r.code], keepGoing);
       i--;
       continue;
     }
@@ -1445,7 +1446,7 @@ async function checkWhere(token) {
     const r = await send({ type: "triage-fav-where", aid: it.aid, mid });
     if (token !== S.folderToken) break;
     if (!r.ok && THROTTLES[r.code]) {
-      await throttleWait(r.code, keepGoing, "check");
+      await waitOut("check", THROTTLES[r.code], keepGoing);
       i--;
       continue;
     }
@@ -1612,7 +1613,7 @@ async function runLoadAll(token) {
       const r = await send({ type: "triage-folder-ids", mediaId: id });
       if (token !== S.folderToken) return;
       if (!r.ok && THROTTLES[r.code]) {
-        await throttleWait(r.code, keepGoing, "load");
+        await waitOut("load", THROTTLES[r.code], keepGoing);
         continue;
       }
       if (!r.ok) {
@@ -1648,7 +1649,7 @@ async function runLoadAll(token) {
     L.current = "";
     if (token !== S.folderToken) return;
     if (!r.ok && THROTTLES[r.code]) {
-      await throttleWait(r.code, keepGoing, "load");
+      await waitOut("load", THROTTLES[r.code], keepGoing);
       continue;
     }
     if (!r.ok) {
@@ -1868,12 +1869,13 @@ function activityState() {
   const c = S.removedCheck;
   wait = waitOf("check");
   if (c && !c.error) return { text: wait || `核对${c.what} ${c.done}/${c.total}`, done: c.done, total: c.total, stuck: Boolean(wait) };
-  wait = Object.keys(S.waits).map(waitOf).find(Boolean);
+  // Any other 收藏夹 wait; "ai" shows with AI 打标签 below, and 关注 draws its own.
+  wait = Object.keys(S.waits).filter((job) => job !== "ai" && !job.startsWith("follow-")).map(waitOf).find(Boolean);
   if (wait) return { text: wait, stuck: true };
   if (S.syncing) return { text: `刷新中…${pageText(S.mediaId)}` };
   if (S.ai.running) {
     const where = S.ai.mediaId === String(S.mediaId) ? "" : `（${folderName(S.ai.mediaId)}）`;
-    return { ...UI.aiActivity(S.ai, where), act: "tags", actLabel: "查看" };
+    return { ...UI.aiActivity(S.ai, waitOf("ai"), where), act: "tags", actLabel: "查看" };
   }
   if (S.ai.proposal) return { text: "标签建议待确认", act: "tags", actLabel: "查看" };
   const other = otherAiFolder();
@@ -1892,7 +1894,9 @@ function renderStatus() {
 }
 
 function tick() {
-  if (Object.keys(S.waits).length) renderStatus();
+  const waits = Object.values(S.waits);
+  if (waits.length) renderStatus();
+  for (const w of waits) w.onTick?.();
   if (!S.seenRead.until) return;
   renderStatus();
   // The wait is over: read again, as the pill said.
@@ -2694,7 +2698,7 @@ async function batchUnfav(list) {
       chunk.forEach((it) => deciding.delete(it.bvid));
       // B站 risk control: wait out the countdown, then the same chunk again.
       if (!r.ok && THROTTLES[r.code]) {
-        await throttleWait(r.code, () => true, "unfav");
+        await waitOut("unfav", THROTTLES[r.code], () => true);
         i -= size;
         continue;
       }
@@ -3203,15 +3207,22 @@ function aiItem(it) {
   return { bvid: it.bvid, title: it.title, upper: it.upper, duration: it.duration, pubdate: it.pubdate, intro: it.intro };
 }
 
-async function throttleWait(code, keepGoing, job) {
-  const [ms, label] = THROTTLES[code];
-  S.waits[job] = { until: Date.now() + ms, label };
+// The one wait of the 分拣台 (both modes): job's countdown for ms, or until keepGoing() turns false. tick() redraws it
+// each second: the 收藏夹 pill, and onTick for a line drawn elsewhere (关注's pill, the AI 打标签 dialog).
+async function waitOut(job, { ms, label }, keepGoing, onTick = null) {
+  S.waits[job] = { until: Date.now() + ms, label, onTick };
   renderStatus();
+  onTick?.();
   await sleepWhile(ms, keepGoing);
   delete S.waits[job];
   renderStatus();
+  onTick?.();
 }
-const waitOf = (job) => (S.waits[job] ? UI.waitText(S.waits[job].label, Math.ceil((S.waits[job].until - Date.now()) / 1000)) : "");
+// 「B站限流卡住，1:30 后重试」 while job waits, else "".
+function waitOf(job) {
+  const w = S.waits[job];
+  return w ? UI.waitText(w.label, Math.ceil((w.until - Date.now()) / 1000)) : "";
+}
 
 // What 标题粗看 counts and sends: the 未分析 videos listed now (search and filters applied), not the hidden ones.
 const stage1Pending = () => S.items.filter((it) => stageOf(it) === "none" && !S.stage1Skip.has(it.bvid) && passFilter(it));
@@ -3255,7 +3266,7 @@ async function runStage1(list = stage1Pending()) {
     const [step, r] = aiNext(sent, n, () => true);
     if (step === "retry") continue;
     if (step === "wait") {
-      await throttleWait(r.code, keepGoing, "stage1");
+      await waitOut("stage1", THROTTLES[r.code], keepGoing);
       continue;
     }
     if (step === "stop") {
@@ -3331,7 +3342,7 @@ async function runGroup() {
     if (step === "retry") continue;
     if (step === "wait") {
       render();
-      await throttleWait(r.code, keepGoing, "group");
+      await waitOut("group", THROTTLES[r.code], keepGoing);
       continue;
     }
     if (step === "stop") {
@@ -3483,14 +3494,14 @@ const openAi = () => TagDialogs.ai.open(aiTags);
 // batch alike (aiEnds) ends the run. Returns
 // { proposal, errors }: proposal is null when no batch got through, so there is nothing to confirm (the progress line says why).
 // name(i), when given, says which batch in the progress line and errors (所有收藏夹 names the folder).
-// at, the mode's run state, gets { done, total, until, label } for the pill; progress runs at least once a second while
-// waiting, so the pill and the dialog count down.
-async function runAiBatches({ total, request, merge, intervalMs, keepGoing, progress, at, name = null }) {
+// at, the mode's run state, gets { done, total } for the pill; a limit waits as job (waitOut), and progress runs once a
+// second meanwhile, so the pill and the dialog count down.
+async function runAiBatches({ total, request, merge, intervalMs, keepGoing, progress, at, job, name = null }) {
   const which = (i, full = false) => (name ? name(i) : full ? `第 ${i + 1} / ${total} 批` : `第 ${i + 1} 批`);
   const p = { newTags: [], rows: [], notes: [], errors: [] };
   let answered = 0;
   const n = { timeouts: 0, waits: 0 };
-  Object.assign(at, { done: 0, total, until: 0 });
+  Object.assign(at, { done: 0, total });
   for (let i = 0; i < total && keepGoing(); i++) {
     at.done = i;
     progress(`AI 正在处理${which(i, true)}…`);
@@ -3500,13 +3511,7 @@ async function runAiBatches({ total, request, merge, intervalMs, keepGoing, prog
       continue;
     }
     if (step === "wait") {
-      const [ms, label] = THROTTLES[r.code];
-      Object.assign(at, { until: Date.now() + ms, label });
-      for (let sec = Math.round(ms / 1000); sec > 0 && keepGoing(); sec--) {
-        progress(`${UI.waitText(label, sec)}${which(i)}…`);
-        await sleepWhile(1000, keepGoing);
-      }
-      at.until = 0;
+      await waitOut(job, THROTTLES[r.code], keepGoing, () => waitOf(job) && progress(`${waitOf(job)}${which(i)}…`));
       i--;
       continue;
     }
@@ -3582,7 +3587,8 @@ async function runAiCommand({ instruction, scope, allowRemove }) {
     intervalMs: S.settings.triageIntervalSec * 1000,
     keepGoing: () => !S.ai.stop,
     progress: (text) => (TagDialogs.ai.progress(aiTags, text, folder), renderStatus()),
-    at: S.ai
+    at: S.ai,
+    job: "ai"
   });
   S.ai.running = false;
   if (p) {
@@ -3931,7 +3937,7 @@ async function runWrite(md = false) {
     // B站 risk control: wait as 粗看 / 细看 do, then the same video again.
     if (!r.ok && THROTTLES[r.code]) {
       el.writeProgress.textContent = `${THROTTLES[r.code][1]}，等待后重试：${it.title}`;
-      await throttleWait(r.code, keepGoing, "write");
+      await waitOut("write", THROTTLES[r.code], keepGoing);
       i--;
       continue;
     }
