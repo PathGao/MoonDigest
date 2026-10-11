@@ -1,26 +1,19 @@
-// 生成 dev-sidepanel/index.html：复制 sidepanel.html，改相对路径，并在 sidepanel.js 前注入 mock chrome。
-// 用法：node extension/dev-sidepanel/build.mjs，然后在 extension/ 下起静态服务打开 /dev-sidepanel/index.html
-import { readFileSync, writeFileSync } from "node:fs";
+// 生成 dev-sidepanel/index.html：复制 sidepanel.html，把每个 ./x.js、./x.css 改成 ../x，并在 sidepanel.js 前注入 mock chrome。
+// 用法：/usr/local/bin/node extension/dev-sidepanel/build.mjs，然后在 extension/ 下起静态服务打开 /dev-sidepanel/index.html
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const html = readFileSync(join(here, "..", "sidepanel.html"), "utf8")
-  .replace('href="./tokens.css"', 'href="../tokens.css"')
-  .replace('href="./sidepanel.css"', 'href="../sidepanel.css"')
-  .replace('<script src="./limits.js"></script>', '<script src="../limits.js"></script>')
-  .replace('<script src="./errors.js"></script>', '<script src="../errors.js"></script>')
-  .replace('<script src="./settings.js"></script>', '<script src="../settings.js"></script>')
-  .replace('<script src="./typing.js"></script>', '<script src="../typing.js"></script>')
-  .replace('<script src="./sites.js"></script>', '<script src="../sites.js"></script>')
-  .replace('<script src="./note.js"></script>', '<script src="../note.js"></script>')
-  .replace('<script src="./download.js"></script>', '<script src="../download.js"></script>')
+  .replace(/(src|href)="\.\/([^"]+\.(?:js|css))"/g, '$1="../$2"')
   .replace(
-    '<script type="module" src="./sidepanel.js"></script>',
+    '<script type="module" src="../sidepanel.js"></script>',
     '<script src="./mock-chrome.js"></script>\n    <script type="module" src="../sidepanel.js"></script>'
   );
-if (!html.includes("mock-chrome.js") || !html.includes("../tokens.css") || !html.includes("../sidepanel.css") || !html.includes("../sites.js") || !html.includes("../limits.js") || !html.includes("../note.js") || !html.includes("../download.js") || !html.includes("../typing.js") || !html.includes("../errors.js") || !html.includes("../settings.js")) {
-  throw new Error("sidepanel.html 结构变了，build.mjs 的替换没命中");
+if (!html.includes("./mock-chrome.js")) throw new Error("sidepanel.html 结构变了，build.mjs 没注入 mock-chrome.js");
+for (const [, path] of html.matchAll(/(?:src|href)="(\.{1,2}\/[^"]+\.(?:js|css))"/g)) {
+  if (!existsSync(join(here, path))) throw new Error(`index.html 引用的 ${path} 不存在`);
 }
 writeFileSync(join(here, "index.html"), html);
 console.log("wrote dev-sidepanel/index.html");
