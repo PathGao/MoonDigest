@@ -33,7 +33,7 @@ input { font: inherit; color: inherit; }
 }
 /* Lines the 全选 box up with the cards' boxes (card border + padding). */
 .bulkbar label { display: inline-flex; align-items: center; gap: 4px; margin-left: calc(var(--space-3) + 1px); }
-input[type="checkbox"] { accent-color: var(--accent); }
+input[type="checkbox"] { accent-color: var(--action); }
 .destructive { display: inline-flex; gap: var(--space-2); margin-left: auto; }
 
 .list {
@@ -53,7 +53,7 @@ input[type="checkbox"] { accent-color: var(--accent); }
   border-radius: var(--radius-md);
   background: var(--surface);
 }
-.entry:has([data-act="pick"]:checked) { border-color: var(--accent); }
+.entry:has([data-act="pick"]:checked) { border-color: var(--action); background: var(--action-bg); }
 .entry-body { grid-column: 2 / -1; max-width: 72ch; }
 .entry-title { color: var(--text); font-weight: 600; font-size: var(--fs-md); text-decoration: none; overflow-wrap: anywhere; }
 a.entry-title:hover { color: var(--link-hover); text-decoration: underline; }

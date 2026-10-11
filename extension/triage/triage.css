@@ -378,12 +378,11 @@ select { height: 28px; max-width: 240px; }
 .cover { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; display: block; }
 .cover-dur { position: absolute; right: 8px; bottom: 6px; z-index: 1; font-size: var(--fs-xs); font-variant-numeric: tabular-nums; }
 .cover-tag { position: absolute; left: 6px; top: 6px; z-index: 1; height: 20px; padding: 0 6px; border-radius: 4px; font-size: var(--fs-xs); font-weight: 600; line-height: 20px; white-space: nowrap; }
-.cover-tag.keep { background: var(--ok); color: var(--surface); }
+.cover-tag.keep { background: var(--ok-bg); color: var(--ok); }
 .cover-tag.drop { background: rgba(0, 0, 0, 0.55); color: #fff; }
 .cover-tag.unsure { background: #fff; color: var(--warn); }
 .cover-tag.running { background: rgba(0, 0, 0, 0.55); color: #fff; font-weight: 400; }
-/* 观看进度: Bilibili's own progress bar (3px, #ff6699 on 50% black), and the mark in MoonDigest's color so it is not taken for
-   Bilibili's. html[data-seen-style] picks the corner tag or the veil (设置页「看完了标记样式」). */
+/* 观看进度: html[data-seen-style] picks the corner tag or the veil (设置页「看完了标记样式」). */
 .seen-bar { position: absolute; left: 0; right: 0; bottom: 0; z-index: 2; height: 3px; background: rgba(0, 0, 0, 0.5); pointer-events: none; }
 .seen-bar i { display: block; height: 100%; background: #ff6699; }
 /* The bar copies B站's own progress bar (pink on 50% black), as on B站 pages. 看完了 is the same pink (DESIGN 视觉设计 · 颜色: pink is
