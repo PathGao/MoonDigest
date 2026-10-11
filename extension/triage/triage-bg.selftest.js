@@ -479,6 +479,10 @@ assert.throws(() => t.triageParseCommand('{"new_tags":[', cmdItems, cmdTags, {})
   assert.strictEqual((await buildNote()).body.length, 0);
   routes = baseRoutes();
   assert.strictEqual((await buildNote()).body.length, 2);
+  // Without chapters from the player, the description's timestamps give them, as on the video page.
+  routes = baseRoutes();
+  routes["/view/detail"].data.View.desc = "00:00 开场\n01:30 正题";
+  assert.match((await buildNote()).markdown, /## 章节\n\n[^\n]*开场[\s\S]*正题/);
 
   // triage-build-note gives the side panel and 视频记录 the path and cover triage writes with: {{author}} and
   // {{upload_date}} need the API meta, and the cover is downloaded into the vault.

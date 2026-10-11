@@ -335,11 +335,10 @@ async function resolveAiSidepanelContext(contextRef) {
   }
 
   const hotComments = site.fetchComments ? await site.fetchComments(videoRef, meta, io).catch(() => []) : [];
-  const chapters = BocSites.normalizeChapters(bundle.chapters?.length ? bundle.chapters : BocSites.parseChaptersFromDescription(meta.description));
   const title = String(meta.title || ref.title || "").trim();
-  const subtitleLang = String(selectedTrack?.label || selectedTrack?.lang || "").trim();
   // The same note the video page sends (content.js buildSidepanelContext), with the fields its state carries.
-  const noteMeta = { ...meta, title, site: site.id, videoId: videoRef.id, chapters, videoDuration: meta.duration, videoTags: meta.tags || [], selectedSubtitleLang: subtitleLang };
+  const noteMeta = { ...BocNote.noteMetaOf({ site: site.id, videoId: videoRef.id, meta, bundle, track: selectedTrack }), title };
+  const subtitleLang = noteMeta.selectedSubtitleLang;
   const noteRef = { site: site.id, id: videoRef.id, part: { index: meta.pageIndex || 1, cid: meta.cid }, url: canonicalVideoUrl({ ...meta, site: site.id, videoId: videoRef.id }) };
   return {
     title,

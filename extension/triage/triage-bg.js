@@ -728,26 +728,7 @@ async function triageBuildNote(bvid, settings) {
   const body = valid(fetched) ? fetched : [];
   const hotComments =
     settings.includeHotCommentsInNote || !body.length ? await site.fetchComments(ref, meta, io).catch(() => []) : [];
-  const noteMeta = {
-    site: "bilibili",
-    videoId: bvid,
-    cid: meta.cid,
-    aid: meta.aid,
-    title: meta.title,
-    author: meta.author,
-    authorUrl: meta.authorUrl,
-    uploadDate: meta.uploadDate,
-    description: meta.description,
-    videoDuration: meta.duration,
-    cover: meta.cover,
-    videoTags: meta.tags,
-    selectedSubtitleLang: track ? track.label || track.lang : "",
-    chapters: bundle.chapters || [],
-    hotComments,
-    pageIndex: meta.pageIndex,
-    pageCount: meta.pageCount,
-    pageTitle: meta.pageTitle
-  };
+  const noteMeta = { ...BocNote.noteMetaOf({ site: "bilibili", videoId: bvid, meta, bundle, track }), hotComments };
   const { aiConversations, triageNotes, triageTags, triageVideoTags } = BocLimits.KEYS;
   const cacheKey = BocLimits.KEYS.triageAnalysis(bvid);
   const stored = await chrome.storage.local.get([cacheKey, aiConversations, triageNotes, triageTags, triageVideoTags]);

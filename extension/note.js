@@ -1020,6 +1020,21 @@
       });
   }
 
+  // The note fields the background readers (side panel follow-up, 分拣台 notes) take from the sites.js fetchers;
+  // the video page's state already carries them. Chapters fall back to the description, as on the video page.
+  function noteMetaOf({ site, videoId, meta, bundle, track }) {
+    const chapters = bundle?.chapters?.length ? bundle.chapters : BocSites.parseChaptersFromDescription(meta.description);
+    return {
+      ...meta,
+      site,
+      videoId,
+      videoDuration: meta.duration,
+      videoTags: meta.tags || [],
+      chapters: BocSites.normalizeChapters(chapters),
+      selectedSubtitleLang: String(track?.label || track?.lang || "").trim()
+    };
+  }
+
   // The note as the AI reads it (video page and background): no hot comments, and no player embed, which is for
   // Obsidian only; the note written or downloaded keeps it.
   const buildAiContext = (meta, body, settings, ref) =>
@@ -1028,6 +1043,7 @@
   globalThis.BocNote = {
     buildMarkdown,
     buildAiContext,
+    noteMetaOf,
     AI_SECTION_START,
     AI_SECTION_END,
     TIMESTAMP_PATTERN,
