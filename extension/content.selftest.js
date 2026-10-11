@@ -425,8 +425,10 @@ const settle = async () => {
         state.markdown = "";
         if (switched) t.location.href = "https://www.bilibili.com/video/BV1xx411c7mD/";
       };
-      await t.sendToObsidian();
+      const reply = await t.sendToObsidian();
       t.location.href = realUrl;
+      // The side panel goes on to the AI 问答 section only after a write.
+      assert.strictEqual(reply?.written, switched ? false : undefined);
       if (switched) {
         assert.deepStrictEqual(sent, ["obsidian-note-exists"], "no write after the video changed");
         assert.strictEqual(messages.at(-1), "视频已切换，未写入 Obsidian。");
@@ -434,6 +436,11 @@ const settle = async () => {
         assert.strictEqual(written, "# 视频 A", "the content taken before the dialog");
       }
     }
+    // 取消 writes nothing and tells the side panel so.
+    [sent, messages] = [[], []];
+    t.confirmOverwriteNote = async () => "";
+    assert.deepStrictEqual({ ...(await t.sendToObsidian()) }, { written: false });
+    assert.deepStrictEqual([sent, messages.at(-1)], [["obsidian-note-exists"], "已取消写入 Obsidian，原笔记未被覆盖。"]);
     // A failed write answers the popup and the side panel with the reason and code, not a success.
     t.sendRuntimeMessage = async () => ({ ok: false, error: t.BocErrors.TEXT.obsidianDown, code: "OBSIDIAN_DOWN" });
     assert.deepStrictEqual({ ...(await t.sendToObsidian()) }, { ok: false, error: t.BocErrors.TEXT.obsidianDown, code: "OBSIDIAN_DOWN" });

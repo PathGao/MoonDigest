@@ -196,6 +196,16 @@ const page = (id) => ({ ok: true, payload: { url: `https://example.com/${id}`, t
     assert.deepStrictEqual(notices.filter(([text]) => !text.startsWith("正在")), [[`写入 Obsidian 失败：${E.TEXT.obsidianDown}`, true], ["视频已切换，未写入 Obsidian。", undefined]]);
     assert.strictEqual(settings, 1, "a closed Obsidian does not open the settings page");
 
+    // 取消 in the page's overwrite dialog: the note exists at the page's path, and nothing is written to it.
+    let syncs = 0;
+    ctx.syncVideoNoteAiSection = async () => ({ exists: syncs++ > 0, filepath: "p.md" });
+    notices.length = 0;
+    reply = { ok: true, written: false, payload: { message: "已取消写入 Obsidian，原笔记未被覆盖。" } };
+    await ctx.saveCurrentConversationToObsidian();
+    assert.strictEqual(syncs, 1, "the AI 问答 section is not updated after 取消");
+    assert.deepStrictEqual(notices.at(-1), ["已取消写入 Obsidian，原笔记未被覆盖。", undefined]);
+    ctx.syncVideoNoteAiSection = async () => ({ exists: false, filepath: "p.md" });
+
     // A YouTube video (or a B站 P2+) without a note and with its page closed: no note can be built, so the
     // conversation is written as its own note, as on 视频记录, linking the video note's path.
     const realRuntimeSend = ctx.chrome.runtime.sendMessage;

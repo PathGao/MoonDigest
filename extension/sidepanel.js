@@ -2475,10 +2475,15 @@ async function saveCurrentConversationToObsidian() {
     if (!resp?.ok) {
       throw BocErrors.fromResp(resp, "没能新建视频笔记");
     }
+    // The existing note was left alone (取消, the video switched): the page's own line says why, and nothing is written.
+    if (resp.written === false) {
+      showConversationContextNotice(resp.payload?.message || "已取消写入 Obsidian，原笔记未被覆盖。", 2200);
+      return;
+    }
     // The page's note carries its latest conversation; the live context (the page's own key and path)
     // finds the note it just wrote, and this conversation replaces that section.
     const created = await syncVideoNoteAiSection({ context: live, messages, ...settingsBundle });
-    // Not written and not failed (the overwrite declined, the video switched): the page's own line says why.
+    // Not written and not failed (no content to write): the page's own line says why.
     if (!created?.exists) {
       showConversationContextNotice(resp.payload?.message || "没能新建视频笔记", 4000);
       return;

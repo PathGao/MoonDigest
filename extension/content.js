@@ -1441,7 +1441,8 @@ function getPopupPayload() {
   };
 }
 
-// Resolves { ok: false, error, code } when the write failed; nothing otherwise (written, cancelled, video switched).
+// Resolves { ok: false, error, code } when the write failed, { written: false } when the existing note was left alone
+// (取消, video switched), nothing otherwise.
 async function sendToObsidian() {
   state.settings = await getSettings();
   if (!state.settings.obsidianEnabled) {
@@ -1482,13 +1483,13 @@ async function sendToObsidian() {
       const choice = await confirmOverwriteNote(filepath, { hasAiSection: Boolean(aiSection) });
       if (!choice) {
         setMessage("已取消写入 Obsidian，原笔记未被覆盖。");
-        return;
+        return { written: false };
       }
       onPage = true;
       if (computeCurrentClipSignature() !== clip) {
         setMessage("视频已切换，未写入 Obsidian。");
         setReadingNotice("视频已切换，未写入 Obsidian。");
-        return;
+        return { written: false };
       }
       setReadingNotice("正在写入 Obsidian…", { busy: true });
       if (choice === "ai") {
