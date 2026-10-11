@@ -360,7 +360,7 @@ assert.ok(!biliSaysSeen(h("a", {}, h("div", { class: "bili-cover-card__stats" },
 
   const titles = items.map((i) => i.querySelector(".bili-dyn-title__text"));
   assert.strictEqual(tagsText(chipAfter(homeAuthor)), "常看", "chip right after the author name inside the link");
-  assert.strictEqual(chipAfter(homeAuthor).title, "MoonDigest 的 UP 标签 · 只存在扩展里");
+  assert.strictEqual(chipAfter(homeAuthor).title, "UP 标签 · 只存在 MoonDigest 里，不改 B站");
   assert.strictEqual(tagsText(chipAfter(titles[0])), "常看", "动态 card: name matched via follow_people");
   assert.strictEqual(tagsText(chipAfter(titles[1])), "游戏");
   assert.strictEqual(chipAfter(titles[2]), null, "an UP without tags: no DOM change");
@@ -556,7 +556,7 @@ async function plusPage() {
   assert.ok(cBox.classList.contains("mdg-ups-empty"), "an untagged followed UP: a box with only the 「+」");
   assert.strictEqual(tagsOf(title("c")), "");
   const plus = plusOf(title("c"));
-  assert.strictEqual(plus.title, "给这个 UP 打标签 · 只存在扩展里，不改 B站");
+  assert.strictEqual(plus.title, "打 UP 标签 · 只存在 MoonDigest 里，不改 B站");
   assert.deepStrictEqual([plus.attrs.role, plus.attrs["aria-label"], plus.attrs["aria-expanded"], plus.tabIndex], ["button", "给 丙 打 UP 标签", "false", 0]);
   assert.deepStrictEqual(counts(), ["全部6", "常看2", "游戏0"]);
 
@@ -572,7 +572,7 @@ async function plusPage() {
   assert.strictEqual(plus.attrs["aria-expanded"], "true");
   const rows = () => panel.querySelectorAll(".opt").filter((b) => b.dataset.id).map((b) => `${b.textContent}:${b.attrs["aria-checked"]}`);
   assert.deepStrictEqual(rows(), ["常看:false", "游戏:false"]);
-  assert.strictEqual(panel.querySelector(".h").textContent, "给「丙」打标签");
+  assert.strictEqual(panel.querySelector(".h").textContent, "给「丙」打 UP 标签");
   assert.strictEqual(panel.querySelector(".new").textContent, "+新建标签");
   assert.strictEqual(panel.querySelector(".foot").textContent, "只存在 MoonDigest 里，不改 B站 · Esc 关闭");
   assert.strictEqual(focused.el, panel.querySelector(".opt"), "focus moves into the picker");

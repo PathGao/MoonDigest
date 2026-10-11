@@ -277,6 +277,13 @@ assert.strictEqual(t.fmtAgo(ago(800), now), "2 年前");
   assert.ok(!/fw[A-Z]/.test(fs.readFileSync(path.join(__dirname, "triage.js"), "utf8")), "triage.js names no 关注 element");
 }
 
+// 视频投稿 paging on B站限流: the stuck pill counts down, then loads again by itself; a selection belongs to its tab.
+{
+  assert.ok(source.includes('if (r.code === "THROTTLED") waitFeed(f);') && /if \(!f\.hasMore \|\| f\.loading \|\| f\.wait\) return;/.test(source), "限流 waits instead of an error, and nothing loads during the wait");
+  assert.ok(/function waitFeed[\s\S]*?f\.wait = 0;\s*more\(\);/.test(source) && /if \(f\.wait\) \{[\s\S]*?stuck: true/.test(source), "countdown, then retry");
+  assert.ok(/function setTab\(tab\) \{[^}]*if \(tab !== F\.tab\) F\.sel\.clear\(\);/.test(source), "switching UP 主 / 视频投稿 clears the selection");
+}
+
 // The tag row's buttons open the shared dialogs (tag-dialogs.js) with 关注's adapters: 标签管理 → 标签管理, ✦ AI 打标签
 // (and 查看 in the progress pill, data-fw="ai") → AI 打标签. 关注 draws no tag dialog of its own.
 {

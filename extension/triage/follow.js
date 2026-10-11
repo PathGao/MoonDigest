@@ -170,9 +170,9 @@ function visibleUps(D, rows, f) {
   return { list, counts };
 }
 
-// UP 主 sort: 最近更新 (last post), 关注时间, 粉丝数, 名字; dir "desc" = big / new first. An UP with no value (never
+// UP 主 sort: 最后投稿, 关注时间, 粉丝数, 名字; dir "desc" = big / new first. An UP with no value (never
 // posted or unknown, no follow time, 粉丝数未查) sinks to the bottom in both directions; ties keep the list order.
-const SORTS = { last: "最近更新", follow: "关注时间", fans: "粉丝数", name: "名字" };
+const SORTS = { last: "最后投稿", follow: "关注时间", fans: "粉丝数", name: "名字" };
 const SORT_DIR = { last: "desc", follow: "desc", fans: "desc", name: "asc" }; // each sort's default direction
 function sortCmp(sort, dir = SORT_DIR[sort] || "desc") {
   const val = { last: (u) => u.last || null, follow: (u) => u.followed || null, fans: (u) => u.fans ?? null, name: (u) => u.name }[sort] || ((u) => u.last || null);
@@ -292,7 +292,7 @@ const viewRecord = (F) => ({ mode: F.mode, tab: F.tab, sort: F.sort, dir: F.dir,
 // O / Enter on an UP card: its newest video that can play here (one with a bvid), or "".
 const latestBvid = (u) => u?.titles.find((v) => v.bvid)?.bvid || "";
 // Why ✦ AI 打标签 cannot run here (it tags UP 主 that are followed), or "".
-const aiBlocked = (tab, side) => (tab === "feed" ? "AI 打标签给 UP 主打，在「UP 主」页签用" : side === "gone" ? "已取消关注的 UP 主不打标签，重新关注后再打" : "");
+const aiBlocked = (tab, side) => (tab === "feed" ? "AI 打标签只用于 UP 主，请在「UP 主」页签使用" : side === "gone" ? "已取消关注的 UP 主不打标签，重新关注后再打" : "");
 // The AI dialog's 「允许 AI 去掉已有标签」, stored with the rest of follow_ai_settings.
 const withAllowRemove = (settings, on) => normAi({ ...settings, allowRemove: on });
 // The 收藏夹 player's UP ({ mid, name }) among 关注's rows: by mid; items saved before mids were stored match by name
@@ -315,7 +315,7 @@ const saveView = () => T.store({ [VIEW_KEY]: viewRecord(F) });
 const AI_HISTORY_KEY = "follow_ai_history";
 const STATUS_TEXT = Object.fromEntries(STATUS);
 const STATUS_BADGE = { active: "keep", slow: "unsure", dead: "drop", stale: "unsure low", none: "none", unchecked: "none" };
-const PHASE = { list: "读关注列表", feed: "翻视频投稿", arc: "查投稿" };
+const PHASE = { list: "读取关注列表", feed: "读取视频投稿", arc: "查投稿" };
 const DRY_PAGES = 3; // the feed stops loading by itself after this many pages in a row without a video for the picked item
 const FEED_KEEP_MS = 3 * 60 * 1000; // as the background's cache; older lists start over
 const space = (mid) => `https://space.bilibili.com/${mid}`;
@@ -368,7 +368,7 @@ main.innerHTML = `
   <div class="tabrow">
     <nav id="fwTabs" class="tabs fw-tabs" role="tablist" aria-label="关注"></nav>
     <span class="row-tools" role="toolbar" aria-label="关注的操作">${UI.searchBox("fwQ", "fwQCount", "在「关注」· UP 主里搜")}${UI.rowButtons({
-      activityId: "fwActivity", refreshId: "fwRefreshBtn", refreshLabel: "从 B站刷新关注", refreshTitle: "读关注列表、翻视频投稿，再查里面没出现的人",
+      activityId: "fwActivity", refreshId: "fwRefreshBtn", refreshLabel: "从 B站刷新关注", refreshTitle: "读取关注列表和视频投稿，再逐个查询视频投稿里没有的 UP 主",
       exportId: "fwExportBtn", menuId: "fwExport",
       menuHtml: UI.menuItem('data-fw="csv" aria-label="下载 UP 主表格 CSV"', "UP 主表格 (CSV)", "名字、标签、更新状态、最后投稿、粉丝数") + "<hr>" + UI.BACKUP_ITEM,
       settingsAttr: 'data-fw="settings"', settingsLabel: "关注设置"
@@ -474,7 +474,7 @@ async function setMode(mode, save = true) {
   for (const b of document.querySelectorAll("#modeSwitch [data-mode]")) b.setAttribute("aria-pressed", String(b.dataset.mode === mode));
   if (save) saveView();
   if (on) await ensureLoaded();
-  // One feed page (cached a few minutes in the worker) brings posts made since the last 刷新 into 最近更新.
+  // One feed page (cached a few minutes in the worker) brings posts made since the last 刷新 into 最后投稿.
   if (on) send({ type: "follow-feed", offset: "" }).catch(() => {});
   if (on) render();
   else renderLogin();
@@ -482,6 +482,7 @@ async function setMode(mode, save = true) {
 function setTab(tab) {
   TagPicker.close();
   if (T.viewing()) T.closeViewer();
+  if (tab !== F.tab) F.sel.clear(); // a selection belongs to its tab (switching the sidebar keeps it)
   F.tab = tab;
   E.q.value = tab === "feed" ? F.fq : F.q;
   saveView();
@@ -514,7 +515,7 @@ const STAR = '<span class="star-mark" aria-hidden="true">★</span>';
 function renderSide() {
   const item = (id) => UI.sideItem({ attrs: `data-side="${esc(id)}"`, label: sideLabel(id), count: sideCount(id), on: F.side === id, pre: id === `g:${SPECIAL}` ? STAR : "" });
   const ids = sideIds(D);
-  side.innerHTML = `<div class="side-head">UP 主</div><div class="folder-list">${ids.slice(0, -1).map(item).join("")}</div>
+  side.innerHTML = `<div class="side-head">关注分组</div><div class="folder-list">${ids.slice(0, -1).map(item).join("")}</div>
     <button type="button" class="quiet side-manage" data-fw="groups" title="新建、改名或删除 B站 的关注分组">分组管理</button>
     <hr>${item("gone")}${UI.sideFoot({ settingsAttrs: 'data-fw="settings" aria-label="关注设置"', settingsLabel: "关注设置" })}`;
   sideSlot.innerHTML = sideSelect();
@@ -676,7 +677,7 @@ function renderUps() {
 function emptyHtml() {
   const j = D.jobs || {};
   const act = j.running ? `<p class="muted" aria-busy="true">刷新中…读到就显示在这里</p>` : UI.refreshEmpty('data-fw="sync" class="primary"');
-  return UI.emptyState("还没有关注数据", "先从 B站读你的关注列表，再翻视频投稿看谁最近发过视频，里面没出现的人再一个个查投稿。只读，不改 B站。", act);
+  return UI.emptyState("还没有关注数据", "读取关注列表和视频投稿，按最后投稿时间分为活跃、慢更、断更；视频投稿里没有的 UP 主再逐个查询。只读，不改 B站。", act);
 }
 
 // Why some 更新状态 are missing, with the job's live state or the button that fills them in.
@@ -708,7 +709,7 @@ function upCard(mid) {
     u.last ? `最后投稿 ${UI.agoHtml(u.last, now)}` : u.status === "stale" && !u.gone ? esc(`${cfg.slowDays} 天以上没投稿`) : "",
     u.count && `${u.count} 个视频`,
     u.fans != null ? `粉丝 ${esc(fmtCount(u.fans))}` : F.sort === "fans" && !u.gone ? "粉丝数未查" : "",
-    u.gone ? `${u.gone.source === "bili" ? "在 B站取消关注" : "在这里取消关注"} · ${UI.agoHtml(u.gone.at || now, now)}` : u.followed && `关注于 ${UI.agoHtml(u.followed, now)}`
+    u.gone ? `取消关注于 ${UI.agoHtml(u.gone.at || now, now)}（${u.gone.source === "bili" ? "在 B站" : "在这里"}）` : u.followed && `关注于 ${UI.agoHtml(u.followed, now)}`
   ].filter(Boolean);
   const chips = u.tagIds.map(tagOf).map((t) => u.gone
     ? `<span class="chip" style="--c:${esc(t.color)}">${esc(t.name)}</span>`
@@ -758,7 +759,7 @@ function renderSel() {
 }
 
 // ----- 视频投稿 -----
-const freshFeed = () => ({ items: [], offset: "", hasMore: true, loading: false, error: "", dry: 0, at: Date.now() });
+const freshFeed = () => ({ items: [], offset: "", hasMore: true, loading: false, error: "", wait: 0, dry: 0, at: Date.now() });
 
 // What the 视频投稿 list and its counts go by.
 const feedF = () => ({ side: F.side, q: F.fq, tagState: F.tagState, tags: F.tags });
@@ -783,10 +784,10 @@ function renderFeed() {
   E.sel.innerHTML = "";
   renderFoot(list.length);
   observeFoot();
-  if (!items.length && F.feed.hasMore && !F.feed.loading && !F.feed.error) more();
+  if (!items.length && F.feed.hasMore && !F.feed.loading && !F.feed.error && !F.feed.wait) more();
 }
 
-const addBtn = (mid, name) => UI.tagPlusBtn(`data-pick="${esc(mid)}"`, `给 ${name} 打标签`);
+const addBtn = (mid, name) => UI.tagPlusBtn(`data-pick="${esc(mid)}"`, `给 ${name} 打 UP 标签`);
 
 // The viewer's 「UP 标签」 line: the playing video's UP, its tags, + 标签 (the same picker as the cards). In 关注 it is
 // the only line and T tags this UP; in 收藏夹 it sits under 「视频标签」, where T tags the video, and shows only for an
@@ -810,7 +811,7 @@ function renderViewerUp() {
   const ids = u ? u.tagIds : liveTags(mid, D);
   const chips = ids.map(tagOf).map((t) => `<span class="chip" style="--c:${esc(t.color)}"${u?.gone ? "" : ` data-pick="${esc(mid)}"`}>${esc(t.name)}</span>`).join("");
   const pre = `${face ? `<img src="${esc(img(face, "48w_48h_1c"))}" alt="" referrerpolicy="no-referrer">` : ""}<a class="name" href="${space(mid)}" target="_blank" rel="noopener">${esc(name)}</a>`;
-  vline.innerHTML = UI.viewerLine({ label: "UP 标签", pre, chips, plus: !u?.gone && { attrs: `data-pick="${esc(mid)}"`, label: `给 ${name} 打标签`, key: follow } });
+  vline.innerHTML = UI.viewerLine({ label: "UP 标签", pre, chips, plus: !u?.gone && { attrs: `data-pick="${esc(mid)}"`, label: `给 ${name} 打 UP 标签`, key: follow } });
 }
 T.setViewerHook(renderViewerUp);
 
@@ -837,12 +838,17 @@ function renderFoot(n = feedList(F.feed.items, D, feedF(), null).length) {
   const f = F.feed;
   const oldest = f.items.length ? Math.min(...f.items.map((it) => it.at)) : 0;
   const where = F.side === "gone" ? "已取消关注的人不在视频投稿里。" : "";
-  const reach = oldest ? `已往前看到 ${fmtDate(oldest)}（${fmtAgo(oldest, nowSec())}），共 ${f.items.length} 个视频。` : "";
+  const reach = oldest ? `已加载到 ${fmtDate(oldest)}（${fmtAgo(oldest, nowSec())}），共 ${f.items.length} 个视频。` : "";
+  // B站限流: the follow sync's amber pill with the red ⚠ and the countdown, then more() tries again by itself.
+  if (f.wait) {
+    foot.innerHTML = `<p>${esc(reach)}</p><span class="activity" role="status"></span>`;
+    return UI.setActivity(foot.lastChild, { text: UI.waitText("B站限流卡住", Math.max(1, Math.ceil(f.wait - nowSec()))), stuck: true });
+  }
   let text;
   if (f.error) text = f.error;
   else if (f.loading) text = f.items.length ? `${reach}正在加载更早的…` : "正在读关注的人的新视频…";
   else if (!n && f.items.length) text = `${where || (F.fq.trim() ? "已加载的视频里没有匹配搜索的。" : filtersOn() ? "已加载的视频里没有符合筛选的。" : "这里的 UP 主最近没发视频。")}${reach}`;
-  else if (!f.hasMore) text = f.items.length ? `${reach}B站只给到这里。` : "关注的人最近都没发视频。";
+  else if (!f.hasMore) text = f.items.length ? `${reach}B站 只提供到这里。` : "关注的人最近都没发视频。";
   else text = reach;
   const stopped = !n || f.dry >= DRY_PAGES;
   const btn = f.error ? `<button type="button" data-fw="more">重试</button>`
@@ -853,16 +859,29 @@ function renderFoot(n = feedList(F.feed.items, D, feedF(), null).length) {
 let io = null;
 function observeFoot() {
   io ||= new IntersectionObserver((entries) => {
-    if (F.tab === "feed" && entries.some((e) => e.isIntersecting) && F.feed.dry < DRY_PAGES && !F.feed.error) more();
+    if (F.tab === "feed" && entries.some((e) => e.isIntersecting) && F.feed.dry < DRY_PAGES && !F.feed.error && !F.feed.wait) more();
   }, { root: E.list, rootMargin: "400px 0px" });
   io.disconnect();
   const foot = $("fwFoot");
   if (foot) io.observe(foot);
 }
 
+// The background already paused its queue twice before answering THROTTLED; wait its pause again, then go on.
+const FEED_WAIT_SEC = 90; // follow-bg.js FOLLOW_CFG.backoffMs
+function waitFeed(f) {
+  f.wait = nowSec() + FEED_WAIT_SEC;
+  const tick = setInterval(() => {
+    if (F.feed !== f) return clearInterval(tick);
+    if (nowSec() < f.wait) return renderFoot();
+    clearInterval(tick);
+    f.wait = 0;
+    more();
+  }, 1000);
+}
+
 async function more({ byHand = false } = {}) {
   const f = F.feed;
-  if (!f.hasMore || f.loading) return;
+  if (!f.hasMore || f.loading || f.wait) return;
   if (byHand) f.dry = 0;
   f.loading = true;
   f.error = "";
@@ -870,7 +889,8 @@ async function more({ byHand = false } = {}) {
   const r = await send({ type: "follow-feed", offset: f.offset });
   f.loading = false;
   if (F.feed !== f) return;
-  if (!r.ok) f.error = r.code === "NOT_LOGGED_IN" ? "没登录 B站，登录后点重试" : r.code === "THROTTLED" ? "被 B站限流了，过一会儿点重试" : `没读到：${r.error || "未知错误"}`;
+  if (r.code === "THROTTLED") waitFeed(f);
+  else if (!r.ok) f.error = r.code === "NOT_LOGGED_IN" ? "没登录 B站，登录后点重试" : `读取失败：${r.error || "未知错误"}`;
   else {
     const { items, add } = mergeFeed(f.items, r.data.items || []);
     f.items = items;
@@ -930,8 +950,8 @@ async function relationRun(calls, label, { quiet = false } = {}) {
 
 async function unfollow(mids) {
   if (!mids.length) return;
-  // Always asked, even for one: following again later loses the original follow date.
-  const ok = await askConfirm(`在 B站取消关注 ${mids.length} 个 UP 主？`, `${names(mids)}<p class="dialog-hint">标签会记着，在「已取消关注」里可以重新关注，但关注日期会变成重新关注的那天。</p>`, `取消关注 ${mids.length} 个`, { danger: true });
+  // Always asked, even for one: following again later does not bring back the follow date, ★ 特别关注 or 关注分组.
+  const ok = await askConfirm(`在 B站取消关注 ${mids.length} 个 UP 主？`, `${names(mids)}<p class="dialog-hint">标签会保留，可以在「已取消关注」里重新关注。重新关注后，特别关注和所在的关注分组不会恢复，关注日期变成重新关注的那天。</p>`, `取消关注 ${mids.length} 个`, { danger: true });
   if (ok) await relationRun(perUp(mids, (mid) => ({ type: "follow-relation", mid, act: 2 })), "取消关注");
 }
 // U on a B站 write: done = the UP 主 it went through for, back() = the requests that reverse it, built when U is pressed.
@@ -1114,7 +1134,7 @@ $("fwActivity").addEventListener("click", (e) => {
 });
 // The UP 主 table: built from what the page already has. 完整备份 is triage.js's ([data-backup]).
 function upCsv() {
-  const head = ["UP主", "mid", "主页", "标签", "更新状态", "最后投稿", "粉丝数", "关注于", "特别关注", "签名"];
+  const head = ["UP 主", "mid", "主页", "标签", "更新状态", "最后投稿", "粉丝数", "关注于", "特别关注", "签名"];
   const out = [head, ...following().map((m) => rows.get(m)).filter(Boolean).map((u) => [u.name, u.mid, space(u.mid), u.tagIds.map((id) => tagOf(id)?.name).filter(Boolean).join("、"), STATUS_TEXT[u.status] || "", u.last ? fmtDate(u.last) : "", u.fans ?? "", u.followed ? fmtDate(u.followed) : "", u.special ? "是" : "", u.sign])];
   return UI.toCsv(out);
 }
@@ -1177,7 +1197,7 @@ settingsDialog.addEventListener("close", async () => {
 // ----- 标签管理 (tag-dialogs.js) -----
 const manageTags = {
   who: "UP 主",
-  hint: () => "UP 主的标签和收藏夹的视频标签分开，只存在扩展里，不改 B站。",
+  hint: () => "UP 标签和收藏夹的视频标签分开，只存在 MoonDigest 里，不改 B站。",
   tags: () => D.tags,
   count: (id) => following().filter((m) => rows.get(m)?.tagIds.includes(id)).length,
   async add(value) {
@@ -1236,7 +1256,7 @@ function openPick(mids, anchor = "") {
   const n = pick.keep?.size || 0;
   TagPicker.open({
     title: UI.pickTitle(mids.length, upName(mids[0]), "UP 主"),
-    note: n ? `这里有 TA 的 ${n} 个视频` : "",
+    note: n ? `这里有这个 UP 主的 ${n} 个视频` : "",
     targets: mids,
     idsOf: (m) => liveTags(m, D),
     tags: () => D.tags,

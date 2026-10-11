@@ -453,8 +453,8 @@
       if (job) return { ok: true, data: {} };
       const steps = [];
       const startedAt = Math.floor(Date.now() / 1000);
-      if (!store.follow_list) steps.push(["list", "读关注列表", 3, (k) => k === 2 && chrome.storage.local.set({ follow_list: listRec, follow_people: people, follow_unfollowed: unfollowed })]);
-      steps.push(["feed", "翻视频投稿", 4, (k) => k === 3 && chrome.storage.local.set({ follow_last: lastRec, follow_content: { ...content, ...(store.follow_content || {}) } })]);
+      if (!store.follow_list) steps.push(["list", "读取关注列表", 3, (k) => k === 2 && chrome.storage.local.set({ follow_list: listRec, follow_people: people, follow_unfollowed: unfollowed })]);
+      steps.push(["feed", "读取视频投稿", 4, (k) => k === 3 && chrome.storage.local.set({ follow_last: lastRec, follow_content: { ...content, ...(store.follow_content || {}) } })]);
       const todo = Object.keys(later).filter((m) => !store.follow_content?.[m]);
       steps.push(["arc", "查投稿", todo.length, (k) => chrome.storage.local.set({ follow_content: { ...store.follow_content, [todo[k]]: later[todo[k]] } })]);
       job = { stop: false };

@@ -416,7 +416,7 @@
     box.className = `mdg-ups${list.length ? "" : " mdg-ups-empty"}${plus ? ` mdg-plus-${plus}` : ""}${spot.classList?.contains("up-detail-top") ? " mdg-ups-line" : ""}`;
     box.dataset.mid = mid;
     box.dataset.key = key;
-    box.title = "MoonDigest 的 UP 标签 · 只存在扩展里";
+    box.title = "UP 标签 · 只存在 MoonDigest 里，不改 B站";
     appendChips(box, list, "mdg-up");
     if (plus) {
       const add = document.createElement("span");
@@ -430,7 +430,7 @@
       if (open) pick.add = add;
       add.setAttribute("aria-expanded", String(open));
       add.setAttribute("aria-label", `给 ${name} 打 UP 标签`);
-      add.title = "给这个 UP 打标签 · 只存在扩展里，不改 B站";
+      add.title = "打 UP 标签 · 只存在 MoonDigest 里，不改 B站";
       add.textContent = "+ UP 标签";
       box.append(add);
     }
@@ -474,7 +474,7 @@
     bar.dataset.key = key;
     bar.setAttribute("role", "toolbar");
     bar.setAttribute("aria-label", "MoonDigest UP 标签筛选");
-    bar.title = "MoonDigest 的 UP 标签 · 只存在扩展里";
+    bar.title = "UP 标签 · 只存在 MoonDigest 里，不改 B站";
     const brand = document.createElement("span");
     brand.className = "mdg-brand";
     brand.textContent = "MoonDigest";
@@ -649,7 +649,7 @@ input { box-sizing: border-box; width: 100%; margin: 0; padding: 4px 8px; border
     // The chips no longer open the 分拣台; this is the one way there from a B站 page.
     const go = el("button", "go", "在分拣台「关注」里打开这个 UP ↗");
     go.type = "button";
-    pick.panel.replaceChildren(el("div", "h", `给「${pick.add.dataset.name}」打标签`), list, more, go, el("div", "foot", "只存在 MoonDigest 里，不改 B站 · Esc 关闭"));
+    pick.panel.replaceChildren(el("div", "h", `给「${pick.add.dataset.name}」打 UP 标签`), list, more, go, el("div", "foot", "只存在 MoonDigest 里，不改 B站 · Esc 关闭"));
     placePick();
     const again = focus === "input" || focus === "new" ? more.firstChild : [...pickFocusables()].find((b) => b.dataset.id === focus);
     if (focus) (again || pickFocusables()[0])?.focus();

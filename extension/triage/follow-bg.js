@@ -280,7 +280,7 @@ async function followSyncJob(ctx) {
   const get = ctx.get;
 
   if (c.phase === "list") {
-    await ctx.progress({ phase: "list", step: "拉我的关注", done: 0, total: 0, cursor: c });
+    await ctx.progress({ phase: "list", step: "读取关注列表", done: 0, total: 0, cursor: c });
     const nav = (await get(() => followGetJson(`${FOLLOW_API}/x/web-interface/nav`))).data || {};
     if (!nav.isLogin || !nav.mid) throw triageError("未登录 B站：先在这个浏览器里登录 B站", "NOT_LOGGED_IN");
     const fresh = { list: [], followTime: {}, special: {}, groups: {} };
@@ -292,7 +292,7 @@ async function followSyncJob(ctx) {
     for (let pn = 1; pn <= 100; pn++) {
       const url = `${FOLLOW_API}/x/relation/followings?${followQuery({ vmid: nav.mid, pn, ps: 50, order: "desc" })}`;
       const j = await get(() => followAgain(() => followGetJson(url), (j) => pn === 1 && j.code === 0 && !j.data?.list?.length));
-      if (j.code !== 0) throw triageError(`拉我的关注失败：${j.code} ${j.message || ""}`, j.code);
+      if (j.code !== 0) throw triageError(`读取关注列表失败：${j.code} ${j.message || ""}`, j.code);
       const page = j.data?.list || [];
       total = Number(j.data?.total) || 0;
       for (const x of page) {
@@ -353,7 +353,7 @@ async function followSyncJob(ctx) {
       const wip = c.offset && st.follow_last_wip;
       if (!wip) c.offset = "";
       const last = wip ? { ...wip, v: wip.v || {} } : { at: followNow(), since: followNow(), map: {}, v: {} };
-      await ctx.progress({ phase: "feed", step: `翻视频投稿，找 ${slowDays} 天内发过视频的人`, done: 0, total: 0, cursor: c });
+      await ctx.progress({ phase: "feed", step: `读取视频投稿：找出 ${slowDays} 天内投稿的 UP 主`, done: 0, total: 0, cursor: c });
       // ponytail: 600 页（约 12000 个视频）封顶，slowDays 内发得更多要调大
       for (let p = 0; p < 600; p++) {
         const r = await get(() => followFeedPage(c.offset));
@@ -380,7 +380,7 @@ async function followSyncJob(ctx) {
   const known = (m) => have[m] && (!have[m].code || FOLLOW_GONE_CODES.has(have[m].code)) && have[m].at >= since;
   let done = targets.filter(known).length;
   let skipped = 0;
-  const step = "查视频投稿里没出现的人";
+  const step = "查投稿：视频投稿里没有的 UP 主";
   await ctx.progress({ phase: "arc", step, done, total: targets.length, skipped, cursor: c });
   for (const mid of targets) {
     if (known(mid)) continue;
@@ -652,7 +652,7 @@ async function followFeed({ offset = "" } = {}) {
   return data;
 }
 
-// Posts seen in the live feed are newer than the last sync: fold them into follow_last so 「最近更新」 and 更新状态
+// Posts seen in the live feed are newer than the last sync: fold them into follow_last so 「最后投稿」 and 更新状态
 // on the UP 主 tab match the 动态 tab without a full 刷新. Only map / v grow; at and since (the sync's coverage) stay.
 async function followNoteFeedPosts(items) {
   if (!items?.length) return;
