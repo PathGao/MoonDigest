@@ -239,7 +239,7 @@
   // 标签管理 and ✦ AI 打标签 at the right end of the tag row, next to the tags they act on (in 收藏夹 those are the open
   // folder's, so they do not sit in the sidebar). state is 「 · 运行中」 or 「 · 待确认」. noTags puts the dot on 标签管理.
   const tagButtons = ({ manageAttrs, aiAttrs, state = "", manageReason = "", aiReason = "", noTags = false }) =>
-    `<span class="tags-acts"><button type="button" class="act-btn" ${manageAttrs}${noTags && !manageReason ? ' aria-label="标签管理（还没有标签）"' : ""}${reasonAttrs(manageReason)}>标签管理${noTags && !manageReason ? WARN_DOT : ""}</button><button type="button" class="act-btn" ${aiAttrs}${reasonAttrs(aiReason)}>${AI_SPARK}AI 打标签${esc(state)}</button></span>`;
+    `<span class="tags-acts"><button type="button" class="act-btn" ${manageAttrs}${noTags && !manageReason ? ' aria-label="标签管理（还没有自定义标签）"' : ""}${reasonAttrs(manageReason)}>标签管理${noTags && !manageReason ? WARN_DOT : ""}</button><button type="button" class="act-btn" ${aiAttrs}${reasonAttrs(aiReason)}>${AI_SPARK}AI 打标签${esc(state)}</button></span>`;
 
   // Row 3's 全选: a checkbox drawn as a button, for what is listed now (n, of which picked are selected). Unchecked or
   // mixed: a click selects them all; checked: it deselects them. Selections hidden by filters are not its business.

@@ -296,7 +296,7 @@ for (const [file, fns] of [["triage.js", ["mergeAiBatch", "aiChanges"]], ["follo
   UI.setReason(node, "");
   assert.deepStrictEqual([node.disabled, node.title, attrs["aria-description"]], [false, "", undefined]);
   // 标签管理: the warn dot while there are no tags, not when it is disabled anyway.
-  assert.ok(UI.tagButtons({ manageAttrs: "data-m", aiAttrs: "data-a", noTags: true }).includes('aria-label="标签管理（还没有标签）">标签管理<i class="dot-warn"'));
+  assert.ok(UI.tagButtons({ manageAttrs: "data-m", aiAttrs: "data-a", noTags: true }).includes('aria-label="标签管理（还没有自定义标签）">标签管理<i class="dot-warn"'));
   const off = UI.tagButtons({ manageAttrs: "data-m", aiAttrs: "data-a", noTags: true, manageReason: "先打开", aiReason: "先打开" });
   assert.ok(!off.includes("dot-warn") && (off.match(/disabled title="先打开"/g) || []).length === 2, off);
 }

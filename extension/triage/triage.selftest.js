@@ -288,13 +288,18 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   // The card's button says what a click does: 「+ 待播 E」 outside, 「✓ 待播」 inside.
   {
     const btn = (b) => t.cardHtml(item(b), true, "").match(/<button[^>]*data-act="basket"[^]*?<\/button>/)[0];
-    assert.strictEqual(btn(1), '<button type="button" data-act="basket" class="on" aria-label="已在待播，点一下移出 (E)" title="已在待播，点一下移出">✓ 待播</button>');
+    assert.strictEqual(btn(1), '<button type="button" data-act="basket" class="on" aria-label="已在待播，点一下移除 (E)" title="已在待播，点一下移除">✓ 待播</button>');
     const kept = t.S.basket;
     t.S.basket = kept.filter((x) => x.bvid !== "BV1");
     assert.strictEqual(btn(1), '<button type="button" data-act="basket" aria-label="加入待播 (E)" title="加入待播">+ 待播<kbd class="key">E</kbd></button>');
     t.S.basket = kept;
   }
   t.removeBasketItems([2]);
+  t.toggleBasket("BV1");
+  // E on a video already in 待播 is a 移除 too: one undo step, so U puts it back instead of undoing an older step.
+  assert.strictEqual(toasts.at(-1), "已从待播移除 · U 撤销");
+  await t.undo();
+  assert.deepStrictEqual(plain(store[t.K.basket].map((x) => x.bvid)), ["BVgone", "BV1", "BV3"], "U undoes E's 移除");
   t.toggleBasket("BV1");
   assert.deepStrictEqual(plain(store[t.K.basket].map((x) => x.bvid)), ["BVgone", "BV3"]);
   assert.deepStrictEqual(plain(t.S.decisions), { BV2: { action: "keep", at: 1 } }, "移除 leaves decisions alone");

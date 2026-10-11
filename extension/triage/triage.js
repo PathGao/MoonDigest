@@ -1435,7 +1435,7 @@ function dropRemoved(bvids) {
 async function cleanRemoved(list) {
   if (!list.length) return;
   const one = list.length === 1 ? `《${shortTitle(list[0])}》` : `这 ${list.length} 个视频`;
-  const body = `<p>删除${one}的 AI 分析、备注、标签和待播记录，无法撤销。<br>要留存请先从「导出」菜单导出。</p>`;
+  const body = `<p>删除${one}的 AI 判断、AI 总结、备注、标签、保留标记、待播记录和取消收藏记录，无法撤销。删除后不能再从「处理完成」重新收藏。<br>要留存请先从「导出」菜单导出。</p>`;
   if (!(await askConfirm(`清理${one}？`, body, `清理 ${list.length} 个`, { danger: true }))) return;
   return serialStore(async () => {
     const bvids = list.map((it) => it.bvid);
@@ -1752,7 +1752,7 @@ function folderThumb(id, cover) {
 function renderFolderHead() {
   if (!S.mediaId) return (el.folderHead.innerHTML = "");
   const invalid = S.items.filter((it) => it.invalid || it.hidden).length;
-  const explain = S.mediaId === REMOVED && "离开了你勾选的所有收藏夹，AI 分析、备注和标签都还留着，清理前可先从「导出」菜单导出";
+  const explain = S.mediaId === REMOVED && "离开了你勾选的所有收藏夹，AI 判断、AI 总结、备注和标签都还留着，清理前可先从「导出」菜单导出";
   const meta = UI.headMeta([inFolderView() && UI.syncedText(S.readAt[S.mediaId]), invalid && `${invalid} 个已失效`, explain], S.syncError);
   const thumb = inFolderView() && S.mediaId !== TOVIEW ? folderThumb(S.mediaId, el.folderSelect.querySelector?.(`option[value="${S.mediaId}"]`)?.dataset.cover) : "";
   el.folderHead.innerHTML = `${thumb}<div class="folder-text"><h1 class="folder-title">${UI.titleHtml(folderTitle(), S.items.length)}</h1><div class="folder-meta">${meta}</div></div>`;
@@ -2143,7 +2143,7 @@ function renderList() {
   const recent = S.tab === "done" ? recentUnfavHtml() : "";
   if (!S.items.length) {
     const empty = S.mediaId === REMOVED ? `<p class="empty">没有已出分拣范围的视频</p>` : S.loadAll?.queue.length ? `<p class="empty">正在加载收藏夹…</p>`
-      : UI.emptyState("这个收藏夹是空的", "在 B站收藏了视频后，点刷新读进来。", REFRESH_EMPTY);
+      : UI.emptyState("这个收藏夹是空的", "在 B站收藏视频后，点「刷新」读取。", REFRESH_EMPTY);
     el.list.innerHTML = `${empty}${recent}`;
     return;
   }
@@ -2198,7 +2198,7 @@ const verdictBadge = (b, v, low = v.low) =>
     ? `<span class="badge running">分析中…</span>`
     : `<span class="badge ${VERDICTS[v.verdict] ? v.verdict : "none"}${low ? " low" : ""}">${VERDICTS[v.verdict] ? `<span class="ai-mark">AI</span>` : ""}${esc(verdictLabel(v.verdict))}${low ? " · 低置信" : ""}</span>`;
 const ACTION_LABEL = { unfav: "已取消收藏", keep: "已保留" };
-const KEEP_TIP = "只在 MoonDigest 里标记，B站收藏夹不变";
+const KEEP_TIP = "保留标记只存在 MoonDigest 里，B站收藏夹不变";
 const DONE_TIP = `已保留：${KEEP_TIP}。\n已取消收藏：已从 B站收藏夹移走，最近的操作可按 U 撤销。`;
 
 function cardHtml(it, expanded, mark) {
@@ -2216,7 +2216,7 @@ function cardHtml(it, expanded, mark) {
 
   const removed = S.mediaId === REMOVED;
   const basketBtn = inBasket
-    ? `<button type="button" data-act="basket" class="on" aria-label="已在待播，点一下移出 (E)" title="已在待播，点一下移出">✓ 待播</button>`
+    ? `<button type="button" data-act="basket" class="on" aria-label="已在待播，点一下移除 (E)" title="已在待播，点一下移除">✓ 待播</button>`
     : `<button type="button" data-act="basket" aria-label="加入待播 (E)" title="加入待播">+ 待播<kbd class="key">E</kbd></button>`;
   const askBtn = `<button type="button" data-act="ask" aria-label="问 AI (Q)">${AI_SPARK}问 AI<kbd class="key">Q</kbd></button>`;
   // The 发布时间 is relative, the date on hover; the rest is text.
@@ -2264,7 +2264,7 @@ function cardHtml(it, expanded, mark) {
             <button type="button" class="danger" data-clean="${esc(b)}" aria-label="清理 ${esc(it.title)}">清理</button>
           </span>
           <span class="more">${basketBtn}${askBtn}</span>` : `<span class="pair">
-            <button type="button" data-act="keep" class="${keepCls}" aria-label="保留 (S)"${UI.reasonAttrs(decision ? (decision.action === "keep" ? "已经保留了" : "已经取消收藏了") : "", "只在 MoonDigest 里标记，B站收藏夹不变")}>保留<kbd class="key">S</kbd></button>
+            <button type="button" data-act="keep" class="${keepCls}" aria-label="保留 (S)"${UI.reasonAttrs(decision ? (decision.action === "keep" ? "已经保留了" : "已经取消收藏了") : "", KEEP_TIP)}>保留<kbd class="key">S</kbd></button>
             ${moving.has(b) ? `<button type="button" aria-busy="true" disabled>正在${S.transferRun?.verb || "移动"}…</button>` : deciding.has(b) ? `<button type="button" aria-busy="true" disabled>正在取消收藏…</button>` : `<button type="button" data-act="unfav" class="${unfavCls}" aria-label="取消收藏 (D)"${UI.reasonAttrs(decision?.action === "unfav" ? "已经取消收藏了" : "")}>取消收藏<kbd class="key">D</kbd></button>`}
           </span>
           <span class="more">
@@ -3289,7 +3289,7 @@ function aiScopeText(scope) {
   const n = items.length;
   const done = items.filter(isAnalyzed).length;
   const size = aiBatchSize();
-  const parts = [done && `${done} 个细看过（按总结和要点判断）`, n - done && `${n - done} 个只有标题和简介，标签可能不准`].filter(Boolean);
+  const parts = [done && `${done} 个细看过（按 AI 总结和要点判断）`, n - done && `${n - done} 个只有标题和简介，标签可能不准`].filter(Boolean);
   if (!n) return "作用范围里没有视频";
   if (S.mediaId !== ALL) return `${n} 个视频：${parts.join("，")}。分 ${Math.ceil(n / size)} 批发送`;
   const folders = aiParts(items);
@@ -3314,7 +3314,7 @@ function aiRoomHint() {
 
 const aiTags = {
   who: "视频",
-  sees: "标题和简介（细看过的还看总结和要点），不改 AI 判断",
+  sees: "标题和简介（细看过的还看 AI 总结和要点），不改 AI 判断",
   example: "把这些按技术深度分成 入门/进阶/硬核 三个标签",
   excluded: S.ai.excluded,
   manage: manageTags,
@@ -3501,9 +3501,11 @@ function toggleBasket(bvid) {
   const i = S.basket.findIndex((x) => x.bvid === bvid);
   const it = S.itemMap.get(bvid);
   if (i >= 0) {
-    S.basket.splice(i, 1);
-    toast("已从待播移出");
-  } else if (it) {
+    removeBasketItems([i]);
+    toast("已从待播移除 · U 撤销");
+    return;
+  }
+  if (it) {
     S.basket.push({ bvid, title: it.title, cover: it.cover, upper: it.upper, duration: it.duration });
     toast(`已加入待播《${shortTitle(it)}》`);
     el.basket.classList.remove("bump");
@@ -3885,7 +3887,7 @@ async function buildBackup() {
 
 function buildCsv() {
   const title = folderTitle();
-  const header = ["收藏夹", "BV号", "标题", "UP主", "时长", "链接", "封面", "发布时间", "收藏时间", "简介", "AI判断", "判断来源", "理由", "一句话", "要点", "标签", "备注", "我的处理", "处理时间", "是否失效", "原在", "离开原因"];
+  const header = ["收藏夹", "BV 号", "标题", "UP 主", "时长", "链接", "封面", "发布时间", "收藏时间", "简介", "AI 判断", "判断来源", "理由", "一句话", "要点", "标签", "备注", "我的处理", "处理时间", "是否失效", "原在", "离开原因"];
   const rows = [header];
   for (const it of S.items) {
     const v = verdictOf(it);

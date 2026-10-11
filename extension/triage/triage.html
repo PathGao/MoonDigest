@@ -340,10 +340,10 @@
         <!-- 关注 mode shows its own two columns instead (body.follow-mode). -->
         <div class="stack follow-help">
         <h2>关注</h2>
-        <p class="dialog-hint"><strong>UP 主</strong>：第 3 行按更新状态（活跃、慢更、断更、待查…）和有没有标签筛，第 4 行按你的标签筛，左边只管范围（全部、特别关注、B站 分组、已取消关注）。选中后可以批量打标签、设为特别关注或取消关注。</p>
-        <p class="dialog-hint"><strong>视频投稿</strong>：关注的人新发的视频（不含图文和转发），第 3、4 行按 UP 主的标签筛。点视频在右侧播放。</p>
+        <p class="dialog-hint"><strong>UP 主</strong>：「状态」行按更新状态（活跃、慢更、断更、待查…）和有没有标签筛，「标签」行按你的标签筛，左边只管范围（全部、特别关注、B站 分组、已取消关注）。选中后可以批量打标签、设为特别关注或取消关注。</p>
+        <p class="dialog-hint"><strong>视频投稿</strong>：关注的人新发的视频（不含图文和转发），「状态」行和「标签」行按 UP 主的标签筛。点视频在内置播放框里播放。</p>
         <p class="dialog-hint"><strong>改 B站 的操作</strong>：卡片上的 ★ 和单个「重新关注」不问，按 U 撤销；批量设为或取消特别关注、批量重新关注和取消关注先问你。取消关注一个也要问，因为重新关注后原来的关注时间就没了。</p>
-        <p class="dialog-hint">标签只存在扩展里，不改 B站。标签在「✦ AI 打标签」左边的「标签管理」里改，「✦ AI 打标签」让 AI 按一句话给一批 UP 主打标签。</p>
+        <p class="dialog-hint">标签只存在 MoonDigest 里，不改 B站。标签在「✦ AI 打标签」左边的「标签管理」里改，「✦ AI 打标签」让 AI 按一句话给一批 UP 主打标签。</p>
         <p class="dialog-hint">UP 主表格和完整备份都在搜索框旁的「导出」菜单里。</p>
         </div>
         <div class="stack follow-help">
@@ -351,11 +351,11 @@
         <dl class="keys">
           <dt><kbd>J</kbd><kbd>↓</kbd> / <kbd>K</kbd><kbd>↑</kbd></dt><dd>UP 主页签里移到下一张 / 上一张卡片</dd>
           <dt><kbd>X</kbd></dt><dd>选中或取消选中当前卡片，和点 UP 主卡片一样。Shift 点选中一段，Esc 清空</dd>
-          <dt><kbd>O</kbd><kbd>Enter</kbd></dt><dd>在右侧播放当前 UP 主最新的视频</dd>
+          <dt><kbd>O</kbd><kbd>Enter</kbd></dt><dd>在内置播放框里播放当前 UP 主最新的视频</dd>
           <dt><kbd>T</kbd></dt><dd>给鼠标所在的视频投稿卡片、当前 UP 主卡片或正在播放的视频的 UP 主打标签</dd>
           <dt><kbd>I</kbd></dt><dd>AI 打标签（UP 主页签）</dd>
           <dt><kbd>1</kbd>–<kbd>9</kbd></dt><dd>打标签时勾选或去掉第几个标签</dd>
-          <dt><kbd>Esc</kbd></dt><dd>关闭打标签（并保存）或视频栏</dd>
+          <dt><kbd>Esc</kbd></dt><dd>关闭打标签（并保存）或内置播放框</dd>
           <dt><kbd>U</kbd></dt><dd>撤销关注里的上一步：标签修改、AI 打标签、特别关注、重新关注（改了多个的先问你）</dd>
           <dt><kbd>/</kbd></dt><dd>搜索（Esc 清空）</dd>
           <dt><kbd>?</kbd></dt><dd>显示本帮助</dd>
@@ -365,14 +365,14 @@
         <h2>四步分拣</h2>
         <ol class="steps">
           <li><strong>未分析</strong>：点「标题粗看」，AI 只看标题和简介，快、省。</li>
-          <li><strong>粗看完成</strong>：点「细看下一批」读字幕，给总结和要点，拿不准和低置信的排在前面；有把握的也可以直接按 AI 判断批量取消收藏或保留。</li>
+          <li><strong>粗看完成</strong>：点「细看下一批」读字幕，给出 AI 总结和要点，拿不准和低置信的排在前面；有把握的也可以直接按 AI 判断批量取消收藏或保留。</li>
           <li><strong>细看完成</strong>：按 AI 判断批量取消收藏或保留，也可以一个个按 D / S。</li>
           <li><strong>处理完成</strong>：取消收藏或保留过的视频；最近取消收藏的可以重新收藏。</li>
         </ol>
         <p class="dialog-hint"><strong>分拣分两层</strong>：第一层是收藏夹的判断标准，AI 按它给出 AI 判断（值得留 / 可清理 / 拿不准），决定留不留；第二层是你的标签，按每个标签的说明给视频分类，决定怎么找。<br>判断标准在粗看、细看按钮旁边写，标签说明在「✦ AI 打标签」左边的「标签管理」里写。</p>
         <p class="dialog-hint">AI 判断是每步里的筛选。判断标准不写时，AI 从收藏夹名和简介推测用途。<br>每个收藏夹最多 <span data-tag-limit>10</span> 个标签：按 T 逐个打，按 I 让 AI 打标签（AI 每次最多新建 <span data-ai-new-tag-max>5</span> 个）。两个上限都在收藏夹设置里改。<br>AI 只在本页打开时运行。</p>
-        <p class="dialog-hint"><strong>待播</strong>：分拣时按 E（或卡片上的「+ 待播」）把想先看或要核对的视频加入待播（右下角），可以跨收藏夹，按加入先后排。已加入的卡片显示「✓ 待播」，再按 E 或点它移出。<br>点一条在右侧打开，点「移除」移出待播。「清空」一次移出全部。都可以按 U 撤销。<br>不影响收藏和处理结果。</p>
-        <p class="dialog-hint">「保留」只在 MoonDigest 里标记，B站收藏夹不变。<br>摘录、笔记、表格和完整备份都在搜索框旁的「导出」菜单里。</p>
+        <p class="dialog-hint"><strong>待播</strong>：分拣时按 E（或卡片上的「+ 待播」）把想先看或要核对的视频加入待播（右下角），可以跨收藏夹，按加入先后排。已加入的卡片显示「✓ 待播」，再按 E 或点它从待播移除。<br>点一条在内置播放框里播放，点「移除」从待播移除，「清空」一次移除全部。这几种移除都可以按 U 撤销。<br>不影响收藏和处理结果。</p>
+        <p class="dialog-hint">「保留」标记只存在 MoonDigest 里，B站收藏夹不变。<br>摘录、笔记、表格和完整备份都在搜索框旁的「导出」菜单里。</p>
         </div>
         <div class="stack fav-help">
         <h2>快捷键</h2>
@@ -382,17 +382,17 @@
           <dt><kbd>K</kbd><kbd>↑</kbd></dt><dd>上一个</dd>
           <dt><kbd>D</kbd></dt><dd>取消收藏</dd>
           <dt><kbd>S</kbd></dt><dd>保留</dd>
-          <dt><kbd>T</kbd></dt><dd>打标签（视频在右侧播放时，在内置播放框里按 T 给它打）；打标签时 1–9 勾选第几个，Esc 关闭并保存</dd>
-          <dt><kbd>E</kbd></dt><dd>加入 / 移出待播</dd>
+          <dt><kbd>T</kbd></dt><dd>打标签（在内置播放框里按 T 给正在播放的视频打）；打标签时 1–9 勾选第几个，Esc 关闭并保存</dd>
+          <dt><kbd>E</kbd></dt><dd>加入待播 / 从待播移除</dd>
           <dt><kbd>Q</kbd></dt><dd>问 AI（在侧边栏打开这个视频）</dd>
-          <dt><kbd>X</kbd></dt><dd>选中 / 取消选中，和点卡片一样（点标题是播放）。Shift 点选中一段，Esc 清空。选中的视频可以批量处理；第 3 行右边按钮最前面的「全选 N 个」一次勾上当前列出的，再点一次取消</dd>
-          <dt><kbd>O</kbd><kbd>Enter</kbd></dt><dd>在右侧打开视频页（Esc 关闭）</dd>
+          <dt><kbd>X</kbd></dt><dd>选中 / 取消选中，和点卡片一样（点标题是播放）。Shift 点选中一段，Esc 清空。选中的视频可以批量处理；「状态」行右边按钮最前面的「全选 N 个」一次勾上当前列出的，再点一次取消</dd>
+          <dt><kbd>O</kbd><kbd>Enter</kbd></dt><dd>在内置播放框里播放（Esc 关闭）</dd>
           <dt><kbd>I</kbd></dt><dd>AI 打标签</dd>
           <dt><kbd>/</kbd></dt><dd>搜索（Esc 清空）</dd>
           <dt><kbd>U</kbd></dt><dd>撤销上一步（改了多个视频的会先问你）</dd>
           <dt><kbd>?</kbd></dt><dd>显示本帮助</dd>
         </dl>
-        <p class="dialog-hint">「已出分拣范围」里卡片键只有 E、Q 可用，U 也不可用，点卡片选中，选中后可收藏到任一收藏夹或只清理选中的。</p>
+        <p class="dialog-hint">「已出分拣范围」里卡片键只有 E、Q 可用，U 照常撤销上一步；点卡片选中，选中后可收藏到任一收藏夹或只清理选中的。</p>
         </div>
         </div>
         <div class="dialog-actions"><span class="spacer"></span><button type="submit" class="primary">知道了</button></div>

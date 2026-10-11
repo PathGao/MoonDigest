@@ -235,7 +235,7 @@ function downloadGroups(groups) {
     const body = notes.map((n) => `# ${n.filename.replace(/\.md$/i, "")}\n\n${n.content.replace(/^---\n([\s\S]*?)\n---\n/, "```yaml\n$1\n```\n")}`);
     BocDownload.text(`MoonDigest视频记录-${new Date().toISOString().slice(0, 10)}.md`, body.join("\n\n"));
   }
-  setStatus(`已下载 ${groups.length} 个视频的对话`);
+  setStatus(`已下载 ${groups.length} 个视频的记录`);
 }
 
 // A video already written to Obsidian gets the conversation in its note's AI 问答 section, like the side panel's
