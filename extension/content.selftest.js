@@ -104,31 +104,16 @@ const settle = async () => {
 };
 
 (async () => {
-  // The AI buttons wait for a platform: without one the player button is removed and the focus-mode one hidden.
+  // The AI buttons show without a platform too: the side panel they open offers 去设置页添加平台.
   {
-    const realSync = t.chrome.storage.sync.get;
-    t.chrome.storage.sync.get = async () => ({ aiProviders: [{ id: "a", enabled: false }] });
-    assert.strictEqual(await t.loadHasAiProvider(), false, "a disabled platform does not count");
-    t.chrome.storage.sync.get = async () => ({ aiProviders: [{ id: "a" }] });
-    assert.strictEqual(await t.loadHasAiProvider(), true);
-    t.chrome.storage.sync.get = realSync;
-    assert.strictEqual(await t.loadHasAiProvider(), false, "no platforms saved");
-
     const calls = [];
     const [realRemove, realHas, realById] = [t.removePlayerAiQuickActionButton, t.hasPlayerSubtitleControl, t.byId];
     t.removePlayerAiQuickActionButton = () => calls.push("remove");
     t.hasPlayerSubtitleControl = () => (calls.push("mount"), false);
-    const aiBtn = stubEl();
-    t.byId = (id) => (id === "boc-reading-ai-btn" ? aiBtn : stubEl());
-    for (const hasAiProvider of [false, true]) {
-      state.settings = { enablePlayerAiQuickAction: true, hasAiProvider };
-      state.readingViewOpen = false;
-      calls.length = 0;
-      t.syncPlayerAiQuickActionButton();
-      assert.strictEqual(calls[0], hasAiProvider ? "mount" : "remove");
-      t.applyReadingViewPresentation();
-      assert.strictEqual(aiBtn.hidden, !hasAiProvider);
-    }
+    state.settings = { enablePlayerAiQuickAction: true };
+    state.readingViewOpen = false;
+    t.syncPlayerAiQuickActionButton();
+    assert.strictEqual(calls[0], "mount");
     Object.assign(t, { removePlayerAiQuickActionButton: realRemove, hasPlayerSubtitleControl: realHas, byId: realById });
   }
 
