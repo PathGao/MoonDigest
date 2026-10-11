@@ -242,12 +242,16 @@ extension/
 ├── sidepanel.*     AI 侧边栏
 ├── popup.*         插件弹窗
 ├── options.*       设置页
-├── badges.*        B站页面上的分拣标记和观看进度
+├── badges.*        B站页面上的标记：分拣结论、标签、观看进度
+├── bili-surfaces.js 每种 B站页面显示哪些标记，观看进度的默认值和文案（标记和分拣台共用）
+├── tag-core.js     标签规则和 AI 结论，分拣台、B站页面、笔记共用
+├── typing.js       输入法组字和输入框里的按键判断，各页面共用
+├── download.js     扩展页面的下载文件、「该笔记已存在」选择
 ├── limits.js       各类数据的上限，和设置页「数据与存储」共用
 ├── errors.js       页面怎么显示错误：共用的错误文案、错误码对应的按钮
 ├── settings.js     设置的默认值，和几个页面共用的设置整理函数
 ├── tokens.css      共享的颜色、字号、间距（含深色主题）
-├── triage/         B站分拣台页面和后台接口（triage-bg.js）
+├── triage/         B站分拣台：收藏夹（triage.js，纯函数在 triage-core.js）、关注（follow.js），后台接口 triage-bg.js、follow-bg.js
 ├── history/        视频记录页
 ├── dev-sidepanel/  侧边栏的开发预览
 └── dev/            设置页的开发用假数据
@@ -255,11 +259,13 @@ extension/
 
 自检（用 `/usr/local/bin/node`，Node 24；`node` 指向 bun 套壳或 v26 时有几个会卡住或报错）：
 
+`load-order.selftest.js` 检查每个页面、每组内容脚本和后台 `importScripts` 的加载顺序：定义全局对象的文件要排在用到它的文件前面，引用的脚本都要存在。
+
 ```bash
 for f in extension/*.selftest.js extension/triage/*.selftest.js extension/history/*.selftest.js; do /usr/local/bin/node "$f" || break; done
 ```
 
-不装插件预览页面：在 `extension/` 下起静态服务（`python3 -m http.server 8000`），打开 `/triage/triage.html` 或 `/history/history.html`，会自动加载各自 `dev/mock-chrome.js` 里的假数据。侧边栏先运行 `node extension/dev-sidepanel/build.mjs`，再打开 `/dev-sidepanel/index.html`。设置页要在页面脚本运行前注入 `dev/options-mock.js`（比如用 CDP 的 `Page.addScriptToEvaluateOnNewDocument`），再打开 `/options.html`。分拣台、视频记录和侧边栏的地址加 `?demo`，换成 README 截图用的演示数据（设置页的假数据本身就是）。
+不装插件预览页面：在 `extension/` 下起静态服务（`python3 -m http.server 8000`），打开 `/triage/triage.html` 或 `/history/history.html`，会自动加载各自 `dev/mock-chrome.js` 里的假数据。侧边栏先运行 `/usr/local/bin/node extension/dev-sidepanel/build.mjs`，再打开 `/dev-sidepanel/index.html`。设置页要在页面脚本运行前注入 `dev/options-mock.js`（比如用 CDP 的 `Page.addScriptToEvaluateOnNewDocument`），再打开 `/options.html`。分拣台、视频记录和侧边栏的地址加 `?demo`，换成 README 截图用的演示数据（设置页的假数据本身就是）。
 
 打包：`python3 scripts/build_release.py`，产物在 `release/` 下，开发用的假数据和自检不会打进去。README 的版本徽章和 `manifest.json` 的版本不一致时打包会失败。推送 `v` 开头的标签会由 GitHub Actions 自动打包、发布 Release，并上传 Chrome 应用商店提交审核。已有的标签也可以在 Actions 里手动重新发布。
 
