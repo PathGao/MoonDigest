@@ -267,6 +267,7 @@ process.on("exit", (code) => {
   const subUrl = "https://aisubtitle.hdslb.com/a.json";
   const sidepanelRoutes = (to) => ({
     "/view/detail": { code: 0, data: { View: { title: "T", aid: 22, cid: 11, duration: 273, pages: [{ cid: 11, page: 1, duration: 273 }] } } },
+    "/nav": { code: -101, data: { wbi_img: { img_url: "https://i0.hdslb.com/bfs/wbi/7cd084941338484aae1ad9425b84077c.png", sub_url: "https://i0.hdslb.com/bfs/wbi/4932caff0ff746eab6f01bf08b70ac45.png" } } },
     "/x/player/wbi/v2": { code: 0, data: { subtitle: { subtitles: [{ id: 5, lan: "ai-zh", lan_doc: "中文", subtitle_url: subUrl }] } } },
     [subUrl]: { body: [{ from: 0, to: 1, content: "a" }, { from: 1, to, content: "b" }] },
     "/reply/main": { code: 0, data: { replies: [] } }
@@ -292,6 +293,10 @@ process.on("exit", (code) => {
   assert.ok(!/<iframe|player\.bilibili\.com/.test(resolved.subtitleMarkdown), "the AI context carries no player embed");
   assert.match(resolved.subtitleMarkdown, /\n## 字幕\n\n`00:00` a\n`00:01` b$/);
   assert.ok("boc_subtitle_cache_BVa_11_id_5" in local);
+  // Signed like 细看, and risk control on the subtitle list fails the follow-up as a B站 limit, not as 没有字幕.
+  assert.ok(urls.some((u) => u.includes("/x/player/wbi/v2?") && u.includes("w_rid=")));
+  routes = { ...sidepanelRoutes(100), "/x/player/wbi/v2": { code: -352, message: "风控" }, "/x/player/v2": { code: 0, data: { subtitle: { subtitles: [] } } } };
+  await assert.rejects(historyContext(), (e) => e.code === "THROTTLED");
   assert.ok(inits.length && inits.every((i) => i.referrer === "https://www.bilibili.com/" && i.cache === "no-store" && i.credentials === "include"));
 
   // Dead keys go on install and update, the old 已看 mark (triage_watched) among them; the 待播 list stays.

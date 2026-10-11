@@ -314,8 +314,9 @@ async function resolveAiSidepanelContext(contextRef) {
   }
 
   const settings = await getMergedSettings();
-  // Only bilibili gets here (YouTube is pageOnly): triage-bg.js's B站 channel, one try, codes left to sites.js.
-  const io = { fetchJson: (url) => triageBiliGetJson(url) };
+  // Only bilibili gets here (YouTube is pageOnly): the channel 细看 and 分拣台 notes read through (signed, one try,
+  // risk control as THROTTLED), so a B站 limit fails the follow-up as a limit instead of reading as 没有字幕.
+  const io = TRIAGE_BILI_IO;
   const meta = await site.fetchMeta(videoRef, io);
   const bundle = await site.fetchTracks(videoRef, meta, io);
   const tracks = BocSites.rankTracks(bundle.tracks || []);
@@ -382,7 +383,7 @@ async function resolveAiSidepanelPageRef(contextRef) {
   if (!site || site.pageOnly) {
     return fallback;
   }
-  const meta = await site.fetchMeta(videoRef, { fetchJson: (url) => triageBiliGetJson(url) });
+  const meta = await site.fetchMeta(videoRef, TRIAGE_BILI_IO);
   return {
     ...fallback,
     url: canonicalVideoUrl({ ...meta, site: site.id, videoId: videoRef.id }),
