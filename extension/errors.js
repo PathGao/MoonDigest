@@ -1,7 +1,7 @@
 // How pages show an error the background already classified: the shared sentences, what each error code asks the
 // user to do, and the helpers every page used to copy, HTML escaping among them. The background classifies (triage-bg.js triageAiHttpError,
 // background.js obsidianFailure) and reads TEXT from here too. Loaded by the content script (manifest), background
-// (importScripts) and the pages; errors.selftest.js checks every user of BocErrors loads it. Idempotent like limits.js.
+// (importScripts) and the pages; load-order.selftest.js checks every user of BocErrors loads it first. Idempotent like limits.js.
 (() => {
   if (globalThis.BocErrors) {
     return;

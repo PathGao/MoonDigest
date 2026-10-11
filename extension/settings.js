@@ -1,7 +1,7 @@
 // The settings' defaults and the normalizers more than one context applies, in one place. The background owns the
 // stored settings (normalizeSyncSettings); pages and the content script use DEFAULTS only when get-settings fails.
 // Loaded by the content script (manifest), background (importScripts) and the pages, before note.js, which reads it.
-// settings.selftest.js checks every user of BocSettings loads it. Idempotent like limits.js.
+// load-order.selftest.js checks every user of BocSettings loads it first. Idempotent like limits.js.
 (() => {
   if (globalThis.BocSettings) {
     return;

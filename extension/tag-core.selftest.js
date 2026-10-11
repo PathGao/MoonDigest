@@ -1,5 +1,5 @@
 // node extension/tag-core.selftest.js
-// tag-core.js is the one copy of the tag rules: the pages that need them load it, and nobody writes their own again.
+// tag-core.js is the one copy of the tag rules: nobody writes their own again (load-order.selftest.js checks who loads it).
 const fs = require("fs");
 const path = require("path");
 const vm = require("vm");

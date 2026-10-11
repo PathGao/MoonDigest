@@ -1,6 +1,6 @@
 // /usr/local/bin/node extension/errors.selftest.js
-// BocErrors' helpers, and every context that reads BocErrors loads errors.js first (a missing registration has
-// broken the product before: 7305476).
+// BocErrors' helpers, and that nobody writes their own copy (load-order.selftest.js checks every context that reads
+// BocErrors loads errors.js first).
 const fs = require("fs");
 const path = require("path");
 const vm = require("vm");

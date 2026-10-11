@@ -1,6 +1,5 @@
 // /usr/local/bin/node extension/settings.selftest.js
-// BocSettings' normalizers, every context that reads BocSettings loads settings.js first, and the defaults are
-// written nowhere else.
+// BocSettings' normalizers, and the defaults are written nowhere else (load-order.selftest.js checks the load order).
 const fs = require("fs");
 const path = require("path");
 const vm = require("vm");
