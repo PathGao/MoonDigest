@@ -23,6 +23,8 @@ const el = {
 };
 
 let latestPayload = null;
+// The side panel's request slot (sidepanel.js, background.js).
+const QUICK_ACTION_STORAGE_KEY = "boc_player_ai_quick_action_v1";
 const DEFAULT_SETTINGS = {
   downloadFormat: "srt"
 };
@@ -38,6 +40,10 @@ init().catch((error) => {
 
 async function init() {
   bindEvents();
+  const tab = await getActiveTab();
+  if (!isSupportedSubtitlePage(tab?.url || "")) {
+    syncTools(null, false);
+  }
   getSettingsFromRuntime().then((settings) => {
     el.sendBtn.hidden = settings.obsidianEnabled !== true;
   });
@@ -114,7 +120,7 @@ function bindEvents() {
     const prepResp = await sendToContent({ type: "popup-get-state" }).catch((error) => ({ ok: false, error: error.message }));
     if (!prepResp?.ok) {
       setBusy(el.readingViewBtn, false);
-      setStatus(prepResp?.error || "当前网页不支持，或需刷新重试", true);
+      setStatus(prepResp?.error || "当前网页不支持，或刷新网页后重试", true);
       return;
     }
 
@@ -163,10 +169,13 @@ function bindEvents() {
     }
     setStatus("正在打开侧边栏…", false, true);
     setBusy(el.summaryBtn, true, "打开中…");
-    // A video that already has a conversation only gets the panel, which restores that conversation.
+    // A video that already has a conversation gets the panel showing that conversation, no new prompt.
+    // A panel already open on another conversation switches to it through the same request the panel reads.
     if (await hasConversationFor(tab.url)) {
       try {
         await chrome.sidePanel.open({ tabId: tab.id });
+        const createdAt = Date.now();
+        await chrome.storage.local.set({ [QUICK_ACTION_STORAGE_KEY]: { id: `popup-${createdAt}`, tabId: tab.id, prompt: "", createdAt, showSaved: true } });
         window.setTimeout(() => window.close(), 80);
       } catch (error) {
         setBusy(el.summaryBtn, false);
@@ -283,6 +292,26 @@ function render(payload, { preserveStatus = false } = {}) {
 
   el.preview.value = payload.subtitlePreview || "";
   el.preview.hidden = !el.preview.value;
+  syncTools(payload);
+}
+
+// A tool that cannot work is disabled and says why; without a payload yet a video page keeps them usable.
+function syncTools(payload, onVideoPage = true) {
+  const pageReason = onVideoPage ? "" : "当前网页不是支持的视频页";
+  const contentReason = pageReason || (payload && !payload.markdown ? "还没有读取到视频内容" : "");
+  const subtitleReason = pageReason || (payload && !(payload.srt || payload.txt) ? "当前视频没有可下载的字幕" : "");
+  setDisabledReason(el.readingViewBtn, pageReason);
+  setDisabledReason(el.copyBtn, contentReason);
+  setDisabledReason(el.mdBtn, contentReason);
+  setDisabledReason(el.sendBtn, contentReason);
+  setDisabledReason(el.downloadBtn, subtitleReason);
+}
+
+function setDisabledReason(button, reason) {
+  button.disabled = Boolean(reason);
+  button.title = reason;
+  if (reason) button.setAttribute("aria-description", reason);
+  else button.removeAttribute("aria-description");
 }
 
 function formatDuration(seconds) {
@@ -372,7 +401,7 @@ async function sendToContent(message) {
 function normalizeContentErrorMessage(error) {
   const message = String(error?.message || "").trim();
   if (message.includes("Could not establish connection. Receiving end does not exist.")) {
-    return "当前网页不支持，或需刷新重试";
+    return "当前网页不支持，或刷新网页后重试";
   }
   return message || "未知错误";
 }

@@ -37,7 +37,7 @@ const BOC_VERSION = chrome.runtime.getManifest().version;
 // In 分拣台's viewer the tab is 分拣台 itself: the side panel takes the video by reference, not from the tab.
 const IN_VIEWER = window !== window.top;
 // The subtitle failure B站 gives a logged-out viewer; the side panel and the AI say login is why.
-const SUBTITLE_NEED_LOGIN = "B站要求登录后才能看字幕，请登录 B站后刷新页面";
+const SUBTITLE_NEED_LOGIN = "B站要求登录后才能看字幕，请登录 B站后刷新网页";
 globalThis.__BOC_CONTENT_SCRIPT_LOADED__ = BOC_VERSION;
 const state = {
   fetchRunId: 0,

@@ -86,6 +86,9 @@ let streamSlowNoticeTimer = 0;
 let streamFirstTokenReceived = false;
 let initCompleted = false;
 let lastLiveVideoUrl = "";
+// Set by a video switch: once the new video's subtitles arrive, its summary prompt fills the input like a click on AI 总结.
+// Showing another conversation drops it.
+let summaryFillPending = false;
 let previousVideoConversationId = "";
 let previousVideoExpanded = false;
 let previousVideoBarSignature = "";
@@ -267,6 +270,15 @@ function setStreamingUiState(isStreaming, { stopping = false } = {}) {
   els.sendBtn.disabled = stopping || blocked;
   els.sendBtn.classList.toggle("is-stop", isStreaming);
   els.sendBtn.innerHTML = isStreaming ? (stopping ? "停止中" : "停止") : `${AI_SPARK}发送`;
+  setDisabledReason(els.exportBtn, buildConversationTurns(chatHistory).length ? "" : "当前没有可导出的对话", "导出整段对话");
+}
+
+// A control that cannot work is disabled and says why, in its tooltip and to screen readers.
+function setDisabledReason(button, reason, title = "") {
+  button.disabled = Boolean(reason);
+  button.title = reason || title;
+  if (reason) button.setAttribute("aria-description", reason);
+  else button.removeAttribute("aria-description");
 }
 
 async function loadProvidersAndPrefs({ preferredProviderId = "" } = {}) {
@@ -292,7 +304,7 @@ async function loadProvidersAndPrefs({ preferredProviderId = "" } = {}) {
 
 function renderModelSelect(preferredProviderId = "") {
   if (!providers.length) {
-    els.modelSelect.innerHTML = '<option value="">未配置平台</option>';
+    els.modelSelect.innerHTML = '<option value="">未配置 AI 平台</option>';
     els.modelSelect.disabled = true;
     return;
   }
@@ -350,7 +362,8 @@ function normalizePlayerAiQuickActionRequest(value) {
     prompt,
     tabId,
     createdAt: Number(value.createdAt) || Date.now(),
-    contextRef: value.contextRef && typeof value.contextRef === "object" ? value.contextRef : null
+    contextRef: value.contextRef && typeof value.contextRef === "object" ? value.contextRef : null,
+    showSaved: value.showSaved === true
   };
 }
 
@@ -381,6 +394,10 @@ async function handlePlayerAiQuickActionRequest(value, { fromStorageChange = tru
     await chrome.storage.local.remove(PLAYER_AI_QUICK_ACTION_STORAGE_KEY).catch(() => null);
   }
 
+  if (request.showSaved) {
+    await showLiveVideoConversation();
+    return true;
+  }
   if (request.contextRef) {
     await openRequestedVideoContext(request.contextRef);
     // A new conversation would fall back to this tab's own page (分拣台), so the prompt goes into the video's one.
@@ -403,6 +420,19 @@ async function openRequestedVideoContext(ref) {
   renderInitialState();
   showConversationContextNotice("正在加载原视频信息…");
   await hydratePinnedConversationContext();
+}
+
+// The popup's AI 总结 on a video that already has a conversation: show its latest one, even over an unrelated
+// history conversation the open panel was showing.
+async function showLiveVideoConversation() {
+  await loadContextState({ silent: true });
+  const latest = savedConversations.find((item) => doesConversationMatchCurrentContext(item, liveContextData, liveContextKey));
+  if (latest) {
+    await loadConversationById(latest.id);
+    return;
+  }
+  await detachActiveStream();
+  showLiveContextInFreshConversation();
 }
 
 async function runPlayerAiQuickActionPrompt(prompt) {
@@ -749,12 +779,9 @@ function introText() {
     return "B站要求登录后才提供字幕，AI 只能读标题、简介和评论。登录 B站后刷新网页。";
   }
   return contextData?.subtitleFailure
-    ? "字幕没取到，AI 只能读标题、简介和评论。可以稍后刷新重试。"
+    ? "字幕抓取失败，AI 只能读标题、简介和评论。可以稍后刷新网页重试。"
     : "这期视频没有字幕，AI 只能读标题、简介和评论。";
 }
-
-// Set by a video switch: once the new video's subtitles arrive, its summary prompt fills the input like a click on AI 总结.
-let summaryFillPending = false;
 
 function renderSuggestions() {
   if (!suggestionsNode) {
@@ -847,7 +874,7 @@ function renderFollowups() {
   followupsRendered = signature;
   els.followups.hidden = !prompts.length;
   els.followups.innerHTML = visible
-    .map((prompt) => `<button type="button" class="sp-followup-chip" title="${escapeHtml(reason || prompt)}"${reason ? " disabled" : ""}>${AI_SPARK}<span class="sp-followup-text"><span>${escapeHtml(prompt)}</span></span></button>`)
+    .map((prompt) => `<button type="button" class="sp-followup-chip" title="${escapeHtml(reason || prompt)}"${reason ? ` disabled aria-description="${escapeHtml(reason)}"` : ""}>${AI_SPARK}<span class="sp-followup-text"><span>${escapeHtml(prompt)}</span></span></button>`)
     .join("");
   els.followups.querySelectorAll("button").forEach((btn, index) => {
     btn.addEventListener("click", () => sendPrompt(visible[index]));
@@ -1166,6 +1193,7 @@ function applyConversation(conversation) {
     return;
   }
   conversationEpoch += 1;
+  summaryFillPending = false;
   currentConversationId = conversation.id;
   currentConversationMeta = {
     id: conversation.id,
@@ -1332,14 +1360,19 @@ async function syncLiveContextState(forceRefresh = false) {
 
 // 跟随播放：只在当前对话绑定的是“刚才在播的视频”（或还没有对话）时才切走，
 // 用户主动打开的无关历史对话不动。视频按 URL（站点、id、分 P）比较，标签页 URL 和完整上下文都能判断。
+// 还没提问的对话（网页上打开的、分拣台「问 AI」开的空对话）跟着任何别的视频走，不需要“刚才在播的视频”。
 function isFollowCandidate(fromUrl, toUrl) {
-  if (!fromUrl || !toUrl || doesTabMatchContextUrl(toUrl, fromUrl)) {
+  const shownUrl = currentConversationMeta?.contextUrl || contextData?.url || "";
+  if (!toUrl) {
     return false;
   }
-  if (!currentConversationMeta && !chatHistory.length) {
-    return true;
+  if (!chatHistory.length) {
+    return !doesTabMatchContextUrl(toUrl, shownUrl);
   }
-  return doesTabMatchContextUrl(currentConversationMeta?.contextUrl || contextData?.url || "", fromUrl);
+  if (!fromUrl || doesTabMatchContextUrl(toUrl, fromUrl)) {
+    return false;
+  }
+  return doesTabMatchContextUrl(shownUrl, fromUrl);
 }
 
 // Switching videos mid-reply hands the reply to its saved conversation, which then becomes the previous-video bar.
@@ -2768,6 +2801,7 @@ function delay(ms) {
 
 function restartChat() {
   conversationEpoch += 1;
+  summaryFillPending = false;
   clearStreamRuntimeState();
   if (activeStream) {
     closeStream(activeStream);

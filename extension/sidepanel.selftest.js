@@ -175,6 +175,31 @@ const page = (id) => ({ ok: true, payload: { url: `https://example.com/${id}`, t
     ctx.chrome.runtime.getURL = (p) => p;
   }
 
+  {
+    // Following: a conversation with nothing asked follows any other video, also the first one after a web page
+    // or an empty 问 AI conversation; one with messages follows only from the video it belongs to.
+    const v = (id) => `https://www.bilibili.com/video/${id}`;
+    ctx.web = page("home").payload;
+    const follows = (setup, from, to) => vm.runInContext(`${setup}; isFollowCandidate(${JSON.stringify(from)}, ${JSON.stringify(to)})`, ctx);
+    assert.strictEqual(follows("contextData = web; currentConversationMeta = null; chatHistory = []", "", v("BV1aa")), true, "first video after a web page");
+    assert.strictEqual(follows(`contextData = { url: "${v("BV1aa")}" }`, v("BV1aa"), v("BV1aa")), false, "the video already shown");
+    const pinned = `currentConversationMeta = { pinnedContext: true, contextUrl: "${v("BV1vv")}" }; chatHistory = []`;
+    assert.strictEqual(follows(pinned, v("BV1ee"), v("BV1ee")), true, "empty 问 AI conversation, back to the video tab");
+    const history = `currentConversationMeta = { pinnedContext: true, contextUrl: "${v("BV1hh")}" }; chatHistory = [{ role: "user", content: "q" }]`;
+    assert.strictEqual(follows(history, v("BV1ee"), v("BV1ff")), false, "an opened history conversation stays");
+    assert.strictEqual(follows(history, "", v("BV1ff")), false);
+    assert.strictEqual(follows(history, v("BV1hh"), v("BV1ff")), true, "the conversation of the video just played");
+
+    // Showing another conversation drops a pending AI 总结 fill.
+    assert.strictEqual(vm.runInContext('summaryFillPending = true; applyConversation({ id: "h", messages: [] }); summaryFillPending', ctx), false);
+
+    // 导出对话 is disabled with its reason until there is a question with an answer.
+    ctx.renderFollowups = () => {};
+    const exportState = (messages) => vm.runInContext(`activeStream = null; chatHistory = ${JSON.stringify(messages)}; setStreamingUiState(false); [els.exportBtn.disabled, els.exportBtn.title]`, ctx);
+    assert.deepStrictEqual([...exportState([])], [true, "当前没有可导出的对话"]);
+    assert.deepStrictEqual([...exportState([{ role: "user", content: "q" }, { role: "assistant", content: "a" }])], [false, "导出整段对话"]);
+  }
+
   console.log("sidepanel selftest: all passed");
 })().catch((e) => {
   console.error(e);
