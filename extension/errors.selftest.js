@@ -1,6 +1,6 @@
 // /usr/local/bin/node extension/errors.selftest.js
-// BocErrors' helpers, and that nobody writes their own copy (load-order.selftest.js checks every context that reads
-// BocErrors loads errors.js first).
+// MdgErrors' helpers, and that nobody writes their own copy (load-order.selftest.js checks every context that reads
+// MdgErrors loads errors.js first).
 const fs = require("fs");
 const path = require("path");
 const vm = require("vm");
@@ -12,7 +12,7 @@ const ctx = vm.createContext({ chrome: { permissions: { request: async (p) => (r
 ctx.globalThis = ctx;
 vm.runInContext(read("errors.js"), ctx);
 vm.runInContext(read("errors.js"), ctx); // re-injection keeps the first copy
-const E = ctx.BocErrors;
+const E = ctx.MdgErrors;
 
 (async () => {
   assert.strictEqual(E.action("AI_AUTH"), "settings");
@@ -58,10 +58,10 @@ const E = ctx.BocErrors;
     }
   };
   walkJs(".");
-  for (const file of scripts) assert.ok(!/["'`]&(lt|gt|quot|#39|#60);["'`]\)|&#\$\{/.test(read(file)), `${file} escapes HTML itself; use BocErrors.escapeHtml`);
+  for (const file of scripts) assert.ok(!/["'`]&(lt|gt|quot|#39|#60);["'`]\)|&#\$\{/.test(read(file)), `${file} escapes HTML itself; use MdgErrors.escapeHtml`);
 
   // The sentences live only in errors.js; badges.js (it does not load errors.js) keeps one exact copy.
-  assert.ok(read("badges.js").includes(`"${E.TEXT.reloaded}"`), "badges.js shows BocErrors.TEXT.reloaded word for word");
+  assert.ok(read("badges.js").includes(`"${E.TEXT.reloaded}"`), "badges.js shows MdgErrors.TEXT.reloaded word for word");
   const sources = ["background.js", "obsidian.js", "content.js", "sidepanel.js", "popup.js", "history/history.js", "triage/triage.js", "triage/triage-bg.js", "triage/follow.js"];
   for (const sentence of [...Object.values(E.TEXT), "视频审核中"]) {
     for (const file of sources) assert.ok(!read(file).includes(sentence), `${file} writes 「${sentence}」 itself`);

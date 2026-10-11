@@ -152,7 +152,7 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
 (async () => {
   // Every request carries the AI platform picked in the side panel (its localStorage key), so 分拣台's AI uses the same one.
   {
-    ctx.localStorage = { getItem: (k) => (k === "boc_ai_selected_provider" ? "b" : null) };
+    ctx.localStorage = { getItem: (k) => (k === "mdg_ai_selected_provider" ? "b" : null) };
     const last = () => plain(sent.filter((m) => m.type === "ai-pick-test").at(-1));
     await t.sendRaw({ type: "ai-pick-test" });
     assert.deepStrictEqual(last(), { type: "ai-pick-test", aiProviderId: "b" });
@@ -998,9 +998,9 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     t.el.banner.hidden = true;
     handlers["triage-ai-command"] = () => ({ ok: true, data: {} });
   }
-  // Which AI errors end a run is BocErrors' 去设置 list (the side panel's too), not a list of its own.
+  // Which AI errors end a run is MdgErrors' 去设置 list (the side panel's too), not a list of its own.
   for (const code of ["AI_AUTH", "AI_QUOTA", "AI_SETUP", "AI_NETWORK", "AI_TIMEOUT", "AI_GAVE_UP"])
-    assert.ok(vm.runInContext("aiEnds", ctx)({ ok: false, code }) && ctx.BocErrors.action(code) === "settings", code);
+    assert.ok(vm.runInContext("aiEnds", ctx)({ ok: false, code }) && ctx.MdgErrors.action(code) === "settings", code);
   assert.ok(!vm.runInContext("aiEnds", ctx)({ ok: false, code: "AI_BAD_JSON" }) && !vm.runInContext("aiEnds", ctx)({ ok: false, code: "OBSIDIAN" }), "a video's own error or a non-AI code goes on");
   // X3: one judge for 粗看, 细看 and AI 打标签 (aiJudge, a run's own counts). A video's own error ends 粗看 (ends: any)
   // but not the others.
@@ -1111,7 +1111,7 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   // A new tag takes the folder's first free color, so a deleted tag's color comes back instead of a taken one
   // repeating; 管理's color button moves to the next color.
   {
-    const C = ctx.BocTagCore.TAG_COLORS;
+    const C = ctx.MdgTagCore.TAG_COLORS;
     openFake("K", [item(710)]);
     t.S.tags = [{ id: "p0", name: "p0", color: C[0], folder: "K" }, { id: "p2", name: "p2", color: C[2], folder: "K" }, { id: "q", name: "q", color: C[1], folder: "Z" }];
     t.S.videoTags = { BV710: ["p0"] };

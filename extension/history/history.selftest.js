@@ -29,7 +29,7 @@ const assertInert = (html, where) => assert.ok(!/<img src=x|<script|"'>/i.test(h
 // Each video's title, link, question and AI answer come from the page or the AI.
 const conv = (key, bad) => ({ id: key, contextKey: key, title: bad, contextUrl: `https://example.com/${bad}`, createdAt: 1, updatedAt: 1, messages: [{ role: "user", content: bad }, { role: "assistant", content: bad }] });
 // A saved context URL with another scheme is never turned into a link.
-const store = { boc_ai_conversations_v1: [conv("a", XSS[0]), { ...conv("b", XSS[1]), contextUrl: "javascript:alert(1)" }] };
+const store = { mdg_ai_conversations_v1: [conv("a", XSS[0]), { ...conv("b", XSS[1]), contextUrl: "javascript:alert(1)" }] };
 const ctx = vm.createContext({
   console,
   setTimeout,
@@ -97,7 +97,7 @@ for (const f of scripts) vm.runInContext(fs.readFileSync(f, "utf8"), ctx);
   const sent = [];
   let choice = "";
   ctx.chrome.runtime.sendMessage = async (m) => (sent.push(m), m.mode ? { ok: true, path: "p.md", kind: "full", text: "已写入 Obsidian：p.md" } : { ok: true, ask: true, path: "p.md", hasAiSection: true });
-  ctx.BocOverwriteDialog = { choose: async (p, opts) => (p === "p.md" && opts.hasAiSection ? choice : "wrong") };
+  ctx.MdgOverwriteDialog = { choose: async (p, opts) => (p === "p.md" && opts.hasAiSection ? choice : "wrong") };
   let red = null;
   els.status.classList = { toggle: (c, on) => c === "is-error" && (red = on) };
   const target = { dataset: { act: "obsidian" }, closest: (s) => (s === ".entry" ? { dataset: { key: "a" } } : target) };

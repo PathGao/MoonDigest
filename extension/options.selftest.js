@@ -45,7 +45,7 @@ const assertInert = (html, where) => assert.ok(!/<img src=x|<script|"'>/i.test(h
 const scripts = [...fs.readFileSync(path.join(__dirname, "options.html"), "utf8").matchAll(/<script[^>]*src="([^"]+)"/g)].map((m) => m[1]);
 assert.strictEqual(scripts.pop(), "./options.js", "options.js loads last");
 for (const f of scripts) vm.runInContext(fs.readFileSync(path.join(__dirname, f), "utf8"), ctx);
-vm.runInContext(["const { escapeHtml } = BocErrors;", fn("buildFixedPropertyValueControl")].join("\n"), ctx);
+vm.runInContext(["const { escapeHtml } = MdgErrors;", fn("buildFixedPropertyValueControl")].join("\n"), ctx);
 for (const bad of XSS) assertInert(ctx.buildFixedPropertyValueControl("text", bad), "property value");
 
 console.log("options selftest: all passed");

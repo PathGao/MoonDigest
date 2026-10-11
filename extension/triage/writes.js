@@ -1,4 +1,4 @@
-// Writes that change Bilibili, for a page that sends them (BocWrites.create). It knows nothing of the page: the request
+// Writes that change Bilibili, for a page that sends them (MdgWrites.create). It knows nothing of the page: the request
 // (send) and the pill line (line) come in, and the batch runs as job lane on runs (runs.js: one batch per lane, the gap,
 // a limit counting down and sending the same chunk again, stop). Two adapters each have their own lane and undo stack:
 // 收藏夹 (keys are bvids) and 关注 (keys are mids).
@@ -100,5 +100,5 @@
       }
     };
   }
-  globalThis.BocWrites = { create };
+  globalThis.MdgWrites = { create };
 })();

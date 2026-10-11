@@ -8,7 +8,7 @@ const assert = require("assert");
 // async flows by hand. Top-level functions are then globals, so a test can stand in for the DOM-heavy ones.
 const lines = fs.readFileSync(path.join(__dirname, "content.js"), "utf8").replace(/\s+$/, "").split("\n");
 const runGate = lines[5].match(/^if \((.*)\) \{$/)?.[1];
-assert.ok(runGate?.startsWith("!globalThis.__BOC_CONTENT_SCRIPT_LOADED__"), "harness lifts the run-once block");
+assert.ok(runGate?.startsWith("!globalThis.__MDG_CONTENT_SCRIPT_LOADED__"), "harness lifts the run-once block");
 assert.strictEqual(lines.at(-1), "}");
 
 // Frame gate, in load order: viewer-frame.js (document_start) marks the frame, then content.js decides whether to run.
@@ -39,7 +39,7 @@ assert.strictEqual(lines.at(-1), "}");
 }
 const source = lines.slice(6, -1).join("\n").replace(/^init\(\);$/m, "");
 // How a subtitle is picked, fetched, checked, and what is a failure or a limit lives once, in sites.js
-// (BocSites.loadSubtitle / loadFirstTrack); the page only wraps its fetches and shows the result.
+// (MdgSites.loadSubtitle / loadFirstTrack); the page only wraps its fetches and shows the result.
 for (const own of [/function (loadSubtitle|loadFirstTrack|tryLoadSubtitleCandidates|fetchRawCached)\(/, /validateSubtitleByDuration|rankTracks|pickPreferredTrack|fetchTranscript/]) {
   assert.doesNotMatch(source, own, "content.js has its own subtitle pipeline");
 }
@@ -139,7 +139,7 @@ const settle = async () => {
     t.hasPlayerSubtitleControl = () => (calls.push("mount"), false);
     const aiBtn = stubEl();
     aiBtn.hidden = false;
-    t.byId = (id) => (id === "boc-reading-ai-btn" ? aiBtn : stubEl());
+    t.byId = (id) => (id === "mdg-reading-ai-btn" ? aiBtn : stubEl());
     for (const hasAiProvider of [false, true]) {
       state.settings = { enablePlayerAiQuickAction: true, hasAiProvider };
       state.readingViewOpen = false;
@@ -186,7 +186,7 @@ const settle = async () => {
   {
     const was = { subtitleBody: state.subtitleBody, triageExtras: state.triageExtras, markdown: state.markdown };
     state.subtitleBody = [{ from: 0, to: 1, content: "a" }];
-    state.triageExtras = t.BocNote.triageExtras({ triage_tags: [{ id: "t1", name: "入门 教程" }], triage_video_tags: { [state.videoId]: ["t1"] } }, { site: "bilibili", videoId: state.videoId, pageIndex: 2 });
+    state.triageExtras = t.MdgNote.triageExtras({ triage_tags: [{ id: "t1", name: "入门 教程" }], triage_video_tags: { [state.videoId]: ["t1"] } }, { site: "bilibili", videoId: state.videoId, pageIndex: 2 });
     realRebuild();
     assert.match(state.markdown, /\ntags: \[[^\]\n]*"入门_教程"\]\n/);
     Object.assign(state, was);
@@ -269,7 +269,7 @@ const settle = async () => {
     let metaGates = {}; // a video whose meta the test answers when it chooses; the others answer at once
     let commentsGate = null;
     t.currentSite = () => ({
-      parseRef: (url) => t.BocSites.parseRef(url),
+      parseRef: (url) => t.MdgSites.parseRef(url),
       readDom: () => ({}),
       fetchComments() {},
       fetchTracks: async () => ({ tracks: [], chapters: [] }),
@@ -316,7 +316,7 @@ const settle = async () => {
     metaGates = {};
     go(A);
     assert.strictEqual((await ask(false)).payload.videoId, A, "not the video before");
-    await ask(false); // the change's echo (boc-video-changed)
+    await ask(false); // the change's echo (mdg-video-changed)
     assert.deepStrictEqual(metaCalls, [A], "meta read once");
 
     // The video changes while its comments load: the answer never pairs one video with another's comments.
@@ -340,7 +340,7 @@ const settle = async () => {
     const turns = gate(["旧回答"]);
     t.loadAiTurns = () => turns.promise;
     state.aiTurns = [];
-    for (const f of listeners.storage) f({ [t.BocLimits.KEYS.aiConversations]: {} }, "local");
+    for (const f of listeners.storage) f({ [t.MdgLimits.KEYS.aiConversations]: {} }, "local");
     state.fetchRunId++;
     turns.open();
     await settle();
@@ -433,10 +433,10 @@ const settle = async () => {
     state.readingVideoEl = { paused: true };
     t.noteManualReaderInteraction();
     assert.ok(state.readingManualScrollPauseUntil > Date.now(), "the guard is set while paused");
-    assert.strictEqual(attrs["data-boc-reader-follow"], "auto", "no hint while paused");
+    assert.strictEqual(attrs["data-mdg-reader-follow"], "auto", "no hint while paused");
     state.readingVideoEl.paused = false;
     t.updateReaderFollowState();
-    assert.strictEqual(attrs["data-boc-reader-follow"], "manual", "the hint shows once playing within the guard");
+    assert.strictEqual(attrs["data-mdg-reader-follow"], "manual", "the hint shows once playing within the guard");
     t.document.getElementById = realGet;
     state.readingVideoEl = null;
     state.readingManualScrollPauseUntil = 0;
@@ -547,7 +547,7 @@ const settle = async () => {
       if (switched || !pick) {
         // The side panel and the popup learn nothing was written.
         assert.deepStrictEqual([{ ...reply }, modes()], [{ written: false }, [["write-video-note", undefined, "# 视频 A"]]]);
-        assert.strictEqual(messages.at(-1), switched ? "视频已切换，未写入 Obsidian。" : t.BocErrors.TEXT.obsidianCancelled);
+        assert.strictEqual(messages.at(-1), switched ? "视频已切换，未写入 Obsidian。" : t.MdgErrors.TEXT.obsidianCancelled);
       } else {
         // The same note, taken before the dialog, with the mode; the background's words are shown.
         assert.deepStrictEqual(modes(), [["write-video-note", undefined, "# 视频 A"], ["write-video-note", "ai", "# 视频 A"]]);
@@ -555,8 +555,8 @@ const settle = async () => {
       }
     }
     // A failed write answers the popup and the side panel with the reason and code, not a success.
-    t.sendRuntimeMessage = async () => ({ ok: false, error: t.BocErrors.TEXT.obsidianDown, code: "OBSIDIAN_DOWN" });
-    assert.deepStrictEqual({ ...(await t.sendToObsidian()) }, { ok: false, error: t.BocErrors.TEXT.obsidianDown, code: "OBSIDIAN_DOWN" });
+    t.sendRuntimeMessage = async () => ({ ok: false, error: t.MdgErrors.TEXT.obsidianDown, code: "OBSIDIAN_DOWN" });
+    assert.deepStrictEqual({ ...(await t.sendToObsidian()) }, { ok: false, error: t.MdgErrors.TEXT.obsidianDown, code: "OBSIDIAN_DOWN" });
     Object.assign(t, saved);
   }
 
@@ -565,7 +565,7 @@ const settle = async () => {
   assert.strictEqual(t.fetchErrorText(Object.assign(new Error("风控校验失败"), { code: -352 })), "B站限流，请稍后再试");
   assert.strictEqual(t.fetchErrorText(new TypeError("Failed to fetch")), "网络断了");
   assert.strictEqual(t.fetchErrorText(Object.assign(new Error("啥都木有"), { code: -404 })), "啥都木有");
-  assert.strictEqual(t.fetchErrorText(Object.assign(new Error("稿件审核中"), { code: 62004 })), "视频审核中，过后再试", "BocErrors' words, as elsewhere");
+  assert.strictEqual(t.fetchErrorText(Object.assign(new Error("稿件审核中"), { code: 62004 })), "视频审核中，过后再试", "MdgErrors' words, as elsewhere");
   // X8: risk control is not retried (that only digs deeper); a dropped connection or another negative code still is.
   {
     const tries = async (error) => {

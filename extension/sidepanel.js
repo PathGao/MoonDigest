@@ -1,6 +1,6 @@
-const SELECTED_PROVIDER_KEY = "boc_ai_selected_provider";
-const CONVERSATIONS_STORAGE_KEY = BocLimits.KEYS.aiConversations;
-const { escapeHtml } = BocErrors;
+const SELECTED_PROVIDER_KEY = "mdg_ai_selected_provider";
+const CONVERSATIONS_STORAGE_KEY = MdgLimits.KEYS.aiConversations;
+const { escapeHtml } = MdgErrors;
 const {
   stripThinkBlocks,
   normalizeMarkdownForSectionPaste,
@@ -9,14 +9,14 @@ const {
   buildConversationTurns,
   buildAiConversationFilename,
   buildAiConversationMarkdown
-} = BocNote;
-const PLAYER_AI_QUICK_ACTION_STORAGE_KEY = BocLimits.KEYS.playerAiQuickAction;
+} = MdgNote;
+const PLAYER_AI_QUICK_ACTION_STORAGE_KEY = MdgLimits.KEYS.playerAiQuickAction;
 // Marks a control that starts an AI request (tokens.css draws it in the text color).
 const AI_SPARK = '<span class="ai-spark" aria-hidden="true"></span>';
 const NON_VIDEO_CONTEXT_MESSAGE = "当前网页不是支持的视频页";
 const EMPTY_INTRO = "AI 会读这期视频的字幕和评论，回答你的问题。";
 const STREAM_SLOW_NOTICE_MS = 15000;
-const PREVIOUS_VIDEO_CONVERSATION_KEY = "boc_sp_previous_video_conversation";
+const PREVIOUS_VIDEO_CONVERSATION_KEY = "mdg_sp_previous_video_conversation";
 const FOLLOWED_LIVE_VIDEO = "followed";
 const QUICK_ACTION_MAX_AGE_MS = 15000;
 
@@ -52,7 +52,7 @@ const els = {
   noteText: document.getElementById("spNoteText"),
   noteInput: document.getElementById("spNoteInput"),
 };
-const NOTES_STORAGE_KEY = BocLimits.KEYS.triageNotes;
+const NOTES_STORAGE_KEY = MdgLimits.KEYS.triageNotes;
 
 const { buildConversationContextRef, doesTabMatchContextUrl, needsConversationPageHydration } = SidepanelState;
 
@@ -64,8 +64,8 @@ let providers = [];
 let activeStream = null;
 let sendPending = false;
 let suggestionsNode = null;
-// The AI settings as get-settings returns them; BocSettings.DEFAULTS until then or when it fails.
-let aiPrefs = aiPrefsOf(BocSettings.DEFAULTS);
+// The AI settings as get-settings returns them; MdgSettings.DEFAULTS until then or when it fails.
+let aiPrefs = aiPrefsOf(MdgSettings.DEFAULTS);
 let contextNoticeTimer = 0;
 let shouldAutoScrollMessages = true;
 let liveContextSyncTimer = 0;
@@ -93,7 +93,7 @@ async function init() {
 
 function bindEvents() {
   els.input.addEventListener("keydown", (e) => {
-    if (BocTyping.composing(e)) return;
+    if (MdgTyping.composing(e)) return;
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       sendMessage();
@@ -113,7 +113,7 @@ function bindEvents() {
   });
   els.previousVideoBar?.addEventListener("click", handlePreviousVideoBarClick);
   chrome.runtime.onMessage.addListener((message, sender) => {
-    if (message?.type !== "boc-video-changed") {
+    if (message?.type !== "mdg-video-changed") {
       return false;
     }
     void getActiveTab()
@@ -132,7 +132,7 @@ function bindEvents() {
   });
   // Enter or Esc saves and closes, like the triage card; Shift+Enter is a newline. Never mid-IME.
   els.noteInput.addEventListener("keydown", (e) => {
-    if (BocTyping.composing(e) || !(e.key === "Escape" || (e.key === "Enter" && !e.shiftKey))) return;
+    if (MdgTyping.composing(e) || !(e.key === "Escape" || (e.key === "Enter" && !e.shiftKey))) return;
     e.preventDefault();
     void saveNote();
   });
@@ -160,7 +160,7 @@ function bindEvents() {
   });
   els.downloadConversationBtn?.addEventListener("click", async () => {
     const note = await buildCurrentConversationNote().catch(() => null);
-    if (note) BocDownload.text(note.filename, note.content);
+    if (note) MdgDownload.text(note.filename, note.content);
     else showConversationContextNotice("当前没有可下载的对话。", 2200);
   });
   // One button in place: 发送, or 停止 while a reply streams.
@@ -170,7 +170,7 @@ function bindEvents() {
   });
   els.presetAddBtn.addEventListener("click", addPresetPrompt);
   els.presetInput.addEventListener("keydown", (e) => {
-    if (BocTyping.composing(e)) return;
+    if (MdgTyping.composing(e)) return;
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       addPresetPrompt();
@@ -264,7 +264,7 @@ async function loadProvidersAndPrefs({ preferredProviderId = "" } = {}) {
   providers = Array.isArray(providersResp?.providers)
     ? providersResp.providers.filter((p) => p.enabled)
     : [];
-  const settings = settingsResp?.ok && settingsResp.settings ? settingsResp.settings : BocSettings.DEFAULTS;
+  const settings = settingsResp?.ok && settingsResp.settings ? settingsResp.settings : MdgSettings.DEFAULTS;
   document.body.classList.toggle("sp-obsidian-off", settings.obsidianEnabled !== true);
   aiPrefs = aiPrefsOf(settings);
   renderModelSelect(preferredProviderId);
@@ -689,8 +689,8 @@ async function renderTriageSummary(node) {
   if (ref?.site !== "bilibili" || ref.pageIndex !== 1) {
     return;
   }
-  const key = BocLimits.KEYS.triageAnalysis(ref.videoId);
-  const summary = BocNote.buildTriageSummary((await chrome.storage.local.get(key))[key]);
+  const key = MdgLimits.KEYS.triageAnalysis(ref.videoId);
+  const summary = MdgNote.buildTriageSummary((await chrome.storage.local.get(key))[key]);
   const now = state.view();
   if (!summary || node !== suggestionsNode || now.messages.length || buildConversationContextRef(now.context)?.videoId !== ref.videoId) {
     return;
@@ -1125,8 +1125,8 @@ async function addPresetPrompt() {
   const nextPrompts = [...(aiPrefs.aiPresetPrompts || [])];
   if (!nextPrompts.includes(text)) {
     // One past the limit would be cut when saved; keep the input so the text is not lost.
-    if (nextPrompts.length >= BocSettings.MAX_PRESET_PROMPTS) {
-      showConversationContextNotice(`最多 ${BocSettings.MAX_PRESET_PROMPTS} 条快捷追问，先删掉一条再添加。`, 2600);
+    if (nextPrompts.length >= MdgSettings.MAX_PRESET_PROMPTS) {
+      showConversationContextNotice(`最多 ${MdgSettings.MAX_PRESET_PROMPTS} 条快捷追问，先删掉一条再添加。`, 2600);
       return;
     }
     nextPrompts.push(text);
@@ -1316,7 +1316,7 @@ async function hydratePinnedConversationContext({ silent = false } = {}) {
   }
   if (!silent) {
     // Deleted or hidden on B站 (as the 分拣台 and 视频记录 tell it): no retry will bring it back.
-    showConversationContextError(BocSites.isBiliVideoGone(response?.code) ? "视频已失效，这段对话只能查看，不能继续提问。" : `读取原视频失败：${response?.error || "未知错误"}`);
+    showConversationContextError(MdgSites.isBiliVideoGone(response?.code) ? "视频已失效，这段对话只能查看，不能继续提问。" : `读取原视频失败：${response?.error || "未知错误"}`);
   }
   return false;
 }
@@ -1517,7 +1517,7 @@ function appendStreamError({ node, prompt, raw }, error, saved, code = "") {
   err.className = "sp-msg-error";
   err.textContent = `错误：${error}`;
   node.appendChild(err);
-  const access = BocErrors.grantOrigin(error);
+  const access = MdgErrors.grantOrigin(error);
   if (access) {
     const grant = document.createElement("button");
     grant.type = "button";
@@ -1531,8 +1531,8 @@ function appendStreamError({ node, prompt, raw }, error, saved, code = "") {
     });
     node.appendChild(grant);
   }
-  // The AI platform errors 分拣台 stops on (BocErrors.CODES): 去设置 comes before 重试.
-  if (BocErrors.action(code) === "settings") {
+  // The AI platform errors 分拣台 stops on (MdgErrors.CODES): 去设置 comes before 重试.
+  if (MdgErrors.action(code) === "settings") {
     const settings = document.createElement("button");
     settings.type = "button";
     settings.className = "sp-chip sp-grant-btn";
@@ -1657,9 +1657,9 @@ async function buildCurrentConversationNote() {
   const noteId = noteVideoId(context);
   const ref = buildConversationContextRef(context);
   const extrasRef = { site: ref.site, videoId: noteId, pageIndex: ref.pageIndex };
-  const { analysis, note } = BocNote.triageExtras(await chrome.storage.local.get(BocNote.triageExtrasKeys(extrasRef)), extrasRef);
+  const { analysis, note } = MdgNote.triageExtras(await chrome.storage.local.get(MdgNote.triageExtrasKeys(extrasRef)), extrasRef);
   const markdown = buildAiConversationMarkdown({ context, turns, filename });
-  return { context, filename, content: BocNote.withTriageSummary(markdown, analysis, note) };
+  return { context, filename, content: MdgNote.withTriageSummary(markdown, analysis, note) };
 }
 
 // ---- auto-sync: after a manual save bound the video to its note, every finished answer updates the section ----
@@ -1688,7 +1688,7 @@ async function autoSyncConversation(conversationId) {
   try {
     const resp = await sendRuntimeMessage({ type: "sync-video-note-ai", ref: conversation.contextRef, conversation: { messages: conversation.messages } });
     if (!resp?.ok) {
-      throw BocErrors.fromResp(resp, "Local API 写入失败");
+      throw MdgErrors.fromResp(resp, "Local API 写入失败");
     }
     if (!resp.path) {
       return;
@@ -1760,9 +1760,9 @@ async function saveCurrentConversationToObsidian() {
     const request = { type: "write-video-note", ref, conversation: { messages }, page: await openPageNote(ref) };
     let resp = await sendRuntimeMessage(request);
     if (resp?.ok && resp.ask) {
-      const mode = await BocOverwriteDialog.choose(resp.path, { hasAiSection: resp.hasAiSection });
+      const mode = await MdgOverwriteDialog.choose(resp.path, { hasAiSection: resp.hasAiSection });
       if (!mode) {
-        showConversationContextNotice(BocErrors.TEXT.obsidianCancelled, 2200);
+        showConversationContextNotice(MdgErrors.TEXT.obsidianCancelled, 2200);
         return;
       }
       if (epoch !== state.view().epoch) {
@@ -1771,7 +1771,7 @@ async function saveCurrentConversationToObsidian() {
       resp = await sendRuntimeMessage({ ...request, mode });
     }
     if (!resp?.ok) {
-      throw BocErrors.fromResp(resp, "Local API 写入失败");
+      throw MdgErrors.fromResp(resp, "Local API 写入失败");
     }
     showConversationContextNotice(resp.text, 4000);
   } catch (error) {
@@ -1910,7 +1910,7 @@ async function jumpToAssistantTimestamp(seconds, label) {
     const response = await sendMessageToActiveTab(tab.id, {
       type: "sidepanel-seek-video-time",
       seconds: safeSeconds,
-      videoId: inTriage ? BocSites.parseRef(targetUrl)?.id || "" : ""
+      videoId: inTriage ? MdgSites.parseRef(targetUrl)?.id || "" : ""
     }, inTriage ? 1 : undefined);
     if (!response?.ok) {
       throw new Error(response?.error || "视频时间跳转失败");

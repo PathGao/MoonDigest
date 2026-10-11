@@ -34,7 +34,7 @@ const TRIAGE_VERDICT_ALIASES = { 留: "keep", 可以删: "drop", 待定: "unsure
 function triageVerdict(v) {
   const s = String(v ?? "").trim();
   const id = s.toLowerCase();
-  const names = BocTagCore.VERDICTS;
+  const names = MdgTagCore.VERDICTS;
   if (names[id]) return id;
   return Object.keys(names).find((k) => names[k] === s) || TRIAGE_VERDICT_ALIASES[s] || "unsure";
 }
@@ -241,7 +241,7 @@ function triageError(error, code) {
 
 // Risk control answers HTTP 412 with an HTML page, or one of these codes in JSON; both mean back off.
 // follow-bg.js and the video page (content.js) use the same set.
-const BILI_RISK_CODES = BocSites.BILI_RISK_CODES;
+const BILI_RISK_CODES = MdgSites.BILI_RISK_CODES;
 async function triageBiliJson(res) {
   if (!res.ok) throw triageError(`B站请求失败 HTTP ${res.status}`, res.status === 412 ? "THROTTLED" : undefined);
   try {
@@ -305,7 +305,7 @@ async function triageBiliGetJson(url, pace) {
     }
     if (json && !(pace && BILI_RISK_CODES.has(json.code))) return json;
     if (strike >= pace.cfg.strikes) throw triageError("被 B站 限流，已暂停", "THROTTLED");
-    if (typeof url === "function") BocSites.biliWbiReset();
+    if (typeof url === "function") MdgSites.biliWbiReset();
     pace.hold(pace.cfg.backoffMs, "throttled");
   }
 }
@@ -372,7 +372,7 @@ const SEEN_MAX_PAGES = 60;
 const SEEN_KEEP_S = 365 * 86400;
 const SEEN_MAX = 5000;
 const SEEN_PRUNE_GAP_MS = 86400 * 1000;
-const SEEN_META = BocLimits.KEYS.triageSeenMeta; // { newest: view_at s, syncedAt, prunedAt, backoffUntil, resume }
+const SEEN_META = MdgLimits.KEYS.triageSeenMeta; // { newest: view_at s, syncedAt, prunedAt, backoffUntil, resume }
 
 // Percent watched from a history item: progress -1 means finished.
 function seenPercent(progress, duration) {
@@ -471,8 +471,8 @@ async function seenSyncOnce(force, started) {
   let dropped = 0;
   if (now - (meta.prunedAt || 0) > SEEN_PRUNE_GAP_MS) {
     const all = (await chrome.storage.local.getKeys()).filter((k) => k.startsWith("seen_"));
-    const got = await chrome.storage.local.get([...all, BocLimits.KEYS.triageIncludedFolders]);
-    const snaps = await chrome.storage.local.get((got[BocLimits.KEYS.triageIncludedFolders] || []).map(BocLimits.KEYS.triageSnapshot));
+    const got = await chrome.storage.local.get([...all, MdgLimits.KEYS.triageIncludedFolders]);
+    const snaps = await chrome.storage.local.get((got[MdgLimits.KEYS.triageIncludedFolders] || []).map(MdgLimits.KEYS.triageSnapshot));
     const keep = new Set(Object.values(snaps).flatMap((s) => s?.bvids || []));
     const drop = seenPrune(Object.fromEntries(all.map((k) => [k.slice(5), got[k]])), keep, Math.floor(now / 1000));
     if (drop.length) await chrome.storage.local.remove(drop.map((b) => `seen_${b}`));
@@ -545,13 +545,13 @@ async function triageAiSettings() {
 
 async function triageAnalyze({ bvid, force, criteria, folder, aiProviderId }) {
   if (!bvid) throw triageError("缺少 bvid");
-  const cacheKey = BocLimits.KEYS.triageAnalysis(bvid);
+  const cacheKey = MdgLimits.KEYS.triageAnalysis(bvid);
   if (!force) {
     const cached = (await chrome.storage.local.get(cacheKey))[cacheKey];
     if (cached) return cached;
   }
 
-  const site = BocSites.SITES.bilibili;
+  const site = MdgSites.SITES.bilibili;
   const ref = { site: "bilibili", id: bvid, part: null, url: "" };
   const m = await site.fetchMeta(ref, TRIAGE_BILI_IO);
   const meta = { title: m.title, desc: m.description, upper: m.author, duration: m.duration, pubdate: m.uploadDate, tname: m.tname, tags: m.tags };
@@ -560,10 +560,10 @@ async function triageAnalyze({ bvid, force, criteria, folder, aiProviderId }) {
   let subtitle = "";
   // Throttling reaches the page so it backs off; a failed track list or download falls back to comments and the card
   // says 字幕抓取失败 with the reason. A subtitle that does not match the video's length is used with the video page's warning.
-  const got = await BocSites.loadSubtitle(site, ref, m, TRIAGE_BILI_IO);
+  const got = await MdgSites.loadSubtitle(site, ref, m, TRIAGE_BILI_IO);
   if (got.body.length) {
     source = "subtitle";
-    subtitle = BocLimits.sampleAiSubtitle(got.body.map((l) => l.content).join("\n")).text;
+    subtitle = MdgLimits.sampleAiSubtitle(got.body.map((l) => l.content).join("\n")).text;
   }
   const comments = subtitle ? "" : (await site.fetchComments(ref, m, TRIAGE_BILI_IO, 10).catch(() => [])).map((c, i) => `${i + 1}. ${c.message}`).join("\n");
 
@@ -576,7 +576,7 @@ async function triageAnalyze({ bvid, force, criteria, folder, aiProviderId }) {
     // Bilibili hides subtitles from a logged-out user; the card says so.
     ...(source === "meta" && got.bundle.needLogin ? { needLogin: true } : {}),
     ...(got.failure ? { subtitleFailure: got.failure } : {}),
-    ...(got.mismatch ? { subtitleWarning: BocNote.subtitleMismatchWarning(got.mismatch) } : {}),
+    ...(got.mismatch ? { subtitleWarning: MdgNote.subtitleMismatchWarning(got.mismatch) } : {}),
     ...triageParseLlm(content),
     model,
     analyzedAt: Date.now(),
@@ -680,7 +680,7 @@ async function triageClassifyTitles({ items, criteria, folder, aiProviderId }) {
   const toStore = {};
   for (const [bvid, r] of Object.entries(parsed)) {
     results[bvid] = { ...r, criteria: String(criteria ?? "").trim() };
-    if (r.reason !== "AI 未返回") toStore[BocLimits.KEYS.triageTitle(bvid)] = { ...results[bvid], model, analyzedAt };
+    if (r.reason !== "AI 未返回") toStore[MdgLimits.KEYS.triageTitle(bvid)] = { ...results[bvid], model, analyzedAt };
   }
   await chrome.storage.local.set(toStore);
   return { results };
@@ -707,35 +707,35 @@ async function triageAiCommand({ instruction, items, tags, maxNewTags = 5, allow
 // One video → one note built the same way the popup's 写入 Obsidian does, plus the stage-2 summary.
 async function triageBuildNote(bvid, settings) {
   if (!bvid) throw triageError("缺少 bvid");
-  const site = BocSites.SITES.bilibili;
+  const site = MdgSites.SITES.bilibili;
   const io = TRIAGE_BILI_IO;
   const ref = { site: "bilibili", id: bvid, part: null, url: "" };
   const meta = await site.fetchMeta(ref, io);
   ref.url = site.canonicalUrl(bvid, meta.pageCount > 1 ? meta.pageIndex : 1);
-  // Tracks are tried in order like on the video page (BocSites.loadSubtitle). Throttling rejects, so the caller waits
+  // Tracks are tried in order like on the video page (MdgSites.loadSubtitle). Throttling rejects, so the caller waits
   // and tries again. A failed track list or download writes the note without subtitles, as the video page does: the
   // note opens with 字幕抓取失败（原因）. subtitleWarning, which the callers show, is the video page's sentence for that
   // or for a subtitle that does not match the video's length (kept, not cached).
-  const found = await BocSites.loadSubtitle(site, ref, meta, io);
+  const found = await MdgSites.loadSubtitle(site, ref, meta, io);
   const { track, body, bundle } = found;
   const subtitleFailure = found.failure;
-  const subtitleWarning = found.mismatch ? BocNote.subtitleMismatchWarning(found.mismatch) : subtitleFailure ? `字幕抓取失败：${subtitleFailure}。` : "";
+  const subtitleWarning = found.mismatch ? MdgNote.subtitleMismatchWarning(found.mismatch) : subtitleFailure ? `字幕抓取失败：${subtitleFailure}。` : "";
   const hotComments =
     settings.includeHotCommentsInNote || !body.length ? await site.fetchComments(ref, meta, io).catch(() => []) : [];
-  const noteMeta = { ...BocNote.noteMetaOf({ site: "bilibili", videoId: bvid, meta, bundle, track }), hotComments, subtitleFailure };
-  const { aiConversations } = BocLimits.KEYS;
+  const noteMeta = { ...MdgNote.noteMetaOf({ site: "bilibili", videoId: bvid, meta, bundle, track }), hotComments, subtitleFailure };
+  const { aiConversations } = MdgLimits.KEYS;
   // 分拣台 notes always summarize the video's P1 (the analysis is per bvid).
   const extrasRef = { site: "bilibili", videoId: bvid, pageIndex: 1 };
-  const stored = await chrome.storage.local.get([aiConversations, ...BocNote.triageExtrasKeys(extrasRef)]);
-  const { analysis, note, userTags } = BocNote.triageExtras(stored, extrasRef);
+  const stored = await chrome.storage.local.get([aiConversations, ...MdgNote.triageExtrasKeys(extrasRef)]);
+  const { analysis, note, userTags } = MdgNote.triageExtras(stored, extrasRef);
   // The user's 分拣 tags, every folder's, go into the note's tags next to the fixed ones from the settings page.
   noteMeta.userTags = userTags;
-  noteMeta.aiTurns = BocNote.buildConversationTurns(BocNote.pickConversation(stored[aiConversations], noteMeta)?.messages);
-  const markdown = BocNote.withTriageSummary(BocNote.buildMarkdown(noteMeta, body, settings, ref), analysis, note);
+  noteMeta.aiTurns = MdgNote.buildConversationTurns(MdgNote.pickConversation(stored[aiConversations], noteMeta)?.messages);
+  const markdown = MdgNote.withTriageSummary(MdgNote.buildMarkdown(noteMeta, body, settings, ref), analysis, note);
   // The computed path for this video's note (obsidian.js prefers a recorded one); the cover goes into the vault there
   // (hdslb links 403 in Obsidian).
-  const filename = BocNote.buildNoteFilename(noteMeta, settings);
-  const path = BocNote.videoNotePath(noteMeta, settings);
+  const filename = MdgNote.buildNoteFilename(noteMeta, settings);
+  const path = MdgNote.videoNotePath(noteMeta, settings);
   const cover = { url: meta.cover, name: `bilibili-${bvid}` };
   return { meta, noteMeta, body, markdown, filename, path, cover, subtitleWarning };
 }
@@ -764,7 +764,7 @@ async function triageWriteNote({ bvid, overwrite }) {
 // Notes used to live on basket items; they now belong to the video (triage_notes, bvid → { text, updatedAt }).
 // Copies each basket note once, never over an existing entry; the basket items keep theirs.
 async function triageMigrateNotes() {
-  const { triageNotes, triageBasket } = BocLimits.KEYS;
+  const { triageNotes, triageBasket } = MdgLimits.KEYS;
   const stored = await chrome.storage.local.get(["triage_notes_migrated", triageBasket, triageNotes]);
   if (stored.triage_notes_migrated) return;
   const notes = { ...stored[triageNotes] };
@@ -886,8 +886,8 @@ const TRIAGE_HANDLERS = {
 
   "triage-analysis-get": async ({ bvids }) => {
     const list = Array.isArray(bvids) ? bvids : [];
-    const stored = await chrome.storage.local.get(list.map(BocLimits.KEYS.triageAnalysis));
-    return Object.fromEntries(list.map((b) => [b, stored[BocLimits.KEYS.triageAnalysis(b)] || null]));
+    const stored = await chrome.storage.local.get(list.map(MdgLimits.KEYS.triageAnalysis));
+    return Object.fromEntries(list.map((b) => [b, stored[MdgLimits.KEYS.triageAnalysis(b)] || null]));
   },
 
   "triage-analyze": (msg) => triageAnalyze(msg),
@@ -898,8 +898,8 @@ const TRIAGE_HANDLERS = {
 
   "triage-title-get": async ({ bvids }) => {
     const list = Array.isArray(bvids) ? bvids : [];
-    const stored = await chrome.storage.local.get(list.map(BocLimits.KEYS.triageTitle));
-    return Object.fromEntries(list.map((b) => [b, stored[BocLimits.KEYS.triageTitle(b)] || null]));
+    const stored = await chrome.storage.local.get(list.map(MdgLimits.KEYS.triageTitle));
+    return Object.fromEntries(list.map((b) => [b, stored[MdgLimits.KEYS.triageTitle(b)] || null]));
   },
 
   "triage-unfav": async ({ mediaId, aids }) => {
@@ -986,7 +986,7 @@ const TRIAGE_HANDLERS = {
     const name = String(filename || "").trim();
     if (!name) throw triageError("缺少文件名");
     const settings = await getMergedSettings();
-    const folder = BocNote.resolveFolderTemplate(settings.noteFolder, { site: "bilibili" });
+    const folder = MdgNote.resolveFolderTemplate(settings.noteFolder, { site: "bilibili" });
     const path = folder ? `${folder}/${name}` : name;
     // putVaultNote gives up after OBSIDIAN_TIMEOUT_MS, so a hung Obsidian ends 写入中….
     await putVaultNote(obsidianConfig(settings), path, typeof markdown === "string" ? markdown : "");

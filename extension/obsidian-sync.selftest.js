@@ -51,9 +51,9 @@ const ctx = vm.createContext({ chrome, console, fetch, setTimeout, clearTimeout,
   importScripts: (...files) => files.forEach((file) => vm.runInContext(fs.readFileSync(path.join(__dirname, file), "utf8"), ctx))
 });
 vm.runInContext(fs.readFileSync(path.join(__dirname, "background.js"), "utf8"), ctx);
-const N = ctx.BocNote;
-const E = ctx.BocErrors.TEXT;
-const PATHS = ctx.BocLimits.KEYS.obsidianNotePaths;
+const N = ctx.MdgNote;
+const E = ctx.MdgErrors.TEXT;
+const PATHS = ctx.MdgLimits.KEYS.obsidianNotePaths;
 // Responses are vm-realm objects, so they come back through JSON for deepStrictEqual.
 // Like Chrome, every listener sees the message and only one answers.
 const send = (message) => new Promise((resolve) => onMessageListeners.forEach((fn) => fn(message, {}, (resp) => resolve(JSON.parse(JSON.stringify(resp))))));
@@ -163,7 +163,7 @@ const write = (extra) => send({ type: "write-video-note", ...extra });
   resp = await send({ type: "sync-video-note-ai", ref: yt, conversation: conversation("五") });
   assert.deepStrictEqual([resp.exists, "video:youtube:y1|" in local[PATHS], vault.has("N/youtube/Y.md")], [false, false, false]);
 
-  // Obsidian unusable, in BocErrors' words: not enabled or set up and a refused key are OBSIDIAN (去设置).
+  // Obsidian unusable, in MdgErrors' words: not enabled or set up and a refused key are OBSIDIAN (去设置).
   local.obsidianApiKey = "wrong";
   assert.deepStrictEqual(await write({ ref: bili }), { ok: false, error: E.obsidianKey, code: "OBSIDIAN" });
   local.obsidianApiKey = "";
@@ -195,7 +195,7 @@ const write = (extra) => send({ type: "write-video-note", ...extra });
   walk(".");
   for (const f of scripts) {
     assert.ok(f === "obsidian.js" || !/\/vault\/|"(obsidian-note-exists|write-obsidian-note|update-obsidian-ai-section)"/.test(read(f)), `${f} reaches the vault; send write-video-note`);
-    assert.ok(["note.js", "obsidian.js", "triage/triage-bg.js"].includes(f) || !read(f).includes("resolveFolderTemplate("), `${f} builds a note path; use BocNote.videoNotePath`);
+    assert.ok(["note.js", "obsidian.js", "triage/triage-bg.js"].includes(f) || !read(f).includes("resolveFolderTemplate("), `${f} builds a note path; use MdgNote.videoNotePath`);
   }
   assert.strictEqual(read("triage/triage-bg.js").split("resolveFolderTemplate(").length, 2, "triage-bg.js: only triage-export");
 

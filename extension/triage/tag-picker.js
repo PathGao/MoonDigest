@@ -124,7 +124,7 @@
 
   // Runs before the page's own key handlers see the key (they skip open dialogs and text fields anyway).
   dlg.addEventListener("keydown", (e) => {
-    if (!cur || BocTyping.composing(e) || e.metaKey || e.ctrlKey || e.altKey) return;
+    if (!cur || MdgTyping.composing(e) || e.metaKey || e.ctrlKey || e.altKey) return;
     const k = e.key;
     if (k === "Escape") close();
     else if (k === "ArrowDown" || k === "ArrowUp") {
@@ -137,7 +137,7 @@
     e.preventDefault();
     e.stopPropagation();
   });
-  BocTyping.bindLive(input, () => cur && ((cur.index = 0), render()), 0);
+  MdgTyping.bindLive(input, () => cur && ((cur.index = 0), render()), 0);
   list.addEventListener("mousedown", (e) => e.target.closest("[data-i]") && e.preventDefault()); // focus stays in the filter
   list.addEventListener("click", (e) => {
     const li = e.target.closest("[data-i]");

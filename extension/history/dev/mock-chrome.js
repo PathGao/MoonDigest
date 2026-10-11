@@ -21,7 +21,7 @@
   const longTitle = ref("bilibili", "BV1mock000002", "【合集】吴恩达机器学习 2024 中文字幕 全 142 集：监督学习、无监督学习、推荐系统与强化学习", { cid: "1002" });
   const page = { title: "某篇博客文章", url: "https://example.com/post", isVideoContext: false };
   const store = {
-    boc_ai_conversations_v1: [
+    mdg_ai_conversations_v1: [
       conv("c1", "bilibili|BV1mock000001|1001", bili, now - hour, [["整理这期视频的内容，输出结构化总结。", "## 总结\n\n1. 注意力机制 `03:21`\n2. 位置编码\n\n<think>草稿</think>结论：值得看。"], ["位置编码再展开一下", "正弦位置编码让模型知道顺序。"]]),
       conv("c2", "bilibili|BV1mock000001|1001", bili, now - 30 * hour, [["这个视频适合入门吗？", "适合有 Python 基础的人。"]]),
       conv("c3", "youtube|dQw4w9WgXcQ|", yt, now - 50 * hour, [["Summarize", "RAG = retrieval + generation."]]),
@@ -46,7 +46,7 @@
     const tomato = ref("bilibili", "BV1demo000001", "番茄工作法：25 分钟专注到底怎么用", { cid: "2001", author: "效率研究所" });
     const git = ref("bilibili", "BV1demo00004", "Git 原理图解：commit、branch 到底是什么", { cid: "2004", author: "量子土豆" });
     const talk = ref("youtube", "aB3dEmo9xYz", "How I take notes on long videos", { author: "Study Lab" });
-    store.boc_ai_conversations_v1 = [
+    store.mdg_ai_conversations_v1 = [
       conv("d1", "bilibili|BV1demo000001|2001", tomato, now - 2 * hour, [["整理这期视频的内容，输出结构化总结。", "**一句话总结** 25 分钟专注加 5 分钟休息，把大任务拆成能完成的小块。\n\n1. 为什么有效 `00:42`\n2. 怎么开始 `02:15`\n3. 常见误区 `05:30`"], ["被打断了怎么办？", "记下打断的事，这个番茄作废，重新开始一个。"]]),
       conv("d2", "bilibili|BV1demo00004|2004", git, now - 26 * hour, [["rebase 和 merge 怎么选？", "自己的分支用 rebase 保持历史整齐，公共分支用 merge。"]]),
       conv("d3", "youtube|aB3dEmo9xYz|", talk, now - 3 * day, [["Summarize in Chinese", "作者用三步记笔记：先看一遍只记时间点，再按章节整理，最后写一句自己的结论。"]])
@@ -77,15 +77,15 @@
       // section; ask when it exists. window.__mockBuildFail fails it like a throttled fetch.
       case "write-video-note": {
         if (window.__mockBuildFail) return { ok: false, error: "mock: 请求过于频繁" };
-        const key = BocSites.buildContextKey(msg.ref);
+        const key = MdgSites.buildContextKey(msg.ref);
         const settings = { noteFolder: "MoonDigest/{{site}}", includeDateInFilename: true };
-        const path = store.boc_obsidian_note_paths_v1?.[key]?.path || BocNote.videoNotePath(msg.ref, settings);
+        const path = store.mdg_obsidian_note_paths_v1?.[key]?.path || MdgNote.videoNotePath(msg.ref, settings);
         const current = window.__mockVault[path];
-        const section = BocNote.buildAiSection(BocNote.buildConversationTurns(msg.conversation?.messages));
+        const section = MdgNote.buildAiSection(MdgNote.buildConversationTurns(msg.conversation?.messages));
         if (current != null && !msg.mode) return { ok: true, ask: true, path, hasAiSection: Boolean(section) };
         const ai = current != null && msg.mode === "ai";
-        window.__mockVault[path] = BocNote.upsertAiSection(ai ? current : `---\ntitle: ${msg.ref.title}\n---\n\n## 字幕\n\nmock subtitle\n`, section);
-        store.boc_obsidian_note_paths_v1 = { ...store.boc_obsidian_note_paths_v1, [key]: { path, lastSyncedAt: Date.now() } };
+        window.__mockVault[path] = MdgNote.upsertAiSection(ai ? current : `---\ntitle: ${msg.ref.title}\n---\n\n## 字幕\n\nmock subtitle\n`, section);
+        store.mdg_obsidian_note_paths_v1 = { ...store.mdg_obsidian_note_paths_v1, [key]: { path, lastSyncedAt: Date.now() } };
         return { ok: true, path, kind: ai ? "ai" : "full", text: `${ai ? "已更新 AI 问答" : "已写入 Obsidian"}：${path}` };
       }
       default:

@@ -1,6 +1,6 @@
 // Read-only triage marks on Bilibili pages. Videos without triage data get zero DOM changes.
 (() => {
-  const { VERDICTS, verdictOf } = globalThis.BocTagCore;
+  const { VERDICTS, verdictOf } = globalThis.MdgTagCore;
   const ACTION = { keep: "已保留", unfav: "已取消收藏" };
   const STAGE = ["视频已失效", "标题粗看", "字幕细看"];
   const BVID_RE = /(?:\/video\/|[?&]bvid=)(BV[0-9A-Za-z]{10})/;
@@ -9,7 +9,7 @@
     return BVID_RE.exec(String(href || ""))?.[1] || "";
   }
 
-  // The verdict is BocTagCore.verdictOf, as on the triage page; invalid: the folder's snapshot lists the video as 已失效.
+  // The verdict is MdgTagCore.verdictOf, as on the triage page; invalid: the folder's snapshot lists the video as 已失效.
   function badgeInfo({ title, analysis, invalid, tagIds, tags, decision } = {}) {
     const done = analysis?.status === "done";
     const found = verdictOf({ title, analysis, invalid });
@@ -137,7 +137,7 @@
   }
 
   // ---- The 「+」 picker's data: same tag shape, colors and name rules as the triage page's 关注 mode (tag-core.js). ----
-  const { cleanTagName, nextTagColor, newTagId } = globalThis.BocTagCore;
+  const { cleanTagName, nextTagColor, newTagId } = globalThis.MdgTagCore;
   const pickRows = (mid, tags, map) => {
     const on = new Set(map?.[mid] || []);
     return (Array.isArray(tags) ? tags : []).map((t) => ({ id: t.id, name: String(t.name || ""), color: String(t.color || ""), on: on.has(t.id) }));
@@ -174,7 +174,7 @@
   }
 
   // What each kind of B站 page shows: bili-surfaces.js, loaded first (manifest).
-  const { SURFACES } = globalThis.BocSurfaces;
+  const { SURFACES } = globalThis.MdgSurfaces;
   // "" in the 分拣台's own player, which already shows both tag lines above it.
   function surfaceOf({ host = "", path = "", search = "", viewer = false } = {}) {
     if (viewer) return "";
@@ -210,7 +210,7 @@
   // B站's own 稍后再看 / 历史 cards say 已看完 on the cover; ours would say it twice.
   const biliSaysSeen = (a) => [...a.querySelectorAll(".bili-cover-card__stat")].some((n) => n.textContent.trim() === "已看完");
 
-  globalThis.BocBadges = {
+  globalThis.MdgBadges = {
     bvidFromHref, badgeInfo, mergeDecisions, midFromHref, upTagsOf, spotIn, upCounts, upHidden,
     faceKey, whoIndex, resolveMid, pickRows, applyUpTag, saveUpTag, SURFACES, surfaceOf, fitCount, biliSaysSeen, lineParts
   };
@@ -223,7 +223,7 @@
   const POPOVER = ".bew-popover, .v-popover";
   const POPFEED = ".dynamic-entry .v-popover, .moments-pop";
   // SURFACES with the cells the settings page's table turned off.
-  let rules = globalThis.BocSurfaces.rulesWith([]);
+  let rules = globalThis.MdgSurfaces.rulesWith([]);
   const ruleFor = (el) => (el.closest?.(POPFEED) ? rules.popfeed : el.closest?.(POPOVER) ? rules.popover : rules[surface]);
 
   const SETTING = "showBiliTriageBadges";
@@ -231,7 +231,7 @@
   // Off by default: the AI's verdicts are for the 分拣台; on B站 pages only for those who ask.
   const VERDICT_SETTING = "showBiliVerdicts";
   // 观看进度 on covers has its own setting (设置页「观看进度」, off by default); it or the triage marks turn the page scan on.
-  const { SEEN_DEFAULTS, seenConfig, seenWords } = globalThis.BocSurfaces;
+  const { SEEN_DEFAULTS, seenConfig, seenWords } = globalThis.MdgSurfaces;
   let triageOn = false;
   let lineOn = { verdict: false, vtags: true }; // the video page's line: the AI 判断 and 视频标签 switches
   let seenCfg = seenConfig(SEEN_DEFAULTS);
@@ -524,7 +524,7 @@
   // composedPath has the button. After the extension reloads this old script still runs: the click is still kept from
   // the author's link, and the picker says to reload the page (renderPick).
   function onChip(e) {
-    if (globalThis.BocTyping.composing(e) || globalThis.BocTyping.typingIn(e)) return;
+    if (globalThis.MdgTyping.composing(e) || globalThis.MdgTyping.typingIn(e)) return;
     if (e.type === "keydown" && e.key !== "Enter" && e.key !== " ") return;
     const add = (e.composedPath?.() || []).find((n) => n.classList?.contains("mdg-up-add"));
     if (!add) return;
@@ -683,7 +683,7 @@ input { box-sizing: border-box; width: 100%; margin: 0; padding: 4px 8px; border
   const pickFocusables = () => (pick ? pick.panel.querySelectorAll(".opt, input, .go") : []);
 
   function onPickKey(e) {
-    if (globalThis.BocTyping.composing(e)) return; // Enter picks the IME candidate, Esc cancels the composition
+    if (globalThis.MdgTyping.composing(e)) return; // Enter picks the IME candidate, Esc cancels the composition
     if (e.key === "Escape") {
       e.preventDefault();
       return closePick(true);
@@ -1098,7 +1098,7 @@ input { box-sizing: border-box; width: 100%; margin: 0; padding: 4px 8px; border
     const verdicts = v[VERDICT_SETTING] === true;
     const tags = v[SETTING] !== false;
     lineOn = { verdict: verdicts, vtags: tags };
-    rules = globalThis.BocSurfaces.rulesWith(v.biliMarksOff, [!verdicts && "verdict", !tags && "vtags"].filter(Boolean));
+    rules = globalThis.MdgSurfaces.rulesWith(v.biliMarksOff, [!verdicts && "verdict", !tags && "vtags"].filter(Boolean));
     triageOn = verdicts || tags;
     const before = seenCfg.on;
     seenCfg = seenConfig(v);

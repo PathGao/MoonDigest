@@ -13,7 +13,7 @@ vm.runInContext(fs.readFileSync(path.join(__dirname, "settings.js"), "utf8"), ct
 vm.runInContext(fs.readFileSync(path.join(__dirname, "sites.js"), "utf8"), ctx);
 vm.runInContext(fs.readFileSync(path.join(__dirname, "tag-core.js"), "utf8"), ctx);
 vm.runInContext(fs.readFileSync(path.join(__dirname, "note.js"), "utf8"), ctx);
-const N = ctx.BocNote;
+const N = ctx.MdgNote;
 const CREATED = "2026-10-02";
 
 const baseSettings = {
@@ -56,7 +56,7 @@ const cases = {
 };
 
 const refOf = (meta) => {
-  const site = ctx.BocSites.SITES[meta.site];
+  const site = ctx.MdgSites.SITES[meta.site];
   const page = meta.pageCount > 1 ? meta.pageIndex : 1;
   return { site: meta.site, id: meta.videoId, part: { index: page, cid: meta.cid }, url: site.canonicalUrl(meta.videoId, page) };
 };

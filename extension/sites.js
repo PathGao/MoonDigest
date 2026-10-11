@@ -11,7 +11,7 @@
 //            readPlayer?() -> the page player's own response, capturePot?(videoId) -> { pot, client },
 //            withoutPot? -> only tracks that need no PO token }
 (() => {
-  if (globalThis.BocSites) {
+  if (globalThis.MdgSites) {
     return;
   }
 
@@ -1251,7 +1251,7 @@
     const id = String(subtitleId || "").trim();
     const urlKey = trackUrlKey(subtitleUrl);
     const source = id ? `id_${id}` : urlKey ? `url_${urlKey}` : `lang_${String(lang || "").trim().toLowerCase() || "unknown"}`;
-    return `${BocLimits.KEYS.subtitleCachePrefix}${videoId}_${cid}_${source}`;
+    return `${MdgLimits.KEYS.subtitleCachePrefix}${videoId}_${cid}_${source}`;
   }
 
   async function loadSubtitleCache(key) {
@@ -1269,19 +1269,19 @@
       await chrome.storage.local.set({ [key]: { raw, timestamp: now } });
       // getKeys (Chrome 130+) avoids reading every stored value just to find the cache keys.
       const keys = chrome.storage.local.getKeys
-        ? (await chrome.storage.local.getKeys()).filter((k) => k.startsWith(BocLimits.KEYS.subtitleCachePrefix))
+        ? (await chrome.storage.local.getKeys()).filter((k) => k.startsWith(MdgLimits.KEYS.subtitleCachePrefix))
         : null;
       const all = await chrome.storage.local.get(keys);
       const stale = Object.entries(all)
-        .filter(([k]) => k.startsWith(BocLimits.KEYS.subtitleCachePrefix))
+        .filter(([k]) => k.startsWith(MdgLimits.KEYS.subtitleCachePrefix))
         .sort(([, a], [, b]) => (Number(b?.timestamp) || 0) - (Number(a?.timestamp) || 0))
-        .filter(([, value], index) => index >= BocLimits.SUBTITLE_CACHE_ENTRIES || now - (Number(value?.timestamp) || 0) > BocLimits.SUBTITLE_CACHE_DAYS * 86400000)
+        .filter(([, value], index) => index >= MdgLimits.SUBTITLE_CACHE_ENTRIES || now - (Number(value?.timestamp) || 0) > MdgLimits.SUBTITLE_CACHE_DAYS * 86400000)
         .map(([k]) => k);
       if (stale.length) {
         await chrome.storage.local.remove(stale);
       }
     } catch (error) {
-      console.warn("[BOC] failed to save subtitle cache", error);
+      console.warn("[MDG] failed to save subtitle cache", error);
     }
   }
 
@@ -1345,7 +1345,7 @@
   //      another video's subtitle), the list is read and walked once more; after empty bodies without the PO token.
   //   3. YouTube only, when nothing matched or the video is gated: the watch page's transcript.
   //   4. Still nothing matching: the first mismatched body, used with its check in `mismatch` (the reader shows
-  //      BocNote.subtitleMismatchWarning; it is never cached).
+  //      MdgNote.subtitleMismatchWarning; it is never cached).
   // A limit with nothing usable throws, so the caller waits and tries again. Any other failure (network, timeout,
   // expired link, empty files) leaves no subtitle with `error` and `failure`, its reason without the full stop, which
   // every reader shows as 字幕抓取失败：原因. step(promise) wraps every wait (it sees settled results, never a rejection):
@@ -1423,7 +1423,7 @@
     return videoId ? `video:${site}:${videoId}|${cid || ""}` : "";
   }
 
-  globalThis.BocSites = {
+  globalThis.MdgSites = {
     SITES,
     matchSite,
     parseRef,

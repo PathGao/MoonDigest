@@ -9,7 +9,7 @@
     if (!payload) {
       return "";
     }
-    const videoKey = BocSites.buildContextKey(buildConversationContextRef(payload) || {});
+    const videoKey = MdgSites.buildContextKey(buildConversationContextRef(payload) || {});
     if (videoKey) {
       return videoKey;
     }
@@ -41,8 +41,8 @@
       author: String(context.author || "").trim(),
       uploadDate: String(context.uploadDate || "").trim(),
       // Conversations saved before the site registry carry bvid instead of site/videoId.
-      site: String(context.site || (context.bvid ? "bilibili" : BocSites.matchSite(context.url)?.id || "")).trim(),
-      videoId: String(context.videoId || context.bvid || BocSites.parseRef(context.url)?.id || "").trim(),
+      site: String(context.site || (context.bvid ? "bilibili" : MdgSites.matchSite(context.url)?.id || "")).trim(),
+      videoId: String(context.videoId || context.bvid || MdgSites.parseRef(context.url)?.id || "").trim(),
       cid: String(context.cid || "").trim(),
       aid: String(context.aid || "").trim(),
       pageIndex: Number(context.pageIndex) > 0 ? Number(context.pageIndex) : 1,
@@ -94,8 +94,8 @@
   }
 
   function doesTabMatchContextUrl(tabUrl, targetUrl) {
-    const current = BocSites.parseRef(tabUrl);
-    const target = BocSites.parseRef(targetUrl);
+    const current = MdgSites.parseRef(tabUrl);
+    const target = MdgSites.parseRef(targetUrl);
     if (!current || !target) {
       return String(tabUrl || "").trim() === String(targetUrl || "").trim();
     }
@@ -136,7 +136,7 @@
       })
       .filter(Boolean)
       .sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0))
-      .slice(0, BocLimits.AI_CONVERSATIONS);
+      .slice(0, MdgLimits.AI_CONVERSATIONS);
   }
 
   function resolveConversationStorageKey(rawKey, contextRef, contextUrl = "") {
@@ -482,7 +482,7 @@
         s.live.tabUrl = String(event.tab.url || "").trim();
         // Subtitles and comments take seconds to load, but the tab URL already names the new video, so following
         // switches now and the payload fills the context in.
-        const ref = BocSites.parseRef(s.live.tabUrl);
+        const ref = MdgSites.parseRef(s.live.tabUrl);
         const decision = decideFollow(snapshot(s), { stage: "tab", toUrl: ref?.url || "", oid: Boolean(ref?.part?.oid), follow: event.follow });
         s.live.lastVideoUrl = decision.lastVideoUrl;
         if (decision.action !== "follow") {

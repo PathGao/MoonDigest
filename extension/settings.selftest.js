@@ -1,5 +1,5 @@
 // /usr/local/bin/node extension/settings.selftest.js
-// BocSettings' normalizers, and the defaults are written nowhere else (load-order.selftest.js checks the load order).
+// MdgSettings' normalizers, and the defaults are written nowhere else (load-order.selftest.js checks the load order).
 const fs = require("fs");
 const path = require("path");
 const vm = require("vm");
@@ -10,7 +10,7 @@ const ctx = vm.createContext({});
 ctx.globalThis = ctx;
 vm.runInContext(read("settings.js"), ctx);
 vm.runInContext(read("settings.js"), ctx); // re-injection keeps the first copy
-const S = ctx.BocSettings;
+const S = ctx.MdgSettings;
 const plain = (value) => JSON.parse(JSON.stringify(value));
 
 assert.strictEqual(S.normalizeApiKey("  Bearer abc "), "abc");
@@ -49,7 +49,7 @@ for (const [fn, key] of [["normalizeReaderFontScale", "readerFontScale"], ["norm
 // bili-surfaces.js keeps a copy of the 观看进度 defaults for the pages that do not load settings.js.
 const surfaces = vm.createContext({});
 vm.runInContext(read("bili-surfaces.js"), surfaces);
-for (const [k, v] of Object.entries(surfaces.BocSurfaces.SEEN_DEFAULTS)) assert.strictEqual(v, S.DEFAULTS[k], `bili-surfaces.js ${k} matches settings.js`);
+for (const [k, v] of Object.entries(surfaces.MdgSurfaces.SEEN_DEFAULTS)) assert.strictEqual(v, S.DEFAULTS[k], `bili-surfaces.js ${k} matches settings.js`);
 
 // The default prompts are written only in settings.js (dev mocks may seed their own).
 const sources = ["background.js", "content.js", "options.js", "popup.js", "sidepanel.js", "note.js", "history/history.js", "triage/triage.js", "triage/triage-bg.js"];

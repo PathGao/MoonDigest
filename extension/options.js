@@ -1,6 +1,6 @@
 // Only for when get-settings fails; the background owns the stored settings.
-const DEFAULT_SETTINGS = { ...BocSettings.DEFAULTS, ...BocSettings.LOCAL_DEFAULTS };
-const { escapeHtml } = BocErrors;
+const DEFAULT_SETTINGS = { ...MdgSettings.DEFAULTS, ...MdgSettings.LOCAL_DEFAULTS };
+const { escapeHtml } = MdgErrors;
 
 const CUSTOM_PROPERTY_KEY_PATTERN = /^[\p{L}\p{N}_\-\s]+$/u;
 const FRONTMATTER_TEMPLATE_TOKEN_RE = /\{\{\s*([a-zA-Z0-9_]+)\s*\}\}/;
@@ -192,7 +192,7 @@ async function exportSettingsFile() {
   if (!resp?.ok) return setStatus(`导出失败：${resp?.error || "未知错误"}`, true);
   const d = new Date();
   const date = `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, "0")}${String(d.getDate()).padStart(2, "0")}`;
-  BocDownload.text(`MoonDigest设置-${date}.json`, JSON.stringify(resp.file, null, 2), "application/json");
+  MdgDownload.text(`MoonDigest设置-${date}.json`, JSON.stringify(resp.file, null, 2), "application/json");
   setStatus(hasUnsavedChanges ? "已导出已保存的设置，未保存的修改不在文件里" : "已导出设置");
 }
 
@@ -214,7 +214,7 @@ async function importSettingsFile(file) {
     return setStatus("导入失败：文件不是有效的 JSON", true);
   }
   const lost = hasUnsavedChanges ? "本页未保存的修改会丢失。" : "";
-  const key = BocLimits.KEYS.triageIncludedFolders;
+  const key = MdgLimits.KEYS.triageIncludedFolders;
   const current = (await chrome.storage.local.get(key).catch(() => ({})))[key];
   const dropped = droppedFolders(current, data?.local?.[key]);
   const out = dropped ? `当前勾选的 ${dropped} 个收藏夹在文件里没有勾选：导入后它们的视频会进「已出分拣范围」，取消收藏记录会被删除。` : "";
@@ -229,7 +229,7 @@ async function importSettingsFile(file) {
 async function renderStorageLimits() {
   const all = await chrome.storage.local.get(null).catch(() => ({}));
   elements.storageLimits.replaceChildren(
-    ...BocLimits.describe(BocLimits.storageUsage(all)).map((row) => {
+    ...MdgLimits.describe(MdgLimits.storageUsage(all)).map((row) => {
       const tr = document.createElement("tr");
       const label = document.createElement("th");
       label.textContent = row.label;
@@ -254,7 +254,7 @@ async function loadSettings() {
   elements.obsidianApiBaseUrl.value = settings.obsidianApiBaseUrl || "";
   elements.obsidianApiKey.value = settings.obsidianApiKey || "";
   elements.tags.value = settings.tags || "";
-  elements.downloadFormat.value = BocSettings.normalizeDownloadFormat(settings.downloadFormat);
+  elements.downloadFormat.value = MdgSettings.normalizeDownloadFormat(settings.downloadFormat);
   elements.youtubeSubtitleLang.value = settings.youtubeSubtitleLang || "auto";
   elements.includeDateInFilename.checked = settings.includeDateInFilename !== false;
   elements.includeHotCommentsInNote.checked = Boolean(settings.includeHotCommentsInNote);
@@ -291,7 +291,7 @@ async function loadSettings() {
 
 // B站页面上显示什么: a row per kind of page, a box per mark that page offers (bili-surfaces.js); the rest show 「–」.
 function renderBiliMarks(off) {
-  const { ROWS, COLS, allowed, normalizeOff } = BocSurfaces;
+  const { ROWS, COLS, allowed, normalizeOff } = MdgSurfaces;
   const no = new Set(normalizeOff(off));
   const head = document.getElementById("biliMarksHead");
   head.replaceChildren(document.createElement("th"), ...Object.values(COLS).map((name) => Object.assign(document.createElement("th"), { textContent: name, scope: "col" })));
@@ -346,8 +346,8 @@ function syncSeenRows() {
     fig.querySelector(".seen-tag").textContent = words;
     fig.querySelector("i").style.width = `${pct}%`;
   };
-  cover("full", share, BocSurfaces.seenWords(share, true));
-  cover("half", half, BocSurfaces.seenWords(half, false));
+  cover("full", share, MdgSurfaces.seenWords(share, true));
+  cover("half", half, MdgSurfaces.seenWords(half, false));
 }
 
 async function saveSettings() {
@@ -520,7 +520,7 @@ function setPill(node, ok, text) {
 
 function syncObsidianKeyTag() {
   const saved = savedForm?.payload.obsidianApiKey;
-  elements.obsidianKeyTag.hidden = !saved || BocSettings.normalizeApiKey(elements.obsidianApiKey.value) !== saved;
+  elements.obsidianKeyTag.hidden = !saved || MdgSettings.normalizeApiKey(elements.obsidianApiKey.value) !== saved;
 }
 
 function syncSaveBar() {
@@ -543,7 +543,7 @@ function readFormPayload() {
     .map((checkbox) => checkbox.value);
 
   const normalizedBaseUrl = normalizeBaseUrl(elements.obsidianApiBaseUrl.value);
-  const normalizedApiKey = BocSettings.normalizeApiKey(elements.obsidianApiKey.value);
+  const normalizedApiKey = MdgSettings.normalizeApiKey(elements.obsidianApiKey.value);
 
   return {
     obsidianEnabled: elements.obsidianEnabled.checked,
@@ -551,14 +551,14 @@ function readFormPayload() {
     obsidianApiBaseUrl: normalizedBaseUrl,
     obsidianApiKey: normalizedApiKey,
     tags: elements.tags.value.trim(),
-    downloadFormat: BocSettings.normalizeDownloadFormat(elements.downloadFormat.value),
+    downloadFormat: MdgSettings.normalizeDownloadFormat(elements.downloadFormat.value),
     youtubeSubtitleLang: elements.youtubeSubtitleLang.value,
     includeDateInFilename: elements.includeDateInFilename.checked,
     includeHotCommentsInNote: elements.includeHotCommentsInNote.checked,
     includeCoverInNote: elements.includeCoverInNote.checked,
     includeAiChatInNote: elements.includeAiChatInNote.checked,
     enablePlayerAiQuickAction: elements.enablePlayerAiQuickAction.checked,
-    playerAiQuickPrompt: BocSettings.normalizePlayerAiQuickPrompt(elements.playerAiQuickPrompt.value),
+    playerAiQuickPrompt: MdgSettings.normalizePlayerAiQuickPrompt(elements.playerAiQuickPrompt.value),
     includeTimestampInBody: elements.includeTimestampInBody.checked,
     showBiliTriageBadges: elements.showBiliTriageBadges.checked,
     showBiliUpTags: elements.showBiliUpTags.checked,
@@ -569,10 +569,10 @@ function readFormPayload() {
     seenStyle: elements.seenStyle.value === "veil" ? "veil" : "badge",
     enableDebugLogs: elements.enableDebugLogs.checked,
     frontmatterFields: selectedFields,
-    fixedFrontmatterProperties: BocSettings.normalizeFixedFrontmatterProperties(collectFixedPropertyRows()),
-    notePlaceholderSections: BocSettings.normalizeNotePlaceholderSections(collectNoteSectionRows()),
+    fixedFrontmatterProperties: MdgSettings.normalizeFixedFrontmatterProperties(collectFixedPropertyRows()),
+    notePlaceholderSections: MdgSettings.normalizeNotePlaceholderSections(collectNoteSectionRows()),
     aiSystemPrompt: String(elements.aiSystemPrompt?.value || "").trim(),
-    aiPresetPrompts: BocSettings.normalizeAiPresetPrompts(elements.aiPresetPrompts.value.split("\n"))
+    aiPresetPrompts: MdgSettings.normalizeAiPresetPrompts(elements.aiPresetPrompts.value.split("\n"))
   };
 }
 
@@ -671,7 +671,7 @@ function applyValidationError(validation) {
       if (titleInput && !String(titleInput.value || "").trim()) {
         titleInput.classList.add("input-error");
         titleInput.focus();
-      } else if (positionSelect && !BocSettings.NOTE_SECTION_POSITIONS.has(String(positionSelect.value || "").trim())) {
+      } else if (positionSelect && !MdgSettings.NOTE_SECTION_POSITIONS.has(String(positionSelect.value || "").trim())) {
         positionSelect.classList.add("input-error");
         positionSelect.focus();
       } else if (contentInput && validation.requireContent) {
@@ -722,7 +722,7 @@ function renderFixedPropertyRows(items) {
 }
 
 function addFixedPropertyRow(item = {}) {
-  const type = BocSettings.normalizeFixedPropertyType(item.type);
+  const type = MdgSettings.normalizeFixedPropertyType(item.type);
   const row = document.createElement("div");
   row.className = "fixed-property-row";
   row.innerHTML = `
@@ -772,7 +772,7 @@ function addFixedPropertyRow(item = {}) {
 
   row.querySelectorAll(".fixed-property-type-option").forEach((option) => {
     option.addEventListener("click", () => {
-      const nextType = BocSettings.normalizeFixedPropertyType(option.getAttribute("data-type"));
+      const nextType = MdgSettings.normalizeFixedPropertyType(option.getAttribute("data-type"));
       const valueSlot = row.querySelector(".fixed-property-value-slot");
       if (typePicker) {
         typePicker.dataset.type = nextType;
@@ -823,12 +823,12 @@ function renderNoteSectionRows(items) {
 }
 
 function addNoteSectionRow(item = {}, { skipLimit = false } = {}) {
-  if (!skipLimit && elements.noteSectionsList.children.length >= BocSettings.MAX_NOTE_SECTIONS) {
-    setStatus(`正文附加段落最多添加 ${BocSettings.MAX_NOTE_SECTIONS} 个`, true);
+  if (!skipLimit && elements.noteSectionsList.children.length >= MdgSettings.MAX_NOTE_SECTIONS) {
+    setStatus(`正文附加段落最多添加 ${MdgSettings.MAX_NOTE_SECTIONS} 个`, true);
     return;
   }
 
-  const position = BocSettings.normalizeNoteSectionPosition(item.position);
+  const position = MdgSettings.normalizeNoteSectionPosition(item.position);
   const row = document.createElement("div");
   row.className = "note-section-row";
   row.innerHTML = `
@@ -883,7 +883,7 @@ function collectNoteSectionRows({ includeRow = false } = {}) {
   return Array.from(elements.noteSectionsList.querySelectorAll(".note-section-row")).map((row) => {
     const item = {
       title: String(row.querySelector(".note-section-title")?.value || "").trim(),
-      position: BocSettings.normalizeNoteSectionPosition(row.querySelector(".note-section-position")?.value),
+      position: MdgSettings.normalizeNoteSectionPosition(row.querySelector(".note-section-position")?.value),
       content: String(row.querySelector(".note-section-content")?.value || "").trim()
     };
     if (includeRow) {
@@ -895,12 +895,12 @@ function collectNoteSectionRows({ includeRow = false } = {}) {
 
 function validateNotePlaceholderSections(items) {
   const rows = Array.isArray(items) ? items : [];
-  if (rows.length > BocSettings.MAX_NOTE_SECTIONS) {
-    return { ok: false, message: `正文附加段落最多添加 ${BocSettings.MAX_NOTE_SECTIONS} 个` };
+  if (rows.length > MdgSettings.MAX_NOTE_SECTIONS) {
+    return { ok: false, message: `正文附加段落最多添加 ${MdgSettings.MAX_NOTE_SECTIONS} 个` };
   }
   for (const item of rows) {
     const title = String(item?.title || "").trim();
-    const position = BocSettings.normalizeNoteSectionPosition(item?.position);
+    const position = MdgSettings.normalizeNoteSectionPosition(item?.position);
     const content = String(item?.content || "").trim();
     if (!title && !content) {
       continue;
@@ -908,7 +908,7 @@ function validateNotePlaceholderSections(items) {
     if (!title) {
       return { ok: false, row: item.row, message: "请填写段落标题" };
     }
-    if (!BocSettings.NOTE_SECTION_POSITIONS.has(position)) {
+    if (!MdgSettings.NOTE_SECTION_POSITIONS.has(position)) {
       return { ok: false, row: item.row, message: "请选择有效的位置" };
     }
   }
@@ -916,7 +916,7 @@ function validateNotePlaceholderSections(items) {
 }
 
 function buildNoteSectionPositionOptions(selectedPosition) {
-  const current = BocSettings.normalizeNoteSectionPosition(selectedPosition);
+  const current = MdgSettings.normalizeNoteSectionPosition(selectedPosition);
   const options = [
     { value: "before_intro", label: "简介前" },
     { value: "before_chapters", label: "章节前" },
@@ -929,7 +929,7 @@ function buildNoteSectionPositionOptions(selectedPosition) {
 
 function collectFixedPropertyRows({ includeRow = false } = {}) {
   return Array.from(elements.fixedPropertiesList.querySelectorAll(".fixed-property-row")).map((row) => {
-    const type = BocSettings.normalizeFixedPropertyType(row.querySelector(".fixed-property-type-picker")?.getAttribute("data-type"));
+    const type = MdgSettings.normalizeFixedPropertyType(row.querySelector(".fixed-property-type-picker")?.getAttribute("data-type"));
     const item = {
       key: String(row.querySelector(".fixed-property-key")?.value || "").trim(),
       type,
@@ -947,12 +947,12 @@ function validateFixedFrontmatterProperties(items) {
   const rows = Array.isArray(items) ? items : [];
   for (const item of rows) {
     const key = String(item?.key || "").trim();
-    const type = BocSettings.normalizeFixedPropertyType(item?.type);
+    const type = MdgSettings.normalizeFixedPropertyType(item?.type);
     const value = item?.value;
     const lowerKey = key.toLowerCase();
     const valueText = typeof value === "string" ? value.trim() : "";
 
-    if (!key && BocSettings.isFixedPropertyRowEffectivelyEmpty(type, value)) {
+    if (!key && MdgSettings.isFixedPropertyRowEffectivelyEmpty(type, value)) {
       continue;
     }
     if (!key) {
@@ -1029,7 +1029,7 @@ function readFixedPropertyValue(row) {
 }
 
 function buildFixedPropertyValueControl(type, value) {
-  const normalizedType = BocSettings.normalizeFixedPropertyType(type);
+  const normalizedType = MdgSettings.normalizeFixedPropertyType(type);
   const placeholder =
     normalizedType === "number"
       ? "数字值"
@@ -1044,7 +1044,7 @@ function buildFixedPropertyValueControl(type, value) {
 }
 
 function buildFixedPropertyTypePicker(type) {
-  const normalizedType = BocSettings.normalizeFixedPropertyType(type);
+  const normalizedType = MdgSettings.normalizeFixedPropertyType(type);
   return `
     <div class="fixed-property-type-picker" data-type="${normalizedType}" data-open="false">
       <button class="fixed-property-type-button" type="button" aria-label="属性类型" aria-haspopup="true" aria-expanded="false">
@@ -1065,7 +1065,7 @@ function buildFixedPropertyTypePicker(type) {
 }
 
 function getFixedPropertyTypeLabel(type) {
-  const normalizedType = BocSettings.normalizeFixedPropertyType(type);
+  const normalizedType = MdgSettings.normalizeFixedPropertyType(type);
   if (normalizedType === "number") {
     return "数字";
   }

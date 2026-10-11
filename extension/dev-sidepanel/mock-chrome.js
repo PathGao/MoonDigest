@@ -1,5 +1,5 @@
 // 侧边栏开发用 mock chrome：模拟 B 站视频标签页、三个视频上下文、一个 AI 平台和慢速流式回复。
-// window.__mockSwitchVideo(n) 切到第 n 个视频（改 URL + tabs.onUpdated + boc-video-changed）。第 2 个没有字幕，第 3 个字幕抓取失败。
+// window.__mockSwitchVideo(n) 切到第 n 个视频（改 URL + tabs.onUpdated + mdg-video-changed）。第 2 个没有字幕，第 3 个字幕抓取失败。
 // window.__mockOpenPage(url, title) 切到非视频标签页（url 为空即加载中的标签页）；__mockStateDelayMs 模拟字幕和评论加载耗时。
 // 流的结局：__mockStreamEnd = { after: n, error: "..." } 在第 n 个 token 后报错；{ after: n, disconnect: true } 模拟后台断开。
 // __mockStateError = "..." 让读取页面上下文失败（检查「重试」）。
@@ -44,7 +44,7 @@
       "容易拖延、经常被打断、需要长时间伏案的人。"
     ].join("\n");
     const seed = {
-      boc_ai_conversations_v1: [{
+      mdg_ai_conversations_v1: [{
         id: "demo-c1", title: v.title, contextKey: `video:bilibili:${v.bvid}|${v.cid}`, contextTitle: v.title, contextUrl: v.url, isVideoContext: true,
         createdAt: now - 60000, updatedAt: now - 30000, contextRef: ref, pageHydrated: true,
         messages: [{ role: "user", content: "整理这期视频的内容，输出结构化总结。" }, { role: "assistant", content: summary }]
@@ -138,26 +138,26 @@
       // obsidian.js in short: the video note at its recorded or computed path, the page's body or a stand-in; ask when it exists.
       case "write-video-note": {
         if (window.__mockObsidianDown) return { ok: false, error: "连不上 Obsidian，请确认它已打开并启用了 Local REST API", code: "OBSIDIAN_DOWN" };
-        const key = BocSites.buildContextKey(msg.ref);
-        const path = notePaths[key] || BocNote.videoNotePath(msg.ref, mockSettings);
+        const key = MdgSites.buildContextKey(msg.ref);
+        const path = notePaths[key] || MdgNote.videoNotePath(msg.ref, mockSettings);
         vaultLog("GET", path);
         const current = window.__mockVault[path];
-        const section = BocNote.buildAiSection(BocNote.buildConversationTurns(msg.conversation?.messages));
+        const section = MdgNote.buildAiSection(MdgNote.buildConversationTurns(msg.conversation?.messages));
         if (current !== undefined && !msg.mode) return { ok: true, ask: true, path, hasAiSection: Boolean(section) };
         const ai = current !== undefined && msg.mode === "ai";
         vaultLog("PUT", path);
-        window.__mockVault[path] = BocNote.upsertAiSection(ai ? current : msg.page?.markdown || `# ${msg.ref.title}\n\n字幕正文\n`, section);
+        window.__mockVault[path] = MdgNote.upsertAiSection(ai ? current : msg.page?.markdown || `# ${msg.ref.title}\n\n字幕正文\n`, section);
         notePaths[key] = path;
         return { ok: true, path, kind: ai ? "ai" : "full", text: `${ai ? "已更新 AI 问答" : "已写入 Obsidian"}：${path}` };
       }
       case "sync-video-note-ai": {
         if (window.__mockObsidianDown) return { ok: false, error: "连不上 Obsidian，请确认它已打开并启用了 Local REST API", code: "OBSIDIAN_DOWN" };
-        const path = notePaths[BocSites.buildContextKey(msg.ref)];
+        const path = notePaths[MdgSites.buildContextKey(msg.ref)];
         if (!path) return { ok: true, path: "" };
         vaultLog("GET", path);
         const current = window.__mockVault[path];
         if (current === undefined) return { ok: true, path, exists: false, updated: false };
-        const next = BocNote.upsertAiSection(current, BocNote.buildAiSection(BocNote.buildConversationTurns(msg.conversation?.messages)));
+        const next = MdgNote.upsertAiSection(current, MdgNote.buildAiSection(MdgNote.buildConversationTurns(msg.conversation?.messages)));
         if (next !== current) {
           vaultLog("PUT", path);
           window.__mockVault[path] = next;
@@ -300,7 +300,7 @@
     tab.title = tabTitle(video);
     onUpdated._fire(tab.id, { url: video.url }, { ...tab });
     if (notify) {
-      runtimeOnMessage._fire({ type: "boc-video-changed", url: video.url }, { tab: { id: tab.id } });
+      runtimeOnMessage._fire({ type: "mdg-video-changed", url: video.url }, { tab: { id: tab.id } });
     }
   };
   window.__mockOpenPage = (url, title = "") => {

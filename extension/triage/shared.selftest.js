@@ -13,7 +13,7 @@ const UI = ctx.TriageUi;
 // 关注 waits B站限流 out for 90 s (DESIGN), in one place: follow-bg.js's queue and follow.js's write and feed waits read it.
 assert.strictEqual(UI.BILI_HOLD_MS, 90000);
 for (const f of ["follow.js", "follow-bg.js"]) assert.ok(/\.BILI_HOLD_MS/.test(fs.readFileSync(path.join(__dirname, f), "utf8")) && !/WAIT_SEC = 90|backoffMs: 90000/.test(fs.readFileSync(path.join(__dirname, f), "utf8")), f);
-const TAG = ctx.BocTagCore;
+const TAG = ctx.MdgTagCore;
 const plain = (v) => JSON.parse(JSON.stringify(v));
 // Untrusted text (titles, UP names, comments, AI replies, tag names, paths) stays text: no tag of its own, no way out of
 // a quoted attribute.

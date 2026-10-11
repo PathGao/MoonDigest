@@ -29,5 +29,5 @@
     return { verdict: "drop", reason: v.reason ? `视频已失效。AI 原理由：${v.reason}` : "视频已失效", stage: Math.max(v.stage, 0) };
   }
 
-  globalThis.BocTagCore = { TAG_COLORS, cleanTagName, nextTagColor, cycleTagColor, newTagId, VERDICTS, verdictOf };
+  globalThis.MdgTagCore = { TAG_COLORS, cleanTagName, nextTagColor, cycleTagColor, newTagId, VERDICTS, verdictOf };
 })();

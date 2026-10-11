@@ -8,9 +8,9 @@ const docL = {};
 const ctx = vm.createContext({ setTimeout, clearTimeout, document: { addEventListener: (t, f, c) => (docL[t] ||= []).push({ f, c }) } });
 const src = fs.readFileSync(path.join(__dirname, "typing.js"), "utf8");
 vm.runInContext(src, ctx);
-const T = ctx.BocTyping;
+const T = ctx.MdgTyping;
 vm.runInContext(src, ctx);
-assert.strictEqual(ctx.BocTyping, T, "a second load keeps the first");
+assert.strictEqual(ctx.MdgTyping, T, "a second load keeps the first");
 
 assert.ok(T.composing({ isComposing: true, key: "Enter" }));
 assert.ok(T.composing({ isComposing: false, keyCode: 229, key: "Enter" }), "keyCode 229 alone also counts");

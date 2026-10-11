@@ -465,7 +465,7 @@ function pushTagUndo(before, label, { ask = null, created = [], recentAt = 0 } =
   });
 }
 function newTag(name) {
-  return { id: BocTagCore.newTagId("ft"), name, color: UI.nextTagColor(D.tags), rule: "" };
+  return { id: MdgTagCore.newTagId("ft"), name, color: UI.nextTagColor(D.tags), rule: "" };
 }
 
 // ---------- mode ----------
@@ -584,7 +584,7 @@ function renderAiState() {
 let loginSeen = "";
 function renderLogin() {
   const j = D.jobs || {};
-  const login = (code) => BocErrors.action(code) === "login"; // also B站's own -101, passed through by follow-bg.js
+  const login = (code) => MdgErrors.action(code) === "login"; // also B站's own -101, passed through by follow-bg.js
   const err = F.mode !== "follow" ? "" : !j.running && login(j.errorCode) ? j.error : login(F.feed?.errorCode) ? F.feed.error : "";
   if (err !== loginSeen) T.loginBanner(Boolean(err));
   loginSeen = err;
@@ -902,7 +902,7 @@ async function more({ byHand = false } = {}) {
   if (r.code === "THROTTLED") waitFeed(f);
   else if (!r.ok) {
     f.errorCode = r.code;
-    f.error = BocErrors.action(r.code) === "login" ? "没登录 B站，登录后点重试" : `读取失败：${r.error || "未知错误"}`;
+    f.error = MdgErrors.action(r.code) === "login" ? "没登录 B站，登录后点重试" : `读取失败：${r.error || "未知错误"}`;
   }
   else {
     const { items, add } = mergeFeed(f.items, r.data.items || []);
@@ -930,7 +930,7 @@ function play(bvid) {
 // ---------- B站 writes: one request at a time, stopped by the first error ----------
 // 关注's long tasks (runs.js): B站 writes, 视频投稿's wait for B站限流 and AI 打标签; the background refresh (follow_jobs)
 // is a row mirrored from storage. 关注 waits B站限流 out for UI.BILI_HOLD_MS, an AI limit as 收藏夹 does.
-const runs = BocRuns.create({
+const runs = MdgRuns.create({
   redraw() {
     renderSync();
     if (F.feed?.wait) renderFoot();
@@ -952,7 +952,7 @@ runs.put("sync", () => {
 runs.put("proposal", () => AI.proposal && { text: "标签建议待确认" });
 // 关注's writes to B站 (writes.js), on their own lane: their keys are mids, their undo steps 关注's, and a 收藏夹 batch
 // never blocks them.
-const W = BocWrites.create({ runs, lane: "follow-write", send, line: (p) => `${p.name}中 ${p.done}/${p.total}` });
+const W = MdgWrites.create({ runs, lane: "follow-write", send, line: (p) => `${p.name}中 ${p.done}/${p.total}` });
 // calls = the requests, each with the mids it changes (a relation request one UP, a group request up to 20).
 // Returns how many UP 主 went through. Its progress shows in the row's progress pill, as a 收藏夹 batch does, with 停止.
 // WRITE_GAP_MS between requests, as 收藏夹's batches. B站限流 (THROTTLED): the pill counts down, then the same request
@@ -1608,7 +1608,7 @@ main.addEventListener("click", async (e) => {
   else if (act === "tags") openManage();
   else if (act === "settings") openSettings();
   else if (act === "bili") window.open("https://space.bilibili.com/", "_blank", "noopener");
-  else if (act === "csv") BocDownload.text(`MoonDigest-关注-${fmtDate(nowSec())}.csv`, upCsv(), "text/csv;charset=utf-8");
+  else if (act === "csv") MdgDownload.text(`MoonDigest-关注-${fmtDate(nowSec())}.csv`, upCsv(), "text/csv;charset=utf-8");
   else if (act === "recent") {
     F.recentFilter = !F.recentFilter;
     render();

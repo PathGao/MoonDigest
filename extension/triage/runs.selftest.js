@@ -5,7 +5,7 @@ const vm = require("vm");
 const assert = require("assert");
 
 for (const f of ["../errors.js", "../tag-core.js", "shared.js", "runs.js"]) vm.runInThisContext(fs.readFileSync(path.join(__dirname, f), "utf8"));
-const { create } = globalThis.BocRuns;
+const { create } = globalThis.MdgRuns;
 const LIMIT = { ms: 90000, label: "B站限流卡住" };
 
 // A runs table over a fake clock: sleep moves the clock 100 ms per turn and stops early once ok() is false.

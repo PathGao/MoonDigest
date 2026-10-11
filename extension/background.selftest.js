@@ -142,8 +142,8 @@ process.on("exit", (code) => {
   const fresh = {};
   init = install(fresh);
   await init();
-  assert.deepStrictEqual(fresh.aiPresetPrompts, [...ctx.BocSettings.DEFAULTS.aiPresetPrompts]);
-  assert.strictEqual(fresh.playerAiQuickPrompt, ctx.BocSettings.DEFAULTS.playerAiQuickPrompt);
+  assert.deepStrictEqual(fresh.aiPresetPrompts, [...ctx.MdgSettings.DEFAULTS.aiPresetPrompts]);
+  assert.strictEqual(fresh.playerAiQuickPrompt, ctx.MdgSettings.DEFAULTS.playerAiQuickPrompt);
   assert.ok(!("aiInitialQuickPrompts" in fresh));
 
   // Saving a partial payload (the options page has no reading-view controls) keeps every key it omits.
@@ -258,14 +258,14 @@ process.on("exit", (code) => {
     };
     return ctx.getAiSidepanelState(1);
   };
-  const bili = await contextFor("https://www.bilibili.com/video/BV1xx411c7mD/?p=2&boc_reader=1&spm_id_from=333.1", {
+  const bili = await contextFor("https://www.bilibili.com/video/BV1xx411c7mD/?p=2&mdg_reader=1&spm_id_from=333.1", {
     site: "bilibili", videoId: "BV1xx411c7mD", pageIndex: 2, pageCount: 3
   });
   assert.strictEqual(bili.url, "https://www.bilibili.com/video/BV1xx411c7mD/?p=2");
-  const yt = await contextFor("https://www.youtube.com/watch?v=dQw4w9WgXcQ&t=42s&boc_reader=1", { site: "youtube", videoId: "dQw4w9WgXcQ" });
+  const yt = await contextFor("https://www.youtube.com/watch?v=dQw4w9WgXcQ&t=42s&mdg_reader=1", { site: "youtube", videoId: "dQw4w9WgXcQ" });
   assert.strictEqual(yt.url, "https://www.youtube.com/watch?v=dQw4w9WgXcQ");
   // Before the page has read its video id, the URL itself is cleaned.
-  const early = await contextFor("https://www.bilibili.com/video/BV1xx411c7mD/?boc_reader=1", { videoId: "" });
+  const early = await contextFor("https://www.bilibili.com/video/BV1xx411c7mD/?mdg_reader=1", { videoId: "" });
   assert.strictEqual(early.url, "https://www.bilibili.com/video/BV1xx411c7mD/");
   // The page's failure for the current video is the side panel's error.
   await assert.rejects(contextFor("https://www.bilibili.com/video/BV1xx411c7mD/", { ok: false, error: "B站限流，请稍后再试" }), /B站限流/);
@@ -299,7 +299,7 @@ process.on("exit", (code) => {
   assert.strictEqual(mismatched.subtitleBody.length, 2);
   assert.match(mismatched.subtitleMarkdown, /## 字幕/);
   assert.strictEqual(mismatched.subtitleWarning, "字幕时间轴到 06:40，视频长 04:33，字幕时间可能对不上。");
-  assert.deepStrictEqual(Object.keys(local).filter((k) => k.startsWith("boc_subtitle_cache_")), []);
+  assert.deepStrictEqual(Object.keys(local).filter((k) => k.startsWith("mdg_subtitle_cache_")), []);
   // Like the video page, the next track is tried when the chosen one does not match; the match wins, without a warning.
   const otherUrl = "https://aisubtitle.hdslb.com/b.json";
   routes = sidepanelRoutes(400);
@@ -307,7 +307,7 @@ process.on("exit", (code) => {
   routes[otherUrl] = { body: [{ from: 0, to: 270, content: "c" }] };
   const second = await historyContext();
   assert.deepStrictEqual([second.selectedSubtitleId, second.subtitleWarning, second.subtitleBody.length], ["6", "", 1]);
-  delete local.boc_subtitle_cache_BVa_11_id_6;
+  delete local.mdg_subtitle_cache_BVa_11_id_6;
   // Tracks with empty bodies leave the AI the title, description and comments, flagged as a failed fetch.
   routes = { ...sidepanelRoutes(100), [subUrl]: { body: [] } };
   const empty = await historyContext();
@@ -323,14 +323,14 @@ process.on("exit", (code) => {
   routes = sidepanelRoutes(100);
   const resolved = await historyContext();
   assert.strictEqual(resolved.subtitleBody.length, 2);
-  // As many hot comments as the video page and 分拣台 notes ask for: one count, BocSites.HOT_COMMENTS.
-  assert.ok(urls.some((u) => u.includes("/reply/main") && u.includes(`&ps=${ctx.BocSites.HOT_COMMENTS}&`)) && ctx.BocSites.HOT_COMMENTS === 20);
-  // The AI gets the same note the video page sends (BocNote.buildAiContext): front matter and subtitles, no player embed.
+  // As many hot comments as the video page and 分拣台 notes ask for: one count, MdgSites.HOT_COMMENTS.
+  assert.ok(urls.some((u) => u.includes("/reply/main") && u.includes(`&ps=${ctx.MdgSites.HOT_COMMENTS}&`)) && ctx.MdgSites.HOT_COMMENTS === 20);
+  // The AI gets the same note the video page sends (MdgNote.buildAiContext): front matter and subtitles, no player embed.
   assert.match(resolved.subtitleMarkdown, /^---\ntitle: "T"\n/);
   assert.match(resolved.subtitleMarkdown, /subtitle_lang: "中文"/);
   assert.ok(!/<iframe|player\.bilibili\.com/.test(resolved.subtitleMarkdown), "the AI context carries no player embed");
   assert.match(resolved.subtitleMarkdown, /\n## 字幕\n\n`00:00` a\n`00:01` b$/);
-  assert.ok("boc_subtitle_cache_BVa_11_id_5" in local);
+  assert.ok("mdg_subtitle_cache_BVa_11_id_5" in local);
   // Signed like 细看, and risk control on the subtitle list fails the follow-up as a B站 limit, not as 没有字幕.
   assert.ok(urls.some((u) => u.includes("/x/player/wbi/v2?") && u.includes("w_rid=")));
   routes = { ...sidepanelRoutes(100), "/x/player/wbi/v2": { code: -352, message: "风控" }, "/x/player/v2": { code: 0, data: { subtitle: { subtitles: [] } } } };
@@ -387,7 +387,7 @@ process.on("exit", (code) => {
   assert.deepStrictEqual([tooLong(2700), tooLong(2800)], ["", "aiSystemPrompt"]);
 
   // 测试连接 on the settings page reports with the words every Obsidian write uses.
-  const E = ctx.BocErrors.TEXT;
+  const E = ctx.MdgErrors.TEXT;
   const probe = async (fetch) => ((ctx.fetch = fetch), ctx.testObsidianConnection("http://127.0.0.1:27123", "k"));
   const reply = (status, body) => async () => ({ ok: status < 300, status, json: async () => body });
   assert.strictEqual((await probe(reply(401, null))).error, E.obsidianKey);

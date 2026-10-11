@@ -6,7 +6,7 @@ const assert = require("assert");
 
 const ctx = vm.createContext({ console });
 vm.runInContext(fs.readFileSync(path.join(__dirname, "limits.js"), "utf8"), ctx);
-const L = ctx.BocLimits;
+const L = ctx.MdgLimits;
 
 // The options page renders describe(); each cap it states must be the one the code enforces.
 const rows = L.describe({ subtitleCache: 12, aiConversations: 23, triageResults: 7 });
@@ -30,7 +30,7 @@ assert.ok(rows.every((row) => row.label && row.usage && row.rule));
 // vm objects carry another realm's prototypes, so compare through JSON.
 assert.deepStrictEqual(
   JSON.parse(JSON.stringify(L.storageUsage({
-    boc_subtitle_cache_a: {}, boc_subtitle_cache_b: {}, boc_ai_conversations_v1: [{}, {}, {}],
+    mdg_subtitle_cache_a: {}, mdg_subtitle_cache_b: {}, mdg_ai_conversations_v1: [{}, {}, {}],
     triage_analysis_BV1: {}, triage_title_BV1: {}, triage_title_BV2: {}, other: 1,
     triage_snapshot_7: { bvids: [] }, triage_removed: { BV1: {}, BV2: {} }, triage_notes: { BV3: {} }
   }))),
@@ -46,7 +46,7 @@ assert.deepStrictEqual(
 const names = Object.values(L.KEYS).filter((v) => typeof v === "string");
 // Renaming one loses the data stored under it.
 assert.deepStrictEqual([...names].sort(), [
-  "boc_ai_conversations_v1", "boc_obsidian_note_paths_v1", "boc_player_ai_quick_action_v1", "boc_subtitle_cache_",
+  "mdg_ai_conversations_v1", "mdg_obsidian_note_paths_v1", "mdg_player_ai_quick_action_v1", "mdg_subtitle_cache_",
   "triage_analysis_", "triage_basket", "triage_folder_criteria", "triage_included_folders", "triage_notes", "triage_removed",
   "triage_seen_meta", "triage_simplified_v1", "triage_snapshot_", "triage_tags", "triage_title_", "triage_video_tags"
 ]);
@@ -71,7 +71,7 @@ for (const file of sources) {
   for (const name of names) {
     // A string literal ("name", `name${id}`), a property read (x.name) or an object key ({ name: ... }).
     const written = new RegExp(`["'\`]${name}(?:["'\`]|\\$\\{)|\\.${name}\\b|[{,]\\s*${name}\\s*:`);
-    assert.ok(!written.test(text), `${file} writes the storage key ${name} itself; use BocLimits.KEYS`);
+    assert.ok(!written.test(text), `${file} writes the storage key ${name} itself; use MdgLimits.KEYS`);
   }
 }
 for (const name of badgesCopies) assert.ok(fs.readFileSync(path.join(__dirname, "badges.js"), "utf8").includes(name));

@@ -1,4 +1,4 @@
-// Shared modules must load before the top-level code below reads them (e.g. BocLimits).
+// Shared modules must load before the top-level code below reads them (e.g. MdgLimits).
 importScripts("limits.js", "errors.js", "settings.js", "sites.js", "tag-core.js", "note.js");
 
 // Side panel stream watchdog: "first" until any SSE chunk arrives (reasoning chunks count), then "idle" between chunks.
@@ -52,7 +52,7 @@ async function probeContentScriptVersion(tabId) {
   try {
     const probe = await chrome.scripting.executeScript({
       target: { tabId },
-      func: () => globalThis.__BOC_CONTENT_SCRIPT_LOADED__ || ""
+      func: () => globalThis.__MDG_CONTENT_SCRIPT_LOADED__ || ""
     });
     return String(probe?.[0]?.result || "");
   } catch {
@@ -124,7 +124,7 @@ async function getAiSidepanelState(tabId, { forceRefresh = false } = {}) {
     throw new Error("找不到当前标签页。");
   }
 
-  if (!BocSites.matchSite(tab.url)) {
+  if (!MdgSites.matchSite(tab.url)) {
     return {
       title: String(tab.title || "").trim(),
       url: String(tab.url || "").trim(),
@@ -147,11 +147,11 @@ async function getAiSidepanelState(tabId, { forceRefresh = false } = {}) {
   return { ...resp.payload, url: canonicalVideoUrl(resp.payload), isVideoContext: true };
 }
 
-// The content script reports location.href, which can carry reader mode (boc_reader) and tracking params;
+// The content script reports location.href, which can carry reader mode (mdg_reader) and tracking params;
 // a conversation saved from this context must link the plain video page.
 function canonicalVideoUrl({ site, videoId, pageIndex, pageCount, url }) {
-  const entry = BocSites.SITES[site];
-  return entry && videoId ? entry.canonicalUrl(videoId, pageCount > 1 ? pageIndex : 1) : BocSites.cleanUrl(url);
+  const entry = MdgSites.SITES[site];
+  return entry && videoId ? entry.canonicalUrl(videoId, pageCount > 1 ? pageIndex : 1) : MdgSites.cleanUrl(url);
 }
 
 async function openAiSidepanelForTab(tabId) {
@@ -168,7 +168,7 @@ function buildPlayerAiQuickActionRequest(tabId, prompt) {
   return {
     id: `player-ai-${createdAt}-${Math.random().toString(36).slice(2, 8)}`,
     tabId: Number(tabId || 0) || 0,
-    prompt: BocSettings.normalizePlayerAiQuickPrompt(prompt),
+    prompt: MdgSettings.normalizePlayerAiQuickPrompt(prompt),
     createdAt
   };
 }
@@ -181,8 +181,8 @@ function normalizeAiContextRef(ref) {
     author: String(value.author || "").trim(),
     uploadDate: String(value.uploadDate || "").trim(),
     // Conversations saved before the site registry carry bvid instead of site/videoId.
-    site: String(value.site || (value.bvid ? "bilibili" : BocSites.matchSite(value.url)?.id || "")).trim(),
-    videoId: String(value.videoId || value.bvid || BocSites.parseRef(value.url)?.id || "").trim(),
+    site: String(value.site || (value.bvid ? "bilibili" : MdgSites.matchSite(value.url)?.id || "")).trim(),
+    videoId: String(value.videoId || value.bvid || MdgSites.parseRef(value.url)?.id || "").trim(),
     cid: String(value.cid || "").trim(),
     aid: String(value.aid || "").trim(),
     pageIndex: Number(value.pageIndex) > 0 ? Number(value.pageIndex) : 1,
@@ -235,7 +235,7 @@ async function fetchJsonForAi(url) {
 }
 
 function refFromAiContext(ref) {
-  const site = BocSites.SITES[ref.site];
+  const site = MdgSites.SITES[ref.site];
   if (!site || !ref.videoId) {
     return null;
   }
@@ -250,7 +250,7 @@ function refFromAiContext(ref) {
 function findTabForRef(ref) {
   return chrome.tabs.query({}).then((tabs) =>
     tabs.find((tab) => {
-      const parsed = BocSites.parseRef(tab.url || "");
+      const parsed = MdgSites.parseRef(tab.url || "");
       return parsed && parsed.site === ref.site && parsed.id === ref.id;
     }) || null
   );
@@ -272,7 +272,7 @@ async function resolveAiSidepanelContext(contextRef) {
     };
   }
 
-  const site = BocSites.SITES[videoRef.site];
+  const site = MdgSites.SITES[videoRef.site];
   // Sites whose API only answers from inside the page are read through an open tab.
   if (site.pageOnly) {
     const tab = await findTabForRef(videoRef);
@@ -287,19 +287,19 @@ async function resolveAiSidepanelContext(contextRef) {
   // risk control as THROTTLED), so a B站 limit fails the follow-up as a limit instead of reading as 没有字幕.
   const io = TRIAGE_BILI_IO;
   const meta = await site.fetchMeta(videoRef, io);
-  // Like the video page: the chosen track first, then the others (BocSites.loadSubtitle). A B站 limit fails the
+  // Like the video page: the chosen track first, then the others (MdgSites.loadSubtitle). A B站 limit fails the
   // follow-up; a failed track list or download, like tracks with only empty bodies, leaves the AI the title, description
   // and comments, with the reason in subtitleFailure (the side panel and the AI read it as 字幕抓取失败).
-  const found = await BocSites.loadSubtitle(site, videoRef, meta, io, {
+  const found = await MdgSites.loadSubtitle(site, videoRef, meta, io, {
     prefer: { previousId: ref.selectedSubtitleId, previousUrl: ref.selectedSubtitleUrl, previousLang: ref.subtitleLang }
   });
   const { track, body, bundle, tracks } = found;
-  const subtitleWarning = found.mismatch ? BocNote.subtitleMismatchWarning(found.mismatch) : "";
+  const subtitleWarning = found.mismatch ? MdgNote.subtitleMismatchWarning(found.mismatch) : "";
 
   const hotComments = site.fetchComments ? await site.fetchComments(videoRef, meta, io).catch(() => []) : [];
   const title = String(meta.title || ref.title || "").trim();
   // The same note the video page sends (content.js buildSidepanelContext), with the fields its state carries.
-  const noteMeta = { ...BocNote.noteMetaOf({ site: site.id, videoId: videoRef.id, meta, bundle, track }), title };
+  const noteMeta = { ...MdgNote.noteMetaOf({ site: site.id, videoId: videoRef.id, meta, bundle, track }), title };
   const subtitleLang = noteMeta.selectedSubtitleLang;
   const noteRef = { site: site.id, id: videoRef.id, part: { index: meta.pageIndex || 1, cid: meta.cid }, url: canonicalVideoUrl({ ...meta, site: site.id, videoId: videoRef.id }) };
   return {
@@ -320,7 +320,7 @@ async function resolveAiSidepanelContext(contextRef) {
     subtitleBody: body,
     subtitleWarning,
     subtitleFailure: found.failure,
-    subtitleMarkdown: body.length ? BocNote.buildAiContext(noteMeta, body, settings, noteRef) : "",
+    subtitleMarkdown: body.length ? MdgNote.buildAiContext(noteMeta, body, settings, noteRef) : "",
     subtitleOptions: tracks.map((item) => ({
       id: String(item.id || "").trim(),
       url: String(item.url || "").trim(),
@@ -336,7 +336,7 @@ async function resolveAiSidepanelContext(contextRef) {
 async function resolveAiSidepanelPageRef(contextRef) {
   const ref = normalizeAiContextRef(contextRef);
   const videoRef = ref.isVideoContext ? refFromAiContext(ref) : null;
-  const site = videoRef ? BocSites.SITES[videoRef.site] : null;
+  const site = videoRef ? MdgSites.SITES[videoRef.site] : null;
   const fallback = {
     url: videoRef?.url || ref.url,
     site: ref.site,
@@ -441,7 +441,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         if (sender?.frameId && message.contextRef) {
           request.contextRef = message.contextRef;
         }
-        await chrome.storage.local.set({ [BocLimits.KEYS.playerAiQuickAction]: request });
+        await chrome.storage.local.set({ [MdgLimits.KEYS.playerAiQuickAction]: request });
         sendResponse({ ok: true });
       })
       .catch((error) => sendResponse({ ok: false, error: error.message || "未知错误" }));
@@ -463,10 +463,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     let readerUrl = "";
     try {
       const parsed = new URL(url);
-      if (!BocSites.matchSite(parsed.href)) {
+      if (!MdgSites.matchSite(parsed.href)) {
         throw new Error("当前网页不是支持的视频页");
       }
-      parsed.searchParams.set("boc_reader", "1");
+      parsed.searchParams.set("mdg_reader", "1");
       readerUrl = parsed.toString();
     } catch (error) {
       sendResponse({ ok: false, error: error.message || "专注模式的地址无效" });
@@ -488,7 +488,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.type === "fetch-json") {
     const url = typeof message.url === "string" ? message.url : "";
     // The proxy carries the user's cookies, so it only serves the video sites.
-    if (!BocSites.isAllowedFetchUrl(url)) {
+    if (!MdgSites.isAllowedFetchUrl(url)) {
       sendResponse({ ok: false, error: "URL not allowed" });
       return false;
     }
@@ -665,17 +665,17 @@ async function initializeSettingsStorage() {
   const { obsidianEnabled: storedObsidianEnabled } = await chrome.storage.sync.get("obsidianEnabled");
   await migrateInitialQuickPrompts();
   await removeDeadStorageKeys();
-  const syncCurrent = await chrome.storage.sync.get(BocSettings.DEFAULTS);
-  const localCurrent = await chrome.storage.local.get(BocSettings.LOCAL_DEFAULTS);
+  const syncCurrent = await chrome.storage.sync.get(MdgSettings.DEFAULTS);
+  const localCurrent = await chrome.storage.local.get(MdgSettings.LOCAL_DEFAULTS);
 
-  await chrome.storage.sync.set({ ...BocSettings.DEFAULTS, ...syncCurrent });
+  await chrome.storage.sync.set({ ...MdgSettings.DEFAULTS, ...syncCurrent });
   await chrome.storage.local.set({
-    obsidianApiKey: BocSettings.normalizeApiKey(localCurrent.obsidianApiKey)
+    obsidianApiKey: MdgSettings.normalizeApiKey(localCurrent.obsidianApiKey)
   });
 
   // A configured key means the user was already writing to Obsidian.
   if (typeof storedObsidianEnabled !== "boolean") {
-    await chrome.storage.sync.set({ obsidianEnabled: Boolean(BocSettings.normalizeApiKey(localCurrent.obsidianApiKey)) });
+    await chrome.storage.sync.set({ obsidianEnabled: Boolean(MdgSettings.normalizeApiKey(localCurrent.obsidianApiKey)) });
   }
 }
 
@@ -684,7 +684,7 @@ async function initializeSettingsStorage() {
 // triage_excluded_folders only ever existed in pre-release v2.0 builds.
 async function removeDeadStorageKeys() {
   const keys = (await chrome.storage.local.getKeys?.()) ?? Object.keys((await chrome.storage.local.get(null)) || {});
-  const simplified = BocLimits.KEYS.triageSimplified;
+  const simplified = MdgLimits.KEYS.triageSimplified;
   const migrated = (await chrome.storage.local.get(simplified))[simplified];
   const dead = ["triage_tab", "triage_read_verdict", "triage_tag_presets", "triage_schemes_migrated", "triage_watched", "triage_schemes", "triage_folder_scheme", "triage_excluded_folders"];
   await chrome.storage.local.remove(keys.filter((k) => dead.includes(k) || k.startsWith("triage_verdict_override_")));
@@ -702,19 +702,19 @@ async function migrateInitialQuickPrompts() {
     return;
   }
   const merged = [...(Array.isArray(aiInitialQuickPrompts) ? aiInitialQuickPrompts : []), ...(Array.isArray(aiPresetPrompts) ? aiPresetPrompts : [])];
-  await chrome.storage.sync.set({ aiPresetPrompts: BocSettings.normalizeAiPresetPrompts(merged) });
+  await chrome.storage.sync.set({ aiPresetPrompts: MdgSettings.normalizeAiPresetPrompts(merged) });
   await chrome.storage.sync.remove("aiInitialQuickPrompts");
 }
 
 function normalizeSyncSettings(settings) {
   const merged = { ...settings };
   merged.obsidianEnabled = merged.obsidianEnabled === true;
-  merged.downloadFormat = BocSettings.normalizeDownloadFormat(merged.downloadFormat);
-  merged.youtubeSubtitleLang = BocSites.normalizeSubtitleLang(merged.youtubeSubtitleLang);
+  merged.downloadFormat = MdgSettings.normalizeDownloadFormat(merged.downloadFormat);
+  merged.youtubeSubtitleLang = MdgSites.normalizeSubtitleLang(merged.youtubeSubtitleLang);
   merged.includeHotCommentsInNote = normalizeIncludeHotCommentsInNote(merged.includeHotCommentsInNote);
   merged.includeAiChatInNote = merged.includeAiChatInNote !== false;
   merged.enablePlayerAiQuickAction = normalizeEnablePlayerAiQuickAction(merged.enablePlayerAiQuickAction);
-  merged.playerAiQuickPrompt = BocSettings.normalizePlayerAiQuickPrompt(merged.playerAiQuickPrompt);
+  merged.playerAiQuickPrompt = MdgSettings.normalizePlayerAiQuickPrompt(merged.playerAiQuickPrompt);
   merged.showBiliTriageBadges = merged.showBiliTriageBadges !== false;
   merged.showBiliUpTags = merged.showBiliUpTags !== false;
   merged.showBiliVerdicts = merged.showBiliVerdicts === true;
@@ -724,29 +724,29 @@ function normalizeSyncSettings(settings) {
   // 0 is clamped to 1; only a missing or non-numeric value falls back to 80.
   merged.seenThreshold = Number.isFinite(parseFloat(merged.seenThreshold)) ? Math.min(100, Math.max(1, Math.round(parseFloat(merged.seenThreshold)))) : 80;
   merged.seenStyle = merged.seenStyle === "veil" ? "veil" : "badge";
-  merged.readerTheme = BocSettings.normalizeReaderTheme(merged.readerTheme);
-  merged.readerFontScale = BocSettings.normalizeReaderFontScale(merged.readerFontScale);
-  merged.readerLetterSpacing = BocSettings.normalizeReaderLetterSpacing(merged.readerLetterSpacing);
-  merged.readerLineHeight = BocSettings.normalizeReaderLineHeight(merged.readerLineHeight);
-  merged.readerContentWidth = BocSettings.normalizeReaderContentWidth(merged.readerContentWidth);
+  merged.readerTheme = MdgSettings.normalizeReaderTheme(merged.readerTheme);
+  merged.readerFontScale = MdgSettings.normalizeReaderFontScale(merged.readerFontScale);
+  merged.readerLetterSpacing = MdgSettings.normalizeReaderLetterSpacing(merged.readerLetterSpacing);
+  merged.readerLineHeight = MdgSettings.normalizeReaderLineHeight(merged.readerLineHeight);
+  merged.readerContentWidth = MdgSettings.normalizeReaderContentWidth(merged.readerContentWidth);
   merged.readerChapterVisible = merged.readerChapterVisible !== false;
-  merged.fixedFrontmatterProperties = BocSettings.normalizeFixedFrontmatterProperties(merged.fixedFrontmatterProperties);
-  merged.notePlaceholderSections = BocSettings.normalizeNotePlaceholderSections(merged.notePlaceholderSections);
+  merged.fixedFrontmatterProperties = MdgSettings.normalizeFixedFrontmatterProperties(merged.fixedFrontmatterProperties);
+  merged.notePlaceholderSections = MdgSettings.normalizeNotePlaceholderSections(merged.notePlaceholderSections);
   merged.aiSystemPrompt = normalizeAiSystemPrompt(merged.aiSystemPrompt);
-  merged.aiPresetPrompts = BocSettings.normalizeAiPresetPrompts(merged.aiPresetPrompts);
+  merged.aiPresetPrompts = MdgSettings.normalizeAiPresetPrompts(merged.aiPresetPrompts);
   return merged;
 }
 
 async function getMergedSettings() {
   const [syncSettings, localSettings] = await Promise.all([
-    chrome.storage.sync.get(BocSettings.DEFAULTS),
-    chrome.storage.local.get(BocSettings.LOCAL_DEFAULTS)
+    chrome.storage.sync.get(MdgSettings.DEFAULTS),
+    chrome.storage.local.get(MdgSettings.LOCAL_DEFAULTS)
   ]);
 
-  const merged = normalizeSyncSettings({ ...BocSettings.DEFAULTS, ...syncSettings });
+  const merged = normalizeSyncSettings({ ...MdgSettings.DEFAULTS, ...syncSettings });
   return {
     ...merged,
-    obsidianApiKey: BocSettings.normalizeApiKey(localSettings.obsidianApiKey)
+    obsidianApiKey: MdgSettings.normalizeApiKey(localSettings.obsidianApiKey)
   };
 }
 
@@ -759,15 +759,15 @@ const oversizedSyncItem = (payload) => Object.keys(payload).find((k) => k.length
 // Callers send partial settings (the options page has no reading-view controls), so keys they omit keep their stored values.
 async function saveSettings(settings) {
   const payload = settings && typeof settings === "object" ? settings : {};
-  const stored = await chrome.storage.sync.get(BocSettings.DEFAULTS);
-  const syncPayload = normalizeSyncSettings({ ...BocSettings.DEFAULTS, ...stored, ...payload });
+  const stored = await chrome.storage.sync.get(MdgSettings.DEFAULTS);
+  const syncPayload = normalizeSyncSettings({ ...MdgSettings.DEFAULTS, ...stored, ...payload });
   delete syncPayload.obsidianApiKey;
   const big = oversizedSyncItem(syncPayload);
   if (big) throw Object.assign(new Error(`${SYNC_ITEM_NAMES[big] || big}太长，存不下：最多约 2700 个汉字（英文约 8000 个字符）`), { field: big });
 
   await Promise.all([
     chrome.storage.sync.set(syncPayload),
-    "obsidianApiKey" in payload && chrome.storage.local.set({ obsidianApiKey: BocSettings.normalizeApiKey(payload.obsidianApiKey) })
+    "obsidianApiKey" in payload && chrome.storage.local.set({ obsidianApiKey: MdgSettings.normalizeApiKey(payload.obsidianApiKey) })
   ]);
 }
 
@@ -775,7 +775,7 @@ async function saveSettings(settings) {
 // 判断标准, kept in local beside the data; the file carries those as `local`. The sort is a quick toggle, not a setting. Keys and data stay out of the file. The key filter only guards
 // against a copy left in sync by an older version.
 const SETTINGS_FILE_VERSION = 1;
-const { triageIncludedFolders: FOLDERS_KEY, triageFolderCriteria: CRITERIA_KEY } = BocLimits.KEYS;
+const { triageIncludedFolders: FOLDERS_KEY, triageFolderCriteria: CRITERIA_KEY } = MdgLimits.KEYS;
 const LOCAL_SETTING_KEYS = [FOLDERS_KEY, CRITERIA_KEY];
 
 async function exportSettings() {
@@ -831,7 +831,7 @@ function normalizeEnablePlayerAiQuickAction(value) {
 function normalizeAiSystemPrompt(value) {
   const normalized = toString(value).trim();
   if (normalized === LEGACY_DEFAULT_AI_SYSTEM_PROMPT) {
-    return BocSettings.DEFAULTS.aiSystemPrompt;
+    return MdgSettings.DEFAULTS.aiSystemPrompt;
   }
   return normalized;
 }
@@ -908,7 +908,7 @@ async function loadAiProviderKeys() {
 
 // ===== AI 调用 =====
 
-const { AI_HISTORY_MAX_CHARS, sampleAiSubtitle } = BocLimits;
+const { AI_HISTORY_MAX_CHARS, sampleAiSubtitle } = MdgLimits;
 
 // Keeps the newest turns within the budget, starting at a user message.
 function trimAiHistory(history) {

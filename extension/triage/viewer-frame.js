@@ -26,7 +26,7 @@ function viewerBvid(path) {
 // The 分拣台 key this keydown is, or "": never while typing (the danmaku box, the comment box inside B站's shadow
 // roots) or composing, and Esc not while it is leaving full screen or 网页全屏.
 function viewerKey(e) {
-  if (BocTyping.composing(e) || BocTyping.typingIn(e) || e.metaKey || e.ctrlKey || e.altKey || e.repeat) return "";
+  if (MdgTyping.composing(e) || MdgTyping.typingIn(e) || e.metaKey || e.ctrlKey || e.altKey || e.repeat) return "";
   if (e.key === "Escape") return document.fullscreenElement || document.querySelector(".bpx-player-container[data-screen=web]") ? "" : "Escape";
   return e.key === "t" || e.key === "T" ? "t" : "";
 }

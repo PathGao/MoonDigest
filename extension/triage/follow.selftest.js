@@ -279,11 +279,11 @@ assert.deepStrictEqual([t.dirLabel("last", "desc"), t.dirLabel("follow", "asc"),
 // its own, so a 收藏夹 batch never blocks it.
 (async () => {
   for (const f of ["runs.js", "writes.js"]) vm.runInContext(fs.readFileSync(path.join(__dirname, f), "utf8"), ctx);
-  const code = source.slice(source.indexOf("const runs = BocRuns.create("), source.indexOf("async function unfollow("));
+  const code = source.slice(source.indexOf("const runs = MdgRuns.create("), source.indexOf("async function unfollow("));
   const env = { F: { sel: new Set(["1", "2", "3"]) }, toasts: [], sent: [], answers: [], clock: 0, waits: [], gaps: [] };
   // The real runs.js on a fake clock: a sleep moves it on at once, or stops once ok() turns false.
-  const BocRuns = {
-    create: (o) => ctx.BocRuns.create({
+  const MdgRuns = {
+    create: (o) => ctx.MdgRuns.create({
       ...o,
       now: () => env.clock,
       async sleep(ms, ok = () => true) {
@@ -293,13 +293,13 @@ assert.deepStrictEqual([t.dirLabel("last", "desc"), t.dirLabel("follow", "asc"),
     })
   };
   const T = { hold: () => null };
-  const run = new Function("env", "BocRuns", "BocWrites", "UI", "T", `const { F } = env; const D = {}; const AI = {}; const PHASE = {}; const nowSec = () => env.clock / 1000;
+  const run = new Function("env", "MdgRuns", "MdgWrites", "UI", "T", `const { F } = env; const D = {}; const AI = {}; const PHASE = {}; const nowSec = () => env.clock / 1000;
     const send = async (c) => (env.sent.push(c.mid), env.answers.shift() || { ok: true });
     const toast = (m) => env.toasts.push(m); const load = async () => {}; const render = () => {}; const renderSel = () => {}; const renderFoot = () => {};
     let runs;
     const renderSync = () => { const w = runs?.get("follow-write")?.wait; env.waiting = Boolean(w); if (w) env.waits.push(runs.pill(["follow-write"]).text); if (env.sent.length >= env.stopAfter) (env.stopAfter = Infinity), W.stop(); };
     ${code.replace("const runs = ", "runs = ")}; return { relationRun, W, runs };`);
-  const fns = run(env, BocRuns, ctx.BocWrites, t.TriageUi, T);
+  const fns = run(env, MdgRuns, ctx.MdgWrites, t.TriageUi, T);
   const calls = ["1", "2", "3"].map((mid) => ({ mid }));
   env.answers = [{ ok: true }, { ok: false, code: "THROTTLED" }, { ok: true }, { ok: true }];
   assert.strictEqual(await fns.relationRun(calls, "取消关注"), 3);

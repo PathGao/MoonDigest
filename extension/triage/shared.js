@@ -2,7 +2,7 @@
 // A plain script loaded before both modules. Everything here returns HTML, text or a comparator; only setActivity,
 // setSync and bindSync touch the elements they are given, and mergeAiBatch fills the proposal it is given.
 (() => {
-  const esc = BocErrors.escapeHtml;
+  const esc = MdgErrors.escapeHtml;
   const pad = (n) => String(n).padStart(2, "0");
   // pubdate and friends are seconds since the epoch: 2026-10-08, "" without one.
   function fmtDate(sec) {
@@ -29,7 +29,7 @@
   // 播放量 / 粉丝: 12.3万 and 2.5亿 (one decimal, dropped when 0), plain below 万.
   const fmtCount = (n) => (n >= 1e8 ? `${Math.round(n / 1e7) / 10}亿` : n >= 1e4 ? `${Math.round(n / 1e3) / 10}万` : String(n));
   // Tag names, colors and ids: ../tag-core.js, which badges.js on B站 pages loads too.
-  const { cleanTagName, nextTagColor, cycleTagColor } = globalThis.BocTagCore;
+  const { cleanTagName, nextTagColor, cycleTagColor } = globalThis.MdgTagCore;
   // A plain primary click on a video link plays it in the viewer here; with ⌘ / Ctrl / Shift / Alt the browser opens it.
   const plainClick = (e) => e.button === 0 && !e.metaKey && !e.ctrlKey && !e.shiftKey && !e.altKey;
   // A video card plays on a plain click anywhere on it (收藏夹 and 视频投稿 alike), except on a control inside it
@@ -134,9 +134,9 @@
   // The search box's behavior, both modes: it filters as you type (bindLive, IME-safe); Esc clears it, and on an empty
   // box gives the keys back to the cards (J / K work again).
   function bindSearch(input, run) {
-    BocTyping.bindLive(input, run);
+    MdgTyping.bindLive(input, run);
     input.addEventListener("keydown", (e) => {
-      if (BocTyping.composing(e) || e.key !== "Escape") return;
+      if (MdgTyping.composing(e) || e.key !== "Escape") return;
       e.preventDefault();
       if (!input.value) return input.blur();
       input.value = "";
@@ -268,7 +268,7 @@
       $("transferTarget").addEventListener("change", () => transferNote());
       // Enter would submit with the form's first button, 取消; 移动 or 复制 has to be chosen.
       name.addEventListener("keydown", (e) => {
-        if (!BocTyping.composing(e) && e.key === "Enter") e.preventDefault();
+        if (!MdgTyping.composing(e) && e.key === "Enter") e.preventDefault();
       });
     }
     $("transferTitle").textContent = o.title;

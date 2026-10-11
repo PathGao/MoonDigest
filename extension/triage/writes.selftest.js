@@ -12,8 +12,8 @@ for (const f of ["../errors.js", "../tag-core.js", "shared.js", "runs.js", "writ
 function setup(answer = () => ({ ok: true })) {
   const log = [];
   let clock = 1000;
-  const runs = globalThis.BocRuns.create({ hold: (r) => (r.code === "THROTTLED" ? { ms: 2000, label: "B站限流卡住" } : null), now: () => clock, sleep: async () => {} });
-  const make = (lane) => globalThis.BocWrites.create({ runs, lane, send: (msg) => (log.push(["send", msg.id]), answer(msg)), line: (p) => `${p.name} ${p.done}/${p.total}`, now: () => clock, settleMs: 3000 });
+  const runs = globalThis.MdgRuns.create({ hold: (r) => (r.code === "THROTTLED" ? { ms: 2000, label: "B站限流卡住" } : null), now: () => clock, sleep: async () => {} });
+  const make = (lane) => globalThis.MdgWrites.create({ runs, lane, send: (msg) => (log.push(["send", msg.id]), answer(msg)), line: (p) => `${p.name} ${p.done}/${p.total}`, now: () => clock, settleMs: 3000 });
   return { w: make("fav"), w2: make("follow-write"), runs, log, tick: (ms) => (clock += ms), at: () => clock };
 }
 const chunk = (id, keys, folders = ["F"], gap = 0) => ({ msg: { id }, keys, folders, gap });

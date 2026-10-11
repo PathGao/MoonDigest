@@ -156,7 +156,7 @@ const chatOn = (context) => {
     let choice;
     let asked;
     ctx.showConversationContextNotice = (text, ms, opts) => shown.push([text, opts?.error]);
-    ctx.BocOverwriteDialog = { choose: async (path, opts) => ((asked = [path, opts.hasAiSection]), choice()) };
+    ctx.MdgOverwriteDialog = { choose: async (path, opts) => ((asked = [path, opts.hasAiSection]), choice()) };
     const realSend = ctx.sendRuntimeMessage;
     ctx.sendRuntimeMessage = async (m) => (sent.push(m), m.mode ? { ok: true, path: "p.md", kind: m.mode, text: `已更新 AI 问答：p.md` } : { ok: true, ask: true, path: "p.md", hasAiSection: true });
     const write = async (pick, tab) => {
@@ -173,7 +173,7 @@ const chatOn = (context) => {
     assert.strictEqual(await write(() => "ai", web("x")), "-,ai");
     assert.deepStrictEqual([asked, sent[1].conversation.messages[0].content, sent[1].ref.videoId, sent[1].page, shown.at(-1)], [["p.md", true], "这个视频", "BV1xx411c7mD", undefined, ["已更新 AI 问答：p.md", undefined]]);
     assert.strictEqual(await write(() => "", web("x")), "-", "取消: nothing sent again");
-    assert.deepStrictEqual(shown.at(-1), [ctx.BocErrors.TEXT.obsidianCancelled, undefined]);
+    assert.deepStrictEqual(shown.at(-1), [ctx.MdgErrors.TEXT.obsidianCancelled, undefined]);
     assert.strictEqual(await write(() => (state.dispatch({ type: "NEW" }), "full"), web("x")), "-", "switched during the dialog");
     // The tab shows this video: its settled note goes along.
     activeTab = { id: 4, url: video.url };
@@ -189,7 +189,7 @@ const chatOn = (context) => {
     let settings = 0;
     ctx.showConversationContextNotice = (text, ms, opts) => notices.push([text, opts?.error]);
     ctx.chrome.runtime.openOptionsPage = () => settings++;
-    const E = ctx.BocErrors;
+    const E = ctx.MdgErrors;
     ctx.showObsidianFailure(E.fromResp({ ok: false, error: E.TEXT.obsidianKey, code: "OBSIDIAN" }, "Local API 写入失败"));
     ctx.showObsidianFailure(E.fromResp({ ok: false, error: "Obsidian 返回 HTTP 500" }, "Local API 写入失败"));
     ctx.showObsidianFailure(E.fromResp({ ok: false, error: E.TEXT.obsidianDown, code: "OBSIDIAN_DOWN" }, "Local API 写入失败"));
@@ -322,8 +322,8 @@ const chatOn = (context) => {
     ctx.sendRuntimeMessage = async (msg) => (msg.type === "get-settings" ? Promise.reject(new Error("worker gone")) : { ok: true, providers: [] });
     await ctx.loadProvidersAndPrefs();
     const prefs = vm.runInContext("aiPrefs", ctx);
-    assert.strictEqual(prefs.playerAiQuickPrompt, ctx.BocSettings.DEFAULTS.playerAiQuickPrompt);
-    assert.deepStrictEqual([...prefs.aiPresetPrompts], [...ctx.BocSettings.DEFAULTS.aiPresetPrompts]);
+    assert.strictEqual(prefs.playerAiQuickPrompt, ctx.MdgSettings.DEFAULTS.playerAiQuickPrompt);
+    assert.deepStrictEqual([...prefs.aiPresetPrompts], [...ctx.MdgSettings.DEFAULTS.aiPresetPrompts]);
     ctx.sendRuntimeMessage = realSend;
   }
 

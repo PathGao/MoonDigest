@@ -72,7 +72,7 @@
   $("addTagBtn").addEventListener("click", addTag);
   // Enter in a name field: the new-tag box adds; a rename would submit the form and close the dialog.
   manageDlg.addEventListener("keydown", (e) => {
-    if (BocTyping.composing(e) || e.key !== "Enter" || !e.target.matches?.('#newTagInput, [data-field="name"], [data-field="rule"]')) return;
+    if (MdgTyping.composing(e) || e.key !== "Enter" || !e.target.matches?.('#newTagInput, [data-field="name"], [data-field="rule"]')) return;
     e.preventDefault();
     if (e.target === newInput) addTag();
   });
@@ -253,7 +253,7 @@
   });
   // Enter in a new tag's name would submit the form and close the dialog.
   aiDlg.addEventListener("keydown", (e) => {
-    if (!BocTyping.composing(e) && e.key === "Enter" && e.target.matches?.('[data-nt="name"]')) e.preventDefault();
+    if (!MdgTyping.composing(e) && e.key === "Enter" && e.target.matches?.('[data-nt="name"]')) e.preventDefault();
   });
 
   globalThis.TagDialogs = {

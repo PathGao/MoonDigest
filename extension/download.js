@@ -1,6 +1,6 @@
 // Extension-page helpers (need document): saving text as a file, and the video page's 该笔记已存在 choice.
 (() => {
-  if (globalThis.BocDownload) {
+  if (globalThis.MdgDownload) {
     return;
   }
 
@@ -15,11 +15,11 @@
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
 
-  globalThis.BocDownload = Object.freeze({ text });
+  globalThis.MdgDownload = Object.freeze({ text });
 })();
 
 (() => {
-  if (globalThis.BocOverwriteDialog) {
+  if (globalThis.MdgOverwriteDialog) {
     return;
   }
 
@@ -28,9 +28,9 @@
   // missing; left out (a note with no AI 问答 section, such as a conversation note) offers only 整篇覆盖.
   // 整篇覆盖 never sits next to the focused default button. A second dialog answers the first with 取消.
   function choose(filepath, { hasAiSection } = {}) {
-    document.querySelector("dialog.boc-overwrite[open]")?.close("");
+    document.querySelector("dialog.mdg-overwrite[open]")?.close("");
     const dialog = document.createElement("dialog");
-    dialog.className = "boc-overwrite";
+    dialog.className = "mdg-overwrite";
     dialog.innerHTML = `<form method="dialog">
       <h2>该笔记已存在</h2>
       <p>${hasAiSection ? "只更新 AI 问答：保留原笔记，只替换标记之间的「AI 问答」。整篇覆盖：替换全部内容。" : `${hasAiSection === false ? "没有 AI 问答可更新。" : ""}整篇覆盖会替换全部内容：`}</p>
@@ -56,5 +56,5 @@
     });
   }
 
-  globalThis.BocOverwriteDialog = Object.freeze({ choose });
+  globalThis.MdgOverwriteDialog = Object.freeze({ choose });
 })();

@@ -2,7 +2,7 @@
 // the same numbers the code applies, and the storage key names shared between files. Loaded by the
 // content script (manifest), background (importScripts) and every page. Idempotent like sites.js.
 (() => {
-  if (globalThis.BocLimits) {
+  if (globalThis.MdgLimits) {
     return;
   }
 
@@ -22,12 +22,12 @@
   const TITLE = "triage_title_";
   const SNAPSHOT = "triage_snapshot_";
   const KEYS = Object.freeze({
-    subtitleCachePrefix: "boc_subtitle_cache_",
-    aiConversations: "boc_ai_conversations_v1",
+    subtitleCachePrefix: "mdg_subtitle_cache_",
+    aiConversations: "mdg_ai_conversations_v1",
     // videoKey → { path, lastSyncedAt } for notes the user saved; auto-sync only touches these.
-    obsidianNotePaths: "boc_obsidian_note_paths_v1",
+    obsidianNotePaths: "mdg_obsidian_note_paths_v1",
     // The side panel's request slot: the player button, popup, 分拣台 and 视频记录 ask it to open a video's AI chat.
-    playerAiQuickAction: "boc_player_ai_quick_action_v1",
+    playerAiQuickAction: "mdg_player_ai_quick_action_v1",
     triageAnalysisPrefix: ANALYSIS,
     triageAnalysis: (bvid) => `${ANALYSIS}${bvid}`,
     triageTitlePrefix: TITLE,
@@ -143,7 +143,7 @@
     ];
   }
 
-  globalThis.BocLimits = Object.freeze({
+  globalThis.MdgLimits = Object.freeze({
     SUBTITLE_CACHE_ENTRIES,
     SUBTITLE_CACHE_DAYS,
     AI_CONVERSATIONS,

@@ -3,20 +3,20 @@
 // throw on redeclaration, so the body sits in this block.
 // Bilibili video pages load this in every frame; a subframe only runs it when viewer-frame.js (document_start)
 // marked it as 分拣台's viewer. Bilibili iframes on other sites stay inert.
-if (!globalThis.__BOC_CONTENT_SCRIPT_LOADED__ && (window === window.top || document.documentElement.hasAttribute("data-mdg-viewer"))) {
+if (!globalThis.__MDG_CONTENT_SCRIPT_LOADED__ && (window === window.top || document.documentElement.hasAttribute("data-mdg-viewer"))) {
 // Only for when get-settings fails; the background owns the stored settings.
-const DEFAULT_SETTINGS = { ...BocSettings.DEFAULTS, ...BocSettings.LOCAL_DEFAULTS };
-const { formatCompactTimestamp, buildSubtitlePreview, buildSrt, buildTxt, shouldShowHoursInNote, subtitleMismatchWarning } = BocNote;
-const { escapeHtml } = BocErrors;
+const DEFAULT_SETTINGS = { ...MdgSettings.DEFAULTS, ...MdgSettings.LOCAL_DEFAULTS };
+const { formatCompactTimestamp, buildSubtitlePreview, buildSrt, buildTxt, shouldShowHoursInNote, subtitleMismatchWarning } = MdgNote;
+const { escapeHtml } = MdgErrors;
 
-const BOC_VERSION = chrome.runtime.getManifest().version;
+const MDG_VERSION = chrome.runtime.getManifest().version;
 // In 分拣台's viewer the tab is 分拣台 itself: the side panel takes the video by reference, not from the tab.
 const IN_VIEWER = window !== window.top;
 // The subtitle failure B站 gives a logged-out viewer; the side panel and the AI say login is why.
 const SUBTITLE_NEED_LOGIN = "B站要求登录后才提供字幕，请登录 B站后刷新网页";
 // A subtitle picked from a list the page has since replaced with another video's.
 const VIDEO_SWITCHED = "视频已切换，请刷新";
-globalThis.__BOC_CONTENT_SCRIPT_LOADED__ = BOC_VERSION;
+globalThis.__MDG_CONTENT_SCRIPT_LOADED__ = MDG_VERSION;
 const state = {
   fetchRunId: 0,
   refreshPromise: null,
@@ -114,7 +114,7 @@ const state = {
   settings: { ...DEFAULT_SETTINGS }
 };
 
-// boc_reader=1 in the URL only requests reader mode; the mode itself lives in
+// mdg_reader=1 in the URL only requests reader mode; the mode itself lives in
 // state.readerMode because YouTube drops unknown query params in place during
 // its SPA boot (around 3 s after load, before document_idle on a fast load).
 function isReaderMode() {
@@ -143,7 +143,7 @@ function stepReader(event) {
 
 function hasReaderParam(url) {
   try {
-    return new URL(url).searchParams.get("boc_reader") === "1";
+    return new URL(url).searchParams.get("mdg_reader") === "1";
   } catch {
     return false;
   }
@@ -157,7 +157,7 @@ function readerEntryRequested() {
 function stripReaderModeUrl(url = location.href) {
   try {
     const parsed = new URL(url);
-    parsed.searchParams.delete("boc_reader");
+    parsed.searchParams.delete("mdg_reader");
     return parsed.toString();
   } catch {
     return url;
@@ -174,7 +174,7 @@ function replaceReaderModeUrl(nextUrl) {
     history.replaceState(history.state, "", targetUrl);
     state.currentClipSignature = computeCurrentClipSignature(location.href);
   } catch (error) {
-    logWarn("[BOC] failed to replace reader mode url", error);
+    logWarn("[MDG] failed to replace reader mode url", error);
   }
 }
 
@@ -186,7 +186,7 @@ function isWatchlaterPage(url = location.href) {
   }
 }
 
-// Mirrors --boc-reader-side-width in content.css; 0 below 900px, where the transcript sits under the video.
+// Mirrors --mdg-reader-side-width in content.css; 0 below 900px, where the transcript sits under the video.
 function getReaderSideWidthPx() {
   if (window.innerWidth <= 900) {
     return 0;
@@ -284,43 +284,45 @@ function logWarn(...args) {
 }
 
 const ids = {
-  root: "boc-root",
-  readingView: "boc-reading-view",
-  readingStatus: "boc-reading-status",
-  readingCloseBtn: "boc-reading-close-btn",
-  readingAutoScroll: "boc-reading-autoscroll",
-  readingThemeSelect: "boc-reading-theme-select",
-  readingSettingsBtn: "boc-reading-settings-btn",
-  readingAiBtn: "boc-reading-ai-btn",
-  readingSettingsPanel: "boc-reading-settings-panel",
-  readingFontScaleSelect: "boc-reading-font-scale-select",
-  readingLetterSpacingSelect: "boc-reading-letter-spacing-select",
-  readingLineHeightSelect: "boc-reading-line-height-select",
-  readingContentWidthSelect: "boc-reading-content-width-select",
-  readingChapterVisible: "boc-reading-chapter-visible",
-  readingSubtitleSelect: "boc-reading-subtitle-select",
-  readingInfoSummary: "boc-reading-info-summary",
-  readingInfoDescription: "boc-reading-info-description",
-  readingDescriptionBtn: "boc-reading-description-btn",
-  readingMeta: "boc-reading-meta",
-  readingChapterList: "boc-reading-chapters",
-  readingTranscriptList: "boc-reading-transcript",
-  readingTranscriptTailSpacer: "boc-reading-tail-spacer"
+  root: "mdg-root",
+  readingView: "mdg-reading-view",
+  readingStatus: "mdg-reading-status",
+  readingCloseBtn: "mdg-reading-close-btn",
+  readingAutoScroll: "mdg-reading-autoscroll",
+  readingThemeSelect: "mdg-reading-theme-select",
+  readingSettingsBtn: "mdg-reading-settings-btn",
+  readingAiBtn: "mdg-reading-ai-btn",
+  readingSettingsPanel: "mdg-reading-settings-panel",
+  readingFontScaleSelect: "mdg-reading-font-scale-select",
+  readingLetterSpacingSelect: "mdg-reading-letter-spacing-select",
+  readingLineHeightSelect: "mdg-reading-line-height-select",
+  readingContentWidthSelect: "mdg-reading-content-width-select",
+  readingChapterVisible: "mdg-reading-chapter-visible",
+  readingSubtitleSelect: "mdg-reading-subtitle-select",
+  readingInfoSummary: "mdg-reading-info-summary",
+  readingInfoDescription: "mdg-reading-info-description",
+  readingDescriptionBtn: "mdg-reading-description-btn",
+  readingMeta: "mdg-reading-meta",
+  readingChapterList: "mdg-reading-chapters",
+  readingTranscriptList: "mdg-reading-transcript",
+  readingTranscriptTailSpacer: "mdg-reading-tail-spacer"
 };
 
 // An extension reload or update leaves the previous copy running in its own isolated world with a
 // dead chrome.runtime. Ask it to stand down; v2.0.0 and older can't and still hold their root.
+document.dispatchEvent(new Event("mdg-content-superseded"));
+// 3.5.x and older listen for the name from before the rename. Remove after 3.6.
 document.dispatchEvent(new Event("boc-content-superseded"));
 const predecessorStillRunning = Boolean(document.getElementById(ids.root));
-document.addEventListener("boc-content-superseded", standDown, { once: true });
+document.addEventListener("mdg-content-superseded", standDown, { once: true });
 
 init();
 
 // Every focus-mode entry goes through here; the view only opens in reader mode.
 function markReaderMode() {
   stepReader("mark");
-  document.documentElement.setAttribute("data-boc-reader-mode", "1");
-  document.body.setAttribute("data-boc-reader-mode", "1");
+  document.documentElement.setAttribute("data-mdg-reader-mode", "1");
+  document.body.setAttribute("data-mdg-reader-mode", "1");
 }
 
 function standDown() {
@@ -335,7 +337,7 @@ function standDown() {
 }
 
 function init() {
-  logInfo(`[BOC] content script loaded, version=${BOC_VERSION}`);
+  logInfo(`[MDG] content script loaded, version=${MDG_VERSION}`);
   ensureUiReady({ forceRecreate: true });
 
   const shouldEnterReaderMode = readerEntryRequested();
@@ -377,7 +379,7 @@ function ensureUiReady({ forceRecreate = false } = {}) {
     root.id = ids.root;
     root.innerHTML = buildUiHtml();
     document.body.appendChild(root);
-    document.documentElement.dataset.bocSite = currentSite()?.id || "";
+    document.documentElement.dataset.mdgSite = currentSite()?.id || "";
     state.uiEventsBound = false;
   }
 
@@ -388,17 +390,17 @@ function ensureUiReady({ forceRecreate = false } = {}) {
 }
 
 function clearReaderModePageState() {
-  document.documentElement.removeAttribute("data-boc-reader-mode");
-  document.documentElement.removeAttribute("data-boc-reader-line-height");
-  document.documentElement.removeAttribute("data-boc-reader-theme");
-  document.documentElement.removeAttribute("data-boc-reader-font-scale");
-  document.documentElement.removeAttribute("data-boc-reader-letter-spacing");
-  document.documentElement.removeAttribute("data-boc-reader-content-width");
-  document.documentElement.removeAttribute("data-boc-reader-chapter-visibility");
-  document.documentElement.removeAttribute("data-boc-reader-has-chapters");
-  document.body.removeAttribute("data-boc-reader-mode");
-  document.body.removeAttribute("data-boc-reader-line-height");
-  document.body.removeAttribute("data-boc-reading-active");
+  document.documentElement.removeAttribute("data-mdg-reader-mode");
+  document.documentElement.removeAttribute("data-mdg-reader-line-height");
+  document.documentElement.removeAttribute("data-mdg-reader-theme");
+  document.documentElement.removeAttribute("data-mdg-reader-font-scale");
+  document.documentElement.removeAttribute("data-mdg-reader-letter-spacing");
+  document.documentElement.removeAttribute("data-mdg-reader-content-width");
+  document.documentElement.removeAttribute("data-mdg-reader-chapter-visibility");
+  document.documentElement.removeAttribute("data-mdg-reader-has-chapters");
+  document.body.removeAttribute("data-mdg-reader-mode");
+  document.body.removeAttribute("data-mdg-reader-line-height");
+  document.body.removeAttribute("data-mdg-reading-active");
 }
 
 function shouldForceNormalPageState() {
@@ -424,19 +426,19 @@ function bindNormalPageStateGuard() {
   observer.observe(document.documentElement, {
     attributes: true,
     attributeFilter: [
-      "data-boc-reader-mode",
-      "data-boc-reader-line-height",
-      "data-boc-reader-theme",
-      "data-boc-reader-font-scale",
-      "data-boc-reader-letter-spacing",
-      "data-boc-reader-content-width",
-      "data-boc-reader-chapter-visibility",
-      "data-boc-reader-has-chapters"
+      "data-mdg-reader-mode",
+      "data-mdg-reader-line-height",
+      "data-mdg-reader-theme",
+      "data-mdg-reader-font-scale",
+      "data-mdg-reader-letter-spacing",
+      "data-mdg-reader-content-width",
+      "data-mdg-reader-chapter-visibility",
+      "data-mdg-reader-has-chapters"
     ]
   });
   observer.observe(document.body, {
     attributes: true,
-    attributeFilter: ["data-boc-reader-mode", "data-boc-reader-line-height", "data-boc-reading-active"]
+    attributeFilter: ["data-mdg-reader-mode", "data-mdg-reader-line-height", "data-mdg-reading-active"]
   });
   enforceNormalPageStateIfNeeded();
 }
@@ -500,7 +502,7 @@ function bindRuntimeEvents() {
       markReaderMode();
       if (!state.readingViewOpen) {
         enterReaderMode().catch((error) => {
-          logWarn("[BOC] reading mode trigger failed", error);
+          logWarn("[MDG] reading mode trigger failed", error);
         });
       }
       sendResponse({ ok: true });
@@ -517,7 +519,7 @@ function bindRuntimeEvents() {
 
     if (message.type === "sidepanel-seek-video-time") {
       // From 分拣台: only the viewer frame playing that video answers.
-      if (message.videoId && BocSites.parseRef(location.href)?.id !== message.videoId) return false;
+      if (message.videoId && MdgSites.parseRef(location.href)?.id !== message.videoId) return false;
       const seconds = Number(message.seconds);
       const video = getRuntimeVideoElement();
       if (!video) {
@@ -556,7 +558,7 @@ function bindSettingsWatcher() {
     }
     // The popup copies state.markdown as is, so a new answer must reach it before the next refresh.
     const runId = state.fetchRunId;
-    if (changes[BocLimits.KEYS.aiConversations] && state.markdown) {
+    if (changes[MdgLimits.KEYS.aiConversations] && state.markdown) {
       loadAiTurns().then((turns) => {
         if (runId !== state.fetchRunId) return;
         state.aiTurns = turns;
@@ -564,7 +566,7 @@ function bindSettingsWatcher() {
       });
     }
     const extrasRef = { site: state.site, videoId: state.videoId, pageIndex: state.pageIndex };
-    if (BocNote.triageExtrasKeys(extrasRef).some((key) => changes[key]) && state.markdown) {
+    if (MdgNote.triageExtrasKeys(extrasRef).some((key) => changes[key]) && state.markdown) {
       loadTriageExtras().then((extras) => {
         if (runId !== state.fetchRunId) return;
         state.triageExtras = extras;
@@ -593,44 +595,44 @@ function bindSettingsWatcher() {
         schedulePlayerAiQuickActionSync();
       })
       .catch((error) => {
-        logWarn("[BOC] failed to refresh settings after storage change", error);
+        logWarn("[MDG] failed to refresh settings after storage change", error);
       });
   });
 }
 
 function buildUiHtml() {
   return `
-    <section id="${ids.readingView}" aria-hidden="true" data-boc-reader-ready="0" aria-busy="true">
-      <div class="boc-reading-layout">
-        <aside class="boc-reading-rail">
-          <div class="boc-reading-eyebrow">章节</div>
-          <div id="${ids.readingChapterList}" class="boc-reading-list"></div>
+    <section id="${ids.readingView}" aria-hidden="true" data-mdg-reader-ready="0" aria-busy="true">
+      <div class="mdg-reading-layout">
+        <aside class="mdg-reading-rail">
+          <div class="mdg-reading-eyebrow">章节</div>
+          <div id="${ids.readingChapterList}" class="mdg-reading-list"></div>
         </aside>
 
-        <section class="boc-reading-stage">
-          <header class="boc-reading-header">
-            <div class="boc-reading-header-copy">
-              <strong class="boc-reading-title">${escapeHtml(state.title || "专注模式")}</strong>
-              <div id="${ids.readingMeta}" class="boc-reading-meta">${escapeHtml(currentSite()?.domain || "")}</div>
+        <section class="mdg-reading-stage">
+          <header class="mdg-reading-header">
+            <div class="mdg-reading-header-copy">
+              <strong class="mdg-reading-title">${escapeHtml(state.title || "专注模式")}</strong>
+              <div id="${ids.readingMeta}" class="mdg-reading-meta">${escapeHtml(currentSite()?.domain || "")}</div>
             </div>
-            <div class="boc-reading-actions">
-              <button id="${ids.readingAiBtn}" type="button" class="boc-reading-icon-btn" title="AI 总结" aria-label="AI 总结">${buildPlayerAiQuickActionIconSvg()}</button>
-              <button id="${ids.readingThemeSelect}" type="button" class="boc-reading-icon-btn" title="主题" aria-label="切换主题">
+            <div class="mdg-reading-actions">
+              <button id="${ids.readingAiBtn}" type="button" class="mdg-reading-icon-btn" title="AI 总结" aria-label="AI 总结">${buildPlayerAiQuickActionIconSvg()}</button>
+              <button id="${ids.readingThemeSelect}" type="button" class="mdg-reading-icon-btn" title="主题" aria-label="切换主题">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg>
               </button>
-              <button id="${ids.readingSettingsBtn}" type="button" class="boc-reading-icon-btn" title="设置" aria-label="设置" aria-expanded="false" aria-controls="${ids.readingSettingsPanel}">
+              <button id="${ids.readingSettingsBtn}" type="button" class="mdg-reading-icon-btn" title="设置" aria-label="设置" aria-expanded="false" aria-controls="${ids.readingSettingsPanel}">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>
               </button>
-              <button id="${ids.readingCloseBtn}" type="button" class="boc-reading-icon-btn" title="退出" aria-label="退出专注模式">
+              <button id="${ids.readingCloseBtn}" type="button" class="mdg-reading-icon-btn" title="退出" aria-label="退出专注模式">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
               </button>
             </div>
           </header>
 
-          <section id="${ids.readingSettingsPanel}" class="boc-reading-panel boc-reading-settings-panel" hidden>
-            <section class="boc-reading-settings-group">
-              <div class="boc-reading-eyebrow">排版</div>
-              <div class="boc-reading-stepper-list">
+          <section id="${ids.readingSettingsPanel}" class="mdg-reading-panel mdg-reading-settings-panel" hidden>
+            <section class="mdg-reading-settings-group">
+              <div class="mdg-reading-eyebrow">排版</div>
+              <div class="mdg-reading-stepper-list">
                 ${buildReaderStepperControl({
                   id: ids.readingFontScaleSelect,
                   title: "字号",
@@ -654,46 +656,46 @@ function buildUiHtml() {
               </div>
             </section>
 
-            <section class="boc-reading-settings-group">
-              <div class="boc-reading-eyebrow">字幕</div>
-              <div class="boc-reading-controls">
-                <label class="boc-reading-toggle boc-reading-toggle-inline">
+            <section class="mdg-reading-settings-group">
+              <div class="mdg-reading-eyebrow">字幕</div>
+              <div class="mdg-reading-controls">
+                <label class="mdg-reading-toggle mdg-reading-toggle-inline">
                   <input id="${ids.readingAutoScroll}" type="checkbox" checked />
                   <span>跟随</span>
                 </label>
-                <label class="boc-reading-toggle boc-reading-toggle-inline">
+                <label class="mdg-reading-toggle mdg-reading-toggle-inline">
                   <input id="${ids.readingChapterVisible}" type="checkbox" checked />
                   <span>章节</span>
                 </label>
               </div>
-              <div class="boc-reading-controls">
-                <select id="${ids.readingSubtitleSelect}" class="boc-reading-select" aria-label="字幕语言">
+              <div class="mdg-reading-controls">
+                <select id="${ids.readingSubtitleSelect}" class="mdg-reading-select" aria-label="字幕语言">
                 </select>
               </div>
             </section>
 
-            <section class="boc-reading-settings-group boc-reading-info-group">
-              <div class="boc-reading-eyebrow">视频信息</div>
-              <div id="${ids.readingInfoSummary}" class="boc-reading-info-list"></div>
+            <section class="mdg-reading-settings-group mdg-reading-info-group">
+              <div class="mdg-reading-eyebrow">视频信息</div>
+              <div id="${ids.readingInfoSummary}" class="mdg-reading-info-list"></div>
             </section>
-            <section class="boc-reading-settings-group boc-reading-info-group">
-              <div class="boc-reading-eyebrow">视频简介</div>
-              <div id="${ids.readingInfoDescription}" class="boc-reading-info-copy"></div>
-              <button id="${ids.readingDescriptionBtn}" type="button" class="boc-reading-text-btn">展开简介</button>
+            <section class="mdg-reading-settings-group mdg-reading-info-group">
+              <div class="mdg-reading-eyebrow">视频简介</div>
+              <div id="${ids.readingInfoDescription}" class="mdg-reading-info-copy"></div>
+              <button id="${ids.readingDescriptionBtn}" type="button" class="mdg-reading-text-btn">展开简介</button>
             </section>
           </section>
 
-          <div class="boc-reading-player-shell">
-            <div class="boc-reading-player-slot"></div>
+          <div class="mdg-reading-player-shell">
+            <div class="mdg-reading-player-slot"></div>
           </div>
 
-          <section class="boc-reading-main">
-            <div id="${ids.readingTranscriptList}" class="boc-reading-transcript"></div>
+          <section class="mdg-reading-main">
+            <div id="${ids.readingTranscriptList}" class="mdg-reading-transcript"></div>
           </section>
         </section>
       </div>
     </section>
-    <p id="${ids.readingStatus}" class="boc-reading-status" role="status" title="点击关闭" hidden></p>
+    <p id="${ids.readingStatus}" class="mdg-reading-status" role="status" title="点击关闭" hidden></p>
   `;
 }
 
@@ -771,10 +773,10 @@ function bindUiEvents() {
       }
     });
     document.addEventListener("keydown", (e) => {
-      if (BocTyping.composing(e) || e.key !== "Escape" || !state.readingSettingsExpanded) return;
+      if (MdgTyping.composing(e) || e.key !== "Escape" || !state.readingSettingsExpanded) return;
       // Esc in Bilibili's own fields (the comment box, the danmaku box) is theirs; in the panel's own controls it closes it.
       const from = e.composedPath?.()[0] || e.target;
-      if (BocTyping.typingIn(e) && !document.getElementById(ids.readingSettingsPanel)?.contains(from)) return;
+      if (MdgTyping.typingIn(e) && !document.getElementById(ids.readingSettingsPanel)?.contains(from)) return;
       state.readingSettingsExpanded = false;
       renderReaderPanels();
       document.getElementById(ids.readingSettingsBtn)?.focus();
@@ -832,7 +834,7 @@ function checkUrlChange() {
 
   state.currentClipSignature = nextSignature;
   try {
-    if (!IN_VIEWER) chrome.runtime.sendMessage({ type: "boc-video-changed", url: nextUrl })?.catch?.(() => {});
+    if (!IN_VIEWER) chrome.runtime.sendMessage({ type: "mdg-video-changed", url: nextUrl })?.catch?.(() => {});
   } catch {}
   enforceNormalPageStateIfNeeded();
   ensureUiReady();
@@ -916,11 +918,11 @@ function buildSidepanelContext() {
   let subtitleMarkdown = "";
   try {
     subtitleMarkdown = body.length
-      ? BocNote.buildAiContext(state, body, settings, currentRef())
+      ? MdgNote.buildAiContext(state, body, settings, currentRef())
       : "";
   } catch (e) {
     subtitleMarkdown = "";
-    logWarn("[BOC] sidepanel-get-context: buildMarkdown failed", e);
+    logWarn("[MDG] sidepanel-get-context: buildMarkdown failed", e);
   }
   return {
     ok: true,
@@ -982,7 +984,7 @@ async function clipContext(refresh) {
     let comments = state.hotComments;
     if (!comments?.length && currentSite()?.fetchComments && state.videoId) {
       comments = await fetchHotComments().catch((error) => {
-        logWarn("[BOC] failed to fetch hot comments for the side panel", error);
+        logWarn("[MDG] failed to fetch hot comments for the side panel", error);
         return [];
       });
     }
@@ -1028,7 +1030,7 @@ async function runRefreshClip() {
 
     const meta = await retryAsync(() => site.fetchMeta(ref, siteIo()), 2, 250);
     ensureRunActive(runId);
-    logInfo("[BOC] raw meta data", { meta });
+    logInfo("[MDG] raw meta data", { meta });
 
     const dom = site.readDom(document);
     state.meta = meta;
@@ -1054,7 +1056,7 @@ async function runRefreshClip() {
       throw new Error("无法获取当前视频时长，已停止抓取以避免串到错误字幕。");
     }
 
-    logInfo("[BOC] resolved video ids", {
+    logInfo("[MDG] resolved video ids", {
       url: location.href,
       aid: state.aid,
       site: state.site,
@@ -1065,7 +1067,7 @@ async function runRefreshClip() {
     });
 
     setStatus("正在获取可用字幕…");
-    const found = await BocSites.loadSubtitle(
+    const found = await MdgSites.loadSubtitle(
       pageSubtitleSite(site, runId),
       currentRef(),
       { ...state.meta, duration: state.videoDuration },
@@ -1076,16 +1078,16 @@ async function runRefreshClip() {
       }
     );
     state.subtitles = found.tracks;
-    state.chapters = BocSites.normalizeChapters(
-      found.bundle.chapters?.length ? found.bundle.chapters : BocSites.parseChaptersFromDescription(state.description)
+    state.chapters = MdgSites.normalizeChapters(
+      found.bundle.chapters?.length ? found.bundle.chapters : MdgSites.parseChaptersFromDescription(state.description)
     );
-    logInfo("[BOC] subtitle tracks", state.subtitles.map(({ id, lang, label, kind, url }) => ({ id, lang, label, kind, url })));
+    logInfo("[MDG] subtitle tracks", state.subtitles.map(({ id, lang, label, kind, url }) => ({ id, lang, label, kind, url })));
     // 无字幕时也允许进入专注模式，只是字幕区域保持空态。
     if (!found.track) {
       await showNoSubtitleState(runId, found.error ? failureReason(found.error) : found.bundle.needLogin ? SUBTITLE_NEED_LOGIN : "");
       return;
     }
-    logInfo("[BOC] selected subtitle track", { id: found.track.id, lang: found.track.lang, label: found.track.label });
+    logInfo("[MDG] selected subtitle track", { id: found.track.id, lang: found.track.lang, label: found.track.label });
     await showSubtitle(found, runId);
     if (state.readingViewOpen) {
       moveReadingMainInline();
@@ -1130,7 +1132,7 @@ function failureReason(error) {
   return fetchErrorText(error).replace(/[。.！!；;，,\s]+$/u, "");
 }
 
-// The page's reads under the shared subtitle step (BocSites.loadSubtitle). The track list is retried; B站 sometimes
+// The page's reads under the shared subtitle step (MdgSites.loadSubtitle). The track list is retried; B站 sometimes
 // answers it empty under risk control (one more try 1.5s later), and as logged out when the background request goes
 // without the page's cookies (asked again from the page). A rate-limited subtitle file waits a few seconds once.
 function pageSubtitleSite(site, runId) {
@@ -1162,7 +1164,7 @@ function pageSubtitleSite(site, runId) {
   };
 }
 
-// Shows the track BocSites.loadSubtitle or loadFirstTrack chose, with the warning when its time range does not match.
+// Shows the track MdgSites.loadSubtitle or loadFirstTrack chose, with the warning when its time range does not match.
 async function showSubtitle({ track, body, mismatch }, runId) {
   state.selectedSubtitleId = track.id ? String(track.id) : state.selectedSubtitleId;
   state.selectedSubtitleUrl = track.url;
@@ -1187,7 +1189,7 @@ async function switchSubtitle(url) {
   }
   const runId = state.fetchRunId;
   try {
-    const got = await BocSites.loadFirstTrack(currentSite(), [track], { videoId: state.videoId, cid: state.cid }, siteIo(), state.videoDuration, runStep(runId));
+    const got = await MdgSites.loadFirstTrack(currentSite(), [track], { videoId: state.videoId, cid: state.cid }, siteIo(), state.videoDuration, runStep(runId));
     if (!got.track) throw got.error;
     await showSubtitle(got, runId);
   } catch (error) {
@@ -1264,7 +1266,7 @@ function getPopupPayload() {
   });
 
   return {
-    contentVersion: BOC_VERSION,
+    contentVersion: MDG_VERSION,
     site: currentSite()?.id || "",
     url: cleanVideoUrl(),
     title: state.title || "",
@@ -1312,7 +1314,7 @@ async function sendToObsidian() {
     if (resp?.ok && resp.ask) {
       const mode = await confirmOverwriteNote(resp.path, { hasAiSection: resp.hasAiSection });
       if (!mode) {
-        setMessage(BocErrors.TEXT.obsidianCancelled);
+        setMessage(MdgErrors.TEXT.obsidianCancelled);
         return { written: false };
       }
       onPage = true;
@@ -1325,12 +1327,12 @@ async function sendToObsidian() {
       resp = await sendRuntimeMessage({ ...request, mode });
     }
     if (!resp?.ok) {
-      throw BocErrors.fromResp(resp, "Local API 写入失败");
+      throw MdgErrors.fromResp(resp, "Local API 写入失败");
     }
     report(resp.text, true);
   } catch (error) {
-    if (BocErrors.reloaded(error)) {
-      report(BocErrors.TEXT.reloaded);
+    if (MdgErrors.reloaded(error)) {
+      report(MdgErrors.TEXT.reloaded);
       return;
     }
     report(`写入 Obsidian 失败：${getErrorMessage(error)}`);
@@ -1349,32 +1351,32 @@ function confirmOverwriteNote(filepath, { hasAiSection = false } = {}) {
   cancelOverwriteNote?.();
   return new Promise((resolve) => {
     const overlay = document.createElement("div");
-    overlay.className = "boc-confirm-overlay";
+    overlay.className = "mdg-confirm-overlay";
     overlay.innerHTML = hasAiSection
       ? `
-      <div class="boc-confirm-dialog" role="dialog" aria-modal="true" aria-labelledby="bocConfirmTitle">
-        <div id="bocConfirmTitle" class="boc-confirm-title">该笔记已存在</div>
-        <div class="boc-confirm-body">只更新 AI 问答：保留原笔记，只替换标记之间的「AI 问答」。整篇覆盖：替换全部内容。</div>
-        <div class="boc-confirm-path"></div>
-        <div class="boc-confirm-actions">
-          <button type="button" class="boc-confirm-danger" data-choice="full">整篇覆盖</button>
-          <button type="button" class="boc-confirm-cancel" data-choice="">取消</button>
-          <button type="button" class="boc-confirm-primary" data-choice="ai">只更新 AI 问答</button>
+      <div class="mdg-confirm-dialog" role="dialog" aria-modal="true" aria-labelledby="mdgConfirmTitle">
+        <div id="mdgConfirmTitle" class="mdg-confirm-title">该笔记已存在</div>
+        <div class="mdg-confirm-body">只更新 AI 问答：保留原笔记，只替换标记之间的「AI 问答」。整篇覆盖：替换全部内容。</div>
+        <div class="mdg-confirm-path"></div>
+        <div class="mdg-confirm-actions">
+          <button type="button" class="mdg-confirm-danger" data-choice="full">整篇覆盖</button>
+          <button type="button" class="mdg-confirm-cancel" data-choice="">取消</button>
+          <button type="button" class="mdg-confirm-primary" data-choice="ai">只更新 AI 问答</button>
         </div>
       </div>
     `
       : `
-      <div class="boc-confirm-dialog" role="dialog" aria-modal="true" aria-labelledby="bocConfirmTitle">
-        <div id="bocConfirmTitle" class="boc-confirm-title">该笔记已存在</div>
-        <div class="boc-confirm-body">没有 AI 问答可更新。整篇覆盖会替换全部内容：</div>
-        <div class="boc-confirm-path"></div>
-        <div class="boc-confirm-actions">
-          <button type="button" class="boc-confirm-danger" data-choice="full">整篇覆盖</button>
-          <button type="button" class="boc-confirm-cancel" data-choice="">取消</button>
+      <div class="mdg-confirm-dialog" role="dialog" aria-modal="true" aria-labelledby="mdgConfirmTitle">
+        <div id="mdgConfirmTitle" class="mdg-confirm-title">该笔记已存在</div>
+        <div class="mdg-confirm-body">没有 AI 问答可更新。整篇覆盖会替换全部内容：</div>
+        <div class="mdg-confirm-path"></div>
+        <div class="mdg-confirm-actions">
+          <button type="button" class="mdg-confirm-danger" data-choice="full">整篇覆盖</button>
+          <button type="button" class="mdg-confirm-cancel" data-choice="">取消</button>
         </div>
       </div>
     `;
-    overlay.querySelector(".boc-confirm-path").textContent = String(filepath || "");
+    overlay.querySelector(".mdg-confirm-path").textContent = String(filepath || "");
 
     const cleanup = (value) => {
       cancelOverwriteNote = null;
@@ -1383,7 +1385,7 @@ function confirmOverwriteNote(filepath, { hasAiSection = false } = {}) {
       resolve(value);
     };
     const onKeydown = (event) => {
-      if (BocTyping.composing(event)) return;
+      if (MdgTyping.composing(event)) return;
       if (event.key === "Escape") {
         event.preventDefault();
         cleanup("");
@@ -1401,7 +1403,7 @@ function confirmOverwriteNote(filepath, { hasAiSection = false } = {}) {
     cancelOverwriteNote = () => cleanup("");
     document.addEventListener("keydown", onKeydown, true);
     document.body.appendChild(overlay);
-    (overlay.querySelector(".boc-confirm-primary") || overlay.querySelector(".boc-confirm-cancel")).focus();
+    (overlay.querySelector(".mdg-confirm-primary") || overlay.querySelector(".mdg-confirm-cancel")).focus();
   });
 }
 
@@ -1453,7 +1455,7 @@ async function enterReaderMode() {
   const gen = state.readerGen;
   const readingView = byId(ids.readingView);
   state.readingPlayerRetries = 0;
-  document.body.setAttribute("data-boc-reading-active", "1");
+  document.body.setAttribute("data-mdg-reading-active", "1");
   hydrateReaderStateFromSettings(state.settings);
   applyReadingViewPresentation();
   alignReaderViewportToPlayer();
@@ -1468,7 +1470,7 @@ async function enterReaderMode() {
 
   const earlyPlayerHost = findReaderPlayerHost(getRuntimeVideoElement());
   if (earlyPlayerHost) {
-    earlyPlayerHost.setAttribute("data-boc-reader-fading", "1");
+    earlyPlayerHost.setAttribute("data-mdg-reader-fading", "1");
   }
 
   await sleep(0);
@@ -1482,7 +1484,7 @@ async function enterReaderMode() {
   window.clearTimeout(waitNotice);
   const mountedPlayerHost = state.readingPlayerHost || earlyPlayerHost;
   if (mountedPlayerHost) {
-    mountedPlayerHost.removeAttribute("data-boc-reader-fading");
+    mountedPlayerHost.removeAttribute("data-mdg-reader-fading");
   }
   if (gen !== state.readerGen) {
     return;
@@ -1517,7 +1519,7 @@ function scheduleReaderPlayerRetry() {
     const mounted = await ensureReaderPlayerMounted({ retries: 10, delayMs: 200, forceLayout: true });
     const retryHost = state.readingPlayerHost;
     if (retryHost) {
-      retryHost.removeAttribute("data-boc-reader-fading");
+      retryHost.removeAttribute("data-mdg-reader-fading");
     }
     if (gen !== state.readerGen) return;
     if (mounted) {
@@ -1628,7 +1630,7 @@ async function ensureReaderPlayerMounted({ retries = 1, delayMs = 100, forceLayo
       // ytd-watch-flexy after load, into a branch the page focus hid; the
       // transcript host follows the player into its new wrap.
       if (isReaderMode()) {
-        if (video.closest("[data-boc-reader-hidden='1']")) {
+        if (video.closest("[data-mdg-reader-hidden='1']")) {
           applyReaderPageFocus();
         }
         moveReadingMainInline();
@@ -1648,7 +1650,7 @@ async function ensureReaderPlayerMounted({ retries = 1, delayMs = 100, forceLayo
       if (previousVideo !== video) {
         state.readingVideoEventsBound = false;
       }
-      activeHost.classList.add("boc-reader-player-host");
+      activeHost.classList.add("mdg-reader-player-host");
       bindReadingViewVideo(video);
       bindReaderPlayerControlsHover(activeHost);
       bindReaderLayout();
@@ -1693,7 +1695,7 @@ function queueEnsureReaderPlayerMounted() {
   state.readingPlayerMountTimer = window.setTimeout(() => {
     state.readingPlayerMountTimer = 0;
     ensureReaderPlayerMounted({ retries: 12, delayMs: 120, forceLayout: true }).catch((error) => {
-      logWarn("[BOC] ensure reader player mounted failed", error);
+      logWarn("[MDG] ensure reader player mounted failed", error);
     });
   }, 60);
 }
@@ -1721,25 +1723,25 @@ function closeReadingView() {
   const readingView = byId(ids.readingView);
   readingView.classList.remove("open", "reader-page");
   readingView.setAttribute("aria-hidden", "true");
-  readingView.setAttribute("data-boc-reader-ready", "0");
-  readingView.removeAttribute("data-boc-reader-follow");
-  document.body.removeAttribute("data-boc-reading-active");
-  document.documentElement.removeAttribute("data-boc-reader-mode");
-  document.body.removeAttribute("data-boc-reader-mode");
-  document.documentElement.removeAttribute("data-boc-reader-theme");
-  document.documentElement.removeAttribute("data-boc-reader-font-scale");
-  document.documentElement.removeAttribute("data-boc-reader-letter-spacing");
-  document.documentElement.removeAttribute("data-boc-reader-line-height");
-  document.documentElement.removeAttribute("data-boc-reader-content-width");
-  document.documentElement.removeAttribute("data-boc-reader-chapter-visibility");
-  document.documentElement.removeAttribute("data-boc-reader-has-chapters");
-  document.body.removeAttribute("data-boc-reader-theme");
-  document.body.removeAttribute("data-boc-reader-font-scale");
-  document.body.removeAttribute("data-boc-reader-letter-spacing");
-  document.body.removeAttribute("data-boc-reader-line-height");
-  document.body.removeAttribute("data-boc-reader-content-width");
-  document.body.removeAttribute("data-boc-reader-chapter-visibility");
-  document.body.removeAttribute("data-boc-reader-has-chapters");
+  readingView.setAttribute("data-mdg-reader-ready", "0");
+  readingView.removeAttribute("data-mdg-reader-follow");
+  document.body.removeAttribute("data-mdg-reading-active");
+  document.documentElement.removeAttribute("data-mdg-reader-mode");
+  document.body.removeAttribute("data-mdg-reader-mode");
+  document.documentElement.removeAttribute("data-mdg-reader-theme");
+  document.documentElement.removeAttribute("data-mdg-reader-font-scale");
+  document.documentElement.removeAttribute("data-mdg-reader-letter-spacing");
+  document.documentElement.removeAttribute("data-mdg-reader-line-height");
+  document.documentElement.removeAttribute("data-mdg-reader-content-width");
+  document.documentElement.removeAttribute("data-mdg-reader-chapter-visibility");
+  document.documentElement.removeAttribute("data-mdg-reader-has-chapters");
+  document.body.removeAttribute("data-mdg-reader-theme");
+  document.body.removeAttribute("data-mdg-reader-font-scale");
+  document.body.removeAttribute("data-mdg-reader-letter-spacing");
+  document.body.removeAttribute("data-mdg-reader-line-height");
+  document.body.removeAttribute("data-mdg-reader-content-width");
+  document.body.removeAttribute("data-mdg-reader-chapter-visibility");
+  document.body.removeAttribute("data-mdg-reader-has-chapters");
   restoreReadingMainInline();
   stopReadingViewSync();
   unbindReaderLayout();
@@ -1763,11 +1765,11 @@ function closeReadingView() {
 }
 
 function renderReadingView() {
-  const titleNode = document.querySelector(".boc-reading-title");
+  const titleNode = document.querySelector(".mdg-reading-title");
   const metaNode = byId(ids.readingMeta);
   const chapterList = byId(ids.readingChapterList);
   const transcriptList = byId(ids.readingTranscriptList);
-  const chapters = BocSites.normalizeChapters(state.chapters || []);
+  const chapters = MdgSites.normalizeChapters(state.chapters || []);
   const body = Array.isArray(state.subtitleBody) ? state.subtitleBody : [];
   const transcriptItems = getReadingTranscriptItems();
   const withHours = shouldShowHoursInNote(state, body);
@@ -1781,21 +1783,21 @@ function renderReadingView() {
   }
 
   if (chapters.length === 0) {
-    chapterList.innerHTML = '<div class="boc-reading-empty">当前视频没有章节。</div>';
+    chapterList.innerHTML = '<div class="mdg-reading-empty">当前视频没有章节。</div>';
   } else {
     chapterList.innerHTML = chapters
       .map(
         (item, index) => `
           <button
             type="button"
-            class="boc-reading-chapter"
+            class="mdg-reading-chapter"
             data-index="${index}"
             data-seconds="${Number(item.from || 0) || 0}"
           >
-            <span class="boc-reading-chapter-time">${escapeHtml(
+            <span class="mdg-reading-chapter-time">${escapeHtml(
               formatCompactTimestamp(item.from, withHours)
             )}</span>
-            <span class="boc-reading-chapter-title">${escapeHtml(item.title)}</span>
+            <span class="mdg-reading-chapter-title">${escapeHtml(item.title)}</span>
           </button>
         `
       )
@@ -1804,8 +1806,8 @@ function renderReadingView() {
 
   if (transcriptItems.length === 0) {
     const failed = state.subtitleFetchState === "error" || Boolean(state.subtitleFailure);
-    transcriptList.innerHTML = `<div class="boc-reading-empty">${escapeHtml(getReadingTranscriptPlaceholderText())}${
-      failed ? '<button type="button" class="boc-reading-retry">重试</button>' : ""
+    transcriptList.innerHTML = `<div class="mdg-reading-empty">${escapeHtml(getReadingTranscriptPlaceholderText())}${
+      failed ? '<button type="button" class="mdg-reading-retry">重试</button>' : ""
     }</div>`;
   } else {
     transcriptList.innerHTML = transcriptItems
@@ -1813,21 +1815,21 @@ function renderReadingView() {
         (item) => `
           <button
             type="button"
-            class="boc-reading-item"
+            class="mdg-reading-item"
             data-index="${item.index}"
             data-seconds="${item.from}"
           >
-            <span class="boc-reading-time">${escapeHtml(
+            <span class="mdg-reading-time">${escapeHtml(
               formatCompactTimestamp(item.from, withHours)
             )}</span>
-            <span class="boc-reading-text">${escapeHtml(item.content)}</span>
+            <span class="mdg-reading-text">${escapeHtml(item.content)}</span>
           </button>
         `
       )
       .join("");
     transcriptList.insertAdjacentHTML(
       "beforeend",
-      `<div id="${ids.readingTranscriptTailSpacer}" class="boc-reading-tail-spacer" aria-hidden="true"></div>`
+      `<div id="${ids.readingTranscriptTailSpacer}" class="mdg-reading-tail-spacer" aria-hidden="true"></div>`
     );
   }
 
@@ -1867,7 +1869,7 @@ function updateReadingTranscriptTailSpacer() {
   if (!spacer) {
     return;
   }
-  const inlineHost = document.getElementById("boc-reading-inline-host");
+  const inlineHost = document.getElementById("mdg-reading-inline-host");
   const transcriptList = document.getElementById(ids.readingTranscriptList);
   const hostHeight = inlineHost?.clientHeight || transcriptList?.clientHeight || 0;
   const spacerHeight = Math.max(hostHeight, Math.round(window.innerHeight * 0.92), 320);
@@ -1875,11 +1877,11 @@ function updateReadingTranscriptTailSpacer() {
 }
 
 function hydrateReaderStateFromSettings(settings = state.settings) {
-  state.readingTheme = BocSettings.normalizeReaderTheme(settings?.readerTheme);
-  state.readingFontScale = BocSettings.normalizeReaderFontScale(settings?.readerFontScale);
-  state.readingLetterSpacing = BocSettings.normalizeReaderLetterSpacing(settings?.readerLetterSpacing ?? settings?.readerLineHeight);
-  state.readingLineHeight = BocSettings.normalizeReaderLineHeight(settings?.readerLineHeight);
-  state.readingContentWidth = BocSettings.normalizeReaderContentWidth(settings?.readerContentWidth);
+  state.readingTheme = MdgSettings.normalizeReaderTheme(settings?.readerTheme);
+  state.readingFontScale = MdgSettings.normalizeReaderFontScale(settings?.readerFontScale);
+  state.readingLetterSpacing = MdgSettings.normalizeReaderLetterSpacing(settings?.readerLetterSpacing ?? settings?.readerLineHeight);
+  state.readingLineHeight = MdgSettings.normalizeReaderLineHeight(settings?.readerLineHeight);
+  state.readingContentWidth = MdgSettings.normalizeReaderContentWidth(settings?.readerContentWidth);
   state.readingChapterVisible = settings?.readerChapterVisible !== undefined ? Boolean(settings.readerChapterVisible) : true;
 }
 
@@ -1891,18 +1893,18 @@ function applyReadingViewPresentation() {
   readingView.dataset.lineHeight = state.readingLineHeight;
   readingView.dataset.contentWidth = state.readingContentWidth;
   readingView.dataset.chapterVisibility = state.readingChapterVisible ? "auto" : "hide";
-  document.documentElement.dataset.bocReaderTheme = state.readingTheme;
-  document.documentElement.dataset.bocReaderFontScale = state.readingFontScale;
-  document.documentElement.dataset.bocReaderLetterSpacing = state.readingLetterSpacing;
-  document.documentElement.dataset.bocReaderLineHeight = state.readingLineHeight;
-  document.documentElement.dataset.bocReaderContentWidth = state.readingContentWidth;
-  document.documentElement.dataset.bocReaderChapterVisibility = state.readingChapterVisible ? "auto" : "hide";
-  document.body.dataset.bocReaderTheme = state.readingTheme;
-  document.body.dataset.bocReaderFontScale = state.readingFontScale;
-  document.body.dataset.bocReaderLetterSpacing = state.readingLetterSpacing;
-  document.body.dataset.bocReaderLineHeight = state.readingLineHeight;
-  document.body.dataset.bocReaderContentWidth = state.readingContentWidth;
-  document.body.dataset.bocReaderChapterVisibility = state.readingChapterVisible ? "auto" : "hide";
+  document.documentElement.dataset.mdgReaderTheme = state.readingTheme;
+  document.documentElement.dataset.mdgReaderFontScale = state.readingFontScale;
+  document.documentElement.dataset.mdgReaderLetterSpacing = state.readingLetterSpacing;
+  document.documentElement.dataset.mdgReaderLineHeight = state.readingLineHeight;
+  document.documentElement.dataset.mdgReaderContentWidth = state.readingContentWidth;
+  document.documentElement.dataset.mdgReaderChapterVisibility = state.readingChapterVisible ? "auto" : "hide";
+  document.body.dataset.mdgReaderTheme = state.readingTheme;
+  document.body.dataset.mdgReaderFontScale = state.readingFontScale;
+  document.body.dataset.mdgReaderLetterSpacing = state.readingLetterSpacing;
+  document.body.dataset.mdgReaderLineHeight = state.readingLineHeight;
+  document.body.dataset.mdgReaderContentWidth = state.readingContentWidth;
+  document.body.dataset.mdgReaderChapterVisibility = state.readingChapterVisible ? "auto" : "hide";
   const readingChapterVisibleEl = byId(ids.readingChapterVisible);
   if (readingChapterVisibleEl) {
     readingChapterVisibleEl.checked = state.readingChapterVisible;
@@ -1913,8 +1915,8 @@ function updateReaderChapterPresence(hasChapters) {
   const value = hasChapters ? "1" : "0";
   const readingView = byId(ids.readingView);
   readingView.dataset.hasChapters = value;
-  document.documentElement.dataset.bocReaderHasChapters = value;
-  document.body.dataset.bocReaderHasChapters = value;
+  document.documentElement.dataset.mdgReaderHasChapters = value;
+  document.body.dataset.mdgReaderHasChapters = value;
 }
 
 function getToggleLabel(key, value) {
@@ -1967,15 +1969,15 @@ function buildReaderStepperControl({
     return "";
   }
   return `
-    <div id="${id}" class="boc-reading-stepper">
-      <span class="boc-reading-stepper-title">${escapeHtml(title)}</span>
-      <div class="boc-reading-stepper-buttons" role="group" aria-label="${escapeHtml(title)}">
+    <div id="${id}" class="mdg-reading-stepper">
+      <span class="mdg-reading-stepper-title">${escapeHtml(title)}</span>
+      <div class="mdg-reading-stepper-buttons" role="group" aria-label="${escapeHtml(title)}">
         ${config.options
           .map(
             (option, index) => `
           <button
             type="button"
-            class="boc-reading-stepper-btn"
+            class="mdg-reading-stepper-btn"
             data-value="${escapeHtml(option)}"
             aria-label="${escapeHtml(title)} ${escapeHtml(getToggleLabel(config.labelKey, option))}"
             title="${escapeHtml(getToggleLabel(config.labelKey, option))}"
@@ -1989,7 +1991,7 @@ function buildReaderStepperControl({
 }
 
 function bindReaderStepperControl(node, settingKey) {
-  if (!node || node.dataset.bocBound === "1") {
+  if (!node || node.dataset.mdgBound === "1") {
     return;
   }
 
@@ -2000,7 +2002,7 @@ function bindReaderStepperControl(node, settingKey) {
     }
     setReaderPreference(settingKey, button.dataset.value || "");
   });
-  node.dataset.bocBound = "1";
+  node.dataset.mdgBound = "1";
 }
 
 function setReaderPreference(settingKey, nextValue) {
@@ -2052,20 +2054,20 @@ function renderReadingInfoPanel() {
 
   summaryNode.innerHTML =
     summaryItems.length === 0
-      ? '<div class="boc-reading-empty">当前视频信息还未就绪。</div>'
+      ? '<div class="mdg-reading-empty">当前视频信息还未就绪。</div>'
       : summaryItems
           .map(
             (item) => `
-              <div class="boc-reading-info-item">
-                <span class="boc-reading-info-label">${escapeHtml(item.label)}</span>
-                <span class="boc-reading-info-value">${escapeHtml(item.value)}</span>
+              <div class="mdg-reading-info-item">
+                <span class="mdg-reading-info-label">${escapeHtml(item.label)}</span>
+                <span class="mdg-reading-info-value">${escapeHtml(item.value)}</span>
               </div>
             `
           )
           .join("");
 
   if (!description) {
-    descriptionNode.innerHTML = '<div class="boc-reading-empty">当前视频没有简介。</div>';
+    descriptionNode.innerHTML = '<div class="mdg-reading-empty">当前视频没有简介。</div>';
     descriptionNode.classList.remove("is-collapsed");
     descriptionBtn.hidden = true;
   } else {
@@ -2107,13 +2109,13 @@ function buildReadingSummaryItems() {
 }
 
 function updateReaderPreferences(next, { persist = true } = {}) {
-  state.readingTheme = BocSettings.normalizeReaderTheme(next.readerTheme ?? state.readingTheme);
-  state.readingFontScale = BocSettings.normalizeReaderFontScale(next.readerFontScale ?? state.readingFontScale);
-  state.readingLetterSpacing = BocSettings.normalizeReaderLetterSpacing(
+  state.readingTheme = MdgSettings.normalizeReaderTheme(next.readerTheme ?? state.readingTheme);
+  state.readingFontScale = MdgSettings.normalizeReaderFontScale(next.readerFontScale ?? state.readingFontScale);
+  state.readingLetterSpacing = MdgSettings.normalizeReaderLetterSpacing(
     next.readerLetterSpacing ?? state.readingLetterSpacing
   );
-  state.readingLineHeight = BocSettings.normalizeReaderLineHeight(next.readerLineHeight ?? state.readingLineHeight);
-  state.readingContentWidth = BocSettings.normalizeReaderContentWidth(next.readerContentWidth ?? state.readingContentWidth);
+  state.readingLineHeight = MdgSettings.normalizeReaderLineHeight(next.readerLineHeight ?? state.readingLineHeight);
+  state.readingContentWidth = MdgSettings.normalizeReaderContentWidth(next.readerContentWidth ?? state.readingContentWidth);
   state.readingChapterVisible = next.readerChapterVisible !== undefined ? Boolean(next.readerChapterVisible) : state.readingChapterVisible;
   state.settings = {
     ...state.settings,
@@ -2136,7 +2138,7 @@ function persistReaderSettings() {
   const { readerTheme, readerFontScale, readerLetterSpacing, readerLineHeight, readerContentWidth, readerChapterVisible } = state.settings;
   const settings = { readerTheme, readerFontScale, readerLetterSpacing, readerLineHeight, readerContentWidth, readerChapterVisible };
   sendRuntimeMessage({ type: "save-settings", settings }).catch((error) => {
-    logWarn("[BOC] failed to persist reader settings", error);
+    logWarn("[MDG] failed to persist reader settings", error);
   });
 }
 
@@ -2181,7 +2183,7 @@ function setReadingViewReady(ready) {
   if (!readingView) {
     return;
   }
-  readingView.setAttribute("data-boc-reader-ready", state.readingViewReady ? "1" : "0");
+  readingView.setAttribute("data-mdg-reader-ready", state.readingViewReady ? "1" : "0");
   readingView.setAttribute("aria-busy", state.readingViewReady ? "false" : "true");
 }
 
@@ -2253,7 +2255,7 @@ function layoutReaderPlayerHost() {
   const wrapNode = getReaderPlayerWrapNode(playerHost);
   if (wrapNode) {
     const wrapTop = wrapNode.getBoundingClientRect().top + window.scrollY;
-    const rail = document.querySelector(".boc-reading-rail");
+    const rail = document.querySelector(".mdg-reading-rail");
     const railSpace = rail?.offsetHeight ? rail.offsetHeight + 12 : 0;
     const heightLimit = Math.max(200, window.innerHeight - wrapTop - railSpace - getReaderPagePaddingPx());
     if (renderedHeight > heightLimit) {
@@ -2264,10 +2266,10 @@ function layoutReaderPlayerHost() {
 
   clearNativeReaderFloatingStyles(playerHost);
   cleanupReaderPlayerHostNode(playerHost);
-  // On <html>: the player and title these size are page nodes outside #boc-reading-view.
+  // On <html>: the player and title these size are page nodes outside #mdg-reading-view.
   const rootStyle = document.documentElement.style;
-  rootStyle.setProperty("--boc-reader-player-rendered-width", `${Math.round(renderedWidth)}px`);
-  rootStyle.setProperty("--boc-reader-player-rendered-height", `${Math.round(renderedHeight)}px`);
+  rootStyle.setProperty("--mdg-reader-player-rendered-width", `${Math.round(renderedWidth)}px`);
+  rootStyle.setProperty("--mdg-reader-player-rendered-height", `${Math.round(renderedHeight)}px`);
   updateReadingTranscriptTailSpacer();
   queueEnsureReaderPlayerControlsRecovered({
     reason: "layout-native",
@@ -2279,7 +2281,7 @@ function cleanupReaderPlayerHostNode(playerHost) {
   if (!playerHost) {
     return;
   }
-  playerHost.classList.remove("boc-reader-player-host");
+  playerHost.classList.remove("mdg-reader-player-host");
   playerHost.style.removeProperty("position");
   playerHost.style.removeProperty("inset");
   playerHost.style.removeProperty("left");
@@ -2304,8 +2306,8 @@ function cleanupReaderPlayerHost() {
     state.readingControlsRecoveryTimer = 0;
   }
   state.readingControlsRecoveryInFlight = false;
-  document.documentElement.style.removeProperty("--boc-reader-player-rendered-width");
-  document.documentElement.style.removeProperty("--boc-reader-player-rendered-height");
+  document.documentElement.style.removeProperty("--mdg-reader-player-rendered-width");
+  document.documentElement.style.removeProperty("--mdg-reader-player-rendered-height");
   const playerHost = state.readingPlayerHost;
   if (!playerHost) {
     return;
@@ -2339,12 +2341,12 @@ function stopReadingViewSync() {
   }
   stopReaderPlayerObserver();
   unbindReaderPlayerControlsHover();
-  if (state.readingVideoEl && state.readingVideoEl.__bocReadingSyncHandler) {
+  if (state.readingVideoEl && state.readingVideoEl.__mdgReadingSyncHandler) {
     const video = state.readingVideoEl;
-    video.removeEventListener("timeupdate", video.__bocReadingSyncHandler);
-    video.removeEventListener("seeked", video.__bocReadingSyncHandler);
-    video.removeEventListener("loadedmetadata", video.__bocReadingSyncHandler);
-    delete video.__bocReadingSyncHandler;
+    video.removeEventListener("timeupdate", video.__mdgReadingSyncHandler);
+    video.removeEventListener("seeked", video.__mdgReadingSyncHandler);
+    video.removeEventListener("loadedmetadata", video.__mdgReadingSyncHandler);
+    delete video.__mdgReadingSyncHandler;
   }
   state.readingVideoEventsBound = false;
 }
@@ -2370,7 +2372,7 @@ function startReaderPlayerObserver() {
         nextHost &&
         (nextVideo !== state.readingVideoEl ||
           nextHost !== state.readingPlayerHost ||
-          nextVideo.closest("[data-boc-reader-hidden='1']"))
+          nextVideo.closest("[data-mdg-reader-hidden='1']"))
       ) {
         queueEnsureReaderPlayerMounted();
       }
@@ -2397,12 +2399,12 @@ function stopReaderPlayerObserver() {
 
 function bindReadingViewVideo(video = getRuntimeVideoElement()) {
   if (!video) {
-    if (state.readingVideoEl && state.readingVideoEl.__bocReadingSyncHandler) {
+    if (state.readingVideoEl && state.readingVideoEl.__mdgReadingSyncHandler) {
       const prev = state.readingVideoEl;
-      prev.removeEventListener("timeupdate", prev.__bocReadingSyncHandler);
-      prev.removeEventListener("seeked", prev.__bocReadingSyncHandler);
-      prev.removeEventListener("loadedmetadata", prev.__bocReadingSyncHandler);
-      delete prev.__bocReadingSyncHandler;
+      prev.removeEventListener("timeupdate", prev.__mdgReadingSyncHandler);
+      prev.removeEventListener("seeked", prev.__mdgReadingSyncHandler);
+      prev.removeEventListener("loadedmetadata", prev.__mdgReadingSyncHandler);
+      delete prev.__mdgReadingSyncHandler;
     }
     state.readingVideoEl = null;
     state.readingVideoEventsBound = false;
@@ -2413,11 +2415,11 @@ function bindReadingViewVideo(video = getRuntimeVideoElement()) {
     return video;
   }
 
-  if (state.readingVideoEl && state.readingVideoEl.__bocReadingSyncHandler) {
+  if (state.readingVideoEl && state.readingVideoEl.__mdgReadingSyncHandler) {
     const prev = state.readingVideoEl;
-    prev.removeEventListener("timeupdate", prev.__bocReadingSyncHandler);
-    prev.removeEventListener("seeked", prev.__bocReadingSyncHandler);
-    prev.removeEventListener("loadedmetadata", prev.__bocReadingSyncHandler);
+    prev.removeEventListener("timeupdate", prev.__mdgReadingSyncHandler);
+    prev.removeEventListener("seeked", prev.__mdgReadingSyncHandler);
+    prev.removeEventListener("loadedmetadata", prev.__mdgReadingSyncHandler);
   }
 
   const syncHandler = (event) => {
@@ -2443,7 +2445,7 @@ function bindReadingViewVideo(video = getRuntimeVideoElement()) {
   video.addEventListener("timeupdate", syncHandler);
   video.addEventListener("seeked", syncHandler);
   video.addEventListener("loadedmetadata", syncHandler);
-  video.__bocReadingSyncHandler = syncHandler;
+  video.__mdgReadingSyncHandler = syncHandler;
   state.readingVideoEl = video;
   state.readingPlayerHost = findReaderPlayerHost(video) || state.readingPlayerHost;
   state.readingVideoEventsBound = true;
@@ -2522,8 +2524,8 @@ function applyReaderPageFocus() {
     root,
     playerHost,
     titleNode,
-    document.getElementById("boc-reading-inline-host"),
-    document.querySelector(".boc-reading-rail")
+    document.getElementById("mdg-reading-inline-host"),
+    document.querySelector(".mdg-reading-rail")
   ].filter(Boolean);
 
   keepRoots.forEach((node) => {
@@ -2531,14 +2533,14 @@ function applyReaderPageFocus() {
     markReaderKeepPath(node);
   });
 
-  const keepNodes = Array.from(document.querySelectorAll("[data-boc-reader-keep='1']"));
+  const keepNodes = Array.from(document.querySelectorAll("[data-mdg-reader-keep='1']"));
   keepNodes.forEach((parent) => {
     Array.from(parent.children || []).forEach((child) => {
       if (child.id === ids.root) {
         return;
       }
-      if (!child.hasAttribute("data-boc-reader-keep")) {
-        child.setAttribute("data-boc-reader-hidden", "1");
+      if (!child.hasAttribute("data-mdg-reader-keep")) {
+        child.setAttribute("data-mdg-reader-hidden", "1");
       }
     });
   });
@@ -2548,11 +2550,11 @@ function applyReaderPageFocus() {
 }
 
 function clearReaderPageFocus() {
-  document.querySelectorAll("[data-boc-reader-keep]").forEach((node) => {
-    node.removeAttribute("data-boc-reader-keep");
+  document.querySelectorAll("[data-mdg-reader-keep]").forEach((node) => {
+    node.removeAttribute("data-mdg-reader-keep");
   });
-  document.querySelectorAll("[data-boc-reader-hidden]").forEach((node) => {
-    node.removeAttribute("data-boc-reader-hidden");
+  document.querySelectorAll("[data-mdg-reader-hidden]").forEach((node) => {
+    node.removeAttribute("data-mdg-reader-hidden");
   });
 }
 
@@ -2561,7 +2563,7 @@ function moveReadingMainInline() {
     return;
   }
 
-  const readingMain = document.querySelector(".boc-reading-main");
+  const readingMain = document.querySelector(".mdg-reading-main");
   if (!readingMain) {
     return;
   }
@@ -2576,14 +2578,14 @@ function moveReadingMainInline() {
     return;
   }
 
-  let inlineHost = document.getElementById("boc-reading-inline-host");
+  let inlineHost = document.getElementById("mdg-reading-inline-host");
   if (!inlineHost) {
     inlineHost = document.createElement("div");
-    inlineHost.id = "boc-reading-inline-host";
+    inlineHost.id = "mdg-reading-inline-host";
   }
 
   // Chapters go right under the video, the transcript column after them.
-  const rail = document.querySelector(".boc-reading-rail");
+  const rail = document.querySelector(".mdg-reading-rail");
   if (rail && (rail.parentElement !== hostParent || rail.previousElementSibling !== playerWrap)) {
     playerWrap.insertAdjacentElement("afterend", rail);
   }
@@ -2592,7 +2594,7 @@ function moveReadingMainInline() {
     hostAnchor.insertAdjacentElement("afterend", inlineHost);
   }
 
-  if (!inlineHost.dataset.bocScrollBound) {
+  if (!inlineHost.dataset.mdgScrollBound) {
     const handleInlineHostManualScroll = () => {
       if (Date.now() <= state.readingProgrammaticScrollUntil) {
         return;
@@ -2601,7 +2603,7 @@ function moveReadingMainInline() {
     };
     inlineHost.addEventListener("scroll", handleInlineHostManualScroll);
     inlineHost.addEventListener("wheel", handleInlineHostManualScroll, { passive: true });
-    inlineHost.dataset.bocScrollBound = "1";
+    inlineHost.dataset.mdgScrollBound = "1";
   }
 
   if (readingMain.parentElement !== inlineHost) {
@@ -2611,8 +2613,8 @@ function moveReadingMainInline() {
 }
 
 function restoreReadingMainInline() {
-  const readingMain = document.querySelector(".boc-reading-main");
-  const inlineHost = document.getElementById("boc-reading-inline-host");
+  const readingMain = document.querySelector(".mdg-reading-main");
+  const inlineHost = document.getElementById("mdg-reading-inline-host");
   if (readingMain && state.readingMainOriginalParent) {
     if (state.readingMainOriginalNextSibling?.parentNode === state.readingMainOriginalParent) {
       state.readingMainOriginalParent.insertBefore(readingMain, state.readingMainOriginalNextSibling);
@@ -2620,8 +2622,8 @@ function restoreReadingMainInline() {
       state.readingMainOriginalParent.appendChild(readingMain);
     }
   }
-  const layout = document.querySelector(`#${ids.readingView} .boc-reading-layout`);
-  const rail = document.querySelector(".boc-reading-rail");
+  const layout = document.querySelector(`#${ids.readingView} .mdg-reading-layout`);
+  const rail = document.querySelector(".mdg-reading-rail");
   if (layout && rail && rail.parentElement !== layout) {
     layout.prepend(rail);
   }
@@ -2639,10 +2641,10 @@ function pruneReaderNonKeepBranches(node) {
     if (child.id === ids.root) {
       return;
     }
-    const childHasKeep = child.hasAttribute("data-boc-reader-keep");
-    const childContainsKeep = Boolean(child.querySelector?.("[data-boc-reader-keep='1']"));
+    const childHasKeep = child.hasAttribute("data-mdg-reader-keep");
+    const childContainsKeep = Boolean(child.querySelector?.("[data-mdg-reader-keep='1']"));
     if (!childHasKeep && !childContainsKeep) {
-      child.setAttribute("data-boc-reader-hidden", "1");
+      child.setAttribute("data-mdg-reader-hidden", "1");
       return;
     }
     pruneReaderNonKeepBranches(child);
@@ -2651,7 +2653,7 @@ function pruneReaderNonKeepBranches(node) {
 
 function hideReaderNoiseNodes(keepRoots = []) {
   const keepSet = new Set(keepRoots.filter(Boolean));
-  const keepSelector = sel([...reader().keepRoots, "#boc-root"]);
+  const keepSelector = sel([...reader().keepRoots, "#mdg-root"]);
   document.querySelectorAll(sel(reader().noise)).forEach((node) => {
     if (Array.from(keepSet).some((keepNode) => keepNode === node || node.contains(keepNode))) {
       return;
@@ -2659,10 +2661,10 @@ function hideReaderNoiseNodes(keepRoots = []) {
     if (node.closest(keepSelector)) {
       return;
     }
-    node.setAttribute("data-boc-reader-hidden", "1");
+    node.setAttribute("data-mdg-reader-hidden", "1");
     const card = node.closest(sel(reader().cards));
     if (card && !card.closest(keepSelector)) {
-      card.setAttribute("data-boc-reader-hidden", "1");
+      card.setAttribute("data-mdg-reader-hidden", "1");
     }
   });
 }
@@ -2671,19 +2673,19 @@ function markReaderKeepSubtree(node) {
   if (!node) {
     return;
   }
-  node.setAttribute("data-boc-reader-keep", "1");
+  node.setAttribute("data-mdg-reader-keep", "1");
   node.querySelectorAll("*").forEach((child) => {
-    child.setAttribute("data-boc-reader-keep", "1");
+    child.setAttribute("data-mdg-reader-keep", "1");
   });
 }
 
 function markReaderKeepPath(node) {
   let current = node;
   while (current && current !== document.body) {
-    current.setAttribute("data-boc-reader-keep", "1");
+    current.setAttribute("data-mdg-reader-keep", "1");
     current = current.parentElement;
   }
-  document.body.setAttribute("data-boc-reader-keep", "1");
+  document.body.setAttribute("data-mdg-reader-keep", "1");
 }
 
 function findReaderTitleContainer() {
@@ -2892,7 +2894,7 @@ function queueEnsureReaderPlayerControlsRecovered({
       retryDelayMs: 120
     })
       .catch((error) => {
-        logWarn("[BOC] queued reader controls recovery failed", { reason, error });
+        logWarn("[MDG] queued reader controls recovery failed", { reason, error });
       })
       .finally(() => {
         state.readingControlsRecoveryInFlight = false;
@@ -2919,13 +2921,13 @@ function setReaderPlayerControlsVisible(visible, playerHost = state.readingPlaye
 
     if (visible) {
       node.style.setProperty("display", displayValue, "important");
-      node.setAttribute("data-boc-reader-controls-forced", "1");
+      node.setAttribute("data-mdg-reader-controls-forced", "1");
       return;
     }
 
-    if (node.getAttribute("data-boc-reader-controls-forced") === "1") {
+    if (node.getAttribute("data-mdg-reader-controls-forced") === "1") {
       node.style.removeProperty("display");
-      node.removeAttribute("data-boc-reader-controls-forced");
+      node.removeAttribute("data-mdg-reader-controls-forced");
     }
   });
 
@@ -2936,14 +2938,14 @@ function setReaderPlayerControlsVisible(visible, playerHost = state.readingPlaye
   if (visible) {
     if (playerHost.classList.contains(noCursorClass)) {
       playerHost.classList.remove(noCursorClass);
-      playerHost.setAttribute("data-boc-reader-no-cursor-cleared", "1");
+      playerHost.setAttribute("data-mdg-reader-no-cursor-cleared", "1");
     }
     return;
   }
 
-  if (playerHost.getAttribute("data-boc-reader-no-cursor-cleared") === "1") {
+  if (playerHost.getAttribute("data-mdg-reader-no-cursor-cleared") === "1") {
     playerHost.classList.add(noCursorClass);
-    playerHost.removeAttribute("data-boc-reader-no-cursor-cleared");
+    playerHost.removeAttribute("data-mdg-reader-no-cursor-cleared");
   }
 }
 
@@ -2956,7 +2958,7 @@ async function ensureReaderPlayerControlsRecovered(
   }
 
   const before = getReaderPlayerControlsState(playerHost);
-  logInfo("[BOC] reader controls check", {
+  logInfo("[MDG] reader controls check", {
     reason,
     hostClassName: typeof playerHost.className === "string" ? playerHost.className : "",
     hostHasNoCursor: before.hostHasNoCursor,
@@ -2968,7 +2970,7 @@ async function ensureReaderPlayerControlsRecovered(
     return false;
   }
 
-  logInfo("[BOC] recovering normal reader controls", {
+  logInfo("[MDG] recovering normal reader controls", {
     reason,
     hostClassName: typeof playerHost.className === "string" ? playerHost.className : ""
   });
@@ -2976,7 +2978,7 @@ async function ensureReaderPlayerControlsRecovered(
   layoutReaderPlayerHost();
 
   let after = getReaderPlayerControlsState(playerHost);
-  logInfo("[BOC] reader controls after recovery", {
+  logInfo("[MDG] reader controls after recovery", {
     reason,
     hostClassName: typeof playerHost.className === "string" ? playerHost.className : "",
     hostHasNoCursor: after.hostHasNoCursor,
@@ -2988,14 +2990,14 @@ async function ensureReaderPlayerControlsRecovered(
   }
 
   await sleep(retryDelayMs);
-  logInfo("[BOC] retrying normal reader controls recovery", {
+  logInfo("[MDG] retrying normal reader controls recovery", {
     reason,
     hostClassName: typeof playerHost.className === "string" ? playerHost.className : ""
   });
   setReaderPlayerControlsVisible(true, playerHost);
   layoutReaderPlayerHost();
   after = getReaderPlayerControlsState(playerHost);
-  logInfo("[BOC] reader controls after retry", {
+  logInfo("[MDG] reader controls after retry", {
     reason,
     hostClassName: typeof playerHost.className === "string" ? playerHost.className : "",
     hostHasNoCursor: after.hostHasNoCursor,
@@ -3026,7 +3028,7 @@ function bindReaderPlayerControlsHover(playerHost = state.readingPlayerHost) {
   if (state.readingControlsHoverHost && state.readingControlsHoverHost !== playerHost) {
     unbindReaderPlayerControlsHover();
   }
-  if (playerHost.__bocReaderControlsHoverBound) {
+  if (playerHost.__mdgReaderControlsHoverBound) {
     state.readingControlsHoverHost = playerHost;
     return;
   }
@@ -3049,7 +3051,7 @@ function bindReaderPlayerControlsHover(playerHost = state.readingPlayerHost) {
   playerHost.addEventListener("mouseenter", showControls, true);
   playerHost.addEventListener("mousemove", showControls, true);
   playerHost.addEventListener("mouseleave", hideControls, true);
-  playerHost.__bocReaderControlsHoverBound = { showControls, hideControls };
+  playerHost.__mdgReaderControlsHoverBound = { showControls, hideControls };
   state.readingControlsHoverHost = playerHost;
 }
 
@@ -3059,30 +3061,30 @@ function unbindReaderPlayerControlsHover() {
     window.clearTimeout(state.readingControlsHideTimer);
     state.readingControlsHideTimer = 0;
   }
-  if (!playerHost?.__bocReaderControlsHoverBound) {
+  if (!playerHost?.__mdgReaderControlsHoverBound) {
     state.readingControlsHoverHost = null;
     return;
   }
 
-  const { showControls, hideControls } = playerHost.__bocReaderControlsHoverBound;
+  const { showControls, hideControls } = playerHost.__mdgReaderControlsHoverBound;
   playerHost.removeEventListener("mouseenter", showControls, true);
   playerHost.removeEventListener("mousemove", showControls, true);
   playerHost.removeEventListener("mouseleave", hideControls, true);
-  delete playerHost.__bocReaderControlsHoverBound;
+  delete playerHost.__mdgReaderControlsHoverBound;
   setReaderPlayerControlsVisible(false, playerHost);
   state.readingControlsHoverHost = null;
 }
 
 function setReaderHeaderActionsVisible(visible) {
-  const actions = document.querySelector(".boc-reading-actions");
+  const actions = document.querySelector(".mdg-reading-actions");
   if (!actions) {
     return;
   }
   if (visible) {
-    actions.removeAttribute("data-boc-icon-hidden");
+    actions.removeAttribute("data-mdg-icon-hidden");
     return;
   }
-  actions.setAttribute("data-boc-icon-hidden", "1");
+  actions.setAttribute("data-mdg-icon-hidden", "1");
 }
 
 function scheduleReaderHeaderActionsHide(delayMs = 10000) {
@@ -3103,8 +3105,8 @@ function bindReaderHeaderActionsHover() {
   if (!state.readingViewOpen) {
     return;
   }
-  const header = document.querySelector(".boc-reading-header");
-  if (!header || header.__bocReaderHeaderHoverBound) {
+  const header = document.querySelector(".mdg-reading-header");
+  if (!header || header.__mdgReaderHeaderHoverBound) {
     state.readingHeaderHoverHost = header || null;
     return;
   }
@@ -3135,7 +3137,7 @@ function bindReaderHeaderActionsHover() {
   header.addEventListener("mouseenter", showActions, true);
   header.addEventListener("mouseleave", hideActionsLater, true);
   document.addEventListener("mousemove", onMove, { passive: true });
-  header.__bocReaderHeaderHoverBound = { showActions, hideActionsLater, onMove };
+  header.__mdgReaderHeaderHoverBound = { showActions, hideActionsLater, onMove };
   state.readingHeaderHoverHost = header;
   setReaderHeaderActionsVisible(true);
   scheduleReaderHeaderActionsHide();
@@ -3147,15 +3149,15 @@ function unbindReaderHeaderActionsHover() {
     window.clearTimeout(state.readingHeaderHideTimer);
     state.readingHeaderHideTimer = 0;
   }
-  if (!header?.__bocReaderHeaderHoverBound) {
+  if (!header?.__mdgReaderHeaderHoverBound) {
     state.readingHeaderHoverHost = null;
     return;
   }
-  const { showActions, hideActionsLater, onMove } = header.__bocReaderHeaderHoverBound;
+  const { showActions, hideActionsLater, onMove } = header.__mdgReaderHeaderHoverBound;
   header.removeEventListener("mouseenter", showActions, true);
   header.removeEventListener("mouseleave", hideActionsLater, true);
   document.removeEventListener("mousemove", onMove);
-  delete header.__bocReaderHeaderHoverBound;
+  delete header.__mdgReaderHeaderHoverBound;
   state.readingHeaderHoverHost = null;
   setReaderHeaderActionsVisible(true);
 }
@@ -3203,14 +3205,14 @@ function syncPlayerAiQuickActionButton() {
   if (state.superseded) {
     return;
   }
-  let existing = document.getElementById("boc-player-ai-quick-action");
+  let existing = document.getElementById("mdg-player-ai-quick-action");
   // Expandos are per isolated world: a button without ours was left by a previous copy and calls into its dead context.
-  if (existing && !existing.__bocOwned) {
-    existing.closest(".boc-player-ai-wrap")?.remove();
+  if (existing && !existing.__mdgOwned) {
+    existing.closest(".mdg-player-ai-wrap")?.remove();
     existing.remove();
     existing = null;
   }
-  const existingWrap = existing?.closest(".boc-player-ai-wrap");
+  const existingWrap = existing?.closest(".mdg-player-ai-wrap");
   if (!state.settings?.enablePlayerAiQuickAction || !state.settings.hasAiProvider || state.readingViewOpen || isReaderMode()) {
     removePlayerAiQuickActionButton();
     return;
@@ -3236,18 +3238,18 @@ function syncPlayerAiQuickActionButton() {
   let wrap = existingWrap instanceof HTMLElement ? existingWrap : null;
   if (!wrap) {
     wrap = document.createElement("div");
-    wrap.className = "boc-player-ai-wrap";
+    wrap.className = "mdg-player-ai-wrap";
   }
   if (!button) {
     button = document.createElement("button");
-    button.id = "boc-player-ai-quick-action";
+    button.id = "mdg-player-ai-quick-action";
     button.type = "button";
-    button.className = "boc-player-ai-quick-action";
+    button.className = "mdg-player-ai-quick-action";
     button.title = "AI 总结";
     button.setAttribute("aria-label", "AI 总结");
     button.innerHTML = buildPlayerAiQuickActionIconSvg();
     button.addEventListener("click", handlePlayerAiQuickActionClick, true);
-    button.__bocOwned = true;
+    button.__mdgOwned = true;
   }
 
   if (button.parentElement !== wrap) {
@@ -3265,7 +3267,7 @@ function removePlayerAiQuickActionButton() {
     window.clearTimeout(state.playerAiQuickActionCursorHideTimer);
     state.playerAiQuickActionCursorHideTimer = 0;
   }
-  document.getElementById("boc-player-ai-quick-action")?.closest(".boc-player-ai-wrap")?.remove();
+  document.getElementById("mdg-player-ai-quick-action")?.closest(".mdg-player-ai-wrap")?.remove();
 }
 
 function bindPlayerAiQuickActionCursorSync(wrap) {
@@ -3273,7 +3275,7 @@ function bindPlayerAiQuickActionCursorSync(wrap) {
     return;
   }
   const host = wrap.parentElement instanceof HTMLElement ? wrap.parentElement : null;
-  if (!host || wrap.__bocPlayerAiCursorHost === host) {
+  if (!host || wrap.__mdgPlayerAiCursorHost === host) {
     return;
   }
   const hideForIdle = () => {
@@ -3302,7 +3304,7 @@ function bindPlayerAiQuickActionCursorSync(wrap) {
   host.addEventListener("mouseenter", showForCursorActivity, { passive: true });
   host.addEventListener("mouseleave", hideImmediately, { passive: true });
   host.addEventListener("pointermove", showForCursorActivity, { passive: true });
-  wrap.__bocPlayerAiCursorHost = host;
+  wrap.__mdgPlayerAiCursorHost = host;
 }
 
 function hasPlayerSubtitleControl() {
@@ -3368,11 +3370,11 @@ function syncPlayerAiQuickActionVisuals(button) {
   const iconSize = 24;
   const baseColor = "#f6f7f8";
   [wrap, button].filter(Boolean).forEach((node) => {
-    node.style.setProperty("--boc-player-ai-action-hit-size", `${hitSize}px`);
-    node.style.setProperty("--boc-player-ai-action-color", baseColor);
-    node.style.setProperty("--boc-player-ai-action-hover-color", baseColor);
+    node.style.setProperty("--mdg-player-ai-action-hit-size", `${hitSize}px`);
+    node.style.setProperty("--mdg-player-ai-action-color", baseColor);
+    node.style.setProperty("--mdg-player-ai-action-hover-color", baseColor);
   });
-  button.style.setProperty("--boc-player-ai-action-icon-size", `${iconSize}px`);
+  button.style.setProperty("--mdg-player-ai-action-icon-size", `${iconSize}px`);
 }
 
 async function handlePlayerAiQuickActionClick(event) {
@@ -3416,7 +3418,7 @@ async function handlePlayerAiQuickActionClick(event) {
 
 // The video playing in 分拣台's viewer, in the shape 分拣台's 问 AI hands the side panel; null in a normal tab.
 function viewerContextRef() {
-  const ref = IN_VIEWER ? BocSites.parseRef(location.href) : null;
+  const ref = IN_VIEWER ? MdgSites.parseRef(location.href) : null;
   if (!ref) return null;
   return { site: ref.site, videoId: ref.id, pageIndex: ref.part?.index || 1, title: state.title, author: state.author, url: ref.url };
 }
@@ -3473,7 +3475,7 @@ function normalizeReaderPlayerContainer(playerHost = state.readingPlayerHost) {
         margin: current.style.margin,
         zIndex: current.style.zIndex
       });
-      current.setAttribute("data-boc-reader-player-reset", "1");
+      current.setAttribute("data-mdg-reader-player-reset", "1");
       current.style.setProperty("position", "static", "important");
       current.style.setProperty("left", "auto", "important");
       current.style.setProperty("top", "auto", "important");
@@ -3512,7 +3514,7 @@ function restoreReaderPlayerContainer() {
     node.style.transform = item.transform || "";
     node.style.margin = item.margin || "";
     node.style.zIndex = item.zIndex || "";
-    node.removeAttribute("data-boc-reader-player-reset");
+    node.removeAttribute("data-mdg-reader-player-reset");
   });
   state.readingPlayerAdjustedNodes = [];
 }
@@ -3601,7 +3603,7 @@ function findActiveSubtitleIndex(currentTime) {
 }
 
 function findActiveChapterIndex(currentTime) {
-  const chapters = BocSites.normalizeChapters(state.chapters || []);
+  const chapters = MdgSites.normalizeChapters(state.chapters || []);
   for (let index = 0; index < chapters.length; index += 1) {
     const item = chapters[index];
     const from = Number(item?.from || 0) || 0;
@@ -3621,8 +3623,8 @@ function setActiveReadingItems(subtitleIndex, chapterIndex, shouldScroll = false
   const chapterList = byId(ids.readingChapterList);
   const nextTranscript = transcriptList.querySelector(`[data-index="${subtitleIndex}"]`);
   const nextChapter = chapterList.querySelector(`[data-index="${chapterIndex}"]`);
-  const currentTranscript = transcriptList.querySelector(".boc-reading-item.is-active");
-  const currentChapter = chapterList.querySelector(".boc-reading-chapter.is-active");
+  const currentTranscript = transcriptList.querySelector(".mdg-reading-item.is-active");
+  const currentChapter = chapterList.querySelector(".mdg-reading-chapter.is-active");
 
   if (currentTranscript && currentTranscript !== nextTranscript) {
     currentTranscript.classList.remove("is-active");
@@ -3674,7 +3676,7 @@ function scrollReadingTranscriptItemIntoView(node) {
   }
 
   const transcriptList = byId(ids.readingTranscriptList);
-  const inlineHost = document.getElementById("boc-reading-inline-host");
+  const inlineHost = document.getElementById("mdg-reading-inline-host");
   const listRect = transcriptList.getBoundingClientRect();
   const itemRect = node.getBoundingClientRect();
   if (!(listRect.height > 0) || !(itemRect.height > 0)) {
@@ -3725,7 +3727,7 @@ function jumpReadingTarget(seconds) {
 }
 
 function onReadingChapterClick(event) {
-  const target = event.target.closest(".boc-reading-chapter");
+  const target = event.target.closest(".mdg-reading-chapter");
   if (!target) {
     return;
   }
@@ -3733,11 +3735,11 @@ function onReadingChapterClick(event) {
 }
 
 function onReadingTranscriptClick(event) {
-  if (event.target.closest(".boc-reading-retry")) {
+  if (event.target.closest(".mdg-reading-retry")) {
     settledClip(true).catch((error) => setReadingNotice(`字幕加载失败：${fetchErrorText(error)}`));
     return;
   }
-  const target = event.target.closest(".boc-reading-item");
+  const target = event.target.closest(".mdg-reading-item");
   if (!target) {
     return;
   }
@@ -3765,27 +3767,27 @@ function updateReaderFollowState() {
   // A paused video gets no playback ticks to clear the hint, so it is not shown while paused; the scroll guard still holds.
   const manual = Date.now() < state.readingManualScrollPauseUntil && !state.readingVideoEl?.paused;
   const mode = !state.readingAutoScroll ? "off" : manual ? "manual" : "auto";
-  if (readingView.getAttribute("data-boc-reader-follow") !== mode) {
-    readingView.setAttribute("data-boc-reader-follow", mode);
+  if (readingView.getAttribute("data-mdg-reader-follow") !== mode) {
+    readingView.setAttribute("data-mdg-reader-follow", mode);
   }
 }
 
 function computeCurrentClipSignature(url = location.href) {
-  const ref = BocSites.parseRef(url);
+  const ref = MdgSites.parseRef(url);
   return ref ? [ref.site, ref.id, ref.part?.index || 1, ref.part?.oid || ""].join("|") : "";
 }
 
 // The language setting is YouTube's only; Bilibili keeps the default order.
 function subtitleLangTarget() {
-  return state.site === "youtube" ? BocSites.normalizeSubtitleLang(state.settings?.youtubeSubtitleLang) : "auto";
+  return state.site === "youtube" ? MdgSites.normalizeSubtitleLang(state.settings?.youtubeSubtitleLang) : "auto";
 }
 
 function currentSite() {
-  return BocSites.matchSite(location.href);
+  return MdgSites.matchSite(location.href);
 }
 
 function reader() {
-  return (currentSite() || BocSites.SITES.bilibili).reader;
+  return (currentSite() || MdgSites.SITES.bilibili).reader;
 }
 
 // Joins a selector list; an empty list yields a selector that matches nothing.
@@ -3850,7 +3852,7 @@ function siteIo() {
 // delivers, and the button is left as found. The token goes nowhere but
 // youtube.com timedtext URLs.
 async function ytCapturePot(videoId) {
-  let pot = BocSites.ytPotFromUrls(performance.getEntriesByType("resource").map((entry) => entry.name), videoId);
+  let pot = MdgSites.ytPotFromUrls(performance.getEntriesByType("resource").map((entry) => entry.name), videoId);
   const button = document.querySelector("#movie_player .ytp-subtitles-button");
   if (pot || !button) {
     return pot;
@@ -3860,14 +3862,14 @@ async function ytCapturePot(videoId) {
   for (let attempt = 0; attempt < 2 && !pot; attempt += 1) {
     pot = await toggleCaptionsForPot(button, wasOn, videoId);
   }
-  logInfo("[BOC] youtube pot capture", { wasOn, found: Boolean(pot) });
+  logInfo("[MDG] youtube pot capture", { wasOn, found: Boolean(pot) });
   return pot;
 }
 
 async function toggleCaptionsForPot(button, wasOn, videoId) {
   const pot = await new Promise((resolve) => {
     const observer = new PerformanceObserver((list) => {
-      const hit = BocSites.ytPotFromUrls(list.getEntries().map((entry) => entry.name), videoId);
+      const hit = MdgSites.ytPotFromUrls(list.getEntries().map((entry) => entry.name), videoId);
       if (hit) {
         observer.disconnect();
         resolve(hit);
@@ -3902,7 +3904,7 @@ function cleanVideoUrl(href = location.href) {
   if (site && state.videoId && site.id === state.site) {
     return site.canonicalUrl(state.videoId, state.pageCount > 1 ? state.pageIndex : 1);
   }
-  return BocSites.cleanUrl(href);
+  return MdgSites.cleanUrl(href);
 }
 
 
@@ -3946,13 +3948,13 @@ function toReadableText(value, fallback = "") {
 // and no raw English, HTTP status or B站 code is shown. getErrorMessage keeps the raw text for logs and retry checks.
 function fetchErrorText(error) {
   if (isBiliRiskError(error)) {
-    return BocErrors.TEXT.biliThrottled;
+    return MdgErrors.TEXT.biliThrottled;
   }
   if (/failed to fetch|networkerror|load failed/i.test(toReadableText(error?.message, ""))) {
     return "网络断了";
   }
   // B站 codes with their own words (62004 审核中) read as in 分拣台 and the other pages.
-  return BocErrors.text({ error: toReadableText(error?.message, ""), code: error?.code }, getErrorMessage(error));
+  return MdgErrors.text({ error: toReadableText(error?.message, ""), code: error?.code }, getErrorMessage(error));
 }
 
 function getErrorMessage(error, fallback = "未知错误") {
@@ -3991,8 +3993,8 @@ function requestOpenOptions() {
       }
     })
     .catch((error) => {
-      if (BocErrors.reloaded(error)) {
-        setMessage(BocErrors.TEXT.reloaded);
+      if (MdgErrors.reloaded(error)) {
+        setMessage(MdgErrors.TEXT.reloaded);
         return;
       }
       setMessage(`打开设置失败：${getErrorMessage(error)}`);
@@ -4049,7 +4051,7 @@ function isStaleRunError(error) {
 }
 
 // B站 risk control (HTTP 412 or its codes): retrying at once only digs deeper, so it is never retried.
-const isBiliRiskError = (error) => error?.status === 412 || BocSites.BILI_RISK_CODES.has(error?.code);
+const isBiliRiskError = (error) => error?.status === 412 || MdgSites.BILI_RISK_CODES.has(error?.code);
 
 async function retryAsync(task, retries = 1, delayMs = 180) {
   let lastError = null;
@@ -4070,7 +4072,7 @@ async function retryAsync(task, retries = 1, delayMs = 180) {
         throw error;
       }
       const backoffDelay = Math.min(delayMs * Math.pow(2, attempt - 1), 5000);
-      logInfo(`[BOC] retrying after ${backoffDelay}ms, attempt ${attempt + 1}/${retries}`, {
+      logInfo(`[MDG] retrying after ${backoffDelay}ms, attempt ${attempt + 1}/${retries}`, {
         error: getErrorMessage(error),
         code: error.code
       });
@@ -4155,8 +4157,8 @@ async function fetchJsonInBackground(url) {
     }
     return resp.data;
   } catch (error) {
-    if (BocErrors.reloaded(error)) {
-      throw new Error(BocErrors.TEXT.reloaded);
+    if (MdgErrors.reloaded(error)) {
+      throw new Error(MdgErrors.TEXT.reloaded);
     }
     throw error;
   }
@@ -4165,11 +4167,11 @@ async function fetchJsonInBackground(url) {
 // The newest side panel conversation about this video, for the note's AI 问答 section.
 async function loadAiTurns() {
   try {
-    const key = BocLimits.KEYS.aiConversations;
-    const conversation = BocNote.pickConversation((await chrome.storage.local.get(key))[key], state);
-    return BocNote.buildConversationTurns(conversation?.messages);
+    const key = MdgLimits.KEYS.aiConversations;
+    const conversation = MdgNote.pickConversation((await chrome.storage.local.get(key))[key], state);
+    return MdgNote.buildConversationTurns(conversation?.messages);
   } catch (error) {
-    logWarn("[BOC] failed to load AI conversation for note export", error);
+    logWarn("[MDG] failed to load AI conversation for note export", error);
     return [];
   }
 }
@@ -4181,9 +4183,9 @@ async function loadTriageExtras() {
   }
   try {
     const ref = { site: state.site, videoId: state.videoId, pageIndex: state.pageIndex };
-    return BocNote.triageExtras(await chrome.storage.local.get(BocNote.triageExtrasKeys(ref)), ref);
+    return MdgNote.triageExtras(await chrome.storage.local.get(MdgNote.triageExtrasKeys(ref)), ref);
   } catch (error) {
-    logWarn("[BOC] failed to load triage summary for note export", error);
+    logWarn("[MDG] failed to load triage summary for note export", error);
     return null;
   }
 }
@@ -4192,8 +4194,8 @@ function rebuildDerivedContent() {
   const body = Array.isArray(state.subtitleBody) ? state.subtitleBody : [];
   state.markdown =
     body.length || state.subtitleFetchState === "empty"
-      ? BocNote.withTriageSummary(
-          BocNote.buildMarkdown({ ...state, userTags: state.triageExtras?.userTags }, body, state.settings, currentRef()),
+      ? MdgNote.withTriageSummary(
+          MdgNote.buildMarkdown({ ...state, userTags: state.triageExtras?.userTags }, body, state.settings, currentRef()),
           state.triageExtras?.analysis,
           state.triageExtras?.note
         )
@@ -4215,7 +4217,7 @@ async function refreshDerivedContent() {
         hotComments = await fetchHotComments();
       } catch (error) {
         hotComments = [];
-        logWarn("[BOC] failed to fetch hot comments for note export", error);
+        logWarn("[MDG] failed to fetch hot comments for note export", error);
       }
     }
   }

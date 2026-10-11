@@ -361,7 +361,7 @@ assert.throws(() => t.triageParseCommand('{"new_tags":[', cmdItems, cmdTags, {})
   let prompt = "";
   const aiAnswer = { ok: true, json: async () => ({ choices: [{ message: { content: '{"one_liner":"x","points":["a"],"verdict":"keep","reason":"r"}' } }] }) };
   const subUrl = "https://aisubtitle.hdslb.com/bfs/ai_subtitle/BVa.json";
-  const subtitleKey = "boc_subtitle_cache_BVa_11_id_5";
+  const subtitleKey = "mdg_subtitle_cache_BVa_11_id_5";
   const subtitleRaw = (to) => ({ body: [{ from: 0, to: 1, content: "第一句" }, { from: 1, to, content: "最后一句" }] });
   let routes;
   const calls = [];
@@ -437,7 +437,7 @@ assert.throws(() => t.triageParseCommand('{"new_tags":[', cmdItems, cmdTags, {})
   // A subtitle up to the cap goes in whole; a longer one is sampled down to the cap.
   const line = "一句字幕".repeat(10);
   const longRaw = (n) => ({ body: Array.from({ length: n }, (_, i) => ({ from: i, to: i === n - 1 ? 272 : i + 1, content: line })) });
-  const whole = Math.floor(t.BocLimits.AI_SUBTITLE_MAX_CHARS / (line.length + 1));
+  const whole = Math.floor(t.MdgLimits.AI_SUBTITLE_MAX_CHARS / (line.length + 1));
   routes = { ...baseRoutes(), [subUrl]: longRaw(whole) };
   delete store[subtitleKey];
   await analyze();
@@ -492,9 +492,9 @@ assert.throws(() => t.triageParseCommand('{"new_tags":[', cmdItems, cmdTags, {})
   await assert.rejects(buildNote(), (e) => e.code === "THROTTLED");
   // A deleted video rejects with Bilibili's code, which the pages read as gone; a throttled view does not.
   routes = { ...baseRoutes(), "/view/detail": { code: -404, message: "啥都木有" }, "/web-interface/view?": { code: -404, message: "啥都木有" } };
-  await assert.rejects(buildNote(), (e) => e.code === -404 && e.message === "啥都木有" && t.BocSites.isBiliVideoGone(e.code));
+  await assert.rejects(buildNote(), (e) => e.code === -404 && e.message === "啥都木有" && t.MdgSites.isBiliVideoGone(e.code));
   routes = { ...baseRoutes(), "/view/detail": { code: -352, message: "风控" }, "/web-interface/view?": { code: -352, message: "风控" } };
-  await assert.rejects(buildNote(), (e) => e.code === "THROTTLED" && !t.BocSites.isBiliVideoGone(e.code));
+  await assert.rejects(buildNote(), (e) => e.code === "THROTTLED" && !t.MdgSites.isBiliVideoGone(e.code));
   routes = { ...baseRoutes(), [subUrl]: Object.assign(new Error("HTTP 403"), { status: 403 }) };
   const noSub = await buildNote();
   assert.deepStrictEqual([noSub.body.length, noSub.subtitleWarning], [0, "字幕抓取失败：B站请求失败 HTTP 403。"]);
@@ -539,7 +539,7 @@ assert.throws(() => t.triageParseCommand('{"new_tags":[', cmdItems, cmdTags, {})
   store.triage_notes = { BVa: { text: "视频笔记", updatedAt: 1 } };
   const noted = (await buildNote()).markdown;
   assert.ok(noted.includes("## 我的备注\n\n视频笔记") && !noted.includes("篮子里的旧笔记"));
-  // The 分拣 tags go into the note's tags, read the same way as on the video page (BocNote.triageExtras).
+  // The 分拣 tags go into the note's tags, read the same way as on the video page (MdgNote.triageExtras).
   store.triage_tags = [{ id: "t1", name: "好看" }];
   store.triage_video_tags = { BVa: ["t1", "t1"] };
   assert.match((await buildNote()).markdown, /\ntags: \["好看"\]\n/);

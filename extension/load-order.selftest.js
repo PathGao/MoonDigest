@@ -21,7 +21,7 @@ walk(".");
 // Globals: whatever a file publishes as globalThis.X = ...
 const definedBy = {};
 for (const f of files) for (const m of read(f).matchAll(/globalThis\.([A-Z]\w+)\s*=/g)) definedBy[m[1]] ??= f;
-for (const g of ["BocLimits", "BocErrors", "BocSettings", "BocSites", "BocTagCore", "BocSurfaces", "BocNote", "BocTyping", "BocDownload", "BocOverwriteDialog", "TriageUi", "TriageCore", "MoonTriage", "TagPicker", "TagDialogs"]) {
+for (const g of ["MdgLimits", "MdgErrors", "MdgSettings", "MdgSites", "MdgTagCore", "MdgSurfaces", "MdgNote", "MdgTyping", "MdgDownload", "MdgOverwriteDialog", "TriageUi", "TriageCore", "MoonTriage", "TagPicker", "TagDialogs"]) {
   assert.ok(definedBy[g], `no file defines ${g}`);
 }
 const code = (f) => read(f).replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:"'`\\])\/\/.*$/gm, "$1");
@@ -38,8 +38,8 @@ for (const page of pages) {
 }
 assert.ok(runtimes.length >= 11, `found ${runtimes.length} runtimes`);
 
-// The worker loads triage/shared.js for its pure helpers; the DOM bindings that read BocTyping never run there.
-const exempt = new Set(["background importScripts|triage/shared.js|BocTyping"]);
+// The worker loads triage/shared.js for its pure helpers; the DOM bindings that read MdgTyping never run there.
+const exempt = new Set(["background importScripts|triage/shared.js|MdgTyping"]);
 let checked = 0;
 for (const [where, list] of runtimes) {
   list.forEach((f, i) => {

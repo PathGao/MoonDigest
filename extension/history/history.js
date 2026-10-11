@@ -2,8 +2,8 @@ if (!globalThis.chrome?.runtime?.id) await import("./dev/mock-chrome.js");
 // Read up front: sidePanel.open must run inside the click's user gesture, before any await.
 const OWN_TAB = await chrome.tabs.getCurrent();
 
-const KEY = BocLimits.KEYS.aiConversations;
-const { triageNotes: NOTES_KEY, triageAnalysisPrefix: ANALYSIS, triageSnapshotPrefix: SNAPSHOT } = BocLimits.KEYS;
+const KEY = MdgLimits.KEYS.aiConversations;
+const { triageNotes: NOTES_KEY, triageAnalysisPrefix: ANALYSIS, triageSnapshotPrefix: SNAPSHOT } = MdgLimits.KEYS;
 const $ = (id) => document.getElementById(id);
 const els = { list: $("list"), search: $("search"), count: $("count"), selectAll: $("selectAll"), selectAllLabel: $("selectAllLabel"), bulkMd: $("bulkMd"), bulkDelete: $("bulkDelete"), clearAll: $("clearAll"), status: $("status") };
 
@@ -20,7 +20,7 @@ let editing = null; // { id, draft } while a 备注 is open; storage reloads wai
 let reloadPending = false;
 let rendering = false;
 
-const esc = BocErrors.escapeHtml;
+const esc = MdgErrors.escapeHtml;
 const formatTime = (value) => new Date(Number(value) || 0).toLocaleString("zh-CN", { hour12: false, year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" });
 
 // One entry per video: the side panel's contextKey (site|videoId|cid) is how it ties a conversation to a video.
@@ -43,9 +43,9 @@ function groupByVideo(items) {
     const analysis = analyses[bvid];
     const note = notes[bvid];
     const site = /^BV/i.test(bvid) ? "bilibili" : "youtube";
-    const context = { site, videoId: bvid, title: triageTitles[bvid] || bvid, url: BocSites.SITES[site].canonicalUrl(bvid, 1), isVideoContext: true };
-    const key = BocSites.buildContextKey(context);
-    const host = groups.find((g) => BocSites.buildContextKey({ ...g.context, cid: "" }) === key && (Number(g.context.pageIndex) || 1) === 1);
+    const context = { site, videoId: bvid, title: triageTitles[bvid] || bvid, url: MdgSites.SITES[site].canonicalUrl(bvid, 1), isVideoContext: true };
+    const key = MdgSites.buildContextKey(context);
+    const host = groups.find((g) => MdgSites.buildContextKey({ ...g.context, cid: "" }) === key && (Number(g.context.pageIndex) || 1) === 1);
     if (host) Object.assign(host, { analysis, note });
     else groups.push({ key, convs: [], context, title: context.title, updatedAt: Math.max(analysis?.analyzedAt || 0, note?.updatedAt || 0), analysis, note });
   }
@@ -54,9 +54,9 @@ function groupByVideo(items) {
 
 // 下载 .md: the conversation note the side panel downloads, with every conversation of the video in order.
 function buildNote(group) {
-  const turns = group.convs.flatMap((conv) => BocNote.buildConversationTurns(conv.messages));
-  const filename = BocNote.buildAiConversationFilename(group.context);
-  return { filename, content: BocNote.withTriageSummary(BocNote.buildAiConversationMarkdown({ context: group.context, turns, filename }), group.analysis, group.note?.text) };
+  const turns = group.convs.flatMap((conv) => MdgNote.buildConversationTurns(conv.messages));
+  const filename = MdgNote.buildAiConversationFilename(group.context);
+  return { filename, content: MdgNote.withTriageSummary(MdgNote.buildAiConversationMarkdown({ context: group.context, turns, filename }), group.analysis, group.note?.text) };
 }
 
 function visibleGroups() {
@@ -64,14 +64,14 @@ function visibleGroups() {
   const groups = groupByVideo(conversations);
   if (!query) return groups;
   return groups.filter((g) =>
-    [g.title, g.context.title, BocNote.buildTriageSummary(g.analysis), g.note?.text, ...g.convs.flatMap((c) => (c.messages || []).map((m) => m.content))].some((text) => String(text || "").toLowerCase().includes(query))
+    [g.title, g.context.title, MdgNote.buildTriageSummary(g.analysis), g.note?.text, ...g.convs.flatMap((c) => (c.messages || []).map((m) => m.content))].some((text) => String(text || "").toLowerCase().includes(query))
   );
 }
 
 // The triage summary is markdown (> one-liner, - points, AI 判断 line); shown as one line, verdict first,
 // cut off with an ellipsis until clicked.
 function renderSummary(g) {
-  const lines = BocNote.buildTriageSummary(g.analysis).split("\n").filter(Boolean);
+  const lines = MdgNote.buildTriageSummary(g.analysis).split("\n").filter(Boolean);
   const verdict = lines.find((l) => l.startsWith("AI 判断："));
   const rest = lines.filter((l) => l !== verdict).map((l) => esc(l.replace(/^(> |- )/, ""))).join(" · ");
   const head = verdict ? `<b>AI 判断</b> ${esc(verdict.slice(6))}` : "";
@@ -112,8 +112,8 @@ async function closeNote() {
 }
 
 function renderConversation(conv, index, total) {
-  const turns = BocNote.buildConversationTurns(conv.messages, 0)
-    .map((t) => `<p class="turn-q">问：${esc(t.prompt)}</p><div class="turn-a">${BocNote.renderMarkdown(t.answer)}</div>`)
+  const turns = MdgNote.buildConversationTurns(conv.messages, 0)
+    .map((t) => `<p class="turn-q">问：${esc(t.prompt)}</p><div class="turn-a">${MdgNote.renderMarkdown(t.answer)}</div>`)
     .join("");
   return `${total > 1 ? `<p class="conv-sep">对话 ${index + 1} · ${esc(formatTime(conv.updatedAt))}</p>` : ""}${turns}`;
 }
@@ -121,7 +121,7 @@ function renderConversation(conv, index, total) {
 function render() {
   const groups = visibleGroups();
   const allGroups = groupByVideo(conversations);
-  els.count.textContent = `${allGroups.length} 个视频 · 对话 ${conversations.length}/${BocLimits.AI_CONVERSATIONS}`;
+  els.count.textContent = `${allGroups.length} 个视频 · 对话 ${conversations.length}/${MdgLimits.AI_CONVERSATIONS}`;
   for (const key of [...selected]) if (!groups.some((g) => g.key === key)) selected.delete(key);
   // Storage changes re-render the list while the user reads it: keep expanded entries and the scroll.
   const open = new Set([...els.list.querySelectorAll(".entry details[open]")].map((d) => d.closest(".entry").dataset.key));
@@ -131,8 +131,8 @@ function render() {
   rendering = true;
   els.list.innerHTML = groups.length
     ? groups.map((g) => {
-        const site = BocSites.SITES[g.context.site]?.label || "网页";
-        const turnCount = g.convs.reduce((n, c) => n + BocNote.buildConversationTurns(c.messages).length, 0);
+        const site = MdgSites.SITES[g.context.site]?.label || "网页";
+        const turnCount = g.convs.reduce((n, c) => n + MdgNote.buildConversationTurns(c.messages).length, 0);
         // A video whose title never arrived falls back to its id; show that as 未获取标题 with the id in the meta line.
         const untitled = g.title === g.context.videoId;
         const label = untitled ? "未获取标题" : g.title;
@@ -233,10 +233,10 @@ async function deleteGroups(keys) {
 function downloadGroups(groups) {
   const notes = groups.map((g) => buildNote(g));
   if (notes.length === 1) {
-    BocDownload.text(notes[0].filename, notes[0].content);
+    MdgDownload.text(notes[0].filename, notes[0].content);
   } else {
     const body = notes.map((n) => `# ${n.filename.replace(/\.md$/i, "")}\n\n${n.content.replace(/^---\n([\s\S]*?)\n---\n/, "```yaml\n$1\n```\n")}`);
-    BocDownload.text(`MoonDigest视频记录-${new Date().toISOString().slice(0, 10)}.md`, body.join("\n\n"));
+    MdgDownload.text(`MoonDigest视频记录-${new Date().toISOString().slice(0, 10)}.md`, body.join("\n\n"));
   }
   setStatus(`已下载 ${groups.length} 个视频的记录`);
 }
@@ -253,11 +253,11 @@ async function saveToObsidian(group) {
     const request = { type: "write-video-note", ref: group.context, conversation: { messages: newest?.messages || [] } };
     let resp = await chrome.runtime.sendMessage(request);
     if (resp?.ok && resp.ask) {
-      const mode = await BocOverwriteDialog.choose(resp.path, { hasAiSection: resp.hasAiSection });
-      if (!mode) return setStatus(BocErrors.TEXT.obsidianCancelled);
+      const mode = await MdgOverwriteDialog.choose(resp.path, { hasAiSection: resp.hasAiSection });
+      if (!mode) return setStatus(MdgErrors.TEXT.obsidianCancelled);
       resp = await chrome.runtime.sendMessage({ ...request, mode });
     }
-    if (!resp?.ok) throw BocErrors.fromResp(resp, "Local API 写入失败");
+    if (!resp?.ok) throw MdgErrors.fromResp(resp, "Local API 写入失败");
     setStatus(resp.text);
   } catch (error) {
     setStatus(`写入 Obsidian 失败：${error?.message || error}`, true);
@@ -292,7 +292,7 @@ els.list.addEventListener("click", (event) => {
   }
   else if (act === "ask" && group) {
     // The side panel continues the video's latest conversation, the same request triage's 问 AI sends.
-    chrome.storage.local.set({ [BocLimits.KEYS.playerAiQuickAction]: { id: `history-${Date.now()}`, tabId: OWN_TAB?.id, prompt: "", contextRef: group.context } });
+    chrome.storage.local.set({ [MdgLimits.KEYS.playerAiQuickAction]: { id: `history-${Date.now()}`, tabId: OWN_TAB?.id, prompt: "", contextRef: group.context } });
     setStatus("正在打开侧边栏…");
     chrome.sidePanel.open({ tabId: OWN_TAB?.id }).then(
       () => els.status.textContent === "正在打开侧边栏…" && setStatus(""),
@@ -305,7 +305,7 @@ els.list.addEventListener("input", (event) => {
 });
 // Enter (or Esc) saves and closes; Shift+Enter is a newline. Never mid-IME.
 els.list.addEventListener("keydown", (event) => {
-  if (BocTyping.composing(event) || !event.target.matches("[data-note]")) return;
+  if (MdgTyping.composing(event) || !event.target.matches("[data-note]")) return;
   if (!(event.key === "Escape" || (event.key === "Enter" && !event.shiftKey))) return;
   event.preventDefault();
   void closeNote();
@@ -313,7 +313,7 @@ els.list.addEventListener("keydown", (event) => {
 els.list.addEventListener("focusout", (event) => {
   if (!rendering && event.target.matches("[data-note]")) void closeNote();
 });
-BocTyping.bindLive(els.search, () => render());
+MdgTyping.bindLive(els.search, () => render());
 els.selectAll.addEventListener("change", () => {
   visibleGroups().forEach((g) => (els.selectAll.checked ? selected.add(g.key) : selected.delete(g.key)));
   render();

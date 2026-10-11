@@ -1,4 +1,4 @@
-// Long tasks of the 分拣台 (BocRuns.create), one instance per mode. Every loop that sends one request at a time (粗看,
+// Long tasks of the 分拣台 (MdgRuns.create), one instance per mode. Every loop that sends one request at a time (粗看,
 // 细看, AI 打标签, 逐个视频笔记, 核对, B站 writes) is a run here, and the progress pill is drawn from one table.
 // - run(job, o): one per job at a time (a second is refused with { busy: the running one's name }, nothing sent).
 //   o.next() gives a step { n = keys.length or 1, gap?, ... } or null (finished) or { idle: ms } (sleep, nothing sent); o.act(step) sends
@@ -150,5 +150,5 @@
       }
     };
   }
-  globalThis.BocRuns = { create, sleep: nap };
+  globalThis.MdgRuns = { create, sleep: nap };
 })();

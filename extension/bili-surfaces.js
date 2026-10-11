@@ -67,5 +67,5 @@
   // 100% reads 看完了, otherwise 看到 N%; ✓ (and the strong look) means it counts as 看完了.
   const seenWords = (p, done) => (p >= 100 ? "✓ 看完了" : done ? `✓ 看到 ${p}%` : `看到 ${p}%`);
 
-  globalThis.BocSurfaces = { SURFACES, ROWS, COLS, allowed, normalizeOff, rulesWith, SEEN_DEFAULTS, seenConfig, seenWords };
+  globalThis.MdgSurfaces = { SURFACES, ROWS, COLS, allowed, normalizeOff, rulesWith, SEEN_DEFAULTS, seenConfig, seenWords };
 })();

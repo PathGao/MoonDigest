@@ -14,8 +14,8 @@ const STAGES = [
   ["fine", "细看完成"],
   ["done", "处理完成"]
 ];
-// Storage keys. The shared ones come from BocLimits.KEYS; the rest only this page uses.
-const KEYS = BocLimits.KEYS;
+// Storage keys. The shared ones come from MdgLimits.KEYS; the rest only this page uses.
+const KEYS = MdgLimits.KEYS;
 const K = {
   lastFolder: "triage_last_folder",
   tags: KEYS.triageTags, // [{ id, name, color, folder, rule? }]: folder is the mediaId the tag belongs to; rule is the one line the AI follows
@@ -43,7 +43,7 @@ const REMOVED = "removed"; // the 已出分拣范围 view
 const TOVIEW = "toview"; // 稍后再看, listed by triage-bg as one more folder
 // The fixed AI classes, shown as chips inside 粗看完成 and 细看完成.
 // The ids are the badge color classes too.
-const { VERDICTS } = BocTagCore;
+const { VERDICTS } = MdgTagCore;
 
 // One-time fold of the global 判断标准 (sync triageCriteria, released since v1.2.0) into per-folder 判断标准, and a clean
 // tag list (pure). Each folder seen in triage gets the global criteria when non-empty; folders never opened in triage
@@ -67,7 +67,7 @@ function simplifyMigration({ tags, videoTags, criteria, folderIds = [], folderCr
   return { tags: out, videoTags: nextVideoTags, folderCriteria: { ...crit, ...folderCriteria } };
 }
 
-const newTagId = () => BocTagCore.newTagId("t");
+const newTagId = () => MdgTagCore.newTagId("t");
 
 // One-time move of the global tags into folders (pure). folders = [{ id, bvids }], chosen first. A tag without a folder
 // goes to the folder its videos are in; used in several, the first keeps it and each other gets a copy (new id), and
@@ -151,7 +151,7 @@ const S = {
   sortBy: {}, // triage_sort
   aiRecentFilter: false, // AI 刚打的
   kindFilter: "", // kindOf: "invalid" (已失效) anywhere; "unfav" / "out" in 已出分拣范围 only
-  seenCfg: BocSurfaces.seenConfig(BocSurfaces.SEEN_DEFAULTS), // 设置页「观看进度 → 封面显示」
+  seenCfg: MdgSurfaces.seenConfig(MdgSurfaces.SEEN_DEFAULTS), // 设置页「观看进度 → 封面显示」
   seenPct: {}, // bvid → [percent, view_at] from the history, null when it has none
   noteOpen: new Set(), // empty notes the user opened for editing
   settings: {
@@ -208,7 +208,7 @@ const S = {
 };
 
 // The long tasks (runs.js) and the progress pill's rows. A limit counts down the pill and sends the same request again.
-const runs = BocRuns.create({ redraw: () => renderStatus(), hold: (r) => THROTTLES[r.code] || null, sleep: (ms, ok) => sleepWhile(ms, ok) });
+const runs = MdgRuns.create({ redraw: () => renderStatus(), hold: (r) => THROTTLES[r.code] || null, sleep: (ms, ok) => sleepWhile(ms, ok) });
 // What runs or waits, in this order on every tab (the first wins), then the finished lines. A run's row is its own;
 // these are mirrored from elsewhere.
 const PILL = ["group", "stage1", "fav", "write", "load", "check", "sync", "ai", "proposal", "aiOther", "seen", "seenRead"];
@@ -245,7 +245,7 @@ const staleFine = () => (judged() ? S.items.filter((it) => stageOf(it) === "fine
 
 const $ = (id) => document.getElementById(id);
 
-const { composing, typingIn } = globalThis.BocTyping;
+const { composing, typingIn } = globalThis.MdgTyping;
 
 const UI = globalThis.TriageUi;
 const { esc, pad, fmtDate, fmtDuration, fmtCount, cleanTagName, plainClick, img } = UI;
@@ -275,12 +275,12 @@ const el = {};
 // ---------- utils ----------
 // Not logged in to B站 (the background's NOT_LOGGED_IN, B站's -101), on a read or a write in either mode: the 去登录 banner.
 function send(msg) {
-  return sendRaw(msg).then((r) => (BocErrors.action(r.code) === "login" && showLogin(), r));
+  return sendRaw(msg).then((r) => (MdgErrors.action(r.code) === "login" && showLogin(), r));
 }
 const showLogin = () => showBanner("没登录 B站：先在这个浏览器里登录 B站", "去登录", () => openTab("https://passport.bilibili.com/login"), "login");
 // The AI platform picked at the top of the side panel: sidepanel.js keeps it in this extension's localStorage under
 // this key (SELECTED_PROVIDER_KEY there). Every request carries it; the background's AI calls use it (triageChat).
-const AI_PROVIDER_KEY = "boc_ai_selected_provider";
+const AI_PROVIDER_KEY = "mdg_ai_selected_provider";
 function aiProviderId() {
   try {
     return localStorage.getItem(AI_PROVIDER_KEY) || "";
@@ -355,7 +355,7 @@ const videoUrl = (bvid) => `https://www.bilibili.com/video/${bvid}`;
 
 // Waits ms, returning early when keepGoing() turns false. Every wait of the page goes through it (runs' too).
 function sleepWhile(ms, keepGoing) {
-  return BocRuns.sleep(ms, keepGoing);
+  return MdgRuns.sleep(ms, keepGoing);
 }
 
 function openTab(url) {
@@ -422,12 +422,12 @@ function showBanner(text, btnText, onClick, kind = "") {
   el.banner.hidden = false;
 }
 
-// AI errors after which every later request fails alike: the AI_ codes BocErrors.CODES sends to 去设置 (the side panel
+// AI errors after which every later request fails alike: the AI_ codes MdgErrors.CODES sends to 去设置 (the side panel
 // offers 去设置 on the same list), plus 未授权访问 (no code; the banner offers the grant). 粗看, 细看 and AI 打标签 stop at
 // the first one. AI_TIMEOUT sends the
 // same request again and ends the run after AI_TIMEOUT_TRIES in a row; AI_THROTTLED waits, AI_THROTTLE_WAITS times in a
 // row at most, then ends the run as AI_GAVE_UP.
-const aiSettingsCode = (code) => String(code || "").startsWith("AI_") && BocErrors.action(code) === "settings";
+const aiSettingsCode = (code) => String(code || "").startsWith("AI_") && MdgErrors.action(code) === "settings";
 const aiEnds = (r) => aiSettingsCode(r.code) || /未授权访问/.test(r.error || "");
 const AI_TIMEOUT_TRIES = 2;
 const AI_THROTTLE_WAITS = 5;
@@ -449,7 +449,7 @@ function aiJudge(ends = aiEnds) {
 
 function handleAiError(error, code = "") {
   const text = String(error || "AI 调用失败");
-  const access = BocErrors.grantOrigin(text);
+  const access = MdgErrors.grantOrigin(text);
   if (access) {
     showBanner(text, `授权访问 ${access.origin}`, async () => {
       if (await access.request()) {
@@ -513,10 +513,10 @@ const ownStage1 = () => Boolean(runs.get("stage1")) && S.stage1.mediaId === Stri
 const ownGroup = () => (S.group?.mediaId === String(S.mediaId) ? S.group : null);
 const runWhere = (run) => (run.mediaId === String(S.mediaId) ? "" : `（${folderName(run.mediaId)}）`);
 
-// BocTagCore.verdictOf with the failed 细看's error (not for an invalid video, which is 可清理 anyway).
+// MdgTagCore.verdictOf with the failed 细看's error (not for an invalid video, which is 可清理 anyway).
 function verdictOf(it) {
   const a = S.analyses[it.bvid];
-  const v = BocTagCore.verdictOf({ title: S.titleRes[it.bvid], analysis: a, invalid: it.invalid });
+  const v = MdgTagCore.verdictOf({ title: S.titleRes[it.bvid], analysis: a, invalid: it.invalid });
   return { ...v, failed: !it.invalid && a?.status === "error" ? a.error || "分析失败" : "" };
 }
 
@@ -820,7 +820,7 @@ function followKept(kept) {
 }
 
 // ---------- 观看进度：看完了 ----------
-const { SEEN_DEFAULTS, seenConfig, seenWords } = BocSurfaces;
+const { SEEN_DEFAULTS, seenConfig, seenWords } = MdgSurfaces;
 function setSeenCfg(v) {
   S.seenCfg = seenConfig(v);
   document.documentElement.dataset.seenStyle = S.seenCfg.style;
@@ -1004,7 +1004,7 @@ async function loadFolders() {
   el.list.innerHTML = `<p class="empty">正在加载收藏夹列表…</p>`;
   const r = await send({ type: "triage-folders" });
   if (!r.ok) {
-    if (BocErrors.action(r.code) !== "login") showBanner(`读取收藏夹失败：${r.error}`, "重试", loadFolders); // send() showed 去登录
+    if (MdgErrors.action(r.code) !== "login") showBanner(`读取收藏夹失败：${r.error}`, "重试", loadFolders); // send() showed 去登录
     el.list.innerHTML = `<p class="empty">无法读取收藏夹</p>`;
     return;
   }
@@ -1193,7 +1193,7 @@ async function syncFolder({ force = false, cached = null } = {}) {
     r ||= await send({ type: "triage-folder-items", mediaId });
     if (token !== S.folderToken) return false;
     if (!r.ok) {
-      const needLogin = BocErrors.action(r.code) === "login"; // send() showed 去登录
+      const needLogin = MdgErrors.action(r.code) === "login"; // send() showed 去登录
       if (!needLogin) S.syncError = `刷新失败：${r.error}`;
       if (!S.items.length) el.list.innerHTML = UI.emptyState("无法读取这个收藏夹", needLogin ? "登录 B站后点刷新。" : r.error, REFRESH_EMPTY);
       return false;
@@ -1996,7 +1996,7 @@ function recentUnfavs() {
   return Object.entries(S.decisions)
     .filter(([b, d]) => d.action === "unfav" && d.aid && !S.itemMap.has(b))
     .sort((x, y) => y[1].at - x[1].at)
-    .slice(0, BocLimits.TRIAGE_RECENT_UNFAV);
+    .slice(0, MdgLimits.TRIAGE_RECENT_UNFAV);
 }
 
 function recentUnfavHtml() {
@@ -2042,7 +2042,7 @@ let listDeferred = false;
 let pickAnchor = "";
 function renderList() {
   // Rebuilding the list mid-IME in a note would drop the composition and leave the raw pinyin; compositionend renders.
-  if (BocTyping.isComposing() && document.activeElement?.closest?.("[data-note]")) return void (listDeferred = true);
+  if (MdgTyping.isComposing() && document.activeElement?.closest?.("[data-note]")) return void (listDeferred = true);
   listDeferred = false;
   const list = visibleItems();
   renderListHeader(list);
@@ -2252,7 +2252,7 @@ function advanceFrom(bvid, before) {
 function pushUndo(entry) {
   const steps = entry.kind === "mode" ? S.modeUndo : S.undo;
   steps.push(entry);
-  if (steps.length > BocLimits.TRIAGE_UNDO_STEPS) steps.shift();
+  if (steps.length > MdgLimits.TRIAGE_UNDO_STEPS) steps.shift();
 }
 // A step kept on this page (保留, 标签, AI 打标签, 待播): fn undoes it and returns the toast, then the page redraws. One
 // that changed several videos asks first (askKind: shared.js undoAsk), so a stray U costs nothing.
@@ -2331,7 +2331,7 @@ function favLine(p) {
   const run = favRun(p);
   return run.job === "transfer" ? `${run.verb}到「${run.toName}」${run.done}/${run.total}${runWhere(run)}` : `${run.verb}中${unfavWhere(run)} ${run.done}/${run.total}${runWhere(run)}`;
 }
-const W = BocWrites.create({
+const W = MdgWrites.create({
   runs,
   lane: "fav",
   send: (msg) => (render(), send(msg)), // redrawn first, so the cards and buttons show what is pending
@@ -3676,14 +3676,14 @@ async function exportDigest(how) {
       (err) => (el.writeProgress.textContent = `复制失败：${err.message}`)
     );
   } else if (how === "download") {
-    BocDownload.text(filename, markdown);
+    MdgDownload.text(filename, markdown);
     el.writeProgress.textContent = `已下载 ${filename}`;
   } else {
     const r = await send({ type: "triage-export", filename, markdown });
     setBusy(el.writeRunBtn, false);
     el.writeProgress.textContent = r.ok ? `已写入 ${r.data?.path || filename}` : `写入 Obsidian 失败：${r.error}`;
     el.writeProgress.classList.toggle("fail-text", !r.ok);
-    el.writeSettingsBtn.hidden = BocErrors.action(r.code) !== "settings";
+    el.writeSettingsBtn.hidden = MdgErrors.action(r.code) !== "settings";
   }
 }
 
@@ -3784,7 +3784,7 @@ async function runWrite(md = false) {
   if (md && written.length) {
     const base = safeNoteName(title);
     indexPath = `${base}.zip`;
-    BocDownload.text(indexPath, zipStored(zipNotes(base, written, title)), "application/zip");
+    MdgDownload.text(indexPath, zipStored(zipNotes(base, written, title)), "application/zip");
   }
   const skipped = written.filter((w) => w.skipped).length;
   const aiUpdated = written.filter((w) => w.aiUpdated).length;
@@ -3800,7 +3800,7 @@ async function runWrite(md = false) {
     indexPath ? `${md ? "文件" : "索引"}：${indexPath}` : ""
   ].filter(Boolean).join(" · ");
   el.writeProgress.classList.toggle("fail-text", Boolean(obsidian));
-  const toSettings = BocErrors.action(obsidian?.code) === "settings";
+  const toSettings = MdgErrors.action(obsidian?.code) === "settings";
   el.writeSettingsBtn.hidden = !toSettings;
   showFailed();
   // The pill's green line; an Obsidian failure goes to the red banner instead, with 去设置 unless Obsidian is just not running.
@@ -4177,14 +4177,14 @@ function bindEvents() {
   document.addEventListener("click", async (e) => {
     if (!e.target.closest("[data-backup]")) return;
     try {
-      BocDownload.text(`MoonDigest备份-${stamp()}.json`, JSON.stringify(await buildBackup(), null, 2), "application/json");
+      MdgDownload.text(`MoonDigest备份-${stamp()}.json`, JSON.stringify(await buildBackup(), null, 2), "application/json");
     } catch (err) {
       toast(`导出备份失败：${err.message}`, true);
     }
   });
   el.csvBtn.addEventListener("click", () => {
     const title = folderTitle().replace(/[\\/:*?"<>|]/g, "_");
-    BocDownload.text(`MoonDigest-${title}-${stamp(new Date(), false)}.csv`, buildCsv(), "text/csv;charset=utf-8");
+    MdgDownload.text(`MoonDigest-${title}-${stamp(new Date(), false)}.csv`, buildCsv(), "text/csv;charset=utf-8");
   });
   el.helpBtn.addEventListener("click", () => el.helpDialog.showModal());
   // A download leaves the page as it was, so the 导出 menu would stay open over it.

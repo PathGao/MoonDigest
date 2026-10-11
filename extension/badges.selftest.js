@@ -9,7 +9,7 @@ const badgesEntry = JSON.parse(fs.readFileSync(path.join(__dirname, "manifest.js
 const badgesJs = badgesEntry.map((f) => fs.readFileSync(path.join(__dirname, f), "utf8")).join("\n");
 const ctx = vm.createContext({ URLSearchParams });
 vm.runInContext(badgesJs, ctx);
-const { bvidFromHref, badgeInfo, mergeDecisions, lineParts } = ctx.BocBadges;
+const { bvidFromHref, badgeInfo, mergeDecisions, lineParts } = ctx.MdgBadges;
 const plain = (v) => JSON.parse(JSON.stringify(v));
 
 assert.strictEqual(bvidFromHref("//www.bilibili.com/video/BV1GJ411x7h7?spm_id_from=333"), "BV1GJ411x7h7");
@@ -20,7 +20,7 @@ assert.strictEqual(bvidFromHref("https://space.bilibili.com/2773586"), "");
 assert.strictEqual(bvidFromHref(null), "");
 
 // 观看进度: one copy of the defaults, the parsing and the words, in bili-surfaces.js.
-const B = ctx.BocSurfaces;
+const B = ctx.MdgSurfaces;
 assert.deepStrictEqual(plain(B.seenConfig(B.SEEN_DEFAULTS)), { on: false, bar: false, mark: false, threshold: 80, style: "badge" });
 assert.deepStrictEqual(plain(B.seenConfig({ seenShow: "both", seenThreshold: "90", seenStyle: "veil" })), { on: true, bar: true, mark: true, threshold: 90, style: "veil" });
 assert.deepStrictEqual(plain(B.seenConfig({ seenShow: "mark", seenThreshold: 0, seenStyle: "x" })), { on: true, bar: false, mark: true, threshold: 80, style: "badge" });
@@ -97,7 +97,7 @@ assert.deepStrictEqual(plain(merged), { BV1: { action: "keep", at: 5 }, BV2: { a
 
 
 // ---- UP tags: author link -> mid, where the chip lands ----
-const { midFromHref, upTagsOf, spotIn, upCounts, upHidden } = ctx.BocBadges;
+const { midFromHref, upTagsOf, spotIn, upCounts, upHidden } = ctx.MdgBadges;
 assert.strictEqual(midFromHref("//space.bilibili.com/591081863"), "591081863");
 assert.strictEqual(midFromHref("https://space.bilibili.com/276268291/?spm_id_from=333.788.upinfo.detail.click"), "276268291");
 assert.strictEqual(midFromHref("//space.bilibili.com/1629915907?spm_id_from=333.1387.homepage.video_card.click"), "1629915907");
@@ -118,7 +118,7 @@ assert.strictEqual(upHidden("2", "a", { 1: ["a"] }), true);
 assert.strictEqual(upHidden("", "a", { 1: ["a"] }), true, "an unknown author is hidden under a tag");
 
 // ---- the 「+」: which UP a name is (only a reliable mid may be written to), the picker's rows, the storage write ----
-const { faceKey, whoIndex, resolveMid, pickRows, applyUpTag, saveUpTag } = ctx.BocBadges;
+const { faceKey, whoIndex, resolveMid, pickRows, applyUpTag, saveUpTag } = ctx.MdgBadges;
 assert.strictEqual(faceKey("//i0.hdslb.com/bfs/face/A69e0c.jpg@96w_96h_1c_1s.webp"), "a69e0c.jpg", "the avatar file, size suffix dropped");
 assert.strictEqual(faceKey("https://i1.hdslb.com/bfs/face/a69e0c.jpg"), "a69e0c.jpg", "follow_people stores the bare URL");
 assert.strictEqual(faceKey("//i0.hdslb.com/bfs/vip/dbe23f.png@40w"), "", "a vip badge is not a face");
@@ -180,7 +180,7 @@ assert.strictEqual(applyUpTag(pt, {}, "9", { create: " ，" }), null, "an empty 
 });
 
 // ---- Per-surface rules (DESIGN 产品决策 · B站 页面上的标记): which page is which, and what each shows ----
-const { SURFACES, surfaceOf, fitCount, biliSaysSeen } = ctx.BocBadges;
+const { SURFACES, surfaceOf, fitCount, biliSaysSeen } = ctx.MdgBadges;
 const where = (url, viewer) => {
   const u = new URL(url);
   return surfaceOf({ host: u.hostname, path: u.pathname, search: u.search, viewer });
@@ -209,7 +209,7 @@ assert.ok(SURFACES.popover.tight && SURFACES.popfeed.tight, "popovers: 看到 N%
 assert.deepStrictEqual(Object.keys(SURFACES).filter((k) => SURFACES[k].corner), ["history"], "only 历史 swaps the veil for the corner tag");
 
 // The settings table: which cells exist (the others show 「–」 and cannot be turned on), and what turning one off does.
-const { ROWS, COLS, allowed, normalizeOff, rulesWith } = ctx.BocSurfaces;
+const { ROWS, COLS, allowed, normalizeOff, rulesWith } = ctx.MdgSurfaces;
 assert.deepStrictEqual(Object.keys(ROWS).sort(), Object.keys(SURFACES).sort(), "a row per surface");
 const grid = (k) => Object.keys(COLS).map((c) => (allowed(k, c) ? "✓" : "-")).join("");
 assert.deepStrictEqual(Object.keys(ROWS).map((k) => `${k}:${grid(k)}`), [

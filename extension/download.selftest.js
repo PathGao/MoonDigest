@@ -1,5 +1,5 @@
 // /usr/local/bin/node extension/download.selftest.js
-// BocOverwriteDialog: the one 该笔记已存在 dialog of the extension pages, its words matching the video page's (content.js).
+// MdgOverwriteDialog: the one 该笔记已存在 dialog of the extension pages, its words matching the video page's (content.js).
 const fs = require("fs");
 const path = require("path");
 const vm = require("vm");
@@ -9,7 +9,7 @@ const read = (file) => fs.readFileSync(path.join(__dirname, file), "utf8");
 const dialogs = [];
 const document = {
   body: { appendChild() {} },
-  querySelector: (sel) => (sel === "dialog.boc-overwrite[open]" ? dialogs.find((d) => d.open) || null : null),
+  querySelector: (sel) => (sel === "dialog.mdg-overwrite[open]" ? dialogs.find((d) => d.open) || null : null),
   createElement: () => {
     const listeners = {};
     const d = {
@@ -30,7 +30,7 @@ const document = {
 const ctx = vm.createContext({ document });
 ctx.globalThis = ctx;
 for (const f of ["errors.js", "download.js"]) vm.runInContext(read(f), ctx);
-const D = ctx.BocOverwriteDialog;
+const D = ctx.MdgOverwriteDialog;
 const text = (d) => d.innerHTML.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
 const last = () => dialogs[dialogs.length - 1];
 

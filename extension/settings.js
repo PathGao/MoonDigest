@@ -1,9 +1,9 @@
 // The settings' defaults and the normalizers more than one context applies, in one place. The background owns the
 // stored settings (normalizeSyncSettings); pages and the content script use DEFAULTS only when get-settings fails.
 // Loaded by the content script (manifest), background (importScripts) and the pages, before note.js, which reads it.
-// load-order.selftest.js checks every user of BocSettings loads it first. Idempotent like limits.js.
+// load-order.selftest.js checks every user of MdgSettings loads it first. Idempotent like limits.js.
 (() => {
-  if (globalThis.BocSettings) {
+  if (globalThis.MdgSettings) {
     return;
   }
 
@@ -124,7 +124,7 @@
   const normalizeReaderLineHeight = oneOf(["compact", "tight", "normal", "relaxed", "loose"], "tight");
   const normalizeReaderContentWidth = oneOf(["compact", "narrow", "medium", "wide", "full"], "medium");
 
-  globalThis.BocSettings = Object.freeze({
+  globalThis.MdgSettings = Object.freeze({
     DEFAULTS,
     LOCAL_DEFAULTS,
     NOTE_SECTION_POSITIONS,

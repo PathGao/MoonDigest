@@ -229,14 +229,14 @@ const FOLLOW_WBI_IO = { fetchJson: followGetJson };
 async function followWbiData(base, params) {
   const signed = async () => {
     try {
-      return `${base}?${await BocSites.biliWbiSigned(params, FOLLOW_WBI_IO)}`;
+      return `${base}?${await MdgSites.biliWbiSigned(params, FOLLOW_WBI_IO)}`;
     } catch (e) {
       throw e.code ? e : triageError("拿不到 WBI 签名密钥");
     }
   };
   let j = await followGetJson(signed);
   if (j.code === -403) {
-    BocSites.biliWbiReset();
+    MdgSites.biliWbiReset();
     j = await followGetJson(signed);
   }
   if (j.code !== 0) throw triageError(`B站返回 ${j.code}：${j.message}`, j.code);

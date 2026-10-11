@@ -19,7 +19,7 @@ const chrome = {
 const ctx = vm.createContext({ URL, URLSearchParams, TextEncoder, console, chrome });
 // Manifest order: limits.js before sites.js.
 for (const file of ["limits.js", "sites.js"]) vm.runInContext(fs.readFileSync(path.join(__dirname, file), "utf8"), ctx);
-const S = ctx.BocSites;
+const S = ctx.MdgSites;
 // vm objects have a foreign Object prototype, so compare by value.
 const eq = (actual, expected) => assert.deepStrictEqual(JSON.parse(JSON.stringify(actual)), expected);
 
@@ -529,25 +529,25 @@ async function ytComments(next, byContinuation) {
 
   // Subtitle cache: same key format content.js always wrote; entries hold the raw response.
   const cache = S.subtitleCache;
-  eq(cache.key({ videoId: "BV1", cid: "9", subtitleId: "7" }), "boc_subtitle_cache_BV1_9_id_7");
-  eq(cache.key({ videoId: "v", cid: "", subtitleUrl: "https://a.com/x.json?auth=1" }), "boc_subtitle_cache_v__url_a.com/x.json");
-  eq(cache.key({ videoId: "v", cid: "", lang: " EN " }), "boc_subtitle_cache_v__lang_en");
-  eq(await cache.load("boc_subtitle_cache_missing"), null);
-  store.boc_subtitle_cache_old = { body: [{ from: 0, to: 1, content: "parsed, no raw" }], timestamp: Date.now() };
-  eq(await cache.load("boc_subtitle_cache_old"), null);
+  eq(cache.key({ videoId: "BV1", cid: "9", subtitleId: "7" }), "mdg_subtitle_cache_BV1_9_id_7");
+  eq(cache.key({ videoId: "v", cid: "", subtitleUrl: "https://a.com/x.json?auth=1" }), "mdg_subtitle_cache_v__url_a.com/x.json");
+  eq(cache.key({ videoId: "v", cid: "", lang: " EN " }), "mdg_subtitle_cache_v__lang_en");
+  eq(await cache.load("mdg_subtitle_cache_missing"), null);
+  store.mdg_subtitle_cache_old = { body: [{ from: 0, to: 1, content: "parsed, no raw" }], timestamp: Date.now() };
+  eq(await cache.load("mdg_subtitle_cache_old"), null);
   // Caps: entries past SUBTITLE_CACHE_DAYS go, then the oldest beyond SUBTITLE_CACHE_ENTRIES.
-  const L = ctx.BocLimits;
-  store.boc_subtitle_cache_stale = { raw: {}, timestamp: Date.now() - (L.SUBTITLE_CACHE_DAYS + 1) * 86400000 };
+  const L = ctx.MdgLimits;
+  store.mdg_subtitle_cache_stale = { raw: {}, timestamp: Date.now() - (L.SUBTITLE_CACHE_DAYS + 1) * 86400000 };
   store.unrelated = { timestamp: 0 };
-  for (let i = 0; i < L.SUBTITLE_CACHE_ENTRIES; i += 1) store[`boc_subtitle_cache_n${i}`] = { raw: {}, timestamp: Date.now() - 1000 - i };
-  await cache.save("boc_subtitle_cache_new", { body: [] });
+  for (let i = 0; i < L.SUBTITLE_CACHE_ENTRIES; i += 1) store[`mdg_subtitle_cache_n${i}`] = { raw: {}, timestamp: Date.now() - 1000 - i };
+  await cache.save("mdg_subtitle_cache_new", { body: [] });
   const cachedKeys = Object.keys(store).filter((key) => key.startsWith(L.KEYS.subtitleCachePrefix));
   eq(cachedKeys.length, L.SUBTITLE_CACHE_ENTRIES);
   // new + old + n0..n49 = 52 recent entries, so the two oldest go.
-  eq(["boc_subtitle_cache_stale", `boc_subtitle_cache_n${L.SUBTITLE_CACHE_ENTRIES - 2}`, `boc_subtitle_cache_n${L.SUBTITLE_CACHE_ENTRIES - 1}`].some((key) => key in store), false);
-  eq("boc_subtitle_cache_new" in store && "unrelated" in store, true);
-  await cache.remove("boc_subtitle_cache_new");
-  eq("boc_subtitle_cache_new" in store, false);
+  eq(["mdg_subtitle_cache_stale", `mdg_subtitle_cache_n${L.SUBTITLE_CACHE_ENTRIES - 2}`, `mdg_subtitle_cache_n${L.SUBTITLE_CACHE_ENTRIES - 1}`].some((key) => key in store), false);
+  eq("mdg_subtitle_cache_new" in store && "unrelated" in store, true);
+  await cache.remove("mdg_subtitle_cache_new");
+  eq("mdg_subtitle_cache_new" in store, false);
 
   // fetchRawCached: a hit skips the network; a rejected body is fetched again and not cached.
   const bili = S.SITES.bilibili;
@@ -557,12 +557,12 @@ async function ytComments(next, byContinuation) {
   let fetched = 0;
   const rawIo = (answer) => ({ fetchJson: async () => ((fetched += 1), answer) });
   eq(await S.fetchRawCached(bili, track, ids, rawIo(raw(10))), raw(10));
-  eq(store.boc_subtitle_cache_BV1_9_id_7.raw, raw(10));
+  eq(store.mdg_subtitle_cache_BV1_9_id_7.raw, raw(10));
   eq(await S.fetchRawCached(bili, track, ids, rawIo(raw(99))), raw(10));
   eq(fetched, 1);
   const long = (body) => body.length > 0 && body[0].to > 50;
   eq(await S.fetchRawCached(bili, track, ids, rawIo(raw(20)), long), raw(20));
-  eq([fetched, store.boc_subtitle_cache_BV1_9_id_7.raw], [2, raw(10)]);
+  eq([fetched, store.mdg_subtitle_cache_BV1_9_id_7.raw], [2, raw(10)]);
   eq(await S.fetchRawCached(bili, track, ids, rawIo({ body: [] })), raw(10));
 
   // loadSubtitle: the one subtitle step of the video page, the side panel follow-up and 分拣台. A fake site answers
@@ -589,7 +589,7 @@ async function ytComments(next, byContinuation) {
   f = fake(two, { a: fit, b: fit });
   let got = await load(f, { prefer: { previousId: "b" } }, {});
   eq([got.track.id, got.mismatch, got.failure, f.calls], ["b", null, "", ["list", "b"]]);
-  eq(store.boc_subtitle_cache_V_1_id_b.raw, fit);
+  eq(store.mdg_subtitle_cache_V_1_id_b.raw, fit);
   // A later read takes the cached body; io.fresh (the video page's load) goes to the network.
   f = fake(two, { a: fit, b: fit });
   eq([(await load(f, { prefer: { previousId: "b" } }, {})).track.id, f.calls], ["b", ["list"]]);
@@ -599,11 +599,11 @@ async function ytComments(next, byContinuation) {
 
   // Nothing matches: the list is read and walked once more, then the first mismatched body is used with its check,
   // and not cached.
-  delete store.boc_subtitle_cache_V_1_id_a;
+  delete store.mdg_subtitle_cache_V_1_id_a;
   f = fake(two, { a: tooLong, b: new Error("请求失败：404") });
   got = await load(f);
   eq([got.track.id, got.body.length, got.mismatch.reason, f.calls], ["a", 2, "too-long", ["list", "a", "b", "list", "a", "b"]]);
-  eq("boc_subtitle_cache_V_1_id_a" in store, false);
+  eq("mdg_subtitle_cache_V_1_id_a" in store, false);
 
   // A limit ends the walk at once, no second list: a mismatched body already read is used, otherwise the limit throws.
   f = fake(two, { a: tooLong, b: limit() });

@@ -1,7 +1,7 @@
-// Rule: every Enter/Esc handler starts with `if (BocTyping.composing(e)) return;`, every global shortcut with `if (composing(e) || typingIn(e)) return;`, every live filter uses bindLive.
+// Rule: every Enter/Esc handler starts with `if (MdgTyping.composing(e)) return;`, every global shortcut with `if (composing(e) || typingIn(e)) return;`, every live filter uses bindLive.
 // Typing guards shared by the pages and the content scripts (manifest, before the scripts that use it). Idempotent like limits.js.
 (() => {
-  if (globalThis.BocTyping) {
+  if (globalThis.MdgTyping) {
     return;
   }
 
@@ -36,5 +36,5 @@
   // Esc that reaches the page mid-composition (keyCode 27, not 229) would cancel an open <dialog> and lose or save the half-typed text.
   globalThis.document?.addEventListener?.("cancel", (e) => open && e.preventDefault(), true);
 
-  globalThis.BocTyping = { composing, typingIn, bindLive, isComposing: () => open };
+  globalThis.MdgTyping = { composing, typingIn, bindLive, isComposing: () => open };
 })();

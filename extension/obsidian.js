@@ -6,11 +6,11 @@ const OBSIDIAN_TIMEOUT_MS = 30000;
 const obsidianCoded = (text, code) => Object.assign(new Error(text), { code });
 
 // Every Obsidian failure in the user's words. Code OBSIDIAN (not set up, wrong key) or OBSIDIAN_DOWN (closed, plugin
-// off, wrong address; 408 is fetchWithTimeout's timeout) fails every write alike (BocErrors.CODES says what pages show).
+// off, wrong address; 408 is fetchWithTimeout's timeout) fails every write alike (MdgErrors.CODES says what pages show).
 // An HTTP error of one note shows the status, never the response body. Errors it already made pass through.
 function obsidianError(e) {
-  if (e?.status === 401 || e?.status === 403) return obsidianCoded(BocErrors.TEXT.obsidianKey, "OBSIDIAN");
-  if (e?.status === 408 || e?.name === "TypeError") return obsidianCoded(BocErrors.TEXT.obsidianDown, "OBSIDIAN_DOWN");
+  if (e?.status === 401 || e?.status === 403) return obsidianCoded(MdgErrors.TEXT.obsidianKey, "OBSIDIAN");
+  if (e?.status === 408 || e?.name === "TypeError") return obsidianCoded(MdgErrors.TEXT.obsidianDown, "OBSIDIAN_DOWN");
   return e?.status ? new Error(`Obsidian 返回 HTTP ${e.status}`) : e;
 }
 
@@ -19,7 +19,7 @@ function obsidianConfig(settings) {
   if (!settings.obsidianEnabled) throw obsidianCoded("Obsidian 写入未启用", "OBSIDIAN");
   const baseUrl = String(settings.obsidianApiBaseUrl || "").trim();
   const apiKey = String(settings.obsidianApiKey || "").trim();
-  if (!baseUrl || !apiKey) throw obsidianCoded(BocErrors.TEXT.obsidianUnset, "OBSIDIAN");
+  if (!baseUrl || !apiKey) throw obsidianCoded(MdgErrors.TEXT.obsidianUnset, "OBSIDIAN");
   return { baseUrl, apiKey };
 }
 
@@ -65,22 +65,22 @@ async function testObsidianConnection(baseUrl, apiKey) {
   }
 }
 
-// The note a write recorded for a video (BocSites.buildContextKey) wins over the computed path, which carries the
+// The note a write recorded for a video (MdgSites.buildContextKey) wins over the computed path, which carries the
 // date when includeDateInFilename is on. ponytail: read-modify-write on one storage key; writes are seconds apart.
 async function notePaths() {
-  const key = BocLimits.KEYS.obsidianNotePaths;
+  const key = MdgLimits.KEYS.obsidianNotePaths;
   return (await chrome.storage.local.get(key))[key] || {};
 }
 async function rememberObsidianNotePath(noteKey, filepath) {
   if (!noteKey) return;
-  await chrome.storage.local.set({ [BocLimits.KEYS.obsidianNotePaths]: { ...(await notePaths()), [noteKey]: { path: filepath, lastSyncedAt: Date.now() } } });
+  await chrome.storage.local.set({ [MdgLimits.KEYS.obsidianNotePaths]: { ...(await notePaths()), [noteKey]: { path: filepath, lastSyncedAt: Date.now() } } });
 }
 async function forgetObsidianNotePath(noteKey) {
   const { [noteKey]: removed, ...rest } = await notePaths();
-  if (removed) await chrome.storage.local.set({ [BocLimits.KEYS.obsidianNotePaths]: rest });
+  if (removed) await chrome.storage.local.set({ [MdgLimits.KEYS.obsidianNotePaths]: rest });
 }
 
-// Rewrites only the marked AI 问答 block of an existing note (BocNote.upsertAiSection); a missing note is reported and
+// Rewrites only the marked AI 问答 block of an existing note (MdgNote.upsertAiSection); a missing note is reported and
 // forgotten, never created. existing: the note already read, if any. Returns { exists, updated }.
 async function updateAiSectionInVault(vault, filepath, section, noteKey, existing) {
   const note = existing || (await readVaultNote(vault, filepath));
@@ -88,7 +88,7 @@ async function updateAiSectionInVault(vault, filepath, section, noteKey, existin
     await forgetObsidianNotePath(noteKey);
     return { exists: false, updated: false };
   }
-  const next = BocNote.upsertAiSection(note.content, section);
+  const next = MdgNote.upsertAiSection(note.content, section);
   if (next !== note.content) await putVaultNote(vault, filepath, next);
   await rememberObsidianNotePath(noteKey, filepath);
   return { exists: true, updated: next !== note.content };
@@ -119,7 +119,7 @@ async function linkCoverInVault(vault, filepath, content, cover) {
     const link = `[[${path}]]`;
     return content.replace(`cover: "${url}"`, () => `cover: "${link}"`).replace(`![cover](${url})`, () => `!${link}`);
   } catch (error) {
-    console.warn("[boc] cover not stored in vault, keeping the remote URL", error);
+    console.warn("[mdg] cover not stored in vault, keeping the remote URL", error);
     return content;
   }
 }
@@ -134,23 +134,23 @@ async function writeVideoNote({ ref: input, mode, conversation, page }) {
   const settings = await getMergedSettings();
   const vault = obsidianConfig(settings);
   const ref = normalizeAiContextRef(input || {});
-  let key = ref.isVideoContext ? BocSites.buildContextKey(ref) : "";
-  const { aiConversations } = BocLimits.KEYS;
+  let key = ref.isVideoContext ? MdgSites.buildContextKey(ref) : "";
+  const { aiConversations } = MdgLimits.KEYS;
   const extrasRef = { site: ref.site, videoId: key ? ref.videoId : "", pageIndex: ref.pageIndex };
-  const stored = await chrome.storage.local.get([aiConversations, ...BocNote.triageExtrasKeys(extrasRef)]);
-  const turns = BocNote.buildConversationTurns(conversation ? conversation.messages : BocNote.pickConversation(stored[aiConversations], ref)?.messages);
+  const stored = await chrome.storage.local.get([aiConversations, ...MdgNote.triageExtrasKeys(extrasRef)]);
+  const turns = MdgNote.buildConversationTurns(conversation ? conversation.messages : MdgNote.pickConversation(stored[aiConversations], ref)?.messages);
   const aiOn = settings.includeAiChatInNote !== false;
-  const section = aiOn ? BocNote.buildAiSection(turns) : "";
+  const section = aiOn ? MdgNote.buildAiSection(turns) : "";
   const paths = await notePaths();
-  const computedPath = () => paths[key]?.path || BocNote.videoNotePath(ref, settings);
+  const computedPath = () => paths[key]?.path || MdgNote.videoNotePath(ref, settings);
 
   // The conversation as its own note, linking the video note (sourcePath) when there is one.
   const standalone = (why, sourcePath) => {
-    const { analysis, note } = BocNote.triageExtras(stored, extrasRef);
+    const { analysis, note } = MdgNote.triageExtras(stored, extrasRef);
     if (!turns.length && !analysis && !note.trim()) throw new Error("没有可写入 Obsidian 的内容");
-    const filename = BocNote.buildAiConversationFilename(ref);
-    const markdown = BocNote.buildAiConversationMarkdown({ context: ref, turns, filename, sourcePath });
-    return { path: BocNote.conversationNotePath(ref, settings), why, body: async () => ({ markdown: BocNote.withTriageSummary(markdown, analysis, note) }) };
+    const filename = MdgNote.buildAiConversationFilename(ref);
+    const markdown = MdgNote.buildAiConversationMarkdown({ context: ref, turns, filename, sourcePath });
+    return { path: MdgNote.conversationNotePath(ref, settings), why, body: async () => ({ markdown: MdgNote.withTriageSummary(markdown, analysis, note) }) };
   };
   let target;
   let built = null;
@@ -173,11 +173,11 @@ async function writeVideoNote({ ref: input, mode, conversation, page }) {
     } else {
       try {
         await build();
-        key = BocSites.buildContextKey({ ...ref, cid: ref.cid || built.noteMeta.cid });
+        key = MdgSites.buildContextKey({ ...ref, cid: ref.cid || built.noteMeta.cid });
         target = { video: true, path: paths[key]?.path || built.path, body: build };
       } catch (e) {
         // A deleted or hidden video has no note to build: a conversation the user writes goes in its own note.
-        if (!conversation || !BocSites.isBiliVideoGone(e.code)) throw e;
+        if (!conversation || !MdgSites.isBiliVideoGone(e.code)) throw e;
         target = standalone("（视频已失效，只写了对话）", "");
       }
     }
@@ -201,7 +201,7 @@ async function writeVideoNote({ ref: input, mode, conversation, page }) {
     await putVaultNote(vault, path, markdown);
     return { path, kind: "conversation", text: `已写入 Obsidian：${path}${target.why}`, title };
   }
-  const content = aiOn ? BocNote.upsertAiSection(markdown, section) : markdown;
+  const content = aiOn ? MdgNote.upsertAiSection(markdown, section) : markdown;
   // Last guard: no writer means to empty a note, so an empty body is a caller's bug (a video that changed mid-write).
   if (!content.trim()) throw new Error("笔记内容为空");
   await putVaultNote(vault, path, await linkCoverInVault(vault, path, content, cover));
@@ -213,9 +213,9 @@ async function writeVideoNote({ ref: input, mode, conversation, page }) {
 // Never creates a note. Resolves { path: "" } when there is nothing to do, else { path, exists, updated }.
 async function syncVideoNoteAi({ ref: input, conversation }) {
   const ref = normalizeAiContextRef(input || {});
-  const key = ref.isVideoContext ? BocSites.buildContextKey(ref) : "";
+  const key = ref.isVideoContext ? MdgSites.buildContextKey(ref) : "";
   const path = key ? (await notePaths())[key]?.path : "";
-  const section = BocNote.buildAiSection(BocNote.buildConversationTurns(conversation?.messages));
+  const section = MdgNote.buildAiSection(MdgNote.buildConversationTurns(conversation?.messages));
   if (!path || !section) return { path: "" };
   const settings = await getMergedSettings();
   if (settings.includeAiChatInNote === false) return { path: "" };

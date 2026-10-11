@@ -1,6 +1,6 @@
 // Note builder shared by content.js (manifest js list), background.js (importScripts)
 // and the extension pages (<script>). Pure: everything it reads arrives as arguments.
-// Needs BocLimits (limits.js), BocSites (sites.js) and BocSettings (settings.js) loaded first. Idempotent like sites.js.
+// Needs MdgLimits (limits.js), MdgSites (sites.js) and MdgSettings (settings.js) loaded first. Idempotent like sites.js.
 //
 // meta     the content-script state shape: title, site, videoId, cid, aid, author, authorUrl,
 //          uploadDate, videoDuration, cover, videoTags, selectedSubtitleLang, description,
@@ -10,12 +10,12 @@
 // settings the merged user settings (tags, frontmatterFields, include* flags, ...)
 // meta.aiTurns  optional [{ prompt, answer }] from buildConversationTurns; written as the AI 问答 section
 (() => {
-  if (globalThis.BocNote) {
+  if (globalThis.MdgNote) {
     return;
   }
 
-  const S = globalThis.BocSettings;
-  const { escapeHtml } = globalThis.BocErrors;
+  const S = globalThis.MdgSettings;
+  const { escapeHtml } = globalThis.MdgErrors;
   const DEFAULT_FRONTMATTER_FIELDS = S.DEFAULTS.frontmatterFields;
   // Every field a note can carry; DEFAULT_FRONTMATTER_FIELDS is the subset on by default.
   const FRONTMATTER_FIELDS = [...DEFAULT_FRONTMATTER_FIELDS, "video_tags"];
@@ -82,7 +82,7 @@
     );
     const frontMatter = buildFrontMatter(meta, settings, url, created, tagsCsv, tagsYaml);
 
-    const embedIframe = (settings.playerEmbed !== false && ref && BocSites.SITES[ref.site]?.embedHtml(ref, meta)) || "";
+    const embedIframe = (settings.playerEmbed !== false && ref && MdgSites.SITES[ref.site]?.embedHtml(ref, meta)) || "";
     const intro = String(meta.description || "").trim();
     const noteSectionContext = buildNotePlaceholderTemplateContext(meta, url, intro);
     const noteSections = groupNotePlaceholderSections(settings, noteSectionContext);
@@ -232,7 +232,7 @@
   // The newest saved conversation for this video. Bilibili parts have their own cid; a conversation
   // without one (saved before cid was recorded) still matches the video.
   function pickConversation(conversations, { site = "", videoId = "", cid = "" } = {}) {
-    const key = BocSites.buildContextKey({ site, videoId, cid });
+    const key = MdgSites.buildContextKey({ site, videoId, cid });
     if (!key) {
       return null;
     }
@@ -316,8 +316,8 @@
 
   function cleanVideoUrl(context) {
     const url = String(context?.url || "").trim();
-    const site = BocSites.SITES[context?.site] || BocSites.matchSite(url);
-    const videoId = String(context?.videoId || BocSites.parseRef(url)?.id || "").trim();
+    const site = MdgSites.SITES[context?.site] || MdgSites.matchSite(url);
+    const videoId = String(context?.videoId || MdgSites.parseRef(url)?.id || "").trim();
     if (site && videoId) {
       return site.canonicalUrl(videoId, aiPartIndex(context));
     }
@@ -356,7 +356,7 @@
     if (analysis.oneLiner) lines.push(`> ${analysis.oneLiner}`, "");
     const points = (analysis.points || []).filter(Boolean);
     if (points.length) lines.push(...points.map((p) => `- ${p}`), "");
-    const verdict = BocTagCore.VERDICTS[analysis.verdict];
+    const verdict = MdgTagCore.VERDICTS[analysis.verdict];
     if (verdict) lines.push(`AI 判断：${verdict}${analysis.reason ? `，${analysis.reason}` : ""}`);
     return lines.join("\n").trim();
   }
@@ -369,7 +369,7 @@
     if (!videoId) {
       return [];
     }
-    const { triageNotes, triageTags, triageVideoTags, triageAnalysis } = BocLimits.KEYS;
+    const { triageNotes, triageTags, triageVideoTags, triageAnalysis } = MdgLimits.KEYS;
     return [
       triageNotes,
       ...(site === "bilibili" ? [triageTags, triageVideoTags] : []),
@@ -377,7 +377,7 @@
     ];
   }
   function triageExtras(stored, { site, videoId, pageIndex }) {
-    const { triageNotes, triageTags, triageVideoTags, triageAnalysis } = BocLimits.KEYS;
+    const { triageNotes, triageTags, triageVideoTags, triageAnalysis } = MdgLimits.KEYS;
     const all = stored || {};
     const names = new Map((all[triageTags] || []).map((tag) => [tag.id, tag.name]));
     const tagIds = site === "bilibili" ? all[triageVideoTags]?.[videoId] || [] : [];
@@ -686,7 +686,7 @@
       return [];
     }
 
-    const chapterItems = BocSites.normalizeChapters(chapters);
+    const chapterItems = MdgSites.normalizeChapters(chapters);
     if (chapterItems.length === 0) {
       return subtitleItems.map((item) => formatSubtitleLine(item, settings, withHours));
     }
@@ -754,7 +754,7 @@
   }
 
   function buildChapterLines(chapters, withHours = false) {
-    const chapterItems = BocSites.normalizeChapters(chapters);
+    const chapterItems = MdgSites.normalizeChapters(chapters);
     if (chapterItems.length === 0) {
       return [];
     }
@@ -806,7 +806,7 @@
       const to = Number(item?.to || 0);
       return Number.isFinite(to) && to > max ? to : max;
     }, 0);
-    const chapterMaxTo = BocSites.normalizeChapters(meta?.chapters || []).reduce((max, item) => {
+    const chapterMaxTo = MdgSites.normalizeChapters(meta?.chapters || []).reduce((max, item) => {
       const from = Number(item?.from || 0) || 0;
       const to = Number(item?.to || 0) || 0;
       return Math.max(max, from, to);
@@ -901,7 +901,7 @@
     const codeBlocks = [];
     escaped = escaped.replace(/```([\s\S]*?)```/g, (_, code) => {
       codeBlocks.push(code);
-      return `\u0001BOC_CODE_${codeBlocks.length - 1}\u0001`;
+      return `\u0001MDG_CODE_${codeBlocks.length - 1}\u0001`;
     });
 
     const lines = escaped.split("\n");
@@ -967,7 +967,7 @@
       const rawLine = lines[index];
       const line = rawLine.trim();
 
-      const codeMatch = line.match(/^\u0001BOC_CODE_(\d+)\u0001$/);
+      const codeMatch = line.match(/^\u0001MDG_CODE_(\d+)\u0001$/);
       if (codeMatch) {
         flushPara();
         closeList();
@@ -1065,14 +1065,14 @@
   // The note fields the background readers (side panel follow-up, 分拣台 notes) take from the sites.js fetchers;
   // the video page's state already carries them. Chapters fall back to the description, as on the video page.
   function noteMetaOf({ site, videoId, meta, bundle, track }) {
-    const chapters = bundle?.chapters?.length ? bundle.chapters : BocSites.parseChaptersFromDescription(meta.description);
+    const chapters = bundle?.chapters?.length ? bundle.chapters : MdgSites.parseChaptersFromDescription(meta.description);
     return {
       ...meta,
       site,
       videoId,
       videoDuration: meta.duration,
       videoTags: meta.tags || [],
-      chapters: BocSites.normalizeChapters(chapters),
+      chapters: MdgSites.normalizeChapters(chapters),
       selectedSubtitleLang: String(track?.label || track?.lang || "").trim()
     };
   }
@@ -1082,7 +1082,7 @@
   const buildAiContext = (meta, body, settings, ref) =>
     buildMarkdown(meta, body, { ...settings, includeHotCommentsInNote: false, playerEmbed: false }, ref);
 
-  globalThis.BocNote = {
+  globalThis.MdgNote = {
     buildMarkdown,
     buildAiContext,
     noteMetaOf,

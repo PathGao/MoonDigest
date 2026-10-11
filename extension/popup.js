@@ -1,4 +1,4 @@
-const { escapeHtml } = BocErrors;
+const { escapeHtml } = MdgErrors;
 const el = {
   status: document.getElementById("status"),
   videoCover: document.getElementById("videoCover"),
@@ -28,7 +28,7 @@ let latestPayload = null;
 // Set from the tab's URL in init(): a content script that still answers on a non-video page must not re-enable the tools.
 let onVideoPage = true;
 // Only for when get-settings fails.
-const DEFAULT_SETTINGS = BocSettings.DEFAULTS;
+const DEFAULT_SETTINGS = MdgSettings.DEFAULTS;
 
 function formatLocalDate(value = Date.now()) {
   const date = value instanceof Date ? new Date(value.getTime()) : new Date(value);
@@ -77,7 +77,7 @@ function bindEvents() {
   el.downloadBtn.addEventListener("click", async () => {
     const payload = await ensurePayload();
     const settings = await getSettingsFromRuntime();
-    const format = BocSettings.normalizeDownloadFormat(settings.downloadFormat);
+    const format = MdgSettings.normalizeDownloadFormat(settings.downloadFormat);
     const content =
       format === "txt" ? payload?.txt || payload?.subtitlePreview || "" : payload?.srt || "";
     if (!content) {
@@ -85,7 +85,7 @@ function bindEvents() {
       return;
     }
     const safeTitle = sanitizeFileName(payload.title || "video-subtitle");
-    BocDownload.text(`${safeTitle}.${format}`, content, "text/plain;charset=utf-8");
+    MdgDownload.text(`${safeTitle}.${format}`, content, "text/plain;charset=utf-8");
     setStatus(`已下载 ${format.toUpperCase()}`);
   });
 
@@ -95,7 +95,7 @@ function bindEvents() {
       setStatus("没有可下载内容，请先刷新", true);
       return;
     }
-    BocDownload.text(`${sanitizeFileName(payload.title || "video-subtitle")}.md`, payload.markdown);
+    MdgDownload.text(`${sanitizeFileName(payload.title || "video-subtitle")}.md`, payload.markdown);
     setStatus("已下载 .md");
   });
 
@@ -378,13 +378,13 @@ function shouldRetryAfterInjection(error) {
 }
 
 function isSupportedSubtitlePage(url) {
-  return Boolean(BocSites.matchSite(url));
+  return Boolean(MdgSites.matchSite(url));
 }
 
 async function ensureContentScriptReady(tabId) {
   const resp = await chrome.runtime.sendMessage({ type: "ensure-reader-content", tabId });
   if (!resp?.ok) {
-    throw new Error(resp?.error || BocErrors.TEXT.reloaded);
+    throw new Error(resp?.error || MdgErrors.TEXT.reloaded);
   }
 }
 

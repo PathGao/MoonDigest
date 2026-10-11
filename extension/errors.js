@@ -1,9 +1,9 @@
 // How pages show an error the background already classified: the shared sentences, what each error code asks the
 // user to do, and the helpers every page used to copy, HTML escaping among them. The background classifies (triage-bg.js triageAiHttpError,
 // obsidian.js obsidianError) and reads TEXT from here too. Loaded by the content script (manifest), background
-// (importScripts) and the pages; load-order.selftest.js checks every user of BocErrors loads it first. Idempotent like limits.js.
+// (importScripts) and the pages; load-order.selftest.js checks every user of MdgErrors loads it first. Idempotent like limits.js.
 (() => {
-  if (globalThis.BocErrors) {
+  if (globalThis.MdgErrors) {
     return;
   }
 
@@ -15,7 +15,7 @@
     obsidianCancelled: "已取消写入 Obsidian，原笔记未被覆盖。",
     // The extension reloaded under a page whose content script still runs: chrome.runtime no longer answers.
     reloaded: "扩展刚刚更新，请刷新网页",
-    // B站 risk control (HTTP 412 or BocSites.BILI_RISK_CODES), the background's code THROTTLED.
+    // B站 risk control (HTTP 412 or MdgSites.BILI_RISK_CODES), the background's code THROTTLED.
     biliThrottled: "B站限流，请稍后再试"
   });
 
@@ -73,5 +73,5 @@
       .replaceAll('"', "&quot;")
       .replaceAll("'", "&#39;");
 
-  globalThis.BocErrors = Object.freeze({ TEXT, action, text, fromResp, grantOrigin, reloaded, escapeHtml });
+  globalThis.MdgErrors = Object.freeze({ TEXT, action, text, fromResp, grantOrigin, reloaded, escapeHtml });
 })();
