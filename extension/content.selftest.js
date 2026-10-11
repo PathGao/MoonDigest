@@ -301,9 +301,12 @@ const settle = async () => {
     await settle();
     go(B);
     t.checkUrlChange();
+    const fresh = ask(false);
+    await settle();
+    assert.deepStrictEqual(metaCalls, [A, B], "an ask after the change does not wait for the old run");
     metaGates[A].open();
-    const r = await superseded;
-    assert.deepStrictEqual([r.ok, r.payload.title, r.payload.hotComments.map((c) => c.content)], [true, B, [B]]);
+    for (const r of await Promise.all([superseded, fresh])) assert.deepStrictEqual([r.ok, r.payload.title, r.payload.hotComments.map((c) => c.content)], [true, B, [B]]);
+    assert.deepStrictEqual(metaCalls, [A, B], "and B is read once");
 
     // F3: the panel asks right after an in-site switch, before the URL watcher's next tick: the tab's video, read once.
     metaCalls = [];
