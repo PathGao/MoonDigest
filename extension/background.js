@@ -291,13 +291,8 @@ async function resolveAiSidepanelContext(contextRef) {
   // Like the video page: the chosen track first, then the others (BocSites.loadSubtitle). A B站 limit fails the
   // follow-up; a failed track list or download, like tracks with only empty bodies, leaves the AI the title, description
   // and comments, with the reason in subtitleFailure (the side panel and the AI read it as 字幕抓取失败).
-  const found = await BocSites.loadSubtitle(site, videoRef, meta, io, (tracks) => {
-    const selectedTrack = BocSites.pickPreferredTrack(tracks, {
-      previousId: ref.selectedSubtitleId,
-      previousUrl: ref.selectedSubtitleUrl,
-      previousLang: ref.subtitleLang
-    });
-    return selectedTrack ? [selectedTrack, ...tracks.filter((item) => item !== selectedTrack)] : [];
+  const found = await BocSites.loadSubtitle(site, videoRef, meta, io, {
+    prefer: { previousId: ref.selectedSubtitleId, previousUrl: ref.selectedSubtitleUrl, previousLang: ref.subtitleLang }
   });
   const { track, body, bundle, tracks } = found;
   const subtitleWarning = found.mismatch ? BocNote.subtitleMismatchWarning(found.mismatch) : "";
@@ -325,7 +320,7 @@ async function resolveAiSidepanelContext(contextRef) {
     selectedSubtitleUrl: String(track?.url || "").trim(),
     subtitleBody: body,
     subtitleWarning,
-    subtitleFailure: found.failure || (tracks.length && !body.length ? "字幕文件为空" : ""),
+    subtitleFailure: found.failure,
     subtitleMarkdown: body.length ? BocNote.buildAiContext(noteMeta, body, settings, noteRef) : "",
     subtitleOptions: tracks.map((item) => ({
       id: String(item.id || "").trim(),
