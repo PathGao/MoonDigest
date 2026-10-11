@@ -733,9 +733,8 @@ async function triageBuildNote(bvid, settings) {
   noteMeta.aiTurns = BocNote.buildConversationTurns(BocNote.pickConversation(stored[aiConversations], noteMeta)?.messages);
   const markdown = BocNote.withTriageSummary(BocNote.buildMarkdown(noteMeta, body, settings, ref), analysis, note);
   // Every writer of this note uses this path and downloads this cover into the vault (hdslb links 403 in Obsidian).
-  const folder = BocNote.resolveFolderTemplate(settings.noteFolder, noteMeta);
   const filename = BocNote.buildNoteFilename(noteMeta, settings);
-  const path = folder ? `${folder}/${filename}` : filename;
+  const path = BocNote.videoNotePath(noteMeta, settings);
   const cover = { url: meta.cover, name: `bilibili-${bvid}` };
   return { meta, noteMeta, body, markdown, filename, path, cover, subtitleWarning };
 }
