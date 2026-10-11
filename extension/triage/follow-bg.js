@@ -467,6 +467,8 @@ async function followStart() {
   run.halt.catch(() => {});
   followKeepAlive(true);
   const prev = (await chrome.storage.local.get("follow_jobs")).follow_jobs || {};
+  // 慢速只存在内存里；worker 重启后从上次写下的 slowUntil 接回来，不然一重启就回到 1 秒间隔。
+  followSlowUntil = Math.max(followSlowUntil, (prev.slowUntil || 0) * 1000);
   // 停下或出错后再开始从游标接着跑；超过一天的游标作废，从头来。
   const cursor = prev.cursor && !prev.finishedAt && followNow() - (prev.startedAt || 0) < 86400 ? prev.cursor : null;
   const startedAt = cursor ? prev.startedAt : followNow();

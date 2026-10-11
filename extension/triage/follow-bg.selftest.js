@@ -264,6 +264,15 @@ const runSync = async () => {
     assert.strictEqual(vm.runInContext("followGap()", ctx), 7, "slower gap after risk control");
     assert.ok(local.follow_jobs.slowUntil >= now() + 500, String(local.follow_jobs.slowUntil));
     assert.strictEqual(local.follow_hold?.why, "throttled", "the queue's pause is stored for the 视频投稿 foot");
+    // R5: a restarted worker (followSlowUntil back to 0) picks the slow while up again from follow_jobs on start.
+    const slowUntil = local.follow_jobs.slowUntil;
+    const before = JSON.parse(JSON.stringify(local));
+    vm.runInContext("followSlowUntil = 0", ctx);
+    routes["/x/space/wbi/arc/search"] = () => arcOk(1);
+    await runSync();
+    assert.strictEqual(vm.runInContext("followGap()", ctx), 7, "still slow after a restart");
+    assert.strictEqual(local.follow_jobs.slowUntil, slowUntil, "and the job keeps saying so");
+    local = before;
     vm.runInContext("followSlowUntil = 0; FOLLOW_CFG.slowGapMs = 0", ctx);
     assert.strictEqual(vm.runInContext("followGap()", ctx), 0, "back to the usual gap once the while is over");
     // HTTP 412 counts the same; the third strike stops
