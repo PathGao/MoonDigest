@@ -340,9 +340,7 @@ const F = {
   dir: "desc",
   sel: new Set(),
   anchor: "", // the UP a Shift+click picks from: the last one picked
-  busy: "", // the B站 write running, e.g. 取消关注中 3/10
-  busyN: [0, 0], // its done / total, for the progress pill's bar
-  busyStop: false, // 停止 pressed
+
   recentFilter: false,
   tagState: "", // row 3: "" | "untagged" | "tagged" (in 视频投稿 the video's UP)
   tags: new Set(), // row 4: tag ids, AND; both tabs
@@ -407,7 +405,7 @@ async function load() {
     groups: got.follow_groups || []
   };
   // An AI 打标签 proposal waiting for 应用 survives a reload; the one in memory (maybe edited on the review page) wins.
-  if (!AI.proposal && !AI.running) AI.proposal = got.follow_ai_proposal || null;
+  if (!AI.proposal && !aiRunning()) AI.proposal = got.follow_ai_proposal || null;
   derive();
 }
 // 关注's data, read once: on entering 关注, or for the 收藏夹 player's 「UP 标签」 line. F.loaded holds the read.
@@ -534,32 +532,20 @@ const runSlot = () => {
   const j = D.jobs || {};
   return `<span id="fwRunSlot">${j.running ? `<button type="button" class="primary" data-fw-stop aria-label="暂停刷新">暂停刷新${j.total ? ` ${j.done || 0}/${j.total}` : ""}</button>` : ""}</span>`;
 };
-// The progress pill, as in 收藏夹: while the sync job runs it takes 刷新's place (progress, the B站限流 countdown, 暂停);
-// otherwise it shows AI 打标签 running or waiting to be confirmed, with 查看.
+// The progress pill, as in 收藏夹 (runs' table): while the sync job runs it takes 刷新's place (progress, the B站限流
+// countdown, 暂停); otherwise a B站 write (停止), then AI 打标签 running or waiting to be confirmed (查看).
+const PILL = ["sync", "follow-write", "follow-ai", "proposal"];
+const PILL_BTN = { sync: { attrs: "data-fw-stop", label: "暂停" }, "follow-write": { attrs: "data-fw-busystop", label: "停止" }, "follow-ai": { attrs: 'data-fw="ai"', label: "查看" }, proposal: { attrs: 'data-fw="ai"', label: "查看" } };
 function renderSync() {
   const j = D.jobs || {};
   const slot = $("fwRunSlot");
   if (slot) slot.outerHTML = runSlot();
-  const pill = $("fwActivity");
   const btn = $("fwRefreshBtn");
   btn.disabled = Boolean(j.running);
   if (j.running) btn.setAttribute("aria-busy", "true");
   else btn.removeAttribute("aria-busy");
-  if (!j.running) {
-    // A B站 write (取消关注 3/10…) first, as 收藏夹's batches show theirs here.
-    const stop = { attrs: "data-fw-busystop", label: "停止" };
-    const wait = F.busy && T.waitOf("follow-write");
-    if (wait) return UI.setActivity(pill, { text: wait, stuck: true, btn: stop });
-    if (F.busy) return UI.setActivity(pill, { text: F.busy, done: F.busyN[0], total: F.busyN[1], btn: stop });
-    const btn = { attrs: 'data-fw="ai"', label: "查看" };
-    if (AI.running) return UI.setActivity(pill, { ...UI.aiActivity(AI, T.waitOf("follow-ai")), btn });
-    return UI.setActivity(pill, AI.proposal && { text: "标签建议待确认", btn });
-  }
-  const wait = j.hold?.until ? UI.waitText(j.hold.why === "throttled" ? "B站限流卡住" : "网络断了", Math.ceil(j.hold.until - nowSec())) : "";
-  // After a hold the requests go slower for a while (follow-bg.js FOLLOW_CFG.slowForMs).
-  const slowed = !wait && (j.slowUntil || 0) > nowSec();
-  const text = wait || `${slowed ? "B站限流变慢 · " : ""}${j.step || PHASE[j.phase] || "刷新中"}${j.total ? ` ${j.done || 0}/${j.total}` : j.done ? ` ${j.done}` : ""}`;
-  UI.setActivity(pill, { text, done: j.done || 0, total: wait ? 0 : j.total || 0, stuck: Boolean(wait), slowed, btn: { attrs: "data-fw-stop", label: "暂停" } });
+  const { job, stopping, ...a } = runs.pill(PILL) || {};
+  UI.setActivity($("fwActivity"), a.text && { ...a, btn: PILL_BTN[job] });
 }
 
 // The last refresh's 新关注 / 在 B站取关 (follow_jobs.changes, see followDiff) as 收藏夹's 「已刷新」 pill. Each refresh's
@@ -580,9 +566,9 @@ function renderSyncChanges() {
 
 // 标签管理 and ✦ AI 打标签 with its state, as in 收藏夹. AI 打标签 works on followed UP 主: in 视频投稿 and 已取消关注 it is
 // disabled and says why (a run or a proposal stays reachable).
-const aiReason = () => (AI.running || AI.proposal ? "" : aiBlocked(F.tab, F.side));
+const aiReason = () => (aiRunning() || AI.proposal ? "" : aiBlocked(F.tab, F.side));
 function renderAiButton() {
-  $("fwAiSlot").innerHTML = UI.tagButtons({ manageAttrs: 'data-fw="tags"', aiAttrs: 'data-fw="ai" aria-label="AI 打标签 (I)"', aiReason: aiReason(), noTags: !D.tags.length, state: AI.running ? " · 运行中" : AI.proposal ? " · 待确认" : "" });
+  $("fwAiSlot").innerHTML = UI.tagButtons({ manageAttrs: 'data-fw="tags"', aiAttrs: 'data-fw="ai" aria-label="AI 打标签 (I)"', aiReason: aiReason(), noTags: !D.tags.length, state: aiRunning() ? " · 运行中" : AI.proposal ? " · 待确认" : "" });
 }
 function renderAiState() {
   renderSync();
@@ -756,7 +742,7 @@ function renderSel() {
   if (box) box.setAttribute("aria-checked", UI.selectAllState(shown.length, n));
   if (F.tab !== "ups" || !F.sel.size) return (E.sel.innerHTML = "");
   const hidden = F.sel.size - n;
-  const busy = F.busy && "上一批还没做完";
+  const busy = W.busy() && "上一批还没做完";
   const none = !n && "选中的都被筛选隐藏了";
   // As 收藏夹's selection bar: the buttons that act on B站 say how many, label and aria-label alike.
   const btn = (act, label, reason, cls = "", pre = "") => `<button type="button"${cls ? ` class="${cls}"` : ""} data-fw="${act}" aria-label="${esc(label)}"${UI.reasonAttrs(reason)}>${pre}${esc(label)}</button>`;
@@ -862,7 +848,7 @@ function renderFoot(n = feedList(F.feed.items, D, feedF(), null).length) {
   // B站限流: the follow sync's amber pill with the red ⚠ and the countdown, then more() tries again by itself.
   if (f.wait) {
     foot.innerHTML = `<p>${esc(reach)}</p><span class="activity" role="status"></span>`;
-    return UI.setActivity(foot.lastChild, { text: T.waitOf("follow-feed") || "B站限流卡住", stuck: true });
+    return UI.setActivity(foot.lastChild, { text: runs.get("follow-feed")?.wait || "B站限流卡住", stuck: true });
   }
   // The background holding its queue (risk control, a dropped connection) while this page waits for a page.
   const hold = f.loading && F.hold?.until > nowSec() ? F.hold : null;
@@ -896,7 +882,7 @@ function observeFoot() {
 async function waitFeed(f) {
   const here = () => F.feed === f;
   f.wait = true;
-  await T.waitOut("follow-feed", { ms: UI.BILI_HOLD_MS, label: "B站限流卡住" }, here, () => here() && renderFoot());
+  await runs.wait("follow-feed", runs.hold({ code: "THROTTLED" }), here);
   f.wait = false;
   if (here()) more();
 }
@@ -942,50 +928,54 @@ function play(bvid) {
 }
 
 // ---------- B站 writes: one request at a time, stopped by the first error ----------
+// 关注's long tasks (runs.js): B站 writes, 视频投稿's wait for B站限流 and AI 打标签; the background refresh (follow_jobs)
+// is a row mirrored from storage. 关注 waits B站限流 out for UI.BILI_HOLD_MS, an AI limit as 收藏夹 does.
+const runs = BocRuns.create({
+  redraw() {
+    renderSync();
+    if (F.feed?.wait) renderFoot();
+  },
+  hold: (r) => (r.code === "THROTTLED" ? { ms: UI.BILI_HOLD_MS, label: "B站限流卡住" } : T.hold(r))
+});
+// The refresh's line, its hold (B站 risk control or a dropped connection) counting down after it; once the hold is over
+// the requests go slower for a while (follow-bg.js FOLLOW_CFG.slowForMs).
+runs.put("sync", () => {
+  const j = D.jobs || {};
+  if (!j.running) return null;
+  const held = j.hold?.until > nowSec();
+  const slowed = !held && (j.slowUntil || 0) > nowSec();
+  const text = `${slowed ? "B站限流变慢 · " : ""}${j.step || PHASE[j.phase] || "刷新中"}${j.total ? ` ${j.done || 0}/${j.total}` : j.done ? ` ${j.done}` : ""}`;
+  return { text, done: j.done || 0, total: j.total || 0, slowed, wait: held && { until: j.hold.until * 1000, label: j.hold.why === "throttled" ? "B站限流卡住" : "网络断了" } };
+});
+runs.put("proposal", () => AI.proposal && { text: "标签建议待确认" });
+// 关注's writes to B站 (writes.js), on their own lane: their keys are mids, their undo steps 关注's, and a 收藏夹 batch
+// never blocks them.
+const W = BocWrites.create({ runs, lane: "follow-write", send, line: (p) => `${p.name}中 ${p.done}/${p.total}` });
 // calls = the requests, each with the mids it changes (a relation request one UP, a group request up to 20).
 // Returns how many UP 主 went through. Its progress shows in the row's progress pill, as a 收藏夹 batch does, with 停止.
-// WRITE_GAP_MS between requests, as 收藏夹's batches. B站限流 (THROTTLED): the pill counts down UI.BILI_HOLD_MS, amber,
-// then the same request goes again; 停止 ends the run there, keeping what went through (and its undo).
+// WRITE_GAP_MS between requests, as 收藏夹's batches. B站限流 (THROTTLED): the pill counts down, then the same request
+// goes again; 停止 ends the run there, keeping what went through (and its undo).
 const WRITE_GAP_MS = 1000;
 const perUp = (mids, msg) => mids.map((mid) => msg(mid));
 async function relationRun(calls, label, { quiet = false } = {}) {
-  const midsOf = (c) => c.mids || [c.mid];
-  const total = calls.reduce((n, c) => n + midsOf(c).length, 0);
-  F.busy = `${label}中 0/${total}`;
-  F.busyN = [0, total];
-  F.busyStop = false;
-  renderSel();
-  renderSync();
-  let done = 0;
-  try {
-    for (const c of calls) {
-      if (done) await new Promise((r) => setTimeout(r, WRITE_GAP_MS));
-      if (F.busyStop) break;
-      F.busy = `${label}中 ${Math.min(total, done + midsOf(c).length)}/${total}`;
-      F.busyN = [done, total];
+  const chunks = calls.map((c) => ({ msg: c, keys: c.mids || [c.mid], folders: [], gap: WRITE_GAP_MS }));
+  const running = W.run("follow-write", label, {
+    verb: label,
+    chunks,
+    onChunk(c) {
+      for (const mid of c.keys) F.sel.delete(mid);
       renderSel();
-      renderSync();
-      let r = await send(c);
-      while (r.code === "THROTTLED" && !F.busyStop) {
-        await T.waitOut("follow-write", { ms: UI.BILI_HOLD_MS, label: `${F.busy} · B站限流卡住` }, () => !F.busyStop, renderSync);
-        if (!F.busyStop) r = await send(c);
-      }
-      if (!r.ok && F.busyStop) break;
-      if (!r.ok) throw new Error(r.error || "未知错误");
-      for (const mid of midsOf(c)) F.sel.delete(mid);
-      done += midsOf(c).length;
     }
-    if (F.busyStop) toast(`已停止${label}：完成 ${done} 个，未完成 ${total - done} 个`);
-    else if (!quiet) toast(`已${label} ${done} 个`);
-  } catch (e) {
-    toast(`${label}第 ${done + 1} 个时出错：${e.message}${done ? `（前 ${done} 个已完成）` : ""}`, true);
-  } finally {
-    F.busy = "";
-    F.busyStop = false;
-    await load();
-    render();
-  }
-  return done;
+  });
+  renderSel();
+  const r = await running;
+  if (r.busy) return toast("上一批还没做完"), 0;
+  if (r.stopped) toast(`已停止${label}：完成 ${r.done} 个，未完成 ${r.total - r.done} 个`);
+  else if (r.error || r.done < r.total) toast(`${label}第 ${r.done + 1} 个时出错：${r.error || "未知错误"}${r.done ? `（前 ${r.done} 个已完成）` : ""}`, true);
+  else if (!quiet) toast(`已${label} ${r.done} 个`);
+  await load();
+  render();
+  return r.done;
 }
 
 async function unfollow(mids) {
@@ -1003,7 +993,7 @@ function pushWriteUndo(done, { label, backLabel, back, ask = null, groups = fals
     groups,
     ask: done.length > 1 ? ask : null,
     undo: async () => {
-      if (F.busy) return T.pushUndo(step), "上一批还没做完，稍后再按 U";
+      if (W.busy()) return T.pushUndo(step), "上一批还没做完，稍后再按 U";
       const calls = back();
       const want = calls.reduce((n, c) => n + (c.mids || [c.mid]).length, 0);
       const n = await relationRun(calls, backLabel, { quiet: true });
@@ -1074,7 +1064,7 @@ async function moveOrCopy(mids, how) {
     how: move ? (from === 0 ? "放进自己建的分组后，就不在默认分组里了。" : `从「${groupName(from, D)}」移走。`) : "原来的分组里也留着。",
     note: (v) => (v === String(SPECIAL) ? `${move && from === 0 ? "还留在默认分组里：特别关注只是多一个标记。" : ""}特别关注的 UP 主发视频，手机 B站会推送。` : v === "0" ? "不在别的分组的会回到默认分组，还关注着。" : "")
   });
-  if (!ask || F.busy) return;
+  if (!ask || W.busy()) return;
   let to = Number(ask.target.id);
   if (ask.target.create != null) {
     const g = await createGroup(ask.target.create);
@@ -1171,7 +1161,7 @@ refresh.addEventListener("click", async () => {
 });
 $("fwActivity").addEventListener("click", (e) => {
   if (e.target.closest("[data-fw-stop]")) send({ type: "follow-sync-stop" });
-  if (e.target.closest("[data-fw-busystop]")) F.busyStop = true;
+  if (e.target.closest("[data-fw-busystop]")) W.stop();
 });
 // The UP 主 table: built from what the page already has. 完整备份 is triage.js's ([data-backup]).
 function upCsv() {
@@ -1227,7 +1217,7 @@ settingsDialog.addEventListener("close", async () => {
   } catch (e) {
     return toast(`保存设置失败：${e.message}`, true);
   }
-  if (!AI.running) AI.settings = ai;
+  if (!aiRunning()) AI.settings = ai;
   cfg.slowDays = days.followSlowDays;
   cfg.deadDays = days.followDeadDays;
   if (F.loaded) derive();
@@ -1380,7 +1370,9 @@ function toggleSel(mid) {
 }
 
 // ----- AI 打标签: the folder view's 批量打 flow, one UP per line -----
-const AI = { running: false, stop: false, proposal: null, excluded: new Set(), settings: {}, history: [] };
+// A run is runs' "follow-ai".
+const AI = { proposal: null, excluded: new Set(), settings: {}, history: [] };
+const aiRunning = () => Boolean(runs.get("follow-ai"));
 function setAiProposal(p) {
   AI.proposal = p;
   if (p) write({ follow_ai_proposal: p });
@@ -1392,7 +1384,7 @@ function aiScopeMids(scope) {
   return (scope === "selected" ? selShown() : F.side === "gone" ? [] : [...shown]).filter((m) => live.has(m));
 }
 async function openAi() {
-  if (!AI.running) {
+  if (!aiRunning()) {
     AI.settings = await aiSettings();
     AI.history = (await chrome.storage.local.get(AI_HISTORY_KEY))[AI_HISTORY_KEY] || [];
   }
@@ -1433,10 +1425,10 @@ const aiTags = {
     AI.settings = next;
     return true;
   },
-  running: () => AI.running,
+  running: aiRunning,
   proposal: () => AI.proposal,
   run: runAi,
-  stop: () => (AI.stop = true),
+  stop: () => runs.stop("follow-ai"),
   discard() {
     setAiProposal(null);
     renderAiState();
@@ -1450,7 +1442,7 @@ const aiTags = {
 // instruction, scope and allowRemove come from the dialog, which has checked that there is an instruction and UP 主.
 async function runAi({ instruction, scope, allowRemove }) {
   const mids = aiScopeMids(scope);
-  if (AI.running || !mids.length) return;
+  if (aiRunning() || !mids.length) return;
   const progress = (text) => TagDialogs.ai.progress(aiTags, text);
   AI.history = [instruction, ...AI.history.filter((x) => x !== instruction)].slice(0, 5);
   T.store({ [AI_HISTORY_KEY]: AI.history });
@@ -1458,22 +1450,20 @@ async function runAi({ instruction, scope, allowRemove }) {
   const tags = D.tags.filter((t) => !excluded.has(t.name)).map((t) => ({ name: t.name, rule: t.rule || "" }));
   const opts = { tags: D.tags, map: D.map, maxNewTags: AI.settings.newTagMax, excluded, scope: new Set(mids) };
   const { batches, intervalMs } = aiRequests(mids, AI.settings, instruction, tags, allowRemove);
-  AI.running = true;
-  AI.stop = false;
-  renderAiState();
-  // The same run loop as 收藏夹 (triage.js); each batch gets what is left of the run's new-tag cap.
-  const { proposal, errors } = await T.runAiBatches({
+  // The same run loop as 收藏夹 (triage.js), on 关注's runs; each batch gets what is left of the run's new-tag cap.
+  const running = T.runAiBatches({
+    R: runs,
+    job: "follow-ai",
     total: batches.length,
     request: (i, p) => ({ ...batches[i], maxNewTags: Math.max(0, opts.maxNewTags - p.newTags.length) }),
     merge: (p, data) => UI.mergeAiBatch(p, data, opts),
     intervalMs,
-    keepGoing: () => !AI.stop,
-    progress: (text) => (progress(text), renderSync()),
-    at: AI,
-    job: "follow-ai"
+    progress: (text) => (progress(text), renderSync())
   });
-  AI.running = false;
+  renderAiState();
+  const { proposal, errors } = await running;
   setAiProposal(proposal);
+
   renderAiState();
   const open = TagDialogs.ai.isOpen(aiTags);
   if (open) TagDialogs.ai.render(aiTags);
@@ -1596,9 +1586,9 @@ main.addEventListener("click", async (e) => {
     return openPick([pk.dataset.pick], card ? `.fw-video[data-bvid="${CSS.escape(card.dataset.bvid)}"] .tag-plus` : "");
   }
   const star = t.closest("[data-star]");
-  if (star) return F.busy ? toast("上一批还没做完") : starOne(star.dataset.star);
+  if (star) return W.busy() ? toast("上一批还没做完") : starOne(star.dataset.star);
   const re = t.closest("[data-refollow]");
-  if (re) return F.busy ? toast("上一批还没做完") : refollow([re.dataset.refollow]);
+  if (re) return W.busy() ? toast("上一批还没做完") : refollow([re.dataset.refollow]);
   const act = t.closest("[data-fw]")?.dataset.fw;
   if (!act || t.closest("select")) return;
   if (act === "sync") {
@@ -1632,7 +1622,7 @@ main.addEventListener("click", async (e) => {
   } else if (act === "select-none") {
     F.sel.clear();
     render();
-  } else if (F.busy) toast("上一批还没做完");
+  } else if (W.busy()) toast("上一批还没做完");
   else if (act === "pick-sel") openPick(selShown());
   else if (act === "unfollow") unfollow(selShown());
   else if (act === "refollow") refollow(selShown());
@@ -1766,7 +1756,8 @@ async function followHash() {
 window.addEventListener("hashchange", followHash);
 // As 收藏夹: closing or reloading the page would stop a B站 batch write halfway, so the browser asks first.
 window.addEventListener("beforeunload", (e) => {
-  if (!F.busy) return;
+  if (!W.busy()) return;
+
   e.preventDefault();
   e.returnValue = true;
 });

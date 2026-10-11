@@ -239,14 +239,14 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   assert.deepStrictEqual(store[t.K.decisions("D")], {});
   assert.strictEqual(t.S.undo.length, 0);
 
-  // X9: 重新收藏 and 移动/复制 wait out a B站 limit with the amber countdown, then send the same video / chunk again.
+  // X9 / B1: 重新收藏 and 移动/复制 wait out a B站 limit with the amber countdown after their progress line, then send
+  // the same video / chunk again.
   {
-    const realWait = t.waitOut, saved = { allFolders: t.S.allFolders, folders: t.S.folders, included: t.S.included }, realAsk = t.askTransfer;
+    const realStatus = t.renderStatus, saved = { allFolders: t.S.allFolders, folders: t.S.folders, included: t.S.included }, realAsk = t.askTransfer;
     const pills = [];
-    t.waitOut = async (job, w) => {
-      t.S.waits[job] = { until: Date.now() + 90000, label: w.label };
-      pills.push([job, t.activityState().text, t.activityState().stuck]);
-      delete t.S.waits[job];
+    t.renderStatus = () => {
+      const a = t.activityState();
+      if (a?.stuck && !pills.includes(a.text)) pills.push(a.text);
     };
     const limitedOnce = (log) => (m) => (log.push(m.aid || m.aids), log.length === 1 ? { ok: false, code: "THROTTLED", error: "412" } : { ok: true });
     const refavs = [];
@@ -264,10 +264,11 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     await t.fav.transfer([item(61), item(62)]);
     assert.deepStrictEqual(plain(moves), [[1061, 1062], [1061, 1062]]);
     assert.strictEqual(toasts.at(-1), "已复制 2 个到「目标」");
-    assert.deepStrictEqual(pills, [["refav", "B站限流卡住，1:30 后重试", true], ["transfer", "B站限流卡住，1:30 后重试", true]]);
+    assert.deepStrictEqual(pills, ["重新收藏中 0/1 · B站限流卡住，0:01 后重试", "复制到「目标」0/2 · B站限流卡住，0:01 后重试"]);
     Object.assign(t.S, saved);
     t.askTransfer = realAsk;
-    t.waitOut = realWait;
+    t.renderStatus = realStatus;
+
     await settled();
   }
 
@@ -312,6 +313,17 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     const h = { release: null };
     handlers[type] = () => new Promise((r) => (h.release = () => (handlers[type] = () => ({ ok: true }), r({ ok: true }))));
     return h;
+  };
+  // Waits (real time: runs' gaps go through sleepWhile) until cond() holds, 5 s at most.
+  const until = async (cond) => {
+    for (const end = Date.now() + 5000; !cond() && Date.now() < end; ) await new Promise((r) => setImmediate(r));
+  };
+  // A run of job on the page's runs, held in flight until the returned function lets it end.
+  const hang = (job) => {
+    let end;
+    let first = true;
+    const done = vm.runInContext("runs", ctx).run(job, { total: 1, line: () => job, next: () => first && !(first = false) && {}, act: () => new Promise((r) => (end = r)) });
+    return async () => (await ticks(), end({ ok: true }), await done);
   };
   {
     openFake("D", three);
@@ -698,51 +710,62 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   assert.deepStrictEqual(plain(t.nextBatch()), ["BV207"], "a selection still wins");
   t.renderListHeader(t.visibleItems());
   for (const part of ["细看选中 1 个", "保留选中的 1 个", "取消收藏选中的 1 个"]) assert.ok(t.el.listHeader.innerHTML.includes(part), part);
-  // The activity pill names what runs, whatever the tab: 细看 first, then 粗看; a wait keeps the job's pause button.
-  t.S.group = { bvids: ["BV207"], stop: false, mediaId: String(t.S.mediaId), items: t.S.itemMap, text: "字幕细看 1/1" };
-  t.S.stage1 = { ...t.S.stage1, running: true, done: 2, total: 5, mediaId: String(t.S.mediaId), text: "标题粗看中 2/5" };
-  assert.deepStrictEqual(plain(t.activityState()), { text: "字幕细看 1/1", done: 0, total: 1, act: "group", actLabel: "暂停细看", stopping: false, stuck: false });
-  // Paused but still finishing the current video: the button says so and is disabled, on the pill and in the step bar.
-  t.S.group.stop = true;
-  assert.strictEqual(t.activityState().actLabel, "暂停中");
-  t.renderStatus();
-  assert.ok(t.el.activity.innerHTML.includes('aria-label="暂停中" disabled title="当前这一步做完就暂停" aria-description="当前这一步做完就暂停">暂停中</button>'), t.el.activity.innerHTML);
-  t.renderListHeader(t.visibleItems());
-  assert.ok(t.el.listHeader.innerHTML.includes('aria-label="暂停中 0/1" disabled title="当前视频细看完就暂停" aria-description="当前视频细看完就暂停">暂停中 0/1</button>'), t.el.listHeader.innerHTML);
-  t.S.group = null;
-  assert.deepStrictEqual(plain(t.activityState()), { text: "标题粗看中 2/5", done: 2, total: 5, act: "stage1", actLabel: "暂停粗看", stopping: false, stuck: false });
-  t.S.waits = { stage1: { until: Date.now() + 61000, label: "AI 平台限流卡住" } };
-  const waiting = t.activityState();
-  assert.ok(waiting.stuck && waiting.text.startsWith("AI 平台限流卡住，") && waiting.act === "stage1", "a wait shows its countdown and keeps 暂停粗看");
-  // L1: B站 and AI waits are kept per job: 细看 waiting on B站 shows its own countdown, not 粗看's AI one.
-  t.S.group = { bvids: ["BV207"], stop: false, mediaId: String(t.S.mediaId), items: t.S.itemMap, text: "字幕细看 1/1" };
-  assert.strictEqual(t.activityState().text, "字幕细看 1/1", "粗看's AI wait is not 细看's");
-  t.S.waits.group = { until: Date.now() + 300000, label: "B站限流卡住" };
-  assert.ok(t.activityState().text.startsWith("B站限流卡住，5:00") || t.activityState().text.startsWith("B站限流卡住，4:59"), t.activityState().text);
-  delete t.S.waits.group;
-  t.S.group = null;
-  assert.ok(t.activityState().text.startsWith("AI 平台限流卡住，"), "细看's wait ending leaves 粗看's");
-  t.S.stage1 = { ...t.S.stage1, running: false, text: "" };
-  assert.ok(t.activityState().stuck && !t.activityState().act, "a wait alone has no button");
-  t.S.waits = {};
-  assert.strictEqual(t.activityState(), null, "nothing running hides the pill");
-  // X4: waitOut is the one wait of both modes. A 关注 job ("follow-…") counts down on its own line (onTick, redrawn by
-  // tick) and never takes the 收藏夹 pill; "ai" shows only as AI 打标签's countdown, with 查看.
+  // The pill (runs' table, PILL's order) names what runs, whatever the tab: 细看 before 粗看. Its button pauses the run;
+  // pressed, it says so (disabled) on the pill and in row 3 until the step in flight lands.
   {
-    const lines = [];
-    const p = t.waitOut("follow-write", { ms: 60, label: "取消关注中 3/10 · B站限流卡住" }, () => true, () => lines.push(t.waitOf("follow-write")));
-    assert.ok(t.waitOf("follow-write") === "取消关注中 3/10 · B站限流卡住，0:01 后重试" && t.activityState() === null, t.waitOf("follow-write"));
-    t.tick();
-    await p;
-    assert.deepStrictEqual([lines.length, lines[0], lines.at(-1), plain(t.S.waits)], [3, "取消关注中 3/10 · B站限流卡住，0:01 后重试", "", {}]);
-    t.S.waits.ai = { until: Date.now() + 61000, label: "AI 平台限流卡住" };
-    assert.strictEqual(t.activityState(), null, "the AI wait alone is not a 收藏夹 wait");
-    Object.assign(t.S.ai, { running: true, mediaId: String(t.S.mediaId), done: 0, total: 2 });
-    const a = t.activityState();
-    assert.ok(a.stuck && a.act === "tags" && /^AI 打标签 · AI 平台限流卡住，1:0[01] 后重试$/.test(a.text), a.text);
-    t.S.ai.running = false;
-    t.S.waits = {};
+    const runs = vm.runInContext("runs", ctx);
+    let release;
+    handlers["triage-analyze"] = () => new Promise((r) => (release = () => r({ ok: true, data: { bvid: "BV207", status: "done" } })));
+    t.startGroup(["BV207"]);
+    let release1;
+    handlers["triage-classify-titles"] = () => new Promise((r) => (release1 = () => r({ ok: true, data: { results: {} } })));
+    const stage1 = t.runStage1([item(950)]);
+    await ticks();
+    assert.deepStrictEqual(plain(t.activityState()), { text: "字幕细看 0/1", done: 0, total: 1, act: "group", actLabel: "暂停细看", stopping: false });
+    runs.stop("group");
+    assert.deepStrictEqual(plain(t.activityState()), { text: "细看将在当前视频后暂停", done: 0, total: 1, act: "group", actLabel: "暂停中", stopping: true });
+    t.renderStatus();
+    assert.ok(t.el.activity.innerHTML.includes('aria-label="暂停中" disabled title="当前这一步做完就暂停" aria-description="当前这一步做完就暂停">暂停中</button>'), t.el.activity.innerHTML);
+    t.renderListHeader(t.visibleItems());
+    assert.ok(t.el.listHeader.innerHTML.includes('aria-label="暂停中 0/1" disabled title="当前视频细看完就暂停" aria-description="当前视频细看完就暂停">暂停中 0/1</button>'), t.el.listHeader.innerHTML);
+    release();
+    for (let i = 0; i < 50 && t.S.group; i++) await new Promise((r) => setImmediate(r));
+    assert.ok(!t.S.group && t.S.analyses.BV207.status === "done", "the video in flight still lands");
+    assert.deepStrictEqual(plain(t.activityState()), { text: "标题粗看中 0/1", done: 0, total: 1, act: "stage1", actLabel: "暂停粗看", stopping: false });
+    runs.stop("stage1");
+    assert.deepStrictEqual(plain(t.activityState()), { text: "粗看将在当前批次后暂停", done: 0, total: 1, act: "stage1", actLabel: "暂停中", stopping: true });
+    release1();
+    await stage1;
+    delete t.S.analyses.BV207;
+    delete t.S.titleRes.BV950;
+    t.S.stage1Skip.delete("BV950");
   }
+  // B1: an AI limit keeps the run's line, count and button, with the countdown after it.
+  {
+    const realSleep = t.sleepWhile, realStatus = t.renderStatus;
+    const stuck = [];
+    t.sleepWhile = async () => {};
+    t.renderStatus = () => {
+      const a = t.activityState();
+      if (a?.stuck && !stuck.some((x) => x.text === a.text)) stuck.push(plain(a));
+    };
+    let n = 0;
+    handlers["triage-classify-titles"] = () => (++n === 1 ? { ok: false, code: "AI_THROTTLED", error: "429" } : { ok: true, data: { results: { BV950: { verdict: "keep" } } } });
+    await t.runStage1([item(950)]);
+    assert.deepStrictEqual(stuck, [{ text: "标题粗看中 0/1 · AI 平台限流卡住，1:00 后重试", done: 0, total: 1, stuck: true, act: "stage1", actLabel: "暂停粗看", stopping: false }]);
+    assert.deepStrictEqual([n, t.activityState().text], [2, "标题粗看完成 1 个"]);
+    // A timeout sends the same batch once more (aiJudge), as 细看 and AI 打标签 do.
+    n = 0;
+    delete t.S.titleRes.BV950;
+    handlers["triage-classify-titles"] = () => (++n === 1 ? { ok: false, code: "AI_TIMEOUT", error: "超时" } : { ok: true, data: { results: { BV950: { verdict: "keep" } } } });
+    await t.runStage1([item(950)]);
+    assert.strictEqual(n, 2);
+
+    Object.assign(t, { sleepWhile: realSleep, renderStatus: realStatus });
+    delete t.S.titleRes.BV950;
+    await vm.runInContext("runs", ctx).run("stage1", { line: () => "", next: () => null }); // drops its finished line
+  }
+  assert.strictEqual(t.activityState(), null, "nothing running hides the pill");
   // 观看进度: pages read while this page waits on the read; B站 risk control shows the wait, and 刷新 during it says so.
   t.S.seenCfg.on = true;
   Object.assign(t.S.seenRead, { busy: true, pages: 3 });
@@ -863,8 +886,8 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   assert.ok(t.el.listHeader.innerHTML.includes('aria-label="判断标准（还没写）"') && t.el.listHeader.innerHTML.includes('判断标准<i class="dot-warn"'));
   // Clearing the 判断标准 offered 重新粗看 (askConfirm says yes here); stop it before the next block swaps the state.
   await new Promise((r) => setTimeout(r, 0));
-  t.S.stage1.stop = true;
-  while (t.S.stage1.running) await new Promise((r) => setTimeout(r, 0));
+  vm.runInContext("runs", ctx).stop("stage1");
+  while (vm.runInContext("runs", ctx).get("stage1")) await new Promise((r) => setTimeout(r, 0));
 
   // 重新粗看 keeps the old result until a new one arrives: a failed run leaves the card as it was.
   t.S.folderCriteria = { J: "新标准" };
@@ -947,17 +970,23 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     t.el.banner.hidden = true;
     handlers["triage-ai-command"] = () => ({ ok: true, data: {} });
   }
-  // X3: one rule for 粗看, 细看 and AI 打标签 (aiNext). A video's own error ends 粗看 (ends: any) but not the others.
+  // X3: one judge for 粗看, 细看 and AI 打标签 (aiJudge, a run's own counts). A video's own error ends 粗看 (ends: any)
+  // but not the others.
   {
     const steps = (rs, ends) => {
-      const n = { timeouts: 0, waits: 0 };
-      return rs.map((r) => t.aiNext(r, n, ends)[0]);
+      const judge = t.aiJudge(ends);
+      return rs.map((r) => judge({ ...r }));
     };
     const T = { ok: false, code: "AI_TIMEOUT" }, L = { ok: false, code: "AI_THROTTLED" }, own = { ok: false, error: "字幕取不到" };
     assert.deepStrictEqual(steps([T, T]), ["retry", "stop"], "the second timeout in a row ends the run");
     assert.deepStrictEqual(steps([T, { ok: true }, T]), ["retry", "ok", "retry"], "an answer resets the count");
     assert.deepStrictEqual(steps([L, L, L, L, L, L]), ["wait", "wait", "wait", "wait", "wait", "stop"]);
-    assert.strictEqual(t.aiNext(L, { timeouts: 0, waits: 5 })[1].code, "AI_GAVE_UP");
+    const judge = t.aiJudge();
+    const last = { ...L };
+    for (const r of [L, L, L, L, L]) judge({ ...r });
+    assert.deepStrictEqual([judge(last), last.code], ["stop", "AI_GAVE_UP"], "the run then ends as AI_GAVE_UP");
+    assert.strictEqual(t.aiJudge()({ ...L }), "wait", "each run counts its own");
+
     assert.deepStrictEqual(steps([T, own, T]), ["retry", "item", "retry"], "细看 / AI 打标签: only this video failed");
     assert.deepStrictEqual(steps([own], () => true), ["stop"], "粗看 stops on any error");
     assert.deepStrictEqual(steps([{ ok: false, code: "AI_QUOTA" }]), ["stop"]);
@@ -1003,9 +1032,10 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   assert.ok((t.renderTabs(), t.el.aiTagSlot.innerHTML.includes(spark)), "AI 打标签 carries the AI sparkle");
   assert.strictEqual(btnText(), "标签管理AI 打标签");
   assert.ok(t.el.aiTagSlot.innerHTML.indexOf("标签管理") < t.el.aiTagSlot.innerHTML.indexOf(spark), "only AI 打标签 has the sparkle");
-  t.S.ai.running = true;
+  const aiRun = hang("ai");
   assert.strictEqual(btnText(), "标签管理AI 打标签 · 运行中");
-  Object.assign(t.S.ai, { running: false, proposal: { newTags: [], rows: [], notes: [], errors: [] } });
+  await aiRun();
+  Object.assign(t.S.ai, { proposal: { newTags: [], rows: [], notes: [], errors: [] } });
   assert.strictEqual(btnText(), "标签管理AI 打标签 · 待确认");
   // A run ends with renderTop only (no list render): the button turns to 待确认 then and there.
   t.el.aiTagSlot.innerHTML = "";
@@ -1647,7 +1677,7 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   handlers["triage-folder-ids"] = ({ mediaId }) => ({ ok: true, data: { bvids: mediaId === "B" ? ["BV1"] : [] } });
   t.S.mediaId = "removed";
   await t.openRemoved();
-  for (let i = 0; i < 100 && t.S.removedCheck; i++) await new Promise((r) => setImmediate(r));
+  await until(() => !t.S.removedCheck);
   assert.strictEqual(t.S.removedCheck, null);
   assert.deepStrictEqual(Object.keys(store[t.K.removed]), ["BV2"]);
   assert.deepStrictEqual(plain(t.S.items.map((it) => it.bvid)), ["BV2"]);
@@ -1671,7 +1701,7 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
       return { ok: true, data: { mid: 77, folders } };
     };
     await t.openRemoved();
-    for (let i = 0; i < 100 && t.S.removedCheck; i++) await new Promise((r) => setImmediate(r));
+    await until(() => !t.S.removedCheck);
     assert.deepStrictEqual(asked.sort(), [10, 20, 30]);
     assert.deepStrictEqual(mids, [undefined, 77, 77], "G6: who is logged in is asked once per check");
     assert.deepStrictEqual(plain(Object.fromEntries(Object.entries(store[t.K.removed]).map(([b, r]) => [b, r.inFolder]))), { BV1: { id: "X", title: "外" }, BV2: null }, "only answers are kept");
@@ -1690,19 +1720,23 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     // A failed lookup stops there and says so; nothing found so far is lost.
     handlers["triage-fav-where"] = () => ({ ok: false, error: "offline" });
     await t.openRemoved();
-    for (let i = 0; i < 50 && !t.S.removedCheck?.error; i++) await new Promise((r) => setImmediate(r));
+    await until(() => t.S.removedCheck?.error);
     assert.ok(t.S.removedCheck.error.includes("offline"), t.S.removedCheck.error);
     assert.deepStrictEqual(plain(store[t.K.removed].BV1.inFolder), { id: "X", title: "外" });
     // F13: the check is in the pill; a B站 limit waits (amber countdown) and asks the same video again.
     let n = 0;
     const pills = [];
     handlers["triage-fav-where"] = () => (pills.push(t.activityState().text), ++n === 1 ? { ok: false, code: "THROTTLED", error: "412" } : { ok: true, data: { folders: [] } });
-    const realWait = t.waitOut;
-    t.waitOut = async () => pills.push("wait");
+    const realStatus = t.renderStatus;
+    t.renderStatus = () => {
+      const a = t.activityState();
+      if (a?.stuck && pills.at(-1) !== a.text) pills.push(a.text);
+    };
     await t.openRemoved();
-    for (let i = 0; i < 100 && t.S.removedCheck; i++) await new Promise((r) => setImmediate(r));
-    t.waitOut = realWait;
-    assert.deepStrictEqual(plain(pills), ["核对视频的收藏状态 0/3", "wait", "核对视频的收藏状态 0/3", "核对视频的收藏状态 1/3", "核对视频的收藏状态 2/3"]);
+    await until(() => !t.S.removedCheck);
+    t.renderStatus = realStatus;
+    assert.deepStrictEqual(plain(pills), ["核对视频的收藏状态 0/3", "核对视频的收藏状态 0/3 · B站限流卡住，0:01 后重试", "核对视频的收藏状态 0/3", "核对视频的收藏状态 1/3", "核对视频的收藏状态 2/3"]);
+
     assert.strictEqual(t.S.removedCheck, null, "went on to the end, no red line");
     delete handlers["triage-fav-where"];
     t.S.removedCheck = null;
@@ -1813,9 +1847,9 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
       return asked;
     };
     assert.strictEqual(leave(), false, "nothing running: no prompt");
-    t.S.write.running = true;
+    const writeRun = hang("write");
     assert.strictEqual(leave(), true, "notes export");
-    t.S.write.running = false;
+    await writeRun();
     t.S.decisions.BV9 = { action: "unfav", at: 1, aid: 1009, title: "视频9" };
     const h = holdNext("triage-refav");
     const running = t.fav.refav("BV9");
@@ -1837,14 +1871,14 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     if (++aiCalls === 1) {
       openFake("L", [item(700)]);
       assert.ok(vm.runInContext("aiTags", ctx).blocked().startsWith("正在处理「夹K」的视频"), "the form in L says which folder runs");
-      assert.strictEqual(vm.runInContext("activityState()", ctx).text, "AI 打标签 第 1/2 批（夹K）");
+      assert.strictEqual(vm.runInContext("activityState()", ctx).text, "AI 打标签 0/2 批（夹K）");
     }
     return { ok: true, data: { assignments: { [items[0].bvid]: { add: ["旧"] } } } };
   };
   toasts.length = 0;
   await t.runAiCommand({ instruction: "分一下", scope: "filter", allowRemove: false });
   assert.strictEqual(aiCalls, 2, "the second batch is still sent after the switch");
-  assert.ok(!t.S.ai.running && t.S.ai.proposal === null, "folder L sees no proposal");
+  assert.ok(!vm.runInContext("aiRunning()", ctx) && t.S.ai.proposal === null, "folder L sees no proposal");
   assert.ok(/「夹K」的标签建议已完成，点进度胶囊上的「查看」确认/.test(toasts.at(-1)), toasts.at(-1));
   assert.deepStrictEqual(plain(vm.runInContext("activityState()", ctx)), { text: "「夹K」的标签建议待确认", act: "aiOther", actLabel: "查看" }, "folder L points back to K");
   openFake("K", [item(600), item(601)]);
@@ -1936,7 +1970,7 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   toasts.length = 0;
   await t.runStage1();
   assert.deepStrictEqual(plain(classified), [["BV810", "K 标准"], ["BV811", "K 标准"]]);
-  assert.deepStrictEqual([t.S.titleRes.BV811?.criteria, t.S.stage1.running], ["K 标准", false]);
+  assert.deepStrictEqual([t.S.titleRes.BV811?.criteria, vm.runInContext("runs", ctx).get("stage1")], ["K 标准", null]);
   assert.strictEqual(toasts.at(-1), "「夹K」标题粗看完成 2 个");
 
   // Between batches the line counts the batch that came back, not only once the next one starts.
@@ -2003,7 +2037,6 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
 
   // 所有收藏夹: each video is judged under its first chosen folder's 判断标准 and context; a 粗看 batch holds one folder.
   {
-    const savedStage1 = t.S.stage1;
     const vids = [{ ...item(850), folders: ["K"] }, { ...item(851), folders: ["L", "K"] }, { ...item(852), folders: ["L"] }, { ...item(853), folders: ["K"] }];
     openFake("all", vids);
     t.S.folders = t.S.allFolders = [{ id: "K", title: "夹K" }, { id: "L", title: "夹L" }];
@@ -2022,7 +2055,7 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     t.askConfirm = async (title, body, ok) => ((asked = [title, body, ok]), true);
     t.el.confirmBody = { querySelectorAll: () => [{ dataset: { crit: "L" }, value: " L 新标准 " }] };
     await vm.runInContext("startJudging", ctx)("标题粗看", "粗看", t.S.items, () => t.runStage1(t.S.items));
-    while (t.S.stage1.running) await new Promise((r) => setTimeout(r, 0));
+    while (vm.runInContext("runs", ctx).get("stage1")) await new Promise((r) => setTimeout(r, 0));
     assert.deepStrictEqual([asked[0], asked[2]], ["标题粗看", "开始粗看 4 个"]);
     assert.ok(asked[1].includes("「夹K」· 3 个") && asked[1].includes(">L 标准</textarea>") && asked[1].indexOf("夹K") < asked[1].indexOf("夹L"), asked[1]);
     assert.deepStrictEqual(plain(store[t.K.folderCriteria]), { K: "K 标准", L: "L 新标准" }, "edits save like the 判断标准 dialog");
@@ -2046,7 +2079,7 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     await vm.runInContext("startJudging", ctx)("细看", "细看", [vids[0]], () => (started = true));
     assert.ok(!started);
     Object.assign(t, { askConfirm: async () => true });
-    Object.assign(t.S, { titleRes: {}, analyses: {}, folderCriteria: {}, folderIntro: {}, stage1: savedStage1, loadAll: null });
+    Object.assign(t.S, { titleRes: {}, analyses: {}, folderCriteria: {}, folderIntro: {}, loadAll: null });
   }
   for (const thinkingToggle of [false, true]) {
     t.S.settings.thinkingToggle = thinkingToggle;
@@ -2055,8 +2088,9 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   }
   t.S.settings.thinkingToggle = false;
   t.el.banner.hidden = true;
-  openFake("K", []);
-  assert.strictEqual(t.activityState().text, "标题粗看完成 2 个", "back in K, its last 粗看 line shows");
+  openFake("all", []);
+  assert.strictEqual(t.activityState().text, "标题粗看完成 4 个", "back in its folder, the last 粗看 line shows");
+  await vm.runInContext("runs", ctx).run("stage1", { line: () => "", next: () => null }); // drops its finished line
   Object.assign(t.S.settings, { triageTitleBatchSize: 30 });
 
   // Back on the tab: the id check alone when nothing changed, no full load.
@@ -2089,17 +2123,16 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
       seen.push(t.activityState().text);
       return ++calls === 1 ? { ok: false, code: "THROTTLED", error: "412" } : { ok: true, data: { items: [item(7)], ids: ["BV7"], info: { intro: "" } } };
     };
-    const realWait = t.waitOut;
-    t.waitOut = async (job) => {
-      t.S.waits[job] = { until: Date.now() + 90000, label: "B站限流卡住" };
+    const realStatus = t.renderStatus;
+    t.renderStatus = () => {
       const a = t.activityState();
-      seen.push([a.text, a.stuck, a.actLabel]);
-      delete t.S.waits[job];
+      if (a?.stuck && !seen.some((x) => x[0] === a.text)) seen.push([a.text, a.stuck, a.actLabel, a.total]);
     };
     t.S.loadAll = { lists: {}, check: [], checkTotal: 0, queue: ["6"], paused: false, running: false, error: "", partial: 0 };
     await t.runLoadAll(t.S.folderToken);
-    t.waitOut = realWait;
-    assert.deepStrictEqual(plain(seen), ["加载收藏夹 0/1 · 「夹6」", ["B站限流卡住，1:30 后重试", true, "暂停"], "加载收藏夹 0/1 · 「夹6」"]);
+    t.renderStatus = realStatus;
+    assert.deepStrictEqual(plain(seen), ["加载收藏夹 0/1 · 「夹6」", ["加载收藏夹 0/1 · B站限流卡住，0:01 后重试", true, "暂停", 1], "加载收藏夹 0/1 · 「夹6」"]);
+
     assert.ok(!t.S.loadAll.error && !t.S.loadAll.queue.length && t.activityState() === null, "loaded, no red line, pill gone");
   }
 
@@ -2817,7 +2850,8 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
       fail = (b) => (b === "BV802" && calls.length === 2 ? (setTimeout(() => (stuck = t.activityState())), { ok: false, code: "THROTTLED", error: "B站返回 -412" }) : null);
       await t.runWrite();
       assert.deepStrictEqual(calls, ["BV801", "BV802", "BV802", "BV803"], "THROTTLED waits, then the same video again");
-      assert.ok(stuck?.stuck && stuck.act === "write" && stuck.text.startsWith("B站限流卡住，"), JSON.stringify(stuck));
+      assert.ok(stuck?.stuck && stuck.act === "write" && stuck.text === "写入笔记 1/3 · B站限流卡住，0:01 后重试" && stuck.total === 3, JSON.stringify(stuck));
+
       assert.strictEqual(t.S.write.text, "逐个视频笔记完成：写入 3 篇");
       assert.deepStrictEqual(plain(t.activityState()), { text: "逐个视频笔记完成：写入 3 篇", finished: true });
 
@@ -2825,7 +2859,7 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
       fail = (b) => (b === "BV802" ? { ok: false, code: "OBSIDIAN", error: "Obsidian 的 API Key 无效或未授权" } : null);
       await t.runWrite();
       assert.deepStrictEqual(calls, ["BV801", "BV802"], "an Obsidian failure ends the run");
-      assert.ok(!t.S.write.running && !t.S.write.text && t.el.writeSettingsBtn.hidden === false, "no green line; 去设置 in the dialog");
+      assert.ok(!vm.runInContext("writeRunning()", ctx) && !t.S.write.text && t.el.writeSettingsBtn.hidden === false, "no green line; 去设置 in the dialog");
       assert.ok(t.el.bannerText.textContent.startsWith("写入 Obsidian 失败：Obsidian 的 API Key") && t.el.bannerBtn.textContent === "去设置" && !t.el.bannerBtn.hidden);
 
       // Obsidian not running ends the run too, but the settings page cannot fix it: no 去设置 anywhere.
@@ -2847,7 +2881,7 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
       fail = (b) => (b === "BV801" ? new Promise((r) => (release = r)).then(() => null) : null);
       const run = t.runWrite();
       await wait();
-      assert.ok(t.S.write.running && t.activityState().act === "write");
+      assert.ok(vm.runInContext("writeRunning()", ctx) && t.activityState().act === "write");
       (L.writeDialog?.close || []).forEach((f) => f());
       release();
       await run;
@@ -2941,9 +2975,9 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     assert.strictEqual(t.aiTagReason(), "标签按收藏夹分开，先打开一个具体收藏夹");
     openFake("E", []);
     assert.strictEqual(t.aiTagReason(), "这里没有视频");
-    t.S.ai.running = true;
+    const aiRun = hang("ai");
     assert.strictEqual(t.aiTagReason(), "", "while it runs it opens the progress");
-    t.S.ai.running = false;
+    await aiRun();
   }
 
   // U8: a B站 batch asks in a dialog that starts with 在 B站 and whose button carries the count.

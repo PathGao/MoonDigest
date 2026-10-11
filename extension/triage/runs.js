@@ -1,13 +1,15 @@
 // Long tasks of the 分拣台 (BocRuns.create), one instance per mode. Every loop that sends one request at a time (粗看,
 // 细看, AI 打标签, 逐个视频笔记, 核对, B站 writes) is a run here, and the progress pill is drawn from one table.
 // - run(job, o): one per job at a time (a second is refused with { busy: the running one's name }, nothing sent).
-//   o.next() gives a step { n = 1, gap?, ... } or null (finished) or { idle: ms } (sleep, nothing sent); o.act(step) sends
+//   o.next() gives a step { n = keys.length or 1, gap?, ... } or null (finished) or { idle: ms } (sleep, nothing sent); o.act(step) sends
 //   it; o.judge(r) says ok | item (this step failed, go on) | retry (send it again now) | wait (count down hold(r), then
 //   send the same step again) | stop. Default: hold(r) ? wait : r.ok ? ok : stop. o.done(step, r) after ok and item;
 //   the count is the sum of their n. The gap (step.gap ?? o.gap ?? gap) only between two sends. stop(job) and o.alive()
 //   turning false end it at once, in a gap or a countdown; a request in flight still lands and counts. o.plan() (async)
 //   runs once the job is taken and may add total / next / act / line, or return null to end without a request.
-//   o.line(done, total, stopping) is its pill text; o.finished(done) its line after it ends (green), until it starts again.
+//   o.line(done, total, stopping) is its pill text; o.finished(done) its line after it ends (green), until it starts again;
+//   o.tick() runs each second of its countdowns.
+
 // - wait(job, hold, alive): a countdown on its own (a loop with its own flow). put(job, row | () => row): a row mirrored
 //   from elsewhere ({ text, done, total, wait: { until, label }, slowed }).
 // - pill(order): the first job in order that runs, waits or has a row, else the first finished line. A wait always
@@ -26,13 +28,16 @@
     const rows = new Map(); // job → put row
     const ended = new Map(); // job → () => its finished line
 
-    async function wait(job, h, alive = () => true) {
+    // tick() after each second's redraw, for a countdown drawn elsewhere too (the AI 打标签 dialog).
+    async function wait(job, h, alive = () => true, tick = () => {}) {
       waits.set(job, { until: now() + h.ms, label: h.label });
       redraw();
+      tick();
       try {
         for (let left = h.ms; left > 0 && alive(); left -= 1000) {
           await sleep(Math.min(1000, left), alive);
           redraw();
+          tick();
         }
       } finally {
         waits.delete(job);
@@ -77,7 +82,7 @@
             x = await o.act(step);
             sent = true;
             v = judge(x);
-            if (v === "wait") await wait(job, hold(x), alive);
+            if (v === "wait") await wait(job, hold(x), alive, o.tick);
             if ((v !== "retry" && v !== "wait") || !alive()) break;
           }
           if (v === "stop") {
@@ -86,7 +91,7 @@
             break;
           }
           if (v !== "ok" && v !== "item") break; // a retry or wait cut short
-          r.done += step.n ?? 1;
+          r.done += step.n ?? step.keys?.length ?? 1;
           await o.done?.(step, x);
           redraw();
         }
@@ -105,7 +110,7 @@
     function rowOf(job) {
       const r = runs.get(job);
       const put = rows.get(job);
-      const row = r ? { text: r.line(r.done, r.total, r.stopping), done: r.done, total: r.total, stopping: r.stopping } : typeof put === "function" ? put() : put;
+      const row = r?.line ? { text: r.line(r.done, r.total, r.stopping), done: r.done, total: r.total, stopping: r.stopping } : typeof put === "function" ? put() : put;
       if (!row) return null;
       const { wait: w, ...rest } = row;
       const left = waitText(waits.get(job) || w);

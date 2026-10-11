@@ -3,7 +3,7 @@ if (!globalThis.chrome?.runtime?.id) await import("./dev/mock-chrome.js");
 
 // ---------- constants ----------
 const THROTTLE_MS = globalThis.__TRIAGE_THROTTLE_MS || 10 * 60 * 1000;
-// Error code -> the wait (waitOut's { ms, label }). AI 429s clear far sooner than B站 risk control.
+// Error code -> the limit wait (runs.js's hold: { ms, label }). AI 429s clear far sooner than B站 risk control.
 const THROTTLES = { THROTTLED: { ms: THROTTLE_MS, label: "B站限流卡住" }, AI_THROTTLED: { ms: 60 * 1000, label: "AI 平台限流卡住" } };
 const SYNC_MIN_GAP_MS = 60 * 1000;
 // Progress tabs: how far a video has been looked at. The AI class is a filter inside a tab, never a tab.
@@ -172,15 +172,11 @@ const S = {
   query: "",
   focused: "",
   selected: new Set(),
-  group: null, // the running 细看 batch: { bvids: [], stop: bool }
-  write: { running: false, stop: false }, // 逐个视频笔记: { running, stop, md, done, total, mediaId, text } (text: the finished line)
-  stage1: { running: false, stop: false, done: 0, total: 0 },
+  group: null, // the running 细看 batch: { bvids, redo, mediaId, items, judge }; its count is runs' "group"
+  write: { mediaId: "", text: "" }, // 逐个视频笔记 (runs' "write"): { md, mediaId, text } (text: the finished line)
+  stage1: { mediaId: "" }, // the folder of the last 标题粗看 (runs' "stage1")
   stage1Skip: new Set(),
   analyzing: new Set(),
-  // Every B站 / AI limit wait of both modes (waitOut), one per job: { until, label, onTick }. 收藏夹's jobs are "stage1",
-  // "group", "unfav", "transfer", "refav", "write", "load", "check" and "ai"; 关注's start with "follow-". Each job
-  // shows and clears only its own countdown.
-  waits: {},
   seenRead: { busy: false, pages: 0, until: 0 }, // the background's read of the watch history (triage_seen_meta)
   undo: [], // 收藏夹's steps; a folder switch clears them
   modeUndo: [], // 关注's steps ({ kind: "mode" }): U undoes only the steps of the mode it is pressed in
@@ -196,9 +192,7 @@ const S = {
   // One 批量打标签 run at a time (mediaId is its folder); it keeps going when another folder is opened. Each folder keeps
   // its own proposal, and proposal reads and writes the open folder's.
   ai: {
-    running: false,
-    stop: false,
-    mediaId: "",
+    mediaId: "", // the folder of the run (runs' "ai")
     // Tag ids greyed out in 批量打 for this opening of the dialog: not sent to the AI, never added, kept or removed.
     excluded: new Set(),
     proposals: {},
@@ -212,6 +206,23 @@ const S = {
     }
   }
 };
+
+// The long tasks (runs.js) and the progress pill's rows. A limit counts down the pill and sends the same request again.
+const runs = BocRuns.create({ redraw: () => renderStatus(), hold: (r) => THROTTLES[r.code] || null, sleep: (ms, ok) => sleepWhile(ms, ok) });
+// What runs or waits, in this order on every tab (the first wins), then the finished lines. A run's row is its own;
+// these are mirrored from elsewhere.
+const PILL = ["group", "stage1", "fav", "write", "load", "check", "sync", "ai", "proposal", "aiOther", "seen", "seenRead"];
+runs.put("load", () => loadAllActivity());
+runs.put("sync", () => S.syncing && { text: `刷新中…${pageText(S.mediaId)}` });
+runs.put("proposal", () => S.ai.proposal && { text: "标签建议待确认" });
+runs.put("aiOther", () => otherAiFolder() && { text: `「${folderName(otherAiFolder())}」的标签建议待确认` });
+// 观看进度's 30-minute pause on B站 risk control comes from the background (triage_seen_meta); tick() redraws it.
+runs.put("seen", () => S.seenCfg.on && S.seenRead.until > Date.now() && { text: "观看进度", wait: { until: S.seenRead.until, label: THROTTLES.THROTTLED.label } });
+runs.put("seenRead", () => S.seenCfg.on && S.seenRead.busy && S.seenRead.pages && { text: `读观看进度… 已读 ${S.seenRead.pages} 页` });
+// The pill's button per job: [data-head, label, label while it stops (it then waits for the step in flight)].
+const PILL_BTN = { group: ["group", "暂停细看", "暂停中"], stage1: ["stage1", "暂停粗看", "暂停中"], write: ["write", "停止", "停止中"], ai: ["tags", "查看"], proposal: ["tags", "查看"], aiOther: ["aiOther", "查看"] };
+const aiRunning = () => Boolean(runs.get("ai"));
+const writeRunning = () => Boolean(runs.get("write"));
 
 const criteriaFor = (id) => S.folderCriteria[id] || "";
 const criteria = () => criteriaFor(S.mediaId);
@@ -328,12 +339,9 @@ function fmtTime(ts) {
 }
 const videoUrl = (bvid) => `https://www.bilibili.com/video/${bvid}`;
 
-// Waits ms, returning early when keepGoing() turns false.
-async function sleepWhile(ms, keepGoing) {
-  const end = Date.now() + ms;
-  while (Date.now() < end && keepGoing()) {
-    await new Promise((r) => setTimeout(r, Math.min(200, end - Date.now())));
-  }
+// Waits ms, returning early when keepGoing() turns false. Every wait of the page goes through it (runs' too).
+function sleepWhile(ms, keepGoing) {
+  return BocRuns.sleep(ms, keepGoing);
 }
 
 function openTab(url) {
@@ -409,17 +417,19 @@ const aiEnds = (r) => AI_END_CODES.has(r.code) || /配置 AI|未授权访问/.te
 const AI_TIMEOUT_TRIES = 2;
 const AI_THROTTLE_WAITS = 5;
 const aiGaveUp = () => ({ ok: false, code: "AI_GAVE_UP", error: `AI 平台持续限流，已等待重试 ${AI_THROTTLE_WAITS} 次，已停止` });
-// What a run does with one AI answer r, by the rule above; n = { timeouts, waits } counts in a row and is updated here.
-// ends(r) says which errors end the run (粗看 passes () => true: it stops on any). Returns [step, r]: "ok"; "retry" (the
-// same request at once); "wait" (THROTTLES[r.code], then the same request); "stop" (r may now be AI_GAVE_UP); "item"
-// (only this request failed, the run goes on).
-function aiNext(r, n, ends = aiEnds) {
-  if (!r.ok && r.code === "AI_TIMEOUT" && ++n.timeouts < AI_TIMEOUT_TRIES) return ["retry", r];
-  if (!r.ok && r.code === "AI_THROTTLED" && n.waits++ === AI_THROTTLE_WAITS) r = aiGaveUp();
-  if (!r.ok && THROTTLES[r.code]) return ["wait", r];
-  if (!r.ok && ends(r)) return ["stop", r];
-  n.timeouts = n.waits = 0;
-  return [r.ok ? "ok" : "item", r];
+// A run's judge (runs.js) of AI answers, by the rule above, with its own counts in a row. ends(r) says which errors end
+// the run (粗看 passes () => true: it stops on any). "ok"; "retry" (the same request at once); "wait" (THROTTLES[r.code],
+// then the same request); "stop" (r is then AI_GAVE_UP after too many waits); "item" (only this request failed).
+function aiJudge(ends = aiEnds) {
+  const n = { timeouts: 0, waits: 0 };
+  return (r) => {
+    if (!r.ok && r.code === "AI_TIMEOUT" && ++n.timeouts < AI_TIMEOUT_TRIES) return "retry";
+    if (!r.ok && r.code === "AI_THROTTLED" && n.waits++ === AI_THROTTLE_WAITS) Object.assign(r, aiGaveUp());
+    if (!r.ok && THROTTLES[r.code]) return "wait";
+    if (!r.ok && ends(r)) return "stop";
+    n.timeouts = n.waits = 0;
+    return r.ok ? "ok" : "item";
+  };
 }
 
 function handleAiError(error, code = "") {
@@ -483,7 +493,8 @@ function tagIdsOf(bvid) {
 // Only 取消收藏 / 保留 finish a video; tags and notes never do.
 const isProcessed = (bvid) => Boolean(S.decisions[bvid]);
 // 粗看 and 细看 runs keep going in their own folder (mediaId) after another one opens; these are the open folder's.
-const ownStage1 = () => S.stage1.running && S.stage1.mediaId === String(S.mediaId);
+const ownStage1 = () => Boolean(runs.get("stage1")) && S.stage1.mediaId === String(S.mediaId);
+
 const ownGroup = () => (S.group?.mediaId === String(S.mediaId) ? S.group : null);
 const runWhere = (run) => (run.mediaId === String(S.mediaId) ? "" : `（${folderName(run.mediaId)}）`);
 
@@ -593,7 +604,7 @@ function renderSort() {
   el.sortBox.innerHTML = UI.sortControl({ sorts, sort, dir, words: sortWords(sort, dir), selectAttr: "data-sort", dirAttr: "data-sort-dir" });
   // 导出 → 摘录或笔记 and this folder's table: nothing to put in them without videos (a running export stays reachable).
   const empty = S.items.length ? "" : "这个收藏夹没有视频";
-  for (const [btn, sub, on] of [[el.writeBtn, "摘录，或逐个视频的笔记", S.write.running], [el.csvBtn, "标题、AI 判断、标签、备注", false]]) {
+  for (const [btn, sub, on] of [[el.writeBtn, "摘录，或逐个视频的笔记", writeRunning()], [el.csvBtn, "标题、AI 判断、标签、备注", false]]) {
     const small = btn.querySelector("small");
     if (small) small.textContent = empty && !on ? empty : sub;
     UI.setReason(btn, on ? "" : empty);
@@ -654,7 +665,7 @@ let modeKeys = null;
 // 关注's 「UP 标签」 line, redrawn with the 「视频标签」 line.
 let viewerHook = null;
 globalThis.MoonTriage = {
-  openViewer, closeViewer, toast, askConfirm, send, store, runAiBatches, waitOut, waitOf, viewing: () => S.viewing,
+  openViewer, closeViewer, toast, askConfirm, send, store, runAiBatches, hold: (r) => THROTTLES[r.code] || null, viewing: () => S.viewing,
   // The playing 收藏夹 video's UP as { mid, name } (mid "" on items saved before it was stored); null in 关注 or with
   // nothing playing.
   viewingUp() {
@@ -811,10 +822,10 @@ async function seenSync(force) {
   const res = await send({ type: "triage-seen-sync", force });
   r.busy = Boolean(res.data?.reading);
   if (res.data?.until) r.until = res.data.until;
-  if (force && res.data?.skipped === "throttled") toast(seenWait());
+  if (force && res.data?.skipped === "throttled") toast(runs.pill(["seen"])?.text || "");
   renderStatus();
 }
-const seenWait = () => UI.waitText("观看进度 · B站限流卡住", Math.ceil((S.seenRead.until - Date.now()) / 1000));
+
 function followSeenMeta(meta) {
   S.seenRead.pages = meta?.resume?.pages || 0;
   S.seenRead.until = meta?.backoffUntil || 0;
@@ -1277,38 +1288,37 @@ async function openRemoved() {
 }
 
 // Re-favorited videos leave 已出分拣范围 as soon as one chosen folder's id list has them again; then each one left is
-// asked where it is now (checkWhere).
-// A B站 limit waits with the pill's countdown and asks again.
+// asked where it is now (checkWhere). Both are runs' "check": the count in the pill, a B站 limit counting down there and
+// asking again, a failure in row 3 (S.removedCheck.error). Opening another folder ends them.
 async function checkRemoved(token) {
   const ids = S.folders.map((f) => String(f.id));
-  const keepGoing = () => token === S.folderToken;
-  S.removedCheck = { done: 0, total: ids.length, what: "收藏夹", error: "" };
-  for (let i = 0; i < ids.length; i++) {
-    const id = ids[i];
-    if (token !== S.folderToken) return;
-    if (fav.state().writing(id)) {
-      S.removedCheck.done++; // checked next time; its list is changing now
-      continue;
-    }
-    const r = await send({ type: "triage-folder-ids", mediaId: id });
-    if (token !== S.folderToken) return;
-    if (!r.ok && THROTTLES[r.code]) {
-      await waitOut("check", THROTTLES[r.code], keepGoing);
-      i--;
-      continue;
-    }
-    if (!r.ok) {
-      S.removedCheck.error = `核对「${folderName(id)}」失败：${r.error}，可点刷新重试`;
+  const alive = () => token === S.folderToken;
+  S.removedCheck = { error: "" };
+  // A check of an earlier opening ends once its request in flight lands.
+  while (runs.busy("check") && alive()) await sleepWhile(50, () => true);
+  let i = 0;
+  const r = await runs.run("check", {
+    total: ids.length,
+
+    gap: 300,
+    alive,
+    line: (d, t) => `核对收藏夹 ${d}/${t}`,
+    next: () => (i < ids.length ? { id: ids[i++] } : null),
+    // A folder being written is checked next time; its list is changing now.
+    act: ({ id }) => (fav.state().writing(id) ? { ok: true } : send({ type: "triage-folder-ids", mediaId: id })),
+    async done(step, x) {
+      if (!alive() || !x.data) return;
+      await dropRemoved(x.data.bvids);
       render();
-      return;
     }
-    S.removedCheck.done++;
-    await dropRemoved(r.data.bvids);
-    render();
-    await new Promise((res) => setTimeout(res, 300));
+  });
+  if (!alive()) return;
+  if (r.error) {
+    S.removedCheck.error = `核对「${folderName(ids[i - 1])}」失败：${r.error}，可点刷新重试`;
+    return render();
   }
   await checkWhere(token);
-  if (token === S.folderToken && !S.removedCheck.error) S.removedCheck = null;
+  if (alive() && !S.removedCheck.error) S.removedCheck = null;
   render();
 }
 
@@ -1317,35 +1327,31 @@ async function checkRemoved(token) {
 async function checkWhere(token) {
   if (token !== S.folderToken) return;
   const list = S.items.filter((it) => it.aid && kindOf(it) !== "invalid");
-  const keepGoing = () => token === S.folderToken;
-  S.removedCheck = { done: 0, total: list.length, what: "视频的收藏状态", error: "" };
+  const alive = () => token === S.folderToken;
   const found = {};
   let mid; // who is logged in, asked once per check (the first answer carries it)
-  for (let i = 0; i < list.length; i++) {
-    const it = list[i];
-    if (token !== S.folderToken) break;
-    const r = await send({ type: "triage-fav-where", aid: it.aid, mid });
-    if (token !== S.folderToken) break;
-    if (!r.ok && THROTTLES[r.code]) {
-      await waitOut("check", THROTTLES[r.code], keepGoing);
-      i--;
-      continue;
+  let i = 0;
+  const r = await runs.run("check", {
+    total: list.length,
+    gap: 150,
+    alive,
+    line: (d, t) => `核对视频的收藏状态 ${d}/${t}`,
+    next: () => (i < list.length ? { it: list[i++] } : null),
+    act: ({ it }) => send({ type: "triage-fav-where", aid: it.aid, mid }),
+    done({ it }, x) {
+      if (!alive()) return;
+      mid ||= x.data?.mid;
+      const folders = x.data?.folders || [];
+      const out = folders.find((f) => !S.included.includes(String(f.id)));
+      if (out || !folders.length) {
+        it.inFolder = out ? { id: out.id, title: out.title } : null;
+        found[it.bvid] = it.inFolder;
+      }
+      render();
     }
-    if (!r.ok) {
-      S.removedCheck.error = `核对《${shortTitle(it)}》的收藏状态失败：${r.error}，可点刷新重试`;
-      break;
-    }
-    mid ||= r.data?.mid;
-    const folders = r.data?.folders || [];
-    const out = folders.find((f) => !S.included.includes(String(f.id)));
-    if (out || !folders.length) {
-      it.inFolder = out ? { id: out.id, title: out.title } : null;
-      found[it.bvid] = it.inFolder;
-    }
-    S.removedCheck.done++;
-    render();
-    await new Promise((res) => setTimeout(res, 150));
-  }
+  });
+  if (r.error) S.removedCheck.error = `核对《${shortTitle(list[i - 1])}》的收藏状态失败：${r.error}，可点刷新重试`;
+
   await serialStore(async () => {
     const rec = await storeGet(K.removed, {});
     const hit = Object.keys(found).filter((b) => rec[b]);
@@ -1493,8 +1499,8 @@ async function runLoadAll(token) {
       const id = L.check[0];
       const r = await send({ type: "triage-folder-ids", mediaId: id });
       if (token !== S.folderToken) return;
-      if (!r.ok && THROTTLES[r.code]) {
-        await waitOut("load", THROTTLES[r.code], keepGoing);
+      if (runs.hold(r)) {
+        await runs.wait("load", runs.hold(r), keepGoing);
         continue;
       }
       if (!r.ok) {
@@ -1529,12 +1535,13 @@ async function runLoadAll(token) {
     const r = await send({ type: "triage-folder-items", mediaId: id });
     L.current = "";
     if (token !== S.folderToken) return;
-    if (!r.ok && THROTTLES[r.code]) {
-      await waitOut("load", THROTTLES[r.code], keepGoing);
+    if (runs.hold(r)) {
+      await runs.wait("load", runs.hold(r), keepGoing);
       continue;
     }
     if (!r.ok) {
       L.error = `「${folderName(id)}」加载失败：${r.error}`;
+
       L.paused = true;
       break;
     }
@@ -1573,16 +1580,16 @@ function loadAllLine() {
   return L.error ? `<span class="fail-text">${esc(L.error)}</span>` : "";
 }
 
-// The pill while 所有收藏夹 checks or loads its folders: counts, the folder being read and its pages, the B站限流
-// countdown; 暂停 / 继续 on it.
-function loadAllActivity(wait) {
+// The pill's row while 所有收藏夹 checks or loads its folders: counts, the folder being read and its pages; 暂停 / 继续
+// on it. runs adds the B站限流 countdown.
+function loadAllActivity() {
   const L = S.loadAll;
   if (!L || (!L.queue.length && !L.check.length)) return null;
   const n = S.folders.length;
   const [verb, done, total] = L.check.length ? ["核对", L.checkTotal - L.check.length, L.checkTotal] : ["加载", n - L.queue.length, n];
   const now = L.current ? ` · 「${folderName(L.current)}」${pageText(L.current)}` : "";
-  const text = L.paused ? `${verb}收藏夹 ${done}/${total} · 已暂停` : wait || `${verb}收藏夹 ${done}/${total}${now}`;
-  return { text, done, total, stuck: Boolean(wait) && !L.paused, act: L.paused ? "all-resume" : "all-pause", actLabel: L.paused ? "继续" : "暂停" };
+  const text = L.paused ? `${verb}收藏夹 ${done}/${total} · 已暂停` : `${verb}收藏夹 ${done}/${total}${now}`;
+  return { text, done, total, act: L.paused ? "all-resume" : "all-pause", actLabel: L.paused ? "继续" : "暂停" };
 }
 
 const folderName = (id) => id === REMOVED ? "已出分拣范围" : id === ALL ? "所有收藏夹" : S.allFolders.find((f) => String(f.id) === String(id))?.title || String(id);
@@ -1714,52 +1721,13 @@ function renderFolderHead() {
   el.folderHead.innerHTML = `${thumb}<div class="folder-text"><h1 class="folder-title">${UI.titleHtml(folderTitle(), S.items.length)}</h1><div class="folder-meta">${meta}</div></div>`;
 }
 
-// What is running, in one place on every tab: the first that applies wins. done/total draws a bar,
-// act puts a button on it (handled like the step bar's buttons), warn turns it amber.
+// What is running, in one place on every tab: runs' pill (PILL's order). done/total draws a bar, act puts a button on
+// it (handled like the step bar's buttons), stuck turns it amber, finished green.
 function activityState() {
-  let wait = waitOf("group");
-  if (S.group) {
-    const done = groupDone(S.group);
-    const where = runWhere(S.group);
-    const text = where ? `字幕细看 ${done}/${S.group.bvids.length}${where}` : S.group.text || `字幕细看 ${done}/${S.group.bvids.length}`;
-    return { text: wait || text, done, total: S.group.bvids.length, act: "group", actLabel: S.group.stop ? "暂停中" : "暂停细看", stopping: S.group.stop, stuck: Boolean(wait) };
-  }
-  if (S.stage1.running) {
-    const where = runWhere(S.stage1);
-    const wait = waitOf("stage1");
-    const text = where ? `标题粗看中 ${S.stage1.done}/${S.stage1.total}${where}` : S.stage1.text;
-    return { text: wait || text, done: S.stage1.done, total: S.stage1.total, act: "stage1", actLabel: S.stage1.stop ? "暂停中" : "暂停粗看", stopping: S.stage1.stop, stuck: Boolean(wait) };
-  }
-  const favPill = fav.state().pill;
-  if (favPill) return favPill;
-  const w = S.write;
-  if (w.running) {
-    const wait = waitOf("write");
-    const text = `${w.md ? "生成" : "写入"}笔记 ${w.done}/${w.total}${runWhere(w)}`;
-    return { text: wait || text, done: w.done, total: w.total, act: "write", actLabel: w.stop ? "停止中" : "停止", stopping: w.stop, stuck: Boolean(wait) };
-  }
-  const all = loadAllActivity(waitOf("load"));
-  if (all) return all;
-  const c = S.removedCheck;
-  wait = waitOf("check");
-  if (c && !c.error) return { text: wait || `核对${c.what} ${c.done}/${c.total}`, done: c.done, total: c.total, stuck: Boolean(wait) };
-  // Any other 收藏夹 wait; "ai" shows with AI 打标签 below, and 关注 draws its own.
-  wait = Object.keys(S.waits).filter((job) => job !== "ai" && !job.startsWith("follow-")).map(waitOf).find(Boolean);
-  if (wait) return { text: wait, stuck: true };
-  if (S.syncing) return { text: `刷新中…${pageText(S.mediaId)}` };
-  if (S.ai.running) {
-    const where = S.ai.mediaId === String(S.mediaId) ? "" : `（${folderName(S.ai.mediaId)}）`;
-    return { ...UI.aiActivity(S.ai, waitOf("ai"), where), act: "tags", actLabel: "查看" };
-  }
-  if (S.ai.proposal) return { text: "标签建议待确认", act: "tags", actLabel: "查看" };
-  const other = otherAiFolder();
-  if (other) return { text: `「${folderName(other)}」的标签建议待确认`, act: "aiOther", actLabel: "查看" };
-  // A finished 粗看 keeps its last line for its own folder.
-  if (S.seenCfg.on && seenWait()) return { text: seenWait(), stuck: true };
-  if (S.seenCfg.on && S.seenRead.busy && S.seenRead.pages) return { text: `读观看进度… 已读 ${S.seenRead.pages} 页` };
-  if (S.stage1.text && !runWhere(S.stage1)) return { text: S.stage1.text, finished: true };
-  if (w.text) return { text: `${w.text}${runWhere(w)}`, finished: true };
-  return null;
+  const { job, stopping, ...a } = runs.pill(PILL) || {};
+  const btn = !a.finished && a.text && PILL_BTN[job];
+  if (!btn) return a.text ? a : null;
+  return btn[2] ? { ...a, act: btn[0], actLabel: stopping ? btn[2] : btn[1], stopping } : { ...a, act: btn[0], actLabel: btn[1] };
 }
 
 function renderStatus() {
@@ -1767,11 +1735,10 @@ function renderStatus() {
   UI.setActivity(el.activity, a && { ...a, btn: a.act && { attrs: `data-head="${a.act}"`, label: a.actLabel, reason: a.stopping ? (a.act === "write" ? "当前视频做完就停止" : "当前这一步做完就暂停") : "" } });
 }
 
+// 观看进度's countdown each second (runs' own waits redraw themselves).
 function tick() {
-  const waits = Object.values(S.waits);
-  if (waits.length) renderStatus();
-  for (const w of waits) w.onTick?.();
   if (!S.seenRead.until) return;
+
   renderStatus();
   // The wait is over: read again, as the pill said.
   if (Date.now() >= S.seenRead.until) {
@@ -1825,7 +1792,7 @@ function renderTagButtons() {
   el.aiTagSlot.innerHTML = UI.tagButtons({
     manageAttrs: "data-tags-manage",
     aiAttrs: 'data-ai-tag aria-label="AI 打标签 (I)"',
-    state: S.ai.running ? " · 运行中" : S.ai.proposal ? " · 待确认" : "",
+    state: aiRunning() ? " · 运行中" : S.ai.proposal ? " · 待确认" : "",
     manageReason: inFolderView() ? "" : FOLDER_ONLY,
     aiReason: aiTagReason(),
     noTags: !viewTags().length
@@ -1839,10 +1806,11 @@ const headBtn = (act, label, cls = "", reason = "", verdict = "", title = "", bu
   `<button type="button"${cls ? ` class="${cls}"` : ""} data-head="${act}"${verdict ? ` data-verdict="${verdict}"` : ""} aria-label="${esc(label)}"${UI.reasonAttrs(reason, title)}${busy ? ' aria-busy="true"' : ""}>${ai ? AI_SPARK : ""}${esc(label)}</button>`;
 
 // Why ✦ AI 打标签 cannot open: not in one folder, or nothing to tag and nothing pending.
-const aiTagReason = () => (S.mediaId === REMOVED ? FOLDER_ONLY : !S.items.length && !S.ai.running && !S.ai.proposal ? "这里没有视频" : "");
+const aiTagReason = () => (S.mediaId === REMOVED ? FOLDER_ONLY : !S.items.length && !aiRunning() && !S.ai.proposal ? "这里没有视频" : "");
 
 // Why 粗看 / 细看 cannot start: another AI run goes first.
-const aiBusyReason = () => (S.stage1.running ? "粗看还在跑，等它完成" : S.group ? "细看还在跑，等它完成" : "");
+const aiBusyReason = () => (runs.get("stage1") ? "粗看还在跑，等它完成" : S.group ? "细看还在跑，等它完成" : "");
+
 
 // The folder's 判断标准, before the 粗看/细看 button it is for. Written: the text in the tooltip. Not written: the warn
 // dot (the AI then guesses from the folder name; the editor's placeholder says so).
@@ -1929,14 +1897,16 @@ function renderListHeader(list) {
     return headBtn("transfer", S.mediaId === REMOVED ? `收藏选中的 ${n} 个到…` : `移动/复制选中的 ${n} 个…`, "", reason);
   };
   const groupBtn = (cls) => {
-    if (ownGroup()) return headBtn("group", `${S.group.stop ? "暂停中" : "暂停细看"} ${groupDone(S.group)}/${S.group.bvids.length}`, "primary", S.group.stop ? "当前视频细看完就暂停" : "");
+    const g = ownGroup() && runs.get("group");
+    if (g) return headBtn("group", `${g.stopping ? "暂停中" : "暂停细看"} ${g.done}/${g.total}`, "primary", g.stopping ? "当前视频细看完就暂停" : "");
     const batch = nextBatch();
     const label = batch.some((b) => S.selected.has(b)) ? selectedIn(list).length > batch.length ? `细看选中的前 ${batch.length} 个` : `细看选中 ${batch.length} 个` : batch.length ? `细看下一批 ${batch.length} 个` : "细看";
     const none = S.items.some((it) => inTab(it, "coarse") && needsAnalysis(it.bvid)) ? "当前筛选下没有要细看的视频" : "没有要细看的视频";
     return headBtn("group", label, cls, aiBusyReason() || (batch.length ? "" : none), "", "", false, true);
   };
   // Pausing waits for the current batch or video; until then the button says so and takes no second click.
-  const stage1Pause = () => headBtn("stage1", `${S.stage1.stop ? "暂停中" : "暂停粗看"} ${S.stage1.done}/${S.stage1.total}`, "primary", S.stage1.stop ? "当前批次粗看完就暂停" : "");
+  const stage1Pause = (g = runs.get("stage1")) => headBtn("stage1", `${g.stopping ? "暂停中" : "暂停粗看"} ${g.done}/${g.total}`, "primary", g.stopping ? "当前批次粗看完就暂停" : "");
+
   // Results made under an older 判断标准 can be redone, only those listed; 细看 goes one batch at a time like a normal
   // run. all: how many the folder has, so the button stays (disabled) while filters hide them.
   const redoBtn = (act, verb, n, all) =>
@@ -2034,7 +2004,7 @@ function recentUnfavHtml() {
 
 // Closing or reloading the page stops a batch write halfway and loses a notes export: the browser asks first.
 window.addEventListener("beforeunload", (e) => {
-  if (!S.write.running && !fav.state().busy) return;
+  if (!writeRunning() && !fav.state().busy) return;
   e.preventDefault();
   e.returnValue = true;
 });
@@ -2302,14 +2272,20 @@ function keepOne(bvid) {
 }
 
 // ---------- 收藏夹's B站 writes ----------
-// Every write to Bilibili's folders goes through fav; writes.js sends them (one batch at a time, chunks, limit holds,
-// which folders were just written). fav asks, plans the requests, keeps the local records after each chunk, tells the
-// result and pushes the undo step. fav.state() is what the page draws and its reads check.
+// Every write to Bilibili's folders goes through fav; writes.js sends them (one batch at a time as runs' "fav", chunks,
+// limit holds, which folders were just written). fav asks, plans the requests, keeps the local records after each chunk,
+// tells the result and pushes the undo step. fav.state() is what the page draws and its reads check.
+// A batch's run: { job, verb, done, total, mediaId: where it started, folder: where it writes now, to/toName for 移动 / 复制 }.
+const favRun = (p) => p && { ...p.meta, job: p.job, name: p.name, done: p.done, total: p.total, folder: String(p.folders[0] ?? p.meta.mediaId) };
+function favLine(p) {
+  const run = favRun(p);
+  return run.job === "transfer" ? `${run.verb}到「${run.toName}」${run.done}/${run.total}${runWhere(run)}` : `${run.verb}中${unfavWhere(run)} ${run.done}/${run.total}${runWhere(run)}`;
+}
 const W = BocWrites.create({
+  runs,
+  lane: "fav",
   send: (msg) => (render(), send(msg)), // redrawn first, so the cards and buttons show what is pending
-  limited: (r) => Boolean(THROTTLES[r.code]),
-  hold: (job, r) => waitOut(job, THROTTLES[r.code], () => true),
-  sleep: (ms) => new Promise((r) => setTimeout(r, ms)),
+  line: favLine,
   settleMs: globalThis.__TRIAGE_SETTLE_MS || 3000
 });
 // Bilibili takes 稍后再看 (and 收藏到 from 已出分拣范围) one video per request: one per chunk keeps the count exact on a
@@ -2610,20 +2586,13 @@ const fav = {
     if (!where) quickSync({ force: true });
   },
 
-  // What the page draws and checks: busy (the running batch's name, "" when none), run (it, once planned: { job, verb,
-  // done, total, mediaId: where it started, folder: where it writes now, to/toName for 移动 / 复制 }), pill (its line in
-  // the progress pill), pending(bvid) (the verb a video waits for, ""), writing(folder, since?) (not to be read now).
+  // What the page draws and checks: busy (the running batch's name, "" when none), run (it, once planned: favRun),
+  // pending(bvid) (the verb a video waits for, ""), writing(folder, since?) (not to be read now). Its pill line is
+  // favLine, in runs' table.
   state() {
-    const p = W.progress();
-    const run = p && { ...p.meta, job: p.job, name: p.name, done: p.done, total: p.total, folder: String(p.folders[0] ?? p.meta.mediaId) };
-    let pill = null;
-    if (run) {
-      const wait = waitOf(run.job);
-      const text = run.job === "transfer" ? `${run.verb}到「${run.toName}」${run.done}/${run.total}${runWhere(run)}` : `${run.verb}中${unfavWhere(run)} ${run.done}/${run.total}${runWhere(run)}`;
-      pill = { text: wait || text, done: run.done, total: run.total, stuck: Boolean(wait) };
-    }
-    return { busy: W.busy(), run, pill, pending: W.pending, writing: W.writing };
+    return { busy: W.busy(), run: favRun(W.progress()), pending: W.pending, writing: W.writing };
   }
+
 };
 
 // U undoes the last step of the mode it is pressed in; a step that changed several videos asks first, so a stray U costs nothing.
@@ -2972,7 +2941,7 @@ async function saveCriteria() {
   storeSet(K.folderCriteria, S.folderCriteria);
   render();
   const stale = staleCoarse();
-  if (!changed || !stale.length || S.stage1.running || S.group) return;
+  if (!changed || !stale.length || runs.get("stage1") || S.group) return;
   const ok = await askConfirm(
     "判断标准改了",
     `<p>「粗看完成」里有 ${stale.length} 个视频是按旧标准粗看的，要按新标准重新粗看吗？</p><p>已细看和已处理的视频不动；细看完成页可以另外按新标准重新细看。</p>`,
@@ -3071,22 +3040,6 @@ function aiItem(it) {
   return { bvid: it.bvid, title: it.title, upper: it.upper, duration: it.duration, pubdate: it.pubdate, intro: it.intro };
 }
 
-// The one wait of the 分拣台 (both modes): job's countdown for ms, or until keepGoing() turns false. tick() redraws it
-// each second: the 收藏夹 pill, and onTick for a line drawn elsewhere (关注's pill, the AI 打标签 dialog).
-async function waitOut(job, { ms, label }, keepGoing, onTick = null) {
-  S.waits[job] = { until: Date.now() + ms, label, onTick };
-  renderStatus();
-  onTick?.();
-  await sleepWhile(ms, keepGoing);
-  delete S.waits[job];
-  renderStatus();
-  onTick?.();
-}
-// 「B站限流卡住，1:30 后重试」 while job waits, else "".
-function waitOf(job) {
-  const w = S.waits[job];
-  return w ? UI.waitText(w.label, Math.ceil((w.until - Date.now()) / 1000)) : "";
-}
 
 // What 标题粗看 counts and sends: the 未分析 videos listed now (search and filters applied), not the hidden ones.
 const stage1Pending = () => S.items.filter((it) => stageOf(it) === "none" && !S.stage1Skip.has(it.bvid) && passFilter(it));
@@ -3094,7 +3047,7 @@ const stage1Pending = () => S.items.filter((it) => stageOf(it) === "none" && !S.
 // list: 未分析 by default; 重新粗看 passes the cards whose 粗看 used an older 判断标准. Their old results stay on the
 // cards until new ones replace them, so a stopped or failed run loses nothing.
 async function runStage1(list = stage1Pending()) {
-  if (S.stage1.running) return;
+  if (runs.get("stage1")) return;
   // Everything the run needs is taken now: it keeps going after another folder opens.
   const folder = String(S.mediaId);
   const judge = new Map(list.map((it) => [it.bvid, judgeOf(it)]));
@@ -3106,53 +3059,45 @@ async function runStage1(list = stage1Pending()) {
   // In its own folder the live step decides (a card may have been sorted meanwhile); elsewhere only the result does.
   const pending = () =>
     list.filter((it) => !S.stage1Skip.has(it.bvid) && !it.invalid && due(it) && (S.mediaId !== folder || ["none", "coarse"].includes(stageOf(it))));
-  const total = pending().length;
-  // The run owns its line (text); the activity bar reads it, in its folder or as a hint elsewhere.
-  S.stage1 = { running: true, stop: false, done: 0, total, mediaId: folder, text: "" };
-  const keepGoing = () => !S.stage1.stop;
+  S.stage1 = { mediaId: folder };
   const size = Math.max(1, Number(S.settings.triageTitleBatchSize) || 30);
-  let done = 0;
-  const n = { timeouts: 0, waits: 0 };
-  let failedOut = false;
-  render();
-  while (keepGoing()) {
-    // One request carries one 判断标准: in 所有收藏夹 a batch is the first pending video's folder only.
-    const left = pending();
-    if (!left.length) break;
-    const { home, crit, ctx } = judge.get(left[0].bvid);
-    const batch = left.filter((it) => judge.get(it.bvid).home === home).slice(0, size);
-    S.stage1.text = `标题粗看中 ${done}/${total}`;
-    for (const it of batch) S.analyzing.add(it.bvid);
-    render();
-    const sent = await send({ type: "triage-classify-titles", items: batch.map(aiItem), criteria: crit, folder: ctx });
-    for (const it of batch) S.analyzing.delete(it.bvid);
+  const running = runs.run("stage1", {
+    total: pending().length,
+    gap: S.settings.triageIntervalSec * 1000,
+    // In its folder the line says when it will pause; elsewhere it names its folder. Its finished line shows only there.
+    line: (d, t, stopping) => (runWhere(S.stage1) ? `标题粗看中 ${d}/${t}${runWhere(S.stage1)}` : stopping ? "粗看将在当前批次后暂停" : `标题粗看中 ${d}/${t}`),
+    finished: (d) => (d && !runWhere(S.stage1) ? `标题粗看完成 ${d} 个` : ""),
+    next() {
+      // One request carries one 判断标准: in 所有收藏夹 a batch is the first pending video's folder only.
+      const left = pending();
+      if (!left.length) return null;
+      const { home, crit, ctx } = judge.get(left[0].bvid);
+      const batch = left.filter((it) => judge.get(it.bvid).home === home).slice(0, size);
+      return { batch, crit, ctx, n: batch.length };
+    },
+    async act({ batch, crit, ctx }) {
+      for (const it of batch) S.analyzing.add(it.bvid);
+      render();
+      const r = await send({ type: "triage-classify-titles", items: batch.map(aiItem), criteria: crit, folder: ctx });
+      for (const it of batch) S.analyzing.delete(it.bvid);
+      return r;
+    },
     // Any error that is not a timeout or a limit ends the run.
-    const [step, r] = aiNext(sent, n, () => true);
-    if (step === "retry") continue;
-    if (step === "wait") {
-      await waitOut("stage1", THROTTLES[r.code], keepGoing);
-      continue;
+    judge: aiJudge(() => true),
+    done({ batch, crit }, r) {
+      const results = r.data?.results || {};
+      for (const it of batch) {
+        if (results[it.bvid]) S.titleRes[it.bvid] = { criteria: crit, ...results[it.bvid] };
+        else S.stage1Skip.add(it.bvid);
+      }
+      render();
     }
-    if (step === "stop") {
-      handleAiError(r.error, r.code);
-      failedOut = true;
-      break;
-    }
-    const results = r.data?.results || {};
-    for (const it of batch) {
-      if (results[it.bvid]) S.titleRes[it.bvid] = { criteria: crit, ...results[it.bvid] };
-      else S.stage1Skip.add(it.bvid);
-    }
-    done += batch.length;
-    S.stage1.done = done;
-    if (!S.stage1.stop) S.stage1.text = `标题粗看中 ${done}/${total}`;
-    render();
-    if (pending().length) await sleepWhile(S.settings.triageIntervalSec * 1000, keepGoing);
-  }
-  S.stage1.running = false;
-  if (!failedOut) clearAiBanner();
-  S.stage1.text = done ? `标题粗看完成 ${done} 个` : "";
-  if (S.stage1.text && runWhere(S.stage1)) toast(`「${folderName(folder)}」${S.stage1.text}`);
+  });
+  render();
+  const r = await running;
+  if (r.error) handleAiError(r.error, r.code);
+  else clearAiBanner();
+  if (r.done && runWhere(S.stage1)) toast(`「${folderName(folder)}」标题粗看完成 ${r.done} 个`);
   render();
 }
 
@@ -3171,7 +3116,6 @@ function startGroup(bvids, redo = false) {
   if (!bvids.length || S.group) return;
   S.group = {
     bvids,
-    stop: false,
     redo: redo ? new Set(bvids) : null,
     mediaId: String(S.mediaId),
     items: new Map(bvids.map((b) => [b, S.itemMap.get(b)])),
@@ -3188,47 +3132,48 @@ async function analyzeOne(bvid, force, { crit, ctx }) {
   render();
   const r = await send({ type: "triage-analyze", bvid, force, criteria: crit, folder: ctx });
   S.analyzing.delete(bvid);
+  render();
   return r;
 }
 
 async function runGroup() {
   const group = S.group;
-  const keepGoing = () => !group.stop && S.group === group;
-  const n = { timeouts: 0, waits: 0 };
-  render();
-  while (keepGoing()) {
-    const b = group.bvids.find((x) => groupPending(group, x));
-    if (!b) break;
-    group.text = `${group.redo ? "按新标准重新细看" : "字幕细看"} ${groupDone(group) + 1}/${group.bvids.length}`;
-    const judge = group.judge.get(b);
+  const running = runs.run("group", {
+    total: group.bvids.filter((b) => groupPending(group, b)).length,
+    gap: S.settings.triageIntervalSec * 1000,
+    alive: () => S.group === group,
+    line(d, t, stopping) {
+      const where = runWhere(group);
+      return !where && stopping ? "细看将在当前视频后暂停" : `${group.redo && !where ? "按新标准重新细看" : "字幕细看"} ${d}/${t}${where}`;
+    },
+    next() {
+      const b = group.bvids.find((x) => groupPending(group, x));
+      return b ? { b, judge: group.judge.get(b) } : null;
+    },
+    act: ({ b, judge }) => analyzeOne(b, Boolean(group.redo), judge),
     // An error that is not this video's ends the run and leaves the card as it was.
-    const [step, r] = aiNext(await analyzeOne(b, Boolean(group.redo), judge), n);
-    if (step === "retry") continue;
-    if (step === "wait") {
+    judge: aiJudge(),
+    done({ b, judge }, r) {
+      group.redo?.delete(b);
+      const keepOld = !r.ok && group.redo && S.analyses[b]?.status === "done";
+      if (keepOld) toast(`重新细看失败，保留原来的结果：${r.error}`, true);
+      else S.analyses[b] = r.ok ? { criteria: judge.crit, ...r.data } : { bvid: b, status: "error", error: r.error };
+      if (/截断/.test(r.error || "")) handleAiError(r.error);
       render();
-      await waitOut("group", THROTTLES[r.code], keepGoing);
-      continue;
     }
-    if (step === "stop") {
-      handleAiError(r.error, r.code);
-      group.stop = true;
-      break;
-    }
-    group.redo?.delete(b);
-    const keepOld = !r.ok && group.redo && S.analyses[b]?.status === "done";
-    if (keepOld) toast(`重新细看失败，保留原来的结果：${r.error}`, true);
-    else S.analyses[b] = r.ok ? { criteria: judge.crit, ...r.data } : { bvid: b, status: "error", error: r.error };
-    if (/截断/.test(r.error || "")) handleAiError(r.error);
-    render();
-    if (group.bvids.some((x) => groupPending(group, x))) await sleepWhile(S.settings.triageIntervalSec * 1000, keepGoing);
-  }
+  });
+  render();
+  const r = await running;
   if (S.group !== group) return;
-  // A run that stopped on a setup error keeps its banner; any other finished batch clears it.
-  if (!group.stop) clearAiBanner();
+  if (r.error) handleAiError(r.error, r.code);
+  // A run that stopped on a setup error keeps its banner, and a paused one; any other finished batch clears it.
+  const ended = r.error || r.stopped;
+  if (!ended) clearAiBanner();
   S.group = null;
-  if (runWhere(group) && !group.stop) toast(`「${folderName(group.mediaId)}」这批字幕细看完成`);
+  if (runWhere(group) && !ended) toast(`「${folderName(group.mediaId)}」这批字幕细看完成`);
   render();
 }
+
 
 // Failed results live only on this page; dropping them puts the cards back in the batch runner.
 function retryFailed() {
@@ -3327,7 +3272,7 @@ const aiTags = {
   scopeText: aiScopeText,
   roomHint: aiRoomHint,
   blocked: () =>
-    S.mediaId === REMOVED ? `${FOLDER_ONLY}再让 AI 打标签。` : S.ai.running && S.ai.mediaId !== String(S.mediaId) ? `正在处理「${folderName(S.ai.mediaId)}」的视频，完成后可点进度胶囊上的「查看」确认` : "",
+    S.mediaId === REMOVED ? `${FOLDER_ONLY}再让 AI 打标签。` : aiRunning() && S.ai.mediaId !== String(S.mediaId) ? `正在处理「${folderName(S.ai.mediaId)}」的视频，完成后可点进度胶囊上的「查看」确认` : "",
   history: () => S.aiHistory,
   allowRemove: () => S.settings.triageAiRemoveTags === true,
   // The same switch as in 收藏夹设置, saved as soon as it flips.
@@ -3337,10 +3282,10 @@ const aiTags = {
     S.settings.triageAiRemoveTags = on;
     return true;
   },
-  running: () => S.ai.running,
+  running: aiRunning,
   proposal: () => S.ai.proposal,
   run: runAiCommand,
-  stop: () => (S.ai.stop = true),
+  stop: () => runs.stop("ai"),
   discard() {
     S.ai.proposal = null;
     renderTop();
@@ -3353,45 +3298,38 @@ const aiTags = {
 };
 const openAi = () => TagDialogs.ai.open(aiTags);
 
-// One AI 打标签 run, for both modes: request(i, p) is batch i's message, merge(p, data) folds an answer in. An AI 429 or
-// timeout sends the same batch again, up to AI_THROTTLE_WAITS / AI_TIMEOUT_TRIES in a row; an error that fails every
-// batch alike (aiEnds) ends the run. Returns
+// One AI 打标签 run, for both modes, as job on the mode's runs (R): request(i, p) is batch i's message, merge(p, data)
+// folds an answer in. An AI 429 or timeout sends the same batch again, up to AI_THROTTLE_WAITS / AI_TIMEOUT_TRIES in a
+// row; an error that fails every batch alike (aiEnds) ends the run. Returns
 // { proposal, errors }: proposal is null when no batch got through, so there is nothing to confirm (the progress line says why).
-// name(i), when given, says which batch in the progress line and errors (所有收藏夹 names the folder).
-// at, the mode's run state, gets { done, total } for the pill; a limit waits as job (waitOut), and progress runs once a
-// second meanwhile, so the pill and the dialog count down.
-async function runAiBatches({ total, request, merge, intervalMs, keepGoing, progress, at, job, name = null }) {
+// name(i), when given, says which batch in the progress line and errors (所有收藏夹 names the folder); where() follows
+// the pill's line (another folder's run). progress(text) is the dialog's line, counting down with the pill.
+async function runAiBatches({ R = runs, job, total, request, merge, intervalMs, progress, name = null, where = () => "" }) {
   const which = (i, full = false) => (name ? name(i) : full ? `第 ${i + 1} / ${total} 批` : `第 ${i + 1} 批`);
   const p = { newTags: [], rows: [], notes: [], errors: [] };
   let answered = 0;
-  const n = { timeouts: 0, waits: 0 };
-  Object.assign(at, { done: 0, total });
-  for (let i = 0; i < total && keepGoing(); i++) {
-    at.done = i;
-    progress(`AI 正在处理${which(i, true)}…`);
-    const [step, r] = aiNext(await send(request(i, p)), n);
-    if (step === "retry") {
-      i--;
-      continue;
-    }
-    if (step === "wait") {
-      await waitOut(job, THROTTLES[r.code], keepGoing, () => waitOf(job) && progress(`${waitOf(job)}${which(i)}…`));
-      i--;
-      continue;
-    }
-    const ends = step === "stop";
-    if (!r.ok) {
-      p.errors.push(`${which(i)}失败：${r.error}`);
+  let i = 0;
+  const r = await R.run(job, {
+    total,
+    tick: () => R.get(job)?.wait && progress(`${R.get(job).wait}${which(i - 1)}…`),
+    gap: intervalMs,
+    line: (d, t) => `AI 打标签 ${d}/${t} 批${where()}`,
+    next: () => (i < total ? { i: i++ } : null),
+    act: ({ i }) => (progress(`AI 正在处理${which(i, true)}…`), send(request(i, p))),
+    judge: aiJudge(),
+    done({ i }, x) {
+      if (x.ok) return answered++, merge(p, x.data, i);
+      p.errors.push(`${which(i)}失败：${x.error}`);
       // 截断 is reported with what to change.
-      if (ends || /截断/.test(r.error || "")) handleAiError(r.error, r.code);
-      if (ends) break;
-    } else {
-      answered++;
-      merge(p, r.data, i);
+      if (/截断/.test(x.error || "")) handleAiError(x.error, x.code);
     }
-    if (i + 1 < total) await sleepWhile(intervalMs, keepGoing);
+  });
+
+  if (r.error) {
+    p.errors.push(`${which(i - 1)}失败：${r.error}`);
+    handleAiError(r.error, r.code);
   }
-  if (!keepGoing()) p.errors.push("已手动停止，这里只有已完成批次的建议");
+  if (r.stopped) p.errors.push("已手动停止，这里只有已完成批次的建议");
   for (const t of p.newTags) t.checked = p.rows.some((r) => r.add.includes(`new:${t.key}`));
   progress(answered ? "" : p.errors.join("；"));
   return { proposal: answered ? p : null, errors: p.errors };
@@ -3399,7 +3337,7 @@ async function runAiBatches({ total, request, merge, intervalMs, keepGoing, prog
 
 // instruction, scope and allowRemove come from the dialog, which has checked that there is an instruction and items.
 async function runAiCommand({ instruction, scope, allowRemove }) {
-  if (S.ai.running || S.mediaId === REMOVED) return;
+  if (aiRunning() || S.mediaId === REMOVED) return;
   const items = aiScopeItems(scope);
   if (!items.length) return;
   S.aiHistory = [instruction, ...S.aiHistory.filter((x) => x !== instruction)].slice(0, 5);
@@ -3429,11 +3367,9 @@ async function runAiCommand({ instruction, scope, allowRemove }) {
     const part = parts.findLast((x) => x.from <= i);
     return [part, i - part.from];
   };
-  S.ai.running = true;
   S.ai.mediaId = folder;
-  S.ai.stop = false;
-  renderTop();
-  const { proposal: p, errors } = await runAiBatches({
+  const running = runAiBatches({
+    job: "ai",
     total: from,
     request: (i) => {
       const [part, j] = partOf(i);
@@ -3448,13 +3384,12 @@ async function runAiCommand({ instruction, scope, allowRemove }) {
       const [part, j] = partOf(i);
       return `「${folderName(part.folder)}」第 ${j + 1}/${part.n} 批`;
     } : undefined,
+    where: () => (S.ai.mediaId === String(S.mediaId) ? "" : `（${folderName(S.ai.mediaId)}）`),
     intervalMs: S.settings.triageIntervalSec * 1000,
-    keepGoing: () => !S.ai.stop,
-    progress: (text) => (TagDialogs.ai.progress(aiTags, text, folder), renderStatus()),
-    at: S.ai,
-    job: "ai"
+    progress: (text) => (TagDialogs.ai.progress(aiTags, text, folder), renderStatus())
   });
-  S.ai.running = false;
+  renderTop();
+  const { proposal: p, errors } = await running;
   if (p) {
     for (const t of p.newTags) if (t.folder) t.where = folderName(t.folder);
     S.ai.proposals[folder] = p;
@@ -3617,15 +3552,15 @@ function writeScopeItems(scope = el.writeScope.value, notes = el.writeFormat?.va
 
 // The 阅览 tab opens it preset; a running notes export keeps its own choice.
 function openWrite({ scope, format } = {}) {
-  if (!S.write.running && scope) [el.writeScope.value, el.writeFormat.value] = [scope, format];
+  if (!writeRunning() && scope) [el.writeScope.value, el.writeFormat.value] = [scope, format];
   // A notes run, running or finished, keeps its progress and failures here until the next export.
-  if (!S.write.running && !S.write.text) clearWriteResult();
+  if (!writeRunning() && !S.write.text) clearWriteResult();
   renderWriteScope();
   el.writeDialog.showModal();
 }
 
 function stopWrite() {
-  S.write.stop = true;
+  runs.stop("write");
   el.writeProgress.textContent = "将在当前视频后停止…";
   renderStatus();
 }
@@ -3647,8 +3582,8 @@ function renderWriteScope() {
     o.disabled = !c;
   }
   if (el.writeScope.selectedOptions[0]?.disabled) el.writeScope.value = [...el.writeScope.options].find((o) => !o.disabled)?.value || "filter";
-  const busy = S.write.running;
-  const n = busy ? S.write.total : writeScopeItems().length;
+  const busy = runs.get("write");
+  const n = busy ? busy.total : writeScopeItems().length;
   const notes = el.writeFormat.value === "notes";
   const obsidianOff = document.body.classList.contains("obsidian-off");
   el.writeScopeCount.textContent = notes
@@ -3726,58 +3661,66 @@ async function runWrite(md = false) {
   const oneLiners = Object.fromEntries(items.map((it) => [it.bvid, S.analyses[it.bvid]?.oneLiner]));
   clearWriteResult();
   if (el.banner.dataset.kind === "obsidian") el.banner.hidden = true;
-  S.write = { running: true, stop: false, md, done: 0, total: items.length, mediaId: String(S.mediaId), text: "" };
-  const keepGoing = () => !S.write.stop;
-  renderWriteScope();
-  renderStatus();
+  S.write = { md, mediaId: String(S.mediaId), text: "" };
   const written = [];
   const failed = [];
   const showFailed = () => {
     el.writeFailed.innerHTML = failed.map((f) => `<li>${esc(f)}</li>`).join("");
     el.writeFailed.hidden = !failed.length;
   };
-  // Obsidian closed, not set up or refusing the key fails every note alike: checked first, and such a failure ends the run.
   let obsidian = null; // the reply that showed Obsidian itself is unusable
-  if (!md) {
-    el.writeProgress.textContent = "正在检查 Obsidian…";
-    const r = await send({ type: "triage-obsidian-check" });
-    if (!r.ok) obsidian = r;
-  }
-  for (let i = 0; i < items.length && !obsidian && keepGoing(); i++) {
-    const it = items[i];
-    el.writeProgress.textContent = `${md ? "生成" : "写入"} ${i + 1}/${items.length}：${it.title}`;
-    const r = await send(md ? { type: "triage-build-note", bvid: it.bvid } : { type: "triage-write-note", bvid: it.bvid, overwrite });
-    // B站 risk control: wait as 粗看 / 细看 do, then the same video again.
-    if (!r.ok && THROTTLES[r.code]) {
-      el.writeProgress.textContent = `${THROTTLES[r.code].label}，等待后重试：${it.title}`;
-      await waitOut("write", THROTTLES[r.code], keepGoing);
-      i--;
-      continue;
-    }
-    if (!r.ok && OBSIDIAN_CODES.has(r.code)) {
-      obsidian = r;
-      break;
-    }
-    if (r.ok) written.push({ ...r.data, bvid: it.bvid, oneLiner: oneLiners[it.bvid] });
-    else {
-      failed.push(`${it.title}：${r.error}`);
-      showFailed();
-    }
-    S.write.done = i + 1;
-    renderStatus();
-    if (i + 1 < items.length) await sleepWhile(S.settings.triageIntervalSec * 1000, keepGoing);
-  }
   let indexPath = "";
+  let i = 0;
+  let index = false;
+  const verb = md ? "生成" : "写入";
+  const running = runs.run("write", {
+    total: items.length,
+    gap: S.settings.triageIntervalSec * 1000,
+    line: (d, t) => `${verb}笔记 ${d}/${t}${runWhere(S.write)}`,
+    finished: () => S.write.text && `${S.write.text}${runWhere(S.write)}`,
+    // Obsidian closed, not set up or refusing the key fails every note alike: checked first, and such a failure ends the run.
+    async plan() {
+      if (md) return {};
+      el.writeProgress.textContent = "正在检查 Obsidian…";
+      const r = await send({ type: "triage-obsidian-check" });
+      return r.ok ? {} : void (obsidian = r);
+    },
+    // Each video, then the vault's index (no gap before it) once every video is done.
+    next() {
+      if (i < items.length) return { it: items[i], i: i++ };
+      if (md || index || !written.length) return null;
+      return (index = { index: true, n: 0, gap: 0 });
+    },
+    act(s) {
+      if (s.index) return send({ type: "triage-export", filename: `${safeNoteName(title)}.md`, markdown: indexMarkdown(written, wikiLink, title) });
+      el.writeProgress.textContent = `${verb} ${s.i + 1}/${items.length}：${s.it.title}`;
+      return send(md ? { type: "triage-build-note", bvid: s.it.bvid } : { type: "triage-write-note", bvid: s.it.bvid, overwrite });
+    },
+    // B站 risk control: wait as 粗看 / 细看 do, then the same video again.
+    judge(r) {
+      if (runs.hold(r)) {
+        el.writeProgress.textContent = `${runs.hold(r).label}，等待后重试：${items[i - 1].title}`;
+        return "wait";
+      }
+      return r.ok ? "ok" : OBSIDIAN_CODES.has(r.code) ? "stop" : "item";
+    },
+    done(s, r) {
+      if (s.index) indexPath = r.ok ? r.data?.path || "" : (failed.push(`索引：${r.error}`), "");
+      else if (r.ok) written.push({ ...r.data, bvid: s.it.bvid, oneLiner: oneLiners[s.it.bvid] });
+      else {
+        failed.push(`${s.it.title}：${r.error}`);
+        showFailed();
+      }
+    }
+  });
+  renderWriteScope();
+  const run = await running;
+  if (run.error) obsidian = { error: run.error, code: run.code };
   if (md && written.length) {
     const base = safeNoteName(title);
     indexPath = `${base}.zip`;
     BocDownload.text(indexPath, zipStored(zipNotes(base, written, title)), "application/zip");
-  } else if (written.length && keepGoing() && !obsidian) {
-    const r = await send({ type: "triage-export", filename: `${safeNoteName(title)}.md`, markdown: indexMarkdown(written, wikiLink, title) });
-    if (r.ok) indexPath = r.data?.path || "";
-    else failed.push(`索引：${r.error}`);
   }
-  S.write.running = false;
   const skipped = written.filter((w) => w.skipped).length;
   const aiUpdated = written.filter((w) => w.aiUpdated).length;
   const counts = [
@@ -3787,7 +3730,7 @@ async function runWrite(md = false) {
     failed.length ? `失败 ${failed.length} 篇` : ""
   ].filter(Boolean);
   el.writeProgress.textContent = [
-    obsidian ? `写入 Obsidian 失败：${obsidian.error}。已停止` : S.write.stop ? "已停止。" : "完成。",
+    obsidian ? `写入 Obsidian 失败：${obsidian.error}。已停止` : run.stopped ? "已停止。" : "完成。",
     ...counts,
     indexPath ? `${md ? "文件" : "索引"}：${indexPath}` : ""
   ].filter(Boolean).join(" · ");
@@ -3797,7 +3740,8 @@ async function runWrite(md = false) {
   showFailed();
   // The pill's green line; an Obsidian failure goes to the red banner instead, with 去设置 unless Obsidian is just not running.
   if (obsidian) showBanner(`写入 Obsidian 失败：${obsidian.error}`, toSettings ? "去设置" : "", () => send({ type: "open-options" }), "obsidian");
-  else S.write.text = `逐个视频笔记${S.write.stop ? "已停止" : "完成"}：${counts.join(" · ")}`;
+  else S.write.text = `逐个视频笔记${run.stopped ? "已停止" : "完成"}：${counts.join(" · ")}`;
+
   renderWriteScope();
   renderStatus();
 }
@@ -3970,17 +3914,15 @@ function bindEvents() {
     if (act === "tags") openAi();
     else if (act === "aiOther") openFolder(otherAiFolder()).then(openAi);
     else if (act === "stage1") {
-      if (!S.stage1.running) {
+      if (!runs.get("stage1")) {
         const list = stage1Pending();
         return startJudging("标题粗看", "粗看", list, () => runStage1(list));
       }
-      S.stage1.stop = true;
-      S.stage1.text = "粗看将在当前批次后暂停";
+      runs.stop("stage1");
       render();
     } else if (act === "group") {
       if (S.group) {
-        S.group.stop = true;
-        S.group.text = "细看将在当前视频后暂停";
+        runs.stop("group");
         return render();
       }
       const batch = nextBatch();

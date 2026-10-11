@@ -277,7 +277,7 @@ assert.deepStrictEqual([t.dirLabel("last", "desc"), t.dirLabel("follow", "asc"),
 // 视频投稿 paging on B站限流: the stuck pill counts down, then loads again by itself; a selection belongs to its tab.
 {
   assert.ok(source.includes('if (r.code === "THROTTLED") waitFeed(f);') && /if \(!f\.hasMore \|\| f\.loading \|\| f\.wait\) return;/.test(source), "限流 waits instead of an error, and nothing loads during the wait");
-  assert.ok(/function waitFeed[\s\S]*?T\.waitOut\("follow-feed", \{ ms: UI\.BILI_HOLD_MS[\s\S]*?f\.wait = false;\s*if \(here\(\)\) more\(\);/.test(source) && /if \(f\.wait\) \{[\s\S]*?stuck: true/.test(source), "countdown, then retry");
+  assert.ok(/function waitFeed[\s\S]*?runs\.wait\("follow-feed", runs\.hold\(\{ code: "THROTTLED" \}\), here\);\s*f\.wait = false;\s*if \(here\(\)\) more\(\);/.test(source) && /if \(f\.wait\) \{[\s\S]*?stuck: true/.test(source), "countdown, then retry");
   assert.ok(/function setTab\(tab\) \{[^}]*if \(tab !== F\.tab\) F\.sel\.clear\(\);/.test(source), "switching UP 主 / 视频投稿 clears the selection");
   // S3: both tabs share #fwList, so the other tab starts at the top.
   assert.ok(/function setTab\(tab\) \{[^}]*E\.list\.scrollTop = 0;\s*render\(\);/.test(source), "switching tabs scrolls to the top");
@@ -293,45 +293,51 @@ assert.ok(/function tagByKey\(\) \{\s*if \(F\.viewing\) return void \(F\.viewing
   assert.strictEqual(t.playingMid("BVa", undefined, ups), "u1", "no 视频投稿 loaded");
 }
 
-// G5 / L2: B站 writes go one by one with a gap; on B站限流 the pill counts down and the same request goes again; 停止 keeps
-// what went through.
+// G5 / L2 / A5: 关注's B站 writes are a second writes.js adapter on 关注's own runs: one by one with a gap, on B站限流 the
+// pill keeps its line and counts down 90 s, then the same request goes again; 停止 keeps what went through. Its lane is
+// its own, so a 收藏夹 batch never blocks it.
 (async () => {
-  const code = source.slice(source.indexOf("const WRITE_GAP_MS"), source.indexOf("async function unfollow("));
-  const env = { F: { sel: new Set(), busyN: [0, 0] }, UI: t.TriageUi, toasts: [], sent: [], answers: [], stopAfter: Infinity, waits: [], jobs: [] };
-  // MoonTriage's waitOut / waitOf (triage.js; triage.selftest.js tests them) stand in: one job's countdown, redrawn by onTick.
-  const slots = {};
-  env.T = {
-    waitOf: (job) => (slots[job] ? t.TriageUi.waitText(slots[job].label, Math.ceil((slots[job].until - env.clock) / 1000)) : ""),
-    async waitOut(job, { ms, label }, keepGoing, onTick) {
-      env.jobs.push([job, ms]);
-      slots[job] = { until: env.clock + ms, label };
-      while (keepGoing() && env.clock < slots[job].until) (onTick(), (env.clock += 1000), await new Promise((r) => setImmediate(r)));
-      delete slots[job];
-      onTick();
-    }
+  for (const f of ["runs.js", "writes.js"]) vm.runInContext(fs.readFileSync(path.join(__dirname, f), "utf8"), ctx);
+  const code = source.slice(source.indexOf("const runs = BocRuns.create("), source.indexOf("async function unfollow("));
+  const env = { F: { sel: new Set(["1", "2", "3"]) }, toasts: [], sent: [], answers: [], clock: 0, waits: [], gaps: [] };
+  // The real runs.js on a fake clock: a sleep moves it on at once, or stops once ok() turns false.
+  const BocRuns = {
+    create: (o) => ctx.BocRuns.create({
+      ...o,
+      now: () => env.clock,
+      async sleep(ms, ok = () => true) {
+        if (ms === 1000 && !env.waiting) env.gaps.push(ms);
+        for (let left = ms; left > 0 && ok(); left -= 100) (env.clock += 100), await new Promise((r) => setImmediate(r));
+      }
+    })
   };
-  const run = new Function("env", `const { F, UI, T } = env; const nowSec = () => Date.now() / 1000;
+  const T = { hold: () => null };
+  const run = new Function("env", "BocRuns", "BocWrites", "UI", "T", `const { F } = env; const D = {}; const AI = {}; const PHASE = {}; const nowSec = () => env.clock / 1000;
     const send = async (c) => (env.sent.push(c.mid), env.answers.shift() || { ok: true });
-    const toast = (m) => env.toasts.push(m); const load = async () => {}; const render = () => {}; const renderSel = () => {};
-    const renderSync = () => { const w = F.busy && T.waitOf("follow-write"); if (w) env.waits.push(w); if (env.sent.length >= env.stopAfter) F.busyStop = true; };
-    const setTimeout = (f) => setImmediate(f); const Date = { now: () => (env.clock += 1000) };
-    ${code}; return { relationRun, WRITE_GAP_MS };`);
-  env.clock = 0;
-  const fns = run(env);
+    const toast = (m) => env.toasts.push(m); const load = async () => {}; const render = () => {}; const renderSel = () => {}; const renderFoot = () => {};
+    let runs;
+    const renderSync = () => { const w = runs?.get("follow-write")?.wait; env.waiting = Boolean(w); if (w) env.waits.push(runs.pill(["follow-write"]).text); if (env.sent.length >= env.stopAfter) (env.stopAfter = Infinity), W.stop(); };
+    ${code.replace("const runs = ", "runs = ")}; return { relationRun, W, runs };`);
+  const fns = run(env, BocRuns, ctx.BocWrites, t.TriageUi, T);
   const calls = ["1", "2", "3"].map((mid) => ({ mid }));
   env.answers = [{ ok: true }, { ok: false, code: "THROTTLED" }, { ok: true }, { ok: true }];
   assert.strictEqual(await fns.relationRun(calls, "取消关注"), 3);
   assert.deepStrictEqual(env.sent, ["1", "2", "2", "3"], "the throttled request goes again, then the rest");
-  assert.ok(env.waits.length > 10, "the pill counts down the wait");
-  assert.strictEqual(env.waits[0], "取消关注中 2/3 · B站限流卡住，1:30 后重试");
-  assert.deepStrictEqual(env.jobs, [["follow-write", 90000]], "关注's own job: it never takes the 收藏夹 pill's slot");
-  assert.deepStrictEqual(env.toasts, ["已取消关注 3 个"]);
+  assert.deepStrictEqual(env.gaps, [1000, 1000], "a gap between two UP 主, none after the limit's countdown");
+  assert.strictEqual(env.waits[0], "取消关注中 1/3 · B站限流卡住，1:30 后重试", "the count is what went through");
+  assert.ok(env.waits.length > 80 && env.waits.at(-1).endsWith("0:01 后重试"), "the pill counts down the wait");
+  assert.deepStrictEqual([env.toasts, [...env.F.sel]], [["已取消关注 3 个"], []]);
   // 停止 during the wait: what went through stays, the run says how far it got.
-  Object.assign(env, { sent: [], toasts: [], stopAfter: 2, answers: [{ ok: true }, { ok: false, code: "THROTTLED" }] });
+  Object.assign(env, { sent: [], toasts: [], waits: [], stopAfter: 2, answers: [{ ok: true }, { ok: false, code: "THROTTLED" }] });
   assert.strictEqual(await fns.relationRun(calls, "取消关注", { quiet: true }), 1);
   assert.deepStrictEqual(env.sent, ["1", "2"]);
   assert.deepStrictEqual(env.toasts, ["已停止取消关注：完成 1 个，未完成 2 个"]);
+  // A failure stops there and says which; the lane is free after it.
+  Object.assign(env, { sent: [], toasts: [], stopAfter: Infinity, answers: [{ ok: true }, { ok: false, error: "-352" }] });
+  assert.strictEqual(await fns.relationRun(calls, "重新关注"), 1);
+  assert.deepStrictEqual([env.toasts, fns.W.busy()], [["重新关注第 2 个时出错：-352（前 1 个已完成）"], ""]);
   assert.ok(!/过一会儿再试/.test(source), "no 「过一会儿再试」 without a countdown");
+  assert.ok(!/F\.busy/.test(source), "the write running is W's, not page state");
 })().catch((e) => {
   console.error(e);
   process.exit(1);
