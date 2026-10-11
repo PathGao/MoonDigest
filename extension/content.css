@@ -18,7 +18,6 @@
   --boc-muted: #61666d;
   --boc-faint: #6d7279;
   --boc-accent: #ff6699;
-  --boc-on-accent: #ffffff;
   --boc-focus-ring: rgba(255, 102, 153, 0.3);
   --boc-action: #00aeec;
   --boc-action-hover: #0098ce;
@@ -50,13 +49,11 @@
   --boc-space-3: 12px;
   --boc-space-4: 16px;
   --boc-space-5: 24px;
-  --boc-space-6: 32px;
   --boc-fs-xs: 12px;
   --boc-fs-sm: 13px;
   --boc-fs-md: 14px;
   --boc-fs-lg: 15px;
   --boc-fs-xl: 19px;
-  --boc-fs-2xl: 24px;
   --boc-font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Helvetica Neue", Arial, sans-serif;
   --boc-font-mono: ui-monospace, SFMono-Regular, Menlo, monospace;
 }
@@ -76,7 +73,6 @@ html[data-boc-reader-mode="1"][data-boc-reader-theme="dark"] {
   --boc-muted: #a2a7ae;
   --boc-faint: #8a8f96;
   --boc-accent: #ff6699;
-  --boc-on-accent: #ffffff;
   --boc-focus-ring: rgba(255, 102, 153, 0.35);
   --boc-action: #00aeec;
   --boc-action-hover: #33bef0;
@@ -115,7 +111,6 @@ html[data-boc-reader-mode="1"][data-boc-reader-theme="dark"] {
     --boc-muted: #a2a7ae;
     --boc-faint: #8a8f96;
     --boc-accent: #ff6699;
-    --boc-on-accent: #ffffff;
     --boc-focus-ring: rgba(255, 102, 153, 0.35);
     --boc-action: #00aeec;
     --boc-action-hover: #33bef0;
