@@ -279,7 +279,7 @@ const S = {
   stage1Skip: new Set(),
   analyzing: new Set(),
   // Every B站 / AI limit wait of both modes (waitOut), one per job: { until, label, onTick }. 收藏夹's jobs are "stage1",
-  // "group", "unfav", "write", "load", "check" and "ai"; 关注's start with "follow-". Each job
+  // "group", "unfav", "transfer", "refav", "write", "load", "check" and "ai"; 关注's start with "follow-". Each job
   // shows and clears only its own countdown.
   waits: {},
   seenRead: { busy: false, pages: 0, until: 0 }, // the background's read of the watch history (triage_seen_meta)
@@ -1850,14 +1850,20 @@ function activityState() {
     return { text: wait || text, done: S.stage1.done, total: S.stage1.total, act: "stage1", actLabel: S.stage1.stop ? "暂停中" : "暂停粗看", stopping: S.stage1.stop, stuck: Boolean(wait) };
   }
   const move = S.transferRun;
-  if (move) return { text: `${move.verb}到「${move.toName}」${move.done}/${move.total}${runWhere(move)}`, done: move.done, total: move.total };
+  if (move) {
+    const wait = waitOf("transfer");
+    return { text: wait || `${move.verb}到「${move.toName}」${move.done}/${move.total}${runWhere(move)}`, done: move.done, total: move.total, stuck: Boolean(wait) };
+  }
   const unfav = S.unfavBatch;
   if (unfav) {
     const wait = waitOf("unfav");
     return { text: wait || `取消收藏中${unfavWhere(unfav)} ${unfav.done}/${unfav.total}${runWhere(unfav)}`, done: unfav.done, total: unfav.total, stuck: Boolean(wait) };
   }
   const refav = S.refavRun;
-  if (refav) return { text: `重新收藏中${unfavWhere(refav)} ${refav.done}/${refav.total}${runWhere(refav)}`, done: refav.done, total: refav.total };
+  if (refav) {
+    const wait = waitOf("refav");
+    return { text: wait || `重新收藏中${unfavWhere(refav)} ${refav.done}/${refav.total}${runWhere(refav)}`, done: refav.done, total: refav.total, stuck: Boolean(wait) };
+  }
   const w = S.write;
   if (w.running) {
     const wait = waitOf("write");
@@ -2181,6 +2187,11 @@ async function refavMany(mediaId, items, run = null) {
   while (rest.length) {
     if (n) await new Promise((r) => setTimeout(r, 300));
     const r = await send({ type: "triage-refav", mediaId, aid: rest[0].aid });
+    // B站 risk control: wait out the countdown, then the same video again (as batch 取消收藏).
+    if (!r.ok && THROTTLES[r.code]) {
+      await waitOut("refav", THROTTLES[r.code], () => true);
+      continue;
+    }
     if (!r.ok) {
       error = r.error;
       break;
@@ -2864,6 +2875,12 @@ async function batchTransfer(list) {
     render();
     const r = await send({ type: "triage-transfer", from: add ? "" : from, to, aids: chunk.map((it) => it.aid), move });
     chunk.forEach((it) => moving.delete(it.bvid));
+    // B站 risk control: wait out the countdown, then the same chunk again (as batch 取消收藏).
+    if (!r.ok && THROTTLES[r.code]) {
+      await waitOut("transfer", THROTTLES[r.code], () => true);
+      i -= size;
+      continue;
+    }
     if (!r.ok) {
       toast(`${S.mediaId === from ? "" : `「${folderName(from)}」`}${verb}到「${toName}」中断（已完成 ${done} 个）：${r.error}`, true);
       break;

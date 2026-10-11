@@ -220,6 +220,38 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   assert.deepStrictEqual(store[t.K.decisions("D")], {});
   assert.strictEqual(t.S.undo.length, 0);
 
+  // X9: 重新收藏 and 移动/复制 wait out a B站 limit with the amber countdown, then send the same video / chunk again.
+  {
+    const realWait = t.waitOut, saved = { allFolders: t.S.allFolders, folders: t.S.folders, included: t.S.included }, realAsk = t.askTransfer;
+    const pills = [];
+    t.waitOut = async (job, w) => {
+      t.S.waits[job] = { until: Date.now() + 90000, label: w.label };
+      pills.push([job, t.activityState().text, t.activityState().stuck]);
+      delete t.S.waits[job];
+    };
+    const limitedOnce = (log) => (m) => (log.push(m.aid || m.aids), log.length === 1 ? { ok: false, code: "THROTTLED", error: "412" } : { ok: true });
+    const refavs = [];
+    openFake("R", [], { BV60: { action: "unfav", at: 1, aid: 1060, title: "视频60" } });
+    handlers["triage-refav"] = limitedOnce(refavs);
+    await t.refavRecent("BV60");
+    assert.deepStrictEqual(plain(refavs), [1060, 1060]);
+    assert.ok(!("BV60" in store[t.K.decisions("R")]) && toasts.at(-1) === "已重新收藏《视频60》", toasts.at(-1));
+    const moves = [];
+    t.S.allFolders = t.S.folders = [{ id: "R", title: "源" }, { id: "T", title: "目标" }];
+    t.S.included = ["R", "T"];
+    openFake("R", [item(61), item(62)]);
+    handlers["triage-transfer"] = limitedOnce(moves);
+    t.askTransfer = async () => ({ how: "copy", target: { id: "T" } });
+    await t.batchTransfer([item(61), item(62)]);
+    assert.deepStrictEqual(plain(moves), [[1061, 1062], [1061, 1062]]);
+    assert.strictEqual(toasts.at(-1), "已复制 2 个到「目标」");
+    assert.deepStrictEqual(pills, [["refav", "B站限流卡住，1:30 后重试", true], ["transfer", "B站限流卡住，1:30 后重试", true]]);
+    Object.assign(t.S, saved);
+    t.askTransfer = realAsk;
+    t.waitOut = realWait;
+    settled();
+  }
+
   // G2: 稍后再看 goes one video per request; a B站 limit waits and retries the same one; a failure keeps the ones done
   // (recorded, undoable) and says how many.
   {
