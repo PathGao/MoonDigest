@@ -1703,6 +1703,20 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   await t.loadFolders();
   assert.deepStrictEqual(Object.keys(store[t.K.removed]), ["BV1"], "BV2 is still in chosen folder 2");
   assert.ok(!store.triage_snapshot_1 && store.triage_snapshot_2 && store.triage_decisions_2);
+  // R12: 稍后再看 missing from the list because its read failed is not deleted: its videos and records stay.
+  {
+    const removedBefore = plain(store[t.K.removed]);
+    Object.assign(store, { triage_included_folders: ["2", "toview"], triage_snapshot_toview: { bvids: ["BV5"], items: [item(5)] }, triage_decisions_toview: { BV6: { action: "unfav" } } });
+    handlers["triage-folders"] = () => ({ ok: true, data: { folders: [{ id: 2, count: 2 }], toviewUnread: true } });
+    await t.loadFolders();
+    assert.ok(store.triage_snapshot_toview && store.triage_decisions_toview, "稍后再看 kept");
+    assert.deepStrictEqual(plain(store[t.K.removed]), removedBefore, "nothing moved to 已出分拣范围");
+    handlers["triage-folders"] = () => ({ ok: true, data: { folders: [{ id: 2, count: 2 }] } });
+    store.triage_included_folders = ["2"];
+    await t.loadFolders();
+    assert.ok(!store.triage_snapshot_toview && "BV5" in store[t.K.removed], "a read 稍后再看 that is unticked retires as before");
+    delete store[t.K.removed].BV5;
+  }
   // saveSnapshot counts only chosen folders: BV3 left folder 2 and only an unchosen folder's stale list had it.
   store.triage_snapshot_9 = { bvids: ["BV3"], items: [item(3)] };
   await t.saveSnapshot("2", [item(2)]);

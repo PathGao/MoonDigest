@@ -922,6 +922,7 @@ function retireUnchosenFolders() {
     if (!S.allFolders.length) return; // 默认收藏夹 always exists; an empty list is never "every folder deleted"
     if (!S.included.length) return; // nothing chosen yet (or all unticked by accident): never empty every folder into 已出分拣范围
     const live = new Set(S.folders.map((f) => String(f.id)));
+    if (S.toviewUnread) live.add(TOVIEW); // missing because its read failed, not deleted: keep it until the next read
     const keys = ((await chrome.storage.local.getKeys?.()) ?? Object.keys((await chrome.storage.local.get(null)) || {})).filter((k) => k.startsWith(KEYS.triageSnapshotPrefix));
     const gone = keys.map((k) => k.slice(KEYS.triageSnapshotPrefix.length)).filter((id) => !live.has(id));
     if (!gone.length) return;
@@ -975,6 +976,7 @@ async function loadFolders() {
     return;
   }
   S.allFolders = r.data.folders || [];
+  S.toviewUnread = Boolean(r.data.toviewUnread);
   S.mid = r.data.mid;
   S.included = (await loadIncluded()).map(String);
   S.folders = S.allFolders.filter((f) => S.included.includes(String(f.id)));
@@ -4177,6 +4179,8 @@ function bindEvents() {
     renderTagLimit();
     toast("设置已保存");
     const included = [...el.folderToggles.querySelectorAll("input:checked")].map((x) => x.value);
+    // 稍后再看 had no checkbox (its read failed): its choice stays as it was.
+    if (S.toviewUnread && S.included.includes(TOVIEW)) included.push(TOVIEW);
     const same = included.length === S.included.length && included.every((id) => S.included.includes(id));
     if (S.allFolders.length && !same) {
       await storeSet(K.included, included);

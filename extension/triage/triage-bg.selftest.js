@@ -579,7 +579,13 @@ assert.throws(() => t.triageParseCommand('{"new_tags":[', cmdItems, cmdTags, {})
       { id: "toview", title: "稍后再看", count: 3, cover: "https://i1.hdslb.com/t.jpg" },
       { id: 1, title: "甲", count: 4, cover: "https://i0.hdslb.com/a.jpg" },
       { id: 2, title: "乙", count: 1, cover: "" }
-    ]);
+    ]);    assert.ok(!("toviewUnread" in r));
+    // R12: a failed 稍后再看 read says so instead of leaving it out as if deleted.
+    const realFetch = t.fetch;
+    t.fetch = async (url) => (/toview/.test(url) ? { ok: true, status: 200, json: async () => ({ code: -101, message: "账号未登录" }) } : realFetch(url));
+    const failed = plain(await H["triage-folders"]());
+    assert.deepStrictEqual([failed.toviewUnread, failed.folders.map((f) => f.id)], [true, [1, 2]]);
+    t.fetch = realFetch;
   }
 
   // 看过: percent is progress over duration, -1 = finished, capped at 100; 0 is not stored.

@@ -505,9 +505,11 @@ async function triageCreatedFolders() {
     list.push(...(data?.list || []));
     if (!data?.has_more || !data.list?.length) break;
   }
+  // A failed read is not a deleted 稍后再看: toviewUnread tells the page to keep its data and read it next time.
   const toview = await triageBiliGet("https://api.bilibili.com/x/v2/history/toview/web?pn=1&ps=1&viewed=0").catch(() => null);
   return {
     mid,
+    ...(toview ? {} : { toviewUnread: true }),
     folders: [
       // 稍后再看 has no folder cover of its own: use the newest unwatched video's cover, like a folder's first video.
       ...(toview ? [{ id: TRIAGE_TOVIEW, title: "稍后再看", count: toview.count || 0, ...(toview.list?.[0]?.pic ? { cover: String(toview.list[0].pic).replace(/^http:\/\//, "https://") } : {}) }] : []),
