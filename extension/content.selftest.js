@@ -362,6 +362,20 @@ const settle = async () => {
     assert.strictEqual(video.currentTime, 75);
   }
 
+  // 分拣台's side panel asks a viewer frame for the video it names: a frame that autoplayed on to another one keeps quiet,
+  // so the panel reads the named video like a closed page's instead of taking this one.
+  {
+    const realClip = t.clipContext;
+    t.clipContext = async () => ({ ok: true, payload: { videoId: "BV1GJ411x7h7" } });
+    const ask = (videoId) => new Promise((resolve) => {
+      const kept = listeners.message.map((f) => f({ type: "sidepanel-get-context", videoId }, {}, resolve));
+      if (!kept.includes(true)) resolve("no answer");
+    });
+    assert.strictEqual(await ask("BV1xx411c7mD"), "no answer");
+    assert.strictEqual((await ask("BV1GJ411x7h7")).payload.videoId, "BV1GJ411x7h7");
+    t.clipContext = realClip;
+  }
+
   // G5: focus mode is one value; every event outside the table is refused and changes nothing.
   {
     const phase = () => [state.readerPhase, state.readerMode, state.readingViewOpen, state.readingViewReady];

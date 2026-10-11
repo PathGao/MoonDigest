@@ -340,7 +340,8 @@ function normalizePlayerAiQuickActionRequest(value) {
     prompt,
     tabId,
     createdAt: Number(value.createdAt) || Date.now(),
-    contextRef: value.contextRef && typeof value.contextRef === "object" ? value.contextRef : null
+    contextRef: value.contextRef && typeof value.contextRef === "object" ? value.contextRef : null,
+    frameId: Number(value.frameId) || 0
   };
 }
 
@@ -373,6 +374,7 @@ async function handlePlayerAiQuickActionRequest(value, { fromStorageChange = tru
 
   // A reference (分拣台, 视频记录) names its video; otherwise AI 总结 is about the tab's, so read it first.
   if (!request.contextRef) await loadContextState({ silent: true });
+  else if (request.frameId) viewerFrame = { tabId: request.tabId, frameId: request.frameId, videoId: String(request.contextRef.videoId || "") };
   await act({ type: "SUMMARY", prompt: request.prompt, ref: request.contextRef });
   return true;
 }
@@ -1287,6 +1289,9 @@ async function ensureCurrentContextForSend() {
 async function hydratePinnedConversationContext({ silent = false } = {}) {
   const { epoch, pinned, resolved } = state.view();
   if (resolved) {
+    // Like a video page's context at each send: the viewer playing this video answers again (a track picked since).
+    const again = await askViewerFrame(pinned.contextRef);
+    if (again) state.dispatch({ type: "CONTEXT_RESOLVED", epoch, payload: again.payload });
     updateContextChip();
     removeConversationContextNotice();
     return true;
@@ -1325,8 +1330,25 @@ async function hydratePinnedConversationContext({ silent = false } = {}) {
   return false;
 }
 
+// 分拣台's viewer frame that last asked for AI 总结: { tabId, frameId, videoId }. Its content script answers for its
+// video like a video page does (the track picked in its 专注模式 included); once it is closed or plays another video,
+// the conversation's video is read like a closed video page's.
+let viewerFrame = null;
+
+async function askViewerFrame(contextRef) {
+  const frame = viewerFrame;
+  if (!frame || frame.videoId !== String(contextRef?.videoId || "")) return null;
+  if ((await getActiveTab().catch(() => null))?.id !== frame.tabId) return null;
+  const resp = await sendRuntimeMessage({ type: "ai-sidepanel-get-state", tabId: frame.tabId, frameId: frame.frameId, videoId: frame.videoId }).catch(() => null);
+  if (resp?.ok && resp.payload) return resp;
+  if (viewerFrame === frame) viewerFrame = null;
+  return null;
+}
+
 async function resolveConversationContext(contextRef) {
   const tab = await getActiveTab().catch(() => null);
+  const fromViewer = await askViewerFrame(contextRef);
+  if (fromViewer) return fromViewer;
   return sendRuntimeMessage({
     type: "ai-sidepanel-resolve-context",
     tabId: Number(tab?.id || 0) || 0,

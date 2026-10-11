@@ -511,6 +511,8 @@ function bindRuntimeEvents() {
 
     // The side panel and the player's ✦ (through background.js) read the video here; refresh is their 刷新.
     if (message.type === "sidepanel-get-context") {
+      // From 分拣台's side panel (videoId): a viewer that autoplayed on to another video does not answer for it.
+      if (message.videoId && MdgSites.parseRef(location.href)?.id !== message.videoId) return false;
       clipContext(message.refresh === true)
         .then(sendResponse)
         .catch((error) => sendResponse({ ok: false, error: fetchErrorText(error) }));

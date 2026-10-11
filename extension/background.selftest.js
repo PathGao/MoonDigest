@@ -404,13 +404,22 @@ process.on("exit", (code) => {
     const manifest = JSON.parse(fs.readFileSync(path.join(__dirname, "manifest.json"), "utf8"));
     const injected = [];
     const installed = [];
+    const onMessage = [];
+    const stored = [];
+    const sentTo = [];
     const tabsByMatch = { "https://www.bilibili.com/video/*": [{ id: 1 }], "https://www.bilibili.com/*": [{ id: 1 }, { id: 2 }] };
     const fake = (over) => new Proxy(over, { get: (o, k) => (k in o ? o[k] : anything) });
     const ictx = vm.createContext({
       console, setTimeout, clearTimeout, URL, URLSearchParams, TextDecoder, TextEncoder, AbortController, AbortSignal,
       chrome: fake({
-        runtime: fake({ getManifest: () => manifest, onInstalled: { addListener: (fn) => installed.push(fn) } }),
-        tabs: fake({ query: async ({ url }) => [...new Map(url.flatMap((u) => tabsByMatch[u] || []).map((t) => [t.id, t])).values()] }),
+        runtime: fake({ getManifest: () => manifest, lastError: undefined, onInstalled: { addListener: (fn) => installed.push(fn) }, onMessage: { addListener: (fn) => onMessage.push(fn) } }),
+        tabs: fake({
+          query: async ({ url }) => [...new Map(url.flatMap((u) => tabsByMatch[u] || []).map((t) => [t.id, t])).values()],
+          get: async (id) => ({ id, url: "chrome-extension://x/triage/triage.html" }),
+          sendMessage: (tabId, message, options, cb) => (sentTo.push([tabId, message, options]), cb({ ok: true, payload: { site: "bilibili", videoId: "BV1xx411c7mD", pageIndex: 1, url: "https://www.bilibili.com/video/BV1xx411c7mD/?mdg_reader=1", subtitleMarkdown: "picked" } }))
+        }),
+        sidePanel: fake({ open: async () => {} }),
+        storage: fake({ local: fake({ set: async (o) => stored.push(o) }) }),
         scripting: fake({
           insertCSS: async ({ target, files }) => injected.push(["css", target.tabId, Boolean(target.allFrames), files.join()]),
           executeScript: async ({ target, files }) => injected.push(["js", target.tabId, Boolean(target.allFrames), files.at(-1)])
@@ -428,6 +437,17 @@ process.on("exit", (code) => {
       ["css", 1, true, "badges.css"], ["js", 1, true, "badges.js"],
       ["css", 2, true, "badges.css"], ["js", 2, true, "badges.js"]
     ]));
+
+    // 分拣台's viewer: AI 总结 from it hands the side panel the frame with the video, and the panel's read goes to that
+    // frame's content script like a video page's (sidepanel-get-context), naming the video so another one does not answer.
+    ictx.getMergedSettings = async () => ({ enablePlayerAiQuickAction: true, playerAiQuickPrompt: "" });
+    const contextRef = { site: "bilibili", videoId: "BV1xx411c7mD" };
+    await new Promise((resolve) => onMessage.forEach((fn) => fn({ type: "player-ai-quick-action", contextRef }, { tab: { id: 7 }, frameId: 3 }, resolve)));
+    const request = Object.values(stored.at(-1))[0];
+    assert.deepStrictEqual([request.tabId, request.frameId, request.contextRef], [7, 3, contextRef]);
+    const reply = await new Promise((resolve) => onMessage.forEach((fn) => fn({ type: "ai-sidepanel-get-state", tabId: 7, frameId: 3, videoId: "BV1xx411c7mD" }, {}, resolve)));
+    assert.deepStrictEqual(JSON.parse(JSON.stringify(sentTo)), [[7, { type: "sidepanel-get-context", refresh: false, videoId: "BV1xx411c7mD" }, { frameId: 3 }]]);
+    assert.deepStrictEqual([reply.ok, reply.payload.subtitleMarkdown, reply.payload.url, reply.payload.isVideoContext], [true, "picked", "https://www.bilibili.com/video/BV1xx411c7mD/", true]);
   }
 
   finished = true;

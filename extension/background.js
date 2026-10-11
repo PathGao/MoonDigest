@@ -86,9 +86,9 @@ async function injectEntry(tabId, entry) {
   await chrome.scripting.executeScript({ target, files: entry.js });
 }
 
-async function sendMessageToTab(tabId, message) {
+async function sendMessageToTab(tabId, message, options = {}) {
   return new Promise((resolve, reject) => {
-    chrome.tabs.sendMessage(tabId, message, (resp) => {
+    chrome.tabs.sendMessage(tabId, message, options, (resp) => {
       if (chrome.runtime.lastError) {
         reject(new Error(chrome.runtime.lastError.message));
         return;
@@ -128,7 +128,9 @@ async function triggerReaderModeInTab(tabId, readerUrl = "", retries = 12, delay
   return false;
 }
 
-async function getAiSidepanelState(tabId, { forceRefresh = false } = {}) {
+// frameId: 分拣台's viewer frame (the tab is 分拣台), asked for its video like a video page. A frame that closed or
+// plays another video than videoId does not answer, and the side panel reads the video like a closed page instead.
+async function getAiSidepanelState(tabId, { forceRefresh = false, frameId = 0, videoId = "" } = {}) {
   if (!tabId) {
     throw new Error("缺少标签页信息");
   }
@@ -138,7 +140,8 @@ async function getAiSidepanelState(tabId, { forceRefresh = false } = {}) {
     throw new Error("找不到当前标签页。");
   }
 
-  if (!MdgSites.matchSite(tab.url)) {
+  const inViewer = frameId > 0;
+  if (!inViewer && !MdgSites.matchSite(tab.url)) {
     return {
       title: String(tab.title || "").trim(),
       url: String(tab.url || "").trim(),
@@ -150,11 +153,11 @@ async function getAiSidepanelState(tabId, { forceRefresh = false } = {}) {
       isVideoContext: false
     };
   }
-
-  await ensureReaderContentReady(tab.id);
+  // The viewer's content script came with the 分拣台 page, which an extension update reloads.
+  if (!inViewer) await ensureReaderContentReady(tab.id);
 
   // The page settles its current video (joins a run, follows a URL change) and answers with its comments.
-  const resp = await sendMessageToTab(tab.id, { type: "sidepanel-get-context", refresh: forceRefresh });
+  const resp = await sendMessageToTab(tab.id, { type: "sidepanel-get-context", refresh: forceRefresh, videoId }, inViewer ? { frameId } : {});
   if (!resp?.ok || !resp.payload) {
     throw new Error(resp?.error || "读取当前页面失败");
   }
@@ -451,9 +454,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         }
         await openPromise;
         const request = buildPlayerAiQuickActionRequest(tabId, settings.playerAiQuickPrompt);
-        // From 分拣台's viewer frame: the tab is 分拣台, so the panel takes the video by reference like 问 AI.
+        // From 分拣台's viewer frame: the tab is 分拣台, so the panel takes the video by reference like 问 AI, and
+        // asks that frame for it (getAiSidepanelState with frameId).
         if (sender?.frameId && message.contextRef) {
           request.contextRef = message.contextRef;
+          request.frameId = sender.frameId;
         }
         await chrome.storage.local.set({ [MdgLimits.KEYS.playerAiQuickAction]: request });
         sendResponse({ ok: true });
@@ -568,7 +573,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.type === "ai-sidepanel-get-state") {
     const tabId = Number(message.tabId || 0) || 0;
     const forceRefresh = message.forceRefresh === true;
-    getAiSidepanelState(tabId, { forceRefresh })
+    getAiSidepanelState(tabId, { forceRefresh, frameId: Number(message.frameId) || 0, videoId: String(message.videoId || "") })
       .then((payload) => sendResponse({ ok: true, payload }))
       .catch((error) => sendResponse({ ok: false, error: error.message }));
     return true;

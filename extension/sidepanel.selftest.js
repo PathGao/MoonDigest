@@ -58,7 +58,7 @@ const state = vm.runInContext("state", ctx);
 const view = () => state.view();
 const realRenderHistoryList = ctx.renderHistoryList;
 // The page's own functions, for the behaviour tests below that need them past the stubs.
-const real = Object.fromEntries(["hydratePinnedConversationContext", "renderPreviousVideoBar"].map((f) => [f, ctx[f]]));
+const real = Object.fromEntries(["hydratePinnedConversationContext", "renderPreviousVideoBar", "ensureCurrentContextForSend"].map((f) => [f, ctx[f]]));
 // Untrusted text (titles, UP names, comments, AI replies, tag names, paths) stays text: no tag of its own, no way out of
 // a quoted attribute.
 const XSS = ["<img src=x onerror=alert(1)>", `"'><script>alert(1)</script>`];
@@ -301,6 +301,43 @@ const chatOn = (context) => {
     assert.strictEqual(await ctx.hydratePinnedConversationContext(), false);
     assert.strictEqual(view().context.pending, false);
     ctx.resolveConversationContext = realResolve;
+  }
+
+  {
+    // 分拣台's viewer: its AI 总结 names the frame, and the panel asks that frame for the video like a video page, so the
+    // track picked in its 专注模式 is what the AI reads, also when picked later. Once the viewer is closed, the video is
+    // read like a closed video page's.
+    const realSend = ctx.sendRuntimeMessage;
+    const asked = [];
+    let frame = { ...video, selectedSubtitleId: "en", subtitleMarkdown: "英文字幕" };
+    ctx.sendRuntimeMessage = async (msg) => {
+      asked.push([msg.type, msg.frameId || 0, msg.videoId || ""]);
+      if (msg.type === "ai-sidepanel-get-state" && !msg.frameId) return webPage("triage");
+      if (msg.type === "ai-sidepanel-get-state") return frame ? { ok: true, payload: frame } : { ok: false, error: "Could not establish connection. Receiving end does not exist." };
+      if (msg.type === "ai-sidepanel-resolve-context") return { ok: true, payload: { ...video, selectedSubtitleId: "zh", subtitleMarkdown: "中文字幕" } };
+      return { ok: true };
+    };
+    ctx.showConversationContextNotice = () => {};
+    ctx.removeConversationContextNotice = () => {};
+    activeTab = { id: 7, url: "chrome-extension://test/triage/triage.html" };
+    show(web("triage"));
+    const fromViewer = (id) => ctx.handlePlayerAiQuickActionRequest({ id, tabId: 7, prompt: "总结", createdAt: Date.now(), frameId: 3, contextRef: { site: "bilibili", videoId: video.videoId, url: video.url, title: "T" } });
+    await fromViewer("v1");
+    assert.strictEqual(view().context.subtitleMarkdown, "英文字幕", "the viewer frame's picked track");
+    assert.deepStrictEqual(asked, [["ai-sidepanel-get-state", 3, video.videoId]], "asked the frame, no background re-read");
+    frame = { ...frame, selectedSubtitleId: "ja", subtitleMarkdown: "日文字幕" };
+    assert.strictEqual(await real.ensureCurrentContextForSend(), true);
+    assert.strictEqual(view().context.subtitleMarkdown, "日文字幕", "a track picked since: asked again at send");
+
+    // Viewer closed: the frame does not answer, so the panel reads the video like a closed page, then stops asking it.
+    frame = null;
+    asked.length = 0;
+    state.dispatch({ type: "NEW" });
+    await fromViewer("v2");
+    assert.strictEqual(view().context.subtitleMarkdown, "中文字幕");
+    assert.deepStrictEqual(asked, [["ai-sidepanel-get-state", 3, video.videoId], ["ai-sidepanel-resolve-context", 0, ""]]);
+    assert.strictEqual(vm.runInContext("viewerFrame", ctx), null);
+    ctx.sendRuntimeMessage = realSend;
   }
 
   {
