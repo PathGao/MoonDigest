@@ -257,6 +257,16 @@ async function exportSettingsFile() {
   setStatus(hasUnsavedChanges ? "已导出已保存的设置，未保存的修改不在文件里" : "已导出设置");
 }
 
+// How many folders chosen here the file leaves out: importing it takes them out of 分拣, as unticking them would.
+// A file without a folder choice keeps the current one.
+function droppedFolders(current, next) {
+  if (!Array.isArray(current) || !Array.isArray(next)) {
+    return 0;
+  }
+  const keep = new Set(next.map(String));
+  return current.filter((id) => !keep.has(String(id))).length;
+}
+
 async function importSettingsFile(file) {
   let data;
   try {
@@ -265,7 +275,10 @@ async function importSettingsFile(file) {
     return setStatus("导入失败：文件不是有效的 JSON", true);
   }
   const lost = hasUnsavedChanges ? "本页未保存的修改会丢失。" : "";
-  if (!confirm(`用「${file.name}」替换当前的全部设置？${lost}已保存的 Key 不变。`)) return;
+  const { triage_included_folders: current } = await chrome.storage.local.get("triage_included_folders").catch(() => ({}));
+  const dropped = droppedFolders(current, data?.local?.triage_included_folders);
+  const out = dropped ? `当前勾选的 ${dropped} 个收藏夹在文件里没有勾选：导入后它们的视频会进「已出分拣范围」，取消收藏记录会被删除。` : "";
+  if (!confirm(`用「${file.name}」替换当前的全部设置？${lost}${out}已保存的 Key 不变。`)) return;
   const resp = await sendRuntimeMessage({ type: "settings-import", file: data }).catch((e) => ({ error: e.message }));
   if (!resp?.ok) return setStatus(`导入失败：${resp?.error || "未知错误"}`, true);
   // Reload so every control, the AI list and the host-permission banner show the imported values.

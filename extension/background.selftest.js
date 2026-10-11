@@ -261,12 +261,12 @@ process.on("exit", (code) => {
 
   // Settings file: everything in sync (收藏夹 and 关注 included), never a key, even one an older version left in sync.
   const exportSync = { noteFolder: "X", triageFineBatchSize: 20, follow_ai_settings: { batchSize: 7 }, aiProviders: [{ id: "p", apiKey: "sk-old" }], obsidianApiKey: "leak" };
-  ctx.chrome = { runtime: { getManifest: () => ({ version: "9" }) }, storage: { sync: area(exportSync), local: area({ obsidianApiKey: "k", aiProviderKeys: { p: "sk" }, triage_included_folders: ["11", "toview"], triage_tags: [] }) } };
+  ctx.chrome = { runtime: { getManifest: () => ({ version: "9" }) }, storage: { sync: area(exportSync), local: area({ obsidianApiKey: "k", aiProviderKeys: { p: "sk" }, triage_included_folders: ["11", "toview"], triage_folder_criteria: { 11: "只留菜谱" }, triage_sort: { 11: "pub" }, triage_tags: [] }) } };
   const file = JSON.parse(JSON.stringify(await ctx.exportSettings()));
   assert.deepStrictEqual([file.kind, file.extensionVersion, file.settings.triageFineBatchSize, file.settings.follow_ai_settings], ["settings", "9", 20, { batchSize: 7 }]);
   assert.deepStrictEqual(file.settings.aiProviders, [{ id: "p" }]);
   assert.ok(!/sk|leak|"k"/.test(JSON.stringify(file)), "no keys in the file");
-  assert.deepStrictEqual(file.local, { triage_included_folders: ["11", "toview"] }, "the 分拣台's folder choice, no data");
+  assert.deepStrictEqual(file.local, { triage_included_folders: ["11", "toview"], triage_folder_criteria: { 11: "只留菜谱" } }, "the 分拣台's folder choice and 判断标准; no sort, no data");
 
   // Import replaces every setting, migrates an older file's keys, fills defaults, and leaves local keys alone.
   const importSync = { noteFolder: "Y", stray: 1 };
@@ -278,7 +278,7 @@ process.on("exit", (code) => {
   assert.ok(!("stray" in importSync) && !("aiInitialQuickPrompts" in importSync) && !("obsidianApiKey" in importSync));
   assert.ok(importSync.aiPresetPrompts.includes("旧"));
   assert.strictEqual(importSync.seenThreshold, 80);
-  assert.deepStrictEqual(importLocal, { obsidianApiKey: "k2", aiProviderKeys: { q: "sk2" }, triage_included_folders: ["11", "toview"] });
+  assert.deepStrictEqual(importLocal, { obsidianApiKey: "k2", aiProviderKeys: { q: "sk2" }, triage_included_folders: ["11", "toview"], triage_folder_criteria: { 11: "只留菜谱" } });
   // A file from before the folder choice was exported leaves the current choice.
   importLocal.triage_included_folders = ["7"];
   const { local: _, ...older } = file;
@@ -290,6 +290,7 @@ process.on("exit", (code) => {
   await assert.rejects(ctx.importSettings({ app: "moondigest", schemaVersion: 3, settings: {} }), /不是 MoonDigest 的设置文件/);
   await assert.rejects(ctx.importSettings({ ...file, schemaVersion: 2 }), /更新的版本/);
   await assert.rejects(ctx.importSettings({ ...file, local: { triage_included_folders: "11" } }), /不是 MoonDigest 的设置文件/);
+  await assert.rejects(ctx.importSettings({ ...file, local: { triage_folder_criteria: { 11: 5 } } }), /不是 MoonDigest 的设置文件/);
   assert.strictEqual(JSON.stringify(importSync), before);
 
   finished = true;
