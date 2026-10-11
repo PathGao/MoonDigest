@@ -64,6 +64,20 @@
   --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Helvetica Neue",
     Arial, sans-serif;
   --font-mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+
+  /* Over a cover image, the same in both themes: text and chips on the picture, the 看完了 veil and its faint mark, the
+     progress track, the scrim under the duration. badges.css writes these out (content-tokens.selftest.js checks it). */
+  --on-image: #fff;
+  --cover-chip: rgba(0, 0, 0, 0.55);
+  --cover-track: rgba(0, 0, 0, 0.5);
+  --cover-veil: rgba(17, 17, 27, 0.55);
+  --cover-faint: rgba(17, 17, 27, 0.6);
+  --cover-scrim: rgba(0, 0, 0, 0.6);
+
+  /* Elevation: floating layers (banners, notices, menus, popovers, toasts), a lifted card or picker, a dialog's backdrop. */
+  --shadow-float: 0 4px 16px rgba(0, 0, 0, 0.15);
+  --lift: 0 8px 22px rgba(0, 0, 0, 0.14);
+  --backdrop: rgba(17, 24, 39, 0.28);
 }
 
 @media (prefers-color-scheme: dark) {
@@ -101,6 +115,8 @@
     --secondary-bg: #2f3134;
     --secondary-border: #3d4045;
     --secondary-text: #e3e5e7;
+    --shadow-float: 0 6px 16px rgba(0, 0, 0, 0.5);
+    --lift: 0 6px 16px rgba(0, 0, 0, 0.5);
   }
 }
 
@@ -195,7 +211,7 @@ button[aria-busy="true"]:disabled { opacity: 0.7; cursor: progress; }
 
 /* BocOverwriteDialog (download.js): the form fills the dialog, so a click on the dialog itself is the backdrop. */
 dialog.boc-overwrite { padding: 0; max-width: 360px; border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--surface); color: var(--text); }
-dialog.boc-overwrite::backdrop { background: rgba(17, 24, 39, 0.28); }
+dialog.boc-overwrite::backdrop { background: var(--backdrop); }
 dialog.boc-overwrite form { padding: 16px; }
 dialog.boc-overwrite h2 { margin: 0 0 8px; font-size: var(--fs-lg); }
 dialog.boc-overwrite p { margin: 0 0 8px; color: var(--text-2); font-size: var(--fs-sm); }

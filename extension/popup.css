@@ -110,8 +110,8 @@ body {
   padding: 10px 6px 3px;
   text-align: right;
   font-size: var(--fs-xs);
-  color: #fff;
-  background: linear-gradient(transparent, rgba(0, 0, 0, 0.6));
+  color: var(--on-image);
+  background: linear-gradient(transparent, var(--cover-scrim));
   font-variant-numeric: tabular-nums;
 }
 

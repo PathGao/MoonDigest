@@ -943,7 +943,7 @@ body:has(#spInput:not(:placeholder-shown)) .sp-summary-btn {
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
   background: var(--surface);
-  box-shadow: 0 12px 28px rgba(15, 23, 42, 0.08);
+  box-shadow: var(--shadow-float);
 }
 
 .sp-preset-popover[hidden] {
@@ -964,7 +964,7 @@ body:has(#spInput:not(:placeholder-shown)) .sp-summary-btn {
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
   background: var(--surface);
-  box-shadow: 0 12px 28px rgba(15, 23, 42, 0.08);
+  box-shadow: var(--shadow-float);
   overflow-y: auto;
 }
 

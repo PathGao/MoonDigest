@@ -56,6 +56,15 @@
   --boc-fs-xl: 19px;
   --boc-font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Helvetica Neue", Arial, sans-serif;
   --boc-font-mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+  --boc-on-image: #fff;
+  --boc-cover-chip: rgba(0, 0, 0, 0.55);
+  --boc-cover-track: rgba(0, 0, 0, 0.5);
+  --boc-cover-veil: rgba(17, 17, 27, 0.55);
+  --boc-cover-faint: rgba(17, 17, 27, 0.6);
+  --boc-cover-scrim: rgba(0, 0, 0, 0.6);
+  --boc-shadow-float: 0 4px 16px rgba(0, 0, 0, 0.15);
+  --boc-lift: 0 8px 22px rgba(0, 0, 0, 0.14);
+  --boc-backdrop: rgba(17, 24, 39, 0.28);
 }
 
 html:is([dark], .bili_dark) :where(#boc-root, .boc-confirm-overlay),
@@ -95,6 +104,8 @@ html[data-boc-reader-mode="1"][data-boc-reader-theme="dark"] {
   --boc-secondary-bg: #2f3134;
   --boc-secondary-border: #3d4045;
   --boc-secondary-text: #e3e5e7;
+  --boc-shadow-float: 0 6px 16px rgba(0, 0, 0, 0.5);
+  --boc-lift: 0 6px 16px rgba(0, 0, 0, 0.5);
 }
 
 @media (prefers-color-scheme: dark) {
@@ -133,6 +144,10 @@ html[data-boc-reader-mode="1"][data-boc-reader-theme="dark"] {
     --boc-secondary-bg: #2f3134;
     --boc-secondary-border: #3d4045;
     --boc-secondary-text: #e3e5e7;
+    --boc-shadow-float: 0 6px 16px rgba(0, 0, 0, 0.5);
+    --boc-lift: 0 6px 16px rgba(0, 0, 0, 0.5);
+  --boc-shadow-float: 0 6px 16px rgba(0, 0, 0, 0.5);
+  --boc-lift: 0 6px 16px rgba(0, 0, 0, 0.5);
   }
 }
 
@@ -244,7 +259,7 @@ html[data-boc-reader-mode="1"][data-boc-reader-theme="dark"] {
 
 .boc-confirm-overlay {
   align-items: center;
-  background: rgba(17, 24, 39, 0.28);
+  background: var(--boc-backdrop);
   display: flex;
   inset: 0;
   justify-content: center;

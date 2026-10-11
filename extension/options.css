@@ -515,7 +515,7 @@ details.adv[open] > summary::before {
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
   background: var(--field-bg);
-  box-shadow: 0 10px 24px rgba(28, 25, 23, 0.08);
+  box-shadow: var(--shadow-float);
 }
 
 .fixed-property-type-option {
@@ -683,7 +683,7 @@ details.adv[open] > summary::before {
   padding: 1px 6px;
   border-radius: 4px;
   background: var(--accent);
-  color: #fff;
+  color: var(--on-image);
   font-size: var(--fs-xs);
   font-weight: 600;
   line-height: 18px;
@@ -691,7 +691,7 @@ details.adv[open] > summary::before {
 }
 
 .seen-tag.faint-tag {
-  background: rgba(17, 17, 27, 0.6);
+  background: var(--cover-faint);
   font-weight: 400;
 }
 
@@ -700,7 +700,7 @@ details.adv[open] > summary::before {
   inset: 0;
   padding: 0;
   border-radius: 0;
-  background: rgba(17, 17, 27, 0.55);
+  background: var(--cover-veil);
   font-size: var(--fs-sm);
   font-weight: 700;
 }
@@ -710,7 +710,7 @@ details.adv[open] > summary::before {
   position: absolute;
   inset: auto 0 0;
   height: 3px;
-  background: rgba(0, 0, 0, 0.5);
+  background: var(--cover-track);
 }
 
 .cover i {

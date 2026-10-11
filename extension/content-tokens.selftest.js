@@ -64,7 +64,10 @@ const BADGE_TOKENS = [
   ["html.bili_dark .mdg-unsure", "color", "--warn", "dark"],
   ["html.bili_dark .mdg-act-keep", "background", "--ok", "dark"],
   ["html.bili_dark .mdg-act-unfav", "background", "--danger", "dark"],
-  [".mdg-seen-bar i", "background", "--accent", "light"]
+  [".mdg-seen-bar i", "background", "--accent", "light"],
+  [".mdg-seen-bar", "background", "--cover-track", "light"],
+  [".mdg-seen-mark.mdg-faint", "background", "--cover-faint", "light"],
+  [".mdg-seen-veil .mdg-seen-mark:not(.mdg-faint)", "background", "--cover-veil", "light"]
 ];
 const declOf = (selector, prop) => {
   const r = badgeRules.find((r) => r.selector === selector);

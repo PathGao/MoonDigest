@@ -131,7 +131,7 @@ select { height: 28px; max-width: 240px; }
   left: 16px;
   right: 16px;
   z-index: 15;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
+  box-shadow: var(--shadow-float);
   display: flex;
   align-items: center;
   gap: 10px;
@@ -344,7 +344,7 @@ select { height: 28px; max-width: 240px; }
   padding: 8px 10px 8px 20px;
   border-radius: var(--radius-lg);
   background: var(--surface);
-  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.16);
+  box-shadow: var(--shadow-float);
   font-size: var(--fs-md);
 }
 .selbar > * { flex: none; white-space: nowrap; }
@@ -366,8 +366,6 @@ select { height: 28px; max-width: 240px; }
 .card.selected { outline: 2px solid var(--action); outline-offset: -1px; background: var(--action-bg); }
 /* Playing in the viewer: pink, where you are. Blue stays for 选中. */
 .card.playing:not(.selected) { outline: 2px solid var(--accent); outline-offset: -1px; }
-:root { --lift: 0 8px 22px rgba(0, 0, 0, 0.14); }
-@media (prefers-color-scheme: dark) { :root { --lift: 0 6px 16px rgba(0, 0, 0, 0.5); } }
 .empty { padding: 40px 0; text-align: center; color: var(--muted); }
 /* An empty list that needs something done (shared.js emptyState): what is missing, why, and the button. */
 .empty-state { display: flex; flex-direction: column; align-items: center; gap: 10px; max-width: 460px; margin: 48px auto; text-align: center; }
@@ -377,23 +375,23 @@ select { height: 28px; max-width: 240px; }
 .empty-state button svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 
 /* ---------- cover: progress bar and marks, the duration bottom-right, the AI verdict top-left after the select box ---------- */
-.cover-wrap { position: relative; display: block; text-decoration: none; align-self: start; width: 100%; aspect-ratio: 16 / 10; border-radius: var(--radius-md); overflow: hidden; background: var(--action-bg); color: #fff; }
-.cover-wrap::after { content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 38%; background: linear-gradient(transparent, rgba(0, 0, 0, 0.6)); pointer-events: none; }
+.cover-wrap { position: relative; display: block; text-decoration: none; align-self: start; width: 100%; aspect-ratio: 16 / 10; border-radius: var(--radius-md); overflow: hidden; background: var(--action-bg); color: var(--on-image); }
+.cover-wrap::after { content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 38%; background: linear-gradient(transparent, var(--cover-scrim)); pointer-events: none; }
 .cover { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; display: block; }
 .cover-dur { position: absolute; right: 8px; bottom: 6px; z-index: 1; font-size: var(--fs-xs); font-variant-numeric: tabular-nums; }
 .cover-tag { position: absolute; left: 6px; top: 6px; z-index: 1; height: 20px; padding: 0 6px; border-radius: 4px; font-size: var(--fs-xs); font-weight: 600; line-height: 20px; white-space: nowrap; }
 .cover-tag.keep { background: var(--ok-bg); color: var(--ok); }
-.cover-tag.drop { background: rgba(0, 0, 0, 0.55); color: #fff; }
-.cover-tag.unsure { background: #fff; color: var(--warn); }
-.cover-tag.running { background: rgba(0, 0, 0, 0.55); color: #fff; font-weight: 400; }
+.cover-tag.drop { background: var(--cover-chip); color: var(--on-image); }
+.cover-tag.unsure { background: var(--on-image); color: var(--warn); }
+.cover-tag.running { background: var(--cover-chip); color: var(--on-image); font-weight: 400; }
 /* 观看进度: html[data-seen-style] picks the corner tag or the veil (设置页「看完了标记样式」). */
-.seen-bar { position: absolute; left: 0; right: 0; bottom: 0; z-index: 2; height: 3px; background: rgba(0, 0, 0, 0.5); pointer-events: none; }
+.seen-bar { position: absolute; left: 0; right: 0; bottom: 0; z-index: 2; height: 3px; background: var(--cover-track); pointer-events: none; }
 .seen-bar i { display: block; height: 100%; background: var(--accent); }
 /* The bar copies B站's own progress bar (pink on 50% black), as on B站 pages. 看完了 is the same pink (DESIGN 视觉设计 · 颜色: pink is
    你在哪 and 看到哪), as in badges.css. */
-.seen-tag { position: absolute; top: 6px; right: 6px; z-index: 1; padding: 1px 6px; border-radius: 4px; background: var(--accent); color: #fff; font-size: var(--fs-xs); font-weight: 600; line-height: 18px; white-space: nowrap; pointer-events: none; }
-.seen-veil { position: absolute; inset: 0; z-index: 1; display: none; align-items: center; justify-content: center; background: rgba(17, 17, 27, 0.55); color: #fff; font-size: var(--fs-sm); font-weight: 700; pointer-events: none; }
-.seen-tag.faint { background: rgba(17, 17, 27, 0.6); font-weight: 400; }
+.seen-tag { position: absolute; top: 6px; right: 6px; z-index: 1; padding: 1px 6px; border-radius: 4px; background: var(--accent); color: var(--on-image); font-size: var(--fs-xs); font-weight: 600; line-height: 18px; white-space: nowrap; pointer-events: none; }
+.seen-veil { position: absolute; inset: 0; z-index: 1; display: none; align-items: center; justify-content: center; background: var(--cover-veil); color: var(--on-image); font-size: var(--fs-sm); font-weight: 700; pointer-events: none; }
+.seen-tag.faint { background: var(--cover-faint); font-weight: 400; }
 html[data-seen-style="veil"] .seen-tag:not(.faint) { display: none; }
 html[data-seen-style="veil"] .cover-wrap.seen .seen-veil { display: flex; }
 
@@ -490,7 +488,7 @@ button.icon { width: 26px; height: 24px; padding: 0; }
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   background: var(--surface);
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
+  box-shadow: var(--shadow-float);
 }
 .notice[hidden] { display: none; }
 .notice p { margin: 0 0 6px; }
@@ -588,7 +586,7 @@ dialog h3 { margin: 8px 0 0; font-size: var(--fs-sm); font-weight: 600; }
 .viewer-close:hover { background: var(--surface); color: var(--text); }
 #viewer[hidden] + .viewer-close { display: none; }
 .viewer-line { padding-right: 28px; }
-.viewer-frame { flex: 1; width: 100%; border: 0; background: #fff; }
+.viewer-frame { flex: 1; width: 100%; border: 0; background: var(--surface); }
 
 /* 待播: a pill over the bottom of the list that opens upward into the queue */
 .basket {
@@ -604,7 +602,7 @@ dialog h3 { margin: 8px 0 0; font-size: var(--fs-sm); font-weight: 600; }
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: 12px;
-  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.16);
+  box-shadow: var(--shadow-float);
 }
 .basket.collapsed { width: auto; border-color: var(--border-strong); border-radius: var(--radius-md); }
 /* The selection bar floats over the same bottom edge: the button moves up above it. */
@@ -648,7 +646,7 @@ dialog h3 { margin: 8px 0 0; font-size: var(--fs-sm); font-weight: 600; }
   border-radius: var(--radius-sm);
   background: var(--text);
   color: var(--bg);
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
+  box-shadow: var(--shadow-float);
   z-index: 20;
 }
 .toast.error { background: var(--danger-bg); color: var(--danger); border: 1px solid var(--danger-border); cursor: pointer; }
@@ -665,7 +663,7 @@ dialog {
 dialog { max-height: calc(100vh - 32px); overflow-y: auto; }
 .toggle { display: flex; align-items: center; gap: 6px; color: var(--text) !important; font-size: var(--fs-sm) !important; }
 .form-error { margin: 4px 0 0; color: var(--danger); font-size: var(--fs-xs); }
-dialog::backdrop { background: rgba(0, 0, 0, 0.35); }
+dialog::backdrop { background: var(--backdrop); }
 dialog h2 { margin: 0 0 10px; font-size: var(--fs-lg); }
 dialog form { display: flex; flex-direction: column; gap: 6px; }
 dialog label { font-size: var(--fs-xs); color: var(--muted); }
