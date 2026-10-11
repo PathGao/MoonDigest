@@ -26,7 +26,7 @@ const el = {
 let latestPayload = null;
 // Set from the tab's URL in init(): a content script that still answers on a non-video page must not re-enable the tools.
 let onVideoPage = true;
-// Only for when get-settings fails. Its downloadFormat ("srt") wins over the page's payload.downloadFormat.
+// Only for when get-settings fails.
 const DEFAULT_SETTINGS = BocSettings.DEFAULTS;
 
 function formatLocalDate(value = Date.now()) {
@@ -75,7 +75,7 @@ function bindEvents() {
   el.downloadBtn.addEventListener("click", async () => {
     const payload = await ensurePayload();
     const settings = await getSettingsFromRuntime();
-    const format = BocSettings.normalizeDownloadFormat(settings?.downloadFormat || payload?.downloadFormat);
+    const format = BocSettings.normalizeDownloadFormat(settings.downloadFormat);
     const content =
       format === "txt" ? payload?.txt || payload?.subtitlePreview || "" : payload?.srt || "";
     if (!content) {

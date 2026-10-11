@@ -1440,7 +1440,6 @@ function getPopupPayload() {
     markdown: state.markdown || "",
     srt: state.srt || "",
     txt: state.txt || "",
-    downloadFormat: BocSettings.normalizeDownloadFormat(state.settings?.downloadFormat),
     subtitleOptions
   };
 }
