@@ -196,9 +196,12 @@ function followSlot() {
 function followHold(ms, why) {
   followHoldUntil = Math.max(followHoldUntil, Date.now() + ms);
   if (why === "throttled") followSlowUntil = followHoldUntil + FOLLOW_CFG.slowForMs;
+  const hold = { until: Math.ceil(followHoldUntil / 1000), why };
   try {
-    followOnHold?.({ until: Math.ceil(followHoldUntil / 1000), why });
+    followOnHold?.(hold);
   } catch {}
+  // The 视频投稿 page reads follow_hold while it waits for a page, as the sync's pill reads follow_jobs.hold.
+  chrome.storage.local.set({ follow_hold: hold }).catch(() => {});
 }
 
 // Every GET goes through triage-bg.js's channel, paced by this queue.

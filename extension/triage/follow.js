@@ -333,6 +333,7 @@ const F = {
   side: "all",
   status: "",
   source: "", // 已取消关注: "" | "bili" (在 B站取关) | "app" (在这里取关)
+  hold: null, // follow_hold: the background's queue pause { until, why }, shown at the 视频投稿 foot while a page waits
   q: "", // UP 主's search; 视频投稿 keeps its own (fq)
   fq: "",
   sort: "last",
@@ -844,6 +845,12 @@ function renderFoot(n = feedList(F.feed.items, D, feedF(), null).length) {
     foot.innerHTML = `<p>${esc(reach)}</p><span class="activity" role="status"></span>`;
     return UI.setActivity(foot.lastChild, { text: UI.waitText("B站限流卡住", Math.max(1, Math.ceil(f.wait - nowSec()))), stuck: true });
   }
+  // The background holding its queue (risk control, a dropped connection) while this page waits for a page.
+  const hold = f.loading && F.hold?.until > nowSec() ? F.hold : null;
+  if (hold) {
+    foot.innerHTML = `<p>${esc(reach)}</p><span class="activity" role="status"></span>`;
+    return UI.setActivity(foot.lastChild, { text: UI.waitText(hold.why === "throttled" ? "B站限流卡住" : "网络断了", Math.ceil(hold.until - nowSec())), stuck: true });
+  }
   let text;
   if (f.error) text = f.error;
   else if (f.loading) text = f.items.length ? `${reach}正在加载更早的…` : "正在读关注的人的新视频…";
@@ -886,7 +893,8 @@ async function more({ byHand = false } = {}) {
   f.loading = true;
   f.error = "";
   renderFoot();
-  const r = await send({ type: "follow-feed", offset: f.offset });
+  const tick = setInterval(() => F.feed === f && F.tab === "feed" && renderFoot(), 1000);
+  const r = await send({ type: "follow-feed", offset: f.offset }).finally(() => clearInterval(tick));
   f.loading = false;
   if (F.feed !== f) return;
   if (r.code === "THROTTLED") waitFeed(f);
@@ -1632,6 +1640,7 @@ chrome.storage.onChanged.addListener((changes, area) => {
     if (F.loaded) derive();
     return render();
   }
+  if (area === "local" && changes.follow_hold) F.hold = changes.follow_hold.newValue || null;
   if (area !== "local" || !F.loaded) return;
   if (syncFinished(changes.follow_jobs?.oldValue, changes.follow_jobs?.newValue)) {
     F.feed = null;
