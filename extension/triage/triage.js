@@ -3707,7 +3707,7 @@ function zipNotes(base, written, title) {
   return [{ name: `${base}.md`, text: indexMarkdown(notes, mdLink, title) }, ...notes.map((w) => ({ name: w.path, text: w.markdown }))];
 }
 
-// Obsidian itself unusable (triage-bg.js triageObsidianError): every later note would fail alike, so the run stops.
+// Obsidian itself unusable (obsidian.js obsidianError): every later note would fail alike, so the run stops.
 const OBSIDIAN_CODES = new Set(["OBSIDIAN", "OBSIDIAN_DOWN"]);
 // md: build the same notes but download them as a zip (one note each plus the index) instead of writing to the vault.
 // The run keeps going with the dialog closed or another folder open: the activity pill shows it, the dialog reopens on it.

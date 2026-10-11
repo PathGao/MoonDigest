@@ -732,69 +732,33 @@ async function triageBuildNote(bvid, settings) {
   noteMeta.userTags = userTags;
   noteMeta.aiTurns = BocNote.buildConversationTurns(BocNote.pickConversation(stored[aiConversations], noteMeta)?.messages);
   const markdown = BocNote.withTriageSummary(BocNote.buildMarkdown(noteMeta, body, settings, ref), analysis, note);
-  // Every writer of this note uses this path and downloads this cover into the vault (hdslb links 403 in Obsidian).
+  // The computed path for this video's note (obsidian.js prefers a recorded one); the cover goes into the vault there
+  // (hdslb links 403 in Obsidian).
   const filename = BocNote.buildNoteFilename(noteMeta, settings);
   const path = BocNote.videoNotePath(noteMeta, settings);
   const cover = { url: meta.cover, name: `bilibili-${bvid}` };
   return { meta, noteMeta, body, markdown, filename, path, cover, subtitleWarning };
 }
 
-// Code OBSIDIAN: Obsidian is not usable (off, not set up, wrong key), so every later note fails the same way.
-function triageObsidianConfig(settings) {
-  if (!settings.obsidianEnabled) throw triageError("Obsidian 写入未启用", "OBSIDIAN");
-  const baseUrl = String(settings.obsidianApiBaseUrl || "").trim();
-  const apiKey = String(settings.obsidianApiKey || "").trim();
-  if (!baseUrl || !apiKey) throw triageError(BocErrors.TEXT.obsidianUnset, "OBSIDIAN");
-  return { baseUrl, apiKey };
-}
-// A failed fetch (closed, plugin off, wrong address) or a timeout is OBSIDIAN_DOWN, 401/403 OBSIDIAN; anything else is this note's.
-// The words are background.js obsidianFailure's, shared by every Obsidian write path.
-function triageObsidianError(e) {
-  const { error, code } = obsidianFailure(e);
-  if (code) return triageError(error, code);
-  return e?.status ? triageError(error) : e;
-}
 // Before a 逐个视频笔记 run: the settings and one request to the API root (it answers authenticated: false to a wrong key).
 // A 404 there is a wrong address (去设置); any other HTTP error is Obsidian's own, which the settings page cannot fix.
 async function triageObsidianCheck() {
-  const { baseUrl, apiKey } = triageObsidianConfig(await getMergedSettings());
+  const { baseUrl, apiKey } = obsidianConfig(await getMergedSettings());
   const res = await fetchWithTimeout(`${baseUrl.replace(/\/+$/, "")}/`, { headers: { Authorization: `Bearer ${apiKey}` }, cache: "no-store" }, OBSIDIAN_TIMEOUT_MS).catch((e) => {
-    throw triageObsidianError(e);
+    throw obsidianError(e);
   });
   const data = await res.json().catch(() => null);
-  if (data?.authenticated === false || res.status === 401 || res.status === 403) throw triageObsidianError({ status: 401 });
+  if (data?.authenticated === false || res.status === 401 || res.status === 403) throw obsidianError({ status: 401 });
   if (!res.ok) throw triageError(`Obsidian 返回 HTTP ${res.status}`, res.status === 404 ? "OBSIDIAN" : "");
 }
 
-// Returns { path, skipped, aiUpdated, title, source, subtitleWarning? }; skipped means the note existed and overwrite was off,
-// aiUpdated that its AI 问答 section was rewritten anyway.
+// 逐个视频笔记: obsidian.js writeVideoNote without a conversation, so it never asks. overwrite rewrites the note; without
+// it an existing note keeps its body and only its AI 问答 section follows the conversation.
+// Returns { path, title, skipped, aiUpdated, subtitleWarning? }.
 async function triageWriteNote({ bvid, overwrite }) {
-  const settings = await getMergedSettings();
-  const { baseUrl, apiKey } = triageObsidianConfig(settings);
-  const { meta, noteMeta, body, markdown, path, cover, subtitleWarning } = await triageBuildNote(bvid, settings);
-  try {
-    const done = await triageVaultWrite({ settings, baseUrl, apiKey, meta, noteMeta, body, markdown, path, cover, overwrite });
-    // A note written without its subtitle, or with one that may not match, says so in 逐个视频笔记's list.
-    return done.skipped || !subtitleWarning ? done : { ...done, subtitleWarning };
-  } catch (e) {
-    throw triageObsidianError(e);
-  }
-}
-
-async function triageVaultWrite({ settings, baseUrl, apiKey, meta, noteMeta, body, markdown, path, cover, overwrite }) {
-  const noteKey = BocSites.buildContextKey(noteMeta);
-  if (!overwrite) {
-    // An existing note keeps its body; only its marked AI 问答 section follows the conversation.
-    const section = settings.includeAiChatInNote === false ? "" : BocNote.buildAiSection(noteMeta.aiTurns);
-    const existing = section
-      ? await updateAiSectionInVault({ baseUrl, apiKey, filepath: path, section, noteKey })
-      : await readVaultNote(baseUrl, apiKey, path);
-    if (existing.exists) return { path, skipped: true, aiUpdated: existing.updated === true, title: meta.title };
-  }
-  const content = await linkCoverInVault(markdown, cover, { baseUrl, apiKey, filepath: path });
-  await putVaultNote(baseUrl, apiKey, path, content);
-  await rememberObsidianNotePath(noteKey, path);
-  return { path, skipped: false, title: meta.title, source: body.length ? "subtitle" : "meta" };
+  if (!bvid) throw triageError("缺少 bvid");
+  const done = await writeVideoNote({ ref: { site: "bilibili", videoId: bvid, pageIndex: 1 }, mode: overwrite ? "full" : "ai" });
+  return { path: done.path, title: done.title, skipped: done.kind !== "full", aiUpdated: done.kind === "ai", ...(done.subtitleWarning && { subtitleWarning: done.subtitleWarning }) };
 }
 
 // Notes used to live on basket items; they now belong to the video (triage_notes, bvid → { text, updatedAt }).
@@ -1017,19 +981,15 @@ const TRIAGE_HANDLERS = {
     return {};
   },
 
-  // 与 background.js 的 write-obsidian-note 同一机制：Local REST API PUT /vault/<path>
-  // 合并文件写进 B 站视频笔记所在的目录（笔记目录按 site=bilibili 解析）。
+  // 一篇摘录 and the 逐个视频笔记 index: one file into the B站 notes' folder (the folder template with site=bilibili).
   "triage-export": async ({ filename, markdown }) => {
     const name = String(filename || "").trim();
     if (!name) throw triageError("缺少文件名");
     const settings = await getMergedSettings();
     const folder = BocNote.resolveFolderTemplate(settings.noteFolder, { site: "bilibili" });
-    const { baseUrl, apiKey } = triageObsidianConfig(settings);
     const path = folder ? `${folder}/${name}` : name;
     // putVaultNote gives up after OBSIDIAN_TIMEOUT_MS, so a hung Obsidian ends 写入中….
-    await putVaultNote(baseUrl, apiKey, path, typeof markdown === "string" ? markdown : "").catch((e) => {
-      throw triageObsidianError(e);
-    });
+    await putVaultNote(obsidianConfig(settings), path, typeof markdown === "string" ? markdown : "");
     return { path };
   }
 };

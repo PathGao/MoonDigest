@@ -197,7 +197,6 @@ function normalizeAiContextRef(ref) {
 
 
 const FETCH_TIMEOUT_MS = 15000;
-const OBSIDIAN_TIMEOUT_MS = 30000;
 
 // A hung request would otherwise block the popup refresh and the side panel context forever.
 // "超时" in the message is what content.js retryAsync treats as a retryable network error.
@@ -496,81 +495,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     fetchJsonForAi(url)
       .then((data) => sendResponse({ ok: true, data }))
       .catch((error) => sendResponse({ ok: false, error: error.message, status: error.status }));
-    return true;
-  }
-
-  if (message.type === "write-obsidian-note") {
-    const baseUrl = String(message.baseUrl || "").trim();
-    const apiKey = String(message.apiKey || "").trim();
-    const filepath = String(message.filepath || "").trim();
-    const content = typeof message.content === "string" ? message.content : "";
-
-    if (!baseUrl || !apiKey || !filepath) {
-      sendResponse(OBSIDIAN_UNSET);
-      return false;
-    }
-    // Last guard: no writer means to empty a note, so an empty body is a caller's bug (a video that changed mid-write).
-    if (!content.trim()) {
-      sendResponse({ ok: false, error: "笔记内容为空" });
-      return false;
-    }
-
-    linkCoverInVault(content, message.cover, { baseUrl, apiKey, filepath })
-      .then((body) => putVaultNote(baseUrl, apiKey, filepath, body))
-      .then(() => rememberObsidianNotePath(message.noteKey, filepath))
-      .then(() => sendResponse({ ok: true }))
-      .catch((error) => sendResponse(obsidianFailure(error)));
-
-    return true;
-  }
-
-  if (message.type === "update-obsidian-ai-section") {
-    const baseUrl = String(message.baseUrl || "").trim();
-    const apiKey = String(message.apiKey || "").trim();
-    const filepath = String(message.filepath || "").trim();
-
-    if (!baseUrl || !apiKey || !filepath) {
-      sendResponse(OBSIDIAN_UNSET);
-      return false;
-    }
-
-    updateAiSectionInVault({ baseUrl, apiKey, filepath, section: message.section, noteKey: message.noteKey })
-      .then((result) => sendResponse({ ok: true, ...result }))
-      .catch((error) => sendResponse(obsidianFailure(error)));
-
-    return true;
-  }
-
-  if (message.type === "obsidian-note-exists") {
-    const baseUrl = String(message.baseUrl || "").trim();
-    const apiKey = String(message.apiKey || "").trim();
-    const filepath = String(message.filepath || "").trim();
-
-    if (!baseUrl || !apiKey || !filepath) {
-      sendResponse(OBSIDIAN_UNSET);
-      return false;
-    }
-
-    fetchWithTimeout(vaultEndpoint(baseUrl, filepath), {
-      method: "GET",
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        Accept: "text/markdown, text/plain, application/json, */*"
-      },
-      cache: "no-store"
-    }, OBSIDIAN_TIMEOUT_MS)
-      .then(async (response) => {
-        if (response.status === 404) {
-          sendResponse({ ok: true, exists: false });
-          return;
-        }
-        if (!response.ok) {
-          throw await httpError(response);
-        }
-        sendResponse({ ok: true, exists: true });
-      })
-      .catch((error) => sendResponse(obsidianFailure(error)));
-
     return true;
   }
 
@@ -1100,155 +1024,6 @@ async function* parseOpenAISSE(response, onActivity) {
   }
 }
 
-function vaultEndpoint(baseUrl, filepath) {
-  const encodedPath = filepath
-    .split("/")
-    .filter(Boolean)
-    .map((segment) => encodeURIComponent(segment))
-    .join("/");
-  return `${baseUrl.replace(/\/+$/g, "")}/vault/${encodedPath}`;
-}
-
-async function readVaultNote(baseUrl, apiKey, filepath) {
-  const response = await fetchWithTimeout(vaultEndpoint(baseUrl, filepath), {
-    method: "GET",
-    headers: { Authorization: `Bearer ${apiKey}`, Accept: "text/markdown, text/plain, */*" },
-    cache: "no-store"
-  }, OBSIDIAN_TIMEOUT_MS);
-  if (response.status === 404) {
-    return { exists: false, content: "" };
-  }
-  if (!response.ok) {
-    throw await httpError(response);
-  }
-  return { exists: true, content: await response.text() };
-}
-
-async function putVaultNote(baseUrl, apiKey, filepath, body) {
-  const response = await fetchWithTimeout(vaultEndpoint(baseUrl, filepath), {
-    method: "PUT",
-    headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "text/markdown; charset=utf-8" },
-    body
-  }, OBSIDIAN_TIMEOUT_MS);
-  if (!response.ok) {
-    throw await httpError(response);
-  }
-}
-
-// Every Obsidian write path reports with these words. Code OBSIDIAN (not set up, wrong key) or OBSIDIAN_DOWN (closed,
-// plugin off, wrong address): every write fails alike (BocErrors.CODES says what pages show). 408 is fetchWithTimeout's timeout.
-const OBSIDIAN_UNSET = { ok: false, error: BocErrors.TEXT.obsidianUnset, code: "OBSIDIAN" };
-function obsidianFailure(error) {
-  if (error?.status === 401 || error?.status === 403) return { ok: false, error: BocErrors.TEXT.obsidianKey, code: "OBSIDIAN" };
-  if (error?.status === 408 || error?.name === "TypeError") return { ok: false, error: BocErrors.TEXT.obsidianDown, code: "OBSIDIAN_DOWN" };
-  return { ok: false, error: error?.status ? `Obsidian 返回 HTTP ${error.status}` : String(error?.message || error || "未知错误") };
-}
-
-// The settings page's 测试连接: the API root answers authenticated: false to a wrong key. Same words as every write.
-async function testObsidianConnection(baseUrl, apiKey) {
-  try {
-    const response = await fetchWithTimeout(`${baseUrl.replace(/\/+$/g, "")}/`, {
-      headers: { Authorization: `Bearer ${apiKey}`, Accept: "application/json, text/plain, */*" },
-      cache: "no-store"
-    }, OBSIDIAN_TIMEOUT_MS);
-    const data = await response.json().catch(() => null);
-    if (data?.authenticated === false) throw { status: 401 };
-    if (!response.ok) throw { status: response.status };
-    return { ok: true, service: typeof data?.service === "string" ? data.service : "Obsidian Local REST API" };
-  } catch (error) {
-    const failure = obsidianFailure(error);
-    return failure.code === "OBSIDIAN_DOWN" ? { ...failure, error: `${failure.error}；也检查地址、HTTP/HTTPS 和证书信任` } : failure;
-  }
-}
-
-async function httpError(response) {
-  const bodyText = await response.text().catch(() => "");
-  return Object.assign(new Error(`HTTP ${response.status}.${bodyText ? ` ${bodyText.slice(0, 200)}` : ""}`), { status: response.status });
-}
-
-// Rewrites only the marked AI 问答 block of an existing note (see BocNote.upsertAiSection); a missing
-// note is reported, never created. Returns { exists, updated }; updated is false when the note already
-// held this section, so repeated syncs cost one GET.
-async function updateAiSectionInVault({ baseUrl, apiKey, filepath, section, noteKey }) {
-  const existing = await readVaultNote(baseUrl, apiKey, filepath);
-  if (!existing.exists) {
-    await forgetObsidianNotePath(noteKey);
-    return { exists: false, updated: false };
-  }
-  const next = BocNote.upsertAiSection(existing.content, String(section || ""));
-  if (next !== existing.content) {
-    await putVaultNote(baseUrl, apiKey, filepath, next);
-  }
-  await rememberObsidianNotePath(noteKey, filepath);
-  return { exists: true, updated: next !== existing.content };
-}
-
-// ponytail: read-modify-write on one storage key; writers are the user's own saves, seconds apart.
-async function rememberObsidianNotePath(noteKey, filepath) {
-  const key = String(noteKey || "").trim();
-  if (!key) {
-    return;
-  }
-  const storageKey = BocLimits.KEYS.obsidianNotePaths;
-  const paths = (await chrome.storage.local.get(storageKey))[storageKey] || {};
-  await chrome.storage.local.set({ [storageKey]: { ...paths, [key]: { path: filepath, lastSyncedAt: Date.now() } } });
-}
-
-async function forgetObsidianNotePath(noteKey) {
-  const key = String(noteKey || "").trim();
-  if (!key) {
-    return;
-  }
-  const storageKey = BocLimits.KEYS.obsidianNotePaths;
-  const paths = (await chrome.storage.local.get(storageKey))[storageKey] || {};
-  if (!(key in paths)) {
-    return;
-  }
-  const { [key]: _removed, ...rest } = paths;
-  await chrome.storage.local.set({ [storageKey]: rest });
-}
-
-// Obsidian requests remote images with an app://obsidian.md Referer, which hdslb.com answers with 403,
-// so the cover goes into the vault next to the note and the note links it. Any failure keeps the remote URL.
-// The two rewritten forms mirror note.js buildFrontMatter ("cover") and buildMarkdown (cover image line).
-async function linkCoverInVault(content, cover, { baseUrl, apiKey, filepath }) {
-  const url = String(cover?.url || "");
-  const name = String(cover?.name || "").replace(/[\\/:*?"<>|#^[\]]/g, "_");
-  if (!url || !name || !content.includes(url)) {
-    return content;
-  }
-  try {
-    const ext = /\.(jpe?g|png|webp|gif)$/i.exec(new URL(url).pathname)?.[1].toLowerCase() || "jpg";
-    const folder = filepath.split("/").slice(0, -1).join("/");
-    const path = `${folder ? `${folder}/` : ""}attachments/${name}.${ext}`;
-    const endpoint = vaultEndpoint(baseUrl, path);
-    const auth = { Authorization: `Bearer ${apiKey}` };
-    const existing = await fetchWithTimeout(endpoint, { method: "GET", headers: auth, cache: "no-store" }, OBSIDIAN_TIMEOUT_MS);
-    if (existing.status === 404) {
-      const image = await fetchWithTimeout(url, { referrerPolicy: "no-referrer" });
-      if (!image.ok) {
-        throw new Error(`cover HTTP ${image.status}`);
-      }
-      // A non-text Content-Type makes the plugin store the body as binary.
-      const upload = await fetchWithTimeout(endpoint, {
-        method: "PUT",
-        headers: { ...auth, "Content-Type": image.headers.get("Content-Type") || "application/octet-stream" },
-        body: await image.arrayBuffer()
-      }, OBSIDIAN_TIMEOUT_MS);
-      if (!upload.ok) {
-        throw new Error(`cover upload HTTP ${upload.status}`);
-      }
-    } else if (!existing.ok) {
-      throw new Error(`cover check HTTP ${existing.status}`);
-    }
-    const link = `[[${path}]]`;
-    return content.replace(`cover: "${url}"`, () => `cover: "${link}"`).replace(`![cover](${url})`, () => `!${link}`);
-  } catch (error) {
-    console.warn("[boc] cover not stored in vault, keeping the remote URL", error);
-    return content;
-  }
-}
-
 // DeepSeek、智谱（国内/国际）、Kimi（国内/国际）用同一个 thinking 参数开关思考；其他平台不发该参数。triage-bg.js 也用它
 function supportsThinkingToggle(baseUrl) {
   return /^https?:\/\/(api\.deepseek\.com|open\.bigmodel\.cn|api\.z\.ai|api\.moonshot\.(cn|ai))(\/|:|$)/i.test(String(baseUrl || ""));
@@ -1404,4 +1179,5 @@ async function probeAiChatCompletion({ baseUrl, apiKey, model }) {
 }
 
 // shared.js is the pages' TriageUi; it touches no DOM until called, so the worker reuses its formatters and tag rules.
-importScripts("triage/shared.js", "triage/triage-bg.js", "triage/follow-bg.js");
+// obsidian.js answers write-video-note and sync-video-note-ai: the background is the only writer to Obsidian.
+importScripts("triage/shared.js", "obsidian.js", "triage/triage-bg.js", "triage/follow-bg.js");

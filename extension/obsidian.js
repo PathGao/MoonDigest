@@ -1,0 +1,242 @@
+// The only writer to Obsidian (Local REST API): every page asks the background, which decides the path, the body and
+// what to say. Loaded by background.js (importScripts) before triage/triage-bg.js; at call time it uses background.js
+// (getMergedSettings, normalizeAiContextRef, fetchWithTimeout) and triage-bg.js (triageBuildNote).
+const OBSIDIAN_TIMEOUT_MS = 30000;
+
+const obsidianCoded = (text, code) => Object.assign(new Error(text), { code });
+
+// Every Obsidian failure in the user's words. Code OBSIDIAN (not set up, wrong key) or OBSIDIAN_DOWN (closed, plugin
+// off, wrong address; 408 is fetchWithTimeout's timeout) fails every write alike (BocErrors.CODES says what pages show).
+// An HTTP error of one note shows the status, never the response body. Errors it already made pass through.
+function obsidianError(e) {
+  if (e?.status === 401 || e?.status === 403) return obsidianCoded(BocErrors.TEXT.obsidianKey, "OBSIDIAN");
+  if (e?.status === 408 || e?.name === "TypeError") return obsidianCoded(BocErrors.TEXT.obsidianDown, "OBSIDIAN_DOWN");
+  return e?.status ? new Error(`Obsidian 返回 HTTP ${e.status}`) : e;
+}
+
+// { baseUrl, apiKey }, or code OBSIDIAN: not enabled or not set up, so every write fails the same way.
+function obsidianConfig(settings) {
+  if (!settings.obsidianEnabled) throw obsidianCoded("Obsidian 写入未启用", "OBSIDIAN");
+  const baseUrl = String(settings.obsidianApiBaseUrl || "").trim();
+  const apiKey = String(settings.obsidianApiKey || "").trim();
+  if (!baseUrl || !apiKey) throw obsidianCoded(BocErrors.TEXT.obsidianUnset, "OBSIDIAN");
+  return { baseUrl, apiKey };
+}
+
+function vaultEndpoint({ baseUrl }, filepath) {
+  const encodedPath = filepath.split("/").filter(Boolean).map((segment) => encodeURIComponent(segment)).join("/");
+  return `${baseUrl.replace(/\/+$/g, "")}/vault/${encodedPath}`;
+}
+
+async function vaultFetch(vault, filepath, options) {
+  try {
+    const response = await fetchWithTimeout(vaultEndpoint(vault, filepath), { ...options, headers: { Authorization: `Bearer ${vault.apiKey}`, ...options.headers } }, OBSIDIAN_TIMEOUT_MS);
+    if (!response.ok && response.status !== 404) throw { status: response.status };
+    return response;
+  } catch (e) {
+    throw obsidianError(e);
+  }
+}
+
+async function readVaultNote(vault, filepath) {
+  const response = await vaultFetch(vault, filepath, { method: "GET", headers: { Accept: "text/markdown, text/plain, */*" }, cache: "no-store" });
+  return response.status === 404 ? { exists: false, content: "" } : { exists: true, content: await response.text() };
+}
+
+async function putVaultNote(vault, filepath, body) {
+  const response = await vaultFetch(vault, filepath, { method: "PUT", headers: { "Content-Type": "text/markdown; charset=utf-8" }, body });
+  if (response.status === 404) throw obsidianError({ status: 404 });
+}
+
+// The settings page's 测试连接: the API root answers authenticated: false to a wrong key. Same words as every write.
+async function testObsidianConnection(baseUrl, apiKey) {
+  try {
+    const response = await fetchWithTimeout(`${baseUrl.replace(/\/+$/g, "")}/`, {
+      headers: { Authorization: `Bearer ${apiKey}`, Accept: "application/json, text/plain, */*" },
+      cache: "no-store"
+    }, OBSIDIAN_TIMEOUT_MS);
+    const data = await response.json().catch(() => null);
+    if (data?.authenticated === false) throw { status: 401 };
+    if (!response.ok) throw { status: response.status };
+    return { ok: true, service: typeof data?.service === "string" ? data.service : "Obsidian Local REST API" };
+  } catch (error) {
+    const { message, code } = obsidianError(error);
+    return { ok: false, error: code === "OBSIDIAN_DOWN" ? `${message}；也检查地址、HTTP/HTTPS 和证书信任` : String(message || error), ...(code && { code }) };
+  }
+}
+
+// The note a write recorded for a video (BocSites.buildContextKey) wins over the computed path, which carries the
+// date when includeDateInFilename is on. ponytail: read-modify-write on one storage key; writes are seconds apart.
+async function notePaths() {
+  const key = BocLimits.KEYS.obsidianNotePaths;
+  return (await chrome.storage.local.get(key))[key] || {};
+}
+async function rememberObsidianNotePath(noteKey, filepath) {
+  if (!noteKey) return;
+  await chrome.storage.local.set({ [BocLimits.KEYS.obsidianNotePaths]: { ...(await notePaths()), [noteKey]: { path: filepath, lastSyncedAt: Date.now() } } });
+}
+async function forgetObsidianNotePath(noteKey) {
+  const { [noteKey]: removed, ...rest } = await notePaths();
+  if (removed) await chrome.storage.local.set({ [BocLimits.KEYS.obsidianNotePaths]: rest });
+}
+
+// Rewrites only the marked AI 问答 block of an existing note (BocNote.upsertAiSection); a missing note is reported and
+// forgotten, never created. existing: the note already read, if any. Returns { exists, updated }.
+async function updateAiSectionInVault(vault, filepath, section, noteKey, existing) {
+  const note = existing || (await readVaultNote(vault, filepath));
+  if (!note.exists) {
+    await forgetObsidianNotePath(noteKey);
+    return { exists: false, updated: false };
+  }
+  const next = BocNote.upsertAiSection(note.content, section);
+  if (next !== note.content) await putVaultNote(vault, filepath, next);
+  await rememberObsidianNotePath(noteKey, filepath);
+  return { exists: true, updated: next !== note.content };
+}
+
+// Obsidian requests remote images with an app://obsidian.md Referer, which hdslb.com answers with 403,
+// so the cover goes into the vault next to the note and the note links it. Any failure keeps the remote URL.
+// The two rewritten forms mirror note.js buildFrontMatter ("cover") and buildMarkdown (cover image line).
+async function linkCoverInVault(vault, filepath, content, cover) {
+  const url = String(cover?.url || "");
+  const name = String(cover?.name || "").replace(/[\\/:*?"<>|#^[\]]/g, "_");
+  if (!url || !name || !content.includes(url)) {
+    return content;
+  }
+  try {
+    const ext = /\.(jpe?g|png|webp|gif)$/i.exec(new URL(url).pathname)?.[1].toLowerCase() || "jpg";
+    const folder = filepath.split("/").slice(0, -1).join("/");
+    const path = `${folder ? `${folder}/` : ""}attachments/${name}.${ext}`;
+    const existing = await vaultFetch(vault, path, { method: "GET", cache: "no-store" });
+    if (existing.status === 404) {
+      const image = await fetchWithTimeout(url, { referrerPolicy: "no-referrer" });
+      if (!image.ok) {
+        throw new Error(`cover HTTP ${image.status}`);
+      }
+      // A non-text Content-Type makes the plugin store the body as binary.
+      await vaultFetch(vault, path, { method: "PUT", headers: { "Content-Type": image.headers.get("Content-Type") || "application/octet-stream" }, body: await image.arrayBuffer() });
+    }
+    const link = `[[${path}]]`;
+    return content.replace(`cover: "${url}"`, () => `cover: "${link}"`).replace(`![cover](${url})`, () => `!${link}`);
+  } catch (error) {
+    console.warn("[boc] cover not stored in vault, keeping the remote URL", error);
+    return content;
+  }
+}
+
+// write-video-note: the one write of a video's note, from the video page, the side panel, 视频记录 and 逐个视频笔记.
+// ref: the video (or a web page's context). conversation: { messages } for the AI 问答 section; left out, the video's
+// latest saved conversation. page: { markdown, cover } from the open video page. mode: left out, an existing note is
+// not touched and the answer is ask; "full" writes the whole note; "ai" replaces only the AI 问答 section of an existing
+// note and writes a missing one whole.
+// Resolves { ask: true, path, hasAiSection } or { path, kind: full | ai | unchanged | conversation, text, title }.
+async function writeVideoNote({ ref: input, mode, conversation, page }) {
+  const settings = await getMergedSettings();
+  const vault = obsidianConfig(settings);
+  const ref = normalizeAiContextRef(input || {});
+  let key = ref.isVideoContext ? BocSites.buildContextKey(ref) : "";
+  const { aiConversations } = BocLimits.KEYS;
+  const extrasRef = { site: ref.site, videoId: key ? ref.videoId : "", pageIndex: ref.pageIndex };
+  const stored = await chrome.storage.local.get([aiConversations, ...BocNote.triageExtrasKeys(extrasRef)]);
+  const turns = BocNote.buildConversationTurns(conversation ? conversation.messages : BocNote.pickConversation(stored[aiConversations], ref)?.messages);
+  const aiOn = settings.includeAiChatInNote !== false;
+  const section = aiOn ? BocNote.buildAiSection(turns) : "";
+  const paths = await notePaths();
+  const computedPath = () => paths[key]?.path || BocNote.videoNotePath(ref, settings);
+
+  // The conversation as its own note, linking the video note (sourcePath) when there is one.
+  const standalone = (why, sourcePath) => {
+    const { analysis, note } = BocNote.triageExtras(stored, extrasRef);
+    if (!turns.length && !analysis && !note.trim()) throw new Error("没有可写入 Obsidian 的内容");
+    const filename = BocNote.buildAiConversationFilename(ref);
+    const markdown = BocNote.buildAiConversationMarkdown({ context: ref, turns, filename, sourcePath });
+    return { path: BocNote.conversationNotePath(ref, settings), why, body: async () => ({ markdown: BocNote.withTriageSummary(markdown, analysis, note) }) };
+  };
+  let target;
+  let built = null;
+  if (!key) {
+    target = standalone("", "");
+  } else if (conversation && turns.length && !aiOn) {
+    // 「笔记里写 AI 问答」 off: a conversation the user writes still reaches Obsidian, beside the note.
+    target = standalone("（单独的对话笔记）", computedPath());
+  } else if (page?.markdown) {
+    target = { video: true, path: computedPath(), body: async () => ({ markdown: page.markdown, cover: { url: page.cover, name: `${ref.site}-${ref.videoId}` } }) };
+  } else if (ref.site === "bilibili" && ref.pageIndex === 1) {
+    // Without the page only a B站 P1 note can be built (triageBuildNote). A known path skips the build until the
+    // body is needed; otherwise the API meta names the path ({{author}}, {{upload_date}}) and the cid the key.
+    const build = async () => {
+      built ||= await triageBuildNote(ref.videoId, settings);
+      return { markdown: built.markdown, cover: built.cover, warning: built.subtitleWarning };
+    };
+    if (paths[key]) {
+      target = { video: true, path: paths[key].path, body: build };
+    } else {
+      try {
+        await build();
+        key = BocSites.buildContextKey({ ...ref, cid: ref.cid || built.noteMeta.cid });
+        target = { video: true, path: paths[key]?.path || built.path, body: build };
+      } catch (e) {
+        // A deleted or hidden video has no note to build: a conversation the user writes goes in its own note.
+        if (!conversation || !BocSites.isBiliVideoGone(e.code)) throw e;
+        target = standalone("（视频已失效，只写了对话）", "");
+      }
+    }
+  } else {
+    target = standalone("（单独的对话笔记）", computedPath());
+  }
+
+  const { path } = target;
+  const title = built?.meta.title || ref.title;
+  const existing = await readVaultNote(vault, path);
+  if (existing.exists && !mode) {
+    return { ask: true, path, ...(target.video && { hasAiSection: Boolean(section) }) };
+  }
+  if (target.video && existing.exists && mode === "ai") {
+    const { updated } = section ? await updateAiSectionInVault(vault, path, section, key, existing) : { updated: false };
+    const warning = built?.subtitleWarning || "";
+    return { path, kind: updated ? "ai" : "unchanged", text: `${warning}已更新 AI 问答：${path}`, title };
+  }
+  const { markdown, cover, warning = "" } = await target.body();
+  if (!target.video) {
+    await putVaultNote(vault, path, markdown);
+    return { path, kind: "conversation", text: `已写入 Obsidian：${path}${target.why}`, title };
+  }
+  const content = aiOn ? BocNote.upsertAiSection(markdown, section) : markdown;
+  // Last guard: no writer means to empty a note, so an empty body is a caller's bug (a video that changed mid-write).
+  if (!content.trim()) throw new Error("笔记内容为空");
+  await putVaultNote(vault, path, await linkCoverInVault(vault, path, content, cover));
+  await rememberObsidianNotePath(key, path);
+  return { path, kind: "full", text: `${warning}已写入 Obsidian：${path}`, title, ...(warning && { subtitleWarning: warning }) };
+}
+
+// sync-video-note-ai: after a write recorded the video's note, each finished answer replaces its AI 问答 section.
+// Never creates a note. Resolves { path: "" } when there is nothing to do, else { path, exists, updated }.
+async function syncVideoNoteAi({ ref: input, conversation }) {
+  const ref = normalizeAiContextRef(input || {});
+  const key = ref.isVideoContext ? BocSites.buildContextKey(ref) : "";
+  const path = key ? (await notePaths())[key]?.path : "";
+  const section = BocNote.buildAiSection(BocNote.buildConversationTurns(conversation?.messages));
+  if (!path || !section) return { path: "" };
+  const settings = await getMergedSettings();
+  if (settings.includeAiChatInNote === false) return { path: "" };
+  let vault;
+  try {
+    vault = obsidianConfig(settings);
+  } catch {
+    return { path: "" };
+  }
+  return { path, ...(await updateAiSectionInVault(vault, path, section, key)) };
+}
+
+if (typeof chrome !== "undefined" && chrome.runtime?.onMessage) {
+  const handlers = { "write-video-note": writeVideoNote, "sync-video-note-ai": syncVideoNoteAi };
+  chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+    const handler = handlers[message?.type];
+    if (!handler) return false;
+    handler(message).then(
+      (result) => sendResponse({ ok: true, ...result }),
+      (e) => sendResponse({ ok: false, error: e?.message || String(e), ...(e?.code && { code: e.code }) })
+    );
+    return true;
+  });
+}

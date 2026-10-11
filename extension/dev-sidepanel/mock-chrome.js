@@ -132,27 +132,37 @@
     includeAiChatInNote: true
   };
 
+  const notePaths = {};
   const handleMessage = (msg) => {
     switch (msg?.type) {
-      case "obsidian-note-exists":
-        vaultLog("GET", msg.filepath);
-        return { ok: true, exists: msg.filepath in window.__mockVault };
-      case "write-obsidian-note":
-        if (window.__mockObsidianDown) return { ok: false, error: "fetch failed" };
-        vaultLog("PUT", msg.filepath);
-        window.__mockVault[msg.filepath] = msg.content;
-        return { ok: true };
-      case "update-obsidian-ai-section": {
-        if (window.__mockObsidianDown) return { ok: false, error: "fetch failed" };
-        vaultLog("GET", msg.filepath);
-        const current = window.__mockVault[msg.filepath];
-        if (current === undefined) return { ok: true, exists: false, updated: false };
-        const next = BocNote.upsertAiSection(current, msg.section);
+      // obsidian.js in short: the video note at its recorded or computed path, the page's body or a stand-in; ask when it exists.
+      case "write-video-note": {
+        if (window.__mockObsidianDown) return { ok: false, error: "连不上 Obsidian，请确认它已打开并启用了 Local REST API", code: "OBSIDIAN_DOWN" };
+        const key = BocSites.buildContextKey(msg.ref);
+        const path = notePaths[key] || BocNote.videoNotePath(msg.ref, mockSettings);
+        vaultLog("GET", path);
+        const current = window.__mockVault[path];
+        const section = BocNote.buildAiSection(BocNote.buildConversationTurns(msg.conversation?.messages));
+        if (current !== undefined && !msg.mode) return { ok: true, ask: true, path, hasAiSection: Boolean(section) };
+        const ai = current !== undefined && msg.mode === "ai";
+        vaultLog("PUT", path);
+        window.__mockVault[path] = BocNote.upsertAiSection(ai ? current : msg.page?.markdown || `# ${msg.ref.title}\n\n字幕正文\n`, section);
+        notePaths[key] = path;
+        return { ok: true, path, kind: ai ? "ai" : "full", text: `${ai ? "已更新 AI 问答" : "已写入 Obsidian"}：${path}` };
+      }
+      case "sync-video-note-ai": {
+        if (window.__mockObsidianDown) return { ok: false, error: "连不上 Obsidian，请确认它已打开并启用了 Local REST API", code: "OBSIDIAN_DOWN" };
+        const path = notePaths[BocSites.buildContextKey(msg.ref)];
+        if (!path) return { ok: true, path: "" };
+        vaultLog("GET", path);
+        const current = window.__mockVault[path];
+        if (current === undefined) return { ok: true, path, exists: false, updated: false };
+        const next = BocNote.upsertAiSection(current, BocNote.buildAiSection(BocNote.buildConversationTurns(msg.conversation?.messages)));
         if (next !== current) {
-          vaultLog("PUT", msg.filepath);
-          window.__mockVault[msg.filepath] = next;
+          vaultLog("PUT", path);
+          window.__mockVault[path] = next;
         }
-        return { ok: true, exists: true, updated: next !== current };
+        return { ok: true, path, exists: true, updated: next !== current };
       }
       case "ai-providers-list":
         return { ok: true, providers: params.get("providers") === "0" ? [] : [demo ? { id: "p1", name: "DeepSeek", model: "deepseek-flash", enabled: true } : { id: "p1", name: "Mock", model: "claude-sonnet-4-5-20250929", enabled: true }] };
@@ -193,15 +203,9 @@
         return { ...tab };
       },
       sendMessage: (_id, msg, cb) => {
-        if (msg?.type === "popup-send-obsidian") {
-          const video = findVideo(tab.url);
-          const state = payloadFor(video);
-          const folder = BocNote.resolveFolderTemplate(mockSettings.noteFolder, state);
-          const path = `${folder}/${BocNote.buildNoteFilename(state, mockSettings)}`;
-          vaultLog("PUT", path);
-          window.__mockVault[path] = `# ${video.title}\n\n字幕正文\n`;
-        }
-        setTimeout(() => cb?.({ ok: true }), 10);
+        // The video page's popup-refresh: its note, as the side panel's 写入 Obsidian sends it on.
+        const video = msg?.type === "popup-refresh" && findVideo(tab.url);
+        setTimeout(() => cb?.(video ? { ok: true, payload: { url: tab.url, markdown: `# ${video.title}\n\n字幕正文\n`, cover: "" } } : { ok: true }), 10);
       },
       onUpdated,
       onActivated: makeEvent()

@@ -1283,6 +1283,7 @@ function getPopupPayload() {
   };
 }
 
+// The background (write-video-note) picks the path and writes; this page sends its note and draws the overwrite dialog.
 // Resolves { ok: false, error, code } when the write failed, { written: false } when the existing note was left alone
 // (取消, video switched), nothing otherwise.
 async function sendToObsidian() {
@@ -1296,23 +1297,10 @@ async function sendToObsidian() {
     return;
   }
 
-  const filename = BocNote.buildNoteFilename(state, state.settings);
-  const folder = BocNote.resolveFolderTemplate(state.settings.noteFolder || "", state);
-  const filepath = folder ? `${folder}/${filename}` : filename;
-  const baseUrl = String(state.settings.obsidianApiBaseUrl || "").trim();
-  const apiKey = String(state.settings.obsidianApiKey || "").trim();
-  if (!baseUrl || !apiKey) {
-    setMessage(BocErrors.TEXT.obsidianUnset);
-    requestOpenOptions();
-    return;
-  }
-
-  const noteKey = BocSites.buildContextKey({ site: state.site, videoId: state.videoId, cid: state.cid });
   // Taken before the overwrite dialog: autoplay or a link can change the video (and reset state) while it is open.
   const clip = computeCurrentClipSignature();
-  const markdown = state.markdown;
-  const cover = { url: state.cover, name: `${state.site}-${state.videoId}` };
-  const aiSection = state.settings.includeAiChatInNote === false ? "" : BocNote.buildAiSection(state.aiTurns);
+  const ref = { site: state.site, videoId: state.videoId, cid: state.cid, pageIndex: state.pageIndex, pageCount: state.pageCount, pageTitle: state.pageTitle, title: state.title, author: state.author, uploadDate: state.uploadDate, url: cleanVideoUrl() };
+  const request = { type: "write-video-note", ref, page: { markdown: state.markdown, cover: state.cover } };
   // Answering the dialog closes the popup, so after it progress and results also show on the page.
   let onPage = false;
   const report = (text, ok) => {
@@ -1320,11 +1308,11 @@ async function sendToObsidian() {
     if (onPage) setReadingNotice(text, { hideMs: ok ? 3000 : 0, error: !ok });
   };
   try {
-    const exists = await checkObsidianNoteExists(baseUrl, apiKey, filepath);
-    if (exists) {
-      const choice = await confirmOverwriteNote(filepath, { hasAiSection: Boolean(aiSection) });
-      if (!choice) {
-        setMessage("已取消写入 Obsidian，原笔记未被覆盖。");
+    let resp = await sendRuntimeMessage(request);
+    if (resp?.ok && resp.ask) {
+      const mode = await confirmOverwriteNote(resp.path, { hasAiSection: resp.hasAiSection });
+      if (!mode) {
+        setMessage(BocErrors.TEXT.obsidianCancelled);
         return { written: false };
       }
       onPage = true;
@@ -1334,54 +1322,21 @@ async function sendToObsidian() {
         return { written: false };
       }
       setReadingNotice("正在写入 Obsidian…", { busy: true });
-      if (choice === "ai") {
-        const resp = await sendRuntimeMessage({ type: "update-obsidian-ai-section", baseUrl, apiKey, filepath, section: aiSection, noteKey });
-        if (!resp?.ok) {
-          throw BocErrors.fromResp(resp, "Local API 写入失败");
-        }
-        report(`已更新 AI 问答：${filepath}`, true);
-        return;
-      }
+      resp = await sendRuntimeMessage({ ...request, mode });
     }
-    await writeNoteByLocalApi(baseUrl, apiKey, filepath, markdown, cover, noteKey);
-    report(`已写入 Obsidian：${filepath}`, true);
+    if (!resp?.ok) {
+      throw BocErrors.fromResp(resp, "Local API 写入失败");
+    }
+    report(resp.text, true);
   } catch (error) {
     if (BocErrors.reloaded(error)) {
       report(BocErrors.TEXT.reloaded);
       return;
     }
     report(`写入 Obsidian 失败：${getErrorMessage(error)}`);
-    // A wrong key: the settings page, as for 未配置. A closed Obsidian only gets the red line.
+    // Not set up or a wrong key: the settings page. A closed Obsidian only gets the red line.
     if (error.action === "settings") requestOpenOptions();
     return { ok: false, error: getErrorMessage(error), code: error.cause?.code };
-  }
-}
-
-async function checkObsidianNoteExists(baseUrl, apiKey, filepath) {
-  const resp = await sendRuntimeMessage({
-    type: "obsidian-note-exists",
-    baseUrl,
-    apiKey,
-    filepath
-  });
-  if (!resp?.ok) {
-    throw BocErrors.fromResp(resp, "Local API 检查失败");
-  }
-  return Boolean(resp.exists);
-}
-
-async function writeNoteByLocalApi(baseUrl, apiKey, filepath, content, cover, noteKey) {
-  const resp = await sendRuntimeMessage({
-    type: "write-obsidian-note",
-    baseUrl,
-    apiKey,
-    filepath,
-    content,
-    cover,
-    noteKey
-  });
-  if (!resp?.ok) {
-    throw BocErrors.fromResp(resp, "Local API 写入失败");
   }
 }
 

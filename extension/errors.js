@@ -1,6 +1,6 @@
 // How pages show an error the background already classified: the shared sentences, what each error code asks the
 // user to do, and the helpers every page used to copy, HTML escaping among them. The background classifies (triage-bg.js triageAiHttpError,
-// background.js obsidianFailure) and reads TEXT from here too. Loaded by the content script (manifest), background
+// obsidian.js obsidianError) and reads TEXT from here too. Loaded by the content script (manifest), background
 // (importScripts) and the pages; load-order.selftest.js checks every user of BocErrors loads it first. Idempotent like limits.js.
 (() => {
   if (globalThis.BocErrors) {
@@ -11,6 +11,8 @@
     obsidianUnset: "请先在设置页填写 Obsidian Local REST API 地址和 API Key",
     obsidianKey: "Obsidian 的 API Key 无效或未授权",
     obsidianDown: "连不上 Obsidian，请确认它已打开并启用了 Local REST API",
+    // 取消 in the 该笔记已存在 dialog: the page sent no second write-video-note, so nothing was written.
+    obsidianCancelled: "已取消写入 Obsidian，原笔记未被覆盖。",
     // The extension reloaded under a page whose content script still runs: chrome.runtime no longer answers.
     reloaded: "扩展刚刚更新，请刷新网页",
     // B站 risk control (HTTP 412 or BocSites.BILI_RISK_CODES), the background's code THROTTLED.
