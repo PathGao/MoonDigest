@@ -888,12 +888,12 @@ async function initializeSettingsStorage() {
 }
 
 // Keys no code reads any more; removing absent keys is a no-op, so this reruns on every install/update.
-// The old scheme keys and triageCriteria wait for triage's one-time migration (triage_simplified_v1), which drops them itself.
+// triageCriteria waits for triage's one-time migration (triage_simplified_v1), which drops it itself. The scheme keys and
+// triage_excluded_folders only ever existed in pre-release v2.0 builds.
 async function removeDeadStorageKeys() {
   const keys = (await chrome.storage.local.getKeys?.()) ?? Object.keys((await chrome.storage.local.get(null)) || {});
   const { triage_simplified_v1: migrated } = await chrome.storage.local.get("triage_simplified_v1");
-  const dead = ["triage_tab", "triage_read_verdict", "triage_tag_presets", "triage_schemes_migrated", "triage_watched"];
-  if (migrated) dead.push("triage_schemes", "triage_folder_scheme");
+  const dead = ["triage_tab", "triage_read_verdict", "triage_tag_presets", "triage_schemes_migrated", "triage_watched", "triage_schemes", "triage_folder_scheme", "triage_excluded_folders"];
   await chrome.storage.local.remove(keys.filter((k) => dead.includes(k) || k.startsWith("triage_verdict_override_")));
   await chrome.storage.sync.remove(["triageExportFolder", "readerChapterVisibility", ...(migrated ? ["triageCriteria"] : [])]);
 }

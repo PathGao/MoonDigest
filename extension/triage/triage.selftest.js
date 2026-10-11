@@ -671,7 +671,7 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   // Backup maps storage keys to sections and never exports secrets or unrelated keys.
   for (const k of Object.keys(store)) delete store[k];
   Object.assign(store, {
-    triage_schemes: [{ id: "old" }], triage_folder_scheme: { 7: "old" }, triage_tags: [{ id: "t1", name: "AI", color: "#111" }], triage_tag_presets: [{ id: "old" }],
+    triage_tags: [{ id: "t1", name: "AI", color: "#111" }], triage_tag_presets: [{ id: "old" }],
     triage_folder_criteria: { 7: "只留干货" }, triage_simplified_v1: true,
     triage_video_tags: { BVa: ["t1"] }, triage_basket: [{ bvid: "BVa" }],
     triage_notes: { BVa: { text: "n", updatedAt: 1 } }, triage_notes_migrated: true,
@@ -1235,45 +1235,25 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   assert.deepStrictEqual(plain(t.aiScopeItems("analyzed").map((it) => it.bvid)), ["BV600"]);
   t.S.analyses = {};
 
-  // Migration (pure): criteria per seen folder, the default scheme's tags plus used ones, same names merged.
-  const schemes = [
-    { id: "s2", name: "学习", criteria: " 只留课程 ", tags: [{ id: "x1", name: "数学", color: "#1" }, { id: "x2", name: "AI", color: "#2" }, { id: "x3", name: "没用到" }] },
-    { id: "default", name: "默认方案", criteria: "只留干货", tags: [{ id: "d1", name: "AI", description: "大模型", color: "#d" }, { id: "d2", name: "工具" }] },
-    { id: "s3", name: "空", criteria: "", tags: [] }
-  ];
-  const mig = plain(t.simplifyMigration({
-    schemes,
-    folderScheme: { 2: "s2", 3: "s3", 4: "gone" },
-    videoTags: { BVa: ["x2", "d1", "x1"], BVb: ["zz"] },
-    folderIds: ["1", "2"],
-    folderCriteria: { 9: "已有" }
-  }));
-  assert.deepStrictEqual(mig.tags, [{ id: "d1", name: "AI", color: "#d" }, { id: "d2", name: "工具", color: "#da86c3" }, { id: "x1", name: "数学", color: "#1" }], "a tag without a color gets the first free one (nextTagColor)");
-  assert.deepStrictEqual(mig.videoTags, { BVa: ["d1", "x1"], BVb: ["zz"] }, "a same-name tag is remapped; unknown ids stay");
-  assert.deepStrictEqual(mig.folderCriteria, { 1: "只留干货", 2: "只留课程", 4: "只留干货", 9: "已有" }, "unmapped or missing scheme → default; empty criteria are not written");
-  // Pre-scheme users: the global tags and criteria carry over.
+  // Migration (pure): the global tags and criteria carry over, the criteria to each folder seen in triage.
   const pre = plain(t.simplifyMigration({ tags: [{ id: "t1", name: "AI", color: "#1", description: "d" }], videoTags: { BVa: ["t1"] }, criteria: "全局", folderIds: ["5"] }));
   assert.deepStrictEqual(pre, { tags: [{ id: "t1", name: "AI", color: "#1" }], videoTags: { BVa: ["t1"] }, folderCriteria: { 5: "全局" } });
   assert.deepStrictEqual(plain(t.simplifyMigration({})), { tags: [], videoTags: {}, folderCriteria: {} });
+  const dup = plain(t.simplifyMigration({ tags: [{ id: "t1", name: "AI", color: "#1" }, { id: "t2", name: "AI" }, { id: "t3", name: "工具" }], videoTags: { BVa: ["t2", "t1"], BVb: ["zz"] } }));
+  assert.deepStrictEqual(dup.tags, [{ id: "t1", name: "AI", color: "#1" }, { id: "t3", name: "工具", color: "#da86c3" }], "a tag without a color gets the first free one (nextTagColor)");
+  assert.deepStrictEqual(dup.videoTags, { BVa: ["t1"], BVb: ["zz"] }, "a same-name tag is remapped; unknown ids stay");
 
-  // Migration (storage): runs once, writes the new keys, drops the old ones, then never reads them.
-  for (const k of Object.keys(store)) delete store[k];
-  Object.assign(store, { triage_schemes: schemes, triage_folder_scheme: { 2: "s2" }, triage_video_tags: { BVa: ["x2"] }, triage_snapshot_1: { bvids: [] }, triage_decisions_2: {} });
-  const loaded = plain(await t.loadTagsAndCriteria());
-  assert.deepStrictEqual(loaded.folderCriteria, { 1: "只留干货", 2: "只留课程" });
-  assert.deepStrictEqual(loaded.videoTags, { BVa: ["d1"] });
-  assert.deepStrictEqual(plain(store.triage_tags.map((x) => x.id)), ["d1", "d2"]);
-  assert.strictEqual(store.triage_simplified_v1, true);
-  assert.ok(!store.triage_schemes && !store.triage_folder_scheme, "old keys are dropped");
-  store.triage_schemes = [{ id: "default", criteria: "后来改的" }];
-  store.triage_folder_criteria = { 1: "我改的" };
-  assert.deepStrictEqual(plain((await t.loadTagsAndCriteria()).folderCriteria), { 1: "我改的" }, "a second run reads only the new keys");
-  // Pre-scheme storage: global criteria from sync, triage_tags kept.
+  // Migration (storage): global criteria from sync, triage_tags kept; runs once, then never reads the old key.
   for (const k of Object.keys(store)) delete store[k];
   Object.assign(store, { triage_tags: [{ id: "t1", name: "AI", color: "#1" }], triage_video_tags: { BVa: ["t1"] }, triage_decisions_7: {} });
   syncStore.triageCriteria = "全局标准";
   assert.deepStrictEqual(plain(await t.loadTagsAndCriteria()), { tags: [{ id: "t1", name: "AI", color: "#1" }], videoTags: { BVa: ["t1"] }, folderCriteria: { 7: "全局标准" } });
   assert.ok(!("triageCriteria" in syncStore), "the migrated sync criteria is dropped");
+  assert.strictEqual(store.triage_simplified_v1, true);
+  syncStore.triageCriteria = "后来改的";
+  store.triage_folder_criteria = { 7: "我改的" };
+  assert.deepStrictEqual(plain((await t.loadTagsAndCriteria()).folderCriteria), { 7: "我改的" }, "a second run reads only the new keys");
+  delete syncStore.triageCriteria;
 
   // F1 search: title, uploader, one-liner, points, note and tag names; case-insensitive; every word must match; combines with tags.
   openFake("Q", [{ ...item(1), title: "Claude Code 实战", upper: "老王" }, { ...item(2), title: "红烧肉" }, item(3)]);
@@ -1568,14 +1548,13 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     t.S.removedCheck = null;
   }
 
-  // Opt-in folders: a new user starts with none; someone who already triaged keeps every folder but the ones switched off.
+  // Opt-in folders: a new user starts with none; someone who already triaged keeps every folder.
   for (const k of Object.keys(store)) delete store[k];
   t.S.allFolders = [{ id: 1 }, { id: 2 }, { id: 3 }];
   assert.deepStrictEqual(plain(await t.loadIncluded()), []);
   delete store[t.K.included];
-  Object.assign(store, { triage_snapshot_1: { bvids: [] }, triage_excluded_folders: ["2"] });
-  assert.deepStrictEqual(plain(await t.loadIncluded()), ["1", "3"]);
-  assert.ok(!("triage_excluded_folders" in store));
+  Object.assign(store, { triage_snapshot_1: { bvids: [] } });
+  assert.deepStrictEqual(plain(await t.loadIncluded()), ["1", "2", "3"]);
   store[t.K.included] = ["3"];
   assert.deepStrictEqual(plain(await t.loadIncluded()), ["3"], "a saved choice is kept as is");
 

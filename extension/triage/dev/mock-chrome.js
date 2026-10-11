@@ -12,15 +12,11 @@
     obsidianApiKey: "secret-token",
     // Per-video notes (triage_notes): one seeded so a filled note shows without typing.
     triage_notes: { BV1mock0001: { text: "第 3 节的重构步骤可以直接套到自己的项目", updatedAt: Date.now() } },
-    // Old scheme data, so the page's one-time migration has something to fold: 稍后-AI (seen, unmapped) gets the
-    // default criteria, 学习 its scheme's; tags become AI工程 + 工具 + 数学, s-ai merges into t-ai, s-unused is dropped.
-    triage_schemes: [
-      { id: "default", name: "默认方案", criteria: "只留 AI 工程实践的深度内容，资讯可清理", tags: [{ id: "t-ai", name: "AI工程", description: "大模型实践", color: "#da86c3" }, { id: "t-tool", name: "工具", color: "#298287" }] },
-      { id: "s-study", name: "学习", criteria: "只留系统课程", tags: [{ id: "s-math", name: "数学", color: "#dc6d2d" }, { id: "s-ai", name: "AI工程", color: "#3590a0" }, { id: "s-unused", name: "没用到", color: "#8595ea" }] }
-    ],
-    triage_folder_scheme: { 1002: "s-study" },
+    // Pre-v2.0 global tags (two named AI工程) and sync triageCriteria, so the page's one-time migration has something to fold:
+    // t-ai2 merges into t-ai, and every folder seen in triage gets the global criteria.
+    triage_tags: [{ id: "t-ai", name: "AI工程", color: "#da86c3" }, { id: "t-tool", name: "工具", color: "#298287" }, { id: "t-math", name: "数学", color: "#dc6d2d" }, { id: "t-ai2", name: "AI工程", color: "#3590a0" }],
     triage_decisions_1001: {},
-    triage_video_tags: { BV1mock0001: ["t-ai"], BV1mock0040: ["s-math", "s-ai"] }
+    triage_video_tags: { BV1mock0001: ["t-ai"], BV1mock0040: ["t-math", "t-ai2"] }
   };
   function makeArea(data) {
     return {
@@ -113,7 +109,7 @@
 
   // ?demo swaps in the README screenshot data: B站-style titles and covers, every step filled, tags, 待播, notes and
   // watch progress (seenShow 进度条和看完了标记). Nothing here is a real account's data.
-  const demoSync = {};
+  const demoSync = { triageCriteria: "只留 AI 工程实践的深度内容，资讯可清理" };
   if (/[?&]demo\b/.test(location.search)) {
     const day = 86400000;
     const now = Date.now();

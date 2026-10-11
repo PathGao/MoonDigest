@@ -43,19 +43,12 @@ const TOVIEW = "toview"; // 稍后再看, listed by triage-bg as one more folder
 // The ids are the badge color classes too.
 const VERDICTS = { keep: "值得留", drop: "可清理", unsure: "拿不准" };
 
-// One-time fold of the old schemes (triage_schemes + triage_folder_scheme) into per-folder 判断标准 and one tag list (pure).
-// Each folder seen in triage gets its scheme's criteria (unmapped = the default scheme's) when non-empty; folders never
-// opened in triage start empty. Tags: the default scheme's, plus other schemes' tags some video uses; same name → the
-// first id wins and video tags are remapped to it. Without schemes, the pre-scheme triage_tags and global criteria carry over.
-function simplifyMigration({ schemes, folderScheme, tags, videoTags, criteria, folderIds = [], folderCriteria }) {
-  const list = Array.isArray(schemes) && schemes.length ? schemes : null;
-  const def = list && (list.find((x) => x?.id === "default") || list[0]);
+// One-time fold of the global 判断标准 (sync triageCriteria, released since v1.2.0) into per-folder 判断标准, and a clean
+// tag list (pure). Each folder seen in triage gets the global criteria when non-empty; folders never opened in triage
+// start empty. Tags: same name → the first id wins and video tags are remapped to it.
+function simplifyMigration({ tags, videoTags, criteria, folderIds = [], folderCriteria }) {
   const vt = videoTags || {};
-  const fs = folderScheme || {};
-  const used = new Set(Object.values(vt).flat());
-  const candidates = list
-    ? [...(def.tags || []), ...list.filter((x) => x !== def).flatMap((x) => (x?.tags || []).filter((t) => used.has(t?.id)))]
-    : Array.isArray(tags) ? tags : [];
+  const candidates = Array.isArray(tags) ? tags : [];
   const out = [];
   const remap = {};
   for (const t of candidates) {
@@ -67,10 +60,8 @@ function simplifyMigration({ schemes, folderScheme, tags, videoTags, criteria, f
   }
   const nextVideoTags = Object.fromEntries(Object.entries(vt).map(([b, ids]) => [b, [...new Set(ids.map((id) => remap[id] || id))]]));
   const crit = {};
-  for (const f of new Set([...folderIds.map(String), ...Object.keys(fs)])) {
-    const text = String((list ? (list.find((x) => x?.id === fs[f]) || def).criteria : criteria) || "").trim();
-    if (text) crit[f] = text;
-  }
+  const text = String(criteria || "").trim();
+  if (text) for (const f of new Set(folderIds.map(String))) crit[f] = text;
   return { tags: out, videoTags: nextVideoTags, folderCriteria: { ...crit, ...folderCriteria } };
 }
 
@@ -980,16 +971,14 @@ function coverHtml(it) {
   return `<a class="cover-wrap${seen ? " seen" : ""}" href="${esc(videoUrl(it.bvid))}" tabindex="-1" aria-hidden="true">${pic}${tag}${dur}${mark}${p ? `<span class="seen-bar" title="看到 ${p}%"><i style="width:${Math.max(p, 2)}%"></i></span>` : ""}</a>`;
 }
 
-// Runs simplifyMigration once (flag key), then drops the old scheme keys it read.
+// Runs simplifyMigration once (flag key), then drops the sync criteria it read.
 async function loadTagsAndCriteria() {
-  const got = await chrome.storage.local.get([K.tags, K.videoTags, K.folderCriteria, K.simplified, "triage_schemes", "triage_folder_scheme"]);
+  const got = await chrome.storage.local.get([K.tags, K.videoTags, K.folderCriteria, K.simplified]);
   if (got[K.simplified]) return { tags: got[K.tags] || [], videoTags: got[K.videoTags] || {}, folderCriteria: got[K.folderCriteria] || {} };
   const keys = (await chrome.storage.local.getKeys?.()) ?? Object.keys((await chrome.storage.local.get(null)) || {});
   const folderIds = keys.map((k) => /^triage_(?:snapshot|decisions)_(.+)$/.exec(k)?.[1]).filter(Boolean);
   const { triageCriteria } = await chrome.storage.sync.get({ triageCriteria: "" });
   const out = simplifyMigration({
-    schemes: got.triage_schemes,
-    folderScheme: got.triage_folder_scheme,
     tags: got[K.tags],
     videoTags: got[K.videoTags],
     criteria: triageCriteria,
@@ -997,7 +986,6 @@ async function loadTagsAndCriteria() {
     folderCriteria: got[K.folderCriteria]
   });
   await chrome.storage.local.set({ [K.tags]: out.tags, [K.videoTags]: out.videoTags, [K.folderCriteria]: out.folderCriteria, [K.simplified]: true });
-  await chrome.storage.local.remove(["triage_schemes", "triage_folder_scheme"]);
   await chrome.storage.sync.remove("triageCriteria");
   return out;
 }
@@ -1053,17 +1041,13 @@ function retireUnchosenFolders() {
 }
 
 // Opt-in: a new user starts with no folder chosen. The first load after this change keeps every folder for
-// someone who already triaged (a snapshot exists), minus the ones they had switched off.
+// someone who already triaged (a snapshot exists).
 async function loadIncluded() {
-  const got = await chrome.storage.local.get([K.included, "triage_excluded_folders"]);
+  const got = await chrome.storage.local.get(K.included);
   if (Array.isArray(got[K.included])) return got[K.included];
   const keys = (await chrome.storage.local.getKeys?.()) ?? Object.keys((await chrome.storage.local.get(null)) || {});
-  const off = (got.triage_excluded_folders || []).map(String);
-  const included = keys.some((k) => k.startsWith("triage_snapshot_"))
-    ? S.allFolders.map((f) => String(f.id)).filter((id) => !off.includes(id))
-    : [];
+  const included = keys.some((k) => k.startsWith("triage_snapshot_")) ? S.allFolders.map((f) => String(f.id)) : [];
   await chrome.storage.local.set({ [K.included]: included });
-  await chrome.storage.local.remove("triage_excluded_folders");
   return included;
 }
 
