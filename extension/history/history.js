@@ -291,11 +291,7 @@ async function saveToObsidian(group) {
     const sourcePath = boundPath || (videoFolder ? `${videoFolder}/${videoFile}` : videoFile);
     const note = buildNote(group, sourcePath);
     const filepath = videoFolder ? `${videoFolder}/${note.filename}` : note.filename;
-    const exists = await chrome.runtime.sendMessage({ type: "obsidian-note-exists", baseUrl, apiKey, filepath });
-    if (!exists?.ok) throw BocErrors.fromResp(exists, "Local API 检查失败");
-    if (exists.exists && !(await BocOverwriteDialog.choose(filepath))) return;
-    const written = await chrome.runtime.sendMessage({ type: "write-obsidian-note", baseUrl, apiKey, filepath, content: note.content });
-    if (!written?.ok) throw BocErrors.fromResp(written, "Local API 写入失败");
+    if (!(await BocOverwriteDialog.writeNote({ baseUrl, apiKey, filepath, content: note.content }))) return;
     if (built) setStatus(`已写入 Obsidian：${filepath}（视频已失效，只写了对话）`);
     else setStatus(group.context.videoId ? `已写入 Obsidian：${filepath}（单独的对话笔记）` : `已写入 Obsidian：${filepath}`);
   } catch (error) {

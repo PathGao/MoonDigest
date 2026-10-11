@@ -61,11 +61,7 @@
   // into it. Resolves the choice ("full", "ai" or "" for 取消); a failed check or write throws BocErrors.fromResp.
   async function writeBuiltNote({ baseUrl, apiKey, built, section, noteKey }) {
     const filepath = built.path;
-    const send = async (message, fallback) => {
-      const resp = await chrome.runtime.sendMessage({ baseUrl, apiKey, filepath, ...message });
-      if (!resp?.ok) throw BocErrors.fromResp(resp, fallback);
-      return resp;
-    };
+    const send = sender({ baseUrl, apiKey, filepath });
     const exists = await send({ type: "obsidian-note-exists" }, "Local API 检查失败");
     const choice = exists.exists ? await choose(filepath, { hasAiSection: Boolean(section) }) : "full";
     if (choice === "full") await send({ type: "write-obsidian-note", content: built.markdown, cover: built.cover, noteKey }, "Local API 写入失败");
@@ -73,5 +69,21 @@
     return choice;
   }
 
-  globalThis.BocOverwriteDialog = Object.freeze({ choose, writeBuiltNote });
+  // A note with no AI 问答 section (a conversation note): ask when it exists, then write it whole. Resolves true when
+  // written, false on 取消; a failed check or write throws BocErrors.fromResp.
+  async function writeNote({ baseUrl, apiKey, filepath, content }) {
+    const send = sender({ baseUrl, apiKey, filepath });
+    const exists = await send({ type: "obsidian-note-exists" }, "Local API 检查失败");
+    if (exists.exists && !(await choose(filepath))) return false;
+    await send({ type: "write-obsidian-note", content }, "Local API 写入失败");
+    return true;
+  }
+
+  const sender = (target) => async (message, fallback) => {
+    const resp = await chrome.runtime.sendMessage({ ...target, ...message });
+    if (!resp?.ok) throw BocErrors.fromResp(resp, fallback);
+    return resp;
+  };
+
+  globalThis.BocOverwriteDialog = Object.freeze({ choose, writeBuiltNote, writeNote });
 })();

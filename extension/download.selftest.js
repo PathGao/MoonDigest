@@ -1,6 +1,6 @@
 // /usr/local/bin/node extension/download.selftest.js
 // BocOverwriteDialog: the one 该笔记已存在 dialog of the extension pages, its words matching the video page's
-// (content.js), and writeBuiltNote, the side panel's and the 视频记录 page's built-note write.
+// (content.js), and writeBuiltNote / writeNote, the side panel's and the 视频记录 page's note writes.
 const fs = require("fs");
 const path = require("path");
 const vm = require("vm");
@@ -92,6 +92,22 @@ const last = () => dialogs[dialogs.length - 1];
   replies = { "obsidian-note-exists": { ok: true, exists: false }, "write-obsidian-note": { ok: false, error: "key", code: "OBSIDIAN" } };
   await assert.rejects(D.writeBuiltNote({ ...args, section: "S" }), (e) => e.action === "settings" && e.message === "key");
   assert.strictEqual(types(), "obsidian-note-exists,write-obsidian-note");
+
+  // writeNote (a conversation note): new → written; exists → the dialog without 只更新 AI 问答, 取消 writes nothing.
+  const note = { baseUrl: "u", apiKey: "k", filepath: "c.md", content: "# c" };
+  replies = { "obsidian-note-exists": { ok: true, exists: false }, "write-obsidian-note": { ok: true } };
+  assert.strictEqual(await D.writeNote(note), true);
+  assert.strictEqual(types(), "obsidian-note-exists,write-obsidian-note");
+  replies["obsidian-note-exists"] = { ok: true, exists: true };
+  p = D.writeNote(note);
+  await new Promise((r) => setImmediate(r));
+  assert.strictEqual(text(last()), "该笔记已存在 整篇覆盖会替换全部内容： 整篇覆盖 取消");
+  last().close("");
+  assert.strictEqual(await p, false);
+  assert.strictEqual(types(), "obsidian-note-exists");
+  for (const f of ["sidepanel.js", "history/history.js"]) {
+    assert.ok(!read(f).includes('"write-obsidian-note"'), `${f} writes notes through BocOverwriteDialog`);
+  }
   console.log("download selftest: all passed");
 })().catch((e) => {
   console.error(e);

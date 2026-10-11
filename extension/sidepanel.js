@@ -2516,14 +2516,10 @@ async function saveMarkdownToObsidian({ button, filepath, content, baseUrl, apiK
     if (button) {
       button.disabled = true;
     }
-    const exists = await checkObsidianNoteExists(baseUrl, apiKey, filepath);
-    if (exists) {
-      if (!(await BocOverwriteDialog.choose(filepath))) {
-        showConversationContextNotice("已取消写入 Obsidian，原笔记未被覆盖。", 2200);
-        return false;
-      }
+    if (!(await BocOverwriteDialog.writeNote({ baseUrl, apiKey, filepath, content }))) {
+      showConversationContextNotice("已取消写入 Obsidian，原笔记未被覆盖。", 2200);
+      return false;
     }
-    await writeNoteByLocalApi(baseUrl, apiKey, filepath, content);
     showConversationContextNotice(`已写入 Obsidian：${filepath}`, 2600);
     return true;
   } catch (error) {
@@ -2534,32 +2530,6 @@ async function saveMarkdownToObsidian({ button, filepath, content, baseUrl, apiK
         button.disabled = false;
       }, 500);
     }
-  }
-}
-
-async function checkObsidianNoteExists(baseUrl, apiKey, filepath) {
-  const resp = await sendRuntimeMessage({
-    type: "obsidian-note-exists",
-    baseUrl,
-    apiKey,
-    filepath
-  });
-  if (!resp?.ok) {
-    throw BocErrors.fromResp(resp, "Local API 检查失败");
-  }
-  return Boolean(resp.exists);
-}
-
-async function writeNoteByLocalApi(baseUrl, apiKey, filepath, content) {
-  const resp = await sendRuntimeMessage({
-    type: "write-obsidian-note",
-    baseUrl,
-    apiKey,
-    filepath,
-    content
-  });
-  if (!resp?.ok) {
-    throw BocErrors.fromResp(resp, "Local API 写入失败");
   }
 }
 
