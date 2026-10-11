@@ -91,6 +91,16 @@ for (const f of scripts) vm.runInContext(fs.readFileSync(f, "utf8"), ctx);
   pick("b", true);
   assert.deepStrictEqual([sa.checked, sa.indeterminate], [true, false], "all selected: checked");
   assert.strictEqual(els.selectAllLabel?.textContent, "全选 2 个");
+
+  // 取消 in the overwrite dialog: nothing written, and the line the side panel and the popup show, not red.
+  ctx.chrome.runtime.sendMessage = async (m) => (m.type === "get-settings" ? { settings: { obsidianApiBaseUrl: "http://127.0.0.1:27123", obsidianApiKey: "k" } } : { ok: true, exists: true });
+  ctx.BocOverwriteDialog = { writeNote: async () => false };
+  let red = null;
+  els.status.classList = { toggle: (c, on) => c === "is-error" && (red = on) };
+  const target = { dataset: { act: "obsidian" }, closest: (s) => (s === ".entry" ? { dataset: { key: "a" } } : target) };
+  (L.list.click || []).forEach((f) => f({ target }));
+  await wait(50);
+  assert.deepStrictEqual([els.status.textContent, red], ["已取消写入 Obsidian，原笔记未被覆盖。", false]);
   console.log("history selftest: all passed");
 })().catch((e) => {
   console.error(e);

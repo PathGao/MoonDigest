@@ -282,7 +282,7 @@ async function saveToObsidian(group) {
     if (built?.ok) {
       setStatus("正在写入…");
       const choice = await BocOverwriteDialog.writeBuiltNote({ baseUrl, apiKey, built: built.data, section, noteKey });
-      if (!choice) return;
+      if (!choice) return setStatus("已取消写入 Obsidian，原笔记未被覆盖。");
       // A subtitle that does not match the video's length leads the line, as on the video page.
       setStatus(`${built.data.subtitleWarning || ""}${choice === "full" ? "已写入 Obsidian" : "已更新 AI 问答"}：${built.data.path}`);
       return;
@@ -292,7 +292,7 @@ async function saveToObsidian(group) {
     const sourcePath = boundPath || (videoFolder ? `${videoFolder}/${videoFile}` : videoFile);
     const note = buildNote(group, sourcePath);
     const filepath = videoFolder ? `${videoFolder}/${note.filename}` : note.filename;
-    if (!(await BocOverwriteDialog.writeNote({ baseUrl, apiKey, filepath, content: note.content }))) return;
+    if (!(await BocOverwriteDialog.writeNote({ baseUrl, apiKey, filepath, content: note.content }))) return setStatus("已取消写入 Obsidian，原笔记未被覆盖。");
     if (built) setStatus(`已写入 Obsidian：${filepath}（视频已失效，只写了对话）`);
     else setStatus(group.context.videoId ? `已写入 Obsidian：${filepath}（单独的对话笔记）` : `已写入 Obsidian：${filepath}`);
   } catch (error) {
@@ -300,7 +300,7 @@ async function saveToObsidian(group) {
     // A wrong key: the settings page, as for 未配置. A closed Obsidian only gets the red line.
     if (error?.action === "settings") chrome.runtime.openOptionsPage();
   } finally {
-    // A declined overwrite returns without a result line; drop the in-progress one.
+    // Every path ends on a result line; an in-progress one left means an early return, so drop it.
     if (els.status.textContent.startsWith("正在")) setStatus("");
     writing.delete(group.key);
     render();
