@@ -885,9 +885,8 @@ function observeFoot() {
 }
 
 // The background already paused its queue twice before answering THROTTLED; wait its pause again, then go on.
-const FEED_WAIT_SEC = 90; // follow-bg.js FOLLOW_CFG.backoffMs
 function waitFeed(f) {
-  f.wait = nowSec() + FEED_WAIT_SEC;
+  f.wait = nowSec() + UI.BILI_HOLD_MS / 1000;
   const tick = setInterval(() => {
     if (F.feed !== f) return clearInterval(tick);
     if (nowSec() < f.wait) return renderFoot();
@@ -940,10 +939,9 @@ function play(bvid) {
 // ---------- B站 writes: one request at a time, stopped by the first error ----------
 // calls = the requests, each with the mids it changes (a relation request one UP, a group request up to 20).
 // Returns how many UP 主 went through. Its progress shows in the row's progress pill, as a 收藏夹 batch does, with 停止.
-// WRITE_GAP_MS between requests, as 收藏夹's batches. B站限流 (THROTTLED): the pill counts down WRITE_WAIT_SEC, amber,
+// WRITE_GAP_MS between requests, as 收藏夹's batches. B站限流 (THROTTLED): the pill counts down UI.BILI_HOLD_MS, amber,
 // then the same request goes again; 停止 ends the run there, keeping what went through (and its undo).
 const WRITE_GAP_MS = 1000;
-const WRITE_WAIT_SEC = 90; // as follow-bg.js FOLLOW_CFG.backoffMs
 const perUp = (mids, msg) => mids.map((mid) => msg(mid));
 // Waits until the time (ms), redrawing the pill each second, or until 停止.
 async function busyWait(until) {
@@ -971,7 +969,7 @@ async function relationRun(calls, label, { quiet = false } = {}) {
       renderSync();
       let r = await send(c);
       while (r.code === "THROTTLED" && !F.busyStop) {
-        F.busyUntil = Date.now() + WRITE_WAIT_SEC * 1000;
+        F.busyUntil = Date.now() + UI.BILI_HOLD_MS;
         await busyWait(F.busyUntil);
         F.busyUntil = 0;
         renderSync();

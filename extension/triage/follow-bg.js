@@ -172,7 +172,7 @@ const FOLLOW_AI_UNIT = {
 // ===== B站 请求 =====
 
 const FOLLOW_API = "https://api.bilibili.com";
-const FOLLOW_CFG = { gapMs: 1000, jitterMs: 500, backoffMs: 90000, strikes: 3, emptyRetryMs: 1500, netRetry: [5000, 15000, 60000], slowGapMs: 3000, slowForMs: 10 * 60 * 1000 };
+const FOLLOW_CFG = { gapMs: 1000, jitterMs: 500, backoffMs: TriageUi.BILI_HOLD_MS, strikes: 3, emptyRetryMs: 1500, netRetry: [5000, 15000, 60000], slowGapMs: 3000, slowForMs: 10 * 60 * 1000 };
 const followSleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 let followQueue = Promise.resolve();

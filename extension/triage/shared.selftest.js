@@ -9,6 +9,9 @@ vm.runInContext(fs.readFileSync(path.join(__dirname, "../typing.js"), "utf8"), c
 vm.runInContext(fs.readFileSync(path.join(__dirname, "../tag-core.js"), "utf8"), ctx);
 vm.runInContext(fs.readFileSync(path.join(__dirname, "shared.js"), "utf8"), ctx);
 const UI = ctx.TriageUi;
+// 关注 waits B站限流 out for 90 s (DESIGN), in one place: follow-bg.js's queue and follow.js's write and feed waits read it.
+assert.strictEqual(UI.BILI_HOLD_MS, 90000);
+for (const f of ["follow.js", "follow-bg.js"]) assert.ok(/\.BILI_HOLD_MS/.test(fs.readFileSync(path.join(__dirname, f), "utf8")) && !/WAIT_SEC = 90|backoffMs: 90000/.test(fs.readFileSync(path.join(__dirname, f), "utf8")), f);
 const TAG = ctx.BocTagCore;
 const plain = (v) => JSON.parse(JSON.stringify(v));
 

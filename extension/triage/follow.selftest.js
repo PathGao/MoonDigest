@@ -288,13 +288,13 @@ assert.ok(/function tagByKey\(\) \{\s*if \(F\.viewing && F\.viewingMid\) return/
 // what went through.
 (async () => {
   const code = source.slice(source.indexOf("const WRITE_GAP_MS"), source.indexOf("async function unfollow("));
-  const env = { F: { sel: new Set(), busyN: [0, 0] }, toasts: [], sent: [], answers: [], stopAfter: Infinity, waits: 0 };
-  const run = new Function("env", `const { F } = env; const nowSec = () => Date.now() / 1000;
+  const env = { F: { sel: new Set(), busyN: [0, 0] }, UI: t.TriageUi, toasts: [], sent: [], answers: [], stopAfter: Infinity, waits: 0 };
+  const run = new Function("env", `const { F, UI } = env; const nowSec = () => Date.now() / 1000;
     const send = async (c) => (env.sent.push(c.mid), env.answers.shift() || { ok: true });
     const toast = (m) => env.toasts.push(m); const load = async () => {}; const render = () => {}; const renderSel = () => {};
     const renderSync = () => { if (F.busyUntil) env.waits++; if (env.sent.length >= env.stopAfter) F.busyStop = true; };
     const setTimeout = (f) => setImmediate(f); const Date = { now: () => (env.clock += 1000) };
-    ${code}; return { relationRun, WRITE_GAP_MS, WRITE_WAIT_SEC };`);
+    ${code}; return { relationRun, WRITE_GAP_MS };`);
   env.clock = 0;
   const fns = run(env);
   const calls = ["1", "2", "3"].map((mid) => ({ mid }));
