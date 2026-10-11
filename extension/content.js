@@ -606,7 +606,7 @@ function bindSettingsWatcher() {
         rebuildDerivedContent();
       });
     }
-    if ((changes[`triage_analysis_${state.videoId}`] || changes.triage_notes) && state.markdown) {
+    if ((changes[BocLimits.KEYS.triageAnalysis(state.videoId)] || changes[BocLimits.KEYS.triageNotes]) && state.markdown) {
       loadTriageExtras().then((extras) => {
         if (runId !== state.fetchRunId) return;
         state.triageExtras = extras;
@@ -4495,9 +4495,10 @@ async function loadTriageExtras() {
     return null;
   }
   try {
-    const analysisKey = state.site === "bilibili" && !(Number(state.pageIndex) > 1) ? `triage_analysis_${state.videoId}` : "";
-    const stored = await chrome.storage.local.get([analysisKey, "triage_notes"].filter(Boolean));
-    return { analysis: analysisKey ? stored[analysisKey] : null, note: stored.triage_notes?.[state.videoId]?.text || "" };
+    const notesKey = BocLimits.KEYS.triageNotes;
+    const analysisKey = state.site === "bilibili" && !(Number(state.pageIndex) > 1) ? BocLimits.KEYS.triageAnalysis(state.videoId) : "";
+    const stored = await chrome.storage.local.get([analysisKey, notesKey].filter(Boolean));
+    return { analysis: analysisKey ? stored[analysisKey] : null, note: stored[notesKey]?.[state.videoId]?.text || "" };
   } catch (error) {
     logWarn("[BOC] failed to load triage summary for note export", error);
     return null;

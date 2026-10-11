@@ -12,7 +12,7 @@ const {
   resolveFolderTemplate,
   buildNoteFilename
 } = BocNote;
-const PLAYER_AI_QUICK_ACTION_STORAGE_KEY = "boc_player_ai_quick_action_v1";
+const PLAYER_AI_QUICK_ACTION_STORAGE_KEY = BocLimits.KEYS.playerAiQuickAction;
 // Marks a control that starts an AI request (tokens.css draws it in the text color).
 const AI_SPARK = '<span class="ai-spark" aria-hidden="true"></span>';
 const NON_VIDEO_CONTEXT_MESSAGE = "这不是支持的视频页。";
@@ -54,7 +54,7 @@ const els = {
   noteText: document.getElementById("spNoteText"),
   noteInput: document.getElementById("spNoteInput"),
 };
-const NOTES_STORAGE_KEY = "triage_notes"; // { [videoId]: { text, updatedAt } }, shared with the triage and video records pages
+const NOTES_STORAGE_KEY = BocLimits.KEYS.triageNotes;
 
 const DEFAULT_AI_PREFS = {
   aiSystemPrompt: "",
@@ -823,7 +823,7 @@ async function renderTriageSummary(node) {
   if (ref?.site !== "bilibili" || ref.pageIndex !== 1) {
     return;
   }
-  const key = `triage_analysis_${ref.videoId}`;
+  const key = BocLimits.KEYS.triageAnalysis(ref.videoId);
   const summary = BocNote.buildTriageSummary((await chrome.storage.local.get(key))[key]);
   if (!summary || node !== suggestionsNode || chatHistory.length || buildConversationContextRef(contextData)?.videoId !== ref.videoId) {
     return;
@@ -2277,7 +2277,7 @@ async function buildCurrentConversationNote() {
   const filename = buildAiConversationFilename(context);
   const noteId = noteVideoId(context);
   const ref = buildConversationContextRef(context);
-  const analysisKey = noteId && ref.site === "bilibili" && ref.pageIndex === 1 ? `triage_analysis_${noteId}` : "";
+  const analysisKey = noteId && ref.site === "bilibili" && ref.pageIndex === 1 ? BocLimits.KEYS.triageAnalysis(noteId) : "";
   const stored = noteId ? await chrome.storage.local.get([NOTES_STORAGE_KEY, analysisKey].filter(Boolean)) : {};
   const markdown = buildAiConversationMarkdown({ context, turns, filename });
   return { context, filename, content: BocNote.withTriageSummary(markdown, stored[analysisKey], stored[NOTES_STORAGE_KEY]?.[noteId]?.text) };

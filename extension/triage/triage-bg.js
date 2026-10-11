@@ -379,7 +379,7 @@ const SEEN_MAX_PAGES = 60;
 const SEEN_KEEP_S = 365 * 86400;
 const SEEN_MAX = 5000;
 const SEEN_PRUNE_GAP_MS = 86400 * 1000;
-const SEEN_META = "triage_seen_meta"; // { newest: view_at s, syncedAt, prunedAt, backoffUntil, resume }
+const SEEN_META = BocLimits.KEYS.triageSeenMeta; // { newest: view_at s, syncedAt, prunedAt, backoffUntil, resume }
 
 // Percent watched from a history item: progress -1 means finished.
 function seenPercent(progress, duration) {
@@ -478,8 +478,8 @@ async function seenSyncOnce(force, started) {
   let dropped = 0;
   if (now - (meta.prunedAt || 0) > SEEN_PRUNE_GAP_MS) {
     const all = (await chrome.storage.local.getKeys()).filter((k) => k.startsWith("seen_"));
-    const got = await chrome.storage.local.get([...all, "triage_included_folders"]);
-    const snaps = await chrome.storage.local.get((got.triage_included_folders || []).map((id) => `triage_snapshot_${id}`));
+    const got = await chrome.storage.local.get([...all, BocLimits.KEYS.triageIncludedFolders]);
+    const snaps = await chrome.storage.local.get((got[BocLimits.KEYS.triageIncludedFolders] || []).map(BocLimits.KEYS.triageSnapshot));
     const keep = new Set(Object.values(snaps).flatMap((s) => s?.bvids || []));
     const drop = seenPrune(Object.fromEntries(all.map((k) => [k.slice(5), got[k]])), keep, Math.floor(now / 1000));
     if (drop.length) await chrome.storage.local.remove(drop.map((b) => `seen_${b}`));
@@ -550,7 +550,7 @@ async function triageAiSettings() {
 
 async function triageAnalyze({ bvid, force, criteria, folder }) {
   if (!bvid) throw triageError("缺少 bvid");
-  const cacheKey = `triage_analysis_${bvid}`;
+  const cacheKey = BocLimits.KEYS.triageAnalysis(bvid);
   if (!force) {
     const cached = (await chrome.storage.local.get(cacheKey))[cacheKey];
     if (cached) return cached;
@@ -687,7 +687,7 @@ async function triageClassifyTitles({ items, criteria, folder }) {
   const toStore = {};
   for (const [bvid, r] of Object.entries(parsed)) {
     results[bvid] = { ...r, criteria: String(criteria ?? "").trim() };
-    if (r.reason !== "AI 未返回") toStore[`triage_title_${bvid}`] = { ...results[bvid], model, analyzedAt };
+    if (r.reason !== "AI 未返回") toStore[BocLimits.KEYS.triageTitle(bvid)] = { ...results[bvid], model, analyzedAt };
   }
   await chrome.storage.local.set(toStore);
   return { results };
@@ -746,15 +746,15 @@ async function triageBuildNote(bvid, settings) {
     pageCount: meta.pageCount,
     pageTitle: meta.pageTitle
   };
-  const cacheKey = `triage_analysis_${bvid}`;
-  const conversationsKey = BocLimits.KEYS.aiConversations;
-  const stored = await chrome.storage.local.get([cacheKey, conversationsKey, "triage_notes", "triage_tags", "triage_video_tags"]);
+  const { aiConversations, triageNotes, triageTags, triageVideoTags } = BocLimits.KEYS;
+  const cacheKey = BocLimits.KEYS.triageAnalysis(bvid);
+  const stored = await chrome.storage.local.get([cacheKey, aiConversations, triageNotes, triageTags, triageVideoTags]);
   const analysis = stored[cacheKey];
   // The user's 分拣 tags, every folder's, go into the note's tags next to the fixed ones from the settings page.
-  const tagNames = new Map((stored.triage_tags || []).map((t) => [t.id, t.name]));
-  noteMeta.userTags = [...new Set((stored.triage_video_tags?.[bvid] || []).map((id) => tagNames.get(id)).filter(Boolean))];
-  noteMeta.aiTurns = BocNote.buildConversationTurns(BocNote.pickConversation(stored[conversationsKey], noteMeta)?.messages);
-  const markdown = BocNote.withTriageSummary(BocNote.buildMarkdown(noteMeta, body, settings, ref), analysis, stored.triage_notes?.[bvid]?.text);
+  const tagNames = new Map((stored[triageTags] || []).map((t) => [t.id, t.name]));
+  noteMeta.userTags = [...new Set((stored[triageVideoTags]?.[bvid] || []).map((id) => tagNames.get(id)).filter(Boolean))];
+  noteMeta.aiTurns = BocNote.buildConversationTurns(BocNote.pickConversation(stored[aiConversations], noteMeta)?.messages);
+  const markdown = BocNote.withTriageSummary(BocNote.buildMarkdown(noteMeta, body, settings, ref), analysis, stored[triageNotes]?.[bvid]?.text);
   // Every writer of this note uses this path and downloads this cover into the vault (hdslb links 403 in Obsidian).
   const folder = BocNote.resolveFolderTemplate(settings.noteFolder, noteMeta);
   const filename = BocNote.buildNoteFilename(noteMeta, settings);
@@ -821,15 +821,16 @@ async function triageVaultWrite({ settings, baseUrl, apiKey, meta, noteMeta, bod
 // Notes used to live on basket items; they now belong to the video (triage_notes, bvid → { text, updatedAt }).
 // Copies each basket note once, never over an existing entry; the basket items keep theirs.
 async function triageMigrateNotes() {
-  const stored = await chrome.storage.local.get(["triage_notes_migrated", "triage_basket", "triage_notes"]);
+  const { triageNotes, triageBasket } = BocLimits.KEYS;
+  const stored = await chrome.storage.local.get(["triage_notes_migrated", triageBasket, triageNotes]);
   if (stored.triage_notes_migrated) return;
-  const notes = { ...stored.triage_notes };
-  for (const item of stored.triage_basket || []) {
+  const notes = { ...stored[triageNotes] };
+  for (const item of stored[triageBasket] || []) {
     if (item?.bvid && String(item.note || "").trim() && !String(notes[item.bvid]?.text || "").trim()) {
       notes[item.bvid] = { text: item.note, updatedAt: Date.now() };
     }
   }
-  await chrome.storage.local.set({ triage_notes: notes, triage_notes_migrated: true });
+  await chrome.storage.local.set({ [triageNotes]: notes, triage_notes_migrated: true });
 }
 
 // One triage tab: each holds its own copy of 保留, tags and the rest, so a second one is focused instead of opened.
@@ -942,8 +943,8 @@ const TRIAGE_HANDLERS = {
 
   "triage-analysis-get": async ({ bvids }) => {
     const list = Array.isArray(bvids) ? bvids : [];
-    const stored = await chrome.storage.local.get(list.map((b) => `triage_analysis_${b}`));
-    return Object.fromEntries(list.map((b) => [b, stored[`triage_analysis_${b}`] || null]));
+    const stored = await chrome.storage.local.get(list.map(BocLimits.KEYS.triageAnalysis));
+    return Object.fromEntries(list.map((b) => [b, stored[BocLimits.KEYS.triageAnalysis(b)] || null]));
   },
 
   "triage-analyze": (msg) => triageAnalyze(msg),
@@ -954,8 +955,8 @@ const TRIAGE_HANDLERS = {
 
   "triage-title-get": async ({ bvids }) => {
     const list = Array.isArray(bvids) ? bvids : [];
-    const stored = await chrome.storage.local.get(list.map((b) => `triage_title_${b}`));
-    return Object.fromEntries(list.map((b) => [b, stored[`triage_title_${b}`] || null]));
+    const stored = await chrome.storage.local.get(list.map(BocLimits.KEYS.triageTitle));
+    return Object.fromEntries(list.map((b) => [b, stored[BocLimits.KEYS.triageTitle(b)] || null]));
   },
 
   "triage-unfav": async ({ mediaId, aids }) => {

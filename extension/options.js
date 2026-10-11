@@ -214,8 +214,9 @@ async function importSettingsFile(file) {
     return setStatus("导入失败：文件不是有效的 JSON", true);
   }
   const lost = hasUnsavedChanges ? "本页未保存的修改会丢失。" : "";
-  const { triage_included_folders: current } = await chrome.storage.local.get("triage_included_folders").catch(() => ({}));
-  const dropped = droppedFolders(current, data?.local?.triage_included_folders);
+  const key = BocLimits.KEYS.triageIncludedFolders;
+  const current = (await chrome.storage.local.get(key).catch(() => ({})))[key];
+  const dropped = droppedFolders(current, data?.local?.[key]);
   const out = dropped ? `当前勾选的 ${dropped} 个收藏夹在文件里没有勾选：导入后它们的视频会进「已出分拣范围」，取消收藏记录会被删除。` : "";
   if (!confirm(`用「${file.name}」替换当前的全部设置？${lost}${out}已保存的 Key 不变。`)) return;
   const resp = await sendRuntimeMessage({ type: "settings-import", file: data }).catch((e) => ({ error: e.message }));

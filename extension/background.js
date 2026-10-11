@@ -1,7 +1,6 @@
 // Shared modules must load before the top-level code below reads them (e.g. BocLimits).
 importScripts("limits.js", "errors.js", "settings.js", "sites.js", "note.js");
 
-const PLAYER_AI_QUICK_ACTION_STORAGE_KEY = "boc_player_ai_quick_action_v1";
 // Side panel stream watchdog: "first" until any SSE chunk arrives (reasoning chunks count), then "idle" between chunks.
 const STREAM_TIMEOUT_MS = { first: 90000, idle: 60000 };
 const AI_TEST_TIMEOUT_MS = 30000;
@@ -476,7 +475,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         if (sender?.frameId && message.contextRef) {
           request.contextRef = message.contextRef;
         }
-        await chrome.storage.local.set({ [PLAYER_AI_QUICK_ACTION_STORAGE_KEY]: request });
+        await chrome.storage.local.set({ [BocLimits.KEYS.playerAiQuickAction]: request });
         sendResponse({ ok: true });
       })
       .catch((error) => sendResponse({ ok: false, error: error.message || "未知错误" }));
@@ -838,7 +837,8 @@ async function initializeSettingsStorage() {
 // triage_excluded_folders only ever existed in pre-release v2.0 builds.
 async function removeDeadStorageKeys() {
   const keys = (await chrome.storage.local.getKeys?.()) ?? Object.keys((await chrome.storage.local.get(null)) || {});
-  const { triage_simplified_v1: migrated } = await chrome.storage.local.get("triage_simplified_v1");
+  const simplified = BocLimits.KEYS.triageSimplified;
+  const migrated = (await chrome.storage.local.get(simplified))[simplified];
   const dead = ["triage_tab", "triage_read_verdict", "triage_tag_presets", "triage_schemes_migrated", "triage_watched", "triage_schemes", "triage_folder_scheme", "triage_excluded_folders"];
   await chrome.storage.local.remove(keys.filter((k) => dead.includes(k) || k.startsWith("triage_verdict_override_")));
   await chrome.storage.sync.remove(["triageExportFolder", "readerChapterVisibility", ...(migrated ? ["triageCriteria"] : [])]);
@@ -929,7 +929,8 @@ async function saveSettings(settings) {
 // 判断标准, kept in local beside the data; the file carries those as `local`. The sort is a quick toggle, not a setting. Keys and data stay out of the file. The key filter only guards
 // against a copy left in sync by an older version.
 const SETTINGS_FILE_VERSION = 1;
-const LOCAL_SETTING_KEYS = ["triage_included_folders", "triage_folder_criteria"];
+const { triageIncludedFolders: FOLDERS_KEY, triageFolderCriteria: CRITERIA_KEY } = BocLimits.KEYS;
+const LOCAL_SETTING_KEYS = [FOLDERS_KEY, CRITERIA_KEY];
 
 async function exportSettings() {
   const [settings, local] = await Promise.all([chrome.storage.sync.get(null), chrome.storage.local.get(LOCAL_SETTING_KEYS)]);
@@ -952,9 +953,9 @@ async function exportSettings() {
 // choice or the 判断标准 (older than them) leaves the current ones.
 async function importSettings(file) {
   const isMap = (v) => Boolean(v) && typeof v === "object" && !Array.isArray(v);
-  const folders = file?.local?.triage_included_folders;
+  const folders = file?.local?.[FOLDERS_KEY];
   const foldersOk = folders === undefined || (Array.isArray(folders) && folders.every((id) => /^\w+$/.test(String(id))));
-  const criteria = file?.local?.triage_folder_criteria;
+  const criteria = file?.local?.[CRITERIA_KEY];
   const criteriaOk = criteria === undefined || (isMap(criteria) && Object.entries(criteria).every(([id, text]) => /^\w+$/.test(id) && typeof text === "string"));
   if (file?.app !== "moondigest" || file.kind !== "settings" || !isMap(file.settings) || (file.local !== undefined && !isMap(file.local)) || !foldersOk || !criteriaOk) {
     throw new Error("不是 MoonDigest 的设置文件");
@@ -964,8 +965,8 @@ async function importSettings(file) {
   const current = Object.keys(await chrome.storage.sync.get(null));
   await chrome.storage.sync.set(settings);
   await chrome.storage.sync.remove(current.filter((k) => !(k in settings)));
-  if (folders) await chrome.storage.local.set({ triage_included_folders: folders.map(String) });
-  if (criteria) await chrome.storage.local.set({ triage_folder_criteria: criteria });
+  if (folders) await chrome.storage.local.set({ [FOLDERS_KEY]: folders.map(String) });
+  if (criteria) await chrome.storage.local.set({ [CRITERIA_KEY]: criteria });
   await initializeSettingsStorage();
 }
 

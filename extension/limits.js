@@ -1,6 +1,6 @@
 // Every retention cap the extension enforces, in one place so the options page tells the user
-// the same numbers the code applies. Loaded by the content script (manifest), background
-// (importScripts) and every page. Idempotent like sites.js.
+// the same numbers the code applies, and the storage key names shared between files. Loaded by the
+// content script (manifest), background (importScripts) and every page. Idempotent like sites.js.
 (() => {
   if (globalThis.BocLimits) {
     return;
@@ -14,16 +14,37 @@
   const TRIAGE_RECENT_UNFAV = 50;
   const TRIAGE_UNDO_STEPS = 20;
 
-  // chrome.storage.local keys of the capped data, so usage can be counted where the caps are stated.
+  // chrome.storage.local key names more than one file uses, written only here; storageUsage counts the capped ones.
+  // Never change a value: the user's data is stored under it. A key built at run time has a function beside its prefix.
+  // limits.selftest.js fails when a name here is written in another file. badges.js does not load this file and keeps
+  // its own copies of the names it reads, which the selftest checks against KEYS.
+  const ANALYSIS = "triage_analysis_";
+  const TITLE = "triage_title_";
+  const SNAPSHOT = "triage_snapshot_";
   const KEYS = Object.freeze({
     subtitleCachePrefix: "boc_subtitle_cache_",
     aiConversations: "boc_ai_conversations_v1",
     // videoKey → { path, lastSyncedAt } for notes the user saved; auto-sync only touches these.
     obsidianNotePaths: "boc_obsidian_note_paths_v1",
-    triageResultPrefixes: ["triage_analysis_", "triage_title_"],
-    triageSnapshotPrefix: "triage_snapshot_",
+    // The side panel's request slot: the player button, popup, 分拣台 and 视频记录 ask it to open a video's AI chat.
+    playerAiQuickAction: "boc_player_ai_quick_action_v1",
+    triageAnalysisPrefix: ANALYSIS,
+    triageAnalysis: (bvid) => `${ANALYSIS}${bvid}`,
+    triageTitlePrefix: TITLE,
+    triageTitle: (bvid) => `${TITLE}${bvid}`,
+    triageSnapshotPrefix: SNAPSHOT,
+    triageSnapshot: (mediaId) => `${SNAPSHOT}${mediaId}`,
     triageRemoved: "triage_removed",
-    triageNotes: "triage_notes"
+    // { [bvid]: { text, updatedAt } }: the side panel, 分拣台, 视频记录 and note export share it.
+    triageNotes: "triage_notes",
+    triageTags: "triage_tags",
+    triageVideoTags: "triage_video_tags",
+    triageBasket: "triage_basket",
+    triageSeenMeta: "triage_seen_meta",
+    // The 分拣台's folder choice and 判断标准: settings kept in local, carried by the settings file.
+    triageIncludedFolders: "triage_included_folders",
+    triageFolderCriteria: "triage_folder_criteria",
+    triageSimplified: "triage_simplified_v1"
   });
 
   // Approximate stored size: JSON length of key + value, as chrome.storage counts it (characters, not UTF-8 bytes).
@@ -36,7 +57,7 @@
     return {
       subtitleCache: keys.filter((key) => key.startsWith(KEYS.subtitleCachePrefix)).length,
       aiConversations: Array.isArray(all[KEYS.aiConversations]) ? all[KEYS.aiConversations].length : 0,
-      triageResults: keys.filter((key) => KEYS.triageResultPrefixes.some((prefix) => key.startsWith(prefix))).length,
+      triageResults: keys.filter((key) => key.startsWith(ANALYSIS) || key.startsWith(TITLE)).length,
       folderSnapshots: snapshots.length,
       folderSnapshotSize: sizeOf(snapshots),
       triageRemoved: Object.keys(all[KEYS.triageRemoved] || {}).length,

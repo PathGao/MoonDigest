@@ -14,22 +14,24 @@ const STAGES = [
   ["fine", "细看完成"],
   ["done", "处理完成"]
 ];
+// Storage keys. The shared ones come from BocLimits.KEYS; the rest only this page uses.
+const KEYS = BocLimits.KEYS;
 const K = {
   lastFolder: "triage_last_folder",
-  tags: "triage_tags", // [{ id, name, color, folder, rule? }]: folder is the mediaId the tag belongs to; rule is the one line the AI follows
-  folderCriteria: "triage_folder_criteria", // { [mediaId]: 判断标准 }
-  simplified: "triage_simplified_v1",
+  tags: KEYS.triageTags, // [{ id, name, color, folder, rule? }]: folder is the mediaId the tag belongs to; rule is the one line the AI follows
+  folderCriteria: KEYS.triageFolderCriteria, // { [mediaId]: 判断标准 }
+  simplified: KEYS.triageSimplified,
   tagsByFolder: "triage_tags_by_folder_v1",
-  videoTags: "triage_video_tags",
-  basket: "triage_basket",
-  notes: "triage_notes", // { [bvid]: { text, updatedAt } }, shared with the history page and note export
+  videoTags: KEYS.triageVideoTags,
+  basket: KEYS.triageBasket,
+  notes: KEYS.triageNotes,
   decisions: (id) => `triage_decisions_${id}`, // 取消收藏 only: it changes one Bilibili folder
   kept: "triage_kept", // { [bvid]: { action: "keep", at } }: 保留 belongs to the video, so it shows in every folder
   keptMigrated: "triage_kept_v1",
-  removed: "triage_removed", // { [bvid]: { item, at, movedTo?, hidden?, inFolder?: { id, title } | null, from?: [{ id, title, at }] } }: videos that left every folder, kept until the user cleans them
+  removed: KEYS.triageRemoved, // { [bvid]: { item, at, movedTo?, hidden?, inFolder?: { id, title } | null, from?: [{ id, title, at }] } }: videos that left every folder, kept until the user cleans them
   left: "triage_left", // { [bvid]: { [folderId]: { title, at } } }: folders a video left while still in another chosen one; becomes the record's from
-  included: "triage_included_folders", // [mediaId]: the folders the user chose; only these are listed and read
-  snapshot: (id) => `triage_snapshot_${id}`,
+  included: KEYS.triageIncludedFolders, // [mediaId]: the folders the user chose; only these are listed and read
+  snapshot: KEYS.triageSnapshot,
   aiHistory: "triage_ai_command_history",
   readAt: "triage_read_at", // { [mediaId]: ms }: when each folder's list was last read from B站, for 「今天 HH:MM 刷新过」
   sort: "triage_sort", // { [mediaId]: { sort, dir } }: each folder's card order; none = 收藏时间 新→旧
@@ -446,7 +448,7 @@ let ownTabId;
 // the same way as the player's AI 总结 button.
 function askAi(it) {
   const contextRef = { site: "bilibili", videoId: it.bvid, title: it.title, author: it.upper, url: videoUrl(it.bvid) };
-  chrome.storage.local.set({ boc_player_ai_quick_action_v1: { id: `triage-${Date.now()}`, tabId: ownTabId, prompt: "", contextRef } });
+  chrome.storage.local.set({ [KEYS.playerAiQuickAction]: { id: `triage-${Date.now()}`, tabId: ownTabId, prompt: "", contextRef } });
   chrome.sidePanel.open({ tabId: ownTabId }).catch((err) => toast(`打开侧边栏失败：${err.message}`, true));
 }
 
@@ -810,7 +812,7 @@ async function init() {
   if (sync.triageAiBatchSize != null) S.settings.triageAiBatchSize = sync.triageAiBatchSize;
   syncObsidian(sync);
   setSeenCfg(sync);
-  followSeenMeta(await storeGet("triage_seen_meta"));
+  followSeenMeta(await storeGet(KEYS.triageSeenMeta));
   chrome.storage.onChanged.addListener((changes, area) => {
     if (area === "sync" && changes.obsidianEnabled) syncObsidian({ obsidianEnabled: changes.obsidianEnabled.newValue });
     if (area === "sync" && Object.keys(SEEN_DEFAULTS).some((k) => changes[k])) {
@@ -945,7 +947,7 @@ async function loadSeen(token) {
   for (const b of want) S.seenPct[b] = got[`seen_${b}`] || null;
 }
 function followSeen(changes) {
-  if (changes.triage_seen_meta) followSeenMeta(changes.triage_seen_meta.newValue);
+  if (changes[KEYS.triageSeenMeta]) followSeenMeta(changes[KEYS.triageSeenMeta].newValue);
   let hit = false;
   for (const [key, c] of Object.entries(changes)) {
     if (!key.startsWith("seen_")) continue;
@@ -1007,7 +1009,7 @@ async function loadTagsAndCriteria() {
 // Runs tagsByFolderMigration until every tag has a folder (flag key), from the cached folder lists.
 async function loadTagsByFolder({ tags, videoTags }) {
   if (await storeGet(K.tagsByFolder, false)) return { tags, videoTags };
-  const keys = ((await chrome.storage.local.getKeys?.()) ?? Object.keys((await chrome.storage.local.get(null)) || {})).filter((k) => k.startsWith("triage_snapshot_"));
+  const keys = ((await chrome.storage.local.getKeys?.()) ?? Object.keys((await chrome.storage.local.get(null)) || {})).filter((k) => k.startsWith(KEYS.triageSnapshotPrefix));
   const got = await chrome.storage.local.get([K.included, K.lastFolder, ...keys]);
   const included = (got[K.included] || []).map(String);
   const cached = keys.map((k) => k.slice(16));
@@ -1038,8 +1040,8 @@ function retireUnchosenFolders() {
     if (!S.allFolders.length) return; // 默认收藏夹 always exists; an empty list is never "every folder deleted"
     if (!S.included.length) return; // nothing chosen yet (or all unticked by accident): never empty every folder into 已出分拣范围
     const live = new Set(S.folders.map((f) => String(f.id)));
-    const keys = ((await chrome.storage.local.getKeys?.()) ?? Object.keys((await chrome.storage.local.get(null)) || {})).filter((k) => k.startsWith("triage_snapshot_"));
-    const gone = keys.map((k) => k.slice(16)).filter((id) => !live.has(id));
+    const keys = ((await chrome.storage.local.getKeys?.()) ?? Object.keys((await chrome.storage.local.get(null)) || {})).filter((k) => k.startsWith(KEYS.triageSnapshotPrefix));
+    const gone = keys.map((k) => k.slice(KEYS.triageSnapshotPrefix.length)).filter((id) => !live.has(id));
     if (!gone.length) return;
     const got = await chrome.storage.local.get([K.removed, K.left, ...keys]);
     const otherBvids = new Set([...live].flatMap((id) => got[K.snapshot(id)]?.bvids || []));
@@ -1060,7 +1062,7 @@ async function loadIncluded() {
   const got = await chrome.storage.local.get(K.included);
   if (Array.isArray(got[K.included])) return got[K.included];
   const keys = (await chrome.storage.local.getKeys?.()) ?? Object.keys((await chrome.storage.local.get(null)) || {});
-  const included = keys.some((k) => k.startsWith("triage_snapshot_")) ? S.allFolders.map((f) => String(f.id)) : [];
+  const included = keys.some((k) => k.startsWith(KEYS.triageSnapshotPrefix)) ? S.allFolders.map((f) => String(f.id)) : [];
   await chrome.storage.local.set({ [K.included]: included });
   return included;
 }
@@ -1510,7 +1512,7 @@ async function cleanRemoved(list) {
     for (const map of [...Object.values(decisions), S.decisions, ...Object.values(S.folderDecisions)]) for (const b of bvids) delete map[b];
     noteOwnWrites(decisions);
     await chrome.storage.local.set(decisions);
-    await chrome.storage.local.remove(bvids.flatMap((b) => [`triage_title_${b}`, `triage_analysis_${b}`]));
+    await chrome.storage.local.remove(bvids.flatMap((b) => [KEYS.triageTitle(b), KEYS.triageAnalysis(b)]));
     const write = { [K.removed]: rec, [K.notes]: S.notes, [K.videoTags]: S.videoTags, [K.kept]: S.kept, [K.basket]: S.basket };
     noteOwnWrites(write);
     await chrome.storage.local.set(write);
@@ -1541,8 +1543,8 @@ async function loadResults(token) {
     return stamp[key];
   };
   for (const b of missing) {
-    if (t.ok && t.data?.[b]) S.titleRes[b] = stamped(`triage_title_${b}`, t.data[b]);
-    if (a.ok && a.data?.[b]) S.analyses[b] = stamped(`triage_analysis_${b}`, a.data[b]);
+    if (t.ok && t.data?.[b]) S.titleRes[b] = stamped(KEYS.triageTitle(b), t.data[b]);
+    if (a.ok && a.data?.[b]) S.analyses[b] = stamped(KEYS.triageAnalysis(b), a.data[b]);
   }
   if (Object.keys(stamp).length) await chrome.storage.local.set(stamp);
   return true;
@@ -4001,7 +4003,8 @@ async function runWrite(md = false) {
 
 // ---------- data export ----------
 // 待播 stays out: a list to watch from, not something to keep.
-const BACKUP_PREFIXES = [K.kept, K.removed, K.left, K.tags, K.folderCriteria, "triage_video_tags", K.notes, "triage_snapshot_", "triage_decisions_", "triage_title_", "triage_analysis_"];
+const { triageSnapshotPrefix: SNAPSHOT, triageTitlePrefix: TITLE, triageAnalysisPrefix: ANALYSIS } = KEYS;
+const BACKUP_PREFIXES = [K.kept, K.removed, K.left, K.tags, K.folderCriteria, K.videoTags, K.notes, SNAPSHOT, "triage_decisions_", TITLE, ANALYSIS];
 
 async function buildBackup() {
   const all = await chrome.storage.local.get(null);
@@ -4032,12 +4035,12 @@ async function buildBackup() {
     else if (k === K.removed) out.removed = v;
     else if (k === K.left) out.left = v;
     else if (k === K.folderCriteria) out.folderCriteria = v;
-    else if (k === "triage_video_tags") out.videoTags = v;
+    else if (k === K.videoTags) out.videoTags = v;
     else if (k === K.notes) out.notes = v;
-    else if (k.startsWith("triage_snapshot_")) folder(k.slice(16)).snapshot = v;
+    else if (k.startsWith(SNAPSHOT)) folder(k.slice(SNAPSHOT.length)).snapshot = v;
     else if (k.startsWith("triage_decisions_")) folder(k.slice(17)).decisions = v;
-    else if (k.startsWith("triage_title_")) out.titleResults[k.slice(13)] = v;
-    else if (k.startsWith("triage_analysis_")) out.analyses[k.slice(16)] = v;
+    else if (k.startsWith(TITLE)) out.titleResults[k.slice(TITLE.length)] = v;
+    else if (k.startsWith(ANALYSIS)) out.analyses[k.slice(ANALYSIS.length)] = v;
   }
   // 关注's own data (UP tags, who has which, 已取消关注, the last AI batch); its copies of B站 data come back on 刷新.
   out.follow = {};

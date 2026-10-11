@@ -52,4 +52,39 @@ for (const page of ["sidepanel.html", "options.html", "triage/triage.html"]) {
   assert.ok(limitsAt >= 0 && limitsAt < pageScriptAt, `${page} loads limits.js before its own script`);
 }
 
+// Storage key names: each KEYS name is written only in limits.js. Selftests and dev mocks may seed their own.
+// badges.js does not load limits.js and keeps copies of the names it reads; they must stay KEYS names.
+const names = Object.values(L.KEYS).filter((v) => typeof v === "string");
+// Renaming one loses the data stored under it.
+assert.deepStrictEqual([...names].sort(), [
+  "boc_ai_conversations_v1", "boc_obsidian_note_paths_v1", "boc_player_ai_quick_action_v1", "boc_subtitle_cache_",
+  "triage_analysis_", "triage_basket", "triage_folder_criteria", "triage_included_folders", "triage_notes", "triage_removed",
+  "triage_seen_meta", "triage_simplified_v1", "triage_snapshot_", "triage_tags", "triage_title_", "triage_video_tags"
+]);
+assert.strictEqual(L.KEYS.triageAnalysis("BV1"), "triage_analysis_BV1");
+assert.strictEqual(L.KEYS.triageTitle("BV1"), "triage_title_BV1");
+assert.strictEqual(L.KEYS.triageSnapshot(7), "triage_snapshot_7");
+const badgesCopies = ["triage_tags", "triage_video_tags", "triage_title_", "triage_analysis_"];
+for (const name of badgesCopies) assert.ok(names.includes(name), `badges.js reads ${name}, which KEYS no longer has`);
+const sources = [];
+const walk = (dir) => {
+  for (const entry of fs.readdirSync(path.join(__dirname, dir), { withFileTypes: true })) {
+    const rel = path.join(dir, entry.name);
+    if (entry.isDirectory()) {
+      if (!/^dev/.test(entry.name)) walk(rel);
+    } else if (entry.name.endsWith(".js") && !entry.name.endsWith(".selftest.js") && !["limits.js", "badges.js"].includes(rel)) sources.push(rel);
+  }
+};
+walk(".");
+assert.ok(sources.includes("triage/triage.js") && sources.length > 15, `scanned ${sources.length} files`);
+for (const file of sources) {
+  const text = fs.readFileSync(path.join(__dirname, file), "utf8");
+  for (const name of names) {
+    // A string literal ("name", `name${id}`), a property read (x.name) or an object key ({ name: ... }).
+    const written = new RegExp(`["'\`]${name}(?:["'\`]|\\$\\{)|\\.${name}\\b|[{,]\\s*${name}\\s*:`);
+    assert.ok(!written.test(text), `${file} writes the storage key ${name} itself; use BocLimits.KEYS`);
+  }
+}
+for (const name of badgesCopies) assert.ok(fs.readFileSync(path.join(__dirname, "badges.js"), "utf8").includes(name));
+
 console.log("limits selftest ok");

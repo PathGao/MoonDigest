@@ -4,6 +4,7 @@ const OWN_TAB = await chrome.tabs.getCurrent();
 
 const KEY = BocLimits.KEYS.aiConversations;
 const NOTE_PATHS_KEY = BocLimits.KEYS.obsidianNotePaths;
+const { triageNotes: NOTES_KEY, triageAnalysisPrefix: ANALYSIS, triageSnapshotPrefix: SNAPSHOT } = BocLimits.KEYS;
 const $ = (id) => document.getElementById(id);
 const els = { list: $("list"), search: $("search"), count: $("count"), selectAll: $("selectAll"), selectAllLabel: $("selectAllLabel"), bulkMd: $("bulkMd"), bulkDelete: $("bulkDelete"), clearAll: $("clearAll"), status: $("status") };
 
@@ -99,10 +100,10 @@ async function closeNote() {
   if (text !== (notes[id]?.text || "")) {
     if (text) notes[id] = { text, updatedAt: Date.now() };
     else delete notes[id];
-    const stored = (await chrome.storage.local.get("triage_notes")).triage_notes || {};
+    const stored = (await chrome.storage.local.get(NOTES_KEY))[NOTES_KEY] || {};
     if (text) stored[id] = notes[id];
     else delete stored[id];
-    await chrome.storage.local.set({ triage_notes: stored });
+    await chrome.storage.local.set({ [NOTES_KEY]: stored });
     setStatus(text ? "备注已保存" : "备注已删除");
   }
   if (reloadPending) {
@@ -202,11 +203,11 @@ async function load() {
   const all = await chrome.storage.local.get(null);
   conversations = (all[KEY] || []).filter((c) => c?.id && Array.isArray(c.messages));
   analyses = {};
-  notes = Object.fromEntries(Object.entries(all.triage_notes || {}).filter(([, n]) => String(n?.text || "").trim()));
+  notes = Object.fromEntries(Object.entries(all[NOTES_KEY] || {}).filter(([, n]) => String(n?.text || "").trim()));
   triageTitles = {};
   for (const [k, v] of Object.entries(all)) {
-    if (k.startsWith("triage_analysis_") && v?.status === "done") analyses[k.slice(16)] = v;
-    else if (k.startsWith("triage_snapshot_")) Object.assign(triageTitles, v?.titles);
+    if (k.startsWith(ANALYSIS) && v?.status === "done") analyses[k.slice(ANALYSIS.length)] = v;
+    else if (k.startsWith(SNAPSHOT)) Object.assign(triageTitles, v?.titles);
   }
   render();
 }
@@ -343,7 +344,7 @@ els.list.addEventListener("click", (event) => {
   }
   else if (act === "ask" && group) {
     // The side panel continues the video's latest conversation, the same request triage's 问 AI sends.
-    chrome.storage.local.set({ boc_player_ai_quick_action_v1: { id: `history-${Date.now()}`, tabId: OWN_TAB?.id, prompt: "", contextRef: group.context } });
+    chrome.storage.local.set({ [BocLimits.KEYS.playerAiQuickAction]: { id: `history-${Date.now()}`, tabId: OWN_TAB?.id, prompt: "", contextRef: group.context } });
     setStatus("正在打开侧边栏…");
     chrome.sidePanel.open({ tabId: OWN_TAB?.id }).then(
       () => els.status.textContent === "正在打开侧边栏…" && setStatus(""),
@@ -380,7 +381,7 @@ els.clearAll.addEventListener("click", async () => {
 });
 chrome.storage.onChanged.addListener((changes, area) => {
   // Triage analyses arrive in bursts; one reload per burst.
-  if (area === "local" && Object.keys(changes).some((k) => k === KEY || k === "triage_notes" || k.startsWith("triage_analysis_") || k.startsWith("triage_snapshot_"))) {
+  if (area === "local" && Object.keys(changes).some((k) => k === KEY || k === NOTES_KEY || k.startsWith(ANALYSIS) || k.startsWith(SNAPSHOT))) {
     clearTimeout(reloadTimer);
     reloadTimer = setTimeout(() => (editing ? (reloadPending = true) : load()), 300);
   }

@@ -23,8 +23,6 @@ const el = {
 };
 
 let latestPayload = null;
-// The side panel's request slot (sidepanel.js, background.js).
-const QUICK_ACTION_STORAGE_KEY = "boc_player_ai_quick_action_v1";
 // Only for when get-settings fails. Its downloadFormat ("srt") wins over the page's payload.downloadFormat.
 const DEFAULT_SETTINGS = BocSettings.DEFAULTS;
 
@@ -174,7 +172,7 @@ function bindEvents() {
       try {
         await chrome.sidePanel.open({ tabId: tab.id });
         const createdAt = Date.now();
-        await chrome.storage.local.set({ [QUICK_ACTION_STORAGE_KEY]: { id: `popup-${createdAt}`, tabId: tab.id, prompt: "", createdAt, showSaved: true } });
+        await chrome.storage.local.set({ [BocLimits.KEYS.playerAiQuickAction]: { id: `popup-${createdAt}`, tabId: tab.id, prompt: "", createdAt, showSaved: true } });
         window.setTimeout(() => window.close(), 80);
       } catch (error) {
         setBusy(el.summaryBtn, false);
