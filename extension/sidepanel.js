@@ -740,6 +740,9 @@ function resetConversationView(stateHtml = "", { retry = false } = {}) {
   scrollToBottom(true);
 }
 
+// Set by a video switch: once the new video's subtitles arrive, its summary prompt fills the input like a click on AI 总结.
+let summaryFillPending = false;
+
 function renderSuggestions() {
   if (!suggestionsNode) {
     return;
@@ -766,6 +769,10 @@ function renderSuggestions() {
   const prompt = aiPrefs.playerAiQuickPrompt;
   suggestionsNode.innerHTML = `<p class="sp-empty-intro">${EMPTY_INTRO}</p>${prompt ? `<button type="button" class="sp-summary-btn" title="${escapeHtml(prompt)}">${AI_SPARK}AI 总结</button>` : ""}`;
   suggestionsNode.querySelector(".sp-summary-btn")?.addEventListener("click", () => fillPrompt(prompt));
+  if (summaryFillPending && prompt) {
+    summaryFillPending = false;
+    fillPrompt(prompt);
+  }
   void renderTriageSummary(suggestionsNode);
 }
 
@@ -1379,6 +1386,7 @@ async function followLiveVideo(context) {
   els.input.value = draft;
   autosizeInput();
   await restoreLatestConversationForCurrentContext(contextData, currentContextKey);
+  summaryFillPending = !chatHistory.length;
   renderHistoryList();
   updateContextChip();
   renderInitialState();
