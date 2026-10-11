@@ -1,6 +1,5 @@
 const SELECTED_PROVIDER_KEY = "boc_ai_selected_provider";
 const CONVERSATIONS_STORAGE_KEY = BocLimits.KEYS.aiConversations;
-const NOTE_PATHS_STORAGE_KEY = BocLimits.KEYS.obsidianNotePaths;
 const { escapeHtml } = BocErrors;
 const {
   stripThinkBlocks,
@@ -9,9 +8,7 @@ const {
   TIMESTAMP_PATTERN,
   buildConversationTurns,
   buildAiConversationFilename,
-  buildAiConversationMarkdown,
-  resolveFolderTemplate,
-  buildNoteFilename
+  buildAiConversationMarkdown
 } = BocNote;
 const PLAYER_AI_QUICK_ACTION_STORAGE_KEY = BocLimits.KEYS.playerAiQuickAction;
 // Marks a control that starts an AI request (tokens.css draws it in the text color).
@@ -2278,9 +2275,9 @@ function renderAssistantMessage(node, raw) {
   node.appendChild(actions);
 }
 
-// The conversation as its own note: copy, download, and 写入 Obsidian on pages that are not videos.
+// The conversation as its own note, for copy and download (obsidian.js builds the one it writes the same way).
 // Like the 视频记录 page's export, the triage summary (bilibili P1 only) and the video's note lead it.
-async function buildCurrentConversationNote(sourcePath = "") {
+async function buildCurrentConversationNote() {
   const turns = buildConversationTurns(chatHistory);
   if (!turns.length) {
     return null;
@@ -2291,46 +2288,8 @@ async function buildCurrentConversationNote(sourcePath = "") {
   const ref = buildConversationContextRef(context);
   const extrasRef = { site: ref.site, videoId: noteId, pageIndex: ref.pageIndex };
   const { analysis, note } = BocNote.triageExtras(await chrome.storage.local.get(BocNote.triageExtrasKeys(extrasRef)), extrasRef);
-  const markdown = buildAiConversationMarkdown({ context, turns, filename, sourcePath });
+  const markdown = buildAiConversationMarkdown({ context, turns, filename });
   return { context, filename, content: BocNote.withTriageSummary(markdown, analysis, note) };
-}
-
-// Where the page's 写入 Obsidian puts this video's note: same folder template and filename builder.
-function videoNotePathFor(context, settings) {
-  const folder = resolveFolderTemplate(settings?.noteFolder || "", context);
-  const filename = buildNoteFilename(context, settings || {});
-  return folder ? `${folder}/${filename}` : filename;
-}
-
-async function boundVideoNotePath(noteKey) {
-  const paths = (await chrome.storage.local.get(NOTE_PATHS_STORAGE_KEY))[NOTE_PATHS_STORAGE_KEY] || {};
-  return paths[noteKey]?.path || "";
-}
-
-// The note a manual save recorded wins over the computed path, which carries today's date when
-// includeDateInFilename is on and so only matches a note saved today.
-async function resolveVideoNotePath(context, settings) {
-  const noteKey = BocSites.buildContextKey(buildConversationContextRef(context) || {});
-  return (noteKey && (await boundVideoNotePath(noteKey))) || videoNotePathFor(context, settings);
-}
-
-// Rewrites the marked AI 问答 section of the video's note when that note exists; never creates one.
-// Resolves to the background result plus the path ({ exists, updated, filepath }) or null when the conversation has no video or nothing to write.
-async function syncVideoNoteAiSection({ context, messages, settings, baseUrl, apiKey }) {
-  const noteKey = BocSites.buildContextKey(buildConversationContextRef(context) || {});
-  if (!noteKey) {
-    return null;
-  }
-  const section = BocNote.buildAiSection(buildConversationTurns(messages));
-  if (!section) {
-    return null;
-  }
-  const filepath = await resolveVideoNotePath(context, settings);
-  const resp = await sendRuntimeMessage({ type: "update-obsidian-ai-section", baseUrl, apiKey, filepath, section, noteKey });
-  if (!resp?.ok) {
-    throw BocErrors.fromResp(resp, "Local API 写入失败");
-  }
-  return { ...resp, filepath };
 }
 
 // ---- auto-sync: after a manual save bound the video to its note, every finished answer updates the section ----
@@ -2353,28 +2312,22 @@ function scheduleAutoSync(conversationId) {
 
 async function autoSyncConversation(conversationId) {
   const conversation = savedConversations.find((item) => item.id === conversationId);
-  const noteKey = conversation?.contextRef ? BocSites.buildContextKey(conversation.contextRef) : "";
-  const notePath = noteKey ? await boundVideoNotePath(noteKey) : "";
-  if (!notePath) {
-    return;
-  }
-  const settingsResp = await sendRuntimeMessage({ type: "get-settings" }).catch(() => null);
-  const settings = settingsResp?.ok ? settingsResp.settings || {} : {};
-  const baseUrl = String(settings.obsidianApiBaseUrl || "").trim();
-  const apiKey = String(settings.obsidianApiKey || "").trim();
-  if (!settings.obsidianEnabled || settings.includeAiChatInNote === false || !baseUrl || !apiKey) {
+  if (!conversation?.contextRef) {
     return;
   }
   try {
-    const result = await syncVideoNoteAiSection({ context: conversation.contextRef, messages: conversation.messages, settings, baseUrl, apiKey });
-    if (!result) {
+    const resp = await sendRuntimeMessage({ type: "sync-video-note-ai", ref: conversation.contextRef, conversation: { messages: conversation.messages } });
+    if (!resp?.ok) {
+      throw BocErrors.fromResp(resp, "Local API 写入失败");
+    }
+    if (!resp.path) {
       return;
     }
-    if (!result.exists) {
+    if (!resp.exists) {
       showSyncStatus("Obsidian 里的视频笔记已不存在，未写入");
       return;
     }
-    showSyncStatus(`已更新 AI 问答：${notePath}`, { autoHideMs: 3000 });
+    showSyncStatus(`已更新 AI 问答：${resp.path}`, { autoHideMs: 3000 });
   } catch (error) {
     showSyncStatus(`写入 Obsidian 失败：${getErrorMessage(error)}`, { retry: () => autoSyncConversation(conversationId), error: true });
   }
@@ -2419,160 +2372,52 @@ async function copyCurrentConversationMarkdown() {
   }
 }
 
-// A video's conversation goes into its video note's AI 问答 section, the one auto-sync keeps current.
-// A missing video note is first written by the page's content script, the same writer as the popup's 写入 Obsidian.
-// Pages that are not videos have no video note, so their conversation is written as its own note.
+// The background (write-video-note) decides where the conversation goes: the video note's AI 问答 section, a note it
+// builds, or the conversation's own note. This page sends the conversation, and the open video page's note when the
+// tab shows this video, and asks before an existing note is touched.
 async function saveCurrentConversationToObsidian() {
   // Taken before any await: switching video mid-write must not put another video's chat into this note.
   const epoch = conversationEpoch;
   const context = currentConversationMeta?.resolvedContext || contextData || currentConversationMeta?.contextRef || {};
   const messages = chatHistory.slice();
-  const settingsBundle = await loadObsidianSettings();
-  if (!settingsBundle) {
-    return;
-  }
   if (!buildConversationTurns(messages).length) {
     showConversationContextNotice("当前没有可写入 Obsidian 的对话。", 2200);
     return;
   }
-  if (!BocSites.buildContextKey(buildConversationContextRef(context) || {})) {
-    if (epoch === conversationEpoch) {
-      await saveConversationNoteToObsidian(settingsBundle);
-    }
-    return;
-  }
   showConversationContextNotice("正在写入 Obsidian…");
   try {
-    const result = await syncVideoNoteAiSection({ context, messages, ...settingsBundle });
-    if (result.exists) {
-      showConversationContextNotice(`已更新 AI 问答：${result.filepath}`, 3000);
-      return;
-    }
-    const tab = await getActiveTab();
-    const live = liveContextData;
-    if (!tab?.id || !live || !doesTabMatchContextUrl(liveTabUrl, context.url || "")) {
-      const ref = buildConversationContextRef(context);
-      if (ref.site === "bilibili" && ref.pageIndex === 1) {
-        await saveBuiltVideoNoteToObsidian(ref, messages, epoch, settingsBundle);
+    const ref = buildConversationContextRef(context);
+    const request = { type: "write-video-note", ref, conversation: { messages }, page: await openPageNote(ref) };
+    let resp = await sendRuntimeMessage(request);
+    if (resp?.ok && resp.ask) {
+      const mode = await BocOverwriteDialog.choose(resp.path, { hasAiSection: resp.hasAiSection });
+      if (!mode) {
+        showConversationContextNotice(BocErrors.TEXT.obsidianCancelled, 2200);
         return;
       }
-      // Only a B站 P1 note can be built without the page; others get the conversation as its own note, as on 视频记录.
       if (epoch !== conversationEpoch) {
         throw new Error("对话已切换");
       }
-      const sourcePath = await resolveVideoNotePath(context, settingsBundle.settings);
-      const filepath = await saveConversationNoteToObsidian(settingsBundle, sourcePath);
-      if (filepath) {
-        showConversationContextNotice(`已写入 Obsidian：${filepath}（单独的对话笔记）`, 4000);
-      }
-      return;
+      resp = await sendRuntimeMessage({ ...request, mode });
     }
-    const resp = await sendMessageToActiveTab(tab.id, { type: "popup-send-obsidian" }, 1);
-    // The page replies its reason and code when the write failed, as the background does.
     if (!resp?.ok) {
-      throw BocErrors.fromResp(resp, "没能新建视频笔记");
+      throw BocErrors.fromResp(resp, "Local API 写入失败");
     }
-    // The existing note was left alone (取消, the video switched): the page's own line says why, and nothing is written.
-    if (resp.written === false) {
-      showConversationContextNotice(resp.payload?.message || "已取消写入 Obsidian，原笔记未被覆盖。", 2200);
-      return;
-    }
-    // The page's note carries its latest conversation; the live context (the page's own key and path)
-    // finds the note it just wrote, and this conversation replaces that section.
-    const created = await syncVideoNoteAiSection({ context: live, messages, ...settingsBundle });
-    // Not written and not failed (no content to write): the page's own line says why.
-    if (!created?.exists) {
-      showConversationContextNotice(resp.payload?.message || "没能新建视频笔记", 4000);
-      return;
-    }
-    showConversationContextNotice(`已写入 Obsidian：${created.filepath}`, 4000);
+    showConversationContextNotice(resp.text, 4000);
   } catch (error) {
     showObsidianFailure(error);
   }
 }
 
-// The conversation as its own note, at the folder template's path. sourcePath: the video note it links to, if any.
-async function saveConversationNoteToObsidian(settingsBundle, sourcePath = "") {
-  const note = await buildCurrentConversationNote(sourcePath);
-  const folder = resolveFolderTemplate(settingsBundle.settings.noteFolder || "", note.context);
-  const filepath = folder ? `${folder}/${note.filename}` : note.filename;
-  return (await saveMarkdownToObsidian({ button: els.saveConversationBtn, filepath, content: note.content, ...settingsBundle })) ? filepath : "";
-}
-
-// Without the video page open, a B 站 P1 video's note is built by the background from Bilibili's API, as on the
-// 视频记录 page, then gets this conversation in its AI 问答 section. A deleted or hidden video gets the conversation
-// as its own note instead.
-async function saveBuiltVideoNoteToObsidian(ref, messages, epoch, settingsBundle) {
-  const { baseUrl, apiKey } = settingsBundle;
-  showConversationContextNotice("正在生成视频笔记…");
-  const built = await sendRuntimeMessage({ type: "triage-build-note", bvid: ref.videoId });
-  if (!built?.ok) {
-    if (!BocSites.isBiliVideoGone(built?.code)) {
-      throw new Error(BocErrors.text(built, "生成视频笔记失败"));
-    }
-    // The conversation-only note is built from the panel's current conversation.
-    if (epoch !== conversationEpoch) {
-      throw new Error("对话已切换");
-    }
-    const filepath = await saveConversationNoteToObsidian(settingsBundle);
-    if (filepath) {
-      showConversationContextNotice(`已写入 Obsidian：${filepath}（视频已失效，只写了对话）`, 4000);
-    }
-    return;
+// The note the popup's 写入 Obsidian would write, when the active tab shows this video; settled like the popup's read.
+async function openPageNote(ref) {
+  const tab = await getActiveTab();
+  if (!ref.videoId || !tab?.id || !liveContextData || !doesTabMatchContextUrl(liveTabUrl, ref.url)) {
+    return undefined;
   }
-  const section = BocNote.buildAiSection(buildConversationTurns(messages));
-  const choice = await BocOverwriteDialog.writeBuiltNote({ baseUrl, apiKey, built: built.data, section, noteKey: BocSites.buildContextKey(ref) });
-  if (!choice) {
-    showConversationContextNotice("已取消写入 Obsidian，原笔记未被覆盖。", 2200);
-    return;
-  }
-  // A subtitle that does not match the video's length leads the line, as on the video page.
-  showConversationContextNotice(`${built.data.subtitleWarning || ""}${choice === "full" ? "已写入 Obsidian" : "已更新 AI 问答"}：${built.data.path}`, 4000);
-}
-
-async function loadObsidianSettings() {
-  const settingsResp = await sendRuntimeMessage({ type: "get-settings" }).catch((error) => ({
-    ok: false,
-    error: error?.message || String(error || "")
-  }));
-  if (!settingsResp?.ok) {
-    showConversationContextNotice(`读取设置失败：${settingsResp?.error || "未知错误"}`, 3000);
-    return null;
-  }
-
-  const settings = settingsResp.settings || {};
-  const baseUrl = String(settings.obsidianApiBaseUrl || "").trim();
-  const apiKey = String(settings.obsidianApiKey || "").trim();
-  if (!baseUrl || !apiKey) {
-    showConversationContextNotice(BocErrors.TEXT.obsidianUnset, 3500);
-    chrome.runtime.openOptionsPage?.();
-    return null;
-  }
-
-  return { settings, baseUrl, apiKey };
-}
-
-async function saveMarkdownToObsidian({ button, filepath, content, baseUrl, apiKey }) {
-  showConversationContextNotice("正在写入 Obsidian…");
-  try {
-    if (button) {
-      button.disabled = true;
-    }
-    if (!(await BocOverwriteDialog.writeNote({ baseUrl, apiKey, filepath, content }))) {
-      showConversationContextNotice("已取消写入 Obsidian，原笔记未被覆盖。", 2200);
-      return false;
-    }
-    showConversationContextNotice(`已写入 Obsidian：${filepath}`, 2600);
-    return true;
-  } catch (error) {
-    showObsidianFailure(error);
-  } finally {
-    if (button) {
-      window.setTimeout(() => {
-        button.disabled = false;
-      }, 500);
-    }
-  }
+  const resp = await sendMessageToActiveTab(tab.id, { type: "popup-refresh" }, 1).catch(() => null);
+  const page = resp?.ok ? resp.payload : null;
+  return page?.markdown && doesTabMatchContextUrl(page.url, ref.url) ? { markdown: page.markdown, cover: page.cover } : undefined;
 }
 
 function getReadableText(value, fallback = "") {

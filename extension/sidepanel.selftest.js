@@ -127,42 +127,45 @@ const page = (id) => ({ ok: true, payload: { url: `https://example.com/${id}`, t
   assert.deepStrictEqual([resets, opened, loads, vm.runInContext("els.input.value", ctx)], [0, 1, 1, "q"]);
   ctx.resetConversationView = () => {};
 
-  // 写入 Obsidian with the video page closed: the built note goes to the background's path with its cover, and the
-  // conversation switched during the write does not replace this video's chat.
   {
+    // 写入 Obsidian: one write-video-note with this conversation (and the open page's note when the tab shows the video).
+    // ask → the dialog → the same request with the mode; 取消, or a conversation switched meanwhile, sends nothing again.
     const sent = [];
-    let updates = 0;
     const shown = [];
-    ctx.showConversationContextNotice = (text) => shown.push(text);
+    let choice;
+    let asked;
+    ctx.showConversationContextNotice = (text, ms, opts) => shown.push([text, opts?.error]);
+    ctx.BocOverwriteDialog = { choose: async (path, opts) => ((asked = [path, opts.hasAiSection]), choice()) };
     const realSend = ctx.sendRuntimeMessage;
-    ctx.sendRuntimeMessage = async (msg) => {
-      sent.push(msg);
-      if (msg.type === "get-settings") {
-        vm.runInContext('chatHistory = [{ role: "user", content: "别的视频" }, { role: "assistant", content: "别的回答" }]; conversationEpoch += 1', ctx);
-        return { ok: true, settings: { obsidianApiBaseUrl: "http://127.0.0.1:27123", obsidianApiKey: "k" } };
-      }
-      if (msg.type === "triage-build-note") return { ok: true, data: { title: "T", markdown: "m", path: "B站/UP/T.md", cover: { url: "https://i0.hdslb.com/a.jpg", name: "bilibili-BV1xx411c7mD" }, subtitleWarning: "字幕时间可能对不上。" } };
-      if (msg.type === "obsidian-note-exists") return { ok: true, exists: false };
-      if (msg.type === "update-obsidian-ai-section") return { ok: true, exists: updates++ > 0, updated: true };
-      return { ok: true };
+    ctx.sendRuntimeMessage = async (m) => (sent.push(m), m.mode ? { ok: true, path: "p.md", kind: m.mode, text: `已更新 AI 问答：p.md` } : { ok: true, ask: true, path: "p.md", hasAiSection: true });
+    const url = "https://www.bilibili.com/video/BV1xx411c7mD";
+    ctx.video = { ...video, url, pageIndex: 1, title: "T" };
+    const write = async (pick) => {
+      sent.length = 0;
+      shown.length = 0;
+      choice = pick;
+      vm.runInContext('contextData = video; currentConversationMeta = null; chatHistory = [{ role: "user", content: "这个视频" }, { role: "assistant", content: "回答" }]', ctx);
+      await ctx.saveCurrentConversationToObsidian();
+      return sent.map((m) => m.mode || "-").join();
     };
-    // BocOverwriteDialog.writeBuiltNote sends its own messages.
-    const realRuntimeSend = ctx.chrome.runtime.sendMessage;
-    ctx.chrome.runtime.sendMessage = ctx.sendRuntimeMessage;
-    ctx.video = { ...video, pageIndex: 1, title: "T" };
-    vm.runInContext('contextData = video; currentConversationMeta = null; chatHistory = [{ role: "user", content: "这个视频" }, { role: "assistant", content: "回答" }]', ctx);
-    await ctx.saveCurrentConversationToObsidian();
-    const write = sent.find((m) => m.type === "write-obsidian-note");
-    assert.deepStrictEqual([write.filepath, write.cover.name], ["B站/UP/T.md", "bilibili-BV1xx411c7mD"]);
-    const section = sent.filter((m) => m.type === "update-obsidian-ai-section").pop();
-    assert.ok(section.filepath === "B站/UP/T.md" && section.section.includes("这个视频") && !section.section.includes("别的视频"), section.section);
-    // A subtitle that does not match the video's length leads the result line, as on the video page.
-    assert.strictEqual(shown.at(-1), "字幕时间可能对不上。已写入 Obsidian：B站/UP/T.md");
+    // The page is not open: no page note.
+    activeTab = { id: 3, url: "https://example.com/" };
+    vm.runInContext('liveContextData = null; liveTabUrl = "https://example.com/"', ctx);
+    assert.strictEqual(await write(() => "ai"), "-,ai");
+    assert.deepStrictEqual([asked, sent[1].conversation.messages[0].content, sent[1].ref.videoId, sent[1].page, shown.at(-1)], [["p.md", true], "这个视频", "BV1xx411c7mD", undefined, ["已更新 AI 问答：p.md", undefined]]);
+    assert.strictEqual(await write(() => ""), "-", "取消: nothing sent again");
+    assert.deepStrictEqual(shown.at(-1), [ctx.BocErrors.TEXT.obsidianCancelled, undefined]);
+    assert.strictEqual(await write(() => (vm.runInContext("conversationEpoch += 1", ctx), "full")), "-", "switched during the dialog");
+    // The tab shows this video: its settled note goes along.
+    activeTab = { id: 4, url };
+    vm.runInContext("liveContextData = video; liveTabUrl = video.url", ctx);
+    const realTab = ctx.sendMessageToActiveTab;
+    ctx.sendMessageToActiveTab = async (id, m) => (m.type === "popup-refresh" ? { ok: true, payload: { url, markdown: "# 页面", cover: "c" } } : null);
+    await write(() => "full");
+    assert.deepStrictEqual(JSON.parse(JSON.stringify(sent[1].page)), { markdown: "# 页面", cover: "c" });
+    ctx.sendMessageToActiveTab = realTab;
     ctx.sendRuntimeMessage = realSend;
-    ctx.chrome.runtime.sendMessage = realRuntimeSend;
-  }
 
-  {
     // A failed write is red; only not set up or a wrong key (code OBSIDIAN) opens the settings page, not a closed Obsidian.
     const notices = [];
     let settings = 0;
@@ -174,52 +177,6 @@ const page = (id) => ({ ok: true, payload: { url: `https://example.com/${id}`, t
     ctx.showObsidianFailure(E.fromResp({ ok: false, error: E.TEXT.obsidianDown, code: "OBSIDIAN_DOWN" }, "Local API 写入失败"));
     assert.deepStrictEqual(notices, [[`写入 Obsidian 失败：${E.TEXT.obsidianKey}`, true], ["写入 Obsidian 失败：Obsidian 返回 HTTP 500", true], [`写入 Obsidian 失败：${E.TEXT.obsidianDown}`, true]]);
     assert.strictEqual(settings, 1);
-
-    // The same write with the video page open: the page's failure shows once, with one prefix, and a write the page
-    // did not make for another reason (the video switched) is said as it is, not as a failure.
-    const saved = Object.fromEntries(["loadObsidianSettings", "syncVideoNoteAiSection", "sendMessageToActiveTab"].map((k) => [k, ctx[k]]));
-    const url = "https://www.youtube.com/watch?v=dQw4w9WgXcQ";
-    let reply;
-    Object.assign(ctx, {
-      loadObsidianSettings: async () => ({ settings: {}, baseUrl: "http://127.0.0.1:27123", apiKey: "k" }),
-      syncVideoNoteAiSection: async () => ({ exists: false, filepath: "p.md" }),
-      sendMessageToActiveTab: async () => reply,
-      yt: { url, site: "youtube", videoId: "dQw4w9WgXcQ", isVideoContext: true, title: "Y" }
-    });
-    activeTab = { id: 4, url };
-    vm.runInContext('contextData = yt; liveContextData = yt; liveTabUrl = yt.url; currentConversationMeta = null; chatHistory = [{ role: "user", content: "q" }, { role: "assistant", content: "a" }]', ctx);
-    notices.length = 0;
-    reply = { ok: false, error: E.TEXT.obsidianDown, code: "OBSIDIAN_DOWN", payload: { message: `写入 Obsidian 失败：${E.TEXT.obsidianDown}` } };
-    await ctx.saveCurrentConversationToObsidian();
-    reply = { ok: true, payload: { message: "视频已切换，未写入 Obsidian。" } };
-    await ctx.saveCurrentConversationToObsidian();
-    assert.deepStrictEqual(notices.filter(([text]) => !text.startsWith("正在")), [[`写入 Obsidian 失败：${E.TEXT.obsidianDown}`, true], ["视频已切换，未写入 Obsidian。", undefined]]);
-    assert.strictEqual(settings, 1, "a closed Obsidian does not open the settings page");
-
-    // 取消 in the page's overwrite dialog: the note exists at the page's path, and nothing is written to it.
-    let syncs = 0;
-    ctx.syncVideoNoteAiSection = async () => ({ exists: syncs++ > 0, filepath: "p.md" });
-    notices.length = 0;
-    reply = { ok: true, written: false, payload: { message: "已取消写入 Obsidian，原笔记未被覆盖。" } };
-    await ctx.saveCurrentConversationToObsidian();
-    assert.strictEqual(syncs, 1, "the AI 问答 section is not updated after 取消");
-    assert.deepStrictEqual(notices.at(-1), ["已取消写入 Obsidian，原笔记未被覆盖。", undefined]);
-    ctx.syncVideoNoteAiSection = async () => ({ exists: false, filepath: "p.md" });
-
-    // A YouTube video (or a B站 P2+) without a note and with its page closed: no note can be built, so the
-    // conversation is written as its own note, as on 视频记录, linking the video note's path.
-    const realRuntimeSend = ctx.chrome.runtime.sendMessage;
-    const sent = [];
-    ctx.chrome.runtime.sendMessage = async (m) => (sent.push(m), { ok: true, exists: false });
-    vm.runInContext('liveTabUrl = "https://example.com/"', ctx);
-    notices.length = 0;
-    await ctx.saveCurrentConversationToObsidian();
-    const writes = sent.filter((m) => m.type === "write-obsidian-note");
-    assert.strictEqual(writes.length, 1, JSON.stringify(notices));
-    assert.ok(writes[0].content.includes("q") && writes[0].content.includes("a"), writes[0].content);
-    assert.strictEqual(notices.at(-1)[0], `已写入 Obsidian：${writes[0].filepath}（单独的对话笔记）`);
-    ctx.chrome.runtime.sendMessage = realRuntimeSend;
-    Object.assign(ctx, saved);
   }
 
   {

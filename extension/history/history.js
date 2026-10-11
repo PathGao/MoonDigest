@@ -3,7 +3,6 @@ if (!globalThis.chrome?.runtime?.id) await import("./dev/mock-chrome.js");
 const OWN_TAB = await chrome.tabs.getCurrent();
 
 const KEY = BocLimits.KEYS.aiConversations;
-const NOTE_PATHS_KEY = BocLimits.KEYS.obsidianNotePaths;
 const { triageNotes: NOTES_KEY, triageAnalysisPrefix: ANALYSIS, triageSnapshotPrefix: SNAPSHOT } = BocLimits.KEYS;
 const $ = (id) => document.getElementById(id);
 const els = { list: $("list"), search: $("search"), count: $("count"), selectAll: $("selectAll"), selectAllLabel: $("selectAllLabel"), bulkMd: $("bulkMd"), bulkDelete: $("bulkDelete"), clearAll: $("clearAll"), status: $("status") };
@@ -53,11 +52,11 @@ function groupByVideo(items) {
   return groups.sort((a, b) => b.updatedAt - a.updatedAt);
 }
 
-// Same note the side panel's export menu (导出对话 → 写入 Obsidian) writes, with every conversation of the video in order.
-function buildNote(group, sourcePath = "") {
+// 下载 .md: the conversation note the side panel downloads, with every conversation of the video in order.
+function buildNote(group) {
   const turns = group.convs.flatMap((conv) => BocNote.buildConversationTurns(conv.messages));
   const filename = BocNote.buildAiConversationFilename(group.context);
-  return { filename, content: BocNote.withTriageSummary(BocNote.buildAiConversationMarkdown({ context: group.context, turns, filename, sourcePath }), group.analysis, group.note?.text) };
+  return { filename, content: BocNote.withTriageSummary(BocNote.buildAiConversationMarkdown({ context: group.context, turns, filename }), group.analysis, group.note?.text) };
 }
 
 function visibleGroups() {
@@ -242,66 +241,29 @@ function downloadGroups(groups) {
   setStatus(`已下载 ${groups.length} 个视频的记录`);
 }
 
-// A video already written to Obsidian gets the conversation in its note's AI 问答 section, like the side panel's
-// 导出对话 → 写入 Obsidian (newest conversation, as auto-sync does). Without a video note, a B 站 video (P1: the
-// background builds only that) first gets the full note triage builds, at the path triage writes it to and
-// recorded for it. YouTube, other parts and web pages get the standalone AI note.
+// The background (write-video-note) decides where it goes, as for the side panel's 写入 Obsidian: the video note with
+// the newest conversation in its AI 问答 section (the one auto-sync keeps current), or the conversation's own note.
+// This page asks before an existing note is touched.
 async function saveToObsidian(group) {
   writing.add(group.key);
   setStatus("正在写入 Obsidian…");
   render();
   try {
-    const settings = (await chrome.runtime.sendMessage({ type: "get-settings" }))?.settings || {};
-    const baseUrl = String(settings.obsidianApiBaseUrl || "").trim();
-    const apiKey = String(settings.obsidianApiKey || "").trim();
-    if (!baseUrl || !apiKey) {
-      setStatus(BocErrors.TEXT.obsidianUnset, true);
-      chrome.runtime.openOptionsPage();
-      return;
-    }
-    const noteKey = BocSites.buildContextKey(group.context);
-    let boundPath = noteKey ? ((await chrome.storage.local.get(NOTE_PATHS_KEY))[NOTE_PATHS_KEY] || {})[noteKey]?.path : "";
     const newest = group.convs.reduce((a, b) => ((b.updatedAt || 0) > (a.updatedAt || 0) ? b : a), group.convs[0]);
-    const section = newest ? BocNote.buildAiSection(BocNote.buildConversationTurns(newest.messages)) : "";
-    if (section && boundPath) {
-      const resp = await chrome.runtime.sendMessage({ type: "update-obsidian-ai-section", baseUrl, apiKey, filepath: boundPath, section, noteKey });
-      if (!resp?.ok) throw BocErrors.fromResp(resp, "Local API 写入失败");
-      if (resp.exists !== false) {
-        setStatus(`已更新 AI 问答：${boundPath}`);
-        return;
-      }
-      boundPath = "";
+    const request = { type: "write-video-note", ref: group.context, conversation: { messages: newest?.messages || [] } };
+    let resp = await chrome.runtime.sendMessage(request);
+    if (resp?.ok && resp.ask) {
+      const mode = await BocOverwriteDialog.choose(resp.path, { hasAiSection: resp.hasAiSection });
+      if (!mode) return setStatus(BocErrors.TEXT.obsidianCancelled);
+      resp = await chrome.runtime.sendMessage({ ...request, mode });
     }
-    // A deleted or hidden video has no note to build; its conversation is written as its own note below.
-    let built = null;
-    if (!boundPath && group.context.site === "bilibili" && (Number(group.context.pageIndex) || 1) === 1) {
-      setStatus("正在生成视频笔记…");
-      built = await chrome.runtime.sendMessage({ type: "triage-build-note", bvid: group.context.videoId });
-      if (!built?.ok && !BocSites.isBiliVideoGone(built?.code)) throw new Error(BocErrors.text(built, "生成视频笔记失败"));
-    }
-    if (built?.ok) {
-      setStatus("正在写入…");
-      const choice = await BocOverwriteDialog.writeBuiltNote({ baseUrl, apiKey, built: built.data, section, noteKey });
-      if (!choice) return setStatus("已取消写入 Obsidian，原笔记未被覆盖。");
-      // A subtitle that does not match the video's length leads the line, as on the video page.
-      setStatus(`${built.data.subtitleWarning || ""}${choice === "full" ? "已写入 Obsidian" : "已更新 AI 问答"}：${built.data.path}`);
-      return;
-    }
-    const videoFolder = BocNote.resolveFolderTemplate(settings.noteFolder || "", group.context);
-    const videoFile = BocNote.buildNoteFilename(group.context, settings);
-    const sourcePath = boundPath || (videoFolder ? `${videoFolder}/${videoFile}` : videoFile);
-    const note = buildNote(group, sourcePath);
-    const filepath = videoFolder ? `${videoFolder}/${note.filename}` : note.filename;
-    if (!(await BocOverwriteDialog.writeNote({ baseUrl, apiKey, filepath, content: note.content }))) return setStatus("已取消写入 Obsidian，原笔记未被覆盖。");
-    if (built) setStatus(`已写入 Obsidian：${filepath}（视频已失效，只写了对话）`);
-    else setStatus(group.context.videoId ? `已写入 Obsidian：${filepath}（单独的对话笔记）` : `已写入 Obsidian：${filepath}`);
+    if (!resp?.ok) throw BocErrors.fromResp(resp, "Local API 写入失败");
+    setStatus(resp.text);
   } catch (error) {
     setStatus(`写入 Obsidian 失败：${error?.message || error}`, true);
-    // A wrong key: the settings page, as for 未配置. A closed Obsidian only gets the red line.
+    // Not set up or a wrong key: the settings page. A closed Obsidian only gets the red line.
     if (error?.action === "settings") chrome.runtime.openOptionsPage();
   } finally {
-    // Every path ends on a result line; an in-progress one left means an early return, so drop it.
-    if (els.status.textContent.startsWith("正在")) setStatus("");
     writing.delete(group.key);
     render();
   }

@@ -9,8 +9,8 @@ const ctx = vm.createContext({ TextEncoder, URL, URLSearchParams, console, setTi
 const bg = fs.readFileSync(path.join(__dirname, "../background.js"), "utf8");
 const order = [...bg.matchAll(/importScripts\(([^)]*)\)/g)].flatMap((m) => m[1].match(/"[^"]+"/g).map((f) => JSON.parse(f)));
 for (const file of order.slice(0, order.indexOf("triage/triage-bg.js") + 1)) vm.runInContext(fs.readFileSync(path.join(__dirname, "..", file), "utf8"), ctx);
-// background.js owns supportsThinkingToggle and obsidianFailure; lift just those functions.
-for (const name of ["supportsThinkingToggle", "obsidianFailure"]) {
+// background.js owns supportsThinkingToggle; lift just that function.
+for (const name of ["supportsThinkingToggle"]) {
   const at = bg.indexOf(`function ${name}(`);
   vm.runInContext(bg.slice(at, bg.indexOf("\n}\n", at) + 2), ctx);
 }
@@ -19,14 +19,14 @@ const plain = (x) => JSON.parse(JSON.stringify(x));
 
 // Obsidian itself unusable carries code OBSIDIAN, or OBSIDIAN_DOWN when it is not running (both end a 逐个视频笔记 run);
 // one note's own error passes through.
-assert.strictEqual(t.triageObsidianError(vm.runInContext('new TypeError("Failed to fetch")', ctx)).code, "OBSIDIAN_DOWN");
-assert.strictEqual(t.triageObsidianError({ status: 408 }).code, "OBSIDIAN_DOWN");
-assert.strictEqual(t.triageObsidianError({ status: 401 }).code, "OBSIDIAN");
+assert.strictEqual(t.obsidianError(vm.runInContext('new TypeError("Failed to fetch")', ctx)).code, "OBSIDIAN_DOWN");
+assert.strictEqual(t.obsidianError({ status: 408 }).code, "OBSIDIAN_DOWN");
+assert.strictEqual(t.obsidianError({ status: 401 }).code, "OBSIDIAN");
 // An HTTP failure of one note shows the status, never the response body.
-assert.strictEqual(t.triageObsidianError({ status: 500, message: 'HTTP 500. {"errorCode":50000}' }).message, "Obsidian 返回 HTTP 500");
+assert.strictEqual(t.obsidianError({ status: 500, message: 'HTTP 500. {"errorCode":50000}' }).message, "Obsidian 返回 HTTP 500");
 const noteErr = new Error("生成笔记失败");
-assert.strictEqual(t.triageObsidianError(noteErr), noteErr);
-assert.throws(() => t.triageObsidianConfig({ obsidianEnabled: true, obsidianApiBaseUrl: "http://127.0.0.1:27123" }), (e) => e.code === "OBSIDIAN");
+assert.strictEqual(t.obsidianError(noteErr), noteErr);
+assert.throws(() => t.obsidianConfig({ obsidianEnabled: true, obsidianApiBaseUrl: "http://127.0.0.1:27123" }), (e) => e.code === "OBSIDIAN");
 // The pre-run check: a wrong key or address is OBSIDIAN (去设置); Obsidian's own HTTP 500 is a plain error.
 {
   t.getMergedSettings = async () => ({ obsidianEnabled: true, obsidianApiBaseUrl: "http://127.0.0.1:27123", obsidianApiKey: "k" });
@@ -524,8 +524,8 @@ assert.throws(() => t.triageParseCommand('{"new_tags":[', cmdItems, cmdTags, {})
   routes["/view/detail"].data.View.desc = "00:00 开场\n01:30 正题";
   assert.match((await buildNote()).markdown, /## 章节\n\n[^\n]*开场[\s\S]*正题/);
 
-  // triage-build-note gives the side panel and 视频记录 the path and cover triage writes with: {{author}} and
-  // {{upload_date}} need the API meta, and the cover is downloaded into the vault.
+  // The built note's path and cover (obsidian.js writes with them): {{author}} and {{upload_date}} need the API meta,
+  // and the cover is downloaded into the vault.
   routes = baseRoutes();
   routes["/view/detail"].data.View.pic = "http://i0.hdslb.com/bfs/archive/a.jpg";
   t.getMergedSettings = async () => ({ noteFolder: "B站/{{author}}/{{upload_date}}" });

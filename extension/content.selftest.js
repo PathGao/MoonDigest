@@ -515,46 +515,45 @@ const settle = async () => {
     Object.assign(state, was);
   }
 
-  // S1: autoplay changes the video while the overwrite dialog is open. Nothing is written and the user is told;
-  // on the same video the note gets the content taken before the dialog, even if state was reset meanwhile.
+  // 写入 Obsidian: the background answers ask for an existing note; the page's dialog picks the mode it sends again.
+  // S1: autoplay changes the video while the dialog is open, so nothing is sent again; 取消 sends nothing again either.
   {
     const realUrl = t.location.href;
     const saved = Object.fromEntries(["getSettings", "refreshDerivedContent", "sendRuntimeMessage", "confirmOverwriteNote", "setMessage", "computeCurrentClipSignature"].map((k) => [k, t[k]]));
-    const settings = { ...vm.runInContext("DEFAULT_SETTINGS", ctx), obsidianEnabled: true, obsidianApiKey: "k" };
-    let sent, messages, onDialog;
+    const settings = { ...vm.runInContext("DEFAULT_SETTINGS", ctx), obsidianEnabled: true };
+    let sent, messages, onDialog, choice;
     Object.assign(t, {
       getSettings: async () => settings,
       refreshDerivedContent: async () => (state.markdown = "# 视频 A"),
-      confirmOverwriteNote: async () => (onDialog(), "full"),
+      confirmOverwriteNote: async (path, opts) => (onDialog(path, opts), choice),
       setMessage: (text) => messages.push(text),
       // An earlier test stubs it; the clip is the page address.
-      computeCurrentClipSignature: () => t.location.href
+      computeCurrentClipSignature: () => t.location.href,
+      sendRuntimeMessage: async (m) => (sent.push(m), m.mode ? { ok: true, path: "p.md", kind: "ai", text: "已更新 AI 问答：p.md" } : { ok: true, ask: true, path: "p.md", hasAiSection: true })
     });
     Object.assign(state, { site: "bilibili", videoId: "BV1GJ411x7h7", cid: "1", title: "A" });
-    for (const switched of [true, false]) {
-      [sent, messages] = [[], []];
-      let written = null;
-      t.sendRuntimeMessage = async (m) => (sent.push(m.type), m.type === "write-obsidian-note" && (written = m.content), m.type === "obsidian-note-exists" ? { ok: true, exists: true } : { ok: true });
-      onDialog = () => {
+    const modes = () => sent.map((m) => [m.type, m.mode, m.page.markdown]);
+    for (const [switched, pick] of [[true, "full"], [false, ""], [false, "ai"]]) {
+      [sent, messages, choice] = [[], [], pick];
+      let asked;
+      onDialog = (path, opts) => {
+        asked = [path, opts.hasAiSection];
         state.markdown = "";
         if (switched) t.location.href = "https://www.bilibili.com/video/BV1xx411c7mD/";
       };
       const reply = await t.sendToObsidian();
       t.location.href = realUrl;
-      // The side panel goes on to the AI 问答 section only after a write.
-      assert.strictEqual(reply?.written, switched ? false : undefined);
-      if (switched) {
-        assert.deepStrictEqual(sent, ["obsidian-note-exists"], "no write after the video changed");
-        assert.strictEqual(messages.at(-1), "视频已切换，未写入 Obsidian。");
+      assert.deepStrictEqual(asked, ["p.md", true]);
+      if (switched || !pick) {
+        // The side panel and the popup learn nothing was written.
+        assert.deepStrictEqual([{ ...reply }, modes()], [{ written: false }, [["write-video-note", undefined, "# 视频 A"]]]);
+        assert.strictEqual(messages.at(-1), switched ? "视频已切换，未写入 Obsidian。" : t.BocErrors.TEXT.obsidianCancelled);
       } else {
-        assert.strictEqual(written, "# 视频 A", "the content taken before the dialog");
+        // The same note, taken before the dialog, with the mode; the background's words are shown.
+        assert.deepStrictEqual(modes(), [["write-video-note", undefined, "# 视频 A"], ["write-video-note", "ai", "# 视频 A"]]);
+        assert.deepStrictEqual([reply, messages.at(-1)], [undefined, "已更新 AI 问答：p.md"]);
       }
     }
-    // 取消 writes nothing and tells the side panel so.
-    [sent, messages] = [[], []];
-    t.confirmOverwriteNote = async () => "";
-    assert.deepStrictEqual({ ...(await t.sendToObsidian()) }, { written: false });
-    assert.deepStrictEqual([sent, messages.at(-1)], [["obsidian-note-exists"], "已取消写入 Obsidian，原笔记未被覆盖。"]);
     // A failed write answers the popup and the side panel with the reason and code, not a success.
     t.sendRuntimeMessage = async () => ({ ok: false, error: t.BocErrors.TEXT.obsidianDown, code: "OBSIDIAN_DOWN" });
     assert.deepStrictEqual({ ...(await t.sendToObsidian()) }, { ok: false, error: t.BocErrors.TEXT.obsidianDown, code: "OBSIDIAN_DOWN" });

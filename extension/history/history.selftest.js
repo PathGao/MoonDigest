@@ -92,15 +92,22 @@ for (const f of scripts) vm.runInContext(fs.readFileSync(f, "utf8"), ctx);
   assert.deepStrictEqual([sa.checked, sa.indeterminate], [true, false], "all selected: checked");
   assert.strictEqual(els.selectAllLabel?.textContent, "全选 2 个");
 
-  // 取消 in the overwrite dialog: nothing written, and the line the side panel and the popup show, not red.
-  ctx.chrome.runtime.sendMessage = async (m) => (m.type === "get-settings" ? { settings: { obsidianApiBaseUrl: "http://127.0.0.1:27123", obsidianApiKey: "k" } } : { ok: true, exists: true });
-  ctx.BocOverwriteDialog = { writeNote: async () => false };
+  // 写入 Obsidian: one write-video-note with the entry's newest conversation; ask → the dialog → the same request with
+  // the mode, and the background's words; 取消 sends nothing again and says so, not red.
+  const sent = [];
+  let choice = "";
+  ctx.chrome.runtime.sendMessage = async (m) => (sent.push(m), m.mode ? { ok: true, path: "p.md", kind: "full", text: "已写入 Obsidian：p.md" } : { ok: true, ask: true, path: "p.md", hasAiSection: true });
+  ctx.BocOverwriteDialog = { choose: async (p, opts) => (p === "p.md" && opts.hasAiSection ? choice : "wrong") };
   let red = null;
   els.status.classList = { toggle: (c, on) => c === "is-error" && (red = on) };
   const target = { dataset: { act: "obsidian" }, closest: (s) => (s === ".entry" ? { dataset: { key: "a" } } : target) };
-  (L.list.click || []).forEach((f) => f({ target }));
-  await wait(50);
-  assert.deepStrictEqual([els.status.textContent, red], ["已取消写入 Obsidian，原笔记未被覆盖。", false]);
+  const click = async () => ((sent.length = 0), (L.list.click || []).forEach((f) => f({ target })), await wait(50));
+  await click();
+  assert.deepStrictEqual([sent.length, els.status.textContent, red], [1, "已取消写入 Obsidian，原笔记未被覆盖。", false]);
+  assert.strictEqual(sent[0].conversation.messages[0].content, XSS[0]);
+  choice = "full";
+  await click();
+  assert.deepStrictEqual([sent.map((m) => m.mode), els.status.textContent], [[undefined, "full"], "已写入 Obsidian：p.md"]);
   console.log("history selftest: all passed");
 })().catch((e) => {
   console.error(e);

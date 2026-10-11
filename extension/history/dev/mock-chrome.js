@@ -69,30 +69,25 @@
     fetch(this.href).then((r) => r.text()).then((content) => window.__mockDownloads.push({ filename, content }));
   };
 
-  const rememberPath = (noteKey, path) => {
-    if (noteKey) store.boc_obsidian_note_paths_v1 = { ...store.boc_obsidian_note_paths_v1, [noteKey]: { path, lastSyncedAt: Date.now() } };
-  };
   const handle = (msg) => {
     switch (msg?.type) {
       case "get-settings":
         return { ok: true, settings: { obsidianEnabled: !window.__mockObsidianOff, obsidianApiBaseUrl: "http://127.0.0.1:27123", obsidianApiKey: "mock", noteFolder: "MoonDigest/{{site}}", includeDateInFilename: true } };
-      case "obsidian-note-exists":
-        return { ok: true, exists: msg.filepath in window.__mockVault };
-      case "write-obsidian-note":
-        window.__mockVault[msg.filepath] = msg.content;
-        rememberPath(msg.noteKey, msg.filepath);
-        return { ok: true };
-      case "update-obsidian-ai-section": {
-        const content = window.__mockVault[msg.filepath];
-        if (content == null) return { ok: true, exists: false, updated: false };
-        window.__mockVault[msg.filepath] = BocNote.upsertAiSection(content, msg.section);
-        rememberPath(msg.noteKey, msg.filepath);
-        return { ok: true, exists: true, updated: window.__mockVault[msg.filepath] !== content };
-      }
-      // Background reply shape: { ok, data }. window.__mockBuildFail makes it fail like a throttled fetch.
-      case "triage-build-note":
+      // obsidian.js in short: the video note at its recorded or computed path with the conversation in its AI 问答
+      // section; ask when it exists. window.__mockBuildFail fails it like a throttled fetch.
+      case "write-video-note": {
         if (window.__mockBuildFail) return { ok: false, error: "mock: 请求过于频繁" };
-        return { ok: true, data: { title: `视频 ${msg.bvid}`, path: `MoonDigest/bilibili/视频 ${msg.bvid}.md`, cover: { url: "", name: `bilibili-${msg.bvid}` }, markdown: `---\ntitle: 视频 ${msg.bvid}\n---\n\n## 字幕\n\nmock subtitle\n` } };
+        const key = BocSites.buildContextKey(msg.ref);
+        const settings = { noteFolder: "MoonDigest/{{site}}", includeDateInFilename: true };
+        const path = store.boc_obsidian_note_paths_v1?.[key]?.path || BocNote.videoNotePath(msg.ref, settings);
+        const current = window.__mockVault[path];
+        const section = BocNote.buildAiSection(BocNote.buildConversationTurns(msg.conversation?.messages));
+        if (current != null && !msg.mode) return { ok: true, ask: true, path, hasAiSection: Boolean(section) };
+        const ai = current != null && msg.mode === "ai";
+        window.__mockVault[path] = BocNote.upsertAiSection(ai ? current : `---\ntitle: ${msg.ref.title}\n---\n\n## 字幕\n\nmock subtitle\n`, section);
+        store.boc_obsidian_note_paths_v1 = { ...store.boc_obsidian_note_paths_v1, [key]: { path, lastSyncedAt: Date.now() } };
+        return { ok: true, path, kind: ai ? "ai" : "full", text: `${ai ? "已更新 AI 问答" : "已写入 Obsidian"}：${path}` };
+      }
       default:
         return { ok: false, error: `mock: unhandled ${msg?.type}` };
     }
