@@ -2217,11 +2217,32 @@ function advanceFrom(bvid, before) {
 }
 
 // ---------- decisions ----------
+// An undo step is { kind, ask, blocked?, undo }: undo() undoes it and returns its toast; ask ([title, body, button] or
+// null) is confirmed first; blocked() ("" or why) refuses it. 关注's steps (kind "mode") go on their own stack.
 function pushUndo(entry) {
   const steps = entry.kind === "mode" ? S.modeUndo : S.undo;
   steps.push(entry);
   if (steps.length > BocLimits.TRIAGE_UNDO_STEPS) steps.shift();
 }
+// A step kept on this page (保留, 标签, AI 打标签, 待播): fn undoes it and returns the toast, then the page redraws. One
+// that changed several videos asks first (askKind: shared.js undoAsk), so a stray U costs nothing.
+const pageStep = (kind, n, askKind, fn) => ({
+  kind,
+  ask: askKind && n > 1 ? UI.undoAsk(askKind, n, "视频") : null,
+  undo: async () => {
+    const text = fn();
+    render();
+    setFocus(S.focused);
+    return text;
+  }
+});
+const keepStep = (bvids) =>
+  pageStep("keepMany", bvids.length, "keep", () => {
+    patchKept(Object.fromEntries(bvids.map((b) => [b, null])));
+    const it = bvids.length === 1 && S.itemMap.get(bvids[0]);
+    if (it) S.focused = it.bvid;
+    return it ? `已撤销：取消保留《${shortTitle(it)}》` : `已撤销批量保留 ${bvids.length} 个`;
+  });
 // Patch one folder's decisions even after the user switched away from it; a null value deletes.
 // Merged into the stored record, not written from memory: a batch running for this folder may have written it after
 // the open folder read it.
@@ -2264,7 +2285,7 @@ function keepOne(bvid) {
   if (prev?.action === "unfav") return toast("这个视频已取消收藏，按 U 撤销后再改", true);
   const before = visibleItems();
   patchKept({ [bvid]: { action: "keep", at: Date.now() } });
-  pushUndo({ kind: "keepMany", bvids: [bvid] });
+  pushUndo(keepStep([bvid]));
   toast(`已保留《${shortTitle(it)}》 · U 撤销`);
   render();
   advanceFrom(bvid, before);
@@ -2606,65 +2627,18 @@ const fav = {
 
 };
 
-// U undoes the last step of the mode it is pressed in; a step that changed several videos asks first, so a stray U costs nothing.
-function batchUndoAsk(entry) {
-  if (entry.undo) return entry.ask || null;
-  const n = entry.kind === "keepMany" ? entry.bvids.length : entry.kind === "aiApply" ? entry.changes.length : entry.kind === "tagsMany" ? Object.keys(entry.prevs).length : 0;
-  if (n < 2) return null;
-  return UI.undoAsk({ keepMany: "keep", tagsMany: "tags", aiApply: "ai" }[entry.kind], n, "视频");
-}
-
+// U undoes the last step of the mode it is pressed in.
 async function undo() {
   const steps = followMode() ? S.modeUndo : S.undo;
   const top = steps.at(-1);
+  if (!top) return toast("没有可撤销的操作");
   // A step that writes to Bilibili waits for a running batch.
-  const blocked = top?.blocked?.();
+  const blocked = top.blocked?.();
   if (blocked) return toast(blocked, true);
-  const ask = top && batchUndoAsk(top);
-  if (ask && (!(await askConfirm(ask[0], ask[1], ask[2] || "撤销")) || steps.at(-1) !== top || top.blocked?.())) return;
-  const entry = steps.pop();
-  if (!entry) {
-    toast("没有可撤销的操作");
-    return;
-  }
-  // A step that undoes itself (关注's, and 收藏夹's B站 writes): it redraws its own view and returns the toast.
-  if (entry.undo) {
-    const text = await entry.undo();
-    return text && toast(text);
-  }
-  if (entry.kind === "basket") {
-    for (const { i, x } of entry.removed) if (!S.basket.some((y) => y.bvid === x.bvid)) S.basket.splice(i, 0, x);
-    saveBasket();
-    toast(`已撤销：放回待播 ${entry.removed.length} 个`);
-    render();
-  } else if (entry.kind === "keepMany") {
-    patchKept(Object.fromEntries(entry.bvids.map((b) => [b, null])));
-    const it = entry.bvids.length === 1 && S.itemMap.get(entry.bvids[0]);
-    toast(it ? `已撤销：取消保留《${shortTitle(it)}》` : `已撤销批量保留 ${entry.bvids.length} 个`);
-    if (it) S.focused = it.bvid;
-  } else if (entry.kind === "tags") {
-    writeVideoTags(entry.bvid, entry.prev);
-    saveVideoTags();
-    toast("已撤销标签修改");
-    S.focused = entry.bvid;
-  } else if (entry.kind === "tagsMany") {
-    for (const [b, prev] of Object.entries(entry.prevs)) writeVideoTags(b, prev);
-    saveVideoTags();
-    toast(`已撤销 ${Object.keys(entry.prevs).length} 个视频的标签修改`);
-  } else if (entry.kind === "aiApply") {
-    // Every video the batch changed goes back to before it, edits made since included; a tag deleted since stays gone.
-    for (const c of entry.changes) writeVideoTags(c.bvid, c.before.filter((id) => tagById(id)));
-    const used = new Set(Object.values(S.videoTags).flat());
-    S.tags = S.tags.filter((t) => !entry.created.includes(t.id) || used.has(t.id));
-    for (const id of [...S.tagFilter]) if (!tagById(id)) S.tagFilter.delete(id);
-    saveTags();
-    saveVideoTags();
-    // Another tab, or a later batch here, may have replaced the folder's 「AI 刚打的」 since.
-    if (S.aiRecent[entry.folder]?.at === entry.at) endAiRecent(entry.folder);
-    toast(`已撤销 AI 打标签：${entry.changes.length} 个视频改回 AI 打之前`);
-  }
-  render();
-  setFocus(S.focused);
+  if (top.ask && (!(await askConfirm(top.ask[0], top.ask[1], top.ask[2] || "撤销")) || steps.at(-1) !== top || top.blocked?.())) return;
+  steps.pop();
+  const text = await top.undo();
+  return text && toast(text);
 }
 
 // Batch buttons act on the selected cards of the tab, otherwise on every card with this verdict (none without one).
@@ -2801,7 +2775,7 @@ function batchKeep(list) {
   const at = Date.now();
   patchKept(Object.fromEntries(list.map((it) => [it.bvid, { action: "keep", at }])));
   for (const it of list) S.selected.delete(it.bvid);
-  pushUndo({ kind: "keepMany", bvids: list.map((it) => it.bvid) });
+  pushUndo(keepStep(list.map((it) => it.bvid)));
   toast(`已标记保留 ${list.length} 个 · U 撤销`);
   render();
 }
@@ -2834,7 +2808,14 @@ function setVideoTags(bvid, ids, prev) {
   if (same) return false;
   writeVideoTags(bvid, ids);
   saveVideoTags();
-  pushUndo({ kind: "tags", bvid, prev });
+  pushUndo(
+    pageStep("tags", 1, "", () => {
+      writeVideoTags(bvid, prev);
+      saveVideoTags();
+      S.focused = bvid;
+      return "已撤销标签修改";
+    })
+  );
   return true;
 }
 
@@ -2904,7 +2885,14 @@ function savePicked(changes) {
       writeVideoTags(c.key, TagPicker.applyChange(prevs[c.key], c));
     }
     saveVideoTags();
-    pushUndo({ kind: "tagsMany", prevs });
+    const n = Object.keys(prevs).length;
+    pushUndo(
+      pageStep("tagsMany", n, "tags", () => {
+        for (const [b, prev] of Object.entries(prevs)) writeVideoTags(b, prev);
+        saveVideoTags();
+        return `已撤销 ${n} 个视频的标签修改`;
+      })
+    );
     toast(`${changes.length} 个视频的标签已更新 · U 撤销`);
   }
   render();
@@ -3444,7 +3432,21 @@ function applyAiProposal() {
     S.aiRecentFilter = true;
     saveAiRecent();
   }
-  if (at || created.length) pushUndo({ kind: "aiApply", changes, created, folder, at });
+  if (at || created.length)
+    pushUndo(
+      pageStep("aiApply", changes.length, "ai", () => {
+        // Every video the batch changed goes back to before it, edits made since included; a tag deleted since stays gone.
+        for (const c of changes) writeVideoTags(c.bvid, c.before.filter((id) => tagById(id)));
+        const used = new Set(Object.values(S.videoTags).flat());
+        S.tags = S.tags.filter((t) => !created.includes(t.id) || used.has(t.id));
+        for (const id of [...S.tagFilter]) if (!tagById(id)) S.tagFilter.delete(id);
+        saveTags();
+        saveVideoTags();
+        // Another tab, or a later batch here, may have replaced the folder's 「AI 刚打的」 since.
+        if (S.aiRecent[folder]?.at === at) endAiRecent(folder);
+        return `已撤销 AI 打标签：${changes.length} 个视频改回 AI 打之前`;
+      })
+    );
   render();
   toast(`已应用 AI 建议：${changes.length} 个视频，列表只显示这些 · U 撤销`);
 }
@@ -3483,14 +3485,22 @@ function openBasketItem(i) {
   openViewer(x);
 }
 
-// 移除 and 清空 take videos out of the list, nothing else; favorites and decisions are untouched. U puts them back.
+// 移除 and 清空 take videos out of the list, nothing else; favorites and decisions are untouched. U puts them back
+// (basketStep), each at its place.
+function basketStep(removed) {
+  return pageStep("basket", 0, "", () => {
+    for (const { i, x } of removed) if (!S.basket.some((y) => y.bvid === x.bvid)) S.basket.splice(i, 0, x);
+    saveBasket();
+    return `已撤销：放回待播 ${removed.length} 个`;
+  });
+}
 function removeBasketItems(indexes) {
   const removed = indexes.filter((i) => S.basket[i]).sort((a, b) => a - b).map((i) => ({ i, x: S.basket[i] }));
   if (!removed.length) return;
   const gone = new Set(removed.map((r) => r.x.bvid));
   S.basket = S.basket.filter((x) => !gone.has(x.bvid));
   saveBasket();
-  pushUndo({ kind: "basket", removed });
+  pushUndo(basketStep(removed));
   render();
 }
 

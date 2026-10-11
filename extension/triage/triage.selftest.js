@@ -1245,7 +1245,7 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   t.applyAiProposal();
   t.S.settings.triageTagLimit = 10;
   const batchA = t.S.undo.at(-1);
-  assert.deepStrictEqual(plain([t.S.aiRecent.K.bvids, batchA.changes.map((c) => c.bvid)]), [["BV722"], ["BV722"]], "only BV722 changed");
+  assert.deepStrictEqual(plain([t.S.aiRecent.K.bvids, batchA.kind, batchA.ask]), [["BV722"], "aiApply", null], "only BV722 changed: one video, so U does not ask");
   assert.ok(toasts.some((x) => x.includes("1 个视频")), toasts.join());
   // Nothing to change: no undo step.
   t.S.ai.proposal = { newTags: [], notes: [], errors: [], rows: [{ id: "BV721", add: ["id:na"], remove: [] }] };
@@ -1259,6 +1259,26 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   assert.strictEqual(t.S.videoTags.BV722, undefined, "a tag deleted since is not written back");
   Object.assign(t.S, { tags: [], videoTags: {}, aiRecent: {}, aiRecentFilter: false });
   openFake("K", [item(600), item(601)]);
+
+  // A step that changed several videos asks before U undoes it; declined, it stays; one video never asks.
+  {
+    openFake("K", [item(730), item(731)]);
+    const saved = t.askConfirm;
+    let asked = [];
+    let yes = false;
+    t.askConfirm = async (title) => (asked.push(title), yes);
+    t.S.undo = [];
+    vm.runInContext("batchKeep", ctx)([t.S.itemMap.get("BV730"), t.S.itemMap.get("BV731")]);
+    await t.undo();
+    assert.deepStrictEqual([asked, t.S.undo.length, t.S.decisions.BV730?.action], [["撤销批量保留？"], 1, "keep"], "declined: the step stays");
+    yes = true;
+    await t.undo();
+    assert.deepStrictEqual([asked.length, t.S.undo.length, t.S.decisions.BV730, toasts.at(-1)], [2, 0, undefined, "已撤销批量保留 2 个"]);
+    vm.runInContext("batchKeep", ctx)([t.S.itemMap.get("BV730")]);
+    await t.undo();
+    assert.ok(asked.length === 2 && toasts.at(-1).startsWith("已撤销：取消保留《"), "one video: no question");
+    t.askConfirm = saved;
+  }
 
   // A card's tag chip takes that tag off the video in one click, and U puts it back.
   openFake("K", [item(710)]);
@@ -2961,7 +2981,7 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     const j = ev("j");
     t.onKey(j);
     assert.ok(j.prevented && keys.join() === "j", "the mode used J");
-    t.S.undo = [{ kind: "basket", removed: [] }];
+    t.S.undo = [t.basketStep([])];
     const u = ev("u");
     t.onKey(u);
     assert.ok(!u.prevented && t.S.undo.length === 1, "mode on: 收藏夹's U does not run");
@@ -2973,14 +2993,14 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     t.S.undo = [];
     let undone = 0;
     t.MoonTriage.pushUndo({ kind: "mode", undo: async () => (undone++, "已撤销：去掉「x」") });
-    t.S.undo.push({ kind: "basket", removed: [] });
+    t.S.undo.push(t.basketStep([]));
     t.onKey(ev("u"));
     await new Promise((r) => setTimeout(r, 20));
     assert.ok(undone === 0 && toasts.at(-1) === "已撤销：放回待播 0 个" && t.S.modeUndo.length === 1, "收藏夹's U undoes its own step, not 关注's later one");
     t.onKey(ev("u"));
     await new Promise((r) => setTimeout(r, 20));
     assert.ok(undone === 0 && toasts.at(-1) === "没有可撤销的操作", "收藏夹's U never reaches a 关注 step");
-    t.S.undo.push({ kind: "basket", removed: [] });
+    t.S.undo.push(t.basketStep([]));
     t.document.body = { classList: { contains: (c) => c === "follow-mode" } };
     await t.MoonTriage.undo();
     assert.ok(undone === 1 && toasts.at(-1) === "已撤销：去掉「x」" && t.S.undo.length === 1 && !t.S.modeUndo.length, "关注's U undoes its step and leaves 收藏夹's");
@@ -2994,7 +3014,7 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     delete t.document.body;
     // 已出分拣范围: 清空待播 says 「U 撤销」, so U works there too.
     openFake("removed", []);
-    t.S.undo.push({ kind: "basket", removed: [] });
+    t.S.undo.push(t.basketStep([]));
     const ur = ev("u");
     t.onKey(ur);
     await new Promise((r) => setTimeout(r, 20));
