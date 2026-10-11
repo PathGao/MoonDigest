@@ -237,6 +237,18 @@ assert.throws(() => t.triageParseCommand('{"new_tags":[', cmdItems, cmdTags, {})
     t.chrome = { storage: { sync: { get: async (d) => d } } };
     assert.strictEqual((await vm.runInContext("TRIAGE_HANDLERS", ctx)["triage-settings-get"]()).thinkingToggle, on, url);
   }
+  // The platform picked in the side panel (aiProviderId from the page) answers; a missing or disabled pick falls back to the
+  // first enabled one, as the side panel does.
+  {
+    t.loadAiProviders = async () => [
+      { id: "off", baseUrl: "https://off.test", model: "o", enabled: false },
+      { id: "a", baseUrl: "https://a.test", model: "ma" },
+      { id: "b", baseUrl: "https://b.test", model: "mb" }
+    ];
+    t.fetch = async (url) => ({ ok: true, json: async () => ({ choices: [{ message: { content: url } }] }) });
+    const host = async (id) => (await t.triageChat([], 100, false, id)).content.split("/")[2];
+    assert.deepStrictEqual([await host("b"), await host(""), await host("gone"), await host("off")], ["b.test", "a.test", "a.test", "a.test"]);
+  }
   t.loadAiProviders = async () => [{ id: "p", baseUrl: "https://ai.test", model: "m" }];
 
   // A request that never settles, even on abort, still ends with the retryable timeout code.

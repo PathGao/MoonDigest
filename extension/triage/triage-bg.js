@@ -543,7 +543,7 @@ async function triageAiSettings() {
   };
 }
 
-async function triageAnalyze({ bvid, force, criteria, folder }) {
+async function triageAnalyze({ bvid, force, criteria, folder, aiProviderId }) {
   if (!bvid) throw triageError("缺少 bvid");
   const cacheKey = BocLimits.KEYS.triageAnalysis(bvid);
   if (!force) {
@@ -569,7 +569,7 @@ async function triageAnalyze({ bvid, force, criteria, folder }) {
   const comments = subtitle ? "" : (await site.fetchComments(ref, m, TRIAGE_BILI_IO, 10).catch(() => [])).map((c, i) => `${i + 1}. ${c.message}`).join("\n");
 
   const ai = await triageAiSettings();
-  const { content, model } = await triageChat(triageBuildMessages(meta, subtitle, comments, criteria, folder), triageMaxTokens("analyze", 1, ai), ai.triageThinking);
+  const { content, model } = await triageChat(triageBuildMessages(meta, subtitle, comments, criteria, folder), triageMaxTokens("analyze", 1, ai), ai.triageThinking, aiProviderId);
   const analysis = {
     bvid,
     status: "done",
@@ -609,8 +609,11 @@ const AI_NETWORK_TEXT = "连不上 AI 平台，请检查网络和接口地址";
 const TRIAGE_AI_TIMEOUT_MS = { normal: 120000, thinking: 240000 };
 
 // 非流式 chat/completions，只取 message.content（忽略 reasoning_content）
-async function triageChat(messages, maxTokens, thinking = false) {
-  const provider = (await loadAiProviders()).find((p) => p.enabled !== false);
+// providerId: the platform picked at the top of the side panel, which the pages send as aiProviderId (triage.js sendRaw);
+// unset or no longer enabled, the first enabled one, as in the side panel.
+async function triageChat(messages, maxTokens, thinking = false, providerId = "") {
+  const enabled = (await loadAiProviders()).filter((p) => p.enabled !== false);
+  const provider = enabled.find((p) => p.id === providerId) || enabled[0];
   if (!provider) throw triageError("请先在设置页配置 AI 平台");
   const apiKey = (await loadAiProviderKeys())[provider.id];
   const headers = { "Content-Type": "application/json" };
@@ -655,7 +658,7 @@ async function triageChat(messages, maxTokens, thinking = false) {
   }
 }
 
-async function triageClassifyTitles({ items, criteria, folder }) {
+async function triageClassifyTitles({ items, criteria, folder, aiProviderId }) {
   const list = (Array.isArray(items) ? items : []).filter((it) => it && it.bvid);
   if (!list.length) throw triageError("缺少 items");
   const ai = await triageAiSettings();
@@ -667,7 +670,8 @@ async function triageClassifyTitles({ items, criteria, folder }) {
       { role: "user", content: user }
     ],
     triageMaxTokens("title", list.length, ai),
-    ai.triageThinking
+    ai.triageThinking,
+    aiProviderId
   );
   const parsed = triageParseTitleBatch(content, list);
   const analyzedAt = Date.now();
@@ -684,7 +688,7 @@ async function triageClassifyTitles({ items, criteria, folder }) {
 
 // 协作打标签：只返回提案，不缓存。新建标签至多 maxNewTags 个（收藏夹剩余名额与分拣设置里 AI 新建上限取小）
 // 关注 (follow-bg.js) calls it too, with UP 主 as items (mid in bvid) and its own unit.
-async function triageAiCommand({ instruction, items, tags, maxNewTags = 5, allowRemove = false }, unit = TRIAGE_AI_UNIT) {
+async function triageAiCommand({ instruction, items, tags, maxNewTags = 5, allowRemove = false, aiProviderId }, unit = TRIAGE_AI_UNIT) {
   const text = String(instruction ?? "").trim();
   if (!text) throw triageError("缺少指令");
   const list = (Array.isArray(items) ? items : []).filter((it) => it && it.bvid);
@@ -694,7 +698,8 @@ async function triageAiCommand({ instruction, items, tags, maxNewTags = 5, allow
   const { content } = await triageChat(
     triageBuildCommandMessages({ instruction: text, tags, items: list, ...opts, unit }),
     triageMaxTokens("command", list.length, ai),
-    ai.triageThinking
+    ai.triageThinking,
+    aiProviderId
   );
   return triageParseCommand(content, list, tags, opts);
 }

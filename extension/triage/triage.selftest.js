@@ -150,6 +150,16 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
 }
 
 (async () => {
+  // Every request carries the AI platform picked in the side panel (its localStorage key), so 分拣台's AI uses the same one.
+  {
+    ctx.localStorage = { getItem: (k) => (k === "boc_ai_selected_provider" ? "b" : null) };
+    const last = () => plain(sent.filter((m) => m.type === "ai-pick-test").at(-1));
+    await t.sendRaw({ type: "ai-pick-test" });
+    assert.deepStrictEqual(last(), { type: "ai-pick-test", aiProviderId: "b" });
+    delete ctx.localStorage;
+    await t.sendRaw({ type: "ai-pick-test" });
+    assert.deepStrictEqual(last(), { type: "ai-pick-test" }, "nothing picked: nothing sent");
+  }
   // B8: a batch unfavorite runs to the end after another folder opens, every chunk recorded under its folder, aid and
   // title included; the other folder gets no undo entry, only a toast naming the folder.
   const many = Array.from({ length: 45 }, (_, i) => item(i));

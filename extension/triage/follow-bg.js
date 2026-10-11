@@ -671,7 +671,7 @@ async function followNoteFeedPosts(items) {
   });
 }
 
-async function followAiTag({ instruction, mids, tags, maxNewTags, allowRemove }) {
+async function followAiTag({ instruction, mids, tags, maxNewTags, allowRemove, aiProviderId }) {
   const s = await chrome.storage.local.get(["follow_list", "follow_people", "follow_content", "follow_last", "follow_tags", "follow_tag_map"]);
   const followed = new Set(s.follow_list?.list || []);
   const list = [...new Set((Array.isArray(mids) ? mids : []).map(String))].filter((m) => followed.has(m));
@@ -700,7 +700,8 @@ async function followAiTag({ instruction, mids, tags, maxNewTags, allowRemove })
     items,
     tags: tagList,
     maxNewTags: maxNewTags ?? own.newTagMax ?? set.triageAiNewTagMax,
-    allowRemove: (allowRemove ?? own.allowRemove ?? set.triageAiRemoveTags) === true
+    allowRemove: (allowRemove ?? own.allowRemove ?? set.triageAiRemoveTags) === true,
+    aiProviderId
   }, FOLLOW_AI_UNIT);
 }
 

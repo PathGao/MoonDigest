@@ -501,11 +501,12 @@ const runSync = async () => {
     };
     sync = {};
     let sent;
-    t.triageChat = async (messages, maxTokens, thinking) => {
-      sent = { messages, maxTokens, thinking };
+    t.triageChat = async (messages, maxTokens, thinking, providerId) => {
+      sent = { messages, maxTokens, thinking, providerId };
       return { content: '{"new_tags":["动画","x1","x2","x3","x4","x5"],"items":[{"i":1,"add":["硬核","不存在"]},{"i":2,"add":["动画"],"remove":["硬核"]}],"note":"好"}' };
     };
-    const r = plain(await t.followAiTag({ instruction: "按内容分", mids: [1, "2", "99"] }));
+    const r = plain(await t.followAiTag({ instruction: "按内容分", mids: [1, "2", "99"], aiProviderId: "b" }));
+    assert.strictEqual(sent.providerId, "b", "the side panel's platform, sent by the page");
     assert.ok(sent.messages[1].content.endsWith("1|甲|讲物理|知识|量子|\n2|乙|||新番|硬核"), sent.messages[1].content);
     assert.ok(sent.messages[0].content.includes("硬核：讲科学") && sent.messages[0].content.includes("remove 留空"), "add-only by default");
     // 关注's rules are 收藏夹's word for word with 视频 → UP 主; only the 依据 line is its own.

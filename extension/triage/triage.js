@@ -278,10 +278,21 @@ function send(msg) {
   return sendRaw(msg).then((r) => (BocErrors.action(r.code) === "login" && showLogin(), r));
 }
 const showLogin = () => showBanner("没登录 B站：先在这个浏览器里登录 B站", "去登录", () => openTab("https://passport.bilibili.com/login"), "login");
+// The AI platform picked at the top of the side panel: sidepanel.js keeps it in this extension's localStorage under
+// this key (SELECTED_PROVIDER_KEY there). Every request carries it; the background's AI calls use it (triageChat).
+const AI_PROVIDER_KEY = "boc_ai_selected_provider";
+function aiProviderId() {
+  try {
+    return localStorage.getItem(AI_PROVIDER_KEY) || "";
+  } catch {
+    return "";
+  }
+}
 function sendRaw(msg) {
+  const id = aiProviderId();
   return new Promise((resolve) => {
     try {
-      chrome.runtime.sendMessage(msg, (resp) => {
+      chrome.runtime.sendMessage(id ? { ...msg, aiProviderId: id } : msg, (resp) => {
         const err = chrome.runtime.lastError;
         if (err) resolve({ ok: false, error: err.message });
         else resolve(resp || { ok: false, error: "后台无响应" });
