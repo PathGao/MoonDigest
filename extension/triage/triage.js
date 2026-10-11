@@ -105,7 +105,7 @@ function tagsByFolderMigration({ tags = [], videoTags = {}, folders = [], fallba
 }
 
 // The stored records' shapes and the export helpers (pure) live in triage-core.js.
-const { refavorited, mergeFolderItems, updateRemoved, moveToRemoved, inferFrom, forgetLeft, keepInvalidInfo, idsChanged, mergeHead, unfavOnly, mdLinkText, safeNoteName, oneLine, mdLink, wikiLink, zipStored } = TriageCore;
+const { refavorited, mergeFolderItems, updateRemoved, moveToRemoved, inferFrom, forgetLeft, noteLeft, keepInvalidInfo, idsChanged, mergeHead, unfavOnly, mdLinkText, safeNoteName, oneLine, mdLink, wikiLink, zipStored } = TriageCore;
 
 // One-time split (pure): 保留 moves out of every triage_decisions_<folder> into one list, the newest per video winning.
 function splitKept(all) {
@@ -2722,7 +2722,9 @@ function patchSnapshot(mediaId, { add = [], drop = [] }, created = false) {
     // The trail follows this move like a folder diff would: added here forgets this folder, dropped from here adds it.
     const left = { ...got[K.left] };
     for (const it of add) forgetLeft(left, it.bvid, String(mediaId));
-    for (const b of drop) left[b] = { ...left[b], [String(mediaId)]: { title: folderName(mediaId), at: Date.now() } };
+    const folder = { id: String(mediaId), title: folderName(mediaId) };
+    const at = Date.now();
+    for (const b of drop) noteLeft(left, b, folder, at);
     await chrome.storage.local.set({
       [K.left]: left,
       [key]: {

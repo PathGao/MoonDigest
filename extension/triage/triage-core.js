@@ -42,7 +42,7 @@
       const b = it.bvid;
       if (now.has(b) || next[b]) continue;
       if (otherBvids.has(b)) {
-        trail[b] = { ...trail[b], [folder.id]: { title: folder.title, at } };
+        noteLeft(trail, b, folder, at);
         continue;
       }
       next[b] = { item: it, at, from: originOf(trail, b, folder, at) };
@@ -72,6 +72,10 @@
   function inferFrom(decisionsByFolder, bvid, titleOf) {
     const ids = Object.entries(decisionsByFolder).filter(([, d]) => d?.[bvid]?.action === "unfav").map(([id]) => id);
     return ids.length ? ids.map((id) => ({ id, title: titleOf(id) })) : undefined;
+  }
+  // Left this folder but is still in another chosen one: the folder goes on its trail (mutates trail).
+  function noteLeft(trail, bvid, folder, at) {
+    trail[bvid] = { ...trail[bvid], [folder.id]: { title: folder.title, at } };
   }
   // Listed in this folder again: it never left it (mutates trail).
   function forgetLeft(trail, bvid, folderId) {
@@ -161,5 +165,5 @@
     return out;
   }
 
-  globalThis.TriageCore = { refavorited, mergeFolderItems, updateRemoved, moveToRemoved, inferFrom, forgetLeft, keepInvalidInfo, idsChanged, mergeHead, unfavOnly, mdLinkText, safeNoteName, oneLine, mdLink, wikiLink, zipStored };
+  globalThis.TriageCore = { refavorited, mergeFolderItems, updateRemoved, moveToRemoved, inferFrom, forgetLeft, noteLeft, keepInvalidInfo, idsChanged, mergeHead, unfavOnly, mdLinkText, safeNoteName, oneLine, mdLink, wikiLink, zipStored };
 })();
