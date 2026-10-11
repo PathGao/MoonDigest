@@ -242,6 +242,19 @@ const page = (id) => ({ ok: true, payload: { url: `https://example.com/${id}`, t
     assert.deepStrictEqual([...exportState([{ role: "user", content: "q" }, { role: "assistant", content: "a" }])], [false, "导出整段对话"]);
   }
 
+  // get-settings fails: the defaults stand in, so AI 总结 and the 快捷追问 do not vanish.
+  {
+    const realSend = ctx.sendRuntimeMessage;
+    ctx.document.body = stubEl();
+    for (const f of ["renderModelSelect", "renderPresetPrompts", "renderFollowups"]) ctx[f] = () => {};
+    ctx.sendRuntimeMessage = async (msg) => (msg.type === "get-settings" ? Promise.reject(new Error("worker gone")) : { ok: true, providers: [] });
+    await ctx.loadProvidersAndPrefs();
+    const prefs = vm.runInContext("aiPrefs", ctx);
+    assert.strictEqual(prefs.playerAiQuickPrompt, ctx.BocSettings.DEFAULTS.playerAiQuickPrompt);
+    assert.deepStrictEqual([...prefs.aiPresetPrompts], [...ctx.BocSettings.DEFAULTS.aiPresetPrompts]);
+    ctx.sendRuntimeMessage = realSend;
+  }
+
   // A history conversation whose B站 video was deleted or hidden: said once as such, not as a read error to retry.
   {
     const errors = [];

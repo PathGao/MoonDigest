@@ -57,12 +57,6 @@ const els = {
 };
 const NOTES_STORAGE_KEY = BocLimits.KEYS.triageNotes;
 
-const DEFAULT_AI_PREFS = {
-  aiSystemPrompt: "",
-  playerAiQuickPrompt: "",
-  aiPresetPrompts: []
-};
-
 let contextData = null;
 let currentContextKey = "";
 let providers = [];
@@ -70,7 +64,8 @@ let activeStream = null;
 let sendPending = false;
 let chatHistory = [];
 let suggestionsNode = null;
-let aiPrefs = { ...DEFAULT_AI_PREFS };
+// The AI settings as get-settings returns them; BocSettings.DEFAULTS until then or when it fails.
+let aiPrefs = aiPrefsOf(BocSettings.DEFAULTS);
 let savedConversations = [];
 let currentConversationId = "";
 let currentConversationMeta = null;
@@ -290,17 +285,16 @@ async function loadProvidersAndPrefs({ preferredProviderId = "" } = {}) {
   providers = Array.isArray(providersResp?.providers)
     ? providersResp.providers.filter((p) => p.enabled)
     : [];
-  document.body.classList.toggle("sp-obsidian-off", settingsResp?.settings?.obsidianEnabled !== true);
-  aiPrefs = {
-    aiSystemPrompt: String(settingsResp?.settings?.aiSystemPrompt || "").trim(),
-    playerAiQuickPrompt: String(settingsResp?.settings?.playerAiQuickPrompt || "").trim(),
-    aiPresetPrompts: Array.isArray(settingsResp?.settings?.aiPresetPrompts)
-      ? settingsResp.settings.aiPresetPrompts.map((item) => String(item || "").trim()).filter(Boolean).slice(0, 12)
-      : []
-  };
+  const settings = settingsResp?.ok && settingsResp.settings ? settingsResp.settings : BocSettings.DEFAULTS;
+  document.body.classList.toggle("sp-obsidian-off", settings.obsidianEnabled !== true);
+  aiPrefs = aiPrefsOf(settings);
   renderModelSelect(preferredProviderId);
   renderPresetPrompts();
   renderFollowups();
+}
+
+function aiPrefsOf({ aiSystemPrompt, playerAiQuickPrompt, aiPresetPrompts }) {
+  return { aiSystemPrompt, playerAiQuickPrompt, aiPresetPrompts: [...aiPresetPrompts] };
 }
 
 function renderModelSelect(preferredProviderId = "") {
@@ -1561,14 +1555,14 @@ async function addPresetPrompt() {
   }
   const nextPrompts = [...(aiPrefs.aiPresetPrompts || [])];
   if (!nextPrompts.includes(text)) {
-    // A 13th would be cut by the slice below; keep the input so the text is not lost.
-    if (nextPrompts.length >= 12) {
-      showConversationContextNotice("最多 12 条快捷追问，先删掉一条再添加。", 2600);
+    // One past the limit would be cut when saved; keep the input so the text is not lost.
+    if (nextPrompts.length >= BocSettings.MAX_PRESET_PROMPTS) {
+      showConversationContextNotice(`最多 ${BocSettings.MAX_PRESET_PROMPTS} 条快捷追问，先删掉一条再添加。`, 2600);
       return;
     }
     nextPrompts.push(text);
   }
-  aiPrefs.aiPresetPrompts = nextPrompts.slice(0, 12);
+  aiPrefs.aiPresetPrompts = nextPrompts;
   await persistAiPresetPrompts();
   els.presetInput.value = "";
   renderPresetPrompts();
@@ -1587,7 +1581,7 @@ async function removePresetPrompt(index) {
 
 // save-settings keeps the keys it is not sent.
 async function persistAiPresetPrompts() {
-  await sendRuntimeMessage({ type: "save-settings", settings: { aiPresetPrompts: (aiPrefs.aiPresetPrompts || []).slice(0, 12) } }).catch(() => null);
+  await sendRuntimeMessage({ type: "save-settings", settings: { aiPresetPrompts: aiPrefs.aiPresetPrompts } }).catch(() => null);
 }
 
 function updateSidepanelLayoutState() {

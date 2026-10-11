@@ -810,9 +810,8 @@ async function migrateInitialQuickPrompts() {
   if (aiInitialQuickPrompts === undefined) {
     return;
   }
-  const merged = [...(Array.isArray(aiInitialQuickPrompts) ? aiInitialQuickPrompts : []), ...(Array.isArray(aiPresetPrompts) ? aiPresetPrompts : [])]
-    .map((item) => toString(item).trim());
-  await chrome.storage.sync.set({ aiPresetPrompts: normalizeAiPresetPrompts([...new Set(merged)]) });
+  const merged = [...(Array.isArray(aiInitialQuickPrompts) ? aiInitialQuickPrompts : []), ...(Array.isArray(aiPresetPrompts) ? aiPresetPrompts : [])];
+  await chrome.storage.sync.set({ aiPresetPrompts: BocSettings.normalizeAiPresetPrompts(merged) });
   await chrome.storage.sync.remove("aiInitialQuickPrompts");
 }
 
@@ -843,7 +842,7 @@ function normalizeSyncSettings(settings) {
   merged.fixedFrontmatterProperties = BocSettings.normalizeFixedFrontmatterProperties(merged.fixedFrontmatterProperties);
   merged.notePlaceholderSections = BocSettings.normalizeNotePlaceholderSections(merged.notePlaceholderSections);
   merged.aiSystemPrompt = normalizeAiSystemPrompt(merged.aiSystemPrompt);
-  merged.aiPresetPrompts = normalizeAiPresetPrompts(merged.aiPresetPrompts);
+  merged.aiPresetPrompts = BocSettings.normalizeAiPresetPrompts(merged.aiPresetPrompts);
   return merged;
 }
 
@@ -944,16 +943,6 @@ function normalizeAiSystemPrompt(value) {
     return BocSettings.DEFAULTS.aiSystemPrompt;
   }
   return normalized;
-}
-
-function normalizeAiPresetPrompts(value) {
-  if (!Array.isArray(value)) {
-    return [];
-  }
-  return value
-    .map((item) => toString(item).trim())
-    .filter(Boolean)
-    .slice(0, 12);
 }
 
 // ===== AI 模型平台存储 =====

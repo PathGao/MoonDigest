@@ -68,10 +68,14 @@
   const FIXED_PROPERTY_TYPES = new Set(["text", "number", "checkbox", "list", "date"]);
   const NOTE_SECTION_POSITIONS = new Set(["before_intro", "before_chapters", "before_subtitle"]);
   const MAX_NOTE_SECTIONS = 5;
+  const MAX_PRESET_PROMPTS = 12;
 
   const normalizeApiKey = (value) => text(value).replace(/^Bearer\s+/i, "").trim();
   const normalizeDownloadFormat = (value) => (value === "txt" ? "txt" : "srt");
   const normalizePlayerAiQuickPrompt = (value) => text(value);
+  // 快捷追问: trimmed, no blanks or repeats, at most MAX_PRESET_PROMPTS.
+  const normalizeAiPresetPrompts = (value) =>
+    Array.isArray(value) ? [...new Set(value.map(text).filter(Boolean))].slice(0, MAX_PRESET_PROMPTS) : [];
 
   function normalizeFixedPropertyType(value) {
     const type = text(value).toLowerCase();
@@ -125,9 +129,11 @@
     LOCAL_DEFAULTS,
     NOTE_SECTION_POSITIONS,
     MAX_NOTE_SECTIONS,
+    MAX_PRESET_PROMPTS,
     normalizeApiKey,
     normalizeDownloadFormat,
     normalizePlayerAiQuickPrompt,
+    normalizeAiPresetPrompts,
     normalizeFixedPropertyType,
     normalizeFixedPropertyValue,
     isFixedPropertyRowEffectivelyEmpty,

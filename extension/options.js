@@ -572,7 +572,7 @@ function readFormPayload() {
     fixedFrontmatterProperties: BocSettings.normalizeFixedFrontmatterProperties(collectFixedPropertyRows()),
     notePlaceholderSections: BocSettings.normalizeNotePlaceholderSections(collectNoteSectionRows()),
     aiSystemPrompt: String(elements.aiSystemPrompt?.value || "").trim(),
-    aiPresetPrompts: [...new Set(elements.aiPresetPrompts.value.split("\n").map((line) => line.trim()).filter(Boolean))].slice(0, 12)
+    aiPresetPrompts: BocSettings.normalizeAiPresetPrompts(elements.aiPresetPrompts.value.split("\n"))
   };
 }
 
