@@ -363,6 +363,8 @@ async function resolveAiSidepanelContext(contextRef) {
       url: String(item.url || "").trim(),
       lang: String(item.label || item.lang || "").trim()
     })),
+    // No list because B站 wants a login: the side panel says so instead of 没有字幕, like on the video page.
+    subtitleNeedLogin: bundle.needLogin === true,
     hotComments,
     isVideoContext: true
   };

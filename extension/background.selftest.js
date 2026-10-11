@@ -297,6 +297,11 @@ process.on("exit", (code) => {
   assert.ok(urls.some((u) => u.includes("/x/player/wbi/v2?") && u.includes("w_rid=")));
   routes = { ...sidepanelRoutes(100), "/x/player/wbi/v2": { code: -352, message: "风控" }, "/x/player/v2": { code: 0, data: { subtitle: { subtitles: [] } } } };
   await assert.rejects(historyContext(), (e) => e.code === "THROTTLED");
+  // An empty list because B站 wants a login carries the flag the side panel's login sentence reads.
+  routes = { ...sidepanelRoutes(100), "/x/player/wbi/v2": { code: 0, data: { need_login_subtitle: true, subtitle: { subtitles: [] } } } };
+  assert.strictEqual((await historyContext()).subtitleNeedLogin, true);
+  routes = sidepanelRoutes(100);
+  assert.strictEqual((await historyContext()).subtitleNeedLogin, false);
   assert.ok(inits.length && inits.every((i) => i.referrer === "https://www.bilibili.com/" && i.cache === "no-store" && i.credentials === "include"));
 
   // Dead keys go on install and update, the old 已看 mark (triage_watched) among them; the 待播 list stays.
