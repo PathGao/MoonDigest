@@ -1250,12 +1250,16 @@ async function deleteConversation(id) {
   await saveConversations();
 }
 
+// A fresh conversation takes the current tab's context. When the tab could not be read it starts without one (the
+// empty state then shows the read error and 重试), never with the video of the conversation that was open.
+function adoptLiveContext() {
+  contextData = liveContextData ? { ...liveContextData } : null;
+  currentContextKey = liveContextData ? liveContextKey || buildContextKey(liveContextData) : "";
+}
+
 // restartChat also drops the reply in flight without saving it, so it cannot bring the conversation back.
 function showLiveContextInFreshConversation() {
-  if (liveContextData) {
-    contextData = { ...liveContextData };
-    currentContextKey = liveContextKey || buildContextKey(liveContextData);
-  }
+  adoptLiveContext();
   const draft = els.input.value;
   restartChat();
   els.input.value = draft;
@@ -1626,11 +1630,7 @@ async function startNewConversation() {
   hidePresetPopover();
   hideHistoryPopover();
   await loadContextState({ forceRefresh: true, silent: true });
-  if (liveContextData) {
-    contextData = { ...liveContextData };
-    currentContextKey = liveContextKey || buildContextKey(liveContextData);
-    updateContextChip();
-  }
+  adoptLiveContext();
   restartChat();
   renderInitialState();
 }

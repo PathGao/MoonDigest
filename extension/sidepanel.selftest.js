@@ -185,6 +185,18 @@ const page = (id) => ({ ok: true, payload: { url: `https://example.com/${id}`, t
   }
 
   {
+    // The popup's AI 总结 over an opened history conversation, when the tab cannot be read: the fresh conversation does
+    // not keep the old video's context (the empty state shows the read error and 重试).
+    answer = async () => ({ ok: false, error: "读取失败" });
+    ctx.autosizeInput = () => {};
+    activeTab = { id: 9, url: "https://www.bilibili.com/video/BV1GJ411x7h7" };
+    vm.runInContext('savedConversations = []; activeStream = null; currentConversationMeta = { pinnedContext: true }; contextData = { url: "https://www.bilibili.com/video/BV1hh", isVideoContext: true }; currentContextKey = "video:BV1hh"', ctx);
+    await ctx.showLiveVideoConversation();
+    assert.deepStrictEqual([...vm.runInContext("[contextData, currentContextKey]", ctx)], [null, ""]);
+    vm.runInContext("currentConversationMeta = null", ctx);
+  }
+
+  {
     // A timestamp clicked while 分拣台's viewer plays the video seeks that frame; the 分拣台 tab is not navigated.
     // A normal tab on another video still goes to the video first.
     const updates = [];
