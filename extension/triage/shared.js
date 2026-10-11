@@ -337,8 +337,9 @@
   const deleteTagAsk = (t, n, who) => [`删除标签「${t.name}」？`, `<p>将从 ${n} 个${sp(who)}上去掉这个标签，无法撤销。</p>`];
   // A batch confirm's list: the first 10 names, then 「等 N 个」.
   const confirmList = (names) => `<ul>${names.slice(0, 10).map((n) => `<li>${esc(n)}</li>`).join("")}</ul>${names.length > 10 ? `<p>等 ${names.length} 个</p>` : ""}`;
-  // The tag picker's title: 「给「名字」打标签」, or for several 「给选中的 N 个视频打标签」.
-  const pickTitle = (n, name, who) => (n > 1 ? `给选中的 ${n} 个${sp(who)}打标签` : `给「${name}」打标签`);
+  // The tag picker's title: 「给「名字」打视频标签 / 打 UP 标签」 (a name alone does not say which), or for several
+  // 「给选中的 N 个视频打标签」.
+  const pickTitle = (n, name, who) => (n > 1 ? `给选中的 ${n} 个${sp(who)}打标签` : `给「${name}」打${who === "视频" ? "视频标签" : " UP 标签"}`);
   // U on a step that changed n ≥ 2 items asks this first: kind is tags (one 标签… save), ai (one applied AI 打标签) or
   // keep (one batch 保留).
   const UNDO_ASK = {

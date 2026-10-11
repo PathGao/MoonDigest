@@ -244,6 +244,8 @@ for (const [file, fns] of [["triage.js", ["mergeAiBatch", "aiChanges"]], ["follo
   }
   assert.ok(UI.deleteTagAsk({ name: "甲" }, 2, "UP 主")[1].includes("2 个 UP 主上"));
   assert.deepStrictEqual([...UI.deleteTagAsk({ name: "甲" }, 2, "视频")], ["删除标签「甲」？", "<p>将从 2 个视频上去掉这个标签，无法撤销。</p>"]);
+  // The picker's title names which tags: a lone name does not say whether it is a video or an UP 主.
+  assert.deepStrictEqual([UI.pickTitle(1, "甲", "视频"), UI.pickTitle(1, "乙", "UP 主"), UI.pickTitle(3, "", "UP 主")], ["给「甲」打视频标签", "给「乙」打 UP 标签", "给选中的 3 个 UP 主打标签"]);
   assert.ok(UI.tagPlusBtn('data-x="1"', "给 <b> 打标签").includes('data-x="1" aria-label="给 &lt;b&gt; 打标签">+ 标签 <kbd'));
   // The player's tag lines: the name first, never 「未打标签」; empty is just 「+ 标签」, whose T shows only where T acts.
   const vl = (o) => UI.viewerLine({ label: "UP 标签", chips: "", ...o });

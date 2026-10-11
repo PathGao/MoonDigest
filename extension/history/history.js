@@ -157,7 +157,7 @@ function render() {
           </div>
         </article>`;
       }).join("")
-    : `<p class="empty">${allGroups.length ? "没有匹配的视频" : "还没有视频记录。在侧边栏提问，或在分拣台总结、写备注后，会按视频记在这里。"}</p>`;
+    : `<p class="empty">${allGroups.length ? "没有匹配的视频" : "还没有视频记录。在侧边栏提问，或在分拣台细看、写备注后，会按视频记在这里。"}</p>`;
   rendering = false;
   const textarea = editing && els.list.querySelector("[data-note]");
   if (textarea) {

@@ -357,9 +357,9 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   assert.deepStrictEqual(plain(t.writeScopeItems("all", false).map((it) => it.bvid)), ["BV1", "BV2", "BV3", "BV4"]);
   t.S.analyses.BV1 = { status: "done", oneLiner: "一句话", points: ["要点"] };
   const digest = t.buildMarkdown(t.writeScopeItems("all", false));
-  assert.ok(digest.includes("## [视频4](https://www.bilibili.com/video/BV4)\n\nUP：up · 已失效"), digest);
-  assert.ok(digest.includes("## [视频1](https://www.bilibili.com/video/BV1)\n\nUP：up\n\n> 一句话\n\n- 要点"), digest);
-  assert.ok(digest.includes("## [视频3](https://www.bilibili.com/video/BV3)\n\nUP：up\n\n备注：我的笔记"), digest);
+  assert.ok(digest.includes("## [视频4](https://www.bilibili.com/video/BV4)\n\nUP 主：up · 已失效"), digest);
+  assert.ok(digest.includes("## [视频1](https://www.bilibili.com/video/BV1)\n\nUP 主：up\n\n> 一句话\n\n- 要点"), digest);
+  assert.ok(digest.includes("## [视频3](https://www.bilibili.com/video/BV3)\n\nUP 主：up\n\n备注：我的笔记"), digest);
   t.S.selected.clear();
 
   // B12: titles with | [[ ]] or newlines cannot end the index-note link early.
@@ -562,6 +562,12 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   await t.seenSync(true);
   assert.ok(/^观看进度 · B站限流卡住，1:(30|29) 后重试$/.test(toasts[0]), `a forced 刷新 while backing off is not silent: ${toasts}`);
   assert.ok(t.activityState().stuck && t.activityState().text === toasts[0]);
+  // A read answers as it starts and goes on in the background: the page keeps showing it until triage-seen-done.
+  t.S.seenRead.until = 0;
+  handlers["triage-seen-sync"] = () => ({ ok: true, data: { reading: true } });
+  await t.seenSync(false);
+  assert.strictEqual(t.S.seenRead.busy, true);
+  t.S.seenRead.busy = false;
   delete handlers["triage-seen-sync"];
   t.S.seenRead.until = 0;
   t.S.seenCfg.on = false;
@@ -1581,7 +1587,7 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   await t.runAiCommand({ instruction: "分一下", scope: "filter", allowRemove: false });
   assert.strictEqual(aiCalls, 2, "the second batch is still sent after the switch");
   assert.ok(!t.S.ai.running && t.S.ai.proposal === null, "folder L sees no proposal");
-  assert.ok(/「夹K」的标签建议已完成，在状态栏点「查看」确认/.test(toasts.at(-1)), toasts.at(-1));
+  assert.ok(/「夹K」的标签建议已完成，点进度胶囊上的「查看」确认/.test(toasts.at(-1)), toasts.at(-1));
   assert.deepStrictEqual(plain(vm.runInContext("activityState()", ctx)), { text: "「夹K」的标签建议待确认", act: "aiOther", actLabel: "查看" }, "folder L points back to K");
   openFake("K", [item(600), item(601)]);
   assert.deepStrictEqual(plain(t.S.ai.proposal.rows.map((r) => [r.id, r.add])), [["BV600", ["id:a"]], ["BV601", ["id:a"]]], "K's own 旧, not L's");

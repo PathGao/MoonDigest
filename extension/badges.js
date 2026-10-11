@@ -415,7 +415,8 @@
     more.className = "mdg-more mdg-off";
     more.tabIndex = 0;
     more.dataset.names = list.map((t) => t.name).join("、");
-    more.setAttribute("aria-label", `全部标签：${more.dataset.names}`);
+    more.dataset.head = cls === "mdg-up" ? "全部 UP 标签" : "全部视频标签";
+    more.setAttribute("aria-label", `${more.dataset.head}：${more.dataset.names}`);
     more.textContent = `+${list.length}`;
     box.append(more);
   }
@@ -521,12 +522,13 @@
 
   // Tag chips are not controls (they sit inside the author's link like the name). Only 「+ UP 标签」 acts: it opens the
   // tag picker instead of the space page. Events from BewlyCat's shadow root reach the document retargeted to #bewly;
-  // composedPath has the button.
+  // composedPath has the button. After the extension reloads this old script still runs: the click is still kept from
+  // the author's link, and the picker says to reload the page (renderPick).
   function onChip(e) {
     if (globalThis.BocTyping.composing(e) || globalThis.BocTyping.typingIn(e)) return;
     if (e.type === "keydown" && e.key !== "Enter" && e.key !== " ") return;
     const add = (e.composedPath?.() || []).find((n) => n.classList?.contains("mdg-up-add"));
-    if (!add || !chrome.runtime?.id) return;
+    if (!add) return;
     e.preventDefault();
     e.stopPropagation();
     return pick?.add === add ? closePick(true) : openPick(add);
@@ -622,6 +624,9 @@ input { box-sizing: border-box; width: 100%; margin: 0; padding: 4px 8px; border
       if (text != null) n.textContent = text;
       return n;
     };
+    const head = el("div", "h", `给「${pick.add.dataset.name}」打 UP 标签`);
+    // The extension reloaded under this page: storage and messages no longer reach it.
+    if (!chrome.runtime?.id) return pick.panel.replaceChildren(head, el("div", "empty", "扩展刚刚更新，请刷新网页"));
     const was = pick.root.activeElement;
     const focus = pick.focus ?? (was?.dataset?.id || (was?.classList?.contains("opt") ? "new" : was ? "input" : null));
     pick.focus = null;
@@ -658,7 +663,7 @@ input { box-sizing: border-box; width: 100%; margin: 0; padding: 4px 8px; border
     // The chips no longer open the 分拣台; this is the one way there from a B站 page.
     const go = el("button", "go", "在分拣台「关注」里打开这个 UP ↗");
     go.type = "button";
-    pick.panel.replaceChildren(el("div", "h", `给「${pick.add.dataset.name}」打 UP 标签`), list, more, go, el("div", "foot", "只存在 MoonDigest 里，不改 B站 · Esc 关闭"));
+    pick.panel.replaceChildren(head, list, more, go, el("div", "foot", "只存在 MoonDigest 里，不改 B站 · Esc 关闭"));
     placePick();
     const again = focus === "input" || focus === "new" ? more.firstChild : [...pickFocusables()].find((b) => b.dataset.id === focus);
     if (focus) (again || pickFocusables()[0])?.focus();
@@ -695,10 +700,11 @@ input { box-sizing: border-box; width: 100%; margin: 0; padding: 4px 8px; border
   }
 
   function onPickClick(e) {
+    if (!chrome.runtime?.id) return renderPick();
     if (e.target.closest?.(".go")) {
       const hash = `follow&up=${pick.mid}`;
       closePick(false);
-      if (chrome.runtime?.id) chrome.runtime.sendMessage({ type: "triage-open", hash }).catch(() => {});
+      chrome.runtime.sendMessage({ type: "triage-open", hash }).catch(() => {});
       return;
     }
     const b = e.target.closest?.(".opt");
@@ -711,7 +717,8 @@ input { box-sizing: border-box; width: 100%; margin: 0; padding: 4px 8px; border
 
   // Writes at once; every box of this UP on the page and the 动态 bar counts redraw right away, not after the debounce.
   async function pickWrite(op) {
-    if (!pick || !chrome.runtime?.id) return;
+    if (!pick) return;
+    if (!chrome.runtime?.id) return renderPick();
     const r = await saveUpTag(chrome.storage.local, pick.mid, op).catch(() => null);
     if (!r) return;
     up = { ...up, tags: r.tags, map: r.map };
@@ -1012,7 +1019,7 @@ input { box-sizing: border-box; width: 100%; margin: 0; padding: 4px 8px; border
     let at = host;
     const rows = [];
     if (host.classList.contains("mdg-more")) {
-      rows.push(add("div", "mdg-pop-head", "全部标签"), add("div", "mdg-pop-one", host.dataset.names));
+      rows.push(add("div", "mdg-pop-head", host.dataset.head), add("div", "mdg-pop-one", host.dataset.names));
     } else {
       at = host.matches(".mdg-line") ? host.querySelector(".mdg-badge") : host;
       const info = cache.get(at?.dataset.bvid);

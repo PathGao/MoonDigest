@@ -49,7 +49,7 @@ assert.strictEqual(t.triageParseLlm('{"one_liner":"x","verdict":"可以删"}').v
 assert.strictEqual(t.triageParseLlm('{"one_liner":"x"}').verdict, "unsure");
 assert.throws(() => t.triageParseLlm('{"one_liner":"x","points":["a"'), /回复不完整/);
 assert.throws(() => t.triageParseLlm("没有 JSON"), /格式不对/);
-assert.throws(() => t.triageParseLlm('{"points":[]}'), /缺少总结/);
+assert.throws(() => t.triageParseLlm('{"points":[]}'), /缺少一句话总结/);
 
 // title line
 assert.strictEqual(
@@ -572,46 +572,68 @@ assert.throws(() => t.triageParseCommand('{"new_tags":[', cmdItems, cmdTags, {})
       return { ok: true, status: 200, json: async () => body };
     };
     const H = vm.runInContext("TRIAGE_HANDLERS", ctx);
+    // The message answers as a read starts; read() waits for the read itself (or the skip).
+    const read = async (m) => {
+      const reply = H["triage-seen-sync"](m);
+      const run = vm.runInContext("seenRun", ctx);
+      return run ? (await reply, run) : reply;
+    };
     // The message listener only routes triage-* types: a handler named otherwise is never reached.
     assert.deepStrictEqual(Object.keys(H).filter((k) => !k.startsWith("triage-")), []);
-    assert.deepStrictEqual(plain(await H["triage-seen-sync"]()), { skipped: "off" });
+    assert.deepStrictEqual(plain(await read()), { skipped: "off" });
     assert.strictEqual(urls.length, 0, "nothing is read with both switches off");
     sync = { seenShow: "bar" };
     const T = Math.floor(Date.now() / 1000) - 1000; // view_at in seconds, recent enough to survive the prune
     const page = (list, max) => ({ code: 0, data: { list, cursor: { max, view_at: 1, business: "archive" } } });
     st.seen_BVa = [95, T - 500];
     pages = [page([h("BVa", T + 300, 50), h("BVb", T + 290, 100)], 7), page([h("BVc", T + 280, -1)], 0)];
-    const first = await H["triage-seen-sync"]();
+    const first = await read();
     assert.strictEqual(first.pages, 2);
     assert.deepStrictEqual([plain(st.seen_BVa), plain(st.seen_BVb), plain(st.seen_BVc)], [[95, T + 300], [100, T + 290], [100, T + 280]], "keeps the higher stored percent");
     assert.strictEqual(st.triage_seen_meta.newest, T + 300);
-    assert.deepStrictEqual(plain(await H["triage-seen-sync"]()), { skipped: "recent" });
+    assert.deepStrictEqual(plain(await read()), { skipped: "recent" });
     pages = [page([h("BVd", T + 310, 30), h("BVa", T + 300, 50)], 9)];
-    const again = await H["triage-seen-sync"]({ force: true });
+    const again = await read({ force: true });
     assert.strictEqual(again.pages, 1, "a later read stops at what it already has");
     assert.deepStrictEqual(plain(st.seen_BVd), [30, T + 310]);
     // Risk control on page 2: page 1 is already written and the read resumes there; `newest` stays until a read gets down to it.
     const realTimeout = t.setTimeout;
     t.setTimeout = (f, ms) => realTimeout(f, ms === 5000 ? 0 : ms); // skip the 5 s page gap
     pages = [page([h("BVe", T + 330, 40)], 5), { code: -412, message: "请求被拦截" }];
-    await assert.rejects(H["triage-seen-sync"]({ force: true }), (e) => e.code === "THROTTLED");
+    await assert.rejects(read({ force: true }), (e) => e.code === "THROTTLED");
     assert.ok(st.triage_seen_meta.backoffUntil > Date.now(), "risk control backs off");
     assert.deepStrictEqual(plain(st.seen_BVe), [40, T + 330], "pages read before risk control are kept");
     assert.deepStrictEqual([st.triage_seen_meta.newest, st.triage_seen_meta.resume.cursor.max], [T + 310, 5]);
     const before = urls.length;
-    const held = await H["triage-seen-sync"]({ force: true });
+    const held = await read({ force: true });
     assert.deepStrictEqual(plain(held), { skipped: "throttled", until: st.triage_seen_meta.backoffUntil }, "says until when, for the page to show");
     assert.strictEqual(urls.length, before, "no request while backing off");
     // After the wait: the older pages it did not reach first (down to the old `newest`), then what is new since.
     st.triage_seen_meta.backoffUntil = 0;
     pages = [page([h("BVf", T + 320, 60), h("BVd", T + 310, 30)], 3), page([h("BVg", T + 340, 20), h("BVe", T + 330, 40)], 2)];
-    const resumed = await H["triage-seen-sync"]({ force: true });
+    const resumed = await read({ force: true });
     t.setTimeout = realTimeout;
     assert.strictEqual(resumed.pages, 2);
     assert.match(urls[before], /max=5&/, "picks up where the stopped read was");
     assert.match(urls[before + 1], /max=0&/);
     assert.deepStrictEqual([plain(st.seen_BVf), plain(st.seen_BVg)], [[60, T + 320], [20, T + 340]]);
     assert.deepStrictEqual([st.triage_seen_meta.newest, st.triage_seen_meta.resume], [T + 340, null]);
+    // The message does not stay open for the read: it answers while the first page is still on its way, and a second
+    // message during the read answers the same without starting another.
+    let release;
+    const realFetch = t.fetch;
+    t.fetch = (url) => new Promise((r) => (release = () => r(realFetch(url))));
+    const ended = [];
+    t.chrome.runtime.sendMessage = async (m) => ended.push(m.type);
+    pages = [page([h("BVh", T + 350, 10)], 0)];
+    assert.deepStrictEqual(plain(await H["triage-seen-sync"]({ force: true })), { reading: true });
+    assert.deepStrictEqual(plain(await H["triage-seen-sync"]({ force: true })), { reading: true });
+    assert.strictEqual(st.seen_BVh, undefined);
+    const run = vm.runInContext("seenRun", ctx);
+    release();
+    await run;
+    assert.deepStrictEqual([plain(st.seen_BVh), ended], [[10, T + 350], ["triage-seen-done"]]);
+    t.fetch = realFetch;
   }
 
   // triageListen: its prefix only; unknown types and handler errors answer { ok: false }, the code passed through.

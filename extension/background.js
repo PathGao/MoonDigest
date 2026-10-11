@@ -571,7 +571,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.type === "save-settings") {
     saveSettings(message.settings || {})
       .then(() => sendResponse({ ok: true }))
-      .catch((error) => sendResponse({ ok: false, error: error.message }));
+      .catch((error) => sendResponse({ ok: false, error: error.message, field: error.field }));
     return true;
   }
 
@@ -878,7 +878,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.type === "ai-sidepanel-resolve-context") {
     resolveAiSidepanelContext(message.contextRef || {})
       .then((payload) => sendResponse({ ok: true, payload }))
-      .catch((error) => sendResponse({ ok: false, error: error.message }));
+      .catch((error) => sendResponse({ ok: false, error: error.message, code: error.code }));
     return true;
   }
 
@@ -1065,12 +1065,20 @@ async function getMergedSettings() {
   };
 }
 
+// chrome.storage.sync keeps at most 8 KB per setting (its key plus its JSON, in UTF-8 bytes; QUOTA_BYTES_PER_ITEM):
+// about 2700 汉字. Past it Chrome refuses the whole save in English without naming the setting, so it is checked first.
+const SYNC_ITEM_BYTES = 8192;
+const SYNC_ITEM_NAMES = { aiSystemPrompt: "系统提示词", playerAiQuickPrompt: "AI 总结要求", aiPresetPrompts: "快捷追问", fixedFrontmatterProperties: "自定属性", notePlaceholderSections: "正文附加段落" };
+const oversizedSyncItem = (payload) => Object.keys(payload).find((k) => k.length + new TextEncoder().encode(JSON.stringify(payload[k])).length > SYNC_ITEM_BYTES) || "";
+
 // Callers send partial settings (the options page has no reading-view controls), so keys they omit keep their stored values.
 async function saveSettings(settings) {
   const payload = settings && typeof settings === "object" ? settings : {};
   const stored = await chrome.storage.sync.get(DEFAULT_SYNC_SETTINGS);
   const syncPayload = normalizeSyncSettings({ ...DEFAULT_SYNC_SETTINGS, ...stored, ...payload });
   delete syncPayload.obsidianApiKey;
+  const big = oversizedSyncItem(syncPayload);
+  if (big) throw Object.assign(new Error(`${SYNC_ITEM_NAMES[big] || big}太长，存不下：最多约 2700 个汉字（英文约 8000 个字符）`), { field: big });
 
   await Promise.all([
     chrome.storage.sync.set(syncPayload),

@@ -293,6 +293,10 @@ process.on("exit", (code) => {
   await assert.rejects(ctx.importSettings({ ...file, local: { triage_folder_criteria: { 11: 5 } } }), /不是 MoonDigest 的设置文件/);
   assert.strictEqual(JSON.stringify(importSync), before);
 
+  // A setting past sync's 8 KB per item is named before Chrome refuses it in English: 2700 汉字 fit, 2800 do not.
+  const tooLong = (n) => vm.runInContext(`oversizedSyncItem({ tags: "a", aiSystemPrompt: "字".repeat(${n}) })`, ctx);
+  assert.deepStrictEqual([tooLong(2700), tooLong(2800)], ["", "aiSystemPrompt"]);
+
   finished = true;
   clearInterval(keepAlive);
   console.log("background selftest: all passed");

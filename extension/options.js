@@ -434,7 +434,9 @@ async function saveSettings() {
   try {
     const resp = await sendRuntimeMessage({ type: "save-settings", settings: payload });
     if (!resp?.ok) {
-      setStatus(resp?.error || "保存失败", true);
+      // A setting too long for Chrome's sync storage: the box it came from is marked, as a validation error is.
+      if (elements[resp?.field]) applyValidationError({ field: elements[resp.field], message: resp.error });
+      else setStatus(resp?.error || "保存失败", true);
       return;
     }
     renderFixedPropertyRows(payload.fixedFrontmatterProperties);

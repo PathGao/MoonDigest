@@ -652,7 +652,7 @@ function renderUps() {
   for (const m of [...F.sel]) if (!rows.has(m)) F.sel.delete(m);
   const goneN = (src) => Object.values(D.gone).filter((g) => !src || g.source === src).length;
   const seg = gone
-    ? UI.stateGroup("在哪取消关注", [["", "全部"], ["bili", "在 B站取消关注"], ["app", "在这里取消关注"]].map(([id, label]) => UI.filterBtn(`data-source="${id}"`, label, goneN(id), F.source === id)).join(""))
+    ? UI.stateGroup("在哪取消关注", [["", "全部"], ["bili", "在 B站取消关注"], ["app", "在分拣台取消关注"]].map(([id, label]) => UI.filterBtn(`data-source="${id}"`, label, goneN(id), F.source === id)).join(""))
     : stateRowUps(counts);
   // 全选 heads the right-hand buttons, as in 收藏夹: it acts on the UP 主 listed now.
   const shows = Boolean(D.list || gone);
@@ -711,7 +711,7 @@ function upCard(mid) {
     u.last ? `最后投稿 ${UI.agoHtml(u.last, now)}` : u.status === "stale" && !u.gone ? esc(`${cfg.slowDays} 天以上没投稿`) : "",
     u.count && `${u.count} 个视频`,
     u.fans != null ? `粉丝 ${esc(fmtCount(u.fans))}` : F.sort === "fans" && !u.gone ? "粉丝数未查" : "",
-    u.gone ? `取消关注于 ${UI.agoHtml(u.gone.at || now, now)}（${u.gone.source === "bili" ? "在 B站" : "在这里"}）` : u.followed && `关注于 ${UI.agoHtml(u.followed, now)}`
+    u.gone ? `取消关注于 ${UI.agoHtml(u.gone.at || now, now)}（${u.gone.source === "bili" ? "在 B站" : "在分拣台"}）` : u.followed && `关注于 ${UI.agoHtml(u.followed, now)}`
   ].filter(Boolean);
   const chips = u.tagIds.map(tagOf).map((t) => u.gone
     ? `<span class="chip" style="--c:${esc(t.color)}">${esc(t.name)}</span>`
@@ -1438,7 +1438,7 @@ async function runAi({ instruction, scope, allowRemove }) {
   renderAiState();
   const open = TagDialogs.ai.isOpen(aiTags);
   if (open) TagDialogs.ai.render(aiTags);
-  else toast(proposal ? "AI 打标签已完成，在状态栏点「查看」确认" : `AI 打标签没有成功：${errors.at(-1)}`, !proposal);
+  else toast(proposal ? "AI 打标签已完成，点进度胶囊上的「查看」确认" : `AI 打标签没有成功：${errors.at(-1)}`, !proposal);
 }
 
 

@@ -419,6 +419,7 @@ assert.ok(!biliSaysSeen(h("a", {}, h("div", { class: "bili-cover-card__stats" },
   await settle();
   assert.ok(more.classList.contains("mdg-off"), "all fit: no 「+N」");
   assert.strictEqual(more.dataset.names, "常看、游戏", "「+N」 lists every tag on hover or focus");
+  assert.strictEqual(more.getAttribute("aria-label"), "全部 UP 标签：常看、游戏", "「+N」 says whose tags they are");
   // 「常看」 20, a long 「游戏」 60, 「+N」 20 and the hover 「+ UP 标签」 20 (it keeps its place), gaps 3: all = 106 > 70,
   // one chip + 「+1」 + the button = 66 fits.
   ups.querySelectorAll(".mdg-up")[1].w = 60;
@@ -645,6 +646,21 @@ async function plusPage() {
   textColor = "rgb(231, 233, 235)";
   doc.listeners.click.forEach((f) => f(ev(plusOf(title("d")))));
   assert.ok(doc.childNodes.at(-1).shadow.querySelector(".pick").classList.contains("dark"));
+
+  // The extension reloaded under the page: a click in the open picker writes nothing and says to reload; a click on
+  // 「+」 is still kept from the author's link and opens the same notice.
+  const panel3 = doc.childNodes.at(-1).shadow.querySelector(".pick");
+  const before = JSON.stringify(store.follow_tag_map);
+  delete win.chrome.runtime.id;
+  panel3.listeners.click[0]({ target: panel3.querySelectorAll(".opt")[0] });
+  await settle();
+  assert.strictEqual(JSON.stringify(store.follow_tag_map), before);
+  assert.strictEqual(panel3.querySelector(".empty")?.textContent, "扩展刚刚更新，请刷新网页");
+  doc.listeners.pointerdown.forEach((f) => f({ composedPath: () => [list, doc] }));
+  stopped = 0;
+  doc.listeners.click.forEach((f) => f(ev(plusOf(title("c")))));
+  assert.strictEqual(stopped, 2, "a stale page's 「+」 click does not fall through to the author link");
+  assert.strictEqual(doc.childNodes.at(-1).shadow.querySelector(".empty")?.textContent, "扩展刚刚更新，请刷新网页");
 }
 
 // ---- the live script on other surfaces: the 分拣台's player, a home page with a header popover, a 收藏夹 page ----

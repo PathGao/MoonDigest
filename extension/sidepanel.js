@@ -853,7 +853,7 @@ function followupBlockReason() {
     return "正在读取视频字幕…";
   }
   if (!chatHistory.length && !currentConversationMeta?.pinnedContext && !contextData) {
-    return "打开一个视频后才能追问";
+    return "打开一个视频后才能用快捷追问";
   }
   return "";
 }
@@ -1925,7 +1925,8 @@ async function hydratePinnedConversationContext({ silent = false } = {}) {
   if (!response?.ok || !response.payload) {
     removeConversationContextNotice();
     if (!silent) {
-      showConversationContextError(`读取原视频失败：${response?.error || "未知错误"}`);
+      // Deleted or hidden on B站 (as the 分拣台 and 视频记录 tell it): no retry will bring it back.
+      showConversationContextError(BocSites.isBiliVideoGone(response?.code) ? "视频已失效，这段对话只能查看，不能继续提问。" : `读取原视频失败：${response?.error || "未知错误"}`);
     }
     return false;
   }

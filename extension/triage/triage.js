@@ -796,6 +796,10 @@ async function init() {
     if (area === "local") followShared(changes);
   });
   chrome.runtime.onMessage.addListener((msg) => {
+    if (msg?.type === "triage-seen-done") {
+      S.seenRead.busy = false;
+      return renderStatus();
+    }
     if (msg?.type !== "triage-folder-page") return;
     S.loadPage = { mediaId: msg.mediaId, page: msg.page };
     renderTop();
@@ -868,13 +872,14 @@ function setSeenCfg(v) {
   if (S.seenCfg.on) seenSync(false);
 }
 // While this page waits on a read it shows the pages read so far; B站 risk control shows how long the background waits.
-// A run started by a Bilibili page is joined when its first page lands (triage-seen-sync answers when that run ends).
+// A run started by a Bilibili page is joined when its first page lands. triage-seen-sync answers as a read starts, which
+// then goes on in the background until triage-seen-done.
 async function seenSync(force) {
   const r = S.seenRead;
   if (r.busy) return;
   r.busy = true;
   const res = await send({ type: "triage-seen-sync", force });
-  r.busy = false;
+  r.busy = Boolean(res.data?.reading);
   if (res.data?.until) r.until = res.data.until;
   if (force && res.data?.skipped === "throttled") toast(seenWait());
   renderStatus();
@@ -3367,7 +3372,7 @@ const aiTags = {
   scopeText: aiScopeText,
   roomHint: aiRoomHint,
   blocked: () =>
-    S.mediaId === REMOVED ? `${FOLDER_ONLY}再让 AI 打标签。` : S.ai.running && S.ai.mediaId !== String(S.mediaId) ? `正在处理「${folderName(S.ai.mediaId)}」的视频，完成后可在状态栏点「查看」确认` : "",
+    S.mediaId === REMOVED ? `${FOLDER_ONLY}再让 AI 打标签。` : S.ai.running && S.ai.mediaId !== String(S.mediaId) ? `正在处理「${folderName(S.ai.mediaId)}」的视频，完成后可点进度胶囊上的「查看」确认` : "",
   history: () => S.aiHistory,
   allowRemove: () => S.settings.triageAiRemoveTags === true,
   // The same switch as in 收藏夹设置, saved as soon as it flips.
@@ -3504,7 +3509,7 @@ async function runAiCommand({ instruction, scope, allowRemove }) {
     if (!open) toast(`AI 打标签没有成功：${errors.at(-1)}`, true);
     return;
   }
-  if (folder !== String(S.mediaId)) toast(`「${folderName(folder)}」的标签建议已完成，在状态栏点「查看」确认`);
+  if (folder !== String(S.mediaId)) toast(`「${folderName(folder)}」的标签建议已完成，点进度胶囊上的「查看」确认`);
   else if (!open) toast("AI 打标签已完成，按 I 查看建议");
 }
 
@@ -3633,7 +3638,7 @@ function buildMarkdown(items, now = new Date()) {
     const a = S.analyses[it.bvid];
     const done = a?.status === "done";
     lines.push(`## [${mdLinkText(it.title)}](${videoUrl(it.bvid)})`, "");
-    if (it.upper || it.invalid) lines.push([it.upper && `UP：${it.upper}`, it.invalid && "已失效"].filter(Boolean).join(" · "), "");
+    if (it.upper || it.invalid) lines.push([it.upper && `UP 主：${it.upper}`, it.invalid && "已失效"].filter(Boolean).join(" · "), "");
     if (done && a.oneLiner) lines.push(`> ${a.oneLiner}`, "");
     if (done && a.points?.length) lines.push(...a.points.map((p) => `- ${p}`), "");
     const names = tagIdsOf(it.bvid).map((id) => tagById(id).name);

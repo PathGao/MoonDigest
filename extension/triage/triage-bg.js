@@ -65,7 +65,7 @@ function triageTagLines(tags) {
 function triageParseLlm(content) {
   const obj = triageExtractJson(content, "{");
   const oneLiner = String(obj.one_liner ?? obj.oneLiner ?? "").trim();
-  if (!oneLiner) throw new Error("AI 回复缺少总结");
+  if (!oneLiner) throw new Error("AI 回复缺少一句话总结");
   const points = (Array.isArray(obj.points) ? obj.points : [])
     .map((p) => String(p ?? "").trim())
     .filter(Boolean)
@@ -403,10 +403,19 @@ function seenPrune(entries, keep, nowS) {
   return sorted.filter(([b, [, at]], i) => !keep.has(b) && (nowS - at > SEEN_KEEP_S || i >= SEEN_MAX)).map(([b]) => b);
 }
 
+// A first read takes minutes. The answer does not wait for it: Chrome kills a worker whose event stays open 5 minutes,
+// and everything else it was running with it. A skip answers at once, a read answers { reading: true } as it starts (or
+// is already running) and goes on by itself; pages follow it through triage_seen_meta and hear triage-seen-done.
 let seenRun = null;
 function seenSync({ force }) {
-  seenRun ||= seenSyncOnce(force).finally(() => (seenRun = null));
-  return seenRun;
+  if (seenRun) return Promise.resolve({ reading: true });
+  let started;
+  const start = new Promise((r) => (started = () => r({ reading: true })));
+  seenRun = seenSyncOnce(force, started).finally(() => {
+    seenRun = null;
+    globalThis.chrome?.runtime?.sendMessage?.({ type: "triage-seen-done" })?.catch?.(() => {});
+  });
+  return Promise.race([start, seenRun]);
 }
 
 // 关 drops the stored history (up to SEEN_MAX keys) once any read in flight has written; turning it back on reads afresh.
@@ -416,7 +425,7 @@ async function seenClear() {
   await chrome.storage.local.remove([...keys, SEEN_META]);
 }
 
-async function seenSyncOnce(force) {
+async function seenSyncOnce(force, started) {
   const { seenShow } = await chrome.storage.sync.get({ seenShow: "off" });
   if (!["bar", "mark", "both"].includes(seenShow)) return { skipped: "off" };
   let meta = (await chrome.storage.local.get(SEEN_META))[SEEN_META] || {};
@@ -430,6 +439,7 @@ async function seenSyncOnce(force) {
   let resumed = Boolean(meta.resume);
   let { cursor = START, top = meta.newest || 0, pages = 0 } = meta.resume || {};
   let ran = 0;
+  started();
   try {
     for (;;) {
       if (ran) {

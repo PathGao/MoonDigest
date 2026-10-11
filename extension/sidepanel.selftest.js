@@ -200,6 +200,21 @@ const page = (id) => ({ ok: true, payload: { url: `https://example.com/${id}`, t
     assert.deepStrictEqual([...exportState([{ role: "user", content: "q" }, { role: "assistant", content: "a" }])], [false, "导出整段对话"]);
   }
 
+  // A history conversation whose B站 video was deleted or hidden: said once as such, not as a read error to retry.
+  {
+    const errors = [];
+    ctx.showConversationContextError = (text) => errors.push(text);
+    ctx.removeConversationContextNotice = () => {};
+    const realResolve = ctx.resolveConversationContext;
+    for (const code of [-404, -352]) {
+      ctx.resolveConversationContext = async () => ({ ok: false, error: "啥都木有", code });
+      vm.runInContext('currentConversationMeta = { contextKey: "k", contextRef: { url: "https://www.bilibili.com/video/BV1xx411c7mD" } }; liveContextKey = ""', ctx);
+      assert.strictEqual(await ctx.hydratePinnedConversationContext(), false);
+    }
+    assert.deepStrictEqual(errors, ["视频已失效，这段对话只能查看，不能继续提问。", "读取原视频失败：啥都木有"]);
+    ctx.resolveConversationContext = realResolve;
+  }
+
   console.log("sidepanel selftest: all passed");
 })().catch((e) => {
   console.error(e);
