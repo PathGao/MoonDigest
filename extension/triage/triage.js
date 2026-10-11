@@ -2356,15 +2356,18 @@ function unfavManyStep(mediaId, items) {
     return redraw();
   });
 }
-// U on 所有收藏夹's batch 取消收藏: each video back in every folder it left (gone: folder → [{ bvid, aid }]).
+// U on 所有收藏夹's batch 取消收藏: each video back in every folder it left (gone: folder → [{ bvid, aid }]). Elsewhere
+// the ones left stay under each folder's 最近取消收藏.
 function goneStep(items, gone) {
   return favStep(items.length, refavAsk(items.length), async () => {
     const { rest, error } = await refavGone(gone);
+    const here = S.mediaId === ALL;
     const left = items.filter((x) => Object.values(rest).some((list) => list.some((y) => y.bvid === x.bvid)));
-    if (error) {
+    if (error && here) {
       pushUndo(goneStep(left, rest));
       toast(`撤销中断（剩余 ${left.length} 个可再按 U 重试）：${error}`, true);
-    } else toast(`已重新收藏 ${items.length} 个`);
+    } else if (error) toast(`「${folderName(ALL)}」撤销中断（剩余 ${left.length} 个在各收藏夹的最近取消收藏里）：${error}`, true);
+    else toast(`已重新收藏 ${items.length} 个`);
     return redraw();
   });
 }

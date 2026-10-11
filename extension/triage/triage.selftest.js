@@ -443,6 +443,18 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     assert.deepStrictEqual(plain(Object.keys(t.S.kept).filter((b) => b.startsWith("BV6"))), ["BV61", "BV62"]);
     await t.undo();
     assert.ok(!t.S.kept.BV61 && !t.S.kept.BV62);
+    // U cut short by a failure: still in 所有收藏夹, the rest is the next U; after another folder opened, the rest stays
+    // in each folder's 最近取消收藏 and the open folder gets no step.
+    for (const away of [false, true]) {
+      const again = [{ ...item(63), folders: ["W1"] }, { ...item(64), folders: ["W2"] }];
+      openFake("all", again);
+      handlers["triage-unfav"] = () => ({ ok: true });
+      await t.fav.unfavMany(again);
+      handlers["triage-refav"] = (m) => (m.aid === 1064 ? { ok: false, error: "网络错误" } : (away && openFake("E", []), { ok: true }));
+      await t.undo();
+      const want = away ? ["「所有收藏夹」撤销中断（剩余 1 个在各收藏夹的最近取消收藏里）：网络错误", 0] : ["撤销中断（剩余 1 个可再按 U 重试）：网络错误", 1];
+      assert.deepStrictEqual([toasts.at(-1), t.S.undo.length], want, away ? "elsewhere: told only" : "here: U again");
+    }
     t.askConfirm = savedAsk;
     t.el.confirmBody = savedBody;
     t.S.selected.clear();
