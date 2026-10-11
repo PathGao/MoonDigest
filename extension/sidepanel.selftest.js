@@ -172,28 +172,40 @@ const page = (id) => ({ ok: true, payload: { url: `https://example.com/${id}`, t
   }
 
   {
-    // 分拣台's viewer asks for AI 总结 with a video reference: the prompt lands in that video's conversation,
-    // not in a new one, which would fall back to the tab's own page (分拣台).
-    const calls = [];
+    // AI 总結 from 分拣台's viewer (a video reference), the popup, the player ✦ or 专注模式: a video with a saved
+    // conversation opens it and nothing is filled; only one without gets the prompt. The viewer's prompt lands in the
+    // video's own conversation, not a new one, which would fall back to the tab's own page (分拣台).
+    const realStart = ctx.startNewConversation;
+    const realFill = ctx.fillPrompt;
+    const realOpen = ctx.openRequestedVideoContext;
+    const realLoad = ctx.loadConversationById;
+    let calls = [];
+    let saved = false;
     activeTab = { id: 7, url: "chrome-extension://test/triage/triage.html" };
-    ctx.openRequestedVideoContext = async (ref) => calls.push(["open", ref.videoId]);
+    ctx.openRequestedVideoContext = async (ref) => (calls.push(["open", ref.videoId]), saved);
     ctx.startNewConversation = async () => calls.push(["new"]);
     ctx.fillPrompt = (text) => calls.push(["fill", text]);
-    const req = { id: "q1", tabId: 7, prompt: "总结", createdAt: Date.now(), contextRef: { site: "bilibili", videoId: "BV1xx" } };
-    assert.strictEqual(await ctx.handlePlayerAiQuickActionRequest(req), true);
-    assert.deepStrictEqual(calls, [["open", "BV1xx"], ["fill", "总结"]]);
-  }
+    ctx.loadConversationById = async (id) => calls.push(["load", id]);
+    const req = (extra) => ({ id: `q${Math.random()}`, tabId: activeTab.id, prompt: "总结", createdAt: Date.now(), ...extra });
+    const viewer = { contextRef: { site: "bilibili", videoId: "BV1xx" } };
+    assert.strictEqual(await ctx.handlePlayerAiQuickActionRequest(req(viewer)), true);
+    assert.deepStrictEqual(calls.splice(0), [["open", "BV1xx"], ["fill", "总结"]]);
+    saved = true;
+    await ctx.handlePlayerAiQuickActionRequest(req(viewer));
+    assert.deepStrictEqual(calls.splice(0), [["open", "BV1xx"]], "the viewer's video has a conversation");
 
-  {
-    // The popup's AI 总结 over an opened history conversation, when the tab cannot be read: the fresh conversation does
-    // not keep the old video's context (the empty state shows the read error and 重试).
-    answer = async () => ({ ok: false, error: "读取失败" });
-    ctx.autosizeInput = () => {};
-    activeTab = { id: 9, url: "https://www.bilibili.com/video/BV1GJ411x7h7" };
-    vm.runInContext('savedConversations = []; activeStream = null; currentConversationMeta = { pinnedContext: true }; contextData = { url: "https://www.bilibili.com/video/BV1hh", isVideoContext: true }; currentContextKey = "video:BV1hh"', ctx);
-    await ctx.showLiveVideoConversation();
-    assert.deepStrictEqual([...vm.runInContext("[contextData, currentContextKey]", ctx)], [null, ""]);
-    vm.runInContext("currentConversationMeta = null", ctx);
+    const url = "https://www.bilibili.com/video/BV1GJ411x7h7";
+    activeTab = { id: 9, url };
+    answer = async () => ({ ok: true, payload: { url, title: "v", site: "bilibili", videoId: "BV1GJ411x7h7", isVideoContext: true } });
+    vm.runInContext("savedConversations = []; activeStream = null; currentConversationMeta = null", ctx);
+    await ctx.handlePlayerAiQuickActionRequest(req());
+    assert.deepStrictEqual(calls.splice(0), [["new"], ["fill", "总结"]], "no conversation yet: the summary prompt");
+    ctx.conv = { id: "c1", contextUrl: url, contextRef: { site: "bilibili", videoId: "BV1GJ411x7h7", url }, messages: [] };
+    vm.runInContext("savedConversations = [conv]", ctx);
+    await ctx.handlePlayerAiQuickActionRequest(req());
+    assert.deepStrictEqual(calls.splice(0), [["load", "c1"]], "the player ✦ opens the saved conversation");
+    vm.runInContext("savedConversations = []", ctx);
+    Object.assign(ctx, { startNewConversation: realStart, fillPrompt: realFill, openRequestedVideoContext: realOpen, loadConversationById: realLoad });
   }
 
   {

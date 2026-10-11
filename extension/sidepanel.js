@@ -357,8 +357,7 @@ function normalizePlayerAiQuickActionRequest(value) {
     prompt,
     tabId,
     createdAt: Number(value.createdAt) || Date.now(),
-    contextRef: value.contextRef && typeof value.contextRef === "object" ? value.contextRef : null,
-    showSaved: value.showSaved === true
+    contextRef: value.contextRef && typeof value.contextRef === "object" ? value.contextRef : null
   };
 }
 
@@ -389,45 +388,40 @@ async function handlePlayerAiQuickActionRequest(value, { fromStorageChange = tru
     await chrome.storage.local.remove(PLAYER_AI_QUICK_ACTION_STORAGE_KEY).catch(() => null);
   }
 
-  if (request.showSaved) {
-    await showLiveVideoConversation();
-    return true;
-  }
+  // AI 总结 (popup, player ✦, 专注模式, 分拣台's viewer) on a video that already has a conversation opens its latest one;
+  // only a video without one gets the summary prompt.
   if (request.contextRef) {
-    await openRequestedVideoContext(request.contextRef);
     // A new conversation would fall back to this tab's own page (分拣台), so the prompt goes into the video's one.
-    fillPrompt(request.prompt);
+    if (!(await openRequestedVideoContext(request.contextRef))) fillPrompt(request.prompt);
     return true;
   }
-  await runPlayerAiQuickActionPrompt(request.prompt);
+  if (!(await showLiveVideoConversation())) await runPlayerAiQuickActionPrompt(request.prompt);
   return true;
 }
 
 // The triage and history pages hand over a video that is not open: continue its latest conversation,
-// else start one bound to it, and resolve the context like a history conversation.
+// else start one bound to it, and resolve the context like a history conversation. True when one was continued.
 async function openRequestedVideoContext(ref) {
   await detachActiveStream();
   const contextRef = normalizeConversationContextRef(ref);
   const placeholder = buildContextPlaceholder(contextRef);
-  if (!(await restoreLatestConversationForCurrentContext(placeholder, buildContextKey(placeholder)))) {
+  const restored = await restoreLatestConversationForCurrentContext(placeholder, buildContextKey(placeholder));
+  if (!restored) {
     applyConversation({ id: "", contextKey: "", contextTitle: placeholder.title, contextUrl: placeholder.url, contextRef, messages: [] });
   }
   renderInitialState();
   showConversationContextNotice("正在加载原视频信息…");
   await hydratePinnedConversationContext();
+  return restored;
 }
 
-// The popup's AI 总结 on a video that already has a conversation: show its latest one, even over an unrelated
-// history conversation the open panel was showing.
+// The tab's video has a saved conversation: show its latest one, even over an unrelated history conversation the
+// open panel was showing. False when it has none.
 async function showLiveVideoConversation() {
   await loadContextState({ silent: true });
   const latest = savedConversations.find((item) => doesConversationMatchCurrentContext(item, liveContextData, liveContextKey));
-  if (latest) {
-    await loadConversationById(latest.id);
-    return;
-  }
-  await detachActiveStream();
-  showLiveContextInFreshConversation();
+  if (latest) await loadConversationById(latest.id);
+  return Boolean(latest);
 }
 
 async function runPlayerAiQuickActionPrompt(prompt) {

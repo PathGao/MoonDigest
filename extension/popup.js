@@ -169,21 +169,8 @@ function bindEvents() {
     }
     setStatus("正在打开侧边栏…", false, true);
     setBusy(el.summaryBtn, true, "打开中…");
-    // A video that already has a conversation gets the panel showing that conversation, no new prompt.
-    // A panel already open on another conversation switches to it through the same request the panel reads.
-    if (await hasConversationFor(tab.url)) {
-      try {
-        await chrome.sidePanel.open({ tabId: tab.id });
-        const createdAt = Date.now();
-        await chrome.storage.local.set({ [BocLimits.KEYS.playerAiQuickAction]: { id: `popup-${createdAt}`, tabId: tab.id, prompt: "", createdAt, showSaved: true } });
-        window.setTimeout(() => window.close(), 80);
-      } catch (error) {
-        setBusy(el.summaryBtn, false);
-        setStatus(`打开侧边栏失败：${error?.message || error}`, true);
-      }
-      return;
-    }
-    // Same path as the player AI button: background opens the side panel and queues the one-click prompt.
+    // Same path as the player AI button: background opens the side panel and queues the request; the panel shows the
+    // video's conversation when it has one, else fills the one-click prompt.
     const resp = await sendToRuntime({ type: "player-ai-quick-action", tabId: tab.id, source: "popup" }).catch((error) => ({ ok: false, error: error.message }));
     if (!resp?.ok) {
       setBusy(el.summaryBtn, false);
@@ -216,17 +203,6 @@ async function refreshFromTab() {
     return;
   }
   render(resp?.payload || latestPayload);
-}
-
-// Same video and part as the side panel's own match (doesTabMatchContextUrl).
-async function hasConversationFor(url) {
-  const ref = BocSites.parseRef(url);
-  const key = BocLimits.KEYS.aiConversations;
-  const list = (await chrome.storage.local.get(key).catch(() => ({})))[key];
-  return Boolean(ref) && Array.isArray(list) && list.some((item) => {
-    const other = BocSites.parseRef(item?.contextUrl || item?.contextRef?.url || "");
-    return other?.site === ref.site && other.id === ref.id && (other.part?.index || 1) === (ref.part?.index || 1);
-  });
 }
 
 async function ensurePayload() {
