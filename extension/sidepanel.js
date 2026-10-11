@@ -409,6 +409,8 @@ async function openRequestedVideoContext(ref) {
   if (!restored) {
     applyConversation({ id: "", contextKey: "", contextTitle: placeholder.title, contextUrl: placeholder.url, contextRef, messages: [] });
   }
+  // Until the video's context resolves, its placeholder has no subtitles: say it is loading, not 「没有字幕」.
+  if (contextData && !currentConversationMeta?.resolvedContext) contextData = { ...contextData, pending: true };
   renderInitialState();
   showConversationContextNotice("正在加载原视频信息…");
   await hydratePinnedConversationContext();
@@ -431,10 +433,7 @@ async function runPlayerAiQuickActionPrompt(prompt) {
     els.input?.focus?.();
     return;
   }
-  // startNewConversation clears the input, so a draft the user was typing is put back instead of replaced.
-  const draft = els.input.value;
   await startNewConversation();
-  els.input.value = draft;
   fillPrompt(text);
 }
 
@@ -1184,6 +1183,11 @@ function applyConversation(conversation) {
     return;
   }
   conversationEpoch += 1;
+  // The input draft belongs to the conversation: another one starts empty (restartChat clears it for a fresh one).
+  if (!conversation.id || conversation.id !== currentConversationId) {
+    els.input.value = "";
+    autosizeInput();
+  }
   currentConversationId = conversation.id;
   currentConversationMeta = {
     id: conversation.id,
@@ -1249,10 +1253,7 @@ function adoptLiveContext() {
 // restartChat also drops the reply in flight without saving it, so it cannot bring the conversation back.
 function showLiveContextInFreshConversation() {
   adoptLiveContext();
-  const draft = els.input.value;
   restartChat();
-  els.input.value = draft;
-  autosizeInput();
   renderInitialState();
 }
 
@@ -1440,10 +1441,7 @@ async function followLiveVideo(context) {
   }
   contextData = { ...context };
   currentContextKey = buildContextKey(context);
-  const draft = els.input.value;
   restartChat();
-  els.input.value = draft;
-  autosizeInput();
   await restoreLatestConversationForCurrentContext(contextData, currentContextKey);
   if (!chatHistory.length) summaryFillEpoch = conversationEpoch;
   renderHistoryList();
@@ -1634,9 +1632,11 @@ async function refreshContextManually() {
   }
 }
 
+// A reply in flight goes on into the conversation it was asked in, as when switching video or conversation.
 async function startNewConversation() {
   hidePresetPopover();
   hideHistoryPopover();
+  await detachActiveStream();
   await loadContextState({ forceRefresh: true, silent: true });
   adoptLiveContext();
   restartChat();
@@ -1933,6 +1933,12 @@ async function hydratePinnedConversationContext({ silent = false } = {}) {
   }
   if (!response?.ok || !response.payload) {
     removeConversationContextNotice();
+    // Nothing is loading any more: the error below is the state, and a send tries again.
+    if (contextData?.pending) {
+      contextData = { ...contextData, pending: false };
+      updateContextChip();
+      suggestionsNode?.replaceChildren();
+    }
     if (!silent) {
       // Deleted or hidden on B站 (as the 分拣台 and 视频记录 tell it): no retry will bring it back.
       showConversationContextError(BocSites.isBiliVideoGone(response?.code) ? "视频已失效，这段对话只能查看，不能继续提问。" : `读取原视频失败：${response?.error || "未知错误"}`);

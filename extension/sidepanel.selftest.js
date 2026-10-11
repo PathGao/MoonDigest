@@ -308,6 +308,68 @@ const page = (id) => ({ ok: true, payload: { url: `https://example.com/${id}`, t
       ctx.fillPrompt = real.fillPrompt;
     }
 
+    // 新对话 while the AI is still answering keeps the reply: it goes on into the conversation it was asked in, like a
+    // video or conversation switch. Only a delete drops it.
+    {
+      const realLoad = ctx.loadContextState;
+      ctx.loadContextState = async () => true;
+      ctx.restartChat = real.restartChat;
+      let closed = 0;
+      ctx.stream = { prompt: "还在回答", raw: "", port: { disconnect: () => closed++ }, context: ctx.shown };
+      vm.runInContext("savedConversations = []; chatHistory = []; currentConversationId = ''; currentConversationMeta = null; contextData = shown; activeStream = stream", ctx);
+      await real.startNewConversation();
+      assert.strictEqual(closed, 0, "the reply is not cut off");
+      assert.deepStrictEqual([...vm.runInContext("[activeStream, savedConversations[0]?.messages[0]?.content, stream.conversationId === savedConversations[0]?.id, chatHistory.length]", ctx)], [null, "还在回答", true, 0]);
+      ctx.loadContextState = realLoad;
+    }
+
+    // The input draft belongs to the conversation: a switch of any kind starts the next one empty (AI 总结 puts its
+    // prompt there); within one conversation it stays.
+    {
+      const input = vm.runInContext("els.input", ctx);
+      input.value = "草稿";
+      await ctx.followLiveVideo(ctx.shown);
+      assert.strictEqual(input.value, "", "following another video");
+      vm.runInContext('currentConversationId = "c1"', ctx);
+      input.value = "草稿";
+      ctx.applyConversation({ id: "c1", messages: [] });
+      assert.strictEqual(input.value, "草稿", "the same conversation again");
+      ctx.applyConversation({ id: "c2", messages: [] });
+      assert.strictEqual(input.value, "", "another conversation");
+      input.value = "草稿";
+      ctx.showLiveContextInFreshConversation();
+      assert.strictEqual(input.value, "", "the shown conversation deleted");
+      input.value = "草稿";
+      const realStart = ctx.startNewConversation;
+      ctx.startNewConversation = async () => real.restartChat();
+      await ctx.runPlayerAiQuickActionPrompt("总结");
+      assert.strictEqual(input.value, "总结", "AI 总结 replaces the draft");
+      ctx.startNewConversation = realStart;
+      ctx.restartChat = () => {};
+    }
+
+    // A video opened from 分拣台 or 视频记录 is loading until its context resolves: no 「没有字幕」, no AI 总结, and the
+    // 快捷追问 say why they wait. A failed load ends it, and the error says what happened.
+    {
+      let pendingAtLoad;
+      ctx.hydratePinnedConversationContext = async () => (pendingAtLoad = vm.runInContext("contextData.pending", ctx));
+      ctx.restoreLatestConversationForCurrentContext = async () => false;
+      ctx.showConversationContextNotice = () => {};
+      vm.runInContext("activeStream = null; liveContextData = null; liveContextKey = ''", ctx);
+      await ctx.openRequestedVideoContext({ site: "bilibili", videoId: "BV1xx411c7mD", url: v("BV1xx411c7mD"), title: "t" });
+      assert.strictEqual(pendingAtLoad, true);
+      assert.strictEqual(ctx.followupBlockReason(), "正在读取视频字幕…");
+      ctx.hydratePinnedConversationContext = real.hydratePinnedConversationContext;
+      const realResolve = ctx.resolveConversationContext;
+      ctx.resolveConversationContext = async () => ({ ok: false, error: "x" });
+      ctx.showConversationContextError = () => {};
+      ctx.removeConversationContextNotice = () => {};
+      assert.strictEqual(await ctx.hydratePinnedConversationContext(), false);
+      assert.strictEqual(vm.runInContext("contextData.pending", ctx), false);
+      ctx.resolveConversationContext = realResolve;
+      ctx.restoreLatestConversationForCurrentContext = async () => {};
+    }
+
     // 导出对话 is disabled with its reason until there is a question with an answer.
     ctx.renderFollowups = () => {};
     const exportState = (messages) => vm.runInContext(`activeStream = null; chatHistory = ${JSON.stringify(messages)}; setStreamingUiState(false); [els.exportBtn.disabled, els.exportBtn.title]`, ctx);
