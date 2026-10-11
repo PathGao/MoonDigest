@@ -173,8 +173,8 @@ process.on("exit", (code) => {
   // The user is told too, under the reply: no subtitles, or they failed to load.
   const noticesFor = (extra) => [...ctx.buildAiMessages({ context: { isVideoContext: true, title: "T", ...extra }, userPrompt: "q" }).notices];
   assert.deepStrictEqual(noticesFor({}), ["这期视频没有字幕，只根据标题、简介和评论回答"]);
-  assert.deepStrictEqual(noticesFor({ subtitleFailure: "429" }), ["字幕没取到，只根据标题、简介和评论回答"]);
-  assert.deepStrictEqual(noticesFor({ subtitleFailure: "要登录", subtitleNeedLogin: true }), ["没有登录 B站，拿不到字幕，只根据标题、简介和评论回答"]);
+  assert.deepStrictEqual(noticesFor({ subtitleFailure: "429" }), ["字幕抓取失败，只根据标题、简介和评论回答"]);
+  assert.deepStrictEqual(noticesFor({ subtitleFailure: "要登录", subtitleNeedLogin: true }), ["B站要求登录后才提供字幕，只根据标题、简介和评论回答"]);
   assert.deepStrictEqual(noticesFor({ subtitleMarkdown: "字幕" }), [], "with subtitles there is nothing to say");
 
   // A long subtitle is sampled across the whole video and capped; the model and the user are both told.
