@@ -657,6 +657,7 @@ function bindSettingsWatcher() {
     }
     if (
       !changes.enablePlayerAiQuickAction &&
+      !changes.aiProviders &&
       !changes.playerAiQuickPrompt &&
       !changes.readerTheme &&
       !changes.readerFontScale &&
@@ -3446,7 +3447,7 @@ function syncPlayerAiQuickActionButton() {
     existing = null;
   }
   const existingWrap = existing?.closest(".boc-player-ai-wrap");
-  if (!state.settings?.enablePlayerAiQuickAction || state.readingViewOpen || isReaderMode()) {
+  if (!state.settings?.enablePlayerAiQuickAction || !state.settings.hasAiProvider || state.readingViewOpen || isReaderMode()) {
     removePlayerAiQuickActionButton();
     return;
   }
@@ -4247,14 +4248,26 @@ function requestOpenOptions() {
 }
 
 async function getSettings() {
+  const hasAiProvider = await loadHasAiProvider();
   try {
     const response = await sendRuntimeMessage({ type: "get-settings" });
     if (!response?.ok) {
-      return { ...DEFAULT_SETTINGS };
+      return { ...DEFAULT_SETTINGS, hasAiProvider };
     }
-    return { ...DEFAULT_SETTINGS, ...(response.settings || {}) };
+    return { ...DEFAULT_SETTINGS, ...(response.settings || {}), hasAiProvider };
   } catch (error) {
-    return { ...DEFAULT_SETTINGS };
+    return { ...DEFAULT_SETTINGS, hasAiProvider };
+  }
+}
+
+// The player's AI button waits for a platform so it does not sit on every video unasked; get-settings does not carry
+// the platform list. The focus-mode one always shows: opening focus mode is already asking to read the video.
+async function loadHasAiProvider() {
+  try {
+    const { aiProviders } = await chrome.storage.sync.get({ aiProviders: [] });
+    return Array.isArray(aiProviders) && aiProviders.some((p) => p?.id && p.enabled !== false);
+  } catch {
+    return false;
   }
 }
 
