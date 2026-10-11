@@ -564,12 +564,20 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   assert.ok(t.el.listHeader.innerHTML.includes('aria-label="暂停中 0/1" disabled title="当前视频细看完就暂停" aria-description="当前视频细看完就暂停">暂停中 0/1</button>'), t.el.listHeader.innerHTML);
   t.S.group = null;
   assert.deepStrictEqual(plain(t.activityState()), { text: "标题粗看中 2/5", done: 2, total: 5, act: "stage1", actLabel: "暂停粗看", stopping: false, stuck: false });
-  Object.assign(t.S, { throttleUntil: Date.now() + 61000, throttleLabel: "B站限流卡住" });
+  t.S.waits = { stage1: { until: Date.now() + 61000, label: "AI 平台限流卡住" } };
   const waiting = t.activityState();
-  assert.ok(waiting.stuck && waiting.text.startsWith("B站限流卡住，") && waiting.act === "stage1", "a wait shows its countdown and keeps 暂停粗看");
+  assert.ok(waiting.stuck && waiting.text.startsWith("AI 平台限流卡住，") && waiting.act === "stage1", "a wait shows its countdown and keeps 暂停粗看");
+  // L1: B站 and AI waits are kept per job: 细看 waiting on B站 shows its own countdown, not 粗看's AI one.
+  t.S.group = { bvids: ["BV207"], stop: false, mediaId: String(t.S.mediaId), items: t.S.itemMap, text: "字幕细看 1/1" };
+  assert.strictEqual(t.activityState().text, "字幕细看 1/1", "粗看's AI wait is not 细看's");
+  t.S.waits.group = { until: Date.now() + 300000, label: "B站限流卡住" };
+  assert.ok(t.activityState().text.startsWith("B站限流卡住，5:00") || t.activityState().text.startsWith("B站限流卡住，4:59"), t.activityState().text);
+  delete t.S.waits.group;
+  t.S.group = null;
+  assert.ok(t.activityState().text.startsWith("AI 平台限流卡住，"), "细看's wait ending leaves 粗看's");
   t.S.stage1 = { ...t.S.stage1, running: false, text: "" };
   assert.ok(t.activityState().stuck && !t.activityState().act, "a wait alone has no button");
-  t.S.throttleUntil = 0;
+  t.S.waits = {};
   assert.strictEqual(t.activityState(), null, "nothing running hides the pill");
   // 观看进度: pages read while this page waits on the read; B站 risk control shows the wait, and 刷新 during it says so.
   t.S.seenCfg.on = true;
@@ -1663,6 +1671,11 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   delete store.triage_snapshot_2.intro;
   await t.openFolder("2");
   assert.strictEqual(synced, 2, "a snapshot without the intro syncs instead");
+  // S2: a failed first read still resets the step and chips, so the page is not folder B with A's tabs and filters.
+  Object.assign(t.S, { tab: "fine", classFilter: { coarse: "all", fine: "drop", read: "all" } });
+  t.syncFolder = async () => false;
+  await t.openFolder("2");
+  assert.deepStrictEqual([t.S.tab !== "fine", t.S.classFilter.fine], [true, "all"], "a failed open drops the last folder's step and chips");
 
   // Changed ids fetch only the newest pages: removed videos leave, added ones come from the head, the rest from the cache.
   assert.deepStrictEqual(plain(t.mergeHead([item(8)], [item(2), item(3)], ["BV2", "BV3"], ["BV8", "BV2"]).map((it) => it.bvid)), ["BV8", "BV2"]);
@@ -1873,12 +1886,11 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
       return ++calls === 1 ? { ok: false, code: "THROTTLED", error: "412" } : { ok: true, data: { items: [item(7)], ids: ["BV7"], info: { intro: "" } } };
     };
     const realWait = t.throttleWait;
-    t.throttleWait = async (code) => {
-      t.S.throttleUntil = Date.now() + 90000;
-      t.S.throttleLabel = "B站限流卡住";
+    t.throttleWait = async (code, keepGoing, job) => {
+      t.S.waits[job] = { until: Date.now() + 90000, label: "B站限流卡住" };
       const a = t.activityState();
       seen.push([a.text, a.stuck, a.actLabel]);
-      t.S.throttleUntil = 0;
+      delete t.S.waits[job];
     };
     t.S.loadAll = { lists: {}, check: [], checkTotal: 0, queue: ["6"], paused: false, running: false, error: "", partial: 0 };
     await t.runLoadAll(t.S.folderToken);

@@ -286,8 +286,9 @@ const S = {
   stage1: { running: false, stop: false, done: 0, total: 0 },
   stage1Skip: new Set(),
   analyzing: new Set(),
-  throttleUntil: 0,
-  throttleLabel: "",
+  // B站 / AI limit waits, one per job ("stage1", "group", "write", "load", "check"): { until, label }. Each job shows
+  // and clears only its own countdown.
+  waits: {},
   seenRead: { busy: false, pages: 0, until: 0 }, // the background's read of the watch history (triage_seen_meta)
   undo: [], // 收藏夹's steps; a folder switch clears them
   modeUndo: [], // 关注's steps ({ kind: "mode" }): U undoes only the steps of the mode it is pressed in
@@ -1148,7 +1149,8 @@ async function openFolder(mediaId) {
   if (all) ok = await openAll();
   else if (removed) ok = await openRemoved();
   else ok = (await openCached(token)) || (token === S.folderToken && (await syncFolder({ force: true })));
-  if (!ok) return;
+  // A failed first read (limit, offline) still leaves the last folder's step and chips behind; a later folder owns the page.
+  if (!ok && token !== S.folderToken) return;
   S.tab = removed ? "read" : currentStage(stageCounts());
   S.classFilter = { coarse: "all", fine: "all", read: "all" };
   S.focused = visibleItems()[0]?.bvid || "";
@@ -1411,7 +1413,7 @@ async function checkRemoved(token) {
     const r = await send({ type: "triage-folder-ids", mediaId: id });
     if (token !== S.folderToken) return;
     if (!r.ok && THROTTLES[r.code]) {
-      await throttleWait(r.code, keepGoing);
+      await throttleWait(r.code, keepGoing, "check");
       i--;
       continue;
     }
@@ -1445,7 +1447,7 @@ async function checkWhere(token) {
     const r = await send({ type: "triage-fav-where", aid: it.aid, mid });
     if (token !== S.folderToken) break;
     if (!r.ok && THROTTLES[r.code]) {
-      await throttleWait(r.code, keepGoing);
+      await throttleWait(r.code, keepGoing, "check");
       i--;
       continue;
     }
@@ -1612,7 +1614,7 @@ async function runLoadAll(token) {
       const r = await send({ type: "triage-folder-ids", mediaId: id });
       if (token !== S.folderToken) return;
       if (!r.ok && THROTTLES[r.code]) {
-        await throttleWait(r.code, keepGoing);
+        await throttleWait(r.code, keepGoing, "load");
         continue;
       }
       if (!r.ok) {
@@ -1648,7 +1650,7 @@ async function runLoadAll(token) {
     L.current = "";
     if (token !== S.folderToken) return;
     if (!r.ok && THROTTLES[r.code]) {
-      await throttleWait(r.code, keepGoing);
+      await throttleWait(r.code, keepGoing, "load");
       continue;
     }
     if (!r.ok) {
@@ -1835,8 +1837,7 @@ function renderFolderHead() {
 // What is running, in one place on every tab: the first that applies wins. done/total draws a bar,
 // act puts a button on it (handled like the step bar's buttons), warn turns it amber.
 function activityState() {
-  const left = S.throttleUntil - Date.now();
-  const wait = UI.waitText(S.throttleLabel, Math.ceil(left / 1000));
+  let wait = waitOf("group");
   if (S.group) {
     const done = groupDone(S.group);
     const where = runWhere(S.group);
@@ -1845,6 +1846,7 @@ function activityState() {
   }
   if (S.stage1.running) {
     const where = runWhere(S.stage1);
+    const wait = waitOf("stage1");
     const text = where ? `标题粗看中 ${S.stage1.done}/${S.stage1.total}${where}` : S.stage1.text;
     return { text: wait || text, done: S.stage1.done, total: S.stage1.total, act: "stage1", actLabel: S.stage1.stop ? "暂停中" : "暂停粗看", stopping: S.stage1.stop, stuck: Boolean(wait) };
   }
@@ -1854,13 +1856,16 @@ function activityState() {
   if (unfav) return { text: wait || `取消收藏中${unfavWhere(unfav)} ${unfav.done}/${unfav.total}${runWhere(unfav)}`, done: unfav.done, total: unfav.total, stuck: Boolean(wait) };
   const w = S.write;
   if (w.running) {
+    const wait = waitOf("write");
     const text = `${w.md ? "生成" : "写入"}笔记 ${w.done}/${w.total}${runWhere(w)}`;
     return { text: wait || text, done: w.done, total: w.total, act: "write", actLabel: w.stop ? "停止中" : "停止", stopping: w.stop, stuck: Boolean(wait) };
   }
-  const all = loadAllActivity(wait);
+  const all = loadAllActivity(waitOf("load"));
   if (all) return all;
   const c = S.removedCheck;
+  wait = waitOf("check");
   if (c && !c.error) return { text: wait || `核对${c.what} ${c.done}/${c.total}`, done: c.done, total: c.total, stuck: Boolean(wait) };
+  wait = Object.keys(S.waits).map(waitOf).find(Boolean);
   if (wait) return { text: wait, stuck: true };
   if (S.syncing) return { text: `刷新中…${pageText(S.mediaId)}` };
   if (S.ai.running) {
@@ -1884,7 +1889,7 @@ function renderStatus() {
 }
 
 function tick() {
-  if (S.throttleUntil) renderStatus();
+  if (Object.keys(S.waits).length) renderStatus();
   if (!S.seenRead.until) return;
   renderStatus();
   // The wait is over: read again, as the pill said.
@@ -3166,15 +3171,15 @@ function aiItem(it) {
   return { bvid: it.bvid, title: it.title, upper: it.upper, duration: it.duration, pubdate: it.pubdate, intro: it.intro };
 }
 
-async function throttleWait(code, keepGoing) {
+async function throttleWait(code, keepGoing, job) {
   const [ms, label] = THROTTLES[code];
-  S.throttleUntil = Date.now() + ms;
-  S.throttleLabel = label;
+  S.waits[job] = { until: Date.now() + ms, label };
   renderStatus();
   await sleepWhile(ms, keepGoing);
-  S.throttleUntil = 0;
+  delete S.waits[job];
   renderStatus();
 }
+const waitOf = (job) => (S.waits[job] ? UI.waitText(S.waits[job].label, Math.ceil((S.waits[job].until - Date.now()) / 1000)) : "");
 
 // What 标题粗看 counts and sends: the 未分析 videos listed now (search and filters applied), not the hidden ones.
 const stage1Pending = () => S.items.filter((it) => stageOf(it) === "none" && !S.stage1Skip.has(it.bvid) && passFilter(it));
@@ -3220,7 +3225,7 @@ async function runStage1(list = stage1Pending()) {
       if (r.code === "AI_TIMEOUT" && ++timeouts < AI_TIMEOUT_TRIES) continue;
       if (r.code === "AI_THROTTLED" && aiWaits++ === AI_THROTTLE_WAITS) r = aiGaveUp();
       if (THROTTLES[r.code]) {
-        await throttleWait(r.code, keepGoing);
+        await throttleWait(r.code, keepGoing, "stage1");
         continue;
       }
       handleAiError(r.error, r.code);
@@ -3298,7 +3303,7 @@ async function runGroup() {
     if (!r.ok && r.code === "AI_THROTTLED" && aiWaits++ === AI_THROTTLE_WAITS) r = aiGaveUp();
     if (!r.ok && THROTTLES[r.code]) {
       render();
-      await throttleWait(r.code, keepGoing);
+      await throttleWait(r.code, keepGoing, "group");
       continue;
     }
     if (!r.ok && aiEnds(r)) {
@@ -3900,7 +3905,7 @@ async function runWrite(md = false) {
     // B站 risk control: wait as 粗看 / 细看 do, then the same video again.
     if (!r.ok && THROTTLES[r.code]) {
       el.writeProgress.textContent = `${THROTTLES[r.code][1]}，等待后重试：${it.title}`;
-      await throttleWait(r.code, keepGoing);
+      await throttleWait(r.code, keepGoing, "write");
       i--;
       continue;
     }
