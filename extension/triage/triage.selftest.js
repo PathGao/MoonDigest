@@ -38,6 +38,7 @@ const ctx = vm.createContext({
   TextEncoder,
   TagDialogs,
   __TRIAGE_THROTTLE_MS: 30, // B站限流 waits this long here, not 10 minutes
+  __TRIAGE_SETTLE_MS: 40, // a written folder settles this fast here, not in 3 s
   setTimeout: (f) => setImmediate(f),
   clearTimeout: (id) => clearImmediate(id),
   // No #tagPicker: tag-picker.js gives only its pure part; the tests stand in for the dialog (pickWith).
@@ -81,7 +82,7 @@ assert.deepStrictEqual(pageScripts.filter((m) => /type="module"/.test(m[1])).map
 for (const [, attrs, src] of pageScripts) {
   if (!/type="module"/.test(attrs) && !src.endsWith("/tag-dialogs.js")) vm.runInContext(fs.readFileSync(path.join(__dirname, src), "utf8"), ctx);
 }
-vm.runInContext(`${source}\n;globalThis.S = S; globalThis.K = K; globalThis.el = el; globalThis.verdictBadge = verdictBadge; globalThis.seenText = seenText; globalThis.staleCoarse = staleCoarse; globalThis.staleFine = staleFine; globalThis.groupDone = groupDone; globalThis.mergeHead = mergeHead; globalThis.isFinished = isFinished; globalThis.pointerMoved = pointerMoved; globalThis.inferFrom = inferFrom; globalThis.hasAllTags = hasAllTags; globalThis.sortItems = sortItems; globalThis.sortOf = sortOf; globalThis.visibleItems = visibleItems;`, ctx);
+vm.runInContext(`${source}\n;globalThis.S = S; globalThis.K = K; globalThis.el = el; globalThis.verdictBadge = verdictBadge; globalThis.seenText = seenText; globalThis.staleCoarse = staleCoarse; globalThis.staleFine = staleFine; globalThis.groupDone = groupDone; globalThis.mergeHead = mergeHead; globalThis.isFinished = isFinished; globalThis.pointerMoved = pointerMoved; globalThis.inferFrom = inferFrom; globalThis.hasAllTags = hasAllTags; globalThis.sortItems = sortItems; globalThis.sortOf = sortOf; globalThis.visibleItems = visibleItems; globalThis.fav = fav;`, ctx);
 const t = ctx;
 Object.assign(t, t.TriageCore);
 vm.runInContext("globalThis.plainClick = plainClick;", ctx);
@@ -160,7 +161,7 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     assert.strictEqual(t.activityState().text, unfavCalls === 1 ? "取消收藏中 0/45" : `取消收藏中 ${(unfavCalls - 1) * 20}/45（A）`);
     return { ok: true };
   };
-  await t.batchUnfav(many);
+  await t.fav.unfavMany(many);
   assert.strictEqual(unfavCalls, 3, "the last chunk is still sent after the switch");
   const savedA = store[t.K.decisions("A")];
   assert.strictEqual(Object.keys(savedA).length, 45, "every chunk is recorded under folder A");
@@ -176,7 +177,7 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   assert.ok(t.recentUnfavHtml().includes(`data-refav-batch="${savedA.BV0.batch}"`) && t.recentUnfavHtml().includes("批量取消收藏 45 个"));
   const refavAids = [];
   handlers["triage-refav"] = (m) => (refavAids.push(m.aid), { ok: true });
-  await t.refavBatch(savedA.BV0.batch);
+  await t.fav.refavBatch(savedA.BV0.batch);
   assert.strictEqual(refavAids.length, 45, "the batch, not the single one");
   assert.deepStrictEqual(Object.keys(store[t.K.decisions("A")]), [], "the stored records are gone");
   assert.ok(t.S.decisions.BVsolo && toasts.at(-1) === "已重新收藏这批 45 个", toasts.at(-1));
@@ -190,7 +191,7 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     if (++a2Calls === 2) openFake("A2", many);
     return { ok: true };
   };
-  await t.batchUnfav(many);
+  await t.fav.unfavMany(many);
   assert.strictEqual(Object.keys(store[t.K.decisions("A2")]).length, 45, "the first chunk's records survive");
   assert.strictEqual(t.S.undo.length, 1, "back in its folder, the batch is undoable with U");
 
@@ -201,14 +202,18 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   assert.ok(t.recentUnfavHtml().includes('data-refav="BV0"'));
   handlers["triage-refav"] = () => ({ ok: true });
   t.syncFolder = async () => true;
-  const settled = () => vm.runInContext("clearTimeout(deferredRead?.timer); deferredRead = null; for (const k in lastWrite) delete lastWrite[k];", ctx);
-  settled();
-  await t.refavRecent("BV7");
+  // Waits out the settle window (__TRIAGE_SETTLE_MS) and drops a read deferred meanwhile.
+  const settled = async () => {
+    await new Promise((r) => setTimeout(r, 50));
+    vm.runInContext("clearTimeout(deferredRead?.timer); deferredRead = null;", ctx);
+  };
+  await settled();
+  await t.fav.refav("BV7");
   assert.deepStrictEqual(plain(sent.at(-1)), { type: "triage-refav", mediaId: "A", aid: 1007 });
   assert.ok(!("BV7" in store[t.K.decisions("A")]), "re-favorited video leaves the recent list");
-  // X10: it goes through refavMany, so the folder is marked written and the read after it waits for B站 to catch up.
-  assert.ok(t.writingTo("A"), "the read after a 重新收藏 waits for B站 to catch up");
-  settled();
+  // X10: the folder counts as written, so the read after it waits for B站 to catch up.
+  assert.ok(t.fav.state().writing("A"), "the read after a 重新收藏 waits for B站 to catch up");
+  await settled();
   const capped = Object.fromEntries(Array.from({ length: 60 }, (_, i) => [`BVx${i}`, { action: "unfav", at: i, aid: i, title: "x" }]));
   openFake("C", [], capped);
   assert.strictEqual(t.recentUnfavs().length, 50, "the recent list is capped");
@@ -216,14 +221,21 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
 
   // B9: a refav failure partway through a batch undo keeps the rest undoable.
   const three = [item(1), item(2), item(3)];
-  openFake("D", three, Object.fromEntries(three.map((it) => [it.bvid, { action: "unfav", at: 1, aid: it.aid, title: it.title }])));
-  t.S.undo = [{ kind: "unfavMany", items: three.map(({ bvid, aid }) => ({ bvid, aid })) }];
+  const unfavThree = async (mediaId) => {
+    openFake(mediaId, three);
+    handlers["triage-unfav"] = () => ({ ok: true });
+    await t.fav.unfavMany(three);
+    assert.deepStrictEqual(Object.keys(store[t.K.decisions(mediaId)]), ["BV1", "BV2", "BV3"]);
+  };
+  await unfavThree("D");
   handlers["triage-refav"] = ({ aid }) => (aid === 1002 ? { ok: false, error: "网络错误" } : { ok: true });
   await t.undo();
   assert.deepStrictEqual(Object.keys(store[t.K.decisions("D")]), ["BV2", "BV3"]);
-  assert.deepStrictEqual(plain(t.S.undo), [{ kind: "unfavMany", items: [{ bvid: "BV2", aid: 1002 }, { bvid: "BV3", aid: 1003 }] }]);
-  handlers["triage-refav"] = () => ({ ok: true });
+  assert.strictEqual(toasts.at(-1), "撤销中断（已重新收藏 1 个，剩余 2 个可再按 U 重试）：网络错误");
+  const retried = [];
+  handlers["triage-refav"] = ({ aid }) => (retried.push(aid), { ok: true });
   await t.undo();
+  assert.deepStrictEqual(retried, [1002, 1003], "U again re-favorites the ones left");
   assert.deepStrictEqual(store[t.K.decisions("D")], {});
   assert.strictEqual(t.S.undo.length, 0);
 
@@ -240,7 +252,7 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     const refavs = [];
     openFake("R", [], { BV60: { action: "unfav", at: 1, aid: 1060, title: "视频60" } });
     handlers["triage-refav"] = limitedOnce(refavs);
-    await t.refavRecent("BV60");
+    await t.fav.refav("BV60");
     assert.deepStrictEqual(plain(refavs), [1060, 1060]);
     assert.ok(!("BV60" in store[t.K.decisions("R")]) && toasts.at(-1) === "已重新收藏《视频60》", toasts.at(-1));
     const moves = [];
@@ -249,14 +261,14 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     openFake("R", [item(61), item(62)]);
     handlers["triage-transfer"] = limitedOnce(moves);
     t.askTransfer = async () => ({ how: "copy", target: { id: "T" } });
-    await t.batchTransfer([item(61), item(62)]);
+    await t.fav.transfer([item(61), item(62)]);
     assert.deepStrictEqual(plain(moves), [[1061, 1062], [1061, 1062]]);
     assert.strictEqual(toasts.at(-1), "已复制 2 个到「目标」");
     assert.deepStrictEqual(pills, [["refav", "B站限流卡住，1:30 后重试", true], ["transfer", "B站限流卡住，1:30 后重试", true]]);
     Object.assign(t.S, saved);
     t.askTransfer = realAsk;
     t.waitOut = realWait;
-    settled();
+    await settled();
   }
 
   // G2: 稍后再看 goes one video per request; a B站 limit waits and retries the same one; a failure keeps the ones done
@@ -271,16 +283,18 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
       if (m.aids[0] === 1072 && !limited) return (limited = true), { ok: false, code: "THROTTLED", error: "412" };
       return m.aids[0] === 1074 ? { ok: false, error: "网络错误" } : { ok: true };
     };
-    await t.batchUnfav(five);
+    await t.fav.unfavMany(five);
     assert.deepStrictEqual(plain(tv), [[1071], [1072], [1072], [1073], [1074]]);
     assert.deepStrictEqual(Object.keys(store[t.K.decisions("toview")]), ["BV71", "BV72", "BV73"]);
-    assert.deepStrictEqual(plain(t.S.undo.at(-1).items.map((x) => x.bvid)), ["BV71", "BV72", "BV73"]);
     assert.strictEqual(toasts.at(-1), "批量取消收藏失败（已完成 3 个）：网络错误 · U 撤销已完成的");
+    const back = [];
+    handlers["triage-refav"] = (m) => (back.push(m.aid), { ok: true });
+    await t.undo();
+    assert.deepStrictEqual(back, [1071, 1072, 1073], "U re-favorites the ones done");
   }
 
   // A batch undo also runs to the end after another folder opens.
-  openFake("D", three, Object.fromEntries(three.map((it) => [it.bvid, { action: "unfav", at: 1, aid: it.aid, title: it.title }])));
-  t.S.undo = [{ kind: "unfavMany", items: three.map(({ bvid, aid }) => ({ bvid, aid })) }];
+  await unfavThree("D");
   let refavs = 0;
   handlers["triage-refav"] = () => {
     if (++refavs === 1) openFake("E", []);
@@ -289,30 +303,82 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   await t.undo();
   assert.deepStrictEqual([refavs, store[t.K.decisions("D")], toasts.at(-1)], [3, {}, "「D」已重新收藏 3 个"]);
 
-  // G7: while a 重新收藏 runs, no batch 取消收藏 / 移动 starts and U leaves the next batch undo for later.
+  // G7: one B站 batch write at a time. While a 重新收藏 runs (held here by a slow B站), no batch 取消收藏 / 移动 / 重新收藏
+  // starts and U leaves a step that writes to B站 for later; a single 重新收藏 waits too, so it cannot take over the run.
+  const ticks = async () => {
+    for (let i = 0; i < 20; i++) await new Promise((r) => setImmediate(r));
+  };
+  const holdNext = (type) => {
+    const h = { release: null };
+    handlers[type] = () => new Promise((r) => (h.release = () => (handlers[type] = () => ({ ok: true }), r({ ok: true }))));
+    return h;
+  };
   {
     openFake("D", three);
-    t.S.undo = [{ kind: "unfavMany", items: [{ bvid: "BV1", aid: 1001 }] }];
-    t.S.refavRun = { mediaId: "D", folder: "D", done: 1, total: 5 };
+    handlers["triage-unfav"] = () => ({ ok: true });
+    await t.fav.unfav("BV2");
+    await t.fav.unfavMany([three[0]]);
+    Object.assign(t.S.decisions, { BV8: { action: "unfav", at: 2, aid: 1008, title: "视频8" }, BV9: { action: "unfav", at: 1, aid: 1009, title: "视频9" } });
+    const h = holdNext("triage-refav");
+    const running = t.fav.refav("BV8");
+    await ticks();
     let asked = 0;
     const savedAsk = t.askConfirm;
     t.askConfirm = async () => (asked++, true);
-    await t.batchUnfav(three);
+    const [sentBefore, toastsBefore] = [sent.length, toasts.length];
+    await t.fav.unfavMany([three[2]]);
+    await t.fav.transfer([three[2]]);
+    await t.fav.refav("BV9");
+    assert.deepStrictEqual([asked, sent.length, toasts.length], [0, sentBefore, toastsBefore], "nothing asked, sent or told");
     await t.undo();
+    assert.deepStrictEqual([asked, sent.length, t.S.undo.length, toasts.at(-1)], [0, sentBefore, 2, "重新收藏还在跑，等它完成再撤销"]);
+    const html = t.recentUnfavHtml();
+    assert.ok(/data-refav="BV9"[^>]* disabled title="重新收藏还在跑，等它完成"/.test(html) && html.includes("重新收藏中…"), html);
+    h.release();
+    await running;
+    // The batch's step undone, the single 取消收藏's waits for the next run the same way.
+    await t.undo();
+    assert.deepStrictEqual([t.S.undo.length, toasts.at(-1)], [1, "已重新收藏 1 个"]);
+    const h2 = holdNext("triage-refav");
+    const again = t.fav.refav("BV9");
+    await ticks();
+    await t.undo();
+    assert.deepStrictEqual([t.S.undo.length, toasts.at(-1)], [1, "重新收藏还在跑，等它完成再撤销"]);
+    h2.release();
+    await again;
     t.askConfirm = savedAsk;
-    assert.deepStrictEqual([asked, t.S.undo.length, toasts.at(-1)], [0, 1, "重新收藏还在跑，等它完成再撤销"]);
-    // R1: a single 重新收藏 (its button or U on a single 取消收藏) waits too, so it cannot take over the batch's run.
-    const run = t.S.refavRun;
-    t.S.decisions.BV9 = { action: "unfav", at: 1, aid: 1009, title: "视频9" };
+    t.S.undo = [];
+  }
+  // While a batch 取消收藏 runs, 最近取消收藏's 重新收藏 is refused and says why on its button. D is not blocked by it:
+  // a video outside the batch goes; one the batch still has to write is refused, nothing sent.
+  {
+    const five = [1, 2, 3, 4, 5].map((n) => item(40 + n));
+    openFake("H", five, { BV9: { action: "unfav", at: 1, aid: 1009, title: "视频9" } });
+    const h = holdNext("triage-unfav");
+    const running = t.fav.unfavMany(five.slice(0, 3));
+    await ticks();
     const sentBefore = sent.length;
-    await t.refavRecent("BV9");
-    t.S.undo = [{ kind: "decision", bvid: "BV1", action: "unfav", prev: null, prevs: { D: null } }];
-    await t.undo();
-    assert.strictEqual(sent.length, sentBefore, "nothing sent to B站");
-    assert.ok(t.S.refavRun === run && t.S.undo.length === 1 && toasts.at(-1) === "重新收藏还在跑，等它完成再撤销");
-    assert.ok(/data-refav="BV9"[^>]* disabled title="重新收藏还在跑，等它完成"/.test(t.recentUnfavHtml()));
-    delete t.S.decisions.BV9;
-    t.S.refavRun = null;
+    await t.fav.refav("BV9");
+    await t.fav.unfav("BV43");
+    assert.strictEqual(sent.length, sentBefore, "nothing sent");
+    assert.ok(/data-refav="BV9"[^>]* disabled title="批量取消收藏还在跑，等它完成"/.test(t.recentUnfavHtml()), t.recentUnfavHtml());
+    assert.ok(t.cardHtml(five[2], false, "").includes("正在取消收藏…"), "a video the batch still has to write shows it");
+    handlers["triage-unfav"] = () => ({ ok: true });
+    await t.fav.unfav("BV45");
+    assert.deepStrictEqual(plain(sent.at(-1)), { type: "triage-unfav", mediaId: "H", aids: [1045] }, "D outside the batch goes");
+    h.release();
+    await running;
+    assert.deepStrictEqual(Object.keys(store[t.K.decisions("H")]).sort(), ["BV41", "BV42", "BV43", "BV45", "BV9"]);
+    // D on a B站 limit fails at once, worded like every other limit hit.
+    handlers["triage-unfav"] = () => ({ ok: false, code: "THROTTLED", error: "412" });
+    await t.fav.unfav("BV44");
+    assert.strictEqual(toasts.at(-1), "取消收藏失败：B站限流卡住，请稍后再试");
+    assert.ok(t.fav.state().writing("H"), "B站 may have taken it: the folder counts as written");
+    handlers["triage-unfav"] = () => ({ ok: true });
+    await settled();
+    t.S.undo = [];
+  }
+  {
     // R3: a B站 limit on a single 细看 retry names the limit, not "undefined".
     handlers["triage-analyze"] = () => ({ ok: false, code: "THROTTLED", error: "412" });
     await t.retry("BV1");
@@ -337,7 +403,7 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     t.el.confirmBody = { querySelectorAll: () => [{ value: "W1" }, { value: "W2" }] }; // R unchecked
     const calls = [];
     handlers["triage-unfav"] = (m) => (calls.push([m.mediaId, m.aids, t.activityState().text]), { ok: true });
-    await t.batchUnfav(vids);
+    await t.fav.unfavMany(vids);
     assert.deepStrictEqual(asked[0], "在 B站取消收藏这 3 个视频？");
     assert.ok(asked[1].includes("「夹1」· 2 个") && asked[1].includes("「夹2」· 2 个") && asked[1].includes("「夹3」· 1 个"), asked[1]);
     assert.strictEqual(asked[2], "取消收藏 3 个");
@@ -345,15 +411,15 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     assert.deepStrictEqual(plain(vids.map((it) => it.folders)), [[], [], ["W3"]]);
     assert.deepStrictEqual(plain(Object.keys(t.S.decisions)), ["BV60", "BV61"], "out of every folder: 处理完成");
     assert.deepStrictEqual([Object.keys(store[t.K.decisions("W1")]), Object.keys(store[t.K.decisions("W2")])], [["BV60", "BV61"], ["BV61", "BV62"]]);
-    assert.deepStrictEqual(plain(t.batchUndoAsk(t.S.undo.at(-1))).at(-1), "重新收藏 3 个");
     const refav = [];
     const pills = [];
-    handlers["triage-refav"] = (m) => (refav.push([m.mediaId, m.aid]), pills.push([t.activityState().text, vm.runInContext("batchWriting()", ctx), t.writingTo(m.mediaId)]), { ok: true });
+    handlers["triage-refav"] = (m) => (refav.push([m.mediaId, m.aid]), pills.push([t.activityState().text, t.fav.state().busy, t.fav.state().writing(m.mediaId)]), { ok: true });
     await t.undo();
+    assert.deepStrictEqual([asked[0], asked[2]], ["在 B站重新收藏这 3 个视频？", "重新收藏 3 个"], "U asks first");
     assert.deepStrictEqual(refav, [["W1", 1060], ["W1", 1061], ["W2", 1061], ["W2", 1062]]);
     // G7: the undo shows in the pill, folder by folder, and counts as a batch write on the folder it writes to.
     assert.deepStrictEqual(pills, [["重新收藏中「夹1」 0/4", "重新收藏", true], ["重新收藏中「夹1」 1/4", "重新收藏", true], ["重新收藏中「夹2」 2/4", "重新收藏", true], ["重新收藏中「夹2」 3/4", "重新收藏", true]]);
-    assert.strictEqual(t.S.refavRun, null);
+    assert.strictEqual(t.fav.state().busy, "");
     assert.deepStrictEqual(plain(vids.map((it) => [...it.folders].sort())), [["W1"], ["W1", "W2"], ["W2", "W3"]]);
     assert.deepStrictEqual([t.S.decisions, store[t.K.decisions("W1")], store[t.K.decisions("W2")], t.S.undo.length], [{}, {}, {}, 0]);
     // 保留 is one list for every folder: the batch marks it everywhere, one U takes it back.
@@ -449,7 +515,7 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   assert.ok(t.S.selected.has("BV1"), "a video a filter hides stays selected");
   t.S.query = "";
   // The selection belongs to the tab: the kept BV2 is not in 未分析, so it leaves the selection, and so does one kept now.
-  await t.decide("BV1", "keep");
+  await t.keepOne("BV1");
   t.renderListHeader(t.visibleItems());
   assert.deepStrictEqual(plain([...t.S.selected]), ["BV3"]);
   assert.ok(t.el.listHeader.innerHTML.includes("已选中 1 个") && !t.el.listHeader.innerHTML.includes("被筛选隐藏"), t.el.listHeader.innerHTML);
@@ -1387,7 +1453,7 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   Object.assign(t.S, { tags: [{ id: "ta", name: "甲标", color: "#1", folder: "A" }, { id: "tb", name: "乙标", color: "#2", folder: "B" }], videoTags: { BV7: ["ta", "tb"] } });
   t.pickUnfavFolders = async () => ["B"];
   handlers["triage-unfav"] = () => ({ ok: true });
-  await t.decide("BV7", "unfav");
+  await t.fav.unfav("BV7");
   assert.deepStrictEqual(plain(t.tagIdsOf("BV7")), ["ta", "tb"], "the folder it just left keeps its tags on the card");
   assert.deepStrictEqual(plain(sent.at(-1)), { type: "triage-unfav", mediaId: "B", aids: [1007] });
   assert.deepStrictEqual(plain(shared.folders), ["A"]);
@@ -1414,7 +1480,7 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   for (const k of Object.keys(store)) delete store[k];
   t.S.kept = {};
   openFake("A", [item(1)]);
-  await t.decide("BV1", "keep");
+  await t.keepOne("BV1");
   assert.deepStrictEqual(Object.keys(store[t.K.kept]), ["BV1"]);
   assert.ok(!store[t.K.decisions("A")], "保留 writes no folder record");
   t.S.decisions = { ...t.S.kept, ...store[t.K.decisions("B")] };
@@ -1423,10 +1489,10 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   assert.deepStrictEqual(plain(store[t.K.kept]), {});
   // Unfavoriting a kept video in a folder keeps the 保留 for other folders; U restores the folder view.
   openFake("A", [item(1)]);
-  await t.decide("BV1", "keep");
+  await t.keepOne("BV1");
   handlers["triage-unfav"] = () => ({ ok: true });
   handlers["triage-refav"] = () => ({ ok: true });
-  await t.decide("BV1", "unfav");
+  await t.fav.unfav("BV1");
   assert.deepStrictEqual(Object.keys(store[t.K.decisions("A")]), ["BV1"]);
   assert.ok(store[t.K.kept].BV1);
   await t.undo();
@@ -1562,7 +1628,7 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   }
 
   // The 重新收藏 of the undo tests above marked A and B written a moment ago (markWritten); B站 has long caught up here.
-  settled();
+  await settled();
   // Cleaning a removed video deletes its AI results, note, tags, 保留, basket entry and 取消收藏 records, and nothing else.
   Object.assign(store, { triage_analysis_BV1: {}, triage_title_BV1: {}, triage_analysis_BV5: {} });
   Object.assign(store, { triage_decisions_A: { BV1: { action: "unfav" }, BV5: { action: "unfav" } }, triage_decisions_B: { BV1: { action: "unfav" } } });
@@ -1750,9 +1816,15 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     t.S.write.running = true;
     assert.strictEqual(leave(), true, "notes export");
     t.S.write.running = false;
-    t.S.refavRun = { mediaId: "K", done: 0, total: 3 };
-    assert.strictEqual(leave(), true, "batch re-favorite");
-    t.S.refavRun = null;
+    t.S.decisions.BV9 = { action: "unfav", at: 1, aid: 1009, title: "视频9" };
+    const h = holdNext("triage-refav");
+    const running = t.fav.refav("BV9");
+    await ticks();
+    assert.strictEqual(leave(), true, "a 重新收藏 running");
+    h.release();
+    await running;
+    assert.strictEqual(leave(), false, "done: no prompt");
+    await settled();
   }
 
   // 批量打标签 keeps running when another folder opens; its proposal stays with its folder and shows on return.
@@ -2152,12 +2224,12 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
       assert.deepStrictEqual([m.from, m.to, m.move], ["1", "2", true]);
       if (calls === 0) {
         // Mid-run: the folders being written are not read from Bilibili, and a queued video cannot be unfavorited.
-        assert.ok(t.writingTo("1") && t.writingTo("2") && !t.writingTo("3"));
+        assert.ok(t.fav.state().writing("1") && t.fav.state().writing("2") && !t.fav.state().writing("3"));
         t.S.syncing = false;
         const before = sent.length;
         return realSync({ force: true }).then(async (synced) => {
           assert.strictEqual(synced, false, "no sync of a folder being written");
-          await t.decide("BV924", "unfav");
+          await t.fav.unfav("BV924");
           assert.ok(!sent.slice(before).some((m) => m.type === "triage-folder-items" || m.type === "triage-unfav"));
           assert.ok(toasts.at(-1).includes("等待移动"), toasts.at(-1));
           calls++;
@@ -2173,7 +2245,7 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
       return { ok: true };
     };
     t.askTransfer = async () => ({ how: "move", target: { id: "2" } });
-    await t.batchTransfer(vids);
+    await t.fav.transfer(vids);
     assert.strictEqual(calls, 2);
     assert.strictEqual(store[t.K.snapshot("2")].bvids.length, 25);
     assert.deepStrictEqual(plain(store[t.K.removed]), {}, "moving between chosen folders sends nothing to 已取消收藏");
@@ -2187,7 +2259,7 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     handlers["triage-transfer"] = () => ({ ok: true });
     t.askTransfer = async () => ({ how: "move", target: { id: "3" } });
     handlers["triage-transfer"] = () => (openFake("removed", []), { ok: true });
-    await t.batchTransfer(two);
+    await t.fav.transfer(two);
     assert.deepStrictEqual(plain(t.S.items.map((it) => [it.bvid, it.movedTo.title])), [["BV951", "没勾"], ["BV950", "没勾"]], "已取消收藏 open meanwhile lists them");
     openFake("1", []);
     assert.deepStrictEqual(plain(store[t.K.removed].BV950.movedTo), { id: "3", title: "没勾" });
@@ -2206,7 +2278,7 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     const adds = [];
     handlers["triage-transfer"] = (m) => (adds.push([m.from, m.to, m.move, m.aids.length]), { ok: true });
     t.askTransfer = async () => ({ how: "add", target: { id: "2" } });
-    await t.batchTransfer(t.S.items.slice());
+    await t.fav.transfer(t.S.items.slice());
     assert.deepStrictEqual(adds, [["", "2", false, 1], ["", "2", false, 1]], "one video per request");
     assert.deepStrictEqual(plain(store[t.K.removed]), {});
     assert.deepStrictEqual(plain(store[t.K.snapshot("2")].items.slice(0, 2)), [item(961), item(960)]);
@@ -2368,7 +2440,7 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
       for (let i = 0; i < 30; i++) await new Promise((r) => setImmediate(r));
     };
     t.syncFolder = async () => true;
-    Object.assign(t.S, { folders: [{ id: "PA", title: "A" }, { id: "PB", title: "B" }], kept: {}, unfavBatch: null, transferRun: null });
+    Object.assign(t.S, { folders: [{ id: "PA", title: "A" }, { id: "PB", title: "B" }], kept: {} });
     t.el.folderSelect = { value: "", querySelector: () => null };
     store.triage_snapshot_PA = { bvids: ["BV71"], ids: ["BV71"], items: [item(71)], intro: "" };
     store.triage_snapshot_PB = { bvids: ["BV72"], ids: ["BV72"], items: [item(72)], intro: "" };
@@ -2396,21 +2468,21 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     releaseSnap();
     assert.strictEqual(await sync, false, "the stale sync gives up");
     assert.deepStrictEqual(plain(t.S.items.map((it) => it.bvid)), ["BV72"], "folder B keeps its own list");
-    // A move that starts while a full sync reads the folder: the list read is from before it, so the sync drops it.
+    // A batch write that starts while a full sync reads the folder: the list read is from before it, so the sync drops it.
     openFake("PA", [item(71)]);
     t.S.syncing = false;
     const releaseSnap2 = holdRead(t.K.snapshot("PA"));
     const sync2 = t.syncFolder({ force: true });
     await settle();
-    t.S.transferRun = { mediaId: "PA", to: "PB" };
+    const h = holdNext("triage-unfav");
+    const writing = t.fav.unfavMany([item(71)]);
+    await settle();
     releaseSnap2();
-    assert.strictEqual(await sync2, false, "the sync read before the move gives up");
-    assert.deepStrictEqual([plain(t.S.items.map((it) => it.bvid)), store.triage_snapshot_PA.bvids], [["BV71"], ["BV71"]], "the moved list stays");
-    t.S.transferRun = null;
+    assert.strictEqual(await sync2, false, "the sync read before the write gives up");
+    assert.deepStrictEqual([plain(t.S.items.map((it) => it.bvid)), store.triage_snapshot_PA.bvids], [["BV71"], ["BV71"]], "the list stays");
 
     // A read deferred for a folder being written is not dropped because another folder's read was waiting first.
     const ran = [];
-    t.S.transferRun = { mediaId: "PA", to: "PB" };
     openFake("PA", []);
     t.deferRead(() => ran.push("A"));
     openFake("PB", []);
@@ -2423,7 +2495,9 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     t.deferRead(() => ran.push("quick"));
     await settle();
     assert.deepStrictEqual(ran, ["full"]);
-    t.S.transferRun = null;
+    h.release();
+    await writing;
+    await settled();
     t.syncFolder = realSync;
   }
   // The pointer takes the current card only on real movement; a mousemove at the last position (scroll, re-render) is ignored.
@@ -2877,10 +2951,17 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     openFake("C", [item(801), item(802)]);
     const asked = [];
     t.askConfirm = async (...a) => (asked.push(a), false);
-    await t.batchUnfav(t.S.items);
+    const before = sent.length;
+    await t.fav.unfavMany(t.S.items);
     assert.deepStrictEqual(plain(asked[0].slice(0, 1).concat(asked[0][2])), ["在 B站取消收藏这 2 个视频？", "取消收藏 2 个"]);
-    const ask = t.batchUndoAsk({ kind: "unfavMany", items: t.S.items });
-    assert.ok(ask[0].startsWith("在 B站") && ask[2] === "重新收藏 2 个", ask);
+    assert.strictEqual(sent.length, before, "declined: nothing sent");
+    t.askConfirm = async (...a) => (asked.push(a), true);
+    handlers["triage-unfav"] = () => ({ ok: true });
+    await t.fav.unfavMany(t.S.items);
+    t.askConfirm = async (...a) => (asked.push(a), false);
+    await t.undo();
+    const ask = asked.at(-1);
+    assert.ok(ask[0].startsWith("在 B站") && ask[2] === "重新收藏 2 个" && t.S.undo.length === 1, ask);
     t.askConfirm = async () => true;
   }
 
