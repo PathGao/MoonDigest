@@ -27,8 +27,10 @@ assert.strictEqual(t.triageSubtitleValid(body(100), 273), false);
 assert.strictEqual(t.triageSubtitleValid([], 273), false);
 assert.strictEqual(t.triageSubtitleValid(null, 273), false);
 
-// Obsidian itself unusable carries code OBSIDIAN (it ends a 逐个视频笔记 run); one note's own error passes through.
-assert.strictEqual(t.triageObsidianError(vm.runInContext('new TypeError("Failed to fetch")', ctx)).code, "OBSIDIAN");
+// Obsidian itself unusable carries code OBSIDIAN, or OBSIDIAN_DOWN when it is not running (both end a 逐个视频笔记 run);
+// one note's own error passes through.
+assert.strictEqual(t.triageObsidianError(vm.runInContext('new TypeError("Failed to fetch")', ctx)).code, "OBSIDIAN_DOWN");
+assert.strictEqual(t.triageObsidianError({ status: 408 }).code, "OBSIDIAN_DOWN");
 assert.strictEqual(t.triageObsidianError({ status: 401 }).code, "OBSIDIAN");
 // An HTTP failure of one note shows the status, never the response body.
 assert.strictEqual(t.triageObsidianError({ status: 500, message: 'HTTP 500. {"errorCode":50000}' }).message, "Obsidian 返回 HTTP 500");

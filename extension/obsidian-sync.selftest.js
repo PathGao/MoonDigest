@@ -126,15 +126,15 @@ const send = (message) => new Promise((resolve) => onMessageListeners.forEach((f
   const snapshot = vault.get(filepath);
   await new Promise((resolve) => server.close(resolve));
   resp = await send({ type: "update-obsidian-ai-section", ...auth, filepath, section: N.buildAiSection([{ prompt: "x", answer: "y" }]), noteKey });
-  assert.deepStrictEqual(resp, { ok: false, error: "连不上 Obsidian，请确认它已打开并启用了 Local REST API", code: "OBSIDIAN" });
+  assert.deepStrictEqual(resp, { ok: false, error: "连不上 Obsidian，请确认它已打开并启用了 Local REST API", code: "OBSIDIAN_DOWN" });
   assert.strictEqual(vault.get(filepath), snapshot);
   assert.strictEqual(local[ctx.BocLimits.KEYS.obsidianNotePaths][noteKey].path, filepath, "a failed sync keeps the binding for retry");
 
-  // 汇总一篇 (triage-export) goes through the same PUT and words; code OBSIDIAN gives the triage page its 去设置.
+  // 汇总一篇 (triage-export) goes through the same PUT and words; a closed Obsidian is OBSIDIAN_DOWN, which gets no 去设置.
   Object.assign(sync, { obsidianEnabled: true, obsidianApiBaseUrl: baseUrl });
   local.obsidianApiKey = "k";
   resp = await send({ type: "triage-export", filename: "汇总.md", markdown: "# x" });
-  assert.deepStrictEqual(resp, { ok: false, error: "连不上 Obsidian，请确认它已打开并启用了 Local REST API", code: "OBSIDIAN" });
+  assert.deepStrictEqual(resp, { ok: false, error: "连不上 Obsidian，请确认它已打开并启用了 Local REST API", code: "OBSIDIAN_DOWN" });
 
   console.log("obsidian sync selftest ok");
 })().catch((error) => {

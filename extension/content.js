@@ -1554,7 +1554,7 @@ async function sendToObsidian() {
       return;
     }
     report(`写入 Obsidian 失败：${getErrorMessage(error)}`);
-    // Obsidian itself is unusable (closed, wrong address or key): the settings page, as for 未配置.
+    // A wrong key: the settings page, as for 未配置. A closed Obsidian only gets the red line.
     if (error.action === "settings") requestOpenOptions();
   }
 }

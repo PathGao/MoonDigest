@@ -21,7 +21,8 @@
     AI_AUTH: { action: "settings" },
     AI_QUOTA: { action: "settings" },
     AI_SETUP: { action: "settings" },
-    // Obsidian itself is unusable (not set up, off, wrong key, closed): every write fails alike.
+    // Obsidian itself is unusable (not set up, off, wrong key): every write fails alike and the fix is in the settings
+    // page. OBSIDIAN_DOWN (closed, plugin off, timeout) also fails every write, but the settings page cannot fix it.
     OBSIDIAN: { action: "settings" },
     NOT_LOGGED_IN: { action: "login" },
     [-101]: { action: "login" },

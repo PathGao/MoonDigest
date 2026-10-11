@@ -1369,12 +1369,12 @@ async function putVaultNote(baseUrl, apiKey, filepath, body) {
   }
 }
 
-// Every Obsidian write path reports with these words; code OBSIDIAN: Obsidian itself is unusable (closed, plugin off,
-// wrong address or key), so every write fails alike (BocErrors.CODES says what pages show). 408 is fetchWithTimeout's timeout.
+// Every Obsidian write path reports with these words. Code OBSIDIAN (not set up, wrong key) or OBSIDIAN_DOWN (closed,
+// plugin off, wrong address): every write fails alike (BocErrors.CODES says what pages show). 408 is fetchWithTimeout's timeout.
 const OBSIDIAN_UNSET = { ok: false, error: BocErrors.TEXT.obsidianUnset, code: "OBSIDIAN" };
 function obsidianFailure(error) {
   if (error?.status === 401 || error?.status === 403) return { ok: false, error: BocErrors.TEXT.obsidianKey, code: "OBSIDIAN" };
-  if (error?.status === 408 || error?.name === "TypeError") return { ok: false, error: BocErrors.TEXT.obsidianDown, code: "OBSIDIAN" };
+  if (error?.status === 408 || error?.name === "TypeError") return { ok: false, error: BocErrors.TEXT.obsidianDown, code: "OBSIDIAN_DOWN" };
   return { ok: false, error: error?.status ? `Obsidian 返回 HTTP ${error.status}` : String(error?.message || error || "未知错误") };
 }
 

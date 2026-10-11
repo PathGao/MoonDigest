@@ -2368,7 +2368,7 @@ async function autoSyncConversation(conversationId) {
   }
 }
 
-// A failed manual write is red; when Obsidian itself is unusable the settings page opens, as for 未配置.
+// A failed manual write is red; a wrong key opens the settings page, as for 未配置 (a closed Obsidian does not).
 function showObsidianFailure(error) {
   showConversationContextNotice(`写入 Obsidian 失败：${getErrorMessage(error)}`, 4000, { error: true });
   if (error?.action === "settings") chrome.runtime.openOptionsPage?.();

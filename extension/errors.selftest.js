@@ -20,6 +20,7 @@ const E = ctx.BocErrors;
   assert.strictEqual(E.action("NOT_LOGGED_IN"), "login");
   assert.strictEqual(E.action(-101), "login");
   assert.strictEqual(E.action("AI_NETWORK"), "none");
+  assert.strictEqual(E.action("OBSIDIAN_DOWN"), "none", "a closed Obsidian is not fixed in the settings page");
   assert.strictEqual(E.action(undefined), "none");
   assert.strictEqual(E.text({ ok: false, code: 62004, error: "B站返回 62004：稿件审核中" }), "视频审核中，过后再试");
   assert.strictEqual(E.text({ ok: false, error: "  笔记内容为空 " }, "x"), "笔记内容为空");

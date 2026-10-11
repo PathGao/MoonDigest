@@ -490,9 +490,11 @@ function askConfirm(title, bodyHtml, okText, { danger = false } = {}) {
 }
 
 // kind "ai" marks an AI setup problem; a run that then succeeds clears only that kind, whichever folder it ran in.
+// No btnText: the banner has only its ×.
 function showBanner(text, btnText, onClick, kind = "") {
   el.banner.dataset.kind = kind;
   el.bannerText.textContent = text;
+  el.bannerBtn.hidden = !btnText;
   el.bannerBtn.textContent = btnText;
   el.bannerBtn.setAttribute("aria-label", btnText);
   el.bannerBtn.onclick = onClick;
@@ -3835,7 +3837,7 @@ async function exportDigest(how) {
     setBusy(el.writeRunBtn, false);
     el.writeProgress.textContent = r.ok ? `已写入 ${r.data?.path || filename}` : `写入 Obsidian 失败：${r.error}`;
     el.writeProgress.classList.toggle("fail-text", !r.ok);
-    el.writeSettingsBtn.hidden = r.code !== "OBSIDIAN";
+    el.writeSettingsBtn.hidden = BocErrors.action(r.code) !== "settings";
   }
 }
 
@@ -3909,6 +3911,8 @@ function zipNotes(base, written, title) {
   return [{ name: `${base}.md`, text: indexMarkdown(notes, mdLink, title) }, ...notes.map((w) => ({ name: w.path, text: w.markdown }))];
 }
 
+// Obsidian itself unusable (triage-bg.js triageObsidianError): every later note would fail alike, so the run stops.
+const OBSIDIAN_CODES = new Set(["OBSIDIAN", "OBSIDIAN_DOWN"]);
 // md: build the same notes but download them as a zip (one note each plus the index) instead of writing to the vault.
 // The run keeps going with the dialog closed or another folder open: the activity pill shows it, the dialog reopens on it.
 async function runWrite(md = false) {
@@ -3930,11 +3934,11 @@ async function runWrite(md = false) {
     el.writeFailed.hidden = !failed.length;
   };
   // Obsidian closed, not set up or refusing the key fails every note alike: checked first, and such a failure ends the run.
-  let obsidian = "";
+  let obsidian = null; // the reply that showed Obsidian itself is unusable
   if (!md) {
     el.writeProgress.textContent = "正在检查 Obsidian…";
     const r = await send({ type: "triage-obsidian-check" });
-    if (!r.ok) obsidian = r.error;
+    if (!r.ok) obsidian = r;
   }
   for (let i = 0; i < items.length && !obsidian && keepGoing(); i++) {
     const it = items[i];
@@ -3947,8 +3951,8 @@ async function runWrite(md = false) {
       i--;
       continue;
     }
-    if (!r.ok && r.code === "OBSIDIAN") {
-      obsidian = r.error;
+    if (!r.ok && OBSIDIAN_CODES.has(r.code)) {
+      obsidian = r;
       break;
     }
     if (r.ok) written.push({ ...r.data, bvid: it.bvid, oneLiner: oneLiners[it.bvid] });
@@ -3980,15 +3984,16 @@ async function runWrite(md = false) {
     failed.length ? `失败 ${failed.length} 篇` : ""
   ].filter(Boolean);
   el.writeProgress.textContent = [
-    obsidian ? `写入 Obsidian 失败：${obsidian}。已停止` : S.write.stop ? "已停止。" : "完成。",
+    obsidian ? `写入 Obsidian 失败：${obsidian.error}。已停止` : S.write.stop ? "已停止。" : "完成。",
     ...counts,
     indexPath ? `${md ? "文件" : "索引"}：${indexPath}` : ""
   ].filter(Boolean).join(" · ");
   el.writeProgress.classList.toggle("fail-text", Boolean(obsidian));
-  el.writeSettingsBtn.hidden = !obsidian;
+  const toSettings = BocErrors.action(obsidian?.code) === "settings";
+  el.writeSettingsBtn.hidden = !toSettings;
   showFailed();
-  // The pill's green line; an Obsidian failure goes to the red banner instead, which leads to the settings page.
-  if (obsidian) showBanner(`写入 Obsidian 失败：${obsidian}`, "去设置", () => send({ type: "open-options" }), "obsidian");
+  // The pill's green line; an Obsidian failure goes to the red banner instead, with 去设置 unless Obsidian is just not running.
+  if (obsidian) showBanner(`写入 Obsidian 失败：${obsidian.error}`, toSettings ? "去设置" : "", () => send({ type: "open-options" }), "obsidian");
   else S.write.text = `逐个视频笔记${S.write.stop ? "已停止" : "完成"}：${counts.join(" · ")}`;
   renderWriteScope();
   renderStatus();

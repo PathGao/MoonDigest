@@ -310,7 +310,7 @@ async function saveToObsidian(group) {
     else setStatus(group.context.videoId ? `已写入 Obsidian：${filepath}（单独的对话笔记）` : `已写入 Obsidian：${filepath}`);
   } catch (error) {
     setStatus(`写入 Obsidian 失败：${error?.message || error}`, true);
-    // Obsidian itself is unusable (closed, wrong address or key): the settings page, as for 未配置.
+    // A wrong key: the settings page, as for 未配置. A closed Obsidian only gets the red line.
     if (error?.action === "settings") chrome.runtime.openOptionsPage();
   } finally {
     // A declined overwrite returns without a result line; drop the in-progress one.

@@ -2710,11 +2710,19 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
       assert.deepStrictEqual(plain(t.activityState()), { text: "逐个视频笔记完成：写入 3 篇", finished: true });
 
       calls = [];
-      fail = (b) => (b === "BV802" ? { ok: false, code: "OBSIDIAN", error: "连不上 Obsidian，请确认它已打开并启用了 Local REST API" } : null);
+      fail = (b) => (b === "BV802" ? { ok: false, code: "OBSIDIAN", error: "Obsidian 的 API Key 无效或未授权" } : null);
       await t.runWrite();
       assert.deepStrictEqual(calls, ["BV801", "BV802"], "an Obsidian failure ends the run");
       assert.ok(!t.S.write.running && !t.S.write.text && t.el.writeSettingsBtn.hidden === false, "no green line; 去设置 in the dialog");
-      assert.ok(t.el.bannerText.textContent.startsWith("写入 Obsidian 失败：连不上") && t.el.bannerBtn.textContent === "去设置");
+      assert.ok(t.el.bannerText.textContent.startsWith("写入 Obsidian 失败：Obsidian 的 API Key") && t.el.bannerBtn.textContent === "去设置" && !t.el.bannerBtn.hidden);
+
+      // Obsidian not running ends the run too, but the settings page cannot fix it: no 去设置 anywhere.
+      calls = [];
+      fail = (b) => (b === "BV802" ? { ok: false, code: "OBSIDIAN_DOWN", error: "连不上 Obsidian，请确认它已打开并启用了 Local REST API" } : null);
+      await t.runWrite();
+      assert.deepStrictEqual(calls, ["BV801", "BV802"], "a closed Obsidian ends the run");
+      assert.ok(!t.S.write.text && t.el.writeSettingsBtn.hidden === true, "no 去设置 in the dialog");
+      assert.ok(t.el.bannerText.textContent.startsWith("写入 Obsidian 失败：连不上") && t.el.bannerBtn.hidden === true, "the banner has only its ×");
 
       calls = [];
       check = { ok: false, code: "OBSIDIAN", error: "请先在设置页填写 Obsidian Local REST API 地址和 API Key" };

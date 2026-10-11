@@ -763,7 +763,7 @@ async function triageBuildNote(bvid, settings) {
   return { meta, noteMeta, body, markdown, filename, path, cover };
 }
 
-// Code OBSIDIAN: Obsidian itself is not usable (off, not set up, closed, wrong key), so every later note fails the same way.
+// Code OBSIDIAN: Obsidian is not usable (off, not set up, wrong key), so every later note fails the same way.
 function triageObsidianConfig(settings) {
   if (!settings.obsidianEnabled) throw triageError("Obsidian 写入未启用", "OBSIDIAN");
   const baseUrl = String(settings.obsidianApiBaseUrl || "").trim();
@@ -771,7 +771,7 @@ function triageObsidianConfig(settings) {
   if (!baseUrl || !apiKey) throw triageError(BocErrors.TEXT.obsidianUnset, "OBSIDIAN");
   return { baseUrl, apiKey };
 }
-// A failed fetch (closed, plugin off, wrong address), a timeout or 401/403 is Obsidian's; anything else is this note's.
+// A failed fetch (closed, plugin off, wrong address) or a timeout is OBSIDIAN_DOWN, 401/403 OBSIDIAN; anything else is this note's.
 // The words are background.js obsidianFailure's, shared by every Obsidian write path.
 function triageObsidianError(e) {
   const { error, code } = obsidianFailure(e);
