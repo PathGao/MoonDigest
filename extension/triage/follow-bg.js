@@ -18,7 +18,7 @@
 //   第一次同步每拉一页就先写进 follow_list（partial: true），界面不用等拉完。
 // 2 feed：视频动态往回翻过 followSlowDays 天 → follow_last（谁最近发过、最近 3 个标题），翻完才写，翻到一半的每页存进 follow_last_wip，界面边翻边读。6 小时内翻过就跳过。
 // 3 arc：动态里没出现的人逐个 arc/search（约 1 秒 1 个）→ follow_content；已有记录且不早于 follow_last.since 的跳过。
-//   做完写 follow_jobs.statusAt：更新状态已齐，界面不用等第 4 步。
+//   follow_jobs.cur 是正在查的人。做完写 follow_jobs.statusAt：更新状态已齐，界面不用等第 4 步。
 // 4 stats：每个关注的人的粉丝数（x/relation/stat）→ follow_stats；7 天内查过的跳过。
 // 所有 GET 共用一个队列（间隔 1–1.5 秒），30 秒没回应算断网；风控（412、-352/-412/-799/-509）整队暂停 90 秒重试，第三次报 THROTTLED。
 
@@ -380,6 +380,7 @@ async function followSyncJob(ctx) {
   await ctx.progress({ phase: "arc", step, done, total: targets.length, skipped, cursor: c });
   for (const mid of targets) {
     if (known(mid)) continue;
+    await ctx.progress({ cur: mid });
     let rec;
     try {
       rec = await get(() => followArcSearch(mid));

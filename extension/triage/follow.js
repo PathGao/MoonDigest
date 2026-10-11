@@ -520,10 +520,17 @@ function renderSide() {
   sideSlot.innerHTML = sideSelect();
 }
 
+// A sync takes minutes, so like 粗看 / 细看 it also leads row 3's right end as the primary button, with its count.
+const runSlot = () => {
+  const j = D.jobs || {};
+  return `<span id="fwRunSlot">${j.running ? `<button type="button" class="primary" data-fw-stop aria-label="暂停刷新">暂停刷新${j.total ? ` ${j.done || 0}/${j.total}` : ""}</button>` : ""}</span>`;
+};
 // The progress pill, as in 收藏夹: while the sync job runs it takes 刷新's place (progress, the B站限流 countdown, 暂停);
 // otherwise it shows AI 打标签 running or waiting to be confirmed, with 查看.
 function renderSync() {
   const j = D.jobs || {};
+  const slot = $("fwRunSlot");
+  if (slot) slot.outerHTML = runSlot();
   const pill = $("fwActivity");
   const btn = $("fwRefreshBtn");
   btn.disabled = Boolean(j.running);
@@ -645,7 +652,7 @@ function renderUps() {
   // 全选 heads the right-hand buttons, as in 收藏夹: it acts on the UP 主 listed now.
   const shows = Boolean(D.list || gone);
   E.bar.innerHTML = shows ? UI.labeledRow("状态", seg) : "";
-  E.barR.innerHTML = shows ? UI.selectAllBox('data-fw="select-all"', list.length, list.filter((m) => F.sel.has(m)).length) : "";
+  E.barR.innerHTML = shows ? UI.selectAllBox('data-fw="select-all"', list.length, list.filter((m) => F.sel.has(m)).length) + runSlot() : "";
   E.tagRow.innerHTML = gone ? "" : UI.labeledRow("标签", tagRowHtml(counts.tags));
   E.tools.hidden = !D.list && !gone;
   renderAiButton();
@@ -685,6 +692,9 @@ function hintHtml(counts) {
   return parts.join("");
 }
 
+// The UP 主 whose videos the sync is reading now, as 粗看's 分析中… cards.
+const checking = () => (D.jobs?.running && D.jobs.phase === "arc" ? D.jobs.cur || "" : "");
+
 function upCard(mid) {
   const u = rows.get(mid);
   const now = nowSec();
@@ -711,7 +721,7 @@ function upCard(mid) {
   return `<article class="card fw-up${sel ? " selected" : ""}${playing ? " playing" : ""}${F.cur === mid ? " focused" : ""}" data-mid="${esc(mid)}" aria-label="${esc(u.name)}">
     <a class="fw-avatar" href="${space(mid)}" target="_blank" rel="noopener" tabindex="-1" aria-hidden="true">${u.face ? `<img src="${esc(img(u.face, "96w_96h_1c"))}" alt="" loading="lazy" referrerpolicy="no-referrer">` : ""}</a>
     <div class="card-body">
-      <div class="fw-name-row"><a class="fw-name" href="${space(mid)}" target="_blank" rel="noopener" title="在 B站打开空间">${esc(u.name)}</a>${u.gone ? "" : `<span class="badge ${STATUS_BADGE[u.status]}">${STATUS_TEXT[u.status]}</span>`}${u.ov ? `<span class="meta fw-ov" title="${esc(u.ov)}">${esc(u.ov)}</span>` : ""}</div>
+      <div class="fw-name-row"><a class="fw-name" href="${space(mid)}" target="_blank" rel="noopener" title="在 B站打开空间">${esc(u.name)}</a>${u.gone ? "" : checking() === mid ? '<span class="badge running" aria-busy="true">查投稿中…</span>' : `<span class="badge ${STATUS_BADGE[u.status]}">${STATUS_TEXT[u.status]}</span>`}${u.ov ? `<span class="meta fw-ov" title="${esc(u.ov)}">${esc(u.ov)}</span>` : ""}</div>
       ${meta.length ? `<div class="meta">${meta.join(" · ")}</div>` : ""}
       ${u.sign ? `<div class="fw-sign" title="${esc(u.sign)}">${esc(u.sign)}</div>` : ""}
       ${titles}
@@ -760,7 +770,7 @@ function renderFeed() {
   const c = feedCounts(items, D, feedF());
   const n = (k) => (items.length ? c[k] : null);
   E.bar.innerHTML = UI.labeledRow("状态", UI.stateGroup("全部", UI.filterBtn("data-fw-all", "全部", n(""), !F.tagState)) + tagStateGroup({ tagged: n("tagged"), untagged: n("untagged") }, "UP "));
-  E.barR.innerHTML = "";
+  E.barR.innerHTML = runSlot();
   E.tagRow.innerHTML = UI.labeledRow("标签", tagRowHtml(c.tags));
   const list = feedList(items, D, feedF(), pick.keep);
   E.qCount.textContent = UI.resultCount(F.fq.trim() || filtersOn(), list.length);
@@ -1608,9 +1618,12 @@ chrome.storage.onChanged.addListener((changes, area) => {
   const keys = Object.keys(changes).filter((k) => KEYS.includes(k));
   if (!keys.length) return;
   if (keys.every((k) => k === "follow_jobs")) {
+    const was = checking();
+    const running = Boolean(D.jobs?.running);
     D.jobs = changes.follow_jobs.newValue || {};
     if (F.mode === "follow") renderHead();
-    if (F.mode === "follow" && F.tab === "ups" && !D.list) renderUps();
+    // A run starting or ending changes the hint above the list, and the 查投稿中… card moves on: redraw the list for them.
+    if (F.mode === "follow" && F.tab === "ups" && (!D.list || checking() !== was || running !== Boolean(D.jobs.running))) renderUps();
     return;
   }
   if (redrawTimer) return;

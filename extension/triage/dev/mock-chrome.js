@@ -459,7 +459,7 @@
       (async () => {
         for (const [phase, step, total, run] of steps) {
           for (let k = 0; k < total && !job.stop; k++) {
-            await setJobs({ running: true, phase, step, done: k, total, startedAt });
+            await setJobs({ running: true, phase, step, done: k, total, startedAt, ...(phase === "arc" ? { cur: todo[k] } : {}) });
             if (phase === "arc" && k === 2 && !job.held) {
               job.held = true;
               await setJobs({ running: true, phase, step, done: k, total, startedAt, hold: { until: Math.floor(Date.now() / 1000) + 4, why: "throttled" } });
