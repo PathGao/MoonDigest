@@ -2833,8 +2833,7 @@ function patchSnapshot(mediaId, { add = [], drop = [] }, created = false) {
         invalid: (old.invalid || []).filter(keep),
         titles: { ...old.titles, ...Object.fromEntries(fresh.map((it) => [it.bvid, it.title])) },
         items: [...fresh, ...(old.items || []).filter((it) => keep(it.bvid))],
-        ids: old.ids ? [...added, ...old.ids.filter(keep)] : old.ids,
-        at: Date.now()
+        ids: old.ids ? [...added, ...old.ids.filter(keep)] : old.ids
       }
     });
   });
