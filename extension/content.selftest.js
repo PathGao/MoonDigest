@@ -87,7 +87,12 @@ const ctx = vm.createContext({
 });
 ctx.window = ctx;
 ctx.globalThis = ctx;
-for (const f of ["limits.js", "errors.js", "settings.js", "typing.js", "sites.js", "tag-core.js", "note.js"]) vm.runInContext(fs.readFileSync(path.join(__dirname, f), "utf8"), ctx);
+// The scripts the manifest injects before content.js, read from it so the test cannot load a different set.
+const entries = JSON.parse(fs.readFileSync(path.join(__dirname, "manifest.json"), "utf8")).content_scripts.filter((c) => c.js.includes("content.js"));
+assert.ok(entries.length && entries.every((c) => JSON.stringify(c.js) === JSON.stringify(entries[0].js)), "every content.js entry injects the same scripts");
+const scripts = [...entries[0].js];
+assert.strictEqual(scripts.pop(), "content.js", "content.js loads last");
+for (const f of scripts) vm.runInContext(fs.readFileSync(path.join(__dirname, f), "utf8"), ctx);
 vm.runInContext(`${source}\n;globalThis.state = state;`, ctx);
 const t = ctx;
 const realRenderReadingView = t.renderReadingView;

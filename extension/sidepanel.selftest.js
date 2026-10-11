@@ -38,7 +38,10 @@ const ctx = vm.createContext({
   }
 });
 ctx.globalThis = ctx;
-for (const f of ["limits.js", "errors.js", "settings.js", "typing.js", "sites.js", "tag-core.js", "note.js", "download.js"]) vm.runInContext(fs.readFileSync(path.join(__dirname, f), "utf8"), ctx);
+// The scripts sidepanel.html loads before sidepanel.js, read from the page so the test cannot load a different set.
+const scripts = [...fs.readFileSync(path.join(__dirname, "sidepanel.html"), "utf8").matchAll(/<script[^>]*src="([^"]+)"/g)].map((m) => path.join(__dirname, m[1]));
+assert.strictEqual(scripts.pop(), path.join(__dirname, "sidepanel.js"), "sidepanel.js loads last");
+for (const f of scripts) vm.runInContext(fs.readFileSync(f, "utf8"), ctx);
 vm.runInContext(
   `${source}\n;globalThis.peek = () => ({ live: liveContextData, ctx: contextData });
   globalThis.showConversations = (saved) => { savedConversations = saved; currentConversationId = saved[0].id; previousVideoConversationId = saved[1].id; previousVideoExpanded = true; previousVideoBarSignature = ""; };`,

@@ -1,5 +1,5 @@
 // node extension/history/history.selftest.js
-// Loads history.js as the page does (after limits, typing, sites, note, download) on a stub DOM.
+// Loads history.js as the page does, after the scripts history.html lists before it, on a stub DOM.
 const fs = require("fs");
 const path = require("path");
 const vm = require("vm");
@@ -42,7 +42,10 @@ const ctx = vm.createContext({
   }
 });
 ctx.globalThis = ctx;
-for (const f of ["limits.js", "errors.js", "settings.js", "typing.js", "sites.js", "tag-core.js", "note.js", "download.js"]) vm.runInContext(fs.readFileSync(path.join(__dirname, "..", f), "utf8"), ctx);
+// The scripts history.html loads before history.js, read from the page so the test cannot load a different set.
+const scripts = [...fs.readFileSync(path.join(__dirname, "history.html"), "utf8").matchAll(/<script[^>]*src="([^"]+)"/g)].map((m) => path.join(__dirname, m[1]));
+assert.strictEqual(scripts.pop(), path.join(__dirname, "history.js"), "history.js loads last");
+for (const f of scripts) vm.runInContext(fs.readFileSync(f, "utf8"), ctx);
 
 (async () => {
   await vm.runInContext(`(async () => {\n${source}\n})()`, ctx);
