@@ -157,7 +157,7 @@ async function writeVideoNote({ ref: input, mode, conversation, page }) {
   if (!key) {
     target = standalone("", "");
   } else if (conversation && turns.length && !aiOn) {
-    // 「笔记里写 AI 问答」 off: a conversation the user writes still reaches Obsidian, beside the note.
+    // 「附带 AI 问答」 off: a conversation the user writes still reaches Obsidian, beside the note.
     target = standalone("（单独的对话笔记）", computedPath());
   } else if (page?.markdown) {
     target = { video: true, path: computedPath(), body: async () => ({ markdown: page.markdown, cover: { url: page.cover, name: `${ref.site}-${ref.videoId}` } }) };

@@ -130,7 +130,7 @@
 - **备注**：在侧边栏、分拣台卡片或视频记录页给视频写一句话。三处是同一份，导出时一起带上。
 - **视频记录**：按视频列出 AI 对话、分拣台的 AI 总结和你的备注。可以搜索，选中后下载 .md 或删除。视频的对话可以「继续问」，普通网页上的旧对话只能看、导出和删除。
 - **笔记格式**：设置页「笔记格式」里选笔记开头写哪些自带属性（标题、链接、UP 主、时长、发布日期等），加自己的属性（值里可以用 `{{site}}` 这类变量），还能在正文里留几个空段落给自己写。
-- **Obsidian（可选）**：不开也能复制、下载 Markdown。开了以后通过 Obsidian 插件 Local REST API 写入库里，默认放在 `MoonDigest/bilibili/` 和 `MoonDigest/youtube/`，一个视频一篇笔记。写入过一次之后，新的 AI 问答自动更新到笔记末尾的「AI 问答」一段。笔记已经存在时，你选「整篇覆盖」「只更新 AI 问答」或「取消」。视频在 B站被删除或隐藏时，只写入对话。YouTube 和 B站分 P 视频还没有笔记、视频页又没开时，侧边栏和视频记录页都把对话写成一篇单独的对话笔记。
+- **Obsidian（可选）**：不开也能复制、下载 Markdown。开了以后通过 Obsidian 插件 Local REST API 写入库里，默认放在 `MoonDigest/bilibili/` 和 `MoonDigest/youtube/`，一个视频一篇笔记。写入过一次之后，这个视频再写入都写到那篇笔记（文件名带日期也一样），新的 AI 问答自动更新到笔记末尾的「AI 问答」一段。弹窗、侧边栏和视频记录页遇到笔记已经存在时，你选「整篇覆盖」「只更新 AI 问答」或「取消」。视频在 B站被删除或隐藏时，只写入对话。YouTube 和 B站分 P 视频还没有笔记、视频页又没开时，侧边栏和视频记录页都把对话写成一篇单独的对话笔记；关掉「附带 AI 问答」时也一样。
 
 <p align="center">
   <img src="docs/images/history.png" alt="视频记录页：按视频列出备注、分拣台 AI 判断和 AI 对话，每条可继续问、下载 .md、写入 Obsidian" width="900">
@@ -241,7 +241,8 @@ extension/
 ├── sites.js        B站和 YouTube 的视频信息、字幕、评论抓取
 ├── note.js         笔记生成：Markdown、frontmatter、SRT、TXT
 ├── content.js      视频页：字幕抓取、专注模式、播放器 AI 按钮
-├── background.js   后台：AI 请求、Obsidian 写入、权限、旧数据清理
+├── background.js   后台：AI 请求、权限、旧数据清理
+├── obsidian.js     后台：写入 Obsidian（唯一的写入者）
 ├── sidepanel.*     AI 侧边栏
 ├── popup.*         插件弹窗
 ├── options.*       设置页

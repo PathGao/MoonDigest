@@ -142,7 +142,7 @@ const write = (extra) => send({ type: "write-video-note", ...extra });
   assert.deepStrictEqual(resp.data, { path: notePath, title: "T", skipped: false, aiUpdated: false });
   assert.ok(!vault.get(notePath).includes("又改了"));
 
-  // 「笔记里写 AI 问答」 off: a conversation the user writes is its own note; the video note gets none.
+  // 「附带 AI 问答」 off: a conversation the user writes is its own note; the video note gets none.
   sync.includeAiChatInNote = false;
   // (It exists from above: the ask names the conversation note, with no 只更新 AI 问答.)
   resp = await write({ ref: bili, conversation: conversation("关") });
