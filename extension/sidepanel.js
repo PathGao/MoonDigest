@@ -740,6 +740,16 @@ function resetConversationView(stateHtml = "", { retry = false } = {}) {
   scrollToBottom(true);
 }
 
+// What the AI will read: the intro says so when there are no subtitles (background.js tells the AI the same).
+function introText() {
+  if (String(contextData?.subtitleMarkdown || "").trim()) {
+    return EMPTY_INTRO;
+  }
+  return contextData?.subtitleFailure
+    ? "字幕没取到，AI 只能读标题、简介和评论。可以稍后刷新重试。"
+    : "这期视频没有字幕，AI 只能读标题、简介和评论。";
+}
+
 // Set by a video switch: once the new video's subtitles arrive, its summary prompt fills the input like a click on AI 总结.
 let summaryFillPending = false;
 
@@ -767,7 +777,7 @@ function renderSuggestions() {
   }
   // The intro and the one-click summary as the main action; the preset chips sit above the input (renderFollowups).
   const prompt = aiPrefs.playerAiQuickPrompt;
-  suggestionsNode.innerHTML = `<p class="sp-empty-intro">${EMPTY_INTRO}</p>${prompt ? `<button type="button" class="sp-summary-btn" title="${escapeHtml(prompt)}">${AI_SPARK}AI 总结</button>` : ""}`;
+  suggestionsNode.innerHTML = `<p class="sp-empty-intro">${escapeHtml(introText())}</p>${prompt ? `<button type="button" class="sp-summary-btn" title="${escapeHtml(prompt)}">${AI_SPARK}AI 总结</button>` : ""}`;
   suggestionsNode.querySelector(".sp-summary-btn")?.addEventListener("click", () => fillPrompt(prompt));
   if (summaryFillPending && prompt) {
     summaryFillPending = false;

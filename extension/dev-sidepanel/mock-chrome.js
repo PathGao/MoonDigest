@@ -1,5 +1,5 @@
 // 侧边栏开发用 mock chrome：模拟 B 站视频标签页、三个视频上下文、一个 AI 平台和慢速流式回复。
-// window.__mockSwitchVideo(n) 切到第 n 个视频（改 URL + tabs.onUpdated + boc-video-changed）。
+// window.__mockSwitchVideo(n) 切到第 n 个视频（改 URL + tabs.onUpdated + boc-video-changed）。第 2 个没有字幕，第 3 个字幕抓取失败。
 // window.__mockOpenPage(url, title) 切到非视频标签页（url 为空即加载中的标签页）；__mockStateDelayMs 模拟字幕和评论加载耗时。
 // 流的结局：__mockStreamEnd = { after: n, error: "..." } 在第 n 个 token 后报错；{ after: n, disconnect: true } 模拟后台断开。
 // __mockStateError = "..." 让读取页面上下文失败（检查「重试」）。
@@ -66,7 +66,9 @@
     videoId: video.bvid,
     pageIndex: 1,
     pageCount: 1,
-    subtitleMarkdown: `字幕 ${video.title}`,
+    // Video 2 has no subtitles; video 3's failed to load (as content.js reports it).
+    subtitleMarkdown: video === videos[1] || video === videos[2] ? "" : `字幕 ${video.title}`,
+    subtitleFailure: video === videos[2] ? "字幕接口限流（429）" : "",
     hotComments: [],
     isVideoContext: true
   });

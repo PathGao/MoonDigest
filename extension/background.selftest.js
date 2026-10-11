@@ -47,7 +47,7 @@ function chat() {
     const port = {
       name: "sidepanel-chat",
       onDisconnect: { addListener() {} },
-      onMessage: { addListener: (fn) => fn({ action: "chat", providerId: "p", prompt: "q" }) },
+      onMessage: { addListener: (fn) => fn({ action: "chat", providerId: "p", prompt: "q", context: { isVideoContext: true, subtitleMarkdown: "字幕" } }) },
       postMessage: (m) => {
         out.push(m);
         if (["done", "error", "stopped"].includes(m.type)) resolve(out);
@@ -170,6 +170,11 @@ process.on("exit", (code) => {
   assert.doesNotMatch(failed, /这个视频没有字幕/);
   assert.match(failed, /以下是视频简介：\n\n简介/);
   assert.doesNotMatch(systemFor({ subtitleMarkdown: "字幕", subtitleFailure: "旧失败" }), /抓取失败/);
+  // The user is told too, under the reply: no subtitles, or they failed to load.
+  const noticesFor = (extra) => [...ctx.buildAiMessages({ context: { isVideoContext: true, title: "T", ...extra }, userPrompt: "q" }).notices];
+  assert.deepStrictEqual(noticesFor({}), ["这期视频没有字幕，只根据标题、简介和评论回答"]);
+  assert.deepStrictEqual(noticesFor({ subtitleFailure: "429" }), ["字幕没取到，只根据标题、简介和评论回答"]);
+  assert.deepStrictEqual(noticesFor({ subtitleMarkdown: "字幕" }), [], "with subtitles there is nothing to say");
 
   // A long subtitle is sampled across the whole video and capped; the model and the user are both told.
   const subtitleLines = Array.from({ length: 4000 }, (_, i) => `\`${i}\` ${"字".repeat(40)}`);
@@ -191,8 +196,8 @@ process.on("exit", (code) => {
   const trimmedRequest = ctx.buildAiMessages({ context: {}, userPrompt: "q", history: longHistory });
   assert.deepStrictEqual([...trimmedRequest.messages.slice(1, -1)].map((m) => m.content.slice(0, 2)), ["问3", "3答", "问4", "4答"]);
   assert.match(trimmedRequest.messages[0].content, /最早的 4 条消息没有提供给你/);
-  assert.match(trimmedRequest.notices[0], /最早的 4 条消息没有发送/);
-  assert.strictEqual(ctx.buildAiMessages({ context: {}, userPrompt: "q", history: turn(1) }).notices.length, 0);
+  assert.match(trimmedRequest.notices.at(-1), /最早的 4 条消息没有发送/);
+  assert.strictEqual(ctx.buildAiMessages({ context: { subtitleMarkdown: "字幕" }, userPrompt: "q", history: turn(1) }).notices.length, 0);
 
   // An error object inside a 200 stream ends the reply with that error instead of a silent "done".
   ctx.fetch = streamingFetch([
