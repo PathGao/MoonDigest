@@ -729,15 +729,45 @@ async function triageBuildNote(bvid, settings) {
   return { meta, noteMeta, body, markdown, filename, path, cover };
 }
 
+// Code OBSIDIAN: Obsidian itself is not usable (off, not set up, closed, wrong key), so every later note fails the same way.
+function triageObsidianConfig(settings) {
+  if (!settings.obsidianEnabled) throw triageError("Obsidian 写入未启用", "OBSIDIAN");
+  const baseUrl = String(settings.obsidianApiBaseUrl || "").trim();
+  const apiKey = String(settings.obsidianApiKey || "").trim();
+  if (!baseUrl || !apiKey) throw triageError("请先在设置页填写 Obsidian Local REST API 地址和 API Key", "OBSIDIAN");
+  return { baseUrl, apiKey };
+}
+// A failed fetch (closed, plugin off, wrong address), a timeout or 401/403 is Obsidian's; anything else is this note's.
+function triageObsidianError(e) {
+  if (e?.status === 401 || e?.status === 403) return triageError("Obsidian 的 API Key 无效或未授权", "OBSIDIAN");
+  if (e?.status === 408 || e instanceof TypeError) return triageError("连不上 Obsidian，请确认它已打开并启用了 Local REST API", "OBSIDIAN");
+  return e;
+}
+// Before a 逐个视频笔记 run: the settings and one request to the API root (it answers authenticated: false to a wrong key).
+async function triageObsidianCheck() {
+  const { baseUrl, apiKey } = triageObsidianConfig(await getMergedSettings());
+  const res = await fetchWithTimeout(`${baseUrl.replace(/\/+$/, "")}/`, { headers: { Authorization: `Bearer ${apiKey}` }, cache: "no-store" }, OBSIDIAN_TIMEOUT_MS).catch((e) => {
+    throw triageObsidianError(e);
+  });
+  const data = await res.json().catch(() => null);
+  if (data?.authenticated === false || res.status === 401 || res.status === 403) throw triageObsidianError({ status: 401 });
+  if (!res.ok) throw triageError(`Obsidian 返回 HTTP ${res.status}`, "OBSIDIAN");
+}
+
 // Returns { path, skipped, aiUpdated, title, source }; skipped means the note existed and overwrite was off,
 // aiUpdated that its AI 问答 section was rewritten anyway.
 async function triageWriteNote({ bvid, overwrite }) {
   const settings = await getMergedSettings();
-  if (!settings.obsidianEnabled) throw triageError("Obsidian 写入未启用");
-  const baseUrl = String(settings.obsidianApiBaseUrl || "").trim();
-  const apiKey = String(settings.obsidianApiKey || "").trim();
-  if (!baseUrl || !apiKey) throw triageError("Obsidian 未配置");
+  const { baseUrl, apiKey } = triageObsidianConfig(settings);
   const { meta, noteMeta, body, markdown, path, cover } = await triageBuildNote(bvid, settings);
+  try {
+    return await triageVaultWrite({ settings, baseUrl, apiKey, meta, noteMeta, body, markdown, path, cover, overwrite });
+  } catch (e) {
+    throw triageObsidianError(e);
+  }
+}
+
+async function triageVaultWrite({ settings, baseUrl, apiKey, meta, noteMeta, body, markdown, path, cover, overwrite }) {
   const noteKey = BocSites.buildContextKey(noteMeta);
   if (!overwrite) {
     // An existing note keeps its body; only its marked AI 问答 section follows the conversation.
@@ -783,6 +813,7 @@ async function triageOpenPage(hash) {
 const TRIAGE_HANDLERS = {
   "triage-open": (msg) => triageOpenPage(msg?.hash),
   "triage-write-note": (msg) => triageWriteNote(msg),
+  "triage-obsidian-check": () => triageObsidianCheck(),
   "triage-build-note": async ({ bvid }) => {
     const settings = await getMergedSettings();
     const { meta, markdown, filename, path, cover } = await triageBuildNote(bvid, settings);

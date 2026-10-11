@@ -331,7 +331,9 @@
       ok: true,
       data: { title: `视频 ${bvid}`, filename: `2026-10-08-视频 ${bvid}.md`, markdown: `---\ntitle: "视频 ${bvid}"\nurl: "https://www.bilibili.com/video/${bvid}/"\n---\n\n## 字幕\n\n（mock）\n` }
     }),
-    "triage-write-note": ({ bvid }) => ({ ok: true, data: { path: `B站摘录/${bvid}.md`, title: `视频 ${bvid}`, source: "subtitle" } }),
+    // __mockObsidian / __mockWriteNote(bvid) stand in for an unusable Obsidian or a THROTTLED video from the console.
+    "triage-obsidian-check": () => globalThis.__mockObsidian || { ok: true },
+    "triage-write-note": ({ bvid }) => globalThis.__mockWriteNote?.(bvid) || { ok: true, data: { path: `B站摘录/${bvid}.md`, title: `视频 ${bvid}`, source: "subtitle" } },
     "open-options": () => {
       console.info("[mock] open-options");
       return { ok: true };

@@ -282,7 +282,7 @@ const S = {
   focused: "",
   selected: new Set(),
   group: null, // the running 细看 batch: { bvids: [], stop: bool }
-  write: { running: false, stop: false },
+  write: { running: false, stop: false }, // 逐个视频笔记: { running, stop, md, done, total, mediaId, text } (text: the finished line)
   stage1: { running: false, stop: false, done: 0, total: 0 },
   stage1Skip: new Set(),
   analyzing: new Set(),
@@ -361,7 +361,7 @@ const el = {};
   "confirmTitle", "confirmBody", "confirmOk",
   "criteriaDialog", "criteriaTitle", "criteriaInput", "helpDialog",
   "biliBtn", "main", "viewer", "viewerCloseBtn", "viewerFrame", "viewerTags",
-  "tools", "writeBtn", "writeDialog", "writeScope", "writeFormat", "writeScopeCount", "writeOverwriteRow", "writeOverwrite", "writeProgress", "writeFailed", "writeStopBtn", "writeCopyBtn", "writeRunBtn", "writeMdBtn"
+  "tools", "writeBtn", "writeDialog", "writeScope", "writeFormat", "writeScopeCount", "writeOverwriteRow", "writeOverwrite", "writeProgress", "writeFailed", "writeStopBtn", "writeSettingsBtn", "writeCopyBtn", "writeRunBtn", "writeMdBtn"
 ].forEach((id) => (el[id] = $(id)));
 
 // ---------- utils ----------
@@ -1778,6 +1778,11 @@ function activityState() {
   if (move) return { text: `${move.verb}到「${move.toName}」${move.done}/${move.total}${runWhere(move)}`, done: move.done, total: move.total };
   const unfav = S.unfavBatch;
   if (unfav) return { text: `取消收藏中${unfavWhere(unfav)} ${unfav.done}/${unfav.total}${runWhere(unfav)}`, done: unfav.done, total: unfav.total };
+  const w = S.write;
+  if (w.running) {
+    const text = `${w.md ? "生成" : "写入"}笔记 ${w.done}/${w.total}${runWhere(w)}`;
+    return { text: wait || text, done: w.done, total: w.total, act: "write", actLabel: w.stop ? "停止中" : "停止", stopping: w.stop, stuck: Boolean(wait) };
+  }
   if (wait) return { text: wait, stuck: true };
   // Loading 所有收藏夹 is not here: its own line leads the step bar on every tab of that view.
   if (S.syncing) return { text: `刷新中…${pageText(S.mediaId)}` };
@@ -1792,12 +1797,13 @@ function activityState() {
   if (S.seenCfg.on && seenWait()) return { text: seenWait(), stuck: true };
   if (S.seenCfg.on && S.seenRead.busy && S.seenRead.pages) return { text: `读观看进度… 已读 ${S.seenRead.pages} 页` };
   if (S.stage1.text && !runWhere(S.stage1)) return { text: S.stage1.text, finished: true };
+  if (w.text) return { text: `${w.text}${runWhere(w)}`, finished: true };
   return null;
 }
 
 function renderStatus() {
   const a = activityState();
-  UI.setActivity(el.activity, a && { ...a, btn: a.act && { attrs: `data-head="${a.act}"`, label: a.actLabel, reason: a.stopping ? "当前这一步做完就暂停" : "" } });
+  UI.setActivity(el.activity, a && { ...a, btn: a.act && { attrs: `data-head="${a.act}"`, label: a.actLabel, reason: a.stopping ? (a.act === "write" ? "当前视频做完就停止" : "当前这一步做完就暂停") : "" } });
 }
 
 function tick() {
@@ -3602,11 +3608,25 @@ function writeScopeItems(scope = el.writeScope.value, notes = el.writeFormat?.va
 // The 阅览 tab opens it preset; a running notes export keeps its own choice.
 function openWrite({ scope, format } = {}) {
   if (!S.write.running && scope) [el.writeScope.value, el.writeFormat.value] = [scope, format];
-  el.writeProgress.textContent = "";
-  el.writeFailed.hidden = true;
-  el.writeFailed.innerHTML = "";
+  // A notes run, running or finished, keeps its progress and failures here until the next export.
+  if (!S.write.running && !S.write.text) clearWriteResult();
   renderWriteScope();
   el.writeDialog.showModal();
+}
+
+function stopWrite() {
+  S.write.stop = true;
+  el.writeProgress.textContent = "将在当前视频后停止…";
+  renderStatus();
+}
+
+function clearWriteResult() {
+  S.write.text = "";
+  el.writeProgress.textContent = "";
+  el.writeProgress.classList.remove("fail-text");
+  el.writeSettingsBtn.hidden = true;
+  el.writeFailed.hidden = true;
+  el.writeFailed.innerHTML = "";
 }
 
 function renderWriteScope() {
@@ -3617,9 +3637,9 @@ function renderWriteScope() {
     o.disabled = !c;
   }
   if (el.writeScope.selectedOptions[0]?.disabled) el.writeScope.value = [...el.writeScope.options].find((o) => !o.disabled)?.value || "filter";
-  const n = writeScopeItems().length;
-  const notes = el.writeFormat.value === "notes";
   const busy = S.write.running;
+  const n = busy ? S.write.total : writeScopeItems().length;
+  const notes = el.writeFormat.value === "notes";
   const obsidianOff = document.body.classList.contains("obsidian-off");
   el.writeScopeCount.textContent = notes
     ? `共 ${n} 个视频，逐个抓字幕，间隔 ${S.settings.triageIntervalSec} 秒。下载 .zip 每个视频一篇，另附索引${obsidianOff ? "" : "；写入 Obsidian 每个视频一篇，另写一篇以收藏夹命名的索引"}。`
@@ -3639,6 +3659,7 @@ const digestMarkdown = () => buildMarkdown(writeScopeItems());
 
 // how: copy | download | obsidian
 async function exportDigest(how) {
+  clearWriteResult();
   const filename = `B站摘录-${stamp()}.md`;
   if (how === "obsidian") {
     setBusy(el.writeRunBtn, "写入中…");
@@ -3673,12 +3694,11 @@ function wikiLink(path, title) {
   return `[[${target}|${oneLine(String(title ?? "").replace(/[|[\]]/g, " ")) || target}]]`;
 }
 
-// The 逐个视频笔记 index, the same in the vault and in the zip; only the link form differs.
-function indexMarkdown(written, link) {
-  const lines = [`# ${folderTitle()}`, "", `${stamp(new Date(), false)} · ${written.length} 篇`, ""];
+// The 逐个视频笔记 index, the same in the vault and in the zip; only the link form differs. title: the run's folder.
+function indexMarkdown(written, link, title) {
+  const lines = [`# ${title}`, "", `${stamp(new Date(), false)} · ${written.length} 篇`, ""];
   for (const w of written) {
-    const oneLiner = S.analyses[w.bvid]?.oneLiner;
-    lines.push(`- ${link(w.path, w.title)}${oneLiner ? ` ${oneLine(oneLiner)}` : ""}`);
+    lines.push(`- ${link(w.path, w.title)}${w.oneLiner ? ` ${oneLine(w.oneLiner)}` : ""}`);
   }
   return lines.join("\n");
 }
@@ -3720,7 +3740,7 @@ function zipStored(files, now = new Date()) {
 }
 
 // The zip's files: the index named after the folder, then each note under its vault filename (a repeat gets " (2)").
-function zipNotes(base, written) {
+function zipNotes(base, written, title) {
   const used = new Set([`${base}.md`]);
   const notes = written.map((w) => {
     let path = w.filename;
@@ -3728,52 +3748,92 @@ function zipNotes(base, written) {
     used.add(path);
     return { ...w, path };
   });
-  return [{ name: `${base}.md`, text: indexMarkdown(notes, mdLink) }, ...notes.map((w) => ({ name: w.path, text: w.markdown }))];
+  return [{ name: `${base}.md`, text: indexMarkdown(notes, mdLink, title) }, ...notes.map((w) => ({ name: w.path, text: w.markdown }))];
 }
 
 // md: build the same notes but download them as a zip (one note each plus the index) instead of writing to the vault.
+// The run keeps going with the dialog closed or another folder open: the activity pill shows it, the dialog reopens on it.
 async function runWrite(md = false) {
   const items = writeScopeItems();
   const overwrite = el.writeOverwrite.checked;
-  const token = S.folderToken;
-  S.write = { running: true, stop: false };
-  const keepGoing = () => !S.write.stop && token === S.folderToken;
+  // Taken now: the index is named after this folder and lists these one-liners wherever the page is by then.
+  const title = folderTitle();
+  const oneLiners = Object.fromEntries(items.map((it) => [it.bvid, S.analyses[it.bvid]?.oneLiner]));
+  clearWriteResult();
+  if (el.banner.dataset.kind === "obsidian") el.banner.hidden = true;
+  S.write = { running: true, stop: false, md, done: 0, total: items.length, mediaId: String(S.mediaId), text: "" };
+  const keepGoing = () => !S.write.stop;
   renderWriteScope();
-  el.writeFailed.hidden = true;
+  renderStatus();
   const written = [];
   const failed = [];
-  for (let i = 0; i < items.length && keepGoing(); i++) {
+  const showFailed = () => {
+    el.writeFailed.innerHTML = failed.map((f) => `<li>${esc(f)}</li>`).join("");
+    el.writeFailed.hidden = !failed.length;
+  };
+  // Obsidian closed, not set up or refusing the key fails every note alike: checked first, and such a failure ends the run.
+  let obsidian = "";
+  if (!md) {
+    el.writeProgress.textContent = "正在检查 Obsidian…";
+    const r = await send({ type: "triage-obsidian-check" });
+    if (!r.ok) obsidian = r.error;
+  }
+  for (let i = 0; i < items.length && !obsidian && keepGoing(); i++) {
     const it = items[i];
     el.writeProgress.textContent = `${md ? "生成" : "写入"} ${i + 1}/${items.length}：${it.title}`;
     const r = await send(md ? { type: "triage-build-note", bvid: it.bvid } : { type: "triage-write-note", bvid: it.bvid, overwrite });
-    if (r.ok) written.push({ ...r.data, bvid: it.bvid });
-    else failed.push(`${it.title}：${r.error}`);
+    // B站 risk control: wait as 粗看 / 细看 do, then the same video again.
+    if (!r.ok && THROTTLES[r.code]) {
+      el.writeProgress.textContent = `${THROTTLES[r.code][1]}，等待后重试：${it.title}`;
+      await throttleWait(r.code, keepGoing);
+      i--;
+      continue;
+    }
+    if (!r.ok && r.code === "OBSIDIAN") {
+      obsidian = r.error;
+      break;
+    }
+    if (r.ok) written.push({ ...r.data, bvid: it.bvid, oneLiner: oneLiners[it.bvid] });
+    else {
+      failed.push(`${it.title}：${r.error}`);
+      showFailed();
+    }
+    S.write.done = i + 1;
+    renderStatus();
     if (i + 1 < items.length) await sleepWhile(S.settings.triageIntervalSec * 1000, keepGoing);
   }
   let indexPath = "";
-  if (md && written.length && token === S.folderToken) {
-    const base = safeNoteName(folderTitle());
+  if (md && written.length) {
+    const base = safeNoteName(title);
     indexPath = `${base}.zip`;
-    BocDownload.text(indexPath, zipStored(zipNotes(base, written)), "application/zip");
-  } else if (written.length && keepGoing()) {
-    const r = await send({ type: "triage-export", filename: `${safeNoteName(folderTitle())}.md`, markdown: indexMarkdown(written, wikiLink) });
+    BocDownload.text(indexPath, zipStored(zipNotes(base, written, title)), "application/zip");
+  } else if (written.length && keepGoing() && !obsidian) {
+    const r = await send({ type: "triage-export", filename: `${safeNoteName(title)}.md`, markdown: indexMarkdown(written, wikiLink, title) });
     if (r.ok) indexPath = r.data?.path || "";
     else failed.push(`索引：${r.error}`);
   }
   S.write.running = false;
   const skipped = written.filter((w) => w.skipped).length;
   const aiUpdated = written.filter((w) => w.aiUpdated).length;
-  el.writeProgress.textContent = [
-    S.write.stop ? "已停止。" : "完成。",
+  const counts = [
     `${md ? "下载" : "写入"} ${written.length - skipped} 篇`,
     skipped ? `已存在跳过 ${skipped} 篇` : "",
     aiUpdated ? `其中更新 AI 问答 ${aiUpdated} 篇` : "",
-    failed.length ? `失败 ${failed.length} 篇` : "",
+    failed.length ? `失败 ${failed.length} 篇` : ""
+  ].filter(Boolean);
+  el.writeProgress.textContent = [
+    obsidian ? `写入 Obsidian 失败：${obsidian}。已停止` : S.write.stop ? "已停止。" : "完成。",
+    ...counts,
     indexPath ? `${md ? "文件" : "索引"}：${indexPath}` : ""
   ].filter(Boolean).join(" · ");
-  el.writeFailed.innerHTML = failed.map((f) => `<li>${esc(f)}</li>`).join("");
-  el.writeFailed.hidden = !failed.length;
+  el.writeProgress.classList.toggle("fail-text", Boolean(obsidian));
+  el.writeSettingsBtn.hidden = !obsidian;
+  showFailed();
+  // The pill's green line; an Obsidian failure goes to the red banner instead, which leads to the settings page.
+  if (obsidian) showBanner(`写入 Obsidian 失败：${obsidian}`, "去设置", () => send({ type: "open-options" }), "obsidian");
+  else S.write.text = `逐个视频笔记${S.write.stop ? "已停止" : "完成"}：${counts.join(" · ")}`;
   renderWriteScope();
+  renderStatus();
 }
 
 // ---------- data export ----------
@@ -3964,6 +4024,7 @@ function bindEvents() {
     } else if (act === "batch-unfav") batchUnfav(batchList(btn.dataset.verdict || null));
     else if (act === "batch-keep") batchKeep(batchList(btn.dataset.verdict || null));
     else if (act === "criteria") openCriteria();
+    else if (act === "write") stopWrite();
     else if (act === "redo-coarse") {
       const list = redoCoarseList();
       startJudging("按新标准重新粗看", "重新粗看", list, () => runStage1(list));
@@ -4134,13 +4195,8 @@ function bindEvents() {
   el.writeCopyBtn.addEventListener("click", () => exportDigest("copy"));
   el.writeRunBtn.addEventListener("click", () => (digest() ? exportDigest("obsidian") : runWrite()));
   el.writeMdBtn.addEventListener("click", () => (digest() ? exportDigest("download") : runWrite(true)));
-  el.writeStopBtn.addEventListener("click", () => {
-    S.write.stop = true;
-    el.writeProgress.textContent = "将在当前视频后停止…";
-  });
-  el.writeDialog.addEventListener("close", () => {
-    if (S.write.running) S.write.stop = true;
-  });
+  el.writeStopBtn.addEventListener("click", stopWrite);
+  el.writeSettingsBtn.addEventListener("click", () => send({ type: "open-options" }));
   el.openOptionsBtn.addEventListener("click", () => send({ type: "open-options" }));
   // Both modes' 导出 menus carry the same 完整备份 item.
   document.addEventListener("click", async (e) => {

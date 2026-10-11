@@ -36,6 +36,7 @@ const ctx = vm.createContext({
   structuredClone,
   TextEncoder,
   TagDialogs,
+  __TRIAGE_THROTTLE_MS: 30, // B站限流 waits this long here, not 10 minutes
   setTimeout: (f) => setImmediate(f),
   clearTimeout: (id) => clearImmediate(id),
   // No #tagPicker: tag-picker.js gives only its pure part; the tests stand in for the dialog (pickWith).
@@ -354,13 +355,12 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   {
     const { execFileSync } = require("child_process");
     const os = require("os");
-    t.S.analyses.BVz1 = { oneLiner: "一句\n总结" };
     const note = "---\ntitle: \"窗口函数\"\n---\n\n## 字幕\n";
     const files = t.zipNotes("干货", [
-      { bvid: "BVz1", title: "窗口 [函数]", filename: "2026-10-08-窗口 函数.md", markdown: note },
+      { bvid: "BVz1", title: "窗口 [函数]", filename: "2026-10-08-窗口 函数.md", markdown: note, oneLiner: "一句\n总结" },
       { bvid: "BVz2", title: "同名", filename: "2026-10-08-窗口 函数.md", markdown: "二" },
       { bvid: "BVz3", title: "撞索引", filename: "干货.md", markdown: "三" }
-    ]);
+    ], "干货");
     assert.deepStrictEqual(plain(files.map((f) => f.name)), ["干货.md", "2026-10-08-窗口 函数.md", "2026-10-08-窗口 函数 (2).md", "干货 (2).md"]);
     assert.ok(files[0].text.includes("- [窗口 \\[函数\\]](<2026-10-08-窗口 函数.md>) 一句 总结\n"), files[0].text);
     assert.ok(files[0].text.includes("- [同名](<2026-10-08-窗口 函数 (2).md>)"), files[0].text);
@@ -2358,6 +2358,58 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     await wait();
     assert.notStrictEqual(t.el.list.innerHTML, "before", "compositionend renders what waited");
     delete t.document.activeElement;
+
+    // 逐个视频笔记: B站限流 waits and retries the same video; an Obsidian-level failure ends the run (checked first too);
+    // closing the dialog leaves the run going.
+    {
+      openFake("W", [item(801), item(802), item(803)]);
+      t.S.folders = t.S.allFolders = [{ id: "W", title: "甲" }];
+      t.S.settings.triageIntervalSec = 0;
+      t.document.body = { classList: { contains: () => false } };
+      Object.assign(t.el, { writeScope: { value: "all", options: [], selectedOptions: [] }, writeFormat: { value: "notes" }, writeOverwrite: { checked: false } });
+      let calls = [];
+      let stuck = null;
+      let check = { ok: true };
+      let fail = () => null;
+      handlers["triage-obsidian-check"] = () => check;
+      handlers["triage-export"] = () => ({ ok: true, data: { path: "甲.md" } });
+      handlers["triage-write-note"] = async (m) => {
+        calls.push(m.bvid);
+        return fail(m.bvid) || { ok: true, data: { path: `${m.bvid}.md`, title: m.bvid } };
+      };
+      fail = (b) => (b === "BV802" && calls.length === 2 ? (setTimeout(() => (stuck = t.activityState())), { ok: false, code: "THROTTLED", error: "B站返回 -412" }) : null);
+      await t.runWrite();
+      assert.deepStrictEqual(calls, ["BV801", "BV802", "BV802", "BV803"], "THROTTLED waits, then the same video again");
+      assert.ok(stuck?.stuck && stuck.act === "write" && stuck.text.startsWith("B站限流卡住，"), JSON.stringify(stuck));
+      assert.strictEqual(t.S.write.text, "逐个视频笔记完成：写入 3 篇");
+      assert.deepStrictEqual(plain(t.activityState()), { text: "逐个视频笔记完成：写入 3 篇", finished: true });
+
+      calls = [];
+      fail = (b) => (b === "BV802" ? { ok: false, code: "OBSIDIAN", error: "连不上 Obsidian，请确认它已打开并启用了 Local REST API" } : null);
+      await t.runWrite();
+      assert.deepStrictEqual(calls, ["BV801", "BV802"], "an Obsidian failure ends the run");
+      assert.ok(!t.S.write.running && !t.S.write.text && t.el.writeSettingsBtn.hidden === false, "no green line; 去设置 in the dialog");
+      assert.ok(t.el.bannerText.textContent.startsWith("写入 Obsidian 失败：连不上") && t.el.bannerBtn.textContent === "去设置");
+
+      calls = [];
+      check = { ok: false, code: "OBSIDIAN", error: "请先在设置页填写 Obsidian Local REST API 地址和 API Key" };
+      await t.runWrite();
+      assert.deepStrictEqual(calls, [], "checked before any video");
+      check = { ok: true };
+
+      calls = [];
+      let release;
+      fail = (b) => (b === "BV801" ? new Promise((r) => (release = r)).then(() => null) : null);
+      const run = t.runWrite();
+      await wait();
+      assert.ok(t.S.write.running && t.activityState().act === "write");
+      (L.writeDialog?.close || []).forEach((f) => f());
+      release();
+      await run;
+      assert.deepStrictEqual(calls, ["BV801", "BV802", "BV803"], "closing the dialog leaves the run going");
+      openFake("A", []);
+      delete t.document.body;
+    }
     Object.assign(t.el, real);
   }
 

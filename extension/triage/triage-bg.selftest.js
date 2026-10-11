@@ -25,6 +25,13 @@ assert.strictEqual(t.triageSubtitleValid(body(100), 273), false);
 assert.strictEqual(t.triageSubtitleValid([], 273), false);
 assert.strictEqual(t.triageSubtitleValid(null, 273), false);
 
+// Obsidian itself unusable carries code OBSIDIAN (it ends a 逐个视频笔记 run); one note's own error passes through.
+assert.strictEqual(t.triageObsidianError(vm.runInContext('new TypeError("Failed to fetch")', ctx)).code, "OBSIDIAN");
+assert.strictEqual(t.triageObsidianError({ status: 401 }).code, "OBSIDIAN");
+const noteErr = { status: 500 };
+assert.strictEqual(t.triageObsidianError(noteErr), noteErr);
+assert.throws(() => t.triageObsidianConfig({ obsidianEnabled: true, obsidianApiBaseUrl: "http://127.0.0.1:27123" }), (e) => e.code === "OBSIDIAN");
+
 
 // LLM parse: fixed three classes; ids in any case or the Chinese names; anything else is unsure.
 const good = t.triageParseLlm('```json\n{"one_liner":"讲 X","points":["1","2","3"],"verdict":"keep","reason":"有方法","tags":["AI"]}\n```');

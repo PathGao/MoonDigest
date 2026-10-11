@@ -1456,7 +1456,7 @@ async function putVaultNote(baseUrl, apiKey, filepath, body) {
 
 async function httpError(response) {
   const bodyText = await response.text().catch(() => "");
-  return new Error(`HTTP ${response.status}.${bodyText ? ` ${bodyText.slice(0, 200)}` : ""}`);
+  return Object.assign(new Error(`HTTP ${response.status}.${bodyText ? ` ${bodyText.slice(0, 200)}` : ""}`), { status: response.status });
 }
 
 // Rewrites only the marked AI 问答 block of an existing note (see BocNote.upsertAiSection); a missing
