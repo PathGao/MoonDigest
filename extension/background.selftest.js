@@ -260,7 +260,13 @@ process.on("exit", (code) => {
   assert.deepStrictEqual(Object.keys(local).filter((k) => k.startsWith("boc_subtitle_cache_")), []);
   // Speech ending at 100 s (a long silent outro) passes the video page's loose guard, so the side panel takes it too.
   routes = sidepanelRoutes(100);
-  assert.strictEqual((await historyContext()).subtitleBody.length, 2);
+  const resolved = await historyContext();
+  assert.strictEqual(resolved.subtitleBody.length, 2);
+  // The AI gets the same note the video page sends (BocNote.buildMarkdown): front matter, player embed, subtitles.
+  assert.match(resolved.subtitleMarkdown, /^---\ntitle: "T"\n/);
+  assert.match(resolved.subtitleMarkdown, /subtitle_lang: "中文"/);
+  assert.match(resolved.subtitleMarkdown, /player\.bilibili\.com\/player\.html\?aid=22&bvid=BVa&cid=11/);
+  assert.match(resolved.subtitleMarkdown, /\n## 字幕\n\n`00:00` a\n`00:01` b$/);
   assert.ok("boc_subtitle_cache_BVa_11_id_5" in local);
 
   // Dead keys go on install and update, the old 已看 mark (triage_watched) among them; the 待播 list stays.

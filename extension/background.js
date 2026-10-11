@@ -403,11 +403,15 @@ async function resolveAiSidepanelContext(contextRef) {
   }
 
   const hotComments = site.fetchComments ? await site.fetchComments(videoRef, meta, io, 18).catch(() => []) : [];
-  const chapters = bundle.chapters?.length ? bundle.chapters : BocSites.parseChaptersFromDescription(meta.description);
+  const chapters = BocSites.normalizeChapters(bundle.chapters?.length ? bundle.chapters : BocSites.parseChaptersFromDescription(meta.description));
   const title = String(meta.title || ref.title || "").trim();
+  const subtitleLang = String(selectedTrack?.label || selectedTrack?.lang || "").trim();
+  // The same note the video page sends (content.js buildSidepanelContext), with the fields its state carries.
+  const noteMeta = { ...meta, title, site: site.id, videoId: videoRef.id, chapters, videoDuration: meta.duration, videoTags: meta.tags || [], selectedSubtitleLang: subtitleLang };
+  const noteRef = { site: site.id, id: videoRef.id, part: { index: meta.pageIndex || 1, cid: meta.cid }, url: canonicalVideoUrl({ ...meta, site: site.id, videoId: videoRef.id }) };
   return {
     title,
-    url: canonicalVideoUrl({ ...meta, site: site.id, videoId: videoRef.id }),
+    url: noteRef.url,
     author: String(meta.author || ref.author || "").trim(),
     uploadDate: String(meta.uploadDate || ref.uploadDate || "").trim(),
     site: site.id,
@@ -417,11 +421,11 @@ async function resolveAiSidepanelContext(contextRef) {
     pageIndex: meta.pageIndex || 1,
     pageTitle: String(meta.pageTitle || ref.pageTitle || "").trim(),
     description: String(meta.description || ""),
-    subtitleLang: String(selectedTrack?.label || selectedTrack?.lang || "").trim(),
+    subtitleLang,
     selectedSubtitleId: String(selectedTrack?.id || "").trim(),
     selectedSubtitleUrl: String(selectedTrack?.url || "").trim(),
     subtitleBody: body,
-    subtitleMarkdown: body.length ? buildAiConversationMarkdown({ title, chapters, videoDuration: meta.duration }, body, settings) : "",
+    subtitleMarkdown: body.length ? BocNote.buildMarkdown(noteMeta, body, { ...settings, includeHotCommentsInNote: false }, noteRef) : "",
     subtitleOptions: tracks.map((item) => ({
       id: String(item.id || "").trim(),
       url: String(item.url || "").trim(),
@@ -455,105 +459,6 @@ async function resolveAiSidepanelPageRef(contextRef) {
     pageIndex: meta.pageIndex || ref.pageIndex,
     pageTitle: String(meta.pageTitle || ref.pageTitle || "")
   };
-}
-
-function shouldShowHoursInAiNote(meta, body) {
-  const subtitleMaxTo = (body || []).reduce((max, item) => Math.max(max, Number(item?.to || 0) || 0), 0);
-  const chapterMaxTo = (meta?.chapters || []).reduce((max, item) => Math.max(max, Number(item?.from || 0) || 0, Number(item?.to || 0) || 0), 0);
-  const duration = Number(meta?.videoDuration || 0) || 0;
-  return Math.max(subtitleMaxTo, chapterMaxTo, duration) >= 3600;
-}
-
-function formatCompactTimestamp(seconds, withHours) {
-  const safe = Math.max(0, Math.floor(Number(seconds) || 0));
-  const hour = Math.floor(safe / 3600);
-  const minute = Math.floor((safe % 3600) / 60);
-  const second = safe % 60;
-  if (withHours) {
-    return `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}:${String(second).padStart(2, "0")}`;
-  }
-  const totalMinutes = Math.floor(safe / 60);
-  return `${String(totalMinutes).padStart(2, "0")}:${String(second).padStart(2, "0")}`;
-}
-
-function buildAiSubtitleLine(item, includeTimestampInBody, withHours) {
-  const text = String(item?.content || "").trim();
-  if (!text) {
-    return "";
-  }
-  if (!includeTimestampInBody) {
-    return text;
-  }
-  return `\`${formatCompactTimestamp(item.from, withHours)}\` ${text}`;
-}
-
-function buildAiSubtitleSectionLines(body, chapters, includeTimestampInBody, withHours) {
-  const subtitleItems = (body || [])
-    .map((item, index) => ({ ...item, _index: index, text: String(item?.content || "").trim() }))
-    .filter((item) => item.text);
-  if (!subtitleItems.length) {
-    return ["（暂无字幕）"];
-  }
-
-  if (!Array.isArray(chapters) || !chapters.length) {
-    return subtitleItems.map((item) => buildAiSubtitleLine(item, includeTimestampInBody, withHours));
-  }
-
-  const lines = [];
-  const usedIndexes = new Set();
-  chapters.forEach((chapter, idx) => {
-    const start = Number(chapter.from || 0) || 0;
-    const next = chapters[idx + 1];
-    const chapterTo = Number(chapter.to || 0) || 0;
-    let end = Infinity;
-    if (next && Number(next.from) > start) {
-      end = Number(next.from);
-    } else if (chapterTo > start) {
-      end = chapterTo;
-    }
-    const sectionItems = subtitleItems.filter((item) => {
-      const from = Number(item.from || 0) || 0;
-      return from + 0.001 >= start && (end === Infinity ? true : from < end);
-    });
-    if (!sectionItems.length) {
-      return;
-    }
-    const chapterStamp = includeTimestampInBody ? ` \`${formatCompactTimestamp(start, withHours)}\`` : "";
-    lines.push(`### ${chapter.title}${chapterStamp}`, "");
-    sectionItems.forEach((item) => {
-      usedIndexes.add(item._index);
-      lines.push(buildAiSubtitleLine(item, includeTimestampInBody, withHours));
-    });
-    lines.push("");
-  });
-
-  const remaining = subtitleItems.filter((item) => !usedIndexes.has(item._index));
-  if (remaining.length) {
-    lines.push("### 其他片段", "");
-    remaining.forEach((item) => lines.push(buildAiSubtitleLine(item, includeTimestampInBody, withHours)));
-  }
-
-  while (lines.length && !lines[lines.length - 1]) {
-    lines.pop();
-  }
-  return lines;
-}
-
-function buildAiConversationMarkdown(meta, body, settings) {
-  const includeTimestampInBody = settings?.includeTimestampInBody !== false;
-  const withHours = shouldShowHoursInAiNote(meta, body);
-  const lines = [];
-  const chapters = Array.isArray(meta?.chapters) ? meta.chapters : [];
-  if (chapters.length) {
-    lines.push("## 章节", "");
-    chapters.forEach((item) => {
-      const stamp = includeTimestampInBody ? `\`${formatCompactTimestamp(item.from, withHours)}\` ` : "";
-      lines.push(`- ${stamp}${item.title}`);
-    });
-    lines.push("");
-  }
-  lines.push("## 字幕", "", ...buildAiSubtitleSectionLines(body, chapters, includeTimestampInBody, withHours));
-  return lines.join("\n");
 }
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
