@@ -111,13 +111,13 @@ html.bili_dark .mdg-brand { color: #cba6f7; }
 html.bili_dark span.mdg-badge { border-left-color: #cba6f7; }
 
 /* 观看进度 on covers: the bar is Bilibili's own progress bar look (3px, #ff6699 on 50% black), so it reads as B站's.
-   The ✓ mark is gray (DESIGN 视觉设计 · 颜色: pink means 你在哪, and 看完了 is neither that nor a judgment); bold and ✓ set it apart from the
-   faint 看到 N%. */
+   The ✓ mark is the same pink (DESIGN 视觉设计 · 颜色: pink is 你在哪 and 看到哪); bold and ✓ set it apart from the faint gray
+   看到 N%. */
 .mdg-seen-host { position: relative; }
 .mdg-seen { position: absolute; inset: 0; z-index: 3; pointer-events: none; overflow: hidden; border-radius: inherit; }
 .mdg-seen-bar { position: absolute; left: 0; right: 0; bottom: 0; height: 3px; background: rgba(0, 0, 0, 0.5); }
 .mdg-seen-bar i { display: block; height: 100%; background: #ff6699; }
-.mdg-seen .mdg-seen-mark { position: absolute; top: 6px; left: 6px; padding: 2px 8px; border-radius: 6px; background: rgba(17, 17, 27, 0.78); color: #fff; font: 600 13px/18px system-ui, -apple-system, "PingFang SC", sans-serif; white-space: nowrap; }
+.mdg-seen .mdg-seen-mark { position: absolute; top: 6px; left: 6px; padding: 2px 8px; border-radius: 6px; background: #ff6699; color: #fff; font: 600 13px/18px system-ui, -apple-system, "PingFang SC", sans-serif; white-space: nowrap; }
 .mdg-seen-mark.mdg-faint { background: rgba(17, 17, 27, 0.6); font-weight: 400; }
 .mdg-seen-veil .mdg-seen-mark:not(.mdg-faint) { inset: 0; top: 0; left: 0; padding: 0; border-radius: 0; display: flex; align-items: center; justify-content: center; background: rgba(17, 17, 27, 0.55); font-size: 15px; font-weight: 700; }
 /* While 观看进度 is on it replaces BewlyCat's own: the 6px bar on its 历史 / 稍后再看 covers, its card progress and 已看 tag.

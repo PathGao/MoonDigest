@@ -77,12 +77,11 @@ for (const [selector, prop, token, theme] of BADGE_TOKENS) {
   assert.strictEqual(declOf(selector, prop), tokensOf[theme].get(token).toLowerCase(), `badges.css ${selector} ${prop} = ${theme} ${token}`);
 }
 
-// 看完了 is not 你在哪 (DESIGN 视觉设计 · 颜色): the cover mark must not be the pink --accent.
-assert.notStrictEqual(declOf(".mdg-seen .mdg-seen-mark", "background"), tokenRules[0].vars.get("--accent").toLowerCase(), "the ✓ 看完了 mark is not pink");
-// The 分拣台's own 看完了 tag: the same gray, never pink (the --accent token or its value).
-const seenTag = rules(read("triage/triage.css")).find((r) => r.selector === ".seen-tag").body.match(/(?:^|;)\s*background\s*:\s*([^;]+)/)[1].trim().toLowerCase();
-assert.ok(!/var\(--accent\)|#ff6699/.test(seenTag), "the 分拣台's 看完了 tag is not pink");
-assert.strictEqual(seenTag, declOf(".mdg-seen .mdg-seen-mark", "background"), "and matches the B站 pages' mark");
+// 看完了 is 看到哪 (DESIGN 视觉设计 · 颜色): pink --accent on B站 pages, in the 分拣台 and in the settings page's example.
+assert.strictEqual(declOf(".mdg-seen .mdg-seen-mark", "background"), tokenRules[0].vars.get("--accent").toLowerCase(), "the ✓ 看完了 mark is pink");
+const seenTagBg = (file) => rules(read(file)).find((r) => r.selector === ".seen-tag").body.match(/(?:^|;)\s*background\s*:\s*([^;]+)/)[1].trim().toLowerCase();
+assert.strictEqual(seenTagBg("triage/triage.css"), "var(--accent)", "the 分拣台's 看完了 tag is pink");
+assert.strictEqual(seenTagBg("options.css"), "var(--accent)", "the settings page's example is pink");
 // 已取消收藏 (your decision) and AI 可清理 (a suggestion) share DESIGN 视觉设计 · 颜色's red but not a look: one is solid, one tinted.
 assert.notStrictEqual(declOf(".mdg-badge .mdg-act-unfav", "background"), declOf(".mdg-badge .mdg-drop", "background"));
 
