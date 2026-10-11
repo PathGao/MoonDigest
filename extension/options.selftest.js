@@ -26,6 +26,16 @@ assert.strictEqual(ctx.droppedFolders(["11"], ["11", "22"]), 0);
 assert.strictEqual(ctx.droppedFolders(["11"], undefined), 0);
 assert.strictEqual(ctx.droppedFolders(undefined, ["11"]), 0);
 
+// A save marks any box red (save-settings names a too-long field such as aiSystemPrompt); the next save clears it.
+const marked = ["aiSystemPrompt", "noteFolder"].map(() => {
+  const set = new Set(["input-error"]);
+  return { set, classList: { remove: (c) => set.delete(c) } };
+});
+const marks = vm.createContext({ document: { querySelectorAll: (sel) => (sel === ".input-error" ? marked.filter((n) => n.set.size) : []) }, elements: {}, clearFixedPropertyErrors() {}, clearNoteSectionErrors() {} });
+vm.runInContext(fn("clearInputErrors"), marks);
+marks.clearInputErrors();
+assert.deepStrictEqual(marked.map((n) => n.set.size), [0, 0], "every red box is cleared");
+
 // Untrusted text (titles, UP names, comments, AI replies, tag names, paths) stays text: no tag of its own, no way out of
 // a quoted attribute.
 const XSS = ["<img src=x onerror=alert(1)>", `"'><script>alert(1)</script>`];

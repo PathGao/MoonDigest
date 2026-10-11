@@ -138,9 +138,8 @@ function init() {
       closeAllFixedPropertyMenus();
     }
   });
-  [elements.noteFolder, elements.obsidianApiBaseUrl, elements.obsidianApiKey, elements.tags].forEach((input) => {
-    input?.addEventListener("input", () => input.classList.remove("input-error"));
-  });
+  // Typing in any box marked red (by validation or by save-settings' too-long field) clears its mark.
+  document.addEventListener("input", (event) => event.target.classList?.remove("input-error"));
   elements.obsidianApiKey.addEventListener("input", syncObsidianKeyTag);
   // Focuses an open triage tab instead of a second one.
   document.querySelector('a.jump[href$="triage.html"]')?.addEventListener("click", async (event) => {
@@ -710,9 +709,7 @@ function applyValidationError(validation) {
 }
 
 function clearInputErrors() {
-  [elements.noteFolder, elements.obsidianApiBaseUrl, elements.obsidianApiKey, elements.tags].forEach((input) => {
-    input?.classList.remove("input-error");
-  });
+  document.querySelectorAll(".input-error").forEach((input) => input.classList.remove("input-error"));
   clearFixedPropertyErrors();
   clearNoteSectionErrors();
 }
