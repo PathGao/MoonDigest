@@ -536,6 +536,20 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   assert.ok(t.activityState().stuck && !t.activityState().act, "a wait alone has no button");
   t.S.throttleUntil = 0;
   assert.strictEqual(t.activityState(), null, "nothing running hides the pill");
+  // 观看进度: pages read while this page waits on the read; B站 risk control shows the wait, and 刷新 during it says so.
+  t.S.seenCfg.on = true;
+  Object.assign(t.S.seenRead, { busy: true, pages: 3 });
+  assert.deepStrictEqual(plain(t.activityState()), { text: "读观看进度… 已读 3 页" });
+  Object.assign(t.S.seenRead, { busy: false, pages: 0 });
+  handlers["triage-seen-sync"] = () => ({ ok: true, data: { skipped: "throttled", until: Date.now() + 90000 } });
+  toasts.length = 0;
+  await t.seenSync(true);
+  assert.ok(/^观看进度 · B站限流卡住，1:(30|29) 后重试$/.test(toasts[0]), `a forced 刷新 while backing off is not silent: ${toasts}`);
+  assert.ok(t.activityState().stuck && t.activityState().text === toasts[0]);
+  delete handlers["triage-seen-sync"];
+  t.S.seenRead.until = 0;
+  t.S.seenCfg.on = false;
+  assert.strictEqual(t.activityState(), null);
   // 稍后再看 progress: seconds watched, -1 once finished, 0 or missing for not started.
   assert.strictEqual(t.seenText({ seen: 98, duration: 768 }), "看到 13%");
   assert.strictEqual(t.seenText({ seen: -1, duration: 768 }), "看完了");

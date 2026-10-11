@@ -375,7 +375,7 @@ const SEEN_MAX_PAGES = 60;
 const SEEN_KEEP_S = 365 * 86400;
 const SEEN_MAX = 5000;
 const SEEN_PRUNE_GAP_MS = 86400 * 1000;
-const SEEN_META = "triage_seen_meta"; // { newest: view_at s, syncedAt, prunedAt, backoffUntil }
+const SEEN_META = "triage_seen_meta"; // { newest: view_at s, syncedAt, prunedAt, backoffUntil, resume }
 
 // Percent watched from a history item: progress -1 means finished.
 function seenPercent(progress, duration) {
@@ -419,59 +419,60 @@ async function seenClear() {
 async function seenSyncOnce(force) {
   const { seenShow } = await chrome.storage.sync.get({ seenShow: "off" });
   if (!["bar", "mark", "both"].includes(seenShow)) return { skipped: "off" };
-  const meta = (await chrome.storage.local.get(SEEN_META))[SEEN_META] || {};
+  let meta = (await chrome.storage.local.get(SEEN_META))[SEEN_META] || {};
   const now = Date.now();
-  if (now < (meta.backoffUntil || 0)) return { skipped: "throttled" };
+  if (now < (meta.backoffUntil || 0)) return { skipped: "throttled", until: meta.backoffUntil };
   if (!force && now - (meta.syncedAt || 0) < SEEN_GAP_MS) return { skipped: "recent" };
-  const newest = meta.newest || 0;
-  const found = {};
-  let cursor = { max: 0, view_at: 0, business: "" };
-  let pages = 0;
-  let top = newest;
+  // Each page is written as soon as it is read, so the marks show up during a long first read. `newest` moves only when
+  // a read gets down to it: one that stops midway (risk control, the worker killed) leaves `resume` (the next page, the
+  // newest view_at it saw, pages so far), and the next run reads on from there, then what came in since from the top.
+  const START = { max: 0, view_at: 0, business: "" };
+  let resumed = Boolean(meta.resume);
+  let { cursor = START, top = meta.newest || 0, pages = 0 } = meta.resume || {};
+  let ran = 0;
   try {
-    while (pages < SEEN_MAX_PAGES) {
-      if (pages) {
+    for (;;) {
+      if (ran) {
         await new Promise((r) => setTimeout(r, SEEN_PAGE_GAP_MS));
         await chrome.runtime.getPlatformInfo(); // an extension API call keeps the worker alive through a ~5 min first read
       }
       const data = await triageBiliGet(`https://api.bilibili.com/x/web-interface/history/cursor?ps=30&max=${cursor.max}&view_at=${cursor.view_at}&business=${cursor.business}`);
+      ran++;
       pages++;
       const list = data?.list || [];
       for (const it of list) top = Math.max(top, it.view_at || 0);
-      if (seenFold(found, list, newest)) break;
-      const c = data?.cursor;
-      if (!list.length || !c?.max) break;
-      cursor = c;
+      const found = {};
+      // A read also ends at SEEN_MAX_PAGES: older history is left out.
+      const end = seenFold(found, list, meta.newest || 0) || !list.length || !data?.cursor?.max || pages >= SEEN_MAX_PAGES;
+      const stored = await chrome.storage.local.get(Object.keys(found).map((b) => `seen_${b}`));
+      const write = {};
+      for (const [b, [pct, at]] of Object.entries(found)) {
+        const old = stored[`seen_${b}`];
+        write[`seen_${b}`] = [Math.max(old?.[0] || 0, pct), Math.max(old?.[1] || 0, at)];
+      }
+      meta = end ? { ...meta, newest: top, syncedAt: now, backoffUntil: 0, resume: null } : { ...meta, resume: { cursor: data.cursor, top, pages } };
+      await chrome.storage.local.set({ ...write, [SEEN_META]: meta });
+      if (!end) cursor = data.cursor;
+      else if (resumed) [resumed, cursor, pages] = [false, START, 0];
+      else break;
     }
   } catch (e) {
-    // Risk control: stop and stay away for a while; never retry in a loop.
+    // Risk control: stop and stay away for a while; never retry in a loop. What was read stays, `resume` too.
     if (e.code === "THROTTLED") await chrome.storage.local.set({ [SEEN_META]: { ...meta, backoffUntil: now + SEEN_BACKOFF_MS } });
     throw e;
   }
-  const keys = Object.keys(found).map((b) => `seen_${b}`);
-  const stored = keys.length ? await chrome.storage.local.get(keys) : {};
-  const write = {};
-  for (const [b, [pct, at]] of Object.entries(found)) {
-    const old = stored[`seen_${b}`];
-    write[`seen_${b}`] = [Math.max(old?.[0] || 0, pct), Math.max(old?.[1] || 0, at)];
-  }
-  const next = { ...meta, newest: top, syncedAt: now, backoffUntil: 0 };
   let dropped = 0;
   if (now - (meta.prunedAt || 0) > SEEN_PRUNE_GAP_MS) {
     const all = (await chrome.storage.local.getKeys()).filter((k) => k.startsWith("seen_"));
     const got = await chrome.storage.local.get([...all, "triage_included_folders"]);
     const snaps = await chrome.storage.local.get((got.triage_included_folders || []).map((id) => `triage_snapshot_${id}`));
     const keep = new Set(Object.values(snaps).flatMap((s) => s?.bvids || []));
-    const entries = Object.fromEntries(all.map((k) => [k.slice(5), write[k] || got[k]]));
-    for (const k of Object.keys(write)) entries[k.slice(5)] = write[k];
-    const drop = seenPrune(entries, keep, Math.floor(now / 1000));
+    const drop = seenPrune(Object.fromEntries(all.map((k) => [k.slice(5), got[k]])), keep, Math.floor(now / 1000));
     if (drop.length) await chrome.storage.local.remove(drop.map((b) => `seen_${b}`));
-    for (const b of drop) delete write[`seen_${b}`];
     dropped = drop.length;
-    next.prunedAt = now;
+    await chrome.storage.local.set({ [SEEN_META]: { ...meta, prunedAt: now } });
   }
-  await chrome.storage.local.set({ ...write, [SEEN_META]: next });
-  return { pages, videos: Object.keys(found).length, dropped };
+  return { pages: ran, dropped };
 }
 
 // type 2 = video, the only type triage-folder-items keeps.

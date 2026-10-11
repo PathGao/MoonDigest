@@ -288,6 +288,7 @@ const S = {
   analyzing: new Set(),
   throttleUntil: 0,
   throttleLabel: "",
+  seenRead: { busy: false, pages: 0, until: 0 }, // the background's read of the watch history (triage_seen_meta)
   undo: [], // 收藏夹's steps; a folder switch clears them
   modeUndo: [], // 关注's steps ({ kind: "mode" }): U undoes only the steps of the mode it is pressed in
   lastSyncAt: 0,
@@ -778,6 +779,7 @@ async function init() {
   if (sync.triageAiBatchSize != null) S.settings.triageAiBatchSize = sync.triageAiBatchSize;
   syncObsidian(sync);
   setSeenCfg(sync);
+  followSeenMeta(await storeGet("triage_seen_meta"));
   chrome.storage.onChanged.addListener((changes, area) => {
     if (area === "sync" && changes.obsidianEnabled) syncObsidian({ obsidianEnabled: changes.obsidianEnabled.newValue });
     if (area === "sync" && Object.keys(SEEN_DEFAULTS).some((k) => changes[k])) {
@@ -860,7 +862,26 @@ function setSeenCfg(v) {
   S.seenCfg = { on: bar || mark, bar, mark, threshold: Number(v.seenThreshold) || 80, style: v.seenStyle === "veil" ? "veil" : "badge" };
   document.documentElement.dataset.seenStyle = S.seenCfg.style;
   // The background reads only what is new, at most every 10 minutes (triage-seen-sync); its writes come back through followSeen.
-  if (S.seenCfg.on) send({ type: "triage-seen-sync" });
+  if (S.seenCfg.on) seenSync(false);
+}
+// While this page waits on a read it shows the pages read so far; B站 risk control shows how long the background waits.
+// A run started by a Bilibili page is joined when its first page lands (triage-seen-sync answers when that run ends).
+async function seenSync(force) {
+  const r = S.seenRead;
+  if (r.busy) return;
+  r.busy = true;
+  const res = await send({ type: "triage-seen-sync", force });
+  r.busy = false;
+  if (res.data?.until) r.until = res.data.until;
+  if (force && res.data?.skipped === "throttled") toast(seenWait());
+  renderStatus();
+}
+const seenWait = () => UI.waitText("观看进度 · B站限流卡住", Math.ceil((S.seenRead.until - Date.now()) / 1000));
+function followSeenMeta(meta) {
+  S.seenRead.pages = meta?.resume?.pages || 0;
+  S.seenRead.until = meta?.backoffUntil || 0;
+  if (S.seenRead.pages && !S.seenRead.busy && S.seenCfg.on) seenSync(false);
+  renderStatus();
 }
 // Reads the listed videos' history entries not read yet; one key per video, so a folder costs a few KB.
 async function loadSeen(token) {
@@ -872,6 +893,7 @@ async function loadSeen(token) {
   for (const b of want) S.seenPct[b] = got[`seen_${b}`] || null;
 }
 function followSeen(changes) {
+  if (changes.triage_seen_meta) followSeenMeta(changes.triage_seen_meta.newValue);
   let hit = false;
   for (const [key, c] of Object.entries(changes)) {
     if (!key.startsWith("seen_")) continue;
@@ -1767,6 +1789,8 @@ function activityState() {
   const other = otherAiFolder();
   if (other) return { text: `「${folderName(other)}」的标签建议待确认`, act: "aiOther", actLabel: "查看" };
   // A finished 粗看 keeps its last line for its own folder.
+  if (S.seenCfg.on && seenWait()) return { text: seenWait(), stuck: true };
+  if (S.seenCfg.on && S.seenRead.busy && S.seenRead.pages) return { text: `读观看进度… 已读 ${S.seenRead.pages} 页` };
   if (S.stage1.text && !runWhere(S.stage1)) return { text: S.stage1.text, finished: true };
   return null;
 }
@@ -1778,6 +1802,13 @@ function renderStatus() {
 
 function tick() {
   if (S.throttleUntil) renderStatus();
+  if (!S.seenRead.until) return;
+  renderStatus();
+  // The wait is over: read again, as the pill said.
+  if (Date.now() >= S.seenRead.until) {
+    S.seenRead.until = 0;
+    if (S.seenCfg.on) seenSync(false);
+  }
 }
 
 function renderTabs() {
@@ -3847,7 +3878,7 @@ function bindEvents() {
     if (btn && btn.dataset.folder !== String(S.mediaId)) openFolder(btn.dataset.folder);
   });
   el.refreshBtn.addEventListener("click", () => {
-    if (S.seenCfg.on) send({ type: "triage-seen-sync", force: true });
+    if (S.seenCfg.on) seenSync(true);
     if (inFolderView() && writingTo(S.mediaId)) toast("这个收藏夹正在批量修改，结束后自动刷新");
     S.mediaId === ALL ? refreshAll() : S.mediaId === REMOVED ? openFolder(REMOVED) : S.mediaId && syncFolder({ force: true });
   });
