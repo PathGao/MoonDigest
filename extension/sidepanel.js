@@ -82,9 +82,9 @@ let streamSlowNoticeTimer = 0;
 let streamFirstTokenReceived = false;
 let initCompleted = false;
 let lastLiveVideoUrl = "";
-// Set by a video switch: once the new video's subtitles arrive, its summary prompt fills the input like a click on AI 总结.
-// Showing another conversation drops it.
-let summaryFillPending = false;
+// The conversationEpoch a video switch asked for the AI 总结 prompt in: once that conversation's subtitles arrive,
+// renderSuggestions fills it like a click on AI 总结, once. Any conversation shown since has a newer epoch, so it never gets it.
+let summaryFillEpoch = -1;
 let previousVideoConversationId = "";
 let previousVideoExpanded = false;
 let previousVideoBarSignature = "";
@@ -497,14 +497,14 @@ async function readContextState({ forceRefresh = false, silent = false, follow =
 
   liveTabUrl = String(tab.url || "").trim();
   // Subtitles and comments take seconds to load, but the tab URL already names the new video, so following
-  // switches now and the full reply below fills the context in. Watch-later URLs name the part by oid, not ?p=.
-  const tabRef = follow ? BocSites.parseRef(liveTabUrl) : null;
-  let followed = false;
-  if (tabRef && !tabRef.part?.oid && isFollowCandidate(lastLiveVideoUrl, tabRef.url)) {
-    lastLiveVideoUrl = tabRef.url;
+  // switches now and the full reply below fills the context in.
+  const tabRef = BocSites.parseRef(liveTabUrl);
+  const atTab = decideFollow(snapshotFollowState(), { stage: "tab", toUrl: tabRef?.url || "", oid: Boolean(tabRef?.part?.oid), follow });
+  lastLiveVideoUrl = atTab.lastVideoUrl;
+  const followed = atTab.action === "follow";
+  if (followed) {
     await detachActiveStream();
     await followLiveVideo(buildTabVideoPlaceholder(tab, tabRef));
-    followed = true;
   }
 
   const resp = await sendRuntimeMessage({
@@ -530,17 +530,15 @@ async function readContextState({ forceRefresh = false, silent = false, follow =
 
   liveContextData = resp.payload;
   liveContextKey = buildContextKey(resp.payload);
-  const followFromUrl = lastLiveVideoUrl;
   const liveVideoUrl = resp.payload.isVideoContext !== false && liveContextKey.startsWith("video:") ? String(resp.payload.url || "") : "";
-  if (liveVideoUrl) {
-    lastLiveVideoUrl = liveVideoUrl;
-  }
-  if (follow && isFollowCandidate(followFromUrl, liveVideoUrl)) {
+  const decision = decideFollow(snapshotFollowState(), { stage: "payload", toUrl: liveVideoUrl, follow, keyChanged: contextKeyChanges(resp.payload) });
+  lastLiveVideoUrl = decision.lastVideoUrl;
+  if (decision.action === "follow") {
     await detachActiveStream();
     await followLiveVideo(liveContextData);
     return FOLLOWED_LIVE_VIDEO;
   }
-  if (isContextBound()) {
+  if (decision.action === "keep") {
     renderHistoryList();
     updateContextChip();
     return followed ? FOLLOWED_LIVE_VIDEO : true;
@@ -566,16 +564,18 @@ function buildTabVideoPlaceholder(tab, ref) {
   };
 }
 
+// An empty key (loading or blank tab) is a different context too, so returning to a video restores its conversation.
+// A followed video's placeholder has no cid yet, so its full context is matched by URL.
+function contextKeyChanges(payload) {
+  const fillsPlaceholder = Boolean(contextData?.pending && doesTabMatchContextUrl(payload?.url || "", contextData.url));
+  return !fillsPlaceholder && buildContextKey(payload) !== currentContextKey;
+}
+
 function applyContextPayload(payload) {
   const nextContext = payload && typeof payload === "object" ? payload : null;
-  const nextKey = buildContextKey(nextContext);
-  // An empty key (loading or blank tab) is a different context too, so returning to a video restores its conversation.
-  // A followed video's placeholder has no cid yet, so its full context is matched by URL.
-  const fillsPlaceholder = Boolean(contextData?.pending && doesTabMatchContextUrl(nextContext?.url || "", contextData.url));
-  const contextChanged = !fillsPlaceholder && nextKey !== currentContextKey;
-
+  const contextChanged = contextKeyChanges(nextContext);
   contextData = nextContext;
-  currentContextKey = nextKey;
+  currentContextKey = buildContextKey(nextContext);
   updateContextChip();
 
   if (contextChanged) {
@@ -798,8 +798,8 @@ function renderSuggestions() {
   const prompt = aiPrefs.playerAiQuickPrompt;
   suggestionsNode.innerHTML = `<p class="sp-empty-intro">${escapeHtml(introText())}</p>${prompt ? `<button type="button" class="sp-summary-btn" title="${escapeHtml(prompt)}">${AI_SPARK}AI 总结</button>` : ""}`;
   suggestionsNode.querySelector(".sp-summary-btn")?.addEventListener("click", () => fillPrompt(prompt));
-  if (summaryFillPending && prompt) {
-    summaryFillPending = false;
+  if (summaryFillEpoch === conversationEpoch && prompt) {
+    summaryFillEpoch = -1;
     fillPrompt(prompt);
   }
   void renderTriageSummary(suggestionsNode);
@@ -1143,6 +1143,8 @@ async function saveConversations() {
   renderHistoryList();
 }
 
+// Finding none does not bump conversationEpoch: callers have just started a fresh conversation (restartChat bumped it)
+// or show nothing yet (init).
 async function restoreLatestConversationForCurrentContext(currentRef = liveContextData || contextData, targetContextKey = liveContextKey || currentContextKey) {
   const latest = savedConversations.find((item) => doesConversationMatchCurrentContext(item, currentRef, targetContextKey));
   if (!latest) {
@@ -1182,7 +1184,6 @@ function applyConversation(conversation) {
     return;
   }
   conversationEpoch += 1;
-  summaryFillPending = false;
   currentConversationId = conversation.id;
   currentConversationMeta = {
     id: conversation.id,
@@ -1351,21 +1352,40 @@ async function syncLiveContextState(forceRefresh = false) {
   renderSuggestions();
 }
 
-// 跟随播放：只在当前对话绑定的是“刚才在播的视频”（或还没有对话）时才切走，
-// 用户主动打开的无关历史对话不动。视频按 URL（站点、id、分 P）比较，标签页 URL 和完整上下文都能判断。
-// 还没提问的对话（网页上打开的、分拣台「问 AI」开的空对话）跟着任何别的视频走，不需要“刚才在播的视频”。
-function isFollowCandidate(fromUrl, toUrl) {
-  const shownUrl = currentConversationMeta?.contextUrl || contextData?.url || "";
-  if (!toUrl) {
-    return false;
+// What a context load does with the tab's video (跟随播放). Pure; snapshotFollowState() reads the page's state.
+// state: shownUrl (the shown conversation's video), hasMessages, bound (isContextBound), lastVideoUrl (the tab's video
+// when a load last took or watched it), hasContext (a context was read before; false on the panel's first load).
+// ev: stage "tab" (only the tab URL is known yet) or "payload" (the full context came back); toUrl (the tab's video,
+// "" when it is not one); oid (a watch-later URL names the part by oid, not ?p=, so only the payload can place it);
+// follow (a tab event asked to follow); keyChanged (payload: the tab's context is not the shown one).
+// action: "follow" (show the tab's video: its latest conversation or a fresh one), "keep" (the conversation holds its
+// context), "adopt" (the unbound conversation takes the payload), "none" (tab stage: wait for the payload).
+// Videos compare by URL (site, id, part). Following only leaves a conversation that belongs to the video just played,
+// or one with nothing asked yet (opened on a web page, an empty 问 AI one); a history conversation the user opened stays.
+// An unbound conversation on another video follows whichever load saw the change, so every entry ends alike; the panel's
+// first load only adopts, without the AI 总结 fill. lastVideoUrl moves when the panel takes the tab's video or a follow
+// load watches it, never on a load that leaves a bound conversation in place.
+function decideFollow({ shownUrl, hasMessages, bound, lastVideoUrl, hasContext }, { stage, toUrl, oid, follow, keyChanged }) {
+  const same = doesTabMatchContextUrl;
+  const candidate = Boolean(toUrl) && (hasMessages ? Boolean(lastVideoUrl) && !same(toUrl, lastVideoUrl) && same(shownUrl, lastVideoUrl) : !same(toUrl, shownUrl));
+  if (stage === "tab") {
+    return follow && hasContext && !oid && candidate ? { action: "follow", lastVideoUrl: toUrl } : { action: "none", lastVideoUrl };
   }
-  if (!chatHistory.length) {
-    return !doesTabMatchContextUrl(toUrl, shownUrl);
-  }
-  if (!fromUrl || doesTabMatchContextUrl(toUrl, fromUrl)) {
-    return false;
-  }
-  return doesTabMatchContextUrl(shownUrl, fromUrl);
+  const taken = toUrl || lastVideoUrl;
+  if (!hasContext) return { action: "adopt", lastVideoUrl: taken };
+  if ((follow && candidate) || (!bound && keyChanged && toUrl)) return { action: "follow", lastVideoUrl: toUrl };
+  if (bound) return { action: "keep", lastVideoUrl: follow ? taken : lastVideoUrl };
+  return { action: "adopt", lastVideoUrl: taken };
+}
+
+function snapshotFollowState() {
+  return {
+    shownUrl: currentConversationMeta?.contextUrl || contextData?.url || "",
+    hasMessages: chatHistory.length > 0,
+    bound: isContextBound(),
+    lastVideoUrl: lastLiveVideoUrl,
+    hasContext: Boolean(contextData)
+  };
 }
 
 // Switching videos mid-reply hands the reply to its saved conversation, which then becomes the previous-video bar.
@@ -1425,7 +1445,7 @@ async function followLiveVideo(context) {
   els.input.value = draft;
   autosizeInput();
   await restoreLatestConversationForCurrentContext(contextData, currentContextKey);
-  summaryFillPending = !chatHistory.length;
+  if (!chatHistory.length) summaryFillEpoch = conversationEpoch;
   renderHistoryList();
   updateContextChip();
   renderInitialState();
@@ -2710,7 +2730,6 @@ function delay(ms) {
 
 function restartChat() {
   conversationEpoch += 1;
-  summaryFillPending = false;
   clearStreamRuntimeState();
   if (activeStream) {
     closeStream(activeStream);

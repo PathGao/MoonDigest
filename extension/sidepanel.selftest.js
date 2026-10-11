@@ -8,7 +8,7 @@ const assert = require("assert");
 const source = fs.readFileSync(path.join(__dirname, "sidepanel.js"), "utf8").replace(/^init\(\)\.catch\(/m, "(async () => {})().catch(");
 assert.ok(source.includes("(async () => {})().catch("), "harness strips the page entry point");
 
-const stubEl = () => new Proxy({ classList: { toggle() {}, add() {}, remove() {} }, style: {}, dataset: {} }, {
+const stubEl = () => new Proxy({ classList: { toggle() {}, add() {}, remove() {}, contains: () => false }, style: {}, dataset: {}, querySelectorAll: () => [], querySelector: () => null }, {
   get: (o, k) => (k in o ? o[k] : () => {}),
   set: (o, k, v) => ((o[k] = v), true)
 });
@@ -20,8 +20,8 @@ const ctx = vm.createContext({
   URL,
   setTimeout: (f) => setImmediate(f),
   clearTimeout: (id) => clearImmediate(id),
-  document: { getElementById: stubEl, querySelector: () => null, querySelectorAll: () => [], addEventListener() {}, createElement: stubEl },
-  window: { addEventListener() {}, setTimeout: (f) => setImmediate(f), clearTimeout: (id) => clearImmediate(id), matchMedia: () => ({ matches: false }) },
+  document: { body: stubEl(), getElementById: stubEl, querySelector: () => null, querySelectorAll: () => [], addEventListener() {}, createElement: stubEl },
+  window: { addEventListener() {}, setTimeout: (f) => setImmediate(f), clearTimeout: (id) => clearImmediate(id), matchMedia: () => ({ matches: false }), cancelAnimationFrame() {} },
   navigator: {},
   chrome: {
     runtime: {
@@ -48,6 +48,8 @@ vm.runInContext(
   ctx
 );
 const realRenderHistoryList = ctx.renderHistoryList;
+// The page's own functions, for the behaviour tests below that need them past the stubs.
+const real = Object.fromEntries(["restartChat", "renderSuggestions", "fillPrompt", "applyConversation", "startNewConversation", "hydratePinnedConversationContext"].map((f) => [f, ctx[f]]));
 // Untrusted text (titles, UP names, comments, AI replies, tag names, paths) stays text: no tag of its own, no way out of
 // a quoted attribute.
 const XSS = ["<img src=x onerror=alert(1)>", `"'><script>alert(1)</script>`];
@@ -233,22 +235,78 @@ const page = (id) => ({ ok: true, payload: { url: `https://example.com/${id}`, t
   }
 
   {
-    // Following: a conversation with nothing asked follows any other video, also the first one after a web page
-    // or an empty 问 AI conversation; one with messages follows only from the video it belongs to.
+    // Following (decideFollow): a conversation with nothing asked follows any other video, also the first one after a
+    // web page or an empty 问 AI conversation; one with messages follows only from the video it belongs to.
     const v = (id) => `https://www.bilibili.com/video/${id}`;
-    ctx.web = page("home").payload;
-    const follows = (setup, from, to) => vm.runInContext(`${setup}; isFollowCandidate(${JSON.stringify(from)}, ${JSON.stringify(to)})`, ctx);
-    assert.strictEqual(follows("contextData = web; currentConversationMeta = null; chatHistory = []", "", v("BV1aa")), true, "first video after a web page");
-    assert.strictEqual(follows(`contextData = { url: "${v("BV1aa")}" }`, v("BV1aa"), v("BV1aa")), false, "the video already shown");
-    const pinned = `currentConversationMeta = { pinnedContext: true, contextUrl: "${v("BV1vv")}" }; chatHistory = []`;
-    assert.strictEqual(follows(pinned, v("BV1ee"), v("BV1ee")), true, "empty 问 AI conversation, back to the video tab");
-    const history = `currentConversationMeta = { pinnedContext: true, contextUrl: "${v("BV1hh")}" }; chatHistory = [{ role: "user", content: "q" }]`;
-    assert.strictEqual(follows(history, v("BV1ee"), v("BV1ff")), false, "an opened history conversation stays");
-    assert.strictEqual(follows(history, "", v("BV1ff")), false);
-    assert.strictEqual(follows(history, v("BV1hh"), v("BV1ff")), true, "the conversation of the video just played");
+    const web = page("home").payload.url;
+    const fresh = { shownUrl: web, hasMessages: false, bound: false, lastVideoUrl: "", hasContext: true };
+    const pinnedEmpty = { shownUrl: v("BV1vv"), hasMessages: false, bound: true, lastVideoUrl: v("BV1ee"), hasContext: true };
+    const history = { shownUrl: v("BV1hh"), hasMessages: true, bound: true, lastVideoUrl: v("BV1ee"), hasContext: true };
+    const at = (state, ev) => ({ ...ctx.decideFollow(state, { stage: "payload", follow: true, keyChanged: true, ...ev }) });
+    const table = [
+      ["first video after a web page", fresh, { toUrl: v("BV1aa") }, "follow", v("BV1aa")],
+      ["the video already shown", { ...fresh, shownUrl: v("BV1aa"), lastVideoUrl: v("BV1aa") }, { toUrl: v("BV1aa"), keyChanged: false }, "adopt", v("BV1aa")],
+      ["empty 问 AI conversation, back to the video tab", pinnedEmpty, { toUrl: v("BV1ee") }, "follow", v("BV1ee")],
+      ["an opened history conversation stays", history, { toUrl: v("BV1ff") }, "keep", v("BV1ff")],
+      ["no video played before", { ...history, lastVideoUrl: "" }, { toUrl: v("BV1ff") }, "keep", v("BV1ff")],
+      ["the conversation of the video just played", { ...history, lastVideoUrl: v("BV1hh") }, { toUrl: v("BV1ff") }, "follow", v("BV1ff")],
+      // U1: any load that finds an unbound conversation on another video follows, not only a tab event.
+      ["send, refresh or chip click on another video", { ...fresh, shownUrl: v("BV1aa") }, { toUrl: v("BV1bb"), follow: false }, "follow", v("BV1bb")],
+      ["a web page is adopted, not followed", { ...fresh, shownUrl: v("BV1aa") }, { toUrl: "", follow: false }, "adopt", ""],
+      // The panel's first load takes the tab without the AI 总结 fill.
+      ["first load", { ...fresh, shownUrl: "", hasContext: false }, { toUrl: v("BV1aa") }, "adopt", v("BV1aa")],
+      ["first load, not a tab event", { ...fresh, shownUrl: "", hasContext: false }, { toUrl: v("BV1aa"), follow: false }, "adopt", v("BV1aa")],
+      // A load that leaves a bound conversation in place does not move lastVideoUrl, so the follow load after it still
+      // sees the tab leave the video just played.
+      ["non-follow load does not advance", { ...history, lastVideoUrl: v("BV1hh") }, { toUrl: v("BV1ff"), follow: false }, "keep", v("BV1hh")]
+    ];
+    for (const [name, state, ev, action, last] of table) assert.deepStrictEqual(at(state, ev), { action, lastVideoUrl: last }, name);
+    // The tab stage acts on the tab URL alone, except a watch-later part (named by oid) and the first load.
+    const tab = (state, ev) => ({ ...ctx.decideFollow(state, { stage: "tab", follow: true, oid: false, ...ev }) });
+    assert.deepStrictEqual(tab(fresh, { toUrl: v("BV1aa") }), { action: "follow", lastVideoUrl: v("BV1aa") });
+    assert.deepStrictEqual(tab(fresh, { toUrl: v("BV1aa"), oid: true }), { action: "none", lastVideoUrl: "" }, "oid");
+    assert.deepStrictEqual(tab({ ...fresh, hasContext: false }, { toUrl: v("BV1aa") }), { action: "none", lastVideoUrl: "" }, "first load");
+    assert.deepStrictEqual(tab(fresh, { toUrl: v("BV1aa"), follow: false }), { action: "none", lastVideoUrl: "" }, "not a tab event");
 
-    // Showing another conversation drops a pending AI 总结 fill.
-    assert.strictEqual(vm.runInContext('summaryFillPending = true; applyConversation({ id: "h", messages: [] }); summaryFillPending', ctx), false);
+    // The wiring: a send's context load on an unbound conversation whose tab moved on follows the new video.
+    {
+      const followed = [];
+      const realFollow = ctx.followLiveVideo;
+      ctx.followLiveVideo = async (c) => followed.push(c.url);
+      activeTab = { id: 3, url: v("BV1bb") };
+      answer = async () => ({ ok: true, payload: { url: v("BV1bb"), title: "b", site: "bilibili", videoId: "BV1bb", isVideoContext: true } });
+      ctx.shown = { url: v("BV1aa"), site: "bilibili", videoId: "BV1aa", isVideoContext: true };
+      vm.runInContext("activeStream = null; chatHistory = []; currentConversationMeta = null; contextData = shown; currentContextKey = buildContextKey(shown); lastLiveVideoUrl = shown.url", ctx);
+      assert.strictEqual(await ctx.loadContextState({ silent: true }), "followed");
+      assert.deepStrictEqual(followed, [v("BV1bb")]);
+      // The first load only adopts.
+      vm.runInContext("contextData = null; currentContextKey = ''; lastLiveVideoUrl = ''", ctx);
+      assert.strictEqual(await ctx.loadContextState({ silent: true, follow: true }), true);
+      assert.deepStrictEqual(followed, [v("BV1bb")]);
+      ctx.followLiveVideo = realFollow;
+    }
+
+    // AI 总结 after a video switch fills once, in the conversation it was asked for; showing another one cancels it.
+    {
+      const fills = [];
+      ctx.fillPrompt = (text) => fills.push(text);
+      ctx.renderSuggestions = real.renderSuggestions;
+      ctx.renderFollowups = () => {};
+      ctx.shown = { url: v("BV1aa"), title: "a", site: "bilibili", videoId: "BV1aa", isVideoContext: true, subtitleMarkdown: "s" };
+      vm.runInContext('providers = [{}]; aiPrefs = { ...aiPrefs, playerAiQuickPrompt: "总结" }; suggestionsNode = document.createElement("div"); chatHistory = []; contextData = shown; summaryFillEpoch = conversationEpoch', ctx);
+      ctx.renderSuggestions();
+      ctx.renderSuggestions();
+      assert.deepStrictEqual(fills.splice(0), ["总结"], "filled once");
+      vm.runInContext('summaryFillEpoch = conversationEpoch; applyConversation({ id: "h", messages: [] }); contextData = shown', ctx);
+      ctx.renderSuggestions();
+      assert.deepStrictEqual(fills, [], "another conversation does not get it");
+      vm.runInContext("summaryFillEpoch = conversationEpoch", ctx);
+      real.restartChat();
+      ctx.renderSuggestions();
+      assert.deepStrictEqual(fills, [], "nor a fresh one");
+      ctx.renderSuggestions = () => {};
+      ctx.fillPrompt = real.fillPrompt;
+    }
 
     // 导出对话 is disabled with its reason until there is a question with an answer.
     ctx.renderFollowups = () => {};
