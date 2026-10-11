@@ -979,6 +979,8 @@ async function loadFolders() {
   S.toviewUnread = Boolean(r.data.toviewUnread);
   S.mid = r.data.mid;
   S.included = (await loadIncluded()).map(String);
+  // Its data stays (retireUnchosenFolders keeps it); say so, amber like any reminder that blocks nothing.
+  if (S.toviewUnread && S.included.includes(TOVIEW)) showBanner("稍后再看这次没读到，点「重试」再读一次", "重试", loadFolders, "toview");
   S.folders = S.allFolders.filter((f) => S.included.includes(String(f.id)));
   await retireUnchosenFolders();
   S.removedCount = Object.keys(await storeGet(K.removed, {})).length;

@@ -1694,10 +1694,12 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     await t.loadFolders();
     assert.ok(store.triage_snapshot_toview && store.triage_decisions_toview, "稍后再看 kept");
     assert.deepStrictEqual(plain(store[t.K.removed]), removedBefore, "nothing moved to 已出分拣范围");
+    assert.deepStrictEqual([t.el.banner.hidden, t.el.banner.dataset.kind, t.el.bannerText.textContent], [false, "toview", "稍后再看这次没读到，点「重试」再读一次"], "the user is told and offered 重试");
     handlers["triage-folders"] = () => ({ ok: true, data: { folders: [{ id: 2, count: 2 }] } });
     store.triage_included_folders = ["2"];
     await t.loadFolders();
     assert.ok(!store.triage_snapshot_toview && "BV5" in store[t.K.removed], "a read 稍后再看 that is unticked retires as before");
+    assert.ok(t.el.banner.hidden, "the next read that gets it clears the reminder");
     delete store[t.K.removed].BV5;
   }
   // saveSnapshot counts only chosen folders: BV3 left folder 2 and only an unchosen folder's stale list had it.

@@ -139,6 +139,7 @@ select { height: 28px; max-width: 240px; }
   color: var(--danger);
 }
 .banner span { flex: 1; }
+.banner[data-kind="toview"] { border-color: var(--warn-border); background: var(--warn-bg); color: var(--warn); }
 
 /* ---------- sidebar + main ---------- */
 .shell { flex: 1; min-height: 0; display: grid; grid-template-columns: 208px minmax(0, 1fr); }
