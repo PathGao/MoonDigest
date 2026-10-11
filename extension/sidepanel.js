@@ -1,4 +1,8 @@
 const SELECTED_PROVIDER_KEY = "mdg_ai_selected_provider";
+// Before the first read: 3.5 and older kept it as boc_ai_selected_provider. Either page may open first after the update.
+try {
+  MdgLimits.migrateRenamedLocalStorage(localStorage);
+} catch {}
 const CONVERSATIONS_STORAGE_KEY = MdgLimits.KEYS.aiConversations;
 const { escapeHtml } = MdgErrors;
 const {

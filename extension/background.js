@@ -16,7 +16,15 @@ const EXPECTED_CONTENT_SCRIPT_VERSION = chrome.runtime.getManifest().version || 
 const READER_ENTRIES = chrome.runtime.getManifest().content_scripts.filter((entry) => entry.js.includes("content.js"));
 const READER_SCRIPTS = { ...READER_ENTRIES[0], matches: READER_ENTRIES.flatMap((entry) => entry.matches) };
 
+// The boc_* → mdg_* key rename (3.6). Runs on update and on every browser start until nothing is left to move.
+async function migrateRenamedStorage() {
+  await MdgLimits.migrateRenamedKeys(chrome.storage.local);
+  if (chrome.storage.session) await MdgLimits.migrateRenamedKeys(chrome.storage.session);
+}
+chrome.runtime.onStartup.addListener(() => void migrateRenamedStorage());
+
 chrome.runtime.onInstalled.addListener(async () => {
+  await migrateRenamedStorage();
   await initializeSettingsStorage();
   // Chrome leaves tabs opened before an install or update without our content script, and an
   // update leaves the old copy running with a dead chrome.runtime. The fresh copy replaces it.
