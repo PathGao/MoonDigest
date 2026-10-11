@@ -330,6 +330,11 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     assert.ok(/data-refav="BV9"[^>]* disabled title="重新收藏还在跑，等它完成"/.test(t.recentUnfavHtml()));
     delete t.S.decisions.BV9;
     t.S.refavRun = null;
+    // R3: a B站 limit on a single 细看 retry names the limit, not "undefined".
+    handlers["triage-analyze"] = () => ({ ok: false, code: "THROTTLED", error: "412" });
+    await t.retry("BV1");
+    assert.strictEqual(toasts.at(-1), "B站限流卡住，请稍后再试");
+    delete t.S.analyses.BV1;
     t.S.undo = [];
   }
 

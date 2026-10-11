@@ -3272,7 +3272,7 @@ async function retry(bvid) {
   const r = await analyzeOne(bvid, true, judge);
   if (!r.ok) {
     S.analyses[bvid] = { bvid, status: "error", error: r.error };
-    if (THROTTLES[r.code]) toast(`${THROTTLES[r.code][1]}，请稍后再试`, true);
+    if (THROTTLES[r.code]) toast(`${THROTTLES[r.code].label}，请稍后再试`, true);
     else handleAiError(r.error, r.code);
   } else {
     S.analyses[bvid] = { criteria: judge.crit, ...r.data };
@@ -3779,7 +3779,7 @@ async function runWrite(md = false) {
     const r = await send(md ? { type: "triage-build-note", bvid: it.bvid } : { type: "triage-write-note", bvid: it.bvid, overwrite });
     // B站 risk control: wait as 粗看 / 细看 do, then the same video again.
     if (!r.ok && THROTTLES[r.code]) {
-      el.writeProgress.textContent = `${THROTTLES[r.code][1]}，等待后重试：${it.title}`;
+      el.writeProgress.textContent = `${THROTTLES[r.code].label}，等待后重试：${it.title}`;
       await waitOut("write", THROTTLES[r.code], keepGoing);
       i--;
       continue;
