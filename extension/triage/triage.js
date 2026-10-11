@@ -1767,7 +1767,7 @@ function activityState() {
   const other = otherAiFolder();
   if (other) return { text: `「${folderName(other)}」的标签建议待确认`, act: "aiOther", actLabel: "查看" };
   // A finished 粗看 keeps its last line for its own folder.
-  if (S.stage1.text && !runWhere(S.stage1)) return { text: S.stage1.text, quiet: true };
+  if (S.stage1.text && !runWhere(S.stage1)) return { text: S.stage1.text, finished: true };
   return null;
 }
 

@@ -673,7 +673,7 @@ function renderUps() {
 
 function emptyHtml() {
   const j = D.jobs || {};
-  const act = j.running ? `<p class="muted" aria-busy="true">刷新中…读到就显示在这里</p>` : UI.refreshEmpty('data-fw="sync"');
+  const act = j.running ? `<p class="muted" aria-busy="true">刷新中…读到就显示在这里</p>` : UI.refreshEmpty('data-fw="sync" class="primary"');
   return UI.emptyState("还没有关注数据", "先从 B站读你的关注列表，再翻视频投稿看谁最近发过视频，里面没出现的人再一个个查投稿。只读，不改 B站。", act);
 }
 

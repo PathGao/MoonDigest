@@ -180,13 +180,13 @@
     const b = btn ? `<button type="button" ${btn.attrs} aria-label="${esc(btn.label)}"${reasonAttrs(btn.reason)}>${esc(btn.label)}</button>` : "";
     return `${stuck ? `<span class="activity-stuck">${ICON.alert}</span>` : ""}<span class="activity-text">${esc(text)}</span>${bar}${b}`;
   }
-  // Draws the pill from state ({ text, done, total, btn, stuck, quiet }); null / false hides it. Amber, as something is
-  // running or waiting; stuck (B站限流 or offline, waiting to retry) adds a red ⚠; quiet is grey, for a line left over
-  // from a finished run.
+  // Draws the pill from state ({ text, done, total, btn, stuck, finished }); null / false hides it. Blue while running;
+  // stuck (B站限流 or offline, waiting to retry) is amber with a red ⚠; finished is green, for a finished run's line.
   function setActivity(el, a) {
     el.hidden = !a;
     if (!a) return;
-    el.classList.toggle("quiet", Boolean(a.quiet));
+    el.classList.toggle("stuck", Boolean(a.stuck));
+    el.classList.toggle("done", Boolean(a.finished));
     el.innerHTML = activityHtml(a);
   }
   // 「B站限流卡住，01:30 后重试」 while sec > 0, else "".
