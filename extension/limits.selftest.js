@@ -64,7 +64,7 @@ assert.deepStrictEqual([...names].sort(), [
 assert.strictEqual(L.KEYS.triageAnalysis("BV1"), "triage_analysis_BV1");
 assert.strictEqual(L.KEYS.triageTitle("BV1"), "triage_title_BV1");
 assert.strictEqual(L.KEYS.triageSnapshot(7), "triage_snapshot_7");
-const badgesCopies = ["triage_tags", "triage_video_tags", "triage_title_", "triage_analysis_"];
+const badgesCopies = ["triage_tags", "triage_video_tags", "triage_title_", "triage_analysis_", "triage_snapshot_"];
 for (const name of badgesCopies) assert.ok(names.includes(name), `badges.js reads ${name}, which KEYS no longer has`);
 const sources = [];
 const walk = (dir) => {

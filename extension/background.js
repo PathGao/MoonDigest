@@ -1,5 +1,5 @@
 // Shared modules must load before the top-level code below reads them (e.g. BocLimits).
-importScripts("limits.js", "errors.js", "settings.js", "sites.js", "note.js");
+importScripts("limits.js", "errors.js", "settings.js", "sites.js", "tag-core.js", "note.js");
 
 // Side panel stream watchdog: "first" until any SSE chunk arrives (reasoning chunks count), then "idle" between chunks.
 const STREAM_TIMEOUT_MS = { first: 90000, idle: 60000 };
@@ -1481,4 +1481,4 @@ async function probeAiChatCompletion({ baseUrl, apiKey, model }) {
 }
 
 // shared.js is the pages' TriageUi; it touches no DOM until called, so the worker reuses its formatters and tag rules.
-importScripts("tag-core.js", "triage/shared.js", "triage/triage-bg.js", "triage/follow-bg.js");
+importScripts("triage/shared.js", "triage/triage-bg.js", "triage/follow-bg.js");

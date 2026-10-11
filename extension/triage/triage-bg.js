@@ -37,13 +37,13 @@ function triageExtractJson(content, open) {
 }
 
 // AI 判断固定三档。模型答 id（不分大小写）或中文名（含改名前的旧名）都认，其他一律算拿不准。
-const TRIAGE_VERDICTS = { keep: "值得留", drop: "可清理", unsure: "拿不准" };
 const TRIAGE_VERDICT_ALIASES = { 留: "keep", 可以删: "drop", 待定: "unsure" };
 function triageVerdict(v) {
   const s = String(v ?? "").trim();
   const id = s.toLowerCase();
-  if (TRIAGE_VERDICTS[id]) return id;
-  return Object.keys(TRIAGE_VERDICTS).find((k) => TRIAGE_VERDICTS[k] === s) || TRIAGE_VERDICT_ALIASES[s] || "unsure";
+  const names = BocTagCore.VERDICTS;
+  if (names[id]) return id;
+  return Object.keys(names).find((k) => names[k] === s) || TRIAGE_VERDICT_ALIASES[s] || "unsure";
 }
 
 // tags 是标签名列表，或 [{ name, rule }]

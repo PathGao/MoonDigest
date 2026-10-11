@@ -9,6 +9,7 @@ const assert = require("assert");
 const ctx = vm.createContext({ URL, URLSearchParams, console });
 vm.runInContext(fs.readFileSync(path.join(__dirname, "settings.js"), "utf8"), ctx);
 vm.runInContext(fs.readFileSync(path.join(__dirname, "sites.js"), "utf8"), ctx);
+vm.runInContext(fs.readFileSync(path.join(__dirname, "tag-core.js"), "utf8"), ctx);
 vm.runInContext(fs.readFileSync(path.join(__dirname, "note.js"), "utf8"), ctx);
 const N = ctx.BocNote;
 const CREATED = "2026-10-02";

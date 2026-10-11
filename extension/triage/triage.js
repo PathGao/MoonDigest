@@ -43,7 +43,7 @@ const REMOVED = "removed"; // the 已出分拣范围 view
 const TOVIEW = "toview"; // 稍后再看, listed by triage-bg as one more folder
 // The fixed AI classes, shown as chips inside 粗看完成 and 细看完成.
 // The ids are the badge color classes too.
-const VERDICTS = { keep: "值得留", drop: "可清理", unsure: "拿不准" };
+const { VERDICTS } = BocTagCore;
 
 // One-time fold of the global 判断标准 (sync triageCriteria, released since v1.2.0) into per-folder 判断标准, and a clean
 // tag list (pure). Each folder seen in triage gets the global criteria when non-empty; folders never opened in triage
@@ -590,22 +590,11 @@ const ownStage1 = () => S.stage1.running && S.stage1.mediaId === String(S.mediaI
 const ownGroup = () => (S.group?.mediaId === String(S.mediaId) ? S.group : null);
 const runWhere = (run) => (run.mediaId === String(S.mediaId) ? "" : `（${folderName(run.mediaId)}）`);
 
-// verdict is keep / drop / unsure, or "none" before 粗分. A done 细看 with an unknown verdict counts as unsure;
-// a 粗分 result with one (left from the old custom tiers) counts as not classified, so 粗分 can run again.
-// An invalid video is 可清理 whatever the AI said, but keeps the AI's reason and step after the 已失效 note.
+// BocTagCore.verdictOf with the failed 细看's error (not for an invalid video, which is 可清理 anyway).
 function verdictOf(it) {
-  const v = aiVerdictOf(it);
-  if (!it.invalid) return v;
-  return { verdict: "drop", reason: v.reason ? `视频已失效。AI 原理由：${v.reason}` : "视频已失效", stage: Math.max(v.stage, 0), failed: "" };
-}
-
-function aiVerdictOf(it) {
   const a = S.analyses[it.bvid];
-  const failed = a?.status === "error" ? a.error || "分析失败" : "";
-  if (a?.status === "done") return { verdict: VERDICTS[a.verdict] ? a.verdict : "unsure", reason: a.reason, stage: 2, failed: "" };
-  const t = S.titleRes[it.bvid];
-  if (t && VERDICTS[t.verdict]) return { verdict: t.verdict, reason: t.reason, stage: 1, low: t.confidence === "low", failed };
-  return { verdict: "none", reason: "", stage: -1, failed };
+  const v = BocTagCore.verdictOf({ title: S.titleRes[it.bvid], analysis: a, invalid: it.invalid });
+  return { ...v, failed: !it.invalid && a?.status === "error" ? a.error || "分析失败" : "" };
 }
 
 // Search covers title, uploader, the AI one-liner and points, the note and tag names; every word must match.

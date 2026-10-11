@@ -355,7 +355,7 @@
     if (analysis.oneLiner) lines.push(`> ${analysis.oneLiner}`, "");
     const points = (analysis.points || []).filter(Boolean);
     if (points.length) lines.push(...points.map((p) => `- ${p}`), "");
-    const verdict = { keep: "值得留", drop: "可清理", unsure: "拿不准" }[analysis.verdict];
+    const verdict = BocTagCore.VERDICTS[analysis.verdict];
     if (verdict) lines.push(`AI 判断：${verdict}${analysis.reason ? `，${analysis.reason}` : ""}`);
     return lines.join("\n").trim();
   }
