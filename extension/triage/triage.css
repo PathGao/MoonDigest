@@ -384,7 +384,7 @@ select { height: 28px; max-width: 240px; }
 .cover-tag.running { background: rgba(0, 0, 0, 0.55); color: #fff; font-weight: 400; }
 /* 观看进度: html[data-seen-style] picks the corner tag or the veil (设置页「看完了标记样式」). */
 .seen-bar { position: absolute; left: 0; right: 0; bottom: 0; z-index: 2; height: 3px; background: rgba(0, 0, 0, 0.5); pointer-events: none; }
-.seen-bar i { display: block; height: 100%; background: #ff6699; }
+.seen-bar i { display: block; height: 100%; background: var(--accent); }
 /* The bar copies B站's own progress bar (pink on 50% black), as on B站 pages. 看完了 is the same pink (DESIGN 视觉设计 · 颜色: pink is
    你在哪 and 看到哪), as in badges.css. */
 .seen-tag { position: absolute; top: 6px; right: 6px; z-index: 1; padding: 1px 6px; border-radius: 4px; background: var(--accent); color: #fff; font-size: var(--fs-xs); font-weight: 600; line-height: 18px; white-space: nowrap; pointer-events: none; }
