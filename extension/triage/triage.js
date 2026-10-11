@@ -2296,7 +2296,7 @@ function chunksOf(items, one, make) {
   for (let i = 0; i < items.length; i += chunkSize(one)) out.push({ ...make(items.slice(i, i + chunkSize(one))), gap: chunkGap(one) });
   return out;
 }
-const refavChunk = (f, { bvid, aid }) => ({ msg: { type: "triage-refav", mediaId: f, aid }, keys: [bvid], folders: [f], gap: 300 });
+const refavChunk = (f, { bvid, aid }) => ({ msg: { type: "triage-refav", mediaId: f, aid }, keys: [bvid], folders: [f], gap: chunkGap(true) });
 async function refavDone({ folders: [f], keys: [bvid] }) {
   bumpCount(f, 1);
   await patchDecisions(f, { [bvid]: null });
