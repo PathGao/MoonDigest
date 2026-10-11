@@ -900,12 +900,12 @@ const TRIAGE_HANDLERS = {
   },
 
   // Which of the user's folders hold this video (Bilibili's own 收藏 dialog asks the same): one request per video, no
-  // folder's contents are read.
-  "triage-fav-where": async ({ aid }) => {
+  // folder's contents are read. The page passes back the mid of its first answer, so one check asks nav once.
+  "triage-fav-where": async ({ aid, mid: known }) => {
     if (!aid) throw triageError("缺少 aid");
-    const mid = await triageMid();
+    const mid = known || (await triageMid());
     const data = await triageBiliGet(`https://api.bilibili.com/x/v3/fav/folder/created/list-all?up_mid=${mid}&type=2&rid=${aid}`);
-    return { folders: (data?.list || []).filter((f) => f.fav_state === 1).map((f) => ({ id: String(f.id), title: f.title })) };
+    return { mid, folders: (data?.list || []).filter((f) => f.fav_state === 1).map((f) => ({ id: String(f.id), title: f.title })) };
   },
 
   "triage-analysis-get": async ({ bvids }) => {

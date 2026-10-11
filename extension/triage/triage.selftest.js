@@ -214,6 +214,25 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   assert.deepStrictEqual(store[t.K.decisions("D")], {});
   assert.strictEqual(t.S.undo.length, 0);
 
+  // G2: 稍后再看 goes one video per request; a B站 limit waits and retries the same one; a failure keeps the ones done
+  // (recorded, undoable) and says how many.
+  {
+    const five = [1, 2, 3, 4, 5].map((n) => item(70 + n));
+    openFake("toview", five);
+    const tv = [];
+    let limited = false;
+    handlers["triage-unfav"] = (m) => {
+      tv.push(m.aids);
+      if (m.aids[0] === 1072 && !limited) return (limited = true), { ok: false, code: "THROTTLED", error: "412" };
+      return m.aids[0] === 1074 ? { ok: false, error: "网络错误" } : { ok: true };
+    };
+    await t.batchUnfav(five);
+    assert.deepStrictEqual(plain(tv), [[1071], [1072], [1072], [1073], [1074]]);
+    assert.deepStrictEqual(Object.keys(store[t.K.decisions("toview")]), ["BV71", "BV72", "BV73"]);
+    assert.deepStrictEqual(plain(t.S.undo.at(-1).items.map((x) => x.bvid)), ["BV71", "BV72", "BV73"]);
+    assert.strictEqual(toasts.at(-1), "批量取消收藏失败（已完成 3 个）：网络错误 · U 撤销已完成的");
+  }
+
   // A batch undo also runs to the end after another folder opens.
   openFake("D", three, Object.fromEntries(three.map((it) => [it.bvid, { action: "unfav", at: 1, aid: it.aid, title: it.title }])));
   t.S.undo = [{ kind: "unfavMany", items: three.map(({ bvid, aid }) => ({ bvid, aid })) }];
@@ -1454,14 +1473,17 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     t.S.folderToken++; // earlier checks still running stop
     handlers["triage-folder-ids"] = () => ({ ok: true, data: { bvids: [] } });
     const asked = [];
-    handlers["triage-fav-where"] = ({ aid }) => {
+    const mids = [];
+    handlers["triage-fav-where"] = ({ aid, mid }) => {
       asked.push(aid);
+      mids.push(mid);
       const folders = { 10: [{ id: "B", title: "乙" }, { id: "X", title: "外" }], 20: [], 30: [{ id: "A", title: "甲" }] }[aid];
-      return { ok: true, data: { folders } };
+      return { ok: true, data: { mid: 77, folders } };
     };
     await t.openRemoved();
     for (let i = 0; i < 100 && t.S.removedCheck; i++) await new Promise((r) => setImmediate(r));
     assert.deepStrictEqual(asked.sort(), [10, 20, 30]);
+    assert.deepStrictEqual(mids, [undefined, 77, 77], "G6: who is logged in is asked once per check");
     assert.deepStrictEqual(plain(Object.fromEntries(Object.entries(store[t.K.removed]).map(([b, r]) => [b, r.inFolder]))), { BV1: { id: "X", title: "外" }, BV2: null }, "only answers are kept");
     assert.deepStrictEqual(plain(t.S.items.map((it) => [it.bvid, t.kindOf(it)]).sort()), [["BV1", "out"], ["BV2", "unfav"], ["BV3", ""], ["BV4", "invalid"], ["BV5", ""]]);
     t.S.tab = "read";
@@ -2365,6 +2387,35 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
       assert.ok(got.join() === "t,Escape" && po === null && t.S.viewing === "BV1", "关注 gets T and Esc");
       t.MoonTriage.setModeKeys(null);
       t.S.viewing = "";
+    }
+    // S5: B站's autoplay moves the player to another video: the 分拣台 follows it (pink card, tag line, T); a video in no
+    // chosen folder has no lines; closing still refreshes the folder of the one played first.
+    {
+      openFake("A", [item(1), item(2)]);
+      const frame = {};
+      t.el.viewerFrame = { contentWindow: frame };
+      const show = (bvid, source = frame) => W.message.forEach((f) => f({ source, origin: "https://www.bilibili.com", data: { type: "mdg-viewer-video", bvid } }));
+      const realEl = { viewer: t.el.viewer, main: t.el.main };
+      Object.assign(t.el, { viewer: {}, main: { classList: { add() {}, remove() {} } } });
+      t.openViewer(item(1));
+      show("BV1");
+      assert.strictEqual(t.S.viewing, "BV1");
+      show("BV2", {});
+      assert.strictEqual(t.S.viewing, "BV1", "another frame");
+      show("BV2");
+      assert.deepStrictEqual([t.S.viewing, t.S.viewer?.item.bvid, plain(t.S.viewer?.folders)], ["BV2", "BV2", ["A"]]);
+      show("BV1unknown");
+      for (let i = 0; i < 20; i++) await new Promise((r) => setImmediate(r));
+      assert.deepStrictEqual([t.S.viewing, t.S.viewer], ["BV1unknown", null], "unknown: no lines, T does nothing");
+      const realQuick = t.quickSync;
+      let quick = 0;
+      t.quickSync = () => quick++;
+      t.closeViewer();
+      t.quickSync = realQuick;
+      assert.strictEqual(quick, 1, "A is refreshed on close");
+      show("BV2");
+      assert.strictEqual(t.S.viewing, "", "closed: ignored");
+      Object.assign(t.el, realEl);
     }
     const doc = (type) => docL[type].forEach((f) => f({}));
     const wait = () => new Promise((r) => setTimeout(r, 20));

@@ -509,6 +509,12 @@ assert.throws(() => t.triageParseCommand('{"new_tags":[', cmdItems, cmdTags, {})
     assert.deepStrictEqual(plain(await H["triage-folder-create"]({ title: " 新夹 ", privacy: true })), { id: 42, title: "新夹" });
     assert.deepStrictEqual(calls.pop(), ["/x/v3/fav/folder/add", { title: "新夹", intro: "", privacy: "1", cover: "", csrf: "csrf" }]);
     await assert.rejects(H["triage-folder-create"]({ title: "  " }), /不能为空/);
+    // G6: a known mid skips nav; the answer carries the mid for the next call.
+    const urls = [];
+    t.fetch = async (url) => (urls.push(new URL(url).pathname), { ok: true, status: 200, json: async () => ({ code: 0, data: /nav/.test(url) ? { isLogin: true, mid: 7 } : { list: [{ id: 3, title: "甲", fav_state: 1 }] } }) });
+    assert.deepStrictEqual(plain(await H["triage-fav-where"]({ aid: 1 })), { mid: 7, folders: [{ id: "3", title: "甲" }] });
+    await H["triage-fav-where"]({ aid: 2, mid: 7 });
+    assert.deepStrictEqual(urls.filter((u) => /nav/.test(u)).length, 1);
   }
 
   // The folder list pages through created/list (which carries the cover) until has_more is false; covers are https.

@@ -15,14 +15,16 @@ function frame({ parentOrigin = EXT, top = false, fullscreen = null, webscreen =
   const listeners = [];
   const attrs = {};
   const win = {};
+  const ticks = [];
   Object.assign(win, {
+    setInterval: (fn) => ticks.push(fn),
     parent: { postMessage: (data, to) => sent.push({ data, to }) },
     addEventListener: (type, fn, capture) => listeners.push({ type, fn, capture })
   });
   win.top = top ? win : {};
   win.window = win;
   Object.assign(win, {
-    location: { ancestorOrigins: parentOrigin ? [parentOrigin] : [] },
+    location: { pathname: "/video/BV1aaaaaaaaa/", ancestorOrigins: parentOrigin ? [parentOrigin] : [] },
     chrome: { runtime: { id: EXT.slice("chrome-extension://".length), getURL: (p) => `${EXT}/${p}` } },
     // Node gives chrome-extension: URLs a "null" origin; Chrome gives the scheme and id.
     URL: function (u) {
@@ -39,7 +41,8 @@ function frame({ parentOrigin = EXT, top = false, fullscreen = null, webscreen =
     const target = o.target || { closest: () => null };
     for (const l of listeners) if (l.type === "keydown") l.fn({ key, keyCode: o.keyCode || 0, isComposing: Boolean(o.isComposing), repeat: false, metaKey: false, ctrlKey: Boolean(o.ctrlKey), altKey: false, target, composedPath: () => [target] });
   };
-  return { sent, listeners, attrs, key };
+  const go = (pathname) => ((win.location.pathname = pathname), ticks.forEach((f) => f()));
+  return { sent, listeners, attrs, key, go, ticks };
 }
 
 // The viewer frame: marked, forwards T and Esc to the extension origin only.
@@ -56,6 +59,19 @@ function frame({ parentOrigin = EXT, top = false, fullscreen = null, webscreen =
     { data: { type: "mdg-viewer-key", key: "t" }, to: EXT },
     { data: { type: "mdg-viewer-key", key: "t" }, to: EXT },
     { data: { type: "mdg-viewer-key", key: "Escape" }, to: EXT }
+  ]);
+}
+// S5: the video shown is reported on the first tick and on each change (B站's autoplay), not again while it stays.
+{
+  const f = frame();
+  f.go("/video/BV1aaaaaaaaa/");
+  f.go("/video/BV1aaaaaaaaa/");
+  f.go("/video/BV1bbbbbbbbb");
+  f.go("/list/watchlater");
+  f.go("/video/BV1bbbbbbbbb");
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(f.sent)), [
+    { data: { type: "mdg-viewer-video", bvid: "BV1aaaaaaaaa" }, to: EXT },
+    { data: { type: "mdg-viewer-video", bvid: "BV1bbbbbbbbb" }, to: EXT }
   ]);
 }
 // Typing in B站's boxes and IME composition never forward.
@@ -86,5 +102,6 @@ for (const f of [frame({ top: true }), frame({ parentOrigin: "https://www.exampl
   assert.deepStrictEqual(f.sent, []);
   assert.strictEqual(f.attrs["data-mdg-viewer"], undefined);
   assert.strictEqual(f.listeners.length, 0);
+  assert.strictEqual(f.ticks.length, 0);
 }
 console.log("viewer-frame selftest: all passed");

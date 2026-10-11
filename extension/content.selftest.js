@@ -21,7 +21,8 @@ assert.strictEqual(lines.at(-1), "}");
       location: { ancestorOrigins: isTop ? [] : [parentOrigin] },
       document: { documentElement: { setAttribute: (k) => attrs.add(k), hasAttribute: (k) => attrs.has(k) } },
       chrome: { runtime: { id: "abc" } },
-      addEventListener() {} // viewer-frame.js may listen for keys in the viewer frame
+      addEventListener() {}, // viewer-frame.js may listen for keys in the viewer frame
+      setInterval() {} // and watch which video it shows
     };
     g.window = g;
     g.top = isTop ? g : {};

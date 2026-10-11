@@ -1400,10 +1400,11 @@ async function checkWhere(token) {
   const keepGoing = () => token === S.folderToken;
   S.removedCheck = { done: 0, total: list.length, what: "视频的收藏状态", error: "" };
   const found = {};
+  let mid; // who is logged in, asked once per check (the first answer carries it)
   for (let i = 0; i < list.length; i++) {
     const it = list[i];
     if (token !== S.folderToken) break;
-    const r = await send({ type: "triage-fav-where", aid: it.aid });
+    const r = await send({ type: "triage-fav-where", aid: it.aid, mid });
     if (token !== S.folderToken) break;
     if (!r.ok && THROTTLES[r.code]) {
       await throttleWait(r.code, keepGoing);
@@ -1414,6 +1415,7 @@ async function checkWhere(token) {
       S.removedCheck.error = `核对《${shortTitle(it)}》的收藏状态失败：${r.error}，可点刷新重试`;
       break;
     }
+    mid ||= r.data?.mid;
     const folders = r.data?.folders || [];
     const out = folders.find((f) => !S.included.includes(String(f.id)));
     if (out || !folders.length) {
@@ -1811,7 +1813,7 @@ function activityState() {
   const move = S.transferRun;
   if (move) return { text: `${move.verb}到「${move.toName}」${move.done}/${move.total}${runWhere(move)}`, done: move.done, total: move.total };
   const unfav = S.unfavBatch;
-  if (unfav) return { text: `取消收藏中${unfavWhere(unfav)} ${unfav.done}/${unfav.total}${runWhere(unfav)}`, done: unfav.done, total: unfav.total };
+  if (unfav) return { text: wait || `取消收藏中${unfavWhere(unfav)} ${unfav.done}/${unfav.total}${runWhere(unfav)}`, done: unfav.done, total: unfav.total, stuck: Boolean(wait) };
   const w = S.write;
   if (w.running) {
     const text = `${w.md ? "生成" : "写入"}笔记 ${w.done}/${w.total}${runWhere(w)}`;
@@ -2611,20 +2613,29 @@ async function batchUnfav(list) {
   const parts = folders.map((f) => [f, all ? list.filter((it) => it.folders.includes(f)) : list]);
   const batch = Date.now();
   let done = 0;
+  let fail = "";
   const gone = {}; // folder → the videos taken out of it
   S.unfavBatch = { mediaId, folder: mediaId, done, total: parts.reduce((n, [, items]) => n + items.length, 0) };
   run: for (const [f, items] of parts) {
     S.unfavBatch.folder = f;
-    for (let i = 0; i < items.length; i += 20) {
-      if (done) await new Promise((r2) => setTimeout(r2, 1000));
-      const chunk = items.slice(i, i + 20);
+    // 稍后再看 takes one video per request: one per chunk records each one removed before a failure (as 移动 / 复制).
+    const size = f === TOVIEW ? 1 : 20;
+    for (let i = 0; i < items.length; i += size) {
+      if (done) await new Promise((r2) => setTimeout(r2, size === 1 ? 300 : 1000));
+      const chunk = items.slice(i, i + size);
       S.unfavBatch.done = done;
       chunk.forEach((it) => deciding.add(it.bvid));
       render();
       const r = await send({ type: "triage-unfav", mediaId: f, aids: chunk.map((it) => it.aid) });
       chunk.forEach((it) => deciding.delete(it.bvid));
+      // B站 risk control: wait out the countdown, then the same chunk again.
+      if (!r.ok && THROTTLES[r.code]) {
+        await throttleWait(r.code, () => true);
+        i -= size;
+        continue;
+      }
       if (!r.ok) {
-        toast(`${all || S.mediaId !== mediaId ? `「${folderName(f)}」` : ""}批量取消收藏失败（已完成 ${done} 个）：${r.error}`, true);
+        fail = `${all || S.mediaId !== mediaId ? `「${folderName(f)}」` : ""}批量取消收藏失败（已完成 ${done} 个）：${r.error}`;
         break run;
       }
       markWritten(f);
@@ -2636,7 +2647,10 @@ async function batchUnfav(list) {
     }
   }
   S.unfavBatch = null;
-  if (done && all && token === S.folderToken) {
+  // After a failure the ones done are still recorded and undoable; the toast is the failure's.
+  const tell = (msg, undoHint) => toast(fail ? `${fail}${undoHint}` : msg, Boolean(fail));
+  if (!done && fail) toast(fail, true);
+  else if (done && all && token === S.folderToken) {
     // As a single 取消收藏 here: the video leaves those folders, and the view once it is in none.
     const at = Date.now();
     for (const [f, items] of Object.entries(gone)) {
@@ -2650,16 +2664,16 @@ async function batchUnfav(list) {
     const videos = list.filter((it) => Object.values(gone).some((items) => items.some((x) => x.bvid === it.bvid)));
     pushUndo({ kind: "unfavMany", items: videos.map(({ bvid, aid }) => ({ bvid, aid })), gone });
     for (const it of videos) S.selected.delete(it.bvid);
-    toast(`已从 ${Object.keys(gone).length} 个收藏夹取消收藏 ${videos.length} 个视频 · U 撤销`);
+    tell(`已从 ${Object.keys(gone).length} 个收藏夹取消收藏 ${videos.length} 个视频 · U 撤销`, " · U 撤销已完成的");
   } else if (done && all) {
-    toast(`已从 ${Object.keys(gone).length} 个收藏夹取消收藏，可在各收藏夹的最近取消收藏里撤销`);
+    tell(`已从 ${Object.keys(gone).length} 个收藏夹取消收藏，可在各收藏夹的最近取消收藏里撤销`, "，已完成的可在各收藏夹的最近取消收藏里撤销");
   } else if (done && S.mediaId === mediaId) {
     pushUndo({ kind: "unfavMany", items: list.slice(0, done).map(({ bvid, aid }) => ({ bvid, aid })) });
     for (const it of list.slice(0, done)) S.selected.delete(it.bvid);
-    toast(`已取消收藏 ${done} 个 · U 撤销`);
+    tell(`已取消收藏 ${done} 个 · U 撤销`, " · U 撤销已完成的");
   } else if (done) {
     // Elsewhere they are saved under their folder and listed in its 最近取消收藏, where they can be re-favorited.
-    toast(`「${folderName(mediaId)}」已取消收藏 ${done} 个，可在它的最近取消收藏里撤销`);
+    tell(`「${folderName(mediaId)}」已取消收藏 ${done} 个，可在它的最近取消收藏里撤销`, "，已完成的可在它的最近取消收藏里撤销");
   }
   render();
 }
@@ -4273,7 +4287,14 @@ function bindEvents() {
   el.viewerTags.addEventListener("click", (e) => e.target.closest("[data-vtag]") && tagPlaying());
   // T / Esc pressed while focus is in the player (viewer-frame.js): the one listener for both modes, as onKey is. 关注 takes
   // them through modeKeys; in 收藏夹, T tags the playing video and Esc closes the player, unless a dialog is open.
+  // The same listener takes the video the player shows now: B站's autoplay may have moved on (viewer-frame.js).
   window.addEventListener("message", (e) => {
+    const b = e.source === el.viewerFrame.contentWindow && e.origin === "https://www.bilibili.com" && e.data?.type === "mdg-viewer-video" && e.data.bvid;
+    if (b) {
+      if (!S.viewing || typeof b !== "string" || !/^BV\w+$/.test(b) || b === S.viewing) return;
+      viewerPast = [...viewerPast, ...(S.viewer?.folders || [])];
+      return showViewing(b);
+    }
     const key = UI.viewerKeyFrom(e, el.viewerFrame.contentWindow);
     if (!key || modeKeys?.(key, e) != null || document.querySelector("dialog[open]")) return;
     if (key === "Escape") closeViewer();
@@ -4350,13 +4371,21 @@ function openSettings(scrollToLimits = false, firstRun = false) {
 }
 
 function openViewer(it) {
-  const b = it.bvid;
+  viewerPast = [];
+  el.viewerFrame.src = videoUrl(it.bvid);
+  el.viewer.hidden = false;
+  el.main.classList.add("viewing");
+  showViewing(it.bvid);
+}
+
+// The folders of videos played earlier in this viewer (B站's autoplay moved on): closing refreshes them too.
+let viewerPast = [];
+
+// The viewer now shows b: the pink card, its tag lines and T follow it. A video in no chosen folder has no lines.
+function showViewing(b) {
   S.viewing = b;
   const own = viewerOf(b);
   S.viewer = own;
-  el.viewerFrame.src = videoUrl(b);
-  el.viewer.hidden = false;
-  el.main.classList.add("viewing");
   render();
   // A 待播 video from a folder not open: its folders are the chosen ones whose cached list holds it.
   if (!own && !followMode()) {
@@ -4388,7 +4417,7 @@ function setBasketOpen(open) {
 // Only the video's own folder, when it is the one open; another folder checks its list when it is opened.
 function closeViewer() {
   if (!S.viewing) return;
-  const home = S.viewer?.folders || [];
+  const home = [...(S.viewer?.folders || []), ...viewerPast];
   S.viewing = "";
   S.viewer = null;
   el.viewerFrame.src = "about:blank";
