@@ -434,10 +434,7 @@ html[data-seen-style="veil"] .cover-wrap.seen .seen-veil { display: flex; }
 .chip.card-tag:hover .x, .chip.card-tag:focus-visible .x { opacity: 1; }
 .badge.none, .badge.running { background: var(--surface-muted); color: var(--muted); }
 .badge.running { color: var(--secondary-text); }
-.badge.low { background: transparent; outline: 1px dashed currentColor; outline-offset: -1px; }
 .reason { flex: 1; min-width: 120px; color: var(--text-2); font-size: var(--fs-sm); line-height: 1.6; }
-.fail-text { color: var(--danger); font-size: var(--fs-xs); }
-.card-foot .spacer { flex: 1; }
 .actions { display: flex; flex-wrap: wrap; gap: 4px; }
 .actions button { height: 26px; padding: 0 8px; font-size: var(--fs-xs); }
 /* 保留 / 取消收藏 (清理 in 已出分拣范围) are one pair and the secondary ones one group: each wraps whole. */
@@ -453,8 +450,6 @@ html[data-seen-style="veil"] .cover-wrap.seen .seen-veil { display: flex; }
 .group-head button { height: 24px; padding: 0 8px; font-size: inherit; }
 .title-row { display: flex; align-items: center; gap: 6px; min-width: 0; }
 .batch-tag { flex: none; padding: 1px 6px; border-radius: 4px; background: var(--action-bg); color: var(--link); font-size: var(--fs-xs); font-weight: 600; }
-.key { font: 11px var(--font-mono); margin-left: 4px; opacity: 0.7; }
-@media (hover: none) { .key { display: none; } }
 .muted { color: var(--muted); font-size: var(--fs-xs); }
 button.icon { width: 26px; height: 24px; padding: 0; }
 
@@ -689,9 +684,6 @@ dialog textarea { resize: vertical; }
 .keys kbd { min-width: 1.6em; padding: 0 4px; border: 1px solid var(--border); border-radius: 4px; background: var(--surface); font: 600 var(--fs-xs)/1.3 ui-monospace, Menlo, monospace; text-align: center; }
 
 @media (max-width: 899px) {
-  /* Too narrow for two columns: the viewer takes the list's place until it closes. */
-  .main.viewing { grid-template-columns: minmax(0, 1fr); grid-template-areas: "bar" "viewer"; }
-  .main.viewing .list, .main.viewing .basket { display: none; }
   .card { grid-template-columns: 96px minmax(0, 1fr); }
   .cover { width: 96px; height: 54px; }
   .toast { bottom: 64px; }
@@ -758,8 +750,6 @@ dialog:has(.settings-ai:not([hidden])) { width: min(800px, calc(100% - 32px)); }
   /* The folder list runs as tall as the right column and scrolls inside. */
   .settings-cols:has(.settings-ai:not([hidden])) .folder-toggles { flex: 1 1 0; min-height: 200px; max-height: none; }
 }
-.pick-folders { max-width: 420px; margin: 40px auto; text-align: center; }
-.pick-folders p { margin: 0 0 10px; }
 
 .pick-folders { max-width: 420px; margin: 40px auto; text-align: center; }
 .pick-folders p { margin: 0 0 10px; }
