@@ -1182,10 +1182,11 @@ async function* parseOpenAISSE(response, onActivity) {
       } catch {
         continue;
       }
-      // Some providers report quota and moderation failures inside an HTTP 200 stream. Only a Chinese message is shown.
+      // Some providers report quota, rate and moderation failures inside an HTTP 200 stream. A quota or rate message is
+      // classified as an HTTP 429 (a per-minute quota is 限流, not 余额不足); otherwise only a Chinese message is shown.
       if (json?.error) {
         const detail = typeof json.error === "string" ? json.error : json.error.message || JSON.stringify(json.error);
-        if (AI_QUOTA_RE.test(detail)) throw triageAiHttpError(402, detail);
+        if (AI_QUOTA_RE.test(detail) || AI_RATE_RE.test(detail)) throw triageAiHttpError(429, detail);
         throw new Error(/[\u4e00-\u9fff]/.test(detail) ? `AI 平台返回错误：${detail}` : "AI 平台返回错误");
       }
       const delta = json?.choices?.[0]?.delta?.content;

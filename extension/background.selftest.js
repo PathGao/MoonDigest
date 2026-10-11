@@ -209,6 +209,13 @@ process.on("exit", (code) => {
   out = await chat();
   assert.deepStrictEqual(out.map((m) => m.type), ["token", "error"]);
   assert.deepStrictEqual([out[1].error, out[1].code], ["AI 平台余额不足或额度已用完，请充值或换一个平台", "AI_QUOTA"]);
+  // A per-minute quota in the stream is 限流, as it is over HTTP 429 (Gemini's wording).
+  ctx.fetch = streamingFetch([
+    { after: 5, chunk: new TextEncoder().encode(`data: ${JSON.stringify({ error: { message: "Quota exceeded for metric: requests per minute" } })}\n\n`) },
+    { after: 0, done: true }
+  ]);
+  out = await chat();
+  assert.deepStrictEqual([out[0].error, out[0].code], ["AI 平台限流", "AI_THROTTLED"]);
 
   // HTTP and network errors reach the panel in Chinese with the 分拣台's code, never the body.
   ctx.fetch = async () => ({ ok: false, status: 401, text: async () => '{"error":{"message":"Incorrect API key provided"}}' });
