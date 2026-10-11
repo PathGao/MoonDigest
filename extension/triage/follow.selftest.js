@@ -13,7 +13,7 @@ const ctx = vm.createContext({ setTimeout, clearTimeout });
 vm.runInContext(fs.readFileSync(path.join(__dirname, "../errors.js"), "utf8"), ctx);
 vm.runInContext(fs.readFileSync(path.join(__dirname, "../tag-core.js"), "utf8"), ctx);
 vm.runInContext(fs.readFileSync(path.join(__dirname, "shared.js"), "utf8"), ctx);
-vm.runInContext(`const UI = globalThis.TriageUi;\n${pure}\n;Object.assign(globalThis, { syncFinished, dirLabel, followAiSettings, aiRequests, normDays, settingsProblem, followStatus, withFeedInProgress, lastPostOf, recentTitles, upRow, visibleUps, mergeFeed, feedMatch, sideIds, feedList, feedLeaving, withTags, stepIn, tagsOf, restoreTags, feedCounts, STATUS, viewRecord, latestBvid, favUpMid, playingMid, aiBlocked, withAllowRemove, groupsOf, regrouped, groupCalls, groupTargets, groupName, groupMoveLabel });`, ctx);
+vm.runInContext(`const UI = globalThis.TriageUi;\n${pure}\n;Object.assign(globalThis, { syncFinished, dirLabel, followAiSettings, aiRequests, normDays, settingsProblem, followStatus, withFeedInProgress, lastPostOf, recentTitles, upRow, visibleUps, mergeFeed, feedMatch, sideIds, feedList, feedLeaving, withTags, stepIn, tagsOf, restoreTags, feedCounts, STATUS, viewRecord, latestBvid, favUpMid, aiBlocked, withAllowRemove, groupsOf, regrouped, groupCalls, groupTargets, groupName, groupMoveLabel });`, ctx);
 const t = ctx;
 const plain = (v) => JSON.parse(JSON.stringify(v));
 
@@ -274,25 +274,6 @@ assert.deepStrictEqual([t.dirLabel("last", "desc"), t.dirLabel("follow", "asc"),
   assert.ok(!/fw[A-Z]/.test(fs.readFileSync(path.join(__dirname, "triage.js"), "utf8")), "triage.js names no 关注 element");
 }
 
-// 视频投稿 paging on B站限流: the stuck pill counts down, then loads again by itself; a selection belongs to its tab.
-{
-  assert.ok(source.includes('if (r.code === "THROTTLED") waitFeed(f);') && /if \(!f\.hasMore \|\| f\.loading \|\| f\.wait\) return;/.test(source), "限流 waits instead of an error, and nothing loads during the wait");
-  assert.ok(/function waitFeed[\s\S]*?runs\.wait\("follow-feed", runs\.hold\(\{ code: "THROTTLED" \}\), here\);\s*f\.wait = false;\s*if \(here\(\)\) more\(\);/.test(source) && /if \(f\.wait\) \{[\s\S]*?stuck: true/.test(source), "countdown, then retry");
-  assert.ok(/function setTab\(tab\) \{[^}]*if \(tab !== F\.tab\) F\.sel\.clear\(\);/.test(source), "switching UP 主 / 视频投稿 clears the selection");
-  // S3: both tabs share #fwList, so the other tab starts at the top.
-  assert.ok(/function setTab\(tab\) \{[^}]*E\.list\.scrollTop = 0;\s*render\(\);/.test(source), "switching tabs scrolls to the top");
-}
-// S4: with the viewer open, T tags the playing video's UP before the card under the mouse or the current card.
-assert.ok(/function tagByKey\(\) \{\s*if \(F\.viewing\) return void \(F\.viewingMid && /.test(source), "T in the viewer tags the playing UP, or nothing when it is unknown");
-// R2: B站's autoplay moves the 关注 player on; the playing mark and its UP follow (unknown UP: "", the line hides).
-{
-  assert.ok(/T\.setViewerHook\(\(\) => \{[\s*\S]*?F\.viewing = b;\s*F\.viewingMid = playingMid\(b, F\.feed\?\.items, rows\);/.test(source), "the viewer hook follows the new video");
-  const ups = new Map([["u1", { mid: "u1", titles: [{ bvid: "BVa" }] }], ["u2", { mid: "u2", titles: [{ bvid: "BVb" }] }]]);
-  const feed = [{ bvid: "BVb", mid: "u3" }];
-  assert.deepStrictEqual(["BVa", "BVb", "BVz"].map((b) => t.playingMid(b, feed, ups)), ["u1", "u3", ""]);
-  assert.strictEqual(t.playingMid("BVa", undefined, ups), "u1", "no 视频投稿 loaded");
-}
-
 // G5 / L2 / A5: 关注's B站 writes are a second writes.js adapter on 关注's own runs: one by one with a gap, on B站限流 the
 // pill keeps its line and counts down 90 s, then the same request goes again; 停止 keeps what went through. Its lane is
 // its own, so a 收藏夹 batch never blocks it.
@@ -479,3 +460,151 @@ console.log("follow selftest: all passed");
   assert.strictEqual(t.favUpMid({ mid: "", name: "" }, rows), "");
   assert.strictEqual(t.favUpMid(null, rows), "");
 }
+
+// ----- 关注 through the page: triage.js and follow.js (as triage.html loads them) on a stub DOM -----
+// setup(ctx) runs before follow.js. FW is what follow.js keeps to itself and the tests read or drive.
+async function followPage({ store = {}, handlers = {}, setup = () => {} } = {}) {
+  const els = new Map();
+  // An element: what the code sets is kept, listeners per type (fire); anything else is a no-op.
+  function elem(id = "") {
+    const L = {};
+    const cls = new Set();
+    const o = {
+      id, L, hidden: false, disabled: false, dataset: {}, style: { setProperty() {} }, innerHTML: "", textContent: "", value: "", scrollTop: 0, title: "",
+      classList: { toggle: (c, on = !cls.has(c)) => (on ? cls.add(c) : cls.delete(c), on), add: (c) => cls.add(c), remove: (c) => cls.delete(c), contains: (c) => cls.has(c) },
+      addEventListener: (type, f) => (L[type] ||= []).push(f),
+      querySelector: () => elem(),
+      querySelectorAll: () => [],
+      closest: () => null,
+      contentWindow: {}
+    };
+    return new Proxy(o, {
+      get: (x, k) => (k in x ? x[k] : typeof k === "symbol" ? undefined : k === "lastChild" ? (x[k] = elem()) : () => {}),
+      set: (x, k, v) => ((x[k] = v), true)
+    });
+  }
+  const $ = (id) => els.get(id) || els.set(id, elem(id)).get(id);
+  const winL = {};
+  const sent = [];
+  const toasts = [];
+  const asked = [];
+  const picks = [];
+  class Observer { observe() {} disconnect() {} }
+  const ctx = vm.createContext({
+    console, structuredClone, TextEncoder, URLSearchParams, clearTimeout,
+    setTimeout: (f, ms) => setTimeout(f, Math.min(ms || 0, 5)),
+    setInterval: () => 0,
+    clearInterval() {},
+    ResizeObserver: Observer, MutationObserver: Observer, IntersectionObserver: Observer,
+    CSS: { escape: (x) => x },
+    getSelection: () => ({ isCollapsed: true, removeAllRanges() {} }),
+    location: { hash: "", pathname: "/triage.html", search: "" },
+    history: { replaceState() {} },
+    TagDialogs: { manage: { open() {}, isOpen: () => false }, ai: { open() {}, isOpen: () => false, render() {}, progress() {} } },
+    document: { body: elem("body"), getElementById: (id) => (id === "tagPicker" ? null : $(id)), querySelector: () => null, querySelectorAll: () => [], createElement: () => elem(), addEventListener() {} },
+    window: { addEventListener: (type, f) => (winL[type] ||= []).push(f), open() {} },
+    chrome: {
+      runtime: { id: "test", sendMessage: (msg, cb) => (sent.push(msg), Promise.resolve((handlers[msg.type] || (() => ({ ok: true })))(msg)).then(cb)) },
+      tabs: { getCurrent: async () => ({}) },
+      storage: {
+        local: {
+          get: async (k) => Object.fromEntries([].concat(k).filter((x) => x in store).map((x) => [x, structuredClone(store[x])])),
+          set: async (o) => void Object.assign(store, structuredClone(o)),
+          remove: async (keys) => [].concat(keys).forEach((k) => delete store[k])
+        },
+        sync: { get: async (d) => ({ ...d }), async set() {} },
+        onChanged: { addListener() {} }
+      }
+    }
+  });
+  const html = fs.readFileSync(path.join(__dirname, "triage.html"), "utf8");
+  for (const [, attrs, src] of html.matchAll(/<script([^>]*) src="([^"]+)"/g)) {
+    if (!/type="module"/.test(attrs) && !src.endsWith("/tag-dialogs.js")) vm.runInContext(fs.readFileSync(path.join(__dirname, src), "utf8"), ctx);
+  }
+  Object.assign(ctx.TagPicker, { open: (o) => picks.push(o), close() {}, isOpen: () => false });
+  const triage = fs.readFileSync(path.join(__dirname, "triage.js"), "utf8").replace(/^if \(!globalThis\.chrome\?\.runtime\?\.id\) await import.*$/m, "").replace(/^init\(\);$/m, "");
+  vm.runInContext(`${triage}\n;bindEvents(); globalThis.S = S; globalThis.el = el;`, ctx);
+  // triage.js draws only the player's lines here (and 关注's through its hook); its toast and confirm are recorded.
+  const toast = (m) => toasts.push(m);
+  const askConfirm = async (title) => (asked.push(title), true);
+  Object.assign(ctx, { render: () => ctx.renderViewerTags(), renderStatus() {}, toast, askConfirm });
+  Object.assign(ctx.MoonTriage, { toast, askConfirm });
+  setup(ctx);
+  const follow = fs.readFileSync(path.join(__dirname, "follow.js"), "utf8").replace(/^import "\.\/triage\.js";.*$/m, "");
+  await vm.runInContext(`(async () => {\n${follow}\n;globalThis.FW = { F, E, W, relationRun, pushWriteUndo };\n})()`, ctx);
+  const settle = async (n = 30) => {
+    for (let i = 0; i < n; i++) await new Promise((r) => setTimeout(r, 1));
+  };
+  await settle();
+  // Real time (runs' countdowns sleep), 3 s at most.
+  const until = async (ok) => {
+    for (const end = Date.now() + 3000; !ok() && Date.now() < end; ) await settle(1);
+  };
+  const key = (k) => ctx.onKey({ key: k, target: { closest: () => null }, preventDefault() {} });
+  const click = (id, sel, dataset) => ($(id).L.click || []).forEach((f) => f({ button: 0, preventDefault() {}, target: { closest: (s) => (s === sel ? { dataset, closest: () => null } : null) } }));
+  return { ctx, FW: ctx.FW, $, winL, sent, toasts, asked, picks, store, settle, until, key, click };
+}
+
+(async () => {
+  const sec = Math.floor(Date.now() / 1000);
+  const page = (o = {}) => ({
+    follow_view: { mode: "follow", tab: "ups" },
+    follow_list: { list: ["u1", "u2"] },
+    follow_people: { u1: { name: "甲" }, u2: { name: "乙" } },
+    follow_last: { since: sec - 95 * DAY, map: { u1: sec - DAY }, v: { u1: [{ t: "A", c: sec - DAY, bvid: "BVa" }] } },
+    ...o
+  });
+  const feed = { ok: true, data: { items: [{ bvid: "BVb", mid: "u2", name: "乙", title: "B", at: sec - 2 * DAY }, { bvid: "BVc", mid: "u1", name: "甲", title: "C", at: sec - 3 * DAY }], offset: "", hasMore: false } };
+  const feedSends = (p) => p.sent.filter((m) => m.type === "follow-feed").length;
+
+  // S3: UP 主 and 视频投稿 share #fwList and the selection belongs to its tab: switching starts the other at its top, none picked.
+  {
+    const p = await followPage({ store: page(), handlers: { "follow-feed": () => feed } });
+    const { F, E } = p.FW;
+    F.sel.add("u1");
+    E.list.scrollTop = 500;
+    p.click("followMain", "[data-fwtab]", { fwtab: "feed" });
+    assert.deepStrictEqual([F.tab, F.sel.size, E.list.scrollTop], ["feed", 0, 0], "switching tabs clears the selection and scrolls to the top");
+  }
+
+  // S4 / R2: the player. T tags the playing video's UP before the 视频投稿 card under the mouse; B站's autoplay moves the
+  // playing mark and its UP on (a video in 视频投稿, or in an UP card's newest posts); an UP not known: T does nothing.
+  {
+    const p = await followPage({ store: page({ follow_view: { mode: "follow", tab: "feed" } }), handlers: { "follow-feed": () => feed } });
+    const { F } = p.FW;
+    p.click("followMain", "[data-play]", { play: "BVb" });
+    assert.deepStrictEqual([F.viewing, F.viewingMid, p.ctx.S.viewing], ["BVb", "u2", "BVb"]);
+    F.hover = "BVc";
+    p.key("t");
+    assert.deepStrictEqual([plain(p.picks.at(-1)?.targets), p.picks.at(-1)?.anchor], [["u2"], "#fwViewerUp .tag-plus"], "T in the player tags the playing UP, not the hovered card's");
+    const autoplay = (bvid) => p.winL.message.forEach((f) => f({ source: p.ctx.el.viewerFrame.contentWindow, origin: "https://www.bilibili.com", data: { type: "mdg-viewer-video", bvid } }));
+    autoplay("BVa");
+    assert.deepStrictEqual([F.viewing, F.viewingMid], ["BVa", "u1"], "a video only in an UP card's posts");
+    autoplay("BVc");
+    assert.deepStrictEqual([F.viewing, F.viewingMid], ["BVc", "u1"], "a 视频投稿 video");
+    autoplay("BVzz");
+    const n = p.picks.length;
+    p.key("t");
+    assert.deepStrictEqual([F.viewing, F.viewingMid, p.picks.length], ["BVzz", "", n], "an unknown UP: no line, T does nothing");
+  }
+
+  // 视频投稿 on B站限流: the foot's amber pill counts down, nothing loads meanwhile, then the same page is asked again.
+  {
+    let calls = 0;
+    const p = await followPage({
+      store: page({ follow_view: { mode: "follow", tab: "feed" } }),
+      handlers: { "follow-feed": () => (++calls === 2 ? { ok: false, code: "THROTTLED" } : feed) }, // 1: setMode's warm-up
+      setup: (ctx) => (ctx.TriageUi.BILI_HOLD_MS = 400)
+    });
+    const { F } = p.FW;
+    const pill = p.$("fwFoot").lastChild;
+    assert.ok(F.feed.wait && pill.title === "B站限流卡住，0:01 后重试" && pill.classList.contains("warn"), `the foot counts down: ${pill.title}`);
+    p.click("followMain", "[data-fw]", { fw: "more" });
+    assert.strictEqual(feedSends(p), 2, "加载更多 does nothing during the wait");
+    await p.until(() => F.feed.items.length);
+    assert.deepStrictEqual([feedSends(p), F.feed.wait, plain(F.feed.items.map((x) => x.bvid))], [3, false, ["BVb", "BVc"]], "then it loads again by itself");
+  }
+})().catch((e) => {
+  console.error(e);
+  process.exit(1);
+});
