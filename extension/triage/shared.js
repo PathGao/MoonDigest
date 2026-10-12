@@ -39,7 +39,7 @@
   // Selecting (收藏夹 and 关注 UP 主): a click anywhere on the card picks it, cover and UP links included. The video
   // titles play and the controls inside keep their own. Shift picks the run from the last picked card; ⌘ / Ctrl /
   // middle on a link still open B站.
-  const PICK_CONTROLS = "button, input, textarea, select, label, [data-pick], [data-act=open], [data-play]";
+  const PICK_CONTROLS = "button, input, textarea, select, label, [data-pick], [data-act=open], [data-play], [data-space]";
   const cardPickClick = (e) =>
     e.button === 0 && !e.metaKey && !e.ctrlKey && !e.altKey &&
     !e.target.closest(PICK_CONTROLS) && (e.shiftKey || globalThis.getSelection?.()?.isCollapsed !== false);

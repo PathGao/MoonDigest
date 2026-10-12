@@ -722,11 +722,11 @@ function upCard(mid) {
   const right = u.gone
     ? `<button type="button" data-refollow="${esc(mid)}" aria-label="重新关注 ${esc(u.name)}">重新关注</button>`
     : `<button type="button" class="star${u.special ? " on" : ""}" data-star="${esc(mid)}" aria-pressed="${u.special}" title="${u.special ? "取消特别关注" : "设为特别关注"}（改 B站）" aria-label="${u.special ? "取消特别关注" : "设为特别关注"} ${esc(u.name)}">${u.special ? "★" : "☆"}</button>`;
-  const playing = F.viewing && u.titles.some((v) => v.bvid === F.viewing);
+  const playing = F.viewing && (F.viewing === upView(mid) || u.titles.some((v) => v.bvid === F.viewing));
   return `<article class="card fw-up${sel ? " selected" : ""}${playing ? " playing" : ""}${F.cur === mid ? " focused" : ""}" data-mid="${esc(mid)}" aria-label="${esc(u.name)}">
     <a class="fw-avatar" href="${space(mid)}" target="_blank" rel="noopener" tabindex="-1" aria-hidden="true">${u.face ? `<img src="${esc(img(u.face, "96w_96h_1c"))}" alt="" loading="lazy" referrerpolicy="no-referrer">` : ""}</a>
     <div class="card-body">
-      <div class="fw-name-row"><a class="fw-name" href="${space(mid)}" target="_blank" rel="noopener" title="在 B站打开空间">${esc(u.name)}</a>${u.gone ? "" : checking() === mid ? '<span class="badge running" aria-busy="true">查投稿中…</span>' : `<span class="badge ${STATUS_BADGE[u.status]}">${STATUS_TEXT[u.status]}</span>`}${u.ov ? `<span class="meta fw-ov" title="${esc(u.ov)}">${esc(u.ov)}</span>` : ""}</div>
+      <div class="fw-name-row"><a class="fw-name" href="${space(mid)}" data-space="${esc(mid)}" target="_blank" rel="noopener" title="在右侧打开空间">${esc(u.name)}</a>${u.gone ? "" : checking() === mid ? '<span class="badge running" aria-busy="true">查投稿中…</span>' : `<span class="badge ${STATUS_BADGE[u.status]}">${STATUS_TEXT[u.status]}</span>`}${u.ov ? `<span class="meta fw-ov" title="${esc(u.ov)}">${esc(u.ov)}</span>` : ""}</div>
       ${meta.length ? `<div class="meta">${meta.join(" · ")}</div>` : ""}
       ${u.sign ? `<div class="fw-sign" title="${esc(u.sign)}">${esc(u.sign)}</div>` : ""}
       ${titles}
@@ -833,7 +833,7 @@ function feedCard(it) {
     <a class="cover-wrap" href="${esc(video(it.bvid))}" data-play="${esc(it.bvid)}" tabindex="-1" aria-hidden="true">${it.cover ? `<img class="cover" src="${esc(img(it.cover, "480w_270h_1c"))}" alt="" loading="lazy" referrerpolicy="no-referrer">` : ""}<span class="cover-dur">${it.duration ? esc(fmtDuration(it.duration)) : ""}</span></a>
     <div class="fw-video-body">
       <a class="title" href="${esc(video(it.bvid))}" data-play="${esc(it.bvid)}" title="${esc(it.title)}" aria-label="播放 ${esc(it.title)}">${esc(it.title)}</a>
-      <div class="meta fw-video-meta"><a class="fw-up-link" href="${space(it.mid)}" target="_blank" rel="noopener">${it.face ? `<img src="${esc(img(it.face, "48w_48h_1c"))}" alt="" loading="lazy" referrerpolicy="no-referrer">` : ""}<span>${esc(it.name)}</span></a>${UI.agoHtml(it.at, nowSec())}${it.play ? `<span>▶ ${esc(fmtCount(it.play))}</span>` : ""}</div>
+      <div class="meta fw-video-meta"><a class="fw-up-link" href="${space(it.mid)}" data-space="${esc(it.mid)}" title="在右侧打开空间" target="_blank" rel="noopener">${it.face ? `<img src="${esc(img(it.face, "48w_48h_1c"))}" alt="" loading="lazy" referrerpolicy="no-referrer">` : ""}<span>${esc(it.name)}</span></a>${UI.agoHtml(it.at, nowSec())}${it.play ? `<span>▶ ${esc(fmtCount(it.play))}</span>` : ""}</div>
       <div class="chips">${chips}${addBtn(it.mid, it.name)}</div>
     </div>
   </article>`;
@@ -927,6 +927,15 @@ function play(bvid) {
   E.list.querySelector(`[data-bvid="${CSS.escape(bvid)}"]`)?.scrollIntoView({ block: "nearest" });
 }
 
+// An UP's space in the player, as a video plays there: F.viewing is "up:<mid>", so T and the line above the player are this UP's.
+const upView = (mid) => `up:${mid}`;
+function openSpace(mid) {
+  F.viewing = upView(mid);
+  F.viewingMid = mid;
+  T.openViewer({ bvid: F.viewing, url: space(mid) });
+  render();
+}
+
 // ---------- B站 writes: one request at a time, stopped by the first error ----------
 // 关注's long tasks (runs.js): B站 writes, 视频投稿's wait for B站限流 and AI 打标签; the background refresh (follow_jobs)
 // is a row mirrored from storage. 关注 waits B站限流 out for UI.BILI_HOLD_MS, an AI limit as 收藏夹 does.
@@ -959,13 +968,16 @@ const W = MdgWrites.create({ runs, lane: "follow-write", send, line: (p) => `${p
 // goes again; 停止 ends the run there, keeping what went through (and its undo).
 const WRITE_GAP_MS = 1000;
 const perUp = (mids, msg) => mids.map((mid) => msg(mid));
-async function relationRun(calls, label, { quiet = false } = {}) {
+// skipped (an array) gets the UP 主 a group request left out ({ mid, error }); they stay selected.
+async function relationRun(calls, label, { quiet = false, skipped = [] } = {}) {
   const chunks = calls.map((c) => ({ msg: c, keys: c.mids || [c.mid], folders: [], gap: WRITE_GAP_MS }));
   const running = W.run("follow-write", label, {
     verb: label,
     chunks,
-    onChunk(c) {
-      for (const mid of c.keys) F.sel.delete(mid);
+    onChunk(c, r) {
+      const left = r?.data?.skipped || [];
+      skipped.push(...left);
+      for (const mid of c.keys) if (!left.some((x) => x.mid === mid)) F.sel.delete(mid);
       renderSel();
     }
   });
@@ -1022,11 +1034,15 @@ async function refollow(mids) {
 // mids from the groups they are in now to want(mid), as one undo step that puts back the groups they had (U on 2+ asks
 // first). Only what B站 confirmed is undone; a request with no answer is neither kept here nor undone (its toast says
 // to look after a 刷新). Returns { done: the UP 主 that changed, ok: no request failed }.
+// B站 won't regroup a closed account: the known ones are not sent, and they and any B站 left out are listed afterwards,
+// still selected.
 async function regroup(mids, want, label) {
   const before = Object.fromEntries(mids.map((m) => [m, groupsOf(m, D)]));
-  const calls = groupCalls(mids, (m) => before[m], want);
-  const n = await relationRun(calls, label, { quiet: true });
-  const done = calls.flatMap((c) => c.mids).slice(0, n);
+  const skipped = mids.filter((m) => rows.get(m)?.closed).map((mid) => ({ mid, error: "账号已注销" }));
+  const calls = groupCalls(mids.filter((m) => !rows.get(m)?.closed), (m) => before[m], want);
+  const sent = skipped.length;
+  const n = await relationRun(calls, label, { quiet: true, skipped });
+  const done = calls.flatMap((c) => c.mids).slice(0, n).filter((m) => !skipped.some((x) => x.mid === m));
   if (done.length) {
     pushWriteUndo(done, {
       label,
@@ -1037,7 +1053,11 @@ async function regroup(mids, want, label) {
       ask: [`在 B站撤销${label}？`, `<p>这 ${done.length} 个 UP 主回到原来的分组。</p>${names(done)}`, `撤销 ${done.length} 个`]
     });
   }
-  return { done, ok: done.length === calls.reduce((k, c) => k + c.mids.length, 0) };
+  if (skipped.length) {
+    const list = skipped.map(({ mid, error }) => `<li>${esc(nameOf(mid))}：${esc(error)}</li>`).join("");
+    askConfirm(`${skipped.length} 个 UP 主没能${label}`, `<ul>${list}</ul><p class="dialog-hint">它们还选着。其余的已经做完。</p>`, "知道了", { alone: true });
+  }
+  return { done, skipped, ok: done.length + skipped.length - sent === calls.reduce((k, c) => k + c.mids.length, 0) };
 }
 // A card's ★: 特别关注 is group -10, so it is a single move with no confirm and U.
 async function starOne(mid) {
@@ -1074,11 +1094,13 @@ async function moveOrCopy(mids, how) {
     to = g.id;
   }
   const label = groupMoveLabel(move ? from : null, to, move, D);
-  const { done, ok } = await regroup(mids, (m) => regrouped(groupsOf(m, D), move ? from : null, to), label);
-  // A stopped run has said how far it got (relationRun's toast).
+  const { done, skipped, ok } = await regroup(mids, (m) => regrouped(groupsOf(m, D), move ? from : null, to), label);
+  // A stopped run has said how far it got (relationRun's toast); the skipped have their own dialog.
   const n = done.length;
+  const already = mids.length - n - skipped.length;
   if (!ok) return;
-  if (n) toast(`已把 ${n} 个 UP 主${label}${n < mids.length ? `（另外 ${mids.length - n} 个已经在里面）` : ""} · U 撤销`);
+  if (n) toast(`已把 ${n} 个 UP 主${label}${already ? `（另外 ${already} 个已经在里面）` : ""} · U 撤销`);
+  else if (skipped.length) return;
   else toast(`选中的都已经在「${groupName(to, D)}」里了`);
 }
 
@@ -1563,6 +1585,12 @@ main.addEventListener("click", async (e) => {
     getSelection().removeAllRanges();
     F.anchor = UI.pickCard(F.sel, shown, up.dataset.mid, F.anchor, true);
     return render();
+  }
+  const sp = t.closest("[data-space]");
+  if (sp) {
+    if (!plainClick(e)) return;
+    e.preventDefault();
+    return openSpace(sp.dataset.space);
   }
   const playBtn = t.closest("[data-play]");
   if (playBtn) {

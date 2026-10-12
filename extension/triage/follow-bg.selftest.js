@@ -466,6 +466,23 @@ const runSync = async () => {
     postReply = null;
     assert.strictEqual(JSON.stringify(local), before, "no local change without B站's yes");
 
+    // One UP B站 won't take (a closed account) refuses the lot: the rest go one by one, the refused come back in skipped.
+    const kept = JSON.stringify(local);
+    posts = [];
+    postReply = () => (posts.at(-1)[1].fids.split(",").includes("3") ? json({ code: 22120, message: "用户已注销" }) : json({ code: 0, data: {} }));
+    const r = await t.followGroupMove({ mids: ["1", "2", "3"], from: [], to: [6] });
+    assert.deepStrictEqual(plain(r.skipped), [{ mid: "3", error: "B站返回 22120：用户已注销" }]);
+    assert.deepStrictEqual(posts.map((p) => p[1].fids), ["1,2,3", "1", "2", "3"]);
+    assert.ok(g()[1].includes(6) && g()[2].includes(6) && !(g()[3] || []).includes(6), "only the ones B站 took");
+    // Every one refused is the request's error; 限流 / 断网 / 未登录 is never retried one by one.
+    await assert.rejects(t.followGroupMove({ mids: ["3"], from: [], to: [5] }), /22120/);
+    posts = [];
+    postReply = () => json({ code: -412, message: "请求被拦截" });
+    await assert.rejects(t.followGroupMove({ mids: ["1", "2"], from: [], to: [5] }), (e) => e.code === "THROTTLED");
+    assert.strictEqual(posts.length, 1);
+    postReply = null;
+    local = JSON.parse(kept);
+
     // 新建 / 改名 / 删除.
     postReply = () => json({ code: 0, data: { tagid: 42 } });
     assert.deepStrictEqual(plain(await t.followGroupCreate({ name: "  学习  " })), { id: 42, name: "学习" });

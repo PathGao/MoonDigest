@@ -401,7 +401,9 @@ function toast(text, error = false) {
   if (!error) toastTimer = setTimeout(() => (el.toast.hidden = true), 6000);
 }
 
-function askConfirm(title, bodyHtml, okText, { danger = false } = {}) {
+// alone: only the one button (a notice, not a question).
+function askConfirm(title, bodyHtml, okText, { danger = false, alone = false } = {}) {
+  el.confirmDialog.querySelector("button[value=cancel]").hidden = alone;
   el.confirmTitle.textContent = title;
   el.confirmBody.innerHTML = bodyHtml;
   el.confirmOk.className = danger ? "danger solid" : "primary";
@@ -4285,9 +4287,10 @@ function openSettings(scrollToLimits = false, firstRun = false) {
   if (scrollToLimits) el.titleMaxInput.scrollIntoView({ block: "center" });
 }
 
+// it.url: another B站 page in its place (an UP's space, with bvid its own key).
 function openViewer(it) {
   viewerPast = [];
-  el.viewerFrame.src = videoUrl(it.bvid);
+  el.viewerFrame.src = it.url || videoUrl(it.bvid);
   el.viewer.hidden = false;
   el.main.classList.add("viewing");
   showViewing(it.bvid);

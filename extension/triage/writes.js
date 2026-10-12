@@ -3,7 +3,7 @@
 // a limit counting down and sending the same chunk again, stop). Two adapters each have their own lane and undo stack:
 // 收藏夹 (keys are bvids) and 关注 (keys are mids).
 // - run: a batch, chunk by chunk with each chunk's gap before it; any failure other than a limit stops it. onChunk(chunk)
-//   runs after each chunk that went through. plan may be a function, called once the lane is taken (work that must not
+//   runs after each chunk that went through, with B站's reply. plan may be a function, called once the lane is taken (work that must not
 //   race another batch, such as creating the target). stop() ends it after the chunk in flight (stopped: some were
 //   left).
 // - single: a write that does not wait for the batch (one key press). A limit fails at once.
@@ -41,10 +41,10 @@
               line: () => line(progress()),
               next: () => (i < chunks.length ? (batch.chunk = chunks[i++]) : null),
               act: (c) => send(c.msg),
-              async done(c) {
+              async done(c, r) {
                 mark(c.folders);
                 release(c.keys, verb);
-                await onChunk?.(c);
+                await onChunk?.(c, r);
               }
             };
           }

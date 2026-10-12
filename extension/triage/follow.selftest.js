@@ -367,7 +367,9 @@ assert.ok(source.includes(`pushTagUndo(before, "标签修改", { ask: changes.le
 {
   const fn = (name) => source.slice(source.indexOf(`function ${name}(`), source.indexOf("\n}\n", source.indexOf(`function ${name}(`)));
   const rg = fn("regroup");
-  assert.ok(rg.includes("const done = calls.flatMap((c) => c.mids).slice(0, n);") && /if \(done\.length\) \{\s*pushWriteUndo\(done,/.test(rg), "U only for the UP 主 B站 confirmed (none after a timeout)");
+  assert.ok(rg.includes("const done = calls.flatMap((c) => c.mids).slice(0, n).filter((m) => !skipped.some((x) => x.mid === m));") && /if \(done\.length\) \{\s*pushWriteUndo\(done,/.test(rg), "U only for the UP 主 B站 confirmed (none after a timeout)");
+  assert.ok(rg.includes("mids.filter((m) => !rows.get(m)?.closed)") && /relationRun\(calls, label, \{ quiet: true, skipped \}\)/.test(rg) && /if \(skipped\.length\) \{[\s\S]*?askConfirm\([^\n]*\{ alone: true \}\)/.test(rg), "closed accounts and the ones B站 left out are listed after, still selected");
+  assert.ok(/onChunk\(c, r\) \{[\s\S]*?if \(!left\.some\(\(x\) => x\.mid === mid\)\) F\.sel\.delete\(mid\);/.test(source), "the skipped stay selected");
   assert.ok(/back: \(\) => groupCalls\(done, \(m\) => groupsOf\(m, D\), \(m\) => before\[m\]\)/.test(rg) && /ask: \[`在 B站撤销/.test(rg) && rg.includes("groups: true"), "U puts back the groups they had, asked for 2+");
   assert.ok(/async function starOne\(mid\) \{[\s\S]*?await regroup\(\[mid\],[^\n]*SPECIAL/.test(source), "★ is a move of group -10");
   const mc = fn("moveOrCopy");
