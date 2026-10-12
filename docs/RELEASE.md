@@ -18,4 +18,4 @@
 
 - **上一版还在审核**：上传会被拒（`You may not edit or publish an item that is in review`）。Release 照常建好，审核结束后补传：`gh workflow run release.yml -f tag=vX.Y.Z`。已有 Release 的标签重跑时只做商店上传，两个商店都会重传，已经传成功的那个可能报错，不用管。
 - **新权限**：商店的「需请求 X 的理由」框要等含新权限的包传上去才出现，没法提前填。顺序是：推标签 → CI 上传成功但发布报「does not meet the requirements」→ 后台隐私权页补填理由、保存草稿 → 点「提请审核」（「跳过审核」不勾，「通过后自动发布」勾）。商店页和隐私权的草稿会随这次一起提审。
-- **Edge 新权限**：Edge 后台「Privacy」页也是每个权限一个理由框，同样要等新包传上去才出现。CI 提交失败时，到 Privacy 页补填理由、Save，再点 Publish。
+- **Edge 新权限**：Edge 后台「Privacy」页也是每个权限一个理由框，同样要等新包传上去才出现，但 API 提交不会因为理由空着而失败，会直接送审。所以有新权限时，CI 跑完马上到 Privacy 页补填理由并 Save（这会另开一份草稿），再在概览页对审核中那份点 Cancel submission，等一两分钟撤回完成后对草稿点 Publish，重填 certification notes。
