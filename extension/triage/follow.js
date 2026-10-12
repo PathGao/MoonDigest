@@ -567,7 +567,7 @@ function renderSync() {
 // The last refresh's 新关注 / 在 B站取关 (follow_jobs.changes, see followDiff) as 收藏夹's 「已刷新」 pill. Each refresh's
 // changes show once per page; 关闭 hides them until the next.
 let syncSeenAt = null;
-// posted: 投稿已清空 UP 主 that have videos again (follow_jobs.posted), back in the list.
+// posted: UP 回归, 投稿已清空 UP 主 that have videos again (follow_jobs.posted), back in the list.
 function renderSyncChanges() {
   const j = D.jobs || {};
   const posted = j.posted || [];
@@ -577,9 +577,9 @@ function renderSyncChanges() {
   if (!c.added.length && !c.removed.length && !posted.length) return UI.setSync(SYNC, null);
   const names = (mids) => mids.map((m) => D.people?.[m]?.name || m);
   UI.setSync(SYNC, {
-    label: [`新关注 +${c.added.length} · 取消关注 −${c.removed.length}`, posted.length && `又有投稿 +${posted.length}`].filter(Boolean).join(" · "),
-    text: [`刷新结果：新关注 ${c.added.length} · 在 B站取消关注 ${c.removed.length}`, posted.length && `又有投稿 ${posted.length}`].filter(Boolean).join(" · "),
-    sections: [["新关注", names(c.added)], ["在 B站取消关注", names(c.removed)], ...(posted.length ? [["投稿已清空、现在又能看到视频，回到了列表", names(posted)]] : [])]
+    label: [`新关注 +${c.added.length} · 取消关注 −${c.removed.length}`, posted.length && `UP 回归 +${posted.length}`].filter(Boolean).join(" · "),
+    text: [`刷新结果：新关注 ${c.added.length} · 在 B站取消关注 ${c.removed.length}`, posted.length && `UP 回归 ${posted.length}`].filter(Boolean).join(" · "),
+    sections: [["新关注", names(c.added)], ["在 B站取消关注", names(c.removed)], ...(posted.length ? [["UP 回归：原本投稿已清空、现在又能看到视频", names(posted)]] : [])]
   });
 }
 
@@ -677,7 +677,7 @@ function renderUps() {
   const out = F.side === "out";
   const { list, counts } = visibleUps(D, rows, out ? { side: F.side, q: F.q, sort: F.outSort.sort, dir: F.outSort.dir, kind: F.kind, source: F.source, tagState: F.tagState, tags: F.tags } : { side: F.side, status: F.status, q: F.q, sort: F.sort, dir: F.dir, recent: F.recentFilter ? recentAll : null, recentAll, tagState: F.tagState, tags: F.tags });
   shown = list;
-  // As 收藏夹: switching the sidebar keeps the selection; the ones not listed count as 被筛选隐藏.
+  // Switching between groups keeps the selection (into or out of 已出分拣范围 clears it); the ones not listed count as 被筛选隐藏.
   for (const m of [...F.sel]) if (!rows.has(m)) F.sel.delete(m);
   const goneN = (src) => Object.values(D.gone).filter((g) => !src || g.source === src).length;
   // 已出分拣范围's row 3: 全部 | 在哪取消关注 (on 全部 and 已取消关注) | 未打标签 已打标签.
@@ -710,7 +710,7 @@ function renderUps() {
 }
 
 // 清理, as 收藏夹's: it only forgets (B站 is untouched), so it takes the 已取消关注 among the selected listed ones, else among
-// all listed. The ones still followed would come back with the next 刷新: they are unfollowed first (取消关注 is the B站 layer).
+// all listed. The ones still followed are left out: they would come back with the next 刷新, so 取消关注 comes first.
 const cleanable = (mids) => mids.filter((m) => rows.get(m)?.gone);
 function cleanBtn(list) {
   const sel = list.filter((m) => F.sel.has(m));
@@ -1055,7 +1055,7 @@ async function relationRun(calls, label, { quiet = false, skipped = [] } = {}) {
 async function unfollow(mids) {
   if (!mids.length) return;
   // Always asked, even for one: following again later does not bring back the follow date, ★ 特别关注 or 关注分组.
-  const ok = await askConfirm(`在 B站取消关注 ${mids.length} 个 UP 主？`, `${names(mids)}<p class="dialog-hint">标签会保留，可以在「已出分拣范围 › 已取消关注」里重新关注，不想留记录的也在那里清理。重新关注后，特别关注和所在的关注分组不会恢复，关注日期变成重新关注的那天。</p>`, `取消关注 ${mids.length} 个`, { danger: true });
+  const ok = await askConfirm(`在 B站取消关注 ${mids.length} 个 UP 主？`, `${names(mids)}<p class="dialog-hint">标签会保留，可以在「已出分拣范围 › 已取消关注」里重新关注，不想留记录的也在那里清理。重新关注后会放回原来的分组和特别关注，关注日期变成重新关注的那天。</p>`, `取消关注 ${mids.length} 个`, { danger: true });
   if (ok) await relationRun(perUp(mids, (mid) => ({ type: "follow-relation", mid, act: 2 })), "取消关注");
 }
 // 清理, as 收藏夹's: deletes 已取消关注 records with the tags they keep, asked first, no U. B站 is not touched.

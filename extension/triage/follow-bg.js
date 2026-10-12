@@ -22,7 +22,7 @@
 // 2 feed：视频动态往回翻过 followSlowDays 天 → follow_last（谁最近发过、最近 3 个标题），翻完才写，翻到一半的每页存进 follow_last_wip，界面边翻边读。6 小时内翻过就跳过。
 // 3 arc：动态里没出现的人逐个 arc/search（约 1 秒 1 个）→ follow_content；已有记录且不早于 follow_last.since 的跳过。
 //   一个视频都没有的再查 x/space/upstat 的视频播放量（views）：大于 0 是发过视频、现在全没了（投稿已清空）；查不到就不记 views，下次再查。
-//   投稿已清空的人又有了视频（动态里出现或这次查到）记进 follow_jobs.posted。
+//   投稿已清空的人又有了视频（UP 回归：动态里出现或这次查到）记进 follow_jobs.posted。
 //   follow_jobs.cur 是正在查的人。做完写 follow_jobs.statusAt：更新状态已齐，界面不用等第 4 步。
 // 4 stats：每个关注的人的粉丝数（x/relation/stat）→ follow_stats；7 天内查过的跳过。
 // 所有 GET 共用一个队列（间隔 1–1.5 秒），30 秒没回应算断网；风控（412、-352/-412/-799/-509）整队暂停 90 秒重试，第三次报 THROTTLED。
