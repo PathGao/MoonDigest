@@ -6,6 +6,7 @@
 // - follow-sync-stop {}       停下；再发 follow-sync 从游标接着跑。
 // - follow-feed { offset }    一页视频动态 { items: [{ bvid, aid, title, cover, duration, play, mid, name, face, at }], offset, hasMore }，缓存 3 分钟。
 // - follow-relation { mid, act, gone? }  1 关注 / 2 取关，成功后改好 follow_list、follow_unfollowed、follow_tag_map；gone = 撤销重新关注时放回的取关记录。
+//                             取关记录存当时的分组；重新关注时放回还在的那些 → { groups, groupsError }（没放回不算失败）。
 // - follow-group-move { mids, from, to }  关注分组：from 为空是复制到 to（copyUsers），否则从 from 移到 to（moveUsers）。
 //                             -10 是特别关注，0 是默认分组。成功后改好 follow_list.special / groups。
 //                             整批被拒时逐个再发，→ { skipped: [{ mid, error }] } 是 B站 不收的（如已注销）；全被拒才报错。
@@ -72,7 +73,7 @@ function followDiff(cur, fresh, unf, tagMap, live, startedAt, at) {
   const gone = {};
   if (fresh.complete) {
     for (const m of cur.list || []) {
-      if (!inFresh.has(m) && !kept.includes(m) && !unf[m]) gone[m] = { at, tagIds: tagMap[m] || [], source: "bili" };
+      if (!inFresh.has(m) && !kept.includes(m) && !unf[m]) gone[m] = { at, tagIds: tagMap[m] || [], source: "bili", groups: followGroupsOf(cur, m) };
     }
   }
   const inList = new Set(list);
@@ -86,6 +87,9 @@ function followDiff(cur, fresh, unf, tagMap, live, startedAt, at) {
     restore
   };
 }
+
+// 一个人当时所在的分组 id：-10 特别关注在前，再是自己建的；空 = 默认分组。取关记录里存这个，重新关注时放回。
+const followGroupsOf = (fl, m) => [...(fl?.special?.[m] ? [-10] : []), ...(fl?.groups?.[m] || [])];
 
 // 动态里的播放数是文字："2505"、"12.5万"、"1.2亿"。
 function followCount(v) {
@@ -536,6 +540,18 @@ async function followRelation({ mid, act, gone }) {
   if (!/^\d+$/.test(mid) || (act !== 1 && act !== 2)) throw triageError("缺少 mid 或 act 不对");
   await triageBiliPost("/x/relation/modify", { fid: mid, act, re_src: 11 });
   const at = followNow();
+  // 重新关注：取关记录里的分组还在的，放回去（一次 copyUsers）。没放回不算重新关注失败（groupsError 带原因）。
+  let back = [];
+  let groupsError = "";
+  if (act === 1) {
+    const s0 = await chrome.storage.local.get(["follow_unfollowed", "follow_groups"]);
+    const have = new Set([FOLLOW_SPECIAL, ...(s0.follow_groups || []).map((g) => g.id)]);
+    back = (s0.follow_unfollowed?.[mid]?.groups || []).filter((id) => have.has(id));
+    if (back.length) await triageBiliPost("/x/relation/tags/copyUsers", { fids: mid, tagids: back.join(",") }).catch((e) => {
+      groupsError = e.message;
+      back = [];
+    });
+  }
   await followUpdate(["follow_list", "follow_unfollowed", "follow_tag_map", "follow_tags"], (s) => {
     const f = s.follow_list || {};
     const unf = { ...s.follow_unfollowed };
@@ -546,8 +562,8 @@ async function followRelation({ mid, act, gone }) {
     const list = (f.list || []).filter((x) => x !== mid);
     if (act === 2) {
       // 重复取关不覆盖已有记录；标签挪进记录。撤销重新关注时放回原记录。
-      if (gone && typeof gone === "object") unf[mid] = { at: Number(gone.at) || at, tagIds: (Array.isArray(gone.tagIds) ? gone.tagIds : []).map(String), source: gone.source === "bili" ? "bili" : "app" };
-      else if (!unf[mid]) unf[mid] = { at, tagIds: tagMap[mid] || [], source: "app" };
+      if (gone && typeof gone === "object") unf[mid] = { at: Number(gone.at) || at, tagIds: (Array.isArray(gone.tagIds) ? gone.tagIds : []).map(String), source: gone.source === "bili" ? "bili" : "app", ...(Array.isArray(gone.groups) ? { groups: gone.groups.map(Number).filter(Number.isInteger) } : {}) };
+      else if (!unf[mid]) unf[mid] = { at, tagIds: tagMap[mid] || [], source: "app", groups: followGroupsOf(f, mid) };
       delete tagMap[mid];
       delete followTime[mid];
       delete special[mid];
@@ -559,10 +575,13 @@ async function followRelation({ mid, act, gone }) {
       delete unf[mid];
       followTime[mid] = at;
       list.unshift(mid);
+      if (back.includes(FOLLOW_SPECIAL)) special[mid] = 1;
+      const own = back.filter((id) => id > 0);
+      if (own.length) groups[mid] = own;
     }
     return { follow_list: { ...f, list, followTime, special, groups }, follow_unfollowed: unf, follow_tag_map: tagMap };
   });
-  return {};
+  return { groups: back, groupsError };
 }
 
 // ===== 关注分组 =====

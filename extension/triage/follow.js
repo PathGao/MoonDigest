@@ -699,14 +699,14 @@ function renderUps() {
   renderSel();
 }
 
-// 清理 deletes 已取消关注 records (the followed ones are unfollowed first): the selected listed ones, else every one listed.
+// 清理, as 收藏夹's: it only forgets (B站 is untouched), so it takes the 已取消关注 among the selected listed ones, else among
+// all listed. The ones still followed would come back with the next 刷新: they are unfollowed first (取消关注 is the B站 layer).
 const cleanable = (mids) => mids.filter((m) => rows.get(m)?.gone);
 function cleanBtn(list) {
   const sel = list.filter((m) => F.sel.has(m));
-  const mids = sel.length ? sel : list;
-  const n = cleanable(mids).length;
+  const n = cleanable(sel.length ? sel : list).length;
   const label = sel.length ? `清理选中的 ${n} 个` : `清理这 ${n} 个`;
-  const why = W.busy() ? "上一批还没做完" : !list.length ? "这里没有列出 UP 主" : !n ? "还关注着的先取消关注，才能清理" : "";
+  const why = W.busy() ? "上一批还没做完" : !list.length ? "这里没有列出 UP 主" : !n ? "还关注着的先取消关注，再清理" : "";
   return `<button type="button" class="danger" data-fw="clean" aria-label="${esc(label)}"${UI.reasonAttrs(why)}>${esc(label)}</button>`;
 }
 
@@ -752,6 +752,12 @@ function upCard(mid) {
     : kind === "closed" ? "账号已注销"
     : kind === "cleared" ? `投稿已清空：一个视频都看不到了，以前的视频播放过 ${esc(fmtCount(D.content[mid].views))} 次`
     : "";
+  // Its 关注分组, as 收藏夹's 原在「A」: where the unfollowed were (records from before groups were kept have none), where
+  // the still followed are. Groups deleted since are left out; none of your own is 默认分组.
+  const gids = kind === "gone" ? u.gone.groups : kind ? groupsOf(mid, D) : null;
+  const gnames = gids ? (gids.length ? gids.map((id) => groupName(id, D)).filter(Boolean) : ["默认分组"]).map((n) => `「${n}」`) : [];
+  const pre = kind === "gone" ? "原在" : "在";
+  const origin = gnames.length ? `<span class="origin-chip" title="${esc(pre + gnames.join(""))}">${esc(gnames.length > 2 ? `${pre}${gnames.slice(0, 2).join("")}等 ${gnames.length} 个` : pre + gnames.join(""))}</span>` : "";
   const chips = u.tagIds.map(tagOf).map((t) => u.gone
     ? `<span class="chip" style="--c:${esc(t.color)}">${esc(t.name)}</span>`
     : UI.cardTagChip(t, "点一下去掉这个标签")).join("");
@@ -768,7 +774,7 @@ function upCard(mid) {
     <a class="fw-avatar" href="${space(mid)}" target="_blank" rel="noopener" tabindex="-1" aria-hidden="true">${u.face ? `<img src="${esc(img(u.face, "96w_96h_1c"))}" alt="" loading="lazy" referrerpolicy="no-referrer">` : ""}</a>
     <div class="card-body">
       <div class="fw-name-row"><a class="fw-name" href="${space(mid)}" data-space="${esc(mid)}" target="_blank" rel="noopener" title="在右侧打开空间">${esc(u.name)}</a>${kind ? "" : checking() === mid ? '<span class="badge running" aria-busy="true">查投稿中…</span>' : `<span class="badge ${STATUS_BADGE[u.status]}">${STATUS_TEXT[u.status]}</span>`}${u.ov ? `<span class="meta fw-ov" title="${esc(u.ov)}">${esc(u.ov)}</span>` : ""}</div>
-      ${left ? `<div class="left-row">${left}</div>` : ""}
+      ${left ? `<div class="left-row">${origin}${left}</div>` : ""}
       ${meta.length ? `<div class="meta">${meta.join(" · ")}</div>` : ""}
       ${u.sign ? `<div class="fw-sign" title="${esc(u.sign)}">${esc(u.sign)}</div>` : ""}
       ${titles}
@@ -1039,10 +1045,10 @@ async function relationRun(calls, label, { quiet = false, skipped = [] } = {}) {
 async function unfollow(mids) {
   if (!mids.length) return;
   // Always asked, even for one: following again later does not bring back the follow date, ★ 特别关注 or 关注分组.
-  const ok = await askConfirm(`在 B站取消关注 ${mids.length} 个 UP 主？`, `${names(mids)}<p class="dialog-hint">标签会保留，可以在「已出分拣范围 › 已取消关注」里重新关注。重新关注后，特别关注和所在的关注分组不会恢复，关注日期变成重新关注的那天。</p>`, `取消关注 ${mids.length} 个`, { danger: true });
+  const ok = await askConfirm(`在 B站取消关注 ${mids.length} 个 UP 主？`, `${names(mids)}<p class="dialog-hint">标签会保留，可以在「已出分拣范围 › 已取消关注」里重新关注，不想留记录的也在那里清理。重新关注后，特别关注和所在的关注分组不会恢复，关注日期变成重新关注的那天。</p>`, `取消关注 ${mids.length} 个`, { danger: true });
   if (ok) await relationRun(perUp(mids, (mid) => ({ type: "follow-relation", mid, act: 2 })), "取消关注");
 }
-// 清理, as 收藏夹's: deletes 已取消关注 records with the tags they keep, asked first, no U.
+// 清理, as 收藏夹's: deletes 已取消关注 records with the tags they keep, asked first, no U. B站 is not touched.
 async function clean(mids) {
   if (!mids.length) return;
   const one = mids.length === 1;
