@@ -150,6 +150,12 @@ const base = () => ({ list: null, last: null, content: {}, people: {}, tags: [],
   assert.deepStrictEqual(v({ side: "out" }), ["9", "2", "3", "5"], "the unfollowed, then the followed that left");
   assert.deepStrictEqual(v({ side: "out", kind: "closed" }), ["2", "5"]);
   assert.deepStrictEqual(v({ side: "out", kind: "cleared" }), ["3"]);
+  D.gone[8] = { at: 9, tagIds: [], source: "bili" };
+  rows.set("8", t.upRow("8", D, now, { slowDays: 90, deadDays: 365 }));
+  assert.deepStrictEqual(v({ side: "out", sort: "left", dir: "desc" }), ["8", "9", "2", "3", "5"], "离开时间: newest left first, the still followed after");
+  assert.strictEqual(t.viewRecord({ mode: "follow", tab: "ups", sort: "last", dir: "desc", side: "out" }).side, "all", "已出分拣范围 is not remembered");
+  D.last = { map: { 3: now - 60 } };
+  assert.strictEqual(t.outKind(t.upRow("3", D, now, { slowDays: 90, deadDays: 365 })), "", "a post seen again: back in the list");
 }
 
 // ----- 关注分组 (B站's): the sidebar's "g:<tagid>" items, 默认分组 (0) and 特别关注 (-10) first -----

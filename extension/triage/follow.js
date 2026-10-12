@@ -77,7 +77,7 @@ function upRow(mid, D, now, cfg) {
     count: c?.code === 0 ? c.count || 0 : 0,
     closed: Boolean(p.gone) || GONE_CODES.includes(c?.code),
     // No videos now, but they have been watched: 投稿已清空 (banned, taken down or deleted; B站 does not say which).
-    cleared: c?.code === 0 && !c.count && c.views > 0,
+    cleared: c?.code === 0 && !c.count && c.views > 0 && !lastPostOf(mid, D),
     zone: Object.entries(c?.tlist || {}).sort((a, b) => b[1] - a[1])[0]?.[0] || "",
     titles: recentTitles(mid, D),
     followed: D.list?.followTime?.[mid] || 0,
@@ -172,7 +172,7 @@ function visibleUps(D, rows, f) {
     if (pass(m, "tags")) for (const id of u.tagIds) counts.tags[id] = (counts.tags[id] || 0) + 1;
   }
   let list = base.filter((m) => pass(m));
-  if (f.side !== "out") {
+  if (f.sort) {
     const cmp = sortCmp(f.sort, f.dir);
     list = [...list].sort((a, b) => cmp(rows.get(a), rows.get(b)));
   }
@@ -182,9 +182,11 @@ function visibleUps(D, rows, f) {
 // UP 主 sort: 最后投稿, 关注时间, 粉丝数, 名字; dir "desc" = big / new first. An UP with no value (never
 // posted or unknown, no follow time, 粉丝数未查) sinks to the bottom in both directions; ties keep the list order.
 const SORTS = { last: "最后投稿", follow: "关注时间", fans: "粉丝数", name: "名字" };
-const SORT_DIR = { last: "desc", follow: "desc", fans: "desc", name: "asc" }; // each sort's default direction
+// 已出分拣范围 sorts on its own, 离开时间 (when unfollowed; the still followed have none) first, as 收藏夹's.
+const OUT_SORTS = { left: "离开时间", ...SORTS };
+const SORT_DIR = { left: "desc", last: "desc", follow: "desc", fans: "desc", name: "asc" }; // each sort's default direction
 function sortCmp(sort, dir = SORT_DIR[sort] || "desc") {
-  const val = { last: (u) => u.last || null, follow: (u) => u.followed || null, fans: (u) => u.fans ?? null, name: (u) => u.name }[sort] || ((u) => u.last || null);
+  const val = { left: (u) => u.gone?.at || null, last: (u) => u.last || null, follow: (u) => u.followed || null, fans: (u) => u.fans ?? null, name: (u) => u.name }[sort] || ((u) => u.last || null);
   return UI.byValue(val, dir);
 }
 const dirLabel = (sort, dir) => UI.dirWords({ name: "name", fans: "count" }[sort], dir);
@@ -295,7 +297,8 @@ function normDays(slow, dead) {
 const syncFinished = (was, now) => Boolean(now?.finishedAt && now.finishedAt !== was?.finishedAt);
 
 // What 关注 remembers across reloads (follow_view): mode, tab, sort and the sidebar item.
-const viewRecord = (F) => ({ mode: F.mode, tab: F.tab, sort: F.sort, dir: F.dir, side: F.side });
+// 已出分拣范围 is not remembered, as 收藏夹's: a reload opens 全部.
+const viewRecord = (F) => ({ mode: F.mode, tab: F.tab, sort: F.sort, dir: F.dir, side: F.side === "out" ? "all" : F.side });
 // O / Enter on an UP card: its newest video that can play here (one with a bvid), or "".
 const latestBvid = (u) => u?.titles.find((v) => v.bvid)?.bvid || "";
 // Why ✦ AI 打标签 cannot run here (it tags UP 主 that are followed), or "".
@@ -342,6 +345,7 @@ const F = {
   side: "all",
   status: "",
   kind: "", // 已出分拣范围's tab: "" (全部) | "gone" | "closed" | "cleared"
+  outSort: { sort: "left", dir: "desc" }, // 已出分拣范围's own sort (OUT_SORTS), not remembered
   source: "", // 已取消关注: "" | "bili" (在 B站取关) | "app" (在这里取关)
   hold: null, // follow_hold: the background's queue pause { until, why }, shown at the 视频投稿 foot while a page waits
   q: "", // UP 主's search; 视频投稿 keeps its own (fq)
@@ -525,6 +529,8 @@ function render() {
 // The sidebar is scope only: 全部 · B站's 关注分组 (默认分组, ★ 特别关注, your own) · 已出分拣范围 (tags are rows 3 and 4).
 const sideLabel = (id) => (id === "all" ? "全部" : id === "out" ? "已出分拣范围" : groupName(groupId(id), D));
 const sideCount = (id) => sideMids(D, rows, id).length;
+// The sort the list and its control use: 已出分拣范围's own, else the UP 主 list's.
+const sortState = () => (F.side === "out" ? F.outSort : F);
 const OUT_TIP = "不在关注分拣里、但 MoonDigest 还留着信息的 UP 主：取消关注的、已注销的、投稿已清空的";
 const STAR = '<span class="star-mark" aria-hidden="true">★</span>';
 function renderSide() {
@@ -561,16 +567,19 @@ function renderSync() {
 // The last refresh's 新关注 / 在 B站取关 (follow_jobs.changes, see followDiff) as 收藏夹's 「已刷新」 pill. Each refresh's
 // changes show once per page; 关闭 hides them until the next.
 let syncSeenAt = null;
+// posted: 投稿已清空 UP 主 that have videos again (follow_jobs.posted), back in the list.
 function renderSyncChanges() {
-  const c = D.jobs?.changes;
-  if (!c || c.at === syncSeenAt) return;
-  syncSeenAt = c.at;
-  if (!c.added.length && !c.removed.length) return UI.setSync(SYNC, null);
+  const j = D.jobs || {};
+  const posted = j.posted || [];
+  const c = j.changes || (posted.length ? { at: j.startedAt, added: [], removed: [] } : null);
+  if (!c || `${c.at}|${posted.length}` === syncSeenAt) return;
+  syncSeenAt = `${c.at}|${posted.length}`;
+  if (!c.added.length && !c.removed.length && !posted.length) return UI.setSync(SYNC, null);
   const names = (mids) => mids.map((m) => D.people?.[m]?.name || m);
   UI.setSync(SYNC, {
-    label: `新关注 +${c.added.length} · 取消关注 −${c.removed.length}`,
-    text: `刷新结果：新关注 ${c.added.length} · 在 B站取消关注 ${c.removed.length}`,
-    sections: [["新关注", names(c.added)], ["在 B站取消关注", names(c.removed)]]
+    label: [`新关注 +${c.added.length} · 取消关注 −${c.removed.length}`, posted.length && `又有投稿 +${posted.length}`].filter(Boolean).join(" · "),
+    text: [`刷新结果：新关注 ${c.added.length} · 在 B站取消关注 ${c.removed.length}`, posted.length && `又有投稿 ${posted.length}`].filter(Boolean).join(" · "),
+    sections: [["新关注", names(c.added)], ["在 B站取消关注", names(c.removed)], ...(posted.length ? [["投稿已清空、现在又能看到视频，回到了列表", names(posted)]] : [])]
   });
 }
 
@@ -604,7 +613,7 @@ function renderHead() {
   E.title.innerHTML = out ? UI.titleHtml("已出分拣范围", sideCount("out")) : UI.titleHtml("关注", D.list ? sideCount("all") : null);
   renderLogin();
   E.meta.innerHTML = out
-    ? UI.headMeta(["不在关注分拣里了，标签都还留着，清理前可先从「导出」菜单备份"])
+    ? UI.headMeta([...OUT_KINDS.map(([k, label]) => [sideMids(D, rows, "out").filter((m) => outKind(rows.get(m)) === k).length, label]).filter(([n]) => n).map(([n, label]) => `${n} 个${label}`), "不在关注分拣里了，标签都还留着，清理前可先从「导出」菜单备份"])
     : UI.headMeta([D.list ? UI.syncedText(at * 1000) : "还没有关注数据"], err);
   main.querySelector('[data-fw="bili"]').hidden = out;
   // 导出 → UP 主表格: nothing to put in it before the first refresh.
@@ -666,7 +675,7 @@ const filtersOn = () => (F.side === "out" ? Boolean(F.source || F.tagState || F.
 function renderUps() {
   const recentAll = new Set((D.recent?.mids || []).filter((m) => rows.has(m) && !rows.get(m).gone));
   const out = F.side === "out";
-  const { list, counts } = visibleUps(D, rows, out ? { side: F.side, q: F.q, kind: F.kind, source: F.source, tagState: F.tagState, tags: F.tags } : { side: F.side, status: F.status, q: F.q, sort: F.sort, dir: F.dir, recent: F.recentFilter ? recentAll : null, recentAll, tagState: F.tagState, tags: F.tags });
+  const { list, counts } = visibleUps(D, rows, out ? { side: F.side, q: F.q, sort: F.outSort.sort, dir: F.outSort.dir, kind: F.kind, source: F.source, tagState: F.tagState, tags: F.tags } : { side: F.side, status: F.status, q: F.q, sort: F.sort, dir: F.dir, recent: F.recentFilter ? recentAll : null, recentAll, tagState: F.tagState, tags: F.tags });
   shown = list;
   // As 收藏夹: switching the sidebar keeps the selection; the ones not listed count as 被筛选隐藏.
   for (const m of [...F.sel]) if (!rows.has(m)) F.sel.delete(m);
@@ -684,8 +693,9 @@ function renderUps() {
   E.tagRow.innerHTML = UI.labeledRow("标签", tagRowHtml(counts.tags));
   E.tools.hidden = !D.list && !out;
   renderAiButton();
-  E.sort.hidden = out || !D.list;
-  E.sort.innerHTML = UI.sortControl({ sorts: SORTS, sort: F.sort, dir: F.dir, words: dirLabel(F.sort, F.dir), selectAttr: 'data-fw="sort"', dirAttr: 'data-fw="dir"' });
+  const so = sortState();
+  E.sort.hidden = !out && !D.list;
+  E.sort.innerHTML = UI.sortControl({ sorts: out ? OUT_SORTS : SORTS, sort: so.sort, dir: so.dir, words: dirLabel(so.sort, so.dir), selectAttr: 'data-fw="sort"', dirAttr: 'data-fw="dir"' });
   E.qCount.textContent = UI.resultCount(F.q.trim() || filtersOn(), list.length);
   const hint = hintHtml(counts);
   const scroll = E.list.scrollTop;
@@ -1598,11 +1608,17 @@ side.addEventListener("click", (e) => {
   if (e.target.closest("[data-fw=groups]")) TagDialogs.manage.open(manageGroups);
 });
 sideSlot.addEventListener("change", (e) => e.target.dataset.fw === "side" && pickSide(e.target.value));
+// Into or out of 已出分拣范围 starts clean, as opening it in 收藏夹 does: no selection, tab, source or tag filter. It has
+// only UP 主 (its tabs are why they left).
+function freshScope(id) {
+  F.kind = F.source = F.tagState = "";
+  F.sel.clear();
+  F.tags = new Set();
+  if (id === "out") F.tab = "ups";
+}
 function pickSide(id) {
   if (id === F.side) return;
-  // 已出分拣范围 has only UP 主 (its tabs are why they left), and starts at 全部 with nothing narrowing it.
-  if (id === "out" || F.side === "out") F.kind = F.source = "";
-  if (id === "out") F.tab = "ups";
+  if (id === "out" || F.side === "out") freshScope(id);
   F.side = id;
   if (F.feed) F.feed.dry = 0;
   saveView();
@@ -1707,7 +1723,8 @@ main.addEventListener("click", async (e) => {
       t.closest("button").disabled = false;
     }
   } else if (act === "dir") {
-    F.dir = F.dir === "asc" ? "desc" : "asc";
+    const so = sortState();
+    so.dir = so.dir === "asc" ? "desc" : "asc";
     saveView();
     render();
   } else if (act === "ai") openAi();
@@ -1751,8 +1768,9 @@ UI.bindSearch(E.q, (q) => {
 main.addEventListener("change", (e) => {
   const act = e.target.dataset.fw;
   if (act === "sort") {
-    F.sort = e.target.value;
-    F.dir = SORT_DIR[F.sort];
+    const so = sortState();
+    so.sort = e.target.value;
+    so.dir = SORT_DIR[so.sort];
     saveView();
     render();
   } else if (act === "side") pickSide(e.target.value);

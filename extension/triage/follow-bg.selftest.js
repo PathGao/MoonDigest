@@ -198,6 +198,14 @@ const runSync = async () => {
     local.follow_last.at = now();
     await runSync();
     assert.deepStrictEqual(calls.filter((c) => c.startsWith("space")), ["space/wbi/arc/search#3", "space/upstat#3"], "only the one without views is asked again");
+    // 1 (投稿已清空) posts again: the feed shows it, the refresh says so once and drops the old record.
+    routes["/x/polymer/web-dynamic/v1/feed/all"] = feed([[dyn(1, "BVnew", now() - 60)]]);
+    local.follow_last.at = now() - 7 * 3600;
+    await runSync();
+    assert.deepStrictEqual([plain(local.follow_jobs.posted), "1" in local.follow_content], [["1"], false]);
+    local.follow_last.at = now() - 7 * 3600;
+    await runSync();
+    assert.deepStrictEqual(plain(local.follow_jobs.posted), [], "said once");
   }
 
   // ---------- a feed walk cut off midway keeps the last complete one; continue finishes it ----------
