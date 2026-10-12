@@ -767,7 +767,7 @@ function upCard(mid) {
   return `<article class="card fw-up${sel ? " selected" : ""}${playing ? " playing" : ""}${F.cur === mid ? " focused" : ""}" data-mid="${esc(mid)}" aria-label="${esc(u.name)}">
     <a class="fw-avatar" href="${space(mid)}" target="_blank" rel="noopener" tabindex="-1" aria-hidden="true">${u.face ? `<img src="${esc(img(u.face, "96w_96h_1c"))}" alt="" loading="lazy" referrerpolicy="no-referrer">` : ""}</a>
     <div class="card-body">
-      <div class="fw-name-row"><a class="fw-name" href="${space(mid)}" data-space="${esc(mid)}" target="_blank" rel="noopener" title="在右侧打开空间">${esc(u.name)}</a>${u.gone ? "" : checking() === mid ? '<span class="badge running" aria-busy="true">查投稿中…</span>' : `<span class="badge ${STATUS_BADGE[u.status]}">${STATUS_TEXT[u.status]}</span>`}${u.ov ? `<span class="meta fw-ov" title="${esc(u.ov)}">${esc(u.ov)}</span>` : ""}</div>
+      <div class="fw-name-row"><a class="fw-name" href="${space(mid)}" data-space="${esc(mid)}" target="_blank" rel="noopener" title="在右侧打开空间">${esc(u.name)}</a>${kind ? "" : checking() === mid ? '<span class="badge running" aria-busy="true">查投稿中…</span>' : `<span class="badge ${STATUS_BADGE[u.status]}">${STATUS_TEXT[u.status]}</span>`}${u.ov ? `<span class="meta fw-ov" title="${esc(u.ov)}">${esc(u.ov)}</span>` : ""}</div>
       ${left ? `<div class="left-row">${left}</div>` : ""}
       ${meta.length ? `<div class="meta">${meta.join(" · ")}</div>` : ""}
       ${u.sign ? `<div class="fw-sign" title="${esc(u.sign)}">${esc(u.sign)}</div>` : ""}
