@@ -3,8 +3,8 @@
 // a limit counting down and sending the same chunk again, stop). Two adapters each have their own lane and undo stack:
 // 收藏夹 (keys are bvids) and 关注 (keys are mids).
 // - run: a batch, chunk by chunk with each chunk's gap before it; any failure other than a limit stops it. onChunk(chunk)
-//   runs after each chunk that went through, with B站's reply. plan may be a function, called once the lane is taken (work that must not
-//   race another batch, such as creating the target). stop() ends it after the chunk in flight (stopped: some were
+//   runs after each chunk that went through, with B站's reply. plan may be a function, called once the lane is taken
+//   (work that must not race another batch, such as creating the target). stop() ends it after the chunk in flight (stopped: some were
 //   left).
 // - single: a write that does not wait for the batch (one key press). A limit fails at once.
 // - Every key of a running batch (until its chunk goes through) and of a single write is pending, with its verb.

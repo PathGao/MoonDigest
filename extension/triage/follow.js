@@ -1033,14 +1033,13 @@ async function refollow(mids) {
 // ---------- 关注分组 on B站 (DESIGN 产品决策 · 改 B站 的操作和撤销) ----------
 // mids from the groups they are in now to want(mid), as one undo step that puts back the groups they had (U on 2+ asks
 // first). Only what B站 confirmed is undone; a request with no answer is neither kept here nor undone (its toast says
-// to look after a 刷新). Returns { done: the UP 主 that changed, ok: no request failed }.
-// B站 won't regroup a closed account: the known ones are not sent, and they and any B站 left out are listed afterwards,
-// still selected.
+// to look after a 刷新). B站 won't regroup a closed account: the known ones are not sent, and they and any B站 left out
+// are listed afterwards, still selected. Returns { done: the UP 主 that changed, skipped, ok: no request failed }.
 async function regroup(mids, want, label) {
   const before = Object.fromEntries(mids.map((m) => [m, groupsOf(m, D)]));
   const skipped = mids.filter((m) => rows.get(m)?.closed).map((mid) => ({ mid, error: "账号已注销" }));
   const calls = groupCalls(mids.filter((m) => !rows.get(m)?.closed), (m) => before[m], want);
-  const sent = skipped.length;
+  const known = skipped.length;
   const n = await relationRun(calls, label, { quiet: true, skipped });
   const done = calls.flatMap((c) => c.mids).slice(0, n).filter((m) => !skipped.some((x) => x.mid === m));
   if (done.length) {
@@ -1057,7 +1056,7 @@ async function regroup(mids, want, label) {
     const list = skipped.map(({ mid, error }) => `<li>${esc(nameOf(mid))}：${esc(error)}</li>`).join("");
     askConfirm(`${skipped.length} 个 UP 主没能${label}`, `<ul>${list}</ul><p class="dialog-hint">它们还选着。其余的已经做完。</p>`, "知道了", { alone: true });
   }
-  return { done, skipped, ok: done.length + skipped.length - sent === calls.reduce((k, c) => k + c.mids.length, 0) };
+  return { done, skipped, ok: done.length + skipped.length - known === calls.reduce((k, c) => k + c.mids.length, 0) };
 }
 // A card's ★: 特别关注 is group -10, so it is a single move with no confirm and U.
 async function starOne(mid) {
