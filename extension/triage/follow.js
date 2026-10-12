@@ -1101,7 +1101,7 @@ async function refollow(mids) {
     pushWriteUndo(mids, { label: "重新关注", backLabel: "取消关注", back: () => [{ type: "follow-relation", mid, act: 2, gone }] });
     return toast(`已在 B站重新关注「${upName(mid)}」 · U 撤销`);
   }
-  const ok = await askConfirm(`在 B站重新关注 ${mids.length} 个 UP 主？`, `${names(mids)}<p class="dialog-hint">原来的标签会放回去。</p>`, `重新关注 ${mids.length} 个`);
+  const ok = await askConfirm(`在 B站重新关注 ${mids.length} 个 UP 主？`, `${names(mids)}<p class="dialog-hint">原来的标签会放回去，有分组记录的也放回原来的分组。</p>`, `重新关注 ${mids.length} 个`);
   if (ok) await relationRun(perUp(mids, (mid) => ({ type: "follow-relation", mid, act: 1 })), "重新关注");
 }
 // ---------- 关注分组 on B站 (DESIGN 产品决策 · 改 B站 的操作和撤销) ----------
