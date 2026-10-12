@@ -1164,8 +1164,8 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     assert.strictEqual(po, null);
     play("");
     assert.ok(t.el.viewerTags.hidden && t.el.viewerTags.innerHTML === "");
-    // 关注 has no 「视频标签」 line (视频投稿 are in no folder); each draw also redraws 关注's 「UP 标签」 line (the hook),
-    // which in 收藏夹 asks for the playing video's UP.
+    // Each draw also redraws 关注's 「UP 标签」 line (the hook), which in 收藏夹 asks for the playing video's UP. 关注 keeps
+    // the 「视频标签」 line for a video in a chosen folder, and the UP line is its own.
     let hooked = 0;
     t.MoonTriage.setViewerHook(() => hooked++);
     t.S.mediaId = "K";
@@ -1177,7 +1177,7 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     assert.deepStrictEqual(plain(t.MoonTriage.viewingUp()), { mid: "42", name: "甲" });
     t.document.body = { classList: { contains: (c) => c === "follow-mode" } };
     t.renderViewerTags();
-    assert.ok(t.el.viewerTags.hidden && t.el.viewerTags.innerHTML === "" && hooked === 2 && t.MoonTriage.viewingUp() === null);
+    assert.ok(!t.el.viewerTags.hidden && /视频标签/.test(t.el.viewerTags.innerHTML) && hooked === 2 && t.MoonTriage.viewingUp() === null);
     delete t.document.body;
     t.MoonTriage.setViewerHook(null);
     t.S.viewing = "";

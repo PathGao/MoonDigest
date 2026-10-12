@@ -215,7 +215,11 @@
     faceKey, whoIndex, resolveMid, pickRows, applyUpTag, saveUpTag, SURFACES, surfaceOf, fitCount, biliSaysSeen, lineParts
   };
   if (typeof chrome === "undefined" || !chrome.storage?.local || typeof document === "undefined") return;
-  if (document.documentElement.hasAttribute?.("data-mdg-viewer")) return;
+  // The 分拣台's player (viewer-frame.js): a video gets only the line under its title, with the AI 判断 whatever the B站
+  // page switch says and no 视频标签 (the line above the player has them); an UP's space gets nothing.
+  const viewer = document.documentElement.getAttribute?.("data-mdg-viewer");
+  if (viewer === "space") return;
+  const lineOnly = viewer != null;
   const surfaceNow = () => surfaceOf({ host: location.hostname, path: location.pathname, search: location.search });
   // Recomputed on in-page navigation (followNav).
   let surface = surfaceNow();
@@ -258,6 +262,7 @@
   // Bilibili's comment section is nested shadow roots too, and its video links should stay unmarked.
   const bewlyRoot = () => document.getElementById("bewly")?.shadowRoot || null;
   const findAll = (sel) => {
+    if (lineOnly) return [];
     const r = bewlyRoot();
     const list = [...document.querySelectorAll(sel)];
     return r ? list.concat([...r.querySelectorAll(sel)]) : list;
@@ -1100,17 +1105,17 @@ input { box-sizing: border-box; width: 100%; margin: 0; padding: 4px 8px; border
   function applySettings(v) {
     const verdicts = v[VERDICT_SETTING] === true;
     const tags = v[SETTING] !== false;
-    lineOn = { verdict: verdicts, vtags: tags };
+    lineOn = lineOnly ? { verdict: true, vtags: false } : { verdict: verdicts, vtags: tags };
     rules = globalThis.MdgSurfaces.rulesWith(v.biliMarksOff, [!verdicts && "verdict", !tags && "vtags"].filter(Boolean));
-    triageOn = verdicts || tags;
+    triageOn = lineOnly || verdicts || tags;
     const before = seenCfg.on;
-    seenCfg = seenConfig(v);
+    seenCfg = lineOnly ? { ...seenConfig(v), on: false } : seenConfig(v);
     // Turning it off clears the stored history (triage-bg.js), so a later re-enable starts from a fresh read.
     if (!seenCfg.on) seenCache.clear();
     markBewly();
     // Only the top frame asks; the background reads what is new at most every 10 minutes.
     if (seenCfg.on && !before && window === window.top) chrome.runtime.sendMessage({ type: "triage-seen-sync" }).catch(() => {});
-    upSetting = v[UP_SETTING] !== false;
+    upSetting = !lineOnly && v[UP_SETTING] !== false;
     const wasUp = upOn;
     upOn = upSetting && upHas;
     if (wasUp && !upOn) clearUps();

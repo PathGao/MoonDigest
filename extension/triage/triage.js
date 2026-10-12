@@ -2946,8 +2946,9 @@ function savePicked(changes) {
 
 // The viewer's 「视频标签」 line: the playing video's tags and 「+ 标签 T」; a tag opens the picker too. 关注 then draws
 // its 「UP 标签」 line under it (viewerHook).
+// In 关注 too, for a video that is in a chosen folder; T there stays on the UP line.
 function renderViewerTags() {
-  const v = !followMode() && S.viewer;
+  const v = S.viewer;
   el.viewerTags.hidden = !v;
   if (!v) el.viewerTags.innerHTML = "";
   else {
@@ -4305,8 +4306,8 @@ function showViewing(b) {
   const own = viewerOf(b);
   S.viewer = own;
   render();
-  // A 待播 video from a folder not open: its folders are the chosen ones whose cached list holds it.
-  if (!own && !followMode()) {
+  // A 待播 video from a folder not open (or one played in 关注): its folders are the chosen ones whose cached list holds it.
+  if (!own) {
     viewerHome(b).then((v) => {
       if (S.viewing !== b || !v) return;
       S.viewer = v;
