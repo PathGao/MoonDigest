@@ -215,8 +215,8 @@
     faceKey, whoIndex, resolveMid, pickRows, applyUpTag, saveUpTag, SURFACES, surfaceOf, fitCount, biliSaysSeen, lineParts
   };
   if (typeof chrome === "undefined" || !chrome.storage?.local || typeof document === "undefined") return;
-  // The 分拣台's player (viewer-frame.js): a video gets only the line under its title, with the AI 判断 whatever the B站
-  // page switch says and no 视频标签 (the line above the player has them); an UP's space gets nothing.
+  // The 分拣台's player (viewer-frame.js): a video gets only the line under its title, its AI 判断 as the switch says and
+  // no 视频标签 (the line above the player has them); an UP's space gets nothing.
   const viewer = document.documentElement.getAttribute?.("data-mdg-viewer");
   if (viewer === "space") return;
   const lineOnly = viewer != null;
@@ -1105,9 +1105,9 @@ input { box-sizing: border-box; width: 100%; margin: 0; padding: 4px 8px; border
   function applySettings(v) {
     const verdicts = v[VERDICT_SETTING] === true;
     const tags = v[SETTING] !== false;
-    lineOn = lineOnly ? { verdict: true, vtags: false } : { verdict: verdicts, vtags: tags };
+    lineOn = { verdict: verdicts, vtags: tags && !lineOnly };
     rules = globalThis.MdgSurfaces.rulesWith(v.biliMarksOff, [!verdicts && "verdict", !tags && "vtags"].filter(Boolean));
-    triageOn = lineOnly || verdicts || tags;
+    triageOn = verdicts || (tags && !lineOnly);
     const before = seenCfg.on;
     seenCfg = lineOnly ? { ...seenConfig(v), on: false } : seenConfig(v);
     // Turning it off clears the stored history (triage-bg.js), so a later re-enable starts from a fresh read.

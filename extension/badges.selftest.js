@@ -726,16 +726,18 @@ async function surfacePages() {
   };
   const author = () => h("a", { href: "//space.bilibili.com/1" }, h("span", { class: "bili-video-card__info--author" }, "甲"));
 
-  // The 分拣台's player iframe: only the line under the title, with the AI 判断 (its B站 switch off) and no 视频标签 or UP
+  // The 分拣台's player iframe: only the line under the title, with the AI 判断 when its switch is on, and no 视频标签 or UP
   // marks (the lines above the player have them). An UP's space there: nothing read, nothing drawn.
   Object.assign(store, {
     triage_analysis_BV1GJ411x7h7: { status: "done", verdict: "keep", reason: "干货", oneLiner: "讲 Rust 所有权" },
     triage_tags: [{ id: "t", name: "收藏标签", color: "#0f0" }],
     triage_video_tags: { BV1GJ411x7h7: ["t"] }
   });
-  const viewer = await page({ hostname: "www.bilibili.com", pathname: "/video/BV1GJ411x7h7" }, h("body", {}, h("div", { class: "video-info-title" }), author(), h("a", { href: "/video/BV1xx411c7mD" })), "");
+  const viewer = await page({ hostname: "www.bilibili.com", pathname: "/video/BV1GJ411x7h7" }, h("body", {}, h("div", { class: "video-info-title" }), author(), h("a", { href: "/video/BV1xx411c7mD" })), "", { showBiliVerdicts: true });
+  const viewerOff = await page({ hostname: "www.bilibili.com", pathname: "/video/BV1GJ411x7h7" }, h("body", {}, h("div", { class: "video-info-title" })), "");
+  assert.strictEqual(viewerOff.doc.querySelector(".mdg-line"), null, "player: AI 判断 switch off, no line (its 视频标签 are above the player)");
   const vline = viewer.doc.querySelector(".mdg-line");
-  assert.ok(vline && /讲 Rust 所有权/.test(vline.textContent) && !/收藏标签/.test(vline.textContent), "player: the title line, AI 判断 without 视频标签");
+  assert.ok(vline && /讲 Rust 所有权/.test(vline.textContent) && !/收藏标签/.test(vline.textContent), "player: the title line, AI 判断 (switch on) without 视频标签");
   assert.deepStrictEqual([viewer.doc.querySelectorAll(".mdg-ups").length, viewer.doc.querySelectorAll(".mdg-badge").length], [0, 1], "player: no UP marks, no marks on other links");
   for (const k of ["triage_analysis_BV1GJ411x7h7", "triage_tags", "triage_video_tags"]) delete store[k];
   const space = await page({ hostname: "space.bilibili.com", pathname: "/1" }, h("body", {}, author()), "space");
