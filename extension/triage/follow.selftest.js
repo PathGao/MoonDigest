@@ -13,7 +13,7 @@ const ctx = vm.createContext({ setTimeout, clearTimeout });
 vm.runInContext(fs.readFileSync(path.join(__dirname, "../errors.js"), "utf8"), ctx);
 vm.runInContext(fs.readFileSync(path.join(__dirname, "../tag-core.js"), "utf8"), ctx);
 vm.runInContext(fs.readFileSync(path.join(__dirname, "shared.js"), "utf8"), ctx);
-vm.runInContext(`const UI = globalThis.TriageUi;\n${pure}\n;Object.assign(globalThis, { syncFinished, dirLabel, followAiSettings, aiRequests, normDays, settingsProblem, followStatus, withFeedInProgress, lastPostOf, recentTitles, upRow, visibleUps, mergeFeed, feedMatch, sideIds, feedList, feedLeaving, withTags, stepIn, tagsOf, restoreTags, feedCounts, STATUS, viewRecord, latestBvid, favUpMid, aiBlocked, withAllowRemove, groupsOf, regrouped, groupCalls, groupTargets, groupName, groupMoveLabel });`, ctx);
+vm.runInContext(`const UI = globalThis.TriageUi;\n${pure}\n;Object.assign(globalThis, { syncFinished, dirLabel, followAiSettings, aiRequests, normDays, settingsProblem, followStatus, withFeedInProgress, lastPostOf, recentTitles, upRow, visibleUps, mergeFeed, feedMatch, sideIds, feedList, feedLeaving, withTags, stepIn, tagsOf, restoreTags, feedCounts, STATUS, viewRecord, latestBvid, favUpMid, aiBlocked, withAllowRemove, groupsOf, regrouped, groupCalls, groupTargets, groupName, groupMoveLabel, outKind });`, ctx);
 const t = ctx;
 const plain = (v) => JSON.parse(JSON.stringify(v));
 
@@ -95,8 +95,8 @@ const base = () => ({ list: null, last: null, content: {}, people: {}, tags: [],
   assert.deepStrictEqual(v({ tagState: "untagged" }).list, ["1", "4"]);
   assert.deepStrictEqual(v({ side: "g:-10" }).list, ["3"], "特别关注 is the sidebar's group -10");
   assert.deepStrictEqual(v({ tags: new Set(["t1"]) }).list, ["3", "2"]);
-  assert.deepStrictEqual(v({ side: "gone" }).list, ["8", "9"], "已取消关注: newest first, list order kept");
-  assert.deepStrictEqual(v({ side: "gone", source: "bili" }).list, ["9"]);
+  assert.deepStrictEqual(v({ side: "out" }).list, ["8", "9"], "已出分拣范围: the unfollowed newest first, list order kept");
+  assert.deepStrictEqual(v({ side: "out", source: "bili" }).list, ["9"]);
   assert.deepStrictEqual(v({ q: "原理" }).list, ["2"], "search reads the sign too");
   const c = v({ status: "active" });
   assert.deepStrictEqual(c.list, ["1", "3"]);
@@ -133,7 +133,23 @@ const base = () => ({ list: null, last: null, content: {}, people: {}, tags: [],
   assert.deepStrictEqual(L({ tags: new Set(["t1"]) }), ["1"], "row 4 goes by the video's UP");
   assert.deepStrictEqual(L({ tagState: "untagged" }), ["2", "3"], "only a deleted tag = untagged");
   assert.ok(t.feedMatch(it("3"), D, "g:-10") && !t.feedMatch(it("1"), D, "g:-10"));
-  assert.ok(!t.feedMatch(it("1"), D, "gone"));
+  assert.ok(!t.feedMatch(it("1"), D, "out"));
+}
+
+// ----- 已出分拣范围: 已取消关注, 已注销 (a placeholder name or arc's -404) and 投稿已清空 (no video, but watched before) -----
+{
+  const D = base();
+  D.list = { list: ["1", "2", "3", "4", "5"] };
+  D.people = { 1: { name: "a" }, 2: { name: "b", gone: true }, 3: { name: "c" }, 4: { name: "d" }, 5: { name: "e" } };
+  D.content = { 3: { code: 0, count: 0, views: 4200 }, 4: { code: 0, count: 0, views: 0 }, 5: { code: -404, count: 0 } };
+  D.gone = { 9: { at: 5, tagIds: [], source: "app" } };
+  const rows = new Map([...D.list.list, "9"].map((m) => [m, t.upRow(m, D, now, { slowDays: 90, deadDays: 365 })]));
+  assert.deepStrictEqual(["1", "2", "3", "4", "5", "9"].map((m) => t.outKind(rows.get(m))), ["", "closed", "cleared", "", "closed", "gone"], "never posted (no views) stays in");
+  const v = (f) => plain(t.visibleUps(D, rows, { side: "all", status: "", q: "", sort: "follow", ...f }).list);
+  assert.deepStrictEqual(v({}), ["1", "4"], "全部 leaves 已出分拣范围 out");
+  assert.deepStrictEqual(v({ side: "out" }), ["9", "2", "3", "5"], "the unfollowed, then the followed that left");
+  assert.deepStrictEqual(v({ side: "out", kind: "closed" }), ["2", "5"]);
+  assert.deepStrictEqual(v({ side: "out", kind: "cleared" }), ["3"]);
 }
 
 // ----- 关注分组 (B站's): the sidebar's "g:<tagid>" items, 默认分组 (0) and 特别关注 (-10) first -----
@@ -142,9 +158,9 @@ const base = () => ({ list: null, last: null, content: {}, people: {}, tags: [],
   D.list = { list: ["1", "2", "3", "4"], groups: { 1: [7], 2: [7, 8], 3: [0] }, special: { 4: 1, 2: 1 } };
   D.people = { 1: { name: "a" }, 2: { name: "b" }, 3: { name: "c" }, 4: { name: "d" } };
   D.tags = [{ id: "t1" }];
-  assert.deepStrictEqual(plain(t.sideIds(D)), ["all", "g:0", "g:-10", "gone"], "scope only: no tag items; B站's fixed groups always");
+  assert.deepStrictEqual(plain(t.sideIds(D)), ["all", "g:0", "g:-10", "out"], "scope only: no tag items; B站's fixed groups always");
   D.groups = [{ id: 7, name: "数码" }, { id: 8, name: "音乐" }];
-  assert.deepStrictEqual(plain(t.sideIds(D)), ["all", "g:0", "g:-10", "g:7", "g:8", "gone"]);
+  assert.deepStrictEqual(plain(t.sideIds(D)), ["all", "g:0", "g:-10", "g:7", "g:8", "out"]);
   assert.deepStrictEqual([t.groupName(0, D), t.groupName(-10, D), t.groupName(8, D)], ["默认分组", "特别关注", "音乐"]);
   assert.deepStrictEqual(plain(t.groupsOf("2", D)), [-10, 7, 8], "an UP's groups: -10 from special, then its own");
   assert.deepStrictEqual(plain(t.groupsOf("3", D)), [], "0 is not a group of its own");
@@ -346,7 +362,7 @@ assert.deepStrictEqual([t.dirLabel("last", "desc"), t.dirLabel("follow", "asc"),
 assert.ok(/if \(!\/\^follow\(&\|\$\)\/\.test\(h\)\) return false;\s*history\.replaceState\(null, "", location\.pathname \+ location\.search\);/.test(source), "followHash drops the hash");
 
 // #follow&up=<mid> (the B站 tag picker's button) clears what could hide the card, then makes it current.
-assert.ok(/if \(up\) \{\s*F\.tab = "ups";\s*F\.side = D\.gone\[up\] \? "gone" : "all";\s*F\.status = F\.tagState = F\.source = F\.q = "";[\s\S]*?F\.tags = new Set\(\);\s*\}/.test(source), "followHash clears the filters for up");
+assert.ok(/if \(up\) \{\s*F\.tab = "ups";\s*F\.side = rows\.has\(up\) && outKind\(rows\.get\(up\)\) \? "out" : "all";\s*F\.status = F\.tagState = F\.source = F\.kind = F\.q = "";[\s\S]*?F\.tags = new Set\(\);\s*\}/.test(source), "followHash clears the filters for up");
 assert.ok(/render\(\);\s*if \(up\) \{\s*setCur\(up, false\);\s*E\.list\.querySelector\("\.fw-up\.focused"\)\?\.scrollIntoView\(\{ block: "center" \}\);/.test(source), "followHash makes the UP current, centered");
 
 // 标签… on 2+ UP 主 is one step that asks before U, with 收藏夹's words (shared.js undoAsk).
@@ -430,12 +446,12 @@ assert.ok(source.includes("for (const m of [...F.sel]) if (!rows.has(m)) F.sel.d
 
 // B12: the sidebar item is remembered with the rest of the view and checked against the data on load.
 assert.deepStrictEqual(plain(t.viewRecord({ mode: "follow", tab: "ups", sort: "last", dir: "desc", side: "g:7", q: "x" })), { mode: "follow", tab: "ups", sort: "last", dir: "desc", side: "g:7" });
-assert.ok(source.includes('if (typeof view?.side === "string") F.side = view.side === "special" ? `g:${SPECIAL}` : view.side;') && /function pickSide\(id\) \{[^}]*saveView\(\);/.test(source), "restored on load, saved on every pick");
+assert.ok(source.includes('if (typeof view?.side === "string") F.side = view.side === "special" ? `g:${SPECIAL}` : view.side === "gone" ? "out" : view.side;') && /function pickSide\(id\) \{[^}]*saveView\(\);/.test(source), "restored on load, saved on every pick");
 // B13: I = ✦ AI 打标签 (or why not), O / Enter plays the current UP's newest video that has a bvid.
 assert.strictEqual(t.latestBvid({ titles: [{ t: "a" }, { t: "b", bvid: "BV2" }, { t: "c", bvid: "BV3" }] }), "BV2");
 assert.strictEqual(t.latestBvid({ titles: [{ t: "a" }] }), "");
 assert.strictEqual(t.aiBlocked("ups", "all"), "");
-assert.ok(t.aiBlocked("feed", "all") && t.aiBlocked("ups", "gone"), "视频投稿 and 已取消关注 say why");
+assert.ok(t.aiBlocked("feed", "all") && t.aiBlocked("ups", "out"), "视频投稿 and 已出分拣范围 say why");
 {
   const key = source.slice(source.indexOf("function followKey("), source.indexOf("T.setModeKeys"));
   assert.ok(key.includes('key === "i") aiReason() ? toast(aiReason()) : openAi()') && /key === "o" \|\| key === "Enter"\) && shown\.includes\(F\.cur\)\) \{\s*const bvid = latestBvid\(rows\.get\(F\.cur\)\);\s*bvid \? play\(bvid\)/.test(key), "followKey has I and O / Enter");

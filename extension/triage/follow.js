@@ -76,6 +76,8 @@ function upRow(mid, D, now, cfg) {
     last: lastPostOf(mid, D),
     count: c?.code === 0 ? c.count || 0 : 0,
     closed: Boolean(p.gone) || GONE_CODES.includes(c?.code),
+    // No videos now, but they have been watched: 投稿已清空 (banned, taken down or deleted; B站 does not say which).
+    cleared: c?.code === 0 && !c.count && c.views > 0,
     zone: Object.entries(c?.tlist || {}).sort((a, b) => b[1] - a[1])[0]?.[0] || "",
     titles: recentTitles(mid, D),
     followed: D.list?.followTime?.[mid] || 0,
@@ -96,7 +98,12 @@ const inGroupId = (mid, D, id) => (id === 0 ? !groupsOf(mid, D).some((x) => x > 
 const inGroup = (mid, D, side) => inGroupId(mid, D, groupId(side));
 const groupName = (id, D) => (id === 0 ? "默认分组" : id === SPECIAL ? "特别关注" : (D.groups || []).find((g) => g.id === id)?.name || "");
 // Every left-column id: the sidebar is scope only (tags are row 3 and row 4).
-const sideIds = (D) => ["all", "g:0", `g:${SPECIAL}`, ...(D.groups || []).map((g) => `g:${g.id}`), "gone"];
+const sideIds = (D) => ["all", "g:0", `g:${SPECIAL}`, ...(D.groups || []).map((g) => `g:${g.id}`), "out"];
+
+// 已出分拣范围, as 收藏夹's: why an UP left the list, its row-2 tab. gone = 已取消关注 (a record, no longer followed);
+// closed and cleared are still followed on B站 but have nothing to sort: the account is gone, or no video is left.
+const OUT_KINDS = [["gone", "已取消关注"], ["closed", "已注销"], ["cleared", "投稿已清空"]];
+const outKind = (u) => (u.gone ? "gone" : u.closed ? "closed" : u.cleared ? "cleared" : "");
 
 // 移到 / 复制到 in the toast and U. 特别关注 is a flag on top of the groups (B站): from 默认分组 into it is an add, the UP stays.
 const groupMoveLabel = (from, to, move, D) => `${move && from === 0 && to === SPECIAL ? "加进" : move ? "移到" : "复制到"}「${groupName(to, D)}」`;
@@ -132,15 +139,17 @@ const groupTargets = (D, from, how) =>
 const tagPass = (ids, f, skip = "") =>
   (skip === "tagged" || !f.tagState || (ids.length > 0) === (f.tagState === "tagged")) && (skip === "tags" || [...(f.tags || [])].every((id) => ids.includes(id)));
 
-// The UPs of a left-column item, before 更新状态 / search: the follow list (or the unfollowed, newest first).
+// The UPs of a left-column item, before 更新状态 / search: the follow list without 已出分拣范围; that item is the
+// unfollowed (newest first), then the followed that are closed or cleared.
 function sideMids(D, rows, side) {
-  if (side === "gone") return Object.keys(D.gone || {}).sort((a, b) => (D.gone[b].at || 0) - (D.gone[a].at || 0));
-  const list = (D.list?.list || []).filter((m) => rows.has(m));
+  const followed = (D.list?.list || []).filter((m) => rows.has(m));
+  if (side === "out") return [...Object.keys(D.gone || {}).sort((a, b) => (D.gone[b].at || 0) - (D.gone[a].at || 0)), ...followed.filter((m) => outKind(rows.get(m)))];
+  const list = followed.filter((m) => !outKind(rows.get(m)));
   if (groupId(side) != null) return list.filter((m) => inGroup(m, D, side));
   return list;
 }
 
-// What the list shows: f = { side, q, sort, dir, source: "" | "bili" | "app" (已取消关注 only), and row 3: status,
+// What the list shows: f = { side, q, sort, dir, kind (已出分拣范围's tab), source: "" | "bili" | "app" (已取消关注), and row 3: status,
 // tagState, recent (Set while 「AI 刚打的」 is on), recentAll (the whole batch, for its count); row 4: tags }.
 // Row 3's groups AND together and each counts with its own pick left out: counts[status], tagged / untagged, recent,
 // "" (row 3 cleared) and tags[id] (row 4's picks left out). Search, the sidebar and 已取消关注's source apply to all.
@@ -148,7 +157,7 @@ function visibleUps(D, rows, f) {
   const q = String(f.q || "").trim().toLowerCase();
   const base = sideMids(D, rows, f.side).filter((m) => {
     const u = rows.get(m);
-    return (!q || `${u.name}\n${u.sign}\n${u.zone}`.toLowerCase().includes(q)) && (!f.source || u.gone?.source === f.source);
+    return (!q || `${u.name}\n${u.sign}\n${u.zone}`.toLowerCase().includes(q)) && (!f.kind || outKind(u) === f.kind) && (!f.source || u.gone?.source === f.source);
   });
   const pass = (m, skip = "") => {
     const u = rows.get(m);
@@ -163,7 +172,7 @@ function visibleUps(D, rows, f) {
     if (pass(m, "tags")) for (const id of u.tagIds) counts.tags[id] = (counts.tags[id] || 0) + 1;
   }
   let list = base.filter((m) => pass(m));
-  if (f.side !== "gone") {
+  if (f.side !== "out") {
     const cmp = sortCmp(f.sort, f.dir);
     list = [...list].sort((a, b) => cmp(rows.get(a), rows.get(b)));
   }
@@ -191,7 +200,7 @@ function mergeFeed(items, page) {
 // Whether a feed video belongs to the picked left-column item.
 function feedMatch(it, D, side) {
   if (side === "all") return true;
-  if (side === "gone") return false;
+  if (side === "out") return false;
   if (groupId(side) != null) return inGroup(it.mid, D, side);
   return true;
 }
@@ -290,7 +299,7 @@ const viewRecord = (F) => ({ mode: F.mode, tab: F.tab, sort: F.sort, dir: F.dir,
 // O / Enter on an UP card: its newest video that can play here (one with a bvid), or "".
 const latestBvid = (u) => u?.titles.find((v) => v.bvid)?.bvid || "";
 // Why ✦ AI 打标签 cannot run here (it tags UP 主 that are followed), or "".
-const aiBlocked = (tab, side) => (tab === "feed" ? "AI 打标签只用于 UP 主，请在「UP 主」页签使用" : side === "gone" ? "已取消关注的 UP 主不打标签，重新关注后再打" : "");
+const aiBlocked = (tab, side) => (tab === "feed" ? "AI 打标签只用于 UP 主，请在「UP 主」页签使用" : side === "out" ? "已出分拣范围的 UP 主不打标签" : "");
 // The AI dialog's 「允许 AI 去掉已有标签」, stored with the rest of follow_ai_settings.
 const withAllowRemove = (settings, on) => normAi({ ...settings, allowRemove: on });
 // The 收藏夹 player's UP ({ mid, name }) among 关注's rows: by mid; items saved before mids were stored match by name
@@ -332,6 +341,7 @@ const F = {
   tab: "ups",
   side: "all",
   status: "",
+  kind: "", // 已出分拣范围's tab: "" (全部) | "gone" | "closed" | "cleared"
   source: "", // 已取消关注: "" | "bili" (在 B站取关) | "app" (在这里取关)
   hold: null, // follow_hold: the background's queue pause { until, why }, shown at the 视频投稿 foot while a page waits
   q: "", // UP 主's search; 视频投稿 keeps its own (fq)
@@ -501,8 +511,8 @@ function setTab(tab) {
 function render() {
   if (F.mode !== "follow") return renderViewerUp();
   // Say what the box searches, as 收藏夹: where (the sidebar item or row 4's tags) · what (更新状态 or the tab).
-  const where = F.side === "gone" ? "已取消关注" : [F.side !== "all" && sideLabel(F.side), ...[...F.tags].map((id) => tagOf(id)?.name)].filter(Boolean).join("、") || "关注";
-  const what = F.tab === "feed" ? "视频投稿" : F.side !== "gone" && F.status ? STATUS_TEXT[F.status] : "UP 主";
+  const where = F.side === "out" ? "已出分拣范围" : [F.side !== "all" && sideLabel(F.side), ...[...F.tags].map((id) => tagOf(id)?.name)].filter(Boolean).join("、") || "关注";
+  const what = F.tab === "feed" ? "视频投稿" : F.side === "out" ? Object.fromEntries([["", "全部"], ...OUT_KINDS])[F.kind] : F.status ? STATUS_TEXT[F.status] : "UP 主";
   UI.setSearchScope(E.q, `在「${where}」 · ${what}里搜`);
   renderSide();
   renderHead();
@@ -512,20 +522,17 @@ function render() {
   renderViewerUp();
 }
 
-// The sidebar is scope only: 全部 · B站's 关注分组 (默认分组, ★ 特别关注, your own) · 已取消关注 (tags are rows 3 and 4).
-const sideLabel = (id) => (id === "all" ? "全部" : id === "gone" ? "已取消关注" : groupName(groupId(id), D));
-function sideCount(id) {
-  if (id === "gone") return Object.keys(D.gone).length;
-  const list = following().filter((m) => rows.has(m));
-  return id === "all" ? list.length : list.filter((m) => inGroup(m, D, id)).length;
-}
+// The sidebar is scope only: 全部 · B站's 关注分组 (默认分组, ★ 特别关注, your own) · 已出分拣范围 (tags are rows 3 and 4).
+const sideLabel = (id) => (id === "all" ? "全部" : id === "out" ? "已出分拣范围" : groupName(groupId(id), D));
+const sideCount = (id) => sideMids(D, rows, id).length;
+const OUT_TIP = "不在关注分拣里、但 MoonDigest 还留着信息的 UP 主：取消关注的、已注销的、投稿已清空的";
 const STAR = '<span class="star-mark" aria-hidden="true">★</span>';
 function renderSide() {
   const item = (id) => UI.sideItem({ attrs: `data-side="${esc(id)}"`, label: sideLabel(id), count: sideCount(id), on: F.side === id, pre: id === `g:${SPECIAL}` ? STAR : "" });
   const ids = sideIds(D);
   side.innerHTML = `<div class="side-head">关注分组</div><div class="folder-list">${ids.slice(0, -1).map(item).join("")}</div>
     <button type="button" class="quiet side-manage" data-fw="groups" title="新建、改名或删除 B站 的关注分组">分组管理</button>
-    <hr>${item("gone")}${UI.sideFoot({ settingsAttrs: 'data-fw="settings" aria-label="关注设置"', settingsLabel: "关注设置" })}`;
+    ${sideCount("out") || F.side === "out" ? `<hr>${item("out").replace("<button ", `<button title="${OUT_TIP}" `)}` : ""}${UI.sideFoot({ settingsAttrs: 'data-fw="settings" aria-label="关注设置"', settingsLabel: "关注设置" })}`;
   sideSlot.innerHTML = sideSelect();
 }
 
@@ -567,7 +574,7 @@ function renderSyncChanges() {
   });
 }
 
-// 标签管理 and ✦ AI 打标签 with its state, as in 收藏夹. AI 打标签 works on followed UP 主: in 视频投稿 and 已取消关注 it is
+// 标签管理 and ✦ AI 打标签 with its state, as in 收藏夹. AI 打标签 works on followed UP 主: in 视频投稿 and 已出分拣范围 it is
 // disabled and says why (a run or a proposal stays reachable).
 const aiReason = () => (aiRunning() || AI.proposal ? "" : aiBlocked(F.tab, F.side));
 function renderAiButton() {
@@ -593,9 +600,13 @@ function renderHead() {
   const at = D.list?.at || 0;
   const j = D.jobs || {};
   const err = j.running ? "" : j.throttled ? "上次刷新被 B站限流暂停了，再点刷新接着查" : j.error ? `上次刷新出错：${j.error}` : "";
-  E.title.innerHTML = F.side === "gone" ? UI.titleHtml("已取消关注", sideCount("gone")) : UI.titleHtml("关注", D.list ? following().length : null);
+  const out = F.side === "out";
+  E.title.innerHTML = out ? UI.titleHtml("已出分拣范围", sideCount("out")) : UI.titleHtml("关注", D.list ? sideCount("all") : null);
   renderLogin();
-  E.meta.innerHTML = UI.headMeta([D.list ? UI.syncedText(at * 1000) : "还没有关注数据"], err);
+  E.meta.innerHTML = out
+    ? UI.headMeta(["不在关注分拣里了，标签都还留着，清理前可先从「导出」菜单备份"])
+    : UI.headMeta([D.list ? UI.syncedText(at * 1000) : "还没有关注数据"], err);
+  main.querySelector('[data-fw="bili"]').hidden = out;
   // 导出 → UP 主表格: nothing to put in it before the first refresh.
   const csv = $("fwExport").querySelector('[data-fw="csv"]');
   csv.querySelector("small").textContent = D.list ? "名字、标签、更新状态、最后投稿、粉丝数" : "还没有关注数据，先刷新";
@@ -607,7 +618,16 @@ function renderHead() {
 function renderTabs() {
   const tab = (key, label, n) =>
     `<button type="button" role="tab" data-fwtab="${key}" aria-selected="${F.tab === key}">${label}${n == null ? "" : `<span class="count">${n}</span>`}</button>`;
-  E.tabs.innerHTML = tab("ups", "UP 主", following().length) + tab("feed", "视频投稿");
+  // 已出分拣范围 has no 视频投稿; its tabs are why the UP 主 left (outKind), 全部 first.
+  if (F.side === "out") {
+    const all = sideMids(D, rows, "out");
+    E.tabs.innerHTML = [["", "全部"], ...OUT_KINDS].map(([k, label]) => {
+      const n = k ? all.filter((m) => outKind(rows.get(m)) === k).length : all.length;
+      return `<button type="button" role="tab" class="${n ? "step" : "step zero"}" data-fwkind="${k}" aria-selected="${F.kind === k}">${label}<span class="count">${n}</span></button>`;
+    }).join("");
+    return;
+  }
+  E.tabs.innerHTML = tab("ups", "UP 主", sideCount("all")) + tab("feed", "视频投稿");
 }
 
 // The left column as a select with the same counts, for widths without the sidebar (in the top bar, see sideSlot).
@@ -640,40 +660,54 @@ const tagRowHtml = (counts) =>
     })
     .join("");
 // Anything in rows 3 and 4 narrowing the list (for 「N 个结果」); the sidebar is scope, as 收藏夹's folder.
-const filtersOn = () => (F.side === "gone" ? Boolean(F.source) : Boolean(F.tagState || F.tags.size || (F.tab === "ups" && (F.status || F.recentFilter))));
+const filtersOn = () => (F.side === "out" ? Boolean(F.source || F.tagState || F.tags.size) : Boolean(F.tagState || F.tags.size || (F.tab === "ups" && (F.status || F.recentFilter))));
 
 // ----- UP 主 -----
 function renderUps() {
   const recentAll = new Set((D.recent?.mids || []).filter((m) => rows.has(m) && !rows.get(m).gone));
-  const gone = F.side === "gone";
-  const { list, counts } = visibleUps(D, rows, gone ? { side: F.side, q: F.q, source: F.source } : { side: F.side, status: F.status, q: F.q, sort: F.sort, dir: F.dir, recent: F.recentFilter ? recentAll : null, recentAll, tagState: F.tagState, tags: F.tags });
+  const out = F.side === "out";
+  const { list, counts } = visibleUps(D, rows, out ? { side: F.side, q: F.q, kind: F.kind, source: F.source, tagState: F.tagState, tags: F.tags } : { side: F.side, status: F.status, q: F.q, sort: F.sort, dir: F.dir, recent: F.recentFilter ? recentAll : null, recentAll, tagState: F.tagState, tags: F.tags });
   shown = list;
-  // As 收藏夹: switching to 已取消关注 (or back) keeps the selection; the ones not listed count as 被筛选隐藏.
+  // As 收藏夹: switching the sidebar keeps the selection; the ones not listed count as 被筛选隐藏.
   for (const m of [...F.sel]) if (!rows.has(m)) F.sel.delete(m);
   const goneN = (src) => Object.values(D.gone).filter((g) => !src || g.source === src).length;
-  const seg = gone
-    ? UI.stateGroup("在哪取消关注", [["", "全部"], ["bili", "在 B站取消关注"], ["app", "在分拣台取消关注"]].map(([id, label]) => UI.filterBtn(`data-source="${id}"`, label, goneN(id), F.source === id)).join(""))
+  // 已出分拣范围's row 3: 全部 | 在哪取消关注 (on 全部 and 已取消关注) | 未打标签 已打标签.
+  const seg = out
+    ? [UI.stateGroup("全部", UI.filterBtn("data-fw-all", "全部", counts[""], !F.source && !F.tagState)),
+      (F.kind === "" || F.kind === "gone") && UI.stateGroup("在哪取消关注", [["bili", "在 B站取消关注"], ["app", "在分拣台取消关注"]].map(([id, label]) => UI.filterBtn(`data-source="${id}"`, label, goneN(id), F.source === id)).join("")),
+      tagStateGroup(counts)].filter(Boolean).join("")
     : stateRowUps(counts);
-  // 全选 heads the right-hand buttons, as in 收藏夹: it acts on the UP 主 listed now.
-  const shows = Boolean(D.list || gone);
+  // 全选 heads the right-hand buttons, as in 收藏夹: it acts on the UP 主 listed now. 已出分拣范围 adds 清理, as 收藏夹's.
+  const shows = Boolean(D.list || out);
   E.bar.innerHTML = shows ? UI.labeledRow("状态", seg) : "";
-  E.barR.innerHTML = shows ? UI.selectAllBox('data-fw="select-all"', list.length, list.filter((m) => F.sel.has(m)).length) + runSlot() : "";
-  E.tagRow.innerHTML = gone ? "" : UI.labeledRow("标签", tagRowHtml(counts.tags));
-  E.tools.hidden = !D.list && !gone;
+  E.barR.innerHTML = shows ? UI.selectAllBox('data-fw="select-all"', list.length, list.filter((m) => F.sel.has(m)).length) + (out ? cleanBtn(list) : "") + runSlot() : "";
+  E.tagRow.innerHTML = UI.labeledRow("标签", tagRowHtml(counts.tags));
+  E.tools.hidden = !D.list && !out;
   renderAiButton();
-  E.sort.hidden = gone || !D.list;
+  E.sort.hidden = out || !D.list;
   E.sort.innerHTML = UI.sortControl({ sorts: SORTS, sort: F.sort, dir: F.dir, words: dirLabel(F.sort, F.dir), selectAttr: 'data-fw="sort"', dirAttr: 'data-fw="dir"' });
   E.qCount.textContent = UI.resultCount(F.q.trim() || filtersOn(), list.length);
   const hint = hintHtml(counts);
   const scroll = E.list.scrollTop;
   let body;
-  if (!D.list && F.side !== "gone") body = emptyHtml();
-  else if (!list.length) body = `<p class="empty">${F.side === "gone" && !Object.keys(D.gone).length ? "还没取消关注过谁" : UI.noMatch(F.q, true, "UP 主")}</p>`;
+  if (!D.list && !out) body = emptyHtml();
+  else if (!list.length) body = `<p class="empty">${out && !sideCount("out") ? "没有已出分拣范围的 UP 主" : UI.noMatch(F.q, true, "UP 主")}</p>`;
   else body = list.map(upCard).join("");
   E.list.className = "fw-list";
   E.list.innerHTML = hint + body;
   E.list.scrollTop = scroll;
   renderSel();
+}
+
+// 清理 deletes 已取消关注 records (the followed ones are unfollowed first): the selected listed ones, else every one listed.
+const cleanable = (mids) => mids.filter((m) => rows.get(m)?.gone);
+function cleanBtn(list) {
+  const sel = list.filter((m) => F.sel.has(m));
+  const mids = sel.length ? sel : list;
+  const n = cleanable(mids).length;
+  const label = sel.length ? `清理选中的 ${n} 个` : `清理这 ${n} 个`;
+  const why = W.busy() ? "上一批还没做完" : !list.length ? "这里没有列出 UP 主" : !n ? "还关注着的先取消关注，才能清理" : "";
+  return `<button type="button" class="danger" data-fw="clean" aria-label="${esc(label)}"${UI.reasonAttrs(why)}>${esc(label)}</button>`;
 }
 
 function emptyHtml() {
@@ -684,7 +718,7 @@ function emptyHtml() {
 
 // Why some 更新状态 are missing, with the job's live state or the button that fills them in.
 function hintHtml(counts) {
-  if (!D.list || F.side === "gone") return "";
+  if (!D.list || F.side === "out") return "";
   const parts = [];
   if (D.list.complete === false && !D.jobs?.running) parts.push(`<p class="fw-hint warn">这次关注列表没读全，没有把任何人记成已取消关注。下次刷新会再读。</p>`);
   const open = (counts.unchecked || 0) + (counts.stale || 0);
@@ -706,13 +740,18 @@ function upCard(mid) {
   const sel = F.sel.has(mid);
   // Times are relative, the date on hover (UI.agoHtml); the rest is text.
   const meta = [
-    u.closed && esc("账号已注销"),
     esc(u.zone),
     u.last ? `最后投稿 ${UI.agoHtml(u.last, now)}` : u.status === "stale" && !u.gone ? esc(`${cfg.slowDays} 天以上没投稿`) : "",
     u.count && `${u.count} 个视频`,
     u.fans != null ? `粉丝 ${esc(fmtCount(u.fans))}` : F.sort === "fans" && !u.gone ? "粉丝数未查" : "",
-    u.gone ? `取消关注于 ${UI.agoHtml(u.gone.at || now, now)}（${u.gone.source === "bili" ? "在 B站" : "在分拣台"}）` : u.followed && `关注于 ${UI.agoHtml(u.followed, now)}`
+    !u.gone && u.followed && `关注于 ${UI.agoHtml(u.followed, now)}`
   ].filter(Boolean);
+  // As 收藏夹's 已出分拣范围 cards: why it left, on its own line.
+  const kind = outKind(u);
+  const left = kind === "gone" ? `${esc(UI.dayText((u.gone.at || now) * 1000))} ${u.gone.source === "bili" ? "在 B站取消关注" : "在分拣台取消关注"}`
+    : kind === "closed" ? "账号已注销"
+    : kind === "cleared" ? `投稿已清空：一个视频都看不到了，以前的视频播放过 ${esc(fmtCount(D.content[mid].views))} 次`
+    : "";
   const chips = u.tagIds.map(tagOf).map((t) => u.gone
     ? `<span class="chip" style="--c:${esc(t.color)}">${esc(t.name)}</span>`
     : UI.cardTagChip(t, "点一下去掉这个标签")).join("");
@@ -720,13 +759,16 @@ function upCard(mid) {
     ? `<ul class="fw-titles">${u.titles.map((v) => `<li>${v.bvid ? `<a class="fw-title" href="${esc(video(v.bvid))}" data-play="${esc(v.bvid)}" title="在右侧播放">${esc(v.t)}</a>` : `<span class="fw-title">${esc(v.t)}</span>`}<span class="meta">${UI.agoHtml(v.c, now)}</span></li>`).join("")}</ul>`
     : "";
   const right = u.gone
-    ? `<button type="button" data-refollow="${esc(mid)}" aria-label="重新关注 ${esc(u.name)}">重新关注</button>`
+    ? `<button type="button" data-refollow="${esc(mid)}" aria-label="重新关注 ${esc(u.name)}">重新关注</button><button type="button" class="danger" data-clean="${esc(mid)}" aria-label="清理 ${esc(u.name)}">清理</button>`
+    : kind
+    ? `<button type="button" class="danger" data-unfollow="${esc(mid)}" aria-label="取消关注 ${esc(u.name)}">取消关注</button>`
     : `<button type="button" class="star${u.special ? " on" : ""}" data-star="${esc(mid)}" aria-pressed="${u.special}" title="${u.special ? "取消特别关注" : "设为特别关注"}（改 B站）" aria-label="${u.special ? "取消特别关注" : "设为特别关注"} ${esc(u.name)}">${u.special ? "★" : "☆"}</button>`;
   const playing = F.viewing && (F.viewing === upView(mid) || u.titles.some((v) => v.bvid === F.viewing));
   return `<article class="card fw-up${sel ? " selected" : ""}${playing ? " playing" : ""}${F.cur === mid ? " focused" : ""}" data-mid="${esc(mid)}" aria-label="${esc(u.name)}">
     <a class="fw-avatar" href="${space(mid)}" target="_blank" rel="noopener" tabindex="-1" aria-hidden="true">${u.face ? `<img src="${esc(img(u.face, "96w_96h_1c"))}" alt="" loading="lazy" referrerpolicy="no-referrer">` : ""}</a>
     <div class="card-body">
       <div class="fw-name-row"><a class="fw-name" href="${space(mid)}" data-space="${esc(mid)}" target="_blank" rel="noopener" title="在右侧打开空间">${esc(u.name)}</a>${u.gone ? "" : checking() === mid ? '<span class="badge running" aria-busy="true">查投稿中…</span>' : `<span class="badge ${STATUS_BADGE[u.status]}">${STATUS_TEXT[u.status]}</span>`}${u.ov ? `<span class="meta fw-ov" title="${esc(u.ov)}">${esc(u.ov)}</span>` : ""}</div>
+      ${left ? `<div class="left-row">${left}</div>` : ""}
       ${meta.length ? `<div class="meta">${meta.join(" · ")}</div>` : ""}
       ${u.sign ? `<div class="fw-sign" title="${esc(u.sign)}">${esc(u.sign)}</div>` : ""}
       ${titles}
@@ -750,8 +792,10 @@ function renderSel() {
   // As 收藏夹's selection bar: the buttons that act on B站 say how many, label and aria-label alike.
   const btn = (act, label, reason, cls = "", pre = "") => `<button type="button"${cls ? ` class="${cls}"` : ""} data-fw="${act}" aria-label="${esc(label)}"${UI.reasonAttrs(reason)}>${pre}${esc(label)}</button>`;
   // 移到分组… leaves the sidebar's group, so 全部 has none to leave.
-  const acts = F.side === "gone"
-    ? btn("refollow", `重新关注选中的 ${n} 个`, busy || none)
+  // 已出分拣范围: 重新关注 the unfollowed, 取消关注 the ones still followed (清理 is in row 3, as 收藏夹's).
+  const gone = selShown().filter((m) => rows.get(m).gone).length;
+  const acts = F.side === "out"
+    ? btn("refollow", `重新关注选中的 ${gone} 个`, busy || none || (!gone && "选中的都还关注着")) + btn("unfollow", `取消关注选中的 ${n - gone} 个`, busy || none || (n === gone && "选中的都已取消关注"), "danger")
     : btn("pick-sel", "标签…", busy || none) +
       btn("ai", "AI 打标签", none, "", AI_SPARK) +
       btn("move-sel", "移到分组…", busy || none || (groupId(F.side) == null && "先在左边选一个分组：全部里不知道从哪个分组移走")) +
@@ -846,7 +890,7 @@ function renderFoot(n = feedList(F.feed.items, D, feedF(), null).length) {
   if (!foot) return;
   const f = F.feed;
   const oldest = f.items.length ? Math.min(...f.items.map((it) => it.at)) : 0;
-  const where = F.side === "gone" ? "已取消关注的人不在视频投稿里。" : "";
+  const where = F.side === "out" ? "已出分拣范围的 UP 主不在视频投稿里。" : "";
   const reach = oldest ? `已加载到 ${fmtDate(oldest)}（${fmtAgo(oldest, nowSec())}），共 ${f.items.length} 个视频。` : "";
   // Stuck, as the sync's amber pill with the red ⚠ and the countdown: B站限流 (then more() tries again by itself), or the
   // background holding its queue (risk control, a dropped connection) while this page waits for a page.
@@ -995,9 +1039,23 @@ async function relationRun(calls, label, { quiet = false, skipped = [] } = {}) {
 async function unfollow(mids) {
   if (!mids.length) return;
   // Always asked, even for one: following again later does not bring back the follow date, ★ 特别关注 or 关注分组.
-  const ok = await askConfirm(`在 B站取消关注 ${mids.length} 个 UP 主？`, `${names(mids)}<p class="dialog-hint">标签会保留，可以在「已取消关注」里重新关注。重新关注后，特别关注和所在的关注分组不会恢复，关注日期变成重新关注的那天。</p>`, `取消关注 ${mids.length} 个`, { danger: true });
+  const ok = await askConfirm(`在 B站取消关注 ${mids.length} 个 UP 主？`, `${names(mids)}<p class="dialog-hint">标签会保留，可以在「已出分拣范围 › 已取消关注」里重新关注。重新关注后，特别关注和所在的关注分组不会恢复，关注日期变成重新关注的那天。</p>`, `取消关注 ${mids.length} 个`, { danger: true });
   if (ok) await relationRun(perUp(mids, (mid) => ({ type: "follow-relation", mid, act: 2 })), "取消关注");
 }
+// 清理, as 收藏夹's: deletes 已取消关注 records with the tags they keep, asked first, no U.
+async function clean(mids) {
+  if (!mids.length) return;
+  const one = mids.length === 1;
+  const ok = await askConfirm(one ? `清理「${nameOf(mids[0])}」？` : `清理这 ${mids.length} 个 UP 主？`, `${one ? "" : names(mids)}<p>删除${one ? "它" : "它们"}的取消关注记录和标签，无法撤销。删除后不能再从这里重新关注。<br>要留存请先从「导出」菜单备份。</p>`, `清理 ${mids.length} 个`, { danger: true });
+  if (!ok) return;
+  const r = await send({ type: "follow-forget", mids });
+  if (!r.ok) return toast(`清理失败：${r.error}`, true);
+  for (const m of mids) F.sel.delete(m);
+  await load();
+  render();
+  toast(`已清理 ${mids.length} 个 UP 主`);
+}
+
 // U on a B站 write: done = the UP 主 it went through for, back() = the requests that reverse it, built when U is pressed.
 // Undoing 2+ asks first (ask). A reversal that fails says why itself (relationRun's toast), so the step then returns "".
 // groups marks the 关注分组 steps, dropped when a group is deleted. undone: the toast after it, when 「已撤销：label…」 reads badly.
@@ -1404,7 +1462,7 @@ function setAiProposal(p) {
 
 function aiScopeMids(scope) {
   const live = new Set(following());
-  return (scope === "selected" ? selShown() : F.side === "gone" ? [] : [...shown]).filter((m) => live.has(m));
+  return (scope === "selected" ? selShown() : F.side === "out" ? [] : [...shown]).filter((m) => live.has(m));
 }
 async function openAi() {
   if (!aiRunning()) {
@@ -1536,6 +1594,9 @@ side.addEventListener("click", (e) => {
 sideSlot.addEventListener("change", (e) => e.target.dataset.fw === "side" && pickSide(e.target.value));
 function pickSide(id) {
   if (id === F.side) return;
+  // 已出分拣范围 has only UP 主 (its tabs are why they left), and starts at 全部 with nothing narrowing it.
+  if (id === "out" || F.side === "out") F.kind = F.source = "";
+  if (id === "out") F.tab = "ups";
   F.side = id;
   if (F.feed) F.feed.dry = 0;
   saveView();
@@ -1547,6 +1608,14 @@ main.addEventListener("click", async (e) => {
   const t = e.target;
   const tab = t.closest("[data-fwtab]");
   if (tab) return setTab(tab.dataset.fwtab);
+  // As 收藏夹's kind tabs: a selection belongs to its tab.
+  const kt = t.closest("[data-fwkind]");
+  if (kt) {
+    if (kt.dataset.fwkind !== F.kind) F.sel.clear();
+    F.kind = kt.dataset.fwkind;
+    if (F.kind !== "" && F.kind !== "gone") F.source = "";
+    return render();
+  }
   const s = t.closest("[data-side]");
   if (s) return pickSide(s.dataset.side);
   // Row 3: one pick per group, a second click clears it; 全部 clears the row (not row 4's tags). Row 4: AND.
@@ -1556,7 +1625,7 @@ main.addEventListener("click", async (e) => {
     return render();
   }
   if (t.closest("[data-fw-all]")) {
-    F.status = F.tagState = "";
+    F.status = F.tagState = F.source = "";
     F.recentFilter = false;
     return render();
   }
@@ -1573,7 +1642,7 @@ main.addEventListener("click", async (e) => {
   }
   const src = t.closest("[data-source]");
   if (src) {
-    F.source = src.dataset.source;
+    F.source = F.source === src.dataset.source ? "" : src.dataset.source;
     return render();
   }
   // The UP cards pick as 收藏夹's do (UI.cardPickClick): a click anywhere but the video titles and controls.
@@ -1616,6 +1685,10 @@ main.addEventListener("click", async (e) => {
   }
   const star = t.closest("[data-star]");
   if (star) return W.busy() ? toast("上一批还没做完") : starOne(star.dataset.star);
+  const cl = t.closest("[data-clean]");
+  if (cl) return W.busy() ? toast("上一批还没做完") : clean([cl.dataset.clean]);
+  const uf = t.closest("[data-unfollow]");
+  if (uf) return W.busy() ? toast("上一批还没做完") : unfollow([uf.dataset.unfollow]);
   const re = t.closest("[data-refollow]");
   if (re) return W.busy() ? toast("上一批还没做完") : refollow([re.dataset.refollow]);
   const act = t.closest("[data-fw]")?.dataset.fw;
@@ -1653,8 +1726,12 @@ main.addEventListener("click", async (e) => {
     render();
   } else if (W.busy()) toast("上一批还没做完");
   else if (act === "pick-sel") openPick(selShown());
-  else if (act === "unfollow") unfollow(selShown());
-  else if (act === "refollow") refollow(selShown());
+  else if (act === "unfollow") unfollow(selShown().filter((m) => !rows.get(m).gone));
+  else if (act === "refollow") refollow(selShown().filter((m) => rows.get(m).gone));
+  else if (act === "clean") {
+    const sel = shown.filter((m) => F.sel.has(m));
+    clean(cleanable(sel.length ? sel : shown));
+  }
   else if (act === "move-sel" || act === "copy-sel") moveOrCopy(selShown(), act === "move-sel" ? "move" : "copy");
 });
 // The selection bar sits outside the list; its buttons share the handler above through #followMain.
@@ -1746,7 +1823,7 @@ cfg.deadDays = Number(days.followDeadDays) || 365;
 if (view?.tab === "feed") F.tab = "feed";
 if (SORTS[view?.sort]) F.sort = view.sort;
 if (view?.dir === "asc" || view?.dir === "desc") F.dir = view.dir;
-if (typeof view?.side === "string") F.side = view.side === "special" ? `g:${SPECIAL}` : view.side; // checked against the data on load (derive)
+if (typeof view?.side === "string") F.side = view.side === "special" ? `g:${SPECIAL}` : view.side === "gone" ? "out" : view.side; // checked against the data on load (derive)
 // Deep link from the UP tag picker on B站 pages: #follow opens 关注, &tag=<id> picks that tag (unknown id → 全部),
 // &up=<mid> clears the filters and makes that UP's card current (unknown mid → just the list).
 // A hash wins over the remembered mode; an open tab only gets its hash changed. Handled once, the hash goes: the same
@@ -1761,8 +1838,8 @@ async function followHash() {
   if (F.mode !== "follow") await setMode("follow");
   if (up) {
     F.tab = "ups";
-    F.side = D.gone[up] ? "gone" : "all";
-    F.status = F.tagState = F.source = F.q = "";
+    F.side = rows.has(up) && outKind(rows.get(up)) ? "out" : "all";
+    F.status = F.tagState = F.source = F.kind = F.q = "";
     E.q.value = "";
     F.recentFilter = false;
     F.tags = new Set();

@@ -178,6 +178,28 @@ const runSync = async () => {
     assert.deepStrictEqual(calls.filter((c) => c.startsWith("space")), ["space/wbi/arc/search#1", "space/wbi/arc/search#6"]);
   }
 
+  // ---------- no videos: upstat's 视频播放量 says 投稿已清空 (views > 0) or 没投过稿; not read is asked again ----------
+  {
+    local = { follow_list: { list: ["1", "2", "3"], followTime: { 1: 1, 2: 2, 3: 3 } } };
+    calls = [];
+    routes = {
+      "/x/web-interface/nav": nav,
+      "/x/relation/stat": () => json({ code: 0, data: { follower: 1 } }),
+      "/x/relation/followings": followings([[person(1), person(2), person(3)]], 3),
+      "/x/relation/tags": () => json({ code: 0, data: [] }),
+      "/x/polymer/web-dynamic/v1/feed/all": feed([[]]),
+      "/x/space/wbi/arc/search": () => arcOk(0),
+      "/x/space/upstat": (u) => (u.searchParams.get("mid") === "3" ? json({ code: 500, message: "x" }) : json({ code: 0, data: { archive: { view: u.searchParams.get("mid") === "1" ? 4200 : 0 }, likes: 9 } }))
+    };
+    await runSync();
+    assert.ok(!local.follow_jobs.error, local.follow_jobs.error);
+    assert.deepStrictEqual([local.follow_content[1].views, local.follow_content[2].views, "views" in local.follow_content[3]], [4200, 0, false]);
+    calls = [];
+    local.follow_last.at = now();
+    await runSync();
+    assert.deepStrictEqual(calls.filter((c) => c.startsWith("space")), ["space/wbi/arc/search#3", "space/upstat#3"], "only the one without views is asked again");
+  }
+
   // ---------- a feed walk cut off midway keeps the last complete one; continue finishes it ----------
   {
     const prev = { at: now() - 7 * 3600, since: now() - 40 * 86400, map: { 1: now() - 99, 4: now() - 99 }, v: {} };
@@ -482,6 +504,12 @@ const runSync = async () => {
     assert.strictEqual(posts.length, 1);
     postReply = null;
     local = JSON.parse(kept);
+
+    // 清理: the 已取消关注 records go, nothing is sent to B站.
+    local.follow_unfollowed = { 7: { at: 1, tagIds: ["a"], source: "app" }, 8: { at: 2, tagIds: [], source: "bili" } };
+    const sentBefore = posts.length;
+    await t.followForget({ mids: ["7", 9] });
+    assert.deepStrictEqual([Object.keys(local.follow_unfollowed), posts.length], [["8"], sentBefore]);
 
     // 新建 / 改名 / 删除.
     postReply = () => json({ code: 0, data: { tagid: 42 } });

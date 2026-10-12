@@ -9,6 +9,7 @@
 // - follow-group-move { mids, from, to }  关注分组：from 为空是复制到 to（copyUsers），否则从 from 移到 to（moveUsers）。
 //                             -10 是特别关注，0 是默认分组。成功后改好 follow_list.special / groups。
 //                             整批被拒时逐个再发，→ { skipped: [{ mid, error }] } 是 B站 不收的（如已注销）；全被拒才报错。
+// - follow-forget { mids }    清理：删掉这些人的已取消关注记录（连同记录里的标签），不改 B站。
 // - follow-group-create { name } → { id, name }；follow-group-rename { id, name }；follow-group-delete { id }
 //                             新建、改名、删除 B站 的关注分组，成功后改好 follow_groups（删除时成员的 groups 也去掉它）。
 // - follow-ai-tag { instruction, mids, tags?, maxNewTags?, allowRemove? }
@@ -19,6 +20,7 @@
 //   第一次同步每拉一页就先写进 follow_list（partial: true），界面不用等拉完。
 // 2 feed：视频动态往回翻过 followSlowDays 天 → follow_last（谁最近发过、最近 3 个标题），翻完才写，翻到一半的每页存进 follow_last_wip，界面边翻边读。6 小时内翻过就跳过。
 // 3 arc：动态里没出现的人逐个 arc/search（约 1 秒 1 个）→ follow_content；已有记录且不早于 follow_last.since 的跳过。
+//   一个视频都没有的再查 x/space/upstat 的视频播放量（views）：大于 0 是发过视频、现在全没了（投稿已清空）；查不到就不记 views，下次再查。
 //   follow_jobs.cur 是正在查的人。做完写 follow_jobs.statusAt：更新状态已齐，界面不用等第 4 步。
 // 4 stats：每个关注的人的粉丝数（x/relation/stat）→ follow_stats；7 天内查过的跳过。
 // 所有 GET 共用一个队列（间隔 1–1.5 秒），30 秒没回应算断网；风控（412、-352/-412/-799/-509）整队暂停 90 秒重试，第三次报 THROTTLED。
@@ -381,7 +383,7 @@ async function followSyncJob(ctx) {
   const since = s.follow_last?.since || 0;
   const have = s.follow_content || {};
   const targets = (s.follow_list?.list || []).filter((m) => !seen[m]);
-  const known = (m) => have[m] && (!have[m].code || FOLLOW_GONE_CODES.has(have[m].code)) && have[m].at >= since;
+  const known = (m) => have[m] && (FOLLOW_GONE_CODES.has(have[m].code) || (!have[m].code && (have[m].count || have[m].views != null))) && have[m].at >= since;
   let done = targets.filter(known).length;
   let skipped = 0;
   const step = "查投稿：视频投稿里没有的 UP 主";
@@ -401,6 +403,13 @@ async function followSyncJob(ctx) {
         continue;
       }
       rec = { code: e.code, count: 0, tlist: {}, v: [] };
+    }
+    if (!rec.code && !rec.count) {
+      const views = await get(() => followGetData(`${FOLLOW_API}/x/space/upstat?mid=${mid}`)).then((d) => Number(d?.archive?.view), (e) => {
+        if (typeof e.code === "string") throw e;
+        return NaN;
+      });
+      if (Number.isFinite(views)) rec.views = views;
     }
     await followUpdate(["follow_content"], (st) => ({ follow_content: { ...st.follow_content, [mid]: { ...rec, at: followNow() } } }));
     await ctx.progress({ done: ++done });
@@ -628,6 +637,16 @@ async function followGroupMove({ mids, from, to }) {
   return { skipped };
 }
 
+async function followForget({ mids }) {
+  const list = (Array.isArray(mids) ? mids : []).map(String);
+  await followUpdate(["follow_unfollowed"], (s) => {
+    const unf = { ...s.follow_unfollowed };
+    for (const m of list) delete unf[m];
+    return { follow_unfollowed: unf };
+  });
+  return {};
+}
+
 async function followGroupCreate({ name }) {
   name = followGroupName(name);
   const data = await triageBiliPost("/x/relation/tag/create", { tag: name });
@@ -733,6 +752,7 @@ const FOLLOW_HANDLERS = {
   "follow-sync-stop": async () => (await followStop(), {}),
   "follow-feed": (msg) => followFeed(msg),
   "follow-relation": (msg) => followRelation(msg),
+  "follow-forget": (msg) => followForget(msg),
   "follow-group-move": (msg) => followGroupMove(msg),
   "follow-group-create": (msg) => followGroupCreate(msg),
   "follow-group-rename": (msg) => followGroupRename(msg),
