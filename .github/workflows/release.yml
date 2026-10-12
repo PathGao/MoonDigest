@@ -18,6 +18,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       CWS_REFRESH_TOKEN: ${{ secrets.CWS_REFRESH_TOKEN }}
+      EDGE_API_KEY: ${{ secrets.EDGE_API_KEY }}
       TAG: ${{ inputs.tag || github.ref_name }}
     steps:
       - uses: actions/checkout@v7
@@ -32,6 +33,7 @@ jobs:
       - run: python3 scripts/build_release.py
 
       - name: GitHub Release
+        id: gh_release
         env:
           GH_TOKEN: ${{ github.token }}
         # A re-run for a tag that already has its release only does the store upload.
@@ -47,3 +49,37 @@ jobs:
           CLIENT_SECRET: ${{ secrets.CWS_CLIENT_SECRET }}
           REFRESH_TOKEN: ${{ env.CWS_REFRESH_TOKEN }}
         run: npx --yes chrome-webstore-upload-cli@4 --source release/moondigest-*-chrome.zip
+
+      # Runs even if the Chrome upload failed. Upload, then submit with certification notes.
+      - name: Edge Add-ons
+        if: ${{ !cancelled() && steps.gh_release.outcome == 'success' && env.EDGE_API_KEY != '' }}
+        env:
+          PRODUCT_ID: 6fc379b9-a130-466f-86c6-a52f5596bbd3
+          CLIENT_ID: ${{ secrets.EDGE_CLIENT_ID }}
+          NOTES: >-
+            Open a bilibili.com or youtube.com video page to read its subtitles. AI summaries in the side panel
+            use an API key the user adds in the options page. bilibili subtitles and the favorites and follow
+            organizers need a bilibili.com login.
+            Changes: https://github.com/PathGao/MoonDigest/releases/tag/${{ env.TAG }}
+        run: |
+          api="https://api.addons.microsoftedge.microsoft.com/v1/products/$PRODUCT_ID/submissions"
+          auth=(-H "Authorization: ApiKey $EDGE_API_KEY" -H "X-ClientID: $CLIENT_ID")
+          # POST, take the operation id from the Location header, poll until it leaves InProgress.
+          run_op() {
+            local code loc status
+            code=$(curl -sS -D headers -o body -w '%{http_code}' "${auth[@]}" "$@")
+            [ "$code" = 202 ] || { echo "HTTP $code"; cat body; return 1; }
+            loc=$(tr -d '\r' < headers | awk 'tolower($1)=="location:"{print $2}')
+            for _ in $(seq 60); do
+              sleep 5
+              body=$(curl -sS "${auth[@]}" "$poll/${loc##*/}")
+              status=$(jq -r .status <<<"$body")
+              [ "$status" = InProgress ] || break
+            done
+            echo "$body"
+            [ "$status" = Succeeded ]
+          }
+          poll="$api/draft/package/operations"
+          run_op -X POST -H "Content-Type: application/zip" --data-binary @"$(ls release/moondigest-*-chrome.zip)" "$api/draft/package"
+          poll="$api/operations"
+          run_op -X POST -H "Content-Type: application/json" -d "$(jq -n --arg notes "$NOTES" '{notes: $notes}')" "$api"
