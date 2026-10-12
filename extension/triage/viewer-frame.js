@@ -1,7 +1,8 @@
 // Marks the video page when it is the triage viewer's iframe, so viewer-frame.css trims it to the
-// player, the description and the comments. Pages opened any other way are left alone.
+// player, the description and the comments; an UP's space (关注's UP name) is marked "space" and fitted to the frame's
+// width. Pages opened any other way are left alone.
 if (window !== window.top && location.ancestorOrigins?.[0] === `chrome-extension://${chrome.runtime.id}`) {
-  document.documentElement.setAttribute("data-mdg-viewer", "");
+  document.documentElement.setAttribute("data-mdg-viewer", location.host === "space.bilibili.com" ? "space" : "");
   // While a video plays the keys go to this frame: T (tag the video, or its UP in 关注) and Esc go up to the 分拣台 page.
   const to = location.ancestorOrigins[0];
   addEventListener("keydown", (e) => {

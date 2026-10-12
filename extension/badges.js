@@ -215,7 +215,9 @@
     faceKey, whoIndex, resolveMid, pickRows, applyUpTag, saveUpTag, SURFACES, surfaceOf, fitCount, biliSaysSeen, lineParts
   };
   if (typeof chrome === "undefined" || !chrome.storage?.local || typeof document === "undefined") return;
-  if (document.documentElement.hasAttribute?.("data-mdg-viewer")) return;
+  // The 分拣台's player shows its own tag lines; an UP's space there keeps the marks the page has anywhere else.
+  const viewer = document.documentElement.getAttribute?.("data-mdg-viewer");
+  if (viewer != null && viewer !== "space") return;
   const surfaceNow = () => surfaceOf({ host: location.hostname, path: location.pathname, search: location.search });
   // Recomputed on in-page navigation (followNav).
   let surface = surfaceNow();

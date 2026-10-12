@@ -396,7 +396,7 @@
     labeledRow(label, `${pre}${chips}${plus ? tagPlusBtn(plus.attrs, plus.label, plus.key) : ""}`);
   // T / Esc forwarded by viewer-frame.js while focus is in the player: only from the viewer's own frame and B站's origin.
   function viewerKeyFrom(e, frameWin) {
-    const ok = frameWin && e.source === frameWin && e.origin === "https://www.bilibili.com" && e.data?.type === "mdg-viewer-key";
+    const ok = frameWin && e.source === frameWin && /^https:\/\/(www|space)\.bilibili\.com$/.test(e.origin) && e.data?.type === "mdg-viewer-key";
     return ok && ["t", "Escape"].includes(e.data.key) ? e.data.key : "";
   }
 

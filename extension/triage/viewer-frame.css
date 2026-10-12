@@ -29,3 +29,14 @@ html[data-mdg-viewer] #bilibili-player {
 html[data-mdg-viewer] body:not(.webscreen-fix) #bilibili-player {
   height: calc(100cqw * 9 / 16 + 46px) !important;
 }
+
+/* An UP's space is laid out for 1100px and up (fixed min-widths): without B站's top bar, the min-widths and the
+   个人资料 column, the rest fits the frame. Our UP tags (badges.js) keep their width. */
+html[data-mdg-viewer=space] .bili-header,
+html[data-mdg-viewer=space] .space-home > .aside {
+  display: none !important;
+}
+html[data-mdg-viewer=space] body,
+html[data-mdg-viewer=space] body *:not(.mdg-ups, .mdg-ups *) {
+  min-width: 0 !important;
+}
