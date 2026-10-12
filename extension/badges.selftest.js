@@ -694,7 +694,7 @@ async function surfacePages() {
     follow_list: { list: ["1"] }
   };
   const page = async (location, body, viewer, sync = {}) => {
-    const doc = Object.assign(h("html", {}, body), { getElementById: () => null, createElement: (t) => h(t), getAttribute: (k) => (viewer && k === "data-mdg-viewer" ? (viewer === true ? "" : viewer) : null) });
+    const doc = Object.assign(h("html", {}, body), { getElementById: () => null, createElement: (t) => h(t), hasAttribute: (k) => viewer && k === "data-mdg-viewer" });
     doc.documentElement = doc;
     const reads = [];
     const listen = [];
@@ -729,8 +729,6 @@ async function surfacePages() {
   // The 分拣台's player iframe: badges.js draws nothing and reads nothing.
   const viewer = await page({ hostname: "www.bilibili.com", pathname: "/video/BV1GJ411x7h7" }, h("body", {}, author()), true);
   assert.deepStrictEqual([viewer.reads.length, viewer.listen.length, viewer.doc.querySelectorAll(".mdg-ups").length], [0, 0, 0], "player iframe: no reads, no listeners, no marks");
-  const spaceView = await page({ hostname: "space.bilibili.com", pathname: "/2" }, h("body", {}), "space");
-  assert.ok(spaceView.reads.length > 0 && spaceView.listen.length > 0, "an UP's space in the player keeps its marks");
 
   // Home: a card's author gets its UP tags and 「+」; the same author in a header popover gets the tags, no 「+」.
   const inPop = author();

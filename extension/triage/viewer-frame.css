@@ -31,12 +31,12 @@ html[data-mdg-viewer] body:not(.webscreen-fix) #bilibili-player {
 }
 
 /* An UP's space is laid out for 1100px and up (fixed min-widths): without B站's top bar, the min-widths and the
-   个人资料 column, the rest fits the frame. Our UP tags (badges.js) keep their width. */
+   个人资料 column, the rest fits the frame. */
 html[data-mdg-viewer=space] .bili-header,
 html[data-mdg-viewer=space] .space-home > .aside {
   display: none !important;
 }
 html[data-mdg-viewer=space] body,
-html[data-mdg-viewer=space] body *:not(.mdg-ups, .mdg-ups *) {
+html[data-mdg-viewer=space] body * {
   min-width: 0 !important;
 }
