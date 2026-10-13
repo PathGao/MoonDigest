@@ -1157,13 +1157,20 @@ function deferRead(fn, full = false) {
 
 // The light refresh (back on the tab, the player closed, a video re-favorited): check the id list and apply only the
 // difference. 刷新 still loads the whole folder, which also catches videos that became invalid.
+// Coming back to the tab fires both focus and visibilitychange: while one check runs, the other returns.
+let quickChecking = null;
 async function quickSync({ force = false } = {}) {
-  if (!force && Date.now() - S.lastSyncAt < SYNC_MIN_GAP_MS) return;
+  if (!force && (Date.now() - S.lastSyncAt < SYNC_MIN_GAP_MS || quickChecking === S.folderToken)) return;
   const token = S.folderToken;
-  const snap = S.mediaId === TOVIEW ? null : await storeGet(K.snapshot(S.mediaId), null);
-  if (token !== S.folderToken) return;
-  if (!snap?.items || snap.intro === undefined) syncFolder({ force });
-  else checkCached(token, snap);
+  quickChecking = token;
+  try {
+    const snap = S.mediaId === TOVIEW ? null : await storeGet(K.snapshot(S.mediaId), null);
+    if (token !== S.folderToken) return;
+    if (!snap?.items || snap.intro === undefined) syncFolder({ force });
+    else await checkCached(token, snap);
+  } finally {
+    if (quickChecking === token) quickChecking = null;
+  }
 }
 
 // A chosen folder other than the open one with a proposal waiting.

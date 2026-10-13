@@ -1,4 +1,5 @@
 // node extension/sidepanel.selftest.js
+if (process.versions.bun) (console.error("This selftest needs Node: it fails or hangs under bun (see 自检 in README.md)."), process.exit(1));
 // The side panel page around its state (sidepanel-state.selftest.js tests the conversation rules themselves): the
 // loads, the send gates, Obsidian, timestamps, export, wording and untrusted text. State is set up through dispatch.
 const fs = require("fs");

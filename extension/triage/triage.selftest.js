@@ -1,4 +1,5 @@
 // node extension/triage/triage.selftest.js
+if (process.versions.bun) (console.error("This selftest needs Node: it fails or hangs under bun (see 自检 in README.md)."), process.exit(1));
 const fs = require("fs");
 const path = require("path");
 const vm = require("vm");
@@ -590,12 +591,23 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "triage-zip-"));
     const zip = path.join(dir, "干货.zip");
     fs.writeFileSync(zip, t.zipStored(files));
+    // Info-ZIP's unzip checks the archive when it is on PATH (not on Windows by default); the hand read below always runs.
+    const unzip = (args) => execFileSync("unzip", args, { encoding: "utf8" });
+    let hasUnzip = true;
     try {
-      assert.match(execFileSync("/usr/bin/unzip", ["-t", zip], { encoding: "utf8" }), /No errors detected/);
-      execFileSync("/usr/bin/unzip", ["-q", zip, "-d", path.join(dir, "out")]);
-      assert.deepStrictEqual(fs.readdirSync(path.join(dir, "out")).sort(), plain(files.map((f) => f.name)).sort(), "extracts under the same names");
-      assert.strictEqual(fs.statSync(path.join(dir, "out", "干货.md")).mode & 0o777, 0o644, "extracted notes are readable");
-      for (const f of files) assert.strictEqual(execFileSync("/usr/bin/unzip", ["-p", zip, f.name], { encoding: "utf8" }), f.text, `unzip finds ${f.name} by its UTF-8 name`);
+      unzip(["-v"]);
+    } catch {
+      hasUnzip = false;
+      console.log("triage selftest: no unzip on PATH, the zip is only read by hand");
+    }
+    try {
+      if (hasUnzip) {
+        assert.match(unzip(["-t", zip]), /No errors detected/);
+        unzip(["-q", zip, "-d", path.join(dir, "out")]);
+        assert.deepStrictEqual(fs.readdirSync(path.join(dir, "out")).sort(), plain(files.map((f) => f.name)).sort(), "extracts under the same names");
+        assert.strictEqual(fs.statSync(path.join(dir, "out", "干货.md")).mode & 0o777, 0o644, "extracted notes are readable");
+        for (const f of files) assert.strictEqual(unzip(["-p", zip, f.name]), f.text, `unzip finds ${f.name} by its UTF-8 name`);
+      }
       // The central directory read back by hand: UTF-8 flag, stored, CRC and name per entry.
       const buf = fs.readFileSync(zip);
       const end = buf.length - 22;
@@ -1712,6 +1724,20 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
 
   // The 重新收藏 of the undo tests above marked A and B written a moment ago (markWritten); B站 has long caught up here.
   await settled();
+  // Back to the tab, focus and visibilitychange both call quickSync: B站 is asked for the ids once.
+  {
+    const was = { mediaId: t.S.mediaId, lastSyncAt: t.S.lastSyncAt, snap: store[t.K.snapshot("A")], ids: handlers["triage-folder-ids"] };
+    Object.assign(t.S, { mediaId: "A", lastSyncAt: 0 });
+    store[t.K.snapshot("A")] = { ids: ["BV1"], items: [item(1)], intro: "" };
+    handlers["triage-folder-ids"] = () => ({ ok: true, data: { bvids: ["BV1"] } });
+    const from = sent.length;
+    await Promise.all([t.quickSync(), t.quickSync()]);
+    assert.strictEqual(sent.slice(from).filter((m) => m.type === "triage-folder-ids").length, 1, "one id check");
+    Object.assign(t.S, { mediaId: was.mediaId, lastSyncAt: was.lastSyncAt });
+    if (was.snap) store[t.K.snapshot("A")] = was.snap;
+    else delete store[t.K.snapshot("A")];
+    handlers["triage-folder-ids"] = was.ids;
+  }
   // Cleaning a removed video deletes its AI results, note, tags, 保留, basket entry and 取消收藏 records, and nothing else.
   Object.assign(store, { triage_analysis_BV1: {}, triage_title_BV1: {}, triage_analysis_BV5: {} });
   Object.assign(store, { triage_decisions_A: { BV1: { action: "unfav" }, BV5: { action: "unfav" } }, triage_decisions_B: { BV1: { action: "unfav" } } });

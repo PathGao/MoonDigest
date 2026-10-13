@@ -1,4 +1,5 @@
 // /usr/local/bin/node extension/triage/follow-bg.selftest.js
+if (process.versions.bun) (console.error("This selftest needs Node: it fails or hangs under bun (see 自检 in README.md)."), process.exit(1));
 const fs = require("fs");
 const path = require("path");
 const vm = require("vm");

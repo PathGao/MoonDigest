@@ -1,4 +1,5 @@
 // /usr/local/bin/node extension/obsidian-sync.selftest.js
+if (process.versions.bun) (console.error("This selftest needs Node: it fails or hangs under bun (see 自检 in README.md)."), process.exit(1));
 // obsidian.js, the only writer to Obsidian, through its messages against a fake Local REST API that records every
 // GET/PUT. B站 is stubbed at triageBuildNote (its own tests are triage-bg.selftest.js).
 const fs = require("fs");
