@@ -10,7 +10,6 @@ const source = fs
   .replace(/^if \(!globalThis\.chrome\?\.runtime\?\.id\) await import.*$/m, "")
   .replace(/^init\(\);$/m, "");
 assert.ok(!/await import|^init\(\);$/m.test(source), "harness strips the page entry points");
-assert.ok(source.includes('el.stagebar.addEventListener("click", onHeadClick);') && !source.includes('el.listHeader.addEventListener("click", onHeadClick);'), "row 3 actions have one bubbling click handler");
 // 优先看, then 播放列表, was renamed 待播: no page text or README still says an old name ("YouTube 播放列表" in the README is YouTube's own).
 for (const f of ["triage.html", "triage.js", "triage-core.js", "follow.js", "shared.js", "../options.html", "../options.js", "../sidepanel.html", "../sidepanel.js", "../popup.html", "../popup.js", "../content.js", "../badges.js", "../../README.md"]) {
   const text = fs.readFileSync(path.join(__dirname, f), "utf8").replaceAll("YouTube 播放列表", "");
@@ -2773,6 +2772,19 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     vm.runInContext("bindEvents()", ctx);
     ctx.window.addEventListener = realWin;
     const fire = (n, type, e) => (L[n][type] || []).forEach((f) => f(e));
+
+    // 全选 sits in listHeader inside stagebar: one click bubbles through both and selects once, not on and off again.
+    {
+      openFake("A", [item(1), item(2)]);
+      const was = { tab: t.S.tab, query: t.S.query };
+      Object.assign(t.S, { tab: "read", query: "" });
+      t.S.selected.clear();
+      const e = { target: { closest: (sel) => (sel === "[data-head]" ? { dataset: { head: "select-all" } } : null) } };
+      for (const n of ["listHeader", "stagebar"]) (L[n]?.click || []).forEach((f) => f(e));
+      assert.deepStrictEqual(plain([...t.S.selected]), ["BV1", "BV2"], "one click on 全选 selects all");
+      t.S.selected.clear();
+      Object.assign(t.S, was);
+    }
 
     // T pressed in the player (viewer-frame.js) opens the picker under the viewer line; only from the viewer's frame.
     {
