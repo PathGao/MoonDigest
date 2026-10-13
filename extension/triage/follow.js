@@ -662,7 +662,7 @@ function renderTabs() {
 
 // The left column as a select with the same counts, for widths without the sidebar (in the top bar, see sideSlot).
 const sideSelect = () =>
-  `<select class="fw-side-select" data-fw="side" aria-label="UP 主范围">${sideIds(D)
+  `<select class="fw-side-select" name="followScope" data-fw="side" aria-label="UP 主范围">${sideIds(D)
     .map((id) => `<option value="${esc(id)}"${F.side === id ? " selected" : ""}>${id === `g:${SPECIAL}` ? "★ " : ""}${esc(sideLabel(id))} (${sideCount(id)})</option>`).join("")}</select>`;
 
 // Row 3's 未打标签 / 已打标签 (prefix 「UP 」 in 视频投稿, where it goes by the video's UP).
@@ -1260,7 +1260,7 @@ const manageGroups = {
   tags: () => D.groups,
   count: (id) => sideCount(`g:${id}`),
   row: (g, n) => `<div class="tag-row group-row" data-id="${esc(g.id)}">
-      <input type="text" value="${esc(g.name)}" data-field="name" maxlength="16" aria-label="分组名称" />
+      <input type="text" name="followGroupName" value="${esc(g.name)}" data-field="name" maxlength="16" aria-label="分组名称" />
       <span class="muted">${n} 个 UP 主</span>
       <button type="button" class="danger" data-tag-del aria-label="删除分组 ${esc(g.name)}">删除</button>
     </div>`,

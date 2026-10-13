@@ -120,7 +120,7 @@
     const opts = Object.entries(sorts).map(([v, t]) => `<option value="${esc(v)}"${v === sort ? " selected" : ""}>${esc(t)}</option>`).join("");
     const b = btn ? `<button type="button" class="sort-dir" ${btn.attrs} title="${esc(btn.label)}" aria-label="${esc(btn.label)}">${btn.icon}</button>`
       : dirAttr ? `<button type="button" class="sort-dir" ${dirAttr} title="${esc(words)}" aria-label="排序方向：${esc(words)}">${sortDirIcon(dir)}</button>` : "";
-    return `<span class="sort-ctl"><select ${selectAttr} aria-label="排序">${opts}</select>${b}</span>`;
+    return `<span class="sort-ctl"><select ${selectAttr} name="sortOrder" aria-label="排序">${opts}</select>${b}</span>`;
   }
 
   // A filter pill with its count. A count of 0 stays, dimmed (.zero); n == null draws no count.
@@ -384,8 +384,8 @@
   // One row of 标签管理: color, name, the line for the AI, how many carry it, 删除. Edits save on change.
   const tagRowHtml = (t, { count, who }) => `<div class="tag-row" data-id="${esc(t.id)}">
       <button type="button" class="tag-color" style="--c:${esc(t.color)}" data-tag-color title="换一个颜色" aria-label="换 ${esc(t.name)} 的颜色"></button>
-      <input type="text" value="${esc(t.name)}" data-field="name" maxlength="12" aria-label="标签名称" />
-      <input type="text" value="${esc(t.rule || "")}" data-field="rule" maxlength="80" placeholder="什么样的${esc(sp(who))}打这个标签（给 AI 看，可不写）" aria-label="${esc(t.name)} 的说明" />
+      <input type="text" name="tagName" value="${esc(t.name)}" data-field="name" maxlength="12" aria-label="标签名称" />
+      <input type="text" name="tagRule" value="${esc(t.rule || "")}" data-field="rule" maxlength="80" placeholder="什么样的${esc(sp(who))}打这个标签（给 AI 看，可不写）" aria-label="${esc(t.name)} 的说明" />
       <span class="muted">${count} 个${esc(sp(who))}</span>
       <button type="button" class="danger" data-tag-del aria-label="删除标签 ${esc(t.name)}">删除</button>
     </div>`;
@@ -412,7 +412,7 @@
   // Why a list with items shows none: the search (q), else the filters (filtered); "" when it is neither.
   const noMatch = (q, filtered, who) => (String(q ?? "").trim() ? `没有匹配搜索的${sp(who)}` : filtered ? `没有符合筛选的${sp(who)}` : "");
 
-  // Settings rows both dialogs have: the same name and hint. Markup: <div class="set-row" data-set-row="key"><input …></div>.
+  // Settings rows both dialogs have: the same name and hint. Each .set-row contains its input.
   const SET_ROWS = {
     interval: ["请求间隔（秒）", ""],
     // 收藏夹 stores it as triageAiBatchSize (triageTitleBatchSize until first saved), 关注 in follow_ai_settings.batchSize.

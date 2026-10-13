@@ -10,6 +10,7 @@ const source = fs
   .replace(/^if \(!globalThis\.chrome\?\.runtime\?\.id\) await import.*$/m, "")
   .replace(/^init\(\);$/m, "");
 assert.ok(!/await import|^init\(\);$/m.test(source), "harness strips the page entry points");
+assert.ok(source.includes('el.stagebar.addEventListener("click", onHeadClick);') && !source.includes('el.listHeader.addEventListener("click", onHeadClick);'), "row 3 actions have one bubbling click handler");
 // 优先看, then 播放列表, was renamed 待播: no page text or README still says an old name ("YouTube 播放列表" in the README is YouTube's own).
 for (const f of ["triage.html", "triage.js", "triage-core.js", "follow.js", "shared.js", "../options.html", "../options.js", "../sidepanel.html", "../sidepanel.js", "../popup.html", "../popup.js", "../content.js", "../badges.js", "../../README.md"]) {
   const text = fs.readFileSync(path.join(__dirname, f), "utf8").replaceAll("YouTube 播放列表", "");

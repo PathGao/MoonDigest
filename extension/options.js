@@ -729,7 +729,7 @@ function addFixedPropertyRow(item = {}) {
     <div class="fixed-property-fields">
       <div class="fixed-property-field fixed-property-field-type">${buildFixedPropertyTypePicker(type)}</div>
       <div class="fixed-property-field fixed-property-field-key">
-        <input class="fixed-property-key" type="text" placeholder="属性名" value="${escapeHtml(item.key)}" />
+        <input class="fixed-property-key" name="fixedPropertyKey" type="text" placeholder="属性名" value="${escapeHtml(item.key)}" />
       </div>
       <div class="fixed-property-field fixed-property-field-value">
         <div class="fixed-property-value-slot">${buildFixedPropertyValueControl(type, item.value)}</div>
@@ -834,15 +834,15 @@ function addNoteSectionRow(item = {}, { skipLimit = false } = {}) {
   row.innerHTML = `
     <div class="note-section-fields">
       <div class="note-section-field note-section-field-position">
-        <select class="note-section-position" aria-label="段落位置">
+        <select class="note-section-position" name="noteSectionPosition" aria-label="段落位置">
           ${buildNoteSectionPositionOptions(position)}
         </select>
       </div>
       <div class="note-section-field note-section-field-title">
-        <input class="note-section-title" type="text" placeholder="段落标题，例：总结" value="${escapeHtml(item.title)}" />
+        <input class="note-section-title" name="noteSectionTitle" type="text" placeholder="段落标题，例：总结" value="${escapeHtml(item.title)}" />
       </div>
       <div class="note-section-field note-section-field-content">
-        <input class="note-section-content" type="text" placeholder="默认内容（可空）" value="${escapeHtml(item.content)}" />
+        <input class="note-section-content" name="noteSectionContent" type="text" placeholder="默认内容（可空）" value="${escapeHtml(item.content)}" />
       </div>
       <div class="note-section-field note-section-field-remove">
         <button class="note-section-remove" type="button" aria-label="删除段落" title="删除段落">
@@ -1040,7 +1040,7 @@ function buildFixedPropertyValueControl(type, value) {
           : normalizedType === "date"
             ? "YYYY-MM-DD 或 {{upload_date}}"
           : "属性值";
-  return `<input class="fixed-property-value" type="text" placeholder="${placeholder}" value="${escapeHtml(value)}" />`;
+  return `<input class="fixed-property-value" name="fixedPropertyValue" type="text" placeholder="${placeholder}" value="${escapeHtml(value)}" />`;
 }
 
 function buildFixedPropertyTypePicker(type) {
@@ -1241,13 +1241,13 @@ function addAiProviderRow(item = {}) {
   row.dataset.hasSavedKey = hasSavedKey ? "1" : "0";
   row.dataset.currentPresetId = presetId;
   row.innerHTML = `
-    <select class="ai-provider-preset" aria-label="平台">
+    <select class="ai-provider-preset" name="aiProviderPreset" aria-label="平台">
       ${AI_PRESETS.map((p) => `<option value="${escapeHtml(p.id)}" ${p.id === presetId ? "selected" : ""}>${escapeHtml(p.name)}</option>`).join("")}
     </select>
-    <input class="ai-provider-baseurl" type="text" aria-label="接口地址" placeholder="如 https://api.openai.com/v1" value="${escapeHtml(baseUrl)}" />
-    <input class="ai-provider-model" type="text" aria-label="模型" placeholder="如 gpt-6-luna" value="${escapeHtml(model)}" />
+    <input class="ai-provider-baseurl" name="aiProviderBaseUrl" type="text" aria-label="接口地址" placeholder="如 https://api.openai.com/v1" value="${escapeHtml(baseUrl)}" />
+    <input class="ai-provider-model" name="aiProviderModel" type="text" aria-label="模型" placeholder="如 gpt-6-luna" value="${escapeHtml(model)}" />
     <div class="key">
-      <input class="ai-provider-apikey" type="password" aria-label="API Key" placeholder="${apiKeyPlaceholder(hasSavedKey, requiresKey)}" autocomplete="off" />
+      <input class="ai-provider-apikey" name="aiProviderApiKey" type="password" aria-label="API Key" placeholder="${apiKeyPlaceholder(hasSavedKey, requiresKey)}" autocomplete="off" />
       <span class="keytag"${hasSavedKey ? "" : " hidden"}>已保存</span>
     </div>
     <button type="button" class="sm ai-provider-test" title="用这一行的地址、模型和 Key 向 AI 发一条测试消息"><span class="ai-spark" aria-hidden="true"></span>测试连接</button>

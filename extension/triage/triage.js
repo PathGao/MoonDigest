@@ -1636,7 +1636,7 @@ const folderNames = (it) => it.folders.map(folderName).join("、");
 // A video in several folders: pick which ones to unfavorite it from (all checked by default).
 async function pickUnfavFolders(it) {
   const boxes = it.folders
-    .map((f) => `<label class="toggle"><input type="checkbox" value="${esc(f)}" checked /> ${esc(folderName(f))}</label>`)
+    .map((f) => `<label class="toggle"><input type="checkbox" name="unfavFolder" value="${esc(f)}" checked /> ${esc(folderName(f))}</label>`)
     .join("");
   const ok = await askConfirm(`取消收藏《${shortTitle(it)}》？`, `<p>这个视频在 ${it.folders.length} 个收藏夹里，从勾选的收藏夹取消收藏：</p>${boxes}`, "取消收藏", { danger: true });
   return ok ? [...el.confirmBody.querySelectorAll("input:checked")].map((x) => x.value) : [];
@@ -2150,7 +2150,7 @@ function cardHtml(it, expanded, mark) {
   const note = S.notes[b]?.text || "";
   const noteHtml =
     note || S.noteOpen.has(b)
-      ? `<textarea class="note" data-note rows="1" placeholder="一句话备注，回车保存" aria-label="备注">${esc(note)}</textarea>`
+      ? `<textarea class="note" name="videoNote" data-note rows="1" placeholder="一句话备注，回车保存" aria-label="备注">${esc(note)}</textarea>`
       : "";
   const failed = v.failed
     ? `<span class="fail-text">分析失败：${esc(v.failed)}</span><button type="button" data-act="retry" aria-label="重试分析">${AI_SPARK}重试</button>`
@@ -2692,7 +2692,7 @@ function batchList(verdict) {
 async function pickBatchUnfavFolders(list) {
   const ids = S.folders.map((f) => String(f.id)).filter((f) => list.some((it) => it.folders?.includes(f)));
   const boxes = ids
-    .map((f) => `<label class="toggle"><input type="checkbox" value="${esc(f)}" checked /> 「${esc(folderName(f))}」· ${list.filter((it) => it.folders.includes(f)).length} 个</label>`)
+    .map((f) => `<label class="toggle"><input type="checkbox" name="batchUnfavFolder" value="${esc(f)}" checked /> 「${esc(folderName(f))}」· ${list.filter((it) => it.folders.includes(f)).length} 个</label>`)
     .join("");
   const ask = askConfirm(`在 B站取消收藏这 ${list.length} 个视频？`, `<p>从勾选的收藏夹取消收藏。重复收藏的视频，从每个勾选的收藏夹都取消。</p>${boxes}${UI.confirmList(list.map((it) => it.title))}`, `取消收藏 ${list.length} 个`, { danger: true });
   const checked = () => [...el.confirmBody.querySelectorAll("input:checked")].map((x) => x.value);
@@ -4033,8 +4033,8 @@ function bindEvents() {
       render();
     }
   };
+  // listHeader is inside stagebar; binding both would handle one bubbling click twice.
   el.stagebar.addEventListener("click", onHeadClick);
-  el.listHeader.addEventListener("click", onHeadClick);
   el.activity.addEventListener("click", onHeadClick);
 
   el.list.addEventListener("click", (e) => {
@@ -4269,7 +4269,7 @@ function openSettings(scrollToLimits = false, firstRun = false) {
   el.settingsFoldersHeading.hidden = firstRun;
   el.settingsFirstRunHint.hidden = !firstRun;
   el.folderToggles.innerHTML = S.allFolders
-    .map((f) => `<label class="toggle"><input type="checkbox" value="${esc(f.id)}"${S.included.includes(String(f.id)) ? " checked" : ""} /> ${esc(f.title)} <span class="muted">${esc(f.count)}</span></label>`)
+    .map((f) => `<label class="toggle"><input type="checkbox" name="includedFolder" value="${esc(f.id)}"${S.included.includes(String(f.id)) ? " checked" : ""} /> ${esc(f.title)} <span class="muted">${esc(f.count)}</span></label>`)
     .join("") || `<p class="dialog-hint">收藏夹列表还没加载</p>`;
   el.thinkingRow.hidden = !hasThinkingToggle();
   el.intervalInput.value = S.settings.triageIntervalSec ?? 8;

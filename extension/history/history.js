@@ -84,7 +84,7 @@ const noteIdOf = (g) => (g.context.videoId && (Number(g.context.pageIndex) || 1)
 
 function renderNote(g) {
   const id = noteIdOf(g);
-  if (id && editing?.id === id) return `<textarea class="entry-note-edit" data-note rows="2" placeholder="一句话备注，回车保存" aria-label="备注">${esc(editing.draft)}</textarea>`;
+  if (id && editing?.id === id) return `<textarea class="entry-note-edit" name="entryNote" data-note rows="2" placeholder="一句话备注，回车保存" aria-label="备注">${esc(editing.draft)}</textarea>`;
   if (!g.note) return id ? `<button type="button" class="note-add" data-act="note">✎ 备注</button>` : "";
   const body = `<b>备注</b> ${esc(g.note.text.trim())}`;
   return id ? `<button type="button" class="entry-note" data-act="note" title="点击编辑备注">${body}</button>` : `<div class="entry-note">${body}</div>`;
@@ -140,7 +140,7 @@ function render() {
         const title = /^https?:\/\//i.test(g.context.url || "") ? `<a class="entry-title" href="${esc(g.context.url)}" target="_blank" rel="noopener">${esc(label)}</a>` : `<span class="entry-title">${esc(label)}</span>`;
         const kind = g.convs.length ? (g.convs.length > 1 ? `${g.convs.length} 段对话` : "") : `仅${[g.analysis && "分拣台 AI 总结", g.note && "备注"].filter(Boolean).join("和")}，没有 AI 对话`;
         return `<article class="entry" data-key="${esc(g.key)}">
-          <input type="checkbox" data-act="pick" aria-label="选择" ${selected.has(g.key) ? "checked" : ""} />
+          <input type="checkbox" name="selectedConversation" data-act="pick" aria-label="选择" ${selected.has(g.key) ? "checked" : ""} />
           <div class="entry-head">
             ${title}
             <div class="entry-meta">${[site, formatTime(g.updatedAt), untitled && g.context.videoId, kind].filter(Boolean).map(esc).join(" · ")}</div>

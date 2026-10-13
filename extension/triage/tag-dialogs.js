@@ -159,8 +159,8 @@
       .map((t, i) => {
         const n = p.rows.filter((r) => live.has(r.id) && r.add.includes(`new:${t.key}`)).length;
         return `<div class="ai-newtag" data-i="${i}">
-      <input type="checkbox" data-nt="checked"${t.checked ? " checked" : ""} aria-label="创建标签 ${esc(t.name)}${t.where ? `（在「${esc(t.where)}」）` : ""}" />
-      <input type="text" data-nt="name" value="${esc(t.name)}" maxlength="12" aria-label="新标签名称" />
+      <input type="checkbox" name="aiNewTagEnabled" data-nt="checked"${t.checked ? " checked" : ""} aria-label="创建标签 ${esc(t.name)}${t.where ? `（在「${esc(t.where)}」）` : ""}" />
+      <input type="text" name="aiNewTagName" data-nt="name" value="${esc(t.name)}" maxlength="12" aria-label="新标签名称" />
       <span class="muted">${t.where ? `建在「${esc(t.where)}」 · ` : ""}${n ? `用在 ${n} 个${esc(who)}` : `没有${esc(who)}用到`}</span>
     </div>`;
       })
