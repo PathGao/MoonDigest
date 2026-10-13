@@ -284,6 +284,14 @@ YouTube 字幕的取法参照 yt-dlp：读页面播放器的字幕轨。需要�
 
 欢迎提 [issue](https://github.com/PathGao/MoonDigest/issues)。报 bug 时请写清楚视频链接、浏览器版本和复现步骤。提 PR 前请先跑一遍自检。
 
+## 请杯咖啡助力UP开发
+
+<p align="center">
+  <img src="docs/images/donate-wechat.jpg" alt="微信支付收款码" width="240">
+  &nbsp;&nbsp;
+  <img src="docs/images/donate-alipay.jpg" alt="支付宝收款码" width="240">
+</p>
+
 ## 致谢
 
 - 基于 [haixiong1997/Bilibili-Obsidian-Clipper](https://github.com/haixiong1997/Bilibili-Obsidian-Clipper)（MIT）。
