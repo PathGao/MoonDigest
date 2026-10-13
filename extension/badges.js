@@ -241,6 +241,10 @@
   let seenCfg = seenConfig(SEEN_DEFAULTS);
   const seenCache = new Map(); // bvid -> percent | 0
   const SEL = 'a[href*="/video/BV"], a[href*="bvid=BV"]';
+  // Covers that take 观看进度: the links, and the video page's playlist (/list/watchlater, /list/ml…), whose items are
+  // divs carrying the bvid in data-key.
+  const COVERS = `${SEL}, .action-list-item-wrap[data-key^="BV"]`;
+  const bvidOf = (el) => bvidFromHref(el.getAttribute("href")) || el.dataset.key || "";
   // Keys that every video's info depends on; a per-video title or analysis only redraws that video. Only a favorites
   // page reads a snapshot, and only its own folder's: the 分拣台 saves other folders' snapshots often.
   const isSharedKey = (k) => k === "triage_tags" || k === "triage_video_tags" || k === "triage_kept" || k.startsWith("triage_decisions_") || (!!favFid() && k === `triage_snapshot_${favFid()}`);
@@ -256,7 +260,7 @@
   let gen = 0; // bumped when triage data changes so an in-flight scan drops its stale reads
   let superseded = false; // a fresh copy took over (standDown)
   const observer = new MutationObserver(() => schedule());
-  const OBSERVE = { childList: true, subtree: true, attributes: true, attributeFilter: ["href"] };
+  const OBSERVE = { childList: true, subtree: true, attributes: true, attributeFilter: ["href", "data-key"] };
 
   // BewlyCat draws its own pages (首页, 收藏, 稍后再看…) inside #bewly's open shadow root. Only that root is searched:
   // Bilibili's comment section is nested shadow roots too, and its video links should stay unmarked.
@@ -757,12 +761,12 @@ input { box-sizing: border-box; width: 100%; margin: 0; padding: 4px 8px; border
 
   async function markVideos(g) {
     // Most Bilibili iframes hold no video link: nothing to mark, so no storage reads.
-    if (!pageBvid() && !findAll(SEL).length) return;
+    if (!pageBvid() && !findAll(COVERS).length) return;
     const fid = favFid();
     if (seenCfg.on) await loadSeen(g);
     if (g !== gen) return;
     if (!triageOn) {
-      const writes = findAll(SEL).map(markCover);
+      const writes = findAll(COVERS).map(markCover);
       for (const w of writes) w?.();
       return;
     }
@@ -803,14 +807,14 @@ input { box-sizing: border-box; width: 100%; margin: 0; padding: 4px 8px; border
     }
     if (!enabled) return;
     // Every style read first, then every DOM write, so the page recalculates styles once rather than per card.
-    const writes = anchors.flatMap((a) => [markAnchor(a), markCover(a)]);
+    const writes = [...anchors.map(markAnchor), ...findAll(COVERS).map(markCover)];
     for (const w of writes) w?.();
     markVideoLine(here);
   }
 
   // One key per video on screen, a few KB per page; the history itself is read by the background (triage-seen-sync).
   async function loadSeen(g) {
-    const want = [...new Set(findAll(SEL).map((a) => bvidFromHref(a.getAttribute("href"))).filter((b) => b && !seenCache.has(b)))];
+    const want = [...new Set(findAll(COVERS).map(bvidOf).filter((b) => b && !seenCache.has(b)))];
     if (!want.length) return;
     const got = await chrome.storage.local.get(want.map((b) => `seen_${b}`));
     if (g !== gen) return;
@@ -820,7 +824,7 @@ input { box-sizing: border-box; width: 100%; margin: 0; padding: 4px 8px; border
   // The progress bar (Bilibili's own look) on a cover link, and once 看完了 the corner tag or the veil.
   // Reads only; returns the DOM write for run() to apply after every card is read.
   function markCover(a) {
-    const b = bvidFromHref(a.getAttribute("href"));
+    const b = bvidOf(a);
     const rule = ruleFor(a);
     const known = seenCfg.on && rule.seen ? seenCache.get(b) || 0 : 0;
     const pct = seenCfg.bar ? known : 0;
