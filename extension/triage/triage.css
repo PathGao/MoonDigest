@@ -319,7 +319,7 @@ select { height: 28px; max-width: 240px; }
 .sort-box { display: inline-flex; flex: none; align-items: center; gap: 8px; margin-left: auto; }
 .sort-box:empty { display: none; }
 .sort-ctl { display: inline-flex; }
-.sort-ctl select { height: 28px; border-top-right-radius: 0; border-bottom-right-radius: 0; }
+.sort-ctl select:not(:only-child) { height: 28px; border-top-right-radius: 0; border-bottom-right-radius: 0; }
 .sort-dir { width: 28px; height: 28px; padding: 0; margin-left: -1px; display: grid; place-items: center; border-color: var(--border-strong); border-radius: 0 var(--radius-sm) var(--radius-sm) 0; background: var(--field-bg); color: var(--text-2); }
 .sort-dir:hover { color: var(--text); }
 .sort-dir svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; }

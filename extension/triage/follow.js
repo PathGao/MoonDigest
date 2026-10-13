@@ -199,6 +199,26 @@ function mergeFeed(items, page) {
   return { items: [...items, ...add].sort((a, b) => (b.at || 0) - (a.at || 0)), add };
 }
 
+// 视频投稿's sort: 更新时间 is B站's order, newest first (the feed has no end, so no direction), or 随机.
+const FEED_SORTS = { time: "更新时间", random: "随机" };
+function shuffled(arr, rnd = Math.random) {
+  const a = [...arr];
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(rnd() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+// The loaded videos in the picked sort. 随机 keeps its order (bvids) and puts the videos not in it yet, shuffled among
+// themselves, at the bottom, so a new page never moves the cards shown; order null shuffles everything.
+function feedOrdered(items, sort, order, rnd = Math.random) {
+  if (sort !== "random") return { items, order: null };
+  const have = new Set(order || []);
+  const next = [...(order || []), ...shuffled(items.map((it) => it.bvid).filter((b) => !have.has(b)), rnd)];
+  const by = new Map(items.map((it) => [it.bvid, it]));
+  return { items: next.map((b) => by.get(b)).filter(Boolean), order: next };
+}
+
 // Whether a feed video belongs to the picked left-column item.
 function feedMatch(it, D, side) {
   if (side === "all") return true;
@@ -296,9 +316,9 @@ function normDays(slow, dead) {
 // A 刷新 finished between two follow_jobs: the 视频投稿 already loaded is older than what it read.
 const syncFinished = (was, now) => Boolean(now?.finishedAt && now.finishedAt !== was?.finishedAt);
 
-// What 关注 remembers across reloads (follow_view): mode, tab, sort and the sidebar item.
+// What 关注 remembers across reloads (follow_view): mode, tab, both tabs' sorts and the sidebar item.
 // 已出分拣范围 is not remembered, as 收藏夹's: a reload opens 全部.
-const viewRecord = (F) => ({ mode: F.mode, tab: F.tab, sort: F.sort, dir: F.dir, side: F.side === "out" ? "all" : F.side });
+const viewRecord = (F) => ({ mode: F.mode, tab: F.tab, sort: F.sort, dir: F.dir, fsort: F.fsort, side: F.side === "out" ? "all" : F.side });
 // O / Enter on an UP card: its newest video that can play here (one with a bvid), or "".
 const latestBvid = (u) => u?.titles.find((v) => v.bvid)?.bvid || "";
 // Why ✦ AI 打标签 cannot run here (it tags UP 主 that are followed), or "".
@@ -322,7 +342,7 @@ const UI = globalThis.TriageUi;
 const { toast, askConfirm, send } = T;
 const { esc, fmtDate, fmtAgo, fmtDuration, fmtCount, cleanTagName, plainClick, img } = UI;
 const KEYS = ["follow_list", "follow_people", "follow_last", "follow_last_wip", "follow_content", "follow_tags", "follow_tag_map", "follow_unfollowed", "follow_jobs", "follow_ai_recent", "follow_stats", "follow_groups"];
-const VIEW_KEY = "follow_view"; // { mode: "fav" | "follow", tab: "ups" | "feed", sort, dir }
+const VIEW_KEY = "follow_view"; // { mode: "fav" | "follow", tab: "ups" | "feed", sort, dir, fsort, side }
 const saveView = () => T.store({ [VIEW_KEY]: viewRecord(F) });
 const AI_HISTORY_KEY = "follow_ai_history";
 const STATUS_TEXT = Object.fromEntries(STATUS);
@@ -352,6 +372,7 @@ const F = {
   fq: "",
   sort: "last",
   dir: "desc",
+  fsort: "time", // 视频投稿's sort (FEED_SORTS)
   sel: new Set(),
   anchor: "", // the UP a Shift+click picks from: the last one picked
 
@@ -359,7 +380,7 @@ const F = {
   tagState: "", // row 3: "" | "untagged" | "tagged" (in 视频投稿 the video's UP)
   tags: new Set(), // row 4: tag ids, AND; both tabs
   loaded: false,
-  feed: null, // { items, offset, hasMore, loading, error, errorCode, wait, dry, at }; wait: B站限流, waiting "follow-feed" out
+  feed: null, // { items, order, offset, hasMore, loading, error, errorCode, wait, dry, at }; order: 随机's (feedOrdered); wait: B站限流, waiting "follow-feed" out
   viewing: "",
   viewingMid: "", // the playing video's UP
   hover: "", // the 视频投稿 card under the mouse (bvid), for T
@@ -827,8 +848,12 @@ const freshFeed = () => ({ items: [], offset: "", hasMore: true, loading: false,
 const feedF = () => ({ side: F.side, q: F.fq, tagState: F.tagState, tags: F.tags });
 function renderFeed() {
   if (!F.feed || (!F.feed.loading && Date.now() - F.feed.at > FEED_KEEP_MS)) F.feed = freshFeed();
-  const items = F.feed.items;
-  E.sort.hidden = true; // 视频投稿 comes newest first from B站: no sort
+  const ord = feedOrdered(F.feed.items, F.fsort, F.feed.order);
+  F.feed.order = ord.order;
+  const items = ord.items;
+  // 更新时间 has no direction button; 随机 puts 再随机一次 in its place (picking 随机 again in the select does nothing).
+  E.sort.hidden = false;
+  E.sort.innerHTML = UI.sortControl({ sorts: FEED_SORTS, sort: F.fsort, selectAttr: 'data-fw="fsort"', btn: F.fsort === "random" && { attrs: 'data-fw="reshuffle"', label: "再随机一次", icon: "↻" } });
   E.tools.hidden = false;
   renderAiButton();
   // Row 3: 全部 | UP 未打标签 UP 已打标签; no count before the first page arrives. Row 4 counts videos. No 全选 here.
@@ -1727,6 +1752,10 @@ main.addEventListener("click", async (e) => {
     so.dir = so.dir === "asc" ? "desc" : "asc";
     saveView();
     render();
+  } else if (act === "reshuffle") {
+    F.feed.order = null;
+    render();
+    E.list.scrollTop = 0;
   } else if (act === "ai") openAi();
   else if (act === "tags") openManage();
   else if (act === "settings") openSettings();
@@ -1773,6 +1802,13 @@ main.addEventListener("change", (e) => {
     so.dir = SORT_DIR[so.sort];
     saveView();
     render();
+  } else if (act === "fsort") {
+    // 更新时间 is the loaded list as it is; 随机 shuffles it anew. Both start at the top.
+    F.fsort = e.target.value;
+    F.feed.order = null;
+    saveView();
+    render();
+    E.list.scrollTop = 0;
   } else if (act === "side") pickSide(e.target.value);
 });
 
@@ -1847,6 +1883,7 @@ cfg.deadDays = Number(days.followDeadDays) || 365;
 if (view?.tab === "feed") F.tab = "feed";
 if (SORTS[view?.sort]) F.sort = view.sort;
 if (view?.dir === "asc" || view?.dir === "desc") F.dir = view.dir;
+if (FEED_SORTS[view?.fsort]) F.fsort = view.fsort;
 if (typeof view?.side === "string") F.side = view.side === "special" ? `g:${SPECIAL}` : view.side === "gone" ? "out" : view.side; // checked against the data on load (derive)
 // Deep link from the UP tag picker on B站 pages: #follow opens 关注, &tag=<id> picks that tag (unknown id → 全部),
 // &up=<mid> clears the filters and makes that UP's card current (unknown mid → just the list).

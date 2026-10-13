@@ -115,9 +115,12 @@
   const dirWords = (kind, dir) => (DIR_WORDS[kind] || DIR_WORDS.time)[dir === "asc" ? 0 : 1];
 
   // Row 1's sort: a select and the direction button as one control. selectAttr / dirAttr are what each mode listens for.
-  function sortControl({ sorts, sort, dir, words, selectAttr, dirAttr }) {
+  // btn = { attrs, label, icon } puts another button in the direction button's place; no dirAttr and no btn = the select alone.
+  function sortControl({ sorts, sort, dir, words, selectAttr, dirAttr, btn }) {
     const opts = Object.entries(sorts).map(([v, t]) => `<option value="${esc(v)}"${v === sort ? " selected" : ""}>${esc(t)}</option>`).join("");
-    return `<span class="sort-ctl"><select ${selectAttr} aria-label="排序">${opts}</select><button type="button" class="sort-dir" ${dirAttr} title="${esc(words)}" aria-label="排序方向：${esc(words)}">${sortDirIcon(dir)}</button></span>`;
+    const b = btn ? `<button type="button" class="sort-dir" ${btn.attrs} title="${esc(btn.label)}" aria-label="${esc(btn.label)}">${btn.icon}</button>`
+      : dirAttr ? `<button type="button" class="sort-dir" ${dirAttr} title="${esc(words)}" aria-label="排序方向：${esc(words)}">${sortDirIcon(dir)}</button>` : "";
+    return `<span class="sort-ctl"><select ${selectAttr} aria-label="排序">${opts}</select>${b}</span>`;
   }
 
   // A filter pill with its count. A count of 0 stays, dimmed (.zero); n == null draws no count.

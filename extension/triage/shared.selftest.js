@@ -71,6 +71,9 @@ assert.strictEqual(UI.resultCount(true, 5), "5 个结果");
 {
   const html = UI.sortControl({ sorts: { a: "甲", b: "乙" }, sort: "b", dir: "asc", words: "A→Z", selectAttr: "data-s", dirAttr: "data-d" });
   assert.ok(html.includes('<option value="b" selected>乙') && !html.includes('value="a" selected') && html.includes('aria-label="排序方向：A→Z"'));
+  assert.ok(!UI.sortControl({ sorts: { a: "甲" }, sort: "a", selectAttr: "data-s" }).includes("<button"), "no dirAttr, no button");
+  const re = UI.sortControl({ sorts: { a: "甲" }, sort: "a", selectAttr: "data-s", btn: { attrs: "data-r", label: "再随机一次", icon: "↻" } });
+  assert.ok(re.includes('data-r title="再随机一次" aria-label="再随机一次">↻</button>') && !re.includes("排序方向"), "btn takes the direction button's place");
 }
 
 // Counts and durations read the same in both modes: one decimal for 万 and 亿, hours from 60 minutes up.

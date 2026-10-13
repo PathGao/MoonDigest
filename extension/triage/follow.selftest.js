@@ -13,7 +13,7 @@ const ctx = vm.createContext({ setTimeout, clearTimeout });
 vm.runInContext(fs.readFileSync(path.join(__dirname, "../errors.js"), "utf8"), ctx);
 vm.runInContext(fs.readFileSync(path.join(__dirname, "../tag-core.js"), "utf8"), ctx);
 vm.runInContext(fs.readFileSync(path.join(__dirname, "shared.js"), "utf8"), ctx);
-vm.runInContext(`const UI = globalThis.TriageUi;\n${pure}\n;Object.assign(globalThis, { syncFinished, dirLabel, followAiSettings, aiRequests, normDays, settingsProblem, followStatus, withFeedInProgress, lastPostOf, recentTitles, upRow, visibleUps, mergeFeed, feedMatch, sideIds, feedList, feedLeaving, withTags, stepIn, tagsOf, restoreTags, feedCounts, STATUS, viewRecord, latestBvid, favUpMid, aiBlocked, withAllowRemove, groupsOf, regrouped, groupCalls, groupTargets, groupName, groupMoveLabel, outKind });`, ctx);
+vm.runInContext(`const UI = globalThis.TriageUi;\n${pure}\n;Object.assign(globalThis, { syncFinished, dirLabel, followAiSettings, aiRequests, normDays, settingsProblem, followStatus, withFeedInProgress, lastPostOf, recentTitles, upRow, visibleUps, mergeFeed, shuffled, feedOrdered, feedMatch, sideIds, feedList, feedLeaving, withTags, stepIn, tagsOf, restoreTags, feedCounts, STATUS, viewRecord, latestBvid, favUpMid, aiBlocked, withAllowRemove, groupsOf, regrouped, groupCalls, groupTargets, groupName, groupMoveLabel, outKind });`, ctx);
 const t = ctx;
 const plain = (v) => JSON.parse(JSON.stringify(v));
 
@@ -452,6 +452,22 @@ assert.ok(source.includes("for (const m of [...F.sel]) if (!rows.has(m)) F.sel.d
 
 // B12: the sidebar item is remembered with the rest of the view and checked against the data on load.
 assert.deepStrictEqual(plain(t.viewRecord({ mode: "follow", tab: "ups", sort: "last", dir: "desc", side: "g:7", q: "x" })), { mode: "follow", tab: "ups", sort: "last", dir: "desc", side: "g:7" });
+assert.strictEqual(t.viewRecord({ mode: "follow", tab: "feed", sort: "last", dir: "desc", fsort: "random", side: "all" }).fsort, "random", "视频投稿's sort is remembered");
+
+// 视频投稿's sort: 更新时间 is the loaded order; 随机 shuffles, then shuffles each new page in at the bottom.
+{
+  const v = (...ids) => ids.map((bvid) => ({ bvid }));
+  const ids = (r) => r.items.map((it) => it.bvid).join("");
+  const rev = () => 0; // Fisher–Yates with j = 0 every step
+  assert.deepStrictEqual(plain(t.feedOrdered(v("a", "b"), "time", ["b", "a"])), { items: v("a", "b"), order: null }, "更新时间 ignores and drops 随机's order");
+  const r = t.feedOrdered(v("a", "b", "c"), "random", null, rev);
+  assert.strictEqual(ids(r), "bca");
+  const r2 = t.feedOrdered(v("a", "b", "c", "d", "e"), "random", r.order, rev);
+  assert.strictEqual(ids(r2), "bcaed", "shown cards stay put; the new page is shuffled on its own below");
+  assert.strictEqual(ids(t.feedOrdered(v("a", "b"), "random", ["x", "b", "a"])), "ba", "videos no longer loaded drop out");
+  const all = t.shuffled([1, 2, 3, 4, 5]);
+  assert.deepStrictEqual([...all].sort(), [1, 2, 3, 4, 5], "a shuffle keeps every item");
+}
 assert.ok(source.includes('if (typeof view?.side === "string") F.side = view.side === "special" ? `g:${SPECIAL}` : view.side === "gone" ? "out" : view.side;') && /function pickSide\(id\) \{[^}]*saveView\(\);/.test(source), "restored on load, saved on every pick");
 // B13: I = ✦ AI 打标签 (or why not), O / Enter plays the current UP's newest video that has a bvid.
 assert.strictEqual(t.latestBvid({ titles: [{ t: "a" }, { t: "b", bvid: "BV2" }, { t: "c", bvid: "BV3" }] }), "BV2");
