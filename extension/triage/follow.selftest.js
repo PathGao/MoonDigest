@@ -1,4 +1,5 @@
 // node extension/triage/follow.selftest.js
+if (process.versions.bun) (console.error("This selftest needs Node: it fails or hangs under bun (see 自检 in README.md)."), process.exit(1));
 const fs = require("fs");
 const path = require("path");
 const vm = require("vm");
@@ -671,6 +672,14 @@ async function followPage({ store = {}, handlers = {}, setup = () => {} } = {}) 
     assert.ok(new RegExp(`^读取关注列表 · ${words}，[01]:\\d\\d 后重试$`).test(pill.title) && pill.classList.contains("warn"), pill.title);
   }
 
+  // 暂停刷新 at row 3's right end stops the refresh, as the pill's 暂停 does: one request per click.
+  {
+    const p = await followPage({ store: page({ follow_jobs: { running: true, phase: "list" } }) });
+    assert.ok(p.$("fwBarR").innerHTML.includes("data-fw-stop"), p.$("fwBarR").innerHTML);
+    p.click("followMain", "[data-fw-stop]", {});
+    assert.strictEqual(p.sent.filter((m) => m.type === "follow-sync-stop").length, 1);
+  }
+
   // Reloaded during the background's queue pause (follow_hold): the 视频投稿 page it waits for shows the countdown at once.
   {
     const p = await followPage({
@@ -687,7 +696,7 @@ async function followPage({ store = {}, handlers = {}, setup = () => {} } = {}) 
     const p = await followPage({ store: page(), handlers: { "follow-relation": (m) => (m.mid === "u1" ? new Promise((r) => (release = r)) : { ok: true }) } });
     const running = p.FW.relationRun(["u1", "u2"].map((mid) => ({ type: "follow-relation", mid, act: 2 })), "取消关注");
     await p.until(() => release);
-    p.click("fwActivity", "[data-fw-busystop]", {});
+    p.click("followMain", "[data-fw-busystop]", {});
     const pill = p.$("fwActivity").innerHTML;
     assert.ok(pill.includes('aria-label="停止中" disabled title="当前这一批做完就停止"'), pill);
     release({ ok: true });

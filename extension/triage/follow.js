@@ -1281,7 +1281,8 @@ refresh.addEventListener("click", async () => {
     refresh.disabled = false;
   }
 });
-$("fwActivity").addEventListener("click", (e) => {
+// 暂停 is on the pill and, as 暂停刷新, at row 3's right end (#fwBarR): both are inside #followMain.
+main.addEventListener("click", (e) => {
   if (e.target.closest("[data-fw-stop]")) send({ type: "follow-sync-stop" });
   if (e.target.closest("[data-fw-busystop]")) W.stop();
 });
