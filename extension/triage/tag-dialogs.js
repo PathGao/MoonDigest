@@ -38,7 +38,7 @@
     const a = man;
     const why = a.reason?.() || "";
     $("tagManageHint").textContent = `${a.hint()}${{ ...TAG_TEXT, ...a.text }.saved}`;
-    newInput.disabled = Boolean(why);
+    UI.setReason(newInput, why);
     syncAdd();
     const tags = a.tags();
     rows.innerHTML = why
