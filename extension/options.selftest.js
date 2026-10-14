@@ -53,4 +53,15 @@ for (const bad of XSS) assertInert(ctx.buildFixedPropertyValueControl("text", ba
 assert.ok(source.includes("seenThreshold: MdgSettings.normalizeSeenThreshold(elements.seenThreshold.value),"), "options.js parses 看多少算看完了 with normalizeSeenThreshold");
 assert.ok(source.includes("const { min, max, def } = MdgSettings.SEEN_THRESHOLD;") && source.includes("placeholder: `默认 ${def}`"), "seenThreshold's box reads SEEN_THRESHOLD");
 
+// The box behaves like the 分拣台's: a change or a save clamps it with TriageUi.clampNumber (above max is max, invalid is
+// cleared under 「默认 N」), never writes the default back into it.
+const box = { type: "number", min: "1", max: "100" };
+for (const [typed, shown] of [["150", 100], ["-3", ""], ["", ""], ["42.4", 42]]) {
+  box.value = typed;
+  ctx.TriageUi.clampNumber(box);
+  assert.strictEqual(box.value, shown, `typed ${typed}`);
+}
+assert.ok(source.includes('elements.seenThreshold.addEventListener("change", () => TriageUi.clampNumber(elements.seenThreshold));'), "a change clamps the box");
+assert.ok(!/seenThreshold\.value = String\((readFormPayload\(\)|payload)\.seenThreshold\)/.test(source), "the default is not written back into the box");
+
 console.log("options selftest: all passed");

@@ -112,8 +112,9 @@ function init() {
   });
   document.getElementById("seen").addEventListener("input", syncSeenRows);
   [elements.showBiliVerdicts, elements.showBiliTriageBadges, elements.showBiliUpTags, elements.seenShow].forEach((el) => el.addEventListener("change", syncBiliMarks));
-  // The box shows the value that would be saved, so 150 over a stored 100 is not a silent no-op.
-  elements.seenThreshold.addEventListener("change", () => (elements.seenThreshold.value = String(readFormPayload().seenThreshold)));
+  // Like the 分拣台's number boxes (TriageUi.clampNumber): above max shows max, an invalid number is cleared, and an
+  // empty box is the default its grey 「默认 N」 names.
+  elements.seenThreshold.addEventListener("change", () => TriageUi.clampNumber(elements.seenThreshold));
   // Range and 「默认 N」 from settings.js, like the 分拣台's number boxes.
   const { min, max, def } = MdgSettings.SEEN_THRESHOLD;
   Object.assign(elements.seenThreshold, { min, max, placeholder: `默认 ${def}` });
@@ -385,8 +386,8 @@ async function saveSettings() {
     }
     renderFixedPropertyRows(payload.fixedFrontmatterProperties);
     renderNoteSectionRows(payload.notePlaceholderSections);
-    // The box shows what was saved: 150 is stored and shown as 100.
-    elements.seenThreshold.value = String(payload.seenThreshold);
+    // The box shows what was saved: 150 is stored and shown as 100; an emptied box stays empty under 「默认 N」.
+    TriageUi.clampNumber(elements.seenThreshold);
     elements.aiPresetPrompts.value = payload.aiPresetPrompts.join("\n");
 
     // AI 平台：list 走 sync、apiKey 走 local
