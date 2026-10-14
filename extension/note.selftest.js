@@ -215,7 +215,7 @@ const golden = {
       "第一件事是",
       "最后总结一下",
       "",
-      "## 评论",
+      "## 热门评论",
       "",
       "1. 观众A（赞 120）",
       "讲得很清楚",
@@ -264,7 +264,7 @@ const golden = {
       "",
       "## 待办",
       "",
-      "## 评论",
+      "## 热门评论",
       "",
       "1. 观众A（赞 120）",
       "讲得很清楚",
@@ -356,7 +356,7 @@ assert.strictEqual(N.buildMarkdown({ ...cases.biliSingle.meta, aiTurns: turns },
 for (const c of [cases.biliSingle, cases.youtube]) {
   const note = N.buildMarkdown(c.meta, c.body, { ...c.settings, includeHotCommentsInNote: false }, refOf(c.meta));
   const ai = N.buildAiContext(c.meta, c.body, { ...c.settings, includeHotCommentsInNote: true }, refOf(c.meta));
-  assert.ok(!ai.includes("## 评论"), "no hot comments");
+  assert.ok(!ai.includes("## 热门评论"), "no hot comments");
   assert.ok(note.includes("<iframe") && !ai.includes("<iframe"), c.meta.title);
   assert.strictEqual(ai, note.replace(/<iframe[^\n]*\n\n/, ""), "nothing else differs");
 }

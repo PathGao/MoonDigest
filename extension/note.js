@@ -122,7 +122,7 @@
       settings?.includeHotCommentsInNote || !hasSubtitles ? meta?.hotComments || [] : []
     );
     if (hotCommentLines.length > 0) {
-      lines.push("## 评论", "", ...hotCommentLines);
+      lines.push("## 热门评论", "", ...hotCommentLines);
     }
 
     const markdown = lines.join("\n").trimEnd();
