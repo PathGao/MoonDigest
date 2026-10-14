@@ -361,9 +361,7 @@ function init() {
     startPlayerAiQuickActionObserver();
     schedulePlayerAiQuickActionSync();
     if (shouldEnterReaderMode) {
-      enterReaderMode().catch((error) => {
-        setReadingNotice(`${MdgErrors.TEXT.readerStartFailed}：${getErrorMessage(error)}`, { error: true });
-      });
+      startReaderMode();
     }
   });
 }
@@ -503,9 +501,7 @@ function bindRuntimeEvents() {
       }
       markReaderMode();
       if (!state.readingViewOpen) {
-        enterReaderMode().catch((error) => {
-          logWarn("[MDG] reading mode trigger failed", error);
-        });
+        startReaderMode();
       }
       sendResponse({ ok: true });
       return false;
@@ -837,9 +833,7 @@ function checkUrlChange() {
   const shouldEnterReaderMode = hasReaderParam(nextUrl);
   if (!state.readingViewOpen && shouldEnterReaderMode) {
     markReaderMode();
-    enterReaderMode().catch((error) => {
-      setReadingNotice(`${MdgErrors.TEXT.readerStartFailed}：${getErrorMessage(error)}`, { error: true });
-    });
+    startReaderMode();
     return;
   }
   if (state.readingViewOpen || shouldEnterReaderMode) {
@@ -1461,6 +1455,13 @@ function cleanupReaderFloatingArtifacts(playerHost = state.readingPlayerHost) {
   if (runtimeHost && runtimeHost !== playerHost) {
     dismissReaderMiniPlayer(runtimeHost);
   }
+}
+
+// Every entry into 专注模式 (the URL, a SPA video change, the popup): a failure is red on the page, the same sentence.
+function startReaderMode() {
+  enterReaderMode().catch((error) => {
+    setReadingNotice(`${MdgErrors.TEXT.readerStartFailed}：${getErrorMessage(error)}`, { error: true });
+  });
 }
 
 async function enterReaderMode() {

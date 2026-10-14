@@ -737,6 +737,17 @@ const settle = async () => {
     Object.assign(t, saved);
     delete t.HTMLButtonElement;
   }
+  // J2: 专注模式 that does not start from the popup is red on the page, as from the URL or a video change.
+  {
+    const saved = Object.fromEntries(["setReadingNotice", "enterReaderMode", "ensureUiReady", "markReaderMode", "removePlayerAiQuickActionButton"].map((k) => [k, t[k]]));
+    const seen = [];
+    Object.assign(t, { setReadingNotice: (m, o) => seen.push([m, o?.error]), enterReaderMode: async () => Promise.reject(new Error("视频播放器长时间未就绪")), ensureUiReady() {}, markReaderMode() {}, removePlayerAiQuickActionButton() {} });
+    const reply = await new Promise((resolve) => listeners.message.forEach((f) => f({ type: "popup-trigger-reading-view" }, {}, resolve)));
+    await settle();
+    assert.deepStrictEqual([reply.ok, seen], [true, [[`${t.MdgErrors.TEXT.readerStartFailed}：视频播放器长时间未就绪`, true]]]);
+    assert.strictEqual(source.match(/enterReaderMode\(\)\.catch/g).length, 1, "one catch for every entry");
+    Object.assign(t, saved);
+  }
   // D1: every failure notice on the video page is red (error: true), like the popup's.
   for (const m of source.matchAll(/setReadingNotice\((`[^`]*`|"[^"]*")(.{0,60})/g)) {
     if (/失败|未就绪|Failed\}/.test(m[1])) assert.match(m[2], /^(, \{ error: true \}|\)\)?, \{ error: true \})/, `not red: ${m[0]}`);
