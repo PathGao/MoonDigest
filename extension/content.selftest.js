@@ -659,14 +659,15 @@ const settle = async () => {
       t.location.href = realUrl;
       assert.deepStrictEqual(asked, ["p.md", true]);
       if (switched || !pick) {
-        // The side panel and the popup learn nothing was written.
-        assert.deepStrictEqual([{ ...reply }, modes()], [{ written: false }, [["write-video-note", undefined, "# 视频 A"]]]);
-        assert.strictEqual(messages.at(-1), switched ? t.MdgErrors.TEXT.obsidianVideoSwitched : t.MdgErrors.TEXT.obsidianCancelled);
+        // The popup learns nothing was written.
+        assert.deepStrictEqual([{ ...reply }, modes()], [{ ok: true, written: false, text: switched ? t.MdgErrors.TEXT.obsidianVideoSwitched : t.MdgErrors.TEXT.obsidianCancelled }, [["write-video-note", undefined, "# 视频 A"]]]);
       } else {
         // The same note, taken before the dialog, with the mode; the background's words are shown.
         assert.deepStrictEqual(modes(), [["write-video-note", undefined, "# 视频 A"], ["write-video-note", "ai", "# 视频 A"]]);
-        assert.deepStrictEqual([reply, messages.at(-1)], [undefined, "已更新 AI 问答：p.md"]);
+        assert.deepStrictEqual({ ...reply }, { ok: true, text: "已更新 AI 问答：p.md" });
       }
+      // J10: the result is the reply's (and the page's), never the popup's status line the next popup shows again.
+      assert.deepStrictEqual(messages, [], "写入 Obsidian writes nothing into the popup's status");
     }
     // G3: the note goes with its subtitle state, which the background's result starts with.
     [sent, messages, choice] = [[], [], ""];
@@ -676,7 +677,8 @@ const settle = async () => {
     state.subtitleFailure = "";
     // A failed write answers the popup and the side panel with the reason and code, not a success.
     t.sendRuntimeMessage = async () => ({ ok: false, error: t.MdgErrors.TEXT.obsidianDown, code: "OBSIDIAN_DOWN" });
-    assert.deepStrictEqual({ ...(await t.sendToObsidian()) }, { ok: false, error: t.MdgErrors.TEXT.obsidianDown, code: "OBSIDIAN_DOWN" });
+    assert.deepStrictEqual({ ...(await t.sendToObsidian()) }, { ok: false, text: `${t.MdgErrors.TEXT.obsidianFailed}：${t.MdgErrors.TEXT.obsidianDown}`, error: t.MdgErrors.TEXT.obsidianDown, code: "OBSIDIAN_DOWN" });
+    assert.deepStrictEqual(messages, []);
     Object.assign(t, saved);
   }
 

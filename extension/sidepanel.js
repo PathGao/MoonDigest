@@ -1727,13 +1727,13 @@ async function autoSyncConversation(conversationId) {
   } catch (error) {
     // Not set up or a wrong key: 去设置 before 重试, like a manual write; a closed Obsidian gets 重试 only.
     const settings = error?.action === "settings" ? () => chrome.runtime.openOptionsPage() : null;
-    showSyncStatus(`写入 Obsidian 失败：${getErrorMessage(error)}`, { retry: () => autoSyncConversation(conversationId), settings, error: true });
+    showSyncStatus(`${MdgErrors.TEXT.obsidianFailed}：${getErrorMessage(error)}`, { retry: () => autoSyncConversation(conversationId), settings, error: true });
   }
 }
 
 // A failed manual write is red; a wrong key opens the settings page, as for 未配置 (a closed Obsidian does not).
 function showObsidianFailure(error) {
-  showConversationContextNotice(`写入 Obsidian 失败：${getErrorMessage(error)}`, 4000, { error: true });
+  showConversationContextNotice(`${MdgErrors.TEXT.obsidianFailed}：${getErrorMessage(error)}`, 4000, { error: true });
   if (error?.action === "settings") chrome.runtime.openOptionsPage?.();
 }
 

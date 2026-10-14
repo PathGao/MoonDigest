@@ -264,7 +264,7 @@ async function saveToObsidian(group) {
     if (!resp?.ok) throw MdgErrors.fromResp(resp, MdgErrors.TEXT.obsidianWriteFailed);
     setStatus(resp.text);
   } catch (error) {
-    setStatus(`写入 Obsidian 失败：${error?.message || error}`, true);
+    setStatus(`${MdgErrors.TEXT.obsidianFailed}：${error?.message || error}`, true);
     // Not set up or a wrong key: the settings page. A closed Obsidian only gets the red line.
     if (error?.action === "settings") chrome.runtime.openOptionsPage();
   } finally {

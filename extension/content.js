@@ -480,7 +480,7 @@ function bindRuntimeEvents() {
 
     if (message.type === "popup-send-obsidian") {
       sendToObsidian()
-        .then((failure) => sendResponse({ ok: true, ...failure, payload: getPopupPayload() }))
+        .then((result) => sendResponse({ ok: true, ...result, payload: getPopupPayload() }))
         .catch((error) =>
           sendResponse({ ok: false, error: getErrorMessage(error), payload: getPopupPayload() })
         );
@@ -1304,42 +1304,39 @@ function getPopupPayload() {
 }
 
 // The background (write-video-note) picks the path and writes; this page sends its note and draws the overwrite dialog.
-// Resolves { ok: false, error, code } when the write failed, { written: false } when the existing note was left alone
-// (取消, video switched), nothing otherwise.
+// Resolves { ok, text, written?, error?, code? }: text is the result for the popup to show (ok: false is red), written:
+// false when the existing note was left alone (取消, video switched); nothing when Obsidian is off. The result never goes
+// into the popup's status (setMessage): answering the dialog closes the popup, so from then on it shows on the page only.
 async function sendToObsidian() {
   state.settings = await getSettings();
   if (!state.settings.obsidianEnabled) {
     return;
   }
   await refreshDerivedContent();
+  // The popup disables 写入 Obsidian without a note; the note can still go when the video changes meanwhile.
   if (!state.markdown) {
-    setMessage(MdgErrors.TEXT.noNoteYet);
-    return;
+    return { ok: false, text: MdgErrors.TEXT.noNoteYet };
   }
 
   // Taken before the overwrite dialog: autoplay or a link can change the video (and reset state) while it is open.
   const clip = computeCurrentClipSignature();
   const ref = { site: state.site, videoId: state.videoId, cid: state.cid, pageIndex: state.pageIndex, pageCount: state.pageCount, pageTitle: state.pageTitle, title: state.title, author: state.author, uploadDate: state.uploadDate, url: cleanVideoUrl() };
   const request = { type: "write-video-note", ref, page: { markdown: state.markdown, cover: state.cover, warning: MdgNote.noteSubtitleWarning(state.subtitleWarning, state) } };
-  // Answering the dialog closes the popup, so after it progress and results also show on the page.
   let onPage = false;
   const report = (text, ok) => {
-    setMessage(text);
     if (onPage) setReadingNotice(text, { hideMs: ok ? 3000 : 0, error: !ok });
+    return { ok, text };
   };
   try {
     let resp = await sendRuntimeMessage(request);
     if (resp?.ok && resp.ask) {
       const mode = await confirmOverwriteNote(resp.path, { hasAiSection: resp.hasAiSection });
       if (!mode) {
-        setMessage(MdgErrors.TEXT.obsidianCancelled);
-        return { written: false };
+        return { ok: true, written: false, text: MdgErrors.TEXT.obsidianCancelled };
       }
       onPage = true;
       if (computeCurrentClipSignature() !== clip) {
-        setMessage(MdgErrors.TEXT.obsidianVideoSwitched);
-        setReadingNotice(MdgErrors.TEXT.obsidianVideoSwitched);
-        return { written: false };
+        return { ...report(MdgErrors.TEXT.obsidianVideoSwitched, true), written: false };
       }
       setReadingNotice("正在写入 Obsidian…", { busy: true });
       resp = await sendRuntimeMessage({ ...request, mode });
@@ -1347,16 +1344,14 @@ async function sendToObsidian() {
     if (!resp?.ok) {
       throw MdgErrors.fromResp(resp, MdgErrors.TEXT.obsidianWriteFailed);
     }
-    report(resp.text, true);
+    return report(resp.text, true);
   } catch (error) {
     if (MdgErrors.reloaded(error)) {
-      report(MdgErrors.TEXT.reloaded);
-      return;
+      return report(MdgErrors.TEXT.reloaded, false);
     }
-    report(`写入 Obsidian 失败：${getErrorMessage(error)}`);
     // Not set up or a wrong key: the settings page. A closed Obsidian only gets the red line.
     if (error.action === "settings") requestOpenOptions();
-    return { ok: false, error: getErrorMessage(error), code: error.cause?.code };
+    return { ...report(`${MdgErrors.TEXT.obsidianFailed}：${getErrorMessage(error)}`, false), error: getErrorMessage(error), code: error.cause?.code };
   }
 }
 

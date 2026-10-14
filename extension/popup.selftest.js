@@ -106,6 +106,13 @@ setTimeout(() =>
     // I10: the content script reads only the track's url.
     assert.deepStrictEqual({ ...picked }, { type: "popup-select-subtitle", url: "u" });
     assert.strictEqual(ctx.el.status.textContent, `${T.subtitleSwitchFailed}：网络断了`);
+    // J10: 写入 Obsidian's result comes in the reply (the page keeps no status line of it); a lost message is a failure.
+    ctx.sendToContent = async () => ({ ok: true, text: "已写入 Obsidian：p.md", payload: { status: "读取完成。" } });
+    await ctx.el.sendBtn.on.click();
+    assert.strictEqual(ctx.el.status.textContent, "已写入 Obsidian：p.md");
+    ctx.sendToContent = async () => ({ ok: false, error: "网络断了" });
+    await ctx.el.sendBtn.on.click();
+    assert.strictEqual(ctx.el.status.textContent, `${T.obsidianFailed}：网络断了`);
     // G5: 专注模式 that did not start reads as on the video page: TEXT.readerStartFailed and the background's reason.
     Object.assign(ctx, { isSupportedSubtitlePage: () => true, sendToContent: async () => ({ ok: true }), sendToRuntime: async () => ({ ok: false, error: "视频页没有回应" }) });
     await ctx.el.readingViewBtn.on.click();

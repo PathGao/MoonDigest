@@ -109,10 +109,10 @@ function bindEvents() {
     setStatus("正在写入 Obsidian…", false, true);
     setBusy(el.sendBtn, true, "写入中…");
     const resp = await sendToContent({ type: "popup-send-obsidian" }).finally(() => setBusy(el.sendBtn, false));
-    if (!resp?.ok) {
-      setStatus(`写入 Obsidian 失败：${resp?.error || "未知错误"}`, true);
-    }
-    render(resp?.payload || latestPayload, { preserveStatus: !resp?.ok });
+    // The page answers with the result's words (text); without them the message never reached it.
+    const text = resp?.text || (resp?.ok ? "" : `${MdgErrors.TEXT.obsidianFailed}：${resp?.error || "未知错误"}`);
+    if (text) setStatus(text, !resp?.ok);
+    render(resp?.payload || latestPayload, { preserveStatus: Boolean(text) });
   });
 
   el.readingViewBtn?.addEventListener("click", async () => {

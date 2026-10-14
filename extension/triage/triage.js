@@ -3803,7 +3803,7 @@ async function exportDigest(how) {
   } else {
     const r = await send({ type: "triage-export", filename, markdown });
     setBusy(el.writeRunBtn, false);
-    el.writeProgress.textContent = r.ok ? r.data.text : `写入 Obsidian 失败：${r.error}`;
+    el.writeProgress.textContent = r.ok ? r.data.text : `${MdgErrors.TEXT.obsidianFailed}：${r.error}`;
     el.writeProgress.classList.toggle("fail-text", !r.ok);
     el.writeSettingsBtn.hidden = MdgErrors.action(r.code) !== "settings";
   }
@@ -3917,7 +3917,7 @@ async function runWrite(md = false) {
     failed.length ? `失败 ${failed.length} 篇` : ""
   ].filter(Boolean);
   el.writeProgress.textContent = [
-    obsidian ? `写入 Obsidian 失败：${obsidian.error}。已停止` : run.stopped ? "已停止。" : "完成。",
+    obsidian ? `${MdgErrors.TEXT.obsidianFailed}：${obsidian.error}。已停止` : run.stopped ? "已停止。" : "完成。",
     ...counts,
     indexPath ? `${md ? "文件" : "索引"}：${indexPath}` : ""
   ].filter(Boolean).join(" · ");
@@ -3926,7 +3926,7 @@ async function runWrite(md = false) {
   el.writeSettingsBtn.hidden = !toSettings;
   showFailed();
   // The pill's green line; an Obsidian failure goes to the red banner instead, with 去设置 unless Obsidian is just not running.
-  if (obsidian) showBanner(`写入 Obsidian 失败：${obsidian.error}`, toSettings ? "去设置" : "", () => send({ type: "open-options" }), "obsidian");
+  if (obsidian) showBanner(`${MdgErrors.TEXT.obsidianFailed}：${obsidian.error}`, toSettings ? "去设置" : "", () => send({ type: "open-options" }), "obsidian");
   else S.write.text = `逐个视频笔记${run.stopped ? "已停止" : "完成"}：${counts.join(" · ")}`;
 
   renderWriteScope();

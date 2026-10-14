@@ -45,6 +45,8 @@
     aiEmpty: "AI 平台没有返回回答",
     // A write to Obsidian that failed without the background saying why (video page, side panel, history page).
     obsidianWriteFailed: "Local API 写入失败",
+    // Any failed write to Obsidian, on every entry (popup, video page, side panel, 视频记录, 分拣台); 「：原因」 follows.
+    obsidianFailed: "写入 Obsidian 失败",
     // A dropped connection (fetch's TypeError): the video page, 分拣台's B站 requests, 关注's paused refresh.
     netDown: "网络断了",
     // Asking Chrome or the background to open the side panel failed (popup, video page, 视频记录, 分拣台); 「：原因」 follows.
