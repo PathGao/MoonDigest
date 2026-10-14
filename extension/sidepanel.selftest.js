@@ -479,6 +479,23 @@ const chatOn = (context) => {
     }
   }
 
+  // 快捷追问's 添加: disabled with the reason while the box is empty or the list is full.
+  {
+    const els = vm.runInContext("els", ctx);
+    const prefs = vm.runInContext("aiPrefs", ctx);
+    els.presetInput.value = " ";
+    prefs.aiPresetPrompts = [];
+    vm.runInContext("syncPresetAdd()", ctx);
+    assert.deepStrictEqual([els.presetAddBtn.disabled, els.presetAddBtn.title], [true, "先输入快捷追问"]);
+    els.presetInput.value = "再讲讲";
+    vm.runInContext("syncPresetAdd()", ctx);
+    assert.strictEqual(els.presetAddBtn.disabled, false);
+    prefs.aiPresetPrompts = Array.from({ length: ctx.MdgSettings.MAX_PRESET_PROMPTS }, (_, i) => `q${i}`);
+    vm.runInContext("syncPresetAdd()", ctx);
+    assert.deepStrictEqual([els.presetAddBtn.disabled, els.presetAddBtn.title], [true, `最多 ${ctx.MdgSettings.MAX_PRESET_PROMPTS} 条快捷追问，先删掉一条再添加`]);
+    prefs.aiPresetPrompts = [];
+  }
+
   // Each reply's copy button is named per the 用词表: 复制 Markdown, never a bare 复制.
   assert.ok(page.includes("<span>复制 Markdown</span>") && !page.includes("<span>复制</span>"), "a reply's copy button says 复制 Markdown");
 

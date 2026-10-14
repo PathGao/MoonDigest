@@ -174,6 +174,7 @@ function bindEvents() {
     else void sendMessage();
   });
   els.presetAddBtn.addEventListener("click", addPresetPrompt);
+  els.presetInput.addEventListener("input", syncPresetAdd);
   els.presetInput.addEventListener("keydown", (e) => {
     if (MdgTyping.composing(e)) return;
     if (e.key === "Enter" && !e.shiftKey) {
@@ -788,6 +789,7 @@ function renderPresetPrompts() {
   if (!els.presetList) {
     return;
   }
+  syncPresetAdd();
   const prompts = Array.isArray(aiPrefs.aiPresetPrompts) ? aiPrefs.aiPresetPrompts : [];
   if (!prompts.length) {
     els.presetList.innerHTML = '<span class="sp-preset-empty">还没有快捷追问</span>';
@@ -920,6 +922,7 @@ function togglePresetPopover(event) {
   if (willShow) {
     renderPresetPrompts();
     els.presetInput.value = "";
+    syncPresetAdd();
     els.presetInput.focus();
   }
 }
@@ -1116,18 +1119,22 @@ async function openPreviousVideoUrl(url) {
   await chrome.tabs.update(tab.id, { url: targetUrl }).catch(() => null);
 }
 
+// 添加 is disabled with the reason while the box is empty or the list is full (one past the limit would be cut when
+// saved); Enter follows the same rule, and the typed text stays.
+function presetAddReason() {
+  if (!String(els.presetInput.value || "").trim()) return "先输入快捷追问";
+  const full = (aiPrefs.aiPresetPrompts || []).length >= MdgSettings.MAX_PRESET_PROMPTS;
+  return full ? `最多 ${MdgSettings.MAX_PRESET_PROMPTS} 条快捷追问，先删掉一条再添加` : "";
+}
+const syncPresetAdd = () => setDisabledReason(els.presetAddBtn, presetAddReason());
+
 async function addPresetPrompt() {
-  const text = String(els.presetInput.value || "").trim();
-  if (!text) {
+  if (presetAddReason()) {
     return;
   }
+  const text = String(els.presetInput.value || "").trim();
   const nextPrompts = [...(aiPrefs.aiPresetPrompts || [])];
   if (!nextPrompts.includes(text)) {
-    // One past the limit would be cut when saved; keep the input so the text is not lost.
-    if (nextPrompts.length >= MdgSettings.MAX_PRESET_PROMPTS) {
-      showConversationContextNotice(`最多 ${MdgSettings.MAX_PRESET_PROMPTS} 条快捷追问，先删掉一条再添加。`, 2600);
-      return;
-    }
     nextPrompts.push(text);
   }
   aiPrefs.aiPresetPrompts = nextPrompts;

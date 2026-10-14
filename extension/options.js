@@ -823,15 +823,11 @@ function updateFixedPropertyEmptyState() {
 function renderNoteSectionRows(items) {
   elements.noteSectionsList.innerHTML = "";
   const rows = Array.isArray(items) ? items : [];
-  rows.forEach((item) => addNoteSectionRow(item, { skipLimit: true }));
+  rows.forEach((item) => addNoteSectionRow(item));
   updateNoteSectionEmptyState();
 }
 
-function addNoteSectionRow(item = {}, { skipLimit = false } = {}) {
-  if (!skipLimit && elements.noteSectionsList.children.length >= MdgSettings.MAX_NOTE_SECTIONS) {
-    setStatus(`正文附加段落最多添加 ${MdgSettings.MAX_NOTE_SECTIONS} 个`, true);
-    return;
-  }
+function addNoteSectionRow(item = {}) {
 
   const position = MdgSettings.normalizeNoteSectionPosition(item.position);
   const row = document.createElement("div");
@@ -879,9 +875,11 @@ function addNoteSectionRow(item = {}, { skipLimit = false } = {}) {
   updateNoteSectionEmptyState();
 }
 
+// Also 「+ 添加段落」: disabled with the reason at MAX_NOTE_SECTIONS rows, not clickable only to say so.
 function updateNoteSectionEmptyState() {
-  const hasRows = elements.noteSectionsList.children.length > 0;
-  elements.noteSectionsEmpty.hidden = hasRows;
+  const count = elements.noteSectionsList.children.length;
+  elements.noteSectionsEmpty.hidden = count > 0;
+  MdgErrors.setReason(elements.addNoteSectionBtn, count >= MdgSettings.MAX_NOTE_SECTIONS ? `最多 ${MdgSettings.MAX_NOTE_SECTIONS} 段，先删掉一段再添加` : "");
 }
 
 function collectNoteSectionRows({ includeRow = false } = {}) {

@@ -64,4 +64,19 @@ for (const [typed, shown] of [["150", 100], ["-3", ""], ["", ""], ["42.4", 42]])
 assert.ok(source.includes('elements.seenThreshold.addEventListener("change", () => TriageUi.clampNumber(elements.seenThreshold));'), "a change clamps the box");
 assert.ok(!/seenThreshold\.value = String\((readFormPayload\(\)|payload)\.seenThreshold\)/.test(source), "the default is not written back into the box");
 
+// 「+ 添加段落」 is disabled with the reason at MAX_NOTE_SECTIONS rows, enabled again below it.
+{
+  const attrs = {};
+  const btn = { setAttribute: (k, v) => (attrs[k] = v), removeAttribute: (k) => delete attrs[k] };
+  const list = { children: { length: ctx.MdgSettings.MAX_NOTE_SECTIONS } };
+  const box = vm.createContext({ MdgErrors: ctx.MdgErrors, MdgSettings: ctx.MdgSettings, elements: { noteSectionsList: list, noteSectionsEmpty: {}, addNoteSectionBtn: btn } });
+  vm.runInContext(fn("updateNoteSectionEmptyState"), box);
+  box.updateNoteSectionEmptyState();
+  assert.deepStrictEqual([btn.disabled, btn.title], [true, `最多 ${ctx.MdgSettings.MAX_NOTE_SECTIONS} 段，先删掉一段再添加`]);
+  list.children.length -= 1;
+  box.updateNoteSectionEmptyState();
+  assert.deepStrictEqual([btn.disabled, btn.title], [false, ""]);
+  assert.ok(!fn("addNoteSectionRow").includes("setStatus("), "no toast for a click that could not work");
+}
+
 console.log("options selftest: all passed");
