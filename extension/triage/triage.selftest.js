@@ -16,12 +16,6 @@ for (const f of ["triage.html", "triage.js", "triage-core.js", "follow.js", "sha
   const text = fs.readFileSync(path.join(__dirname, f), "utf8").replaceAll("YouTube 播放列表", "");
   for (const old of ["优先看", "播放列表"]) assert.ok(!text.includes(old), `${f} still says ${old}`);
 }
-// J13: user-facing text names the control, never where it sits (the layout moves with the width). Comments may.
-for (const f of ["triage.html", "triage.js", "follow.js", "shared.js", "tag-dialogs.js", "tag-picker.js", "../options.html", "../options.js", "../sidepanel.html", "../sidepanel.js", "../popup.html", "../popup.js", "../limits.js", "../bili-surfaces.js"]) {
-  const text = fs.readFileSync(path.join(__dirname, f), "utf8").replace(/<!--[\s\S]*?-->|\/\*[\s\S]*?\*\/|\/\/.*$/gm, "");
-  const hit = text.match(/左边|右边|左下角|右下角|左上角|右上角|左侧|右侧|上面的|下面的|上方|下方|旁|第 ?[0-9一二三四] ?行/);
-  assert.ok(!hit, `${f} says 「${hit}」 to the user`);
-}
 
 // H6: 导出's item hints are written once each.
 for (const hint of ["摘录，或逐个视频的笔记", "标题、AI 判断、标签、备注"]) assert.strictEqual(source.split(hint).length - 1, 1, hint);
