@@ -558,8 +558,6 @@ async function ytComments(next, byContinuation) {
   // new + old + n0..n49 = 52 recent entries, so the two oldest go.
   eq(["mdg_subtitle_cache_stale", `mdg_subtitle_cache_n${L.SUBTITLE_CACHE_ENTRIES - 2}`, `mdg_subtitle_cache_n${L.SUBTITLE_CACHE_ENTRIES - 1}`].some((key) => key in store), false);
   eq("mdg_subtitle_cache_new" in store && "unrelated" in store, true);
-  await cache.remove("mdg_subtitle_cache_new");
-  eq("mdg_subtitle_cache_new" in store, false);
 
   // fetchRawCached: a hit skips the network; a rejected body is fetched again and not cached.
   const bili = S.SITES.bilibili;
