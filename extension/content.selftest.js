@@ -257,6 +257,32 @@ const settle = async () => {
     t.stepReader("close");
   }
 
+  // A3: entering 专注模式 joins the read in flight or reads a video not read yet; it never forces a reread of a video
+  // already read without subtitles. Only 刷新 does.
+  {
+    const prev = [t.settledClip, t.waitForVideoMetadata];
+    const forces = [];
+    t.settledClip = async (force) => forces.push(force);
+    t.waitForVideoMetadata = async () => {};
+    state.subtitleBody = [];
+    t.maybeRefreshReaderSubtitleInBackground();
+    await settle();
+    assert.deepStrictEqual(forces, [false], "entering 专注模式 does not force a reread");
+    [t.settledClip, t.waitForVideoMetadata] = prev;
+  }
+
+  // A4: a jump from a 专注模式 subtitle row or chapter keeps a paused video paused, like the side panel's timestamps.
+  {
+    const prev = t.bindReadingViewVideo;
+    let plays = 0;
+    const video = { paused: true, currentTime: 0, play: () => (plays++, Promise.resolve()) };
+    t.bindReadingViewVideo = () => video;
+    t.jumpReadingTarget(42);
+    assert.strictEqual(video.currentTime, 42);
+    assert.strictEqual(plays, 0, "a paused video stays paused after a jump");
+    t.bindReadingViewVideo = prev;
+  }
+
   // The one context message (side panel, player ✦): whatever the timing, it answers with the tab's video, settled,
   // and that video's comments.
   {
@@ -346,6 +372,33 @@ const settle = async () => {
     turns.open();
     await settle();
     assert.deepStrictEqual(state.aiTurns, [], "a storage echo for the old video is dropped");
+  }
+
+  // B2: the popup's 下载 .md takes the note's own name: date prefix by the setting, 分 P like 写入 Obsidian.
+  {
+    const next = { title: "标题", videoId: "BV1", pageCount: 3, pageIndex: 2, pageTitle: "第二集", settings: { ...t.MdgSettings.DEFAULTS, includeDateInFilename: false } };
+    const prev = Object.fromEntries(Object.keys(next).map((k) => [k, state[k]]));
+    Object.assign(state, next);
+    assert.strictEqual(t.getPopupPayload().filename, "标题-P2-第二集.md");
+    Object.assign(state, prev);
+  }
+
+  // A5: a note setting (附带热门评论, 笔记属性, 笔记标签…) changed elsewhere reloads the settings and rebuilds the note, so
+  // the popup's copy and download and the side panel read what 写入 Obsidian would write.
+  {
+    const prev = [t.getSettings, t.refreshDerivedContent];
+    let rebuilt = 0;
+    t.getSettings = async () => ({ ...t.MdgSettings.DEFAULTS, tags: "新标签" });
+    t.refreshDerivedContent = async () => rebuilt++;
+    state.markdown = "md";
+    for (const f of listeners.storage) f({ tags: { newValue: "新标签" } }, "sync");
+    await settle();
+    assert.strictEqual(state.settings.tags, "新标签", "a note setting change reloads the settings");
+    assert.strictEqual(rebuilt, 1, "and rebuilds the note");
+    for (const f of listeners.storage) f({ someoneElsesKey: {} }, "sync");
+    await settle();
+    assert.strictEqual(rebuilt, 1, "a sync key that is not a setting changes nothing");
+    [t.getSettings, t.refreshDerivedContent] = prev;
   }
 
   // A seek from 分拣台 names its video: a frame on another video keeps quiet, so the panel never seeks the wrong one.

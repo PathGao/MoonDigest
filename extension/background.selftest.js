@@ -181,6 +181,12 @@ process.on("exit", (code) => {
   assert.strictEqual(stored.noteFolder, "N");
   assert.strictEqual((await ctx.chrome.storage.local.get("obsidianApiKey")).obsidianApiKey, "k");
 
+  // C17: the saved and read settings go through MdgSettings.normalizeSwitches: a non-boolean keeps a default-on switch on.
+  {
+    const n = ctx.normalizeSyncSettings({ enablePlayerAiQuickAction: "true", includeDateInFilename: 1, includeTimestampInBody: "yes", obsidianEnabled: "true" });
+    assert.deepStrictEqual([n.enablePlayerAiQuickAction, n.includeDateInFilename, n.includeTimestampInBody, n.obsidianEnabled], [true, true, true, false]);
+  }
+
   // 看多少算看完了 (1–100): empty, not a number, 0 or negative is 80; above 100 is 100.
   for (const [input, want] of [[0, 80], [-5, 80], [1, 1], ["150", 100], [42.4, 42], [undefined, 80], ["", 80], ["x", 80]]) {
     assert.strictEqual(ctx.normalizeSyncSettings({ seenThreshold: input }).seenThreshold, want);

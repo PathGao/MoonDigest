@@ -13,6 +13,22 @@ vm.runInContext(read("settings.js"), ctx); // re-injection keeps the first copy
 const S = ctx.MdgSettings;
 const plain = (value) => JSON.parse(JSON.stringify(value));
 
+// C17: every on/off setting by its default: default on stays on unless stored false; default off is on only when stored
+// true. A string "true" from an imported file does not turn a default-on switch off.
+{
+  const switches = Object.keys(S.DEFAULTS).filter((k) => typeof S.DEFAULTS[k] === "boolean");
+  for (const k of ["includeDateInFilename", "includeCoverInNote", "includeTimestampInBody", "enablePlayerAiQuickAction", "obsidianEnabled", "includeHotCommentsInNote"]) {
+    assert.ok(switches.includes(k), k);
+  }
+  const odd = Object.fromEntries(switches.map((k) => [k, "true"]));
+  const out = S.normalizeSwitches({ ...odd, tags: "t" });
+  for (const k of switches) assert.strictEqual(out[k], S.DEFAULTS[k], `${k}: "true" falls back to the default ${S.DEFAULTS[k]}`);
+  assert.strictEqual(out.tags, "t", "other settings pass through");
+  const flipped = S.normalizeSwitches(Object.fromEntries(switches.map((k) => [k, !S.DEFAULTS[k]])));
+  for (const k of switches) assert.strictEqual(flipped[k], !S.DEFAULTS[k], `${k}: a stored boolean is kept`);
+  assert.deepStrictEqual(plain(S.normalizeSwitches({})), plain(Object.fromEntries(switches.map((k) => [k, S.DEFAULTS[k]]))), "missing is the default");
+}
+
 assert.strictEqual(S.normalizeApiKey("  Bearer abc "), "abc");
 assert.strictEqual(S.normalizeApiKey(undefined), "");
 assert.strictEqual(S.normalizeDownloadFormat("txt"), "txt");

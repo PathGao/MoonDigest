@@ -9,7 +9,8 @@ const source = fs.readFileSync(path.join(__dirname, "popup.js"), "utf8").replace
 assert.ok(source.includes("(async () => {})().catch("), "harness strips the page entry point");
 const button = () => {
   const attrs = {};
-  return { disabled: false, title: "", attrs, classList: { toggle() {} }, getAttribute: (k) => attrs[k] ?? null, setAttribute: (k, v) => (attrs[k] = v), removeAttribute: (k) => delete attrs[k] };
+  const on = {};
+  return { disabled: false, title: "", attrs, on, addEventListener: (t, f) => (on[t] = f), classList: { toggle() {} }, getAttribute: (k) => attrs[k] ?? null, setAttribute: (k, v) => (attrs[k] = v), removeAttribute: (k) => delete attrs[k] };
 };
 const ctx = vm.createContext({ document: { getElementById: button } });
 // The scripts popup.html loads before popup.js, read from the page so the test cannot load a different set.
@@ -37,6 +38,33 @@ vm.runInContext("onVideoPage = false", ctx);
 ctx.render({ markdown: "# t", srt: "1", txt: "a" }, { preserveStatus: true });
 assert.deepStrictEqual(new Set(Object.values(state())), new Set(["当前网页不是支持的视频页"]), "a web page's payload does not re-enable the tools");
 vm.runInContext("onVideoPage = true", ctx);
+
+// B2: 下载 .md is named like the note 写入 Obsidian writes (date prefix setting, 分 P): the content script's filename.
+(async () => {
+  const saved = [];
+  ctx.bindEvents();
+  ctx.ensurePayload = async () => ({ title: "标题", markdown: "# t", filename: "2026-10-14-标题-P2-第二集.md" });
+  ctx.MdgDownload = { ...ctx.MdgDownload, text: (name) => saved.push(name) };
+  await ctx.el.mdBtn.on.click();
+  assert.deepStrictEqual(saved, ["2026-10-14-标题-P2-第二集.md"]);
+})().catch((e) => (console.error(e), process.exit(1)));
+
+// B1: opening on a web page reads nothing: no 抓取失败, the status says why, and 刷新 is disabled with that reason.
+(async () => {
+  const fetched = [];
+  Object.assign(ctx, {
+    bindEvents() {},
+    getActiveTab: async () => ({ id: 1, url: "https://example.com/" }),
+    getSettingsFromRuntime: async () => ({}),
+    refreshFromTab: async () => fetched.push(1)
+  });
+  await ctx.init();
+  const why = ctx.MdgErrors.TEXT.notVideoPage;
+  assert.deepStrictEqual(fetched, [], "a web page is not read");
+  assert.strictEqual(ctx.el.status.textContent, why);
+  assert.deepStrictEqual([ctx.el.refreshBtn.disabled, ctx.el.refreshBtn.title], [true, why], "刷新 is disabled and says why");
+  vm.runInContext("onVideoPage = true", ctx);
+})().catch((e) => (console.error(e), process.exit(1)));
 
 // Untrusted text (titles, UP names, comments, AI replies, tag names, paths) stays text: no tag of its own, no way out of
 // a quoted attribute.

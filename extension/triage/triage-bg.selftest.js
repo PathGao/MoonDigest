@@ -256,6 +256,10 @@ assert.throws(() => t.triageParseCommand('{"new_tags":[', cmdItems, cmdTags, {})
     t.fetch = async (url) => ({ ok: true, json: async () => ({ choices: [{ message: { content: url } }] }) });
     const host = async (id) => (await t.triageChat([], 100, false, id)).content.split("/")[2];
     assert.deepStrictEqual([await host("b"), await host(""), await host("gone"), await host("off")], ["b.test", "a.test", "a.test", "a.test"]);
+    // C6: 开启思考 shows by the platform the requests go to, not by the first one.
+    t.loadAiProviders = async () => [{ id: "a", baseUrl: "https://api.openai.com/v1" }, { id: "b", baseUrl: "https://api.deepseek.com/v1" }];
+    const toggle = async (msg) => (await vm.runInContext("TRIAGE_HANDLERS", ctx)["triage-settings-get"](msg)).thinkingToggle;
+    assert.deepStrictEqual([await toggle({ aiProviderId: "b" }), await toggle({}), await toggle({ aiProviderId: "gone" })], [true, false, false]);
   }
   t.loadAiProviders = async () => [{ id: "p", baseUrl: "https://ai.test", model: "m" }];
 
@@ -796,6 +800,17 @@ assert.throws(() => t.triageParseCommand('{"new_tags":[', cmdItems, cmdTags, {})
     await run;
     assert.deepStrictEqual([plain(st.seen_BVh), ended], [[10, T + 350], ["triage-seen-done"]]);
     t.fetch = realFetch;
+    // C14: 观看进度 turned 关 mid-read stops it before the next page (README: 选「关」就不读).
+    t.setTimeout = (f, ms) => realTimeout(f, ms === 5000 ? 0 : ms);
+    const n = urls.length;
+    pages = [page([h("BVi", T + 380, 10)], 30), page([h("BVj", T + 370, 10)], 20), page([h("BVk", T + 360, 10)], 0)];
+    t.fetch = async (url) => ((sync = { seenShow: "off" }), realFetch(url));
+    const stopped = await read({ force: true });
+    t.fetch = realFetch;
+    t.setTimeout = realTimeout;
+    assert.strictEqual(urls.length - n, 1, "no page is read after the switch went off");
+    assert.deepStrictEqual(plain(stopped), { stopped: "off", pages: 1 });
+    sync = { seenShow: "bar" };
   }
 
   // triageListen: its prefix only; unknown types and handler errors answer { ok: false }, the code passed through.

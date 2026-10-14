@@ -144,6 +144,7 @@ function render() {
           </div>
           <div class="entry-actions">
             <button type="button" class="ask" data-act="ask" ${g.context.videoId ? "" : `disabled title="${MdgErrors.TEXT.notVideo}" aria-description="${MdgErrors.TEXT.notVideo}"`}><span class="ai-spark" aria-hidden="true"></span>继续问</button>
+            <button type="button" data-act="copy">复制 Markdown</button>
             <button type="button" data-act="md">下载 .md</button>
             ${!obsidianEnabled ? "" : `<button type="button" data-act="obsidian"${writing.has(g.key) ? " disabled" : ""}><img class="obsidian-mark" src="/icons/obsidian.svg" alt=""> <span class="write-label" data-idle="写入 Obsidian">${writing.has(g.key) ? '<span aria-busy="true">写入中…</span>' : "<span>写入 Obsidian</span>"}</span></button>`}
             ${g.convs.length ? `<button type="button" data-act="delete" class="danger">删除</button>` : `<button type="button" class="danger slot" tabindex="-1" aria-hidden="true" disabled>删除</button>`}
@@ -236,7 +237,7 @@ function downloadGroups(groups) {
     MdgDownload.text(notes[0].filename, notes[0].content);
   } else {
     const body = notes.map((n) => `# ${n.filename.replace(/\.md$/i, "")}\n\n${n.content.replace(/^---\n([\s\S]*?)\n---\n/, "```yaml\n$1\n```\n")}`);
-    MdgDownload.text(`MoonDigest视频记录-${new Date().toISOString().slice(0, 10)}.md`, body.join("\n\n"));
+    MdgDownload.text(`MoonDigest视频记录-${MdgDownload.dateStamp()}.md`, body.join("\n\n"));
   }
   setStatus(`已下载 ${groups.length} 个视频的记录`);
 }
@@ -279,6 +280,11 @@ els.list.addEventListener("click", (event) => {
   if (act === "pick") {
     target.checked ? selected.add(key) : selected.delete(key);
     syncBulk();
+  } else if (act === "copy" && group) {
+    navigator.clipboard.writeText(buildNote(group).content).then(
+      () => setStatus("已复制 Markdown"),
+      (error) => setStatus(`复制失败：${error?.message || "无法访问剪贴板"}`, true)
+    );
   } else if (act === "md" && group) downloadGroups([group]);
   else if (act === "obsidian" && group) void saveToObsidian(group);
   else if (act === "delete") void deleteGroups([key]);
@@ -296,7 +302,7 @@ els.list.addEventListener("click", (event) => {
     setStatus("正在打开侧边栏…");
     chrome.sidePanel.open({ tabId: OWN_TAB?.id }).then(
       () => els.status.textContent === "正在打开侧边栏…" && setStatus(""),
-      (error) => setStatus(`打开侧边栏失败：${error.message}`)
+      (error) => setStatus(`打开侧边栏失败：${error.message}`, true)
     );
   }
 });

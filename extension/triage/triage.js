@@ -357,10 +357,7 @@ function serialStore(fn) {
   return run;
 }
 
-function stamp(d = new Date(), withTime = true) {
-  const day = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
-  return withTime ? `${day}-${pad(d.getHours())}${pad(d.getMinutes())}` : day;
-}
+const stamp = (d = new Date(), withTime = true) => MdgDownload.dateStamp(d, withTime);
 function fmtTime(ts) {
   if (!ts) return "";
   const d = new Date(ts);

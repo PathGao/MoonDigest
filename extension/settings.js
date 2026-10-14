@@ -146,6 +146,16 @@
   const normalizeReaderLineHeight = oneOf("readerLineHeight");
   const normalizeReaderContentWidth = oneOf("readerContentWidth");
 
+  // Every on/off setting (a boolean in DEFAULTS), by its default: default on stays on unless stored false, default off
+  // is on only when stored true. A non-boolean (an imported file's "true") never flips a switch away from its default.
+  function normalizeSwitches(settings) {
+    const out = { ...settings };
+    for (const [k, def] of Object.entries(DEFAULTS)) {
+      if (typeof def === "boolean") out[k] = def ? out[k] !== false : out[k] === true;
+    }
+    return out;
+  }
+
   globalThis.MdgSettings = Object.freeze({
     DEFAULTS,
     LOCAL_DEFAULTS,
@@ -158,6 +168,7 @@
     normalizeSeenShow,
     seenOn,
     intIn,
+    normalizeSwitches,
     normalizeSeenThreshold,
     normalizeApiKey,
     normalizeDownloadFormat,
