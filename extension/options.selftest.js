@@ -134,11 +134,16 @@ assert.ok(!/seenThreshold\.value = String\((readFormPayload\(\)|payload)\.seenTh
   });
   vm.runInContext(fs.readFileSync(path.join(__dirname, "errors.js"), "utf8"), page);
   vm.runInContext([fn("hostPermissionPattern"), fn("showAiProviderStatus"), `async ${fn("testAiProviderRow")}`].join("\n"), page);
+  // L4: the declined permission carries its code, as the background's does.
+  const replies = [];
+  const realText = page.MdgErrors.text;
+  page.MdgErrors = { ...page.MdgErrors, text: (r) => (replies.push(r), realText(r)) };
   const pending = page.testAiProviderRow(row, () => {});
   assert.deepStrictEqual(log, ["ask https://api.example.com/*"], "asked synchronously, inside the click's gesture");
   await pending;
   assert.deepStrictEqual([status.textContent, status.dataset.error, log.length], ["失败：未授权访问 https://api.example.com，授权后重试", "true", 1]);
   assert.strictEqual(status.kids.length, 1, "with a 授权 button");
+  assert.strictEqual(replies[0].code, "AI_ACCESS");
   allow = true;
   await status.kids[0].on.click();
   assert.deepStrictEqual([log.slice(1), status.textContent], [["ask https://api.example.com/*", "ask https://api.example.com/*", "test https://api.example.com/v1"], "连接成功，记得保存设置"]);
