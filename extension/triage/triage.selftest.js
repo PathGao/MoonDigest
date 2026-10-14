@@ -3319,6 +3319,14 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
       await t.saveCriteria();
       assert.deepStrictEqual([asked[0], asked[2]], ["判断标准改了", "按新标准重新粗看下一批 3 个"]);
       assert.ok(asked[1].includes("有 1005 个视频"), asked[1]);
+      // G12: filters hiding them all still ask, with the total and how many are listed; its button is disabled with why.
+      t.S.query = "没有这个词";
+      t.el.criteriaInput = { value: "再改的标准" };
+      asked = null;
+      await t.saveCriteria();
+      assert.deepStrictEqual(plain([asked?.[2], asked?.[3]]), ["按新标准重新粗看", { reason: "当前筛选下没有要重新粗看的视频" }]);
+      assert.ok(asked[1].includes("有 1005 个视频是按旧标准粗看的（当前筛选下列出 0 个）"), asked[1]);
+      t.S.query = "";
       t.askConfirm = realAsk;
       Object.assign(t.S, { tab: "none", titleRes: {}, folderCriteria: {} });
       t.S.coarseFailed.clear();

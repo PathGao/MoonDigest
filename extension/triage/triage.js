@@ -402,13 +402,15 @@ function toast(text, error = false) {
 }
 
 // alone: only the one button (a notice, not a question).
-function askConfirm(title, bodyHtml, okText, { danger = false, alone = false } = {}) {
+// reason: the OK button is disabled with why (only 取消 is left).
+function askConfirm(title, bodyHtml, okText, { danger = false, alone = false, reason = "" } = {}) {
   el.confirmDialog.querySelector("button[value=cancel]").hidden = alone;
   el.confirmTitle.textContent = title;
   el.confirmBody.innerHTML = bodyHtml;
   el.confirmOk.className = danger ? "danger solid" : "primary";
   el.confirmOk.textContent = okText;
   el.confirmOk.setAttribute("aria-label", okText);
+  UI.setReason(el.confirmOk, reason);
   el.confirmDialog.returnValue = "";
   el.confirmDialog.showModal();
   return new Promise((resolve) => {
@@ -680,6 +682,12 @@ const redoCoarseOpen = () => staleCoarse().filter((it) => inTab(it, "coarse") &&
 const redoCoarseList = () => pickBatch(redoCoarseOpen(), coarseBatchSize(), "coarse");
 const redoFineOpen = () => staleFine().filter((it) => inTab(it, "fine") && passFilter(it));
 const redoFineList = () => pickBatch(redoFineOpen(), fineBatchSize(), "fine");
+// 按新标准重新粗看 / 细看's batch, label and why it is disabled: row 3's button and the 「判断标准改了」 dialog's.
+const redoState = (verb, open, cap, tab) => {
+  const batch = pickBatch(open, cap, tab);
+  const why = aiBusyReason() || pickReason(`选中的都不用按新标准重新${verb}`, batch, tab) || (batch.length ? "" : `当前筛选下没有要重新${verb}的视频`);
+  return { batch, label: batchLabel(`按新标准重新${verb}`, batch, open, tab), why };
+};
 // The selection belongs to the open tab (switching tabs clears it). A filter may hide part of it: every action and count
 // takes only what is listed, and the selection bar says how many are hidden.
 const visibleSelected = () => selectedIn(visibleItems());
@@ -1977,9 +1985,8 @@ function renderListHeader(list) {
   // Results made under an older 判断标准 can be redone, only those listed, one batch at a time and the selection first
   // like the step's own button. all: how many the folder has, so the button stays (disabled) while filters hide them.
   const redoBtn = (act, verb, open, cap, all) => {
-    const batch = pickBatch(open, cap, t);
-    const why = aiBusyReason() || pickReason(`选中的都不用按新标准重新${verb}`, batch, t) || (batch.length ? "" : `当前筛选下没有要重新${verb}的视频`);
-    return all ? headBtn(act, batchLabel(`按新标准重新${verb}`, batch, open, t), "", why, "", `这些视频是按旧的判断标准${verb}的`, false, true) : "";
+    const { label, why } = redoState(verb, open, cap, t);
+    return all ? headBtn(act, label, "", why, "", `这些视频是按旧的判断标准${verb}的`, false, true) : "";
   };
   const sel = selectedIn(list).length;
   // A selection that filters hide entirely: the bar keeps its buttons, disabled with why, as 关注's.
@@ -3032,15 +3039,20 @@ async function saveCriteria() {
   setCriteria(S.mediaId, el.criteriaInput.value);
   storeSet(K.folderCriteria, S.folderCriteria);
   render();
-  // The same videos as row 3's 按新标准重新粗看 (listed ones, the selection first, one batch).
-  const list = redoCoarseList();
-  if (!changed || !list.length || runs.get("stage1") || S.group) return;
+  // Asked whenever 粗看完成 has stale ones, filters or not. Its button is row 3's 按新标准重新粗看 (listed ones, the
+  // selection first, one batch), disabled with the same why when that has none.
+  const stale = staleCoarse().length;
+  if (!changed || !stale) return;
+  const open = redoCoarseOpen();
+  const { batch, label, why } = redoState("粗看", open, coarseBatchSize(), "coarse");
+  const shown = open.length < stale ? `（当前筛选下列出 ${open.length} 个）` : "";
   const ok = await askConfirm(
     "判断标准改了",
-    `<p>「粗看完成」里有 ${staleCoarse().length} 个视频是按旧标准粗看的，要按新标准重新粗看吗？</p><p>已细看和已处理的视频不动；细看完成页可以另外按新标准重新细看。</p>`,
-    batchLabel("按新标准重新粗看", list, redoCoarseOpen())
+    `<p>「粗看完成」里有 ${stale} 个视频是按旧标准粗看的${shown}，要按新标准重新粗看吗？</p><p>已细看和已处理的视频不动；细看完成页可以另外按新标准重新细看。</p>`,
+    label,
+    { reason: why }
   );
-  if (ok) runStage1(list, true);
+  if (ok) runStage1(batch, true);
 }
 
 // 所有收藏夹 has no one 判断标准: before a 粗看 or 细看 run it lists each folder the run touches, with its videos and its
