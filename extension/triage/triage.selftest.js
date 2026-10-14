@@ -388,6 +388,10 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     assert.strictEqual(sent.length, sentBefore, "nothing sent");
     assert.ok(/data-refav="BV9"[^>]* disabled title="批量取消收藏还在跑，等它完成"/.test(t.recentUnfavHtml()), t.recentUnfavHtml());
     assert.ok(t.cardHtml(five[2], false, "").includes("正在取消收藏…"), "a video the batch still has to write shows it");
+    // J7: its 保留 is off with the same why, and S (keepOne) says it instead of doing nothing.
+    assert.ok(t.cardHtml(five[2], false, "").includes('aria-label="保留 (S)" disabled title="正在取消收藏…"'), t.cardHtml(five[2], false, ""));
+    t.keepOne("BV43");
+    assert.ok(toasts.at(-1) === "正在取消收藏…" && !t.S.decisions.BV43, toasts.at(-1));
     // G6: 清理 drops the records such a batch writes: row 3's and the card's are disabled with why, and it does nothing.
     {
       const was = [t.S.mediaId, t.S.tab];
@@ -825,9 +829,9 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     await ticks();
     assert.deepStrictEqual(plain(t.activityState()), { text: "字幕细看中 0/1", done: 0, total: 1, act: "group", actLabel: "暂停细看", stopping: false });
     runs.stop("group");
-    assert.deepStrictEqual(plain(t.activityState()), { text: "细看将在当前视频后暂停", done: 0, total: 1, act: "group", actLabel: "暂停中", stopping: true });
+    assert.deepStrictEqual(plain(t.activityState()), { text: "当前视频细看完就暂停", done: 0, total: 1, act: "group", actLabel: "暂停中", stopping: true });
     t.renderStatus();
-    assert.ok(t.el.activity.innerHTML.includes('aria-label="暂停中" disabled title="当前这一步做完就暂停" aria-description="当前这一步做完就暂停">暂停中</button>'), t.el.activity.innerHTML);
+    assert.ok(t.el.activity.innerHTML.includes('aria-label="暂停中" disabled title="当前视频细看完就暂停" aria-description="当前视频细看完就暂停">暂停中</button>'), t.el.activity.innerHTML);
     t.renderListHeader(t.visibleItems());
     assert.ok((t.el.listHeader.innerHTML + t.el.favSel.innerHTML).includes('aria-label="暂停中 0/1" disabled title="当前视频细看完就暂停" aria-description="当前视频细看完就暂停">暂停中 0/1</button>'), (t.el.listHeader.innerHTML + t.el.favSel.innerHTML));
     release();
@@ -835,7 +839,13 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     assert.ok(!t.S.group && t.S.analyses.BV207.status === "done", "the video in flight still lands");
     assert.deepStrictEqual(plain(t.activityState()), { text: "标题粗看中 0/1", done: 0, total: 1, act: "stage1", actLabel: "暂停粗看", stopping: false });
     runs.stop("stage1");
-    assert.deepStrictEqual(plain(t.activityState()), { text: "粗看将在当前批次后暂停", done: 0, total: 1, act: "stage1", actLabel: "暂停中", stopping: true });
+    assert.deepStrictEqual(plain(t.activityState()), { text: "当前批次粗看完就暂停", done: 0, total: 1, act: "stage1", actLabel: "暂停中", stopping: true });
+    // J6: one wording per step for why it waits: the pill's line, its button and row 3's.
+    t.renderStatus();
+    t.S.tab = "none";
+    t.renderListHeader(t.visibleItems());
+    assert.ok(t.el.activity.innerHTML.includes('title="当前批次粗看完就暂停"') && t.el.listHeader.innerHTML.includes('title="当前批次粗看完就暂停"'), t.el.activity.innerHTML);
+    t.S.tab = "coarse";
     release1();
     await stage1;
     delete t.S.analyses.BV207;

@@ -219,8 +219,18 @@ runs.put("aiOther", () => otherAiFolder() && { text: `「${folderName(otherAiFol
 // 观看进度's 30-minute pause on B站 risk control comes from the background (triage_seen_meta); tick() redraws it.
 runs.put("seen", () => S.seenCfg.on && S.seenRead.until > Date.now() && { text: "观看进度", wait: { until: S.seenRead.until, label: THROTTLES.THROTTLED.label } });
 runs.put("seenRead", () => S.seenCfg.on && S.seenRead.busy && S.seenRead.pages && { text: `读观看进度… 已读 ${S.seenRead.pages} 页` });
-// The pill's button per job: [data-head, label, label while it stops (it then waits for the step in flight)].
-const PILL_BTN = { group: ["group", "暂停细看", "暂停中"], stage1: ["stage1", "暂停粗看", "暂停中"], write: ["write", "停止", "停止中"], fav: ["fav", "停止", "停止中"], ai: ["tags", "查看"], proposal: ["tags", "查看"], aiOther: ["aiOther", "查看"] };
+// The pill's button per job: [data-head, label, label while it stops, why it is off then (it waits for the step in
+// flight)]. Row 3's 暂停粗看 / 暂停细看 and the pill's line while pausing use the same words.
+const PILL_BTN = {
+  group: ["group", "暂停细看", "暂停中", "当前视频细看完就暂停"],
+  stage1: ["stage1", "暂停粗看", "暂停中", "当前批次粗看完就暂停"],
+  write: ["write", "停止", "停止中", "当前视频做完就停止"],
+  fav: ["fav", "停止", "停止中", globalThis.TriageUi.WRITE_STOPPING],
+  ai: ["tags", "查看"],
+  proposal: ["tags", "查看"],
+  aiOther: ["aiOther", "查看"]
+};
+const stopWhy = (act) => Object.values(PILL_BTN).find((b) => b[0] === act)?.[3] || "";
 const aiRunning = () => Boolean(runs.get("ai"));
 const writeRunning = () => Boolean(runs.get("write"));
 
@@ -1800,7 +1810,7 @@ function activityState() {
 
 function renderStatus() {
   const a = activityState();
-  UI.setActivity(el.activity, a && { ...a, btn: a.act && { attrs: `data-head="${a.act}"`, label: a.actLabel, reason: a.stopping ? { write: "当前视频做完就停止", fav: UI.WRITE_STOPPING }[a.act] || "当前这一步做完就暂停" : "" } });
+  UI.setActivity(el.activity, a && { ...a, btn: a.act && { attrs: `data-head="${a.act}"`, label: a.actLabel, reason: a.stopping ? stopWhy(a.act) : "" } });
 }
 
 // 观看进度's countdown each second (runs' own waits redraw themselves).
@@ -1973,14 +1983,14 @@ function renderListHeader(list) {
   };
   const groupBtn = (cls) => {
     const g = ownGroup() && runs.get("group");
-    if (g) return headBtn("group", `${g.stopping ? "暂停中" : "暂停细看"} ${g.done}/${g.total}`, "primary", g.stopping ? "当前视频细看完就暂停" : "");
+    if (g) return headBtn("group", `${PILL_BTN.group[g.stopping ? 2 : 1]} ${g.done}/${g.total}`, "primary", g.stopping ? PILL_BTN.group[3] : "");
     const batch = pickBatch(fineOpen(), fineBatchSize(), "coarse");
     const label = groupLabel(batch);
     const none = S.items.some((it) => inTab(it, "coarse") && needsAnalysis(it.bvid)) ? "当前筛选下没有要细看的视频" : "没有要细看的视频";
     return headBtn("group", label, cls, aiBusyReason() || pickReason("选中的都不能字幕细看", batch, "coarse") || (batch.length ? "" : none), "", "", false, true);
   };
   // Pausing waits for the current batch or video; until then the button says so and takes no second click.
-  const stage1Pause = (g = runs.get("stage1")) => headBtn("stage1", `${g.stopping ? "暂停中" : "暂停粗看"} ${g.done}/${g.total}`, "primary", g.stopping ? "当前批次粗看完就暂停" : "");
+  const stage1Pause = (g = runs.get("stage1")) => headBtn("stage1", `${PILL_BTN.stage1[g.stopping ? 2 : 1]} ${g.done}/${g.total}`, "primary", g.stopping ? PILL_BTN.stage1[3] : "");
 
   // Results made under an older 判断标准 can be redone, only those listed, one batch at a time and the selection first
   // like the step's own button. all: how many the folder has, so the button stays (disabled) while filters hide them.
@@ -2198,7 +2208,7 @@ function cardHtml(it, expanded, mark) {
   // The button matching the AI's verdict leads; the other stays plain.
   const keepCls = !decision && v.verdict === "keep" ? "ok solid" : "";
   const unfavCls = !decision && v.verdict === "drop" ? "danger solid" : "";
-  const waiting = fav.state().pending(b); // the B站 write it waits for
+  const waiting = waitingWhy(b); // the B站 write it waits for
   const note = S.notes[b]?.text || "";
   const noteHtml =
     note || S.noteOpen.has(b)
@@ -2236,8 +2246,8 @@ function cardHtml(it, expanded, mark) {
             <button type="button" class="danger" data-clean="${esc(b)}" aria-label="清理 ${esc(it.title)}"${UI.reasonAttrs(favBusyReason())}>清理</button>
           </span>
           <span class="more">${basketBtn}${askBtn}</span>` : `<span class="pair">
-            <button type="button" data-act="keep" class="${keepCls}" aria-label="保留 (S)"${UI.reasonAttrs(decision ? (decision.action === "keep" ? "已经保留了" : "已经取消收藏了") : "", KEEP_TIP)}>保留<kbd class="key">S</kbd></button>
-            ${waiting ? `<button type="button" aria-busy="true" disabled>正在${waiting}…</button>` : `<button type="button" data-act="unfav" class="${unfavCls}" aria-label="取消收藏 (D)"${UI.reasonAttrs(decision?.action === "unfav" ? "已经取消收藏了" : "")}>取消收藏<kbd class="key">D</kbd></button>`}
+            <button type="button" data-act="keep" class="${keepCls}" aria-label="保留 (S)"${UI.reasonAttrs(decision ? (decision.action === "keep" ? "已经保留了" : "已经取消收藏了") : waiting, KEEP_TIP)}>保留<kbd class="key">S</kbd></button>
+            ${waiting ? `<button type="button" aria-busy="true" disabled>${waiting}</button>` : `<button type="button" data-act="unfav" class="${unfavCls}" aria-label="取消收藏 (D)"${UI.reasonAttrs(decision?.action === "unfav" ? "已经取消收藏了" : "")}>取消收藏<kbd class="key">D</kbd></button>`}
           </span>
           <span class="more">
             <button type="button" data-act="tag" aria-label="打标签 (T)">标签<kbd class="key">T</kbd></button>
@@ -2365,9 +2375,15 @@ const saveVideoTags = () => storeSet(K.videoTags, S.videoTags);
 const shortTitle = (it) => (it.title.length > 24 ? `${it.title.slice(0, 24)}…` : it.title);
 
 // S on a card: 保留 belongs to the video, so it shows in every folder.
+// A B站 write this video waits for: 「正在移动…」, "" when none. Its card's 保留 is off with it, and S says it.
+const waitingWhy = (bvid) => {
+  const verb = fav.state().pending(bvid);
+  return verb ? `正在${verb}…` : "";
+};
 function keepOne(bvid) {
   const it = S.itemMap.get(bvid);
-  if (!it || fav.state().pending(bvid)) return;
+  if (!it) return;
+  if (waitingWhy(bvid)) return toast(waitingWhy(bvid), true);
   const prev = S.decisions[bvid];
   if (prev?.action === "keep") return;
   if (prev?.action === "unfav") return toast("这个视频已取消收藏，按 U 撤销后再改", true);
@@ -3175,7 +3191,7 @@ async function runStage1(list = stage1Pending(), redo = false) {
     // In its folder the line says when it will pause; elsewhere it names its folder. Its finished line shows only there.
     line(d, t, stopping) {
       const where = runWhere(run);
-      return !where && stopping ? "粗看将在当前批次后暂停" : `${redo && !where ? "按新标准重新粗看" : "标题粗看中"} ${d}/${t}${where}`;
+      return !where && stopping ? PILL_BTN.stage1[3] : `${redo && !where ? "按新标准重新粗看" : "标题粗看中"} ${d}/${t}${where}`;
     },
     finished: (d) => (d && !runWhere(run) ? `${redo ? "按新标准重新粗看" : "标题粗看"}完成 ${d} 个` : ""),
     next() {
@@ -3265,7 +3281,7 @@ async function runGroup() {
     alive: () => S.group === group,
     line(d, t, stopping) {
       const where = runWhere(group);
-      return !where && stopping ? "细看将在当前视频后暂停" : `${group.redo && !where ? "按新标准重新细看" : "字幕细看中"} ${d}/${t}${where}`;
+      return !where && stopping ? PILL_BTN.group[3] : `${group.redo && !where ? "按新标准重新细看" : "字幕细看中"} ${d}/${t}${where}`;
     },
     finished: (d) => (d && !runWhere(group) ? `${group.redo ? "按新标准重新细看" : "字幕细看"}完成 ${d} 个` : ""),
     next() {
