@@ -911,14 +911,13 @@ function followSeen(changes) {
   }
   if (hit && S.seenCfg.on) render();
 }
-// Percent watched: the history's, else 稍后再看's own progress; null with no record or with the setting off.
-function seenPercentOf(it) {
-  if (!S.seenCfg.on) return null;
-  const h = S.seenPct[it.bvid]?.[0];
-  if (h) return h;
+// 稍后再看's own progress (seconds, or -1 once finished) as a percent; null without one.
+function toviewPercent(it) {
   if (it.seen == null || it.seen === 0) return null;
   return it.seen < 0 ? 100 : it.duration > 0 ? Math.min(100, Math.round((it.seen / it.duration) * 100)) : null;
 }
+// Percent watched: the history's, else 稍后再看's own progress; null with no record or with the setting off.
+const seenPercentOf = (it) => (S.seenCfg.on ? S.seenPct[it.bvid]?.[0] || toviewPercent(it) : null);
 // 看完了: the history says at least the set share was watched (only while that mark is shown).
 const isFinished = (it) => S.seenCfg.mark && (seenPercentOf(it) ?? 0) >= S.seenCfg.threshold;
 // The cover with its progress bar and, once 看完了, the corner tag or the veil (html[data-seen-style] picks one).
@@ -1028,11 +1027,10 @@ async function loadIncluded() {
   return included;
 }
 
-// 稍后再看 says how far each video was watched on Bilibili: seconds, or -1 once finished.
+// With 观看进度 off, the meta line still says how far 稍后再看 says each video was watched, in the covers' words.
 function seenText(it) {
-  if (S.seenCfg.on || it.seen == null || it.seen === 0) return "";
-  if (it.seen < 0) return "看完了";
-  return it.duration > 0 ? `看到 ${Math.min(99, Math.max(1, Math.round((it.seen / it.duration) * 100)))}%` : "";
+  const p = S.seenCfg.on ? null : toviewPercent(it);
+  return p ? seenWords(p, false) : "";
 }
 
 // 「（p/P 页）」 while a folder of more than one page (40 videos each, the most Bilibili allows) loads.

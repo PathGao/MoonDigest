@@ -925,10 +925,10 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   assert.strictEqual(t.activityState(), null);
   // 稍后再看 progress: seconds watched, -1 once finished, 0 or missing for not started.
   assert.strictEqual(t.seenText({ seen: 98, duration: 768 }), "看到 13%");
-  assert.strictEqual(t.seenText({ seen: -1, duration: 768 }), "看完了");
+  assert.strictEqual(t.seenText({ seen: -1, duration: 768 }), "✓ 看完了");
   assert.strictEqual(t.seenText({ seen: 0, duration: 768 }), "");
   assert.strictEqual(t.seenText({ duration: 768 }), "");
-  assert.strictEqual(t.seenText({ seen: 767, duration: 768 }), "看到 99%", "unfinished never reads 100%");
+  assert.strictEqual(t.seenText({ seen: 767, duration: 768 }), "✓ 看完了", "the covers' percent and words (seenPercentOf, seenWords)");
   // Results remember their 判断标准; after it changes, the old ones are offered for a redo. Unstamped ones count as current.
   const savedTitles = t.S.titleRes;
   const savedAnalyses = t.S.analyses;
