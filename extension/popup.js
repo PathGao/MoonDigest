@@ -86,7 +86,7 @@ function bindEvents() {
     const content =
       format === "txt" ? payload?.txt || payload?.subtitlePreview || "" : payload?.srt || "";
     if (!content) {
-      setStatus("没有可下载字幕", true);
+      setStatus(payload?.subtitleMissing || MdgErrors.subtitleMissing(), true);
       return;
     }
     const safeTitle = sanitizeFileName(payload.title || "video-subtitle");
@@ -109,10 +109,10 @@ function bindEvents() {
     setStatus("正在写入 Obsidian…", false, true);
     setBusy(el.sendBtn, true, "写入中…");
     const resp = await sendToContent({ type: "popup-send-obsidian" }).finally(() => setBusy(el.sendBtn, false));
-    if (!resp?.ok) {
-      setStatus(`写入 Obsidian 失败：${resp?.error || "未知错误"}`, true);
-    }
-    render(resp?.payload || latestPayload, { preserveStatus: !resp?.ok });
+    // The page answers with the result's words (text); without them the message never reached it.
+    const text = resp?.text || (resp?.ok ? "" : `${MdgErrors.TEXT.obsidianFailed}：${resp?.error || "未知错误"}`);
+    if (text) setStatus(text, !resp?.ok);
+    render(resp?.payload || latestPayload, { preserveStatus: Boolean(text) });
   });
 
   el.readingViewBtn?.addEventListener("click", async () => {
@@ -270,7 +270,7 @@ function render(payload, { preserveStatus = false } = {}) {
 function syncTools(payload, onVideoPage = true) {
   const pageReason = onVideoPage ? "" : NOT_VIDEO_PAGE;
   const contentReason = pageReason || (payload && !payload.markdown ? MdgErrors.TEXT.noNoteYet : "");
-  const subtitleReason = pageReason || (payload && !(payload.srt || payload.txt) ? "当前视频没有可下载的字幕" : "");
+  const subtitleReason = pageReason || (payload && !(payload.srt || payload.txt) ? payload.subtitleMissing || MdgErrors.subtitleMissing() : "");
   setDisabledReason(el.readingViewBtn, pageReason);
   // A web page has no video to summarize; no AI platform still leaves it usable (the side panel offers 去设置).
   setDisabledReason(el.summaryBtn, pageReason);
@@ -313,7 +313,7 @@ async function sendToContent(message) {
   const tab = await getActiveTab();
   const tabId = tab?.id || null;
   if (!tabId) {
-    throw new Error("找不到当前标签页");
+    throw new Error(MdgErrors.TEXT.noTab);
   }
 
   try {

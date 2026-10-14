@@ -31,56 +31,12 @@
     }
   }
 
-  function buildConversationContextRef(context) {
-    if (!context || typeof context !== "object") {
-      return null;
-    }
-    return {
-      title: String(context.title || "").trim(),
-      url: String(context.url || "").trim(),
-      author: String(context.author || "").trim(),
-      uploadDate: String(context.uploadDate || "").trim(),
-      // Conversations saved before the site registry carry bvid instead of site/videoId.
-      site: String(context.site || (context.bvid ? "bilibili" : MdgSites.matchSite(context.url)?.id || "")).trim(),
-      videoId: String(context.videoId || context.bvid || MdgSites.parseRef(context.url)?.id || "").trim(),
-      cid: String(context.cid || "").trim(),
-      aid: String(context.aid || "").trim(),
-      pageIndex: Number(context.pageIndex) > 0 ? Number(context.pageIndex) : 1,
-      pageCount: Number(context.pageCount) > 0 ? Number(context.pageCount) : 0,
-      pageTitle: String(context.pageTitle || "").trim(),
-      subtitleLang: String(context.subtitleLang || "").trim(),
-      selectedSubtitleId: String(context.selectedSubtitleId || "").trim(),
-      selectedSubtitleUrl: String(context.selectedSubtitleUrl || "").trim(),
-      isVideoContext: context.isVideoContext !== false
-    };
-  }
+  const buildConversationContextRef = (context) => (context && typeof context === "object" ? MdgSites.contextRef(context) : null);
 
   // Stands in for a video's context until it loads. pending: it is loading, so the panel says so instead of
   // 「这期视频没有字幕」 and the 快捷追问 wait; sending always waits for the full context.
   function buildContextPlaceholder(ref, pending = false) {
-    if (!ref || typeof ref !== "object") {
-      return null;
-    }
-    return {
-      title: String(ref.title || "").trim(),
-      url: String(ref.url || "").trim(),
-      author: String(ref.author || "").trim(),
-      uploadDate: String(ref.uploadDate || "").trim(),
-      site: String(ref.site || "").trim(),
-      videoId: String(ref.videoId || "").trim(),
-      cid: String(ref.cid || "").trim(),
-      aid: String(ref.aid || "").trim(),
-      pageIndex: Number(ref.pageIndex) > 0 ? Number(ref.pageIndex) : 1,
-      pageCount: Number(ref.pageCount) > 0 ? Number(ref.pageCount) : 0,
-      pageTitle: String(ref.pageTitle || "").trim(),
-      subtitleLang: String(ref.subtitleLang || "").trim(),
-      selectedSubtitleId: String(ref.selectedSubtitleId || "").trim(),
-      selectedSubtitleUrl: String(ref.selectedSubtitleUrl || "").trim(),
-      subtitleMarkdown: "",
-      hotComments: [],
-      isVideoContext: ref.isVideoContext !== false,
-      pending
-    };
+    return ref && typeof ref === "object" ? { ...MdgSites.contextRef(ref), subtitleMarkdown: "", hotComments: [], pending } : null;
   }
 
   // A followed video before its subtitles load: the tab URL already names it.
@@ -476,7 +432,7 @@
       // A context load read the active tab: tab is { url, title }, or null when there is none.
       case "TAB_READ": {
         if (!event.tab) {
-          s.live = { ...s.live, tabUrl: "", context: null, key: "", error: "找不到当前标签页。" };
+          s.live = { ...s.live, tabUrl: "", context: null, key: "", error: MdgErrors.TEXT.noTab };
           return [];
         }
         s.live.tabUrl = String(event.tab.url || "").trim();
@@ -627,17 +583,20 @@
       return [];
     }
     const pageIndex = Number(payload.pageIndex) > 0 ? Number(payload.pageIndex) : 1;
+    // 分 P 数: the note's name (P1 of a multi-part video says P1) depends on it, like on the video page.
+    const pageCount = Number(payload.pageCount) > 0 ? Number(payload.pageCount) : Number(contextRef.pageCount) || 0;
     const url = String(payload.url || conversation.contextUrl || contextRef.url || "").trim();
     const ref = {
       ...contextRef,
       url,
       cid: String(payload.cid || contextRef.cid || "").trim(),
       pageIndex,
+      pageCount,
       pageTitle: String(payload.pageTitle || contextRef.pageTitle || "").trim()
     };
     const title = normalizeConversationTitle(conversation.title, conversation.contextTitle, ref, url);
     const contextKey = resolveConversationStorageKey(conversation.contextKey, ref, url);
-    const same = title === conversation.title && url === conversation.contextUrl && contextKey === conversation.contextKey && Number(contextRef.pageIndex || 1) === pageIndex;
+    const same = title === conversation.title && url === conversation.contextUrl && contextKey === conversation.contextKey && Number(contextRef.pageIndex || 1) === pageIndex && Number(contextRef.pageCount || 0) === pageCount;
     const next = same ? { ...conversation, pageHydrated: true } : { ...conversation, pageHydrated: true, title, contextUrl: url, contextKey, contextRef: ref };
     s.saved = normalizeConversations(s.saved.map((item) => (item.id === id ? next : item)));
     if (id === s.conv.id && s.conv.pinned) {

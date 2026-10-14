@@ -237,15 +237,17 @@
   }
 
   // Every B站 read below goes through this, whoever's io it is (the video page's fetch-json proxy or page fetch, the
-  // background's triageBiliGetJson): HTTP 412 (risk control's HTML page, as status), a BILI_RISK_CODES answer, or an
-  // io that already said THROTTLED, all become one THROTTLED error in MdgErrors.TEXT.biliThrottled's words.
+  // background's triageBiliGetJson): HTTP 412 (risk control's HTML page, as status), HTTP 429, a BILI_RISK_CODES answer,
+  // or an io that already said THROTTLED, all become one THROTTLED error in MdgErrors.TEXT.biliThrottled's words. The
+  // HTTP status stays on it (the video page waits once on a subtitle file's 429).
   const biliThrottled = () => Object.assign(new Error(MdgErrors.TEXT.biliThrottled), { code: "THROTTLED" });
   async function biliJson(io, url) {
     let json;
     try {
       json = await io.fetchJson(url);
     } catch (error) {
-      throw error?.status === 412 || error?.code === "THROTTLED" ? biliThrottled() : error;
+      const status = error?.status;
+      throw status === 412 || status === 429 || error?.code === "THROTTLED" ? Object.assign(biliThrottled(), status && { status }) : error;
     }
     if (BILI_RISK_CODES.has(json?.code)) throw biliThrottled();
     return json;
@@ -1364,7 +1366,7 @@
   //      pickPreferredTrack takes it).
   //   2. loadFirstTrack over it. When tracks were listed but none matched (signed URLs expire, B站 sometimes serves
   //      another video's subtitle), the list is read and walked once more; after empty bodies without the PO token.
-  //   3. YouTube only, when nothing matched or the video is gated: the watch page's transcript.
+  //   3. YouTube only, when nothing matched (and no limit) or the video is gated: the watch page's transcript.
   //   4. Still nothing matching: the first mismatched body, used with its check in `mismatch` (the reader shows
   //      MdgNote.subtitleMismatchWarning; it is never cached).
   // A limit with nothing usable throws, so the caller waits and tries again. Any other failure (network, timeout,
@@ -1400,7 +1402,7 @@
         pass = next.track ? next : { ...pass, error: next.error || pass.error, limited: next.limited };
       }
     }
-    if ((!pass.track || pass.mismatch) && site.fetchTranscript && (tracks.length || meta.gate)) {
+    if ((!pass.track || pass.mismatch) && !pass.limited && site.fetchTranscript && (tracks.length || meta.gate)) {
       const transcript = await step(settle(site.fetchTranscript(ref, io)));
       if (transcript.value) {
         const { track } = transcript.value;
@@ -1452,6 +1454,30 @@
     return videoId ? `video:${site}:${videoId}|${cid || ""}` : "";
   }
 
+  // A video context's identity fields, trimmed (the background's write-video-note and the side panel's saved
+  // conversations, its placeholders): the one shape. Conversations saved before the site registry carry bvid instead
+  // of site/videoId.
+  function contextRef(value) {
+    const v = value && typeof value === "object" ? value : {};
+    return {
+      title: String(v.title || "").trim(),
+      url: String(v.url || "").trim(),
+      author: String(v.author || "").trim(),
+      uploadDate: String(v.uploadDate || "").trim(),
+      site: String(v.site || (v.bvid ? "bilibili" : matchSite(v.url)?.id || "")).trim(),
+      videoId: String(v.videoId || v.bvid || parseRef(v.url)?.id || "").trim(),
+      cid: String(v.cid || "").trim(),
+      aid: String(v.aid || "").trim(),
+      pageIndex: Number(v.pageIndex) > 0 ? Number(v.pageIndex) : 1,
+      pageCount: Number(v.pageCount) > 0 ? Number(v.pageCount) : 0,
+      pageTitle: String(v.pageTitle || "").trim(),
+      subtitleLang: String(v.subtitleLang || "").trim(),
+      selectedSubtitleId: String(v.selectedSubtitleId || "").trim(),
+      selectedSubtitleUrl: String(v.selectedSubtitleUrl || "").trim(),
+      isVideoContext: v.isVideoContext !== false
+    };
+  }
+
   globalThis.MdgSites = {
     SITES,
     matchSite,
@@ -1459,6 +1485,7 @@
     cleanUrl,
     isAllowedFetchUrl,
     buildContextKey,
+    contextRef,
     isBiliVideoGone,
     BILI_RISK_CODES,
     cleanComment,

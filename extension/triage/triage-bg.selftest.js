@@ -242,6 +242,10 @@ assert.throws(() => t.triageParseCommand('{"new_tags":[', cmdItems, cmdTags, {})
   await assert.rejects(t.triageChat([], 100), (e) => e.code === "AI_NETWORK" && e.message === "连不上 AI 平台，请检查网络和接口地址");
   t.hostPermissionError = async () => "未授权访问 https://ai.test，授权后重试";
   await assert.rejects(t.triageChat([], 100), (e) => e.code === "AI_ACCESS" && /未授权访问/.test(e.message), "a missing permission keeps its own text, with its code");
+  // K7: an answer cut at the output limit has its own code; 分拣台 matches the code, not the words.
+  t.fetch = async () => ({ ok: true, status: 200, text: async () => JSON.stringify({ choices: [{ message: { content: "" }, finish_reason: "length" }] }), json: async () => ({ choices: [{ message: { content: "" }, finish_reason: "length" }] }) });
+  await assert.rejects(t.triageChat([], 100), (e) => e.code === "AI_TRUNCATED" && e.message === "模型输出被截断");
+  assert.ok(!/截断\/\.test|includes\("截断"\)/.test(fs.readFileSync(path.join(__dirname, "triage.js"), "utf8")), "triage.js matches 截断 by its words; use the code AI_TRUNCATED");
   // A dropped B站 connection says 网络断了, without fetch's English.
   t.fetch = async () => {
     throw new TypeError("Failed to fetch");
@@ -490,18 +494,22 @@ assert.throws(() => t.triageParseCommand('{"new_tags":[', cmdItems, cmdTags, {})
   const emptyList = { code: 0, data: { subtitle: { subtitles: [] } } };
   routes = { ...baseRoutes(), "/x/player/wbi/v2": emptyList };
   assert.strictEqual((await analyze()).source, "meta");
-  assert.ok(prompt.includes("（无可用字幕）\n热门评论：\n1. 评论一"));
+  assert.ok(prompt.includes("视频没有字幕。\n热门评论：\n1. 评论一"));
 
   // Without subtitles, a comment fetch failure does not fail the analysis.
   routes = { ...baseRoutes(), "/x/player/wbi/v2": emptyList, "/reply/main": new Error("network") };
   assert.strictEqual((await analyze()).source, "meta");
-  assert.ok(prompt.includes("（无可用字幕）\n热门评论：\n无"));
+  assert.ok(prompt.includes("视频没有字幕。\n热门评论：\n无"));
 
   // Subtitles hidden from a logged-out user: judged without them, and the result says why (the card shows it).
   routes = { ...baseRoutes(), "/x/player/wbi/v2": { code: 0, data: { subtitle: { subtitles: [] }, need_login_subtitle: true } } };
   assert.deepStrictEqual([(await analyze()).source, (await analyze()).needLogin], ["meta", true]);
+  // L1: the AI hears why, as in the side panel, and that the video may have subtitles after all.
+  assert.ok(prompt.includes("未登录 B站，拿不到字幕。视频本身可能有字幕，不要说视频没有字幕。\n热门评论："), prompt);
   routes = { ...baseRoutes(), [subUrl]: { body: [] } };
   assert.strictEqual((await analyze()).needLogin, undefined, "a bad subtitle is not a login problem");
+  assert.ok(prompt.includes("字幕抓取失败：字幕文件为空。视频本身可能有字幕，不要说视频没有字幕。"));
+  assert.strictEqual(["../background.js", "triage-bg.js"].map((f) => fs.readFileSync(path.join(__dirname, f), "utf8").split("视频本身可能有字幕").length - 1).join(), "0,1", "the reminder is written once (aiSubtitleMissing)");
 
   // A subtitle up to the cap goes in whole; a longer one is sampled down to the cap.
   const line = "一句字幕".repeat(10);

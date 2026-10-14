@@ -526,8 +526,11 @@ const settle = async () => {
     assert.strictEqual(await site.fetchRaw({}, {}), "raw");
     site = t.pageSubtitleSite({ fetchRaw: answers([limited(), limited()]) }, state.fetchRunId);
     await assert.rejects(site.fetchRaw({}, {}), (e) => e.status === 429 && e.message === "字幕接口限流（429），稍后再试");
-    // B站's 429 is its limit, said as THROTTLED.
-    site = t.pageSubtitleSite({ id: "bilibili", fetchRaw: answers([limited(), limited()]) }, state.fetchRunId);
+    // B站's 429 is its limit, said as THROTTLED by sites.js biliJson: waited on once, then passed on as it is.
+    const biliLimited = () => Object.assign(new Error(t.MdgErrors.TEXT.biliThrottled), { code: "THROTTLED", status: 429 });
+    site = t.pageSubtitleSite({ id: "bilibili", fetchRaw: answers([biliLimited(), "raw"]) }, state.fetchRunId);
+    assert.strictEqual(await site.fetchRaw({}, {}), "raw");
+    site = t.pageSubtitleSite({ id: "bilibili", fetchRaw: answers([biliLimited(), biliLimited()]) }, state.fetchRunId);
     await assert.rejects(site.fetchRaw({}, {}), (e) => e.code === "THROTTLED" && e.message === t.MdgErrors.TEXT.biliThrottled);
     site = t.pageSubtitleSite({ id: "bilibili", fetchTracks: answers([{ tracks: [] }, { tracks: ["t"] }]) }, state.fetchRunId);
     assert.deepStrictEqual((await site.fetchTracks()).tracks, ["t"]);
@@ -561,6 +564,8 @@ const settle = async () => {
     assert.deepStrictEqual([state.selectedSubtitleId, state.subtitleBody.length, state.subtitleWarning, state.subtitleFetchState], [".zh", 2, warning, "ready"]);
     // The side panel gets the warning too, and shows it with the reply (background.js buildAiMessages).
     assert.strictEqual(t.buildSidepanelContext().payload.subtitleWarning, warning);
+    // L6: the side panel gets the note it sends the AI, not the subtitle array or the track list (nobody reads them).
+    assert.ok(!["subtitleBody", "subtitleOptions"].some((k) => k in t.buildSidepanelContext().payload));
     // B站's logged-out list: 未登录 is its own state, not a failure reason, and the side panel hears it as such.
     {
       const site = t.currentSite;
@@ -568,7 +573,25 @@ const settle = async () => {
       await t.runRefreshClip();
       const sent = t.buildSidepanelContext().payload;
       assert.deepStrictEqual([state.subtitleFailure, sent.subtitleFailure, sent.subtitleNeedLogin], ["", "", true]);
+      // J9: the last read's mismatch warning is gone; logged in again, 未登录 and the old comments are gone too.
+      assert.strictEqual(state.subtitleWarning, "", "a read without a subtitle keeps no warning");
+      assert.strictEqual(t.getPopupPayload().subtitleMissing, "未登录 B站，拿不到字幕");
       t.currentSite = site;
+      state.hotComments = [{ content: "旧评论" }];
+      await t.runRefreshClip();
+      assert.deepStrictEqual([state.subtitleNeedLogin, state.subtitleFailure, state.hotComments.length], [false, "", 0], "a new read starts clean");
+    }
+    // J11: while a read runs, and after it failed (a limit), the dropdown never says 视频没有字幕.
+    {
+      const was = Object.fromEntries(["subtitleFetchState", "subtitles"].map((k) => [k, state[k]]));
+      state.subtitles = [];
+      for (const [phase, words] of [["loading", "正在加载字幕…"], ["error", t.MdgErrors.TEXT.videoReadFailed]]) {
+        state.subtitleFetchState = phase;
+        const select = {};
+        t.renderSubtitleOptions(select);
+        assert.deepStrictEqual([select.innerHTML, t.getPopupPayload().subtitleMissing], [`<option value="">${words}</option>`, words], phase);
+      }
+      Object.assign(state, was);
     }
     // G1: a limit is no subtitle failure: the read fails (red, 重试), no note or comment read, nothing says 字幕抓取失败.
     {
@@ -641,14 +664,15 @@ const settle = async () => {
       t.location.href = realUrl;
       assert.deepStrictEqual(asked, ["p.md", true]);
       if (switched || !pick) {
-        // The side panel and the popup learn nothing was written.
-        assert.deepStrictEqual([{ ...reply }, modes()], [{ written: false }, [["write-video-note", undefined, "# 视频 A"]]]);
-        assert.strictEqual(messages.at(-1), switched ? t.MdgErrors.TEXT.obsidianVideoSwitched : t.MdgErrors.TEXT.obsidianCancelled);
+        // The popup learns nothing was written.
+        assert.deepStrictEqual([{ ...reply }, modes()], [{ ok: true, written: false, text: switched ? t.MdgErrors.TEXT.obsidianVideoSwitched : t.MdgErrors.TEXT.obsidianCancelled }, [["write-video-note", undefined, "# 视频 A"]]]);
       } else {
         // The same note, taken before the dialog, with the mode; the background's words are shown.
         assert.deepStrictEqual(modes(), [["write-video-note", undefined, "# 视频 A"], ["write-video-note", "ai", "# 视频 A"]]);
-        assert.deepStrictEqual([reply, messages.at(-1)], [undefined, "已更新 AI 问答：p.md"]);
+        assert.deepStrictEqual({ ...reply }, { ok: true, text: "已更新 AI 问答：p.md" });
       }
+      // J10: the result is the reply's (and the page's), never the popup's status line the next popup shows again.
+      assert.deepStrictEqual(messages, [], "写入 Obsidian writes nothing into the popup's status");
     }
     // G3: the note goes with its subtitle state, which the background's result starts with.
     [sent, messages, choice] = [[], [], ""];
@@ -658,7 +682,8 @@ const settle = async () => {
     state.subtitleFailure = "";
     // A failed write answers the popup and the side panel with the reason and code, not a success.
     t.sendRuntimeMessage = async () => ({ ok: false, error: t.MdgErrors.TEXT.obsidianDown, code: "OBSIDIAN_DOWN" });
-    assert.deepStrictEqual({ ...(await t.sendToObsidian()) }, { ok: false, error: t.MdgErrors.TEXT.obsidianDown, code: "OBSIDIAN_DOWN" });
+    assert.deepStrictEqual({ ...(await t.sendToObsidian()) }, { ok: false, text: `${t.MdgErrors.TEXT.obsidianFailed}：${t.MdgErrors.TEXT.obsidianDown}`, error: t.MdgErrors.TEXT.obsidianDown, code: "OBSIDIAN_DOWN" });
+    assert.deepStrictEqual(messages, []);
     Object.assign(t, saved);
   }
 
@@ -716,6 +741,24 @@ const settle = async () => {
     assert.deepStrictEqual(seen, [["notice", t.MdgErrors.TEXT.reloaded, true], ["notice", t.MdgErrors.TEXT.reloaded, true]]);
     Object.assign(t, saved);
     delete t.HTMLButtonElement;
+  }
+  // J2: 专注模式 that does not start from the popup is red on the page, as from the URL or a video change.
+  {
+    const saved = Object.fromEntries(["setReadingNotice", "enterReaderMode", "ensureUiReady", "markReaderMode", "removePlayerAiQuickActionButton"].map((k) => [k, t[k]]));
+    const seen = [];
+    Object.assign(t, { setReadingNotice: (m, o) => seen.push([m, o?.error]), enterReaderMode: async () => Promise.reject(new Error("视频播放器长时间未就绪")), ensureUiReady() {}, markReaderMode() {}, removePlayerAiQuickActionButton() {} });
+    const reply = await new Promise((resolve) => listeners.message.forEach((f) => f({ type: "popup-trigger-reading-view" }, {}, resolve)));
+    await settle();
+    assert.deepStrictEqual([reply.ok, seen], [true, [[`${t.MdgErrors.TEXT.readerStartFailed}：视频播放器长时间未就绪`, true]]]);
+    assert.strictEqual(source.match(/enterReaderMode\(\)\.catch/g).length, 1, "one catch for every entry");
+    Object.assign(t, saved);
+  }
+  // J12: 专注模式's info bar says 发布日期, as everywhere else.
+  {
+    const was = state.uploadDate;
+    state.uploadDate = "2026-10-14";
+    assert.ok(t.buildReadingSummaryItems().some((item) => item.label === "发布日期" && item.value === "2026-10-14"));
+    state.uploadDate = was;
   }
   // D1: every failure notice on the video page is red (error: true), like the popup's.
   for (const m of source.matchAll(/setReadingNotice\((`[^`]*`|"[^"]*")(.{0,60})/g)) {

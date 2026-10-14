@@ -65,12 +65,12 @@ const state = {
     return this.readerPhase === "open";
   },
   readingAutoScroll: true,
-  readingTheme: "light",
-  readingFontScale: "m",
-  readingLetterSpacing: "normal",
-  readingLineHeight: "tight",
-  readingContentWidth: "medium",
-  readingChapterVisible: true,
+  readingTheme: DEFAULT_SETTINGS.readerTheme,
+  readingFontScale: DEFAULT_SETTINGS.readerFontScale,
+  readingLetterSpacing: DEFAULT_SETTINGS.readerLetterSpacing,
+  readingLineHeight: DEFAULT_SETTINGS.readerLineHeight,
+  readingContentWidth: DEFAULT_SETTINGS.readerContentWidth,
+  readingChapterVisible: DEFAULT_SETTINGS.readerChapterVisible,
   readingSettingsExpanded: false,
   readingDescriptionExpanded: false,
   readingActiveSubtitleIndex: -1,
@@ -361,9 +361,7 @@ function init() {
     startPlayerAiQuickActionObserver();
     schedulePlayerAiQuickActionSync();
     if (shouldEnterReaderMode) {
-      enterReaderMode().catch((error) => {
-        setReadingNotice(`${MdgErrors.TEXT.readerStartFailed}：${getErrorMessage(error)}`, { error: true });
-      });
+      startReaderMode();
     }
   });
 }
@@ -480,7 +478,7 @@ function bindRuntimeEvents() {
 
     if (message.type === "popup-send-obsidian") {
       sendToObsidian()
-        .then((failure) => sendResponse({ ok: true, ...failure, payload: getPopupPayload() }))
+        .then((result) => sendResponse({ ok: true, ...result, payload: getPopupPayload() }))
         .catch((error) =>
           sendResponse({ ok: false, error: getErrorMessage(error), payload: getPopupPayload() })
         );
@@ -503,9 +501,7 @@ function bindRuntimeEvents() {
       }
       markReaderMode();
       if (!state.readingViewOpen) {
-        enterReaderMode().catch((error) => {
-          logWarn("[MDG] reading mode trigger failed", error);
-        });
+        startReaderMode();
       }
       sendResponse({ ok: true });
       return false;
@@ -837,9 +833,7 @@ function checkUrlChange() {
   const shouldEnterReaderMode = hasReaderParam(nextUrl);
   if (!state.readingViewOpen && shouldEnterReaderMode) {
     markReaderMode();
-    enterReaderMode().catch((error) => {
-      setReadingNotice(`${MdgErrors.TEXT.readerStartFailed}：${getErrorMessage(error)}`, { error: true });
-    });
+    startReaderMode();
     return;
   }
   if (state.readingViewOpen || shouldEnterReaderMode) {
@@ -931,7 +925,6 @@ function buildSidepanelContext() {
       pageIndex: Number(state.pageIndex) > 0 ? Number(state.pageIndex) : 1,
       pageCount: Number(state.pageCount) > 0 ? Number(state.pageCount) : 0,
       pageTitle: state.pageTitle || "",
-      subtitleBody: body,
       subtitleMarkdown,
       subtitleFailure: state.subtitleFailure,
       subtitleNeedLogin: state.subtitleNeedLogin,
@@ -939,7 +932,6 @@ function buildSidepanelContext() {
       subtitleLang: state.selectedSubtitleLang || "",
       selectedSubtitleId: state.selectedSubtitleId || "",
       selectedSubtitleUrl: state.selectedSubtitleUrl || "",
-      subtitleOptions: state.subtitles || [],
       hotComments: state.hotComments || []
     }
   };
@@ -1003,7 +995,8 @@ async function runRefreshClip() {
   try {
     setMessage("");
     setStatus("正在读取视频信息…");
-    state.subtitleFetchState = "loading";
+    // A read starts clean: the last read's subtitle state and comments must not leak into this one's note.
+    Object.assign(state, { subtitleFetchState: "loading", subtitleFailure: "", subtitleNeedLogin: false, subtitleWarning: "", hotComments: [] });
     if (state.readingViewOpen) {
       renderReadingView();
     }
@@ -1151,11 +1144,8 @@ function pageSubtitleSite(site, runId) {
       await sleep(3000 + Math.random() * 2000);
       ensureRunActive(runId);
       return site.fetchRaw(track, io).catch((error) => {
-        if (error?.status !== 429) throw error;
-        // B站's limit reads as THROTTLED wherever it comes from (MdgErrors.TEXT.biliThrottled).
-        throw site.id === "bilibili"
-          ? Object.assign(new Error(MdgErrors.TEXT.biliThrottled), { code: "THROTTLED" })
-          : Object.assign(new Error("字幕接口限流（429），稍后再试"), { status: 429 });
+        // B站's 429 is THROTTLED already (sites.js biliJson), as on every other entry.
+        throw error?.status === 429 && error.code !== "THROTTLED" ? Object.assign(new Error("字幕接口限流（429），稍后再试"), { status: 429 }) : error;
       });
     }
   };
@@ -1221,11 +1211,25 @@ function subtitleOptionLabel(item) {
   return `${item.label || item.lang || "未命名字幕"}${{ ai: "（AI）", auto: "（自动）" }[item.kind] || ""}`;
 }
 
+// Why no subtitle is shown (专注模式's transcript and dropdown, the popup's dropdown and 下载字幕's reason): the read
+// state first, so a read in progress or a failed one (a limit) never says 视频没有字幕; after a read, MdgErrors.subtitleMissing.
+function noTrackText() {
+  // idle: the video just changed and its fetch has not started yet.
+  if (state.subtitleFetchState === "loading" || state.subtitleFetchState === "idle") {
+    return "正在加载字幕…";
+  }
+  // Only reading the video itself sets error (a subtitle failure is subtitleMissing below).
+  if (state.subtitleFetchState === "error") {
+    return MdgErrors.TEXT.videoReadFailed;
+  }
+  return MdgErrors.subtitleMissing(state);
+}
+
 function renderSubtitleOptions(select) {
   const subtitles = state.subtitles || [];
 
   if (subtitles.length === 0) {
-    select.innerHTML = `<option value="">${escapeHtml(MdgErrors.subtitleMissing(state))}</option>`;
+    select.innerHTML = `<option value="">${escapeHtml(noTrackText())}</option>`;
     select.disabled = true;
     return;
   }
@@ -1280,8 +1284,8 @@ function getPopupPayload() {
     noteWarning: MdgNote.noteSubtitleWarning(state.subtitleWarning, state),
     // 下载 .md: the same name as the note 写入 Obsidian writes (MdgNote.buildNoteFilename).
     filename: MdgNote.buildNoteFilename(state, state.settings || DEFAULT_SETTINGS),
-    // The subtitle dropdown's line when there is no track, as everywhere (MdgErrors.subtitleMissing).
-    subtitleMissing: MdgErrors.subtitleMissing(state),
+    // The subtitle dropdown's line when there is no track, and 下载字幕's reason: the same as 专注模式's (noTrackText).
+    subtitleMissing: noTrackText(),
     srt: state.srt || "",
     txt: state.txt || "",
     subtitleOptions
@@ -1289,42 +1293,39 @@ function getPopupPayload() {
 }
 
 // The background (write-video-note) picks the path and writes; this page sends its note and draws the overwrite dialog.
-// Resolves { ok: false, error, code } when the write failed, { written: false } when the existing note was left alone
-// (取消, video switched), nothing otherwise.
+// Resolves { ok, text, written?, error?, code? }: text is the result for the popup to show (ok: false is red), written:
+// false when the existing note was left alone (取消, video switched); nothing when Obsidian is off. The result never goes
+// into the popup's status (setMessage): answering the dialog closes the popup, so from then on it shows on the page only.
 async function sendToObsidian() {
   state.settings = await getSettings();
   if (!state.settings.obsidianEnabled) {
     return;
   }
   await refreshDerivedContent();
+  // The popup disables 写入 Obsidian without a note; the note can still go when the video changes meanwhile.
   if (!state.markdown) {
-    setMessage(MdgErrors.TEXT.noNoteYet);
-    return;
+    return { ok: false, text: MdgErrors.TEXT.noNoteYet };
   }
 
   // Taken before the overwrite dialog: autoplay or a link can change the video (and reset state) while it is open.
   const clip = computeCurrentClipSignature();
   const ref = { site: state.site, videoId: state.videoId, cid: state.cid, pageIndex: state.pageIndex, pageCount: state.pageCount, pageTitle: state.pageTitle, title: state.title, author: state.author, uploadDate: state.uploadDate, url: cleanVideoUrl() };
   const request = { type: "write-video-note", ref, page: { markdown: state.markdown, cover: state.cover, warning: MdgNote.noteSubtitleWarning(state.subtitleWarning, state) } };
-  // Answering the dialog closes the popup, so after it progress and results also show on the page.
   let onPage = false;
   const report = (text, ok) => {
-    setMessage(text);
     if (onPage) setReadingNotice(text, { hideMs: ok ? 3000 : 0, error: !ok });
+    return { ok, text };
   };
   try {
     let resp = await sendRuntimeMessage(request);
     if (resp?.ok && resp.ask) {
       const mode = await confirmOverwriteNote(resp.path, { hasAiSection: resp.hasAiSection });
       if (!mode) {
-        setMessage(MdgErrors.TEXT.obsidianCancelled);
-        return { written: false };
+        return { ok: true, written: false, text: MdgErrors.TEXT.obsidianCancelled };
       }
       onPage = true;
       if (computeCurrentClipSignature() !== clip) {
-        setMessage(MdgErrors.TEXT.obsidianVideoSwitched);
-        setReadingNotice(MdgErrors.TEXT.obsidianVideoSwitched);
-        return { written: false };
+        return { ...report(MdgErrors.TEXT.obsidianVideoSwitched, true), written: false };
       }
       setReadingNotice("正在写入 Obsidian…", { busy: true });
       resp = await sendRuntimeMessage({ ...request, mode });
@@ -1332,16 +1333,14 @@ async function sendToObsidian() {
     if (!resp?.ok) {
       throw MdgErrors.fromResp(resp, MdgErrors.TEXT.obsidianWriteFailed);
     }
-    report(resp.text, true);
+    return report(resp.text, true);
   } catch (error) {
     if (MdgErrors.reloaded(error)) {
-      report(MdgErrors.TEXT.reloaded);
-      return;
+      return report(MdgErrors.TEXT.reloaded, false);
     }
-    report(`写入 Obsidian 失败：${getErrorMessage(error)}`);
     // Not set up or a wrong key: the settings page. A closed Obsidian only gets the red line.
     if (error.action === "settings") requestOpenOptions();
-    return { ok: false, error: getErrorMessage(error), code: error.cause?.code };
+    return { ...report(`${MdgErrors.TEXT.obsidianFailed}：${getErrorMessage(error)}`, false), error: getErrorMessage(error), code: error.cause?.code };
   }
 }
 
@@ -1451,6 +1450,13 @@ function cleanupReaderFloatingArtifacts(playerHost = state.readingPlayerHost) {
   if (runtimeHost && runtimeHost !== playerHost) {
     dismissReaderMiniPlayer(runtimeHost);
   }
+}
+
+// Every entry into 专注模式 (the URL, a SPA video change, the popup): a failure is red on the page, the same sentence.
+function startReaderMode() {
+  enterReaderMode().catch((error) => {
+    setReadingNotice(`${MdgErrors.TEXT.readerStartFailed}：${getErrorMessage(error)}`, { error: true });
+  });
 }
 
 async function enterReaderMode() {
@@ -1850,15 +1856,8 @@ function renderReadingView() {
 }
 
 function getReadingTranscriptPlaceholderText() {
-  // idle: the video just changed and its fetch has not started yet.
-  if (state.subtitleFetchState === "loading" || state.subtitleFetchState === "idle") {
-    return "正在加载字幕…";
-  }
-  // Only reading the video itself sets error (a subtitle failure is subtitleMissing below).
-  if (state.subtitleFetchState === "error") {
-    return `${MdgErrors.TEXT.videoReadFailed}。`;
-  }
-  return `${MdgErrors.subtitleMissing(state)}。${state.subtitleNeedLogin ? `${MdgErrors.TEXT.subtitleLoginHint}。` : ""}`;
+  const text = noTrackText();
+  return text.endsWith("…") ? text : `${text}。${state.subtitleNeedLogin ? `${MdgErrors.TEXT.subtitleLoginHint}。` : ""}`;
 }
 
 function getReadingTranscriptItems(body = state.subtitleBody) {
@@ -1889,7 +1888,7 @@ function hydrateReaderStateFromSettings(settings = state.settings) {
   state.readingLetterSpacing = MdgSettings.normalizeReaderLetterSpacing(settings?.readerLetterSpacing);
   state.readingLineHeight = MdgSettings.normalizeReaderLineHeight(settings?.readerLineHeight);
   state.readingContentWidth = MdgSettings.normalizeReaderContentWidth(settings?.readerContentWidth);
-  state.readingChapterVisible = settings?.readerChapterVisible !== undefined ? Boolean(settings.readerChapterVisible) : true;
+  state.readingChapterVisible = MdgSettings.normalizeSwitches({ ...settings }).readerChapterVisible;
 }
 
 function applyReadingViewPresentation() {
@@ -2103,7 +2102,7 @@ function buildReadingSummaryItems() {
     items.push({ label: "作者", value: state.author });
   }
   if (state.uploadDate) {
-    items.push({ label: "日期", value: state.uploadDate });
+    items.push({ label: "发布日期", value: state.uploadDate });
   }
   if (Number(state.pageCount) > 1) {
     const pageParts = [`P${Number(state.pageIndex) > 0 ? Number(state.pageIndex) : 1}`];
@@ -2123,7 +2122,7 @@ function updateReaderPreferences(next, { persist = true } = {}) {
   );
   state.readingLineHeight = MdgSettings.normalizeReaderLineHeight(next.readerLineHeight ?? state.readingLineHeight);
   state.readingContentWidth = MdgSettings.normalizeReaderContentWidth(next.readerContentWidth ?? state.readingContentWidth);
-  state.readingChapterVisible = next.readerChapterVisible !== undefined ? Boolean(next.readerChapterVisible) : state.readingChapterVisible;
+  state.readingChapterVisible = MdgSettings.normalizeSwitches({ readerChapterVisible: next.readerChapterVisible ?? state.readingChapterVisible }).readerChapterVisible;
   state.settings = {
     ...state.settings,
     readerTheme: state.readingTheme,

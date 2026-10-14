@@ -528,7 +528,7 @@ async function ytComments(next, byContinuation) {
   eq((await S.SITES.bilibili.fetchTracks(biliRef, biliMeta, loggedOut)).needLogin, true);
   // B站 risk control, whichever io it comes through (HTTP 412 as status, a risk code, a player answer without a subtitle
   // object): THROTTLED in the one sentence, and no fallback request to player/v2 or view.
-  for (const answer of [Object.assign(new Error("HTTP 412"), { status: 412 }), { code: -352, message: "风控校验失败" }, { code: 0, data: {} }]) {
+  for (const answer of [Object.assign(new Error("HTTP 412"), { status: 412 }), Object.assign(new Error("HTTP 429"), { status: 429 }), { code: -352, message: "风控校验失败" }, { code: 0, data: {} }]) {
     const urls = [];
     const io = { fetchJson: async (url) => (urls.push(url), answer instanceof Error ? Promise.reject(answer) : answer) };
     await assert.rejects(S.SITES.bilibili.fetchTracks(biliRef, biliMeta, io), (e) => e.code === "THROTTLED" && e.message === "B站限流，请稍后再试", JSON.stringify(answer));
@@ -538,6 +538,12 @@ async function ytComments(next, byContinuation) {
     await assert.rejects(S.SITES.bilibili.fetchMeta(biliRef, io), (e) => e.code === "THROTTLED");
     eq(urls.map((u) => new URL(u).pathname), ["/x/web-interface/view/detail"]);
   }
+
+  // J1: a subtitle file's 429 (换字幕 reads it alone) is the same limit, with its status kept for the page's one wait.
+  await assert.rejects(
+    S.SITES.bilibili.fetchRaw({ url: "https://aisubtitle.hdslb.com/x.json" }, { fetchJson: async () => Promise.reject(Object.assign(new Error("B站请求失败 HTTP 429"), { status: 429 })) }),
+    (e) => e.code === "THROTTLED" && e.status === 429 && e.message === "B站限流，请稍后再试"
+  );
 
   // Subtitle cache: same key format content.js always wrote; entries hold the raw response.
   const cache = S.subtitleCache;
@@ -654,12 +660,16 @@ async function ytComments(next, byContinuation) {
   eq([got.track, got.failure, got.needLogin], [null, "", true]);
   eq((await load(fake(two, { a: fit }))).needLogin, false);
 
-  // YouTube's transcript, when the tracks are limited or all fail, or the video is gated; a failed transcript leaves
-  // the gate as the reason.
+  // YouTube's transcript, when the tracks all fail or the video is gated; a failed transcript leaves the gate as the
+  // reason. L11: a limit stops there too, no transcript request.
   const transcript = { track: { id: "transcript", url: "https://x/t", label: "文字稿" }, raw: fit };
-  f = fake(two, { a: limit() }, { fetchTranscript: async () => transcript });
+  let transcripts = 0;
+  f = fake(two, { a: new Error("请求失败：404"), b: new Error("请求失败：404") }, { fetchTranscript: async () => (transcripts++, transcript) });
   got = await load(f);
   eq([got.track.id, got.tracks.map((t) => t.id)], ["transcript", ["transcript", "a", "b"]]);
+  f = fake(two, { a: limit() }, { fetchTranscript: async () => (transcripts++, transcript) });
+  await assert.rejects(load(f), (e) => e.status === 429);
+  eq(transcripts, 1, "a limit asks for no transcript");
   f = fake([], {}, { fetchTranscript: async () => transcript });
   eq((await load(f, {}, { fresh: true }, { duration: 100, gate: "要登录" })).track.id, "transcript");
   f = fake([], {}, { fetchTranscript: async () => Promise.reject(new Error("没有文字稿")) });
@@ -687,6 +697,16 @@ async function ytComments(next, byContinuation) {
     assert.ok(!src.includes(`[\\\\/:*?"<>|#^[\\]]`), `${f} cleans a file name itself; use MdgSites.sanitizeFileName`);
   }
   assert.strictEqual(fs.readFileSync(path.join(__dirname, "content.js"), "utf8").split("没有找到可联动的视频播放器").length, 2, "content.js writes the no-player sentence once");
+  // L8: a video context's fields have one shape (the background, the side panel's conversations and placeholders).
+  eq(S.contextRef({ bvid: "BV1xx411c7mD", pageIndex: "2", title: " T " }), {
+    title: "T", url: "", author: "", uploadDate: "", site: "bilibili", videoId: "BV1xx411c7mD", cid: "", aid: "", pageIndex: 2, pageCount: 0,
+    pageTitle: "", subtitleLang: "", selectedSubtitleId: "", selectedSubtitleUrl: "", isVideoContext: true
+  });
+  eq(S.contextRef(null).pageIndex, 1);
+  for (const f of ["background.js", "obsidian.js", "sidepanel-state.js", "sidepanel.js"]) {
+    assert.ok(!/selectedSubtitleUrl: String\(\w+\.selectedSubtitleUrl/.test(fs.readFileSync(path.join(__dirname, f), "utf8")), `${f} shapes a video context itself; use MdgSites.contextRef`);
+  }
+
   console.log("sites selftest ok");
 })().catch((error) => {
   console.error(error);

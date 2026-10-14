@@ -55,7 +55,8 @@ async function ensureReaderContentReady(tabId) {
     return;
   }
 
-  throw new Error("扩展脚本未能和当前页面同步，请刷新网页重试");
+  // The reason only: the popup says MdgErrors.TEXT.readerStartFailed in front of it.
+  throw new Error("扩展脚本未能和当前页面同步");
 }
 
 async function sleep(ms) {
@@ -137,7 +138,7 @@ async function getAiSidepanelState(tabId, { refresh = false, frameId = 0, videoI
 
   const tab = await chrome.tabs.get(tabId).catch(() => null);
   if (!tab?.id) {
-    throw new Error("找不到当前标签页。");
+    throw new Error(MdgErrors.TEXT.noTab);
   }
 
   const inViewer = frameId > 0;
@@ -148,7 +149,6 @@ async function getAiSidepanelState(tabId, { refresh = false, frameId = 0, videoI
       author: "",
       uploadDate: "",
       subtitleMarkdown: "",
-      subtitleBody: [],
       hotComments: [],
       isVideoContext: false
     };
@@ -179,29 +179,6 @@ async function openAiSidepanelForTab(tabId) {
 
   throw new Error("当前浏览器不支持扩展侧边栏");
 }
-
-function normalizeAiContextRef(ref) {
-  const value = ref && typeof ref === "object" ? ref : {};
-  return {
-    title: String(value.title || "").trim(),
-    url: String(value.url || "").trim(),
-    author: String(value.author || "").trim(),
-    uploadDate: String(value.uploadDate || "").trim(),
-    // Conversations saved before the site registry carry bvid instead of site/videoId.
-    site: String(value.site || (value.bvid ? "bilibili" : MdgSites.matchSite(value.url)?.id || "")).trim(),
-    videoId: String(value.videoId || value.bvid || MdgSites.parseRef(value.url)?.id || "").trim(),
-    cid: String(value.cid || "").trim(),
-    aid: String(value.aid || "").trim(),
-    pageIndex: Number(value.pageIndex) > 0 ? Number(value.pageIndex) : 1,
-    pageCount: Number(value.pageCount) > 0 ? Number(value.pageCount) : 0,
-    pageTitle: String(value.pageTitle || "").trim(),
-    subtitleLang: String(value.subtitleLang || "").trim(),
-    selectedSubtitleId: String(value.selectedSubtitleId || "").trim(),
-    selectedSubtitleUrl: String(value.selectedSubtitleUrl || "").trim(),
-    isVideoContext: value.isVideoContext !== false
-  };
-}
-
 
 const FETCH_TIMEOUT_MS = 15000;
 
@@ -243,7 +220,7 @@ function findTabForRef(ref) {
 }
 
 async function resolveAiSidepanelContext(contextRef) {
-  const ref = normalizeAiContextRef(contextRef);
+  const ref = MdgSites.contextRef(contextRef);
   const videoRef = ref.isVideoContext ? refFromAiContext(ref) : null;
   if (!videoRef) {
     return {
@@ -252,7 +229,6 @@ async function resolveAiSidepanelContext(contextRef) {
       author: ref.author,
       uploadDate: ref.uploadDate,
       subtitleMarkdown: "",
-      subtitleBody: [],
       hotComments: [],
       isVideoContext: false
     };
@@ -279,7 +255,7 @@ async function resolveAiSidepanelContext(contextRef) {
   const found = await MdgSites.loadSubtitle(site, videoRef, meta, io, {
     prefer: { previousId: ref.selectedSubtitleId, previousUrl: ref.selectedSubtitleUrl, previousLang: ref.subtitleLang }
   });
-  const { track, body, bundle, tracks } = found;
+  const { track, body, bundle } = found;
   const subtitleWarning = found.mismatch ? MdgNote.subtitleMismatchWarning(found.mismatch) : "";
 
   const hotComments = site.fetchComments ? await site.fetchComments(videoRef, meta, io).catch(() => []) : [];
@@ -305,15 +281,9 @@ async function resolveAiSidepanelContext(contextRef) {
     subtitleLang,
     selectedSubtitleId: String(track?.id || "").trim(),
     selectedSubtitleUrl: String(track?.url || "").trim(),
-    subtitleBody: body,
     subtitleWarning,
     subtitleFailure: found.failure,
     subtitleMarkdown: body.length ? MdgNote.buildAiContext(noteMeta, body, settings, noteRef) : "",
-    subtitleOptions: tracks.map((item) => ({
-      id: String(item.id || "").trim(),
-      url: String(item.url || "").trim(),
-      lang: String(item.label || item.lang || "").trim()
-    })),
     // No list because B站 wants a login: the side panel says so instead of 没有字幕, like on the video page.
     subtitleNeedLogin: found.needLogin,
     hotComments,
@@ -322,7 +292,7 @@ async function resolveAiSidepanelContext(contextRef) {
 }
 
 async function resolveAiSidepanelPageRef(contextRef) {
-  const ref = normalizeAiContextRef(contextRef);
+  const ref = MdgSites.contextRef(contextRef);
   const videoRef = ref.isVideoContext ? refFromAiContext(ref) : null;
   const site = videoRef ? MdgSites.SITES[videoRef.site] : null;
   const fallback = {
@@ -421,7 +391,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.type === "player-ai-quick-action") {
     const tabId = Number(message.tabId || sender?.tab?.id || 0) || 0;
     if (!tabId) {
-      sendResponse({ ok: false, error: "找不到当前标签页。" });
+      sendResponse({ ok: false, error: MdgErrors.TEXT.noTab });
       return false;
     }
 
@@ -619,7 +589,7 @@ chrome.runtime.onConnect.addListener((port) => {
   port.onMessage.addListener(async (msg) => {
     if (!msg) return;
     if (msg.action === "stop") {
-      abortActiveRequest({ type: "stopped", reason: "已停止生成" });
+      abortActiveRequest({ type: "stopped", reason: MdgErrors.TEXT.aiStopped });
       return;
     }
     if (msg.action !== "chat") return;
@@ -776,11 +746,16 @@ const SETTINGS_FILE_VERSION = 1;
 const { triageIncludedFolders: FOLDERS_KEY, triageFolderCriteria: CRITERIA_KEY } = MdgLimits.KEYS;
 const LOCAL_SETTING_KEYS = [FOLDERS_KEY, CRITERIA_KEY];
 
+// API keys stay on this machine (chrome.storage.local): neither the settings file nor sync carries one, whether the
+// settings come from sync (export) or from a file (import), and a platform's own apiKey goes too.
+function withoutApiKeys({ obsidianApiKey, [AI_PROVIDER_KEYS_STORAGE]: keys, ...settings }) {
+  if (Array.isArray(settings.aiProviders)) settings.aiProviders = settings.aiProviders.map((p) => (p && typeof p === "object" ? (({ apiKey, ...rest }) => rest)(p) : p));
+  return settings;
+}
+
 async function exportSettings() {
-  const [settings, local] = await Promise.all([chrome.storage.sync.get(null), chrome.storage.local.get(LOCAL_SETTING_KEYS)]);
-  delete settings.obsidianApiKey;
-  delete settings[AI_PROVIDER_KEYS_STORAGE];
-  if (Array.isArray(settings.aiProviders)) settings.aiProviders = settings.aiProviders.map(({ apiKey, ...p }) => p);
+  const [synced, local] = await Promise.all([chrome.storage.sync.get(null), chrome.storage.local.get(LOCAL_SETTING_KEYS)]);
+  const settings = withoutApiKeys(synced);
   return {
     app: "moondigest",
     kind: "settings",
@@ -805,7 +780,7 @@ async function importSettings(file) {
     throw new Error("不是 MoonDigest 的设置文件");
   }
   if (!(file.schemaVersion <= SETTINGS_FILE_VERSION)) throw new Error("这个文件来自更新的版本，先更新 MoonDigest 再导入");
-  const { obsidianApiKey, [AI_PROVIDER_KEYS_STORAGE]: keys, ...settings } = file.settings;
+  const settings = withoutApiKeys(file.settings);
   checkSyncItems(settings);
   const current = Object.keys(await chrome.storage.sync.get(null));
   await chrome.storage.sync.set(settings);
@@ -938,11 +913,12 @@ function buildAiMessages({ context, userPrompt, history, systemPrompt }) {
   } else if (subtitle.text) {
     sections.push(`以下是视频的字幕全文：\n\n${subtitle.text}`);
   } else {
-    // The sentence every entry shows (MdgErrors.subtitleMissing); not logged in or failed, the video may have subtitles.
-    const missing = MdgErrors.subtitleMissing({ subtitleNeedLogin: ctx.subtitleNeedLogin, subtitleFailure: String(ctx.subtitleFailure || "").trim() });
+    // The sentence every entry shows; not logged in or failed, the video may have subtitles (aiSubtitleMissing, as 细看).
+    const why = { subtitleNeedLogin: Boolean(ctx.subtitleNeedLogin), subtitleFailure: String(ctx.subtitleFailure || "").trim() };
+    const missing = MdgErrors.subtitleMissing(why);
     sections.push(
-      ctx.subtitleNeedLogin || String(ctx.subtitleFailure || "").trim()
-        ? `${missing}。视频本身可能有字幕，不要说视频没有字幕。你拿不到视频里说了什么或画面内容，以下仅基于简介和评论回答，不要假装看过视频；简介和评论回答不了的，告诉用户：${missing}。`
+      why.subtitleNeedLogin || why.subtitleFailure
+        ? `${aiSubtitleMissing(why)}你拿不到视频里说了什么或画面内容，以下仅基于简介和评论回答，不要假装看过视频；简介和评论回答不了的，告诉用户：${missing}。`
         : "这个视频没有字幕，你拿不到视频里说了什么或画面内容。只能依据下面的简介和评论回答，不要假装看过视频；简介和评论回答不了的，直接告诉用户无法确认。"
     );
     notices.push(`${missing}，只根据标题、简介和评论回答`);
@@ -1041,10 +1017,10 @@ async function hostPermissionError(url) {
   }
 }
 
-// The caller checked the provider (aiProviderProblem).
+// The caller checked the provider (aiProviderProblem); loadAiProviders normalized its baseUrl (normalizeAiProvider).
 async function streamChat({ provider, context, userPrompt, history, port, signal, getAbortMeta, onActivity }) {
   if (!port) return;
-  const baseUrl = String(provider.baseUrl).trim().replace(/\/+$/, "");
+  const { baseUrl } = provider;
 
   const { messages, notices } = buildAiMessages({
     context,
@@ -1081,8 +1057,8 @@ async function streamChat({ provider, context, userPrompt, history, port, signal
       postStreamAbort(port, getAbortMeta?.());
       return;
     }
-    const denied = await hostPermissionError(baseUrl);
-    port.postMessage(denied ? { type: "error", error: denied, code: "AI_ACCESS" } : { type: "error", error: AI_NETWORK_TEXT, code: "AI_NETWORK" });
+    const err = await aiFetchError(baseUrl);
+    port.postMessage({ type: "error", error: err.message, code: err.code });
     return;
   }
 
@@ -1114,14 +1090,14 @@ async function streamChat({ provider, context, userPrompt, history, port, signal
 
 function postStreamAbort(port, abortMeta) {
   if (abortMeta?.type === "stopped") {
-    port.postMessage({ type: "stopped", reason: abortMeta.reason || "已停止生成" });
+    port.postMessage({ type: "stopped", reason: abortMeta.reason || MdgErrors.TEXT.aiStopped });
   } else if (abortMeta?.type === "timeout") {
     port.postMessage({ type: "error", error: abortMeta.reason, code: abortMeta.code });
   }
 }
 
 // The settings page's 测试连接, answered in the words and codes of the side panel and 分拣台: aiProviderProblem,
-// triageAiHttpError, triageAiBodyError, AI_NETWORK_TEXT, hostPermissionError, MdgErrors.aiTimeout.
+// triageAiHttpError, triageAiBodyError, aiFetchError, MdgErrors.aiTimeout. The row's address is not saved, so not normalized yet.
 async function testAiConnection({ baseUrl, apiKey, model, requiresKey }) {
   const problem = aiProviderProblem({ baseUrl, model, requiresKey }, apiKey);
   if (problem) {
@@ -1157,8 +1133,8 @@ async function probeAiChatCompletion({ baseUrl, apiKey, model }) {
     });
   } catch (error) {
     if (error?.name === "TimeoutError") return { ok: false, error: MdgErrors.aiTimeout(AI_TEST_TIMEOUT_MS), code: "AI_TIMEOUT" };
-    const denied = await hostPermissionError(baseUrl);
-    return denied ? { ok: false, error: denied, code: "AI_ACCESS" } : { ok: false, error: AI_NETWORK_TEXT, code: "AI_NETWORK" };
+    const err = await aiFetchError(baseUrl);
+    return { ok: false, error: err.message, code: err.code };
   }
 
   try {

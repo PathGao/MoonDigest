@@ -179,6 +179,9 @@ const write = (extra) => send({ type: "write-video-note", ...extra });
   vault.delete("N/youtube/Y.md");
   resp = await send({ type: "sync-video-note-ai", ref: yt, conversation: conversation("五") });
   assert.deepStrictEqual([resp.exists, "video:youtube:y1|" in local[PATHS], vault.has("N/youtube/Y.md")], [false, false, false]);
+  // L10: the gone note is worded here too; the side panel only shows text.
+  assert.strictEqual(resp.text, "Obsidian 里的视频笔记已不存在，未写入");
+  assert.ok(!fs.readFileSync(path.join(__dirname, "sidepanel.js"), "utf8").includes("已不存在"), "sidepanel.js words a sync result itself");
 
   // Obsidian unusable, in MdgErrors' words: not enabled or set up and a refused key are OBSIDIAN (去设置).
   local.obsidianApiKey = "wrong";

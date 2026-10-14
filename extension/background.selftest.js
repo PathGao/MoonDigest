@@ -135,6 +135,11 @@ process.on("exit", (code) => {
     assert.deepStrictEqual({ ...(await test(failed)) }, { ok: false, error: "连不上 AI 平台，请检查网络和接口地址", code: "AI_NETWORK" });
     ctx.hostPermissionError = async () => "未授权访问 https://ai.test，授权后重试";
     assert.deepStrictEqual({ ...(await test(failed)) }, { ok: false, error: "未授权访问 https://ai.test，授权后重试", code: "AI_ACCESS" });
+    // L7: one classification of a request that got no answer (aiFetchError), for the side panel, 测试连接 and 分拣台;
+    // a saved platform's address is normalized once (normalizeAiProvider), not again per request.
+    const src = ["background.js", "triage/triage-bg.js"].map((f) => fs.readFileSync(path.join(__dirname, f), "utf8")).join("\n");
+    assert.strictEqual(src.match(/await hostPermissionError\(/g).length, 1, "hostPermissionError is asked only in aiFetchError");
+    assert.strictEqual(src.match(/baseUrl[^\n]*\.replace\(\/\\\/\+\$\//g).length, 2, "normalizeAiProvider and 测试连接's unsaved row strip the slash");
     const timeout = async () => {
       throw Object.assign(new Error("timeout"), { name: "TimeoutError" });
     };
@@ -347,6 +352,15 @@ process.on("exit", (code) => {
     ctx.chrome = was;
   }
 
+  // L2: a page the content script cannot sync with: the reason only, no instruction (the popup words the failure).
+  {
+    const was = [ctx.chrome, ctx.injectReaderContent];
+    ctx.chrome = { scripting: { executeScript: async () => [{ result: "old" }] } };
+    ctx.injectReaderContent = async () => {};
+    await assert.rejects(ctx.ensureReaderContentReady(1), (e) => e.message === "扩展脚本未能和当前页面同步");
+    [ctx.chrome, ctx.injectReaderContent] = was;
+  }
+
   // The side panel saves the context URL with a conversation, so reader mode and tracking params never reach it.
   const contextFor = async (tabUrl, payload) => {
     ctx.chrome = { tabs: { get: async () => ({ id: 1, url: tabUrl }) } };
@@ -395,8 +409,10 @@ process.on("exit", (code) => {
     if (answer instanceof Error) throw answer;
     return { ok: true, status: 200, json: async () => answer };
   };
+  // The subtitle lines the AI reads (L6: the context carries only the note, no body or track list).
+  const lines = (r) => (r.subtitleMarkdown.split("## 字幕\n")[1] || "").split("\n").filter((l) => /\S/.test(l) && !l.startsWith("#")).length;
   const mismatched = await historyContext();
-  assert.strictEqual(mismatched.subtitleBody.length, 2);
+  assert.deepStrictEqual([lines(mismatched), "subtitleBody" in mismatched, "subtitleOptions" in mismatched], [2, false, false]);
   assert.match(mismatched.subtitleMarkdown, /## 字幕/);
   assert.strictEqual(mismatched.subtitleWarning, "字幕时间轴到 06:40，视频长 04:33，字幕时间可能对不上。");
   // I2: with the part count, as the video page sends it (a P1 conversation note's name needs it).
@@ -408,23 +424,23 @@ process.on("exit", (code) => {
   routes["/x/player/wbi/v2"].data.subtitle.subtitles.push({ id: 6, lan: "ai-en", lan_doc: "English", subtitle_url: otherUrl });
   routes[otherUrl] = { body: [{ from: 0, to: 270, content: "c" }] };
   const second = await historyContext();
-  assert.deepStrictEqual([second.selectedSubtitleId, second.subtitleWarning, second.subtitleBody.length], ["6", "", 1]);
+  assert.deepStrictEqual([second.selectedSubtitleId, second.subtitleWarning, lines(second)], ["6", "", 1]);
   delete local.mdg_subtitle_cache_BVa_11_id_6;
   // Tracks with empty bodies leave the AI the title, description and comments, flagged as a failed fetch.
   routes = { ...sidepanelRoutes(100), [subUrl]: { body: [] } };
   const empty = await historyContext();
-  assert.deepStrictEqual([empty.subtitleBody.length, empty.subtitleMarkdown, empty.subtitleFailure], [0, "", "字幕文件为空"]);
+  assert.deepStrictEqual([lines(empty), empty.subtitleMarkdown, empty.subtitleFailure], [0, "", "字幕文件为空"]);
   // A failed download or track list (not a limit) answers like the video page: no subtitle, and why, for 字幕抓取失败.
   const dropConn = () => new TypeError("Failed to fetch");
   routes = { ...sidepanelRoutes(100), [subUrl]: dropConn() };
   const dropped = await historyContext();
-  assert.deepStrictEqual([dropped.subtitleBody.length, dropped.subtitleMarkdown, dropped.subtitleFailure], [0, "", "网络断了"]);
+  assert.deepStrictEqual([lines(dropped), dropped.subtitleMarkdown, dropped.subtitleFailure], [0, "", "网络断了"]);
   routes = { ...sidepanelRoutes(100), "/x/player/wbi/v2": dropConn(), "/x/player/v2": dropConn() };
   assert.strictEqual((await historyContext()).subtitleFailure, "网络断了");
   // Speech ending at 100 s (a long silent outro) passes the video page's loose guard, so the side panel takes it too.
   routes = sidepanelRoutes(100);
   const resolved = await historyContext();
-  assert.strictEqual(resolved.subtitleBody.length, 2);
+  assert.strictEqual(lines(resolved), 2);
   // As many hot comments as the video page and 分拣台 notes ask for: one count, MdgLimits.HOT_COMMENTS.
   assert.ok(urls.some((u) => u.includes("/reply/main") && u.includes(`&ps=${ctx.MdgLimits.HOT_COMMENTS}&`)) && ctx.MdgLimits.HOT_COMMENTS === 20);
   // The AI gets the same note the video page sends (MdgNote.buildAiContext): front matter and subtitles, no player embed.
@@ -463,8 +479,10 @@ process.on("exit", (code) => {
   const importSync = { noteFolder: "Y", stray: 1 };
   const importLocal = { obsidianApiKey: "k2", aiProviderKeys: { q: "sk2" } };
   ctx.chrome = { storage: { sync: area(importSync), local: area(importLocal) } };
-  const old = { ...file, settings: { ...file.settings, aiInitialQuickPrompts: ["旧"], obsidianApiKey: "x" } };
+  // L12: a file that carries a platform's API Key (hand-edited, or from another tool) never puts it into sync.
+  const old = { ...file, settings: { ...file.settings, aiInitialQuickPrompts: ["旧"], obsidianApiKey: "x", aiProviders: [{ id: "p", apiKey: "sk-file" }] } };
   await ctx.importSettings(old);
+  assert.ok(!JSON.stringify(importSync).includes("sk-file") && importSync.aiProviders?.[0]?.id === "p", "a provider's key in the file stays out of sync");
   assert.deepStrictEqual([importSync.noteFolder, importSync.triageFineBatchSize, importSync.follow_ai_settings], ["X", 20, { batchSize: 7 }]);
   assert.ok(!("stray" in importSync) && !("aiInitialQuickPrompts" in importSync) && !("obsidianApiKey" in importSync));
   assert.ok(importSync.aiPresetPrompts.includes("旧"));

@@ -1431,7 +1431,7 @@ async function sendMessage(prompt) {
     } else if (msg.type === "done") {
       endStream(stream);
     } else if (msg.type === "stopped") {
-      endStream(stream, { stopped: msg.reason || "已停止生成" });
+      endStream(stream, { stopped: msg.reason || MdgErrors.TEXT.aiStopped });
     } else if (msg.type === "error") {
       endStream(stream, { error: msg.error || "未知错误", code: msg.code });
     }
@@ -1597,7 +1597,7 @@ function stopActiveStream() {
   try {
     activeStream.port.postMessage({ action: "stop" });
   } catch {
-    endStream(activeStream, { stopped: "已停止生成" });
+    endStream(activeStream, { stopped: MdgErrors.TEXT.aiStopped });
   }
 }
 
@@ -1717,21 +1717,18 @@ async function autoSyncConversation(conversationId) {
     if (!resp.path) {
       return;
     }
-    if (!resp.exists) {
-      showSyncStatus("Obsidian 里的视频笔记已不存在，未写入");
-      return;
-    }
-    showSyncStatus(resp.text, { autoHideMs: 3000 });
+    // The background's words: the note updated (hides after a while) or gone (stays).
+    showSyncStatus(resp.text, resp.exists ? { autoHideMs: 3000 } : {});
   } catch (error) {
     // Not set up or a wrong key: 去设置 before 重试, like a manual write; a closed Obsidian gets 重试 only.
     const settings = error?.action === "settings" ? () => chrome.runtime.openOptionsPage() : null;
-    showSyncStatus(`写入 Obsidian 失败：${getErrorMessage(error)}`, { retry: () => autoSyncConversation(conversationId), settings, error: true });
+    showSyncStatus(`${MdgErrors.TEXT.obsidianFailed}：${getErrorMessage(error)}`, { retry: () => autoSyncConversation(conversationId), settings, error: true });
   }
 }
 
 // A failed manual write is red; a wrong key opens the settings page, as for 未配置 (a closed Obsidian does not).
 function showObsidianFailure(error) {
-  showConversationContextNotice(`写入 Obsidian 失败：${getErrorMessage(error)}`, 4000, { error: true });
+  showConversationContextNotice(`${MdgErrors.TEXT.obsidianFailed}：${getErrorMessage(error)}`, 4000, { error: true });
   if (error?.action === "settings") chrome.runtime.openOptionsPage?.();
 }
 
@@ -1937,7 +1934,7 @@ async function jumpToAssistantTimestamp(seconds, label) {
 
   const tab = await getActiveTab().catch(() => null);
   if (!tab?.id) {
-    showConversationContextNotice("找不到当前标签页。", 2200);
+    showConversationContextNotice(MdgErrors.TEXT.noTab, 2200);
     return;
   }
 

@@ -1367,7 +1367,7 @@ async function testAiProviderRow(row, sync) {
   statusNode.setAttribute("aria-busy", "true");
   testBtn.disabled = true;
   const resp = !(await asked)
-    ? { ok: false, error: MdgErrors.noAccess(pattern.replace(/\/\*$/, "")) }
+    ? { ok: false, error: MdgErrors.noAccess(pattern.replace(/\/\*$/, "")), code: "AI_ACCESS" }
     : await sendRuntimeMessage({ type: "ai-providers-test", providerId: row.dataset.providerId || "", baseUrl, apiKey, model, requiresKey }).catch((error) => ({
         ok: false,
         error: error.message

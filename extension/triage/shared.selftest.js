@@ -15,6 +15,9 @@ const UI = ctx.TriageUi;
 // 关注 waits B站限流 out for 90 s (DESIGN), in one place: follow-bg.js's queue and follow.js's write and feed waits read it.
 assert.strictEqual(UI.BILI_HOLD_MS, 90000);
 for (const f of ["follow.js", "follow-bg.js"]) assert.ok(/\.BILI_HOLD_MS/.test(fs.readFileSync(path.join(__dirname, f), "utf8")) && !/WAIT_SEC = 90|backoffMs: 90000/.test(fs.readFileSync(path.join(__dirname, f), "utf8")), f);
+// L5: 关注's group name, one limit and one wording (最多) for the page and the background.
+assert.deepStrictEqual(["", "a".repeat(UI.GROUP_NAME_MAX), "a".repeat(UI.GROUP_NAME_MAX + 1)].map(UI.groupNameError), ["分组名不能为空", "", `分组名最多 ${UI.GROUP_NAME_MAX} 个字`]);
+for (const f of ["follow.js", "follow-bg.js"]) assert.ok(!/分组名不能为空|分组名最[多长]|NAME_MAX = 16/.test(fs.readFileSync(path.join(__dirname, f), "utf8")), `${f} checks a group name itself`);
 const TAG = ctx.MdgTagCore;
 const plain = (v) => JSON.parse(JSON.stringify(v));
 // Untrusted text (titles, UP names, comments, AI replies, tag names, paths) stays text: no tag of its own, no way out of

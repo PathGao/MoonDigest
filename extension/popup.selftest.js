@@ -30,7 +30,10 @@ assert.deepStrictEqual(new Set(Object.values(state())), new Set(["当前网页�
 ctx.syncTools(null);
 assert.deepStrictEqual(new Set(Object.values(state())), new Set([""]), "a video page before its first reply keeps them usable");
 ctx.syncTools({ markdown: "# t", srt: "", txt: "" });
-assert.deepStrictEqual(state(), { downloadBtn: "当前视频没有可下载的字幕", readingViewBtn: "", summaryBtn: "", copyBtn: "", mdBtn: "", sendBtn: "" }, "no subtitles");
+assert.deepStrictEqual(state(), { downloadBtn: "视频没有字幕", readingViewBtn: "", summaryBtn: "", copyBtn: "", mdBtn: "", sendBtn: "" }, "no subtitles");
+// J11: 下载字幕 says what the dropdown says (the page's noTrackText): a read in progress or a failed one is no 没有字幕.
+ctx.syncTools({ markdown: "# t", srt: "", txt: "", subtitleMissing: "正在加载字幕…" });
+assert.strictEqual(state().downloadBtn, "正在加载字幕…");
 ctx.syncTools({ markdown: "# t", srt: "1", txt: "a" });
 assert.deepStrictEqual(new Set(Object.values(state())), new Set([""]), "everything ready");
 // K3: no note yet: the note's tools say what their click says.
@@ -106,6 +109,13 @@ setTimeout(() =>
     // I10: the content script reads only the track's url.
     assert.deepStrictEqual({ ...picked }, { type: "popup-select-subtitle", url: "u" });
     assert.strictEqual(ctx.el.status.textContent, `${T.subtitleSwitchFailed}：网络断了`);
+    // J10: 写入 Obsidian's result comes in the reply (the page keeps no status line of it); a lost message is a failure.
+    ctx.sendToContent = async () => ({ ok: true, text: "已写入 Obsidian：p.md", payload: { status: "读取完成。" } });
+    await ctx.el.sendBtn.on.click();
+    assert.strictEqual(ctx.el.status.textContent, "已写入 Obsidian：p.md");
+    ctx.sendToContent = async () => ({ ok: false, error: "网络断了" });
+    await ctx.el.sendBtn.on.click();
+    assert.strictEqual(ctx.el.status.textContent, `${T.obsidianFailed}：网络断了`);
     // G5: 专注模式 that did not start reads as on the video page: TEXT.readerStartFailed and the background's reason.
     Object.assign(ctx, { isSupportedSubtitlePage: () => true, sendToContent: async () => ({ ok: true }), sendToRuntime: async () => ({ ok: false, error: "视频页没有回应" }) });
     await ctx.el.readingViewBtn.on.click();

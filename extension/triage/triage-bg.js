@@ -175,7 +175,15 @@ function triageWithCriteria(system, criteria, folder) {
   return parts.join("\n\n");
 }
 
-// subtitle is "" when the video has none; then comments (the hot comments, numbered) stand in for it.
+// Why the AI gets no subtitle, in the sentence every entry shows (MdgErrors.subtitleMissing). Not logged in or a failed
+// fetch adds that the video may have subtitles, so the AI never says it has none (细看 and the side panel's buildAiMessages).
+function aiSubtitleMissing({ subtitleNeedLogin = false, subtitleFailure = "" } = {}) {
+  const missing = MdgErrors.subtitleMissing({ subtitleNeedLogin, subtitleFailure });
+  return subtitleNeedLogin || subtitleFailure ? `${missing}。视频本身可能有字幕，不要说视频没有字幕。` : `${missing}。`;
+}
+
+// subtitle is "" when the video has none; then comments (the hot comments, numbered) stand in for it, and meta's
+// subtitleNeedLogin / subtitleFailure say why (aiSubtitleMissing).
 function triageBuildMessages(meta, subtitle, comments, criteria, folder) {
   const user = [
     `标题：${meta.title}`,
@@ -185,7 +193,7 @@ function triageBuildMessages(meta, subtitle, comments, criteria, folder) {
     `发布：${meta.pubdate || "未知"}`,
     `标签：${meta.tags.join("、") || "无"}`,
     `简介：${meta.desc || "无"}`,
-    subtitle ? `\n字幕：\n${subtitle}` : `\n（无可用字幕）\n热门评论：\n${comments || "无"}`
+    subtitle ? `\n字幕：\n${subtitle}` : `\n${aiSubtitleMissing(meta)}\n热门评论：\n${comments || "无"}`
   ].join("\n");
   return [
     { role: "system", content: triageWithCriteria(TRIAGE_SYSTEM_PROMPT, criteria, folder) },
@@ -570,7 +578,7 @@ async function triageAnalyze({ bvid, force, criteria, folder, aiProviderId }) {
   const comments = subtitle ? "" : (await site.fetchComments(ref, m, TRIAGE_BILI_IO, TriageUi.DEEP_COMMENTS).catch(() => [])).map((c, i) => `${i + 1}. ${c.message}`).join("\n");
 
   const ai = await triageAiSettings();
-  const { content, model } = await triageChat(triageBuildMessages(meta, subtitle, comments, criteria, folder), triageMaxTokens("analyze", 1, ai), ai.triageThinking, aiProviderId);
+  const { content, model } = await triageChat(triageBuildMessages({ ...meta, subtitleNeedLogin: got.needLogin, subtitleFailure: got.failure }, subtitle, comments, criteria, folder), triageMaxTokens("analyze", 1, ai), ai.triageThinking, aiProviderId);
   const analysis = {
     bvid,
     status: "done",
@@ -606,6 +614,12 @@ function triageAiHttpError(status, detail = "") {
   return triageError(`AI 平台出错（HTTP ${status}）`);
 }
 const AI_NETWORK_TEXT = "连不上 AI 平台，请检查网络和接口地址";
+// A request to the AI platform that never got an answer (fetch rejected): a missing host permission (background.js
+// hostPermissionError) is AI_ACCESS (授权), anything else AI_NETWORK. The side panel, 测试连接 and triageChat all use it.
+async function aiFetchError(baseUrl) {
+  const denied = await hostPermissionError(baseUrl);
+  return denied ? triageError(denied, "AI_ACCESS") : triageError(AI_NETWORK_TEXT, "AI_NETWORK");
+}
 
 // Some platforms report quota, rate and moderation failures inside an HTTP 200 body (a stream chunk for the side panel's
 // parseOpenAISSE, the whole reply for triageChat). A quota or rate message is classified as an HTTP 429 (a per-minute
@@ -659,7 +673,7 @@ async function triageChat(messages, maxTokens, thinking = false, providerId = ""
   if (problem) throw triageError(problem.text, problem.code);
   const headers = { "Content-Type": "application/json" };
   if (apiKey) headers.Authorization = `Bearer ${apiKey}`;
-  const baseUrl = String(provider.baseUrl || "").replace(/\/+$/, "");
+  const { baseUrl } = provider; // normalized by loadAiProviders
   const body = { model: provider.model, stream: false, temperature: 0.3, max_tokens: maxTokens, messages };
   // 思考 token 计入 max_tokens；默认关（DeepSeek 实测 30 标题 3s/815 token，开则约 19s/4579 token）
   if (supportsThinkingToggle(baseUrl)) body.thinking = { type: thinking ? "enabled" : "disabled" };
@@ -681,15 +695,14 @@ async function triageChat(messages, maxTokens, thinking = false, providerId = ""
       body: JSON.stringify(body),
       signal: controller.signal
     }).catch(async () => {
-      const denied = await hostPermissionError(baseUrl);
-      throw denied ? triageError(denied, "AI_ACCESS") : triageError(AI_NETWORK_TEXT, "AI_NETWORK");
+      throw await aiFetchError(baseUrl);
     });
     if (!res.ok) throw triageAiHttpError(res.status, await res.text().catch(() => ""));
     // A body that is not JSON is this request's failure.
     const json = await triageAiJson(res);
     const choice = json.choices?.[0];
     if (!choice?.message?.content && choice?.finish_reason === "length") {
-      throw triageError("模型输出被截断");
+      throw triageError("模型输出被截断", "AI_TRUNCATED");
     }
     return { content: choice?.message?.content, model: provider.model };
   };

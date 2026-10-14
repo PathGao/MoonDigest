@@ -19,10 +19,10 @@
 
   // The AI's three fixed classes; the ids are also CSS color classes.
   const VERDICTS = Object.freeze({ keep: "值得留", drop: "可清理", unsure: "拿不准" });
-  // A video's verdict, the same on 分拣台 and B站 pages: a done 细看 (an unknown verdict counts as 拿不准) over the 粗分
-  // result (one with an unknown verdict, left from the old custom tiers, counts as not classified, so 粗分 can run
+  // A video's verdict, the same on 分拣台 and B站 pages: a done 细看 (an unknown verdict counts as 拿不准) over the 粗看
+  // result (one with an unknown verdict, left from the old custom tiers, counts as not classified, so 粗看 can run
   // again). An invalid video is 可清理 whatever the AI said, but keeps the AI's reason and step after the 已失效 note.
-  // verdict: keep / drop / unsure, or "none"; stage: 2 细看, 1 粗分, 0 only invalid, -1 none.
+  // verdict: keep / drop / unsure, or "none"; stage: 2 细看, 1 粗看, 0 only invalid, -1 none.
   function verdictOf({ title, analysis, invalid } = {}) {
     let v = { verdict: "none", reason: "", stage: -1 };
     if (analysis?.status === "done") v = { verdict: VERDICTS[analysis.verdict] ? analysis.verdict : "unsure", reason: analysis.reason, stage: 2 };

@@ -45,12 +45,18 @@
     aiEmpty: "AI 平台没有返回回答",
     // A write to Obsidian that failed without the background saying why (video page, side panel, history page).
     obsidianWriteFailed: "Local API 写入失败",
+    // Any failed write to Obsidian, on every entry (popup, video page, side panel, 视频记录, 分拣台); 「：原因」 follows.
+    obsidianFailed: "写入 Obsidian 失败",
     // A dropped connection (fetch's TypeError): the video page, 分拣台's B站 requests, 关注's paused refresh.
     netDown: "网络断了",
     // Asking Chrome or the background to open the side panel failed (popup, video page, 视频记录, 分拣台); 「：原因」 follows.
     sidepanelOpenFailed: "打开侧边栏失败",
     // 继续问 on a 视频记录 record that is not a video.
     notVideo: "不是视频，不能问",
+    // The side panel's 停止 ended the reply (the background's port message, the panel's own stop).
+    aiStopped: "已停止生成",
+    // chrome.tabs found no active tab (popup, side panel, background).
+    noTab: "找不到当前标签页",
     // Every selection is hidden by a search or filter: the buttons that act on it are disabled with this (分拣台, 视频记录).
     hiddenAll: "选中的都被筛选隐藏了"
   });
@@ -84,6 +90,8 @@
     // No access to the AI provider's origin yet (noAccess): every request fails alike, so 分拣台 stops its run; the fix
     // is 授权 (grantOrigin reads the origin from the words), not the settings page.
     AI_ACCESS: {},
+    // 分拣台 only: the model's answer hit the output limit (max_tokens); its banner offers 打开收藏夹设置.
+    AI_TRUNCATED: {},
     // 分拣台 only: AI 平台 still limited after AI_THROTTLE_WAITS waits in a row.
     AI_GAVE_UP: { action: "settings" },
     // Obsidian itself is unusable (not set up, off, wrong key): every write fails alike and the fix is in the settings
