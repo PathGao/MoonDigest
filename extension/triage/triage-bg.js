@@ -461,8 +461,9 @@ async function seenSyncOnce(force, started) {
       else break;
     }
   } catch (e) {
-    // Risk control: stop and stay away for a while; never retry in a loop. What was read stays, `resume` too.
-    if (e.code === "THROTTLED") await chrome.storage.local.set({ [SEEN_META]: { ...meta, backoffUntil: now + SEEN_BACKOFF_MS } });
+    // Risk control: stop and stay away for SEEN_BACKOFF_MS from now (not from the start of a read that ran minutes);
+    // never retry in a loop. What was read stays, `resume` too.
+    if (e.code === "THROTTLED") await chrome.storage.local.set({ [SEEN_META]: { ...meta, backoffUntil: Date.now() + SEEN_BACKOFF_MS } });
     throw e;
   }
   let dropped = 0;

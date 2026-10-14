@@ -754,10 +754,16 @@ assert.throws(() => t.triageParseCommand('{"new_tags":[', cmdItems, cmdTags, {})
     assert.deepStrictEqual(plain(st.seen_BVd), [30, T + 310]);
     // Risk control on page 2: page 1 is already written and the read resumes there; `newest` stays until a read gets down to it.
     const realTimeout = t.setTimeout;
-    t.setTimeout = (f, ms) => realTimeout(f, ms === 5000 ? 0 : ms); // skip the 5 s page gap
+    // skip the 5 s page gap, and let each gap pass 5 minutes on the worker's clock: the pause counts from the risk control.
+    const WorkerDate = vm.runInContext("Date", t);
+    const realNow = WorkerDate.now;
+    let skew = 0;
+    WorkerDate.now = () => realNow() + skew;
+    t.setTimeout = (f, ms) => (ms === 5000 && (skew += 5 * 60000), realTimeout(f, ms === 5000 ? 0 : ms));
     pages = [page([h("BVe", T + 330, 40)], 5), { code: -412, message: "请求被拦截" }];
     await assert.rejects(read({ force: true }), (e) => e.code === "THROTTLED");
-    assert.ok(st.triage_seen_meta.backoffUntil > Date.now(), "risk control backs off");
+    assert.ok(skew > 0 && st.triage_seen_meta.backoffUntil >= WorkerDate.now() + 30 * 60000 - 5000, "risk control backs off 30 minutes from now");
+    WorkerDate.now = realNow;
     assert.deepStrictEqual(plain(st.seen_BVe), [40, T + 330], "pages read before risk control are kept");
     assert.deepStrictEqual([st.triage_seen_meta.newest, st.triage_seen_meta.resume.cursor.max], [T + 310, 5]);
     const before = urls.length;
