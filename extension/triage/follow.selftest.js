@@ -372,7 +372,7 @@ assert.deepStrictEqual([t.dirLabel("last", "desc"), t.dirLabel("follow", "asc"),
 assert.ok(/if \(!\/\^follow\(&\|\$\)\/\.test\(h\)\) return false;\s*history\.replaceState\(null, "", location\.pathname \+ location\.search\);/.test(source), "followHash drops the hash");
 
 // #follow&up=<mid> (the B站 tag picker's button) clears what could hide the card, then makes it current.
-assert.ok(/if \(up\) \{\s*F\.tab = "ups";\s*F\.side = rows\.has\(up\) && outKind\(rows\.get\(up\)\) \? "out" : "all";\s*F\.status = F\.tagState = F\.source = F\.kind = F\.q = "";[\s\S]*?F\.tags = new Set\(\);\s*\}/.test(source), "followHash clears the filters for up");
+assert.ok(/if \(up\) \{\s*const side = rows\.has\(up\) && outKind\(rows\.get\(up\)\) \? "out" : "all";[\s\S]*?F\.side = side;\s*F\.status = F\.tagState = F\.source = F\.kind = F\.q = "";[\s\S]*?F\.tags = new Set\(\);\s*\}/.test(source), "followHash clears the filters for up");
 assert.ok(/render\(\);\s*if \(up\) \{\s*setCur\(up, false\);\s*E\.list\.querySelector\("\.fw-up\.focused"\)\?\.scrollIntoView\(\{ block: "center" \}\);/.test(source), "followHash makes the UP current, centered");
 
 // 标签… on 2+ UP 主 is one step that asks before U, with 收藏夹's words (shared.js undoAsk).
@@ -697,6 +697,31 @@ async function followPage({ store = {}, handlers = {}, setup = () => {} } = {}) 
     await p.settle();
     assert.strictEqual(p.asked.length, asked, "no 清理 confirm for a hidden selection");
     F.tagState = "";
+  }
+
+  // J8: an empty list says why: the search, else the filters, else the group is empty.
+  {
+    const p = await followPage({ store: page({ follow_unfollowed: { u3: { at: sec - DAY, source: "app", name: "丙" } } }) });
+    const { F, E } = p.FW;
+    F.side = "g:-10";
+    p.FW.render();
+    assert.ok(E.list.innerHTML.includes("这个分组没有 UP 主"), E.list.innerHTML);
+    F.side = "all";
+    F.tagState = "tagged";
+    p.FW.render();
+    assert.ok(E.list.innerHTML.includes("没有符合筛选的 UP 主"), E.list.innerHTML);
+    F.tagState = "";
+    // J9: #follow&up= into 已出分拣范围 (u3 unfollowed) and back clears the selection, as the sidebar does.
+    const hash = async (up) => {
+      p.ctx.location.hash = `#follow&up=${up}`;
+      for (const f of p.winL.hashchange) await f();
+    };
+    F.sel.add("u1");
+    await hash("u3");
+    assert.deepStrictEqual([F.side, F.sel.size], ["out", 0], "into 已出分拣范围");
+    F.sel.add("u3");
+    await hash("u1");
+    assert.deepStrictEqual([F.side, F.sel.size], ["all", 0], "out of it");
   }
 
   // U on a 关注 write while another runs: refused before its confirm, with 收藏夹's words; the step stays for later.

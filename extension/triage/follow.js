@@ -719,7 +719,7 @@ function renderUps() {
   const scroll = E.list.scrollTop;
   let body;
   if (!D.list && !out) body = emptyHtml();
-  else if (!list.length) body = `<p class="empty">${out && !sideCount("out") ? "没有已出分拣范围的 UP 主" : UI.noMatch(F.q, true, "UP 主")}</p>`;
+  else if (!list.length) body = `<p class="empty">${UI.noMatch(F.q, filtersOn(), "UP 主") || (out && !F.kind ? "没有已出分拣范围的 UP 主" : F.side.startsWith("g:") ? "这个分组没有 UP 主" : "这里没有 UP 主")}</p>`;
   else body = list.map(upCard).join("");
   E.list.className = "fw-list";
   E.list.innerHTML = hint + body;
@@ -1918,8 +1918,11 @@ async function followHash() {
   const up = params.get("up");
   if (F.mode !== "follow") await setMode("follow");
   if (up) {
+    const side = rows.has(up) && outKind(rows.get(up)) ? "out" : "all";
+    // Into or out of 已出分拣范围 clears the selection, as the sidebar does.
+    if (side === "out" || F.side === "out") freshScope(side);
     F.tab = "ups";
-    F.side = rows.has(up) && outKind(rows.get(up)) ? "out" : "all";
+    F.side = side;
     F.status = F.tagState = F.source = F.kind = F.q = "";
     E.q.value = "";
     F.recentFilter = false;
