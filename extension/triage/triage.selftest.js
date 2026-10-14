@@ -732,6 +732,10 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   {
     const intSetting = vm.runInContext("intSetting", ctx);
     assert.deepStrictEqual([intSetting("7.9", 1, 1000, 100), intSetting("", 1, 50, 10), intSetting("x", 1, 100, 30), intSetting(5000, 1, 1000, 100), intSetting(-2, 1, 50, 10)], [7, 10, 30, 1000, 1]);
+    // F14: 请求间隔 as 关注's: 0–600, empty is the default, 0 stays 0.
+    const intervalSetting = vm.runInContext("intervalSetting", ctx);
+    assert.deepStrictEqual(["", "0", "5.6", "900", "-3", "x"].map(intervalSetting), [8, 0, 5, 600, 0, 0]);
+    assert.ok(fs.readFileSync(path.join(__dirname, "triage.html"), "utf8").includes('<input id="intervalInput" type="number" min="0" max="600" step="1" />'), "the box has 关注's range");
     t.S.settings.triageFineBatchSize = 2.7;
     assert.strictEqual(t.nextBatch().length, 2, "floored");
     t.S.settings.triageFineBatchSize = 999;
@@ -1097,6 +1101,16 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   const spark = '<span class="ai-spark" aria-hidden="true"></span>';
   const btnText = () => (t.renderTabs(), t.el.aiTagSlot.innerHTML.replace(/<[^>]+>/g, ""));
   assert.ok((t.renderTabs(), t.el.aiTagSlot.innerHTML.includes(spark)), "AI 打标签 carries the AI sparkle");
+  // F10: with a selection listed the dialog opens on 选中, so the row-4 button says how many; the selection bar has none.
+  t.S.selected.clear();
+  const firstShown = t.visibleItems()[0].bvid;
+  t.S.selected.add(firstShown);
+  t.S.selected.add("BV-not-listed");
+  t.renderListHeader(t.visibleItems());
+  assert.strictEqual(btnText(), "标签管理AI 打标签选中 1 个", "counts only the selected ones listed");
+  assert.ok(t.el.aiTagSlot.innerHTML.includes('aria-label="AI 打标签选中 1 个 (I)"') && !t.el.listHeader.innerHTML.includes("AI 打标签"), "row 4 only");
+  t.S.selected.clear();
+  t.renderListHeader(t.visibleItems());
   assert.strictEqual(btnText(), "标签管理AI 打标签");
   assert.ok(t.el.aiTagSlot.innerHTML.indexOf("标签管理") < t.el.aiTagSlot.innerHTML.indexOf(spark), "only AI 打标签 has the sparkle");
   const aiRun = hang("ai");
@@ -1465,6 +1479,42 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     t.S.tagFilter.add("xa");
     assert.deepStrictEqual(shown(), ["BV1"], "已取消收藏: tag chip");
     t.S.tagFilter.clear();
+    // F13: X selects here too (清理选中的 and 收藏到 act on the selection), as 关注's 已出分拣范围.
+    t.S.selected.clear();
+    t.S.focused = "BV1";
+    const realList = t.el.list;
+    t.el.list = { querySelectorAll: () => [] };
+    t.onKey({ key: "x", target: {}, preventDefault() {} });
+    t.el.list = realList;
+    assert.deepStrictEqual([...t.S.selected], ["BV1"], "X in 已出分拣范围 selects");
+    assert.ok(t.el.listHeader.innerHTML.includes("清理选中的 1 个"));
+    // F9: everything selected hidden by a filter: the bar keeps its buttons, disabled with why, as 关注's.
+    const hid = "选中的都被筛选隐藏了";
+    const disabledWhy = (label) => new RegExp(`aria-label="${label}"[^>]*disabled title="${hid}"`).test(t.el.listHeader.innerHTML);
+    t.S.classFilter.read = "drop";
+    t.renderListHeader(t.visibleItems());
+    assert.ok(disabledWhy("收藏选中的 0 个到…"), t.el.listHeader.innerHTML);
+    // F12 / F9: 所有收藏夹 has 全选 like a folder (across its folders), and its bar says why as well.
+    t.S.mediaId = "all";
+    const savedLoad = t.S.loadAll;
+    t.S.loadAll = { queue: [], check: [], partial: 0 };
+    t.S.tab = "fine";
+    t.S.items = [item(1), item(2), item(3)];
+    t.S.classFilter.fine = "drop";
+    t.S.titleRes = {};
+    t.S.analyses = { BV1: { status: "done", verdict: "keep" }, BV2: { status: "done", verdict: "drop" }, BV3: { status: "done", verdict: "drop" } };
+    t.S.selected.clear();
+    t.S.selected.add("BV1");
+    t.renderListHeader(t.visibleItems());
+    assert.ok(t.el.listHeader.innerHTML.includes('data-head="select-all" aria-checked="false"') && t.el.listHeader.innerHTML.includes("全选 2 个"), "所有收藏夹 has 全选");
+    for (const label of ["保留选中的 0 个", "取消收藏选中的 0 个"]) assert.ok(disabledWhy(label), label);
+    vm.runInContext("UI.toggleAll(visibleItems().map((it) => it.bvid), S.selected)", ctx);
+    assert.deepStrictEqual([...t.S.selected].sort(), ["BV1", "BV2", "BV3"], "全选 adds what is listed, keeps the hidden one");
+    t.S.selected.clear();
+    t.S.analyses = {};
+    t.S.classFilter.fine = "all";
+    t.S.mediaId = "removed";
+    t.S.loadAll = savedLoad;
     Object.assign(t.S, saved);
   }
   t.S.mediaId = "A";

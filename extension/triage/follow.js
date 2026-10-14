@@ -130,7 +130,7 @@ function groupCalls(mids, cur, want, size = 20) {
     return out;
   });
 }
-// Where 移到分组… / 复制到分组… can go from the sidebar item's group (from; null in 全部): every group but that one, 默认分组
+// Where 移动 / 复制到分组 can go from the sidebar item's group (from; null in 全部): every group but that one, 默认分组
 // only for a move. [[id, name]].
 const groupTargets = (D, from, how) =>
   [...(how === "move" ? [0] : []), SPECIAL, ...(D.groups || []).map((g) => g.id)].filter((id) => id !== from).map((id) => [id, groupName(id, D)]);
@@ -289,7 +289,7 @@ function normAi(s = {}) {
 function followAiSettings(own, triage) {
   if (own && typeof own === "object") return { value: normAi(own), seed: null };
   const t = triage || {};
-  const value = normAi({ batchSize: t.triageAiBatchSize ?? t.triageTitleBatchSize, intervalSec: t.triageIntervalSec, newTagMax: t.triageAiNewTagMax, allowRemove: t.triageAiRemoveTags });
+  const value = normAi({ batchSize: t.triageAiBatchSize, intervalSec: t.triageIntervalSec, newTagMax: t.triageAiNewTagMax, allowRemove: t.triageAiRemoveTags });
   return { value, seed: value };
 }
 // The follow-ai-tag requests of one run: mids in batches of cfg.batchSize; maxNewTags is the run's cap (each batch gets
@@ -353,7 +353,6 @@ const FEED_KEEP_MS = 3 * 60 * 1000; // as the background's cache; older lists st
 const space = (mid) => `https://space.bilibili.com/${mid}`;
 const video = (bvid) => `https://www.bilibili.com/video/${bvid}`;
 const nowSec = () => Date.now() / 1000;
-const AI_SPARK = UI.AI_SPARK;
 
 let D = { tags: [], map: {}, gone: {}, people: {}, content: {}, jobs: {}, list: null, last: null, recent: null };
 let rows = new Map();
@@ -608,7 +607,7 @@ function renderSyncChanges() {
 // disabled and says why (a run or a proposal stays reachable).
 const aiReason = () => (aiRunning() || AI.proposal ? "" : aiBlocked(F.tab, F.side));
 function renderAiButton() {
-  $("fwAiSlot").innerHTML = UI.tagButtons({ manageAttrs: 'data-fw="tags"', aiAttrs: 'data-fw="ai" aria-label="AI 打标签 (I)"', aiReason: aiReason(), noTags: !D.tags.length, state: aiRunning() ? " · 运行中" : AI.proposal ? " · 待确认" : "" });
+  $("fwAiSlot").innerHTML = UI.tagButtons({ manageAttrs: 'data-fw="tags"', aiAttrs: 'data-fw="ai"', aiReason: aiReason(), noTags: !D.tags.length, picked: F.tab === "ups" ? selShown().length : 0, state: aiRunning() ? " · 运行中" : AI.proposal ? " · 待确认" : "" });
 }
 function renderAiState() {
   renderSync();
@@ -713,7 +712,6 @@ function renderUps() {
   E.barR.innerHTML = shows ? UI.selectAllBox('data-fw="select-all"', list.length, list.filter((m) => F.sel.has(m)).length) + (out ? cleanBtn(list) : "") + runSlot() : "";
   E.tagRow.innerHTML = UI.labeledRow("标签", tagRowHtml(counts.tags));
   E.tools.hidden = !D.list && !out;
-  renderAiButton();
   const so = sortState();
   E.sort.hidden = !out && !D.list;
   E.sort.innerHTML = UI.sortControl({ sorts: out ? OUT_SORTS : SORTS, sort: so.sort, dir: so.dir, words: dirLabel(so.sort, so.dir), selectAttr: 'data-fw="sort"', dirAttr: 'data-fw="dir"' });
@@ -737,7 +735,7 @@ function cleanBtn(list) {
   const sel = list.filter((m) => F.sel.has(m));
   const n = cleanable(sel.length ? sel : list).length;
   const label = sel.length ? `清理选中的 ${n} 个` : `清理这 ${n} 个`;
-  const why = W.busy() ? "上一批还没做完" : !list.length ? "这里没有列出 UP 主" : !n ? "还关注着的先取消关注，再清理" : "";
+  const why = W.busy() ? busyWhy() : !list.length ? "这里没有列出 UP 主" : !n ? "还关注着的先取消关注，再清理" : "";
   return `<button type="button" class="danger" data-fw="clean" aria-label="${esc(label)}"${UI.reasonAttrs(why)}>${esc(label)}</button>`;
 }
 
@@ -816,27 +814,34 @@ function upCard(mid) {
 }
 
 // The selection the bar acts on: the selected UP 主 listed now. Switching the sidebar keeps the rest, as a filter does.
-const selShown = () => shown.filter((m) => F.sel.has(m));
+function selShown() {
+  return shown.filter((m) => F.sel.has(m));
+}
+// Why a write cannot start, naming the one running, as 收藏夹 does.
+const busyWhy = () => W.busy() && `${W.busy()}还在跑，等它完成`;
 
+// The selection bar, and what in rows 3 and 4 counts the selection: 全选, 清理 (已出分拣范围) and ✦ AI 打标签.
 function renderSel() {
   const n = selShown().length;
-  const box = E.bar.querySelector("[data-fw=select-all]");
+  const box = E.barR.querySelector("[data-fw=select-all]");
   if (box) box.setAttribute("aria-checked", UI.selectAllState(shown.length, n));
+  const clean = F.side === "out" && E.barR.querySelector("[data-fw=clean]");
+  if (clean) clean.outerHTML = cleanBtn(shown);
+  renderAiButton();
   if (F.tab !== "ups" || !F.sel.size) return (E.sel.innerHTML = "");
   const hidden = F.sel.size - n;
-  const busy = W.busy() && "上一批还没做完";
+  const busy = busyWhy();
   const none = !n && "选中的都被筛选隐藏了";
   // As 收藏夹's selection bar: the buttons that act on B站 say how many, label and aria-label alike.
-  const btn = (act, label, reason, cls = "", pre = "") => `<button type="button"${cls ? ` class="${cls}"` : ""} data-fw="${act}" aria-label="${esc(label)}"${UI.reasonAttrs(reason)}>${pre}${esc(label)}</button>`;
-  // 移到分组… leaves the sidebar's group, so 全部 has none to leave.
+  const btn = (act, label, reason, cls = "") => `<button type="button"${cls ? ` class="${cls}"` : ""} data-fw="${act}" aria-label="${esc(label)}"${UI.reasonAttrs(reason)}>${esc(label)}</button>`;
+  // 移动 leaves the sidebar's group, so 全部 has none to leave.
   // 已出分拣范围: 重新关注 the unfollowed, 取消关注 the ones still followed (清理 is in row 3, as 收藏夹's).
   const gone = selShown().filter((m) => rows.get(m).gone).length;
   const acts = F.side === "out"
     ? btn("refollow", `重新关注选中的 ${gone} 个`, busy || none || (!gone && "选中的都还关注着")) + btn("unfollow", `取消关注选中的 ${n - gone} 个`, busy || none || (n === gone && "选中的都已取消关注"), "danger")
     : btn("pick-sel", "标签…", busy || none) +
-      btn("ai", "AI 打标签", none, "", AI_SPARK) +
-      btn("move-sel", "移到分组…", busy || none || (groupId(F.side) == null && "先在左边选一个分组：全部里不知道从哪个分组移走")) +
-      btn("copy-sel", "复制到分组…", busy || none) +
+      btn("move-sel", `移动选中的 ${n} 个到分组…`, busy || none || (groupId(F.side) == null && "先在左边选一个分组：全部里不知道从哪个分组移走")) +
+      btn("copy-sel", `复制选中的 ${n} 个到分组…`, busy || none) +
       btn("unfollow", `取消关注选中的 ${n} 个`, busy || none, "danger");
   E.sel.innerHTML = UI.selbar({ label: "选中的 UP 主", n, hidden, clearAttrs: 'data-fw="select-none"', acts });
 }
@@ -1068,7 +1073,7 @@ async function relationRun(calls, label, { quiet = false, skipped = [] } = {}) {
   });
   renderSel();
   const r = await running;
-  if (r.busy) return toast("上一批还没做完"), 0;
+  if (r.busy) return toast(`${r.busy}还在跑，等它完成`), 0;
   if (r.stopped) toast(`已停止${label}：完成 ${r.done} 个，未完成 ${r.total - r.done} 个`);
   else if (r.error || r.done < r.total) toast(`${label}第 ${r.done + 1} 个时出错：${r.error || "未知错误"}${r.done ? `（前 ${r.done} 个已完成）` : ""}`, true);
   else if (!quiet) toast(`已${label} ${r.done} 个`);
@@ -1164,7 +1169,7 @@ async function starOne(mid) {
   const { done } = await regroup([mid], (m) => regrouped(groupsOf(m, D), on ? null : SPECIAL, on ? SPECIAL : 0), label);
   if (done.length) toast(`已${label}「${upName(mid)}」 · U 撤销`);
 }
-// 移到分组… / 复制到分组… on the selection: the shared 移动 / 复制 dialog, which is the batch's confirm (在 B站…, the count on
+// 移动 / 复制选中的 N 个到分组… on the selection: the shared 移动 / 复制 dialog, which is the batch's confirm (在 B站…, the count on
 // its button). A move leaves the sidebar's group; 新建分组… makes the group first.
 async function moveOrCopy(mids, how) {
   const from = groupId(F.side);
@@ -1256,7 +1261,7 @@ async function deleteGroup(g) {
 const manageGroups = {
   who: "UP 主",
   text: { title: "分组管理", saved: "新建、改名和删除立即在 B站 生效。", newName: "新分组名称（最多 16 个字）", newMax: 16, add: "新建", addLabel: "新建分组" },
-  hint: () => "这里就是 B站 的关注分组。特别关注和默认分组是 B站 固定的，不能改名或删除；要把人放进分组，选中后用「移到分组…」「复制到分组…」。",
+  hint: () => "这里就是 B站 的关注分组。特别关注和默认分组是 B站 固定的，不能改名或删除；要把人放进分组，选中后用选中栏的「移动选中的 N 个到分组…」「复制选中的 N 个到分组…」。",
   tags: () => D.groups,
   count: (id) => sideCount(`g:${id}`),
   row: (g, n) => `<div class="tag-row group-row" data-id="${esc(g.id)}">
@@ -1733,13 +1738,13 @@ main.addEventListener("click", async (e) => {
     return openPick([pk.dataset.pick], card ? `.fw-video[data-bvid="${CSS.escape(card.dataset.bvid)}"] .tag-plus` : "");
   }
   const star = t.closest("[data-star]");
-  if (star) return W.busy() ? toast("上一批还没做完") : starOne(star.dataset.star);
+  if (star) return W.busy() ? toast(busyWhy()) : starOne(star.dataset.star);
   const cl = t.closest("[data-clean]");
-  if (cl) return W.busy() ? toast("上一批还没做完") : clean([cl.dataset.clean]);
+  if (cl) return W.busy() ? toast(busyWhy()) : clean([cl.dataset.clean]);
   const uf = t.closest("[data-unfollow]");
-  if (uf) return W.busy() ? toast("上一批还没做完") : unfollow([uf.dataset.unfollow]);
+  if (uf) return W.busy() ? toast(busyWhy()) : unfollow([uf.dataset.unfollow]);
   const re = t.closest("[data-refollow]");
-  if (re) return W.busy() ? toast("上一批还没做完") : refollow([re.dataset.refollow]);
+  if (re) return W.busy() ? toast(busyWhy()) : refollow([re.dataset.refollow]);
   const act = t.closest("[data-fw]")?.dataset.fw;
   if (!act || t.closest("select")) return;
   if (act === "sync") {
@@ -1778,7 +1783,7 @@ main.addEventListener("click", async (e) => {
   } else if (act === "select-none") {
     F.sel.clear();
     render();
-  } else if (W.busy()) toast("上一批还没做完");
+  } else if (W.busy()) toast(busyWhy());
   else if (act === "pick-sel") openPick(selShown());
   else if (act === "unfollow") unfollow(selShown().filter((m) => !rows.get(m).gone));
   else if (act === "refollow") refollow(selShown().filter((m) => rows.get(m).gone));

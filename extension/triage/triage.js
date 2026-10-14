@@ -658,6 +658,8 @@ const selectedIn = (list) => list.filter((it) => S.selected.has(it.bvid));
 const intSetting = (v, min, max, def) => Math.max(min, Math.min(max, Math.floor(Number(v)) || def));
 const coarseBatchSize = () => intSetting(S.settings.triageCoarseBatchSize, 1, 1000, 100);
 const fineBatchSize = () => intSetting(S.settings.triageFineBatchSize, 1, 50, 10);
+// 请求间隔, as 关注's: 0–600 s, empty is the default 8 (0 is a value here, not empty).
+const intervalSetting = (v) => (v === "" || v == null ? 8 : intSetting(v, 0, 600, 0));
 // A step's batch, for 标题粗看, 字幕细看, their 按新标准重新… and 重试: the selected ones of open when there are any,
 // otherwise open; at most n.
 const pickBatch = (open, n) => {
@@ -1842,10 +1844,12 @@ function renderTabs() {
 // 标签管理 and ✦ AI 打标签 at the right end of the tags they act on, as in 关注; AI 打标签 says when a run or a proposal is
 // pending, so renderTop draws them too (a run ends without a list render). Without tags 标签管理 has the warn dot (the
 // new-tag box says what to do).
+let shownPicked = 0; // the selected videos listed now (renderListHeader); ✦ AI 打标签 says how many
 function renderTagButtons() {
   el.aiTagSlot.innerHTML = UI.tagButtons({
+    picked: shownPicked,
     manageAttrs: "data-tags-manage",
-    aiAttrs: 'data-ai-tag aria-label="AI 打标签 (I)"',
+    aiAttrs: "data-ai-tag",
     state: aiRunning() ? " · 运行中" : S.ai.proposal ? " · 待确认" : "",
     manageReason: inFolderView() ? "" : FOLDER_ONLY,
     aiReason: aiTagReason(),
@@ -1938,7 +1942,7 @@ function renderListHeader(list) {
     const n = batchList(verdict || null).length;
     const verb = route === "unfav" ? "取消收藏" : "保留";
     // One batch 取消收藏 at a time: while another folder's runs, this one waits.
-    const reason = !n ? (verdict ? `这里没有 AI 判断为${VERDICTS[verdict]}、还没处理的视频` : "选中的都已经处理过了")
+    const reason = !verdict && hiddenAll ? hiddenAll : !n ? (verdict ? `这里没有 AI 判断为${VERDICTS[verdict]}、还没处理的视频` : "选中的都已经处理过了")
       : route === "unfav" && run ? `「${folderName(run.mediaId)}」的批量取消收藏还在跑`
       : route === "unfav" && favBusy ? `${favBusy}还在跑，等它完成` : "";
     return headBtn(`batch-${route}`, verdict ? `${verb}（AI：${VERDICTS[verdict]}）${n} 个` : `${verb}选中的 ${n} 个`, route === "unfav" ? "danger" : "", reason, verdict, route === "keep" ? KEEP_TIP : "");
@@ -1947,7 +1951,7 @@ function renderListHeader(list) {
     const run = favRun?.job === "transfer" ? favRun : null;
     if (run) return headBtn("transfer", `${run.verb}中 ${run.done}/${run.total}${runWhere(run)}`, "", `正在${run.verb}`, "", "", true);
     const n = transferList().length;
-    const reason = !n ? "选中的视频已取消收藏，或缺少视频编号" : favBusy ? `${favBusy}还在跑，等它完成` : "";
+    const reason = hiddenAll || (!n ? "选中的视频已取消收藏，或缺少视频编号" : favBusy ? `${favBusy}还在跑，等它完成` : "");
     return headBtn("transfer", S.mediaId === REMOVED ? `收藏选中的 ${n} 个到…` : `移动/复制选中的 ${n} 个…`, "", reason);
   };
   const groupBtn = (cls) => {
@@ -1969,6 +1973,8 @@ function renderListHeader(list) {
     return all ? headBtn(act, batchLabel(`按新标准重新${verb}`, batch, open), "", aiBusyReason() || (batch.length ? "" : `当前筛选下没有要重新${verb}的视频`), "", `这些视频是按旧的判断标准${verb}的`, false, true) : "";
   };
   const sel = selectedIn(list).length;
+  // A selection that filters hide entirely: the bar keeps its buttons, disabled with why, as 关注's.
+  const hiddenAll = !sel && S.selected.size ? "选中的都被筛选隐藏了" : "";
   const f = S.classFilter[t];
   // html is what this step does; selActs acts on the selection and goes to its own bar below the filters.
   let html = "";
@@ -1985,14 +1991,10 @@ function renderListHeader(list) {
       const none = S.items.some((it) => stageOf(it) === "none" && !S.coarseFailed.has(it.bvid)) ? "当前筛选下没有要粗看的视频" : "没有要粗看的视频";
       html += headBtn("stage1", batchLabel("标题粗看", pending, open), "primary", aiBusyReason() || (pending.length ? "" : none), "", "", false, true);
     }
-    if (sel) selActs = batchBtn("keep");
   } else if (t === "coarse") {
     // 细看 stays in row 3 like 标题粗看 and takes the selection; 可清理 / 值得留 lead with their batch button, 细看 stays secondary.
     html = critBtn + redoBtn("redo-coarse", "粗看", redoCoarseOpen(), coarseBatchSize(), staleCoarse().length);
-    if (sel) {
-      html += groupBtn("primary");
-      selActs = batchBtn("keep");
-    }
+    if (sel) html += groupBtn("primary");
     else if (f === "drop") html += batchBtn("unfav", "drop") + groupBtn("");
     else if (f === "keep") html += batchBtn("keep", "keep") + groupBtn("");
     else html += groupBtn("primary");
@@ -2001,8 +2003,7 @@ function renderListHeader(list) {
     html = "";
     const staleN = staleFine().length;
     if (staleN) html += critBtn + redoBtn("redo-fine", "细看", redoFineOpen(), fineBatchSize(), staleN);
-    if (sel) selActs = batchBtn("keep");
-    else {
+    if (!sel) {
       if (f === "all" || f === "drop") html += batchBtn("unfav", "drop");
       if (f === "all" || f === "keep") html += batchBtn("keep", "keep");
     }
@@ -2015,20 +2016,23 @@ function renderListHeader(list) {
   } else if (t === "read") {
     // 阅览 mixes 粗看 guesses with 细看 conclusions, so no class-wide batch here: only the selection.
     html = "";
-    if (sel) selActs = batchBtn("keep");
   }
-  // 标签… and 移动/复制 work on a selection in any tab of a single folder; in 已出分拣范围 移动 is 收藏到. 取消收藏 goes last,
-  // set apart.
-  if (sel && inFolderView()) selActs += headBtn("sel-tags", "标签…");
-  if (sel && S.mediaId !== ALL) selActs += transferBtn();
-  if (sel && S.mediaId !== REMOVED) selActs += batchBtn("unfav");
-  // 全选 heads the right-hand buttons, so row 3's chips coming and going never move it. It acts on what is listed.
-  if (!all) html = UI.selectAllBox('data-head="select-all"', list.length, sel) + html;
-  if (all) html = loadAllLine() + html;
+  // 保留 in every tab but 已出分拣范围; 标签… and 移动/复制 in any tab of a single folder (in 已出分拣范围 移动 is 收藏到).
+  // 取消收藏 goes last, set apart. A selection the filters hide keeps them, disabled (hiddenAll).
+  const picked = S.selected.size;
+  if (picked && S.mediaId !== REMOVED) selActs = batchBtn("keep");
+  if (picked && inFolderView()) selActs += headBtn("sel-tags", "标签…", "", hiddenAll);
+  if (picked && S.mediaId !== ALL) selActs += transferBtn();
+  if (picked && S.mediaId !== REMOVED) selActs += batchBtn("unfav");
+  // 全选 heads the right-hand buttons, so row 3's chips coming and going never move it. It acts on what is listed, in
+  // 所有收藏夹 too (across its folders).
+  html = UI.selectAllBox('data-head="select-all"', list.length, sel) + (all ? loadAllLine() : "") + html;
   const hidden = S.selected.size - sel;
   const selbar = S.selected.size ? UI.selbar({ label: "选中的视频", n: sel, hidden, clearAttrs: 'data-head="clear-selected"', acts: selActs }) : "";
   el.classFilter.innerHTML = UI.labeledRow("状态", stateRowHtml(t));
   el.listHeader.innerHTML = `<div class="step-actions">${html}</div>${selbar}`;
+  shownPicked = sel;
+  renderTagButtons();
 }
 
 function recentUnfavs() {
@@ -4208,7 +4212,7 @@ function bindEvents() {
   el.settingsDialog.addEventListener("close", async () => {
     if (el.settingsDialog.returnValue !== "save") return;
     const patch = {
-      triageIntervalSec: Math.max(0, Number(el.intervalInput.value) || 0),
+      triageIntervalSec: intervalSetting(el.intervalInput.value),
       triageCoarseBatchSize: intSetting(el.coarseBatchInput.value, 1, 1000, 100),
       triageFineBatchSize: intSetting(el.fineBatchInput.value, 1, 50, 10),
       triageThinking: el.thinkingInput.checked,
@@ -4467,8 +4471,8 @@ function onKey(e) {
   } else if (map[key]) map[key]();
   else if (nav[key]) moveFocus(nav[key]);
   else if (key === "u") undo();
-  // 已出分拣范围 has no 保留 / 取消收藏 / 标签; 待播, 问 AI and U work there.
-  else if (S.mediaId === REMOVED && key !== "e" && key !== "q") return;
+  // 已出分拣范围 has no 保留 / 取消收藏 / 标签; 待播, 问 AI, X and U work there (X picks for 清理 and 收藏到).
+  else if (S.mediaId === REMOVED && !["e", "q", "x"].includes(key)) return;
   else if (cardKeys[key] && S.focused) cardAction(cardKeys[key], S.focused);
   else return;
   e.preventDefault();

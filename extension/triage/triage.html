@@ -119,7 +119,7 @@
             <h3>AI 参数</h3>
             <p class="dialog-hint">一般不用改。AI 平台在设置页，判断标准是粗看、细看左边的按钮。</p>
             <div class="set-card">
-              <div class="set-row" data-set-row="interval"><input id="intervalInput" type="number" min="0" step="1" /></div>
+              <div class="set-row" data-set-row="interval"><input id="intervalInput" type="number" min="0" max="600" step="1" /></div>
               <div class="set-row" data-set-row="aiBatch"><input id="aiBatchInput" type="number" min="1" max="100" step="1" /></div>
               <div id="thinkingRow" class="set-row"><div><label class="name" for="thinkingInput">开启思考</label><p class="hint">判断更细，但慢得多、token 多几倍。</p></div><input id="thinkingInput" type="checkbox" class="switch" /></div>
               <div class="set-row"><div><label class="name" for="coarseBatchInput">标题粗看每批数量</label><p class="hint">点一次「标题粗看」跑几个。默认 100，最多 1000。</p></div><input id="coarseBatchInput" type="number" min="1" max="1000" step="1" /></div>

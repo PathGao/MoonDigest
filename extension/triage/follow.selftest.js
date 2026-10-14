@@ -220,12 +220,12 @@ const base = () => ({ list: null, last: null, content: {}, people: {}, tags: [],
 
 // ----- 关注's own AI settings: first use copies 收藏夹's, then they are independent -----
 {
-  const triage = { triageTitleBatchSize: 15, triageIntervalSec: 2, triageAiNewTagMax: 3, triageAiRemoveTags: true };
+  const triage = { triageAiBatchSize: 15, triageTitleBatchSize: 99, triageIntervalSec: 2, triageAiNewTagMax: 3, triageAiRemoveTags: true };
   const first = plain(t.followAiSettings(undefined, triage));
   assert.deepStrictEqual(first.value, { batchSize: 15, intervalSec: 2, newTagMax: 3, allowRemove: true }, "seeded from 收藏夹");
   assert.deepStrictEqual(first.seed, first.value, "the seed is stored");
   assert.strictEqual(t.followAiSettings(undefined, { ...triage, triageAiBatchSize: 7 }).value.batchSize, 7, "收藏夹's own AI 打标签 batch size, once it has one");
-  assert.strictEqual(t.followAiSettings(undefined, { ...triage, triageAiBatchSize: null }).value.batchSize, 15, "else the 标题粗看 value it used to share");
+  assert.strictEqual(t.followAiSettings(undefined, { ...triage, triageAiBatchSize: null }).value.batchSize, 30, "else 关注's default: the removed 标题粗看 batch size is no fallback");
   assert.deepStrictEqual(plain(t.followAiSettings(undefined, null)).value, { batchSize: 30, intervalSec: 8, newTagMax: 5, allowRemove: false }, "global defaults without 收藏夹 settings");
   const own = { batchSize: 40, intervalSec: 0, newTagMax: 0, allowRemove: false };
   const later = plain(t.followAiSettings(own, { ...triage, triageTitleBatchSize: 99, triageAiNewTagMax: 9 }));
@@ -572,7 +572,7 @@ async function followPage({ store = {}, handlers = {}, setup = () => {} } = {}) 
   Object.assign(ctx.MoonTriage, { toast, askConfirm });
   setup(ctx);
   const follow = fs.readFileSync(path.join(__dirname, "follow.js"), "utf8").replace(/^import "\.\/triage\.js";.*$/m, "");
-  await vm.runInContext(`(async () => {\n${follow}\n;globalThis.FW = { F, E, W, relationRun, pushWriteUndo };\n})()`, ctx);
+  await vm.runInContext(`(async () => {\n${follow}\n;globalThis.FW = { F, E, W, relationRun, pushWriteUndo, render };\n})()`, ctx);
   const settle = async (n = 30) => {
     for (let i = 0; i < n; i++) await new Promise((r) => setTimeout(r, 1));
   };
@@ -644,6 +644,37 @@ async function followPage({ store = {}, handlers = {}, setup = () => {} } = {}) 
     assert.strictEqual(feedSends(p), 2, "加载更多 does nothing during the wait");
     await p.until(() => F.feed.items.length);
     assert.deepStrictEqual([feedSends(p), F.feed.wait, plain(F.feed.items.map((x) => x.bvid))], [3, false, ["BVb", "BVc"]], "then it loads again by itself");
+  }
+
+  // F8 / F10 / F11 / F15: a card pick (X) redraws what counts the selection: 全选 and 清理 in row 3 (drawn in barR), ✦ AI
+  // 打标签 in row 4, the bar; the bar has no AI 打标签, its group buttons say how many, a running write is named.
+  {
+    let release;
+    const p = await followPage({
+      store: page({ follow_unfollowed: { u3: { at: sec - DAY, source: "app", name: "丙" } } }),
+      handlers: { "follow-relation": () => new Promise((r) => (release = r)) }
+    });
+    const { F, E } = p.FW;
+    const found = {};
+    E.barR.querySelector = (sel) => (found[sel] ||= { setAttribute(k, v) { this[k] = v; } });
+    F.cur = "u1";
+    p.key("x");
+    assert.strictEqual(found["[data-fw=select-all]"]["aria-checked"], "mixed", "全选 turns mixed on X");
+    assert.ok(p.$("fwAiSlot").innerHTML.includes(">AI 打标签选中 1 个</button>"), p.$("fwAiSlot").innerHTML);
+    const bar = E.sel.innerHTML;
+    assert.ok(!bar.includes("AI 打标签") && bar.includes(">移动选中的 1 个到分组…<") && bar.includes(">复制选中的 1 个到分组…<"), bar);
+    const running = p.FW.relationRun([{ type: "follow-relation", mid: "u2", act: 2 }], "取消关注");
+    await p.until(() => release);
+    assert.ok(E.sel.innerHTML.includes('disabled title="取消关注还在跑，等它完成"'), E.sel.innerHTML);
+    release({ ok: true });
+    await running;
+    F.sel.clear();
+    F.side = "out";
+    p.FW.render();
+    assert.ok(p.$("fwBarR").innerHTML.includes(">清理这 1 个<"), p.$("fwBarR").innerHTML);
+    F.cur = "u3";
+    p.key("x");
+    assert.ok(found["[data-fw=clean]"].outerHTML?.includes(">清理选中的 1 个<"), "清理 follows the pick");
   }
 
   // U on a 关注 write while another runs: refused before its confirm, with 收藏夹's words; the step stays for later.
