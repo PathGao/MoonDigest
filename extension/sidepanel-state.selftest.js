@@ -7,7 +7,7 @@ const assert = require("assert");
 
 const ctx = vm.createContext({ console, URL });
 ctx.globalThis = ctx;
-for (const f of ["limits.js", "sites.js", "sidepanel-state.js"]) vm.runInContext(fs.readFileSync(path.join(__dirname, f), "utf8"), ctx);
+for (const f of ["limits.js", "errors.js", "sites.js", "sidepanel-state.js"]) vm.runInContext(fs.readFileSync(path.join(__dirname, f), "utf8"), ctx);
 const S = ctx.SidepanelState;
 const plain = (value) => JSON.parse(JSON.stringify(value));
 const types = (effects) => [...effects].map((e) => e.type);
@@ -258,7 +258,7 @@ function panel({ tab = video("BV1aa"), list = [] } = {}) {
   p.dispatch({ type: "OPEN", id: "h" });
   p.dispatch({ type: "TAB_READ", tab: null });
   p.dispatch({ type: "NEW" });
-  assert.deepStrictEqual([p.view().context, p.view().live.error], [null, "找不到当前标签页。"]);
+  assert.deepStrictEqual([p.view().context, p.view().live.error], [null, ctx.MdgErrors.TEXT.noTab]);
   const q = panel();
   q.dispatch({ type: "TAB_READ", tab: { url: v("BV1aa") } });
   q.dispatch({ type: "CONTEXT_ARRIVED", payload: null, error: "读不到" });

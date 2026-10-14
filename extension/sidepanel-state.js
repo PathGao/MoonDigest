@@ -432,7 +432,7 @@
       // A context load read the active tab: tab is { url, title }, or null when there is none.
       case "TAB_READ": {
         if (!event.tab) {
-          s.live = { ...s.live, tabUrl: "", context: null, key: "", error: "找不到当前标签页。" };
+          s.live = { ...s.live, tabUrl: "", context: null, key: "", error: MdgErrors.TEXT.noTab };
           return [];
         }
         s.live.tabUrl = String(event.tab.url || "").trim();

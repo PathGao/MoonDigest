@@ -235,7 +235,7 @@
           postMessage(msg) {
             if (msg.action === "stop") {
               clearInterval(timer);
-              post({ type: "stopped", reason: "已停止生成" });
+              post({ type: "stopped", reason: MdgErrors.TEXT.aiStopped });
               return;
             }
             if (msg.action !== "chat") return;

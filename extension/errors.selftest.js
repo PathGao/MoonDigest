@@ -73,7 +73,7 @@ const E = ctx.MdgErrors;
 
   // The sentences live only in errors.js; badges.js (it does not load errors.js) keeps one exact copy.
   assert.ok(read("badges.js").includes(`"${E.TEXT.reloaded}"`), "badges.js shows MdgErrors.TEXT.reloaded word for word");
-  const sources = ["background.js", "obsidian.js", "content.js", "sidepanel.js", "popup.js", "history/history.js", "triage/triage.js", "triage/triage-bg.js", "triage/follow.js", "triage/follow-bg.js"];
+  const sources = ["background.js", "obsidian.js", "content.js", "sidepanel.js", "sidepanel-state.js", "popup.js", "history/history.js", "triage/triage.js", "triage/triage-bg.js", "triage/follow.js", "triage/follow-bg.js"];
   for (const sentence of [...Object.values(E.TEXT), "视频审核中"]) {
     for (const file of sources) assert.ok(!read(file).includes(sentence), `${file} writes 「${sentence}」 itself`);
   }

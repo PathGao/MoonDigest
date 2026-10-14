@@ -1433,7 +1433,7 @@ async function sendMessage(prompt) {
     } else if (msg.type === "done") {
       endStream(stream);
     } else if (msg.type === "stopped") {
-      endStream(stream, { stopped: msg.reason || "已停止生成" });
+      endStream(stream, { stopped: msg.reason || MdgErrors.TEXT.aiStopped });
     } else if (msg.type === "error") {
       endStream(stream, { error: msg.error || "未知错误", code: msg.code });
     }
@@ -1599,7 +1599,7 @@ function stopActiveStream() {
   try {
     activeStream.port.postMessage({ action: "stop" });
   } catch {
-    endStream(activeStream, { stopped: "已停止生成" });
+    endStream(activeStream, { stopped: MdgErrors.TEXT.aiStopped });
   }
 }
 
@@ -1935,7 +1935,7 @@ async function jumpToAssistantTimestamp(seconds, label) {
 
   const tab = await getActiveTab().catch(() => null);
   if (!tab?.id) {
-    showConversationContextNotice("找不到当前标签页。", 2200);
+    showConversationContextNotice(MdgErrors.TEXT.noTab, 2200);
     return;
   }
 

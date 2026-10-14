@@ -138,7 +138,7 @@ async function getAiSidepanelState(tabId, { refresh = false, frameId = 0, videoI
 
   const tab = await chrome.tabs.get(tabId).catch(() => null);
   if (!tab?.id) {
-    throw new Error("找不到当前标签页。");
+    throw new Error(MdgErrors.TEXT.noTab);
   }
 
   const inViewer = frameId > 0;
@@ -391,7 +391,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.type === "player-ai-quick-action") {
     const tabId = Number(message.tabId || sender?.tab?.id || 0) || 0;
     if (!tabId) {
-      sendResponse({ ok: false, error: "找不到当前标签页。" });
+      sendResponse({ ok: false, error: MdgErrors.TEXT.noTab });
       return false;
     }
 
@@ -589,7 +589,7 @@ chrome.runtime.onConnect.addListener((port) => {
   port.onMessage.addListener(async (msg) => {
     if (!msg) return;
     if (msg.action === "stop") {
-      abortActiveRequest({ type: "stopped", reason: "已停止生成" });
+      abortActiveRequest({ type: "stopped", reason: MdgErrors.TEXT.aiStopped });
       return;
     }
     if (msg.action !== "chat") return;
@@ -1084,7 +1084,7 @@ async function streamChat({ provider, context, userPrompt, history, port, signal
 
 function postStreamAbort(port, abortMeta) {
   if (abortMeta?.type === "stopped") {
-    port.postMessage({ type: "stopped", reason: abortMeta.reason || "已停止生成" });
+    port.postMessage({ type: "stopped", reason: abortMeta.reason || MdgErrors.TEXT.aiStopped });
   } else if (abortMeta?.type === "timeout") {
     port.postMessage({ type: "error", error: abortMeta.reason, code: abortMeta.code });
   }

@@ -53,6 +53,10 @@
     sidepanelOpenFailed: "打开侧边栏失败",
     // 继续问 on a record that is not a video (the side panel's input, 视频记录's button).
     notVideo: "不是视频，不能问",
+    // The side panel's 停止 ended the reply (the background's port message, the panel's own stop).
+    aiStopped: "已停止生成",
+    // chrome.tabs found no active tab (popup, side panel, background).
+    noTab: "找不到当前标签页",
     // Every selection is hidden by a search or filter: the buttons that act on it are disabled with this (分拣台, 视频记录).
     hiddenAll: "选中的都被筛选隐藏了"
   });

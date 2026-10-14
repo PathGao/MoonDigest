@@ -321,7 +321,7 @@ async function sendToContent(message) {
   const tab = await getActiveTab();
   const tabId = tab?.id || null;
   if (!tabId) {
-    throw new Error("找不到当前标签页");
+    throw new Error(MdgErrors.TEXT.noTab);
   }
 
   try {
