@@ -10,7 +10,7 @@ assert.ok(source.includes("(async () => {})().catch("), "harness strips the page
 const button = () => {
   const attrs = {};
   const on = {};
-  return { disabled: false, title: "", attrs, on, addEventListener: (t, f) => (on[t] = f), classList: { toggle() {} }, getAttribute: (k) => attrs[k] ?? null, setAttribute: (k, v) => (attrs[k] = v), removeAttribute: (k) => delete attrs[k] };
+  return { disabled: false, title: "", dataset: {}, attrs, on, addEventListener: (t, f) => (on[t] = f), classList: { toggle() {} }, getAttribute: (k) => attrs[k] ?? null, setAttribute: (k, v) => (attrs[k] = v), removeAttribute: (k) => delete attrs[k] };
 };
 const ctx = vm.createContext({ document: { getElementById: button } });
 // The scripts popup.html loads before popup.js, read from the page so the test cannot load a different set.
@@ -18,6 +18,7 @@ const scripts = [...fs.readFileSync(path.join(__dirname, "popup.html"), "utf8").
 assert.strictEqual(scripts.pop(), "./popup.js", "popup.js loads last");
 for (const f of scripts) vm.runInContext(fs.readFileSync(path.join(__dirname, f), "utf8"), ctx);
 vm.runInContext(`${source}\n;globalThis.el = el;`, ctx);
+const { refreshFromTab, bindEvents } = ctx; // B1 below stubs them
 const state = () => Object.fromEntries(["downloadBtn", "readingViewBtn", "summaryBtn", "copyBtn", "mdBtn", "sendBtn"].map((k) => {
   const b = ctx.el[k];
   assert.strictEqual(b.title, b.attrs["aria-description"] || "", `${k}: tooltip and aria-description agree`);
@@ -76,4 +77,22 @@ for (const bad of XSS) {
   assertInert(ctx.el.subtitleSelect.innerHTML, "subtitle options");
 }
 
-console.log("popup selftest: all passed");
+// After the blocks above (promises only), which share el.status.
+setTimeout(() =>
+  (async () => {
+    bindEvents();
+    // D3: one sentence per situation, as the video page and 专注模式 say it (MdgErrors.TEXT).
+    const T = ctx.MdgErrors.TEXT;
+    ctx.ensurePayload = async () => ({ title: "标题", markdown: "" });
+    await ctx.el.copyBtn.on.click();
+    const copied = ctx.el.status.textContent;
+    await ctx.el.mdBtn.on.click();
+    assert.deepStrictEqual([copied, ctx.el.status.textContent], [T.noNoteYet, T.noNoteYet]);
+    ctx.sendToContent = async () => ({ ok: false, error: "网络断了" });
+    await refreshFromTab(true);
+    assert.strictEqual(ctx.el.status.textContent, `${T.videoReadFailed}：网络断了`);
+    await ctx.el.subtitleSelect.on.change({ target: { selectedIndex: 0, options: [{ value: "u", dataset: {} }] } });
+    assert.strictEqual(ctx.el.status.textContent, `${T.subtitleSwitchFailed}：网络断了`);
+    console.log("popup selftest: all passed");
+  })().catch((e) => (console.error(e), process.exit(1)))
+);

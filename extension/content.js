@@ -360,7 +360,7 @@ function init() {
     schedulePlayerAiQuickActionSync();
     if (shouldEnterReaderMode) {
       enterReaderMode().catch((error) => {
-        setReadingNotice(`专注模式启动失败：${getErrorMessage(error)}`);
+        setReadingNotice(`专注模式启动失败：${getErrorMessage(error)}`, { error: true });
       });
     }
   });
@@ -791,8 +791,8 @@ function bindUiEvents() {
   // Same request as the popup's AI 总结, so it works even when the player button is turned off.
   byId(ids.readingAiBtn).addEventListener("click", () => {
     sendRuntimeMessage({ type: "player-ai-quick-action", source: "popup", contextRef: viewerContextRef() })
-      .then((resp) => setReadingNotice(resp?.ok ? "" : `打开侧边栏失败：${resp?.error || "未知错误"}`))
-      .catch((error) => setReadingNotice(`打开侧边栏失败：${getErrorMessage(error)}`));
+      .then((resp) => setReadingNotice(resp?.ok ? "" : `打开侧边栏失败：${resp?.error || "未知错误"}`, { error: true }))
+      .catch((error) => setReadingNotice(`打开侧边栏失败：${getErrorMessage(error)}`, { error: true }));
   });
   chapterList.addEventListener("click", onReadingChapterClick);
   transcriptList.addEventListener("click", onReadingTranscriptClick);
@@ -838,7 +838,7 @@ function checkUrlChange() {
   if (!state.readingViewOpen && shouldEnterReaderMode) {
     markReaderMode();
     enterReaderMode().catch((error) => {
-      setReadingNotice(`专注模式启动失败：${getErrorMessage(error)}`);
+      setReadingNotice(`专注模式启动失败：${getErrorMessage(error)}`, { error: true });
     });
     return;
   }
@@ -851,7 +851,7 @@ function checkUrlChange() {
       }
       refreshClip().catch((error) => {
         if (!isStaleRunError(error)) {
-          setReadingNotice(`自动刷新失败：${fetchErrorText(error)}`);
+          setReadingNotice(`${MdgErrors.TEXT.videoReadFailed}：${fetchErrorText(error)}`, { error: true });
         }
       });
     });
@@ -1114,7 +1114,7 @@ async function runRefreshClip() {
     if (state.readingViewOpen) {
       renderReadingView();
     }
-    setStatus(`抓取失败：${reason}。`);
+    setStatus(`${MdgErrors.TEXT.videoReadFailed}：${reason}。`);
     throw error;
   }
 }
@@ -1203,7 +1203,7 @@ function onReadingSubtitleChange(event) {
     .catch((error) => {
       // The dropdown goes back to the track still shown.
       renderReadingSubtitleSelect();
-      setReadingNotice(`字幕切换失败：${fetchErrorText(error)}`);
+      setReadingNotice(`${MdgErrors.TEXT.subtitleSwitchFailed}：${fetchErrorText(error)}`, { error: true });
     });
 }
 
@@ -1289,7 +1289,7 @@ async function sendToObsidian() {
   }
   await refreshDerivedContent();
   if (!state.markdown) {
-    setMessage("没有可写入的内容，请先点击「刷新」。");
+    setMessage(MdgErrors.TEXT.noNoteYet);
     return;
   }
 
@@ -1509,7 +1509,7 @@ function scheduleReaderPlayerRetry() {
     if (state.readingPlayerRetries > 12) {
       replaceReaderModeUrl(stripReaderModeUrl(location.href));
       closeReadingView();
-      setReadingNotice("视频播放器长时间未就绪，已退出专注模式，请刷新网页重试");
+      setReadingNotice("视频播放器长时间未就绪，已退出专注模式，请刷新网页重试", { error: true });
       return;
     }
     const mounted = await ensureReaderPlayerMounted({ retries: 10, delayMs: 200, forceLayout: true });
@@ -1559,7 +1559,7 @@ function maybeRefreshReaderSubtitleInBackground() {
       return;
     }
     // Joins a read in flight or reads a video not read yet; a video already read without subtitles is not reread.
-    settledClip(false).catch((error) => setReadingNotice(`字幕加载失败：${fetchErrorText(error)}`));
+    settledClip(false).catch((error) => setReadingNotice(`${MdgErrors.TEXT.videoReadFailed}：${fetchErrorText(error)}`, { error: true }));
   });
 }
 
@@ -1845,8 +1845,9 @@ function getReadingTranscriptPlaceholderText() {
   if (state.subtitleFetchState === "loading" || state.subtitleFetchState === "idle") {
     return "正在加载字幕…";
   }
+  // Only reading the video itself sets error (a subtitle failure is subtitleMissing below).
   if (state.subtitleFetchState === "error") {
-    return "字幕加载失败。";
+    return `${MdgErrors.TEXT.videoReadFailed}。`;
   }
   return `${MdgErrors.subtitleMissing(state)}。${state.subtitleNeedLogin ? `${MdgErrors.TEXT.subtitleLoginHint}。` : ""}`;
 }
@@ -3401,10 +3402,9 @@ async function handlePlayerAiQuickActionClick(event) {
     if (!resp?.ok) {
       throw new Error(resp?.error || "未知错误");
     }
-    setMessage("点发送开始 AI 总结");
+    // Not setMessage: that is the popup's status line, which would show this long after, maybe over another video.
   } catch (error) {
-    setMessage(`打开侧边栏失败：${getErrorMessage(error)}`);
-    setReadingNotice(`打开侧边栏失败：${getErrorMessage(error)}`);
+    setReadingNotice(`打开侧边栏失败：${getErrorMessage(error)}`, { error: true });
   } finally {
     state.playerAiQuickActionSubmitting = false;
     if (button) {
@@ -3738,7 +3738,7 @@ function onReadingChapterClick(event) {
 
 function onReadingTranscriptClick(event) {
   if (event.target.closest(".mdg-reading-retry")) {
-    settledClip(true).catch((error) => setReadingNotice(`字幕加载失败：${fetchErrorText(error)}`));
+    settledClip(true).catch((error) => setReadingNotice(`${MdgErrors.TEXT.videoReadFailed}：${fetchErrorText(error)}`, { error: true }));
     return;
   }
   const target = event.target.closest(".mdg-reading-item");

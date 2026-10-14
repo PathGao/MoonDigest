@@ -669,6 +669,35 @@ const settle = async () => {
     assert.doesNotMatch(source, /请稍后重试/, "a note keeps state only, no instruction");
   }
 
+  // D8: the player ✦ never writes the popup's status line (setMessage); D1: its failure is red on the page.
+  {
+    const saved = Object.fromEntries(["setMessage", "setReadingNotice", "getSettings", "sendRuntimeMessage"].map((k) => [k, t[k]]));
+    const seen = [];
+    t.HTMLButtonElement = class {};
+    t.setMessage = (m) => seen.push(["message", m]);
+    t.setReadingNotice = (m, o) => seen.push(["notice", m, o?.error]);
+    t.getSettings = async () => ({ enablePlayerAiQuickAction: true });
+    const click = { preventDefault() {}, stopPropagation() {}, currentTarget: null };
+    t.sendRuntimeMessage = async () => ({ ok: true });
+    await t.handlePlayerAiQuickActionClick(click);
+    t.sendRuntimeMessage = async () => ({ ok: false, error: "x" });
+    await t.handlePlayerAiQuickActionClick(click);
+    assert.deepStrictEqual(seen, [["notice", "打开侧边栏失败：x", true]]);
+    Object.assign(t, saved);
+    delete t.HTMLButtonElement;
+  }
+  // D1: every failure notice on the video page is red (error: true), like the popup's.
+  for (const m of source.matchAll(/setReadingNotice\((`[^`]*`|"[^"]*")(.{0,60})/g)) {
+    if (/失败|未就绪|Failed\}/.test(m[1])) assert.match(m[2], /^(, \{ error: true \}|\)\)?, \{ error: true \})/, `not red: ${m[0]}`);
+  }
+  // D3: what failed when 专注模式 has no subtitle to show is reading the video, in the popup's words.
+  {
+    const was = state.subtitleFetchState;
+    state.subtitleFetchState = "error";
+    assert.strictEqual(t.getReadingTranscriptPlaceholderText(), `${t.MdgErrors.TEXT.videoReadFailed}。`);
+    state.subtitleFetchState = was;
+  }
+
   // The video's subtitle names, chapter titles and subtitle lines come from the site.
   {
     const saved = Object.fromEntries(["subtitles", "chapters", "subtitleBody"].map((k) => [k, state[k]]));

@@ -28,6 +28,13 @@
     subtitleLoginHint: "登录 B站后刷新网页",
     // A dropped connection on a B站 or YouTube read (the background's code NETWORK, the video page's own fetches).
     netDown: "网络断了",
+    // The popup and 专注模式 say the same for the same situation. Reading the video (its info; a subtitle failure alone
+    // is subtitleMissing) failed, on 刷新, on entering 专注模式 or on its automatic refresh; followed by 「：原因」.
+    videoReadFailed: "读取视频失败",
+    // The chosen subtitle track could not be loaded; followed by 「：原因」.
+    subtitleSwitchFailed: "字幕切换失败",
+    // 复制 Markdown, 下载 .md or 写入 Obsidian before the page has a note.
+    noNoteYet: "还没有笔记内容，请先点「刷新」",
     // A side panel reply that ended without one word of answer (only thinking, or nothing); the panel offers 重试.
     aiEmpty: "AI 平台没有返回回答"
   });
