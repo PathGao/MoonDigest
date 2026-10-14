@@ -77,6 +77,12 @@ for (const bad of XSS) {
   assertInert(ctx.el.subtitleSelect.innerHTML, "subtitle options");
 }
 
+// G9: no track reads as everywhere else (MdgErrors.subtitleMissing), not a word of its own.
+ctx.render({ subtitleOptions: [], subtitleMissing: "未登录 B站，拿不到字幕" }, { preserveStatus: true });
+assert.strictEqual(ctx.el.subtitleSelect.innerHTML, '<option value="">未登录 B站，拿不到字幕</option>');
+ctx.render({ subtitleOptions: [] }, { preserveStatus: true });
+assert.strictEqual(ctx.el.subtitleSelect.innerHTML, '<option value="">视频没有字幕</option>');
+
 // After the blocks above (promises only), which share el.status.
 setTimeout(() =>
   (async () => {
@@ -91,8 +97,16 @@ setTimeout(() =>
     ctx.sendToContent = async () => ({ ok: false, error: "网络断了" });
     await refreshFromTab(true);
     assert.strictEqual(ctx.el.status.textContent, `${T.videoReadFailed}：网络断了`);
-    await ctx.el.subtitleSelect.on.change({ target: { selectedIndex: 0, options: [{ value: "u", dataset: {} }] } });
+    let picked;
+    ctx.sendToContent = async (m) => ((picked = m), { ok: false, error: "网络断了" });
+    await ctx.el.subtitleSelect.on.change({ target: { selectedIndex: 0, options: [{ value: "u", dataset: { lang: "中文", id: "1" } }] } });
+    // I10: the content script reads only the track's url.
+    assert.deepStrictEqual({ ...picked }, { type: "popup-select-subtitle", url: "u" });
     assert.strictEqual(ctx.el.status.textContent, `${T.subtitleSwitchFailed}：网络断了`);
+    // G5: 专注模式 that did not start reads as on the video page: TEXT.readerStartFailed and the background's reason.
+    Object.assign(ctx, { isSupportedSubtitlePage: () => true, sendToContent: async () => ({ ok: true }), sendToRuntime: async () => ({ ok: false, error: "视频页没有回应" }) });
+    await ctx.el.readingViewBtn.on.click();
+    assert.strictEqual(ctx.el.status.textContent, `${T.readerStartFailed}：视频页没有回应`);
     console.log("popup selftest: all passed");
   })().catch((e) => (console.error(e), process.exit(1)))
 );

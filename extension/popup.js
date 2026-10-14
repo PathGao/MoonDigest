@@ -138,7 +138,7 @@ function bindEvents() {
     }).catch((error) => ({ ok: false, error: error.message }));
     setBusy(el.readingViewBtn, false);
     if (!resp?.ok) {
-      setStatus(`打开失败：${resp?.error || "未知错误"}`, true);
+      setStatus(`${MdgErrors.TEXT.readerStartFailed}：${resp?.error || "未知错误"}`, true);
       return;
     }
     setStatus("专注模式已打开");
@@ -152,12 +152,7 @@ function bindEvents() {
       return;
     }
     setStatus("正在切换字幕…", false, true);
-    const resp = await sendToContent({
-      type: "popup-select-subtitle",
-      url,
-      lang: String(option.dataset.lang || "unknown"),
-      subtitleId: String(option.dataset.id || "")
-    });
+    const resp = await sendToContent({ type: "popup-select-subtitle", url });
     if (!resp?.ok) {
       setStatus(`${MdgErrors.TEXT.subtitleSwitchFailed}：${resp?.error || "未知错误"}`, true);
     }
@@ -181,7 +176,7 @@ function bindEvents() {
     const resp = await sendToRuntime({ type: "player-ai-quick-action", tabId: tab.id, source: "popup" }).catch((error) => ({ ok: false, error: error.message }));
     if (!resp?.ok) {
       setBusy(el.summaryBtn, false);
-      setStatus(`打开侧边栏失败：${resp?.error || "未知错误"}`, true);
+      setStatus(`${MdgErrors.TEXT.sidepanelOpenFailed}：${resp?.error || "未知错误"}`, true);
       return;
     }
     window.setTimeout(() => window.close(), 80);
@@ -200,7 +195,7 @@ function bindEvents() {
 }
 
 async function refreshFromTab(force = false) {
-  setStatus("正在抓取字幕…", false, true);
+  setStatus("正在读取视频…", false, true);
   setBusy(el.refreshBtn, true);
   const resp = await sendToContent({ type: "popup-refresh", refresh: force }).finally(() => setBusy(el.refreshBtn, false));
   el.refreshBtn.classList.toggle("is-error", !resp?.ok);
@@ -258,7 +253,7 @@ function render(payload, { preserveStatus = false } = {}) {
 
   const options = payload.subtitleOptions || [];
   if (options.length === 0) {
-    el.subtitleSelect.innerHTML = '<option value="">暂无字幕</option>';
+    el.subtitleSelect.innerHTML = `<option value="">${escapeHtml(payload.subtitleMissing || MdgErrors.subtitleMissing())}</option>`;
     el.subtitleSelect.disabled = true;
   } else {
     el.subtitleSelect.innerHTML = options

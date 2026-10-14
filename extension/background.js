@@ -298,6 +298,8 @@ async function resolveAiSidepanelContext(contextRef) {
     cid: String(meta.cid || ""),
     aid: String(meta.aid || ""),
     pageIndex: meta.pageIndex || 1,
+    // A P1 conversation note is named 「 P1」 when the video has parts (MdgNote), as with the video page open.
+    pageCount: meta.pageCount || 0,
     pageTitle: String(meta.pageTitle || ref.pageTitle || "").trim(),
     description: String(meta.description || ""),
     subtitleLang,
@@ -329,6 +331,7 @@ async function resolveAiSidepanelPageRef(contextRef) {
     videoId: ref.videoId,
     cid: ref.cid,
     pageIndex: ref.pageIndex,
+    pageCount: ref.pageCount,
     pageTitle: ref.pageTitle
   };
   if (!site || site.pageOnly) {
@@ -340,6 +343,7 @@ async function resolveAiSidepanelPageRef(contextRef) {
     url: canonicalVideoUrl({ ...meta, site: site.id, videoId: videoRef.id }),
     cid: String(meta.cid || ref.cid || ""),
     pageIndex: meta.pageIndex || ref.pageIndex,
+    pageCount: meta.pageCount || 0,
     pageTitle: String(meta.pageTitle || ref.pageTitle || "")
   };
 }
@@ -475,7 +479,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       .then(() => triggerReaderModeInTab(tabId, readerUrl))
       .then((triggered) => {
         if (!triggered) {
-          throw new Error("专注模式打开失败，请刷新网页重试");
+          // The reason only: the page says MdgErrors.TEXT.readerStartFailed in front of it.
+          throw new Error("视频页没有回应");
         }
         sendResponse({ ok: true });
       })
@@ -627,7 +632,7 @@ chrome.runtime.onConnect.addListener((port) => {
       const providers = await loadAiProviders();
       const provider = providers.find((p) => p.id === msg.providerId);
       if (!provider) {
-        port.postMessage({ type: "error", error: "未找到选中的平台", code: "AI_SETUP" });
+        port.postMessage({ type: "error", error: "没找到选中的 AI 平台", code: "AI_SETUP" });
         clearActiveRequestState();
         return;
       }
@@ -713,7 +718,7 @@ function normalizeSyncSettings(settings) {
   merged.biliMarksOff = Array.isArray(merged.biliMarksOff) ? merged.biliMarksOff.filter((c) => typeof c === "string") : [];
   merged.seenShow = MdgSettings.normalizeSeenShow(merged.seenShow);
   merged.seenThreshold = MdgSettings.normalizeSeenThreshold(merged.seenThreshold);
-  merged.seenStyle = merged.seenStyle === "veil" ? "veil" : "badge";
+  merged.seenStyle = MdgSettings.normalizeSeenStyle(merged.seenStyle);
   merged.readerTheme = MdgSettings.normalizeReaderTheme(merged.readerTheme);
   merged.readerFontScale = MdgSettings.normalizeReaderFontScale(merged.readerFontScale);
   merged.readerLetterSpacing = MdgSettings.normalizeReaderLetterSpacing(merged.readerLetterSpacing);
@@ -1025,7 +1030,7 @@ function supportsThinkingToggle(baseUrl) {
 }
 
 // Remote hosts are optional permissions since 1.2.0, so an upgraded install may lack its AI provider's origin.
-// The side panel and triage page match "未授权访问 <origin>" to offer a grant button.
+// Answered with code AI_ACCESS; the side panel and the settings page read the origin back (MdgErrors.grantOrigin) to offer 授权.
 async function hostPermissionError(url) {
   try {
     const { protocol, hostname } = new URL(url);
@@ -1077,7 +1082,7 @@ async function streamChat({ provider, context, userPrompt, history, port, signal
       return;
     }
     const denied = await hostPermissionError(baseUrl);
-    port.postMessage(denied ? { type: "error", error: denied } : { type: "error", error: AI_NETWORK_TEXT, code: "AI_NETWORK" });
+    port.postMessage(denied ? { type: "error", error: denied, code: "AI_ACCESS" } : { type: "error", error: AI_NETWORK_TEXT, code: "AI_NETWORK" });
     return;
   }
 
@@ -1153,7 +1158,7 @@ async function probeAiChatCompletion({ baseUrl, apiKey, model }) {
   } catch (error) {
     if (error?.name === "TimeoutError") return { ok: false, error: MdgErrors.aiTimeout(AI_TEST_TIMEOUT_MS), code: "AI_TIMEOUT" };
     const denied = await hostPermissionError(baseUrl);
-    return denied ? { ok: false, error: denied } : { ok: false, error: AI_NETWORK_TEXT, code: "AI_NETWORK" };
+    return denied ? { ok: false, error: denied, code: "AI_ACCESS" } : { ok: false, error: AI_NETWORK_TEXT, code: "AI_NETWORK" };
   }
 
   try {

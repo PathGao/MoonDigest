@@ -33,7 +33,7 @@
   const KEYS = Object.freeze({
     subtitleCachePrefix: "mdg_subtitle_cache_",
     aiConversations: "mdg_ai_conversations_v1",
-    // videoKey → { path, lastSyncedAt } for notes the user saved; auto-sync only touches these.
+    // videoKey → { path, lastSyncedAt, pageIndex? } for notes the user saved; auto-sync only touches these.
     obsidianNotePaths: "mdg_obsidian_note_paths_v1",
     // The side panel's request slot: the player button, popup, 分拣台 and 视频记录 ask it to open a video's AI chat.
     playerAiQuickAction: "mdg_player_ai_quick_action_v1",
@@ -136,7 +136,7 @@
       folderSnapshotSize: sizeOf(snapshots),
       triageRemoved: Object.keys(all[KEYS.triageRemoved] || {}).length,
       triageNotes: Object.keys(all[KEYS.triageNotes] || {}).length,
-      seen: keys.filter((key) => key.startsWith("seen_")).length,
+      seen: keys.filter((key) => key.startsWith(SEEN)).length,
       totalSize: sizeOf(Object.entries(all))
     };
   }

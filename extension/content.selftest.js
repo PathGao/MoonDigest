@@ -526,6 +526,9 @@ const settle = async () => {
     assert.strictEqual(await site.fetchRaw({}, {}), "raw");
     site = t.pageSubtitleSite({ fetchRaw: answers([limited(), limited()]) }, state.fetchRunId);
     await assert.rejects(site.fetchRaw({}, {}), (e) => e.status === 429 && e.message === "字幕接口限流（429），稍后再试");
+    // B站's 429 is its limit, said as THROTTLED.
+    site = t.pageSubtitleSite({ id: "bilibili", fetchRaw: answers([limited(), limited()]) }, state.fetchRunId);
+    await assert.rejects(site.fetchRaw({}, {}), (e) => e.code === "THROTTLED" && e.message === t.MdgErrors.TEXT.biliThrottled);
     site = t.pageSubtitleSite({ id: "bilibili", fetchTracks: answers([{ tracks: [] }, { tracks: ["t"] }]) }, state.fetchRunId);
     assert.deepStrictEqual((await site.fetchTracks()).tracks, ["t"]);
     const ios = [];
@@ -567,9 +570,25 @@ const settle = async () => {
       assert.deepStrictEqual([state.subtitleFailure, sent.subtitleFailure, sent.subtitleNeedLogin], ["", "", true]);
       t.currentSite = site;
     }
+    // G1: a limit is no subtitle failure: the read fails (red, 重试), no note or comment read, nothing says 字幕抓取失败.
+    {
+      const site = t.currentSite;
+      const derived = t.refreshDerivedContent;
+      let derives = 0;
+      t.refreshDerivedContent = async () => derives++;
+      t.currentSite = () => ({ ...site(), fetchRaw: async () => Promise.reject(Object.assign(new Error(t.MdgErrors.TEXT.biliThrottled), { code: "THROTTLED" })) });
+      await assert.rejects(t.runRefreshClip(), (e) => e.code === "THROTTLED");
+      assert.deepStrictEqual([state.subtitleFetchState, state.subtitleFailure, derives], ["error", "", 0]);
+      assert.strictEqual(t.fetchErrorText({ code: "THROTTLED", message: "x" }), t.MdgErrors.TEXT.biliThrottled);
+      // 重试 then reads it whole and builds the normal note.
+      t.currentSite = site;
+      await t.runRefreshClip();
+      assert.deepStrictEqual([state.subtitleFetchState, derives], ["ready", 1]);
+      t.refreshDerivedContent = derived;
+    }
 
     loads = 0;
-    const popupSelect = (url) => new Promise((resolve) => listeners.message.forEach((f) => f({ type: "popup-select-subtitle", url, lang: "英文", subtitleId: ".en" }, {}, resolve)));
+    const popupSelect = (url) => new Promise((resolve) => listeners.message.forEach((f) => f({ type: "popup-select-subtitle", url }, {}, resolve)));
     state.subtitles = [{ id: ".zh", url: "u1" }];
     const gone = await popupSelect("old-video-track");
     assert.deepStrictEqual([gone.ok, gone.error, loads], [false, "视频已切换，请刷新", 0], "F4");
@@ -624,13 +643,19 @@ const settle = async () => {
       if (switched || !pick) {
         // The side panel and the popup learn nothing was written.
         assert.deepStrictEqual([{ ...reply }, modes()], [{ written: false }, [["write-video-note", undefined, "# 视频 A"]]]);
-        assert.strictEqual(messages.at(-1), switched ? "视频已切换，未写入 Obsidian。" : t.MdgErrors.TEXT.obsidianCancelled);
+        assert.strictEqual(messages.at(-1), switched ? t.MdgErrors.TEXT.obsidianVideoSwitched : t.MdgErrors.TEXT.obsidianCancelled);
       } else {
         // The same note, taken before the dialog, with the mode; the background's words are shown.
         assert.deepStrictEqual(modes(), [["write-video-note", undefined, "# 视频 A"], ["write-video-note", "ai", "# 视频 A"]]);
         assert.deepStrictEqual([reply, messages.at(-1)], [undefined, "已更新 AI 问答：p.md"]);
       }
     }
+    // G3: the note goes with its subtitle state, which the background's result starts with.
+    [sent, messages, choice] = [[], [], ""];
+    Object.assign(state, { subtitleFailure: "网络断了", subtitleNeedLogin: false, subtitleWarning: "" });
+    await t.sendToObsidian();
+    assert.strictEqual(sent[0].page.warning, "字幕抓取失败：网络断了。");
+    state.subtitleFailure = "";
     // A failed write answers the popup and the side panel with the reason and code, not a success.
     t.sendRuntimeMessage = async () => ({ ok: false, error: t.MdgErrors.TEXT.obsidianDown, code: "OBSIDIAN_DOWN" });
     assert.deepStrictEqual({ ...(await t.sendToObsidian()) }, { ok: false, error: t.MdgErrors.TEXT.obsidianDown, code: "OBSIDIAN_DOWN" });
@@ -638,8 +663,8 @@ const settle = async () => {
   }
 
   // N6: what the user reads for a failed fetch: risk control and a dropped connection in words, no codes.
-  assert.strictEqual(t.fetchErrorText(Object.assign(new Error("请求失败：412"), { status: 412 })), "B站限流，请稍后再试");
-  assert.strictEqual(t.fetchErrorText(Object.assign(new Error("风控校验失败"), { code: -352 })), "B站限流，请稍后再试");
+  // HTTP 412 and the risk codes are THROTTLED by then (sites.js biliJson, the background's fetch-json).
+  assert.strictEqual(t.fetchErrorText(Object.assign(new Error("请求失败：412"), { code: "THROTTLED" })), "B站限流，请稍后再试");
   assert.strictEqual(t.fetchErrorText(new TypeError("Failed to fetch")), "网络断了");
   assert.strictEqual(t.fetchErrorText(Object.assign(new Error("啥都木有"), { code: -404 })), "啥都木有");
   assert.strictEqual(t.fetchErrorText(Object.assign(new Error("稿件审核中"), { code: 62004 })), "视频审核中，过后再试", "MdgErrors' words, as elsewhere");
@@ -652,9 +677,9 @@ const settle = async () => {
       }, 2, 0).catch(() => {});
       return n;
     };
-    // sites.js marks every negative B站 code retryable; risk codes stop here all the same.
-    for (const code of [-352, -412, -799, -509]) assert.strictEqual(await tries(Object.assign(new Error("x"), { code, retryable: true })), 1, String(code));
-    assert.strictEqual(await tries(Object.assign(new Error("请求失败：412"), { status: 412 })), 1, "HTTP 412");
+    // A limit (THROTTLED, HTTP 429) stops here even when marked retryable.
+    assert.strictEqual(await tries(Object.assign(new Error("x"), { code: "THROTTLED", retryable: true })), 1, "THROTTLED");
+    assert.strictEqual(await tries(Object.assign(new Error("请求失败：429"), { status: 429 })), 1, "HTTP 429");
     assert.strictEqual(await tries(new TypeError("Failed to fetch")), 2, "a dropped connection is retried");
     assert.strictEqual(await tries(Object.assign(new Error("x"), { code: -500, retryable: true })), 2);
     // D2: the background's fetch-json says 网络断了 (code NETWORK) like 分拣台, and the page's own timeout says the same.
@@ -683,6 +708,12 @@ const settle = async () => {
     t.sendRuntimeMessage = async () => ({ ok: false, error: "x" });
     await t.handlePlayerAiQuickActionClick(click);
     assert.deepStrictEqual(seen, [["notice", "打开侧边栏失败：x", true]]);
+    // G4: a reloaded extension reads as TEXT.reloaded, not Chrome's English; 专注模式's AI 总结 shares the handling (G7).
+    seen.splice(0);
+    t.sendRuntimeMessage = async () => Promise.reject(new Error("Extension context invalidated."));
+    await t.handlePlayerAiQuickActionClick(click);
+    assert.strictEqual(await t.askSidepanel("reader"), false);
+    assert.deepStrictEqual(seen, [["notice", t.MdgErrors.TEXT.reloaded, true], ["notice", t.MdgErrors.TEXT.reloaded, true]]);
     Object.assign(t, saved);
     delete t.HTMLButtonElement;
   }

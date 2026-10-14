@@ -16,6 +16,10 @@
     obsidianNotFound: "Obsidian Local REST API 地址不对（HTTP 404）",
     // 取消 in the 该笔记已存在 dialog: the page sent no second write-video-note, so nothing was written.
     obsidianCancelled: "已取消写入 Obsidian，原笔记未被覆盖。",
+    // The conversation (side panel) or the video (video page) changed while the 该笔记已存在 dialog was open: nothing
+    // was written, and it is no failure (not red).
+    obsidianConvSwitched: "对话已切换，未写入 Obsidian。",
+    obsidianVideoSwitched: "视频已切换，未写入 Obsidian。",
     // The extension reloaded under a page whose content script still runs: chrome.runtime no longer answers.
     reloaded: "扩展刚刚更新，请刷新网页",
     // No AI platform to send to (none added, none enabled): the background's AI_SETUP, the side panel and 分拣台 say this.
@@ -31,6 +35,8 @@
     // The popup and 专注模式 say the same for the same situation. Reading the video (its info; a subtitle failure alone
     // is subtitleMissing) failed, on 刷新, on entering 专注模式 or on its automatic refresh; followed by 「：原因」.
     videoReadFailed: "读取视频失败",
+    // 专注模式 did not start (popup, video page); followed by 「：原因」, a reason without instructions.
+    readerStartFailed: "专注模式启动失败",
     // The chosen subtitle track could not be loaded; followed by 「：原因」.
     subtitleSwitchFailed: "字幕切换失败",
     // 复制 Markdown, 下载 .md or 写入 Obsidian before the page has a note.
@@ -41,6 +47,8 @@
     obsidianWriteFailed: "Local API 写入失败",
     // A dropped connection (fetch's TypeError): the video page, 分拣台's B站 requests, 关注's paused refresh.
     netDown: "网络断了",
+    // Asking Chrome or the background to open the side panel failed (popup, video page, 视频记录, 分拣台); 「：原因」 follows.
+    sidepanelOpenFailed: "打开侧边栏失败",
     // 继续问 on a record that is not a video (the side panel's input, 视频记录's button).
     notVideo: "不是视频，不能问",
     // Every selection is hidden by a search or filter: the buttons that act on it are disabled with this (分拣台, 视频记录).
@@ -52,14 +60,14 @@
   const NET_TIMEOUT_MS = 30000;
   const netTimeout = (ms) => `${TEXT.netDown}：${ms / 1000} 秒没有回应`;
 
-  // Why a reader has no subtitle: the one sentence of every entry (video page, 专注模式, popup, side panel, the AI's
-  // context, 分拣台, notes), without a full stop. subtitleNeedLogin is its own state (B站 hides subtitles from a
-  // logged-out viewer), not a failure; subtitleFailure is why the fetch failed. A state, never an instruction.
   // AI_TIMEOUT: no answer from the AI platform in ms (each caller's own limit: side panel, 分拣台, 测试连接).
   const aiTimeout = (ms) => `AI 平台 ${ms / 1000} 秒没有回应`;
   // AI_STALLED: a side panel reply that stopped midway for ms. Only 重试 helps (no 去设置: the platform did answer).
   const aiStalled = (ms) => `回复中断：${ms / 1000} 秒没有新内容`;
 
+  // Why a reader has no subtitle: the one sentence of every entry (video page, 专注模式, popup, side panel, the AI's
+  // context, 分拣台, notes), without a full stop. subtitleNeedLogin is its own state (B站 hides subtitles from a
+  // logged-out viewer), not a failure; subtitleFailure is why the fetch failed. A state, never an instruction.
   const subtitleMissing = ({ subtitleNeedLogin = false, subtitleFailure = "" } = {}) =>
     subtitleNeedLogin ? "未登录 B站，拿不到字幕" : subtitleFailure ? `字幕抓取失败：${subtitleFailure}` : "视频没有字幕";
 
@@ -73,6 +81,9 @@
     AI_SETUP: { action: "settings" },
     AI_NETWORK: { action: "settings" },
     AI_TIMEOUT: { action: "settings" },
+    // No access to the AI provider's origin yet (noAccess): every request fails alike, so 分拣台 stops its run; the fix
+    // is 授权 (grantOrigin reads the origin from the words), not the settings page.
+    AI_ACCESS: {},
     // 分拣台 only: AI 平台 still limited after AI_THROTTLE_WAITS waits in a row.
     AI_GAVE_UP: { action: "settings" },
     // Obsidian itself is unusable (not set up, off, wrong key): every write fails alike and the fix is in the settings

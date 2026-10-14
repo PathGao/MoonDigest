@@ -241,7 +241,7 @@ assert.throws(() => t.triageParseCommand('{"new_tags":[', cmdItems, cmdTags, {})
   };
   await assert.rejects(t.triageChat([], 100), (e) => e.code === "AI_NETWORK" && e.message === "连不上 AI 平台，请检查网络和接口地址");
   t.hostPermissionError = async () => "未授权访问 https://ai.test，授权后重试";
-  await assert.rejects(t.triageChat([], 100), (e) => e.code === undefined && /未授权访问/.test(e.message), "a missing permission keeps its own text");
+  await assert.rejects(t.triageChat([], 100), (e) => e.code === "AI_ACCESS" && /未授权访问/.test(e.message), "a missing permission keeps its own text, with its code");
   // A dropped B站 connection says 网络断了, without fetch's English.
   t.fetch = async () => {
     throw new TypeError("Failed to fetch");

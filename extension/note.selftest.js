@@ -292,12 +292,17 @@ assert.strictEqual(N.buildMarkdown(cases.biliSingle.meta, body, baseSettings, nu
 assert.ok(N.buildMarkdown({ ...cases.biliSingle.meta, userTags: ["入门 教程", "视频", "C++"] }, body, baseSettings, null, CREATED).includes('\ntags: ["clippings", "视频", "入门_教程", "C_"]\n'));
 {
   const c = cases.noSubtitle;
-  const md = N.buildMarkdown({ ...c.meta, subtitleFailure: "字幕接口限流（429），稍后再试" }, c.body, c.settings, refOf(c.meta), CREATED);
-  assert.ok(md.includes("> 字幕抓取失败：字幕接口限流（429），稍后再试，以下为简介与热门评论。"), "failed fetch is not reported as no subtitles");
+  const md = N.buildMarkdown({ ...c.meta, subtitleFailure: "网络断了" }, c.body, c.settings, refOf(c.meta), CREATED);
+  assert.ok(md.includes("> 字幕抓取失败：网络断了，以下为简介与热门评论。"), "failed fetch is not reported as no subtitles");
   assert.ok(!md.includes("视频没有字幕"), "failed fetch drops the no-subtitle line");
   // Not logged in is its own state, and a note carries no instruction to log in.
   const loggedOut = N.buildMarkdown({ ...c.meta, subtitleNeedLogin: true }, c.body, c.settings, refOf(c.meta), CREATED);
   assert.ok(loggedOut.includes("> 未登录 B站，拿不到字幕，以下为简介与热门评论。") && !/刷新|请登录/.test(loggedOut), loggedOut);
+  // The sentence a written note's result starts with, the same from the video page and triageBuildNote.
+  assert.deepStrictEqual(
+    [N.noteSubtitleWarning("", { subtitleFailure: "网络断了" }), N.noteSubtitleWarning("", { subtitleNeedLogin: true }), N.noteSubtitleWarning("对不上。", { subtitleFailure: "x" }), N.noteSubtitleWarning("", {})],
+    ["字幕抓取失败：网络断了。", "未登录 B站，拿不到字幕。", "对不上。", ""]
+  );
 }
 assert.strictEqual(N.formatCompactTimestamp(3661, true), "01:01:01");
 assert.strictEqual(N.formatCompactTimestamp(3661, false), "61:01");

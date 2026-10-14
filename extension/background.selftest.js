@@ -25,6 +25,13 @@ ctx.loadAiProviders = async () => [{ id: "p", baseUrl: "https://ai.test", model:
 ctx.loadAiProviderKeys = async () => ({});
 vm.runInContext("STREAM_TIMEOUT_MS.first = 60; STREAM_TIMEOUT_MS.idle = 60;", ctx);
 
+// I6: the prompts state the limits the code applies (简介 chars sent, tag name length), from the constants.
+{
+  const intro = `简介前${ctx.TriageUi.INTRO_CHARS}字`;
+  assert.ok(vm.runInContext("TRIAGE_TITLE_PROMPT", ctx).includes(intro) && vm.runInContext("TRIAGE_AI_UNIT.header", ctx).includes(intro));
+  assert.doesNotMatch(fs.readFileSync(path.join(__dirname, "triage/triage-bg.js"), "utf8"), /简介前\d|≤\d+字、不含逗号/, "a prompt writes a limit itself");
+}
+
 const sse = (delta) => new TextEncoder().encode(`data: ${JSON.stringify({ choices: [{ delta }] })}\n\n`);
 const abortError = () => Object.assign(new Error("aborted"), { name: "AbortError" });
 // Feeds chunks with the given delays; past the script the body stalls until the request is aborted, like a real fetch.
@@ -127,7 +134,7 @@ process.on("exit", (code) => {
     assert.deepStrictEqual({ ...(await test(async () => ({ ok: false, status: 401, text: async () => '{"error":{"message":"Incorrect API key"}}' }))) }, { ok: false, error: "AI 平台的 API Key 无效或没有权限", code: "AI_AUTH" });
     assert.deepStrictEqual({ ...(await test(failed)) }, { ok: false, error: "连不上 AI 平台，请检查网络和接口地址", code: "AI_NETWORK" });
     ctx.hostPermissionError = async () => "未授权访问 https://ai.test，授权后重试";
-    assert.deepStrictEqual({ ...(await test(failed)) }, { ok: false, error: "未授权访问 https://ai.test，授权后重试" });
+    assert.deepStrictEqual({ ...(await test(failed)) }, { ok: false, error: "未授权访问 https://ai.test，授权后重试", code: "AI_ACCESS" });
     const timeout = async () => {
       throw Object.assign(new Error("timeout"), { name: "TimeoutError" });
     };
@@ -392,6 +399,8 @@ process.on("exit", (code) => {
   assert.strictEqual(mismatched.subtitleBody.length, 2);
   assert.match(mismatched.subtitleMarkdown, /## 字幕/);
   assert.strictEqual(mismatched.subtitleWarning, "字幕时间轴到 06:40，视频长 04:33，字幕时间可能对不上。");
+  // I2: with the part count, as the video page sends it (a P1 conversation note's name needs it).
+  assert.strictEqual(mismatched.pageCount, 1);
   assert.deepStrictEqual(Object.keys(local).filter((k) => k.startsWith("mdg_subtitle_cache_")), []);
   // Like the video page, the next track is tried when the chosen one does not match; the match wins, without a warning.
   const otherUrl = "https://aisubtitle.hdslb.com/b.json";

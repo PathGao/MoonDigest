@@ -362,7 +362,7 @@ function init() {
     schedulePlayerAiQuickActionSync();
     if (shouldEnterReaderMode) {
       enterReaderMode().catch((error) => {
-        setReadingNotice(`专注模式启动失败：${getErrorMessage(error)}`, { error: true });
+        setReadingNotice(`${MdgErrors.TEXT.readerStartFailed}：${getErrorMessage(error)}`, { error: true });
       });
     }
   });
@@ -792,9 +792,7 @@ function bindUiEvents() {
   byId(ids.readingStatus).addEventListener("click", () => setReadingNotice(""));
   // The popup's request, from 专注模式 (source reader): it works even when the player button is turned off.
   byId(ids.readingAiBtn).addEventListener("click", () => {
-    sendRuntimeMessage({ type: "player-ai-quick-action", source: "reader", contextRef: viewerContextRef() })
-      .then((resp) => setReadingNotice(resp?.ok ? "" : `打开侧边栏失败：${resp?.error || "未知错误"}`, { error: true }))
-      .catch((error) => setReadingNotice(`打开侧边栏失败：${getErrorMessage(error)}`, { error: true }));
+    askSidepanel("reader").then((ok) => ok && setReadingNotice(""));
   });
   chapterList.addEventListener("click", onReadingChapterClick);
   transcriptList.addEventListener("click", onReadingTranscriptClick);
@@ -840,7 +838,7 @@ function checkUrlChange() {
   if (!state.readingViewOpen && shouldEnterReaderMode) {
     markReaderMode();
     enterReaderMode().catch((error) => {
-      setReadingNotice(`专注模式启动失败：${getErrorMessage(error)}`, { error: true });
+      setReadingNotice(`${MdgErrors.TEXT.readerStartFailed}：${getErrorMessage(error)}`, { error: true });
     });
     return;
   }
@@ -1004,7 +1002,7 @@ async function runRefreshClip() {
   let metaLoaded = false;
   try {
     setMessage("");
-    setStatus("正在抓取视频信息…");
+    setStatus("正在读取视频信息…");
     state.subtitleFetchState = "loading";
     if (state.readingViewOpen) {
       renderReadingView();
@@ -1091,7 +1089,7 @@ async function runRefreshClip() {
       syncReadingViewPlayback(true);
     }
     setStatus(
-      state.subtitleWarning + (state.settings.obsidianEnabled ? "抓取完成，可以复制、下载或写入 Obsidian。" : "抓取完成，可以复制或下载。")
+      state.subtitleWarning + (state.settings.obsidianEnabled ? "读取完成，可以复制、下载或写入 Obsidian。" : "读取完成，可以复制或下载。")
     );
   } catch (error) {
     // A newer run (the video changed) owns the state now: an old video's late failure must not reset or mark it.
@@ -1099,8 +1097,9 @@ async function runRefreshClip() {
       return;
     }
     const reason = failureReason(error);
-    // Only the subtitle step failed: keep the video info and degrade to the no-subtitle state.
-    if (metaLoaded) {
+    // Only the subtitle step failed: keep the video info and degrade to the no-subtitle state. A limit is no subtitle
+    // failure: it fails the read like the side panel and 逐个视频笔记 do, so no note says it and 重试 reads it all again.
+    if (metaLoaded && !isLimitError(error)) {
       try {
         await showNoSubtitleState(runId, { failure: reason });
       } catch (degradeError) {
@@ -1152,7 +1151,11 @@ function pageSubtitleSite(site, runId) {
       await sleep(3000 + Math.random() * 2000);
       ensureRunActive(runId);
       return site.fetchRaw(track, io).catch((error) => {
-        throw error?.status === 429 ? Object.assign(new Error("字幕接口限流（429），稍后再试"), { status: 429 }) : error;
+        if (error?.status !== 429) throw error;
+        // B站's limit reads as THROTTLED wherever it comes from (MdgErrors.TEXT.biliThrottled).
+        throw site.id === "bilibili"
+          ? Object.assign(new Error(MdgErrors.TEXT.biliThrottled), { code: "THROTTLED" })
+          : Object.assign(new Error("字幕接口限流（429），稍后再试"), { status: 429 });
       });
     }
   };
@@ -1222,7 +1225,7 @@ function renderSubtitleOptions(select) {
   const subtitles = state.subtitles || [];
 
   if (subtitles.length === 0) {
-    select.innerHTML = '<option value="">暂无字幕</option>';
+    select.innerHTML = `<option value="">${escapeHtml(MdgErrors.subtitleMissing(state))}</option>`;
     select.disabled = true;
     return;
   }
@@ -1273,8 +1276,12 @@ function getPopupPayload() {
     message: state.messageText || "",
     subtitlePreview: buildSubtitlePreview(state.subtitleBody || [], state.settings || DEFAULT_SETTINGS),
     markdown: state.markdown || "",
+    // What 写入 Obsidian's result starts with for this note (the side panel sends it with the note as page.warning).
+    noteWarning: MdgNote.noteSubtitleWarning(state.subtitleWarning, state),
     // 下载 .md: the same name as the note 写入 Obsidian writes (MdgNote.buildNoteFilename).
     filename: MdgNote.buildNoteFilename(state, state.settings || DEFAULT_SETTINGS),
+    // The subtitle dropdown's line when there is no track, as everywhere (MdgErrors.subtitleMissing).
+    subtitleMissing: MdgErrors.subtitleMissing(state),
     srt: state.srt || "",
     txt: state.txt || "",
     subtitleOptions
@@ -1298,7 +1305,7 @@ async function sendToObsidian() {
   // Taken before the overwrite dialog: autoplay or a link can change the video (and reset state) while it is open.
   const clip = computeCurrentClipSignature();
   const ref = { site: state.site, videoId: state.videoId, cid: state.cid, pageIndex: state.pageIndex, pageCount: state.pageCount, pageTitle: state.pageTitle, title: state.title, author: state.author, uploadDate: state.uploadDate, url: cleanVideoUrl() };
-  const request = { type: "write-video-note", ref, page: { markdown: state.markdown, cover: state.cover } };
+  const request = { type: "write-video-note", ref, page: { markdown: state.markdown, cover: state.cover, warning: MdgNote.noteSubtitleWarning(state.subtitleWarning, state) } };
   // Answering the dialog closes the popup, so after it progress and results also show on the page.
   let onPage = false;
   const report = (text, ok) => {
@@ -1315,8 +1322,8 @@ async function sendToObsidian() {
       }
       onPage = true;
       if (computeCurrentClipSignature() !== clip) {
-        setMessage("视频已切换，未写入 Obsidian。");
-        setReadingNotice("视频已切换，未写入 Obsidian。");
+        setMessage(MdgErrors.TEXT.obsidianVideoSwitched);
+        setReadingNotice(MdgErrors.TEXT.obsidianVideoSwitched);
         return { written: false };
       }
       setReadingNotice("正在写入 Obsidian…", { busy: true });
@@ -2103,7 +2110,7 @@ function buildReadingSummaryItems() {
     if (state.pageTitle) {
       pageParts.push(state.pageTitle);
     }
-    items.push({ label: "分P", value: pageParts.join(" ") });
+    items.push({ label: "分 P", value: pageParts.join(" ") });
   }
   return items;
 }
@@ -3377,6 +3384,21 @@ function syncPlayerAiQuickActionVisuals(button) {
   button.style.setProperty("--mdg-player-ai-action-icon-size", `${iconSize}px`);
 }
 
+// The player ✦ and 专注模式's AI 总结 (source reader): the background opens the side panel on this video. The
+// background checks the ✦ AI 按钮 setting (one check for every sender) and answers why when it is off. A failure is red
+// on the page, not setMessage: that is the popup's status line, which would show it long after, maybe over another
+// video. Resolves whether the panel opened.
+async function askSidepanel(source) {
+  try {
+    const resp = await sendRuntimeMessage({ type: "player-ai-quick-action", ...(source && { source }), contextRef: viewerContextRef() });
+    if (!resp?.ok) throw new Error(resp?.error || "未知错误");
+    return true;
+  } catch (error) {
+    setReadingNotice(MdgErrors.reloaded(error) ? MdgErrors.TEXT.reloaded : `${MdgErrors.TEXT.sidepanelOpenFailed}：${getErrorMessage(error)}`, { error: true });
+    return false;
+  }
+}
+
 async function handlePlayerAiQuickActionClick(event) {
   event.preventDefault();
   event.stopPropagation();
@@ -3396,14 +3418,7 @@ async function handlePlayerAiQuickActionClick(event) {
   }
 
   try {
-    // The background checks the ✦ AI 按钮 setting (one check for every sender) and answers why when it is off.
-    const resp = await sendRuntimeMessage({ type: "player-ai-quick-action", contextRef: viewerContextRef() });
-    if (!resp?.ok) {
-      throw new Error(resp?.error || "未知错误");
-    }
-    // Not setMessage: that is the popup's status line, which would show this long after, maybe over another video.
-  } catch (error) {
-    setReadingNotice(`打开侧边栏失败：${getErrorMessage(error)}`, { error: true });
+    await askSidepanel();
   } finally {
     state.playerAiQuickActionSubmitting = false;
     if (button) {
@@ -3945,14 +3960,11 @@ function toReadableText(value, fallback = "") {
   return text;
 }
 
-// A failed fetch in the user's words: B站 risk control (HTTP 412 or its codes) and a dropped connection are named
-// (fetch's English TypeError becomes TEXT.netDown); B站 codes with their own words (62004) read as elsewhere, any other
+// A failed fetch in the user's words: a dropped connection is named (fetch's English TypeError becomes TEXT.netDown);
+// codes with their own words (THROTTLED, 62004) read as elsewhere, any other
 // error keeps its own message (the background's 「B站请求失败 HTTP 403」, the page's 「请求失败：403」).
 // getErrorMessage keeps the raw text with the code for logs and retry checks.
 function fetchErrorText(error) {
-  if (isBiliRiskError(error)) {
-    return MdgErrors.TEXT.biliThrottled;
-  }
   if (/failed to fetch|networkerror|load failed/i.test(toReadableText(error?.message, ""))) {
     return MdgErrors.TEXT.netDown;
   }
@@ -4052,9 +4064,9 @@ function isStaleRunError(error) {
   return error?.code === "STALE_RUN";
 }
 
-// B站 risk control (sites.js's B站 reads say THROTTLED; HTTP 412 or its codes elsewhere): retrying at once only digs
-// deeper, so it is never retried.
-const isBiliRiskError = (error) => error?.code === "THROTTLED" || error?.status === 412 || MdgSites.BILI_RISK_CODES.has(error?.code);
+// A limit, as MdgSites.loadSubtitle counts one: B站 risk control (every B站 read says THROTTLED through sites.js's biliJson)
+// or HTTP 429. Retrying at once only digs deeper, so it is never retried, and it fails the read (runRefreshClip).
+const isLimitError = (error) => error?.code === "THROTTLED" || error?.status === 429;
 
 async function retryAsync(task, retries = 1, delayMs = 180) {
   let lastError = null;
@@ -4063,7 +4075,7 @@ async function retryAsync(task, retries = 1, delayMs = 180) {
       return await task();
     } catch (error) {
       lastError = error;
-      if (isBiliRiskError(error)) {
+      if (isLimitError(error)) {
         throw error;
       }
       const isNetworkError = isRetryableNetworkError(error);

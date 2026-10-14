@@ -193,12 +193,15 @@ const chatOn = (context) => {
     assert.strictEqual(await write(() => "", web("x")), "-", "取消: nothing sent again");
     assert.deepStrictEqual(shown.at(-1), [ctx.MdgErrors.TEXT.obsidianCancelled, undefined]);
     assert.strictEqual(await write(() => (state.dispatch({ type: "NEW" }), "full"), web("x")), "-", "switched during the dialog");
+    // H1: said like the video page's, not as a red failure.
+    assert.deepStrictEqual(shown.at(-1), [ctx.MdgErrors.TEXT.obsidianConvSwitched, undefined]);
     // The tab shows this video: its settled note goes along.
     activeTab = { id: 4, url: video.url };
     const realTab = ctx.sendMessageToActiveTab;
-    ctx.sendMessageToActiveTab = async (id, m) => (m.type === "popup-refresh" ? { ok: true, payload: { url: video.url, markdown: "# 页面", cover: "c" } } : null);
+    // G3: with the page's subtitle state, so the result starts with it as for a note the background builds.
+    ctx.sendMessageToActiveTab = async (id, m) => (m.type === "popup-refresh" ? { ok: true, payload: { url: video.url, markdown: "# 页面", cover: "c", noteWarning: "未登录 B站，拿不到字幕。" } } : null);
     await write(() => "full", video);
-    assert.deepStrictEqual(JSON.parse(JSON.stringify(sent[1].page)), { markdown: "# 页面", cover: "c" });
+    assert.deepStrictEqual(JSON.parse(JSON.stringify(sent[1].page)), { markdown: "# 页面", cover: "c", warning: "未登录 B站，拿不到字幕。" });
     ctx.sendMessageToActiveTab = realTab;
     ctx.sendRuntimeMessage = realSend;
 
@@ -332,6 +335,8 @@ const chatOn = (context) => {
       asked.push([msg.type, msg.frameId || 0, msg.videoId || ""]);
       if (msg.type === "ai-sidepanel-get-state" && !msg.frameId) return webPage("triage");
       if (msg.type === "ai-sidepanel-get-state") return frame ? { ok: true, payload: frame } : { ok: false, error: "Could not establish connection. Receiving end does not exist." };
+      // I10: only what the background reads.
+      if (msg.type === "ai-sidepanel-resolve-context") assert.deepStrictEqual(Object.keys(msg), ["type", "contextRef"]);
       if (msg.type === "ai-sidepanel-resolve-context") return { ok: true, payload: { ...video, selectedSubtitleId: "zh", subtitleMarkdown: "中文字幕" } };
       return { ok: true };
     };

@@ -1108,9 +1108,10 @@ input { box-sizing: border-box; width: 100%; margin: 0; padding: 4px 8px; border
 
   // The switches and the 观看进度 options decide whether the page is scanned at all; the settings table's cells
   // turn single marks off per surface.
-  function applySettings(v) {
-    const verdicts = v[VERDICT_SETTING] === true;
-    const tags = v[SETTING] !== false;
+  function applySettings(stored) {
+    const v = globalThis.MdgSettings.normalizeSwitches(stored);
+    const verdicts = v[VERDICT_SETTING];
+    const tags = v[SETTING];
     lineOn = { verdict: verdicts, vtags: tags && !lineOnly };
     rules = globalThis.MdgSurfaces.rulesWith(v.biliMarksOff, [!verdicts && "verdict", !tags && "vtags"].filter(Boolean));
     triageOn = verdicts || (tags && !lineOnly);
@@ -1121,7 +1122,7 @@ input { box-sizing: border-box; width: 100%; margin: 0; padding: 4px 8px; border
     markBewly();
     // Only the top frame asks; the background reads what is new at most every 10 minutes.
     if (seenCfg.on && !before && window === window.top) chrome.runtime.sendMessage({ type: "triage-seen-sync" }).catch(() => {});
-    upSetting = !lineOnly && v[UP_SETTING] !== false;
+    upSetting = !lineOnly && v[UP_SETTING];
     const wasUp = upOn;
     upOn = upSetting && upHas;
     if (wasUp && !upOn) clearUps();

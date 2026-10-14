@@ -222,7 +222,7 @@
   function biliApiError(payload, fallback) {
     const error = new Error(String(payload?.message || fallback));
     error.code = payload?.code;
-    // -509 rate limit, -3 bad param; other negatives are usually transient.
+    // Negative codes are usually transient (risk codes never get here: biliJson throws THROTTLED first).
     error.retryable = typeof payload?.code === "number" && payload.code < 0;
     return error;
   }
@@ -785,7 +785,7 @@
     }
     // The video has captions, but every track needs a PO token and the page player gave none.
     if (ytCaptionTracks(cache.responses.WEB).length) {
-      throw new Error("没拿到 YouTube 字幕令牌，请稍后重试");
+      throw new Error("没拿到 YouTube 字幕令牌");
     }
     return [];
   }

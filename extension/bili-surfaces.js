@@ -59,9 +59,10 @@
   // 观看进度 (sync settings) and what they mean; defaults, range and parsing are settings.js's, which loads first.
   const SEEN_DEFAULTS = Object.freeze({ seenShow: MdgSettings.DEFAULTS.seenShow, seenThreshold: MdgSettings.DEFAULTS.seenThreshold, seenStyle: MdgSettings.DEFAULTS.seenStyle });
   function seenConfig(v) {
-    const bar = v.seenShow === "bar" || v.seenShow === "both";
-    const mark = v.seenShow === "mark" || v.seenShow === "both";
-    return { on: bar || mark, bar, mark, threshold: MdgSettings.normalizeSeenThreshold(v.seenThreshold), style: v.seenStyle === "veil" ? "veil" : "badge" };
+    const show = MdgSettings.normalizeSeenShow(v.seenShow);
+    const bar = show === "bar" || show === "both";
+    const mark = show === "mark" || show === "both";
+    return { on: MdgSettings.seenOn(show), bar, mark, threshold: MdgSettings.normalizeSeenThreshold(v.seenThreshold), style: MdgSettings.normalizeSeenStyle(v.seenStyle) };
   }
   // 100% reads 看完了, otherwise 看到 N%; ✓ (and the strong look) means it counts as 看完了.
   const seenWords = (p, done) => (p >= 100 ? "✓ 看完了" : done ? `✓ 看到 ${p}%` : `看到 ${p}%`);

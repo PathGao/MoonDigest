@@ -154,7 +154,7 @@ const TRIAGE_SYSTEM_PROMPT = [
 ].join("\n");
 
 const TRIAGE_TITLE_PROMPT = [
-  "你是 B站收藏夹分拣助手。下面每行是一个收藏的视频，格式：序号|标题|UP主|时长|发布日期|简介前120字。",
+  `你是 B站收藏夹分拣助手。下面每行是一个收藏的视频，格式：序号|标题|UP主|时长|发布日期|简介前${TriageUi.INTRO_CHARS}字。`,
   "只根据这些信息做初筛。标题是很弱的证据：看不出实际内容时，verdict 用 unsure，confidence 用 low，不要猜。",
   TRIAGE_VERDICT_TEXT,
   "confidence：只有标题和简介足以判断时才用 high，否则用 low。",
@@ -199,7 +199,7 @@ const TRIAGE_AI_UNIT = {
   intro: "你是 B站收藏整理助手，按用户指令给视频打标签、做分类。",
   noun: "视频",
   basis: "- 有“一句话”和“要点”的视频以它们为主要依据，它们比标题可靠得多。",
-  header: "视频列表，每行格式：序号|标题|UP主|时长|简介前120字|现有标签|一句话|要点1；要点2；要点3（没有的字段留空）：",
+  header: `视频列表，每行格式：序号|标题|UP主|时长|简介前${TriageUi.INTRO_CHARS}字|现有标签|一句话|要点1；要点2；要点3（没有的字段留空）：`,
   line: triageCommandLine
 };
 function triageBuildCommandMessages({ instruction, tags, items, maxNewTags = 5, allowRemove = false, unit = TRIAGE_AI_UNIT }) {
@@ -212,7 +212,7 @@ function triageBuildCommandMessages({ instruction, tags, items, maxNewTags = 5, 
     "规则：",
     "- add 只能用已有标签名，或本次 new_tags 里列出的新标签名。",
     maxNewTags > 0
-      ? `- 可以新建标签，至多 ${maxNewTags} 个，名称 ≤12字、不含逗号；已有标签能用就先用，不要重复造。`
+      ? `- 可以新建标签，至多 ${maxNewTags} 个，名称 ≤${MdgTagCore.TAG_NAME_MAX}字、不含逗号；已有标签能用就先用，不要重复造。`
       : "- 这次不能新建标签，new_tags 留空，只用已有标签。",
     allowRemove ? `- remove 只能填该${noun}“现有标签”里的名称。` : `- 这次不能去掉${noun}已有的标签，remove 留空，只加标签。`,
     `- 标签带说明（冒号后）的，按说明决定给${noun}加上还是去掉这个标签。`,
@@ -682,7 +682,7 @@ async function triageChat(messages, maxTokens, thinking = false, providerId = ""
       signal: controller.signal
     }).catch(async () => {
       const denied = await hostPermissionError(baseUrl);
-      throw denied ? triageError(denied) : triageError(AI_NETWORK_TEXT, "AI_NETWORK");
+      throw denied ? triageError(denied, "AI_ACCESS") : triageError(AI_NETWORK_TEXT, "AI_NETWORK");
     });
     if (!res.ok) throw triageAiHttpError(res.status, await res.text().catch(() => ""));
     // A body that is not JSON is this request's failure.
@@ -762,9 +762,7 @@ async function triageBuildNote(bvid, settings) {
   const { track, body, bundle } = found;
   const subtitleFailure = found.failure;
   const subtitleNeedLogin = found.needLogin;
-  const subtitleWarning = found.mismatch
-    ? MdgNote.subtitleMismatchWarning(found.mismatch)
-    : subtitleFailure || subtitleNeedLogin ? `${MdgErrors.subtitleMissing({ subtitleFailure, subtitleNeedLogin })}。` : "";
+  const subtitleWarning = MdgNote.noteSubtitleWarning(found.mismatch ? MdgNote.subtitleMismatchWarning(found.mismatch) : "", { subtitleFailure, subtitleNeedLogin });
   const hotComments =
     settings.includeHotCommentsInNote || !body.length ? await site.fetchComments(ref, meta, io).catch(() => []) : [];
   const noteMeta = { ...MdgNote.noteMetaOf({ site: "bilibili", videoId: bvid, meta, bundle, track }), hotComments, subtitleFailure, subtitleNeedLogin };

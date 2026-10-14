@@ -305,7 +305,7 @@ els.list.addEventListener("click", (event) => {
     setStatus("正在打开侧边栏…");
     chrome.sidePanel.open({ tabId: OWN_TAB?.id }).then(
       () => els.status.textContent === "正在打开侧边栏…" && setStatus(""),
-      (error) => setStatus(`打开侧边栏失败：${error.message}`, true)
+      (error) => setStatus(`${MdgErrors.TEXT.sidepanelOpenFailed}：${error.message}`, true)
     );
   }
 });

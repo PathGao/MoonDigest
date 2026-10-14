@@ -236,7 +236,7 @@
     "triage-classify-titles": async ({ items }) => {
       await wait(400);
       if (globalThis.__mockNoAI) return noAi();
-      if (globalThis.__mockHostDenied) return { ok: false, error: "未授权访问 https://api.example.com，授权后重试" };
+      if (globalThis.__mockHostDenied) return { ok: false, error: "未授权访问 https://api.example.com，授权后重试", code: "AI_ACCESS" };
       const results = {};
       for (const { bvid } of items) {
         const i = findItem(bvid)._i;

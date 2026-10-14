@@ -162,7 +162,7 @@
           vaultLog("PUT", path);
           window.__mockVault[path] = next;
         }
-        return { ok: true, path, exists: true, updated: next !== current };
+        return { ok: true, path, exists: true, updated: next !== current, text: `已更新 AI 问答：${path}` };
       }
       case "ai-providers-list":
         return { ok: true, providers: params.get("providers") === "0" ? [] : [demo ? { id: "p1", name: "DeepSeek", model: "deepseek-flash", enabled: true } : { id: "p1", name: "Mock", model: "claude-sonnet-4-5-20250929", enabled: true }] };
@@ -240,7 +240,7 @@
             }
             if (msg.action !== "chat") return;
             if (window.__mockHostDenied) {
-              post({ type: "error", error: "未授权访问 https://api.example.com，授权后重试" });
+              post({ type: "error", error: "未授权访问 https://api.example.com，授权后重试", code: "AI_ACCESS" });
               return;
             }
             window.__mockStreamLog = window.__mockStreamLog || [];

@@ -417,7 +417,7 @@ async function followSyncJob(ctx) {
     try {
       rec = await get(() => followArcSearch(mid));
     } catch (e) {
-      // THROTTLED / NETWORK / STOPPED 停下整个同步；账号没了记下来；其他（WBI -403、HTTP 5xx…）是暂时的，不记，下次再查。
+      // THROTTLED / NETWORK / STOPPED / NOT_LOGGED_IN 停下整个同步；账号没了记下来；其他（WBI -403、HTTP 5xx…）是暂时的，不记，下次再查。
       if (typeof e.code === "string") throw e;
       if (!FOLLOW_GONE_CODES.has(e.code)) {
         skipped++;
@@ -466,7 +466,7 @@ async function followStatsPhase(ctx) {
       const d = await ctx.get(() => followGetData(`${FOLLOW_API}/x/relation/stat?vmid=${mid}`));
       rec = { follower: Number(d?.follower) || 0 };
     } catch (e) {
-      // 同 arc：THROTTLED / NETWORK / STOPPED 停下；账号没了记下来；其他暂时的不记。
+      // 同 arc：THROTTLED / NETWORK / STOPPED / NOT_LOGGED_IN 停下；账号没了记下来；其他暂时的不记。
       if (typeof e.code === "string") throw e;
       if (!FOLLOW_GONE_CODES.has(e.code)) {
         skipped++;

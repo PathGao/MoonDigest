@@ -118,9 +118,9 @@ const write = (extra) => send({ type: "write-video-note", ...extra });
   resp = await write({ ref: yt, conversation: conversation("q") });
   assert.deepStrictEqual([resp.kind, resp.path, resp.text], ["conversation", "N/youtube/【AI笔记】Y.md", "已写入 Obsidian：N/youtube/【AI笔记】Y.md（单独的对话笔记）"]);
   assert.ok(vault.get(resp.path).includes("[[N/youtube/Y|Y]]") && vault.get(resp.path).includes("## q"));
-  // The video page open: its note, its cover.
-  resp = await write({ ref: yt, conversation: conversation("q"), page: { markdown: "# 页面笔记", cover: "" } });
-  assert.deepStrictEqual([resp.kind, resp.path], ["full", "N/youtube/Y.md"]);
+  // The video page open: its note, its cover, and the result starts with its subtitle state (G3) as for a built note.
+  resp = await write({ ref: yt, conversation: conversation("q"), page: { markdown: "# 页面笔记", cover: "", warning: "字幕抓取失败：网络断了。" } });
+  assert.deepStrictEqual([resp.kind, resp.path, resp.text], ["full", "N/youtube/Y.md", "字幕抓取失败：网络断了。已写入 Obsidian：N/youtube/Y.md"]);
   assert.ok(vault.get("N/youtube/Y.md").startsWith("# 页面笔记") && vault.get("N/youtube/Y.md").includes("### 问：q"));
   // An empty body never reaches the vault: a video that changed mid-write must not blank its note.
   log.splice(0);
@@ -170,7 +170,8 @@ const write = (extra) => send({ type: "write-video-note", ...extra });
   // Auto-sync: only a recorded note, never created; the same section again costs one GET; a deleted note is forgotten.
   log.splice(0);
   resp = await send({ type: "sync-video-note-ai", ref: bili, conversation: conversation("五") });
-  assert.deepStrictEqual([resp, log.splice(0)], [{ ok: true, path: notePath, exists: true, updated: true }, [`GET ${notePath}`, `PUT ${notePath}`]]);
+  // I4: the background words the result; the side panel shows its text.
+  assert.deepStrictEqual([resp, log.splice(0)], [{ ok: true, path: notePath, exists: true, updated: true, text: `已更新 AI 问答：${notePath}` }, [`GET ${notePath}`, `PUT ${notePath}`]]);
   resp = await send({ type: "sync-video-note-ai", ref: bili, conversation: conversation("五") });
   assert.deepStrictEqual([resp.updated, log.splice(0)], [false, [`GET ${notePath}`]]);
   resp = await send({ type: "sync-video-note-ai", ref: { ...bili, videoId: "BV2" }, conversation: conversation("五") });
@@ -212,6 +213,8 @@ const write = (extra) => send({ type: "write-video-note", ...extra });
   for (const f of scripts) {
     assert.ok(f === "obsidian.js" || !/\/vault\/|"(obsidian-note-exists|write-obsidian-note|update-obsidian-ai-section)"/.test(read(f)), `${f} reaches the vault; send write-video-note`);
     assert.ok(["note.js", "obsidian.js", "triage/triage-bg.js"].includes(f) || !read(f).includes("resolveFolderTemplate("), `${f} builds a note path; use MdgNote.videoNotePath`);
+    // The result sentences are worded once, in obsidian.js (dev mocks stand in for it).
+    assert.ok(f === "obsidian.js" || f.startsWith("dev") || !read(f).includes("已更新 AI 问答："), `${f} words a write's result; show the background's text`);
   }
   assert.strictEqual(read("triage/triage-bg.js").split("resolveFolderTemplate(").length, 2, "triage-bg.js: only triage-export");
 

@@ -1045,6 +1045,11 @@
     return `字幕时间轴到 ${formatCompactTimestamp(maxTo, withHours)}，视频长 ${formatCompactTimestamp(videoDuration, withHours)}，字幕时间可能对不上。`;
   }
 
+  // The sentence a written note's result starts with, wherever the note was built (the video page, triageBuildNote):
+  // the mismatch warning (mismatchWarning, from subtitleMismatchWarning), or why there is no subtitle.
+  const noteSubtitleWarning = (mismatchWarning, { subtitleFailure = "", subtitleNeedLogin = false } = {}) =>
+    mismatchWarning || (subtitleFailure || subtitleNeedLogin ? `${MdgErrors.subtitleMissing({ subtitleFailure, subtitleNeedLogin })}。` : "");
+
   // The note fields the background readers (side panel follow-up, 分拣台 notes) take from the sites.js fetchers;
   // the video page's state already carries them. Chapters fall back to the description, as on the video page.
   function noteMetaOf({ site, videoId, meta, bundle, track }) {
@@ -1071,6 +1076,7 @@
     buildAiContext,
     noteMetaOf,
     subtitleMismatchWarning,
+    noteSubtitleWarning,
     AI_SECTION_START,
     AI_SECTION_END,
     TIMESTAMP_PATTERN,
