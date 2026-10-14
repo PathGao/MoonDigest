@@ -792,9 +792,7 @@ function bindUiEvents() {
   byId(ids.readingStatus).addEventListener("click", () => setReadingNotice(""));
   // The popup's request, from 专注模式 (source reader): it works even when the player button is turned off.
   byId(ids.readingAiBtn).addEventListener("click", () => {
-    sendRuntimeMessage({ type: "player-ai-quick-action", source: "reader", contextRef: viewerContextRef() })
-      .then((resp) => setReadingNotice(resp?.ok ? "" : `打开侧边栏失败：${resp?.error || "未知错误"}`, { error: true }))
-      .catch((error) => setReadingNotice(`打开侧边栏失败：${getErrorMessage(error)}`, { error: true }));
+    askSidepanel("reader").then((ok) => ok && setReadingNotice(""));
   });
   chapterList.addEventListener("click", onReadingChapterClick);
   transcriptList.addEventListener("click", onReadingTranscriptClick);
@@ -3384,6 +3382,21 @@ function syncPlayerAiQuickActionVisuals(button) {
   button.style.setProperty("--mdg-player-ai-action-icon-size", `${iconSize}px`);
 }
 
+// The player ✦ and 专注模式's AI 总结 (source reader): the background opens the side panel on this video. The
+// background checks the ✦ AI 按钮 setting (one check for every sender) and answers why when it is off. A failure is red
+// on the page, not setMessage: that is the popup's status line, which would show it long after, maybe over another
+// video. Resolves whether the panel opened.
+async function askSidepanel(source) {
+  try {
+    const resp = await sendRuntimeMessage({ type: "player-ai-quick-action", ...(source && { source }), contextRef: viewerContextRef() });
+    if (!resp?.ok) throw new Error(resp?.error || "未知错误");
+    return true;
+  } catch (error) {
+    setReadingNotice(MdgErrors.reloaded(error) ? MdgErrors.TEXT.reloaded : `${MdgErrors.TEXT.sidepanelOpenFailed}：${getErrorMessage(error)}`, { error: true });
+    return false;
+  }
+}
+
 async function handlePlayerAiQuickActionClick(event) {
   event.preventDefault();
   event.stopPropagation();
@@ -3403,14 +3416,7 @@ async function handlePlayerAiQuickActionClick(event) {
   }
 
   try {
-    // The background checks the ✦ AI 按钮 setting (one check for every sender) and answers why when it is off.
-    const resp = await sendRuntimeMessage({ type: "player-ai-quick-action", contextRef: viewerContextRef() });
-    if (!resp?.ok) {
-      throw new Error(resp?.error || "未知错误");
-    }
-    // Not setMessage: that is the popup's status line, which would show this long after, maybe over another video.
-  } catch (error) {
-    setReadingNotice(`打开侧边栏失败：${getErrorMessage(error)}`, { error: true });
+    await askSidepanel();
   } finally {
     state.playerAiQuickActionSubmitting = false;
     if (button) {

@@ -708,6 +708,12 @@ const settle = async () => {
     t.sendRuntimeMessage = async () => ({ ok: false, error: "x" });
     await t.handlePlayerAiQuickActionClick(click);
     assert.deepStrictEqual(seen, [["notice", "打开侧边栏失败：x", true]]);
+    // G4: a reloaded extension reads as TEXT.reloaded, not Chrome's English; 专注模式's AI 总结 shares the handling (G7).
+    seen.splice(0);
+    t.sendRuntimeMessage = async () => Promise.reject(new Error("Extension context invalidated."));
+    await t.handlePlayerAiQuickActionClick(click);
+    assert.strictEqual(await t.askSidepanel("reader"), false);
+    assert.deepStrictEqual(seen, [["notice", t.MdgErrors.TEXT.reloaded, true], ["notice", t.MdgErrors.TEXT.reloaded, true]]);
     Object.assign(t, saved);
     delete t.HTMLButtonElement;
   }

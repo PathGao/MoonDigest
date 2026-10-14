@@ -41,6 +41,8 @@
     obsidianWriteFailed: "Local API 写入失败",
     // A dropped connection (fetch's TypeError): the video page, 分拣台's B站 requests, 关注's paused refresh.
     netDown: "网络断了",
+    // Asking Chrome or the background to open the side panel failed (popup, video page, 视频记录, 分拣台); 「：原因」 follows.
+    sidepanelOpenFailed: "打开侧边栏失败",
     // 继续问 on a record that is not a video (the side panel's input, 视频记录's button).
     notVideo: "不是视频，不能问",
     // Every selection is hidden by a search or filter: the buttons that act on it are disabled with this (分拣台, 视频记录).

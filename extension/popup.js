@@ -181,7 +181,7 @@ function bindEvents() {
     const resp = await sendToRuntime({ type: "player-ai-quick-action", tabId: tab.id, source: "popup" }).catch((error) => ({ ok: false, error: error.message }));
     if (!resp?.ok) {
       setBusy(el.summaryBtn, false);
-      setStatus(`打开侧边栏失败：${resp?.error || "未知错误"}`, true);
+      setStatus(`${MdgErrors.TEXT.sidepanelOpenFailed}：${resp?.error || "未知错误"}`, true);
       return;
     }
     window.setTimeout(() => window.close(), 80);
