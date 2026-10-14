@@ -25,6 +25,13 @@ ctx.loadAiProviders = async () => [{ id: "p", baseUrl: "https://ai.test", model:
 ctx.loadAiProviderKeys = async () => ({});
 vm.runInContext("STREAM_TIMEOUT_MS.first = 60; STREAM_TIMEOUT_MS.idle = 60;", ctx);
 
+// I6: the prompts state the limits the code applies (简介 chars sent, tag name length), from the constants.
+{
+  const intro = `简介前${ctx.TriageUi.INTRO_CHARS}字`;
+  assert.ok(vm.runInContext("TRIAGE_TITLE_PROMPT", ctx).includes(intro) && vm.runInContext("TRIAGE_AI_UNIT.header", ctx).includes(intro));
+  assert.doesNotMatch(fs.readFileSync(path.join(__dirname, "triage/triage-bg.js"), "utf8"), /简介前\d|≤\d+字、不含逗号/, "a prompt writes a limit itself");
+}
+
 const sse = (delta) => new TextEncoder().encode(`data: ${JSON.stringify({ choices: [{ delta }] })}\n\n`);
 const abortError = () => Object.assign(new Error("aborted"), { name: "AbortError" });
 // Feeds chunks with the given delays; past the script the body stalls until the request is aborted, like a real fetch.
