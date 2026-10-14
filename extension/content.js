@@ -2107,7 +2107,7 @@ function buildReadingSummaryItems() {
     items.push({ label: "作者", value: state.author });
   }
   if (state.uploadDate) {
-    items.push({ label: "日期", value: state.uploadDate });
+    items.push({ label: "发布日期", value: state.uploadDate });
   }
   if (Number(state.pageCount) > 1) {
     const pageParts = [`P${Number(state.pageIndex) > 0 ? Number(state.pageIndex) : 1}`];

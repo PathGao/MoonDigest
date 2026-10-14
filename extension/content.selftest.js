@@ -748,6 +748,13 @@ const settle = async () => {
     assert.strictEqual(source.match(/enterReaderMode\(\)\.catch/g).length, 1, "one catch for every entry");
     Object.assign(t, saved);
   }
+  // J12: 专注模式's info bar says 发布日期, as everywhere else.
+  {
+    const was = state.uploadDate;
+    state.uploadDate = "2026-10-14";
+    assert.ok(t.buildReadingSummaryItems().some((item) => item.label === "发布日期" && item.value === "2026-10-14"));
+    state.uploadDate = was;
+  }
   // D1: every failure notice on the video page is red (error: true), like the popup's.
   for (const m of source.matchAll(/setReadingNotice\((`[^`]*`|"[^"]*")(.{0,60})/g)) {
     if (/失败|未就绪|Failed\}/.test(m[1])) assert.match(m[2], /^(, \{ error: true \}|\)\)?, \{ error: true \})/, `not red: ${m[0]}`);
