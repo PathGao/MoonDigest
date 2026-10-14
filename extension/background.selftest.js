@@ -421,6 +421,8 @@ process.on("exit", (code) => {
   assert.strictEqual((await probe(reply(403, null))).error, E.obsidianKey);
   assert.strictEqual((await probe(reply(200, { authenticated: false }))).error, E.obsidianKey);
   assert.strictEqual((await probe(reply(500, null))).error, "Obsidian 返回 HTTP 500");
+  // The same 404 as a note's write and the pre-run check: a wrong address, with 去设置's code.
+  assert.deepStrictEqual({ ...(await probe(reply(404, null))) }, { ok: false, error: E.obsidianNotFound, code: "OBSIDIAN" });
   const down = await probe(async () => { throw new TypeError("Failed to fetch"); });
   assert.ok(down.error.startsWith(E.obsidianDown) && /证书/.test(down.error), down.error);
   assert.deepStrictEqual({ ...(await probe(reply(200, { authenticated: true, service: "S" }))) }, { ok: true, service: "S" });

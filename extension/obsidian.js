@@ -5,18 +5,20 @@ const OBSIDIAN_TIMEOUT_MS = 30000;
 
 const obsidianCoded = (text, code) => Object.assign(new Error(text), { code });
 
-// Every Obsidian failure in the user's words. Code OBSIDIAN (not set up, wrong key) or OBSIDIAN_DOWN (closed, plugin
-// off, wrong address; 408 is fetchWithTimeout's timeout) fails every write alike (MdgErrors.CODES says what pages show).
-// An HTTP error of one note shows the status, never the response body. Errors it already made pass through.
+// Every Obsidian failure in the user's words. Code OBSIDIAN (not enabled, not set up, wrong key, an address that
+// answers 404) or OBSIDIAN_DOWN (closed, plugin off, nothing listening; 408 is fetchWithTimeout's timeout) fails every
+// write alike (MdgErrors.CODES says what pages show). Any other HTTP error of one note shows the status, never the
+// response body. Errors it already made pass through.
 function obsidianError(e) {
   if (e?.status === 401 || e?.status === 403) return obsidianCoded(MdgErrors.TEXT.obsidianKey, "OBSIDIAN");
+  if (e?.status === 404) return obsidianCoded(MdgErrors.TEXT.obsidianNotFound, "OBSIDIAN");
   if (e?.status === 408 || e?.name === "TypeError") return obsidianCoded(MdgErrors.TEXT.obsidianDown, "OBSIDIAN_DOWN");
   return e?.status ? new Error(`Obsidian 返回 HTTP ${e.status}`) : e;
 }
 
 // { baseUrl, apiKey }, or code OBSIDIAN: not enabled or not set up, so every write fails the same way.
 function obsidianConfig(settings) {
-  if (!settings.obsidianEnabled) throw obsidianCoded("Obsidian 写入未启用", "OBSIDIAN");
+  if (!settings.obsidianEnabled) throw obsidianCoded(MdgErrors.TEXT.obsidianOff, "OBSIDIAN");
   const baseUrl = String(settings.obsidianApiBaseUrl || "").trim();
   const apiKey = String(settings.obsidianApiKey || "").trim();
   if (!baseUrl || !apiKey) throw obsidianCoded(MdgErrors.TEXT.obsidianUnset, "OBSIDIAN");
@@ -48,17 +50,28 @@ async function putVaultNote(vault, filepath, body) {
   if (response.status === 404) throw obsidianError({ status: 404 });
 }
 
-// The settings page's 测试连接: the API root answers authenticated: false to a wrong key. Same words as every write.
-async function testObsidianConnection(baseUrl, apiKey) {
+// One request to the API root, which answers authenticated: false to a wrong key: the settings page's 测试连接 and the
+// check before a 逐个视频笔记 run (triage-bg.js triageObsidianCheck). Throws obsidianError's errors, the words of every
+// write; returns the service name.
+async function probeObsidian(baseUrl, apiKey) {
+  let response;
   try {
-    const response = await fetchWithTimeout(`${baseUrl.replace(/\/+$/g, "")}/`, {
+    response = await fetchWithTimeout(`${baseUrl.replace(/\/+$/g, "")}/`, {
       headers: { Authorization: `Bearer ${apiKey}`, Accept: "application/json, text/plain, */*" },
       cache: "no-store"
     }, OBSIDIAN_TIMEOUT_MS);
-    const data = await response.json().catch(() => null);
-    if (data?.authenticated === false) throw { status: 401 };
-    if (!response.ok) throw { status: response.status };
-    return { ok: true, service: typeof data?.service === "string" ? data.service : "Obsidian Local REST API" };
+  } catch (e) {
+    throw obsidianError(e);
+  }
+  const data = await response.json().catch(() => null);
+  if (data?.authenticated === false) throw obsidianError({ status: 401 });
+  if (!response.ok) throw obsidianError({ status: response.status });
+  return typeof data?.service === "string" ? data.service : "Obsidian Local REST API";
+}
+
+async function testObsidianConnection(baseUrl, apiKey) {
+  try {
+    return { ok: true, service: await probeObsidian(baseUrl, apiKey) };
   } catch (error) {
     const { message, code } = obsidianError(error);
     return { ok: false, error: code === "OBSIDIAN_DOWN" ? `${message}；也检查地址、HTTP/HTTPS 和证书信任` : String(message || error), ...(code && { code }) };

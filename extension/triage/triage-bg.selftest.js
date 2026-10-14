@@ -22,6 +22,9 @@ const plain = (x) => JSON.parse(JSON.stringify(x));
 assert.strictEqual(t.obsidianError(vm.runInContext('new TypeError("Failed to fetch")', ctx)).code, "OBSIDIAN_DOWN");
 assert.strictEqual(t.obsidianError({ status: 408 }).code, "OBSIDIAN_DOWN");
 assert.strictEqual(t.obsidianError({ status: 401 }).code, "OBSIDIAN");
+// 404 is one thing on every path (a note's write, 一篇摘录, 测试连接, the pre-run check): a wrong address, 去设置.
+assert.deepStrictEqual([t.obsidianError({ status: 404 }).code, t.obsidianError({ status: 404 }).message], ["OBSIDIAN", t.MdgErrors.TEXT.obsidianNotFound]);
+assert.throws(() => t.obsidianConfig({ obsidianEnabled: false }), (e) => e.code === "OBSIDIAN" && e.message === t.MdgErrors.TEXT.obsidianOff);
 // An HTTP failure of one note shows the status, never the response body.
 assert.strictEqual(t.obsidianError({ status: 500, message: 'HTTP 500. {"errorCode":50000}' }).message, "Obsidian 返回 HTTP 500");
 const noteErr = new Error("生成笔记失败");

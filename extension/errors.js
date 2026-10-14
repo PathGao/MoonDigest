@@ -11,6 +11,9 @@
     obsidianUnset: "请先在设置页填写 Obsidian Local REST API 地址和 API Key",
     obsidianKey: "Obsidian 的 API Key 无效或未授权",
     obsidianDown: "连不上 Obsidian，请确认它已打开并启用了 Local REST API",
+    obsidianOff: "Obsidian 写入未启用",
+    // HTTP 404 from the Local REST API: the address points somewhere else (a wrong path or port).
+    obsidianNotFound: "Obsidian Local REST API 地址不对（HTTP 404）",
     // 取消 in the 该笔记已存在 dialog: the page sent no second write-video-note, so nothing was written.
     obsidianCancelled: "已取消写入 Obsidian，原笔记未被覆盖。",
     // The extension reloaded under a page whose content script still runs: chrome.runtime no longer answers.

@@ -751,16 +751,10 @@ async function triageBuildNote(bvid, settings) {
   return { meta, noteMeta, body, markdown, filename, path, cover, subtitleWarning };
 }
 
-// Before a 逐个视频笔记 run: the settings and one request to the API root (it answers authenticated: false to a wrong key).
-// A 404 there is a wrong address (去设置); any other HTTP error is Obsidian's own, which the settings page cannot fix.
+// Before a 逐个视频笔记 run: the settings and the settings page's 测试连接 request (obsidian.js probeObsidian).
 async function triageObsidianCheck() {
   const { baseUrl, apiKey } = obsidianConfig(await getMergedSettings());
-  const res = await fetchWithTimeout(`${baseUrl.replace(/\/+$/, "")}/`, { headers: { Authorization: `Bearer ${apiKey}` }, cache: "no-store" }, OBSIDIAN_TIMEOUT_MS).catch((e) => {
-    throw obsidianError(e);
-  });
-  const data = await res.json().catch(() => null);
-  if (data?.authenticated === false || res.status === 401 || res.status === 403) throw obsidianError({ status: 401 });
-  if (!res.ok) throw triageError(`Obsidian 返回 HTTP ${res.status}`, res.status === 404 ? "OBSIDIAN" : "");
+  await probeObsidian(baseUrl, apiKey);
 }
 
 // 逐个视频笔记: obsidian.js writeVideoNote without a conversation, so it never asks. overwrite rewrites the note; without
