@@ -195,6 +195,9 @@
   const BILI_HOLD_MS = 90000;
   // Why 停止 on a B站 batch write's pill (both modes) is off once pressed: the request in flight lands first.
   const WRITE_STOPPING = "当前这一批做完就停止";
+  // Why something waits for a running step or batch write (name: what the pill calls it), both modes; undo: U's version.
+  // No name: nothing runs, "".
+  const busyText = (name, { undo = false } = {}) => (name ? `${name}还在跑，等它完成${undo ? "再撤销" : ""}` : "");
 
   // Row 1's 「已刷新 +N −M」 pill and the notice it opens below it. Ids are prefix + ViewBtn / Notice / Text / Detail /
   // CloseBtn; each mode passes those elements as { pill, notice, text, detail, close }.
@@ -244,7 +247,7 @@
   // picked: the selected ones listed now; the dialog then opens on 选中, so the button says how many, as 粗看's does.
   // It stays in row 4: the selection bar has no AI 打标签 of its own.
   const tagButtons = ({ manageAttrs, aiAttrs, state = "", manageReason = "", aiReason = "", noTags = false, picked = 0 }) => {
-    const ai = `AI 打标签${picked && !state && !aiReason ? `选中 ${picked} 个` : ""}`;
+    const ai = `AI 打标签${picked && !state && !aiReason ? `选中的 ${picked} 个` : ""}`;
     return `<span class="tags-acts"><button type="button" class="act-btn" ${manageAttrs}${noTags && !manageReason ? ' aria-label="标签管理（还没有自定义标签）"' : ""}${reasonAttrs(manageReason)}>标签管理${noTags && !manageReason ? WARN_DOT : ""}</button><button type="button" class="act-btn" ${aiAttrs} aria-label="${ai} (I)"${reasonAttrs(aiReason)}>${AI_SPARK}${ai}${esc(state)}</button></span>`;
   };
 
@@ -258,9 +261,18 @@
     const every = ids.every((id) => sel.has(id));
     for (const id of ids) every ? sel.delete(id) : sel.add(id);
   }
-  // The bar under row 3 while something is selected: n of them listed, hidden more behind filters, 清空选中, then acts.
+  // A button of row 3 or the selection bar: the label is its aria-label too; a reason disables it with why. pre goes before
+  // the label (✦), title is the tooltip while enabled.
+  const actBtn = (attrs, label, { reason = "", cls = "", title = "", pre = "" } = {}) =>
+    `<button type="button"${cls ? ` class="${cls}"` : ""} ${attrs} aria-label="${esc(label)}"${reasonAttrs(reason, title)}>${pre}${esc(label)}</button>`;
+  // 清理 in 已出分拣范围's row 3, both modes: n of the selected listed ones (picked), else of all listed.
+  const cleanBtn = (attrs, picked, n, reason) => actBtn(attrs, picked ? `清理选中的 ${n} 个` : `清理这 ${n} 个`, { reason, cls: "danger" });
+  // Why a selection's buttons are off when filters hide every selected one (the bar's and row 3's steps').
+  const HIDDEN_ALL = "选中的都被筛选隐藏了";
+  // The floating bar while something is selected: n of them listed, hidden more behind filters, 清空选中, then
+  // acts(none). none is why every act is off when filters hide the whole selection: the buttons stay, disabled.
   const selbar = ({ label, n, hidden, clearAttrs, acts }) =>
-    `<div class="selbar" role="toolbar" aria-label="${esc(label)}"><strong class="sel-count">已选中 ${n} 个</strong>${hidden ? `<span class="muted">另有 ${hidden} 个被筛选隐藏</span>` : ""}<button type="button" class="quiet" ${clearAttrs} aria-label="清空选中">清空选中</button><span class="sel-actions">${acts}</span></div>`;
+    `<div class="selbar" role="toolbar" aria-label="${esc(label)}"><strong class="sel-count">已选中 ${n} 个</strong>${hidden ? `<span class="muted">另有 ${hidden} 个被筛选隐藏</span>` : ""}<button type="button" class="quiet" ${clearAttrs} aria-label="清空选中">清空选中</button><span class="sel-actions">${acts(n ? "" : HIDDEN_ALL)}</span></div>`;
   // ----- 移动 / 复制 (#transferDialog): 收藏夹's folders and 关注's groups -----
   // o = { title, list (html), n, hows ("copy" / "move" / "add" buttons shown; the last is the blue one), label (目标收藏夹 /
   // 目标分组), options [[value, text]], newText (新建收藏夹… / 新建分组…), newPlaceholder, newMax, privacy (show 设为私密),
@@ -441,6 +453,9 @@
     const hi = input.max === "" ? Infinity : Number(input.max);
     input.value = "zeroOk" in input.dataset && n <= 0 ? 0 : Math.min(hi, Math.max(lo, n));
   }
+  // A whole-number setting as stored or typed (both modes and the background): empty or not a number is def, 0 is a value,
+  // the rest is rounded and clamped into lo–hi.
+  const intIn = (v, lo, hi, def) => (v == null || String(v).trim() === "" || !Number.isFinite(Number(v)) ? def : Math.min(hi, Math.max(lo, Math.round(Number(v)))));
   function clampNumbers(root) {
     for (const form of root.querySelectorAll("form:has(input[type=number])")) form.noValidate = true;
     root.addEventListener("change", (e) => clampNumber(e.target));
@@ -571,8 +586,11 @@
     let full = 0;
     let list = null;
     const set = (next) => {
+      const unfold = s.collapsed && !next.collapsed;
       s = next;
       main.classList.toggle("head-folded", s.collapsed);
+      // Rows that grew while folded were not measured (measure keeps the full height then).
+      if (unfold) measure();
     };
     const shown = (sel) => [...main.querySelectorAll(sel)].filter((x) => x.offsetParent);
     // Another list (mode switch, or back from the viewer at narrow width) starts full.
@@ -597,7 +615,6 @@
         type: "button", className: "act-btn slim-open", title: "展开", innerHTML: svg('<path d="m6 9 6 6 6-6"/>'),
       });
       open.setAttribute("aria-label", "展开头部");
-      open.addEventListener("click", () => set(headroomStep(s, { focus: true })));
       row.nextElementSibling.prepend(open, slim);
       const copy = () => (slim.innerHTML = row.querySelector(".folder-title")?.innerHTML || "");
       new MutationObserver(copy).observe(row, { childList: true, subtree: true, characterData: true });
@@ -608,9 +625,10 @@
       track(e.target);
       set(headroomStep(s, { top: list.scrollTop, full }));
     }, true);
+    // Focus in the header unfolds it: Tab, /, a closed dialog's button, and ▾ (Chrome focuses a clicked button).
     main.addEventListener("focusin", (e) => e.target.closest(HEAD_ROWS) && set(headroomStep(s, { focus: true })));
   }
 
-  globalThis.TriageUi = { esc, pad, dayText, fmtDate, fmtAgo, agoHtml, setSearchScope, confirmList, pickTitle, fmtDuration, fmtCount, cleanTagName, plainClick, cardPlayClick, cardPickClick, pickCard, img, toCsv, cardTagChip, syncedText, headMeta, titleHtml, ICON, AI_SPARK, byValue, dirWords, sortControl, filterBtn, labeledRow, stateGroup, aiRecentChip, searchBox, bindSearch, resultCount, rowButtons, menuItem, BACKUP_ITEM, reasonAttrs, setReason, WARN_DOT, selectAllState, selectAllBox, toggleAll, setActivity, waitText, BILI_HOLD_MS, WRITE_STOPPING, syncPill
-, setSync, bindSync, tagButtons, sideFoot, selbar, askTransfer, sideItem, emptyState, refreshEmpty, noMatch, fillSetRows, clampNumber, clampNumbers, mergeAiBatch, aiChanges, aiProposalOk, previewId, aiTally, nextTagColor, tagNameError, deleteTagAsk, editedTag, withoutTag, undoAsk, tagRowHtml, sp, tagsWord, AI_RECENT_RULES, aiRecentUndo, tagPlusBtn, viewerLine, viewerKeyFrom, headroomStep, headroom };
+  globalThis.TriageUi = { esc, pad, dayText, fmtDate, fmtAgo, agoHtml, setSearchScope, confirmList, pickTitle, fmtDuration, fmtCount, cleanTagName, plainClick, cardPlayClick, cardPickClick, pickCard, img, toCsv, cardTagChip, syncedText, headMeta, titleHtml, ICON, AI_SPARK, byValue, dirWords, sortControl, filterBtn, labeledRow, stateGroup, aiRecentChip, searchBox, bindSearch, resultCount, rowButtons, menuItem, BACKUP_ITEM, reasonAttrs, setReason, WARN_DOT, selectAllState, selectAllBox, toggleAll, setActivity, waitText, BILI_HOLD_MS, WRITE_STOPPING, busyText, syncPill
+, setSync, bindSync, tagButtons, sideFoot, actBtn, cleanBtn, HIDDEN_ALL, selbar, askTransfer, sideItem, emptyState, refreshEmpty, noMatch, fillSetRows, clampNumber, intIn, clampNumbers, mergeAiBatch, aiChanges, aiProposalOk, previewId, aiTally, nextTagColor, tagNameError, deleteTagAsk, editedTag, withoutTag, undoAsk, tagRowHtml, sp, tagsWord, AI_RECENT_RULES, aiRecentUndo, tagPlusBtn, viewerLine, viewerKeyFrom, headroomStep, headroom };
 })();

@@ -63,6 +63,8 @@
               <span id="aiTagSlot"></span>
             </div>
             <div id="list" class="list" aria-label="视频列表"><p class="empty">正在加载收藏夹列表…</p></div>
+            <!-- The selection bar (fixed at the bottom), outside the header's rows so folding them never hides it. -->
+            <div id="favSel"></div>
 
             <!-- 待播 floats over the bottom of the list while it holds videos and opens upward, so it never covers the viewer. Only its own button folds it. -->
             <aside id="basket" class="basket collapsed" hidden>
@@ -385,7 +387,7 @@
           <dt><kbd>T</kbd></dt><dd>打标签（在内置播放框里按 T 给正在播放的视频打）；打标签时 1–9 勾选第几个，Esc 关闭并保存</dd>
           <dt><kbd>E</kbd></dt><dd>加入待播 / 从待播移除</dd>
           <dt><kbd>Q</kbd></dt><dd>问 AI（在侧边栏打开这个视频）</dd>
-          <dt><kbd>X</kbd></dt><dd>选中 / 取消选中，和点卡片一样（点标题是播放）。Shift 点选中一段，Esc 清空。选中的视频可以批量处理；「状态」行右边按钮最前面的「全选 N 个」一次勾上当前列出的，再点一次取消</dd>
+          <dt><kbd>X</kbd></dt><dd>选中 / 取消选中，和点卡片一样（点标题是播放）。Shift 点选中一段，Esc 清空。选中的视频可以批量处理，处理后选中不变，只有因此离开这一页的才不再选中；「状态」行右边按钮最前面的「全选 N 个」一次勾上当前列出的，再点一次取消</dd>
           <dt><kbd>O</kbd><kbd>Enter</kbd></dt><dd>在内置播放框里播放（Esc 关闭）</dd>
           <dt><kbd>I</kbd></dt><dd>AI 打标签</dd>
           <dt><kbd>/</kbd></dt><dd>搜索（Esc 清空）</dd>

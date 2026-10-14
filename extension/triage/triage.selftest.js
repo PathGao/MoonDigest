@@ -272,8 +272,10 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     openFake("R", [item(61), item(62)]);
     handlers["triage-transfer"] = limitedOnce(moves);
     t.askTransfer = async () => ({ how: "copy", target: { id: "T" } });
+    t.S.selected = new Set(["BV61", "BV62"]);
     await t.fav.transfer([item(61), item(62)]);
     assert.deepStrictEqual(plain(moves), [[1061, 1062], [1061, 1062]]);
+    assert.deepStrictEqual(plain([...t.S.selected]), ["BV61", "BV62"], "copied, still listed: they stay selected");
     assert.strictEqual(toasts.at(-1), "已复制 2 个到「目标」");
     assert.deepStrictEqual(pills, ["重新收藏中 0/1 · B站限流卡住，0:01 后重试", "复制到「目标」0/2 · B站限流卡住，0:01 后重试"]);
     Object.assign(t.S, saved);
@@ -393,7 +395,7 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
       const why = 'disabled title="批量取消收藏还在跑，等它完成"';
       assert.ok(t.cardHtml(five[3], false, "").includes(`aria-label="清理 视频44" ${why}`), t.cardHtml(five[3], false, ""));
       t.renderListHeader(t.visibleItems());
-      assert.ok(new RegExp(`aria-label="清理这 \\d+ 个" ${why}`).test(t.el.listHeader.innerHTML), t.el.listHeader.innerHTML);
+      assert.ok(new RegExp(`aria-label="清理这 \\d+ 个" ${why}`).test((t.el.listHeader.innerHTML + t.el.favSel.innerHTML)), (t.el.listHeader.innerHTML + t.el.favSel.innerHTML));
       const savedAsk = t.askConfirm;
       let asked = 0;
       t.askConfirm = async () => (asked++, true);
@@ -430,7 +432,7 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     // While an AI run goes, the card's 重试 is disabled with why (粗看's and 细看's alike) and does nothing.
     t.S.analyses.BV1 = { bvid: "BV1", status: "error", error: "字幕取不到" };
     t.S.group = { bvids: ["x"], mediaId: "other" };
-    assert.ok(/data-act="retry"[^>]* disabled title="细看还在跑，等它完成"/.test(t.cardHtml(item(1), false, "")), t.cardHtml(item(1), false, ""));
+    assert.ok(/data-act="retry"[^>]* disabled title="字幕细看还在跑，等它完成"/.test(t.cardHtml(item(1), false, "")), t.cardHtml(item(1), false, ""));
     t.retry("BV1");
     assert.strictEqual(n, 2, "nothing sent while busy");
     t.S.group = null;
@@ -477,9 +479,12 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     t.S.tab = "read";
     t.S.selected = new Set(["BV61", "BV62"]);
     t.renderListHeader(t.visibleItems());
-    assert.ok(["保留选中的 2 个", "取消收藏选中的 2 个"].every((x) => t.el.listHeader.innerHTML.includes(x)), t.el.listHeader.innerHTML);
+    assert.ok(["保留选中的 2 个", "取消收藏选中的 2 个"].every((x) => (t.el.listHeader.innerHTML + t.el.favSel.innerHTML).includes(x)), (t.el.listHeader.innerHTML + t.el.favSel.innerHTML));
+    // H7: the bar has its own slot outside the header's rows (a folded header hides those).
+    assert.ok(t.el.favSel.innerHTML.startsWith('<div class="selbar"') && !t.el.listHeader.innerHTML.includes("selbar"), t.el.favSel.innerHTML);
     t.batchKeep(t.batchList(null));
     assert.deepStrictEqual(plain(Object.keys(t.S.kept).filter((b) => b.startsWith("BV6"))), ["BV61", "BV62"]);
+    assert.deepStrictEqual(plain([...t.S.selected]), ["BV61", "BV62"], "阅览 still lists them: 保留 keeps them selected");
     await t.undo();
     assert.ok(!t.S.kept.BV61 && !t.S.kept.BV62);
     // U cut short by a failure: still in 所有收藏夹, the rest is the next U; after another folder opened, the rest stays
@@ -579,14 +584,14 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   t.S.selected.add("BV1");
   t.S.query = "视频3";
   t.renderListHeader(t.visibleItems());
-  assert.ok(t.el.listHeader.innerHTML.includes("已选中 1 个") && t.el.listHeader.innerHTML.includes("另有 1 个被筛选隐藏"), "the bar counts only what is listed");
+  assert.ok((t.el.listHeader.innerHTML + t.el.favSel.innerHTML).includes("已选中 1 个") && (t.el.listHeader.innerHTML + t.el.favSel.innerHTML).includes("另有 1 个被筛选隐藏"), "the bar counts only what is listed");
   assert.ok(t.S.selected.has("BV1"), "a video a filter hides stays selected");
   t.S.query = "";
   // The selection belongs to the tab: the kept BV2 is not in 未分析, so it leaves the selection, and so does one kept now.
   await t.keepOne("BV1");
   t.renderListHeader(t.visibleItems());
   assert.deepStrictEqual(plain([...t.S.selected]), ["BV3"]);
-  assert.ok(t.el.listHeader.innerHTML.includes("已选中 1 个") && !t.el.listHeader.innerHTML.includes("被筛选隐藏"), t.el.listHeader.innerHTML);
+  assert.ok((t.el.listHeader.innerHTML + t.el.favSel.innerHTML).includes("已选中 1 个") && !(t.el.listHeader.innerHTML + t.el.favSel.innerHTML).includes("被筛选隐藏"), (t.el.listHeader.innerHTML + t.el.favSel.innerHTML));
   delete t.S.kept.BV1;
   assert.deepStrictEqual(plain(t.writeScopeItems("all", false).map((it) => it.bvid)), ["BV1", "BV2", "BV3", "BV4"]);
   t.S.analyses.BV1 = { status: "done", oneLiner: "一句话", points: ["要点"] };
@@ -713,7 +718,7 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   t.S.analyses.BV208 = { bvid: "BV208", status: "error", error: "字幕取不到" };
   assert.deepStrictEqual(plain(t.nextBatch()), [], "not the next batch");
   t.renderListHeader(t.visibleItems());
-  assert.ok(t.el.listHeader.innerHTML.includes('aria-label="字幕细看选中 1 个" disabled title="选中的都不能字幕细看"'), t.el.listHeader.innerHTML);
+  assert.ok((t.el.listHeader.innerHTML + t.el.favSel.innerHTML).includes('aria-label="字幕细看选中的 1 个" disabled title="选中的都不能字幕细看"'), (t.el.listHeader.innerHTML + t.el.favSel.innerHTML));
   delete t.S.analyses.BV208;
   t.S.selected = new Set(["BV209", "BV210"]);
   t.S.tab = "fine";
@@ -723,29 +728,29 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   assert.deepStrictEqual(plain(t.batchList("drop").map((it) => it.bvid)), ["BV210", "BV211"]);
   // Buttons lead with the action and name the AI class; filter chips show the bare class name.
   t.renderListHeader(t.visibleItems());
-  for (const part of ["取消收藏（AI：可清理）2 个", "保留（AI：值得留）0 个"]) assert.ok(t.el.listHeader.innerHTML.includes(part), part);
+  for (const part of ["取消收藏（AI：可清理）2 个", "保留（AI：值得留）0 个"]) assert.ok((t.el.listHeader.innerHTML + t.el.favSel.innerHTML).includes(part), part);
   for (const part of [">全部 2<", ">可清理 2<", ">值得留 0<", ">拿不准 0<"]) assert.ok(t.el.classFilter.innerHTML.includes(part), part);
   assert.ok(t.el.classFilter.innerHTML.includes('class="zero">值得留 0<') && !t.el.classFilter.innerHTML.includes('class="zero">可清理'), "a 0 count stays, dimmed");
   assert.ok(t.verdictBadge("BV210", t.verdictOf(pool[10])).includes('class="badge drop"') && t.verdictBadge("BV210", t.verdictOf(pool[10])).includes('<span class="ai-mark">AI</span>可清理'));
   t.S.classFilter.fine = "keep";
   t.renderListHeader(t.visibleItems());
-  assert.ok(t.el.listHeader.innerHTML.includes("保留（AI：值得留）") && !t.el.listHeader.innerHTML.includes("取消收藏（AI"), "a filter shows only its own batch button");
+  assert.ok((t.el.listHeader.innerHTML + t.el.favSel.innerHTML).includes("保留（AI：值得留）") && !(t.el.listHeader.innerHTML + t.el.favSel.innerHTML).includes("取消收藏（AI"), "a filter shows only its own batch button");
   t.S.classFilter.fine = "all";
   t.S.selected.add("BV210");
   t.renderListHeader(t.visibleItems());
-  assert.ok(t.el.listHeader.innerHTML.includes("取消收藏选中的 1 个") && t.el.listHeader.innerHTML.includes("保留选中的 1 个"));
+  assert.ok((t.el.listHeader.innerHTML + t.el.favSel.innerHTML).includes("取消收藏选中的 1 个") && (t.el.listHeader.innerHTML + t.el.favSel.innerHTML).includes("保留选中的 1 个"));
   t.S.selected.clear();
   // A3: 待定 left after 细看 sits in 细看完成 under its own filter, and a selection there drives both batch buttons.
   t.S.analyses = { BV200: { status: "done", verdict: "unsure" } };
   t.S.classFilter.fine = "unsure";
   assert.deepStrictEqual(plain(t.visibleItems().map((it) => it.bvid)), ["BV200"]);
   t.renderListHeader(t.visibleItems());
-  assert.ok(!t.el.listHeader.innerHTML.includes("（AI") && !t.el.listHeader.innerHTML.includes("按 X 或全选后"), "待定 has no verdict-scoped button and no hint");
+  assert.ok(!(t.el.listHeader.innerHTML + t.el.favSel.innerHTML).includes("（AI") && !(t.el.listHeader.innerHTML + t.el.favSel.innerHTML).includes("按 X 或全选后"), "待定 has no verdict-scoped button and no hint");
   // 全选 selects what this tab lists; the selection then offers 移动/复制 with 保留 ones included.
-  assert.ok(t.el.listHeader.innerHTML.includes('aria-checked="false"') && t.el.listHeader.innerHTML.includes("全选 1 个"));
+  assert.ok((t.el.listHeader.innerHTML + t.el.favSel.innerHTML).includes('aria-checked="false"') && (t.el.listHeader.innerHTML + t.el.favSel.innerHTML).includes("全选 1 个"));
   t.S.selected.add("BV200");
   t.renderListHeader(t.visibleItems());
-  assert.ok(t.el.listHeader.innerHTML.includes('aria-checked="true"') && t.el.listHeader.innerHTML.includes("移动/复制选中的 1 个"));
+  assert.ok((t.el.listHeader.innerHTML + t.el.favSel.innerHTML).includes('aria-checked="true"') && (t.el.listHeader.innerHTML + t.el.favSel.innerHTML).includes("移动/复制选中的 1 个"));
   t.S.selected.clear();
   assert.strictEqual(t.batchList("keep").length, 0, "without a selection 待定 has no verdict-scoped batch");
   t.S.selected.add("BV200");
@@ -760,46 +765,42 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   t.S.titleRes = Object.fromEntries(pool.map((it, i) => [it.bvid, i < 6 ? { verdict: "unsure", confidence: "high" } : { verdict: i % 2 ? "keep" : "drop", confidence: "low" }]));
   t.renderListHeader(t.visibleItems());
   for (const part of [">全部 12<", ">值得留 3<", ">可清理 3<", ">拿不准 6<"]) assert.ok(t.el.classFilter.innerHTML.includes(part), part);
-  assert.ok(t.el.listHeader.innerHTML.includes("字幕细看下一批 10 个"));
+  assert.ok((t.el.listHeader.innerHTML + t.el.favSel.innerHTML).includes("字幕细看下一批 10 个"));
   t.S.settings.triageFineBatchSize = 4;
   t.renderListHeader(t.visibleItems());
-  assert.ok(t.el.listHeader.innerHTML.includes("字幕细看下一批 4 个"), "细看 batch size comes from the setting");
+  assert.ok((t.el.listHeader.innerHTML + t.el.favSel.innerHTML).includes("字幕细看下一批 4 个"), "细看 batch size comes from the setting");
   t.S.settings.triageFineBatchSize = 999;
   assert.strictEqual(t.nextBatch().length, 12, "clamped to 50, so all 12 fit");
-  // F7: the three batch settings clamp alike: whole numbers within min–max, empty or not a number is the default.
+  // F7 / F14: the batch settings and 请求间隔 parse with UI.intIn (shared.selftest.js): rounded into min–max, empty is
+  // the default, 0 a value.
   {
-    const intSetting = vm.runInContext("intSetting", ctx);
-    assert.deepStrictEqual([intSetting("7.9", 1, 1000, 100), intSetting("", 1, 50, 10), intSetting("x", 1, 100, 30), intSetting(5000, 1, 1000, 100), intSetting(-2, 1, 50, 10)], [7, 10, 30, 1000, 1]);
-    // F14: 请求间隔 as 关注's: 0–600, empty is the default, 0 stays 0.
-    const intervalSetting = vm.runInContext("intervalSetting", ctx);
-    assert.deepStrictEqual(["", "0", "5.6", "900", "-3", "x"].map(intervalSetting), [8, 0, 5, 600, 0, 0]);
     assert.ok(fs.readFileSync(path.join(__dirname, "triage.html"), "utf8").includes('<input id="intervalInput" type="number" min="0" max="600" step="1" />'), "the box has 关注's range");
     t.S.settings.triageFineBatchSize = 2.7;
-    assert.strictEqual(t.nextBatch().length, 2, "floored");
+    assert.strictEqual(t.nextBatch().length, 3, "rounded");
     t.S.settings.triageFineBatchSize = 999;
   }
   t.S.settings.triageFineBatchSize = 10;
   t.renderListHeader(t.visibleItems());
   // AI-starting buttons lead with the sparkle; plain actions do not.
-  assert.ok(t.el.listHeader.innerHTML.includes('<span class="ai-spark" aria-hidden="true"></span>字幕细看下一批 10 个</button>'), "细看 carries the AI sparkle");
+  assert.ok((t.el.listHeader.innerHTML + t.el.favSel.innerHTML).includes('<span class="ai-spark" aria-hidden="true"></span>字幕细看下一批 10 个</button>'), "细看 carries the AI sparkle");
   assert.ok(t.verdictBadge("BV206", t.verdictOf(pool[6])).includes("低置信"), "low confidence is a badge in 粗看完成");
   t.S.classFilter.coarse = "keep";
   assert.deepStrictEqual(plain(t.nextBatch()), ["BV207", "BV209", "BV211"], "the batch comes from the filtered videos");
   t.renderListHeader(t.visibleItems());
-  assert.ok(/保留（AI：值得留）3 个.*字幕细看下一批 3 个/.test(t.el.listHeader.innerHTML), "chip 留 leads with batch 保留, 细看 second");
+  assert.ok(/保留（AI：值得留）3 个.*字幕细看下一批 3 个/.test((t.el.listHeader.innerHTML + t.el.favSel.innerHTML)), "chip 留 leads with batch 保留, 细看 second");
   t.S.classFilter.coarse = "drop";
   assert.deepStrictEqual(plain(t.batchList("drop").map((it) => it.bvid)), ["BV206", "BV208", "BV210"], "chip 可以删 gives a batch 取消收藏 list");
   t.renderListHeader(t.visibleItems());
-  assert.ok(/取消收藏（AI：可清理）3 个.*字幕细看下一批 3 个/.test(t.el.listHeader.innerHTML), "chip 可以删 leads with batch 取消收藏, 细看 second");
-  assert.ok(t.el.listHeader.innerHTML.includes(">取消收藏（AI：可清理）3 个</button>"), "取消收藏 has no sparkle");
+  assert.ok(/取消收藏（AI：可清理）3 个.*字幕细看下一批 3 个/.test((t.el.listHeader.innerHTML + t.el.favSel.innerHTML)), "chip 可以删 leads with batch 取消收藏, 细看 second");
+  assert.ok((t.el.listHeader.innerHTML + t.el.favSel.innerHTML).includes(">取消收藏（AI：可清理）3 个</button>"), "取消收藏 has no sparkle");
   t.S.classFilter.coarse = "keep";
   t.S.classFilter.fine = "drop";
   assert.strictEqual(t.S.classFilter.coarse, "keep", "细看完成's chip does not touch 粗看完成's");
   t.S.selected.add("BV207");
   assert.deepStrictEqual(plain(t.nextBatch()), ["BV207"], "a selection still wins");
   t.renderListHeader(t.visibleItems());
-  for (const part of ["字幕细看选中 1 个", "保留选中的 1 个", "取消收藏选中的 1 个"]) assert.ok(t.el.listHeader.innerHTML.includes(part), part);
-  assert.ok(t.el.listHeader.innerHTML.split("</div>")[0].includes("字幕细看选中 1 个"), "细看 stays in row 3 with a selection, like 标题粗看");
+  for (const part of ["字幕细看选中的 1 个", "保留选中的 1 个", "取消收藏选中的 1 个"]) assert.ok((t.el.listHeader.innerHTML + t.el.favSel.innerHTML).includes(part), part);
+  assert.ok((t.el.listHeader.innerHTML + t.el.favSel.innerHTML).split("</div>")[0].includes("字幕细看选中的 1 个"), "细看 stays in row 3 with a selection, like 标题粗看");
   // The pill (runs' table, PILL's order) names what runs, whatever the tab: 细看 before 粗看. Its button pauses the run;
   // pressed, it says so (disabled) on the pill and in row 3 until the step in flight lands.
   {
@@ -817,7 +818,7 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     t.renderStatus();
     assert.ok(t.el.activity.innerHTML.includes('aria-label="暂停中" disabled title="当前这一步做完就暂停" aria-description="当前这一步做完就暂停">暂停中</button>'), t.el.activity.innerHTML);
     t.renderListHeader(t.visibleItems());
-    assert.ok(t.el.listHeader.innerHTML.includes('aria-label="暂停中 0/1" disabled title="当前视频细看完就暂停" aria-description="当前视频细看完就暂停">暂停中 0/1</button>'), t.el.listHeader.innerHTML);
+    assert.ok((t.el.listHeader.innerHTML + t.el.favSel.innerHTML).includes('aria-label="暂停中 0/1" disabled title="当前视频细看完就暂停" aria-description="当前视频细看完就暂停">暂停中 0/1</button>'), (t.el.listHeader.innerHTML + t.el.favSel.innerHTML));
     release();
     for (let i = 0; i < 50 && t.S.group; i++) await new Promise((r) => setImmediate(r));
     assert.ok(!t.S.group && t.S.analyses.BV207.status === "done", "the video in flight still lands");
@@ -893,23 +894,23 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   t.S.tab = "fine";
   t.renderListHeader(t.visibleItems());
   // G10: the redo button counts only what is listed; filtered out, it stays, disabled, and says why.
-  assert.ok(t.el.listHeader.innerHTML.includes('aria-label="按新标准重新细看" disabled title="当前筛选下没有要重新细看的视频"'));
+  assert.ok((t.el.listHeader.innerHTML + t.el.favSel.innerHTML).includes('aria-label="按新标准重新细看" disabled title="当前筛选下没有要重新细看的视频"'));
   t.S.classFilter.fine = "all";
   t.renderListHeader(t.visibleItems());
-  assert.ok(t.el.listHeader.innerHTML.includes("按新标准重新细看下一批 1 个"));
+  assert.ok((t.el.listHeader.innerHTML + t.el.favSel.innerHTML).includes("按新标准重新细看下一批 1 个"));
   // F1: like the step's own button, a selection of stale ones wins. G9: a selection with none stale does not fall back
   // to the next batch: the button stays the selection's, disabled with why.
   t.S.selected = new Set(["BV204"]);
   t.renderListHeader(t.visibleItems());
-  assert.ok(t.el.listHeader.innerHTML.includes('aria-label="按新标准重新细看选中 1 个" disabled title="选中的都不用按新标准重新细看"'), t.el.listHeader.innerHTML);
+  assert.ok((t.el.listHeader.innerHTML + t.el.favSel.innerHTML).includes('aria-label="按新标准重新细看选中的 1 个" disabled title="选中的都不用按新标准重新细看"'), (t.el.listHeader.innerHTML + t.el.favSel.innerHTML));
   t.S.selected = new Set(["BV203", "BV204"]);
   t.renderListHeader(t.visibleItems());
-  assert.ok(t.el.listHeader.innerHTML.includes("按新标准重新细看选中 1 个"), t.el.listHeader.innerHTML);
+  assert.ok((t.el.listHeader.innerHTML + t.el.favSel.innerHTML).includes("按新标准重新细看选中的 1 个"), (t.el.listHeader.innerHTML + t.el.favSel.innerHTML));
   t.S.settings.triageFineBatchSize = 1;
   t.S.analyses.BV205 = { status: "done", verdict: "keep", criteria: "旧标准" };
   t.S.selected = new Set(["BV203", "BV205"]);
   t.renderListHeader(t.visibleItems());
-  assert.ok(t.el.listHeader.innerHTML.includes("按新标准重新细看选中的前 1 个"), "more selected than one batch");
+  assert.ok((t.el.listHeader.innerHTML + t.el.favSel.innerHTML).includes("按新标准重新细看选中的前 1 个"), "more selected than one batch");
   t.S.selected = new Set(["BV205"]);
   assert.deepStrictEqual(plain(vm.runInContext("redoFineList", ctx)().map((it) => it.bvid)), ["BV205"], "the selected one, not the first listed");
   delete t.S.analyses.BV205;
@@ -991,12 +992,12 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   t.S.tab = "none";
   t.renderListHeader(t.visibleItems());
   // 判断标准 written: the button, its text in the tooltip, no dot. Not written: the warn dot and the label says so.
-  assert.ok(t.el.listHeader.innerHTML.includes('title="判断标准：只留干货" aria-label="判断标准">') && !t.el.listHeader.innerHTML.includes("dot-warn"));
+  assert.ok((t.el.listHeader.innerHTML + t.el.favSel.innerHTML).includes('title="判断标准：只留干货" aria-label="判断标准">') && !(t.el.listHeader.innerHTML + t.el.favSel.innerHTML).includes("dot-warn"));
   t.el.criteriaInput = { value: "  " };
   t.saveCriteria();
   assert.deepStrictEqual(plain(store[t.K.folderCriteria]), {});
   t.renderListHeader(t.visibleItems());
-  assert.ok(t.el.listHeader.innerHTML.includes('aria-label="判断标准（还没写）"') && t.el.listHeader.innerHTML.includes('判断标准<i class="dot-warn"'));
+  assert.ok((t.el.listHeader.innerHTML + t.el.favSel.innerHTML).includes('aria-label="判断标准（还没写）"') && (t.el.listHeader.innerHTML + t.el.favSel.innerHTML).includes('判断标准<i class="dot-warn"'));
   // Clearing the 判断标准 offered 重新粗看 (askConfirm says yes here); stop it before the next block swaps the state.
   await new Promise((r) => setTimeout(r, 0));
   vm.runInContext("runs", ctx).stop("stage1");
@@ -1019,7 +1020,7 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   t.S.tab = "none";
   t.S.selected.add("BV700");
   t.renderListHeader(t.visibleItems());
-  assert.ok(["移动/复制选中的 1 个", "保留选中的 1 个", "取消收藏选中的 1 个"].every((x) => t.el.listHeader.innerHTML.includes(x)), "未分析 offers every selection action");
+  assert.ok(["移动/复制选中的 1 个", "保留选中的 1 个", "取消收藏选中的 1 个"].every((x) => (t.el.listHeader.innerHTML + t.el.favSel.innerHTML).includes(x)), "未分析 offers every selection action");
   t.S.selected.clear();
 
   // 批量打标签 proposals: new tags only by name, at most 5; a verdict in the reply changes nothing.
@@ -1121,12 +1122,12 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     t.renderTabs();
     assert.ok(!t.el.aiTagSlot.innerHTML.includes("待确认"), "no 「待确认」 after a run that got nothing");
     assert.strictEqual(toasts.at(-1), "AI 打标签没有成功：第 1 批失败：请先在设置页配置 AI 平台");
-    // The AI 打标签 batch size: its own setting, 30 until it is saved; whole numbers within 1–100.
+    // The AI 打标签 batch size: its own setting, 30 until it is saved; whole numbers (rounded) within 1–100.
     const aiBatchSize = vm.runInContext("aiBatchSize", ctx);
     delete t.S.settings.triageAiBatchSize;
     assert.strictEqual(aiBatchSize(), 30, "no triageAiBatchSize yet: 30");
     t.S.settings.triageAiBatchSize = 7.9;
-    assert.strictEqual(aiBatchSize(), 7);
+    assert.strictEqual(aiBatchSize(), 8, "rounded");
     delete t.S.settings.triageAiBatchSize;
     t.aiScopeItems = realScope;
     handlers["triage-ai-command"] = () => ({ ok: true, data: {} });
@@ -1150,8 +1151,8 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   t.S.selected.add(firstShown);
   t.S.selected.add("BV-not-listed");
   t.renderListHeader(t.visibleItems());
-  assert.strictEqual(btnText(), "标签管理AI 打标签选中 1 个", "counts only the selected ones listed");
-  assert.ok(t.el.aiTagSlot.innerHTML.includes('aria-label="AI 打标签选中 1 个 (I)"') && !t.el.listHeader.innerHTML.includes("AI 打标签"), "row 4 only");
+  assert.strictEqual(btnText(), "标签管理AI 打标签选中的 1 个", "counts only the selected ones listed");
+  assert.ok(t.el.aiTagSlot.innerHTML.includes('aria-label="AI 打标签选中的 1 个 (I)"') && !(t.el.listHeader.innerHTML + t.el.favSel.innerHTML).includes("AI 打标签"), "row 4 only");
   t.S.selected.clear();
   t.renderListHeader(t.visibleItems());
   assert.strictEqual(btnText(), "标签管理AI 打标签");
@@ -1537,13 +1538,13 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     assert.deepStrictEqual(opened, ["BV1", "BV1"], "O / Enter play in 已出分拣范围");
     t.el.list = realList;
     assert.deepStrictEqual([...t.S.selected], ["BV1"], "X in 已出分拣范围 selects");
-    assert.ok(t.el.listHeader.innerHTML.includes("清理选中的 1 个"));
+    assert.ok((t.el.listHeader.innerHTML + t.el.favSel.innerHTML).includes("清理选中的 1 个"));
     // F9: everything selected hidden by a filter: the bar keeps its buttons, disabled with why, as 关注's.
     const hid = "选中的都被筛选隐藏了";
-    const disabledWhy = (label) => new RegExp(`aria-label="${label}"[^>]*disabled title="${hid}"`).test(t.el.listHeader.innerHTML);
+    const disabledWhy = (label) => new RegExp(`aria-label="${label}"[^>]*disabled title="${hid}"`).test((t.el.listHeader.innerHTML + t.el.favSel.innerHTML));
     t.S.classFilter.read = "drop";
     t.renderListHeader(t.visibleItems());
-    assert.ok(disabledWhy("收藏选中的 0 个到…"), t.el.listHeader.innerHTML);
+    assert.ok(disabledWhy("收藏选中的 0 个到…"), (t.el.listHeader.innerHTML + t.el.favSel.innerHTML));
     // F12 / F9: 所有收藏夹 has 全选 like a folder (across its folders), and its bar says why as well.
     t.S.mediaId = "all";
     const savedLoad = t.S.loadAll;
@@ -1556,7 +1557,7 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     t.S.selected.clear();
     t.S.selected.add("BV1");
     t.renderListHeader(t.visibleItems());
-    assert.ok(t.el.listHeader.innerHTML.includes('data-head="select-all" aria-checked="false"') && t.el.listHeader.innerHTML.includes("全选 2 个"), "所有收藏夹 has 全选");
+    assert.ok((t.el.listHeader.innerHTML + t.el.favSel.innerHTML).includes('data-head="select-all" aria-checked="false"') && (t.el.listHeader.innerHTML + t.el.favSel.innerHTML).includes("全选 2 个"), "所有收藏夹 has 全选");
     for (const label of ["保留选中的 0 个", "取消收藏选中的 0 个"]) assert.ok(disabledWhy(label), label);
     vm.runInContext("UI.toggleAll(visibleItems().map((it) => it.bvid), S.selected)", ctx);
     assert.deepStrictEqual([...t.S.selected].sort(), ["BV1", "BV2", "BV3"], "全选 adds what is listed, keeps the hidden one");
@@ -2285,7 +2286,7 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     assert.deepStrictEqual(vids.map((it) => vm.runInContext("homeOf", ctx)(it)), ["K", "K", "L", "K"], "the first chosen folder it is in");
     // The step bar offers the run (no single 判断标准 button); the run asks first, listing each folder's count and 判断标准.
     t.renderListHeader(t.visibleItems());
-    assert.ok(t.el.listHeader.innerHTML.includes("标题粗看下一批 4 个") && !t.el.listHeader.innerHTML.includes('data-head="criteria"'), t.el.listHeader.innerHTML);
+    assert.ok((t.el.listHeader.innerHTML + t.el.favSel.innerHTML).includes("标题粗看下一批 4 个") && !(t.el.listHeader.innerHTML + t.el.favSel.innerHTML).includes('data-head="criteria"'), (t.el.listHeader.innerHTML + t.el.favSel.innerHTML));
     const batches = [];
     handlers["triage-classify-titles"] = ({ items, criteria, folder }) => {
       batches.push([items.map((x) => x.bvid), criteria, folder.title, folder.intro]);
@@ -2305,7 +2306,7 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     t.S.tab = "coarse";
     assert.deepStrictEqual(plain(t.staleCoarse().map((it) => it.bvid)), ["BV850", "BV851", "BV853"]);
     t.renderListHeader(t.visibleItems());
-    assert.ok(t.el.listHeader.innerHTML.includes("按新标准重新粗看下一批 3 个") && t.el.listHeader.innerHTML.includes("字幕细看下一批"), t.el.listHeader.innerHTML);
+    assert.ok((t.el.listHeader.innerHTML + t.el.favSel.innerHTML).includes("按新标准重新粗看下一批 3 个") && (t.el.listHeader.innerHTML + t.el.favSel.innerHTML).includes("字幕细看下一批"), (t.el.listHeader.innerHTML + t.el.favSel.innerHTML));
     // 细看: one video per request, each with its own folder's 判断标准.
     const fine = [];
     handlers["triage-analyze"] = ({ bvid, criteria, folder }) => (fine.push([bvid, criteria, folder.title]), { ok: true, data: { bvid, status: "done", verdict: "keep" } });
@@ -2546,7 +2547,7 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     openFake("removed", [{ ...item(960), removedAt: 5 }, { ...item(961), removedAt: 5 }]);
     t.S.selected.add("BV960");
     t.renderListHeader(t.visibleItems());
-    assert.ok(t.el.listHeader.innerHTML.includes("清理选中的 1 个") && !t.el.listHeader.innerHTML.includes("清理这 2 个"), "清理 takes the selection");
+    assert.ok((t.el.listHeader.innerHTML + t.el.favSel.innerHTML).includes("清理选中的 1 个") && !(t.el.listHeader.innerHTML + t.el.favSel.innerHTML).includes("清理这 2 个"), "清理 takes the selection");
     const adds = [];
     handlers["triage-transfer"] = (m) => (adds.push([m.from, m.to, m.move, m.aids.length]), { ok: true });
     t.askTransfer = async () => ({ how: "add", target: { id: "2" } });
@@ -2629,7 +2630,7 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     assert.ok(t.el.tagFilter.innerHTML.startsWith('<span class="row-label">标签</span>'), "row 4 starts with its name");
     // 收藏夹's tags only refine a folder: row 3 has no 未打标签 / 已打标签 (关注's does, tags are its main split).
     assert.ok(!/未打标签|已打标签|data-tagstate/.test(row3()), "no tagged / untagged group in 收藏夹");
-    assert.ok(t.el.listHeader.innerHTML.startsWith('<div class="step-actions"><button type="button" role="checkbox"'), "全选 heads the right-hand buttons");
+    assert.ok((t.el.listHeader.innerHTML + t.el.favSel.innerHTML).startsWith('<div class="step-actions"><button type="button" role="checkbox"'), "全选 heads the right-hand buttons");
     assert.strictEqual(t.el.searchCount.textContent, "", "no 「N 个结果」 with nothing on");
     t.pickState("class", "drop");
     has('aria-pressed="true">可清理 2<', '<button type="button" data-states-all aria-pressed="false">');
@@ -2819,7 +2820,7 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     Object.assign(t.S, { tab: "none" });
     t.S.selected.clear();
     t.cardAction("select", "BV2");
-    assert.deepStrictEqual([renders, marks, t.el.listHeader.innerHTML.includes("已选中 1 个")], [0, { BV1: false, BV2: true }, true]);
+    assert.deepStrictEqual([renders, marks, (t.el.listHeader.innerHTML + t.el.favSel.innerHTML).includes("已选中 1 个")], [0, { BV1: false, BV2: true }, true]);
     t.S.tab = "coarse";
     t.cardAction("select", "BV2");
     assert.ok(renders === 1 && !t.S.selected.size, "粗看完成 draws the list again");
@@ -2934,6 +2935,8 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     ctx.window.addEventListener = realWin;
     const fire = (n, type, e) => (L[n][type] || []).forEach((f) => f(e));
 
+    // The selection bar's slot (outside stagebar) sends its clicks to the same handler.
+    assert.strictEqual(L.favSel?.click?.length, 1);
     // 全选 sits in listHeader inside stagebar: one click bubbles through both and selects once, not on and off again.
     {
       openFake("A", [item(1), item(2)]);
@@ -3279,7 +3282,7 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     t.S.coarseFailed.clear();
     Object.assign(t.S.settings, { triageIntervalSec: 0 });
     t.renderListHeader(t.visibleItems());
-    assert.ok(t.el.listHeader.innerHTML.includes("标题粗看下一批 2 个"), t.el.listHeader.innerHTML);
+    assert.ok((t.el.listHeader.innerHTML + t.el.favSel.innerHTML).includes("标题粗看下一批 2 个"), (t.el.listHeader.innerHTML + t.el.favSel.innerHTML));
     let sentBvids = [];
     handlers["triage-classify-titles"] = (m) => ((sentBvids = m.items.map((x) => x.bvid)), { ok: true, data: { results: {} } });
     await t.runStage1();
@@ -3291,7 +3294,7 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
       openFake("G", many);
       Object.assign(t.S, { tab: "none", titleRes: {}, analyses: {}, query: "" });
       t.S.coarseFailed.clear();
-      const head = () => (t.renderListHeader(t.visibleItems()), t.el.listHeader.innerHTML);
+      const head = () => (t.renderListHeader(t.visibleItems()), (t.el.listHeader.innerHTML + t.el.favSel.innerHTML));
       const pending = () => vm.runInContext("stage1Pending()", ctx).map((it) => it.bvid);
       delete t.S.settings.triageCoarseBatchSize;
       assert.ok(head().includes("标题粗看下一批 100 个"), "default 100");
@@ -3300,7 +3303,7 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
       t.S.settings.triageCoarseBatchSize = 3;
       assert.deepStrictEqual(plain(pending()), ["BV5000", "BV5001", "BV5002"], "the first ones in list order");
       for (const b of ["BV5010", "BV5011"]) t.S.selected.add(b);
-      assert.ok(head().includes("标题粗看选中 2 个"));
+      assert.ok(head().includes("标题粗看选中的 2 个"));
       for (const b of ["BV5012", "BV5013"]) t.S.selected.add(b);
       assert.ok(head().includes("标题粗看选中的前 3 个"), "more selected than the cap");
       await t.runStage1();
@@ -3312,7 +3315,7 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
       assert.ok(head().includes("按新标准重新粗看下一批 3 个"), "重新粗看 is capped too");
       // F1: a selection of stale ones wins, as on 标题粗看.
       for (const b of ["BV5020", "BV5021"]) t.S.selected.add(b);
-      assert.ok(head().includes("按新标准重新粗看选中 2 个"), head());
+      assert.ok(head().includes("按新标准重新粗看选中的 2 个"), head());
       assert.deepStrictEqual(plain(vm.runInContext("redoCoarseList()", ctx).map((it) => it.bvid)), ["BV5020", "BV5021"]);
       t.S.selected.clear();
       // F2: the 判断标准 prompt offers the same batch as that button and says how many.
@@ -3331,6 +3334,13 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
       assert.deepStrictEqual(plain([asked?.[2], asked?.[3]]), ["按新标准重新粗看", { reason: "当前筛选下没有要重新粗看的视频" }]);
       assert.ok(asked[1].includes("有 1005 个视频是按旧标准粗看的（当前筛选下列出 0 个）"), asked[1]);
       t.S.query = "";
+      // While an AI step runs no dialog: a toast says what to click once it is done.
+      t.S.group = { bvids: ["x"], stop: false, mediaId: "other" };
+      t.el.criteriaInput = { value: "第三版标准" };
+      asked = null;
+      await t.saveCriteria();
+      assert.deepStrictEqual([asked, toasts.at(-1)], [null, "有 1005 个视频是按旧标准粗看的，等字幕细看跑完，点「按新标准重新粗看」就能更新"]);
+      t.S.group = null;
       t.askConfirm = realAsk;
       Object.assign(t.S, { tab: "none", titleRes: {}, folderCriteria: {} });
       t.S.coarseFailed.clear();
@@ -3339,12 +3349,12 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     }
     t.S.query = "没有这个词";
     t.renderListHeader(t.visibleItems());
-    assert.ok(t.el.listHeader.innerHTML.includes('aria-label="标题粗看" disabled title="当前筛选下没有要粗看的视频"'), t.el.listHeader.innerHTML);
+    assert.ok((t.el.listHeader.innerHTML + t.el.favSel.innerHTML).includes('aria-label="标题粗看" disabled title="当前筛选下没有要粗看的视频"'), (t.el.listHeader.innerHTML + t.el.favSel.innerHTML));
     t.S.query = "";
     // N1: another AI run first.
     t.S.group = { bvids: ["x"], stop: false, mediaId: "other" };
     t.renderListHeader(t.visibleItems());
-    assert.ok(t.el.listHeader.innerHTML.includes('disabled title="细看还在跑，等它完成"'), t.el.listHeader.innerHTML);
+    assert.ok((t.el.listHeader.innerHTML + t.el.favSel.innerHTML).includes('disabled title="字幕细看还在跑，等它完成"'), (t.el.listHeader.innerHTML + t.el.favSel.innerHTML));
     t.S.group = null;
     // D4: a 粗看 error about one batch (a reply in the wrong format) fails that batch's cards and the run goes on; a
     // platform error still ends it. Failed cards stay in 未分析, last, with the failure, a retry and 「全部重试」.
@@ -3367,7 +3377,7 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
       assert.ok(t.el.list.innerHTML.includes("分析失败 30 · ") && t.el.list.innerHTML.includes("全部重试"), "the group head in 未分析");
       assert.ok(t.el.list.innerHTML.indexOf("BV6030") < t.el.list.innerHTML.indexOf("BV6000"), "failed cards last");
       t.renderListHeader(t.visibleItems());
-      assert.ok(t.el.listHeader.innerHTML.includes('aria-label="标题粗看" disabled title="没有要粗看的视频"'), "标题粗看 does not send them again by itself");
+      assert.ok((t.el.listHeader.innerHTML + t.el.favSel.innerHTML).includes('aria-label="标题粗看" disabled title="没有要粗看的视频"'), "标题粗看 does not send them again by itself");
       // 全部重试: through startJudging, one 粗看 batch (here 20); the label says so when more failed.
       t.S.settings.triageCoarseBatchSize = 20;
       t.renderList();
@@ -3383,13 +3393,13 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
       t.renderList();
       assert.ok(t.el.list.innerHTML.includes("全部重试") && !t.el.list.innerHTML.includes("重试下一批"));
       // G9 / G11: a pick of a failed card: 标题粗看 stays the selection's, disabled with why (no fallback to the next
-      // batch); the group head says 重试选中 1 个 at once, redrawn by the pick without rebuilding the list.
+      // batch); the group head says 重试选中的 1 个 at once, redrawn by the pick without rebuilding the list.
       t.S.selected = new Set([[...t.S.coarseFailed.keys()][0]]);
       const head = { outerHTML: "" };
       t.el.list.querySelector = (sel) => (sel === ".group-head" ? head : null);
       t.showPicks();
-      assert.ok(head.outerHTML.includes("分析失败 10 · ") && head.outerHTML.includes("重试选中 1 个</button>"), head.outerHTML);
-      assert.ok(t.el.listHeader.innerHTML.includes('aria-label="标题粗看选中 1 个" disabled title="选中的都不能标题粗看"'), t.el.listHeader.innerHTML);
+      assert.ok(head.outerHTML.includes("分析失败 10 · ") && head.outerHTML.includes("重试选中的 1 个</button>"), head.outerHTML);
+      assert.ok((t.el.listHeader.innerHTML + t.el.favSel.innerHTML).includes('aria-label="标题粗看选中的 1 个" disabled title="选中的都不能标题粗看"'), (t.el.listHeader.innerHTML + t.el.favSel.innerHTML));
       t.S.selected = new Set();
       t.showPicks();
       assert.ok(head.outerHTML.includes("全部重试</button>"), "unpicked: back to 全部重试");

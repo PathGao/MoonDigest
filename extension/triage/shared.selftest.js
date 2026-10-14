@@ -48,6 +48,50 @@ const assertInert = (html, where) => assert.ok(!/<img src=x|<script|"'>/i.test(h
   assert.deepStrictEqual(step({ collapsed: false, last: 900 }, 1000), { collapsed: true, last: 1000 }, "after a focus, the next read down folds again");
 }
 
+// headroom(main) on a fake page: rows that grow while folded are measured again on unfolding (--head-h, the list's
+// clip); the slim bar's ▾ unfolds through focus alone (Chrome focuses a clicked button), with no click handler of its own.
+{
+  const on = (o) => ((o.L = {}), (o.addEventListener = (t, f) => (o.L[t] ||= []).push(f)), o);
+  const elem = () => on({ prepend() {}, setAttribute() {}, classList: { contains: () => false } });
+  const made = [];
+  let measureAll;
+  Object.assign(ctx, {
+    ResizeObserver: class { constructor(f) { measureAll = f; } observe() {} },
+    MutationObserver: class { observe() {} },
+    document: { createElement: () => (made.push(elem()), made.at(-1)) }
+  });
+  const cls = ["folder-head", "tabrow", "stagebar", "tagbar"];
+  let y = 0;
+  const rows = cls.map((c) => {
+    const r = on({ offsetTop: y, offsetHeight: 50, offsetParent: {}, classList: { contains: (x) => x === c }, querySelector: () => null, prepend() {} });
+    y += 50;
+    r.closest = () => r;
+    return r;
+  });
+  rows[0].nextElementSibling = rows[1];
+  const list = on({ scrollTop: 0, offsetParent: {}, matches: () => true });
+  const vars = {};
+  const folded = new Set();
+  const main = on({
+    classList: { toggle: (c, b) => (b ? folded.add(c) : folded.delete(c)) },
+    style: { setProperty: (k, v) => (vars[k] = v) },
+    querySelectorAll: (sel) => (sel.includes(".fw-list") ? [list] : rows)
+  });
+  UI.headroom(main);
+  measureAll();
+  assert.strictEqual(vars["--head-h"], "200px");
+  list.scrollTop = 900;
+  main.L.scroll[0]({ target: list });
+  assert.ok(folded.has("head-folded"), "reading down folds");
+  rows[3].offsetHeight = 90; // the tag row wraps to two lines while folded
+  measureAll();
+  assert.strictEqual(vars["--head-h"], "200px", "folded: the full height is kept");
+  const open = made.find((b) => b.className === "act-btn slim-open");
+  assert.ok(open && !open.L.click, "▾ has no click handler: focus unfolds it");
+  main.L.focusin[0]({ target: { closest: () => rows[1] } });
+  assert.deepStrictEqual([folded.has("head-folded"), vars["--head-h"]], [false, "240px"], "unfolding measures the rows again");
+}
+
 // 「今天 / 昨天 / 10月5日 HH:MM 刷新过」, by calendar day, not by 24 hours.
 {
   const now = new Date(2026, 9, 8, 0, 30).getTime();
@@ -367,11 +411,29 @@ for (const [file, fns] of [["triage.js", ["mergeAiBatch", "aiChanges"]], ["follo
   neither(/撤销这次 AI 打标签？|撤销批量[^ ]*？/, "writes its own undo confirm");
 
   // The selection bar.
-  const bar = UI.selbar({ label: "选中的视频", n: 2, hidden: 1, clearAttrs: 'data-x="clear"', acts: "<b>A</b>" });
+  const bar = UI.selbar({ label: "选中的视频", n: 2, hidden: 1, clearAttrs: 'data-x="clear"', acts: (none) => `<b>A${none}</b>` });
   assert.ok(bar.startsWith('<div class="selbar" role="toolbar" aria-label="选中的视频"><strong class="sel-count">已选中 2 个</strong><span class="muted">另有 1 个被筛选隐藏</span><button type="button" class="quiet" data-x="clear" aria-label="清空选中">清空选中</button>') && bar.endsWith('<span class="sel-actions"><b>A</b></span></div>'), bar);
-  assert.ok(!UI.selbar({ label: "x", n: 1, hidden: 0, clearAttrs: "", acts: "" }).includes("隐藏"));
+  assert.ok(!UI.selbar({ label: "x", n: 1, hidden: 0, clearAttrs: "", acts: () => "" }).includes("隐藏"));
+  // Filters hide the whole selection: the bar keeps its buttons and tells each why it is off, the same in both modes.
+  assert.ok(UI.selbar({ label: "x", n: 0, hidden: 2, clearAttrs: "", acts: (none) => UI.actBtn('data-x="a"', "保留选中的 0 个", { reason: none }) }).includes('aria-label="保留选中的 0 个" disabled title="选中的都被筛选隐藏了"'));
   both("UI.selbar({", "draws its selection bar with selbar");
-  neither(/class="selbar"|已选中 \$\{/, "draws its own selection bar");
+  neither(/class="selbar"|已选中 \$\{|选中的都被筛选隐藏了/, "draws its own selection bar or its hidden-all reason");
+  // One button builder for row 3 and the bar; one 清理 button.
+  assert.strictEqual(UI.actBtn('data-x="m"', "移动", { cls: "danger", title: "t", pre: "✦" }), '<button type="button" class="danger" data-x="m" aria-label="移动" title="t">✦移动</button>');
+  assert.strictEqual(UI.cleanBtn('data-x="c"', true, 3, ""), '<button type="button" class="danger" data-x="c" aria-label="清理选中的 3 个">清理选中的 3 个</button>');
+  assert.ok(UI.cleanBtn('data-x="c"', false, 5, "忙").includes('aria-label="清理这 5 个" disabled title="忙"'));
+  both("UI.cleanBtn(", "draws 清理 with cleanBtn");
+  neither(/清理选中的 \$\{|清理这 \$\{[^}]*\} 个`|<button type="button"\$\{cls/, "builds its own 清理 or action button");
+  // What waits for a running step: one sentence, U's version asks to wait before undoing.
+  assert.deepStrictEqual([UI.busyText("取消关注"), UI.busyText("取消关注", { undo: true }), UI.busyText("")], ["取消关注还在跑，等它完成", "取消关注还在跑，等它完成再撤销", ""]);
+  neither(/还在跑/, "writes its own 「…还在跑」");
+  // Whole-number settings: empty or not a number is the default, 0 is a value, rounded, clamped.
+  assert.deepStrictEqual(["", null, undefined, "x", " ", 0, "0", 7.5, 7.4, -3, 2000, "12"].map((v) => UI.intIn(v, 0, 1000, 8)), [8, 8, 8, 8, 8, 0, 0, 8, 7, 0, 1000, 12]);
+  assert.strictEqual(UI.intIn(0, 1, 50, 10), 1, "0 below the minimum snaps to it");
+  for (const f of ["triage.js", "follow.js", "triage-bg.js"]) {
+    const src = fs.readFileSync(path.join(__dirname, f), "utf8");
+    assert.ok(/\.intIn\b/.test(src) && !/intSetting|intervalSetting|Math\.floor\(Number\(/.test(src), `${f}: parses its whole-number settings with intIn`);
+  }
 
   // 「✦ AI 刚打的」: one chip, its × and the same tooltip (with the mode's unit); gone at 0 unless it is on.
   const chip = UI.aiRecentChip({ attrs: "data-r", xAttrs: "data-rx", n: 2, on: false, who: "UP 主" });

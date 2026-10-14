@@ -694,7 +694,7 @@ async function triageAiCommand({ instruction, items, tags, maxNewTags = 5, allow
   const list = (Array.isArray(items) ? items : []).filter((it) => it && it.bvid);
   if (!list.length) throw triageError("缺少 items");
   const ai = await triageAiSettings();
-  const opts = { maxNewTags: Math.max(0, Math.min(50, Math.floor(Number(maxNewTags)) || 0)), allowRemove: allowRemove === true };
+  const opts = { maxNewTags: TriageUi.intIn(maxNewTags, 0, 50, 0), allowRemove: allowRemove === true };
   const { content } = await triageChat(
     triageBuildCommandMessages({ instruction: text, tags, items: list, ...opts, unit }),
     triageMaxTokens("command", list.length, ai),
@@ -960,14 +960,14 @@ const TRIAGE_HANDLERS = {
     const s = await chrome.storage.sync.get(TRIAGE_SETTINGS_DEFAULTS);
     const provider = typeof loadAiProviders === "function" ? (await loadAiProviders().catch(() => [])).find((p) => p.enabled !== false) : null;
     return {
-      triageIntervalSec: Number(s.triageIntervalSec) >= 0 ? Number(s.triageIntervalSec) : TRIAGE_SETTINGS_DEFAULTS.triageIntervalSec,
-      triageFineBatchSize: Math.max(1, Math.min(50, Math.floor(Number(s.triageFineBatchSize)) || 10)),
-      triageCoarseBatchSize: Math.max(1, Math.min(1000, Math.floor(Number(s.triageCoarseBatchSize)) || 100)),
+      triageIntervalSec: TriageUi.intIn(s.triageIntervalSec, 0, 600, TRIAGE_SETTINGS_DEFAULTS.triageIntervalSec),
+      triageFineBatchSize: TriageUi.intIn(s.triageFineBatchSize, 1, 50, 10),
+      triageCoarseBatchSize: TriageUi.intIn(s.triageCoarseBatchSize, 1, 1000, 100),
       triageThinking: s.triageThinking === true,
       triageTitleMaxTokens: Number(s.triageTitleMaxTokens) > 0 ? Number(s.triageTitleMaxTokens) : 0,
       triageAnalyzeMaxTokens: Number(s.triageAnalyzeMaxTokens) > 0 ? Number(s.triageAnalyzeMaxTokens) : 0,
-      triageTagLimit: Math.max(1, Math.min(50, Math.floor(Number(s.triageTagLimit)) || 10)),
-      triageAiNewTagMax: Number.isInteger(s.triageAiNewTagMax) ? Math.max(0, Math.min(50, s.triageAiNewTagMax)) : 5,
+      triageTagLimit: TriageUi.intIn(s.triageTagLimit, 1, 50, 10),
+      triageAiNewTagMax: TriageUi.intIn(s.triageAiNewTagMax, 0, 50, 5),
       triageAiRemoveTags: s.triageAiRemoveTags === true,
       // 开启思考 only reaches these platforms (triageChat), so the page shows the switch only for them.
       thinkingToggle: supportsThinkingToggle(provider?.baseUrl)

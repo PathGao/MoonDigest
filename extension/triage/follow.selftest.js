@@ -220,7 +220,7 @@ const base = () => ({ list: null, last: null, content: {}, people: {}, tags: [],
 
 // ----- 关注's own AI settings: first use copies 收藏夹's, then they are independent -----
 {
-  const triage = { triageAiBatchSize: 15, triageTitleBatchSize: 99, triageIntervalSec: 2, triageAiNewTagMax: 3, triageAiRemoveTags: true };
+  const triage = { triageAiBatchSize: 15, triageIntervalSec: 2, triageAiNewTagMax: 3, triageAiRemoveTags: true };
   const first = plain(t.followAiSettings(undefined, triage));
   assert.deepStrictEqual(first.value, { batchSize: 15, intervalSec: 2, newTagMax: 3, allowRemove: true }, "seeded from 收藏夹");
   assert.deepStrictEqual(first.seed, first.value, "the seed is stored");
@@ -228,7 +228,7 @@ const base = () => ({ list: null, last: null, content: {}, people: {}, tags: [],
   assert.strictEqual(t.followAiSettings(undefined, { ...triage, triageAiBatchSize: null }).value.batchSize, 30, "else 关注's default: the removed 标题粗看 batch size is no fallback");
   assert.deepStrictEqual(plain(t.followAiSettings(undefined, null)).value, { batchSize: 30, intervalSec: 8, newTagMax: 5, allowRemove: false }, "global defaults without 收藏夹 settings");
   const own = { batchSize: 40, intervalSec: 0, newTagMax: 0, allowRemove: false };
-  const later = plain(t.followAiSettings(own, { ...triage, triageTitleBatchSize: 99, triageAiNewTagMax: 9 }));
+  const later = plain(t.followAiSettings(own, { ...triage, triageAiNewTagMax: 9 }));
   assert.deepStrictEqual(later, { value: own, seed: null }, "a stored 关注 value wins; 收藏夹 changes do not leak in");
   assert.deepStrictEqual(plain(t.followAiSettings({ batchSize: 500, intervalSec: -3, newTagMax: "x" }, null)).value, { batchSize: 100, intervalSec: 0, newTagMax: 5, allowRemove: false }, "clamped");
   // The requests use 关注's values
@@ -318,7 +318,7 @@ assert.deepStrictEqual([t.dirLabel("last", "desc"), t.dirLabel("follow", "asc"),
   const T = { hold: () => null };
   const run = new Function("env", "MdgRuns", "MdgWrites", "UI", "T", `const { F } = env; const D = {}; const AI = {}; const PHASE = {}; const nowSec = () => env.clock / 1000;
     const send = async (c) => (env.sent.push(c.mid), env.answers.shift() || { ok: true });
-    const toast = (m) => env.toasts.push(m); const load = async () => {}; const render = () => {}; const renderSel = () => {}; const renderFoot = () => {};
+    const toast = (m) => env.toasts.push(m); const load = async () => {}; const rows = new Map(); const sideMids = () => []; const outKind = () => ""; const render = () => {}; const renderSel = () => {}; const renderFoot = () => {};
     let runs;
     const renderSync = () => { const w = runs?.get("follow-write")?.wait; env.waiting = Boolean(w); if (w) env.waits.push(runs.pill(["follow-write"]).text); if (env.sent.length >= env.stopAfter) (env.stopAfter = Infinity), W.stop(); };
     ${code.replace("const runs = ", "runs = ")}; return { relationRun, W, runs };`);
@@ -392,7 +392,6 @@ assert.ok(source.includes(`pushTagUndo(before, "标签修改", { ask: changes.le
   const rg = fn("regroup");
   assert.ok(rg.includes("const done = calls.flatMap((c) => c.mids).slice(0, n).filter((m) => !skipped.some((x) => x.mid === m));") && /if \(done\.length\) \{\s*pushWriteUndo\(done,/.test(rg), "U only for the UP 主 B站 confirmed (none after a timeout)");
   assert.ok(rg.includes("mids.filter((m) => !rows.get(m)?.closed)") && /relationRun\(calls, label, \{ quiet: true, skipped \}\)/.test(rg) && /if \(skipped\.length\) \{[\s\S]*?askConfirm\([^\n]*\{ alone: true \}\)/.test(rg), "closed accounts and the ones B站 left out are listed after, still selected");
-  assert.ok(/onChunk\(c, r\) \{[\s\S]*?if \(!left\.some\(\(x\) => x\.mid === mid\)\) F\.sel\.delete\(mid\);/.test(source), "the skipped stay selected");
   assert.ok(/back: \(\) => groupCalls\(done, \(m\) => groupsOf\(m, D\), \(m\) => before\[m\]\)/.test(rg) && /ask: \[`在 B站撤销/.test(rg) && rg.includes("groups: true"), "U puts back the groups they had, asked for 2+");
   assert.ok(/async function starOne\(mid\) \{[\s\S]*?await regroup\(\[mid\],[^\n]*SPECIAL/.test(source), "★ is a move of group -10");
   const mc = fn("moveOrCopy");
@@ -660,7 +659,7 @@ async function followPage({ store = {}, handlers = {}, setup = () => {} } = {}) 
     F.cur = "u1";
     p.key("x");
     assert.strictEqual(found["[data-fw=select-all]"]["aria-checked"], "mixed", "全选 turns mixed on X");
-    assert.ok(p.$("fwAiSlot").innerHTML.includes(">AI 打标签选中 1 个</button>"), p.$("fwAiSlot").innerHTML);
+    assert.ok(p.$("fwAiSlot").innerHTML.includes(">AI 打标签选中的 1 个</button>"), p.$("fwAiSlot").innerHTML);
     const bar = E.sel.innerHTML;
     assert.ok(!bar.includes("AI 打标签") && bar.includes(">移动选中的 1 个到分组…<") && bar.includes(">复制选中的 1 个到分组…<"), bar);
     const running = p.FW.relationRun([{ type: "follow-relation", mid: "u2", act: 2 }], "取消关注");
@@ -705,6 +704,20 @@ async function followPage({ store = {}, handlers = {}, setup = () => {} } = {}) 
     p.key("u");
     await p.until(() => p.toasts.at(-1) === "已撤销：取消关注 2 个");
     assert.deepStrictEqual([plain(p.asked), p.ctx.S.modeUndo.length, p.sent.filter((m) => m.act === 1).map((m) => m.mid).join()], [["在 B站撤销取消关注？"], 0, "u1,u2"], "once it is done, U asks and undoes");
+  }
+
+  // Running a write keeps its UP 主 selected (DESIGN 筛选和计数): only one it took out of the list (取消关注 here) leaves
+  // the selection; one still listed stays, as does one the batch did not reach.
+  {
+    let store;
+    const p = await followPage({
+      store: (store = page({ follow_list: { list: ["u1", "u2", "u4"] }, follow_people: { u1: { name: "甲" }, u2: { name: "乙" }, u4: { name: "丁" } } })),
+      handlers: { "follow-relation": (m) => (m.act === 2 && ((store.follow_list = { list: store.follow_list.list.filter((x) => x !== m.mid) }), (store.follow_unfollowed = { [m.mid]: { at: sec, source: "app", name: "乙" } })), { ok: true }) }
+    });
+    const { F, relationRun } = p.FW;
+    for (const m of ["u1", "u2", "u4"]) F.sel.add(m);
+    await relationRun([{ type: "follow-relation", mid: "u1", act: 1 }, { type: "follow-relation", mid: "u2", act: 2 }], "取消关注");
+    assert.deepStrictEqual(plain([...F.sel].sort()), ["u1", "u4"], "the unfollowed one leaves; the rest stay selected");
   }
 
   // The refresh held by the background (follow_jobs.hold): its pill says why and counts down.
