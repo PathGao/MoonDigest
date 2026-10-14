@@ -6,6 +6,8 @@ const OBSIDIAN_TIMEOUT_MS = 30000;
 const obsidianCoded = (text, code) => Object.assign(new Error(text), { code });
 // What every entry shows after a write (writeVideoNote, 一篇摘录 via triage-export).
 const obsidianWritten = (path) => `已写入 Obsidian：${path}`;
+// After only the AI 问答 section was replaced (writeVideoNote's ai mode, syncVideoNoteAi); the side panel shows it.
+const aiSectionUpdated = (path) => `已更新 AI 问答：${path}`;
 
 // Every Obsidian failure in the user's words. Code OBSIDIAN (not enabled, not set up, wrong key, an address that
 // answers 404) or OBSIDIAN_DOWN (closed, plugin off, nothing listening; 408 is fetchWithTimeout's timeout) fails every
@@ -222,7 +224,7 @@ async function writeVideoNote({ ref: input, mode, conversation, page }) {
   if (target.video && existing.exists && mode === "ai") {
     // Only the AI 问答 section changes: the rest of the note, subtitle warning included, stays as written before.
     const { updated } = section ? await updateAiSectionInVault(vault, path, section, key, existing, ref.pageIndex) : { updated: false };
-    return { path, kind: updated ? "ai" : "unchanged", text: `已更新 AI 问答：${path}`, title: title() };
+    return { path, kind: updated ? "ai" : "unchanged", text: aiSectionUpdated(path), title: title() };
   }
   const { markdown, cover, warning = "" } = await target.body();
   if (!target.video) {
@@ -238,7 +240,8 @@ async function writeVideoNote({ ref: input, mode, conversation, page }) {
 }
 
 // sync-video-note-ai: after a write recorded the video's note, each finished answer replaces its AI 问答 section.
-// Never creates a note. Resolves { path: "" } when there is nothing to do, else { path, exists, updated }.
+// Never creates a note. Resolves { path: "" } when there is nothing to do, else { path, exists, updated, text? }: text,
+// what the side panel shows, when the note is still there.
 async function syncVideoNoteAi({ ref: input, conversation }) {
   const ref = normalizeAiContextRef(input || {});
   const key = ref.isVideoContext ? MdgSites.buildContextKey(ref) : "";
@@ -253,7 +256,8 @@ async function syncVideoNoteAi({ ref: input, conversation }) {
   } catch {
     return { path: "" };
   }
-  return { path, ...(await updateAiSectionInVault(vault, path, section, key)) };
+  const done = await updateAiSectionInVault(vault, path, section, key);
+  return { path, ...done, ...(done.exists && { text: aiSectionUpdated(path) }) };
 }
 
 if (typeof chrome !== "undefined" && chrome.runtime?.onMessage) {

@@ -1725,7 +1725,7 @@ async function autoSyncConversation(conversationId) {
       showSyncStatus("Obsidian 里的视频笔记已不存在，未写入");
       return;
     }
-    showSyncStatus(`已更新 AI 问答：${resp.path}`, { autoHideMs: 3000 });
+    showSyncStatus(resp.text, { autoHideMs: 3000 });
   } catch (error) {
     // Not set up or a wrong key: 去设置 before 重试, like a manual write; a closed Obsidian gets 重试 only.
     const settings = error?.action === "settings" ? () => chrome.runtime.openOptionsPage() : null;
