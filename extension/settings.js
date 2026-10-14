@@ -56,7 +56,7 @@
     showBiliUpTags: true,
     showBiliVerdicts: false,
     biliMarksOff: Object.freeze([]),
-    seenShow: "off",
+    seenShow: "off", // one of SEEN_SHOW
     seenThreshold: SEEN_THRESHOLD.def,
     seenStyle: "badge",
     enableDebugLogs: false,
@@ -126,6 +126,11 @@
       .slice(0, MAX_NOTE_SECTIONS);
   }
 
+  // 观看进度 (设置页「封面显示」): its legal values; anything else is DEFAULTS' 关. seenOn: the history is read and drawn.
+  const SEEN_SHOW = Object.freeze(["off", "bar", "mark", "both"]);
+  const normalizeSeenShow = (v) => (SEEN_SHOW.includes(v) ? v : DEFAULTS.seenShow);
+  const seenOn = (v) => normalizeSeenShow(v) !== "off";
+
   // 专注模式: each setting's legal values in stepper order (the theme button cycles them); an unknown value is DEFAULTS'.
   const READER_OPTIONS = Object.freeze({
     readerTheme: ["light", "dark", "paper"],
@@ -149,6 +154,9 @@
     MAX_PRESET_PROMPTS,
     SEEN_THRESHOLD,
     READER_OPTIONS,
+    SEEN_SHOW,
+    normalizeSeenShow,
+    seenOn,
     intIn,
     normalizeSeenThreshold,
     normalizeApiKey,

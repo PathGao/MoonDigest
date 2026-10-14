@@ -417,9 +417,11 @@ async function seenClear() {
   await chrome.storage.local.remove([...keys, SEEN_META]);
 }
 
+// 封面显示 is on: the history is read only then (MdgSettings.seenOn, which every reader of seenShow uses).
+const seenOn = async () => MdgSettings.seenOn((await chrome.storage.sync.get({ seenShow: MdgSettings.DEFAULTS.seenShow })).seenShow);
+
 async function seenSyncOnce(force, started) {
-  const { seenShow } = await chrome.storage.sync.get({ seenShow: "off" });
-  if (!["bar", "mark", "both"].includes(seenShow)) return { skipped: "off" };
+  if (!(await seenOn())) return { skipped: "off" };
   let meta = (await chrome.storage.local.get(SEEN_META))[SEEN_META] || {};
   const now = Date.now();
   if (now < (meta.backoffUntil || 0)) return { skipped: "throttled", until: meta.backoffUntil };
@@ -1055,8 +1057,7 @@ if (typeof chrome !== "undefined" && chrome.runtime?.onMessage) {
   chrome.runtime.onStartup.addListener(triageRegisterDnr);
   chrome.storage.onChanged.addListener((changes, area) => {
     const c = area === "sync" && changes.seenShow;
-    const on = (v) => ["bar", "mark", "both"].includes(v);
-    if (c && on(c.oldValue) && !on(c.newValue)) seenClear().catch((e) => console.warn("[triage] 清除观看进度失败", e));
+    if (c && MdgSettings.seenOn(c.oldValue) && !MdgSettings.seenOn(c.newValue)) seenClear().catch((e) => console.warn("[triage] 清除观看进度失败", e));
   });
 
   triageListen("triage-", TRIAGE_HANDLERS);

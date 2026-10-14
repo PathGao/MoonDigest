@@ -54,6 +54,11 @@ for (const list of Object.values(S.READER_OPTIONS)) {
 }
 assert.ok(!/readerLetterSpacing \?\? \w+\?\.readerLineHeight/.test(read("content.js")), "字间距 falls back to 行间距");
 
+// 观看进度's legal values: SEEN_SHOW alone; seenOn is the one test of 开 (background, settings page, triage-bg).
+assert.deepStrictEqual(["bar", "both", "x", undefined, "off"].map(S.normalizeSeenShow), ["bar", "both", "off", "off", "off"]);
+assert.deepStrictEqual(["mark", "x", "off"].map(S.seenOn), [true, false, false]);
+for (const file of [...sources, "bili-surfaces.js", "badges.js"]) assert.ok(!/\["bar", "mark", "both"\]/.test(read(file)), `${file} lists seenShow's values itself`);
+
 // 看到多少算看完了: SEEN_THRESHOLD is its range and default (DEFAULTS reads it); intIn's rule.
 const { min, max, def } = S.SEEN_THRESHOLD;
 assert.strictEqual(S.DEFAULTS.seenThreshold, def);

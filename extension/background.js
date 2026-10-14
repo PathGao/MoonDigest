@@ -735,7 +735,7 @@ function normalizeSyncSettings(settings) {
   merged.showBiliVerdicts = merged.showBiliVerdicts === true;
   // The settings table's cells turned off (bili-surfaces.js); options.js and badges.js drop cells that do not exist.
   merged.biliMarksOff = Array.isArray(merged.biliMarksOff) ? merged.biliMarksOff.filter((c) => typeof c === "string") : [];
-  merged.seenShow = ["bar", "mark", "both"].includes(merged.seenShow) ? merged.seenShow : "off";
+  merged.seenShow = MdgSettings.normalizeSeenShow(merged.seenShow);
   merged.seenThreshold = MdgSettings.normalizeSeenThreshold(merged.seenThreshold);
   merged.seenStyle = merged.seenStyle === "veil" ? "veil" : "badge";
   merged.readerTheme = MdgSettings.normalizeReaderTheme(merged.readerTheme);

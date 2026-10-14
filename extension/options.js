@@ -272,7 +272,7 @@ async function loadSettings() {
   elements.showBiliUpTags.checked = settings.showBiliUpTags !== false;
   elements.showBiliVerdicts.checked = settings.showBiliVerdicts === true;
   renderBiliMarks(settings.biliMarksOff);
-  elements.seenShow.value = ["bar", "mark", "both"].includes(settings.seenShow) ? settings.seenShow : "off";
+  elements.seenShow.value = MdgSettings.normalizeSeenShow(settings.seenShow);
   elements.seenThreshold.value = String(MdgSettings.normalizeSeenThreshold(settings.seenThreshold));
   elements.seenStyle.value = settings.seenStyle === "veil" ? "veil" : "badge";
   syncSeenRows();
