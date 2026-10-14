@@ -1002,7 +1002,7 @@ async function runRefreshClip() {
   let metaLoaded = false;
   try {
     setMessage("");
-    setStatus("正在抓取视频信息…");
+    setStatus("正在读取视频信息…");
     state.subtitleFetchState = "loading";
     if (state.readingViewOpen) {
       renderReadingView();
@@ -1089,7 +1089,7 @@ async function runRefreshClip() {
       syncReadingViewPlayback(true);
     }
     setStatus(
-      state.subtitleWarning + (state.settings.obsidianEnabled ? "抓取完成，可以复制、下载或写入 Obsidian。" : "抓取完成，可以复制或下载。")
+      state.subtitleWarning + (state.settings.obsidianEnabled ? "读取完成，可以复制、下载或写入 Obsidian。" : "读取完成，可以复制或下载。")
     );
   } catch (error) {
     // A newer run (the video changed) owns the state now: an old video's late failure must not reset or mark it.
@@ -1225,7 +1225,7 @@ function renderSubtitleOptions(select) {
   const subtitles = state.subtitles || [];
 
   if (subtitles.length === 0) {
-    select.innerHTML = '<option value="">暂无字幕</option>';
+    select.innerHTML = `<option value="">${escapeHtml(MdgErrors.subtitleMissing(state))}</option>`;
     select.disabled = true;
     return;
   }
@@ -1280,6 +1280,8 @@ function getPopupPayload() {
     noteWarning: MdgNote.noteSubtitleWarning(state.subtitleWarning, state),
     // 下载 .md: the same name as the note 写入 Obsidian writes (MdgNote.buildNoteFilename).
     filename: MdgNote.buildNoteFilename(state, state.settings || DEFAULT_SETTINGS),
+    // The subtitle dropdown's line when there is no track, as everywhere (MdgErrors.subtitleMissing).
+    subtitleMissing: MdgErrors.subtitleMissing(state),
     srt: state.srt || "",
     txt: state.txt || "",
     subtitleOptions
@@ -2108,7 +2110,7 @@ function buildReadingSummaryItems() {
     if (state.pageTitle) {
       pageParts.push(state.pageTitle);
     }
-    items.push({ label: "分P", value: pageParts.join(" ") });
+    items.push({ label: "分 P", value: pageParts.join(" ") });
   }
   return items;
 }

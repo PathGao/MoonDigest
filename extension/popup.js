@@ -195,7 +195,7 @@ function bindEvents() {
 }
 
 async function refreshFromTab(force = false) {
-  setStatus("正在抓取字幕…", false, true);
+  setStatus("正在读取视频…", false, true);
   setBusy(el.refreshBtn, true);
   const resp = await sendToContent({ type: "popup-refresh", refresh: force }).finally(() => setBusy(el.refreshBtn, false));
   el.refreshBtn.classList.toggle("is-error", !resp?.ok);
@@ -253,7 +253,7 @@ function render(payload, { preserveStatus = false } = {}) {
 
   const options = payload.subtitleOptions || [];
   if (options.length === 0) {
-    el.subtitleSelect.innerHTML = '<option value="">暂无字幕</option>';
+    el.subtitleSelect.innerHTML = `<option value="">${escapeHtml(payload.subtitleMissing || MdgErrors.subtitleMissing())}</option>`;
     el.subtitleSelect.disabled = true;
   } else {
     el.subtitleSelect.innerHTML = options

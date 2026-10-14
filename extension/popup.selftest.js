@@ -77,6 +77,12 @@ for (const bad of XSS) {
   assertInert(ctx.el.subtitleSelect.innerHTML, "subtitle options");
 }
 
+// G9: no track reads as everywhere else (MdgErrors.subtitleMissing), not a word of its own.
+ctx.render({ subtitleOptions: [], subtitleMissing: "未登录 B站，拿不到字幕" }, { preserveStatus: true });
+assert.strictEqual(ctx.el.subtitleSelect.innerHTML, '<option value="">未登录 B站，拿不到字幕</option>');
+ctx.render({ subtitleOptions: [] }, { preserveStatus: true });
+assert.strictEqual(ctx.el.subtitleSelect.innerHTML, '<option value="">视频没有字幕</option>');
+
 // After the blocks above (promises only), which share el.status.
 setTimeout(() =>
   (async () => {
