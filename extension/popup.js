@@ -29,6 +29,10 @@ let latestPayload = null;
 let onVideoPage = true;
 // Only for when get-settings fails.
 const DEFAULT_SETTINGS = MdgSettings.DEFAULTS;
+const setDisabledReason = MdgErrors.setReason;
+// The note's file-name rule (Obsidian's forbidden characters), for every file the popup downloads.
+const { sanitizeFileName } = MdgSites;
+
 
 init().catch((error) => {
   setStatus(`初始化失败：${error.message}`, true);
@@ -237,7 +241,7 @@ function render(payload, { preserveStatus = false } = {}) {
   setText(el.propTitle, payload.title || "-");
   setText(el.propUrl, payload.url || "-");
   setText(el.propCreated, MdgDownload.dateStamp());
-  setText(el.propTags, payload.tags || "MoonDigest");
+  setText(el.propTags, payload.tags || "-");
   el.propTitle.title = payload.title || "";
   setText(el.videoTitle, payload.title);
   el.videoTitle.title = payload.title || "";
@@ -247,7 +251,7 @@ function render(payload, { preserveStatus = false } = {}) {
     else el.videoCover.removeAttribute("src");
     el.videoCover.hidden = !payload.cover;
   }
-  setText(el.videoDuration, formatDuration(payload.duration));
+  setText(el.videoDuration, payload.duration > 0 ? TriageUi.fmtDuration(payload.duration) : "");
   el.videoDuration.hidden = !el.videoDuration.textContent;
   el.propUrl.title = payload.url || "";
 
@@ -288,21 +292,6 @@ function syncTools(payload, onVideoPage = true) {
   setDisabledReason(el.downloadBtn, subtitleReason);
 }
 
-function setDisabledReason(button, reason) {
-  button.disabled = Boolean(reason);
-  button.title = reason;
-  if (reason) button.setAttribute("aria-description", reason);
-  else button.removeAttribute("aria-description");
-}
-
-function formatDuration(seconds) {
-  const total = Math.floor(Number(seconds) || 0);
-  if (total <= 0) return "";
-  const h = Math.floor(total / 3600);
-  const mm = String(Math.floor((total % 3600) / 60)).padStart(h ? 2 : 1, "0");
-  const ss = String(total % 60).padStart(2, "0");
-  return h ? `${h}:${mm}:${ss}` : `${mm}:${ss}`;
-}
 
 function setText(node, text) {
   node.textContent = String(text || "");
@@ -325,14 +314,6 @@ function setBusy(button, busy, label = "") {
   }
   button.disabled = busy;
   button.setAttribute("aria-busy", String(busy));
-}
-
-function sanitizeFileName(value) {
-  return String(value || "subtitle")
-    .replace(/[\\/:*?"<>|]/g, "_")
-    .replace(/\s+/g, " ")
-    .trim()
-    .slice(0, 120);
 }
 
 async function getActiveTab() {

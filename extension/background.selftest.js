@@ -356,8 +356,8 @@ process.on("exit", (code) => {
   routes = sidepanelRoutes(100);
   const resolved = await historyContext();
   assert.strictEqual(resolved.subtitleBody.length, 2);
-  // As many hot comments as the video page and 分拣台 notes ask for: one count, MdgSites.HOT_COMMENTS.
-  assert.ok(urls.some((u) => u.includes("/reply/main") && u.includes(`&ps=${ctx.MdgSites.HOT_COMMENTS}&`)) && ctx.MdgSites.HOT_COMMENTS === 20);
+  // As many hot comments as the video page and 分拣台 notes ask for: one count, MdgLimits.HOT_COMMENTS.
+  assert.ok(urls.some((u) => u.includes("/reply/main") && u.includes(`&ps=${ctx.MdgLimits.HOT_COMMENTS}&`)) && ctx.MdgLimits.HOT_COMMENTS === 20);
   // The AI gets the same note the video page sends (MdgNote.buildAiContext): front matter and subtitles, no player embed.
   assert.match(resolved.subtitleMarkdown, /^---\ntitle: "T"\n/);
   assert.match(resolved.subtitleMarkdown, /subtitle_lang: "中文"/);

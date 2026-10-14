@@ -14,7 +14,7 @@
   // tags(), count(id), add(name) → tag | null, edit(t, field, value) → saved?, remove(t) }; all may be async.
   // 分组管理 also passes text: { title, saved (what saves at once), newName, newMax, add, addLabel } and row(t, count)
   // (its row html).
-  const TAG_TEXT = { title: "标签管理", saved: "改名、颜色、说明和删除立即保存。", newName: "新标签名称", newMax: 12, add: "添加", addLabel: "添加标签" };
+  const TAG_TEXT = { title: "标签管理", saved: "改名、颜色、说明和删除立即保存。", newName: "新标签名称", newMax: MdgTagCore.TAG_NAME_MAX, add: "添加", addLabel: "添加标签" };
   let man = null;
   const rows = $("tagsRows");
   const newInput = $("newTagInput");
@@ -131,7 +131,8 @@
     const a = ai;
     $("aiHint").textContent = `用一句话让 AI 给一批${sp(a.who)}打标签。AI 看${a.sees}，只给建议，你点「应用」后才生效。`;
     const scopes = a.scopes();
-    scopeSel.innerHTML = scopes.map((s) => `<option value="${esc(s.value)}"${s.n ? "" : " disabled"}>${esc(s.label)} · ${s.n} 个</option>`).join("");
+    // 选中 counts like the row-4 button: the listed selected ones, or all of them when filters hide every one.
+    scopeSel.innerHTML = scopes.map((s) => `<option value="${esc(s.value)}"${s.n ? "" : " disabled"}>${esc(s.label)} · ${s.shown || s.n} 个</option>`).join("");
     scopeSel.value = scopes.find((s) => s.value === want && s.n)?.value || scopes.find((s) => s.n)?.value || scopes[0].value;
     const scope = scopes.find((s) => s.value === scopeSel.value);
     $("aiScopeCount").textContent = hiddenAll(scope) || a.scopeText(scope.value);
@@ -171,7 +172,7 @@
         const n = p.rows.filter((r) => live.has(r.id) && r.add.includes(`new:${t.key}`)).length;
         return `<div class="ai-newtag" data-i="${i}">
       <input type="checkbox" name="aiNewTagEnabled" data-nt="checked"${t.checked ? " checked" : ""} aria-label="创建标签 ${esc(t.name)}${t.where ? `（在「${esc(t.where)}」）` : ""}" />
-      <input type="text" name="aiNewTagName" data-nt="name" value="${esc(t.name)}" maxlength="12" aria-label="新标签名称" />
+      <input type="text" name="aiNewTagName" data-nt="name" value="${esc(t.name)}" maxlength="${MdgTagCore.TAG_NAME_MAX}" aria-label="新标签名称" />
       <span class="muted">${t.where ? `建在「${esc(t.where)}」 · ` : ""}${n ? `用在 ${n} 个${esc(who)}` : `没有${esc(who)}用到`}</span>
     </div>`;
       })

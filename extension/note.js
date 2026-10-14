@@ -20,24 +20,10 @@
   // Every field a note can carry; DEFAULT_FRONTMATTER_FIELDS is the subset on by default.
   const FRONTMATTER_FIELDS = [...DEFAULT_FRONTMATTER_FIELDS, "video_tags"];
 
-  function formatLocalDate(value = Date.now()) {
-    const date = value instanceof Date ? new Date(value.getTime()) : new Date(value);
-    return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
-  }
+  const { formatLocalDate, sanitizeFileName } = MdgSites;
 
-  function normalizeHotComments(comments, limit = 20) {
-    if (!Array.isArray(comments)) {
-      return [];
-    }
-
-    return comments
-      .map((item) => ({
-        uname: String(item?.uname || "匿名").trim() || "匿名",
-        like: Number(item?.like || 0) || 0,
-        message: String(item?.message || "").trim().slice(0, 500)
-      }))
-      .filter((item) => item.message)
-      .slice(0, limit);
+  function normalizeHotComments(comments) {
+    return Array.isArray(comments) ? comments.map(MdgSites.cleanComment).filter((item) => item.message).slice(0, MdgLimits.HOT_COMMENTS) : [];
   }
 
 
@@ -59,15 +45,20 @@
       .join("\n");
   }
 
-  function buildMarkdown(meta, body, settings, ref, created = formatLocalDate()) {
-    const url = String(ref?.url || "");
-    // meta.userTags: the 分拣台 tags; Obsidian tags take letters, digits, _ - / only, so anything else becomes _.
-    const tags = [
+  // The tags a note carries: the 笔记标签 setting, then meta.userTags (the 分拣台 tags; Obsidian tags take letters,
+  // digits, _ - / only, so anything else becomes _). The popup's 详情 shows these, not the setting.
+  function noteTags(meta, settings) {
+    return [
       ...new Set([
-        ...(settings.tags || "").split(",").map((item) => item.trim()),
-        ...(meta.userTags || []).map((name) => String(name).trim().replace(/[^\p{L}\p{N}_\-/]+/gu, "_"))
+        ...String(settings?.tags || "").split(",").map((item) => item.trim()),
+        ...(meta?.userTags || []).map((name) => String(name).trim().replace(/[^\p{L}\p{N}_\-/]+/gu, "_"))
       ])
     ].filter(Boolean);
+  }
+
+  function buildMarkdown(meta, body, settings, ref, created = formatLocalDate()) {
+    const url = String(ref?.url || "");
+    const tags = noteTags(meta, settings);
     const tagsCsv = tags.join(", ");
     const tagsYaml =
       tags.length === 0 ? "[]" : `[${tags.map((tag) => `"${escapeYaml(tag)}"`).join(", ")}]`;
@@ -397,7 +388,7 @@
   }
 
   function buildHotCommentLines(comments) {
-    const items = normalizeHotComments(comments, 20);
+    const items = normalizeHotComments(comments);
     if (items.length === 0) {
       return [];
     }
@@ -845,10 +836,6 @@
     return `${hh}:${mm}:${ss},${String(ms).padStart(3, "0")}`;
   }
 
-  function sanitizeFileName(value) {
-    // Same forbidden set as Obsidian, so wiki links to the note resolve.
-    return value.replace(/[\\/:*?"<>|#^[\]]/g, "_").replace(/\s+/g, " ").trim().slice(0, 120);
-  }
 
 
   function buildNoteFilename(meta, settings, created = formatLocalDate()) {
@@ -1080,6 +1067,7 @@
 
   globalThis.MdgNote = {
     buildMarkdown,
+    noteTags,
     buildAiContext,
     noteMetaOf,
     subtitleMismatchWarning,
@@ -1107,10 +1095,8 @@
     buildSrt,
     buildTxt,
     shouldShowHoursInNote,
-    formatLocalDate,
     formatCompactTimestamp,
     formatTimestamp,
-    sanitizeFileName,
     escapeYaml
   };
 })();

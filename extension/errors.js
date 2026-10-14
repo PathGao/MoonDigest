@@ -29,7 +29,11 @@
     // A write to Obsidian that failed without the background saying why (video page, side panel, history page).
     obsidianWriteFailed: "Local API 写入失败",
     // A dropped connection (fetch's TypeError): the video page, 分拣台's B站 requests, 关注's paused refresh.
-    network: "网络断了"
+    network: "网络断了",
+    // 继续问 on a record that is not a video (the side panel's input, 视频记录's button).
+    notVideo: "不是视频，不能问",
+    // Every selection is hidden by a search or filter: the buttons that act on it are disabled with this (分拣台, 视频记录).
+    hiddenAll: "选中的都被筛选隐藏了"
   });
 
   // Why a reader has no subtitle: the one sentence of every entry (video page, 专注模式, popup, side panel, the AI's
@@ -95,5 +99,15 @@
       .replaceAll('"', "&quot;")
       .replaceAll("'", "&#39;");
 
-  globalThis.MdgErrors = Object.freeze({ TEXT, action, text, fromResp, grantOrigin, reloaded, escapeHtml, subtitleMissing, aiTimeout });
+  // A control that cannot be used is disabled and says why (DESIGN: no clickable button that only toasts): the tooltip,
+  // and aria-description for screen readers; without a reason it is enabled with its own title. Every extension page
+  // and the 分拣台 (TriageUi.setReason) use this one.
+  function setReason(node, reason, title = "") {
+    node.disabled = Boolean(reason);
+    node.title = reason || title;
+    if (reason) node.setAttribute("aria-description", reason);
+    else node.removeAttribute("aria-description");
+  }
+
+  globalThis.MdgErrors = Object.freeze({ TEXT, action, text, fromResp, grantOrigin, reloaded, escapeHtml, setReason, subtitleMissing, aiTimeout });
 })();

@@ -291,7 +291,7 @@ function send(msg) {
 const showLogin = () => showBanner(MdgErrors.TEXT.biliLogin, "去登录", () => openTab("https://passport.bilibili.com/login"), "login");
 // The AI platform picked at the top of the side panel: sidepanel.js keeps it in this extension's localStorage under
 // this key (SELECTED_PROVIDER_KEY there). Every request carries it; the background's AI calls use it (triageChat).
-const AI_PROVIDER_KEY = "mdg_ai_selected_provider";
+const AI_PROVIDER_KEY = KEYS.aiSelectedProvider;
 // Before the first read: 3.5 and older kept it under the old key prefix. Either page may open first after the update.
 try {
   MdgLimits.migrateRenamedLocalStorage(localStorage);
@@ -379,7 +379,7 @@ let ownTabId;
 // the same way as the player's AI 总结 button.
 function askAi(it) {
   const contextRef = { site: "bilibili", videoId: it.bvid, title: it.title, author: it.upper, url: videoUrl(it.bvid) };
-  chrome.storage.local.set({ [KEYS.playerAiQuickAction]: { id: `triage-${Date.now()}`, tabId: ownTabId, prompt: "", contextRef } });
+  MdgLimits.askSidepanel({ tabId: ownTabId, contextRef });
   chrome.sidePanel.open({ tabId: ownTabId }).catch((err) => toast(`打开侧边栏失败：${err.message}`, true));
 }
 
@@ -399,6 +399,17 @@ function setBusy(btn, text) {
 
 let toastTimer = 0;
 let noteTimer = 0;
+const notePending = new Set(); // bvids whose note waits for noteTimer
+// Each pending note goes through MdgLimits.saveVideoNote (fresh read, this one entry, write), so notes the side panel
+// or 视频记录 saved meanwhile are kept; storeSet marks the write as this page's own echo.
+async function flushNotes() {
+  clearTimeout(noteTimer);
+  noteTimer = 0;
+  for (const b of [...notePending]) {
+    await MdgLimits.saveVideoNote(b, S.notes[b]?.text || "", (notes) => storeSet(K.notes, notes));
+    if (!noteTimer) notePending.delete(b); // typing again meanwhile keeps it pending
+  }
+}
 // An error stays until the next toast or a click on it; anything else goes after 6 s.
 function toast(text, error = false) {
   el.toast.textContent = text;
@@ -844,13 +855,18 @@ function followShared(changes) {
   }
   if (changed) render();
 }
-// The side panel and history page edit the same notes. A pending local save is newer than any echo, and this page's
-// own saves coming back must not re-render: that rebuilds the note being typed (and its IME composition).
+// The side panel and history page edit the same notes. A pending local save is newer than the stored entry, and
+// neither it nor this page's own saves coming back re-render: that rebuilds the note being typed (and its IME composition).
 function followNotes(changes) {
   const c = changes[K.notes];
-  if (!c || noteTimer || ownEcho(K.notes, c)) return;
-  S.notes = c.newValue || {};
-  render();
+  if (!c || ownEcho(K.notes, c)) return;
+  const next = { ...c.newValue };
+  for (const b of notePending) {
+    if (S.notes[b]) next[b] = S.notes[b];
+    else delete next[b];
+  }
+  S.notes = next;
+  if (!notePending.size) render();
 }
 function ownEcho(key, c) {
   const mine = ownWrites[key] || [];
@@ -898,16 +914,16 @@ async function loadSeen(token) {
   if (!S.seenCfg.on) return;
   const want = S.items.map((it) => it.bvid).filter((b) => !(b in S.seenPct));
   if (!want.length) return;
-  const got = await chrome.storage.local.get(want.map((b) => `seen_${b}`));
+  const got = await chrome.storage.local.get(want.map(KEYS.seen));
   if (token !== S.folderToken) return;
-  for (const b of want) S.seenPct[b] = got[`seen_${b}`] || null;
+  for (const b of want) S.seenPct[b] = got[KEYS.seen(b)] || null;
 }
 function followSeen(changes) {
   if (changes[KEYS.triageSeenMeta]) followSeenMeta(changes[KEYS.triageSeenMeta].newValue);
   let hit = false;
   for (const [key, c] of Object.entries(changes)) {
-    if (!key.startsWith("seen_")) continue;
-    S.seenPct[key.slice(5)] = c.newValue || null;
+    if (!key.startsWith(KEYS.seenPrefix)) continue;
+    S.seenPct[key.slice(KEYS.seenPrefix.length)] = c.newValue || null;
     hit = true;
   }
   if (hit && S.seenCfg.on) render();
@@ -4181,11 +4197,9 @@ function bindEvents() {
     const text = e.target.value.trim();
     if (text) S.notes[b] = { text: e.target.value, updatedAt: Date.now() };
     else delete S.notes[b];
+    notePending.add(b);
     clearTimeout(noteTimer);
-    noteTimer = setTimeout(() => {
-      noteTimer = 0;
-      storeSet(K.notes, S.notes);
-    }, 400);
+    noteTimer = setTimeout(flushNotes, 400);
   };
   el.list.addEventListener("input", (e) => !e.isComposing && noteEdit(e));
   el.list.addEventListener("compositionend", (e) => {
@@ -4197,11 +4211,7 @@ function bindEvents() {
     if (composing(e) || !e.target.matches("[data-note]")) return;
     if (!(e.key === "Escape" || (e.key === "Enter" && !e.shiftKey))) return;
     e.preventDefault();
-    if (noteTimer) {
-      clearTimeout(noteTimer);
-      noteTimer = 0;
-      storeSet(K.notes, S.notes);
-    }
+    if (noteTimer) void flushNotes();
     e.target.blur();
   });
   // An emptied note folds back to 「+ 备注」.
@@ -4361,6 +4371,12 @@ function openSettings(scrollToLimits = false, firstRun = false) {
     .map((f) => `<label class="toggle"><input type="checkbox" name="includedFolder" value="${esc(f.id)}"${S.included.includes(String(f.id)) ? " checked" : ""} /> ${esc(f.title)} <span class="muted">${esc(f.count)}</span></label>`)
     .join("") || `<p class="dialog-hint">收藏夹列表还没加载</p>`;
   el.thinkingRow.hidden = !hasThinkingToggle();
+  // The side panel may have switched platform since this page loaded: ask again which one the requests go to.
+  send({ type: "triage-settings-get" }).then((r) => {
+    if (!r.ok) return;
+    S.settings.thinkingToggle = r.data.thinkingToggle;
+    el.thinkingRow.hidden = !hasThinkingToggle();
+  });
   el.intervalInput.value = S.settings.triageIntervalSec;
   el.coarseBatchInput.value = coarseBatchSize();
   el.fineBatchInput.value = fineBatchSize();

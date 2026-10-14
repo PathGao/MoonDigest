@@ -112,15 +112,16 @@ function init() {
   });
   document.getElementById("seen").addEventListener("input", syncSeenRows);
   [elements.showBiliVerdicts, elements.showBiliTriageBadges, elements.showBiliUpTags, elements.seenShow].forEach((el) => el.addEventListener("change", syncBiliMarks));
-  // The box shows the value that would be saved, so 150 over a stored 100 is not a silent no-op.
-  elements.seenThreshold.addEventListener("change", () => (elements.seenThreshold.value = String(readFormPayload().seenThreshold)));
+  // Like the 分拣台's number boxes (TriageUi.clampNumber): above max shows max, an invalid number is cleared, and an
+  // empty box is the default its grey 「默认 N」 names.
+  elements.seenThreshold.addEventListener("change", () => TriageUi.clampNumber(elements.seenThreshold));
   // Range and 「默认 N」 from settings.js, like the 分拣台's number boxes.
   const { min, max, def } = MdgSettings.SEEN_THRESHOLD;
   Object.assign(elements.seenThreshold, { min, max, placeholder: `默认 ${def}` });
   TriageUi.fillNumHints(document);
   // 观看进度's caps, as the 数据与存储 table states them (limits.js).
   for (const node of document.querySelectorAll("[data-seen-limits]")) node.textContent = MdgLimits.SEEN_LIMITS_TEXT;
-  // Same for 追问: blank, repeated and past-12 lines are dropped from the box, not only from what is saved.
+  // Same for 追问: blank, repeated and lines past MAX_PRESET_PROMPTS are dropped from the box, not only from what is saved.
   elements.aiPresetPrompts.addEventListener("change", () => (elements.aiPresetPrompts.value = readFormPayload().aiPresetPrompts.join("\n")));
   // The side panel edits 追问 too. Follow it unless the box has an unsaved edit, so the next save does not put the old list back.
   chrome.storage.onChanged.addListener((changes, area) => {
@@ -271,7 +272,7 @@ async function loadSettings() {
   elements.showBiliUpTags.checked = settings.showBiliUpTags !== false;
   elements.showBiliVerdicts.checked = settings.showBiliVerdicts === true;
   renderBiliMarks(settings.biliMarksOff);
-  elements.seenShow.value = ["bar", "mark", "both"].includes(settings.seenShow) ? settings.seenShow : "off";
+  elements.seenShow.value = MdgSettings.normalizeSeenShow(settings.seenShow);
   elements.seenThreshold.value = String(MdgSettings.normalizeSeenThreshold(settings.seenThreshold));
   elements.seenStyle.value = settings.seenStyle === "veil" ? "veil" : "badge";
   syncSeenRows();
@@ -385,8 +386,8 @@ async function saveSettings() {
     }
     renderFixedPropertyRows(payload.fixedFrontmatterProperties);
     renderNoteSectionRows(payload.notePlaceholderSections);
-    // The box shows what was saved: 150 is stored and shown as 100.
-    elements.seenThreshold.value = String(payload.seenThreshold);
+    // The box shows what was saved: 150 is stored and shown as 100; an emptied box stays empty under 「默认 N」.
+    TriageUi.clampNumber(elements.seenThreshold);
     elements.aiPresetPrompts.value = payload.aiPresetPrompts.join("\n");
 
     // AI 平台：list 走 sync、apiKey 走 local
@@ -822,15 +823,11 @@ function updateFixedPropertyEmptyState() {
 function renderNoteSectionRows(items) {
   elements.noteSectionsList.innerHTML = "";
   const rows = Array.isArray(items) ? items : [];
-  rows.forEach((item) => addNoteSectionRow(item, { skipLimit: true }));
+  rows.forEach((item) => addNoteSectionRow(item));
   updateNoteSectionEmptyState();
 }
 
-function addNoteSectionRow(item = {}, { skipLimit = false } = {}) {
-  if (!skipLimit && elements.noteSectionsList.children.length >= MdgSettings.MAX_NOTE_SECTIONS) {
-    setStatus(`正文附加段落最多添加 ${MdgSettings.MAX_NOTE_SECTIONS} 个`, true);
-    return;
-  }
+function addNoteSectionRow(item = {}) {
 
   const position = MdgSettings.normalizeNoteSectionPosition(item.position);
   const row = document.createElement("div");
@@ -878,9 +875,11 @@ function addNoteSectionRow(item = {}, { skipLimit = false } = {}) {
   updateNoteSectionEmptyState();
 }
 
+// Also 「+ 添加段落」: disabled with the reason at MAX_NOTE_SECTIONS rows, not clickable only to say so.
 function updateNoteSectionEmptyState() {
-  const hasRows = elements.noteSectionsList.children.length > 0;
-  elements.noteSectionsEmpty.hidden = hasRows;
+  const count = elements.noteSectionsList.children.length;
+  elements.noteSectionsEmpty.hidden = count > 0;
+  MdgErrors.setReason(elements.addNoteSectionBtn, count >= MdgSettings.MAX_NOTE_SECTIONS ? `最多 ${MdgSettings.MAX_NOTE_SECTIONS} 段，先删掉一段再添加` : "");
 }
 
 function collectNoteSectionRows({ includeRow = false } = {}) {
@@ -1254,7 +1253,7 @@ function addAiProviderRow(item = {}) {
       <input class="ai-provider-apikey" name="aiProviderApiKey" type="password" aria-label="API Key" placeholder="${apiKeyPlaceholder(hasSavedKey, requiresKey)}" autocomplete="off" />
       <span class="keytag"${hasSavedKey ? "" : " hidden"}>已保存</span>
     </div>
-    <button type="button" class="sm ai-provider-test" title="用这一行的地址、模型和 Key 向 AI 发一条测试消息"><span class="ai-spark" aria-hidden="true"></span>测试连接</button>
+    <button type="button" class="sm ai-provider-test"><span class="ai-spark" aria-hidden="true"></span>测试连接</button>
     <button type="button" class="ai-provider-remove" aria-label="删除平台" title="删除平台">
       <svg viewBox="0 0 24 24" focusable="false" aria-hidden="true">
         <path d="M4 7h16"></path>
@@ -1283,7 +1282,17 @@ function addAiProviderRow(item = {}) {
     const apikeyInput = row.querySelector(".ai-provider-apikey");
     apikeyInput.placeholder = apiKeyPlaceholder(row.dataset.hasSavedKey === "1", next.requiresKey);
     row.dataset.currentPresetId = next.id;
+    syncTest();
   });
+
+  // 测试连接 needs this row's 接口地址 and 模型: disabled with the reason while either box is empty.
+  const testBtn = row.querySelector(".ai-provider-test");
+  const syncTest = () => {
+    const missing = [["接口地址", ".ai-provider-baseurl"], ["模型", ".ai-provider-model"]].filter(([, sel]) => !row.querySelector(sel).value.trim()).map(([name]) => name);
+    MdgErrors.setReason(testBtn, missing.length ? `先填${missing.join("和")}` : "", "用这一行的地址、模型和 Key 向 AI 发一条测试消息");
+  };
+  syncTest();
+  for (const sel of [".ai-provider-baseurl", ".ai-provider-model"]) row.querySelector(sel).addEventListener("input", syncTest);
 
   // Long addresses end in an ellipsis; hovering shows the whole one.
   const baseUrlInput = row.querySelector(".ai-provider-baseurl");
@@ -1326,13 +1335,12 @@ function addAiProviderRow(item = {}) {
     updateSavedProviders((list) => list.filter((item) => item.id !== row.dataset.providerId));
   });
 
-  row.querySelector(".ai-provider-test")?.addEventListener("click", async () => {
+  testBtn.addEventListener("click", async () => {
     const statusNode = row.querySelector(".ai-provider-status");
     const baseUrl = row.querySelector(".ai-provider-baseurl").value.trim();
     const apiKey = row.querySelector(".ai-provider-apikey").value.trim();
     const model = row.querySelector(".ai-provider-model").value.trim();
-    // The background checks 接口地址 and 模型名 (testAiConnection) and answers in the side panel's words.
-    const testBtn = row.querySelector(".ai-provider-test");
+    // The background checks 接口地址 and 模型名 too (testAiConnection) and answers in the side panel's words.
     showAiProviderStatus(statusNode, "正在测试…");
     statusNode.setAttribute("aria-busy", "true");
     testBtn.disabled = true;
@@ -1344,7 +1352,7 @@ function addAiProviderRow(item = {}) {
       model
     }).catch((error) => ({ ok: false, error: error.message }));
     statusNode.setAttribute("aria-busy", "false");
-    testBtn.disabled = false;
+    syncTest();
     if (resp?.ok) {
       showAiProviderStatus(statusNode, hasUnsavedChanges ? "连接成功，记得保存设置" : "连接成功");
     } else {
