@@ -797,6 +797,11 @@ async function triageMigrateNotes() {
 async function triageOpenPage(hash) {
   const page = chrome.runtime.getURL("triage/triage.html");
   const url = /^follow(?:&tag=[\w%.~-]+|&up=\d+)?$/.test(hash || "") ? `${page}#${hash}` : page;
+  return focusOrOpenPage(page, url);
+}
+
+// An extension page's open tab is focused (and sent to url when that differs) instead of opening a second one.
+async function focusOrOpenPage(page, url = page) {
   const tabs = (await chrome.runtime.getContexts?.({ contextTypes: ["TAB"] })) || [];
   const open = tabs.find((c) => c.documentUrl?.startsWith(page) && c.tabId >= 0);
   if (!open) return void (await chrome.tabs.create({ url }));

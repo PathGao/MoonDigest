@@ -145,6 +145,12 @@ function bindEvents() {
   });
   els.presetBtn.addEventListener("click", togglePresetPopover);
   els.historyBtn.addEventListener("click", toggleHistoryPopover);
+  // Focuses an open 视频记录 tab instead of a second one, as the popup and the settings page do.
+  document.querySelector(".sp-history-manage")?.addEventListener("click", async (event) => {
+    event.preventDefault();
+    const r = await sendRuntimeMessage({ type: "history-open" }).catch(() => null);
+    if (!r?.ok) chrome.tabs.create({ url: chrome.runtime.getURL("history/history.html") });
+  });
   els.exportBtn.addEventListener("click", toggleExportPopover);
   // Each export action closes the menu; the action itself is bound below.
   els.exportPopover.addEventListener("click", (event) => {

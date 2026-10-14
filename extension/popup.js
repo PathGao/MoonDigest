@@ -189,7 +189,8 @@ function bindEvents() {
     window.close();
   });
   el.historyBtn.addEventListener("click", async () => {
-    await chrome.tabs.create({ url: chrome.runtime.getURL("history/history.html") });
+    const r = await sendToRuntime({ type: "history-open" }).catch(() => null);
+    if (!r?.ok) await chrome.tabs.create({ url: chrome.runtime.getURL("history/history.html") });
     window.close();
   });
 }

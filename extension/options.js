@@ -145,12 +145,14 @@ function init() {
   // Typing in any box marked red (by validation or by save-settings' too-long field) clears its mark.
   document.addEventListener("input", (event) => event.target.classList?.remove("input-error"));
   elements.obsidianApiKey.addEventListener("input", syncObsidianKeyTag);
-  // Focuses an open triage tab instead of a second one.
-  document.querySelector('a.jump[href$="triage.html"]')?.addEventListener("click", async (event) => {
-    event.preventDefault();
-    const r = await chrome.runtime.sendMessage({ type: "triage-open" }).catch(() => null);
-    if (!r?.ok) chrome.tabs.create({ url: chrome.runtime.getURL("triage/triage.html") });
-  });
+  // Focuses an open triage or 视频记录 tab instead of a second one.
+  for (const [page, type] of [["triage/triage.html", "triage-open"], ["history/history.html", "history-open"]]) {
+    document.querySelector(`a.jump[href$="${page}"]`)?.addEventListener("click", async (event) => {
+      event.preventDefault();
+      const r = await chrome.runtime.sendMessage({ type }).catch(() => null);
+      if (!r?.ok) chrome.tabs.create({ url: chrome.runtime.getURL(page) });
+    });
+  }
   document.querySelectorAll(".var[data-var]").forEach((button) => {
     button.addEventListener("click", () => {
       const folder = elements.noteFolder.value.trim().replace(/\/+$/, "");

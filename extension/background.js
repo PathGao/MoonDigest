@@ -428,6 +428,14 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
+  // 视频记录, as 分拣台 (triage-open): the popup, the side panel and the settings page focus an open one.
+  if (message.type === "history-open") {
+    focusOrOpenPage(chrome.runtime.getURL("history/history.html"))
+      .then(() => sendResponse({ ok: true }))
+      .catch((error) => sendResponse({ ok: false, error: error.message }));
+    return true;
+  }
+
   if (message.type === "open-options") {
     chrome.tabs
       .create({ url: chrome.runtime.getURL("options.html") })
