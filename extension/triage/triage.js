@@ -3493,7 +3493,7 @@ async function runAiCommand({ instruction, scope, allowRemove }) {
   if (aiRunning() || S.mediaId === REMOVED) return;
   const items = aiScopeItems(scope);
   if (!items.length) return;
-  S.aiHistory = [instruction, ...S.aiHistory.filter((x) => x !== instruction)].slice(0, 5);
+  S.aiHistory = UI.aiHistoryAdd(S.aiHistory, instruction);
   storeSet(K.aiHistory, S.aiHistory);
   // Everything the run sends is taken now: the run outlives a folder switch, and the page then holds another folder.
   // The proposal is kept under the open view (所有收藏夹 too); each part tags in its own folder.
@@ -3553,7 +3553,7 @@ async function runAiCommand({ instruction, scope, allowRemove }) {
   const open = TagDialogs.ai.isOpen(aiTags);
   if (open) TagDialogs.ai.render(aiTags);
   if (!p) {
-    if (!open) toast(`AI 打标签没有成功：${errors.at(-1)}`, true);
+    if (!open) toast(UI.aiTagsFailed(errors.at(-1)), true);
     return;
   }
   if (folder !== String(S.mediaId)) toast(`「${folderName(folder)}」的标签建议已完成，点进度胶囊上的「查看」确认`);
@@ -3603,7 +3603,7 @@ function applyAiProposal() {
       })
     );
   render();
-  toast(`已应用 AI 建议：${changes.length} 个视频，列表只显示这些 · U 撤销`);
+  toast(UI.aiApplied(changes.length, "视频"));
 }
 
 // ---------- 待播 ----------

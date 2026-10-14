@@ -1587,7 +1587,7 @@ async function runAi({ instruction, scope, allowRemove }) {
   const mids = aiScopeMids(scope);
   if (aiRunning() || !mids.length) return;
   const progress = (text) => TagDialogs.ai.progress(aiTags, text);
-  AI.history = [instruction, ...AI.history.filter((x) => x !== instruction)].slice(0, 5);
+  AI.history = UI.aiHistoryAdd(AI.history, instruction);
   T.store({ [AI_HISTORY_KEY]: AI.history });
   const excluded = new Set(D.tags.filter((t) => AI.excluded.has(t.id)).map((t) => t.name));
   const tags = D.tags.filter((t) => !excluded.has(t.name)).map((t) => ({ name: t.name, rule: t.rule || "" }));
@@ -1610,7 +1610,7 @@ async function runAi({ instruction, scope, allowRemove }) {
   renderAiState();
   const open = TagDialogs.ai.isOpen(aiTags);
   if (open) TagDialogs.ai.render(aiTags);
-  else toast(proposal ? UI.AI_TAGS_DONE : `AI 打标签没有成功：${errors.at(-1)}`, !proposal);
+  else toast(proposal ? UI.AI_TAGS_DONE : UI.aiTagsFailed(errors.at(-1)), !proposal);
 }
 
 
@@ -1638,7 +1638,7 @@ async function applyAi() {
   const n = changes.length;
   if (n || created.length) pushTagUndo(before, `AI 打标签（${n} 个 UP 主）`, { ask: n > 1 ? UI.undoAsk("ai", n, "UP 主") : null, created, recentAt: n ? recent.at : 0 });
   render();
-  toast(`已应用 AI 建议：${n} 个 UP 主，列表只显示这些 · U 撤销`);
+  toast(UI.aiApplied(n, "UP 主"));
 }
 
 // ---------- events ----------
