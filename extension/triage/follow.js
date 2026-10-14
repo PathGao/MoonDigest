@@ -344,7 +344,7 @@ const { toast, askConfirm, send } = T;
 const { esc, fmtDate, fmtAgo, fmtDuration, fmtCount, cleanTagName, plainClick, img } = UI;
 // What 导出 → UP 主表格 holds; B站 caps a group name at 16 characters.
 const CSV_HINT = "名字、标签、更新状态、最后投稿、粉丝数";
-const GROUP_NAME_MAX = 16;
+const { GROUP_NAME_MAX } = TriageUi;
 const KEYS = ["follow_list", "follow_people", "follow_last", "follow_last_wip", "follow_content", "follow_tags", "follow_tag_map", "follow_unfollowed", "follow_jobs", "follow_ai_recent", "follow_stats", "follow_groups"];
 const VIEW_KEY = "follow_view"; // { mode: "fav" | "follow", tab: "ups" | "feed", sort, dir, fsort, side }
 const saveView = () => T.store({ [VIEW_KEY]: viewRecord(F) });
@@ -1233,7 +1233,7 @@ async function createGroup(name) {
 }
 const groupNameError = (name, self = null) => {
   const n = String(name ?? "").trim();
-  return !n ? "分组名不能为空" : [...n].length > GROUP_NAME_MAX ? `分组名最多 ${GROUP_NAME_MAX} 个字` : [0, SPECIAL, ...D.groups.map((g) => g.id)].some((id) => id !== self && groupName(id, D) === n) ? "已有同名分组" : "";
+  return TriageUi.groupNameError(n) || ([0, SPECIAL, ...D.groups.map((g) => g.id)].some((id) => id !== self && groupName(id, D) === n) ? "已有同名分组" : "");
 };
 async function renameGroup(g, name, undo = false) {
   name = String(name ?? "").trim();

@@ -610,7 +610,6 @@ async function followRelation({ mid, act, gone }) {
 // B站's fixed groups: -10 特别关注, 0 默认分组 (in none of your own). follow_list keeps -10 as special[mid] and the
 // custom ones in groups[mid].
 const FOLLOW_SPECIAL = -10;
-const FOLLOW_GROUP_NAME_MAX = 16; // B站: 最长 16 字符 (22103 分组名过长)
 
 // An UP's groups after from leaves and to joins (pure); 0 is no group.
 function followGroupsApply(ids, from, to) {
@@ -621,8 +620,8 @@ function followGroupsApply(ids, from, to) {
 
 const followGroupName = (name) => {
   const n = String(name ?? "").trim();
-  if (!n) throw triageError("分组名不能为空");
-  if ([...n].length > FOLLOW_GROUP_NAME_MAX) throw triageError(`分组名最长 ${FOLLOW_GROUP_NAME_MAX} 个字`);
+  const bad = TriageUi.groupNameError(n);
+  if (bad) throw triageError(bad);
   return n;
 };
 const followIds = (a) => (Array.isArray(a) ? a : []).map(Number);
