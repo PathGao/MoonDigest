@@ -1954,11 +1954,11 @@ function renderListHeader(list) {
   // Search, row 3 or row 4 on: how many the tab lists.
   el.searchCount.textContent = UI.resultCount(S.query.trim() || statesOn(t) || S.tagFilter.size, list.length);
   const { run: favRun, busy: favBusy } = fav.state();
-  // none: why the selection's buttons are off (UI.selbar: filters hide the whole selection).
+  // none: why the selection's buttons are off (UI.selbar: filters hide the whole selection); they count all of it then.
   const batchBtn = (route, verdict = "", none = "") => {
     const run = favRun?.job === "unfav" ? favRun : null;
     if (route === "unfav" && run && !runWhere(run)) return headBtn("batch-unfav", `取消收藏中${unfavWhere(run)} ${run.done}/${run.total}`, "danger", "正在取消收藏", "", "", true);
-    const n = batchList(verdict || null).length;
+    const n = none ? S.selected.size : batchList(verdict || null).length;
     const verb = route === "unfav" ? "取消收藏" : "保留";
     // One batch 取消收藏 at a time: while another folder's runs, this one waits.
     const reason = none || (!n ? (verdict ? `这里没有 AI 判断为${VERDICTS[verdict]}、还没处理的视频` : "选中的都已经处理过了")
@@ -1969,7 +1969,7 @@ function renderListHeader(list) {
   const transferBtn = (none) => {
     const run = favRun?.job === "transfer" ? favRun : null;
     if (run) return headBtn("transfer", `${run.verb}中 ${run.done}/${run.total}${runWhere(run)}`, "", `正在${run.verb}`, "", "", true);
-    const n = transferList().length;
+    const n = none ? S.selected.size : transferList().length;
     const reason = none || (!n ? "选中的视频已取消收藏，或缺少视频编号" : UI.busyText(favBusy));
     return headBtn("transfer", S.mediaId === REMOVED ? `收藏选中的 ${n} 个到…` : `移动/复制选中的 ${n} 个…`, "", reason);
   };

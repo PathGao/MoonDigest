@@ -410,7 +410,7 @@ for (const [file, fns] of [["triage.js", ["mergeAiBatch", "aiChanges"]], ["follo
   assert.ok(bar.startsWith('<div class="selbar" role="toolbar" aria-label="选中的视频"><strong class="sel-count">已选中 2 个</strong><span class="muted">另有 1 个被筛选隐藏</span><button type="button" class="quiet" data-x="clear" aria-label="清空选中">清空选中</button>') && bar.endsWith('<span class="sel-actions"><b>A</b></span></div>'), bar);
   assert.ok(!UI.selbar({ label: "x", n: 1, hidden: 0, clearAttrs: "", acts: () => "" }).includes("隐藏"));
   // Filters hide the whole selection: the bar keeps its buttons and tells each why it is off, the same in both modes.
-  assert.ok(UI.selbar({ label: "x", n: 0, hidden: 2, clearAttrs: "", acts: (none) => UI.actBtn('data-x="a"', "保留选中的 0 个", { reason: none }) }).includes('aria-label="保留选中的 0 个" disabled title="选中的都被筛选隐藏了"'));
+  assert.ok(UI.selbar({ label: "x", n: 0, hidden: 2, clearAttrs: "", acts: (none) => UI.actBtn('data-x="a"', "保留选中的 2 个", { reason: none }) }).includes('aria-label="保留选中的 2 个" disabled title="选中的都被筛选隐藏了"'));
   both("UI.selbar({", "draws its selection bar with selbar");
   neither(/class="selbar"|已选中 \$\{|选中的都被筛选隐藏了/, "draws its own selection bar or its hidden-all reason");
   // One button builder for row 3 and the bar; one 清理 button.

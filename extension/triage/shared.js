@@ -285,7 +285,8 @@
   const cleanBtn = (attrs, { picked, shown, n, busy = "", why = "" }) =>
     actBtn(attrs, picked ? `清理选中的 ${n} 个` : `清理这 ${n} 个`, { reason: busy || (picked && !shown ? HIDDEN_ALL : why), cls: "danger" });
   // The floating bar while something is selected: n of them listed, hidden more behind filters, 清空选中, then
-  // acts(none). none is why every act is off when filters hide the whole selection: the buttons stay, disabled.
+  // acts(none). none is why every act is off when filters hide the whole selection: the buttons stay, disabled, and count
+  // the whole selection (as row 3 does).
   const selbar = ({ label, n, hidden, clearAttrs, acts }) =>
     `<div class="selbar" role="toolbar" aria-label="${esc(label)}"><strong class="sel-count">已选中 ${n} 个</strong>${hidden ? `<span class="muted">另有 ${hidden} 个被筛选隐藏</span>` : ""}<button type="button" class="quiet" ${clearAttrs} aria-label="清空选中">清空选中</button><span class="sel-actions">${acts(n ? "" : HIDDEN_ALL)}</span></div>`;
   // ----- 移动 / 复制 (#transferDialog): 收藏夹's folders and 关注's groups -----

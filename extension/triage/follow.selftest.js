@@ -692,6 +692,8 @@ async function followPage({ store = {}, handlers = {}, setup = () => {} } = {}) 
     F.tagState = "tagged";
     p.FW.render();
     assert.ok(p.$("fwBarR").innerHTML.includes('aria-label="清理选中的 1 个" disabled title="选中的都被筛选隐藏了"'), p.$("fwBarR").innerHTML);
+    // J14: the bar's buttons count the whole hidden selection too, off with why.
+    assert.ok(E.sel.innerHTML.includes('aria-label="重新关注选中的 1 个" disabled title="选中的都被筛选隐藏了"'), E.sel.innerHTML);
     const asked = p.asked.length;
     p.click("followMain", "[data-fw]", { fw: "clean" });
     await p.settle();

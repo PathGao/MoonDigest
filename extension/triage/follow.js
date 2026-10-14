@@ -836,13 +836,16 @@ function renderSel() {
   const btn = (act, label, reason, cls = "") => UI.actBtn(`data-fw="${act}"`, label, { reason, cls });
   // 移动 leaves the sidebar's group, so 全部 has none to leave.
   // 已出分拣范围: 重新关注 the unfollowed, 取消关注 the ones still followed (清理 is in row 3, as 收藏夹's).
-  const gone = selShown().filter((m) => rows.get(m).gone).length;
+  // Filters hiding the whole selection: the buttons count all of it, off (none).
+  const pool = n ? selShown() : [...F.sel];
+  const k = pool.length;
+  const gone = pool.filter((m) => rows.get(m)?.gone).length;
   const acts = (none) => F.side === "out"
-    ? btn("refollow", `重新关注选中的 ${gone} 个`, busy || none || (!gone && "选中的都还关注着")) + btn("unfollow", `取消关注选中的 ${n - gone} 个`, busy || none || (n === gone && "选中的都已取消关注"), "danger")
+    ? btn("refollow", `重新关注选中的 ${gone} 个`, busy || none || (!gone && "选中的都还关注着")) + btn("unfollow", `取消关注选中的 ${k - gone} 个`, busy || none || (k === gone && "选中的都已取消关注"), "danger")
     : btn("pick-sel", "标签…", none) +
-      btn("move-sel", `移动选中的 ${n} 个到分组…`, busy || none || (groupId(F.side) == null && "先在分组列表里选一个分组：「全部」里不知道从哪个分组移走")) +
-      btn("copy-sel", `复制选中的 ${n} 个到分组…`, busy || none) +
-      btn("unfollow", `取消关注选中的 ${n} 个`, busy || none, "danger");
+      btn("move-sel", `移动选中的 ${k} 个到分组…`, busy || none || (groupId(F.side) == null && "先在分组列表里选一个分组：「全部」里不知道从哪个分组移走")) +
+      btn("copy-sel", `复制选中的 ${k} 个到分组…`, busy || none) +
+      btn("unfollow", `取消关注选中的 ${k} 个`, busy || none, "danger");
   E.sel.innerHTML = UI.selbar({ label: "选中的 UP 主", n, hidden, clearAttrs: 'data-fw="select-none"', acts });
 }
 
