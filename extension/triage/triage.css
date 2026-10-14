@@ -199,9 +199,9 @@ select { height: 28px; max-width: 240px; }
 .tagbar { grid-area: tagbar; }
 .list, .fw-list { grid-area: list; }
 .viewer, .viewer-close { grid-area: viewer; }
-/* Headroom (DESIGN 视觉设计 · 分拣台, shared.js headroom): the list and the viewer start at the grid's top. The list scrolls under the
-   rows, which carry the page background, so folding them is only a transform and the cards never move. Folded: rows 1, 3
-   and 4 fade out, row 2 slides up by row 1's height and gets 「名字 · 数量」 in front; the viewer starts under what shows.
+/* The header fold (DESIGN 视觉设计 · 分拣台, shared.js headFold): the list and the viewer start at the grid's top. The list scrolls under
+   the rows, which carry the page background, so folding them is only a transform and the cards never move. Folded: rows 1, 3
+   and 4 fade out, row 2 slides up by row 1's height and gets 「名字 · 数量」 after the toggle; the viewer starts under what shows.
    --head-h (all rows), --head1-h (row 1) and --slim-h (row 2) are measured. */
 .main { position: relative; isolation: isolate; --head-vis: var(--head-h, 0px); }
 .main.head-folded { --head-vis: var(--slim-h, 0px); }
@@ -226,8 +226,8 @@ select { height: 28px; max-width: 240px; }
 .head-folded .tabrow::before { border-top-width: 1px; border-radius: var(--radius-lg); }
 .slim-title { display: none; flex: 0 1 auto; min-width: 0; max-width: 40%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--fs-md); font-weight: 600; }
 .head-folded .slim-title { display: block; }
-.slim-open { display: none; width: 28px; margin-left: -8px; padding: 0; justify-content: center; }
-.head-folded .slim-open { display: inline-flex; }
+.head-toggle { width: 28px; margin-left: -8px; padding: 0; justify-content: center; }
+.head-folded .head-toggle svg { transform: rotate(180deg); }
 @media (prefers-reduced-motion: reduce) {
   .folder-head, .tabrow, .stagebar, .tagbar, .viewer, .viewer-close, .list, .fw-list { transition: none; }
 }
@@ -767,15 +767,13 @@ dialog:has(.settings-ai:not([hidden])) { width: min(800px, calc(100% - 32px)); }
   .brand { width: auto; }
   .tabs { overflow-x: auto; }
   .tabs button, .tabs .arrow { flex: none; }
-  /* Search and the buttons go under the tabs; the search takes what is left. */
-  .tabrow .tabs { flex-basis: 100%; border-bottom: 1px solid var(--border); }
+  /* The fold toggle and the tabs share a line; search and the buttons go under it, the search takes what is left. */
+  .tabrow .tabs { flex: 1 1 0; border-bottom: 1px solid var(--border); }
   .tabs button[aria-selected="true"]::after { bottom: -1px; }
   .row-tools { width: 100%; padding: 8px 0; }
   /* Row 2 is two lines here and its rule sits under the tabs: row 3 gets its own above it. */
   .stagebar { border-top: 1px solid var(--border); }
   .row-tools .search { flex: 1 1 auto; width: auto; min-width: 150px; }
-  /* Folded: 「名字 · 数量」 shares the tabs' line, so the slim bar stays two lines. */
-  .head-folded .tabrow .tabs { flex: 1 1 0; }
 }
 
 @media (max-width: 899px) {

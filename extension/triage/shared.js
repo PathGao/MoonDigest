@@ -575,47 +575,31 @@
     return [...tally.values()].sort((a, b) => (a.cls === "remove") - (b.cls === "remove") || b.n - a.n);
   }
 
-  // Headroom (DESIGN 视觉设计 · 分拣台): reading down folds rows 1–4 into the slim bar (name · count, row 2); scrolling back
-  // up HEADROOM_UP px from the deepest point, the top, the slim bar's open button, or focus in the header brings them back. The rows are long-lived
-  // settings, so a glance back at a few cards keeps them folded. s = { collapsed, last }; ev = { top, full } on a scroll of
-  // the list (full: the whole header's height) or { focus: true }. Unfolded, last moves only on a step of HEADROOM_MIN px
-  // or more, so a slow scroll still counts and jitter does not; folded, last is the deepest point.
-  const HEADROOM_MIN = 8;
-  const HEADROOM_UP = 200;
-  function headroomStep(s, ev) {
-    if (ev.focus) return { ...s, collapsed: false };
-    if (ev.top <= 0) return { collapsed: false, last: 0 };
-    if (s.collapsed) {
-      if (ev.top > s.last) return { collapsed: true, last: ev.top };
-      return s.last - ev.top >= HEADROOM_UP ? { collapsed: false, last: ev.top } : s;
-    }
-    const d = ev.top - s.last;
-    if (Math.abs(d) < HEADROOM_MIN) return s;
-    return { collapsed: d > 0 && ev.top > ev.full, last: ev.top };
-  }
+  // The header fold (DESIGN 视觉设计 · 分拣台): only the toggle at the start of row 2 folds rows 1–4 into the slim bar
+  // (name · count, row 2) and back. Each mode keeps its own state across reloads; scrolling, focus and switching folders,
+  // tabs or modes leave it as it is.
   const HEAD_ROWS = ".folder-head, .tabrow, .stagebar, .tagbar";
+  const HEAD_FOLD_KEY = "triage_head_folded"; // { fav?: true, follow?: true }
   // Both modes' rows sit in .main's grid; the list runs under them (padding-top --head-h), so folding them is a transform
   // and the cards never move. Row 2 slides up by row 1's height (--head1-h); the viewer starts under what is shown.
-  function headroom(main) {
-    let s = { collapsed: false, last: 0 };
+  function headFold(main) {
+    let folded = {};
+    let mode = "";
     let full = 0;
-    let list = null;
-    const set = (next) => {
-      const unfold = s.collapsed && !next.collapsed;
-      s = next;
-      main.classList.toggle("head-folded", s.collapsed);
-      // Rows that grew while folded were not measured (measure keeps the full height then).
-      if (unfold) measure();
-    };
+    const toggles = [];
+    const modeOf = () => (document.body.classList.contains("follow-mode") ? "follow" : "fav");
     const shown = (sel) => [...main.querySelectorAll(sel)].filter((x) => x.offsetParent);
-    // Another list (mode switch, or back from the viewer at narrow width) starts full.
-    const track = (now) => now !== list && set({ collapsed: false, last: (list = now)?.scrollTop || 0 });
     const measure = () => {
-      track(shown(".list, .fw-list")[0] || null);
       const rows = shown(HEAD_ROWS);
       if (rows.length < 2) return;
+      const m = modeOf();
+      const on = Boolean(folded[m]);
+      main.classList.toggle("head-folded", on);
+      for (const b of toggles) b.title = b.ariaLabel = on ? "展开头部" : "收起头部";
+      // Folded, rows that grow are not measured, so the cards stay put; unfolding (and a mode's first show) measures them.
       const last = rows[rows.length - 1];
-      if (!s.collapsed) full = last.offsetTop + last.offsetHeight;
+      if (!on || m !== mode) full = last.offsetTop + last.offsetHeight;
+      mode = m;
       main.style.setProperty("--head-h", `${full}px`);
       main.style.setProperty("--head1-h", `${rows[1].offsetTop}px`);
       main.style.setProperty("--slim-h", `${rows[1].offsetHeight}px`);
@@ -626,24 +610,27 @@
       // The slim bar's 「名字 · 数量」: a copy of row 1's title, kept in step with it.
       if (!row.classList.contains("folder-head")) continue;
       const slim = Object.assign(document.createElement("span"), { className: "slim-title" });
-      const open = Object.assign(document.createElement("button"), {
-        type: "button", className: "act-btn slim-open", title: "展开", innerHTML: svg('<path d="m6 9 6 6 6-6"/>'),
+      const toggle = Object.assign(document.createElement("button"), {
+        type: "button", className: "act-btn head-toggle", innerHTML: svg('<path d="m18 15-6-6-6 6"/>'),
       });
-      open.setAttribute("aria-label", "展开头部");
-      row.nextElementSibling.prepend(open, slim);
+      toggle.addEventListener("click", () => {
+        folded = { ...folded, [modeOf()]: !folded[modeOf()] };
+        chrome.storage.local.set({ [HEAD_FOLD_KEY]: folded }).catch(() => {}); // not remembered: this page still toggles
+        measure();
+      });
+      toggles.push(toggle);
+      row.nextElementSibling.prepend(toggle, slim);
       const copy = () => (slim.innerHTML = row.querySelector(".folder-title")?.innerHTML || "");
       new MutationObserver(copy).observe(row, { childList: true, subtree: true, characterData: true });
       copy();
     }
-    main.addEventListener("scroll", (e) => {
-      if (!e.target.matches(".list, .fw-list")) return;
-      track(e.target);
-      set(headroomStep(s, { top: list.scrollTop, full }));
-    }, true);
-    // Focus in the header unfolds it: Tab, /, a closed dialog's button, and ▾ (Chrome focuses a clicked button).
-    main.addEventListener("focusin", (e) => e.target.closest(HEAD_ROWS) && set(headroomStep(s, { focus: true })));
+    measure();
+    chrome.storage.local.get(HEAD_FOLD_KEY).then((r) => {
+      folded = r?.[HEAD_FOLD_KEY] || {};
+      measure();
+    });
   }
 
   globalThis.TriageUi = { esc, pad, dayText, fmtDate, fmtAgo, agoHtml, setSearchScope, confirmList, pickTitle, fmtDuration, fmtCount, cleanTagName, plainClick, cardPlayClick, cardPickClick, pickCard, img, toCsv, cardTagChip, syncedText, headMeta, titleHtml, ICON, AI_SPARK, byValue, dirWords, sortControl, filterBtn, labeledRow, tagFilterChip, kindTabs, originChip, stateGroup, aiRecentChip, searchBox, bindSearch, resultCount, rowButtons, menuItem, BACKUP_ITEM, reasonAttrs, setReason, WARN_DOT, selectAllState, selectAllBox, toggleAll, setActivity, waitText, BILI_HOLD_MS, WRITE_STOPPING, busyText, syncPill
-, setSync, bindSync, tagButtons, sideFoot, actBtn, cleanBtn, HIDDEN_ALL, selbar, askTransfer, sideItem, emptyState, refreshEmpty, noMatch, fillSetRows, clampNumber, intIn, clampNumbers, mergeAiBatch, aiChanges, aiProposalOk, previewId, aiTally, nextTagColor, tagNameError, deleteTagAsk, editedTag, withoutTag, undoAsk, tagRowHtml, sp, tagsWord, AI_RECENT_RULES, aiRecentUndo, tagPlusBtn, viewerLine, viewerKeyFrom, headroomStep, headroom };
+, setSync, bindSync, tagButtons, sideFoot, actBtn, cleanBtn, HIDDEN_ALL, selbar, askTransfer, sideItem, emptyState, refreshEmpty, noMatch, fillSetRows, clampNumber, intIn, clampNumbers, mergeAiBatch, aiChanges, aiProposalOk, previewId, aiTally, nextTagColor, tagNameError, deleteTagAsk, editedTag, withoutTag, undoAsk, tagRowHtml, sp, tagsWord, AI_RECENT_RULES, aiRecentUndo, tagPlusBtn, viewerLine, viewerKeyFrom, headFold };
 })();
