@@ -18,6 +18,8 @@
     obsidianCancelled: "已取消写入 Obsidian，原笔记未被覆盖。",
     // The extension reloaded under a page whose content script still runs: chrome.runtime no longer answers.
     reloaded: "扩展刚刚更新，请刷新网页",
+    // No AI platform to send to (none added, none enabled): the background's AI_SETUP, the side panel and 分拣台 say this.
+    aiNone: "没有启用的 AI 平台",
     // A tab that is not a B站 / YouTube video page: the popup, the side panel and the content script say this.
     notVideoPage: "当前网页不是支持的视频页",
     // B站 risk control (HTTP 412 or MdgSites.BILI_RISK_CODES), the background's code THROTTLED.

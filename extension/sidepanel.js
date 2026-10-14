@@ -288,7 +288,7 @@ function aiPrefsOf({ aiSystemPrompt, playerAiQuickPrompt, aiPresetPrompts }) {
 
 function renderModelSelect(preferredProviderId = "") {
   if (!providers.length) {
-    els.modelSelect.innerHTML = '<option value="">未配置 AI 平台</option>';
+    els.modelSelect.innerHTML = `<option value="">${MdgErrors.TEXT.aiNone}</option>`;
     els.modelSelect.disabled = true;
     return;
   }
@@ -671,7 +671,7 @@ function renderSuggestions() {
     return;
   }
   if (!providers.length) {
-    suggestionsNode.innerHTML = `<p class="sp-empty-intro">${EMPTY_INTRO}先添加一个 AI 平台。</p><button type="button" class="sp-summary-btn">去设置页添加平台</button>`;
+    suggestionsNode.innerHTML = `<p class="sp-empty-intro">${EMPTY_INTRO}${MdgErrors.TEXT.aiNone}。</p><button type="button" class="sp-summary-btn">去设置页添加平台</button>`;
     suggestionsNode.querySelector("button").addEventListener("click", () => chrome.runtime.openOptionsPage());
     return;
   }
@@ -717,7 +717,7 @@ let followupsRendered = "";
 
 function followupBlockReason() {
   if (!providers.length) {
-    return "先在设置页添加一个 AI 平台";
+    return MdgErrors.TEXT.aiNone;
   }
   const { context, messages, pinned, nonVideo } = state.view();
   if (nonVideo) {
@@ -1371,7 +1371,7 @@ async function sendMessage() {
   const providerId = els.modelSelect.value;
   // No enabled platform: keep the conversation and the typed text, and go to settings like 去设置页添加平台.
   if (!providerId) {
-    showConversationContextNotice("没有启用的 AI 平台，已打开设置页。", 3000);
+    showConversationContextNotice(`${MdgErrors.TEXT.aiNone}，已打开设置页。`, 3000);
     chrome.runtime.openOptionsPage();
     return;
   }

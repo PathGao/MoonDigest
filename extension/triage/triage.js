@@ -473,8 +473,6 @@ function handleAiError(error, code = "") {
         toast("已授权，请重试");
       }
     }, "ai");
-  } else if (text.includes("配置 AI")) {
-    showBanner("还没有配置 AI 平台", "去设置", () => send({ type: "open-options" }), "ai");
   } else if (aiSettingsCode(code)) {
     showBanner(text, "去设置", () => send({ type: "open-options" }), "ai");
   } else if (text.includes("截断")) {

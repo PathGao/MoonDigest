@@ -627,7 +627,7 @@ const TRIAGE_AI_TIMEOUT_MS = { normal: 120000, thinking: 240000 };
 // unset or no longer enabled, the first enabled one, as in the side panel.
 async function triageChat(messages, maxTokens, thinking = false, providerId = "") {
   const provider = await triageProvider(providerId);
-  if (!provider) throw triageError("请先在设置页配置 AI 平台", "AI_SETUP");
+  if (!provider) throw triageError(MdgErrors.TEXT.aiNone, "AI_SETUP");
   const apiKey = (await loadAiProviderKeys())[provider.id];
   const headers = { "Content-Type": "application/json" };
   if (apiKey) headers.Authorization = `Bearer ${apiKey}`;

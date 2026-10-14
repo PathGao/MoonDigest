@@ -1159,7 +1159,7 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     const realScope = t.aiScopeItems;
     t.aiScopeItems = () => [item(600), item(601)];
     t.S.settings.triageAiBatchSize = 1;
-    handlers["triage-ai-command"] = () => ({ ok: false, code: "AI_SETUP", error: "请先在设置页配置 AI 平台" });
+    handlers["triage-ai-command"] = () => ({ ok: false, code: "AI_SETUP", error: "没有启用的 AI 平台" });
     const before = sent.length;
     await t.runAiCommand({ instruction: "按深度分", scope: "filter", allowRemove: false });
     const batches = sent.slice(before).filter((m) => m.type === "triage-ai-command");
@@ -1167,7 +1167,7 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     assert.strictEqual(t.S.ai.proposal, null, "no proposal when no batch got through");
     t.renderTabs();
     assert.ok(!t.el.aiTagSlot.innerHTML.includes("待确认"), "no 「待确认」 after a run that got nothing");
-    assert.strictEqual(toasts.at(-1), "AI 打标签没有成功：第 1 批失败：请先在设置页配置 AI 平台");
+    assert.strictEqual(toasts.at(-1), "AI 打标签没有成功：第 1 批失败：没有启用的 AI 平台");
     // The AI 打标签 batch size: its own setting, 30 until it is saved; whole numbers (rounded) within 1–100.
     const aiBatchSize = vm.runInContext("aiBatchSize", ctx);
     delete t.S.settings.triageAiBatchSize;
@@ -2294,7 +2294,7 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   }
   assert.strictEqual(t.el.banner.hidden, false, "a finished run leaves a banner that is not about AI");
   assert.strictEqual(t.activityState(), null, "K's last 粗看 line is not shown in L");
-  t.handleAiError("请先配置 AI 服务");
+  t.handleAiError("没有启用的 AI 平台", "AI_SETUP");
   t.startGroup(["BV820"]);
   for (let i = 0; i < 20 && t.S.group; i++) await new Promise((r) => setImmediate(r));
   assert.strictEqual(t.el.banner.hidden, true, "a run that works clears the AI banner wherever it ran");
