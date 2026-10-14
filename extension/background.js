@@ -407,9 +407,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
+  // Focuses a settings page that is already open, as the side panel and 视频记录 do (no caller asks for a section).
   if (message.type === "open-options") {
-    chrome.tabs
-      .create({ url: chrome.runtime.getURL("options.html") })
+    chrome.runtime
+      .openOptionsPage()
       .then(() => sendResponse({ ok: true }))
       .catch((error) => sendResponse({ ok: false, error: error.message }));
     return true;

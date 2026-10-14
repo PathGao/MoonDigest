@@ -330,6 +330,16 @@ process.on("exit", (code) => {
     assert.deepStrictEqual({ ...(await ask({ type: "fetch-json", url: bili })).data.data }, { referrer: "https://www.bilibili.com/" }, "the whole JSON, sent as B站 pages send it");
   }
 
+  // F1: 去设置 from the popup, the video page and 分拣台 focuses an open settings page instead of opening another.
+  {
+    const was = ctx.chrome;
+    const calls = [];
+    ctx.chrome = { runtime: { openOptionsPage: async () => calls.push("focus") }, tabs: { create: async () => calls.push("new tab") } };
+    assert.deepStrictEqual({ ...(await ask({ type: "open-options" })) }, { ok: true });
+    assert.deepStrictEqual(calls, ["focus"]);
+    ctx.chrome = was;
+  }
+
   // The side panel saves the context URL with a conversation, so reader mode and tracking params never reach it.
   const contextFor = async (tabUrl, payload) => {
     ctx.chrome = { tabs: { get: async () => ({ id: 1, url: tabUrl }) } };
