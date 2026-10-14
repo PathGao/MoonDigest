@@ -30,6 +30,7 @@
   const TITLE = "triage_title_";
   const SNAPSHOT = "triage_snapshot_";
   const SEEN = "seen_";
+  const DECISIONS = "triage_decisions_";
   const KEYS = Object.freeze({
     subtitleCachePrefix: "mdg_subtitle_cache_",
     aiConversations: "mdg_ai_conversations_v1",
@@ -44,6 +45,10 @@
     triageSnapshotPrefix: SNAPSHOT,
     triageSnapshot: (mediaId) => `${SNAPSHOT}${mediaId}`,
     triageRemoved: "triage_removed",
+    // 分拣台's 取消收藏 records per folder, and 保留 (one list for every folder): the B站 pages show them too.
+    triageDecisionsPrefix: DECISIONS,
+    triageDecisions: (mediaId) => `${DECISIONS}${mediaId}`,
+    triageKept: "triage_kept",
     // { [bvid]: { text, updatedAt } }: the side panel, 分拣台, 视频记录 and note export share it.
     triageNotes: "triage_notes",
     triageTags: "triage_tags",

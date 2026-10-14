@@ -25,8 +25,8 @@ const K = {
   videoTags: KEYS.triageVideoTags,
   basket: KEYS.triageBasket,
   notes: KEYS.triageNotes,
-  decisions: (id) => `triage_decisions_${id}`, // 取消收藏 only: it changes one Bilibili folder
-  kept: "triage_kept", // { [bvid]: { action: "keep", at } }: 保留 belongs to the video, so it shows in every folder
+  decisions: KEYS.triageDecisions, // 取消收藏 only: it changes one Bilibili folder
+  kept: KEYS.triageKept, // { [bvid]: { action: "keep", at } }: 保留 belongs to the video, so it shows in every folder
   keptMigrated: "triage_kept_v1",
   removed: KEYS.triageRemoved, // { [bvid]: { item, at, movedTo?, hidden?, inFolder?: { id, title } | null, from?: [{ id, title, at }] } }: videos that left every folder, kept until the user cleans them
   left: "triage_left", // { [bvid]: { [folderId]: { title, at } } }: folders a video left while still in another chosen one; becomes the record's from
@@ -112,7 +112,7 @@ function splitKept(all) {
   const kept = { ...(all[K.kept] || {}) };
   const folders = {};
   for (const [k, d] of Object.entries(all)) {
-    if (!k.startsWith("triage_decisions_")) continue;
+    if (!k.startsWith(KEYS.triageDecisionsPrefix)) continue;
     folders[k] = {};
     for (const [b, v] of Object.entries(d || {})) {
       if (v?.action !== "keep") folders[k][b] = v;
@@ -1365,11 +1365,11 @@ function saveSnapshot(mediaId, items, ids = null) {
 // ---------- 已出分拣范围 ----------
 async function openRemoved() {
   const token = S.folderToken;
-  const keys = ((await chrome.storage.local.getKeys?.()) ?? Object.keys((await chrome.storage.local.get(null)) || {})).filter((k) => k.startsWith("triage_decisions_"));
+  const keys = ((await chrome.storage.local.getKeys?.()) ?? Object.keys((await chrome.storage.local.get(null)) || {})).filter((k) => k.startsWith(KEYS.triageDecisionsPrefix));
   const got = await chrome.storage.local.get([K.removed, ...keys]);
   if (token !== S.folderToken) return false;
   const rec = got[K.removed] || {};
-  const decisionsByFolder = Object.fromEntries(keys.map((k) => [k.slice("triage_decisions_".length), got[k]]));
+  const decisionsByFolder = Object.fromEntries(keys.map((k) => [k.slice(KEYS.triageDecisionsPrefix.length), got[k]]));
   setItems(Object.values(rec)
     .sort((x, y) => y.at - x.at)
     .map(({ item, at, movedTo, hidden, inFolder, from }) => ({ ...item, removedAt: at, movedTo, hidden, inFolder, from: from || inferFrom(decisionsByFolder, item.bvid, folderName) })));
@@ -1482,7 +1482,7 @@ async function cleanRemoved(list) {
       for (const map of [rec, S.notes, S.videoTags, S.kept, S.analyses, S.titleRes]) delete map[b];
     }
     S.basket = S.basket.filter((x) => !set.has(x.bvid));
-    const decisionKeys = ((await chrome.storage.local.getKeys?.()) ?? Object.keys((await chrome.storage.local.get(null)) || {})).filter((k) => k.startsWith("triage_decisions_"));
+    const decisionKeys = ((await chrome.storage.local.getKeys?.()) ?? Object.keys((await chrome.storage.local.get(null)) || {})).filter((k) => k.startsWith(KEYS.triageDecisionsPrefix));
     const decisions = await chrome.storage.local.get(decisionKeys);
     for (const map of [...Object.values(decisions), S.decisions, ...Object.values(S.folderDecisions)]) for (const b of bvids) delete map[b];
     noteOwnWrites(decisions);
@@ -3935,8 +3935,8 @@ async function runWrite(md = false) {
 
 // ---------- data export ----------
 // 待播 stays out: a list to watch from, not something to keep.
-const { triageSnapshotPrefix: SNAPSHOT, triageTitlePrefix: TITLE, triageAnalysisPrefix: ANALYSIS } = KEYS;
-const BACKUP_PREFIXES = [K.kept, K.removed, K.left, K.tags, K.folderCriteria, K.videoTags, K.notes, SNAPSHOT, "triage_decisions_", TITLE, ANALYSIS];
+const { triageSnapshotPrefix: SNAPSHOT, triageTitlePrefix: TITLE, triageAnalysisPrefix: ANALYSIS, triageDecisionsPrefix: DECISIONS } = KEYS;
+const BACKUP_PREFIXES = [K.kept, K.removed, K.left, K.tags, K.folderCriteria, K.videoTags, K.notes, SNAPSHOT, DECISIONS, TITLE, ANALYSIS];
 
 async function buildBackup() {
   const all = await chrome.storage.local.get(null);
@@ -3971,7 +3971,7 @@ async function buildBackup() {
     else if (k === K.videoTags) out.videoTags = v;
     else if (k === K.notes) out.notes = v;
     else if (k.startsWith(SNAPSHOT)) folder(k.slice(SNAPSHOT.length)).snapshot = v;
-    else if (k.startsWith("triage_decisions_")) folder(k.slice(17)).decisions = v;
+    else if (k.startsWith(DECISIONS)) folder(k.slice(DECISIONS.length)).decisions = v;
     else if (k.startsWith(TITLE)) out.titleResults[k.slice(TITLE.length)] = v;
     else if (k.startsWith(ANALYSIS)) out.analyses[k.slice(ANALYSIS.length)] = v;
   }

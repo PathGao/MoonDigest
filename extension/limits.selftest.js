@@ -56,14 +56,15 @@ const names = Object.values(L.KEYS).filter((v) => typeof v === "string");
 // Renaming one loses the data stored under it.
 assert.deepStrictEqual([...names].sort(), [
   "aiProviderKeys", "mdg_ai_conversations_v1", "mdg_ai_selected_provider", "mdg_obsidian_note_paths_v1", "mdg_player_ai_quick_action_v1", "mdg_subtitle_cache_",
-  "seen_", "triage_analysis_", "triage_basket", "triage_folder_criteria", "triage_included_folders", "triage_notes", "triage_removed",
+  "seen_", "triage_analysis_", "triage_basket", "triage_decisions_", "triage_folder_criteria", "triage_included_folders", "triage_kept", "triage_notes", "triage_removed",
   "triage_seen_meta", "triage_simplified_v1", "triage_snapshot_", "triage_tags", "triage_title_", "triage_video_tags"
 ]);
+assert.strictEqual(L.KEYS.triageDecisions(7), "triage_decisions_7");
 assert.strictEqual(L.KEYS.triageAnalysis("BV1"), "triage_analysis_BV1");
 assert.strictEqual(L.KEYS.triageTitle("BV1"), "triage_title_BV1");
 assert.strictEqual(L.KEYS.triageSnapshot(7), "triage_snapshot_7");
 assert.strictEqual(L.KEYS.seen("BV1"), "seen_BV1");
-const badgesCopies = ["seen_", "triage_tags", "triage_video_tags", "triage_title_", "triage_analysis_", "triage_snapshot_"];
+const badgesCopies = ["seen_", "triage_tags", "triage_video_tags", "triage_title_", "triage_analysis_", "triage_snapshot_", "triage_kept", "triage_decisions_"];
 for (const name of badgesCopies) assert.ok(names.includes(name), `badges.js reads ${name}, which KEYS no longer has`);
 const sources = [];
 const walk = (dir) => {
