@@ -208,6 +208,9 @@
   const waitText = (why, sec) => (sec > 0 ? `${why}，${fmtDuration(sec)} 后重试` : "");
   // 关注's wait on B站限流: follow-bg.js's queue pause, and the page's wait before a write or a 视频投稿 page goes again.
   const BILI_HOLD_MS = 90000;
+  // 关注's gap between its writes to B站: the page's batches (follow.js) and the one-by-one retry after B站 refused a
+  // group request (follow-bg.js).
+  const FOLLOW_WRITE_GAP_MS = 1000;
   // Why 停止 on a B站 batch write's pill (both modes) is off once pressed: the request in flight lands first.
   const WRITE_STOPPING = "当前这一批做完就停止";
   // Why something waits for a running step or batch write (name: what the pill calls it), both modes; undo: U's version.
@@ -682,6 +685,6 @@
     return instant;
   }
 
-  globalThis.TriageUi = { esc, pad, dayText, fmtDate, fmtAgo, agoHtml, setSearchScope, confirmList, pickTitle, fmtDuration, fmtCount, cleanTagName, plainClick, cardPlayClick, cardPickClick, pickCard, img, toCsv, cardTagChip, syncedText, headMeta, titleHtml, ICON, AI_SPARK, byValue, dirWords, sortControl, filterBtn, labeledRow, tagFilterChip, kindTabs, originChip, stateGroup, aiRecentChip, searchBox, bindSearch, resultCount, rowButtons, menuItem, BACKUP_ITEM, reasonAttrs, setReason, WARN_DOT, selectAllState, selectAllBox, toggleAll, setActivity, waitText, BILI_HOLD_MS, WRITE_STOPPING, busyText, syncPill
+  globalThis.TriageUi = { esc, pad, dayText, fmtDate, fmtAgo, agoHtml, setSearchScope, confirmList, pickTitle, fmtDuration, fmtCount, cleanTagName, plainClick, cardPlayClick, cardPickClick, pickCard, img, toCsv, cardTagChip, syncedText, headMeta, titleHtml, ICON, AI_SPARK, byValue, dirWords, sortControl, filterBtn, labeledRow, tagFilterChip, kindTabs, originChip, stateGroup, aiRecentChip, searchBox, bindSearch, resultCount, rowButtons, menuItem, BACKUP_ITEM, reasonAttrs, setReason, WARN_DOT, selectAllState, selectAllBox, toggleAll, setActivity, waitText, BILI_HOLD_MS, FOLLOW_WRITE_GAP_MS, WRITE_STOPPING, busyText, syncPill
 , setSync, bindSync, tagButtons, sideFoot, actBtn, cleanBtn, HIDDEN_ALL, selbar, askTransfer, sideItem, emptyState, refreshEmpty, noMatch, fillSetRows, fillNumHints, NUM_SETTINGS, TITLES_PER_REQUEST, autoMaxTokens, numSetting, clampNumber, intIn, clampNumbers, mergeAiBatch, aiChanges, aiProposalOk, previewId, aiTally, nextTagColor, tagNameError, deleteTagAsk, editedTag, withoutTag, undoAsk, tagRowHtml, sp, tagsWord, AI_RECENT_RULES, aiRecentUndo, tagPlusBtn, viewerLine, viewerKeyFrom, headFold };
 })();

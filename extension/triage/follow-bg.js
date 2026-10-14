@@ -625,7 +625,6 @@ const followGroupName = (name) => {
   if ([...n].length > FOLLOW_GROUP_NAME_MAX) throw triageError(`分组名最长 ${FOLLOW_GROUP_NAME_MAX} 个字`);
   return n;
 };
-const FOLLOW_GROUP_ONE_GAP_MS = 1000; // one UP at a time after B站 refused the lot, as the page's WRITE_GAP_MS
 const followIds = (a) => (Array.isArray(a) ? a : []).map(Number);
 
 // Copy (no from) or move the mids on B站 in one request; follow_list follows only once B站 said yes.
@@ -650,7 +649,7 @@ async function followGroupMove({ mids, from, to }) {
     if (e.code || list.length < 2) throw e;
     done = [];
     for (const m of list) {
-      await followSleep(FOLLOW_GROUP_ONE_GAP_MS);
+      await followSleep(TriageUi.FOLLOW_WRITE_GAP_MS);
       try {
         await post([m]);
         done.push(m);

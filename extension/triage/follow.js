@@ -1059,15 +1059,14 @@ runs.put("proposal", () => AI.proposal && { text: "标签建议待确认" });
 const W = MdgWrites.create({ runs, lane: "follow-write", send, line: (p) => `${p.name}中 ${p.done}/${p.total}` });
 // calls = the requests, each with the mids it changes (a relation request one UP, a group request up to 20).
 // Returns how many UP 主 went through. Its progress shows in the row's progress pill, as a 收藏夹 batch does, with 停止.
-// WRITE_GAP_MS between requests, as 收藏夹's batches. B站限流 (THROTTLED): the pill counts down, then the same request
+// UI.FOLLOW_WRITE_GAP_MS between requests. B站限流 (THROTTLED): the pill counts down, then the same request
 // goes again; 停止 ends the run there, keeping what went through (and its undo).
-const WRITE_GAP_MS = 1000;
 const perUp = (mids, msg) => mids.map((mid) => msg(mid));
 // skipped (an array) gets the UP 主 a group request left out ({ mid, error }).
 // The UP 主 it went through stay selected while they stay listed here (DESIGN 筛选和计数): those it took out of the
 // sidebar item or 已出分拣范围's tab (取消关注, 重新关注, 移到) leave the selection once the data is read again.
 async function relationRun(calls, label, { quiet = false, skipped = [] } = {}) {
-  const chunks = calls.map((c) => ({ msg: c, keys: c.mids || [c.mid], folders: [], gap: WRITE_GAP_MS }));
+  const chunks = calls.map((c) => ({ msg: c, keys: c.mids || [c.mid], folders: [], gap: UI.FOLLOW_WRITE_GAP_MS }));
   const ran = new Set();
   const running = W.run("follow-write", label, {
     verb: label,
