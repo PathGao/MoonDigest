@@ -420,8 +420,10 @@ for (const [file, fns] of [["triage.js", ["mergeAiBatch", "aiChanges"]], ["follo
   neither(/class="selbar"|已选中 \$\{|选中的都被筛选隐藏了/, "draws its own selection bar or its hidden-all reason");
   // One button builder for row 3 and the bar; one 清理 button.
   assert.strictEqual(UI.actBtn('data-x="m"', "移动", { cls: "danger", title: "t", pre: "✦" }), '<button type="button" class="danger" data-x="m" aria-label="移动" title="t">✦移动</button>');
-  assert.strictEqual(UI.cleanBtn('data-x="c"', true, 3, ""), '<button type="button" class="danger" data-x="c" aria-label="清理选中的 3 个">清理选中的 3 个</button>');
-  assert.ok(UI.cleanBtn('data-x="c"', false, 5, "忙").includes('aria-label="清理这 5 个" disabled title="忙"'));
+  assert.strictEqual(UI.cleanBtn('data-x="c"', { picked: 3, shown: 3, n: 3 }), '<button type="button" class="danger" data-x="c" aria-label="清理选中的 3 个">清理选中的 3 个</button>');
+  assert.ok(UI.cleanBtn('data-x="c"', { picked: 0, shown: 0, n: 5, busy: "忙" }).includes('aria-label="清理这 5 个" disabled title="忙"'));
+  // A selection filters hide whole: still 「清理选中的 N 个」 with the true count, off with why, never 「清理这 N 个」.
+  assert.ok(UI.cleanBtn('data-x="c"', { picked: 2, shown: 0, n: 2, why: "空" }).includes('aria-label="清理选中的 2 个" disabled title="选中的都被筛选隐藏了"'));
   both("UI.cleanBtn(", "draws 清理 with cleanBtn");
   neither(/清理选中的 \$\{|清理这 \$\{[^}]*\} 个`|<button type="button"\$\{cls/, "builds its own 清理 or action button");
   // What waits for a running step: one sentence, U's version asks to wait before undoing.

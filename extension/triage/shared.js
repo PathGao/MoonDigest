@@ -265,10 +265,12 @@
   // the label (✦), title is the tooltip while enabled.
   const actBtn = (attrs, label, { reason = "", cls = "", title = "", pre = "" } = {}) =>
     `<button type="button"${cls ? ` class="${cls}"` : ""} ${attrs} aria-label="${esc(label)}"${reasonAttrs(reason, title)}>${pre}${esc(label)}</button>`;
-  // 清理 in 已出分拣范围's row 3, both modes: n of the selected listed ones (picked), else of all listed.
-  const cleanBtn = (attrs, picked, n, reason) => actBtn(attrs, picked ? `清理选中的 ${n} 个` : `清理这 ${n} 个`, { reason, cls: "danger" });
   // Why a selection's buttons are off when filters hide every selected one (the bar's and row 3's steps').
   const HIDDEN_ALL = "选中的都被筛选隐藏了";
+  // 清理 in 已出分拣范围's row 3, both modes. A selection (picked: how many, shown: how many listed) decides alone: n of
+  // it, off with HIDDEN_ALL when none is listed; without one, n of all listed. busy goes before that, why after.
+  const cleanBtn = (attrs, { picked, shown, n, busy = "", why = "" }) =>
+    actBtn(attrs, picked ? `清理选中的 ${n} 个` : `清理这 ${n} 个`, { reason: busy || (picked && !shown ? HIDDEN_ALL : why), cls: "danger" });
   // The floating bar while something is selected: n of them listed, hidden more behind filters, 清空选中, then
   // acts(none). none is why every act is off when filters hide the whole selection: the buttons stay, disabled.
   const selbar = ({ label, n, hidden, clearAttrs, acts }) =>

@@ -688,6 +688,15 @@ async function followPage({ store = {}, handlers = {}, setup = () => {} } = {}) 
     F.cur = "u3";
     p.key("x");
     assert.ok(found["[data-fw=clean]"].outerHTML?.includes(">清理选中的 1 个<"), "清理 follows the pick");
+    // J2: filters hide the whole selection: still 「清理选中的 1 个」, off with why, and a click cleans nothing.
+    F.tagState = "tagged";
+    p.FW.render();
+    assert.ok(p.$("fwBarR").innerHTML.includes('aria-label="清理选中的 1 个" disabled title="选中的都被筛选隐藏了"'), p.$("fwBarR").innerHTML);
+    const asked = p.asked.length;
+    p.click("followMain", "[data-fw]", { fw: "clean" });
+    await p.settle();
+    assert.strictEqual(p.asked.length, asked, "no 清理 confirm for a hidden selection");
+    F.tagState = "";
   }
 
   // U on a 关注 write while another runs: refused before its confirm, with 收藏夹's words; the step stays for later.

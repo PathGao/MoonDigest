@@ -79,7 +79,8 @@
 
   // ----- AI 打标签 -----
   // a = { who, sees (what the AI reads), example (the instruction's placeholder), excluded (a Set of tag ids the AI may not use this time),
-  // tags(), scopes() → [{ value, label, n }] (filter / selected / …), scopeText(scope), room() (how many new tags the AI
+  // tags(), scopes() → [{ value, label, n, shown? }] (filter / selected / …; shown: how many of n are listed, given for
+  // 选中, whose n counts the hidden ones too), scopeText(scope), room() (how many new tags the AI
   // may make), roomHint() (html: the same in words), blocked() ("" or why it cannot run here now), history(), allowRemove(), setAllowRemove?(on)
   // → saved?, running(), proposal(), run({ instruction, scope, allowRemove }) (sets running before its first await),
   // stop(), discard(), apply(), map() (item id → tag ids), live() (has(id): still in the folder / still followed),
@@ -123,6 +124,8 @@
     if (p) renderReview(p);
     else renderForm(want);
   }
+  // A selection filters hide whole: 选中 stays picked with its true count, and says why it cannot run.
+  const hiddenAll = (s) => (s.n && s.shown === 0 ? UI.HIDDEN_ALL : "");
   // want: the scope to pick when it has items (else the one picked stays, if it still has any).
   function renderForm(want = scopeSel.value) {
     const a = ai;
@@ -131,7 +134,7 @@
     scopeSel.innerHTML = scopes.map((s) => `<option value="${esc(s.value)}"${s.n ? "" : " disabled"}>${esc(s.label)} · ${s.n} 个</option>`).join("");
     scopeSel.value = scopes.find((s) => s.value === want && s.n)?.value || scopes.find((s) => s.n)?.value || scopes[0].value;
     const scope = scopes.find((s) => s.value === scopeSel.value);
-    $("aiScopeCount").textContent = a.scopeText(scope.value);
+    $("aiScopeCount").textContent = hiddenAll(scope) || a.scopeText(scope.value);
     const blocked = a.blocked();
     const tags = a.tags();
     const useChip = (t) => {
@@ -151,7 +154,7 @@
     const running = a.running();
     const run = $("aiRunBtn");
     run.innerHTML = running ? "运行中…" : `${UI.AI_SPARK}运行`;
-    UI.setReason(run, running ? "正在运行" : blocked || (scope.n ? "" : a.scopeText(scope.value)));
+    UI.setReason(run, running ? "正在运行" : blocked || hiddenAll(scope) || (scope.n ? "" : a.scopeText(scope.value)));
     if (running) run.setAttribute("aria-busy", "true");
     else run.removeAttribute("aria-busy");
     $("aiStopBtn").hidden = !running;
@@ -202,7 +205,9 @@
       say("请先写指令");
       return instr.focus();
     }
-    if (!ai.scopes().find((s) => s.value === scopeSel.value)?.n) return say(ai.scopeText(scopeSel.value));
+    const scope = ai.scopes().find((s) => s.value === scopeSel.value) || {};
+    const why = hiddenAll(scope) || (scope.n ? "" : ai.scopeText(scopeSel.value));
+    if (why) return say(why);
     ai.run({ instruction, scope: scopeSel.value, allowRemove: $("aiRemoveInput").checked });
     renderAi();
   }

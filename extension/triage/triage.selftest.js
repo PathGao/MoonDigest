@@ -735,6 +735,11 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   t.S.classFilter.fine = "keep";
   t.renderListHeader(t.visibleItems());
   assert.ok((t.el.listHeader.innerHTML + t.el.favSel.innerHTML).includes("保留（AI：值得留）") && !(t.el.listHeader.innerHTML + t.el.favSel.innerHTML).includes("取消收藏（AI"), "a filter shows only its own batch button");
+  // J1: a selection the filter hides whole still decides: no AI-verdict batch for the cards listed.
+  t.S.selected.add("BV211");
+  t.renderListHeader(t.visibleItems());
+  assert.ok(!t.el.listHeader.innerHTML.includes("（AI"), "a hidden selection: no verdict batch in 细看完成");
+  t.S.selected.clear();
   t.S.classFilter.fine = "all";
   t.S.selected.add("BV210");
   t.renderListHeader(t.visibleItems());
@@ -793,6 +798,12 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   t.renderListHeader(t.visibleItems());
   assert.ok(/取消收藏（AI：可清理）3 个.*字幕细看下一批 3 个/.test((t.el.listHeader.innerHTML + t.el.favSel.innerHTML)), "chip 可以删 leads with batch 取消收藏, 细看 second");
   assert.ok((t.el.listHeader.innerHTML + t.el.favSel.innerHTML).includes(">取消收藏（AI：可清理）3 个</button>"), "取消收藏 has no sparkle");
+  // J1 / J3: the same in 粗看完成, and 细看 keeps the selection's true count, off with why.
+  t.S.selected.add("BV207");
+  assert.deepStrictEqual(plain(t.batchList("drop")), [], "not the listed 可清理 ones");
+  t.renderListHeader(t.visibleItems());
+  assert.ok(!t.el.listHeader.innerHTML.includes("（AI") && t.el.listHeader.innerHTML.includes('aria-label="字幕细看选中的 1 个" disabled title="选中的都被筛选隐藏了"'), t.el.listHeader.innerHTML);
+  t.S.selected.clear();
   t.S.classFilter.coarse = "keep";
   t.S.classFilter.fine = "drop";
   assert.strictEqual(t.S.classFilter.coarse, "keep", "细看完成's chip does not touch 粗看完成's");
@@ -912,7 +923,7 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   t.renderListHeader(t.visibleItems());
   assert.ok((t.el.listHeader.innerHTML + t.el.favSel.innerHTML).includes("按新标准重新细看选中的前 1 个"), "more selected than one batch");
   t.S.selected = new Set(["BV205"]);
-  assert.deepStrictEqual(plain(vm.runInContext("redoFineList", ctx)().map((it) => it.bvid)), ["BV205"], "the selected one, not the first listed");
+  assert.deepStrictEqual(plain(vm.runInContext('redoState("细看", redoFineOpen(), fineBatchSize(), "fine")', ctx).batch.map((it) => it.bvid)), ["BV205"], "the selected one, not the first listed");
   delete t.S.analyses.BV205;
   t.S.settings.triageFineBatchSize = 10;
   t.S.selected.clear();
@@ -1545,6 +1556,8 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     t.S.classFilter.read = "drop";
     t.renderListHeader(t.visibleItems());
     assert.ok(disabledWhy("收藏选中的 0 个到…"), (t.el.listHeader.innerHTML + t.el.favSel.innerHTML));
+    // J2: 清理 stays the selection's, with its true count, off with why.
+    assert.ok(disabledWhy("清理选中的 1 个") && !t.el.listHeader.innerHTML.includes("清理这"), t.el.listHeader.innerHTML);
     // F12 / F9: 所有收藏夹 has 全选 like a folder (across its folders), and its bar says why as well.
     t.S.mediaId = "all";
     const savedLoad = t.S.loadAll;
@@ -2950,6 +2963,34 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
       Object.assign(t.S, was);
     }
 
+    // J5: each AI step's 所有收藏夹 dialog is titled like the button that opened it.
+    {
+      openFake("A", [item(1), item(2), item(3)]);
+      const was = { tab: t.S.tab, titleRes: t.S.titleRes, analyses: t.S.analyses, query: t.S.query, folderCriteria: t.S.folderCriteria };
+      const titles = [];
+      const realStart = t.startJudging;
+      t.startJudging = async (title) => titles.push(title);
+      const head = (act) => {
+        const e = { target: { closest: (sel) => (sel === "[data-head]" ? { dataset: { head: act } } : null) } };
+        for (const n of ["listHeader", "stagebar"]) (L[n]?.click || []).forEach((f) => f(e));
+      };
+      Object.assign(t.S, { tab: "none", query: "", titleRes: {}, analyses: {}, folderCriteria: { A: "新" } });
+      t.S.selected.clear();
+      head("stage1");
+      const old = { verdict: "unsure", criteria: "旧" };
+      Object.assign(t.S, { tab: "coarse", titleRes: { BV1: old, BV2: old, BV3: { ...old, criteria: "新" } } });
+      t.S.selected = new Set(["BV1"]);
+      head("group");
+      head("redo-coarse");
+      Object.assign(t.S, { tab: "fine", analyses: { BV3: { status: "done", verdict: "keep", criteria: "旧" } } });
+      t.S.selected.clear();
+      head("redo-fine");
+      assert.deepStrictEqual(titles, ["标题粗看下一批 3 个", "字幕细看选中的 1 个", "按新标准重新粗看选中的 1 个", "按新标准重新细看下一批 1 个"]);
+      t.startJudging = realStart;
+      t.S.selected.clear();
+      Object.assign(t.S, was);
+    }
+
     // F4: 字幕细看 keeps its batch selected, like 标题粗看; the cards leave the selection when they leave the tab.
     {
       openFake("A", [item(1), item(2), item(3)]);
@@ -3316,7 +3357,7 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
       // F1: a selection of stale ones wins, as on 标题粗看.
       for (const b of ["BV5020", "BV5021"]) t.S.selected.add(b);
       assert.ok(head().includes("按新标准重新粗看选中的 2 个"), head());
-      assert.deepStrictEqual(plain(vm.runInContext("redoCoarseList()", ctx).map((it) => it.bvid)), ["BV5020", "BV5021"]);
+      assert.deepStrictEqual(plain(vm.runInContext('redoState("粗看", redoCoarseOpen(), coarseBatchSize(), "coarse")', ctx).batch.map((it) => it.bvid)), ["BV5020", "BV5021"]);
       t.S.selected.clear();
       // F2: the 判断标准 prompt offers the same batch as that button and says how many.
       const realAsk = t.askConfirm;
@@ -3404,10 +3445,12 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
       t.showPicks();
       assert.ok(head.outerHTML.includes("全部重试</button>"), "unpicked: back to 全部重试");
       t.el.list.querySelector = () => null;
-      // A card's 重试 sends that one.
+      // A card's 重试 sends that one, through startJudging like 全部重试 (J4), its dialog titled like the button.
+      judged.length = 0;
       t.retry("BV6019");
       while (vm.runInContext("runs", ctx).get("stage1")) await new Promise((r) => setTimeout(r, 0));
       assert.ok(t.S.titleRes.BV6019 && !t.S.coarseFailed.has("BV6019"));
+      assert.deepStrictEqual(judged, [["重试", "粗看", 1]]);
       // A platform error ends the run at the first batch and fails no card.
       t.S.coarseFailed.clear();
       t.S.titleRes = {};

@@ -62,7 +62,7 @@ function adapters(who) {
     excluded: new Set(["a"]),
     manage,
     tags: () => tags,
-    scopes: () => [{ value: "filter", label: "当前筛选", n: 3 }, { value: "selected", label: "选中", n: ai.sel }],
+    scopes: () => [{ value: "filter", label: "当前筛选", n: 3 }, { value: "selected", label: "选中", n: ai.sel, shown: ai.shown }],
     sel: 0,
     scopeText: (s) => `${s} 的说明`,
     room: () => ai.roomN,
@@ -154,6 +154,17 @@ function adapters(who) {
     assert.ok(!nodes.aiTagDialog.open && nodes.tagManageDialog.open && D.manage.isOpen(manage), `${who}: the link opens 标签管理`);
     nodes.tagManageDialog.close();
     tags.push({ id: "a", name: "科普", color: "#111" });
+
+    // J1: filters hide the whole selection: 选中 stays picked with its true count, and 运行 is off with why.
+    ai.shown = 0;
+    D.ai.open(ai);
+    nodes.aiInstruction.value = "按内容分";
+    assert.ok(nodes.aiScope.value === "selected" && nodes.aiScope.innerHTML.includes("选中 · 2 个"), `${who}: 选中 stays`);
+    assert.ok(nodes.aiScopeCount.textContent === "选中的都被筛选隐藏了" && nodes.aiRunBtn.disabled && nodes.aiRunBtn.title === "选中的都被筛选隐藏了", `${who}: 运行 says why`);
+    const runs = calls.length;
+    fire("aiTagDialog", "click", { target: target("#aiRunBtn", { id: "aiRunBtn" }) });
+    assert.strictEqual(calls.length, runs, `${who}: nothing runs`);
+    ai.shown = 2;
 
     // 运行: needs an instruction; then the adapter runs with the dialog's choices and the button shows it.
     D.ai.open(ai);

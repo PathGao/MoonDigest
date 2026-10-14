@@ -606,7 +606,7 @@ function renderSyncChanges() {
 // disabled and says why (a run or a proposal stays reachable).
 const aiReason = () => (aiRunning() || AI.proposal ? "" : aiBlocked(F.tab, F.side));
 function renderAiButton() {
-  $("fwAiSlot").innerHTML = UI.tagButtons({ manageAttrs: 'data-fw="tags"', aiAttrs: 'data-fw="ai"', aiReason: aiReason(), noTags: !D.tags.length, picked: F.tab === "ups" ? selShown().length : 0, state: aiRunning() ? " · 运行中" : AI.proposal ? " · 待确认" : "" });
+  $("fwAiSlot").innerHTML = UI.tagButtons({ manageAttrs: 'data-fw="tags"', aiAttrs: 'data-fw="ai"', aiReason: aiReason(), noTags: !D.tags.length, picked: F.tab === "ups" ? F.sel.size : 0, state: aiRunning() ? " · 运行中" : AI.proposal ? " · 待确认" : "" });
 }
 function renderAiState() {
   renderSync();
@@ -727,18 +727,22 @@ function renderUps() {
   renderSel();
 }
 
-// 清理, as 收藏夹's: it only forgets (B站 is untouched), so it takes the 已取消关注 among the selected listed ones, else among
-// all listed. The ones still followed are left out: they would come back with the next 刷新, so 取消关注 comes first.
+// 清理, as 收藏夹's: it only forgets (B站 is untouched), so it takes the 已取消关注 among the selected listed ones (none
+// when filters hide them all), else among all listed. The ones still followed are left out: they would come back with
+// the next 刷新, so 取消关注 comes first.
 const cleanable = (mids) => mids.filter((m) => rows.get(m)?.gone);
-// What 清理 takes from list: { picked: whether it is the selection, mids }.
+// What 清理 takes from list: { picked: whether there is a selection, mids }.
 function cleanTargets(list = shown) {
-  const sel = list.filter((m) => F.sel.has(m));
-  return { picked: sel.length > 0, mids: cleanable(sel.length ? sel : list) };
+  const picked = F.sel.size > 0;
+  return { picked, mids: cleanable(picked ? list.filter((m) => F.sel.has(m)) : list) };
 }
 function cleanBtn(list) {
   const { picked, mids } = cleanTargets(list);
-  const why = busyWhy() || (!list.length ? "这里没有列出 UP 主" : !mids.length ? "还关注着的先取消关注，再清理" : "");
-  return UI.cleanBtn('data-fw="clean"', picked, mids.length, why);
+  const shownSel = list.filter((m) => F.sel.has(m)).length;
+  // All of it hidden: the count is the whole selection's.
+  const n = picked && !shownSel ? cleanable([...F.sel]).length : mids.length;
+  const why = !list.length ? "这里没有列出 UP 主" : !mids.length ? "还关注着的先取消关注，再清理" : "";
+  return UI.cleanBtn('data-fw="clean"', { picked: F.sel.size, shown: shownSel, n, busy: busyWhy(), why });
 }
 
 function emptyHtml() {
@@ -1516,10 +1520,12 @@ function setAiProposal(p) {
   else chrome.storage.local.remove("follow_ai_proposal");
 }
 
-function aiScopeMids(scope) {
+// The AI tags only UP 主 still followed.
+const followedOf = (mids) => {
   const live = new Set(following());
-  return (scope === "selected" ? selShown() : F.side === "out" ? [] : [...shown]).filter((m) => live.has(m));
-}
+  return mids.filter((m) => live.has(m));
+};
+const aiScopeMids = (scope) => followedOf(scope === "selected" ? selShown() : F.side === "out" ? [] : [...shown]);
 async function openAi() {
   if (!aiRunning()) {
     AI.settings = await aiSettings();
@@ -1543,7 +1549,7 @@ const aiTags = {
   tags: () => D.tags,
   scopes: () => [
     { value: "filter", label: "当前筛选", n: aiScopeMids("filter").length },
-    { value: "selected", label: "选中", n: aiScopeMids("selected").length }
+    { value: "selected", label: "选中", n: followedOf([...F.sel]).length, shown: aiScopeMids("selected").length }
   ],
   scopeText: aiScopeText,
   room: () => AI.settings.newTagMax,
