@@ -53,4 +53,33 @@ for (const bad of XSS) assertInert(ctx.buildFixedPropertyValueControl("text", ba
 assert.ok(source.includes("seenThreshold: MdgSettings.normalizeSeenThreshold(elements.seenThreshold.value),"), "options.js parses 看多少算看完了 with normalizeSeenThreshold");
 assert.ok(source.includes("const { min, max, def } = MdgSettings.SEEN_THRESHOLD;") && source.includes("placeholder: `默认 ${def}`"), "seenThreshold's box reads SEEN_THRESHOLD");
 
-console.log("options selftest: all passed");
+// E1: 测试连接 for an address not saved yet asks for its host permission in the click, before anything is awaited, then
+// tests; declined, the status says so with 授权, which asks again and tests.
+(async () => {
+  const log = [];
+  let allow = false;
+  const node = () => {
+    const kids = [];
+    return { kids, hidden: true, textContent: "", dataset: {}, disabled: false, setAttribute() {}, append: (...n) => kids.push(...n.filter((x) => typeof x !== "string")), on: {}, addEventListener(t, f) { this.on[t] = f; } };
+  };
+  const status = node();
+  const fields = { ".ai-provider-baseurl": "https://api.example.com/v1", ".ai-provider-apikey": "k", ".ai-provider-model": "m", ".ai-provider-preset": "custom" };
+  const row = { dataset: {}, querySelector: (sel) => (sel === ".ai-provider-status" ? status : sel === ".ai-provider-test" ? node() : { value: fields[sel] }) };
+  const page = vm.createContext({
+    URL, hasUnsavedChanges: true, AI_PRESETS: [{ id: "custom", requiresKey: true }],
+    document: { createElement: node },
+    chrome: { permissions: { request: async ({ origins }) => (log.push(`ask ${origins}`), allow) } },
+    sendRuntimeMessage: async (m) => (log.push(`test ${m.baseUrl}`), { ok: true })
+  });
+  vm.runInContext(fs.readFileSync(path.join(__dirname, "errors.js"), "utf8"), page);
+  vm.runInContext([fn("hostPermissionPattern"), fn("showAiProviderStatus"), `async ${fn("testAiProviderRow")}`].join("\n"), page);
+  const pending = page.testAiProviderRow(row);
+  assert.deepStrictEqual(log, ["ask https://api.example.com/*"], "asked synchronously, inside the click's gesture");
+  await pending;
+  assert.deepStrictEqual([status.textContent, status.dataset.error, log.length], ["失败：未授权访问 https://api.example.com，授权后重试", "true", 1]);
+  assert.strictEqual(status.kids.length, 1, "with a 授权 button");
+  allow = true;
+  await status.kids[0].on.click();
+  assert.deepStrictEqual([log.slice(1), status.textContent], [["ask https://api.example.com/*", "ask https://api.example.com/*", "test https://api.example.com/v1"], "连接成功，记得保存设置"]);
+  console.log("options selftest: all passed");
+})().catch((e) => (console.error(e), process.exit(1)));

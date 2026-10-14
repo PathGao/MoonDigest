@@ -1031,7 +1031,7 @@ async function hostPermissionError(url) {
   try {
     const { protocol, hostname } = new URL(url);
     const origin = `${protocol}//${hostname}`;
-    return (await chrome.permissions.contains({ origins: [`${origin}/*`] })) ? "" : `未授权访问 ${origin}，授权后重试`;
+    return (await chrome.permissions.contains({ origins: [`${origin}/*`] })) ? "" : MdgErrors.noAccess(origin);
   } catch {
     return "";
   }

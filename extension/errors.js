@@ -87,7 +87,11 @@
   // The reply as an Error to throw; error.action says which button the catch shows, error.cause is the reply.
   const fromResp = (resp, fallback) => Object.assign(new Error(text(resp, fallback), { cause: resp }), { action: action(resp?.code) });
 
-  // The background's "未授权访问 <origin>，授权后重试" (hostPermissionError): an upgraded install lacks the AI provider's
+  // An AI provider's origin the extension may not reach yet (host permissions are optional): the background's
+  // hostPermissionError, and 测试连接 when the user declines the request. grantOrigin reads it back.
+  const noAccess = (origin) => `未授权访问 ${origin}，授权后重试`;
+
+  // The background's noAccess sentence (hostPermissionError, 测试连接): an upgraded install lacks the AI provider's
   // origin. request() must run in a click handler: permissions.request needs the user gesture, the worker cannot ask.
   function grantOrigin(message) {
     const origin = /未授权访问 (https?:\/\/[^\s，]+)/.exec(String(message || ""))?.[1];
@@ -109,5 +113,5 @@
       .replaceAll('"', "&quot;")
       .replaceAll("'", "&#39;");
 
-  globalThis.MdgErrors = Object.freeze({ TEXT, action, text, fromResp, grantOrigin, reloaded, escapeHtml, subtitleMissing, aiTimeout, aiStalled, NET_TIMEOUT_MS, netTimeout });
+  globalThis.MdgErrors = Object.freeze({ TEXT, action, text, fromResp, grantOrigin, reloaded, escapeHtml, subtitleMissing, aiTimeout, aiStalled, noAccess, NET_TIMEOUT_MS, netTimeout });
 })();
