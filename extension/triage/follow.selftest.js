@@ -102,7 +102,12 @@ const base = () => ({ list: null, last: null, content: {}, people: {}, tags: [],
   assert.deepStrictEqual(v({ q: "原理" }).list, ["2"], "search reads the sign too");
   const c = v({ status: "active" });
   assert.deepStrictEqual(c.list, ["1", "3"]);
-  assert.deepStrictEqual(c.counts, { "": 4, active: 2, slow: 1, stale: 1, tagged: 1, untagged: 1, recent: 0, tags: { t1: 1 } }, "status counts ignore the status pick; the other groups apply it");
+  assert.deepStrictEqual(c.counts, { "": 4, active: 2, slow: 1, stale: 1, tagged: 1, untagged: 1, recent: 0, source: { bili: 0, app: 0 }, tags: { t1: 1 } }, "status counts ignore the status pick; the other groups apply it");
+  // 已出分拣范围: 在哪取消关注 is a row 3 group. 全部 counts with it cleared; its chips count with search and row 4 applied.
+  const out = v({ side: "out", source: "app" });
+  assert.deepStrictEqual([out.list, out.counts[""], out.counts.source], [["8"], 2, { bili: 1, app: 1 }]);
+  assert.deepStrictEqual(v({ side: "out", tags: new Set(["t1"]) }).counts.source, { bili: 1, app: 0 }, "row 4 applies");
+  assert.deepStrictEqual(v({ side: "out", tagState: "untagged" }).counts.source, { bili: 0, app: 1 }, "未打标签 applies");
   assert.deepStrictEqual(v({ recent: new Set(["4", "2"]) }).list, ["2", "4"], "「AI 刚打的」 narrows the list");
   // direction toggle; a missing value sinks in both directions (4 never posted)
   assert.deepStrictEqual(v({ sort: "last", dir: "asc" }).list, ["2", "3", "1", "4"], "很久没更新在前, never-posted still last");
