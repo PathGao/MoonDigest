@@ -96,14 +96,14 @@ for (const f of scripts) vm.runInContext(fs.readFileSync(f, "utf8"), ctx);
   pick("b", true);
   assert.deepStrictEqual([sa.checked, sa.indeterminate], [true, false], "all selected: checked");
   assert.strictEqual(els.selectAllLabel?.textContent, "全选 2 个");
-  assert.deepStrictEqual([els.bulkMd.textContent, els.bulkDelete.textContent], ["下载选中的 2 个 .md", "删除选中的 2 个"]);
+  assert.deepStrictEqual([els.bulkMd.textContent, els.bulkDelete.textContent], ["下载选中的 2 个 .md", "删除选中的 2 个的 AI 对话"]);
   // A search keeps hidden selections (like the 分拣台): the buttons count and act on the listed ones; with every one
   // hidden they say all of them, disabled with 「选中的都被筛选隐藏了」; clearing the search brings the selection back.
   const search = async (q) => ((els.search.value = q), fire("input", {}), await wait(200));
   await search("img");
   assert.deepStrictEqual([els.bulkMd.textContent, els.bulkMd.disabled], ["下载选中的 1 个 .md", false]);
   await search("没有这个");
-  assert.deepStrictEqual([els.bulkMd.textContent, els.bulkDelete.textContent, reason("bulkMd")[1], reason("bulkDelete")[1]], ["下载选中的 2 个 .md", "删除选中的 2 个", "选中的都被筛选隐藏了", "选中的都被筛选隐藏了"]);
+  assert.deepStrictEqual([els.bulkMd.textContent, els.bulkDelete.textContent, reason("bulkMd")[1], reason("bulkDelete")[1]], ["下载选中的 2 个 .md", "删除选中的 2 个的 AI 对话", "选中的都被筛选隐藏了", "选中的都被筛选隐藏了"]);
   await search("");
   assert.deepStrictEqual([sa.checked, els.bulkMd.textContent], [true, "下载选中的 2 个 .md"], "the selection is still there");
   // H9: 删除 removes AI conversations only. A selected video with only a 备注 is not counted, and the tooltip says so;
@@ -114,10 +114,32 @@ for (const f of scripts) vm.runInContext(fs.readFileSync(f, "utf8"), ctx);
   await wait(350);
   const noteKey = html.match(/data-key="([^"]*BV1note[^"]*)"/)[1];
   pick(noteKey, true);
-  assert.deepStrictEqual([els.bulkMd.textContent, els.bulkDelete.textContent, reason("bulkDelete")], ["下载选中的 3 个 .md", "删除选中的 2 个", [false, "选中的 3 个里，1 个没有 AI 对话，删除后会留下；它们的 AI 总结和备注在分拣台清理", undefined]]);
+  assert.deepStrictEqual([els.bulkMd.textContent, els.bulkDelete.textContent, reason("bulkDelete")], ["下载选中的 3 个 .md", "删除选中的 2 个的 AI 对话", [false, "选中的 3 个里，1 个没有 AI 对话，删除后会留下；它们的 AI 总结和备注在分拣台清理", undefined]]);
   pick("a", false);
   pick("b", false);
-  assert.deepStrictEqual([els.bulkDelete.textContent, reason("bulkDelete")], ["删除选中的", [true, "选中的视频没有 AI 对话，它们的 AI 总结和备注在分拣台清理", "选中的视频没有 AI 对话，它们的 AI 总结和备注在分拣台清理"]]);
+  assert.deepStrictEqual([els.bulkDelete.textContent, reason("bulkDelete")], ["删除选中的 AI 对话", [true, "选中的视频没有 AI 对话，它们的 AI 总结和备注在分拣台清理", "选中的视频没有 AI 对话，它们的 AI 总结和备注在分拣台清理"]]);
+  // K13: each entry's button says what it deletes.
+  assert.ok(html.includes('data-act="delete" class="danger">删除 AI 对话</button>'), html);
+  // K10: 继续问 on a record that is not a video is off with why, through setReason.
+  const ask = { attrs: {}, setAttribute(k, v) { this.attrs[k] = v; }, removeAttribute(k) { delete this.attrs[k]; } };
+  const realQsa = els.list.querySelectorAll;
+  els.list.querySelectorAll = (sel) => (sel === "[data-no-video]" ? [ask] : []);
+  assert.ok(html.includes('data-act="ask" data-no-video>'), html);
+  // K12: 清空全部 AI 对话 keeps the selection of the entries still listed (a 备注 only); the deleted ones leave it.
+  pick("a", true);
+  const convs = store.mdg_ai_conversations_v1;
+  ctx.confirm = () => true;
+  ctx.chrome.storage.local.set = async (o) => Object.assign(store, o);
+  for (const f of L.clearAll.click) await f({});
+  onChanged({ mdg_ai_conversations_v1: {} }, "local");
+  await wait(350);
+  els.list.querySelectorAll = realQsa;
+  assert.deepStrictEqual([ask.disabled, ask.title, ask.attrs["aria-description"]], [true, ctx.MdgErrors.TEXT.notVideo, ctx.MdgErrors.TEXT.notVideo]);
+  assert.deepStrictEqual([els.bulkMd.textContent, els.status.textContent], ["下载选中的 1 个 .md", "已清空全部 AI 对话"]);
+  ctx.chrome.storage.local.set = async () => {};
+  store.mdg_ai_conversations_v1 = convs;
+  onChanged({ mdg_ai_conversations_v1: {} }, "local");
+  await wait(350);
   pick(noteKey, false);
   pick("a", true);
   pick("b", true);
