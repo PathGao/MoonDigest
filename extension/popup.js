@@ -234,7 +234,7 @@ function render(payload, { preserveStatus = false } = {}) {
   setText(el.propTitle, payload.title || "-");
   setText(el.propUrl, payload.url || "-");
   setText(el.propCreated, MdgSites.formatLocalDate());
-  setText(el.propTags, payload.tags || "MoonDigest");
+  setText(el.propTags, payload.tags || "-");
   el.propTitle.title = payload.title || "";
   setText(el.videoTitle, payload.title);
   el.videoTitle.title = payload.title || "";

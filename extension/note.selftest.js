@@ -449,4 +449,9 @@ const XSS = ["<img src=x onerror=alert(1)>", `"'><script>alert(1)</script>`];
 const assertInert = (html, where) => assert.ok(!/<img src=x|<script|"'>/i.test(html) && /&lt;|&#60;/.test(html), `${where}: ${html}`);
 for (const bad of XSS) assertInert(N.renderMarkdown(`${bad}\n\n- **${bad}**\n\n\`${bad}\``), "renderMarkdown");
 assert.ok(N.renderMarkdown("[x](javascript:alert(1))").includes('href="#"'), "only http, mailto and # links");
+// 详情 › 笔记标签 shows the tags the note gets: none when the setting is cleared, plus the 分拣台 tags, from one function.
+assert.deepStrictEqual([...N.noteTags({ userTags: ["学 习"] }, { tags: "" })], ["学_习"]);
+assert.deepStrictEqual([...N.noteTags({}, { tags: "MoonDigest, a" })], ["MoonDigest", "a"]);
+assert.ok(/tags: MdgNote\.noteTags\(/.test(fs.readFileSync(path.join(__dirname, "content.js"), "utf8")), "the popup payload's tags are the note's");
+assert.ok(!/payload\.tags \|\| "MoonDigest"/.test(fs.readFileSync(path.join(__dirname, "popup.js"), "utf8")), "the popup shows no default of its own");
 console.log("note selftest ok");

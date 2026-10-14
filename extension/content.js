@@ -1279,7 +1279,7 @@ function getPopupPayload() {
     uploadDate: state.uploadDate || "",
     cover: state.cover || "",
     duration: state.videoDuration || 0,
-    tags: String(state.settings?.tags || ""),
+    tags: MdgNote.noteTags({ userTags: state.triageExtras?.userTags }, state.settings || DEFAULT_SETTINGS).join(", "),
     status: state.statusText || "",
     message: state.messageText || "",
     subtitlePreview: buildSubtitlePreview(state.subtitleBody || [], state.settings || DEFAULT_SETTINGS),

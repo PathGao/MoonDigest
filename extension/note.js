@@ -45,15 +45,20 @@
       .join("\n");
   }
 
-  function buildMarkdown(meta, body, settings, ref, created = formatLocalDate()) {
-    const url = String(ref?.url || "");
-    // meta.userTags: the 分拣台 tags; Obsidian tags take letters, digits, _ - / only, so anything else becomes _.
-    const tags = [
+  // The tags a note carries: the 笔记标签 setting, then meta.userTags (the 分拣台 tags; Obsidian tags take letters,
+  // digits, _ - / only, so anything else becomes _). The popup's 详情 shows these, not the setting.
+  function noteTags(meta, settings) {
+    return [
       ...new Set([
-        ...(settings.tags || "").split(",").map((item) => item.trim()),
-        ...(meta.userTags || []).map((name) => String(name).trim().replace(/[^\p{L}\p{N}_\-/]+/gu, "_"))
+        ...String(settings?.tags || "").split(",").map((item) => item.trim()),
+        ...(meta?.userTags || []).map((name) => String(name).trim().replace(/[^\p{L}\p{N}_\-/]+/gu, "_"))
       ])
     ].filter(Boolean);
+  }
+
+  function buildMarkdown(meta, body, settings, ref, created = formatLocalDate()) {
+    const url = String(ref?.url || "");
+    const tags = noteTags(meta, settings);
     const tagsCsv = tags.join(", ");
     const tagsYaml =
       tags.length === 0 ? "[]" : `[${tags.map((tag) => `"${escapeYaml(tag)}"`).join(", ")}]`;
@@ -1061,6 +1066,7 @@
 
   globalThis.MdgNote = {
     buildMarkdown,
+    noteTags,
     buildAiContext,
     noteMetaOf,
     subtitleMismatchWarning,
