@@ -426,6 +426,35 @@ const chatOn = (context) => {
     );
   }
 
+  // B3: a failed auto-sync to Obsidian offers 去设置 before 重试 when the fix is in the settings page, like a manual write;
+  // a closed Obsidian gets 重试 only.
+  {
+    const prev = [ctx.showSyncStatus, ctx.sendRuntimeMessage];
+    const shown = [];
+    ctx.showSyncStatus = (text, opts = {}) => shown.push([Boolean(opts.error), Boolean(opts.settings), Boolean(opts.retry)]);
+    state.dispatch({ type: "SAVED_CHANGED", list: [{ id: "s", contextRef: { site: "bilibili", videoId: "BV1sync" }, messages: [{ role: "user", content: "q" }] }] });
+    for (const code of ["OBSIDIAN", "OBSIDIAN_DOWN"]) {
+      ctx.sendRuntimeMessage = async () => ({ ok: false, error: "x", code });
+      await ctx.autoSyncConversation("s");
+    }
+    assert.deepStrictEqual(shown, [[true, true, true], [true, false, true]]);
+    [ctx.showSyncStatus, ctx.sendRuntimeMessage] = prev;
+  }
+
+  // B4: a failed copy is red, from the export menu and from a reply's own 复制 alike.
+  {
+    const prev = [ctx.showConversationContextNotice, ctx.buildCurrentConversationNote];
+    const notices = [];
+    ctx.showConversationContextNotice = (text, ms, opts) => notices.push([text.split("：")[0], Boolean(opts?.error)]);
+    ctx.navigator.clipboard = { writeText: async () => { throw new Error("无法访问剪贴板"); } };
+    ctx.buildCurrentConversationNote = async () => ({ content: "x" });
+    await ctx.copyCurrentConversationMarkdown();
+    assert.strictEqual(await ctx.copyText("x"), false, "a reply's 复制 reports a failure");
+    assert.deepStrictEqual(notices, [["复制失败", true], ["复制失败", true]]);
+    delete ctx.navigator.clipboard;
+    [ctx.showConversationContextNotice, ctx.buildCurrentConversationNote] = prev;
+  }
+
   console.log("sidepanel selftest: all passed");
 })().catch((e) => {
   console.error(e);

@@ -1649,18 +1649,11 @@ function renderAssistantMessage(node, raw) {
     </svg><span>复制</span>
   `;
   copyBtn.addEventListener("click", async () => {
-    try {
-      await navigator.clipboard.writeText(pasteReadyRaw);
-      copyBtn.disabled = true;
-      window.setTimeout(() => {
-        copyBtn.disabled = false;
-      }, 500);
-    } catch {
-      copyBtn.disabled = true;
-      window.setTimeout(() => {
-        copyBtn.disabled = false;
-      }, 500);
-    }
+    if (!(await copyText(pasteReadyRaw))) return;
+    copyBtn.disabled = true;
+    window.setTimeout(() => {
+      copyBtn.disabled = false;
+    }, 500);
   });
   actions.appendChild(copyBtn);
 
@@ -1722,7 +1715,9 @@ async function autoSyncConversation(conversationId) {
     }
     showSyncStatus(`已更新 AI 问答：${resp.path}`, { autoHideMs: 3000 });
   } catch (error) {
-    showSyncStatus(`写入 Obsidian 失败：${getErrorMessage(error)}`, { retry: () => autoSyncConversation(conversationId), error: true });
+    // Not set up or a wrong key: 去设置 before 重试, like a manual write; a closed Obsidian gets 重试 only.
+    const settings = error?.action === "settings" ? () => chrome.runtime.openOptionsPage() : null;
+    showSyncStatus(`写入 Obsidian 失败：${getErrorMessage(error)}`, { retry: () => autoSyncConversation(conversationId), settings, error: true });
   }
 }
 
@@ -1733,16 +1728,18 @@ function showObsidianFailure(error) {
 }
 
 let syncStatusTimer = 0;
-function showSyncStatus(text, { autoHideMs = 0, retry = null, error = false } = {}) {
+function showSyncStatus(text, { autoHideMs = 0, retry = null, settings = null, error = false } = {}) {
   if (!els.syncStatus) {
     return;
   }
   window.clearTimeout(syncStatusTimer);
   els.syncStatus.classList.toggle("is-error", error);
   els.syncStatus.querySelector("span").textContent = text;
-  const button = els.syncStatus.querySelector("button");
-  button.hidden = !retry;
-  button.onclick = retry ? () => { els.syncStatus.hidden = true; void retry(); } : null;
+  for (const [act, run] of [["settings", settings], ["retry", retry]]) {
+    const button = els.syncStatus.querySelector(`button[data-act="${act}"]`);
+    button.hidden = !run;
+    button.onclick = run ? () => { els.syncStatus.hidden = true; void run(); } : null;
+  }
   els.syncStatus.hidden = false;
   if (autoHideMs > 0) {
     syncStatusTimer = window.setTimeout(() => {
@@ -1758,10 +1755,20 @@ async function copyCurrentConversationMarkdown() {
       showConversationContextNotice("当前没有可复制的对话。", 2200);
       return;
     }
-    await navigator.clipboard.writeText(note.content);
-    showConversationContextNotice("已复制 Markdown", 2200);
+    if (await copyText(note.content)) showConversationContextNotice("已复制 Markdown", 2200);
   } catch (error) {
-    showConversationContextNotice(`复制失败：${getErrorMessage(error)}`, 3000);
+    showConversationContextNotice(`复制失败：${getErrorMessage(error)}`, 3000, { error: true });
+  }
+}
+
+// Every copy on this page: a failure is red (the export menu's 复制 Markdown and a reply's own 复制). False on failure.
+async function copyText(text) {
+  try {
+    await navigator.clipboard.writeText(text);
+    return true;
+  } catch (error) {
+    showConversationContextNotice(`复制失败：${getErrorMessage(error) || "无法访问剪贴板"}`, 3000, { error: true });
+    return false;
   }
 }
 
