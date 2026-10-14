@@ -392,6 +392,8 @@ process.on("exit", (code) => {
   assert.strictEqual(mismatched.subtitleBody.length, 2);
   assert.match(mismatched.subtitleMarkdown, /## 字幕/);
   assert.strictEqual(mismatched.subtitleWarning, "字幕时间轴到 06:40，视频长 04:33，字幕时间可能对不上。");
+  // I2: with the part count, as the video page sends it (a P1 conversation note's name needs it).
+  assert.strictEqual(mismatched.pageCount, 1);
   assert.deepStrictEqual(Object.keys(local).filter((k) => k.startsWith("mdg_subtitle_cache_")), []);
   // Like the video page, the next track is tried when the chosen one does not match; the match wins, without a warning.
   const otherUrl = "https://aisubtitle.hdslb.com/b.json";

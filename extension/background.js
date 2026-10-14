@@ -298,6 +298,8 @@ async function resolveAiSidepanelContext(contextRef) {
     cid: String(meta.cid || ""),
     aid: String(meta.aid || ""),
     pageIndex: meta.pageIndex || 1,
+    // A P1 conversation note is named 「 P1」 when the video has parts (MdgNote), as with the video page open.
+    pageCount: meta.pageCount || 0,
     pageTitle: String(meta.pageTitle || ref.pageTitle || "").trim(),
     description: String(meta.description || ""),
     subtitleLang,
@@ -329,6 +331,7 @@ async function resolveAiSidepanelPageRef(contextRef) {
     videoId: ref.videoId,
     cid: ref.cid,
     pageIndex: ref.pageIndex,
+    pageCount: ref.pageCount,
     pageTitle: ref.pageTitle
   };
   if (!site || site.pageOnly) {
@@ -340,6 +343,7 @@ async function resolveAiSidepanelPageRef(contextRef) {
     url: canonicalVideoUrl({ ...meta, site: site.id, videoId: videoRef.id }),
     cid: String(meta.cid || ref.cid || ""),
     pageIndex: meta.pageIndex || ref.pageIndex,
+    pageCount: meta.pageCount || 0,
     pageTitle: String(meta.pageTitle || ref.pageTitle || "")
   };
 }
