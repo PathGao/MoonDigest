@@ -1144,8 +1144,19 @@ async function refollow(mids) {
     pushWriteUndo(mids, { label: "重新关注", backLabel: "取消关注", back: () => [{ type: "follow-relation", mid, act: 2, gone }] });
     return toast(`已在 B站重新关注「${upName(mid)}」 · U 撤销`);
   }
-  const ok = await askConfirm(`在 B站重新关注 ${mids.length} 个 UP 主？`, `${names(mids)}<p class="dialog-hint">原来的标签会放回去，有分组记录的也放回原来的分组。</p>`, `重新关注 ${mids.length} 个`);
-  if (ok) await relationRun(perUp(mids, (mid) => ({ type: "follow-relation", mid, act: 1 })), "重新关注");
+  // A batch asks first and is one undo step for the ones B站 took, asked before U (as 收藏夹's batch 取消收藏).
+  const ok = await askConfirm(`在 B站重新关注 ${mids.length} 个 UP 主？`, `${names(mids)}<p class="dialog-hint">原来的标签会放回去，有分组记录的也放回原来的分组。可以按 U 撤销。</p>`, `重新关注 ${mids.length} 个`);
+  if (!ok) return;
+  const gone = Object.fromEntries(mids.map((m) => [m, D.gone[m]]));
+  const done = mids.slice(0, await relationRun(perUp(mids, (mid) => ({ type: "follow-relation", mid, act: 1 })), "重新关注", { quiet: true }));
+  if (!done.length) return;
+  pushWriteUndo(done, {
+    label: "重新关注",
+    backLabel: "取消关注",
+    back: () => done.map((mid) => ({ type: "follow-relation", mid, act: 2, gone: gone[mid] })),
+    ask: ["在 B站撤销重新关注？", `<p>这 ${done.length} 个 UP 主在 B站再取消关注，「已出分拣范围 › 已取消关注」里的记录和标签照原样放回。</p>${names(done)}`, `撤销 ${done.length} 个`]
+  });
+  if (done.length === mids.length) toast(`已在 B站重新关注 ${done.length} 个 UP 主 · U 撤销`);
 }
 // ---------- 关注分组 on B站 (DESIGN 产品决策 · 改 B站 的操作和撤销) ----------
 // mids from the groups they are in now to want(mid), as one undo step that puts back the groups they had (U on 2+ asks

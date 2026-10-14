@@ -588,7 +588,7 @@ async function followPage({ store = {}, handlers = {}, setup = () => {} } = {}) 
   Object.assign(ctx.MoonTriage, { toast, askConfirm });
   setup(ctx);
   const follow = fs.readFileSync(path.join(__dirname, "follow.js"), "utf8").replace(/^import "\.\/triage\.js";.*$/m, "");
-  await vm.runInContext(`(async () => {\n${follow}\n;globalThis.FW = { F, E, W, relationRun, pushWriteUndo, render };\n})()`, ctx);
+  await vm.runInContext(`(async () => {\n${follow}\n;globalThis.FW = { F, E, W, relationRun, pushWriteUndo, render, refollow };\n})()`, ctx);
   const settle = async (n = 30) => {
     for (let i = 0; i < n; i++) await new Promise((r) => setTimeout(r, 1));
   };
@@ -786,6 +786,18 @@ async function followPage({ store = {}, handlers = {}, setup = () => {} } = {}) 
     p.key("u");
     await p.until(() => p.toasts.at(-1) === "已撤销：取消关注 2 个");
     assert.deepStrictEqual([plain(p.asked), p.ctx.S.modeUndo.length, p.sent.filter((m) => m.act === 1).map((m) => m.mid).join()], [["在 B站撤销取消关注？"], 0, "u1,u2"], "once it is done, U asks and undoes");
+  }
+
+  // K4: a batch 重新关注 is one undo step; U asks first, unfollows them again and puts back their 已取消关注 records.
+  {
+    const gone = { u3: { at: sec - DAY, source: "app", name: "丙" }, u4: { at: sec - DAY, source: "bili", name: "丁" } };
+    const p = await followPage({ store: page({ follow_unfollowed: gone }) });
+    await p.FW.refollow(["u3", "u4"]);
+    assert.deepStrictEqual([plain(p.asked), p.ctx.S.modeUndo.length, p.toasts.at(-1)], [["在 B站重新关注 2 个 UP 主？"], 1, "已在 B站重新关注 2 个 UP 主 · U 撤销"]);
+    p.key("u");
+    await p.until(() => p.toasts.at(-1) === "已撤销：重新关注 2 个");
+    const back = p.sent.filter((m) => m.act === 2);
+    assert.deepStrictEqual([plain(p.asked).at(-1), p.ctx.S.modeUndo.length, plain(back.map((m) => [m.mid, m.gone.source]))], ["在 B站撤销重新关注？", 0, [["u3", "app"], ["u4", "bili"]]]);
   }
 
   // Running a write keeps its UP 主 selected (DESIGN 筛选和计数): only one it took out of the list (取消关注 here) leaves
