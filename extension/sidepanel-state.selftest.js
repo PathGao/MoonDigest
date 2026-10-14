@@ -291,4 +291,14 @@ function panel({ tab = video("BV1aa"), list = [] } = {}) {
   assert.strictEqual(q.view().previousId, "");
 }
 
+// L3: hydrating an old conversation keeps the 分 P 数 the background read (a P1 note of a multi-part video says P1).
+{
+  const old = saved("old", video("BV1mm"));
+  const p = panel({ list: [old] });
+  assert.strictEqual(p.view().saved.find((c) => c.id === "old").contextRef.pageCount, 0);
+  p.dispatch({ type: "PAGE_HYDRATED", id: "old", payload: { url: v("BV1mm"), cid: "c-BV1mm", pageIndex: 1, pageCount: 3 } });
+  const ref = p.view().saved.find((c) => c.id === "old").contextRef;
+  assert.deepStrictEqual([ref.pageIndex, ref.pageCount], [1, 3]);
+}
+
 console.log("sidepanel-state selftest: all passed");

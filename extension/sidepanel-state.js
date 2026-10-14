@@ -627,17 +627,20 @@
       return [];
     }
     const pageIndex = Number(payload.pageIndex) > 0 ? Number(payload.pageIndex) : 1;
+    // 分 P 数: the note's name (P1 of a multi-part video says P1) depends on it, like on the video page.
+    const pageCount = Number(payload.pageCount) > 0 ? Number(payload.pageCount) : Number(contextRef.pageCount) || 0;
     const url = String(payload.url || conversation.contextUrl || contextRef.url || "").trim();
     const ref = {
       ...contextRef,
       url,
       cid: String(payload.cid || contextRef.cid || "").trim(),
       pageIndex,
+      pageCount,
       pageTitle: String(payload.pageTitle || contextRef.pageTitle || "").trim()
     };
     const title = normalizeConversationTitle(conversation.title, conversation.contextTitle, ref, url);
     const contextKey = resolveConversationStorageKey(conversation.contextKey, ref, url);
-    const same = title === conversation.title && url === conversation.contextUrl && contextKey === conversation.contextKey && Number(contextRef.pageIndex || 1) === pageIndex;
+    const same = title === conversation.title && url === conversation.contextUrl && contextKey === conversation.contextKey && Number(contextRef.pageIndex || 1) === pageIndex && Number(contextRef.pageCount || 0) === pageCount;
     const next = same ? { ...conversation, pageHydrated: true } : { ...conversation, pageHydrated: true, title, contextUrl: url, contextKey, contextRef: ref };
     s.saved = normalizeConversations(s.saved.map((item) => (item.id === id ? next : item)));
     if (id === s.conv.id && s.conv.pinned) {
