@@ -955,7 +955,11 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     triage_tab: "all", aiProviderKeys: { x: "sk-live-1" }, obsidianApiKey: "secret-token"
   });
   t.S.folders = t.S.allFolders = [{ id: 7, title: "夹" }];
+  Object.assign(t.S.settings, { triageCoarseBatchSize: 5000, triageFineBatchSize: 7 });
   const backup = plain(await t.buildBackup());
+  // G13: both batch sizes go in too, as read (clamped).
+  assert.deepStrictEqual([backup.settings.triageCoarseBatchSize, backup.settings.triageFineBatchSize], [1000, 7]);
+  Object.assign(t.S.settings, { triageCoarseBatchSize: 100, triageFineBatchSize: 10 });
   assert.deepStrictEqual(backup.folders, { 7: { title: "夹", snapshot: { bvids: ["BVa"] }, decisions: { BVa: { action: "keep" } } } });
   assert.strictEqual(backup.schemaVersion, 3);
   assert.deepStrictEqual([backup.tags, backup.folderCriteria, backup.videoTags], [[{ id: "t1", name: "AI", color: "#111" }], { 7: "只留干货" }, { BVa: ["t1"] }]);

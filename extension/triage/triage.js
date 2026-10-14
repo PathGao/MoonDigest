@@ -3927,6 +3927,8 @@ async function buildBackup() {
     extensionVersion: chrome.runtime.getManifest?.().version || "",
     settings: {
       triageIntervalSec: S.settings.triageIntervalSec,
+      triageCoarseBatchSize: coarseBatchSize(),
+      triageFineBatchSize: fineBatchSize(),
       triageAiBatchSize: aiBatchSize()
     },
     tags: [],
