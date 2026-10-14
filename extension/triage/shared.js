@@ -206,6 +206,8 @@
     el.title = a.text; // the whole line on hover, for a narrow window that cuts it
     el.innerHTML = activityHtml(a);
   }
+  // A wait on B站's risk control, in every pill and line of both modes: 「B站限流卡住，01:30 后重试」.
+  const BILI_STUCK = "B站限流卡住";
   // 「B站限流卡住，01:30 后重试」 while sec > 0, else "".
   const waitText = (why, sec) => (sec > 0 ? `${why}，${fmtDuration(sec)} 后重试` : "");
   // 关注's wait on B站限流: follow-bg.js's queue pause, and the page's wait before a write or a 视频投稿 page goes again.
@@ -258,11 +260,13 @@
   const WARN_DOT = '<i class="dot-warn" aria-hidden="true"></i>';
 
   // 标签管理 and ✦ AI 打标签 at the right end of the tag row, next to the tags they act on (in 收藏夹 those are the open
-  // folder's, so they do not sit in the sidebar). state is 「 · 运行中」 or 「 · 待确认」. noTags puts the dot on 标签管理.
+  // folder's, so they do not sit in the sidebar). running / pending (an AI 打标签 run, a proposal waiting) add 「 · 运行中」
+  // / 「 · 待确认」. noTags puts the dot on 标签管理.
   // picked: the selected ones listed now (all of them when filters hide every one, as the selection bar's buttons; the
   // dialog's 运行 then says HIDDEN_ALL); the dialog opens on 选中, so the button says how many, as 粗看's does.
   // It stays in row 4: the selection bar has no AI 打标签 of its own.
-  const tagButtons = ({ manageAttrs, aiAttrs, state = "", manageReason = "", aiReason = "", noTags = false, picked = 0 }) => {
+  const tagButtons = ({ manageAttrs, aiAttrs, running = false, pending = false, manageReason = "", aiReason = "", noTags = false, picked = 0 }) => {
+    const state = running ? " · 运行中" : pending ? " · 待确认" : "";
     const ai = `AI 打标签${picked && !state && !aiReason ? `选中的 ${picked} 个` : ""}`;
     return `<span class="tags-acts"><button type="button" class="act-btn" ${manageAttrs}${noTags && !manageReason ? ' aria-label="标签管理（还没有自定义标签）"' : ""}${reasonAttrs(manageReason)}>标签管理${noTags && !manageReason ? WARN_DOT : ""}</button><button type="button" class="act-btn" ${aiAttrs} aria-label="${ai} (I)"${reasonAttrs(aiReason)}>${AI_SPARK}${ai}${esc(state)}</button></span>`;
   };
@@ -361,6 +365,10 @@
 
   // ----- tags: both modes' 标签管理 and the 「+ 标签」 button (the picker itself is tag-picker.js) -----
   // Why name cannot be a tag among others (the list it would join, itself left out), or "".
+  // A tag's 说明 (what the AI reads for it): at most this many characters, in 标签管理 and in the prompt.
+  const TAG_RULE_MAX = 80;
+  // An AI 打标签 proposal kept until 应用 or 放弃: the pill's words in both modes.
+  const AI_TAGS_PENDING = "标签建议待确认";
   const tagNameError = (name, others) => (!name ? "标签名不能为空" : others.some((t) => t.name === name) ? "已有同名标签" : "");
   // who is 视频 or UP 主; a Latin word gets a space before it (「个 UP 主」, 「个视频」).
   const sp = (who) => (/^[A-Za-z]/.test(who) ? ` ${who}` : who);
@@ -395,7 +403,7 @@
     if (field === "color") return { tag: { ...t, color: cycleTagColor(t.color) } };
     if (field !== "rule") return {};
     const { rule: _, ...rest } = t;
-    const rule = String(value ?? "").trim().slice(0, 80);
+    const rule = String(value ?? "").trim().slice(0, TAG_RULE_MAX);
     return { tag: rule ? { ...rest, rule } : rest };
   }
   // A tag map ({ key: [tag ids] }) without one tag; a key left with none drops out.
@@ -426,7 +434,7 @@
   const tagRowHtml = (t, { count, who }) => `<div class="tag-row" data-id="${esc(t.id)}">
       <button type="button" class="tag-color" style="--c:${esc(t.color)}" data-tag-color title="换一个颜色" aria-label="换 ${esc(t.name)} 的颜色"></button>
       <input type="text" name="tagName" value="${esc(t.name)}" data-field="name" maxlength="${MdgTagCore.TAG_NAME_MAX}" aria-label="标签名称" />
-      <input type="text" name="tagRule" value="${esc(t.rule || "")}" data-field="rule" maxlength="80" placeholder="什么样的${esc(sp(who))}打这个标签（给 AI 看，可不写）" aria-label="${esc(t.name)} 的说明" />
+      <input type="text" name="tagRule" value="${esc(t.rule || "")}" data-field="rule" maxlength="${TAG_RULE_MAX}" placeholder="什么样的${esc(sp(who))}打这个标签（给 AI 看，可不写）" aria-label="${esc(t.name)} 的说明" />
       <span class="muted">${count} 个${esc(sp(who))}</span>
       <button type="button" class="danger" data-tag-del aria-label="删除标签 ${esc(t.name)}">删除</button>
     </div>`;
@@ -702,5 +710,5 @@
     return instant;
   }
 
-  globalThis.TriageUi = { esc, pad, dayText, fmtDate, fmtAgo, agoHtml, setSearchScope, confirmList, pickTitle, fmtDuration, fmtCount, cleanTagName, plainClick, cardPlayClick, cardPickClick, pickCard, img, toCsv, cardTagChip, syncedText, headMeta, titleHtml, AI_SPARK, byValue, dirWords, sortControl, filterBtn, labeledRow, tagFilterChip, kindTabs, originChip, stateGroup, aiRecentChip, searchBox, bindSearch, resultCount, rowButtons, menuItem, BACKUP_ITEM, CLEAN_BACKUP, reasonAttrs, setReason, WARN_DOT, selectAllState, selectAllBox, toggleAll, setActivity, waitText, BILI_HOLD_MS, WRITE_STOPPING, busyText, syncPill, setSync, bindSync, tagButtons, sideFoot, actBtn, cleanBtn, HIDDEN_ALL, selbar, askTransfer, sideItem, emptyState, refreshEmpty, noMatch, fillSetRows, fillNumHints, NUM_SETTINGS, TITLES_PER_REQUEST, INTRO_CHARS, DEEP_COMMENTS, autoMaxTokens, numSetting, clampNumber, intIn, clampNumbers, mergeAiBatch, aiChanges, aiProposalOk, previewId, aiTally, nextTagColor, tagNameError, deleteTagAsk, editedTag, withoutTag, undoAsk, tagRowHtml, sp, tagsWord, AI_RECENT_RULES, aiRecentUndo, tagPlusBtn, viewerLine, viewerKeyFrom, headFold, FOLLOW_WRITE_GAP_MS, AI_TAGS_DONE, aiTagsFailed, aiApplied, aiHistoryAdd };
+  globalThis.TriageUi = { esc, pad, dayText, fmtDate, fmtAgo, agoHtml, setSearchScope, confirmList, pickTitle, fmtDuration, fmtCount, cleanTagName, plainClick, cardPlayClick, cardPickClick, pickCard, img, toCsv, cardTagChip, syncedText, headMeta, titleHtml, AI_SPARK, byValue, dirWords, sortControl, filterBtn, labeledRow, tagFilterChip, kindTabs, originChip, stateGroup, aiRecentChip, searchBox, bindSearch, resultCount, rowButtons, menuItem, BACKUP_ITEM, CLEAN_BACKUP, reasonAttrs, setReason, WARN_DOT, selectAllState, selectAllBox, toggleAll, setActivity, BILI_STUCK, waitText, BILI_HOLD_MS, WRITE_STOPPING, busyText, syncPill, setSync, bindSync, tagButtons, sideFoot, actBtn, cleanBtn, HIDDEN_ALL, selbar, askTransfer, sideItem, emptyState, refreshEmpty, noMatch, fillSetRows, fillNumHints, NUM_SETTINGS, TITLES_PER_REQUEST, INTRO_CHARS, DEEP_COMMENTS, autoMaxTokens, numSetting, clampNumber, intIn, clampNumbers, mergeAiBatch, aiChanges, aiProposalOk, previewId, aiTally, nextTagColor, TAG_RULE_MAX, AI_TAGS_PENDING, tagNameError, deleteTagAsk, editedTag, withoutTag, undoAsk, tagRowHtml, sp, tagsWord, AI_RECENT_RULES, aiRecentUndo, tagPlusBtn, viewerLine, viewerKeyFrom, headFold, FOLLOW_WRITE_GAP_MS, AI_TAGS_DONE, aiTagsFailed, aiApplied, aiHistoryAdd };
 })();

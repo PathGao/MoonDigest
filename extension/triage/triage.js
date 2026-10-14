@@ -4,7 +4,7 @@ if (!globalThis.chrome?.runtime?.id) await import("./dev/mock-chrome.js");
 // ---------- constants ----------
 const THROTTLE_MS = globalThis.__TRIAGE_THROTTLE_MS || 10 * 60 * 1000;
 // Error code -> the limit wait (runs.js's hold: { ms, label }). AI 429s clear far sooner than B站 risk control.
-const THROTTLES = { THROTTLED: { ms: THROTTLE_MS, label: "B站限流卡住" }, AI_THROTTLED: { ms: 60 * 1000, label: "AI 平台限流卡住" } };
+const THROTTLES = { THROTTLED: { ms: THROTTLE_MS, label: TriageUi.BILI_STUCK }, AI_THROTTLED: { ms: 60 * 1000, label: "AI 平台限流卡住" } };
 const SYNC_MIN_GAP_MS = 60 * 1000;
 // Progress tabs: how far a video has been looked at. The AI class is a filter inside a tab, never a tab.
 // 阅览 sits apart after them.
@@ -215,8 +215,8 @@ const runs = MdgRuns.create({ redraw: () => renderStatus(), hold: (r) => THROTTL
 const PILL = ["group", "stage1", "fav", "write", "load", "check", "sync", "ai", "proposal", "aiOther", "seen", "seenRead"];
 runs.put("load", () => loadAllActivity());
 runs.put("sync", () => S.syncing && { text: `刷新中…${pageText(S.mediaId)}` });
-runs.put("proposal", () => S.ai.proposal && { text: "标签建议待确认" });
-runs.put("aiOther", () => otherAiFolder() && { text: `「${folderName(otherAiFolder())}」的标签建议待确认` });
+runs.put("proposal", () => S.ai.proposal && { text: UI.AI_TAGS_PENDING });
+runs.put("aiOther", () => otherAiFolder() && { text: `「${folderName(otherAiFolder())}」的${UI.AI_TAGS_PENDING}` });
 // 观看进度's 30-minute pause on B站 risk control comes from the background (triage_seen_meta); tick() redraws it.
 runs.put("seen", () => S.seenCfg.on && S.seenRead.until > Date.now() && { text: "观看进度", wait: { until: S.seenRead.until, label: THROTTLES.THROTTLED.label } });
 runs.put("seenRead", () => S.seenCfg.on && S.seenRead.busy && S.seenRead.pages && { text: `读观看进度… 已读 ${S.seenRead.pages} 页` });
@@ -1876,7 +1876,8 @@ function renderTagButtons() {
     picked: shownPicked,
     manageAttrs: "data-tags-manage",
     aiAttrs: "data-ai-tag",
-    state: aiRunning() ? " · 运行中" : S.ai.proposal ? " · 待确认" : "",
+    running: aiRunning(),
+    pending: Boolean(S.ai.proposal),
     manageReason: inFolderView() ? "" : FOLDER_ONLY,
     aiReason: aiTagReason(),
     noTags: !viewTags().length

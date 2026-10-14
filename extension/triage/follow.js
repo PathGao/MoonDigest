@@ -24,7 +24,7 @@ function lastPostOf(mid, D) {
 
 // 更新状态: active | slow | dead by the newest post; none = 没投过稿 (or the account is gone); stale = the feed reached
 // back past slowDays without them and their videos were not read yet (慢更还是断更待查); unchecked = 未查.
-function followStatus(mid, D, now, slowDays = 90, deadDays = 365) {
+function followStatus(mid, D, now, slowDays = UI.numSetting("slowDays"), deadDays = UI.numSetting("deadDays")) {
   const last = lastPostOf(mid, D);
   if (last) {
     const days = (now - last) / DAY;
@@ -610,7 +610,7 @@ function renderSyncChanges() {
 // disabled and says why (a run or a proposal stays reachable).
 const aiReason = () => (aiRunning() || AI.proposal ? "" : aiBlocked(F.tab, F.side));
 function renderAiButton() {
-  $("fwAiSlot").innerHTML = UI.tagButtons({ manageAttrs: 'data-fw="tags"', aiAttrs: 'data-fw="ai"', aiReason: aiReason(), noTags: !D.tags.length, picked: F.tab === "ups" ? selShown().length || F.sel.size : 0, state: aiRunning() ? " · 运行中" : AI.proposal ? " · 待确认" : "" });
+  $("fwAiSlot").innerHTML = UI.tagButtons({ manageAttrs: 'data-fw="tags"', aiAttrs: 'data-fw="ai"', aiReason: aiReason(), noTags: !D.tags.length, picked: F.tab === "ups" ? selShown().length || F.sel.size : 0, running: aiRunning(), pending: Boolean(AI.proposal) });
 }
 function renderAiState() {
   renderSync();
@@ -947,7 +947,7 @@ function renderFoot(n = feedList(F.feed.items, D, feedF(), null).length) {
   // Stuck, as the sync's amber pill with the red ⚠ and the countdown: B站限流 (then more() tries again by itself), or the
   // background holding its queue (risk control, a dropped connection) while this page waits for a page.
   const hold = f.loading && F.hold?.until > nowSec() ? F.hold : null;
-  const stuck = f.wait ? runs.get("follow-feed")?.wait || "B站限流卡住" : hold && UI.waitText(holdLabel(hold), Math.ceil(hold.until - nowSec()));
+  const stuck = f.wait ? runs.get("follow-feed")?.wait || UI.BILI_STUCK : hold && UI.waitText(holdLabel(hold), Math.ceil(hold.until - nowSec()));
   if (stuck) {
     foot.innerHTML = `<p>${esc(reach)}</p><span class="activity" role="status"></span>`;
     return UI.setActivity(foot.lastChild, { text: stuck, stuck: true });
@@ -1040,10 +1040,10 @@ const runs = MdgRuns.create({
     renderSync();
     if (F.feed?.wait) renderFoot();
   },
-  hold: (r) => (r.code === "THROTTLED" ? { ms: UI.BILI_HOLD_MS, label: "B站限流卡住" } : T.hold(r))
+  hold: (r) => (r.code === "THROTTLED" ? { ms: UI.BILI_HOLD_MS, label: UI.BILI_STUCK } : T.hold(r))
 });
 // The background's queue pause (follow_jobs.hold, follow_hold) in words.
-const holdLabel = (h) => (h.why === "throttled" ? "B站限流卡住" : MdgErrors.TEXT.netDown);
+const holdLabel = (h) => (h.why === "throttled" ? UI.BILI_STUCK : MdgErrors.TEXT.netDown);
 // The refresh's line, its hold (B站 risk control or a dropped connection) counting down after it; once the hold is over
 // the requests go slower for a while (follow-bg.js FOLLOW_CFG.slowForMs).
 runs.put("sync", () => {
@@ -1054,7 +1054,7 @@ runs.put("sync", () => {
   const text = `${slowed ? "B站限流变慢 · " : ""}${j.step || PHASE[j.phase] || "刷新中"}${j.total ? ` ${j.done || 0}/${j.total}` : j.done ? ` ${j.done}` : ""}`;
   return { text, done: j.done || 0, total: j.total || 0, slowed, wait: held && { until: j.hold.until * 1000, label: holdLabel(j.hold) } };
 });
-runs.put("proposal", () => AI.proposal && { text: "标签建议待确认" });
+runs.put("proposal", () => AI.proposal && { text: UI.AI_TAGS_PENDING });
 // 关注's writes to B站 (writes.js), on their own lane: their keys are mids, their undo steps 关注's, and a 收藏夹 batch
 // never blocks them.
 const W = MdgWrites.create({ runs, lane: "follow-write", send, line: (p) => `${p.name}中 ${p.done}/${p.total}` });

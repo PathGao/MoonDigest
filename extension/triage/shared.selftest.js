@@ -406,6 +406,9 @@ for (const [file, fns] of [["triage.js", ["mergeAiBatch", "aiChanges"]], ["follo
   assert.ok(UI.tagButtons({ manageAttrs: "data-m", aiAttrs: "data-a", noTags: true }).includes('aria-label="标签管理（还没有自定义标签）">标签管理<i class="dot-warn"'));
   const off = UI.tagButtons({ manageAttrs: "data-m", aiAttrs: "data-a", noTags: true, manageReason: "先打开", aiReason: "先打开" });
   assert.ok(!off.includes("dot-warn") && (off.match(/disabled title="先打开"/g) || []).length === 2, off);
+  // K9: the run's state is drawn here from running / pending, never counting a selection.
+  const ai = (o) => UI.tagButtons({ manageAttrs: "data-m", aiAttrs: "data-a", picked: 2, ...o }).match(/<\/span>(AI 打标签[^<]*)<\/button>/)[1];
+  assert.deepStrictEqual([ai({}), ai({ running: true }), ai({ pending: true }), ai({ running: true, pending: true })], ["AI 打标签选中的 2 个", "AI 打标签 · 运行中", "AI 打标签 · 待确认", "AI 打标签 · 运行中"]);
 }
 
 
@@ -461,6 +464,9 @@ for (const [file, fns] of [["triage.js", ["mergeAiBatch", "aiChanges"]], ["follo
   // A selection filters hide whole: still 「清理选中的 N 个」 with the true count, off with why, never 「清理这 N 个」.
   assert.ok(UI.cleanBtn('data-x="c"', { picked: 2, shown: 0, n: 2, why: "空" }).includes('aria-label="清理选中的 2 个" disabled title="选中的都被筛选隐藏了"'));
   both("UI.cleanBtn(", "draws 清理 with cleanBtn");
+  // K9: one copy of these words and numbers, in shared.js.
+  neither(/"B站限流卡住"|标签建议待确认| · 运行中| · 待确认|slowDays = 90|deadDays = 365/, "a copy of shared.js's words or defaults");
+  for (const f of ["shared.js", "triage-bg.js"]) assert.ok(!/maxlength="80"|slice\(0, 80\)/.test(src(f)), `${f}: the 说明's cap is TAG_RULE_MAX`);
   // K5: before 清理 both modes name one way to keep a copy, from shared.js.
   both("${UI.CLEAN_BACKUP.ask}", "the 清理 confirm's backup line");
   both("${UI.CLEAN_BACKUP.meta}", "已出分拣范围's backup hint");
