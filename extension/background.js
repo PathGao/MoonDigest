@@ -416,7 +416,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         });
         sendResponse({ ok: true });
       })
-      .catch((error) => sendResponse({ ok: false, error: error.message || "未知错误" }));
+      .catch((error) => sendResponse({ ok: false, error: error.message || MdgErrors.TEXT.unknown }));
     return true;
   }
 

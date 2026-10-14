@@ -24,11 +24,11 @@
         <button id="spNoteToggle" type="button" class="sp-note-toggle is-empty" title="这个视频的备注，和分拣台卡片上的备注是同一份"><span class="sp-note-label"><span class="sp-note-add">✎ 备注</span><span class="sp-note-head">✎ 备注</span></span><span id="spNoteText" class="sp-note-text"></span></button>
         <textarea id="spNoteInput" class="sp-note-input" rows="2" placeholder="一句话备注，回车保存" aria-label="备注" hidden></textarea>
       </section>
-      <div class="sp-center-error" aria-busy="true">正在读取视频字幕…</div>
+      <div class="sp-center-error" aria-busy="true" data-text="subtitleReading">正在读取视频字幕…</div>
       <div class="sp-suggestions" id="spSuggestions"></div>
     </main>
     <footer class="sp-footer">
-      <div id="spSyncStatus" class="sp-sync-status" hidden><span></span><button type="button" data-act="settings" hidden>去设置</button><button type="button" data-act="retry">重试</button></div>
+      <div id="spSyncStatus" class="sp-sync-status" hidden><span></span><button type="button" data-act="settings" hidden data-text="toSettings">去设置</button><button type="button" data-act="retry" data-text="retry">重试</button></div>
       <div class="sp-toolbar">
         <button id="spNewChatBtn" type="button" class="sp-toolbar-btn" title="开启新对话">
           <svg viewBox="0 0 24 24" focusable="false" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg>
@@ -58,7 +58,7 @@
               <rect x="9" y="9" width="10" height="10" rx="2"></rect>
               <path d="M7 15H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h7a2 2 0 0 1 2 2v1"></path>
             </svg>
-            <span>复制 Markdown</span>
+            <span data-text="copyMd">复制 Markdown</span>
           </button>
           <button id="spDownloadConversationBtn" type="button" class="sp-export-item" role="menuitem">
             <svg viewBox="0 0 24 24" focusable="false" aria-hidden="true">
@@ -66,16 +66,16 @@
               <path d="m7 10 5 5 5-5"></path>
               <path d="M5 20h14"></path>
             </svg>
-            <span>下载 .md</span>
+            <span data-text="downloadMd">下载 .md</span>
           </button>
           <button id="spSaveConversationBtn" type="button" class="sp-export-item" role="menuitem">
             <img class="obsidian-mark" src="/icons/obsidian.svg" alt="">
-            <span>写入 Obsidian</span>
+            <span data-text="writeObsidian">写入 Obsidian</span>
           </button>
         </div>
         <div id="spHistoryPopover" class="sp-history-popover" hidden>
           <div class="sp-history-popover-head">
-            <a class="sp-history-manage" href="./history/history.html" target="_blank" title="打开视频记录" aria-label="打开视频记录">视频记录</a>
+            <a class="sp-history-manage" href="./history/history.html" target="_blank" title="打开视频记录" aria-label="打开视频记录" data-text="history">视频记录</a>
           </div>
           <div id="spHistoryList" class="sp-history-list"></div>
         </div>

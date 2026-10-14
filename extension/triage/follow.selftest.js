@@ -417,7 +417,7 @@ assert.ok(source.includes(`pushTagUndo(before, "标签修改", { ask: changes.le
 
 // 关注设置 and the AI settings it seeds: a failed chrome.storage.sync.set says so, as 收藏夹设置 does.
 assert.strictEqual((source.match(/chrome\.storage\.sync\.set\(/g) || []).length, 3);
-assert.ok(/\.set\(\{ follow_ai_settings: seed \}\)\.catch\(\(e\) => toast\(`保存设置失败：/.test(source) && /try \{\s*await chrome\.storage\.sync\.set\(\{ follow_ai_settings: ai, \.\.\.days \}\);\s*\} catch \(e\) \{\s*return toast\(`保存设置失败：/.test(source), "both writes catch");
+assert.ok(/\.set\(\{ follow_ai_settings: seed \}\)\.catch\(\(e\) => toast\(`\$\{MdgErrors\.TEXT\.settingsSaveFailed\}：/.test(source) && /try \{\s*await chrome\.storage\.sync\.set\(\{ follow_ai_settings: ai, \.\.\.days \}\);\s*\} catch \(e\) \{\s*return toast\(`\$\{MdgErrors\.TEXT\.settingsSaveFailed\}：/.test(source), "both writes catch");
 
 // The player's T / Esc reach 关注 through triage.js's one message listener (modeKeys), as page keys do.
 assert.ok(!/addEventListener\("message"/.test(source), "follow.js has no message listener of its own");
