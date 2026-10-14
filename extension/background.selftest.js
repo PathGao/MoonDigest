@@ -347,6 +347,15 @@ process.on("exit", (code) => {
     ctx.chrome = was;
   }
 
+  // L2: a page the content script cannot sync with: the reason only, no instruction (the popup words the failure).
+  {
+    const was = [ctx.chrome, ctx.injectReaderContent];
+    ctx.chrome = { scripting: { executeScript: async () => [{ result: "old" }] } };
+    ctx.injectReaderContent = async () => {};
+    await assert.rejects(ctx.ensureReaderContentReady(1), (e) => e.message === "扩展脚本未能和当前页面同步");
+    [ctx.chrome, ctx.injectReaderContent] = was;
+  }
+
   // The side panel saves the context URL with a conversation, so reader mode and tracking params never reach it.
   const contextFor = async (tabUrl, payload) => {
     ctx.chrome = { tabs: { get: async () => ({ id: 1, url: tabUrl }) } };

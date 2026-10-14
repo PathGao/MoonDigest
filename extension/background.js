@@ -55,7 +55,8 @@ async function ensureReaderContentReady(tabId) {
     return;
   }
 
-  throw new Error("扩展脚本未能和当前页面同步，请刷新网页重试");
+  // The reason only: the popup says MdgErrors.TEXT.readerStartFailed in front of it.
+  throw new Error("扩展脚本未能和当前页面同步");
 }
 
 async function sleep(ms) {
