@@ -79,4 +79,25 @@ assert.ok(!/seenThreshold\.value = String\((readFormPayload\(\)|payload)\.seenTh
   assert.ok(!fn("addNoteSectionRow").includes("setStatus("), "no toast for a click that could not work");
 }
 
+// An AI platform's 测试连接 is disabled with the reason while 接口地址 or 模型 is empty, by what the boxes hold now.
+{
+  const stub = () => {
+    const attrs = {};
+    const L = {};
+    return { value: "", attrs, L, dataset: {}, classList: { add() {}, remove() {}, contains: () => false }, setAttribute: (k, v) => (attrs[k] = v), removeAttribute: (k) => delete attrs[k], addEventListener: (t, f) => ((L[t] ||= []).push(f)), querySelector: () => null };
+  };
+  const parts = {};
+  const row = { ...stub(), querySelector: (sel) => (parts[sel] ||= stub()), querySelectorAll: () => [] };
+  const page = vm.createContext({ MdgErrors: ctx.MdgErrors, escapeHtml: ctx.MdgErrors.escapeHtml, AI_PRESETS: [{ id: "custom", name: "自定义", baseUrl: "", model: "" }], document: { createElement: () => row }, elements: { aiProvidersList: { appendChild() {} } }, updateAiProvidersEmptyState() {} });
+  vm.runInContext([fn("addAiProviderRow"), fn("apiKeyPlaceholder"), fn("generateAiProviderId")].join("\n"), page);
+  page.addAiProviderRow({});
+  const test = parts[".ai-provider-test"];
+  const type = (sel, v) => ((parts[sel].value = v), parts[sel].L.input.forEach((f) => f()));
+  assert.deepStrictEqual([test.disabled, test.title], [true, "先填接口地址和模型"]);
+  type(".ai-provider-baseurl", "https://api.example.com/v1");
+  assert.deepStrictEqual([test.disabled, test.title], [true, "先填模型"]);
+  type(".ai-provider-model", "m");
+  assert.deepStrictEqual([test.disabled, test.title, test.attrs["aria-description"]], [false, "用这一行的地址、模型和 Key 向 AI 发一条测试消息", undefined]);
+}
+
 console.log("options selftest: all passed");

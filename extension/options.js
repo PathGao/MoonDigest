@@ -1253,7 +1253,7 @@ function addAiProviderRow(item = {}) {
       <input class="ai-provider-apikey" name="aiProviderApiKey" type="password" aria-label="API Key" placeholder="${apiKeyPlaceholder(hasSavedKey, requiresKey)}" autocomplete="off" />
       <span class="keytag"${hasSavedKey ? "" : " hidden"}>已保存</span>
     </div>
-    <button type="button" class="sm ai-provider-test" title="用这一行的地址、模型和 Key 向 AI 发一条测试消息"><span class="ai-spark" aria-hidden="true"></span>测试连接</button>
+    <button type="button" class="sm ai-provider-test"><span class="ai-spark" aria-hidden="true"></span>测试连接</button>
     <button type="button" class="ai-provider-remove" aria-label="删除平台" title="删除平台">
       <svg viewBox="0 0 24 24" focusable="false" aria-hidden="true">
         <path d="M4 7h16"></path>
@@ -1282,7 +1282,17 @@ function addAiProviderRow(item = {}) {
     const apikeyInput = row.querySelector(".ai-provider-apikey");
     apikeyInput.placeholder = apiKeyPlaceholder(row.dataset.hasSavedKey === "1", next.requiresKey);
     row.dataset.currentPresetId = next.id;
+    syncTest();
   });
+
+  // 测试连接 needs this row's 接口地址 and 模型: disabled with the reason while either box is empty.
+  const testBtn = row.querySelector(".ai-provider-test");
+  const syncTest = () => {
+    const missing = [["接口地址", ".ai-provider-baseurl"], ["模型", ".ai-provider-model"]].filter(([, sel]) => !row.querySelector(sel).value.trim()).map(([name]) => name);
+    MdgErrors.setReason(testBtn, missing.length ? `先填${missing.join("和")}` : "", "用这一行的地址、模型和 Key 向 AI 发一条测试消息");
+  };
+  syncTest();
+  for (const sel of [".ai-provider-baseurl", ".ai-provider-model"]) row.querySelector(sel).addEventListener("input", syncTest);
 
   // Long addresses end in an ellipsis; hovering shows the whole one.
   const baseUrlInput = row.querySelector(".ai-provider-baseurl");
@@ -1325,13 +1335,12 @@ function addAiProviderRow(item = {}) {
     updateSavedProviders((list) => list.filter((item) => item.id !== row.dataset.providerId));
   });
 
-  row.querySelector(".ai-provider-test")?.addEventListener("click", async () => {
+  testBtn.addEventListener("click", async () => {
     const statusNode = row.querySelector(".ai-provider-status");
     const baseUrl = row.querySelector(".ai-provider-baseurl").value.trim();
     const apiKey = row.querySelector(".ai-provider-apikey").value.trim();
     const model = row.querySelector(".ai-provider-model").value.trim();
-    // The background checks 接口地址 and 模型名 (testAiConnection) and answers in the side panel's words.
-    const testBtn = row.querySelector(".ai-provider-test");
+    // The background checks 接口地址 and 模型名 too (testAiConnection) and answers in the side panel's words.
     showAiProviderStatus(statusNode, "正在测试…");
     statusNode.setAttribute("aria-busy", "true");
     testBtn.disabled = true;
@@ -1343,7 +1352,7 @@ function addAiProviderRow(item = {}) {
       model
     }).catch((error) => ({ ok: false, error: error.message }));
     statusNode.setAttribute("aria-busy", "false");
-    testBtn.disabled = false;
+    syncTest();
     if (resp?.ok) {
       showAiProviderStatus(statusNode, hasUnsavedChanges ? "连接成功，记得保存设置" : "连接成功");
     } else {
