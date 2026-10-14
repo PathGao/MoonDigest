@@ -270,7 +270,7 @@ function hasNativeReaderPlayerLayoutIssue(playerHost = state.readingPlayerHost) 
 }
 
 function shouldDebugLog() {
-  return Boolean(state.settings?.enableDebugLogs);
+  return state.settings.enableDebugLogs;
 }
 
 function logInfo(...args) {

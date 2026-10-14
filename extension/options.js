@@ -256,7 +256,7 @@ async function renderStorageLimits() {
 async function loadSettings() {
   const settings = await getSettings();
   void renderStorageLimits();
-  elements.obsidianEnabled.checked = settings.obsidianEnabled === true;
+  elements.obsidianEnabled.checked = settings.obsidianEnabled;
   syncObsidianBody();
   elements.noteFolder.value = settings.noteFolder || "";
   elements.obsidianApiBaseUrl.value = settings.obsidianApiBaseUrl || "";
@@ -264,23 +264,23 @@ async function loadSettings() {
   elements.tags.value = settings.tags || "";
   elements.downloadFormat.value = MdgSettings.normalizeDownloadFormat(settings.downloadFormat);
   elements.youtubeSubtitleLang.value = settings.youtubeSubtitleLang || "auto";
-  elements.includeDateInFilename.checked = settings.includeDateInFilename !== false;
-  elements.includeHotCommentsInNote.checked = Boolean(settings.includeHotCommentsInNote);
-  elements.includeCoverInNote.checked = settings.includeCoverInNote !== false;
-  elements.includeAiChatInNote.checked = settings.includeAiChatInNote !== false;
-  elements.enablePlayerAiQuickAction.checked = Boolean(settings.enablePlayerAiQuickAction);
+  elements.includeDateInFilename.checked = settings.includeDateInFilename;
+  elements.includeHotCommentsInNote.checked = settings.includeHotCommentsInNote;
+  elements.includeCoverInNote.checked = settings.includeCoverInNote;
+  elements.includeAiChatInNote.checked = settings.includeAiChatInNote;
+  elements.enablePlayerAiQuickAction.checked = settings.enablePlayerAiQuickAction;
   elements.playerAiQuickPrompt.value = String(settings.playerAiQuickPrompt || "");
-  elements.includeTimestampInBody.checked = Boolean(settings.includeTimestampInBody);
-  elements.showBiliTriageBadges.checked = settings.showBiliTriageBadges !== false;
-  elements.showBiliUpTags.checked = settings.showBiliUpTags !== false;
-  elements.showBiliVerdicts.checked = settings.showBiliVerdicts === true;
+  elements.includeTimestampInBody.checked = settings.includeTimestampInBody;
+  elements.showBiliTriageBadges.checked = settings.showBiliTriageBadges;
+  elements.showBiliUpTags.checked = settings.showBiliUpTags;
+  elements.showBiliVerdicts.checked = settings.showBiliVerdicts;
   renderBiliMarks(settings.biliMarksOff);
   elements.seenShow.value = MdgSettings.normalizeSeenShow(settings.seenShow);
   elements.seenThreshold.value = String(MdgSettings.normalizeSeenThreshold(settings.seenThreshold));
   elements.seenStyle.value = MdgSettings.normalizeSeenStyle(settings.seenStyle);
   syncSeenRows();
   syncBiliMarks();
-  elements.enableDebugLogs.checked = Boolean(settings.enableDebugLogs);
+  elements.enableDebugLogs.checked = settings.enableDebugLogs;
   // "bvid" was the field name before the site registry.
   const selectedFields = new Set((settings.frontmatterFields || DEFAULT_SETTINGS.frontmatterFields).map((field) => (field === "bvid" ? "video_id" : field)));
   elements.frontmatterFields.forEach((checkbox) => {
@@ -328,14 +328,16 @@ function renderBiliMarks(off) {
 
 // A column whose switch is off (above, or 封面显示 in 观看进度) keeps its boxes but greys them out.
 function syncBiliMarks() {
+  // The reason names the switch by its own label.
+  const why = (on, el) => (on ? "" : `「${document.querySelector(`label[for="${el.id}"]`).textContent}」关着`);
   const off = {
-    verdict: !elements.showBiliVerdicts.checked,
-    vtags: !elements.showBiliTriageBadges.checked,
-    ups: !elements.showBiliUpTags.checked,
-    plus: !elements.showBiliUpTags.checked,
-    seen: elements.seenShow.value === "off"
+    verdict: why(elements.showBiliVerdicts.checked, elements.showBiliVerdicts),
+    vtags: why(elements.showBiliTriageBadges.checked, elements.showBiliTriageBadges),
+    ups: why(elements.showBiliUpTags.checked, elements.showBiliUpTags),
+    plus: why(elements.showBiliUpTags.checked, elements.showBiliUpTags),
+    seen: why(elements.seenShow.value !== "off", elements.seenShow)
   };
-  elements.biliMarks.querySelectorAll("input[data-col]").forEach((box) => (box.disabled = off[box.dataset.col]));
+  elements.biliMarks.querySelectorAll("input[data-col]").forEach((box) => MdgErrors.setReason(box, off[box.dataset.col]));
 }
 
 // 看到多少算看完了 and the mark style only matter while the mark is shown. The example covers follow the unsaved form:
@@ -1425,7 +1427,7 @@ function collectAiProviders() {
 }
 
 function hostPermissionUrls(settings, providers) {
-  return [settings.obsidianEnabled === true ? settings.obsidianApiBaseUrl : "", ...providers.map((item) => item.baseUrl)];
+  return [settings.obsidianEnabled ? settings.obsidianApiBaseUrl : "", ...providers.map((item) => item.baseUrl)];
 }
 
 // Loopback hosts are in host_permissions already; everything else is optional.
