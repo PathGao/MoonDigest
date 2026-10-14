@@ -131,7 +131,8 @@
     const a = ai;
     $("aiHint").textContent = `用一句话让 AI 给一批${sp(a.who)}打标签。AI 看${a.sees}，只给建议，你点「应用」后才生效。`;
     const scopes = a.scopes();
-    scopeSel.innerHTML = scopes.map((s) => `<option value="${esc(s.value)}"${s.n ? "" : " disabled"}>${esc(s.label)} · ${s.n} 个</option>`).join("");
+    // 选中 counts like the row-4 button: the listed selected ones, or all of them when filters hide every one.
+    scopeSel.innerHTML = scopes.map((s) => `<option value="${esc(s.value)}"${s.n ? "" : " disabled"}>${esc(s.label)} · ${s.shown || s.n} 个</option>`).join("");
     scopeSel.value = scopes.find((s) => s.value === want && s.n)?.value || scopes.find((s) => s.n)?.value || scopes[0].value;
     const scope = scopes.find((s) => s.value === scopeSel.value);
     $("aiScopeCount").textContent = hiddenAll(scope) || a.scopeText(scope.value);
