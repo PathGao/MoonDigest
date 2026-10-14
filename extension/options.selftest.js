@@ -41,6 +41,8 @@ assert.deepStrictEqual(marked.map((n) => n.set.size), [0, 0], "every red box is 
 const XSS = ["<img src=x onerror=alert(1)>", `"'><script>alert(1)</script>`];
 const assertInert = (html, where) => assert.ok(!/<img src=x|<script|"'>/i.test(html) && /&lt;|&#60;/.test(html), `${where}: ${html}`);
 // An imported settings file fills the property rows.
+// K14: the batch sizes live in 收藏夹设置 (用词表), not 「分拣台里」.
+assert.ok(!fs.readFileSync(path.join(__dirname, "options.html"), "utf8").includes("在分拣台里设置"));
 // The scripts options.html loads before options.js, read from the page so the test cannot load a different set.
 const scripts = [...fs.readFileSync(path.join(__dirname, "options.html"), "utf8").matchAll(/<script[^>]*src="([^"]+)"/g)].map((m) => m[1]);
 assert.strictEqual(scripts.pop(), "./options.js", "options.js loads last");
