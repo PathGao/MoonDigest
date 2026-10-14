@@ -646,7 +646,7 @@ chrome.runtime.onConnect.addListener((port) => {
       abortActiveRequest({ type: "silent" });
       clearActiveRequestState();
       activeAbortController = new AbortController();
-      armWatchdog(STREAM_TIMEOUT_MS.first, `请求超时：${STREAM_TIMEOUT_MS.first / 1000} 秒没有返回，已自动中断，可重试`);
+      armWatchdog(STREAM_TIMEOUT_MS.first, MdgErrors.aiTimeout(STREAM_TIMEOUT_MS.first));
       const providers = await loadAiProviders();
       const provider = providers.find((p) => p.id === msg.providerId);
       if (!provider) {
@@ -1030,13 +1030,8 @@ async function* parseOpenAISSE(response, onActivity) {
       } catch {
         continue;
       }
-      // Some providers report quota, rate and moderation failures inside an HTTP 200 stream. A quota or rate message is
-      // classified as an HTTP 429 (a per-minute quota is 限流, not 余额不足); otherwise only a Chinese message is shown.
-      if (json?.error) {
-        const detail = typeof json.error === "string" ? json.error : json.error.message || JSON.stringify(json.error);
-        if (AI_QUOTA_RE.test(detail) || AI_RATE_RE.test(detail)) throw triageAiHttpError(429, detail);
-        throw new Error(/[\u4e00-\u9fff]/.test(detail) ? `AI 平台返回错误：${detail}` : "AI 平台返回错误");
-      }
+      const bodyError = triageAiBodyError(json);
+      if (bodyError) throw bodyError;
       const delta = json?.choices?.[0]?.delta?.content;
       if (delta) yield String(delta);
     }

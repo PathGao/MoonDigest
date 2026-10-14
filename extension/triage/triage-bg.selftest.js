@@ -256,6 +256,15 @@ assert.throws(() => t.triageParseCommand('{"new_tags":[', cmdItems, cmdTags, {})
   }
   t.loadAiProviders = async () => [{ id: "p", baseUrl: "https://ai.test", model: "m" }];
 
+  // An error inside an HTTP 200 reply is recognized as in the side panel's stream; a reply that is not JSON fails this
+  // request in Chinese, not with JSON.parse's SyntaxError.
+  t.fetch = async () => ({ ok: true, json: async () => ({ error: { message: "You exceeded your current quota" } }) });
+  await assert.rejects(t.triageChat([], 100), (e) => e.code === "AI_QUOTA");
+  t.fetch = async () => ({ ok: true, json: async () => ({ error: { message: "Rate limit reached" } }) });
+  await assert.rejects(t.triageChat([], 100), (e) => e.code === "AI_THROTTLED");
+  t.fetch = async () => ({ ok: true, json: async () => JSON.parse("<html>") });
+  await assert.rejects(t.triageChat([], 100), (e) => e.code === undefined && e.message === "AI 平台的回复不是 JSON");
+
   // A request that never settles, even on abort, still ends with the retryable timeout code.
   vm.runInContext("TRIAGE_AI_TIMEOUT_MS.normal = 30; TRIAGE_AI_TIMEOUT_MS.thinking = 60;", ctx);
   let aborted = false;

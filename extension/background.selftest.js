@@ -89,7 +89,8 @@ process.on("exit", (code) => {
   ctx.fetch = (url, { signal }) => new Promise((_, reject) => signal.addEventListener("abort", () => reject(abortError())));
   out = await chat();
   assert.deepStrictEqual(out.map((m) => m.type), ["error"]);
-  assert.match(out[0].error, /^请求超时：.* 秒没有返回/);
+  // The same sentence as 分拣台's timeout (MdgErrors.aiTimeout), with the side panel's own limit.
+  assert.strictEqual(out[0].error, ctx.MdgErrors.aiTimeout(vm.runInContext("STREAM_TIMEOUT_MS.first", ctx)));
   assert.strictEqual(out[0].code, "AI_TIMEOUT");
 
   // The side panel and 测试连接 turn thinking off where the platform takes the switch, and send nothing elsewhere.

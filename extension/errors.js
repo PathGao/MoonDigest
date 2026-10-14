@@ -26,6 +26,9 @@
   // Why a reader has no subtitle: the one sentence of every entry (video page, 专注模式, popup, side panel, the AI's
   // context, 分拣台, notes), without a full stop. subtitleNeedLogin is its own state (B站 hides subtitles from a
   // logged-out viewer), not a failure; subtitleFailure is why the fetch failed. A state, never an instruction.
+  // AI_TIMEOUT: no answer from the AI platform in ms (each caller's own limit: side panel, 分拣台, 测试连接).
+  const aiTimeout = (ms) => `AI 平台 ${ms / 1000} 秒没有回应`;
+
   const subtitleMissing = ({ subtitleNeedLogin = false, subtitleFailure = "" } = {}) =>
     subtitleNeedLogin ? "未登录 B站，拿不到字幕" : subtitleFailure ? `字幕抓取失败：${subtitleFailure}` : "视频没有字幕";
 
@@ -83,5 +86,5 @@
       .replaceAll('"', "&quot;")
       .replaceAll("'", "&#39;");
 
-  globalThis.MdgErrors = Object.freeze({ TEXT, action, text, fromResp, grantOrigin, reloaded, escapeHtml, subtitleMissing });
+  globalThis.MdgErrors = Object.freeze({ TEXT, action, text, fromResp, grantOrigin, reloaded, escapeHtml, subtitleMissing, aiTimeout });
 })();

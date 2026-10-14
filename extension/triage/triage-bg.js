@@ -598,6 +598,16 @@ function triageAiHttpError(status, detail = "") {
 }
 const AI_NETWORK_TEXT = "连不上 AI 平台，请检查网络和接口地址";
 
+// Some platforms report quota, rate and moderation failures inside an HTTP 200 body (a stream chunk for the side panel's
+// parseOpenAISSE, the whole reply for triageChat). A quota or rate message is classified as an HTTP 429 (a per-minute
+// quota is 限流, not 余额不足); otherwise only a Chinese message is shown. null when the body carries no error.
+function triageAiBodyError(json) {
+  if (!json?.error) return null;
+  const detail = typeof json.error === "string" ? json.error : json.error.message || JSON.stringify(json.error);
+  if (AI_QUOTA_RE.test(detail) || AI_RATE_RE.test(detail)) return triageAiHttpError(429, detail);
+  return triageError(/[\u4e00-\u9fff]/.test(detail) ? `AI 平台返回错误：${detail}` : "AI 平台返回错误");
+}
+
 // 单次 AI 请求的超时（毫秒）。思考模式慢得多；两档都要短于 MV3 单个消息事件约 5 分钟的上限
 const TRIAGE_AI_TIMEOUT_MS = { normal: 120000, thinking: 240000 };
 
@@ -623,7 +633,7 @@ async function triageChat(messages, maxTokens, thinking = false, providerId = ""
   const timeout = new Promise((_, reject) => {
     timer = setTimeout(() => {
       controller.abort();
-      reject(triageError(`AI 平台 ${ms / 1000} 秒没有回应`, "AI_TIMEOUT"));
+      reject(triageError(MdgErrors.aiTimeout(ms), "AI_TIMEOUT"));
     }, ms);
   });
   const request = async () => {
@@ -637,7 +647,12 @@ async function triageChat(messages, maxTokens, thinking = false, providerId = ""
       throw denied ? triageError(denied) : triageError(AI_NETWORK_TEXT, "AI_NETWORK");
     });
     if (!res.ok) throw triageAiHttpError(res.status, await res.text().catch(() => ""));
-    const json = await res.json();
+    // A body that is not JSON is this request's failure, in Chinese (not JSON.parse's SyntaxError).
+    const json = await res.json().catch(() => {
+      throw triageError("AI 平台的回复不是 JSON");
+    });
+    const bodyError = triageAiBodyError(json);
+    if (bodyError) throw bodyError;
     const choice = json.choices?.[0];
     if (!choice?.message?.content && choice?.finish_reason === "length") {
       throw triageError("模型输出被截断");
