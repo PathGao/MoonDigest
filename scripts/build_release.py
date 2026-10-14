@@ -33,8 +33,8 @@ def build_chrome(version: str, release_dir: Path):
 
     if release_folder.exists():
         shutil.rmtree(release_folder)
-    # Selftests and dev-only mocks stay out of the shipped package.
-    shutil.copytree(EXTENSION_DIR, release_folder, ignore=shutil.ignore_patterns("*.selftest.js", "dev-sidepanel", "dev"))
+    # Selftests, the message list they check (messages.js) and dev-only mocks stay out of the shipped package.
+    shutil.copytree(EXTENSION_DIR, release_folder, ignore=shutil.ignore_patterns("*.selftest.js", "dev-sidepanel", "dev", "messages.js"))
 
     with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
         for file_path in sorted(release_folder.rglob("*")):

@@ -822,7 +822,7 @@ function checkUrlChange() {
 
   state.currentClipSignature = nextSignature;
   try {
-    if (!IN_VIEWER) chrome.runtime.sendMessage({ type: "mdg-video-changed", url: nextUrl })?.catch?.(() => {});
+    if (!IN_VIEWER) chrome.runtime.sendMessage({ type: "mdg-video-changed" })?.catch?.(() => {});
   } catch {}
   enforceNormalPageStateIfNeeded();
   ensureUiReady();
@@ -1267,7 +1267,6 @@ function getPopupPayload() {
   });
 
   return {
-    contentVersion: MDG_VERSION,
     site: currentSite()?.id || "",
     url: cleanVideoUrl(),
     title: state.title || "",
