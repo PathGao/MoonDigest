@@ -867,7 +867,8 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   t.S.selected = new Set(["BV203", "BV205"]);
   t.renderListHeader(t.visibleItems());
   assert.ok(t.el.listHeader.innerHTML.includes("按新标准重新细看选中的前 1 个"), "more selected than one batch");
-  assert.deepStrictEqual(plain(vm.runInContext("redoFineList", ctx)().map((it) => it.bvid)), ["BV203"]);
+  t.S.selected = new Set(["BV205"]);
+  assert.deepStrictEqual(plain(vm.runInContext("redoFineList", ctx)().map((it) => it.bvid)), ["BV205"], "the selected one, not the first listed");
   delete t.S.analyses.BV205;
   t.S.settings.triageFineBatchSize = 10;
   t.S.selected.clear();
