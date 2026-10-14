@@ -1003,7 +1003,8 @@ async function runRefreshClip() {
   try {
     setMessage("");
     setStatus("正在读取视频信息…");
-    state.subtitleFetchState = "loading";
+    // A read starts clean: the last read's subtitle state and comments must not leak into this one's note.
+    Object.assign(state, { subtitleFetchState: "loading", subtitleFailure: "", subtitleNeedLogin: false, subtitleWarning: "", hotComments: [] });
     if (state.readingViewOpen) {
       renderReadingView();
     }
@@ -1221,11 +1222,25 @@ function subtitleOptionLabel(item) {
   return `${item.label || item.lang || "未命名字幕"}${{ ai: "（AI）", auto: "（自动）" }[item.kind] || ""}`;
 }
 
+// Why no subtitle is shown (专注模式's transcript and dropdown, the popup's dropdown and 下载字幕's reason): the read
+// state first, so a read in progress or a failed one (a limit) never says 视频没有字幕; after a read, MdgErrors.subtitleMissing.
+function noTrackText() {
+  // idle: the video just changed and its fetch has not started yet.
+  if (state.subtitleFetchState === "loading" || state.subtitleFetchState === "idle") {
+    return "正在加载字幕…";
+  }
+  // Only reading the video itself sets error (a subtitle failure is subtitleMissing below).
+  if (state.subtitleFetchState === "error") {
+    return MdgErrors.TEXT.videoReadFailed;
+  }
+  return MdgErrors.subtitleMissing(state);
+}
+
 function renderSubtitleOptions(select) {
   const subtitles = state.subtitles || [];
 
   if (subtitles.length === 0) {
-    select.innerHTML = `<option value="">${escapeHtml(MdgErrors.subtitleMissing(state))}</option>`;
+    select.innerHTML = `<option value="">${escapeHtml(noTrackText())}</option>`;
     select.disabled = true;
     return;
   }
@@ -1280,8 +1295,8 @@ function getPopupPayload() {
     noteWarning: MdgNote.noteSubtitleWarning(state.subtitleWarning, state),
     // 下载 .md: the same name as the note 写入 Obsidian writes (MdgNote.buildNoteFilename).
     filename: MdgNote.buildNoteFilename(state, state.settings || DEFAULT_SETTINGS),
-    // The subtitle dropdown's line when there is no track, as everywhere (MdgErrors.subtitleMissing).
-    subtitleMissing: MdgErrors.subtitleMissing(state),
+    // The subtitle dropdown's line when there is no track, and 下载字幕's reason: the same as 专注模式's (noTrackText).
+    subtitleMissing: noTrackText(),
     srt: state.srt || "",
     txt: state.txt || "",
     subtitleOptions
@@ -1850,15 +1865,8 @@ function renderReadingView() {
 }
 
 function getReadingTranscriptPlaceholderText() {
-  // idle: the video just changed and its fetch has not started yet.
-  if (state.subtitleFetchState === "loading" || state.subtitleFetchState === "idle") {
-    return "正在加载字幕…";
-  }
-  // Only reading the video itself sets error (a subtitle failure is subtitleMissing below).
-  if (state.subtitleFetchState === "error") {
-    return `${MdgErrors.TEXT.videoReadFailed}。`;
-  }
-  return `${MdgErrors.subtitleMissing(state)}。${state.subtitleNeedLogin ? `${MdgErrors.TEXT.subtitleLoginHint}。` : ""}`;
+  const text = noTrackText();
+  return text.endsWith("…") ? text : `${text}。${state.subtitleNeedLogin ? `${MdgErrors.TEXT.subtitleLoginHint}。` : ""}`;
 }
 
 function getReadingTranscriptItems(body = state.subtitleBody) {

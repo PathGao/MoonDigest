@@ -30,7 +30,10 @@ assert.deepStrictEqual(new Set(Object.values(state())), new Set(["当前网页�
 ctx.syncTools(null);
 assert.deepStrictEqual(new Set(Object.values(state())), new Set([""]), "a video page before its first reply keeps them usable");
 ctx.syncTools({ markdown: "# t", srt: "", txt: "" });
-assert.deepStrictEqual(state(), { downloadBtn: "当前视频没有可下载的字幕", readingViewBtn: "", summaryBtn: "", copyBtn: "", mdBtn: "", sendBtn: "" }, "no subtitles");
+assert.deepStrictEqual(state(), { downloadBtn: "视频没有字幕", readingViewBtn: "", summaryBtn: "", copyBtn: "", mdBtn: "", sendBtn: "" }, "no subtitles");
+// J11: 下载字幕 says what the dropdown says (the page's noTrackText): a read in progress or a failed one is no 没有字幕.
+ctx.syncTools({ markdown: "# t", srt: "", txt: "", subtitleMissing: "正在加载字幕…" });
+assert.strictEqual(state().downloadBtn, "正在加载字幕…");
 ctx.syncTools({ markdown: "# t", srt: "1", txt: "a" });
 assert.deepStrictEqual(new Set(Object.values(state())), new Set([""]), "everything ready");
 

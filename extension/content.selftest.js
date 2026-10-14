@@ -568,7 +568,25 @@ const settle = async () => {
       await t.runRefreshClip();
       const sent = t.buildSidepanelContext().payload;
       assert.deepStrictEqual([state.subtitleFailure, sent.subtitleFailure, sent.subtitleNeedLogin], ["", "", true]);
+      // J9: the last read's mismatch warning is gone; logged in again, 未登录 and the old comments are gone too.
+      assert.strictEqual(state.subtitleWarning, "", "a read without a subtitle keeps no warning");
+      assert.strictEqual(t.getPopupPayload().subtitleMissing, "未登录 B站，拿不到字幕");
       t.currentSite = site;
+      state.hotComments = [{ content: "旧评论" }];
+      await t.runRefreshClip();
+      assert.deepStrictEqual([state.subtitleNeedLogin, state.subtitleFailure, state.hotComments.length], [false, "", 0], "a new read starts clean");
+    }
+    // J11: while a read runs, and after it failed (a limit), the dropdown never says 视频没有字幕.
+    {
+      const was = Object.fromEntries(["subtitleFetchState", "subtitles"].map((k) => [k, state[k]]));
+      state.subtitles = [];
+      for (const [phase, words] of [["loading", "正在加载字幕…"], ["error", t.MdgErrors.TEXT.videoReadFailed]]) {
+        state.subtitleFetchState = phase;
+        const select = {};
+        t.renderSubtitleOptions(select);
+        assert.deepStrictEqual([select.innerHTML, t.getPopupPayload().subtitleMissing], [`<option value="">${words}</option>`, words], phase);
+      }
+      Object.assign(state, was);
     }
     // G1: a limit is no subtitle failure: the read fails (red, 重试), no note or comment read, nothing says 字幕抓取失败.
     {

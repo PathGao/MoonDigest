@@ -86,7 +86,7 @@ function bindEvents() {
     const content =
       format === "txt" ? payload?.txt || payload?.subtitlePreview || "" : payload?.srt || "";
     if (!content) {
-      setStatus("没有可下载字幕", true);
+      setStatus(payload?.subtitleMissing || MdgErrors.subtitleMissing(), true);
       return;
     }
     const safeTitle = sanitizeFileName(payload.title || "video-subtitle");
@@ -278,7 +278,7 @@ function render(payload, { preserveStatus = false } = {}) {
 function syncTools(payload, onVideoPage = true) {
   const pageReason = onVideoPage ? "" : NOT_VIDEO_PAGE;
   const contentReason = pageReason || (payload && !payload.markdown ? "还没有读取到视频内容" : "");
-  const subtitleReason = pageReason || (payload && !(payload.srt || payload.txt) ? "当前视频没有可下载的字幕" : "");
+  const subtitleReason = pageReason || (payload && !(payload.srt || payload.txt) ? payload.subtitleMissing || MdgErrors.subtitleMissing() : "");
   setDisabledReason(el.readingViewBtn, pageReason);
   // A web page has no video to summarize; no AI platform still leaves it usable (the side panel offers 去设置).
   setDisabledReason(el.summaryBtn, pageReason);
