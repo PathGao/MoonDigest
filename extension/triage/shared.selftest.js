@@ -448,7 +448,7 @@ for (const [file, fns] of [["triage.js", ["mergeAiBatch", "aiChanges"]], ["follo
   for (const f of ["triage.js", "follow.js", "triage-bg.js", "follow-bg.js", "../background.js"]) {
     const src = fs.readFileSync(path.join(__dirname, f), "utf8");
     const bare = /intSetting|intervalSetting|Math\.floor\(Number\(|Number\((el\.\w+|\$\("\w+"\))\.value\)|Number\((s|days|merged)\.\w+\)|parseFloat\(merged\./;
-    assert.ok(/\.(intIn|numSetting)\b/.test(src) && !bare.test(src), `${f}: parses its whole-number settings with intIn`);
+    assert.ok(/\.(intIn|numSetting|normalizeSeenThreshold)\b/.test(src) && !bare.test(src), `${f}: parses its whole-number settings with intIn`);
   }
   // J15: the dialogs' settings take range and default from NUM_SETTINGS alone: no reader writes them again (triageAiCommand's
   // maxNewTags, 0 when not passed, is the request's, not the setting's).
@@ -554,6 +554,22 @@ for (const [file, fns] of [["triage.js", ["mergeAiBatch", "aiChanges"]], ["follo
     for (const [hit, n] of text.matchAll(/默认 ?(\d+)/g)) assert.ok(!table.some(([, , def]) => +n === def), `${where}: ${hit} repeats a NUM_SETTINGS default`);
     for (const [hit, n] of text.matchAll(/最多 ?(\d+)/g)) assert.ok(!table.some(([, max]) => +n === max), `${where}: ${hit} repeats a NUM_SETTINGS max`);
   }
+  // Titles per 粗看 request: TITLES_PER_REQUEST in shared.js alone; hints show it through [data-titles-per-request].
+  const titleSpans = [{}, {}];
+  UI.fillNumHints({ querySelectorAll: (sel) => (sel === "[data-titles-per-request]" ? titleSpans : []) });
+  assert.deepStrictEqual(titleSpans.map((n) => n.textContent), [UI.TITLES_PER_REQUEST, UI.TITLES_PER_REQUEST]);
+  assert.ok(/一次请求带 <span data-titles-per-request><\/span> 个标题/.test(optionsHtml), "options.html's 粗看 hint reads TITLES_PER_REQUEST");
+  for (const p of pages) assert.ok(!/\d+ ?个标题/.test(fs.readFileSync(path.join(__dirname, p), "utf8").replace(/<[^>]*>/g, "")), `${p} writes the titles per request itself`);
+  for (const f of ["triage.js", "triage-bg.js", "follow.js", "../options.js", "../background.js"]) assert.ok(!/TITLES_PER_REQUEST\s*=/.test(fs.readFileSync(path.join(__dirname, f), "utf8")), `${f} sets the titles per request itself`);
+  // 看到多少算看完了: range and default only in settings.js's SEEN_THRESHOLD; every reader (background, bili-surfaces.js,
+  // options) parses with normalizeSeenThreshold, and the settings page's box gets min, max and 「默认 N」 from code.
+  const seenReaders = ["../background.js", "../bili-surfaces.js", "../options.js", "../options.html", "../badges.js", "triage.js", "triage.html", "triage-bg.js"];
+  for (const f of seenReaders) {
+    const src = fs.readFileSync(path.join(__dirname, f), "utf8");
+    assert.ok(!/seenThreshold\b[^\n]*\b(80|100)\b|\b1, 100\b|\|\| 80\b/.test(src), `${f} writes 看到多少算看完了's range or default itself`);
+  }
+  assert.ok(!/id="seenThreshold"[^>]* (min|max|placeholder)=/.test(optionsHtml), "options.html's 看到多少算看完了 box takes its range from code");
+  for (const f of ["../background.js", "../bili-surfaces.js", "../options.js"]) assert.ok(/MdgSettings\.normalizeSeenThreshold\(/.test(fs.readFileSync(path.join(__dirname, f), "utf8")), `${f} parses 看到多少算看完了 with normalizeSeenThreshold`);
 }
 
 // A number field above max becomes max; below min (or negative) it is emptied, which means the default.

@@ -740,7 +740,7 @@ function normalizeSyncSettings(settings) {
   // The settings table's cells turned off (bili-surfaces.js); options.js and badges.js drop cells that do not exist.
   merged.biliMarksOff = Array.isArray(merged.biliMarksOff) ? merged.biliMarksOff.filter((c) => typeof c === "string") : [];
   merged.seenShow = ["bar", "mark", "both"].includes(merged.seenShow) ? merged.seenShow : "off";
-  merged.seenThreshold = TriageUi.intIn(merged.seenThreshold, 1, 100, 80);
+  merged.seenThreshold = MdgSettings.normalizeSeenThreshold(merged.seenThreshold);
   merged.seenStyle = merged.seenStyle === "veil" ? "veil" : "badge";
   merged.readerTheme = MdgSettings.normalizeReaderTheme(merged.readerTheme);
   merged.readerFontScale = MdgSettings.normalizeReaderFontScale(merged.readerFontScale);

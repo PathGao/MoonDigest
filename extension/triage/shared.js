@@ -447,6 +447,9 @@
   // The whole-number settings of both dialogs: [min, max, default], default 0 = 自动. The readers (pages and background)
   // parse with numSetting; fillSetRows gives each box (data-num) its range and the default as placeholder, and
   // writes them into the hints' [data-num-min] / [data-num-max] / [data-num-default] spans, so no hint repeats a number.
+  // Titles one 粗看 request carries (fixed, not a setting; the output limit's 自动 grows with it). Hints write it through
+  // [data-titles-per-request] spans that fillNumHints fills.
+  const TITLES_PER_REQUEST = 20;
   const NUM_SETTINGS = {
     interval: [0, 600, 8], // both modes
     aiBatch: [1, 100, 30], // both modes
@@ -486,6 +489,7 @@
       const [min, max, def] = NUM_SETTINGS[numMin ?? numMax ?? numDefault];
       node.textContent = numMin ? min : numMax ? max : def;
     }
+    for (const node of root.querySelectorAll("[data-titles-per-request]")) node.textContent = TITLES_PER_REQUEST;
   }
 
   // A number field is corrected by intIn when left or saved, instead of the browser refusing to save: above max is max,
@@ -669,5 +673,5 @@
   }
 
   globalThis.TriageUi = { esc, pad, dayText, fmtDate, fmtAgo, agoHtml, setSearchScope, confirmList, pickTitle, fmtDuration, fmtCount, cleanTagName, plainClick, cardPlayClick, cardPickClick, pickCard, img, toCsv, cardTagChip, syncedText, headMeta, titleHtml, ICON, AI_SPARK, byValue, dirWords, sortControl, filterBtn, labeledRow, tagFilterChip, kindTabs, originChip, stateGroup, aiRecentChip, searchBox, bindSearch, resultCount, rowButtons, menuItem, BACKUP_ITEM, reasonAttrs, setReason, WARN_DOT, selectAllState, selectAllBox, toggleAll, setActivity, waitText, BILI_HOLD_MS, WRITE_STOPPING, busyText, syncPill
-, setSync, bindSync, tagButtons, sideFoot, actBtn, cleanBtn, HIDDEN_ALL, selbar, askTransfer, sideItem, emptyState, refreshEmpty, noMatch, fillSetRows, fillNumHints, NUM_SETTINGS, numSetting, clampNumber, intIn, clampNumbers, mergeAiBatch, aiChanges, aiProposalOk, previewId, aiTally, nextTagColor, tagNameError, deleteTagAsk, editedTag, withoutTag, undoAsk, tagRowHtml, sp, tagsWord, AI_RECENT_RULES, aiRecentUndo, tagPlusBtn, viewerLine, viewerKeyFrom, headFold };
+, setSync, bindSync, tagButtons, sideFoot, actBtn, cleanBtn, HIDDEN_ALL, selbar, askTransfer, sideItem, emptyState, refreshEmpty, noMatch, fillSetRows, fillNumHints, NUM_SETTINGS, TITLES_PER_REQUEST, numSetting, clampNumber, intIn, clampNumbers, mergeAiBatch, aiChanges, aiProposalOk, previewId, aiTally, nextTagColor, tagNameError, deleteTagAsk, editedTag, withoutTag, undoAsk, tagRowHtml, sp, tagsWord, AI_RECENT_RULES, aiRecentUndo, tagPlusBtn, viewerLine, viewerKeyFrom, headFold };
 })();

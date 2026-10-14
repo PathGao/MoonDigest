@@ -1,6 +1,6 @@
 // The settings' defaults and the normalizers more than one context applies, in one place. The background owns the
 // stored settings (normalizeSyncSettings); pages and the content script use DEFAULTS only when get-settings fails.
-// Loaded by the content script (manifest), background (importScripts) and the pages, before note.js, which reads it.
+// Loaded by the content scripts (manifest), background (importScripts) and the pages, before note.js, which reads it.
 // load-order.selftest.js checks every user of MdgSettings loads it first. Idempotent like limits.js.
 (() => {
   if (globalThis.MdgSettings) {
@@ -27,6 +27,15 @@
     "输出时间戳时请使用普通正文格式，如 09:15、01:09:15，不要使用反引号、代码块或表格代码格式包裹时间戳。"
   ].join("\n");
 
+  // 看到多少算看完了 (%): the range and default every reader takes (background, B站 pages, 分拣台, settings page).
+  const SEEN_THRESHOLD = Object.freeze({ min: 1, max: 100, def: 80 });
+  // TriageUi.intIn's rule (B站 pages do not load shared.js): empty, not a number or below min is the default; above max
+  // is max; rounded.
+  function normalizeSeenThreshold(v) {
+    const n = v == null || String(v).trim() === "" ? NaN : Math.round(Number(v));
+    return Number.isFinite(n) && n >= SEEN_THRESHOLD.min ? Math.min(SEEN_THRESHOLD.max, n) : SEEN_THRESHOLD.def;
+  }
+
   // chrome.storage.sync. obsidianApiKey stays on this machine: LOCAL_DEFAULTS, chrome.storage.local.
   const DEFAULTS = Object.freeze({
     obsidianEnabled: false,
@@ -47,7 +56,7 @@
     showBiliVerdicts: false,
     biliMarksOff: Object.freeze([]),
     seenShow: "off",
-    seenThreshold: 80,
+    seenThreshold: SEEN_THRESHOLD.def,
     seenStyle: "badge",
     enableDebugLogs: false,
     readerTheme: "light",
@@ -130,6 +139,8 @@
     NOTE_SECTION_POSITIONS,
     MAX_NOTE_SECTIONS,
     MAX_PRESET_PROMPTS,
+    SEEN_THRESHOLD,
+    normalizeSeenThreshold,
     normalizeApiKey,
     normalizeDownloadFormat,
     normalizePlayerAiQuickPrompt,

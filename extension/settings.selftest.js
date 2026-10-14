@@ -46,10 +46,10 @@ for (const [fn, key] of [["normalizeReaderFontScale", "readerFontScale"], ["norm
   assert.strictEqual(S[fn](S.DEFAULTS[key]), S.DEFAULTS[key]);
 }
 
-// bili-surfaces.js keeps a copy of the 观看进度 defaults for the pages that do not load settings.js.
-const surfaces = vm.createContext({});
-vm.runInContext(read("bili-surfaces.js"), surfaces);
-for (const [k, v] of Object.entries(surfaces.MdgSurfaces.SEEN_DEFAULTS)) assert.strictEqual(v, S.DEFAULTS[k], `bili-surfaces.js ${k} matches settings.js`);
+// 看到多少算看完了: SEEN_THRESHOLD is its range and default (DEFAULTS reads it); TriageUi.intIn's rule.
+const { min, max, def } = S.SEEN_THRESHOLD;
+assert.strictEqual(S.DEFAULTS.seenThreshold, def);
+assert.deepStrictEqual([-5, "", " ", null, undefined, "x", min - 1, min - 0.6, min, 42.6, "42", max + 50].map(S.normalizeSeenThreshold), [def, def, def, def, def, def, def, def, min, 43, 42, max]);
 
 // The default prompts are written only in settings.js (dev mocks may seed their own).
 const sources = ["background.js", "content.js", "options.js", "popup.js", "sidepanel.js", "note.js", "history/history.js", "triage/triage.js", "triage/triage-bg.js"];
