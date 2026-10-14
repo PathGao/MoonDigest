@@ -207,6 +207,10 @@ select { height: 28px; max-width: 240px; }
 .main.head-folded { --head-vis: var(--slim-h, 0px); }
 .list, .fw-list, .viewer, .viewer-close { grid-row-start: head-start; }
 .list, .fw-list { z-index: -1; scroll-padding-top: calc(var(--head-h, 0px) + 8px); }
+/* Cards end at the header's bottom edge: the selected outline and the hover shadow are wider than the header, so
+   otherwise they show beside it. --head-h counts from .main's top; the slim bar sits at the list's top. */
+.list, .fw-list { clip-path: inset(calc(var(--head-h, 0px) - var(--head-top)) 0 0); transition: clip-path 0.15s; }
+.head-folded :is(.list, .fw-list) { clip-path: inset(var(--slim-h, 0px) 0 0); }
 .folder-head, .tabrow, .stagebar, .tagbar { background: var(--bg); transition: transform 0.15s, opacity 0.15s, visibility 0.15s; }
 /* The four rows read as one white card (DESIGN 视觉设计 · 分拣台). Each row draws its slice in ::before over the page background, so
    the rounded corners never show the list scrolling underneath; the rules between rows are the slices' bottom edges. */
@@ -225,7 +229,7 @@ select { height: 28px; max-width: 240px; }
 .slim-open { display: none; width: 28px; margin-left: -8px; padding: 0; justify-content: center; }
 .head-folded .slim-open { display: inline-flex; }
 @media (prefers-reduced-motion: reduce) {
-  .folder-head, .tabrow, .stagebar, .tagbar, .viewer, .viewer-close { transition: none; }
+  .folder-head, .tabrow, .stagebar, .tagbar, .viewer, .viewer-close, .list, .fw-list { transition: none; }
 }
 
 /* ---------- row 1: name · count, 在 B站打开 and the sync pill, when it was read | sort ---------- */
