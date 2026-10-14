@@ -57,6 +57,8 @@
   }
 
   function buildMarkdown(meta, body, settings, ref, created = formatLocalDate()) {
+    // The on/off settings as MdgSettings reads them (a missing one is its default).
+    const on = MdgSettings.normalizeSwitches(settings);
     const url = String(ref?.url || "");
     const tags = noteTags(meta, settings);
     const tagsCsv = tags.join(", ");
@@ -82,7 +84,7 @@
     if (frontMatter) {
       lines.push(frontMatter, "");
     }
-    if (settings.includeCoverInNote !== false && meta.cover) {
+    if (on.includeCoverInNote && meta.cover) {
       lines.push(`![cover](${meta.cover})`, "");
     }
     if (embedIframe) {
@@ -110,14 +112,14 @@
     }
 
     const hotCommentLines = buildHotCommentLines(
-      settings?.includeHotCommentsInNote || !hasSubtitles ? meta?.hotComments || [] : []
+      on.includeHotCommentsInNote || !hasSubtitles ? meta?.hotComments || [] : []
     );
     if (hotCommentLines.length > 0) {
       lines.push("## 热门评论", "", ...hotCommentLines);
     }
 
     const markdown = lines.join("\n").trimEnd();
-    const aiSection = settings?.includeAiChatInNote === false ? "" : buildAiSection(meta.aiTurns);
+    const aiSection = on.includeAiChatInNote ? buildAiSection(meta.aiTurns) : "";
     return aiSection ? `${markdown}\n\n${aiSection}` : markdown;
   }
 
@@ -841,7 +843,7 @@
   function buildNoteFilename(meta, settings, created = formatLocalDate()) {
     const baseParts = [];
 
-    if (settings?.includeDateInFilename !== false) {
+    if (MdgSettings.normalizeSwitches(settings).includeDateInFilename) {
       baseParts.push(created);
     }
 

@@ -77,6 +77,12 @@ for (const file of [...sources, "bili-surfaces.js", "badges.js"]) assert.ok(!/\[
 // G6: the B站 page's switches and 观看进度 read through normalizeSwitches / seenOn, not tests of their own.
 assert.ok(!/SETTING\] (===|!==) (true|false)/.test(read("badges.js")), "badges.js reads a switch itself; use MdgSettings.normalizeSwitches");
 assert.ok(!/v\.seenShow ===/.test(read("bili-surfaces.js")), "bili-surfaces.js tests seenShow itself; use MdgSettings.seenOn");
+// J6: the note's and 专注模式's switches likewise, and 专注模式 starts from DEFAULTS, not a copy of them.
+for (const file of ["content.js", "note.js"]) {
+  const src = read(file);
+  for (const k of Object.keys(S.DEFAULTS).filter((k) => typeof S.DEFAULTS[k] === "boolean")) assert.ok(!new RegExp(`${k} (!==|===) (false|true|undefined)`).test(src), `${file} reads ${k} itself; use MdgSettings.normalizeSwitches`);
+}
+assert.ok(!/reading(Theme|FontScale|LetterSpacing|LineHeight|ContentWidth|ChapterVisible): ("[a-z]+"|true|false),/.test(read("content.js")), "content.js copies 专注模式's defaults; use DEFAULTS");
 // I3: the cover look likewise: SEEN_STYLES alone, the default from DEFAULTS; nobody tests for "veil" itself.
 assert.deepStrictEqual(["veil", "badge", "x", undefined].map(S.normalizeSeenStyle), ["veil", "badge", S.DEFAULTS.seenStyle, S.DEFAULTS.seenStyle]);
 for (const file of [...sources, "bili-surfaces.js", "badges.js"]) assert.ok(!/=== "veil"/.test(read(file)), `${file} tests seenStyle's values itself`);

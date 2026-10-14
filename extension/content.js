@@ -65,12 +65,12 @@ const state = {
     return this.readerPhase === "open";
   },
   readingAutoScroll: true,
-  readingTheme: "light",
-  readingFontScale: "m",
-  readingLetterSpacing: "normal",
-  readingLineHeight: "tight",
-  readingContentWidth: "medium",
-  readingChapterVisible: true,
+  readingTheme: DEFAULT_SETTINGS.readerTheme,
+  readingFontScale: DEFAULT_SETTINGS.readerFontScale,
+  readingLetterSpacing: DEFAULT_SETTINGS.readerLetterSpacing,
+  readingLineHeight: DEFAULT_SETTINGS.readerLineHeight,
+  readingContentWidth: DEFAULT_SETTINGS.readerContentWidth,
+  readingChapterVisible: DEFAULT_SETTINGS.readerChapterVisible,
   readingSettingsExpanded: false,
   readingDescriptionExpanded: false,
   readingActiveSubtitleIndex: -1,
@@ -1893,7 +1893,7 @@ function hydrateReaderStateFromSettings(settings = state.settings) {
   state.readingLetterSpacing = MdgSettings.normalizeReaderLetterSpacing(settings?.readerLetterSpacing);
   state.readingLineHeight = MdgSettings.normalizeReaderLineHeight(settings?.readerLineHeight);
   state.readingContentWidth = MdgSettings.normalizeReaderContentWidth(settings?.readerContentWidth);
-  state.readingChapterVisible = settings?.readerChapterVisible !== undefined ? Boolean(settings.readerChapterVisible) : true;
+  state.readingChapterVisible = MdgSettings.normalizeSwitches({ ...settings }).readerChapterVisible;
 }
 
 function applyReadingViewPresentation() {
@@ -2127,7 +2127,7 @@ function updateReaderPreferences(next, { persist = true } = {}) {
   );
   state.readingLineHeight = MdgSettings.normalizeReaderLineHeight(next.readerLineHeight ?? state.readingLineHeight);
   state.readingContentWidth = MdgSettings.normalizeReaderContentWidth(next.readerContentWidth ?? state.readingContentWidth);
-  state.readingChapterVisible = next.readerChapterVisible !== undefined ? Boolean(next.readerChapterVisible) : state.readingChapterVisible;
+  state.readingChapterVisible = MdgSettings.normalizeSwitches({ readerChapterVisible: next.readerChapterVisible ?? state.readingChapterVisible }).readerChapterVisible;
   state.settings = {
     ...state.settings,
     readerTheme: state.readingTheme,
