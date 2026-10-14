@@ -462,6 +462,9 @@ const chatOn = (context) => {
     assert.ok(page.includes('if (areaName === "local") followTriageAnalysis(changes);'), "the storage listener follows analyses");
   }
 
+  // Each reply's copy button is named per the 用词表: 复制 Markdown, never a bare 复制.
+  assert.ok(page.includes("<span>复制 Markdown</span>") && !page.includes("<span>复制</span>"), "a reply's copy button says 复制 Markdown");
+
   console.log("sidepanel selftest: all passed");
 })().catch((e) => {
   console.error(e);

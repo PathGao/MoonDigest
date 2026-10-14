@@ -1634,13 +1634,13 @@ function renderAssistantMessage(node, raw) {
   const copyBtn = document.createElement("button");
   copyBtn.type = "button";
   copyBtn.className = "sp-msg-copy-btn";
-  copyBtn.setAttribute("aria-label", "复制单条回复");
-  copyBtn.setAttribute("title", "复制单条回复");
+  copyBtn.setAttribute("aria-label", "复制这条回复的 Markdown");
+  copyBtn.setAttribute("title", "复制这条回复的 Markdown");
   copyBtn.innerHTML = `
     <svg viewBox="0 0 24 24" focusable="false" aria-hidden="true">
       <rect x="9" y="9" width="10" height="10" rx="2"></rect>
       <path d="M7 15H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h7a2 2 0 0 1 2 2v1"></path>
-    </svg><span>复制</span>
+    </svg><span>复制 Markdown</span>
   `;
   copyBtn.addEventListener("click", async () => {
     try {
