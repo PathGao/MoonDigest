@@ -30,11 +30,6 @@ let onVideoPage = true;
 // Only for when get-settings fails.
 const DEFAULT_SETTINGS = MdgSettings.DEFAULTS;
 
-function formatLocalDate(value = Date.now()) {
-  const date = value instanceof Date ? new Date(value.getTime()) : new Date(value);
-  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
-}
-
 init().catch((error) => {
   setStatus(`初始化失败：${error.message}`, true);
 });
@@ -234,7 +229,7 @@ function render(payload, { preserveStatus = false } = {}) {
 
   setText(el.propTitle, payload.title || "-");
   setText(el.propUrl, payload.url || "-");
-  setText(el.propCreated, formatLocalDate());
+  setText(el.propCreated, MdgSites.formatLocalDate());
   setText(el.propTags, payload.tags || "MoonDigest");
   el.propTitle.title = payload.title || "";
   setText(el.videoTitle, payload.title);
@@ -245,7 +240,7 @@ function render(payload, { preserveStatus = false } = {}) {
     else el.videoCover.removeAttribute("src");
     el.videoCover.hidden = !payload.cover;
   }
-  setText(el.videoDuration, formatDuration(payload.duration));
+  setText(el.videoDuration, payload.duration > 0 ? TriageUi.fmtDuration(payload.duration) : "");
   el.videoDuration.hidden = !el.videoDuration.textContent;
   el.propUrl.title = payload.url || "";
 
@@ -293,15 +288,6 @@ function setDisabledReason(button, reason) {
   else button.removeAttribute("aria-description");
 }
 
-function formatDuration(seconds) {
-  const total = Math.floor(Number(seconds) || 0);
-  if (total <= 0) return "";
-  const h = Math.floor(total / 3600);
-  const mm = String(Math.floor((total % 3600) / 60)).padStart(h ? 2 : 1, "0");
-  const ss = String(total % 60).padStart(2, "0");
-  return h ? `${h}:${mm}:${ss}` : `${mm}:${ss}`;
-}
-
 function setText(node, text) {
   node.textContent = String(text || "");
 }
@@ -325,13 +311,8 @@ function setBusy(button, busy, label = "") {
   button.setAttribute("aria-busy", String(busy));
 }
 
-function sanitizeFileName(value) {
-  return String(value || "subtitle")
-    .replace(/[\\/:*?"<>|]/g, "_")
-    .replace(/\s+/g, " ")
-    .trim()
-    .slice(0, 120);
-}
+// The note's file-name rule (Obsidian's forbidden characters), for every file the popup downloads.
+const { sanitizeFileName } = MdgSites;
 
 async function getActiveTab() {
   const tabs = await chrome.tabs.query({ active: true, currentWindow: true });

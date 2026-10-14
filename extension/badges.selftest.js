@@ -19,6 +19,8 @@ assert.strictEqual(bvidFromHref("https://www.bilibili.com/video/av170001"), "");
 assert.strictEqual(bvidFromHref("https://space.bilibili.com/2773586"), "");
 assert.strictEqual(bvidFromHref(null), "");
 
+// The switches badges.js reads take their defaults from settings.js, not a list of its own.
+assert.ok(/SYNC_DEFAULTS = Object\.fromEntries\(\[SETTING, VERDICT_SETTING, UP_SETTING,[^\n]*MdgSettings\.DEFAULTS\[k\]/.test(fs.readFileSync(path.join(__dirname, "badges.js"), "utf8")) && !/\[SETTING\]: true/.test(fs.readFileSync(path.join(__dirname, "badges.js"), "utf8")), "badges.js reads MdgSettings.DEFAULTS");
 // 观看进度: one copy of the parsing and the words, in bili-surfaces.js (defaults and threshold from settings.js).
 const B = ctx.MdgSurfaces;
 assert.deepStrictEqual(plain(B.seenConfig(B.SEEN_DEFAULTS)), { on: false, bar: false, mark: false, threshold: 80, style: "badge" });

@@ -20,10 +20,7 @@
   // Every field a note can carry; DEFAULT_FRONTMATTER_FIELDS is the subset on by default.
   const FRONTMATTER_FIELDS = [...DEFAULT_FRONTMATTER_FIELDS, "video_tags"];
 
-  function formatLocalDate(value = Date.now()) {
-    const date = value instanceof Date ? new Date(value.getTime()) : new Date(value);
-    return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
-  }
+  const { formatLocalDate, sanitizeFileName } = MdgSites;
 
   function normalizeHotComments(comments) {
     return Array.isArray(comments) ? comments.map(MdgSites.cleanComment).filter((item) => item.message).slice(0, MdgLimits.HOT_COMMENTS) : [];
@@ -833,10 +830,6 @@
     return `${hh}:${mm}:${ss},${String(ms).padStart(3, "0")}`;
   }
 
-  function sanitizeFileName(value) {
-    // Same forbidden set as Obsidian, so wiki links to the note resolve.
-    return value.replace(/[\\/:*?"<>|#^[\]]/g, "_").replace(/\s+/g, " ").trim().slice(0, 120);
-  }
 
 
   function buildNoteFilename(meta, settings, created = formatLocalDate()) {
@@ -1095,10 +1088,8 @@
     buildSrt,
     buildTxt,
     shouldShowHoursInNote,
-    formatLocalDate,
     formatCompactTimestamp,
     formatTimestamp,
-    sanitizeFileName,
     escapeYaml
   };
 })();

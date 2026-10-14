@@ -15,10 +15,15 @@
     return;
   }
 
-  function formatLocalDate(value) {
+  // Small helpers note.js and the popup share (the popup does not load note.js): the local day as 2026-10-09 (ms or a
+  // Date), a file name with Obsidian's forbidden characters replaced (so wiki links to a note resolve), and an error
+  // reason without its trailing punctuation (so the sentence after it joins cleanly).
+  function formatLocalDate(value = Date.now()) {
     const date = new Date(value);
     return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
   }
+  const sanitizeFileName = (value) => String(value || "subtitle").replace(/[\\/:*?"<>|#^[\]]/g, "_").replace(/\s+/g, " ").trim().slice(0, 120);
+  const trimReason = (text) => String(text ?? "").replace(/[。.！!；;，,\s]+$/u, "");
 
   function parseUrl(url) {
     try {
@@ -1418,7 +1423,7 @@
     // needLogin: B站 listed nothing because it saw a logged-out viewer, a state of its own (MdgErrors.subtitleMissing).
     return {
       track: null, body: [], mismatch: null, bundle, tracks, error: why,
-      failure: why ? String(why.message || why).replace(/[。.！!；;，,\s]+$/u, "") : "",
+      failure: why ? trimReason(why.message || why) : "",
       needLogin: !why && bundle.needLogin === true
     };
   }
@@ -1463,6 +1468,9 @@
     isBiliVideoGone,
     BILI_RISK_CODES,
     cleanComment,
+    formatLocalDate,
+    sanitizeFileName,
+    trimReason,
     rankTracks,
     normalizeSubtitleLang,
     pickPreferredTrack,

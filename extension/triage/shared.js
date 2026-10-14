@@ -419,7 +419,7 @@
   // One row of 标签管理: color, name, the line for the AI, how many carry it, 删除. Edits save on change.
   const tagRowHtml = (t, { count, who }) => `<div class="tag-row" data-id="${esc(t.id)}">
       <button type="button" class="tag-color" style="--c:${esc(t.color)}" data-tag-color title="换一个颜色" aria-label="换 ${esc(t.name)} 的颜色"></button>
-      <input type="text" name="tagName" value="${esc(t.name)}" data-field="name" maxlength="12" aria-label="标签名称" />
+      <input type="text" name="tagName" value="${esc(t.name)}" data-field="name" maxlength="${MdgTagCore.TAG_NAME_MAX}" aria-label="标签名称" />
       <input type="text" name="tagRule" value="${esc(t.rule || "")}" data-field="rule" maxlength="80" placeholder="什么样的${esc(sp(who))}打这个标签（给 AI 看，可不写）" aria-label="${esc(t.name)} 的说明" />
       <span class="muted">${count} 个${esc(sp(who))}</span>
       <button type="button" class="danger" data-tag-del aria-label="删除标签 ${esc(t.name)}">删除</button>

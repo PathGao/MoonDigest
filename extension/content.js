@@ -14,6 +14,8 @@ const MDG_VERSION = chrome.runtime.getManifest().version;
 const IN_VIEWER = window !== window.top;
 // A subtitle picked from a list the page has since replaced with another video's.
 const VIDEO_SWITCHED = "视频已切换，请刷新";
+// A jump to a time point (the side panel, 专注模式) on a page without a player to drive.
+const NO_PLAYER = "当前页面没有找到可联动的视频播放器。";
 globalThis.__MDG_CONTENT_SCRIPT_LOADED__ = MDG_VERSION;
 const state = {
   fetchRunId: 0,
@@ -525,7 +527,7 @@ function bindRuntimeEvents() {
       const seconds = Number(message.seconds);
       const video = getRuntimeVideoElement();
       if (!video) {
-        sendResponse({ ok: false, error: "当前页面没有找到可联动的视频播放器。" });
+        sendResponse({ ok: false, error: NO_PLAYER });
         return false;
       }
       const nextTime = Math.max(0, Number.isFinite(seconds) ? seconds : 0);
@@ -1132,7 +1134,7 @@ async function runRefreshClip() {
 
 // Reasons arrive with or without a trailing full stop; strip it so the sentences after them join cleanly.
 function failureReason(error) {
-  return fetchErrorText(error).replace(/[。.！!；;，,\s]+$/u, "");
+  return MdgSites.trimReason(fetchErrorText(error));
 }
 
 // The page's reads under the shared subtitle step (MdgSites.loadSubtitle). The track list is retried; B站 sometimes
@@ -3716,7 +3718,7 @@ function scrollReadingTranscriptItemIntoView(node) {
 function jumpReadingTarget(seconds) {
   const video = bindReadingViewVideo();
   if (!video) {
-    setReadingNotice("当前页面没有找到可联动的视频播放器。");
+    setReadingNotice(NO_PLAYER);
     return;
   }
 

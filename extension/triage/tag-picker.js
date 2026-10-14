@@ -38,6 +38,7 @@
   const dlg = document.getElementById("tagPicker");
   if (!dlg) return void (globalThis.TagPicker = { toggle, changesOf, applyChange, rowsOf });
   const input = dlg.querySelector(".tp-input");
+  input.maxLength = MdgTagCore.TAG_NAME_MAX;
   const list = dlg.querySelector(".picker-list");
   const title = dlg.querySelector(".tp-title");
   const note = dlg.querySelector(".tp-note");

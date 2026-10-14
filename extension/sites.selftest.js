@@ -680,6 +680,14 @@ async function ytComments(next, byContinuation) {
   for (const f of fs.readdirSync(__dirname).filter((f) => f.endsWith(".js") && !f.endsWith(".selftest.js") && f !== "sites.js")) {
     assert.ok(!/"匿名"|slice\(0, 500\)/.test(fs.readFileSync(path.join(__dirname, f), "utf8")), `${f} cleans comments itself`);
   }
+  // Date, file name and reason helpers: one copy here (note.js, the popup and content.js read them); durations are TriageUi.fmtDuration.
+  assert.strictEqual(ctx.MdgSites.sanitizeFileName("第1集 #AI [合集] ^x|y"), "第1集 _AI _合集_ _x_y");
+  assert.strictEqual(ctx.MdgSites.trimReason("网络断了。 "), "网络断了");
+  for (const f of ["note.js", "popup.js", "content.js", "sidepanel.js", "background.js", "history/history.js"]) {
+    const src = fs.readFileSync(path.join(__dirname, f), "utf8");
+    assert.ok(!/function (formatLocalDate|sanitizeFileName|formatDuration)\(/.test(src) && !src.includes("[。.！!；;，,\\s]+$"), `${f} writes a shared helper itself`);
+  }
+  assert.strictEqual(fs.readFileSync(path.join(__dirname, "content.js"), "utf8").split("没有找到可联动的视频播放器").length, 2, "content.js writes the no-player sentence once");
   console.log("sites selftest ok");
 })().catch((error) => {
   console.error(error);

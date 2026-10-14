@@ -662,7 +662,7 @@ input { box-sizing: border-box; width: 100%; margin: 0; padding: 4px 8px; border
     if (pick.editing) {
       const input = el("input");
       input.type = "text";
-      input.maxLength = 12;
+      input.maxLength = globalThis.MdgTagCore.TAG_NAME_MAX;
       input.placeholder = "标签名，回车新建";
       input.setAttribute("aria-label", "新标签名");
       more.append(input);
@@ -1130,7 +1130,9 @@ input { box-sizing: border-box; width: 100%; margin: 0; padding: 4px 8px; border
       schedule();
     } else setEnabled(on);
   }
-  const readSettings = () => chrome.storage.sync.get({ [SETTING]: true, [VERDICT_SETTING]: false, [UP_SETTING]: true, ...SEEN_DEFAULTS, biliMarksOff: [] }).then(applySettings).catch(() => {});
+  // The switches this script reads, with settings.js's defaults.
+  const SYNC_DEFAULTS = Object.fromEntries([SETTING, VERDICT_SETTING, UP_SETTING, ...Object.keys(SEEN_DEFAULTS), "biliMarksOff"].map((k) => [k, globalThis.MdgSettings.DEFAULTS[k]]));
+  const readSettings = () => chrome.storage.sync.get(SYNC_DEFAULTS).then(applySettings).catch(() => {});
 
   chrome.storage.onChanged.addListener((changes, area) => {
     if (superseded) return;
