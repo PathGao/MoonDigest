@@ -1373,9 +1373,10 @@
   // the video page's run guard throws there once the video has changed.
   async function loadSubtitle(site, ref, meta, io, { prefer = {}, step = noStep } = {}) {
     const ids = { videoId: ref.id, cid: meta.cid };
-    const list = async (extra = {}) => {
+    // A limit throws unless a mismatched subtitle is already in hand (kept): that one is used, with its warning.
+    const list = async (extra = {}, kept = null) => {
       const got = await step(settle(site.fetchTracks(ref, meta, { ...io, ...extra })));
-      if (got.error && isLimit(got.error)) throw got.error;
+      if (got.error && isLimit(got.error) && !kept) throw got.error;
       return got;
     };
     const ranked = (bundle) => {
@@ -1389,8 +1390,10 @@
     let tracks = ranked(bundle);
     let pass = await loadFirstTrack(site, tracks, ids, io, meta.duration, step);
     if (tracks.length && (!pass.track || pass.mismatch) && !pass.limited) {
-      const again = await list(pass.empty ? { withoutPot: true } : {});
-      if (again.value?.tracks?.length) {
+      const again = await list(pass.empty ? { withoutPot: true } : {}, pass.track);
+      if (again.error && isLimit(again.error)) {
+        pass = { ...pass, error: again.error, limited: true };
+      } else if (again.value?.tracks?.length) {
         bundle = again.value;
         tracks = ranked(bundle);
         const next = await loadFirstTrack(site, tracks, ids, io, meta.duration, step);

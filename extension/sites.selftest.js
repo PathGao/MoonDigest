@@ -626,6 +626,21 @@ async function ytComments(next, byContinuation) {
   eq(f.calls, ["list", "a"]);
   f = fake(Object.assign(new Error("风控"), { code: "THROTTLED" }), {});
   await assert.rejects(load(f), (e) => e.code === "THROTTLED");
+  // The second list read limited: the mismatched subtitle already in hand is used with its warning.
+  {
+    let lists = 0;
+    f = fake(two, { a: tooLong, b: tooLong }, {
+      fetchTracks: async () => (++lists === 1 ? { tracks: two } : Promise.reject(Object.assign(new Error("风控"), { code: "THROTTLED" })))
+    });
+    got = await load(f);
+    eq([got.track.id, got.mismatch.reason, lists], ["a", "too-long", 2]);
+    // Nothing usable in hand: the limit throws.
+    lists = 0;
+    f = fake(two, { a: new Error("请求失败：404"), b: new Error("请求失败：404") }, {
+      fetchTracks: async () => (++lists === 1 ? { tracks: two } : Promise.reject(Object.assign(new Error("风控"), { code: "THROTTLED" })))
+    });
+    await assert.rejects(load(f), (e) => e.code === "THROTTLED");
+  }
 
   // Empty bodies (YouTube's answer to a rejected PO token), even next to another failure: the second list goes without
   // the token, and nothing usable is a failure with its reason.
