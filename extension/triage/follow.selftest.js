@@ -240,6 +240,7 @@ const base = () => ({ list: null, last: null, content: {}, people: {}, tags: [],
   assert.deepStrictEqual(plain(t.normDays("400", "100")), { followSlowDays: 400, followDeadDays: 401 });
   assert.deepStrictEqual(plain(t.normDays("1", "99999")), { followSlowDays: 90, followDeadDays: 3651 }, "below the minimum is the default, above the maximum the maximum");
   assert.deepStrictEqual(plain(t.normDays("-5", "x")), { followSlowDays: 90, followDeadDays: 365 }, "negative or not a number is the default");
+  assert.deepStrictEqual(plain(t.normDays("90", "-5")), { followSlowDays: 90, followDeadDays: 365 }, "a negative 断更 is the default, not 慢更 + 1");
   assert.deepStrictEqual(plain(t.normDays("5000", "3")), { followSlowDays: 3650, followDeadDays: 3651 }, "断更 stays a day past 慢更");
   assert.strictEqual(t.settingsProblem("90", "90"), "断更天数要比慢更大");
   assert.strictEqual(t.settingsProblem("120", "60"), "断更天数要比慢更大");
