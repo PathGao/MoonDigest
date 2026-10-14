@@ -2209,7 +2209,7 @@ function cardHtml(it, expanded, mark) {
 
   const chips = tagIdsOf(b)
     .map((id) => tagById(id))
-    .map((t) => UI.cardTagChip(t, "点一下去掉这个标签 · U 撤销"))
+    .map((t) => UI.cardTagChip(t))
     .join("");
 
   const body = [];
@@ -2239,7 +2239,7 @@ function cardHtml(it, expanded, mark) {
             ${waiting ? `<button type="button" aria-busy="true" disabled>${waiting}</button>` : `<button type="button" data-act="unfav" class="${unfavCls}" aria-label="取消收藏 (D)"${UI.reasonAttrs(decision?.action === "unfav" ? "已经取消收藏了" : "")}>取消收藏<kbd class="key">D</kbd></button>`}
           </span>
           <span class="more">
-            <button type="button" data-act="tag" aria-label="打标签 (T)">标签<kbd class="key">T</kbd></button>
+            ${UI.tagPlusBtn('data-act="tag"', "打标签 (T)")}
             ${basketBtn}${askBtn}
           </span>`}
         </div>
@@ -3543,7 +3543,7 @@ async function runAiCommand({ instruction, scope, allowRemove }) {
     return;
   }
   if (folder !== String(S.mediaId)) toast(`「${folderName(folder)}」的标签建议已完成，点进度胶囊上的「查看」确认`);
-  else if (!open) toast("AI 打标签已完成，按 I 查看建议");
+  else if (!open) toast(UI.AI_TAGS_DONE);
 }
 
 // What a proposal changes (shared.js); a video that left the folder since keeps its tags.

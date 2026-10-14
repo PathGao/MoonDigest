@@ -790,7 +790,7 @@ function upCard(mid) {
   const origin = UI.originChip(kind === "gone" ? "原在" : "在", gnames);
   const chips = u.tagIds.map(tagOf).map((t) => u.gone
     ? `<span class="chip" style="--c:${esc(t.color)}">${esc(t.name)}</span>`
-    : UI.cardTagChip(t, "点一下去掉这个标签")).join("");
+    : UI.cardTagChip(t)).join("");
   const titles = u.titles.length
     ? `<ul class="fw-titles">${u.titles.map((v) => `<li>${v.bvid ? `<a class="fw-title" href="${esc(video(v.bvid))}" data-play="${esc(v.bvid)}" title="在分拣台里播放">${esc(v.t)}</a>` : `<span class="fw-title">${esc(v.t)}</span>`}<span class="meta">${UI.agoHtml(v.c, now)}</span></li>`).join("")}</ul>`
     : "";
@@ -1610,7 +1610,7 @@ async function runAi({ instruction, scope, allowRemove }) {
   renderAiState();
   const open = TagDialogs.ai.isOpen(aiTags);
   if (open) TagDialogs.ai.render(aiTags);
-  else toast(proposal ? "AI 打标签已完成，点进度胶囊上的「查看」确认" : `AI 打标签没有成功：${errors.at(-1)}`, !proposal);
+  else toast(proposal ? UI.AI_TAGS_DONE : `AI 打标签没有成功：${errors.at(-1)}`, !proposal);
 }
 
 
