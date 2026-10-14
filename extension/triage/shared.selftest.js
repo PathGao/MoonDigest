@@ -20,7 +20,7 @@ const plain = (v) => JSON.parse(JSON.stringify(v));
 const XSS = ["<img src=x onerror=alert(1)>", `"'><script>alert(1)</script>`];
 const assertInert = (html, where) => assert.ok(!/<img src=x|<script|"'>/i.test(html) && /&lt;|&#60;/.test(html), `${where}: ${html}`);
 
-// Headroom: reading down past the header folds it; 400px back up, the top, or focus in the header unfolds it.
+// Headroom: reading down past the header folds it; 200px back up, the top, or focus in the header unfolds it.
 {
   const step = (s, top, full = 200) => plain(UI.headroomStep(s, { top, full }));
   let s = { collapsed: false, last: 0 };
@@ -29,14 +29,14 @@ const assertInert = (html, where) => assert.ok(!/<img src=x|<script|"'>/i.test(h
   s = step(s, 260);
   assert.deepStrictEqual(s, { collapsed: true, last: 260 }, "forward past the header: folds");
   assert.deepStrictEqual(step(s, 253), s, "a small step back stays folded");
-  assert.deepStrictEqual(step({ collapsed: true, last: 5000 }, 4601), { collapsed: true, last: 5000 }, "so does 399px back");
-  assert.deepStrictEqual(step({ collapsed: true, last: 5000 }, 4600), { collapsed: false, last: 4600 }, "400px back unfolds");
+  assert.deepStrictEqual(step({ collapsed: true, last: 5000 }, 4801), { collapsed: true, last: 5000 }, "so does 199px back");
+  assert.deepStrictEqual(step({ collapsed: true, last: 5000 }, 4800), { collapsed: false, last: 4800 }, "200px back unfolds");
   let back = { collapsed: true, last: 5000 };
-  for (const top of [4700, 4900, 4650]) back = step(back, top);
+  for (const top of [4900, 4950, 4850]) back = step(back, top);
   assert.deepStrictEqual(back, { collapsed: true, last: 5000 }, "counted from the deepest point, not from the last turn");
-  assert.deepStrictEqual(step(back, 4600), { collapsed: false, last: 4600 });
-  back = step(step({ collapsed: true, last: 5000 }, 4700), 5200);
-  assert.deepStrictEqual(step(back, 4850), { collapsed: true, last: 5200 }, "reading further down moves the deepest point");
+  assert.deepStrictEqual(step(back, 4800), { collapsed: false, last: 4800 });
+  back = step(step({ collapsed: true, last: 5000 }, 4900), 5200);
+  assert.deepStrictEqual(step(back, 5050), { collapsed: true, last: 5200 }, "reading further down moves the deepest point");
   let slow = s;
   for (const top of [263, 266, 269]) slow = step(slow, top);
   assert.deepStrictEqual(slow, { collapsed: true, last: 269 }, "folded, last follows the deepest point");

@@ -222,6 +222,8 @@ select { height: 28px; max-width: 240px; }
 .head-folded .tabrow::before { border-top-width: 1px; border-radius: var(--radius-lg); }
 .slim-title { display: none; flex: 0 1 auto; min-width: 0; max-width: 40%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--fs-md); font-weight: 600; }
 .head-folded .slim-title { display: block; }
+.slim-open { display: none; width: 28px; margin-left: -8px; padding: 0; justify-content: center; }
+.head-folded .slim-open { display: inline-flex; }
 @media (prefers-reduced-motion: reduce) {
   .folder-head, .tabrow, .stagebar, .tagbar, .viewer, .viewer-close { transition: none; }
 }

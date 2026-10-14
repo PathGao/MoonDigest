@@ -1958,15 +1958,19 @@ function renderListHeader(list) {
     html = critBtn;
     if (ownStage1()) html += stage1Pause();
     else {
-      const n = stage1Pending().length;
+      const pending = stage1Pending();
+      const n = pending.length;
       const none = S.items.some((it) => stageOf(it) === "none" && !S.stage1Skip.has(it.bvid)) ? "当前筛选下没有要粗看的视频" : "没有要粗看的视频";
-      html += headBtn("stage1", n ? `标题粗看这 ${n} 个` : "标题粗看", "primary", aiBusyReason() || (n ? "" : none), "", "", false, true);
+      html += headBtn("stage1", !n ? "标题粗看" : S.selected.has(pending[0].bvid) ? `标题粗看选中 ${n} 个` : `标题粗看这 ${n} 个`, "primary", aiBusyReason() || (n ? "" : none), "", "", false, true);
     }
     if (sel) selActs = batchBtn("keep");
   } else if (t === "coarse") {
-    // A selection gets 细看 plus both batch buttons; 可清理 / 值得留 lead with their batch button, 细看 stays secondary.
+    // 细看 stays in row 3 like 标题粗看 and takes the selection; 可清理 / 值得留 lead with their batch button, 细看 stays secondary.
     html = critBtn + redoBtn("redo-coarse", "粗看", redoCoarseList().length, staleCoarse().length);
-    if (sel) selActs = groupBtn("primary") + batchBtn("keep");
+    if (sel) {
+      html += groupBtn("primary");
+      selActs = batchBtn("keep");
+    }
     else if (f === "drop") html += batchBtn("unfav", "drop") + groupBtn("");
     else if (f === "keep") html += batchBtn("keep", "keep") + groupBtn("");
     else html += groupBtn("primary");
@@ -3094,7 +3098,12 @@ function aiItem(it) {
 
 
 // What 标题粗看 counts and sends: the 未分析 videos listed now (search and filters applied), not the hidden ones.
-const stage1Pending = () => S.items.filter((it) => stageOf(it) === "none" && !S.stage1Skip.has(it.bvid) && passFilter(it));
+// A selection wins, like 细看's nextBatch.
+const stage1Pending = () => {
+  const open = S.items.filter((it) => stageOf(it) === "none" && !S.stage1Skip.has(it.bvid) && passFilter(it));
+  const sel = selectedIn(open);
+  return sel.length ? sel : open;
+};
 
 // list: 未分析 by default; 重新粗看 passes the cards whose 粗看 used an older 判断标准. Their old results stay on the
 // cards until new ones replace them, so a stopped or failed run loses nothing.

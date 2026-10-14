@@ -749,6 +749,7 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   assert.deepStrictEqual(plain(t.nextBatch()), ["BV207"], "a selection still wins");
   t.renderListHeader(t.visibleItems());
   for (const part of ["细看选中 1 个", "保留选中的 1 个", "取消收藏选中的 1 个"]) assert.ok(t.el.listHeader.innerHTML.includes(part), part);
+  assert.ok(t.el.listHeader.innerHTML.split("</div>")[0].includes("细看选中 1 个"), "细看 stays in row 3 with a selection, like 标题粗看");
   // The pill (runs' table, PILL's order) names what runs, whatever the tab: 细看 before 粗看. Its button pauses the run;
   // pressed, it says so (disabled) on the pill and in row 3 until the step in flight lands.
   {

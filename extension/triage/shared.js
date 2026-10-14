@@ -542,12 +542,12 @@
   }
 
   // Headroom (DESIGN 视觉设计 · 分拣台): reading down folds rows 1–4 into the slim bar (name · count, row 2); scrolling back
-  // up HEADROOM_UP px from the deepest point, the top, or focus in the header brings them back. The rows are long-lived
+  // up HEADROOM_UP px from the deepest point, the top, the slim bar's open button, or focus in the header brings them back. The rows are long-lived
   // settings, so a glance back at a few cards keeps them folded. s = { collapsed, last }; ev = { top, full } on a scroll of
   // the list (full: the whole header's height) or { focus: true }. Unfolded, last moves only on a step of HEADROOM_MIN px
   // or more, so a slow scroll still counts and jitter does not; folded, last is the deepest point.
   const HEADROOM_MIN = 8;
-  const HEADROOM_UP = 400;
+  const HEADROOM_UP = 200;
   function headroomStep(s, ev) {
     if (ev.focus) return { ...s, collapsed: false };
     if (ev.top <= 0) return { collapsed: false, last: 0 };
@@ -589,7 +589,12 @@
       // The slim bar's 「名字 · 数量」: a copy of row 1's title, kept in step with it.
       if (!row.classList.contains("folder-head")) continue;
       const slim = Object.assign(document.createElement("span"), { className: "slim-title" });
-      row.nextElementSibling.prepend(slim);
+      const open = Object.assign(document.createElement("button"), {
+        type: "button", className: "act-btn slim-open", title: "展开", innerHTML: svg('<path d="m6 9 6 6 6-6"/>'),
+      });
+      open.setAttribute("aria-label", "展开头部");
+      open.addEventListener("click", () => set(headroomStep(s, { focus: true })));
+      row.nextElementSibling.prepend(open, slim);
       const copy = () => (slim.innerHTML = row.querySelector(".folder-title")?.innerHTML || "");
       new MutationObserver(copy).observe(row, { childList: true, subtree: true, characterData: true });
       copy();
