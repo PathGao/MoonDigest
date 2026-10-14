@@ -147,6 +147,23 @@ const chatOn = (context) => {
     await ctx.sendMessage();
     assert.deepStrictEqual([resets, opened, loads, vm.runInContext("els.input.value", ctx)], [0, 1, 1, "q"]);
     ctx.resetConversationView = () => {};
+    // 快捷追问 and 重试 send their own text: the draft in the input box stays as typed.
+    const asked = [];
+    const realConnect = ctx.chrome.runtime.connect;
+    const [realUser, realPlaceholder] = [ctx.appendUserMessage, ctx.appendAssistantPlaceholder];
+    ctx.chrome.runtime.connect = () => ({ onMessage: { addListener() {} }, onDisconnect: { addListener() {} }, postMessage() {}, disconnect() {} });
+    ctx.appendUserMessage = (text) => asked.push(text);
+    ctx.appendAssistantPlaceholder = () => stubEl();
+    ctx.ensureCurrentContextForSend = async () => true;
+    state.dispatch({ type: "NEW" });
+    show(video);
+    vm.runInContext('els.input.value = "还没写完的草稿"; els.modelSelect.value = "p"', ctx);
+    await ctx.sendMessage("快捷追问的话");
+    assert.deepStrictEqual([asked, vm.runInContext("els.input.value", ctx)], [["快捷追问的话"], "还没写完的草稿"]);
+    assert.ok(/sendPrompt\(prompt\) \{\n  void sendMessage\(prompt\);/.test(page) && page.includes("    void sendMessage(prompt);\n  });"), "快捷追问 and 重试 pass their text");
+    vm.runInContext("activeStream = null", ctx);
+    Object.assign(ctx, { appendUserMessage: realUser, appendAssistantPlaceholder: realPlaceholder });
+    ctx.chrome.runtime.connect = realConnect;
   }
 
   {
@@ -425,6 +442,62 @@ const chatOn = (context) => {
       ["视频没有字幕，AI 只能读标题、简介和评论。", "字幕抓取失败：网络断了，AI 只能读标题、简介和评论。", "未登录 B站，拿不到字幕，AI 只能读标题、简介和评论。登录 B站后刷新网页。"]
     );
   }
+
+  // 分拣台 finishing 细看 on the open video shows its AI 总结 card at once; another video's result changes nothing.
+  {
+    const card = [];
+    const node = { querySelector: () => null, insertAdjacentHTML: (_, html) => card.push(html) };
+    vm.runInContext("suggestionsNode = globalThis.__node", Object.assign(ctx, { __node: node }));
+    state.dispatch({ type: "NEW" });
+    show(video);
+    const analysis = { status: "done", verdict: "keep", oneLiner: "一句话", points: ["要点"] };
+    ctx.chrome.storage.local.get = async (k) => (k === "triage_analysis_BV1xx411c7mD" ? { [k]: analysis } : {});
+    ctx.followTriageAnalysis({ triage_analysis_BV2other: { newValue: analysis } });
+    await new Promise((r) => setImmediate(r));
+    assert.strictEqual(card.length, 0, "another video's analysis is not shown");
+    ctx.followTriageAnalysis({ triage_analysis_BV1xx411c7mD: { newValue: analysis } });
+    await new Promise((r) => setImmediate(r));
+    assert.ok(card.length === 1 && card[0].includes("分拣台的 AI 总结") && card[0].includes("一句话"), "the card appears");
+    ctx.chrome.storage.local.get = async () => ({});
+    assert.ok(page.includes('if (areaName === "local") followTriageAnalysis(changes);'), "the storage listener follows analyses");
+  }
+
+  // 导出对话: any conversation change closes its menu; with nothing to export the button and every item are disabled
+  // and say why, instead of answering a click with 「当前没有可复制的对话」.
+  {
+    const els = vm.runInContext("els", ctx);
+    state.dispatch({ type: "SAVED_CHANGED", list: [{ id: "x1", contextUrl: video.url, isVideoContext: true, messages: [{ role: "user", content: "q" }, { role: "assistant", content: "a" }] }] });
+    await ctx.act({ type: "OPEN", id: "x1" });
+    ctx.setStreamingUiState(false);
+    assert.deepStrictEqual([els.copyConversationBtn.disabled, els.exportBtn.disabled], [false, false]);
+    els.exportPopover.hidden = false;
+    await ctx.act({ type: "NEW" });
+    ctx.setStreamingUiState(false);
+    assert.strictEqual(els.exportPopover.hidden, true, "a conversation change closes the menu");
+    for (const b of ["exportBtn", "copyConversationBtn", "downloadConversationBtn", "saveConversationBtn"]) {
+      assert.deepStrictEqual([b, els[b].disabled, els[b].title], [b, true, "当前没有可导出的对话"]);
+    }
+  }
+
+  // 快捷追问's 添加: disabled with the reason while the box is empty or the list is full.
+  {
+    const els = vm.runInContext("els", ctx);
+    const prefs = vm.runInContext("aiPrefs", ctx);
+    els.presetInput.value = " ";
+    prefs.aiPresetPrompts = [];
+    vm.runInContext("syncPresetAdd()", ctx);
+    assert.deepStrictEqual([els.presetAddBtn.disabled, els.presetAddBtn.title], [true, "先输入快捷追问"]);
+    els.presetInput.value = "再讲讲";
+    vm.runInContext("syncPresetAdd()", ctx);
+    assert.strictEqual(els.presetAddBtn.disabled, false);
+    prefs.aiPresetPrompts = Array.from({ length: ctx.MdgSettings.MAX_PRESET_PROMPTS }, (_, i) => `q${i}`);
+    vm.runInContext("syncPresetAdd()", ctx);
+    assert.deepStrictEqual([els.presetAddBtn.disabled, els.presetAddBtn.title], [true, `最多 ${ctx.MdgSettings.MAX_PRESET_PROMPTS} 条快捷追问，先删掉一条再添加`]);
+    prefs.aiPresetPrompts = [];
+  }
+
+  // Each reply's copy button is named per the 用词表: 复制 Markdown, never a bare 复制.
+  assert.ok(page.includes("<span>复制 Markdown</span>") && !page.includes("<span>复制</span>"), "a reply's copy button says 复制 Markdown");
 
   // B3: a failed auto-sync to Obsidian offers 去设置 before 重试 when the fix is in the settings page, like a manual write;
   // a closed Obsidian gets 重试 only.

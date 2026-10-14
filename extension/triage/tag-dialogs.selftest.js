@@ -166,6 +166,10 @@ function adapters(who) {
     const runs = calls.length;
     fire("aiTagDialog", "click", { target: target("#aiRunBtn", { id: "aiRunBtn" }) });
     assert.strictEqual(calls.length, runs, `${who}: nothing runs`);
+    // Some hidden: 选中 says the listed ones, the number 运行 would send, like 「✦ AI 打标签选中的 N 个」.
+    ai.shown = 1;
+    D.ai.open(ai);
+    assert.ok(nodes.aiScope.innerHTML.includes("选中 · 1 个"), `${who}: 选中 counts the listed ones`);
     ai.shown = 2;
 
     // 运行: off with 先写指令 while the instruction is empty, back on as it is typed; then the adapter runs with the

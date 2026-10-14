@@ -5,6 +5,7 @@ const vm = require("vm");
 const assert = require("assert");
 
 const ctx = vm.createContext({ setTimeout, clearTimeout });
+vm.runInContext(fs.readFileSync(path.join(__dirname, "../limits.js"), "utf8"), ctx);
 vm.runInContext(fs.readFileSync(path.join(__dirname, "../errors.js"), "utf8"), ctx);
 vm.runInContext(fs.readFileSync(path.join(__dirname, "../typing.js"), "utf8"), ctx);
 vm.runInContext(fs.readFileSync(path.join(__dirname, "../tag-core.js"), "utf8"), ctx);
@@ -582,11 +583,16 @@ for (const [file, fns] of [["triage.js", ["mergeAiBatch", "aiChanges"]], ["follo
     for (const [hit, n] of text.matchAll(/默认 ?(\d+)/g)) assert.ok(!table.some(([, , def]) => +n === def), `${where}: ${hit} repeats a NUM_SETTINGS default`);
     for (const [hit, n] of text.matchAll(/最多 ?(\d+)/g)) assert.ok(!table.some(([, max]) => +n === max), `${where}: ${hit} repeats a NUM_SETTINGS max`);
   }
-  // Titles per 粗看 request: TITLES_PER_REQUEST in shared.js alone; hints show it through [data-titles-per-request].
-  const titleSpans = [{}, {}];
-  UI.fillNumHints({ querySelectorAll: (sel) => (sel === "[data-titles-per-request]" ? titleSpans : []) });
-  assert.deepStrictEqual(titleSpans.map((n) => n.textContent), [UI.TITLES_PER_REQUEST, UI.TITLES_PER_REQUEST]);
-  assert.ok(/一次请求带 <span data-titles-per-request><\/span> 个标题/.test(optionsHtml), "options.html's 粗看 hint reads TITLES_PER_REQUEST");
+  // Fixed numbers the hints quote (titles per 粗看 request, 简介 chars, hot comments, 快捷追问 and 段落 caps, subtitle chars)
+  // live in code alone; hints show them through [data-hint-num] spans.
+  const hintSpans = [...optionsHtml.matchAll(/data-hint-num="(\w+)"/g)].map((m) => ({ dataset: { hintNum: m[1] } }));
+  UI.fillNumHints({ querySelectorAll: (sel) => (sel === "[data-hint-num]" ? hintSpans : []) });
+  assert.deepStrictEqual(hintSpans.map((n) => `${n.dataset.hintNum}=${n.textContent}`).sort(), ["aiSubtitleWan=6", "deepComments=10", "hotComments=20", "introChars=120", "noteSections=5", "presetPrompts=12", "titlesPerRequest=20"]);
+  assert.ok(/一次请求带 <span data-hint-num="titlesPerRequest"><\/span> 个标题/.test(optionsHtml), "options.html's 粗看 hint reads TITLES_PER_REQUEST");
+  const optionsText = optionsHtml.replace(/<[^>]*>/g, "");
+  for (const re of [/\d+ ?条热门评论/, /最多 ?\d+ ?[段条]/, /简介前 ?\d+/, /\d+ ?万字/]) assert.ok(!re.test(optionsText), `options.html writes ${re} itself`);
+  const bg = fs.readFileSync(path.join(__dirname, "triage-bg.js"), "utf8");
+  assert.ok(/fetchComments\(ref, m, TRIAGE_BILI_IO, TriageUi\.DEEP_COMMENTS\)/.test(bg) && !/slice\(0, 120\)/.test(bg), "细看 and 粗看 read DEEP_COMMENTS and INTRO_CHARS");
   for (const p of pages) assert.ok(!/\d+ ?个标题/.test(fs.readFileSync(path.join(__dirname, p), "utf8").replace(/<[^>]*>/g, "")), `${p} writes the titles per request itself`);
   for (const f of ["triage.js", "triage-bg.js", "follow.js", "../options.js", "../background.js"]) assert.ok(!/TITLES_PER_REQUEST\s*=/.test(fs.readFileSync(path.join(__dirname, f), "utf8")), `${f} sets the titles per request itself`);
   // 看到多少算看完了: range and default only in settings.js's SEEN_THRESHOLD; every reader (background, bili-surfaces.js,

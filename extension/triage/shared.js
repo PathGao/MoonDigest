@@ -209,6 +209,9 @@
   const waitText = (why, sec) => (sec > 0 ? `${why}，${fmtDuration(sec)} 后重试` : "");
   // 关注's wait on B站限流: follow-bg.js's queue pause, and the page's wait before a write or a 视频投稿 page goes again.
   const BILI_HOLD_MS = 90000;
+  // 关注's gap between its writes to B站: the page's batches (follow.js) and the one-by-one retry after B站 refused a
+  // group request (follow-bg.js).
+  const FOLLOW_WRITE_GAP_MS = 1000;
   // Why 停止 on a B站 batch write's pill (both modes) is off once pressed: the request in flight lands first.
   const WRITE_STOPPING = "当前这一批做完就停止";
   // Why something waits for a running step or batch write (name: what the pill calls it), both modes; undo: U's version.
@@ -249,12 +252,7 @@
   const reasonAttrs = (reason, title = "") =>
     reason ? ` disabled title="${esc(reason)}" aria-description="${esc(reason)}"` : title ? ` title="${esc(title)}"` : "";
   // The same for a control already on the page.
-  function setReason(node, reason, title = "") {
-    node.disabled = Boolean(reason);
-    node.title = reason || title;
-    if (reason) node.setAttribute("aria-description", reason);
-    else node.removeAttribute("aria-description");
-  }
+  const { setReason } = MdgErrors;
   // A --warn dot after a button's label: something is not set up yet, and nothing is blocked by it.
   const WARN_DOT = '<i class="dot-warn" aria-hidden="true"></i>';
 
@@ -283,7 +281,7 @@
   const actBtn = (attrs, label, { reason = "", cls = "", title = "", pre = "" } = {}) =>
     `<button type="button"${cls ? ` class="${cls}"` : ""} ${attrs} aria-label="${esc(label)}"${reasonAttrs(reason, title)}>${pre}${esc(label)}</button>`;
   // Why a selection's buttons are off when filters hide every selected one (the bar's and row 3's steps').
-  const HIDDEN_ALL = "选中的都被筛选隐藏了";
+  const HIDDEN_ALL = MdgErrors.TEXT.hiddenAll;
   // 清理 in 已出分拣范围's row 3, both modes. A selection (picked: how many, shown: how many listed) decides alone: n of
   // it, off with HIDDEN_ALL when none is listed; without one, n of all listed. busy goes before that, why after.
   const cleanBtn = (attrs, { picked, shown, n, busy = "", why = "" }) =>
@@ -422,7 +420,7 @@
   // One row of 标签管理: color, name, the line for the AI, how many carry it, 删除. Edits save on change.
   const tagRowHtml = (t, { count, who }) => `<div class="tag-row" data-id="${esc(t.id)}">
       <button type="button" class="tag-color" style="--c:${esc(t.color)}" data-tag-color title="换一个颜色" aria-label="换 ${esc(t.name)} 的颜色"></button>
-      <input type="text" name="tagName" value="${esc(t.name)}" data-field="name" maxlength="12" aria-label="标签名称" />
+      <input type="text" name="tagName" value="${esc(t.name)}" data-field="name" maxlength="${MdgTagCore.TAG_NAME_MAX}" aria-label="标签名称" />
       <input type="text" name="tagRule" value="${esc(t.rule || "")}" data-field="rule" maxlength="80" placeholder="什么样的${esc(sp(who))}打这个标签（给 AI 看，可不写）" aria-label="${esc(t.name)} 的说明" />
       <span class="muted">${count} 个${esc(sp(who))}</span>
       <button type="button" class="danger" data-tag-del aria-label="删除标签 ${esc(t.name)}">删除</button>
@@ -453,9 +451,22 @@
   // The whole-number settings of both dialogs: [min, max, default], default 0 = 自动. The readers (pages and background)
   // parse with numSetting; fillSetRows gives each box (data-num) its range and the default as placeholder, and
   // writes them into the hints' [data-num-min] / [data-num-max] / [data-num-default] spans, so no hint repeats a number.
-  // Titles one 粗看 request carries (fixed, not a setting; the output limit's 自动 grows with it). Hints write it through
-  // [data-titles-per-request] spans that fillNumHints fills.
+  // Titles one 粗看 request carries (fixed, not a setting; the output limit's 自动 grows with it).
   const TITLES_PER_REQUEST = 20;
+  // 粗看 and ✦ AI 打标签 send the first INTRO_CHARS of each description; 细看 reads DEEP_COMMENTS hot comments when a
+  // video has no subtitle (fewer than a note's MdgLimits.HOT_COMMENTS: the AI only needs the gist).
+  const INTRO_CHARS = 120;
+  const DEEP_COMMENTS = 10;
+  // Fixed numbers the hints quote, through [data-hint-num="key"] spans that fillNumHints fills (options.html, triage.html).
+  const hintNums = () => ({
+    titlesPerRequest: TITLES_PER_REQUEST,
+    introChars: INTRO_CHARS,
+    deepComments: DEEP_COMMENTS,
+    hotComments: MdgLimits.HOT_COMMENTS,
+    aiSubtitleWan: MdgLimits.AI_SUBTITLE_MAX_CHARS / 10000,
+    presetPrompts: MdgSettings.MAX_PRESET_PROMPTS,
+    noteSections: MdgSettings.MAX_NOTE_SECTIONS
+  });
   // 输出上限's 自动 (maxTokens left empty): 粗看 per title, ✦ AI 打标签 ("command", which reads 粗看's setting) per item,
   // 细看 per video; thinking tokens count against it. The background sends it, the settings dialog shows it.
   const autoMaxTokens = (kind, itemCount, thinking) =>
@@ -501,7 +512,8 @@
       const [min, max, def] = NUM_SETTINGS[numMin ?? numMax ?? numDefault];
       node.textContent = numMin ? min : numMax ? max : def;
     }
-    for (const node of root.querySelectorAll("[data-titles-per-request]")) node.textContent = TITLES_PER_REQUEST;
+    const nums = hintNums();
+    for (const node of root.querySelectorAll("[data-hint-num]")) node.textContent = nums[node.dataset.hintNum];
   }
 
   // A number field is corrected by intIn when left or saved, instead of the browser refusing to save: above max is max,
@@ -685,6 +697,5 @@
     return instant;
   }
 
-  globalThis.TriageUi = { esc, pad, dayText, fmtDate, fmtAgo, agoHtml, setSearchScope, confirmList, pickTitle, fmtDuration, fmtCount, cleanTagName, plainClick, cardPlayClick, cardPickClick, pickCard, img, toCsv, cardTagChip, syncedText, headMeta, titleHtml, ICON, AI_SPARK, byValue, dirWords, sortControl, filterBtn, labeledRow, tagFilterChip, kindTabs, originChip, stateGroup, aiRecentChip, searchBox, bindSearch, resultCount, rowButtons, menuItem, BACKUP_ITEM, reasonAttrs, setReason, WARN_DOT, selectAllState, selectAllBox, toggleAll, setActivity, waitText, BILI_HOLD_MS, WRITE_STOPPING, AI_TAGS_DONE, busyText, syncPill
-, setSync, bindSync, tagButtons, sideFoot, actBtn, cleanBtn, HIDDEN_ALL, selbar, askTransfer, sideItem, emptyState, refreshEmpty, noMatch, fillSetRows, fillNumHints, NUM_SETTINGS, TITLES_PER_REQUEST, autoMaxTokens, numSetting, clampNumber, intIn, clampNumbers, mergeAiBatch, aiChanges, aiProposalOk, previewId, aiTally, nextTagColor, tagNameError, deleteTagAsk, editedTag, withoutTag, undoAsk, tagRowHtml, sp, tagsWord, AI_RECENT_RULES, aiRecentUndo, tagPlusBtn, viewerLine, viewerKeyFrom, headFold };
+  globalThis.TriageUi = { esc, pad, dayText, fmtDate, fmtAgo, agoHtml, setSearchScope, confirmList, pickTitle, fmtDuration, fmtCount, cleanTagName, plainClick, cardPlayClick, cardPickClick, pickCard, img, toCsv, cardTagChip, syncedText, headMeta, titleHtml, ICON, AI_SPARK, byValue, dirWords, sortControl, filterBtn, labeledRow, tagFilterChip, kindTabs, originChip, stateGroup, aiRecentChip, searchBox, bindSearch, resultCount, rowButtons, menuItem, BACKUP_ITEM, reasonAttrs, setReason, WARN_DOT, selectAllState, selectAllBox, toggleAll, setActivity, waitText, BILI_HOLD_MS, WRITE_STOPPING, busyText, syncPill, setSync, bindSync, tagButtons, sideFoot, actBtn, cleanBtn, HIDDEN_ALL, selbar, askTransfer, sideItem, emptyState, refreshEmpty, noMatch, fillSetRows, fillNumHints, NUM_SETTINGS, TITLES_PER_REQUEST, INTRO_CHARS, DEEP_COMMENTS, autoMaxTokens, numSetting, clampNumber, intIn, clampNumbers, mergeAiBatch, aiChanges, aiProposalOk, previewId, aiTally, nextTagColor, tagNameError, deleteTagAsk, editedTag, withoutTag, undoAsk, tagRowHtml, sp, tagsWord, AI_RECENT_RULES, aiRecentUndo, tagPlusBtn, viewerLine, viewerKeyFrom, headFold, FOLLOW_WRITE_GAP_MS, AI_TAGS_DONE };
 })();

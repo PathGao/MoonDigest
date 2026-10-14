@@ -657,6 +657,45 @@ const settle = async () => {
     assert.strictEqual(await tries(Object.assign(new Error("请求失败：412"), { status: 412 })), 1, "HTTP 412");
     assert.strictEqual(await tries(new TypeError("Failed to fetch")), 2, "a dropped connection is retried");
     assert.strictEqual(await tries(Object.assign(new Error("x"), { code: -500, retryable: true })), 2);
+    // D2: the background's fetch-json says 网络断了 (code NETWORK) like 分拣台, and the page's own timeout says the same.
+    const net = t.MdgErrors.netTimeout(t.MdgErrors.NET_TIMEOUT_MS);
+    assert.strictEqual(net, "网络断了：30 秒没有回应");
+    assert.strictEqual(await tries(Object.assign(new Error(net), { code: "NETWORK" })), 2, "the background's 网络断了 is retried");
+    const savedSend = t.sendRuntimeMessage;
+    t.sendRuntimeMessage = async () => ({ ok: false, error: "B站请求失败 HTTP 412", code: "THROTTLED", status: 412 });
+    await assert.rejects(t.fetchJsonInBackground("https://api.bilibili.com/x"), (e) => e.code === "THROTTLED" && e.status === 412);
+    t.sendRuntimeMessage = savedSend;
+    assert.match(source, /AbortSignal\.timeout\(MdgErrors\.NET_TIMEOUT_MS\)/, "the page's fetches wait as long as the background's");
+    assert.doesNotMatch(source, /请稍后重试/, "a note keeps state only, no instruction");
+  }
+
+  // D8: the player ✦ never writes the popup's status line (setMessage); D1: its failure is red on the page.
+  {
+    const saved = Object.fromEntries(["setMessage", "setReadingNotice", "getSettings", "sendRuntimeMessage"].map((k) => [k, t[k]]));
+    const seen = [];
+    t.HTMLButtonElement = class {};
+    t.setMessage = (m) => seen.push(["message", m]);
+    t.setReadingNotice = (m, o) => seen.push(["notice", m, o?.error]);
+    t.getSettings = async () => ({ enablePlayerAiQuickAction: true });
+    const click = { preventDefault() {}, stopPropagation() {}, currentTarget: null };
+    t.sendRuntimeMessage = async () => ({ ok: true });
+    await t.handlePlayerAiQuickActionClick(click);
+    t.sendRuntimeMessage = async () => ({ ok: false, error: "x" });
+    await t.handlePlayerAiQuickActionClick(click);
+    assert.deepStrictEqual(seen, [["notice", "打开侧边栏失败：x", true]]);
+    Object.assign(t, saved);
+    delete t.HTMLButtonElement;
+  }
+  // D1: every failure notice on the video page is red (error: true), like the popup's.
+  for (const m of source.matchAll(/setReadingNotice\((`[^`]*`|"[^"]*")(.{0,60})/g)) {
+    if (/失败|未就绪|Failed\}/.test(m[1])) assert.match(m[2], /^(, \{ error: true \}|\)\)?, \{ error: true \})/, `not red: ${m[0]}`);
+  }
+  // D3: what failed when 专注模式 has no subtitle to show is reading the video, in the popup's words.
+  {
+    const was = state.subtitleFetchState;
+    state.subtitleFetchState = "error";
+    assert.strictEqual(t.getReadingTranscriptPlaceholderText(), `${t.MdgErrors.TEXT.videoReadFailed}。`);
+    state.subtitleFetchState = was;
   }
 
   // The video's subtitle names, chapter titles and subtitle lines come from the site.

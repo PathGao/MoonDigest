@@ -180,16 +180,6 @@ async function openAiSidepanelForTab(tabId) {
   throw new Error("当前浏览器不支持扩展侧边栏");
 }
 
-function buildPlayerAiQuickActionRequest(tabId, prompt) {
-  const createdAt = Date.now();
-  return {
-    id: `player-ai-${createdAt}-${Math.random().toString(36).slice(2, 8)}`,
-    tabId: Number(tabId || 0) || 0,
-    prompt: MdgSettings.normalizePlayerAiQuickPrompt(prompt),
-    createdAt
-  };
-}
-
 function normalizeAiContextRef(ref) {
   const value = ref && typeof ref === "object" ? ref : {};
   return {
@@ -215,8 +205,8 @@ function normalizeAiContextRef(ref) {
 
 const FETCH_TIMEOUT_MS = 15000;
 
-// A hung request would otherwise block the popup refresh and the side panel context forever.
-// "超时" in the message is what content.js retryAsync treats as a retryable network error.
+// Obsidian's Local REST API and the cover images written into the vault; a hung request would block the write forever.
+// status 408 is what obsidianError reads as OBSIDIAN_DOWN.
 async function fetchWithTimeout(url, options = {}, ms = FETCH_TIMEOUT_MS) {
   try {
     return await fetch(url, { ...options, signal: AbortSignal.timeout(ms) });
@@ -228,27 +218,6 @@ async function fetchWithTimeout(url, options = {}, ms = FETCH_TIMEOUT_MS) {
     }
     throw error;
   }
-}
-
-// The video page's fetch-json proxy (content.js); the background's own B站 reads go through triageBiliGetJson.
-async function fetchJsonForAi(url) {
-  const options = {
-    method: "GET",
-    credentials: "include",
-    cache: "no-store"
-  };
-  if (/(?:api\.bilibili\.com|hdslb\.com)/.test(String(url || ""))) {
-    options.referrer = "https://www.bilibili.com/";
-    options.referrerPolicy = "strict-origin-when-cross-origin";
-  }
-
-  const response = await fetchWithTimeout(url, options);
-  if (!response.ok) {
-    const error = new Error(`HTTP ${response.status}`);
-    error.status = response.status;
-    throw error;
-  }
-  return response.json();
 }
 
 function refFromAiContext(ref) {
@@ -436,9 +405,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
+  // Focuses a settings page that is already open, as the side panel and 视频记录 do (no caller asks for a section).
   if (message.type === "open-options") {
-    chrome.tabs
-      .create({ url: chrome.runtime.getURL("options.html") })
+    chrome.runtime
+      .openOptionsPage()
       .then(() => sendResponse({ ok: true }))
       .catch((error) => sendResponse({ ok: false, error: error.message }));
     return true;
@@ -461,14 +431,15 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           throw new Error("✦ AI 按钮未开启");
         }
         await openPromise;
-        const request = buildPlayerAiQuickActionRequest(tabId, settings.playerAiQuickPrompt);
         // From 分拣台's viewer frame: the tab is 分拣台, so the panel takes the video by reference like 问 AI, and
         // asks that frame for it (getAiSidepanelState with frameId).
-        if (sender?.frameId && message.contextRef) {
-          request.contextRef = message.contextRef;
-          request.frameId = sender.frameId;
-        }
-        await chrome.storage.local.set({ [MdgLimits.KEYS.playerAiQuickAction]: request });
+        const viewer = sender?.frameId && message.contextRef;
+        await MdgLimits.askSidepanel({
+          tabId,
+          prompt: MdgSettings.normalizePlayerAiQuickPrompt(settings.playerAiQuickPrompt),
+          contextRef: viewer ? message.contextRef : null,
+          frameId: viewer ? sender.frameId : 0
+        });
         sendResponse({ ok: true });
       })
       .catch((error) => sendResponse({ ok: false, error: error.message || "未知错误" }));
@@ -519,9 +490,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       sendResponse({ ok: false, error: "URL not allowed" });
       return false;
     }
-    fetchJsonForAi(url)
+    // The same request, timeout and words as 分拣台 and the side panel (triageBiliGetJson, one try); the page retries.
+    triageBiliGetJson(url)
       .then((data) => sendResponse({ ok: true, data }))
-      .catch((error) => sendResponse({ ok: false, error: error.message, status: error.status }));
+      .catch((error) => sendResponse({ ok: false, error: error.message, code: error.code, status: error.status }));
     return true;
   }
 
@@ -568,7 +540,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         const keys = await loadAiProviderKeys();
         return String(keys[providerId] || "").trim();
       })
-      .then((apiKey) => testAiConnection({ baseUrl, apiKey, model }))
+      .then((apiKey) => testAiConnection({ baseUrl, apiKey, model, requiresKey: message.requiresKey }))
       .then((resp) => sendResponse(resp))
       .catch((error) => sendResponse({ ok: false, error: error.message }));
     return true;
@@ -613,9 +585,11 @@ chrome.runtime.onConnect.addListener((port) => {
     watchdogId = 0;
   };
 
-  const armWatchdog = (ms, reason) => {
+  // code: AI_TIMEOUT (no first answer: maybe a wrong address or model, so 去设置) or AI_STALLED (the reply stopped
+  // midway: only 重试 helps).
+  const armWatchdog = (ms, reason, code) => {
     clearWatchdog();
-    watchdogId = setTimeout(() => abortActiveRequest({ type: "timeout", reason }), ms);
+    watchdogId = setTimeout(() => abortActiveRequest({ type: "timeout", reason, code }), ms);
   };
 
   const clearActiveRequestState = () => {
@@ -649,7 +623,7 @@ chrome.runtime.onConnect.addListener((port) => {
       abortActiveRequest({ type: "silent" });
       clearActiveRequestState();
       activeAbortController = new AbortController();
-      armWatchdog(STREAM_TIMEOUT_MS.first, MdgErrors.aiTimeout(STREAM_TIMEOUT_MS.first));
+      armWatchdog(STREAM_TIMEOUT_MS.first, MdgErrors.aiTimeout(STREAM_TIMEOUT_MS.first), "AI_TIMEOUT");
       const providers = await loadAiProviders();
       const provider = providers.find((p) => p.id === msg.providerId);
       if (!provider) {
@@ -659,8 +633,9 @@ chrome.runtime.onConnect.addListener((port) => {
       }
       const keys = await loadAiProviderKeys();
       const apiKey = keys[provider.id] || "";
-      if (provider.requiresKey !== false && !apiKey) {
-        port.postMessage({ type: "error", error: "该平台 API Key 未配置", code: "AI_AUTH" });
+      const problem = aiProviderProblem(provider, apiKey);
+      if (problem) {
+        port.postMessage({ type: "error", error: problem.text, code: problem.code });
         clearActiveRequestState();
         return;
       }
@@ -672,7 +647,7 @@ chrome.runtime.onConnect.addListener((port) => {
         port,
         signal: activeAbortController.signal,
         getAbortMeta: () => activeAbortMeta,
-        onActivity: () => armWatchdog(STREAM_TIMEOUT_MS.idle, `回复中断：${STREAM_TIMEOUT_MS.idle / 1000} 秒没有新内容，可重试`)
+        onActivity: () => armWatchdog(STREAM_TIMEOUT_MS.idle, MdgErrors.aiStalled(STREAM_TIMEOUT_MS.idle), "AI_STALLED")
       });
     } catch (e) {
       port.postMessage({ type: "error", error: String(e?.message || e) });
@@ -736,7 +711,7 @@ function normalizeSyncSettings(settings) {
   merged.playerAiQuickPrompt = MdgSettings.normalizePlayerAiQuickPrompt(merged.playerAiQuickPrompt);
   // The settings table's cells turned off (bili-surfaces.js); options.js and badges.js drop cells that do not exist.
   merged.biliMarksOff = Array.isArray(merged.biliMarksOff) ? merged.biliMarksOff.filter((c) => typeof c === "string") : [];
-  merged.seenShow = ["bar", "mark", "both"].includes(merged.seenShow) ? merged.seenShow : "off";
+  merged.seenShow = MdgSettings.normalizeSeenShow(merged.seenShow);
   merged.seenThreshold = MdgSettings.normalizeSeenThreshold(merged.seenThreshold);
   merged.seenStyle = merged.seenStyle === "veil" ? "veil" : "badge";
   merged.readerTheme = MdgSettings.normalizeReaderTheme(merged.readerTheme);
@@ -769,6 +744,11 @@ async function getMergedSettings() {
 const SYNC_ITEM_BYTES = 8192;
 const SYNC_ITEM_NAMES = { aiSystemPrompt: "系统提示词", playerAiQuickPrompt: "AI 总结要求", aiPresetPrompts: "快捷追问", fixedFrontmatterProperties: "自定属性", notePlaceholderSections: "正文附加段落" };
 const oversizedSyncItem = (payload) => Object.keys(payload).find((k) => k.length + new TextEncoder().encode(JSON.stringify(payload[k])).length > SYNC_ITEM_BYTES) || "";
+// Saving and importing both check before sync.set.
+function checkSyncItems(payload) {
+  const big = oversizedSyncItem(payload);
+  if (big) throw Object.assign(new Error(`${SYNC_ITEM_NAMES[big] || big}太长，存不下：最多约 2700 个汉字（英文约 8000 个字符）`), { field: big });
+}
 
 // Callers send partial settings (the options page has no reading-view controls), so keys they omit keep their stored values.
 async function saveSettings(settings) {
@@ -776,8 +756,7 @@ async function saveSettings(settings) {
   const stored = await chrome.storage.sync.get(MdgSettings.DEFAULTS);
   const syncPayload = normalizeSyncSettings({ ...MdgSettings.DEFAULTS, ...stored, ...payload });
   delete syncPayload.obsidianApiKey;
-  const big = oversizedSyncItem(syncPayload);
-  if (big) throw Object.assign(new Error(`${SYNC_ITEM_NAMES[big] || big}太长，存不下：最多约 2700 个汉字（英文约 8000 个字符）`), { field: big });
+  checkSyncItems(syncPayload);
 
   await Promise.all([
     chrome.storage.sync.set(syncPayload),
@@ -822,6 +801,7 @@ async function importSettings(file) {
   }
   if (!(file.schemaVersion <= SETTINGS_FILE_VERSION)) throw new Error("这个文件来自更新的版本，先更新 MoonDigest 再导入");
   const { obsidianApiKey, [AI_PROVIDER_KEYS_STORAGE]: keys, ...settings } = file.settings;
+  checkSyncItems(settings);
   const current = Object.keys(await chrome.storage.sync.get(null));
   await chrome.storage.sync.set(settings);
   await chrome.storage.sync.remove(current.filter((k) => !(k in settings)));
@@ -844,7 +824,7 @@ function normalizeAiSystemPrompt(value) {
 
 // ===== AI 模型平台存储 =====
 
-const AI_PROVIDER_KEYS_STORAGE = "aiProviderKeys";
+const AI_PROVIDER_KEYS_STORAGE = MdgLimits.KEYS.aiApiKeys;
 
 function normalizeAiProvider(item) {
   if (!item || typeof item !== "object") return null;
@@ -972,7 +952,8 @@ function buildAiMessages({ context, userPrompt, history, systemPrompt }) {
   }
   if (Array.isArray(ctx.hotComments) && ctx.hotComments.length) {
     const block = ctx.hotComments
-      .map((c, i) => `${i + 1}. ${c.uname || "匿名"}（赞 ${c.like || 0}）: ${c.message || ""}`)
+      .map(MdgSites.cleanComment)
+      .map((c, i) => `${i + 1}. ${c.uname}（赞 ${c.like}）: ${c.message}`)
       .join("\n");
     sections.push(`以下是按热度排序的前 ${ctx.hotComments.length} 条热门评论：\n\n${block}`);
   }
@@ -994,21 +975,27 @@ function buildAiMessages({ context, userPrompt, history, systemPrompt }) {
   };
 }
 
+// The reply's content tokens. An error in a chunk throws (triageAiBodyError), so does a 200 body that is plain JSON with
+// an error instead of SSE lines; the last line is read even without a closing newline.
 async function* parseOpenAISSE(response, onActivity) {
   if (!response || !response.body) return;
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
   let buffer = "";
-  while (true) {
-    const { value, done } = await reader.read();
-    if (done) break;
-    onActivity?.();
-    buffer += decoder.decode(value, { stream: true });
+  let plain = "";
+  for (let done = false; !done; ) {
+    const chunk = await reader.read();
+    done = chunk.done;
+    if (!done) onActivity?.();
+    buffer += decoder.decode(chunk.value, { stream: !done });
     const lines = buffer.split("\n");
-    buffer = lines.length ? lines.pop() : "";
+    buffer = done ? "" : lines.pop();
     for (const rawLine of lines) {
       const line = rawLine.trim();
-      if (!line.startsWith("data:")) continue;
+      if (!line.startsWith("data:")) {
+        plain += line;
+        continue;
+      }
       const data = line.slice(5).trim();
       if (data === "[DONE]") return;
       if (!data) continue;
@@ -1024,6 +1011,12 @@ async function* parseOpenAISSE(response, onActivity) {
       if (delta) yield String(delta);
     }
   }
+  let json = null;
+  try {
+    json = JSON.parse(plain);
+  } catch {}
+  const bodyError = triageAiBodyError(json);
+  if (bodyError) throw bodyError;
 }
 
 // DeepSeek、智谱（国内/国际）、Kimi（国内/国际）用同一个 thinking 参数开关思考；其他平台不发该参数。triage-bg.js 也用它
@@ -1037,23 +1030,16 @@ async function hostPermissionError(url) {
   try {
     const { protocol, hostname } = new URL(url);
     const origin = `${protocol}//${hostname}`;
-    return (await chrome.permissions.contains({ origins: [`${origin}/*`] })) ? "" : `未授权访问 ${origin}，授权后重试`;
+    return (await chrome.permissions.contains({ origins: [`${origin}/*`] })) ? "" : MdgErrors.noAccess(origin);
   } catch {
     return "";
   }
 }
 
+// The caller checked the provider (aiProviderProblem).
 async function streamChat({ provider, context, userPrompt, history, port, signal, getAbortMeta, onActivity }) {
   if (!port) return;
-  const baseUrl = String(provider?.baseUrl || "").trim().replace(/\/+$/, "");
-  if (!baseUrl) {
-    port.postMessage({ type: "error", error: "接口地址未配置", code: "AI_SETUP" });
-    return;
-  }
-  if (!provider.model) {
-    port.postMessage({ type: "error", error: "模型未配置", code: "AI_SETUP" });
-    return;
-  }
+  const baseUrl = String(provider.baseUrl).trim().replace(/\/+$/, "");
 
   const { messages, notices } = buildAiMessages({
     context,
@@ -1103,10 +1089,13 @@ async function streamChat({ provider, context, userPrompt, history, port, signal
   }
 
   try {
+    let answered = false;
     for await (const token of parseOpenAISSE(response, onActivity)) {
+      answered = true;
       port.postMessage({ type: "token", data: token });
     }
-    port.postMessage({ type: "done" });
+    // Only thinking, or nothing: an error the panel shows with 重试, not an empty bubble.
+    port.postMessage(answered ? { type: "done" } : { type: "error", error: MdgErrors.TEXT.aiEmpty });
   } catch (e) {
     if (signal?.aborted) {
       postStreamAbort(port, getAbortMeta?.());
@@ -1122,26 +1111,21 @@ function postStreamAbort(port, abortMeta) {
   if (abortMeta?.type === "stopped") {
     port.postMessage({ type: "stopped", reason: abortMeta.reason || "已停止生成" });
   } else if (abortMeta?.type === "timeout") {
-    port.postMessage({ type: "error", error: abortMeta.reason || "请求超时，已自动中断", code: "AI_TIMEOUT" });
+    port.postMessage({ type: "error", error: abortMeta.reason, code: abortMeta.code });
   }
 }
 
-// The settings page's 测试连接 (the one place it checks 接口地址 and 模型名), answered in the words and codes of the side
-// panel and 分拣台: triageAiHttpError, AI_NETWORK_TEXT, hostPermissionError, MdgErrors.aiTimeout.
-async function testAiConnection({ baseUrl, apiKey, model }) {
-  const normalizedBaseUrl = String(baseUrl || "").trim().replace(/\/+$/, "");
-  const normalizedModel = String(model || "").trim();
-  if (!normalizedBaseUrl) {
-    return { ok: false, error: "请填写接口地址", code: "AI_SETUP" };
+// The settings page's 测试连接, answered in the words and codes of the side panel and 分拣台: aiProviderProblem,
+// triageAiHttpError, triageAiBodyError, AI_NETWORK_TEXT, hostPermissionError, MdgErrors.aiTimeout.
+async function testAiConnection({ baseUrl, apiKey, model, requiresKey }) {
+  const problem = aiProviderProblem({ baseUrl, model, requiresKey }, apiKey);
+  if (problem) {
+    return { ok: false, error: problem.text, code: problem.code };
   }
-  if (!normalizedModel) {
-    return { ok: false, error: "请填写模型名", code: "AI_SETUP" };
-  }
-
   return probeAiChatCompletion({
-    baseUrl: normalizedBaseUrl,
+    baseUrl: String(baseUrl).trim().replace(/\/+$/, ""),
     apiKey,
-    model: normalizedModel
+    model: String(model).trim()
   });
 }
 
@@ -1172,12 +1156,14 @@ async function probeAiChatCompletion({ baseUrl, apiKey, model }) {
     return denied ? { ok: false, error: denied } : { ok: false, error: AI_NETWORK_TEXT, code: "AI_NETWORK" };
   }
 
-  if (response.ok) {
+  try {
+    if (!response.ok) throw triageAiHttpError(response.status, await response.text().catch(() => ""));
+    // Some platforms answer 余额不足 or 限流 with HTTP 200: read the body as 分拣台 does.
+    await triageAiJson(response);
     return { ok: true };
+  } catch (e) {
+    return { ok: false, error: e.message, ...(e.code && { code: e.code }) };
   }
-
-  const e = triageAiHttpError(response.status, await response.text().catch(() => ""));
-  return { ok: false, error: e.message, ...(e.code && { code: e.code }) };
 }
 
 // triage/shared.js (loaded at the top) is the pages' TriageUi; it touches no DOM until called, so the worker reuses its

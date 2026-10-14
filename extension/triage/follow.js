@@ -1043,7 +1043,7 @@ const runs = MdgRuns.create({
   hold: (r) => (r.code === "THROTTLED" ? { ms: UI.BILI_HOLD_MS, label: "B站限流卡住" } : T.hold(r))
 });
 // The background's queue pause (follow_jobs.hold, follow_hold) in words.
-const holdLabel = (h) => (h.why === "throttled" ? "B站限流卡住" : "网络断了");
+const holdLabel = (h) => (h.why === "throttled" ? "B站限流卡住" : MdgErrors.TEXT.netDown);
 // The refresh's line, its hold (B站 risk control or a dropped connection) counting down after it; once the hold is over
 // the requests go slower for a while (follow-bg.js FOLLOW_CFG.slowForMs).
 runs.put("sync", () => {
@@ -1060,15 +1060,14 @@ runs.put("proposal", () => AI.proposal && { text: "标签建议待确认" });
 const W = MdgWrites.create({ runs, lane: "follow-write", send, line: (p) => `${p.name}中 ${p.done}/${p.total}` });
 // calls = the requests, each with the mids it changes (a relation request one UP, a group request up to 20).
 // Returns how many UP 主 went through. Its progress shows in the row's progress pill, as a 收藏夹 batch does, with 停止.
-// WRITE_GAP_MS between requests, as 收藏夹's batches. B站限流 (THROTTLED): the pill counts down, then the same request
+// UI.FOLLOW_WRITE_GAP_MS between requests. B站限流 (THROTTLED): the pill counts down, then the same request
 // goes again; 停止 ends the run there, keeping what went through (and its undo).
-const WRITE_GAP_MS = 1000;
 const perUp = (mids, msg) => mids.map((mid) => msg(mid));
 // skipped (an array) gets the UP 主 a group request left out ({ mid, error }).
 // The UP 主 it went through stay selected while they stay listed here (DESIGN 筛选和计数): those it took out of the
 // sidebar item or 已出分拣范围's tab (取消关注, 重新关注, 移到) leave the selection once the data is read again.
 async function relationRun(calls, label, { quiet = false, skipped = [] } = {}) {
-  const chunks = calls.map((c) => ({ msg: c, keys: c.mids || [c.mid], folders: [], gap: WRITE_GAP_MS }));
+  const chunks = calls.map((c) => ({ msg: c, keys: c.mids || [c.mid], folders: [], gap: UI.FOLLOW_WRITE_GAP_MS }));
   const ran = new Set();
   const running = W.run("follow-write", label, {
     verb: label,
@@ -1317,9 +1316,7 @@ settingsDialog.querySelector("[data-open-options]").addEventListener("click", ()
 async function aiSettings() {
   const own = (await chrome.storage.sync.get("follow_ai_settings")).follow_ai_settings;
   const triage = own ? null : await send({ type: "triage-settings-get" });
-  // 收藏夹's AI 打标签 batch size is stored by the page (triage.js), not by the background.
-  const aiBatch = own ? {} : await chrome.storage.sync.get({ triageAiBatchSize: null });
-  const { value, seed } = followAiSettings(own, triage?.ok ? { ...triage.data, triageAiBatchSize: aiBatch.triageAiBatchSize } : null);
+  const { value, seed } = followAiSettings(own, triage?.ok ? triage.data : null);
   // Not stored (sync quota, …): the copied values still work this time, and the next use tries again.
   if (seed) await chrome.storage.sync.set({ follow_ai_settings: seed }).catch((e) => toast(`保存设置失败：${e.message}`, true));
   return value;

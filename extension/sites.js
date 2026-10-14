@@ -15,10 +15,15 @@
     return;
   }
 
-  function formatLocalDate(value) {
+  // Small helpers note.js and the popup share (the popup does not load note.js): the local day as 2026-10-09 (ms or a
+  // Date), a file name with Obsidian's forbidden characters replaced (so wiki links to a note resolve), and an error
+  // reason without its trailing punctuation (so the sentence after it joins cleanly).
+  function formatLocalDate(value = Date.now()) {
     const date = new Date(value);
     return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
   }
+  const sanitizeFileName = (value) => String(value || "subtitle").replace(/[\\/:*?"<>|#^[\]]/g, "_").replace(/\s+/g, " ").trim().slice(0, 120);
+  const trimReason = (text) => String(text ?? "").replace(/[。.！!；;，,\s]+$/u, "");
 
   function parseUrl(url) {
     try {
@@ -184,8 +189,13 @@
     return list[0];
   }
 
-  // Hot comments a note or the AI gets, on every reader (video page, side panel follow-up, 分拣台 notes).
-  const HOT_COMMENTS = 20;
+  // One hot comment as every reader keeps it (video page, side panel follow-up, 分拣台 notes, note.js): a name, a number,
+  // the text cut to 500 characters. How many a note or the AI gets is MdgLimits.HOT_COMMENTS.
+  const cleanComment = (c) => ({
+    uname: String(c?.uname || "匿名").trim() || "匿名",
+    like: Number(c?.like || 0) || 0,
+    message: String(c?.message || "").trim().slice(0, 500)
+  });
 
   function normalizeSegments(items) {
     return (items || [])
@@ -504,18 +514,14 @@
     parseSegments(raw) {
       return normalizeSegments(raw?.body);
     },
-    async fetchComments(ref, meta, io, count = HOT_COMMENTS) {
+    async fetchComments(ref, meta, io, count = MdgLimits.HOT_COMMENTS) {
       const aid = Number(meta?.aid || 0) || 0;
       if (!aid || !count) {
         return [];
       }
       const payload = await biliJson(io, `${BILI_API}/x/v2/reply/main?type=1&oid=${aid}&mode=3&ps=${count}&pn=1`);
       const replies = Array.isArray(payload?.data?.replies) ? payload.data.replies : [];
-      return replies.slice(0, count).map((item) => ({
-        uname: String(item?.member?.uname || "匿名").trim() || "匿名",
-        like: Number(item?.like || 0) || 0,
-        message: String(item?.content?.message || "").trim().slice(0, 500)
-      })).filter((item) => item.message);
+      return replies.slice(0, count).map((item) => cleanComment({ uname: item?.member?.uname, like: item?.like, message: item?.content?.message })).filter((item) => item.message);
     },
     embedHtml(ref, meta) {
       const aid = encodeURIComponent(String(meta?.aid || ""));
@@ -1055,7 +1061,7 @@
           message: ytText(legacy?.contentText)
         };
       })
-      .map((item) => ({ uname: item.uname || "匿名", like: item.like, message: item.message.slice(0, 500) }))
+      .map(cleanComment)
       .filter((item) => item.message);
   }
 
@@ -1164,7 +1170,7 @@
       };
     },
     // Same two /next calls the watch page makes, the first shared with fetchTracks.
-    async fetchComments(ref, meta, io, count = HOT_COMMENTS) {
+    async fetchComments(ref, meta, io, count = MdgLimits.HOT_COMMENTS) {
       if (!io.postJson || !count) {
         return [];
       }
@@ -1306,12 +1312,6 @@
     }
   }
 
-  async function removeSubtitleCache(key) {
-    try {
-      await chrome.storage.local.remove(key);
-    } catch {}
-  }
-
   // A cached body that accept() rejects is fetched again; only an accepted body is cached. io.fresh skips the read (the
   // video page's load, so an old entry never stands in for what the site serves now).
   async function fetchRawCached(site, track, { videoId, cid }, io, accept = (body) => body.length > 0) {
@@ -1417,7 +1417,7 @@
     // needLogin: B站 listed nothing because it saw a logged-out viewer, a state of its own (MdgErrors.subtitleMissing).
     return {
       track: null, body: [], mismatch: null, bundle, tracks, error: why,
-      failure: why ? String(why.message || why).replace(/[。.！!；;，,\s]+$/u, "") : "",
+      failure: why ? trimReason(why.message || why) : "",
       needLogin: !why && bundle.needLogin === true
     };
   }
@@ -1461,12 +1461,15 @@
     buildContextKey,
     isBiliVideoGone,
     BILI_RISK_CODES,
-    HOT_COMMENTS,
+    cleanComment,
+    formatLocalDate,
+    sanitizeFileName,
+    trimReason,
     rankTracks,
     normalizeSubtitleLang,
     pickPreferredTrack,
     trackUrlKey,
-    subtitleCache: { key: subtitleCacheKey, load: loadSubtitleCache, save: saveSubtitleCache, remove: removeSubtitleCache },
+    subtitleCache: { key: subtitleCacheKey, load: loadSubtitleCache, save: saveSubtitleCache },
     validateSubtitleByDuration,
     fetchRawCached,
     loadFirstTrack,

@@ -236,6 +236,7 @@
   const VERDICT_SETTING = "showBiliVerdicts";
   // 观看进度 on covers has its own setting (设置页「观看进度」, off by default); it or the triage marks turn the page scan on.
   const { SEEN_DEFAULTS, seenConfig, seenWords } = globalThis.MdgSurfaces;
+  const SEEN_PREFIX = "seen_"; // MdgLimits.KEYS.seenPrefix (this script does not load limits.js; limits.selftest.js checks)
   let triageOn = false;
   let lineOn = { verdict: false, vtags: true }; // the video page's line: the AI 判断 and 视频标签 switches
   let seenCfg = seenConfig(SEEN_DEFAULTS);
@@ -663,7 +664,7 @@ input { box-sizing: border-box; width: 100%; margin: 0; padding: 4px 8px; border
     if (pick.editing) {
       const input = el("input");
       input.type = "text";
-      input.maxLength = 12;
+      input.maxLength = globalThis.MdgTagCore.TAG_NAME_MAX;
       input.placeholder = "标签名，回车新建";
       input.setAttribute("aria-label", "新标签名");
       more.append(input);
@@ -817,9 +818,9 @@ input { box-sizing: border-box; width: 100%; margin: 0; padding: 4px 8px; border
   async function loadSeen(g) {
     const want = [...new Set(findAll(COVERS).map(bvidOf).filter((b) => b && !seenCache.has(b)))];
     if (!want.length) return;
-    const got = await chrome.storage.local.get(want.map((b) => `seen_${b}`));
+    const got = await chrome.storage.local.get(want.map((b) => `${SEEN_PREFIX}${b}`));
     if (g !== gen) return;
-    for (const b of want) seenCache.set(b, got[`seen_${b}`]?.[0] || 0);
+    for (const b of want) seenCache.set(b, got[`${SEEN_PREFIX}${b}`]?.[0] || 0);
   }
 
   // The progress bar (Bilibili's own look) on a cover link, and once 看完了 the corner tag or the veil.
@@ -1131,7 +1132,9 @@ input { box-sizing: border-box; width: 100%; margin: 0; padding: 4px 8px; border
       schedule();
     } else setEnabled(on);
   }
-  const readSettings = () => chrome.storage.sync.get({ [SETTING]: true, [VERDICT_SETTING]: false, [UP_SETTING]: true, ...SEEN_DEFAULTS, biliMarksOff: [] }).then(applySettings).catch(() => {});
+  // The switches this script reads, with settings.js's defaults.
+  const SYNC_DEFAULTS = Object.fromEntries([SETTING, VERDICT_SETTING, UP_SETTING, ...Object.keys(SEEN_DEFAULTS), "biliMarksOff"].map((k) => [k, globalThis.MdgSettings.DEFAULTS[k]]));
+  const readSettings = () => chrome.storage.sync.get(SYNC_DEFAULTS).then(applySettings).catch(() => {});
 
   chrome.storage.onChanged.addListener((changes, area) => {
     if (superseded) return;
@@ -1141,8 +1144,8 @@ input { box-sizing: border-box; width: 100%; margin: 0; padding: 4px 8px; border
       schedule();
     }
     if (area === "sync" && (SETTING in changes || VERDICT_SETTING in changes || UP_SETTING in changes || "biliMarksOff" in changes || Object.keys(SEEN_DEFAULTS).some((k) => k in changes))) readSettings();
-    if (area === "local" && enabled && Object.keys(changes).some((k) => k.startsWith("seen_"))) {
-      for (const k of Object.keys(changes)) if (k.startsWith("seen_")) seenCache.delete(k.slice(5));
+    if (area === "local" && enabled && Object.keys(changes).some((k) => k.startsWith(SEEN_PREFIX))) {
+      for (const k of Object.keys(changes)) if (k.startsWith(SEEN_PREFIX)) seenCache.delete(k.slice(SEEN_PREFIX.length));
       gen++;
       schedule();
     }

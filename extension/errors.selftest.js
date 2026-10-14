@@ -62,6 +62,15 @@ const E = ctx.MdgErrors;
   walkJs(".");
   for (const file of scripts) assert.ok(!/["'`]&(lt|gt|quot|#39|#60);["'`]\)|&#\$\{/.test(read(file)), `${file} escapes HTML itself; use MdgErrors.escapeHtml`);
 
+  // 灰掉写原因 on a control already on the page: setReason here alone (TriageUi.setReason, the popup, side panel and 视频记录 use it).
+  const attrs = {};
+  const node = { setAttribute: (k, v) => (attrs[k] = v), removeAttribute: (k) => delete attrs[k] };
+  E.setReason(node, "选中的都被筛选隐藏了", "t");
+  assert.deepStrictEqual([node.disabled, node.title, attrs["aria-description"]], [true, "选中的都被筛选隐藏了", "选中的都被筛选隐藏了"]);
+  E.setReason(node, "", "t");
+  assert.deepStrictEqual([node.disabled, node.title, "aria-description" in attrs], [false, "t", false]);
+  for (const file of scripts) assert.ok(!/setAttribute\("aria-description"/.test(read(file)), `${file} writes its own setReason; use MdgErrors.setReason`);
+
   // The sentences live only in errors.js; badges.js (it does not load errors.js) keeps one exact copy.
   assert.ok(read("badges.js").includes(`"${E.TEXT.reloaded}"`), "badges.js shows MdgErrors.TEXT.reloaded word for word");
   const sources = ["background.js", "obsidian.js", "content.js", "sidepanel.js", "popup.js", "history/history.js", "triage/triage.js", "triage/triage-bg.js", "triage/follow.js", "triage/follow-bg.js"];

@@ -6,8 +6,13 @@ const vm = require("vm");
 const assert = require("assert");
 
 let onConnect;
+const onMessage = [];
 const anything = new Proxy(function () {}, { get: () => anything, apply: () => anything });
-const runtime = new Proxy({}, { get: (_, k) => (k === "onConnect" ? { addListener: (fn) => (onConnect = fn) } : anything) });
+const runtime = new Proxy({}, {
+  get: (_, k) => (k === "onConnect" ? { addListener: (fn) => (onConnect = fn) } : k === "onMessage" ? { addListener: (fn) => onMessage.push(fn) } : anything)
+});
+// A runtime message as a page sends it: the first listener that keeps the channel open answers.
+const ask = (message) => new Promise((resolve) => onMessage.some((fn) => fn(message, {}, resolve) === true));
 const chrome = new Proxy({}, { get: (_, k) => (k === "runtime" ? runtime : anything) });
 
 const ctx = vm.createContext({
@@ -82,8 +87,10 @@ process.on("exit", (code) => {
   ctx.fetch = streamingFetch([{ after: 5, chunk: sse({ content: "半句" }) }]);
   out = await chat();
   assert.strictEqual(out.at(-1).type, "error");
-  assert.match(out.at(-1).error, /^回复中断：.* 秒没有新内容，可重试$/);
-  assert.strictEqual(out.at(-1).code, "AI_TIMEOUT");
+  // F14: its own code, so the panel offers only 重试 (the settings cannot fix a reply that stopped midway).
+  assert.strictEqual(out.at(-1).error, ctx.MdgErrors.aiStalled(vm.runInContext("STREAM_TIMEOUT_MS.idle", ctx)));
+  assert.strictEqual(out.at(-1).code, "AI_STALLED");
+  assert.strictEqual(ctx.MdgErrors.action("AI_STALLED"), "none");
 
   // No response at all ends with the first-response error, not a generic network error.
   ctx.fetch = (url, { signal }) => new Promise((_, reject) => signal.addEventListener("abort", () => reject(abortError())));
@@ -125,10 +132,22 @@ process.on("exit", (code) => {
       throw Object.assign(new Error("timeout"), { name: "TimeoutError" });
     };
     assert.deepStrictEqual({ ...(await test(timeout)) }, { ok: false, error: ctx.MdgErrors.aiTimeout(vm.runInContext("AI_TEST_TIMEOUT_MS", ctx)), code: "AI_TIMEOUT" });
-    assert.deepStrictEqual([{ ...(await test(failed, { baseUrl: " " })) }, { ...(await test(failed, { model: "" })) }], [
-      { ok: false, error: "请填写接口地址", code: "AI_SETUP" },
-      { ok: false, error: "请填写模型名", code: "AI_SETUP" }
-    ]);
+    ctx.hostPermissionError = async () => "";
+    // F4: the side panel's and 分拣台's check (aiProviderProblem), API Key included.
+    assert.deepStrictEqual(
+      [{ ...(await test(failed, { baseUrl: " " })) }, { ...(await test(failed, { model: "" })) }, { ...(await test(failed, { apiKey: "" })) }],
+      [
+        { ok: false, error: "AI 平台的接口地址没填", code: "AI_SETUP" },
+        { ok: false, error: "AI 平台的模型名没填", code: "AI_SETUP" },
+        { ok: false, error: "AI 平台的 API Key 没填", code: "AI_AUTH" }
+      ]
+    );
+    assert.strictEqual((await test(failed, { apiKey: "", requiresKey: false })).code, "AI_NETWORK", "Ollama needs no key");
+    // F2: a 200 that carries an error in its body is that error, as in 分拣台 and the side panel; not 连接成功.
+    const reply = (json) => async () => ({ ok: true, json: async () => json });
+    assert.deepStrictEqual({ ...(await test(reply({ error: { message: "余额不足" } }))) }, { ok: false, error: "AI 平台余额不足或额度已用完，请充值或换一个平台", code: "AI_QUOTA" });
+    assert.deepStrictEqual({ ...(await test(async () => ({ ok: true, json: async () => JSON.parse("<html>") }))) }, { ok: false, error: "AI 平台的回复不是 JSON" });
+    assert.deepStrictEqual({ ...(await test(reply({ choices: [{ message: { content: "" }, finish_reason: "length" }] }))) }, { ok: true });
     ctx.hostPermissionError = was;
   }
 
@@ -254,6 +273,21 @@ process.on("exit", (code) => {
   out = await chat();
   assert.deepStrictEqual([out[0].error, out[0].code], ["AI 平台限流", "AI_THROTTLED"]);
 
+  // F3: a reply without one word of answer (only thinking, or a 200 whose body is a plain JSON error) is an error the
+  // panel shows with 重试, not an empty bubble; a last line without its newline still counts.
+  const raw = (text) => ({ after: 0, chunk: new TextEncoder().encode(text) });
+  for (const [script, error, code] of [
+    [[{ after: 0, chunk: sse({ reasoning_content: "想" }) }], ctx.MdgErrors.TEXT.aiEmpty, undefined],
+    [[raw('{"error":{"message":"Insufficient Balance"}}')], "AI 平台余额不足或额度已用完，请充值或换一个平台", "AI_QUOTA"],
+    [[raw('{\n  "error": {\n    "message": "rate limit"\n  }\n}\n')], "AI 平台限流", "AI_THROTTLED"]
+  ]) {
+    ctx.fetch = streamingFetch([...script, { after: 0, done: true }]);
+    out = await chat();
+    assert.deepStrictEqual(out.map((m) => [m.type, m.error, m.code]), [["error", error, code]]);
+  }
+  ctx.fetch = streamingFetch([raw(`data: ${JSON.stringify({ choices: [{ delta: { content: "尾" } }] })}`), { after: 0, done: true }]);
+  assert.deepStrictEqual((await chat()).map((m) => m.data || m.type), ["尾", "done"]);
+
   // HTTP and network errors reach the panel in Chinese with the 分拣台's code, never the body.
   ctx.fetch = async () => ({ ok: false, status: 401, text: async () => '{"error":{"message":"Incorrect API key provided"}}' });
   out = await chat();
@@ -272,13 +306,39 @@ process.on("exit", (code) => {
     ctx.loadAiProviders = was;
     return [m.error, m.code];
   };
-  assert.deepStrictEqual(await setupError({ requiresKey: true }), ["该平台 API Key 未配置", "AI_AUTH"]);
-  assert.deepStrictEqual(await setupError({ baseUrl: "" }), ["接口地址未配置", "AI_SETUP"]);
-  assert.deepStrictEqual(await setupError({ model: "" }), ["模型未配置", "AI_SETUP"]);
+  assert.deepStrictEqual(await setupError({ requiresKey: true }), ["AI 平台的 API Key 没填", "AI_AUTH"]);
+  assert.deepStrictEqual(await setupError({ baseUrl: "" }), ["AI 平台的接口地址没填", "AI_SETUP"]);
+  assert.deepStrictEqual(await setupError({ model: "" }), ["AI 平台的模型名没填", "AI_SETUP"]);
 
   // A request that never answers fails with a retryable timeout instead of hanging the caller.
   ctx.fetch = (url, { signal }) => new Promise((_, reject) => signal.addEventListener("abort", () => reject(signal.reason)));
   await assert.rejects(ctx.fetchWithTimeout("https://api.bilibili.com/x", {}, 30), (e) => e.status === 408 && /超时/.test(e.message));
+
+  // D2: the video page's fetch-json reads B站 like 分拣台 and the side panel: their request, timeout and words.
+  {
+    const bili = "https://api.bilibili.com/x/web-interface/view?bvid=BV1";
+    ctx.fetch = async () => ({ ok: false, status: 403 });
+    assert.deepStrictEqual({ ...(await ask({ type: "fetch-json", url: bili })) }, { ok: false, error: "B站请求失败 HTTP 403", code: undefined, status: 403 });
+    ctx.fetch = async () => ({ ok: true, json: async () => JSON.parse("<html>") });
+    assert.match((await ask({ type: "fetch-json", url: bili })).error, /^B站返回的不是 JSON/);
+    vm.runInContext("TRIAGE_BILI_CFG.timeoutMs = 20", ctx);
+    ctx.fetch = () => new Promise(() => {});
+    const late = await ask({ type: "fetch-json", url: bili });
+    vm.runInContext("TRIAGE_BILI_CFG.timeoutMs = MdgErrors.NET_TIMEOUT_MS", ctx);
+    assert.deepStrictEqual([late.error, late.code], [ctx.MdgErrors.netTimeout(20), "NETWORK"]);
+    ctx.fetch = async (url, init) => ({ ok: true, json: async () => ({ code: 0, data: { referrer: init.referrer } }) });
+    assert.deepStrictEqual({ ...(await ask({ type: "fetch-json", url: bili })).data.data }, { referrer: "https://www.bilibili.com/" }, "the whole JSON, sent as B站 pages send it");
+  }
+
+  // F1: 去设置 from the popup, the video page and 分拣台 focuses an open settings page instead of opening another.
+  {
+    const was = ctx.chrome;
+    const calls = [];
+    ctx.chrome = { runtime: { openOptionsPage: async () => calls.push("focus") }, tabs: { create: async () => calls.push("new tab") } };
+    assert.deepStrictEqual({ ...(await ask({ type: "open-options" })) }, { ok: true });
+    assert.deepStrictEqual(calls, ["focus"]);
+    ctx.chrome = was;
+  }
 
   // The side panel saves the context URL with a conversation, so reader mode and tracking params never reach it.
   const contextFor = async (tabUrl, payload) => {
@@ -356,8 +416,8 @@ process.on("exit", (code) => {
   routes = sidepanelRoutes(100);
   const resolved = await historyContext();
   assert.strictEqual(resolved.subtitleBody.length, 2);
-  // As many hot comments as the video page and 分拣台 notes ask for: one count, MdgSites.HOT_COMMENTS.
-  assert.ok(urls.some((u) => u.includes("/reply/main") && u.includes(`&ps=${ctx.MdgSites.HOT_COMMENTS}&`)) && ctx.MdgSites.HOT_COMMENTS === 20);
+  // As many hot comments as the video page and 分拣台 notes ask for: one count, MdgLimits.HOT_COMMENTS.
+  assert.ok(urls.some((u) => u.includes("/reply/main") && u.includes(`&ps=${ctx.MdgLimits.HOT_COMMENTS}&`)) && ctx.MdgLimits.HOT_COMMENTS === 20);
   // The AI gets the same note the video page sends (MdgNote.buildAiContext): front matter and subtitles, no player embed.
   assert.match(resolved.subtitleMarkdown, /^---\ntitle: "T"\n/);
   assert.match(resolved.subtitleMarkdown, /subtitle_lang: "中文"/);
@@ -413,6 +473,8 @@ process.on("exit", (code) => {
   await assert.rejects(ctx.importSettings({ ...file, schemaVersion: 2 }), /更新的版本/);
   await assert.rejects(ctx.importSettings({ ...file, local: { triage_included_folders: "11" } }), /不是 MoonDigest 的设置文件/);
   await assert.rejects(ctx.importSettings({ ...file, local: { triage_folder_criteria: { 11: 5 } } }), /不是 MoonDigest 的设置文件/);
+  // F5: an import past sync's 8 KB per item is refused in Chinese, as a save is, and changes nothing.
+  await assert.rejects(ctx.importSettings({ ...file, settings: { ...file.settings, aiSystemPrompt: "字".repeat(2800) } }), /^Error: 系统提示词太长，存不下/);
   assert.strictEqual(JSON.stringify(importSync), before);
 
   // A setting past sync's 8 KB per item is named before Chrome refuses it in English: 2700 汉字 fit, 2800 do not.

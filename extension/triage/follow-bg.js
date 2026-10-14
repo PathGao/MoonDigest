@@ -13,8 +13,8 @@
 // - follow-forget { mids }    清理：删掉这些人的已取消关注记录（连同记录里的标签），不改 B站。
 // - follow-group-create { name } → { id, name }；follow-group-rename { id, name }；follow-group-delete { id }
 //                             新建、改名、删除 B站 的关注分组，成功后改好 follow_groups（删除时成员的 groups 也去掉它）。
-// - follow-ai-tag { instruction, mids, tags?, maxNewTags?, allowRemove? }
-//                             提案 { newTags, assignments: { mid: { add, remove } }, note }，不写任何东西。
+// - follow-ai-tag { instruction, mids, tags, maxNewTags, allowRemove }
+//                             tags、新建上限和能否去掉标签都由页面按「关注设置」和弹窗给出。提案 { newTags, assignments: { mid: { add, remove } }, note }，不写任何东西。
 //
 // 同步分三步，每步做完记进 follow_jobs.cursor；跑着时开 1 分钟的 follow-keepalive 闹钟，worker 被杀后由它叫醒、从游标接着跑：
 // 1 list：拉我的全部关注 → follow_list / follow_people；和上次比，消失的人进 follow_unfollowed（source "bili"），只在拉全时判断。
@@ -625,7 +625,6 @@ const followGroupName = (name) => {
   if ([...n].length > FOLLOW_GROUP_NAME_MAX) throw triageError(`分组名最长 ${FOLLOW_GROUP_NAME_MAX} 个字`);
   return n;
 };
-const FOLLOW_GROUP_ONE_GAP_MS = 1000; // one UP at a time after B站 refused the lot, as the page's WRITE_GAP_MS
 const followIds = (a) => (Array.isArray(a) ? a : []).map(Number);
 
 // Copy (no from) or move the mids on B站 in one request; follow_list follows only once B站 said yes.
@@ -650,7 +649,7 @@ async function followGroupMove({ mids, from, to }) {
     if (e.code || list.length < 2) throw e;
     done = [];
     for (const m of list) {
-      await followSleep(FOLLOW_GROUP_ONE_GAP_MS);
+      await followSleep(TriageUi.FOLLOW_WRITE_GAP_MS);
       try {
         await post([m]);
         done.push(m);
@@ -774,18 +773,9 @@ async function followAiTag({ instruction, mids, tags, maxNewTags, allowRemove, a
       currentTags: (s.follow_tag_map?.[mid] || []).map((id) => tagName.get(id)).filter(Boolean)
     };
   });
-  const tagList = Array.isArray(tags) ? tags : (s.follow_tags || []).map((t) => ({ name: t.name, rule: t.rule || "" }));
-  // 关注's own settings (follow_ai_settings, written by the page's 关注设置); the 收藏夹 values only before it exists.
-  const set = await chrome.storage.sync.get({ follow_ai_settings: null, triageAiNewTagMax: null, triageAiRemoveTags: false });
-  const own = set.follow_ai_settings || {};
-  return triageAiCommand({
-    instruction,
-    items,
-    tags: tagList,
-    maxNewTags: maxNewTags ?? TriageUi.numSetting("newTagMax", own.newTagMax ?? set.triageAiNewTagMax),
-    allowRemove: (allowRemove ?? own.allowRemove ?? set.triageAiRemoveTags) === true,
-    aiProviderId
-  }, FOLLOW_AI_UNIT);
+  if (!Array.isArray(tags)) throw triageError("缺少 tags");
+  // triageAiCommand reads maxNewTags as the newTagMax setting and allowRemove as true or not.
+  return triageAiCommand({ instruction, items, tags, maxNewTags, allowRemove, aiProviderId }, FOLLOW_AI_UNIT);
 }
 
 const FOLLOW_HANDLERS = {

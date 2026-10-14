@@ -86,9 +86,19 @@ async function notePaths() {
   const key = MdgLimits.KEYS.obsidianNotePaths;
   return (await chrome.storage.local.get(key))[key] || {};
 }
-async function rememberObsidianNotePath(noteKey, filepath) {
+// pageIndex: which 分 P the note is, so a ref without the cid (逐个视频笔记 knows only the BV) finds its P1 note
+// (recordedNoteKey). An entry written before it was recorded keeps none until its next write.
+async function rememberObsidianNotePath(noteKey, filepath, pageIndex) {
   if (!noteKey) return;
-  await chrome.storage.local.set({ [MdgLimits.KEYS.obsidianNotePaths]: { ...(await notePaths()), [noteKey]: { path: filepath, lastSyncedAt: Date.now() } } });
+  const paths = await notePaths();
+  const page = pageIndex || paths[noteKey]?.pageIndex;
+  await chrome.storage.local.set({ [MdgLimits.KEYS.obsidianNotePaths]: { ...paths, [noteKey]: { path: filepath, lastSyncedAt: Date.now(), ...(page && { pageIndex: page }) } } });
+}
+// The recorded key of the ref's note. Keys carry the cid (MdgSites.buildContextKey); without it, the entry recorded for
+// the same BV and 分 P. Prefix alone is not enough: P2's note has the same BV.
+function recordedNoteKey(paths, key, ref) {
+  if (!key || paths[key] || ref.cid) return key;
+  return Object.keys(paths).find((k) => k.startsWith(key) && paths[k].pageIndex === ref.pageIndex) || key;
 }
 async function forgetObsidianNotePath(noteKey) {
   const { [noteKey]: removed, ...rest } = await notePaths();
@@ -97,7 +107,7 @@ async function forgetObsidianNotePath(noteKey) {
 
 // Rewrites only the marked AI 问答 block of an existing note (MdgNote.upsertAiSection); a missing note is reported and
 // forgotten, never created. existing: the note already read, if any. Returns { exists, updated }.
-async function updateAiSectionInVault(vault, filepath, section, noteKey, existing) {
+async function updateAiSectionInVault(vault, filepath, section, noteKey, existing, pageIndex) {
   const note = existing || (await readVaultNote(vault, filepath));
   if (!note.exists) {
     await forgetObsidianNotePath(noteKey);
@@ -105,7 +115,7 @@ async function updateAiSectionInVault(vault, filepath, section, noteKey, existin
   }
   const next = MdgNote.upsertAiSection(note.content, section);
   if (next !== note.content) await putVaultNote(vault, filepath, next);
-  await rememberObsidianNotePath(noteKey, filepath);
+  await rememberObsidianNotePath(noteKey, filepath, pageIndex);
   return { exists: true, updated: next !== note.content };
 }
 
@@ -157,6 +167,7 @@ async function writeVideoNote({ ref: input, mode, conversation, page }) {
   const aiOn = settings.includeAiChatInNote !== false;
   const section = aiOn ? MdgNote.buildAiSection(turns) : "";
   const paths = await notePaths();
+  key = recordedNoteKey(paths, key, ref);
   const computedPath = () => paths[key]?.path || MdgNote.videoNotePath(ref, settings);
 
   // The conversation as its own note, linking the video note (sourcePath) when there is one.
@@ -201,27 +212,28 @@ async function writeVideoNote({ ref: input, mode, conversation, page }) {
   }
 
   const { path } = target;
-  const title = built?.meta.title || ref.title;
+  // After body(): a recorded note is built only when it is written whole.
+  const title = () => built?.meta.title || ref.title;
   const existing = await readVaultNote(vault, path);
   if (existing.exists && !mode) {
     return { ask: true, path, ...(target.video && { hasAiSection: Boolean(section) }) };
   }
   if (target.video && existing.exists && mode === "ai") {
-    const { updated } = section ? await updateAiSectionInVault(vault, path, section, key, existing) : { updated: false };
-    const warning = built?.subtitleWarning || "";
-    return { path, kind: updated ? "ai" : "unchanged", text: `${warning}已更新 AI 问答：${path}`, title };
+    // Only the AI 问答 section changes: the rest of the note, subtitle warning included, stays as written before.
+    const { updated } = section ? await updateAiSectionInVault(vault, path, section, key, existing, ref.pageIndex) : { updated: false };
+    return { path, kind: updated ? "ai" : "unchanged", text: `已更新 AI 问答：${path}`, title: title() };
   }
   const { markdown, cover, warning = "" } = await target.body();
   if (!target.video) {
     await putVaultNote(vault, path, markdown);
-    return { path, kind: "conversation", text: `${obsidianWritten(path)}${target.why}`, title };
+    return { path, kind: "conversation", text: `${obsidianWritten(path)}${target.why}`, title: title() };
   }
   const content = aiOn ? MdgNote.upsertAiSection(markdown, section) : markdown;
   // Last guard: no writer means to empty a note, so an empty body is a caller's bug (a video that changed mid-write).
   if (!content.trim()) throw new Error("笔记内容为空");
   await putVaultNote(vault, path, await linkCoverInVault(vault, path, content, cover));
-  await rememberObsidianNotePath(key, path);
-  return { path, kind: "full", text: `${warning}${obsidianWritten(path)}`, title, ...(warning && { subtitleWarning: warning }) };
+  await rememberObsidianNotePath(key, path, ref.pageIndex);
+  return { path, kind: "full", text: `${warning}${obsidianWritten(path)}`, title: title(), ...(warning && { subtitleWarning: warning }) };
 }
 
 // sync-video-note-ai: after a write recorded the video's note, each finished answer replaces its AI 问答 section.

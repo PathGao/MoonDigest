@@ -56,7 +56,7 @@
     showBiliUpTags: true,
     showBiliVerdicts: false,
     biliMarksOff: Object.freeze([]),
-    seenShow: "off",
+    seenShow: "off", // one of SEEN_SHOW
     seenThreshold: SEEN_THRESHOLD.def,
     seenStyle: "badge",
     enableDebugLogs: false,
@@ -126,13 +126,25 @@
       .slice(0, MAX_NOTE_SECTIONS);
   }
 
-  // Reading view: an unknown value falls back to the default.
-  const oneOf = (allowed, fallback) => (value) => (allowed.includes(value) ? value : fallback);
-  const normalizeReaderTheme = oneOf(["light", "dark", "paper"], "light");
-  const normalizeReaderFontScale = oneOf(["xs", "s", "m", "l", "xl"], "m");
-  const normalizeReaderLetterSpacing = oneOf(["tighter", "tight", "normal", "relaxed", "loose"], "normal");
-  const normalizeReaderLineHeight = oneOf(["compact", "tight", "normal", "relaxed", "loose"], "tight");
-  const normalizeReaderContentWidth = oneOf(["compact", "narrow", "medium", "wide", "full"], "medium");
+  // 观看进度 (设置页「封面显示」): its legal values; anything else is DEFAULTS' 关. seenOn: the history is read and drawn.
+  const SEEN_SHOW = Object.freeze(["off", "bar", "mark", "both"]);
+  const normalizeSeenShow = (v) => (SEEN_SHOW.includes(v) ? v : DEFAULTS.seenShow);
+  const seenOn = (v) => normalizeSeenShow(v) !== "off";
+
+  // 专注模式: each setting's legal values in stepper order (the theme button cycles them); an unknown value is DEFAULTS'.
+  const READER_OPTIONS = Object.freeze({
+    readerTheme: ["light", "dark", "paper"],
+    readerFontScale: ["xs", "s", "m", "l", "xl"],
+    readerLetterSpacing: ["tighter", "tight", "normal", "relaxed", "loose"],
+    readerLineHeight: ["compact", "tight", "normal", "relaxed", "loose"],
+    readerContentWidth: ["compact", "narrow", "medium", "wide", "full"]
+  });
+  const oneOf = (key) => (value) => (READER_OPTIONS[key].includes(value) ? value : DEFAULTS[key]);
+  const normalizeReaderTheme = oneOf("readerTheme");
+  const normalizeReaderFontScale = oneOf("readerFontScale");
+  const normalizeReaderLetterSpacing = oneOf("readerLetterSpacing");
+  const normalizeReaderLineHeight = oneOf("readerLineHeight");
+  const normalizeReaderContentWidth = oneOf("readerContentWidth");
 
   // Every on/off setting (a boolean in DEFAULTS), by its default: default on stays on unless stored false, default off
   // is on only when stored true. A non-boolean (an imported file's "true") never flips a switch away from its default.
@@ -151,6 +163,10 @@
     MAX_NOTE_SECTIONS,
     MAX_PRESET_PROMPTS,
     SEEN_THRESHOLD,
+    READER_OPTIONS,
+    SEEN_SHOW,
+    normalizeSeenShow,
+    seenOn,
     intIn,
     normalizeSwitches,
     normalizeSeenThreshold,

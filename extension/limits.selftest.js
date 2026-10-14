@@ -24,6 +24,15 @@ assert.strictEqual(sized["收藏夹列表缓存"], "3 个收藏夹，约 2.8 MB"
 assert.strictEqual(sized["已出分拣范围"], "4 个视频");
 assert.strictEqual(sized["备注"], "5 条");
 assert.strictEqual(sized["本地数据合计"], "约 1 KB");
+// 观看进度: the caps triage-bg.js applies, in the row and in the options page's hint (filled from SEEN_LIMITS_TEXT).
+assert.strictEqual(L.describe({ seen: 8 }).find((row) => row.label === "观看进度").usage, `8 / ${L.SEEN_MAX} 个视频`);
+assert.strictEqual(L.SEEN_LIMITS_TEXT, "最多 10 分钟一次，留最近 1 年、最多 5000 个");
+assert.ok(byLabel["观看进度"].rule.includes(L.SEEN_LIMITS_TEXT));
+const triageBg = fs.readFileSync(path.join(__dirname, "triage/triage-bg.js"), "utf8");
+for (const name of ["SEEN_GAP_MS", "SEEN_KEEP_DAYS", "SEEN_MAX"]) assert.ok(triageBg.includes(`MdgLimits.${name}`), `triage-bg.js reads MdgLimits.${name}`);
+const optionsHtml = fs.readFileSync(path.join(__dirname, "options.html"), "utf8");
+assert.ok(optionsHtml.includes("<span data-seen-limits></span>") && !/分钟一次|最多 \d+ 个/.test(optionsHtml), "options.html states 观看进度's caps only through data-seen-limits");
+assert.ok(fs.readFileSync(path.join(__dirname, "options.js"), "utf8").includes("node.textContent = MdgLimits.SEEN_LIMITS_TEXT"), "options.js fills data-seen-limits");
 assert.strictEqual(byLabel["收藏夹列表缓存"].usage, "– 个收藏夹，约 –", "unknown sizes render as a dash");
 assert.strictEqual(L.describe()[0].usage, `– / ${L.SUBTITLE_CACHE_ENTRIES} 条`, "unknown usage renders as a dash");
 assert.ok(rows.every((row) => row.label && row.usage && row.rule));
@@ -32,12 +41,12 @@ assert.deepStrictEqual(
   JSON.parse(JSON.stringify(L.storageUsage({
     mdg_subtitle_cache_a: {}, mdg_subtitle_cache_b: {}, mdg_ai_conversations_v1: [{}, {}, {}],
     triage_analysis_BV1: {}, triage_title_BV1: {}, triage_title_BV2: {}, other: 1,
-    triage_snapshot_7: { bvids: [] }, triage_removed: { BV1: {}, BV2: {} }, triage_notes: { BV3: {} }
+    triage_snapshot_7: { bvids: [] }, triage_removed: { BV1: {}, BV2: {} }, triage_notes: { BV3: {} }, seen_BV1: [80, 1]
   }))),
   {
     subtitleCache: 2, aiConversations: 3, triageResults: 3,
     folderSnapshots: 1, folderSnapshotSize: "triage_snapshot_7".length + '{"bvids":[]}'.length,
-    triageRemoved: 2, triageNotes: 1, totalSize: 224
+    triageRemoved: 2, triageNotes: 1, seen: 1, totalSize: 224 + "seen_BV1".length + "[80,1]".length
   }
 );
 
@@ -46,14 +55,15 @@ assert.deepStrictEqual(
 const names = Object.values(L.KEYS).filter((v) => typeof v === "string");
 // Renaming one loses the data stored under it.
 assert.deepStrictEqual([...names].sort(), [
-  "mdg_ai_conversations_v1", "mdg_obsidian_note_paths_v1", "mdg_player_ai_quick_action_v1", "mdg_subtitle_cache_",
-  "triage_analysis_", "triage_basket", "triage_folder_criteria", "triage_included_folders", "triage_notes", "triage_removed",
+  "aiProviderKeys", "mdg_ai_conversations_v1", "mdg_ai_selected_provider", "mdg_obsidian_note_paths_v1", "mdg_player_ai_quick_action_v1", "mdg_subtitle_cache_",
+  "seen_", "triage_analysis_", "triage_basket", "triage_folder_criteria", "triage_included_folders", "triage_notes", "triage_removed",
   "triage_seen_meta", "triage_simplified_v1", "triage_snapshot_", "triage_tags", "triage_title_", "triage_video_tags"
 ]);
 assert.strictEqual(L.KEYS.triageAnalysis("BV1"), "triage_analysis_BV1");
 assert.strictEqual(L.KEYS.triageTitle("BV1"), "triage_title_BV1");
 assert.strictEqual(L.KEYS.triageSnapshot(7), "triage_snapshot_7");
-const badgesCopies = ["triage_tags", "triage_video_tags", "triage_title_", "triage_analysis_", "triage_snapshot_"];
+assert.strictEqual(L.KEYS.seen("BV1"), "seen_BV1");
+const badgesCopies = ["seen_", "triage_tags", "triage_video_tags", "triage_title_", "triage_analysis_", "triage_snapshot_"];
 for (const name of badgesCopies) assert.ok(names.includes(name), `badges.js reads ${name}, which KEYS no longer has`);
 const sources = [];
 const walk = (dir) => {
@@ -125,6 +135,26 @@ for (const name of badgesCopies) assert.ok(fs.readFileSync(path.join(__dirname, 
   const full = ls({ boc_ai_selected_provider: "b" }, true);
   L.migrateRenamedLocalStorage(full);
   assert.deepStrictEqual(full.data, { boc_ai_selected_provider: "b" });
+
+  // 视频备注: one read-modify-write of one entry for every page; a note saved elsewhere meanwhile stays.
+  const area = fakeArea({ triage_notes: { BV1: { text: "a", updatedAt: 1 }, BV2: { text: "别处的", updatedAt: 1 } } });
+  ctx.chrome = { storage: { local: area } };
+  assert.strictEqual(await L.saveVideoNote("BV1", "a"), false, "unchanged text writes nothing");
+  assert.strictEqual(await L.saveVideoNote("BV3", "新的"), true);
+  assert.strictEqual(await L.saveVideoNote("BV1", "  "), true);
+  assert.deepStrictEqual(Object.fromEntries(Object.entries(area.data.triage_notes).map(([b, n]) => [b, n.text])), { BV2: "别处的", BV3: "新的" });
+  for (const f of ["sidepanel.js", "history/history.js", "triage/triage.js"]) {
+    const src = fs.readFileSync(path.join(__dirname, f), "utf8");
+    assert.ok(src.includes("MdgLimits.saveVideoNote(") && !/set\(\{ \[(NOTES_STORAGE_KEY|NOTES_KEY)\]|storeSet\(K\.notes, S\.notes\)/.test(src), `${f} saves a note its own way`);
+  }
+
+  // The side panel's request slot has one constructor: every request carries createdAt (the panel drops stale ones).
+  await L.askSidepanel({ tabId: 3, contextRef: { videoId: "BV1" } });
+  const req = area.data.mdg_player_ai_quick_action_v1;
+  assert.ok(req.id && req.tabId === 3 && req.prompt === "" && req.createdAt > 0 && req.contextRef.videoId === "BV1" && req.frameId === 0);
+  for (const f of sources) assert.ok(!/KEYS\.playerAiQuickAction\]:/.test(fs.readFileSync(path.join(__dirname, f), "utf8")), `${f} builds the side panel request itself`);
+  const offText = "✦ AI 按钮未开启";
+  assert.deepStrictEqual(sources.filter((f) => fs.readFileSync(path.join(__dirname, f), "utf8").includes(offText)), ["background.js"], "the ✦ setting is checked once");
 
   console.log("limits selftest ok");
 })().catch((error) => {

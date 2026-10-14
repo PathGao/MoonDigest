@@ -3216,7 +3216,30 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     t.followNotes({ [t.K.notes]: { newValue: { BV1: { text: "侧边栏改的", updatedAt: 1 } } } });
     assert.strictEqual(renders, 1);
     assert.strictEqual(t.S.notes.BV1.text, "侧边栏改的");
+    // A note the side panel saves while this card's note waits its 400 ms is kept: the save writes only this card's entry
+    // over a fresh read (MdgLimits.saveVideoNote), and the outside change shows without dropping what is being typed.
+    const texts = () => plain(Object.fromEntries(Object.entries(store[t.K.notes]).map(([b, n]) => [b, n.text])));
+    note.value = "中文";
+    fire("list", "input", { target: note });
+    store[t.K.notes] = { ...store[t.K.notes], BV2: { text: "侧边栏的", updatedAt: 2 } };
+    await wait();
+    assert.deepStrictEqual(texts(), { BV1: "中文", BV2: "侧边栏的" }, "the save does not write back a stale map");
+    note.value = "中文字";
+    fire("list", "input", { target: note });
+    store[t.K.notes] = { ...store[t.K.notes], BV3: { text: "视频记录的", updatedAt: 3 } };
+    t.followNotes({ [t.K.notes]: { newValue: structuredClone(store[t.K.notes]) } });
+    assert.deepStrictEqual([t.S.notes.BV1.text, t.S.notes.BV3.text, renders], ["中文字", "视频记录的", 1], "pending text kept, no re-render under it");
+    await wait();
+    assert.deepStrictEqual(texts(), { BV1: "中文字", BV2: "侧边栏的", BV3: "视频记录的" });
     t.render = realRender;
+    // 开启思考 follows the platform the side panel picks now: opening 收藏夹设置 asks the background again.
+    handlers["triage-settings-get"] = () => ({ ok: true, data: { thinkingToggle: true } });
+    t.S.settings.thinkingToggle = false;
+    t.openSettings();
+    await wait();
+    assert.deepStrictEqual([t.S.settings.thinkingToggle, t.el.thinkingRow.hidden], [true, false], "the switch follows the platform in use");
+    delete handlers["triage-settings-get"];
+    t.el.settingsDialog.close?.();
     // a background re-render waits while a note is composing, and runs on compositionend.
     t.S.items = [];
     t.document.activeElement = { closest: (s) => (s === "[data-note]" ? note : null) };

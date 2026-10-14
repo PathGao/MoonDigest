@@ -15,5 +15,12 @@ if (!html.includes("./mock-chrome.js")) throw new Error("sidepanel.html 结构�
 for (const [, path] of html.matchAll(/(?:src|href)="(\.{1,2}\/[^"]+\.(?:js|css))"/g)) {
   if (!existsSync(join(here, path))) throw new Error(`index.html 引用的 ${path} 不存在`);
 }
-writeFileSync(join(here, "index.html"), html);
-console.log("wrote dev-sidepanel/index.html");
+// --check (build.selftest.js): fail when the committed index.html is not what this script writes now.
+if (process.argv.includes("--check")) {
+  if (readFileSync(join(here, "index.html"), "utf8") !== html) {
+    throw new Error("dev-sidepanel/index.html 和 sidepanel.html 对不上，运行 /usr/local/bin/node extension/dev-sidepanel/build.mjs");
+  }
+} else {
+  writeFileSync(join(here, "index.html"), html);
+  console.log("wrote dev-sidepanel/index.html");
+}
