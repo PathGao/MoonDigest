@@ -229,6 +229,7 @@ function bindEvents() {
     if (areaName === "local" && changes[NOTES_STORAGE_KEY] && els.noteInput.hidden) {
       void renderNote();
     }
+    if (areaName === "local") followTriageAnalysis(changes);
     if (areaName === "local" && changes[PLAYER_AI_QUICK_ACTION_STORAGE_KEY] && initCompleted) {
       void handlePlayerAiQuickActionRequest(changes[PLAYER_AI_QUICK_ACTION_STORAGE_KEY].newValue);
     }
@@ -668,6 +669,12 @@ function renderSuggestions() {
   suggestionsNode.querySelector(".sp-summary-btn")?.addEventListener("click", () => fillPrompt(prompt));
   void act({ type: "SUMMARY_SHOWN", prompt });
   void renderTriageSummary(suggestionsNode);
+}
+
+// 分拣台 finishing 细看 on the open video: its AI 总结 card shows now, not at the next redraw.
+function followTriageAnalysis(changes) {
+  const videoId = buildConversationContextRef(state.view().context)?.videoId;
+  if (videoId && suggestionsNode && changes[MdgLimits.KEYS.triageAnalysis(videoId)]) void renderTriageSummary(suggestionsNode);
 }
 
 // A summary the triage page already paid for, shown before the first question; nothing is requested here.

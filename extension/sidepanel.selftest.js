@@ -426,6 +426,25 @@ const chatOn = (context) => {
     );
   }
 
+  // 分拣台 finishing 细看 on the open video shows its AI 总结 card at once; another video's result changes nothing.
+  {
+    const card = [];
+    const node = { querySelector: () => null, insertAdjacentHTML: (_, html) => card.push(html) };
+    vm.runInContext("suggestionsNode = globalThis.__node", Object.assign(ctx, { __node: node }));
+    state.dispatch({ type: "NEW" });
+    show(video);
+    const analysis = { status: "done", verdict: "keep", oneLiner: "一句话", points: ["要点"] };
+    ctx.chrome.storage.local.get = async (k) => (k === "triage_analysis_BV1xx411c7mD" ? { [k]: analysis } : {});
+    ctx.followTriageAnalysis({ triage_analysis_BV2other: { newValue: analysis } });
+    await new Promise((r) => setImmediate(r));
+    assert.strictEqual(card.length, 0, "another video's analysis is not shown");
+    ctx.followTriageAnalysis({ triage_analysis_BV1xx411c7mD: { newValue: analysis } });
+    await new Promise((r) => setImmediate(r));
+    assert.ok(card.length === 1 && card[0].includes("分拣台的 AI 总结") && card[0].includes("一句话"), "the card appears");
+    ctx.chrome.storage.local.get = async () => ({});
+    assert.ok(page.includes('if (areaName === "local") followTriageAnalysis(changes);'), "the storage listener follows analyses");
+  }
+
   console.log("sidepanel selftest: all passed");
 })().catch((e) => {
   console.error(e);
