@@ -714,7 +714,7 @@ function normalizeSyncSettings(settings) {
   merged.biliMarksOff = Array.isArray(merged.biliMarksOff) ? merged.biliMarksOff.filter((c) => typeof c === "string") : [];
   merged.seenShow = MdgSettings.normalizeSeenShow(merged.seenShow);
   merged.seenThreshold = MdgSettings.normalizeSeenThreshold(merged.seenThreshold);
-  merged.seenStyle = merged.seenStyle === "veil" ? "veil" : "badge";
+  merged.seenStyle = MdgSettings.normalizeSeenStyle(merged.seenStyle);
   merged.readerTheme = MdgSettings.normalizeReaderTheme(merged.readerTheme);
   merged.readerFontScale = MdgSettings.normalizeReaderFontScale(merged.readerFontScale);
   merged.readerLetterSpacing = MdgSettings.normalizeReaderLetterSpacing(merged.readerLetterSpacing);

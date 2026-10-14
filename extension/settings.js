@@ -58,7 +58,7 @@
     biliMarksOff: Object.freeze([]),
     seenShow: "off", // one of SEEN_SHOW
     seenThreshold: SEEN_THRESHOLD.def,
-    seenStyle: "badge",
+    seenStyle: "badge", // one of SEEN_STYLES
     enableDebugLogs: false,
     readerTheme: "light",
     readerFontScale: "m",
@@ -130,6 +130,9 @@
   const SEEN_SHOW = Object.freeze(["off", "bar", "mark", "both"]);
   const normalizeSeenShow = (v) => (SEEN_SHOW.includes(v) ? v : DEFAULTS.seenShow);
   const seenOn = (v) => normalizeSeenShow(v) !== "off";
+  // 观看进度's look on covers (设置页「显示样式」): 角标 or 蒙层; anything else is DEFAULTS'.
+  const SEEN_STYLES = Object.freeze(["badge", "veil"]);
+  const normalizeSeenStyle = (v) => (SEEN_STYLES.includes(v) ? v : DEFAULTS.seenStyle);
 
   // 专注模式: each setting's legal values in stepper order (the theme button cycles them); an unknown value is DEFAULTS'.
   const READER_OPTIONS = Object.freeze({
@@ -167,6 +170,8 @@
     SEEN_SHOW,
     normalizeSeenShow,
     seenOn,
+    SEEN_STYLES,
+    normalizeSeenStyle,
     intIn,
     normalizeSwitches,
     normalizeSeenThreshold,

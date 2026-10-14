@@ -276,7 +276,7 @@ async function loadSettings() {
   renderBiliMarks(settings.biliMarksOff);
   elements.seenShow.value = MdgSettings.normalizeSeenShow(settings.seenShow);
   elements.seenThreshold.value = String(MdgSettings.normalizeSeenThreshold(settings.seenThreshold));
-  elements.seenStyle.value = settings.seenStyle === "veil" ? "veil" : "badge";
+  elements.seenStyle.value = MdgSettings.normalizeSeenStyle(settings.seenStyle);
   syncSeenRows();
   syncBiliMarks();
   elements.enableDebugLogs.checked = Boolean(settings.enableDebugLogs);
@@ -573,7 +573,7 @@ function readFormPayload() {
     biliMarksOff: Array.from(elements.biliMarks.querySelectorAll("input[data-cell]:not(:checked)"), (input) => input.dataset.cell),
     seenShow: elements.seenShow.value,
     seenThreshold: MdgSettings.normalizeSeenThreshold(elements.seenThreshold.value),
-    seenStyle: elements.seenStyle.value === "veil" ? "veil" : "badge",
+    seenStyle: MdgSettings.normalizeSeenStyle(elements.seenStyle.value),
     enableDebugLogs: elements.enableDebugLogs.checked,
     frontmatterFields: selectedFields,
     fixedFrontmatterProperties: MdgSettings.normalizeFixedFrontmatterProperties(collectFixedPropertyRows()),
