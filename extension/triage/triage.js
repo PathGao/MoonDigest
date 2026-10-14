@@ -1970,10 +1970,12 @@ function renderListHeader(list) {
   const batchBtn = (route, verdict = "", none = "") => {
     const run = favRun?.job === "unfav" ? favRun : null;
     if (route === "unfav" && run && !runWhere(run)) return headBtn("batch-unfav", `取消收藏中${unfavWhere(run)} ${run.done}/${run.total}`, "danger", "正在取消收藏", "", "", true);
-    const n = none ? S.selected.size : batchList(verdict || null).length;
+    // A selection none of which this can take still counts the selection (as 粗看's), disabled with the reason.
+    const can = none ? S.selected.size : batchList(verdict || null).length;
+    const n = can || (verdict ? 0 : selectedIn(visibleItems()).length);
     const verb = route === "unfav" ? "取消收藏" : "保留";
     // One batch 取消收藏 at a time: while another folder's runs, this one waits.
-    const reason = none || (!n ? (verdict ? `这里没有 AI 判断为${VERDICTS[verdict]}、还没处理的视频` : "选中的都已经处理过了")
+    const reason = none || (!can ? (verdict ? `这里没有 AI 判断为${VERDICTS[verdict]}、还没处理的视频` : "选中的都已经处理过了")
       : route === "unfav" && run ? UI.busyText(`「${folderName(run.mediaId)}」的批量取消收藏`)
       : route === "unfav" ? UI.busyText(favBusy) : "");
     return headBtn(`batch-${route}`, verdict ? `${verb}（AI：${VERDICTS[verdict]}）${n} 个` : `${verb}选中的 ${n} 个`, route === "unfav" ? "danger" : "", reason, verdict, route === "keep" ? KEEP_TIP : "");
@@ -1981,8 +1983,9 @@ function renderListHeader(list) {
   const transferBtn = (none) => {
     const run = favRun?.job === "transfer" ? favRun : null;
     if (run) return headBtn("transfer", `${run.verb}中 ${run.done}/${run.total}${runWhere(run)}`, "", `正在${run.verb}`, "", "", true);
-    const n = none ? S.selected.size : transferList().length;
-    const reason = none || (!n ? "选中的视频已取消收藏，或缺少视频编号" : UI.busyText(favBusy));
+    const can = none ? S.selected.size : transferList().length;
+    const n = can || selectedIn(visibleItems()).length;
+    const reason = none || (!can ? "选中的视频已取消收藏，或缺少视频编号" : UI.busyText(favBusy));
     return headBtn("transfer", S.mediaId === REMOVED ? `收藏选中的 ${n} 个到…` : `移动/复制选中的 ${n} 个…`, "", reason);
   };
   const groupBtn = (cls) => {

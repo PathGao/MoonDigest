@@ -738,8 +738,8 @@ function cleanTargets(list = shown) {
 function cleanBtn(list) {
   const { picked, mids } = cleanTargets(list);
   const shownSel = list.filter((m) => F.sel.has(m)).length;
-  // All of it hidden: the count is the whole selection's.
-  const n = picked && !shownSel ? cleanable([...F.sel]).length : mids.length;
+  // All of it hidden, or none of it cleanable: the count is the selection's (listed, else all of it), disabled with why.
+  const n = picked ? mids.length || shownSel || F.sel.size : mids.length;
   const why = !list.length ? "这里没有列出 UP 主" : !mids.length ? "还关注着的先取消关注，再清理" : "";
   return UI.cleanBtn('data-fw="clean"', { picked: F.sel.size, shown: shownSel, n, busy: busyWhy(), why });
 }
@@ -847,7 +847,7 @@ function renderSel() {
   const k = pool.length;
   const gone = pool.filter((m) => rows.get(m)?.gone).length;
   const acts = (none) => F.side === "out"
-    ? btn("refollow", `重新关注选中的 ${gone} 个`, busy || none || (!gone && "选中的都还关注着")) + btn("unfollow", `取消关注选中的 ${k - gone} 个`, busy || none || (k === gone && "选中的都已取消关注"), "danger")
+    ? btn("refollow", `重新关注选中的 ${gone || k} 个`, busy || none || (!gone && "选中的都还关注着")) + btn("unfollow", `取消关注选中的 ${k - gone || k} 个`, busy || none || (k === gone && "选中的都已取消关注"), "danger")
     : btn("pick-sel", "标签…", none) +
       btn("move-sel", `移动选中的 ${k} 个到分组…`, busy || none || (groupId(F.side) == null && "先在分组列表里选一个分组：「全部」里不知道从哪个分组移走")) +
       btn("copy-sel", `复制选中的 ${k} 个到分组…`, busy || none) +

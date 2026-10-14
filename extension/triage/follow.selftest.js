@@ -735,6 +735,9 @@ async function followPage({ store = {}, handlers = {}, setup = () => {} } = {}) 
     await p.settle();
     assert.strictEqual(p.asked.length, asked, "no 清理 confirm for a hidden selection");
     F.tagState = "";
+    // K1: none of the selection can take it: the count is the selection's, never 0, off with why.
+    p.FW.render();
+    assert.ok(E.sel.innerHTML.includes('aria-label="取消关注选中的 1 个" disabled title="选中的都已取消关注"'), E.sel.innerHTML);
   }
 
   // J8: an empty list says why: the search, else the filters, else the group is empty.

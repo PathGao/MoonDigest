@@ -497,6 +497,9 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     t.batchKeep(t.batchList(null));
     assert.deepStrictEqual(plain(Object.keys(t.S.kept).filter((b) => b.startsWith("BV6"))), ["BV61", "BV62"]);
     assert.deepStrictEqual(plain([...t.S.selected]), ["BV61", "BV62"], "阅览 still lists them: 保留 keeps them selected");
+    // K1: none of the selection left to keep: the count is still the selection's, off with why.
+    t.renderListHeader(t.visibleItems());
+    assert.ok(/aria-label="保留选中的 2 个"[^>]*disabled title="选中的都已经处理过了"/.test(t.el.favSel.innerHTML), t.el.favSel.innerHTML);
     await t.undo();
     assert.ok(!t.S.kept.BV61 && !t.S.kept.BV62);
     // U cut short by a failure: still in 所有收藏夹, the rest is the next U; after another folder opened, the rest stays
