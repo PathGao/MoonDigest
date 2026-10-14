@@ -694,7 +694,7 @@ async function triageChat(messages, maxTokens, thinking = false, providerId = ""
     const json = await triageAiJson(res);
     const choice = json.choices?.[0];
     if (!choice?.message?.content && choice?.finish_reason === "length") {
-      throw triageError("模型输出被截断");
+      throw triageError("模型输出被截断", "AI_TRUNCATED");
     }
     return { content: choice?.message?.content, model: provider.model };
   };

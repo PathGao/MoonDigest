@@ -2379,7 +2379,7 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   }
   for (const thinkingToggle of [false, true]) {
     t.S.settings.thinkingToggle = thinkingToggle;
-    t.handleAiError("输出被截断");
+    t.handleAiError("模型输出被截断", "AI_TRUNCATED");
     assert.strictEqual(t.el.bannerText.textContent.endsWith("关闭思考"), thinkingToggle, "only a platform with the thinking switch is told to turn it off");
   }
   t.S.settings.thinkingToggle = false;

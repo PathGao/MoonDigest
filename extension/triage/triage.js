@@ -489,7 +489,7 @@ function handleAiError(error, code = "") {
     }, "ai");
   } else if (aiSettingsCode(code)) {
     showBanner(text, "去设置", () => send({ type: "open-options" }), "ai");
-  } else if (text.includes("截断")) {
+  } else if (code === "AI_TRUNCATED") {
     showBanner(`${text}。建议调大输出上限${hasThinkingToggle() ? "或关闭思考" : ""}`, "打开收藏夹设置", () => openSettings(true), "ai");
   } else toast(text, true);
 }
@@ -3218,7 +3218,7 @@ async function runStage1(list = stage1Pending(), redo = false) {
       }
       // A redone card keeps its old 粗看, as a redone 细看 keeps its old result.
       if (!r.ok && batch.some((it) => VERDICTS[S.titleRes[it.bvid]?.verdict])) toast(`重新粗看失败，保留原来的结果：${r.error}`, true);
-      if (/截断/.test(r.error || "")) handleAiError(r.error);
+      if (r.code === "AI_TRUNCATED") handleAiError(r.error, r.code);
       render();
     }
   });
@@ -3294,7 +3294,7 @@ async function runGroup() {
       const keepOld = !r.ok && group.redo && S.analyses[b]?.status === "done";
       if (keepOld) toast(`重新细看失败，保留原来的结果：${r.error}`, true);
       else S.analyses[b] = r.ok ? { criteria: judge.crit, ...r.data } : { bvid: b, status: "error", error: r.error };
-      if (/截断/.test(r.error || "")) handleAiError(r.error);
+      if (r.code === "AI_TRUNCATED") handleAiError(r.error, r.code);
       render();
     }
   });
@@ -3474,7 +3474,7 @@ async function runAiBatches({ R = runs, job, total, request, merge, intervalMs, 
       if (x.ok) return answered++, merge(p, x.data, i);
       p.errors.push(`${which(i)}失败：${x.error}`);
       // 截断 is reported with what to change.
-      if (/截断/.test(x.error || "")) handleAiError(x.error, x.code);
+      if (x.code === "AI_TRUNCATED") handleAiError(x.error, x.code);
     }
   });
 

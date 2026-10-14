@@ -242,6 +242,10 @@ assert.throws(() => t.triageParseCommand('{"new_tags":[', cmdItems, cmdTags, {})
   await assert.rejects(t.triageChat([], 100), (e) => e.code === "AI_NETWORK" && e.message === "连不上 AI 平台，请检查网络和接口地址");
   t.hostPermissionError = async () => "未授权访问 https://ai.test，授权后重试";
   await assert.rejects(t.triageChat([], 100), (e) => e.code === "AI_ACCESS" && /未授权访问/.test(e.message), "a missing permission keeps its own text, with its code");
+  // K7: an answer cut at the output limit has its own code; 分拣台 matches the code, not the words.
+  t.fetch = async () => ({ ok: true, status: 200, text: async () => JSON.stringify({ choices: [{ message: { content: "" }, finish_reason: "length" }] }), json: async () => ({ choices: [{ message: { content: "" }, finish_reason: "length" }] }) });
+  await assert.rejects(t.triageChat([], 100), (e) => e.code === "AI_TRUNCATED" && e.message === "模型输出被截断");
+  assert.ok(!/截断\/\.test|includes\("截断"\)/.test(fs.readFileSync(path.join(__dirname, "triage.js"), "utf8")), "triage.js matches 截断 by its words; use the code AI_TRUNCATED");
   // A dropped B站 connection says 网络断了, without fetch's English.
   t.fetch = async () => {
     throw new TypeError("Failed to fetch");
