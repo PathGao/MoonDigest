@@ -302,7 +302,8 @@
     clearMarks();
     clearUps();
   }
-  const pageBvid = () => (location.pathname.startsWith("/video/") ? bvidFromHref(location.pathname) : "");
+  // The video a player page shows: /video/BV… or, on the 稍后再看 / 收藏夹 player (/list/…), ?bvid= (surfaceOf's "video").
+  const pageBvid = () => (/^\/(?:video|list)\//.test(location.pathname) ? bvidFromHref(location.pathname + location.search) : "");
 
   // ponytail: rescans at most every 400ms; the video page's danmaku layer mutates constantly and this caps that cost.
   function schedule() {

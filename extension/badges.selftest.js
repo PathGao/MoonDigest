@@ -747,6 +747,11 @@ async function surfacePages() {
   const vline = viewer.doc.querySelector(".mdg-line");
   assert.ok(vline && /讲 Rust 所有权/.test(vline.textContent) && !/收藏标签/.test(vline.textContent), "player: the title line, AI 判断 (switch on) without 视频标签");
   assert.deepStrictEqual([viewer.doc.querySelectorAll(".mdg-ups").length, viewer.doc.querySelectorAll(".mdg-badge").length], [0, 1], "player: no UP marks, no marks on other links");
+  // J3: the 稍后再看 / 收藏夹 player (/list/…?bvid=) has the line under the title too, as /video/ has.
+  for (const search of ["?bvid=BV1GJ411x7h7", "?oid=1&bvid=BV1GJ411x7h7"]) {
+    const list = await page({ hostname: "www.bilibili.com", pathname: search.startsWith("?oid") ? "/list/ml5" : "/list/watchlater", search }, h("body", {}, h("div", { class: "video-info-title" })), false, { showBiliVerdicts: true });
+    assert.ok(/讲 Rust 所有权/.test(list.doc.querySelector(".mdg-line")?.textContent || ""), `the line on /list/${search}`);
+  }
   for (const k of ["triage_analysis_BV1GJ411x7h7", "triage_tags", "triage_video_tags"]) delete store[k];
   const space = await page({ hostname: "space.bilibili.com", pathname: "/1" }, h("body", {}, author()), "space");
   assert.deepStrictEqual([space.reads.length, space.listen.length, space.doc.querySelectorAll(".mdg-ups").length], [0, 0, 0], "UP space in the player: no reads, no listeners, no marks");
