@@ -2150,7 +2150,7 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     assert.deepStrictEqual(vids.map((it) => vm.runInContext("homeOf", ctx)(it)), ["K", "K", "L", "K"], "the first chosen folder it is in");
     // The step bar offers the run (no single 判断标准 button); the run asks first, listing each folder's count and 判断标准.
     t.renderListHeader(t.visibleItems());
-    assert.ok(t.el.listHeader.innerHTML.includes("标题粗看这 4 个") && !t.el.listHeader.innerHTML.includes('data-head="criteria"'), t.el.listHeader.innerHTML);
+    assert.ok(t.el.listHeader.innerHTML.includes("标题粗看下一批 4 个") && !t.el.listHeader.innerHTML.includes('data-head="criteria"'), t.el.listHeader.innerHTML);
     const batches = [];
     handlers["triage-classify-titles"] = ({ items, criteria, folder }) => {
       batches.push([items.map((x) => x.bvid), criteria, folder.title, folder.intro]);
@@ -3123,12 +3123,42 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     t.S.stage1Skip.clear();
     Object.assign(t.S.settings, { triageIntervalSec: 0, triageTitleBatchSize: 30 });
     t.renderListHeader(t.visibleItems());
-    assert.ok(t.el.listHeader.innerHTML.includes("标题粗看这 2 个"), t.el.listHeader.innerHTML);
+    assert.ok(t.el.listHeader.innerHTML.includes("标题粗看下一批 2 个"), t.el.listHeader.innerHTML);
     let sentBvids = [];
     handlers["triage-classify-titles"] = (m) => ((sentBvids = m.items.map((x) => x.bvid)), { ok: true, data: { results: {} } });
     await t.runStage1();
     assert.deepStrictEqual(plain(sentBvids), plain(t.visibleItems().map((it) => it.bvid)), "the run sends the listed ones");
     assert.deepStrictEqual(plain(sentBvids), ["BV702", "BV703"]);
+    // One run takes at most triageCoarseBatchSize (default 100, clamped to 1000), the selection too; 重新粗看 likewise.
+    {
+      const many = Array.from({ length: 1005 }, (_, i) => item(5000 + i));
+      openFake("G", many);
+      Object.assign(t.S, { tab: "none", titleRes: {}, analyses: {}, query: "" });
+      t.S.stage1Skip.clear();
+      const head = () => (t.renderListHeader(t.visibleItems()), t.el.listHeader.innerHTML);
+      const pending = () => vm.runInContext("stage1Pending()", ctx).map((it) => it.bvid);
+      delete t.S.settings.triageCoarseBatchSize;
+      assert.ok(head().includes("标题粗看下一批 100 个"), "default 100");
+      t.S.settings.triageCoarseBatchSize = 5000;
+      assert.ok(head().includes("标题粗看下一批 1000 个"), "clamped to 1000");
+      t.S.settings.triageCoarseBatchSize = 3;
+      assert.deepStrictEqual(plain(pending()), ["BV5000", "BV5001", "BV5002"], "the first ones in list order");
+      for (const b of ["BV5010", "BV5011"]) t.S.selected.add(b);
+      assert.ok(head().includes("标题粗看选中 2 个"));
+      for (const b of ["BV5012", "BV5013"]) t.S.selected.add(b);
+      assert.ok(head().includes("标题粗看选中的前 3 个"), "more selected than the cap");
+      await t.runStage1();
+      assert.deepStrictEqual(plain(sentBvids), ["BV5010", "BV5011", "BV5012"], "the run sends only the capped selection");
+      t.S.selected.clear();
+      t.S.folderCriteria = { G: "新标准" };
+      t.S.titleRes = Object.fromEntries(many.map((it) => [it.bvid, { verdict: "keep", criteria: "旧标准" }]));
+      t.S.tab = "coarse";
+      assert.ok(head().includes("按新标准重新粗看 3 个"), "重新粗看 is capped too");
+      Object.assign(t.S, { tab: "none", titleRes: {}, folderCriteria: {} });
+      t.S.stage1Skip.clear();
+      t.S.settings.triageCoarseBatchSize = 100;
+      openFake("G", [item(701), { ...item(702), title: "数学课" }, { ...item(703), title: "数学题" }]);
+    }
     t.S.query = "没有这个词";
     t.renderListHeader(t.visibleItems());
     assert.ok(t.el.listHeader.innerHTML.includes('aria-label="标题粗看" disabled title="当前筛选下没有要粗看的视频"'), t.el.listHeader.innerHTML);

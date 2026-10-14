@@ -158,6 +158,7 @@ const S = {
     triageIntervalSec: 8,
     triageTitleBatchSize: 30,
     triageFineBatchSize: 10, // 细看每批数量, 1–50
+    triageCoarseBatchSize: 100, // 标题粗看每次数量, 1–1000 (triageTitleBatchSize is titles per request)
     triageThinking: false,
     triageTitleMaxTokens: 0,
     triageAnalyzeMaxTokens: 0,
@@ -264,7 +265,7 @@ const el = {};
   "banner", "bannerText", "bannerBtn", "bannerClose", "syncNotice", "syncText", "syncViewBtn", "syncCloseBtn", "syncDetail",
   "tabs", "stagebar", "sortBox", "classFilter", "tagFilter", "aiTagSlot", "listHeader", "list", "basket", "basketToggle", "basketCount",
   "basketList", "basketClearBtn", "toast", "settingsDialog", "folderToggles", "thinkingRow", "intervalInput",
-  "batchSizeInput", "fineBatchInput", "aiBatchInput", "tagLimitInput", "aiNewTagMaxInput", "aiRemoveTagsInput", "openOptionsBtn", "thinkingInput", "titleMaxInput",
+  "batchSizeInput", "coarseBatchInput", "fineBatchInput", "aiBatchInput", "tagLimitInput", "aiNewTagMaxInput", "aiRemoveTagsInput", "openOptionsBtn", "thinkingInput", "titleMaxInput",
   "titleMaxHint", "analyzeMaxInput", "analyzeMaxHint", "csvBtn", "confirmDialog",
   "confirmTitle", "confirmBody", "confirmOk",
   "criteriaDialog", "criteriaTitle", "criteriaInput", "helpDialog",
@@ -649,8 +650,9 @@ function visibleItems() {
 const selectedIn = (list) => list.filter((it) => S.selected.has(it.bvid));
 // Of these videos, those the open tab lists now: a step button counts and runs only what is on screen.
 const listed = (list) => list.filter((it) => inTab(it, S.tab) && passFilter(it));
-// What 按新标准重新粗看 / 细看 count and send (细看 one batch at a time).
-const redoCoarseList = () => listed(staleCoarse());
+// What 按新标准重新粗看 / 细看 count and send (one run's cap at a time).
+const coarseBatchSize = () => Math.max(1, Math.min(1000, Math.floor(Number(S.settings.triageCoarseBatchSize)) || 100));
+const redoCoarseList = () => listed(staleCoarse()).slice(0, coarseBatchSize());
 const fineBatchSize = () => Math.max(1, Math.min(50, Math.floor(Number(S.settings.triageFineBatchSize)) || 10));
 const redoFineList = () => listed(staleFine()).slice(0, fineBatchSize());
 // The selection belongs to the open tab (switching tabs clears it). A filter may hide part of it: every action and count
@@ -1961,7 +1963,8 @@ function renderListHeader(list) {
       const pending = stage1Pending();
       const n = pending.length;
       const none = S.items.some((it) => stageOf(it) === "none" && !S.stage1Skip.has(it.bvid)) ? "当前筛选下没有要粗看的视频" : "没有要粗看的视频";
-      html += headBtn("stage1", !n ? "标题粗看" : S.selected.has(pending[0].bvid) ? `标题粗看选中 ${n} 个` : `标题粗看这 ${n} 个`, "primary", aiBusyReason() || (n ? "" : none), "", "", false, true);
+      const label = !n ? "标题粗看" : !S.selected.has(pending[0].bvid) ? `标题粗看下一批 ${n} 个` : selectedIn(list).length > n ? `标题粗看选中的前 ${n} 个` : `标题粗看选中 ${n} 个`;
+      html += headBtn("stage1", label, "primary", aiBusyReason() || (n ? "" : none), "", "", false, true);
     }
     if (sel) selActs = batchBtn("keep");
   } else if (t === "coarse") {
@@ -3097,12 +3100,12 @@ function aiItem(it) {
 }
 
 
-// What 标题粗看 counts and sends: the 未分析 videos listed now (search and filters applied), not the hidden ones.
-// A selection wins, like 细看's nextBatch.
+// What 标题粗看 counts and sends: the first coarseBatchSize() 未分析 videos listed now (search and filters applied),
+// not the hidden ones. A selection wins, like 细看's nextBatch.
 const stage1Pending = () => {
   const open = S.items.filter((it) => stageOf(it) === "none" && !S.stage1Skip.has(it.bvid) && passFilter(it));
   const sel = selectedIn(open);
-  return sel.length ? sel : open;
+  return (sel.length ? sel : open).slice(0, coarseBatchSize());
 };
 
 // list: 未分析 by default; 重新粗看 passes the cards whose 粗看 used an older 判断标准. Their old results stay on the
@@ -4160,6 +4163,7 @@ function bindEvents() {
     const patch = {
       triageIntervalSec: Math.max(0, Number(el.intervalInput.value) || 0),
       triageTitleBatchSize: Math.max(1, Math.min(100, Number(el.batchSizeInput.value) || 30)),
+      triageCoarseBatchSize: Math.max(1, Math.min(1000, Math.floor(Number(el.coarseBatchInput.value)) || 100)),
       triageFineBatchSize: Math.max(1, Math.min(50, Math.floor(Number(el.fineBatchInput.value)) || 10)),
       triageThinking: el.thinkingInput.checked,
       triageTitleMaxTokens: Number(el.titleMaxInput.value) || 0,
@@ -4292,6 +4296,7 @@ function openSettings(scrollToLimits = false, firstRun = false) {
   el.thinkingRow.hidden = !hasThinkingToggle();
   el.intervalInput.value = S.settings.triageIntervalSec ?? 8;
   el.batchSizeInput.value = S.settings.triageTitleBatchSize ?? 30;
+  el.coarseBatchInput.value = coarseBatchSize();
   el.fineBatchInput.value = fineBatchSize();
   el.aiBatchInput.value = aiBatchSize();
   el.thinkingInput.checked = Boolean(S.settings.triageThinking);
