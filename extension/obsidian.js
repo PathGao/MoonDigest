@@ -1,6 +1,6 @@
 // The only writer to Obsidian (Local REST API): every page asks the background, which decides the path, the body and
 // what to say. Loaded by background.js (importScripts) before triage/triage-bg.js; at call time it uses background.js
-// (getMergedSettings, normalizeAiContextRef, fetchWithTimeout) and triage-bg.js (triageBuildNote).
+// (getMergedSettings, fetchWithTimeout) and triage-bg.js (triageBuildNote).
 const OBSIDIAN_TIMEOUT_MS = 30000;
 
 const obsidianCoded = (text, code) => Object.assign(new Error(text), { code });
@@ -161,7 +161,7 @@ async function linkCoverInVault(vault, filepath, content, cover) {
 async function writeVideoNote({ ref: input, mode, conversation, page }) {
   const settings = await getMergedSettings();
   const vault = obsidianConfig(settings);
-  const ref = normalizeAiContextRef(input || {});
+  const ref = MdgSites.contextRef(input);
   let key = ref.isVideoContext ? MdgSites.buildContextKey(ref) : "";
   const { aiConversations } = MdgLimits.KEYS;
   const extrasRef = { site: ref.site, videoId: key ? ref.videoId : "", pageIndex: ref.pageIndex };
@@ -243,7 +243,7 @@ async function writeVideoNote({ ref: input, mode, conversation, page }) {
 // Never creates a note. Resolves { path: "" } when there is nothing to do, else { path, exists, updated, text? }: text,
 // what the side panel shows, when the note is still there.
 async function syncVideoNoteAi({ ref: input, conversation }) {
-  const ref = normalizeAiContextRef(input || {});
+  const ref = MdgSites.contextRef(input);
   const key = ref.isVideoContext ? MdgSites.buildContextKey(ref) : "";
   const path = key ? (await notePaths())[key]?.path : "";
   const section = MdgNote.buildAiSection(MdgNote.buildConversationTurns(conversation?.messages));

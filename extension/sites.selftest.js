@@ -697,6 +697,16 @@ async function ytComments(next, byContinuation) {
     assert.ok(!src.includes(`[\\\\/:*?"<>|#^[\\]]`), `${f} cleans a file name itself; use MdgSites.sanitizeFileName`);
   }
   assert.strictEqual(fs.readFileSync(path.join(__dirname, "content.js"), "utf8").split("没有找到可联动的视频播放器").length, 2, "content.js writes the no-player sentence once");
+  // L8: a video context's fields have one shape (the background, the side panel's conversations and placeholders).
+  eq(S.contextRef({ bvid: "BV1xx411c7mD", pageIndex: "2", title: " T " }), {
+    title: "T", url: "", author: "", uploadDate: "", site: "bilibili", videoId: "BV1xx411c7mD", cid: "", aid: "", pageIndex: 2, pageCount: 0,
+    pageTitle: "", subtitleLang: "", selectedSubtitleId: "", selectedSubtitleUrl: "", isVideoContext: true
+  });
+  eq(S.contextRef(null).pageIndex, 1);
+  for (const f of ["background.js", "obsidian.js", "sidepanel-state.js", "sidepanel.js"]) {
+    assert.ok(!/selectedSubtitleUrl: String\(\w+\.selectedSubtitleUrl/.test(fs.readFileSync(path.join(__dirname, f), "utf8")), `${f} shapes a video context itself; use MdgSites.contextRef`);
+  }
+
   console.log("sites selftest ok");
 })().catch((error) => {
   console.error(error);

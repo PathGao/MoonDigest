@@ -181,29 +181,6 @@ async function openAiSidepanelForTab(tabId) {
   throw new Error("当前浏览器不支持扩展侧边栏");
 }
 
-function normalizeAiContextRef(ref) {
-  const value = ref && typeof ref === "object" ? ref : {};
-  return {
-    title: String(value.title || "").trim(),
-    url: String(value.url || "").trim(),
-    author: String(value.author || "").trim(),
-    uploadDate: String(value.uploadDate || "").trim(),
-    // Conversations saved before the site registry carry bvid instead of site/videoId.
-    site: String(value.site || (value.bvid ? "bilibili" : MdgSites.matchSite(value.url)?.id || "")).trim(),
-    videoId: String(value.videoId || value.bvid || MdgSites.parseRef(value.url)?.id || "").trim(),
-    cid: String(value.cid || "").trim(),
-    aid: String(value.aid || "").trim(),
-    pageIndex: Number(value.pageIndex) > 0 ? Number(value.pageIndex) : 1,
-    pageCount: Number(value.pageCount) > 0 ? Number(value.pageCount) : 0,
-    pageTitle: String(value.pageTitle || "").trim(),
-    subtitleLang: String(value.subtitleLang || "").trim(),
-    selectedSubtitleId: String(value.selectedSubtitleId || "").trim(),
-    selectedSubtitleUrl: String(value.selectedSubtitleUrl || "").trim(),
-    isVideoContext: value.isVideoContext !== false
-  };
-}
-
-
 const FETCH_TIMEOUT_MS = 15000;
 
 // Obsidian's Local REST API and the cover images written into the vault; a hung request would block the write forever.
@@ -244,7 +221,7 @@ function findTabForRef(ref) {
 }
 
 async function resolveAiSidepanelContext(contextRef) {
-  const ref = normalizeAiContextRef(contextRef);
+  const ref = MdgSites.contextRef(contextRef);
   const videoRef = ref.isVideoContext ? refFromAiContext(ref) : null;
   if (!videoRef) {
     return {
@@ -323,7 +300,7 @@ async function resolveAiSidepanelContext(contextRef) {
 }
 
 async function resolveAiSidepanelPageRef(contextRef) {
-  const ref = normalizeAiContextRef(contextRef);
+  const ref = MdgSites.contextRef(contextRef);
   const videoRef = ref.isVideoContext ? refFromAiContext(ref) : null;
   const site = videoRef ? MdgSites.SITES[videoRef.site] : null;
   const fallback = {

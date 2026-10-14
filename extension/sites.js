@@ -1454,6 +1454,30 @@
     return videoId ? `video:${site}:${videoId}|${cid || ""}` : "";
   }
 
+  // A video context's identity fields, trimmed (the background's write-video-note and the side panel's saved
+  // conversations, its placeholders): the one shape. Conversations saved before the site registry carry bvid instead
+  // of site/videoId.
+  function contextRef(value) {
+    const v = value && typeof value === "object" ? value : {};
+    return {
+      title: String(v.title || "").trim(),
+      url: String(v.url || "").trim(),
+      author: String(v.author || "").trim(),
+      uploadDate: String(v.uploadDate || "").trim(),
+      site: String(v.site || (v.bvid ? "bilibili" : matchSite(v.url)?.id || "")).trim(),
+      videoId: String(v.videoId || v.bvid || parseRef(v.url)?.id || "").trim(),
+      cid: String(v.cid || "").trim(),
+      aid: String(v.aid || "").trim(),
+      pageIndex: Number(v.pageIndex) > 0 ? Number(v.pageIndex) : 1,
+      pageCount: Number(v.pageCount) > 0 ? Number(v.pageCount) : 0,
+      pageTitle: String(v.pageTitle || "").trim(),
+      subtitleLang: String(v.subtitleLang || "").trim(),
+      selectedSubtitleId: String(v.selectedSubtitleId || "").trim(),
+      selectedSubtitleUrl: String(v.selectedSubtitleUrl || "").trim(),
+      isVideoContext: v.isVideoContext !== false
+    };
+  }
+
   globalThis.MdgSites = {
     SITES,
     matchSite,
@@ -1461,6 +1485,7 @@
     cleanUrl,
     isAllowedFetchUrl,
     buildContextKey,
+    contextRef,
     isBiliVideoGone,
     BILI_RISK_CODES,
     cleanComment,
