@@ -462,6 +462,23 @@ const chatOn = (context) => {
     assert.ok(page.includes('if (areaName === "local") followTriageAnalysis(changes);'), "the storage listener follows analyses");
   }
 
+  // 导出对话: any conversation change closes its menu; with nothing to export the button and every item are disabled
+  // and say why, instead of answering a click with 「当前没有可复制的对话」.
+  {
+    const els = vm.runInContext("els", ctx);
+    state.dispatch({ type: "SAVED_CHANGED", list: [{ id: "x1", contextUrl: video.url, isVideoContext: true, messages: [{ role: "user", content: "q" }, { role: "assistant", content: "a" }] }] });
+    await ctx.act({ type: "OPEN", id: "x1" });
+    ctx.setStreamingUiState(false);
+    assert.deepStrictEqual([els.copyConversationBtn.disabled, els.exportBtn.disabled], [false, false]);
+    els.exportPopover.hidden = false;
+    await ctx.act({ type: "NEW" });
+    ctx.setStreamingUiState(false);
+    assert.strictEqual(els.exportPopover.hidden, true, "a conversation change closes the menu");
+    for (const b of ["exportBtn", "copyConversationBtn", "downloadConversationBtn", "saveConversationBtn"]) {
+      assert.deepStrictEqual([b, els[b].disabled, els[b].title], [b, true, "当前没有可导出的对话"]);
+    }
+  }
+
   // Each reply's copy button is named per the 用词表: 复制 Markdown, never a bare 复制.
   assert.ok(page.includes("<span>复制 Markdown</span>") && !page.includes("<span>复制</span>"), "a reply's copy button says 复制 Markdown");
 

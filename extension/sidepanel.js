@@ -251,7 +251,10 @@ function setStreamingUiState(isStreaming, { stopping = false } = {}) {
   els.sendBtn.disabled = stopping || blocked;
   els.sendBtn.classList.toggle("is-stop", isStreaming);
   els.sendBtn.innerHTML = isStreaming ? (stopping ? "停止中" : "停止") : `${AI_SPARK}发送`;
-  setDisabledReason(els.exportBtn, buildConversationTurns(state.view().messages).length ? "" : "当前没有可导出的对话", "导出整段对话");
+  // 导出对话 and each item in its menu: disabled with the reason while there is nothing to export.
+  const nothing = buildConversationTurns(state.view().messages).length ? "" : "当前没有可导出的对话";
+  setDisabledReason(els.exportBtn, nothing, "导出整段对话");
+  for (const item of [els.copyConversationBtn, els.downloadConversationBtn, els.saveConversationBtn]) if (item) setDisabledReason(item, nothing);
 }
 
 
@@ -394,6 +397,8 @@ async function act(event) {
     if (effect.type === "detach" || effect.type === "dropStream") releaseActiveStream(effect);
   }
   if (state.view().epoch !== epoch) {
+    // Another conversation: the 导出对话 menu was about the one before.
+    hideExportPopover();
     clearStreamRuntimeState();
     updateContextChip();
     renderHistoryList();
