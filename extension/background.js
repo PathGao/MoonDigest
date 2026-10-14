@@ -483,7 +483,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     try {
       const parsed = new URL(url);
       if (!MdgSites.matchSite(parsed.href)) {
-        throw new Error("当前网页不是支持的视频页");
+        throw new Error(MdgErrors.TEXT.notVideoPage);
       }
       parsed.searchParams.set("mdg_reader", "1");
       readerUrl = parsed.toString();

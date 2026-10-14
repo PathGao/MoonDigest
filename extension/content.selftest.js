@@ -374,6 +374,15 @@ const settle = async () => {
     assert.deepStrictEqual(state.aiTurns, [], "a storage echo for the old video is dropped");
   }
 
+  // B2: the popup's 下载 .md takes the note's own name: date prefix by the setting, 分 P like 写入 Obsidian.
+  {
+    const next = { title: "标题", videoId: "BV1", pageCount: 3, pageIndex: 2, pageTitle: "第二集", settings: { ...t.MdgSettings.DEFAULTS, includeDateInFilename: false } };
+    const prev = Object.fromEntries(Object.keys(next).map((k) => [k, state[k]]));
+    Object.assign(state, next);
+    assert.strictEqual(t.getPopupPayload().filename, "标题-P2-第二集.md");
+    Object.assign(state, prev);
+  }
+
   // A5: a note setting (附带热门评论, 笔记属性, 笔记标签…) changed elsewhere reloads the settings and rebuilds the note, so
   // the popup's copy and download and the side panel read what 写入 Obsidian would write.
   {

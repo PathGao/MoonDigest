@@ -1013,7 +1013,7 @@ async function runRefreshClip() {
     const site = currentSite();
     const ref = site?.parseRef(location.href);
     if (!ref) {
-      throw new Error("当前网页不是支持的视频页");
+      throw new Error(MdgErrors.TEXT.notVideoPage);
     }
     state.site = ref.site;
     state.videoId = ref.id;
@@ -1271,6 +1271,8 @@ function getPopupPayload() {
     message: state.messageText || "",
     subtitlePreview: buildSubtitlePreview(state.subtitleBody || [], state.settings || DEFAULT_SETTINGS),
     markdown: state.markdown || "",
+    // 下载 .md: the same name as the note 写入 Obsidian writes (MdgNote.buildNoteFilename).
+    filename: MdgNote.buildNoteFilename(state, state.settings || DEFAULT_SETTINGS),
     srt: state.srt || "",
     txt: state.txt || "",
     subtitleOptions
