@@ -177,7 +177,7 @@
   // menu, and the settings gear that only shows without the sidebar.
   const rowButtons = ({ activityId, refreshId, refreshLabel, refreshTitle = "", exportId, menuId, menuHtml, settingsAttr, settingsLabel }) =>
     `<span id="${activityId}" class="activity" aria-live="polite" hidden></span>` +
-    `<button id="${refreshId}" type="button" class="act-btn" aria-label="${esc(refreshLabel)}"${refreshTitle ? ` title="${esc(refreshTitle)}"` : ""}>${ICON.refresh}<span class="lbl">刷新</span></button>` +
+    `<button id="${refreshId}" type="button" class="act-btn" aria-label="${esc(refreshLabel)}"${refreshTitle ? ` title="${esc(refreshTitle)}"` : ""}>${ICON.refresh}<span class="lbl">${MdgErrors.LABEL.refresh}</span></button>` +
     `<button id="${exportId}" type="button" class="act-btn" popovertarget="${menuId}" aria-label="导出">${ICON.export}<span class="lbl">导出</span></button>` +
     `<button type="button" class="act-btn gear-only" ${settingsAttr} aria-label="${esc(settingsLabel)}" title="${esc(settingsLabel)}">${ICON.gear}</button>` +
     `<div id="${menuId}" class="tools export-menu" popover>${menuHtml}</div>`;
@@ -461,7 +461,7 @@
     `<div class="empty-state"><p><strong>${esc(title)}</strong></p>${text ? `<p class="dialog-hint">${esc(text)}</p>` : ""}${actionHtml}</div>`;
 
   // 刷新 in an empty state: a plain button, since row 3 keeps the page's one .primary (DESIGN 视觉设计 · 颜色).
-  const refreshEmpty = (attrs) => `<button type="button" ${attrs}>${ICON.refresh}刷新</button>`;
+  const refreshEmpty = (attrs) => `<button type="button" ${attrs}>${ICON.refresh}${MdgErrors.LABEL.refresh}</button>`;
   // Why a list with items shows none: the search (q), else the filters (filtered); "" when it is neither.
   const noMatch = (q, filtered, who) => (String(q ?? "").trim() ? `没有匹配搜索的${sp(who)}` : filtered ? `没有符合筛选的${sp(who)}` : "");
 

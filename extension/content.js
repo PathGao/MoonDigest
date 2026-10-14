@@ -1326,7 +1326,7 @@ async function sendToObsidian() {
       if (computeCurrentClipSignature() !== clip) {
         return { ...report(MdgErrors.TEXT.obsidianVideoSwitched, true), written: false };
       }
-      setReadingNotice("正在写入 Obsidian…", { busy: true });
+      setReadingNotice(MdgErrors.TEXT.obsidianWriting, { busy: true });
       resp = await sendRuntimeMessage({ ...request, mode });
     }
     if (!resp?.ok) {
@@ -1818,7 +1818,7 @@ function renderReadingView() {
   if (transcriptItems.length === 0) {
     const failed = state.subtitleFetchState === "error" || Boolean(state.subtitleFailure) || state.subtitleNeedLogin;
     transcriptList.innerHTML = `<div class="mdg-reading-empty">${escapeHtml(getReadingTranscriptPlaceholderText())}${
-      failed ? '<button type="button" class="mdg-reading-retry">重试</button>' : ""
+      failed ? `<button type="button" class="mdg-reading-retry">${MdgErrors.LABEL.retry}</button>` : ""
     }</div>`;
   } else {
     transcriptList.innerHTML = transcriptItems
@@ -3389,7 +3389,7 @@ function syncPlayerAiQuickActionVisuals(button) {
 async function askSidepanel(source) {
   try {
     const resp = await sendRuntimeMessage({ type: "player-ai-quick-action", ...(source && { source }), contextRef: viewerContextRef() });
-    if (!resp?.ok) throw new Error(resp?.error || "未知错误");
+    if (!resp?.ok) throw new Error(resp?.error || MdgErrors.TEXT.unknown);
     return true;
   } catch (error) {
     setReadingNotice(MdgErrors.reloaded(error) ? MdgErrors.TEXT.reloaded : `${MdgErrors.TEXT.sidepanelOpenFailed}：${getErrorMessage(error)}`, { error: true });
@@ -3969,7 +3969,7 @@ function fetchErrorText(error) {
   return MdgErrors.text({ error: toReadableText(error?.message, ""), code: error?.code }, getErrorMessage(error));
 }
 
-function getErrorMessage(error, fallback = "未知错误") {
+function getErrorMessage(error, fallback = MdgErrors.TEXT.unknown) {
   const code = toReadableText(error?.code, "");
   const message = toReadableText(error?.message, "");
   if (message) {
@@ -4001,7 +4001,7 @@ function requestOpenOptions() {
   sendRuntimeMessage({ type: "open-options" })
     .then((resp) => {
       if (!resp?.ok) {
-        setMessage(`打开设置失败：${toReadableText(resp?.error, "未知错误")}`);
+        setMessage(`打开设置失败：${toReadableText(resp?.error, MdgErrors.TEXT.unknown)}`);
       }
     })
     .catch((error) => {

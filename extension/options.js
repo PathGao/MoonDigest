@@ -199,7 +199,7 @@ function trackCurrentSection() {
 // Exports what is saved, not unsaved edits in the form.
 async function exportSettingsFile() {
   const resp = await sendRuntimeMessage({ type: "settings-export" }).catch((e) => ({ error: e.message }));
-  if (!resp?.ok) return setStatus(`导出失败：${resp?.error || "未知错误"}`, true);
+  if (!resp?.ok) return setStatus(`导出失败：${resp?.error || MdgErrors.TEXT.unknown}`, true);
   MdgDownload.text(`MoonDigest设置-${MdgDownload.dateStamp()}.json`, JSON.stringify(resp.file, null, 2), "application/json");
   setStatus(hasUnsavedChanges ? "已导出已保存的设置，未保存的修改不在文件里" : "已导出设置");
 }
@@ -228,7 +228,7 @@ async function importSettingsFile(file) {
   const out = dropped ? `当前勾选的 ${dropped} 个收藏夹在文件里没有勾选：导入后它们的视频会进「已出分拣范围」，取消收藏记录会被删除。` : "";
   if (!confirm(`用「${file.name}」替换当前的全部设置？${lost}${out}已保存的 Key 不变。`)) return;
   const resp = await sendRuntimeMessage({ type: "settings-import", file: data }).catch((e) => ({ error: e.message }));
-  if (!resp?.ok) return setStatus(`导入失败：${resp?.error || "未知错误"}`, true);
+  if (!resp?.ok) return setStatus(`导入失败：${resp?.error || MdgErrors.TEXT.unknown}`, true);
   // Reload so every control, the AI list and the host-permission banner show the imported values.
   hasUnsavedChanges = false;
   location.reload();
@@ -398,7 +398,7 @@ async function saveSettings() {
     // AI 平台：list 走 sync、apiKey 走 local
     const aiResp = await sendRuntimeMessage({ type: "ai-providers-save", providers: aiProvidersPayload });
     if (!aiResp?.ok) {
-      setStatus(`已保存，但 AI 平台保存失败：${aiResp?.error || "未知错误"}`, true);
+      setStatus(`已保存，但 AI 平台保存失败：${aiResp?.error || MdgErrors.TEXT.unknown}`, true);
       return;
     }
     // 用最新列表（含 hasSavedKey）重新渲染，避免误以为 Key 丢了
@@ -1162,14 +1162,14 @@ async function testConnection() {
 
     obsidianTest.ok = Boolean(resp?.ok);
     if (!resp?.ok) {
-      setTestResult(`失败：${resp?.error || "未知错误"}`, true);
+      setTestResult(`失败：${resp?.error || MdgErrors.TEXT.unknown}`, true);
       return;
     }
 
     const service = resp?.service ? `（${resp.service}）` : "";
     setTestResult(`连接成功${service}`);
   } catch (error) {
-    setTestResult(`失败：${error.message || "未知错误"}`, true);
+    setTestResult(`失败：${error.message || MdgErrors.TEXT.unknown}`, true);
   } finally {
     setBusy(null);
     renderSavedState();

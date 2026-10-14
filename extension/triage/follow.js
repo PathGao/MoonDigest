@@ -959,7 +959,7 @@ function renderFoot(n = feedList(F.feed.items, D, feedF(), null).length) {
   else if (!f.hasMore) text = f.items.length ? `${reach}B站 只提供到这里。` : "关注的人最近都没发视频。";
   else text = reach;
   const stopped = !n || f.dry >= DRY_PAGES;
-  const btn = f.error ? `<button type="button" data-fw="more">重试</button>`
+  const btn = f.error ? `<button type="button" data-fw="more">${MdgErrors.LABEL.retry}</button>`
     : f.hasMore && !f.loading ? `<button type="button" class="${stopped ? "primary" : ""}" data-fw="more">加载更多</button>` : "";
   foot.innerHTML = `<p${f.loading ? ' aria-busy="true"' : ""}>${esc(text)}</p>${btn}`;
 }
@@ -998,7 +998,7 @@ async function more({ byHand = false } = {}) {
   if (r.code === "THROTTLED") waitFeed(f);
   else if (!r.ok) {
     f.errorCode = r.code;
-    f.error = MdgErrors.action(r.code) === "login" ? MdgErrors.TEXT.biliLogin : `读取失败：${r.error || "未知错误"}`;
+    f.error = MdgErrors.action(r.code) === "login" ? MdgErrors.TEXT.biliLogin : `读取失败：${r.error || MdgErrors.TEXT.unknown}`;
   }
   else {
     const { items, add } = mergeFeed(f.items, r.data.items || []);
@@ -1084,7 +1084,7 @@ async function relationRun(calls, label, { quiet = false, skipped = [] } = {}) {
   const r = await running;
   if (r.busy) return toast(UI.busyText(r.busy)), 0;
   if (r.stopped) toast(`已停止${label}：完成 ${r.done} 个，未完成 ${r.total - r.done} 个`);
-  else if (r.error || r.done < r.total) toast(`${label}第 ${r.done + 1} 个时出错：${r.error || "未知错误"}${r.done ? `（前 ${r.done} 个已完成）` : ""}`, true);
+  else if (r.error || r.done < r.total) toast(`${label}第 ${r.done + 1} 个时出错：${r.error || MdgErrors.TEXT.unknown}${r.done ? `（前 ${r.done} 个已完成）` : ""}`, true);
   else if (!quiet) toast(`已${label} ${r.done} 个`);
   await load();
   const listed = new Set(sideMids(D, rows, F.side).filter((m) => !F.kind || F.side !== "out" || outKind(rows.get(m)) === F.kind));
@@ -1330,7 +1330,7 @@ async function aiSettings() {
   const triage = own ? null : await send({ type: "triage-settings-get" });
   const { value, seed } = followAiSettings(own, triage?.ok ? triage.data : null);
   // Not stored (sync quota, …): the copied values still work this time, and the next use tries again.
-  if (seed) await chrome.storage.sync.set({ follow_ai_settings: seed }).catch((e) => toast(`保存设置失败：${e.message}`, true));
+  if (seed) await chrome.storage.sync.set({ follow_ai_settings: seed }).catch((e) => toast(`${MdgErrors.TEXT.settingsSaveFailed}：${e.message}`, true));
   return value;
 }
 async function openSettings() {
@@ -1363,14 +1363,14 @@ settingsDialog.addEventListener("close", async () => {
   try {
     await chrome.storage.sync.set({ follow_ai_settings: ai, ...days });
   } catch (e) {
-    return toast(`保存设置失败：${e.message}`, true);
+    return toast(`${MdgErrors.TEXT.settingsSaveFailed}：${e.message}`, true);
   }
   if (!aiRunning()) AI.settings = ai;
   cfg.slowDays = days.followSlowDays;
   cfg.deadDays = days.followDeadDays;
   if (F.loaded) derive();
   render();
-  toast("设置已保存");
+  toast(MdgErrors.TEXT.settingsSaved);
 });
 
 // ----- 标签管理 (tag-dialogs.js) -----
@@ -1569,7 +1569,7 @@ const aiTags = {
     try {
       await chrome.storage.sync.set({ follow_ai_settings: next });
     } catch (e) {
-      toast(`保存设置失败：${e.message}`, true);
+      toast(`${MdgErrors.TEXT.settingsSaveFailed}：${e.message}`, true);
       return false;
     }
     AI.settings = next;

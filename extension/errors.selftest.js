@@ -71,12 +71,8 @@ const E = ctx.MdgErrors;
   assert.deepStrictEqual([node.disabled, node.title, "aria-description" in attrs], [false, "t", false]);
   for (const file of scripts) assert.ok(!/setAttribute\("aria-description"/.test(read(file)), `${file} writes its own setReason; use MdgErrors.setReason`);
 
-  // The sentences live only in errors.js; badges.js (it does not load errors.js) keeps one exact copy.
-  assert.ok(read("badges.js").includes(`"${E.TEXT.reloaded}"`), "badges.js shows MdgErrors.TEXT.reloaded word for word");
+  // The sentences live only in errors.js: wording.selftest.js checks every shipped file (badges.js keeps a copy).
   const sources = ["background.js", "obsidian.js", "content.js", "sidepanel.js", "sidepanel-state.js", "popup.js", "history/history.js", "triage/triage.js", "triage/triage-bg.js", "triage/follow.js", "triage/follow-bg.js"];
-  for (const sentence of [...Object.values(E.TEXT), "视频审核中"]) {
-    for (const file of sources) assert.ok(!read(file).includes(sentence), `${file} writes 「${sentence}」 itself`);
-  }
   // No AI platform: one sentence (TEXT.aiNone); 分拣台 gives 去设置 by the code, never by matching the words.
   for (const file of sources) assert.ok(!/配置 AI|添加一个 AI 平台|未配置 AI 平台/.test(read(file)), `${file} words a missing AI platform itself; use MdgErrors.TEXT.aiNone`);
   // No subtitle: three states, one sentence each, built only here (the note, the card, the AI and every page use it).

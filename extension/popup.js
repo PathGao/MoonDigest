@@ -73,9 +73,9 @@ function bindEvents() {
     }
     try {
       await navigator.clipboard.writeText(payload.markdown);
-      setStatus("已复制 Markdown");
+      setStatus(MdgErrors.TEXT.copied);
     } catch (error) {
-      setStatus(`复制失败：${error?.message || "无法访问剪贴板"}`, true);
+      setStatus(`${MdgErrors.TEXT.copyFailed}：${error?.message || MdgErrors.TEXT.noClipboard}`, true);
     }
   });
 
@@ -106,11 +106,11 @@ function bindEvents() {
   });
 
   el.sendBtn.addEventListener("click", async () => {
-    setStatus("正在写入 Obsidian…", false, true);
-    setBusy(el.sendBtn, true, "写入中…");
+    setStatus(MdgErrors.TEXT.obsidianWriting, false, true);
+    setBusy(el.sendBtn, true, MdgErrors.TEXT.writing);
     const resp = await sendToContent({ type: "popup-send-obsidian" }).finally(() => setBusy(el.sendBtn, false));
     // The page answers with the result's words (text); without them the message never reached it.
-    const text = resp?.text || (resp?.ok ? "" : `${MdgErrors.TEXT.obsidianFailed}：${resp?.error || "未知错误"}`);
+    const text = resp?.text || (resp?.ok ? "" : `${MdgErrors.TEXT.obsidianFailed}：${resp?.error || MdgErrors.TEXT.unknown}`);
     if (text) setStatus(text, !resp?.ok);
     render(resp?.payload || latestPayload, { preserveStatus: Boolean(text) });
   });
@@ -134,7 +134,7 @@ function bindEvents() {
     }).catch((error) => ({ ok: false, error: error.message }));
     setBusy(el.readingViewBtn, false);
     if (!resp?.ok) {
-      setStatus(`${MdgErrors.TEXT.readerStartFailed}：${resp?.error || "未知错误"}`, true);
+      setStatus(`${MdgErrors.TEXT.readerStartFailed}：${resp?.error || MdgErrors.TEXT.unknown}`, true);
       return;
     }
     setStatus("专注模式已打开");
@@ -150,7 +150,7 @@ function bindEvents() {
     setStatus("正在切换字幕…", false, true);
     const resp = await sendToContent({ type: "popup-select-subtitle", url });
     if (!resp?.ok) {
-      setStatus(`${MdgErrors.TEXT.subtitleSwitchFailed}：${resp?.error || "未知错误"}`, true);
+      setStatus(`${MdgErrors.TEXT.subtitleSwitchFailed}：${resp?.error || MdgErrors.TEXT.unknown}`, true);
     }
     render(resp?.payload || latestPayload, { preserveStatus: !resp?.ok });
   });
@@ -168,7 +168,7 @@ function bindEvents() {
     const resp = await sendToRuntime({ type: "player-ai-quick-action", tabId: tab.id, source: "popup" }).catch((error) => ({ ok: false, error: error.message }));
     if (!resp?.ok) {
       setBusy(el.summaryBtn, false);
-      setStatus(`${MdgErrors.TEXT.sidepanelOpenFailed}：${resp?.error || "未知错误"}`, true);
+      setStatus(`${MdgErrors.TEXT.sidepanelOpenFailed}：${resp?.error || MdgErrors.TEXT.unknown}`, true);
       return;
     }
     window.setTimeout(() => window.close(), 80);
@@ -340,7 +340,7 @@ function normalizeContentErrorMessage(error) {
   if (message.includes("Could not establish connection. Receiving end does not exist.")) {
     return "当前网页不支持，或刷新网页后重试";
   }
-  return message || "未知错误";
+  return message || MdgErrors.TEXT.unknown;
 }
 
 function shouldRetryAfterInjection(error) {

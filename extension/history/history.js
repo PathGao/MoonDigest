@@ -144,9 +144,9 @@ function render() {
           </div>
           <div class="entry-actions">
             <button type="button" class="ask" data-act="ask"${g.context.videoId ? "" : " data-no-video"}><span class="ai-spark" aria-hidden="true"></span>继续问</button>
-            <button type="button" data-act="copy">复制 Markdown</button>
-            <button type="button" data-act="md">下载 .md</button>
-            ${!obsidianEnabled ? "" : `<button type="button" data-act="obsidian"${writing.has(g.key) ? " disabled" : ""}><img class="obsidian-mark" src="/icons/obsidian.svg" alt=""> <span class="write-label" data-idle="写入 Obsidian">${writing.has(g.key) ? '<span aria-busy="true">写入中…</span>' : "<span>写入 Obsidian</span>"}</span></button>`}
+            <button type="button" data-act="copy">${MdgErrors.LABEL.copyMd}</button>
+            <button type="button" data-act="md">${MdgErrors.LABEL.downloadMd}</button>
+            ${!obsidianEnabled ? "" : `<button type="button" data-act="obsidian"${writing.has(g.key) ? " disabled" : ""}><img class="obsidian-mark" src="/icons/obsidian.svg" alt=""> <span class="write-label" data-idle="${MdgErrors.LABEL.writeObsidian}">${writing.has(g.key) ? `<span aria-busy="true">${MdgErrors.TEXT.writing}</span>` : `<span>${MdgErrors.LABEL.writeObsidian}</span>`}</span></button>`}
             ${g.convs.length ? `<button type="button" data-act="delete" class="danger">删除 AI 对话</button>` : `<button type="button" class="danger slot" tabindex="-1" aria-hidden="true" disabled>删除 AI 对话</button>`}
           </div>
           <div class="entry-body">
@@ -252,7 +252,7 @@ function downloadGroups(groups) {
 // This page asks before an existing note is touched.
 async function saveToObsidian(group) {
   writing.add(group.key);
-  setStatus("正在写入 Obsidian…");
+  setStatus(MdgErrors.TEXT.obsidianWriting);
   render();
   try {
     const newest = group.convs.reduce((a, b) => ((b.updatedAt || 0) > (a.updatedAt || 0) ? b : a), group.convs[0]);
@@ -287,8 +287,8 @@ els.list.addEventListener("click", (event) => {
     syncBulk();
   } else if (act === "copy" && group) {
     navigator.clipboard.writeText(buildNote(group).content).then(
-      () => setStatus("已复制 Markdown"),
-      (error) => setStatus(`复制失败：${error?.message || "无法访问剪贴板"}`, true)
+      () => setStatus(MdgErrors.TEXT.copied),
+      (error) => setStatus(`${MdgErrors.TEXT.copyFailed}：${error?.message || MdgErrors.TEXT.noClipboard}`, true)
     );
   } else if (act === "md" && group) downloadGroups([group]);
   else if (act === "obsidian" && group) void saveToObsidian(group);
