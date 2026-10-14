@@ -444,16 +444,9 @@
   // Why a list with items shows none: the search (q), else the filters (filtered); "" when it is neither.
   const noMatch = (q, filtered, who) => (String(q ?? "").trim() ? `没有匹配搜索的${sp(who)}` : filtered ? `没有符合筛选的${sp(who)}` : "");
 
-  // Settings rows both dialogs have: the same name and hint. Each .set-row contains its input.
-  const SET_ROWS = {
-    interval: ["请求间隔（秒）", ""],
-    // 收藏夹 stores it as triageAiBatchSize, 关注 in follow_ai_settings.batchSize.
-    aiBatch: ["AI 打标签每批数量", "1–100 个一批。"],
-    newTagMax: ["AI 打标签时最多新建几个标签", "0–50，0 = 只用已有标签。"],
-    allowRemove: ["AI 打标签时允许去掉已有标签", "关时只加标签。开了也要你确认。"]
-  };
   // The whole-number settings of both dialogs: [min, max, default], default 0 = 自动. The readers (pages and background)
-  // parse with numSetting; fillSetRows gives each box (data-num) its range and the default as placeholder.
+  // parse with numSetting; fillSetRows gives each box (data-num) its range and the default as placeholder, and
+  // writes them into the hints' [data-num-min] / [data-num-max] / [data-num-default] spans, so no hint repeats a number.
   const NUM_SETTINGS = {
     interval: [0, 600, 8], // both modes
     aiBatch: [1, 100, 30], // both modes
@@ -465,6 +458,14 @@
     slowDays: [7, 3650, 90],
     deadDays: [8, 3651, 365]
   };
+  // Settings rows both dialogs have: the same name and hint. Each .set-row contains its input.
+  const SET_ROWS = {
+    interval: ["请求间隔（秒）", ""],
+    // 收藏夹 stores it as triageAiBatchSize, 关注 in follow_ai_settings.batchSize.
+    aiBatch: ["AI 打标签每批数量", `${NUM_SETTINGS.aiBatch[0]}–${NUM_SETTINGS.aiBatch[1]} 个一批。`],
+    newTagMax: ["AI 打标签时最多新建几个标签", `${NUM_SETTINGS.newTagMax[0]}–${NUM_SETTINGS.newTagMax[1]}，0 = 只用已有标签。`],
+    allowRemove: ["AI 打标签时允许去掉已有标签", "关时只加标签。开了也要你确认。"]
+  };
   const numSetting = (kind, v) => intIn(v, ...NUM_SETTINGS[kind]);
   function fillSetRows(root) {
     for (const row of root.querySelectorAll("[data-set-row]:not(:has(label))")) {
@@ -475,6 +476,11 @@
     for (const input of root.querySelectorAll("input[data-num]")) {
       const [min, max, def] = NUM_SETTINGS[input.dataset.num];
       Object.assign(input, { min, max, placeholder: def ? `默认 ${def}` : "自动" });
+    }
+    for (const node of root.querySelectorAll("[data-num-min], [data-num-max], [data-num-default]")) {
+      const { numMin, numMax, numDefault } = node.dataset;
+      const [min, max, def] = NUM_SETTINGS[numMin ?? numMax ?? numDefault];
+      node.textContent = numMin ? min : numMax ? max : def;
     }
   }
 

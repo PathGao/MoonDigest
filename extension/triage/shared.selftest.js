@@ -517,12 +517,28 @@ for (const [file, fns] of [["triage.js", ["mergeAiBatch", "aiChanges"]], ["follo
   // J15: each number box gets its range and default from NUM_SETTINGS: 「默认 N」, 「自动」 where the default is 0.
   const box = (num) => ({ dataset: { num } });
   const boxes = [box("aiBatch"), box("maxTokens"), box("newTagMax")];
-  UI.fillSetRows({ querySelectorAll: (sel) => (sel.includes("data-num") ? boxes : []) });
+  UI.fillSetRows({ querySelectorAll: (sel) => (sel === "input[data-num]" ? boxes : []) });
   assert.deepStrictEqual(boxes.map((b) => [b.min, b.max, b.placeholder]), [[1, 100, "默认 30"], [200, 32000, "自动"], [0, 50, "默认 5"]]);
   assert.deepStrictEqual(["", "x", 0, 999].map((v) => UI.numSetting("aiBatch", v)), [30, 30, 30, 100], "numSetting reads the same table");
   const numbers = [...html.matchAll(/<input [^>]*type="number"[^>]*>/g)].map((m) => m[0]);
   assert.strictEqual(numbers.length, 13);
   for (const n of numbers) assert.ok(/data-num="(\w+)"/.test(n) && UI.NUM_SETTINGS[n.match(/data-num="(\w+)"/)[1]] && !/ (min|max|placeholder)=/.test(n), `${n}: range and default come from NUM_SETTINGS`);
+  // Hints write a setting's numbers through [data-num-min|max|default] spans that fillSetRows fills from the same table;
+  // no page text (tags stripped, so filled spans are empty) or SET_ROWS hint spells a range, 默认 or 最多 of the table.
+  const spans = [{ dataset: { numMin: "tagLimit" } }, { dataset: { numMax: "coarseBatch" } }, { dataset: { numDefault: "fineBatch" } }];
+  UI.fillSetRows({ querySelectorAll: (sel) => (sel.includes("data-num-max") ? spans : []) });
+  assert.deepStrictEqual(spans.map((n) => n.textContent), [1, 1000, 10]);
+  for (const m of html.matchAll(/data-num-(?:min|max|default)="(\w+)"/g)) assert.ok(UI.NUM_SETTINGS[m[1]], m[0]);
+  assert.ok(/data-num-max="coarseBatch"/.test(html) && /data-num-default="fineBatch"/.test(html), "the batch hints read the table");
+  assert.ok(!/<span data-(tag-limit|ai-new-tag-max)>[^<]/.test(html), "the help dialog's caps are filled, not written");
+  const table = Object.values(UI.NUM_SETTINGS);
+  const setRows = fs.readFileSync(path.join(__dirname, "shared.js"), "utf8").match(/const SET_ROWS = \{[\s\S]*?\n  \};/)[0];
+  const pages = ["triage.html", "../options.html", "../popup.html", "../sidepanel.html", "../history/history.html"];
+  for (const [where, text] of [...pages.map((p) => [p, fs.readFileSync(path.join(__dirname, p), "utf8").replace(/<[^>]*>/g, "")]), ["SET_ROWS", setRows]]) {
+    for (const [hit, lo, hi] of text.matchAll(/(\d+)\s*–\s*(\d+)/g)) assert.ok(!table.some(([min, max]) => +lo === min && +hi === max), `${where}: ${hit} repeats a NUM_SETTINGS range`);
+    for (const [hit, n] of text.matchAll(/默认 ?(\d+)/g)) assert.ok(!table.some(([, , def]) => +n === def), `${where}: ${hit} repeats a NUM_SETTINGS default`);
+    for (const [hit, n] of text.matchAll(/最多 ?(\d+)/g)) assert.ok(!table.some(([, max]) => +n === max), `${where}: ${hit} repeats a NUM_SETTINGS max`);
+  }
 }
 
 // A number field above max becomes max; below min (or negative) it is emptied, which means the default.

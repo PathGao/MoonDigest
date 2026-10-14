@@ -112,7 +112,7 @@
           <section class="set-group">
             <h3>标签</h3>
             <div class="set-card">
-              <div class="set-row"><div><label class="name" for="tagLimitInput">每个收藏夹最多几个</label><p class="hint">1–50。调低不删已有标签，只是不能再新建。</p></div><input id="tagLimitInput" type="number" data-num="tagLimit" step="1" /></div>
+              <div class="set-row"><div><label class="name" for="tagLimitInput">每个收藏夹最多几个</label><p class="hint"><span data-num-min="tagLimit"></span>–<span data-num-max="tagLimit"></span>。调低不删已有标签，只是不能再新建。</p></div><input id="tagLimitInput" type="number" data-num="tagLimit" step="1" /></div>
               <div class="set-row" data-set-row="newTagMax"><input id="aiNewTagMaxInput" type="number" data-num="newTagMax" step="1" /></div>
               <div class="set-row" data-set-row="allowRemove"><input id="aiRemoveTagsInput" type="checkbox" class="switch" /></div>
             </div>
@@ -124,8 +124,8 @@
               <div class="set-row" data-set-row="interval"><input id="intervalInput" type="number" data-num="interval" step="1" /></div>
               <div class="set-row" data-set-row="aiBatch"><input id="aiBatchInput" type="number" data-num="aiBatch" step="1" /></div>
               <div id="thinkingRow" class="set-row"><div><label class="name" for="thinkingInput">开启思考</label><p class="hint">判断更细，但慢得多、token 多几倍。</p></div><input id="thinkingInput" type="checkbox" class="switch" /></div>
-              <div class="set-row"><div><label class="name" for="coarseBatchInput">标题粗看每批数量</label><p class="hint">点一次「标题粗看」跑几个。默认 100，最多 1000。</p></div><input id="coarseBatchInput" type="number" data-num="coarseBatch" step="1" /></div>
-              <div class="set-row"><div><label class="name" for="fineBatchInput">字幕细看每批数量</label><p class="hint">点一次「字幕细看」跑几个。默认 10，最多 50。</p></div><input id="fineBatchInput" type="number" data-num="fineBatch" step="1" /></div>
+              <div class="set-row"><div><label class="name" for="coarseBatchInput">标题粗看每批数量</label><p class="hint">点一次「标题粗看」跑几个。默认 <span data-num-default="coarseBatch"></span>，最多 <span data-num-max="coarseBatch"></span>。</p></div><input id="coarseBatchInput" type="number" data-num="coarseBatch" step="1" /></div>
+              <div class="set-row"><div><label class="name" for="fineBatchInput">字幕细看每批数量</label><p class="hint">点一次「字幕细看」跑几个。默认 <span data-num-default="fineBatch"></span>，最多 <span data-num-max="fineBatch"></span>。</p></div><input id="fineBatchInput" type="number" data-num="fineBatch" step="1" /></div>
               <div class="set-row"><div><label class="name" for="titleMaxInput">粗看输出上限（token）</label><p id="titleMaxHint" class="hint"></p></div><input id="titleMaxInput" type="number" data-num="maxTokens" step="1" /></div>
               <div class="set-row"><div><label class="name" for="analyzeMaxInput">细看输出上限（token）</label><p id="analyzeMaxHint" class="hint"></p></div><input id="analyzeMaxInput" type="number" data-num="maxTokens" step="1" /></div>
             </div>
@@ -149,7 +149,7 @@
             <h3>更新状态</h3>
             <p class="dialog-hint">按最后投稿离现在多少天分活跃、慢更、断更。</p>
             <div class="set-card">
-              <div class="set-row"><div><label class="name" for="fwSlowInput">多少天没投稿算慢更</label><p class="hint">7–3650。刷新时视频投稿往回翻这么多天，越大翻得越久。</p></div><input id="fwSlowInput" type="number" data-num="slowDays" step="1" /></div>
+              <div class="set-row"><div><label class="name" for="fwSlowInput">多少天没投稿算慢更</label><p class="hint"><span data-num-min="slowDays"></span>–<span data-num-max="slowDays"></span>。刷新时视频投稿往回翻这么多天，越大翻得越久。</p></div><input id="fwSlowInput" type="number" data-num="slowDays" step="1" /></div>
               <div class="set-row"><div><label class="name" for="fwDeadInput">多少天没投稿算断更</label><p class="hint">要比慢更的天数大。</p></div><input id="fwDeadInput" type="number" data-num="deadDays" step="1" /></div>
             </div>
           </section>
@@ -372,7 +372,7 @@
           <li><strong>处理完成</strong>：取消收藏或保留过的视频；最近取消收藏的可以重新收藏。</li>
         </ol>
         <p class="dialog-hint"><strong>分拣分两层</strong>：第一层是收藏夹的判断标准，AI 按它给出 AI 判断（值得留 / 可清理 / 拿不准），决定留不留；第二层是你的标签，按每个标签的说明给视频分类，决定怎么找。<br>判断标准在「判断标准」按钮里写，标签说明在「标签管理」里写。</p>
-        <p class="dialog-hint">AI 判断是每步里的筛选。判断标准不写时，AI 从收藏夹名和简介推测用途。<br>每个收藏夹最多 <span data-tag-limit>10</span> 个标签：按 T 逐个打，按 I 让 AI 打标签（AI 每次最多新建 <span data-ai-new-tag-max>5</span> 个）。两个上限都在收藏夹设置里改。<br>AI 只在本页打开时运行。</p>
+        <p class="dialog-hint">AI 判断是每步里的筛选。判断标准不写时，AI 从收藏夹名和简介推测用途。<br>每个收藏夹最多 <span data-tag-limit></span> 个标签：按 T 逐个打，按 I 让 AI 打标签（AI 每次最多新建 <span data-ai-new-tag-max></span> 个）。两个上限都在收藏夹设置里改。<br>AI 只在本页打开时运行。</p>
         <p class="dialog-hint"><strong>待播</strong>：分拣时按 E（或卡片上的「+ 待播」）把想先看或要核对的视频加入待播，可以跨收藏夹，按加入先后排。已加入的卡片显示「✓ 待播」，再按 E 或点它从待播移除。<br>点一条在内置播放框里播放，点「移除」从待播移除，「清空」一次移除全部。这几种移除都可以按 U 撤销。<br>不影响收藏和处理结果。</p>
         <p class="dialog-hint">「保留」标记只存在 MoonDigest 里，B站收藏夹不变。<br>摘录、笔记、表格和完整备份都在搜索框旁的「导出」菜单里。</p>
         </div>
