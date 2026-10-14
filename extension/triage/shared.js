@@ -644,9 +644,13 @@
       copy();
     }
     measure();
+    // Restoring the last state jumps there, no fold animation: measure() reads layout, which applies the styles while
+    // head-instant is on.
     chrome.storage.local.get(HEAD_FOLD_KEY).then((r) => {
       folded = r?.[HEAD_FOLD_KEY] || {};
+      main.classList.toggle("head-instant", true);
       measure();
+      main.classList.toggle("head-instant", false);
     });
   }
 

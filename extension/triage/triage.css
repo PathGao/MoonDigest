@@ -231,6 +231,7 @@ select { height: 28px; max-width: 240px; }
 @media (prefers-reduced-motion: reduce) {
   .folder-head, .tabrow, .stagebar, .tagbar, .viewer, .viewer-close, .list, .fw-list { transition: none; }
 }
+.head-instant :is(.folder-head, .tabrow, .stagebar, .tagbar, .viewer, .viewer-close, .list, .fw-list) { transition: none; }
 
 /* ---------- row 1: name · count, 在 B站打开 and the sync pill, when it was read | sort ---------- */
 .folder-head { display: flex; align-items: center; gap: 8px 16px; padding-top: 12px; padding-bottom: 12px; }
