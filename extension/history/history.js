@@ -181,9 +181,12 @@ function syncBulk(groups = visibleGroups()) {
   const n = shown.length || selected.size;
   const none = !selected.size ? "先勾选视频" : !shown.length ? MdgErrors.TEXT.hiddenAll : "";
   els.bulkMd.textContent = n ? `下载选中的 ${n} 个 .md` : "下载选中的 .md";
-  els.bulkDelete.textContent = n ? `删除选中的 ${n} 个` : "删除选中的";
+  // 删除 removes AI conversations only, so its N counts the selected videos that have one and says when that is fewer.
+  const del = deletableKeys(shown.length ? shown : [...selected]).length;
+  els.bulkDelete.textContent = del ? `删除选中的 ${del} 个` : "删除选中的";
   setReason(els.bulkMd, none);
-  setReason(els.bulkDelete, none || (deletableKeys(shown).length ? "" : "选中的视频没有 AI 对话，没有可删的"));
+  // Only AI conversations are deleted here; a video's AI 总结 and 备注 belong to the 分拣台, whose 清理 removes them.
+  setReason(els.bulkDelete, none || (del ? "" : "选中的视频没有 AI 对话，它们的 AI 总结和备注在分拣台清理"), del < n ? `选中的 ${n} 个里，${n - del} 个没有 AI 对话，删除后会留下；它们的 AI 总结和备注在分拣台清理` : "");
   setReason(els.clearAll, conversations.length ? "" : "还没有 AI 对话");
 }
 

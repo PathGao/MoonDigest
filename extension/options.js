@@ -148,6 +148,7 @@ function init() {
   // Typing in any box marked red (by validation or by save-settings' too-long field) clears its mark.
   document.addEventListener("input", (event) => event.target.classList?.remove("input-error"));
   elements.obsidianApiKey.addEventListener("input", syncObsidianKeyTag);
+  for (const box of [elements.obsidianApiBaseUrl, elements.obsidianApiKey]) box.addEventListener("input", syncObsidianTest);
   // Focuses an open triage or 视频记录 tab instead of a second one.
   for (const [page, type] of [["triage/triage.html", "triage-open"], ["history/history.html", "history-open"]]) {
     document.querySelector(`a.jump[href$="${page}"]`)?.addEventListener("click", async (event) => {
@@ -517,6 +518,7 @@ function renderSavedState() {
     elements.obsidianGuide.open = firstSetup;
   }
   syncObsidianKeyTag();
+  syncObsidianTest();
 }
 
 function setPill(node, ok, text) {
@@ -528,6 +530,12 @@ function setPill(node, ok, text) {
 function syncObsidianKeyTag() {
   const saved = savedForm?.payload.obsidianApiKey;
   elements.obsidianKeyTag.hidden = !saved || MdgSettings.normalizeApiKey(elements.obsidianApiKey.value) !== saved;
+}
+
+// 测试连接 needs the 地址 and the Key: disabled with the reason while either box is empty, like an AI platform row's.
+function syncObsidianTest() {
+  const missing = [["地址", elements.obsidianApiBaseUrl], ["Key", elements.obsidianApiKey]].filter(([, box]) => !box.value.trim()).map(([name]) => name);
+  MdgErrors.setReason(elements.testConnectionBtn, missing.length ? `先填 Local REST API ${missing.join("和 ")}` : "", "用填好的地址和 Key 连一次 Obsidian 的 Local REST API");
 }
 
 function syncSaveBar() {
@@ -1186,6 +1194,7 @@ function setBusy(active) {
     button.textContent = button === active ? busy : idle;
     button.setAttribute("aria-busy", String(button === active));
   }
+  if (!active) syncObsidianTest();
 }
 
 function sendRuntimeMessage(message) {

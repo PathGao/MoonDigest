@@ -500,6 +500,14 @@ for (const f of ["triage.html", "triage.js", "triage-core.js", "follow.js", "fol
 
 console.log("follow selftest: all passed");
 
+// ----- wording written once (H3, H6, H7) -----
+{
+  // The sync pill's button says what row 3's says: 暂停刷新, as 收藏夹's pill says 暂停粗看.
+  assert.ok(source.includes('sync: { attrs: "data-fw-stop", label: "暂停刷新" }'), "pill says 暂停刷新");
+  // The CSV hint and the group-name cap each have one constant.
+  for (const s of ["名字、标签、更新状态、最后投稿、粉丝数", "最多 16 个字", "> 16", '"16"', "newMax: 16"]) assert.strictEqual(source.split(s).length - 1, s === "名字、标签、更新状态、最后投稿、粉丝数" ? 1 : 0, s);
+}
+
 // ----- the 收藏夹 player's UP 标签 line finds its UP -----
 {
   const rows = new Map([["7", { mid: "7", name: "新名字" }], ["8", { mid: "8", name: "乙" }]]);

@@ -163,7 +163,8 @@ function bindEvents() {
     try {
       await saveCurrentConversationToObsidian();
     } finally {
-      els.saveConversationBtn.disabled = false;
+      // The conversation may have changed meanwhile: recompute rather than enable.
+      syncExportButtons();
     }
   });
   els.copyConversationBtn?.addEventListener("click", () => {
@@ -255,10 +256,14 @@ function setStreamingUiState(isStreaming, { stopping = false } = {}) {
   els.input.disabled = isStreaming || blocked;
   renderFollowups();
   els.generating.hidden = !isStreaming;
-  els.sendBtn.disabled = stopping || blocked;
+  setDisabledReason(els.sendBtn, stopping ? "正在停止生成" : blocked ? MdgErrors.TEXT.notVideoPage : "");
   els.sendBtn.classList.toggle("is-stop", isStreaming);
   els.sendBtn.innerHTML = isStreaming ? (stopping ? "停止中" : "停止") : `${AI_SPARK}发送`;
-  // 导出对话 and each item in its menu: disabled with the reason while there is nothing to export.
+  syncExportButtons();
+}
+
+// 导出对话 and each item in its menu: disabled with the reason while there is nothing to export.
+function syncExportButtons() {
   const nothing = buildConversationTurns(state.view().messages).length ? "" : "当前没有可导出的对话";
   setDisabledReason(els.exportBtn, nothing, "导出整段对话");
   for (const item of [els.copyConversationBtn, els.downloadConversationBtn, els.saveConversationBtn]) if (item) setDisabledReason(item, nothing);
@@ -1125,10 +1130,12 @@ async function openPreviousVideoUrl(url) {
   await chrome.tabs.update(tab.id, { url: targetUrl }).catch(() => null);
 }
 
-// 添加 is disabled with the reason while the box is empty or the list is full (one past the limit would be cut when
-// saved); Enter follows the same rule, and the typed text stays.
+// 添加 is disabled with the reason while the box is empty, holds one already listed, or the list is full (one past the
+// limit would be cut when saved); Enter follows the same rule, and the typed text stays.
 function presetAddReason() {
-  if (!String(els.presetInput.value || "").trim()) return "先输入快捷追问";
+  const text = String(els.presetInput.value || "").trim();
+  if (!text) return "先输入快捷追问";
+  if ((aiPrefs.aiPresetPrompts || []).includes(text)) return "已有这条快捷追问";
   const full = (aiPrefs.aiPresetPrompts || []).length >= MdgSettings.MAX_PRESET_PROMPTS;
   return full ? `最多 ${MdgSettings.MAX_PRESET_PROMPTS} 条快捷追问，先删掉一条再添加` : "";
 }
@@ -1139,11 +1146,7 @@ async function addPresetPrompt() {
     return;
   }
   const text = String(els.presetInput.value || "").trim();
-  const nextPrompts = [...(aiPrefs.aiPresetPrompts || [])];
-  if (!nextPrompts.includes(text)) {
-    nextPrompts.push(text);
-  }
-  aiPrefs.aiPresetPrompts = nextPrompts;
+  aiPrefs.aiPresetPrompts = [...(aiPrefs.aiPresetPrompts || []), text];
   await persistAiPresetPrompts();
   els.presetInput.value = "";
   renderPresetPrompts();
