@@ -682,7 +682,7 @@ async function triageChat(messages, maxTokens, thinking = false, providerId = ""
       signal: controller.signal
     }).catch(async () => {
       const denied = await hostPermissionError(baseUrl);
-      throw denied ? triageError(denied) : triageError(AI_NETWORK_TEXT, "AI_NETWORK");
+      throw denied ? triageError(denied, "AI_ACCESS") : triageError(AI_NETWORK_TEXT, "AI_NETWORK");
     });
     if (!res.ok) throw triageAiHttpError(res.status, await res.text().catch(() => ""));
     // A body that is not JSON is this request's failure.

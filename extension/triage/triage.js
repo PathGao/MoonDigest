@@ -450,12 +450,12 @@ function showBanner(text, btnText, onClick, kind = "") {
 }
 
 // AI errors after which every later request fails alike: the AI_ codes MdgErrors.CODES sends to 去设置 (the side panel
-// offers 去设置 on the same list), plus 未授权访问 (no code; the banner offers the grant). 粗看, 细看 and AI 打标签 stop at
+// offers 去设置 on the same list), plus AI_ACCESS (未授权访问; the banner offers the grant). 粗看, 细看 and AI 打标签 stop at
 // the first one. AI_TIMEOUT sends the
 // same request again and ends the run after AI_TIMEOUT_TRIES in a row; AI_THROTTLED waits, AI_THROTTLE_WAITS times in a
 // row at most, then ends the run as AI_GAVE_UP.
 const aiSettingsCode = (code) => String(code || "").startsWith("AI_") && MdgErrors.action(code) === "settings";
-const aiEnds = (r) => aiSettingsCode(r.code) || /未授权访问/.test(r.error || "");
+const aiEnds = (r) => aiSettingsCode(r.code) || r.code === "AI_ACCESS";
 const AI_TIMEOUT_TRIES = 2;
 const AI_THROTTLE_WAITS = 5;
 const aiGaveUp = () => ({ ok: false, code: "AI_GAVE_UP", error: `AI 平台持续限流，已等待重试 ${AI_THROTTLE_WAITS} 次，已停止` });

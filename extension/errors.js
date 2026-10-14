@@ -81,6 +81,9 @@
     AI_SETUP: { action: "settings" },
     AI_NETWORK: { action: "settings" },
     AI_TIMEOUT: { action: "settings" },
+    // No access to the AI provider's origin yet (noAccess): every request fails alike, so 分拣台 stops its run; the fix
+    // is 授权 (grantOrigin reads the origin from the words), not the settings page.
+    AI_ACCESS: {},
     // 分拣台 only: AI 平台 still limited after AI_THROTTLE_WAITS waits in a row.
     AI_GAVE_UP: { action: "settings" },
     // Obsidian itself is unusable (not set up, off, wrong key): every write fails alike and the fix is in the settings

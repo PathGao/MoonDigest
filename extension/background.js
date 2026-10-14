@@ -1030,7 +1030,7 @@ function supportsThinkingToggle(baseUrl) {
 }
 
 // Remote hosts are optional permissions since 1.2.0, so an upgraded install may lack its AI provider's origin.
-// The side panel and triage page match "未授权访问 <origin>" to offer a grant button.
+// Answered with code AI_ACCESS; the side panel and the settings page read the origin back (MdgErrors.grantOrigin) to offer 授权.
 async function hostPermissionError(url) {
   try {
     const { protocol, hostname } = new URL(url);
@@ -1082,7 +1082,7 @@ async function streamChat({ provider, context, userPrompt, history, port, signal
       return;
     }
     const denied = await hostPermissionError(baseUrl);
-    port.postMessage(denied ? { type: "error", error: denied } : { type: "error", error: AI_NETWORK_TEXT, code: "AI_NETWORK" });
+    port.postMessage(denied ? { type: "error", error: denied, code: "AI_ACCESS" } : { type: "error", error: AI_NETWORK_TEXT, code: "AI_NETWORK" });
     return;
   }
 
@@ -1158,7 +1158,7 @@ async function probeAiChatCompletion({ baseUrl, apiKey, model }) {
   } catch (error) {
     if (error?.name === "TimeoutError") return { ok: false, error: MdgErrors.aiTimeout(AI_TEST_TIMEOUT_MS), code: "AI_TIMEOUT" };
     const denied = await hostPermissionError(baseUrl);
-    return denied ? { ok: false, error: denied } : { ok: false, error: AI_NETWORK_TEXT, code: "AI_NETWORK" };
+    return denied ? { ok: false, error: denied, code: "AI_ACCESS" } : { ok: false, error: AI_NETWORK_TEXT, code: "AI_NETWORK" };
   }
 
   try {

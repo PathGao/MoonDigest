@@ -240,7 +240,7 @@
             }
             if (msg.action !== "chat") return;
             if (window.__mockHostDenied) {
-              post({ type: "error", error: "未授权访问 https://api.example.com，授权后重试" });
+              post({ type: "error", error: "未授权访问 https://api.example.com，授权后重试", code: "AI_ACCESS" });
               return;
             }
             window.__mockStreamLog = window.__mockStreamLog || [];

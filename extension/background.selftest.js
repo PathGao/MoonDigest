@@ -134,7 +134,7 @@ process.on("exit", (code) => {
     assert.deepStrictEqual({ ...(await test(async () => ({ ok: false, status: 401, text: async () => '{"error":{"message":"Incorrect API key"}}' }))) }, { ok: false, error: "AI 平台的 API Key 无效或没有权限", code: "AI_AUTH" });
     assert.deepStrictEqual({ ...(await test(failed)) }, { ok: false, error: "连不上 AI 平台，请检查网络和接口地址", code: "AI_NETWORK" });
     ctx.hostPermissionError = async () => "未授权访问 https://ai.test，授权后重试";
-    assert.deepStrictEqual({ ...(await test(failed)) }, { ok: false, error: "未授权访问 https://ai.test，授权后重试" });
+    assert.deepStrictEqual({ ...(await test(failed)) }, { ok: false, error: "未授权访问 https://ai.test，授权后重试", code: "AI_ACCESS" });
     const timeout = async () => {
       throw Object.assign(new Error("timeout"), { name: "TimeoutError" });
     };

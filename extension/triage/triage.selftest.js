@@ -1133,6 +1133,8 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   // Which AI errors end a run is MdgErrors' 去设置 list (the side panel's too), not a list of its own.
   for (const code of ["AI_AUTH", "AI_QUOTA", "AI_SETUP", "AI_NETWORK", "AI_TIMEOUT", "AI_GAVE_UP"])
     assert.ok(vm.runInContext("aiEnds", ctx)({ ok: false, code }) && ctx.MdgErrors.action(code) === "settings", code);
+  // I7: 未授权访问 ends it by its code, not by matching the words.
+  assert.ok(vm.runInContext("aiEnds", ctx)({ ok: false, code: "AI_ACCESS", error: "x" }) && !vm.runInContext("aiEnds", ctx)({ ok: false, error: "未授权访问 https://a.test" }));
   assert.ok(!vm.runInContext("aiEnds", ctx)({ ok: false, code: "AI_BAD_JSON" }) && !vm.runInContext("aiEnds", ctx)({ ok: false, code: "OBSIDIAN" }), "a video's own error or a non-AI code goes on");
   // X3: one judge for 粗看, 细看 and AI 打标签 (aiJudge, a run's own counts). An error of this request alone fails only it.
   {
