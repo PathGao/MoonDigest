@@ -528,7 +528,7 @@ async function ytComments(next, byContinuation) {
   eq((await S.SITES.bilibili.fetchTracks(biliRef, biliMeta, loggedOut)).needLogin, true);
   // B站 risk control, whichever io it comes through (HTTP 412 as status, a risk code, a player answer without a subtitle
   // object): THROTTLED in the one sentence, and no fallback request to player/v2 or view.
-  for (const answer of [Object.assign(new Error("HTTP 412"), { status: 412 }), { code: -352, message: "风控校验失败" }, { code: 0, data: {} }]) {
+  for (const answer of [Object.assign(new Error("HTTP 412"), { status: 412 }), Object.assign(new Error("HTTP 429"), { status: 429 }), { code: -352, message: "风控校验失败" }, { code: 0, data: {} }]) {
     const urls = [];
     const io = { fetchJson: async (url) => (urls.push(url), answer instanceof Error ? Promise.reject(answer) : answer) };
     await assert.rejects(S.SITES.bilibili.fetchTracks(biliRef, biliMeta, io), (e) => e.code === "THROTTLED" && e.message === "B站限流，请稍后再试", JSON.stringify(answer));
@@ -538,6 +538,12 @@ async function ytComments(next, byContinuation) {
     await assert.rejects(S.SITES.bilibili.fetchMeta(biliRef, io), (e) => e.code === "THROTTLED");
     eq(urls.map((u) => new URL(u).pathname), ["/x/web-interface/view/detail"]);
   }
+
+  // J1: a subtitle file's 429 (换字幕 reads it alone) is the same limit, with its status kept for the page's one wait.
+  await assert.rejects(
+    S.SITES.bilibili.fetchRaw({ url: "https://aisubtitle.hdslb.com/x.json" }, { fetchJson: async () => Promise.reject(Object.assign(new Error("B站请求失败 HTTP 429"), { status: 429 })) }),
+    (e) => e.code === "THROTTLED" && e.status === 429 && e.message === "B站限流，请稍后再试"
+  );
 
   // Subtitle cache: same key format content.js always wrote; entries hold the raw response.
   const cache = S.subtitleCache;

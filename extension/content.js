@@ -1146,11 +1146,8 @@ function pageSubtitleSite(site, runId) {
       await sleep(3000 + Math.random() * 2000);
       ensureRunActive(runId);
       return site.fetchRaw(track, io).catch((error) => {
-        if (error?.status !== 429) throw error;
-        // B站's limit reads as THROTTLED wherever it comes from (MdgErrors.TEXT.biliThrottled).
-        throw site.id === "bilibili"
-          ? Object.assign(new Error(MdgErrors.TEXT.biliThrottled), { code: "THROTTLED" })
-          : Object.assign(new Error("字幕接口限流（429），稍后再试"), { status: 429 });
+        // B站's 429 is THROTTLED already (sites.js biliJson), as on every other entry.
+        throw error?.status === 429 && error.code !== "THROTTLED" ? Object.assign(new Error("字幕接口限流（429），稍后再试"), { status: 429 }) : error;
       });
     }
   };

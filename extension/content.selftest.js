@@ -526,8 +526,11 @@ const settle = async () => {
     assert.strictEqual(await site.fetchRaw({}, {}), "raw");
     site = t.pageSubtitleSite({ fetchRaw: answers([limited(), limited()]) }, state.fetchRunId);
     await assert.rejects(site.fetchRaw({}, {}), (e) => e.status === 429 && e.message === "字幕接口限流（429），稍后再试");
-    // B站's 429 is its limit, said as THROTTLED.
-    site = t.pageSubtitleSite({ id: "bilibili", fetchRaw: answers([limited(), limited()]) }, state.fetchRunId);
+    // B站's 429 is its limit, said as THROTTLED by sites.js biliJson: waited on once, then passed on as it is.
+    const biliLimited = () => Object.assign(new Error(t.MdgErrors.TEXT.biliThrottled), { code: "THROTTLED", status: 429 });
+    site = t.pageSubtitleSite({ id: "bilibili", fetchRaw: answers([biliLimited(), "raw"]) }, state.fetchRunId);
+    assert.strictEqual(await site.fetchRaw({}, {}), "raw");
+    site = t.pageSubtitleSite({ id: "bilibili", fetchRaw: answers([biliLimited(), biliLimited()]) }, state.fetchRunId);
     await assert.rejects(site.fetchRaw({}, {}), (e) => e.code === "THROTTLED" && e.message === t.MdgErrors.TEXT.biliThrottled);
     site = t.pageSubtitleSite({ id: "bilibili", fetchTracks: answers([{ tracks: [] }, { tracks: ["t"] }]) }, state.fetchRunId);
     assert.deepStrictEqual((await site.fetchTracks()).tracks, ["t"]);

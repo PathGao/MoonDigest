@@ -237,15 +237,17 @@
   }
 
   // Every B站 read below goes through this, whoever's io it is (the video page's fetch-json proxy or page fetch, the
-  // background's triageBiliGetJson): HTTP 412 (risk control's HTML page, as status), a BILI_RISK_CODES answer, or an
-  // io that already said THROTTLED, all become one THROTTLED error in MdgErrors.TEXT.biliThrottled's words.
+  // background's triageBiliGetJson): HTTP 412 (risk control's HTML page, as status), HTTP 429, a BILI_RISK_CODES answer,
+  // or an io that already said THROTTLED, all become one THROTTLED error in MdgErrors.TEXT.biliThrottled's words. The
+  // HTTP status stays on it (the video page waits once on a subtitle file's 429).
   const biliThrottled = () => Object.assign(new Error(MdgErrors.TEXT.biliThrottled), { code: "THROTTLED" });
   async function biliJson(io, url) {
     let json;
     try {
       json = await io.fetchJson(url);
     } catch (error) {
-      throw error?.status === 412 || error?.code === "THROTTLED" ? biliThrottled() : error;
+      const status = error?.status;
+      throw status === 412 || status === 429 || error?.code === "THROTTLED" ? Object.assign(biliThrottled(), status && { status }) : error;
     }
     if (BILI_RISK_CODES.has(json?.code)) throw biliThrottled();
     return json;
