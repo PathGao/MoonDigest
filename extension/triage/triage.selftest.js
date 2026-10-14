@@ -695,6 +695,7 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   // 细看 batch: first fineBatchSize() open cards of 粗看完成, or the selected ones; 细看完成 buttons follow the selection too.
   const pool = Array.from({ length: 12 }, (_, i) => item(200 + i));
   openFake("F", pool);
+  t.S.tab = "coarse"; // the selection is the open tab's
   t.S.titleRes = Object.fromEntries(pool.map((it, i) => [it.bvid, { verdict: i < 10 ? "unsure" : "drop", confidence: "high" }]));
   t.S.selected.clear();
   assert.deepStrictEqual(plain(t.nextBatch()), pool.slice(0, 10).map((it) => it.bvid));
@@ -706,6 +707,15 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   assert.deepStrictEqual(plain(t.nextBatch()), ["BV209", "BV210"], "a confident 粗看 card can be 细看'd too");
   t.S.analyses = { BV210: { status: "done", verdict: "drop" }, BV211: { status: "done", verdict: "drop" } };
   assert.deepStrictEqual(plain(t.nextBatch()), ["BV209"], "a selected card outside 粗看完成 is ignored");
+  // G9: a selection none of which can be 细看'd (here a failed one) sends nothing rather than the next batch; the
+  // button stays the selection's, disabled with why.
+  t.S.selected = new Set(["BV208"]);
+  t.S.analyses.BV208 = { bvid: "BV208", status: "error", error: "字幕取不到" };
+  assert.deepStrictEqual(plain(t.nextBatch()), [], "not the next batch");
+  t.renderListHeader(t.visibleItems());
+  assert.ok(t.el.listHeader.innerHTML.includes('aria-label="字幕细看选中 1 个" disabled title="选中的都不能字幕细看"'), t.el.listHeader.innerHTML);
+  delete t.S.analyses.BV208;
+  t.S.selected = new Set(["BV209", "BV210"]);
   t.S.tab = "fine";
   t.S.classFilter.fine = "all";
   assert.deepStrictEqual(plain(t.batchList("keep").map((it) => it.bvid)), ["BV210"], "the selection overrides the verdict scope");
@@ -887,10 +897,11 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   t.S.classFilter.fine = "all";
   t.renderListHeader(t.visibleItems());
   assert.ok(t.el.listHeader.innerHTML.includes("按新标准重新细看下一批 1 个"));
-  // F1: like the step's own button, a selection of stale ones wins (one that is not stale changes nothing).
+  // F1: like the step's own button, a selection of stale ones wins. G9: a selection with none stale does not fall back
+  // to the next batch: the button stays the selection's, disabled with why.
   t.S.selected = new Set(["BV204"]);
   t.renderListHeader(t.visibleItems());
-  assert.ok(t.el.listHeader.innerHTML.includes("按新标准重新细看下一批 1 个"), "no stale one selected: the next batch");
+  assert.ok(t.el.listHeader.innerHTML.includes('aria-label="按新标准重新细看选中 1 个" disabled title="选中的都不用按新标准重新细看"'), t.el.listHeader.innerHTML);
   t.S.selected = new Set(["BV203", "BV204"]);
   t.renderListHeader(t.visibleItems());
   assert.ok(t.el.listHeader.innerHTML.includes("按新标准重新细看选中 1 个"), t.el.listHeader.innerHTML);
@@ -1511,7 +1522,7 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     t.S.selected.clear();
     t.S.focused = "BV1";
     const realList = t.el.list;
-    t.el.list = { querySelectorAll: () => [] };
+    t.el.list = { querySelectorAll: () => [], querySelector: () => null };
     t.onKey({ key: "x", target: {}, preventDefault() {} });
     // G3: O and Enter play here too (like a title click, and like 关注's); D and S still do nothing.
     const opened = [];
@@ -3355,10 +3366,22 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
       handlers["triage-classify-titles"] = ({ items }) => ({ ok: true, data: { results: Object.fromEntries(items.map((x) => [x.bvid, { verdict: "drop", confidence: "high" }])) } });
       t.retryFailed();
       while (vm.runInContext("runs", ctx).get("stage1")) await new Promise((r) => setTimeout(r, 0));
-      assert.deepStrictEqual(judged, [["标题粗看", "粗看", 20]]);
+      assert.deepStrictEqual(judged, [["重试下一批 20 个", "粗看", 20]], "G10: the dialog is titled like the button");
       assert.strictEqual(t.S.coarseFailed.size, 10);
       t.renderList();
       assert.ok(t.el.list.innerHTML.includes("全部重试") && !t.el.list.innerHTML.includes("重试下一批"));
+      // G9 / G11: a pick of a failed card: 标题粗看 stays the selection's, disabled with why (no fallback to the next
+      // batch); the group head says 重试选中 1 个 at once, redrawn by the pick without rebuilding the list.
+      t.S.selected = new Set([[...t.S.coarseFailed.keys()][0]]);
+      const head = { outerHTML: "" };
+      t.el.list.querySelector = (sel) => (sel === ".group-head" ? head : null);
+      t.showPicks();
+      assert.ok(head.outerHTML.includes("分析失败 10 · ") && head.outerHTML.includes("重试选中 1 个</button>"), head.outerHTML);
+      assert.ok(t.el.listHeader.innerHTML.includes('aria-label="标题粗看选中 1 个" disabled title="选中的都不能标题粗看"'), t.el.listHeader.innerHTML);
+      t.S.selected = new Set();
+      t.showPicks();
+      assert.ok(head.outerHTML.includes("全部重试</button>"), "unpicked: back to 全部重试");
+      t.el.list.querySelector = () => null;
       // A card's 重试 sends that one.
       t.retry("BV6029");
       while (vm.runInContext("runs", ctx).get("stage1")) await new Promise((r) => setTimeout(r, 0));
@@ -3395,7 +3418,7 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
       handlers["triage-analyze"] = ({ bvid }) => (analyzed.push(bvid), { ok: true, data: { bvid, status: "done", verdict: "keep" } });
       t.retryFailed();
       for (let i = 0; i < 50 && t.S.group; i++) await new Promise((r) => setImmediate(r));
-      assert.deepStrictEqual([judged, analyzed.length], [[["字幕细看", "细看", 5]], 5]);
+      assert.deepStrictEqual([judged, analyzed.length], [[["重试下一批 5 个", "细看", 5]], 5]);
       // F5: 字幕细看 ends on a green 「字幕细看完成 N 个」 like 粗看.
       t.startJudging = realStart;
       t.S.analyses = {};

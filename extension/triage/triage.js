@@ -660,21 +660,26 @@ const coarseBatchSize = () => intSetting(S.settings.triageCoarseBatchSize, 1, 10
 const fineBatchSize = () => intSetting(S.settings.triageFineBatchSize, 1, 50, 10);
 // 请求间隔, as 关注's: 0–600 s, empty is the default 8 (0 is a value here, not empty).
 const intervalSetting = (v) => (v === "" || v == null ? 8 : intSetting(v, 0, 600, 0));
-// A step's batch, for 标题粗看, 字幕细看, their 按新标准重新… and 重试: the selected ones of open when there are any,
-// otherwise open; at most n.
-const pickBatch = (open, n) => {
-  const sel = selectedIn(open);
-  return (sel.length ? sel : open).slice(0, n);
-};
-// Its button: 「verb下一批 N 个」, 「verb选中 N 个」, 「verb选中的前 N 个」 (more selected than n); just verb when empty.
-const batchLabel = (verb, batch, open) =>
-  !batch.length ? verb : !S.selected.has(batch[0].bvid) ? `${verb}下一批 ${batch.length} 个` : selectedIn(open).length > batch.length ? `${verb}选中的前 ${batch.length} 个` : `${verb}选中 ${batch.length} 个`;
+// A step's batch, for 标题粗看, 字幕细看, their 按新标准重新… and 重试 (tab: the tab the step's videos are in). A
+// selection there decides alone: the selected ones of open, maybe none (the button then says why, never falling back
+// to the next batch); without one, open. At most n.
+const picking = (tab) => tab === S.tab && S.selected.size > 0;
+const pickBatch = (open, n, tab) => (picking(tab) ? selectedIn(open) : open).slice(0, n);
+// The selected ones listed now (the selection is the open tab's).
+const pickedShown = () => S.items.filter((it) => S.selected.has(it.bvid) && inTab(it, S.tab) && passFilter(it)).length;
+// Its button: 「verb下一批 N 个」 (just verb when none), 「verb选中 N 个」, 「verb选中的前 N 个」 (more selected than n).
+const batchLabel = (verb, batch, open, tab) =>
+  !picking(tab) ? (batch.length ? `${verb}下一批 ${batch.length} 个` : verb)
+  : !batch.length ? `${verb}选中 ${pickedShown()} 个`
+  : selectedIn(open).length > batch.length ? `${verb}选中的前 ${batch.length} 个` : `${verb}选中 ${batch.length} 个`;
+// Why it is disabled when the selection has nothing it can run (why: 「选中的都不能字幕细看」 and the like).
+const pickReason = (why, batch, tab) => (!picking(tab) || batch.length ? "" : pickedShown() ? why : "选中的都被筛选隐藏了");
 // What 按新标准重新粗看 / 细看 can send: the stale ones its tab lists now (search and filters applied), from any tab
 // (the 判断标准 dialog offers 重新粗看 too); then one run's batch of them.
 const redoCoarseOpen = () => staleCoarse().filter((it) => inTab(it, "coarse") && passFilter(it));
-const redoCoarseList = () => pickBatch(redoCoarseOpen(), coarseBatchSize());
+const redoCoarseList = () => pickBatch(redoCoarseOpen(), coarseBatchSize(), "coarse");
 const redoFineOpen = () => staleFine().filter((it) => inTab(it, "fine") && passFilter(it));
-const redoFineList = () => pickBatch(redoFineOpen(), fineBatchSize());
+const redoFineList = () => pickBatch(redoFineOpen(), fineBatchSize(), "fine");
 // The selection belongs to the open tab (switching tabs clears it). A filter may hide part of it: every action and count
 // takes only what is listed, and the selection bar says how many are hidden.
 const visibleSelected = () => selectedIn(visibleItems());
@@ -694,7 +699,7 @@ const currentStage = (c) => STAGES.find(([k]) => c[k])?.[0] || "none";
 // The 细看 batch: the first fineBatchSize() selected cards of 粗看完成, otherwise its first fineBatchSize(), 拿不准 / low confidence first.
 const fineOpen = () => S.items.filter((it) => inTab(it, "coarse") && passFilter(it) && needsAnalysis(it.bvid)).sort((x, y) => unsureFirst(x) - unsureFirst(y));
 function nextBatch() {
-  return pickBatch(fineOpen(), fineBatchSize()).map((it) => it.bvid);
+  return pickBatch(fineOpen(), fineBatchSize(), "coarse").map((it) => it.bvid);
 }
 
 // ---------- init ----------
@@ -1961,10 +1966,10 @@ function renderListHeader(list) {
     const g = ownGroup() && runs.get("group");
     if (g) return headBtn("group", `${g.stopping ? "暂停中" : "暂停细看"} ${g.done}/${g.total}`, "primary", g.stopping ? "当前视频细看完就暂停" : "");
     const open = fineOpen();
-    const batch = pickBatch(open, fineBatchSize());
-    const label = batchLabel("字幕细看", batch, open);
+    const batch = pickBatch(open, fineBatchSize(), "coarse");
+    const label = batchLabel("字幕细看", batch, open, "coarse");
     const none = S.items.some((it) => inTab(it, "coarse") && needsAnalysis(it.bvid)) ? "当前筛选下没有要细看的视频" : "没有要细看的视频";
-    return headBtn("group", label, cls, aiBusyReason() || (batch.length ? "" : none), "", "", false, true);
+    return headBtn("group", label, cls, aiBusyReason() || pickReason("选中的都不能字幕细看", batch, "coarse") || (batch.length ? "" : none), "", "", false, true);
   };
   // Pausing waits for the current batch or video; until then the button says so and takes no second click.
   const stage1Pause = (g = runs.get("stage1")) => headBtn("stage1", `${g.stopping ? "暂停中" : "暂停粗看"} ${g.done}/${g.total}`, "primary", g.stopping ? "当前批次粗看完就暂停" : "");
@@ -1972,8 +1977,9 @@ function renderListHeader(list) {
   // Results made under an older 判断标准 can be redone, only those listed, one batch at a time and the selection first
   // like the step's own button. all: how many the folder has, so the button stays (disabled) while filters hide them.
   const redoBtn = (act, verb, open, cap, all) => {
-    const batch = pickBatch(open, cap);
-    return all ? headBtn(act, batchLabel(`按新标准重新${verb}`, batch, open), "", aiBusyReason() || (batch.length ? "" : `当前筛选下没有要重新${verb}的视频`), "", `这些视频是按旧的判断标准${verb}的`, false, true) : "";
+    const batch = pickBatch(open, cap, t);
+    const why = aiBusyReason() || pickReason(`选中的都不用按新标准重新${verb}`, batch, t) || (batch.length ? "" : `当前筛选下没有要重新${verb}的视频`);
+    return all ? headBtn(act, batchLabel(`按新标准重新${verb}`, batch, open, t), "", why, "", `这些视频是按旧的判断标准${verb}的`, false, true) : "";
   };
   const sel = selectedIn(list).length;
   // A selection that filters hide entirely: the bar keeps its buttons, disabled with why, as 关注's.
@@ -1990,9 +1996,9 @@ function renderListHeader(list) {
     if (ownStage1()) html += stage1Pause();
     else {
       const open = coarseOpen();
-      const pending = pickBatch(open, coarseBatchSize());
+      const pending = pickBatch(open, coarseBatchSize(), "none");
       const none = S.items.some((it) => stageOf(it) === "none" && !S.coarseFailed.has(it.bvid)) ? "当前筛选下没有要粗看的视频" : "没有要粗看的视频";
-      html += headBtn("stage1", batchLabel("标题粗看", pending, open), "primary", aiBusyReason() || (pending.length ? "" : none), "", "", false, true);
+      html += headBtn("stage1", batchLabel("标题粗看", pending, open, "none"), "primary", aiBusyReason() || pickReason("选中的都不能标题粗看", pending, "none") || (pending.length ? "" : none), "", "", false, true);
     }
   } else if (t === "coarse") {
     // 细看 stays in row 3 like 标题粗看 and takes the selection; 可清理 / 值得留 lead with their batch button, 细看 stays secondary.
@@ -2124,8 +2130,7 @@ function renderList() {
   const expanded = S.tab === "fine" || S.tab === "read" || S.tab === "done";
   const failedList = list.filter((it) => failedIn(S.tab, it));
   const failed = failedList.length;
-  const retryText = retryLabel(failedList);
-  const failedHead = `<div class="group-head">分析失败 ${failed} · <button type="button" data-retry-failed aria-label="${retryText}"${UI.reasonAttrs(aiBusyReason())}>${AI_SPARK}${retryText}</button></div>`;
+  const failedHead = failedHeadHtml(failedList);
   // Background progress re-renders the list; keep a note being typed in focus.
   const typing = document.activeElement?.closest?.("[data-note]");
   const caret = typing && [typing.closest(".card").dataset.bvid, typing.selectionStart, typing.selectionEnd];
@@ -3135,7 +3140,7 @@ const TITLES_PER_REQUEST = 30;
 // What 标题粗看 counts and sends: the first coarseBatchSize() 未分析 videos listed now (search and filters applied),
 // not the hidden ones. A selection wins, like 细看's nextBatch.
 const coarseOpen = () => S.items.filter((it) => stageOf(it) === "none" && !S.coarseFailed.has(it.bvid) && passFilter(it));
-const stage1Pending = () => pickBatch(coarseOpen(), coarseBatchSize());
+const stage1Pending = () => pickBatch(coarseOpen(), coarseBatchSize(), "none");
 
 // list: 未分析 by default; 重新粗看 passes the cards whose 粗看 used an older 判断标准. Their old results stay on the
 // cards until new ones replace them, so a stopped or failed run loses nothing.
@@ -3286,16 +3291,21 @@ async function runGroup() {
 
 // Failed results live only on this page. 重试 sends the failed cards of the open tab like the step's own button: the
 // selected ones first, one batch, through startJudging; dropping a failed 细看 puts its card back in the batch runner.
-const retryBatch = (failed) => pickBatch(failed, S.tab === "none" ? coarseBatchSize() : fineBatchSize());
-const retryLabel = (failed) => {
-  const batch = retryBatch(failed);
-  return batch.length === failed.length && !selectedIn(failed).length ? "全部重试" : batchLabel("重试", batch, failed);
+// failed: the open tab's failed cards listed now. label is the group head's button, and the 所有收藏夹 dialog's title.
+function retryState(failed) {
+  const batch = pickBatch(failed, S.tab === "none" ? coarseBatchSize() : fineBatchSize(), S.tab);
+  const label = !picking(S.tab) && batch.length === failed.length ? "全部重试" : batchLabel("重试", batch, failed, S.tab);
+  return { batch, label, why: aiBusyReason() || pickReason("选中的都不能重试", batch, S.tab) };
+}
+const failedHeadHtml = (failed) => {
+  const { label, why } = retryState(failed);
+  return `<div class="group-head">分析失败 ${failed.length} · <button type="button" data-retry-failed aria-label="${label}"${UI.reasonAttrs(why)}>${AI_SPARK}${label}</button></div>`;
 };
 function retryFailed() {
-  const batch = retryBatch(visibleItems().filter((it) => failedIn(S.tab, it)));
-  if (!batch.length || aiBusyReason()) return;
-  if (S.tab === "none") return startJudging("标题粗看", "粗看", batch, () => runStage1(batch));
-  startJudging("字幕细看", "细看", batch, () => {
+  const { batch, label, why } = retryState(visibleItems().filter((it) => failedIn(S.tab, it)));
+  if (!batch.length || why) return;
+  if (S.tab === "none") return startJudging(label, "粗看", batch, () => runStage1(batch));
+  startJudging(label, "细看", batch, () => {
     for (const it of batch) delete S.analyses[it.bvid];
     startGroup(batch.map((it) => it.bvid));
   });
@@ -4437,12 +4447,15 @@ function cardAction(act, bvid) {
   }
 }
 
-// A pick changes only the cards' blue marks and the selection bar, so the list is not rebuilt; in 粗看完成 the selection
-// is the next batch (its order and labels), so that tab draws everything again.
+// A pick changes only the cards' blue marks, the selection bar and the failed group's 重试, so the list is not rebuilt;
+// in 粗看完成 the selection is the next batch (its order and labels), so that tab draws everything again.
 function showPicks() {
   if (S.tab === "coarse") return render();
   for (const card of el.list.querySelectorAll(".card[data-bvid]")) card.classList.toggle("selected", S.selected.has(card.dataset.bvid));
-  renderListHeader(visibleItems());
+  const list = visibleItems();
+  const head = el.list.querySelector(".group-head");
+  if (head) head.outerHTML = failedHeadHtml(list.filter((it) => failedIn(S.tab, it)));
+  renderListHeader(list);
 }
 
 function onKey(e) {
