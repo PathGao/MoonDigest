@@ -245,8 +245,8 @@
           <div class="row wide">
             <div class="lab">
               <span class="name">AI 看哪些内容</span>
-              <p class="hint">粗看：每个视频的标题、UP 主、时长、发布日期和简介前 120 字，一次请求带 20 个标题；点一次跑几个在分拣台的收藏夹设置里改。</p>
-              <p class="hint">细看：标题、UP 主、分区、时长、发布日期、标签、完整简介和字幕（最多 6 万字，更长的均匀抽取）；无字幕时读前 10 条热门评论。每批数量也在那里改。</p>
+              <p class="hint">粗看：每个视频的标题、UP 主、时长、发布日期和简介前 120 字，一次请求带 20 个标题；点一次跑几个在分拣台里设置，默认 <span data-num-default="coarseBatch"></span> 个，最多 <span data-num-max="coarseBatch"></span>。</p>
+              <p class="hint">细看：标题、UP 主、分区、时长、发布日期、标签、完整简介和字幕（最多 6 万字，更长的均匀抽取）；无字幕时读前 10 条热门评论。每批数量在分拣台里设置，默认 <span data-num-default="fineBatch"></span> 个，最多 <span data-num-max="fineBatch"></span>。</p>
               <p class="hint">两步都会带上收藏夹的名字、简介和你写的判断标准。</p>
             </div>
           </div>
@@ -364,6 +364,9 @@
     <script src="./errors.js"></script>
     <script src="./download.js"></script>
     <script src="./bili-surfaces.js"></script>
+    <script src="./typing.js"></script>
+    <script src="./tag-core.js"></script>
+    <script src="./triage/shared.js"></script>
     <script src="./options.js"></script>
   </body>
 </html>

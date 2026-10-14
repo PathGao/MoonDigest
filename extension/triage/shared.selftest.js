@@ -531,6 +531,13 @@ for (const [file, fns] of [["triage.js", ["mergeAiBatch", "aiChanges"]], ["follo
   for (const m of html.matchAll(/data-num-(?:min|max|default)="(\w+)"/g)) assert.ok(UI.NUM_SETTINGS[m[1]], m[0]);
   assert.ok(/data-num-max="coarseBatch"/.test(html) && /data-num-default="fineBatch"/.test(html), "the batch hints read the table");
   assert.ok(!/<span data-(tag-limit|ai-new-tag-max)>[^<]/.test(html), "the help dialog's caps are filled, not written");
+  // The settings page's two batch hints use the same spans, and every page with spans runs a script that fills them.
+  const optionsHtml = fs.readFileSync(path.join(__dirname, "../options.html"), "utf8");
+  for (const s of ['data-num-default="coarseBatch"', 'data-num-max="coarseBatch"', 'data-num-default="fineBatch"', 'data-num-max="fineBatch"']) assert.ok(optionsHtml.includes(s), `options.html: ${s}`);
+  for (const [page, text] of [["triage.html", html], ["../options.html", optionsHtml]]) {
+    const own = [...text.matchAll(/<script[^>]*src="([^"]+)"/g)].map((m) => path.join(path.dirname(path.join(__dirname, page)), m[1])).filter((f) => !f.endsWith("shared.js"));
+    assert.ok(own.some((f) => /\b(fillNumHints|fillSetRows)\(document\)/.test(fs.readFileSync(f, "utf8"))), `${page}: no script fills the data-num spans`);
+  }
   const table = Object.values(UI.NUM_SETTINGS);
   const setRows = fs.readFileSync(path.join(__dirname, "shared.js"), "utf8").match(/const SET_ROWS = \{[\s\S]*?\n  \};/)[0];
   const pages = ["triage.html", "../options.html", "../popup.html", "../sidepanel.html", "../history/history.html"];
