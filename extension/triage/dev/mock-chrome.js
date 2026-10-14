@@ -313,7 +313,7 @@
     },
     "triage-settings-get": () => ({
       ok: true,
-      data: { thinkingToggle: true, triageIntervalSec: 1, triageTitleBatchSize: 15, triageThinking: false, triageTitleMaxTokens: 0, triageAnalyzeMaxTokens: 0, ...store.__settings }
+      data: { thinkingToggle: true, triageIntervalSec: 1, triageThinking: false, triageTitleMaxTokens: 0, triageAnalyzeMaxTokens: 0, ...store.__settings }
     }),
     "triage-settings-save": ({ type, ...patch }) => {
       store.__settings = { ...store.__settings, ...patch };

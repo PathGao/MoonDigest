@@ -514,7 +514,6 @@ async function triageCreatedFolders() {
 // The folder's 判断标准 and the tag names come with each request from the page.
 const TRIAGE_SETTINGS_DEFAULTS = {
   triageIntervalSec: 8,
-  triageTitleBatchSize: 30,
   triageFineBatchSize: 10,
   triageCoarseBatchSize: 100,
   triageThinking: false,
@@ -962,7 +961,6 @@ const TRIAGE_HANDLERS = {
     const provider = typeof loadAiProviders === "function" ? (await loadAiProviders().catch(() => [])).find((p) => p.enabled !== false) : null;
     return {
       triageIntervalSec: Number(s.triageIntervalSec) >= 0 ? Number(s.triageIntervalSec) : TRIAGE_SETTINGS_DEFAULTS.triageIntervalSec,
-      triageTitleBatchSize: Number(s.triageTitleBatchSize) > 0 ? Number(s.triageTitleBatchSize) : 30,
       triageFineBatchSize: Math.max(1, Math.min(50, Math.floor(Number(s.triageFineBatchSize)) || 10)),
       triageCoarseBatchSize: Math.max(1, Math.min(1000, Math.floor(Number(s.triageCoarseBatchSize)) || 100)),
       triageThinking: s.triageThinking === true,

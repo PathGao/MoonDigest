@@ -274,6 +274,14 @@ assert.throws(() => t.triageParseCommand('{"new_tags":[', cmdItems, cmdTags, {})
   assert.strictEqual(await settingsWith({ triageIntervalSec: -1 }), 8);
   assert.strictEqual(await settingsWith({ triageIntervalSec: "x" }), 8);
   assert.strictEqual(await settingsWith({}), 8);
+  // F7: the batch sizes are whole numbers within their range, empty is the default; 每次请求的标题数 is no setting.
+  const sizesWith = async (stored) => {
+    t.chrome = { storage: { sync: { get: async (d) => ({ ...d, ...stored }) } } };
+    const r = await vm.runInContext("TRIAGE_HANDLERS", ctx)["triage-settings-get"]();
+    return [r.triageCoarseBatchSize, r.triageFineBatchSize, "triageTitleBatchSize" in r];
+  };
+  assert.deepStrictEqual(await sizesWith({ triageCoarseBatchSize: 7.9, triageFineBatchSize: 99, triageTitleBatchSize: 5 }), [7, 50, false]);
+  assert.deepStrictEqual(await sizesWith({ triageCoarseBatchSize: "", triageFineBatchSize: -3 }), [100, 1, false]);
 
   // B站 risk control maps to THROTTLED on writes as well as reads; non-JSON answers get a clear error.
   t.chrome = { cookies: { get: async () => ({ value: "csrf" }) } };

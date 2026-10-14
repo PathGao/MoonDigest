@@ -8,10 +8,11 @@
 //   turning false end it at once, in a gap or a countdown; a request in flight still lands and counts. o.plan() (async)
 //   runs once the job is taken and may add total / next / act / line, or return null to end without a request.
 //   o.line(done, total, stopping) is its pill text; o.finished(done) its line after it ends (green), until it starts again;
+//   the newest one shows;
 //   o.tick() runs each second of its countdowns.
 // - wait(job, hold, alive): a countdown on its own (a loop with its own flow). put(job, row | () => row): a row mirrored
 //   from elsewhere ({ text, done, total, wait: { until, label }, slowed }).
-// - pill(order): the first job in order that runs, waits or has a row, else the first finished line. A wait always
+// - pill(order): the first job in order that runs, waits or has a row, else the newest finished line. A wait always
 //   reads 「‹its line› · B站限流卡住，m:ss 后重试」, keeping the bar.
 // triage.html loads this classic script after shared.js; runs.selftest.js tests it in node.
 (() => {
@@ -142,8 +143,9 @@
           const row = rowOf(job);
           if (row) return row;
         }
-        for (const job of order) {
-          const text = ended.get(job)?.();
+        // The newest finished line: a 粗看 that just ended is not hidden behind an older 细看's.
+        for (const job of [...ended.keys()].reverse()) {
+          const text = order.includes(job) && ended.get(job)();
           if (text) return { job, text, finished: true };
         }
         return null;

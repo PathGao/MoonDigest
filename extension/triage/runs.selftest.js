@@ -161,13 +161,16 @@ const line = (d, t, stopping) => `跑 ${d}/${t}${stopping ? " 停" : ""}`;
     assert.strictEqual((await runs.run("j", { total: 1, line, next: steps([{ id: 2 }]), act: sender(log) })).done, 1);
   }
 
-  // The pill: the first job in order that runs or has a row; finished lines only after every row, in order, each until
-  // its job starts again. A put row with a wait reads like a run's; a past wait adds nothing.
+  // The pill: the first job in order that runs or has a row; finished lines only after every row, the newest first, each
+  // until its job starts again. A put row with a wait reads like a run's; a past wait adds nothing.
   {
     const { runs, log, at } = setup();
     await runs.run("a", { total: 2, line, next: steps([{ id: 1 }, { id: 2 }]), act: sender(log), finished: (d) => `a 完成 ${d} 个` });
     await runs.run("b", { total: 1, line, next: steps([]), act: sender(log), finished: () => "" });
     assert.deepStrictEqual(runs.pill(["a", "b"]), { job: "a", text: "a 完成 2 个", finished: true });
+    await runs.run("c", { total: 1, line, next: steps([]), act: sender(log), finished: () => "c 完成" });
+    assert.deepStrictEqual(runs.pill(["a", "c"]), { job: "c", text: "c 完成", finished: true }, "the newest finished line, not the first in order");
+    assert.deepStrictEqual(runs.pill(["a"]), { job: "a", text: "a 完成 2 个", finished: true }, "only jobs in order");
     let syncing = true;
     runs.put("sync", () => syncing && { text: "刷新中…" });
     runs.put("seen", { text: "观看进度", wait: { until: at() + 61000, label: "B站限流卡住" } });

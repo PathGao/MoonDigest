@@ -156,9 +156,8 @@ const S = {
   noteOpen: new Set(), // empty notes the user opened for editing
   settings: {
     triageIntervalSec: 8,
-    triageTitleBatchSize: 30,
-    triageFineBatchSize: 10, // 细看每批数量, 1–50
-    triageCoarseBatchSize: 100, // 标题粗看每次数量, 1–1000 (triageTitleBatchSize is titles per request)
+    triageFineBatchSize: 10, // 字幕细看每批数量, 1–50
+    triageCoarseBatchSize: 100, // 标题粗看每批数量, 1–1000
     triageThinking: false,
     triageTitleMaxTokens: 0,
     triageAnalyzeMaxTokens: 0,
@@ -176,7 +175,7 @@ const S = {
   group: null, // the running 细看 batch: { bvids, redo, mediaId, items, judge }; its count is runs' "group"
   write: { mediaId: "", text: "" }, // 逐个视频笔记 (runs' "write"): { md, mediaId, text } (text: the finished line)
   stage1: { mediaId: "" }, // the folder of the last 标题粗看 (runs' "stage1")
-  stage1Skip: new Set(),
+  coarseFailed: new Map(), // bvid → why its 粗看 failed (this page only, like a failed 细看)
   analyzing: new Set(),
   seenRead: { busy: false, pages: 0, until: 0 }, // the background's read of the watch history (triage_seen_meta)
   undo: [], // 收藏夹's steps; a folder switch clears them
@@ -265,7 +264,7 @@ const el = {};
   "banner", "bannerText", "bannerBtn", "bannerClose", "syncNotice", "syncText", "syncViewBtn", "syncCloseBtn", "syncDetail",
   "tabs", "stagebar", "sortBox", "classFilter", "tagFilter", "aiTagSlot", "listHeader", "list", "basket", "basketToggle", "basketCount",
   "basketList", "basketClearBtn", "toast", "settingsDialog", "folderToggles", "thinkingRow", "intervalInput",
-  "batchSizeInput", "coarseBatchInput", "fineBatchInput", "aiBatchInput", "tagLimitInput", "aiNewTagMaxInput", "aiRemoveTagsInput", "openOptionsBtn", "thinkingInput", "titleMaxInput",
+  "coarseBatchInput", "fineBatchInput", "aiBatchInput", "tagLimitInput", "aiNewTagMaxInput", "aiRemoveTagsInput", "openOptionsBtn", "thinkingInput", "titleMaxInput",
   "titleMaxHint", "analyzeMaxInput", "analyzeMaxHint", "csvBtn", "confirmDialog",
   "confirmTitle", "confirmBody", "confirmOk",
   "criteriaDialog", "criteriaTitle", "criteriaInput", "helpDialog",
@@ -439,16 +438,16 @@ const aiEnds = (r) => aiSettingsCode(r.code) || /未授权访问/.test(r.error |
 const AI_TIMEOUT_TRIES = 2;
 const AI_THROTTLE_WAITS = 5;
 const aiGaveUp = () => ({ ok: false, code: "AI_GAVE_UP", error: `AI 平台持续限流，已等待重试 ${AI_THROTTLE_WAITS} 次，已停止` });
-// A run's judge (runs.js) of AI answers, by the rule above, with its own counts in a row. ends(r) says which errors end
-// the run (粗看 passes () => true: it stops on any). "ok"; "retry" (the same request at once); "wait" (THROTTLES[r.code],
+// A run's judge (runs.js) of AI answers, by the rule above, with its own counts in a row; any other error fails only this
+// request (a video in 细看, a batch in 粗看). "ok"; "retry" (the same request at once); "wait" (THROTTLES[r.code],
 // then the same request); "stop" (r is then AI_GAVE_UP after too many waits); "item" (only this request failed).
-function aiJudge(ends = aiEnds) {
+function aiJudge() {
   const n = { timeouts: 0, waits: 0 };
   return (r) => {
     if (!r.ok && r.code === "AI_TIMEOUT" && ++n.timeouts < AI_TIMEOUT_TRIES) return "retry";
     if (!r.ok && r.code === "AI_THROTTLED" && n.waits++ === AI_THROTTLE_WAITS) Object.assign(r, aiGaveUp());
     if (!r.ok && THROTTLES[r.code]) return "wait";
-    if (!r.ok && ends(r)) return "stop";
+    if (!r.ok && aiEnds(r)) return "stop";
     n.timeouts = n.waits = 0;
     return r.ok ? "ok" : "item";
   };
@@ -520,11 +519,12 @@ const ownStage1 = () => Boolean(runs.get("stage1")) && S.stage1.mediaId === Stri
 const ownGroup = () => (S.group?.mediaId === String(S.mediaId) ? S.group : null);
 const runWhere = (run) => (run.mediaId === String(S.mediaId) ? "" : `（${folderName(run.mediaId)}）`);
 
-// MdgTagCore.verdictOf with the failed 细看's error (not for an invalid video, which is 可清理 anyway).
+// MdgTagCore.verdictOf with the failed 细看's error, or the failed 粗看's on a card without a 粗看 (not for an invalid
+// video, which is 可清理 anyway).
 function verdictOf(it) {
   const a = S.analyses[it.bvid];
   const v = MdgTagCore.verdictOf({ title: S.titleRes[it.bvid], analysis: a, invalid: it.invalid });
-  return { ...v, failed: !it.invalid && a?.status === "error" ? a.error || "分析失败" : "" };
+  return { ...v, failed: it.invalid ? "" : a?.status === "error" ? a.error || "分析失败" : failedCoarse(it) ? S.coarseFailed.get(it.bvid) || "分析失败" : "" };
 }
 
 // Search covers title, uploader, the AI one-liner and points, the note and tag names; every word must match.
@@ -597,6 +597,10 @@ function inTab(it, tab) {
 const classOf = (it) => (isProcessed(it.bvid) ? (S.decisions[it.bvid].action === "keep" ? "kept" : "unfav") : verdictOf(it).verdict);
 
 const failedAnalysis = (b) => S.analyses[b]?.status === "error";
+// A 粗看 that failed on a card still without one: it stays in 未分析 with the failure and a retry, like a failed 细看.
+const failedCoarse = (it) => S.coarseFailed.has(it.bvid) && !it.invalid && !VERDICTS[S.titleRes[it.bvid]?.verdict];
+// The failed cards of a tab: 粗看's in 未分析, 细看's in 粗看完成.
+const failedIn = (tab, it) => (tab === "none" ? failedCoarse(it) : tab === "coarse" && failedAnalysis(it.bvid));
 
 // 拿不准 and low confidence are what 细看 is for, so they go first in 粗看完成.
 const unsureFirst = (it) => {
@@ -642,19 +646,33 @@ function setSort(sort, dir) {
 // Within that, and in every other tab, cards follow the folder's sort.
 function visibleItems() {
   const list = sortItems(S.items.filter((it) => inTab(it, S.tab) && passFilter(it)), sortOf().sort, sortOf().dir);
+  // 未分析 lists the failed 粗看 cards last.
+  if (S.tab === "none") return list.sort((x, y) => failedCoarse(x) - failedCoarse(y));
   if (S.tab !== "coarse") return list;
   const batch = new Set(ownGroup()?.bvids || nextBatch());
   const rank = (it) => (failedAnalysis(it.bvid) ? 3 : batch.has(it.bvid) ? 0 : 1 + unsureFirst(it));
   return list.sort((x, y) => rank(x) - rank(y));
 }
 const selectedIn = (list) => list.filter((it) => S.selected.has(it.bvid));
-// Of these videos, those the open tab lists now: a step button counts and runs only what is on screen.
-const listed = (list) => list.filter((it) => inTab(it, S.tab) && passFilter(it));
-// What 按新标准重新粗看 / 细看 count and send (one run's cap at a time).
-const coarseBatchSize = () => Math.max(1, Math.min(1000, Math.floor(Number(S.settings.triageCoarseBatchSize)) || 100));
-const redoCoarseList = () => listed(staleCoarse()).slice(0, coarseBatchSize());
-const fineBatchSize = () => Math.max(1, Math.min(50, Math.floor(Number(S.settings.triageFineBatchSize)) || 10));
-const redoFineList = () => listed(staleFine()).slice(0, fineBatchSize());
+// The batch sizes in 收藏夹设置: whole numbers within min–max; empty or not a number is the default.
+const intSetting = (v, min, max, def) => Math.max(min, Math.min(max, Math.floor(Number(v)) || def));
+const coarseBatchSize = () => intSetting(S.settings.triageCoarseBatchSize, 1, 1000, 100);
+const fineBatchSize = () => intSetting(S.settings.triageFineBatchSize, 1, 50, 10);
+// A step's batch, for 标题粗看, 字幕细看, their 按新标准重新… and 重试: the selected ones of open when there are any,
+// otherwise open; at most n.
+const pickBatch = (open, n) => {
+  const sel = selectedIn(open);
+  return (sel.length ? sel : open).slice(0, n);
+};
+// Its button: 「verb下一批 N 个」, 「verb选中 N 个」, 「verb选中的前 N 个」 (more selected than n); just verb when empty.
+const batchLabel = (verb, batch, open) =>
+  !batch.length ? verb : !S.selected.has(batch[0].bvid) ? `${verb}下一批 ${batch.length} 个` : selectedIn(open).length > batch.length ? `${verb}选中的前 ${batch.length} 个` : `${verb}选中 ${batch.length} 个`;
+// What 按新标准重新粗看 / 细看 can send: the stale ones its tab lists now (search and filters applied), from any tab
+// (the 判断标准 dialog offers 重新粗看 too); then one run's batch of them.
+const redoCoarseOpen = () => staleCoarse().filter((it) => inTab(it, "coarse") && passFilter(it));
+const redoCoarseList = () => pickBatch(redoCoarseOpen(), coarseBatchSize());
+const redoFineOpen = () => staleFine().filter((it) => inTab(it, "fine") && passFilter(it));
+const redoFineList = () => pickBatch(redoFineOpen(), fineBatchSize());
 // The selection belongs to the open tab (switching tabs clears it). A filter may hide part of it: every action and count
 // takes only what is listed, and the selection bar says how many are hidden.
 const visibleSelected = () => selectedIn(visibleItems());
@@ -672,10 +690,9 @@ function stageCounts() {
 const currentStage = (c) => STAGES.find(([k]) => c[k])?.[0] || "none";
 
 // The 细看 batch: the first fineBatchSize() selected cards of 粗看完成, otherwise its first fineBatchSize(), 拿不准 / low confidence first.
+const fineOpen = () => S.items.filter((it) => inTab(it, "coarse") && passFilter(it) && needsAnalysis(it.bvid)).sort((x, y) => unsureFirst(x) - unsureFirst(y));
 function nextBatch() {
-  const open = S.items.filter((it) => inTab(it, "coarse") && passFilter(it) && needsAnalysis(it.bvid));
-  const sel = selectedIn(open);
-  return (sel.length ? sel : open.sort((x, y) => unsureFirst(x) - unsureFirst(y))).slice(0, fineBatchSize()).map((it) => it.bvid);
+  return pickBatch(fineOpen(), fineBatchSize()).map((it) => it.bvid);
 }
 
 // ---------- init ----------
@@ -1936,18 +1953,21 @@ function renderListHeader(list) {
   const groupBtn = (cls) => {
     const g = ownGroup() && runs.get("group");
     if (g) return headBtn("group", `${g.stopping ? "暂停中" : "暂停细看"} ${g.done}/${g.total}`, "primary", g.stopping ? "当前视频细看完就暂停" : "");
-    const batch = nextBatch();
-    const label = batch.some((b) => S.selected.has(b)) ? selectedIn(list).length > batch.length ? `细看选中的前 ${batch.length} 个` : `细看选中 ${batch.length} 个` : batch.length ? `细看下一批 ${batch.length} 个` : "细看";
+    const open = fineOpen();
+    const batch = pickBatch(open, fineBatchSize());
+    const label = batchLabel("字幕细看", batch, open);
     const none = S.items.some((it) => inTab(it, "coarse") && needsAnalysis(it.bvid)) ? "当前筛选下没有要细看的视频" : "没有要细看的视频";
     return headBtn("group", label, cls, aiBusyReason() || (batch.length ? "" : none), "", "", false, true);
   };
   // Pausing waits for the current batch or video; until then the button says so and takes no second click.
   const stage1Pause = (g = runs.get("stage1")) => headBtn("stage1", `${g.stopping ? "暂停中" : "暂停粗看"} ${g.done}/${g.total}`, "primary", g.stopping ? "当前批次粗看完就暂停" : "");
 
-  // Results made under an older 判断标准 can be redone, only those listed; 细看 goes one batch at a time like a normal
-  // run. all: how many the folder has, so the button stays (disabled) while filters hide them.
-  const redoBtn = (act, verb, n, all) =>
-    all ? headBtn(act, `按新标准重新${verb} ${n} 个`, "", aiBusyReason() || (n ? "" : `当前筛选下没有要重新${verb}的视频`), "", `这些视频是按旧的判断标准${verb}的`, false, true) : "";
+  // Results made under an older 判断标准 can be redone, only those listed, one batch at a time and the selection first
+  // like the step's own button. all: how many the folder has, so the button stays (disabled) while filters hide them.
+  const redoBtn = (act, verb, open, cap, all) => {
+    const batch = pickBatch(open, cap);
+    return all ? headBtn(act, batchLabel(`按新标准重新${verb}`, batch, open), "", aiBusyReason() || (batch.length ? "" : `当前筛选下没有要重新${verb}的视频`), "", `这些视频是按旧的判断标准${verb}的`, false, true) : "";
+  };
   const sel = selectedIn(list).length;
   const f = S.classFilter[t];
   // html is what this step does; selActs acts on the selection and goes to its own bar below the filters.
@@ -1960,16 +1980,15 @@ function renderListHeader(list) {
     html = critBtn;
     if (ownStage1()) html += stage1Pause();
     else {
-      const pending = stage1Pending();
-      const n = pending.length;
-      const none = S.items.some((it) => stageOf(it) === "none" && !S.stage1Skip.has(it.bvid)) ? "当前筛选下没有要粗看的视频" : "没有要粗看的视频";
-      const label = !n ? "标题粗看" : !S.selected.has(pending[0].bvid) ? `标题粗看下一批 ${n} 个` : selectedIn(list).length > n ? `标题粗看选中的前 ${n} 个` : `标题粗看选中 ${n} 个`;
-      html += headBtn("stage1", label, "primary", aiBusyReason() || (n ? "" : none), "", "", false, true);
+      const open = coarseOpen();
+      const pending = pickBatch(open, coarseBatchSize());
+      const none = S.items.some((it) => stageOf(it) === "none" && !S.coarseFailed.has(it.bvid)) ? "当前筛选下没有要粗看的视频" : "没有要粗看的视频";
+      html += headBtn("stage1", batchLabel("标题粗看", pending, open), "primary", aiBusyReason() || (pending.length ? "" : none), "", "", false, true);
     }
     if (sel) selActs = batchBtn("keep");
   } else if (t === "coarse") {
     // 细看 stays in row 3 like 标题粗看 and takes the selection; 可清理 / 值得留 lead with their batch button, 细看 stays secondary.
-    html = critBtn + redoBtn("redo-coarse", "粗看", redoCoarseList().length, staleCoarse().length);
+    html = critBtn + redoBtn("redo-coarse", "粗看", redoCoarseOpen(), coarseBatchSize(), staleCoarse().length);
     if (sel) {
       html += groupBtn("primary");
       selActs = batchBtn("keep");
@@ -1981,7 +2000,7 @@ function renderListHeader(list) {
     // A selection gets both buttons; without one 值得留 and 可清理 each get a button, 拿不准 none.
     html = "";
     const staleN = staleFine().length;
-    if (staleN) html += critBtn + redoBtn("redo-fine", "细看", redoFineList().length, staleN);
+    if (staleN) html += critBtn + redoBtn("redo-fine", "细看", redoFineOpen(), fineBatchSize(), staleN);
     if (sel) selActs = batchBtn("keep");
     else {
       if (f === "all" || f === "drop") html += batchBtn("unfav", "drop");
@@ -2096,8 +2115,10 @@ function renderList() {
     word = ownGroup() ? "本批" : bvids.some((b) => S.selected.has(b)) ? "已选中" : "下一批";
   }
   const expanded = S.tab === "fine" || S.tab === "read" || S.tab === "done";
-  const failed = S.tab === "coarse" ? list.filter((it) => failedAnalysis(it.bvid)).length : 0;
-  const failedHead = `<div class="group-head">分析失败 ${failed} · <button type="button" data-retry-failed aria-label="全部重试"${UI.reasonAttrs(aiBusyReason())}>${AI_SPARK}全部重试</button></div>`;
+  const failedList = list.filter((it) => failedIn(S.tab, it));
+  const failed = failedList.length;
+  const retryText = retryLabel(failedList);
+  const failedHead = `<div class="group-head">分析失败 ${failed} · <button type="button" data-retry-failed aria-label="${retryText}"${UI.reasonAttrs(aiBusyReason())}>${AI_SPARK}${retryText}</button></div>`;
   // Background progress re-renders the list; keep a note being typed in focus.
   const typing = document.activeElement?.closest?.("[data-note]");
   const caret = typing && [typing.closest(".card").dataset.bvid, typing.selectionStart, typing.selectionEnd];
@@ -2999,14 +3020,15 @@ async function saveCriteria() {
   setCriteria(S.mediaId, el.criteriaInput.value);
   storeSet(K.folderCriteria, S.folderCriteria);
   render();
-  const stale = staleCoarse();
-  if (!changed || !stale.length || runs.get("stage1") || S.group) return;
+  // The same videos as row 3's 按新标准重新粗看 (listed ones, the selection first, one batch).
+  const list = redoCoarseList();
+  if (!changed || !list.length || runs.get("stage1") || S.group) return;
   const ok = await askConfirm(
     "判断标准改了",
-    `<p>「粗看完成」里有 ${stale.length} 个视频是按旧标准粗看的，要按新标准重新粗看吗？</p><p>已细看和已处理的视频不动；细看完成页可以另外按新标准重新细看。</p>`,
-    "重新粗看"
+    `<p>「粗看完成」里有 ${staleCoarse().length} 个视频是按旧标准粗看的，要按新标准重新粗看吗？</p><p>已细看和已处理的视频不动；细看完成页可以另外按新标准重新细看。</p>`,
+    batchLabel("按新标准重新粗看", list, redoCoarseOpen())
   );
-  if (ok) runStage1(stale);
+  if (ok) runStage1(list, true);
 }
 
 // 所有收藏夹 has no one 判断标准: before a 粗看 or 细看 run it lists each folder the run touches, with its videos and its
@@ -3100,19 +3122,22 @@ function aiItem(it) {
 }
 
 
+// Titles one 粗看 request carries (a fixed size; the output limit's 自动 grows with it).
+const TITLES_PER_REQUEST = 30;
+
 // What 标题粗看 counts and sends: the first coarseBatchSize() 未分析 videos listed now (search and filters applied),
 // not the hidden ones. A selection wins, like 细看's nextBatch.
-const stage1Pending = () => {
-  const open = S.items.filter((it) => stageOf(it) === "none" && !S.stage1Skip.has(it.bvid) && passFilter(it));
-  const sel = selectedIn(open);
-  return (sel.length ? sel : open).slice(0, coarseBatchSize());
-};
+const coarseOpen = () => S.items.filter((it) => stageOf(it) === "none" && !S.coarseFailed.has(it.bvid) && passFilter(it));
+const stage1Pending = () => pickBatch(coarseOpen(), coarseBatchSize());
 
 // list: 未分析 by default; 重新粗看 passes the cards whose 粗看 used an older 判断标准. Their old results stay on the
 // cards until new ones replace them, so a stopped or failed run loses nothing.
-async function runStage1(list = stage1Pending()) {
+// redo: 按新标准重新粗看, which only changes the pill's words.
+async function runStage1(list = stage1Pending(), redo = false) {
   if (runs.get("stage1")) return;
-  // Everything the run needs is taken now: it keeps going after another folder opens.
+  // Everything the run needs is taken now: it keeps going after another folder opens. Sending a card again drops its
+  // old failure; a failure in this run keeps it from being sent twice.
+  for (const it of list) S.coarseFailed.delete(it.bvid);
   const folder = String(S.mediaId);
   const judge = new Map(list.map((it) => [it.bvid, judgeOf(it)]));
   // Due: no 粗看 yet, or one made under another 判断标准.
@@ -3122,21 +3147,23 @@ async function runStage1(list = stage1Pending()) {
   };
   // In its own folder the live step decides (a card may have been sorted meanwhile); elsewhere only the result does.
   const pending = () =>
-    list.filter((it) => !S.stage1Skip.has(it.bvid) && !it.invalid && due(it) && (S.mediaId !== folder || ["none", "coarse"].includes(stageOf(it))));
-  S.stage1 = { mediaId: folder };
-  const size = Math.max(1, Number(S.settings.triageTitleBatchSize) || 30);
+    list.filter((it) => !S.coarseFailed.has(it.bvid) && !it.invalid && due(it) && (S.mediaId !== folder || ["none", "coarse"].includes(stageOf(it))));
+  const run = (S.stage1 = { mediaId: folder });
   const running = runs.run("stage1", {
     total: pending().length,
     gap: S.settings.triageIntervalSec * 1000,
     // In its folder the line says when it will pause; elsewhere it names its folder. Its finished line shows only there.
-    line: (d, t, stopping) => (runWhere(S.stage1) ? `标题粗看中 ${d}/${t}${runWhere(S.stage1)}` : stopping ? "粗看将在当前批次后暂停" : `标题粗看中 ${d}/${t}`),
-    finished: (d) => (d && !runWhere(S.stage1) ? `标题粗看完成 ${d} 个` : ""),
+    line(d, t, stopping) {
+      const where = runWhere(run);
+      return !where && stopping ? "粗看将在当前批次后暂停" : `${redo && !where ? "按新标准重新粗看" : "标题粗看中"} ${d}/${t}${where}`;
+    },
+    finished: (d) => (d && !runWhere(run) ? `${redo ? "按新标准重新粗看" : "标题粗看"}完成 ${d} 个` : ""),
     next() {
       // One request carries one 判断标准: in 所有收藏夹 a batch is the first pending video's folder only.
       const left = pending();
       if (!left.length) return null;
       const { home, crit, ctx } = judge.get(left[0].bvid);
-      const batch = left.filter((it) => judge.get(it.bvid).home === home).slice(0, size);
+      const batch = left.filter((it) => judge.get(it.bvid).home === home).slice(0, TITLES_PER_REQUEST);
       return { batch, crit, ctx, n: batch.length };
     },
     async act({ batch, crit, ctx }) {
@@ -3146,14 +3173,18 @@ async function runStage1(list = stage1Pending()) {
       for (const it of batch) S.analyzing.delete(it.bvid);
       return r;
     },
-    // Any error that is not a timeout or a limit ends the run.
-    judge: aiJudge(() => true),
+    // An error every later request would get too ends the run and leaves the cards as they were; one about this batch
+    // (a reply in the wrong format, too long) fails its cards and the run goes on, as in 细看.
+    judge: aiJudge(),
     done({ batch, crit }, r) {
       const results = r.data?.results || {};
       for (const it of batch) {
         if (results[it.bvid]) S.titleRes[it.bvid] = { criteria: crit, ...results[it.bvid] };
-        else S.stage1Skip.add(it.bvid);
+        else S.coarseFailed.set(it.bvid, r.ok ? "AI 回复里没有这个视频" : r.error || "分析失败");
       }
+      // A redone card keeps its old 粗看, as a redone 细看 keeps its old result.
+      if (!r.ok && batch.some((it) => VERDICTS[S.titleRes[it.bvid]?.verdict])) toast(`重新粗看失败，保留原来的结果：${r.error}`, true);
+      if (/截断/.test(r.error || "")) handleAiError(r.error);
       render();
     }
   });
@@ -3161,8 +3192,14 @@ async function runStage1(list = stage1Pending()) {
   const r = await running;
   if (r.error) handleAiError(r.error, r.code);
   else clearAiBanner();
-  if (r.done && runWhere(S.stage1)) toast(`「${folderName(folder)}」标题粗看完成 ${r.done} 个`);
+  otherFolderToast(run, redo ? "按新标准重新粗看" : "标题粗看", r);
   render();
+}
+
+// A run that ends in another folder says so there: how many it did, and whether it paused or stopped on an error.
+function otherFolderToast(run, name, r) {
+  if (!runWhere(run) || r.busy || !(r.done || r.stopped || r.error)) return;
+  toast(`「${folderName(run.mediaId)}」${name}${r.error ? "出错停下，" : r.stopped ? "已暂停，" : ""}完成 ${r.done} 个`);
 }
 
 // ---------- AI stage 2: subtitle group ----------
@@ -3207,8 +3244,9 @@ async function runGroup() {
     alive: () => S.group === group,
     line(d, t, stopping) {
       const where = runWhere(group);
-      return !where && stopping ? "细看将在当前视频后暂停" : `${group.redo && !where ? "按新标准重新细看" : "字幕细看"} ${d}/${t}${where}`;
+      return !where && stopping ? "细看将在当前视频后暂停" : `${group.redo && !where ? "按新标准重新细看" : "字幕细看中"} ${d}/${t}${where}`;
     },
+    finished: (d) => (d && !runWhere(group) ? `${group.redo ? "按新标准重新细看" : "字幕细看"}完成 ${d} 个` : ""),
     next() {
       const b = group.bvids.find((x) => groupPending(group, x));
       return b ? { b, judge: group.judge.get(b) } : null;
@@ -3233,19 +3271,32 @@ async function runGroup() {
   const ended = r.error || r.stopped;
   if (!ended) clearAiBanner();
   S.group = null;
-  if (runWhere(group) && !ended) toast(`「${folderName(group.mediaId)}」这批字幕细看完成`);
+  otherFolderToast(group, group.redo ? "按新标准重新细看" : "字幕细看", r);
   render();
 }
 
 
-// Failed results live only on this page; dropping them puts the cards back in the batch runner.
+// Failed results live only on this page. 重试 sends the failed cards of the open tab like the step's own button: the
+// selected ones first, one batch, through startJudging; dropping a failed 细看 puts its card back in the batch runner.
+const retryBatch = (failed) => pickBatch(failed, S.tab === "none" ? coarseBatchSize() : fineBatchSize());
+const retryLabel = (failed) => {
+  const batch = retryBatch(failed);
+  return batch.length === failed.length && !selectedIn(failed).length ? "全部重试" : batchLabel("重试", batch, failed);
+};
 function retryFailed() {
-  const failed = visibleItems().filter((it) => failedAnalysis(it.bvid)).map((it) => it.bvid);
-  for (const b of failed) delete S.analyses[b];
-  startGroup(failed);
+  const batch = retryBatch(visibleItems().filter((it) => failedIn(S.tab, it)));
+  if (!batch.length || aiBusyReason()) return;
+  if (S.tab === "none") return startJudging("标题粗看", "粗看", batch, () => runStage1(batch));
+  startJudging("字幕细看", "细看", batch, () => {
+    for (const it of batch) delete S.analyses[it.bvid];
+    startGroup(batch.map((it) => it.bvid));
+  });
 }
 
 async function retry(bvid) {
+  // A failed 粗看 is sent again as a run of one (the button waits for a running 粗看 or 细看).
+  const it = S.itemMap.get(bvid);
+  if (it && failedCoarse(it)) return aiBusyReason() ? toast(aiBusyReason(), true) : runStage1([it]);
   const judge = judgeOf(S.itemMap.get(bvid));
   const r = await analyzeOne(bvid, true, judge);
   if (!r.ok) {
@@ -3280,9 +3331,8 @@ function aiCommandItem(it, folder, excluded) {
   return out;
 }
 
-// The AI 打标签 batch size (shared.js SET_ROWS aiBatch). Until 收藏夹设置 is first saved it is the 标题粗看 value, which AI 打标签
-// used to share.
-const aiBatchSize = () => Math.max(1, Math.min(100, Number(S.settings.triageAiBatchSize ?? S.settings.triageTitleBatchSize) || 30));
+// The AI 打标签 batch size (shared.js SET_ROWS aiBatch).
+const aiBatchSize = () => intSetting(S.settings.triageAiBatchSize, 1, 100, 30);
 
 // AI 打标签 tags each folder with its own tags: one part per folder, in 所有收藏夹 every chosen folder the items are in
 // (a video in several folders is in each of their parts).
@@ -3853,7 +3903,6 @@ async function buildBackup() {
     extensionVersion: chrome.runtime.getManifest?.().version || "",
     settings: {
       triageIntervalSec: S.settings.triageIntervalSec,
-      triageTitleBatchSize: S.settings.triageTitleBatchSize,
       triageAiBatchSize: aiBatchSize()
     },
     tags: [],
@@ -4018,11 +4067,9 @@ function bindEvents() {
         runs.stop("group");
         return render();
       }
+      // The batch stays selected, as with 标题粗看; its cards leave the selection when they leave the tab.
       const batch = nextBatch();
-      startJudging("细看", "细看", batch.map((b) => S.itemMap.get(b)), () => {
-        for (const b of batch) S.selected.delete(b);
-        startGroup(batch);
-      });
+      startJudging("字幕细看", "细看", batch.map((b) => S.itemMap.get(b)), () => startGroup(batch));
     } else if (act === "batch-unfav") fav.unfavMany(batchList(btn.dataset.verdict || null));
     else if (act === "batch-keep") batchKeep(batchList(btn.dataset.verdict || null));
     else if (act === "criteria") openCriteria();
@@ -4030,7 +4077,7 @@ function bindEvents() {
     else if (act === "fav") W.stop();
     else if (act === "redo-coarse") {
       const list = redoCoarseList();
-      startJudging("按新标准重新粗看", "重新粗看", list, () => runStage1(list));
+      startJudging("按新标准重新粗看", "重新粗看", list, () => runStage1(list, true));
     } else if (act === "redo-fine") {
       const list = redoFineList();
       startJudging("按新标准重新细看", "重新细看", list, () => startGroup(list.map((it) => it.bvid), true));
@@ -4150,7 +4197,7 @@ function bindEvents() {
   );
 
   el.settingsBtn.addEventListener("click", () => openSettings());
-  for (const input of [el.thinkingInput, el.batchSizeInput, el.titleMaxInput, el.analyzeMaxInput]) {
+  for (const input of [el.thinkingInput, el.titleMaxInput, el.analyzeMaxInput]) {
     input.addEventListener("input", renderTokenHints);
   }
   el.settingsDialog.addEventListener("click", (e) => {
@@ -4162,9 +4209,8 @@ function bindEvents() {
     if (el.settingsDialog.returnValue !== "save") return;
     const patch = {
       triageIntervalSec: Math.max(0, Number(el.intervalInput.value) || 0),
-      triageTitleBatchSize: Math.max(1, Math.min(100, Number(el.batchSizeInput.value) || 30)),
-      triageCoarseBatchSize: Math.max(1, Math.min(1000, Math.floor(Number(el.coarseBatchInput.value)) || 100)),
-      triageFineBatchSize: Math.max(1, Math.min(50, Math.floor(Number(el.fineBatchInput.value)) || 10)),
+      triageCoarseBatchSize: intSetting(el.coarseBatchInput.value, 1, 1000, 100),
+      triageFineBatchSize: intSetting(el.fineBatchInput.value, 1, 50, 10),
       triageThinking: el.thinkingInput.checked,
       triageTitleMaxTokens: Number(el.titleMaxInput.value) || 0,
       triageAnalyzeMaxTokens: Number(el.analyzeMaxInput.value) || 0,
@@ -4172,7 +4218,7 @@ function bindEvents() {
       triageAiNewTagMax: el.aiNewTagMaxInput.value === "" ? 5 : Math.max(0, Math.min(50, Math.floor(Number(el.aiNewTagMaxInput.value)) || 0)),
       triageAiRemoveTags: el.aiRemoveTagsInput.checked
     };
-    const triageAiBatchSize = Math.max(1, Math.min(100, Math.round(Number(el.aiBatchInput.value)) || 30));
+    const triageAiBatchSize = intSetting(el.aiBatchInput.value, 1, 100, 30);
     const r = await send({ type: "triage-settings-save", ...patch });
     // The background's settings do not know this key; it is stored here, beside them in chrome.storage.sync.
     const saved = r.ok && (await chrome.storage.sync.set({ triageAiBatchSize }).then(() => true, (e) => ((r.error = e.message), false)));
@@ -4276,7 +4322,7 @@ function renderTagLimit() {
 }
 
 function renderTokenHints() {
-  const batch = Math.max(1, Number(el.batchSizeInput.value) || 30);
+  const batch = TITLES_PER_REQUEST;
   const on = el.thinkingInput.checked;
   const titleAuto = on ? 150 * batch + 4000 : 60 * batch + 200;
   const analyzeAuto = on ? 8000 : 1000;
@@ -4295,7 +4341,6 @@ function openSettings(scrollToLimits = false, firstRun = false) {
     .join("") || `<p class="dialog-hint">收藏夹列表还没加载</p>`;
   el.thinkingRow.hidden = !hasThinkingToggle();
   el.intervalInput.value = S.settings.triageIntervalSec ?? 8;
-  el.batchSizeInput.value = S.settings.triageTitleBatchSize ?? 30;
   el.coarseBatchInput.value = coarseBatchSize();
   el.fineBatchInput.value = fineBatchSize();
   el.aiBatchInput.value = aiBatchSize();
