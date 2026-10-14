@@ -509,6 +509,17 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
       const want = away ? ["「所有收藏夹」撤销中断（剩余 1 个在各收藏夹的最近取消收藏里）：网络错误", 0] : ["撤销中断（剩余 1 个可再按 U 重试）：网络错误", 1];
       assert.deepStrictEqual([toasts.at(-1), t.S.undo.length], want, away ? "elsewhere: told only" : "here: U again");
     }
+    // No folder checked: the dialog's button is off and says why; it is on again for the next dialog.
+    let checkedNow = [];
+    let answer;
+    t.el.confirmBody = { querySelectorAll: () => checkedNow };
+    t.askConfirm = () => new Promise((r) => (answer = r));
+    const picking = t.pickBatchUnfavFolders(vids);
+    t.el.confirmBody.onchange();
+    assert.deepStrictEqual([t.el.confirmOk.textContent, t.el.confirmOk.disabled, t.el.confirmOk.title], ["取消收藏 0 个", true, "至少勾选一个收藏夹"]);
+    answer(false);
+    assert.deepStrictEqual(plain(await picking), []);
+    assert.ok(!t.el.confirmOk.disabled && !t.el.confirmOk.title);
     t.askConfirm = savedAsk;
     t.el.confirmBody = savedBody;
     t.S.selected.clear();
@@ -914,10 +925,10 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   assert.strictEqual(t.activityState(), null);
   // 稍后再看 progress: seconds watched, -1 once finished, 0 or missing for not started.
   assert.strictEqual(t.seenText({ seen: 98, duration: 768 }), "看到 13%");
-  assert.strictEqual(t.seenText({ seen: -1, duration: 768 }), "看完了");
+  assert.strictEqual(t.seenText({ seen: -1, duration: 768 }), "✓ 看完了");
   assert.strictEqual(t.seenText({ seen: 0, duration: 768 }), "");
   assert.strictEqual(t.seenText({ duration: 768 }), "");
-  assert.strictEqual(t.seenText({ seen: 767, duration: 768 }), "看到 99%", "unfinished never reads 100%");
+  assert.strictEqual(t.seenText({ seen: 767, duration: 768 }), "✓ 看完了", "the covers' percent and words (seenPercentOf, seenWords)");
   // Results remember their 判断标准; after it changes, the old ones are offered for a redo. Unstamped ones count as current.
   const savedTitles = t.S.titleRes;
   const savedAnalyses = t.S.analyses;
@@ -1148,7 +1159,7 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     const realScope = t.aiScopeItems;
     t.aiScopeItems = () => [item(600), item(601)];
     t.S.settings.triageAiBatchSize = 1;
-    handlers["triage-ai-command"] = () => ({ ok: false, code: "AI_SETUP", error: "请先在设置页配置 AI 平台" });
+    handlers["triage-ai-command"] = () => ({ ok: false, code: "AI_SETUP", error: "没有启用的 AI 平台" });
     const before = sent.length;
     await t.runAiCommand({ instruction: "按深度分", scope: "filter", allowRemove: false });
     const batches = sent.slice(before).filter((m) => m.type === "triage-ai-command");
@@ -1156,7 +1167,7 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     assert.strictEqual(t.S.ai.proposal, null, "no proposal when no batch got through");
     t.renderTabs();
     assert.ok(!t.el.aiTagSlot.innerHTML.includes("待确认"), "no 「待确认」 after a run that got nothing");
-    assert.strictEqual(toasts.at(-1), "AI 打标签没有成功：第 1 批失败：请先在设置页配置 AI 平台");
+    assert.strictEqual(toasts.at(-1), "AI 打标签没有成功：第 1 批失败：没有启用的 AI 平台");
     // The AI 打标签 batch size: its own setting, 30 until it is saved; whole numbers (rounded) within 1–100.
     const aiBatchSize = vm.runInContext("aiBatchSize", ctx);
     delete t.S.settings.triageAiBatchSize;
@@ -2283,7 +2294,7 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   }
   assert.strictEqual(t.el.banner.hidden, false, "a finished run leaves a banner that is not about AI");
   assert.strictEqual(t.activityState(), null, "K's last 粗看 line is not shown in L");
-  t.handleAiError("请先配置 AI 服务");
+  t.handleAiError("没有启用的 AI 平台", "AI_SETUP");
   t.startGroup(["BV820"]);
   for (let i = 0; i < 20 && t.S.group; i++) await new Promise((r) => setImmediate(r));
   assert.strictEqual(t.el.banner.hidden, true, "a run that works clears the AI banner wherever it ran");
@@ -3306,6 +3317,33 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
       release();
       await run;
       assert.deepStrictEqual(calls, ["BV801", "BV802", "BV803"], "closing the dialog leaves the run going");
+
+      // The dialog's 停止 is the pill's: 停止中, off with the pill's reason, and no sentence of its own.
+      const cls = new Set();
+      t.el.writeProgress = { textContent: "", classList: { add: (c) => cls.add(c), remove: (c) => cls.delete(c), toggle: (c, on) => (on ? cls.add(c) : cls.delete(c)) } };
+      fail = (b) => (b === "BV801" ? new Promise((r) => (release = r)).then(() => null) : null);
+      const run2 = t.runWrite();
+      await wait();
+      t.stopWrite();
+      assert.deepStrictEqual([t.el.writeStopBtn.textContent, t.el.writeStopBtn.disabled, t.el.writeStopBtn.title], ["停止中", true, "当前视频做完就停止"]);
+      assert.ok(t.el.writeProgress.textContent.startsWith("写入 1/3"), t.el.writeProgress.textContent);
+      release();
+      await run2;
+      assert.ok(!t.el.writeStopBtn.disabled, "the next run's 停止 is on again");
+
+      // 一篇摘录: a failed copy is red like a failed write; a write says what every other entry says.
+      t.el.writeFormat.value = "digest";
+      t.navigator = { clipboard: { writeText: async () => { throw new Error("没有权限"); } } };
+      await t.exportDigest("copy");
+      assert.ok(t.el.writeProgress.textContent === "复制失败：没有权限" && cls.has("fail-text"), "copy failure in red");
+      handlers["triage-export"] = (m) => ({ ok: true, data: { path: `库/${m.filename}`, text: `已写入 Obsidian：库/${m.filename}` } });
+      await t.exportDigest("obsidian");
+      assert.ok(/^已写入 Obsidian：库\/B站摘录-/.test(t.el.writeProgress.textContent) && !cls.has("fail-text"), t.el.writeProgress.textContent);
+      // A scope with nothing to write: copy, download and write are off and say why.
+      openFake("W", []);
+      t.renderWriteScope();
+      for (const b of ["writeCopyBtn", "writeMdBtn", "writeRunBtn"]) assert.ok(t.el[b].disabled && t.el[b].title === "这个范围里没有能写的视频", b);
+      delete t.navigator;
       openFake("A", []);
       delete t.document.body;
     }

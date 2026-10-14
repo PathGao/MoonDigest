@@ -461,9 +461,9 @@ function bindRuntimeEvents() {
       return false;
     }
 
-    // Opening the popup reads the video as it is; its 刷新 button sends force.
+    // Opening the popup reads the video as it is; its 刷新 button sends refresh.
     if (message.type === "popup-refresh") {
-      settledClip(message.force === true)
+      settledClip(message.refresh === true)
         .then(() => sendResponse({ ok: true, payload: getPopupPayload() }))
         .catch((error) =>
           sendResponse({ ok: false, error: fetchErrorText(error), payload: getPopupPayload() })
@@ -790,9 +790,9 @@ function bindUiEvents() {
   chapterList.addEventListener("pointerdown", () => noteManualReaderInteraction(3500));
   transcriptList.addEventListener("pointerdown", () => noteManualReaderInteraction(3500));
   byId(ids.readingStatus).addEventListener("click", () => setReadingNotice(""));
-  // Same request as the popup's AI 总结, so it works even when the player button is turned off.
+  // The popup's request, from 专注模式 (source reader): it works even when the player button is turned off.
   byId(ids.readingAiBtn).addEventListener("click", () => {
-    sendRuntimeMessage({ type: "player-ai-quick-action", source: "popup", contextRef: viewerContextRef() })
+    sendRuntimeMessage({ type: "player-ai-quick-action", source: "reader", contextRef: viewerContextRef() })
       .then((resp) => setReadingNotice(resp?.ok ? "" : `打开侧边栏失败：${resp?.error || "未知错误"}`, { error: true }))
       .catch((error) => setReadingNotice(`打开侧边栏失败：${getErrorMessage(error)}`, { error: true }));
   });

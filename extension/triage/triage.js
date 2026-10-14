@@ -484,8 +484,6 @@ function handleAiError(error, code = "") {
         toast("已授权，请重试");
       }
     }, "ai");
-  } else if (text.includes("配置 AI")) {
-    showBanner("还没有配置 AI 平台", "去设置", () => send({ type: "open-options" }), "ai");
   } else if (aiSettingsCode(code)) {
     showBanner(text, "去设置", () => send({ type: "open-options" }), "ai");
   } else if (text.includes("截断")) {
@@ -928,14 +926,13 @@ function followSeen(changes) {
   }
   if (hit && S.seenCfg.on) render();
 }
-// Percent watched: the history's, else 稍后再看's own progress; null with no record or with the setting off.
-function seenPercentOf(it) {
-  if (!S.seenCfg.on) return null;
-  const h = S.seenPct[it.bvid]?.[0];
-  if (h) return h;
+// 稍后再看's own progress (seconds, or -1 once finished) as a percent; null without one.
+function toviewPercent(it) {
   if (it.seen == null || it.seen === 0) return null;
   return it.seen < 0 ? 100 : it.duration > 0 ? Math.min(100, Math.round((it.seen / it.duration) * 100)) : null;
 }
+// Percent watched: the history's, else 稍后再看's own progress; null with no record or with the setting off.
+const seenPercentOf = (it) => (S.seenCfg.on ? S.seenPct[it.bvid]?.[0] || toviewPercent(it) : null);
 // 看完了: the history says at least the set share was watched (only while that mark is shown).
 const isFinished = (it) => S.seenCfg.mark && (seenPercentOf(it) ?? 0) >= S.seenCfg.threshold;
 // The cover with its progress bar and, once 看完了, the corner tag or the veil (html[data-seen-style] picks one).
@@ -1045,11 +1042,10 @@ async function loadIncluded() {
   return included;
 }
 
-// 稍后再看 says how far each video was watched on Bilibili: seconds, or -1 once finished.
+// With 观看进度 off, the meta line still says how far 稍后再看 says each video was watched, in the covers' words.
 function seenText(it) {
-  if (S.seenCfg.on || it.seen == null || it.seen === 0) return "";
-  if (it.seen < 0) return "看完了";
-  return it.duration > 0 ? `看到 ${Math.min(99, Math.max(1, Math.round((it.seen / it.duration) * 100)))}%` : "";
+  const p = S.seenCfg.on ? null : toviewPercent(it);
+  return p ? seenWords(p, false) : "";
 }
 
 // 「（p/P 页）」 while a folder of more than one page (40 videos each, the most Bilibili allows) loads.
@@ -2224,7 +2220,7 @@ function cardHtml(it, expanded, mark) {
 
   const chips = tagIdsOf(b)
     .map((id) => tagById(id))
-    .map((t) => UI.cardTagChip(t, "点一下去掉这个标签 · U 撤销"))
+    .map((t) => UI.cardTagChip(t))
     .join("");
 
   const body = [];
@@ -2254,7 +2250,7 @@ function cardHtml(it, expanded, mark) {
             ${waiting ? `<button type="button" aria-busy="true" disabled>${waiting}</button>` : `<button type="button" data-act="unfav" class="${unfavCls}" aria-label="取消收藏 (D)"${UI.reasonAttrs(decision?.action === "unfav" ? "已经取消收藏了" : "")}>取消收藏<kbd class="key">D</kbd></button>`}
           </span>
           <span class="more">
-            <button type="button" data-act="tag" aria-label="打标签 (T)">标签<kbd class="key">T</kbd></button>
+            ${UI.tagPlusBtn('data-act="tag"', "打标签 (T)")}
             ${basketBtn}${askBtn}
           </span>`}
         </div>
@@ -2764,11 +2760,11 @@ async function pickBatchUnfavFolders(list) {
     const n = list.filter((it) => it.folders.some((f) => checked().includes(f))).length;
     el.confirmOk.textContent = `取消收藏 ${n} 个`;
     el.confirmOk.setAttribute("aria-label", el.confirmOk.textContent);
-    el.confirmOk.disabled = !n;
+    UI.setReason(el.confirmOk, n ? "" : "至少勾选一个收藏夹");
   };
   const ok = await ask;
   el.confirmBody.onchange = null;
-  el.confirmOk.disabled = false;
+  UI.setReason(el.confirmOk, "");
   return ok ? checked() : [];
 }
 
@@ -3439,6 +3435,7 @@ const aiTags = {
   proposal: () => S.ai.proposal,
   run: runAiCommand,
   stop: () => runs.stop("ai"),
+  stopping: () => Boolean(runs.get("ai")?.stopping),
   discard() {
     S.ai.proposal = null;
     renderTop();
@@ -3557,7 +3554,7 @@ async function runAiCommand({ instruction, scope, allowRemove }) {
     return;
   }
   if (folder !== String(S.mediaId)) toast(`「${folderName(folder)}」的标签建议已完成，点进度胶囊上的「查看」确认`);
-  else if (!open) toast("AI 打标签已完成，按 I 查看建议");
+  else if (!open) toast(UI.AI_TAGS_DONE);
 }
 
 // What a proposal changes (shared.js); a video that left the folder since keeps its tags.
@@ -3736,7 +3733,7 @@ function openWrite({ scope, format } = {}) {
 
 function stopWrite() {
   runs.stop("write");
-  el.writeProgress.textContent = "将在当前视频后停止…";
+  renderWriteScope();
   renderStatus();
 }
 
@@ -3770,7 +3767,10 @@ function renderWriteScope() {
   el.writeCopyBtn.hidden = notes || busy;
   el.writeRunBtn.hidden = el.writeMdBtn.hidden = busy;
   el.writeStopBtn.hidden = !busy;
-  el.writeCopyBtn.disabled = el.writeRunBtn.disabled = el.writeMdBtn.disabled = !n;
+  // The pill's 停止 and this one are the same button: 停止中, off, with the pill's reason.
+  el.writeStopBtn.textContent = busy?.stopping ? PILL_BTN.write[2] : PILL_BTN.write[1];
+  UI.setReason(el.writeStopBtn, busy?.stopping ? stopWhy("write") : "");
+  for (const b of [el.writeCopyBtn, el.writeRunBtn, el.writeMdBtn]) UI.setReason(b, n ? "" : "这个范围里没有能写的视频");
   el.writeScope.disabled = el.writeFormat.disabled = el.writeOverwrite.disabled = busy;
 }
 
@@ -3789,7 +3789,10 @@ async function exportDigest(how) {
   if (how === "copy") {
     await navigator.clipboard.writeText(markdown).then(
       () => (el.writeProgress.textContent = "已复制 Markdown"),
-      (err) => (el.writeProgress.textContent = `复制失败：${err.message}`)
+      (err) => {
+        el.writeProgress.textContent = `复制失败：${err.message}`;
+        el.writeProgress.classList.add("fail-text");
+      }
     );
   } else if (how === "download") {
     MdgDownload.text(filename, markdown);
@@ -3797,7 +3800,7 @@ async function exportDigest(how) {
   } else {
     const r = await send({ type: "triage-export", filename, markdown });
     setBusy(el.writeRunBtn, false);
-    el.writeProgress.textContent = r.ok ? `已写入 ${r.data?.path || filename}` : `写入 Obsidian 失败：${r.error}`;
+    el.writeProgress.textContent = r.ok ? r.data.text : `写入 Obsidian 失败：${r.error}`;
     el.writeProgress.classList.toggle("fail-text", !r.ok);
     el.writeSettingsBtn.hidden = MdgErrors.action(r.code) !== "settings";
   }

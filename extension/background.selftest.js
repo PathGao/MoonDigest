@@ -545,6 +545,22 @@ process.on("exit", (code) => {
     const reply = await new Promise((resolve) => onMessage.forEach((fn) => fn({ type: "ai-sidepanel-get-state", tabId: 7, frameId: 3, videoId: "BV1xx411c7mD" }, {}, resolve)));
     assert.deepStrictEqual(JSON.parse(JSON.stringify(sentTo)), [[7, { type: "sidepanel-get-context", refresh: false, videoId: "BV1xx411c7mD" }, { frameId: 3 }]]);
     assert.deepStrictEqual([reply.ok, reply.payload.subtitleMarkdown, reply.payload.url, reply.payload.isVideoContext], [true, "picked", "https://www.bilibili.com/video/BV1xx411c7mD/", true]);
+    // The side panel's 刷新 is refresh on both messages (popup-refresh too), never force / forceRefresh.
+    sentTo.length = 0;
+    await new Promise((resolve) => onMessage.forEach((fn) => fn({ type: "ai-sidepanel-get-state", tabId: 7, frameId: 3, videoId: "BV1xx411c7mD", refresh: true }, {}, resolve)));
+    assert.strictEqual(sentTo[0][1].refresh, true);
+    // The ✦ AI 按钮 switch stops only the player button (no source); 专注模式 (reader) and the popup still open AI 总结.
+    ictx.getMergedSettings = async () => ({ enablePlayerAiQuickAction: false, playerAiQuickPrompt: "" });
+    const quick = (source) => new Promise((resolve) => onMessage.forEach((fn) => fn({ type: "player-ai-quick-action", ...(source && { source }) }, { tab: { id: 7 } }, resolve)));
+    assert.deepStrictEqual([(await quick()).error, (await quick("reader")).ok, (await quick("popup")).ok], ["✦ AI 按钮未开启", true, true]);
+    // 视频记录 opens through the same one-tab rule as 分拣台.
+    const opened = [];
+    ictx.focusOrOpenPage = async (page) => opened.push(page);
+    ictx.chrome.runtime.getURL = (p) => `chrome-extension://x/${p}`;
+    assert.ok((await new Promise((resolve) => onMessage.forEach((fn) => fn({ type: "history-open" }, {}, resolve)))).ok);
+    assert.deepStrictEqual(opened, ["chrome-extension://x/history/history.html"]);
+    for (const f of ["popup.js", "sidepanel.js", "content.js", "background.js"]) assert.ok(!/forceRefresh|message\.force\b|"popup-refresh", force\b/.test(fs.readFileSync(path.join(__dirname, f), "utf8")), `${f}: the refresh flag is named refresh`);
+    for (const f of ["popup.js", "sidepanel.js", "options.js"]) assert.ok(fs.readFileSync(path.join(__dirname, f), "utf8").includes('"history-open"'), `${f} opens 视频记录 by history-open`);
   }
 
   finished = true;

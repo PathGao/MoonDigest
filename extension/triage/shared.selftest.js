@@ -253,8 +253,14 @@ assert.strictEqual(UI.img("https://i0.hdslb.com/a.jpg@1c.webp", "48w"), "https:/
   assert.strictEqual(UI.toCsv([['=HYPERLINK("x")', "普通 标题", "a,b"], [1, null]]), `\ufeff"'=HYPERLINK(""x"")",普通 标题,"a,b"\r\n1,\r\n`);
 }
 
-// A card's tag chip escapes its name and says what undoes it.
-assert.ok(UI.cardTagChip({ id: "t1", name: "<b>", color: "#fff" }, "点一下去掉").includes('data-untag="t1" aria-label="去掉标签 &lt;b&gt;" title="点一下去掉">&lt;b&gt;<span class="x"'));
+// A card's tag chip escapes its name and says what undoes it, one sentence for both modes (both have U).
+assert.ok(UI.cardTagChip({ id: "t1", name: "<b>", color: "#fff" }).includes('data-untag="t1" aria-label="去掉标签 &lt;b&gt;" title="点一下去掉这个标签 · U 撤销">&lt;b&gt;<span class="x"'));
+for (const f of ["triage.js", "follow.js"]) {
+  const src = fs.readFileSync(path.join(__dirname, f), "utf8");
+  assert.ok(src.includes("UI.cardTagChip(t)") && !src.includes("点一下去掉这个标签"), `${f}: the shared tag chip and its tooltip`);
+  // The card's tag button and the done toast: the shared 「+ 标签 T」 and one sentence.
+  assert.ok(!/>标签<kbd/.test(src) && src.includes("UI.AI_TAGS_DONE") && !src.includes("按 I 查看建议"), `${f}: 「+ 标签 T」 and AI_TAGS_DONE`);
+}
 
 // AI 打标签's proposal, as both modes use it: merge, cap, excluded, changes, tally. Rows are UPs here, videos in 收藏夹.
 {

@@ -130,7 +130,7 @@ async function triggerReaderModeInTab(tabId, readerUrl = "", retries = 12, delay
 
 // frameId: 分拣台's viewer frame (the tab is 分拣台), asked for its video like a video page. A frame that closed or
 // plays another video than videoId does not answer, and the side panel reads the video like a closed page instead.
-async function getAiSidepanelState(tabId, { forceRefresh = false, frameId = 0, videoId = "" } = {}) {
+async function getAiSidepanelState(tabId, { refresh = false, frameId = 0, videoId = "" } = {}) {
   if (!tabId) {
     throw new Error("缺少标签页信息");
   }
@@ -157,7 +157,7 @@ async function getAiSidepanelState(tabId, { forceRefresh = false, frameId = 0, v
   if (!inViewer) await ensureReaderContentReady(tab.id);
 
   // The page settles its current video (joins a run, follows a URL change) and answers with its comments.
-  const resp = await sendMessageToTab(tab.id, { type: "sidepanel-get-context", refresh: forceRefresh, videoId }, inViewer ? { frameId } : {});
+  const resp = await sendMessageToTab(tab.id, { type: "sidepanel-get-context", refresh, videoId }, inViewer ? { frameId } : {});
   if (!resp?.ok || !resp.payload) {
     throw Object.assign(new Error(resp?.error || "读取当前页面失败"), resp?.code != null ? { code: resp.code } : {});
   }
@@ -397,6 +397,14 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
+  // 视频记录, as 分拣台 (triage-open): the popup, the side panel and the settings page focus an open one.
+  if (message.type === "history-open") {
+    focusOrOpenPage(chrome.runtime.getURL("history/history.html"))
+      .then(() => sendResponse({ ok: true }))
+      .catch((error) => sendResponse({ ok: false, error: error.message }));
+    return true;
+  }
+
   // Focuses a settings page that is already open, as the side panel and 视频记录 do (no caller asks for a section).
   if (message.type === "open-options") {
     chrome.runtime
@@ -418,8 +426,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     openPromise.catch(() => {});
     getMergedSettings()
       .then(async (settings) => {
-        // The setting hides the player button; the popup's AI 总结 is always available.
-        if (message.source !== "popup" && !settings.enablePlayerAiQuickAction) {
+        // The setting hides the player button (no source); the popup's and 专注模式's AI 总结 are always available.
+        if (!["popup", "reader"].includes(message.source) && !settings.enablePlayerAiQuickAction) {
           throw new Error("✦ AI 按钮未开启");
         }
         await openPromise;
@@ -540,8 +548,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
   if (message.type === "ai-sidepanel-get-state") {
     const tabId = Number(message.tabId || 0) || 0;
-    const forceRefresh = message.forceRefresh === true;
-    getAiSidepanelState(tabId, { forceRefresh, frameId: Number(message.frameId) || 0, videoId: String(message.videoId || "") })
+    getAiSidepanelState(tabId, { refresh: message.refresh === true, frameId: Number(message.frameId) || 0, videoId: String(message.videoId || "") })
       .then((payload) => sendResponse({ ok: true, payload }))
       .catch((error) => sendResponse({ ok: false, error: error.message, code: error.code }));
     return true;

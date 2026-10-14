@@ -152,23 +152,25 @@ function sideMids(D, rows, side) {
 // What the list shows: f = { side, q, sort, dir, kind (已出分拣范围's tab), source: "" | "bili" | "app" (已取消关注), and row 3: status,
 // tagState, recent (Set while 「AI 刚打的」 is on), recentAll (the whole batch, for its count); row 4: tags }.
 // Row 3's groups AND together and each counts with its own pick left out: counts[status], tagged / untagged, recent,
-// "" (row 3 cleared) and tags[id] (row 4's picks left out). Search, the sidebar and 已取消关注's source apply to all.
+// source[bili | app] (已取消关注's row 3 group), "" (row 3 cleared) and tags[id] (row 4's picks left out). Search and the
+// sidebar apply to all.
 function visibleUps(D, rows, f) {
   const q = String(f.q || "").trim().toLowerCase();
   const base = sideMids(D, rows, f.side).filter((m) => {
     const u = rows.get(m);
-    return (!q || `${u.name}\n${u.sign}\n${u.zone}`.toLowerCase().includes(q)) && (!f.kind || outKind(u) === f.kind) && (!f.source || u.gone?.source === f.source);
+    return (!q || `${u.name}\n${u.sign}\n${u.zone}`.toLowerCase().includes(q)) && (!f.kind || outKind(u) === f.kind);
   });
   const pass = (m, skip = "") => {
     const u = rows.get(m);
-    return (skip === "status" || !f.status || u.status === f.status) && (skip === "recent" || !f.recent || f.recent.has(m)) && tagPass(u.tagIds, f, skip);
+    return (skip === "status" || !f.status || u.status === f.status) && (skip === "source" || !f.source || u.gone?.source === f.source) && (skip === "recent" || !f.recent || f.recent.has(m)) && tagPass(u.tagIds, f, skip);
   };
-  const counts = { "": base.filter((m) => tagPass(rows.get(m).tagIds, { tags: f.tags })).length, tagged: 0, untagged: 0, recent: 0, tags: {} };
+  const counts = { "": base.filter((m) => tagPass(rows.get(m).tagIds, { tags: f.tags })).length, tagged: 0, untagged: 0, recent: 0, source: { bili: 0, app: 0 }, tags: {} };
   for (const m of base) {
     const u = rows.get(m);
     if (pass(m, "status")) counts[u.status] = (counts[u.status] || 0) + 1;
     if (pass(m, "tagged")) counts[u.tagIds.length ? "tagged" : "untagged"]++;
     if (pass(m, "recent") && f.recentAll?.has(m)) counts.recent++;
+    if (pass(m, "source") && u.gone?.source in counts.source) counts.source[u.gone.source]++;
     if (pass(m, "tags")) for (const id of u.tagIds) counts.tags[id] = (counts.tags[id] || 0) + 1;
   }
   let list = base.filter((m) => pass(m));
@@ -693,11 +695,10 @@ function renderUps() {
   shown = list;
   // Switching between groups keeps the selection (into or out of 已出分拣范围 clears it); the ones not listed count as 被筛选隐藏.
   for (const m of [...F.sel]) if (!rows.has(m)) F.sel.delete(m);
-  const goneN = (src) => Object.values(D.gone).filter((g) => !src || g.source === src).length;
   // 已出分拣范围's row 3: 全部 | 在哪取消关注 (on 全部 and 已取消关注) | 未打标签 已打标签.
   const seg = out
     ? [UI.stateGroup("全部", UI.filterBtn("data-fw-all", "全部", counts[""], !F.source && !F.tagState)),
-      (F.kind === "" || F.kind === "gone") && UI.stateGroup("在哪取消关注", [["bili", "在 B站取消关注"], ["app", "在分拣台取消关注"]].map(([id, label]) => UI.filterBtn(`data-source="${id}"`, label, goneN(id), F.source === id)).join("")),
+      (F.kind === "" || F.kind === "gone") && UI.stateGroup("在哪取消关注", [["bili", "在 B站取消关注"], ["app", "在分拣台取消关注"]].map(([id, label]) => UI.filterBtn(`data-source="${id}"`, label, counts.source[id], F.source === id)).join("")),
       tagStateGroup(counts)].filter(Boolean).join("")
     : stateRowUps(counts);
   // 全选 heads the right-hand buttons, as in 收藏夹: it acts on the UP 主 listed now. 已出分拣范围 adds 清理, as 收藏夹's.
@@ -789,7 +790,7 @@ function upCard(mid) {
   const origin = UI.originChip(kind === "gone" ? "原在" : "在", gnames);
   const chips = u.tagIds.map(tagOf).map((t) => u.gone
     ? `<span class="chip" style="--c:${esc(t.color)}">${esc(t.name)}</span>`
-    : UI.cardTagChip(t, "点一下去掉这个标签")).join("");
+    : UI.cardTagChip(t)).join("");
   const titles = u.titles.length
     ? `<ul class="fw-titles">${u.titles.map((v) => `<li>${v.bvid ? `<a class="fw-title" href="${esc(video(v.bvid))}" data-play="${esc(v.bvid)}" title="在分拣台里播放">${esc(v.t)}</a>` : `<span class="fw-title">${esc(v.t)}</span>`}<span class="meta">${UI.agoHtml(v.c, now)}</span></li>`).join("")}</ul>`
     : "";
@@ -1567,6 +1568,7 @@ const aiTags = {
   proposal: () => AI.proposal,
   run: runAi,
   stop: () => runs.stop("follow-ai"),
+  stopping: () => Boolean(runs.get("follow-ai")?.stopping),
   discard() {
     setAiProposal(null);
     renderAiState();
@@ -1605,7 +1607,7 @@ async function runAi({ instruction, scope, allowRemove }) {
   renderAiState();
   const open = TagDialogs.ai.isOpen(aiTags);
   if (open) TagDialogs.ai.render(aiTags);
-  else toast(proposal ? "AI 打标签已完成，点进度胶囊上的「查看」确认" : `AI 打标签没有成功：${errors.at(-1)}`, !proposal);
+  else toast(proposal ? UI.AI_TAGS_DONE : `AI 打标签没有成功：${errors.at(-1)}`, !proposal);
 }
 
 

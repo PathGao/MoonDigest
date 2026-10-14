@@ -146,6 +146,12 @@ function bindEvents() {
   });
   els.presetBtn.addEventListener("click", togglePresetPopover);
   els.historyBtn.addEventListener("click", toggleHistoryPopover);
+  // Focuses an open 视频记录 tab instead of a second one, as the popup and the settings page do.
+  document.querySelector(".sp-history-manage")?.addEventListener("click", async (event) => {
+    event.preventDefault();
+    const r = await sendRuntimeMessage({ type: "history-open" }).catch(() => null);
+    if (!r?.ok) chrome.tabs.create({ url: chrome.runtime.getURL("history/history.html") });
+  });
   els.exportBtn.addEventListener("click", toggleExportPopover);
   // Each export action closes the menu; the action itself is bound below.
   els.exportPopover.addEventListener("click", (event) => {
@@ -281,7 +287,7 @@ function aiPrefsOf({ aiSystemPrompt, playerAiQuickPrompt, aiPresetPrompts }) {
 
 function renderModelSelect(preferredProviderId = "") {
   if (!providers.length) {
-    els.modelSelect.innerHTML = '<option value="">未配置 AI 平台</option>';
+    els.modelSelect.innerHTML = `<option value="">${MdgErrors.TEXT.aiNone}</option>`;
     els.modelSelect.disabled = true;
     return;
   }
@@ -471,7 +477,7 @@ function loadContextState(opts = {}) {
   return run;
 }
 
-async function readContextState({ forceRefresh = false, silent = false, follow = false }, superseded) {
+async function readContextState({ refresh = false, silent = false, follow = false }, superseded) {
   const tab = await getActiveTab();
   if (superseded()) return contextLoad;
   const atTab = await act({ type: "TAB_READ", tab: tab?.id ? { url: tab.url, title: tab.title } : null, follow });
@@ -487,7 +493,7 @@ async function readContextState({ forceRefresh = false, silent = false, follow =
   const resp = await sendRuntimeMessage({
     type: "ai-sidepanel-get-state",
     tabId: tab.id,
-    forceRefresh
+    refresh
   }).catch((error) => ({ ok: false, error: error.message }));
   if (superseded()) return contextLoad;
 
@@ -657,7 +663,7 @@ function renderSuggestions() {
     return;
   }
   if (!providers.length) {
-    suggestionsNode.innerHTML = `<p class="sp-empty-intro">${EMPTY_INTRO}先添加一个 AI 平台。</p><button type="button" class="sp-summary-btn">去设置页添加平台</button>`;
+    suggestionsNode.innerHTML = `<p class="sp-empty-intro">${EMPTY_INTRO}${MdgErrors.TEXT.aiNone}。</p><button type="button" class="sp-summary-btn">去设置页添加平台</button>`;
     suggestionsNode.querySelector("button").addEventListener("click", () => chrome.runtime.openOptionsPage());
     return;
   }
@@ -709,7 +715,7 @@ let followupsRendered = "";
 
 function followupBlockReason() {
   if (!providers.length) {
-    return "先在设置页添加一个 AI 平台";
+    return MdgErrors.TEXT.aiNone;
   }
   const { context, messages, pinned, nonVideo } = state.view();
   if (nonVideo) {
@@ -1178,7 +1184,7 @@ async function refreshContextManually() {
   }
   refreshingContext = true;
   try {
-    const ok = await loadContextState({ forceRefresh: true });
+    const ok = await loadContextState({ refresh: true });
     if (ok) {
       const { context, messages } = state.view();
       if (!context || !providers.length || !messages.length) {
@@ -1264,14 +1270,14 @@ function formatConversationTimestamp(value) {
 
 async function ensureCurrentContextForSend() {
   if (state.view().pinned) {
-    await loadContextState({ forceRefresh: false, silent: true }).catch(() => null);
+    await loadContextState({ refresh: false, silent: true }).catch(() => null);
     return hydratePinnedConversationContext();
   }
   const loadingNotice = state.view().context?.pending;
   if (loadingNotice) {
     showConversationContextNotice("正在加载视频信息…");
   }
-  const ok = await loadContextState({ forceRefresh: false, silent: true });
+  const ok = await loadContextState({ refresh: false, silent: true });
   if (loadingNotice) {
     removeConversationContextNotice();
   }
@@ -1370,7 +1376,7 @@ async function sendMessage(prompt) {
   const providerId = els.modelSelect.value;
   // No enabled platform: keep the conversation and the typed text, and go to settings like 去设置页添加平台.
   if (!providerId) {
-    showConversationContextNotice("没有启用的 AI 平台，已打开设置页。", 3000);
+    showConversationContextNotice(`${MdgErrors.TEXT.aiNone}，已打开设置页。`, 3000);
     chrome.runtime.openOptionsPage();
     return;
   }

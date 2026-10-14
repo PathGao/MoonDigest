@@ -653,7 +653,7 @@ const TRIAGE_AI_TIMEOUT_MS = { normal: 120000, thinking: 240000 };
 // unset or no longer enabled, the first enabled one, as in the side panel.
 async function triageChat(messages, maxTokens, thinking = false, providerId = "") {
   const provider = await triageProvider(providerId);
-  if (!provider) throw triageError("请先在设置页配置 AI 平台", "AI_SETUP");
+  if (!provider) throw triageError(MdgErrors.TEXT.aiNone, "AI_SETUP");
   const apiKey = (await loadAiProviderKeys())[provider.id];
   const problem = aiProviderProblem(provider, apiKey);
   if (problem) throw triageError(problem.text, problem.code);
@@ -823,6 +823,11 @@ async function triageMigrateNotes() {
 async function triageOpenPage(hash) {
   const page = chrome.runtime.getURL("triage/triage.html");
   const url = /^follow(?:&tag=[\w%.~-]+|&up=\d+)?$/.test(hash || "") ? `${page}#${hash}` : page;
+  return focusOrOpenPage(page, url);
+}
+
+// An extension page's open tab is focused (and sent to url when that differs) instead of opening a second one.
+async function focusOrOpenPage(page, url = page) {
   const tabs = (await chrome.runtime.getContexts?.({ contextTypes: ["TAB"] })) || [];
   const open = tabs.find((c) => c.documentUrl?.startsWith(page) && c.tabId >= 0);
   if (!open) return void (await chrome.tabs.create({ url }));
@@ -1033,7 +1038,7 @@ const TRIAGE_HANDLERS = {
     const path = folder ? `${folder}/${name}` : name;
     // putVaultNote gives up after OBSIDIAN_TIMEOUT_MS, so a hung Obsidian ends 写入中….
     await putVaultNote(obsidianConfig(settings), path, typeof markdown === "string" ? markdown : "");
-    return { path };
+    return { path, text: obsidianWritten(path) };
   }
 };
 

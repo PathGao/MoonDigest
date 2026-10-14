@@ -77,6 +77,8 @@ const E = ctx.MdgErrors;
   for (const sentence of [...Object.values(E.TEXT), "视频审核中"]) {
     for (const file of sources) assert.ok(!read(file).includes(sentence), `${file} writes 「${sentence}」 itself`);
   }
+  // No AI platform: one sentence (TEXT.aiNone); 分拣台 gives 去设置 by the code, never by matching the words.
+  for (const file of sources) assert.ok(!/配置 AI|添加一个 AI 平台|未配置 AI 平台/.test(read(file)), `${file} words a missing AI platform itself; use MdgErrors.TEXT.aiNone`);
   // No subtitle: three states, one sentence each, built only here (the note, the card, the AI and every page use it).
   assert.deepStrictEqual(
     [E.subtitleMissing(), E.subtitleMissing({ subtitleFailure: "网络断了" }), E.subtitleMissing({ subtitleNeedLogin: true, subtitleFailure: "x" })],
