@@ -65,6 +65,8 @@ function adapters(who) {
     scopes: () => [{ value: "filter", label: "当前筛选", n: 3 }, { value: "selected", label: "选中", n: ai.sel }],
     sel: 0,
     scopeText: (s) => `${s} 的说明`,
+    room: () => ai.roomN,
+    roomN: 2,
     roomHint: () => "最多 2 个。",
     blocked: () => "",
     history: () => ["上次的指令"],
@@ -131,10 +133,20 @@ function adapters(who) {
     assert.ok(nodes.aiTagsPreview.innerHTML.includes('data-use="a"') && nodes.aiRemoveInput.checked);
     // No tags: the hint links to 标签管理 (a text link), which closes this dialog and opens 标签管理 with the mode's adapter.
     tags.length = 0;
-    // No tags and no instruction: the box starts with one that lets the AI make the first 3–5 tags.
+    // No tags and no instruction: the box starts with one for the first 3–5 tags, within the room; it follows the room
+    // until edited, and there is none when the AI may make none.
     nodes.aiInstruction.value = "";
+    const first = (n) => `看看这些${who}的内容，新建 ${n} 个标签分好类，每个${who}打一个最贴切的。`;
+    for (const [room, want] of [[2, first(2)], [4, first("3–4")], [50, first("3–5")], [0, ""]]) {
+      ai.roomN = room;
+      D.ai.open(ai);
+      assert.strictEqual(nodes.aiInstruction.value, want, `${who}: room ${room}`);
+    }
+    nodes.aiInstruction.value = "我自己写的";
+    ai.roomN = 5;
     D.ai.open(ai);
-    assert.strictEqual(nodes.aiInstruction.value, `看看这些${who}的内容，新建 3–5 个标签分好类，每个${who}打一个最贴切的。`, `${who}: a first instruction`);
+    assert.strictEqual(nodes.aiInstruction.value, "我自己写的", `${who}: an edited instruction stays`);
+    ai.roomN = 2;
     D.ai.render(ai);
     assert.ok(nodes.aiTagsPreview.innerHTML.includes(`还没有${who === "UP 主" ? " UP 标签" : "视频标签"}。`), `${who}: the tags' name, as the picker's title`);
     assert.ok(/还没有.*标签。最多 2 个。想打得准，先在<button type="button" class="link" data-open-manage>「标签管理」<\/button>里建好标签/.test(nodes.aiTagsPreview.innerHTML), `${who}: the link says 「标签管理」`);

@@ -3292,16 +3292,17 @@ function aiScopeText(scope) {
   return `${n} 个视频：${parts.join("，")}。按收藏夹分开打，各用各的标签（重复收藏的视频在每个收藏夹各打一次），${folders.length} 个收藏夹共 ${batches} 批发送`;
 }
 
+// The most new tags one run may make: in 所有收藏夹, the roomiest folder's.
+const aiRoom = () => (S.mediaId === ALL ? Math.max(0, ...S.folders.map((f) => aiNewTagRoom(f.id))) : aiNewTagRoom());
 function aiRoomHint() {
   const tags = aiTags.tags();
   const noneUsable = tags.length > 0 && tags.every((t) => S.ai.excluded.has(t.id));
+  const room = aiRoom();
   if (S.mediaId === ALL) {
-    const room = Math.max(0, ...S.folders.map((f) => aiNewTagRoom(f.id)));
     return noneUsable
       ? room ? `已有标签都不给 AI 用，AI 只会新建标签（每个收藏夹最多 ${room} 个），你确认后才创建。` : "已有标签都不给 AI 用，名额也满了，AI 打不了标签。"
       : room ? `AI 这次在每个收藏夹最多新建 ${room} 个（不超过它剩下的名额），你确认后才创建。` : "各收藏夹名额已满，AI 只会用已有标签。";
   }
-  const room = aiNewTagRoom();
   return noneUsable
     ? room ? `已有标签都不给 AI 用，AI 只会新建标签（这次最多 ${room} 个），你确认后才创建。` : "已有标签都不给 AI 用，名额也满了，AI 打不了标签。"
     : room ? `AI 这次最多新建 ${room} 个（这个收藏夹还剩 ${tagLimit() - tags.length} 个名额），你确认后才创建。` : "名额已满，AI 只会用已有标签。";
@@ -3321,6 +3322,7 @@ const aiTags = {
     { value: "analyzed", label: "细看过的", n: visibleItems().filter(isAnalyzed).length }
   ],
   scopeText: aiScopeText,
+  room: aiRoom,
   roomHint: aiRoomHint,
   blocked: () =>
     S.mediaId === REMOVED ? `${FOLDER_ONLY}再让 AI 打标签。` : aiRunning() && S.ai.mediaId !== String(S.mediaId) ? `正在处理「${folderName(S.ai.mediaId)}」的视频，完成后可点进度胶囊上的「查看」确认` : "",

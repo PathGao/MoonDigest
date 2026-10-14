@@ -79,8 +79,8 @@
 
   // ----- AI 打标签 -----
   // a = { who, sees (what the AI reads), example (the instruction's placeholder), excluded (a Set of tag ids the AI may not use this time),
-  // tags(), scopes() → [{ value, label, n }] (filter / selected / …), scopeText(scope), roomHint() (html: how many new
-  // tags the AI may make), blocked() ("" or why it cannot run here now), history(), allowRemove(), setAllowRemove?(on)
+  // tags(), scopes() → [{ value, label, n }] (filter / selected / …), scopeText(scope), room() (how many new tags the AI
+  // may make), roomHint() (html: the same in words), blocked() ("" or why it cannot run here now), history(), allowRemove(), setAllowRemove?(on)
   // → saved?, running(), proposal(), run({ instruction, scope, allowRemove }) (sets running before its first await),
   // stop(), discard(), apply(), map() (item id → tag ids), live() (has(id): still in the folder / still followed),
   // tagName(id), manage (the mode's 标签管理 adapter, for the link), where?() (the open folder; "" when the mode has none) }.
@@ -96,11 +96,16 @@
   const instr = $("aiInstruction");
   let instrKey = null; // [adapter, where] the instruction was written for; another mode or folder starts empty
 
-  const firstInstruction = (who) => `看看这些${who}的内容，新建 3–5 个标签分好类，每个${who}打一个最贴切的。`;
+  // No tags yet: an instruction for the AI to make the first 3–5, within the room it has; none when it may make none.
+  const firstInstruction = (a) => {
+    const hi = Math.min(5, a.room());
+    const lo = Math.min(3, hi);
+    return a.tags().length || !hi ? "" : `看看这些${a.who}的内容，新建 ${lo === hi ? hi : `${lo}–${hi}`} 个标签分好类，每个${a.who}打一个最贴切的。`;
+  };
+  let autoInstr = ""; // the last one put in the box; while untouched it follows the room
   function openAi(a) {
-    if (instrKey?.[0] !== a || instrKey[1] !== whereOf(a)) instr.value = "";
-    // No tags yet: start from an instruction that lets the AI make the first few, so 运行 works without writing one.
-    if (!instr.value.trim() && !a.tags().length) instr.value = firstInstruction(a.who);
+    if (instrKey?.[0] !== a || instrKey[1] !== whereOf(a) || instr.value === autoInstr) instr.value = "";
+    if (!instr.value.trim()) instr.value = autoInstr = firstInstruction(a);
     instrKey = [a, whereOf(a)];
     ai = a;
     a.excluded.clear();

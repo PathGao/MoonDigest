@@ -1532,6 +1532,7 @@ const aiTags = {
     { value: "selected", label: "选中", n: aiScopeMids("selected").length }
   ],
   scopeText: aiScopeText,
+  room: () => AI.settings.newTagMax,
   roomHint: () => `${AI.settings.newTagMax ? `AI 这次最多新建 ${AI.settings.newTagMax} 个标签，你确认后才创建。` : "AI 只会用已有标签。"}<br>每批数量、间隔和新建上限在左下角的「关注设置」里改。`,
   blocked: () => aiBlocked(F.tab, F.side),
   history: () => AI.history,
