@@ -632,7 +632,7 @@ chrome.runtime.onConnect.addListener((port) => {
       const providers = await loadAiProviders();
       const provider = providers.find((p) => p.id === msg.providerId);
       if (!provider) {
-        port.postMessage({ type: "error", error: "未找到选中的平台", code: "AI_SETUP" });
+        port.postMessage({ type: "error", error: "没找到选中的 AI 平台", code: "AI_SETUP" });
         clearActiveRequestState();
         return;
       }
