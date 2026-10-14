@@ -143,11 +143,11 @@ function render() {
             <div class="entry-meta">${[site, formatTime(g.updatedAt), untitled && g.context.videoId, kind].filter(Boolean).map(esc).join(" · ")}</div>
           </div>
           <div class="entry-actions">
-            <button type="button" class="ask" data-act="ask" ${g.context.videoId ? "" : `disabled title="${MdgErrors.TEXT.notVideo}" aria-description="${MdgErrors.TEXT.notVideo}"`}><span class="ai-spark" aria-hidden="true"></span>继续问</button>
+            <button type="button" class="ask" data-act="ask"${g.context.videoId ? "" : " data-no-video"}><span class="ai-spark" aria-hidden="true"></span>继续问</button>
             <button type="button" data-act="copy">复制 Markdown</button>
             <button type="button" data-act="md">下载 .md</button>
             ${!obsidianEnabled ? "" : `<button type="button" data-act="obsidian"${writing.has(g.key) ? " disabled" : ""}><img class="obsidian-mark" src="/icons/obsidian.svg" alt=""> <span class="write-label" data-idle="写入 Obsidian">${writing.has(g.key) ? '<span aria-busy="true">写入中…</span>' : "<span>写入 Obsidian</span>"}</span></button>`}
-            ${g.convs.length ? `<button type="button" data-act="delete" class="danger">删除</button>` : `<button type="button" class="danger slot" tabindex="-1" aria-hidden="true" disabled>删除</button>`}
+            ${g.convs.length ? `<button type="button" data-act="delete" class="danger">删除 AI 对话</button>` : `<button type="button" class="danger slot" tabindex="-1" aria-hidden="true" disabled>删除 AI 对话</button>`}
           </div>
           <div class="entry-body">
             ${g.analysis ? renderSummary(g) : ""}
@@ -158,6 +158,8 @@ function render() {
       }).join("")
     : `<p class="empty">${allGroups.length ? "没有匹配的视频" : "还没有视频记录。在侧边栏提问，或在分拣台细看、写备注后，会按视频记在这里。"}</p>`;
   rendering = false;
+  // 继续问 on a record that is not a video: off with why, the page's one way (setReason).
+  for (const b of els.list.querySelectorAll("[data-no-video]")) setReason(b, MdgErrors.TEXT.notVideo);
   const textarea = editing && els.list.querySelector("[data-note]");
   if (textarea) {
     textarea.focus();
@@ -183,7 +185,7 @@ function syncBulk(groups = visibleGroups()) {
   els.bulkMd.textContent = n ? `下载选中的 ${n} 个 .md` : "下载选中的 .md";
   // 删除 removes AI conversations only, so its N counts the selected videos that have one and says when that is fewer.
   const del = deletableKeys(shown.length ? shown : [...selected]).length;
-  els.bulkDelete.textContent = del ? `删除选中的 ${del} 个` : "删除选中的";
+  els.bulkDelete.textContent = del ? `删除选中的 ${del} 个的 AI 对话` : "删除选中的 AI 对话";
   setReason(els.bulkMd, none);
   // Only AI conversations are deleted here; a video's AI 总结 and 备注 belong to the 分拣台, whose 清理 removes them.
   setReason(els.bulkDelete, none || (del ? "" : "选中的视频没有 AI 对话，它们的 AI 总结和备注在分拣台清理"), del < n ? `选中的 ${n} 个里，${n - del} 个没有 AI 对话，删除后会留下；它们的 AI 总结和备注在分拣台清理` : "");
@@ -229,7 +231,7 @@ async function deleteGroups(keys) {
   const current = (await chrome.storage.local.get(KEY))[KEY] || [];
   await chrome.storage.local.set({ [KEY]: current.filter((c) => !keys.includes(c?.contextKey || c?.id)) });
   keys.forEach((key) => selected.delete(key));
-  setStatus(`已删除 ${keys.length} 个视频的对话`);
+  setStatus(`已删除 ${keys.length} 个视频的 AI 对话`);
 }
 
 // Several videos go into one file like the triage batch export: one save prompt, frontmatter
@@ -333,7 +335,7 @@ els.bulkDelete.addEventListener("click", () => void deleteGroups(shownPicks()));
 els.clearAll.addEventListener("click", async () => {
   if (!confirm("清空全部 AI 对话？删除后不能恢复。")) return;
   await chrome.storage.local.set({ [KEY]: [] });
-  selected.clear();
+  // Entries left with an AI 总结 or a 备注 stay selected; render drops the ones that left the list.
   setStatus("已清空全部 AI 对话");
 });
 chrome.storage.onChanged.addListener((changes, area) => {

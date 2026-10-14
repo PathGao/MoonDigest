@@ -51,6 +51,7 @@ function adapters(who) {
     hint: () => "这里的标签。",
     tags: () => tags,
     count: () => 2,
+    addReason: (name) => (!name.trim() ? "标签名不能为空" : name === "重名" ? "已有同名标签" : ""),
     add: async (name) => (calls.push(["add", name]), name === "重名" ? null : { id: name, name }),
     edit: async (t, field, value) => (calls.push(["edit", t.id, field, value]), value !== "重名"),
     remove: async (t) => calls.push(["remove", t.id])
@@ -111,6 +112,20 @@ function adapters(who) {
     await wait();
     assert.deepStrictEqual(calls.at(-1), ["add", "中文"]);
     assert.strictEqual(nodes.newTagInput.value, "");
+    // K16: 添加 is off with why while the name cannot be added (empty, taken, full), updated as you type; Enter adds nothing.
+    assert.ok(nodes.addTagBtn.disabled && nodes.addTagBtn.title === "标签名不能为空", `${who}: empty → off`);
+    nodes.newTagInput.value = "重名";
+    fire("newTagInput", "input");
+    assert.ok(nodes.addTagBtn.disabled && nodes.addTagBtn.attrs["aria-description"] === "已有同名标签", `${who}: taken → off`);
+    const adds = calls.length;
+    enter(nodes.newTagInput);
+    await wait();
+    assert.strictEqual(calls.length, adds, `${who}: Enter follows 添加`);
+    assert.strictEqual(nodes.newTagInput.value, "重名", "the typed text stays");
+    nodes.newTagInput.value = "新的";
+    fire("newTagInput", "input");
+    assert.ok(!nodes.addTagBtn.disabled && !nodes.addTagBtn.title, `${who}: a new name → on`);
+    nodes.newTagInput.value = "";
     // Enter in a rename stays in the dialog (it would submit the form), but not mid-IME.
     assert.strictEqual(enter(target('[data-field="name"]')).prevented, 1);
     assert.strictEqual(enter(target('[data-field="name"]'), { isComposing: true }).prevented, 0);
@@ -259,6 +274,7 @@ function adapters(who) {
       tags: () => groups,
       count: () => 4,
       row: (x, n) => `<div class="group-row">${x.name}/${n}</div>`,
+      addReason: () => "",
       add: async (name) => (calls.push(["add", name]), { id: 7, name }),
       edit: async (x, field, value) => (calls.push(["edit", x.id, field, value]), true),
       remove: async (x) => calls.push(["remove", x.id])

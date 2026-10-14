@@ -24,7 +24,7 @@ function lastPostOf(mid, D) {
 
 // 更新状态: active | slow | dead by the newest post; none = 没投过稿 (or the account is gone); stale = the feed reached
 // back past slowDays without them and their videos were not read yet (慢更还是断更待查); unchecked = 未查.
-function followStatus(mid, D, now, slowDays = 90, deadDays = 365) {
+function followStatus(mid, D, now, slowDays = UI.numSetting("slowDays"), deadDays = UI.numSetting("deadDays")) {
   const last = lastPostOf(mid, D);
   if (last) {
     const days = (now - last) / DAY;
@@ -301,12 +301,9 @@ function aiRequests(mids, cfg, instruction, tags, allowRemove) {
   for (let i = 0; i < mids.length; i += cfg.batchSize) out.push({ type: "follow-ai-tag", instruction, mids: mids.slice(i, i + cfg.batchSize), tags, maxNewTags: cfg.newTagMax, allowRemove });
   return { batches: out, intervalMs: cfg.intervalSec * 1000 };
 }
-// Why the days cannot be saved, or "" (empty boxes fall back to the defaults).
+// Why the days cannot be saved, or "" (empty or invalid boxes fall back to the defaults, as everywhere).
 function settingsProblem(slow, dead) {
-  const s = String(slow).trim() === "" ? UI.numSetting("slowDays") : Number(slow);
-  const d = String(dead).trim() === "" ? UI.numSetting("deadDays") : Number(dead);
-  if (!Number.isFinite(s) || !Number.isFinite(d)) return "天数要填数字";
-  return d > s ? "" : "断更天数要比慢更大";
+  return UI.numSetting("deadDays", dead) > UI.numSetting("slowDays", slow) ? "" : "断更天数要比慢更大";
 }
 // 断更 is at least a day more than 慢更.
 function normDays(slow, dead) {
@@ -613,7 +610,7 @@ function renderSyncChanges() {
 // disabled and says why (a run or a proposal stays reachable).
 const aiReason = () => (aiRunning() || AI.proposal ? "" : aiBlocked(F.tab, F.side));
 function renderAiButton() {
-  $("fwAiSlot").innerHTML = UI.tagButtons({ manageAttrs: 'data-fw="tags"', aiAttrs: 'data-fw="ai"', aiReason: aiReason(), noTags: !D.tags.length, picked: F.tab === "ups" ? selShown().length || F.sel.size : 0, state: aiRunning() ? " · 运行中" : AI.proposal ? " · 待确认" : "" });
+  $("fwAiSlot").innerHTML = UI.tagButtons({ manageAttrs: 'data-fw="tags"', aiAttrs: 'data-fw="ai"', aiReason: aiReason(), noTags: !D.tags.length, picked: F.tab === "ups" ? selShown().length || F.sel.size : 0, running: aiRunning(), pending: Boolean(AI.proposal) });
 }
 function renderAiState() {
   renderSync();
@@ -639,7 +636,7 @@ function renderHead() {
   E.title.innerHTML = out ? UI.titleHtml("已出分拣范围", sideCount("out")) : UI.titleHtml("关注", D.list ? sideCount("all") : null);
   renderLogin();
   E.meta.innerHTML = out
-    ? UI.headMeta([...OUT_KINDS.map(([k, label]) => [sideMids(D, rows, "out").filter((m) => outKind(rows.get(m)) === k).length, label]).filter(([n]) => n).map(([n, label]) => `${n} 个${label}`), "不在关注分拣里了，标签都还留着，清理前可先从「导出」菜单备份"])
+    ? UI.headMeta([...OUT_KINDS.map(([k, label]) => [sideMids(D, rows, "out").filter((m) => outKind(rows.get(m)) === k).length, label]).filter(([n]) => n).map(([n, label]) => `${n} 个${label}`), `不在关注分拣里了，标签都还留着，${UI.CLEAN_BACKUP.meta}`])
     : UI.headMeta([D.list ? UI.syncedText(at * 1000) : "还没有关注数据"], err);
   main.querySelector('[data-fw="bili"]').hidden = out;
   // 导出 → UP 主表格: nothing to put in it before the first refresh.
@@ -738,8 +735,8 @@ function cleanTargets(list = shown) {
 function cleanBtn(list) {
   const { picked, mids } = cleanTargets(list);
   const shownSel = list.filter((m) => F.sel.has(m)).length;
-  // All of it hidden: the count is the whole selection's.
-  const n = picked && !shownSel ? cleanable([...F.sel]).length : mids.length;
+  // All of it hidden, or none of it cleanable: the count is the selection's (listed, else all of it), disabled with why.
+  const n = picked ? mids.length || shownSel || F.sel.size : mids.length;
   const why = !list.length ? "这里没有列出 UP 主" : !mids.length ? "还关注着的先取消关注，再清理" : "";
   return UI.cleanBtn('data-fw="clean"', { picked: F.sel.size, shown: shownSel, n, busy: busyWhy(), why });
 }
@@ -847,7 +844,7 @@ function renderSel() {
   const k = pool.length;
   const gone = pool.filter((m) => rows.get(m)?.gone).length;
   const acts = (none) => F.side === "out"
-    ? btn("refollow", `重新关注选中的 ${gone} 个`, busy || none || (!gone && "选中的都还关注着")) + btn("unfollow", `取消关注选中的 ${k - gone} 个`, busy || none || (k === gone && "选中的都已取消关注"), "danger")
+    ? btn("refollow", `重新关注选中的 ${gone || k} 个`, busy || none || (!gone && "选中的都还关注着")) + btn("unfollow", `取消关注选中的 ${k - gone || k} 个`, busy || none || (k === gone && "选中的都已取消关注"), "danger")
     : btn("pick-sel", "标签…", none) +
       btn("move-sel", `移动选中的 ${k} 个到分组…`, busy || none || (groupId(F.side) == null && "先在分组列表里选一个分组：「全部」里不知道从哪个分组移走")) +
       btn("copy-sel", `复制选中的 ${k} 个到分组…`, busy || none) +
@@ -950,7 +947,7 @@ function renderFoot(n = feedList(F.feed.items, D, feedF(), null).length) {
   // Stuck, as the sync's amber pill with the red ⚠ and the countdown: B站限流 (then more() tries again by itself), or the
   // background holding its queue (risk control, a dropped connection) while this page waits for a page.
   const hold = f.loading && F.hold?.until > nowSec() ? F.hold : null;
-  const stuck = f.wait ? runs.get("follow-feed")?.wait || "B站限流卡住" : hold && UI.waitText(holdLabel(hold), Math.ceil(hold.until - nowSec()));
+  const stuck = f.wait ? runs.get("follow-feed")?.wait || UI.BILI_STUCK : hold && UI.waitText(holdLabel(hold), Math.ceil(hold.until - nowSec()));
   if (stuck) {
     foot.innerHTML = `<p>${esc(reach)}</p><span class="activity" role="status"></span>`;
     return UI.setActivity(foot.lastChild, { text: stuck, stuck: true });
@@ -1043,10 +1040,10 @@ const runs = MdgRuns.create({
     renderSync();
     if (F.feed?.wait) renderFoot();
   },
-  hold: (r) => (r.code === "THROTTLED" ? { ms: UI.BILI_HOLD_MS, label: "B站限流卡住" } : T.hold(r))
+  hold: (r) => (r.code === "THROTTLED" ? { ms: UI.BILI_HOLD_MS, label: UI.BILI_STUCK } : T.hold(r))
 });
 // The background's queue pause (follow_jobs.hold, follow_hold) in words.
-const holdLabel = (h) => (h.why === "throttled" ? "B站限流卡住" : MdgErrors.TEXT.netDown);
+const holdLabel = (h) => (h.why === "throttled" ? UI.BILI_STUCK : MdgErrors.TEXT.netDown);
 // The refresh's line, its hold (B站 risk control or a dropped connection) counting down after it; once the hold is over
 // the requests go slower for a while (follow-bg.js FOLLOW_CFG.slowForMs).
 runs.put("sync", () => {
@@ -1057,7 +1054,7 @@ runs.put("sync", () => {
   const text = `${slowed ? "B站限流变慢 · " : ""}${j.step || PHASE[j.phase] || "刷新中"}${j.total ? ` ${j.done || 0}/${j.total}` : j.done ? ` ${j.done}` : ""}`;
   return { text, done: j.done || 0, total: j.total || 0, slowed, wait: held && { until: j.hold.until * 1000, label: holdLabel(j.hold) } };
 });
-runs.put("proposal", () => AI.proposal && { text: "标签建议待确认" });
+runs.put("proposal", () => AI.proposal && { text: UI.AI_TAGS_PENDING });
 // 关注's writes to B站 (writes.js), on their own lane: their keys are mids, their undo steps 关注's, and a 收藏夹 batch
 // never blocks them.
 const W = MdgWrites.create({ runs, lane: "follow-write", send, line: (p) => `${p.name}中 ${p.done}/${p.total}` });
@@ -1106,7 +1103,7 @@ async function unfollow(mids) {
 async function clean(mids) {
   if (!mids.length) return;
   const one = mids.length === 1;
-  const ok = await askConfirm(one ? `清理「${nameOf(mids[0])}」？` : `清理这 ${mids.length} 个 UP 主？`, `${one ? "" : names(mids)}<p>删除${one ? "它" : "它们"}的取消关注记录和标签，无法撤销。删除后不能再从这里重新关注。<br>要留存请先从「导出」菜单备份。</p>`, `清理 ${mids.length} 个`, { danger: true });
+  const ok = await askConfirm(one ? `清理「${nameOf(mids[0])}」？` : `清理这 ${mids.length} 个 UP 主？`, `${one ? "" : names(mids)}<p>删除${one ? "它" : "它们"}的取消关注记录和标签，无法撤销。删除后不能再从这里重新关注。<br>${UI.CLEAN_BACKUP.ask}</p>`, `清理 ${mids.length} 个`, { danger: true });
   if (!ok) return;
   const r = await send({ type: "follow-forget", mids });
   if (!r.ok) return toast(`清理失败：${r.error}`, true);
@@ -1144,8 +1141,19 @@ async function refollow(mids) {
     pushWriteUndo(mids, { label: "重新关注", backLabel: "取消关注", back: () => [{ type: "follow-relation", mid, act: 2, gone }] });
     return toast(`已在 B站重新关注「${upName(mid)}」 · U 撤销`);
   }
-  const ok = await askConfirm(`在 B站重新关注 ${mids.length} 个 UP 主？`, `${names(mids)}<p class="dialog-hint">原来的标签会放回去，有分组记录的也放回原来的分组。</p>`, `重新关注 ${mids.length} 个`);
-  if (ok) await relationRun(perUp(mids, (mid) => ({ type: "follow-relation", mid, act: 1 })), "重新关注");
+  // A batch asks first and is one undo step for the ones B站 took, asked before U (as 收藏夹's batch 取消收藏).
+  const ok = await askConfirm(`在 B站重新关注 ${mids.length} 个 UP 主？`, `${names(mids)}<p class="dialog-hint">原来的标签会放回去，有分组记录的也放回原来的分组。可以按 U 撤销。</p>`, `重新关注 ${mids.length} 个`);
+  if (!ok) return;
+  const gone = Object.fromEntries(mids.map((m) => [m, D.gone[m]]));
+  const done = mids.slice(0, await relationRun(perUp(mids, (mid) => ({ type: "follow-relation", mid, act: 1 })), "重新关注", { quiet: true }));
+  if (!done.length) return;
+  pushWriteUndo(done, {
+    label: "重新关注",
+    backLabel: "取消关注",
+    back: () => done.map((mid) => ({ type: "follow-relation", mid, act: 2, gone: gone[mid] })),
+    ask: ["在 B站撤销重新关注？", `<p>这 ${done.length} 个 UP 主在 B站再取消关注，「已出分拣范围 › 已取消关注」里的记录和标签照原样放回。</p>${names(done)}`, `撤销 ${done.length} 个`]
+  });
+  if (done.length === mids.length) toast(`已在 B站重新关注 ${done.length} 个 UP 主 · U 撤销`);
 }
 // ---------- 关注分组 on B站 (DESIGN 产品决策 · 改 B站 的操作和撤销) ----------
 // mids from the groups they are in now to want(mid), as one undo step that puts back the groups they had (U on 2+ asks
@@ -1282,6 +1290,7 @@ const manageGroups = {
       <span class="muted">${n} 个 UP 主</span>
       <button type="button" class="danger" data-tag-del aria-label="删除分组 ${esc(g.name)}">删除</button>
     </div>`,
+  addReason: (name) => groupNameError(name),
   add: createGroup,
   edit: (g, field, value) => renameGroup(g, value),
   remove: deleteGroup
@@ -1370,9 +1379,8 @@ const manageTags = {
   hint: () => "UP 标签和收藏夹的视频标签分开，只存在 MoonDigest 里，不改 B站。",
   tags: () => D.tags,
   count: (id) => following().filter((m) => rows.get(m)?.tagIds.includes(id)).length,
+  addReason: (value) => UI.tagNameError(cleanTagName(value), D.tags),
   async add(value) {
-    const why = UI.tagNameError(cleanTagName(value), D.tags);
-    if (why) return void toast(why, true);
     const t = await addTag(value);
     if (t) render();
     return t;

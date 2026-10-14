@@ -36,6 +36,9 @@ ctx.syncTools({ markdown: "# t", srt: "", txt: "", subtitleMissing: "正在加�
 assert.strictEqual(state().downloadBtn, "正在加载字幕…");
 ctx.syncTools({ markdown: "# t", srt: "1", txt: "a" });
 assert.deepStrictEqual(new Set(Object.values(state())), new Set([""]), "everything ready");
+// K3: no note yet: the note's tools say what their click says.
+ctx.syncTools({ markdown: "", srt: "1", txt: "a" });
+assert.deepStrictEqual([state().copyBtn, state().mdBtn, state().sendBtn], Array(3).fill(ctx.MdgErrors.TEXT.noNoteYet));
 
 // A non-video page whose content script still answers (youtube.com home): its payload keeps the tools disabled.
 vm.runInContext("onVideoPage = false", ctx);

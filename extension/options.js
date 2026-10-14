@@ -361,7 +361,7 @@ function syncSeenRows() {
 async function saveSettings() {
   clearInputErrors();
   const payload = collectFormPayload();
-  const validation = validateSettings(payload, { requireApiKey: false });
+  const validation = validateSettings(payload, { testing: false });
   if (!validation.ok) {
     applyValidationError(validation);
     return;
@@ -591,8 +591,9 @@ function readFormPayload() {
   };
 }
 
-function validateSettings(payload, { requireApiKey }) {
-  if (!payload.obsidianEnabled && !requireApiKey) {
+// testing: 测试连接 checks the Obsidian fields even while Obsidian is off (an empty Key cannot get here: syncObsidianTest).
+function validateSettings(payload, { testing }) {
+  if (!payload.obsidianEnabled && !testing) {
     return validateNoteExtras();
   }
   if (!payload.noteFolder) {
@@ -636,10 +637,6 @@ function validateSettings(payload, { requireApiKey }) {
 
   if ((parsedUrl.pathname && parsedUrl.pathname !== "/") || parsedUrl.search || parsedUrl.hash) {
     return { ok: false, field: elements.obsidianApiBaseUrl, message: "地址请只填写到端口，例如 http://127.0.0.1:27123" };
-  }
-
-  if (requireApiKey && !payload.obsidianApiKey) {
-    return { ok: false, field: elements.obsidianApiKey, message: "测试连接前请填写 Local REST API Key" };
   }
 
   return validateNoteExtras();
@@ -1145,7 +1142,7 @@ function normalizeBaseUrl(value) {
 async function testConnection() {
   clearInputErrors();
   const payload = collectFormPayload();
-  const validation = validateSettings(payload, { requireApiKey: true });
+  const validation = validateSettings(payload, { testing: true });
   if (!validation.ok) {
     applyValidationError(validation);
     return;

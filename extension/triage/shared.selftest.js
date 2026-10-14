@@ -409,6 +409,9 @@ for (const [file, fns] of [["triage.js", ["mergeAiBatch", "aiChanges"]], ["follo
   assert.ok(UI.tagButtons({ manageAttrs: "data-m", aiAttrs: "data-a", noTags: true }).includes('aria-label="标签管理（还没有自定义标签）">标签管理<i class="dot-warn"'));
   const off = UI.tagButtons({ manageAttrs: "data-m", aiAttrs: "data-a", noTags: true, manageReason: "先打开", aiReason: "先打开" });
   assert.ok(!off.includes("dot-warn") && (off.match(/disabled title="先打开"/g) || []).length === 2, off);
+  // K9: the run's state is drawn here from running / pending, never counting a selection.
+  const ai = (o) => UI.tagButtons({ manageAttrs: "data-m", aiAttrs: "data-a", picked: 2, ...o }).match(/<\/span>(AI 打标签[^<]*)<\/button>/)[1];
+  assert.deepStrictEqual([ai({}), ai({ running: true }), ai({ pending: true }), ai({ running: true, pending: true })], ["AI 打标签选中的 2 个", "AI 打标签 · 运行中", "AI 打标签 · 待确认", "AI 打标签 · 运行中"]);
 }
 
 
@@ -464,6 +467,13 @@ for (const [file, fns] of [["triage.js", ["mergeAiBatch", "aiChanges"]], ["follo
   // A selection filters hide whole: still 「清理选中的 N 个」 with the true count, off with why, never 「清理这 N 个」.
   assert.ok(UI.cleanBtn('data-x="c"', { picked: 2, shown: 0, n: 2, why: "空" }).includes('aria-label="清理选中的 2 个" disabled title="选中的都被筛选隐藏了"'));
   both("UI.cleanBtn(", "draws 清理 with cleanBtn");
+  // K9: one copy of these words and numbers, in shared.js.
+  neither(/"B站限流卡住"|标签建议待确认| · 运行中| · 待确认|slowDays = 90|deadDays = 365/, "a copy of shared.js's words or defaults");
+  for (const f of ["shared.js", "triage-bg.js"]) assert.ok(!/maxlength="80"|slice\(0, 80\)/.test(src(f)), `${f}: the 说明's cap is TAG_RULE_MAX`);
+  // K5: before 清理 both modes name one way to keep a copy, from shared.js.
+  both("${UI.CLEAN_BACKUP.ask}", "the 清理 confirm's backup line");
+  both("${UI.CLEAN_BACKUP.meta}", "已出分拣范围's backup hint");
+  neither(/「导出」菜单(导出|备份)/, "no backup wording of its own");
   neither(/清理选中的 \$\{|清理这 \$\{[^}]*\} 个`|<button type="button"\$\{cls/, "builds its own 清理 or action button");
   // J10: row 4's tag chip, 已出分拣范围's tabs and its 「原在…」 chip are drawn once; a batch confirm lists with confirmList.
   assert.strictEqual(UI.tagFilterChip('data-x="t"', { name: "科普", color: "#111", n: 2, on: true, what: "UP 主" }), '<button type="button" class="chip on" style="--c:#111" data-x="t" aria-pressed="true" aria-label="按标签筛选 科普 2" title="可多选：只显示同时带有所选标签的 UP 主">科普<span class="chip-n">2</span></button>');
@@ -520,9 +530,10 @@ for (const [file, fns] of [["triage.js", ["mergeAiBatch", "aiChanges"]], ["follo
   neither(/没有匹配搜索的(视频| UP 主)|没有符合筛选的(视频| UP 主)/, "words the empty list itself");
 
   // 刷新 in an empty state: one look in both modes, never a second solid blue.
-  assert.strictEqual(UI.refreshEmpty("data-r"), `<button type="button" data-r>${UI.ICON.refresh}刷新</button>`);
+  assert.ok(/^<button type="button" data-r><svg[^]*<\/svg>刷新<\/button>$/.test(UI.refreshEmpty("data-r")), UI.refreshEmpty("data-r"));
   both("UI.refreshEmpty(", "draws the empty state's 刷新 with refreshEmpty");
-  neither(/\$\{UI\.ICON\.refresh\}刷新/, "draws its own 刷新");
+  // K8: the icons stay inside shared.js, drawn by its helpers.
+  assert.ok(!("ICON" in UI), "ICON is not exported");
 }
 
 // 「+ 标签 T」 has one look, in triage.css, wherever it shows (视频投稿 cards, UP cards, the viewer line).
