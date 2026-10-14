@@ -528,12 +528,7 @@ function bindRuntimeEvents() {
         sendResponse({ ok: false, error: "当前页面没有找到可联动的视频播放器。" });
         return false;
       }
-      const nextTime = Math.max(0, Number.isFinite(seconds) ? seconds : 0);
-      const wasPaused = Boolean(video.paused);
-      video.currentTime = nextTime;
-      if (!wasPaused) {
-        video.play().catch(() => {});
-      }
+      const nextTime = seekVideo(video, seconds);
       if (state.readingViewOpen) {
         state.readingManualScrollPauseUntil = 0;
         state.readingNextScrollBehavior = "auto";
@@ -865,9 +860,8 @@ function checkUrlChange() {
         }
       });
     });
-    return;
   }
-  setStatus("检测到页面变化，请点击「刷新」加载当前视频字幕。");
+  // Out of 专注模式 nothing is read here: the next entry that asks (popup, side panel, player ✦) reads it via settledClip.
 }
 
 function resetClipState() {
@@ -1567,7 +1561,8 @@ function maybeRefreshReaderSubtitleInBackground() {
     if (runId !== state.fetchRunId) {
       return;
     }
-    settledClip(true).catch((error) => setReadingNotice(`字幕加载失败：${fetchErrorText(error)}`));
+    // Joins a read in flight or reads a video not read yet; a video already read without subtitles is not reread.
+    settledClip(false).catch((error) => setReadingNotice(`字幕加载失败：${fetchErrorText(error)}`));
   });
 }
 
@@ -3720,15 +3715,20 @@ function jumpReadingTarget(seconds) {
     return;
   }
 
-  const nextTime = Math.max(0, Number(seconds || 0) || 0);
   state.readingManualScrollPauseUntil = 0;
   state.readingNextScrollBehavior = "auto";
   updateReaderFollowState();
-  video.currentTime = nextTime;
-  if (video.paused) {
-    video.play().catch(() => {});
-  }
+  seekVideo(video, seconds);
   syncReadingViewPlayback(true);
+}
+
+// Every jump to a time point (专注模式 rows and chapters, the side panel's timestamps) keeps a paused video paused.
+function seekVideo(video, seconds) {
+  const nextTime = Math.max(0, Number(seconds) || 0);
+  const wasPaused = Boolean(video.paused);
+  video.currentTime = nextTime;
+  if (!wasPaused) video.play().catch(() => {});
+  return nextTime;
 }
 
 function onReadingChapterClick(event) {

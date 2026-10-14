@@ -257,6 +257,32 @@ const settle = async () => {
     t.stepReader("close");
   }
 
+  // A3: entering 专注模式 joins the read in flight or reads a video not read yet; it never forces a reread of a video
+  // already read without subtitles. Only 刷新 does.
+  {
+    const prev = [t.settledClip, t.waitForVideoMetadata];
+    const forces = [];
+    t.settledClip = async (force) => forces.push(force);
+    t.waitForVideoMetadata = async () => {};
+    state.subtitleBody = [];
+    t.maybeRefreshReaderSubtitleInBackground();
+    await settle();
+    assert.deepStrictEqual(forces, [false], "entering 专注模式 does not force a reread");
+    [t.settledClip, t.waitForVideoMetadata] = prev;
+  }
+
+  // A4: a jump from a 专注模式 subtitle row or chapter keeps a paused video paused, like the side panel's timestamps.
+  {
+    const prev = t.bindReadingViewVideo;
+    let plays = 0;
+    const video = { paused: true, currentTime: 0, play: () => (plays++, Promise.resolve()) };
+    t.bindReadingViewVideo = () => video;
+    t.jumpReadingTarget(42);
+    assert.strictEqual(video.currentTime, 42);
+    assert.strictEqual(plays, 0, "a paused video stays paused after a jump");
+    t.bindReadingViewVideo = prev;
+  }
+
   // The one context message (side panel, player ✦): whatever the timing, it answers with the tab's video, settled,
   // and that video's comments.
   {
