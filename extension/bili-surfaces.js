@@ -60,9 +60,11 @@
   // three values are copied here; settings.selftest.js checks they match.
   const SEEN_DEFAULTS = Object.freeze({ seenShow: "off", seenThreshold: 80, seenStyle: "badge" });
   function seenConfig(v) {
+    // TriageUi.intIn(v, 1, 100, 80), which B站 pages and the settings page do not load: empty, 0 or below is 80.
+    const t = Math.round(Number(v.seenThreshold));
     const bar = v.seenShow === "bar" || v.seenShow === "both";
     const mark = v.seenShow === "mark" || v.seenShow === "both";
-    return { on: bar || mark, bar, mark, threshold: Number(v.seenThreshold) || 80, style: v.seenStyle === "veil" ? "veil" : "badge" };
+    return { on: bar || mark, bar, mark, threshold: t >= 1 ? Math.min(100, t) : 80, style: v.seenStyle === "veil" ? "veil" : "badge" };
   }
   // 100% reads 看完了, otherwise 看到 N%; ✓ (and the strong look) means it counts as 看完了.
   const seenWords = (p, done) => (p >= 100 ? "✓ 看完了" : done ? `✓ 看到 ${p}%` : `看到 ${p}%`);

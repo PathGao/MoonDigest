@@ -48,4 +48,7 @@ for (const f of scripts) vm.runInContext(fs.readFileSync(path.join(__dirname, f)
 vm.runInContext(["const { escapeHtml } = MdgErrors;", fn("buildFixedPropertyValueControl")].join("\n"), ctx);
 for (const bad of XSS) assertInert(ctx.buildFixedPropertyValueControl("text", bad), "property value");
 
+// 看多少算看完了 is parsed by bili-surfaces.js (badges.selftest.js), the copy of TriageUi.intIn this page can load.
+assert.ok(source.includes("seenThreshold: MdgSurfaces.seenConfig({ seenThreshold: elements.seenThreshold.value }).threshold"), "options.js parses 看多少算看完了 with seenConfig");
+
 console.log("options selftest: all passed");

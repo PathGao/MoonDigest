@@ -209,6 +209,24 @@ const runSync = async () => {
     assert.deepStrictEqual(plain(local.follow_jobs.posted), [], "said once");
   }
 
+  // ---------- a stored 慢更 below 7 days walks the feed as the default 90 days, not 1 ----------
+  {
+    local = { follow_list: { list: ["2"], followTime: { 2: 2 } } };
+    sync = { followSlowDays: -5 };
+    calls = [];
+    routes = {
+      "/x/web-interface/nav": nav,
+      "/x/relation/stat": () => json({ code: 0, data: { follower: 1 } }),
+      "/x/relation/followings": followings([[person(2)]], 1),
+      "/x/relation/tags": () => json({ code: 0, data: [] }),
+      "/x/polymer/web-dynamic/v1/feed/all": feed([[dyn(2, "BVa", now() - 60)], [dyn(2, "BVb", now() - 2 * 86400)], [dyn(2, "BVc", now() - 3 * 86400)]]),
+      "/x/space/wbi/arc/search": () => arcOk(1)
+    };
+    await runSync();
+    assert.ok(calls.includes("polymer/web-dynamic/v1/feed/all#2"), calls.join(","));
+    sync = {};
+  }
+
   // ---------- a feed walk cut off midway keeps the last complete one; continue finishes it ----------
   {
     const prev = { at: now() - 7 * 3600, since: now() - 40 * 86400, map: { 1: now() - 99, 4: now() - 99 }, v: {} };
@@ -602,6 +620,9 @@ const runSync = async () => {
     t.triageChat = async (...a) => (await chat(...a), { content: '{"new_tags":["新"],"items":[{"i":1,"add":["新"],"remove":["硬核"]}],"note":"n"}' });
     const r3 = plain(await t.followAiTag({ instruction: "x", mids: ["2"] }));
     assert.deepStrictEqual(r3, { newTags: [], assignments: { 2: { add: [], remove: ["硬核"] } }, note: "n" }, "follow_ai_settings used, not triageAi*");
+    sync = { follow_ai_settings: { newTagMax: -3 } };
+    t.triageChat = async (...a) => (await chat(...a), { content: '{"new_tags":["动画","x1","x2","x3","x4","x5"],"items":[{"i":1,"add":["动画"]}],"note":""}' });
+    assert.strictEqual((await t.followAiTag({ instruction: "x", mids: ["2"] })).newTags.length, 5, "a stored negative cap is the default 5, not 0");
     sync = {};
   }
 

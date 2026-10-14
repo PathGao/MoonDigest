@@ -230,7 +230,7 @@ const base = () => ({ list: null, last: null, content: {}, people: {}, tags: [],
   const own = { batchSize: 40, intervalSec: 0, newTagMax: 0, allowRemove: false };
   const later = plain(t.followAiSettings(own, { ...triage, triageAiNewTagMax: 9 }));
   assert.deepStrictEqual(later, { value: own, seed: null }, "a stored 关注 value wins; 收藏夹 changes do not leak in");
-  assert.deepStrictEqual(plain(t.followAiSettings({ batchSize: 500, intervalSec: -3, newTagMax: "x" }, null)).value, { batchSize: 100, intervalSec: 0, newTagMax: 5, allowRemove: false }, "clamped");
+  assert.deepStrictEqual(plain(t.followAiSettings({ batchSize: 500, intervalSec: -3, newTagMax: "x" }, null)).value, { batchSize: 100, intervalSec: 8, newTagMax: 5, allowRemove: false }, "clamped");
   // The requests use 关注's values
   const { batches, intervalMs } = plain(t.aiRequests(["a", "b", "c", "d", "e"], { batchSize: 2, intervalSec: 3, newTagMax: 1, allowRemove: false }, "分", [], true));
   assert.deepStrictEqual(batches.map((b) => b.mids), [["a", "b"], ["c", "d"], ["e"]]);
@@ -238,7 +238,9 @@ const base = () => ({ list: null, last: null, content: {}, people: {}, tags: [],
   assert.strictEqual(intervalMs, 3000);
   assert.deepStrictEqual(plain(t.normDays("", "")), { followSlowDays: 90, followDeadDays: 365 });
   assert.deepStrictEqual(plain(t.normDays("400", "100")), { followSlowDays: 400, followDeadDays: 401 });
-  assert.deepStrictEqual(plain(t.normDays("1", "99999")), { followSlowDays: 7, followDeadDays: 3651 }, "clamped");
+  assert.deepStrictEqual(plain(t.normDays("1", "99999")), { followSlowDays: 90, followDeadDays: 3651 }, "below the minimum is the default, above the maximum the maximum");
+  assert.deepStrictEqual(plain(t.normDays("-5", "x")), { followSlowDays: 90, followDeadDays: 365 }, "negative or not a number is the default");
+  assert.deepStrictEqual(plain(t.normDays("5000", "3")), { followSlowDays: 3650, followDeadDays: 3651 }, "断更 stays a day past 慢更");
   assert.strictEqual(t.settingsProblem("90", "90"), "断更天数要比慢更大");
   assert.strictEqual(t.settingsProblem("120", "60"), "断更天数要比慢更大");
   assert.strictEqual(t.settingsProblem("", ""), "");

@@ -444,18 +444,18 @@
     }
   }
 
-  // A number field out of its min–max snaps back into it (rounded to a whole number) when left or saved, instead of the
-  // browser refusing to save. Empty stays empty (the default). data-zero-ok: 0 is allowed below min (0 = 自动).
+  // A number field is corrected by intIn when left or saved, instead of the browser refusing to save: above max is max,
+  // below min (or negative) is emptied, and empty means the default (自动 where the box says so).
   function clampNumber(input) {
     if (input?.type !== "number" || input.value === "") return;
-    const n = Math.round(Number(input.value));
-    const lo = Number(input.min);
-    const hi = input.max === "" ? Infinity : Number(input.max);
-    input.value = "zeroOk" in input.dataset && n <= 0 ? 0 : Math.min(hi, Math.max(lo, n));
+    input.value = intIn(input.value, Number(input.min), input.max === "" ? Infinity : Number(input.max), "");
   }
-  // A whole-number setting as stored or typed (both modes and the background): empty or not a number is def, 0 is a value,
-  // the rest is rounded and clamped into lo–hi.
-  const intIn = (v, lo, hi, def) => (v == null || String(v).trim() === "" || !Number.isFinite(Number(v)) ? def : Math.min(hi, Math.max(lo, Math.round(Number(v)))));
+  // A whole-number setting as stored or typed (both modes and the background): empty, not a number or below lo is def,
+  // the rest is rounded and capped at hi.
+  const intIn = (v, lo, hi, def) => {
+    const n = v == null || String(v).trim() === "" ? NaN : Math.round(Number(v));
+    return Number.isFinite(n) && n >= lo ? Math.min(hi, n) : def;
+  };
   function clampNumbers(root) {
     for (const form of root.querySelectorAll("form:has(input[type=number])")) form.noValidate = true;
     root.addEventListener("change", (e) => clampNumber(e.target));

@@ -428,11 +428,12 @@ for (const [file, fns] of [["triage.js", ["mergeAiBatch", "aiChanges"]], ["follo
   assert.deepStrictEqual([UI.busyText("取消关注"), UI.busyText("取消关注", { undo: true }), UI.busyText("")], ["取消关注还在跑，等它完成", "取消关注还在跑，等它完成再撤销", ""]);
   neither(/还在跑/, "writes its own 「…还在跑」");
   // Whole-number settings: empty or not a number is the default, 0 is a value, rounded, clamped.
-  assert.deepStrictEqual(["", null, undefined, "x", " ", 0, "0", 7.5, 7.4, -3, 2000, "12"].map((v) => UI.intIn(v, 0, 1000, 8)), [8, 8, 8, 8, 8, 0, 0, 8, 7, 0, 1000, 12]);
-  assert.strictEqual(UI.intIn(0, 1, 50, 10), 1, "0 below the minimum snaps to it");
-  for (const f of ["triage.js", "follow.js", "triage-bg.js"]) {
+  assert.deepStrictEqual(["", null, undefined, "x", " ", 0, "0", 7.5, 7.4, -3, 2000, "12"].map((v) => UI.intIn(v, 0, 1000, 8)), [8, 8, 8, 8, 8, 0, 0, 8, 7, 8, 1000, 12]);
+  assert.strictEqual(UI.intIn(0, 1, 50, 10), 10, "below the minimum is the default");
+  for (const f of ["triage.js", "follow.js", "triage-bg.js", "follow-bg.js", "../background.js"]) {
     const src = fs.readFileSync(path.join(__dirname, f), "utf8");
-    assert.ok(/\.intIn\b/.test(src) && !/intSetting|intervalSetting|Math\.floor\(Number\(/.test(src), `${f}: parses its whole-number settings with intIn`);
+    const bare = /intSetting|intervalSetting|Math\.floor\(Number\(|Number\((el\.\w+|\$\("\w+"\))\.value\)|Number\((s|days|merged)\.\w+\)|parseFloat\(merged\./;
+    assert.ok(/\.intIn\b/.test(src) && !bare.test(src), `${f}: parses its whole-number settings with intIn`);
   }
 
   // 「✦ AI 刚打的」: one chip, its × and the same tooltip (with the mode's unit); gone at 0 unless it is on.
@@ -502,16 +503,18 @@ for (const [file, fns] of [["triage.js", ["mergeAiBatch", "aiChanges"]], ["follo
   assert.ok(row.html.includes(">AI 打标签每批数量</label>") && row.html.includes("1–100 个一批。"), row.html);
 }
 
-// A number field out of range snaps back into it; empty stays empty; data-zero-ok keeps 0 below min.
+// A number field above max becomes max; below min (or negative) it is emptied, which means the default.
 {
-  const num = (value, min, max, zeroOk) => {
-    const input = { type: "number", value, min, max, dataset: zeroOk ? { zeroOk: "" } : {} };
+  const num = (value, min, max) => {
+    const input = { type: "number", value, min, max, dataset: {} };
     UI.clampNumber(input);
     return String(input.value);
   };
-  assert.deepStrictEqual(["60", "0", "-3", "7.6", ""].map((v) => num(v, "1", "50")), ["50", "1", "1", "8", ""]);
+  assert.deepStrictEqual(["60", "0", "-3", "7.6", ""].map((v) => num(v, "1", "50")), ["50", "", "", "8", ""]);
+  assert.deepStrictEqual(["0", "-5", "12"].map((v) => num(v, "0", "600")), ["0", "", "12"], "0 stays where min is 0");
   assert.strictEqual(num("9999", "0", ""), "9999", "no max");
-  assert.deepStrictEqual(["0", "-5", "50", "40000"].map((v) => num(v, "200", "32000", true)), ["0", "0", "200", "32000"]);
+  // 输出上限 (min 200, empty = 自动): 0, negative and below 200 are 自动.
+  assert.deepStrictEqual(["0", "-5", "50", "40000"].map((v) => num(v, "200", "32000")), ["", "", "", "32000"]);
 }
 
 // Rows 3 and 4 start with their name, 「状态」 and 「标签」, in 收藏夹 and in both 关注 tabs (UP 主, 视频投稿).

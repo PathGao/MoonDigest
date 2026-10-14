@@ -1,5 +1,5 @@
 // Shared modules must load before the top-level code below reads them (e.g. MdgLimits).
-importScripts("limits.js", "errors.js", "settings.js", "sites.js", "tag-core.js", "note.js");
+importScripts("limits.js", "errors.js", "settings.js", "sites.js", "tag-core.js", "note.js", "triage/shared.js");
 
 // Side panel stream watchdog: "first" until any SSE chunk arrives (reasoning chunks count), then "idle" between chunks.
 const STREAM_TIMEOUT_MS = { first: 90000, idle: 60000 };
@@ -740,8 +740,7 @@ function normalizeSyncSettings(settings) {
   // The settings table's cells turned off (bili-surfaces.js); options.js and badges.js drop cells that do not exist.
   merged.biliMarksOff = Array.isArray(merged.biliMarksOff) ? merged.biliMarksOff.filter((c) => typeof c === "string") : [];
   merged.seenShow = ["bar", "mark", "both"].includes(merged.seenShow) ? merged.seenShow : "off";
-  // 0 is clamped to 1; only a missing or non-numeric value falls back to 80.
-  merged.seenThreshold = Number.isFinite(parseFloat(merged.seenThreshold)) ? Math.min(100, Math.max(1, Math.round(parseFloat(merged.seenThreshold)))) : 80;
+  merged.seenThreshold = TriageUi.intIn(merged.seenThreshold, 1, 100, 80);
   merged.seenStyle = merged.seenStyle === "veil" ? "veil" : "badge";
   merged.readerTheme = MdgSettings.normalizeReaderTheme(merged.readerTheme);
   merged.readerFontScale = MdgSettings.normalizeReaderFontScale(merged.readerFontScale);
@@ -1197,6 +1196,7 @@ async function probeAiChatCompletion({ baseUrl, apiKey, model }) {
   return { ok: false, error: `HTTP ${response.status}${detail ? `: ${detail}` : ""}` };
 }
 
-// shared.js is the pages' TriageUi; it touches no DOM until called, so the worker reuses its formatters and tag rules.
+// triage/shared.js (loaded at the top) is the pages' TriageUi; it touches no DOM until called, so the worker reuses its
+// formatters, tag rules and intIn.
 // obsidian.js answers write-video-note and sync-video-note-ai: the background is the only writer to Obsidian.
-importScripts("triage/shared.js", "obsidian.js", "triage/triage-bg.js", "triage/follow-bg.js");
+importScripts("obsidian.js", "triage/triage-bg.js", "triage/follow-bg.js");

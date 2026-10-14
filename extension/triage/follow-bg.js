@@ -354,7 +354,7 @@ async function followSyncJob(ctx) {
     Object.assign(c, { phase: "feed", offset: "" });
   }
 
-  const slowDays = Math.max(1, Number((await chrome.storage.sync.get({ followSlowDays: 90 })).followSlowDays) || 90);
+  const slowDays = TriageUi.intIn((await chrome.storage.sync.get({ followSlowDays: 90 })).followSlowDays, 7, 3650, 90);
   if (c.phase === "feed") {
     const st = await chrome.storage.local.get(["follow_last", "follow_last_wip"]);
     const lp = st.follow_last;
@@ -778,7 +778,7 @@ async function followAiTag({ instruction, mids, tags, maxNewTags, allowRemove, a
     instruction,
     items,
     tags: tagList,
-    maxNewTags: maxNewTags ?? own.newTagMax ?? set.triageAiNewTagMax,
+    maxNewTags: maxNewTags ?? TriageUi.intIn(own.newTagMax ?? set.triageAiNewTagMax, 0, 50, 5),
     allowRemove: (allowRemove ?? own.allowRemove ?? set.triageAiRemoveTags) === true,
     aiProviderId
   }, FOLLOW_AI_UNIT);

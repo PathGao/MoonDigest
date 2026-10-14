@@ -271,7 +271,7 @@ assert.throws(() => t.triageParseCommand('{"new_tags":[', cmdItems, cmdTags, {})
   };
   assert.strictEqual(await settingsWith({ triageIntervalSec: 0 }), 0);
   assert.strictEqual(await settingsWith({ triageIntervalSec: 5 }), 5);
-  assert.strictEqual(await settingsWith({ triageIntervalSec: -1 }), 0, "clamped into 0–600");
+  assert.strictEqual(await settingsWith({ triageIntervalSec: -1 }), 8, "below 0 is the default");
   assert.strictEqual(await settingsWith({ triageIntervalSec: 900 }), 600);
   assert.strictEqual(await settingsWith({ triageIntervalSec: "x" }), 8);
   assert.strictEqual(await settingsWith({}), 8);
@@ -282,7 +282,16 @@ assert.throws(() => t.triageParseCommand('{"new_tags":[', cmdItems, cmdTags, {})
     return [r.triageCoarseBatchSize, r.triageFineBatchSize, "triageTitleBatchSize" in r];
   };
   assert.deepStrictEqual(await sizesWith({ triageCoarseBatchSize: 7.9, triageFineBatchSize: 99, triageTitleBatchSize: 5 }), [8, 50, false]);
-  assert.deepStrictEqual(await sizesWith({ triageCoarseBatchSize: "", triageFineBatchSize: -3 }), [100, 1, false]);
+  assert.deepStrictEqual(await sizesWith({ triageCoarseBatchSize: "", triageFineBatchSize: -3 }), [100, 10, false]);
+  assert.deepStrictEqual(await sizesWith({ triageCoarseBatchSize: 0, triageFineBatchSize: 0.4 }), [100, 10, false], "below 1 is the default");
+  // 输出上限: 200–32000, and 0 (自动) is the default, so empty, negative and below 200 are 自动.
+  const capsWith = async (v) => {
+    t.chrome = { storage: { sync: { get: async (d) => ({ ...d, triageTitleMaxTokens: v, triageAnalyzeMaxTokens: v }) } } };
+    const r = await vm.runInContext("TRIAGE_HANDLERS", ctx)["triage-settings-get"]();
+    const a = await t.triageAiSettings();
+    return [r.triageTitleMaxTokens, r.triageAnalyzeMaxTokens, a.triageTitleMaxTokens, a.triageAnalyzeMaxTokens];
+  };
+  for (const [v, want] of [["", 0], [-5, 0], [50, 0], [1000.4, 1000], [40000, 32000]]) assert.deepStrictEqual(await capsWith(v), [want, want, want, want], String(v));
 
   // B站 risk control maps to THROTTLED on writes as well as reads; non-JSON answers get a clear error.
   t.chrome = { cookies: { get: async () => ({ value: "csrf" }) } };

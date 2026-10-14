@@ -565,7 +565,7 @@ function readFormPayload() {
     showBiliVerdicts: elements.showBiliVerdicts.checked,
     biliMarksOff: Array.from(elements.biliMarks.querySelectorAll("input[data-cell]:not(:checked)"), (input) => input.dataset.cell),
     seenShow: elements.seenShow.value,
-    seenThreshold: Number.isFinite(parseFloat(elements.seenThreshold.value)) ? Math.min(100, Math.max(1, Math.round(parseFloat(elements.seenThreshold.value)))) : 80,
+    seenThreshold: MdgSurfaces.seenConfig({ seenThreshold: elements.seenThreshold.value }).threshold,
     seenStyle: elements.seenStyle.value === "veil" ? "veil" : "badge",
     enableDebugLogs: elements.enableDebugLogs.checked,
     frontmatterFields: selectedFields,

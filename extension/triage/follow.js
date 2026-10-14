@@ -308,9 +308,8 @@ function settingsProblem(slow, dead) {
 }
 // 慢更 7–3650 days, 断更 at least a day more.
 function normDays(slow, dead) {
-  const num = (v, d) => (Number.isFinite(parseFloat(v)) ? Math.round(parseFloat(v)) : d);
-  const followSlowDays = Math.min(3650, Math.max(7, num(slow, 90)));
-  return { followSlowDays, followDeadDays: Math.min(3651, Math.max(followSlowDays + 1, num(dead, 365))) };
+  const followSlowDays = UI.intIn(slow, 7, 3650, 90);
+  return { followSlowDays, followDeadDays: Math.max(followSlowDays + 1, UI.intIn(dead, 8, 3651, 365)) };
 }
 
 // A 刷新 finished between two follow_jobs: the 视频投稿 already loaded is older than what it read.
@@ -1847,8 +1846,9 @@ E.list.addEventListener("mousemove", (e) => {
 let redrawTimer = 0;
 chrome.storage.onChanged.addListener((changes, area) => {
   if (area === "sync" && (changes.followSlowDays || changes.followDeadDays)) {
-    cfg.slowDays = changes.followSlowDays?.newValue ?? cfg.slowDays;
-    cfg.deadDays = changes.followDeadDays?.newValue ?? cfg.deadDays;
+    const days = normDays(changes.followSlowDays?.newValue ?? cfg.slowDays, changes.followDeadDays?.newValue ?? cfg.deadDays);
+    cfg.slowDays = days.followSlowDays;
+    cfg.deadDays = days.followDeadDays;
     if (F.loaded) derive();
     return render();
   }
@@ -1893,8 +1893,7 @@ const [{ [VIEW_KEY]: view }, days] = await Promise.all([
   chrome.storage.local.get(VIEW_KEY),
   chrome.storage.sync.get({ followSlowDays: 90, followDeadDays: 365 })
 ]);
-cfg.slowDays = Number(days.followSlowDays) || 90;
-cfg.deadDays = Number(days.followDeadDays) || 365;
+({ followSlowDays: cfg.slowDays, followDeadDays: cfg.deadDays } = normDays(days.followSlowDays, days.followDeadDays));
 if (view?.tab === "feed") F.tab = "feed";
 if (SORTS[view?.sort]) F.sort = view.sort;
 if (view?.dir === "asc" || view?.dir === "desc") F.dir = view.dir;

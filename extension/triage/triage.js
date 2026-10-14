@@ -4233,8 +4233,8 @@ function bindEvents() {
       triageCoarseBatchSize: UI.intIn(el.coarseBatchInput.value, 1, 1000, 100),
       triageFineBatchSize: UI.intIn(el.fineBatchInput.value, 1, 50, 10),
       triageThinking: el.thinkingInput.checked,
-      triageTitleMaxTokens: Number(el.titleMaxInput.value) || 0,
-      triageAnalyzeMaxTokens: Number(el.analyzeMaxInput.value) || 0,
+      triageTitleMaxTokens: UI.intIn(el.titleMaxInput.value, 200, 32000, 0),
+      triageAnalyzeMaxTokens: UI.intIn(el.analyzeMaxInput.value, 200, 32000, 0),
       triageTagLimit: UI.intIn(el.tagLimitInput.value, 1, 50, 10),
       triageAiNewTagMax: UI.intIn(el.aiNewTagMaxInput.value, 0, 50, 5),
       triageAiRemoveTags: el.aiRemoveTagsInput.checked

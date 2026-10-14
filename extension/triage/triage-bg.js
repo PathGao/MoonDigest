@@ -538,8 +538,8 @@ async function triageAiSettings() {
   const s = await chrome.storage.sync.get({ triageThinking: false, triageTitleMaxTokens: 0, triageAnalyzeMaxTokens: 0 });
   return {
     triageThinking: s.triageThinking === true,
-    triageTitleMaxTokens: Number(s.triageTitleMaxTokens) || 0,
-    triageAnalyzeMaxTokens: Number(s.triageAnalyzeMaxTokens) || 0
+    triageTitleMaxTokens: TriageUi.intIn(s.triageTitleMaxTokens, 200, 32000, 0),
+    triageAnalyzeMaxTokens: TriageUi.intIn(s.triageAnalyzeMaxTokens, 200, 32000, 0)
   };
 }
 
@@ -964,8 +964,8 @@ const TRIAGE_HANDLERS = {
       triageFineBatchSize: TriageUi.intIn(s.triageFineBatchSize, 1, 50, 10),
       triageCoarseBatchSize: TriageUi.intIn(s.triageCoarseBatchSize, 1, 1000, 100),
       triageThinking: s.triageThinking === true,
-      triageTitleMaxTokens: Number(s.triageTitleMaxTokens) > 0 ? Number(s.triageTitleMaxTokens) : 0,
-      triageAnalyzeMaxTokens: Number(s.triageAnalyzeMaxTokens) > 0 ? Number(s.triageAnalyzeMaxTokens) : 0,
+      triageTitleMaxTokens: TriageUi.intIn(s.triageTitleMaxTokens, 200, 32000, 0),
+      triageAnalyzeMaxTokens: TriageUi.intIn(s.triageAnalyzeMaxTokens, 200, 32000, 0),
       triageTagLimit: TriageUi.intIn(s.triageTagLimit, 1, 50, 10),
       triageAiNewTagMax: TriageUi.intIn(s.triageAiNewTagMax, 0, 50, 5),
       triageAiRemoveTags: s.triageAiRemoveTags === true,

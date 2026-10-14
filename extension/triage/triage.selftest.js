@@ -771,8 +771,8 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   assert.ok((t.el.listHeader.innerHTML + t.el.favSel.innerHTML).includes("字幕细看下一批 4 个"), "细看 batch size comes from the setting");
   t.S.settings.triageFineBatchSize = 999;
   assert.strictEqual(t.nextBatch().length, 12, "clamped to 50, so all 12 fit");
-  // F7 / F14: the batch settings and 请求间隔 parse with UI.intIn (shared.selftest.js): rounded into min–max, empty is
-  // the default, 0 a value.
+  // F7 / F14: the batch settings and 请求间隔 parse with UI.intIn (shared.selftest.js): rounded and capped at max, empty or
+  // below min is the default, 0 a value where min is 0.
   {
     assert.ok(fs.readFileSync(path.join(__dirname, "triage.html"), "utf8").includes('<input id="intervalInput" type="number" min="0" max="600" step="1" />'), "the box has 关注's range");
     t.S.settings.triageFineBatchSize = 2.7;
