@@ -785,7 +785,7 @@
     }
     // The video has captions, but every track needs a PO token and the page player gave none.
     if (ytCaptionTracks(cache.responses.WEB).length) {
-      throw new Error("没拿到 YouTube 字幕令牌，请稍后重试");
+      throw new Error("没拿到 YouTube 字幕令牌");
     }
     return [];
   }
