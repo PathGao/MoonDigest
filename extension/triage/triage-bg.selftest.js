@@ -794,6 +794,17 @@ assert.throws(() => t.triageParseCommand('{"new_tags":[', cmdItems, cmdTags, {})
     await run;
     assert.deepStrictEqual([plain(st.seen_BVh), ended], [[10, T + 350], ["triage-seen-done"]]);
     t.fetch = realFetch;
+    // C14: 观看进度 turned 关 mid-read stops it before the next page (README: 选「关」就不读).
+    t.setTimeout = (f, ms) => realTimeout(f, ms === 5000 ? 0 : ms);
+    const n = urls.length;
+    pages = [page([h("BVi", T + 380, 10)], 30), page([h("BVj", T + 370, 10)], 20), page([h("BVk", T + 360, 10)], 0)];
+    t.fetch = async (url) => ((sync = { seenShow: "off" }), realFetch(url));
+    const stopped = await read({ force: true });
+    t.fetch = realFetch;
+    t.setTimeout = realTimeout;
+    assert.strictEqual(urls.length - n, 1, "no page is read after the switch went off");
+    assert.deepStrictEqual(plain(stopped), { stopped: "off", pages: 1 });
+    sync = { seenShow: "bar" };
   }
 
   // triageListen: its prefix only; unknown types and handler errors answer { ok: false }, the code passed through.

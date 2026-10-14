@@ -416,9 +416,11 @@ async function seenClear() {
   await chrome.storage.local.remove([...keys, SEEN_META]);
 }
 
+// 封面显示 is on: the history is read only then, checked again before every page.
+const seenOn = async () => ["bar", "mark", "both"].includes((await chrome.storage.sync.get({ seenShow: "off" })).seenShow);
+
 async function seenSyncOnce(force, started) {
-  const { seenShow } = await chrome.storage.sync.get({ seenShow: "off" });
-  if (!["bar", "mark", "both"].includes(seenShow)) return { skipped: "off" };
+  if (!(await seenOn())) return { skipped: "off" };
   let meta = (await chrome.storage.local.get(SEEN_META))[SEEN_META] || {};
   const now = Date.now();
   if (now < (meta.backoffUntil || 0)) return { skipped: "throttled", until: meta.backoffUntil };
@@ -436,6 +438,8 @@ async function seenSyncOnce(force, started) {
       if (ran) {
         await new Promise((r) => setTimeout(r, SEEN_PAGE_GAP_MS));
         await chrome.runtime.getPlatformInfo(); // an extension API call keeps the worker alive through a ~5 min first read
+        // Turned 关 mid-read: stop before the next page (seenClear is waiting for this run to drop what was read).
+        if (!(await seenOn())) return { stopped: "off", pages: ran };
       }
       const data = await triageBiliGet(`https://api.bilibili.com/x/web-interface/history/cursor?ps=30&max=${cursor.max}&view_at=${cursor.view_at}&business=${cursor.business}`);
       ran++;
