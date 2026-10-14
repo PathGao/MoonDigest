@@ -1366,7 +1366,7 @@
   //      pickPreferredTrack takes it).
   //   2. loadFirstTrack over it. When tracks were listed but none matched (signed URLs expire, B站 sometimes serves
   //      another video's subtitle), the list is read and walked once more; after empty bodies without the PO token.
-  //   3. YouTube only, when nothing matched or the video is gated: the watch page's transcript.
+  //   3. YouTube only, when nothing matched (and no limit) or the video is gated: the watch page's transcript.
   //   4. Still nothing matching: the first mismatched body, used with its check in `mismatch` (the reader shows
   //      MdgNote.subtitleMismatchWarning; it is never cached).
   // A limit with nothing usable throws, so the caller waits and tries again. Any other failure (network, timeout,
@@ -1402,7 +1402,7 @@
         pass = next.track ? next : { ...pass, error: next.error || pass.error, limited: next.limited };
       }
     }
-    if ((!pass.track || pass.mismatch) && site.fetchTranscript && (tracks.length || meta.gate)) {
+    if ((!pass.track || pass.mismatch) && !pass.limited && site.fetchTranscript && (tracks.length || meta.gate)) {
       const transcript = await step(settle(site.fetchTranscript(ref, io)));
       if (transcript.value) {
         const { track } = transcript.value;

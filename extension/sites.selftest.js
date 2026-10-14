@@ -660,12 +660,16 @@ async function ytComments(next, byContinuation) {
   eq([got.track, got.failure, got.needLogin], [null, "", true]);
   eq((await load(fake(two, { a: fit }))).needLogin, false);
 
-  // YouTube's transcript, when the tracks are limited or all fail, or the video is gated; a failed transcript leaves
-  // the gate as the reason.
+  // YouTube's transcript, when the tracks all fail or the video is gated; a failed transcript leaves the gate as the
+  // reason. L11: a limit stops there too, no transcript request.
   const transcript = { track: { id: "transcript", url: "https://x/t", label: "文字稿" }, raw: fit };
-  f = fake(two, { a: limit() }, { fetchTranscript: async () => transcript });
+  let transcripts = 0;
+  f = fake(two, { a: new Error("请求失败：404"), b: new Error("请求失败：404") }, { fetchTranscript: async () => (transcripts++, transcript) });
   got = await load(f);
   eq([got.track.id, got.tracks.map((t) => t.id)], ["transcript", ["transcript", "a", "b"]]);
+  f = fake(two, { a: limit() }, { fetchTranscript: async () => (transcripts++, transcript) });
+  await assert.rejects(load(f), (e) => e.status === 429);
+  eq(transcripts, 1, "a limit asks for no transcript");
   f = fake([], {}, { fetchTranscript: async () => transcript });
   eq((await load(f, {}, { fresh: true }, { duration: 100, gate: "要登录" })).track.id, "transcript");
   f = fake([], {}, { fetchTranscript: async () => Promise.reject(new Error("没有文字稿")) });
