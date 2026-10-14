@@ -852,7 +852,7 @@ function normalizeAiSystemPrompt(value) {
 
 // ===== AI 模型平台存储 =====
 
-const AI_PROVIDER_KEYS_STORAGE = "aiProviderKeys";
+const AI_PROVIDER_KEYS_STORAGE = MdgLimits.KEYS.aiApiKeys;
 
 function normalizeAiProvider(item) {
   if (!item || typeof item !== "object") return null;

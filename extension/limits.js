@@ -23,6 +23,7 @@
   const ANALYSIS = "triage_analysis_";
   const TITLE = "triage_title_";
   const SNAPSHOT = "triage_snapshot_";
+  const SEEN = "seen_";
   const KEYS = Object.freeze({
     subtitleCachePrefix: "mdg_subtitle_cache_",
     aiConversations: "mdg_ai_conversations_v1",
@@ -46,7 +47,15 @@
     // The 分拣台's folder choice and 判断标准: settings kept in local, carried by the settings file.
     triageIncludedFolders: "triage_included_folders",
     triageFolderCriteria: "triage_folder_criteria",
-    triageSimplified: "triage_simplified_v1"
+    triageSimplified: "triage_simplified_v1",
+    // The AI platforms' API keys (local, never in sync or the settings file): the background, the side panel follows it.
+    aiApiKeys: "aiProviderKeys",
+    // 观看进度: seen_<bvid> → [percent, view_at s], written by the background's history read; badges.js copies the prefix.
+    seenPrefix: SEEN,
+    seen: (bvid) => `${SEEN}${bvid}`,
+    // The AI platform picked at the top of the side panel, in the extension pages' localStorage (not chrome.storage):
+    // the side panel writes it, the 分拣台 sends it with every request.
+    aiSelectedProvider: "mdg_ai_selected_provider"
   });
 
   // 3.6 renamed every boc_* key (local, session and the extension pages' localStorage) to mdg_*. Old name → new name, or "".

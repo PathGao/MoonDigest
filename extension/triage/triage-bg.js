@@ -366,6 +366,7 @@ const SEEN_MAX_PAGES = 60;
 const SEEN_KEEP_S = 365 * 86400;
 const SEEN_MAX = 5000;
 const SEEN_PRUNE_GAP_MS = 86400 * 1000;
+const SEEN_PREFIX = MdgLimits.KEYS.seenPrefix;
 const SEEN_META = MdgLimits.KEYS.triageSeenMeta; // { newest: view_at s, syncedAt, prunedAt, backoffUntil, resume }
 
 // Percent watched from a history item: progress -1 means finished.
@@ -412,7 +413,7 @@ function seenSync({ force }) {
 // 关 drops the stored history (up to SEEN_MAX keys) once any read in flight has written; turning it back on reads afresh.
 async function seenClear() {
   await seenRun?.catch(() => {});
-  const keys = (await chrome.storage.local.getKeys()).filter((k) => k.startsWith("seen_"));
+  const keys = (await chrome.storage.local.getKeys()).filter((k) => k.startsWith(SEEN_PREFIX));
   await chrome.storage.local.remove([...keys, SEEN_META]);
 }
 
@@ -445,11 +446,11 @@ async function seenSyncOnce(force, started) {
       const found = {};
       // A read also ends at SEEN_MAX_PAGES: older history is left out.
       const end = seenFold(found, list, meta.newest || 0) || !list.length || !data?.cursor?.max || pages >= SEEN_MAX_PAGES;
-      const stored = await chrome.storage.local.get(Object.keys(found).map((b) => `seen_${b}`));
+      const stored = await chrome.storage.local.get(Object.keys(found).map(MdgLimits.KEYS.seen));
       const write = {};
       for (const [b, [pct, at]] of Object.entries(found)) {
-        const old = stored[`seen_${b}`];
-        write[`seen_${b}`] = [Math.max(old?.[0] || 0, pct), Math.max(old?.[1] || 0, at)];
+        const old = stored[MdgLimits.KEYS.seen(b)];
+        write[MdgLimits.KEYS.seen(b)] = [Math.max(old?.[0] || 0, pct), Math.max(old?.[1] || 0, at)];
       }
       meta = end ? { ...meta, newest: top, syncedAt: now, backoffUntil: 0, resume: null } : { ...meta, resume: { cursor: data.cursor, top, pages } };
       await chrome.storage.local.set({ ...write, [SEEN_META]: meta });
@@ -464,12 +465,12 @@ async function seenSyncOnce(force, started) {
   }
   let dropped = 0;
   if (now - (meta.prunedAt || 0) > SEEN_PRUNE_GAP_MS) {
-    const all = (await chrome.storage.local.getKeys()).filter((k) => k.startsWith("seen_"));
+    const all = (await chrome.storage.local.getKeys()).filter((k) => k.startsWith(SEEN_PREFIX));
     const got = await chrome.storage.local.get([...all, MdgLimits.KEYS.triageIncludedFolders]);
     const snaps = await chrome.storage.local.get((got[MdgLimits.KEYS.triageIncludedFolders] || []).map(MdgLimits.KEYS.triageSnapshot));
     const keep = new Set(Object.values(snaps).flatMap((s) => s?.bvids || []));
-    const drop = seenPrune(Object.fromEntries(all.map((k) => [k.slice(5), got[k]])), keep, Math.floor(now / 1000));
-    if (drop.length) await chrome.storage.local.remove(drop.map((b) => `seen_${b}`));
+    const drop = seenPrune(Object.fromEntries(all.map((k) => [k.slice(SEEN_PREFIX.length), got[k]])), keep, Math.floor(now / 1000));
+    if (drop.length) await chrome.storage.local.remove(drop.map(MdgLimits.KEYS.seen));
     dropped = drop.length;
     await chrome.storage.local.set({ [SEEN_META]: { ...meta, prunedAt: now } });
   }

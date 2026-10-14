@@ -291,7 +291,7 @@ function send(msg) {
 const showLogin = () => showBanner(MdgErrors.TEXT.biliLogin, "去登录", () => openTab("https://passport.bilibili.com/login"), "login");
 // The AI platform picked at the top of the side panel: sidepanel.js keeps it in this extension's localStorage under
 // this key (SELECTED_PROVIDER_KEY there). Every request carries it; the background's AI calls use it (triageChat).
-const AI_PROVIDER_KEY = "mdg_ai_selected_provider";
+const AI_PROVIDER_KEY = KEYS.aiSelectedProvider;
 // Before the first read: 3.5 and older kept it under the old key prefix. Either page may open first after the update.
 try {
   MdgLimits.migrateRenamedLocalStorage(localStorage);
@@ -902,16 +902,16 @@ async function loadSeen(token) {
   if (!S.seenCfg.on) return;
   const want = S.items.map((it) => it.bvid).filter((b) => !(b in S.seenPct));
   if (!want.length) return;
-  const got = await chrome.storage.local.get(want.map((b) => `seen_${b}`));
+  const got = await chrome.storage.local.get(want.map(KEYS.seen));
   if (token !== S.folderToken) return;
-  for (const b of want) S.seenPct[b] = got[`seen_${b}`] || null;
+  for (const b of want) S.seenPct[b] = got[KEYS.seen(b)] || null;
 }
 function followSeen(changes) {
   if (changes[KEYS.triageSeenMeta]) followSeenMeta(changes[KEYS.triageSeenMeta].newValue);
   let hit = false;
   for (const [key, c] of Object.entries(changes)) {
-    if (!key.startsWith("seen_")) continue;
-    S.seenPct[key.slice(5)] = c.newValue || null;
+    if (!key.startsWith(KEYS.seenPrefix)) continue;
+    S.seenPct[key.slice(KEYS.seenPrefix.length)] = c.newValue || null;
     hit = true;
   }
   if (hit && S.seenCfg.on) render();

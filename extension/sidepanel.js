@@ -1,4 +1,4 @@
-const SELECTED_PROVIDER_KEY = "mdg_ai_selected_provider";
+const SELECTED_PROVIDER_KEY = MdgLimits.KEYS.aiSelectedProvider;
 // Before the first read: 3.5 and older kept it under the old key prefix. Either page may open first after the update.
 try {
   MdgLimits.migrateRenamedLocalStorage(localStorage);
@@ -216,7 +216,7 @@ function bindEvents() {
           changes.playerAiQuickPrompt ||
           changes.aiPresetPrompts ||
           changes.obsidianEnabled)) ||
-      (areaName === "local" && changes.aiProviderKeys)
+      (areaName === "local" && changes[MdgLimits.KEYS.aiApiKeys])
     ) {
       void refreshProvidersAndPrefsAfterExternalChange();
     }
