@@ -1838,11 +1838,7 @@ function renderTabs() {
   const scope = `在「${folderTitle()}」${tabName ? ` · ${tabName}` : ""}里搜`;
   UI.setSearchScope(el.searchInput, scope);
   // 已出分拣范围 has no steps; its tabs are why the videos left (kindOf), 全部 first for the ones not checked yet.
-  const kindTabs = () =>
-    [["", "全部"], ...KINDS].map(([kind, label]) => {
-      const n = kind ? S.items.filter((it) => kindOf(it) === kind).length : S.items.length;
-      return `<button type="button" role="tab" class="${n ? "step" : "step zero"}" data-kindtab="${kind}" aria-selected="${S.kindFilter === kind}" aria-label="${label} ${n}">${label}<span class="count">${n}</span></button>`;
-    }).join("");
+  const kindTabs = () => UI.kindTabs("data-kindtab", [["", "全部"], ...KINDS].map(([kind, label]) => [kind, label, kind ? S.items.filter((it) => kindOf(it) === kind).length : S.items.length]), S.kindFilter);
   el.tabs.innerHTML = S.mediaId === REMOVED ? kindTabs() :
     steps.join(`<span class="arrow" aria-hidden="true">→</span>`) + `<span class="tab-sep" aria-hidden="true"></span>` + tab("read", "阅览全部", "read-tab", c.read);
 
@@ -1853,11 +1849,7 @@ function renderTabs() {
   const chips = tagChips().filter((c) => c.ids.some((id) => hereTags.has(id) || S.tagFilter.has(id)));
   const counted = here.filter((it) => inTab(it, S.tab) && passFilter(it, "tags")).map((it) => tagIdsOf(it.bvid));
   el.tagFilter.innerHTML = UI.labeledRow("标签", chips
-    .map((c) => {
-      const on = c.ids.some((id) => S.tagFilter.has(id));
-      const n = counted.filter((ids) => c.ids.some((id) => ids.includes(id))).length;
-      return `<button type="button" class="chip${on ? " on" : ""}${n ? "" : " zero"}" style="--c:${esc(c.color)}" data-tagfilter="${esc(c.ids.join(","))}" aria-pressed="${on}" aria-label="按标签筛选 ${esc(c.name)} ${n}" title="可多选：只显示同时带有所选标签的视频">${esc(c.name)}<span class="chip-n">${n}</span></button>`;
-    })
+    .map((c) => UI.tagFilterChip(`data-tagfilter="${esc(c.ids.join(","))}"`, { name: c.name, color: c.color, on: c.ids.some((id) => S.tagFilter.has(id)), n: counted.filter((ids) => c.ids.some((id) => ids.includes(id))).length, what: "视频" }))
     .join(""));
   renderTagButtons();
   renderSort();
@@ -2270,12 +2262,7 @@ function leftText(it) {
   return `${when} ${why}`;
 }
 // 原在「A」「B」, or 原在「A」「B」等 N 个 with the whole list in the title; nothing for records from before the origin was kept.
-function originHtml(it) {
-  const names = (it.from || []).map((f) => `「${f.title}」`);
-  if (!names.length) return "";
-  const text = names.length > 2 ? `原在${names.slice(0, 2).join("")}等 ${names.length} 个` : `原在${names.join("")}`;
-  return `<span class="origin-chip" title="${esc(`原在${names.join("")}`)}">${esc(text)}</span>`;
-}
+const originHtml = (it) => UI.originChip("原在", (it.from || []).map((f) => f.title));
 
 function folderTitle(id = S.mediaId) {
   if (id === ALL) return "所有收藏夹";
@@ -2785,7 +2772,7 @@ function askTransfer(list) {
     title: add ? `在 B站把这 ${list.length} 个视频收藏到` : `在 B站移动或复制这 ${list.length} 个视频`,
     n: list.length,
     hows: add ? ["add"] : ["copy", "move"],
-    list: `<ul>${list.slice(0, 10).map((it) => `<li>${esc(it.title)}</li>`).join("")}</ul>${list.length > 10 ? `<p>等 ${list.length} 个</p>` : ""}${noAid ? `<p class="dialog-hint">另有 ${noAid} 个缺少视频编号（很早以前留下的记录），不能${add ? "收藏" : "移动或复制"}。</p>` : ""}`,
+    list: `${UI.confirmList(list.map((it) => it.title))}${noAid ? `<p class="dialog-hint">另有 ${noAid} 个缺少视频编号（很早以前留下的记录），不能${add ? "收藏" : "移动或复制"}。</p>` : ""}`,
     label: "目标收藏夹",
     options: S.allFolders.filter((f) => String(f.id) !== from && String(f.id) !== TOVIEW).map((f) => [String(f.id), `${f.title} (${f.count})`]),
     newText: "新建收藏夹…",

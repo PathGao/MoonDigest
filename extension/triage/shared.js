@@ -127,6 +127,19 @@
   const filterBtn = (attrs, label, n, pressed, extra = "") =>
     `<button type="button" ${attrs} aria-pressed="${Boolean(pressed)}"${n === 0 ? ' class="zero"' : ""}>${extra}${esc(label)}${n == null ? "" : ` ${n}`}</button>`;
 
+  // Row 4's tag filter: a chip in the tag's color with how many listed carry it; several are ANDed (what: what it lists).
+  const tagFilterChip = (attrs, { name, color, n, on, what }) =>
+    `<button type="button" class="chip${on ? " on" : ""}${n ? "" : " zero"}" style="--c:${esc(color)}" ${attrs} aria-pressed="${on}" aria-label="按标签筛选 ${esc(name)} ${n}" title="可多选：只显示同时带有所选标签的${esc(sp(what))}">${esc(name)}<span class="chip-n">${n}</span></button>`;
+  // 已出分拣范围's tabs on row 2: why the items left, 全部 first. kinds = [[value, label, n]]; attr holds the value.
+  const kindTabs = (attr, kinds, on) =>
+    kinds.map(([k, label, n]) => `<button type="button" role="tab" class="${n ? "step" : "step zero"}" ${attr}="${esc(k)}" aria-selected="${on === k}" aria-label="${esc(label)} ${n}">${esc(label)}<span class="count">${n}</span></button>`).join("");
+  // 已出分拣范围's card: where it was (pre: 原在 or 在), two names then 「等 N 个」, all of them on hover.
+  const originChip = (pre, names) => {
+    const all = pre + names.map((n) => `「${n}」`).join("");
+    const text = names.length > 2 ? `${pre}${names.slice(0, 2).map((n) => `「${n}」`).join("")}等 ${names.length} 个` : all;
+    return names.length ? `<span class="origin-chip" title="${esc(all)}">${esc(text)}</span>` : "";
+  };
+
   // Rows 3 and 4 start with their name, 「状态」 and 「标签」, so the two rows of pills tell apart (triage.css .row-label).
   const labeledRow = (label, html) => `<span class="row-label">${esc(label)}</span>${html}`;
   // Row 3 (both modes): one group of state pills; the CSS splits groups by a thin rule and wraps them whole.
@@ -631,6 +644,6 @@
     main.addEventListener("focusin", (e) => e.target.closest(HEAD_ROWS) && set(headroomStep(s, { focus: true })));
   }
 
-  globalThis.TriageUi = { esc, pad, dayText, fmtDate, fmtAgo, agoHtml, setSearchScope, confirmList, pickTitle, fmtDuration, fmtCount, cleanTagName, plainClick, cardPlayClick, cardPickClick, pickCard, img, toCsv, cardTagChip, syncedText, headMeta, titleHtml, ICON, AI_SPARK, byValue, dirWords, sortControl, filterBtn, labeledRow, stateGroup, aiRecentChip, searchBox, bindSearch, resultCount, rowButtons, menuItem, BACKUP_ITEM, reasonAttrs, setReason, WARN_DOT, selectAllState, selectAllBox, toggleAll, setActivity, waitText, BILI_HOLD_MS, WRITE_STOPPING, busyText, syncPill
+  globalThis.TriageUi = { esc, pad, dayText, fmtDate, fmtAgo, agoHtml, setSearchScope, confirmList, pickTitle, fmtDuration, fmtCount, cleanTagName, plainClick, cardPlayClick, cardPickClick, pickCard, img, toCsv, cardTagChip, syncedText, headMeta, titleHtml, ICON, AI_SPARK, byValue, dirWords, sortControl, filterBtn, labeledRow, tagFilterChip, kindTabs, originChip, stateGroup, aiRecentChip, searchBox, bindSearch, resultCount, rowButtons, menuItem, BACKUP_ITEM, reasonAttrs, setReason, WARN_DOT, selectAllState, selectAllBox, toggleAll, setActivity, waitText, BILI_HOLD_MS, WRITE_STOPPING, busyText, syncPill
 , setSync, bindSync, tagButtons, sideFoot, actBtn, cleanBtn, HIDDEN_ALL, selbar, askTransfer, sideItem, emptyState, refreshEmpty, noMatch, fillSetRows, clampNumber, intIn, clampNumbers, mergeAiBatch, aiChanges, aiProposalOk, previewId, aiTally, nextTagColor, tagNameError, deleteTagAsk, editedTag, withoutTag, undoAsk, tagRowHtml, sp, tagsWord, AI_RECENT_RULES, aiRecentUndo, tagPlusBtn, viewerLine, viewerKeyFrom, headroomStep, headroom };
 })();

@@ -649,10 +649,7 @@ function renderTabs() {
   // 已出分拣范围 has no 视频投稿; its tabs are why the UP 主 left (outKind), 全部 first.
   if (F.side === "out") {
     const all = sideMids(D, rows, "out");
-    E.tabs.innerHTML = [["", "全部"], ...OUT_KINDS].map(([k, label]) => {
-      const n = k ? all.filter((m) => outKind(rows.get(m)) === k).length : all.length;
-      return `<button type="button" role="tab" class="${n ? "step" : "step zero"}" data-fwkind="${k}" aria-selected="${F.kind === k}">${label}<span class="count">${n}</span></button>`;
-    }).join("");
+    E.tabs.innerHTML = UI.kindTabs("data-fwkind", [["", "全部"], ...OUT_KINDS].map(([k, label]) => [k, label, k ? all.filter((m) => outKind(rows.get(m)) === k).length : all.length]), F.kind);
     return;
   }
   E.tabs.innerHTML = tab("ups", "UP 主", sideCount("all")) + tab("feed", "视频投稿");
@@ -681,11 +678,7 @@ function stateRowUps(counts) {
 const tagRowHtml = (counts) =>
   D.tags
     .filter((t) => counts[t.id] || F.tags.has(t.id))
-    .map((t) => {
-      const on = F.tags.has(t.id);
-      const n = counts[t.id] || 0;
-      return `<button type="button" class="chip${on ? " on" : ""}${n ? "" : " zero"}" style="--c:${esc(t.color)}" data-fw-tag="${esc(t.id)}" aria-pressed="${on}" aria-label="按标签筛选 ${esc(t.name)} ${n}" title="可多选：只显示同时带有所选标签的">${esc(t.name)}<span class="chip-n">${n}</span></button>`;
-    })
+    .map((t) => UI.tagFilterChip(`data-fw-tag="${esc(t.id)}"`, { name: t.name, color: t.color, on: F.tags.has(t.id), n: counts[t.id] || 0, what: F.tab === "feed" ? "UP 主的视频" : "UP 主" }))
     .join("");
 // Anything in rows 3 and 4 narrowing the list (for 「N 个结果」); the sidebar is scope, as 收藏夹's folder.
 const filtersOn = () => (F.side === "out" ? Boolean(F.source || F.tagState || F.tags.size) : Boolean(F.tagState || F.tags.size || (F.tab === "ups" && (F.status || F.recentFilter))));
@@ -790,9 +783,8 @@ function upCard(mid) {
   // Its 关注分组, as 收藏夹's 原在「A」: where the unfollowed were (records from before groups were kept have none), where
   // the still followed are. Groups deleted since are left out; none of your own is 默认分组.
   const gids = kind === "gone" ? u.gone.groups : kind ? groupsOf(mid, D) : null;
-  const gnames = gids ? (gids.length ? gids.map((id) => groupName(id, D)).filter(Boolean) : ["默认分组"]).map((n) => `「${n}」`) : [];
-  const pre = kind === "gone" ? "原在" : "在";
-  const origin = gnames.length ? `<span class="origin-chip" title="${esc(pre + gnames.join(""))}">${esc(gnames.length > 2 ? `${pre}${gnames.slice(0, 2).join("")}等 ${gnames.length} 个` : pre + gnames.join(""))}</span>` : "";
+  const gnames = gids ? (gids.length ? gids.map((id) => groupName(id, D)).filter(Boolean) : ["默认分组"]) : [];
+  const origin = UI.originChip(kind === "gone" ? "原在" : "在", gnames);
   const chips = u.tagIds.map(tagOf).map((t) => u.gone
     ? `<span class="chip" style="--c:${esc(t.color)}">${esc(t.name)}</span>`
     : UI.cardTagChip(t, "点一下去掉这个标签")).join("");

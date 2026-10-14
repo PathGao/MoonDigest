@@ -426,6 +426,16 @@ for (const [file, fns] of [["triage.js", ["mergeAiBatch", "aiChanges"]], ["follo
   assert.ok(UI.cleanBtn('data-x="c"', { picked: 2, shown: 0, n: 2, why: "空" }).includes('aria-label="清理选中的 2 个" disabled title="选中的都被筛选隐藏了"'));
   both("UI.cleanBtn(", "draws 清理 with cleanBtn");
   neither(/清理选中的 \$\{|清理这 \$\{[^}]*\} 个`|<button type="button"\$\{cls/, "builds its own 清理 or action button");
+  // J10: row 4's tag chip, 已出分拣范围's tabs and its 「原在…」 chip are drawn once; a batch confirm lists with confirmList.
+  assert.strictEqual(UI.tagFilterChip('data-x="t"', { name: "科普", color: "#111", n: 2, on: true, what: "UP 主" }), '<button type="button" class="chip on" style="--c:#111" data-x="t" aria-pressed="true" aria-label="按标签筛选 科普 2" title="可多选：只显示同时带有所选标签的 UP 主">科普<span class="chip-n">2</span></button>');
+  assert.strictEqual(UI.kindTabs("data-k", [["", "全部", 3], ["gone", "已取消关注", 0]], ""), '<button type="button" role="tab" class="step" data-k="" aria-selected="true" aria-label="全部 3">全部<span class="count">3</span></button><button type="button" role="tab" class="step zero" data-k="gone" aria-selected="false" aria-label="已取消关注 0">已取消关注<span class="count">0</span></button>');
+  assert.strictEqual(UI.originChip("原在", ["A", "B", "C"]), '<span class="origin-chip" title="原在「A」「B」「C」">原在「A」「B」等 3 个</span>');
+  assert.strictEqual(UI.originChip("在", []), "");
+  for (const [needle, re, what] of [["UI.tagFilterChip(", /class="chip\$\{on/, "row 4's tag chip"], ["UI.kindTabs(", /role="tab" class="\$\{n \?/, "已出分拣范围's tabs"], ["UI.originChip(", /class="origin-chip"/, "the 「原在…」 chip"]]) {
+    both(needle, `draws ${what} with the shared one`);
+    neither(re, `draws its own ${what}`);
+  }
+  neither(/\.slice\(0, 10\)/, "lists a batch confirm by hand instead of UI.confirmList");
   // What waits for a running step: one sentence, U's version asks to wait before undoing.
   assert.deepStrictEqual([UI.busyText("取消关注"), UI.busyText("取消关注", { undo: true }), UI.busyText("")], ["取消关注还在跑，等它完成", "取消关注还在跑，等它完成再撤销", ""]);
   neither(/还在跑/, "writes its own 「…还在跑」");
