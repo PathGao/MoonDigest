@@ -734,8 +734,8 @@ function bindUiEvents() {
     });
   }
   readingThemeSelect.addEventListener("click", () => {
-    const themes = ["light", "dark", "paper"];
-    const current = state.readingTheme || "light";
+    const themes = MdgSettings.READER_OPTIONS.readerTheme;
+    const current = state.readingTheme;
     const nextIndex = (themes.indexOf(current) + 1) % themes.length;
     updateReaderPreferences({ readerTheme: themes[nextIndex] }, { persist: true });
     readingThemeSelect.classList.add("is-active");
@@ -1884,7 +1884,7 @@ function updateReadingTranscriptTailSpacer() {
 function hydrateReaderStateFromSettings(settings = state.settings) {
   state.readingTheme = MdgSettings.normalizeReaderTheme(settings?.readerTheme);
   state.readingFontScale = MdgSettings.normalizeReaderFontScale(settings?.readerFontScale);
-  state.readingLetterSpacing = MdgSettings.normalizeReaderLetterSpacing(settings?.readerLetterSpacing ?? settings?.readerLineHeight);
+  state.readingLetterSpacing = MdgSettings.normalizeReaderLetterSpacing(settings?.readerLetterSpacing);
   state.readingLineHeight = MdgSettings.normalizeReaderLineHeight(settings?.readerLineHeight);
   state.readingContentWidth = MdgSettings.normalizeReaderContentWidth(settings?.readerContentWidth);
   state.readingChapterVisible = settings?.readerChapterVisible !== undefined ? Boolean(settings.readerChapterVisible) : true;
@@ -1937,25 +1937,25 @@ function getToggleLabel(key, value) {
 function getReaderStepperConfig(settingKey) {
   const configs = {
     readerFontScale: {
-      options: ["xs", "s", "m", "l", "xl"],
+      options: MdgSettings.READER_OPTIONS.readerFontScale,
       labelKey: "fontScale",
       getCurrent: () => state.readingFontScale,
       buildPayload: (value) => ({ readerFontScale: value })
     },
     readerLetterSpacing: {
-      options: ["tighter", "tight", "normal", "relaxed", "loose"],
+      options: MdgSettings.READER_OPTIONS.readerLetterSpacing,
       labelKey: "letterSpacing",
       getCurrent: () => state.readingLetterSpacing,
       buildPayload: (value) => ({ readerLetterSpacing: value })
     },
     readerLineHeight: {
-      options: ["compact", "tight", "normal", "relaxed", "loose"],
+      options: MdgSettings.READER_OPTIONS.readerLineHeight,
       labelKey: "lineHeight",
       getCurrent: () => state.readingLineHeight,
       buildPayload: (value) => ({ readerLineHeight: value })
     },
     readerContentWidth: {
-      options: ["compact", "narrow", "medium", "wide", "full"],
+      options: MdgSettings.READER_OPTIONS.readerContentWidth,
       labelKey: "contentWidth",
       getCurrent: () => state.readingContentWidth,
       buildPayload: (value) => ({ readerContentWidth: value })

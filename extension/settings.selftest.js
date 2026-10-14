@@ -45,6 +45,14 @@ for (const [fn, key] of [["normalizeReaderFontScale", "readerFontScale"], ["norm
   assert.strictEqual(S[fn](undefined), S.DEFAULTS[key], `${fn} falls back to the default`);
   assert.strictEqual(S[fn](S.DEFAULTS[key]), S.DEFAULTS[key]);
 }
+const sources = ["background.js", "content.js", "options.js", "popup.js", "sidepanel.js", "note.js", "history/history.js", "triage/triage.js", "triage/triage-bg.js"];
+// 专注模式's legal values: READER_OPTIONS alone; every default is one of them; content.js steps and cycles through it,
+// and reads 字间距 only from its own setting.
+for (const [key, list] of Object.entries(S.READER_OPTIONS)) assert.ok(list.includes(S.DEFAULTS[key]), key);
+for (const list of Object.values(S.READER_OPTIONS)) {
+  for (const file of sources) assert.ok(!read(file).includes(JSON.stringify(list).replace(/,/g, ", ")), `${file} writes ${list} itself`);
+}
+assert.ok(!/readerLetterSpacing \?\? \w+\?\.readerLineHeight/.test(read("content.js")), "字间距 falls back to 行间距");
 
 // 看到多少算看完了: SEEN_THRESHOLD is its range and default (DEFAULTS reads it); intIn's rule.
 const { min, max, def } = S.SEEN_THRESHOLD;
@@ -52,7 +60,6 @@ assert.strictEqual(S.DEFAULTS.seenThreshold, def);
 assert.deepStrictEqual([-5, "", " ", null, undefined, "x", min - 1, min - 0.6, min, 42.6, "42", max + 50].map(S.normalizeSeenThreshold), [def, def, def, def, def, def, def, def, min, 43, 42, max]);
 
 // The default prompts are written only in settings.js (dev mocks may seed their own).
-const sources = ["background.js", "content.js", "options.js", "popup.js", "sidepanel.js", "note.js", "history/history.js", "triage/triage.js", "triage/triage-bg.js"];
 const texts = [S.DEFAULTS.playerAiQuickPrompt, ...S.DEFAULTS.aiPresetPrompts, S.DEFAULTS.aiSystemPrompt.split("\n").find((line) => line.includes("Emoji"))];
 for (const t of texts) {
   for (const file of sources) assert.ok(!read(file).includes(t), `${file} writes 「${t}」 itself`);

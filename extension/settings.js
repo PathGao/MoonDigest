@@ -126,13 +126,20 @@
       .slice(0, MAX_NOTE_SECTIONS);
   }
 
-  // Reading view: an unknown value falls back to the default.
-  const oneOf = (allowed, fallback) => (value) => (allowed.includes(value) ? value : fallback);
-  const normalizeReaderTheme = oneOf(["light", "dark", "paper"], "light");
-  const normalizeReaderFontScale = oneOf(["xs", "s", "m", "l", "xl"], "m");
-  const normalizeReaderLetterSpacing = oneOf(["tighter", "tight", "normal", "relaxed", "loose"], "normal");
-  const normalizeReaderLineHeight = oneOf(["compact", "tight", "normal", "relaxed", "loose"], "tight");
-  const normalizeReaderContentWidth = oneOf(["compact", "narrow", "medium", "wide", "full"], "medium");
+  // 专注模式: each setting's legal values in stepper order (the theme button cycles them); an unknown value is DEFAULTS'.
+  const READER_OPTIONS = Object.freeze({
+    readerTheme: ["light", "dark", "paper"],
+    readerFontScale: ["xs", "s", "m", "l", "xl"],
+    readerLetterSpacing: ["tighter", "tight", "normal", "relaxed", "loose"],
+    readerLineHeight: ["compact", "tight", "normal", "relaxed", "loose"],
+    readerContentWidth: ["compact", "narrow", "medium", "wide", "full"]
+  });
+  const oneOf = (key) => (value) => (READER_OPTIONS[key].includes(value) ? value : DEFAULTS[key]);
+  const normalizeReaderTheme = oneOf("readerTheme");
+  const normalizeReaderFontScale = oneOf("readerFontScale");
+  const normalizeReaderLetterSpacing = oneOf("readerLetterSpacing");
+  const normalizeReaderLineHeight = oneOf("readerLineHeight");
+  const normalizeReaderContentWidth = oneOf("readerContentWidth");
 
   globalThis.MdgSettings = Object.freeze({
     DEFAULTS,
@@ -141,6 +148,7 @@
     MAX_NOTE_SECTIONS,
     MAX_PRESET_PROMPTS,
     SEEN_THRESHOLD,
+    READER_OPTIONS,
     intIn,
     normalizeSeenThreshold,
     normalizeApiKey,
