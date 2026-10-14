@@ -68,11 +68,12 @@ const write = (extra) => send({ type: "write-video-note", ...extra });
   const coverUrl = `${baseUrl}/img/c.jpg`;
   let builds = 0;
   let gone = false;
+  let warn = "";
   ctx.triageBuildNote = async (bvid, settings) => {
     builds++;
     if (gone) throw Object.assign(new Error("啥都木有"), { code: -404 });
     const noteMeta = { site: "bilibili", videoId: bvid, cid: "c1", title: "T" };
-    return { meta: { title: "T" }, noteMeta, markdown: `---\ncover: "${coverUrl}"\n---\n\n![cover](${coverUrl})\n\n## 字幕\n\n你好`, path: N.videoNotePath(noteMeta, settings), cover: { url: coverUrl, name: `bilibili-${bvid}` }, subtitleWarning: "" };
+    return { meta: { title: "T" }, noteMeta, markdown: `---\ncover: "${coverUrl}"\n---\n\n![cover](${coverUrl})\n\n## 字幕\n\n你好`, path: N.videoNotePath(noteMeta, settings), cover: { url: coverUrl, name: `bilibili-${bvid}` }, subtitleWarning: warn };
   };
   const bili = { site: "bilibili", videoId: "BV1", cid: "c1", pageIndex: 1, title: "T" };
   const key = "video:bilibili:BV1|c1";
@@ -135,9 +136,23 @@ const write = (extra) => send({ type: "write-video-note", ...extra });
   gone = false;
 
   // 逐个视频笔记 never asks: without overwrite an existing note keeps its body (its AI 问答 follows); with it, rewritten.
+  // F11: it sends no cid; the note recorded for P1 is found without reading B站 again, never P2's of the same BV.
   vault.set(notePath, vault.get(notePath).replace("你好", "你好（又改了）"));
-  resp = await send({ type: "triage-write-note", bvid: "BV1", overwrite: false });
-  assert.deepStrictEqual(resp.data, { path: notePath, title: "T", skipped: true, aiUpdated: false });
+  local[PATHS]["video:bilibili:BV1|c0"] = { path: "N/bilibili/T P2.md", pageIndex: 2 };
+  builds = 0;
+  resp = await send({ type: "triage-write-note", bvid: "BV1", title: "T", overwrite: false });
+  assert.deepStrictEqual([resp.data, builds], [{ path: notePath, title: "T", skipped: true, aiUpdated: false }, 0]);
+  // An entry recorded before the 分 P was: one build finds it by the cid, and records the 分 P for the next run. Only the
+  // AI 问答 changed, so the subtitle warning of that build is not reported.
+  delete local[PATHS][key].pageIndex;
+  warn = "字幕抓取失败：网络断了。";
+  resp = await write({ ref: { ...bili, cid: "" }, conversation: conversation("补"), mode: "ai" });
+  assert.deepStrictEqual([resp.text, builds, local[PATHS][key].pageIndex], [`已更新 AI 问答：${notePath}`, 1, 1]);
+  warn = "";
+  builds = 0;
+  await send({ type: "triage-write-note", bvid: "BV1", overwrite: false });
+  assert.strictEqual(builds, 0);
+  delete local[PATHS]["video:bilibili:BV1|c0"];
   assert.ok(vault.get(notePath).includes("又改了"));
   resp = await send({ type: "triage-write-note", bvid: "BV1", overwrite: true });
   assert.deepStrictEqual(resp.data, { path: notePath, title: "T", skipped: false, aiUpdated: false });

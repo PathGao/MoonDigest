@@ -68,7 +68,7 @@ function bindEvents() {
   el.copyBtn.addEventListener("click", async () => {
     const payload = await ensurePayload();
     if (!payload?.markdown) {
-      setStatus("没有可复制内容，请先刷新", true);
+      setStatus(MdgErrors.TEXT.noNoteYet, true);
       return;
     }
     try {
@@ -97,7 +97,7 @@ function bindEvents() {
   el.mdBtn.addEventListener("click", async () => {
     const payload = await ensurePayload();
     if (!payload?.markdown) {
-      setStatus("没有可下载内容，请先刷新", true);
+      setStatus(MdgErrors.TEXT.noNoteYet, true);
       return;
     }
     // Named like the note 写入 Obsidian writes (date prefix setting, 分 P): the content script builds it.
@@ -159,7 +159,7 @@ function bindEvents() {
       subtitleId: String(option.dataset.id || "")
     });
     if (!resp?.ok) {
-      setStatus(`切换失败：${resp?.error || "未知错误"}`, true);
+      setStatus(`${MdgErrors.TEXT.subtitleSwitchFailed}：${resp?.error || "未知错误"}`, true);
     }
     render(resp?.payload || latestPayload, { preserveStatus: !resp?.ok });
   });
@@ -205,7 +205,7 @@ async function refreshFromTab(force = false) {
   el.refreshBtn.classList.toggle("is-error", !resp?.ok);
   if (!resp?.ok) {
     const errorText = resp?.error || NOT_VIDEO_PAGE;
-    setStatus(`抓取失败：${errorText}`, true);
+    setStatus(`${MdgErrors.TEXT.videoReadFailed}：${errorText}`, true);
     render(resp?.payload || latestPayload, { preserveStatus: true });
     return;
   }

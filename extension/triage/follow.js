@@ -1042,7 +1042,7 @@ const runs = MdgRuns.create({
   hold: (r) => (r.code === "THROTTLED" ? { ms: UI.BILI_HOLD_MS, label: "B站限流卡住" } : T.hold(r))
 });
 // The background's queue pause (follow_jobs.hold, follow_hold) in words.
-const holdLabel = (h) => (h.why === "throttled" ? "B站限流卡住" : MdgErrors.TEXT.network);
+const holdLabel = (h) => (h.why === "throttled" ? "B站限流卡住" : MdgErrors.TEXT.netDown);
 // The refresh's line, its hold (B站 risk control or a dropped connection) counting down after it; once the hold is over
 // the requests go slower for a while (follow-bg.js FOLLOW_CFG.slowForMs).
 runs.put("sync", () => {

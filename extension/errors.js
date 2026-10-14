@@ -26,21 +26,37 @@
     biliLogin: "未登录 B站：先在这个浏览器里登录 B站",
     // What a page that can reload adds to subtitleMissing's 未登录 sentence (the video page, the side panel); notes do not.
     subtitleLoginHint: "登录 B站后刷新网页",
+    // The popup and 专注模式 say the same for the same situation. Reading the video (its info; a subtitle failure alone
+    // is subtitleMissing) failed, on 刷新, on entering 专注模式 or on its automatic refresh; followed by 「：原因」.
+    videoReadFailed: "读取视频失败",
+    // The chosen subtitle track could not be loaded; followed by 「：原因」.
+    subtitleSwitchFailed: "字幕切换失败",
+    // 复制 Markdown, 下载 .md or 写入 Obsidian before the page has a note.
+    noNoteYet: "还没有笔记内容，请先点「刷新」",
+    // A side panel reply that ended without one word of answer (only thinking, or nothing); the panel offers 重试.
+    aiEmpty: "AI 平台没有返回回答",
     // A write to Obsidian that failed without the background saying why (video page, side panel, history page).
     obsidianWriteFailed: "Local API 写入失败",
     // A dropped connection (fetch's TypeError): the video page, 分拣台's B站 requests, 关注's paused refresh.
-    network: "网络断了",
+    netDown: "网络断了",
     // 继续问 on a record that is not a video (the side panel's input, 视频记录's button).
     notVideo: "不是视频，不能问",
     // Every selection is hidden by a search or filter: the buttons that act on it are disabled with this (分拣台, 视频记录).
     hiddenAll: "选中的都被筛选隐藏了"
   });
 
+  // How long a B站 / YouTube read waits for an answer: the background's B站 channel (triage-bg.js triageBiliFetch,
+  // which also serves the video page's fetch-json) and the video page's own fetches (content.js fetchOk).
+  const NET_TIMEOUT_MS = 30000;
+  const netTimeout = (ms) => `${TEXT.netDown}：${ms / 1000} 秒没有回应`;
+
   // Why a reader has no subtitle: the one sentence of every entry (video page, 专注模式, popup, side panel, the AI's
   // context, 分拣台, notes), without a full stop. subtitleNeedLogin is its own state (B站 hides subtitles from a
   // logged-out viewer), not a failure; subtitleFailure is why the fetch failed. A state, never an instruction.
   // AI_TIMEOUT: no answer from the AI platform in ms (each caller's own limit: side panel, 分拣台, 测试连接).
   const aiTimeout = (ms) => `AI 平台 ${ms / 1000} 秒没有回应`;
+  // AI_STALLED: a side panel reply that stopped midway for ms. Only 重试 helps (no 去设置: the platform did answer).
+  const aiStalled = (ms) => `回复中断：${ms / 1000} 秒没有新内容`;
 
   const subtitleMissing = ({ subtitleNeedLogin = false, subtitleFailure = "" } = {}) =>
     subtitleNeedLogin ? "未登录 B站，拿不到字幕" : subtitleFailure ? `字幕抓取失败：${subtitleFailure}` : "视频没有字幕";
@@ -77,7 +93,11 @@
   // The reply as an Error to throw; error.action says which button the catch shows, error.cause is the reply.
   const fromResp = (resp, fallback) => Object.assign(new Error(text(resp, fallback), { cause: resp }), { action: action(resp?.code) });
 
-  // The background's "未授权访问 <origin>，授权后重试" (hostPermissionError): an upgraded install lacks the AI provider's
+  // An AI provider's origin the extension may not reach yet (host permissions are optional): the background's
+  // hostPermissionError, and 测试连接 when the user declines the request. grantOrigin reads it back.
+  const noAccess = (origin) => `未授权访问 ${origin}，授权后重试`;
+
+  // The background's noAccess sentence (hostPermissionError, 测试连接): an upgraded install lacks the AI provider's
   // origin. request() must run in a click handler: permissions.request needs the user gesture, the worker cannot ask.
   function grantOrigin(message) {
     const origin = /未授权访问 (https?:\/\/[^\s，]+)/.exec(String(message || ""))?.[1];
@@ -109,5 +129,5 @@
     else node.removeAttribute("aria-description");
   }
 
-  globalThis.MdgErrors = Object.freeze({ TEXT, action, text, fromResp, grantOrigin, reloaded, escapeHtml, setReason, subtitleMissing, aiTimeout });
+  globalThis.MdgErrors = Object.freeze({ TEXT, action, text, fromResp, grantOrigin, reloaded, escapeHtml, setReason, subtitleMissing, aiTimeout, aiStalled, noAccess, NET_TIMEOUT_MS, netTimeout });
 })();

@@ -243,7 +243,7 @@ function triageError(error, code) {
 // follow-bg.js and the video page (content.js) use the same set.
 const BILI_RISK_CODES = MdgSites.BILI_RISK_CODES;
 async function triageBiliJson(res) {
-  if (!res.ok) throw triageError(`B站请求失败 HTTP ${res.status}`, res.status === 412 ? "THROTTLED" : undefined);
+  if (!res.ok) throw Object.assign(triageError(`B站请求失败 HTTP ${res.status}`, res.status === 412 ? "THROTTLED" : undefined), { status: res.status });
   try {
     return await res.json();
   } catch {
@@ -260,21 +260,22 @@ function triageBiliData(json) {
   return json.data;
 }
 
-// The one B站 channel of both modes (GET and POST). No answer in TRIAGE_BILI_CFG.timeoutMs, or a dropped connection,
-// is NETWORK.
-const TRIAGE_BILI_CFG = { timeoutMs: 30000 };
+// The one B站 channel of both modes (GET and POST) and the video page's fetch-json. No answer in
+// TRIAGE_BILI_CFG.timeoutMs (MdgErrors.NET_TIMEOUT_MS, the video page's own fetches use it too), or a dropped
+// connection, is NETWORK.
+const TRIAGE_BILI_CFG = { timeoutMs: MdgErrors.NET_TIMEOUT_MS };
 async function triageBiliFetch(url, init = {}) {
   const ctl = new AbortController();
   let timer;
   const timeout = new Promise((_, reject) => {
-    timer = setTimeout(() => reject(new Error(`${TRIAGE_BILI_CFG.timeoutMs / 1000} 秒没有回应`)), TRIAGE_BILI_CFG.timeoutMs);
+    timer = setTimeout(() => reject(Object.assign(new Error(MdgErrors.netTimeout(TRIAGE_BILI_CFG.timeoutMs)), { timedOut: true })), TRIAGE_BILI_CFG.timeoutMs);
   });
   try {
     return await Promise.race([fetch(url, { ...init, credentials: "include", signal: ctl.signal }), timeout]);
   } catch (e) {
     ctl.abort();
     // A dropped connection is fetch's TypeError, whose English text the user does not need.
-    throw triageError(e?.name === "TypeError" ? MdgErrors.TEXT.network : `${MdgErrors.TEXT.network}：${e?.message || e}`, "NETWORK");
+    throw triageError(e?.timedOut ? e.message : e?.name === "TypeError" ? MdgErrors.TEXT.netDown : `${MdgErrors.TEXT.netDown}：${e?.message || e}`, "NETWORK");
   } finally {
     clearTimeout(timer);
   }
@@ -616,6 +617,27 @@ function triageAiBodyError(json) {
   return triageError(/[\u4e00-\u9fff]/.test(detail) ? `AI 平台返回错误：${detail}` : "AI 平台返回错误");
 }
 
+// A non-stream reply's JSON (triageChat, 测试连接's probeAiChatCompletion): not JSON, or an error in the body, throws.
+async function triageAiJson(res) {
+  // In Chinese, not JSON.parse's SyntaxError.
+  const json = await res.json().catch(() => {
+    throw triageError("AI 平台的回复不是 JSON");
+  });
+  const bodyError = triageAiBodyError(json);
+  if (bodyError) throw bodyError;
+  return json;
+}
+
+// 接口地址、模型名、API Key 没填 (an imported settings file carries no keys): the side panel (background.js's chat port),
+// 测试连接 (testAiConnection) and 分拣台 (triageChat) check only here, in one set of words. The codes offer 去设置, and
+// 分拣台 stops at the first one instead of failing every video. null when the platform can be asked.
+function aiProviderProblem(provider, apiKey) {
+  if (!String(provider?.baseUrl || "").trim()) return { code: "AI_SETUP", text: "AI 平台的接口地址没填" };
+  if (!String(provider?.model || "").trim()) return { code: "AI_SETUP", text: "AI 平台的模型名没填" };
+  if (provider.requiresKey !== false && !String(apiKey || "").trim()) return { code: "AI_AUTH", text: "AI 平台的 API Key 没填" };
+  return null;
+}
+
 // The platform 分拣台's AI requests go to: the side panel's pick (aiProviderId), else the first enabled one. 开启思考
 // (triage-settings-get) asks the same, so the switch shows exactly when the requests would carry it.
 async function triageProvider(providerId = "") {
@@ -633,6 +655,8 @@ async function triageChat(messages, maxTokens, thinking = false, providerId = ""
   const provider = await triageProvider(providerId);
   if (!provider) throw triageError("请先在设置页配置 AI 平台", "AI_SETUP");
   const apiKey = (await loadAiProviderKeys())[provider.id];
+  const problem = aiProviderProblem(provider, apiKey);
+  if (problem) throw triageError(problem.text, problem.code);
   const headers = { "Content-Type": "application/json" };
   if (apiKey) headers.Authorization = `Bearer ${apiKey}`;
   const baseUrl = String(provider.baseUrl || "").replace(/\/+$/, "");
@@ -661,12 +685,8 @@ async function triageChat(messages, maxTokens, thinking = false, providerId = ""
       throw denied ? triageError(denied) : triageError(AI_NETWORK_TEXT, "AI_NETWORK");
     });
     if (!res.ok) throw triageAiHttpError(res.status, await res.text().catch(() => ""));
-    // A body that is not JSON is this request's failure, in Chinese (not JSON.parse's SyntaxError).
-    const json = await res.json().catch(() => {
-      throw triageError("AI 平台的回复不是 JSON");
-    });
-    const bodyError = triageAiBodyError(json);
-    if (bodyError) throw bodyError;
+    // A body that is not JSON is this request's failure.
+    const json = await triageAiJson(res);
     const choice = json.choices?.[0];
     if (!choice?.message?.content && choice?.finish_reason === "length") {
       throw triageError("模型输出被截断");
@@ -774,9 +794,11 @@ async function triageObsidianCheck() {
 // 逐个视频笔记: obsidian.js writeVideoNote without a conversation, so it never asks. overwrite rewrites the note; without
 // it an existing note keeps its body and only its AI 问答 section follows the conversation.
 // Returns { path, title, skipped, aiUpdated, subtitleWarning? }.
-async function triageWriteNote({ bvid, overwrite }) {
+// No cid here (分拣台 lists only BVs): writeVideoNote finds the note recorded for P1 by the BV and 分 P, so without
+// overwrite the AI 问答 is updated without reading B站. title: the card's, for the index when nothing was built.
+async function triageWriteNote({ bvid, title, overwrite }) {
   if (!bvid) throw triageError("缺少 bvid");
-  const done = await writeVideoNote({ ref: { site: "bilibili", videoId: bvid, pageIndex: 1 }, mode: overwrite ? "full" : "ai" });
+  const done = await writeVideoNote({ ref: { site: "bilibili", videoId: bvid, pageIndex: 1, title }, mode: overwrite ? "full" : "ai" });
   return { path: done.path, title: done.title, skipped: done.kind !== "full", aiUpdated: done.kind === "ai", ...(done.subtitleWarning && { subtitleWarning: done.subtitleWarning }) };
 }
 

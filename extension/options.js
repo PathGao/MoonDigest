@@ -1335,33 +1335,53 @@ function addAiProviderRow(item = {}) {
     updateSavedProviders((list) => list.filter((item) => item.id !== row.dataset.providerId));
   });
 
-  testBtn.addEventListener("click", async () => {
-    const statusNode = row.querySelector(".ai-provider-status");
-    const baseUrl = row.querySelector(".ai-provider-baseurl").value.trim();
-    const apiKey = row.querySelector(".ai-provider-apikey").value.trim();
-    const model = row.querySelector(".ai-provider-model").value.trim();
-    // The background checks 接口地址 and 模型名 too (testAiConnection) and answers in the side panel's words.
-    showAiProviderStatus(statusNode, "正在测试…");
-    statusNode.setAttribute("aria-busy", "true");
-    testBtn.disabled = true;
-    const resp = await sendRuntimeMessage({
-      type: "ai-providers-test",
-      providerId: row.dataset.providerId || "",
-      baseUrl,
-      apiKey,
-      model
-    }).catch((error) => ({ ok: false, error: error.message }));
-    statusNode.setAttribute("aria-busy", "false");
-    syncTest();
-    if (resp?.ok) {
-      showAiProviderStatus(statusNode, hasUnsavedChanges ? "连接成功，记得保存设置" : "连接成功");
-    } else {
-      showAiProviderStatus(statusNode, `失败：${MdgErrors.text(resp)}`, true);
-    }
-  });
+  testBtn.addEventListener("click", () => testAiProviderRow(row, syncTest));
 
   elements.aiProvidersList.appendChild(row);
   updateAiProvidersEmptyState();
+}
+
+// 测试连接 with what the row says now, saved or not. An address not saved yet may lack its host permission: it is asked
+// for first, in this click (permissions.request needs the user gesture, so nothing is awaited before it), and a granted
+// one is not asked again. Declined, or the background found it missing: the status says so, with 授权.
+// The background checks 接口地址, 模型名 and API Key (aiProviderProblem) and answers in the side panel's words.
+// sync: the row's own check, which leaves 测试连接 disabled while 接口地址 or 模型 is empty.
+async function testAiProviderRow(row, sync) {
+  const statusNode = row.querySelector(".ai-provider-status");
+  const testBtn = row.querySelector(".ai-provider-test");
+  const baseUrl = row.querySelector(".ai-provider-baseurl").value.trim();
+  const pattern = hostPermissionPattern(baseUrl);
+  const asked = pattern ? chrome.permissions.request({ origins: [pattern] }).catch(() => false) : true;
+  const apiKey = row.querySelector(".ai-provider-apikey").value.trim();
+  const model = row.querySelector(".ai-provider-model").value.trim();
+  const requiresKey = (AI_PRESETS.find((p) => p.id === row.querySelector(".ai-provider-preset").value) || AI_PRESETS.at(-1)).requiresKey;
+  showAiProviderStatus(statusNode, "正在测试…");
+  statusNode.setAttribute("aria-busy", "true");
+  testBtn.disabled = true;
+  const resp = !(await asked)
+    ? { ok: false, error: MdgErrors.noAccess(pattern.replace(/\/\*$/, "")) }
+    : await sendRuntimeMessage({ type: "ai-providers-test", providerId: row.dataset.providerId || "", baseUrl, apiKey, model, requiresKey }).catch((error) => ({
+        ok: false,
+        error: error.message
+      }));
+  statusNode.setAttribute("aria-busy", "false");
+  sync();
+  if (resp?.ok) {
+    showAiProviderStatus(statusNode, hasUnsavedChanges ? "连接成功，记得保存设置" : "连接成功");
+    return;
+  }
+  showAiProviderStatus(statusNode, `失败：${MdgErrors.text(resp)}`, true);
+  const access = MdgErrors.grantOrigin(resp?.error);
+  if (access) {
+    const grant = document.createElement("button");
+    grant.type = "button";
+    grant.className = "sm";
+    grant.textContent = "授权";
+    grant.addEventListener("click", async () => {
+      if (await access.request()) await testAiProviderRow(row, sync);
+    });
+    statusNode.append(" ", grant);
+  }
 }
 
 function apiKeyPlaceholder(hasSavedKey, requiresKey) {

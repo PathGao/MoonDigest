@@ -362,7 +362,7 @@ function init() {
     schedulePlayerAiQuickActionSync();
     if (shouldEnterReaderMode) {
       enterReaderMode().catch((error) => {
-        setReadingNotice(`专注模式启动失败：${getErrorMessage(error)}`);
+        setReadingNotice(`专注模式启动失败：${getErrorMessage(error)}`, { error: true });
       });
     }
   });
@@ -793,8 +793,8 @@ function bindUiEvents() {
   // Same request as the popup's AI 总结, so it works even when the player button is turned off.
   byId(ids.readingAiBtn).addEventListener("click", () => {
     sendRuntimeMessage({ type: "player-ai-quick-action", source: "popup", contextRef: viewerContextRef() })
-      .then((resp) => setReadingNotice(resp?.ok ? "" : `打开侧边栏失败：${resp?.error || "未知错误"}`))
-      .catch((error) => setReadingNotice(`打开侧边栏失败：${getErrorMessage(error)}`));
+      .then((resp) => setReadingNotice(resp?.ok ? "" : `打开侧边栏失败：${resp?.error || "未知错误"}`, { error: true }))
+      .catch((error) => setReadingNotice(`打开侧边栏失败：${getErrorMessage(error)}`, { error: true }));
   });
   chapterList.addEventListener("click", onReadingChapterClick);
   transcriptList.addEventListener("click", onReadingTranscriptClick);
@@ -840,7 +840,7 @@ function checkUrlChange() {
   if (!state.readingViewOpen && shouldEnterReaderMode) {
     markReaderMode();
     enterReaderMode().catch((error) => {
-      setReadingNotice(`专注模式启动失败：${getErrorMessage(error)}`);
+      setReadingNotice(`专注模式启动失败：${getErrorMessage(error)}`, { error: true });
     });
     return;
   }
@@ -853,7 +853,7 @@ function checkUrlChange() {
       }
       refreshClip().catch((error) => {
         if (!isStaleRunError(error)) {
-          setReadingNotice(`自动刷新失败：${fetchErrorText(error)}`);
+          setReadingNotice(`${MdgErrors.TEXT.videoReadFailed}：${fetchErrorText(error)}`, { error: true });
         }
       });
     });
@@ -1116,7 +1116,7 @@ async function runRefreshClip() {
     if (state.readingViewOpen) {
       renderReadingView();
     }
-    setStatus(`抓取失败：${reason}。`);
+    setStatus(`${MdgErrors.TEXT.videoReadFailed}：${reason}。`);
     throw error;
   }
 }
@@ -1205,7 +1205,7 @@ function onReadingSubtitleChange(event) {
     .catch((error) => {
       // The dropdown goes back to the track still shown.
       renderReadingSubtitleSelect();
-      setReadingNotice(`字幕切换失败：${fetchErrorText(error)}`);
+      setReadingNotice(`${MdgErrors.TEXT.subtitleSwitchFailed}：${fetchErrorText(error)}`, { error: true });
     });
 }
 
@@ -1291,7 +1291,7 @@ async function sendToObsidian() {
   }
   await refreshDerivedContent();
   if (!state.markdown) {
-    setMessage("没有可写入的内容，请先点击「刷新」。");
+    setMessage(MdgErrors.TEXT.noNoteYet);
     return;
   }
 
@@ -1511,7 +1511,7 @@ function scheduleReaderPlayerRetry() {
     if (state.readingPlayerRetries > 12) {
       replaceReaderModeUrl(stripReaderModeUrl(location.href));
       closeReadingView();
-      setReadingNotice("视频播放器长时间未就绪，已退出专注模式，请刷新网页重试");
+      setReadingNotice("视频播放器长时间未就绪，已退出专注模式，请刷新网页重试", { error: true });
       return;
     }
     const mounted = await ensureReaderPlayerMounted({ retries: 10, delayMs: 200, forceLayout: true });
@@ -1561,7 +1561,7 @@ function maybeRefreshReaderSubtitleInBackground() {
       return;
     }
     // Joins a read in flight or reads a video not read yet; a video already read without subtitles is not reread.
-    settledClip(false).catch((error) => setReadingNotice(`字幕加载失败：${fetchErrorText(error)}`));
+    settledClip(false).catch((error) => setReadingNotice(`${MdgErrors.TEXT.videoReadFailed}：${fetchErrorText(error)}`, { error: true }));
   });
 }
 
@@ -1847,8 +1847,9 @@ function getReadingTranscriptPlaceholderText() {
   if (state.subtitleFetchState === "loading" || state.subtitleFetchState === "idle") {
     return "正在加载字幕…";
   }
+  // Only reading the video itself sets error (a subtitle failure is subtitleMissing below).
   if (state.subtitleFetchState === "error") {
-    return "字幕加载失败。";
+    return `${MdgErrors.TEXT.videoReadFailed}。`;
   }
   return `${MdgErrors.subtitleMissing(state)}。${state.subtitleNeedLogin ? `${MdgErrors.TEXT.subtitleLoginHint}。` : ""}`;
 }
@@ -3400,10 +3401,9 @@ async function handlePlayerAiQuickActionClick(event) {
     if (!resp?.ok) {
       throw new Error(resp?.error || "未知错误");
     }
-    setMessage("点发送开始 AI 总结");
+    // Not setMessage: that is the popup's status line, which would show this long after, maybe over another video.
   } catch (error) {
-    setMessage(`打开侧边栏失败：${getErrorMessage(error)}`);
-    setReadingNotice(`打开侧边栏失败：${getErrorMessage(error)}`);
+    setReadingNotice(`打开侧边栏失败：${getErrorMessage(error)}`, { error: true });
   } finally {
     state.playerAiQuickActionSubmitting = false;
     if (button) {
@@ -3737,7 +3737,7 @@ function onReadingChapterClick(event) {
 
 function onReadingTranscriptClick(event) {
   if (event.target.closest(".mdg-reading-retry")) {
-    settledClip(true).catch((error) => setReadingNotice(`字幕加载失败：${fetchErrorText(error)}`));
+    settledClip(true).catch((error) => setReadingNotice(`${MdgErrors.TEXT.videoReadFailed}：${fetchErrorText(error)}`, { error: true }));
     return;
   }
   const target = event.target.closest(".mdg-reading-item");
@@ -3945,16 +3945,17 @@ function toReadableText(value, fallback = "") {
   return text;
 }
 
-// A failed fetch in the user's words: B站 risk control (HTTP 412 or its codes) and a dropped connection are named,
-// and no raw English, HTTP status or B站 code is shown. getErrorMessage keeps the raw text for logs and retry checks.
+// A failed fetch in the user's words: B站 risk control (HTTP 412 or its codes) and a dropped connection are named
+// (fetch's English TypeError becomes TEXT.netDown); B站 codes with their own words (62004) read as elsewhere, any other
+// error keeps its own message (the background's 「B站请求失败 HTTP 403」, the page's 「请求失败：403」).
+// getErrorMessage keeps the raw text with the code for logs and retry checks.
 function fetchErrorText(error) {
   if (isBiliRiskError(error)) {
     return MdgErrors.TEXT.biliThrottled;
   }
   if (/failed to fetch|networkerror|load failed/i.test(toReadableText(error?.message, ""))) {
-    return MdgErrors.TEXT.network;
+    return MdgErrors.TEXT.netDown;
   }
-  // B站 codes with their own words (62004 审核中) read as in 分拣台 and the other pages.
   return MdgErrors.text({ error: toReadableText(error?.message, ""), code: error?.code }, getErrorMessage(error));
 }
 
@@ -4106,6 +4107,7 @@ function isRetryableNetworkError(error) {
     message.includes("background fetch failed") ||
     message.includes("timeout") ||
     message.includes("超时") ||
+    message.includes(MdgErrors.TEXT.netDown) ||
     message.includes("timed out")
   );
 }
@@ -4128,14 +4130,14 @@ async function fetchJson(url) {
   return (await fetchOk(url, { credentials: "include" })).json();
 }
 
-// A hung request would keep refreshPromise pending, and with it the popup's
-// refresh and sidepanel-get-context, so every page fetch gives up after 15s.
+// A hung request would keep refreshPromise pending, and with it the popup's refresh and sidepanel-get-context, so
+// every page fetch gives up after MdgErrors.NET_TIMEOUT_MS, with the background's words (fetch-json says the same).
 async function fetchOk(url, init) {
   let response;
   try {
-    response = await fetch(url, { ...init, cache: "no-store", signal: AbortSignal.timeout(15000) });
+    response = await fetch(url, { ...init, cache: "no-store", signal: AbortSignal.timeout(MdgErrors.NET_TIMEOUT_MS) });
   } catch (error) {
-    throw error?.name === "TimeoutError" ? new Error("请求超时，请稍后重试") : error;
+    throw error?.name === "TimeoutError" ? new Error(MdgErrors.netTimeout(MdgErrors.NET_TIMEOUT_MS)) : error;
   }
   if (!response.ok) {
     throw httpError(response.status);
@@ -4153,9 +4155,8 @@ async function fetchJsonInBackground(url) {
   try {
     const resp = await sendRuntimeMessage({ type: "fetch-json", url });
     if (!resp?.ok) {
-      const error = new Error(toReadableText(resp?.error, "Background fetch failed"));
-      error.status = resp?.status;
-      throw error;
+      // code: THROTTLED (412) and NETWORK, as triageBiliGetJson says them; status: 429 waits in pageSubtitleSite.
+      throw Object.assign(new Error(toReadableText(resp?.error, "Background fetch failed")), { status: resp?.status, code: resp?.code });
     }
     return resp.data;
   } catch (error) {
