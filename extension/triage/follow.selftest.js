@@ -252,6 +252,7 @@ const base = () => ({ list: null, last: null, content: {}, people: {}, tags: [],
   assert.strictEqual(t.settingsProblem("120", "60"), "断更天数要比慢更大");
   assert.strictEqual(t.settingsProblem("", ""), "");
   assert.strictEqual(t.settingsProblem("30", "200"), "");
+  assert.deepStrictEqual([t.settingsProblem("abc", "200"), t.settingsProblem("400", "x")], ["", "断更天数要比慢更大"], "not a number: its default");
 }
 
 assert.deepStrictEqual([t.dirLabel("last", "desc"), t.dirLabel("follow", "asc"), t.dirLabel("fans", "desc"), t.dirLabel("fans", "asc")], ["新→旧", "旧→新", "从多到少", "从少到多"]);

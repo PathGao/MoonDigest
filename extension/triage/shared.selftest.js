@@ -521,9 +521,10 @@ for (const [file, fns] of [["triage.js", ["mergeAiBatch", "aiChanges"]], ["follo
   neither(/没有匹配搜索的(视频| UP 主)|没有符合筛选的(视频| UP 主)/, "words the empty list itself");
 
   // 刷新 in an empty state: one look in both modes, never a second solid blue.
-  assert.strictEqual(UI.refreshEmpty("data-r"), `<button type="button" data-r>${UI.ICON.refresh}刷新</button>`);
+  assert.ok(/^<button type="button" data-r><svg[^]*<\/svg>刷新<\/button>$/.test(UI.refreshEmpty("data-r")), UI.refreshEmpty("data-r"));
   both("UI.refreshEmpty(", "draws the empty state's 刷新 with refreshEmpty");
-  neither(/\$\{UI\.ICON\.refresh\}刷新/, "draws its own 刷新");
+  // K8: the icons stay inside shared.js, drawn by its helpers.
+  assert.ok(!("ICON" in UI), "ICON is not exported");
 }
 
 // 「+ 标签 T」 has one look, in triage.css, wherever it shows (视频投稿 cards, UP cards, the viewer line).

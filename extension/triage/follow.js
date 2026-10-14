@@ -301,12 +301,9 @@ function aiRequests(mids, cfg, instruction, tags, allowRemove) {
   for (let i = 0; i < mids.length; i += cfg.batchSize) out.push({ type: "follow-ai-tag", instruction, mids: mids.slice(i, i + cfg.batchSize), tags, maxNewTags: cfg.newTagMax, allowRemove });
   return { batches: out, intervalMs: cfg.intervalSec * 1000 };
 }
-// Why the days cannot be saved, or "" (empty boxes fall back to the defaults).
+// Why the days cannot be saved, or "" (empty or invalid boxes fall back to the defaults, as everywhere).
 function settingsProblem(slow, dead) {
-  const s = String(slow).trim() === "" ? UI.numSetting("slowDays") : Number(slow);
-  const d = String(dead).trim() === "" ? UI.numSetting("deadDays") : Number(dead);
-  if (!Number.isFinite(s) || !Number.isFinite(d)) return "天数要填数字";
-  return d > s ? "" : "断更天数要比慢更大";
+  return UI.numSetting("deadDays", dead) > UI.numSetting("slowDays", slow) ? "" : "断更天数要比慢更大";
 }
 // 断更 is at least a day more than 慢更.
 function normDays(slow, dead) {

@@ -486,6 +486,17 @@ const chatOn = (context) => {
     els.saveConversationBtn.disabled = false;
     vm.runInContext("syncExportButtons()", ctx);
     assert.deepStrictEqual([els.saveConversationBtn.disabled, els.saveConversationBtn.title], [true, "当前没有可导出的对话"]);
+    // K8: 下载 .md failing to read the note's extras says so in red, not 「没有可下载的对话」.
+    await ctx.act({ type: "OPEN", id: "x1" });
+    const realGet = ctx.chrome.storage.local.get;
+    const said = [];
+    ctx.chrome.storage.local.get = async () => Promise.reject(new Error("读不到"));
+    ctx.showConversationContextNotice = (text, ms, opts) => said.push([text, opts?.error]);
+    await ctx.downloadCurrentConversation();
+    ctx.chrome.storage.local.get = realGet;
+    ctx.showConversationContextNotice = () => {};
+    assert.deepStrictEqual(said, [["下载失败：读不到", true]]);
+    await ctx.act({ type: "NEW" });
     assert.ok(/await saveCurrentConversationToObsidian\(\);\n    \} finally \{\n[^}]*syncExportButtons\(\);\n    \}/.test(page) && !page.includes("saveConversationBtn.disabled = false"), "写入 Obsidian's finally recomputes");
     // H14: 发送 says why it is off: while stopping, and on a page that is not a supported video page.
     ctx.setStreamingUiState(true, { stopping: true });

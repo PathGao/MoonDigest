@@ -11,7 +11,7 @@ const ctx = vm.createContext({ URL, elements: {}, validateNoteExtras: () => ({ o
 vm.runInContext([fn("validateSettings"), fn("hostPermissionPattern"), fn("droppedFolders")].join("\n"), ctx);
 
 // [::1] is not in manifest host_permissions: Obsidian rejects it, AI platforms ask for it like any other host.
-const obsidian = (url) => ctx.validateSettings({ obsidianEnabled: true, noteFolder: "MoonDigest", obsidianApiBaseUrl: url }, { requireApiKey: false });
+const obsidian = (url) => ctx.validateSettings({ obsidianEnabled: true, noteFolder: "MoonDigest", obsidianApiBaseUrl: url }, { testing: false });
 assert.strictEqual(obsidian("http://127.0.0.1:27123").ok, true);
 assert.strictEqual(obsidian("http://localhost:27123").ok, true);
 assert.strictEqual(obsidian("http://[::1]:27123").message, "不支持 [::1]，请改用 127.0.0.1");
