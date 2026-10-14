@@ -131,6 +131,10 @@ function adapters(who) {
     assert.ok(nodes.aiTagsPreview.innerHTML.includes('data-use="a"') && nodes.aiRemoveInput.checked);
     // No tags: the hint links to 标签管理 (a text link), which closes this dialog and opens 标签管理 with the mode's adapter.
     tags.length = 0;
+    // No tags and no instruction: the box starts with one that lets the AI make the first 3–5 tags.
+    nodes.aiInstruction.value = "";
+    D.ai.open(ai);
+    assert.strictEqual(nodes.aiInstruction.value, `看看这些${who}的内容，新建 3–5 个标签分好类，每个${who}打一个最贴切的。`, `${who}: a first instruction`);
     D.ai.render(ai);
     assert.ok(nodes.aiTagsPreview.innerHTML.includes(`还没有${who === "UP 主" ? " UP 标签" : "视频标签"}。`), `${who}: the tags' name, as the picker's title`);
     assert.ok(/还没有.*标签。最多 2 个。想打得准，先在<button type="button" class="link" data-open-manage>「标签管理」<\/button>里建好标签/.test(nodes.aiTagsPreview.innerHTML), `${who}: the link says 「标签管理」`);

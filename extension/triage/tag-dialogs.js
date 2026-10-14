@@ -96,8 +96,11 @@
   const instr = $("aiInstruction");
   let instrKey = null; // [adapter, where] the instruction was written for; another mode or folder starts empty
 
+  const firstInstruction = (who) => `看看这些${who}的内容，新建 3–5 个标签分好类，每个${who}打一个最贴切的。`;
   function openAi(a) {
     if (instrKey?.[0] !== a || instrKey[1] !== whereOf(a)) instr.value = "";
+    // No tags yet: start from an instruction that lets the AI make the first few, so 运行 works without writing one.
+    if (!instr.value.trim() && !a.tags().length) instr.value = firstInstruction(a.who);
     instrKey = [a, whereOf(a)];
     ai = a;
     a.excluded.clear();
