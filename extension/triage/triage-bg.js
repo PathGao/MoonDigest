@@ -520,7 +520,8 @@ const TRIAGE_SETTINGS_DEFAULTS = {
   triageAnalyzeMaxTokens: null,
   triageTagLimit: null,
   triageAiNewTagMax: null,
-  triageAiRemoveTags: false
+  triageAiRemoveTags: false,
+  triageAiBatchSize: null
 };
 
 // 输出上限：用户填了正数就用用户的，否则按是否思考自动（思考 token 计入 max_tokens）
@@ -984,6 +985,7 @@ const TRIAGE_HANDLERS = {
       triageTagLimit: TriageUi.numSetting("tagLimit", s.triageTagLimit),
       triageAiNewTagMax: TriageUi.numSetting("newTagMax", s.triageAiNewTagMax),
       triageAiRemoveTags: s.triageAiRemoveTags === true,
+      triageAiBatchSize: TriageUi.numSetting("aiBatch", s.triageAiBatchSize),
       // 开启思考 only reaches these platforms (triageChat), so the page shows the switch only when the platform the
       // requests go to (triageProvider) is one of them.
       thinkingToggle: supportsThinkingToggle(provider?.baseUrl)

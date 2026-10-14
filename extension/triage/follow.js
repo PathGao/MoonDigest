@@ -1316,9 +1316,7 @@ settingsDialog.querySelector("[data-open-options]").addEventListener("click", ()
 async function aiSettings() {
   const own = (await chrome.storage.sync.get("follow_ai_settings")).follow_ai_settings;
   const triage = own ? null : await send({ type: "triage-settings-get" });
-  // 收藏夹's AI 打标签 batch size is stored by the page (triage.js), not by the background.
-  const aiBatch = own ? {} : await chrome.storage.sync.get({ triageAiBatchSize: null });
-  const { value, seed } = followAiSettings(own, triage?.ok ? { ...triage.data, triageAiBatchSize: aiBatch.triageAiBatchSize } : null);
+  const { value, seed } = followAiSettings(own, triage?.ok ? triage.data : null);
   // Not stored (sync quota, …): the copied values still work this time, and the next use tries again.
   if (seed) await chrome.storage.sync.set({ follow_ai_settings: seed }).catch((e) => toast(`保存设置失败：${e.message}`, true));
   return value;

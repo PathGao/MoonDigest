@@ -767,8 +767,7 @@ async function init() {
   if (settingsResp.ok) Object.assign(S.settings, settingsResp.data);
   renderTagLimit();
   const syncObsidian = ({ obsidianEnabled }) => document.body.classList.toggle("obsidian-off", obsidianEnabled !== true);
-  const sync = await chrome.storage.sync.get({ obsidianEnabled: false, triageAiBatchSize: null, ...SEEN_DEFAULTS });
-  if (sync.triageAiBatchSize != null) S.settings.triageAiBatchSize = sync.triageAiBatchSize;
+  const sync = await chrome.storage.sync.get({ obsidianEnabled: false, ...SEEN_DEFAULTS });
   syncObsidian(sync);
   setSeenCfg(sync);
   followSeenMeta(await storeGet(KEYS.triageSeenMeta));
@@ -4243,17 +4242,15 @@ function bindEvents() {
       triageAnalyzeMaxTokens: UI.numSetting("maxTokens", el.analyzeMaxInput.value),
       triageTagLimit: UI.numSetting("tagLimit", el.tagLimitInput.value),
       triageAiNewTagMax: UI.numSetting("newTagMax", el.aiNewTagMaxInput.value),
-      triageAiRemoveTags: el.aiRemoveTagsInput.checked
+      triageAiRemoveTags: el.aiRemoveTagsInput.checked,
+      triageAiBatchSize: UI.numSetting("aiBatch", el.aiBatchInput.value)
     };
-    const triageAiBatchSize = UI.numSetting("aiBatch", el.aiBatchInput.value);
     const r = await send({ type: "triage-settings-save", ...patch });
-    // The background's settings do not know this key; it is stored here, beside them in chrome.storage.sync.
-    const saved = r.ok && (await chrome.storage.sync.set({ triageAiBatchSize }).then(() => true, (e) => ((r.error = e.message), false)));
-    if (!saved) {
+    if (!r.ok) {
       toast(`保存设置失败：${r.error}`, true);
       return;
     }
-    Object.assign(S.settings, patch, { triageAiBatchSize });
+    Object.assign(S.settings, patch);
     renderTagLimit();
     toast("设置已保存");
     const included = [...el.folderToggles.querySelectorAll("input:checked")].map((x) => x.value);
