@@ -11,7 +11,7 @@ const ctx = vm.createContext({ URL, elements: {}, validateNoteExtras: () => ({ o
 vm.runInContext([fn("validateSettings"), fn("hostPermissionPattern"), fn("droppedFolders")].join("\n"), ctx);
 
 // [::1] is not in manifest host_permissions: Obsidian rejects it, AI platforms ask for it like any other host.
-const obsidian = (url) => ctx.validateSettings({ obsidianEnabled: true, noteFolder: "MoonDigest", obsidianApiBaseUrl: url }, { requireApiKey: false });
+const obsidian = (url) => ctx.validateSettings({ obsidianEnabled: true, noteFolder: "MoonDigest", obsidianApiBaseUrl: url }, { testing: false });
 assert.strictEqual(obsidian("http://127.0.0.1:27123").ok, true);
 assert.strictEqual(obsidian("http://localhost:27123").ok, true);
 assert.strictEqual(obsidian("http://[::1]:27123").message, "不支持 [::1]，请改用 127.0.0.1");
@@ -41,6 +41,8 @@ assert.deepStrictEqual(marked.map((n) => n.set.size), [0, 0], "every red box is 
 const XSS = ["<img src=x onerror=alert(1)>", `"'><script>alert(1)</script>`];
 const assertInert = (html, where) => assert.ok(!/<img src=x|<script|"'>/i.test(html) && /&lt;|&#60;/.test(html), `${where}: ${html}`);
 // An imported settings file fills the property rows.
+// K14: the batch sizes live in 收藏夹设置 (用词表), not 「分拣台里」.
+assert.ok(!fs.readFileSync(path.join(__dirname, "options.html"), "utf8").includes("在分拣台里设置"));
 // The scripts options.html loads before options.js, read from the page so the test cannot load a different set.
 const scripts = [...fs.readFileSync(path.join(__dirname, "options.html"), "utf8").matchAll(/<script[^>]*src="([^"]+)"/g)].map((m) => m[1]);
 assert.strictEqual(scripts.pop(), "./options.js", "options.js loads last");

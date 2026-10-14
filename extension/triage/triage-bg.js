@@ -49,7 +49,7 @@ function triageTagLines(tags) {
   return (Array.isArray(tags) ? tags : [])
     .map((t) => {
       const name = triageTagNames([t])[0];
-      const rule = t && typeof t === "object" ? String(t.rule ?? "").replace(/\s+/g, " ").trim().slice(0, 80) : "";
+      const rule = t && typeof t === "object" ? String(t.rule ?? "").replace(/\s+/g, " ").trim().slice(0, TriageUi.TAG_RULE_MAX) : "";
       return name && (rule ? `${name}：${rule}` : name);
     })
     .filter(Boolean);

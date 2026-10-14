@@ -4,7 +4,7 @@ if (!globalThis.chrome?.runtime?.id) await import("./dev/mock-chrome.js");
 // ---------- constants ----------
 const THROTTLE_MS = globalThis.__TRIAGE_THROTTLE_MS || 10 * 60 * 1000;
 // Error code -> the limit wait (runs.js's hold: { ms, label }). AI 429s clear far sooner than B站 risk control.
-const THROTTLES = { THROTTLED: { ms: THROTTLE_MS, label: "B站限流卡住" }, AI_THROTTLED: { ms: 60 * 1000, label: "AI 平台限流卡住" } };
+const THROTTLES = { THROTTLED: { ms: THROTTLE_MS, label: TriageUi.BILI_STUCK }, AI_THROTTLED: { ms: 60 * 1000, label: "AI 平台限流卡住" } };
 const SYNC_MIN_GAP_MS = 60 * 1000;
 // Progress tabs: how far a video has been looked at. The AI class is a filter inside a tab, never a tab.
 // 阅览 sits apart after them.
@@ -215,8 +215,8 @@ const runs = MdgRuns.create({ redraw: () => renderStatus(), hold: (r) => THROTTL
 const PILL = ["group", "stage1", "fav", "write", "load", "check", "sync", "ai", "proposal", "aiOther", "seen", "seenRead"];
 runs.put("load", () => loadAllActivity());
 runs.put("sync", () => S.syncing && { text: `刷新中…${pageText(S.mediaId)}` });
-runs.put("proposal", () => S.ai.proposal && { text: "标签建议待确认" });
-runs.put("aiOther", () => otherAiFolder() && { text: `「${folderName(otherAiFolder())}」的标签建议待确认` });
+runs.put("proposal", () => S.ai.proposal && { text: UI.AI_TAGS_PENDING });
+runs.put("aiOther", () => otherAiFolder() && { text: `「${folderName(otherAiFolder())}」的${UI.AI_TAGS_PENDING}` });
 // 观看进度's 30-minute pause on B站 risk control comes from the background (triage_seen_meta); tick() redraws it.
 runs.put("seen", () => S.seenCfg.on && S.seenRead.until > Date.now() && { text: "观看进度", wait: { until: S.seenRead.until, label: THROTTLES.THROTTLED.label } });
 runs.put("seenRead", () => S.seenCfg.on && S.seenRead.busy && S.seenRead.pages && { text: `读观看进度… 已读 ${S.seenRead.pages} 页` });
@@ -1472,7 +1472,7 @@ async function cleanRemoved(list) {
   if (!list.length) return;
   if (favBusyReason()) return toast(favBusyReason(), true);
   const one = list.length === 1 ? `《${shortTitle(list[0])}》` : `这 ${list.length} 个视频`;
-  const body = `<p>删除${one}的 AI 判断、AI 总结、备注、标签、保留标记、待播记录和取消收藏记录，无法撤销。删除后不能再从「处理完成」重新收藏。<br>要留存请先从「导出」菜单导出。</p>`;
+  const body = `<p>删除${one}的 AI 判断、AI 总结、备注、标签、保留标记、待播记录和取消收藏记录，无法撤销。删除后不能再从「处理完成」重新收藏。<br>${UI.CLEAN_BACKUP.ask}</p>`;
   if (!(await askConfirm(`清理${one}？`, body, `清理 ${list.length} 个`, { danger: true }))) return;
   return serialStore(async () => {
     const bvids = list.map((it) => it.bvid);
@@ -1805,7 +1805,7 @@ function folderThumb(id, cover) {
 function renderFolderHead() {
   if (!S.mediaId) return (el.folderHead.innerHTML = "");
   const invalid = S.items.filter((it) => it.invalid || it.hidden).length;
-  const explain = S.mediaId === REMOVED && "离开了你勾选的所有收藏夹，AI 判断、AI 总结、备注和标签都还留着，清理前可先从「导出」菜单导出";
+  const explain = S.mediaId === REMOVED && `离开了你勾选的所有收藏夹，AI 判断、AI 总结、备注和标签都还留着，${UI.CLEAN_BACKUP.meta}`;
   const meta = UI.headMeta([inFolderView() && UI.syncedText(S.readAt[S.mediaId]), invalid && `${invalid} 个已失效`, explain], S.syncError);
   const thumb = inFolderView() && S.mediaId !== TOVIEW ? folderThumb(S.mediaId, el.folderSelect.querySelector?.(`option[value="${S.mediaId}"]`)?.dataset.cover) : "";
   el.folderHead.innerHTML = `${thumb}<div class="folder-text"><h1 class="folder-title">${UI.titleHtml(folderTitle(), S.items.length)}</h1><div class="folder-meta">${meta}</div></div>`;
@@ -1876,7 +1876,8 @@ function renderTagButtons() {
     picked: shownPicked,
     manageAttrs: "data-tags-manage",
     aiAttrs: "data-ai-tag",
-    state: aiRunning() ? " · 运行中" : S.ai.proposal ? " · 待确认" : "",
+    running: aiRunning(),
+    pending: Boolean(S.ai.proposal),
     manageReason: inFolderView() ? "" : FOLDER_ONLY,
     aiReason: aiTagReason(),
     noTags: !viewTags().length
@@ -1970,10 +1971,12 @@ function renderListHeader(list) {
   const batchBtn = (route, verdict = "", none = "") => {
     const run = favRun?.job === "unfav" ? favRun : null;
     if (route === "unfav" && run && !runWhere(run)) return headBtn("batch-unfav", `取消收藏中${unfavWhere(run)} ${run.done}/${run.total}`, "danger", "正在取消收藏", "", "", true);
-    const n = none ? S.selected.size : batchList(verdict || null).length;
+    // A selection none of which this can take still counts the selection (as 粗看's), disabled with the reason.
+    const can = none ? S.selected.size : batchList(verdict || null).length;
+    const n = can || (verdict ? 0 : selectedIn(visibleItems()).length);
     const verb = route === "unfav" ? "取消收藏" : "保留";
     // One batch 取消收藏 at a time: while another folder's runs, this one waits.
-    const reason = none || (!n ? (verdict ? `这里没有 AI 判断为${VERDICTS[verdict]}、还没处理的视频` : "选中的都已经处理过了")
+    const reason = none || (!can ? (verdict ? `这里没有 AI 判断为${VERDICTS[verdict]}、还没处理的视频` : "选中的都已经处理过了")
       : route === "unfav" && run ? UI.busyText(`「${folderName(run.mediaId)}」的批量取消收藏`)
       : route === "unfav" ? UI.busyText(favBusy) : "");
     return headBtn(`batch-${route}`, verdict ? `${verb}（AI：${VERDICTS[verdict]}）${n} 个` : `${verb}选中的 ${n} 个`, route === "unfav" ? "danger" : "", reason, verdict, route === "keep" ? KEEP_TIP : "");
@@ -1981,8 +1984,9 @@ function renderListHeader(list) {
   const transferBtn = (none) => {
     const run = favRun?.job === "transfer" ? favRun : null;
     if (run) return headBtn("transfer", `${run.verb}中 ${run.done}/${run.total}${runWhere(run)}`, "", `正在${run.verb}`, "", "", true);
-    const n = none ? S.selected.size : transferList().length;
-    const reason = none || (!n ? "选中的视频已取消收藏，或缺少视频编号" : UI.busyText(favBusy));
+    const can = none ? S.selected.size : transferList().length;
+    const n = can || selectedIn(visibleItems()).length;
+    const reason = none || (!can ? "选中的视频已取消收藏，或缺少视频编号" : UI.busyText(favBusy));
     return headBtn("transfer", S.mediaId === REMOVED ? `收藏选中的 ${n} 个到…` : `移动/复制选中的 ${n} 个…`, "", reason);
   };
   const groupBtn = (cls) => {
@@ -2890,6 +2894,12 @@ function batchKeep(list) {
 // ---------- tags ----------
 const saveTags = () => storeSet(K.tags, S.tags);
 
+// Why the folder takes no new tag: it has tagLimit() already ("" while it has room).
+function tagCapReason(folder = S.mediaId) {
+  const n = S.tags.filter((t) => t.folder === String(folder)).length;
+  return n >= tagLimit() ? `这个收藏夹已经有 ${n} 个标签了，先删掉不用的，或在收藏夹设置里调高上限` : "";
+}
+
 // Returns the folder's tag with this name, creating it if needed; the color comes from the palette in turn.
 // null (with a toast) outside a folder or when the folder already has tagLimit() tags.
 function createTag(name, folder = S.mediaId) {
@@ -2899,7 +2909,8 @@ function createTag(name, folder = S.mediaId) {
   const own = S.tags.filter((t) => t.folder === String(folder));
   const existing = own.find((t) => t.name === name);
   if (existing) return existing;
-  if (own.length >= tagLimit()) return toast(`这个收藏夹已经有 ${own.length} 个标签了，先删掉不用的，或在收藏夹设置里调高上限`, true), null;
+  const full = tagCapReason(folder);
+  if (full) return toast(full, true), null;
   const tag = { id: newTagId(), name, color: UI.nextTagColor(own), folder: String(folder) };
   S.tags.push(tag);
   saveTags();
@@ -2966,9 +2977,14 @@ function openPicker(bvids, anchor = "", home = null) {
     // Every tag of the video, so saving keeps the ones of other folders the picker does not list.
     idsOf: (b) => (S.videoTags[b] || []).filter((id) => tagById(id)),
     tags: () => S.tags.filter((t) => folders.includes(t.folder)),
-    canCreate: one,
+    // Read at each redraw: a tag made here may fill the folder; full, no 新建「…」 and the empty list says why.
+    get canCreate() {
+      return one && !tagCapReason(folders[0]);
+    },
     create: (name) => createTag(name, folders[0]),
-    empty: one ? "输入名称后回车新建标签" : "在具体收藏夹里新建标签",
+    get empty() {
+      return !one ? "在具体收藏夹里新建标签" : tagCapReason(folders[0]) || "输入名称后回车新建标签";
+    },
     anchor,
     onClose: savePicked
   });
@@ -3100,11 +3116,9 @@ const manageTags = {
   reason: () => (inFolderView() ? "" : FOLDER_ONLY),
   tags: () => (inFolderView() ? viewTags() : []),
   count: (id) => tagCounts()[id] || 0,
+  addReason: (value) => tagCapReason() || UI.tagNameError(cleanTagName(value), viewTags()),
   add(value) {
-    const name = cleanTagName(value);
-    const why = UI.tagNameError(name, viewTags());
-    if (why) return void toast(why, true);
-    const t = createTag(name);
+    const t = createTag(value);
     if (t) render();
     return t;
   },

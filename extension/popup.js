@@ -116,12 +116,8 @@ function bindEvents() {
   });
 
   el.readingViewBtn?.addEventListener("click", async () => {
+    // A web page has this and AI 总结 disabled (syncTools), so the tab is a video page here.
     const tab = await getActiveTab();
-    if (!isSupportedSubtitlePage(tab?.url || "")) {
-      setStatus(NOT_VIDEO_PAGE, true);
-      return;
-    }
-
     setStatus("正在打开专注模式…", false, true);
     setBusy(el.readingViewBtn, true, "打开中…");
     const prepResp = await sendToContent({ type: "popup-get-state" }).catch((error) => ({ ok: false, error: error.message }));
@@ -165,10 +161,6 @@ function bindEvents() {
 
   el.summaryBtn.addEventListener("click", async () => {
     const tab = await getActiveTab();
-    if (!isSupportedSubtitlePage(tab?.url || "")) {
-      setStatus(NOT_VIDEO_PAGE, true);
-      return;
-    }
     setStatus("正在打开侧边栏…", false, true);
     setBusy(el.summaryBtn, true, "打开中…");
     // Same path as the player AI button: background opens the side panel and queues the request; the panel shows the
@@ -277,7 +269,7 @@ function render(payload, { preserveStatus = false } = {}) {
 // A tool that cannot work is disabled and says why; without a payload yet a video page keeps them usable.
 function syncTools(payload, onVideoPage = true) {
   const pageReason = onVideoPage ? "" : NOT_VIDEO_PAGE;
-  const contentReason = pageReason || (payload && !payload.markdown ? "还没有读取到视频内容" : "");
+  const contentReason = pageReason || (payload && !payload.markdown ? MdgErrors.TEXT.noNoteYet : "");
   const subtitleReason = pageReason || (payload && !(payload.srt || payload.txt) ? "当前视频没有可下载的字幕" : "");
   setDisabledReason(el.readingViewBtn, pageReason);
   // A web page has no video to summarize; no AI platform still leaves it usable (the side panel offers 去设置).

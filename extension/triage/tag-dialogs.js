@@ -11,7 +11,8 @@
 
   // ----- 标签管理 (and 关注's 分组管理, the same list of named things) -----
   // a = { who: 视频 | UP 主, hint() (where the tags live, the limit), reason() ("" or why nothing can be edited here),
-  // tags(), count(id), add(name) → tag | null, edit(t, field, value) → saved?, remove(t) }; all may be async.
+  // tags(), count(id), addReason(name) ("" or why this name cannot be added: empty, taken, the list full), add(name) →
+  // tag | null, edit(t, field, value) → saved?, remove(t) }; all may be async but addReason.
   // 分组管理 also passes text: { title, saved (what saves at once), newName, newMax, add, addLabel } and row(t, count)
   // (its row html).
   const TAG_TEXT = { title: "标签管理", saved: "改名、颜色、说明和删除立即保存。", newName: "新标签名称", newMax: MdgTagCore.TAG_NAME_MAX, add: "添加", addLabel: "添加标签" };
@@ -37,7 +38,8 @@
     const a = man;
     const why = a.reason?.() || "";
     $("tagManageHint").textContent = `${a.hint()}${{ ...TAG_TEXT, ...a.text }.saved}`;
-    newInput.disabled = $("addTagBtn").disabled = Boolean(why);
+    newInput.disabled = Boolean(why);
+    syncAdd();
     const tags = a.tags();
     rows.innerHTML = why
       ? `<p class="muted">${esc(why)}</p>`
@@ -49,7 +51,11 @@
     const id = target.closest(".tag-row")?.dataset.id;
     return id && man.tags().find((t) => String(t.id) === id);
   };
+  // 添加 is off with why while the name cannot be added, updated as you type; Enter follows it, the typed text stays.
+  const addWhy = () => man.reason?.() || man.addReason(newInput.value);
+  const syncAdd = () => UI.setReason($("addTagBtn"), addWhy());
   async function addTag() {
+    if (addWhy()) return;
     if (await man.add(newInput.value)) {
       newInput.value = "";
       renderManage();
@@ -70,6 +76,7 @@
     renderManage();
   });
   $("addTagBtn").addEventListener("click", addTag);
+  newInput.addEventListener("input", () => man && syncAdd());
   // Enter in a name field: the new-tag box adds; a rename would submit the form and close the dialog.
   manageDlg.addEventListener("keydown", (e) => {
     if (MdgTyping.composing(e) || e.key !== "Enter" || !e.target.matches?.('#newTagInput, [data-field="name"], [data-field="rule"]')) return;

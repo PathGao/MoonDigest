@@ -170,10 +170,8 @@ function bindEvents() {
   els.copyConversationBtn?.addEventListener("click", () => {
     void copyCurrentConversationMarkdown();
   });
-  els.downloadConversationBtn?.addEventListener("click", async () => {
-    const note = await buildCurrentConversationNote().catch(() => null);
-    if (note) MdgDownload.text(note.filename, note.content);
-    else showConversationContextNotice("当前没有可下载的对话。", 2200);
+  els.downloadConversationBtn?.addEventListener("click", () => {
+    void downloadCurrentConversation();
   });
   // One button in place: 发送, or 停止 while a reply streams.
   els.sendBtn.addEventListener("click", () => {
@@ -724,7 +722,7 @@ function followupBlockReason() {
   }
   const { context, messages, pinned, nonVideo } = state.view();
   if (nonVideo) {
-    return MdgErrors.TEXT.notVideo;
+    return MdgErrors.TEXT.notVideoPage;
   }
   if (activeStream || els.input.disabled) {
     return "正在生成，等这条回复结束";
@@ -1758,14 +1756,20 @@ function showSyncStatus(text, { autoHideMs = 0, retry = null, settings = null, e
   }
 }
 
+// With no conversation the menu's items are disabled (syncExportButtons); what can fail is reading the note's extras.
+async function downloadCurrentConversation() {
+  try {
+    const note = await buildCurrentConversationNote();
+    if (note) MdgDownload.text(note.filename, note.content);
+  } catch (error) {
+    showConversationContextNotice(`下载失败：${getErrorMessage(error)}`, 3000, { error: true });
+  }
+}
+
 async function copyCurrentConversationMarkdown() {
   try {
     const note = await buildCurrentConversationNote();
-    if (!note) {
-      showConversationContextNotice("当前没有可复制的对话。", 2200);
-      return;
-    }
-    if (await copyText(note.content)) showConversationContextNotice("已复制 Markdown", 2200);
+    if (note && (await copyText(note.content))) showConversationContextNotice("已复制 Markdown", 2200);
   } catch (error) {
     showConversationContextNotice(`复制失败：${getErrorMessage(error)}`, 3000, { error: true });
   }
@@ -1790,10 +1794,8 @@ async function saveCurrentConversationToObsidian() {
   const { epoch, resolved, context: shown, pinned, messages: shownMessages } = state.view();
   const context = resolved || shown || pinned?.contextRef || {};
   const messages = shownMessages.slice();
-  if (!buildConversationTurns(messages).length) {
-    showConversationContextNotice("当前没有可写入 Obsidian 的对话。", 2200);
-    return;
-  }
+  // Its button is disabled without a conversation (syncExportButtons).
+  if (!buildConversationTurns(messages).length) return;
   showConversationContextNotice("正在写入 Obsidian…");
   try {
     const ref = buildConversationContextRef(context);
