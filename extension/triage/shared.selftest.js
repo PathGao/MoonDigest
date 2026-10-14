@@ -461,6 +461,10 @@ for (const [file, fns] of [["triage.js", ["mergeAiBatch", "aiChanges"]], ["follo
   // A selection filters hide whole: still 「清理选中的 N 个」 with the true count, off with why, never 「清理这 N 个」.
   assert.ok(UI.cleanBtn('data-x="c"', { picked: 2, shown: 0, n: 2, why: "空" }).includes('aria-label="清理选中的 2 个" disabled title="选中的都被筛选隐藏了"'));
   both("UI.cleanBtn(", "draws 清理 with cleanBtn");
+  // K5: before 清理 both modes name one way to keep a copy, from shared.js.
+  both("${UI.CLEAN_BACKUP.ask}", "the 清理 confirm's backup line");
+  both("${UI.CLEAN_BACKUP.meta}", "已出分拣范围's backup hint");
+  neither(/「导出」菜单(导出|备份)/, "no backup wording of its own");
   neither(/清理选中的 \$\{|清理这 \$\{[^}]*\} 个`|<button type="button"\$\{cls/, "builds its own 清理 or action button");
   // J10: row 4's tag chip, 已出分拣范围's tabs and its 「原在…」 chip are drawn once; a batch confirm lists with confirmList.
   assert.strictEqual(UI.tagFilterChip('data-x="t"', { name: "科普", color: "#111", n: 2, on: true, what: "UP 主" }), '<button type="button" class="chip on" style="--c:#111" data-x="t" aria-pressed="true" aria-label="按标签筛选 科普 2" title="可多选：只显示同时带有所选标签的 UP 主">科普<span class="chip-n">2</span></button>');

@@ -639,7 +639,7 @@ function renderHead() {
   E.title.innerHTML = out ? UI.titleHtml("已出分拣范围", sideCount("out")) : UI.titleHtml("关注", D.list ? sideCount("all") : null);
   renderLogin();
   E.meta.innerHTML = out
-    ? UI.headMeta([...OUT_KINDS.map(([k, label]) => [sideMids(D, rows, "out").filter((m) => outKind(rows.get(m)) === k).length, label]).filter(([n]) => n).map(([n, label]) => `${n} 个${label}`), "不在关注分拣里了，标签都还留着，清理前可先从「导出」菜单备份"])
+    ? UI.headMeta([...OUT_KINDS.map(([k, label]) => [sideMids(D, rows, "out").filter((m) => outKind(rows.get(m)) === k).length, label]).filter(([n]) => n).map(([n, label]) => `${n} 个${label}`), `不在关注分拣里了，标签都还留着，${UI.CLEAN_BACKUP.meta}`])
     : UI.headMeta([D.list ? UI.syncedText(at * 1000) : "还没有关注数据"], err);
   main.querySelector('[data-fw="bili"]').hidden = out;
   // 导出 → UP 主表格: nothing to put in it before the first refresh.
@@ -1106,7 +1106,7 @@ async function unfollow(mids) {
 async function clean(mids) {
   if (!mids.length) return;
   const one = mids.length === 1;
-  const ok = await askConfirm(one ? `清理「${nameOf(mids[0])}」？` : `清理这 ${mids.length} 个 UP 主？`, `${one ? "" : names(mids)}<p>删除${one ? "它" : "它们"}的取消关注记录和标签，无法撤销。删除后不能再从这里重新关注。<br>要留存请先从「导出」菜单备份。</p>`, `清理 ${mids.length} 个`, { danger: true });
+  const ok = await askConfirm(one ? `清理「${nameOf(mids[0])}」？` : `清理这 ${mids.length} 个 UP 主？`, `${one ? "" : names(mids)}<p>删除${one ? "它" : "它们"}的取消关注记录和标签，无法撤销。删除后不能再从这里重新关注。<br>${UI.CLEAN_BACKUP.ask}</p>`, `清理 ${mids.length} 个`, { danger: true });
   if (!ok) return;
   const r = await send({ type: "follow-forget", mids });
   if (!r.ok) return toast(`清理失败：${r.error}`, true);
