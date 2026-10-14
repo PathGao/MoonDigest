@@ -167,7 +167,7 @@ async function writeVideoNote({ ref: input, mode, conversation, page }) {
   const extrasRef = { site: ref.site, videoId: key ? ref.videoId : "", pageIndex: ref.pageIndex };
   const stored = await chrome.storage.local.get([aiConversations, ...MdgNote.triageExtrasKeys(extrasRef)]);
   const turns = MdgNote.buildConversationTurns(conversation ? conversation.messages : MdgNote.pickConversation(stored[aiConversations], ref)?.messages);
-  const aiOn = settings.includeAiChatInNote !== false;
+  const aiOn = settings.includeAiChatInNote;
   const section = aiOn ? MdgNote.buildAiSection(turns) : "";
   const paths = await notePaths();
   key = recordedNoteKey(paths, key, ref);
@@ -249,7 +249,7 @@ async function syncVideoNoteAi({ ref: input, conversation }) {
   const section = MdgNote.buildAiSection(MdgNote.buildConversationTurns(conversation?.messages));
   if (!path || !section) return { path: "" };
   const settings = await getMergedSettings();
-  if (settings.includeAiChatInNote === false) return { path: "" };
+  if (!settings.includeAiChatInNote) return { path: "" };
   let vault;
   try {
     vault = obsidianConfig(settings);

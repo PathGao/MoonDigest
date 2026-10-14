@@ -778,8 +778,9 @@ async function init() {
   S.basket = basket.map(({ bvid, title, cover, upper, duration, opened }) => ({ bvid, title, cover, upper, duration, ...(opened ? { opened: true } : {}) }));
   if (settingsResp.ok) Object.assign(S.settings, settingsResp.data);
   renderTagLimit();
-  const syncObsidian = ({ obsidianEnabled }) => document.body.classList.toggle("obsidian-off", obsidianEnabled !== true);
-  const sync = await chrome.storage.sync.get({ obsidianEnabled: false, ...SEEN_DEFAULTS });
+  // Stored values, raw: the switch reads through normalizeSwitches like everywhere else.
+  const syncObsidian = (stored) => document.body.classList.toggle("obsidian-off", !MdgSettings.normalizeSwitches(stored).obsidianEnabled);
+  const sync = await chrome.storage.sync.get({ obsidianEnabled: MdgSettings.DEFAULTS.obsidianEnabled, ...SEEN_DEFAULTS });
   syncObsidian(sync);
   setSeenCfg(sync);
   followSeenMeta(await storeGet(KEYS.triageSeenMeta));

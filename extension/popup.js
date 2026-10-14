@@ -43,7 +43,7 @@ async function init() {
   const tab = await getActiveTab();
   onVideoPage = isSupportedSubtitlePage(tab?.url || "");
   getSettingsFromRuntime().then((settings) => {
-    el.sendBtn.hidden = settings.obsidianEnabled !== true;
+    el.sendBtn.hidden = !settings.obsidianEnabled;
   });
   // A web page has nothing to read: say so instead of a failed fetch.
   if (!onVideoPage) {

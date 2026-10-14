@@ -251,7 +251,8 @@ function autosizeInput() {
 
 function setStreamingUiState(isStreaming, { stopping = false } = {}) {
   const blocked = !isStreaming && state.view().nonVideo;
-  els.input.disabled = isStreaming || blocked;
+  // The input says why too: while streaming the 正在生成… line's words, off a video page the send button's.
+  setDisabledReason(els.input, isStreaming ? els.generating.textContent : blocked ? MdgErrors.TEXT.notVideoPage : "");
   renderFollowups();
   els.generating.hidden = !isStreaming;
   setDisabledReason(els.sendBtn, stopping ? "正在停止生成" : blocked ? MdgErrors.TEXT.notVideoPage : "");
@@ -277,7 +278,7 @@ async function loadProvidersAndPrefs({ preferredProviderId = "" } = {}) {
     ? providersResp.providers.filter((p) => p.enabled)
     : [];
   const settings = settingsResp?.ok && settingsResp.settings ? settingsResp.settings : MdgSettings.DEFAULTS;
-  document.body.classList.toggle("sp-obsidian-off", settings.obsidianEnabled !== true);
+  document.body.classList.toggle("sp-obsidian-off", !settings.obsidianEnabled);
   aiPrefs = aiPrefsOf(settings);
   renderModelSelect(preferredProviderId);
   renderPresetPrompts();
@@ -752,9 +753,10 @@ function renderFollowups() {
   followupsRendered = signature;
   els.followups.hidden = !prompts.length;
   els.followups.innerHTML = visible
-    .map((prompt) => `<button type="button" class="sp-followup-chip" title="${escapeHtml(reason || prompt)}"${reason ? ` disabled aria-description="${escapeHtml(reason)}"` : ""}>${AI_SPARK}<span class="sp-followup-text"><span>${escapeHtml(prompt)}</span></span></button>`)
+    .map((prompt) => `<button type="button" class="sp-followup-chip">${AI_SPARK}<span class="sp-followup-text"><span>${escapeHtml(prompt)}</span></span></button>`)
     .join("");
   els.followups.querySelectorAll("button").forEach((btn, index) => {
+    setDisabledReason(btn, reason, visible[index]);
     btn.addEventListener("click", () => sendPrompt(visible[index]));
     const start = () => startFollowupMarquee(btn);
     const stop = () => btn.classList.remove("is-marquee");

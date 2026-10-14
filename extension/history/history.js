@@ -345,10 +345,10 @@ chrome.storage.onChanged.addListener((changes, area) => {
     reloadTimer = setTimeout(() => (editing ? (reloadPending = true) : load()), 300);
   }
   if (area === "sync" && changes.obsidianEnabled) {
-    obsidianEnabled = changes.obsidianEnabled.newValue === true;
+    obsidianEnabled = MdgSettings.normalizeSwitches({ obsidianEnabled: changes.obsidianEnabled.newValue }).obsidianEnabled;
     render();
   }
 });
 
-obsidianEnabled = (await chrome.runtime.sendMessage({ type: "get-settings" }).catch(() => null))?.settings?.obsidianEnabled === true;
+obsidianEnabled = (await chrome.runtime.sendMessage({ type: "get-settings" }).catch(() => null))?.settings?.obsidianEnabled ?? MdgSettings.DEFAULTS.obsidianEnabled;
 await load();
