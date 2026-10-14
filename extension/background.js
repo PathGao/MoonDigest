@@ -745,6 +745,11 @@ async function getMergedSettings() {
 const SYNC_ITEM_BYTES = 8192;
 const SYNC_ITEM_NAMES = { aiSystemPrompt: "系统提示词", playerAiQuickPrompt: "AI 总结要求", aiPresetPrompts: "快捷追问", fixedFrontmatterProperties: "自定属性", notePlaceholderSections: "正文附加段落" };
 const oversizedSyncItem = (payload) => Object.keys(payload).find((k) => k.length + new TextEncoder().encode(JSON.stringify(payload[k])).length > SYNC_ITEM_BYTES) || "";
+// Saving and importing both check before sync.set.
+function checkSyncItems(payload) {
+  const big = oversizedSyncItem(payload);
+  if (big) throw Object.assign(new Error(`${SYNC_ITEM_NAMES[big] || big}太长，存不下：最多约 2700 个汉字（英文约 8000 个字符）`), { field: big });
+}
 
 // Callers send partial settings (the options page has no reading-view controls), so keys they omit keep their stored values.
 async function saveSettings(settings) {
@@ -752,8 +757,7 @@ async function saveSettings(settings) {
   const stored = await chrome.storage.sync.get(MdgSettings.DEFAULTS);
   const syncPayload = normalizeSyncSettings({ ...MdgSettings.DEFAULTS, ...stored, ...payload });
   delete syncPayload.obsidianApiKey;
-  const big = oversizedSyncItem(syncPayload);
-  if (big) throw Object.assign(new Error(`${SYNC_ITEM_NAMES[big] || big}太长，存不下：最多约 2700 个汉字（英文约 8000 个字符）`), { field: big });
+  checkSyncItems(syncPayload);
 
   await Promise.all([
     chrome.storage.sync.set(syncPayload),
@@ -798,6 +802,7 @@ async function importSettings(file) {
   }
   if (!(file.schemaVersion <= SETTINGS_FILE_VERSION)) throw new Error("这个文件来自更新的版本，先更新 MoonDigest 再导入");
   const { obsidianApiKey, [AI_PROVIDER_KEYS_STORAGE]: keys, ...settings } = file.settings;
+  checkSyncItems(settings);
   const current = Object.keys(await chrome.storage.sync.get(null));
   await chrome.storage.sync.set(settings);
   await chrome.storage.sync.remove(current.filter((k) => !(k in settings)));

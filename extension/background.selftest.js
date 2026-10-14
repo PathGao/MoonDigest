@@ -463,6 +463,8 @@ process.on("exit", (code) => {
   await assert.rejects(ctx.importSettings({ ...file, schemaVersion: 2 }), /更新的版本/);
   await assert.rejects(ctx.importSettings({ ...file, local: { triage_included_folders: "11" } }), /不是 MoonDigest 的设置文件/);
   await assert.rejects(ctx.importSettings({ ...file, local: { triage_folder_criteria: { 11: 5 } } }), /不是 MoonDigest 的设置文件/);
+  // F5: an import past sync's 8 KB per item is refused in Chinese, as a save is, and changes nothing.
+  await assert.rejects(ctx.importSettings({ ...file, settings: { ...file.settings, aiSystemPrompt: "字".repeat(2800) } }), /^Error: 系统提示词太长，存不下/);
   assert.strictEqual(JSON.stringify(importSync), before);
 
   // A setting past sync's 8 KB per item is named before Chrome refuses it in English: 2700 汉字 fit, 2800 do not.
