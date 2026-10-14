@@ -428,8 +428,10 @@ assert.strictEqual(N.withTriageSummary(front, undefined, "  "), front);
   assert.deepStrictEqual(plain(N.triageExtrasKeys({ site: "bilibili", videoId: "" })), []);
 }
 assert.strictEqual(N.buildTriageSummary({ status: "done", verdict: "unsure", reason: "核心" }), "AI 判断：拿不准，核心");
+// A verdict left from the old custom tiers reads 拿不准, as MdgTagCore.verdictOf says on 分拣台 and B站 pages.
+assert.strictEqual(N.buildTriageSummary({ status: "done", verdict: "must", reason: "旧档" }), "AI 判断：拿不准，旧档");
 
-assert.strictEqual(N.buildTriageSummary({ status: "done", oneLiner: "一句话", points: ["a", "", ""] }), "> 一句话\n\n- a", "padded empty points are dropped");
+assert.strictEqual(N.buildTriageSummary({ status: "done", oneLiner: "一句话", points: ["a", "", ""] }), "> 一句话\n\n- a\n\nAI 判断：拿不准", "padded empty points are dropped");
 assert.strictEqual(
   N.renderMarkdown("<think>x</think>## 标题\n\n**粗** <b>\n\n- a\n- b"),
   "<h4>标题</h4><p><strong>粗</strong> &lt;b&gt;</p><ul><li>a</li><li>b</li></ul>",

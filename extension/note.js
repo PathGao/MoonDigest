@@ -351,8 +351,9 @@
     if (analysis.oneLiner) lines.push(`> ${analysis.oneLiner}`, "");
     const points = (analysis.points || []).filter(Boolean);
     if (points.length) lines.push(...points.map((p) => `- ${p}`), "");
-    const verdict = MdgTagCore.VERDICTS[analysis.verdict];
-    if (verdict) lines.push(`AI 判断：${verdict}${analysis.reason ? `，${analysis.reason}` : ""}`);
+    // A done analysis always has a verdict: one left from the old custom tiers reads 拿不准, as on 分拣台 and B站 pages.
+    const { verdict } = MdgTagCore.verdictOf({ analysis });
+    lines.push(`AI 判断：${MdgTagCore.VERDICTS[verdict]}${analysis.reason ? `，${analysis.reason}` : ""}`);
     return lines.join("\n").trim();
   }
 
