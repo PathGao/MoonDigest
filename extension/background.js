@@ -722,17 +722,11 @@ async function migrateInitialQuickPrompts() {
 }
 
 function normalizeSyncSettings(settings) {
-  const merged = { ...settings };
-  merged.obsidianEnabled = merged.obsidianEnabled === true;
+  // Every on/off setting by its default, in one place (MdgSettings.normalizeSwitches).
+  const merged = MdgSettings.normalizeSwitches(settings);
   merged.downloadFormat = MdgSettings.normalizeDownloadFormat(merged.downloadFormat);
   merged.youtubeSubtitleLang = MdgSites.normalizeSubtitleLang(merged.youtubeSubtitleLang);
-  merged.includeHotCommentsInNote = normalizeIncludeHotCommentsInNote(merged.includeHotCommentsInNote);
-  merged.includeAiChatInNote = merged.includeAiChatInNote !== false;
-  merged.enablePlayerAiQuickAction = normalizeEnablePlayerAiQuickAction(merged.enablePlayerAiQuickAction);
   merged.playerAiQuickPrompt = MdgSettings.normalizePlayerAiQuickPrompt(merged.playerAiQuickPrompt);
-  merged.showBiliTriageBadges = merged.showBiliTriageBadges !== false;
-  merged.showBiliUpTags = merged.showBiliUpTags !== false;
-  merged.showBiliVerdicts = merged.showBiliVerdicts === true;
   // The settings table's cells turned off (bili-surfaces.js); options.js and badges.js drop cells that do not exist.
   merged.biliMarksOff = Array.isArray(merged.biliMarksOff) ? merged.biliMarksOff.filter((c) => typeof c === "string") : [];
   merged.seenShow = ["bar", "mark", "both"].includes(merged.seenShow) ? merged.seenShow : "off";
@@ -743,7 +737,6 @@ function normalizeSyncSettings(settings) {
   merged.readerLetterSpacing = MdgSettings.normalizeReaderLetterSpacing(merged.readerLetterSpacing);
   merged.readerLineHeight = MdgSettings.normalizeReaderLineHeight(merged.readerLineHeight);
   merged.readerContentWidth = MdgSettings.normalizeReaderContentWidth(merged.readerContentWidth);
-  merged.readerChapterVisible = merged.readerChapterVisible !== false;
   merged.fixedFrontmatterProperties = MdgSettings.normalizeFixedFrontmatterProperties(merged.fixedFrontmatterProperties);
   merged.notePlaceholderSections = MdgSettings.normalizeNotePlaceholderSections(merged.notePlaceholderSections);
   merged.aiSystemPrompt = normalizeAiSystemPrompt(merged.aiSystemPrompt);
@@ -832,14 +825,6 @@ async function importSettings(file) {
 
 function toString(value) {
   return typeof value === "string" ? value : "";
-}
-
-function normalizeIncludeHotCommentsInNote(value) {
-  return value === true;
-}
-
-function normalizeEnablePlayerAiQuickAction(value) {
-  return value === true;
 }
 
 function normalizeAiSystemPrompt(value) {
