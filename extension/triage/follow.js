@@ -793,11 +793,14 @@ function upCard(mid) {
   const titles = u.titles.length
     ? `<ul class="fw-titles">${u.titles.map((v) => `<li>${v.bvid ? `<a class="fw-title" href="${esc(video(v.bvid))}" data-play="${esc(v.bvid)}" title="在右侧播放">${esc(v.t)}</a>` : `<span class="fw-title">${esc(v.t)}</span>`}<span class="meta">${UI.agoHtml(v.c, now)}</span></li>`).join("")}</ul>`
     : "";
+  // While a B站 batch runs, the buttons that write B站 (and 清理, which drops the records those batches write) are
+  // disabled with why; the handler's guard is left for other paths.
+  const busy = UI.reasonAttrs(busyWhy());
   const right = u.gone
-    ? `<button type="button" data-refollow="${esc(mid)}" aria-label="重新关注 ${esc(u.name)}">重新关注</button><button type="button" class="danger" data-clean="${esc(mid)}" aria-label="清理 ${esc(u.name)}">清理</button>`
+    ? `<button type="button" data-refollow="${esc(mid)}" aria-label="重新关注 ${esc(u.name)}"${busy}>重新关注</button><button type="button" class="danger" data-clean="${esc(mid)}" aria-label="清理 ${esc(u.name)}"${busy}>清理</button>`
     : kind
-    ? `<button type="button" class="danger" data-unfollow="${esc(mid)}" aria-label="取消关注 ${esc(u.name)}">取消关注</button>`
-    : `<button type="button" class="star${u.special ? " on" : ""}" data-star="${esc(mid)}" aria-pressed="${u.special}" title="${u.special ? "取消特别关注" : "设为特别关注"}（改 B站）" aria-label="${u.special ? "取消特别关注" : "设为特别关注"} ${esc(u.name)}">${u.special ? "★" : "☆"}</button>`;
+    ? `<button type="button" class="danger" data-unfollow="${esc(mid)}" aria-label="取消关注 ${esc(u.name)}"${busy}>取消关注</button>`
+    : `<button type="button" class="star${u.special ? " on" : ""}" data-star="${esc(mid)}" aria-pressed="${u.special}" aria-label="${u.special ? "取消特别关注" : "设为特别关注"} ${esc(u.name)}"${UI.reasonAttrs(busyWhy(), `${u.special ? "取消特别关注" : "设为特别关注"}（改 B站）`)}>${u.special ? "★" : "☆"}</button>`;
   const playing = F.viewing && (F.viewing === upView(mid) || u.titles.some((v) => v.bvid === F.viewing));
   return `<article class="card fw-up${sel ? " selected" : ""}${playing ? " playing" : ""}${F.cur === mid ? " focused" : ""}" data-mid="${esc(mid)}" aria-label="${esc(u.name)}">
     <a class="fw-avatar" href="${space(mid)}" target="_blank" rel="noopener" tabindex="-1" aria-hidden="true">${u.face ? `<img src="${esc(img(u.face, "96w_96h_1c"))}" alt="" loading="lazy" referrerpolicy="no-referrer">` : ""}</a>
@@ -839,7 +842,7 @@ function renderSel() {
   const gone = selShown().filter((m) => rows.get(m).gone).length;
   const acts = F.side === "out"
     ? btn("refollow", `重新关注选中的 ${gone} 个`, busy || none || (!gone && "选中的都还关注着")) + btn("unfollow", `取消关注选中的 ${n - gone} 个`, busy || none || (n === gone && "选中的都已取消关注"), "danger")
-    : btn("pick-sel", "标签…", busy || none) +
+    : btn("pick-sel", "标签…", none) +
       btn("move-sel", `移动选中的 ${n} 个到分组…`, busy || none || (groupId(F.side) == null && "先在左边选一个分组：全部里不知道从哪个分组移走")) +
       btn("copy-sel", `复制选中的 ${n} 个到分组…`, busy || none) +
       btn("unfollow", `取消关注选中的 ${n} 个`, busy || none, "danger");
@@ -1071,7 +1074,8 @@ async function relationRun(calls, label, { quiet = false, skipped = [] } = {}) {
       renderSel();
     }
   });
-  renderSel();
+  // The cards too: their B站 buttons are disabled while it runs.
+  render();
   const r = await running;
   if (r.busy) return toast(`${r.busy}还在跑，等它完成`), 0;
   if (r.stopped) toast(`已停止${label}：完成 ${r.done} 个，未完成 ${r.total - r.done} 个`);
@@ -1783,8 +1787,9 @@ main.addEventListener("click", async (e) => {
   } else if (act === "select-none") {
     F.sel.clear();
     render();
-  } else if (W.busy()) toast(busyWhy());
-  else if (act === "pick-sel") openPick(selShown());
+  } else if (act === "pick-sel") openPick(selShown());
+  // 标签… only changes MoonDigest's tags, so a B站 batch does not hold it; the rest write B站 (清理 drops their records).
+  else if (W.busy()) toast(busyWhy());
   else if (act === "unfollow") unfollow(selShown().filter((m) => !rows.get(m).gone));
   else if (act === "refollow") refollow(selShown().filter((m) => rows.get(m).gone));
   else if (act === "clean") {

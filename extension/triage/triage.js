@@ -1436,6 +1436,7 @@ function dropRemoved(bvids) {
 // Deletes everything MoonDigest holds for these videos (AI results, 保留, note, tags, 待播, 取消收藏 records) and their record.
 async function cleanRemoved(list) {
   if (!list.length) return;
+  if (favBusyReason()) return toast(favBusyReason(), true);
   const one = list.length === 1 ? `《${shortTitle(list[0])}》` : `这 ${list.length} 个视频`;
   const body = `<p>删除${one}的 AI 判断、AI 总结、备注、标签、保留标记、待播记录和取消收藏记录，无法撤销。删除后不能再从「处理完成」重新收藏。<br>要留存请先从「导出」菜单导出。</p>`;
   if (!(await askConfirm(`清理${one}？`, body, `清理 ${list.length} 个`, { danger: true }))) return;
@@ -1868,6 +1869,8 @@ const aiTagReason = () => (S.mediaId === REMOVED ? FOLDER_ONLY : !S.items.length
 
 // Why 粗看 / 细看 cannot start: another AI run goes first.
 const aiBusyReason = () => (runs.get("stage1") ? "粗看还在跑，等它完成" : S.group ? "细看还在跑，等它完成" : "");
+// Why 清理 cannot start: it drops the 取消收藏 records a running B站 batch writes.
+const favBusyReason = () => (fav.state().busy ? `${fav.state().busy}还在跑，等它完成` : "");
 
 
 // The folder's 判断标准, before the 粗看/细看 button it is for. Written: the text in the tooltip. Not written: the warn
@@ -2012,7 +2015,7 @@ function renderListHeader(list) {
     html = "";
     // Its progress is in the pill (activityState); a failure stays here.
     if (c?.error) html += `<span class="fail-text">${esc(c.error)}</span>`;
-    html += `${sel ? headBtn("clean-selected", `清理选中的 ${sel} 个`, "danger") : headBtn("clean-removed", `清理这 ${list.length} 个`, "danger", list.length ? "" : "这里没有列出视频")}`;
+    html += `${sel ? headBtn("clean-selected", `清理选中的 ${sel} 个`, "danger", favBusyReason()) : headBtn("clean-removed", `清理这 ${list.length} 个`, "danger", favBusyReason() || (list.length ? "" : "这里没有列出视频"))}`;
   } else if (t === "read") {
     // 阅览 mixes 粗看 guesses with 细看 conclusions, so no class-wide batch here: only the selection.
     html = "";
@@ -2220,7 +2223,7 @@ function cardHtml(it, expanded, mark) {
         <span class="spacer"></span>
         <div class="actions">
           ${removed ? `<span class="pair">
-            <button type="button" class="danger" data-clean="${esc(b)}" aria-label="清理 ${esc(it.title)}">清理</button>
+            <button type="button" class="danger" data-clean="${esc(b)}" aria-label="清理 ${esc(it.title)}"${UI.reasonAttrs(favBusyReason())}>清理</button>
           </span>
           <span class="more">${basketBtn}${askBtn}</span>` : `<span class="pair">
             <button type="button" data-act="keep" class="${keepCls}" aria-label="保留 (S)"${UI.reasonAttrs(decision ? (decision.action === "keep" ? "已经保留了" : "已经取消收藏了") : "", KEEP_TIP)}>保留<kbd class="key">S</kbd></button>

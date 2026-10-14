@@ -666,6 +666,17 @@ async function followPage({ store = {}, handlers = {}, setup = () => {} } = {}) 
     const running = p.FW.relationRun([{ type: "follow-relation", mid: "u2", act: 2 }], "取消关注");
     await p.until(() => release);
     assert.ok(E.sel.innerHTML.includes('disabled title="取消关注还在跑，等它完成"'), E.sel.innerHTML);
+    // G7 / G8: 标签… only changes tags, so the write does not hold it; the cards' B站 buttons (★) are disabled with why.
+    assert.ok(E.sel.innerHTML.includes('aria-label="标签…">'), E.sel.innerHTML);
+    const n = p.picks.length;
+    p.click("followMain", "[data-fw]", { fw: "pick-sel" });
+    assert.strictEqual(p.picks.length, n + 1, "标签… opens while a write runs");
+    assert.ok(/data-star="u1"[^>]* disabled title="取消关注还在跑，等它完成"/.test(E.list.innerHTML), E.list.innerHTML);
+    const side = F.side;
+    F.side = "out";
+    p.FW.render();
+    for (const b of ["refollow", "clean"]) assert.ok(new RegExp(`data-${b}="u3"[^>]* disabled title="取消关注还在跑，等它完成"`).test(E.list.innerHTML), b);
+    F.side = side;
     release({ ok: true });
     await running;
     F.sel.clear();

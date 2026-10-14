@@ -386,6 +386,22 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     assert.strictEqual(sent.length, sentBefore, "nothing sent");
     assert.ok(/data-refav="BV9"[^>]* disabled title="批量取消收藏还在跑，等它完成"/.test(t.recentUnfavHtml()), t.recentUnfavHtml());
     assert.ok(t.cardHtml(five[2], false, "").includes("正在取消收藏…"), "a video the batch still has to write shows it");
+    // G6: 清理 drops the records such a batch writes: row 3's and the card's are disabled with why, and it does nothing.
+    {
+      const was = [t.S.mediaId, t.S.tab];
+      Object.assign(t.S, { mediaId: "removed", tab: "read" });
+      const why = 'disabled title="批量取消收藏还在跑，等它完成"';
+      assert.ok(t.cardHtml(five[3], false, "").includes(`aria-label="清理 视频44" ${why}`), t.cardHtml(five[3], false, ""));
+      t.renderListHeader(t.visibleItems());
+      assert.ok(new RegExp(`aria-label="清理这 \\d+ 个" ${why}`).test(t.el.listHeader.innerHTML), t.el.listHeader.innerHTML);
+      const savedAsk = t.askConfirm;
+      let asked = 0;
+      t.askConfirm = async () => (asked++, true);
+      await t.cleanRemoved([five[3]]);
+      t.askConfirm = savedAsk;
+      assert.deepStrictEqual([asked, toasts.at(-1)], [0, "批量取消收藏还在跑，等它完成"]);
+      [t.S.mediaId, t.S.tab] = was;
+    }
     handlers["triage-unfav"] = () => ({ ok: true });
     await t.fav.unfav("BV45");
     assert.deepStrictEqual(plain(sent.at(-1)), { type: "triage-unfav", mediaId: "H", aids: [1045] }, "D outside the batch goes");
