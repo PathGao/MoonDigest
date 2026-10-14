@@ -476,7 +476,7 @@ function loadContextState(opts = {}) {
   return run;
 }
 
-async function readContextState({ forceRefresh = false, silent = false, follow = false }, superseded) {
+async function readContextState({ refresh = false, silent = false, follow = false }, superseded) {
   const tab = await getActiveTab();
   if (superseded()) return contextLoad;
   const atTab = await act({ type: "TAB_READ", tab: tab?.id ? { url: tab.url, title: tab.title } : null, follow });
@@ -492,7 +492,7 @@ async function readContextState({ forceRefresh = false, silent = false, follow =
   const resp = await sendRuntimeMessage({
     type: "ai-sidepanel-get-state",
     tabId: tab.id,
-    forceRefresh
+    refresh
   }).catch((error) => ({ ok: false, error: error.message }));
   if (superseded()) return contextLoad;
 
@@ -1181,7 +1181,7 @@ async function refreshContextManually() {
   }
   refreshingContext = true;
   try {
-    const ok = await loadContextState({ forceRefresh: true });
+    const ok = await loadContextState({ refresh: true });
     if (ok) {
       const { context, messages } = state.view();
       if (!context || !providers.length || !messages.length) {
@@ -1267,14 +1267,14 @@ function formatConversationTimestamp(value) {
 
 async function ensureCurrentContextForSend() {
   if (state.view().pinned) {
-    await loadContextState({ forceRefresh: false, silent: true }).catch(() => null);
+    await loadContextState({ refresh: false, silent: true }).catch(() => null);
     return hydratePinnedConversationContext();
   }
   const loadingNotice = state.view().context?.pending;
   if (loadingNotice) {
     showConversationContextNotice("正在加载视频信息…");
   }
-  const ok = await loadContextState({ forceRefresh: false, silent: true });
+  const ok = await loadContextState({ refresh: false, silent: true });
   if (loadingNotice) {
     removeConversationContextNotice();
   }

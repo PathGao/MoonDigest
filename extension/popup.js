@@ -198,7 +198,7 @@ function bindEvents() {
 async function refreshFromTab(force = false) {
   setStatus("正在抓取字幕…", false, true);
   setBusy(el.refreshBtn, true);
-  const resp = await sendToContent({ type: "popup-refresh", force }).finally(() => setBusy(el.refreshBtn, false));
+  const resp = await sendToContent({ type: "popup-refresh", refresh: force }).finally(() => setBusy(el.refreshBtn, false));
   el.refreshBtn.classList.toggle("is-error", !resp?.ok);
   if (!resp?.ok) {
     const errorText = resp?.error || NOT_VIDEO_PAGE;
