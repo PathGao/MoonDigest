@@ -155,14 +155,15 @@ const S = {
   seenPct: {}, // bvid → [percent, view_at] from the history, null when it has none
   noteOpen: new Set(), // empty notes the user opened for editing
   settings: {
-    triageIntervalSec: 8,
-    triageFineBatchSize: 10, // 字幕细看每批数量, 1–50
-    triageCoarseBatchSize: 100, // 标题粗看每批数量, 1–1000
+    // Until triage-settings-get answers: the defaults (TriageUi.NUM_SETTINGS).
+    triageIntervalSec: TriageUi.numSetting("interval"),
+    triageFineBatchSize: TriageUi.numSetting("fineBatch"), // 字幕细看每批数量
+    triageCoarseBatchSize: TriageUi.numSetting("coarseBatch"), // 标题粗看每批数量
     triageThinking: false,
-    triageTitleMaxTokens: 0,
-    triageAnalyzeMaxTokens: 0,
-    triageTagLimit: 10, // tags per folder; only creating a new one is refused past it
-    triageAiNewTagMax: 5, // new tags one 批量打 may propose
+    triageTitleMaxTokens: TriageUi.numSetting("maxTokens"),
+    triageAnalyzeMaxTokens: TriageUi.numSetting("maxTokens"),
+    triageTagLimit: TriageUi.numSetting("tagLimit"), // tags per folder; only creating a new one is refused past it
+    triageAiNewTagMax: TriageUi.numSetting("newTagMax"), // new tags one 批量打 may propose
     triageAiRemoveTags: false, // 批量打 may also take tags off
     thinkingToggle: false
   },
@@ -666,9 +667,9 @@ function visibleItems() {
   return list.sort((x, y) => rank(x) - rank(y));
 }
 const selectedIn = (list) => list.filter((it) => S.selected.has(it.bvid));
-// The batch sizes in 收藏夹设置 (UI.intIn: rounded into min–max, empty is the default).
-const coarseBatchSize = () => UI.intIn(S.settings.triageCoarseBatchSize, 1, 1000, 100);
-const fineBatchSize = () => UI.intIn(S.settings.triageFineBatchSize, 1, 50, 10);
+// The batch sizes in 收藏夹设置 (UI.numSetting: rounded into min–max, empty is the default).
+const coarseBatchSize = () => UI.numSetting("coarseBatch", S.settings.triageCoarseBatchSize);
+const fineBatchSize = () => UI.numSetting("fineBatch", S.settings.triageFineBatchSize);
 // A step's batch, for 标题粗看, 字幕细看, their 按新标准重新… and 重试 (tab: the tab the step's videos are in). A
 // selection there decides alone: the selected ones of open, maybe none (the button then says why, never falling back
 // to the next batch); without one, open. At most n.
@@ -3358,7 +3359,7 @@ function aiCommandItem(it, folder, excluded) {
 }
 
 // The AI 打标签 batch size (shared.js SET_ROWS aiBatch).
-const aiBatchSize = () => UI.intIn(S.settings.triageAiBatchSize, 1, 100, 30);
+const aiBatchSize = () => UI.numSetting("aiBatch", S.settings.triageAiBatchSize);
 
 // AI 打标签 tags each folder with its own tags: one part per folder, in 所有收藏夹 every chosen folder the items are in
 // (a video in several folders is in each of their parts).
@@ -4238,17 +4239,17 @@ function bindEvents() {
   el.settingsDialog.addEventListener("close", async () => {
     if (el.settingsDialog.returnValue !== "save") return;
     const patch = {
-      triageIntervalSec: UI.intIn(el.intervalInput.value, 0, 600, 8),
-      triageCoarseBatchSize: UI.intIn(el.coarseBatchInput.value, 1, 1000, 100),
-      triageFineBatchSize: UI.intIn(el.fineBatchInput.value, 1, 50, 10),
+      triageIntervalSec: UI.numSetting("interval", el.intervalInput.value),
+      triageCoarseBatchSize: UI.numSetting("coarseBatch", el.coarseBatchInput.value),
+      triageFineBatchSize: UI.numSetting("fineBatch", el.fineBatchInput.value),
       triageThinking: el.thinkingInput.checked,
-      triageTitleMaxTokens: UI.intIn(el.titleMaxInput.value, 200, 32000, 0),
-      triageAnalyzeMaxTokens: UI.intIn(el.analyzeMaxInput.value, 200, 32000, 0),
-      triageTagLimit: UI.intIn(el.tagLimitInput.value, 1, 50, 10),
-      triageAiNewTagMax: UI.intIn(el.aiNewTagMaxInput.value, 0, 50, 5),
+      triageTitleMaxTokens: UI.numSetting("maxTokens", el.titleMaxInput.value),
+      triageAnalyzeMaxTokens: UI.numSetting("maxTokens", el.analyzeMaxInput.value),
+      triageTagLimit: UI.numSetting("tagLimit", el.tagLimitInput.value),
+      triageAiNewTagMax: UI.numSetting("newTagMax", el.aiNewTagMaxInput.value),
       triageAiRemoveTags: el.aiRemoveTagsInput.checked
     };
-    const triageAiBatchSize = UI.intIn(el.aiBatchInput.value, 1, 100, 30);
+    const triageAiBatchSize = UI.numSetting("aiBatch", el.aiBatchInput.value);
     const r = await send({ type: "triage-settings-save", ...patch });
     // The background's settings do not know this key; it is stored here, beside them in chrome.storage.sync.
     const saved = r.ok && (await chrome.storage.sync.set({ triageAiBatchSize }).then(() => true, (e) => ((r.error = e.message), false)));
@@ -4370,7 +4371,7 @@ function openSettings(scrollToLimits = false, firstRun = false) {
     .map((f) => `<label class="toggle"><input type="checkbox" name="includedFolder" value="${esc(f.id)}"${S.included.includes(String(f.id)) ? " checked" : ""} /> ${esc(f.title)} <span class="muted">${esc(f.count)}</span></label>`)
     .join("") || `<p class="dialog-hint">收藏夹列表还没加载</p>`;
   el.thinkingRow.hidden = !hasThinkingToggle();
-  el.intervalInput.value = S.settings.triageIntervalSec ?? 8;
+  el.intervalInput.value = S.settings.triageIntervalSec;
   el.coarseBatchInput.value = coarseBatchSize();
   el.fineBatchInput.value = fineBatchSize();
   el.aiBatchInput.value = aiBatchSize();

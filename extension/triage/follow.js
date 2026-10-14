@@ -281,8 +281,8 @@ function restoreTags(map, before, live, followed) {
 
 // 关注's own AI 打标签 settings (chrome.storage.sync follow_ai_settings), clamped like the 分拣设置 fields.
 function normAi(s = {}) {
-  const int = UI.intIn;
-  return { batchSize: int(s.batchSize, 1, 100, 30), intervalSec: int(s.intervalSec, 0, 600, 8), newTagMax: int(s.newTagMax, 0, 50, 5), allowRemove: s.allowRemove === true };
+  const num = UI.numSetting;
+  return { batchSize: num("aiBatch", s.batchSize), intervalSec: num("interval", s.intervalSec), newTagMax: num("newTagMax", s.newTagMax), allowRemove: s.allowRemove === true };
 }
 // The first use copies the 收藏夹 values (triage-settings-get, or the defaults); seed is what to store then. After that the
 // two are independent: a stored value always wins.
@@ -301,15 +301,15 @@ function aiRequests(mids, cfg, instruction, tags, allowRemove) {
 }
 // Why the days cannot be saved, or "" (empty boxes fall back to the defaults).
 function settingsProblem(slow, dead) {
-  const s = String(slow).trim() === "" ? 90 : Number(slow);
-  const d = String(dead).trim() === "" ? 365 : Number(dead);
+  const s = String(slow).trim() === "" ? UI.numSetting("slowDays") : Number(slow);
+  const d = String(dead).trim() === "" ? UI.numSetting("deadDays") : Number(dead);
   if (!Number.isFinite(s) || !Number.isFinite(d)) return "天数要填数字";
   return d > s ? "" : "断更天数要比慢更大";
 }
-// 慢更 7–3650 days, 断更 at least a day more.
+// 断更 is at least a day more than 慢更.
 function normDays(slow, dead) {
-  const followSlowDays = UI.intIn(slow, 7, 3650, 90);
-  return { followSlowDays, followDeadDays: Math.max(followSlowDays + 1, UI.intIn(dead, 8, 3651, 365)) };
+  const followSlowDays = UI.numSetting("slowDays", slow);
+  return { followSlowDays, followDeadDays: Math.max(followSlowDays + 1, UI.numSetting("deadDays", dead)) };
 }
 
 // A 刷新 finished between two follow_jobs: the 视频投稿 already loaded is older than what it read.
@@ -356,7 +356,7 @@ const nowSec = () => Date.now() / 1000;
 let D = { tags: [], map: {}, gone: {}, people: {}, content: {}, jobs: {}, list: null, last: null, recent: null };
 let rows = new Map();
 let shown = [];
-const cfg = { slowDays: 90, deadDays: 365 };
+const cfg = { slowDays: UI.numSetting("slowDays"), deadDays: UI.numSetting("deadDays") };
 const F = {
   mode: "fav",
   tab: "ups",
@@ -1892,7 +1892,7 @@ new MutationObserver(() => {
 
 const [{ [VIEW_KEY]: view }, days] = await Promise.all([
   chrome.storage.local.get(VIEW_KEY),
-  chrome.storage.sync.get({ followSlowDays: 90, followDeadDays: 365 })
+  chrome.storage.sync.get({ followSlowDays: null, followDeadDays: null })
 ]);
 ({ followSlowDays: cfg.slowDays, followDeadDays: cfg.deadDays } = normDays(days.followSlowDays, days.followDeadDays));
 if (view?.tab === "feed") F.tab = "feed";

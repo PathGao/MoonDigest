@@ -112,8 +112,8 @@
           <section class="set-group">
             <h3>标签</h3>
             <div class="set-card">
-              <div class="set-row"><div><label class="name" for="tagLimitInput">每个收藏夹最多几个</label><p class="hint">1–50。调低不删已有标签，只是不能再新建。</p></div><input id="tagLimitInput" type="number" min="1" max="50" step="1" /></div>
-              <div class="set-row" data-set-row="newTagMax"><input id="aiNewTagMaxInput" type="number" min="0" max="50" step="1" /></div>
+              <div class="set-row"><div><label class="name" for="tagLimitInput">每个收藏夹最多几个</label><p class="hint">1–50。调低不删已有标签，只是不能再新建。</p></div><input id="tagLimitInput" type="number" data-num="tagLimit" step="1" /></div>
+              <div class="set-row" data-set-row="newTagMax"><input id="aiNewTagMaxInput" type="number" data-num="newTagMax" step="1" /></div>
               <div class="set-row" data-set-row="allowRemove"><input id="aiRemoveTagsInput" type="checkbox" class="switch" /></div>
             </div>
           </section>
@@ -121,13 +121,13 @@
             <h3>AI 参数</h3>
             <p class="dialog-hint">一般不用改。AI 平台在设置页，判断标准点「判断标准」按钮改。</p>
             <div class="set-card">
-              <div class="set-row" data-set-row="interval"><input id="intervalInput" type="number" min="0" max="600" step="1" /></div>
-              <div class="set-row" data-set-row="aiBatch"><input id="aiBatchInput" type="number" min="1" max="100" step="1" /></div>
+              <div class="set-row" data-set-row="interval"><input id="intervalInput" type="number" data-num="interval" step="1" /></div>
+              <div class="set-row" data-set-row="aiBatch"><input id="aiBatchInput" type="number" data-num="aiBatch" step="1" /></div>
               <div id="thinkingRow" class="set-row"><div><label class="name" for="thinkingInput">开启思考</label><p class="hint">判断更细，但慢得多、token 多几倍。</p></div><input id="thinkingInput" type="checkbox" class="switch" /></div>
-              <div class="set-row"><div><label class="name" for="coarseBatchInput">标题粗看每批数量</label><p class="hint">点一次「标题粗看」跑几个。默认 100，最多 1000。</p></div><input id="coarseBatchInput" type="number" min="1" max="1000" step="1" /></div>
-              <div class="set-row"><div><label class="name" for="fineBatchInput">字幕细看每批数量</label><p class="hint">点一次「字幕细看」跑几个。默认 10，最多 50。</p></div><input id="fineBatchInput" type="number" min="1" max="50" step="1" /></div>
-              <div class="set-row"><div><label class="name" for="titleMaxInput">粗看输出上限（token）</label><p id="titleMaxHint" class="hint"></p></div><input id="titleMaxInput" type="number" min="200" max="32000" step="1" placeholder="自动" /></div>
-              <div class="set-row"><div><label class="name" for="analyzeMaxInput">细看输出上限（token）</label><p id="analyzeMaxHint" class="hint"></p></div><input id="analyzeMaxInput" type="number" min="200" max="32000" step="1" placeholder="自动" /></div>
+              <div class="set-row"><div><label class="name" for="coarseBatchInput">标题粗看每批数量</label><p class="hint">点一次「标题粗看」跑几个。默认 100，最多 1000。</p></div><input id="coarseBatchInput" type="number" data-num="coarseBatch" step="1" /></div>
+              <div class="set-row"><div><label class="name" for="fineBatchInput">字幕细看每批数量</label><p class="hint">点一次「字幕细看」跑几个。默认 10，最多 50。</p></div><input id="fineBatchInput" type="number" data-num="fineBatch" step="1" /></div>
+              <div class="set-row"><div><label class="name" for="titleMaxInput">粗看输出上限（token）</label><p id="titleMaxHint" class="hint"></p></div><input id="titleMaxInput" type="number" data-num="maxTokens" step="1" /></div>
+              <div class="set-row"><div><label class="name" for="analyzeMaxInput">细看输出上限（token）</label><p id="analyzeMaxHint" class="hint"></p></div><input id="analyzeMaxInput" type="number" data-num="maxTokens" step="1" /></div>
             </div>
           </section>
         </div>
@@ -149,8 +149,8 @@
             <h3>更新状态</h3>
             <p class="dialog-hint">按最后投稿离现在多少天分活跃、慢更、断更。</p>
             <div class="set-card">
-              <div class="set-row"><div><label class="name" for="fwSlowInput">多少天没投稿算慢更</label><p class="hint">7–3650。刷新时视频投稿往回翻这么多天，越大翻得越久。</p></div><input id="fwSlowInput" type="number" min="7" max="3650" step="1" /></div>
-              <div class="set-row"><div><label class="name" for="fwDeadInput">多少天没投稿算断更</label><p class="hint">要比慢更的天数大。</p></div><input id="fwDeadInput" type="number" min="8" max="3651" step="1" /></div>
+              <div class="set-row"><div><label class="name" for="fwSlowInput">多少天没投稿算慢更</label><p class="hint">7–3650。刷新时视频投稿往回翻这么多天，越大翻得越久。</p></div><input id="fwSlowInput" type="number" data-num="slowDays" step="1" /></div>
+              <div class="set-row"><div><label class="name" for="fwDeadInput">多少天没投稿算断更</label><p class="hint">要比慢更的天数大。</p></div><input id="fwDeadInput" type="number" data-num="deadDays" step="1" /></div>
             </div>
           </section>
           <!-- Grouped as 收藏夹设置: 标签, then AI 参数. -->
@@ -158,7 +158,7 @@
             <section class="set-group">
               <h3>标签</h3>
               <div class="set-card">
-                <div class="set-row" data-set-row="newTagMax"><input id="fwNewMaxInput" type="number" min="0" max="50" step="1" /></div>
+                <div class="set-row" data-set-row="newTagMax"><input id="fwNewMaxInput" type="number" data-num="newTagMax" step="1" /></div>
                 <div class="set-row" data-set-row="allowRemove"><input id="fwRemoveInput" type="checkbox" class="switch" /></div>
               </div>
             </section>
@@ -166,8 +166,8 @@
               <h3>AI 参数</h3>
               <p class="dialog-hint">一般不用改。AI 平台在设置页。</p>
               <div class="set-card">
-                <div class="set-row" data-set-row="interval"><input id="fwIntervalInput" type="number" min="0" max="600" step="1" /></div>
-                <div class="set-row" data-set-row="aiBatch"><input id="fwBatchInput" type="number" min="1" max="100" step="1" /></div>
+                <div class="set-row" data-set-row="interval"><input id="fwIntervalInput" type="number" data-num="interval" step="1" /></div>
+                <div class="set-row" data-set-row="aiBatch"><input id="fwBatchInput" type="number" data-num="aiBatch" step="1" /></div>
               </div>
             </section>
           </div>

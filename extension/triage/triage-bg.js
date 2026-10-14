@@ -512,15 +512,16 @@ async function triageCreatedFolders() {
 }
 
 // The folder's 判断标准 and the tag names come with each request from the page.
+// The numbers' defaults are TriageUi.NUM_SETTINGS (numSetting); null here only lists the key.
 const TRIAGE_SETTINGS_DEFAULTS = {
-  triageIntervalSec: 8,
-  triageFineBatchSize: 10,
-  triageCoarseBatchSize: 100,
+  triageIntervalSec: null,
+  triageFineBatchSize: null,
+  triageCoarseBatchSize: null,
   triageThinking: false,
-  triageTitleMaxTokens: 0,
-  triageAnalyzeMaxTokens: 0,
-  triageTagLimit: 10,
-  triageAiNewTagMax: 5,
+  triageTitleMaxTokens: null,
+  triageAnalyzeMaxTokens: null,
+  triageTagLimit: null,
+  triageAiNewTagMax: null,
   triageAiRemoveTags: false
 };
 
@@ -535,11 +536,11 @@ function triageMaxTokens(kind, itemCount, { triageThinking, triageTitleMaxTokens
 }
 
 async function triageAiSettings() {
-  const s = await chrome.storage.sync.get({ triageThinking: false, triageTitleMaxTokens: 0, triageAnalyzeMaxTokens: 0 });
+  const s = await chrome.storage.sync.get({ triageThinking: false, triageTitleMaxTokens: null, triageAnalyzeMaxTokens: null });
   return {
     triageThinking: s.triageThinking === true,
-    triageTitleMaxTokens: TriageUi.intIn(s.triageTitleMaxTokens, 200, 32000, 0),
-    triageAnalyzeMaxTokens: TriageUi.intIn(s.triageAnalyzeMaxTokens, 200, 32000, 0)
+    triageTitleMaxTokens: TriageUi.numSetting("maxTokens", s.triageTitleMaxTokens),
+    triageAnalyzeMaxTokens: TriageUi.numSetting("maxTokens", s.triageAnalyzeMaxTokens)
   };
 }
 
@@ -960,14 +961,14 @@ const TRIAGE_HANDLERS = {
     const s = await chrome.storage.sync.get(TRIAGE_SETTINGS_DEFAULTS);
     const provider = typeof loadAiProviders === "function" ? (await loadAiProviders().catch(() => [])).find((p) => p.enabled !== false) : null;
     return {
-      triageIntervalSec: TriageUi.intIn(s.triageIntervalSec, 0, 600, TRIAGE_SETTINGS_DEFAULTS.triageIntervalSec),
-      triageFineBatchSize: TriageUi.intIn(s.triageFineBatchSize, 1, 50, 10),
-      triageCoarseBatchSize: TriageUi.intIn(s.triageCoarseBatchSize, 1, 1000, 100),
+      triageIntervalSec: TriageUi.numSetting("interval", s.triageIntervalSec),
+      triageFineBatchSize: TriageUi.numSetting("fineBatch", s.triageFineBatchSize),
+      triageCoarseBatchSize: TriageUi.numSetting("coarseBatch", s.triageCoarseBatchSize),
       triageThinking: s.triageThinking === true,
-      triageTitleMaxTokens: TriageUi.intIn(s.triageTitleMaxTokens, 200, 32000, 0),
-      triageAnalyzeMaxTokens: TriageUi.intIn(s.triageAnalyzeMaxTokens, 200, 32000, 0),
-      triageTagLimit: TriageUi.intIn(s.triageTagLimit, 1, 50, 10),
-      triageAiNewTagMax: TriageUi.intIn(s.triageAiNewTagMax, 0, 50, 5),
+      triageTitleMaxTokens: TriageUi.numSetting("maxTokens", s.triageTitleMaxTokens),
+      triageAnalyzeMaxTokens: TriageUi.numSetting("maxTokens", s.triageAnalyzeMaxTokens),
+      triageTagLimit: TriageUi.numSetting("tagLimit", s.triageTagLimit),
+      triageAiNewTagMax: TriageUi.numSetting("newTagMax", s.triageAiNewTagMax),
       triageAiRemoveTags: s.triageAiRemoveTags === true,
       // 开启思考 only reaches these platforms (triageChat), so the page shows the switch only for them.
       thinkingToggle: supportsThinkingToggle(provider?.baseUrl)

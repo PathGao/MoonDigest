@@ -440,7 +440,13 @@ for (const [file, fns] of [["triage.js", ["mergeAiBatch", "aiChanges"]], ["follo
   for (const f of ["triage.js", "follow.js", "triage-bg.js", "follow-bg.js", "../background.js"]) {
     const src = fs.readFileSync(path.join(__dirname, f), "utf8");
     const bare = /intSetting|intervalSetting|Math\.floor\(Number\(|Number\((el\.\w+|\$\("\w+"\))\.value\)|Number\((s|days|merged)\.\w+\)|parseFloat\(merged\./;
-    assert.ok(/\.intIn\b/.test(src) && !bare.test(src), `${f}: parses its whole-number settings with intIn`);
+    assert.ok(/\.(intIn|numSetting)\b/.test(src) && !bare.test(src), `${f}: parses its whole-number settings with intIn`);
+  }
+  // J15: the dialogs' settings take range and default from NUM_SETTINGS alone: no reader writes them again (triageAiCommand's
+  // maxNewTags, 0 when not passed, is the request's, not the setting's).
+  for (const f of ["triage.js", "follow.js", "triage-bg.js", "follow-bg.js"]) {
+    const src = fs.readFileSync(path.join(__dirname, f), "utf8");
+    assert.ok(!/intIn\([^)]*, ((600|100|50|1000|3650|3651), [1-9]\d*|32000, \d+)\)|(IntervalSec|BatchSize|TagLimit|NewTagMax|MaxTokens|Days): \d|\? (90|365) :/.test(src), `${f} writes a setting's range or default itself`);
   }
 
   // 「✦ AI 刚打的」: one chip, its × and the same tooltip (with the mode's unit); gone at 0 unless it is on.
@@ -504,10 +510,19 @@ for (const [file, fns] of [["triage.js", ["mergeAiBatch", "aiChanges"]], ["follo
   }
   for (const f of ["triage.html", "triage.js", "follow.js"]) assert.ok(!fs.readFileSync(path.join(__dirname, f), "utf8").includes("AI 打标签每批数量"), `${f} names the batch row itself`);
   assert.ok(!/<dialog/.test(fs.readFileSync(path.join(__dirname, "follow.js"), "utf8")), "follow.js builds no dialog markup");
-  const root = { querySelectorAll: () => [row] };
+  const root = { querySelectorAll: (sel) => (sel.includes("data-num") ? [] : [row]) };
   const row = { dataset: { setRow: "aiBatch" }, querySelector: () => ({ id: "x" }), insertAdjacentHTML(_, h) { this.html = h; } };
   UI.fillSetRows(root);
   assert.ok(row.html.includes(">AI 打标签每批数量</label>") && row.html.includes("1–100 个一批。"), row.html);
+  // J15: each number box gets its range and default from NUM_SETTINGS: 「默认 N」, 「自动」 where the default is 0.
+  const box = (num) => ({ dataset: { num } });
+  const boxes = [box("aiBatch"), box("maxTokens"), box("newTagMax")];
+  UI.fillSetRows({ querySelectorAll: (sel) => (sel.includes("data-num") ? boxes : []) });
+  assert.deepStrictEqual(boxes.map((b) => [b.min, b.max, b.placeholder]), [[1, 100, "默认 30"], [200, 32000, "自动"], [0, 50, "默认 5"]]);
+  assert.deepStrictEqual(["", "x", 0, 999].map((v) => UI.numSetting("aiBatch", v)), [30, 30, 30, 100], "numSetting reads the same table");
+  const numbers = [...html.matchAll(/<input [^>]*type="number"[^>]*>/g)].map((m) => m[0]);
+  assert.strictEqual(numbers.length, 13);
+  for (const n of numbers) assert.ok(/data-num="(\w+)"/.test(n) && UI.NUM_SETTINGS[n.match(/data-num="(\w+)"/)[1]] && !/ (min|max|placeholder)=/.test(n), `${n}: range and default come from NUM_SETTINGS`);
 }
 
 // A number field above max becomes max; below min (or negative) it is emptied, which means the default.

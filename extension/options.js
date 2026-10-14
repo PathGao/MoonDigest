@@ -114,6 +114,7 @@ function init() {
   [elements.showBiliVerdicts, elements.showBiliTriageBadges, elements.showBiliUpTags, elements.seenShow].forEach((el) => el.addEventListener("change", syncBiliMarks));
   // The box shows the value that would be saved, so 150 over a stored 100 is not a silent no-op.
   elements.seenThreshold.addEventListener("change", () => (elements.seenThreshold.value = String(readFormPayload().seenThreshold)));
+  elements.seenThreshold.placeholder = `默认 ${MdgSurfaces.SEEN_DEFAULTS.seenThreshold}`;
   // Same for 追问: blank, repeated and past-12 lines are dropped from the box, not only from what is saved.
   elements.aiPresetPrompts.addEventListener("change", () => (elements.aiPresetPrompts.value = readFormPayload().aiPresetPrompts.join("\n")));
   // The side panel edits 追问 too. Follow it unless the box has an unsaved edit, so the next save does not put the old list back.
@@ -268,7 +269,7 @@ async function loadSettings() {
   elements.showBiliVerdicts.checked = settings.showBiliVerdicts === true;
   renderBiliMarks(settings.biliMarksOff);
   elements.seenShow.value = ["bar", "mark", "both"].includes(settings.seenShow) ? settings.seenShow : "off";
-  elements.seenThreshold.value = String(settings.seenThreshold || 80);
+  elements.seenThreshold.value = String(settings.seenThreshold || MdgSurfaces.SEEN_DEFAULTS.seenThreshold);
   elements.seenStyle.value = settings.seenStyle === "veil" ? "veil" : "badge";
   syncSeenRows();
   syncBiliMarks();

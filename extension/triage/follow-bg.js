@@ -354,7 +354,7 @@ async function followSyncJob(ctx) {
     Object.assign(c, { phase: "feed", offset: "" });
   }
 
-  const slowDays = TriageUi.intIn((await chrome.storage.sync.get({ followSlowDays: 90 })).followSlowDays, 7, 3650, 90);
+  const slowDays = TriageUi.numSetting("slowDays", (await chrome.storage.sync.get({ followSlowDays: null })).followSlowDays);
   if (c.phase === "feed") {
     const st = await chrome.storage.local.get(["follow_last", "follow_last_wip"]);
     const lp = st.follow_last;
@@ -772,13 +772,13 @@ async function followAiTag({ instruction, mids, tags, maxNewTags, allowRemove, a
   });
   const tagList = Array.isArray(tags) ? tags : (s.follow_tags || []).map((t) => ({ name: t.name, rule: t.rule || "" }));
   // 关注's own settings (follow_ai_settings, written by the page's 关注设置); the 收藏夹 values only before it exists.
-  const set = await chrome.storage.sync.get({ follow_ai_settings: null, triageAiNewTagMax: 5, triageAiRemoveTags: false });
+  const set = await chrome.storage.sync.get({ follow_ai_settings: null, triageAiNewTagMax: null, triageAiRemoveTags: false });
   const own = set.follow_ai_settings || {};
   return triageAiCommand({
     instruction,
     items,
     tags: tagList,
-    maxNewTags: maxNewTags ?? TriageUi.intIn(own.newTagMax ?? set.triageAiNewTagMax, 0, 50, 5),
+    maxNewTags: maxNewTags ?? TriageUi.numSetting("newTagMax", own.newTagMax ?? set.triageAiNewTagMax),
     allowRemove: (allowRemove ?? own.allowRemove ?? set.triageAiRemoveTags) === true,
     aiProviderId
   }, FOLLOW_AI_UNIT);

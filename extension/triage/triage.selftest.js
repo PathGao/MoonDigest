@@ -789,7 +789,8 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   // F7 / F14: the batch settings and 请求间隔 parse with UI.intIn (shared.selftest.js): rounded and capped at max, empty or
   // below min is the default, 0 a value where min is 0.
   {
-    assert.ok(fs.readFileSync(path.join(__dirname, "triage.html"), "utf8").includes('<input id="intervalInput" type="number" min="0" max="600" step="1" />'), "the box has 关注's range");
+    const html = fs.readFileSync(path.join(__dirname, "triage.html"), "utf8");
+    assert.ok(html.includes('<input id="intervalInput" type="number" data-num="interval"') && html.includes('<input id="fwIntervalInput" type="number" data-num="interval"'), "the box has 关注's range");
     t.S.settings.triageFineBatchSize = 2.7;
     assert.strictEqual(t.nextBatch().length, 3, "rounded");
     t.S.settings.triageFineBatchSize = 999;

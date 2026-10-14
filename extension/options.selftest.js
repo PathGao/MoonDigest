@@ -51,4 +51,7 @@ for (const bad of XSS) assertInert(ctx.buildFixedPropertyValueControl("text", ba
 // 看多少算看完了 is parsed by bili-surfaces.js (badges.selftest.js), the copy of TriageUi.intIn this page can load.
 assert.ok(source.includes("seenThreshold: MdgSurfaces.seenConfig({ seenThreshold: elements.seenThreshold.value }).threshold"), "options.js parses 看多少算看完了 with seenConfig");
 
+// J15: an empty box shows the default bili-surfaces.js uses, from there.
+assert.ok(source.includes("elements.seenThreshold.placeholder = `默认 ${MdgSurfaces.SEEN_DEFAULTS.seenThreshold}`;") && !/\|\| 80\b/.test(source), "seenThreshold's default is SEEN_DEFAULTS'");
+
 console.log("options selftest: all passed");
