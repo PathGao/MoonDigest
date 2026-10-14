@@ -587,6 +587,8 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   t.renderBasket();
   assert.ok(t.el.basketList.innerHTML.includes('data-basket="remove" aria-label="从待播移除 ') && t.el.basketList.innerHTML.includes('title="从待播移除">移除</button>') && !t.el.basketList.innerHTML.includes("已看"), "待播 says 移除");
   for (const f of ["triage.html", "../../README.md"]) assert.ok(!/「已看」/.test(fs.readFileSync(path.join(__dirname, f), "utf8")), `${f} still says 「已看」`);
+  // H11: an entry saved without a duration (BVgone, an old one) shows none, not 「0:00」.
+  assert.ok(!t.S.itemMap.has("BVgone") && !t.el.basketList.innerHTML.includes("0:00"), "no 0:00 for an entry without a duration");
   // 清空 empties the list in one undoable step.
   t.clearBasket();
   assert.deepStrictEqual([plain(store[t.K.basket]), toasts.at(-1)], [[], "已清空待播 2 个 · U 撤销"]);

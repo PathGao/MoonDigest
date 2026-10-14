@@ -3672,7 +3672,7 @@ function renderBasket() {
     .map((x, i) => {
       const it = S.itemMap.get(x.bvid) || x;
       const title = esc(it.title || x.bvid);
-      const meta = [it.upper, fmtDuration(it.duration)].filter(Boolean).map(esc).join(" · ");
+      const meta = [it.upper, it.duration && fmtDuration(it.duration)].filter(Boolean).map(esc).join(" · ");
       const note = S.notes[x.bvid]?.text?.trim();
       return `<div class="basket-item${x.opened ? " opened" : ""}${x.bvid === S.viewing ? " playing" : ""}" data-i="${i}">
       <button type="button" class="basket-open" data-basket="open" aria-label="打开视频 ${title}">
