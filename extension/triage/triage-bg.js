@@ -606,6 +606,12 @@ function triageAiHttpError(status, detail = "") {
   return triageError(`AI 平台出错（HTTP ${status}）`);
 }
 const AI_NETWORK_TEXT = "连不上 AI 平台，请检查网络和接口地址";
+// A request to the AI platform that never got an answer (fetch rejected): a missing host permission (background.js
+// hostPermissionError) is AI_ACCESS (授权), anything else AI_NETWORK. The side panel, 测试连接 and triageChat all use it.
+async function aiFetchError(baseUrl) {
+  const denied = await hostPermissionError(baseUrl);
+  return denied ? triageError(denied, "AI_ACCESS") : triageError(AI_NETWORK_TEXT, "AI_NETWORK");
+}
 
 // Some platforms report quota, rate and moderation failures inside an HTTP 200 body (a stream chunk for the side panel's
 // parseOpenAISSE, the whole reply for triageChat). A quota or rate message is classified as an HTTP 429 (a per-minute
@@ -659,7 +665,7 @@ async function triageChat(messages, maxTokens, thinking = false, providerId = ""
   if (problem) throw triageError(problem.text, problem.code);
   const headers = { "Content-Type": "application/json" };
   if (apiKey) headers.Authorization = `Bearer ${apiKey}`;
-  const baseUrl = String(provider.baseUrl || "").replace(/\/+$/, "");
+  const { baseUrl } = provider; // normalized by loadAiProviders
   const body = { model: provider.model, stream: false, temperature: 0.3, max_tokens: maxTokens, messages };
   // 思考 token 计入 max_tokens；默认关（DeepSeek 实测 30 标题 3s/815 token，开则约 19s/4579 token）
   if (supportsThinkingToggle(baseUrl)) body.thinking = { type: thinking ? "enabled" : "disabled" };
@@ -681,8 +687,7 @@ async function triageChat(messages, maxTokens, thinking = false, providerId = ""
       body: JSON.stringify(body),
       signal: controller.signal
     }).catch(async () => {
-      const denied = await hostPermissionError(baseUrl);
-      throw denied ? triageError(denied, "AI_ACCESS") : triageError(AI_NETWORK_TEXT, "AI_NETWORK");
+      throw await aiFetchError(baseUrl);
     });
     if (!res.ok) throw triageAiHttpError(res.status, await res.text().catch(() => ""));
     // A body that is not JSON is this request's failure.

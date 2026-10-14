@@ -1011,10 +1011,10 @@ async function hostPermissionError(url) {
   }
 }
 
-// The caller checked the provider (aiProviderProblem).
+// The caller checked the provider (aiProviderProblem); loadAiProviders normalized its baseUrl (normalizeAiProvider).
 async function streamChat({ provider, context, userPrompt, history, port, signal, getAbortMeta, onActivity }) {
   if (!port) return;
-  const baseUrl = String(provider.baseUrl).trim().replace(/\/+$/, "");
+  const { baseUrl } = provider;
 
   const { messages, notices } = buildAiMessages({
     context,
@@ -1051,8 +1051,8 @@ async function streamChat({ provider, context, userPrompt, history, port, signal
       postStreamAbort(port, getAbortMeta?.());
       return;
     }
-    const denied = await hostPermissionError(baseUrl);
-    port.postMessage(denied ? { type: "error", error: denied, code: "AI_ACCESS" } : { type: "error", error: AI_NETWORK_TEXT, code: "AI_NETWORK" });
+    const err = await aiFetchError(baseUrl);
+    port.postMessage({ type: "error", error: err.message, code: err.code });
     return;
   }
 
@@ -1091,7 +1091,7 @@ function postStreamAbort(port, abortMeta) {
 }
 
 // The settings page's 测试连接, answered in the words and codes of the side panel and 分拣台: aiProviderProblem,
-// triageAiHttpError, triageAiBodyError, AI_NETWORK_TEXT, hostPermissionError, MdgErrors.aiTimeout.
+// triageAiHttpError, triageAiBodyError, aiFetchError, MdgErrors.aiTimeout. The row's address is not saved, so not normalized yet.
 async function testAiConnection({ baseUrl, apiKey, model, requiresKey }) {
   const problem = aiProviderProblem({ baseUrl, model, requiresKey }, apiKey);
   if (problem) {
@@ -1127,8 +1127,8 @@ async function probeAiChatCompletion({ baseUrl, apiKey, model }) {
     });
   } catch (error) {
     if (error?.name === "TimeoutError") return { ok: false, error: MdgErrors.aiTimeout(AI_TEST_TIMEOUT_MS), code: "AI_TIMEOUT" };
-    const denied = await hostPermissionError(baseUrl);
-    return denied ? { ok: false, error: denied, code: "AI_ACCESS" } : { ok: false, error: AI_NETWORK_TEXT, code: "AI_NETWORK" };
+    const err = await aiFetchError(baseUrl);
+    return { ok: false, error: err.message, code: err.code };
   }
 
   try {

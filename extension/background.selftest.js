@@ -135,6 +135,11 @@ process.on("exit", (code) => {
     assert.deepStrictEqual({ ...(await test(failed)) }, { ok: false, error: "连不上 AI 平台，请检查网络和接口地址", code: "AI_NETWORK" });
     ctx.hostPermissionError = async () => "未授权访问 https://ai.test，授权后重试";
     assert.deepStrictEqual({ ...(await test(failed)) }, { ok: false, error: "未授权访问 https://ai.test，授权后重试", code: "AI_ACCESS" });
+    // L7: one classification of a request that got no answer (aiFetchError), for the side panel, 测试连接 and 分拣台;
+    // a saved platform's address is normalized once (normalizeAiProvider), not again per request.
+    const src = ["background.js", "triage/triage-bg.js"].map((f) => fs.readFileSync(path.join(__dirname, f), "utf8")).join("\n");
+    assert.strictEqual(src.match(/await hostPermissionError\(/g).length, 1, "hostPermissionError is asked only in aiFetchError");
+    assert.strictEqual(src.match(/baseUrl[^\n]*\.replace\(\/\\\/\+\$\//g).length, 2, "normalizeAiProvider and 测试连接's unsaved row strip the slash");
     const timeout = async () => {
       throw Object.assign(new Error("timeout"), { name: "TimeoutError" });
     };
