@@ -629,10 +629,14 @@
       const last = rows[rows.length - 1];
       if (!on || m !== mode) full = last.offsetTop + last.offsetHeight;
       mode = m;
+      scrolled(shown(".list, .fw-list")[0]);
       main.style.setProperty("--head-h", `${full}px`);
       main.style.setProperty("--head1-h", `${rows[1].offsetTop}px`);
       main.style.setProperty("--slim-h", `${rows[1].offsetHeight}px`);
     };
+    // A shadow under the header while the list is scrolled: cards are under it.
+    const scrolled = (list) => main.classList.toggle("head-scrolled", (list?.scrollTop || 0) > 0);
+    main.addEventListener("scroll", (e) => e.target.matches(".list, .fw-list") && scrolled(e.target), true);
     const ro = new ResizeObserver(measure);
     for (const row of main.querySelectorAll(HEAD_ROWS)) {
       ro.observe(row);

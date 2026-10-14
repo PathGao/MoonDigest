@@ -224,6 +224,7 @@ select { height: 28px; max-width: 240px; }
 /* --head1-h is measured from .main's padding edge, so the slim bar keeps the gap above the card. */
 .head-folded .tabrow { transform: translateY(calc(var(--head-top) - var(--head1-h, 0px))); }
 .head-folded .tabrow::before { border-top-width: 1px; border-radius: var(--radius-lg); }
+.head-scrolled:not(.head-folded) .tagbar::before, .head-scrolled.head-folded .tabrow::before { box-shadow: var(--shadow-float); }
 .slim-title { display: none; flex: 0 1 auto; min-width: 0; max-width: 40%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--fs-md); font-weight: 600; }
 .head-folded .slim-title { display: block; }
 .head-toggle { width: 28px; margin-left: -8px; padding: 0; justify-content: center; }

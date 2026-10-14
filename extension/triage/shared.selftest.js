@@ -55,7 +55,8 @@ const assertInert = (html, where) => assert.ok(!/<img src=x|<script|"'>/i.test(h
     made.length = 0;
     UI.headFold(main);
     const toggle = made.find((b) => b.className === "act-btn head-toggle");
-    return { rows, vars, folded: () => cls.has("head-folded"), toggle, click: () => toggle.L.click[0]() };
+    const scroll = (top) => main.L.scroll[0]({ target: { scrollTop: top, matches: (sel) => sel === ".list, .fw-list" } });
+    return { rows, vars, folded: () => cls.has("head-folded"), shadow: () => cls.has("head-scrolled"), scroll, toggle, click: () => toggle.L.click[0]() };
   };
   const p = page();
   assert.deepStrictEqual([p.folded(), p.toggle.ariaLabel, p.toggle.title, p.vars["--head-h"]], [false, "收起头部", "收起头部", "200px"]);
@@ -81,9 +82,16 @@ const assertInert = (html, where) => assert.ok(!/<img src=x|<script|"'>/i.test(h
   measureAll();
   assert.ok(q.folded(), "and 关注's");
   body.delete("follow-mode");
-  // Nothing else folds or unfolds it: no scroll or focus listener, and no other file touches the class.
+  // Scrolling the list only shows the shadow under the header; it never folds or unfolds.
+  measureAll();
+  q.scroll(300);
+  assert.deepStrictEqual([q.shadow(), q.folded()], [true, false], "scrolled: shadow, still unfolded");
+  q.click();
+  q.scroll(0);
+  assert.deepStrictEqual([q.shadow(), q.folded()], [false, true], "back at the top: no shadow, still folded");
+  // Nothing else folds or unfolds it: no focus listener, and no other file touches the class.
   const src = fs.readFileSync(path.join(__dirname, "shared.js"), "utf8");
-  assert.ok(!/"scroll"|"focusin"|headroom/i.test(src), "shared.js listens to no scroll or focus for the fold");
+  assert.ok(!/"focusin"|headroom/i.test(src), "shared.js does not unfold on focus");
   for (const f of ["triage.js", "follow.js"]) assert.ok(!fs.readFileSync(path.join(__dirname, f), "utf8").includes("head-folded"), `${f} sets the fold itself`);
 }
 
