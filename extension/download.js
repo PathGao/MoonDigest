@@ -1,4 +1,5 @@
-// Extension-page helpers (need document): saving text as a file, and the video page's 该笔记已存在 choice.
+// Extension-page helpers (need document): saving text as a file, the date in export file names (dateStamp), and the
+// 该笔记已存在 dialog of the side panel and 视频记录 (the video page draws its own copy: content.js confirmOverwriteNote).
 (() => {
   if (globalThis.MdgDownload) {
     return;
