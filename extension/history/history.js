@@ -185,7 +185,8 @@ function syncBulk(groups = visibleGroups()) {
   const del = deletableKeys(shown.length ? shown : [...selected]).length;
   els.bulkDelete.textContent = del ? `删除选中的 ${del} 个` : "删除选中的";
   setReason(els.bulkMd, none);
-  setReason(els.bulkDelete, none || (del ? "" : "选中的视频没有 AI 对话，没有可删的"), del < n ? `选中的 ${n} 个里有 ${del} 个有 AI 对话，只删这些对话` : "");
+  // Only AI conversations are deleted here; a video's AI 总结 and 备注 belong to the 分拣台, whose 清理 removes them.
+  setReason(els.bulkDelete, none || (del ? "" : "选中的视频没有 AI 对话，它们的 AI 总结和备注在分拣台清理"), del < n ? `选中的 ${n} 个里，${n - del} 个没有 AI 对话，删除后会留下；它们的 AI 总结和备注在分拣台清理` : "");
   setReason(els.clearAll, conversations.length ? "" : "还没有 AI 对话");
 }
 
