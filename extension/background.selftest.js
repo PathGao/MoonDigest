@@ -479,8 +479,10 @@ process.on("exit", (code) => {
   const importSync = { noteFolder: "Y", stray: 1 };
   const importLocal = { obsidianApiKey: "k2", aiProviderKeys: { q: "sk2" } };
   ctx.chrome = { storage: { sync: area(importSync), local: area(importLocal) } };
-  const old = { ...file, settings: { ...file.settings, aiInitialQuickPrompts: ["旧"], obsidianApiKey: "x" } };
+  // L12: a file that carries a platform's API Key (hand-edited, or from another tool) never puts it into sync.
+  const old = { ...file, settings: { ...file.settings, aiInitialQuickPrompts: ["旧"], obsidianApiKey: "x", aiProviders: [{ id: "p", apiKey: "sk-file" }] } };
   await ctx.importSettings(old);
+  assert.ok(!JSON.stringify(importSync).includes("sk-file") && importSync.aiProviders?.[0]?.id === "p", "a provider's key in the file stays out of sync");
   assert.deepStrictEqual([importSync.noteFolder, importSync.triageFineBatchSize, importSync.follow_ai_settings], ["X", 20, { batchSize: 7 }]);
   assert.ok(!("stray" in importSync) && !("aiInitialQuickPrompts" in importSync) && !("obsidianApiKey" in importSync));
   assert.ok(importSync.aiPresetPrompts.includes("旧"));

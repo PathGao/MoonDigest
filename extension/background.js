@@ -746,11 +746,16 @@ const SETTINGS_FILE_VERSION = 1;
 const { triageIncludedFolders: FOLDERS_KEY, triageFolderCriteria: CRITERIA_KEY } = MdgLimits.KEYS;
 const LOCAL_SETTING_KEYS = [FOLDERS_KEY, CRITERIA_KEY];
 
+// API keys stay on this machine (chrome.storage.local): neither the settings file nor sync carries one, whether the
+// settings come from sync (export) or from a file (import), and a platform's own apiKey goes too.
+function withoutApiKeys({ obsidianApiKey, [AI_PROVIDER_KEYS_STORAGE]: keys, ...settings }) {
+  if (Array.isArray(settings.aiProviders)) settings.aiProviders = settings.aiProviders.map((p) => (p && typeof p === "object" ? (({ apiKey, ...rest }) => rest)(p) : p));
+  return settings;
+}
+
 async function exportSettings() {
-  const [settings, local] = await Promise.all([chrome.storage.sync.get(null), chrome.storage.local.get(LOCAL_SETTING_KEYS)]);
-  delete settings.obsidianApiKey;
-  delete settings[AI_PROVIDER_KEYS_STORAGE];
-  if (Array.isArray(settings.aiProviders)) settings.aiProviders = settings.aiProviders.map(({ apiKey, ...p }) => p);
+  const [synced, local] = await Promise.all([chrome.storage.sync.get(null), chrome.storage.local.get(LOCAL_SETTING_KEYS)]);
+  const settings = withoutApiKeys(synced);
   return {
     app: "moondigest",
     kind: "settings",
@@ -775,7 +780,7 @@ async function importSettings(file) {
     throw new Error("不是 MoonDigest 的设置文件");
   }
   if (!(file.schemaVersion <= SETTINGS_FILE_VERSION)) throw new Error("这个文件来自更新的版本，先更新 MoonDigest 再导入");
-  const { obsidianApiKey, [AI_PROVIDER_KEYS_STORAGE]: keys, ...settings } = file.settings;
+  const settings = withoutApiKeys(file.settings);
   checkSyncItems(settings);
   const current = Object.keys(await chrome.storage.sync.get(null));
   await chrome.storage.sync.set(settings);
