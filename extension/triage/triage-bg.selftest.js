@@ -314,7 +314,7 @@ assert.throws(() => t.triageParseCommand('{"new_tags":[', cmdItems, cmdTags, {})
   await assert.rejects(t.triageBiliPost("/x", {}), (e) => e.code === "THROTTLED");
   // N5: a write after the login expired is NOT_LOGGED_IN (the page shows 去登录), with a plain message.
   t.fetch = jsonRes({ code: -101, message: "账号未登录" });
-  await assert.rejects(t.triageBiliPost("/x", {}), (e) => e.code === "NOT_LOGGED_IN" && e.message === "未登录 B站");
+  await assert.rejects(t.triageBiliPost("/x", {}), (e) => e.code === "NOT_LOGGED_IN" && e.message === t.MdgErrors.TEXT.biliLogin);
   t.fetch = jsonRes({ code: 11010, message: "内容不存在" });
   await assert.rejects(t.triageBiliPost("/x", {}), (e) => e.code === undefined);
   t.fetch = async () => ({ ok: true, status: 200, json: async () => JSON.parse("<html>") });

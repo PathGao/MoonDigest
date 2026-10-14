@@ -30,6 +30,8 @@ const E = ctx.MdgErrors;
   // A B站 limit reads the same as on the video page, wherever the background reports it (history page, side panel notes).
   assert.strictEqual(E.text({ ok: false, code: "THROTTLED", error: "B站返回 -352：风控校验失败" }), "B站限流，请稍后再试");
   assert.strictEqual(E.text({ ok: false, code: "AI_THROTTLED", error: "AI 平台限流" }), "AI 平台限流");
+  // Not logged in to B站 reads one way, whether the background said NOT_LOGGED_IN or passed B站's -101.
+  assert.deepStrictEqual([E.text({ code: "NOT_LOGGED_IN", error: "未登录" }), E.text({ code: -101, error: "账号未登录" })], [E.TEXT.biliLogin, E.TEXT.biliLogin]);
   const err = E.fromResp({ ok: false, error: E.TEXT.obsidianKey, code: "OBSIDIAN" }, "Local API 写入失败");
   assert.strictEqual(err.message, E.TEXT.obsidianKey);
   assert.strictEqual(err.action, "settings");
@@ -62,7 +64,7 @@ const E = ctx.MdgErrors;
 
   // The sentences live only in errors.js; badges.js (it does not load errors.js) keeps one exact copy.
   assert.ok(read("badges.js").includes(`"${E.TEXT.reloaded}"`), "badges.js shows MdgErrors.TEXT.reloaded word for word");
-  const sources = ["background.js", "obsidian.js", "content.js", "sidepanel.js", "popup.js", "history/history.js", "triage/triage.js", "triage/triage-bg.js", "triage/follow.js"];
+  const sources = ["background.js", "obsidian.js", "content.js", "sidepanel.js", "popup.js", "history/history.js", "triage/triage.js", "triage/triage-bg.js", "triage/follow.js", "triage/follow-bg.js"];
   for (const sentence of [...Object.values(E.TEXT), "视频审核中"]) {
     for (const file of sources) assert.ok(!read(file).includes(sentence), `${file} writes 「${sentence}」 itself`);
   }

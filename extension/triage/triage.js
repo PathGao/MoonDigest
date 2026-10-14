@@ -288,7 +288,7 @@ const el = {};
 function send(msg) {
   return sendRaw(msg).then((r) => (MdgErrors.action(r.code) === "login" && showLogin(), r));
 }
-const showLogin = () => showBanner("没登录 B站：先在这个浏览器里登录 B站", "去登录", () => openTab("https://passport.bilibili.com/login"), "login");
+const showLogin = () => showBanner(MdgErrors.TEXT.biliLogin, "去登录", () => openTab("https://passport.bilibili.com/login"), "login");
 // The AI platform picked at the top of the side panel: sidepanel.js keeps it in this extension's localStorage under
 // this key (SELECTED_PROVIDER_KEY there). Every request carries it; the background's AI calls use it (triageChat).
 const AI_PROVIDER_KEY = "mdg_ai_selected_provider";

@@ -179,6 +179,22 @@ const runSync = async () => {
     assert.deepStrictEqual(calls.filter((c) => c.startsWith("space")), ["space/wbi/arc/search#1", "space/wbi/arc/search#6"]);
   }
 
+  // ---------- logged out mid-sync: B站's -101 stops it as NOT_LOGGED_IN in the one sentence, never as 暂时没查到 ----------
+  {
+    local = { follow_list: { list: ["1", "2"], followTime: { 1: 1, 2: 2 } } };
+    routes = {
+      "/x/web-interface/nav": nav,
+      "/x/relation/stat": () => json({ code: 0, data: { follower: 1 } }),
+      "/x/relation/followings": followings([[person(1), person(2)]], 2),
+      "/x/relation/tags": () => json({ code: 0, data: [] }),
+      "/x/polymer/web-dynamic/v1/feed/all": feed([[]]),
+      "/x/space/wbi/arc/search": () => json({ code: -101, message: "账号未登录" })
+    };
+    await runSync();
+    assert.deepStrictEqual([local.follow_jobs.errorCode, local.follow_jobs.error], ["NOT_LOGGED_IN", t.MdgErrors.TEXT.biliLogin]);
+    assert.ok(!local.follow_content?.[1] && !local.follow_content?.[2], "nothing recorded or skipped as temporary");
+  }
+
   // ---------- no videos: upstat's 视频播放量 says 投稿已清空 (views > 0) or 没投过稿; not read is asked again ----------
   {
     local = { follow_list: { list: ["1", "2", "3"], followTime: { 1: 1, 2: 2, 3: 3 } } };

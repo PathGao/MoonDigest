@@ -216,9 +216,13 @@ function followHold(ms, why) {
 const FOLLOW_PACE = { slot: followSlot, hold: followHold, cfg: FOLLOW_CFG };
 const followGetJson = (url) => triageBiliGetJson(url, FOLLOW_PACE);
 
+// A B站 code as an error: -101 is NOT_LOGGED_IN (a string code, so every phase stops on it like on THROTTLED); any
+// other stays B站's own number (FOLLOW_GONE_CODES, or a temporary one the phases skip).
+const followCodeError = (j, what = "B站返回 ") => (j.code === -101 ? triageNotLoggedIn() : triageError(`${what}${j.code}：${j.message || ""}`, j.code));
+
 async function followGetData(url) {
   const j = await followGetJson(url);
-  if (j.code !== 0) throw triageError(`B站返回 ${j.code}：${j.message}`, j.code);
+  if (j.code !== 0) throw followCodeError(j);
   return j.data;
 }
 
@@ -247,7 +251,7 @@ async function followWbiData(base, params) {
     MdgSites.biliWbiReset();
     j = await followGetJson(signed);
   }
-  if (j.code !== 0) throw triageError(`B站返回 ${j.code}：${j.message}`, j.code);
+  if (j.code !== 0) throw followCodeError(j);
   return j.data;
 }
 
@@ -293,7 +297,7 @@ async function followSyncJob(ctx) {
   if (c.phase === "list") {
     await ctx.progress({ phase: "list", step: "读取关注列表", done: 0, total: 0, cursor: c });
     const nav = (await get(() => followGetJson(`${FOLLOW_API}/x/web-interface/nav`))).data || {};
-    if (!nav.isLogin || !nav.mid) throw triageError("未登录 B站：先在这个浏览器里登录 B站", "NOT_LOGGED_IN");
+    if (!nav.isLogin || !nav.mid) throw triageNotLoggedIn();
     const fresh = { list: [], followTime: {}, special: {}, groups: {} };
     const people = {};
     let total = 0;
@@ -303,7 +307,7 @@ async function followSyncJob(ctx) {
     for (let pn = 1; pn <= 100; pn++) {
       const url = `${FOLLOW_API}/x/relation/followings?${followQuery({ vmid: nav.mid, pn, ps: 50, order: "desc" })}`;
       const j = await get(() => followAgain(() => followGetJson(url), (j) => pn === 1 && j.code === 0 && !j.data?.list?.length));
-      if (j.code !== 0) throw triageError(`读取关注列表失败：${j.code} ${j.message || ""}`, j.code);
+      if (j.code !== 0) throw followCodeError(j, "读取关注列表失败：");
       const page = j.data?.list || [];
       total = Number(j.data?.total) || 0;
       for (const x of page) {

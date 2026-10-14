@@ -17,6 +17,8 @@
     reloaded: "扩展刚刚更新，请刷新网页",
     // B站 risk control (HTTP 412 or MdgSites.BILI_RISK_CODES), the background's code THROTTLED.
     biliThrottled: "B站限流，请稍后再试",
+    // Not logged in to B站 (the background's NOT_LOGGED_IN, B站's -101), on any read or write; pages add 去登录.
+    biliLogin: "未登录 B站：先在这个浏览器里登录 B站",
     // What a page that can reload adds to subtitleMissing's 未登录 sentence (the video page, the side panel); notes do not.
     subtitleLoginHint: "登录 B站后刷新网页"
   });
@@ -42,8 +44,8 @@
     // Obsidian itself is unusable (not set up, off, wrong key): every write fails alike and the fix is in the settings
     // page. OBSIDIAN_DOWN (closed, plugin off, timeout) also fails every write, but the settings page cannot fix it.
     OBSIDIAN: { action: "settings" },
-    NOT_LOGGED_IN: { action: "login" },
-    [-101]: { action: "login" },
+    NOT_LOGGED_IN: { action: "login", text: TEXT.biliLogin },
+    [-101]: { action: "login", text: TEXT.biliLogin },
     THROTTLED: { text: TEXT.biliThrottled },
     62004: { text: "视频审核中，过后再试" }
   });
