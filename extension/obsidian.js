@@ -240,8 +240,8 @@ async function writeVideoNote({ ref: input, mode, conversation, page }) {
 }
 
 // sync-video-note-ai: after a write recorded the video's note, each finished answer replaces its AI 问答 section.
-// Never creates a note. Resolves { path: "" } when there is nothing to do, else { path, exists, updated, text? }: text,
-// what the side panel shows, when the note is still there.
+// Never creates a note. Resolves { path: "" } when there is nothing to do, else { path, exists, updated, text }: text,
+// what the side panel shows (the note updated, or gone and left alone).
 async function syncVideoNoteAi({ ref: input, conversation }) {
   const ref = MdgSites.contextRef(input);
   const key = ref.isVideoContext ? MdgSites.buildContextKey(ref) : "";
@@ -257,7 +257,7 @@ async function syncVideoNoteAi({ ref: input, conversation }) {
     return { path: "" };
   }
   const done = await updateAiSectionInVault(vault, path, section, key);
-  return { path, ...done, ...(done.exists && { text: aiSectionUpdated(path) }) };
+  return { path, ...done, text: done.exists ? aiSectionUpdated(path) : "Obsidian 里的视频笔记已不存在，未写入" };
 }
 
 if (typeof chrome !== "undefined" && chrome.runtime?.onMessage) {
