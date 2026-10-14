@@ -16,6 +16,10 @@
     obsidianNotFound: "Obsidian Local REST API 地址不对（HTTP 404）",
     // 取消 in the 该笔记已存在 dialog: the page sent no second write-video-note, so nothing was written.
     obsidianCancelled: "已取消写入 Obsidian，原笔记未被覆盖。",
+    // The conversation (side panel) or the video (video page) changed while the 该笔记已存在 dialog was open: nothing
+    // was written, and it is no failure (not red).
+    obsidianConvSwitched: "对话已切换，未写入 Obsidian。",
+    obsidianVideoSwitched: "视频已切换，未写入 Obsidian。",
     // The extension reloaded under a page whose content script still runs: chrome.runtime no longer answers.
     reloaded: "扩展刚刚更新，请刷新网页",
     // No AI platform to send to (none added, none enabled): the background's AI_SETUP, the side panel and 分拣台 say this.

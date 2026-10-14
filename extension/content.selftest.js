@@ -643,7 +643,7 @@ const settle = async () => {
       if (switched || !pick) {
         // The side panel and the popup learn nothing was written.
         assert.deepStrictEqual([{ ...reply }, modes()], [{ written: false }, [["write-video-note", undefined, "# 视频 A"]]]);
-        assert.strictEqual(messages.at(-1), switched ? "视频已切换，未写入 Obsidian。" : t.MdgErrors.TEXT.obsidianCancelled);
+        assert.strictEqual(messages.at(-1), switched ? t.MdgErrors.TEXT.obsidianVideoSwitched : t.MdgErrors.TEXT.obsidianCancelled);
       } else {
         // The same note, taken before the dialog, with the mode; the background's words are shown.
         assert.deepStrictEqual(modes(), [["write-video-note", undefined, "# 视频 A"], ["write-video-note", "ai", "# 视频 A"]]);

@@ -1320,8 +1320,8 @@ async function sendToObsidian() {
       }
       onPage = true;
       if (computeCurrentClipSignature() !== clip) {
-        setMessage("视频已切换，未写入 Obsidian。");
-        setReadingNotice("视频已切换，未写入 Obsidian。");
+        setMessage(MdgErrors.TEXT.obsidianVideoSwitched);
+        setReadingNotice(MdgErrors.TEXT.obsidianVideoSwitched);
         return { written: false };
       }
       setReadingNotice("正在写入 Obsidian…", { busy: true });

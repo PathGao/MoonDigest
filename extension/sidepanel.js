@@ -1808,7 +1808,8 @@ async function saveCurrentConversationToObsidian() {
         return;
       }
       if (epoch !== state.view().epoch) {
-        throw new Error("对话已切换");
+        showConversationContextNotice(MdgErrors.TEXT.obsidianConvSwitched, 2200);
+        return;
       }
       resp = await sendRuntimeMessage({ ...request, mode });
     }
