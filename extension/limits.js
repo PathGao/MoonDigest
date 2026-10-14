@@ -93,6 +93,19 @@
     }
   }
 
+  // One 视频备注 saved by read-modify-write (the side panel, 视频记录 and 分拣台): a fresh read, only this entry changed,
+  // written back, so a note another page saved meanwhile is kept. Blank text deletes it; the stored text writes nothing.
+  // set writes the whole map (the 分拣台 passes its own, to know the echo). Resolves true when it wrote.
+  async function saveVideoNote(id, text, set = (notes) => chrome.storage.local.set({ [KEYS.triageNotes]: notes })) {
+    const notes = { ...(await chrome.storage.local.get(KEYS.triageNotes))[KEYS.triageNotes] };
+    const next = String(text ?? "").trim() ? String(text) : "";
+    if ((notes[id]?.text || "") === next) return false;
+    if (next) notes[id] = { text: next, updatedAt: Date.now() };
+    else delete notes[id];
+    await set(notes);
+    return true;
+  }
+
   // Approximate stored size: JSON length of key + value, as chrome.storage counts it (characters, not UTF-8 bytes).
   const sizeOf = (entries) => entries.reduce((sum, [key, value]) => sum + key.length + JSON.stringify(value ?? null).length, 0);
 
@@ -203,6 +216,7 @@
     describe,
     sampleAiSubtitle,
     migrateRenamedKeys,
-    migrateRenamedLocalStorage
+    migrateRenamedLocalStorage,
+    saveVideoNote
   });
 })();

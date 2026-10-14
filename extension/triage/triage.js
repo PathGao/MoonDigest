@@ -402,6 +402,17 @@ function setBusy(btn, text) {
 
 let toastTimer = 0;
 let noteTimer = 0;
+const notePending = new Set(); // bvids whose note waits for noteTimer
+// Each pending note goes through MdgLimits.saveVideoNote (fresh read, this one entry, write), so notes the side panel
+// or 视频记录 saved meanwhile are kept; storeSet marks the write as this page's own echo.
+async function flushNotes() {
+  clearTimeout(noteTimer);
+  noteTimer = 0;
+  for (const b of [...notePending]) {
+    await MdgLimits.saveVideoNote(b, S.notes[b]?.text || "", (notes) => storeSet(K.notes, notes));
+    if (!noteTimer) notePending.delete(b); // typing again meanwhile keeps it pending
+  }
+}
 // An error stays until the next toast or a click on it; anything else goes after 6 s.
 function toast(text, error = false) {
   el.toast.textContent = text;
@@ -848,13 +859,18 @@ function followShared(changes) {
   }
   if (changed) render();
 }
-// The side panel and history page edit the same notes. A pending local save is newer than any echo, and this page's
-// own saves coming back must not re-render: that rebuilds the note being typed (and its IME composition).
+// The side panel and history page edit the same notes. A pending local save is newer than the stored entry, and
+// neither it nor this page's own saves coming back re-render: that rebuilds the note being typed (and its IME composition).
 function followNotes(changes) {
   const c = changes[K.notes];
-  if (!c || noteTimer || ownEcho(K.notes, c)) return;
-  S.notes = c.newValue || {};
-  render();
+  if (!c || ownEcho(K.notes, c)) return;
+  const next = { ...c.newValue };
+  for (const b of notePending) {
+    if (S.notes[b]) next[b] = S.notes[b];
+    else delete next[b];
+  }
+  S.notes = next;
+  if (!notePending.size) render();
 }
 function ownEcho(key, c) {
   const mine = ownWrites[key] || [];
@@ -4185,11 +4201,9 @@ function bindEvents() {
     const text = e.target.value.trim();
     if (text) S.notes[b] = { text: e.target.value, updatedAt: Date.now() };
     else delete S.notes[b];
+    notePending.add(b);
     clearTimeout(noteTimer);
-    noteTimer = setTimeout(() => {
-      noteTimer = 0;
-      storeSet(K.notes, S.notes);
-    }, 400);
+    noteTimer = setTimeout(flushNotes, 400);
   };
   el.list.addEventListener("input", (e) => !e.isComposing && noteEdit(e));
   el.list.addEventListener("compositionend", (e) => {
@@ -4201,11 +4215,7 @@ function bindEvents() {
     if (composing(e) || !e.target.matches("[data-note]")) return;
     if (!(e.key === "Escape" || (e.key === "Enter" && !e.shiftKey))) return;
     e.preventDefault();
-    if (noteTimer) {
-      clearTimeout(noteTimer);
-      noteTimer = 0;
-      storeSet(K.notes, S.notes);
-    }
+    if (noteTimer) void flushNotes();
     e.target.blur();
   });
   // An emptied note folds back to 「+ 备注」.

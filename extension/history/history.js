@@ -91,20 +91,15 @@ function renderNote(g) {
   return id ? `<button type="button" class="entry-note" data-act="note" title="点击编辑备注">${body}</button>` : `<div class="entry-note">${body}</div>`;
 }
 
-// Same rule as the triage card: an unchanged note is not rewritten, an emptied one is deleted.
+// MdgLimits.saveVideoNote, like the side panel and 分拣台: an unchanged note is not rewritten, an emptied one is deleted.
 async function closeNote() {
   if (!editing) return;
   const { id, draft } = editing;
   editing = null;
-  const text = draft.trim() ? draft : "";
-  if (text !== (notes[id]?.text || "")) {
-    if (text) notes[id] = { text, updatedAt: Date.now() };
+  if (await MdgLimits.saveVideoNote(id, draft)) {
+    if (draft.trim()) notes[id] = { text: draft, updatedAt: Date.now() };
     else delete notes[id];
-    const stored = (await chrome.storage.local.get(NOTES_KEY))[NOTES_KEY] || {};
-    if (text) stored[id] = notes[id];
-    else delete stored[id];
-    await chrome.storage.local.set({ [NOTES_KEY]: stored });
-    setStatus(text ? "备注已保存" : "备注已删除");
+    setStatus(draft.trim() ? "备注已保存" : "备注已删除");
   }
   if (reloadPending) {
     reloadPending = false;

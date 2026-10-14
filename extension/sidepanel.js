@@ -521,20 +521,11 @@ async function renderNote() {
   els.noteInput.dataset.videoId = id;
 }
 
-// Read-modify-write so notes the other pages saved meanwhile are kept; empty text deletes the entry.
 async function saveNote() {
   const id = els.noteInput.dataset.videoId;
-  const text = els.noteInput.value;
   els.noteInput.hidden = true;
   els.noteToggle.hidden = false;
-  if (id) {
-    const notes = { ...(await chrome.storage.local.get(NOTES_STORAGE_KEY))[NOTES_STORAGE_KEY] };
-    if ((notes[id]?.text || "") !== text) {
-      if (text.trim()) notes[id] = { text, updatedAt: Date.now() };
-      else delete notes[id];
-      await chrome.storage.local.set({ [NOTES_STORAGE_KEY]: notes });
-    }
-  }
+  if (id) await MdgLimits.saveVideoNote(id, els.noteInput.value);
   await renderNote();
 }
 

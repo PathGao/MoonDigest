@@ -127,6 +127,18 @@ for (const name of badgesCopies) assert.ok(fs.readFileSync(path.join(__dirname, 
   L.migrateRenamedLocalStorage(full);
   assert.deepStrictEqual(full.data, { boc_ai_selected_provider: "b" });
 
+  // 视频备注: one read-modify-write of one entry for every page; a note saved elsewhere meanwhile stays.
+  const area = fakeArea({ triage_notes: { BV1: { text: "a", updatedAt: 1 }, BV2: { text: "别处的", updatedAt: 1 } } });
+  ctx.chrome = { storage: { local: area } };
+  assert.strictEqual(await L.saveVideoNote("BV1", "a"), false, "unchanged text writes nothing");
+  assert.strictEqual(await L.saveVideoNote("BV3", "新的"), true);
+  assert.strictEqual(await L.saveVideoNote("BV1", "  "), true);
+  assert.deepStrictEqual(Object.fromEntries(Object.entries(area.data.triage_notes).map(([b, n]) => [b, n.text])), { BV2: "别处的", BV3: "新的" });
+  for (const f of ["sidepanel.js", "history/history.js", "triage/triage.js"]) {
+    const src = fs.readFileSync(path.join(__dirname, f), "utf8");
+    assert.ok(src.includes("MdgLimits.saveVideoNote(") && !/set\(\{ \[(NOTES_STORAGE_KEY|NOTES_KEY)\]|storeSet\(K\.notes, S\.notes\)/.test(src), `${f} saves a note its own way`);
+  }
+
   console.log("limits selftest ok");
 })().catch((error) => {
   console.error(error);
