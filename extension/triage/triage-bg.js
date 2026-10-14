@@ -175,7 +175,15 @@ function triageWithCriteria(system, criteria, folder) {
   return parts.join("\n\n");
 }
 
-// subtitle is "" when the video has none; then comments (the hot comments, numbered) stand in for it.
+// Why the AI gets no subtitle, in the sentence every entry shows (MdgErrors.subtitleMissing). Not logged in or a failed
+// fetch adds that the video may have subtitles, so the AI never says it has none (细看 and the side panel's buildAiMessages).
+function aiSubtitleMissing({ subtitleNeedLogin = false, subtitleFailure = "" } = {}) {
+  const missing = MdgErrors.subtitleMissing({ subtitleNeedLogin, subtitleFailure });
+  return subtitleNeedLogin || subtitleFailure ? `${missing}。视频本身可能有字幕，不要说视频没有字幕。` : `${missing}。`;
+}
+
+// subtitle is "" when the video has none; then comments (the hot comments, numbered) stand in for it, and meta's
+// subtitleNeedLogin / subtitleFailure say why (aiSubtitleMissing).
 function triageBuildMessages(meta, subtitle, comments, criteria, folder) {
   const user = [
     `标题：${meta.title}`,
@@ -185,7 +193,7 @@ function triageBuildMessages(meta, subtitle, comments, criteria, folder) {
     `发布：${meta.pubdate || "未知"}`,
     `标签：${meta.tags.join("、") || "无"}`,
     `简介：${meta.desc || "无"}`,
-    subtitle ? `\n字幕：\n${subtitle}` : `\n（无可用字幕）\n热门评论：\n${comments || "无"}`
+    subtitle ? `\n字幕：\n${subtitle}` : `\n${aiSubtitleMissing(meta)}\n热门评论：\n${comments || "无"}`
   ].join("\n");
   return [
     { role: "system", content: triageWithCriteria(TRIAGE_SYSTEM_PROMPT, criteria, folder) },
@@ -570,7 +578,7 @@ async function triageAnalyze({ bvid, force, criteria, folder, aiProviderId }) {
   const comments = subtitle ? "" : (await site.fetchComments(ref, m, TRIAGE_BILI_IO, TriageUi.DEEP_COMMENTS).catch(() => [])).map((c, i) => `${i + 1}. ${c.message}`).join("\n");
 
   const ai = await triageAiSettings();
-  const { content, model } = await triageChat(triageBuildMessages(meta, subtitle, comments, criteria, folder), triageMaxTokens("analyze", 1, ai), ai.triageThinking, aiProviderId);
+  const { content, model } = await triageChat(triageBuildMessages({ ...meta, subtitleNeedLogin: got.needLogin, subtitleFailure: got.failure }, subtitle, comments, criteria, folder), triageMaxTokens("analyze", 1, ai), ai.triageThinking, aiProviderId);
   const analysis = {
     bvid,
     status: "done",

@@ -494,18 +494,22 @@ assert.throws(() => t.triageParseCommand('{"new_tags":[', cmdItems, cmdTags, {})
   const emptyList = { code: 0, data: { subtitle: { subtitles: [] } } };
   routes = { ...baseRoutes(), "/x/player/wbi/v2": emptyList };
   assert.strictEqual((await analyze()).source, "meta");
-  assert.ok(prompt.includes("（无可用字幕）\n热门评论：\n1. 评论一"));
+  assert.ok(prompt.includes("视频没有字幕。\n热门评论：\n1. 评论一"));
 
   // Without subtitles, a comment fetch failure does not fail the analysis.
   routes = { ...baseRoutes(), "/x/player/wbi/v2": emptyList, "/reply/main": new Error("network") };
   assert.strictEqual((await analyze()).source, "meta");
-  assert.ok(prompt.includes("（无可用字幕）\n热门评论：\n无"));
+  assert.ok(prompt.includes("视频没有字幕。\n热门评论：\n无"));
 
   // Subtitles hidden from a logged-out user: judged without them, and the result says why (the card shows it).
   routes = { ...baseRoutes(), "/x/player/wbi/v2": { code: 0, data: { subtitle: { subtitles: [] }, need_login_subtitle: true } } };
   assert.deepStrictEqual([(await analyze()).source, (await analyze()).needLogin], ["meta", true]);
+  // L1: the AI hears why, as in the side panel, and that the video may have subtitles after all.
+  assert.ok(prompt.includes("未登录 B站，拿不到字幕。视频本身可能有字幕，不要说视频没有字幕。\n热门评论："), prompt);
   routes = { ...baseRoutes(), [subUrl]: { body: [] } };
   assert.strictEqual((await analyze()).needLogin, undefined, "a bad subtitle is not a login problem");
+  assert.ok(prompt.includes("字幕抓取失败：字幕文件为空。视频本身可能有字幕，不要说视频没有字幕。"));
+  assert.strictEqual(["../background.js", "triage-bg.js"].map((f) => fs.readFileSync(path.join(__dirname, f), "utf8").split("视频本身可能有字幕").length - 1).join(), "0,1", "the reminder is written once (aiSubtitleMissing)");
 
   // A subtitle up to the cap goes in whole; a longer one is sampled down to the cap.
   const line = "一句字幕".repeat(10);

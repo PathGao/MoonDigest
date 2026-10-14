@@ -908,11 +908,12 @@ function buildAiMessages({ context, userPrompt, history, systemPrompt }) {
   } else if (subtitle.text) {
     sections.push(`以下是视频的字幕全文：\n\n${subtitle.text}`);
   } else {
-    // The sentence every entry shows (MdgErrors.subtitleMissing); not logged in or failed, the video may have subtitles.
-    const missing = MdgErrors.subtitleMissing({ subtitleNeedLogin: ctx.subtitleNeedLogin, subtitleFailure: String(ctx.subtitleFailure || "").trim() });
+    // The sentence every entry shows; not logged in or failed, the video may have subtitles (aiSubtitleMissing, as 细看).
+    const why = { subtitleNeedLogin: Boolean(ctx.subtitleNeedLogin), subtitleFailure: String(ctx.subtitleFailure || "").trim() };
+    const missing = MdgErrors.subtitleMissing(why);
     sections.push(
-      ctx.subtitleNeedLogin || String(ctx.subtitleFailure || "").trim()
-        ? `${missing}。视频本身可能有字幕，不要说视频没有字幕。你拿不到视频里说了什么或画面内容，以下仅基于简介和评论回答，不要假装看过视频；简介和评论回答不了的，告诉用户：${missing}。`
+      why.subtitleNeedLogin || why.subtitleFailure
+        ? `${aiSubtitleMissing(why)}你拿不到视频里说了什么或画面内容，以下仅基于简介和评论回答，不要假装看过视频；简介和评论回答不了的，告诉用户：${missing}。`
         : "这个视频没有字幕，你拿不到视频里说了什么或画面内容。只能依据下面的简介和评论回答，不要假装看过视频；简介和评论回答不了的，直接告诉用户无法确认。"
     );
     notices.push(`${missing}，只根据标题、简介和评论回答`);
