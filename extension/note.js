@@ -99,12 +99,7 @@
     }
     const hasSubtitles = subtitleSectionLines.length > 0;
     if (!hasSubtitles) {
-      lines.push(
-        meta.subtitleFailure
-          ? `> 字幕抓取失败（${meta.subtitleFailure}），以下为简介与热门评论。`
-          : "> 本视频无字幕，以下为简介与热门评论。",
-        ""
-      );
+      lines.push(`> ${MdgErrors.subtitleMissing(meta)}，以下为简介与热门评论。`, "");
     }
     pushOptionalLines(lines, noteSections.before_intro);
 

@@ -1368,8 +1368,8 @@
   //   4. Still nothing matching: the first mismatched body, used with its check in `mismatch` (the reader shows
   //      MdgNote.subtitleMismatchWarning; it is never cached).
   // A limit with nothing usable throws, so the caller waits and tries again. Any other failure (network, timeout,
-  // expired link, empty files) leaves no subtitle with `error` and `failure`, its reason without the full stop, which
-  // every reader shows as 字幕抓取失败：原因. step(promise) wraps every wait (it sees settled results, never a rejection):
+  // expired link, empty files) leaves no subtitle with `error` and `failure`, its reason without the full stop; B站's
+  // logged-out answer leaves `needLogin`. Every reader says it with MdgErrors.subtitleMissing. step(promise) wraps every wait (it sees settled results, never a rejection):
   // the video page's run guard throws there once the video has changed.
   async function loadSubtitle(site, ref, meta, io, { prefer = {}, step = noStep } = {}) {
     const ids = { videoId: ref.id, cid: meta.cid };
@@ -1411,10 +1411,15 @@
         else if (!pass.track && body.length) pass = { ...pass, track, body, mismatch: result };
       }
     }
-    if (pass.track) return { track: pass.track, body: pass.body, mismatch: pass.mismatch, bundle, tracks, error: null, failure: "" };
+    if (pass.track) return { track: pass.track, body: pass.body, mismatch: pass.mismatch, bundle, tracks, error: null, failure: "", needLogin: false };
     if (pass.limited) throw pass.error;
     const why = pass.error || got.error || (!tracks.length && meta.gate ? new Error(meta.gate) : null);
-    return { track: null, body: [], mismatch: null, bundle, tracks, error: why, failure: why ? String(why.message || why).replace(/[。.！!；;，,\s]+$/u, "") : "" };
+    // needLogin: B站 listed nothing because it saw a logged-out viewer, a state of its own (MdgErrors.subtitleMissing).
+    return {
+      track: null, body: [], mismatch: null, bundle, tracks, error: why,
+      failure: why ? String(why.message || why).replace(/[。.！!；;，,\s]+$/u, "") : "",
+      needLogin: !why && bundle.needLogin === true
+    };
   }
 
   // ----------------------------------------------------------------- registry

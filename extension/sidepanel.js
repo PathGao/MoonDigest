@@ -649,12 +649,9 @@ function introText() {
   if (String(context?.subtitleMarkdown || "").trim()) {
     return EMPTY_INTRO;
   }
-  if (context?.subtitleNeedLogin) {
-    return "B站要求登录后才提供字幕，AI 只能读标题、简介和评论。登录 B站后刷新网页。";
-  }
-  return context?.subtitleFailure
-    ? "字幕抓取失败，AI 只能读标题、简介和评论。可以稍后刷新网页重试。"
-    : "这期视频没有字幕，AI 只能读标题、简介和评论。";
+  // The video page's sentence (MdgErrors.subtitleMissing), with its 未登录 hint.
+  const hint = context?.subtitleNeedLogin ? `${MdgErrors.TEXT.subtitleLoginHint}。` : "";
+  return `${MdgErrors.subtitleMissing(context || {})}，AI 只能读标题、简介和评论。${hint}`;
 }
 
 function renderSuggestions() {

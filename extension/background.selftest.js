@@ -168,16 +168,18 @@ process.on("exit", (code) => {
   assert.match(none, /这个视频没有字幕/);
   assert.doesNotMatch(none, /抓取失败/);
   const failed = systemFor({ subtitleFailure: "字幕接口限流（429），稍后再试" });
-  assert.match(failed, /字幕抓取失败（字幕接口限流（429），稍后再试）/);
+  assert.match(failed, /字幕抓取失败：字幕接口限流（429），稍后再试。/);
   assert.match(failed, /以下仅基于简介和评论/);
   assert.doesNotMatch(failed, /这个视频没有字幕/);
   assert.match(failed, /以下是视频简介：\n\n简介/);
   assert.doesNotMatch(systemFor({ subtitleMarkdown: "字幕", subtitleFailure: "旧失败" }), /抓取失败/);
   // The user is told too, under the reply: no subtitles, or they failed to load.
   const noticesFor = (extra) => [...ctx.buildAiMessages({ context: { isVideoContext: true, title: "T", ...extra }, userPrompt: "q" }).notices];
-  assert.deepStrictEqual(noticesFor({}), ["这期视频没有字幕，只根据标题、简介和评论回答"]);
-  assert.deepStrictEqual(noticesFor({ subtitleFailure: "429" }), ["字幕抓取失败，只根据标题、简介和评论回答"]);
-  assert.deepStrictEqual(noticesFor({ subtitleFailure: "要登录", subtitleNeedLogin: true }), ["B站要求登录后才提供字幕，只根据标题、简介和评论回答"]);
+  // The three states read as on every other entry (MdgErrors.subtitleMissing).
+  assert.deepStrictEqual(noticesFor({}), ["视频没有字幕，只根据标题、简介和评论回答"]);
+  assert.deepStrictEqual(noticesFor({ subtitleFailure: "429" }), ["字幕抓取失败：429，只根据标题、简介和评论回答"]);
+  assert.deepStrictEqual(noticesFor({ subtitleFailure: "要登录", subtitleNeedLogin: true }), ["未登录 B站，拿不到字幕，只根据标题、简介和评论回答"]);
+  assert.match(systemFor({ subtitleNeedLogin: true }), /未登录 B站，拿不到字幕。视频本身可能有字幕/);
   assert.deepStrictEqual(noticesFor({ subtitleMarkdown: "字幕" }), [], "with subtitles there is nothing to say");
   // A subtitle that does not match the video's length is sent with the video page's warning.
   assert.deepStrictEqual(noticesFor({ subtitleMarkdown: "字幕", subtitleWarning: "字幕时间轴到 06:40，视频长 04:33，字幕时间可能对不上。" }), ["字幕时间轴到 06:40，视频长 04:33，字幕时间可能对不上"]);

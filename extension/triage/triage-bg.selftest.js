@@ -521,9 +521,14 @@ assert.throws(() => t.triageParseCommand('{"new_tags":[', cmdItems, cmdTags, {})
   routes = { ...baseRoutes(), [subUrl]: Object.assign(new Error("HTTP 403"), { status: 403 }) };
   const noSub = await buildNote();
   assert.deepStrictEqual([noSub.body.length, noSub.subtitleWarning], [0, "字幕抓取失败：B站请求失败 HTTP 403。"]);
-  assert.ok(noSub.markdown.includes("> 字幕抓取失败（B站请求失败 HTTP 403），以下为简介与热门评论。"), noSub.markdown);
+  assert.ok(noSub.markdown.includes("> 字幕抓取失败：B站请求失败 HTTP 403，以下为简介与热门评论。"), noSub.markdown);
   routes = listDown();
   assert.deepStrictEqual([(await buildNote()).body.length, (await buildNote()).subtitleWarning], [0, "字幕抓取失败：网络断了。"]);
+  // Not logged in: its own sentence on the result list and in the note, which says no more than that.
+  routes = { ...baseRoutes(), "/x/player/wbi/v2": { code: 0, data: { subtitle: { subtitles: [] }, need_login_subtitle: true } } };
+  const loggedOut = await buildNote();
+  assert.strictEqual(loggedOut.subtitleWarning, "未登录 B站，拿不到字幕。");
+  assert.ok(loggedOut.markdown.includes("> 未登录 B站，拿不到字幕，以下为简介与热门评论。") && !/请登录|刷新网页/.test(loggedOut.markdown), loggedOut.markdown);
   // A subtitle that does not match the video's length is kept with the video page's warning, and is not cached.
   routes = { ...baseRoutes(), [subUrl]: subtitleRaw(400) };
   const keptNote = await buildNote();

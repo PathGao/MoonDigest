@@ -344,7 +344,7 @@ async function resolveAiSidepanelContext(contextRef) {
       lang: String(item.label || item.lang || "").trim()
     })),
     // No list because B站 wants a login: the side panel says so instead of 没有字幕, like on the video page.
-    subtitleNeedLogin: bundle.needLogin === true,
+    subtitleNeedLogin: found.needLogin,
     hotComments,
     isVideoContext: true
   };
@@ -965,13 +965,14 @@ function buildAiMessages({ context, userPrompt, history, systemPrompt }) {
   } else if (subtitle.text) {
     sections.push(`以下是视频的字幕全文：\n\n${subtitle.text}`);
   } else {
-    const failure = String(ctx.subtitleFailure || "").trim();
+    // The sentence every entry shows (MdgErrors.subtitleMissing); not logged in or failed, the video may have subtitles.
+    const missing = MdgErrors.subtitleMissing({ subtitleNeedLogin: ctx.subtitleNeedLogin, subtitleFailure: String(ctx.subtitleFailure || "").trim() });
     sections.push(
-      failure
-        ? `这个视频的字幕抓取失败（${failure}），视频本身可能有字幕，不要说视频没有字幕。你拿不到视频里说了什么或画面内容，以下仅基于简介和评论回答，不要假装看过视频；简介和评论回答不了的，告诉用户字幕抓取失败、可稍后刷新重试。`
+      ctx.subtitleNeedLogin || String(ctx.subtitleFailure || "").trim()
+        ? `${missing}。视频本身可能有字幕，不要说视频没有字幕。你拿不到视频里说了什么或画面内容，以下仅基于简介和评论回答，不要假装看过视频；简介和评论回答不了的，告诉用户：${missing}。`
         : "这个视频没有字幕，你拿不到视频里说了什么或画面内容。只能依据下面的简介和评论回答，不要假装看过视频；简介和评论回答不了的，直接告诉用户无法确认。"
     );
-    notices.push(`${ctx.subtitleNeedLogin ? "B站要求登录后才提供字幕" : failure ? "字幕抓取失败" : "这期视频没有字幕"}，只根据标题、简介和评论回答`);
+    notices.push(`${missing}，只根据标题、简介和评论回答`);
     const description = String(ctx.description || "").trim();
     if (description) {
       sections.push(`以下是视频简介：\n\n${description}`);

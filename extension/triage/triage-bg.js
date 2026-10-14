@@ -565,7 +565,7 @@ async function triageAnalyze({ bvid, force, criteria, folder, aiProviderId }) {
     status: "done",
     source,
     // Bilibili hides subtitles from a logged-out user; the card says so.
-    ...(source === "meta" && got.bundle.needLogin ? { needLogin: true } : {}),
+    ...(got.needLogin ? { needLogin: true } : {}),
     ...(got.failure ? { subtitleFailure: got.failure } : {}),
     ...(got.mismatch ? { subtitleWarning: MdgNote.subtitleMismatchWarning(got.mismatch) } : {}),
     ...triageParseLlm(content),
@@ -710,10 +710,13 @@ async function triageBuildNote(bvid, settings) {
   const found = await MdgSites.loadSubtitle(site, ref, meta, io);
   const { track, body, bundle } = found;
   const subtitleFailure = found.failure;
-  const subtitleWarning = found.mismatch ? MdgNote.subtitleMismatchWarning(found.mismatch) : subtitleFailure ? `字幕抓取失败：${subtitleFailure}。` : "";
+  const subtitleNeedLogin = found.needLogin;
+  const subtitleWarning = found.mismatch
+    ? MdgNote.subtitleMismatchWarning(found.mismatch)
+    : subtitleFailure || subtitleNeedLogin ? `${MdgErrors.subtitleMissing({ subtitleFailure, subtitleNeedLogin })}。` : "";
   const hotComments =
     settings.includeHotCommentsInNote || !body.length ? await site.fetchComments(ref, meta, io).catch(() => []) : [];
-  const noteMeta = { ...MdgNote.noteMetaOf({ site: "bilibili", videoId: bvid, meta, bundle, track }), hotComments, subtitleFailure };
+  const noteMeta = { ...MdgNote.noteMetaOf({ site: "bilibili", videoId: bvid, meta, bundle, track }), hotComments, subtitleFailure, subtitleNeedLogin };
   const { aiConversations } = MdgLimits.KEYS;
   // 分拣台 notes always summarize the video's P1 (the analysis is per bvid).
   const extrasRef = { site: "bilibili", videoId: bvid, pageIndex: 1 };

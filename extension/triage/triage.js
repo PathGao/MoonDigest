@@ -2172,8 +2172,7 @@ const DONE_TIP = `已保留：${KEEP_TIP}。\n已取消收藏：已从 B站收�
 // whose time range may not match the video. Nothing for a matching subtitle.
 function basisText(a) {
   if (a.source !== "meta") return a.subtitleWarning ? esc(a.subtitleWarning.replace(/。$/, "")) : "";
-  if (a.needLogin) return "未登录 B站拿不到字幕，按简介和评论判断";
-  return a.subtitleFailure ? esc(`字幕抓取失败：${a.subtitleFailure}，按简介和评论判断`) : "没有字幕，按简介和评论判断";
+  return esc(`${MdgErrors.subtitleMissing({ subtitleNeedLogin: a.needLogin, subtitleFailure: a.subtitleFailure })}，按简介和评论判断`);
 }
 function cardHtml(it, expanded, mark) {
   const b = it.bvid;

@@ -505,6 +505,15 @@ const settle = async () => {
     assert.deepStrictEqual([state.selectedSubtitleId, state.subtitleBody.length, state.subtitleWarning, state.subtitleFetchState], [".zh", 2, warning, "ready"]);
     // The side panel gets the warning too, and shows it with the reply (background.js buildAiMessages).
     assert.strictEqual(t.buildSidepanelContext().payload.subtitleWarning, warning);
+    // B站's logged-out list: 未登录 is its own state, not a failure reason, and the side panel hears it as such.
+    {
+      const site = t.currentSite;
+      t.currentSite = () => ({ ...site(), fetchTracks: async () => ({ tracks: [], needLogin: true }) });
+      await t.runRefreshClip();
+      const sent = t.buildSidepanelContext().payload;
+      assert.deepStrictEqual([state.subtitleFailure, sent.subtitleFailure, sent.subtitleNeedLogin], ["", "", true]);
+      t.currentSite = site;
+    }
 
     loads = 0;
     const popupSelect = (url) => new Promise((resolve) => listeners.message.forEach((f) => f({ type: "popup-select-subtitle", url, lang: "英文", subtitleId: ".en" }, {}, resolve)));
@@ -619,6 +628,17 @@ const settle = async () => {
     }
     t.byId = realById;
     after.forEach((f, i) => (t[f] = real[i]));
+    Object.assign(state, saved);
+  }
+
+  // No subtitle: the three states in the one sentence every entry uses; 未登录 is not a failure reason and adds the hint.
+  {
+    const saved = Object.fromEntries(["subtitleFetchState", "subtitleFailure", "subtitleNeedLogin"].map((k) => [k, state[k]]));
+    const say = (fields) => (Object.assign(state, { subtitleFetchState: "empty", subtitleFailure: "", subtitleNeedLogin: false, ...fields }), t.getReadingTranscriptPlaceholderText());
+    assert.deepStrictEqual(
+      [say({}), say({ subtitleFailure: "网络断了" }), say({ subtitleNeedLogin: true })],
+      ["视频没有字幕。", "字幕抓取失败：网络断了。", "未登录 B站，拿不到字幕。登录 B站后刷新网页。"]
+    );
     Object.assign(state, saved);
   }
 

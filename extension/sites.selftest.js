@@ -651,6 +651,10 @@ async function ytComments(next, byContinuation) {
   eq((await load(fake(new Error("网络断了。"), {}))).failure, "网络断了");
   got = await load(fake([], {}));
   eq([got.track, got.failure], [null, ""]);
+  // B站's logged-out answer is its own state, not a failure.
+  got = await load(fake([], {}, { fetchTracks: async () => ({ tracks: [], needLogin: true }) }));
+  eq([got.track, got.failure, got.needLogin], [null, "", true]);
+  eq((await load(fake(two, { a: fit }))).needLogin, false);
 
   // YouTube's transcript, when the tracks are limited or all fail, or the video is gated; a failed transcript leaves
   // the gate as the reason.

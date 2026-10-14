@@ -66,6 +66,14 @@ const E = ctx.MdgErrors;
   for (const sentence of [...Object.values(E.TEXT), "视频审核中"]) {
     for (const file of sources) assert.ok(!read(file).includes(sentence), `${file} writes 「${sentence}」 itself`);
   }
+  // No subtitle: three states, one sentence each, built only here (the note, the card, the AI and every page use it).
+  assert.deepStrictEqual(
+    [E.subtitleMissing(), E.subtitleMissing({ subtitleFailure: "网络断了" }), E.subtitleMissing({ subtitleNeedLogin: true, subtitleFailure: "x" })],
+    ["视频没有字幕", "字幕抓取失败：网络断了", "未登录 B站，拿不到字幕"]
+  );
+  for (const file of [...sources, "note.js", "triage/follow-bg.js"]) {
+    assert.ok(!/拿不到字幕|字幕抓取失败[：（]\$\{|无字幕[，。]/.test(read(file)), `${file} words a missing subtitle itself; use MdgErrors.subtitleMissing`);
+  }
   console.log("errors selftest ok");
 })().catch((e) => {
   console.error(e);

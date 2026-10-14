@@ -251,7 +251,7 @@ const golden = {
       "",
       "<iframe src=\"https://player.bilibili.com/player.html?aid=98765&bvid=BV1GJ411x7h7&cid=123456&page=1&autoplay=0\" scrolling=\"no\" border=\"0\" frameborder=\"no\" framespacing=\"0\" allow=\"fullscreen; picture-in-picture\" allowfullscreen=\"true\" style=\"height:100%;width:100%; aspect-ratio: 16 / 9;\"> </iframe>",
       "",
-      "> 本视频无字幕，以下为简介与热门评论。",
+      "> 视频没有字幕，以下为简介与热门评论。",
       "",
       "## 我的笔记",
       "",
@@ -293,8 +293,11 @@ assert.ok(N.buildMarkdown({ ...cases.biliSingle.meta, userTags: ["入门 教程"
 {
   const c = cases.noSubtitle;
   const md = N.buildMarkdown({ ...c.meta, subtitleFailure: "字幕接口限流（429），稍后再试" }, c.body, c.settings, refOf(c.meta), CREATED);
-  assert.ok(md.includes("> 字幕抓取失败（字幕接口限流（429），稍后再试），以下为简介与热门评论。"), "failed fetch is not reported as no subtitles");
-  assert.ok(!md.includes("本视频无字幕"), "failed fetch drops the no-subtitle line");
+  assert.ok(md.includes("> 字幕抓取失败：字幕接口限流（429），稍后再试，以下为简介与热门评论。"), "failed fetch is not reported as no subtitles");
+  assert.ok(!md.includes("视频没有字幕"), "failed fetch drops the no-subtitle line");
+  // Not logged in is its own state, and a note carries no instruction to log in.
+  const loggedOut = N.buildMarkdown({ ...c.meta, subtitleNeedLogin: true }, c.body, c.settings, refOf(c.meta), CREATED);
+  assert.ok(loggedOut.includes("> 未登录 B站，拿不到字幕，以下为简介与热门评论。") && !/刷新|请登录/.test(loggedOut), loggedOut);
 }
 assert.strictEqual(N.formatCompactTimestamp(3661, true), "01:01:01");
 assert.strictEqual(N.formatCompactTimestamp(3661, false), "61:01");

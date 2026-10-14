@@ -12,8 +12,6 @@ const { escapeHtml } = MdgErrors;
 const MDG_VERSION = chrome.runtime.getManifest().version;
 // In 分拣台's viewer the tab is 分拣台 itself: the side panel takes the video by reference, not from the tab.
 const IN_VIEWER = window !== window.top;
-// The subtitle failure B站 gives a logged-out viewer; the side panel and the AI say login is why.
-const SUBTITLE_NEED_LOGIN = "B站要求登录后才提供字幕，请登录 B站后刷新网页";
 // A subtitle picked from a list the page has since replaced with another video's.
 const VIDEO_SWITCHED = "视频已切换，请刷新";
 globalThis.__MDG_CONTENT_SCRIPT_LOADED__ = MDG_VERSION;
@@ -43,6 +41,8 @@ const state = {
   subtitleBody: [],
   subtitleFetchState: "idle",
   subtitleFailure: "",
+  // B站 listed no subtitle because it saw a logged-out viewer (MdgSites.loadSubtitle's needLogin): not a failure.
+  subtitleNeedLogin: false,
   subtitleWarning: "", // set when the shown subtitle's time range does not match the video
   chapters: [],
   hotComments: [],
@@ -895,6 +895,7 @@ function resetClipState() {
   state.subtitleFetchState = "idle";
   state.subtitleWarning = "";
   state.subtitleFailure = "";
+  state.subtitleNeedLogin = false;
   state.chapters = [];
   state.hotComments = [];
   state.triageExtras = null;
@@ -944,7 +945,7 @@ function buildSidepanelContext() {
       subtitleBody: body,
       subtitleMarkdown,
       subtitleFailure: state.subtitleFailure,
-      subtitleNeedLogin: state.subtitleFailure === SUBTITLE_NEED_LOGIN,
+      subtitleNeedLogin: state.subtitleNeedLogin,
       subtitleWarning: state.subtitleWarning || "",
       subtitleLang: state.selectedSubtitleLang || "",
       selectedSubtitleId: state.selectedSubtitleId || "",
@@ -1086,7 +1087,7 @@ async function runRefreshClip() {
     logInfo("[MDG] subtitle tracks", state.subtitles.map(({ id, lang, label, kind, url }) => ({ id, lang, label, kind, url })));
     // 无字幕时也允许进入专注模式，只是字幕区域保持空态。
     if (!found.track) {
-      await showNoSubtitleState(runId, found.error ? failureReason(found.error) : found.bundle.needLogin ? SUBTITLE_NEED_LOGIN : "");
+      await showNoSubtitleState(runId, { failure: found.error ? failureReason(found.error) : "", needLogin: found.needLogin });
       return;
     }
     logInfo("[MDG] selected subtitle track", { id: found.track.id, lang: found.track.lang, label: found.track.label });
@@ -1110,7 +1111,7 @@ async function runRefreshClip() {
     // Only the subtitle step failed: keep the video info and degrade to the no-subtitle state.
     if (metaLoaded) {
       try {
-        await showNoSubtitleState(runId, reason);
+        await showNoSubtitleState(runId, { failure: reason });
       } catch (degradeError) {
         if (isStaleRunError(degradeError) || runId !== state.fetchRunId) {
           return;
@@ -1417,10 +1418,12 @@ function setMessage(text) {
   state.messageText = String(text || "");
 }
 
-// failure: why the subtitle fetch failed; empty when the video simply has no subtitles.
-async function showNoSubtitleState(runId, failure = "") {
-  const label = failure ? `字幕抓取失败：${failure}` : "当前视频无字幕";
+// failure: why the subtitle fetch failed; needLogin: B站 hid them from a logged-out viewer; neither: there are none.
+async function showNoSubtitleState(runId, { failure = "", needLogin = false } = {}) {
   state.subtitleFailure = failure;
+  state.subtitleNeedLogin = needLogin;
+  const label = MdgErrors.subtitleMissing(state);
+  const hint = needLogin ? `${MdgErrors.TEXT.subtitleLoginHint}。` : "";
   state.selectedSubtitleId = "";
   state.selectedSubtitleUrl = "";
   state.selectedSubtitleLang = "";
@@ -1433,10 +1436,10 @@ async function showNoSubtitleState(runId, failure = "") {
     startReaderPlayerObserver();
     syncReadingViewPlayback(true);
   }
-  setStatus(`${label}${failure ? "。" : "，"}正在读取评论…`);
+  setStatus(`${label}，正在读取评论…`);
   await refreshDerivedContent();
   ensureRunActive(runId);
-  setStatus(failure ? `${label}。已保留视频信息，可导出简介与评论。` : `${label}，可导出简介与评论。`);
+  setStatus(`${label}，可导出简介与评论。${hint}`);
 }
 
 function cleanupReaderFloatingArtifacts(playerHost = state.readingPlayerHost) {
@@ -1807,7 +1810,7 @@ function renderReadingView() {
   }
 
   if (transcriptItems.length === 0) {
-    const failed = state.subtitleFetchState === "error" || Boolean(state.subtitleFailure);
+    const failed = state.subtitleFetchState === "error" || Boolean(state.subtitleFailure) || state.subtitleNeedLogin;
     transcriptList.innerHTML = `<div class="mdg-reading-empty">${escapeHtml(getReadingTranscriptPlaceholderText())}${
       failed ? '<button type="button" class="mdg-reading-retry">重试</button>' : ""
     }</div>`;
@@ -1853,7 +1856,7 @@ function getReadingTranscriptPlaceholderText() {
   if (state.subtitleFetchState === "error") {
     return "字幕加载失败。";
   }
-  return state.subtitleFailure ? `字幕抓取失败：${state.subtitleFailure}。` : "当前视频无字幕。";
+  return `${MdgErrors.subtitleMissing(state)}。${state.subtitleNeedLogin ? `${MdgErrors.TEXT.subtitleLoginHint}。` : ""}`;
 }
 
 function getReadingTranscriptItems(body = state.subtitleBody) {

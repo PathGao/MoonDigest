@@ -16,8 +16,16 @@
     // The extension reloaded under a page whose content script still runs: chrome.runtime no longer answers.
     reloaded: "扩展刚刚更新，请刷新网页",
     // B站 risk control (HTTP 412 or MdgSites.BILI_RISK_CODES), the background's code THROTTLED.
-    biliThrottled: "B站限流，请稍后再试"
+    biliThrottled: "B站限流，请稍后再试",
+    // What a page that can reload adds to subtitleMissing's 未登录 sentence (the video page, the side panel); notes do not.
+    subtitleLoginHint: "登录 B站后刷新网页"
   });
+
+  // Why a reader has no subtitle: the one sentence of every entry (video page, 专注模式, popup, side panel, the AI's
+  // context, 分拣台, notes), without a full stop. subtitleNeedLogin is its own state (B站 hides subtitles from a
+  // logged-out viewer), not a failure; subtitleFailure is why the fetch failed. A state, never an instruction.
+  const subtitleMissing = ({ subtitleNeedLogin = false, subtitleFailure = "" } = {}) =>
+    subtitleNeedLogin ? "未登录 B站，拿不到字幕" : subtitleFailure ? `字幕抓取失败：${subtitleFailure}` : "视频没有字幕";
 
   // Error code → what the page shows. action: "settings" (去设置), "login" (去登录); any other code is "none".
   // text replaces the background's words for the code. Numbers are B站's own codes, passed through.
@@ -73,5 +81,5 @@
       .replaceAll('"', "&quot;")
       .replaceAll("'", "&#39;");
 
-  globalThis.MdgErrors = Object.freeze({ TEXT, action, text, fromResp, grantOrigin, reloaded, escapeHtml });
+  globalThis.MdgErrors = Object.freeze({ TEXT, action, text, fromResp, grantOrigin, reloaded, escapeHtml, subtitleMissing });
 })();
