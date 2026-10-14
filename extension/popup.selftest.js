@@ -91,7 +91,11 @@ setTimeout(() =>
     ctx.sendToContent = async () => ({ ok: false, error: "网络断了" });
     await refreshFromTab(true);
     assert.strictEqual(ctx.el.status.textContent, `${T.videoReadFailed}：网络断了`);
-    await ctx.el.subtitleSelect.on.change({ target: { selectedIndex: 0, options: [{ value: "u", dataset: {} }] } });
+    let picked;
+    ctx.sendToContent = async (m) => ((picked = m), { ok: false, error: "网络断了" });
+    await ctx.el.subtitleSelect.on.change({ target: { selectedIndex: 0, options: [{ value: "u", dataset: { lang: "中文", id: "1" } }] } });
+    // I10: the content script reads only the track's url.
+    assert.deepStrictEqual({ ...picked }, { type: "popup-select-subtitle", url: "u" });
     assert.strictEqual(ctx.el.status.textContent, `${T.subtitleSwitchFailed}：网络断了`);
     // G5: 专注模式 that did not start reads as on the video page: TEXT.readerStartFailed and the background's reason.
     Object.assign(ctx, { isSupportedSubtitlePage: () => true, sendToContent: async () => ({ ok: true }), sendToRuntime: async () => ({ ok: false, error: "视频页没有回应" }) });

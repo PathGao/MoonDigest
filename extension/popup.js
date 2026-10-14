@@ -152,12 +152,7 @@ function bindEvents() {
       return;
     }
     setStatus("正在切换字幕…", false, true);
-    const resp = await sendToContent({
-      type: "popup-select-subtitle",
-      url,
-      lang: String(option.dataset.lang || "unknown"),
-      subtitleId: String(option.dataset.id || "")
-    });
+    const resp = await sendToContent({ type: "popup-select-subtitle", url });
     if (!resp?.ok) {
       setStatus(`${MdgErrors.TEXT.subtitleSwitchFailed}：${resp?.error || "未知错误"}`, true);
     }

@@ -588,7 +588,7 @@ const settle = async () => {
     }
 
     loads = 0;
-    const popupSelect = (url) => new Promise((resolve) => listeners.message.forEach((f) => f({ type: "popup-select-subtitle", url, lang: "英文", subtitleId: ".en" }, {}, resolve)));
+    const popupSelect = (url) => new Promise((resolve) => listeners.message.forEach((f) => f({ type: "popup-select-subtitle", url }, {}, resolve)));
     state.subtitles = [{ id: ".zh", url: "u1" }];
     const gone = await popupSelect("old-video-track");
     assert.deepStrictEqual([gone.ok, gone.error, loads], [false, "视频已切换，请刷新", 0], "F4");

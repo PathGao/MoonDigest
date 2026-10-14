@@ -335,6 +335,8 @@ const chatOn = (context) => {
       asked.push([msg.type, msg.frameId || 0, msg.videoId || ""]);
       if (msg.type === "ai-sidepanel-get-state" && !msg.frameId) return webPage("triage");
       if (msg.type === "ai-sidepanel-get-state") return frame ? { ok: true, payload: frame } : { ok: false, error: "Could not establish connection. Receiving end does not exist." };
+      // I10: only what the background reads.
+      if (msg.type === "ai-sidepanel-resolve-context") assert.deepStrictEqual(Object.keys(msg), ["type", "contextRef"]);
       if (msg.type === "ai-sidepanel-resolve-context") return { ok: true, payload: { ...video, selectedSubtitleId: "zh", subtitleMarkdown: "中文字幕" } };
       return { ok: true };
     };

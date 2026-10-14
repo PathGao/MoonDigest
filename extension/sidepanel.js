@@ -1352,14 +1352,9 @@ async function askViewerFrame(contextRef) {
 }
 
 async function resolveConversationContext(contextRef) {
-  const tab = await getActiveTab().catch(() => null);
   const fromViewer = await askViewerFrame(contextRef);
   if (fromViewer) return fromViewer;
-  return sendRuntimeMessage({
-    type: "ai-sidepanel-resolve-context",
-    tabId: Number(tab?.id || 0) || 0,
-    contextRef
-  });
+  return sendRuntimeMessage({ type: "ai-sidepanel-resolve-context", contextRef });
 }
 
 // prompt: a 快捷追问 or 重试 sends it without touching the input box; without it the box's text is sent and cleared.
