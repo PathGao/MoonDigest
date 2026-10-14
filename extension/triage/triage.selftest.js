@@ -2200,18 +2200,18 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   assert.deepStrictEqual([t.S.titleRes.BV811?.criteria, vm.runInContext("runs", ctx).get("stage1")], ["K 标准", null]);
   assert.strictEqual(toasts.at(-1), "「夹K」标题粗看完成 2 个");
 
-  // Between batches the line counts the batch that came back, not only once the next one starts. A request carries 30
+  // Between batches the line counts the batch that came back, not only once the next one starts. A request carries 20
   // titles (TITLES_PER_REQUEST).
-  openFake("K", Array.from({ length: 31 }, (_, i) => item(840 + i)));
+  openFake("K", Array.from({ length: 21 }, (_, i) => item(840 + i)));
   Object.assign(t.S, { titleRes: {}, coarseFailed: new Map() });
   t.S.settings.triageIntervalSec = 0.2;
   const sizes = [];
   handlers["triage-classify-titles"] = ({ items }) => (sizes.push(items.length), { ok: true, data: { results: Object.fromEntries(items.map((x) => [x.bvid, { verdict: "keep", confidence: "high" }])) } });
   const between = t.runStage1();
   await new Promise((r) => setTimeout(r, 80));
-  assert.strictEqual(t.activityState().text, "标题粗看中 30/31");
+  assert.strictEqual(t.activityState().text, "标题粗看中 20/21");
   await between;
-  assert.deepStrictEqual(sizes, [30, 1]);
+  assert.deepStrictEqual(sizes, [20, 1]);
   t.S.settings.triageIntervalSec = 0;
 
   // 细看 too: the run judges by its own items, not the open folder's.
@@ -3361,7 +3361,7 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     {
       const realList = t.el.list;
       t.el.list = { innerHTML: "", scrollTop: 0, querySelectorAll: () => [], querySelector: () => null };
-      openFake("G", Array.from({ length: 31 }, (_, i) => item(6000 + i)));
+      openFake("G", Array.from({ length: 21 }, (_, i) => item(6000 + i)));
       Object.assign(t.S, { tab: "none", titleRes: {}, analyses: {}, query: "", folderCriteria: {} });
       t.S.coarseFailed.clear();
       let calls = 0;
@@ -3369,26 +3369,26 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
         ++calls === 1 ? { ok: false, code: "AI_BAD_JSON", error: "AI 回复格式不对" } : { ok: true, data: { results: Object.fromEntries(items.map((x) => [x.bvid, { verdict: "keep", confidence: "high" }])) } };
       await t.runStage1();
       assert.strictEqual(calls, 2, "the run goes on after a batch's own error");
-      assert.strictEqual(t.S.titleRes.BV6030?.verdict, "keep");
-      assert.deepStrictEqual([t.S.coarseFailed.size, t.S.coarseFailed.get("BV6000")], [30, "AI 回复格式不对"]);
+      assert.strictEqual(t.S.titleRes.BV6020?.verdict, "keep");
+      assert.deepStrictEqual([t.S.coarseFailed.size, t.S.coarseFailed.get("BV6000")], [20, "AI 回复格式不对"]);
       assert.ok(t.verdictOf(t.S.itemMap.get("BV6000")).failed === "AI 回复格式不对" && t.stageOf(t.S.itemMap.get("BV6000")) === "none");
       t.renderList();
       assert.ok(t.el.list.innerHTML.includes("分析失败：AI 回复格式不对") && t.el.list.innerHTML.includes('data-act="retry"'), "the card shows it with a retry");
-      assert.ok(t.el.list.innerHTML.includes("分析失败 30 · ") && t.el.list.innerHTML.includes("全部重试"), "the group head in 未分析");
-      assert.ok(t.el.list.innerHTML.indexOf("BV6030") < t.el.list.innerHTML.indexOf("BV6000"), "failed cards last");
+      assert.ok(t.el.list.innerHTML.includes("分析失败 20 · ") && t.el.list.innerHTML.includes("全部重试"), "the group head in 未分析");
+      assert.ok(t.el.list.innerHTML.indexOf("BV6020") < t.el.list.innerHTML.indexOf("BV6000"), "failed cards last");
       t.renderListHeader(t.visibleItems());
       assert.ok((t.el.listHeader.innerHTML + t.el.favSel.innerHTML).includes('aria-label="标题粗看" disabled title="没有要粗看的视频"'), "标题粗看 does not send them again by itself");
-      // 全部重试: through startJudging, one 粗看 batch (here 20); the label says so when more failed.
-      t.S.settings.triageCoarseBatchSize = 20;
+      // 全部重试: through startJudging, one 粗看 batch (here 10); the label says so when more failed.
+      t.S.settings.triageCoarseBatchSize = 10;
       t.renderList();
-      assert.ok(t.el.list.innerHTML.includes("重试下一批 20 个"), "more failed than one batch");
+      assert.ok(t.el.list.innerHTML.includes("重试下一批 10 个"), "more failed than one batch");
       const judged = [];
       const realStart = t.startJudging;
       t.startJudging = async (title, verb, items, start) => (judged.push([title, verb, items.length]), start());
       handlers["triage-classify-titles"] = ({ items }) => ({ ok: true, data: { results: Object.fromEntries(items.map((x) => [x.bvid, { verdict: "drop", confidence: "high" }])) } });
       t.retryFailed();
       while (vm.runInContext("runs", ctx).get("stage1")) await new Promise((r) => setTimeout(r, 0));
-      assert.deepStrictEqual(judged, [["重试下一批 20 个", "粗看", 20]], "G10: the dialog is titled like the button");
+      assert.deepStrictEqual(judged, [["重试下一批 10 个", "粗看", 10]], "G10: the dialog is titled like the button");
       assert.strictEqual(t.S.coarseFailed.size, 10);
       t.renderList();
       assert.ok(t.el.list.innerHTML.includes("全部重试") && !t.el.list.innerHTML.includes("重试下一批"));
@@ -3405,9 +3405,9 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
       assert.ok(head.outerHTML.includes("全部重试</button>"), "unpicked: back to 全部重试");
       t.el.list.querySelector = () => null;
       // A card's 重试 sends that one.
-      t.retry("BV6029");
+      t.retry("BV6019");
       while (vm.runInContext("runs", ctx).get("stage1")) await new Promise((r) => setTimeout(r, 0));
-      assert.ok(t.S.titleRes.BV6029 && !t.S.coarseFailed.has("BV6029"));
+      assert.ok(t.S.titleRes.BV6019 && !t.S.coarseFailed.has("BV6019"));
       // A platform error ends the run at the first batch and fails no card.
       t.S.coarseFailed.clear();
       t.S.titleRes = {};
@@ -3419,11 +3419,11 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
       assert.deepStrictEqual([t.el.banner.hidden, t.el.banner.dataset.kind], [false, "ai"]);
       t.S.settings.triageCoarseBatchSize = 100;
       handlers["triage-classify-titles"] = ({ items }) => (vm.runInContext("runs", ctx).stop("stage1"), { ok: true, data: { results: Object.fromEntries(items.map((x) => [x.bvid, { verdict: "keep", confidence: "high" }])) } });
-      assert.ok((await t.runStage1(), Object.keys(t.S.titleRes).length === 30), "paused after one request");
+      assert.ok((await t.runStage1(), Object.keys(t.S.titleRes).length === 20), "paused after one request");
       assert.strictEqual(t.el.banner.hidden, false, "a paused 粗看 keeps the banner");
       handlers["triage-classify-titles"] = ({ items }) => ({ ok: true, data: { results: Object.fromEntries(items.map((x) => [x.bvid, { verdict: "keep", confidence: "high" }])) } });
       await t.runStage1();
-      assert.deepStrictEqual([Object.keys(t.S.titleRes).length, t.el.banner.hidden], [31, true], "a finished one clears it");
+      assert.deepStrictEqual([Object.keys(t.S.titleRes).length, t.el.banner.hidden], [21, true], "a finished one clears it");
       t.S.titleRes = {};
       t.S.settings.triageCoarseBatchSize = 20;
       t.el.banner.hidden = true;

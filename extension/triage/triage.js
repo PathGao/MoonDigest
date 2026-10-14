@@ -3141,7 +3141,7 @@ function aiItem(it) {
 
 
 // Titles one 粗看 request carries (a fixed size; the output limit's 自动 grows with it).
-const TITLES_PER_REQUEST = 30;
+const TITLES_PER_REQUEST = 20;
 
 // What 标题粗看 counts and sends: the first coarseBatchSize() 未分析 videos listed now (search and filters applied),
 // not the hidden ones. A selection wins, like 细看's nextBatch.
