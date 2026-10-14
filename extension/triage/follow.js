@@ -342,6 +342,9 @@ const T = globalThis.MoonTriage;
 const UI = globalThis.TriageUi;
 const { toast, askConfirm, send } = T;
 const { esc, fmtDate, fmtAgo, fmtDuration, fmtCount, cleanTagName, plainClick, img } = UI;
+// What 导出 → UP 主表格 holds; B站 caps a group name at 16 characters.
+const CSV_HINT = "名字、标签、更新状态、最后投稿、粉丝数";
+const GROUP_NAME_MAX = 16;
 const KEYS = ["follow_list", "follow_people", "follow_last", "follow_last_wip", "follow_content", "follow_tags", "follow_tag_map", "follow_unfollowed", "follow_jobs", "follow_ai_recent", "follow_stats", "follow_groups"];
 const VIEW_KEY = "follow_view"; // { mode: "fav" | "follow", tab: "ups" | "feed", sort, dir, fsort, side }
 const saveView = () => T.store({ [VIEW_KEY]: viewRecord(F) });
@@ -405,7 +408,7 @@ main.innerHTML = `
     <span class="row-tools" role="toolbar" aria-label="关注的操作">${UI.searchBox("fwQ", "fwQCount", "在「关注」· UP 主里搜")}${UI.rowButtons({
       activityId: "fwActivity", refreshId: "fwRefreshBtn", refreshLabel: "从 B站刷新关注", refreshTitle: "读取关注列表和视频投稿，再逐个查询视频投稿里没有的 UP 主",
       exportId: "fwExportBtn", menuId: "fwExport",
-      menuHtml: UI.menuItem('data-fw="csv" aria-label="下载 UP 主表格 CSV"', "UP 主表格 (CSV)", "名字、标签、更新状态、最后投稿、粉丝数") + "<hr>" + UI.BACKUP_ITEM,
+      menuHtml: UI.menuItem('data-fw="csv" aria-label="下载 UP 主表格 CSV"', "UP 主表格 (CSV)", CSV_HINT) + "<hr>" + UI.BACKUP_ITEM,
       settingsAttr: 'data-fw="settings"', settingsLabel: "关注设置"
     })}</span>
   </div>
@@ -571,9 +574,9 @@ const runSlot = () => {
   return `<span id="fwRunSlot">${j.running ? `<button type="button" class="primary" data-fw-stop aria-label="暂停刷新">暂停刷新${j.total ? ` ${j.done || 0}/${j.total}` : ""}</button>` : ""}</span>`;
 };
 // The progress pill, as in 收藏夹 (runs' table): while the sync job runs it takes 刷新's place (progress, the B站限流
-// countdown, 暂停); otherwise a B站 write (停止), then AI 打标签 running or waiting to be confirmed (查看).
+// countdown, 暂停刷新, the word row 3 uses); otherwise a B站 write (停止), then AI 打标签 running or waiting to be confirmed (查看).
 const PILL = ["sync", "follow-write", "follow-ai", "proposal"];
-const PILL_BTN = { sync: { attrs: "data-fw-stop", label: "暂停" }, "follow-write": { attrs: "data-fw-busystop", label: "停止" }, "follow-ai": { attrs: 'data-fw="ai"', label: "查看" }, proposal: { attrs: 'data-fw="ai"', label: "查看" } };
+const PILL_BTN = { sync: { attrs: "data-fw-stop", label: "暂停刷新" }, "follow-write": { attrs: "data-fw-busystop", label: "停止" }, "follow-ai": { attrs: 'data-fw="ai"', label: "查看" }, proposal: { attrs: 'data-fw="ai"', label: "查看" } };
 function renderSync() {
   const j = D.jobs || {};
   const slot = $("fwRunSlot");
@@ -641,7 +644,7 @@ function renderHead() {
   main.querySelector('[data-fw="bili"]').hidden = out;
   // 导出 → UP 主表格: nothing to put in it before the first refresh.
   const csv = $("fwExport").querySelector('[data-fw="csv"]');
-  csv.querySelector("small").textContent = D.list ? "名字、标签、更新状态、最后投稿、粉丝数" : "还没有关注数据，先刷新";
+  csv.querySelector("small").textContent = D.list ? CSV_HINT : "还没有关注数据，先刷新";
   UI.setReason(csv, D.list ? "" : "还没有关注数据，先刷新");
   renderSync();
   renderSyncChanges();
@@ -1194,8 +1197,8 @@ async function moveOrCopy(mids, how) {
     label: "目标分组",
     options: groupTargets(D, from, how).map(([id, name]) => [String(id), `${name} (${sideCount(`g:${id}`)})`]),
     newText: "新建分组…",
-    newPlaceholder: "新分组名称（最多 16 个字）",
-    newMax: 16,
+    newPlaceholder: `新分组名称（最多 ${GROUP_NAME_MAX} 个字）`,
+    newMax: GROUP_NAME_MAX,
     how: move ? (from === 0 ? "放进自己建的分组后，就不在默认分组里了。" : `从「${groupName(from, D)}」移走。`) : "原来的分组里也留着。",
     note: (v) => (v === String(SPECIAL) ? `${move && from === 0 ? "还留在默认分组里：特别关注只是多一个标记。" : ""}特别关注的 UP 主发视频，手机 B站会推送。` : v === "0" ? "不在别的分组的会回到默认分组，还关注着。" : "")
   });
@@ -1230,7 +1233,7 @@ async function createGroup(name) {
 }
 const groupNameError = (name, self = null) => {
   const n = String(name ?? "").trim();
-  return !n ? "分组名不能为空" : [...n].length > 16 ? "分组名最多 16 个字" : [0, SPECIAL, ...D.groups.map((g) => g.id)].some((id) => id !== self && groupName(id, D) === n) ? "已有同名分组" : "";
+  return !n ? "分组名不能为空" : [...n].length > GROUP_NAME_MAX ? `分组名最多 ${GROUP_NAME_MAX} 个字` : [0, SPECIAL, ...D.groups.map((g) => g.id)].some((id) => id !== self && groupName(id, D) === n) ? "已有同名分组" : "";
 };
 async function renameGroup(g, name, undo = false) {
   name = String(name ?? "").trim();
@@ -1270,12 +1273,12 @@ async function deleteGroup(g) {
 }
 const manageGroups = {
   who: "UP 主",
-  text: { title: "分组管理", saved: "新建、改名和删除立即在 B站 生效。", newName: "新分组名称（最多 16 个字）", newMax: 16, add: "新建", addLabel: "新建分组" },
+  text: { title: "分组管理", saved: "新建、改名和删除立即在 B站 生效。", newName: `新分组名称（最多 ${GROUP_NAME_MAX} 个字）`, newMax: GROUP_NAME_MAX, add: "新建", addLabel: "新建分组" },
   hint: () => "这里就是 B站 的关注分组。特别关注和默认分组是 B站 固定的，不能改名或删除；要把人放进分组，选中后用选中栏的「移动选中的 N 个到分组…」「复制选中的 N 个到分组…」。",
   tags: () => D.groups,
   count: (id) => sideCount(`g:${id}`),
   row: (g, n) => `<div class="tag-row group-row" data-id="${esc(g.id)}">
-      <input type="text" name="followGroupName" value="${esc(g.name)}" data-field="name" maxlength="16" aria-label="分组名称" />
+      <input type="text" name="followGroupName" value="${esc(g.name)}" data-field="name" maxlength="${GROUP_NAME_MAX}" aria-label="分组名称" />
       <span class="muted">${n} 个 UP 主</span>
       <button type="button" class="danger" data-tag-del aria-label="删除分组 ${esc(g.name)}">删除</button>
     </div>`,
@@ -1584,7 +1587,7 @@ async function runAi({ instruction, scope, allowRemove }) {
   const mids = aiScopeMids(scope);
   if (aiRunning() || !mids.length) return;
   const progress = (text) => TagDialogs.ai.progress(aiTags, text);
-  AI.history = [instruction, ...AI.history.filter((x) => x !== instruction)].slice(0, 5);
+  AI.history = UI.aiHistoryAdd(AI.history, instruction);
   T.store({ [AI_HISTORY_KEY]: AI.history });
   const excluded = new Set(D.tags.filter((t) => AI.excluded.has(t.id)).map((t) => t.name));
   const tags = D.tags.filter((t) => !excluded.has(t.name)).map((t) => ({ name: t.name, rule: t.rule || "" }));
@@ -1607,7 +1610,7 @@ async function runAi({ instruction, scope, allowRemove }) {
   renderAiState();
   const open = TagDialogs.ai.isOpen(aiTags);
   if (open) TagDialogs.ai.render(aiTags);
-  else toast(proposal ? UI.AI_TAGS_DONE : `AI 打标签没有成功：${errors.at(-1)}`, !proposal);
+  else toast(proposal ? UI.AI_TAGS_DONE : UI.aiTagsFailed(errors.at(-1)), !proposal);
 }
 
 
@@ -1635,7 +1638,7 @@ async function applyAi() {
   const n = changes.length;
   if (n || created.length) pushTagUndo(before, `AI 打标签（${n} 个 UP 主）`, { ask: n > 1 ? UI.undoAsk("ai", n, "UP 主") : null, created, recentAt: n ? recent.at : 0 });
   render();
-  toast(`已应用 AI 建议：${n} 个 UP 主，列表只显示这些 · U 撤销`);
+  toast(UI.aiApplied(n, "UP 主"));
 }
 
 // ---------- events ----------

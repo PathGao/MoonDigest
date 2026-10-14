@@ -91,7 +91,6 @@
     alert: svg('<path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><path d="M12 9v4M12 17h.01"/>'),
     gear: svg('<path d="M9.671 4.136a2.34 2.34 0 0 1 4.659 0 2.34 2.34 0 0 0 3.319 1.915 2.34 2.34 0 0 1 2.33 4.033 2.34 2.34 0 0 0 0 3.831 2.34 2.34 0 0 1-2.33 4.033 2.34 2.34 0 0 0-3.319 1.915 2.34 2.34 0 0 1-4.659 0 2.34 2.34 0 0 0-3.32-1.915 2.34 2.34 0 0 1-2.33-4.033 2.34 2.34 0 0 0 0-3.831A2.34 2.34 0 0 1 6.35 6.051a2.34 2.34 0 0 0 3.319-1.915"/><circle cx="12" cy="12" r="3"/>')
   };
-  // A card's tag: one click takes it off. title says what else undoes it.
   // A tag on a card: a click takes it off, U puts it back (both modes).
   const cardTagChip = (t) =>
     `<button type="button" class="chip card-tag" style="--c:${esc(t.color)}" data-untag="${esc(t.id)}" aria-label="去掉标签 ${esc(t.name)}" title="点一下去掉这个标签 · U 撤销">${esc(t.name)}<span class="x" aria-hidden="true">×</span></button>`;
@@ -409,6 +408,10 @@
   // 「AI 刚打的」: the items the last applied AI 打标签 changed, to look over on their cards. Only these end it.
   // An AI 打标签 run finished with the dialog closed, in the mode and folder it ran in: both ways to its proposal.
   const AI_TAGS_DONE = "AI 打标签已完成，按 I 或点进度胶囊的「查看」确认建议";
+  const aiTagsFailed = (error) => `AI 打标签没有成功：${error}`;
+  const aiApplied = (n, who) => `已应用 AI 建议：${n} 个${sp(who)}，列表只显示这些 · U 撤销`;
+  // The dialog's recent instructions: the newest first, each once, at most 5.
+  const aiHistoryAdd = (history, instruction) => [instruction, ...history.filter((x) => x !== instruction)].slice(0, 5);
   const AI_RECENT_RULES = ["点 ×：不再标出，标签不变", "再让 AI 打一次：换成新的一批"];
   const aiRecentUndo = (who) => `按 U 撤销这次 AI 打标签前会先问你；确认后这批${sp(who)}的标签都回到 AI 打之前，包括你之后又改过的。`;
   // Row 3's 「✦ AI 刚打的」 and its ×, while there are some (n) or it is on; "" otherwise.
@@ -448,9 +451,6 @@
   // Why a list with items shows none: the search (q), else the filters (filtered); "" when it is neither.
   const noMatch = (q, filtered, who) => (String(q ?? "").trim() ? `没有匹配搜索的${sp(who)}` : filtered ? `没有符合筛选的${sp(who)}` : "");
 
-  // The whole-number settings of both dialogs: [min, max, default], default 0 = 自动. The readers (pages and background)
-  // parse with numSetting; fillSetRows gives each box (data-num) its range and the default as placeholder, and
-  // writes them into the hints' [data-num-min] / [data-num-max] / [data-num-default] spans, so no hint repeats a number.
   // Titles one 粗看 request carries (fixed, not a setting; the output limit's 自动 grows with it).
   const TITLES_PER_REQUEST = 20;
   // 粗看 and ✦ AI 打标签 send the first INTRO_CHARS of each description; 细看 reads DEEP_COMMENTS hot comments when a
@@ -473,6 +473,9 @@
     kind === "title" ? (thinking ? 150 * itemCount + 4000 : 60 * itemCount + 200)
     : kind === "command" ? (thinking ? 180 * itemCount + 4000 : 80 * itemCount + 400)
     : thinking ? 8000 : 1000;
+  // The whole-number settings of both dialogs: [min, max, default], default 0 = 自动. The readers (pages and background)
+  // parse with numSetting; fillSetRows gives each box (data-num) its range and the default as placeholder, and
+  // writes them into the hints' [data-num-min] / [data-num-max] / [data-num-default] spans, so no hint repeats a number.
   const NUM_SETTINGS = {
     interval: [0, 600, 8], // both modes
     aiBatch: [1, 100, 30], // both modes
@@ -697,5 +700,5 @@
     return instant;
   }
 
-  globalThis.TriageUi = { esc, pad, dayText, fmtDate, fmtAgo, agoHtml, setSearchScope, confirmList, pickTitle, fmtDuration, fmtCount, cleanTagName, plainClick, cardPlayClick, cardPickClick, pickCard, img, toCsv, cardTagChip, syncedText, headMeta, titleHtml, ICON, AI_SPARK, byValue, dirWords, sortControl, filterBtn, labeledRow, tagFilterChip, kindTabs, originChip, stateGroup, aiRecentChip, searchBox, bindSearch, resultCount, rowButtons, menuItem, BACKUP_ITEM, reasonAttrs, setReason, WARN_DOT, selectAllState, selectAllBox, toggleAll, setActivity, waitText, BILI_HOLD_MS, WRITE_STOPPING, busyText, syncPill, setSync, bindSync, tagButtons, sideFoot, actBtn, cleanBtn, HIDDEN_ALL, selbar, askTransfer, sideItem, emptyState, refreshEmpty, noMatch, fillSetRows, fillNumHints, NUM_SETTINGS, TITLES_PER_REQUEST, INTRO_CHARS, DEEP_COMMENTS, autoMaxTokens, numSetting, clampNumber, intIn, clampNumbers, mergeAiBatch, aiChanges, aiProposalOk, previewId, aiTally, nextTagColor, tagNameError, deleteTagAsk, editedTag, withoutTag, undoAsk, tagRowHtml, sp, tagsWord, AI_RECENT_RULES, aiRecentUndo, tagPlusBtn, viewerLine, viewerKeyFrom, headFold, FOLLOW_WRITE_GAP_MS, AI_TAGS_DONE };
+  globalThis.TriageUi = { esc, pad, dayText, fmtDate, fmtAgo, agoHtml, setSearchScope, confirmList, pickTitle, fmtDuration, fmtCount, cleanTagName, plainClick, cardPlayClick, cardPickClick, pickCard, img, toCsv, cardTagChip, syncedText, headMeta, titleHtml, ICON, AI_SPARK, byValue, dirWords, sortControl, filterBtn, labeledRow, tagFilterChip, kindTabs, originChip, stateGroup, aiRecentChip, searchBox, bindSearch, resultCount, rowButtons, menuItem, BACKUP_ITEM, reasonAttrs, setReason, WARN_DOT, selectAllState, selectAllBox, toggleAll, setActivity, waitText, BILI_HOLD_MS, WRITE_STOPPING, busyText, syncPill, setSync, bindSync, tagButtons, sideFoot, actBtn, cleanBtn, HIDDEN_ALL, selbar, askTransfer, sideItem, emptyState, refreshEmpty, noMatch, fillSetRows, fillNumHints, NUM_SETTINGS, TITLES_PER_REQUEST, INTRO_CHARS, DEEP_COMMENTS, autoMaxTokens, numSetting, clampNumber, intIn, clampNumbers, mergeAiBatch, aiChanges, aiProposalOk, previewId, aiTally, nextTagColor, tagNameError, deleteTagAsk, editedTag, withoutTag, undoAsk, tagRowHtml, sp, tagsWord, AI_RECENT_RULES, aiRecentUndo, tagPlusBtn, viewerLine, viewerKeyFrom, headFold, FOLLOW_WRITE_GAP_MS, AI_TAGS_DONE, aiTagsFailed, aiApplied, aiHistoryAdd };
 })();

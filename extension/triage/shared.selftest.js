@@ -260,7 +260,14 @@ for (const f of ["triage.js", "follow.js"]) {
   assert.ok(src.includes("UI.cardTagChip(t)") && !src.includes("点一下去掉这个标签"), `${f}: the shared tag chip and its tooltip`);
   // The card's tag button and the done toast: the shared 「+ 标签 T」 and one sentence.
   assert.ok(!/>标签<kbd/.test(src) && src.includes("UI.AI_TAGS_DONE") && !src.includes("按 I 查看建议"), `${f}: 「+ 标签 T」 and AI_TAGS_DONE`);
+  // H8: the instruction history and the AI 打标签 toasts come from shared.js.
+  assert.ok(src.includes("UI.aiHistoryAdd(") && !src.includes(".slice(0, 5)") && !/AI 打标签没有成功|已应用 AI 建议/.test(src), `${f}: shared AI history and toasts`);
 }
+assert.strictEqual(UI.aiHistoryAdd(["a", "b", "c", "d", "e"], "c").join(), "c,a,b,d,e");
+assert.strictEqual(UI.aiHistoryAdd(["a", "b", "c", "d", "e"], "f").join(), "f,a,b,c,d");
+assert.strictEqual(UI.aiApplied(3, "UP 主"), "已应用 AI 建议：3 个 UP 主，列表只显示这些 · U 撤销");
+assert.strictEqual(UI.aiApplied(2, "视频"), "已应用 AI 建议：2 个视频，列表只显示这些 · U 撤销");
+assert.strictEqual(UI.aiTagsFailed("x"), "AI 打标签没有成功：x");
 
 // AI 打标签's proposal, as both modes use it: merge, cap, excluded, changes, tally. Rows are UPs here, videos in 收藏夹.
 {

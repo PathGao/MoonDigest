@@ -31,6 +31,7 @@ const assertInert = (html, where) => assert.ok(!/<img src=x|<script|"'>/i.test(h
 // Each video's title, link, question and AI answer come from the page or the AI.
 const conv = (key, bad) => ({ id: key, contextKey: key, title: bad, contextUrl: `https://example.com/${bad}`, createdAt: 1, updatedAt: 1, messages: [{ role: "user", content: bad }, { role: "assistant", content: bad }] });
 // A saved context URL with another scheme is never turned into a link.
+let onChanged = null;
 const store = { mdg_ai_conversations_v1: [conv("a", XSS[0]), { ...conv("b", XSS[1]), contextUrl: "javascript:alert(1)" }] };
 const ctx = vm.createContext({
   console,
@@ -41,13 +42,15 @@ const ctx = vm.createContext({
   chrome: {
     runtime: { id: "test", sendMessage: async () => ({}) },
     tabs: { getCurrent: async () => ({ id: 1 }) },
-    storage: { local: { get: async () => store, set: async () => {} }, onChanged: { addListener() {} } }
+    storage: { local: { get: async () => store, set: async () => {} }, onChanged: { addListener: (f) => (onChanged = f) } }
   }
 });
 ctx.globalThis = ctx;
 // The scripts history.html loads before history.js, read from the page so the test cannot load a different set.
 const scripts = [...fs.readFileSync(path.join(__dirname, "history.html"), "utf8").matchAll(/<script[^>]*src="([^"]+)"/g)].map((m) => path.join(__dirname, m[1]));
 assert.strictEqual(scripts.pop(), path.join(__dirname, "history.js"), "history.js loads last");
+// H12: 清空全部 clears AI conversations only, and says so.
+assert.ok(fs.readFileSync(path.join(__dirname, "history.html"), "utf8").includes(">清空全部 AI 对话</button>"));
 for (const f of scripts) vm.runInContext(fs.readFileSync(f, "utf8"), ctx);
 
 (async () => {
@@ -103,6 +106,24 @@ for (const f of scripts) vm.runInContext(fs.readFileSync(f, "utf8"), ctx);
   assert.deepStrictEqual([els.bulkMd.textContent, els.bulkDelete.textContent, reason("bulkMd")[1], reason("bulkDelete")[1]], ["下载选中的 2 个 .md", "删除选中的 2 个", "选中的都被筛选隐藏了", "选中的都被筛选隐藏了"]);
   await search("");
   assert.deepStrictEqual([sa.checked, els.bulkMd.textContent], [true, "下载选中的 2 个 .md"], "the selection is still there");
+  // H9: 删除 removes AI conversations only. A selected video with only a 备注 is not counted, and the tooltip says so;
+  // with none that has a conversation it is disabled with the reason.
+  const NOTES = ctx.MdgLimits.KEYS.triageNotes;
+  store[NOTES] = { BV1note: { text: "备注", updatedAt: 9 } };
+  onChanged({ [NOTES]: {} }, "local");
+  await wait(350);
+  const noteKey = html.match(/data-key="([^"]*BV1note[^"]*)"/)[1];
+  pick(noteKey, true);
+  assert.deepStrictEqual([els.bulkMd.textContent, els.bulkDelete.textContent, reason("bulkDelete")], ["下载选中的 3 个 .md", "删除选中的 2 个", [false, "选中的 3 个里，1 个没有 AI 对话，删除后会留下；它们的 AI 总结和备注在分拣台清理", undefined]]);
+  pick("a", false);
+  pick("b", false);
+  assert.deepStrictEqual([els.bulkDelete.textContent, reason("bulkDelete")], ["删除选中的", [true, "选中的视频没有 AI 对话，它们的 AI 总结和备注在分拣台清理", "选中的视频没有 AI 对话，它们的 AI 总结和备注在分拣台清理"]]);
+  pick(noteKey, false);
+  pick("a", true);
+  pick("b", true);
+  delete store[NOTES];
+  onChanged({ [NOTES]: {} }, "local");
+  await wait(350);
 
   // 写入 Obsidian: one write-video-note with the entry's newest conversation; ask → the dialog → the same request with
   // the mode, and the background's words; 取消 sends nothing again and says so, not red.

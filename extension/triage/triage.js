@@ -260,10 +260,13 @@ const { composing, typingIn } = globalThis.MdgTyping;
 
 const UI = globalThis.TriageUi;
 const { esc, pad, fmtDate, fmtDuration, fmtCount, cleanTagName, plainClick, img } = UI;
+// What 导出's two items hold.
+const WRITE_HINT = "摘录，或逐个视频的笔记";
+const CSV_HINT = "标题、AI 判断、标签、备注";
 // Row 2 and the sidebar foot are drawn by shared.js, as in 关注; here before el picks them up.
 $("favRowTools").insertAdjacentHTML("beforeend", UI.searchBox("searchInput", "searchCount", "搜这个收藏夹") + UI.rowButtons({
   activityId: "activity", refreshId: "refreshBtn", refreshLabel: "从 B站刷新这个收藏夹", exportId: "exportBtn", menuId: "tools",
-  menuHtml: UI.menuItem('id="writeBtn" aria-label="导出摘录或笔记"', "摘录或笔记…", "摘录，或逐个视频的笔记") + UI.menuItem('id="csvBtn" aria-label="下载这个收藏夹的表格 CSV"', "这个收藏夹的表格 (CSV)", "标题、AI 判断、标签、备注") + "<hr>" + UI.BACKUP_ITEM,
+  menuHtml: UI.menuItem('id="writeBtn" aria-label="导出摘录或笔记"', "摘录或笔记…", WRITE_HINT) + UI.menuItem('id="csvBtn" aria-label="下载这个收藏夹的表格 CSV"', "这个收藏夹的表格 (CSV)", CSV_HINT) + "<hr>" + UI.BACKUP_ITEM,
   settingsAttr: "data-open-settings", settingsLabel: "收藏夹设置"
 }));
 $("favSync").outerHTML = UI.syncPill("sync");
@@ -649,7 +652,7 @@ function renderSort() {
   el.sortBox.innerHTML = UI.sortControl({ sorts, sort, dir, words: sortWords(sort, dir), selectAttr: "data-sort", dirAttr: "data-sort-dir" });
   // 导出 → 摘录或笔记 and this folder's table: nothing to put in them without videos (a running export stays reachable).
   const empty = S.items.length ? "" : "这个收藏夹没有视频";
-  for (const [btn, sub, on] of [[el.writeBtn, "摘录，或逐个视频的笔记", writeRunning()], [el.csvBtn, "标题、AI 判断、标签、备注", false]]) {
+  for (const [btn, sub, on] of [[el.writeBtn, WRITE_HINT, writeRunning()], [el.csvBtn, CSV_HINT, false]]) {
     const small = btn.querySelector("small");
     if (small) small.textContent = empty && !on ? empty : sub;
     UI.setReason(btn, on ? "" : empty);
@@ -3490,7 +3493,7 @@ async function runAiCommand({ instruction, scope, allowRemove }) {
   if (aiRunning() || S.mediaId === REMOVED) return;
   const items = aiScopeItems(scope);
   if (!items.length) return;
-  S.aiHistory = [instruction, ...S.aiHistory.filter((x) => x !== instruction)].slice(0, 5);
+  S.aiHistory = UI.aiHistoryAdd(S.aiHistory, instruction);
   storeSet(K.aiHistory, S.aiHistory);
   // Everything the run sends is taken now: the run outlives a folder switch, and the page then holds another folder.
   // The proposal is kept under the open view (所有收藏夹 too); each part tags in its own folder.
@@ -3550,7 +3553,7 @@ async function runAiCommand({ instruction, scope, allowRemove }) {
   const open = TagDialogs.ai.isOpen(aiTags);
   if (open) TagDialogs.ai.render(aiTags);
   if (!p) {
-    if (!open) toast(`AI 打标签没有成功：${errors.at(-1)}`, true);
+    if (!open) toast(UI.aiTagsFailed(errors.at(-1)), true);
     return;
   }
   if (folder !== String(S.mediaId)) toast(`「${folderName(folder)}」的标签建议已完成，点进度胶囊上的「查看」确认`);
@@ -3600,7 +3603,7 @@ function applyAiProposal() {
       })
     );
   render();
-  toast(`已应用 AI 建议：${changes.length} 个视频，列表只显示这些 · U 撤销`);
+  toast(UI.aiApplied(changes.length, "视频"));
 }
 
 // ---------- 待播 ----------
@@ -3669,7 +3672,7 @@ function renderBasket() {
     .map((x, i) => {
       const it = S.itemMap.get(x.bvid) || x;
       const title = esc(it.title || x.bvid);
-      const meta = [it.upper, fmtDuration(it.duration)].filter(Boolean).map(esc).join(" · ");
+      const meta = [it.upper, it.duration && fmtDuration(it.duration)].filter(Boolean).map(esc).join(" · ");
       const note = S.notes[x.bvid]?.text?.trim();
       return `<div class="basket-item${x.opened ? " opened" : ""}${x.bvid === S.viewing ? " playing" : ""}" data-i="${i}">
       <button type="button" class="basket-open" data-basket="open" aria-label="打开视频 ${title}">

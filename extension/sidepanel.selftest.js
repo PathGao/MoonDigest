@@ -477,6 +477,21 @@ const chatOn = (context) => {
     for (const b of ["exportBtn", "copyConversationBtn", "downloadConversationBtn", "saveConversationBtn"]) {
       assert.deepStrictEqual([b, els[b].disabled, els[b].title], [b, true, "当前没有可导出的对话"]);
     }
+    // H10: after 写入 Obsidian the buttons are recomputed for the conversation now open, never just switched back on.
+    els.saveConversationBtn.disabled = false;
+    vm.runInContext("syncExportButtons()", ctx);
+    assert.deepStrictEqual([els.saveConversationBtn.disabled, els.saveConversationBtn.title], [true, "当前没有可导出的对话"]);
+    assert.ok(/await saveCurrentConversationToObsidian\(\);\n    \} finally \{\n[^}]*syncExportButtons\(\);\n    \}/.test(page) && !page.includes("saveConversationBtn.disabled = false"), "写入 Obsidian's finally recomputes");
+    // H14: 发送 says why it is off: while stopping, and on a page that is not a supported video page.
+    ctx.setStreamingUiState(true, { stopping: true });
+    assert.deepStrictEqual([els.sendBtn.disabled, els.sendBtn.title], [true, "正在停止生成"]);
+    ctx.setStreamingUiState(false);
+    assert.deepStrictEqual([els.sendBtn.disabled, els.sendBtn.title], [false, ""]);
+    show(web("h14"));
+    ctx.setStreamingUiState(false);
+    assert.deepStrictEqual([view().nonVideo, els.sendBtn.disabled, els.sendBtn.title], [true, true, ctx.MdgErrors.TEXT.notVideoPage]);
+    show(video);
+    ctx.setStreamingUiState(false);
   }
 
   // 快捷追问's 添加: disabled with the reason while the box is empty or the list is full.
@@ -490,6 +505,10 @@ const chatOn = (context) => {
     els.presetInput.value = "再讲讲";
     vm.runInContext("syncPresetAdd()", ctx);
     assert.strictEqual(els.presetAddBtn.disabled, false);
+    // H13: one already listed is not added again: disabled with the reason, the box keeps the text.
+    prefs.aiPresetPrompts = ["再讲讲"];
+    vm.runInContext("syncPresetAdd()", ctx);
+    assert.deepStrictEqual([els.presetAddBtn.disabled, els.presetAddBtn.title], [true, "已有这条快捷追问"]);
     prefs.aiPresetPrompts = Array.from({ length: ctx.MdgSettings.MAX_PRESET_PROMPTS }, (_, i) => `q${i}`);
     vm.runInContext("syncPresetAdd()", ctx);
     assert.deepStrictEqual([els.presetAddBtn.disabled, els.presetAddBtn.title], [true, `最多 ${ctx.MdgSettings.MAX_PRESET_PROMPTS} 条快捷追问，先删掉一条再添加`]);
