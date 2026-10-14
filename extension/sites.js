@@ -222,7 +222,7 @@
   function biliApiError(payload, fallback) {
     const error = new Error(String(payload?.message || fallback));
     error.code = payload?.code;
-    // -509 rate limit, -3 bad param; other negatives are usually transient.
+    // Negative codes are usually transient (risk codes never get here: biliJson throws THROTTLED first).
     error.retryable = typeof payload?.code === "number" && payload.code < 0;
     return error;
   }

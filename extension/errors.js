@@ -52,14 +52,14 @@
   const NET_TIMEOUT_MS = 30000;
   const netTimeout = (ms) => `${TEXT.netDown}：${ms / 1000} 秒没有回应`;
 
-  // Why a reader has no subtitle: the one sentence of every entry (video page, 专注模式, popup, side panel, the AI's
-  // context, 分拣台, notes), without a full stop. subtitleNeedLogin is its own state (B站 hides subtitles from a
-  // logged-out viewer), not a failure; subtitleFailure is why the fetch failed. A state, never an instruction.
   // AI_TIMEOUT: no answer from the AI platform in ms (each caller's own limit: side panel, 分拣台, 测试连接).
   const aiTimeout = (ms) => `AI 平台 ${ms / 1000} 秒没有回应`;
   // AI_STALLED: a side panel reply that stopped midway for ms. Only 重试 helps (no 去设置: the platform did answer).
   const aiStalled = (ms) => `回复中断：${ms / 1000} 秒没有新内容`;
 
+  // Why a reader has no subtitle: the one sentence of every entry (video page, 专注模式, popup, side panel, the AI's
+  // context, 分拣台, notes), without a full stop. subtitleNeedLogin is its own state (B站 hides subtitles from a
+  // logged-out viewer), not a failure; subtitleFailure is why the fetch failed. A state, never an instruction.
   const subtitleMissing = ({ subtitleNeedLogin = false, subtitleFailure = "" } = {}) =>
     subtitleNeedLogin ? "未登录 B站，拿不到字幕" : subtitleFailure ? `字幕抓取失败：${subtitleFailure}` : "视频没有字幕";
 
