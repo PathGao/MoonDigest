@@ -118,7 +118,7 @@ function init() {
   const { min, max, def } = MdgSettings.SEEN_THRESHOLD;
   Object.assign(elements.seenThreshold, { min, max, placeholder: `默认 ${def}` });
   TriageUi.fillNumHints(document);
-  // Same for 追问: blank, repeated and past-12 lines are dropped from the box, not only from what is saved.
+  // Same for 追问: blank, repeated and lines past MAX_PRESET_PROMPTS are dropped from the box, not only from what is saved.
   elements.aiPresetPrompts.addEventListener("change", () => (elements.aiPresetPrompts.value = readFormPayload().aiPresetPrompts.join("\n")));
   // The side panel edits 追问 too. Follow it unless the box has an unsaved edit, so the next save does not put the old list back.
   chrome.storage.onChanged.addListener((changes, area) => {

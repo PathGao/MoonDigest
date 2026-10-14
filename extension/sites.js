@@ -184,8 +184,13 @@
     return list[0];
   }
 
-  // Hot comments a note or the AI gets, on every reader (video page, side panel follow-up, 分拣台 notes).
-  const HOT_COMMENTS = 20;
+  // One hot comment as every reader keeps it (video page, side panel follow-up, 分拣台 notes, note.js): a name, a number,
+  // the text cut to 500 characters. How many a note or the AI gets is MdgLimits.HOT_COMMENTS.
+  const cleanComment = (c) => ({
+    uname: String(c?.uname || "匿名").trim() || "匿名",
+    like: Number(c?.like || 0) || 0,
+    message: String(c?.message || "").trim().slice(0, 500)
+  });
 
   function normalizeSegments(items) {
     return (items || [])
@@ -504,18 +509,14 @@
     parseSegments(raw) {
       return normalizeSegments(raw?.body);
     },
-    async fetchComments(ref, meta, io, count = HOT_COMMENTS) {
+    async fetchComments(ref, meta, io, count = MdgLimits.HOT_COMMENTS) {
       const aid = Number(meta?.aid || 0) || 0;
       if (!aid || !count) {
         return [];
       }
       const payload = await biliJson(io, `${BILI_API}/x/v2/reply/main?type=1&oid=${aid}&mode=3&ps=${count}&pn=1`);
       const replies = Array.isArray(payload?.data?.replies) ? payload.data.replies : [];
-      return replies.slice(0, count).map((item) => ({
-        uname: String(item?.member?.uname || "匿名").trim() || "匿名",
-        like: Number(item?.like || 0) || 0,
-        message: String(item?.content?.message || "").trim().slice(0, 500)
-      })).filter((item) => item.message);
+      return replies.slice(0, count).map((item) => cleanComment({ uname: item?.member?.uname, like: item?.like, message: item?.content?.message })).filter((item) => item.message);
     },
     embedHtml(ref, meta) {
       const aid = encodeURIComponent(String(meta?.aid || ""));
@@ -1055,7 +1056,7 @@
           message: ytText(legacy?.contentText)
         };
       })
-      .map((item) => ({ uname: item.uname || "匿名", like: item.like, message: item.message.slice(0, 500) }))
+      .map(cleanComment)
       .filter((item) => item.message);
   }
 
@@ -1164,7 +1165,7 @@
       };
     },
     // Same two /next calls the watch page makes, the first shared with fetchTracks.
-    async fetchComments(ref, meta, io, count = HOT_COMMENTS) {
+    async fetchComments(ref, meta, io, count = MdgLimits.HOT_COMMENTS) {
       if (!io.postJson || !count) {
         return [];
       }
@@ -1461,7 +1462,7 @@
     buildContextKey,
     isBiliVideoGone,
     BILI_RISK_CODES,
-    HOT_COMMENTS,
+    cleanComment,
     rankTracks,
     normalizeSubtitleLang,
     pickPreferredTrack,

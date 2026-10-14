@@ -11,6 +11,8 @@
   const AI_CONVERSATIONS = 500;
   const AI_SUBTITLE_MAX_CHARS = 60000;
   const AI_HISTORY_MAX_CHARS = 40000;
+  // Hot comments a note or the side panel's AI gets (fetchComments' default). 分拣台细看 reads TriageUi.DEEP_COMMENTS.
+  const HOT_COMMENTS = 20;
   const TRIAGE_RECENT_UNFAV = 50;
   const TRIAGE_UNDO_STEPS = 20;
 
@@ -184,6 +186,7 @@
     AI_CONVERSATIONS,
     AI_SUBTITLE_MAX_CHARS,
     AI_HISTORY_MAX_CHARS,
+    HOT_COMMENTS,
     TRIAGE_RECENT_UNFAV,
     TRIAGE_UNDO_STEPS,
     KEYS,

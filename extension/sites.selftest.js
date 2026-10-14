@@ -674,6 +674,12 @@ async function ytComments(next, byContinuation) {
   await assert.rejects(load(f, { step: async (p) => ((await p), ++waits === 2 ? Promise.reject(stale) : (await p)) }), (e) => e === stale);
   eq(f.calls, ["list", "a"]);
 
+  // A hot comment is cleaned in one place (匿名 for no name, 500 characters): cleanComment, which note.js and background read.
+  const cleaned = ctx.MdgSites.cleanComment({ uname: " ", like: "x", message: ` ${"字".repeat(600)} ` });
+  assert.deepStrictEqual([cleaned.uname, cleaned.like, cleaned.message.length], ["匿名", 0, 500]);
+  for (const f of fs.readdirSync(__dirname).filter((f) => f.endsWith(".js") && !f.endsWith(".selftest.js") && f !== "sites.js")) {
+    assert.ok(!/"匿名"|slice\(0, 500\)/.test(fs.readFileSync(path.join(__dirname, f), "utf8")), `${f} cleans comments itself`);
+  }
   console.log("sites selftest ok");
 })().catch((error) => {
   console.error(error);

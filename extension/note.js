@@ -25,19 +25,8 @@
     return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
   }
 
-  function normalizeHotComments(comments, limit = 20) {
-    if (!Array.isArray(comments)) {
-      return [];
-    }
-
-    return comments
-      .map((item) => ({
-        uname: String(item?.uname || "匿名").trim() || "匿名",
-        like: Number(item?.like || 0) || 0,
-        message: String(item?.message || "").trim().slice(0, 500)
-      }))
-      .filter((item) => item.message)
-      .slice(0, limit);
+  function normalizeHotComments(comments) {
+    return Array.isArray(comments) ? comments.map(MdgSites.cleanComment).filter((item) => item.message).slice(0, MdgLimits.HOT_COMMENTS) : [];
   }
 
 
@@ -396,7 +385,7 @@
   }
 
   function buildHotCommentLines(comments) {
-    const items = normalizeHotComments(comments, 20);
+    const items = normalizeHotComments(comments);
     if (items.length === 0) {
       return [];
     }

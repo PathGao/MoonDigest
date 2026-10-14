@@ -91,14 +91,14 @@ function triageParseTitleBatch(content, items) {
 
 function triageTitleLine(item, n) {
   const clean = (s) => String(s ?? "").replace(/[|\r\n]+/g, " ").trim();
-  return `${n}|${clean(item.title)}|${clean(item.upper)}|${TriageUi.fmtDuration(item.duration)}|${TriageUi.fmtDate(item.pubdate)}|${clean(item.intro).slice(0, 120)}`;
+  return `${n}|${clean(item.title)}|${clean(item.upper)}|${TriageUi.fmtDuration(item.duration)}|${TriageUi.fmtDate(item.pubdate)}|${clean(item.intro).slice(0, TriageUi.INTRO_CHARS)}`;
 }
 
-// 序号|标题|UP|时长|简介前120字|现有标签|一句话|要点1；要点2；要点3（没有的字段留空）
+// 序号|标题|UP|时长|简介前 INTRO_CHARS 字|现有标签|一句话|要点1；要点2；要点3（没有的字段留空）
 function triageCommandLine(item, n) {
   const clean = (s) => String(s ?? "").replace(/[|\r\n]+/g, " ").trim();
   const list = (a) => (Array.isArray(a) ? a.map(clean).filter(Boolean) : []);
-  return [n, clean(item.title), clean(item.upper), Number(item.duration) ? TriageUi.fmtDuration(item.duration) : "", clean(item.intro).slice(0, 120), list(item.currentTags).join("、"), clean(item.oneLiner), list(item.points).join("；")].join("|");
+  return [n, clean(item.title), clean(item.upper), Number(item.duration) ? TriageUi.fmtDuration(item.duration) : "", clean(item.intro).slice(0, TriageUi.INTRO_CHARS), list(item.currentTags).join("、"), clean(item.oneLiner), list(item.points).join("；")].join("|");
 }
 
 // 批量打标签的提案只改标签：add 只留已有标签或本次新建的标签（至多 maxNewTags 个），remove 只留视频现有标签且要 allowRemove；
@@ -558,7 +558,7 @@ async function triageAnalyze({ bvid, force, criteria, folder, aiProviderId }) {
     source = "subtitle";
     subtitle = MdgLimits.sampleAiSubtitle(got.body.map((l) => l.content).join("\n")).text;
   }
-  const comments = subtitle ? "" : (await site.fetchComments(ref, m, TRIAGE_BILI_IO, 10).catch(() => [])).map((c, i) => `${i + 1}. ${c.message}`).join("\n");
+  const comments = subtitle ? "" : (await site.fetchComments(ref, m, TRIAGE_BILI_IO, TriageUi.DEEP_COMMENTS).catch(() => [])).map((c, i) => `${i + 1}. ${c.message}`).join("\n");
 
   const ai = await triageAiSettings();
   const { content, model } = await triageChat(triageBuildMessages(meta, subtitle, comments, criteria, folder), triageMaxTokens("analyze", 1, ai), ai.triageThinking, aiProviderId);
