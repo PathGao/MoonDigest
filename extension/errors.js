@@ -18,6 +18,10 @@
     obsidianCancelled: "已取消写入 Obsidian，原笔记未被覆盖。",
     // The extension reloaded under a page whose content script still runs: chrome.runtime no longer answers.
     reloaded: "扩展刚刚更新，请刷新网页",
+    // A tab that is not a B站 / YouTube video page: the popup, the side panel and the content script say this.
+    notVideoPage: "当前网页不是支持的视频页",
+    // 继续问 on a record that is not a video (the side panel's input, 视频记录's button).
+    notVideo: "不是视频，不能问",
     // B站 risk control (HTTP 412 or MdgSites.BILI_RISK_CODES), the background's code THROTTLED.
     biliThrottled: "B站限流，请稍后再试",
     // Not logged in to B站 (the background's NOT_LOGGED_IN, B站's -101), on any read or write; pages add 去登录.

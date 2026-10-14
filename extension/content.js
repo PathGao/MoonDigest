@@ -1026,7 +1026,7 @@ async function runRefreshClip() {
     const site = currentSite();
     const ref = site?.parseRef(location.href);
     if (!ref) {
-      throw new Error("当前网页不是支持的视频页");
+      throw new Error(MdgErrors.TEXT.notVideoPage);
     }
     state.site = ref.site;
     state.videoId = ref.id;

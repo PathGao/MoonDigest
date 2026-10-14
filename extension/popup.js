@@ -23,7 +23,7 @@ const el = {
   settingsBtn: document.getElementById("settingsBtn")
 };
 
-const NOT_VIDEO_PAGE = "当前网页不是支持的视频页";
+const NOT_VIDEO_PAGE = MdgErrors.TEXT.notVideoPage;
 let latestPayload = null;
 // Set from the tab's URL in init(): a content script that still answers on a non-video page must not re-enable the tools.
 let onVideoPage = true;
