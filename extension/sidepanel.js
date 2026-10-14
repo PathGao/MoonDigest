@@ -1704,7 +1704,7 @@ async function autoSyncConversation(conversationId) {
   try {
     const resp = await sendRuntimeMessage({ type: "sync-video-note-ai", ref: conversation.contextRef, conversation: { messages: conversation.messages } });
     if (!resp?.ok) {
-      throw MdgErrors.fromResp(resp, "Local API 写入失败");
+      throw MdgErrors.fromResp(resp, MdgErrors.TEXT.obsidianWriteFailed);
     }
     if (!resp.path) {
       return;
@@ -1801,7 +1801,7 @@ async function saveCurrentConversationToObsidian() {
       resp = await sendRuntimeMessage({ ...request, mode });
     }
     if (!resp?.ok) {
-      throw MdgErrors.fromResp(resp, "Local API 写入失败");
+      throw MdgErrors.fromResp(resp, MdgErrors.TEXT.obsidianWriteFailed);
     }
     showConversationContextNotice(resp.text, 4000);
   } catch (error) {

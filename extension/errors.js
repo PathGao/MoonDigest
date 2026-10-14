@@ -25,7 +25,11 @@
     // Not logged in to B站 (the background's NOT_LOGGED_IN, B站's -101), on any read or write; pages add 去登录.
     biliLogin: "未登录 B站：先在这个浏览器里登录 B站",
     // What a page that can reload adds to subtitleMissing's 未登录 sentence (the video page, the side panel); notes do not.
-    subtitleLoginHint: "登录 B站后刷新网页"
+    subtitleLoginHint: "登录 B站后刷新网页",
+    // A write to Obsidian that failed without the background saying why (video page, side panel, history page).
+    obsidianWriteFailed: "Local API 写入失败",
+    // A dropped connection (fetch's TypeError): the video page, 分拣台's B站 requests, 关注's paused refresh.
+    network: "网络断了"
   });
 
   // Why a reader has no subtitle: the one sentence of every entry (video page, 专注模式, popup, side panel, the AI's

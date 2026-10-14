@@ -258,7 +258,7 @@ async function saveToObsidian(group) {
       if (!mode) return setStatus(MdgErrors.TEXT.obsidianCancelled);
       resp = await chrome.runtime.sendMessage({ ...request, mode });
     }
-    if (!resp?.ok) throw MdgErrors.fromResp(resp, "Local API 写入失败");
+    if (!resp?.ok) throw MdgErrors.fromResp(resp, MdgErrors.TEXT.obsidianWriteFailed);
     setStatus(resp.text);
   } catch (error) {
     setStatus(`写入 Obsidian 失败：${error?.message || error}`, true);

@@ -1321,7 +1321,7 @@ async function sendToObsidian() {
       resp = await sendRuntimeMessage({ ...request, mode });
     }
     if (!resp?.ok) {
-      throw MdgErrors.fromResp(resp, "Local API 写入失败");
+      throw MdgErrors.fromResp(resp, MdgErrors.TEXT.obsidianWriteFailed);
     }
     report(resp.text, true);
   } catch (error) {
@@ -3953,7 +3953,7 @@ function fetchErrorText(error) {
     return MdgErrors.TEXT.biliThrottled;
   }
   if (/failed to fetch|networkerror|load failed/i.test(toReadableText(error?.message, ""))) {
-    return "网络断了";
+    return MdgErrors.TEXT.network;
   }
   // B站 codes with their own words (62004 审核中) read as in 分拣台 and the other pages.
   return MdgErrors.text({ error: toReadableText(error?.message, ""), code: error?.code }, getErrorMessage(error));

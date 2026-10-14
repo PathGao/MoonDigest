@@ -274,7 +274,7 @@ async function triageBiliFetch(url, init = {}) {
   } catch (e) {
     ctl.abort();
     // A dropped connection is fetch's TypeError, whose English text the user does not need.
-    throw triageError(e?.name === "TypeError" ? "网络断了" : `网络断了：${e?.message || e}`, "NETWORK");
+    throw triageError(e?.name === "TypeError" ? MdgErrors.TEXT.network : `${MdgErrors.TEXT.network}：${e?.message || e}`, "NETWORK");
   } finally {
     clearTimeout(timer);
   }
