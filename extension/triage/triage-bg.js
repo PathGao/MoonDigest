@@ -1006,7 +1006,7 @@ const TRIAGE_HANDLERS = {
     const path = folder ? `${folder}/${name}` : name;
     // putVaultNote gives up after OBSIDIAN_TIMEOUT_MS, so a hung Obsidian ends 写入中….
     await putVaultNote(obsidianConfig(settings), path, typeof markdown === "string" ? markdown : "");
-    return { path };
+    return { path, text: obsidianWritten(path) };
   }
 };
 

@@ -83,7 +83,7 @@
   // 选中, whose n counts the hidden ones too), scopeText(scope), room() (how many new tags the AI
   // may make), roomHint() (html: the same in words), blocked() ("" or why it cannot run here now), history(), allowRemove(), setAllowRemove?(on)
   // → saved?, running(), proposal(), run({ instruction, scope, allowRemove }) (sets running before its first await),
-  // stop(), discard(), apply(), map() (item id → tag ids), live() (has(id): still in the folder / still followed),
+  // stop(), stopping() (stop was pressed and the batch in flight still runs), discard(), apply(), map() (item id → tag ids), live() (has(id): still in the folder / still followed),
   // tagName(id), manage (the mode's 标签管理 adapter, for the link), where?() (the open folder; "" when the mode has none) }.
   // The review counts what 应用 would change now, new tags standing in by name (UI.previewId).
   const changesOf = (a, p) => UI.aiChanges(p, a.map(), a.live(), (key) => UI.previewId(p, key, a.tags()));
@@ -154,10 +154,16 @@
     const running = a.running();
     const run = $("aiRunBtn");
     run.innerHTML = running ? "运行中…" : `${UI.AI_SPARK}运行`;
-    UI.setReason(run, running ? "正在运行" : blocked || hiddenAll(scope) || (scope.n ? "" : a.scopeText(scope.value)));
+    UI.setReason(run, running ? "正在运行" : blocked || hiddenAll(scope) || (scope.n ? "" : a.scopeText(scope.value)) || (instr.value.trim() ? "" : "先写指令"));
     if (running) run.setAttribute("aria-busy", "true");
     else run.removeAttribute("aria-busy");
-    $("aiStopBtn").hidden = !running;
+    // Stopped: the batch in flight finishes first, as the pill's 停止 on a B站 write says.
+    const stop = $("aiStopBtn");
+    const stopping = running && a.stopping();
+    stop.hidden = !running;
+    stop.textContent = stopping ? "停止中" : "停止";
+    stop.setAttribute("aria-label", stop.textContent);
+    UI.setReason(stop, stopping ? UI.WRITE_STOPPING : "");
     $("aiProgress").textContent = progressText(a);
   }
   function renderReview(p) {
@@ -193,21 +199,14 @@
     const apply = $("aiApplyBtn");
     apply.textContent = changes.length ? `应用到 ${changes.length} 个${who}` : "应用";
     apply.setAttribute("aria-label", apply.textContent);
-    apply.disabled = !changes.length && !newN;
+    UI.setReason(apply, changes.length || newN ? "" : "AI 没有提出改动");
   }
 
   function runAi() {
     const instruction = instr.value.trim();
-    const say = (text) => ($("aiProgress").textContent = text);
-    if (ai.running()) return;
-    if (ai.blocked()) return say(ai.blocked());
-    if (!instruction) {
-      say("请先写指令");
-      return instr.focus();
-    }
     const scope = ai.scopes().find((s) => s.value === scopeSel.value) || {};
-    const why = hiddenAll(scope) || (scope.n ? "" : ai.scopeText(scopeSel.value));
-    if (why) return say(why);
+    // 运行 is off with its reason then (renderForm); a stale click does nothing.
+    if (ai.running() || ai.blocked() || !instruction || hiddenAll(scope) || !scope.n) return;
     ai.run({ instruction, scope: scopeSel.value, allowRemove: $("aiRemoveInput").checked });
     renderAi();
   }
@@ -223,6 +222,7 @@
     const h = t.closest("[data-h]");
     if (h) {
       instr.value = ai.history()[Number(h.dataset.h)] || "";
+      renderForm();
       return instr.focus();
     }
     if (t.closest("[data-open-manage]")) {
@@ -233,7 +233,7 @@
     if (id === "aiRunBtn") runAi();
     else if (id === "aiStopBtn") {
       ai.stop();
-      $("aiProgress").textContent = "将在当前批次完成后停止…";
+      renderForm();
     } else if (id === "aiCloseBtn") aiDlg.close();
     else if (id === "aiDiscardBtn") {
       ai.discard();
@@ -259,6 +259,7 @@
     }
   });
   aiDlg.addEventListener("input", (e) => {
+    if (e.target === instr) return renderForm();
     const tag = e.target.dataset.nt === "name" && ai.proposal()?.newTags[Number(e.target.closest(".ai-newtag")?.dataset.i)];
     if (!tag) return;
     tag.name = e.target.value;

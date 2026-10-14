@@ -76,7 +76,9 @@ function adapters(who) {
     proposal: () => ai.p,
     p: null,
     run: (args) => (calls.push(["run", args]), (ai.isRunning = true)),
-    stop: () => calls.push(["stop"]),
+    stop: () => (calls.push(["stop"]), (ai.isStopping = true)),
+    stopping: () => ai.isStopping,
+    isStopping: false,
     discard: () => (ai.p = null),
     apply: async () => calls.push(["apply"]),
     map: () => ({}),
@@ -166,18 +168,28 @@ function adapters(who) {
     assert.strictEqual(calls.length, runs, `${who}: nothing runs`);
     ai.shown = 2;
 
-    // 运行: needs an instruction; then the adapter runs with the dialog's choices and the button shows it.
+    // 运行: off with 先写指令 while the instruction is empty, back on as it is typed; then the adapter runs with the
+    // dialog's choices and the button shows it.
     D.ai.open(ai);
     nodes.aiInstruction.value = " ";
+    fire("aiTagDialog", "input", { target: nodes.aiInstruction });
+    assert.ok(nodes.aiRunBtn.disabled && nodes.aiRunBtn.title === "先写指令", `${who}: 运行 says 先写指令`);
+    const before = calls.length;
     fire("aiTagDialog", "click", { target: target("#aiRunBtn", { id: "aiRunBtn" }) });
-    assert.strictEqual(nodes.aiProgress.textContent, "请先写指令");
-    assert.strictEqual(focused, "aiInstruction");
+    assert.strictEqual(calls.length, before, `${who}: nothing runs without an instruction`);
     nodes.aiInstruction.value = "按内容分";
+    fire("aiTagDialog", "input", { target: nodes.aiInstruction });
+    assert.ok(!nodes.aiRunBtn.disabled, `${who}: typing turns 运行 on`);
     fire("aiTagDialog", "click", { target: target("#aiRunBtn", { id: "aiRunBtn" }) });
     assert.deepStrictEqual(JSON.parse(JSON.stringify(calls.at(-1))), ["run", { instruction: "按内容分", scope: "selected", allowRemove: true }]);
     assert.ok(nodes.aiRunBtn.disabled && nodes.aiRunBtn.innerHTML === "运行中…" && !nodes.aiStopBtn.hidden);
     D.ai.progress(ai, "AI 正在处理第 1 / 2 批…");
     assert.strictEqual(nodes.aiProgress.textContent, "AI 正在处理第 1 / 2 批…");
+    // 停止, as the pill's: 停止中, off with the pill's reason; the progress line stays the run's.
+    fire("aiTagDialog", "click", { target: target("#aiStopBtn", { id: "aiStopBtn" }) });
+    assert.deepStrictEqual([calls.at(-1)[0], nodes.aiStopBtn.textContent, nodes.aiStopBtn.disabled, nodes.aiStopBtn.title], ["stop", "停止中", true, ctx.TriageUi.WRITE_STOPPING]);
+    assert.strictEqual(nodes.aiProgress.textContent, "AI 正在处理第 1 / 2 批…");
+    ai.isStopping = false;
 
     // Done: the open dialog turns to the proposal, counted in the mode's unit; 应用 closes it.
     ai.isRunning = false;
@@ -189,6 +201,14 @@ function adapters(who) {
     assert.strictEqual(nodes.aiApplyBtn.textContent, `应用到 2 个${unit}`);
     assert.ok(nodes.aiReviewHint.textContent.includes(`这些${unit}，在卡片上逐个看`) && nodes.aiNewTags.innerHTML.includes(`用在 1 个${unit}`));
     assert.ok(nodes.aiRows.innerHTML.includes("+ 新 <b>1</b>") && nodes.aiRows.innerHTML.includes("+ 科普 <b>1</b>"), nodes.aiRows.innerHTML);
+    // Nothing to apply: 应用 is off and says why.
+    ai.p.newTags[0].checked = false;
+    ai.p.rows = [];
+    D.ai.render(ai);
+    assert.ok(nodes.aiApplyBtn.disabled && nodes.aiApplyBtn.title === "AI 没有提出改动", `${who}: 应用 says why`);
+    ai.p.newTags[0].checked = true;
+    D.ai.render(ai);
+    assert.ok(!nodes.aiApplyBtn.disabled);
     await fire("aiTagDialog", "click", { target: target("#aiApplyBtn", { id: "aiApplyBtn" }) });
     await wait();
     assert.ok(!nodes.aiTagDialog.open && calls.at(-1)[0] === "apply");

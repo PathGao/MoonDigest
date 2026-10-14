@@ -4,6 +4,8 @@
 const OBSIDIAN_TIMEOUT_MS = 30000;
 
 const obsidianCoded = (text, code) => Object.assign(new Error(text), { code });
+// What every entry shows after a write (writeVideoNote, 一篇摘录 via triage-export).
+const obsidianWritten = (path) => `已写入 Obsidian：${path}`;
 
 // Every Obsidian failure in the user's words. Code OBSIDIAN (not enabled, not set up, wrong key, an address that
 // answers 404) or OBSIDIAN_DOWN (closed, plugin off, nothing listening; 408 is fetchWithTimeout's timeout) fails every
@@ -212,14 +214,14 @@ async function writeVideoNote({ ref: input, mode, conversation, page }) {
   const { markdown, cover, warning = "" } = await target.body();
   if (!target.video) {
     await putVaultNote(vault, path, markdown);
-    return { path, kind: "conversation", text: `已写入 Obsidian：${path}${target.why}`, title };
+    return { path, kind: "conversation", text: `${obsidianWritten(path)}${target.why}`, title };
   }
   const content = aiOn ? MdgNote.upsertAiSection(markdown, section) : markdown;
   // Last guard: no writer means to empty a note, so an empty body is a caller's bug (a video that changed mid-write).
   if (!content.trim()) throw new Error("笔记内容为空");
   await putVaultNote(vault, path, await linkCoverInVault(vault, path, content, cover));
   await rememberObsidianNotePath(key, path);
-  return { path, kind: "full", text: `${warning}已写入 Obsidian：${path}`, title, ...(warning && { subtitleWarning: warning }) };
+  return { path, kind: "full", text: `${warning}${obsidianWritten(path)}`, title, ...(warning && { subtitleWarning: warning }) };
 }
 
 // sync-video-note-ai: after a write recorded the video's note, each finished answer replaces its AI 问答 section.

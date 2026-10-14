@@ -1570,6 +1570,7 @@ const aiTags = {
   proposal: () => AI.proposal,
   run: runAi,
   stop: () => runs.stop("follow-ai"),
+  stopping: () => Boolean(runs.get("follow-ai")?.stopping),
   discard() {
     setAiProposal(null);
     renderAiState();

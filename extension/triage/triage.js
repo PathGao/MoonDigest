@@ -2749,11 +2749,11 @@ async function pickBatchUnfavFolders(list) {
     const n = list.filter((it) => it.folders.some((f) => checked().includes(f))).length;
     el.confirmOk.textContent = `取消收藏 ${n} 个`;
     el.confirmOk.setAttribute("aria-label", el.confirmOk.textContent);
-    el.confirmOk.disabled = !n;
+    UI.setReason(el.confirmOk, n ? "" : "至少勾选一个收藏夹");
   };
   const ok = await ask;
   el.confirmBody.onchange = null;
-  el.confirmOk.disabled = false;
+  UI.setReason(el.confirmOk, "");
   return ok ? checked() : [];
 }
 
@@ -3424,6 +3424,7 @@ const aiTags = {
   proposal: () => S.ai.proposal,
   run: runAiCommand,
   stop: () => runs.stop("ai"),
+  stopping: () => Boolean(runs.get("ai")?.stopping),
   discard() {
     S.ai.proposal = null;
     renderTop();
@@ -3721,7 +3722,7 @@ function openWrite({ scope, format } = {}) {
 
 function stopWrite() {
   runs.stop("write");
-  el.writeProgress.textContent = "将在当前视频后停止…";
+  renderWriteScope();
   renderStatus();
 }
 
@@ -3755,7 +3756,10 @@ function renderWriteScope() {
   el.writeCopyBtn.hidden = notes || busy;
   el.writeRunBtn.hidden = el.writeMdBtn.hidden = busy;
   el.writeStopBtn.hidden = !busy;
-  el.writeCopyBtn.disabled = el.writeRunBtn.disabled = el.writeMdBtn.disabled = !n;
+  // The pill's 停止 and this one are the same button: 停止中, off, with the pill's reason.
+  el.writeStopBtn.textContent = busy?.stopping ? PILL_BTN.write[2] : PILL_BTN.write[1];
+  UI.setReason(el.writeStopBtn, busy?.stopping ? stopWhy("write") : "");
+  for (const b of [el.writeCopyBtn, el.writeRunBtn, el.writeMdBtn]) UI.setReason(b, n ? "" : "这个范围里没有能写的视频");
   el.writeScope.disabled = el.writeFormat.disabled = el.writeOverwrite.disabled = busy;
 }
 
@@ -3774,7 +3778,10 @@ async function exportDigest(how) {
   if (how === "copy") {
     await navigator.clipboard.writeText(markdown).then(
       () => (el.writeProgress.textContent = "已复制 Markdown"),
-      (err) => (el.writeProgress.textContent = `复制失败：${err.message}`)
+      (err) => {
+        el.writeProgress.textContent = `复制失败：${err.message}`;
+        el.writeProgress.classList.add("fail-text");
+      }
     );
   } else if (how === "download") {
     MdgDownload.text(filename, markdown);
@@ -3782,7 +3789,7 @@ async function exportDigest(how) {
   } else {
     const r = await send({ type: "triage-export", filename, markdown });
     setBusy(el.writeRunBtn, false);
-    el.writeProgress.textContent = r.ok ? `已写入 ${r.data?.path || filename}` : `写入 Obsidian 失败：${r.error}`;
+    el.writeProgress.textContent = r.ok ? r.data.text : `写入 Obsidian 失败：${r.error}`;
     el.writeProgress.classList.toggle("fail-text", !r.ok);
     el.writeSettingsBtn.hidden = MdgErrors.action(r.code) !== "settings";
   }
