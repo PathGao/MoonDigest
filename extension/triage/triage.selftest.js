@@ -1485,6 +1485,13 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     const realList = t.el.list;
     t.el.list = { querySelectorAll: () => [] };
     t.onKey({ key: "x", target: {}, preventDefault() {} });
+    // G3: O and Enter play here too (like a title click, and like 关注's); D and S still do nothing.
+    const opened = [];
+    const realOpen = t.openViewer;
+    t.openViewer = (it) => opened.push(it.bvid);
+    for (const k of ["o", "Enter", "d", "s"]) t.onKey({ key: k, target: {}, preventDefault() {} });
+    t.openViewer = realOpen;
+    assert.deepStrictEqual(opened, ["BV1", "BV1"], "O / Enter play in 已出分拣范围");
     t.el.list = realList;
     assert.deepStrictEqual([...t.S.selected], ["BV1"], "X in 已出分拣范围 selects");
     assert.ok(t.el.listHeader.innerHTML.includes("清理选中的 1 个"));

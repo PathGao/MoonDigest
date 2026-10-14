@@ -4471,8 +4471,9 @@ function onKey(e) {
   } else if (map[key]) map[key]();
   else if (nav[key]) moveFocus(nav[key]);
   else if (key === "u") undo();
-  // 已出分拣范围 has no 保留 / 取消收藏 / 标签; 待播, 问 AI, X and U work there (X picks for 清理 and 收藏到).
-  else if (S.mediaId === REMOVED && !["e", "q", "x"].includes(key)) return;
+  // 已出分拣范围 has no 保留 / 取消收藏 / 标签; 待播, 问 AI, X, O / Enter (play, like a title click) and U work there
+  // (X picks for 清理 and 收藏到).
+  else if (S.mediaId === REMOVED && !["e", "q", "x", "o", "Enter"].includes(key)) return;
   else if (cardKeys[key] && S.focused) cardAction(cardKeys[key], S.focused);
   else return;
   e.preventDefault();
