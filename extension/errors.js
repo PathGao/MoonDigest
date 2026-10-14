@@ -49,7 +49,7 @@
     netDown: "网络断了",
     // Asking Chrome or the background to open the side panel failed (popup, video page, 视频记录, 分拣台); 「：原因」 follows.
     sidepanelOpenFailed: "打开侧边栏失败",
-    // 继续问 on a record that is not a video (the side panel's input, 视频记录's button).
+    // 继续问 on a 视频记录 record that is not a video.
     notVideo: "不是视频，不能问",
     // Every selection is hidden by a search or filter: the buttons that act on it are disabled with this (分拣台, 视频记录).
     hiddenAll: "选中的都被筛选隐藏了"

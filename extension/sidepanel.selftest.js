@@ -495,6 +495,8 @@ const chatOn = (context) => {
     show(web("h14"));
     ctx.setStreamingUiState(false);
     assert.deepStrictEqual([view().nonVideo, els.sendBtn.disabled, els.sendBtn.title], [true, true, ctx.MdgErrors.TEXT.notVideoPage]);
+    // K2: the quick prompts say the same as 发送.
+    assert.strictEqual(vm.runInContext("providers = [{}]; followupBlockReason()", ctx), ctx.MdgErrors.TEXT.notVideoPage);
     show(video);
     ctx.setStreamingUiState(false);
   }

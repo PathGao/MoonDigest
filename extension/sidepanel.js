@@ -724,7 +724,7 @@ function followupBlockReason() {
   }
   const { context, messages, pinned, nonVideo } = state.view();
   if (nonVideo) {
-    return MdgErrors.TEXT.notVideo;
+    return MdgErrors.TEXT.notVideoPage;
   }
   if (activeStream || els.input.disabled) {
     return "正在生成，等这条回复结束";
