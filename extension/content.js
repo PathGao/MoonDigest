@@ -1099,8 +1099,9 @@ async function runRefreshClip() {
       return;
     }
     const reason = failureReason(error);
-    // Only the subtitle step failed: keep the video info and degrade to the no-subtitle state.
-    if (metaLoaded) {
+    // Only the subtitle step failed: keep the video info and degrade to the no-subtitle state. A limit is no subtitle
+    // failure: it fails the read like the side panel and 逐个视频笔记 do, so no note says it and 重试 reads it all again.
+    if (metaLoaded && !isLimitError(error)) {
       try {
         await showNoSubtitleState(runId, { failure: reason });
       } catch (degradeError) {
@@ -1152,7 +1153,11 @@ function pageSubtitleSite(site, runId) {
       await sleep(3000 + Math.random() * 2000);
       ensureRunActive(runId);
       return site.fetchRaw(track, io).catch((error) => {
-        throw error?.status === 429 ? Object.assign(new Error("字幕接口限流（429），稍后再试"), { status: 429 }) : error;
+        if (error?.status !== 429) throw error;
+        // B站's limit reads as THROTTLED wherever it comes from (MdgErrors.TEXT.biliThrottled).
+        throw site.id === "bilibili"
+          ? Object.assign(new Error(MdgErrors.TEXT.biliThrottled), { code: "THROTTLED" })
+          : Object.assign(new Error("字幕接口限流（429），稍后再试"), { status: 429 });
       });
     }
   };
@@ -3945,14 +3950,11 @@ function toReadableText(value, fallback = "") {
   return text;
 }
 
-// A failed fetch in the user's words: B站 risk control (HTTP 412 or its codes) and a dropped connection are named
-// (fetch's English TypeError becomes TEXT.netDown); B站 codes with their own words (62004) read as elsewhere, any other
+// A failed fetch in the user's words: a dropped connection is named (fetch's English TypeError becomes TEXT.netDown);
+// codes with their own words (THROTTLED, 62004) read as elsewhere, any other
 // error keeps its own message (the background's 「B站请求失败 HTTP 403」, the page's 「请求失败：403」).
 // getErrorMessage keeps the raw text with the code for logs and retry checks.
 function fetchErrorText(error) {
-  if (isBiliRiskError(error)) {
-    return MdgErrors.TEXT.biliThrottled;
-  }
   if (/failed to fetch|networkerror|load failed/i.test(toReadableText(error?.message, ""))) {
     return MdgErrors.TEXT.netDown;
   }
@@ -4052,9 +4054,9 @@ function isStaleRunError(error) {
   return error?.code === "STALE_RUN";
 }
 
-// B站 risk control (sites.js's B站 reads say THROTTLED; HTTP 412 or its codes elsewhere): retrying at once only digs
-// deeper, so it is never retried.
-const isBiliRiskError = (error) => error?.code === "THROTTLED" || error?.status === 412 || MdgSites.BILI_RISK_CODES.has(error?.code);
+// A limit, as MdgSites.loadSubtitle counts one: B站 risk control (every B站 read says THROTTLED through sites.js's biliJson)
+// or HTTP 429. Retrying at once only digs deeper, so it is never retried, and it fails the read (runRefreshClip).
+const isLimitError = (error) => error?.code === "THROTTLED" || error?.status === 429;
 
 async function retryAsync(task, retries = 1, delayMs = 180) {
   let lastError = null;
@@ -4063,7 +4065,7 @@ async function retryAsync(task, retries = 1, delayMs = 180) {
       return await task();
     } catch (error) {
       lastError = error;
-      if (isBiliRiskError(error)) {
+      if (isLimitError(error)) {
         throw error;
       }
       const isNetworkError = isRetryableNetworkError(error);

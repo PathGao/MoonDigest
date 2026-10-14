@@ -526,6 +526,9 @@ const settle = async () => {
     assert.strictEqual(await site.fetchRaw({}, {}), "raw");
     site = t.pageSubtitleSite({ fetchRaw: answers([limited(), limited()]) }, state.fetchRunId);
     await assert.rejects(site.fetchRaw({}, {}), (e) => e.status === 429 && e.message === "字幕接口限流（429），稍后再试");
+    // B站's 429 is its limit, said as THROTTLED.
+    site = t.pageSubtitleSite({ id: "bilibili", fetchRaw: answers([limited(), limited()]) }, state.fetchRunId);
+    await assert.rejects(site.fetchRaw({}, {}), (e) => e.code === "THROTTLED" && e.message === t.MdgErrors.TEXT.biliThrottled);
     site = t.pageSubtitleSite({ id: "bilibili", fetchTracks: answers([{ tracks: [] }, { tracks: ["t"] }]) }, state.fetchRunId);
     assert.deepStrictEqual((await site.fetchTracks()).tracks, ["t"]);
     const ios = [];
@@ -566,6 +569,22 @@ const settle = async () => {
       const sent = t.buildSidepanelContext().payload;
       assert.deepStrictEqual([state.subtitleFailure, sent.subtitleFailure, sent.subtitleNeedLogin], ["", "", true]);
       t.currentSite = site;
+    }
+    // G1: a limit is no subtitle failure: the read fails (red, 重试), no note or comment read, nothing says 字幕抓取失败.
+    {
+      const site = t.currentSite;
+      const derived = t.refreshDerivedContent;
+      let derives = 0;
+      t.refreshDerivedContent = async () => derives++;
+      t.currentSite = () => ({ ...site(), fetchRaw: async () => Promise.reject(Object.assign(new Error(t.MdgErrors.TEXT.biliThrottled), { code: "THROTTLED" })) });
+      await assert.rejects(t.runRefreshClip(), (e) => e.code === "THROTTLED");
+      assert.deepStrictEqual([state.subtitleFetchState, state.subtitleFailure, derives], ["error", "", 0]);
+      assert.strictEqual(t.fetchErrorText({ code: "THROTTLED", message: "x" }), t.MdgErrors.TEXT.biliThrottled);
+      // 重试 then reads it whole and builds the normal note.
+      t.currentSite = site;
+      await t.runRefreshClip();
+      assert.deepStrictEqual([state.subtitleFetchState, derives], ["ready", 1]);
+      t.refreshDerivedContent = derived;
     }
 
     loads = 0;
@@ -638,8 +657,8 @@ const settle = async () => {
   }
 
   // N6: what the user reads for a failed fetch: risk control and a dropped connection in words, no codes.
-  assert.strictEqual(t.fetchErrorText(Object.assign(new Error("请求失败：412"), { status: 412 })), "B站限流，请稍后再试");
-  assert.strictEqual(t.fetchErrorText(Object.assign(new Error("风控校验失败"), { code: -352 })), "B站限流，请稍后再试");
+  // HTTP 412 and the risk codes are THROTTLED by then (sites.js biliJson, the background's fetch-json).
+  assert.strictEqual(t.fetchErrorText(Object.assign(new Error("请求失败：412"), { code: "THROTTLED" })), "B站限流，请稍后再试");
   assert.strictEqual(t.fetchErrorText(new TypeError("Failed to fetch")), "网络断了");
   assert.strictEqual(t.fetchErrorText(Object.assign(new Error("啥都木有"), { code: -404 })), "啥都木有");
   assert.strictEqual(t.fetchErrorText(Object.assign(new Error("稿件审核中"), { code: 62004 })), "视频审核中，过后再试", "MdgErrors' words, as elsewhere");
@@ -652,9 +671,9 @@ const settle = async () => {
       }, 2, 0).catch(() => {});
       return n;
     };
-    // sites.js marks every negative B站 code retryable; risk codes stop here all the same.
-    for (const code of [-352, -412, -799, -509]) assert.strictEqual(await tries(Object.assign(new Error("x"), { code, retryable: true })), 1, String(code));
-    assert.strictEqual(await tries(Object.assign(new Error("请求失败：412"), { status: 412 })), 1, "HTTP 412");
+    // A limit (THROTTLED, HTTP 429) stops here even when marked retryable.
+    assert.strictEqual(await tries(Object.assign(new Error("x"), { code: "THROTTLED", retryable: true })), 1, "THROTTLED");
+    assert.strictEqual(await tries(Object.assign(new Error("请求失败：429"), { status: 429 })), 1, "HTTP 429");
     assert.strictEqual(await tries(new TypeError("Failed to fetch")), 2, "a dropped connection is retried");
     assert.strictEqual(await tries(Object.assign(new Error("x"), { code: -500, retryable: true })), 2);
     // D2: the background's fetch-json says 网络断了 (code NETWORK) like 分拣台, and the page's own timeout says the same.
