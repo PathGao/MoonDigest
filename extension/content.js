@@ -925,7 +925,6 @@ function buildSidepanelContext() {
       pageIndex: Number(state.pageIndex) > 0 ? Number(state.pageIndex) : 1,
       pageCount: Number(state.pageCount) > 0 ? Number(state.pageCount) : 0,
       pageTitle: state.pageTitle || "",
-      subtitleBody: body,
       subtitleMarkdown,
       subtitleFailure: state.subtitleFailure,
       subtitleNeedLogin: state.subtitleNeedLogin,
@@ -933,7 +932,6 @@ function buildSidepanelContext() {
       subtitleLang: state.selectedSubtitleLang || "",
       selectedSubtitleId: state.selectedSubtitleId || "",
       selectedSubtitleUrl: state.selectedSubtitleUrl || "",
-      subtitleOptions: state.subtitles || [],
       hotComments: state.hotComments || []
     }
   };

@@ -564,6 +564,8 @@ const settle = async () => {
     assert.deepStrictEqual([state.selectedSubtitleId, state.subtitleBody.length, state.subtitleWarning, state.subtitleFetchState], [".zh", 2, warning, "ready"]);
     // The side panel gets the warning too, and shows it with the reply (background.js buildAiMessages).
     assert.strictEqual(t.buildSidepanelContext().payload.subtitleWarning, warning);
+    // L6: the side panel gets the note it sends the AI, not the subtitle array or the track list (nobody reads them).
+    assert.ok(!["subtitleBody", "subtitleOptions"].some((k) => k in t.buildSidepanelContext().payload));
     // B站's logged-out list: 未登录 is its own state, not a failure reason, and the side panel hears it as such.
     {
       const site = t.currentSite;

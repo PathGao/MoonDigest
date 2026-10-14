@@ -149,7 +149,6 @@ async function getAiSidepanelState(tabId, { refresh = false, frameId = 0, videoI
       author: "",
       uploadDate: "",
       subtitleMarkdown: "",
-      subtitleBody: [],
       hotComments: [],
       isVideoContext: false
     };
@@ -230,7 +229,6 @@ async function resolveAiSidepanelContext(contextRef) {
       author: ref.author,
       uploadDate: ref.uploadDate,
       subtitleMarkdown: "",
-      subtitleBody: [],
       hotComments: [],
       isVideoContext: false
     };
@@ -257,7 +255,7 @@ async function resolveAiSidepanelContext(contextRef) {
   const found = await MdgSites.loadSubtitle(site, videoRef, meta, io, {
     prefer: { previousId: ref.selectedSubtitleId, previousUrl: ref.selectedSubtitleUrl, previousLang: ref.subtitleLang }
   });
-  const { track, body, bundle, tracks } = found;
+  const { track, body, bundle } = found;
   const subtitleWarning = found.mismatch ? MdgNote.subtitleMismatchWarning(found.mismatch) : "";
 
   const hotComments = site.fetchComments ? await site.fetchComments(videoRef, meta, io).catch(() => []) : [];
@@ -283,15 +281,9 @@ async function resolveAiSidepanelContext(contextRef) {
     subtitleLang,
     selectedSubtitleId: String(track?.id || "").trim(),
     selectedSubtitleUrl: String(track?.url || "").trim(),
-    subtitleBody: body,
     subtitleWarning,
     subtitleFailure: found.failure,
     subtitleMarkdown: body.length ? MdgNote.buildAiContext(noteMeta, body, settings, noteRef) : "",
-    subtitleOptions: tracks.map((item) => ({
-      id: String(item.id || "").trim(),
-      url: String(item.url || "").trim(),
-      lang: String(item.label || item.lang || "").trim()
-    })),
     // No list because B站 wants a login: the side panel says so instead of 没有字幕, like on the video page.
     subtitleNeedLogin: found.needLogin,
     hotComments,

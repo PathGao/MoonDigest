@@ -404,8 +404,10 @@ process.on("exit", (code) => {
     if (answer instanceof Error) throw answer;
     return { ok: true, status: 200, json: async () => answer };
   };
+  // The subtitle lines the AI reads (L6: the context carries only the note, no body or track list).
+  const lines = (r) => (r.subtitleMarkdown.split("## 字幕\n")[1] || "").split("\n").filter((l) => /\S/.test(l) && !l.startsWith("#")).length;
   const mismatched = await historyContext();
-  assert.strictEqual(mismatched.subtitleBody.length, 2);
+  assert.deepStrictEqual([lines(mismatched), "subtitleBody" in mismatched, "subtitleOptions" in mismatched], [2, false, false]);
   assert.match(mismatched.subtitleMarkdown, /## 字幕/);
   assert.strictEqual(mismatched.subtitleWarning, "字幕时间轴到 06:40，视频长 04:33，字幕时间可能对不上。");
   // I2: with the part count, as the video page sends it (a P1 conversation note's name needs it).
@@ -417,23 +419,23 @@ process.on("exit", (code) => {
   routes["/x/player/wbi/v2"].data.subtitle.subtitles.push({ id: 6, lan: "ai-en", lan_doc: "English", subtitle_url: otherUrl });
   routes[otherUrl] = { body: [{ from: 0, to: 270, content: "c" }] };
   const second = await historyContext();
-  assert.deepStrictEqual([second.selectedSubtitleId, second.subtitleWarning, second.subtitleBody.length], ["6", "", 1]);
+  assert.deepStrictEqual([second.selectedSubtitleId, second.subtitleWarning, lines(second)], ["6", "", 1]);
   delete local.mdg_subtitle_cache_BVa_11_id_6;
   // Tracks with empty bodies leave the AI the title, description and comments, flagged as a failed fetch.
   routes = { ...sidepanelRoutes(100), [subUrl]: { body: [] } };
   const empty = await historyContext();
-  assert.deepStrictEqual([empty.subtitleBody.length, empty.subtitleMarkdown, empty.subtitleFailure], [0, "", "字幕文件为空"]);
+  assert.deepStrictEqual([lines(empty), empty.subtitleMarkdown, empty.subtitleFailure], [0, "", "字幕文件为空"]);
   // A failed download or track list (not a limit) answers like the video page: no subtitle, and why, for 字幕抓取失败.
   const dropConn = () => new TypeError("Failed to fetch");
   routes = { ...sidepanelRoutes(100), [subUrl]: dropConn() };
   const dropped = await historyContext();
-  assert.deepStrictEqual([dropped.subtitleBody.length, dropped.subtitleMarkdown, dropped.subtitleFailure], [0, "", "网络断了"]);
+  assert.deepStrictEqual([lines(dropped), dropped.subtitleMarkdown, dropped.subtitleFailure], [0, "", "网络断了"]);
   routes = { ...sidepanelRoutes(100), "/x/player/wbi/v2": dropConn(), "/x/player/v2": dropConn() };
   assert.strictEqual((await historyContext()).subtitleFailure, "网络断了");
   // Speech ending at 100 s (a long silent outro) passes the video page's loose guard, so the side panel takes it too.
   routes = sidepanelRoutes(100);
   const resolved = await historyContext();
-  assert.strictEqual(resolved.subtitleBody.length, 2);
+  assert.strictEqual(lines(resolved), 2);
   // As many hot comments as the video page and 分拣台 notes ask for: one count, MdgLimits.HOT_COMMENTS.
   assert.ok(urls.some((u) => u.includes("/reply/main") && u.includes(`&ps=${ctx.MdgLimits.HOT_COMMENTS}&`)) && ctx.MdgLimits.HOT_COMMENTS === 20);
   // The AI gets the same note the video page sends (MdgNote.buildAiContext): front matter and subtitles, no player embed.
