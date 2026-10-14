@@ -2192,7 +2192,7 @@ function cardHtml(it, expanded, mark) {
       ? `<textarea class="note" name="videoNote" data-note rows="1" placeholder="一句话备注，回车保存" aria-label="备注">${esc(note)}</textarea>`
       : "";
   const failed = v.failed
-    ? `<span class="fail-text">分析失败：${esc(v.failed)}</span><button type="button" data-act="retry" aria-label="重试分析">${AI_SPARK}重试</button>`
+    ? `<span class="fail-text">分析失败：${esc(v.failed)}</span><button type="button" data-act="retry" aria-label="重试分析"${UI.reasonAttrs(aiBusyReason())}>${AI_SPARK}重试</button>`
     : "";
 
   const chips = tagIdsOf(b)
@@ -3297,20 +3297,14 @@ function retryFailed() {
   });
 }
 
-async function retry(bvid) {
-  // A failed 粗看 is sent again as a run of one (the button waits for a running 粗看 or 细看).
+// A card's 重试 is a run of one through the step's own runner (pill, finish line, banner), 粗看 or 细看 alike; the
+// button is disabled while another AI run goes (the guard covers the keyboard).
+function retry(bvid) {
   const it = S.itemMap.get(bvid);
-  if (it && failedCoarse(it)) return aiBusyReason() ? toast(aiBusyReason(), true) : runStage1([it]);
-  const judge = judgeOf(S.itemMap.get(bvid));
-  const r = await analyzeOne(bvid, true, judge);
-  if (!r.ok) {
-    S.analyses[bvid] = { bvid, status: "error", error: r.error };
-    if (THROTTLES[r.code]) toast(`${THROTTLES[r.code].label}，请稍后再试`, true);
-    else handleAiError(r.error, r.code);
-  } else {
-    S.analyses[bvid] = { criteria: judge.crit, ...r.data };
-  }
-  render();
+  if (!it || aiBusyReason()) return;
+  if (failedCoarse(it)) return runStage1([it]);
+  delete S.analyses[bvid];
+  startGroup([bvid]);
 }
 
 // ---------- AI 打标签 (tag-dialogs.js) ----------

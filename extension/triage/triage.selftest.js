@@ -402,10 +402,22 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     t.S.undo = [];
   }
   {
-    // R3: a B站 limit on a single 细看 retry names the limit, not "undefined".
-    handlers["triage-analyze"] = () => ({ ok: false, code: "THROTTLED", error: "412" });
-    await t.retry("BV1");
-    assert.strictEqual(toasts.at(-1), "B站限流卡住，请稍后再试");
+    // G4: a card's 细看 重试 is a run of one like 字幕细看: the pill, a B站 limit waited out in it, the finish line.
+    openFake("R3", [item(1)]);
+    let n = 0;
+    const pills = [];
+    handlers["triage-analyze"] = ({ bvid }) => (pills.push(t.activityState().text), ++n === 1 ? { ok: false, code: "THROTTLED", error: "412" } : { ok: true, data: { bvid, status: "done", verdict: "keep" } });
+    t.S.analyses.BV1 = { bvid: "BV1", status: "error", error: "字幕取不到" };
+    t.retry("BV1");
+    for (let i = 0; i < 100 && t.S.group; i++) await new Promise((r) => setTimeout(r, 5));
+    assert.deepStrictEqual([pills[0], n, t.S.analyses.BV1.status, t.activityState().text], ["字幕细看中 0/1", 2, "done", "字幕细看完成 1 个"]);
+    // While an AI run goes, the card's 重试 is disabled with why (粗看's and 细看's alike) and does nothing.
+    t.S.analyses.BV1 = { bvid: "BV1", status: "error", error: "字幕取不到" };
+    t.S.group = { bvids: ["x"], mediaId: "other" };
+    assert.ok(/data-act="retry"[^>]* disabled title="细看还在跑，等它完成"/.test(t.cardHtml(item(1), false, "")), t.cardHtml(item(1), false, ""));
+    t.retry("BV1");
+    assert.strictEqual(n, 2, "nothing sent while busy");
+    t.S.group = null;
     delete t.S.analyses.BV1;
     t.S.undo = [];
   }
