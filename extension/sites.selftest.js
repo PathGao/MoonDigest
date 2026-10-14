@@ -17,8 +17,8 @@ const chrome = {
   }
 };
 const ctx = vm.createContext({ URL, URLSearchParams, TextEncoder, console, chrome });
-// Manifest order: limits.js before sites.js.
-for (const file of ["limits.js", "sites.js"]) vm.runInContext(fs.readFileSync(path.join(__dirname, file), "utf8"), ctx);
+// Manifest order: limits.js and errors.js before sites.js.
+for (const file of ["limits.js", "errors.js", "sites.js"]) vm.runInContext(fs.readFileSync(path.join(__dirname, file), "utf8"), ctx);
 const S = ctx.MdgSites;
 // vm objects have a foreign Object prototype, so compare by value.
 const eq = (actual, expected) => assert.deepStrictEqual(JSON.parse(JSON.stringify(actual)), expected);
@@ -526,6 +526,18 @@ async function ytComments(next, byContinuation) {
   // A logged-out answer is reported, not mistaken for a video without subtitles.
   const loggedOut = { fetchJson: async () => ({ code: 0, data: { need_login_subtitle: true, subtitle: { subtitles: [] } } }) };
   eq((await S.SITES.bilibili.fetchTracks(biliRef, biliMeta, loggedOut)).needLogin, true);
+  // B站 risk control, whichever io it comes through (HTTP 412 as status, a risk code, a player answer without a subtitle
+  // object): THROTTLED in the one sentence, and no fallback request to player/v2 or view.
+  for (const answer of [Object.assign(new Error("HTTP 412"), { status: 412 }), { code: -352, message: "风控校验失败" }, { code: 0, data: {} }]) {
+    const urls = [];
+    const io = { fetchJson: async (url) => (urls.push(url), answer instanceof Error ? Promise.reject(answer) : answer) };
+    await assert.rejects(S.SITES.bilibili.fetchTracks(biliRef, biliMeta, io), (e) => e.code === "THROTTLED" && e.message === "B站限流，请稍后再试", JSON.stringify(answer));
+    eq(urls.map((u) => new URL(u).pathname), ["/x/player/wbi/v2"]);
+    if (answer.code === 0) continue;
+    urls.length = 0;
+    await assert.rejects(S.SITES.bilibili.fetchMeta(biliRef, io), (e) => e.code === "THROTTLED");
+    eq(urls.map((u) => new URL(u).pathname), ["/x/web-interface/view/detail"]);
+  }
 
   // Subtitle cache: same key format content.js always wrote; entries hold the raw response.
   const cache = S.subtitleCache;

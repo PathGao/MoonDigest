@@ -374,11 +374,12 @@ const chatOn = (context) => {
     show(web("x"));
     state.dispatch({ type: "SAVED_CHANGED", list: [{ id: "gone", contextUrl: video.url, contextRef: { url: video.url }, messages: [{ role: "user", content: "q" }] }] });
     state.dispatch({ type: "OPEN", id: "gone" });
-    for (const code of [-404, -352]) {
+    for (const code of [-404, -352, "THROTTLED"]) {
       ctx.resolveConversationContext = async () => ({ ok: false, error: "啥都木有", code });
       assert.strictEqual(await ctx.hydratePinnedConversationContext(), false);
     }
-    assert.deepStrictEqual(errors, ["视频已失效，这段对话只能查看，不能继续提问。", "读取原视频失败：啥都木有"]);
+    // A B站 limit reads as everywhere else (MdgErrors.text), not as the background's own words.
+    assert.deepStrictEqual(errors, ["视频已失效，这段对话只能查看，不能继续提问。", "读取原视频失败：啥都木有", "读取原视频失败：B站限流，请稍后再试"]);
     ctx.resolveConversationContext = realResolve;
   }
 

@@ -491,7 +491,7 @@ async function readContextState({ forceRefresh = false, silent = false, follow =
   if (superseded()) return contextLoad;
 
   const ok = Boolean(resp?.ok && resp.payload);
-  const effects = await act({ type: "CONTEXT_ARRIVED", payload: ok ? resp.payload : null, error: resp?.error, follow });
+  const effects = await act({ type: "CONTEXT_ARRIVED", payload: ok ? resp.payload : null, error: ok ? "" : MdgErrors.text(resp, "读取当前页面失败"), follow });
   if (!ok) {
     updateContextChip();
     if (!silent && !state.view().bound) {
@@ -1325,7 +1325,7 @@ async function hydratePinnedConversationContext({ silent = false } = {}) {
   }
   if (!silent) {
     // Deleted or hidden on B站 (as the 分拣台 and 视频记录 tell it): no retry will bring it back.
-    showConversationContextError(MdgSites.isBiliVideoGone(response?.code) ? "视频已失效，这段对话只能查看，不能继续提问。" : `读取原视频失败：${response?.error || "未知错误"}`);
+    showConversationContextError(MdgSites.isBiliVideoGone(response?.code) ? "视频已失效，这段对话只能查看，不能继续提问。" : `读取原视频失败：${MdgErrors.text(response)}`);
   }
   return false;
 }

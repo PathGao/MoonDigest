@@ -226,6 +226,21 @@
     return BILI_GONE_CODES.has(code);
   }
 
+  // Every B站 read below goes through this, whoever's io it is (the video page's fetch-json proxy or page fetch, the
+  // background's triageBiliGetJson): HTTP 412 (risk control's HTML page, as status), a BILI_RISK_CODES answer, or an
+  // io that already said THROTTLED, all become one THROTTLED error in MdgErrors.TEXT.biliThrottled's words.
+  const biliThrottled = () => Object.assign(new Error(MdgErrors.TEXT.biliThrottled), { code: "THROTTLED" });
+  async function biliJson(io, url) {
+    let json;
+    try {
+      json = await io.fetchJson(url);
+    } catch (error) {
+      throw error?.status === 412 || error?.code === "THROTTLED" ? biliThrottled() : error;
+    }
+    if (BILI_RISK_CODES.has(json?.code)) throw biliThrottled();
+    return json;
+  }
+
   // Old av links (/video/av170001) still open without redirecting; the BV id is a fixed transform of the aid.
   function biliAvToBv(aid) {
     const table = "FcwAPNKTMug3GV5Lj7EJnHpWsx4tb8haYeviqBz6rkCy12mUSDQX9RdoZf";
@@ -364,11 +379,15 @@
       return `https://www.bilibili.com/video/${id}/${suffix}`;
     },
     async fetchMeta(ref, io) {
-      let payload = await io.fetchJson(`${BILI_API}/x/web-interface/view/detail?bvid=${encodeURIComponent(ref.id)}`).catch(() => null);
+      // view/detail failing falls back to view, unless B站 is limiting: then a second request only digs deeper.
+      let payload = await biliJson(io, `${BILI_API}/x/web-interface/view/detail?bvid=${encodeURIComponent(ref.id)}`).catch((error) => {
+        if (error.code === "THROTTLED") throw error;
+        return null;
+      });
       let view = payload?.code === 0 ? payload.data?.View : null;
       let tags = payload?.code === 0 ? payload.data?.Tags : [];
       if (!view) {
-        payload = await io.fetchJson(`${BILI_API}/x/web-interface/view?bvid=${encodeURIComponent(ref.id)}`);
+        payload = await biliJson(io, `${BILI_API}/x/web-interface/view?bvid=${encodeURIComponent(ref.id)}`);
         if (payload?.code !== 0) {
           throw biliApiError(payload, "无法获取视频信息");
         }
@@ -431,11 +450,13 @@
       requests.push(`${BILI_API}/x/player/v2?bvid=${bvid}&cid=${cid}${meta?.aid ? `&aid=${aid}` : ""}`);
 
       const load = async (url) => {
-        const payload = await io.fetchJson(url);
+        const payload = await biliJson(io, url);
         if (payload?.code !== 0) {
           throw biliApiError(payload, "无法获取字幕列表");
         }
-        const data = payload.data || {};
+        // A player answer without a subtitle object is risk control too (a logged-out one still has it, empty).
+        if (!payload.data?.subtitle) throw biliThrottled();
+        const data = payload.data;
         const tracks = (data.subtitle?.subtitles || [])
           .map((item) => {
             const lang = String(item?.lan || "");
@@ -478,7 +499,7 @@
     // Raw responses are what the subtitle cache stores; parseSegments runs on
     // every read so a parser fix reaches cached entries.
     async fetchRaw(track, io) {
-      return io.fetchJson(track.url);
+      return biliJson(io, track.url);
     },
     parseSegments(raw) {
       return normalizeSegments(raw?.body);
@@ -488,7 +509,7 @@
       if (!aid || !count) {
         return [];
       }
-      const payload = await io.fetchJson(`${BILI_API}/x/v2/reply/main?type=1&oid=${aid}&mode=3&ps=${count}&pn=1`);
+      const payload = await biliJson(io, `${BILI_API}/x/v2/reply/main?type=1&oid=${aid}&mode=3&ps=${count}&pn=1`);
       const replies = Array.isArray(payload?.data?.replies) ? payload.data.replies : [];
       return replies.slice(0, count).map((item) => ({
         uname: String(item?.member?.uname || "匿名").trim() || "匿名",

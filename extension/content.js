@@ -515,7 +515,7 @@ function bindRuntimeEvents() {
       if (message.videoId && MdgSites.parseRef(location.href)?.id !== message.videoId) return false;
       clipContext(message.refresh === true)
         .then(sendResponse)
-        .catch((error) => sendResponse({ ok: false, error: fetchErrorText(error) }));
+        .catch((error) => sendResponse({ ok: false, error: fetchErrorText(error), ...(error?.code != null && { code: error.code }) }));
       return true;
     }
 
@@ -4052,8 +4052,9 @@ function isStaleRunError(error) {
   return error?.code === "STALE_RUN";
 }
 
-// B站 risk control (HTTP 412 or its codes): retrying at once only digs deeper, so it is never retried.
-const isBiliRiskError = (error) => error?.status === 412 || MdgSites.BILI_RISK_CODES.has(error?.code);
+// B站 risk control (sites.js's B站 reads say THROTTLED; HTTP 412 or its codes elsewhere): retrying at once only digs
+// deeper, so it is never retried.
+const isBiliRiskError = (error) => error?.code === "THROTTLED" || error?.status === 412 || MdgSites.BILI_RISK_CODES.has(error?.code);
 
 async function retryAsync(task, retries = 1, delayMs = 180) {
   let lastError = null;

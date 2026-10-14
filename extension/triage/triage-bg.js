@@ -329,17 +329,9 @@ async function triageBiliPost(path, fields) {
   return triageBiliData(await triageBiliJson(res));
 }
 
-// The sites.js fetchers (细看, notes) through the same channel, one try, with risk control mapped to THROTTLED like
-// triageBiliGet. A player answer without a subtitle object is risk control too.
-const TRIAGE_BILI_IO = {
-  signWbi: true,
-  async fetchJson(url) {
-    const json = await triageBiliGetJson(url);
-    if (BILI_RISK_CODES.has(json?.code)) throw triageError(`B站返回 ${json.code}：${json.message}`, "THROTTLED");
-    if (json?.code === 0 && /\/x\/player\//.test(url) && !json.data?.subtitle) throw triageError("B站字幕接口限流，稍后重试", "THROTTLED");
-    return json;
-  }
-};
+// The sites.js fetchers (细看, notes, the side panel follow-up) through the same channel, one try. sites.js's B站
+// reads turn risk control into THROTTLED themselves, as for the video page.
+const TRIAGE_BILI_IO = { signWbi: true, fetchJson: (url) => triageBiliGetJson(url) };
 
 // nav 未登录时 code=-101，triageBiliGet 会当错误抛出，所以只查 HTTP 与 JSON，由 triageMid 判断登录
 async function triageNav() {

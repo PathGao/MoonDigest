@@ -159,7 +159,7 @@ async function getAiSidepanelState(tabId, { forceRefresh = false, frameId = 0, v
   // The page settles its current video (joins a run, follows a URL change) and answers with its comments.
   const resp = await sendMessageToTab(tab.id, { type: "sidepanel-get-context", refresh: forceRefresh, videoId }, inViewer ? { frameId } : {});
   if (!resp?.ok || !resp.payload) {
-    throw new Error(resp?.error || "读取当前页面失败");
+    throw Object.assign(new Error(resp?.error || "读取当前页面失败"), resp?.code != null ? { code: resp.code } : {});
   }
   return { ...resp.payload, url: canonicalVideoUrl(resp.payload), isVideoContext: true };
 }
@@ -575,7 +575,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     const forceRefresh = message.forceRefresh === true;
     getAiSidepanelState(tabId, { forceRefresh, frameId: Number(message.frameId) || 0, videoId: String(message.videoId || "") })
       .then((payload) => sendResponse({ ok: true, payload }))
-      .catch((error) => sendResponse({ ok: false, error: error.message }));
+      .catch((error) => sendResponse({ ok: false, error: error.message, code: error.code }));
     return true;
   }
 
