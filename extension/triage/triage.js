@@ -4377,6 +4377,12 @@ function openSettings(scrollToLimits = false, firstRun = false) {
     .map((f) => `<label class="toggle"><input type="checkbox" name="includedFolder" value="${esc(f.id)}"${S.included.includes(String(f.id)) ? " checked" : ""} /> ${esc(f.title)} <span class="muted">${esc(f.count)}</span></label>`)
     .join("") || `<p class="dialog-hint">收藏夹列表还没加载</p>`;
   el.thinkingRow.hidden = !hasThinkingToggle();
+  // The side panel may have switched platform since this page loaded: ask again which one the requests go to.
+  send({ type: "triage-settings-get" }).then((r) => {
+    if (!r.ok) return;
+    S.settings.thinkingToggle = r.data.thinkingToggle;
+    el.thinkingRow.hidden = !hasThinkingToggle();
+  });
   el.intervalInput.value = S.settings.triageIntervalSec;
   el.coarseBatchInput.value = coarseBatchSize();
   el.fineBatchInput.value = fineBatchSize();

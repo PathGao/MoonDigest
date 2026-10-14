@@ -3221,6 +3221,14 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     await wait();
     assert.deepStrictEqual(texts(), { BV1: "中文字", BV2: "侧边栏的", BV3: "视频记录的" });
     t.render = realRender;
+    // 开启思考 follows the platform the side panel picks now: opening 收藏夹设置 asks the background again.
+    handlers["triage-settings-get"] = () => ({ ok: true, data: { thinkingToggle: true } });
+    t.S.settings.thinkingToggle = false;
+    t.openSettings();
+    await wait();
+    assert.deepStrictEqual([t.S.settings.thinkingToggle, t.el.thinkingRow.hidden], [true, false], "the switch follows the platform in use");
+    delete handlers["triage-settings-get"];
+    t.el.settingsDialog.close?.();
     // a background re-render waits while a note is composing, and runs on compositionend.
     t.S.items = [];
     t.document.activeElement = { closest: (s) => (s === "[data-note]" ? note : null) };
