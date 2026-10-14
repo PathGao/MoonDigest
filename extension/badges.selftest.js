@@ -512,11 +512,12 @@ async function plusPage() {
   const cards = { a: card("甲", "f1"), dup: card("重名", "zz"), c: card("丙", ""), d: card("重名", "f3"), e: card("不在名单", "", { "data-mid": "7" }), a2: card("甲", "") };
   const list = h("div", { class: "bili-dyn-list" }, h("div", { class: "bili-dyn-list__items" }, ...Object.values(cards)));
   const linkName = h("span", { class: "bili-video-card__info--author" }, "重名");
-  const doc = Object.assign(h("html", {}, h("body", {}, list, h("a", { href: "//space.bilibili.com/3" }, linkName))), { getElementById: () => null, createElement: (t) => h(t) });
+  const goneName = h("span", { class: "bili-video-card__info--author" }, "已取关");
+  const doc = Object.assign(h("html", {}, h("body", {}, list, h("a", { href: "//space.bilibili.com/3" }, linkName), h("a", { href: "//space.bilibili.com/8" }, goneName))), { getElementById: () => null, createElement: (t) => h(t) });
   doc.documentElement = doc;
   const store = {
     follow_tags: [{ id: "a", name: "常看", color: "#f00" }, { id: "b", name: "游戏", color: "#0a0" }],
-    follow_tag_map: { 1: ["a"] },
+    follow_tag_map: { 1: ["a"], 8: ["b"] },
     follow_list: { list: ["1", "2", "3", "4", "7"] },
     follow_people: {
       1: { name: "甲", face: "https://i0.hdslb.com/bfs/face/f1.jpg" },
@@ -576,6 +577,9 @@ async function plusPage() {
   assert.strictEqual(boxOf(title("d")).dataset.mid, "3");
   assert.strictEqual(boxOf(title("e")).dataset.mid, "7", "a data attribute on the card names the UP even after a rename");
   assert.strictEqual(boxOf(linkName).dataset.mid, "3", "a profile link names the UP outright");
+  assert.ok(plusOf(linkName), "a followed UP's profile link gets the 「+」");
+  assert.strictEqual(tagsOf(goneName), "游戏", "an unfollowed UP keeps showing its old tags");
+  assert.strictEqual(plusOf(goneName), null, "an unfollowed UP gets no 「+ UP 标签」 (DESIGN: old tags only)");
   const cBox = boxOf(title("c"));
   assert.ok(cBox.classList.contains("mdg-ups-empty"), "an untagged followed UP: a box with only the 「+」");
   assert.strictEqual(tagsOf(title("c")), "");
@@ -607,7 +611,7 @@ async function plusPage() {
   // A check writes follow_tag_map and redraws this UP's box and the bar counts at once (no storage event needed here).
   panel.listeners.click[0]({ target: panel.querySelectorAll(".opt")[1] });
   await settle();
-  assert.deepStrictEqual(store.follow_tag_map, { 1: ["a"], 4: ["b"] });
+  assert.deepStrictEqual(store.follow_tag_map, { 1: ["a"], 4: ["b"], 8: ["b"] });
   assert.deepStrictEqual(sets, [["follow_tag_map"]]);
   assert.strictEqual(tagsOf(title("c")), "游戏");
   assert.ok(!boxOf(title("c")).classList.contains("mdg-ups-empty"));

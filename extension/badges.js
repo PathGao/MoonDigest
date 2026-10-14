@@ -397,10 +397,11 @@
   }
 
   // Keeps, replaces or removes the box right after `spot`; the DOM itself is the state, so a rerun changes nothing.
-  // Where the page shows 「+ UP 标签」, a followed UP (or one with tags) gets it; on cards CSS shows it on hover only.
+  // Where the page shows 「+ UP 标签」, only a followed UP gets it: an unfollowed one shows its old tags only (as in
+  // 分拣台). On cards CSS shows it on hover only.
   function upChip(spot, mid, rule, name) {
     const list = rule.ups ? upTagsOf(mid, up.tags, up.map) : [];
-    const plus = rule.ups && rule.plus && Boolean(mid) && (list.length > 0 || up.followed.has(mid)) ? rule.plus : "";
+    const plus = rule.ups && rule.plus && up.followed.has(mid) ? rule.plus : "";
     const next = spot.nextSibling;
     const old = next?.nodeType === 1 && next.classList.contains("mdg-ups") ? next : null;
     const key = list.length || plus ? `${mid}|${plus}|${list.map((t) => `${t.id}:${t.name}:${t.color}`).join(",")}` : "";
