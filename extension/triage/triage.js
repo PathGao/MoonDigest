@@ -1859,7 +1859,7 @@ function renderTabs() {
 // 标签管理 and ✦ AI 打标签 at the right end of the tags they act on, as in 关注; AI 打标签 says when a run or a proposal is
 // pending, so renderTop draws them too (a run ends without a list render). Without tags 标签管理 has the warn dot (the
 // new-tag box says what to do).
-let shownPicked = 0; // the selected videos, hidden ones too (renderListHeader); ✦ AI 打标签 says how many
+let shownPicked = 0; // the selected videos listed (all of them when none is; renderListHeader); ✦ AI 打标签 says how many
 function renderTagButtons() {
   el.aiTagSlot.innerHTML = UI.tagButtons({
     picked: shownPicked,
@@ -2048,7 +2048,7 @@ function renderListHeader(list) {
   el.listHeader.innerHTML = `<div class="step-actions">${html}</div>`;
   // Its own slot outside the header's rows, so a folded header never hides it.
   el.favSel.innerHTML = S.selected.size ? UI.selbar({ label: "选中的视频", n: sel, hidden: S.selected.size - sel, clearAttrs: 'data-head="clear-selected"', acts: selActs }) : "";
-  shownPicked = picked;
+  shownPicked = sel || picked;
   renderTagButtons();
 }
 
@@ -3179,7 +3179,7 @@ async function runStage1(list = stage1Pending(), redo = false) {
     // In its folder the line says when it will pause; elsewhere it names its folder. Its finished line shows only there.
     line(d, t, stopping) {
       const where = runWhere(run);
-      return !where && stopping ? PILL_BTN.stage1[3] : `${redo && !where ? "按新标准重新粗看" : "标题粗看中"} ${d}/${t}${where}`;
+      return !where && stopping ? PILL_BTN.stage1[3] : `${redo ? "按新标准重新粗看" : "标题粗看中"} ${d}/${t}${where}`;
     },
     finished: (d) => (d && !runWhere(run) ? `${redo ? "按新标准重新粗看" : "标题粗看"}完成 ${d} 个` : ""),
     next() {
@@ -3269,7 +3269,7 @@ async function runGroup() {
     alive: () => S.group === group,
     line(d, t, stopping) {
       const where = runWhere(group);
-      return !where && stopping ? PILL_BTN.group[3] : `${group.redo && !where ? "按新标准重新细看" : "字幕细看中"} ${d}/${t}${where}`;
+      return !where && stopping ? PILL_BTN.group[3] : `${group.redo ? "按新标准重新细看" : "字幕细看中"} ${d}/${t}${where}`;
     },
     finished: (d) => (d && !runWhere(group) ? `${group.redo ? "按新标准重新细看" : "字幕细看"}完成 ${d} 个` : ""),
     next() {
@@ -4353,12 +4353,9 @@ function renderTagLimit() {
 }
 
 function renderTokenHints() {
-  const batch = TITLES_PER_REQUEST;
   const on = el.thinkingInput.checked;
-  const titleAuto = on ? 150 * batch + 4000 : 60 * batch + 200;
-  const analyzeAuto = on ? 8000 : 1000;
-  el.titleMaxHint.textContent = `留空 = 自动（${titleAuto}），被截断时再调大。`;
-  el.analyzeMaxHint.textContent = `留空 = 自动（${analyzeAuto}）`;
+  el.titleMaxHint.textContent = `留空 = 自动（${UI.autoMaxTokens("title", TITLES_PER_REQUEST, on)}），被截断时再调大。✦ AI 打标签也用这个上限。`;
+  el.analyzeMaxHint.textContent = `留空 = 自动（${UI.autoMaxTokens("analyze", 1, on)}）`;
 }
 
 // firstRun: the first open, before any folder is chosen, asks only for folders.

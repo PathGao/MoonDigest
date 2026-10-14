@@ -412,7 +412,7 @@ main.innerHTML = `
   <div id="fwList" class="fw-list" aria-label="UP 主"></div>
   <div id="fwSel"></div>`;
 // Both modes' rows exist from here on (收藏夹's are in triage.html), so the shared header fold starts here.
-UI.headFold($("main"));
+const headSync = UI.headFold($("main"));
 const SYNC = { pill: $("fwSyncViewBtn"), notice: $("fwSyncNotice"), text: $("fwSyncText"), detail: $("fwSyncDetail"), close: $("fwSyncCloseBtn") };
 UI.bindSync(SYNC);
 const E = { sort: $("fwSort"), title: $("fwTitle"), tools: $("fwTools"), meta: $("fwMeta"), tabs: $("fwTabs"), bar: $("fwBar"), barR: $("fwBarR"), tagRow: $("fwTagRow"), list: $("fwList"), sel: $("fwSel"), q: $("fwQ"), qCount: $("fwQCount") };
@@ -510,6 +510,7 @@ async function setMode(mode, save = true) {
   const on = mode === "follow";
   document.body.classList.toggle("follow-mode", on);
   side.hidden = main.hidden = !on;
+  headSync();
   for (const b of document.querySelectorAll("#modeSwitch [data-mode]")) b.setAttribute("aria-pressed", String(b.dataset.mode === mode));
   if (save) saveView();
   if (on) await ensureLoaded();
@@ -517,6 +518,7 @@ async function setMode(mode, save = true) {
   if (on) send({ type: "follow-feed", offset: "" }).catch(() => {});
   if (on) render();
   else renderLogin();
+  headSync(); // the rows as drawn: re-measure the full height, still without animation
 }
 function setTab(tab) {
   TagPicker.close();
@@ -525,7 +527,7 @@ function setTab(tab) {
   F.tab = tab;
   E.q.value = tab === "feed" ? F.fq : F.q;
   saveView();
-  // Both tabs draw into #fwList, whose redraws keep scrollTop: start the other tab at its top (and the header full), as 收藏夹.
+  // Both tabs draw into #fwList, whose redraws keep scrollTop: start the other tab at its top, as 收藏夹.
   E.list.scrollTop = 0;
   render();
 }
@@ -606,7 +608,7 @@ function renderSyncChanges() {
 // disabled and says why (a run or a proposal stays reachable).
 const aiReason = () => (aiRunning() || AI.proposal ? "" : aiBlocked(F.tab, F.side));
 function renderAiButton() {
-  $("fwAiSlot").innerHTML = UI.tagButtons({ manageAttrs: 'data-fw="tags"', aiAttrs: 'data-fw="ai"', aiReason: aiReason(), noTags: !D.tags.length, picked: F.tab === "ups" ? F.sel.size : 0, state: aiRunning() ? " · 运行中" : AI.proposal ? " · 待确认" : "" });
+  $("fwAiSlot").innerHTML = UI.tagButtons({ manageAttrs: 'data-fw="tags"', aiAttrs: 'data-fw="ai"', aiReason: aiReason(), noTags: !D.tags.length, picked: F.tab === "ups" ? selShown().length || F.sel.size : 0, state: aiRunning() ? " · 运行中" : AI.proposal ? " · 待确认" : "" });
 }
 function renderAiState() {
   renderSync();

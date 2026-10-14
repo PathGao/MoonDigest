@@ -13,6 +13,7 @@ const ctx = vm.createContext({ setTimeout, clearTimeout });
 // The pure block sorts with shared.js (UI.byValue / UI.dirWords), as the page does.
 vm.runInContext(fs.readFileSync(path.join(__dirname, "../errors.js"), "utf8"), ctx);
 vm.runInContext(fs.readFileSync(path.join(__dirname, "../tag-core.js"), "utf8"), ctx);
+vm.runInContext(fs.readFileSync(path.join(__dirname, "../settings.js"), "utf8"), ctx);
 vm.runInContext(fs.readFileSync(path.join(__dirname, "shared.js"), "utf8"), ctx);
 vm.runInContext(`const UI = globalThis.TriageUi;\n${pure}\n;Object.assign(globalThis, { syncFinished, dirLabel, followAiSettings, aiRequests, normDays, settingsProblem, followStatus, withFeedInProgress, lastPostOf, recentTitles, upRow, visibleUps, mergeFeed, shuffled, feedOrdered, feedMatch, sideIds, feedList, feedLeaving, withTags, stepIn, tagsOf, restoreTags, feedCounts, STATUS, viewRecord, latestBvid, favUpMid, aiBlocked, withAllowRemove, groupsOf, regrouped, groupCalls, groupTargets, groupName, groupMoveLabel, outKind });`, ctx);
 const t = ctx;
@@ -610,6 +611,17 @@ async function followPage({ store = {}, handlers = {}, setup = () => {} } = {}) 
     assert.deepStrictEqual([F.tab, F.sel.size, E.list.scrollTop], ["feed", 0, 0], "switching tabs clears the selection and scrolls to the top");
   }
 
+  // K1: every mode switch (the view restored on load, the 收藏夹 | 关注 switch) syncs the header fold right after
+  // toggling body.follow-mode, and again once the mode is drawn.
+  {
+    const calls = [];
+    const p = await followPage({ store: page(), setup: (ctx) => (ctx.TriageUi.headFold = () => () => calls.push(ctx.document.body.classList.contains("follow-mode"))) });
+    assert.deepStrictEqual(calls, [true, true], "restoring 关注 on load syncs the fold in 关注");
+    p.click("modeSwitch", "[data-mode]", { mode: "fav" });
+    await p.settle();
+    assert.deepStrictEqual(calls, [true, true, false, false], "switching to 收藏夹 syncs it in 收藏夹");
+  }
+
   // S4 / R2: the player. T tags the playing video's UP before the 视频投稿 card under the mouse; B站's autoplay moves the
   // playing mark and its UP on (a video in 视频投稿, or in an UP card's newest posts); an UP not known: T does nothing.
   {
@@ -663,6 +675,17 @@ async function followPage({ store = {}, handlers = {}, setup = () => {} } = {}) 
     p.key("x");
     assert.strictEqual(found["[data-fw=select-all]"]["aria-checked"], "mixed", "全选 turns mixed on X");
     assert.ok(p.$("fwAiSlot").innerHTML.includes(">AI 打标签选中的 1 个</button>"), p.$("fwAiSlot").innerHTML);
+    // K2 / K3: AI 打标签 and the bar count the selected ones listed; filters hiding all of them: all of them, never 0.
+    F.sel.add("u2");
+    F.q = "甲";
+    p.FW.render();
+    assert.ok(p.$("fwAiSlot").innerHTML.includes(">AI 打标签选中的 1 个</button>") && E.sel.innerHTML.includes("已选中 1 个</strong><span class=\"muted\">另有 1 个被筛选隐藏</span>"), p.$("fwAiSlot").innerHTML + E.sel.innerHTML);
+    F.q = "没有这个人";
+    p.FW.render();
+    assert.ok(p.$("fwAiSlot").innerHTML.includes(">AI 打标签选中的 2 个</button>") && E.sel.innerHTML.includes("已选中 2 个</strong><span class=\"muted\">都被筛选隐藏</span>"), p.$("fwAiSlot").innerHTML + E.sel.innerHTML);
+    F.q = "";
+    F.sel.delete("u2");
+    p.FW.render();
     const bar = E.sel.innerHTML;
     assert.ok(!bar.includes("AI 打标签") && bar.includes(">移动选中的 1 个到分组…<") && bar.includes(">复制选中的 1 个到分组…<"), bar);
     const running = p.FW.relationRun([{ type: "follow-relation", mid: "u2", act: 2 }], "取消关注");

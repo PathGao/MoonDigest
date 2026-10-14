@@ -769,8 +769,11 @@ dialog:has(.settings-ai:not([hidden])) { width: min(800px, calc(100% - 32px)); }
   .brand { width: auto; }
   .tabs { overflow-x: auto; }
   .tabs button, .tabs .arrow { flex: none; }
-  /* The fold toggle and the tabs share a line; search and the buttons go under it, the search takes what is left. */
-  .tabrow .tabs { flex: 1 1 0; border-bottom: 1px solid var(--border); }
+  /* The fold toggle and the tabs share a line; search and the buttons go under it, the search takes what is left. The
+     rule under that line spans the whole row, under the toggle too: the row draws it (top: the tabs' 40px), and the tabs
+     keep a clear 1px border so the line stays as tall. z-index -1 keeps it under the selected tab's underline. */
+  .tabrow .tabs { flex: 1 1 0; border-bottom: 1px solid transparent; }
+  .tabrow::after { content: ""; position: absolute; left: 0; right: 0; top: 40px; z-index: -1; height: 1px; background: var(--border); }
   .tabs button[aria-selected="true"]::after { bottom: -1px; }
   .row-tools { width: 100%; padding: 8px 0; }
   /* Row 2 is two lines here and its rule sits under the tabs: row 3 gets its own above it. */

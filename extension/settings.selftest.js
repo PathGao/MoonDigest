@@ -46,7 +46,7 @@ for (const [fn, key] of [["normalizeReaderFontScale", "readerFontScale"], ["norm
   assert.strictEqual(S[fn](S.DEFAULTS[key]), S.DEFAULTS[key]);
 }
 
-// 看到多少算看完了: SEEN_THRESHOLD is its range and default (DEFAULTS reads it); TriageUi.intIn's rule.
+// 看到多少算看完了: SEEN_THRESHOLD is its range and default (DEFAULTS reads it); intIn's rule.
 const { min, max, def } = S.SEEN_THRESHOLD;
 assert.strictEqual(S.DEFAULTS.seenThreshold, def);
 assert.deepStrictEqual([-5, "", " ", null, undefined, "x", min - 1, min - 0.6, min, 42.6, "42", max + 50].map(S.normalizeSeenThreshold), [def, def, def, def, def, def, def, def, min, 43, 42, max]);

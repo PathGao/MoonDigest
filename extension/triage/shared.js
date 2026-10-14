@@ -1,6 +1,8 @@
 // What the 分拣台's two modes (triage.js 收藏夹, follow.js 关注) draw the same way, so they cannot drift apart.
-// A plain script loaded before both modules. Everything here returns HTML, text or a comparator; only setActivity,
-// setSync and bindSync touch the elements they are given, and mergeAiBatch fills the proposal it is given.
+// A plain script loaded before both modules (and by the settings page and the worker, which call only the pure parts).
+// Most of it returns HTML, text or a comparator. What touches the DOM it is given: bindSearch, setReason, askTransfer,
+// setActivity, setSync, bindSync, fillSetRows, fillNumHints, clampNumber(s) and headFold (which also reads and writes
+// chrome.storage.local); mergeAiBatch fills the proposal it is given.
 (() => {
   const esc = MdgErrors.escapeHtml;
   const pad = (n) => String(n).padStart(2, "0");
@@ -257,7 +259,8 @@
 
   // 标签管理 and ✦ AI 打标签 at the right end of the tag row, next to the tags they act on (in 收藏夹 those are the open
   // folder's, so they do not sit in the sidebar). state is 「 · 运行中」 or 「 · 待确认」. noTags puts the dot on 标签管理.
-  // picked: the selected ones listed now; the dialog then opens on 选中, so the button says how many, as 粗看's does.
+  // picked: the selected ones listed now (all of them when filters hide every one, as the selection bar's buttons; the
+  // dialog's 运行 then says HIDDEN_ALL); the dialog opens on 选中, so the button says how many, as 粗看's does.
   // It stays in row 4: the selection bar has no AI 打标签 of its own.
   const tagButtons = ({ manageAttrs, aiAttrs, state = "", manageReason = "", aiReason = "", noTags = false, picked = 0 }) => {
     const ai = `AI 打标签${picked && !state && !aiReason ? `选中的 ${picked} 个` : ""}`;
@@ -286,9 +289,9 @@
     actBtn(attrs, picked ? `清理选中的 ${n} 个` : `清理这 ${n} 个`, { reason: busy || (picked && !shown ? HIDDEN_ALL : why), cls: "danger" });
   // The floating bar while something is selected: n of them listed, hidden more behind filters, 清空选中, then
   // acts(none). none is why every act is off when filters hide the whole selection: the buttons stay, disabled, and count
-  // the whole selection (as row 3 does).
+  // the whole selection (as row 3 does), and so does the title (「已选中 3 个 · 都被筛选隐藏」, never 「已选中 0 个」).
   const selbar = ({ label, n, hidden, clearAttrs, acts }) =>
-    `<div class="selbar" role="toolbar" aria-label="${esc(label)}"><strong class="sel-count">已选中 ${n} 个</strong>${hidden ? `<span class="muted">另有 ${hidden} 个被筛选隐藏</span>` : ""}<button type="button" class="quiet" ${clearAttrs} aria-label="清空选中">清空选中</button><span class="sel-actions">${acts(n ? "" : HIDDEN_ALL)}</span></div>`;
+    `<div class="selbar" role="toolbar" aria-label="${esc(label)}"><strong class="sel-count">已选中 ${n || hidden} 个</strong>${hidden ? `<span class="muted">${n ? `另有 ${hidden} 个被筛选隐藏` : "都被筛选隐藏"}</span>` : ""}<button type="button" class="quiet" ${clearAttrs} aria-label="清空选中">清空选中</button><span class="sel-actions">${acts(n ? "" : HIDDEN_ALL)}</span></div>`;
   // ----- 移动 / 复制 (#transferDialog): 收藏夹's folders and 关注's groups -----
   // o = { title, list (html), n, hows ("copy" / "move" / "add" buttons shown; the last is the blue one), label (目标收藏夹 /
   // 目标分组), options [[value, text]], newText (新建收藏夹… / 新建分组…), newPlaceholder, newMax, privacy (show 设为私密),
@@ -450,6 +453,12 @@
   // Titles one 粗看 request carries (fixed, not a setting; the output limit's 自动 grows with it). Hints write it through
   // [data-titles-per-request] spans that fillNumHints fills.
   const TITLES_PER_REQUEST = 20;
+  // 输出上限's 自动 (maxTokens left empty): 粗看 per title, ✦ AI 打标签 ("command", which reads 粗看's setting) per item,
+  // 细看 per video; thinking tokens count against it. The background sends it, the settings dialog shows it.
+  const autoMaxTokens = (kind, itemCount, thinking) =>
+    kind === "title" ? (thinking ? 150 * itemCount + 4000 : 60 * itemCount + 200)
+    : kind === "command" ? (thinking ? 180 * itemCount + 4000 : 80 * itemCount + 400)
+    : thinking ? 8000 : 1000;
   const NUM_SETTINGS = {
     interval: [0, 600, 8], // both modes
     aiBatch: [1, 100, 30], // both modes
@@ -498,12 +507,8 @@
     if (input?.type !== "number" || input.value === "") return;
     input.value = intIn(input.value, Number(input.min), input.max === "" ? Infinity : Number(input.max), "");
   }
-  // A whole-number setting as stored or typed (both modes and the background): empty, not a number or below lo is def,
-  // the rest is rounded and capped at hi.
-  const intIn = (v, lo, hi, def) => {
-    const n = v == null || String(v).trim() === "" ? NaN : Math.round(Number(v));
-    return Number.isFinite(n) && n >= lo ? Math.min(hi, n) : def;
-  };
+  // A whole-number setting as stored or typed: settings.js's one rule (it loads first everywhere shared.js does).
+  const intIn = MdgSettings.intIn;
   function clampNumbers(root) {
     for (const form of root.querySelectorAll("form:has(input[type=number])")) form.noValidate = true;
     root.addEventListener("change", (e) => clampNumber(e.target));
@@ -622,16 +627,16 @@
     const toggles = [];
     const modeOf = () => (document.body.classList.contains("follow-mode") ? "follow" : "fav");
     const shown = (sel) => [...main.querySelectorAll(sel)].filter((x) => x.offsetParent);
-    const measure = () => {
+    const measure = (force = false) => {
       const rows = shown(HEAD_ROWS);
       if (rows.length < 2) return;
       const m = modeOf();
       const on = Boolean(folded[m]);
       main.classList.toggle("head-folded", on);
       for (const b of toggles) b.title = b.ariaLabel = on ? "展开头部" : "收起头部";
-      // Folded, rows that grow are not measured, so the cards stay put; unfolding (and a mode's first show) measures them.
+      // Folded, rows that grow are not measured, so the cards stay put; unfolding (and a mode's show) measures them.
       const last = rows[rows.length - 1];
-      if (!on || m !== mode) full = last.offsetTop + last.offsetHeight;
+      if (!on || m !== mode || force) full = last.offsetTop + last.offsetHeight;
       mode = m;
       scrolled(shown(".list, .fw-list")[0]);
       main.style.setProperty("--head-h", `${full}px`);
@@ -641,7 +646,7 @@
     // A shadow under the header while the list is scrolled: cards are under it.
     const scrolled = (list) => main.classList.toggle("head-scrolled", (list?.scrollTop || 0) > 0);
     main.addEventListener("scroll", (e) => e.target.matches(".list, .fw-list") && scrolled(e.target), true);
-    const ro = new ResizeObserver(measure);
+    const ro = new ResizeObserver(() => measure());
     for (const row of main.querySelectorAll(HEAD_ROWS)) {
       ro.observe(row);
       // The slim bar's 「名字 · 数量」: a copy of row 1's title, kept in step with it.
@@ -662,16 +667,21 @@
       copy();
     }
     measure();
-    // Restoring the last state jumps there, no fold animation: measure() reads layout, which applies the styles while
-    // head-instant is on.
+    // Jumping to a state, no fold animation: measure() reads layout, which applies the styles while head-instant is on.
+    const instant = () => {
+      main.classList.toggle("head-instant", true);
+      measure(true);
+      main.classList.toggle("head-instant", false);
+    };
     chrome.storage.local.get(HEAD_FOLD_KEY).then((r) => {
       folded = r?.[HEAD_FOLD_KEY] || {};
-      main.classList.toggle("head-instant", true);
-      measure();
-      main.classList.toggle("head-instant", false);
+      instant();
     });
+    // follow.js's setMode calls it right after switching body.follow-mode (clicks, the view restored on load, deep
+    // links), so the new mode's fold shows in the same frame instead of animating in after a ResizeObserver round.
+    return instant;
   }
 
   globalThis.TriageUi = { esc, pad, dayText, fmtDate, fmtAgo, agoHtml, setSearchScope, confirmList, pickTitle, fmtDuration, fmtCount, cleanTagName, plainClick, cardPlayClick, cardPickClick, pickCard, img, toCsv, cardTagChip, syncedText, headMeta, titleHtml, ICON, AI_SPARK, byValue, dirWords, sortControl, filterBtn, labeledRow, tagFilterChip, kindTabs, originChip, stateGroup, aiRecentChip, searchBox, bindSearch, resultCount, rowButtons, menuItem, BACKUP_ITEM, reasonAttrs, setReason, WARN_DOT, selectAllState, selectAllBox, toggleAll, setActivity, waitText, BILI_HOLD_MS, WRITE_STOPPING, busyText, syncPill
-, setSync, bindSync, tagButtons, sideFoot, actBtn, cleanBtn, HIDDEN_ALL, selbar, askTransfer, sideItem, emptyState, refreshEmpty, noMatch, fillSetRows, fillNumHints, NUM_SETTINGS, TITLES_PER_REQUEST, numSetting, clampNumber, intIn, clampNumbers, mergeAiBatch, aiChanges, aiProposalOk, previewId, aiTally, nextTagColor, tagNameError, deleteTagAsk, editedTag, withoutTag, undoAsk, tagRowHtml, sp, tagsWord, AI_RECENT_RULES, aiRecentUndo, tagPlusBtn, viewerLine, viewerKeyFrom, headFold };
+, setSync, bindSync, tagButtons, sideFoot, actBtn, cleanBtn, HIDDEN_ALL, selbar, askTransfer, sideItem, emptyState, refreshEmpty, noMatch, fillSetRows, fillNumHints, NUM_SETTINGS, TITLES_PER_REQUEST, autoMaxTokens, numSetting, clampNumber, intIn, clampNumbers, mergeAiBatch, aiChanges, aiProposalOk, previewId, aiTally, nextTagColor, tagNameError, deleteTagAsk, editedTag, withoutTag, undoAsk, tagRowHtml, sp, tagsWord, AI_RECENT_RULES, aiRecentUndo, tagPlusBtn, viewerLine, viewerKeyFrom, headFold };
 })();

@@ -29,12 +29,13 @@
 
   // 看到多少算看完了 (%): the range and default every reader takes (background, B站 pages, 分拣台, settings page).
   const SEEN_THRESHOLD = Object.freeze({ min: 1, max: 100, def: 80 });
-  // TriageUi.intIn's rule (B站 pages do not load shared.js): empty, not a number or below min is the default; above max
-  // is max; rounded.
-  function normalizeSeenThreshold(v) {
+  // A whole-number setting as stored or typed (every page, B站 pages and the background; TriageUi.intIn is this): empty,
+  // not a number or below lo is def, the rest is rounded and capped at hi.
+  const intIn = (v, lo, hi, def) => {
     const n = v == null || String(v).trim() === "" ? NaN : Math.round(Number(v));
-    return Number.isFinite(n) && n >= SEEN_THRESHOLD.min ? Math.min(SEEN_THRESHOLD.max, n) : SEEN_THRESHOLD.def;
-  }
+    return Number.isFinite(n) && n >= lo ? Math.min(hi, n) : def;
+  };
+  const normalizeSeenThreshold = (v) => intIn(v, SEEN_THRESHOLD.min, SEEN_THRESHOLD.max, SEEN_THRESHOLD.def);
 
   // chrome.storage.sync. obsidianApiKey stays on this machine: LOCAL_DEFAULTS, chrome.storage.local.
   const DEFAULTS = Object.freeze({
@@ -140,6 +141,7 @@
     MAX_NOTE_SECTIONS,
     MAX_PRESET_PROMPTS,
     SEEN_THRESHOLD,
+    intIn,
     normalizeSeenThreshold,
     normalizeApiKey,
     normalizeDownloadFormat,

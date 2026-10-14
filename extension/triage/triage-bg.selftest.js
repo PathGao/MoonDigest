@@ -121,6 +121,11 @@ assert.strictEqual(t.triageMaxTokens("analyze", 1, { ...off, triageAnalyzeMaxTok
 assert.strictEqual(t.triageMaxTokens("command", 30, off), 2800);
 assert.strictEqual(t.triageMaxTokens("command", 30, on), 9400);
 assert.strictEqual(t.triageMaxTokens("command", 30, { ...off, triageTitleMaxTokens: 5000 }), 5000);
+// K7: 自动 is written once, TriageUi.autoMaxTokens; the settings dialog's hints show the same numbers.
+for (const f of ["triage-bg.js", "triage.js"]) {
+  const src = fs.readFileSync(path.join(__dirname, f), "utf8");
+  assert.ok(/autoMaxTokens\(/.test(src) && !/\d+ \* \w+ \+ \d+|\? 8000 : 1000/.test(src), `${f} writes the output limit's 自动 itself`);
+}
 
 
 // tag names

@@ -5,7 +5,7 @@ const path = require("path");
 const vm = require("vm");
 const assert = require("assert");
 
-for (const f of ["../errors.js", "../tag-core.js", "shared.js", "runs.js", "writes.js"]) vm.runInThisContext(fs.readFileSync(path.join(__dirname, f), "utf8"));
+for (const f of ["../errors.js", "../tag-core.js", "../settings.js", "shared.js", "runs.js", "writes.js"]) vm.runInThisContext(fs.readFileSync(path.join(__dirname, f), "utf8"));
 
 // Two writers on one runs table (as 收藏夹 and 关注 on theirs), over a fake Bilibili: answer(msg) gives each reply (may
 // return a promise). Sleeps take no time.

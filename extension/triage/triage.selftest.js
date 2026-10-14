@@ -19,7 +19,7 @@ for (const f of ["triage.html", "triage.js", "triage-core.js", "follow.js", "sha
 // J13: user-facing text names the control, never where it sits (the layout moves with the width). Comments may.
 for (const f of ["triage.html", "triage.js", "follow.js", "shared.js", "tag-dialogs.js", "tag-picker.js", "../options.html", "../options.js", "../sidepanel.html", "../sidepanel.js", "../popup.html", "../popup.js", "../limits.js", "../bili-surfaces.js"]) {
   const text = fs.readFileSync(path.join(__dirname, f), "utf8").replace(/<!--[\s\S]*?-->|\/\*[\s\S]*?\*\/|\/\/.*$/gm, "");
-  const hit = text.match(/左边|右边|左下角|右下角|左上角|右上角|左侧|右侧|上面的|下面的|上方|下方|旁边|第 ?[0-9一二三四] ?行/);
+  const hit = text.match(/左边|右边|左下角|右下角|左上角|右上角|左侧|右侧|上面的|下面的|上方|下方|旁|第 ?[0-9一二三四] ?行/);
   assert.ok(!hit, `${f} says 「${hit}」 to the user`);
 }
 
@@ -596,6 +596,13 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   t.renderListHeader(t.visibleItems());
   assert.ok((t.el.listHeader.innerHTML + t.el.favSel.innerHTML).includes("已选中 1 个") && (t.el.listHeader.innerHTML + t.el.favSel.innerHTML).includes("另有 1 个被筛选隐藏"), "the bar counts only what is listed");
   assert.ok(t.S.selected.has("BV1"), "a video a filter hides stays selected");
+  const sight = () => (t.renderListHeader(t.visibleItems()), t.renderTagButtons(), t.el.favSel.innerHTML + t.el.aiTagSlot.innerHTML);
+  // K2: ✦ AI 打标签 counts the selected ones listed, as the bar does (its 选中 runs only those).
+  assert.ok(sight().includes('aria-label="AI 打标签选中的 1 个 (I)"'), t.el.aiTagSlot.innerHTML);
+  // K2 / K3: filters hide the whole selection: the bar's title and AI 打标签 count all of it, never 0.
+  t.S.query = "没有这个标题";
+  const hiddenAll = sight();
+  assert.ok(hiddenAll.includes("已选中 2 个</strong><span class=\"muted\">都被筛选隐藏</span>") && hiddenAll.includes('aria-label="AI 打标签选中的 2 个 (I)"'), hiddenAll);
   t.S.query = "";
   // The selection belongs to the tab: the kept BV2 is not in 未分析, so it leaves the selection, and so does one kept now.
   await t.keepOne("BV1");
@@ -3516,9 +3523,24 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
       const redo = t.runStage1([t.S.itemMap.get("BV6005")], true);
       await new Promise((r) => setImmediate(r));
       assert.strictEqual(t.activityState().text, "按新标准重新粗看 0/1");
+      // K5: seen from another folder it still says 按新标准重新…, with where it runs.
+      const home = t.S.mediaId;
+      t.S.mediaId = "elsewhere";
+      assert.ok(t.activityState().text.startsWith("按新标准重新粗看 0/1（"), t.activityState().text);
+      t.S.mediaId = home;
       release();
       await redo;
       assert.strictEqual(t.activityState().text, "按新标准重新粗看完成 1 个");
+      // K5: 按新标准重新细看 too, from another folder.
+      let releaseFine;
+      handlers["triage-analyze"] = ({ bvid }) => new Promise((r) => (releaseFine = () => r({ ok: true, data: { bvid, status: "done", verdict: "keep" } })));
+      t.startGroup(["BV6001"], true);
+      for (let i = 0; i < 50 && !releaseFine; i++) await new Promise((r) => setImmediate(r));
+      t.S.mediaId = "elsewhere";
+      assert.ok(t.activityState().text.startsWith("按新标准重新细看 0/1（"), t.activityState().text);
+      t.S.mediaId = home;
+      releaseFine();
+      for (let i = 0; i < 50 && t.S.group; i++) await new Promise((r) => setImmediate(r));
       t.S.folderCriteria = {};
       t.S.settings.triageCoarseBatchSize = 100;
       t.S.settings.triageFineBatchSize = 10;

@@ -4,7 +4,7 @@ const path = require("path");
 const vm = require("vm");
 const assert = require("assert");
 
-for (const f of ["../errors.js", "../tag-core.js", "shared.js", "runs.js"]) vm.runInThisContext(fs.readFileSync(path.join(__dirname, f), "utf8"));
+for (const f of ["../errors.js", "../tag-core.js", "../settings.js", "shared.js", "runs.js"]) vm.runInThisContext(fs.readFileSync(path.join(__dirname, f), "utf8"));
 const { create } = globalThis.MdgRuns;
 const LIMIT = { ms: 90000, label: "B站限流卡住" };
 

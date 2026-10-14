@@ -612,6 +612,11 @@ const runSync = async () => {
     const r2 = plain(await t.followAiTag({ instruction: "x", mids: ["2"], maxNewTags: 0, allowRemove: true }));
     assert.ok(sent.messages[0].content.includes("这次不能新建标签") && sent.messages[0].content.includes("remove 只能填"));
     assert.deepStrictEqual(r2, { newTags: [], assignments: { 2: { add: [], remove: ["硬核"] } }, note: "n" }, "remove only when allowed, no new tags at 0");
+    // K10: triageAiCommand reads maxNewTags as the newTagMax setting: not a number is its default, above max is max.
+    await t.followAiTag({ instruction: "x", mids: ["2"], maxNewTags: "x" });
+    assert.ok(sent.messages[0].content.includes(`至多 ${t.TriageUi.NUM_SETTINGS.newTagMax[2]} 个`), "invalid maxNewTags is newTagMax's default");
+    await t.followAiTag({ instruction: "x", mids: ["2"], maxNewTags: 999 });
+    assert.ok(sent.messages[0].content.includes(`至多 ${t.TriageUi.NUM_SETTINGS.newTagMax[1]} 个`), "maxNewTags is capped at newTagMax's max");
     t.triageChat = async () => ({ content: '{"new_tags":[],"items":[{"i":1,"add":["硬核"' });
     await assert.rejects(t.followAiTag({ instruction: "x", mids: ["1"] }), /不完整/, "truncated answer");
     await assert.rejects(t.followAiTag({ instruction: "x", mids: ["99"] }), /缺少 mids/);

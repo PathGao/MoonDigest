@@ -8,6 +8,7 @@ const ctx = vm.createContext({ setTimeout, clearTimeout });
 vm.runInContext(fs.readFileSync(path.join(__dirname, "../errors.js"), "utf8"), ctx);
 vm.runInContext(fs.readFileSync(path.join(__dirname, "../typing.js"), "utf8"), ctx);
 vm.runInContext(fs.readFileSync(path.join(__dirname, "../tag-core.js"), "utf8"), ctx);
+vm.runInContext(fs.readFileSync(path.join(__dirname, "../settings.js"), "utf8"), ctx);
 vm.runInContext(fs.readFileSync(path.join(__dirname, "shared.js"), "utf8"), ctx);
 const UI = ctx.TriageUi;
 // 关注 waits B站限流 out for 90 s (DESIGN), in one place: follow-bg.js's queue and follow.js's write and feed waits read it.
@@ -47,16 +48,17 @@ const assertInert = (html, where) => assert.ok(!/<img src=x|<script|"'>/i.test(h
     rows[0].nextElementSibling = rows[1];
     const vars = {};
     const cls = new Set();
+    const foldLog = []; // [folded, head-instant] at each fold change
     const main = on({
-      classList: { toggle: (c, b) => (b ? cls.add(c) : cls.delete(c)) },
+      classList: { toggle: (c, b) => (c === "head-folded" && b !== cls.has(c) && foldLog.push([b, cls.has("head-instant")]), b ? cls.add(c) : cls.delete(c)) },
       style: { setProperty: (k, v) => (vars[k] = v) },
       querySelectorAll: () => rows
     });
     made.length = 0;
-    UI.headFold(main);
+    const sync = UI.headFold(main);
     const toggle = made.find((b) => b.className === "act-btn head-toggle");
     const scroll = (top) => main.L.scroll[0]({ target: { scrollTop: top, matches: (sel) => sel === ".list, .fw-list" } });
-    return { rows, vars, folded: () => cls.has("head-folded"), shadow: () => cls.has("head-scrolled"), scroll, toggle, click: () => toggle.L.click[0]() };
+    return { rows, vars, sync, foldLog, instant: () => cls.has("head-instant"), folded: () => cls.has("head-folded"), shadow: () => cls.has("head-scrolled"), scroll, toggle, click: () => toggle.L.click[0]() };
   };
   const p = page();
   assert.deepStrictEqual([p.folded(), p.toggle.ariaLabel, p.toggle.title, p.vars["--head-h"]], [false, "收起头部", "收起头部", "200px"]);
@@ -82,6 +84,19 @@ const assertInert = (html, where) => assert.ok(!/<img src=x|<script|"'>/i.test(h
   measureAll();
   assert.ok(q.folded(), "and 关注's");
   body.delete("follow-mode");
+  // K1: a mode switch (setMode calls sync right after toggling body.follow-mode) applies the new mode's fold at once,
+  // with head-instant on while it changes and off afterwards; no ResizeObserver round needed.
+  q.foldLog.length = 0;
+  q.sync();
+  body.add("follow-mode");
+  q.sync();
+  assert.deepStrictEqual([q.folded(), q.instant(), plain(q.foldLog)], [true, false, [[false, true], [true, true]]], "switching modes folds or unfolds at once, without animation");
+  q.rows[3].offsetHeight = 90;
+  q.sync();
+  assert.deepStrictEqual([q.folded(), q.vars["--head-h"]], [true, "240px"], "sync after drawing the mode measures its rows again, folded");
+  q.rows[3].offsetHeight = 50;
+  body.delete("follow-mode");
+  q.sync();
   // Scrolling the list only shows the shadow under the header; it never folds or unfolds.
   measureAll();
   q.scroll(300);
@@ -93,6 +108,9 @@ const assertInert = (html, where) => assert.ok(!/<img src=x|<script|"'>/i.test(h
   const src = fs.readFileSync(path.join(__dirname, "shared.js"), "utf8");
   assert.ok(!/"focusin"|headroom/i.test(src), "shared.js does not unfold on focus");
   for (const f of ["triage.js", "follow.js"]) assert.ok(!fs.readFileSync(path.join(__dirname, f), "utf8").includes("head-folded"), `${f} sets the fold itself`);
+  // K4: at ≤1099 the rule under row 2's first line runs the row's full width, under the fold toggle too, not from the tabs.
+  const narrow = fs.readFileSync(path.join(__dirname, "triage.css"), "utf8").split("@media (max-width: 1099px)")[1].split("\n}\n")[0];
+  assert.ok(/\.tabrow::after \{[^}]*left: 0; right: 0;[^}]*background: var\(--border\)/.test(narrow) && !/\.tabs \{[^}]*border-bottom: 1px solid var\(--border\)/.test(narrow), "row 2's rule spans the toggle and the tabs");
 }
 
 // 「今天 / 昨天 / 10月5日 HH:MM 刷新过」, by calendar day, not by 24 hours.
@@ -419,6 +437,7 @@ for (const [file, fns] of [["triage.js", ["mergeAiBatch", "aiChanges"]], ["follo
   assert.ok(!UI.selbar({ label: "x", n: 1, hidden: 0, clearAttrs: "", acts: () => "" }).includes("隐藏"));
   // Filters hide the whole selection: the bar keeps its buttons and tells each why it is off, the same in both modes.
   assert.ok(UI.selbar({ label: "x", n: 0, hidden: 2, clearAttrs: "", acts: (none) => UI.actBtn('data-x="a"', "保留选中的 2 个", { reason: none }) }).includes('aria-label="保留选中的 2 个" disabled title="选中的都被筛选隐藏了"'));
+  assert.ok(UI.selbar({ label: "x", n: 0, hidden: 2, clearAttrs: "", acts: () => "" }).includes('已选中 2 个</strong><span class="muted">都被筛选隐藏</span>'), "the title counts the whole hidden selection, as the buttons");
   both("UI.selbar({", "draws its selection bar with selbar");
   neither(/class="selbar"|已选中 \$\{|选中的都被筛选隐藏了/, "draws its own selection bar or its hidden-all reason");
   // One button builder for row 3 and the bar; one 清理 button.
@@ -445,13 +464,16 @@ for (const [file, fns] of [["triage.js", ["mergeAiBatch", "aiChanges"]], ["follo
   // Whole-number settings: empty or not a number is the default, 0 is a value, rounded, clamped.
   assert.deepStrictEqual(["", null, undefined, "x", " ", 0, "0", 7.5, 7.4, -3, 2000, "12"].map((v) => UI.intIn(v, 0, 1000, 8)), [8, 8, 8, 8, 8, 0, 0, 8, 7, 8, 1000, 12]);
   assert.strictEqual(UI.intIn(0, 1, 50, 10), 10, "below the minimum is the default");
+  // K12: the rule is written once, in settings.js; TriageUi.intIn and normalizeSeenThreshold are it.
+  assert.strictEqual(UI.intIn, ctx.MdgSettings.intIn, "TriageUi.intIn is MdgSettings.intIn");
+  const ruleCopies = (dir) => fs.readdirSync(dir, { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? (e.name === "dev" ? [] : ruleCopies(path.join(dir, e.name))) : e.name.endsWith(".js") && !e.name.endsWith(".selftest.js") && /Math\.round\(Number\(v\)\)/.test(fs.readFileSync(path.join(dir, e.name), "utf8")) ? [e.name] : []));
+  assert.deepStrictEqual(ruleCopies(path.join(__dirname, "..")), ["settings.js"], "the whole-number rule is written only in settings.js");
   for (const f of ["triage.js", "follow.js", "triage-bg.js", "follow-bg.js", "../background.js"]) {
     const src = fs.readFileSync(path.join(__dirname, f), "utf8");
     const bare = /intSetting|intervalSetting|Math\.floor\(Number\(|Number\((el\.\w+|\$\("\w+"\))\.value\)|Number\((s|days|merged)\.\w+\)|parseFloat\(merged\./;
     assert.ok(/\.(intIn|numSetting|normalizeSeenThreshold)\b/.test(src) && !bare.test(src), `${f}: parses its whole-number settings with intIn`);
   }
-  // J15: the dialogs' settings take range and default from NUM_SETTINGS alone: no reader writes them again (triageAiCommand's
-  // maxNewTags, 0 when not passed, is the request's, not the setting's).
+  // J15: the dialogs' settings take range and default from NUM_SETTINGS alone: no reader writes them again.
   for (const f of ["triage.js", "follow.js", "triage-bg.js", "follow-bg.js"]) {
     const src = fs.readFileSync(path.join(__dirname, f), "utf8");
     assert.ok(!/intIn\([^)]*, ((600|100|50|1000|3650|3651), [1-9]\d*|32000, \d+)\)|(IntervalSec|BatchSize|TagLimit|NewTagMax|MaxTokens|Days): \d|\? (90|365) :/.test(src), `${f} writes a setting's range or default itself`);

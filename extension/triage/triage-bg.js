@@ -530,9 +530,7 @@ function triageMaxTokens(kind, itemCount, { triageThinking, triageTitleMaxTokens
   // command 与 title 共用 triageTitleMaxTokens
   const custom = Number(kind === "analyze" ? triageAnalyzeMaxTokens : triageTitleMaxTokens);
   if (custom > 0) return Math.floor(custom);
-  if (kind === "title") return triageThinking ? 150 * itemCount + 4000 : 60 * itemCount + 200;
-  if (kind === "command") return triageThinking ? 180 * itemCount + 4000 : 80 * itemCount + 400;
-  return triageThinking ? 8000 : 1000;
+  return TriageUi.autoMaxTokens(kind, itemCount, triageThinking);
 }
 
 async function triageAiSettings() {
@@ -689,13 +687,13 @@ async function triageClassifyTitles({ items, criteria, folder, aiProviderId }) {
 
 // 协作打标签：只返回提案，不缓存。新建标签至多 maxNewTags 个（收藏夹剩余名额与分拣设置里 AI 新建上限取小）
 // 关注 (follow-bg.js) calls it too, with UP 主 as items (mid in bvid) and its own unit.
-async function triageAiCommand({ instruction, items, tags, maxNewTags = 5, allowRemove = false, aiProviderId }, unit = TRIAGE_AI_UNIT) {
+async function triageAiCommand({ instruction, items, tags, maxNewTags, allowRemove = false, aiProviderId }, unit = TRIAGE_AI_UNIT) {
   const text = String(instruction ?? "").trim();
   if (!text) throw triageError("缺少指令");
   const list = (Array.isArray(items) ? items : []).filter((it) => it && it.bvid);
   if (!list.length) throw triageError("缺少 items");
   const ai = await triageAiSettings();
-  const opts = { maxNewTags: TriageUi.intIn(maxNewTags, 0, 50, 0), allowRemove: allowRemove === true };
+  const opts = { maxNewTags: TriageUi.numSetting("newTagMax", maxNewTags), allowRemove: allowRemove === true };
   const { content } = await triageChat(
     triageBuildCommandMessages({ instruction: text, tags, items: list, ...opts, unit }),
     triageMaxTokens("command", list.length, ai),

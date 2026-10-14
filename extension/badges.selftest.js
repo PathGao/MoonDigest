@@ -24,7 +24,7 @@ const B = ctx.MdgSurfaces;
 assert.deepStrictEqual(plain(B.seenConfig(B.SEEN_DEFAULTS)), { on: false, bar: false, mark: false, threshold: 80, style: "badge" });
 assert.deepStrictEqual(plain(B.seenConfig({ seenShow: "both", seenThreshold: "90", seenStyle: "veil" })), { on: true, bar: true, mark: true, threshold: 90, style: "veil" });
 assert.deepStrictEqual(plain(B.seenConfig({ seenShow: "mark", seenThreshold: 0, seenStyle: "x" })), { on: true, bar: false, mark: true, threshold: 80, style: "badge" });
-// settings.js's normalizeSeenThreshold: the same rule as TriageUi.intIn, which these pages do not load.
+// settings.js's normalizeSeenThreshold: MdgSettings.intIn's rule (TriageUi.intIn is the same function).
 assert.deepStrictEqual([-5, "", null, "x", 0.4, 1, 42.6, 150].map((v) => B.seenConfig({ seenThreshold: v }).threshold), [80, 80, 80, 80, 80, 1, 43, 100]);
 assert.deepStrictEqual([B.seenWords(100, false), B.seenWords(85, true), B.seenWords(40, false)], ["✓ 看完了", "✓ 看到 85%", "看到 40%"]);
 for (const f of ["badges.js", "triage/triage.js", "options.js"]) {
