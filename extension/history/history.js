@@ -118,7 +118,8 @@ function render() {
   const groups = visibleGroups();
   const allGroups = groupByVideo(conversations);
   els.count.textContent = `${allGroups.length} 个视频 · 对话 ${conversations.length}/${MdgLimits.AI_CONVERSATIONS}`;
-  for (const key of [...selected]) if (!groups.some((g) => g.key === key)) selected.delete(key);
+  // A search keeps hidden selections, like the 分拣台; only a video that is gone leaves the selection.
+  for (const key of [...selected]) if (!allGroups.some((g) => g.key === key)) selected.delete(key);
   // Storage changes re-render the list while the user reads it: keep expanded entries and the scroll.
   const open = new Set([...els.list.querySelectorAll(".entry details[open]")].map((d) => d.closest(".entry").dataset.key));
   const scrollY = window.scrollY;
@@ -173,8 +174,15 @@ function syncBulk(groups = visibleGroups()) {
   els.selectAll.indeterminate = picked > 0 && picked < groups.length;
   els.selectAllLabel.textContent = groups.length ? `全选 ${groups.length} 个` : "全选";
   setReason(els.selectAll, groups.length ? "" : "这里没有列出视频");
-  setReason(els.bulkMd, selected.size ? "" : "先勾选视频");
-  setReason(els.bulkDelete, !selected.size ? "先勾选视频" : deletableKeys([...selected]).length ? "" : "所选视频没有 AI 对话，没有可删的");
+  // The bulk buttons act on the listed selected videos and say how many (「选中的 N 个」); when every selected one is
+  // hidden by the search they say all of them and are disabled with HIDDEN_ALL, as on the 分拣台.
+  const shown = shownPicks(groups);
+  const n = shown.length || selected.size;
+  const none = !selected.size ? "先勾选视频" : !shown.length ? MdgErrors.TEXT.hiddenAll : "";
+  els.bulkMd.textContent = n ? `下载选中的 ${n} 个 .md` : "下载选中的 .md";
+  els.bulkDelete.textContent = n ? `删除选中的 ${n} 个` : "删除选中的";
+  setReason(els.bulkMd, none);
+  setReason(els.bulkDelete, none || (deletableKeys(shown).length ? "" : "选中的视频没有 AI 对话，没有可删的"));
   setReason(els.clearAll, conversations.length ? "" : "还没有 AI 对话");
 }
 
@@ -200,6 +208,9 @@ async function load() {
   }
   render();
 }
+
+// The selected videos the search lists: what the bulk buttons act on.
+const shownPicks = (groups = visibleGroups()) => groups.filter((g) => selected.has(g.key)).map((g) => g.key);
 
 // Triage-summary-only and note-only entries have no conversations to delete, so they are left out.
 function deletableKeys(keys) {
@@ -307,8 +318,8 @@ els.selectAll.addEventListener("change", () => {
   visibleGroups().forEach((g) => (els.selectAll.checked ? selected.add(g.key) : selected.delete(g.key)));
   render();
 });
-els.bulkMd.addEventListener("click", () => downloadGroups(groupByVideo(conversations).filter((g) => selected.has(g.key))));
-els.bulkDelete.addEventListener("click", () => void deleteGroups([...selected]));
+els.bulkMd.addEventListener("click", () => downloadGroups(visibleGroups().filter((g) => selected.has(g.key))));
+els.bulkDelete.addEventListener("click", () => void deleteGroups(shownPicks()));
 // AI conversations only: triage analyses and notes are other features' data and stay.
 els.clearAll.addEventListener("click", async () => {
   if (!confirm("清空全部 AI 对话？删除后不能恢复。")) return;

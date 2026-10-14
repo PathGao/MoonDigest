@@ -277,7 +277,7 @@
   const actBtn = (attrs, label, { reason = "", cls = "", title = "", pre = "" } = {}) =>
     `<button type="button"${cls ? ` class="${cls}"` : ""} ${attrs} aria-label="${esc(label)}"${reasonAttrs(reason, title)}>${pre}${esc(label)}</button>`;
   // Why a selection's buttons are off when filters hide every selected one (the bar's and row 3's steps').
-  const HIDDEN_ALL = "选中的都被筛选隐藏了";
+  const HIDDEN_ALL = MdgErrors.TEXT.hiddenAll;
   // 清理 in 已出分拣范围's row 3, both modes. A selection (picked: how many, shown: how many listed) decides alone: n of
   // it, off with HIDDEN_ALL when none is listed; without one, n of all listed. busy goes before that, why after.
   const cleanBtn = (attrs, { picked, shown, n, busy = "", why = "" }) =>

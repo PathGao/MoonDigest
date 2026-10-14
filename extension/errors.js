@@ -22,6 +22,8 @@
     notVideoPage: "当前网页不是支持的视频页",
     // 继续问 on a record that is not a video (the side panel's input, 视频记录's button).
     notVideo: "不是视频，不能问",
+    // Every selection is hidden by a search or filter: the buttons that act on it are disabled with this (分拣台, 视频记录).
+    hiddenAll: "选中的都被筛选隐藏了",
     // B站 risk control (HTTP 412 or MdgSites.BILI_RISK_CODES), the background's code THROTTLED.
     biliThrottled: "B站限流，请稍后再试",
     // Not logged in to B站 (the background's NOT_LOGGED_IN, B站's -101), on any read or write; pages add 去登录.
