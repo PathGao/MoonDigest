@@ -323,6 +323,18 @@ assert.throws(() => t.triageParseCommand('{"new_tags":[', cmdItems, cmdTags, {})
   assert.deepStrictEqual(await sizesWith({ triageCoarseBatchSize: 7.9, triageFineBatchSize: 99, triageTitleBatchSize: 5 }), [8, 50, false]);
   assert.deepStrictEqual(await sizesWith({ triageCoarseBatchSize: "", triageFineBatchSize: -3 }), [100, 10, false]);
   assert.deepStrictEqual(await sizesWith({ triageCoarseBatchSize: 0, triageFineBatchSize: 0.4 }), [100, 10, false], "below 1 is the default");
+  // AI 打标签每批数量 goes through the settings messages like the others: read clamped, saved by triage-settings-save.
+  const aiBatchWith = async (stored) => {
+    t.chrome = { storage: { sync: { get: async (d) => ({ ...d, ...stored }) } } };
+    return (await vm.runInContext("TRIAGE_HANDLERS", ctx)["triage-settings-get"]()).triageAiBatchSize;
+  };
+  assert.deepStrictEqual([await aiBatchWith({ triageAiBatchSize: 7.9 }), await aiBatchWith({ triageAiBatchSize: 500 }), await aiBatchWith({})], [8, 100, 30]);
+  let savedPatch;
+  t.chrome = { storage: { sync: { set: async (p) => void (savedPatch = p) } } };
+  await vm.runInContext("TRIAGE_HANDLERS", ctx)["triage-settings-save"]({ type: "triage-settings-save", triageAiBatchSize: 12 });
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(savedPatch)), { triageAiBatchSize: 12 });
+  // The pages read and write it only through these messages.
+  for (const file of ["triage.js", "follow.js"]) assert.ok(!/storage\.sync\.(get|set)\([^)]*triageAiBatchSize/.test(fs.readFileSync(path.join(__dirname, file), "utf8")), `${file} reads or writes triageAiBatchSize itself`);
   // 输出上限: 200–32000, and 0 (自动) is the default, so empty, negative and below 200 are 自动.
   const capsWith = async (v) => {
     t.chrome = { storage: { sync: { get: async (d) => ({ ...d, triageTitleMaxTokens: v, triageAnalyzeMaxTokens: v }) } } };
@@ -776,10 +788,16 @@ assert.throws(() => t.triageParseCommand('{"new_tags":[', cmdItems, cmdTags, {})
     assert.deepStrictEqual(plain(st.seen_BVd), [30, T + 310]);
     // Risk control on page 2: page 1 is already written and the read resumes there; `newest` stays until a read gets down to it.
     const realTimeout = t.setTimeout;
-    t.setTimeout = (f, ms) => realTimeout(f, ms === 5000 ? 0 : ms); // skip the 5 s page gap
+    // skip the 5 s page gap, and let each gap pass 5 minutes on the worker's clock: the pause counts from the risk control.
+    const WorkerDate = vm.runInContext("Date", t);
+    const realNow = WorkerDate.now;
+    let skew = 0;
+    WorkerDate.now = () => realNow() + skew;
+    t.setTimeout = (f, ms) => (ms === 5000 && (skew += 5 * 60000), realTimeout(f, ms === 5000 ? 0 : ms));
     pages = [page([h("BVe", T + 330, 40)], 5), { code: -412, message: "请求被拦截" }];
     await assert.rejects(read({ force: true }), (e) => e.code === "THROTTLED");
-    assert.ok(st.triage_seen_meta.backoffUntil > Date.now(), "risk control backs off");
+    assert.ok(skew > 0 && st.triage_seen_meta.backoffUntil >= WorkerDate.now() + 30 * 60000 - 5000, "risk control backs off 30 minutes from now");
+    WorkerDate.now = realNow;
     assert.deepStrictEqual(plain(st.seen_BVe), [40, T + 330], "pages read before risk control are kept");
     assert.deepStrictEqual([st.triage_seen_meta.newest, st.triage_seen_meta.resume.cursor.max], [T + 310, 5]);
     const before = urls.length;

@@ -180,16 +180,6 @@ async function openAiSidepanelForTab(tabId) {
   throw new Error("当前浏览器不支持扩展侧边栏");
 }
 
-function buildPlayerAiQuickActionRequest(tabId, prompt) {
-  const createdAt = Date.now();
-  return {
-    id: `player-ai-${createdAt}-${Math.random().toString(36).slice(2, 8)}`,
-    tabId: Number(tabId || 0) || 0,
-    prompt: MdgSettings.normalizePlayerAiQuickPrompt(prompt),
-    createdAt
-  };
-}
-
 function normalizeAiContextRef(ref) {
   const value = ref && typeof ref === "object" ? ref : {};
   return {
@@ -433,14 +423,15 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           throw new Error("✦ AI 按钮未开启");
         }
         await openPromise;
-        const request = buildPlayerAiQuickActionRequest(tabId, settings.playerAiQuickPrompt);
         // From 分拣台's viewer frame: the tab is 分拣台, so the panel takes the video by reference like 问 AI, and
         // asks that frame for it (getAiSidepanelState with frameId).
-        if (sender?.frameId && message.contextRef) {
-          request.contextRef = message.contextRef;
-          request.frameId = sender.frameId;
-        }
-        await chrome.storage.local.set({ [MdgLimits.KEYS.playerAiQuickAction]: request });
+        const viewer = sender?.frameId && message.contextRef;
+        await MdgLimits.askSidepanel({
+          tabId,
+          prompt: MdgSettings.normalizePlayerAiQuickPrompt(settings.playerAiQuickPrompt),
+          contextRef: viewer ? message.contextRef : null,
+          frameId: viewer ? sender.frameId : 0
+        });
         sendResponse({ ok: true });
       })
       .catch((error) => sendResponse({ ok: false, error: error.message || "未知错误" }));
@@ -713,7 +704,7 @@ function normalizeSyncSettings(settings) {
   merged.playerAiQuickPrompt = MdgSettings.normalizePlayerAiQuickPrompt(merged.playerAiQuickPrompt);
   // The settings table's cells turned off (bili-surfaces.js); options.js and badges.js drop cells that do not exist.
   merged.biliMarksOff = Array.isArray(merged.biliMarksOff) ? merged.biliMarksOff.filter((c) => typeof c === "string") : [];
-  merged.seenShow = ["bar", "mark", "both"].includes(merged.seenShow) ? merged.seenShow : "off";
+  merged.seenShow = MdgSettings.normalizeSeenShow(merged.seenShow);
   merged.seenThreshold = MdgSettings.normalizeSeenThreshold(merged.seenThreshold);
   merged.seenStyle = merged.seenStyle === "veil" ? "veil" : "badge";
   merged.readerTheme = MdgSettings.normalizeReaderTheme(merged.readerTheme);
@@ -826,7 +817,7 @@ function normalizeAiSystemPrompt(value) {
 
 // ===== AI 模型平台存储 =====
 
-const AI_PROVIDER_KEYS_STORAGE = "aiProviderKeys";
+const AI_PROVIDER_KEYS_STORAGE = MdgLimits.KEYS.aiApiKeys;
 
 function normalizeAiProvider(item) {
   if (!item || typeof item !== "object") return null;
@@ -954,7 +945,8 @@ function buildAiMessages({ context, userPrompt, history, systemPrompt }) {
   }
   if (Array.isArray(ctx.hotComments) && ctx.hotComments.length) {
     const block = ctx.hotComments
-      .map((c, i) => `${i + 1}. ${c.uname || "匿名"}（赞 ${c.like || 0}）: ${c.message || ""}`)
+      .map(MdgSites.cleanComment)
+      .map((c, i) => `${i + 1}. ${c.uname}（赞 ${c.like}）: ${c.message}`)
       .join("\n");
     sections.push(`以下是按热度排序的前 ${ctx.hotComments.length} 条热门评论：\n\n${block}`);
   }

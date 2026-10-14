@@ -91,14 +91,14 @@ function triageParseTitleBatch(content, items) {
 
 function triageTitleLine(item, n) {
   const clean = (s) => String(s ?? "").replace(/[|\r\n]+/g, " ").trim();
-  return `${n}|${clean(item.title)}|${clean(item.upper)}|${TriageUi.fmtDuration(item.duration)}|${TriageUi.fmtDate(item.pubdate)}|${clean(item.intro).slice(0, 120)}`;
+  return `${n}|${clean(item.title)}|${clean(item.upper)}|${TriageUi.fmtDuration(item.duration)}|${TriageUi.fmtDate(item.pubdate)}|${clean(item.intro).slice(0, TriageUi.INTRO_CHARS)}`;
 }
 
-// 序号|标题|UP|时长|简介前120字|现有标签|一句话|要点1；要点2；要点3（没有的字段留空）
+// 序号|标题|UP|时长|简介前 INTRO_CHARS 字|现有标签|一句话|要点1；要点2；要点3（没有的字段留空）
 function triageCommandLine(item, n) {
   const clean = (s) => String(s ?? "").replace(/[|\r\n]+/g, " ").trim();
   const list = (a) => (Array.isArray(a) ? a.map(clean).filter(Boolean) : []);
-  return [n, clean(item.title), clean(item.upper), Number(item.duration) ? TriageUi.fmtDuration(item.duration) : "", clean(item.intro).slice(0, 120), list(item.currentTags).join("、"), clean(item.oneLiner), list(item.points).join("；")].join("|");
+  return [n, clean(item.title), clean(item.upper), Number(item.duration) ? TriageUi.fmtDuration(item.duration) : "", clean(item.intro).slice(0, TriageUi.INTRO_CHARS), list(item.currentTags).join("、"), clean(item.oneLiner), list(item.points).join("；")].join("|");
 }
 
 // 批量打标签的提案只改标签：add 只留已有标签或本次新建的标签（至多 maxNewTags 个），remove 只留视频现有标签且要 allowRemove；
@@ -360,13 +360,14 @@ async function triageToviewList() {
 // Bilibili keeps about three months of history. Only what is new since the last read is fetched, at most every
 // SEEN_GAP_MS and only when a page asks (the triage page or a Bilibili page opening), so it reads no more than the user
 // browsing their own history page would. Each video keeps two numbers under seen_<bvid>: [best percent, last view_at].
-const SEEN_GAP_MS = 10 * 60 * 1000;
+const SEEN_GAP_MS = MdgLimits.SEEN_GAP_MS;
 const SEEN_BACKOFF_MS = 30 * 60 * 1000;
 const SEEN_PAGE_GAP_MS = 5000;
 const SEEN_MAX_PAGES = 60;
-const SEEN_KEEP_S = 365 * 86400;
-const SEEN_MAX = 5000;
+const SEEN_KEEP_S = MdgLimits.SEEN_KEEP_DAYS * 86400;
+const SEEN_MAX = MdgLimits.SEEN_MAX;
 const SEEN_PRUNE_GAP_MS = 86400 * 1000;
+const SEEN_PREFIX = MdgLimits.KEYS.seenPrefix;
 const SEEN_META = MdgLimits.KEYS.triageSeenMeta; // { newest: view_at s, syncedAt, prunedAt, backoffUntil, resume }
 
 // Percent watched from a history item: progress -1 means finished.
@@ -413,12 +414,13 @@ function seenSync({ force }) {
 // 关 drops the stored history (up to SEEN_MAX keys) once any read in flight has written; turning it back on reads afresh.
 async function seenClear() {
   await seenRun?.catch(() => {});
-  const keys = (await chrome.storage.local.getKeys()).filter((k) => k.startsWith("seen_"));
+  const keys = (await chrome.storage.local.getKeys()).filter((k) => k.startsWith(SEEN_PREFIX));
   await chrome.storage.local.remove([...keys, SEEN_META]);
 }
 
-// 封面显示 is on: the history is read only then, checked again before every page.
-const seenOn = async () => ["bar", "mark", "both"].includes((await chrome.storage.sync.get({ seenShow: "off" })).seenShow);
+// 封面显示 is on: the history is read only then, checked again before every page (MdgSettings.seenOn, which every reader
+// of seenShow uses).
+const seenOn = async () => MdgSettings.seenOn((await chrome.storage.sync.get({ seenShow: MdgSettings.DEFAULTS.seenShow })).seenShow);
 
 async function seenSyncOnce(force, started) {
   if (!(await seenOn())) return { skipped: "off" };
@@ -450,11 +452,11 @@ async function seenSyncOnce(force, started) {
       const found = {};
       // A read also ends at SEEN_MAX_PAGES: older history is left out.
       const end = seenFold(found, list, meta.newest || 0) || !list.length || !data?.cursor?.max || pages >= SEEN_MAX_PAGES;
-      const stored = await chrome.storage.local.get(Object.keys(found).map((b) => `seen_${b}`));
+      const stored = await chrome.storage.local.get(Object.keys(found).map(MdgLimits.KEYS.seen));
       const write = {};
       for (const [b, [pct, at]] of Object.entries(found)) {
-        const old = stored[`seen_${b}`];
-        write[`seen_${b}`] = [Math.max(old?.[0] || 0, pct), Math.max(old?.[1] || 0, at)];
+        const old = stored[MdgLimits.KEYS.seen(b)];
+        write[MdgLimits.KEYS.seen(b)] = [Math.max(old?.[0] || 0, pct), Math.max(old?.[1] || 0, at)];
       }
       meta = end ? { ...meta, newest: top, syncedAt: now, backoffUntil: 0, resume: null } : { ...meta, resume: { cursor: data.cursor, top, pages } };
       await chrome.storage.local.set({ ...write, [SEEN_META]: meta });
@@ -463,18 +465,19 @@ async function seenSyncOnce(force, started) {
       else break;
     }
   } catch (e) {
-    // Risk control: stop and stay away for a while; never retry in a loop. What was read stays, `resume` too.
-    if (e.code === "THROTTLED") await chrome.storage.local.set({ [SEEN_META]: { ...meta, backoffUntil: now + SEEN_BACKOFF_MS } });
+    // Risk control: stop and stay away for SEEN_BACKOFF_MS from now (not from the start of a read that ran minutes);
+    // never retry in a loop. What was read stays, `resume` too.
+    if (e.code === "THROTTLED") await chrome.storage.local.set({ [SEEN_META]: { ...meta, backoffUntil: Date.now() + SEEN_BACKOFF_MS } });
     throw e;
   }
   let dropped = 0;
   if (now - (meta.prunedAt || 0) > SEEN_PRUNE_GAP_MS) {
-    const all = (await chrome.storage.local.getKeys()).filter((k) => k.startsWith("seen_"));
+    const all = (await chrome.storage.local.getKeys()).filter((k) => k.startsWith(SEEN_PREFIX));
     const got = await chrome.storage.local.get([...all, MdgLimits.KEYS.triageIncludedFolders]);
     const snaps = await chrome.storage.local.get((got[MdgLimits.KEYS.triageIncludedFolders] || []).map(MdgLimits.KEYS.triageSnapshot));
     const keep = new Set(Object.values(snaps).flatMap((s) => s?.bvids || []));
-    const drop = seenPrune(Object.fromEntries(all.map((k) => [k.slice(5), got[k]])), keep, Math.floor(now / 1000));
-    if (drop.length) await chrome.storage.local.remove(drop.map((b) => `seen_${b}`));
+    const drop = seenPrune(Object.fromEntries(all.map((k) => [k.slice(SEEN_PREFIX.length), got[k]])), keep, Math.floor(now / 1000));
+    if (drop.length) await chrome.storage.local.remove(drop.map(MdgLimits.KEYS.seen));
     dropped = drop.length;
     await chrome.storage.local.set({ [SEEN_META]: { ...meta, prunedAt: now } });
   }
@@ -521,7 +524,8 @@ const TRIAGE_SETTINGS_DEFAULTS = {
   triageAnalyzeMaxTokens: null,
   triageTagLimit: null,
   triageAiNewTagMax: null,
-  triageAiRemoveTags: false
+  triageAiRemoveTags: false,
+  triageAiBatchSize: null
 };
 
 // 输出上限：用户填了正数就用用户的，否则按是否思考自动（思考 token 计入 max_tokens）
@@ -563,7 +567,7 @@ async function triageAnalyze({ bvid, force, criteria, folder, aiProviderId }) {
     source = "subtitle";
     subtitle = MdgLimits.sampleAiSubtitle(got.body.map((l) => l.content).join("\n")).text;
   }
-  const comments = subtitle ? "" : (await site.fetchComments(ref, m, TRIAGE_BILI_IO, 10).catch(() => [])).map((c, i) => `${i + 1}. ${c.message}`).join("\n");
+  const comments = subtitle ? "" : (await site.fetchComments(ref, m, TRIAGE_BILI_IO, TriageUi.DEEP_COMMENTS).catch(() => [])).map((c, i) => `${i + 1}. ${c.message}`).join("\n");
 
   const ai = await triageAiSettings();
   const { content, model } = await triageChat(triageBuildMessages(meta, subtitle, comments, criteria, folder), triageMaxTokens("analyze", 1, ai), ai.triageThinking, aiProviderId);
@@ -1006,6 +1010,7 @@ const TRIAGE_HANDLERS = {
       triageTagLimit: TriageUi.numSetting("tagLimit", s.triageTagLimit),
       triageAiNewTagMax: TriageUi.numSetting("newTagMax", s.triageAiNewTagMax),
       triageAiRemoveTags: s.triageAiRemoveTags === true,
+      triageAiBatchSize: TriageUi.numSetting("aiBatch", s.triageAiBatchSize),
       // 开启思考 only reaches these platforms (triageChat), so the page shows the switch only when the platform the
       // requests go to (triageProvider) is one of them.
       thinkingToggle: supportsThinkingToggle(provider?.baseUrl)
@@ -1087,8 +1092,7 @@ if (typeof chrome !== "undefined" && chrome.runtime?.onMessage) {
   chrome.runtime.onStartup.addListener(triageRegisterDnr);
   chrome.storage.onChanged.addListener((changes, area) => {
     const c = area === "sync" && changes.seenShow;
-    const on = (v) => ["bar", "mark", "both"].includes(v);
-    if (c && on(c.oldValue) && !on(c.newValue)) seenClear().catch((e) => console.warn("[triage] 清除观看进度失败", e));
+    if (c && MdgSettings.seenOn(c.oldValue) && !MdgSettings.seenOn(c.newValue)) seenClear().catch((e) => console.warn("[triage] 清除观看进度失败", e));
   });
 
   triageListen("triage-", TRIAGE_HANDLERS);

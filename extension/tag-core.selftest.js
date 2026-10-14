@@ -35,4 +35,10 @@ for (const f of ["badges.js", "triage/shared.js", "triage/follow.js", "triage/tr
   assert.ok(!src.includes("Date.now().toString(36)"), `${f} makes its own tag ids`);
 }
 
+// A tag name's cap is TAG_NAME_MAX alone: cleanTagName cuts there and every name box (B站 page, picker, dialogs) reads it.
+assert.strictEqual(T.cleanTagName("一".repeat(30)).length, T.TAG_NAME_MAX);
+for (const f of ["badges.js", "triage/triage.html", "triage/shared.js", "triage/tag-dialogs.js", "triage/tag-picker.js", "triage/follow.js", "triage/triage.js"]) {
+  assert.ok(!/maxlength="12"|maxLength = 12|newMax: 12/i.test(read(f)), `${f} writes the tag name cap itself`);
+}
+
 console.log("tag-core selftest passed");

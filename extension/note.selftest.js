@@ -215,7 +215,7 @@ const golden = {
       "第一件事是",
       "最后总结一下",
       "",
-      "## 评论",
+      "## 热门评论",
       "",
       "1. 观众A（赞 120）",
       "讲得很清楚",
@@ -264,7 +264,7 @@ const golden = {
       "",
       "## 待办",
       "",
-      "## 评论",
+      "## 热门评论",
       "",
       "1. 观众A（赞 120）",
       "讲得很清楚",
@@ -306,7 +306,7 @@ assert.strictEqual(N.buildSrt(body.slice(0, 1)), "1\n00:00:00,000 --> 00:00:04,5
 assert.strictEqual(N.buildTxt(body.slice(0, 2), { includeTimestampInBody: true }), "00:00 大家好，欢迎来到本期视频\n00:04 今天讲三件事");
 // A newline inside a double-quoted YAML value must stay escaped or the frontmatter breaks.
 assert.strictEqual(N.escapeYaml('a"b\\c\nd\r\te'), 'a\\"b\\\\c\\nd\\r\\te');
-assert.strictEqual(N.sanitizeFileName("第1集 #AI [合集] ^x|y"), "第1集 _AI _合集_ _x_y");
+assert.strictEqual(ctx.MdgSites.sanitizeFileName("第1集 #AI [合集] ^x|y"), "第1集 _AI _合集_ _x_y");
 
 // ---- AI 问答 section ----
 const messages = [
@@ -356,7 +356,7 @@ assert.strictEqual(N.buildMarkdown({ ...cases.biliSingle.meta, aiTurns: turns },
 for (const c of [cases.biliSingle, cases.youtube]) {
   const note = N.buildMarkdown(c.meta, c.body, { ...c.settings, includeHotCommentsInNote: false }, refOf(c.meta));
   const ai = N.buildAiContext(c.meta, c.body, { ...c.settings, includeHotCommentsInNote: true }, refOf(c.meta));
-  assert.ok(!ai.includes("## 评论"), "no hot comments");
+  assert.ok(!ai.includes("## 热门评论"), "no hot comments");
   assert.ok(note.includes("<iframe") && !ai.includes("<iframe"), c.meta.title);
   assert.strictEqual(ai, note.replace(/<iframe[^\n]*\n\n/, ""), "nothing else differs");
 }
@@ -392,7 +392,7 @@ const aiFile = N.buildAiConversationFilename(aiContext);
 assert.strictEqual(aiFile, "【AI笔记】视频_标题.md");
 assert.strictEqual(
   N.buildAiConversationMarkdown({ context: aiContext, turns: [{ prompt: "# 问一", answer: "答一" }, { prompt: "问二", answer: "答二" }], filename: aiFile, sourcePath: "Clip/视频.md" }),
-  `---\ntitle: "【AI笔记】视频_标题"\nsource_title: "视频]标题"\nsource: "[[Clip/视频]]"\nurl: "https://www.bilibili.com/video/BV1GJ411x7h7/"\nauthor: "UP主"\ncreated: "${N.formatLocalDate()}"\ntags: [ai_note]\n---\n\n来源：[[Clip/视频|视频\\]标题]]\n\n## 问一\n\n答一\n\n## 问二\n\n答二\n`
+  `---\ntitle: "【AI笔记】视频_标题"\nsource_title: "视频]标题"\nsource: "[[Clip/视频]]"\nurl: "https://www.bilibili.com/video/BV1GJ411x7h7/"\nauthor: "UP主"\ncreated: "${ctx.MdgSites.formatLocalDate()}"\ntags: [ai_note]\n---\n\n来源：[[Clip/视频|视频\\]标题]]\n\n## 问一\n\n答一\n\n## 问二\n\n答二\n`
 );
 assert.ok(N.buildAiConversationMarkdown({ context: {}, turns: [], filename: "x.md" }).includes("来源：当前视频"), "no source path → no dangling link");
 // Triage summary block (triage notes and history-page notes)
@@ -428,8 +428,10 @@ assert.strictEqual(N.withTriageSummary(front, undefined, "  "), front);
   assert.deepStrictEqual(plain(N.triageExtrasKeys({ site: "bilibili", videoId: "" })), []);
 }
 assert.strictEqual(N.buildTriageSummary({ status: "done", verdict: "unsure", reason: "核心" }), "AI 判断：拿不准，核心");
+// A verdict left from the old custom tiers reads 拿不准, as MdgTagCore.verdictOf says on 分拣台 and B站 pages.
+assert.strictEqual(N.buildTriageSummary({ status: "done", verdict: "must", reason: "旧档" }), "AI 判断：拿不准，旧档");
 
-assert.strictEqual(N.buildTriageSummary({ status: "done", oneLiner: "一句话", points: ["a", "", ""] }), "> 一句话\n\n- a", "padded empty points are dropped");
+assert.strictEqual(N.buildTriageSummary({ status: "done", oneLiner: "一句话", points: ["a", "", ""] }), "> 一句话\n\n- a\n\nAI 判断：拿不准", "padded empty points are dropped");
 assert.strictEqual(
   N.renderMarkdown("<think>x</think>## 标题\n\n**粗** <b>\n\n- a\n- b"),
   "<h4>标题</h4><p><strong>粗</strong> &lt;b&gt;</p><ul><li>a</li><li>b</li></ul>",
@@ -449,4 +451,9 @@ const XSS = ["<img src=x onerror=alert(1)>", `"'><script>alert(1)</script>`];
 const assertInert = (html, where) => assert.ok(!/<img src=x|<script|"'>/i.test(html) && /&lt;|&#60;/.test(html), `${where}: ${html}`);
 for (const bad of XSS) assertInert(N.renderMarkdown(`${bad}\n\n- **${bad}**\n\n\`${bad}\``), "renderMarkdown");
 assert.ok(N.renderMarkdown("[x](javascript:alert(1))").includes('href="#"'), "only http, mailto and # links");
+// 详情 › 笔记标签 shows the tags the note gets: none when the setting is cleared, plus the 分拣台 tags, from one function.
+assert.deepStrictEqual([...N.noteTags({ userTags: ["学 习"] }, { tags: "" })], ["学_习"]);
+assert.deepStrictEqual([...N.noteTags({}, { tags: "MoonDigest, a" })], ["MoonDigest", "a"]);
+assert.ok(/tags: MdgNote\.noteTags\(/.test(fs.readFileSync(path.join(__dirname, "content.js"), "utf8")), "the popup payload's tags are the note's");
+assert.ok(!/payload\.tags \|\| "MoonDigest"/.test(fs.readFileSync(path.join(__dirname, "popup.js"), "utf8")), "the popup shows no default of its own");
 console.log("note selftest ok");

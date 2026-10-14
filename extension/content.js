@@ -14,6 +14,8 @@ const MDG_VERSION = chrome.runtime.getManifest().version;
 const IN_VIEWER = window !== window.top;
 // A subtitle picked from a list the page has since replaced with another video's.
 const VIDEO_SWITCHED = "视频已切换，请刷新";
+// A jump to a time point (the side panel, 专注模式) on a page without a player to drive.
+const NO_PLAYER = "当前页面没有找到可联动的视频播放器。";
 globalThis.__MDG_CONTENT_SCRIPT_LOADED__ = MDG_VERSION;
 const state = {
   fetchRunId: 0,
@@ -525,7 +527,7 @@ function bindRuntimeEvents() {
       const seconds = Number(message.seconds);
       const video = getRuntimeVideoElement();
       if (!video) {
-        sendResponse({ ok: false, error: "当前页面没有找到可联动的视频播放器。" });
+        sendResponse({ ok: false, error: NO_PLAYER });
         return false;
       }
       const nextTime = seekVideo(video, seconds);
@@ -724,8 +726,8 @@ function bindUiEvents() {
     });
   }
   readingThemeSelect.addEventListener("click", () => {
-    const themes = ["light", "dark", "paper"];
-    const current = state.readingTheme || "light";
+    const themes = MdgSettings.READER_OPTIONS.readerTheme;
+    const current = state.readingTheme;
     const nextIndex = (themes.indexOf(current) + 1) % themes.length;
     updateReaderPreferences({ readerTheme: themes[nextIndex] }, { persist: true });
     readingThemeSelect.classList.add("is-active");
@@ -1121,7 +1123,7 @@ async function runRefreshClip() {
 
 // Reasons arrive with or without a trailing full stop; strip it so the sentences after them join cleanly.
 function failureReason(error) {
-  return fetchErrorText(error).replace(/[。.！!；;，,\s]+$/u, "");
+  return MdgSites.trimReason(fetchErrorText(error));
 }
 
 // The page's reads under the shared subtitle step (MdgSites.loadSubtitle). The track list is retried; B站 sometimes
@@ -1266,7 +1268,7 @@ function getPopupPayload() {
     uploadDate: state.uploadDate || "",
     cover: state.cover || "",
     duration: state.videoDuration || 0,
-    tags: String(state.settings?.tags || ""),
+    tags: MdgNote.noteTags({ userTags: state.triageExtras?.userTags }, state.settings || DEFAULT_SETTINGS).join(", "),
     status: state.statusText || "",
     message: state.messageText || "",
     subtitlePreview: buildSubtitlePreview(state.subtitleBody || [], state.settings || DEFAULT_SETTINGS),
@@ -1321,7 +1323,7 @@ async function sendToObsidian() {
       resp = await sendRuntimeMessage({ ...request, mode });
     }
     if (!resp?.ok) {
-      throw MdgErrors.fromResp(resp, "Local API 写入失败");
+      throw MdgErrors.fromResp(resp, MdgErrors.TEXT.obsidianWriteFailed);
     }
     report(resp.text, true);
   } catch (error) {
@@ -1877,7 +1879,7 @@ function updateReadingTranscriptTailSpacer() {
 function hydrateReaderStateFromSettings(settings = state.settings) {
   state.readingTheme = MdgSettings.normalizeReaderTheme(settings?.readerTheme);
   state.readingFontScale = MdgSettings.normalizeReaderFontScale(settings?.readerFontScale);
-  state.readingLetterSpacing = MdgSettings.normalizeReaderLetterSpacing(settings?.readerLetterSpacing ?? settings?.readerLineHeight);
+  state.readingLetterSpacing = MdgSettings.normalizeReaderLetterSpacing(settings?.readerLetterSpacing);
   state.readingLineHeight = MdgSettings.normalizeReaderLineHeight(settings?.readerLineHeight);
   state.readingContentWidth = MdgSettings.normalizeReaderContentWidth(settings?.readerContentWidth);
   state.readingChapterVisible = settings?.readerChapterVisible !== undefined ? Boolean(settings.readerChapterVisible) : true;
@@ -1930,25 +1932,25 @@ function getToggleLabel(key, value) {
 function getReaderStepperConfig(settingKey) {
   const configs = {
     readerFontScale: {
-      options: ["xs", "s", "m", "l", "xl"],
+      options: MdgSettings.READER_OPTIONS.readerFontScale,
       labelKey: "fontScale",
       getCurrent: () => state.readingFontScale,
       buildPayload: (value) => ({ readerFontScale: value })
     },
     readerLetterSpacing: {
-      options: ["tighter", "tight", "normal", "relaxed", "loose"],
+      options: MdgSettings.READER_OPTIONS.readerLetterSpacing,
       labelKey: "letterSpacing",
       getCurrent: () => state.readingLetterSpacing,
       buildPayload: (value) => ({ readerLetterSpacing: value })
     },
     readerLineHeight: {
-      options: ["compact", "tight", "normal", "relaxed", "loose"],
+      options: MdgSettings.READER_OPTIONS.readerLineHeight,
       labelKey: "lineHeight",
       getCurrent: () => state.readingLineHeight,
       buildPayload: (value) => ({ readerLineHeight: value })
     },
     readerContentWidth: {
-      options: ["compact", "narrow", "medium", "wide", "full"],
+      options: MdgSettings.READER_OPTIONS.readerContentWidth,
       labelKey: "contentWidth",
       getCurrent: () => state.readingContentWidth,
       buildPayload: (value) => ({ readerContentWidth: value })
@@ -3394,10 +3396,7 @@ async function handlePlayerAiQuickActionClick(event) {
   }
 
   try {
-    state.settings = await getSettings();
-    if (!state.settings?.enablePlayerAiQuickAction) {
-      throw new Error("✦ AI 按钮未开启");
-    }
+    // The background checks the ✦ AI 按钮 setting (one check for every sender) and answers why when it is off.
     const resp = await sendRuntimeMessage({ type: "player-ai-quick-action", contextRef: viewerContextRef() });
     if (!resp?.ok) {
       throw new Error(resp?.error || "未知错误");
@@ -3708,7 +3707,7 @@ function scrollReadingTranscriptItemIntoView(node) {
 function jumpReadingTarget(seconds) {
   const video = bindReadingViewVideo();
   if (!video) {
-    setReadingNotice("当前页面没有找到可联动的视频播放器。");
+    setReadingNotice(NO_PLAYER);
     return;
   }
 

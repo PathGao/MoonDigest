@@ -1,10 +1,11 @@
-const SELECTED_PROVIDER_KEY = "mdg_ai_selected_provider";
+const SELECTED_PROVIDER_KEY = MdgLimits.KEYS.aiSelectedProvider;
 // Before the first read: 3.5 and older kept it under the old key prefix. Either page may open first after the update.
 try {
   MdgLimits.migrateRenamedLocalStorage(localStorage);
 } catch {}
 const CONVERSATIONS_STORAGE_KEY = MdgLimits.KEYS.aiConversations;
 const { escapeHtml } = MdgErrors;
+const setDisabledReason = MdgErrors.setReason;
 const {
   stripThinkBlocks,
   normalizeMarkdownForSectionPaste,
@@ -173,6 +174,7 @@ function bindEvents() {
     else void sendMessage();
   });
   els.presetAddBtn.addEventListener("click", addPresetPrompt);
+  els.presetInput.addEventListener("input", syncPresetAdd);
   els.presetInput.addEventListener("keydown", (e) => {
     if (MdgTyping.composing(e)) return;
     if (e.key === "Enter" && !e.shiftKey) {
@@ -215,7 +217,7 @@ function bindEvents() {
           changes.playerAiQuickPrompt ||
           changes.aiPresetPrompts ||
           changes.obsidianEnabled)) ||
-      (areaName === "local" && changes.aiProviderKeys)
+      (areaName === "local" && changes[MdgLimits.KEYS.aiApiKeys])
     ) {
       void refreshProvidersAndPrefsAfterExternalChange();
     }
@@ -228,6 +230,7 @@ function bindEvents() {
     if (areaName === "local" && changes[NOTES_STORAGE_KEY] && els.noteInput.hidden) {
       void renderNote();
     }
+    if (areaName === "local") followTriageAnalysis(changes);
     if (areaName === "local" && changes[PLAYER_AI_QUICK_ACTION_STORAGE_KEY] && initCompleted) {
       void handlePlayerAiQuickActionRequest(changes[PLAYER_AI_QUICK_ACTION_STORAGE_KEY].newValue);
     }
@@ -249,16 +252,12 @@ function setStreamingUiState(isStreaming, { stopping = false } = {}) {
   els.sendBtn.disabled = stopping || blocked;
   els.sendBtn.classList.toggle("is-stop", isStreaming);
   els.sendBtn.innerHTML = isStreaming ? (stopping ? "停止中" : "停止") : `${AI_SPARK}发送`;
-  setDisabledReason(els.exportBtn, buildConversationTurns(state.view().messages).length ? "" : "当前没有可导出的对话", "导出整段对话");
+  // 导出对话 and each item in its menu: disabled with the reason while there is nothing to export.
+  const nothing = buildConversationTurns(state.view().messages).length ? "" : "当前没有可导出的对话";
+  setDisabledReason(els.exportBtn, nothing, "导出整段对话");
+  for (const item of [els.copyConversationBtn, els.downloadConversationBtn, els.saveConversationBtn]) if (item) setDisabledReason(item, nothing);
 }
 
-// A control that cannot work is disabled and says why, in its tooltip and to screen readers.
-function setDisabledReason(button, reason, title = "") {
-  button.disabled = Boolean(reason);
-  button.title = reason || title;
-  if (reason) button.setAttribute("aria-description", reason);
-  else button.removeAttribute("aria-description");
-}
 
 async function loadProvidersAndPrefs({ preferredProviderId = "" } = {}) {
   const [providersResp, settingsResp] = await Promise.all([
@@ -399,6 +398,8 @@ async function act(event) {
     if (effect.type === "detach" || effect.type === "dropStream") releaseActiveStream(effect);
   }
   if (state.view().epoch !== epoch) {
+    // Another conversation: the 导出对话 menu was about the one before.
+    hideExportPopover();
     clearStreamRuntimeState();
     updateContextChip();
     renderHistoryList();
@@ -527,20 +528,11 @@ async function renderNote() {
   els.noteInput.dataset.videoId = id;
 }
 
-// Read-modify-write so notes the other pages saved meanwhile are kept; empty text deletes the entry.
 async function saveNote() {
   const id = els.noteInput.dataset.videoId;
-  const text = els.noteInput.value;
   els.noteInput.hidden = true;
   els.noteToggle.hidden = false;
-  if (id) {
-    const notes = { ...(await chrome.storage.local.get(NOTES_STORAGE_KEY))[NOTES_STORAGE_KEY] };
-    if ((notes[id]?.text || "") !== text) {
-      if (text.trim()) notes[id] = { text, updatedAt: Date.now() };
-      else delete notes[id];
-      await chrome.storage.local.set({ [NOTES_STORAGE_KEY]: notes });
-    }
-  }
+  if (id) await MdgLimits.saveVideoNote(id, els.noteInput.value);
   await renderNote();
 }
 
@@ -685,6 +677,12 @@ function renderSuggestions() {
   void renderTriageSummary(suggestionsNode);
 }
 
+// 分拣台 finishing 细看 on the open video: its AI 总结 card shows now, not at the next redraw.
+function followTriageAnalysis(changes) {
+  const videoId = buildConversationContextRef(state.view().context)?.videoId;
+  if (videoId && suggestionsNode && changes[MdgLimits.KEYS.triageAnalysis(videoId)]) void renderTriageSummary(suggestionsNode);
+}
+
 // A summary the triage page already paid for, shown before the first question; nothing is requested here.
 // It is per bvid and summarizes P1, so other parts don't show it.
 async function renderTriageSummary(node) {
@@ -715,7 +713,7 @@ function followupBlockReason() {
   }
   const { context, messages, pinned, nonVideo } = state.view();
   if (nonVideo) {
-    return "不是视频，不能问";
+    return MdgErrors.TEXT.notVideo;
   }
   if (activeStream || els.input.disabled) {
     return "正在生成，等这条回复结束";
@@ -782,16 +780,16 @@ function startFollowupMarquee(btn) {
   btn.classList.add("is-marquee");
 }
 
+// 快捷追问 sends its text as is; the input box and what is typed there stay.
 function sendPrompt(prompt) {
-  els.input.value = prompt;
-  autosizeInput();
-  void sendMessage();
+  void sendMessage(prompt);
 }
 
 function renderPresetPrompts() {
   if (!els.presetList) {
     return;
   }
+  syncPresetAdd();
   const prompts = Array.isArray(aiPrefs.aiPresetPrompts) ? aiPrefs.aiPresetPrompts : [];
   if (!prompts.length) {
     els.presetList.innerHTML = '<span class="sp-preset-empty">还没有快捷追问</span>';
@@ -924,6 +922,7 @@ function togglePresetPopover(event) {
   if (willShow) {
     renderPresetPrompts();
     els.presetInput.value = "";
+    syncPresetAdd();
     els.presetInput.focus();
   }
 }
@@ -1120,18 +1119,22 @@ async function openPreviousVideoUrl(url) {
   await chrome.tabs.update(tab.id, { url: targetUrl }).catch(() => null);
 }
 
+// 添加 is disabled with the reason while the box is empty or the list is full (one past the limit would be cut when
+// saved); Enter follows the same rule, and the typed text stays.
+function presetAddReason() {
+  if (!String(els.presetInput.value || "").trim()) return "先输入快捷追问";
+  const full = (aiPrefs.aiPresetPrompts || []).length >= MdgSettings.MAX_PRESET_PROMPTS;
+  return full ? `最多 ${MdgSettings.MAX_PRESET_PROMPTS} 条快捷追问，先删掉一条再添加` : "";
+}
+const syncPresetAdd = () => setDisabledReason(els.presetAddBtn, presetAddReason());
+
 async function addPresetPrompt() {
-  const text = String(els.presetInput.value || "").trim();
-  if (!text) {
+  if (presetAddReason()) {
     return;
   }
+  const text = String(els.presetInput.value || "").trim();
   const nextPrompts = [...(aiPrefs.aiPresetPrompts || [])];
   if (!nextPrompts.includes(text)) {
-    // One past the limit would be cut when saved; keep the input so the text is not lost.
-    if (nextPrompts.length >= MdgSettings.MAX_PRESET_PROMPTS) {
-      showConversationContextNotice(`最多 ${MdgSettings.MAX_PRESET_PROMPTS} 条快捷追问，先删掉一条再添加。`, 2600);
-      return;
-    }
     nextPrompts.push(text);
   }
   aiPrefs.aiPresetPrompts = nextPrompts;
@@ -1353,8 +1356,10 @@ async function resolveConversationContext(contextRef) {
   });
 }
 
-async function sendMessage() {
-  const text = els.input.value.trim();
+// prompt: a 快捷追问 or 重试 sends it without touching the input box; without it the box's text is sent and cleared.
+async function sendMessage(prompt) {
+  const typed = prompt === undefined;
+  const text = String(typed ? els.input.value : prompt).trim();
   // sendPending closes the window while the context loads, when a second Enter or chip click would send twice.
   if (!text || activeStream || sendPending || state.view().nonVideo) {
     return;
@@ -1392,8 +1397,10 @@ async function sendMessage() {
   removeCenteredState();
 
   appendUserMessage(text);
-  els.input.value = "";
-  autosizeInput();
+  if (typed) {
+    els.input.value = "";
+    autosizeInput();
+  }
   const stream = {
     port: chrome.runtime.connect({ name: "sidepanel-chat" }),
     node: appendAssistantPlaceholder(),
@@ -1575,8 +1582,7 @@ function appendStreamError({ node, prompt, raw }, error, saved, code = "") {
       node.previousElementSibling.remove();
     }
     node.remove();
-    els.input.value = prompt;
-    void sendMessage();
+    void sendMessage(prompt);
   });
   node.appendChild(retry);
 }
@@ -1640,13 +1646,13 @@ function renderAssistantMessage(node, raw) {
   const copyBtn = document.createElement("button");
   copyBtn.type = "button";
   copyBtn.className = "sp-msg-copy-btn";
-  copyBtn.setAttribute("aria-label", "复制单条回复");
-  copyBtn.setAttribute("title", "复制单条回复");
+  copyBtn.setAttribute("aria-label", "复制这条回复的 Markdown");
+  copyBtn.setAttribute("title", "复制这条回复的 Markdown");
   copyBtn.innerHTML = `
     <svg viewBox="0 0 24 24" focusable="false" aria-hidden="true">
       <rect x="9" y="9" width="10" height="10" rx="2"></rect>
       <path d="M7 15H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h7a2 2 0 0 1 2 2v1"></path>
-    </svg><span>复制</span>
+    </svg><span>复制 Markdown</span>
   `;
   copyBtn.addEventListener("click", async () => {
     if (!(await copyText(pasteReadyRaw))) return;
@@ -1704,7 +1710,7 @@ async function autoSyncConversation(conversationId) {
   try {
     const resp = await sendRuntimeMessage({ type: "sync-video-note-ai", ref: conversation.contextRef, conversation: { messages: conversation.messages } });
     if (!resp?.ok) {
-      throw MdgErrors.fromResp(resp, "Local API 写入失败");
+      throw MdgErrors.fromResp(resp, MdgErrors.TEXT.obsidianWriteFailed);
     }
     if (!resp.path) {
       return;
@@ -1801,7 +1807,7 @@ async function saveCurrentConversationToObsidian() {
       resp = await sendRuntimeMessage({ ...request, mode });
     }
     if (!resp?.ok) {
-      throw MdgErrors.fromResp(resp, "Local API 写入失败");
+      throw MdgErrors.fromResp(resp, MdgErrors.TEXT.obsidianWriteFailed);
     }
     showConversationContextNotice(resp.text, 4000);
   } catch (error) {

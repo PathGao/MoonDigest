@@ -93,6 +93,16 @@ for (const f of scripts) vm.runInContext(fs.readFileSync(f, "utf8"), ctx);
   pick("b", true);
   assert.deepStrictEqual([sa.checked, sa.indeterminate], [true, false], "all selected: checked");
   assert.strictEqual(els.selectAllLabel?.textContent, "全选 2 个");
+  assert.deepStrictEqual([els.bulkMd.textContent, els.bulkDelete.textContent], ["下载选中的 2 个 .md", "删除选中的 2 个"]);
+  // A search keeps hidden selections (like the 分拣台): the buttons count and act on the listed ones; with every one
+  // hidden they say all of them, disabled with 「选中的都被筛选隐藏了」; clearing the search brings the selection back.
+  const search = async (q) => ((els.search.value = q), fire("input", {}), await wait(200));
+  await search("img");
+  assert.deepStrictEqual([els.bulkMd.textContent, els.bulkMd.disabled], ["下载选中的 1 个 .md", false]);
+  await search("没有这个");
+  assert.deepStrictEqual([els.bulkMd.textContent, els.bulkDelete.textContent, reason("bulkMd")[1], reason("bulkDelete")[1]], ["下载选中的 2 个 .md", "删除选中的 2 个", "选中的都被筛选隐藏了", "选中的都被筛选隐藏了"]);
+  await search("");
+  assert.deepStrictEqual([sa.checked, els.bulkMd.textContent], [true, "下载选中的 2 个 .md"], "the selection is still there");
 
   // 写入 Obsidian: one write-video-note with the entry's newest conversation; ask → the dialog → the same request with
   // the mode, and the background's words; 取消 sends nothing again and says so, not red.

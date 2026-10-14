@@ -26,8 +26,6 @@
     biliLogin: "未登录 B站：先在这个浏览器里登录 B站",
     // What a page that can reload adds to subtitleMissing's 未登录 sentence (the video page, the side panel); notes do not.
     subtitleLoginHint: "登录 B站后刷新网页",
-    // A dropped connection on a B站 or YouTube read (the background's code NETWORK, the video page's own fetches).
-    netDown: "网络断了",
     // The popup and 专注模式 say the same for the same situation. Reading the video (its info; a subtitle failure alone
     // is subtitleMissing) failed, on 刷新, on entering 专注模式 or on its automatic refresh; followed by 「：原因」.
     videoReadFailed: "读取视频失败",
@@ -36,7 +34,15 @@
     // 复制 Markdown, 下载 .md or 写入 Obsidian before the page has a note.
     noNoteYet: "还没有笔记内容，请先点「刷新」",
     // A side panel reply that ended without one word of answer (only thinking, or nothing); the panel offers 重试.
-    aiEmpty: "AI 平台没有返回回答"
+    aiEmpty: "AI 平台没有返回回答",
+    // A write to Obsidian that failed without the background saying why (video page, side panel, history page).
+    obsidianWriteFailed: "Local API 写入失败",
+    // A dropped connection (fetch's TypeError): the video page, 分拣台's B站 requests, 关注's paused refresh.
+    netDown: "网络断了",
+    // 继续问 on a record that is not a video (the side panel's input, 视频记录's button).
+    notVideo: "不是视频，不能问",
+    // Every selection is hidden by a search or filter: the buttons that act on it are disabled with this (分拣台, 视频记录).
+    hiddenAll: "选中的都被筛选隐藏了"
   });
 
   // How long a B站 / YouTube read waits for an answer: the background's B站 channel (triage-bg.js triageBiliFetch,
@@ -113,5 +119,15 @@
       .replaceAll('"', "&quot;")
       .replaceAll("'", "&#39;");
 
-  globalThis.MdgErrors = Object.freeze({ TEXT, action, text, fromResp, grantOrigin, reloaded, escapeHtml, subtitleMissing, aiTimeout, aiStalled, noAccess, NET_TIMEOUT_MS, netTimeout });
+  // A control that cannot be used is disabled and says why (DESIGN: no clickable button that only toasts): the tooltip,
+  // and aria-description for screen readers; without a reason it is enabled with its own title. Every extension page
+  // and the 分拣台 (TriageUi.setReason) use this one.
+  function setReason(node, reason, title = "") {
+    node.disabled = Boolean(reason);
+    node.title = reason || title;
+    if (reason) node.setAttribute("aria-description", reason);
+    else node.removeAttribute("aria-description");
+  }
+
+  globalThis.MdgErrors = Object.freeze({ TEXT, action, text, fromResp, grantOrigin, reloaded, escapeHtml, setReason, subtitleMissing, aiTimeout, aiStalled, noAccess, NET_TIMEOUT_MS, netTimeout });
 })();

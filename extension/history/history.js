@@ -5,6 +5,7 @@ const OWN_TAB = await chrome.tabs.getCurrent();
 const KEY = MdgLimits.KEYS.aiConversations;
 const { triageNotes: NOTES_KEY, triageAnalysisPrefix: ANALYSIS, triageSnapshotPrefix: SNAPSHOT } = MdgLimits.KEYS;
 const $ = (id) => document.getElementById(id);
+const { setReason } = MdgErrors;
 const els = { list: $("list"), search: $("search"), count: $("count"), selectAll: $("selectAll"), selectAllLabel: $("selectAllLabel"), bulkMd: $("bulkMd"), bulkDelete: $("bulkDelete"), clearAll: $("clearAll"), status: $("status") };
 
 let conversations = [];
@@ -90,20 +91,15 @@ function renderNote(g) {
   return id ? `<button type="button" class="entry-note" data-act="note" title="点击编辑备注">${body}</button>` : `<div class="entry-note">${body}</div>`;
 }
 
-// Same rule as the triage card: an unchanged note is not rewritten, an emptied one is deleted.
+// MdgLimits.saveVideoNote, like the side panel and 分拣台: an unchanged note is not rewritten, an emptied one is deleted.
 async function closeNote() {
   if (!editing) return;
   const { id, draft } = editing;
   editing = null;
-  const text = draft.trim() ? draft : "";
-  if (text !== (notes[id]?.text || "")) {
-    if (text) notes[id] = { text, updatedAt: Date.now() };
+  if (await MdgLimits.saveVideoNote(id, draft)) {
+    if (draft.trim()) notes[id] = { text: draft, updatedAt: Date.now() };
     else delete notes[id];
-    const stored = (await chrome.storage.local.get(NOTES_KEY))[NOTES_KEY] || {};
-    if (text) stored[id] = notes[id];
-    else delete stored[id];
-    await chrome.storage.local.set({ [NOTES_KEY]: stored });
-    setStatus(text ? "备注已保存" : "备注已删除");
+    setStatus(draft.trim() ? "备注已保存" : "备注已删除");
   }
   if (reloadPending) {
     reloadPending = false;
@@ -122,7 +118,8 @@ function render() {
   const groups = visibleGroups();
   const allGroups = groupByVideo(conversations);
   els.count.textContent = `${allGroups.length} 个视频 · 对话 ${conversations.length}/${MdgLimits.AI_CONVERSATIONS}`;
-  for (const key of [...selected]) if (!groups.some((g) => g.key === key)) selected.delete(key);
+  // A search keeps hidden selections, like the 分拣台; only a video that is gone leaves the selection.
+  for (const key of [...selected]) if (!allGroups.some((g) => g.key === key)) selected.delete(key);
   // Storage changes re-render the list while the user reads it: keep expanded entries and the scroll.
   const open = new Set([...els.list.querySelectorAll(".entry details[open]")].map((d) => d.closest(".entry").dataset.key));
   const scrollY = window.scrollY;
@@ -146,7 +143,7 @@ function render() {
             <div class="entry-meta">${[site, formatTime(g.updatedAt), untitled && g.context.videoId, kind].filter(Boolean).map(esc).join(" · ")}</div>
           </div>
           <div class="entry-actions">
-            <button type="button" class="ask" data-act="ask" ${g.context.videoId ? "" : "disabled title=\"不是视频，不能问\" aria-description=\"不是视频，不能问\""}><span class="ai-spark" aria-hidden="true"></span>继续问</button>
+            <button type="button" class="ask" data-act="ask" ${g.context.videoId ? "" : `disabled title="${MdgErrors.TEXT.notVideo}" aria-description="${MdgErrors.TEXT.notVideo}"`}><span class="ai-spark" aria-hidden="true"></span>继续问</button>
             <button type="button" data-act="copy">复制 Markdown</button>
             <button type="button" data-act="md">下载 .md</button>
             ${!obsidianEnabled ? "" : `<button type="button" data-act="obsidian"${writing.has(g.key) ? " disabled" : ""}><img class="obsidian-mark" src="/icons/obsidian.svg" alt=""> <span class="write-label" data-idle="写入 Obsidian">${writing.has(g.key) ? '<span aria-busy="true">写入中…</span>' : "<span>写入 Obsidian</span>"}</span></button>`}
@@ -170,13 +167,6 @@ function render() {
   syncBulk(groups);
 }
 
-// Same as TriageUi.setReason: a control that cannot be used says why, in the tooltip and aria-description.
-function setReason(node, reason) {
-  node.disabled = Boolean(reason);
-  node.title = reason;
-  if (reason) node.setAttribute("aria-description", reason);
-  else node.removeAttribute("aria-description");
-}
 
 function syncBulk(groups = visibleGroups()) {
   // 全选 is three-state over the listed videos: none, some (indeterminate) or all of them selected.
@@ -185,8 +175,15 @@ function syncBulk(groups = visibleGroups()) {
   els.selectAll.indeterminate = picked > 0 && picked < groups.length;
   els.selectAllLabel.textContent = groups.length ? `全选 ${groups.length} 个` : "全选";
   setReason(els.selectAll, groups.length ? "" : "这里没有列出视频");
-  setReason(els.bulkMd, selected.size ? "" : "先勾选视频");
-  setReason(els.bulkDelete, !selected.size ? "先勾选视频" : deletableKeys([...selected]).length ? "" : "所选视频没有 AI 对话，没有可删的");
+  // The bulk buttons act on the listed selected videos and say how many (「选中的 N 个」); when every selected one is
+  // hidden by the search they say all of them and are disabled with HIDDEN_ALL, as on the 分拣台.
+  const shown = shownPicks(groups);
+  const n = shown.length || selected.size;
+  const none = !selected.size ? "先勾选视频" : !shown.length ? MdgErrors.TEXT.hiddenAll : "";
+  els.bulkMd.textContent = n ? `下载选中的 ${n} 个 .md` : "下载选中的 .md";
+  els.bulkDelete.textContent = n ? `删除选中的 ${n} 个` : "删除选中的";
+  setReason(els.bulkMd, none);
+  setReason(els.bulkDelete, none || (deletableKeys(shown).length ? "" : "选中的视频没有 AI 对话，没有可删的"));
   setReason(els.clearAll, conversations.length ? "" : "还没有 AI 对话");
 }
 
@@ -212,6 +209,9 @@ async function load() {
   }
   render();
 }
+
+// The selected videos the search lists: what the bulk buttons act on.
+const shownPicks = (groups = visibleGroups()) => groups.filter((g) => selected.has(g.key)).map((g) => g.key);
 
 // Triage-summary-only and note-only entries have no conversations to delete, so they are left out.
 function deletableKeys(keys) {
@@ -258,7 +258,7 @@ async function saveToObsidian(group) {
       if (!mode) return setStatus(MdgErrors.TEXT.obsidianCancelled);
       resp = await chrome.runtime.sendMessage({ ...request, mode });
     }
-    if (!resp?.ok) throw MdgErrors.fromResp(resp, "Local API 写入失败");
+    if (!resp?.ok) throw MdgErrors.fromResp(resp, MdgErrors.TEXT.obsidianWriteFailed);
     setStatus(resp.text);
   } catch (error) {
     setStatus(`写入 Obsidian 失败：${error?.message || error}`, true);
@@ -298,7 +298,7 @@ els.list.addEventListener("click", (event) => {
   }
   else if (act === "ask" && group) {
     // The side panel continues the video's latest conversation, the same request triage's 问 AI sends.
-    chrome.storage.local.set({ [MdgLimits.KEYS.playerAiQuickAction]: { id: `history-${Date.now()}`, tabId: OWN_TAB?.id, prompt: "", contextRef: group.context } });
+    MdgLimits.askSidepanel({ tabId: OWN_TAB?.id, contextRef: group.context });
     setStatus("正在打开侧边栏…");
     chrome.sidePanel.open({ tabId: OWN_TAB?.id }).then(
       () => els.status.textContent === "正在打开侧边栏…" && setStatus(""),
@@ -324,8 +324,8 @@ els.selectAll.addEventListener("change", () => {
   visibleGroups().forEach((g) => (els.selectAll.checked ? selected.add(g.key) : selected.delete(g.key)));
   render();
 });
-els.bulkMd.addEventListener("click", () => downloadGroups(groupByVideo(conversations).filter((g) => selected.has(g.key))));
-els.bulkDelete.addEventListener("click", () => void deleteGroups([...selected]));
+els.bulkMd.addEventListener("click", () => downloadGroups(visibleGroups().filter((g) => selected.has(g.key))));
+els.bulkDelete.addEventListener("click", () => void deleteGroups(shownPicks()));
 // AI conversations only: triage analyses and notes are other features' data and stay.
 els.clearAll.addEventListener("click", async () => {
   if (!confirm("清空全部 AI 对话？删除后不能恢复。")) return;

@@ -53,6 +53,53 @@ for (const bad of XSS) assertInert(ctx.buildFixedPropertyValueControl("text", ba
 assert.ok(source.includes("seenThreshold: MdgSettings.normalizeSeenThreshold(elements.seenThreshold.value),"), "options.js parses 看多少算看完了 with normalizeSeenThreshold");
 assert.ok(source.includes("const { min, max, def } = MdgSettings.SEEN_THRESHOLD;") && source.includes("placeholder: `默认 ${def}`"), "seenThreshold's box reads SEEN_THRESHOLD");
 
+// The box behaves like the 分拣台's: a change or a save clamps it with TriageUi.clampNumber (above max is max, invalid is
+// cleared under 「默认 N」), never writes the default back into it.
+const box = { type: "number", min: "1", max: "100" };
+for (const [typed, shown] of [["150", 100], ["-3", ""], ["", ""], ["42.4", 42]]) {
+  box.value = typed;
+  ctx.TriageUi.clampNumber(box);
+  assert.strictEqual(box.value, shown, `typed ${typed}`);
+}
+assert.ok(source.includes('elements.seenThreshold.addEventListener("change", () => TriageUi.clampNumber(elements.seenThreshold));'), "a change clamps the box");
+assert.ok(!/seenThreshold\.value = String\((readFormPayload\(\)|payload)\.seenThreshold\)/.test(source), "the default is not written back into the box");
+
+// 「+ 添加段落」 is disabled with the reason at MAX_NOTE_SECTIONS rows, enabled again below it.
+{
+  const attrs = {};
+  const btn = { setAttribute: (k, v) => (attrs[k] = v), removeAttribute: (k) => delete attrs[k] };
+  const list = { children: { length: ctx.MdgSettings.MAX_NOTE_SECTIONS } };
+  const box = vm.createContext({ MdgErrors: ctx.MdgErrors, MdgSettings: ctx.MdgSettings, elements: { noteSectionsList: list, noteSectionsEmpty: {}, addNoteSectionBtn: btn } });
+  vm.runInContext(fn("updateNoteSectionEmptyState"), box);
+  box.updateNoteSectionEmptyState();
+  assert.deepStrictEqual([btn.disabled, btn.title], [true, `最多 ${ctx.MdgSettings.MAX_NOTE_SECTIONS} 段，先删掉一段再添加`]);
+  list.children.length -= 1;
+  box.updateNoteSectionEmptyState();
+  assert.deepStrictEqual([btn.disabled, btn.title], [false, ""]);
+  assert.ok(!fn("addNoteSectionRow").includes("setStatus("), "no toast for a click that could not work");
+}
+
+// An AI platform's 测试连接 is disabled with the reason while 接口地址 or 模型 is empty, by what the boxes hold now.
+{
+  const stub = () => {
+    const attrs = {};
+    const L = {};
+    return { value: "", attrs, L, dataset: {}, classList: { add() {}, remove() {}, contains: () => false }, setAttribute: (k, v) => (attrs[k] = v), removeAttribute: (k) => delete attrs[k], addEventListener: (t, f) => ((L[t] ||= []).push(f)), querySelector: () => null };
+  };
+  const parts = {};
+  const row = { ...stub(), querySelector: (sel) => (parts[sel] ||= stub()), querySelectorAll: () => [] };
+  const page = vm.createContext({ MdgErrors: ctx.MdgErrors, escapeHtml: ctx.MdgErrors.escapeHtml, AI_PRESETS: [{ id: "custom", name: "自定义", baseUrl: "", model: "" }], document: { createElement: () => row }, elements: { aiProvidersList: { appendChild() {} } }, updateAiProvidersEmptyState() {} });
+  vm.runInContext([fn("addAiProviderRow"), fn("apiKeyPlaceholder"), fn("generateAiProviderId")].join("\n"), page);
+  page.addAiProviderRow({});
+  const test = parts[".ai-provider-test"];
+  const type = (sel, v) => ((parts[sel].value = v), parts[sel].L.input.forEach((f) => f()));
+  assert.deepStrictEqual([test.disabled, test.title], [true, "先填接口地址和模型"]);
+  type(".ai-provider-baseurl", "https://api.example.com/v1");
+  assert.deepStrictEqual([test.disabled, test.title], [true, "先填模型"]);
+  type(".ai-provider-model", "m");
+  assert.deepStrictEqual([test.disabled, test.title, test.attrs["aria-description"]], [false, "用这一行的地址、模型和 Key 向 AI 发一条测试消息", undefined]);
+}
+
 // E1: 测试连接 for an address not saved yet asks for its host permission in the click, before anything is awaited, then
 // tests; declined, the status says so with 授权, which asks again and tests.
 (async () => {
@@ -73,7 +120,7 @@ assert.ok(source.includes("const { min, max, def } = MdgSettings.SEEN_THRESHOLD;
   });
   vm.runInContext(fs.readFileSync(path.join(__dirname, "errors.js"), "utf8"), page);
   vm.runInContext([fn("hostPermissionPattern"), fn("showAiProviderStatus"), `async ${fn("testAiProviderRow")}`].join("\n"), page);
-  const pending = page.testAiProviderRow(row);
+  const pending = page.testAiProviderRow(row, () => {});
   assert.deepStrictEqual(log, ["ask https://api.example.com/*"], "asked synchronously, inside the click's gesture");
   await pending;
   assert.deepStrictEqual([status.textContent, status.dataset.error, log.length], ["失败：未授权访问 https://api.example.com，授权后重试", "true", 1]);
