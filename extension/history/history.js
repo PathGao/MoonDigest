@@ -5,6 +5,7 @@ const OWN_TAB = await chrome.tabs.getCurrent();
 const KEY = MdgLimits.KEYS.aiConversations;
 const { triageNotes: NOTES_KEY, triageAnalysisPrefix: ANALYSIS, triageSnapshotPrefix: SNAPSHOT } = MdgLimits.KEYS;
 const $ = (id) => document.getElementById(id);
+const { setReason } = MdgErrors;
 const els = { list: $("list"), search: $("search"), count: $("count"), selectAll: $("selectAll"), selectAllLabel: $("selectAllLabel"), bulkMd: $("bulkMd"), bulkDelete: $("bulkDelete"), clearAll: $("clearAll"), status: $("status") };
 
 let conversations = [];
@@ -169,13 +170,6 @@ function render() {
   syncBulk(groups);
 }
 
-// Same as TriageUi.setReason: a control that cannot be used says why, in the tooltip and aria-description.
-function setReason(node, reason) {
-  node.disabled = Boolean(reason);
-  node.title = reason;
-  if (reason) node.setAttribute("aria-description", reason);
-  else node.removeAttribute("aria-description");
-}
 
 function syncBulk(groups = visibleGroups()) {
   // 全选 is three-state over the listed videos: none, some (indeterminate) or all of them selected.

@@ -29,6 +29,10 @@ let latestPayload = null;
 let onVideoPage = true;
 // Only for when get-settings fails.
 const DEFAULT_SETTINGS = MdgSettings.DEFAULTS;
+const setDisabledReason = MdgErrors.setReason;
+// The note's file-name rule (Obsidian's forbidden characters), for every file the popup downloads.
+const { sanitizeFileName } = MdgSites;
+
 
 init().catch((error) => {
   setStatus(`初始化失败：${error.message}`, true);
@@ -281,12 +285,6 @@ function syncTools(payload, onVideoPage = true) {
   setDisabledReason(el.downloadBtn, subtitleReason);
 }
 
-function setDisabledReason(button, reason) {
-  button.disabled = Boolean(reason);
-  button.title = reason;
-  if (reason) button.setAttribute("aria-description", reason);
-  else button.removeAttribute("aria-description");
-}
 
 function setText(node, text) {
   node.textContent = String(text || "");
@@ -310,9 +308,6 @@ function setBusy(button, busy, label = "") {
   button.disabled = busy;
   button.setAttribute("aria-busy", String(busy));
 }
-
-// The note's file-name rule (Obsidian's forbidden characters), for every file the popup downloads.
-const { sanitizeFileName } = MdgSites;
 
 async function getActiveTab() {
   const tabs = await chrome.tabs.query({ active: true, currentWindow: true });

@@ -5,6 +5,7 @@ try {
 } catch {}
 const CONVERSATIONS_STORAGE_KEY = MdgLimits.KEYS.aiConversations;
 const { escapeHtml } = MdgErrors;
+const setDisabledReason = MdgErrors.setReason;
 const {
   stripThinkBlocks,
   normalizeMarkdownForSectionPaste,
@@ -252,13 +253,6 @@ function setStreamingUiState(isStreaming, { stopping = false } = {}) {
   setDisabledReason(els.exportBtn, buildConversationTurns(state.view().messages).length ? "" : "当前没有可导出的对话", "导出整段对话");
 }
 
-// A control that cannot work is disabled and says why, in its tooltip and to screen readers.
-function setDisabledReason(button, reason, title = "") {
-  button.disabled = Boolean(reason);
-  button.title = reason || title;
-  if (reason) button.setAttribute("aria-description", reason);
-  else button.removeAttribute("aria-description");
-}
 
 async function loadProvidersAndPrefs({ preferredProviderId = "" } = {}) {
   const [providersResp, settingsResp] = await Promise.all([

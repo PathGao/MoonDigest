@@ -89,5 +89,15 @@
       .replaceAll('"', "&quot;")
       .replaceAll("'", "&#39;");
 
-  globalThis.MdgErrors = Object.freeze({ TEXT, action, text, fromResp, grantOrigin, reloaded, escapeHtml, subtitleMissing, aiTimeout });
+  // A control that cannot be used is disabled and says why (DESIGN: no clickable button that only toasts): the tooltip,
+  // and aria-description for screen readers; without a reason it is enabled with its own title. Every extension page
+  // and the 分拣台 (TriageUi.setReason) use this one.
+  function setReason(node, reason, title = "") {
+    node.disabled = Boolean(reason);
+    node.title = reason || title;
+    if (reason) node.setAttribute("aria-description", reason);
+    else node.removeAttribute("aria-description");
+  }
+
+  globalThis.MdgErrors = Object.freeze({ TEXT, action, text, fromResp, grantOrigin, reloaded, escapeHtml, setReason, subtitleMissing, aiTimeout });
 })();

@@ -248,12 +248,7 @@
   const reasonAttrs = (reason, title = "") =>
     reason ? ` disabled title="${esc(reason)}" aria-description="${esc(reason)}"` : title ? ` title="${esc(title)}"` : "";
   // The same for a control already on the page.
-  function setReason(node, reason, title = "") {
-    node.disabled = Boolean(reason);
-    node.title = reason || title;
-    if (reason) node.setAttribute("aria-description", reason);
-    else node.removeAttribute("aria-description");
-  }
+  const { setReason } = MdgErrors;
   // A --warn dot after a button's label: something is not set up yet, and nothing is blocked by it.
   const WARN_DOT = '<i class="dot-warn" aria-hidden="true"></i>';
 
