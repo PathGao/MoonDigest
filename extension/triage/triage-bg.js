@@ -790,9 +790,11 @@ async function triageObsidianCheck() {
 // 逐个视频笔记: obsidian.js writeVideoNote without a conversation, so it never asks. overwrite rewrites the note; without
 // it an existing note keeps its body and only its AI 问答 section follows the conversation.
 // Returns { path, title, skipped, aiUpdated, subtitleWarning? }.
-async function triageWriteNote({ bvid, overwrite }) {
+// No cid here (分拣台 lists only BVs): writeVideoNote finds the note recorded for P1 by the BV and 分 P, so without
+// overwrite the AI 问答 is updated without reading B站. title: the card's, for the index when nothing was built.
+async function triageWriteNote({ bvid, title, overwrite }) {
   if (!bvid) throw triageError("缺少 bvid");
-  const done = await writeVideoNote({ ref: { site: "bilibili", videoId: bvid, pageIndex: 1 }, mode: overwrite ? "full" : "ai" });
+  const done = await writeVideoNote({ ref: { site: "bilibili", videoId: bvid, pageIndex: 1, title }, mode: overwrite ? "full" : "ai" });
   return { path: done.path, title: done.title, skipped: done.kind !== "full", aiUpdated: done.kind === "ai", ...(done.subtitleWarning && { subtitleWarning: done.subtitleWarning }) };
 }
 

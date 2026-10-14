@@ -3857,7 +3857,7 @@ async function runWrite(md = false) {
     act(s) {
       if (s.index) return send({ type: "triage-export", filename: `${safeNoteName(title)}.md`, markdown: indexMarkdown(written, wikiLink, title) });
       el.writeProgress.textContent = `${verb} ${s.i + 1}/${items.length}：${s.it.title}`;
-      return send(md ? { type: "triage-build-note", bvid: s.it.bvid } : { type: "triage-write-note", bvid: s.it.bvid, overwrite });
+      return send(md ? { type: "triage-build-note", bvid: s.it.bvid } : { type: "triage-write-note", bvid: s.it.bvid, title: s.it.title, overwrite });
     },
     // B站 risk control: wait as 粗看 / 细看 do, then the same video again.
     judge(r) {
