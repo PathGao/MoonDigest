@@ -87,8 +87,10 @@ process.on("exit", (code) => {
   ctx.fetch = streamingFetch([{ after: 5, chunk: sse({ content: "半句" }) }]);
   out = await chat();
   assert.strictEqual(out.at(-1).type, "error");
-  assert.match(out.at(-1).error, /^回复中断：.* 秒没有新内容，可重试$/);
-  assert.strictEqual(out.at(-1).code, "AI_TIMEOUT");
+  // F14: its own code, so the panel offers only 重试 (the settings cannot fix a reply that stopped midway).
+  assert.strictEqual(out.at(-1).error, ctx.MdgErrors.aiStalled(vm.runInContext("STREAM_TIMEOUT_MS.idle", ctx)));
+  assert.strictEqual(out.at(-1).code, "AI_STALLED");
+  assert.strictEqual(ctx.MdgErrors.action("AI_STALLED"), "none");
 
   // No response at all ends with the first-response error, not a generic network error.
   ctx.fetch = (url, { signal }) => new Promise((_, reject) => signal.addEventListener("abort", () => reject(abortError())));
@@ -130,10 +132,22 @@ process.on("exit", (code) => {
       throw Object.assign(new Error("timeout"), { name: "TimeoutError" });
     };
     assert.deepStrictEqual({ ...(await test(timeout)) }, { ok: false, error: ctx.MdgErrors.aiTimeout(vm.runInContext("AI_TEST_TIMEOUT_MS", ctx)), code: "AI_TIMEOUT" });
-    assert.deepStrictEqual([{ ...(await test(failed, { baseUrl: " " })) }, { ...(await test(failed, { model: "" })) }], [
-      { ok: false, error: "请填写接口地址", code: "AI_SETUP" },
-      { ok: false, error: "请填写模型名", code: "AI_SETUP" }
-    ]);
+    ctx.hostPermissionError = async () => "";
+    // F4: the side panel's and 分拣台's check (aiProviderProblem), API Key included.
+    assert.deepStrictEqual(
+      [{ ...(await test(failed, { baseUrl: " " })) }, { ...(await test(failed, { model: "" })) }, { ...(await test(failed, { apiKey: "" })) }],
+      [
+        { ok: false, error: "AI 平台的接口地址没填", code: "AI_SETUP" },
+        { ok: false, error: "AI 平台的模型名没填", code: "AI_SETUP" },
+        { ok: false, error: "AI 平台的 API Key 没填", code: "AI_AUTH" }
+      ]
+    );
+    assert.strictEqual((await test(failed, { apiKey: "", requiresKey: false })).code, "AI_NETWORK", "Ollama needs no key");
+    // F2: a 200 that carries an error in its body is that error, as in 分拣台 and the side panel; not 连接成功.
+    const reply = (json) => async () => ({ ok: true, json: async () => json });
+    assert.deepStrictEqual({ ...(await test(reply({ error: { message: "余额不足" } }))) }, { ok: false, error: "AI 平台余额不足或额度已用完，请充值或换一个平台", code: "AI_QUOTA" });
+    assert.deepStrictEqual({ ...(await test(async () => ({ ok: true, json: async () => JSON.parse("<html>") }))) }, { ok: false, error: "AI 平台的回复不是 JSON" });
+    assert.deepStrictEqual({ ...(await test(reply({ choices: [{ message: { content: "" }, finish_reason: "length" }] }))) }, { ok: true });
     ctx.hostPermissionError = was;
   }
 
@@ -259,6 +273,21 @@ process.on("exit", (code) => {
   out = await chat();
   assert.deepStrictEqual([out[0].error, out[0].code], ["AI 平台限流", "AI_THROTTLED"]);
 
+  // F3: a reply without one word of answer (only thinking, or a 200 whose body is a plain JSON error) is an error the
+  // panel shows with 重试, not an empty bubble; a last line without its newline still counts.
+  const raw = (text) => ({ after: 0, chunk: new TextEncoder().encode(text) });
+  for (const [script, error, code] of [
+    [[{ after: 0, chunk: sse({ reasoning_content: "想" }) }], ctx.MdgErrors.TEXT.aiEmpty, undefined],
+    [[raw('{"error":{"message":"Insufficient Balance"}}')], "AI 平台余额不足或额度已用完，请充值或换一个平台", "AI_QUOTA"],
+    [[raw('{\n  "error": {\n    "message": "rate limit"\n  }\n}\n')], "AI 平台限流", "AI_THROTTLED"]
+  ]) {
+    ctx.fetch = streamingFetch([...script, { after: 0, done: true }]);
+    out = await chat();
+    assert.deepStrictEqual(out.map((m) => [m.type, m.error, m.code]), [["error", error, code]]);
+  }
+  ctx.fetch = streamingFetch([raw(`data: ${JSON.stringify({ choices: [{ delta: { content: "尾" } }] })}`), { after: 0, done: true }]);
+  assert.deepStrictEqual((await chat()).map((m) => m.data || m.type), ["尾", "done"]);
+
   // HTTP and network errors reach the panel in Chinese with the 分拣台's code, never the body.
   ctx.fetch = async () => ({ ok: false, status: 401, text: async () => '{"error":{"message":"Incorrect API key provided"}}' });
   out = await chat();
@@ -277,9 +306,9 @@ process.on("exit", (code) => {
     ctx.loadAiProviders = was;
     return [m.error, m.code];
   };
-  assert.deepStrictEqual(await setupError({ requiresKey: true }), ["该平台 API Key 未配置", "AI_AUTH"]);
-  assert.deepStrictEqual(await setupError({ baseUrl: "" }), ["接口地址未配置", "AI_SETUP"]);
-  assert.deepStrictEqual(await setupError({ model: "" }), ["模型未配置", "AI_SETUP"]);
+  assert.deepStrictEqual(await setupError({ requiresKey: true }), ["AI 平台的 API Key 没填", "AI_AUTH"]);
+  assert.deepStrictEqual(await setupError({ baseUrl: "" }), ["AI 平台的接口地址没填", "AI_SETUP"]);
+  assert.deepStrictEqual(await setupError({ model: "" }), ["AI 平台的模型名没填", "AI_SETUP"]);
 
   // A request that never answers fails with a retryable timeout instead of hanging the caller.
   ctx.fetch = (url, { signal }) => new Promise((_, reject) => signal.addEventListener("abort", () => reject(signal.reason)));

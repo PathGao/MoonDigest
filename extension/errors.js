@@ -27,7 +27,9 @@
     // What a page that can reload adds to subtitleMissing's 未登录 sentence (the video page, the side panel); notes do not.
     subtitleLoginHint: "登录 B站后刷新网页",
     // A dropped connection on a B站 or YouTube read (the background's code NETWORK, the video page's own fetches).
-    netDown: "网络断了"
+    netDown: "网络断了",
+    // A side panel reply that ended without one word of answer (only thinking, or nothing); the panel offers 重试.
+    aiEmpty: "AI 平台没有返回回答"
   });
 
   // How long a B站 / YouTube read waits for an answer: the background's B站 channel (triage-bg.js triageBiliFetch,
@@ -40,6 +42,8 @@
   // logged-out viewer), not a failure; subtitleFailure is why the fetch failed. A state, never an instruction.
   // AI_TIMEOUT: no answer from the AI platform in ms (each caller's own limit: side panel, 分拣台, 测试连接).
   const aiTimeout = (ms) => `AI 平台 ${ms / 1000} 秒没有回应`;
+  // AI_STALLED: a side panel reply that stopped midway for ms. Only 重试 helps (no 去设置: the platform did answer).
+  const aiStalled = (ms) => `回复中断：${ms / 1000} 秒没有新内容`;
 
   const subtitleMissing = ({ subtitleNeedLogin = false, subtitleFailure = "" } = {}) =>
     subtitleNeedLogin ? "未登录 B站，拿不到字幕" : subtitleFailure ? `字幕抓取失败：${subtitleFailure}` : "视频没有字幕";
@@ -98,5 +102,5 @@
       .replaceAll('"', "&quot;")
       .replaceAll("'", "&#39;");
 
-  globalThis.MdgErrors = Object.freeze({ TEXT, action, text, fromResp, grantOrigin, reloaded, escapeHtml, subtitleMissing, aiTimeout, NET_TIMEOUT_MS, netTimeout });
+  globalThis.MdgErrors = Object.freeze({ TEXT, action, text, fromResp, grantOrigin, reloaded, escapeHtml, subtitleMissing, aiTimeout, aiStalled, NET_TIMEOUT_MS, netTimeout });
 })();

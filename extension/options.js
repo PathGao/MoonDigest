@@ -1329,7 +1329,8 @@ function addAiProviderRow(item = {}) {
     const baseUrl = row.querySelector(".ai-provider-baseurl").value.trim();
     const apiKey = row.querySelector(".ai-provider-apikey").value.trim();
     const model = row.querySelector(".ai-provider-model").value.trim();
-    // The background checks 接口地址 and 模型名 (testAiConnection) and answers in the side panel's words.
+    const requiresKey = (AI_PRESETS.find((p) => p.id === row.querySelector(".ai-provider-preset").value) || AI_PRESETS.at(-1)).requiresKey;
+    // The background checks 接口地址, 模型名 and API Key (aiProviderProblem) and answers in the side panel's words.
     const testBtn = row.querySelector(".ai-provider-test");
     showAiProviderStatus(statusNode, "正在测试…");
     statusNode.setAttribute("aria-busy", "true");
@@ -1339,7 +1340,8 @@ function addAiProviderRow(item = {}) {
       providerId: row.dataset.providerId || "",
       baseUrl,
       apiKey,
-      model
+      model,
+      requiresKey
     }).catch((error) => ({ ok: false, error: error.message }));
     statusNode.setAttribute("aria-busy", "false");
     testBtn.disabled = false;

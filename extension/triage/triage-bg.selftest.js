@@ -201,7 +201,25 @@ assert.throws(() => t.triageParseCommand('{"new_tags":[', cmdItems, cmdTags, {})
   // AI errors get one code each: a 429 that says the balance or quota ran out is AI_QUOTA, not a throttle to wait out;
   // 5xx carries none (that request only). The body never reaches the message.
   t.loadAiProviders = async () => [{ id: "p", baseUrl: "https://ai.test", model: "m" }];
-  t.loadAiProviderKeys = async () => ({});
+  t.loadAiProviderKeys = async () => ({ p: "k", a: "k", b: "k" });
+  // F4: 接口地址 / 模型名 / API Key missing is one code that stops 分拣台 (去设置) before any request, in aiProviderProblem's
+  // words, the same the side panel and 测试连接 say.
+  {
+    let asked = 0;
+    t.fetch = async () => (asked++, { ok: true, json: async () => ({ choices: [{ message: { content: "x" } }] }) });
+    const fails = async (provider, keys = { p: "k" }) => {
+      t.loadAiProviders = async () => [{ id: "p", baseUrl: "https://ai.test", model: "m", ...provider }];
+      t.loadAiProviderKeys = async () => keys;
+      return t.triageChat([], 100).then(() => null, (e) => [e.message, e.code]);
+    };
+    assert.deepStrictEqual(
+      [await fails({ model: "" }), await fails({ baseUrl: " " }), await fails({}, {}), await fails({ requiresKey: false }, {})],
+      [["AI 平台的模型名没填", "AI_SETUP"], ["AI 平台的接口地址没填", "AI_SETUP"], ["AI 平台的 API Key 没填", "AI_AUTH"], null]
+    );
+    assert.strictEqual(asked, 1, "only the platform that needs no key was asked");
+    t.loadAiProviders = async () => [{ id: "p", baseUrl: "https://ai.test", model: "m" }];
+    t.loadAiProviderKeys = async () => ({ p: "k", a: "k", b: "k" });
+  }
   for (const [status, body, code] of [
     [429, "slow down", "AI_THROTTLED"],
     [429, '{"error":{"message":"Rate limit reached for gpt-4o on requests per min (RPM)"}}', "AI_THROTTLED"],

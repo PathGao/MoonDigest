@@ -613,6 +613,27 @@ function triageAiBodyError(json) {
   return triageError(/[\u4e00-\u9fff]/.test(detail) ? `AI 平台返回错误：${detail}` : "AI 平台返回错误");
 }
 
+// A non-stream reply's JSON (triageChat, 测试连接's probeAiChatCompletion): not JSON, or an error in the body, throws.
+async function triageAiJson(res) {
+  // In Chinese, not JSON.parse's SyntaxError.
+  const json = await res.json().catch(() => {
+    throw triageError("AI 平台的回复不是 JSON");
+  });
+  const bodyError = triageAiBodyError(json);
+  if (bodyError) throw bodyError;
+  return json;
+}
+
+// 接口地址、模型名、API Key 没填 (an imported settings file carries no keys): the side panel (background.js's chat port),
+// 测试连接 (testAiConnection) and 分拣台 (triageChat) check only here, in one set of words. The codes offer 去设置, and
+// 分拣台 stops at the first one instead of failing every video. null when the platform can be asked.
+function aiProviderProblem(provider, apiKey) {
+  if (!String(provider?.baseUrl || "").trim()) return { code: "AI_SETUP", text: "AI 平台的接口地址没填" };
+  if (!String(provider?.model || "").trim()) return { code: "AI_SETUP", text: "AI 平台的模型名没填" };
+  if (provider.requiresKey !== false && !String(apiKey || "").trim()) return { code: "AI_AUTH", text: "AI 平台的 API Key 没填" };
+  return null;
+}
+
 // The platform 分拣台's AI requests go to: the side panel's pick (aiProviderId), else the first enabled one. 开启思考
 // (triage-settings-get) asks the same, so the switch shows exactly when the requests would carry it.
 async function triageProvider(providerId = "") {
@@ -630,6 +651,8 @@ async function triageChat(messages, maxTokens, thinking = false, providerId = ""
   const provider = await triageProvider(providerId);
   if (!provider) throw triageError("请先在设置页配置 AI 平台", "AI_SETUP");
   const apiKey = (await loadAiProviderKeys())[provider.id];
+  const problem = aiProviderProblem(provider, apiKey);
+  if (problem) throw triageError(problem.text, problem.code);
   const headers = { "Content-Type": "application/json" };
   if (apiKey) headers.Authorization = `Bearer ${apiKey}`;
   const baseUrl = String(provider.baseUrl || "").replace(/\/+$/, "");
@@ -658,12 +681,8 @@ async function triageChat(messages, maxTokens, thinking = false, providerId = ""
       throw denied ? triageError(denied) : triageError(AI_NETWORK_TEXT, "AI_NETWORK");
     });
     if (!res.ok) throw triageAiHttpError(res.status, await res.text().catch(() => ""));
-    // A body that is not JSON is this request's failure, in Chinese (not JSON.parse's SyntaxError).
-    const json = await res.json().catch(() => {
-      throw triageError("AI 平台的回复不是 JSON");
-    });
-    const bodyError = triageAiBodyError(json);
-    if (bodyError) throw bodyError;
+    // A body that is not JSON is this request's failure.
+    const json = await triageAiJson(res);
     const choice = json.choices?.[0];
     if (!choice?.message?.content && choice?.finish_reason === "length") {
       throw triageError("模型输出被截断");
