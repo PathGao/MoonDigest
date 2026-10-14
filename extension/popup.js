@@ -30,11 +30,6 @@ let onVideoPage = true;
 // Only for when get-settings fails.
 const DEFAULT_SETTINGS = MdgSettings.DEFAULTS;
 
-function formatLocalDate(value = Date.now()) {
-  const date = value instanceof Date ? new Date(value.getTime()) : new Date(value);
-  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
-}
-
 init().catch((error) => {
   setStatus(`初始化失败：${error.message}`, true);
 });
@@ -241,7 +236,7 @@ function render(payload, { preserveStatus = false } = {}) {
 
   setText(el.propTitle, payload.title || "-");
   setText(el.propUrl, payload.url || "-");
-  setText(el.propCreated, formatLocalDate());
+  setText(el.propCreated, MdgDownload.dateStamp());
   setText(el.propTags, payload.tags || "MoonDigest");
   el.propTitle.title = payload.title || "";
   setText(el.videoTitle, payload.title);

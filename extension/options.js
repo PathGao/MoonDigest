@@ -158,7 +158,7 @@ function init() {
       elements.noteFolder.dispatchEvent(new Event("input", { bubbles: true }));
     });
   });
-  elements.filenameSample.textContent = `${new Date().toLocaleDateString("sv-SE")}-视频标题.md`;
+  elements.filenameSample.textContent = `${MdgDownload.dateStamp()}-视频标题.md`;
   trackCurrentSection();
 }
 
@@ -194,9 +194,7 @@ function trackCurrentSection() {
 async function exportSettingsFile() {
   const resp = await sendRuntimeMessage({ type: "settings-export" }).catch((e) => ({ error: e.message }));
   if (!resp?.ok) return setStatus(`导出失败：${resp?.error || "未知错误"}`, true);
-  const d = new Date();
-  const date = `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, "0")}${String(d.getDate()).padStart(2, "0")}`;
-  MdgDownload.text(`MoonDigest设置-${date}.json`, JSON.stringify(resp.file, null, 2), "application/json");
+  MdgDownload.text(`MoonDigest设置-${MdgDownload.dateStamp()}.json`, JSON.stringify(resp.file, null, 2), "application/json");
   setStatus(hasUnsavedChanges ? "已导出已保存的设置，未保存的修改不在文件里" : "已导出设置");
 }
 

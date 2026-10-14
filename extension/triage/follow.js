@@ -1779,7 +1779,7 @@ main.addEventListener("click", async (e) => {
   else if (act === "tags") openManage();
   else if (act === "settings") openSettings();
   else if (act === "bili") window.open("https://space.bilibili.com/", "_blank", "noopener");
-  else if (act === "csv") MdgDownload.text(`MoonDigest-关注-${fmtDate(nowSec())}.csv`, upCsv(), "text/csv;charset=utf-8");
+  else if (act === "csv") MdgDownload.text(`MoonDigest-关注-${MdgDownload.dateStamp()}.csv`, upCsv(), "text/csv;charset=utf-8");
   else if (act === "recent") {
     F.recentFilter = !F.recentFilter;
     render();

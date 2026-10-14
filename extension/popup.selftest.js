@@ -44,7 +44,7 @@ vm.runInContext("onVideoPage = true", ctx);
   const saved = [];
   ctx.bindEvents();
   ctx.ensurePayload = async () => ({ title: "标题", markdown: "# t", filename: "2026-10-14-标题-P2-第二集.md" });
-  ctx.MdgDownload = { text: (name) => saved.push(name) };
+  ctx.MdgDownload = { ...ctx.MdgDownload, text: (name) => saved.push(name) };
   await ctx.el.mdBtn.on.click();
   assert.deepStrictEqual(saved, ["2026-10-14-标题-P2-第二集.md"]);
 })().catch((e) => (console.error(e), process.exit(1)));

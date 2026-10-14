@@ -1,5 +1,7 @@
 // node extension/history/history.selftest.js
 // Loads history.js as the page does, after the scripts history.html lists before it, on a stub DOM.
+// A morning in UTC+8 is still yesterday in UTC: a file name dated by toISOString would show it (B7).
+process.env.TZ = "Asia/Shanghai";
 const fs = require("fs");
 const path = require("path");
 const vm = require("vm");
@@ -108,6 +110,38 @@ for (const f of scripts) vm.runInContext(fs.readFileSync(f, "utf8"), ctx);
   choice = "full";
   await click();
   assert.deepStrictEqual([sent.map((m) => m.mode), els.status.textContent], [[undefined, "full"], "已写入 Obsidian：p.md"]);
+
+  // B5: each entry offers 复制 Markdown, then 下载 .md, then 写入 Obsidian (hidden while Obsidian is off), like elsewhere.
+  const at = (act) => html.indexOf(`data-act="${act}"`);
+  assert.ok(at("copy") > 0 && at("copy") < at("md"), "复制 Markdown comes before 下载 .md");
+  assert.match(html, /data-act="copy">复制 Markdown</);
+  const act = async (name) => {
+    const t = { dataset: { act: name }, closest: (s) => (s === ".entry" ? { dataset: { key: "a" } } : t) };
+    (L.list.click || []).forEach((f) => f({ target: t }));
+    await wait(20);
+  };
+  let copied = null;
+  ctx.navigator = { clipboard: { writeText: async (text) => (copied = text) } };
+  await act("copy");
+  assert.ok(copied?.startsWith("---\n"), "the entry's note is copied");
+  assert.deepStrictEqual([els.status.textContent, red], ["已复制 Markdown", false]);
+  // B4: failures are red: a copy, and opening the side panel from 继续问.
+  ctx.navigator.clipboard.writeText = async () => { throw new Error("无法访问剪贴板"); };
+  await act("copy");
+  assert.deepStrictEqual([els.status.textContent, red], ["复制失败：无法访问剪贴板", true]);
+  ctx.chrome.sidePanel = { open: async () => { throw new Error("没有窗口"); } };
+  await act("ask");
+  assert.deepStrictEqual([els.status.textContent, red], ["打开侧边栏失败：没有窗口", true]);
+
+  // B7: several entries download as one file dated by the local day, not UTC.
+  const saved = [];
+  ctx.MdgDownload = { ...ctx.MdgDownload, text: (name) => saved.push(name) };
+  const RealDate = ctx.Date;
+  vm.runInContext("Date = class extends Date { constructor(...a) { a.length ? super(...a) : super(2026, 9, 14, 7, 30); } }", ctx);
+  (L.bulkMd.click || []).forEach((f) => f({}));
+  ctx.Date = RealDate;
+  assert.deepStrictEqual(saved, ["MoonDigest视频记录-2026-10-14.md"]);
+
   console.log("history selftest: all passed");
 })().catch((e) => {
   console.error(e);
