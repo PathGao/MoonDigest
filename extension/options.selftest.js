@@ -48,6 +48,20 @@ for (const f of scripts) vm.runInContext(fs.readFileSync(path.join(__dirname, f)
 vm.runInContext(["const { escapeHtml } = MdgErrors;", fn("buildFixedPropertyValueControl")].join("\n"), ctx);
 for (const bad of XSS) assertInert(ctx.buildFixedPropertyValueControl("text", bad), "property value");
 
+// Obsidian's 测试连接 is disabled with the reason while the 地址 or the Key is empty, like an AI platform row's (H2).
+vm.runInContext(fn("syncObsidianTest"), ctx);
+const testBtn = { setAttribute() {}, removeAttribute() {} };
+Object.assign(ctx.elements, { testConnectionBtn: testBtn, obsidianApiBaseUrl: { value: "" }, obsidianApiKey: { value: " " } });
+ctx.syncObsidianTest();
+assert.deepStrictEqual([testBtn.disabled, testBtn.title], [true, "先填 Local REST API 地址和 Key"]);
+ctx.elements.obsidianApiBaseUrl.value = "http://127.0.0.1:27123";
+ctx.syncObsidianTest();
+assert.deepStrictEqual([testBtn.disabled, testBtn.title], [true, "先填 Local REST API Key"]);
+ctx.elements.obsidianApiKey.value = "k";
+ctx.syncObsidianTest();
+assert.strictEqual(testBtn.disabled, false);
+assert.ok(/button\.setAttribute\("aria-busy"[^\n]*\n  \}\n  if \(!active\) syncObsidianTest\(\);/.test(source), "setBusy(null) gives 测试连接 its reason back");
+
 // 看多少算看完了 is parsed by settings.js's normalizeSeenThreshold (settings.selftest.js); the box's range and 「默认 N」
 // come from SEEN_THRESHOLD (J15).
 assert.ok(source.includes("seenThreshold: MdgSettings.normalizeSeenThreshold(elements.seenThreshold.value),"), "options.js parses 看多少算看完了 with normalizeSeenThreshold");
