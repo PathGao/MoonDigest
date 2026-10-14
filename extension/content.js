@@ -570,17 +570,11 @@ function bindSettingsWatcher() {
         rebuildDerivedContent();
       });
     }
-    if (
-      !changes.enablePlayerAiQuickAction &&
-      !changes.aiProviders &&
-      !changes.playerAiQuickPrompt &&
-      !changes.readerTheme &&
-      !changes.readerFontScale &&
-      !changes.readerLetterSpacing &&
-      !changes.readerLineHeight &&
-      !changes.readerContentWidth &&
-      !changes.readerChapterVisible
-    ) {
+    // Any setting (sync keys of MdgSettings.DEFAULTS) or the AI platforms. Note settings (附带热门评论, 笔记属性, 笔记标签…)
+    // shape the note: the popup copies and downloads state.markdown and the side panel builds from state.settings, so
+    // both rebuild here, like 写入 Obsidian, which builds with the settings of the moment.
+    const changed = areaName === "sync" && Object.keys(changes).some((k) => k === "aiProviders" || Object.hasOwn(MdgSettings.DEFAULTS, k));
+    if (!changed) {
       return;
     }
 
@@ -590,6 +584,7 @@ function bindSettingsWatcher() {
         hydrateReaderStateFromSettings(settings);
         applyReadingViewPresentation();
         schedulePlayerAiQuickActionSync();
+        if (state.markdown && runId === state.fetchRunId) refreshDerivedContent().catch(() => {});
       })
       .catch((error) => {
         logWarn("[MDG] failed to refresh settings after storage change", error);

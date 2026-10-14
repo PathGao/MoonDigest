@@ -374,6 +374,24 @@ const settle = async () => {
     assert.deepStrictEqual(state.aiTurns, [], "a storage echo for the old video is dropped");
   }
 
+  // A5: a note setting (附带热门评论, 笔记属性, 笔记标签…) changed elsewhere reloads the settings and rebuilds the note, so
+  // the popup's copy and download and the side panel read what 写入 Obsidian would write.
+  {
+    const prev = [t.getSettings, t.refreshDerivedContent];
+    let rebuilt = 0;
+    t.getSettings = async () => ({ ...t.MdgSettings.DEFAULTS, tags: "新标签" });
+    t.refreshDerivedContent = async () => rebuilt++;
+    state.markdown = "md";
+    for (const f of listeners.storage) f({ tags: { newValue: "新标签" } }, "sync");
+    await settle();
+    assert.strictEqual(state.settings.tags, "新标签", "a note setting change reloads the settings");
+    assert.strictEqual(rebuilt, 1, "and rebuilds the note");
+    for (const f of listeners.storage) f({ someoneElsesKey: {} }, "sync");
+    await settle();
+    assert.strictEqual(rebuilt, 1, "a sync key that is not a setting changes nothing");
+    [t.getSettings, t.refreshDerivedContent] = prev;
+  }
+
   // A seek from 分拣台 names its video: a frame on another video keeps quiet, so the panel never seeks the wrong one.
   {
     const video = { paused: true, currentTime: 0 };
