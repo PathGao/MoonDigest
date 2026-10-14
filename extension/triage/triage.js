@@ -260,10 +260,13 @@ const { composing, typingIn } = globalThis.MdgTyping;
 
 const UI = globalThis.TriageUi;
 const { esc, pad, fmtDate, fmtDuration, fmtCount, cleanTagName, plainClick, img } = UI;
+// What 导出's two items hold.
+const WRITE_HINT = "摘录，或逐个视频的笔记";
+const CSV_HINT = "标题、AI 判断、标签、备注";
 // Row 2 and the sidebar foot are drawn by shared.js, as in 关注; here before el picks them up.
 $("favRowTools").insertAdjacentHTML("beforeend", UI.searchBox("searchInput", "searchCount", "搜这个收藏夹") + UI.rowButtons({
   activityId: "activity", refreshId: "refreshBtn", refreshLabel: "从 B站刷新这个收藏夹", exportId: "exportBtn", menuId: "tools",
-  menuHtml: UI.menuItem('id="writeBtn" aria-label="导出摘录或笔记"', "摘录或笔记…", "摘录，或逐个视频的笔记") + UI.menuItem('id="csvBtn" aria-label="下载这个收藏夹的表格 CSV"', "这个收藏夹的表格 (CSV)", "标题、AI 判断、标签、备注") + "<hr>" + UI.BACKUP_ITEM,
+  menuHtml: UI.menuItem('id="writeBtn" aria-label="导出摘录或笔记"', "摘录或笔记…", WRITE_HINT) + UI.menuItem('id="csvBtn" aria-label="下载这个收藏夹的表格 CSV"', "这个收藏夹的表格 (CSV)", CSV_HINT) + "<hr>" + UI.BACKUP_ITEM,
   settingsAttr: "data-open-settings", settingsLabel: "收藏夹设置"
 }));
 $("favSync").outerHTML = UI.syncPill("sync");
@@ -649,7 +652,7 @@ function renderSort() {
   el.sortBox.innerHTML = UI.sortControl({ sorts, sort, dir, words: sortWords(sort, dir), selectAttr: "data-sort", dirAttr: "data-sort-dir" });
   // 导出 → 摘录或笔记 and this folder's table: nothing to put in them without videos (a running export stays reachable).
   const empty = S.items.length ? "" : "这个收藏夹没有视频";
-  for (const [btn, sub, on] of [[el.writeBtn, "摘录，或逐个视频的笔记", writeRunning()], [el.csvBtn, "标题、AI 判断、标签、备注", false]]) {
+  for (const [btn, sub, on] of [[el.writeBtn, WRITE_HINT, writeRunning()], [el.csvBtn, CSV_HINT, false]]) {
     const small = btn.querySelector("small");
     if (small) small.textContent = empty && !on ? empty : sub;
     UI.setReason(btn, on ? "" : empty);

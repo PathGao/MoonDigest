@@ -23,6 +23,8 @@ for (const f of ["triage.html", "triage.js", "follow.js", "shared.js", "tag-dial
   assert.ok(!hit, `${f} says 「${hit}」 to the user`);
 }
 
+// H6: 导出's item hints are written once each.
+for (const hint of ["摘录，或逐个视频的笔记", "标题、AI 判断、标签、备注"]) assert.strictEqual(source.split(hint).length - 1, 1, hint);
 const stubEl = () => new Proxy({ classList: { toggle() {}, add() {}, remove() {} }, style: {}, dataset: {} }, {
   get: (o, k) => (k in o ? o[k] : () => {}),
   set: (o, k, v) => ((o[k] = v), true)
