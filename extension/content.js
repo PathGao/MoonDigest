@@ -362,7 +362,7 @@ function init() {
     schedulePlayerAiQuickActionSync();
     if (shouldEnterReaderMode) {
       enterReaderMode().catch((error) => {
-        setReadingNotice(`专注模式启动失败：${getErrorMessage(error)}`, { error: true });
+        setReadingNotice(`${MdgErrors.TEXT.readerStartFailed}：${getErrorMessage(error)}`, { error: true });
       });
     }
   });
@@ -838,7 +838,7 @@ function checkUrlChange() {
   if (!state.readingViewOpen && shouldEnterReaderMode) {
     markReaderMode();
     enterReaderMode().catch((error) => {
-      setReadingNotice(`专注模式启动失败：${getErrorMessage(error)}`, { error: true });
+      setReadingNotice(`${MdgErrors.TEXT.readerStartFailed}：${getErrorMessage(error)}`, { error: true });
     });
     return;
   }

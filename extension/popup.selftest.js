@@ -93,6 +93,10 @@ setTimeout(() =>
     assert.strictEqual(ctx.el.status.textContent, `${T.videoReadFailed}：网络断了`);
     await ctx.el.subtitleSelect.on.change({ target: { selectedIndex: 0, options: [{ value: "u", dataset: {} }] } });
     assert.strictEqual(ctx.el.status.textContent, `${T.subtitleSwitchFailed}：网络断了`);
+    // G5: 专注模式 that did not start reads as on the video page: TEXT.readerStartFailed and the background's reason.
+    Object.assign(ctx, { isSupportedSubtitlePage: () => true, sendToContent: async () => ({ ok: true }), sendToRuntime: async () => ({ ok: false, error: "视频页没有回应" }) });
+    await ctx.el.readingViewBtn.on.click();
+    assert.strictEqual(ctx.el.status.textContent, `${T.readerStartFailed}：视频页没有回应`);
     console.log("popup selftest: all passed");
   })().catch((e) => (console.error(e), process.exit(1)))
 );

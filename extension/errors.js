@@ -31,6 +31,8 @@
     // The popup and 专注模式 say the same for the same situation. Reading the video (its info; a subtitle failure alone
     // is subtitleMissing) failed, on 刷新, on entering 专注模式 or on its automatic refresh; followed by 「：原因」.
     videoReadFailed: "读取视频失败",
+    // 专注模式 did not start (popup, video page); followed by 「：原因」, a reason without instructions.
+    readerStartFailed: "专注模式启动失败",
     // The chosen subtitle track could not be loaded; followed by 「：原因」.
     subtitleSwitchFailed: "字幕切换失败",
     // 复制 Markdown, 下载 .md or 写入 Obsidian before the page has a note.

@@ -475,7 +475,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       .then(() => triggerReaderModeInTab(tabId, readerUrl))
       .then((triggered) => {
         if (!triggered) {
-          throw new Error("专注模式打开失败，请刷新网页重试");
+          // The reason only: the page says MdgErrors.TEXT.readerStartFailed in front of it.
+          throw new Error("视频页没有回应");
         }
         sendResponse({ ok: true });
       })

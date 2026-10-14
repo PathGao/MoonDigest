@@ -138,7 +138,7 @@ function bindEvents() {
     }).catch((error) => ({ ok: false, error: error.message }));
     setBusy(el.readingViewBtn, false);
     if (!resp?.ok) {
-      setStatus(`打开失败：${resp?.error || "未知错误"}`, true);
+      setStatus(`${MdgErrors.TEXT.readerStartFailed}：${resp?.error || "未知错误"}`, true);
       return;
     }
     setStatus("专注模式已打开");
