@@ -611,7 +611,8 @@ const runSync = async () => {
       sent = { messages, maxTokens, thinking, providerId };
       return { content: '{"new_tags":["动画","x1","x2","x3","x4","x5"],"items":[{"i":1,"add":["硬核","不存在"]},{"i":2,"add":["动画"],"remove":["硬核"]}],"note":"好"}' };
     };
-    const r = plain(await t.followAiTag({ instruction: "按内容分", mids: [1, "2", "99"], aiProviderId: "b" }));
+    const ask = (msg) => t.followAiTag({ tags: [{ name: "硬核", rule: "讲科学" }], ...msg });
+    const r = plain(await ask({ instruction: "按内容分", mids: [1, "2", "99"], aiProviderId: "b" }));
     assert.strictEqual(sent.providerId, "b", "the side panel's platform, sent by the page");
     assert.ok(sent.messages[1].content.endsWith("1|甲|讲物理|知识|量子|\n2|乙|||新番|硬核"), sent.messages[1].content);
     assert.ok(sent.messages[0].content.includes("硬核：讲科学") && sent.messages[0].content.includes("remove 留空"), "add-only by default");
@@ -625,25 +626,20 @@ const runSync = async () => {
     assert.deepStrictEqual(r.assignments, { 1: { add: ["硬核"], remove: [] }, 2: { add: ["动画"], remove: [] } }, "unknown tags and removes dropped; 99 not followed");
     const chat = t.triageChat;
     t.triageChat = async (...a) => (await chat(...a), { content: '{"new_tags":["新"],"items":[{"i":1,"add":["新"],"remove":["硬核"]}],"note":"n"}' });
-    const r2 = plain(await t.followAiTag({ instruction: "x", mids: ["2"], maxNewTags: 0, allowRemove: true }));
+    const r2 = plain(await ask({ instruction: "x", mids: ["2"], maxNewTags: 0, allowRemove: true }));
     assert.ok(sent.messages[0].content.includes("这次不能新建标签") && sent.messages[0].content.includes("remove 只能填"));
     assert.deepStrictEqual(r2, { newTags: [], assignments: { 2: { add: [], remove: ["硬核"] } }, note: "n" }, "remove only when allowed, no new tags at 0");
     // K10: triageAiCommand reads maxNewTags as the newTagMax setting: not a number is its default, above max is max.
-    await t.followAiTag({ instruction: "x", mids: ["2"], maxNewTags: "x" });
+    await ask({ instruction: "x", mids: ["2"], maxNewTags: "x" });
     assert.ok(sent.messages[0].content.includes(`至多 ${t.TriageUi.NUM_SETTINGS.newTagMax[2]} 个`), "invalid maxNewTags is newTagMax's default");
-    await t.followAiTag({ instruction: "x", mids: ["2"], maxNewTags: 999 });
+    await ask({ instruction: "x", mids: ["2"], maxNewTags: 999 });
     assert.ok(sent.messages[0].content.includes(`至多 ${t.TriageUi.NUM_SETTINGS.newTagMax[1]} 个`), "maxNewTags is capped at newTagMax's max");
     t.triageChat = async () => ({ content: '{"new_tags":[],"items":[{"i":1,"add":["硬核"' });
-    await assert.rejects(t.followAiTag({ instruction: "x", mids: ["1"] }), /不完整/, "truncated answer");
-    await assert.rejects(t.followAiTag({ instruction: "x", mids: ["99"] }), /缺少 mids/);
-    // 关注's own follow_ai_settings win over the 收藏夹 values when the page sends none.
-    sync = { follow_ai_settings: { newTagMax: 0, allowRemove: true }, triageAiNewTagMax: 5, triageAiRemoveTags: false };
-    t.triageChat = async (...a) => (await chat(...a), { content: '{"new_tags":["新"],"items":[{"i":1,"add":["新"],"remove":["硬核"]}],"note":"n"}' });
-    const r3 = plain(await t.followAiTag({ instruction: "x", mids: ["2"] }));
-    assert.deepStrictEqual(r3, { newTags: [], assignments: { 2: { add: [], remove: ["硬核"] } }, note: "n" }, "follow_ai_settings used, not triageAi*");
-    sync = { follow_ai_settings: { newTagMax: -3 } };
-    t.triageChat = async (...a) => (await chat(...a), { content: '{"new_tags":["动画","x1","x2","x3","x4","x5"],"items":[{"i":1,"add":["动画"]}],"note":""}' });
-    assert.strictEqual((await t.followAiTag({ instruction: "x", mids: ["2"] })).newTags.length, 5, "a stored negative cap is the default 5, not 0");
+    await assert.rejects(ask({ instruction: "x", mids: ["1"] }), /不完整/, "truncated answer");
+    await assert.rejects(ask({ instruction: "x", mids: ["99"] }), /缺少 mids/);
+    // The page always sends tags, maxNewTags and allowRemove (follow.js aiRequests); without tags it is refused.
+    await assert.rejects(t.followAiTag({ instruction: "x", mids: ["2"] }), /缺少 tags/);
+    assert.ok(!/follow_ai_settings|triageAiNewTagMax|triageAiRemoveTags/.test(fs.readFileSync(path.join(__dirname, "follow-bg.js"), "utf8")), "follow-bg.js reads no AI 打标签 settings of its own");
     sync = {};
   }
 
