@@ -4493,7 +4493,7 @@ function onKey(e) {
   const nav = { j: 1, ArrowDown: 1, k: -1, ArrowUp: -1 };
   const cardKeys = { d: "unfav", s: "keep", t: "tag", e: "basket", q: "ask", x: "select", o: "open", Enter: "open" };
   if (key === "Escape" && S.viewing) closeViewer();
-  // Esc with nothing else open clears the selection, so cards play on a click again.
+  // Esc with nothing else open clears the selection.
   else if (key === "Escape" && S.selected.size && !document.querySelector(":popover-open")) {
     S.selected.clear();
     render();

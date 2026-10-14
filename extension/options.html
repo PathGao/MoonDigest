@@ -156,7 +156,7 @@
           <p id="aiPromptsLater" class="ai-later">加好平台后，这里会出现系统提示词、AI 总结要求、播放器上的 ✦ AI 按钮和快捷追问。</p>
           <div id="aiPromptRows">
             <div class="row wide">
-              <div class="lab"><label class="name" for="aiSystemPrompt">系统提示词</label><p class="hint">每次回答都遵守的规则：语言、长短、时间戳格式。总结格式写在下面的「AI 总结要求」里。</p></div>
+              <div class="lab"><label class="name" for="aiSystemPrompt">系统提示词</label><p class="hint">每次回答都遵守的规则：语言、长短、时间戳格式。总结格式写在「AI 总结要求」里。</p></div>
               <div class="ctl"><textarea id="aiSystemPrompt" rows="7" placeholder="例如：用中文回答；尽量简洁；引用内容时带时间戳。"></textarea></div>
             </div>
             <div class="row wide">
@@ -168,7 +168,7 @@
               <div class="ctl"><input id="enablePlayerAiQuickAction" type="checkbox" class="switch" /></div>
             </div>
             <div class="row wide">
-              <div class="lab"><label class="name" for="aiPresetPrompts">快捷追问</label><p class="hint">有回答后出现在输入框上方，点一下就发。每行一条，最多 12 条。侧边栏「管理快捷追问」里也能改。</p></div>
+              <div class="lab"><label class="name" for="aiPresetPrompts">快捷追问</label><p class="hint">有回答后出现在侧边栏里，点一下就发。每行一条，最多 12 条。侧边栏「管理快捷追问」里也能改。</p></div>
               <div class="ctl"><textarea id="aiPresetPrompts" rows="4"></textarea></div>
             </div>
           </div>
@@ -193,7 +193,7 @@
             </div>
           </div>
           <div class="row" data-seen-mark-row>
-            <div class="lab"><label class="name" for="seenThreshold">看到多少算看完了</label><p class="hint">到了的带 ✓，用下面选的样式；没到的只在角上写浅色小字。</p></div>
+            <div class="lab"><label class="name" for="seenThreshold">看到多少算看完了</label><p class="hint">到了的带 ✓，样式在「看完了标记样式」里选；没到的只在角上写浅色小字。</p></div>
             <div class="ctl"><input id="seenThreshold" type="number" min="1" max="100" step="1" /> %</div>
           </div>
           <div class="row" data-seen-mark-row>
@@ -232,11 +232,11 @@
             <div class="ctl"><input id="showBiliTriageBadges" type="checkbox" class="switch" /></div>
           </div>
           <div class="row">
-            <div class="lab"><label class="name" for="showBiliUpTags">在 B站页面显示 UP 标签</label><p class="hint">你在分拣台「关注」里给 UP 打的标签，显示在 B站页面的 UP 名字后面，旁边有「+ UP 标签」。</p></div>
+            <div class="lab"><label class="name" for="showBiliUpTags">在 B站页面显示 UP 标签</label><p class="hint">你在分拣台「关注」里给 UP 打的标签，显示在 B站页面的 UP 名字后面，还有「+ UP 标签」。</p></div>
             <div class="ctl"><input id="showBiliUpTags" type="checkbox" class="switch" /></div>
           </div>
           <div class="row wide">
-            <div class="lab"><span class="name">B站页面上显示什么</span><p class="hint">取消勾选，那个位置就不显示。「–」是那里不放的。上面的开关关着时，对应的列不起作用；「观看进度」这一列还要在上面的「观看进度」里打开封面显示。</p></div>
+            <div class="lab"><span class="name">B站页面上显示什么</span><p class="hint">取消勾选，那个位置就不显示。「–」是那里不放的。「在 B站页面显示…」开关关着时，对应的列不起作用；「观看进度」这一列还要在「观看进度」里打开封面显示。</p></div>
             <table class="data marks">
               <thead><tr id="biliMarksHead"></tr></thead>
               <tbody id="biliMarks"></tbody>
@@ -270,7 +270,7 @@
               <ol class="guide">
                 <li><b>装插件</b><span>在 Obsidian 社区插件里装好并启用 <strong>Local REST API with MCP</strong>。</span></li>
                 <li><b>开 HTTP</b><span>插件设置里勾选 <strong>Enable Non-encrypted (HTTP) Server</strong>，地址通常是 <code>http://127.0.0.1:27123</code>。</span></li>
-                <li><b>填 Key</b><span>复制插件里的 API Key，填到下面，点「测试连接」。</span></li>
+                <li><b>填 Key</b><span>复制插件里的 API Key，填到「Local REST API Key」，点「测试连接」。</span></li>
               </ol>
             </details>
             <div class="row">
@@ -287,7 +287,7 @@
             <div class="row">
               <div class="lab"></div>
               <div class="ctl test-line">
-                <button id="testConnectionBtn" class="sm" type="button" title="用上面的地址和 Key 连一次 Obsidian 的 Local REST API">测试连接</button>
+                <button id="testConnectionBtn" class="sm" type="button" title="用填好的地址和 Key 连一次 Obsidian 的 Local REST API">测试连接</button>
                 <span id="obsidianTestResult" role="status"></span>
               </div>
             </div>
