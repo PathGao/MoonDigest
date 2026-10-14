@@ -359,12 +359,12 @@ async function triageToviewList() {
 // Bilibili keeps about three months of history. Only what is new since the last read is fetched, at most every
 // SEEN_GAP_MS and only when a page asks (the triage page or a Bilibili page opening), so it reads no more than the user
 // browsing their own history page would. Each video keeps two numbers under seen_<bvid>: [best percent, last view_at].
-const SEEN_GAP_MS = 10 * 60 * 1000;
+const SEEN_GAP_MS = MdgLimits.SEEN_GAP_MS;
 const SEEN_BACKOFF_MS = 30 * 60 * 1000;
 const SEEN_PAGE_GAP_MS = 5000;
 const SEEN_MAX_PAGES = 60;
-const SEEN_KEEP_S = 365 * 86400;
-const SEEN_MAX = 5000;
+const SEEN_KEEP_S = MdgLimits.SEEN_KEEP_DAYS * 86400;
+const SEEN_MAX = MdgLimits.SEEN_MAX;
 const SEEN_PRUNE_GAP_MS = 86400 * 1000;
 const SEEN_META = MdgLimits.KEYS.triageSeenMeta; // { newest: view_at s, syncedAt, prunedAt, backoffUntil, resume }
 

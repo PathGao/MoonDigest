@@ -118,6 +118,8 @@ function init() {
   const { min, max, def } = MdgSettings.SEEN_THRESHOLD;
   Object.assign(elements.seenThreshold, { min, max, placeholder: `默认 ${def}` });
   TriageUi.fillNumHints(document);
+  // 观看进度's caps, as the 数据与存储 table states them (limits.js).
+  for (const node of document.querySelectorAll("[data-seen-limits]")) node.textContent = MdgLimits.SEEN_LIMITS_TEXT;
   // Same for 追问: blank, repeated and past-12 lines are dropped from the box, not only from what is saved.
   elements.aiPresetPrompts.addEventListener("change", () => (elements.aiPresetPrompts.value = readFormPayload().aiPresetPrompts.join("\n")));
   // The side panel edits 追问 too. Follow it unless the box has an unsaved edit, so the next save does not put the old list back.

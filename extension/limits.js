@@ -13,6 +13,12 @@
   const AI_HISTORY_MAX_CHARS = 40000;
   const TRIAGE_RECENT_UNFAV = 50;
   const TRIAGE_UNDO_STEPS = 20;
+  // 观看进度 (triage-bg.js): B站 history read at most every SEEN_GAP_MS; seen_<bvid> kept SEEN_KEEP_DAYS, at most SEEN_MAX.
+  const SEEN_GAP_MS = 10 * 60 * 1000;
+  const SEEN_KEEP_DAYS = 365;
+  const SEEN_MAX = 5000;
+  // The same caps in words: the 数据与存储 row and the 观看进度 hint on the options page.
+  const SEEN_LIMITS_TEXT = `最多 ${SEEN_GAP_MS / 60000} 分钟一次，留最近 ${SEEN_KEEP_DAYS % 365 ? `${SEEN_KEEP_DAYS} 天` : `${SEEN_KEEP_DAYS / 365} 年`}、最多 ${SEEN_MAX} 个`;
 
   // chrome.storage.local key names more than one file uses, written only here; storageUsage counts the capped ones.
   // Never change a value: the user's data is stored under it (the one rename, in 3.6, ships with migrateRenamedKeys below). A key built at run time has a function beside its prefix.
@@ -97,6 +103,7 @@
       folderSnapshotSize: sizeOf(snapshots),
       triageRemoved: Object.keys(all[KEYS.triageRemoved] || {}).length,
       triageNotes: Object.keys(all[KEYS.triageNotes] || {}).length,
+      seen: keys.filter((key) => key.startsWith("seen_")).length,
       totalSize: sizeOf(Object.entries(all))
     };
   }
@@ -171,6 +178,11 @@
         rule: "不自动删。在侧边栏、分拣台或视频记录页里修改。"
       },
       {
+        label: "观看进度",
+        usage: `${count(usage.seen)} / ${SEEN_MAX} 个视频`,
+        rule: `「封面显示」不是「关」时读 B站历史记录，${SEEN_LIMITS_TEXT}，勾选收藏夹里的视频不删。选「关」时全部删掉。`
+      },
+      {
         label: "本地数据合计",
         usage: `约 ${size(usage.totalSize)}`,
         rule: "这些数据和设置、其他记录，都存在这台电脑的浏览器里。"
@@ -186,6 +198,10 @@
     AI_HISTORY_MAX_CHARS,
     TRIAGE_RECENT_UNFAV,
     TRIAGE_UNDO_STEPS,
+    SEEN_GAP_MS,
+    SEEN_KEEP_DAYS,
+    SEEN_MAX,
+    SEEN_LIMITS_TEXT,
     KEYS,
     storageUsage,
     describe,
