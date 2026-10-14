@@ -701,16 +701,20 @@ async function followPage({ store = {}, handlers = {}, setup = () => {} } = {}) 
 
   // J8: an empty list says why: the search, else the filters, else the group is empty.
   {
-    const p = await followPage({ store: page({ follow_unfollowed: { u3: { at: sec - DAY, source: "app", name: "丙" } } }) });
+    const p = await followPage({ store: page({ follow_unfollowed: { u3: { at: sec - DAY, source: "app", name: "丙" } }, follow_tags: [{ id: "t1", name: "科普", color: "#111" }], follow_tag_map: { u1: ["t1"] } }) });
     const { F, E } = p.FW;
+    // J10: row 4's chip says what it lists.
+    assert.ok(E.tagRow.innerHTML.includes('title="可多选：只显示同时带有所选标签的 UP 主"'), E.tagRow.innerHTML);
     F.side = "g:-10";
     p.FW.render();
     assert.ok(E.list.innerHTML.includes("这个分组没有 UP 主"), E.list.innerHTML);
     F.side = "all";
-    F.tagState = "tagged";
+    F.tagState = "untagged";
+    F.tags = new Set(["t1"]);
     p.FW.render();
     assert.ok(E.list.innerHTML.includes("没有符合筛选的 UP 主"), E.list.innerHTML);
     F.tagState = "";
+    F.tags = new Set();
     // J9: #follow&up= into 已出分拣范围 (u3 unfollowed) and back clears the selection, as the sidebar does.
     const hash = async (up) => {
       p.ctx.location.hash = `#follow&up=${up}`;
