@@ -541,14 +541,20 @@
     return [...tally.values()].sort((a, b) => (a.cls === "remove") - (b.cls === "remove") || b.n - a.n);
   }
 
-  // Headroom (DESIGN 视觉设计 · 分拣台): reading down folds rows 1–4 into the slim bar (name · count, row 2); any scroll back up, the
-  // top, or focus in the header brings them back. s = { collapsed, last }; ev = { top, full } on a scroll of the list
-  // (full: the whole header's height) or { focus: true }. last moves only on a step of HEADROOM_MIN px or more, so a slow
-  // scroll still counts and jitter does not.
+  // Headroom (DESIGN 视觉设计 · 分拣台): reading down folds rows 1–4 into the slim bar (name · count, row 2); scrolling back
+  // up HEADROOM_UP px from the deepest point, the top, or focus in the header brings them back. The rows are long-lived
+  // settings, so a glance back at a few cards keeps them folded. s = { collapsed, last }; ev = { top, full } on a scroll of
+  // the list (full: the whole header's height) or { focus: true }. Unfolded, last moves only on a step of HEADROOM_MIN px
+  // or more, so a slow scroll still counts and jitter does not; folded, last is the deepest point.
   const HEADROOM_MIN = 8;
+  const HEADROOM_UP = 400;
   function headroomStep(s, ev) {
     if (ev.focus) return { ...s, collapsed: false };
     if (ev.top <= 0) return { collapsed: false, last: 0 };
+    if (s.collapsed) {
+      if (ev.top > s.last) return { collapsed: true, last: ev.top };
+      return s.last - ev.top >= HEADROOM_UP ? { collapsed: false, last: ev.top } : s;
+    }
     const d = ev.top - s.last;
     if (Math.abs(d) < HEADROOM_MIN) return s;
     return { collapsed: d > 0 && ev.top > ev.full, last: ev.top };
