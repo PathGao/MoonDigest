@@ -126,7 +126,7 @@ async function updateAiSectionInVault(vault, filepath, section, noteKey, existin
 // The two rewritten forms mirror note.js buildFrontMatter ("cover") and buildMarkdown (cover image line).
 async function linkCoverInVault(vault, filepath, content, cover) {
   const url = String(cover?.url || "");
-  const name = String(cover?.name || "").replace(/[\\/:*?"<>|#^[\]]/g, "_");
+  const name = cover?.name ? MdgSites.sanitizeFileName(cover.name) : "";
   if (!url || !name || !content.includes(url)) {
     return content;
   }
