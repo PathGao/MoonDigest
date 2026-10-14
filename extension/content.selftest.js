@@ -650,6 +650,12 @@ const settle = async () => {
         assert.deepStrictEqual([reply, messages.at(-1)], [undefined, "已更新 AI 问答：p.md"]);
       }
     }
+    // G3: the note goes with its subtitle state, which the background's result starts with.
+    [sent, messages, choice] = [[], [], ""];
+    Object.assign(state, { subtitleFailure: "网络断了", subtitleNeedLogin: false, subtitleWarning: "" });
+    await t.sendToObsidian();
+    assert.strictEqual(sent[0].page.warning, "字幕抓取失败：网络断了。");
+    state.subtitleFailure = "";
     // A failed write answers the popup and the side panel with the reason and code, not a success.
     t.sendRuntimeMessage = async () => ({ ok: false, error: t.MdgErrors.TEXT.obsidianDown, code: "OBSIDIAN_DOWN" });
     assert.deepStrictEqual({ ...(await t.sendToObsidian()) }, { ok: false, error: t.MdgErrors.TEXT.obsidianDown, code: "OBSIDIAN_DOWN" });

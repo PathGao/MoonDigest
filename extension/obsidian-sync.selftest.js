@@ -118,9 +118,9 @@ const write = (extra) => send({ type: "write-video-note", ...extra });
   resp = await write({ ref: yt, conversation: conversation("q") });
   assert.deepStrictEqual([resp.kind, resp.path, resp.text], ["conversation", "N/youtube/【AI笔记】Y.md", "已写入 Obsidian：N/youtube/【AI笔记】Y.md（单独的对话笔记）"]);
   assert.ok(vault.get(resp.path).includes("[[N/youtube/Y|Y]]") && vault.get(resp.path).includes("## q"));
-  // The video page open: its note, its cover.
-  resp = await write({ ref: yt, conversation: conversation("q"), page: { markdown: "# 页面笔记", cover: "" } });
-  assert.deepStrictEqual([resp.kind, resp.path], ["full", "N/youtube/Y.md"]);
+  // The video page open: its note, its cover, and the result starts with its subtitle state (G3) as for a built note.
+  resp = await write({ ref: yt, conversation: conversation("q"), page: { markdown: "# 页面笔记", cover: "", warning: "字幕抓取失败：网络断了。" } });
+  assert.deepStrictEqual([resp.kind, resp.path, resp.text], ["full", "N/youtube/Y.md", "字幕抓取失败：网络断了。已写入 Obsidian：N/youtube/Y.md"]);
   assert.ok(vault.get("N/youtube/Y.md").startsWith("# 页面笔记") && vault.get("N/youtube/Y.md").includes("### 问：q"));
   // An empty body never reaches the vault: a video that changed mid-write must not blank its note.
   log.splice(0);

@@ -762,9 +762,7 @@ async function triageBuildNote(bvid, settings) {
   const { track, body, bundle } = found;
   const subtitleFailure = found.failure;
   const subtitleNeedLogin = found.needLogin;
-  const subtitleWarning = found.mismatch
-    ? MdgNote.subtitleMismatchWarning(found.mismatch)
-    : subtitleFailure || subtitleNeedLogin ? `${MdgErrors.subtitleMissing({ subtitleFailure, subtitleNeedLogin })}。` : "";
+  const subtitleWarning = MdgNote.noteSubtitleWarning(found.mismatch ? MdgNote.subtitleMismatchWarning(found.mismatch) : "", { subtitleFailure, subtitleNeedLogin });
   const hotComments =
     settings.includeHotCommentsInNote || !body.length ? await site.fetchComments(ref, meta, io).catch(() => []) : [];
   const noteMeta = { ...MdgNote.noteMetaOf({ site: "bilibili", videoId: bvid, meta, bundle, track }), hotComments, subtitleFailure, subtitleNeedLogin };

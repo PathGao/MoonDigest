@@ -1278,6 +1278,8 @@ function getPopupPayload() {
     message: state.messageText || "",
     subtitlePreview: buildSubtitlePreview(state.subtitleBody || [], state.settings || DEFAULT_SETTINGS),
     markdown: state.markdown || "",
+    // What 写入 Obsidian's result starts with for this note (the side panel sends it with the note as page.warning).
+    noteWarning: MdgNote.noteSubtitleWarning(state.subtitleWarning, state),
     // 下载 .md: the same name as the note 写入 Obsidian writes (MdgNote.buildNoteFilename).
     filename: MdgNote.buildNoteFilename(state, state.settings || DEFAULT_SETTINGS),
     srt: state.srt || "",
@@ -1303,7 +1305,7 @@ async function sendToObsidian() {
   // Taken before the overwrite dialog: autoplay or a link can change the video (and reset state) while it is open.
   const clip = computeCurrentClipSignature();
   const ref = { site: state.site, videoId: state.videoId, cid: state.cid, pageIndex: state.pageIndex, pageCount: state.pageCount, pageTitle: state.pageTitle, title: state.title, author: state.author, uploadDate: state.uploadDate, url: cleanVideoUrl() };
-  const request = { type: "write-video-note", ref, page: { markdown: state.markdown, cover: state.cover } };
+  const request = { type: "write-video-note", ref, page: { markdown: state.markdown, cover: state.cover, warning: MdgNote.noteSubtitleWarning(state.subtitleWarning, state) } };
   // Answering the dialog closes the popup, so after it progress and results also show on the page.
   let onPage = false;
   const report = (text, ok) => {

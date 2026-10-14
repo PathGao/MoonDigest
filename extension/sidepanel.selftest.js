@@ -196,9 +196,10 @@ const chatOn = (context) => {
     // The tab shows this video: its settled note goes along.
     activeTab = { id: 4, url: video.url };
     const realTab = ctx.sendMessageToActiveTab;
-    ctx.sendMessageToActiveTab = async (id, m) => (m.type === "popup-refresh" ? { ok: true, payload: { url: video.url, markdown: "# 页面", cover: "c" } } : null);
+    // G3: with the page's subtitle state, so the result starts with it as for a note the background builds.
+    ctx.sendMessageToActiveTab = async (id, m) => (m.type === "popup-refresh" ? { ok: true, payload: { url: video.url, markdown: "# 页面", cover: "c", noteWarning: "未登录 B站，拿不到字幕。" } } : null);
     await write(() => "full", video);
-    assert.deepStrictEqual(JSON.parse(JSON.stringify(sent[1].page)), { markdown: "# 页面", cover: "c" });
+    assert.deepStrictEqual(JSON.parse(JSON.stringify(sent[1].page)), { markdown: "# 页面", cover: "c", warning: "未登录 B站，拿不到字幕。" });
     ctx.sendMessageToActiveTab = realTab;
     ctx.sendRuntimeMessage = realSend;
 

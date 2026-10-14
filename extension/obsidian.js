@@ -151,7 +151,8 @@ async function linkCoverInVault(vault, filepath, content, cover) {
 
 // write-video-note: the one write of a video's note, from the video page, the side panel, 视频记录 and 逐个视频笔记.
 // ref: the video (or a web page's context). conversation: { messages } for the AI 问答 section; left out, the video's
-// latest saved conversation. page: { markdown, cover } from the open video page. mode: left out, an existing note is
+// latest saved conversation. page: { markdown, cover, warning } from the open video page (warning: its
+// MdgNote.noteSubtitleWarning, which the result starts with as for a note built here). mode: left out, an existing note is
 // not touched and the answer is ask; "full" writes the whole note; "ai" replaces only the AI 问答 section of an existing
 // note and writes a missing one whole.
 // Resolves { ask: true, path, hasAiSection } or { path, kind: full | ai | unchanged | conversation, text, title }.
@@ -186,7 +187,7 @@ async function writeVideoNote({ ref: input, mode, conversation, page }) {
     // 「附带 AI 问答」 off: a conversation the user writes still reaches Obsidian, beside the note.
     target = standalone("（单独的对话笔记）", computedPath());
   } else if (page?.markdown) {
-    target = { video: true, path: computedPath(), body: async () => ({ markdown: page.markdown, cover: { url: page.cover, name: `${ref.site}-${ref.videoId}` } }) };
+    target = { video: true, path: computedPath(), body: async () => ({ markdown: page.markdown, cover: { url: page.cover, name: `${ref.site}-${ref.videoId}` }, warning: String(page.warning || "") }) };
   } else if (ref.site === "bilibili" && ref.pageIndex === 1) {
     // Without the page only a B站 P1 note can be built (triageBuildNote). A known path skips the build until the
     // body is needed; otherwise the API meta names the path ({{author}}, {{upload_date}}) and the cid the key.

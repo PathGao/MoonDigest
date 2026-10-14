@@ -1830,7 +1830,7 @@ async function openPageNote(ref) {
   }
   const resp = await sendMessageToActiveTab(tab.id, { type: "popup-refresh" }, 1).catch(() => null);
   const page = resp?.ok ? resp.payload : null;
-  return page?.markdown && doesTabMatchContextUrl(page.url, ref.url) ? { markdown: page.markdown, cover: page.cover } : undefined;
+  return page?.markdown && doesTabMatchContextUrl(page.url, ref.url) ? { markdown: page.markdown, cover: page.cover, warning: page.noteWarning } : undefined;
 }
 
 function getReadableText(value, fallback = "") {
