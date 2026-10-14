@@ -256,6 +256,10 @@ assert.throws(() => t.triageParseCommand('{"new_tags":[', cmdItems, cmdTags, {})
     t.fetch = async (url) => ({ ok: true, json: async () => ({ choices: [{ message: { content: url } }] }) });
     const host = async (id) => (await t.triageChat([], 100, false, id)).content.split("/")[2];
     assert.deepStrictEqual([await host("b"), await host(""), await host("gone"), await host("off")], ["b.test", "a.test", "a.test", "a.test"]);
+    // C6: 开启思考 shows by the platform the requests go to, not by the first one.
+    t.loadAiProviders = async () => [{ id: "a", baseUrl: "https://api.openai.com/v1" }, { id: "b", baseUrl: "https://api.deepseek.com/v1" }];
+    const toggle = async (msg) => (await vm.runInContext("TRIAGE_HANDLERS", ctx)["triage-settings-get"](msg)).thinkingToggle;
+    assert.deepStrictEqual([await toggle({ aiProviderId: "b" }), await toggle({}), await toggle({ aiProviderId: "gone" })], [true, false, false]);
   }
   t.loadAiProviders = async () => [{ id: "p", baseUrl: "https://ai.test", model: "m" }];
 

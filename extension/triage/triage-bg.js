@@ -608,6 +608,13 @@ function triageAiBodyError(json) {
   return triageError(/[\u4e00-\u9fff]/.test(detail) ? `AI 平台返回错误：${detail}` : "AI 平台返回错误");
 }
 
+// The platform 分拣台's AI requests go to: the side panel's pick (aiProviderId), else the first enabled one. 开启思考
+// (triage-settings-get) asks the same, so the switch shows exactly when the requests would carry it.
+async function triageProvider(providerId = "") {
+  const enabled = (await loadAiProviders()).filter((p) => p.enabled !== false);
+  return enabled.find((p) => p.id === providerId) || enabled[0] || null;
+}
+
 // 单次 AI 请求的超时（毫秒）。思考模式慢得多；两档都要短于 MV3 单个消息事件约 5 分钟的上限
 const TRIAGE_AI_TIMEOUT_MS = { normal: 120000, thinking: 240000 };
 
@@ -615,8 +622,7 @@ const TRIAGE_AI_TIMEOUT_MS = { normal: 120000, thinking: 240000 };
 // providerId: the platform picked at the top of the side panel, which the pages send as aiProviderId (triage.js sendRaw);
 // unset or no longer enabled, the first enabled one, as in the side panel.
 async function triageChat(messages, maxTokens, thinking = false, providerId = "") {
-  const enabled = (await loadAiProviders()).filter((p) => p.enabled !== false);
-  const provider = enabled.find((p) => p.id === providerId) || enabled[0];
+  const provider = await triageProvider(providerId);
   if (!provider) throw triageError("请先在设置页配置 AI 平台", "AI_SETUP");
   const apiKey = (await loadAiProviderKeys())[provider.id];
   const headers = { "Content-Type": "application/json" };
@@ -961,9 +967,9 @@ const TRIAGE_HANDLERS = {
     return { id: data.id, title: data.title || name };
   },
 
-  "triage-settings-get": async () => {
+  "triage-settings-get": async ({ aiProviderId } = {}) => {
     const s = await chrome.storage.sync.get(TRIAGE_SETTINGS_DEFAULTS);
-    const provider = typeof loadAiProviders === "function" ? (await loadAiProviders().catch(() => [])).find((p) => p.enabled !== false) : null;
+    const provider = typeof loadAiProviders === "function" ? await triageProvider(aiProviderId).catch(() => null) : null;
     return {
       triageIntervalSec: TriageUi.numSetting("interval", s.triageIntervalSec),
       triageFineBatchSize: TriageUi.numSetting("fineBatch", s.triageFineBatchSize),
@@ -974,7 +980,8 @@ const TRIAGE_HANDLERS = {
       triageTagLimit: TriageUi.numSetting("tagLimit", s.triageTagLimit),
       triageAiNewTagMax: TriageUi.numSetting("newTagMax", s.triageAiNewTagMax),
       triageAiRemoveTags: s.triageAiRemoveTags === true,
-      // 开启思考 only reaches these platforms (triageChat), so the page shows the switch only for them.
+      // 开启思考 only reaches these platforms (triageChat), so the page shows the switch only when the platform the
+      // requests go to (triageProvider) is one of them.
       thinkingToggle: supportsThinkingToggle(provider?.baseUrl)
     };
   },
