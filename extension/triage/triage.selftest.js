@@ -1238,6 +1238,11 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   assert.strictEqual(t.createTag("c5"), null);
   assert.ok(/已经有 10 个标签/.test(toasts.at(-1)) && !t.S.tags.some((x) => x.name === "c5"));
   assert.strictEqual(t.createTag("c1").folder, "K", "an existing name is still found at the cap");
+  // K16: at the cap 标签管理's 添加 says why before the click, and the picker offers no 新建「…」, its empty list says why.
+  assert.ok(/已经有 10 个标签/.test(manageTags.addReason("c9")), manageTags.addReason("c9"));
+  t.openPicker(t.S.items[0].bvid);
+  assert.ok(!po.canCreate && /已经有 10 个标签/.test(po.empty), po.empty);
+  po = null;
   assert.strictEqual(vm.runInContext("aiNewTagRoom()", ctx), 0);
   assert.ok(aiTags.roomHint().includes("名额已满"));
   // The cap comes from 分拣设置: raising it lets c5 in, lowering it keeps existing tags but refuses new ones.
@@ -1249,6 +1254,7 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   assert.strictEqual(t.viewTags().length, 11, "lowering the cap deletes nothing");
   t.S.settings.triageTagLimit = 10;
   t.S.tags = t.S.tags.filter((x) => !/^c\d$/.test(x.name));
+  assert.deepStrictEqual([manageTags.addReason(""), manageTags.addReason("c1"), manageTags.addReason("c1x")], ["标签名不能为空", "", ""]);
   assert.strictEqual(vm.runInContext("aiNewTagRoom()", ctx), 4);
   const long = t.createTag("入门，进阶一二三四五六七八九十");
   assert.strictEqual(long.name, "入门进阶一二三四五六七八");

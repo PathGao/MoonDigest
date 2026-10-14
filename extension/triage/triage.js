@@ -2893,6 +2893,12 @@ function batchKeep(list) {
 // ---------- tags ----------
 const saveTags = () => storeSet(K.tags, S.tags);
 
+// Why the folder takes no new tag: it has tagLimit() already ("" while it has room).
+function tagCapReason(folder = S.mediaId) {
+  const n = S.tags.filter((t) => t.folder === String(folder)).length;
+  return n >= tagLimit() ? `这个收藏夹已经有 ${n} 个标签了，先删掉不用的，或在收藏夹设置里调高上限` : "";
+}
+
 // Returns the folder's tag with this name, creating it if needed; the color comes from the palette in turn.
 // null (with a toast) outside a folder or when the folder already has tagLimit() tags.
 function createTag(name, folder = S.mediaId) {
@@ -2902,7 +2908,8 @@ function createTag(name, folder = S.mediaId) {
   const own = S.tags.filter((t) => t.folder === String(folder));
   const existing = own.find((t) => t.name === name);
   if (existing) return existing;
-  if (own.length >= tagLimit()) return toast(`这个收藏夹已经有 ${own.length} 个标签了，先删掉不用的，或在收藏夹设置里调高上限`, true), null;
+  const full = tagCapReason(folder);
+  if (full) return toast(full, true), null;
   const tag = { id: newTagId(), name, color: UI.nextTagColor(own), folder: String(folder) };
   S.tags.push(tag);
   saveTags();
@@ -2969,9 +2976,14 @@ function openPicker(bvids, anchor = "", home = null) {
     // Every tag of the video, so saving keeps the ones of other folders the picker does not list.
     idsOf: (b) => (S.videoTags[b] || []).filter((id) => tagById(id)),
     tags: () => S.tags.filter((t) => folders.includes(t.folder)),
-    canCreate: one,
+    // Read at each redraw: a tag made here may fill the folder; full, no 新建「…」 and the empty list says why.
+    get canCreate() {
+      return one && !tagCapReason(folders[0]);
+    },
     create: (name) => createTag(name, folders[0]),
-    empty: one ? "输入名称后回车新建标签" : "在具体收藏夹里新建标签",
+    get empty() {
+      return !one ? "在具体收藏夹里新建标签" : tagCapReason(folders[0]) || "输入名称后回车新建标签";
+    },
     anchor,
     onClose: savePicked
   });
@@ -3103,11 +3115,9 @@ const manageTags = {
   reason: () => (inFolderView() ? "" : FOLDER_ONLY),
   tags: () => (inFolderView() ? viewTags() : []),
   count: (id) => tagCounts()[id] || 0,
+  addReason: (value) => tagCapReason() || UI.tagNameError(cleanTagName(value), viewTags()),
   add(value) {
-    const name = cleanTagName(value);
-    const why = UI.tagNameError(name, viewTags());
-    if (why) return void toast(why, true);
-    const t = createTag(name);
+    const t = createTag(value);
     if (t) render();
     return t;
   },

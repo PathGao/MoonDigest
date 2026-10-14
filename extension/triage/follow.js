@@ -1282,6 +1282,7 @@ const manageGroups = {
       <span class="muted">${n} 个 UP 主</span>
       <button type="button" class="danger" data-tag-del aria-label="删除分组 ${esc(g.name)}">删除</button>
     </div>`,
+  addReason: (name) => groupNameError(name),
   add: createGroup,
   edit: (g, field, value) => renameGroup(g, value),
   remove: deleteGroup
@@ -1370,9 +1371,8 @@ const manageTags = {
   hint: () => "UP 标签和收藏夹的视频标签分开，只存在 MoonDigest 里，不改 B站。",
   tags: () => D.tags,
   count: (id) => following().filter((m) => rows.get(m)?.tagIds.includes(id)).length,
+  addReason: (value) => UI.tagNameError(cleanTagName(value), D.tags),
   async add(value) {
-    const why = UI.tagNameError(cleanTagName(value), D.tags);
-    if (why) return void toast(why, true);
     const t = await addTag(value);
     if (t) render();
     return t;
