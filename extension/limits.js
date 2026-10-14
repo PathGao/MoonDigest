@@ -106,6 +106,15 @@
     return true;
   }
 
+  // Asks the side panel to open a video's AI chat (KEYS.playerAiQuickAction): the one shape every sender writes (the
+  // player ✦ and popup via the background, 分拣台 and 视频记录). The side panel drops a request older than 15 s by createdAt.
+  function askSidepanel({ tabId, prompt = "", contextRef = null, frameId = 0 }) {
+    const createdAt = Date.now();
+    const request = { id: `ai-${createdAt}-${Math.random().toString(36).slice(2, 8)}`, tabId: Number(tabId) || 0, prompt, createdAt };
+    if (contextRef) Object.assign(request, { contextRef, frameId: Number(frameId) || 0 });
+    return chrome.storage.local.set({ [KEYS.playerAiQuickAction]: request });
+  }
+
   // Approximate stored size: JSON length of key + value, as chrome.storage counts it (characters, not UTF-8 bytes).
   const sizeOf = (entries) => entries.reduce((sum, [key, value]) => sum + key.length + JSON.stringify(value ?? null).length, 0);
 
@@ -217,6 +226,7 @@
     sampleAiSubtitle,
     migrateRenamedKeys,
     migrateRenamedLocalStorage,
-    saveVideoNote
+    saveVideoNote,
+    askSidepanel
   });
 })();

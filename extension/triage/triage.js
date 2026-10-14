@@ -382,7 +382,7 @@ let ownTabId;
 // the same way as the player's AI 总结 button.
 function askAi(it) {
   const contextRef = { site: "bilibili", videoId: it.bvid, title: it.title, author: it.upper, url: videoUrl(it.bvid) };
-  chrome.storage.local.set({ [KEYS.playerAiQuickAction]: { id: `triage-${Date.now()}`, tabId: ownTabId, prompt: "", contextRef } });
+  MdgLimits.askSidepanel({ tabId: ownTabId, contextRef });
   chrome.sidePanel.open({ tabId: ownTabId }).catch((err) => toast(`打开侧边栏失败：${err.message}`, true));
 }
 

@@ -281,7 +281,7 @@ els.list.addEventListener("click", (event) => {
   }
   else if (act === "ask" && group) {
     // The side panel continues the video's latest conversation, the same request triage's 问 AI sends.
-    chrome.storage.local.set({ [MdgLimits.KEYS.playerAiQuickAction]: { id: `history-${Date.now()}`, tabId: OWN_TAB?.id, prompt: "", contextRef: group.context } });
+    MdgLimits.askSidepanel({ tabId: OWN_TAB?.id, contextRef: group.context });
     setStatus("正在打开侧边栏…");
     chrome.sidePanel.open({ tabId: OWN_TAB?.id }).then(
       () => els.status.textContent === "正在打开侧边栏…" && setStatus(""),

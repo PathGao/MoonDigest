@@ -139,6 +139,14 @@ for (const name of badgesCopies) assert.ok(fs.readFileSync(path.join(__dirname, 
     assert.ok(src.includes("MdgLimits.saveVideoNote(") && !/set\(\{ \[(NOTES_STORAGE_KEY|NOTES_KEY)\]|storeSet\(K\.notes, S\.notes\)/.test(src), `${f} saves a note its own way`);
   }
 
+  // The side panel's request slot has one constructor: every request carries createdAt (the panel drops stale ones).
+  await L.askSidepanel({ tabId: 3, contextRef: { videoId: "BV1" } });
+  const req = area.data.mdg_player_ai_quick_action_v1;
+  assert.ok(req.id && req.tabId === 3 && req.prompt === "" && req.createdAt > 0 && req.contextRef.videoId === "BV1" && req.frameId === 0);
+  for (const f of sources) assert.ok(!/KEYS\.playerAiQuickAction\]:/.test(fs.readFileSync(path.join(__dirname, f), "utf8")), `${f} builds the side panel request itself`);
+  const offText = "✦ AI 按钮未开启";
+  assert.deepStrictEqual(sources.filter((f) => fs.readFileSync(path.join(__dirname, f), "utf8").includes(offText)), ["background.js"], "the ✦ setting is checked once");
+
   console.log("limits selftest ok");
 })().catch((error) => {
   console.error(error);

@@ -3403,10 +3403,7 @@ async function handlePlayerAiQuickActionClick(event) {
   }
 
   try {
-    state.settings = await getSettings();
-    if (!state.settings?.enablePlayerAiQuickAction) {
-      throw new Error("✦ AI 按钮未开启");
-    }
+    // The background checks the ✦ AI 按钮 setting (one check for every sender) and answers why when it is off.
     const resp = await sendRuntimeMessage({ type: "player-ai-quick-action", contextRef: viewerContextRef() });
     if (!resp?.ok) {
       throw new Error(resp?.error || "未知错误");

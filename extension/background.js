@@ -180,16 +180,6 @@ async function openAiSidepanelForTab(tabId) {
   throw new Error("当前浏览器不支持扩展侧边栏");
 }
 
-function buildPlayerAiQuickActionRequest(tabId, prompt) {
-  const createdAt = Date.now();
-  return {
-    id: `player-ai-${createdAt}-${Math.random().toString(36).slice(2, 8)}`,
-    tabId: Number(tabId || 0) || 0,
-    prompt: MdgSettings.normalizePlayerAiQuickPrompt(prompt),
-    createdAt
-  };
-}
-
 function normalizeAiContextRef(ref) {
   const value = ref && typeof ref === "object" ? ref : {};
   return {
@@ -453,14 +443,15 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           throw new Error("✦ AI 按钮未开启");
         }
         await openPromise;
-        const request = buildPlayerAiQuickActionRequest(tabId, settings.playerAiQuickPrompt);
         // From 分拣台's viewer frame: the tab is 分拣台, so the panel takes the video by reference like 问 AI, and
         // asks that frame for it (getAiSidepanelState with frameId).
-        if (sender?.frameId && message.contextRef) {
-          request.contextRef = message.contextRef;
-          request.frameId = sender.frameId;
-        }
-        await chrome.storage.local.set({ [MdgLimits.KEYS.playerAiQuickAction]: request });
+        const viewer = sender?.frameId && message.contextRef;
+        await MdgLimits.askSidepanel({
+          tabId,
+          prompt: MdgSettings.normalizePlayerAiQuickPrompt(settings.playerAiQuickPrompt),
+          contextRef: viewer ? message.contextRef : null,
+          frameId: viewer ? sender.frameId : 0
+        });
         sendResponse({ ok: true });
       })
       .catch((error) => sendResponse({ ok: false, error: error.message || "未知错误" }));
