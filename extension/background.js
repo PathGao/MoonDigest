@@ -548,10 +548,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     const baseUrl = String(message.baseUrl || "").trim();
     const providerId = String(message.providerId || "").trim();
     const model = String(message.model || "").trim();
-    if (!baseUrl) {
-      sendResponse({ ok: false, error: "请填写接口地址" });
-      return false;
-    }
     Promise.resolve()
       .then(async () => {
         const directApiKey = String(message.apiKey || "").trim();
@@ -1138,14 +1134,16 @@ function postStreamAbort(port, abortMeta) {
   }
 }
 
+// The settings page's 测试连接 (the one place it checks 接口地址 and 模型名), answered in the words and codes of the side
+// panel and 分拣台: triageAiHttpError, AI_NETWORK_TEXT, hostPermissionError, MdgErrors.aiTimeout.
 async function testAiConnection({ baseUrl, apiKey, model }) {
   const normalizedBaseUrl = String(baseUrl || "").trim().replace(/\/+$/, "");
   const normalizedModel = String(model || "").trim();
   if (!normalizedBaseUrl) {
-    return { ok: false, error: "请填写接口地址" };
+    return { ok: false, error: "请填写接口地址", code: "AI_SETUP" };
   }
   if (!normalizedModel) {
-    return { ok: false, error: "请填写模型名" };
+    return { ok: false, error: "请填写模型名", code: "AI_SETUP" };
   }
 
   return probeAiChatCompletion({
@@ -1177,19 +1175,17 @@ async function probeAiChatCompletion({ baseUrl, apiKey, model }) {
       })
     });
   } catch (error) {
-    if (error?.name === "TimeoutError") return { ok: false, error: `连接超时：${AI_TEST_TIMEOUT_MS / 1000} 秒没有响应` };
-    return { ok: false, error: `无法连接：${error?.message || error}` };
+    if (error?.name === "TimeoutError") return { ok: false, error: MdgErrors.aiTimeout(AI_TEST_TIMEOUT_MS), code: "AI_TIMEOUT" };
+    const denied = await hostPermissionError(baseUrl);
+    return denied ? { ok: false, error: denied } : { ok: false, error: AI_NETWORK_TEXT, code: "AI_NETWORK" };
   }
 
   if (response.ok) {
     return { ok: true };
   }
 
-  let detail = "";
-  try {
-    detail = (await response.text()).slice(0, 200);
-  } catch {}
-  return { ok: false, error: `HTTP ${response.status}${detail ? `: ${detail}` : ""}` };
+  const e = triageAiHttpError(response.status, await response.text().catch(() => ""));
+  return { ok: false, error: e.message, ...(e.code && { code: e.code }) };
 }
 
 // triage/shared.js (loaded at the top) is the pages' TriageUi; it touches no DOM until called, so the worker reuses its

@@ -109,6 +109,29 @@ process.on("exit", (code) => {
   }
   ctx.loadAiProviders = async () => [{ id: "p", baseUrl: "https://ai.test", model: "m", requiresKey: false }];
 
+  // 测试连接 in the settings page: the side panel's classification, words and codes, never the raw body or English.
+  {
+    const test = (fetch, fields = {}) => ((ctx.fetch = fetch), ctx.testAiConnection({ baseUrl: "https://ai.test/v1", apiKey: "k", model: "m", ...fields }));
+    const was = ctx.hostPermissionError;
+    ctx.hostPermissionError = async () => "";
+    const failed = async () => {
+      throw new TypeError("Failed to fetch");
+    };
+    assert.deepStrictEqual({ ...(await test(async () => ({ ok: false, status: 401, text: async () => '{"error":{"message":"Incorrect API key"}}' }))) }, { ok: false, error: "AI 平台的 API Key 无效或没有权限", code: "AI_AUTH" });
+    assert.deepStrictEqual({ ...(await test(failed)) }, { ok: false, error: "连不上 AI 平台，请检查网络和接口地址", code: "AI_NETWORK" });
+    ctx.hostPermissionError = async () => "未授权访问 https://ai.test，授权后重试";
+    assert.deepStrictEqual({ ...(await test(failed)) }, { ok: false, error: "未授权访问 https://ai.test，授权后重试" });
+    const timeout = async () => {
+      throw Object.assign(new Error("timeout"), { name: "TimeoutError" });
+    };
+    assert.deepStrictEqual({ ...(await test(timeout)) }, { ok: false, error: ctx.MdgErrors.aiTimeout(vm.runInContext("AI_TEST_TIMEOUT_MS", ctx)), code: "AI_TIMEOUT" });
+    assert.deepStrictEqual([{ ...(await test(failed, { baseUrl: " " })) }, { ...(await test(failed, { model: "" })) }], [
+      { ok: false, error: "请填写接口地址", code: "AI_SETUP" },
+      { ok: false, error: "请填写模型名", code: "AI_SETUP" }
+    ]);
+    ctx.hostPermissionError = was;
+  }
+
   // Settings migration: the empty-panel chips fold into the one follow-up list, once.
   const area = (data) => ({
     data,

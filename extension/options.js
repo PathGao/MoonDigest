@@ -1331,14 +1331,7 @@ function addAiProviderRow(item = {}) {
     const baseUrl = row.querySelector(".ai-provider-baseurl").value.trim();
     const apiKey = row.querySelector(".ai-provider-apikey").value.trim();
     const model = row.querySelector(".ai-provider-model").value.trim();
-    if (!baseUrl) {
-      showAiProviderStatus(statusNode, "请填写接口地址", true);
-      return;
-    }
-    if (!model) {
-      showAiProviderStatus(statusNode, "请填写模型名", true);
-      return;
-    }
+    // The background checks 接口地址 and 模型名 (testAiConnection) and answers in the side panel's words.
     const testBtn = row.querySelector(".ai-provider-test");
     showAiProviderStatus(statusNode, "正在测试…");
     statusNode.setAttribute("aria-busy", "true");
@@ -1355,7 +1348,7 @@ function addAiProviderRow(item = {}) {
     if (resp?.ok) {
       showAiProviderStatus(statusNode, hasUnsavedChanges ? "连接成功，记得保存设置" : "连接成功");
     } else {
-      showAiProviderStatus(statusNode, `失败：${resp?.error || "未知错误"}`, true);
+      showAiProviderStatus(statusNode, `失败：${MdgErrors.text(resp)}`, true);
     }
   });
 
