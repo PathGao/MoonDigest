@@ -2531,7 +2531,7 @@ const fav = {
     if (folders.length > 1) folders = await pickUnfavFolders(it);
     if (!folders.length) return;
     const r = await W.single("取消收藏", folders.map((f) => ({ msg: { type: "triage-unfav", mediaId: f, aids: [it.aid] }, keys: [bvid], folders: [f] })), ({ folders: [f] }) => bumpCount(f, -1));
-    if (r.error) toast(`取消收藏失败：${r.limited ? `${THROTTLES.THROTTLED.label}，请稍后再试` : r.error}`, true);
+    if (r.error) toast(`取消收藏失败：${r.limited ? MdgErrors.TEXT.biliThrottled : r.error}`, true);
     folders = folders.slice(0, r.done);
     if (!folders.length) return render();
     const rec = unfavRecord(it, Date.now());

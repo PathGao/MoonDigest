@@ -423,7 +423,7 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     // D on a B站 limit fails at once, worded like every other limit hit.
     handlers["triage-unfav"] = () => ({ ok: false, code: "THROTTLED", error: "412" });
     await t.fav.unfav("BV44");
-    assert.strictEqual(toasts.at(-1), "取消收藏失败：B站限流卡住，请稍后再试");
+    assert.strictEqual(toasts.at(-1), `取消收藏失败：${t.MdgErrors.TEXT.biliThrottled}`);
     assert.ok(t.fav.state().writing("H"), "B站 may have taken it: the folder counts as written");
     handlers["triage-unfav"] = () => ({ ok: true });
     await settled();

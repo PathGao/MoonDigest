@@ -306,7 +306,7 @@ async function triageBiliGetJson(url, pace) {
       if (e.code !== "THROTTLED") throw e;
     }
     if (json && !(pace && BILI_RISK_CODES.has(json.code))) return json;
-    if (strike >= pace.cfg.strikes) throw triageError("被 B站 限流，已暂停", "THROTTLED");
+    if (strike >= pace.cfg.strikes) throw triageError(MdgErrors.TEXT.biliThrottled, "THROTTLED");
     if (typeof url === "function") MdgSites.biliWbiReset();
     pace.hold(pace.cfg.backoffMs, "throttled");
   }
