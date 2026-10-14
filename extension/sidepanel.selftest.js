@@ -147,6 +147,23 @@ const chatOn = (context) => {
     await ctx.sendMessage();
     assert.deepStrictEqual([resets, opened, loads, vm.runInContext("els.input.value", ctx)], [0, 1, 1, "q"]);
     ctx.resetConversationView = () => {};
+    // 快捷追问 and 重试 send their own text: the draft in the input box stays as typed.
+    const asked = [];
+    const realConnect = ctx.chrome.runtime.connect;
+    const [realUser, realPlaceholder] = [ctx.appendUserMessage, ctx.appendAssistantPlaceholder];
+    ctx.chrome.runtime.connect = () => ({ onMessage: { addListener() {} }, onDisconnect: { addListener() {} }, postMessage() {}, disconnect() {} });
+    ctx.appendUserMessage = (text) => asked.push(text);
+    ctx.appendAssistantPlaceholder = () => stubEl();
+    ctx.ensureCurrentContextForSend = async () => true;
+    state.dispatch({ type: "NEW" });
+    show(video);
+    vm.runInContext('els.input.value = "还没写完的草稿"; els.modelSelect.value = "p"', ctx);
+    await ctx.sendMessage("快捷追问的话");
+    assert.deepStrictEqual([asked, vm.runInContext("els.input.value", ctx)], [["快捷追问的话"], "还没写完的草稿"]);
+    assert.ok(/sendPrompt\(prompt\) \{\n  void sendMessage\(prompt\);/.test(page) && page.includes("    void sendMessage(prompt);\n  });"), "快捷追问 and 重试 pass their text");
+    vm.runInContext("activeStream = null", ctx);
+    Object.assign(ctx, { appendUserMessage: realUser, appendAssistantPlaceholder: realPlaceholder });
+    ctx.chrome.runtime.connect = realConnect;
   }
 
   {

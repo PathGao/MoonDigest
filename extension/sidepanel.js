@@ -774,10 +774,9 @@ function startFollowupMarquee(btn) {
   btn.classList.add("is-marquee");
 }
 
+// 快捷追问 sends its text as is; the input box and what is typed there stay.
 function sendPrompt(prompt) {
-  els.input.value = prompt;
-  autosizeInput();
-  void sendMessage();
+  void sendMessage(prompt);
 }
 
 function renderPresetPrompts() {
@@ -1345,8 +1344,10 @@ async function resolveConversationContext(contextRef) {
   });
 }
 
-async function sendMessage() {
-  const text = els.input.value.trim();
+// prompt: a 快捷追问 or 重试 sends it without touching the input box; without it the box's text is sent and cleared.
+async function sendMessage(prompt) {
+  const typed = prompt === undefined;
+  const text = String(typed ? els.input.value : prompt).trim();
   // sendPending closes the window while the context loads, when a second Enter or chip click would send twice.
   if (!text || activeStream || sendPending || state.view().nonVideo) {
     return;
@@ -1384,8 +1385,10 @@ async function sendMessage() {
   removeCenteredState();
 
   appendUserMessage(text);
-  els.input.value = "";
-  autosizeInput();
+  if (typed) {
+    els.input.value = "";
+    autosizeInput();
+  }
   const stream = {
     port: chrome.runtime.connect({ name: "sidepanel-chat" }),
     node: appendAssistantPlaceholder(),
@@ -1567,8 +1570,7 @@ function appendStreamError({ node, prompt, raw }, error, saved, code = "") {
       node.previousElementSibling.remove();
     }
     node.remove();
-    els.input.value = prompt;
-    void sendMessage();
+    void sendMessage(prompt);
   });
   node.appendChild(retry);
 }
