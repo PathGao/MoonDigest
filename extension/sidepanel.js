@@ -627,7 +627,7 @@ function resetConversationView(stateHtml = "", { retry = false } = {}) {
       const button = document.createElement("button");
       button.type = "button";
       button.className = "sp-chip sp-grant-btn";
-      button.textContent = "重试";
+      button.textContent = MdgErrors.LABEL.retry;
       button.addEventListener("click", () => void refreshContextManually());
       stateNode.append(document.createElement("br"), button);
     }
@@ -675,7 +675,7 @@ function renderSuggestions() {
   }
   // A followed video's placeholder: no summary to offer until its subtitles arrive (sending still waits for them).
   if (context.pending) {
-    suggestionsNode.innerHTML = '<p class="sp-empty-intro" aria-busy="true">正在读取视频字幕…</p>';
+    suggestionsNode.innerHTML = `<p class="sp-empty-intro" aria-busy="true">${MdgErrors.TEXT.subtitleReading}</p>`;
     return;
   }
   // The intro and the one-click summary as the main action; the preset chips sit above the input (renderFollowups).
@@ -728,7 +728,7 @@ function followupBlockReason() {
     return "正在生成，等这条回复结束";
   }
   if (context?.pending) {
-    return "正在读取视频字幕…";
+    return MdgErrors.TEXT.subtitleReading;
   }
   if (!messages.length && !pinned && !context) {
     return "打开一个视频后才能用快捷追问";
@@ -1433,7 +1433,7 @@ async function sendMessage(prompt) {
     } else if (msg.type === "stopped") {
       endStream(stream, { stopped: msg.reason || MdgErrors.TEXT.aiStopped });
     } else if (msg.type === "error") {
-      endStream(stream, { error: msg.error || "未知错误", code: msg.code });
+      endStream(stream, { error: msg.error || MdgErrors.TEXT.unknown, code: msg.code });
     }
   });
   // Only the background end can trigger this: the extension reloaded or the service worker died mid-reply.
@@ -1568,14 +1568,14 @@ function appendStreamError({ node, prompt, raw }, error, saved, code = "") {
     const settings = document.createElement("button");
     settings.type = "button";
     settings.className = "sp-chip sp-grant-btn";
-    settings.textContent = "去设置";
+    settings.textContent = MdgErrors.LABEL.toSettings;
     settings.addEventListener("click", () => chrome.runtime.openOptionsPage());
     node.appendChild(settings);
   }
   const retry = document.createElement("button");
   retry.type = "button";
   retry.className = "sp-chip sp-grant-btn";
-  retry.innerHTML = `${AI_SPARK}重试`;
+  retry.innerHTML = `${AI_SPARK}${MdgErrors.LABEL.retry}`;
   // The retry replaces the failed turn instead of repeating the question below it.
   retry.addEventListener("click", () => {
     if (activeStream || sendPending) return;
@@ -1654,7 +1654,7 @@ function renderAssistantMessage(node, raw) {
     <svg viewBox="0 0 24 24" focusable="false" aria-hidden="true">
       <rect x="9" y="9" width="10" height="10" rx="2"></rect>
       <path d="M7 15H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h7a2 2 0 0 1 2 2v1"></path>
-    </svg><span>复制 Markdown</span>
+    </svg><span>${MdgErrors.LABEL.copyMd}</span>
   `;
   copyBtn.addEventListener("click", async () => {
     if (!(await copyText(pasteReadyRaw))) return;
@@ -1766,9 +1766,9 @@ async function downloadCurrentConversation() {
 async function copyCurrentConversationMarkdown() {
   try {
     const note = await buildCurrentConversationNote();
-    if (note && (await copyText(note.content))) showConversationContextNotice("已复制 Markdown", 2200);
+    if (note && (await copyText(note.content))) showConversationContextNotice(MdgErrors.TEXT.copied, 2200);
   } catch (error) {
-    showConversationContextNotice(`复制失败：${getErrorMessage(error)}`, 3000, { error: true });
+    showConversationContextNotice(`${MdgErrors.TEXT.copyFailed}：${getErrorMessage(error)}`, 3000, { error: true });
   }
 }
 
@@ -1778,7 +1778,7 @@ async function copyText(text) {
     await navigator.clipboard.writeText(text);
     return true;
   } catch (error) {
-    showConversationContextNotice(`复制失败：${getErrorMessage(error) || "无法访问剪贴板"}`, 3000, { error: true });
+    showConversationContextNotice(`${MdgErrors.TEXT.copyFailed}：${getErrorMessage(error) || MdgErrors.TEXT.noClipboard}`, 3000, { error: true });
     return false;
   }
 }
@@ -1793,7 +1793,7 @@ async function saveCurrentConversationToObsidian() {
   const messages = shownMessages.slice();
   // Its button is disabled without a conversation (syncExportButtons).
   if (!buildConversationTurns(messages).length) return;
-  showConversationContextNotice("正在写入 Obsidian…");
+  showConversationContextNotice(MdgErrors.TEXT.obsidianWriting);
   try {
     const ref = buildConversationContextRef(context);
     const request = { type: "write-video-note", ref, conversation: { messages }, page: await openPageNote(ref) };
@@ -1845,7 +1845,7 @@ function getReadableText(value, fallback = "") {
   }
 }
 
-function getErrorMessage(error, fallback = "未知错误") {
+function getErrorMessage(error, fallback = MdgErrors.TEXT.unknown) {
   return getReadableText(error?.message || error, fallback);
 }
 

@@ -534,7 +534,7 @@ const chatOn = (context) => {
   }
 
   // Each reply's copy button is named per the 用词表: 复制 Markdown, never a bare 复制.
-  assert.ok(page.includes("<span>复制 Markdown</span>") && !page.includes("<span>复制</span>"), "a reply's copy button says 复制 Markdown");
+  assert.ok(page.includes("<span>${MdgErrors.LABEL.copyMd}</span>") && !page.includes("<span>复制</span>"), "a reply's copy button says 复制 Markdown");
 
   // B3: a failed auto-sync to Obsidian offers 去设置 before 重试 when the fix is in the settings page, like a manual write;
   // a closed Obsidian gets 重试 only.

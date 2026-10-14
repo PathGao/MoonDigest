@@ -7,6 +7,8 @@
     return;
   }
 
+  // The text table: a sentence (TEXT) or a control's name (LABEL) shown on more than one page lives here once. Pages
+  // read it; a page's static copy is marked data-text="key" (wording.selftest.js keeps both equal and finds copies).
   const TEXT = Object.freeze({
     obsidianUnset: "请先在设置页填写 Obsidian Local REST API 地址和 API Key",
     obsidianKey: "Obsidian 的 API Key 无效或未授权",
@@ -58,7 +60,37 @@
     // chrome.tabs found no active tab (popup, side panel, background).
     noTab: "找不到当前标签页",
     // Every selection is hidden by a search or filter: the buttons that act on it are disabled with this (分拣台, 视频记录).
-    hiddenAll: "选中的都被筛选隐藏了"
+    hiddenAll: "选中的都被筛选隐藏了",
+    // B站's 62004 (the video is under review), on every read.
+    biliReviewing: "视频审核中，过后再试",
+    // A reply or a caught error that came without words.
+    unknown: "未知错误",
+    // A write to Obsidian in flight: the status line (popup, video page, side panel, 视频记录, 分拣台's 导出) and the
+    // button's own short form.
+    obsidianWriting: "正在写入 Obsidian…",
+    writing: "写入中…",
+    copied: "已复制 Markdown",
+    // A copy to the clipboard failed (popup, side panel, 视频记录, 分拣台); 「：原因」 follows, noClipboard without one.
+    copyFailed: "复制失败",
+    noClipboard: "无法访问剪贴板",
+    // The side panel while the video page reads the subtitle for it.
+    subtitleReading: "正在读取视频字幕…",
+    // 分拣台's 收藏夹设置 / 关注设置 and their AI 参数; a failure is followed by 「：原因」.
+    settingsSaved: "设置已保存",
+    settingsSaveFailed: "保存设置失败"
+  });
+
+  // Names of controls and pages that recur across pages (DESIGN 术语表). A name also appears inside sentences
+  // (「请先点「刷新」」), so wording.selftest.js matches a name only as a whole literal, text or attribute.
+  const LABEL = Object.freeze({
+    // The note's three exits, in this order on every page (DESIGN).
+    copyMd: "复制 Markdown",
+    downloadMd: "下载 .md",
+    writeObsidian: "写入 Obsidian",
+    toSettings: "去设置",
+    retry: "重试",
+    refresh: "刷新",
+    history: "视频记录"
   });
 
   // How long a B站 / YouTube read waits for an answer: the background's B站 channel (triage-bg.js triageBiliFetch,
@@ -100,13 +132,13 @@
     NOT_LOGGED_IN: { action: "login", text: TEXT.biliLogin },
     [-101]: { action: "login", text: TEXT.biliLogin },
     THROTTLED: { text: TEXT.biliThrottled },
-    62004: { text: "视频审核中，过后再试" }
+    62004: { text: TEXT.biliReviewing }
   });
 
   const action = (code) => CODES[code]?.action || "none";
 
   // A background reply { ok: false, error, code? } in the user's words.
-  function text(resp, fallback = "未知错误") {
+  function text(resp, fallback = TEXT.unknown) {
     const own = typeof resp?.error === "string" ? resp.error.trim() : "";
     return CODES[resp?.code]?.text || own || fallback;
   }
@@ -150,5 +182,5 @@
     else node.removeAttribute("aria-description");
   }
 
-  globalThis.MdgErrors = Object.freeze({ TEXT, action, text, fromResp, grantOrigin, reloaded, escapeHtml, setReason, subtitleMissing, aiTimeout, aiStalled, noAccess, NET_TIMEOUT_MS, netTimeout });
+  globalThis.MdgErrors = Object.freeze({ TEXT, LABEL, action, text, fromResp, grantOrigin, reloaded, escapeHtml, setReason, subtitleMissing, aiTimeout, aiStalled, noAccess, NET_TIMEOUT_MS, netTimeout });
 })();

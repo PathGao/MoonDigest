@@ -488,7 +488,7 @@ function handleAiError(error, code = "") {
       }
     }, "ai");
   } else if (aiSettingsCode(code)) {
-    showBanner(text, "去设置", () => send({ type: "open-options" }), "ai");
+    showBanner(text, MdgErrors.LABEL.toSettings, () => send({ type: "open-options" }), "ai");
   } else if (code === "AI_TRUNCATED") {
     showBanner(`${text}。建议调大输出上限${hasThinkingToggle() ? "或关闭思考" : ""}`, "打开收藏夹设置", () => openSettings(true), "ai");
   } else toast(text, true);
@@ -1065,7 +1065,7 @@ async function loadFolders() {
   el.list.innerHTML = `<p class="empty">正在加载收藏夹列表…</p>`;
   const r = await send({ type: "triage-folders" });
   if (!r.ok) {
-    if (MdgErrors.action(r.code) !== "login") showBanner(`读取收藏夹失败：${r.error}`, "重试", loadFolders); // send() showed 去登录
+    if (MdgErrors.action(r.code) !== "login") showBanner(`读取收藏夹失败：${r.error}`, MdgErrors.LABEL.retry, loadFolders); // send() showed 去登录
     el.list.innerHTML = `<p class="empty">无法读取收藏夹</p>`;
     return;
   }
@@ -1074,7 +1074,7 @@ async function loadFolders() {
   S.mid = r.data.mid;
   S.included = (await loadIncluded()).map(String);
   // Its data stays (retireUnchosenFolders keeps it); say so, amber like any reminder that blocks nothing.
-  if (S.toviewUnread && S.included.includes(TOVIEW)) showBanner("稍后再看这次没读到，点「重试」再读一次", "重试", loadFolders, "toview");
+  if (S.toviewUnread && S.included.includes(TOVIEW)) showBanner("稍后再看这次没读到，点「重试」再读一次", MdgErrors.LABEL.retry, loadFolders, "toview");
   S.folders = S.allFolders.filter((f) => S.included.includes(String(f.id)));
   await retireUnchosenFolders();
   S.removedCount = Object.keys(await storeGet(K.removed, {})).length;
@@ -2222,7 +2222,7 @@ function cardHtml(it, expanded, mark) {
       ? `<textarea class="note" name="videoNote" data-note rows="1" placeholder="一句话备注，回车保存" aria-label="备注">${esc(note)}</textarea>`
       : "";
   const failed = v.failed
-    ? `<span class="fail-text">分析失败：${esc(v.failed)}</span><button type="button" data-act="retry" aria-label="重试分析"${UI.reasonAttrs(aiBusyReason())}>${AI_SPARK}重试</button>`
+    ? `<span class="fail-text">分析失败：${esc(v.failed)}</span><button type="button" data-act="retry" aria-label="重试分析"${UI.reasonAttrs(aiBusyReason())}>${AI_SPARK}${MdgErrors.LABEL.retry}</button>`
     : "";
 
   const chips = tagIdsOf(b)
@@ -2472,7 +2472,7 @@ const refavAsk = (n) => [`在 B站重新收藏这 ${n} 个视频？`, `<p>撤销
 const redraw = () => (render(), setFocus(S.focused), "");
 
 // A batch undo cut short: by a failure, or by 停止 (what went through stays undone). [what happened, U again, why].
-const cutWords = (error, stopped) => (error ? ["撤销中断", "重试", `：${error}`] : stopped ? ["已停止撤销", "撤销", ""] : null);
+const cutWords = (error, stopped) => (error ? ["撤销中断", MdgErrors.LABEL.retry, `：${error}`] : stopped ? ["已停止撤销", "撤销", ""] : null);
 // U on a batch 取消收藏 in one folder: back into it. Elsewhere the ones left stay under its 最近取消收藏.
 function unfavManyStep(mediaId, items) {
   return favStep(items.length, refavAsk(items.length), async () => {
@@ -3330,7 +3330,7 @@ async function runGroup() {
 // failed: the open tab's failed cards listed now. label is the group head's button, and the 所有收藏夹 dialog's title.
 function retryState(failed) {
   const batch = pickBatch(failed, S.tab === "none" ? coarseBatchSize() : fineBatchSize(), S.tab);
-  const label = !picking(S.tab) && batch.length === failed.length ? "全部重试" : batchLabel("重试", batch, failed, S.tab);
+  const label = !picking(S.tab) && batch.length === failed.length ? "全部重试" : batchLabel(MdgErrors.LABEL.retry, batch, failed, S.tab);
   return { batch, label, why: aiBusyReason() || pickReason("选中的都不能重试", batch, S.tab) };
 }
 const failedHeadHtml = (failed) => {
@@ -3353,8 +3353,8 @@ function retry(bvid) {
   const it = S.itemMap.get(bvid);
   if (!it || aiBusyReason()) return;
   // In 所有收藏夹 it asks for the folder's 判断标准 first, as 全部重试 does, titled like the button.
-  if (failedCoarse(it)) return startJudging("重试", "粗看", [it], () => runStage1([it]));
-  startJudging("重试", "细看", [it], () => {
+  if (failedCoarse(it)) return startJudging(MdgErrors.LABEL.retry, "粗看", [it], () => runStage1([it]));
+  startJudging(MdgErrors.LABEL.retry, "细看", [it], () => {
     delete S.analyses[bvid];
     startGroup([bvid]);
   });
@@ -3444,7 +3444,7 @@ const aiTags = {
   // The same switch as in 收藏夹设置, saved as soon as it flips.
   async setAllowRemove(on) {
     const r = await send({ type: "triage-settings-save", triageAiRemoveTags: on });
-    if (!r.ok) return toast(`保存设置失败：${r.error}`, true), false;
+    if (!r.ok) return toast(`${MdgErrors.TEXT.settingsSaveFailed}：${r.error}`, true), false;
     S.settings.triageAiRemoveTags = on;
     return true;
   },
@@ -3779,7 +3779,7 @@ function renderWriteScope() {
     ? `共 ${n} 个视频，逐个抓字幕，间隔 ${S.settings.triageIntervalSec} 秒。下载 .zip 每个视频一篇，另附索引${obsidianOff ? "" : "；写入 Obsidian 每个视频一篇，另写一篇以收藏夹命名的索引"}。`
     : `共 ${n} 个视频，合成一篇：链接、AI 总结、标签和你的备注。`;
   el.writeOverwriteRow.hidden = !notes;
-  el.writeMdBtn.textContent = notes ? "下载 .zip" : "下载 .md";
+  el.writeMdBtn.textContent = notes ? "下载 .zip" : MdgErrors.LABEL.downloadMd;
   el.writeMdBtn.setAttribute("aria-label", el.writeMdBtn.textContent);
   el.writeCopyBtn.hidden = notes || busy;
   el.writeRunBtn.hidden = el.writeMdBtn.hidden = busy;
@@ -3799,15 +3799,15 @@ async function exportDigest(how) {
   clearWriteResult();
   const filename = `B站摘录-${stamp()}.md`;
   if (how === "obsidian") {
-    setBusy(el.writeRunBtn, "写入中…");
-    el.writeProgress.textContent = "正在写入 Obsidian…";
+    setBusy(el.writeRunBtn, MdgErrors.TEXT.writing);
+    el.writeProgress.textContent = MdgErrors.TEXT.obsidianWriting;
   }
   const markdown = await digestMarkdown();
   if (how === "copy") {
     await navigator.clipboard.writeText(markdown).then(
-      () => (el.writeProgress.textContent = "已复制 Markdown"),
+      () => (el.writeProgress.textContent = MdgErrors.TEXT.copied),
       (err) => {
-        el.writeProgress.textContent = `复制失败：${err.message}`;
+        el.writeProgress.textContent = `${MdgErrors.TEXT.copyFailed}：${err.message}`;
         el.writeProgress.classList.add("fail-text");
       }
     );
@@ -3940,7 +3940,7 @@ async function runWrite(md = false) {
   el.writeSettingsBtn.hidden = !toSettings;
   showFailed();
   // The pill's green line; an Obsidian failure goes to the red banner instead, with 去设置 unless Obsidian is just not running.
-  if (obsidian) showBanner(`${MdgErrors.TEXT.obsidianFailed}：${obsidian.error}`, toSettings ? "去设置" : "", () => send({ type: "open-options" }), "obsidian");
+  if (obsidian) showBanner(`${MdgErrors.TEXT.obsidianFailed}：${obsidian.error}`, toSettings ? MdgErrors.LABEL.toSettings : "", () => send({ type: "open-options" }), "obsidian");
   else S.write.text = `逐个视频笔记${run.stopped ? "已停止" : "完成"}：${counts.join(" · ")}`;
 
   renderWriteScope();
@@ -4277,12 +4277,12 @@ function bindEvents() {
     };
     const r = await send({ type: "triage-settings-save", ...patch });
     if (!r.ok) {
-      toast(`保存设置失败：${r.error}`, true);
+      toast(`${MdgErrors.TEXT.settingsSaveFailed}：${r.error}`, true);
       return;
     }
     Object.assign(S.settings, patch);
     renderTagLimit();
-    toast("设置已保存");
+    toast(MdgErrors.TEXT.settingsSaved);
     const included = [...el.folderToggles.querySelectorAll("input:checked")].map((x) => x.value);
     // 稍后再看 had no checkbox (its read failed): its choice stays as it was.
     if (S.toviewUnread && S.included.includes(TOVIEW)) included.push(TOVIEW);

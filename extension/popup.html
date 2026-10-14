@@ -14,7 +14,7 @@
           <span class="brand-mark" aria-hidden="true"></span>
           MoonDigest
         </strong>
-        <button id="refreshBtn" type="button" class="icon-btn" title="刷新" aria-label="刷新">
+        <button id="refreshBtn" type="button" class="icon-btn" title="刷新" aria-label="刷新" data-text="refresh">
           <svg viewBox="0 0 24 24" focusable="false" aria-hidden="true">
             <path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"></path>
             <path d="M21 3v5h-5"></path>
@@ -57,13 +57,13 @@
         <button id="readingViewBtn" type="button" class="tool">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 3H5a2 2 0 0 0-2 2v3M21 8V5a2 2 0 0 0-2-2h-3M3 16v3a2 2 0 0 0 2 2h3M16 21h3a2 2 0 0 0 2-2v-3"></path></svg>专注模式
         </button>
-        <button id="copyBtn" type="button" class="tool">
+        <button id="copyBtn" type="button" class="tool" data-text="copyMd">
           <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="9" width="12" height="12" rx="2"></rect><path d="M5 15H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v1"></path></svg>复制 Markdown
         </button>
-        <button id="mdBtn" type="button" class="tool">
+        <button id="mdBtn" type="button" class="tool" data-text="downloadMd">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9zM14 3v6h6M8 14h8M8 17h5"></path></svg>下载 .md
         </button>
-        <button id="sendBtn" type="button" class="tool" hidden><img class="obsidian-mark" src="/icons/obsidian.svg" alt="" />写入 Obsidian</button>
+        <button id="sendBtn" type="button" class="tool" hidden data-text="writeObsidian"><img class="obsidian-mark" src="/icons/obsidian.svg" alt="" />写入 Obsidian</button>
       </div>
 
       <details class="details">
@@ -84,7 +84,7 @@
         </button>
         <button id="historyBtn" type="button" class="row">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12a9 9 0 1 0 3-6.7L3 8M3 3v5h5M12 7v5l3 2"></path></svg>
-          <span class="row-label">视频记录</span>
+          <span class="row-label" data-text="history">视频记录</span>
           <svg class="chev" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6l6 6-6 6"></path></svg>
         </button>
       </nav>
