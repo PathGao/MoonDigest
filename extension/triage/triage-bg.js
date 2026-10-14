@@ -243,7 +243,7 @@ function triageError(error, code) {
 // follow-bg.js and the video page (content.js) use the same set.
 const BILI_RISK_CODES = MdgSites.BILI_RISK_CODES;
 async function triageBiliJson(res) {
-  if (!res.ok) throw triageError(`B站请求失败 HTTP ${res.status}`, res.status === 412 ? "THROTTLED" : undefined);
+  if (!res.ok) throw Object.assign(triageError(`B站请求失败 HTTP ${res.status}`, res.status === 412 ? "THROTTLED" : undefined), { status: res.status });
   try {
     return await res.json();
   } catch {
@@ -260,21 +260,22 @@ function triageBiliData(json) {
   return json.data;
 }
 
-// The one B站 channel of both modes (GET and POST). No answer in TRIAGE_BILI_CFG.timeoutMs, or a dropped connection,
-// is NETWORK.
-const TRIAGE_BILI_CFG = { timeoutMs: 30000 };
+// The one B站 channel of both modes (GET and POST) and the video page's fetch-json. No answer in
+// TRIAGE_BILI_CFG.timeoutMs (MdgErrors.NET_TIMEOUT_MS, the video page's own fetches use it too), or a dropped
+// connection, is NETWORK.
+const TRIAGE_BILI_CFG = { timeoutMs: MdgErrors.NET_TIMEOUT_MS };
 async function triageBiliFetch(url, init = {}) {
   const ctl = new AbortController();
   let timer;
   const timeout = new Promise((_, reject) => {
-    timer = setTimeout(() => reject(new Error(`${TRIAGE_BILI_CFG.timeoutMs / 1000} 秒没有回应`)), TRIAGE_BILI_CFG.timeoutMs);
+    timer = setTimeout(() => reject(Object.assign(new Error(MdgErrors.netTimeout(TRIAGE_BILI_CFG.timeoutMs)), { timedOut: true })), TRIAGE_BILI_CFG.timeoutMs);
   });
   try {
     return await Promise.race([fetch(url, { ...init, credentials: "include", signal: ctl.signal }), timeout]);
   } catch (e) {
     ctl.abort();
     // A dropped connection is fetch's TypeError, whose English text the user does not need.
-    throw triageError(e?.name === "TypeError" ? "网络断了" : `网络断了：${e?.message || e}`, "NETWORK");
+    throw triageError(e?.timedOut ? e.message : e?.name === "TypeError" ? MdgErrors.TEXT.netDown : `${MdgErrors.TEXT.netDown}：${e?.message || e}`, "NETWORK");
   } finally {
     clearTimeout(timer);
   }

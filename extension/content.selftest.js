@@ -657,6 +657,16 @@ const settle = async () => {
     assert.strictEqual(await tries(Object.assign(new Error("请求失败：412"), { status: 412 })), 1, "HTTP 412");
     assert.strictEqual(await tries(new TypeError("Failed to fetch")), 2, "a dropped connection is retried");
     assert.strictEqual(await tries(Object.assign(new Error("x"), { code: -500, retryable: true })), 2);
+    // D2: the background's fetch-json says 网络断了 (code NETWORK) like 分拣台, and the page's own timeout says the same.
+    const net = t.MdgErrors.netTimeout(t.MdgErrors.NET_TIMEOUT_MS);
+    assert.strictEqual(net, "网络断了：30 秒没有回应");
+    assert.strictEqual(await tries(Object.assign(new Error(net), { code: "NETWORK" })), 2, "the background's 网络断了 is retried");
+    const savedSend = t.sendRuntimeMessage;
+    t.sendRuntimeMessage = async () => ({ ok: false, error: "B站请求失败 HTTP 412", code: "THROTTLED", status: 412 });
+    await assert.rejects(t.fetchJsonInBackground("https://api.bilibili.com/x"), (e) => e.code === "THROTTLED" && e.status === 412);
+    t.sendRuntimeMessage = savedSend;
+    assert.match(source, /AbortSignal\.timeout\(MdgErrors\.NET_TIMEOUT_MS\)/, "the page's fetches wait as long as the background's");
+    assert.doesNotMatch(source, /请稍后重试/, "a note keeps state only, no instruction");
   }
 
   // The video's subtitle names, chapter titles and subtitle lines come from the site.

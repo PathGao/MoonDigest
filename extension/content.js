@@ -3946,16 +3946,17 @@ function toReadableText(value, fallback = "") {
   return text;
 }
 
-// A failed fetch in the user's words: B站 risk control (HTTP 412 or its codes) and a dropped connection are named,
-// and no raw English, HTTP status or B站 code is shown. getErrorMessage keeps the raw text for logs and retry checks.
+// A failed fetch in the user's words: B站 risk control (HTTP 412 or its codes) and a dropped connection are named
+// (fetch's English TypeError becomes TEXT.netDown); B站 codes with their own words (62004) read as elsewhere, any other
+// error keeps its own message (the background's 「B站请求失败 HTTP 403」, the page's 「请求失败：403」).
+// getErrorMessage keeps the raw text with the code for logs and retry checks.
 function fetchErrorText(error) {
   if (isBiliRiskError(error)) {
     return MdgErrors.TEXT.biliThrottled;
   }
   if (/failed to fetch|networkerror|load failed/i.test(toReadableText(error?.message, ""))) {
-    return "网络断了";
+    return MdgErrors.TEXT.netDown;
   }
-  // B站 codes with their own words (62004 审核中) read as in 分拣台 and the other pages.
   return MdgErrors.text({ error: toReadableText(error?.message, ""), code: error?.code }, getErrorMessage(error));
 }
 
@@ -4107,6 +4108,7 @@ function isRetryableNetworkError(error) {
     message.includes("background fetch failed") ||
     message.includes("timeout") ||
     message.includes("超时") ||
+    message.includes(MdgErrors.TEXT.netDown) ||
     message.includes("timed out")
   );
 }
@@ -4129,14 +4131,14 @@ async function fetchJson(url) {
   return (await fetchOk(url, { credentials: "include" })).json();
 }
 
-// A hung request would keep refreshPromise pending, and with it the popup's
-// refresh and sidepanel-get-context, so every page fetch gives up after 15s.
+// A hung request would keep refreshPromise pending, and with it the popup's refresh and sidepanel-get-context, so
+// every page fetch gives up after MdgErrors.NET_TIMEOUT_MS, with the background's words (fetch-json says the same).
 async function fetchOk(url, init) {
   let response;
   try {
-    response = await fetch(url, { ...init, cache: "no-store", signal: AbortSignal.timeout(15000) });
+    response = await fetch(url, { ...init, cache: "no-store", signal: AbortSignal.timeout(MdgErrors.NET_TIMEOUT_MS) });
   } catch (error) {
-    throw error?.name === "TimeoutError" ? new Error("请求超时，请稍后重试") : error;
+    throw error?.name === "TimeoutError" ? new Error(MdgErrors.netTimeout(MdgErrors.NET_TIMEOUT_MS)) : error;
   }
   if (!response.ok) {
     throw httpError(response.status);
@@ -4154,9 +4156,8 @@ async function fetchJsonInBackground(url) {
   try {
     const resp = await sendRuntimeMessage({ type: "fetch-json", url });
     if (!resp?.ok) {
-      const error = new Error(toReadableText(resp?.error, "Background fetch failed"));
-      error.status = resp?.status;
-      throw error;
+      // code: THROTTLED (412) and NETWORK, as triageBiliGetJson says them; status: 429 waits in pageSubtitleSite.
+      throw Object.assign(new Error(toReadableText(resp?.error, "Background fetch failed")), { status: resp?.status, code: resp?.code });
     }
     return resp.data;
   } catch (error) {

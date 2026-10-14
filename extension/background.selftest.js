@@ -6,8 +6,13 @@ const vm = require("vm");
 const assert = require("assert");
 
 let onConnect;
+const onMessage = [];
 const anything = new Proxy(function () {}, { get: () => anything, apply: () => anything });
-const runtime = new Proxy({}, { get: (_, k) => (k === "onConnect" ? { addListener: (fn) => (onConnect = fn) } : anything) });
+const runtime = new Proxy({}, {
+  get: (_, k) => (k === "onConnect" ? { addListener: (fn) => (onConnect = fn) } : k === "onMessage" ? { addListener: (fn) => onMessage.push(fn) } : anything)
+});
+// A runtime message as a page sends it: the first listener that keeps the channel open answers.
+const ask = (message) => new Promise((resolve) => onMessage.some((fn) => fn(message, {}, resolve) === true));
 const chrome = new Proxy({}, { get: (_, k) => (k === "runtime" ? runtime : anything) });
 
 const ctx = vm.createContext({
@@ -279,6 +284,22 @@ process.on("exit", (code) => {
   // A request that never answers fails with a retryable timeout instead of hanging the caller.
   ctx.fetch = (url, { signal }) => new Promise((_, reject) => signal.addEventListener("abort", () => reject(signal.reason)));
   await assert.rejects(ctx.fetchWithTimeout("https://api.bilibili.com/x", {}, 30), (e) => e.status === 408 && /超时/.test(e.message));
+
+  // D2: the video page's fetch-json reads B站 like 分拣台 and the side panel: their request, timeout and words.
+  {
+    const bili = "https://api.bilibili.com/x/web-interface/view?bvid=BV1";
+    ctx.fetch = async () => ({ ok: false, status: 403 });
+    assert.deepStrictEqual({ ...(await ask({ type: "fetch-json", url: bili })) }, { ok: false, error: "B站请求失败 HTTP 403", code: undefined, status: 403 });
+    ctx.fetch = async () => ({ ok: true, json: async () => JSON.parse("<html>") });
+    assert.match((await ask({ type: "fetch-json", url: bili })).error, /^B站返回的不是 JSON/);
+    vm.runInContext("TRIAGE_BILI_CFG.timeoutMs = 20", ctx);
+    ctx.fetch = () => new Promise(() => {});
+    const late = await ask({ type: "fetch-json", url: bili });
+    vm.runInContext("TRIAGE_BILI_CFG.timeoutMs = MdgErrors.NET_TIMEOUT_MS", ctx);
+    assert.deepStrictEqual([late.error, late.code], [ctx.MdgErrors.netTimeout(20), "NETWORK"]);
+    ctx.fetch = async (url, init) => ({ ok: true, json: async () => ({ code: 0, data: { referrer: init.referrer } }) });
+    assert.deepStrictEqual({ ...(await ask({ type: "fetch-json", url: bili })).data.data }, { referrer: "https://www.bilibili.com/" }, "the whole JSON, sent as B站 pages send it");
+  }
 
   // The side panel saves the context URL with a conversation, so reader mode and tracking params never reach it.
   const contextFor = async (tabUrl, payload) => {

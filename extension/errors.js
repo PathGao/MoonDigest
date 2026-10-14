@@ -25,8 +25,15 @@
     // Not logged in to B站 (the background's NOT_LOGGED_IN, B站's -101), on any read or write; pages add 去登录.
     biliLogin: "未登录 B站：先在这个浏览器里登录 B站",
     // What a page that can reload adds to subtitleMissing's 未登录 sentence (the video page, the side panel); notes do not.
-    subtitleLoginHint: "登录 B站后刷新网页"
+    subtitleLoginHint: "登录 B站后刷新网页",
+    // A dropped connection on a B站 or YouTube read (the background's code NETWORK, the video page's own fetches).
+    netDown: "网络断了"
   });
+
+  // How long a B站 / YouTube read waits for an answer: the background's B站 channel (triage-bg.js triageBiliFetch,
+  // which also serves the video page's fetch-json) and the video page's own fetches (content.js fetchOk).
+  const NET_TIMEOUT_MS = 30000;
+  const netTimeout = (ms) => `${TEXT.netDown}：${ms / 1000} 秒没有回应`;
 
   // Why a reader has no subtitle: the one sentence of every entry (video page, 专注模式, popup, side panel, the AI's
   // context, 分拣台, notes), without a full stop. subtitleNeedLogin is its own state (B站 hides subtitles from a
@@ -91,5 +98,5 @@
       .replaceAll('"', "&quot;")
       .replaceAll("'", "&#39;");
 
-  globalThis.MdgErrors = Object.freeze({ TEXT, action, text, fromResp, grantOrigin, reloaded, escapeHtml, subtitleMissing, aiTimeout });
+  globalThis.MdgErrors = Object.freeze({ TEXT, action, text, fromResp, grantOrigin, reloaded, escapeHtml, subtitleMissing, aiTimeout, NET_TIMEOUT_MS, netTimeout });
 })();

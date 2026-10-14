@@ -215,8 +215,8 @@ function normalizeAiContextRef(ref) {
 
 const FETCH_TIMEOUT_MS = 15000;
 
-// A hung request would otherwise block the popup refresh and the side panel context forever.
-// "超时" in the message is what content.js retryAsync treats as a retryable network error.
+// Obsidian's Local REST API and the cover images written into the vault; a hung request would block the write forever.
+// status 408 is what obsidianError reads as OBSIDIAN_DOWN.
 async function fetchWithTimeout(url, options = {}, ms = FETCH_TIMEOUT_MS) {
   try {
     return await fetch(url, { ...options, signal: AbortSignal.timeout(ms) });
@@ -228,27 +228,6 @@ async function fetchWithTimeout(url, options = {}, ms = FETCH_TIMEOUT_MS) {
     }
     throw error;
   }
-}
-
-// The video page's fetch-json proxy (content.js); the background's own B站 reads go through triageBiliGetJson.
-async function fetchJsonForAi(url) {
-  const options = {
-    method: "GET",
-    credentials: "include",
-    cache: "no-store"
-  };
-  if (/(?:api\.bilibili\.com|hdslb\.com)/.test(String(url || ""))) {
-    options.referrer = "https://www.bilibili.com/";
-    options.referrerPolicy = "strict-origin-when-cross-origin";
-  }
-
-  const response = await fetchWithTimeout(url, options);
-  if (!response.ok) {
-    const error = new Error(`HTTP ${response.status}`);
-    error.status = response.status;
-    throw error;
-  }
-  return response.json();
 }
 
 function refFromAiContext(ref) {
@@ -511,9 +490,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       sendResponse({ ok: false, error: "URL not allowed" });
       return false;
     }
-    fetchJsonForAi(url)
+    // The same request, timeout and words as 分拣台 and the side panel (triageBiliGetJson, one try); the page retries.
+    triageBiliGetJson(url)
       .then((data) => sendResponse({ ok: true, data }))
-      .catch((error) => sendResponse({ ok: false, error: error.message, status: error.status }));
+      .catch((error) => sendResponse({ ok: false, error: error.message, code: error.code, status: error.status }));
     return true;
   }
 
