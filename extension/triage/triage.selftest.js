@@ -3354,6 +3354,17 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
       handlers["triage-classify-titles"] = () => (++calls, { ok: false, code: "AI_AUTH", error: "API Key 不对" });
       await t.runStage1();
       assert.deepStrictEqual([calls, t.S.coarseFailed.size], [1, 0]);
+      // G5: its 去设置 banner stays through a paused 粗看, as through a paused 细看; a finished run clears it.
+      assert.deepStrictEqual([t.el.banner.hidden, t.el.banner.dataset.kind], [false, "ai"]);
+      t.S.settings.triageCoarseBatchSize = 100;
+      handlers["triage-classify-titles"] = ({ items }) => (vm.runInContext("runs", ctx).stop("stage1"), { ok: true, data: { results: Object.fromEntries(items.map((x) => [x.bvid, { verdict: "keep", confidence: "high" }])) } });
+      assert.ok((await t.runStage1(), Object.keys(t.S.titleRes).length === 30), "paused after one request");
+      assert.strictEqual(t.el.banner.hidden, false, "a paused 粗看 keeps the banner");
+      handlers["triage-classify-titles"] = ({ items }) => ({ ok: true, data: { results: Object.fromEntries(items.map((x) => [x.bvid, { verdict: "keep", confidence: "high" }])) } });
+      await t.runStage1();
+      assert.deepStrictEqual([Object.keys(t.S.titleRes).length, t.el.banner.hidden], [31, true], "a finished one clears it");
+      t.S.titleRes = {};
+      t.S.settings.triageCoarseBatchSize = 20;
       t.el.banner.hidden = true;
 
       // F3: 细看's 全部重试 goes the same way: startJudging, one 字幕细看 batch.

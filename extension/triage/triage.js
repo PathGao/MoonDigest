@@ -3195,7 +3195,8 @@ async function runStage1(list = stage1Pending(), redo = false) {
   render();
   const r = await running;
   if (r.error) handleAiError(r.error, r.code);
-  else clearAiBanner();
+  // As 细看: a paused run keeps the banner; only a finished one clears it.
+  else if (!r.stopped) clearAiBanner();
   otherFolderToast(run, redo ? "按新标准重新粗看" : "标题粗看", r);
   render();
 }
