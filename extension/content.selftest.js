@@ -38,6 +38,7 @@ assert.strictEqual(lines.at(-1), "}");
   assert.strictEqual(runs(false, "https://www.bilibili.com"), false, "Bilibili's own iframe");
   assert.strictEqual(runs(false, "chrome-extension://other"), false, "another extension's page");
 }
+// Without init(). Startup is scripts/smoke.mjs's job.
 const source = lines.slice(6, -1).join("\n").replace(/^init\(\);$/m, "");
 // How a subtitle is picked, fetched, checked, and what is a failure or a limit lives once, in sites.js
 // (MdgSites.loadSubtitle / loadFirstTrack); the page only wraps its fetches and shows the result.

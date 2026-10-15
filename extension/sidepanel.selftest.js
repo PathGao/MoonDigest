@@ -7,7 +7,7 @@ const path = require("path");
 const vm = require("vm");
 const assert = require("assert");
 
-// sidepanel.js is a DOM page: drop init(), stub the DOM, and drive the context loads by hand.
+// sidepanel.js is a DOM page: drop init(), stub the DOM, and drive the context loads by hand. Startup is scripts/smoke.mjs's job.
 const page = fs.readFileSync(path.join(__dirname, "sidepanel.js"), "utf8");
 const source = page.replace(/^init\(\)\.catch\(/m, "(async () => {})().catch(");
 assert.ok(source.includes("(async () => {})().catch("), "harness strips the page entry point");
