@@ -1139,7 +1139,9 @@ function presetAddReason() {
   const full = (aiPrefs.aiPresetPrompts || []).length >= MdgSettings.MAX_PRESET_PROMPTS;
   return full ? `最多 ${MdgSettings.MAX_PRESET_PROMPTS} 条快捷追问，先删掉一条再添加` : "";
 }
-const syncPresetAdd = () => setDisabledReason(els.presetAddBtn, presetAddReason());
+function syncPresetAdd() {
+  setDisabledReason(els.presetAddBtn, presetAddReason());
+}
 
 async function addPresetPrompt() {
   if (presetAddReason()) {
