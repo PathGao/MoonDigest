@@ -14,7 +14,13 @@ permissions:
   contents: write
 
 jobs:
+  check:
+    uses: ./.github/workflows/check.yml
+    with:
+      ref: ${{ inputs.tag || github.ref_name }}
+
   release:
+    needs: check
     runs-on: ubuntu-latest
     env:
       CWS_REFRESH_TOKEN: ${{ secrets.CWS_REFRESH_TOKEN }}

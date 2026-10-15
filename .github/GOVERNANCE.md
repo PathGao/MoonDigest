@@ -15,7 +15,7 @@
 ## 维护
 
 [settings.json](settings.json) 和 [rulesets/](rulesets/) 是期望的 GitHub 配置，需按基线指南通过 API 应用，
-只提交这些文件不会改变仓库设置。main 要求走 PR，只允许 squash 合并，合并后自动删除分支，禁止删除和强推，
+只提交这些文件不会改变仓库设置。main 要求走 PR，只允许 squash 合并，必须通过 Check（自检和 Chrome 启动冒烟，见 workflows/check.yml），合并后自动删除分支，禁止删除和强推，
 管理员保留恢复用的绕过权限。`v*` 发版标签不可更新或删除，`v*-test*` 除外。
 
 在仓库根目录预览 label 变更：
