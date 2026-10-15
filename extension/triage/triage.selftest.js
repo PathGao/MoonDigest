@@ -6,6 +6,7 @@ const vm = require("vm");
 const assert = require("assert");
 
 // triage.js is a DOM page module; drop the dev-mock import and init(), stub the DOM, and expose S/K.
+// Drops the page entry points. Startup is scripts/smoke.mjs's job.
 const source = fs
   .readFileSync(path.join(__dirname, "triage.js"), "utf8")
   .replace(/^if \(!globalThis\.chrome\?\.runtime\?\.id\) await import.*$/m, "")

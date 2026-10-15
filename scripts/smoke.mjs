@@ -16,6 +16,30 @@ const chromeBin = process.env.CHROME
 const pages = fs.readdirSync(ext, { recursive: true })
   .filter((f) => f.endsWith(".html") && !/(^|\/)dev[-/]/.test(f))
   .sort();
+// Ids the pages' scripts look up: getElementById("x"), the pages' $("x") shorthand, querySelector("#x ...").
+// The page selftests stub getElementById to return an element for any id, so a renamed or deleted id passes them.
+// An id counts as there if an open page has it, or the html or a script writes it out (a placeholder swapped at
+// startup, a template rendered on demand, a dialog of a shared script that only one page opens).
+const written = new Set();
+const lookupsOf = new Map();
+for (const page of pages) {
+  const html = fs.readFileSync(path.join(ext, page), "utf8");
+  for (const m of html.matchAll(/\bid="([^"]+)"/g)) written.add(m[1]);
+  const found = new Map();
+  for (const [, src] of html.matchAll(/<script[^>]*src="([^"]+)"/g)) {
+    const file = path.normalize(path.join(path.dirname(page), src));
+    const code = fs.readFileSync(path.join(ext, file), "utf8");
+    for (const m of code.matchAll(/\bid\s*=\s*["'`]([\w-]+)["'`]/g)) written.add(m[1]);
+    for (const m of code.matchAll(/(?:getElementById|(?<![\w.])\$)\(\s*["'`]([\w-]+)["'`]\s*\)|querySelector(?:All)?\(\s*["'`]#([\w-]+)/g)) {
+      const id = m[1] || m[2];
+      if (!found.has(id)) found.set(id, `${file}:${code.slice(0, m.index).split("\n").length}`);
+    }
+  }
+  lookupsOf.set(page, found);
+}
+const lookupCount = [...lookupsOf.values()].reduce((n, found) => n + found.size, 0);
+if (lookupCount < 100) throw new Error(`only ${lookupCount} id lookups found; the patterns no longer match the code`);
+const seen = new Set();
 const SITES = ["https://www.bilibili.com/video/BV1GJ411x7h7", "https://www.youtube.com/watch?v=dQw4w9WgXcQ"];
 
 const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), "mdg-smoke-"));
@@ -102,9 +126,16 @@ try {
     }
     for (const page of pages) {
       step = `${page} (${config})`;
-      await close(await open(`chrome-extension://${id}/${page}`, 3000));
+      const t = await open(`chrome-extension://${id}/${page}`, 3000);
+      const ids = [...lookupsOf.get(page).keys()];
+      const absent = await evaluate(t, `${JSON.stringify(ids)}.filter((id) => !document.getElementById(id))`);
+      ids.filter((i) => !absent.includes(i)).forEach((i) => seen.add(i));
+      await close(t);
     }
   }
+  const lost = new Set();
+  for (const found of lookupsOf.values()) for (const [i, at] of found) if (!seen.has(i) && !written.has(i)) lost.add(`${at} looks up #${i}, which no page has`);
+  errors.push(...lost);
   // Network failures here are not ours; only errors from the extension's scripts count.
   for (const site of SITES) {
     step = site;
@@ -118,7 +149,7 @@ try {
   fs.rmSync(userDataDir, { recursive: true, force: true, maxRetries: 5 });
 }
 
-console.log(`smoke: ${pages.length} pages × 2, background, ${SITES.length} video pages`);
+console.log(`smoke: ${pages.length} pages × 2 (${lookupCount} id lookups), background, ${SITES.length} video pages`);
 if (errors.length) {
   console.error(`smoke: ${errors.length} error(s)\n${errors.join("\n")}`);
   process.exit(1);

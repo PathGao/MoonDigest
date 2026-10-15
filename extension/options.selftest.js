@@ -4,7 +4,7 @@ const path = require("path");
 const vm = require("vm");
 const assert = require("assert");
 
-// options.js runs init() against the page DOM; lift only the functions under test.
+// options.js runs init() against the page DOM; lift only the functions under test. Startup is scripts/smoke.mjs's job.
 const source = fs.readFileSync(path.join(__dirname, "options.js"), "utf8");
 const fn = (name) => source.slice(source.indexOf(`function ${name}(`), source.indexOf("\n}\n", source.indexOf(`function ${name}(`)) + 2);
 const ctx = vm.createContext({ URL, elements: {}, validateNoteExtras: () => ({ ok: true }) });

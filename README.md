@@ -272,7 +272,7 @@ extension/
 for f in extension/*.selftest.js extension/triage/*.selftest.js extension/history/*.selftest.js; do /usr/local/bin/node "$f" || break; done
 ```
 
-自检在 vm 里跑页面，会去掉启动代码，页面一打开就崩它查不出来。`/usr/local/bin/node scripts/smoke.mjs` 用真 Chrome（无头、临时配置）装扩展，打开每个页面（没配和配了 AI 平台各一次）、后台和 B站、YouTube 视频页，扩展有未捕获错误或 `console.error` 就失败。每个 PR 和发版前 GitHub Actions 都会跑自检和这一项（`.github/workflows/check.yml`）。
+自检在 vm 里跑页面，会去掉启动代码，页面一打开就崩它查不出来。`/usr/local/bin/node scripts/smoke.mjs` 用真 Chrome（无头、临时配置）装扩展，打开每个页面（没配和配了 AI 平台各一次）、后台和 B站、YouTube 视频页，扩展有未捕获错误或 `console.error` 就失败。页面脚本查找的每个 id 都要在打开的页面、html 或脚本模板里找得到（页面自检的假 DOM 什么 id 都给元素，查不出 id 改名或删掉）。每个 PR 和发版前 GitHub Actions 都会跑自检和这一项（`.github/workflows/check.yml`）。
 
 不装插件预览页面：在 `extension/` 下起静态服务（`python3 -m http.server 8000`），打开 `/triage/triage.html` 或 `/history/history.html`，会自动加载各自 `dev/mock-chrome.js` 里的假数据。侧边栏先运行 `/usr/local/bin/node extension/dev-sidepanel/build.mjs`，再打开 `/dev-sidepanel/index.html`；生成的 `index.html` 也提交，改了 `sidepanel.html` 要重新生成，自检会核对。设置页要在页面脚本运行前注入 `dev/options-mock.js`（比如用 CDP 的 `Page.addScriptToEvaluateOnNewDocument`），再打开 `/options.html`。分拣台、视频记录和侧边栏的地址加 `?demo`，换成 README 截图用的演示数据（设置页的假数据本身就是）。
 

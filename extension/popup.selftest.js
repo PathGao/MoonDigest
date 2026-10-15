@@ -4,7 +4,7 @@ const path = require("path");
 const vm = require("vm");
 const assert = require("assert");
 
-// popup.js is a DOM page: drop init() and check which tools are disabled, and why.
+// popup.js is a DOM page: drop init() and check which tools are disabled, and why. Startup is scripts/smoke.mjs's job.
 const source = fs.readFileSync(path.join(__dirname, "popup.js"), "utf8").replace(/^init\(\)\.catch\(/m, "(async () => {})().catch(");
 assert.ok(source.includes("(async () => {})().catch("), "harness strips the page entry point");
 const button = () => {
