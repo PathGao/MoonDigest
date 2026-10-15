@@ -81,6 +81,7 @@ let previousVideoExpanded = false;
 let previousVideoBarSignature = "";
 
 init().catch((err) => {
+  console.error(err);
   resetConversationView(`初始化失败：${escapeHtml(err?.message || err)}`);
 });
 

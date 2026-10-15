@@ -35,6 +35,7 @@ const { sanitizeFileName } = MdgSites;
 
 
 init().catch((error) => {
+  console.error(error);
   setStatus(`初始化失败：${error.message}`, true);
 });
 
