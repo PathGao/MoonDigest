@@ -437,7 +437,7 @@ async function saveSettings() {
 
 async function getSettings() {
   const resp = await sendRuntimeMessage({ type: "get-settings" });
-  if (!resp?.ok) throw new Error(resp?.error || MdgErrors.TEXT.unknown);
+  if (!resp?.ok) throw MdgErrors.fromResp(resp);
   return { ...DEFAULT_SETTINGS, ...(resp.settings || {}) };
 }
 
@@ -1218,7 +1218,7 @@ function sendRuntimeMessage(message) {
 
 async function loadAiProviders() {
   const resp = await sendRuntimeMessage({ type: "ai-providers-list" });
-  if (!resp?.ok) throw new Error(resp?.error || MdgErrors.TEXT.unknown);
+  if (!resp?.ok) throw MdgErrors.fromResp(resp);
   return Array.isArray(resp.providers) ? resp.providers : [];
 }
 
