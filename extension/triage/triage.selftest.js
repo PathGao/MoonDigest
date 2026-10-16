@@ -1748,59 +1748,10 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   Object.assign(t.S, { tags: [], videoTags: {}, folders: [] });
   openFake("K", [item(600), item(601)]);
 
-  // Migration to per-folder tags (pure).
-  const fmig = (o) => plain(t.tagsByFolderMigration(o));
-  const one = fmig({ tags: [{ id: "a", name: "A", color: "#1" }], videoTags: { BV1: ["a"] }, folders: [{ id: "1", bvids: ["BV1"] }, { id: "2", bvids: ["BV2"] }], fallback: "2" });
-  assert.deepStrictEqual(one, { tags: [{ id: "a", name: "A", color: "#1", folder: "1" }], videoTags: { BV1: ["a"] } }, "used in one folder");
-  const multi = fmig({
-    tags: [{ id: "a", name: "A", color: "#1", rule: "r" }, { id: "k", name: "K", color: "#2", folder: "9" }],
-    videoTags: { BV1: ["a"], BV2: ["a", "k"], BV3: ["a"], BV9: ["a"] },
-    folders: [{ id: "1", bvids: ["BV1", "BV3"] }, { id: "2", bvids: ["BV2", "BV3"] }, { id: "3", bvids: ["BV3"] }]
-  });
-  const [a1, a2, a3] = multi.tags.filter((x) => x.name === "A");
-  assert.deepStrictEqual([a1.id, a1.folder, a2.folder, a3.folder], ["a", "1", "2", "3"], "the first folder keeps the original");
-  assert.ok(a2.id !== "a" && a3.id !== a2.id && a2.rule === "r" && a3.color === "#1", "copies keep name, color and rule");
-  assert.deepStrictEqual(multi.tags.find((x) => x.id === "k"), { id: "k", name: "K", color: "#2", folder: "9" }, "a placed tag is left alone");
-  assert.deepStrictEqual(multi.videoTags, { BV1: ["a"], BV2: [a2.id, "k"], BV3: ["a", a2.id, a3.id], BV9: ["a"] }, "each video gets the copy of every folder it is in");
-  assert.deepStrictEqual(fmig({ tags: [{ id: "u", name: "U" }], videoTags: { BVx: ["u"] }, folders: [{ id: "1", bvids: [] }], fallback: "7" }).tags, [{ id: "u", name: "U", folder: "7" }], "unused → the fallback folder");
-  assert.deepStrictEqual(fmig({ tags: [{ id: "u", name: "U" }], videoTags: {}, folders: [] }), { tags: [{ id: "u", name: "U" }], videoTags: {} }, "no folder: unchanged");
-
-  // Migration (storage): last folder as fallback, chosen folders first; the flag waits until every tag is placed.
-  for (const k of Object.keys(store)) delete store[k];
-  const unplaced = { tags: [{ id: "a", name: "A" }, { id: "b", name: "B" }], videoTags: { BV1: ["a"] } };
-  assert.deepStrictEqual(plain(await t.loadTagsByFolder(unplaced)), unplaced, "no folder yet");
-  assert.ok(!store[t.K.tagsByFolder]);
-  Object.assign(store, { triage_snapshot_5: { bvids: ["BV1"] }, triage_snapshot_6: { bvids: ["BV1"] }, triage_included_folders: [6, 5], triage_last_folder: "5" });
-  const placed = plain(await t.loadTagsByFolder(unplaced));
-  assert.deepStrictEqual(placed.tags.map((x) => [x.name, x.folder]), [["A", "6"], ["A", "5"], ["B", "5"]]);
-  assert.deepStrictEqual(placed.videoTags.BV1, ["a", placed.tags[1].id]);
-  assert.ok(store[t.K.tagsByFolder] === true && store.triage_tags.length === 3);
-  assert.deepStrictEqual(plain(await t.loadTagsByFolder(unplaced)), unplaced, "runs once");
-
   // 只处理细看过的: only videos with a done 细看 from the current filter results.
   Object.assign(t.S, { tab: "read", analyses: { BV600: { status: "done", oneLiner: "x" } }, titleRes: { BV601: { verdict: "drop", confidence: "high" } } });
   assert.deepStrictEqual(plain(t.aiScopeItems("analyzed").map((it) => it.bvid)), ["BV600"]);
   t.S.analyses = {};
-
-  // Migration (pure): the global tags and criteria carry over, the criteria to each folder seen in triage.
-  const pre = plain(t.simplifyMigration({ tags: [{ id: "t1", name: "AI", color: "#1", description: "d" }], videoTags: { BVa: ["t1"] }, criteria: "全局", folderIds: ["5"] }));
-  assert.deepStrictEqual(pre, { tags: [{ id: "t1", name: "AI", color: "#1" }], videoTags: { BVa: ["t1"] }, folderCriteria: { 5: "全局" } });
-  assert.deepStrictEqual(plain(t.simplifyMigration({})), { tags: [], videoTags: {}, folderCriteria: {} });
-  const dup = plain(t.simplifyMigration({ tags: [{ id: "t1", name: "AI", color: "#1" }, { id: "t2", name: "AI" }, { id: "t3", name: "工具" }], videoTags: { BVa: ["t2", "t1"], BVb: ["zz"] } }));
-  assert.deepStrictEqual(dup.tags, [{ id: "t1", name: "AI", color: "#1" }, { id: "t3", name: "工具", color: "#da86c3" }], "a tag without a color gets the first free one (nextTagColor)");
-  assert.deepStrictEqual(dup.videoTags, { BVa: ["t1"], BVb: ["zz"] }, "a same-name tag is remapped; unknown ids stay");
-
-  // Migration (storage): global criteria from sync, triage_tags kept; runs once, then never reads the old key.
-  for (const k of Object.keys(store)) delete store[k];
-  Object.assign(store, { triage_tags: [{ id: "t1", name: "AI", color: "#1" }], triage_video_tags: { BVa: ["t1"] }, triage_decisions_7: {} });
-  syncStore.triageCriteria = "全局标准";
-  assert.deepStrictEqual(plain(await t.loadTagsAndCriteria()), { tags: [{ id: "t1", name: "AI", color: "#1" }], videoTags: { BVa: ["t1"] }, folderCriteria: { 7: "全局标准" } });
-  assert.strictEqual(syncStore.triageCriteria, "全局标准", "C563: the migrated sync criteria stays for computers not updated yet");
-  assert.strictEqual(store.triage_simplified_v1, true);
-  syncStore.triageCriteria = "后来改的";
-  store.triage_folder_criteria = { 7: "我改的" };
-  assert.deepStrictEqual(plain((await t.loadTagsAndCriteria()).folderCriteria), { 7: "我改的" }, "a second run reads only the new keys");
-  delete syncStore.triageCriteria;
 
   // F1 search: title, uploader, one-liner, points, note and tag names; case-insensitive; every word must match; combines with tags.
   openFake("Q", [{ ...item(1), title: "Claude Code 实战", upper: "老王" }, { ...item(2), title: "红烧肉" }, item(3)]);
@@ -1867,15 +1818,6 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     assert.deepStrictEqual([plain(shared.folders), plain(shared.left), plain(store[t.K.decisions("B")])], [["A", "B"], [], {}]);
   }
   Object.assign(t.S, savedTags);
-
-  // 保留 belongs to the video: the one-time split moves every folder's keeps into triage_kept, newest first.
-  const split = plain(t.splitKept({
-    triage_decisions_A: { BV1: { action: "keep", at: 5 }, BV2: { action: "unfav", at: 6 } },
-    triage_decisions_B: { BV1: { action: "keep", at: 9 }, BV3: { action: "keep", at: 1 } },
-    triage_tags: []
-  }));
-  assert.deepStrictEqual(split.kept, { BV1: { action: "keep", at: 9 }, BV3: { action: "keep", at: 1 } });
-  assert.deepStrictEqual(split.folders, { triage_decisions_A: { BV2: { action: "unfav", at: 6 } }, triage_decisions_B: {} });
 
   // A 保留 made in one folder shows in another; folder records keep only 取消收藏; U removes it everywhere.
   for (const k of Object.keys(store)) delete store[k];

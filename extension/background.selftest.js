@@ -553,11 +553,11 @@ process.on("exit", (code) => {
   assert.ok(inits.length && inits.every((i) => i.referrer === "https://www.bilibili.com/" && i.cache === "no-store" && i.credentials === "include"));
 
   // Dead keys go on install and update, the old 已看 mark (triage_watched) among them; the 待播 list stays.
-  const dead = { triage_watched: { BV1: 1 }, triage_tab: "none", triage_schemes: [], triage_excluded_folders: ["2"], triage_basket: [{ bvid: "BV1" }] };
+  const dead = { triage_watched: { BV1: 1 }, triage_tab: "none", triage_schemes: [], triage_excluded_folders: ["2"], triage_simplified_v1: true, triage_tags_by_folder_v1: true, triage_kept_v1: true, triage_basket: [{ bvid: "BV1" }] };
   ctx.chrome = { storage: { sync: area({}), local: { ...area(dead), getKeys: async () => Object.keys(dead) } } };
   await ctx.removeDeadStorageKeys();
   assert.deepStrictEqual(Object.keys(dead), ["triage_basket"]);
-  // C563: the old global 判断标准 stays in sync after this computer migrated it; another one may not have updated yet.
+  // C563: the old global 判断标准 stays in sync; another computer may not have updated yet.
   const syncLeft = { triageCriteria: "全局", readerChapterVisibility: "x" };
   ctx.chrome = { storage: { sync: area(syncLeft), local: { ...area({ triage_simplified_v1: true }), getKeys: async () => ["triage_simplified_v1"] } } };
   await ctx.removeDeadStorageKeys();

@@ -58,7 +58,7 @@ const names = Object.values(L.KEYS).filter((v) => typeof v === "string");
 assert.deepStrictEqual([...names].sort(), [
   "aiProviderKeys", "aiProviders", "follow_", "mdg_ai_conversations_v1", "mdg_ai_selected_provider", "mdg_obsidian_note_paths_v1", "mdg_player_ai_quick_action_v1", "mdg_subtitle_cache_",
   "seen_", "triage_analysis_", "triage_basket", "triage_decisions_", "triage_folder_criteria", "triage_included_folders", "triage_kept", "triage_notes", "triage_removed",
-  "triage_seen_meta", "triage_simplified_v1", "triage_snapshot_", "triage_tags", "triage_title_", "triage_video_tags"
+  "triage_seen_meta", "triage_snapshot_", "triage_tags", "triage_title_", "triage_video_tags"
 ]);
 assert.strictEqual(L.KEYS.triageDecisions(7), "triage_decisions_7");
 assert.strictEqual(L.KEYS.triageAnalysis("BV1"), "triage_analysis_BV1");

@@ -2,6 +2,8 @@
 // Every runtime (each manifest content_scripts entry, the worker's importScripts chain, every extension page) loads
 // the file that defines a global before any file that reads it, and every script it names exists. common.js is first
 // everywhere, so a file may use MdgCommon without checking which runtime loads it.
+// 收藏夹's fav-*.js share plain top-level names, not globalThis.X: triage.selftest.js and follow.selftest.js run
+// triage.html's scripts in its order, so a fav file that reads a later one's names while loading fails there.
 const fs = require("fs");
 const path = require("path");
 const assert = require("assert");
