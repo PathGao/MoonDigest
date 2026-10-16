@@ -621,7 +621,7 @@
 
   // ---------- AI 打标签: the proposal and what it changes, the same in both modes ----------
   // p = { newTags: [{ key, name, checked }], rows: [{ id, add: ["id:<tag id>" | "new:<key>"], remove: [tag id] }], notes,
-  // errors }; a row's id is a bvid in 收藏夹, a mid in 关注. opts = { tags: the mode's tags (by name; 收藏夹 passes the
+  // errors, dropped: names AI asked to create past the cap (not created; rows using only them get nothing) }; a row's id is a bvid in 收藏夹, a mid in 关注. opts = { tags: the mode's tags (by name; 收藏夹 passes the
   // folder's), map: row id → tag ids, maxNewTags, excluded: Set of names, scope: Set of the row ids this run sent,
   // newTagFolder: 所有收藏夹 only, the folder this batch's new tags go into; one proposal then holds several folders' new
   // tags, each folder's apart (key "<folder>/<name>", .folder) and within its own maxNewTags }.
@@ -630,8 +630,13 @@
     const keyOf = (name) => (folder ? `${folder}/${name}` : name);
     const existing = (name) => opts.tags.find((t) => t.name === name);
     const proposed = (name) => p.newTags.find((t) => t.key === keyOf(name));
+    const drop = (name) => {
+      p.dropped ??= [];
+      if (!p.dropped.includes(name)) p.dropped.push(name);
+      return null;
+    };
     const addNew = (name) => {
-      if (p.newTags.filter((t) => t.folder === folder).length >= opts.maxNewTags) return null;
+      if (p.newTags.filter((t) => t.folder === folder).length >= opts.maxNewTags) return drop(name);
       const t = { key: keyOf(name), name, checked: true };
       if (folder) t.folder = folder;
       p.newTags.push(t);
@@ -642,6 +647,7 @@
       const name = String(raw ?? "").trim();
       if (name && !blocked(name) && !existing(name) && !proposed(name)) addNew(name);
     }
+    for (const name of data?.droppedNewTags || []) drop(String(name));
     if (data?.note) p.notes.push(String(data.note));
     for (const [id, a] of Object.entries(data?.assignments || {})) {
       if (!opts.scope.has(id)) continue;
