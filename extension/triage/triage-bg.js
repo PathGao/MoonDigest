@@ -67,7 +67,7 @@ function triageParseLlm(content) {
   return { oneLiner, points, verdict: triageVerdict(obj.verdict), reason: String(obj.reason ?? "").trim() };
 }
 
-// items 与发给模型的序号一一对应（序号从 1 开始）
+// items 与发给模型的序号一一对应（序号从 1 开始）。AI 漏掉的视频不在结果里，页面按分析失败处理（可重试）
 function triageParseTitleBatch(content, items) {
   const arr = triageExtractJson(content, "[");
   const byIndex = new Map();
@@ -78,13 +78,12 @@ function triageParseTitleBatch(content, items) {
   const results = {};
   items.forEach((item, idx) => {
     const r = byIndex.get(idx + 1);
-    results[item.bvid] = r
-      ? {
-          verdict: triageVerdict(r.verdict),
-          reason: String(r.reason ?? "").trim(),
-          confidence: String(r.confidence || "").trim().toLowerCase() === "high" ? "high" : "low"
-        }
-      : { verdict: "unsure", reason: "AI 未返回", confidence: "low" };
+    if (!r) return;
+    results[item.bvid] = {
+      verdict: triageVerdict(r.verdict),
+      reason: String(r.reason ?? "").trim(),
+      confidence: String(r.confidence || "").trim().toLowerCase() === "high" ? "high" : "low"
+    };
   });
   return results;
 }
@@ -247,11 +246,11 @@ function triageError(error, code) {
   return Object.assign(new Error(error), code ? { code } : {});
 }
 
-// Risk control answers HTTP 412 with an HTML page, or one of these codes in JSON; both mean back off.
-// follow-bg.js and the video page (content.js) use the same set.
+// Risk control answers HTTP 412 with an HTML page, or one of these codes in JSON; both mean back off, and so does
+// HTTP 429 (sites.js biliJson, the video page's channel, reads them the same). follow-bg.js uses the same set.
 const BILI_RISK_CODES = MdgSites.BILI_RISK_CODES;
 async function triageBiliJson(res) {
-  if (!res.ok) throw Object.assign(triageError(`B站请求失败 HTTP ${res.status}`, res.status === 412 ? "THROTTLED" : undefined), { status: res.status });
+  if (!res.ok) throw Object.assign(triageError(`B站请求失败 HTTP ${res.status}`, res.status === 412 || res.status === 429 ? "THROTTLED" : undefined), { status: res.status });
   try {
     return await res.json();
   } catch {
@@ -268,22 +267,28 @@ function triageBiliData(json) {
   return json.data;
 }
 
-// The one B站 channel of both modes (GET and POST) and the video page's fetch-json. No answer in
-// TRIAGE_BILI_CFG.timeoutMs (MdgErrors.NET_TIMEOUT_MS, the video page's own fetches use it too), or a dropped
-// connection, is NETWORK.
+// The one B站 channel of both modes (GET and POST) and the video page's fetch-json; returns the answer's JSON
+// (triageBiliJson). No whole answer, body included, in TRIAGE_BILI_CFG.timeoutMs (MdgErrors.NET_TIMEOUT_MS, the video
+// page's own fetches use it too) aborts the request; that and a dropped connection are NETWORK.
 const TRIAGE_BILI_CFG = { timeoutMs: MdgErrors.NET_TIMEOUT_MS };
 async function triageBiliFetch(url, init = {}) {
   const ctl = new AbortController();
   let timer;
   const timeout = new Promise((_, reject) => {
-    timer = setTimeout(() => reject(Object.assign(new Error(MdgErrors.netTimeout(TRIAGE_BILI_CFG.timeoutMs)), { timedOut: true })), TRIAGE_BILI_CFG.timeoutMs);
+    timer = setTimeout(() => {
+      ctl.abort();
+      reject(triageError(MdgErrors.netTimeout(TRIAGE_BILI_CFG.timeoutMs), "NETWORK"));
+    }, TRIAGE_BILI_CFG.timeoutMs);
   });
+  const request = async () => {
+    const res = await fetch(url, { ...init, credentials: "include", signal: ctl.signal }).catch((e) => {
+      // A dropped connection is fetch's TypeError, whose English text the user does not need.
+      throw triageError(e?.name === "TypeError" ? MdgErrors.TEXT.netDown : `${MdgErrors.TEXT.netDown}：${e?.message || e}`, "NETWORK");
+    });
+    return triageBiliJson(res);
+  };
   try {
-    return await Promise.race([fetch(url, { ...init, credentials: "include", signal: ctl.signal }), timeout]);
-  } catch (e) {
-    ctl.abort();
-    // A dropped connection is fetch's TypeError, whose English text the user does not need.
-    throw triageError(e?.timedOut ? e.message : e?.name === "TypeError" ? MdgErrors.TEXT.netDown : `${MdgErrors.TEXT.netDown}：${e?.message || e}`, "NETWORK");
+    return await Promise.race([request(), timeout]);
   } finally {
     clearTimeout(timer);
   }
@@ -304,7 +309,7 @@ async function triageBiliGetJson(url, pace) {
     await pace?.slot();
     let json = null;
     try {
-      json = await triageBiliJson(await triageBiliFetch(u, TRIAGE_BILI_GET));
+      json = await triageBiliFetch(u, TRIAGE_BILI_GET);
     } catch (e) {
       if (!pace) throw e;
       if (e.code === "NETWORK" && net < pace.cfg.netRetry.length) {
@@ -330,14 +335,14 @@ async function triageBiliPost(path, fields) {
   if (!cookie?.value) throw triageNotLoggedIn();
   // A write is tried once. Without an answer B站 may or may not have done it, so callers keep their state as before
   // (no count change, no undo step) and the message says to look.
-  const res = await triageBiliFetch(`https://api.bilibili.com${path}`, {
+  const json = await triageBiliFetch(`https://api.bilibili.com${path}`, {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body: triageForm({ ...fields, csrf: cookie.value })
   }).catch((e) => {
     throw e.code === "NETWORK" ? triageError("网络超时或断开：不确定 B站 是否已改，刷新后看一下", "NETWORK") : e;
   });
-  return triageBiliData(await triageBiliJson(res));
+  return triageBiliData(json);
 }
 
 // The sites.js fetchers (细看, notes, the side panel follow-up) through the same channel, one try. sites.js's B站
@@ -701,9 +706,8 @@ async function triageChat(messages, maxTokens, thinking = false, providerId = ""
     // A body that is not JSON is this request's failure.
     const json = await triageAiJson(res);
     const choice = json.choices?.[0];
-    if (!choice?.message?.content && choice?.finish_reason === "length") {
-      throw triageError("模型输出被截断", "AI_TRUNCATED");
-    }
+    // Cut at the output limit, with or without a partial answer: the page offers 调大输出上限.
+    if (choice?.finish_reason === "length") throw triageError("模型输出被截断", "AI_TRUNCATED");
     return { content: choice?.message?.content, model: provider.model };
   };
   try {
@@ -730,12 +734,12 @@ async function triageClassifyTitles({ items, criteria, folder, aiProviderId }) {
   );
   const parsed = triageParseTitleBatch(content, list);
   const analyzedAt = Date.now();
-  // 结果记下当时的判断标准，标准改了页面才认得出哪些要重新粗看。"AI 未返回" 的不缓存，方便下次重试
+  // 结果记下当时的判断标准，标准改了页面才认得出哪些要重新粗看
   const results = {};
   const toStore = {};
   for (const [bvid, r] of Object.entries(parsed)) {
     results[bvid] = { ...r, criteria: String(criteria ?? "").trim() };
-    if (r.reason !== "AI 未返回") toStore[MdgLimits.KEYS.triageTitle(bvid)] = { ...results[bvid], model, analyzedAt };
+    toStore[MdgLimits.KEYS.triageTitle(bvid)] = { ...results[bvid], model, analyzedAt };
   }
   await chrome.storage.local.set(toStore);
   return { results };
@@ -1082,13 +1086,19 @@ function triageRegisterDnr() {
 
 // Answers the messages whose type starts with prefix from handlers[type](message): { ok: true, data } or
 // { ok: false, error, code? }. Other types are left to the other listeners. Returns the listener.
-function triageListen(prefix, handlers) {
+// Only the extension's own pages are answered, so a script in a B站 or YouTube page cannot write to the account, spend
+// AI tokens or save settings; webTypes are the ones its content scripts send (badges.js).
+function triageListen(prefix, handlers, webTypes = []) {
   const listener = (message, sender, sendResponse) => {
     const type = message?.type;
     if (typeof type !== "string" || !type.startsWith(prefix)) return false;
     const handler = handlers[type];
     if (!handler) {
       sendResponse({ ok: false, error: `未知消息类型 ${type}` });
+      return false;
+    }
+    if (!String(sender?.url || "").startsWith(chrome.runtime.getURL("")) && !webTypes.includes(type)) {
+      sendResponse({ ok: false, error: `网页不能发送 ${type}` });
       return false;
     }
     Promise.resolve()
@@ -1111,5 +1121,5 @@ if (typeof chrome !== "undefined" && chrome.runtime?.onMessage) {
     if (c && MdgSettings.seenOn(c.oldValue) && !MdgSettings.seenOn(c.newValue)) seenClear().catch((e) => console.warn("[triage] 清除观看进度失败", e));
   });
 
-  triageListen("triage-", TRIAGE_HANDLERS);
+  triageListen("triage-", TRIAGE_HANDLERS, ["triage-open", "triage-seen-sync"]);
 }
