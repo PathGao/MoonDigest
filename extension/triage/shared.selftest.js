@@ -284,6 +284,9 @@ assert.strictEqual(UI.aiHistoryAdd(["a", "b", "c", "d", "e"], "c").join(), "c,a,
 assert.strictEqual(UI.aiHistoryAdd(["a", "b", "c", "d", "e"], "f").join(), "f,a,b,c,d");
 assert.strictEqual(UI.aiApplied(3, "UP 主"), "已应用 AI 建议：3 个 UP 主，列表只显示这些 · U 撤销");
 assert.strictEqual(UI.aiApplied(2, "视频"), "已应用 AI 建议：2 个视频，列表只显示这些 · U 撤销");
+// C652: nothing changed shows no list and no 「列表只显示这些」 (both modes).
+assert.strictEqual(UI.aiApplied(0, "视频", 2), "已新建 2 个标签，没有视频的标签要改 · U 撤销");
+assert.strictEqual(UI.aiApplied(0, "视频"), "AI 建议里没有要改的标签");
 assert.strictEqual(UI.aiTagsFailed("x"), "AI 打标签没有成功：x");
 
 // AI 打标签's proposal, as both modes use it: merge, cap, excluded, changes, tally. Rows are UPs here, videos in 收藏夹.
@@ -420,7 +423,9 @@ for (const [file, fns] of [["triage.js", ["mergeAiBatch", "aiChanges"]], ["follo
   UI.setReason(node, "");
   assert.deepStrictEqual([node.disabled, node.title, attrs["aria-description"]], [false, "", undefined]);
   // 标签管理: the warn dot while there are no tags, not when it is disabled anyway.
-  assert.ok(UI.tagButtons({ manageAttrs: "data-m", aiAttrs: "data-a", noTags: true }).includes('aria-label="标签管理（还没有自定义标签）">标签管理<i class="dot-warn"'));
+  // No tags yet: named by the unit, as the 标签管理 dialog's empty list (C489).
+  assert.ok(UI.tagButtons({ manageAttrs: "data-m", aiAttrs: "data-a", noTags: true, who: "视频" }).includes('aria-label="标签管理（还没有视频标签）">标签管理<i class="dot-warn"'));
+  assert.ok(UI.tagButtons({ manageAttrs: "data-m", aiAttrs: "data-a", noTags: true, who: UI.upWho }).includes('aria-label="标签管理（还没有 UP 标签）"'));
   const off = UI.tagButtons({ manageAttrs: "data-m", aiAttrs: "data-a", noTags: true, manageReason: "先打开", aiReason: "先打开" });
   assert.ok(!off.includes("dot-warn") && (off.match(/disabled title="先打开"/g) || []).length === 2, off);
   // K9: the run's state is drawn here from running / pending, never counting a selection.

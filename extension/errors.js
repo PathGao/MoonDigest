@@ -149,7 +149,12 @@
     customAi: "自定义",
     // A B站 video deleted or hidden: the error of every read (sites.js, not B站's own words) and the verdict's reason
     // (tag-core.js). A name, so the sentences around it (侧边栏, notes) may say it too.
-    videoGone: "视频已失效"
+    videoGone: "视频已失效",
+    // A running job's stop button, and the same once pressed while the step in flight finishes (side panel, 分拣台).
+    stop: "停止",
+    stopping: "停止中",
+    // A job the user stopped (分拣台's toasts and status lines; 关注's background names its stop error so).
+    stopped: "已停止"
   });
 
   // How long a B站 / YouTube read waits for an answer: the background's B站 channel (triage-bg.js triageBiliFetch,

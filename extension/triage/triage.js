@@ -45,7 +45,7 @@ const K = {
 };
 const ALL = "all"; // the 所有收藏夹 view's folder-select value
 const REMOVED = "removed"; // the 已出分拣范围 view
-const REMOVED_NAME = "已出分拣范围";
+const REMOVED_NAME = globalThis.TriageUi.removedName;
 const SETTINGS_NAME = "收藏夹设置";
 const PICK_FOLDERS = "选择收藏夹";
 const NO_FOLDERS = "没有找到收藏夹"; // the first run's button, and the dialog it opens
@@ -54,8 +54,7 @@ const REFAV = "重新收藏";
 const UNFAV = "取消收藏"; // also the verb W.pending answers for a video waiting to be unfavorited
 const REFAVING = `${REFAV}中…`;
 const UNFAV_MANY = "批量取消收藏";
-// What a toast adds after a step U can undo.
-const UNDO = " · U 撤销";
+const UNDO = globalThis.TriageUi.UNDO;
 // 待播's remove: the list's button, E on a card in it, the card's ✓ 待播.
 const BASKET_REMOVE = "从待播移除";
 const BASKET_REMOVED = `已${BASKET_REMOVE}${UNDO}`;
@@ -248,7 +247,7 @@ const PILL = ["group", "stage1", "fav", "write", "load", "check", "sync", "ai", 
 runs.put("load", () => loadAllActivity());
 // S.syncing is the token of the folder being read: one left meanwhile no longer shows it.
 const ownSync = () => Boolean(S.syncing) && S.syncing === S.folderToken;
-runs.put("sync", () => ownSync() && { text: `刷新中…${pageText(S.mediaId)}` });
+runs.put("sync", () => ownSync() && { text: `${UI.REFRESHING}…${pageText(S.mediaId)}` });
 runs.put("proposal", () => S.ai.proposal && { text: UI.AI_TAGS_PENDING });
 runs.put("aiOther", () => otherAiFolder() && { text: `「${folderName(otherAiFolder())}」的${UI.AI_TAGS_PENDING}` });
 // 观看进度's 30-minute pause on B站 risk control comes from the background (triage_seen_meta); tick() redraws it.
@@ -260,8 +259,8 @@ const VIEW = "查看"; // the pill's button to an AI 打标签 run or proposal
 const PILL_BTN = {
   group: ["group", "暂停细看", "暂停中", "当前视频细看完就暂停"],
   stage1: ["stage1", "暂停粗看", "暂停中", "当前批次粗看完就暂停"],
-  write: ["write", "停止", "停止中", "当前视频做完就停止"],
-  fav: ["fav", "停止", "停止中", globalThis.TriageUi.WRITE_STOPPING],
+  write: ["write", MdgErrors.LABEL.stop, MdgErrors.LABEL.stopping, "当前视频做完就停止"],
+  fav: ["fav", MdgErrors.LABEL.stop, MdgErrors.LABEL.stopping, globalThis.TriageUi.WRITE_STOPPING],
   ai: ["tags", VIEW],
   proposal: ["tags", VIEW],
   aiOther: ["aiOther", VIEW]
@@ -408,7 +407,7 @@ function fmtTime(ts) {
   const d = new Date(ts);
   return `${stamp(d, false)} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
-const videoUrl = (bvid) => `https://www.bilibili.com/video/${bvid}`;
+const videoUrl = UI.videoUrl;
 
 // Waits ms, returning early when keepGoing() turns false. Every wait of the page goes through it (runs' too).
 function sleepWhile(ms, keepGoing) {
@@ -861,10 +860,7 @@ async function start() {
     if (area === "local") followIncluded(changes);
   });
   chrome.runtime.onMessage.addListener((msg) => {
-    if (msg?.type === "triage-seen-done") {
-      S.seenRead.busy = false;
-      return renderStatus();
-    }
+    if (msg?.type === "triage-seen-done") return seenDone(msg);
     if (msg?.type !== "triage-folder-page") return;
     S.loadPage = { mediaId: msg.mediaId, page: msg.page };
     renderTop();
@@ -970,6 +966,12 @@ async function seenSync(force) {
   renderStatus();
 }
 
+// The background's read ended; one that failed (not on B站限流, which the pill counts down) says why.
+function seenDone({ error }) {
+  S.seenRead.busy = false;
+  if (error) toast(`观看进度没有读完：${error}`, true);
+  renderStatus();
+}
 function followSeenMeta(meta) {
   S.seenRead.pages = meta?.resume?.pages || 0;
   S.seenRead.until = meta?.backoffUntil || 0;
@@ -1119,10 +1121,10 @@ function seenText(it) {
   return p ? seenWords(p, false) : "";
 }
 
-// 「（p/P 页）」 while a folder of more than one page (40 videos each, the most Bilibili allows) loads.
+// 「（p/P 页）」 while a folder of more than one page (UI.FAV_PAGE_SIZE videos each) loads.
 function pageText(mediaId) {
   if (String(mediaId) === TOVIEW) return ""; // read in one request, no pages
-  const pages = Math.ceil(Number(S.folders.find((f) => String(f.id) === String(mediaId))?.count || 0) / 40);
+  const pages = Math.ceil(Number(S.folders.find((f) => String(f.id) === String(mediaId))?.count || 0) / UI.FAV_PAGE_SIZE);
   const done = S.loadPage?.mediaId === String(mediaId) ? S.loadPage.page : 0;
   return pages > 1 ? `（${Math.min(done, pages)}/${pages} 页）` : "";
 }
@@ -1857,7 +1859,7 @@ function renderTop() {
   // 已出分拣范围 has no Bilibili page of its own; the link would land on the homepage under that title.
   el.biliBtn.hidden = !S.mid || S.mediaId === REMOVED;
   el.biliBtn.title = S.mediaId === TOVIEW ? "B站稍后再看" : inFolderView() ? "B站收藏夹" : "B站主页";
-  setBusy(el.refreshBtn, (ownSync() || S.loadAll?.running) && `刷新中…${ownSync() ? pageText(S.mediaId) : ""}`);
+  setBusy(el.refreshBtn, (ownSync() || S.loadAll?.running) && `${UI.REFRESHING}…${ownSync() ? pageText(S.mediaId) : ""}`);
   const allOpt = el.folderSelect.querySelector(`option[value="${ALL}"]`);
   if (allOpt) {
     allOpt.hidden = !S.folders.length;
@@ -1951,8 +1953,7 @@ function renderTabs() {
   const steps = STAGES.map(([key, label]) => tab(key, label, c[key] ? "step" : "step zero", c[key]));
   // Say what the box searches: the open folder (or 所有收藏夹 / 已出分拣范围) and the tab you are on.
   const tabName = Object.fromEntries([...STAGES, ["read", READ_TAB]])[S.tab];
-  const scope = `在「${folderTitle()}」${tabName ? ` · ${tabName}` : ""}里搜`;
-  UI.setSearchScope(el.searchInput, scope);
+  UI.setSearchScope(el.searchInput, folderTitle(), tabName);
   // 已出分拣范围 has no steps; its tabs are why the videos left (kindOf), 全部 first for the ones not checked yet.
   const kindTabs = () => UI.kindTabs("data-kindtab", [["", "全部"], ...KINDS].map(([kind, label]) => [kind, label, kind ? S.items.filter((it) => kindOf(it) === kind).length : S.items.length]), S.kindFilter);
   el.tabs.innerHTML = S.mediaId === REMOVED ? kindTabs() :
@@ -1984,7 +1985,8 @@ function renderTagButtons() {
     pending: Boolean(S.ai.proposal),
     manageReason: inFolderView() ? "" : FOLDER_ONLY,
     aiReason: aiTagReason(),
-    noTags: !viewTags().length
+    noTags: !viewTags().length,
+    who: "视频"
   });
 }
 
@@ -2356,7 +2358,7 @@ function cardHtml(it, expanded, mark) {
         <span class="spacer"></span>
         <div class="actions">
           ${removed ? `<span class="pair">
-            <button type="button" class="danger" data-clean="${esc(b)}" aria-label="清理 ${esc(it.title)}"${UI.reasonAttrs(favBusyReason())}>清理</button>
+            ${UI.cardCleanBtn(b, it.title, favBusyReason())}
           </span>
           <span class="more">${basketBtn}${askBtn}</span>` : `<span class="pair">
             <button type="button" data-act="keep" class="${keepCls}" aria-label="保留 (S)"${UI.reasonAttrs(decision ? (decision.action === "keep" ? "已经保留了" : KEEP_UNFAVED) : waiting, KEEP_TIP)}>保留<kbd class="key">S</kbd></button>
@@ -2533,7 +2535,7 @@ async function refavDone({ folders: [f], keys: [bvid] }) {
 // 停止 on the pill (as 关注's): what went through stays.
 // A B站 batch write that failed midway: what went through stays.
 const cutShort = (what, done, error, rest = "") => `${what}中断（已完成 ${done} 个${rest}）：${error}`;
-const stopWords = (what, r) => `已停止${what}：完成 ${r.done} 个，未完成 ${r.total - r.done} 个`;
+const stopWords = UI.stopWords;
 const undoBlocked = () => UI.busyText(W.busy(), { undo: true });
 const busyError = (r) => r.error || UI.busyText(r.busy);
 
@@ -2751,7 +2753,7 @@ const fav = {
     const { how, target } = ask;
     const add = how === "add"; // from 已出分拣范围: no source folder on Bilibili
     const move = how === "move";
-    const verb = { move: "移动", copy: "复制", add: "收藏" }[how];
+    const verb = UI.transferVerb[how];
     const meta = { mediaId: from, verb, to: target.id, toName: folderName(target.id) };
     const plainItem = ({ removedAt, movedTo, hidden, from, ...it }) => it;
     const r = await W.run("transfer", verb, async () => { // named by its verb (移动, 复制, 收藏) where others wait on it
@@ -3058,7 +3060,7 @@ function removeVideoTag(bvid, id) {
   const name = tagById(id)?.name;
   if (!setVideoTags(bvid, prev.filter((x) => x !== id), prev)) return;
   render();
-  toast(`已去掉「${name}」${UNDO}`);
+  toast(UI.untagged(name));
 }
 
 // 「AI 刚打的」 of the open folder (a Set of bvids); empty in 所有收藏夹 and 已出分拣范围.
@@ -3478,7 +3480,7 @@ function retry(bvid) {
 
 // ---------- AI 打标签 (tag-dialogs.js) ----------
 // The scopes of ✦ AI 打标签 and 摘录或笔记, drawn 「名字 · N 个」 in both.
-const SCOPE_LABEL = { filter: "当前筛选", selected: "选中", analyzed: "细看过的", all: "整个收藏夹" };
+const SCOPE_LABEL = { ...UI.scopeLabel, analyzed: "细看过的", all: "整个收藏夹" };
 const EMPTY_SCOPE = "作用范围里没有视频";
 const isAnalyzed = (it) => S.analyses[it.bvid]?.status === "done";
 
@@ -3518,7 +3520,7 @@ function aiScopeText(scope) {
   const size = aiBatchSize();
   const parts = [done && `${done} 个细看过（按 AI 总结和要点判断）`, n - done && `${n - done} 个只有标题和简介，标签可能不准`].filter(Boolean);
   if (!n) return EMPTY_SCOPE;
-  if (S.mediaId !== ALL) return `${n} 个视频：${parts.join("，")}。分 ${Math.ceil(n / size)} 批发送`;
+  if (S.mediaId !== ALL) return `${n} 个视频：${parts.join("，")}${UI.batchesText(Math.ceil(n / size))}`;
   const folders = aiParts(items);
   const batches = folders.reduce((sum, p) => sum + Math.ceil(p.items.length / size), 0);
   return `${n} 个视频：${parts.join("，")}。按收藏夹分开打，各用各的标签（重复收藏的视频在每个收藏夹各打一次），${folders.length} 个收藏夹共 ${batches} 批发送`;
@@ -3528,14 +3530,17 @@ function aiScopeText(scope) {
 const aiRoom = () => (S.mediaId === ALL ? Math.max(0, ...S.folders.map((f) => aiNewTagRoom(f.id))) : aiNewTagRoom());
 function aiRoomHint() {
   const tags = aiTags.tags();
-  const noneUsable = tags.length > 0 && tags.every((t) => S.ai.excluded.has(t.id));
   const room = aiRoom();
   const all = S.mediaId === ALL;
   // In 所有收藏夹 room is the roomiest folder's: each folder makes at most what it has left.
-  const most = all ? `每个收藏夹最多 ${room} 个，不超过它剩下的名额` : `这次最多 ${room} 个`;
-  if (noneUsable) return room ? `已有标签都不给 AI 用，AI 只会新建标签（${most}），你确认后才创建。` : "已有标签都不给 AI 用，名额也满了，AI 打不了标签。";
-  if (!room) return `${all ? "各收藏夹" : ""}名额已满，AI 只会用已有标签。`;
-  return `AI 这次${all ? `在每个收藏夹最多新建 ${room} 个（不超过它剩下的名额）` : `最多新建 ${room} 个（这个收藏夹还剩 ${tagLimit() - tags.length} 个名额）`}，你确认后才创建。`;
+  return UI.aiRoomHint({
+    tags,
+    excluded: S.ai.excluded,
+    room,
+    most: all ? `每个收藏夹最多 ${room} 个，不超过它剩下的名额` : undefined,
+    made: all ? `这次在每个收藏夹最多新建 ${room} 个（不超过它剩下的名额）` : `这次最多新建 ${room} 个（这个收藏夹还剩 ${tagLimit() - tags.length} 个名额）`,
+    full: `${all ? "各收藏夹" : ""}名额已满`
+  });
 }
 
 const aiTags = {
@@ -3546,6 +3551,8 @@ const aiTags = {
   manage: manageTags,
   // 所有收藏夹: one chip per name, as in row 4; turning it off keeps that name from the AI in every folder.
   tags: () => viewTags().filter((t, i, all) => all.findIndex((x) => x.name === t.name) === i),
+  // Every folder's own, for the review to find a new tag's same-name tag in its folder.
+  allTags: viewTags,
   scopes: () => [
     { value: "filter", label: SCOPE_LABEL.filter, n: visibleItems().length },
     { value: "selected", label: SCOPE_LABEL.selected, n: S.selected.size, shown: visibleSelected().length },
@@ -3565,7 +3572,8 @@ const aiTags = {
     S.settings.triageAiRemoveTags = on;
     return true;
   },
-  running: aiRunning,
+  // A run in another folder leaves this one's form and proposal be (blocked says why it cannot run here).
+  running: () => aiRunning() && S.ai.mediaId === String(S.mediaId),
   proposal: () => S.ai.proposal,
   run: runAiCommand,
   stop: () => runs.stop("ai"),
@@ -3614,7 +3622,7 @@ async function runAiBatches({ R = runs, job, total, request, merge, intervalMs, 
     handleAiError(r.error, r.code);
   }
   if (r.stopped) p.errors.push(answered ? "已手动停止，这里只有已完成批次的建议" : "已手动停止，还没有批次完成");
-  for (const t of p.newTags) t.checked = p.rows.some((r) => r.add.includes(`new:${t.key}`));
+  for (const t of p.newTags) t.checked = p.rows.some((r) => r.add.includes(UI.aiRef.new(t.key)));
   progress(answered ? "" : p.errors.join("；"));
   return { proposal: answered ? p : null, errors: p.errors };
 }
@@ -3747,7 +3755,8 @@ function applyAiProposal() {
   // A new tag past the folder's cap is not made (createTag's toast is replaced by this one): say which, and that the
   // videos asking for it went without.
   const lost = p.newTags.filter((t) => t.checked && cleanTagName(t.name) && !idFor[t.key]).map((t) => t.name);
-  toast(lost.length ? `${UI.aiApplied(changes.length, "视频")}；新标签「${lost.join("」「")}」没建成（标签已到上限），用到它的视频没打上` : UI.aiApplied(changes.length, "视频"), lost.length > 0);
+  const applied = UI.aiApplied(changes.length, "视频", created.length);
+  toast(lost.length ? `${applied}；新标签「${lost.join("」「")}」没建成（标签已到上限），用到它的视频没打上` : applied, lost.length > 0);
 }
 
 // ---------- 待播 ----------
@@ -4077,7 +4086,7 @@ async function runWrite(md = false) {
   if (obsidian) {
     S.write.obsidian = true;
     showBanner(`${MdgErrors.TEXT.obsidianFailed}：${obsidian.error}`, toSettings ? MdgErrors.LABEL.toSettings : "", () => send({ type: "open-options" }), "obsidian");
-  } else S.write.text = `逐个视频笔记${run.stopped ? "已停止" : "完成"}：${counts.join(" · ")}`;
+  } else S.write.text = `逐个视频笔记${run.stopped ? MdgErrors.LABEL.stopped : "完成"}：${counts.join(" · ")}`;
 
   renderWriteScope();
   renderStatus();

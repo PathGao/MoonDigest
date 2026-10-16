@@ -430,15 +430,20 @@ function seenPrune(entries, keep, nowS) {
 
 // A first read takes minutes. The answer does not wait for it: Chrome kills a worker whose event stays open 5 minutes,
 // and everything else it was running with it. A skip answers at once, a read answers { reading: true } as it starts (or
-// is already running) and goes on by itself; pages follow it through triage_seen_meta and hear triage-seen-done.
+// is already running) and goes on by itself; pages follow it through triage_seen_meta and hear triage-seen-done, which
+// carries the error that ended it (B站限流 shows as the meta's backoffUntil instead).
 let seenRun = null;
 function seenSync({ force }) {
   if (seenRun) return Promise.resolve({ reading: true });
   let started;
   const start = new Promise((r) => (started = () => r({ reading: true })));
-  seenRun = seenSyncOnce(force, started).finally(() => {
+  let error = "";
+  seenRun = seenSyncOnce(force, started).catch((e) => {
+    if (e.code !== "THROTTLED") error = e.message;
+    throw e;
+  }).finally(() => {
     seenRun = null;
-    globalThis.chrome?.runtime?.sendMessage?.({ type: "triage-seen-done" })?.catch?.(() => {});
+    globalThis.chrome?.runtime?.sendMessage?.({ type: "triage-seen-done", ...(error && { error }) })?.catch?.(() => {});
   });
   return Promise.race([start, seenRun]);
 }
@@ -909,7 +914,7 @@ const TRIAGE_HANDLERS = {
       if (pn > 1) await new Promise((r) => setTimeout(r, 300));
       let data;
       try {
-        data = await triageBiliGet(`${TRIAGE_BILI_API}/x/v3/fav/resource/list?media_id=${mediaId}&ps=40&pn=${pn}`);
+        data = await triageBiliGet(`${TRIAGE_BILI_API}/x/v3/fav/resource/list?media_id=${mediaId}&ps=${TriageUi.FAV_PAGE_SIZE}&pn=${pn}`);
       } catch (e) {
         // Keep what earlier pages returned; the page must not treat a partial list as the whole folder.
         if (pn === 1) throw e;

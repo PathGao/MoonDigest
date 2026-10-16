@@ -87,11 +87,11 @@ const runSync = async () => {
     const live = new Set(["a"]);
     const d = t.followDiff(cur, { list: ["1", "2"], followTime: { 1: 10, 2: 10 }, complete: true }, {}, { 9: ["a", "x"] }, live, 500, 600);
     assert.deepStrictEqual(plain(d.gone), { 9: { at: 600, tagIds: ["a", "x"], source: "bili", groups: [-10, 7] } }, "vanished account recorded with its tags and groups");
-    const partial = t.followDiff(cur, { list: ["1"], followTime: { 1: 10 }, complete: false }, {}, {}, live, 500, 600);
+    const partial = t.followDiff(cur, { list: ["1", "4"], followTime: { 1: 10, 4: 10 }, complete: false, total: 5 }, {}, {}, live, 500, 600);
     assert.deepStrictEqual(plain(partial.gone), {}, "a partial fetch never marks anyone gone");
-    // 新关注 +N · 取关 −M: only from a complete fetch against a list we had
+    // 已刷新 +N −M against a list we had; a partial fetch (C431) gives its new follows and how much it read, no unfollows.
     assert.deepStrictEqual(plain(d.changes), { at: 600, added: [], removed: ["9"] });
-    assert.strictEqual(partial.changes, null, "a partial fetch gives no changes");
+    assert.deepStrictEqual(plain(partial.changes), { at: 600, added: ["4"], removed: [], partial: { read: 2, total: 5 } }, "a partial fetch says so, with no unfollows");
     const grew = t.followDiff(cur, { list: ["5", "1", "2", "9"], followTime: {}, complete: true }, {}, {}, live, 500, 600);
     assert.deepStrictEqual(plain(grew.changes), { at: 600, added: ["5"], removed: [] });
     assert.strictEqual(t.followDiff({}, { list: ["1"], followTime: {}, complete: true }, {}, {}, live, 500, 600).changes, null, "the first sync lists nobody as new");
@@ -361,7 +361,8 @@ const runSync = async () => {
     await runSync();
     assert.ok(!local.follow_jobs.error, local.follow_jobs.error);
     assert.strictEqual(local.follow_list.complete, false);
-    assert.strictEqual(local.follow_jobs.changes, null, "a partial sync shows no changes");
+    assert.deepStrictEqual(plain(local.follow_jobs.changes.partial), { read: 1, total: 5 }, "a partial sync's changes say how much it read");
+    assert.deepStrictEqual(plain(local.follow_jobs.changes.removed), [], "and list nobody as unfollowed");
     assert.deepStrictEqual(local.follow_unfollowed || {}, {});
   }
 
@@ -678,6 +679,11 @@ const runSync = async () => {
     const r = plain(await ask({ instruction: "按内容分", mids: [1, "2", "99"], aiProviderId: "b" }));
     assert.strictEqual(sent.providerId, "b", "the side panel's platform, sent by the page");
     assert.ok(sent.messages[1].content.endsWith("1|甲|讲物理|知识|量子|\n2|乙|||新番|硬核"), sent.messages[1].content);
+    // C412: a feed read still going counts, as on the cards (shared.js withFeedInProgress, upTitles).
+    local.follow_last_wip = { map: { 1: 9 }, v: { 1: [{ t: "新作", c: 9, bvid: "BVn" }] } };
+    await ask({ instruction: "x", mids: ["1"] });
+    assert.ok(sent.messages[1].content.endsWith("1|甲|讲物理|知识|新作；量子|"), sent.messages[1].content);
+    delete local.follow_last_wip;
     assert.ok(sent.messages[0].content.includes("硬核：讲科学") && sent.messages[0].content.includes("remove 留空"), "add-only by default");
     // 关注's rules are 收藏夹's word for word with 视频 → UP 主; only the 依据 line is its own.
     const rules = (s) => s.slice(s.indexOf("规则："), s.indexOf("只输出")).split("\n").filter((l) => !l.includes("主要依据"));

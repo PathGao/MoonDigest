@@ -273,7 +273,7 @@ function setStreamingUiState(isStreaming, { stopping = false } = {}) {
   els.generating.hidden = !isStreaming;
   setDisabledReason(els.sendBtn, stopping ? "正在停止生成" : blocked);
   els.sendBtn.classList.toggle("is-stop", isStreaming);
-  els.sendBtn.innerHTML = isStreaming ? (stopping ? "停止中" : "停止") : `${AI_SPARK}发送`;
+  els.sendBtn.innerHTML = isStreaming ? (stopping ? MdgErrors.LABEL.stopping : MdgErrors.LABEL.stop) : `${AI_SPARK}发送`;
   syncExportButtons();
 }
 

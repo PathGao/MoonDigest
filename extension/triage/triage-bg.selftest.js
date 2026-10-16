@@ -852,7 +852,7 @@ assert.throws(() => t.triageParseCommand('{"new_tags":[', cmdItems, cmdTags, {})
     const realFetch = t.fetch;
     t.fetch = (url) => new Promise((r) => (release = () => r(realFetch(url))));
     const ended = [];
-    t.chrome.runtime.sendMessage = async (m) => ended.push(m.type);
+    t.chrome.runtime.sendMessage = async (m) => ended.push(m);
     pages = [page([h("BVh", T + 350, 10)], 0)];
     assert.deepStrictEqual(plain(await H["triage-seen-sync"]({ force: true })), { reading: true });
     assert.deepStrictEqual(plain(await H["triage-seen-sync"]({ force: true })), { reading: true });
@@ -860,7 +860,14 @@ assert.throws(() => t.triageParseCommand('{"new_tags":[', cmdItems, cmdTags, {})
     const run = vm.runInContext("seenRun", ctx);
     release();
     await run;
-    assert.deepStrictEqual([plain(st.seen_BVh), ended], [[10, T + 350], ["triage-seen-done"]]);
+    assert.deepStrictEqual([plain(st.seen_BVh), ended.map((m) => m.type)], [[10, T + 350], ["triage-seen-done"]]);
+    // C518: a read that fails (not on B站限流) tells the page why.
+    ended.length = 0;
+    t.fetch = async () => ({ ok: false, status: 500, json: async () => ({}) });
+    st.triage_seen_meta.syncedAt = 0;
+    await H["triage-seen-sync"]({ force: true });
+    await vm.runInContext("seenRun", ctx)?.catch(() => {});
+    assert.ok(ended.length === 1 && ended[0].error, JSON.stringify(ended));
     t.fetch = realFetch;
     // 关 drops every seen_ key, on a Chrome without getKeys too.
     const keep = { ...st };

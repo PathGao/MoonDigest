@@ -15,7 +15,7 @@ vm.runInContext(fs.readFileSync(path.join(__dirname, "../errors.js"), "utf8"), c
 vm.runInContext(fs.readFileSync(path.join(__dirname, "../tag-core.js"), "utf8"), ctx);
 vm.runInContext(fs.readFileSync(path.join(__dirname, "../settings.js"), "utf8"), ctx);
 vm.runInContext(fs.readFileSync(path.join(__dirname, "shared.js"), "utf8"), ctx);
-vm.runInContext(`const UI = globalThis.TriageUi;\n${pure}\n;Object.assign(globalThis, { syncFinished, dirLabel, followAiSettings, aiRequests, normDays, settingsProblem, followStatus, withFeedInProgress, lastPostOf, recentTitles, upRow, visibleUps, mergeFeed, shuffled, feedOrdered, feedMatch, sideIds, feedList, feedLeaving, withTags, stepIn, tagsOf, restoreTags, feedCounts, STATUS, viewRecord, latestBvid, favUpMid, aiBlocked, withAllowRemove, groupsOf, regrouped, groupCalls, groupTargets, groupName, groupMoveLabel, outKind, groupNames, groupMembers, unknownLast, aiBare, aiRoomHint, feedPass });`, ctx);
+vm.runInContext(`const UI = globalThis.TriageUi;\n${pure}\n;Object.assign(globalThis, { syncView, syncFinished, dirLabel, followAiSettings, aiRequests, normDays, settingsProblem, followStatus, withFeedInProgress, lastPostOf, recentTitles, upRow, visibleUps, mergeFeed, shuffled, feedOrdered, feedMatch, sideIds, feedList, feedLeaving, withTags, stepIn, tagsOf, restoreTags, feedCounts, STATUS, viewRecord, latestBvid, favUpMid, aiBlocked, withAllowRemove, groupsOf, regrouped, groupCalls, groupTargets, groupName, groupMoveLabel, outKind, groupNames, groupMembers, unknownLast, aiBare, aiRoomHint, feedPass });`, ctx);
 const t = ctx;
 const plain = (v) => JSON.parse(JSON.stringify(v));
 
@@ -367,7 +367,7 @@ assert.deepStrictEqual([t.dirLabel("last", "desc"), t.dirLabel("follow", "asc"),
 {
   assert.ok(source.includes('else if (act === "ai") openAi();') && source.includes('else if (act === "tags") openManage();'), "each button its own dialog");
   assert.ok(source.includes("const openManage = () => TagDialogs.manage.open(manageTags);") && /async function openAi\(\) \{[^}]*\}\s*TagDialogs\.ai\.open\(aiTags\);/.test(source));
-  assert.ok(/const manageTags = \{\s*who: "UP 主"/.test(source) && /const aiTags = \{\s*who: "UP 主"[\s\S]*?manage: manageTags,/.test(source), "关注's adapters, linked");
+  assert.ok(/const manageTags = \{\s*who: WHO/.test(source) && /const aiTags = \{\s*who: WHO[\s\S]*?manage: manageTags,/.test(source), "关注's adapters, linked");
   assert.ok(!/<dialog id="fwTagsDialog"|data-fwmode/.test(source), "no combined 「UP 主标签」 dialog");
 }
 
@@ -388,7 +388,7 @@ assert.ok(/if \(up \|\| tag\) \{\s*const side = !tag && rows\.has\(up\) && outKi
 assert.ok(/render\(\);\s*if \(up\) \{\s*setCur\(up, false\);\s*E\.list\.querySelector\("\.fw-up\.focused"\)\?\.scrollIntoView\(\{ block: "center" \}\);/.test(source), "followHash makes the UP current, centered");
 
 // 标签… on 2+ UP 主 is one step that asks before U, with 收藏夹's words (shared.js undoAsk).
-assert.ok(source.includes(`pushTagUndo(before, "标签修改", { ask: changes.length > 1 ? UI.undoAsk("tags", changes.length, "UP 主") : null });`), "pickClosed asks for 2+");
+assert.ok(source.includes(`pushTagUndo(before, "标签修改", { ask: changes.length > 1 ? UI.undoAsk("tags", changes.length, WHO) : null });`), "pickClosed asks for 2+");
 
 // B站 writes and U (DESIGN 产品决策 · 改 B站 的操作和撤销): a single 重新关注 has no confirm and U unfollows again with its 已取消关注 record; batch
 // 特别关注 is one step that asks before U; single 取消关注 keeps its confirm.
@@ -947,12 +947,22 @@ const p0Throttled = () => vm.runInContext("MdgErrors.TEXT.biliThrottled", ctx);
   assert.deepStrictEqual(plain(t.unknownLast(D, rows)), { unchecked: 0, stale: 2 });
   assert.strictEqual(t.aiBare(["a", "b", "c", "d"], rows), 2, "没投过稿 (c) was read");
 }
+// The 「已刷新」 pill (C431): a partial read is amber 「已刷新（部分）+N」, with no 取消关注 count.
+{
+  const names = (mids) => mids;
+  const full = t.syncView({ at: 1, added: ["a"], removed: ["b"] }, [], names);
+  assert.ok(full.label === "已刷新 +1 −1" && !full.warn, full.label);
+  const part = t.syncView({ at: 1, added: ["a"], removed: [], partial: { read: 40, total: 50 } }, [], names);
+  assert.ok(part.label === "已刷新（部分） +1" && part.warn && part.text.startsWith("只读到 40/50 个关注") && !part.text.includes("取消关注 0"), JSON.stringify(part));
+  assert.ok(t.syncView({ at: 1, added: [], removed: [], partial: { read: 1, total: 2 } }, [], names).warn, "partial with nothing new still shows");
+  assert.strictEqual(t.syncView({ at: 1, added: [], removed: [] }, [], names), null);
+}
 // The AI dialog's room line (C462).
 {
   const tags = [{ id: "x" }, { id: "y" }];
-  assert.strictEqual(t.aiRoomHint(tags, new Set(["x"]), 0), "AI 只会用没点掉的已有标签。");
+  assert.strictEqual(t.aiRoomHint(tags, new Set(["x"]), 0), "新建上限是 0，AI 只会用没点掉的已有标签。");
   assert.strictEqual(t.aiRoomHint([], new Set(), 0), "新建上限是 0，AI 打不了标签。", "no tags and no room: nothing to tag with");
-  assert.strictEqual(t.aiRoomHint(tags, new Set(), 0), "AI 只会用已有标签。");
+  assert.strictEqual(t.aiRoomHint(tags, new Set(), 0), "新建上限是 0，AI 只会用已有标签。");
 }
 // Page code run with stubs: the slice between two markers of follow.js.
 const slice = (from, to) => source.slice(source.indexOf(from), source.indexOf(to, source.indexOf(from)));

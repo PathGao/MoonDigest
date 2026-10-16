@@ -14,9 +14,9 @@ const fire = (n, type, e = {}) => {
   (n.L[type] || []).forEach((f) => f(ev));
   return ev;
 };
-const input = node({ value: "", focused: 0, focus() { this.focused++; } });
+const input = node({ value: "", focused: 0, focus() { this.focused++; }, setAttribute(k, v) { this[k] = v; } });
 const list = node({ innerHTML: "", querySelector: () => null });
-const parts = { ".tp-input": input, ".picker-list": list, ".tp-title": node({ textContent: "" }), ".tp-note": node({ textContent: "" }) };
+const parts = { ".tp-input": input, ".picker-list": list, ".tp-title": node({ textContent: "" }), ".tp-note": node({ textContent: "" }), ".tp-keys": node({ textContent: "" }) };
 const calls = [];
 const dlg = node({
   open: false,
@@ -174,6 +174,15 @@ const key = (k, o = {}) => fire(dlg, "keydown", { key: k, target: input, ...o })
   assert.deepStrictEqual(saved.splice(0), [[{ key: "a", add: ["s"], remove: [] }]]);
   fire(dlg, "close");
   assert.ok(P.isOpen() && dlg.open, "the old close event does not close the new picker");
+  P.close();
+
+  // C539: where no tag can be made, the box and the keys line do not offer 回车新建.
+  const keysLine = parts[".tp-keys"];
+  P.open(opts({ canCreate: false }));
+  assert.ok(!input.placeholder.includes("新建") && !input["aria-label"].includes("新建") && !keysLine.textContent.includes("新建"), `${input.placeholder} / ${keysLine.textContent}`);
+  P.close();
+  P.open(opts());
+  assert.ok(input.placeholder.includes("回车新建") && keysLine.textContent.includes("或新建"));
   P.close();
 
   console.log("tag-picker selftest: all passed");

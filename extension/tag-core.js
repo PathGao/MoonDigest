@@ -16,6 +16,8 @@
   const cycleTagColor = (color) => TAG_COLORS[(TAG_COLORS.indexOf(color) + 1) % TAG_COLORS.length];
   // A new tag's id; 关注's (UP) tags use the prefix "ft".
   const newTagId = (prefix) => `${prefix}${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+  // A new UP tag (关注's follow_tags; B站 pages' 「+ UP 标签」 makes the same).
+  const newUpTag = (name, tags) => ({ id: newTagId("ft"), name, color: nextTagColor(tags), rule: "" });
 
   // The AI's three fixed classes; the ids are also CSS color classes.
   const VERDICTS = Object.freeze({ keep: "值得留", drop: "可清理", unsure: "拿不准" });
@@ -33,5 +35,5 @@
     return { verdict: "drop", reason: v.reason ? `${INVALID}。AI 原理由：${v.reason}` : INVALID, stage: Math.max(v.stage, 0) };
   }
 
-  globalThis.MdgTagCore = { TAG_COLORS, TAG_NAME_MAX, cleanTagName, nextTagColor, cycleTagColor, newTagId, VERDICTS, INVALID, verdictOf };
+  globalThis.MdgTagCore = { TAG_COLORS, TAG_NAME_MAX, cleanTagName, nextTagColor, cycleTagColor, newTagId, newUpTag, VERDICTS, INVALID, verdictOf };
 })();

@@ -49,6 +49,11 @@
     else for (const x of ids.slice(Math.min(a, b), Math.max(a, b) + 1)) sel.add(x);
     return id;
   }
+  const videoUrl = (bvid) => `https://www.bilibili.com/video/${bvid}`;
+  // A favorites page: B站 gives at most 40 videos (triage-bg.js reads them; the page counts the pages).
+  const FAV_PAGE_SIZE = 40;
+  // The view of what left the 分拣 (收藏夹 and 关注 alike).
+  const removedName = "已出分拣范围";
   // B站's image URLs come as http://, https:// or protocol-relative //: always https (the pages and the worker).
   const https = (u) => String(u || "").replace(/^(https?:)?\/\//, "https://");
   // hdslb images: https and a small webp copy (size like "480w_270h_1c"); other URLs as they are.
@@ -89,9 +94,12 @@
     alert: svg('<path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><path d="M12 9v4M12 17h.01"/>'),
     gear: svg('<path d="M9.671 4.136a2.34 2.34 0 0 1 4.659 0 2.34 2.34 0 0 0 3.319 1.915 2.34 2.34 0 0 1 2.33 4.033 2.34 2.34 0 0 0 0 3.831 2.34 2.34 0 0 1-2.33 4.033 2.34 2.34 0 0 0-3.319 1.915 2.34 2.34 0 0 1-4.659 0 2.34 2.34 0 0 0-3.32-1.915 2.34 2.34 0 0 1-2.33-4.033 2.34 2.34 0 0 0 0-3.831A2.34 2.34 0 0 1 6.35 6.051a2.34 2.34 0 0 0 3.319-1.915"/><circle cx="12" cy="12" r="3"/>')
   };
-  // A tag on a card: a click takes it off, U puts it back (both modes).
+  // What ends a toast or tip for a step U undoes (both modes).
+  const UNDO = " · U 撤销";
+  // A tag on a card: a click takes it off (untagged: the toast then), U puts it back (both modes).
   const cardTagChip = (t) =>
-    `<button type="button" class="chip card-tag" style="--c:${esc(t.color)}" data-untag="${esc(t.id)}" aria-label="去掉标签 ${esc(t.name)}" title="点一下去掉这个标签 · U 撤销">${esc(t.name)}<span class="x" aria-hidden="true">×</span></button>`;
+    `<button type="button" class="chip card-tag" style="--c:${esc(t.color)}" data-untag="${esc(t.id)}" aria-label="去掉标签 ${esc(t.name)}" title="点一下去掉这个标签${UNDO}">${esc(t.name)}<span class="x" aria-hidden="true">×</span></button>`;
+  const untagged = (name) => `已去掉「${name}」${UNDO}`;
   // Marks a control that starts an AI request (tokens.css draws it in the text color).
   const AI_SPARK = '<span class="ai-spark" aria-hidden="true"></span>';
 
@@ -167,8 +175,11 @@
     `<span class="search"><svg class="search-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg><input id="${id}" type="search" placeholder="${esc(placeholder)}" aria-label="${esc(placeholder)} (/)" autocomplete="off" /><span id="${countId}" class="muted" aria-live="polite"></span><kbd class="search-key" aria-hidden="true">/</kbd></span>`;
   // 「N 个结果」 while a search or any filter is on (on: truthy).
   const resultCount = (on, n) => (on ? `${n} 个结果` : "");
-  // The box says what it searches (「在「想学的技能」· 未分析里搜」), for the eye and the screen reader alike.
-  function setSearchScope(input, scope) {
+  // The box says what it searches (「在「想学的技能」 · 未分析里搜」), for the eye and the screen reader alike: where (the
+  // folder, group or tags) and what (the tab or state; "" for none).
+  const searchScope = (where, what = "") => `在「${where}」${what ? ` · ${what}` : ""}里搜`;
+  function setSearchScope(input, where, what) {
+    const scope = searchScope(where, what);
     if (input.placeholder === scope) return;
     input.placeholder = scope;
     input.setAttribute("aria-label", `${scope} (/)`);
@@ -186,6 +197,9 @@
   const BACKUP_ITEM = menuItem('data-backup aria-label="下载完整备份 JSON"', "完整备份 (JSON)", "收藏夹和关注一起，换电脑时用");
   // 清理 cannot be undone: both modes point at the same way to keep a copy, on 已出分拣范围's info line and in the confirm.
   const CLEAN_BACKUP = { meta: "清理前可先从「导出」菜单备份", ask: "要留存请先从「导出」菜单备份。" };
+  // 已出分拣范围's card's red 清理 (both modes): id goes in data-clean, name in its label; reason disables it.
+  const cardCleanBtn = (id, name, reason = "") =>
+    `<button type="button" class="danger" data-clean="${esc(id)}" aria-label="清理 ${esc(name)}"${reasonAttrs(reason)}>清理</button>`;
 
   // The running-state pill's inside: text, a bar when done/total is known, and one button (btn = { attrs, label, reason };
   // a reason disables it).
@@ -220,6 +234,10 @@
   // B站 takes at most GROUP_NAME_MAX characters (22103 分组名过长).
   const GROUP_NAME_MAX = 16;
   const groupNameError = (n) => (!n ? "分组名不能为空" : [...n].length > GROUP_NAME_MAX ? `分组名最多 ${GROUP_NAME_MAX} 个字` : "");
+  // A 刷新 running, in the pill and the empty list (both modes).
+  const REFRESHING = "刷新中";
+  // A stopped batch's toast (both modes): 「已停止取消关注：完成 3 个，未完成 7 个」; r = { done, total }.
+  const stopWords = (what, r) => `${MdgErrors.LABEL.stopped}${what}：完成 ${r.done} 个，未完成 ${r.total - r.done} 个`;
   // Why 停止 on a B站 batch write's pill (both modes) is off once pressed: the request in flight lands first.
   const WRITE_STOPPING = "当前这一批做完就停止";
   // Why something waits for a running step or batch write (name: what the pill calls it), both modes; undo: U's version.
@@ -266,15 +284,15 @@
 
   // 标签管理 and ✦ AI 打标签 at the right end of the tag row, next to the tags they act on (in 收藏夹 those are the open
   // folder's, so they do not sit in the sidebar). running / pending (an AI 打标签 run, a proposal waiting) add 「 · 运行中」
-  // / 「 · 待确认」. noTags puts the dot on 标签管理.
+  // / 「 · 待确认」. noTags puts the dot on 标签管理 and names the missing tags by who (视频 or UP 主), as the dialog does.
   // picked: the selected ones listed now (all of them when filters hide every one, as the selection bar's buttons; the
   // dialog's 运行 then says HIDDEN_ALL); the dialog opens on 选中, so the button says how many, as 粗看's does.
   // It stays in row 4: the selection bar has no AI 打标签 of its own.
   const TAG_MANAGE = "标签管理";
-  const tagButtons = ({ manageAttrs, aiAttrs, running = false, pending = false, manageReason = "", aiReason = "", noTags = false, picked = 0 }) => {
+  const tagButtons = ({ manageAttrs, aiAttrs, who, running = false, pending = false, manageReason = "", aiReason = "", noTags = false, picked = 0 }) => {
     const state = running ? " · 运行中" : pending ? " · 待确认" : "";
     const ai = `AI 打标签${picked && !state && !aiReason ? `选中的 ${picked} 个` : ""}`;
-    return `<span class="tags-acts"><button type="button" class="act-btn" ${manageAttrs}${noTags && !manageReason ? ` aria-label="${TAG_MANAGE}（还没有自定义标签）"` : ""}${reasonAttrs(manageReason)}>${TAG_MANAGE}${noTags && !manageReason ? WARN_DOT : ""}</button><button type="button" class="act-btn" ${aiAttrs} aria-label="${ai} (I)"${reasonAttrs(aiReason)}>${AI_SPARK}${ai}${esc(state)}</button></span>`;
+    return `<span class="tags-acts"><button type="button" class="act-btn" ${manageAttrs}${noTags && !manageReason ? ` aria-label="${TAG_MANAGE}（还没有${esc(tagsWord(who))}）"` : ""}${reasonAttrs(manageReason)}>${TAG_MANAGE}${noTags && !manageReason ? WARN_DOT : ""}</button><button type="button" class="act-btn" ${aiAttrs} aria-label="${ai} (I)"${reasonAttrs(aiReason)}>${AI_SPARK}${ai}${esc(state)}</button></span>`;
   };
 
   // Row 3's 全选: a checkbox drawn as a button, for what is listed now (n, of which picked are selected). Unchecked or
@@ -380,10 +398,11 @@
   // An AI 打标签 proposal kept until 应用 or 放弃: the pill's words in both modes.
   const AI_TAGS_PENDING = "标签建议待确认";
   const tagNameError = (name, others) => (!name ? "标签名不能为空" : others.some((t) => t.name === name) ? "已有同名标签" : "");
-  // who is 视频 or UP 主; a Latin word gets a space before it (「个 UP 主」, 「个视频」).
+  // who is 视频 or upWho; a Latin word gets a space before it (「个 UP 主」, 「个视频」).
+  const upWho = "UP 主";
   const sp = (who) => (/^[A-Za-z]/.test(who) ? ` ${who}` : who);
   // A unit's tags: 「视频标签」, 「 UP 标签」 (DESIGN's name for the tags on an UP, not 「UP 主标签」).
-  const tagsWord = (who) => (who === "UP 主" ? " UP 标签" : `${sp(who)}标签`);
+  const tagsWord = (who) => (who === upWho ? " UP 标签" : `${sp(who)}标签`);
   // The delete confirm's title and body.
   const deleteTagAsk = (t, n, who) => [`删除标签「${t.name}」？`, `<p>将从 ${n} 个${sp(who)}上去掉这个标签，无法撤销。</p>`];
   // A batch confirm's list: the first CONFIRM_NAMES names, then 「等 N 个」.
@@ -391,7 +410,7 @@
   const confirmList = (names) => `<ul>${names.slice(0, CONFIRM_NAMES).map((n) => `<li>${esc(n)}</li>`).join("")}</ul>${names.length > CONFIRM_NAMES ? `<p>等 ${names.length} 个</p>` : ""}`;
   // The tag picker's title: 「给「名字」打视频标签 / 打 UP 标签」 (a name alone does not say which), or for several
   // 「给选中的 N 个视频打标签」.
-  const pickTitle = (n, name, who) => (n > 1 ? `给选中的 ${n} 个${sp(who)}打标签` : who === "UP 主" ? MdgErrors.upTagTitle(name) : `给「${name}」打${tagsWord(who)}`);
+  const pickTitle = (n, name, who) => (n > 1 ? `给选中的 ${n} 个${sp(who)}打标签` : who === upWho ? MdgErrors.upTagTitle(name) : `给「${name}」打${tagsWord(who)}`);
   // U on a step that changed n ≥ 2 items asks this first: kind is tags (one 标签… save), ai (one applied AI 打标签) or
   // keep (one batch 保留).
   const UNDO_ASK = {
@@ -425,6 +444,28 @@
     const seen = new Set();
     return all.filter((v) => v.t && !seen.has(v.t) && seen.add(v.t)).slice(0, UP_RECENT);
   }
+  // 关注's video feed read still going (follow_last_wip, newest pages first) over the last finished one (follow_last), so
+  // the cards (follow.js) and the AI 打标签 (follow-bg.js) see the same titles. since stays the finished read's: only it
+  // says how far back someone did not post.
+  function withFeedInProgress(last, wip) {
+    if (!wip) return last || null;
+    if (!last) return wip;
+    const map = { ...last.map };
+    const v = { ...last.v };
+    for (const [mid, at] of Object.entries(wip.map || {})) {
+      if (!(map[mid] >= at)) map[mid] = at;
+      const fresh = wip.v?.[mid] || [];
+      const same = (x, y) => (x.bvid && x.bvid === y.bvid) || (x.c === y.c && x.t === y.t);
+      v[mid] = [...fresh, ...(v[mid] || []).filter((x) => !fresh.some((y) => same(x, y)))].sort((a, b) => (b.c || 0) - (a.c || 0)).slice(0, UP_RECENT);
+    }
+    return { ...last, map, v };
+  }
+  // 关注: arc/search's codes for an account gone for good (-404, -626); it has no videos to wait for.
+  const UP_GONE_CODES = new Set([-404, -626]);
+  // 关注's B站 group 特别关注 (0 is 默认分组, in none of your own).
+  const FOLLOW_SPECIAL = -10;
+  // How long 关注's video feed pages stay fresh: follow-bg.js's cache, and the page starting 视频投稿 over after it.
+  const FEED_CACHE_MS = 3 * 60 * 1000;
   // A tag map ({ key: [tag ids] }) without one tag; a key left with none drops out.
   function withoutTag(map, id) {
     const out = {};
@@ -438,7 +479,21 @@
   // An AI 打标签 run finished with the dialog closed, in the mode and folder it ran in: both ways to its proposal.
   const AI_TAGS_DONE = "AI 打标签已完成，按 I 或点进度胶囊的「查看」确认建议";
   const aiTagsFailed = (error) => `AI 打标签没有成功：${error}`;
-  const aiApplied = (n, who) => `已应用 AI 建议：${n} 个${sp(who)}，列表只显示这些 · U 撤销`;
+  // 应用's toast: n items changed (the list then shows only them), else created new tags only, else nothing.
+  const aiApplied = (n, who, created = 0) =>
+    n ? `已应用 AI 建议：${n} 个${sp(who)}，列表只显示这些${UNDO}` : created ? `已新建 ${created} 个标签，没有${sp(who)}的标签要改${UNDO}` : "AI 建议里没有要改的标签";
+  // ✦ AI 打标签's line on what the AI may use and make this run: tags (excluded ids switched off), room new ones;
+  // most and made say room in words, full why there is none (收藏夹: the folder's 名额; 关注: the setting is 0).
+  function aiRoomHint({ tags, excluded, room, most = `这次最多 ${room} 个`, made = `这次最多新建 ${room} 个标签`, full }) {
+    const usable = tags.filter((t) => !excluded.has(t.id)).length;
+    if (!usable && tags.length) return room ? `已有标签都不给 AI 用，AI 只会新建标签（${most}），你确认后才创建。` : `已有标签都不给 AI 用，${full}，AI 打不了标签。`;
+    if (room) return `AI ${made}，你确认后才创建。`;
+    return `${full}，AI ${!usable ? "打不了标签" : `只会用${usable < tags.length ? "没点掉的" : ""}已有标签`}。`;
+  }
+  // ✦ AI 打标签's scopes both modes have, drawn 「名字 · N 个」.
+  const scopeLabel = { filter: "当前筛选", selected: "选中" };
+  // The scope line's end: 「。分 3 批发送」.
+  const batchesText = (n) => `。分 ${n} 批发送`;
   // The dialog's recent instructions: the newest first, each once, at most 5.
   const aiHistoryAdd = (history, instruction) => [instruction, ...history.filter((x) => x !== instruction)].slice(0, 5);
   const AI_RECENT_RULES = ["点 ×：不再标出，标签不变", "再让 AI 打一次：换成新的一批"];
@@ -738,5 +793,5 @@
     return instant;
   }
 
-  globalThis.TriageUi = { https, UP_RECENT, upTitles, AI_RECENT, AI_RECENT_CHECK, aiRef, esc, pad, dayText, fmtDate, fmtAgo, agoHtml, setSearchScope, confirmList, pickTitle, fmtDuration, fmtCount, cleanTagName, plainClick, cardPlayClick, cardPickClick, pickCard, img, toCsv, cardTagChip, syncedText, headMeta, titleHtml, AI_SPARK, byValue, dirWords, sortControl, filterBtn, labeledRow, tagFilterChip, kindTabs, originChip, stateGroup, aiRecentChip, searchBox, bindSearch, resultCount, rowButtons, menuItem, BACKUP_ITEM, CLEAN_BACKUP, reasonAttrs, setReason, WARN_DOT, selectAllState, selectAllBox, toggleAll, setActivity, BILI_STUCK, waitText, BILI_HOLD_MS, WRITE_STOPPING, busyText, syncPill, setSync, bindSync, tagButtons, sideFoot, actBtn, cleanBtn, HIDDEN_ALL, selbar, askTransfer, sideItem, emptyState, refreshEmpty, noMatch, fillSetRows, fillNumHints, numBox, NUM_SETTINGS, TITLES_PER_REQUEST, INTRO_CHARS, DEEP_COMMENTS, autoMaxTokens, numSetting, clampNumber, intIn, clampNumbers, mergeAiBatch, aiChanges, aiProposalOk, previewId, aiTally, nextTagColor, TAG_RULE_MAX, AI_TAGS_PENDING, tagNameError, deleteTagAsk, editedTag, withoutTag, undoAsk, tagRowHtml, sp, tagsWord, AI_RECENT_RULES, aiRecentUndo, tagPlusBtn, viewerLine, viewerKeyFrom, headFold, FOLLOW_WRITE_GAP_MS, AI_TAGS_DONE, aiTagsFailed, aiApplied, aiHistoryAdd, GROUP_NAME_MAX, groupNameError };
+  globalThis.TriageUi = { https, UP_RECENT, upTitles, AI_RECENT, AI_RECENT_CHECK, aiRef, esc, pad, dayText, fmtDate, fmtAgo, agoHtml, setSearchScope, confirmList, pickTitle, fmtDuration, fmtCount, cleanTagName, plainClick, cardPlayClick, cardPickClick, pickCard, img, toCsv, cardTagChip, syncedText, headMeta, titleHtml, AI_SPARK, byValue, dirWords, sortControl, filterBtn, labeledRow, tagFilterChip, kindTabs, originChip, stateGroup, aiRecentChip, searchBox, bindSearch, resultCount, rowButtons, menuItem, BACKUP_ITEM, CLEAN_BACKUP, reasonAttrs, setReason, WARN_DOT, selectAllState, selectAllBox, toggleAll, setActivity, BILI_STUCK, waitText, BILI_HOLD_MS, WRITE_STOPPING, busyText, syncPill, setSync, bindSync, tagButtons, sideFoot, actBtn, cleanBtn, HIDDEN_ALL, selbar, askTransfer, sideItem, emptyState, refreshEmpty, noMatch, fillSetRows, fillNumHints, numBox, NUM_SETTINGS, TITLES_PER_REQUEST, INTRO_CHARS, DEEP_COMMENTS, autoMaxTokens, numSetting, clampNumber, intIn, clampNumbers, mergeAiBatch, aiChanges, aiProposalOk, previewId, aiTally, nextTagColor, TAG_RULE_MAX, AI_TAGS_PENDING, tagNameError, deleteTagAsk, editedTag, withoutTag, undoAsk, tagRowHtml, sp, tagsWord, AI_RECENT_RULES, aiRecentUndo, tagPlusBtn, viewerLine, viewerKeyFrom, headFold, FOLLOW_WRITE_GAP_MS, AI_TAGS_DONE, aiTagsFailed, aiApplied, aiHistoryAdd, GROUP_NAME_MAX, groupNameError, UNDO, untagged, searchScope, cardCleanBtn, REFRESHING, stopWords, upWho, withFeedInProgress, UP_GONE_CODES, FOLLOW_SPECIAL, FEED_CACHE_MS, aiRoomHint, scopeLabel, batchesText, videoUrl, FAV_PAGE_SIZE, removedName, transferVerb: TRANSFER_VERB, tagManage: TAG_MANAGE };
 })();

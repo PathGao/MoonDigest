@@ -42,6 +42,7 @@
   const list = dlg.querySelector(".picker-list");
   const title = dlg.querySelector(".tp-title");
   const note = dlg.querySelector(".tp-note");
+  const keys = dlg.querySelector(".tp-keys");
   // The open picker: opts, sets (the ticks), before (ids at opening), rows, index (the active row).
   let cur = null;
 
@@ -79,6 +80,11 @@
     const { opts, sets } = cur;
     const q = cleanTagName(input.value);
     cur.rows = rowsOf(opts.tags(), q, opts.canCreate);
+    // Where no tag can be made here (or now: a full folder), the box and the keys do not offer it.
+    const make = Boolean(opts.canCreate);
+    input.placeholder = make ? "输入筛选，或输入新名称后回车新建" : "输入筛选";
+    input.setAttribute("aria-label", make ? "筛选或新建标签" : "筛选标签");
+    keys.textContent = `↑↓ 选择 · 回车 勾选${make ? "、取消或新建" : "或取消"} · 1–9 勾选或取消第几个 · Esc 关闭并保存`;
     cur.index = Math.min(cur.index, Math.max(0, cur.rows.length - 1));
     list.innerHTML =
       cur.rows
