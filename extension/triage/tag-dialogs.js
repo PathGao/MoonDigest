@@ -201,13 +201,15 @@
     const newN = p.newTags.filter((t) => t.checked && cleanTagName(t.name)).length;
     $("aiReviewSummary").textContent = `· ${changes.length} 个${who}有改动 · 新标签 ${newN} 个 · 点「应用」前不会改动任何东西`;
     const tally = UI.aiTally(p, changes, a.tagName);
+    // Nothing to apply: the AI proposed nothing, or what it proposed was unticked or left the list since.
+    const none = p.rows.length || p.newTags.length ? "没有可应用的改动" : "AI 没有提出改动";
     $("aiRows").innerHTML = tally.length
       ? `<div class="chips">${tally.map((t) => `<span class="chip ${t.cls}">${esc(t.text)} <b>${t.n}</b></span>`).join("")}</div>`
-      : `<p class="empty">AI 没有提出改动</p>`;
+      : `<p class="empty">${newN ? `没有${esc(who)}的标签改动，应用只创建新标签` : none}</p>`;
     const apply = $("aiApplyBtn");
     apply.textContent = changes.length ? `应用到 ${changes.length} 个${who}` : "应用";
     apply.setAttribute("aria-label", apply.textContent);
-    UI.setReason(apply, changes.length || newN ? "" : "AI 没有提出改动");
+    UI.setReason(apply, changes.length || newN ? "" : none);
   }
 
   function runAi() {

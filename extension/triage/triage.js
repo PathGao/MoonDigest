@@ -184,6 +184,7 @@ const S = {
   lastSyncAt: 0,
   readAt: {}, // K.readAt
   syncError: "", // the open folder's last 刷新 failure; stays under the title until a read succeeds
+  readError: "", // why a folder with nothing listed could not be read; the list says so until a read succeeds
   syncing: false,
   aiHistory: [],
   viewing: "",
@@ -1124,7 +1125,7 @@ async function openFolder(mediaId) {
   S.kindFilter = "";
   S.undo = [];
   S.focused = "";
-  S.syncError = "";
+  S.syncError = S.readError = "";
   hideSyncNotice();
   if (!all && !removed) storeSet(K.lastFolder, mediaId);
   el.folderSelect.value = mediaId;
@@ -1264,11 +1265,14 @@ async function syncFolder({ force = false, cached = null } = {}) {
     if (!r.ok) {
       const needLogin = MdgErrors.action(r.code) === "login"; // send() showed 去登录
       if (!needLogin) S.syncError = `刷新失败：${r.error}`;
-      if (!S.items.length) el.list.innerHTML = UI.emptyState("无法读取这个收藏夹", needLogin ? "登录 B站后点刷新。" : r.error, REFRESH_EMPTY);
+      if (!S.items.length) {
+        S.readError = needLogin ? "登录 B站后点刷新。" : r.error;
+        renderList();
+      }
       return false;
     }
     markRead(mediaId);
-    S.syncError = "";
+    S.syncError = S.readError = "";
     if (r.data.info) S.folderIntro[mediaId] = r.data.info.intro;
     const snap = await storeGet(K.snapshot(mediaId), null);
     if (token !== S.folderToken) return false;
@@ -1441,7 +1445,7 @@ async function checkWhere(token) {
       render();
     }
   });
-  if (r.error) S.removedCheck.error = `核对《${shortTitle(list[i - 1])}》的收藏状态失败：${r.error}，可点刷新重试`;
+  if (r.error && alive()) S.removedCheck.error = `核对《${shortTitle(list[i - 1])}》的收藏状态失败：${r.error}，可点刷新重试`;
 
   await serialStore(async () => {
     const rec = await storeGet(K.removed, {});
@@ -1473,7 +1477,7 @@ async function cleanRemoved(list) {
   if (!list.length) return;
   if (favBusyReason()) return toast(favBusyReason(), true);
   const one = list.length === 1 ? `《${shortTitle(list[0])}》` : `这 ${list.length} 个视频`;
-  const body = `<p>删除${one}的 AI 判断、AI 总结、备注、标签、保留标记、待播记录和取消收藏记录，无法撤销。删除后不能再从「处理完成」重新收藏。<br>${UI.CLEAN_BACKUP.ask}</p>`;
+  const body = `<p>删除${esc(one)}的 AI 判断、AI 总结、备注、标签、保留标记、待播记录和取消收藏记录，无法撤销。删除后不能再从「处理完成」重新收藏。<br>${UI.CLEAN_BACKUP.ask}</p>`;
   if (!(await askConfirm(`清理${one}？`, body, `清理 ${list.length} 个`, { danger: true }))) return;
   return serialStore(async () => {
     const bvids = list.map((it) => it.bvid);
@@ -2125,6 +2129,7 @@ function renderList() {
   const recent = S.tab === "done" ? recentUnfavHtml() : "";
   if (!S.items.length) {
     const empty = S.mediaId === REMOVED ? `<p class="empty">没有已出分拣范围的视频</p>` : S.loadAll?.queue.length ? `<p class="empty">正在加载收藏夹…</p>`
+      : S.readError ? UI.emptyState("无法读取这个收藏夹", S.readError, REFRESH_EMPTY)
       : UI.emptyState("这个收藏夹是空的", "在 B站收藏视频后，点「刷新」读取。", REFRESH_EMPTY);
     el.list.innerHTML = `${empty}${recent}`;
     return;
@@ -2510,20 +2515,29 @@ function unfavStep(it, prev, prevs) {
   return favStep(1, null, async () => {
     const token = S.folderToken;
     toast(`正在重新收藏《${shortTitle(it)}》…`);
+    const back = [];
+    let cut = null;
     for (const [mediaId, before] of Object.entries(prevs)) {
-      const { error } = await refavInto(mediaId, [{ bvid: it.bvid, aid: it.aid }]);
-      if (error) {
-        if (token === S.folderToken) toast(`撤销失败：${error}。可到 B站手动重新收藏`, true);
-        return "";
+      const { n, error, stopped } = await refavInto(mediaId, [{ bvid: it.bvid, aid: it.aid }]);
+      if (!n) {
+        cut = cutWords(error, stopped);
+        break;
       }
       await patchDecisions(mediaId, { [it.bvid]: before });
+      back.push(mediaId);
     }
     if (token !== S.folderToken) return "";
+    // The folders it is back in show on the card; it is listed again (no 取消收藏 record) once it is in one.
     if (it.folders) {
-      it.folders = [...new Set([...it.folders, ...Object.keys(prevs)])];
+      it.folders = [...new Set([...it.folders, ...back])];
       it.left = (it.left || []).filter((f) => !it.folders.includes(f));
-      if (prev) S.decisions[it.bvid] = prev;
-      else delete S.decisions[it.bvid];
+      if (back.length && prev) S.decisions[it.bvid] = prev;
+      else if (back.length) delete S.decisions[it.bvid];
+    }
+    if (cut) {
+      pushUndo(unfavStep(it, prev, Object.fromEntries(Object.entries(prevs).filter(([f]) => !back.includes(f)))));
+      toast(`${cut[0]}（可再按 U ${cut[1]}）${cut[2]}`, cut[2] !== "");
+      return redraw();
     }
     toast(`已撤销：重新收藏《${shortTitle(it)}》`);
     S.focused = it.bvid;
@@ -3249,7 +3263,7 @@ async function runStage1(list = stage1Pending(), redo = false) {
 // A run that ends in another folder says so there: how many it did, and whether it paused or stopped on an error.
 function otherFolderToast(run, name, r) {
   if (!runWhere(run) || r.busy || !(r.done || r.stopped || r.error)) return;
-  toast(`「${folderName(run.mediaId)}」${name}${r.error ? "出错停下，" : r.stopped ? "已暂停，" : ""}完成 ${r.done} 个`);
+  toast(`「${folderName(run.mediaId)}」${name}${r.error ? "出错停下，" : r.stopped ? "已暂停，" : ""}完成 ${r.done - r.failed} 个`);
 }
 
 // ---------- AI stage 2: subtitle group ----------
@@ -3539,9 +3553,11 @@ async function runAiCommand({ instruction, scope, allowRemove }) {
   const running = runAiBatches({
     job: "ai",
     total: from,
-    request: (i) => {
+    // Each batch gets what is left of its folder's new-tag cap (mergeAiBatch drops new tags past it).
+    request: (i, p) => {
       const [part, j] = partOf(i);
-      return { type: "triage-ai-command", instruction, items: part.payload.slice(j * size, (j + 1) * size), tags: part.tags, maxNewTags: part.opts.maxNewTags, allowRemove };
+      const maxNewTags = Math.max(0, part.opts.maxNewTags - p.newTags.filter((t) => t.folder === part.opts.newTagFolder).length);
+      return { type: "triage-ai-command", instruction, items: part.payload.slice(j * size, (j + 1) * size), tags: part.tags, maxNewTags, allowRemove };
     },
     // not tagIdsOf: the open folder may have changed since the run started
     merge: (p, data, i) => {
@@ -3557,7 +3573,13 @@ async function runAiCommand({ instruction, scope, allowRemove }) {
     progress: (text) => (TagDialogs.ai.progress(aiTags, text, folder), renderStatus())
   });
   renderTop();
-  const { proposal: p, errors } = await running;
+  let { proposal: p, errors } = await running;
+  // A tag deleted during the run is still named by the batches before it: dropped like a saved proposal (pruneAiProposals).
+  if (p && !UI.aiProposalOk(p, (id) => Boolean(tagById(id)))) {
+    p = null;
+    errors.push("运行期间删除了建议用到的标签，请重新运行");
+    TagDialogs.ai.progress(aiTags, errors.at(-1), folder);
+  }
   if (p) {
     for (const t of p.newTags) if (t.folder) t.where = folderName(t.folder);
     S.ai.proposals[folder] = p;

@@ -4,10 +4,10 @@
 //   o.next() gives a step { n = keys.length or 1, gap?, ... } or null (finished) or { idle: ms } (sleep, nothing sent); o.act(step) sends
 //   it; o.judge(r) says ok | item (this step failed, go on) | retry (send it again now) | wait (count down hold(r), then
 //   send the same step again) | stop. Default: hold(r) ? wait : r.ok ? ok : stop. o.done(step, r) after ok and item;
-//   the count is the sum of their n. The gap (step.gap ?? o.gap ?? gap) only between two sends. stop(job) and o.alive()
+//   the count is the sum of their n (failed: the item steps' part of it). The gap (step.gap ?? o.gap ?? gap) only between two sends. stop(job) and o.alive()
 //   turning false end it at once, in a gap or a countdown; a request in flight still lands and counts. o.plan() (async)
 //   runs once the job is taken and may add total / next / act / line, or return null to end without a request.
-//   o.line(done, total, stopping) is its pill text; o.finished(done) its line after it ends (green), until it starts again;
+//   o.line(done, total, stopping) is its pill text; o.finished(done - failed) its line after it ends (green), until it starts again;
 //   the newest one shows;
 //   o.tick() runs each second of its countdowns.
 // - wait(job, hold, alive): a countdown on its own (a loop with its own flow). put(job, row | () => row): a row mirrored
@@ -47,7 +47,7 @@
 
     async function run(job, o) {
       if (runs.has(job)) return { done: 0, total: 0, stopped: false, error: "", code: "", busy: runs.get(job).name };
-      const r = { name: o.name || job, line: o.line, done: 0, total: o.total || 0, stopping: false };
+      const r = { name: o.name || job, line: o.line, done: 0, failed: 0, total: o.total || 0, stopping: false };
       runs.set(job, r);
       ended.delete(job);
       const alive = () => !r.stopping && (!o.alive || o.alive());
@@ -91,16 +91,18 @@
             break;
           }
           if (v !== "ok" && v !== "item") break; // a retry or wait cut short
-          r.done += step.n ?? step.keys?.length ?? 1;
+          const n = step.n ?? step.keys?.length ?? 1;
+          r.done += n;
+          if (v === "item") r.failed += n;
           await o.done?.(step, x);
           redraw();
         }
       } finally {
         runs.delete(job);
-        if (o.finished) ended.set(job, () => o.finished(r.done));
+        if (o.finished) ended.set(job, () => o.finished(r.done - r.failed));
         redraw();
       }
-      return { done: r.done, total: r.total, stopped: !finished && !error, error, code };
+      return { done: r.done, failed: r.failed, total: r.total, stopped: !finished && !error, error, code };
     }
 
     function waitText(w) {

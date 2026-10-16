@@ -44,7 +44,7 @@ const line = (d, t, stopping) => `跑 ${d}/${t}${stopping ? " 停" : ""}`;
     const { runs, log } = setup();
     const r = await runs.run("j", { total: 3, line, gap: 1000, next: steps([{ id: 1 }, { id: 2, gap: 300 }, { id: 3 }]), act: sender(log) });
     assert.deepStrictEqual(log, [["send", 1], ["sleep", 300], ["send", 2], ["sleep", 1000], ["send", 3]]);
-    assert.deepStrictEqual(r, { done: 3, total: 3, stopped: false, error: "", code: "" });
+    assert.deepStrictEqual(r, { done: 3, failed: 0, total: 3, stopped: false, error: "", code: "" });
   }
 
   // One run per job: a second call is refused with the running one's name and sends nothing; another job runs beside it.
@@ -61,7 +61,7 @@ const line = (d, t, stopping) => `跑 ${d}/${t}${stopping ? " 停" : ""}`;
     assert.deepStrictEqual([runs.busy("j"), log], ["", [["send", 9]]]);
   }
 
-  // The judge's five answers. ok and item count n and call done; retry sends the same step at once; wait counts down,
+  // The judge's five answers. ok and item count n (item also in failed) and call done; retry sends the same step at once; wait counts down,
   // then sends the same step (next is not asked again); stop ends with the reply's error and code, done not called.
   {
     const { runs, log } = setup();
@@ -74,19 +74,21 @@ const line = (d, t, stopping) => `跑 ${d}/${t}${stopping ? " 停" : ""}`;
       next: () => (asked++, { id: asked, n: 2 }),
       act: sender(log, answers),
       judge: (x) => x.v || (runs.hold(x) ? "wait" : "ok"),
-      done: (s, x) => done.push([s.id, x.ok])
+      done: (s, x) => done.push([s.id, x.ok]),
+      finished: (d) => `完成 ${d} 个`
     });
     assert.deepStrictEqual(log.filter(([k]) => k === "send").map(([, id]) => id), [1, 2, 3, 3, 4, 4, 5]);
     assert.deepStrictEqual(done, [[1, true], [2, false], [3, true], [4, true]]);
-    assert.deepStrictEqual(r, { done: 8, total: 9, stopped: false, error: "Key 不对", code: "AI_AUTH" });
+    assert.deepStrictEqual(r, { done: 8, failed: 2, total: 9, stopped: false, error: "Key 不对", code: "AI_AUTH" });
     assert.strictEqual(asked, 5, "a retry and a wait resend the step they hold");
+    assert.strictEqual(runs.pill(["j"]).text, "完成 6 个", "A47: the finished line leaves out the failed item step");
   }
 
   // The default judge: a limit waits, any other failure stops.
   {
     const { runs, log } = setup();
     const r = await runs.run("j", { total: 2, line, next: steps([{ id: 1 }, { id: 2 }]), act: sender(log, [{ ok: false, code: "THROTTLED" }, { ok: true }, { ok: false, error: "网络错误" }]) });
-    assert.deepStrictEqual(r, { done: 1, total: 2, stopped: false, error: "网络错误", code: "" });
+    assert.deepStrictEqual(r, { done: 1, failed: 0, total: 2, stopped: false, error: "网络错误", code: "" });
   }
 
   // A countdown keeps the run's line, count and bar: 「‹line› · B站限流卡住，1:30 后重试」, amber, ticking down.
@@ -110,7 +112,7 @@ const line = (d, t, stopping) => `跑 ${d}/${t}${stopping ? " 停" : ""}`;
     await until(() => log.some(([k]) => k === "sleep"));
     runs.stop("j");
     assert.strictEqual(runs.pill(["j"]).text, "跑 1/2 停", "the line knows it is stopping");
-    assert.deepStrictEqual(await p, { done: 1, total: 2, stopped: true, error: "", code: "" });
+    assert.deepStrictEqual(await p, { done: 1, failed: 0, total: 2, stopped: true, error: "", code: "" });
     assert.ok(at() < 1000 && !log.some(([k, id]) => k === "send" && id === 2), "the gap ended at once");
   }
   {
@@ -118,7 +120,7 @@ const line = (d, t, stopping) => `跑 ${d}/${t}${stopping ? " 停" : ""}`;
     const p = runs.run("j", { total: 1, line, next: steps([{ id: 1 }]), act: sender(log, [{ ok: false, code: "THROTTLED" }]) });
     await until(() => runs.get("j")?.wait);
     runs.stop("j");
-    assert.deepStrictEqual(await p, { done: 0, total: 1, stopped: true, error: "", code: "" });
+    assert.deepStrictEqual(await p, { done: 0, failed: 0, total: 1, stopped: true, error: "", code: "" });
     assert.ok(at() < 1000 && log.filter(([k]) => k === "send").length === 1, "the countdown ended at once, nothing resent");
   }
   {
@@ -128,7 +130,7 @@ const line = (d, t, stopping) => `跑 ${d}/${t}${stopping ? " 停" : ""}`;
     await until(() => open);
     runs.stop("j");
     open({ ok: true });
-    assert.deepStrictEqual(await p, { done: 1, total: 2, stopped: true, error: "", code: "" });
+    assert.deepStrictEqual(await p, { done: 1, failed: 0, total: 2, stopped: true, error: "", code: "" });
   }
   // alive() turning false does the same as stop().
   {
