@@ -295,7 +295,7 @@ assert.deepStrictEqual([t.dirLabel("last", "desc"), t.dirLabel("follow", "asc"),
   assert.deepStrictEqual(plain(t.restoreTags({}, { a: ["x"], g: ["x"] }, new Set(["x"]), all)), { a: ["x"] }, "an UP unfollowed since is skipped");
 }
 
-// One keydown handler for the page (triage.js onKey): follow.js hands it its keys, and triage.js knows no 关注 ids.
+// One keydown handler for the page (收藏夹's onKey, fav-*.js): follow.js hands it its keys, and 收藏夹 knows no 关注 ids.
 {
   assert.ok(!/addEventListener\("keydown"/.test(source), "follow.js has no page-wide keydown listener");
   assert.ok(source.includes("T.setModeKeys("), "follow.js registers its keys");
@@ -418,7 +418,7 @@ assert.ok(source.includes(`pushTagUndo(before, "标签修改", { ask: changes.le
 assert.strictEqual((source.match(/chrome\.storage\.sync\.set\(/g) || []).length, 3);
 assert.ok(/\.set\(MdgLimits\.followFull\(\{ ai_settings: seed \}\)\)\.catch\(\(e\) => toast\(`\$\{MdgErrors\.TEXT\.settingsSaveFailed\}：/.test(source) && /try \{\s*await chrome\.storage\.sync\.set\(\{ \.\.\.MdgLimits\.followFull\(\{ ai_settings: ai \}\), \.\.\.days \}\);\s*\} catch \(e\) \{\s*return toast\(`\$\{MdgErrors\.TEXT\.settingsSaveFailed\}：/.test(source), "both writes catch");
 
-// The player's T / Esc reach 关注 through triage.js's one message listener (modeKeys), as page keys do.
+// The player's T / Esc reach 关注 through 收藏夹's one message listener (modeKeys), as page keys do.
 assert.ok(!/addEventListener\("message"/.test(source), "follow.js has no message listener of its own");
 
 // 已取消关注 is a filter like the others: the selection stays, the ones not listed show as 「另有 N 个被筛选隐藏」.
@@ -518,7 +518,7 @@ console.log("follow selftest: all passed");
   assert.strictEqual(t.favUpMid(null, rows), "");
 }
 
-// ----- 关注 through the page: triage.js and follow.js (as triage.html loads them) on a stub DOM -----
+// ----- 关注 through the page: fav-*.js, triage.js and follow.js (as triage.html loads them) on a stub DOM -----
 // setup(ctx) runs before follow.js. FW is what follow.js keeps to itself and the tests read or drive.
 async function followPage({ store = {}, handlers = {}, setup = () => {} } = {}) {
   const els = new Map();
@@ -581,7 +581,7 @@ async function followPage({ store = {}, handlers = {}, setup = () => {} } = {}) 
   Object.assign(ctx.TagPicker, { open: (o) => picks.push(o), close() {}, isOpen: () => false });
   const triage = fs.readFileSync(path.join(__dirname, "triage.js"), "utf8").replace(/^if \(!globalThis\.chrome\?\.runtime\?\.id\) await import.*$/m, "").replace(/^init\(\);$/m, "");
   vm.runInContext(`${triage}\n;bindEvents(); globalThis.S = S; globalThis.el = el;`, ctx);
-  // triage.js draws only the player's lines here (and 关注's through its hook); its toast and confirm are recorded.
+  // 收藏夹 draws only the player's lines here (and 关注's through its hook); its toast and confirm are recorded.
   const toast = (m) => toasts.push(m);
   const askConfirm = async (title) => (asked.push(title), true);
   Object.assign(ctx, { render: () => ctx.renderViewerTags(), renderStatus() {}, toast, askConfirm });

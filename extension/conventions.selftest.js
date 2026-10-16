@@ -55,15 +55,15 @@ const ALLOW = [
   ["sidepanel.js", "els.modelSelect.disabled = true;", "侧边栏平台下拉框：唯一一项就是 TEXT.aiNone"],
   ["sidepanel.js", "els.contextChip.disabled = true;", "上下文胶囊读取失败：胶囊上写着「读取失败」"],
   ["sidepanel.js", "els.contextChip.disabled = !String(context.url", "上下文胶囊只是跳到视频地址：没有地址时胶囊上写着「正在加载…」或「未知视频」"],
-  ["triage/triage.js", "o.disabled = !c;", "<option>：选项文字写着「· 0 个」"],
+  ["triage/fav-page.js", "o.disabled = !c;", "<option>：选项文字写着「· 0 个」"],
   // In flight: the control shows it is busy (busy words / aria-busy) and turns back on when the request ends.
   ["options.js", "button.disabled = Boolean(active);", "保存和测试连接互等：在跑的那个写「保存中…」「测试中…」并 aria-busy"],
   ["options.js", "testBtn.disabled = true;", "AI 平台测试中：同一行写「正在测试…」并 aria-busy，完了 setReason 接手"],
   ["popup.js", "button.disabled = busy;", "弹窗按钮在跑：按钮文字换成在做什么，aria-busy"],
-  ["triage/triage.js", "btn.disabled = Boolean(text);", "分拣台按钮在跑：按钮文字换成在做什么，aria-busy"],
+  ["triage/fav-page.js", "btn.disabled = Boolean(text);", "分拣台按钮在跑：按钮文字换成在做什么，aria-busy"],
   ["triage/follow.js", "btn.disabled = Boolean(j.running);", "关注刷新在跑：aria-busy，进度胶囊写进度"],
   ["triage/follow.js", "btn.disabled = true;", "点了刷新（第 2 行、空状态或提示里的）、后台还没回：回来后 renderSync 接手（aria-busy）或失败时打开"],
-  ["triage/triage.js", "el.writeScope.disabled = el.writeFormat.disabled = el.writeOverwrite.disabled = busy;", "逐个视频笔记在跑：进度胶囊和「停止」写着在跑什么，范围和格式跑完才能改"],
+  ["triage/fav-page.js", "el.writeScope.disabled = el.writeFormat.disabled = el.writeOverwrite.disabled = busy;", "逐个视频笔记在跑：进度胶囊和「停止」写着在跑什么，范围和格式跑完才能改"],
   ["content.js", "button.disabled = true;", "播放器 ✦ 点下到侧边栏打开之间防连点，finally 打开"],
   // 3b
   ["history/history.js", 'aria-hidden="true" disabled>删除 AI 对话', "看不见的占位（aria-hidden、tabindex=-1），只为对齐，不是控件"],

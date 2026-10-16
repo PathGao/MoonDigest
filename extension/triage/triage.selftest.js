@@ -6,13 +6,15 @@ const vm = require("vm");
 const assert = require("assert");
 const PS = require("../page-sources.selftest.js");
 
-// triage.js is a DOM page module; drop the dev-mock import and init(), stub the DOM, and expose S/K.
-// Drops the page entry points. Startup is scripts/smoke.mjs's job.
-const source = fs
+// 收藏夹 is the classic scripts fav-*.js, run below with the page's other scripts on a stub DOM; the module triage.js
+// only starts it. Drops its entry points (the dev-mock import and init()). Startup is scripts/smoke.mjs's job.
+const entry = fs
   .readFileSync(path.join(__dirname, "triage.js"), "utf8")
   .replace(/^if \(!globalThis\.chrome\?\.runtime\?\.id\) await import.*$/m, "")
   .replace(/^init\(\);$/m, "");
-assert.ok(!/await import|^init\(\);$/m.test(source), "harness strips the page entry points");
+assert.ok(!/await import|^init\(\);$/m.test(entry), "harness strips the page entry points");
+// 收藏夹's code, for the checks below that read it.
+const source = PS.text(PS.favorites);
 // 优先看, then 播放列表, was renamed 待播: no page text or README still says an old name ("YouTube 播放列表" in the README is YouTube's own).
 for (const f of [...PS.pageCode, "triage/shared.js", "triage/triage.html", "options.html", "sidepanel.html", "popup.html", "../README.md"]) {
   const text = PS.read(f).replaceAll("YouTube 播放列表", "");
@@ -87,7 +89,7 @@ assert.deepStrictEqual(pageScripts.filter((m) => /type="module"/.test(m[1])).map
 for (const [, attrs, src] of pageScripts) {
   if (!/type="module"/.test(attrs) && !src.endsWith("/tag-dialogs.js")) vm.runInContext(fs.readFileSync(path.join(__dirname, src), "utf8"), ctx);
 }
-vm.runInContext(`${source}\n;globalThis.S = S; globalThis.K = K; globalThis.el = el; globalThis.verdictBadge = verdictBadge; globalThis.seenText = seenText; globalThis.staleCoarse = staleCoarse; globalThis.staleFine = staleFine; globalThis.mergeHead = mergeHead; globalThis.isFinished = isFinished; globalThis.pointerMoved = pointerMoved; globalThis.inferFrom = inferFrom; globalThis.hasAllTags = hasAllTags; globalThis.sortItems = sortItems; globalThis.sortOf = sortOf; globalThis.visibleItems = visibleItems; globalThis.fav = fav;`, ctx);
+vm.runInContext(`${entry}\n;globalThis.S = S; globalThis.K = K; globalThis.el = el; globalThis.verdictBadge = verdictBadge; globalThis.seenText = seenText; globalThis.staleCoarse = staleCoarse; globalThis.staleFine = staleFine; globalThis.mergeHead = mergeHead; globalThis.isFinished = isFinished; globalThis.pointerMoved = pointerMoved; globalThis.inferFrom = inferFrom; globalThis.hasAllTags = hasAllTags; globalThis.sortItems = sortItems; globalThis.sortOf = sortOf; globalThis.visibleItems = visibleItems; globalThis.fav = fav;`, ctx);
 const t = ctx;
 Object.assign(t, t.TriageCore);
 vm.runInContext("globalThis.plainClick = plainClick;", ctx);
@@ -98,7 +100,7 @@ const realSync = t.syncFolder;
 const toasts = [];
 Object.assign(t, { render() {}, setFocus() {}, toast: (m) => toasts.push(m), askConfirm: async () => true });
 
-// The picker as triage.js opens it: po = the last open's options; pickWith ticks (fn gets the Map of Sets) and closes.
+// The picker as 收藏夹 opens it: po = the last open's options; pickWith ticks (fn gets the Map of Sets) and closes.
 let po = null;
 ctx.TagPicker.open = (o) => (po = o);
 function pickWith(bvid, fn, anchor) {

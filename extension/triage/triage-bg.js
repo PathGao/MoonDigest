@@ -692,7 +692,7 @@ async function triageProvider(providerId = "") {
 const TRIAGE_AI_TIMEOUT_MS = { normal: 120000, thinking: 240000 };
 
 // 非流式 chat/completions，只取 message.content（忽略 reasoning_content）
-// providerId: the platform picked at the top of the side panel, which the pages send as aiProviderId (triage.js sendRaw);
+// providerId: the platform picked at the top of the side panel, which the pages send as aiProviderId (收藏夹's sendRaw, fav-*.js);
 // unset or no longer enabled, the first enabled one, as in the side panel.
 async function triageChat(messages, maxTokens, thinking = false, providerId = "") {
   const provider = await triageProvider(providerId);
