@@ -57,7 +57,6 @@ const ALLOW = [
   ["triage/follow.js", "refresh.disabled = true;", "点了刷新、后台还没回：回来后 renderSync 接手（aria-busy）或失败时打开"],
   ["triage/follow.js", 't.closest("button").disabled = true;', "空状态的刷新，同上：后台回来前防连点"],
   ["triage/triage.js", "el.writeScope.disabled = el.writeFormat.disabled = el.writeOverwrite.disabled = busy;", "逐个视频笔记在跑：进度胶囊和「停止」写着在跑什么，范围和格式跑完才能改"],
-  ["sidepanel.js", "els.saveConversationBtn.disabled = true;", "写入 Obsidian 在跑（可能开着「该笔记已存在」确认框）：完了 syncExportButtons 重算"],
   ["content.js", "button.disabled = true;", "播放器 ✦ 点下到侧边栏打开之间防连点，finally 打开"],
   ["sidepanel.js", "copyBtn.disabled = true;", "复制后 0.5 秒的「已复制」反馈"],
   // 3b
