@@ -234,7 +234,7 @@
         rule: "每次刷新自动更新，取消勾选或在 B站删掉的收藏夹会被移除。"
       },
       {
-        label: "已出分拣范围",
+        label: MdgErrors.LABEL.removed,
         usage: `${count(usage.triageRemoved)} 个视频`,
         rule: "收藏夹里离开分拣范围的视频，不含关注的 UP 主。不自动删。在分拣台的「已出分拣范围」里查看、导出和清理。"
       },

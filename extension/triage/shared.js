@@ -53,7 +53,7 @@
   // A favorites page: B站 gives at most 40 videos (triage-bg.js reads them; the page counts the pages).
   const FAV_PAGE_SIZE = 40;
   // The view of what left the 分拣 (收藏夹 and 关注 alike).
-  const removedName = "已出分拣范围";
+  const removedName = MdgErrors.LABEL.removed;
   // B站's image URLs come as http://, https:// or protocol-relative //: always https (the pages and the worker).
   const https = (u) => String(u || "").replace(/^(https?:)?\/\//, "https://");
   // hdslb images: https and a small webp copy (size like "480w_270h_1c"); other URLs as they are.

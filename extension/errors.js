@@ -158,7 +158,9 @@
     // A job the user stopped (分拣台's toasts and status lines; 关注's background names its stop error so).
     stopped: "已停止",
     // A B站 page's mark on an invalid video the AI never judged (no 「AI」: it is the snapshot's fact, not a verdict).
-    invalid: "已失效"
+    invalid: "已失效",
+    // 收藏夹's page for videos that left every checked folder, and its storage row on the settings page.
+    removed: "已出分拣范围"
   });
 
   // How long a B站 / YouTube read waits for an answer: the background's B站 channel (triage-bg.js triageBiliFetch,
