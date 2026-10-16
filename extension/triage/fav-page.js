@@ -1,6 +1,6 @@
 "use strict";
-// 收藏夹's page, a classic script: its names are the page's globals, shared with the other fav-*.js. triage.html loads
-// it before the module triage.js, which starts it (init) once the dev preview's mock is in.
+// 收藏夹's start (init, run by the module triage.js once the dev preview's mock is in), MoonTriage for 关注, 待播, and
+// the page's events and keys. The last of the fav-*.js, whose top-level names are the page's globals.
 
 // ---------- init ----------
 // 关注 mode (follow.js) borrows the viewer, the toast and the confirm dialog, keeps its undo steps here (S.modeUndo) and
