@@ -163,6 +163,10 @@ button.add {
   white-space: nowrap;
 }
 
+.pill[hidden] {
+  display: none;
+}
+
 .pill.ok {
   color: var(--ok);
   background: var(--ok-bg);
