@@ -5,6 +5,10 @@ const { escapeHtml } = MdgErrors;
 const CUSTOM_PROPERTY_KEY_PATTERN = /^[\p{L}\p{N}_\-\s]+$/u;
 const FRONTMATTER_TEMPLATE_TOKEN_RE = /\{\{\s*([a-zA-Z0-9_]+)\s*\}\}/;
 const FRONTMATTER_DATE_VALUE_RE = /^\d{4}-\d{2}-\d{2}$/;
+const FIXED_PROPERTY_TYPE_LABELS = { text: "文本", number: "数字", checkbox: "复选框", list: "列表", date: "日期" };
+// An AI platform row's boxes, by the names its 测试连接 reason and the save check give them.
+const AI_FIELD = { baseUrl: "接口地址", model: "模型", key: "API Key" };
+const TRASH_ICON = `<svg viewBox="0 0 24 24" focusable="false" aria-hidden="true"><path d="M4 7h16"></path><path d="M9 3h6"></path><path d="M10 11v6"></path><path d="M14 11v6"></path><path d="M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12"></path></svg>`;
 
 const AI_PRESETS = [
   { id: "openai_compat", name: "OpenAI 兼容", baseUrl: "https://api.openai.com/v1", model: "gpt-6-luna", requiresKey: true },
@@ -135,8 +139,14 @@ function init() {
     syncUnsaved();
   });
   elements.testConnectionBtn.addEventListener("click", testConnection);
-  elements.addFixedPropertyBtn.addEventListener("click", () => addFixedPropertyRow());
-  elements.addNoteSectionBtn.addEventListener("click", () => addNoteSectionRow());
+  elements.addFixedPropertyBtn.addEventListener("click", () => {
+    addFixedPropertyRow();
+    syncUnsaved();
+  });
+  elements.addNoteSectionBtn.addEventListener("click", () => {
+    addNoteSectionRow();
+    syncUnsaved();
+  });
   elements.addAiProviderBtn.addEventListener("click", () => {
     addAiProviderRow();
     syncUnsaved();
@@ -201,7 +211,7 @@ function trackCurrentSection() {
 // Exports what is saved, not unsaved edits in the form.
 async function exportSettingsFile() {
   const resp = await sendRuntimeMessage({ type: "settings-export" }).catch((e) => ({ error: e.message }));
-  if (!resp?.ok) return setStatus(`导出失败：${resp?.error || MdgErrors.TEXT.unknown}`, true);
+  if (!resp?.ok) return setStatus(`导出失败：${MdgErrors.text(resp)}`, true);
   MdgDownload.text(`MoonDigest设置-${MdgDownload.dateStamp()}.json`, JSON.stringify(resp.file, null, 2), "application/json");
   setStatus(hasUnsavedChanges ? "已导出已保存的设置，未保存的修改不在文件里" : "已导出设置");
 }
@@ -230,14 +240,24 @@ async function importSettingsFile(file) {
   const out = dropped ? `当前勾选的 ${dropped} 个收藏夹在文件里没有勾选：导入后它们的视频会进「已出分拣范围」，取消收藏记录会被删除。` : "";
   if (!confirm(`用「${file.name}」替换当前的全部设置？${lost}${out}已保存的 Key 不变。`)) return;
   const resp = await sendRuntimeMessage({ type: "settings-import", file: data }).catch((e) => ({ error: e.message }));
-  if (!resp?.ok) return setStatus(`导入失败：${resp?.error || MdgErrors.TEXT.unknown}`, true);
+  if (!resp?.ok) return setStatus(`导入失败：${MdgErrors.text(resp)}`, true);
   // Reload so every control, the AI list and the host-permission banner show the imported values.
   hasUnsavedChanges = false;
   location.reload();
 }
 
+// A failed read says so: an empty storage would read as 0 used.
 async function renderStorageLimits() {
-  const all = await chrome.storage.local.get(null).catch(() => ({}));
+  let all;
+  try {
+    all = await chrome.storage.local.get(null);
+  } catch (error) {
+    const cell = Object.assign(document.createElement("td"), { colSpan: 3, textContent: `读取存储用量失败：${error.message || MdgErrors.TEXT.unknown}` });
+    const tr = document.createElement("tr");
+    tr.append(cell);
+    elements.storageLimits.replaceChildren(tr);
+    return;
+  }
   elements.storageLimits.replaceChildren(
     ...MdgLimits.describe(MdgLimits.storageUsage(all)).map((row) => {
       const tr = document.createElement("tr");
@@ -262,7 +282,7 @@ async function loadSettings() {
     [settings, providers] = await Promise.all([getSettings(), loadAiProviders()]);
   } catch (error) {
     document.querySelector("main").inert = true;
-    setStatus(`读取设置失败，请刷新页面重试：${error.message || MdgErrors.TEXT.unknown}`, true);
+    setStatus(`读取设置失败：${error.message || MdgErrors.TEXT.unknown}，${MdgErrors.TEXT.reloadRetry}`, true);
     return;
   }
   void renderStorageLimits();
@@ -380,7 +400,9 @@ async function saveSettings() {
   const aiProvidersPayload = collectAiProviders();
   const aiProvidersValidation = validateAiProviders(aiProvidersPayload);
   if (!aiProvidersValidation.ok) {
-    applyValidationError(aiProvidersValidation);
+    const { index, box, message } = aiProvidersValidation;
+    const row = elements.aiProvidersList.querySelectorAll(".ai-provider-row")[index];
+    applyValidationError({ field: box ? row?.querySelector(box) : null, message });
     return;
   }
 
@@ -391,11 +413,12 @@ async function saveSettings() {
   setBusy(elements.saveBtn);
   setStatus("正在保存…", false, true);
   try {
-    const resp = await sendRuntimeMessage({ type: "save-settings", settings: payload });
+    const fail = (error) => ({ ok: false, error: error.message });
+    const resp = await sendRuntimeMessage({ type: "save-settings", settings: payload }).catch(fail);
     if (!resp?.ok) {
       // A setting too long for Chrome's sync storage: the box it came from is marked, as a validation error is.
       if (elements[resp?.field]) applyValidationError({ field: elements[resp.field], message: resp.error });
-      else setStatus(resp?.error || "保存失败", true);
+      else setStatus(`${MdgErrors.TEXT.settingsSaveFailed}：${MdgErrors.text(resp)}`, true);
       return;
     }
     renderFixedPropertyRows(payload.fixedFrontmatterProperties);
@@ -403,33 +426,33 @@ async function saveSettings() {
     // The box shows what was saved: 150 is stored and shown as 100; an emptied box stays empty under 「默认 N」.
     TriageUi.clampNumber(elements.seenThreshold);
     elements.aiPresetPrompts.value = payload.aiPresetPrompts.join("\n");
-
-    // AI 平台：list 走 sync、apiKey 走 local
-    const aiResp = await sendRuntimeMessage({ type: "ai-providers-save", providers: aiProvidersPayload });
-    if (!aiResp?.ok) {
-      setStatus(`已保存，但 AI 平台保存失败：${aiResp?.error || MdgErrors.TEXT.unknown}`, true);
-      return;
-    }
-    // 用最新列表（含 hasSavedKey）重新渲染，避免误以为 Key 丢了
-    renderAiProviders(aiResp.providers || []);
+    // The settings are saved whatever the AI platforms' save does: a failure there leaves only the platforms unsaved.
+    savedForm.payload = readFormState().payload;
     // A test of other values says nothing about the ones just saved.
     if (obsidianTest && obsidianTest.target !== obsidianTarget(payload)) {
       obsidianTest = null;
       setTestResult("");
     }
+
+    // AI 平台：list 走 sync、apiKey 走 local
+    const aiResp = await sendRuntimeMessage({ type: "ai-providers-save", providers: aiProvidersPayload }).catch(fail);
+    if (!aiResp?.ok) {
+      syncUnsaved();
+      renderSavedState();
+      setStatus(`${MdgErrors.TEXT.settingsSaved}，但 AI 平台保存失败：${MdgErrors.text(aiResp)}`, true);
+      return;
+    }
+    // 用最新列表（含 hasSavedKey）重新渲染，避免误以为 Key 丢了
+    renderAiProviders(aiResp.providers || []);
     markSaved();
     renderHostPermissionBanner(hostUrls);
     if (deniedHosts.length) {
       setStatus(`已保存，但未授权访问 ${deniedHosts.join("、")}，相关请求会失败；重新保存可再次授权`, true);
       return;
     }
-    setStatus(
-      payload.obsidianEnabled && !payload.obsidianApiKey
-        ? "保存成功（未填写 Local REST API Key，暂不可写入 Obsidian）"
-        : "保存成功"
-    );
+    setStatus(`${MdgErrors.TEXT.settingsSaved}${payload.obsidianEnabled && !payload.obsidianApiKey ? "（未填写 Local REST API Key，暂不可写入 Obsidian）" : ""}`);
   } catch (error) {
-    setStatus(error.message || "保存失败", true);
+    setStatus(`${MdgErrors.TEXT.settingsSaveFailed}：${error.message || MdgErrors.TEXT.unknown}`, true);
   } finally {
     setBusy(null);
   }
@@ -539,7 +562,10 @@ function syncObsidianKeyTag() {
 
 // 测试连接 needs the 地址 and the Key: disabled with the reason while either box is empty, like an AI platform row's.
 // While a save or a test runs it stays disabled; setBusy(null) calls this again.
+// The result next to it is for the 地址 and Key it tested: an edit away from them clears it.
 function syncObsidianTest() {
+  const typed = { obsidianApiBaseUrl: normalizeBaseUrl(elements.obsidianApiBaseUrl.value), obsidianApiKey: MdgSettings.normalizeApiKey(elements.obsidianApiKey.value) };
+  if (obsidianTest && obsidianTest.target !== obsidianTarget(typed)) setTestResult("");
   if (busyButton) return;
   const missing = [["地址", elements.obsidianApiBaseUrl], ["Key", elements.obsidianApiKey]].filter(([, box]) => !box.value.trim()).map(([name]) => name);
   MdgErrors.setReason(elements.testConnectionBtn, missing.length ? `先填 Local REST API ${missing.join("和 ")}` : "", "用填好的地址和 Key 连一次 Obsidian 的 Local REST API");
@@ -598,20 +624,13 @@ function readFormPayload() {
   };
 }
 
-// testing: 测试连接 checks the Obsidian fields even while Obsidian is off (an empty Key cannot get here: syncObsidianTest).
+// testing: 测试连接 checks only the 地址, even while Obsidian is off (an empty Key cannot get here: syncObsidianTest).
 function validateSettings(payload, { testing }) {
   if (!payload.obsidianEnabled && !testing) {
     return validateNoteExtras();
   }
-  if (!payload.noteFolder) {
-    return { ok: false, field: elements.noteFolder, message: "请填写笔记目录（例如：MoonDigest/{{site}}）" };
-  }
-  if (/^[\/\\]|[\/\\]$/.test(payload.noteFolder)) {
-    return { ok: false, field: elements.noteFolder, message: "笔记目录不要以 / 开头或结尾" };
-  }
-  if (/[\\:*?"<>|\u0000-\u001f]/.test(payload.noteFolder)) {
-    return { ok: false, field: elements.noteFolder, message: "笔记目录包含非法字符，请修改后再试" };
-  }
+  const folder = testing ? { ok: true } : validateNoteFolder(payload.noteFolder);
+  if (!folder.ok) return folder;
 
   if (!payload.obsidianApiBaseUrl) {
     return { ok: false, field: elements.obsidianApiBaseUrl, message: "请填写 Local REST API 地址" };
@@ -646,7 +665,17 @@ function validateSettings(payload, { testing }) {
     return { ok: false, field: elements.obsidianApiBaseUrl, message: "地址请只填写到端口，例如 http://127.0.0.1:27123" };
   }
 
-  return validateNoteExtras();
+  return testing ? { ok: true } : validateNoteExtras();
+}
+
+// A path inside the vault: a . or .. folder would point the write somewhere else.
+function validateNoteFolder(folder) {
+  const error = (message) => ({ ok: false, field: elements.noteFolder, message });
+  if (!folder) return error("请填写笔记目录（例如：MoonDigest/{{site}}）");
+  if (/^[\/\\]|[\/\\]$/.test(folder)) return error("笔记目录不要以 / 开头或结尾");
+  if (/[\\:*?"<>|\u0000-\u001f]/.test(folder)) return error('笔记目录不能包含 \\ : * ? " < > | 这些字符');
+  if (folder.split("/").some((part) => /^\s*\.{1,2}\s*$/.test(part))) return error("笔记目录不能包含 . 或 .. 这样的文件夹");
+  return { ok: true };
 }
 
 function validateNoteExtras() {
@@ -679,50 +708,11 @@ function applyValidationError(validation) {
     validation.field.classList.add("input-error");
     validation.field.focus();
   }
-  if (validation?.row) {
-    const keyInput = validation.row.querySelector(".fixed-property-key");
-    const valueInput = validation.row.querySelector(".fixed-property-value");
-    const titleInput = validation.row.querySelector(".note-section-title");
-    const contentInput = validation.row.querySelector(".note-section-content");
-    const positionSelect = validation.row.querySelector(".note-section-position");
-    const noteSectionErrorNode = validation.row.querySelector(".note-section-error");
-    if (titleInput || contentInput || positionSelect) {
-      if (titleInput && !String(titleInput.value || "").trim()) {
-        titleInput.classList.add("input-error");
-        titleInput.focus();
-      } else if (positionSelect && !MdgSettings.NOTE_SECTION_POSITIONS.has(String(positionSelect.value || "").trim())) {
-        positionSelect.classList.add("input-error");
-        positionSelect.focus();
-      } else if (contentInput && validation.requireContent) {
-        contentInput.classList.add("input-error");
-        contentInput.focus();
-      } else if (titleInput) {
-        titleInput.classList.add("input-error");
-        titleInput.focus();
-      }
-      if (noteSectionErrorNode) {
-        noteSectionErrorNode.hidden = false;
-        noteSectionErrorNode.textContent = validation.message || "正文附加段落校验失败";
-      }
-      setStatus(validation?.message || "设置校验失败", true);
-      return;
-    }
-    if (keyInput && !String(keyInput.value || "").trim()) {
-      keyInput.classList.add("input-error");
-      keyInput.focus();
-    } else if (valueInput && !String(valueInput.value || "").trim()) {
-      valueInput.classList.add("input-error");
-      valueInput.focus();
-    } else if (keyInput) {
-      keyInput.classList.add("input-error");
-      keyInput.focus();
-    }
-
-    const errorNode = validation.row.querySelector(".fixed-property-error");
-    if (errorNode) {
-      errorNode.hidden = false;
-      errorNode.textContent = validation.message || "自定属性校验失败";
-    }
+  // A property or section row's own error line repeats the message under the row (validation.field marks its box).
+  const rowError = validation?.row?.querySelector(".fixed-property-error, .note-section-error");
+  if (rowError) {
+    rowError.hidden = false;
+    rowError.textContent = validation.message;
   }
   setStatus(validation?.message || "设置校验失败", true);
 }
@@ -755,13 +745,7 @@ function addFixedPropertyRow(item = {}) {
       </div>
       <div class="fixed-property-field fixed-property-field-remove">
         <button class="fixed-property-remove" type="button" aria-label="删除属性" title="删除属性">
-          <svg viewBox="0 0 24 24" focusable="false">
-            <path d="M4 7h16"></path>
-            <path d="M9 3h6"></path>
-            <path d="M10 11v6"></path>
-            <path d="M14 11v6"></path>
-            <path d="M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12"></path>
-          </svg>
+          ${TRASH_ICON}
         </button>
       </div>
     </div>
@@ -861,13 +845,7 @@ function addNoteSectionRow(item = {}) {
       </div>
       <div class="note-section-field note-section-field-remove">
         <button class="note-section-remove" type="button" aria-label="删除段落" title="删除段落">
-          <svg viewBox="0 0 24 24" focusable="false">
-            <path d="M4 7h16"></path>
-            <path d="M9 3h6"></path>
-            <path d="M10 11v6"></path>
-            <path d="M14 11v6"></path>
-            <path d="M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12"></path>
-          </svg>
+          ${TRASH_ICON}
         </button>
       </div>
     </div>
@@ -913,20 +891,13 @@ function collectNoteSectionRows({ includeRow = false } = {}) {
 function validateNotePlaceholderSections(items) {
   const rows = Array.isArray(items) ? items : [];
   if (rows.length > MdgSettings.MAX_NOTE_SECTIONS) {
-    return { ok: false, message: `正文附加段落最多添加 ${MdgSettings.MAX_NOTE_SECTIONS} 个` };
+    return { ok: false, message: `正文附加段落最多 ${MdgSettings.MAX_NOTE_SECTIONS} 段` };
   }
   for (const item of rows) {
     const title = String(item?.title || "").trim();
-    const position = MdgSettings.normalizeNoteSectionPosition(item?.position);
     const content = String(item?.content || "").trim();
-    if (!title && !content) {
-      continue;
-    }
-    if (!title) {
-      return { ok: false, row: item.row, message: "请填写段落标题" };
-    }
-    if (!MdgSettings.NOTE_SECTION_POSITIONS.has(position)) {
-      return { ok: false, row: item.row, message: "请选择有效的位置" };
+    if (content && !title) {
+      return { ok: false, row: item.row, field: item.row?.querySelector(".note-section-title"), message: "请填写段落标题" };
     }
   }
   return { ok: true };
@@ -934,13 +905,8 @@ function validateNotePlaceholderSections(items) {
 
 function buildNoteSectionPositionOptions(selectedPosition) {
   const current = MdgSettings.normalizeNoteSectionPosition(selectedPosition);
-  const options = [
-    { value: "before_intro", label: "简介前" },
-    { value: "before_chapters", label: "章节前" },
-    { value: "before_subtitle", label: "字幕前" }
-  ];
-  return options
-    .map((item) => `<option value="${item.value}" ${item.value === current ? "selected" : ""}>${item.label}</option>`)
+  return Object.entries(MdgSettings.NOTE_SECTION_LABELS)
+    .map(([value, label]) => `<option value="${value}" ${value === current ? "selected" : ""}>${label}</option>`)
     .join("");
 }
 
@@ -968,48 +934,51 @@ function validateFixedFrontmatterProperties(items) {
     const value = item?.value;
     const lowerKey = key.toLowerCase();
     const valueText = typeof value === "string" ? value.trim() : "";
+    // The message goes under the row; the box it is about is marked.
+    const keyError = (message) => ({ ok: false, row: item.row, field: item.row?.querySelector(".fixed-property-key"), message });
+    const valueError = (message) => ({ ok: false, row: item.row, field: item.row?.querySelector(".fixed-property-value"), message });
 
     if (!key && MdgSettings.isFixedPropertyRowEffectivelyEmpty(type, value)) {
       continue;
     }
     if (!key) {
-      return { ok: false, row: item.row, message: "请填写自定属性的属性名" };
+      return keyError("请填写自定属性的属性名");
     }
     if (!CUSTOM_PROPERTY_KEY_PATTERN.test(key)) {
-      return { ok: false, row: item.row, message: "属性名仅支持中文、英文、数字、空格、下划线和短横线" };
+      return keyError("属性名只能包含文字、数字、空格、下划线和短横线");
     }
     const hasTemplateToken = containsFrontmatterTemplateToken(valueText);
 
     if (type === "number") {
       if (!valueText) {
-        return { ok: false, row: item.row, message: "请填写数字类型的属性值" };
+        return valueError("请填写数字类型的属性值");
       }
       if (!hasTemplateToken && !Number.isFinite(Number(valueText))) {
-        return { ok: false, row: item.row, message: "数字类型的属性值必须是有效数字" };
+        return valueError("数字类型的属性值必须是有效数字");
       }
     } else if (type === "checkbox") {
       if (!valueText) {
-        return { ok: false, row: item.row, message: "请填写复选框类型的属性值" };
+        return valueError("请填写复选框类型的属性值");
       }
       const normalizedCheckboxValue = valueText.toLowerCase();
       if (!hasTemplateToken && normalizedCheckboxValue !== "true" && normalizedCheckboxValue !== "false") {
-        return { ok: false, row: item.row, message: "复选框类型的属性值只能填写 true 或 false" };
+        return valueError("复选框类型的属性值只能填写 true 或 false");
       }
     } else if (type === "date") {
       if (!valueText) {
-        return { ok: false, row: item.row, message: "请填写日期类型的属性值" };
+        return valueError("请填写日期类型的属性值");
       }
-      if (!hasTemplateToken && !FRONTMATTER_DATE_VALUE_RE.test(valueText)) {
-        return { ok: false, row: item.row, message: "日期类型请填写 YYYY-MM-DD，或使用 {{upload_date}} 这类变量" };
+      if (!hasTemplateToken && !isCalendarDate(valueText)) {
+        return valueError("日期类型请填写存在的日期 YYYY-MM-DD，或使用 {{upload_date}} 这类变量");
       }
     } else if (!valueText) {
-      return { ok: false, row: item.row, message: "请填写自定属性的属性值" };
+      return valueError("请填写自定属性的属性值");
     }
     if (Array.from(elements.frontmatterFields).some((checkbox) => checkbox.value === lowerKey)) {
-      return { ok: false, row: item.row, message: "该属性名与系统字段重复，请换一个名称" };
+      return keyError("该属性名与自带属性重复，请换一个名称");
     }
     if (seenKeys.has(lowerKey)) {
-      return { ok: false, row: item.row, message: "自定属性名不能重复" };
+      return keyError("自定属性名不能重复");
     }
     seenKeys.add(lowerKey);
   }
@@ -1039,6 +1008,12 @@ function clearNoteSectionErrors() {
 
 function containsFrontmatterTemplateToken(value) {
   return FRONTMATTER_TEMPLATE_TOKEN_RE.test(String(value || "").trim());
+}
+
+// YYYY-MM-DD naming a day that exists (2026-02-30 does not).
+function isCalendarDate(text) {
+  const day = new Date(`${text}T00:00:00Z`);
+  return FRONTMATTER_DATE_VALUE_RE.test(text) && !Number.isNaN(day.getTime()) && day.toISOString().slice(0, 10) === text;
 }
 
 function readFixedPropertyValue(row) {
@@ -1071,31 +1046,14 @@ function buildFixedPropertyTypePicker(type) {
         </svg>
       </button>
       <div class="fixed-property-type-menu" hidden>
-        <button class="fixed-property-type-option" type="button" data-type="text">文本</button>
-        <button class="fixed-property-type-option" type="button" data-type="number">数字</button>
-        <button class="fixed-property-type-option" type="button" data-type="checkbox">复选框</button>
-        <button class="fixed-property-type-option" type="button" data-type="list">列表</button>
-        <button class="fixed-property-type-option" type="button" data-type="date">日期</button>
+        ${Object.entries(FIXED_PROPERTY_TYPE_LABELS).map(([value, label]) => `<button class="fixed-property-type-option" type="button" data-type="${value}">${label}</button>`).join("")}
       </div>
     </div>
   `;
 }
 
 function getFixedPropertyTypeLabel(type) {
-  const normalizedType = MdgSettings.normalizeFixedPropertyType(type);
-  if (normalizedType === "number") {
-    return "数字";
-  }
-  if (normalizedType === "checkbox") {
-    return "复选框";
-  }
-  if (normalizedType === "list") {
-    return "列表";
-  }
-  if (normalizedType === "date") {
-    return "日期";
-  }
-  return "文本";
+  return FIXED_PROPERTY_TYPE_LABELS[MdgSettings.normalizeFixedPropertyType(type)];
 }
 
 function bindFixedPropertyValueEvents(row) {
@@ -1167,12 +1125,12 @@ async function testConnection() {
 
     obsidianTest.ok = Boolean(resp?.ok);
     if (!resp?.ok) {
-      setTestResult(`失败：${resp?.error || MdgErrors.TEXT.unknown}`, true);
+      setTestResult(`失败：${MdgErrors.text(resp)}`, true);
       return;
     }
 
     const service = resp?.service ? `（${resp.service}）` : "";
-    setTestResult(`连接成功${service}`);
+    setTestResult(`连接成功${service}${hasUnsavedChanges ? "，记得保存设置" : ""}`);
   } catch (error) {
     setTestResult(`失败：${error.message || MdgErrors.TEXT.unknown}`, true);
   } finally {
@@ -1191,12 +1149,14 @@ function setTestResult(text, isError = false) {
   elements.obsidianTestResult.dataset.error = String(isError);
 }
 
-// Both buttons wait while either runs; the running one gets the shared busy look from tokens.css.
+// Both buttons wait while either runs; the running one gets the shared busy look from tokens.css. Idle, each shows
+// its words from options.html.
 function setBusy(active) {
   busyButton = active;
-  for (const [button, idle, busy] of [[elements.saveBtn, "保存", "保存中…"], [elements.testConnectionBtn, "测试连接", "测试中…"]]) {
+  for (const [button, busy] of [[elements.saveBtn, "保存中…"], [elements.testConnectionBtn, "测试中…"]]) {
+    button.dataset.idle ??= button.textContent;
     button.disabled = Boolean(active);
-    button.textContent = button === active ? busy : idle;
+    button.textContent = button === active ? busy : button.dataset.idle;
     button.setAttribute("aria-busy", String(button === active));
   }
   if (!active) syncObsidianTest();
@@ -1260,21 +1220,15 @@ function addAiProviderRow(item = {}) {
     <select class="ai-provider-preset" name="aiProviderPreset" aria-label="平台">
       ${AI_PRESETS.map((p) => `<option value="${escapeHtml(p.id)}" ${p.id === presetId ? "selected" : ""}>${escapeHtml(p.name)}</option>`).join("")}
     </select>
-    <input class="ai-provider-baseurl" name="aiProviderBaseUrl" type="text" aria-label="接口地址" placeholder="如 https://api.openai.com/v1" value="${escapeHtml(baseUrl)}" />
-    <input class="ai-provider-model" name="aiProviderModel" type="text" aria-label="模型" placeholder="如 gpt-6-luna" value="${escapeHtml(model)}" />
+    <input class="ai-provider-baseurl" name="aiProviderBaseUrl" type="text" aria-label="${AI_FIELD.baseUrl}" placeholder="如 https://api.openai.com/v1" value="${escapeHtml(baseUrl)}" />
+    <input class="ai-provider-model" name="aiProviderModel" type="text" aria-label="${AI_FIELD.model}" placeholder="如 gpt-6-luna" value="${escapeHtml(model)}" />
     <div class="key">
-      <input class="ai-provider-apikey" name="aiProviderApiKey" type="password" aria-label="API Key" placeholder="${apiKeyPlaceholder(hasSavedKey, requiresKey)}" autocomplete="off" />
+      <input class="ai-provider-apikey" name="aiProviderApiKey" type="password" aria-label="${AI_FIELD.key}" placeholder="${apiKeyPlaceholder(hasSavedKey, requiresKey)}" autocomplete="off" />
       <span class="keytag"${hasSavedKey ? "" : " hidden"}>已保存</span>
     </div>
     <button type="button" class="sm ai-provider-test"><span class="ai-spark" aria-hidden="true"></span>测试连接</button>
-    <button type="button" class="ai-provider-remove" aria-label="删除平台" title="删除平台">
-      <svg viewBox="0 0 24 24" focusable="false" aria-hidden="true">
-        <path d="M4 7h16"></path>
-        <path d="M9 3h6"></path>
-        <path d="M10 11v6"></path>
-        <path d="M14 11v6"></path>
-        <path d="M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12"></path>
-      </svg>
+    <button type="button" class="ai-provider-remove">
+      ${TRASH_ICON}
     </button>
     <p class="ai-provider-status" hidden></p>
   `;
@@ -1295,13 +1249,22 @@ function addAiProviderRow(item = {}) {
     row.dataset.currentPresetId = next.id;
     syncKey();
     syncTest();
+    hideStatus();
   });
+
+  // A test result is for the values it tested: an edit hides it, and a test running meanwhile shows nothing.
+  const statusNode = row.querySelector(".ai-provider-status");
+  const hideStatus = () => {
+    statusNode.hidden = true;
+    row.dataset.edited = "1";
+  };
+  for (const sel of [".ai-provider-baseurl", ".ai-provider-model", ".ai-provider-apikey"]) row.querySelector(sel).addEventListener("input", hideStatus);
 
   // 测试连接 needs this row's 接口地址 and 模型: disabled with the reason while either box is empty.
   const testBtn = row.querySelector(".ai-provider-test");
   const syncTest = () => {
     if (row.dataset.testing) return; // a running test keeps the button off until it answers
-    const missing = [["接口地址", ".ai-provider-baseurl"], ["模型", ".ai-provider-model"]].filter(([, sel]) => !row.querySelector(sel).value.trim()).map(([name]) => name);
+    const missing = [[AI_FIELD.baseUrl, ".ai-provider-baseurl"], [AI_FIELD.model, ".ai-provider-model"]].filter(([, sel]) => !row.querySelector(sel).value.trim()).map(([name]) => name);
     MdgErrors.setReason(testBtn, missing.length ? `先填${missing.join("和")}` : "", "用这一行的地址、模型和 Key 向 AI 发一条测试消息");
   };
   syncTest();
@@ -1325,28 +1288,32 @@ function addAiProviderRow(item = {}) {
 
   // Two clicks in place instead of a system dialog: the first turns the trash icon into 「确认删除」.
   const removeBtn = row.querySelector(".ai-provider-remove");
-  const trashIcon = removeBtn.innerHTML;
+  const name = (text) => {
+    removeBtn.setAttribute("aria-label", text);
+    removeBtn.title = text;
+  };
+  name("删除平台");
   const disarm = () => {
     if (!removeBtn.classList.contains("armed")) return;
     removeBtn.classList.remove("armed");
-    removeBtn.innerHTML = trashIcon;
-    removeBtn.setAttribute("aria-label", "删除平台");
-    removeBtn.title = "删除平台";
+    removeBtn.innerHTML = TRASH_ICON;
+    name("删除平台");
   };
   removeBtn.addEventListener("blur", disarm);
+  // A delete the background did not write keeps the row, with why.
   removeBtn.addEventListener("click", async () => {
     if (!removeBtn.classList.contains("armed")) {
       removeBtn.classList.add("armed");
       removeBtn.textContent = "确认删除";
-      removeBtn.setAttribute("aria-label", "再点一次删除平台，它保存的 API Key 也一起删除");
-      removeBtn.title = "再点一次删除，API Key 一起删掉";
+      name("再点一次删除平台，它保存的 API Key 也一起删除");
       removeBtn.focus();
       return;
     }
-    if (row.dataset.providerId) {
-      try {
-        await sendRuntimeMessage({ type: "ai-providers-delete", providerId: row.dataset.providerId });
-      } catch {}
+    const resp = await sendRuntimeMessage({ type: "ai-providers-delete", providerId: row.dataset.providerId }).catch((error) => ({ ok: false, error: error.message }));
+    if (!resp?.ok) {
+      disarm();
+      showAiProviderStatus(statusNode, `删除失败：${MdgErrors.text(resp)}`, true);
+      return;
     }
     row.remove();
     updateAiProvidersEmptyState();
@@ -1377,6 +1344,7 @@ async function testAiProviderRow(row, sync) {
   statusNode.setAttribute("aria-busy", "true");
   testBtn.disabled = true;
   row.dataset.testing = "1";
+  delete row.dataset.edited;
   const resp = !(await asked)
     ? { ok: false, error: MdgErrors.noAccess(pattern.replace(/\/\*$/, "")), code: "AI_ACCESS" }
     : await sendRuntimeMessage({ type: "ai-providers-test", providerId: savedKeyApplies(row) ? row.dataset.providerId || "" : "", baseUrl, apiKey, model, requiresKey }).catch((error) => ({
@@ -1386,6 +1354,7 @@ async function testAiProviderRow(row, sync) {
   statusNode.setAttribute("aria-busy", "false");
   delete row.dataset.testing;
   sync();
+  if (row.dataset.edited) return;
   if (resp?.ok) {
     showAiProviderStatus(statusNode, hasUnsavedChanges ? "连接成功，记得保存设置" : "连接成功");
     return;
@@ -1505,29 +1474,24 @@ async function renderHostPermissionBanner(urls) {
   };
 }
 
+// Points at the row (index) and its box (a selector) that is wrong.
 function validateAiProviders(items) {
   const seenIds = new Set();
-  for (const item of items) {
-    if (!item.baseUrl) {
-      return { ok: false, message: "每个平台都需要填写接口地址" };
-    }
+  for (const [index, item] of items.entries()) {
+    const error = (box, message) => ({ ok: false, index, box, message });
+    const missing = (field, box) => error(box, `平台「${item.name}」需要填写${field}`);
+    if (!item.baseUrl) return missing(AI_FIELD.baseUrl, ".ai-provider-baseurl");
     try {
       const u = new URL(item.baseUrl);
       if (u.protocol !== "http:" && u.protocol !== "https:") {
-        return { ok: false, message: `接口地址必须以 http(s):// 开头（${item.baseUrl}）` };
+        return error(".ai-provider-baseurl", `接口地址必须以 http(s):// 开头（${item.baseUrl}）`);
       }
     } catch {
-      return { ok: false, message: `接口地址格式不正确：${item.baseUrl}` };
+      return error(".ai-provider-baseurl", `接口地址格式不正确：${item.baseUrl}`);
     }
-    if (item.requiresKey && !item.apiKey && !item.hasSavedKey) {
-      return { ok: false, message: `平台「${item.name}」需要填写 API Key` };
-    }
-    if (!item.model) {
-      return { ok: false, message: `平台「${item.name}」需要填写模型名` };
-    }
-    if (seenIds.has(item.id)) {
-      return { ok: false, message: "平台 id 重复，请刷新网页重试" };
-    }
+    if (item.requiresKey && !item.apiKey && !item.hasSavedKey) return missing(` ${AI_FIELD.key}`, ".ai-provider-apikey");
+    if (!item.model) return missing(AI_FIELD.model, ".ai-provider-model");
+    if (seenIds.has(item.id)) return error("", `平台 id 重复，${MdgErrors.TEXT.reloadRetry}`);
     seenIds.add(item.id);
   }
   return { ok: true };

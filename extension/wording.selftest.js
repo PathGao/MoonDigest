@@ -264,7 +264,7 @@ const DUPLICATES = [
   ["AI 判断", "bili-surfaces.js history/history.js triage/triage.js", "待修（扫描未列）：B站页面的列名、视频记录和收藏夹 CSV 的表头各写一份"],
   ["视频标签", "bili-surfaces.js triage/triage.js", "待修（扫描未列）：B站页面的列名和分拣台各写一份"],
   ["✓ 看完了", "bili-surfaces.js options.html", "待修（扫描未列）：设置页的示意图照抄 B站页面上的标记文字"],
-  ["发布日期", "content.js options.html", "待修（扫描未列）：专注模式信息栏和设置页属性说明各写一份（C228 是同一个字段的另一处叫法）"],
+  ["发布日期", "content.js options.html", "待修（扫描未列）：专注模式信息栏和设置页属性说明各写一份"],
   ["✎ 备注", "history/history.js sidepanel.html triage/triage.js", "待修（扫描未列）：视频记录、侧边栏和分拣台的备注按钮各写一份"],
   ["简体中文", "options.html sites.js", "待修（扫描未列）：sites.js 的字幕语言名和设置页语言下拉各写一份"],
   ["繁體中文", "options.html sites.js", "待修（扫描未列）：同上"],

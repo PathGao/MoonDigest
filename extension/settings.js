@@ -15,7 +15,7 @@
     "按时间顺序整理这期视频的内容",
     "根据评论总结观众的看法",
     "按章节整理视频内容",
-    "生成带时间轴的笔记"
+    "生成带时间戳的笔记"
   ]);
   const SYSTEM_PROMPT = [
     "你是一名专业的视频内容分析助手。",
@@ -76,7 +76,9 @@
   const LOCAL_DEFAULTS = Object.freeze({ obsidianApiKey: "" });
 
   const FIXED_PROPERTY_TYPES = new Set(["text", "number", "checkbox", "list", "date"]);
-  const NOTE_SECTION_POSITIONS = new Set(["before_intro", "before_chapters", "before_subtitle"]);
+  // 正文附加段落's positions, in the settings page's order, by the names it shows.
+  const NOTE_SECTION_LABELS = Object.freeze({ before_intro: "简介前", before_chapters: "章节前", before_subtitle: "字幕前" });
+  const NOTE_SECTION_POSITIONS = new Set(Object.keys(NOTE_SECTION_LABELS));
   const MAX_NOTE_SECTIONS = 5;
   const MAX_PRESET_PROMPTS = 12;
 
@@ -162,7 +164,7 @@
   globalThis.MdgSettings = Object.freeze({
     DEFAULTS,
     LOCAL_DEFAULTS,
-    NOTE_SECTION_POSITIONS,
+    NOTE_SECTION_LABELS,
     MAX_NOTE_SECTIONS,
     MAX_PRESET_PROMPTS,
     SEEN_THRESHOLD,
