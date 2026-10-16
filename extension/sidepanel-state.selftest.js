@@ -301,4 +301,35 @@ function panel({ tab = video("BV1aa"), list = [] } = {}) {
   assert.deepStrictEqual([ref.pageIndex, ref.pageCount], [1, 3]);
 }
 
+// A31: two windows' panels on one conversation: a later save from the other window is taken, so the next save here
+// keeps its turn; this panel's own save coming back changes nothing.
+{
+  const list = [saved("a", video("BV1aa"))];
+  const one = panel({ list });
+  const two = panel({ list });
+  two.ask("q2", "a2");
+  assert.deepStrictEqual(types(one.dispatch({ type: "SAVED_CHANGED", list: two.view().saved, previous: list })), ["redraw"]);
+  assert.deepStrictEqual(one.view().messages.map((m) => m.content), ["q-a", "a-a", "q2", "a2"]);
+  one.ask("q1", "a1");
+  assert.deepStrictEqual(types(one.dispatch({ type: "SAVED_CHANGED", list: one.view().saved, previous: list })), []);
+  assert.deepStrictEqual(one.view().saved[0].messages.map((m) => m.content), ["q-a", "a-a", "q2", "a2", "q1", "a1"]);
+  // An older list arriving late does not take the conversation back.
+  assert.deepStrictEqual(types(one.dispatch({ type: "SAVED_CHANGED", list: two.view().saved })), []);
+  assert.strictEqual(one.view().messages.length, 6);
+}
+
+// A7: a reply that failed or stopped before a word is not saved, but stays drawable until the next send or another
+// conversation.
+{
+  const p = panel();
+  p.dispatch({ type: "SEND", prompt: "q" });
+  p.dispatch({ type: "STREAM_ENDED", raw: "", failure: { error: "坏了", code: "AI_QUOTA" } });
+  assert.deepStrictEqual([plain(p.view().unanswered), p.view().messages.length, p.view().saved.length], [{ prompt: "q", error: "坏了", code: "AI_QUOTA" }, 0, 0]);
+  p.dispatch({ type: "SEND", prompt: "q" });
+  assert.strictEqual(p.view().unanswered, null, "sent again");
+  p.dispatch({ type: "STREAM_ENDED", raw: "", failure: { stopped: "已停止生成" } });
+  p.dispatch({ type: "NEW" });
+  assert.strictEqual(p.view().unanswered, null, "another conversation");
+}
+
 console.log("sidepanel-state selftest: all passed");
