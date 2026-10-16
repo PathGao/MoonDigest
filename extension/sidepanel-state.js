@@ -49,8 +49,21 @@
     };
   }
 
-  function doesTabMatchContextUrl(tabUrl, targetUrl) {
-    const current = MdgSites.parseRef(tabUrl);
+  // A context's URL, naming its part: a watch-later page's URL names the part by oid, not ?p=, and the side panel's payload
+  // and saved conversations carry that URL, so their pageIndex places the part.
+  function partUrl(context) {
+    const url = String(context?.url || "").trim();
+    return MdgSites.parseRef(url)?.part?.oid ? MdgSites.videoUrl(context) : url;
+  }
+  // The shown conversation's own video (its saved context), else the shown context's.
+  const shownPartUrl = (s) => (s.conv.pinned ? partUrl({ ...s.conv.pinned.contextRef, url: s.conv.pinned.contextUrl }) : partUrl(shown(s)));
+
+  // live: the tab's loaded context. A watch-later tab URL names its part by oid (the part's cid): the payload with that
+  // cid places it; before it arrives the URL reads as P1.
+  function doesTabMatchContextUrl(tabUrl, targetUrl, live = null) {
+    let current = MdgSites.parseRef(tabUrl);
+    const oid = current?.part?.oid;
+    if (oid && live && !live.pending && String(live.cid || "") === oid && live.videoId === current.id) current = MdgSites.parseRef(partUrl(live)) || current;
     const target = MdgSites.parseRef(targetUrl);
     if (!current || !target) {
       return String(tabUrl || "").trim() === String(targetUrl || "").trim();
@@ -108,8 +121,8 @@
     if (conversationKey && targetKey && conversationKey === targetKey) {
       return true;
     }
-    const conversationUrl = String(conversation.contextUrl || conversation.contextRef?.url || "").trim();
-    const currentUrl = String(currentRef?.url || "").trim();
+    const conversationUrl = partUrl({ ...conversation.contextRef, url: conversation.contextUrl || conversation.contextRef?.url });
+    const currentUrl = partUrl(currentRef);
     return Boolean(conversationUrl && currentUrl) && doesTabMatchContextUrl(currentUrl, conversationUrl);
   }
 
@@ -194,7 +207,8 @@
       conv: { id: "", pinned: null, messages: [], resolved: null, failed: false, epoch: 0, fillEpoch: -1, unanswered: null },
       streaming: null,
       previousId: "",
-      saved: []
+      saved: [],
+      unsaved: { created: new Set(), deleted: new Set() }
     };
     return { dispatch: (event) => dispatch(s, event), view: () => view(s) };
   }
@@ -226,7 +240,7 @@
     const context = shown(s);
     const key = shownKey(s);
     const { id, pinned, messages, resolved, epoch, unanswered } = s.conv;
-    const target = String(pinned?.contextUrl || context?.url || "").trim();
+    const target = shownPartUrl(s);
     return {
       context,
       key,
@@ -242,8 +256,10 @@
       // Only videos can be asked about: a web page gives the AI nothing to read, and a conversation saved on one stays read-only.
       nonVideo: (pinned || context)?.isVideoContext === false,
       // The conversation's own video is not the one in the tab.
-      mismatch: Boolean(pinned && target) && (!s.live.tabUrl || !doesTabMatchContextUrl(s.live.tabUrl, target)),
+      mismatch: Boolean(pinned && target) && (!s.live.tabUrl || !doesTabMatchContextUrl(s.live.tabUrl, target, s.live.context)),
       saved: s.saved,
+      // What a save merges into the stored list: SidepanelState.mergeSaved(stored, saved, unsaved).
+      unsaved: { created: new Set(s.unsaved.created), deleted: new Set(s.unsaved.deleted) },
       previousId: s.previousId,
       // The 历史对话 list: the shown video's conversations (the history page lists all of them).
       get history() {
@@ -255,7 +271,7 @@
   function snapshot(s) {
     const context = shown(s);
     return {
-      shownUrl: s.conv.pinned?.contextUrl || context?.url || "",
+      shownUrl: shownPartUrl(s),
       hasMessages: s.conv.messages.length > 0,
       bound: Boolean(s.conv.pinned || s.streaming),
       lastVideoUrl: s.live.lastVideoUrl,
@@ -316,6 +332,7 @@
         contextRef: buildConversationContextRef(context)
       };
       s.conv.resolved = { ...context };
+      s.unsaved.created.add(s.conv.id);
     }
     const { id, pinned } = s.conv;
     const next = {
@@ -335,6 +352,19 @@
     const { messages, pageHydrated, ...meta } = next;
     s.conv.pinned = meta;
     s.conv.resolved ||= { ...context };
+  }
+
+  // This page's saved list merged by entry into a stored one (a save writes it; a change another page stored is read
+  // through it). Each stored entry stays in its newer version (this page's on a tie), except the ones deleted here; one
+  // only this page has stays only when it was created here, since another page (视频记录, another window's panel)
+  // deleted the rest. created / deleted: the ids this page made or deleted and has not written yet (s.unsaved).
+  function mergeSaved(stored, local, { created = new Set(), deleted = new Set() } = {}) {
+    const mine = new Map(normalizeConversations(local).map((c) => [c.id, c]));
+    const kept = normalizeConversations(stored)
+      .filter((c) => !deleted.has(c.id))
+      .map((c) => (mine.has(c.id) && (mine.get(c.id).updatedAt || 0) >= (c.updatedAt || 0) ? mine.get(c.id) : c));
+    const have = new Set(kept.map((c) => c.id));
+    return normalizeConversations(kept.concat([...mine.values()].filter((c) => created.has(c.id) && !have.has(c.id))));
   }
 
   // Leaving a conversation while the AI answers: the question goes into it now, and the reply follows it there.
@@ -443,7 +473,7 @@
         const before = snapshot(s);
         const keyChanged = contextKeyChanges(s, payload);
         s.live = { ...s.live, context: payload, key, error: "" };
-        const toUrl = payload.isVideoContext !== false && MdgSites.buildContextKey(buildConversationContextRef(payload)) ? String(payload.url || "") : "";
+        const toUrl = payload.isVideoContext !== false && MdgSites.buildContextKey(buildConversationContextRef(payload)) ? partUrl(payload) : "";
         const decision = decideFollow(before, { stage: "payload", toUrl, follow: event.follow, keyChanged });
         s.live.lastVideoUrl = decision.lastVideoUrl;
         if (decision.action === "follow") {
@@ -494,6 +524,8 @@
       // Deleting the shown conversation drops a reply in flight too, so it cannot bring the conversation back.
       case "DELETED": {
         s.saved = s.saved.filter((item) => item.id !== event.id);
+        s.unsaved.created.delete(event.id);
+        s.unsaved.deleted.add(event.id);
         return [...(event.id && event.id === s.conv.id ? setConv(s) : []), { type: "save" }];
       }
       // The stored list changed (the history page deletes conversations too). The shown one deleted there is dropped
@@ -501,7 +533,7 @@
       // (another window's panel on the same conversation) takes its messages, so the next save here keeps them.
       case "SAVED_CHANGED": {
         const stored = (list) => Array.isArray(list) && list.some((item) => item?.id === s.conv.id);
-        s.saved = normalizeConversations(event.list);
+        s.saved = mergeSaved(event.list, s.saved, s.unsaved);
         if (s.conv.id && !s.streaming && stored(event.previous) && !stored(event.list)) {
           return setConv(s);
         }
@@ -513,6 +545,11 @@
         s.conv.pinned = { ...s.conv.pinned, updatedAt: mine.updatedAt };
         return [{ type: "redraw" }];
       }
+      // A save wrote these ids' creation or deletion.
+      case "SAVED_WRITTEN":
+        for (const id of event.created) s.unsaved.created.delete(id);
+        for (const id of event.deleted) s.unsaved.deleted.delete(id);
+        return [];
       case "PAGE_HYDRATED":
         return pageHydrated(s, event);
       case "SEND":
@@ -611,6 +648,7 @@
   globalThis.SidepanelState = {
     create,
     decideFollow,
+    mergeSaved,
     buildContextKey,
     buildConversationContextRef,
     buildContextPlaceholder,

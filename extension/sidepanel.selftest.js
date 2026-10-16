@@ -450,6 +450,8 @@ const chatOn = (context) => {
   ctx.renderPreviousVideoBar = real.renderPreviousVideoBar;
   for (const bad of XSS) {
     const conv = (id) => ({ id, title: bad, contextTitle: bad, updatedAt: 1, messages: [{ role: "user", content: bad }, { role: "assistant", content: bad }] });
+    // The conversations made above count as written, so the stored list replaces them.
+    state.dispatch({ type: "SAVED_WRITTEN", ...view().unsaved });
     state.dispatch({ type: "SAVED_CHANGED", list: [conv("now"), conv("before")] });
     state.dispatch({ type: "OPEN", id: "now" });
     state.dispatch({ type: "PREVIOUS_LOADED", id: "before" });
@@ -962,6 +964,25 @@ const chatOn = (context) => {
     // C363: the tab closed while it loads: said at once, not after 15 seconds as a load timeout.
     ctx.chrome.tabs.get = async () => Promise.reject(new Error("No tab with id: 9"));
     await assert.rejects(ctx.waitForTabComplete(9), /标签页已关闭/);
+  }
+
+  // C329: a save reads the stored list again and changes it by entry: a conversation 视频记录 deleted after this page
+  // last read the list is not written back; a delete here removes only its own entry.
+  {
+    const KEY = ctx.MdgLimits.KEYS.aiConversations;
+    const store = {};
+    const [get, set] = [ctx.chrome.storage.local.get, ctx.chrome.storage.local.set];
+    ctx.chrome.storage.local.get = async (k) => ({ [k]: structuredClone(store[k]) });
+    ctx.chrome.storage.local.set = async (o) => void Object.assign(store, structuredClone(o));
+    const c = (id) => ({ id, contextUrl: `https://www.bilibili.com/video/BV1${id}`, isVideoContext: true, updatedAt: 1, messages: [{ role: "user", content: "q" }] });
+    state.dispatch({ type: "SAVED_WRITTEN", ...view().unsaved });
+    state.dispatch({ type: "SAVED_CHANGED", list: [c("k"), c("l"), c("gone")] });
+    store[KEY] = [c("k"), c("l")]; // 视频记录's delete, whose change has not reached this page yet
+    await ctx.saveConversations();
+    assert.deepStrictEqual(store[KEY].map((x) => x.id).sort(), ["k", "l"], "not written back");
+    await ctx.act({ type: "DELETED", id: "k" });
+    assert.deepStrictEqual(store[KEY].map((x) => x.id), ["l"]);
+    Object.assign(ctx.chrome.storage.local, { get, set });
   }
 
   console.log("sidepanel selftest: all passed");
