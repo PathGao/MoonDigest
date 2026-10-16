@@ -77,7 +77,6 @@ const ALLOW = [
   ["options.js", "已保存，但 AI 平台保存失败：${aiResp?.error", "待修：C243"],
   ["options.js", "`失败：${resp?.error || MdgErrors.TEXT.unknown}`", "待修（扫描未列）"],
   ["popup.js", "${MdgErrors.TEXT.obsidianFailed}：${resp?.error", "待修（扫描未列）"],
-  ["popup.js", 'prepResp?.error || "当前网页不支持，或刷新网页后重试"', "待修：C289、C298"],
   ["popup.js", "${MdgErrors.TEXT.readerStartFailed}：${resp?.error", "待修（扫描未列）"],
   ["popup.js", "${MdgErrors.TEXT.subtitleSwitchFailed}：${resp?.error", "待修（扫描未列）"],
   ["popup.js", "${MdgErrors.TEXT.sidepanelOpenFailed}：${resp?.error", "待修（扫描未列）"],

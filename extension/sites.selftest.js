@@ -473,7 +473,7 @@ async function ytComments(next, byContinuation) {
   eq(await sourcesOf({ "player:WEB:dQw4w9WgXcQ": ytPlayer([freeTrack]) }, { readPlayer: async () => ({ ...ytPlayer([potTrack]), videoDetails: { videoId: "other000000" } }) }), { calls: ["player:WEB:dQw4w9WgXcQ"], tracks: ["WEB:.de:-"] });
   // A WEB player call answering with another video is rejected, not used.
   const wrong = ytIo({ "player:WEB:dQw4w9WgXcQ": { ...ytPlayer([freeTrack]), videoDetails: { videoId: "other000000", title: "T" } } });
-  eq(await yt.fetchMeta(ref, wrong.io).then(() => "", (error) => error.message), "播放器返回的是另一个视频，请刷新网页重试");
+  eq(await yt.fetchMeta(ref, wrong.io).then(() => "", (error) => error.message), "播放器返回的是另一个视频，请刷新网页后重试");
   // Gated on WEB and ANDROID: the embedded player is tried, with the embed URL.
   eq(await sourcesOf({ "player:ANDROID:dQw4w9WgXcQ": signIn, "player:WEB_EMBEDDED_PLAYER:dQw4w9WgXcQ": ytPlayer([freeTrack]) }, { readPlayer: async () => signIn }), { calls: ["player:ANDROID:dQw4w9WgXcQ", "player:WEB_EMBEDDED_PLAYER:dQw4w9WgXcQ"], tracks: ["WEB_EMBEDDED_PLAYER:.de:-"] });
   // Nothing gated and nothing found: no embedded call, empty list for the transcript fallback.
@@ -674,6 +674,11 @@ async function ytComments(next, byContinuation) {
   eq((await load(f, {}, { fresh: true }, { duration: 100, gate: "要登录" })).track.id, "transcript");
   f = fake([], {}, { fetchTranscript: async () => Promise.reject(new Error("没有文字稿")) });
   eq((await load(f, {}, { fresh: true }, { duration: 100, gate: "要登录" })).failure, "要登录");
+  // A9: the list failed (no PO token): the transcript still serves; when it fails too, the list's reason stays.
+  f = fake(new Error("没拿到 YouTube 字幕令牌"), {}, { fetchTranscript: async () => transcript });
+  eq((await load(f)).track?.id, "transcript");
+  f = fake(new Error("没拿到 YouTube 字幕令牌"), {}, { fetchTranscript: async () => Promise.reject(new Error("没有文字稿")) });
+  eq((await load(f)).failure, "没拿到 YouTube 字幕令牌");
 
   // step sees every wait: once it throws (the video page's run guard) nothing more is asked.
   f = fake(two, { a: tooLong, b: fit });

@@ -115,8 +115,12 @@
 
   // ---- Which UP a name belongs to, for writing tags: a link or data attribute names the UP outright; a 动态 card only
   // has the avatar image and the name, each trusted only when exactly one followed UP has it. ----
-  const FACE_RE = /\/bfs\/face\/([^/@?#]+)/;
-  const faceKey = (url) => FACE_RE.exec(String(url || ""))?.[1].toLowerCase() || "";
+  // The file name only: B站's default avatar (/bfs/face/member/noface.jpg) is everyone's, so it is no key.
+  const FACE_RE = /\/bfs\/face\/([^/@?#]+)(?:$|[@?#])/;
+  const faceKey = (url) => {
+    const key = FACE_RE.exec(String(url || ""))?.[1].toLowerCase() || "";
+    return key.startsWith("noface.") ? "" : key;
+  };
   // name -> mid and avatar file -> mid over `mids`; a key two UPs share maps to "" so it is never guessed.
   function whoIndex(people, mids) {
     const byName = new Map();
@@ -1041,8 +1045,10 @@ input { box-sizing: border-box; width: 100%; margin: 0; padding: 4px 8px; border
       rows.push(add("div", "mdg-pop-head", host.dataset.head), add("div", "mdg-pop-one", host.dataset.names));
     } else {
       at = host.matches(".mdg-line") ? host.querySelector(".mdg-badge") : host;
-      const info = cache.get(at?.dataset.bvid);
-      if (!info || (!info.reason && !info.oneLiner)) return;
+      const raw = cache.get(at?.dataset.bvid);
+      // What this mark shows (lineParts): with the AI 判断 switched off, no verdict and so none of its reasons.
+      const info = raw && lineParts(raw, at.closest(".mdg-line") ? lineOn : ruleFor(at))?.info;
+      if (!info?.label || (!info.reason && !info.oneLiner)) return;
       rows.push(add("div", "mdg-pop-head", info.aria));
       if (info.oneLiner) rows.push(add("div", "mdg-pop-one", info.oneLiner));
       for (const p of info.points) rows.push(add("div", "mdg-pop-pt", `• ${p}`));
@@ -1115,7 +1121,10 @@ input { box-sizing: border-box; width: 100%; margin: 0; padding: 4px 8px; border
     const tags = v[SETTING];
     lineOn = { verdict: verdicts, vtags: tags && !lineOnly };
     rules = globalThis.MdgSurfaces.rulesWith(v.biliMarksOff, [!verdicts && "verdict", !tags && "vtags"].filter(Boolean));
+    const wasTriage = triageOn;
     triageOn = verdicts || (tags && !lineOnly);
+    // Storage changes are not followed while the marks are off: turned back on, read everything again.
+    if (triageOn && !wasTriage) shared = null;
     const before = seenCfg.on;
     seenCfg = lineOnly ? { ...seenConfig(v), on: false } : seenConfig(v);
     // Turning it off clears the stored history (triage-bg.js), so a later re-enable starts from a fresh read.

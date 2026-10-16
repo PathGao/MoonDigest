@@ -401,7 +401,8 @@
       if (!view) {
         payload = await biliJson(io, `${BILI_API}/x/web-interface/view?bvid=${encodeURIComponent(ref.id)}`);
         if (payload?.code !== 0) {
-          throw biliApiError(payload, "无法获取视频信息");
+          // A reason: every reader puts MdgErrors.TEXT.videoReadFailed in front.
+          throw biliApiError(payload, "B站没有返回视频信息");
         }
         view = payload.data || {};
         tags = [];
@@ -423,7 +424,7 @@
       const page = biliPickPage(pages, pageIndex) || pages[0] || null;
       const cid = String(page?.cid || view.cid || "");
       if (!cid) {
-        throw new Error("读取当前分 P 失败");
+        throw new Error("找不到当前分 P");
       }
       const pubdate = Number(view.pubdate || 0);
       return {
@@ -691,7 +692,7 @@
       }
       response = await ytPost(io, "player", body, clientName);
       if (response?.videoDetails?.videoId && response.videoDetails.videoId !== ref.id) {
-        throw new Error("播放器返回的是另一个视频，请刷新网页重试");
+        throw new Error(`播放器返回的是另一个视频，${MdgErrors.TEXT.reloadRetry}`);
       }
     }
     cache.responses[clientName] = response || {};
@@ -1366,7 +1367,8 @@
   //      pickPreferredTrack takes it).
   //   2. loadFirstTrack over it. When tracks were listed but none matched (signed URLs expire, B站 sometimes serves
   //      another video's subtitle), the list is read and walked once more; after empty bodies without the PO token.
-  //   3. YouTube only, when nothing matched (and no limit) or the video is gated: the watch page's transcript.
+  //   3. YouTube only, when nothing matched (and no limit), the list failed or the video is gated: the watch page's
+  //      transcript.
   //   4. Still nothing matching: the first mismatched body, used with its check in `mismatch` (the reader shows
   //      MdgNote.subtitleMismatchWarning; it is never cached).
   // A limit with nothing usable throws, so the caller waits and tries again. Any other failure (network, timeout,
@@ -1402,7 +1404,8 @@
         pass = next.track ? next : { ...pass, error: next.error || pass.error, limited: next.limited };
       }
     }
-    if ((!pass.track || pass.mismatch) && !pass.limited && site.fetchTranscript && (tracks.length || meta.gate)) {
+    // got.error: listing failed (YouTube without its PO token), so captions may still exist.
+    if ((!pass.track || pass.mismatch) && !pass.limited && site.fetchTranscript && (tracks.length || meta.gate || got.error)) {
       const transcript = await step(settle(site.fetchTranscript(ref, io)));
       if (transcript.value) {
         const { track } = transcript.value;

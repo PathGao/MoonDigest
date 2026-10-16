@@ -352,11 +352,29 @@ process.on("exit", (code) => {
     ctx.chrome = was;
   }
 
+  // With #297: a platform the settings page sends with hasSavedKey: false (its base URL changed host) loses its old key;
+  // one sent without a new key and without that flag keeps it.
+  {
+    const was = [ctx.chrome, ctx.loadAiProviderKeys];
+    let written = null;
+    ctx.loadAiProviderKeys = async () => ({ a: "old-a", b: "old-b", c: "old-c" });
+    ctx.chrome = { storage: { sync: { set: async () => {} }, local: { set: async (v) => (written = Object.values(v)[0]) } } };
+    const out = await ctx.saveAiProviders([{ id: "a", hasSavedKey: false }, { id: "b", hasSavedKey: true }, { id: "c", apiKey: "new-c", hasSavedKey: false }]);
+    assert.deepStrictEqual({ ...written }, { b: "old-b", c: "new-c" });
+    assert.deepStrictEqual([...out.map((p) => p.hasSavedKey)], [false, true, true]);
+    [ctx.chrome, ctx.loadAiProviderKeys] = was;
+  }
+
   // L2: a page the content script cannot sync with: the reason only, no instruction (the popup words the failure).
   {
     const was = [ctx.chrome, ctx.injectReaderContent];
     ctx.chrome = { scripting: { executeScript: async () => [{ result: "old" }] } };
     ctx.injectReaderContent = async () => {};
+    await assert.rejects(ctx.ensureReaderContentReady(1), (e) => e.message === "扩展脚本未能和当前页面同步");
+    // A15: Chrome's error page refuses the injection; the reason stays ours, not Chrome's English.
+    ctx.injectReaderContent = async () => {
+      throw new Error("Frame with ID 0 is showing error page");
+    };
     await assert.rejects(ctx.ensureReaderContentReady(1), (e) => e.message === "扩展脚本未能和当前页面同步");
     [ctx.chrome, ctx.injectReaderContent] = was;
   }

@@ -809,6 +809,63 @@ const settle = async () => {
     Object.assign(state, saved);
   }
 
+  // A1, A20: the player host in 专注模式 and after it.
+  {
+    const saved = { phase: state.readerPhase, host: state.readingPlayerHost };
+    const names = ["getReaderMainWidthLimit", "getReaderPlayerWrapNode", "updateReadingTranscriptTailSpacer", "queueEnsureReaderPlayerControlsRecovered", "getReaderControlsRoot", "reader"];
+    const was = names.map((k) => t[k]);
+    const host = (classes = []) => {
+      const cls = new Set(classes);
+      const attrs = {};
+      return {
+        cls, attrs,
+        classList: { add: (c) => cls.add(c), remove: (c) => cls.delete(c), contains: (c) => cls.has(c) },
+        style: { setProperty() {}, removeProperty() {} },
+        getAttribute: (k) => attrs[k] ?? null,
+        setAttribute: (k, v) => (attrs[k] = v),
+        removeAttribute: (k) => delete attrs[k],
+        getBoundingClientRect: () => ({ width: 800, height: 450 }),
+        parentElement: null
+      };
+    };
+    Object.assign(t, { getReaderMainWidthLimit: () => 800, getReaderPlayerWrapNode: () => null, updateReadingTranscriptTailSpacer() {}, queueEnsureReaderPlayerControlsRecovered() {}, reader: () => t.MdgSites.SITES.bilibili.reader });
+    // A1: laying the player out keeps the class that hides B站's own subtitles and sending bar.
+    state.readerPhase = "open";
+    state.readingPlayerHost = host(["mdg-reader-player-host"]);
+    t.layoutReaderPlayerHost();
+    assert.ok(state.readingPlayerHost.cls.has("mdg-reader-player-host"), "the host keeps its class after layout");
+    // A20: closing turns the phase off before the host is cleaned up; the forced control bar and the hidden cursor come back.
+    const bar = { style: { display: "block", setProperty(k, v) { this.display = v; }, removeProperty() { this.display = ""; } }, attrs: {} };
+    Object.assign(bar, { getAttribute: (k) => bar.attrs[k] ?? null, setAttribute: (k, v) => (bar.attrs[k] = v), removeAttribute: (k) => delete bar.attrs[k] });
+    t.getReaderControlsRoot = () => ({ querySelector: (sel) => (sel === ".bpx-player-control-wrap" ? bar : null) });
+    const player = host(["bpx-state-no-cursor"]);
+    t.setReaderPlayerControlsVisible(true, player);
+    assert.deepStrictEqual([bar.style.display, player.cls.has("bpx-state-no-cursor")], ["block", false], "shown while open");
+    state.readerPhase = "off";
+    t.setReaderPlayerControlsVisible(false, player);
+    assert.deepStrictEqual([bar.style.display, bar.attrs["data-mdg-reader-controls-forced"], player.cls.has("bpx-state-no-cursor")], ["", undefined, true], "restored after the close");
+    const fresh = host(["bpx-state-no-cursor"]);
+    t.setReaderPlayerControlsVisible(true, fresh);
+    assert.ok(fresh.cls.has("bpx-state-no-cursor"), "closed: nothing is forced visible");
+    names.forEach((k, i) => (t[k] = was[i]));
+    Object.assign(state, { readerPhase: saved.phase, readingPlayerHost: saved.host });
+  }
+
+  // A19: tracks listed but none loaded: the dropdowns show why, not the first track as current.
+  {
+    const saved = Object.fromEntries(["subtitles", "selectedSubtitleId", "selectedSubtitleUrl", "subtitleFetchState", "subtitleFailure", "subtitleNeedLogin"].map((k) => [k, state[k]]));
+    Object.assign(state, { subtitles: [{ id: "1", url: "u1", label: "中文" }, { id: "2", url: "u2", label: "English" }], selectedSubtitleId: "", selectedSubtitleUrl: "", subtitleFetchState: "empty", subtitleFailure: "网络断了", subtitleNeedLogin: false });
+    const select = {};
+    t.renderSubtitleOptions(select);
+    assert.match(select.innerHTML, /^<option value="" selected disabled>字幕抓取失败：网络断了<\/option>/);
+    assert.ok(!t.getPopupPayload().subtitleOptions.some((o) => o.selected), "the popup gets no selected track");
+    Object.assign(state, { selectedSubtitleId: "2", selectedSubtitleUrl: "u2" });
+    t.renderSubtitleOptions(select);
+    assert.match(select.innerHTML, /^<option value="u1"/, "a loaded track: no placeholder");
+    assert.match(select.innerHTML, /value="u2"[^>]* selected>/);
+    Object.assign(state, saved);
+  }
+
   console.log("content selftest: all passed");
 })().catch((e) => {
   console.error(e);
