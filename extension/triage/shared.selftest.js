@@ -3,6 +3,7 @@ const fs = require("fs");
 const path = require("path");
 const vm = require("vm");
 const assert = require("assert");
+const PS = require("../page-sources.selftest.js");
 
 const ctx = vm.createContext({ setTimeout, clearTimeout });
 vm.runInContext(fs.readFileSync(path.join(__dirname, "../common.js"), "utf8"), ctx);
@@ -15,10 +16,10 @@ vm.runInContext(fs.readFileSync(path.join(__dirname, "shared.js"), "utf8"), ctx)
 const UI = ctx.TriageUi;
 // 关注 waits B站限流 out for 90 s (DESIGN), in one place: follow-bg.js's queue and follow.js's write and feed waits read it.
 assert.strictEqual(UI.BILI_HOLD_MS, 90000);
-for (const f of ["follow.js", "follow-bg.js"]) assert.ok(/\.BILI_HOLD_MS/.test(fs.readFileSync(path.join(__dirname, f), "utf8")) && !/WAIT_SEC = 90|backoffMs: 90000/.test(fs.readFileSync(path.join(__dirname, f), "utf8")), f);
+for (const [f, src] of [["关注", PS.text(PS.follow)], ["follow-bg.js", PS.read("triage/follow-bg.js")]]) assert.ok(/\.BILI_HOLD_MS/.test(src) && !/WAIT_SEC = 90|backoffMs: 90000/.test(src), f);
 // L5: 关注's group name, one limit and one wording (最多) for the page and the background.
 assert.deepStrictEqual(["", "a".repeat(UI.GROUP_NAME_MAX), "a".repeat(UI.GROUP_NAME_MAX + 1)].map(UI.groupNameError), ["分组名不能为空", "", `分组名最多 ${UI.GROUP_NAME_MAX} 个字`]);
-for (const f of ["follow.js", "follow-bg.js"]) assert.ok(!/分组名不能为空|分组名最[多长]|NAME_MAX = 16/.test(fs.readFileSync(path.join(__dirname, f), "utf8")), `${f} checks a group name itself`);
+for (const f of [...PS.follow, "triage/follow-bg.js"]) assert.ok(!/分组名不能为空|分组名最[多长]|NAME_MAX = 16/.test(PS.read(f)), `${f} checks a group name itself`);
 const TAG = ctx.MdgTagCore;
 const plain = (v) => JSON.parse(JSON.stringify(v));
 // Untrusted text (titles, UP names, comments, AI replies, tag names, paths) stays text: no tag of its own, no way out of
@@ -112,7 +113,7 @@ const assertInert = (html, where) => assert.ok(!/<img src=x|<script|"'>/i.test(h
   // Nothing else folds or unfolds it: no focus listener, and no other file touches the class.
   const src = fs.readFileSync(path.join(__dirname, "shared.js"), "utf8");
   assert.ok(!/"focusin"|headroom/i.test(src), "shared.js does not unfold on focus");
-  for (const f of ["triage.js", "follow.js"]) assert.ok(!fs.readFileSync(path.join(__dirname, f), "utf8").includes("head-folded"), `${f} sets the fold itself`);
+  for (const f of PS.triage) assert.ok(!PS.read(f).includes("head-folded"), `${f} sets the fold itself`);
   // K4: at ≤1099 the rule under row 2's first line runs the row's full width, under the fold toggle too, not from the tabs.
   const narrow = fs.readFileSync(path.join(__dirname, "triage.css"), "utf8").split("@media (max-width: 1099px)")[1].split("\n}\n")[0];
   assert.ok(/\.tabrow::after \{[^}]*left: 0; right: 0;[^}]*background: var\(--border\)/.test(narrow) && !/\.tabs \{[^}]*border-bottom: 1px solid var\(--border\)/.test(narrow), "row 2's rule spans the toggle and the tabs");
@@ -272,8 +273,7 @@ assert.strictEqual(UI.img("https://i0.hdslb.com/a.jpg@1c.webp", "48w"), "https:/
 
 // A card's tag chip escapes its name and says what undoes it, one sentence for both modes (both have U).
 assert.ok(UI.cardTagChip({ id: "t1", name: "<b>", color: "#fff" }).includes('data-untag="t1" aria-label="去掉标签 &lt;b&gt;" title="点一下去掉这个标签 · U 撤销">&lt;b&gt;<span class="x"'));
-for (const f of ["triage.js", "follow.js"]) {
-  const src = fs.readFileSync(path.join(__dirname, f), "utf8");
+for (const [f, src] of [["收藏夹", PS.text(PS.favorites)], ["关注", PS.text(PS.follow)]]) {
   assert.ok(src.includes("UI.cardTagChip(t)") && !src.includes("点一下去掉这个标签"), `${f}: the shared tag chip and its tooltip`);
   // The card's tag button and the done toast: the shared 「+ 标签 T」 and one sentence.
   assert.ok(!/>标签<kbd/.test(src) && src.includes("UI.AI_TAGS_DONE") && !src.includes("按 I 查看建议"), `${f}: 「+ 标签 T」 and AI_TAGS_DONE`);
@@ -328,8 +328,7 @@ assert.strictEqual(UI.aiTagsFailed("x"), "AI 打标签没有成功：x");
 
 // Both modes take the proposal functions from here and keep no copy of their own; the review page's counts
 // (changes before 应用, the tally, 用在 N 个) are tag-dialogs.js's alone, from the adapter's map / live / tagName.
-for (const [file, fns] of [["triage.js", ["mergeAiBatch", "aiChanges"]], ["follow.js", ["mergeAiBatch", "aiChanges"]], ["tag-dialogs.js", ["aiChanges", "aiTally", "previewId"]]]) {
-  const src = fs.readFileSync(path.join(__dirname, file), "utf8");
+for (const [file, fns, src] of [["收藏夹", ["mergeAiBatch", "aiChanges"], PS.text(PS.favorites)], ["关注", ["mergeAiBatch", "aiChanges"], PS.text(PS.follow)], ["tag-dialogs.js", ["aiChanges", "aiTally", "previewId"], PS.read("triage/tag-dialogs.js")]]) {
   for (const fn of [...fns, "aiTally", "previewId"]) assert.ok(!new RegExp(`(function|const|let) ${fn}\\b`).test(src), `${file} has its own ${fn}`);
   for (const fn of fns) assert.ok(src.includes(`UI.${fn}(`), `${file} calls the shared ${fn}`);
   if (file !== "tag-dialogs.js") assert.ok(!/UI\.(aiTally|previewId)\(|\b(changes|tally|uses): \(p/.test(src), `${file} counts the review itself`);
@@ -392,7 +391,7 @@ for (const [file, fns] of [["triage.js", ["mergeAiBatch", "aiChanges"]], ["follo
   assert.deepStrictEqual([...UI.undoAsk("tags", 3, "UP 主")], ["撤销批量改标签？", "<p>上一步改了 3 个 UP 主的标签，撤销后都改回去。</p>", "撤销"]);
   assert.deepStrictEqual(plain(UI.withoutTag({ x: ["a", "b"], y: ["a"] }, "a")), { x: ["b"] });
   // follow.js's page part is not in a harness; it must go through the same functions.
-  const follow = fs.readFileSync(path.join(__dirname, "follow.js"), "utf8");
+  const follow = PS.text(PS.follow);
   assert.ok(follow.includes("UI.editedTag(") && follow.includes("UI.withoutTag("), "关注 edits and deletes tags with the shared functions");
 }
 
@@ -454,15 +453,15 @@ for (const [file, fns] of [["triage.js", ["mergeAiBatch", "aiChanges"]], ["follo
   esc();
   assert.strictEqual(blurred, 1, "Esc on an empty box blurs it");
   assert.ok(L.compositionend && L.input, "it filters through bindLive");
-  for (const f of ["triage.js", "follow.js"]) assert.ok(fs.readFileSync(path.join(__dirname, f), "utf8").includes("UI.bindSearch("), `${f} binds its search with bindSearch`);
+  for (const [f, src] of [["收藏夹", PS.text(PS.favorites)], ["关注", PS.text(PS.follow)]]) assert.ok(src.includes("UI.bindSearch("), `${f} binds its search with bindSearch`);
 }
 
 // The pieces both modes draw once, here: each mode calls the shared one and keeps no markup or wording of its own.
 {
   const src = (f) => fs.readFileSync(path.join(__dirname, f), "utf8");
-  const [fav, fw] = [src("triage.js"), src("follow.js")];
-  const both = (needle, why) => [["triage.js", fav], ["follow.js", fw]].forEach(([f, s]) => assert.ok(s.includes(needle), `${f}: ${why}`));
-  const neither = (re, why) => [["triage.js", fav], ["follow.js", fw]].forEach(([f, s]) => assert.ok(!re.test(s), `${f}: ${why}`));
+  const modes = [["收藏夹", PS.text(PS.favorites)], ["关注", PS.text(PS.follow)]];
+  const both = (needle, why) => modes.forEach(([f, s]) => assert.ok(s.includes(needle), `${f}: ${why}`));
+  const neither = (re, why) => modes.forEach(([f, s]) => assert.ok(!re.test(s), `${f}: ${why}`));
 
   // U's confirm: the same words in both units.
   assert.deepStrictEqual([...UI.undoAsk("ai", 3, "UP 主")], ["撤销这次 AI 打标签？", "<p>这次 AI 打标签改过的 3 个 UP 主，标签都改回 AI 打之前，包括你之后又改过的。</p>", "撤销"]);
@@ -514,14 +513,13 @@ for (const [file, fns] of [["triage.js", ["mergeAiBatch", "aiChanges"]], ["follo
   assert.strictEqual(UI.intIn, ctx.MdgSettings.intIn, "TriageUi.intIn is MdgSettings.intIn");
   const ruleCopies = (dir) => fs.readdirSync(dir, { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? (e.name === "dev" ? [] : ruleCopies(path.join(dir, e.name))) : e.name.endsWith(".js") && !e.name.endsWith(".selftest.js") && /Math\.round\(Number\(v\)\)/.test(fs.readFileSync(path.join(dir, e.name), "utf8")) ? [e.name] : []));
   assert.deepStrictEqual(ruleCopies(path.join(__dirname, "..")), ["settings.js"], "the whole-number rule is written only in settings.js");
-  for (const f of ["triage.js", "follow.js", "triage-bg.js", "follow-bg.js", "../background.js"]) {
-    const src = fs.readFileSync(path.join(__dirname, f), "utf8");
+  for (const [f, src] of [...modes, ...["triage/triage-bg.js", "triage/follow-bg.js", "background.js"].map((f) => [f, PS.read(f)])]) {
     const bare = /intSetting|intervalSetting|Math\.floor\(Number\(|Number\((el\.\w+|\$\("\w+"\))\.value\)|Number\((s|days|merged)\.\w+\)|parseFloat\(merged\./;
     assert.ok(/\.(intIn|numSetting|normalizeSeenThreshold)\b/.test(src) && !bare.test(src), `${f}: parses its whole-number settings with intIn`);
   }
   // J15: the dialogs' settings take range and default from NUM_SETTINGS alone: no reader writes them again.
-  for (const f of ["triage.js", "follow.js", "triage-bg.js", "follow-bg.js"]) {
-    const src = fs.readFileSync(path.join(__dirname, f), "utf8");
+  for (const f of [...PS.triage, ...PS.own("background.js")]) {
+    const src = PS.read(f);
     assert.ok(!/intIn\([^)]*, ((600|100|50|1000|3650|3651), [1-9]\d*|32000, \d+)\)|(IntervalSec|BatchSize|TagLimit|NewTagMax|MaxTokens|Days): \d|\? (90|365) :/.test(src), `${f} writes a setting's range or default itself`);
   }
 
@@ -585,8 +583,8 @@ for (const [file, fns] of [["triage.js", ["mergeAiBatch", "aiChanges"]], ["follo
   for (const id of ["settingsDialog", "fwSettingsDialog"]) {
     for (const row of Object.keys({ interval: 1, newTagMax: 1, allowRemove: 1, aiBatch: 1 })) assert.ok(dlg(id).includes(`data-set-row="${row}"`), `${id} has the shared ${row} row`);
   }
-  for (const f of ["triage.html", "triage.js", "follow.js"]) assert.ok(!fs.readFileSync(path.join(__dirname, f), "utf8").includes("AI 打标签每批数量"), `${f} names the batch row itself`);
-  assert.ok(!/<dialog/.test(fs.readFileSync(path.join(__dirname, "follow.js"), "utf8")), "follow.js builds no dialog markup");
+  for (const f of ["triage/triage.html", ...PS.triage]) assert.ok(!PS.read(f).includes("AI 打标签每批数量"), `${f} names the batch row itself`);
+  assert.ok(!/<dialog/.test(PS.text(PS.follow)), "关注 builds no dialog markup");
   const root = { querySelectorAll: (sel) => (sel.includes("data-num") ? [] : [row]) };
   const row = { dataset: { setRow: "aiBatch" }, querySelector: () => ({ id: "x" }), insertAdjacentHTML(_, h) { this.html = h; } };
   UI.fillSetRows(root);
@@ -634,12 +632,12 @@ for (const [file, fns] of [["triage.js", ["mergeAiBatch", "aiChanges"]], ["follo
   const bg = fs.readFileSync(path.join(__dirname, "triage-bg.js"), "utf8");
   assert.ok(/fetchComments\(ref, m, TRIAGE_BILI_IO, TriageUi\.DEEP_COMMENTS\)/.test(bg) && !/slice\(0, 120\)/.test(bg), "细看 and 粗看 read DEEP_COMMENTS and INTRO_CHARS");
   for (const p of pages) assert.ok(!/\d+ ?个标题/.test(fs.readFileSync(path.join(__dirname, p), "utf8").replace(/<[^>]*>/g, "")), `${p} writes the titles per request itself`);
-  for (const f of ["triage.js", "triage-bg.js", "follow.js", "../options.js", "../background.js"]) assert.ok(!/TITLES_PER_REQUEST\s*=/.test(fs.readFileSync(path.join(__dirname, f), "utf8")), `${f} sets the titles per request itself`);
+  for (const f of PS.pageCode) assert.ok(!/TITLES_PER_REQUEST\s*=/.test(PS.read(f)), `${f} sets the titles per request itself`);
   // 看到多少算看完了: range and default only in settings.js's SEEN_THRESHOLD; every reader (background, bili-surfaces.js,
   // options) parses with normalizeSeenThreshold, and the settings page's box gets min, max and 「默认 N」 from code.
-  const seenReaders = ["../background.js", "../bili-surfaces.js", "../options.js", "../options.html", "../badges.js", "triage.js", "triage.html", "triage-bg.js"];
+  const seenReaders = [...PS.pageCode, "bili-surfaces.js", "options.html", "triage/triage.html"];
   for (const f of seenReaders) {
-    const src = fs.readFileSync(path.join(__dirname, f), "utf8");
+    const src = PS.read(f);
     assert.ok(!/seenThreshold\b[^\n]*\b(80|100)\b|\b1, 100\b|\|\| 80\b/.test(src), `${f} writes 看到多少算看完了's range or default itself`);
   }
   assert.ok(!/id="seenThreshold"[^>]* (min|max|placeholder)=/.test(optionsHtml), "options.html's 看到多少算看完了 box takes its range from code");
@@ -663,12 +661,12 @@ for (const [file, fns] of [["triage.js", ["mergeAiBatch", "aiChanges"]], ["follo
 // Rows 3 and 4 start with their name, 「状态」 and 「标签」, in 收藏夹 and in both 关注 tabs (UP 主, 视频投稿).
 {
   assert.strictEqual(UI.labeledRow("状态", "<b>x</b>"), '<span class="row-label">状态</span><b>x</b>');
-  const count = (f, re) => (fs.readFileSync(path.join(__dirname, f), "utf8").match(re) || []).length;
-  assert.strictEqual(count("triage.js", /UI\.labeledRow\("状态", /g), 1, "收藏夹 row 3");
-  assert.strictEqual(count("triage.js", /UI\.labeledRow\("标签", /g), 1, "收藏夹 row 4");
-  assert.strictEqual(count("follow.js", /UI\.labeledRow\("状态", /g), 2, "关注 row 3, UP 主 and 视频投稿");
-  assert.strictEqual(count("follow.js", /UI\.labeledRow\("标签", /g), 2, "关注 row 4, UP 主 and 视频投稿");
-  for (const f of ["triage.js", "follow.js"]) assert.strictEqual(count(f, /row-label/g), 0, `${f} draws no label of its own`);
+  const count = (files, re) => (PS.text(files).match(re) || []).length;
+  assert.strictEqual(count(PS.favorites, /UI\.labeledRow\("状态", /g), 1, "收藏夹 row 3");
+  assert.strictEqual(count(PS.favorites, /UI\.labeledRow\("标签", /g), 1, "收藏夹 row 4");
+  assert.strictEqual(count(PS.follow, /UI\.labeledRow\("状态", /g), 2, "关注 row 3, UP 主 and 视频投稿");
+  assert.strictEqual(count(PS.follow, /UI\.labeledRow\("标签", /g), 2, "关注 row 4, UP 主 and 视频投稿");
+  assert.strictEqual(count(PS.triage, /row-label/g), 0, "分拣台 draws no label of its own");
 }
 
 // 移动 / 复制 (askTransfer): one dialog for 收藏夹's folders and 关注's groups; the mode passes its targets and words.

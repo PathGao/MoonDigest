@@ -4,6 +4,7 @@ const fs = require("fs");
 const path = require("path");
 const vm = require("vm");
 const assert = require("assert");
+const PS = require("../page-sources.selftest.js");
 
 const ctx = vm.createContext({ TextEncoder, URL, URLSearchParams, console, setTimeout, clearTimeout, setInterval, clearInterval, AbortController });
 // The worker's own load order: every file background.js importScripts, in that order.
@@ -656,8 +657,7 @@ const runSync = async () => {
     // The checks, the 0–50 cap and the parsing are triage-bg.js's triageAiCommand; 关注 only builds the UP 主 items.
     assert.ok(!/triageChat\(|triageParseCommand\(|Math\.min\(50/.test(fs.readFileSync(path.join(__dirname, "follow-bg.js"), "utf8")), "follow-bg.js has its own AI command");
     // 关注's write gap is TriageUi.FOLLOW_WRITE_GAP_MS on both sides (the page's batches, the one-by-one group retry).
-    for (const file of ["follow-bg.js", "follow.js"]) {
-      const src = fs.readFileSync(path.join(__dirname, file), "utf8");
+    for (const [file, src] of [["follow-bg.js", PS.read("triage/follow-bg.js")], ["关注", PS.text(PS.follow)]]) {
       assert.ok(src.includes(".FOLLOW_WRITE_GAP_MS") && !/GAP_MS\s*=\s*\d/.test(src), `${file} keeps its own write gap`);
     }
     assert.strictEqual(t.followAiLine({ name: "U|p", sign: "s\nx", tname: "知识", titles: ["a", "b"], currentTags: ["A"] }, 2), "2|U p|s x|知识|a；b|A");

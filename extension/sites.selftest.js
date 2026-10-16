@@ -4,6 +4,7 @@ const path = require("path");
 const vm = require("vm");
 const assert = require("assert");
 const crypto = require("crypto");
+const PS = require("./page-sources.selftest.js");
 
 // In-memory chrome.storage.local for the subtitle cache.
 const store = {};
@@ -706,13 +707,13 @@ async function ytComments(next, byContinuation) {
   // A hot comment is cleaned in one place (匿名 for no name, 500 characters): cleanComment, which note.js and background read.
   const cleaned = ctx.MdgSites.cleanComment({ uname: " ", like: "x", message: ` ${"字".repeat(600)} ` });
   assert.deepStrictEqual([cleaned.uname, cleaned.like, cleaned.message.length], ["匿名", 0, 500]);
-  for (const f of fs.readdirSync(__dirname).filter((f) => f.endsWith(".js") && !f.endsWith(".selftest.js") && f !== "sites.js")) {
-    assert.ok(!/"匿名"|slice\(0, 500\)/.test(fs.readFileSync(path.join(__dirname, f), "utf8")), `${f} cleans comments itself`);
+  for (const f of PS.shipped.filter((f) => f !== "sites.js")) {
+    assert.ok(!/"匿名"|slice\(0, 500\)/.test(PS.read(f)), `${f} cleans comments itself`);
   }
   // The reason helper: one copy here (note.js, the popup and content.js read it); durations are TriageUi.fmtDuration.
   assert.strictEqual(ctx.MdgSites.trimReason("网络断了。 "), "网络断了");
-  for (const f of ["note.js", "popup.js", "content.js", "sidepanel.js", "background.js", "history/history.js", "obsidian.js"]) {
-    const src = fs.readFileSync(path.join(__dirname, f), "utf8");
+  for (const f of [...PS.pageCode, "note.js"]) {
+    const src = PS.read(f);
     assert.ok(!/function formatDuration\(/.test(src) && !src.includes("[。.！!；;，,\\s]+$"), `${f} writes a shared helper itself`);
   }
   assert.strictEqual(fs.readFileSync(path.join(__dirname, "content.js"), "utf8").split("没有找到可联动的视频播放器").length, 2, "content.js writes the no-player sentence once");
@@ -737,8 +738,8 @@ async function ytComments(next, byContinuation) {
     pageTitle: "", subtitleLang: "", selectedSubtitleId: "", selectedSubtitleUrl: "", isVideoContext: true
   });
   eq(S.contextRef(null).pageIndex, 1);
-  for (const f of ["background.js", "obsidian.js", "sidepanel-state.js", "sidepanel.js"]) {
-    assert.ok(!/selectedSubtitleUrl: String\(\w+\.selectedSubtitleUrl/.test(fs.readFileSync(path.join(__dirname, f), "utf8")), `${f} shapes a video context itself; use MdgSites.contextRef`);
+  for (const f of PS.pageCode) {
+    assert.ok(!/selectedSubtitleUrl: String\(\w+\.selectedSubtitleUrl/.test(PS.read(f)), `${f} shapes a video context itself; use MdgSites.contextRef`);
   }
 
   console.log("sites selftest ok");

@@ -7,17 +7,15 @@ const path = require("path");
 const assert = require("assert");
 
 const read = (f) => fs.readFileSync(path.join(__dirname, f), "utf8");
+const PS = require("./page-sources.selftest.js");
 const files = [];
-const pages = [];
-const walk = (dir) => {
+(function walk(dir) {
   for (const e of fs.readdirSync(path.join(__dirname, dir), { withFileTypes: true })) {
     const rel = path.join(dir, e.name);
     if (e.isDirectory()) walk(rel);
-    else if (e.name.endsWith(".html")) pages.push(rel);
     else if (e.name.endsWith(".js") && !e.name.endsWith(".selftest.js")) files.push(rel);
   }
-};
-walk(".");
+})(".");
 
 // Globals: whatever a file publishes as globalThis.X = ...
 const definedBy = {};
@@ -28,19 +26,11 @@ for (const g of ["MdgCommon", "MdgLimits", "MdgErrors", "MdgSettings", "MdgSites
 const code = (f) => read(f).replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:"'`\\])\/\/.*$/gm, "$1");
 const usesOf = (f) => Object.keys(definedBy).filter((g) => definedBy[g] !== f && new RegExp(`\\b${g}\\b`).test(code(f)));
 
-const runtimes = [];
-const manifest = JSON.parse(read("manifest.json"));
-manifest.content_scripts.forEach((c, i) => runtimes.push([`content_scripts[${i}] (${c.js.at(-1)})`, c.js]));
-// The worker runs the first importScripts list before background.js's own top level.
-const calls = [...read("background.js").matchAll(/importScripts\(([^)]*)\)/g)].map((m) => m[1].match(/"[^"]+"/g).map((f) => JSON.parse(f)));
-runtimes.push(["background importScripts", [...calls[0], "background.js", ...calls.slice(1).flat()]]);
-for (const page of pages) {
-  runtimes.push([page, [...read(page).matchAll(/<script[^>]*src="([^"]+)"/g)].map((m) => path.normalize(path.join(path.dirname(page), m[1])))]);
-}
+const runtimes = PS.runtimes.map((r) => [r.where, r.files]);
 assert.ok(runtimes.length >= 11, `found ${runtimes.length} runtimes`);
 
 // The worker loads triage/shared.js for its pure helpers; the DOM bindings that read MdgTyping never run there.
-const exempt = new Set(["background importScripts|triage/shared.js|MdgTyping"]);
+const exempt = new Set(["background.js|triage/shared.js|MdgTyping"]);
 let checked = 0;
 for (const [where, list] of runtimes) {
   assert.strictEqual(list[0], "common.js", `${where} loads common.js first`);

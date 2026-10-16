@@ -79,7 +79,7 @@ assert.strictEqual(E.messageOf(null, "兜底"), "兜底");
   for (const file of scripts) assert.ok(!/setAttribute\("aria-description"/.test(read(file)), `${file} writes its own setReason; use MdgErrors.setReason`);
 
   // The sentences live only in errors.js: wording.selftest.js checks every shipped file.
-  const sources = ["background.js", "obsidian.js", "content.js", "sidepanel.js", "sidepanel-state.js", "popup.js", "history/history.js", "triage/triage.js", "triage/triage-bg.js", "triage/follow.js", "triage/follow-bg.js"];
+  const sources = require("./page-sources.selftest.js").pageCode;
   // No AI platform: one sentence (TEXT.aiNone); 分拣台 gives 去设置 by the code, never by matching the words.
   for (const file of sources) assert.ok(!/配置 AI|添加一个 AI 平台|未配置 AI 平台/.test(read(file)), `${file} words a missing AI platform itself; use MdgErrors.TEXT.aiNone`);
   // No subtitle: three states, one sentence each, built only here (the note, the card, the AI and every page use it).
@@ -87,7 +87,7 @@ assert.strictEqual(E.messageOf(null, "兜底"), "兜底");
     [E.subtitleMissing(), E.subtitleMissing({ subtitleFailure: "网络断了" }), E.subtitleMissing({ subtitleNeedLogin: true, subtitleFailure: "x" })],
     ["视频没有字幕", "字幕抓取失败：网络断了", "未登录 B站，拿不到字幕"]
   );
-  for (const file of [...sources, "note.js", "triage/follow-bg.js"]) {
+  for (const file of [...sources, "note.js"]) {
     assert.ok(!/拿不到字幕|字幕抓取失败[：（]\$\{|无字幕[，。]/.test(read(file)), `${file} words a missing subtitle itself; use MdgErrors.subtitleMissing`);
   }
   console.log("errors selftest ok");
