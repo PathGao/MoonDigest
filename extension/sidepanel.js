@@ -624,7 +624,7 @@ function renderInitialState() {
 
 // Why the tab's context could not be read (B站 限流, the extension reloaded…), as the read said.
 function contextErrorHtml() {
-  return escapeHtml(state.view().live.error || "读取当前页面失败");
+  return escapeHtml(state.view().live.error);
 }
 
 // retry: a context read failed, so offer to read it again (the context otherwise refreshes on its own).
