@@ -24,6 +24,12 @@ const STREAM_SLOW_NOTICE_MS = 15000;
 const PREVIOUS_VIDEO_CONVERSATION_KEY = "mdg_sp_previous_video_conversation";
 const FOLLOWED_LIVE_VIDEO = "followed";
 const QUICK_ACTION_MAX_AGE_MS = 15000;
+// How long a notice stays: a short confirmation, a failure, a result worth reading.
+const NOTICE_SHORT_MS = 2200;
+const NOTICE_MS = 3000;
+const NOTICE_LONG_MS = 4000;
+// A history conversation whose B站 video was deleted or hidden: no retry brings it back, so it is only read.
+const VIDEO_GONE = "视频已失效，这段对话只能查看，不能继续提问。";
 
 const els = {
   contextChip: document.getElementById("spContextChip"),
@@ -71,11 +77,16 @@ let sendPending = false;
 let suggestionsNode = null;
 // The AI settings as get-settings returns them; MdgSettings.DEFAULTS until then or when it fails.
 let aiPrefs = aiPrefsOf(MdgSettings.DEFAULTS);
-let contextNoticeTimer = 0;
 let shouldAutoScrollMessages = true;
 let liveContextSyncTimer = 0;
 let streamSlowNoticeTimer = 0;
+let streamSlowNotice = null;
 let streamFirstTokenReceived = false;
+// A redraw asked for while a reply streams (a detached reply ended into this conversation, another window saved it):
+// done when that reply ends, so the answer it brought shows.
+let redrawAfterStream = false;
+// Reading the AI platforms failed: why, said where 没有启用的 AI 平台 would be (it is not that).
+let providersError = "";
 // A 写入 Obsidian in flight: a second one would open a second overwrite dialog. Its button says so (syncExportButtons).
 let obsidianWriting = false;
 // get-settings failed: the defaults stand in for the 快捷追问, so changing them would save the defaults over the user's.
@@ -109,7 +120,10 @@ function bindEvents() {
       sendMessage();
     }
   });
-  els.input.addEventListener("input", autosizeInput);
+  els.input.addEventListener("input", () => {
+    autosizeInput();
+    syncSummaryButton();
+  });
   els.messages.addEventListener("scroll", () => {
     shouldAutoScrollMessages = isMessagesNearBottom();
   });
@@ -240,20 +254,24 @@ function bindEvents() {
   });
 }
 
+// Grows with the text; sidepanel.css's min-height and max-height bound it.
 function autosizeInput() {
   els.input.style.height = "auto";
-  const next = Math.min(els.input.scrollHeight, 320);
-  const minHeight = document.body.classList.contains("sp-non-video-context") ? 72 : 94;
-  els.input.style.height = `${Math.max(next, minHeight)}px`;
+  els.input.style.height = `${els.input.scrollHeight}px`;
+}
+
+// Why the shown conversation cannot be asked in at all: a web page, or a video that is gone.
+function readOnlyReason() {
+  return state.view().nonVideo ? MdgErrors.TEXT.notVideoPage : contextFailure()?.gone ? VIDEO_GONE : "";
 }
 
 function setStreamingUiState(isStreaming, { stopping = false } = {}) {
-  const blocked = !isStreaming && state.view().nonVideo;
-  // The input says why too: while streaming the 正在生成… line's words, off a video page the send button's.
-  setDisabledReason(els.input, isStreaming ? els.generating.textContent : blocked ? MdgErrors.TEXT.notVideoPage : "");
+  const blocked = isStreaming ? "" : readOnlyReason();
+  // The input says why too: while streaming the 正在生成… line's words, else the send button's.
+  setDisabledReason(els.input, isStreaming ? els.generating.textContent : blocked);
   renderFollowups();
   els.generating.hidden = !isStreaming;
-  setDisabledReason(els.sendBtn, stopping ? "正在停止生成" : blocked ? MdgErrors.TEXT.notVideoPage : "");
+  setDisabledReason(els.sendBtn, stopping ? "正在停止生成" : blocked);
   els.sendBtn.classList.toggle("is-stop", isStreaming);
   els.sendBtn.innerHTML = isStreaming ? (stopping ? "停止中" : "停止") : `${AI_SPARK}发送`;
   syncExportButtons();
@@ -270,12 +288,12 @@ function syncExportButtons() {
 
 async function loadProvidersAndPrefs({ preferredProviderId = "" } = {}) {
   const [providersResp, settingsResp] = await Promise.all([
-    sendRuntimeMessage({ type: "ai-providers-list" }),
+    sendRuntimeMessage({ type: "ai-providers-list" }).catch((error) => ({ ok: false, error: error.message })),
     sendRuntimeMessage({ type: "get-settings" }).catch(() => ({ ok: false }))
   ]);
-  providers = Array.isArray(providersResp?.providers)
-    ? providersResp.providers.filter((p) => p.enabled)
-    : [];
+  const providersRead = Boolean(providersResp?.ok && Array.isArray(providersResp.providers));
+  providersError = providersRead ? "" : `读取 AI 平台失败：${MdgErrors.text(providersResp)}`;
+  providers = providersRead ? providersResp.providers.filter((p) => p.enabled) : [];
   settingsReadFailed = !(settingsResp?.ok && settingsResp.settings);
   const settings = settingsReadFailed ? MdgSettings.DEFAULTS : settingsResp.settings;
   document.body.classList.toggle("sp-obsidian-off", !settings.obsidianEnabled);
@@ -291,7 +309,9 @@ function aiPrefsOf({ aiSystemPrompt, playerAiQuickPrompt, aiPresetPrompts }) {
 
 function renderModelSelect(preferredProviderId = "") {
   if (!providers.length) {
-    els.modelSelect.innerHTML = `<option value="">${MdgErrors.TEXT.aiNone}</option>`;
+    const text = providersError || MdgErrors.TEXT.aiNone;
+    els.modelSelect.innerHTML = `<option value="">${escapeHtml(text)}</option>`;
+    els.modelSelect.title = text;
     els.modelSelect.disabled = true;
     return;
   }
@@ -388,12 +408,19 @@ async function handlePlayerAiQuickActionRequest(value, { fromStorageChange = tru
   return true;
 }
 
+// The AI 总结 button only fills an empty input, so with text in it the button is off and says why.
+function syncSummaryButton() {
+  const button = suggestionsNode?.querySelector('.sp-summary-btn[data-act="summary"]');
+  if (button) setDisabledReason(button, els.input.value.trim() ? "输入框里有文字，清空后才能填入 AI 总结" : "", aiPrefs.playerAiQuickPrompt);
+}
+
 // AI 总结 never sends by itself: it fills an empty input and leaves the send to the user.
 function fillPrompt(prompt) {
   if (!els.input.value.trim()) {
     els.input.value = prompt;
   }
   autosizeInput();
+  syncSummaryButton();
   els.input.focus();
   const end = els.input.value.length;
   els.input.setSelectionRange(end, end);
@@ -412,6 +439,7 @@ async function act(event) {
     hideExportPopover();
     hideSyncStatus();
     clearStreamRuntimeState();
+    removeConversationContextNotice();
     updateContextChip();
     renderHistoryList();
     renderInitialState();
@@ -428,6 +456,7 @@ async function runEffect(effect) {
       return scheduleAutoSync(effect.id);
     case "clearDraft":
       els.input.value = "";
+      syncSummaryButton();
       return autosizeInput();
     case "fill":
       return fillPrompt(effect.prompt);
@@ -443,10 +472,9 @@ async function runEffect(effect) {
       return hideHistoryPopover();
     case "redraw":
       // Another window's panel saved this conversation: drawn again, but never over a reply streaming here.
-      return activeStream ? undefined : renderConversationMessages();
+      return redrawConversation();
     case "resolve":
-      showConversationContextNotice("正在加载原视频信息…");
-      return hydratePinnedConversationContext({ silent: effect.silent });
+      return hydratePinnedConversationContext({ silent: effect.silent, notice: showConversationContextNotice("正在加载原视频信息…") });
   }
 }
 
@@ -567,7 +595,7 @@ function updateContextChip() {
   setContextChipText(shortTitle, context.isVideoContext === false ? "" : context.author);
   els.contextChip.classList.toggle("is-mismatch", mismatch);
   els.contextChip.title = context.url
-    ? `${context.title || ""}${mismatch ? "\n当前页不是这段对话绑定的视频" : ""}\n点击跳转目标视频`
+    ? `${context.title || ""}${mismatch ? "\n当前页不是这段对话绑定的视频" : ""}${context.isVideoContext === false ? "" : "\n点击跳转目标视频"}`
     : context.title || "";
   els.contextChip.disabled = !String(context.url || "").trim();
 }
@@ -677,6 +705,10 @@ function renderSuggestions() {
   if (messages.length) {
     return;
   }
+  if (providersError) {
+    suggestionsNode.innerHTML = `<p class="sp-empty-intro">${escapeHtml(providersError)}</p>`;
+    return;
+  }
   if (!providers.length) {
     suggestionsNode.innerHTML = `<p class="sp-empty-intro">${EMPTY_INTRO}${MdgErrors.TEXT.aiNone}。</p><button type="button" class="sp-summary-btn">去设置页添加平台</button>`;
     suggestionsNode.querySelector("button").addEventListener("click", () => chrome.runtime.openOptionsPage());
@@ -692,8 +724,9 @@ function renderSuggestions() {
   }
   // The intro and the one-click summary as the main action; the preset chips sit above the input (renderFollowups).
   const prompt = aiPrefs.playerAiQuickPrompt;
-  suggestionsNode.innerHTML = `<p class="sp-empty-intro">${escapeHtml(introText())}</p>${prompt ? `<button type="button" class="sp-summary-btn" title="${escapeHtml(prompt)}">${AI_SPARK}AI 总结</button>` : ""}`;
+  suggestionsNode.innerHTML = `<p class="sp-empty-intro">${escapeHtml(introText())}</p>${prompt ? `<button type="button" class="sp-summary-btn" data-act="summary" title="${escapeHtml(prompt)}">${AI_SPARK}AI 总结</button>` : ""}`;
   suggestionsNode.querySelector(".sp-summary-btn")?.addEventListener("click", () => fillPrompt(prompt));
+  syncSummaryButton();
   void act({ type: "SUMMARY_SHOWN", prompt });
   void renderTriageSummary(suggestionsNode);
 }
@@ -714,7 +747,8 @@ async function renderTriageSummary(node) {
   const key = MdgLimits.KEYS.triageAnalysis(ref.videoId);
   const summary = MdgNote.buildTriageSummary((await chrome.storage.local.get(key))[key]);
   const now = state.view();
-  if (!summary || node !== suggestionsNode || now.messages.length || buildConversationContextRef(now.context)?.videoId !== ref.videoId) {
+  const nowRef = buildConversationContextRef(now.context);
+  if (!summary || node !== suggestionsNode || now.messages.length || nowRef?.videoId !== ref.videoId || nowRef.pageIndex !== 1) {
     return;
   }
   node.querySelector(".sp-triage-summary")?.remove();
@@ -730,14 +764,15 @@ let followupsRendered = "";
 
 function followupBlockReason() {
   if (!providers.length) {
-    return MdgErrors.TEXT.aiNone;
+    return providersError || MdgErrors.TEXT.aiNone;
   }
-  const { context, messages, pinned, nonVideo } = state.view();
-  if (nonVideo) {
-    return MdgErrors.TEXT.notVideoPage;
+  const { context, messages, pinned } = state.view();
+  const readOnly = readOnlyReason();
+  if (readOnly) {
+    return readOnly;
   }
-  if (activeStream || els.input.disabled) {
-    return "正在生成，等这条回复结束";
+  if (activeStream) {
+    return els.generating.textContent;
   }
   if (context?.pending) {
     return MdgErrors.TEXT.subtitleReading;
@@ -818,19 +853,16 @@ function renderPresetPrompts() {
     return;
   }
   els.presetList.innerHTML = prompts
-    .map((prompt, index) => `
+    .map((prompt) => `
       <span class="sp-preset-item">
         <span class="sp-preset-chip" title="${escapeHtml(prompt)}">${escapeHtml(prompt)}</span>
-        <button type="button" class="sp-preset-remove" data-index="${index}" aria-label="删除快捷追问">×</button>
+        <button type="button" class="sp-preset-remove" aria-label="删除快捷追问">×</button>
       </span>
     `)
     .join("");
-  els.presetList.querySelectorAll(".sp-preset-remove").forEach((btn) => {
+  els.presetList.querySelectorAll(".sp-preset-remove").forEach((btn, index) => {
     setDisabledReason(btn, settingsReadFailed ? PRESETS_UNREAD : "", "删除快捷追问");
-    btn.addEventListener("click", async () => {
-      const index = Number(btn.getAttribute("data-index") || -1);
-      await removePresetPrompt(index);
-    });
+    btn.addEventListener("click", () => void removePresetPrompt(prompts[index]));
   });
 }
 
@@ -897,19 +929,17 @@ async function loadSavedConversations() {
 }
 
 async function hydrateConversationPageMetadata() {
-  const candidates = state.view().saved.filter(needsConversationPageHydration).slice(0, 12);
+  const candidates = state.view().saved.filter((c) => c.contextRef?.videoId && needsConversationPageHydration(c)).slice(0, 12);
   let changed = false;
-  for (const conversation of candidates) {
-    const contextRef = conversation.contextRef || null;
-    if (!contextRef?.videoId) {
-      continue;
-    }
+  for (const { id, contextRef } of candidates) {
     const response = await sendRuntimeMessage({
       type: "ai-sidepanel-resolve-page-ref",
       contextRef
     }).catch(() => null);
-    if (response?.ok && response.payload) {
-      changed = state.dispatch({ type: "PAGE_HYDRATED", id: conversation.id, payload: response.payload }).length > 0 || changed;
+    // A video that is gone never answers: settled without data, so it stops taking a slot at every open.
+    const payload = response?.ok ? response.payload : MdgSites.isBiliVideoGone(response?.code) ? null : undefined;
+    if (payload !== undefined) {
+      changed = state.dispatch({ type: "PAGE_HYDRATED", id, payload }).length > 0 || changed;
     }
   }
   if (!changed) {
@@ -936,12 +966,18 @@ async function deleteConversation(id) {
   await act({ type: "DELETED", id });
 }
 
+// A menu and its button: the button says whether it is open (aria-expanded).
+function setPopover(button, popover, open) {
+  popover.hidden = !open;
+  button.setAttribute("aria-expanded", String(open));
+}
+
 function togglePresetPopover(event) {
   event?.stopPropagation();
   hideHistoryPopover();
   hideExportPopover();
   const willShow = els.presetPopover.hidden;
-  els.presetPopover.hidden = !willShow;
+  setPopover(els.presetBtn, els.presetPopover, willShow);
   if (willShow) {
     renderPresetPrompts();
     els.presetInput.value = "";
@@ -951,7 +987,7 @@ function togglePresetPopover(event) {
 }
 
 function hidePresetPopover() {
-  els.presetPopover.hidden = true;
+  setPopover(els.presetBtn, els.presetPopover, false);
 }
 
 function toggleHistoryPopover(event) {
@@ -959,44 +995,33 @@ function toggleHistoryPopover(event) {
   hidePresetPopover();
   hideExportPopover();
   const willShow = els.historyPopover.hidden;
-  els.historyPopover.hidden = !willShow;
+  setPopover(els.historyBtn, els.historyPopover, willShow);
   if (willShow) {
     renderHistoryList();
   }
 }
 
 function hideHistoryPopover() {
-  els.historyPopover.hidden = true;
+  setPopover(els.historyBtn, els.historyPopover, false);
 }
 
 function toggleExportPopover(event) {
   event?.stopPropagation();
   hidePresetPopover();
   hideHistoryPopover();
-  els.exportPopover.hidden = !els.exportPopover.hidden;
+  setPopover(els.exportBtn, els.exportPopover, els.exportPopover.hidden);
 }
 
 function hideExportPopover() {
-  els.exportPopover.hidden = true;
+  setPopover(els.exportBtn, els.exportPopover, false);
 }
 
 function handleDocumentClick(event) {
   if (els.presetPopover.hidden && els.historyPopover.hidden && els.exportPopover.hidden) {
     return;
   }
-  if (!(event.target instanceof Element)) {
-    hidePresetPopover();
-    hideHistoryPopover();
-    hideExportPopover();
-    return;
-  }
-  if (event.target.closest("#spPresetPopover") || event.target.closest("#spPresetBtn")) {
-    return;
-  }
-  if (event.target.closest("#spHistoryPopover") || event.target.closest("#spHistoryBtn")) {
-    return;
-  }
-  if (event.target.closest("#spExportPopover") || event.target.closest("#spExportBtn")) {
+  // A click inside a menu keeps it; its button's own click stops before it gets here.
+  if (event.target instanceof Element && event.target.closest("#spPresetPopover, #spHistoryPopover, #spExportPopover")) {
     return;
   }
   hidePresetPopover();
@@ -1162,7 +1187,7 @@ async function addPresetPrompt() {
     return;
   }
   const text = String(els.presetInput.value || "").trim();
-  if (!(await persistAiPresetPrompts([...(aiPrefs.aiPresetPrompts || []), text]))) {
+  if (!(await editPresetPrompts((list) => (list.includes(text) ? list : [...list, text])))) {
     return;
   }
   els.presetInput.value = "";
@@ -1170,14 +1195,23 @@ async function addPresetPrompt() {
   renderFollowups();
 }
 
-async function removePresetPrompt(index) {
-  if (index < 0 || settingsReadFailed) {
+async function removePresetPrompt(prompt) {
+  if (settingsReadFailed) {
     return;
   }
-  if (await persistAiPresetPrompts((aiPrefs.aiPresetPrompts || []).filter((_, itemIndex) => itemIndex !== index))) {
+  if (await editPresetPrompts((list) => list.filter((item) => item !== prompt))) {
     renderPresetPrompts();
     renderFollowups();
   }
+}
+
+// Edits save one after another, each on the list the one before saved: a second × clicked during a save removes the
+// prompt it was drawn for, and the first removal stays.
+let presetWrites = Promise.resolve();
+function editPresetPrompts(change) {
+  const run = presetWrites.then(() => persistAiPresetPrompts(change(aiPrefs.aiPresetPrompts || [])));
+  presetWrites = run.catch(() => false);
+  return run;
 }
 
 // save-settings keeps the keys it is not sent. The list changes only once it is saved; a refusal (the sync storage
@@ -1185,7 +1219,7 @@ async function removePresetPrompt(index) {
 async function persistAiPresetPrompts(prompts) {
   const resp = await sendRuntimeMessage({ type: "save-settings", settings: { aiPresetPrompts: prompts } }).catch((error) => ({ ok: false, error: error.message }));
   if (!resp?.ok) {
-    showConversationContextNotice(`${MdgErrors.TEXT.settingsSaveFailed}：${MdgErrors.text(resp)}`, 4000, { error: true });
+    showConversationContextNotice(`${MdgErrors.TEXT.settingsSaveFailed}：${MdgErrors.text(resp)}`, NOTICE_LONG_MS, { error: true });
     return false;
   }
   aiPrefs.aiPresetPrompts = prompts;
@@ -1265,32 +1299,31 @@ function renderConversationMessages() {
     els.messages.appendChild(node);
     appendReplyEnd(node, { ...unanswered, raw: "", saved: false });
   }
-  if (nonVideo) {
-    showConversationContextError(NON_VIDEO_CONTEXT_MESSAGE);
+  const failed = nonVideo ? NON_VIDEO_CONTEXT_MESSAGE : contextFailure()?.text;
+  if (failed) {
+    showConversationContextError(failed);
   }
   renderFollowups();
   shouldAutoScrollMessages = true;
   scrollToBottom(true);
 }
 
+// Cut by characters, not UTF-16 units, so an emoji is never split in two.
+const cutTitle = (text, max) => {
+  const chars = Array.from(text);
+  return chars.length > max ? `${chars.slice(0, max).join("")}…` : text;
+};
+
 function buildConversationTitleDisplay(title, maxChars = 22) {
   const value = String(title || "").trim();
   const match = value.match(/^(.*?)(-P\d+)$/i);
   if (!match) {
-    return {
-      main: value.length > maxChars ? `${value.slice(0, maxChars)}…` : value,
-      suffix: ""
-    };
+    return { main: cutTitle(value, maxChars), suffix: "" };
   }
 
   const suffix = String(match[2] || "").trim();
-  const baseTitle = String(match[1] || "").trim();
   const reservedChars = Math.max(suffix.length + 3, 6);
-  const availableChars = Math.max(maxChars - reservedChars, 8);
-  return {
-    main: baseTitle.length > availableChars ? `${baseTitle.slice(0, availableChars)}…` : baseTitle,
-    suffix
-  };
+  return { main: cutTitle(String(match[1] || "").trim(), Math.max(maxChars - reservedChars, 8)), suffix };
 }
 
 function formatConversationTimestamp(value) {
@@ -1308,14 +1341,9 @@ async function ensureCurrentContextForSend() {
     await loadContextState({ refresh: false, silent: true }).catch(() => null);
     return hydratePinnedConversationContext();
   }
-  const loadingNotice = state.view().context?.pending;
-  if (loadingNotice) {
-    showConversationContextNotice("正在加载视频信息…");
-  }
+  const loadingNotice = state.view().context?.pending ? showConversationContextNotice("正在加载视频信息…") : null;
   const ok = await loadContextState({ refresh: false, silent: true });
-  if (loadingNotice) {
-    removeConversationContextNotice();
-  }
+  loadingNotice?.remove();
   // A placeholder still standing means the subtitles never arrived; never answer from it.
   const context = state.view().context;
   if (!ok || !context || context.pending) {
@@ -1325,21 +1353,26 @@ async function ensureCurrentContextForSend() {
   return true;
 }
 
+// The shown conversation's own video failed to load: { epoch, text (said under it, again at each redraw; "" when the
+// load was silent), gone (deleted or hidden on B站: the conversation is only read) }.
+let lastContextFailure = null;
+const contextFailure = () => (lastContextFailure?.epoch === state.view().epoch ? lastContextFailure : null);
+
 // Loads the shown conversation's own context (state decides when: resolve effects). A load the conversation was
-// switched away from meanwhile does nothing.
-async function hydratePinnedConversationContext({ silent = false } = {}) {
+// switched away from meanwhile does nothing. notice: the 正在加载… line it takes down when done.
+async function hydratePinnedConversationContext({ silent = false, notice = null } = {}) {
   const { epoch, pinned, resolved } = state.view();
   if (resolved) {
     // Like a video page's context at each send: the viewer playing this video answers again (a track picked since).
     const again = await askViewerFrame(pinned.contextRef);
     if (again) state.dispatch({ type: "CONTEXT_RESOLVED", epoch, payload: again.payload });
     updateContextChip();
-    removeConversationContextNotice();
+    notice?.remove();
     return true;
   }
   const contextRef = pinned?.contextRef || null;
   if (!contextRef) {
-    removeConversationContextNotice();
+    notice?.remove();
     if (!silent) {
       showConversationContextError("历史对话缺少原视频信息，无法继续。");
     }
@@ -1352,21 +1385,25 @@ async function hydratePinnedConversationContext({ silent = false } = {}) {
   }));
   const ok = Boolean(response?.ok && response.payload);
   const [result] = state.dispatch({ type: "CONTEXT_RESOLVED", epoch, payload: ok ? response.payload : null });
+  notice?.remove();
   if (!result) {
     return false;
   }
+  // Deleted or hidden on B站 (as the 分拣台 and 视频记录 tell it): no retry will bring it back. Else a send tries again.
+  const gone = !ok && MdgSites.isBiliVideoGone(response?.code);
+  const text = gone ? VIDEO_GONE : `读取原视频失败：${MdgErrors.text(response)}`;
+  lastContextFailure = ok ? null : { epoch, text: silent ? "" : text, gone };
   updateContextChip();
-  removeConversationContextNotice();
+  if (!activeStream) setStreamingUiState(false);
   if (ok) {
     return true;
   }
-  // Nothing is loading any more: the error below is the state, and a send tries again.
+  // Nothing is loading any more: the error below is the state.
   if (result.wasPending) {
     suggestionsNode?.replaceChildren();
   }
   if (!silent) {
-    // Deleted or hidden on B站 (as the 分拣台 and 视频记录 tell it): no retry will bring it back.
-    showConversationContextError(MdgSites.isBiliVideoGone(response?.code) ? "视频已失效，这段对话只能查看，不能继续提问。" : `读取原视频失败：${MdgErrors.text(response)}`);
+    showConversationContextError(text);
   }
   return false;
 }
@@ -1394,11 +1431,12 @@ async function resolveConversationContext(contextRef) {
 }
 
 // prompt: a 快捷追问 or 重试 sends it without touching the input box; without it the box's text is sent and cleared.
-async function sendMessage(prompt) {
+// onStart runs once the question is surely sent (重试 takes the failed turn away only then).
+async function sendMessage(prompt, onStart = null) {
   const typed = prompt === undefined;
   const text = String(typed ? els.input.value : prompt).trim();
   // sendPending closes the window while the context loads, when a second Enter or chip click would send twice.
-  if (!text || activeStream || sendPending || state.view().nonVideo) {
+  if (!text || activeStream || sendPending || readOnlyReason()) {
     return;
   }
   hidePresetPopover();
@@ -1407,11 +1445,24 @@ async function sendMessage(prompt) {
   const providerId = els.modelSelect.value;
   // No enabled platform: keep the conversation and the typed text, and go to settings like 去设置页添加平台.
   if (!providerId) {
-    showConversationContextNotice(`${MdgErrors.TEXT.aiNone}，已打开设置页。`, 3000);
+    showConversationContextNotice(`${MdgErrors.TEXT.aiNone}，已打开设置页。`, NOTICE_MS);
     chrome.runtime.openOptionsPage();
     return;
   }
 
+  // The typed question leaves the box now: what is typed while the context loads is the next one. Not sent, it comes
+  // back into an empty box.
+  const { epoch } = state.view();
+  const unsent = () => {
+    if (typed && !els.input.value.trim()) {
+      els.input.value = text;
+      autosizeInput();
+    }
+  };
+  if (typed) {
+    els.input.value = "";
+    autosizeInput();
+  }
   sendPending = true;
   let hasContext = false;
   try {
@@ -1419,25 +1470,25 @@ async function sendMessage(prompt) {
   } finally {
     sendPending = false;
   }
-  if (!hasContext || activeStream) {
+  // Another conversation now (the tab moved to another video, another was opened): the question was not asked there.
+  if (!hasContext || activeStream || state.view().epoch !== epoch) {
+    unsent();
     return;
   }
   // The tab may have left the video while the context loaded, or a saved video no longer resolves to one.
   const context = state.view().context;
   if (!context.isVideoContext) {
+    unsent();
     showConversationContextError(NON_VIDEO_CONTEXT_MESSAGE);
     return;
   }
 
+  onStart?.();
   suggestionsNode?.remove();
   suggestionsNode = null;
   removeCenteredState();
 
   appendUserMessage(text);
-  if (typed) {
-    els.input.value = "";
-    autosizeInput();
-  }
   const stream = {
     port: chrome.runtime.connect({ name: "sidepanel-chat" }),
     node: appendAssistantPlaceholder(),
@@ -1458,7 +1509,8 @@ async function sendMessage(prompt) {
       return;
     }
     if (msg.type === "token") {
-      handleFirstStreamToken();
+      // A reply that left for its saved conversation says nothing about the one asked here now.
+      if (stream === activeStream) handleFirstStreamToken();
       stream.raw += String(msg.data || "");
       scheduleStreamRender(stream);
     } else if (msg.type === "notice") {
@@ -1468,7 +1520,7 @@ async function sendMessage(prompt) {
     } else if (msg.type === "stopped") {
       endStream(stream, { stopped: msg.reason || MdgErrors.TEXT.aiStopped });
     } else if (msg.type === "error") {
-      endStream(stream, { error: msg.error || MdgErrors.TEXT.unknown, code: msg.code });
+      endStream(stream, { error: MdgErrors.text(msg), code: msg.code });
     }
   });
   // Only the background end can trigger this: the extension reloaded or the service worker died mid-reply.
@@ -1541,9 +1593,14 @@ function closeStream(stream) {
 // the user reopened it meanwhile.
 async function finishDetachedStream({ conversationId, promptIndex, prompt, raw }) {
   const effects = await act({ type: "REPLY_FINISHED", conversationId, promptIndex, prompt, raw });
-  if (effects.length && conversationId === state.view().id && !activeStream) {
-    renderConversationMessages();
+  if (effects.length && conversationId === state.view().id) {
+    redrawConversation();
   }
+}
+
+function redrawConversation() {
+  if (activeStream) redrawAfterStream = true;
+  else renderConversationMessages();
 }
 
 // Every way a reply ends lands here. A partial answer is kept and saved, also when the stream fails.
@@ -1569,6 +1626,10 @@ function endStream(stream, { stopped = "", error = "", code = "" } = {}) {
   }
   appendReplyEnd(node, { prompt, raw, stopped, notice, error, code, saved });
   setStreamingUiState(false);
+  if (redrawAfterStream) {
+    redrawAfterStream = false;
+    renderConversationMessages();
+  }
   els.input.focus();
   scrollToBottom();
 }
@@ -1591,7 +1652,8 @@ function appendStreamError({ node, prompt, raw }, error, saved, code = "") {
   err.className = "sp-msg-error";
   err.textContent = `错误：${error}`;
   node.appendChild(err);
-  const access = MdgErrors.grantOrigin(error);
+  // Only the background's own AI_ACCESS: words an AI platform returns must not choose which origin is asked for.
+  const access = code === "AI_ACCESS" ? MdgErrors.grantOrigin(error) : null;
   if (access) {
     const grant = document.createElement("button");
     grant.type = "button";
@@ -1619,14 +1681,16 @@ function appendStreamError({ node, prompt, raw }, error, saved, code = "") {
   retry.className = "sp-chip sp-grant-btn";
   retry.innerHTML = `${AI_SPARK}${MdgErrors.LABEL.retry}`;
   // The retry replaces the failed turn instead of repeating the question below it.
+  // Only once the resend starts: one that stops before (the video no longer loads) keeps the failed turn.
   retry.addEventListener("click", () => {
     if (activeStream || sendPending) return;
-    state.dispatch({ type: "RETRY", prompt, raw, saved });
-    if (node.previousElementSibling?.classList.contains("sp-msg-user")) {
-      node.previousElementSibling.remove();
-    }
-    node.remove();
-    void sendMessage(prompt);
+    void sendMessage(prompt, () => {
+      state.dispatch({ type: "RETRY", prompt, raw, saved });
+      if (node.previousElementSibling?.classList.contains("sp-msg-user")) {
+        node.previousElementSibling.remove();
+      }
+      node.remove();
+    });
   });
   node.appendChild(retry);
 }
@@ -1650,11 +1714,11 @@ function startStreamSlowNoticeTimer() {
     if (!activeStream || streamFirstTokenReceived) {
       return;
     }
-    showConversationContextNotice("模型响应较慢，仍在等待服务器返回…", 0);
+    streamSlowNotice = showConversationContextNotice("AI 平台响应较慢，仍在等待…");
   }, STREAM_SLOW_NOTICE_MS);
 }
 
-// The slow notice goes at the first token only: a notice shown while the reply streams (a copy, a jump) stays.
+// The slow notice goes at the first token, and only it: a notice shown while the reply waits (a copy, a jump) stays.
 function handleFirstStreamToken() {
   if (streamFirstTokenReceived) {
     return;
@@ -1669,7 +1733,8 @@ function clearStreamRuntimeState() {
     streamSlowNoticeTimer = 0;
   }
   streamFirstTokenReceived = false;
-  removeConversationContextNotice();
+  streamSlowNotice?.remove();
+  streamSlowNotice = null;
 }
 
 function renderAssistantMessage(node, raw) {
@@ -1699,13 +1764,7 @@ function renderAssistantMessage(node, raw) {
       <path d="M7 15H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h7a2 2 0 0 1 2 2v1"></path>
     </svg><span>${MdgErrors.LABEL.copyMd}</span>
   `;
-  copyBtn.addEventListener("click", async () => {
-    if (!(await copyText(pasteReadyRaw))) return;
-    copyBtn.disabled = true;
-    window.setTimeout(() => {
-      copyBtn.disabled = false;
-    }, 500);
-  });
+  copyBtn.addEventListener("click", () => void copyMarkdown(pasteReadyRaw));
   actions.appendChild(copyBtn);
 
   node.appendChild(actions);
@@ -1757,11 +1816,13 @@ async function autoSyncConversation(conversationId) {
     if (!resp?.ok) {
       throw MdgErrors.fromResp(resp, MdgErrors.TEXT.obsidianWriteFailed);
     }
+    // Nothing to sync (the video has no note): an earlier failure or gone note no longer holds.
     if (!resp.path) {
+      hideSyncStatus();
       return;
     }
     // The background's words: the note updated (hides after a while) or gone (stays).
-    showSyncStatus(resp.text, resp.exists ? { autoHideMs: 3000 } : {});
+    showSyncStatus(resp.text, resp.exists ? { autoHideMs: NOTICE_MS } : {});
   } catch (error) {
     // Not set up or a wrong key: 去设置 before 重试, like a manual write; a closed Obsidian gets 重试 only.
     const settings = error?.action === "settings" ? () => chrome.runtime.openOptionsPage() : null;
@@ -1771,7 +1832,7 @@ async function autoSyncConversation(conversationId) {
 
 // A failed manual write is red; a wrong key opens the settings page, as for 未配置 (a closed Obsidian does not).
 function showObsidianFailure(error) {
-  showConversationContextNotice(`${MdgErrors.TEXT.obsidianFailed}：${getErrorMessage(error)}`, 4000, { error: true });
+  showConversationContextNotice(`${MdgErrors.TEXT.obsidianFailed}：${getErrorMessage(error)}`, NOTICE_LONG_MS, { error: true });
   if (error?.action === "settings") chrome.runtime.openOptionsPage?.();
 }
 
@@ -1807,27 +1868,26 @@ async function downloadCurrentConversation() {
     const note = await buildCurrentConversationNote();
     if (note) MdgDownload.text(note.filename, note.content);
   } catch (error) {
-    showConversationContextNotice(`下载失败：${getErrorMessage(error)}`, 3000, { error: true });
+    showConversationContextNotice(`下载失败：${getErrorMessage(error)}`, NOTICE_MS, { error: true });
   }
 }
 
 async function copyCurrentConversationMarkdown() {
   try {
     const note = await buildCurrentConversationNote();
-    if (note && (await copyText(note.content))) showConversationContextNotice(MdgErrors.TEXT.copied, 2200);
+    if (note) await copyMarkdown(note.content);
   } catch (error) {
-    showConversationContextNotice(`${MdgErrors.TEXT.copyFailed}：${getErrorMessage(error)}`, 3000, { error: true });
+    showConversationContextNotice(`${MdgErrors.TEXT.copyFailed}：${getErrorMessage(error)}`, NOTICE_MS, { error: true });
   }
 }
 
-// Every copy on this page: a failure is red (the export menu's 复制 Markdown and a reply's own 复制). False on failure.
-async function copyText(text) {
+// Every copy on this page (the export menu's 复制 Markdown and a reply's own): 已复制 Markdown, or the failure in red.
+async function copyMarkdown(text) {
   try {
     await navigator.clipboard.writeText(text);
-    return true;
+    showConversationContextNotice(MdgErrors.TEXT.copied, NOTICE_SHORT_MS);
   } catch (error) {
-    showConversationContextNotice(`${MdgErrors.TEXT.copyFailed}：${getErrorMessage(error) || MdgErrors.TEXT.noClipboard}`, 3000, { error: true });
-    return false;
+    showConversationContextNotice(`${MdgErrors.TEXT.copyFailed}：${getErrorMessage(error, MdgErrors.TEXT.noClipboard)}`, NOTICE_MS, { error: true });
   }
 }
 
@@ -1851,11 +1911,11 @@ async function saveCurrentConversationToObsidian() {
     if (resp?.ok && resp.ask) {
       const mode = await MdgOverwriteDialog.choose(resp.path, { hasAiSection: resp.hasAiSection, fullReason: resp.fullReason });
       if (!mode) {
-        showConversationContextNotice(MdgErrors.TEXT.obsidianCancelled, 2200);
+        showConversationContextNotice(MdgErrors.TEXT.obsidianCancelled, NOTICE_SHORT_MS);
         return;
       }
       if (epoch !== state.view().epoch) {
-        showConversationContextNotice(MdgErrors.TEXT.obsidianConvSwitched, 2200);
+        showConversationContextNotice(MdgErrors.TEXT.obsidianConvSwitched, NOTICE_SHORT_MS);
         return;
       }
       resp = await sendRuntimeMessage({ ...request, mode });
@@ -1863,7 +1923,7 @@ async function saveCurrentConversationToObsidian() {
     if (!resp?.ok) {
       throw MdgErrors.fromResp(resp, MdgErrors.TEXT.obsidianWriteFailed);
     }
-    showConversationContextNotice(resp.text, 4000);
+    showConversationContextNotice(resp.text, NOTICE_LONG_MS);
     // The note exists now: an auto-sync's gone note or failure no longer holds.
     hideSyncStatus();
   } catch (error) {
@@ -1886,22 +1946,9 @@ async function openPageNote(ref) {
   return page?.markdown && doesTabMatchContextUrl(page.url, ref.url) ? { markdown: page.markdown, cover: page.cover, warning: page.noteWarning } : undefined;
 }
 
-function getReadableText(value, fallback = "") {
-  if (typeof value === "string") {
-    return value.trim() || fallback;
-  }
-  if (value == null) {
-    return fallback;
-  }
-  try {
-    return JSON.stringify(value);
-  } catch {
-    return String(value || fallback);
-  }
-}
-
+// A caught error's words: its message (or the string thrown), else fallback; never 「{}」 for an Error without words.
 function getErrorMessage(error, fallback = MdgErrors.TEXT.unknown) {
-  return getReadableText(error?.message || error, fallback);
+  return String((typeof error === "string" ? error : error?.message) || "").trim() || fallback;
 }
 
 function linkifyAssistantTimestamps(root) {
@@ -1978,22 +2025,26 @@ function parseTimestampToSeconds(value) {
   return 0;
 }
 
+// A newer click takes over: an older jump still loading the page neither seeks nor says anything.
+let jumpSeq = 0;
 async function jumpToAssistantTimestamp(seconds, label) {
+  const seq = ++jumpSeq;
   const safeSeconds = Math.max(0, Number(seconds || 0) || 0);
   const { context, pinned } = state.view();
   const targetUrl = String(context?.url || pinned?.contextUrl || "").trim();
   if (!targetUrl) {
-    showConversationContextNotice("没有可跳转的视频", 2200);
+    showConversationContextNotice("没有可跳转的视频", NOTICE_SHORT_MS);
     return;
   }
 
   const tab = await getActiveTab().catch(() => null);
   if (!tab?.id) {
-    showConversationContextNotice(MdgErrors.TEXT.noTab, 2200);
+    showConversationContextNotice(MdgErrors.TEXT.noTab, NOTICE_SHORT_MS, { error: true });
     return;
   }
 
-  showConversationContextNotice(`正在跳转到 ${label}…`, 1800);
+  // Up while the video page loads (up to 15 秒), not for a fixed time.
+  const busy = showConversationContextNotice(`正在跳转到 ${label}…`);
 
   // 分拣台 is an extension page: only its viewer frame playing this video seeks, and the tab stays put.
   const inTriage = String(tab.url || "").startsWith(chrome.runtime.getURL("triage/"));
@@ -2002,16 +2053,19 @@ async function jumpToAssistantTimestamp(seconds, label) {
       await chrome.tabs.update(tab.id, { url: targetUrl });
       await waitForTabComplete(tab.id);
     }
+    if (seq !== jumpSeq) return;
     const response = await sendMessageToActiveTab(tab.id, {
       type: "sidepanel-seek-video-time",
       seconds: safeSeconds,
       videoId: inTriage ? MdgSites.parseRef(targetUrl)?.id || "" : ""
     }, inTriage ? 1 : undefined);
     if (!response?.ok) {
-      throw new Error(response?.error || "视频时间跳转失败");
+      throw MdgErrors.fromResp(response, MdgErrors.TEXT.reloadRetry);
     }
+    busy.remove();
   } catch (error) {
-    showConversationContextNotice(inTriage ? "先在分拣台里播放这个视频，再点时间" : `时间跳转失败：${error?.message || error}`, 2600);
+    if (seq !== jumpSeq) return;
+    showConversationContextNotice(inTriage ? "先在分拣台里播放这个视频，再点时间" : `时间跳转失败：${getErrorMessage(error)}`, NOTICE_MS, { error: true });
   }
 }
 
@@ -2019,7 +2073,10 @@ async function waitForTabComplete(tabId, timeoutMs = 15000) {
   const startedAt = Date.now();
   while (Date.now() - startedAt < timeoutMs) {
     const tab = await chrome.tabs.get(tabId).catch(() => null);
-    if (tab?.status === "complete") {
+    if (!tab) {
+      throw new Error("标签页已关闭");
+    }
+    if (tab.status === "complete") {
       return true;
     }
     await delay(250);
@@ -2045,7 +2102,8 @@ async function sendMessageToActiveTab(tabId, message, retries = 12) {
       await delay(220);
     }
   }
-  throw lastError || new Error("无法连接视频页面");
+  // Chrome's words (Receiving end does not exist…) mean the page's copy of the extension did not answer.
+  throw new Error(MdgErrors.TEXT.reloadRetry, { cause: lastError });
 }
 
 function delay(ms) {
@@ -2069,7 +2127,8 @@ function showConversationContextError(message) {
   scrollToBottom();
 }
 
-// error: a failure the user must handle (red).
+// One notice line: a new one takes its place. error: a failure the user must handle (red). Returns the notice, so a
+// 正在… flow takes down its own when done, never one shown since.
 function showConversationContextNotice(message, autoHideMs = 0, { error = false } = {}) {
   removeConversationContextNotice();
   const notice = document.createElement("div");
@@ -2080,17 +2139,12 @@ function showConversationContextNotice(message, autoHideMs = 0, { error = false 
   notice.setAttribute("aria-busy", String(!(autoHideMs > 0)));
   els.messages.prepend(notice);
   if (autoHideMs > 0) {
-    contextNoticeTimer = window.setTimeout(() => {
-      removeConversationContextNotice();
-    }, autoHideMs);
+    window.setTimeout(() => notice.remove(), autoHideMs);
   }
+  return notice;
 }
 
 function removeConversationContextNotice() {
-  if (contextNoticeTimer) {
-    window.clearTimeout(contextNoticeTimer);
-    contextNoticeTimer = 0;
-  }
   els.messages.querySelectorAll(".sp-context-notice").forEach((node) => node.remove());
 }
 

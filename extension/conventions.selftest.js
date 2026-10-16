@@ -64,7 +64,6 @@ const ALLOW = [
   ["triage/follow.js", "btn.disabled = true;", "点了刷新（第 2 行、空状态或提示里的）、后台还没回：回来后 renderSync 接手（aria-busy）或失败时打开"],
   ["triage/triage.js", "el.writeScope.disabled = el.writeFormat.disabled = el.writeOverwrite.disabled = busy;", "逐个视频笔记在跑：进度胶囊和「停止」写着在跑什么，范围和格式跑完才能改"],
   ["content.js", "button.disabled = true;", "播放器 ✦ 点下到侧边栏打开之间防连点，finally 打开"],
-  ["sidepanel.js", "copyBtn.disabled = true;", "复制后 0.5 秒的「已复制」反馈"],
   // 3b
   ["history/history.js", 'aria-hidden="true" disabled>删除 AI 对话', "看不见的占位（aria-hidden、tabindex=-1），只为对齐，不是控件"],
   // 4a. 待修 lines wait for their fix (Cn / An: the 2026-10-16 scan); new ones fail.
@@ -75,10 +74,7 @@ const ALLOW = [
   ["popup.js", "${MdgErrors.TEXT.sidepanelOpenFailed}：${resp?.error", "待修（扫描未列）"],
   ["popup.js", "resp?.error || NOT_VIDEO_PAGE", "待修（扫描未列）"],
   ["popup.js", "resp?.error || MdgErrors.TEXT.reloaded", "待修（扫描未列）"],
-  ["sidepanel.js", "error: msg.error || MdgErrors.TEXT.unknown, code: msg.code", "待修（扫描未列）"],
-  ["sidepanel.js", 'response?.error || "视频时间跳转失败"', "待修：C359、C361"],
   ["triage/triage.js", 'r.error || "分析失败"', "待修（扫描未列）"],
-  ["sidepanel-state.js", 'String(event.error || "读取当前页面失败")', "例外：纯状态模块，event.error 是外壳 catch 到的错误文字，不是回复；兜底那句见 C321"],
   ["triage/triage.js", 'a.error || "分析失败"', "例外：存下的分析记录（没有 code），不是回复"],
   // 4b
   ["content.js", "new Error(`Missing node: ${id}`)", "例外：页面少了 id 是代码错，不是用户能遇到的（冒烟核对页面脚本查找的 id）"],

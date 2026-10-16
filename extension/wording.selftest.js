@@ -235,7 +235,6 @@ const DUPLICATES = [
   ["整篇覆盖", "content.js download.js", "例外：同上，「该笔记已存在」确认框的两份"],
   ["只更新 AI 问答", "content.js download.js", "例外：同上，「该笔记已存在」确认框的两份"],
   ["账号已注销", "triage/follow-bg.js triage/follow.js", "例外：follow-bg.js 里的是 B站 给注销账号的占位名（接口数据，按它认人），follow.js 显示的状态名恰好同字"],
-  ["读取当前页面失败", "background.js sidepanel-state.js sidepanel.js", "待修：C321、C322、C324"],
   ["自定义", "background.js options.js", "待修：C18"],
   ["已保留", "badges.js triage/triage.js", "待修：C32"],
   ["已取消收藏", "badges.js triage/triage.js", "待修：C32"],
@@ -271,6 +270,7 @@ const DUPLICATES = [
   ["日本語", "options.html sites.js", "待修（扫描未列）：同上"],
   ["初始化失败：", "popup.js sidepanel.js", "待修：C284"],
   ["授权访问", "sidepanel.js triage/triage.js", "待修：C346"],
+  ["打开设置页", "sidepanel.html triage/triage.html", "待修：C315（收进 LABEL 要连 triage.html 一起改）"],
   ["导出日期", "options.html popup.html", "待修（扫描未列）：设置页和弹窗的属性名各写一份"]
 ];
 {
