@@ -436,7 +436,7 @@ function applyAiProposal() {
   const hadTags = new Set(S.tags.map((t) => t.id));
   const idFor = {};
   for (const t of p.newTags) {
-    if (t.checked && cleanTagName(t.name)) idFor[t.key] = createTag(t.name, t.folder || S.mediaId)?.id;
+    if (t.checked && cleanTagName(t.name)) idFor[t.key] = createTag(t.name, t.folder || S.mediaId, { overCap: true })?.id;
   }
   const changes = []; // [{ bvid, before }]: what U puts back
   for (const [bvid, before, after] of UI.aiChanges(p, S.videoTags, S.itemMap, (key) => idFor[key])) {
@@ -471,9 +471,5 @@ function applyAiProposal() {
       })
     );
   render();
-  // A new tag past the folder's cap is not made (createTag's toast is replaced by this one): say which, and that the
-  // videos asking for it went without.
-  const lost = p.newTags.filter((t) => t.checked && cleanTagName(t.name) && !idFor[t.key]).map((t) => t.name);
-  const applied = UI.aiApplied(changes.length, "视频", created.length);
-  toast(lost.length ? `${applied}；新标签「${lost.join("」「")}」没建成（标签已到上限），用到它的视频没打上` : applied, lost.length > 0);
+  toast(UI.aiApplied(changes.length, "视频", created.length));
 }

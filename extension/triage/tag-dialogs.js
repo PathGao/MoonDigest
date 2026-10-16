@@ -188,12 +188,21 @@
     UI.setReason(stop, stopping ? UI.WRITE_STOPPING : "");
     $("aiProgress").textContent = progressText(a);
   }
+  // AI may propose more new tags than the run's cap; they are all kept, and this says by how much.
+  function overCapLines(p) {
+    return Object.entries(p.caps || {}).flatMap(([folder, cap]) => {
+      const mine = p.newTags.filter((t) => (t.folder ?? "") === folder);
+      if (mine.length <= cap) return [];
+      const where = mine[0].where ? `在「${mine[0].where}」` : "";
+      return [`AI ${where}建议新建 ${mine.length} 个标签，超过上限 ${cap} 个。不要的取消勾选，应用后也能在标签管理里删。`];
+    });
+  }
   function renderReview(p) {
     const a = ai;
     const who = sp(a.who);
     const live = a.live();
     $("aiNotes").innerHTML = p.errors.map((e) => `<p class="fail-text">${esc(e)}</p>`).join("") + p.notes.map((n) => `<p class="muted">AI 说明：${esc(n)}</p>`).join("") +
-      (p.dropped?.length ? `<p class="muted">超出新建上限、没建的标签：${esc(p.dropped.join("、"))}。只用到它们的视频这次没打上。</p>` : "");
+      overCapLines(p).map((l) => `<p class="dialog-hint warn">${esc(l)}</p>`).join("");
     $("aiNewTagsHead").hidden = !p.newTags.length;
     $("aiNewTags").innerHTML = p.newTags
       .map((t, i) => {

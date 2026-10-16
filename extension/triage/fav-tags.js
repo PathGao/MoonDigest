@@ -11,15 +11,16 @@ function tagCapReason(folder = S.mediaId) {
 }
 
 // Returns the folder's tag with this name, creating it if needed; the color comes from the palette in turn.
-// null (with a toast) outside a folder or when the folder already has tagLimit() tags.
-function createTag(name, folder = S.mediaId) {
+// null (with a toast) outside a folder or when the folder already has tagLimit() tags, unless overCap: an AI 打标签 the
+// user confirmed may go past the cap, and 标签管理 then says to delete some.
+function createTag(name, folder = S.mediaId, { overCap = false } = {}) {
   name = cleanTagName(name);
   if (!name) return toast(UI.tagNameError(name, []), true), null;
   if (folder === ALL || folder === REMOVED || !folder) return toast(FOLDER_ONLY, true), null;
   const own = S.tags.filter((t) => t.folder === String(folder));
   const existing = own.find((t) => t.name === name);
   if (existing) return existing;
-  const full = tagCapReason(folder);
+  const full = !overCap && tagCapReason(folder);
   if (full) return toast(full, true), null;
   const tag = { id: newTagId(), name, color: UI.nextTagColor(own), folder: String(folder) };
   S.tags.push(tag);
