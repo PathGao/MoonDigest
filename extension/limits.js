@@ -31,6 +31,7 @@
   const SNAPSHOT = "triage_snapshot_";
   const SEEN = "seen_";
   const DECISIONS = "triage_decisions_";
+  const FOLLOW = "follow_";
   const KEYS = Object.freeze({
     subtitleCachePrefix: "mdg_subtitle_cache_",
     aiConversations: "mdg_ai_conversations_v1",
@@ -59,6 +60,12 @@
     triageIncludedFolders: "triage_included_folders",
     triageFolderCriteria: "triage_folder_criteria",
     triageSimplified: "triage_simplified_v1",
+    // 关注 (follow-bg.js writes most of them; the 分拣台, the B站 page's UP tags and the 分拣台 backup read them): follow_<name>
+    // for list, people, last, last_wip, content, tags, tag_map, unfollowed, jobs, hold, stats, groups, ai_recent, ai_proposal,
+    // ai_history, view (local) and ai_settings (sync). Code names them by the short name; followGet / followFull /
+    // followShort convert.
+    followPrefix: FOLLOW,
+    follow: (name) => `${FOLLOW}${name}`,
     // The AI platforms (chrome.storage.sync, without keys): the background writes them, the video page and side panel follow.
     aiProviderList: "aiProviders",
     // The AI platforms' API keys (local, never in sync or the settings file): the background, the side panel follows it.
@@ -153,6 +160,13 @@
     if (contextRef) Object.assign(request, { contextRef, frameId: Number(frameId) || 0 });
     return chrome.storage.local.set({ [KEYS.playerAiQuickAction]: request });
   }
+
+  // 关注's keys by short name: followFull({ list: v }) is { follow_list: v }; followShort is the reverse and keeps only
+  // follow_* keys (a storage.onChanged changes object or a get(null) snapshot works too).
+  const followFull = (o) => Object.fromEntries(Object.entries(o || {}).map(([k, v]) => [KEYS.follow(k), v]));
+  const followShort = (o) => Object.fromEntries(Object.entries(o || {}).filter(([k]) => k.startsWith(FOLLOW)).map(([k, v]) => [k.slice(FOLLOW.length), v]));
+  // followGet(["list", "tags"]) reads follow_list and follow_tags as { list, tags }.
+  const followGet = async (names, area = chrome.storage.local) => followShort(await area.get(names.map(KEYS.follow)));
 
   // Approximate stored size: JSON length of key + value, as chrome.storage counts it (characters, not UTF-8 bytes).
   const sizeOf = (entries) => entries.reduce((sum, [key, value]) => sum + key.length + JSON.stringify(value ?? null).length, 0);
@@ -278,6 +292,9 @@
     migrateRenamedLocalStorage,
     saveVideoNote,
     updateConversations,
-    askSidepanel
+    askSidepanel,
+    followFull,
+    followShort,
+    followGet
   });
 })();

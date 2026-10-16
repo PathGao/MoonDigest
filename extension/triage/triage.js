@@ -4151,7 +4151,8 @@ async function buildBackup() {
   if (all?.[K.aiHistory] !== undefined) out.aiHistory = all[K.aiHistory];
   // 关注's own data (UP tags, who has which, 已取消关注, the last AI batch); its copies of B站 data come back on 刷新.
   out.follow = {};
-  for (const k of ["follow_tags", "follow_tag_map", "follow_unfollowed", "follow_ai_recent", "follow_ai_history"]) if (all?.[k] !== undefined) out.follow[k.slice(7)] = all[k];
+  const fw = MdgLimits.followShort(all);
+  for (const k of ["tags", "tag_map", "unfollowed", "ai_recent", "ai_history"]) if (fw[k] !== undefined) out.follow[k] = fw[k];
   return out;
 }
 
