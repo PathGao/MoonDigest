@@ -25,7 +25,7 @@
 //   投稿已清空的人又有了视频（UP 回归：动态里出现或这次查到）记进 follow_jobs.posted。
 //   follow_jobs.cur 是正在查的人。做完写 follow_jobs.statusAt：更新状态已齐，界面不用等第 4 步。
 // 4 stats：每个关注的人的粉丝数（x/relation/stat）→ follow_stats；7 天内查过的跳过。
-// 所有 GET 共用一个队列（间隔 1–1.5 秒），30 秒没回应算断网；风控（412、-352/-412/-799/-509）整队暂停 90 秒重试，第三次报 THROTTLED。
+// 所有 GET 共用一个队列（间隔 1–1.5 秒），30 秒没回应算断网；风控（412、429、-352/-412/-799/-509）整队暂停 90 秒重试，第三次报 THROTTLED。
 // 被风控拦过之后放慢：之后 10 分钟间隔改成 3 秒，再被拦就从那时重新算（follow_jobs.slowUntil，界面写「B站限流变慢」）。
 
 // ===== 纯函数 =====
@@ -52,6 +52,7 @@ function followMergePerson(old, nu) {
 // cur = 存着的 follow_list（含同步期间在这里关注 / 取关的），fresh = 这次拉到的 { list, followTime, special, groups, complete }，
 // unf = follow_unfollowed，live = 还存在的 UP 标签 id，startedAt = 这次同步开始的时间。
 // - 同步开始后在这里关注、B站 列表还没反映的人保留。
+// - 同步开始后在这里改过分组的人（cur.groupsAt ≥ startedAt，或上一条保留的人）用 cur 的分组，fresh 可能是改之前抓的。
 // - unf 里的人只有关注时间晚于取关时间才算重新关注（back，标签进 restore）；否则仍算取关、不进列表。
 // - cur 里有、fresh 里没有、unf 里也没有的人是在 B站 取关的：gone[mid] = { at, tagIds, source: "bili" }。只在 fresh 拉全时判断。
 // - changes = { at, added, removed }：新列表比 cur 多的人、gone 的人，给界面的「新关注 +N · 取关 −M」。没拉全或没有上次的列表时为 null。
@@ -80,8 +81,17 @@ function followDiff(cur, fresh, unf, tagMap, live, startedAt, at) {
   const inList = new Set(list);
   const only = (o) => Object.fromEntries(Object.entries(o || {}).filter(([m]) => inList.has(m)));
   const old = new Set(cur.list || []);
+  const touched = Object.fromEntries(Object.entries(cur.groupsAt || {}).filter(([m, t]) => t >= startedAt && inList.has(m)));
+  const special = only(fresh.special);
+  const groups = only(fresh.groups);
+  for (const m of new Set([...kept, ...Object.keys(touched)])) {
+    if (cur.special?.[m]) special[m] = 1;
+    else delete special[m];
+    if (cur.groups?.[m]?.length) groups[m] = cur.groups[m];
+    else delete groups[m];
+  }
   return {
-    list: { at, list, followTime: only(ft), special: only(fresh.special), groups: only(fresh.groups), complete: !!fresh.complete },
+    list: { at, list, followTime: only(ft), special, groups, groupsAt: touched, complete: !!fresh.complete },
     gone,
     changes: fresh.complete && cur.list ? { at, added: list.filter((m) => !old.has(m)), removed: Object.keys(gone) } : null,
     back,
@@ -375,9 +385,10 @@ async function followSyncJob(ctx) {
         followFoldFeed(last, r.items);
         c.offset = r.offset;
         const end = !r.hasMore || !r.offset || last.since <= followNow() - slowDays * 86400 || p === 599;
-        // 断点（游标和 follow_last_wip）每页都存，界面读 follow_last_wip 边翻边更新状态。
+        // 断点（游标和 follow_last_wip）每页都存，界面读 follow_last_wip 边翻边更新状态。也走 followUpdate：
+        // 排在前面的 followNoteFeedPosts 读的是旧 follow_last，直接写会被它随后写回的旧值盖掉。
         last.at = followNow();
-        await chrome.storage.local.set({ [end ? "follow_last" : "follow_last_wip"]: last });
+        await followUpdate([], () => ({ [end ? "follow_last" : "follow_last_wip"]: last }));
         if (end) await chrome.storage.local.remove("follow_last_wip");
         await ctx.progress({ done: Object.keys(last.map).length, cursor: c });
         if (end) break;
@@ -395,14 +406,17 @@ async function followSyncJob(ctx) {
   // 投稿已清空的人（没视频、播放量 > 0）又有了视频：动态里看到了，或这次查到了。记进 follow_jobs.posted 给界面的刷新结果，
   // 旧的 0 个视频记录删掉（动态里有的就不用再查），下次不再报。
   const wasCleared = (m) => have[m] && !have[m].code && !have[m].count && have[m].views > 0;
-  const posted = (s.follow_list?.list || []).filter((m) => wasCleared(m) && seen[m]);
-  if (posted.length) {
+  // 接着跑时先接上已经报过的（它们的记录已删，这次认不出来了）。
+  const posted = [...(ctx.posted || [])];
+  const seenBack = (s.follow_list?.list || []).filter((m) => wasCleared(m) && seen[m]);
+  if (seenBack.length) {
     await followUpdate(["follow_content"], (st) => {
       const fc = { ...st.follow_content };
-      for (const m of posted) delete fc[m];
+      for (const m of seenBack) delete fc[m];
       return { follow_content: fc };
     });
-    for (const m of posted) delete have[m];
+    for (const m of seenBack) delete have[m];
+    posted.push(...seenBack);
     await ctx.progress({ posted });
   }
   const known = (m) => have[m] && (FOLLOW_GONE_CODES.has(have[m].code) || (!have[m].code && (have[m].count || have[m].views != null))) && have[m].at >= since;
@@ -509,7 +523,7 @@ async function followStart() {
   const cursor = prev.cursor && !prev.finishedAt && followNow() - (prev.startedAt || 0) < 86400 ? prev.cursor : null;
   const startedAt = cursor ? prev.startedAt : followNow();
   await followPatchJob({
-    running: true, error: null, errorCode: null, throttled: false, hold: null, finishedAt: null, slowUntil: Math.ceil(followSlowUntil / 1000),
+    running: true, error: null, errorCode: null, hold: null, finishedAt: null, slowUntil: Math.ceil(followSlowUntil / 1000),
     ...(cursor ? {} : { startedAt, phase: "list", step: "", done: 0, total: 0, skipped: 0, cursor: null, changes: null, posted: [] })
   });
   followOnHold = (hold) => followPatchJob({ hold, slowUntil: Math.ceil(followSlowUntil / 1000) }).catch(() => {});
@@ -520,14 +534,14 @@ async function followStart() {
     p.catch(() => {});
     return Promise.race([p, run.halt]);
   };
-  const ctx = { cursor, startedAt, get, progress: (fields) => followPatchJob({ ...fields, hold: null, beat: followNow() }) };
+  const ctx = { cursor, startedAt, posted: cursor ? prev.posted || [] : [], get, progress: (fields) => followPatchJob({ ...fields, hold: null, beat: followNow() }) };
   run.promise = followSyncJob(ctx)
     .then(
       // The 动态 pages cached before it would hide what it just found.
       () => (followFeedCache.clear(), followPatchJob({ running: false, finishedAt: followNow(), lastFinishedAt: followNow(), step: "", cursor: null, hold: null })),
       (e) =>
         followPatchJob(
-          e.code === "STOPPED" ? { running: false, hold: null } : { running: false, hold: null, error: e.message, errorCode: e.code ?? null, throttled: e.code === "THROTTLED" }
+          e.code === "STOPPED" ? { running: false, hold: null } : { running: false, hold: null, error: e.message, errorCode: e.code ?? null }
         )
     )
     .catch((e) => console.warn("[follow] 同步状态写入失败", e))
@@ -601,7 +615,7 @@ async function followRelation({ mid, act, gone }) {
       const own = back.filter((id) => id > 0);
       if (own.length) groups[mid] = own;
     }
-    return { follow_list: { ...f, list, followTime, special, groups }, follow_unfollowed: unf, follow_tag_map: tagMap };
+    return { follow_list: { ...f, list, followTime, special, groups, groupsAt: { ...f.groupsAt, [mid]: at } }, follow_unfollowed: unf, follow_tag_map: tagMap };
   });
   return { groups: back, groupsError };
 }
@@ -653,12 +667,22 @@ async function followGroupMove({ mids, from, to }) {
         await post([m]);
         done.push(m);
       } catch (e1) {
-        if (e1.code) throw e1;
-        skipped.push({ mid: m, error: e1.message });
+        if (!e1.code) {
+          skipped.push({ mid: m, error: e1.message });
+          continue;
+        }
+        // 限流、断网、未登录：已经改好的先记下（页面按 follow_list 的变化给它们撤销），再报错。
+        if (done.length) await followGroupsDone(done, from, to);
+        throw e1;
       }
     }
     if (!done.length) throw e;
   }
+  await followGroupsDone(done, from, to);
+  return { skipped };
+}
+
+async function followGroupsDone(done, from, to) {
   await followUpdate(["follow_list"], (s) => {
     const fl = s.follow_list || {};
     const special = { ...fl.special };
@@ -671,9 +695,8 @@ async function followGroupMove({ mids, from, to }) {
       if (own.length) groups[m] = own;
       else delete groups[m];
     }
-    return { follow_list: { ...fl, special, groups } };
+    return { follow_list: { ...fl, special, groups, groupsAt: { ...fl.groupsAt, ...Object.fromEntries(done.map((m) => [m, followNow()])) } } };
   });
-  return { skipped };
 }
 
 async function followForget({ mids }) {
@@ -716,11 +739,13 @@ async function followGroupDelete({ id }) {
   await followUpdate(["follow_groups", "follow_list"], (s) => {
     const fl = s.follow_list || {};
     const groups = {};
+    const groupsAt = { ...fl.groupsAt };
     for (const [m, ids] of Object.entries(fl.groups || {})) {
       const own = ids.filter((x) => x !== id);
       if (own.length) groups[m] = own;
+      if (own.length < ids.length) groupsAt[m] = followNow();
     }
-    return { follow_groups: (s.follow_groups || []).filter((g) => g.id !== id), follow_list: { ...fl, groups } };
+    return { follow_groups: (s.follow_groups || []).filter((g) => g.id !== id), follow_list: { ...fl, groups, groupsAt } };
   });
   return {};
 }
