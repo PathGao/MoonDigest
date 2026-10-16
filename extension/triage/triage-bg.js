@@ -768,7 +768,7 @@ async function triageClassifyTitles({ items, criteria, folder, aiProviderId }) {
   return { results, failed };
 }
 
-// 协作打标签：只返回提案，不缓存。新建标签至多 maxNewTags 个（收藏夹剩余名额与分拣设置里 AI 新建上限取小）
+// 协作打标签：只返回提案，不缓存。提示里让 AI 新建至多 maxNewTags 个（收藏夹剩余名额与分拣设置里 AI 新建上限取小），多出的照样返回
 // 关注 (follow-bg.js) calls it too, with UP 主 as items (mid in bvid) and its own unit.
 async function triageAiCommand({ instruction, items, tags, maxNewTags, allowRemove = false, aiProviderId }, unit = TRIAGE_AI_UNIT) {
   const text = String(instruction ?? "").trim();
@@ -783,7 +783,7 @@ async function triageAiCommand({ instruction, items, tags, maxNewTags, allowRemo
     ai.triageThinking,
     aiProviderId
   );
-  return triageParseCommand(content, list, tags, opts);
+  return triageParseCommand(content, list, tags, { allowRemove: opts.allowRemove });
 }
 
 // One video → one note built the same way the popup's 写入 Obsidian does, plus the stage-2 summary.
