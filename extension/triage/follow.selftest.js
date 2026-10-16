@@ -6,18 +6,12 @@ const vm = require("vm");
 const assert = require("assert");
 const PS = require("../page-sources.selftest.js");
 
-// follow.js is a page module; lift only its pure block (between the PURE markers).
-const source = fs.readFileSync(path.join(__dirname, "follow.js"), "utf8");
-const pure = source.slice(source.indexOf("// PURE-START"), source.indexOf("// PURE-END"));
-assert.ok(pure.includes("function followStatus") && !pure.includes("document"), "harness lifts the pure block");
 const ctx = vm.createContext({ setTimeout, clearTimeout });
-// The pure block sorts with shared.js (UI.byValue / UI.dirWords), as the page does.
-vm.runInContext(fs.readFileSync(path.join(__dirname, "../errors.js"), "utf8"), ctx);
-vm.runInContext(fs.readFileSync(path.join(__dirname, "../tag-core.js"), "utf8"), ctx);
-vm.runInContext(fs.readFileSync(path.join(__dirname, "../settings.js"), "utf8"), ctx);
-vm.runInContext(fs.readFileSync(path.join(__dirname, "shared.js"), "utf8"), ctx);
-vm.runInContext(`const UI = globalThis.TriageUi;\n${pure}\n;Object.assign(globalThis, { syncView, syncFinished, dirLabel, followAiSettings, aiRequests, normDays, settingsProblem, followStatus, withFeedInProgress, lastPostOf, recentTitles, upRow, visibleUps, mergeFeed, shuffled, feedOrdered, feedMatch, sideIds, feedList, feedLeaving, withTags, stepIn, tagsOf, restoreTags, feedCounts, STATUS, viewRecord, latestBvid, favUpMid, aiBlocked, withAllowRemove, groupsOf, regrouped, groupCalls, groupTargets, groupName, groupMoveLabel, outKind, groupNames, groupMembers, unknownLast, aiBare, aiRoomHint, feedPass });`, ctx);
-const t = ctx;
+// 关注's pure functions (follow-core.js) sort with shared.js (UI.byValue / UI.dirWords), as the page does.
+for (const f of ["../errors.js", "../tag-core.js", "../settings.js", "shared.js", "follow-core.js"]) vm.runInContext(fs.readFileSync(path.join(__dirname, f), "utf8"), ctx);
+const t = ctx.FollowCore;
+// 关注's code (follow-core.js and follow.js), for the checks below that read it.
+const source = PS.text(PS.follow);
 const plain = (v) => JSON.parse(JSON.stringify(v));
 
 const DAY = 86400;
@@ -333,7 +327,7 @@ assert.deepStrictEqual([t.dirLabel("last", "desc"), t.dirLabel("follow", "asc"),
     let runs;
     const renderSync = () => { const w = runs?.get("follow-write")?.wait; env.waiting = Boolean(w); if (w) env.waits.push(runs.pill(["follow-write"]).text); if (env.sent.length >= env.stopAfter) (env.stopAfter = Infinity), W.stop(); };
     ${code.replace("const runs = ", "runs = ")}; return { relationRun, W, runs };`);
-  const fns = run(env, MdgRuns, ctx.MdgWrites, t.TriageUi, T, ctx.MdgErrors);
+  const fns = run(env, MdgRuns, ctx.MdgWrites, ctx.TriageUi, T, ctx.MdgErrors);
   const calls = ["1", "2", "3"].map((mid) => ({ mid }));
   env.answers = [{ ok: true }, { ok: false, code: "THROTTLED" }, { ok: true }, { ok: true }];
   assert.strictEqual(await fns.relationRun(calls, "取消关注"), 3);
@@ -980,7 +974,7 @@ const slice = (from, to) => source.slice(source.indexOf(from), source.indexOf(to
         return { proposal: { rows: [{ add: ["id:t2"], remove: [] }], newTags: [] }, errors: [] };
       }
     };
-    const UI = { ...t.TriageUi, aiHistoryAdd: (h) => h };
+    const UI = { ...ctx.TriageUi, aiHistoryAdd: (h) => h };
     const runAi = new Function("env", "D", "T", "UI", `const AI = { excluded: new Set(), settings: { batchSize: 10, intervalSec: 1, newTagMax: 0 }, history: [] };
       const aiScopeMids = () => ["1"]; const aiRunning = () => false; const AI_HISTORY_KEY = "k"; const runs = {}; const aiTags = {};
       const TagDialogs = { ai: { progress: (a, text) => env.progress.push(text), isOpen: () => false, render() {} } };

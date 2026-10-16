@@ -16,6 +16,8 @@
   const FOLLOW_BG = "triage/follow-bg.js";
   const TRIAGE = ["triage/triage.js"];
   const FOLLOW = ["triage/follow.js"];
+  // follow-core.js builds these requests (groupCalls, aiRequests); follow.js sends what it built.
+  const FOLLOW_CORE = ["triage/follow-core.js"];
   const data = ["data"];
   const POPUP_PAYLOAD = ["site", "url", "title", "author", "uploadDate", "cover", "duration", "tags", "status", "message", "subtitlePreview", "markdown", "noteWarning", "filename", "subtitleMissing", "srt", "txt", "subtitleOptions"];
 
@@ -97,11 +99,11 @@
     "follow-feed": { from: FOLLOW, to: FOLLOW_BG, request: ["offset"], response: data },
     "follow-relation": { from: FOLLOW, to: FOLLOW_BG, request: ["mid", "act", "gone"], response: data },
     "follow-forget": { from: FOLLOW, to: FOLLOW_BG, request: ["mids"], response: data },
-    "follow-group-move": { from: FOLLOW, to: FOLLOW_BG, request: ["mids", "from", "to"], response: data },
+    "follow-group-move": { from: FOLLOW_CORE, to: FOLLOW_BG, request: ["mids", "from", "to"], response: data },
     "follow-group-create": { from: FOLLOW, to: FOLLOW_BG, request: ["name"], response: data },
     "follow-group-rename": { from: FOLLOW, to: FOLLOW_BG, request: ["id", "name"], response: data },
     "follow-group-delete": { from: FOLLOW, to: FOLLOW_BG, request: ["id"], response: data },
-    "follow-ai-tag": { from: FOLLOW, to: FOLLOW_BG, request: ["instruction", "mids", "tags", "maxNewTags", "allowRemove", "aiProviderId"], response: data },
+    "follow-ai-tag": { from: FOLLOW_CORE, to: FOLLOW_BG, request: ["instruction", "mids", "tags", "maxNewTags", "allowRemove", "aiProviderId"], response: data },
 
     // The 分拣台 player frame (viewer-frame.js, a content script in B站's page) to the 分拣台 page: window.postMessage
     "mdg-viewer-key": { from: ["triage/viewer-frame.js"], to: "triage/shared.js", request: ["key"], response: [] },

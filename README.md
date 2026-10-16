@@ -257,7 +257,7 @@ extension/
 ├── errors.js       页面怎么显示错误：共用的错误文案、错误码对应的按钮
 ├── settings.js     设置的默认值，和几个页面共用的设置整理函数
 ├── tokens.css      共享的颜色、字号、间距（含深色主题）
-├── triage/         B站分拣台：收藏夹（triage.js，纯函数在 triage-core.js）、关注（follow.js），后台接口 triage-bg.js、follow-bg.js
+├── triage/         B站分拣台：收藏夹（triage.js，纯函数在 triage-core.js）、关注（follow.js，纯函数在 follow-core.js），后台接口 triage-bg.js、follow-bg.js
 ├── history/        视频记录页
 ├── dev-sidepanel/  侧边栏的开发预览
 └── dev/            设置页的开发用假数据
