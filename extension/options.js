@@ -90,6 +90,8 @@ let hasUnsavedChanges = false;
 let savedForm = null;
 // The URL and key of the last Obsidian test and whether it passed; the header says 「已连接」 only while those are saved.
 let obsidianTest = null;
+// The button whose save or test is running (setBusy).
+let busyButton = null;
 
 init();
 
@@ -253,8 +255,16 @@ async function renderStorageLimits() {
   );
 }
 
+// A failed read shows no values and offers no save: defaults or an empty platform list saved over the real ones would erase them.
 async function loadSettings() {
-  const settings = await getSettings();
+  let settings, providers;
+  try {
+    [settings, providers] = await Promise.all([getSettings(), loadAiProviders()]);
+  } catch (error) {
+    document.querySelector("main").inert = true;
+    setStatus(`读取设置失败，请刷新页面重试：${error.message || MdgErrors.TEXT.unknown}`, true);
+    return;
+  }
   void renderStorageLimits();
   elements.obsidianEnabled.checked = settings.obsidianEnabled;
   syncObsidianBody();
@@ -291,7 +301,6 @@ async function loadSettings() {
   elements.aiSystemPrompt.value = settings.aiSystemPrompt || "";
   elements.aiPresetPrompts.value = (Array.isArray(settings.aiPresetPrompts) ? settings.aiPresetPrompts : []).join("\n");
 
-  const providers = await loadAiProviders();
   renderAiProviders(providers);
   renderHostPermissionBanner(hostPermissionUrls(settings, providers));
   markSaved();
@@ -427,15 +436,9 @@ async function saveSettings() {
 }
 
 async function getSettings() {
-  try {
-    const resp = await sendRuntimeMessage({ type: "get-settings" });
-    if (!resp?.ok) {
-      return { ...DEFAULT_SETTINGS };
-    }
-    return { ...DEFAULT_SETTINGS, ...(resp.settings || {}) };
-  } catch {
-    return { ...DEFAULT_SETTINGS };
-  }
+  const resp = await sendRuntimeMessage({ type: "get-settings" });
+  if (!resp?.ok) throw new Error(resp?.error || MdgErrors.TEXT.unknown);
+  return { ...DEFAULT_SETTINGS, ...(resp.settings || {}) };
 }
 
 function setStatus(text, isError = false, busy = false) {
@@ -535,7 +538,9 @@ function syncObsidianKeyTag() {
 }
 
 // 测试连接 needs the 地址 and the Key: disabled with the reason while either box is empty, like an AI platform row's.
+// While a save or a test runs it stays disabled; setBusy(null) calls this again.
 function syncObsidianTest() {
+  if (busyButton) return;
   const missing = [["地址", elements.obsidianApiBaseUrl], ["Key", elements.obsidianApiKey]].filter(([, box]) => !box.value.trim()).map(([name]) => name);
   MdgErrors.setReason(elements.testConnectionBtn, missing.length ? `先填 Local REST API ${missing.join("和 ")}` : "", "用填好的地址和 Key 连一次 Obsidian 的 Local REST API");
 }
@@ -1188,6 +1193,7 @@ function setTestResult(text, isError = false) {
 
 // Both buttons wait while either runs; the running one gets the shared busy look from tokens.css.
 function setBusy(active) {
+  busyButton = active;
   for (const [button, idle, busy] of [[elements.saveBtn, "保存", "保存中…"], [elements.testConnectionBtn, "测试连接", "测试中…"]]) {
     button.disabled = Boolean(active);
     button.textContent = button === active ? busy : idle;
@@ -1211,13 +1217,9 @@ function sendRuntimeMessage(message) {
 // ===== AI 模型平台 =====
 
 async function loadAiProviders() {
-  try {
-    const resp = await sendRuntimeMessage({ type: "ai-providers-list" });
-    if (!resp?.ok) return [];
-    return Array.isArray(resp.providers) ? resp.providers : [];
-  } catch {
-    return [];
-  }
+  const resp = await sendRuntimeMessage({ type: "ai-providers-list" });
+  if (!resp?.ok) throw new Error(resp?.error || MdgErrors.TEXT.unknown);
+  return Array.isArray(resp.providers) ? resp.providers : [];
 }
 
 function renderAiProviders(items) {
@@ -1252,6 +1254,7 @@ function addAiProviderRow(item = {}) {
   row.className = "ai-provider-row";
   row.dataset.providerId = id;
   row.dataset.hasSavedKey = hasSavedKey ? "1" : "0";
+  row.dataset.keyOrigin = urlOrigin(baseUrl);
   row.dataset.currentPresetId = presetId;
   row.innerHTML = `
     <select class="ai-provider-preset" name="aiProviderPreset" aria-label="平台">
@@ -1289,15 +1292,15 @@ function addAiProviderRow(item = {}) {
     if (!modelInput.value.trim() || (previousPreset && modelInput.value.trim() === previousPreset.model)) {
       modelInput.value = next.model;
     }
-    const apikeyInput = row.querySelector(".ai-provider-apikey");
-    apikeyInput.placeholder = apiKeyPlaceholder(row.dataset.hasSavedKey === "1", next.requiresKey);
     row.dataset.currentPresetId = next.id;
+    syncKey();
     syncTest();
   });
 
   // 测试连接 needs this row's 接口地址 and 模型: disabled with the reason while either box is empty.
   const testBtn = row.querySelector(".ai-provider-test");
   const syncTest = () => {
+    if (row.dataset.testing) return; // a running test keeps the button off until it answers
     const missing = [["接口地址", ".ai-provider-baseurl"], ["模型", ".ai-provider-model"]].filter(([, sel]) => !row.querySelector(sel).value.trim()).map(([name]) => name);
     MdgErrors.setReason(testBtn, missing.length ? `先填${missing.join("和")}` : "", "用这一行的地址、模型和 Key 向 AI 发一条测试消息");
   };
@@ -1311,9 +1314,14 @@ function addAiProviderRow(item = {}) {
   });
 
   const keyInput = row.querySelector(".ai-provider-apikey");
-  keyInput.addEventListener("input", () => {
-    row.querySelector(".keytag").hidden = row.dataset.hasSavedKey !== "1" || Boolean(keyInput.value);
-  });
+  const syncKey = () => {
+    const saved = savedKeyApplies(row);
+    const preset = AI_PRESETS.find((p) => p.id === row.querySelector(".ai-provider-preset").value) || AI_PRESETS.at(-1);
+    keyInput.placeholder = apiKeyPlaceholder(saved, preset.requiresKey);
+    row.querySelector(".keytag").hidden = !saved || Boolean(keyInput.value);
+  };
+  keyInput.addEventListener("input", syncKey);
+  baseUrlInput.addEventListener("input", syncKey);
 
   // Two clicks in place instead of a system dialog: the first turns the trash icon into 「确认删除」.
   const removeBtn = row.querySelector(".ai-provider-remove");
@@ -1368,13 +1376,15 @@ async function testAiProviderRow(row, sync) {
   showAiProviderStatus(statusNode, "正在测试…");
   statusNode.setAttribute("aria-busy", "true");
   testBtn.disabled = true;
+  row.dataset.testing = "1";
   const resp = !(await asked)
     ? { ok: false, error: MdgErrors.noAccess(pattern.replace(/\/\*$/, "")), code: "AI_ACCESS" }
-    : await sendRuntimeMessage({ type: "ai-providers-test", providerId: row.dataset.providerId || "", baseUrl, apiKey, model, requiresKey }).catch((error) => ({
+    : await sendRuntimeMessage({ type: "ai-providers-test", providerId: savedKeyApplies(row) ? row.dataset.providerId || "" : "", baseUrl, apiKey, model, requiresKey }).catch((error) => ({
         ok: false,
         error: error.message
       }));
   statusNode.setAttribute("aria-busy", "false");
+  delete row.dataset.testing;
   sync();
   if (resp?.ok) {
     showAiProviderStatus(statusNode, hasUnsavedChanges ? "连接成功，记得保存设置" : "连接成功");
@@ -1391,6 +1401,20 @@ async function testAiProviderRow(row, sync) {
       if (await access.request()) await testAiProviderRow(row, sync);
     });
     statusNode.append(" ", grant);
+  }
+}
+
+// A saved Key belongs to the host it was saved for: once 接口地址 points at another host it is neither sent nor counted as
+// filled, so switching platform asks for that platform's Key.
+function savedKeyApplies(row) {
+  return row.dataset.hasSavedKey === "1" && urlOrigin(row.querySelector(".ai-provider-baseurl").value) === row.dataset.keyOrigin;
+}
+
+function urlOrigin(url) {
+  try {
+    return new URL(String(url).trim()).origin;
+  } catch {
+    return "";
   }
 }
 
@@ -1421,7 +1445,7 @@ function collectAiProviders() {
       requiresKey: preset.requiresKey,
       enabled: true,
       apiKey,
-      hasSavedKey: row.dataset.hasSavedKey === "1"
+      hasSavedKey: savedKeyApplies(row)
     };
   });
 }
