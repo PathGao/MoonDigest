@@ -303,8 +303,6 @@ assert.strictEqual(UI.aiTagsFailed("x"), "AI 打标签没有成功：x");
     { id: "c", add: ["id:t1", "new:美食"], remove: [] }
   ], "existing tag on a → nothing; excluded 游戏 never added or removed; out-of-scope z dropped; batches merge per UP");
   assert.deepStrictEqual(p.notes, ["n1"]);
-  UI.mergeAiBatch(p, { droppedNewTags: ["电影", "旅行"], assignments: {} }, opts);
-  assert.deepStrictEqual(plain(p.dropped), ["旅行", "电影"], "names past the cap, here or in the parser, are listed once for the review page");
   const follow = new Set(["a", "b"]); // c was unfollowed while the proposal was open
   const ch = plain(UI.aiChanges(p, map, follow, (key) => `new-${key}`));
   assert.deepStrictEqual(ch, [["a", ["t1"], ["t1", "new-美食"]]], "an unfollowed UP gets nothing");

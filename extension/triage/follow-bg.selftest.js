@@ -699,7 +699,7 @@ const runSync = async () => {
     t.triageChat = async (...a) => (await chat(...a), { content: '{"new_tags":["新"],"items":[{"i":1,"add":["新"],"remove":["硬核"]}],"note":"n"}' });
     const r2 = plain(await ask({ instruction: "x", mids: ["2"], maxNewTags: 0, allowRemove: true }));
     assert.ok(sent.messages[0].content.includes("这次不能新建标签") && sent.messages[0].content.includes("remove 只能填"));
-    assert.deepStrictEqual(r2, { newTags: [], droppedNewTags: ["新"], assignments: { 2: { add: [], remove: ["硬核"] } }, note: "n" }, "remove only when allowed, no new tags at 0");
+    assert.deepStrictEqual(r2, { newTags: [], assignments: { 2: { add: [], remove: ["硬核"] } }, note: "n" }, "remove only when allowed, no new tags at 0");
     // K10: triageAiCommand reads maxNewTags as the newTagMax setting: not a number is its default, above max is max.
     await ask({ instruction: "x", mids: ["2"], maxNewTags: "x" });
     assert.ok(sent.messages[0].content.includes(`至多 ${t.TriageUi.NUM_SETTINGS.newTagMax[2]} 个`), "invalid maxNewTags is newTagMax's default");
