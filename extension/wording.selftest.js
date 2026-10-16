@@ -236,7 +236,6 @@ const DUPLICATES = [
   ["标题粗看", "badges.js triage/triage.js", "待修：C34（badges.js 同一张 STAGE 表）"],
   ["字幕细看", "badges.js triage/triage.js", "待修：C34（badges.js 同一张 STAGE 表）"],
   ["UP 标签", "bili-surfaces.js triage/follow.js triage/shared.js", "待修：C55"],
-  ["已出分拣范围", "limits.js triage/shared.js", "例外：分拣台两种模式用 TriageUi.removedName；limits.js 在 errors.js 之前加载（load-order），设置页的存储说明只能自己写这个页面名"],
 ];
 {
   const where = new Map(); // text → [file:line]
