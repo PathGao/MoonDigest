@@ -112,7 +112,7 @@
     render();
   }
 
-  // Under the anchor, or above it when there is no room below.
+  // Under the anchor, or above it when there is no room below; never past the window's top (an anchor scrolled above it).
   function place() {
     const r = (document.querySelector(cur.opts.anchor) || document.body).getBoundingClientRect();
     const w = dlg.offsetWidth;
@@ -120,7 +120,7 @@
     let y = r.bottom + 6;
     if (y + h > innerHeight - 8) y = Math.max(8, r.top - h - 6);
     dlg.style.left = `${Math.min(Math.max(8, r.left), innerWidth - w - 8)}px`;
-    dlg.style.top = `${y}px`;
+    dlg.style.top = `${Math.max(8, y)}px`;
   }
 
   // Runs before the page's own key handlers see the key (they skip open dialogs and text fields anyway).
@@ -133,7 +133,8 @@
       if (n) cur.index = (cur.index + (k === "ArrowDown" ? 1 : n - 1)) % n;
       render();
     } else if (k === "Enter" && e.target === input) pick(cur.index);
-    else if (/^[1-9]$/.test(k) && !input.value && cur.rows[k - 1]?.tag) pick(k - 1);
+    // As the row numbers show: while the filter is empty once cleaned (spaces alone are no filter).
+    else if (/^[1-9]$/.test(k) && !cleanTagName(input.value) && cur.rows[k - 1]?.tag) pick(k - 1);
     else return;
     e.preventDefault();
     e.stopPropagation();
@@ -156,6 +157,8 @@
   document.addEventListener("click", (e) => cur?.opts.anchor && !dlg.contains(e.target) && close(), true);
   addEventListener("blur", () => cur?.opts.anchor && close());
   addEventListener("resize", () => cur?.opts.anchor && place());
+  // A scroll (the list, the page) moves the anchor: the popover follows it.
+  addEventListener("scroll", () => cur?.opts.anchor && place(), true);
 
   globalThis.TagPicker = { open, close, isOpen: () => Boolean(cur), toggle, changesOf, applyChange, rowsOf };
 })();

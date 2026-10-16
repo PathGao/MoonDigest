@@ -37,7 +37,8 @@
   function renderManage() {
     const a = man;
     const why = a.reason?.() || "";
-    $("tagManageHint").textContent = `${a.hint()}${{ ...TAG_TEXT, ...a.text }.saved}`;
+    // Nothing can be edited (why): 「…立即保存」 would say the opposite.
+    $("tagManageHint").textContent = `${a.hint()}${why ? "" : { ...TAG_TEXT, ...a.text }.saved}`;
     UI.setReason(newInput, why);
     syncAdd();
     const tags = a.tags();
@@ -54,11 +55,18 @@
   // 添加 is off with why while the name cannot be added, updated as you type; Enter follows it, the typed text stays.
   const addWhy = () => man.reason?.() || man.addReason(newInput.value);
   const syncAdd = () => UI.setReason($("addTagBtn"), addWhy());
+  // A second 添加 (a double click, Enter twice) before the first one's answer would create the name twice.
+  let adding = false;
   async function addTag() {
-    if (addWhy()) return;
-    if (await man.add(newInput.value)) {
-      newInput.value = "";
-      renderManage();
+    if (adding || addWhy()) return;
+    adding = true;
+    try {
+      if (await man.add(newInput.value)) {
+        newInput.value = "";
+        renderManage();
+      }
+    } finally {
+      adding = false;
     }
   }
   rows.addEventListener("change", async (e) => {
@@ -108,7 +116,7 @@
   const firstInstruction = (a) => {
     const hi = Math.min(5, a.room());
     const lo = Math.min(3, hi);
-    return a.tags().length || !hi ? "" : `看看这些${a.who}的内容，新建 ${lo === hi ? hi : `${lo}–${hi}`} 个标签分好类，每个${a.who}打一个最贴切的。`;
+    return a.tags().length || !hi ? "" : `看看这些${sp(a.who)}的内容，新建 ${lo === hi ? hi : `${lo}–${hi}`} 个标签分好类，每个${sp(a.who)}打一个最贴切的。`;
   };
   let autoInstr = ""; // the last one put in the box; while untouched it follows the room
   function openAi(a) {
@@ -131,6 +139,8 @@
     if (p) renderReview(p);
     else renderForm(want);
   }
+  // Every tag left out and no room to make one: the AI could only answer nothing.
+  const noTagsToUse = (a) => (a.room() || a.tags().some((t) => !a.excluded.has(t.id)) ? "" : "没有可用的标签，也不能新建");
   // A selection filters hide whole: 选中 stays picked with its true count, and says why it cannot run.
   const hiddenAll = (s) => (s.n && s.shown === 0 ? UI.HIDDEN_ALL : "");
   // want: the scope to pick when it has items (else the one picked stays, if it still has any).
@@ -147,14 +157,16 @@
     const tags = a.tags();
     const useChip = (t) => {
       const on = !a.excluded.has(t.id);
-      return `<button type="button" class="chip tag-use${on ? " on" : ""}" style="--c:${esc(t.color)}" data-use="${esc(t.id)}" aria-pressed="${on}" title="${on ? "点一下：这次不让 AI 用" : "点一下：让 AI 用"}">${esc(t.name)}</button>`;
+      return `<button type="button" class="chip tag-use${on ? " on" : ""}" style="--c:${esc(t.color)}" data-use="${esc(t.id)}" aria-pressed="${on}" title="${on ? "点一下：这次不给 AI 用" : "点一下：给 AI 用"}">${esc(t.name)}</button>`;
     };
-    const manageLink = `<button type="button" class="link" data-open-manage>「标签管理」</button>`;
+    // The link only where 标签管理 can edit (not in 所有收藏夹, whose tags belong to each folder).
+    const manageable = !a.manage?.reason?.();
+    const manageLink = `<button type="button" class="link" data-open-manage>「${TAG_TEXT.title}」</button>`;
     $("aiTagsPreview").innerHTML = blocked
       ? `<p class="dialog-hint">${esc(blocked)}</p>`
       : tags.length
         ? `<span id="aiTagsLabel" class="grid-label">可用标签</span><div class="chips" role="group" aria-labelledby="aiTagsLabel">${tags.map(useChip).join("")}</div><p class="dialog-meta">点掉的标签这次不给 AI 用。<br>${a.roomHint()}</p>`
-        : `<p class="dialog-hint">还没有${esc(tagsWord(a.who))}。${a.roomHint()}想打得准，先在${manageLink}里建好标签、每个写一句说明。</p>`;
+        : `<p class="dialog-hint">还没有${esc(tagsWord(a.who))}。${a.roomHint()}${manageable ? `想打得准，先在${manageLink}里建好标签、每个写一句说明。` : ""}</p>`;
     const history = a.history();
     $("aiHistory").innerHTML = history.length
       ? `<span class="muted">最近：</span>${history.map((h, i) => `<button type="button" class="chip" data-h="${i}" title="${esc(h)}" aria-label="使用指令 ${esc(h)}">${esc(h.length > 18 ? `${h.slice(0, 18)}…` : h)}</button>`).join("")}`
@@ -162,7 +174,7 @@
     const running = a.running();
     const run = $("aiRunBtn");
     run.innerHTML = running ? "运行中…" : `${UI.AI_SPARK}运行`;
-    UI.setReason(run, running ? "正在运行" : blocked || hiddenAll(scope) || (scope.n ? "" : a.scopeText(scope.value)) || (instr.value.trim() ? "" : "先写指令"));
+    UI.setReason(run, running ? "正在运行" : blocked || hiddenAll(scope) || (scope.n ? "" : a.scopeText(scope.value)) || noTagsToUse(a) || (instr.value.trim() ? "" : "先写指令"));
     if (running) run.setAttribute("aria-busy", "true");
     else run.removeAttribute("aria-busy");
     // Stopped: the batch in flight finishes first, as the pill's 停止 on a B站 write says.
@@ -182,23 +194,24 @@
     $("aiNewTagsHead").hidden = !p.newTags.length;
     $("aiNewTags").innerHTML = p.newTags
       .map((t, i) => {
-        const n = p.rows.filter((r) => live.has(r.id) && r.add.includes(`new:${t.key}`)).length;
+        const n = p.rows.filter((r) => live.has(r.id) && r.add.includes(UI.aiRef.new(t.key))).length;
         return `<div class="ai-newtag" data-i="${i}">
       <input type="checkbox" name="aiNewTagEnabled" data-nt="checked"${t.checked ? " checked" : ""} aria-label="创建标签 ${esc(t.name)}${t.where ? `（在「${esc(t.where)}」）` : ""}" />
-      <input type="text" name="aiNewTagName" data-nt="name" value="${esc(t.name)}" maxlength="${MdgTagCore.TAG_NAME_MAX}" aria-label="新标签名称" />
+      <input type="text" name="aiNewTagName" data-nt="name" value="${esc(t.name)}" maxlength="${MdgTagCore.TAG_NAME_MAX}" aria-label="${TAG_TEXT.newName}" />
       <span class="muted">${t.where ? `建在「${esc(t.where)}」 · ` : ""}${n ? `用在 ${n} 个${esc(who)}` : `没有${esc(who)}用到`}</span>
     </div>`;
       })
       .join("");
-    $("aiReviewHint").textContent = `应用后列表只显示「✦ AI 刚打的」这些${who}，在卡片上逐个看，不对的按 T 改。`;
-    $("aiRecentMeta").innerHTML = `「AI 刚打的」只显示最近一次 AI 打标签改动的${esc(who)}：<ul class="ai-recent-rules">${UI.AI_RECENT_RULES.map((r) => `<li>${esc(r)}</li>`).join("")}</ul>${esc(UI.aiRecentUndo(a.who))}`;
+    $("aiReviewHint").textContent = `应用后列表只显示「✦ ${UI.AI_RECENT}」这些${who}，${UI.AI_RECENT_CHECK}。`;
+    $("aiRecentMeta").innerHTML = `「${UI.AI_RECENT}」只显示最近一次 AI 打标签改动的${esc(who)}：<ul class="ai-recent-rules">${UI.AI_RECENT_RULES.map((r) => `<li>${esc(r)}</li>`).join("")}</ul>${esc(UI.aiRecentUndo(a.who))}`;
     renderTally(p);
   }
   function renderTally(p) {
     const a = ai;
     const who = sp(a.who);
     const changes = changesOf(a, p);
-    const newN = p.newTags.filter((t) => t.checked && cleanTagName(t.name)).length;
+    // A new tag whose name an existing one has is that tag (previewId), not a new one.
+    const newN = p.newTags.filter((t) => t.checked && UI.aiRef.keyOf(String(UI.previewId(p, t.key, a.tags()) || ""))).length;
     $("aiReviewSummary").textContent = `· ${changes.length} 个${who}有改动 · 新标签 ${newN} 个 · 点「应用」前不会改动任何东西`;
     const tally = UI.aiTally(p, changes, a.tagName);
     // Nothing to apply: the AI proposed nothing, or what it proposed was unticked or left the list since.
@@ -216,7 +229,7 @@
     const instruction = instr.value.trim();
     const scope = ai.scopes().find((s) => s.value === scopeSel.value) || {};
     // 运行 is off with its reason then (renderForm); a stale click does nothing.
-    if (ai.running() || ai.blocked() || !instruction || hiddenAll(scope) || !scope.n) return;
+    if (ai.running() || ai.blocked() || !instruction || hiddenAll(scope) || !scope.n || noTagsToUse(ai)) return;
     ai.run({ instruction, scope: scopeSel.value, allowRemove: $("aiRemoveInput").checked });
     renderAi();
   }

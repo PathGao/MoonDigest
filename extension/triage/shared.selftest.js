@@ -162,7 +162,20 @@ assert.strictEqual(UI.fmtDate(new Date(2026, 0, 5, 12).getTime() / 1000), "2026-
   assert.strictEqual(UI.fmtAgo(ago(3), now), "3 天前");
   assert.strictEqual(UI.fmtAgo(ago(65), now), "2 个月前");
   assert.strictEqual(UI.fmtAgo(ago(800), now), "2 年前");
+  assert.strictEqual(UI.fmtAgo(ago(362), now), "1 年前", "360–364 days are 1 年前, not 12 个月前");
+  // Calendar days, as dayText: yesterday 23:00 seen at 01:00 is 1 天前, not 今天.
+  const at = (d, h) => new Date(2026, 9, d, h).getTime() / 1000;
+  assert.strictEqual(UI.fmtAgo(at(14, 23), at(15, 1)), "1 天前");
+  assert.strictEqual(UI.fmtAgo(at(15, 0), at(15, 23)), "今天");
 }
+assert.strictEqual(UI.https("//i0.hdslb.com/a.jpg"), "https://i0.hdslb.com/a.jpg");
+assert.strictEqual(UI.https("http://i0.hdslb.com/a.jpg"), "https://i0.hdslb.com/a.jpg");
+// An UP's recent titles: both sources, newest first, one per title, at most UP_RECENT; a failed content record adds none.
+assert.deepStrictEqual(
+  [...UI.upTitles([{ t: "a", c: 5 }, { t: "b", c: 3 }], { code: 0, v: [{ t: "a", c: 5 }, { t: "c", c: 4 }, { t: "d", c: 1 }] }).map((x) => x.t)],
+  ["a", "c", "b"]
+);
+assert.strictEqual(UI.upTitles(undefined, { code: -404, v: [{ t: "x", c: 1 }] }).length, 0);
 assert.strictEqual(UI.img("//i0.hdslb.com/a.jpg", "48w_48h_1c"), "https://i0.hdslb.com/a.jpg@48w_48h_1c.webp");
 assert.strictEqual(UI.img("https://i0.hdslb.com/a.jpg@1c.webp", "48w"), "https://i0.hdslb.com/a.jpg@1c.webp", "a sized URL stays");
 

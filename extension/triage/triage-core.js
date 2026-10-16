@@ -49,6 +49,13 @@
       if (stillThere.has(b)) next[b].hidden = true;
       delete trail[b];
     }
+    // A hidden one this folder recorded that has left its id list too is plainly gone now (ids null: not read, no news).
+    for (const [b, r] of Object.entries(next)) {
+      if (ids && r.hidden && r.from?.at(-1)?.id === folder.id && !stillThere.has(b)) {
+        const { hidden: _, ...rest } = r;
+        next[b] = rest;
+      }
+    }
     return { removed: next, left: trail };
   }
   // 移动 to a folder outside triage (pure): like updateRemoved for the moved videos, with where they went. From 已出分拣范围
@@ -113,7 +120,7 @@
   const unfavOnly = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) => v?.action === "unfav"));
 
   function mdLinkText(s) {
-    return String(s).replace(/([\[\]])/g, "\\$1");
+    return String(s).replace(/[[\]\\]/g, "\\$&");
   }
 
   function safeNoteName(name) {

@@ -124,6 +124,43 @@ const turn = () => new Promise((r) => setImmediate(r));
     await running;
   }
 
+  // A key in two chunks stays pending until its last chunk goes through.
+  {
+    const [first, open] = gate();
+    const [second, open2] = gate();
+    const { w } = setup((m) => (m.id === 1 ? first : m.id === 2 ? second : { ok: true }));
+    const running = w.run("refav", "重新收藏", { verb: "重新收藏", chunks: [chunk(1, ["a", "k"]), chunk(2, ["k"])] });
+    await turn();
+    open();
+    await turn();
+    await turn();
+    assert.deepStrictEqual([w.pending("a"), w.pending("k")], ["", "重新收藏"], "k still has chunk 2 to go");
+    open2();
+    await running;
+    assert.strictEqual(w.pending("k"), "");
+  }
+
+  // A single write and a batch on the same key and verb: the one done first leaves the other's mark.
+  {
+    const [first, open] = gate();
+    const { w } = setup((m) => (m.id === 1 ? first : { ok: true }));
+    const running = w.run("unfav", "批量取消收藏", { verb: "取消收藏", chunks: [chunk(1, ["k"])] });
+    await turn();
+    await w.single("取消收藏", [chunk(2, ["k"])]);
+    assert.strictEqual(w.pending("k"), "取消收藏", "the batch still writes k");
+    open();
+    await running;
+    assert.strictEqual(w.pending("k"), "");
+  }
+
+  // plan or onChunk throwing: the batch ends with its message, no rejection, nothing left pending.
+  {
+    const { w } = setup();
+    assert.deepStrictEqual(await w.run("move", "移动", async () => { throw new Error("建不了收藏夹"); }), { done: 0, total: 0, error: "建不了收藏夹" });
+    const r = await w.run("unfav", "批量取消收藏", { verb: "取消收藏", chunks: [chunk(1, ["a"]), chunk(2, ["b"])], onChunk: () => { throw new Error("存不下"); } });
+    assert.deepStrictEqual([r.error, r.done, w.pending("b"), w.busy()], ["存不下", 1, "", ""]);
+  }
+
   console.log("writes selftest: all passed");
 })().catch((e) => {
   console.error(e);

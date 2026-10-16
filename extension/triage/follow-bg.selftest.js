@@ -124,6 +124,7 @@ const runSync = async () => {
     assert.strictEqual(last.map[5], 899);
     assert.strictEqual(last.since, 896);
     assert.deepStrictEqual(plain(last.v[5].map((x) => x.bvid)), ["BV1", "BV2", "BV3"], "≤3 newest titles");
+    assert.strictEqual(t.followNoteVideo(last, { mid: "5", at: 1, bvid: "BVold", title: "旧" }), false, "a video older than the kept three changes nothing");
     const rec = t.followArcRecord((await arcOk(7).json()).data);
     assert.deepStrictEqual(plain(rec), { code: 0, count: 7, tlist: { 知识: 7, 游戏: 1 }, v: [{ t: "v1", c: 49 }, { t: "v2", c: 48 }, { t: "v3", c: 47 }] });
   }
@@ -266,11 +267,13 @@ const runSync = async () => {
       return r;
     };
     const walk = feed([[dyn(2, "BVn", now() - 60)]]);
-    routes["/x/polymer/web-dynamic/v1/feed/all"] = (u) => ((slow = true), t.followNoteFeedPosts([{ mid: "1", at: now() - 50, bvid: "BVlive", title: "x" }]), walk(u));
+    // A post published after the sync started (page 1 was read before it) is noted by the 视频投稿 page meanwhile.
+    routes["/x/polymer/web-dynamic/v1/feed/all"] = (u) => ((slow = true), t.followNoteFeedPosts([{ mid: "1", at: now() + 5, bvid: "BVlive", title: "x" }]), walk(u));
     routes["/x/space/wbi/arc/search"] = () => arcOk(1);
     await runSync();
     t.chrome.storage.local.get = get;
     assert.ok(local.follow_last.map[2] && local.follow_last.since > prev.since, JSON.stringify(local.follow_last));
+    assert.deepStrictEqual(plain(local.follow_last.v[1]?.map((x) => x.bvid) ?? null), ["BVlive"], "the finished walk keeps a post the 视频投稿 page noted during it");
   }
 
   // ---------- a stored 慢更 below 7 days walks the feed as the default 90 days, not 1 ----------
@@ -474,8 +477,8 @@ const runSync = async () => {
     assert.deepStrictEqual(asked, ["2", "3", "4", "5"]);
     assert.ok(!calls.some((c) => c.startsWith("space") || c.startsWith("polymer")));
     assert.strictEqual(local.follow_jobs.statusAt, 5, "a resumed stats phase does not touch statusAt");
-    assert.strictEqual(steps[0], "查粉丝数 1/5");
-    assert.strictEqual(steps[1], "查粉丝数 2/5");
+    // The pill writes done/total after the step: the step has no count of its own.
+    assert.deepStrictEqual([steps[0], steps[1], local.follow_jobs.done, local.follow_jobs.total], ["查粉丝数", "查粉丝数", 5, 5]);
   }
 
   // ---------- feed page: timeout retried, cache ----------
@@ -578,7 +581,7 @@ const runSync = async () => {
     assert.ok(!(3 in g()) && local.follow_list.special[3] === 1, "the last own group left: 默认分组, 特别关注 kept");
     // Refused before anything is sent.
     const sent = posts.length;
-    await assert.rejects(t.followGroupMove({ mids: ["9"], from: [], to: [5] }), /还没关注/);
+    await assert.rejects(t.followGroupMove({ mids: ["9"], from: [], to: [5] }), /还没关注 「9」/, "says who");
     await assert.rejects(t.followGroupMove({ mids: ["1"], from: [], to: [0] }), /默认分组/);
     await assert.rejects(t.followGroupMove({ mids: ["x"], from: [], to: [5] }), /缺少/);
     await assert.rejects(t.followGroupMove({ mids: ["1"], from: [5], to: [] }), /缺少/);
@@ -656,7 +659,7 @@ const runSync = async () => {
     local = {
       follow_list: { list: ["1", "2"] },
       follow_people: { 1: { name: "甲", sign: "讲物理" }, 2: { name: "乙" } },
-      follow_content: { 1: { tlist: { 游戏: 2, 知识: 9 }, v: [{ t: "量子" }] } },
+      follow_content: { 1: { code: 0, tlist: { 游戏: 2, 知识: 9 }, v: [{ t: "量子", c: 5 }] } },
       follow_last: { v: { 2: [{ t: "新番" }] } },
       follow_tags: [{ id: "a", name: "硬核", rule: "讲科学" }],
       follow_tag_map: { 2: ["a"] }
@@ -692,7 +695,8 @@ const runSync = async () => {
     assert.ok(sent.messages[0].content.includes(`至多 ${t.TriageUi.NUM_SETTINGS.newTagMax[1]} 个`), "maxNewTags is capped at newTagMax's max");
     t.triageChat = async () => ({ content: '{"new_tags":[],"items":[{"i":1,"add":["硬核"' });
     await assert.rejects(ask({ instruction: "x", mids: ["1"] }), /不完整/, "truncated answer");
-    await assert.rejects(ask({ instruction: "x", mids: ["99"] }), /缺少 mids/);
+    await assert.rejects(ask({ instruction: "x", mids: ["99"] }), /选中的 UP 主都已取消关注/, "every one unfollowed says so, not 缺少 mids");
+    await assert.rejects(ask({ instruction: "x", mids: [] }), /缺少 mids/);
     // The page always sends tags, maxNewTags and allowRemove (follow.js aiRequests); without tags it is refused.
     await assert.rejects(t.followAiTag({ instruction: "x", mids: ["2"] }), /缺少 tags/);
     assert.ok(!/follow_ai_settings|triageAiNewTagMax|triageAiRemoveTags/.test(fs.readFileSync(path.join(__dirname, "follow-bg.js"), "utf8")), "follow-bg.js reads no AI 打标签 settings of its own");
@@ -755,6 +759,30 @@ const runSync = async () => {
     onAlarm({ name: "other" });
     await settle(w);
     assert.strictEqual(calls.filter((c) => c.startsWith("space")).length, 1, "other alarms ignored");
+  }
+
+  // ---------- a pause that comes while a GET sleeps in the queue holds it too ----------
+  {
+    vm.runInContext("FOLLOW_CFG.gapMs = 20; followLastAt = Date.now(); followHoldUntil = 0; followSlowUntil = 0", ctx);
+    const t0 = Date.now();
+    const slot = vm.runInContext("followSlot()", ctx);
+    await new Promise((r) => setTimeout(r, 5));
+    vm.runInContext('followHold(80, "network")', ctx);
+    await slot;
+    assert.ok(Date.now() - t0 >= 75, `the sleeping GET waits out the pause (${Date.now() - t0} ms)`);
+    vm.runInContext("FOLLOW_CFG.gapMs = 0; followHoldUntil = 0", ctx);
+  }
+
+  // ---------- risk control outside a sync (视频投稿's pages) slows the queue, and a restarted worker knows it ----------
+  {
+    local = { follow_jobs: { running: false } };
+    vm.runInContext('FOLLOW_CFG.slowGapMs = 7; followHold(1, "throttled")', ctx);
+    await new Promise((r) => setTimeout(r, 10));
+    assert.ok(local.follow_jobs.slowUntil >= now() + 500, "stored without a sync");
+    vm.runInContext("followSlowUntil = 0", ctx);
+    await t.followResume();
+    assert.strictEqual(vm.runInContext("followGap()", ctx), 7, "read back when the worker starts");
+    vm.runInContext("followSlowUntil = 0; followHoldUntil = 0; FOLLOW_CFG.slowGapMs = 0", ctx);
   }
 
   finished = true;

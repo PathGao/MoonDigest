@@ -8,10 +8,14 @@
   // This key belongs to the IME (picking a candidate, cancelling the composition), not to the page.
   const composing = (e) => Boolean(e.isComposing || e.keyCode === 229);
 
-  // The key was typed into a text field: the danmaku box, a comment box inside Bilibili's shadow roots, a note.
+  // The key was typed into a text field: the danmaku box, a comment box inside Bilibili's shadow roots, a note. A
+  // checkbox or button input takes only Space and Enter; any other key on it is the page's (a shortcut after a toggle).
+  const KEYLESS = /^(checkbox|button|submit|reset|image|color|file)$/;
   function typingIn(e) {
     const el = e.composedPath?.()[0] || e.target;
-    return Boolean(el?.isContentEditable || el?.closest?.("input, textarea, select"));
+    const field = el?.closest?.("input, textarea, select");
+    if (field?.tagName === "INPUT" && KEYLESS.test(field.type)) return e.key === " " || e.key === "Enter";
+    return Boolean(el?.isContentEditable || field);
   }
 
   // Runs run(input.value) delay ms after typing stops, but never mid-IME: input events while composing are skipped

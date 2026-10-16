@@ -100,7 +100,7 @@ function followDiff(cur, fresh, unf, tagMap, live, startedAt, at) {
 }
 
 // 一个人当时所在的分组 id：-10 特别关注在前，再是自己建的；空 = 默认分组。取关记录里存这个，重新关注时放回。
-const followGroupsOf = (fl, m) => [...(fl?.special?.[m] ? [-10] : []), ...(fl?.groups?.[m] || [])];
+const followGroupsOf = (fl, m) => [...(fl?.special?.[m] ? [FOLLOW_SPECIAL] : []), ...(fl?.groups?.[m] || [])];
 
 // 动态里的播放数是文字："2505"、"12.5万"、"1.2亿"。
 function followCount(v) {
@@ -123,7 +123,7 @@ function followFeedItem(it) {
     bvid: a.bvid,
     aid: String(a.aid ?? ""),
     title: a.title || "",
-    cover: String(a.cover || "").replace(/^http:\/\//, "https://"),
+    cover: TriageUi.https(a.cover),
     duration: followDuration(a.duration_text),
     play: followCount(a.stat?.play),
     mid: String(au.mid ?? ""),
@@ -139,11 +139,12 @@ function followArcRecord(d) {
     code: 0,
     count: Number(d?.page?.count) || 0,
     tlist: Object.fromEntries(Object.values(d?.list?.tlist || {}).map((t) => [t.name, t.count])),
-    v: (d?.list?.vlist || []).slice(0, 3).map((x) => ({ t: x.title, c: x.created }))
+    v: (d?.list?.vlist || []).slice(0, TriageUi.UP_RECENT).map((x) => ({ t: x.title, c: x.created }))
   };
 }
 
-// 一个视频并进 follow_last：map 记每人最新发布时间，v 记每人最近 ≤3 个视频 { t, c, bvid }，按 bvid 去重。返回有没有改。
+// 一个视频并进 follow_last：map 记每人最新发布时间，v 记每人最近 ≤UP_RECENT 个视频 { t, c, bvid }，按 bvid 去重。返回有没有改
+// （比留下的都旧、马上被挤掉的不算）。
 // 以前从动态记下的条目没有 bvid：同标题同时间的就是它，换成带 bvid 的。
 function followNoteVideo(last, it) {
   let changed = false;
@@ -155,10 +156,11 @@ function followNoteVideo(last, it) {
   const i = v.findIndex((x) => (x.bvid ? x.bvid === it.bvid : x.c === it.at && x.t === it.title));
   if (i >= 0 && v[i].bvid) return changed;
   if (i >= 0) v.splice(i, 1);
-  v.push({ t: it.title, c: it.at, bvid: it.bvid });
+  const entry = { t: it.title, c: it.at, bvid: it.bvid };
+  v.push(entry);
   v.sort((x, y) => y.c - x.c);
-  v.length = Math.min(v.length, 3);
-  return true;
+  v.length = Math.min(v.length, TriageUi.UP_RECENT);
+  return changed || i >= 0 || v.includes(entry);
 }
 
 // 把一页动态并进 follow_last，since 是翻到的最早时间。
@@ -189,7 +191,7 @@ const FOLLOW_AI_UNIT = {
 
 // ===== B站 请求 =====
 
-const FOLLOW_API = "https://api.bilibili.com";
+const FOLLOW_API = TRIAGE_BILI_API;
 const FOLLOW_CFG = { gapMs: 1000, jitterMs: 500, backoffMs: TriageUi.BILI_HOLD_MS, strikes: 3, emptyRetryMs: 1500, netRetry: [5000, 15000, 60000], slowGapMs: 3000, slowForMs: 10 * 60 * 1000 };
 const followSleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -200,11 +202,11 @@ let followOnHold = null; // ({ until, why }) 队列暂停时告诉正在跑的�
 let followSlowUntil = 0; // 毫秒；之前放慢间隔
 const followGap = () => (Date.now() < followSlowUntil ? FOLLOW_CFG.slowGapMs : FOLLOW_CFG.gapMs);
 
-// 每个 GET 等上一个的时间再加间隔；风控或断网暂停整个队列。
+// 每个 GET 等上一个的时间再加间隔；风控或断网暂停整个队列。睡醒再算一次：睡着时才来的暂停也要等。
 function followSlot() {
   const turn = followQueue.then(async () => {
-    const wait = Math.max(followLastAt + followGap() + Math.random() * FOLLOW_CFG.jitterMs, followHoldUntil) - Date.now();
-    if (wait > 0) await followSleep(wait);
+    const jitter = Math.random() * FOLLOW_CFG.jitterMs;
+    for (let wait; (wait = Math.max(followLastAt + followGap() + jitter, followHoldUntil) - Date.now()) > 0; ) await followSleep(wait);
     followLastAt = Date.now();
   });
   followQueue = turn.catch(() => {});
@@ -218,6 +220,8 @@ function followHold(ms, why) {
   try {
     followOnHold?.(hold);
   } catch {}
+  // Slowed outside a sync too (视频投稿's pages): kept in follow_jobs, which a restarted worker reads back (followResume).
+  if (why === "throttled" && !followOnHold) followPatchJob({ slowUntil: Math.ceil(followSlowUntil / 1000) }).catch(() => {});
   // The 视频投稿 page reads follow_hold while it waits for a page, as the sync's pill reads follow_jobs.hold.
   chrome.storage.local.set({ follow_hold: hold }).catch(() => {});
 }
@@ -226,9 +230,9 @@ function followHold(ms, why) {
 const FOLLOW_PACE = { slot: followSlot, hold: followHold, cfg: FOLLOW_CFG };
 const followGetJson = (url) => triageBiliGetJson(url, FOLLOW_PACE);
 
-// A B站 code as an error: -101 is NOT_LOGGED_IN (a string code, so every phase stops on it like on THROTTLED); any
-// other stays B站's own number (FOLLOW_GONE_CODES, or a temporary one the phases skip).
-const followCodeError = (j, what = "B站返回 ") => (j.code === -101 ? triageNotLoggedIn() : triageError(`${what}${j.code}：${j.message || ""}`, j.code));
+// A B站 code as an error (triage-bg.js triageCodeError): -101 is NOT_LOGGED_IN (a string code, so every phase stops on
+// it like on THROTTLED); any other stays B站's own number (FOLLOW_GONE_CODES, or a temporary one the phases skip).
+const followCodeError = (j, what) => triageCodeError(j, what, true);
 
 async function followGetData(url) {
   const j = await followGetJson(url);
@@ -283,17 +287,25 @@ async function followArcSearch(mid) {
 // ===== 存储 =====
 
 let followStoreChain = Promise.resolve();
-// 本 worker 里对 follow_ 键的读改写排队执行，同步和关注 / 取关不会互相覆盖。fn(当前值) 返回要写的 patch。
+// 本 worker 里对 follow_ 键的读改写排队执行，同步和关注 / 取关不会互相覆盖。fn(当前值) 返回要写的 patch；值为 undefined 的键删掉。
 function followUpdate(keys, fn) {
   const p = followStoreChain.then(async () => {
     const patch = await fn(await chrome.storage.local.get(keys));
-    if (patch) await chrome.storage.local.set(patch);
+    if (patch) {
+      const gone = Object.keys(patch).filter((k) => patch[k] === undefined);
+      const put = Object.fromEntries(Object.entries(patch).filter(([, v]) => v !== undefined));
+      if (Object.keys(put).length) await chrome.storage.local.set(put);
+      if (gone.length) await chrome.storage.local.remove(gone);
+    }
     return patch;
   });
   followStoreChain = p.catch(() => {});
   return p;
 }
 
+const FOLLOW_STOPPED = () => triageError("已停止", "STOPPED");
+// The arc and stats phases' step after the UP 主 they skipped this time.
+const followSkippedText = (n) => (n ? `（${n} 个暂时没查到，下次再查）` : "");
 const followPatchJob = (fields) => followUpdate(["follow_jobs"], (s) => ({ follow_jobs: { ...s.follow_jobs, ...fields } }));
 
 // ===== 同步 =====
@@ -386,10 +398,15 @@ async function followSyncJob(ctx) {
         c.offset = r.offset;
         const end = !r.hasMore || !r.offset || last.since <= followNow() - slowDays * 86400 || p === 599;
         // 断点（游标和 follow_last_wip）每页都存，界面读 follow_last_wip 边翻边更新状态。也走 followUpdate：
-        // 排在前面的 followNoteFeedPosts 读的是旧 follow_last，直接写会被它随后写回的旧值盖掉。
+        // 排在前面的 followNoteFeedPosts 读的是旧 follow_last，直接写会被它随后写回的旧值盖掉。翻完换掉 follow_last 时，
+        // 同步开始后视频投稿页并进旧 follow_last 的新视频（第一页读过之后才发的）一起带上。
         last.at = followNow();
-        await followUpdate([], () => ({ [end ? "follow_last" : "follow_last_wip"]: last }));
-        if (end) await chrome.storage.local.remove("follow_last_wip");
+        await followUpdate(["follow_last"], (st) => {
+          if (!end) return { follow_last_wip: last };
+          const old = st.follow_last?.v || {};
+          for (const [mid, vs] of Object.entries(old)) for (const x of vs) if (x.bvid && x.c >= ctx.startedAt) followNoteVideo(last, { mid, at: x.c, title: x.t, bvid: x.bvid });
+          return { follow_last: last, follow_last_wip: undefined };
+        });
         await ctx.progress({ done: Object.keys(last.map).length, cursor: c });
         if (end) break;
       }
@@ -435,7 +452,7 @@ async function followSyncJob(ctx) {
       if (typeof e.code === "string") throw e;
       if (!FOLLOW_GONE_CODES.has(e.code)) {
         skipped++;
-        await ctx.progress({ skipped, step: `${step}（${skipped} 个暂时没查到，下次再查）` });
+        await ctx.progress({ skipped, step: `${step}${followSkippedText(skipped)}` });
         continue;
       }
       rec = { code: e.code, count: 0, tlist: {}, v: [] };
@@ -471,7 +488,8 @@ async function followStatsPhase(ctx) {
   const known = (m) => have[m] && followNow() - (have[m].at || 0) < FOLLOW_STATS_DAYS * 86400;
   let done = targets.filter(known).length;
   let skipped = 0;
-  const step = () => `查粉丝数 ${done}/${targets.length}${skipped ? `（${skipped} 个暂时没查到，下次再查）` : ""}`;
+  // The pill adds done/total itself.
+  const step = () => `查粉丝数${followSkippedText(skipped)}`;
   await ctx.progress({ phase: "stats", step: step(), done, total: targets.length, skipped });
   for (const mid of targets) {
     if (known(mid)) continue;
@@ -513,7 +531,7 @@ function followKeepAlive(on) {
 async function followStart() {
   if (followRun) return;
   const run = (followRun = { stop: false });
-  run.halt = new Promise((_, reject) => (run.abort = () => reject(triageError("已停止", "STOPPED"))));
+  run.halt = new Promise((_, reject) => (run.abort = () => reject(FOLLOW_STOPPED())));
   run.halt.catch(() => {});
   followKeepAlive(true);
   const prev = (await chrome.storage.local.get("follow_jobs")).follow_jobs || {};
@@ -529,7 +547,7 @@ async function followStart() {
   followOnHold = (hold) => followPatchJob({ hold, slowUntil: Math.ceil(followSlowUntil / 1000) }).catch(() => {});
   // 停下立即生效，退避中也一样：正在等的请求直接丢掉。
   const get = async (call) => {
-    if (run.stop) throw triageError("已停止", "STOPPED");
+    if (run.stop) throw FOLLOW_STOPPED();
     const p = call();
     p.catch(() => {});
     return Promise.race([p, run.halt]);
@@ -563,6 +581,7 @@ async function followStop() {
 // worker 启动时：上次还在跑就接着跑。
 async function followResume() {
   const j = (await chrome.storage.local.get("follow_jobs")).follow_jobs;
+  followSlowUntil = Math.max(followSlowUntil, (j?.slowUntil || 0) * 1000);
   if (j?.running) await followStart();
   else if (!followRun) chrome.alarms?.clear(FOLLOW_ALARM);
 }
@@ -647,8 +666,10 @@ async function followGroupMove({ mids, from, to }) {
   to = followIds(to);
   if (!list.length || !list.every((m) => /^\d+$/.test(m)) || !to.length || ![...from, ...to].every(Number.isInteger)) throw triageError("缺少 mids 或分组");
   if (!from.length && to.includes(0)) throw triageError("默认分组不能复制进去");
-  const f = (await chrome.storage.local.get("follow_list")).follow_list || {};
-  if (list.some((m) => !f.list?.includes(m))) throw triageError("还没关注这个人，不能改分组");
+  const st = await chrome.storage.local.get(["follow_list", "follow_people"]);
+  const f = st.follow_list || {};
+  const notFollowed = list.filter((m) => !f.list?.includes(m));
+  if (notFollowed.length) throw triageError(`还没关注 ${notFollowed.map((m) => `「${st.follow_people?.[m]?.name || m}」`).join("、")}，不能改分组`);
   const post = (ms) => from.length
     ? triageBiliPost("/x/relation/tags/moveUsers", { fids: ms.join(","), beforeTagids: from.join(","), afterTagids: to.join(",") })
     : triageBiliPost("/x/relation/tags/copyUsers", { fids: ms.join(","), tagids: to.join(",") });
@@ -688,7 +709,7 @@ async function followGroupsDone(done, from, to) {
     const special = { ...fl.special };
     const groups = { ...fl.groups };
     for (const m of done) {
-      const ids = followGroupsApply([...(special[m] ? [FOLLOW_SPECIAL] : []), ...(groups[m] || [])], from, to);
+      const ids = followGroupsApply(followGroupsOf({ special, groups }, m), from, to);
       if (ids.includes(FOLLOW_SPECIAL)) special[m] = 1;
       else delete special[m];
       const own = ids.filter((id) => id > 0);
@@ -738,13 +759,9 @@ async function followGroupDelete({ id }) {
   await triageBiliPost("/x/relation/tag/del", { tagid: id });
   await followUpdate(["follow_groups", "follow_list"], (s) => {
     const fl = s.follow_list || {};
-    const groups = {};
+    const groups = TriageUi.withoutTag(fl.groups || {}, id);
     const groupsAt = { ...fl.groupsAt };
-    for (const [m, ids] of Object.entries(fl.groups || {})) {
-      const own = ids.filter((x) => x !== id);
-      if (own.length) groups[m] = own;
-      if (own.length < ids.length) groupsAt[m] = followNow();
-    }
+    for (const [m, ids] of Object.entries(fl.groups || {})) if (ids.includes(id)) groupsAt[m] = followNow();
     return { follow_groups: (s.follow_groups || []).filter((g) => g.id !== id), follow_list: { ...fl, groups, groupsAt } };
   });
   return {};
@@ -780,20 +797,21 @@ async function followNoteFeedPosts(items) {
 async function followAiTag({ instruction, mids, tags, maxNewTags, allowRemove, aiProviderId }) {
   const s = await chrome.storage.local.get(["follow_list", "follow_people", "follow_content", "follow_last", "follow_tags", "follow_tag_map"]);
   const followed = new Set(s.follow_list?.list || []);
-  const list = [...new Set((Array.isArray(mids) ? mids : []).map(String))].filter((m) => followed.has(m));
-  if (!list.length) throw triageError("缺少 mids");
+  const asked = [...new Set((Array.isArray(mids) ? mids : []).map(String))];
+  const list = asked.filter((m) => followed.has(m));
+  if (!asked.length) throw triageError("缺少 mids");
+  if (!list.length) throw triageError("选中的 UP 主都已取消关注");
   const tagName = new Map((s.follow_tags || []).map((t) => [t.id, t.name]));
   const items = list.map((mid) => {
     const p = s.follow_people?.[mid] || {};
     const c = s.follow_content?.[mid];
     const top = Object.entries(c?.tlist || {}).sort((a, b) => b[1] - a[1])[0];
-    const v = s.follow_last?.v?.[mid]?.length ? s.follow_last.v[mid] : c?.v || [];
     return {
       bvid: mid, // triageParseCommand 按 bvid 认条目
       name: p.name,
       sign: p.sign,
       tname: top?.[0] || "",
-      titles: v.map((x) => x.t),
+      titles: TriageUi.upTitles(s.follow_last?.v?.[mid], c).map((x) => x.t),
       currentTags: (s.follow_tag_map?.[mid] || []).map((id) => tagName.get(id)).filter(Boolean)
     };
   });
@@ -816,9 +834,8 @@ const FOLLOW_HANDLERS = {
 };
 
 if (typeof chrome !== "undefined" && chrome.runtime?.onMessage) {
-  followResume().catch((e) => console.warn("[follow] 接着同步失败", e));
-  chrome.alarms?.onAlarm.addListener((alarm) => {
-    if (alarm.name === FOLLOW_ALARM) followResume().catch((e) => console.warn("[follow] 接着同步失败", e));
-  });
+  const resume = () => followResume().catch((e) => console.warn("[follow] 接着同步失败", e));
+  resume();
+  chrome.alarms?.onAlarm.addListener((alarm) => alarm.name === FOLLOW_ALARM && resume());
   triageListen("follow-", FOLLOW_HANDLERS);
 }

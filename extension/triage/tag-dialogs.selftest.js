@@ -153,7 +153,9 @@ function adapters(who) {
     // No tags and no instruction: the box starts with one for the first 3–5 tags, within the room; it follows the room
     // until edited, and there is none when the AI may make none.
     nodes.aiInstruction.value = "";
-    const first = (n) => `看看这些${who}的内容，新建 ${n} 个标签分好类，每个${who}打一个最贴切的。`;
+    // A Latin unit gets a space before it: 「这些 UP 主」.
+    const w = who === "UP 主" ? " UP 主" : who;
+    const first = (n) => `看看这些${w}的内容，新建 ${n} 个标签分好类，每个${w}打一个最贴切的。`;
     for (const [room, want] of [[2, first(2)], [4, first("3–4")], [50, first("3–5")], [0, ""]]) {
       ai.roomN = room;
       D.ai.open(ai);
@@ -298,6 +300,49 @@ function adapters(who) {
     D.manage.open(adapters("视频").manage);
     assert.deepStrictEqual([nodes.tagManageTitle.textContent, nodes.newTagInput.maxLength, nodes.addTagBtn.textContent], ["标签管理", 12, "添加"]);
     assert.ok(nodes.tagsRows.innerHTML.includes("data-tag-color"));
+  }
+
+  // C488 / C490 / C495 / C496 / C500.
+  {
+    const { manage, ai, calls, tags } = adapters("视频");
+    // Nothing editable here: the hint does not promise 立即保存.
+    manage.reason = () => "所有收藏夹里不能改标签";
+    D.manage.open(manage);
+    assert.strictEqual(nodes.tagManageHint.textContent, "这里的标签。");
+    manage.reason = null;
+    // 添加 twice before the first answer creates the tag once.
+    let answer;
+    manage.add = (name) => (calls.push(["add", name]), new Promise((r) => (answer = () => r({ id: name, name }))));
+    D.manage.open(manage);
+    nodes.newTagInput.value = "新的";
+    fire("addTagBtn", "click");
+    fire("addTagBtn", "click");
+    answer();
+    await wait();
+    assert.strictEqual(calls.filter(([k]) => k === "add").length, 1, "a double 添加 adds once");
+    nodes.tagManageDialog.close();
+    // Every tag left out and no room for a new one: 运行 is off with why.
+    ai.roomN = 0;
+    ai.excluded.add("a");
+    D.ai.open(ai);
+    ai.excluded.add("a");
+    nodes.aiInstruction.value = "分类";
+    D.ai.render(ai);
+    assert.ok(nodes.aiRunBtn.disabled && nodes.aiRunBtn.title === "没有可用的标签，也不能新建", nodes.aiRunBtn.title);
+    // No tags and 标签管理 cannot edit here: no link to it.
+    tags.length = 0;
+    ai.roomN = 2;
+    manage.reason = () => "所有收藏夹里不能改标签";
+    D.ai.render(ai);
+    assert.ok(!nodes.aiTagsPreview.innerHTML.includes("data-open-manage"), nodes.aiTagsPreview.innerHTML);
+    manage.reason = null;
+    // A proposed tag named like an existing one is that tag: not counted as new.
+    tags.push({ id: "a", name: "科普", color: "#111" });
+    ai.p = { newTags: [{ key: "n", name: "科普", checked: true }, { key: "m", name: "新", checked: true }], rows: [{ id: "x", add: ["new:n", "new:m"], remove: [] }], notes: [], errors: [] };
+    D.ai.render(ai);
+    assert.ok(nodes.aiReviewSummary.textContent.includes("新标签 1 个"), nodes.aiReviewSummary.textContent);
+    ai.p = null;
+    nodes.aiTagDialog.close();
   }
 
   console.log("tag-dialogs selftest: all passed");
