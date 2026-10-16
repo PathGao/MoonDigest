@@ -105,6 +105,14 @@ const runSync = async () => {
     const k = t.followDiff({ list: ["7"], followTime: { 7: 550 } }, { list: [], complete: true }, {}, {}, live, 500, 600);
     assert.deepStrictEqual(plain(k.list.list), ["7"]);
     assert.deepStrictEqual(plain(k.gone), {});
+    // Groups changed here during the sync (groupsAt ≥ startedAt) or on a follow kept above: the stored ones, not the
+    // ones read before the change. An older mark is B站's list as read.
+    const gr = t.followDiff(
+      { list: ["1", "2", "7"], followTime: { 1: 10, 2: 10, 7: 550 }, special: { 2: 1, 7: 1 }, groups: { 1: [5], 7: [8] }, groupsAt: { 1: 520, 2: 400 } },
+      { list: ["1", "2"], followTime: { 1: 10, 2: 10 }, special: { 1: 1 }, groups: { 1: [6], 2: [6] }, complete: true },
+      {}, {}, live, 500, 600
+    );
+    assert.deepStrictEqual(plain([gr.list.special, gr.list.groups, gr.list.groupsAt]), [{ 7: 1 }, { 1: [5], 2: [6], 7: [8] }, { 1: 520 }]);
   }
 
   // ---------- pure: feed item, arc record, folding ----------
@@ -225,6 +233,46 @@ const runSync = async () => {
     assert.deepStrictEqual(plain(local.follow_jobs.posted), [], "said once");
   }
 
+  // ---------- a continued sync keeps the UP 回归 found before it stopped ----------
+  {
+    const cleared = { code: 0, count: 0, views: 9, at: 1 };
+    local = { follow_list: { list: ["1", "2"], followTime: { 1: 1, 2: 2 } }, follow_content: { 1: cleared, 2: cleared } };
+    let throttle = true;
+    routes = {
+      "/x/web-interface/nav": nav,
+      "/x/relation/stat": () => json({ code: 0, data: { follower: 1 } }),
+      "/x/relation/followings": followings([[person(1), person(2)]], 2),
+      "/x/relation/tags": () => json({ code: 0, data: [] }),
+      "/x/polymer/web-dynamic/v1/feed/all": feed([[dyn(1, "BVback", now() - 60)]]),
+      "/x/space/wbi/arc/search": () => (throttle ? json({ code: -352, message: "风控" }) : arcOk(3))
+    };
+    await runSync();
+    assert.deepStrictEqual([local.follow_jobs.errorCode, plain(local.follow_jobs.posted)], ["THROTTLED", ["1"]]);
+    throttle = false;
+    await runSync();
+    assert.deepStrictEqual(plain(local.follow_jobs.posted), ["1", "2"], "the one seen before the stop stays");
+  }
+
+  // ---------- a 视频投稿 page noted as the walk ends does not put the old follow_last back ----------
+  {
+    const prev = { at: now() - 7 * 3600, since: now() - 40 * 86400, map: { 1: now() - 99 }, v: {} };
+    local = { follow_list: { list: ["1", "2"], followTime: { 1: 101, 2: 102 } }, follow_last: prev };
+    const get = t.chrome.storage.local.get;
+    let slow = false;
+    // followNoteFeedPosts reads follow_last, then takes a while before it writes.
+    t.chrome.storage.local.get = async (k) => {
+      const r = pick(local, k);
+      if (slow && [k].flat().includes("follow_last")) (slow = false), await new Promise((ok) => setTimeout(ok, 30));
+      return r;
+    };
+    const walk = feed([[dyn(2, "BVn", now() - 60)]]);
+    routes["/x/polymer/web-dynamic/v1/feed/all"] = (u) => ((slow = true), t.followNoteFeedPosts([{ mid: "1", at: now() - 50, bvid: "BVlive", title: "x" }]), walk(u));
+    routes["/x/space/wbi/arc/search"] = () => arcOk(1);
+    await runSync();
+    t.chrome.storage.local.get = get;
+    assert.ok(local.follow_last.map[2] && local.follow_last.since > prev.since, JSON.stringify(local.follow_last));
+  }
+
   // ---------- a stored 慢更 below 7 days walks the feed as the default 90 days, not 1 ----------
   {
     local = { follow_list: { list: ["2"], followTime: { 2: 2 } } };
@@ -252,7 +300,7 @@ const runSync = async () => {
     const ok = feed(pages);
     routes["/x/polymer/web-dynamic/v1/feed/all"] = (u) => (Number(u.searchParams.get("offset") || 0) === 11 ? json({ code: -352, message: "风控" }) : ok(u));
     await runSync();
-    assert.strictEqual(local.follow_jobs.throttled, true);
+    assert.strictEqual(local.follow_jobs.errorCode, "THROTTLED");
     assert.deepStrictEqual(plain(local.follow_last), prev, "a walk cut off midway does not replace the last complete one");
     assert.strictEqual(local.follow_jobs.cursor.offset, "11", "cursor kept at the last page read");
     assert.deepStrictEqual(Object.keys(local.follow_last_wip.map).sort(), ["2"], "the pages read so far are stored for the page");
@@ -320,7 +368,6 @@ const runSync = async () => {
     assert.strictEqual(holds, 3);
     // The WBI key was cached by the syncs above; each risk answer drops it, so strikes 2 and 3 read nav again.
     assert.strictEqual(calls.filter((c) => c === "web-interface/nav").length, 2, calls.join(","));
-    assert.strictEqual(local.follow_jobs.throttled, true);
     assert.match(local.follow_jobs.error, /限流/);
     assert.strictEqual(local.follow_jobs.errorCode, "THROTTLED", "the job keeps the code; the page shows 去登录 by code, not by text");
     assert.ok(!local.follow_content?.[1]);
@@ -563,6 +610,10 @@ const runSync = async () => {
     postReply = () => json({ code: -412, message: "请求被拦截" });
     await assert.rejects(t.followGroupMove({ mids: ["1", "2"], from: [], to: [5] }), (e) => e.code === "THROTTLED");
     assert.strictEqual(posts.length, 1);
+    // 限流 midway through the one-by-one retry: the ones done before it are recorded (the page undoes them), then the error.
+    postReply = () => ({ "1,2": json({ code: 22120, message: "用户已注销" }), 1: json({ code: 0, data: {} }), 2: json({ code: -412, message: "请求被拦截" }) })[posts.at(-1)[1].fids];
+    await assert.rejects(t.followGroupMove({ mids: ["1", "2"], from: [], to: [9] }), (e) => e.code === "THROTTLED");
+    assert.ok(g()[1].includes(9) && !g()[2].includes(9) && local.follow_list.groupsAt[1] > 0, JSON.stringify(local.follow_list));
     postReply = null;
     local = JSON.parse(kept);
 

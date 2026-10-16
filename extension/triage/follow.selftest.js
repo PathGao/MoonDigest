@@ -400,7 +400,6 @@ assert.ok(source.includes(`pushTagUndo(before, "标签修改", { ask: changes.le
 {
   const fn = (name) => source.slice(source.indexOf(`function ${name}(`), source.indexOf("\n}\n", source.indexOf(`function ${name}(`)));
   const rg = fn("regroup");
-  assert.ok(rg.includes("const done = calls.flatMap((c) => c.mids).slice(0, n).filter((m) => !skipped.some((x) => x.mid === m));") && /if \(done\.length\) \{\s*pushWriteUndo\(done,/.test(rg), "U only for the UP 主 B站 confirmed (none after a timeout)");
   assert.ok(rg.includes("mids.filter((m) => !rows.get(m)?.closed)") && /relationRun\(calls, label, \{ quiet: true, skipped \}\)/.test(rg) && /if \(skipped\.length\) \{[\s\S]*?askConfirm\([^\n]*\{ alone: true \}\)/.test(rg), "closed accounts and the ones B站 left out are listed after, still selected");
   assert.ok(/back: \(\) => groupCalls\(done, \(m\) => groupsOf\(m, D\), \(m\) => before\[m\]\)/.test(rg) && /ask: \[`在 B站撤销/.test(rg) && rg.includes("groups: true"), "U puts back the groups they had, asked for 2+");
   assert.ok(/async function starOne\(mid\) \{[\s\S]*?await regroup\(\[mid\],[^\n]*SPECIAL/.test(source), "★ is a move of group -10");
@@ -589,7 +588,7 @@ async function followPage({ store = {}, handlers = {}, setup = () => {} } = {}) 
   Object.assign(ctx.MoonTriage, { toast, askConfirm });
   setup(ctx);
   const follow = fs.readFileSync(path.join(__dirname, "follow.js"), "utf8").replace(/^import "\.\/triage\.js";.*$/m, "");
-  await vm.runInContext(`(async () => {\n${follow}\n;globalThis.FW = { F, E, W, relationRun, pushWriteUndo, render, refollow };\n})()`, ctx);
+  await vm.runInContext(`(async () => {\n${follow}\n;globalThis.FW = { F, E, W, D: () => D, relationRun, pushWriteUndo, render, refollow, regroup, pickSide, aiTags, AI };\n})()`, ctx);
   const settle = async (n = 30) => {
     for (let i = 0; i < n; i++) await new Promise((r) => setTimeout(r, 1));
   };
@@ -603,6 +602,7 @@ async function followPage({ store = {}, handlers = {}, setup = () => {} } = {}) 
   return { ctx, FW: ctx.FW, $, winL, sent, toasts, asked, picks, store, settle, until, key, click };
 }
 
+const p0Throttled = () => vm.runInContext("MdgErrors.TEXT.biliThrottled", ctx);
 (async () => {
   const sec = Math.floor(Date.now() / 1000);
   const page = (o = {}) => ({
@@ -852,6 +852,57 @@ async function followPage({ store = {}, handlers = {}, setup = () => {} } = {}) 
     release({ ok: true });
     await running;
     assert.deepStrictEqual([p.sent.filter((m) => m.type === "follow-relation").length, p.toasts.at(-1)], [1, "已停止取消关注：完成 1 个，未完成 1 个"]);
+  }
+
+  // 重新关注 whose groups did not go back (groupsError): said, not 「已在 B站重新关注」 alone; U still undoes it.
+  {
+    const gone = { u3: { at: sec - DAY, source: "app", name: "丙", groups: [5] }, u4: { at: sec - DAY, source: "app", name: "丁", groups: [5] } };
+    const p = await followPage({ store: page({ follow_unfollowed: gone, follow_people: { u3: { name: "丙" }, u4: { name: "丁" } } }), handlers: { "follow-relation": () => ({ ok: true, data: { groups: [], groupsError: "B站返回 22104：分组不存在" } }) } });
+    await p.FW.refollow(["u3"]);
+    assert.strictEqual(p.toasts.at(-1), "已在 B站重新关注「丙」，没能放回原来的分组：B站返回 22104：分组不存在 · U 撤销");
+    await p.FW.refollow(["u3", "u4"]);
+    assert.deepStrictEqual([p.asked.at(-1), p.ctx.S.modeUndo.length], ["2 个 UP 主没能放回原来的分组", 2]);
+  }
+
+  // A group write stopped midway (未登录, 限流) after the background recorded some: U covers the ones follow_list shows moved.
+  {
+    let store;
+    const p = await followPage({
+      store: (store = page({ follow_groups: [{ id: 5, name: "五", count: 0 }] })),
+      handlers: { "follow-group-move": () => ((store.follow_list = { ...store.follow_list, groups: { u1: [5] } }), { ok: false, error: "x", code: "NOT_LOGGED_IN" }) }
+    });
+    const { done } = await p.FW.regroup(["u1", "u2"], () => [5], "移到「五」");
+    assert.deepStrictEqual([plain(done), p.ctx.S.modeUndo.length], [["u1"], 1]);
+  }
+
+  // The head's refresh error, as 收藏夹's: 刷新失败：reason, B站限流 in MdgErrors' words.
+  {
+    const p = await followPage({ store: page({ follow_jobs: { running: false, error: p0Throttled(), errorCode: "THROTTLED" } }) });
+    assert.ok(p.$("fwMeta").innerHTML.includes(`刷新失败：${p0Throttled()}`), p.$("fwMeta").innerHTML);
+  }
+
+  // AI 打标签 with every tag switched off: AI can only make new ones, or none (收藏夹's aiRoomHint).
+  {
+    const p = await followPage({ store: page({ follow_tags: [{ id: "t1", name: "科普" }] }) });
+    const { AI, aiTags } = p.FW;
+    AI.excluded.add("t1");
+    AI.settings = { newTagMax: 0 };
+    assert.ok(aiTags.roomHint().startsWith("已有标签都不给 AI 用，新建上限是 0，AI 打不了标签。"), aiTags.roomHint());
+    AI.settings = { newTagMax: 3 };
+    assert.ok(aiTags.roomHint().startsWith("已有标签都不给 AI 用，AI 只会新建标签（这次最多 3 个）"), aiTags.roomHint());
+    AI.excluded.clear();
+    assert.ok(aiTags.roomHint().startsWith("AI 这次最多新建 3 个标签"), aiTags.roomHint());
+  }
+
+  // Into 已出分拣范围 from 视频投稿: the box shows the UP 主 search it now filters by.
+  {
+    const p = await followPage({ store: page({ follow_view: { mode: "follow", tab: "feed" } }), handlers: { "follow-feed": () => feed } });
+    const { F, E } = p.FW;
+    F.q = "甲";
+    F.fq = "视频";
+    E.q.value = "视频";
+    p.FW.pickSide("out");
+    assert.deepStrictEqual([F.tab, E.q.value], ["ups", "甲"]);
   }
 })().catch((e) => {
   console.error(e);

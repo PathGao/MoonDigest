@@ -631,7 +631,8 @@ function renderLogin() {
 function renderHead() {
   const at = D.list?.at || 0;
   const j = D.jobs || {};
-  const err = j.running ? "" : j.throttled ? "上次刷新被 B站限流暂停了，再点刷新接着查" : j.error ? `上次刷新出错：${j.error}` : "";
+  // As 收藏夹's. On B站限流 follow-bg.js's error is MdgErrors.TEXT.biliThrottled.
+  const err = !j.running && j.error ? `刷新失败：${j.error}` : "";
   const out = F.side === "out";
   E.title.innerHTML = out ? UI.titleHtml("已出分拣范围", sideCount("out")) : UI.titleHtml("关注", D.list ? sideCount("all") : null);
   renderLogin();
@@ -1063,10 +1064,11 @@ const W = MdgWrites.create({ runs, lane: "follow-write", send, line: (p) => `${p
 // UI.FOLLOW_WRITE_GAP_MS between requests. B站限流 (THROTTLED): the pill counts down, then the same request
 // goes again; 停止 ends the run there, keeping what went through (and its undo).
 const perUp = (mids, msg) => mids.map((mid) => msg(mid));
-// skipped (an array) gets the UP 主 a group request left out ({ mid, error }).
+// skipped (an array) gets the UP 主 a group request left out ({ mid, error }); lost, the ones 重新关注 could not put
+// back in their groups ({ mid, error }).
 // The UP 主 it went through stay selected while they stay listed here (DESIGN 筛选和计数): those it took out of the
 // sidebar item or 已出分拣范围's tab (取消关注, 重新关注, 移到) leave the selection once the data is read again.
-async function relationRun(calls, label, { quiet = false, skipped = [] } = {}) {
+async function relationRun(calls, label, { quiet = false, skipped = [], lost = [] } = {}) {
   const chunks = calls.map((c) => ({ msg: c, keys: c.mids || [c.mid], folders: [], gap: UI.FOLLOW_WRITE_GAP_MS }));
   const ran = new Set();
   const running = W.run("follow-write", label, {
@@ -1075,6 +1077,7 @@ async function relationRun(calls, label, { quiet = false, skipped = [] } = {}) {
     onChunk(c, r) {
       const left = r?.data?.skipped || [];
       skipped.push(...left);
+      if (r?.data?.groupsError) lost.push({ mid: c.msg.mid, error: r.data.groupsError });
       for (const mid of c.keys) if (!left.some((x) => x.mid === mid)) ran.add(mid);
       renderSel();
     }
@@ -1137,15 +1140,17 @@ async function refollow(mids) {
   if (mids.length === 1) {
     const [mid] = mids;
     const gone = D.gone[mid];
-    if (!(await relationRun([{ type: "follow-relation", mid, act: 1 }], "重新关注", { quiet: true }))) return;
+    const lost = [];
+    if (!(await relationRun([{ type: "follow-relation", mid, act: 1 }], "重新关注", { quiet: true, lost }))) return;
     pushWriteUndo(mids, { label: "重新关注", backLabel: "取消关注", back: () => [{ type: "follow-relation", mid, act: 2, gone }] });
-    return toast(`已在 B站重新关注「${upName(mid)}」 · U 撤销`);
+    return toast(`已在 B站重新关注「${upName(mid)}」${lost.length ? `，没能放回原来的分组：${lost[0].error}` : ""} · U 撤销`, lost.length > 0);
   }
   // A batch asks first and is one undo step for the ones B站 took, asked before U (as 收藏夹's batch 取消收藏).
   const ok = await askConfirm(`在 B站重新关注 ${mids.length} 个 UP 主？`, `${names(mids)}<p class="dialog-hint">原来的标签会放回去，有分组记录的也放回原来的分组。可以按 U 撤销。</p>`, `重新关注 ${mids.length} 个`);
   if (!ok) return;
   const gone = Object.fromEntries(mids.map((m) => [m, D.gone[m]]));
-  const done = mids.slice(0, await relationRun(perUp(mids, (mid) => ({ type: "follow-relation", mid, act: 1 })), "重新关注", { quiet: true }));
+  const lost = [];
+  const done = mids.slice(0, await relationRun(perUp(mids, (mid) => ({ type: "follow-relation", mid, act: 1 })), "重新关注", { quiet: true, lost }));
   if (!done.length) return;
   pushWriteUndo(done, {
     label: "重新关注",
@@ -1153,20 +1158,26 @@ async function refollow(mids) {
     back: () => done.map((mid) => ({ type: "follow-relation", mid, act: 2, gone: gone[mid] })),
     ask: ["在 B站撤销重新关注？", `<p>这 ${done.length} 个 UP 主在 B站再取消关注，「已出分拣范围 › 已取消关注」里的记录和标签照原样放回。</p>${names(done)}`, `撤销 ${done.length} 个`]
   });
-  if (done.length === mids.length) toast(`已在 B站重新关注 ${done.length} 个 UP 主 · U 撤销`);
+  if (lost.length) {
+    const list = lost.map(({ mid, error }) => `<li>${esc(upName(mid))}：${esc(error)}</li>`).join("");
+    askConfirm(`${lost.length} 个 UP 主没能放回原来的分组`, `<ul>${list}</ul><p class="dialog-hint">已经重新关注，现在在默认分组里。按 U 撤销会取消关注，记录照原样放回。</p>`, "知道了", { alone: true });
+  } else if (done.length === mids.length) toast(`已在 B站重新关注 ${done.length} 个 UP 主 · U 撤销`);
 }
 // ---------- 关注分组 on B站 (DESIGN 产品决策 · 改 B站 的操作和撤销) ----------
 // mids from the groups they are in now to want(mid), as one undo step that puts back the groups they had (U on 2+ asks
-// first). Only what B站 confirmed is undone; a request with no answer is neither kept here nor undone (its toast says
-// to look after a 刷新). B站 won't regroup a closed account: the known ones are not sent, and they and any B站 left out
-// are listed afterwards, still selected. Returns { done: the UP 主 that changed, skipped, ok: no request failed }.
+// first). Only what B站 confirmed is undone: the UP 主 whose groups follow_list now shows changed (follow-bg.js writes
+// it only after B站 said yes, also for the ones done before a request stopped on 限流); a request with no answer is
+// neither kept here nor undone (its toast says to look after a 刷新). B站 won't regroup a closed account: the known
+// ones are not sent, and they and any B站 left out are listed afterwards, still selected. Returns { done: the UP 主
+// that changed, skipped, ok: no request failed }.
 async function regroup(mids, want, label) {
   const before = Object.fromEntries(mids.map((m) => [m, groupsOf(m, D)]));
   const skipped = mids.filter((m) => rows.get(m)?.closed).map((mid) => ({ mid, error: "账号已注销" }));
   const calls = groupCalls(mids.filter((m) => !rows.get(m)?.closed), (m) => before[m], want);
   const known = skipped.length;
-  const n = await relationRun(calls, label, { quiet: true, skipped });
-  const done = calls.flatMap((c) => c.mids).slice(0, n).filter((m) => !skipped.some((x) => x.mid === m));
+  await relationRun(calls, label, { quiet: true, skipped });
+  const same = (a, b) => String([...a].sort()) === String([...b].sort());
+  const done = calls.flatMap((c) => c.mids).filter((m) => !same(groupsOf(m, D), before[m]));
   if (done.length) {
     pushWriteUndo(done, {
       label,
@@ -1546,6 +1557,14 @@ function aiScopeText(scope) {
     ? `${mids.length} 个 UP 主${bare ? `，其中 ${bare} 个还没查投稿，AI 只能看名字和签名` : ""}。分 ${Math.ceil(mids.length / AI.settings.batchSize)} 批发送`
     : "作用范围里没有 UP 主";
 }
+// As 收藏夹's aiRoomHint: with every tag switched off, AI can only make new ones, or none.
+function aiRoomHint() {
+  const room = AI.settings.newTagMax;
+  const noneUsable = D.tags.length > 0 && D.tags.every((t) => AI.excluded.has(t.id));
+  return noneUsable
+    ? room ? `已有标签都不给 AI 用，AI 只会新建标签（这次最多 ${room} 个），你确认后才创建。` : "已有标签都不给 AI 用，新建上限是 0，AI 打不了标签。"
+    : room ? `AI 这次最多新建 ${room} 个标签，你确认后才创建。` : "AI 只会用已有标签。";
+}
 const aiTags = {
   who: "UP 主",
   sees: "名字、签名、主要分区和最近的视频标题",
@@ -1559,7 +1578,7 @@ const aiTags = {
   ],
   scopeText: aiScopeText,
   room: () => AI.settings.newTagMax,
-  roomHint: () => `${AI.settings.newTagMax ? `AI 这次最多新建 ${AI.settings.newTagMax} 个标签，你确认后才创建。` : "AI 只会用已有标签。"}<br>每批数量、间隔和新建上限在「关注设置」里改。`,
+  roomHint: () => `${aiRoomHint()}<br>每批数量、间隔和新建上限在「关注设置」里改。`,
   blocked: () => aiBlocked(F.tab, F.side),
   history: () => AI.history,
   allowRemove: () => AI.settings.allowRemove,
@@ -1668,7 +1687,11 @@ function freshScope(id) {
   F.kind = F.source = F.tagState = "";
   F.sel.clear();
   F.tags = new Set();
-  if (id === "out") F.tab = "ups";
+  // 视频投稿 has its own search (F.fq): the box shows the UP 主 one again, as setTab does.
+  if (id === "out" && F.tab !== "ups") {
+    F.tab = "ups";
+    E.q.value = F.q;
+  }
 }
 function pickSide(id) {
   if (id === F.side) return;
