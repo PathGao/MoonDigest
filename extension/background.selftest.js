@@ -139,12 +139,20 @@ process.on("exit", (code) => {
     // a saved platform's address is normalized once (normalizeAiProvider), not again per request.
     const src = ["background.js", "triage/triage-bg.js"].map((f) => fs.readFileSync(path.join(__dirname, f), "utf8")).join("\n");
     assert.strictEqual(src.match(/await hostPermissionError\(/g).length, 1, "hostPermissionError is asked only in aiFetchError");
-    assert.strictEqual(src.match(/baseUrl[^\n]*\.replace\(\/\\\/\+\$\//g).length, 2, "normalizeAiProvider and 测试连接's unsaved row strip the slash");
+    assert.strictEqual(ctx.normalizeAiProvider({ id: "x", baseUrl: " https://ai.test/v1// " }).baseUrl, "https://ai.test/v1", "a saved platform's address is trimmed");
     const timeout = async () => {
       throw Object.assign(new Error("timeout"), { name: "TimeoutError" });
     };
     assert.deepStrictEqual({ ...(await test(timeout)) }, { ok: false, error: ctx.MdgErrors.aiTimeout(vm.runInContext("AI_TEST_TIMEOUT_MS", ctx)), code: "AI_TIMEOUT" });
     ctx.hostPermissionError = async () => "";
+    // The 30 s also cover the reply's body: a body that stalls is the timeout, not 「不是 JSON」.
+    {
+      const realSignal = ctx.AbortSignal;
+      ctx.AbortSignal = { timeout: () => { const c = new AbortController(); setTimeout(() => c.abort(Object.assign(new Error("timeout"), { name: "TimeoutError" })), 20); return c.signal; } };
+      const stalled = await test(async (url, { signal }) => ({ ok: true, json: () => new Promise((_, reject) => signal.addEventListener("abort", () => reject(signal.reason))) }));
+      ctx.AbortSignal = realSignal;
+      assert.strictEqual(stalled.code, "AI_TIMEOUT", "a stalled body is the timeout");
+    }
     // F4: the side panel's and 分拣台's check (aiProviderProblem), API Key included.
     assert.deepStrictEqual(
       [{ ...(await test(failed, { baseUrl: " " })) }, { ...(await test(failed, { model: "" })) }, { ...(await test(failed, { apiKey: "" })) }],
@@ -211,6 +219,11 @@ process.on("exit", (code) => {
   assert.deepStrictEqual(stored.aiPresetPrompts, []);
   assert.strictEqual(stored.noteFolder, "N");
   assert.strictEqual((await ctx.chrome.storage.local.get("obsidianApiKey")).obsidianApiKey, "k");
+  // Two pages saving different settings at once: each writes only its own keys, so neither reverts the other.
+  await Promise.all([ctx.saveSettings({ readerTheme: "light" }), ctx.saveSettings({ noteFolder: "M" })]);
+  assert.deepStrictEqual([stored.readerTheme, stored.noteFolder], ["light", "M"]);
+  // An imported file's frontmatterFields that is not a list reads as the default (the settings page maps over it).
+  assert.deepStrictEqual([...ctx.normalizeSyncSettings({ frontmatterFields: "title" }).frontmatterFields], [...ctx.MdgSettings.DEFAULTS.frontmatterFields]);
 
   // C17: the saved and read settings go through MdgSettings.normalizeSwitches: a non-boolean keeps a default-on switch on.
   {
@@ -226,7 +239,9 @@ process.on("exit", (code) => {
   const systemFor = (extra) =>
     ctx.buildAiMessages({ context: { isVideoContext: true, title: "T", description: "简介", ...extra }, userPrompt: "q" }).messages[0].content;
   const none = systemFor({});
-  assert.match(none, /这个视频没有字幕/);
+  // The shared sentence (MdgErrors.subtitleMissing), told to the user too, like the login and failure branches.
+  assert.match(none, /^视频没有字幕。你拿不到/m);
+  assert.match(none, /告诉用户：视频没有字幕。/);
   assert.doesNotMatch(none, /抓取失败/);
   const failed = systemFor({ subtitleFailure: "字幕接口限流（429），稍后再试" });
   assert.match(failed, /字幕抓取失败：字幕接口限流（429），稍后再试。/);
@@ -299,6 +314,12 @@ process.on("exit", (code) => {
   }
   ctx.fetch = streamingFetch([raw(`data: ${JSON.stringify({ choices: [{ delta: { content: "尾" } }] })}`), { after: 0, done: true }]);
   assert.deepStrictEqual((await chat()).map((m) => m.data || m.type), ["尾", "done"]);
+  // A platform that ignores stream:true and answers with one plain completion: that answer, not 「回答为空」.
+  ctx.fetch = streamingFetch([raw(JSON.stringify({ choices: [{ message: { content: "整段回答" } }] })), { after: 0, done: true }]);
+  assert.deepStrictEqual((await chat()).map((m) => m.data || m.type), ["整段回答", "done"]);
+  // An HTTP error whose body stalls until the watchdog fires: the timeout, as on the other paths, not the HTTP error.
+  ctx.fetch = async (url, { signal }) => ({ ok: false, status: 500, text: () => new Promise((_, reject) => signal.addEventListener("abort", () => reject(abortError()))) });
+  assert.deepStrictEqual((await chat()).map((m) => m.code), ["AI_TIMEOUT"]);
 
   // HTTP and network errors reach the panel in Chinese with the 分拣台's code, never the body.
   ctx.fetch = async () => ({ ok: false, status: 401, text: async () => '{"error":{"message":"Incorrect API key provided"}}' });
@@ -325,6 +346,10 @@ process.on("exit", (code) => {
   // A request that never answers fails with a retryable timeout instead of hanging the caller.
   ctx.fetch = (url, { signal }) => new Promise((_, reject) => signal.addEventListener("abort", () => reject(signal.reason)));
   await assert.rejects(ctx.fetchWithTimeout("https://api.bilibili.com/x", {}, 30), (e) => e.status === 408 && /超时/.test(e.message));
+  // A body that stalls is the same 408.
+  ctx.fetch = async (url, { signal }) => ({ ok: true, json: () => new Promise((_, reject) => signal.addEventListener("abort", () => reject(signal.reason))) });
+  const slowBody = await ctx.fetchWithTimeout("http://127.0.0.1:27123/", {}, 30);
+  await assert.rejects(slowBody.json(), (e) => e.status === 408 && /超时/.test(e.message));
 
   // D2: the video page's fetch-json reads B站 like 分拣台 and the side panel: their request, timeout and words.
   {
@@ -401,6 +426,52 @@ process.on("exit", (code) => {
   assert.strictEqual(early.url, "https://www.bilibili.com/video/BV1xx411c7mD/");
   // The page's failure for the current video is the side panel's error.
   await assert.rejects(contextFor("https://www.bilibili.com/video/BV1xx411c7mD/", { ok: false, error: "B站限流，请稍后再试" }), /B站限流/);
+  // The page did not answer (Chrome's English messaging error): said in our words.
+  {
+    const was = ctx.sendMessageToTab;
+    ctx.sendMessageToTab = async () => {
+      throw new Error("Could not establish connection. Receiving end does not exist.");
+    };
+    await assert.rejects(ctx.getAiSidepanelState(1), (e) => e.message === `视频页没有回应，${ctx.MdgErrors.TEXT.reloadRetry}`);
+    ctx.sendMessageToTab = was;
+  }
+  // A YouTube conversation read through the open tab asks for its own video: a page now on another one does not answer.
+  {
+    const was = [ctx.findTabForRef, ctx.getAiSidepanelState];
+    ctx.findTabForRef = async () => ({ id: 4 });
+    ctx.getAiSidepanelState = async (tabId, opts) => ({ tabId, ...opts });
+    const got = await ctx.resolveAiSidepanelContext({ isVideoContext: true, site: "youtube", videoId: "dQw4w9WgXcQ", url: "https://www.youtube.com/watch?v=dQw4w9WgXcQ" });
+    assert.deepStrictEqual([got.tabId, got.videoId], [4, "dQw4w9WgXcQ"]);
+    [ctx.findTabForRef, ctx.getAiSidepanelState] = was;
+  }
+  // 专注模式's retries stop once the tab has moved on to another video: its page is never sent this one's address.
+  {
+    const was = [ctx.sendMessageToTab, ctx.ensureReaderContentReady];
+    const sent = [];
+    ctx.chrome = { tabs: { get: async () => ({ id: 1, url: "https://www.bilibili.com/video/BV1GJ411x7h7" }) } };
+    ctx.ensureReaderContentReady = async () => {};
+    ctx.sendMessageToTab = async (_, m) => {
+      sent.push(m.readerUrl);
+      throw new Error("Could not establish connection. Receiving end does not exist.");
+    };
+    assert.strictEqual(await ctx.triggerReaderModeInTab(1, "https://www.bilibili.com/video/BV1xx411c7mD?mdg_reader=1", 5, 1), false);
+    assert.strictEqual(sent.length, 1, "no retry lands on the other video's page");
+    [ctx.sendMessageToTab, ctx.ensureReaderContentReady] = was;
+  }
+  // AI platforms: a delete sent while a save is pending is not undone by it, and sync keeps no hasSavedKey.
+  {
+    const was = [ctx.chrome, ctx.loadAiProviders, ctx.loadAiProviderKeys];
+    const syncData = { aiProviders: [{ id: "a" }, { id: "b" }] };
+    let keys = { a: "ka", b: "kb" };
+    const later = (v) => new Promise((r) => setTimeout(() => r(v), 5));
+    ctx.chrome = { storage: { sync: { set: async (o) => Object.assign(syncData, JSON.parse(JSON.stringify(o))) }, local: { set: async (o) => (keys = { ...Object.values(o)[0] }) } } };
+    ctx.loadAiProviderKeys = () => later({ ...keys });
+    ctx.loadAiProviders = async () => syncData.aiProviders.map((p) => ({ ...p, hasSavedKey: Boolean(keys[p.id]) }));
+    await Promise.all([ctx.saveAiProviders([{ id: "a" }, { id: "b" }]), ctx.deleteAiProvider("b")]);
+    assert.deepStrictEqual([syncData.aiProviders.map((p) => p.id), Object.keys(keys)], [["a"], ["a"]]);
+    assert.ok(!("hasSavedKey" in syncData.aiProviders[0]), "sync keeps the platforms only");
+    [ctx.chrome, ctx.loadAiProviders, ctx.loadAiProviderKeys] = was;
+  }
 
   // A history conversation's context takes the video page's way with a subtitle that does not match the video.
   const local = {};
@@ -516,6 +587,7 @@ process.on("exit", (code) => {
   const before = JSON.stringify(importSync);
   await assert.rejects(ctx.importSettings({ app: "moondigest", schemaVersion: 3, settings: {} }), /不是 MoonDigest 的设置文件/);
   await assert.rejects(ctx.importSettings({ ...file, schemaVersion: 2 }), /更新的版本/);
+  await assert.rejects(ctx.importSettings({ ...file, schemaVersion: undefined }), /不是 MoonDigest 的设置文件/, "no schemaVersion is no settings file, not a newer one");
   await assert.rejects(ctx.importSettings({ ...file, local: { triage_included_folders: "11" } }), /不是 MoonDigest 的设置文件/);
   await assert.rejects(ctx.importSettings({ ...file, local: { triage_folder_criteria: { 11: 5 } } }), /不是 MoonDigest 的设置文件/);
   // F5: an import past sync's 8 KB per item is refused in Chinese, as a save is, and changes nothing.

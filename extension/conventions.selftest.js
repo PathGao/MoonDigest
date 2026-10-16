@@ -68,12 +68,6 @@ const ALLOW = [
   ["history/history.js", 'aria-hidden="true" disabled>删除 AI 对话', "看不见的占位（aria-hidden、tabindex=-1），只为对齐，不是控件"],
   // 4a. 待修 lines wait for their fix (Cn / An: the 2026-10-16 scan); new ones fail.
   ["background.js", 'new Error(resp?.error || "读取当前页面失败")', "待修：C321、A39"],
-  ["popup.js", "${MdgErrors.TEXT.obsidianFailed}：${resp?.error", "待修（扫描未列）"],
-  ["popup.js", "${MdgErrors.TEXT.readerStartFailed}：${resp?.error", "待修（扫描未列）"],
-  ["popup.js", "${MdgErrors.TEXT.subtitleSwitchFailed}：${resp?.error", "待修（扫描未列）"],
-  ["popup.js", "${MdgErrors.TEXT.sidepanelOpenFailed}：${resp?.error", "待修（扫描未列）"],
-  ["popup.js", "resp?.error || NOT_VIDEO_PAGE", "待修（扫描未列）"],
-  ["popup.js", "resp?.error || MdgErrors.TEXT.reloaded", "待修（扫描未列）"],
   ["triage/triage.js", 'r.error || "分析失败"', "待修（扫描未列）"],
   ["triage/triage.js", 'a.error || "分析失败"', "例外：存下的分析记录（没有 code），不是回复"],
   // 4b

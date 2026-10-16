@@ -127,6 +127,12 @@ eq(
 );
 eq(S.parseChaptersFromDescription("01:00 Only one after zero"), []);
 eq(S.parseChaptersFromDescription("00:30 a\n01:00 b"), []);
+// A line that is only a time is no chapter titled with its last digits.
+eq(S.parseChaptersFromDescription("00:00 开头\n1:02:03\n2:00 中段"), [{ title: "开头", from: 0, to: 0 }, { title: "中段", from: 120, to: 0 }]);
+// Entities past Unicode's range stay as written instead of failing the whole caption.
+assert.strictEqual(S.decodeXmlEntities("a&#99999999;b&#65;"), "a&#99999999;bA");
+// No cid is the same key whoever calls, not the text "undefined".
+assert.strictEqual(S.subtitleCache.key({ videoId: "v", subtitleId: "1" }), S.subtitleCache.key({ videoId: "v", cid: "", subtitleId: "1" }));
 assert.strictEqual(S.buildContextKey({ site: "bilibili", videoId: "BV1", cid: "9" }), "video:bilibili:BV1|9");
 assert.strictEqual(S.buildContextKey({ site: "youtube", videoId: "abc" }), "video:youtube:abc|");
 assert.strictEqual(S.buildContextKey({}), "");
@@ -360,6 +366,8 @@ async function ytComments(next, byContinuation) {
   eq(S.ytChapters(macro), chapters);
   eq(S.ytChapters({ ...bar, ...macroPanel([{ macroMarkersListItemRenderer: { title: { simpleText: "Extra" }, timeDescription: { simpleText: "5:00" } } }]) }), chapters);
   eq(S.ytChapters(null), []);
+  // A marker without any time is no chapter at 0:00.
+  eq(S.ytChapters(macroPanel([...macro.engagementPanels[0].engagementPanelSectionListRenderer.content.macroMarkersListRenderer.contents, { macroMarkersListItemRenderer: { title: { simpleText: "无时间" }, timeDescription: { simpleText: "" } } }])), chapters);
   const transcriptPanel = (params) => ({ engagementPanels: [{ engagementPanelSectionListRenderer: { content: { continuationItemRenderer: { continuationEndpoint: { getTranscriptEndpoint: { params } } } } } }] });
   eq(S.ytTranscriptParams({ ...bar, ...transcriptPanel("P1") }), "P1");
   eq(S.ytTranscriptParams(bar), "");
@@ -526,6 +534,14 @@ async function ytComments(next, byContinuation) {
   // A logged-out answer is reported, not mistaken for a video without subtitles.
   const loggedOut = { fetchJson: async () => ({ code: 0, data: { need_login_subtitle: true, subtitle: { subtitles: [] } } }) };
   eq((await S.SITES.bilibili.fetchTracks(biliRef, biliMeta, loggedOut)).needLogin, true);
+  // view_points in milliseconds: every time of the response, the short ones too.
+  const msPoints = { fetchJson: async () => ({ code: 0, data: { subtitle: { subtitles: [] }, view_points: [{ content: "开头", from: 0, to: 5000 }, { content: "中段", from: 5000, to: 100000 }] } }) };
+  eq((await S.SITES.bilibili.fetchTracks(biliRef, biliMeta, msPoints)).chapters.map((c) => c.from), [0, 5]);
+  // A deleted or hidden video is not worth retrying.
+  for (const code of [-404, 62012]) {
+    const gone = { fetchJson: async () => ({ code, message: "啊叻？视频不见了？" }) };
+    await assert.rejects(S.SITES.bilibili.fetchMeta(biliRef, gone), (e) => e.retryable === false && e.code === code);
+  }
   // B站 risk control, whichever io it comes through (HTTP 412 as status, a risk code, a player answer without a subtitle
   // object): THROTTLED in the one sentence, and no fallback request to player/v2 or view.
   for (const answer of [Object.assign(new Error("HTTP 412"), { status: 412 }), Object.assign(new Error("HTTP 429"), { status: 429 }), { code: -352, message: "风控校验失败" }, { code: 0, data: {} }]) {
@@ -675,10 +691,10 @@ async function ytComments(next, byContinuation) {
   f = fake([], {}, { fetchTranscript: async () => Promise.reject(new Error("没有文字稿")) });
   eq((await load(f, {}, { fresh: true }, { duration: 100, gate: "要登录" })).failure, "要登录");
   // A9: the list failed (no PO token): the transcript still serves; when it fails too, the list's reason stays.
-  f = fake(new Error("没拿到 YouTube 字幕令牌"), {}, { fetchTranscript: async () => transcript });
+  f = fake(new Error("YouTube 拒绝了字幕请求"), {}, { fetchTranscript: async () => transcript });
   eq((await load(f)).track?.id, "transcript");
-  f = fake(new Error("没拿到 YouTube 字幕令牌"), {}, { fetchTranscript: async () => Promise.reject(new Error("没有文字稿")) });
-  eq((await load(f)).failure, "没拿到 YouTube 字幕令牌");
+  f = fake(new Error("YouTube 拒绝了字幕请求"), {}, { fetchTranscript: async () => Promise.reject(new Error("没有文字稿")) });
+  eq((await load(f)).failure, "YouTube 拒绝了字幕请求");
 
   // step sees every wait: once it throws (the video page's run guard) nothing more is asked.
   f = fake(two, { a: tooLong, b: fit });

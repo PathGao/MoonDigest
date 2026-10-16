@@ -100,10 +100,18 @@ async function sendMessageToTab(tabId, message, options = {}) {
   });
 }
 
+// The video page's content script did not answer: the reason (专注模式), or with what to do (the side panel).
+const PAGE_SILENT = "视频页没有回应";
+const PAGE_SILENT_RETRY = `${PAGE_SILENT}，${MdgErrors.TEXT.reloadRetry}`;
+
 async function triggerReaderModeInTab(tabId, readerUrl = "", retries = 12, delayMs = 300) {
+  const videoId = MdgSites.parseRef(readerUrl)?.id;
   for (let attempt = 0; attempt < retries; attempt += 1) {
     if (attempt > 0) {
       await sleep(delayMs);
+      // The tab moved on to another page while we waited: its page must not be sent back to this video.
+      const tab = await chrome.tabs.get(tabId).catch(() => null);
+      if (MdgSites.parseRef(tab?.url || "")?.id !== videoId) return false;
     }
 
     try {
@@ -134,7 +142,7 @@ async function triggerReaderModeInTab(tabId, readerUrl = "", retries = 12, delay
 // plays another video than videoId does not answer, and the side panel reads the video like a closed page instead.
 async function getAiSidepanelState(tabId, { refresh = false, frameId = 0, videoId = "" } = {}) {
   if (!tabId) {
-    throw new Error("缺少标签页信息");
+    throw new Error(MdgErrors.TEXT.noTab);
   }
 
   const tab = await chrome.tabs.get(tabId).catch(() => null);
@@ -158,7 +166,10 @@ async function getAiSidepanelState(tabId, { refresh = false, frameId = 0, videoI
   if (!inViewer) await ensureReaderContentReady(tab.id);
 
   // The page settles its current video (joins a run, follows a URL change) and answers with its comments.
-  const resp = await sendMessageToTab(tab.id, { type: "sidepanel-get-context", refresh, videoId }, inViewer ? { frameId } : {});
+  // Chrome's English messaging errors (no content script, the port closed) all mean the page did not answer.
+  const resp = await sendMessageToTab(tab.id, { type: "sidepanel-get-context", refresh, videoId }, inViewer ? { frameId } : {}).catch(() => {
+    throw new Error(PAGE_SILENT_RETRY);
+  });
   if (!resp?.ok || !resp.payload) {
     throw Object.assign(new Error(resp?.error || "读取当前页面失败"), resp?.code != null ? { code: resp.code } : {});
   }
@@ -184,18 +195,24 @@ async function openAiSidepanelForTab(tabId) {
 const FETCH_TIMEOUT_MS = 15000;
 
 // Obsidian's Local REST API and the cover images written into the vault; a hung request would block the write forever.
-// status 408 is what obsidianError reads as OBSIDIAN_DOWN.
+// status 408 is what obsidianError reads as OBSIDIAN_DOWN. The timeout also covers reading the body, so a body that
+// stalls is the same 408 as headers that never come.
 async function fetchWithTimeout(url, options = {}, ms = FETCH_TIMEOUT_MS) {
+  const timedOut = (error) => {
+    if (error?.name !== "TimeoutError") return error;
+    return Object.assign(new Error(`请求超时：${ms / 1000} 秒没有响应`), { status: 408 });
+  };
+  let res;
   try {
-    return await fetch(url, { ...options, signal: AbortSignal.timeout(ms) });
+    res = await fetch(url, { ...options, signal: AbortSignal.timeout(ms) });
   } catch (error) {
-    if (error?.name === "TimeoutError") {
-      const timeout = new Error(`请求超时：${ms / 1000} 秒没有响应`);
-      timeout.status = 408;
-      throw timeout;
-    }
-    throw error;
+    throw timedOut(error);
   }
+  for (const m of ["json", "text", "arrayBuffer", "blob"]) {
+    const read = res?.[m];
+    if (typeof read === "function") res[m] = (...args) => Promise.resolve().then(() => read.apply(res, args)).catch((error) => Promise.reject(timedOut(error)));
+  }
+  return res;
 }
 
 function refFromAiContext(ref) {
@@ -242,7 +259,8 @@ async function resolveAiSidepanelContext(contextRef) {
     if (!tab?.id) {
       throw new Error(`请先打开这个 ${site.label} 视频页，再继续这段对话`);
     }
-    return getAiSidepanelState(tab.id);
+    // The page answers only while it still shows this video.
+    return getAiSidepanelState(tab.id, { videoId: videoRef.id });
   }
 
   const settings = await getMergedSettings();
@@ -429,7 +447,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       return false;
     }
     if (!tabId) {
-      sendResponse({ ok: false, error: "缺少标签页信息" });
+      sendResponse({ ok: false, error: MdgErrors.TEXT.noTab });
       return false;
     }
 
@@ -451,7 +469,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       .then((triggered) => {
         if (!triggered) {
           // The reason only: the page says MdgErrors.TEXT.readerStartFailed in front of it.
-          throw new Error("视频页没有回应");
+          throw new Error(PAGE_SILENT);
         }
         sendResponse({ ok: true });
       })
@@ -695,6 +713,8 @@ function normalizeSyncSettings(settings) {
   merged.readerLetterSpacing = MdgSettings.normalizeReaderLetterSpacing(merged.readerLetterSpacing);
   merged.readerLineHeight = MdgSettings.normalizeReaderLineHeight(merged.readerLineHeight);
   merged.readerContentWidth = MdgSettings.normalizeReaderContentWidth(merged.readerContentWidth);
+  // options.js and note.js map over it: a settings file may carry anything.
+  merged.frontmatterFields = Array.isArray(merged.frontmatterFields) ? merged.frontmatterFields.filter((f) => typeof f === "string") : MdgSettings.DEFAULTS.frontmatterFields;
   merged.fixedFrontmatterProperties = MdgSettings.normalizeFixedFrontmatterProperties(merged.fixedFrontmatterProperties);
   merged.notePlaceholderSections = MdgSettings.normalizeNotePlaceholderSections(merged.notePlaceholderSections);
   merged.aiSystemPrompt = normalizeAiSystemPrompt(merged.aiSystemPrompt);
@@ -726,12 +746,12 @@ function checkSyncItems(payload) {
   if (big) throw Object.assign(new Error(`${SYNC_ITEM_NAMES[big] || big}太长，存不下：最多约 2700 个汉字（英文约 8000 个字符）`), { field: big });
 }
 
-// Callers send partial settings (the options page has no reading-view controls), so keys they omit keep their stored values.
+// Callers send partial settings (the options page has no reading-view controls). Only the keys they send are written,
+// so two pages saving at once never write back each other's keys from a stale read.
 async function saveSettings(settings) {
   const payload = settings && typeof settings === "object" ? settings : {};
-  const stored = await chrome.storage.sync.get(MdgSettings.DEFAULTS);
-  const syncPayload = normalizeSyncSettings({ ...MdgSettings.DEFAULTS, ...stored, ...payload });
-  delete syncPayload.obsidianApiKey;
+  const normalized = normalizeSyncSettings({ ...MdgSettings.DEFAULTS, ...payload });
+  const syncPayload = Object.fromEntries(Object.keys(payload).filter((k) => k in normalized && k !== "obsidianApiKey").map((k) => [k, normalized[k]]));
   checkSyncItems(syncPayload);
 
   await Promise.all([
@@ -777,7 +797,7 @@ async function importSettings(file) {
   const foldersOk = folders === undefined || (Array.isArray(folders) && folders.every((id) => /^\w+$/.test(String(id))));
   const criteria = file?.local?.[CRITERIA_KEY];
   const criteriaOk = criteria === undefined || (isMap(criteria) && Object.entries(criteria).every(([id, text]) => /^\w+$/.test(id) && typeof text === "string"));
-  if (file?.app !== "moondigest" || file.kind !== "settings" || !isMap(file.settings) || (file.local !== undefined && !isMap(file.local)) || !foldersOk || !criteriaOk) {
+  if (file?.app !== "moondigest" || file.kind !== "settings" || typeof file.schemaVersion !== "number" || !isMap(file.settings) || (file.local !== undefined && !isMap(file.local)) || !foldersOk || !criteriaOk) {
     throw new Error("不是 MoonDigest 的设置文件");
   }
   if (!(file.schemaVersion <= SETTINGS_FILE_VERSION)) throw new Error("这个文件来自更新的版本，先更新 MoonDigest 再导入");
@@ -807,6 +827,9 @@ function normalizeAiSystemPrompt(value) {
 
 const AI_PROVIDER_KEYS_STORAGE = MdgLimits.KEYS.aiApiKeys;
 
+// An AI platform's address as requests use it: no spaces, no trailing slashes.
+const trimBaseUrl = (url) => String(url || "").trim().replace(/\/+$/, "");
+
 function normalizeAiProvider(item) {
   if (!item || typeof item !== "object") return null;
   const id = String(item.id || "").trim();
@@ -815,7 +838,7 @@ function normalizeAiProvider(item) {
     id,
     presetId: String(item.presetId || "custom"),
     name: String(item.name || "自定义").trim() || "自定义",
-    baseUrl: String(item.baseUrl || "").trim().replace(/\/+$/, ""),
+    baseUrl: trimBaseUrl(item.baseUrl),
     model: String(item.model || "").trim(),
     temperature: typeof item.temperature === "number" ? item.temperature : 0.7,
     requiresKey: item.requiresKey !== false,
@@ -835,7 +858,18 @@ async function loadAiProviders() {
     .map((p) => ({ ...p, hasSavedKey: Boolean(keys[p.id]) }));
 }
 
-async function saveAiProviders(items) {
+// Saves and deletes each read and rewrite the whole list and key map: one at a time, so neither undoes the other.
+let aiProviderWrites = Promise.resolve();
+function serialAiProviders(write) {
+  const done = aiProviderWrites.then(write);
+  aiProviderWrites = done.catch(() => {});
+  return done;
+}
+
+function saveAiProviders(items) {
+  return serialAiProviders(() => writeAiProviders(items));
+}
+async function writeAiProviders(items) {
   const rawList = Array.isArray(items) ? items : [];
   const keys = await loadAiProviderKeys();
   const nextList = [];
@@ -858,16 +892,19 @@ async function saveAiProviders(items) {
   return nextList.map((p) => ({ ...p, hasSavedKey: Boolean(keys[p.id]) }));
 }
 
-async function deleteAiProvider(providerId) {
-  const list = await loadAiProviders();
-  const next = list.filter((p) => p.id !== providerId);
-  await chrome.storage.sync.set({ aiProviders: next });
-  const keys = await loadAiProviderKeys();
-  if (keys && providerId in keys) {
-    delete keys[providerId];
-    await chrome.storage.local.set({ [AI_PROVIDER_KEYS_STORAGE]: keys });
-  }
-  return next;
+// Sync keeps the platforms only; whether a key is saved (hasSavedKey) is read from the key map.
+function deleteAiProvider(providerId) {
+  return serialAiProviders(async () => {
+    const list = await loadAiProviders();
+    const next = list.filter((p) => p.id !== providerId);
+    await chrome.storage.sync.set({ aiProviders: next.map(({ hasSavedKey, ...p }) => p) });
+    const keys = await loadAiProviderKeys();
+    if (keys && providerId in keys) {
+      delete keys[providerId];
+      await chrome.storage.local.set({ [AI_PROVIDER_KEYS_STORAGE]: keys });
+    }
+    return next;
+  });
 }
 
 async function loadAiProviderKeys() {
@@ -920,11 +957,7 @@ function buildAiMessages({ context, userPrompt, history, systemPrompt }) {
     // The sentence every entry shows; not logged in or failed, the video may have subtitles (aiSubtitleMissing, as 细看).
     const why = { subtitleNeedLogin: Boolean(ctx.subtitleNeedLogin), subtitleFailure: String(ctx.subtitleFailure || "").trim() };
     const missing = MdgErrors.subtitleMissing(why);
-    sections.push(
-      why.subtitleNeedLogin || why.subtitleFailure
-        ? `${aiSubtitleMissing(why)}你拿不到视频里说了什么或画面内容，以下仅基于简介和评论回答，不要假装看过视频；简介和评论回答不了的，告诉用户：${missing}。`
-        : "这个视频没有字幕，你拿不到视频里说了什么或画面内容。只能依据下面的简介和评论回答，不要假装看过视频；简介和评论回答不了的，直接告诉用户无法确认。"
-    );
+    sections.push(`${aiSubtitleMissing(why)}你拿不到视频里说了什么或画面内容，以下仅基于简介和评论回答，不要假装看过视频；简介和评论回答不了的，告诉用户：${missing}。`);
     notices.push(`${missing}，只根据标题、简介和评论回答`);
     const description = String(ctx.description || "").trim();
     if (description) {
@@ -1002,6 +1035,9 @@ async function* parseOpenAISSE(response, onActivity) {
   } catch {}
   const bodyError = triageAiBodyError(json);
   if (bodyError) throw bodyError;
+  // A platform or proxy that ignores stream:true answers with one plain completion.
+  const whole = json?.choices?.[0]?.message?.content;
+  if (whole) yield String(whole);
 }
 
 // DeepSeek、智谱（国内/国际）、Kimi（国内/国际）用同一个 thinking 参数开关思考；其他平台不发该参数。triage-bg.js 也用它
@@ -1051,7 +1087,7 @@ async function streamChat({ provider, context, userPrompt, history, port, signal
         model: provider.model,
         messages,
         stream: true,
-        temperature: typeof provider.temperature === "number" ? provider.temperature : 0.7,
+        temperature: provider.temperature,
         // Newer fast models think by default; the side panel never asked for it.
         ...(supportsThinkingToggle(baseUrl) && { thinking: { type: "disabled" } })
       })
@@ -1068,7 +1104,13 @@ async function streamChat({ provider, context, userPrompt, history, port, signal
 
   // The 分拣台's classification (triage-bg.js); the code tells the panel whether 重试 can help.
   if (!response.ok) {
-    const e = triageAiHttpError(response.status, await response.text().catch(() => ""));
+    const text = await response.text().catch(() => "");
+    // Stopped or timed out while the error body was read: that is what happened, as on the other two paths.
+    if (signal?.aborted) {
+      postStreamAbort(port, getAbortMeta?.());
+      return;
+    }
+    const e = triageAiHttpError(response.status, text);
     port.postMessage({ type: "error", error: e.message, ...(e.code && { code: e.code }) });
     return;
   }
@@ -1108,7 +1150,7 @@ async function testAiConnection({ baseUrl, apiKey, model, requiresKey }) {
     return { ok: false, error: problem.text, code: problem.code };
   }
   return probeAiChatCompletion({
-    baseUrl: String(baseUrl).trim().replace(/\/+$/, ""),
+    baseUrl: trimBaseUrl(baseUrl),
     apiKey,
     model: String(model).trim()
   });
@@ -1121,11 +1163,13 @@ async function probeAiChatCompletion({ baseUrl, apiKey, model }) {
   }
 
   let response;
+  const signal = AbortSignal.timeout(AI_TEST_TIMEOUT_MS);
+  const timedOut = { ok: false, error: MdgErrors.aiTimeout(AI_TEST_TIMEOUT_MS), code: "AI_TIMEOUT" };
   try {
     response = await fetch(`${baseUrl}/chat/completions`, {
       method: "POST",
       headers: requestHeaders,
-      signal: AbortSignal.timeout(AI_TEST_TIMEOUT_MS),
+      signal,
       body: JSON.stringify({
         model,
         stream: false,
@@ -1136,7 +1180,7 @@ async function probeAiChatCompletion({ baseUrl, apiKey, model }) {
       })
     });
   } catch (error) {
-    if (error?.name === "TimeoutError") return { ok: false, error: MdgErrors.aiTimeout(AI_TEST_TIMEOUT_MS), code: "AI_TIMEOUT" };
+    if (error?.name === "TimeoutError") return timedOut;
     const err = await aiFetchError(baseUrl);
     return { ok: false, error: err.message, code: err.code };
   }
@@ -1147,6 +1191,8 @@ async function probeAiChatCompletion({ baseUrl, apiKey, model }) {
     await triageAiJson(response);
     return { ok: true };
   } catch (e) {
+    // The 30 s also cover reading the reply: a body that stalls is the same timeout, not 「不是 JSON」.
+    if (signal.aborted) return timedOut;
     return { ok: false, error: e.message, ...(e.code && { code: e.code }) };
   }
 }

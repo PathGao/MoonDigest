@@ -64,6 +64,7 @@ assert.strictEqual(s2.oneLiner, "讲 Rust 所有权");
   assert.deepStrictEqual(plain(show({ verdict: true, vtags: true })), ["AI 值得留", "Rust", "讲 Rust 所有权"]);
   assert.deepStrictEqual(plain(show({ verdict: false, vtags: true })), ["", "Rust", ""], "AI 判断 off: no verdict, no AI one-liner");
   assert.deepStrictEqual(plain(show({ verdict: true, vtags: false })), ["AI 值得留", "", "讲 Rust 所有权"]);
+  assert.ok(!lineParts(info, { verdict: true, vtags: false }).info.aria.includes("Rust"), "视频标签 off: the label read aloud lists no tags either");
   assert.strictEqual(show({ verdict: false, vtags: false }), null, "both off: no line");
   assert.ok(!lineParts(info, { verdict: false, vtags: true }).info.aria.includes("AI"), "the label read aloud says no verdict either");
 }
@@ -91,13 +92,14 @@ assert.deepStrictEqual(
 assert.deepStrictEqual(plain(badgeInfo({ invalid: true, title: { verdict: "keep", reason: "好", confidence: "high" } })).reason, "视频已失效。AI 原理由：好");
 assert.strictEqual(badgeInfo({ analysis: { status: "done", verdict: "t-must" } }).label, "AI 拿不准", "a done 细看 with an old verdict reads as 待定, like the triage page");
 
-// A video decided in several folders shows its latest decision, whatever the storage-key order.
+// As on the 分拣台, a folder's 取消收藏 wins over 保留, even an older one; several folders' 取消收藏: the latest.
 const merged = mergeDecisions({
-  triage_decisions_b: { BV1: { action: "keep", at: 5 }, BV2: { action: "keep", at: 1 } },
-  triage_decisions_a: { BV1: { action: "unfav", at: 3 }, BV2: { action: "unfav", at: 9 } },
+  triage_kept: { BV1: { action: "keep", at: 5 }, BV3: { action: "keep", at: 1 } },
+  triage_decisions_b: { BV1: { action: "unfav", at: 3 }, BV2: { action: "unfav", at: 2 } },
+  triage_decisions_a: { BV2: { action: "unfav", at: 9 } },
   triage_video_tags: { BV1: ["t1"] }
 });
-assert.deepStrictEqual(plain(merged), { BV1: { action: "keep", at: 5 }, BV2: { action: "unfav", at: 9 } });
+assert.deepStrictEqual(plain(merged), { BV1: { action: "unfav", at: 3 }, BV2: { action: "unfav", at: 9 }, BV3: { action: "keep", at: 1 } });
 
 
 // ---- UP tags: author link -> mid, where the chip lands ----
@@ -184,6 +186,11 @@ assert.strictEqual(applyUpTag(pt, {}, "9", { create: " ，" }), null, "an empty 
   assert.strictEqual(db.follow_tags.at(-1).name, "新");
   assert.strictEqual(await saveUpTag(local, "1", { toggle: "nope" }), null);
   assert.strictEqual(sets.length, 2, "nothing written for a tag that is gone");
+  // Two quick clicks: the second reads after the first one's write, so both toggles stay.
+  const slow = { get: async (k) => (await new Promise((r) => setTimeout(r, 5)), local.get(k)), set: async (o) => (await new Promise((r) => setTimeout(r, 5)), local.set(o)) };
+  db.follow_tag_map = {};
+  await Promise.all([saveUpTag(slow, "2", { toggle: "a" }), saveUpTag(slow, "3", { toggle: "a" })]);
+  assert.deepStrictEqual(plain(db.follow_tag_map), { 2: ["a"], 3: ["a"] }, "overlapping writes keep both");
 })().catch((e) => {
   console.error(e);
   process.exit(1);
@@ -191,11 +198,10 @@ assert.strictEqual(applyUpTag(pt, {}, "9", { create: " ，" }), null, "an empty 
 
 // ---- Per-surface rules (DESIGN 产品决策 · B站 页面上的标记): which page is which, and what each shows ----
 const { SURFACES, surfaceOf, fitCount, biliSaysSeen } = ctx.MdgBadges;
-const where = (url, viewer) => {
+const where = (url) => {
   const u = new URL(url);
-  return surfaceOf({ host: u.hostname, path: u.pathname, search: u.search, viewer });
+  return surfaceOf({ host: u.hostname, path: u.pathname, search: u.search });
 };
-assert.strictEqual(where("https://www.bilibili.com/video/BV1GJ411x7h7", true), "", "the 分拣台's player iframe: nothing");
 assert.strictEqual(where("https://www.bilibili.com/video/BV1GJ411x7h7"), "video");
 assert.strictEqual(where("https://www.bilibili.com/list/watchlater?bvid=BV1GJ411x7h7"), "video");
 assert.strictEqual(where("https://www.bilibili.com/"), "card");
@@ -594,7 +600,7 @@ async function plusPage() {
   assert.strictEqual(tagsOf(title("c")), "");
   const plus = plusOf(title("c"));
   assert.strictEqual(plus.title, "打 UP 标签 · 只存在 MoonDigest 里，不改 B站");
-  assert.deepStrictEqual([plus.attrs.role, plus.attrs["aria-label"], plus.attrs["aria-expanded"], plus.tabIndex], ["button", "给 丙 打 UP 标签", "false", 0]);
+  assert.deepStrictEqual([plus.attrs.role, plus.attrs["aria-label"], plus.attrs["aria-expanded"], plus.tabIndex], ["button", "给「丙」打 UP 标签", "false", 0]);
   assert.deepStrictEqual(counts(), ["全部6", "常看2", "游戏0"]);
 
   // Opening: a click on the 「+」 is kept from Bilibili's own handlers (the name opens the space page).
@@ -628,6 +634,11 @@ async function plusPage() {
   assert.deepStrictEqual(rows(), ["常看:false", "✓游戏:true"]);
   assert.strictEqual(focused.el?.dataset.id, "b", "focus stays on the row just toggled");
   assert.strictEqual(plusOf(title("c")).attrs["aria-expanded"], "true", "the rebuilt box's 「+」 still shows the picker open");
+  // A redraw (a follow sync) keeps focus on 「在分拣台「关注」里打开这个 UP」, not on 新建标签.
+  panel.querySelector(".go").focus();
+  changed.forEach((f) => f({ follow_list: { newValue: store.follow_list } }, "local"));
+  await settle();
+  assert.strictEqual(focused.el, panel.querySelector(".go"), "focus stays on the 分拣台 link through a redraw");
 
   // 新建标签: the row turns into a name field; Enter creates the tag and switches it on.
   panel.listeners.click[0]({ target: panel.querySelector(".new").firstChild });
@@ -699,6 +710,40 @@ async function plusPage() {
   const stale = doc.childNodes.at(-1).shadow.querySelector(".pick");
   assert.strictEqual(stale.querySelector(".empty")?.textContent, "扩展刚刚更新，请刷新网页");
   assert.ok(stale.style.top && stale.style.left, "the notice is placed under the 「+」, not left off-screen");
+  doc.listeners.pointerdown.forEach((f) => f({ composedPath: () => [list, doc] }));
+  win.chrome.runtime.id = "x";
+
+  // The UP tags switched off while a scan waits for follow_people: the resumed scan draws nothing.
+  const realGet = win.chrome.storage.local.get;
+  let release;
+  win.chrome.storage.local.get = async (k) => ([].concat(k).includes("follow_people") && (await new Promise((r) => (release = r))), realGet(k));
+  changed.forEach((f) => f({ follow_people: {} }, "local"));
+  await settle();
+  win.chrome.storage.sync.get = async (d) => ({ ...d, showBiliTriageBadges: true, showBiliUpTags: false });
+  changed.forEach((f) => f({ showBiliUpTags: { newValue: false } }, "sync"));
+  await settle();
+  release();
+  await settle();
+  assert.strictEqual(doc.querySelectorAll(".mdg-ups").length, 0, "UP tags off during the read: none drawn after it");
+  win.chrome.storage.local.get = realGet;
+  win.chrome.storage.sync.get = async (d) => ({ ...d, showBiliTriageBadges: false });
+  changed.forEach((f) => f({ showBiliUpTags: { newValue: true } }, "sync"));
+  await settle();
+
+  // Every UP tag deleted while followed UPs remain: the 「+」s stay, the filter bar goes.
+  assert.ok(doc.querySelector(".mdg-upbar"));
+  store.follow_tags = [];
+  store.follow_tag_map = {};
+  changed.forEach((f) => f({ follow_tags: {} }, "local"));
+  await settle();
+  assert.ok(plusOf(title("c")), "followed UPs keep their 「+」");
+  assert.strictEqual(doc.querySelector(".mdg-upbar"), null, "no UP tags left: no filter bar");
+
+  // The extension disabled or removed (no fresh copy comes): the next page change stops this copy and takes its marks.
+  delete win.chrome.runtime.id;
+  changed.forEach((f) => f({ follow_people: {} }, "local"));
+  await settle();
+  assert.deepStrictEqual([doc.querySelectorAll(".mdg-ups").length, doc.listeners.click.length], [0, 0], "orphaned copy: no marks, no listeners");
 }
 
 // ---- the live script on other surfaces: the 分拣台's player, a home page with a header popover, a 收藏夹 page ----
@@ -748,12 +793,23 @@ async function surfacePages() {
     triage_tags: [{ id: "t", name: "收藏标签", color: "#0f0" }],
     triage_video_tags: { BV1GJ411x7h7: ["t"] }
   });
-  const viewer = await page({ hostname: "www.bilibili.com", pathname: "/video/BV1GJ411x7h7" }, h("body", {}, h("div", { class: "video-info-title" }), author(), h("a", { href: "/video/BV1xx411c7mD" })), "", { showBiliVerdicts: true });
+  const vsync = { showBiliVerdicts: true };
+  const viewer = await page({ hostname: "www.bilibili.com", pathname: "/video/BV1GJ411x7h7" }, h("body", {}, h("div", { class: "video-info-title" }), author(), h("a", { href: "/video/BV1xx411c7mD" })), "", vsync);
   const viewerOff = await page({ hostname: "www.bilibili.com", pathname: "/video/BV1GJ411x7h7" }, h("body", {}, h("div", { class: "video-info-title" })), "");
   assert.strictEqual(viewerOff.doc.querySelector(".mdg-line"), null, "player: AI 判断 switch off, no line (its 视频标签 are above the player)");
   const vline = viewer.doc.querySelector(".mdg-line");
   assert.ok(vline && /讲 Rust 所有权/.test(vline.textContent) && !/收藏标签/.test(vline.textContent), "player: the title line, AI 判断 (switch on) without 视频标签");
   assert.deepStrictEqual([viewer.doc.querySelectorAll(".mdg-ups").length, viewer.doc.querySelectorAll(".mdg-badge").length], [0, 1], "player: no UP marks, no marks on other links");
+  // The player's line follows a new analysis and goes when AI 判断 is switched off.
+  store.triage_analysis_BV1GJ411x7h7 = { status: "done", verdict: "drop", reason: "过时", oneLiner: "旧版本教程" };
+  viewer.listen.forEach((f) => f({ triage_analysis_BV1GJ411x7h7: { newValue: {} } }, "local"));
+  await new Promise((r) => setTimeout(r, 30));
+  assert.match(viewer.doc.querySelector(".mdg-line")?.textContent || "", /旧版本教程/, "player: the line redraws with the new analysis");
+  vsync.showBiliVerdicts = false;
+  viewer.listen.forEach((f) => f({ showBiliVerdicts: { newValue: false } }, "sync"));
+  await new Promise((r) => setTimeout(r, 30));
+  assert.strictEqual(viewer.doc.querySelector(".mdg-line"), null, "player: AI 判断 off, the line goes");
+  store.triage_analysis_BV1GJ411x7h7 = { status: "done", verdict: "keep", reason: "干货", oneLiner: "讲 Rust 所有权" };
   // J3: the 稍后再看 / 收藏夹 player (/list/…?bvid=) has the line under the title too, as /video/ has.
   for (const search of ["?bvid=BV1GJ411x7h7", "?oid=1&bvid=BV1GJ411x7h7"]) {
     const list = await page({ hostname: "www.bilibili.com", pathname: search.startsWith("?oid") ? "/list/ml5" : "/list/watchlater", search }, h("body", {}, h("div", { class: "video-info-title" })), false, { showBiliVerdicts: true });

@@ -18,7 +18,7 @@ const scripts = [...fs.readFileSync(path.join(__dirname, "popup.html"), "utf8").
 assert.strictEqual(scripts.pop(), "./popup.js", "popup.js loads last");
 for (const f of scripts) vm.runInContext(fs.readFileSync(path.join(__dirname, f), "utf8"), ctx);
 vm.runInContext(`${source}\n;globalThis.el = el;`, ctx);
-const { refreshFromTab, bindEvents } = ctx; // B1 below stubs them
+const { refreshFromTab, bindEvents, ensurePayload, sendToContent } = ctx; // the blocks below stub them
 const state = () => Object.fromEntries(["downloadBtn", "readingViewBtn", "summaryBtn", "copyBtn", "mdBtn", "sendBtn"].map((k) => {
   const b = ctx.el[k];
   assert.strictEqual(b.title, b.attrs["aria-description"] || "", `${k}: tooltip and aria-description agree`);
@@ -126,6 +126,29 @@ setTimeout(() =>
     Object.assign(ctx, { isSupportedSubtitlePage: () => true, sendToContent: async () => ({ ok: true }), sendToRuntime: async () => ({ ok: false, error: "视频页没有回应" }) });
     await ctx.el.readingViewBtn.on.click();
     assert.strictEqual(ctx.el.status.textContent, `${T.readerStartFailed}：视频页没有回应`);
+    // 专注模式's state check failing reads like its other failures: the lead, then the reason.
+    Object.assign(ctx, { sendToContent: async () => ({ ok: false, error: "网络断了" }) });
+    await ctx.el.readingViewBtn.on.click();
+    assert.strictEqual(ctx.el.status.textContent, `${T.readerStartFailed}：网络断了`);
+    // A failed read without words: 未知错误, not 不是视频页 (init already turned web pages away).
+    ctx.sendToContent = async () => ({ ok: false });
+    await refreshFromTab(true);
+    assert.strictEqual(ctx.el.status.textContent, `${T.videoReadFailed}：${T.unknown}`);
+    // The page did not answer: 下载字幕 keeps that reason instead of claiming 视频没有字幕.
+    vm.runInContext("latestPayload = null", ctx);
+    ctx.ensurePayload = ensurePayload;
+    ctx.getSettingsFromRuntime = async () => ({});
+    await ctx.el.downloadBtn.on.click();
+    assert.strictEqual(ctx.el.status.textContent, T.reloadRetry);
+    // No active tab: 写入 Obsidian fails in words and ends its busy state, with no unhandled rejection.
+    ctx.sendToContent = sendToContent;
+    ctx.getActiveTab = async () => null;
+    await ctx.el.sendBtn.on.click();
+    assert.deepStrictEqual([ctx.el.status.textContent, ctx.el.sendBtn.disabled], [`${T.obsidianFailed}：${T.noTab}`, false]);
+    // Chrome's English messaging errors read as 请刷新网页后重试; the extension's own reasons pass through.
+    ctx.getActiveTab = async () => ({ id: 1, url: "https://example.com/" });
+    ctx.chrome = { runtime: {}, tabs: { sendMessage: (id, m, cb) => ((ctx.chrome.runtime.lastError = { message: "The message port closed before a response was received." }), cb(), delete ctx.chrome.runtime.lastError) } };
+    assert.strictEqual((await ctx.sendToContent({ type: "popup-get-state" })).error, T.reloadRetry);
     console.log("popup selftest: all passed");
   })().catch((e) => (console.error(e), process.exit(1)))
 );
