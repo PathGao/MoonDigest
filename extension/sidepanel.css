@@ -628,11 +628,6 @@ body:has(#spInput:not(:placeholder-shown)) .sp-summary-btn {
   color: var(--text);
 }
 
-.sp-msg-copy-btn:disabled {
-  cursor: default;
-  color: var(--text-2);
-}
-
 .sp-msg-copy-btn svg {
   width: 14px;
   height: 14px;

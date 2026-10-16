@@ -40,12 +40,12 @@
   }
 
   // A followed video before its subtitles load: the tab URL already names it.
-  function buildTabVideoPlaceholder(tab, ref, shownTitle) {
+  function buildTabVideoPlaceholder(tab, ref, shown) {
     const title = String(tab.title || "").replace(/_哔哩哔哩_bilibili$| - YouTube$/, "").trim();
     return {
       ...buildContextPlaceholder({ site: ref.site, videoId: ref.id, url: ref.url, pageIndex: ref.part?.index || 1 }, true),
-      // Right after an in-page navigation the tab can still carry the previous video's title.
-      title: title === shownTitle ? "" : title
+      // Right after an in-page navigation the tab can still carry the previous video's title; the parts of one video share it.
+      title: title === shown?.title && shown?.videoId !== ref.id ? "" : title
     };
   }
 
@@ -131,43 +131,25 @@
   }
 
   function buildConversationTitle(context) {
-    const rawTitle = String(context?.title || "当前页面").trim() || "当前页面";
-    return appendConversationPageSuffix(extractConversationBaseTitle(rawTitle), context);
+    return appendConversationPageSuffix(extractConversationBaseTitle(context?.title), context);
   }
 
   function normalizeConversationTitle(title, contextTitle = "", contextRef = null, contextUrl = "") {
-    const preferredTitle = String(contextTitle || "").trim() || String(title || "").trim();
-    return appendConversationPageSuffix(extractConversationBaseTitle(preferredTitle) || "历史对话", contextRef || { url: contextUrl });
+    return appendConversationPageSuffix(extractConversationBaseTitle(String(contextTitle || "").trim() || title), contextRef || { url: contextUrl });
   }
 
+  // The video's whole title (two videos named alike before a 「 - 」 stay apart); the part suffix is drawn from the context.
   function extractConversationBaseTitle(title) {
-    const raw = String(title || "").trim();
-    if (!raw) {
-      return "当前页面";
-    }
-    const normalizedRaw = raw.replace(/-P\d+$/i, "").trim();
-    const parts = normalizedRaw
-      .split(/\s+[|｜]\s+|\s+-\s+|\s+[—–]\s+|\s+[·•]\s+|\r?\n+/)
-      .map((item) => item.trim())
-      .filter(Boolean);
-    return parts[0] || normalizedRaw;
+    return String(title || "").trim().replace(/-P\d+$/i, "").trim() || "未知视频";
   }
 
   function appendConversationPageSuffix(title, context) {
-    const baseTitle = String(title || "").trim() || "历史对话";
-    const cleanTitle = baseTitle.replace(/-P\d+$/i, "").trim();
     const pageIndex = Number(context?.pageIndex || context?.page || 0) || extractPageIndexFromContextUrl(context?.url);
-    return pageIndex > 1 ? `${cleanTitle}-P${pageIndex}` : cleanTitle;
+    return pageIndex > 1 ? `${title}-P${pageIndex}` : title;
   }
 
-  function extractPageIndexFromContextUrl(url) {
-    try {
-      const page = Number(new URL(String(url || "").trim()).searchParams.get("p") || "1");
-      return Number.isFinite(page) && page > 0 ? page : 1;
-    } catch {
-      return 1;
-    }
-  }
+  // A video URL's part (?p=, as sites.js reads it); any other page has none.
+  const extractPageIndexFromContextUrl = (url) => MdgSites.parseRef(String(url || "").trim())?.part?.index || 1;
 
   // ---- following the tab (跟随播放) ----
 
@@ -446,7 +428,7 @@
         if (decision.action !== "follow") {
           return [];
         }
-        const placeholder = buildTabVideoPlaceholder(event.tab, ref, shown(s)?.title);
+        const placeholder = buildTabVideoPlaceholder(event.tab, ref, shown(s));
         s.live = { ...s.live, context: placeholder, key: buildContextKey(placeholder), error: "" };
         return follow(s, placeholder);
       }
@@ -454,14 +436,14 @@
       case "CONTEXT_ARRIVED": {
         const { payload } = event;
         if (!payload) {
-          s.live = { ...s.live, context: null, key: "", error: String(event.error || "读取当前页面失败") };
+          s.live = { ...s.live, context: null, key: "", error: String(event.error || "") };
           return [];
         }
         const key = buildContextKey(payload);
         const before = snapshot(s);
         const keyChanged = contextKeyChanges(s, payload);
         s.live = { ...s.live, context: payload, key, error: "" };
-        const toUrl = payload.isVideoContext !== false && key.startsWith("video:") ? String(payload.url || "") : "";
+        const toUrl = payload.isVideoContext !== false && MdgSites.buildContextKey(buildConversationContextRef(payload)) ? String(payload.url || "") : "";
         const decision = decideFollow(before, { stage: "payload", toUrl, follow: event.follow, keyChanged });
         s.live.lastVideoUrl = decision.lastVideoUrl;
         if (decision.action === "follow") {
@@ -597,6 +579,11 @@
     const contextRef = conversation?.contextRef;
     if (!contextRef) {
       return [];
+    }
+    // No payload: the lookup can never answer (the video is gone), so it is not asked again; the conversation stays as saved.
+    if (!payload) {
+      s.saved = normalizeConversations(s.saved.map((item) => (item.id === id ? { ...item, pageHydrated: true } : item)));
+      return [{ type: "save" }];
     }
     const pageIndex = Number(payload.pageIndex) > 0 ? Number(payload.pageIndex) : 1;
     // 分 P 数: the note's name (P1 of a multi-part video says P1) depends on it, like on the video page.

@@ -332,4 +332,28 @@ function panel({ tab = video("BV1aa"), list = [] } = {}) {
   assert.strictEqual(p.view().unanswered, null, "another conversation");
 }
 
+// C303: following from one part of a video to the next keeps the tab's title (the parts share it); a title still
+// showing another video's is dropped.
+{
+  const p = panel({ tab: video("BV1pp") });
+  p.dispatch({ type: "TAB_READ", tab: { url: `${v("BV1pp")}?p=2`, title: "t-BV1pp_哔哩哔哩_bilibili" }, follow: true });
+  assert.deepStrictEqual([p.view().context.pending, p.view().context.title], [true, "t-BV1pp"]);
+  p.dispatch({ type: "TAB_READ", tab: { url: v("BV1qq"), title: "t-BV1pp" }, follow: true });
+  assert.strictEqual(p.view().context.title, "");
+}
+
+// C305, C308: a conversation keeps its video's whole title; one without a title is 未知视频, saved or loaded.
+{
+  const p = panel({ tab: null, list: [saved("dash", video("BV1d1", { title: "上集 - 下集" })), saved("none", video("BV1d2", { title: "" }))] });
+  assert.deepStrictEqual(p.view().saved.map((c) => c.title).sort(), ["上集 - 下集", "未知视频"]);
+}
+
+// C328: a page lookup that can never answer (the video is gone) is settled, so the next open does not ask again.
+{
+  const p = panel({ tab: null, list: [saved("gone", video("BV1gn"))] });
+  assert.strictEqual(S.needsConversationPageHydration(p.view().saved[0]), true);
+  assert.deepStrictEqual(types(p.dispatch({ type: "PAGE_HYDRATED", id: "gone", payload: null })), ["save"]);
+  assert.deepStrictEqual([S.needsConversationPageHydration(p.view().saved[0]), p.view().saved[0].title], [false, "t-BV1gn"]);
+}
+
 console.log("sidepanel-state selftest: all passed");
