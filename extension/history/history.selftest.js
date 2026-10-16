@@ -22,6 +22,7 @@ const node = (id) =>
     removeAttribute(k) { delete this.attrs[k]; },
     classList: { toggle() {}, add() {}, remove() {} },
     querySelectorAll: () => [],
+    querySelector: () => null,
     addEventListener: (t, f) => ((L[id] ||= {})[t] ||= []).push(f)
   });
 // Untrusted text (titles, UP names, comments, AI replies, tag names, paths) stays text: no tag of its own, no way out of
@@ -38,7 +39,7 @@ const ctx = vm.createContext({
   setTimeout,
   clearTimeout,
   window: { scrollY: 0, scrollTo() {} },
-  document: { getElementById: node, addEventListener() {}, activeElement: null },
+  document: { getElementById: node, addEventListener: (t, f) => ((L.document ||= {})[t] ||= []).push(f), activeElement: null },
   chrome: {
     runtime: { id: "test", sendMessage: async () => ({}) },
     tabs: { getCurrent: async () => ({ id: 1 }) },
@@ -114,10 +115,24 @@ for (const f of scripts) vm.runInContext(fs.readFileSync(f, "utf8"), ctx);
   await wait(350);
   const noteKey = html.match(/data-key="([^"]*BV1note[^"]*)"/)[1];
   pick(noteKey, true);
-  assert.deepStrictEqual([els.bulkMd.textContent, els.bulkDelete.textContent, reason("bulkDelete")], ["下载选中的 3 个 .md", "删除选中的 2 个的 AI 对话", [false, "选中的 3 个里，1 个没有 AI 对话，删除后会留下；它们的 AI 总结和备注在分拣台清理", undefined]]);
+  assert.deepStrictEqual([els.bulkMd.textContent, els.bulkDelete.textContent, reason("bulkDelete")], ["下载选中的 3 个 .md", "删除选中的 2 个的 AI 对话", [false, "选中的 3 个里，1 个没有 AI 对话，删除后会留下", undefined]]);
+  // A21: a 备注 closed by pressing another entry's button (focusout on pointerdown) redraws only after that press,
+  // so the button the click lands on is still the one pressed.
+  const docFire = (t) => (L.document[t] || []).forEach((f) => f({}));
+  const noteTarget = { dataset: { act: "note" }, closest: (s) => (s === ".entry" ? { dataset: { key: noteKey } } : noteTarget) };
+  L.list.click.forEach((f) => f({ target: noteTarget }));
+  assert.ok(html.includes("data-note"), "the 备注 box is open");
+  const before = renders;
+  docFire("pointerdown");
+  L.list.focusout.forEach((f) => f({ target: { matches: (sel) => sel === "[data-note]" } }));
+  await wait(20);
+  assert.strictEqual(renders, before, "no redraw mid-press");
+  docFire("pointerup");
+  await wait(20);
+  assert.ok(renders > before && !html.includes("data-note"), "redrawn after the press, the box closed");
   pick("a", false);
   pick("b", false);
-  assert.deepStrictEqual([els.bulkDelete.textContent, reason("bulkDelete")], ["删除选中的 AI 对话", [true, "选中的视频没有 AI 对话，它们的 AI 总结和备注在分拣台清理", "选中的视频没有 AI 对话，它们的 AI 总结和备注在分拣台清理"]]);
+  assert.deepStrictEqual([els.bulkDelete.textContent, reason("bulkDelete")], ["删除选中的 AI 对话", [true, "选中的视频没有 AI 对话", "选中的视频没有 AI 对话"]]);
   // K13: each entry's button says what it deletes.
   assert.ok(html.includes('data-act="delete" class="danger">删除 AI 对话</button>'), html);
   // K10: 继续问 on a record that is not a video is off with why, through setReason.

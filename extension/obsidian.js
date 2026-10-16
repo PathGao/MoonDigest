@@ -56,7 +56,7 @@ async function putVaultNote(vault, filepath, body) {
 
 // One request to the API root, which answers authenticated: false to a wrong key: the settings page's 测试连接 and the
 // check before a 逐个视频笔记 run (triage-bg.js triageObsidianCheck). Throws obsidianError's errors, the words of every
-// write; returns the service name.
+// write, or obsidianNotApi when the answer is not JSON (another service on that address); returns the service name.
 async function probeObsidian(baseUrl, apiKey) {
   let response;
   try {
@@ -70,7 +70,8 @@ async function probeObsidian(baseUrl, apiKey) {
   const data = await response.json().catch(() => null);
   if (data?.authenticated === false) throw obsidianError({ status: 401 });
   if (!response.ok) throw obsidianError({ status: response.status });
-  return typeof data?.service === "string" ? data.service : "Obsidian Local REST API";
+  if (!data || typeof data !== "object") throw obsidianCoded(MdgErrors.TEXT.obsidianNotApi, "OBSIDIAN");
+  return typeof data.service === "string" ? data.service : "Obsidian Local REST API";
 }
 
 async function testObsidianConnection(baseUrl, apiKey) {
@@ -112,6 +113,8 @@ async function forgetObsidianNotePath(noteKey) {
 async function updateAiSectionInVault(vault, filepath, section, noteKey, existing, pageIndex) {
   const note = existing || (await readVaultNote(vault, filepath));
   if (!note.exists) {
+    // Every path 404s at a wrong address: forget the note only once the API itself answers.
+    await probeObsidian(vault.baseUrl, vault.apiKey);
     await forgetObsidianNotePath(noteKey);
     return { exists: false, updated: false };
   }
@@ -211,13 +214,18 @@ async function writeVideoNote({ ref: input, mode, conversation, page }) {
       }
     }
   } else {
-    target = standalone("（单独的对话笔记）", computedPath());
+    // A recorded note without its page (YouTube, 分 P): asked about like any other, but only its AI 问答 can change.
+    const recorded = section && paths[key]?.path;
+    const note = recorded ? await readVaultNote(vault, recorded) : null;
+    target = note?.exists
+      ? { video: true, path: recorded, note, body: async () => { throw new Error("整篇覆盖要先打开视频页"); } }
+      : standalone("（单独的对话笔记）", computedPath());
   }
 
   const { path } = target;
   // After body(): a recorded note is built only when it is written whole.
   const title = () => built?.meta.title || ref.title;
-  const existing = await readVaultNote(vault, path);
+  const existing = target.note || (await readVaultNote(vault, path));
   if (existing.exists && !mode) {
     return { ask: true, path, ...(target.video && { hasAiSection: Boolean(section) }) };
   }

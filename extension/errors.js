@@ -77,7 +77,9 @@
     subtitleReading: "正在读取视频字幕…",
     // 分拣台's 收藏夹设置 / 关注设置 and their AI 参数; a failure is followed by 「：原因」.
     settingsSaved: "设置已保存",
-    settingsSaveFailed: "保存设置失败"
+    settingsSaveFailed: "保存设置失败",
+    // The address answers, but not in JSON as the Local REST API does (another local service): 测试连接, the pre-run check.
+    obsidianNotApi: "这个地址不是 Obsidian Local REST API"
   });
 
   // Names of controls and pages that recur across pages (DESIGN 术语表). A name also appears inside sentences

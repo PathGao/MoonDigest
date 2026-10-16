@@ -382,6 +382,8 @@ assert.strictEqual(N.upsertAiSection("no trailing newline", section), `no traili
 // A note with only the start marker (user deleted the end) gets a fresh section appended rather than a truncated note.
 const halfMarked = `${userNote}${N.AI_SECTION_START}\n## AI 问答\n`;
 assert.strictEqual(N.upsertAiSection(halfMarked, newSection), `${halfMarked}\n${newSection}\n`);
+// A23: the next sync replaces only that appended section; the text after the stray start marker stays.
+assert.strictEqual(N.upsertAiSection(`${halfMarked}\n${newSection}\n`, section), `${halfMarked}\n${section}\n`);
 
 // pickConversation: exact part first, then the video without a part; newest wins; other videos never match.
 const conv = (contextKey, updatedAt) => ({ contextKey, updatedAt, messages });
@@ -442,6 +444,10 @@ assert.strictEqual(
   "<h4>标题</h4><p><strong>粗</strong> &lt;b&gt;</p><ul><li>a</li><li>b</li></ul>",
   "markdown renders, raw HTML is escaped, think is stripped"
 );
+// A24, A25: a fence's language line is not code; numbered items are one list.
+assert.strictEqual(N.renderMarkdown("```python\nprint(1)\n```"), "<pre><code>print(1)\n</code></pre>");
+assert.strictEqual(N.renderMarkdown("1. a\n2. b\n\n3. c"), "<ol><li>a</li><li>b</li><li>c</li></ol>");
+assert.strictEqual(N.renderMarkdown("1. a\n1. b"), "<ol><li>a</li><li>b</li></ol>");
 {
   const p2 = { title: "合集", site: "bilibili", videoId: "BV1GJ411x7h7", url: "https://www.bilibili.com/video/BV1GJ411x7h7/?p=2&t=5", pageIndex: 2, pageCount: 3 };
   assert.strictEqual(N.buildAiConversationFilename(p2), "【AI笔记】合集 P2.md");
