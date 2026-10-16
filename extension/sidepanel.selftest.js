@@ -59,7 +59,7 @@ const state = vm.runInContext("state", ctx);
 const view = () => state.view();
 const realRenderHistoryList = ctx.renderHistoryList;
 // The page's own functions, for the behaviour tests below that need them past the stubs.
-const real = Object.fromEntries(["hydratePinnedConversationContext", "renderPreviousVideoBar", "ensureCurrentContextForSend"].map((f) => [f, ctx[f]]));
+const real = Object.fromEntries(["hydratePinnedConversationContext", "renderPreviousVideoBar", "ensureCurrentContextForSend", "renderInitialState"].map((f) => [f, ctx[f]]));
 // Untrusted text (titles, UP names, comments, AI replies, tag names, paths) stays text: no tag of its own, no way out of
 // a quoted attribute.
 const XSS = ["<img src=x onerror=alert(1)>", `"'><script>alert(1)</script>`];
@@ -116,6 +116,10 @@ const chatOn = (context) => {
   show(video);
   assert.strictEqual(await ctx.loadContextState({ silent: true }), "followed");
   assert.strictEqual(view().context.videoId, "BV1GJ411x7h7");
+  // A39: a failed video read is said as on the popup and in 专注模式: 「读取视频失败：原因」.
+  answer = async () => ({ ok: false, error: "读取当前分 P 失败" });
+  assert.strictEqual(await ctx.loadContextState({ silent: true }), false);
+  assert.strictEqual(view().live.error, "读取视频失败：读取当前分 P 失败");
 
   {
     // Neither gate of sendMessage reaches the request (chrome.runtime.connect is not stubbed and would throw).
@@ -351,6 +355,11 @@ const chatOn = (context) => {
     frame = { ...frame, selectedSubtitleId: "ja", subtitleMarkdown: "日文字幕" };
     assert.strictEqual(await real.ensureCurrentContextForSend(), true);
     assert.strictEqual(view().context.subtitleMarkdown, "日文字幕", "a track picked since: asked again at send");
+    // A6: the viewer played on into P2: its answer is not this conversation's P1.
+    frame = { ...frame, pageIndex: 2, subtitleMarkdown: "P2 字幕" };
+    assert.strictEqual(await real.ensureCurrentContextForSend(), true);
+    assert.deepStrictEqual([view().context.subtitleMarkdown, view().pinned.contextRef.pageIndex], ["日文字幕", 1]);
+    frame = { ...frame, pageIndex: 1 };
 
     // Viewer closed: the frame does not answer, so the panel reads the video like a closed page, then stops asking it.
     frame = null;
@@ -384,6 +393,15 @@ const chatOn = (context) => {
     const prefs = vm.runInContext("aiPrefs", ctx);
     assert.strictEqual(prefs.playerAiQuickPrompt, ctx.MdgSettings.DEFAULTS.playerAiQuickPrompt);
     assert.deepStrictEqual([...prefs.aiPresetPrompts], [...ctx.MdgSettings.DEFAULTS.aiPresetPrompts]);
+    // A33: but they are not the user's list, so neither 添加 nor 删除 saves them over it.
+    const saves = [];
+    ctx.sendRuntimeMessage = async (msg) => (saves.push(msg.type), { ok: true });
+    vm.runInContext('els.presetInput.value = "新的"', ctx);
+    assert.strictEqual(vm.runInContext("presetAddReason()", ctx), "读取设置失败，暂时不能修改快捷追问");
+    await ctx.addPresetPrompt();
+    await ctx.removePresetPrompt(0);
+    assert.deepStrictEqual(saves, []);
+    vm.runInContext("settingsReadFailed = false", ctx);
     ctx.sendRuntimeMessage = realSend;
   }
 
@@ -496,8 +514,29 @@ const chatOn = (context) => {
     ctx.chrome.storage.local.get = realGet;
     ctx.showConversationContextNotice = () => {};
     assert.deepStrictEqual(said, [["下载失败：读不到", true]]);
+    // A32: during a write a reply starting or ending (which recomputes the buttons) leaves 写入 Obsidian off, and a
+    // second write is not started.
+    const realSend = ctx.sendRuntimeMessage;
+    let finish;
+    let writes = 0;
+    ctx.sendRuntimeMessage = (m) => (writes++, new Promise((r) => (finish = () => r({ ok: true, text: "已写入" }))));
+    els.syncStatus.hidden = false;
+    const writing = ctx.saveCurrentConversationToObsidian();
+    await new Promise((r) => setImmediate(r));
+    ctx.setStreamingUiState(false);
+    assert.deepStrictEqual([els.saveConversationBtn.disabled, els.saveConversationBtn.title], [true, ctx.MdgErrors.TEXT.obsidianWriting]);
+    void ctx.saveCurrentConversationToObsidian();
+    await new Promise((r) => setImmediate(r));
+    assert.strictEqual(writes, 1, "no second write");
+    finish();
+    await writing;
+    // A38: a manual write that succeeded clears the auto-sync status.
+    assert.deepStrictEqual([els.saveConversationBtn.disabled, els.syncStatus.hidden], [false, true]);
+    ctx.sendRuntimeMessage = realSend;
+    // A38: another conversation clears it too.
+    els.syncStatus.hidden = false;
     await ctx.act({ type: "NEW" });
-    assert.ok(/await saveCurrentConversationToObsidian\(\);\n    \} finally \{\n[^}]*syncExportButtons\(\);\n    \}/.test(page) && !page.includes("saveConversationBtn.disabled = false"), "写入 Obsidian's finally recomputes");
+    assert.strictEqual(els.syncStatus.hidden, true);
     // H14: 发送 says why it is off: while stopping, and on a page that is not a supported video page.
     ctx.setStreamingUiState(true, { stopping: true });
     assert.deepStrictEqual([els.sendBtn.disabled, els.sendBtn.title], [true, "正在停止生成"]);
@@ -531,6 +570,88 @@ const chatOn = (context) => {
     vm.runInContext("syncPresetAdd()", ctx);
     assert.deepStrictEqual([els.presetAddBtn.disabled, els.presetAddBtn.title], [true, `最多 ${ctx.MdgSettings.MAX_PRESET_PROMPTS} 条快捷追问，先删掉一条再添加`]);
     prefs.aiPresetPrompts = [];
+    // A35: save-settings refused the list: it stays as it was, the typed text too, and the reason shows in red.
+    const realSend = ctx.sendRuntimeMessage;
+    const said = [];
+    ctx.showConversationContextNotice = (text, ms, opts) => said.push([text, opts?.error]);
+    ctx.sendRuntimeMessage = async () => ({ ok: false, error: "同步存储已满" });
+    els.presetInput.value = "再讲讲";
+    await ctx.addPresetPrompt();
+    assert.deepStrictEqual([[...vm.runInContext("aiPrefs", ctx).aiPresetPrompts], els.presetInput.value, said], [[], "再讲讲", [["保存设置失败：同步存储已满", true]]]);
+    ctx.sendRuntimeMessage = async () => ({ ok: true });
+    await ctx.addPresetPrompt();
+    assert.deepStrictEqual([[...vm.runInContext("aiPrefs", ctx).aiPresetPrompts], els.presetInput.value], [["再讲讲"], ""]);
+    vm.runInContext("aiPrefs.aiPresetPrompts = []", ctx);
+    ctx.sendRuntimeMessage = realSend;
+    ctx.showConversationContextNotice = () => {};
+  }
+
+  // A7: a reply that failed before a word: a redraw (去设置, a focus change) draws its question and error again.
+  {
+    const drawn = [];
+    const prev = [ctx.appendUserMessage, ctx.appendStreamError, ctx.removeConversationContextNotice];
+    ctx.appendUserMessage = (text) => drawn.push(text);
+    ctx.appendStreamError = (turn, error, saved, code) => drawn.push([turn.prompt, error, code]);
+    ctx.removeConversationContextNotice = () => {};
+    state.dispatch({ type: "NEW" });
+    show(video);
+    const stream = { prompt: "问", raw: "", notice: "", node: stubEl(), port: { disconnect() {} } };
+    ctx.stream = stream;
+    vm.runInContext("activeStream = stream", ctx);
+    state.dispatch({ type: "SEND", prompt: "问" });
+    ctx.endStream(stream, { error: "余额不足", code: "AI_QUOTA" });
+    drawn.length = 0;
+    real.renderInitialState();
+    assert.deepStrictEqual(drawn, ["问", ["问", "余额不足", "AI_QUOTA"]]);
+    [ctx.appendUserMessage, ctx.appendStreamError, ctx.removeConversationContextNotice] = prev;
+  }
+
+  // A34: no AI platform: a conversation stays on screen (sending says why); an empty one offers to add a platform.
+  {
+    const calls = [];
+    const prev = [ctx.renderConversationMessages, ctx.resetConversationView];
+    ctx.renderConversationMessages = () => calls.push("messages");
+    ctx.resetConversationView = (html) => calls.push(`reset:${html}`);
+    vm.runInContext("providers = []", ctx);
+    chatOn(video);
+    real.renderInitialState();
+    state.dispatch({ type: "NEW" });
+    real.renderInitialState();
+    assert.deepStrictEqual(calls, ["messages", "reset:"]);
+    vm.runInContext("providers = [{}]", ctx);
+    // A37: the context read failed: the empty state and a send say why (B站 限流 here), not only 读取当前页面失败.
+    calls.length = 0;
+    state.dispatch({ type: "CONTEXT_ARRIVED", payload: null, error: "B站限流，请稍后再试" });
+    real.renderInitialState();
+    const realLoad = ctx.loadContextState;
+    ctx.loadContextState = async () => false;
+    assert.strictEqual(await real.ensureCurrentContextForSend(), false);
+    assert.deepStrictEqual(calls, ["reset:B站限流，请稍后再试", "reset:B站限流，请稍后再试"]);
+    // A36: a question sent while 重试 reads the page: the empty state is not redrawn over it and its reply.
+    calls.length = 0;
+    const prevInitial = ctx.renderInitialState;
+    ctx.renderInitialState = () => calls.push("initial");
+    ctx.loadContextState = async () => (vm.runInContext("activeStream = {}", ctx), true);
+    await ctx.refreshContextManually();
+    assert.deepStrictEqual(calls, []);
+    vm.runInContext("activeStream = null", ctx);
+    ctx.loadContextState = realLoad;
+    ctx.renderInitialState = prevInitial;
+    [ctx.renderConversationMessages, ctx.resetConversationView] = prev;
+    show(video);
+  }
+
+  // A8: a notice shown while the reply streams stays: only the first token clears the slow notice.
+  {
+    let cleared = 0;
+    const prev = ctx.removeConversationContextNotice;
+    ctx.removeConversationContextNotice = () => cleared++;
+    vm.runInContext("streamFirstTokenReceived = false", ctx);
+    ctx.handleFirstStreamToken();
+    ctx.handleFirstStreamToken();
+    ctx.handleFirstStreamToken();
+    assert.strictEqual(cleared, 1);
+    ctx.removeConversationContextNotice = prev;
   }
 
   // Each reply's copy button is named per the 用词表: 复制 Markdown, never a bare 复制.

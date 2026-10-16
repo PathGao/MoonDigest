@@ -204,11 +204,12 @@
   // conv: the shown conversation. pinned is its own context's description once it has one (saved, opened from a
   // reference, or asked in); resolved is that context loaded; failed: loading it failed, so it is no longer pending.
   // epoch moves whenever another conversation is shown; fillEpoch is the epoch whose AI 总结 prompt is still to fill.
+  // unanswered: the last question when its reply failed or stopped before a word came, kept only to draw it again.
   // streaming: the reply in flight and the context it was asked in. previousId: the 上一个视频 bar's conversation.
   function create() {
     const s = {
       live: { tabUrl: "", context: null, key: "", error: "", lastVideoUrl: "" },
-      conv: { id: "", pinned: null, messages: [], resolved: null, failed: false, epoch: 0, fillEpoch: -1 },
+      conv: { id: "", pinned: null, messages: [], resolved: null, failed: false, epoch: 0, fillEpoch: -1, unanswered: null },
       streaming: null,
       previousId: "",
       saved: []
@@ -242,7 +243,7 @@
   function view(s) {
     const context = shown(s);
     const key = shownKey(s);
-    const { id, pinned, messages, resolved, epoch } = s.conv;
+    const { id, pinned, messages, resolved, epoch, unanswered } = s.conv;
     const target = String(pinned?.contextUrl || context?.url || "").trim();
     return {
       context,
@@ -253,6 +254,7 @@
       messages,
       resolved,
       epoch,
+      unanswered,
       streaming: Boolean(s.streaming),
       bound: Boolean(pinned || s.streaming),
       // Only videos can be asked about: a web page gives the AI nothing to read, and a conversation saved on one stays read-only.
@@ -290,7 +292,7 @@
     if (!conversation?.id || conversation.id !== s.conv.id) {
       effects.push({ type: "clearDraft" });
     }
-    s.conv = { id: "", pinned: null, messages: [], resolved: null, failed: false, epoch: s.conv.epoch + 1, fillEpoch: -1 };
+    s.conv = { id: "", pinned: null, messages: [], resolved: null, failed: false, epoch: s.conv.epoch + 1, fillEpoch: -1, unanswered: null };
     if (conversation) {
       s.conv.id = conversation.id;
       s.conv.pinned = {
@@ -513,22 +515,35 @@
         return [...(event.id && event.id === s.conv.id ? setConv(s) : []), { type: "save" }];
       }
       // The stored list changed (the history page deletes conversations too). The shown one deleted there is dropped
-      // like a delete here, so the next question cannot save it back; a reply in flight saves it again.
+      // like a delete here, so the next question cannot save it back; a reply in flight saves it again. One saved later
+      // (another window's panel on the same conversation) takes its messages, so the next save here keeps them.
       case "SAVED_CHANGED": {
         const stored = (list) => Array.isArray(list) && list.some((item) => item?.id === s.conv.id);
         s.saved = normalizeConversations(event.list);
-        return s.conv.id && !s.streaming && stored(event.previous) && !stored(event.list) ? setConv(s) : [];
+        if (s.conv.id && !s.streaming && stored(event.previous) && !stored(event.list)) {
+          return setConv(s);
+        }
+        const mine = s.conv.id ? s.saved.find((item) => item.id === s.conv.id) : null;
+        if (!mine || !s.conv.pinned || mine.updatedAt <= (Number(s.conv.pinned.updatedAt) || 0)) {
+          return [];
+        }
+        s.conv.messages = mine.messages.map((m) => ({ ...m }));
+        s.conv.pinned = { ...s.conv.pinned, updatedAt: mine.updatedAt };
+        return [{ type: "redraw" }];
       }
       case "PAGE_HYDRATED":
         return pageHydrated(s, event);
       case "SEND":
         s.streaming = { prompt: event.prompt, context: shown(s), key: shownKey(s) };
+        s.conv.unanswered = null;
         return [];
-      // The shown conversation's reply ended; one with an answer is saved.
+      // The shown conversation's reply ended; one with an answer is saved. failure: how one without a word ended
+      // ({ stopped, notice, error, code }), drawn again with its question until the next send.
       case "STREAM_ENDED": {
         const stream = s.streaming;
         s.streaming = null;
         if (!stream || !String(event.raw || "").trim()) {
+          if (stream && event.failure) s.conv.unanswered = { prompt: stream.prompt, ...event.failure };
           return [];
         }
         s.conv.messages.push({ role: "user", content: stream.prompt }, { role: "assistant", content: event.raw });
@@ -557,6 +572,7 @@
       }
       // 重试 replaces the failed turn instead of repeating the question below it.
       case "RETRY": {
+        s.conv.unanswered = null;
         const { messages } = s.conv;
         const last = messages.length - 2;
         if (event.saved && messages[last]?.content === event.prompt && messages[last + 1]?.content === event.raw) {
