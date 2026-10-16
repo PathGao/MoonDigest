@@ -76,7 +76,7 @@ function followDiff(cur, fresh, unf, tagMap, live, startedAt, at) {
   const gone = {};
   if (fresh.complete) {
     for (const m of cur.list || []) {
-      if (!inFresh.has(m) && !kept.includes(m) && !unf[m]) gone[m] = { at, tagIds: tagMap[m] || [], source: "bili", groups: followGroupsOf(cur, m) };
+      if (!inFresh.has(m) && !kept.includes(m) && !unf[m]) gone[m] = { at, tagIds: tagMap[m] || [], source: "bili", groups: FollowCore.groupsOf(m, { list: cur }) };
     }
   }
   const inList = new Set(list);
@@ -99,9 +99,6 @@ function followDiff(cur, fresh, unf, tagMap, live, startedAt, at) {
     restore
   };
 }
-
-// 一个人当时所在的分组 id：-10 特别关注在前，再是自己建的；空 = 默认分组。取关记录里存这个，重新关注时放回。
-const followGroupsOf = (fl, m) => [...(fl?.special?.[m] ? [FOLLOW_SPECIAL] : []), ...(fl?.groups?.[m] || [])];
 
 // feed/all 的一条动态 → 视频，不是投稿视频的返回 null。
 function followFeedItem(it) {
@@ -608,7 +605,7 @@ async function followRelation({ mid, act, gone }) {
     if (act === 2) {
       // 重复取关不覆盖已有记录；标签挪进记录。撤销重新关注时放回原记录。
       if (gone && typeof gone === "object") unf[mid] = { at: Number(gone.at) || at, tagIds: (Array.isArray(gone.tagIds) ? gone.tagIds : []).map(String), source: gone.source === "bili" ? "bili" : "app", ...(Array.isArray(gone.groups) ? { groups: gone.groups.map(Number).filter(Number.isInteger) } : {}) };
-      else if (!unf[mid]) unf[mid] = { at, tagIds: tagMap[mid] || [], source: "app", groups: followGroupsOf(f, mid) };
+      else if (!unf[mid]) unf[mid] = { at, tagIds: tagMap[mid] || [], source: "app", groups: FollowCore.groupsOf(mid, { list: f }) };
       delete tagMap[mid];
       delete followTime[mid];
       delete special[mid];
@@ -699,7 +696,7 @@ async function followGroupsDone(done, from, to) {
     const special = { ...fl.special };
     const groups = { ...fl.groups };
     for (const m of done) {
-      const ids = followGroupsApply(followGroupsOf({ special, groups }, m), from, to);
+      const ids = followGroupsApply(FollowCore.groupsOf(m, { list: { special, groups } }), from, to);
       if (ids.includes(FOLLOW_SPECIAL)) special[m] = 1;
       else delete special[m];
       const own = ids.filter((id) => id > 0);

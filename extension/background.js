@@ -1169,4 +1169,5 @@ async function probeAiChatCompletion({ baseUrl, apiKey, model }) {
 // triage/shared.js (loaded at the top) is the pages' TriageUi; it touches no DOM until called, so the worker reuses its
 // formatters, tag rules and intIn.
 // obsidian.js answers write-video-note and sync-video-note-ai: the background is the only writer to Obsidian.
-importScripts("obsidian.js", "triage/triage-bg.js", "triage/follow-bg.js");
+// follow-core.js (FollowCore) gives follow-bg.js the page's groupsOf, so an UP's groups are read one way on both sides.
+importScripts("obsidian.js", "triage/triage-bg.js", "triage/follow-core.js", "triage/follow-bg.js");
