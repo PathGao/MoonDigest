@@ -266,7 +266,7 @@ extension/
 
 `load-order.selftest.js` 检查每个页面、每组内容脚本和后台 `importScripts` 的加载顺序：定义全局对象的文件要排在用到它的文件前面，引用的脚本都要存在。
 
-`conventions.selftest.js` 检查开关取值、存储键名和灰掉写原因三条约定，`messages.selftest.js` 核对消息清单 `messages.js`（每条消息谁发、谁接、带哪些字段）和代码一致。规则和允许清单怎么加见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)。
+`conventions.selftest.js` 检查开关取值、存储键名、灰掉写原因、回复的错误经 `MdgErrors.text` 显示、共享记录经各自的串行写入函数读改写这几条约定；`wording.selftest.js` 检查界面文字：文字表里的话别处不再写一份、同一句话不在两个页面各写一份、不用术语表里「不用」的词；`messages.selftest.js` 核对消息清单 `messages.js`（每条消息谁发、谁接、带哪些字段）和代码一致。这几个是读源码的约定检查，不是行为测试。规则和允许清单怎么加见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)。
 
 ```bash
 for f in extension/*.selftest.js extension/triage/*.selftest.js extension/history/*.selftest.js; do /usr/local/bin/node "$f" || break; done
