@@ -88,6 +88,8 @@ const runSync = async () => {
     const live = new Set(["a"]);
     const d = t.followDiff(cur, { list: ["1", "2"], followTime: { 1: 10, 2: 10 }, complete: true }, {}, { 9: ["a", "x"] }, live, 500, 600);
     assert.deepStrictEqual(plain(d.gone), { 9: { at: 600, tagIds: ["a", "x"], source: "bili", groups: [-10, 7] } }, "vanished account recorded with its tags and groups");
+    // The record's groups are FollowCore.groupsOf's, the page's: a stray 0 (默认分组) in follow_list.groups is not one.
+    assert.deepStrictEqual(plain(t.followDiff({ ...cur, groups: { 9: [0, 7] } }, { list: ["1", "2"], followTime: { 1: 10, 2: 10 }, complete: true }, {}, {}, live, 500, 600).gone[9].groups), [-10, 7]);
     const partial = t.followDiff(cur, { list: ["1", "4"], followTime: { 1: 10, 4: 10 }, complete: false, total: 5 }, {}, {}, live, 500, 600);
     assert.deepStrictEqual(plain(partial.gone), {}, "a partial fetch never marks anyone gone");
     // 已刷新 +N −M against a list we had; a partial fetch (C431) gives its new follows and how much it read, no unfollows.
