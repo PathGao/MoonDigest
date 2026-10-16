@@ -48,8 +48,9 @@ async function ensureReaderContentReady(tabId) {
     return;
   }
 
-  // Each extension load runs in a fresh isolated world, so the probe never sees an older copy.
-  await injectReaderContent(tabId);
+  // Each extension load runs in a fresh isolated world, so the probe never sees an older copy. A failed injection
+  // (Chrome's error page) words its failure below, not in Chrome's English.
+  await injectReaderContent(tabId).catch(() => {});
   const reinjectedVersion = await probeContentScriptVersion(tabId);
   if (reinjectedVersion === EXPECTED_CONTENT_SCRIPT_VERSION) {
     return;
@@ -845,6 +846,9 @@ async function saveAiProviders(items) {
     const incomingKey = String(raw?.apiKey || "").trim();
     if (incomingKey) {
       keys[normalized.id] = incomingKey;
+    } else if (raw.hasSavedKey === false) {
+      // The settings page dropped the key (the base URL moved to another host): it must not go to the new address.
+      delete keys[normalized.id];
     }
   }
   await Promise.all([

@@ -79,7 +79,10 @@
     settingsSaved: "设置已保存",
     settingsSaveFailed: "保存设置失败",
     // The address answers, but not in JSON as the Local REST API does (another local service): 测试连接, the pre-run check.
-    obsidianNotApi: "这个地址不是 Obsidian Local REST API"
+    obsidianNotApi: "这个地址不是 Obsidian Local REST API",
+    // The page's copy of the extension does not answer or plays the wrong video (popup, 专注模式, YouTube's player);
+    // alone or after 「原因，」.
+    reloadRetry: "请刷新网页后重试"
   });
 
   // Names of controls and pages that recur across pages (DESIGN 术语表). A name also appears inside sentences

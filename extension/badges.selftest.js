@@ -126,6 +126,10 @@ const { faceKey, whoIndex, resolveMid, pickRows, applyUpTag, saveUpTag } = ctx.M
 assert.strictEqual(faceKey("//i0.hdslb.com/bfs/face/A69e0c.jpg@96w_96h_1c_1s.webp"), "a69e0c.jpg", "the avatar file, size suffix dropped");
 assert.strictEqual(faceKey("https://i1.hdslb.com/bfs/face/a69e0c.jpg"), "a69e0c.jpg", "follow_people stores the bare URL");
 assert.strictEqual(faceKey("//i0.hdslb.com/bfs/vip/dbe23f.png@40w"), "", "a vip badge is not a face");
+// A16: the default avatar is shared by every user without one, so it never names an UP.
+for (const noface of ["https://i0.hdslb.com/bfs/face/member/noface.jpg", "//i2.hdslb.com/bfs/face/member/noface.jpg@96w_96h.webp", "https://i0.hdslb.com/bfs/face/noface.jpg"]) {
+  assert.strictEqual(faceKey(noface), "", noface);
+}
 const folks = {
   1: { name: "甲", face: "https://i0.hdslb.com/bfs/face/f1.jpg" },
   2: { name: "重名", face: "https://i0.hdslb.com/bfs/face/f2.jpg" },
@@ -144,6 +148,8 @@ assert.strictEqual(resolveMid({ name: "重名" }, idx), "", "a name two followed
 assert.strictEqual(resolveMid({ face: "//i0.hdslb.com/bfs/face/noface.jpg", name: "丁" }, idx), "4", "a shared default avatar falls back to a unique name");
 assert.strictEqual(resolveMid({ face: "//i0.hdslb.com/bfs/face/noface.jpg", name: "重名" }, idx), "", "shared avatar and shared name: nothing");
 assert.strictEqual(resolveMid({ name: "未关注" }, idx), "", "only followed UPs are matched by name");
+// A16: one followed UP with the default avatar; a stranger with it is not that UP.
+assert.strictEqual(resolveMid({ face: "//i0.hdslb.com/bfs/face/member/noface.jpg", name: "路人" }, whoIndex({ 9: { name: "己", face: "https://i0.hdslb.com/bfs/face/member/noface.jpg" } }, ["9"])), "");
 assert.strictEqual(resolveMid({ name: "甲" }, null), "", "no index, no name match");
 
 const pt = [{ id: "a", name: "常看", color: "#f00" }, { id: "b", name: "游戏" }];
@@ -283,6 +289,7 @@ class El extends Node_ {
   get isConnected() { let n = this; while (n.parentNode) n = n.parentNode; return n.host ? n.host.isConnected : n.tagName === "HTML"; }
   focus() { let n = this; while (n.parentNode) n = n.parentNode; if (n.host) n.activeElement = this; focused.el = this; }
   closest(sel) { for (let n = this; n?.nodeType === 1; n = n.parentNode) if (matches(n, sel)) return n; return null; }
+  matches(sel) { return matches(this, sel); }
   querySelectorAll(sel) { const out = []; const walk = (n) => { for (const k of n.childNodes) if (k.nodeType === 1) { if (matches(k, sel)) out.push(k); walk(k); } }; walk(this); return out; }
   querySelector(sel) { return this.querySelectorAll(sel)[0] || null; }
 }
@@ -807,6 +814,42 @@ async function surfacePages() {
   assert.strictEqual(line.querySelector(".mdg-up-add").textContent, "+ UP 标签");
   assert.ok(boxAfter(rec), "recommendations beside the video: UP tags");
   assert.strictEqual(boxAfter(rec).querySelector(".mdg-up-add"), null, "recommendations beside the video: no 「+」");
+
+  // A17: a tagged video's mark with the AI 判断 switched off: hovering it shows none of the AI's reasons.
+  Object.assign(store, {
+    triage_analysis_BV1GJ411x7h7: { status: "done", verdict: "keep", reason: "干货", oneLiner: "讲 Rust 所有权" },
+    triage_tags: [{ id: "t", name: "收藏标签", color: "#0f0" }],
+    triage_video_tags: { BV1GJ411x7h7: ["t"] }
+  });
+  const hoverPop = async (verdicts) => {
+    const link = h("a", { href: "//www.bilibili.com/video/BV1GJ411x7h7", class: "title" }, "视频标题");
+    const body = h("body", {}, h("div", {}, link));
+    const sync = { showBiliTriageBadges: true, showBiliVerdicts: verdicts };
+    const p = await page({ hostname: "space.bilibili.com", pathname: "/9/favlist", search: "?fid=5" }, body, false, sync);
+    Object.assign(p.win, { innerWidth: 1000, innerHeight: 800 });
+    p.doc.body = body;
+    const badge = body.querySelector(".mdg-badge");
+    p.doc.listeners.mouseover.forEach((f) => f({ target: badge }));
+    return { ...p, link, sync, pop: body.querySelector(".mdg-pop")?.textContent || "" };
+  };
+  assert.match((await hoverPop(true)).pop, /理由：干货/, "AI 判断 on: the reasons on hover");
+  const off = await hoverPop(false);
+  assert.ok(off.doc.querySelector(".mdg-badge"), "the tags still show");
+  assert.strictEqual(off.pop, "", "AI 判断 off: no reasons on hover");
+
+  // A18: tags changed in the 分拣台 while the marks were off show once they are back on, without a reload.
+  off.sync.showBiliTriageBadges = false;
+  off.listen.forEach((f) => f({ showBiliTriageBadges: { newValue: false } }, "sync"));
+  await new Promise((r) => setTimeout(r, 30));
+  assert.strictEqual(off.doc.querySelector(".mdg-badge"), null, "marks off");
+  store.triage_tags = [...store.triage_tags, { id: "n", name: "新标签", color: "#00f" }];
+  store.triage_video_tags = { BV1GJ411x7h7: ["n"] };
+  off.listen.forEach((f) => f({ triage_video_tags: { newValue: store.triage_video_tags } }, "local"));
+  off.sync.showBiliTriageBadges = true;
+  off.listen.forEach((f) => f({ showBiliTriageBadges: { newValue: true } }, "sync"));
+  await new Promise((r) => setTimeout(r, 30));
+  assert.match(off.doc.querySelector(".mdg-badge")?.textContent || "", /^新标签/, "marks back on: the new tags");
+  for (const k of ["triage_analysis_BV1GJ411x7h7", "triage_tags", "triage_video_tags"]) delete store[k];
 }
 
 // ---- an extension reload: background.js injects a fresh copy next to the old one in the same page ----

@@ -46,6 +46,12 @@ ctx.render({ markdown: "# t", srt: "1", txt: "a" }, { preserveStatus: true });
 assert.deepStrictEqual(new Set(Object.values(state())), new Set(["当前网页不是支持的视频页"]), "a web page's payload does not re-enable the tools");
 vm.runInContext("onVideoPage = true", ctx);
 
+// A19: tracks listed, none loaded: the dropdown shows the reason, not the first track as the current one.
+ctx.render({ markdown: "# t", subtitleMissing: "字幕抓取失败：网络断了", subtitleOptions: [{ url: "u1", optionLabel: "中文" }, { url: "u2", optionLabel: "English" }] }, { preserveStatus: true });
+assert.match(ctx.el.subtitleSelect.innerHTML, /^<option value="" selected disabled>字幕抓取失败：网络断了<\/option><option value="u1"/);
+ctx.render({ markdown: "# t", subtitleOptions: [{ url: "u1", optionLabel: "中文", selected: true }] }, { preserveStatus: true });
+assert.match(ctx.el.subtitleSelect.innerHTML, /^<option value="u1"[^>]* selected>/, "a loaded track: no placeholder");
+
 // B2: 下载 .md is named like the note 写入 Obsidian writes (date prefix setting, 分 P): the content script's filename.
 (async () => {
   const saved = [];

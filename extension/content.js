@@ -1234,25 +1234,23 @@ function renderSubtitleOptions(select) {
     return;
   }
 
-  select.innerHTML = subtitles
-    .map((item) => {
-      const selectedById =
-        state.selectedSubtitleId && String(item.id) === String(state.selectedSubtitleId);
-      const selectedByUrl = item.url === state.selectedSubtitleUrl;
-      const selected = selectedById || selectedByUrl ? "selected" : "";
-      const label = item.label || item.lang || "unknown";
-      return `<option value="${escapeHtml(item.url)}" data-lang="${escapeHtml(
-        label
-      )}" data-id="${escapeHtml(String(item.id || ""))}" ${selected}>${escapeHtml(
-        subtitleOptionLabel(item)
-      )}</option>`;
-    })
+  const options = subtitleOptionItems();
+  // No track loaded (all failed, or still loading): the dropdown says why instead of showing the first one as current.
+  const none = options.some((item) => item.selected) ? "" : `<option value="" selected disabled>${escapeHtml(noTrackText())}</option>`;
+  select.innerHTML = none + options
+    .map(
+      (item) =>
+        `<option value="${escapeHtml(item.url)}" data-lang="${escapeHtml(item.lang)}" data-id="${escapeHtml(item.id)}" ${
+          item.selected ? "selected" : ""
+        }>${escapeHtml(item.optionLabel)}</option>`
+    )
     .join("");
   select.disabled = false;
 }
 
-function getPopupPayload() {
-  const subtitleOptions = (state.subtitles || []).map((item) => {
+// The subtitle dropdown's entries, for 专注模式's and the popup's.
+function subtitleOptionItems() {
+  return (state.subtitles || []).map((item) => {
     const label = item.label || item.lang || "unknown";
     const selectedById =
       state.selectedSubtitleId && String(item.id) === String(state.selectedSubtitleId);
@@ -1262,10 +1260,12 @@ function getPopupPayload() {
       url: item.url,
       lang: label,
       optionLabel: subtitleOptionLabel(item),
-      selected: selectedById || selectedByUrl
+      selected: Boolean(selectedById || selectedByUrl)
     };
   });
+}
 
+function getPopupPayload() {
   return {
     site: currentSite()?.id || "",
     url: cleanVideoUrl(),
@@ -1287,7 +1287,7 @@ function getPopupPayload() {
     subtitleMissing: noTrackText(),
     srt: state.srt || "",
     txt: state.txt || "",
-    subtitleOptions
+    subtitleOptions: subtitleOptionItems()
   };
 }
 
@@ -1523,7 +1523,7 @@ function scheduleReaderPlayerRetry() {
     if (state.readingPlayerRetries > 12) {
       replaceReaderModeUrl(stripReaderModeUrl(location.href));
       closeReadingView();
-      setReadingNotice("视频播放器长时间未就绪，已退出专注模式，请刷新网页重试", { error: true });
+      setReadingNotice(`视频播放器长时间未就绪，已退出专注模式，${MdgErrors.TEXT.reloadRetry}`, { error: true });
       return;
     }
     const mounted = await ensureReaderPlayerMounted({ retries: 10, delayMs: 200, forceLayout: true });
@@ -2271,6 +2271,8 @@ function layoutReaderPlayerHost() {
 
   clearNativeReaderFloatingStyles(playerHost);
   cleanupReaderPlayerHostNode(playerHost);
+  // The cleanup drops leftover inline sizes; the host keeps its class, which hides the page's own subtitles.
+  playerHost.classList.add("mdg-reader-player-host");
   // On <html>: the player and title these size are page nodes outside #mdg-reading-view.
   const rootStyle = document.documentElement.style;
   rootStyle.setProperty("--mdg-reader-player-rendered-width", `${Math.round(renderedWidth)}px`);
@@ -2908,7 +2910,8 @@ function queueEnsureReaderPlayerControlsRecovered({
 }
 
 function setReaderPlayerControlsVisible(visible, playerHost = state.readingPlayerHost) {
-  if (!state.readingViewOpen || !playerHost) {
+  // Restoring runs after the close too: it only undoes what was marked forced.
+  if ((visible && !state.readingViewOpen) || !playerHost) {
     return;
   }
 

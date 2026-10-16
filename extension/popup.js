@@ -124,7 +124,7 @@ function bindEvents() {
     const prepResp = await sendToContent({ type: "popup-get-state" }).catch((error) => ({ ok: false, error: error.message }));
     if (!prepResp?.ok) {
       setBusy(el.readingViewBtn, false);
-      setStatus(prepResp?.error || "当前网页不支持，或刷新网页后重试", true);
+      setStatus(prepResp?.error || MdgErrors.TEXT.reloadRetry, true);
       return;
     }
 
@@ -249,7 +249,11 @@ function render(payload, { preserveStatus = false } = {}) {
     el.subtitleSelect.innerHTML = `<option value="">${escapeHtml(payload.subtitleMissing || MdgErrors.subtitleMissing())}</option>`;
     el.subtitleSelect.disabled = true;
   } else {
-    el.subtitleSelect.innerHTML = options
+    // No track loaded: the reason (the page's noTrackText), not the first track shown as current.
+    const none = options.some((item) => item.selected)
+      ? ""
+      : `<option value="" selected disabled>${escapeHtml(payload.subtitleMissing || MdgErrors.subtitleMissing())}</option>`;
+    el.subtitleSelect.innerHTML = none + options
       .map((item) => {
         const selected = item.selected ? "selected" : "";
         return `<option value="${escapeHtml(item.url)}" data-id="${escapeHtml(
@@ -339,7 +343,7 @@ async function sendToContent(message) {
 function normalizeContentErrorMessage(error) {
   const message = String(error?.message || "").trim();
   if (message.includes("Could not establish connection. Receiving end does not exist.")) {
-    return "当前网页不支持，或刷新网页后重试";
+    return MdgErrors.TEXT.reloadRetry;
   }
   return message || MdgErrors.TEXT.unknown;
 }
