@@ -25,8 +25,8 @@
     const action = ACTION[decision?.action] ? decision.action : "";
     if (!v && !userTags.length && !action) return null;
 
-    // AI classes carry an 「AI」 marker; the user's own decision never does.
-    const label = action ? ACTION[action] : v ? `AI ${name}` : "";
+    // AI classes carry an 「AI」 marker; the user's own decision and an invalid video the AI never judged (stage 0) never do.
+    const label = action ? ACTION[action] : v ? (v.stage === 0 ? LABEL.invalid : `AI ${name}`) : "";
     const info = {
       label,
       aria: "",
@@ -47,20 +47,22 @@
     [
       "MoonDigest 分拣",
       action && ACTION[action],
-      verdict && `${LABEL.aiVerdict} ${VERDICTS[verdict]}（${STAGE[stage]}${low ? "，低置信" : ""}）`,
+      verdict && (stage === 0 ? LABEL.invalid : `${LABEL.aiVerdict} ${VERDICTS[verdict]}（${STAGE[stage]}${low ? "，低置信" : ""}）`),
       tags.length && `视频标签：${tags.map((t) => t.name).join("、")}`
     ]
       .filter(Boolean)
       .join("，");
 
   // Merges triage_kept (保留, one list for all folders) and every triage_decisions_<folder> (取消收藏) in `got`. As on
-  // the 分拣台, a folder's 取消收藏 wins over 保留; a video taken out of several folders shows the latest.
-  function mergeDecisions(got) {
+  // the 分拣台, a folder's 取消收藏 wins over 保留; a video taken out of several folders shows the latest. Off a
+  // favorites page (folderPage false) the latest 取消收藏 shows only when it left no other chosen folder (no elsewhere).
+  function mergeDecisions(got, folderPage = false) {
     const unfav = {};
     for (const [k, v] of Object.entries(got || {})) {
       if (!k.startsWith(K.triageDecisionsPrefix)) continue;
       for (const [b, d] of Object.entries(v || {})) if (!unfav[b] || (d?.at || 0) > (unfav[b].at || 0)) unfav[b] = d;
     }
+    if (!folderPage) for (const [b, d] of Object.entries(unfav)) if (d?.elsewhere) delete unfav[b];
     return { ...got?.[K.triageKept], ...unfav };
   }
 
@@ -802,7 +804,7 @@ input { box-sizing: border-box; width: 100%; margin: 0; padding: 4px 8px; border
       const got = await chrome.storage.local.get([K.triageTags, K.triageVideoTags, ...decisionKeys, ...(snapshot ? [snapshot] : [])]);
       if (g !== gen) return;
       sharedFid = fid;
-      shared = { tags: got[K.triageTags], videoTags: got[K.triageVideoTags] || {}, decisions: mergeDecisions(got), invalid: new Set(got[snapshot]?.invalid || []) };
+      shared = { tags: got[K.triageTags], videoTags: got[K.triageVideoTags] || {}, decisions: mergeDecisions(got, Boolean(fid)), invalid: new Set(got[snapshot]?.invalid || []) };
       cache.clear();
     }
     const anchors = findAll(SEL);

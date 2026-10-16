@@ -32,7 +32,7 @@
     "ai-providers-test": { from: ["options.js"], to: "background.js", request: ["providerId", "baseUrl", "apiKey", "model", "requiresKey"], response: [] },
 
     // Pages and tabs
-    "open-options": { from: ["content.js", "popup.js", "triage/follow.js", "triage/triage.js"], to: "background.js", request: [], response: [] },
+    "open-options": { from: ["content.js", "popup.js", "triage/triage.js"], to: "background.js", request: [], response: [] },
     "history-open": { from: ["options.js", "popup.js", "sidepanel.js"], to: "background.js", request: [], response: [] },
     "triage-open": { from: ["badges.js", "options.js", "popup.js"], to: TRIAGE_BG, request: ["hash"], response: data },
     "ensure-reader-content": { from: ["popup.js"], to: "background.js", request: ["tabId"], response: [] },

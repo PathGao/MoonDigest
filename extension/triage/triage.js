@@ -325,6 +325,8 @@ const el = {};
 function send(msg) {
   return sendRaw(msg).then((r) => (MdgErrors.action(r.code) === "login" && showLogin(), r));
 }
+// 去设置 and 设置页 buttons: the settings page, or a toast saying why it did not open.
+const openOptions = () => send({ type: "open-options" }).then((r) => r.ok || toast(`${MdgErrors.TEXT.settingsOpenFailed}：${MdgErrors.text(r)}`, true));
 const showLogin = () => showBanner(MdgErrors.TEXT.biliLogin, "去登录", () => openTab("https://passport.bilibili.com/login"), "login");
 // The AI platform picked at the top of the side panel: sidepanel.js keeps it in this extension's localStorage under
 // this key (SELECTED_PROVIDER_KEY there). Every request carries it; the background's AI calls use it (triageChat).
@@ -530,7 +532,7 @@ function handleAiError(error, code = "", limit = "粗看") {
       }
     }, "ai");
   } else if (aiSettingsCode(code)) {
-    showBanner(text, MdgErrors.LABEL.toSettings, () => send({ type: "open-options" }), "ai");
+    showBanner(text, MdgErrors.LABEL.toSettings, openOptions, "ai");
   } else if (code === "AI_TRUNCATED") {
     showBanner(`${text}。建议调大${limit}输出上限${hasThinkingToggle() ? "或关闭思考" : ""}`, `打开${SETTINGS_NAME}`, () => openSettings(true), "ai");
   } else toast(text, true);
@@ -615,7 +617,7 @@ function hasAllTags(videoIds, selectedIds, nameOf) {
 
 // Why a video is in 已出分拣范围: "invalid" (also invalid in a folder), "out" (still in a folder that is not chosen), "unfav"
 // (in no folder), "" until checked. inFolder, once looked up, outranks where a 移动 here sent it.
-const KINDS = [["unfav", MdgErrors.LABEL.unfaved], ["out", "在未勾选收藏夹"], ["invalid", "已失效"]];
+const KINDS = [["unfav", MdgErrors.LABEL.unfaved], ["out", "在未勾选收藏夹"], ["invalid", MdgErrors.LABEL.invalid]];
 const KIND_NAME = Object.fromEntries(KINDS);
 // A decided card's badge and the 已保留 chip.
 const ACTION_LABEL = { unfav: KIND_NAME.unfav, keep: MdgErrors.LABEL.kept };
@@ -792,7 +794,7 @@ let modeKeys = null;
 // 关注's 「UP 标签」 line, redrawn with the 「视频标签」 line.
 let viewerHook = null;
 globalThis.MoonTriage = {
-  openViewer, closeViewer, toast, askConfirm, send, store, runAiBatches, hold: (r) => THROTTLES[r.code] || null, viewing: () => S.viewing,
+  openViewer, closeViewer, toast, askConfirm, send, openOptions, store, runAiBatches, hold: (r) => THROTTLES[r.code] || null, viewing: () => S.viewing,
   // The playing 收藏夹 video's UP as { mid, name } (mid "" on items saved before it was stored); null in 关注 or with
   // nothing playing.
   viewingUp() {
@@ -2476,7 +2478,16 @@ function patchKept(patch) {
 }
 // aid and title let 最近取消收藏 re-favorite the video after it has left the folder list.
 // batch: when the batch 取消收藏 that made it started, so 最近取消收藏 can re-favorite that batch in one go.
-const unfavRecord = (it, at, batch) => ({ action: "unfav", at, aid: it.aid, title: it.title, ...(batch && { batch }) });
+// elsewhere: the video is still in another chosen folder, so B站 pages other than a favorites page do not say 已取消收藏.
+const unfavRecord = (it, at, batch, elsewhere) => ({ action: "unfav", at, aid: it.aid, title: it.title, ...(batch && { batch }), ...(elsewhere && { elsewhere }) });
+// The videos of chosen folders other than mediaId, by their cached lists. 稍后再看 is not a favorite, so it does not count.
+async function favedElsewhere(mediaId) {
+  const others = chosenOtherIds(mediaId).filter((id) => id !== TOVIEW);
+  const got = await chrome.storage.local.get(others.map(K.snapshot));
+  return new Set(others.flatMap((id) => got[K.snapshot(id)]?.bvids || []));
+}
+// 所有收藏夹: still in a chosen folder once it leaves the folders in `gone`.
+const stillIn = (it, gone) => it.folders.some((f) => f !== TOVIEW && !gone.includes(f));
 const saveVideoTags = () => storeSet(K.videoTags, S.videoTags);
 const shortTitle = (it) => (it.title.length > 24 ? `${it.title.slice(0, 24)}…` : it.title);
 
@@ -2665,7 +2676,7 @@ const fav = {
     if (r.error) toast(`取消收藏失败：${r.limited ? MdgErrors.TEXT.biliThrottled : r.error}`, true);
     folders = folders.slice(0, r.done);
     if (!folders.length) return render();
-    const rec = unfavRecord(it, Date.now());
+    const rec = unfavRecord(it, Date.now(), 0, it.folders ? stillIn(it, folders) : (await favedElsewhere(folders[0])).has(bvid));
     const prevs = Object.fromEntries(folders.map((f) => [f, (f === S.mediaId ? S.decisions : S.folderDecisions[f])?.[bvid] || null]));
     for (const f of folders) await patchDecisions(f, { [bvid]: rec });
     // After a folder switch the record is saved under its folder; the undo step would point at a video no longer listed.
@@ -2693,6 +2704,7 @@ const fav = {
     const token = S.folderToken;
     const batch = Date.now();
     const gone = {}; // folder → the videos taken out of it
+    const elsewhere = all ? null : await favedElsewhere(mediaId);
     const chunks = folders.flatMap((f) =>
       chunksOf(all ? list.filter((it) => it.folders.includes(f)) : list, f === TOVIEW, (items) => ({ msg: { type: "triage-unfav", mediaId: f, aids: items.map((it) => it.aid) }, keys: items.map((it) => it.bvid), folders: [f], items }))
     );
@@ -2706,7 +2718,8 @@ const fav = {
         sent++;
         bumpCount(f, -items.length);
         const at = Date.now();
-        await patchDecisions(f, Object.fromEntries(items.map((it) => [it.bvid, unfavRecord(it, at, batch)])));
+        const left = (it) => (all ? stillIn(it, [f, ...Object.keys(gone).filter((g) => gone[g].some((x) => x.bvid === it.bvid))]) : elsewhere.has(it.bvid));
+        await patchDecisions(f, Object.fromEntries(items.map((it) => [it.bvid, unfavRecord(it, at, batch, left(it))])));
         (gone[f] ||= []).push(...items.map(({ bvid, aid }) => ({ bvid, aid })));
       }
     });
@@ -4085,7 +4098,7 @@ async function runWrite(md = false) {
   // The pill's green line; an Obsidian failure goes to the red banner instead, with 去设置 unless Obsidian is just not running.
   if (obsidian) {
     S.write.obsidian = true;
-    showBanner(`${MdgErrors.TEXT.obsidianFailed}：${obsidian.error}`, toSettings ? MdgErrors.LABEL.toSettings : "", () => send({ type: "open-options" }), "obsidian");
+    showBanner(`${MdgErrors.TEXT.obsidianFailed}：${obsidian.error}`, toSettings ? MdgErrors.LABEL.toSettings : "", openOptions, "obsidian");
   } else S.write.text = `逐个视频笔记${run.stopped ? MdgErrors.LABEL.stopped : "完成"}：${counts.join(" · ")}`;
 
   renderWriteScope();
@@ -4441,8 +4454,8 @@ function bindEvents() {
   el.writeRunBtn.addEventListener("click", () => (digest() ? exportDigest("obsidian") : runWrite()));
   el.writeMdBtn.addEventListener("click", () => (digest() ? exportDigest("download") : runWrite(true)));
   el.writeStopBtn.addEventListener("click", stopWrite);
-  el.writeSettingsBtn.addEventListener("click", () => send({ type: "open-options" }));
-  el.openOptionsBtn.addEventListener("click", () => send({ type: "open-options" }));
+  el.writeSettingsBtn.addEventListener("click", openOptions);
+  el.openOptionsBtn.addEventListener("click", openOptions);
   // Both modes' 导出 menus carry the same 完整备份 item.
   document.addEventListener("click", async (e) => {
     if (!e.target.closest("[data-backup]")) return;
