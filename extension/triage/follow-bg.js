@@ -30,7 +30,7 @@
 
 // ===== 纯函数 =====
 
-const FOLLOW_GONE_CODES = new Set([-404, -626]); // arc/search：账号没了，永久；其他错误码都算暂时
+const FOLLOW_GONE_CODES = TriageUi.UP_GONE_CODES; // arc/search：账号没了，永久；其他错误码都算暂时
 const FOLLOW_PLACEHOLDER_NAMES = new Set(["", "账号已注销"]);
 const followNow = () => Math.floor(Date.now() / 1000);
 const followIsDefaultFace = (f) => !f || /\/noface\.(jpg|gif|png)/.test(f);
@@ -55,7 +55,8 @@ function followMergePerson(old, nu) {
 // - 同步开始后在这里改过分组的人（cur.groupsAt ≥ startedAt，或上一条保留的人）用 cur 的分组，fresh 可能是改之前抓的。
 // - unf 里的人只有关注时间晚于取关时间才算重新关注（back，标签进 restore）；否则仍算取关、不进列表。
 // - cur 里有、fresh 里没有、unf 里也没有的人是在 B站 取关的：gone[mid] = { at, tagIds, source: "bili" }。只在 fresh 拉全时判断。
-// - changes = { at, added, removed }：新列表比 cur 多的人、gone 的人，给界面的「新关注 +N · 取关 −M」。没拉全或没有上次的列表时为 null。
+// - changes = { at, added, removed, partial? }：新列表比 cur 多的人、gone 的人，给界面的「已刷新 +N −M」。没有上次的列表时为 null。
+//   没拉全时 removed 为空、partial = { read, total }（读到几个、B站 说共几个），界面写琥珀「已刷新（部分）+N」。
 function followDiff(cur, fresh, unf, tagMap, live, startedAt, at) {
   const inFresh = new Set(fresh.list);
   const ft = { ...fresh.followTime };
@@ -93,7 +94,7 @@ function followDiff(cur, fresh, unf, tagMap, live, startedAt, at) {
   return {
     list: { at, list, followTime: only(ft), special, groups, groupsAt: touched, complete: !!fresh.complete },
     gone,
-    changes: fresh.complete && cur.list ? { at, added: list.filter((m) => !old.has(m)), removed: Object.keys(gone) } : null,
+    changes: !cur.list ? null : { at, added: list.filter((m) => !old.has(m)), removed: Object.keys(gone), ...(fresh.complete ? {} : { partial: { read: fresh.list.length, total: fresh.total } }) },
     back,
     restore
   };
@@ -291,7 +292,7 @@ function followUpdate(keys, fn) {
   return p;
 }
 
-const FOLLOW_STOPPED = () => triageError("已停止", "STOPPED");
+const FOLLOW_STOPPED = () => triageError(MdgErrors.LABEL.stopped, "STOPPED");
 // The arc and stats phases' step after the UP 主 they skipped this time.
 const followSkippedText = (n) => (n ? `（${n} 个暂时没查到，下次再查）` : "");
 const followPatchJob = (fields) => followUpdate(["follow_jobs"], (s) => ({ follow_jobs: { ...s.follow_jobs, ...fields } }));
@@ -305,7 +306,7 @@ async function followSyncJob(ctx) {
   const get = ctx.get;
 
   if (c.phase === "list") {
-    await ctx.progress({ phase: "list", step: "读取关注列表", done: 0, total: 0, cursor: c });
+    await ctx.progress({ phase: "list", step: "", done: 0, total: 0, cursor: c });
     const nav = (await get(() => followGetJson(`${FOLLOW_API}/x/web-interface/nav`))).data || {};
     if (!nav.isLogin || !nav.mid) throw triageNotLoggedIn();
     const fresh = { list: [], followTime: {}, special: {}, groups: {} };
@@ -343,6 +344,7 @@ async function followSyncJob(ctx) {
       if (!page.length || fresh.list.length >= total) break;
     }
     fresh.complete = fresh.list.length >= total;
+    fresh.total = total;
     // B站 关注分组 names. 0 默认分组 and -10 特别关注 are B站's fixed ones; the page names them itself.
     const tags = await get(() => followGetData(`${FOLLOW_API}/x/relation/tags`));
     const groups = (Array.isArray(tags) ? tags : []).filter((g) => g.tagid > 0).map((g) => ({ id: g.tagid, name: String(g.name || ""), count: Number(g.count) || 0 }));
@@ -630,7 +632,7 @@ async function followRelation({ mid, act, gone }) {
 // ===== 关注分组 =====
 // B站's fixed groups: -10 特别关注, 0 默认分组 (in none of your own). follow_list keeps -10 as special[mid] and the
 // custom ones in groups[mid].
-const FOLLOW_SPECIAL = -10;
+const FOLLOW_SPECIAL = TriageUi.FOLLOW_SPECIAL;
 
 // An UP's groups after from leaves and to joins (pure); 0 is no group.
 function followGroupsApply(ids, from, to) {
@@ -755,7 +757,7 @@ async function followGroupDelete({ id }) {
   return {};
 }
 
-const FOLLOW_FEED_TTL_MS = 3 * 60 * 1000;
+const FOLLOW_FEED_TTL_MS = TriageUi.FEED_CACHE_MS;
 const followFeedCache = new Map(); // offset → { at, data }
 async function followFeed({ offset = "" } = {}) {
   const key = String(offset || "");
@@ -783,7 +785,9 @@ async function followNoteFeedPosts(items) {
 }
 
 async function followAiTag({ instruction, mids, tags, maxNewTags, allowRemove, aiProviderId }) {
-  const s = await chrome.storage.local.get(["follow_list", "follow_people", "follow_content", "follow_last", "follow_tags", "follow_tag_map"]);
+  const s = await chrome.storage.local.get(["follow_list", "follow_people", "follow_content", "follow_last", "follow_last_wip", "follow_tags", "follow_tag_map"]);
+  // The feed read still going counts, as on the cards.
+  const last = TriageUi.withFeedInProgress(s.follow_last, s.follow_last_wip);
   const followed = new Set(s.follow_list?.list || []);
   const asked = [...new Set((Array.isArray(mids) ? mids : []).map(String))];
   const list = asked.filter((m) => followed.has(m));
@@ -799,7 +803,7 @@ async function followAiTag({ instruction, mids, tags, maxNewTags, allowRemove, a
       name: p.name,
       sign: p.sign,
       tname: top?.[0] || "",
-      titles: TriageUi.upTitles(s.follow_last?.v?.[mid], c).map((x) => x.t),
+      titles: TriageUi.upTitles(last?.v?.[mid], c).map((x) => x.t),
       currentTags: (s.follow_tag_map?.[mid] || []).map((id) => tagName.get(id)).filter(Boolean)
     };
   });

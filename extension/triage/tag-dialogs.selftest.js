@@ -341,6 +341,12 @@ function adapters(who) {
     ai.p = { newTags: [{ key: "n", name: "科普", checked: true }, { key: "m", name: "新", checked: true }], rows: [{ id: "x", add: ["new:n", "new:m"], remove: [] }], notes: [], errors: [] };
     D.ai.render(ai);
     assert.ok(nodes.aiReviewSummary.textContent.includes("新标签 1 个"), nodes.aiReviewSummary.textContent);
+    // C491: 所有收藏夹 lists one tag per name (A's 科普); B's new 科普 is B's own 科普, found among allTags().
+    ai.allTags = () => [...tags, { id: "b", name: "科普", color: "#222", folder: "B" }];
+    tags[0].folder = "A";
+    ai.p = { newTags: [{ key: "B/科普", name: "科普", checked: true, folder: "B" }], rows: [{ id: "x", add: ["new:B/科普"], remove: [] }], notes: [], errors: [] };
+    D.ai.render(ai);
+    assert.ok(nodes.aiReviewSummary.textContent.includes("新标签 0 个"), nodes.aiReviewSummary.textContent);
     ai.p = null;
     nodes.aiTagDialog.close();
   }

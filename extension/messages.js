@@ -85,7 +85,7 @@
     "triage-settings-get": { from: [...TRIAGE, ...FOLLOW], to: TRIAGE_BG, request: ["aiProviderId"], response: data },
     "triage-settings-save": { from: TRIAGE, to: TRIAGE_BG, request: [], open: "any key of triage-bg.js's TRIAGE_SETTINGS_DEFAULTS", response: data },
     "triage-seen-sync": { from: ["badges.js", ...TRIAGE], to: TRIAGE_BG, request: ["force"], response: data },
-    "triage-seen-done": { from: [TRIAGE_BG], to: "triage/triage.js", request: [], response: [] },
+    "triage-seen-done": { from: [TRIAGE_BG], to: "triage/triage.js", request: ["error"], response: [] },
     "triage-obsidian-check": { from: TRIAGE, to: TRIAGE_BG, request: [], response: data },
     "triage-build-note": { from: TRIAGE, to: TRIAGE_BG, request: ["bvid"], response: data },
     "triage-write-note": { from: TRIAGE, to: TRIAGE_BG, request: ["bvid", "title", "overwrite"], response: data },

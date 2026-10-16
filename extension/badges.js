@@ -147,7 +147,7 @@
   }
 
   // ---- The 「+」 picker's data: same tag shape, colors and name rules as the triage page's 关注 mode (tag-core.js). ----
-  const { cleanTagName, nextTagColor, newTagId } = globalThis.MdgTagCore;
+  const { cleanTagName, newUpTag } = globalThis.MdgTagCore;
   const pickRows = (mid, tags, map) => {
     const on = new Set(map?.[mid] || []);
     return (Array.isArray(tags) ? tags : []).map((t) => ({ id: t.id, name: String(t.name || ""), color: String(t.color || ""), on: on.has(t.id) }));
@@ -163,7 +163,7 @@
       if (!name) return null;
       let t = tags.find((x) => x.name === name);
       if (!t) {
-        t = { id: newTagId("ft"), name, color: nextTagColor(tags), rule: "" };
+        t = newUpTag(name, tags);
         tags = [...tags, t];
       }
       id = t.id;

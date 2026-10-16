@@ -236,10 +236,7 @@ const DUPLICATES = [
   ["标题粗看", "badges.js triage/triage.js", "待修：C34（badges.js 同一张 STAGE 表）"],
   ["字幕细看", "badges.js triage/triage.js", "待修：C34（badges.js 同一张 STAGE 表）"],
   ["UP 标签", "bili-surfaces.js triage/follow.js triage/shared.js", "待修：C55"],
-  ["已出分拣范围", "limits.js triage/follow.js triage/triage.js", "待修：C582（triage.js 已收成 REMOVED_NAME 一处，limits.js 的说明和 follow.js 还各写一份）"],
-  ["停止中", "sidepanel.js triage/follow.js triage/tag-dialogs.js triage/triage.js", "待修：C497"],
-  ["读取关注列表", "triage/follow-bg.js triage/follow.js", "待修：C394"],
-  ["已停止", "triage/follow-bg.js triage/triage.js", "待修：C402"],
+  ["已出分拣范围", "limits.js triage/shared.js", "例外：分拣台两种模式用 TriageUi.removedName；limits.js 在 errors.js 之前加载（load-order），设置页的存储说明只能自己写这个页面名"],
 ];
 {
   const where = new Map(); // text → [file:line]

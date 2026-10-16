@@ -15,7 +15,7 @@
   // tag | null, edit(t, field, value) → saved?, remove(t) }; all may be async but addReason.
   // 分组管理 also passes text: { title, saved (what saves at once), newName, newMax, add, addLabel } and row(t, count)
   // (its row html).
-  const TAG_TEXT = { title: "标签管理", saved: "改名、颜色、说明和删除立即保存。", newName: MdgErrors.LABEL.newTagName, newMax: MdgTagCore.TAG_NAME_MAX, add: "添加", addLabel: "添加标签" };
+  const TAG_TEXT = { title: UI.tagManage, saved: "改名、颜色、说明和删除立即保存。", newName: MdgErrors.LABEL.newTagName, newMax: MdgTagCore.TAG_NAME_MAX, add: "添加", addLabel: "添加标签" };
   let man = null;
   const rows = $("tagsRows");
   const newInput = $("newTagInput");
@@ -99,9 +99,11 @@
   // may make), roomHint() (html: the same in words), blocked() ("" or why it cannot run here now), history(), allowRemove(), setAllowRemove?(on)
   // → saved?, running(), proposal(), run({ instruction, scope, allowRemove }) (sets running before its first await),
   // stop(), stopping() (stop was pressed and the batch in flight still runs), discard(), apply(), map() (item id → tag ids), live() (has(id): still in the folder / still followed),
-  // tagName(id), manage (the mode's 标签管理 adapter, for the link), where?() (the open folder; "" when the mode has none) }.
+  // tagName(id), manage (the mode's 标签管理 adapter, for the link), where?() (the open folder; "" when the mode has none),
+  // allTags?() (every tag when tags() shows one per name; tags() otherwise) }.
   // The review counts what 应用 would change now, new tags standing in by name (UI.previewId).
-  const changesOf = (a, p) => UI.aiChanges(p, a.map(), a.live(), (key) => UI.previewId(p, key, a.tags()));
+  const allTags = (a) => (a.allTags || a.tags)();
+  const changesOf = (a, p) => UI.aiChanges(p, a.map(), a.live(), (key) => UI.previewId(p, key, allTags(a)));
   let ai = null;
   // adapter → { where, text }: its run's progress line and the folder the run is in, kept while the dialog is closed and
   // shown only there.
@@ -181,7 +183,7 @@
     const stop = $("aiStopBtn");
     const stopping = running && a.stopping();
     stop.hidden = !running;
-    stop.textContent = stopping ? "停止中" : "停止";
+    stop.textContent = stopping ? MdgErrors.LABEL.stopping : MdgErrors.LABEL.stop;
     stop.setAttribute("aria-label", stop.textContent);
     UI.setReason(stop, stopping ? UI.WRITE_STOPPING : "");
     $("aiProgress").textContent = progressText(a);
@@ -211,7 +213,7 @@
     const who = sp(a.who);
     const changes = changesOf(a, p);
     // A new tag whose name an existing one has is that tag (previewId), not a new one.
-    const newN = p.newTags.filter((t) => t.checked && UI.aiRef.keyOf(String(UI.previewId(p, t.key, a.tags()) || ""))).length;
+    const newN = p.newTags.filter((t) => t.checked && UI.aiRef.keyOf(String(UI.previewId(p, t.key, allTags(a)) || ""))).length;
     $("aiReviewSummary").textContent = `· ${changes.length} 个${who}有改动 · 新标签 ${newN} 个 · 点「应用」前不会改动任何东西`;
     const tally = UI.aiTally(p, changes, a.tagName);
     // Nothing to apply: the AI proposed nothing, or what it proposed was unticked or left the list since.

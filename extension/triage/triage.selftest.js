@@ -963,6 +963,13 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   handlers["triage-seen-sync"] = () => ({ ok: true, data: { reading: true } });
   await t.seenSync(false);
   assert.strictEqual(t.S.seenRead.busy, true);
+  // C518: the read ending on an error (not B站限流) says why.
+  toasts.length = 0;
+  t.seenDone({ error: "未登录 B站" });
+  assert.ok(!t.S.seenRead.busy && toasts[0] === "观看进度没有读完：未登录 B站", toasts.join("|"));
+  t.seenDone({});
+  assert.strictEqual(toasts.length, 1, "a read that finished says nothing");
+  t.S.seenRead.busy = true;
   t.S.seenRead.busy = false;
   delete handlers["triage-seen-sync"];
   t.S.seenRead.until = 0;
@@ -1275,6 +1282,18 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   assert.deepStrictEqual(dialogs, [["ai", aiTags]], "I opens AI 打标签, not 标签管理");
   assert.ok(aiTags.who === "视频" && manageTags.who === "视频" && aiTags.manage === manageTags);
   assert.deepStrictEqual(plain(aiTags.scopes().map((x) => x.value)), ["filter", "selected", "analyzed"]);
+  // C493: a run in another folder is not this folder's: its proposal shows (运行 stays off through blocked()).
+  {
+    const R = vm.runInContext("runs", ctx);
+    const get = R.get;
+    R.get = (job) => (job === "ai" ? { name: "AI 打标签" } : get(job));
+    t.S.ai.mediaId = "elsewhere";
+    assert.ok(!aiTags.running() && aiTags.blocked().startsWith("正在处理"), aiTags.blocked());
+    t.S.ai.mediaId = String(t.S.mediaId);
+    assert.ok(aiTags.running());
+    R.get = get;
+    t.S.ai.mediaId = "";
+  }
 
   // Cap: 10 tags per folder. Creating an 11th is refused, a same-name one is reused; 批量打's room shrinks to 0.
   for (const n of ["c1", "c2", "c3", "c4"]) assert.ok(t.createTag(n));
