@@ -245,7 +245,7 @@ const DUPLICATES = [
   ["UP 标签", "bili-surfaces.js triage/follow.js triage/shared.js", "待修：C55、C443"],
   ["观看进度", "bili-surfaces.js limits.js options.html triage/triage.js", "待修：C183"],
   ["专注模式", "content.js popup.html", "待修：C79"],
-  ["AI 总结", "content.js popup.html", "待修：C79、C126、C128、C282"],
+  ["AI 总结", "content.js popup.html", "待修：C79、C128、C282"],
   ["历史对话", "history/history.js sidepanel-state.js sidepanel.html", "待修：C157"],
   ["一句话备注，回车保存", "history/history.js sidepanel.html triage/triage.js", "待修：C163、C164"],
   ["这里没有列出视频", "history/history.js triage/triage.js", "待修：C170"],

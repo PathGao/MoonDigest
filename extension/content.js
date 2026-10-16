@@ -4,7 +4,7 @@
 // Bilibili video pages load this in every frame; a subframe only runs it when viewer-frame.js (document_start)
 // marked it as 分拣台's viewer. Bilibili iframes on other sites stay inert.
 if (!globalThis.__MDG_CONTENT_SCRIPT_LOADED__ && (window === window.top || document.documentElement.hasAttribute("data-mdg-viewer"))) {
-// Only for when get-settings fails; the background owns the stored settings.
+// The settings until get-settings answers (and if it never does); the background owns the stored settings.
 const DEFAULT_SETTINGS = { ...MdgSettings.DEFAULTS, ...MdgSettings.LOCAL_DEFAULTS };
 const { formatCompactTimestamp, buildSubtitlePreview, buildSrt, buildTxt, shouldShowHoursInNote, subtitleMismatchWarning } = MdgNote;
 const { escapeHtml } = MdgErrors;
@@ -151,9 +151,14 @@ function hasReaderParam(url) {
   }
 }
 
-// The navigation entry keeps the URL the document loaded with after the rewrite.
+// The navigation entry keeps the URL the document loaded with after the rewrite. Only the first copy of this script
+// takes it (marked on <html>, which every copy sees): a copy injected later, after an extension update, must not
+// reopen focus mode the user has left, or open it on the video YouTube navigated to since.
 function readerEntryRequested() {
-  return hasReaderParam(location.href) || hasReaderParam(performance.getEntriesByType("navigation")[0]?.name);
+  const root = document.documentElement;
+  const loadedWith = !root.hasAttribute("data-mdg-reader-entry-taken") && hasReaderParam(performance.getEntriesByType("navigation")[0]?.name);
+  root.setAttribute("data-mdg-reader-entry-taken", "1");
+  return hasReaderParam(location.href) || loadedWith;
 }
 
 function stripReaderModeUrl(url = location.href) {
@@ -172,9 +177,10 @@ function replaceReaderModeUrl(nextUrl) {
     return;
   }
 
+  // The clip signature stays: it ignores mdg_reader, and a video change the URL watcher has not seen yet must still
+  // look like one to it.
   try {
     history.replaceState(history.state, "", targetUrl);
-    state.currentClipSignature = computeCurrentClipSignature(location.href);
   } catch (error) {
     logWarn("[MDG] failed to replace reader mode url", error);
   }
@@ -188,12 +194,13 @@ function isWatchlaterPage(url = location.href) {
   }
 }
 
-// Mirrors --mdg-reader-side-width in content.css; 0 below 900px, where the transcript sits under the video.
+// Mirrors --mdg-reader-side-width in content.css, whose per-width maximum (--mdg-reader-side-max) it reads; 0 below
+// 900px, where the transcript sits under the video.
 function getReaderSideWidthPx() {
   if (window.innerWidth <= 900) {
     return 0;
   }
-  const max = { compact: 340, narrow: 390, wide: 520, full: 600 }[state.readingContentWidth] || 440;
+  const max = Number.parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--mdg-reader-side-max")) || 440;
   return Math.min(max, window.innerWidth * 0.45);
 }
 
@@ -228,21 +235,13 @@ function clearNativeReaderFloatingStyles(playerHost = state.readingPlayerHost) {
     depth += 1;
   }
 
-  targets.forEach((node) => {
-    node.style.removeProperty("position");
-    node.style.removeProperty("inset");
-    node.style.removeProperty("left");
-    node.style.removeProperty("top");
-    node.style.removeProperty("right");
-    node.style.removeProperty("bottom");
-    node.style.removeProperty("transform");
-    node.style.removeProperty("width");
-    node.style.removeProperty("height");
-    node.style.removeProperty("max-width");
-    node.style.removeProperty("max-height");
-    node.style.removeProperty("margin");
-    node.style.removeProperty("z-index");
-  });
+  targets.forEach(clearReaderPlacement);
+}
+
+// The inline placement a site's floating player leaves on a node, which focus mode lays out itself.
+const READER_PLACEMENT_PROPS = ["position", "inset", "left", "top", "right", "bottom", "transform", "width", "height", "max-width", "max-height", "margin", "z-index"];
+function clearReaderPlacement(node) {
+  READER_PLACEMENT_PROPS.forEach((prop) => node.style.removeProperty(prop));
 }
 
 function getReaderPlayerWrapNode(playerHost = state.readingPlayerHost) {
@@ -307,8 +306,41 @@ const ids = {
   readingMeta: "mdg-reading-meta",
   readingChapterList: "mdg-reading-chapters",
   readingTranscriptList: "mdg-reading-transcript",
-  readingTranscriptTailSpacer: "mdg-reading-tail-spacer"
+  readingTranscriptTailSpacer: "mdg-reading-tail-spacer",
+  // In the page's DOM, next to its player: the transcript column focus mode moves there.
+  readingInlineHost: "mdg-reading-inline-host"
 };
+
+// Focus mode's attributes on <html> and <body>: set while it is open, cleared together on close and by the guard.
+const READER_MODE = "data-mdg-reader-mode";
+const READER_PAGE_ATTRS = [READER_MODE, "data-mdg-reader-theme", "data-mdg-reader-font-scale", "data-mdg-reader-letter-spacing", "data-mdg-reader-line-height", "data-mdg-reader-content-width", "data-mdg-reader-chapter-visibility", "data-mdg-reader-has-chapters"];
+const READING_ACTIVE = "data-mdg-reading-active";
+// Page nodes focus mode keeps (and their path to <body>) and the ones it hides; content.css keys on both.
+const READER_KEEP = "data-mdg-reader-keep";
+const READER_HIDDEN = "data-mdg-reader-hidden";
+// A player host hidden until it is mounted (content.css).
+const READER_FADING = "data-mdg-reader-fading";
+const AI_SUMMARY = "AI 总结";
+const READER_NAME = "专注模式";
+const PLAYER_WAIT = "正在等待视频播放器就绪…";
+const META_READING = "正在读取视频信息…";
+// A subtitle track without a label or language, in the dropdown and focus mode's info line.
+const UNNAMED_SUBTITLE = "未命名字幕";
+// How long a click or drag in focus mode's lists keeps the transcript from following the video.
+const MANUAL_PAUSE_MS = 3500;
+// Between two tries to mount the player after focus mode opened without one.
+const PLAYER_RETRY_MS = 500;
+// Smaller than this is a thumbnail or a preview, not the player.
+const MIN_PLAYER = { width: 240, height: 120 };
+// The appearance settings focus mode changes itself; a change to them does not touch the note.
+const READER_KEYS = ["readerTheme", "readerFontScale", "readerLetterSpacing", "readerLineHeight", "readerContentWidth", "readerChapterVisible"];
+// 排版's steppers in the settings panel, in order: the control's id, its name, the setting it changes.
+const READER_STEPPERS = [
+  { id: ids.readingFontScaleSelect, title: "字号", settingKey: "readerFontScale" },
+  { id: ids.readingLetterSpacingSelect, title: "字间距", settingKey: "readerLetterSpacing" },
+  { id: ids.readingLineHeightSelect, title: "行间距", settingKey: "readerLineHeight" },
+  { id: ids.readingContentWidthSelect, title: "字幕栏宽度", settingKey: "readerContentWidth" }
+];
 
 // An extension reload or update leaves the previous copy running in its own isolated world with a
 // dead chrome.runtime. Ask it to stand down; v2.0.0 and older can't and still hold their root.
@@ -323,15 +355,18 @@ init();
 // Every focus-mode entry goes through here; the view only opens in reader mode.
 function markReaderMode() {
   stepReader("mark");
-  document.documentElement.setAttribute("data-mdg-reader-mode", "1");
-  document.body.setAttribute("data-mdg-reader-mode", "1");
+  document.documentElement.setAttribute(READER_MODE, "1");
+  document.body.setAttribute(READER_MODE, "1");
 }
 
 function standDown() {
   state.superseded = true;
-  // Focus mode moved the page's player into our view; a reload restores the page and the URL reopens focus mode.
+  // Focus mode moved the page's player into our view; a reload restores the page and mdg_reader reopens focus mode
+  // (put back: YouTube drops it from the address soon after load).
   if (state.readerMode || state.readingViewOpen) {
-    location.reload();
+    const url = new URL(location.href);
+    url.searchParams.set("mdg_reader", "1");
+    location.replace(url.href);
     return;
   }
   removePlayerAiQuickActionButton();
@@ -339,7 +374,6 @@ function standDown() {
 }
 
 function init() {
-  logInfo(`[MDG] content script loaded, version=${MDG_VERSION}`);
   ensureUiReady({ forceRecreate: true });
 
   const shouldEnterReaderMode = readerEntryRequested();
@@ -354,16 +388,21 @@ function init() {
   bindNormalPageStateGuard();
   bindPlayerAiQuickActionLayoutEvents();
   startUrlWatcher();
-  getSettings().then((settings) => {
-    state.settings = settings;
-    hydrateReaderStateFromSettings(settings);
-    applyReadingViewPresentation();
-    startPlayerAiQuickActionObserver();
-    schedulePlayerAiQuickActionSync();
-    if (shouldEnterReaderMode) {
-      startReaderMode();
-    }
-  });
+  // Unread settings keep the defaults state starts with.
+  getSettings()
+    .catch(() => state.settings)
+    .then((settings) => {
+      state.settings = settings;
+      // After the settings: the debug log setting decides whether it shows.
+      logInfo(`[MDG] content script loaded, version=${MDG_VERSION}`);
+      hydrateReaderStateFromSettings(settings);
+      applyReadingViewPresentation();
+      startPlayerAiQuickActionObserver();
+      schedulePlayerAiQuickActionSync();
+      if (shouldEnterReaderMode) {
+        startReaderMode();
+      }
+    });
 }
 
 function ensureUiReady({ forceRecreate = false } = {}) {
@@ -390,17 +429,10 @@ function ensureUiReady({ forceRecreate = false } = {}) {
 }
 
 function clearReaderModePageState() {
-  document.documentElement.removeAttribute("data-mdg-reader-mode");
-  document.documentElement.removeAttribute("data-mdg-reader-line-height");
-  document.documentElement.removeAttribute("data-mdg-reader-theme");
-  document.documentElement.removeAttribute("data-mdg-reader-font-scale");
-  document.documentElement.removeAttribute("data-mdg-reader-letter-spacing");
-  document.documentElement.removeAttribute("data-mdg-reader-content-width");
-  document.documentElement.removeAttribute("data-mdg-reader-chapter-visibility");
-  document.documentElement.removeAttribute("data-mdg-reader-has-chapters");
-  document.body.removeAttribute("data-mdg-reader-mode");
-  document.body.removeAttribute("data-mdg-reader-line-height");
-  document.body.removeAttribute("data-mdg-reading-active");
+  for (const node of [document.documentElement, document.body]) {
+    READER_PAGE_ATTRS.forEach((name) => node.removeAttribute(name));
+  }
+  document.body.removeAttribute(READING_ACTIVE);
 }
 
 function shouldForceNormalPageState() {
@@ -423,23 +455,8 @@ function bindNormalPageStateGuard() {
   const observer = new MutationObserver(() => {
     enforceNormalPageStateIfNeeded();
   });
-  observer.observe(document.documentElement, {
-    attributes: true,
-    attributeFilter: [
-      "data-mdg-reader-mode",
-      "data-mdg-reader-line-height",
-      "data-mdg-reader-theme",
-      "data-mdg-reader-font-scale",
-      "data-mdg-reader-letter-spacing",
-      "data-mdg-reader-content-width",
-      "data-mdg-reader-chapter-visibility",
-      "data-mdg-reader-has-chapters"
-    ]
-  });
-  observer.observe(document.body, {
-    attributes: true,
-    attributeFilter: ["data-mdg-reader-mode", "data-mdg-reader-line-height", "data-mdg-reading-active"]
-  });
+  observer.observe(document.documentElement, { attributes: true, attributeFilter: READER_PAGE_ATTRS });
+  observer.observe(document.body, { attributes: true, attributeFilter: [...READER_PAGE_ATTRS, READING_ACTIVE] });
   enforceNormalPageStateIfNeeded();
 }
 
@@ -575,6 +592,8 @@ function bindSettingsWatcher() {
     if (!changed) {
       return;
     }
+    // Focus mode's look (another tab's, or this one's own save) does not shape the note.
+    const noteChanged = Object.keys(changes).some((k) => !READER_KEYS.includes(k));
 
     getSettings()
       .then((settings) => {
@@ -582,7 +601,7 @@ function bindSettingsWatcher() {
         hydrateReaderStateFromSettings(settings);
         applyReadingViewPresentation();
         schedulePlayerAiQuickActionSync();
-        if (state.markdown && runId === state.fetchRunId) refreshDerivedContent().catch(() => {});
+        if (noteChanged && state.markdown && runId === state.fetchRunId) refreshDerivedContent().catch(() => {});
       })
       .catch((error) => {
         logWarn("[MDG] failed to refresh settings after storage change", error);
@@ -602,11 +621,11 @@ function buildUiHtml() {
         <section class="mdg-reading-stage">
           <header class="mdg-reading-header">
             <div class="mdg-reading-header-copy">
-              <strong class="mdg-reading-title">${escapeHtml(state.title || "专注模式")}</strong>
+              <strong class="mdg-reading-title">${escapeHtml(state.title || READER_NAME)}</strong>
               <div id="${ids.readingMeta}" class="mdg-reading-meta">${escapeHtml(currentSite()?.domain || "")}</div>
             </div>
             <div class="mdg-reading-actions">
-              <button id="${ids.readingAiBtn}" type="button" class="mdg-reading-icon-btn" title="AI 总结" aria-label="AI 总结">${buildPlayerAiQuickActionIconSvg()}</button>
+              <button id="${ids.readingAiBtn}" type="button" class="mdg-reading-icon-btn" title="${AI_SUMMARY}" aria-label="${AI_SUMMARY}">${buildPlayerAiQuickActionIconSvg()}</button>
               <button id="${ids.readingThemeSelect}" type="button" class="mdg-reading-icon-btn" title="主题" aria-label="切换主题">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg>
               </button>
@@ -623,26 +642,7 @@ function buildUiHtml() {
             <section class="mdg-reading-settings-group">
               <div class="mdg-reading-eyebrow">排版</div>
               <div class="mdg-reading-stepper-list">
-                ${buildReaderStepperControl({
-                  id: ids.readingFontScaleSelect,
-                  title: "字号",
-                  settingKey: "readerFontScale"
-                })}
-                ${buildReaderStepperControl({
-                  id: ids.readingLetterSpacingSelect,
-                  title: "字间距",
-                  settingKey: "readerLetterSpacing"
-                })}
-                ${buildReaderStepperControl({
-                  id: ids.readingLineHeightSelect,
-                  title: "行间距",
-                  settingKey: "readerLineHeight"
-                })}
-                ${buildReaderStepperControl({
-                  id: ids.readingContentWidthSelect,
-                  title: "字幕栏宽度",
-                  settingKey: "readerContentWidth"
-                })}
+                ${READER_STEPPERS.map(buildReaderStepperControl).join("")}
               </div>
             </section>
 
@@ -695,10 +695,6 @@ function bindUiEvents() {
   const readingAutoScroll = byId(ids.readingAutoScroll);
   const readingThemeSelect = byId(ids.readingThemeSelect);
   const readingSettingsToggleBtn = byId(ids.readingSettingsBtn);
-  const readingFontScaleSelect = byId(ids.readingFontScaleSelect);
-  const readingLetterSpacingSelect = byId(ids.readingLetterSpacingSelect);
-  const readingLineHeightSelect = byId(ids.readingLineHeightSelect);
-  const readingContentWidthSelect = byId(ids.readingContentWidthSelect);
   const readingDescriptionBtn = byId(ids.readingDescriptionBtn);
   const chapterList = byId(ids.readingChapterList);
   const transcriptList = byId(ids.readingTranscriptList);
@@ -742,10 +738,7 @@ function bindUiEvents() {
     state.readingDescriptionExpanded = !state.readingDescriptionExpanded;
     renderReadingInfoPanel();
   });
-  bindReaderStepperControl(readingFontScaleSelect, "readerFontScale");
-  bindReaderStepperControl(readingLetterSpacingSelect, "readerLetterSpacing");
-  bindReaderStepperControl(readingLineHeightSelect, "readerLineHeight");
-  bindReaderStepperControl(readingContentWidthSelect, "readerContentWidth");
+  READER_STEPPERS.forEach(({ id, settingKey }) => bindReaderStepperControl(byId(id), settingKey));
 
   byId(ids.readingSubtitleSelect).addEventListener("change", onReadingSubtitleChange);
 
@@ -783,8 +776,8 @@ function bindUiEvents() {
   transcriptList.addEventListener("scroll", handleReaderManualScroll);
   transcriptList.addEventListener("wheel", handleReaderManualScroll, { passive: true });
   chapterList.addEventListener("wheel", handleReaderManualScroll, { passive: true });
-  chapterList.addEventListener("pointerdown", () => noteManualReaderInteraction(3500));
-  transcriptList.addEventListener("pointerdown", () => noteManualReaderInteraction(3500));
+  chapterList.addEventListener("pointerdown", () => noteManualReaderInteraction(MANUAL_PAUSE_MS));
+  transcriptList.addEventListener("pointerdown", () => noteManualReaderInteraction(MANUAL_PAUSE_MS));
   byId(ids.readingStatus).addEventListener("click", () => setReadingNotice(""));
   // The popup's request, from 专注模式 (source reader): it works even when the player button is turned off.
   byId(ids.readingAiBtn).addEventListener("click", () => {
@@ -843,11 +836,7 @@ function checkUrlChange() {
       if (runId !== state.fetchRunId) {
         return;
       }
-      refreshClip().catch((error) => {
-        if (!isStaleRunError(error)) {
-          setReadingNotice(`${MdgErrors.TEXT.videoReadFailed}：${fetchErrorText(error)}`, { error: true });
-        }
-      });
+      refreshClip().catch(readerReadFailed);
     });
   }
   // Out of 专注模式 nothing is read here: the next entry that asks (popup, side panel, player ✦) reads it via settledClip.
@@ -881,6 +870,7 @@ function resetClipState() {
   state.subtitleNeedLogin = false;
   state.chapters = [];
   state.hotComments = [];
+  state.commentsFailure = "";
   state.triageExtras = null;
   state.markdown = "";
   state.srt = "";
@@ -973,7 +963,8 @@ async function clipContext(refresh) {
       });
     }
     if (runId !== state.fetchRunId) continue;
-    state.hotComments = comments;
+    // A note refresh may have got them meanwhile.
+    if (comments.length) state.hotComments = comments;
     return buildSidepanelContext();
   }
 }
@@ -994,9 +985,9 @@ async function runRefreshClip() {
   let metaLoaded = false;
   try {
     setMessage("");
-    setStatus("正在读取视频信息…");
+    setStatus(META_READING);
     // A read starts clean: the last read's subtitle state and comments must not leak into this one's note.
-    Object.assign(state, { subtitleFetchState: "loading", subtitleFailure: "", subtitleNeedLogin: false, subtitleWarning: "", hotComments: [] });
+    Object.assign(state, { subtitleFetchState: "loading", subtitleFailure: "", subtitleNeedLogin: false, subtitleWarning: "", hotComments: [], commentsFailure: "" });
     if (state.readingViewOpen) {
       renderReadingView();
     }
@@ -1033,13 +1024,8 @@ async function runRefreshClip() {
     state.pageIndex = Number(meta.pageIndex) > 0 ? Number(meta.pageIndex) : 1;
     state.pageTitle = meta.pageTitle || "";
     state.cid = meta.cid || "";
-    state.videoDuration = Number(meta.duration) || 0;
-    if (!(state.videoDuration > 0)) {
-      state.videoDuration = readRuntimeVideoDuration();
-    }
-    if (!(state.videoDuration > 0)) {
-      throw new Error("无法获取当前视频时长，已停止抓取以避免串到错误字幕。");
-    }
+    // Without a duration the subtitle is not checked against one, as on every other entry (sites.js).
+    state.videoDuration = Number(meta.duration) > 0 ? Number(meta.duration) : readRuntimeVideoDuration();
 
     logInfo("[MDG] resolved video ids", {
       url: location.href,
@@ -1051,7 +1037,7 @@ async function runRefreshClip() {
       videoDuration: state.videoDuration
     });
 
-    setStatus("正在获取可用字幕…");
+    setStatus(MdgErrors.TEXT.subtitleReading);
     const found = await MdgSites.loadSubtitle(
       pageSubtitleSite(site, runId),
       currentRef(),
@@ -1077,13 +1063,10 @@ async function runRefreshClip() {
     if (state.readingViewOpen) {
       moveReadingMainInline();
       renderReadingView();
-      setReadingNotice(state.subtitleWarning);
       startReaderPlayerObserver();
       syncReadingViewPlayback(true);
     }
-    setStatus(
-      state.subtitleWarning + (state.settings.obsidianEnabled ? "读取完成，可以复制、下载或写入 Obsidian。" : "读取完成，可以复制或下载。")
-    );
+    setStatus(state.subtitleWarning + readDoneText());
   } catch (error) {
     // A newer run (the video changed) owns the state now: an old video's late failure must not reset or mark it.
     if (isStaleRunError(error) || runId !== state.fetchRunId) {
@@ -1155,7 +1138,8 @@ function pageSubtitleSite(site, runId) {
 async function showSubtitle({ track, body, mismatch }, runId) {
   state.selectedSubtitleId = track.id ? String(track.id) : state.selectedSubtitleId;
   state.selectedSubtitleUrl = track.url;
-  state.selectedSubtitleLang = track.label || track.lang || "unknown";
+  // Empty for a nameless track, as the background has it (the note's subtitle_lang says unknown then).
+  state.selectedSubtitleLang = track.label || track.lang || "";
   state.subtitleBody = body;
   state.subtitleWarning = mismatch ? subtitleMismatchWarning(mismatch) : "";
   state.subtitleFetchState = "ready";
@@ -1164,42 +1148,43 @@ async function showSubtitle({ track, body, mismatch }, runId) {
   if (state.readingViewOpen) {
     renderReadingView();
     syncReadingViewPlayback(true);
+    setReadingNotice(state.subtitleWarning);
   }
 }
 
 // The popup's and focus mode's subtitle pickers. Only a track of the video shown: the list may belong to a video the
 // page has since left. A track whose time range does not match the video is used with the warning, as on first load.
+// The latest pick wins: a switch that loads after a newer one started shows nothing and resolves.
+let subtitleSwitchId = 0;
 async function switchSubtitle(url) {
   const track = url && state.subtitles.find((item) => item.url === url);
   if (!track) {
     throw new Error(VIDEO_SWITCHED);
   }
   const runId = state.fetchRunId;
+  const switchId = ++subtitleSwitchId;
   try {
     const got = await MdgSites.loadFirstTrack(currentSite(), [track], { videoId: state.videoId, cid: state.cid }, siteIo(), state.videoDuration, runStep(runId));
+    if (switchId !== subtitleSwitchId) return;
     if (!got.track) throw got.error;
     await showSubtitle(got, runId);
   } catch (error) {
+    if (switchId !== subtitleSwitchId) return;
     throw isStaleRunError(error) ? new Error(VIDEO_SWITCHED) : error;
   }
-  setStatus(`${state.subtitleWarning}字幕切换完成。`);
+  if (switchId === subtitleSwitchId) setStatus(`${state.subtitleWarning}字幕切换完成。`);
 }
 
 function onReadingSubtitleChange(event) {
   const option = event.target.options[event.target.selectedIndex];
   const url = String(option?.value || "");
   if (!url) return;
-  return switchSubtitle(url)
-    .then(() => {
-      renderReadingView();
-      syncReadingViewPlayback(true);
-      setReadingNotice(state.subtitleWarning);
-    })
-    .catch((error) => {
-      // The dropdown goes back to the track still shown.
-      renderReadingSubtitleSelect();
-      setReadingNotice(`${MdgErrors.TEXT.subtitleSwitchFailed}：${fetchErrorText(error)}`, { error: true });
-    });
+  // showSubtitle draws the new track in focus mode.
+  return switchSubtitle(url).catch((error) => {
+    // The dropdown goes back to the track still shown.
+    renderReadingSubtitleSelect();
+    setReadingNotice(`${MdgErrors.TEXT.subtitleSwitchFailed}：${fetchErrorText(error)}`, { error: true });
+  });
 }
 
 function renderReadingSubtitleSelect() {
@@ -1208,7 +1193,7 @@ function renderReadingSubtitleSelect() {
 
 // Translated tracks already say 机器翻译 in their label.
 function subtitleOptionLabel(item) {
-  return `${item.label || item.lang || "未命名字幕"}${{ ai: "（AI）", auto: "（自动）" }[item.kind] || ""}`;
+  return `${item.label || item.lang || UNNAMED_SUBTITLE}${{ ai: "（AI）", auto: "（自动）" }[item.kind] || ""}`;
 }
 
 // Why no subtitle is shown (专注模式's transcript and dropdown, the popup's dropdown and 下载字幕's reason): the read
@@ -1216,7 +1201,7 @@ function subtitleOptionLabel(item) {
 function noTrackText() {
   // idle: the video just changed and its fetch has not started yet.
   if (state.subtitleFetchState === "loading" || state.subtitleFetchState === "idle") {
-    return "正在加载字幕…";
+    return MdgErrors.TEXT.subtitleReading;
   }
   // Only reading the video itself sets error (a subtitle failure is subtitleMissing below).
   if (state.subtitleFetchState === "error") {
@@ -1251,7 +1236,7 @@ function renderSubtitleOptions(select) {
 // The subtitle dropdown's entries, for 专注模式's and the popup's.
 function subtitleOptionItems() {
   return (state.subtitles || []).map((item) => {
-    const label = item.label || item.lang || "unknown";
+    const label = item.label || item.lang || "";
     const selectedById =
       state.selectedSubtitleId && String(item.id) === String(state.selectedSubtitleId);
     const selectedByUrl = item.url === state.selectedSubtitleUrl;
@@ -1293,12 +1278,13 @@ function getPopupPayload() {
 
 // The background (write-video-note) picks the path and writes; this page sends its note and draws the overwrite dialog.
 // Resolves { ok, text, written?, error?, code? }: text is the result for the popup to show (ok: false is red), written:
-// false when the existing note was left alone (取消, video switched); nothing when Obsidian is off. The result never goes
-// into the popup's status (setMessage): answering the dialog closes the popup, so from then on it shows on the page only.
+// false when the existing note was left alone (取消, video switched). The result never goes into the popup's status
+// (setMessage): answering the dialog closes the popup, so from then on it shows on the page only.
 async function sendToObsidian() {
   state.settings = await getSettings();
+  // Turned off in the settings page while the popup that still shows the button was open.
   if (!state.settings.obsidianEnabled) {
-    return;
+    return { ok: false, text: MdgErrors.TEXT.obsidianOff };
   }
   await refreshDerivedContent();
   // The popup disables 写入 Obsidian without a note; the note can still go when the video changes meanwhile.
@@ -1319,10 +1305,10 @@ async function sendToObsidian() {
     let resp = await sendRuntimeMessage(request);
     if (resp?.ok && resp.ask) {
       const mode = await confirmOverwriteNote(resp.path, { hasAiSection: resp.hasAiSection });
-      if (!mode) {
-        return { ok: true, written: false, text: MdgErrors.TEXT.obsidianCancelled };
-      }
       onPage = true;
+      if (!mode) {
+        return { ...report(MdgErrors.TEXT.obsidianCancelled, true), written: false };
+      }
       if (computeCurrentClipSignature() !== clip) {
         return { ...report(MdgErrors.TEXT.obsidianVideoSwitched, true), written: false };
       }
@@ -1353,27 +1339,15 @@ function confirmOverwriteNote(filepath, { hasAiSection = false } = {}) {
   return new Promise((resolve) => {
     const overlay = document.createElement("div");
     overlay.className = "mdg-confirm-overlay";
-    overlay.innerHTML = hasAiSection
-      ? `
+    overlay.innerHTML = `
       <div class="mdg-confirm-dialog" role="dialog" aria-modal="true" aria-labelledby="mdgConfirmTitle">
         <div id="mdgConfirmTitle" class="mdg-confirm-title">该笔记已存在</div>
-        <div class="mdg-confirm-body">只更新 AI 问答：保留原笔记，只替换标记之间的「AI 问答」。整篇覆盖：替换全部内容。</div>
+        <div class="mdg-confirm-body">${hasAiSection ? "只更新 AI 问答：保留原笔记，只替换标记之间的「AI 问答」。整篇覆盖：替换全部内容。" : "没有 AI 问答可更新。整篇覆盖会替换全部内容："}</div>
         <div class="mdg-confirm-path"></div>
         <div class="mdg-confirm-actions">
           <button type="button" class="mdg-confirm-danger" data-choice="full">整篇覆盖</button>
           <button type="button" class="mdg-confirm-cancel" data-choice="">取消</button>
-          <button type="button" class="mdg-confirm-primary" data-choice="ai">只更新 AI 问答</button>
-        </div>
-      </div>
-    `
-      : `
-      <div class="mdg-confirm-dialog" role="dialog" aria-modal="true" aria-labelledby="mdgConfirmTitle">
-        <div id="mdgConfirmTitle" class="mdg-confirm-title">该笔记已存在</div>
-        <div class="mdg-confirm-body">没有 AI 问答可更新。整篇覆盖会替换全部内容：</div>
-        <div class="mdg-confirm-path"></div>
-        <div class="mdg-confirm-actions">
-          <button type="button" class="mdg-confirm-danger" data-choice="full">整篇覆盖</button>
-          <button type="button" class="mdg-confirm-cancel" data-choice="">取消</button>
+          ${hasAiSection ? '<button type="button" class="mdg-confirm-primary" data-choice="ai">只更新 AI 问答</button>' : ""}
         </div>
       </div>
     `;
@@ -1437,7 +1411,13 @@ async function showNoSubtitleState(runId, { failure = "", needLogin = false } = 
   setStatus(`${label}，正在读取评论…`);
   await refreshDerivedContent();
   ensureRunActive(runId);
-  setStatus(`${label}，可导出简介与评论。${hint}`);
+  setStatus(`${label}。${readDoneText()}${hint}`);
+}
+
+// The popup's status after a read, with or without a subtitle: what the note can do, and a comment read that failed.
+function readDoneText() {
+  const comments = state.commentsFailure ? `评论读取失败：${state.commentsFailure}。` : "";
+  return comments + (state.settings.obsidianEnabled ? "读取完成，可以复制、下载或写入 Obsidian。" : "读取完成，可以复制或下载。");
 }
 
 function cleanupReaderFloatingArtifacts(playerHost = state.readingPlayerHost) {
@@ -1465,7 +1445,7 @@ async function enterReaderMode() {
   const gen = state.readerGen;
   const readingView = byId(ids.readingView);
   state.readingPlayerRetries = 0;
-  document.body.setAttribute("data-mdg-reading-active", "1");
+  document.body.setAttribute(READING_ACTIVE, "1");
   hydrateReaderStateFromSettings(state.settings);
   applyReadingViewPresentation();
   alignReaderViewportToPlayer();
@@ -1478,10 +1458,7 @@ async function enterReaderMode() {
   startReaderPlayerObserver();
   renderReadingView();
 
-  const earlyPlayerHost = findReaderPlayerHost(getRuntimeVideoElement());
-  if (earlyPlayerHost) {
-    earlyPlayerHost.setAttribute("data-mdg-reader-fading", "1");
-  }
+  findReaderPlayerHost(getRuntimeVideoElement())?.setAttribute(READER_FADING, "1");
 
   await sleep(0);
   if (gen !== state.readerGen) {
@@ -1489,19 +1466,16 @@ async function enterReaderMode() {
   }
 
   // The view stays hidden until the player is in, so say so unless that is instant.
-  const waitNotice = window.setTimeout(() => state.readingViewOpen && setReadingNotice("正在等待视频播放器就绪…", { busy: true }), 150);
+  const waitNotice = window.setTimeout(() => state.readingViewOpen && setReadingNotice(PLAYER_WAIT, { busy: true }), 150);
   const mounted = await ensureReaderPlayerMounted({ retries: 50, delayMs: 150, forceLayout: true });
   window.clearTimeout(waitNotice);
-  const mountedPlayerHost = state.readingPlayerHost || earlyPlayerHost;
-  if (mountedPlayerHost) {
-    mountedPlayerHost.removeAttribute("data-mdg-reader-fading");
-  }
+  clearReaderFading();
   if (gen !== state.readerGen) {
     return;
   }
   if (!mounted) {
     // Don't throw - keep UI open and keep retrying in background
-    setReadingNotice("正在等待视频播放器就绪…", { busy: true });
+    setReadingNotice(PLAYER_WAIT, { busy: true });
     scheduleReaderPlayerRetry();
     return;
   }
@@ -1527,18 +1501,19 @@ function scheduleReaderPlayerRetry() {
       return;
     }
     const mounted = await ensureReaderPlayerMounted({ retries: 10, delayMs: 200, forceLayout: true });
-    const retryHost = state.readingPlayerHost;
-    if (retryHost) {
-      retryHost.removeAttribute("data-mdg-reader-fading");
-    }
     if (gen !== state.readerGen) return;
     if (mounted) {
       finishEnterReaderMode();
     } else if (state.readingViewOpen) {
-      state.readingPlayerRetryTimer = window.setTimeout(tryMount, 500);
+      state.readingPlayerRetryTimer = window.setTimeout(tryMount, PLAYER_RETRY_MS);
     }
   };
-  state.readingPlayerRetryTimer = window.setTimeout(tryMount, 500);
+  state.readingPlayerRetryTimer = window.setTimeout(tryMount, PLAYER_RETRY_MS);
+}
+
+// Whichever host the entry hid (the one found first may not be the one mounted), and on a close mid-entry.
+function clearReaderFading() {
+  document.querySelectorAll(`[${READER_FADING}]`).forEach((node) => node.removeAttribute(READER_FADING));
 }
 
 function finishEnterReaderMode() {
@@ -1573,18 +1548,22 @@ function maybeRefreshReaderSubtitleInBackground() {
       return;
     }
     // Joins a read in flight or reads a video not read yet; a video already read without subtitles is not reread.
-    settledClip(false).catch((error) => setReadingNotice(`${MdgErrors.TEXT.videoReadFailed}：${fetchErrorText(error)}`, { error: true }));
+    settledClip(false).catch(readerReadFailed);
   });
+}
+
+// A read focus mode started (entry, video change, 重试) failed: red in focus mode, nothing once it has closed.
+function readerReadFailed(error) {
+  if (state.readingViewOpen && !isStaleRunError(error)) {
+    setReadingNotice(`${MdgErrors.TEXT.videoReadFailed}：${fetchErrorText(error)}`, { error: true });
+  }
 }
 
 function waitForVideoMetadata(timeoutMs = 5000) {
   return new Promise((resolve) => {
     const start = Date.now();
     const check = () => {
-      const video = getRuntimeVideoElement();
-      const duration = Number(video?.duration);
-      const ready = video && Number.isFinite(duration) && duration > 0;
-      if (ready || Date.now() - start >= timeoutMs) {
+      if (readRuntimeVideoDuration() > 0 || Date.now() - start >= timeoutMs) {
         resolve();
         return;
       }
@@ -1604,7 +1583,7 @@ function syncReaderModeAfterMount() {
 function settleReaderModePresentation() {
   if (!isReaderPresentationStable()) {
     setReadingViewReady(false);
-    setReadingNotice("正在等待视频播放器就绪…", { busy: true });
+    setReadingNotice(PLAYER_WAIT, { busy: true });
     scheduleReaderPlayerRetry();
     return false;
   }
@@ -1634,18 +1613,20 @@ async function ensureReaderPlayerMounted({ retries = 1, delayMs = 100, forceLayo
       const miniPlayerClosed = dismissReaderMiniPlayer(playerHost);
       if (miniPlayerClosed) {
         await sleep(120);
+        // Closed while the mini player went away: the page's player stays as the close left it.
+        if (!isReaderMode()) {
+          return false;
+        }
       }
       const activeHost = findReaderPlayerHost(video) || playerHost;
       state.readingPlayerHost = activeHost;
       // YouTube moves #movie_player from the skeleton #player into
       // ytd-watch-flexy after load, into a branch the page focus hid; the
       // transcript host follows the player into its new wrap.
-      if (isReaderMode()) {
-        if (video.closest("[data-mdg-reader-hidden='1']")) {
-          applyReaderPageFocus();
-        }
-        moveReadingMainInline();
+      if (video.closest(`[${READER_HIDDEN}="1"]`)) {
+        applyReaderPageFocus();
       }
+      moveReadingMainInline();
       normalizeReaderPlayerContainer(activeHost);
       if (state.readingViewOpen) {
         clearNativeReaderFloatingStyles(activeHost);
@@ -1736,23 +1717,8 @@ function closeReadingView() {
   readingView.setAttribute("aria-hidden", "true");
   readingView.setAttribute("data-mdg-reader-ready", "0");
   readingView.removeAttribute("data-mdg-reader-follow");
-  document.body.removeAttribute("data-mdg-reading-active");
-  document.documentElement.removeAttribute("data-mdg-reader-mode");
-  document.body.removeAttribute("data-mdg-reader-mode");
-  document.documentElement.removeAttribute("data-mdg-reader-theme");
-  document.documentElement.removeAttribute("data-mdg-reader-font-scale");
-  document.documentElement.removeAttribute("data-mdg-reader-letter-spacing");
-  document.documentElement.removeAttribute("data-mdg-reader-line-height");
-  document.documentElement.removeAttribute("data-mdg-reader-content-width");
-  document.documentElement.removeAttribute("data-mdg-reader-chapter-visibility");
-  document.documentElement.removeAttribute("data-mdg-reader-has-chapters");
-  document.body.removeAttribute("data-mdg-reader-theme");
-  document.body.removeAttribute("data-mdg-reader-font-scale");
-  document.body.removeAttribute("data-mdg-reader-letter-spacing");
-  document.body.removeAttribute("data-mdg-reader-line-height");
-  document.body.removeAttribute("data-mdg-reader-content-width");
-  document.body.removeAttribute("data-mdg-reader-chapter-visibility");
-  document.body.removeAttribute("data-mdg-reader-has-chapters");
+  clearReaderModePageState();
+  clearReaderFading();
   restoreReadingMainInline();
   stopReadingViewSync();
   unbindReaderLayout();
@@ -1787,7 +1753,7 @@ function renderReadingView() {
   const hasChapters = chapters.length > 0;
 
   if (titleNode) {
-    titleNode.textContent = state.title || "专注模式";
+    titleNode.textContent = state.title || READER_NAME;
   }
   if (metaNode) {
     metaNode.textContent = buildReadingMetaLine();
@@ -1874,7 +1840,7 @@ function updateReadingTranscriptTailSpacer() {
   if (!spacer) {
     return;
   }
-  const inlineHost = document.getElementById("mdg-reading-inline-host");
+  const inlineHost = document.getElementById(ids.readingInlineHost);
   const transcriptList = document.getElementById(ids.readingTranscriptList);
   const hostHeight = inlineHost?.clientHeight || transcriptList?.clientHeight || 0;
   const spacerHeight = Math.max(hostHeight, Math.round(window.innerHeight * 0.92), 320);
@@ -2044,10 +2010,7 @@ function renderReaderPanels() {
   settingsBtn.classList.toggle("is-active", state.readingSettingsExpanded);
   settingsBtn.setAttribute("aria-expanded", String(state.readingSettingsExpanded));
   byId(ids.readingAutoScroll).checked = state.readingAutoScroll;
-  renderReaderStepperState(byId(ids.readingFontScaleSelect), "readerFontScale");
-  renderReaderStepperState(byId(ids.readingLetterSpacingSelect), "readerLetterSpacing");
-  renderReaderStepperState(byId(ids.readingLineHeightSelect), "readerLineHeight");
-  renderReaderStepperState(byId(ids.readingContentWidthSelect), "readerContentWidth");
+  READER_STEPPERS.forEach(({ id, settingKey }) => renderReaderStepperState(byId(id), settingKey));
 }
 
 function renderReadingInfoPanel() {
@@ -2059,7 +2022,7 @@ function renderReadingInfoPanel() {
 
   summaryNode.innerHTML =
     summaryItems.length === 0
-      ? '<div class="mdg-reading-empty">当前视频信息还未就绪。</div>'
+      ? `<div class="mdg-reading-empty">${escapeHtml(readingInfoMissingText(""))}</div>`
       : summaryItems
           .map(
             (item) => `
@@ -2072,7 +2035,7 @@ function renderReadingInfoPanel() {
           .join("");
 
   if (!description) {
-    descriptionNode.innerHTML = '<div class="mdg-reading-empty">当前视频没有简介。</div>';
+    descriptionNode.innerHTML = `<div class="mdg-reading-empty">${escapeHtml(readingInfoMissingText("当前视频没有简介。"))}</div>`;
     descriptionNode.classList.remove("is-collapsed");
     descriptionBtn.hidden = true;
   } else {
@@ -2092,6 +2055,18 @@ function renderReadingInfoPanel() {
   }
 }
 
+// Why the info panel has nothing to show: the video is still being read, its read failed, or (read) none.
+function readingInfoMissingText(none) {
+  if (state.meta) return none;
+  return state.subtitleFetchState === "error" ? MdgErrors.TEXT.videoReadFailed : META_READING;
+}
+
+// 「P2 标题」 for a video in parts, "" otherwise.
+function pageLabel() {
+  if (!(Number(state.pageCount) > 1)) return "";
+  return [`P${Number(state.pageIndex) > 0 ? Number(state.pageIndex) : 1}`, state.pageTitle].filter(Boolean).join(" ");
+}
+
 function buildReadingSummaryItems() {
   const items = [];
   if (state.title) {
@@ -2103,34 +2078,16 @@ function buildReadingSummaryItems() {
   if (state.uploadDate) {
     items.push({ label: "发布日期", value: state.uploadDate });
   }
-  if (Number(state.pageCount) > 1) {
-    const pageParts = [`P${Number(state.pageIndex) > 0 ? Number(state.pageIndex) : 1}`];
-    if (state.pageTitle) {
-      pageParts.push(state.pageTitle);
-    }
-    items.push({ label: "分 P", value: pageParts.join(" ") });
+  if (pageLabel()) {
+    items.push({ label: "分 P", value: pageLabel() });
   }
   return items;
 }
 
+// Callers pass only values from the controls' option lists.
 function updateReaderPreferences(next, { persist = true } = {}) {
-  state.readingTheme = MdgSettings.normalizeReaderTheme(next.readerTheme ?? state.readingTheme);
-  state.readingFontScale = MdgSettings.normalizeReaderFontScale(next.readerFontScale ?? state.readingFontScale);
-  state.readingLetterSpacing = MdgSettings.normalizeReaderLetterSpacing(
-    next.readerLetterSpacing ?? state.readingLetterSpacing
-  );
-  state.readingLineHeight = MdgSettings.normalizeReaderLineHeight(next.readerLineHeight ?? state.readingLineHeight);
-  state.readingContentWidth = MdgSettings.normalizeReaderContentWidth(next.readerContentWidth ?? state.readingContentWidth);
-  state.readingChapterVisible = MdgSettings.normalizeSwitches({ readerChapterVisible: next.readerChapterVisible ?? state.readingChapterVisible }).readerChapterVisible;
-  state.settings = {
-    ...state.settings,
-    readerTheme: state.readingTheme,
-    readerFontScale: state.readingFontScale,
-    readerLetterSpacing: state.readingLetterSpacing,
-    readerLineHeight: state.readingLineHeight,
-    readerContentWidth: state.readingContentWidth,
-    readerChapterVisible: state.readingChapterVisible
-  };
+  state.settings = { ...state.settings, ...next };
+  hydrateReaderStateFromSettings(state.settings);
   applyReadingViewPresentation();
   renderReaderPanels();
   if (persist) {
@@ -2139,12 +2096,15 @@ function updateReaderPreferences(next, { persist = true } = {}) {
 }
 
 // Only the reader keys: state.settings is stale for everything else, and save-settings keeps the keys it is not sent.
-function persistReaderSettings() {
-  const { readerTheme, readerFontScale, readerLetterSpacing, readerLineHeight, readerContentWidth, readerChapterVisible } = state.settings;
-  const settings = { readerTheme, readerFontScale, readerLetterSpacing, readerLineHeight, readerContentWidth, readerChapterVisible };
-  sendRuntimeMessage({ type: "save-settings", settings }).catch((error) => {
-    logWarn("[MDG] failed to persist reader settings", error);
-  });
+// The change shows at once; a failed save says so, or the next page would bring the old look back unexplained.
+async function persistReaderSettings() {
+  const settings = Object.fromEntries(READER_KEYS.map((key) => [key, state.settings[key]]));
+  try {
+    const resp = await sendRuntimeMessage({ type: "save-settings", settings });
+    if (!resp?.ok) throw MdgErrors.fromResp(resp);
+  } catch (error) {
+    setReadingNotice(MdgErrors.reloaded(error) ? MdgErrors.TEXT.reloaded : `${MdgErrors.TEXT.settingsSaveFailed}：${getErrorMessage(error)}`, { error: true });
+  }
 }
 
 function buildReadingMetaLine() {
@@ -2155,18 +2115,11 @@ function buildReadingMetaLine() {
   if (state.uploadDate) {
     parts.push(state.uploadDate);
   }
-  parts.push(currentSite()?.domain || "");
-  if (Number(state.pageCount) > 1) {
-    const pageParts = [`P${Number(state.pageIndex) > 0 ? Number(state.pageIndex) : 1}`];
-    if (state.pageTitle) {
-      pageParts.push(state.pageTitle);
-    }
-    parts.push(pageParts.join(" "));
+  parts.push(currentSite()?.domain || "", pageLabel());
+  if (state.selectedSubtitleUrl) {
+    parts.push(`字幕：${state.selectedSubtitleLang || UNNAMED_SUBTITLE}`);
   }
-  if (state.selectedSubtitleLang) {
-    parts.push(`字幕：${state.selectedSubtitleLang}`);
-  }
-  return parts.join(" · ");
+  return parts.filter(Boolean).join(" · ");
 }
 
 // Errors and waits only; an empty text hides the notice. It sits outside the
@@ -2197,7 +2150,7 @@ function isReaderPresentationStable(playerHost = state.readingPlayerHost) {
     return false;
   }
   const rect = playerHost.getBoundingClientRect();
-  if (!(rect.width > 240) || !(rect.height > 120)) {
+  if (!(rect.width > MIN_PLAYER.width) || !(rect.height > MIN_PLAYER.height)) {
     return false;
   }
   return !hasNativeReaderPlayerLayoutIssue(playerHost);
@@ -2278,10 +2231,7 @@ function layoutReaderPlayerHost() {
   rootStyle.setProperty("--mdg-reader-player-rendered-width", `${Math.round(renderedWidth)}px`);
   rootStyle.setProperty("--mdg-reader-player-rendered-height", `${Math.round(renderedHeight)}px`);
   updateReadingTranscriptTailSpacer();
-  queueEnsureReaderPlayerControlsRecovered({
-    reason: "layout-native",
-    delayMs: 120
-  });
+  queueEnsureReaderPlayerControlsRecovered({ reason: "layout-native" });
 }
 
 function cleanupReaderPlayerHostNode(playerHost) {
@@ -2289,19 +2239,7 @@ function cleanupReaderPlayerHostNode(playerHost) {
     return;
   }
   playerHost.classList.remove("mdg-reader-player-host");
-  playerHost.style.removeProperty("position");
-  playerHost.style.removeProperty("inset");
-  playerHost.style.removeProperty("left");
-  playerHost.style.removeProperty("top");
-  playerHost.style.removeProperty("right");
-  playerHost.style.removeProperty("bottom");
-  playerHost.style.removeProperty("transform");
-  playerHost.style.removeProperty("width");
-  playerHost.style.removeProperty("height");
-  playerHost.style.removeProperty("margin");
-  playerHost.style.removeProperty("z-index");
-  playerHost.style.removeProperty("max-width");
-  playerHost.style.removeProperty("max-height");
+  clearReaderPlacement(playerHost);
 }
 
 function cleanupReaderPlayerHost() {
@@ -2348,14 +2286,15 @@ function stopReadingViewSync() {
   }
   stopReaderPlayerObserver();
   unbindReaderPlayerControlsHover();
-  if (state.readingVideoEl && state.readingVideoEl.__mdgReadingSyncHandler) {
-    const video = state.readingVideoEl;
-    video.removeEventListener("timeupdate", video.__mdgReadingSyncHandler);
-    video.removeEventListener("seeked", video.__mdgReadingSyncHandler);
-    video.removeEventListener("loadedmetadata", video.__mdgReadingSyncHandler);
-    delete video.__mdgReadingSyncHandler;
-  }
+  unbindReadingVideo();
   state.readingVideoEventsBound = false;
+}
+
+const READING_VIDEO_EVENTS = ["timeupdate", "seeked", "loadedmetadata"];
+function unbindReadingVideo(video = state.readingVideoEl) {
+  if (!video?.__mdgReadingSyncHandler) return;
+  READING_VIDEO_EVENTS.forEach((type) => video.removeEventListener(type, video.__mdgReadingSyncHandler));
+  delete video.__mdgReadingSyncHandler;
 }
 
 function startReaderPlayerObserver() {
@@ -2379,7 +2318,7 @@ function startReaderPlayerObserver() {
         nextHost &&
         (nextVideo !== state.readingVideoEl ||
           nextHost !== state.readingPlayerHost ||
-          nextVideo.closest("[data-mdg-reader-hidden='1']"))
+          nextVideo.closest(`[${READER_HIDDEN}="1"]`))
       ) {
         queueEnsureReaderPlayerMounted();
       }
@@ -2406,13 +2345,7 @@ function stopReaderPlayerObserver() {
 
 function bindReadingViewVideo(video = getRuntimeVideoElement()) {
   if (!video) {
-    if (state.readingVideoEl && state.readingVideoEl.__mdgReadingSyncHandler) {
-      const prev = state.readingVideoEl;
-      prev.removeEventListener("timeupdate", prev.__mdgReadingSyncHandler);
-      prev.removeEventListener("seeked", prev.__mdgReadingSyncHandler);
-      prev.removeEventListener("loadedmetadata", prev.__mdgReadingSyncHandler);
-      delete prev.__mdgReadingSyncHandler;
-    }
+    unbindReadingVideo();
     state.readingVideoEl = null;
     state.readingVideoEventsBound = false;
     return null;
@@ -2422,12 +2355,7 @@ function bindReadingViewVideo(video = getRuntimeVideoElement()) {
     return video;
   }
 
-  if (state.readingVideoEl && state.readingVideoEl.__mdgReadingSyncHandler) {
-    const prev = state.readingVideoEl;
-    prev.removeEventListener("timeupdate", prev.__mdgReadingSyncHandler);
-    prev.removeEventListener("seeked", prev.__mdgReadingSyncHandler);
-    prev.removeEventListener("loadedmetadata", prev.__mdgReadingSyncHandler);
-  }
+  unbindReadingVideo();
 
   const syncHandler = (event) => {
     if (state.readingViewOpen) {
@@ -2449,12 +2377,12 @@ function bindReadingViewVideo(video = getRuntimeVideoElement()) {
       syncReadingViewPlayback();
     }
   };
-  video.addEventListener("timeupdate", syncHandler);
-  video.addEventListener("seeked", syncHandler);
-  video.addEventListener("loadedmetadata", syncHandler);
+  READING_VIDEO_EVENTS.forEach((type) => video.addEventListener(type, syncHandler));
   video.__mdgReadingSyncHandler = syncHandler;
   state.readingVideoEl = video;
-  state.readingPlayerHost = findReaderPlayerHost(video) || state.readingPlayerHost;
+  // The player host is ensureReaderPlayerMounted's to change (it cleans up the one it replaces); a new host here is
+  // queued for it, as in syncHandler.
+  if (findReaderPlayerHost(video) !== state.readingPlayerHost) queueEnsureReaderPlayerMounted();
   state.readingVideoEventsBound = true;
   return video;
 }
@@ -2498,7 +2426,7 @@ function getRuntimeVideoElement() {
         (item === state.readingVideoEl ? 500 : 0);
       return { item, rect, score };
     })
-    .filter(({ rect }) => rect.width > 240 && rect.height > 120)
+    .filter(({ rect }) => rect.width > MIN_PLAYER.width && rect.height > MIN_PLAYER.height)
     .sort((a, b) => b.score - a.score)[0];
 
   return visible?.item || candidates[0] || null;
@@ -2531,7 +2459,7 @@ function applyReaderPageFocus() {
     root,
     playerHost,
     titleNode,
-    document.getElementById("mdg-reading-inline-host"),
+    document.getElementById(ids.readingInlineHost),
     document.querySelector(".mdg-reading-rail")
   ].filter(Boolean);
 
@@ -2540,14 +2468,14 @@ function applyReaderPageFocus() {
     markReaderKeepPath(node);
   });
 
-  const keepNodes = Array.from(document.querySelectorAll("[data-mdg-reader-keep='1']"));
+  const keepNodes = Array.from(document.querySelectorAll(`[${READER_KEEP}="1"]`));
   keepNodes.forEach((parent) => {
     Array.from(parent.children || []).forEach((child) => {
       if (child.id === ids.root) {
         return;
       }
-      if (!child.hasAttribute("data-mdg-reader-keep")) {
-        child.setAttribute("data-mdg-reader-hidden", "1");
+      if (!child.hasAttribute(READER_KEEP)) {
+        child.setAttribute(READER_HIDDEN, "1");
       }
     });
   });
@@ -2557,11 +2485,11 @@ function applyReaderPageFocus() {
 }
 
 function clearReaderPageFocus() {
-  document.querySelectorAll("[data-mdg-reader-keep]").forEach((node) => {
-    node.removeAttribute("data-mdg-reader-keep");
+  document.querySelectorAll(`[${READER_KEEP}]`).forEach((node) => {
+    node.removeAttribute(READER_KEEP);
   });
-  document.querySelectorAll("[data-mdg-reader-hidden]").forEach((node) => {
-    node.removeAttribute("data-mdg-reader-hidden");
+  document.querySelectorAll(`[${READER_HIDDEN}]`).forEach((node) => {
+    node.removeAttribute(READER_HIDDEN);
   });
 }
 
@@ -2585,10 +2513,10 @@ function moveReadingMainInline() {
     return;
   }
 
-  let inlineHost = document.getElementById("mdg-reading-inline-host");
+  let inlineHost = document.getElementById(ids.readingInlineHost);
   if (!inlineHost) {
     inlineHost = document.createElement("div");
-    inlineHost.id = "mdg-reading-inline-host";
+    inlineHost.id = ids.readingInlineHost;
   }
 
   // Chapters go right under the video, the transcript column after them.
@@ -2621,7 +2549,7 @@ function moveReadingMainInline() {
 
 function restoreReadingMainInline() {
   const readingMain = document.querySelector(".mdg-reading-main");
-  const inlineHost = document.getElementById("mdg-reading-inline-host");
+  const inlineHost = document.getElementById(ids.readingInlineHost);
   if (readingMain && state.readingMainOriginalParent) {
     if (state.readingMainOriginalNextSibling?.parentNode === state.readingMainOriginalParent) {
       state.readingMainOriginalParent.insertBefore(readingMain, state.readingMainOriginalNextSibling);
@@ -2648,10 +2576,10 @@ function pruneReaderNonKeepBranches(node) {
     if (child.id === ids.root) {
       return;
     }
-    const childHasKeep = child.hasAttribute("data-mdg-reader-keep");
-    const childContainsKeep = Boolean(child.querySelector?.("[data-mdg-reader-keep='1']"));
+    const childHasKeep = child.hasAttribute(READER_KEEP);
+    const childContainsKeep = Boolean(child.querySelector?.(`[${READER_KEEP}="1"]`));
     if (!childHasKeep && !childContainsKeep) {
-      child.setAttribute("data-mdg-reader-hidden", "1");
+      child.setAttribute(READER_HIDDEN, "1");
       return;
     }
     pruneReaderNonKeepBranches(child);
@@ -2668,10 +2596,10 @@ function hideReaderNoiseNodes(keepRoots = []) {
     if (node.closest(keepSelector)) {
       return;
     }
-    node.setAttribute("data-mdg-reader-hidden", "1");
+    node.setAttribute(READER_HIDDEN, "1");
     const card = node.closest(sel(reader().cards));
     if (card && !card.closest(keepSelector)) {
-      card.setAttribute("data-mdg-reader-hidden", "1");
+      card.setAttribute(READER_HIDDEN, "1");
     }
   });
 }
@@ -2680,19 +2608,19 @@ function markReaderKeepSubtree(node) {
   if (!node) {
     return;
   }
-  node.setAttribute("data-mdg-reader-keep", "1");
+  node.setAttribute(READER_KEEP, "1");
   node.querySelectorAll("*").forEach((child) => {
-    child.setAttribute("data-mdg-reader-keep", "1");
+    child.setAttribute(READER_KEEP, "1");
   });
 }
 
 function markReaderKeepPath(node) {
   let current = node;
   while (current && current !== document.body) {
-    current.setAttribute("data-mdg-reader-keep", "1");
+    current.setAttribute(READER_KEEP, "1");
     current = current.parentElement;
   }
-  document.body.setAttribute("data-mdg-reader-keep", "1");
+  document.body.setAttribute(READER_KEEP, "1");
 }
 
 function findReaderTitleContainer() {
@@ -2803,8 +2731,10 @@ function scheduleReaderMiniPlayerDismiss(maxAttempts = 12, delayMs = 180) {
 
     const closed = dismissReaderMiniPlayer();
     const host = findReaderPlayerHost(getRuntimeVideoElement());
-    if (host) {
-      state.readingPlayerHost = host;
+    // A new host goes through the mount, which cleans up the one it replaces.
+    if (host && host !== state.readingPlayerHost) {
+      queueEnsureReaderPlayerMounted();
+    } else if (host) {
       normalizeReaderPlayerContainer(host);
       layoutReaderPlayerHost();
     }
@@ -2998,6 +2928,10 @@ async function ensureReaderPlayerControlsRecovered(
   }
 
   await sleep(retryDelayMs);
+  // Closed or remounted on another host meanwhile: forcing this one's controls would stick on a page node.
+  if (!state.readingViewOpen || playerHost !== state.readingPlayerHost) {
+    return false;
+  }
   logInfo("[MDG] retrying normal reader controls recovery", {
     reason,
     hostClassName: typeof playerHost.className === "string" ? playerHost.className : ""
@@ -3199,9 +3133,11 @@ function bindPlayerAiQuickActionLayoutEvents() {
   state.playerAiQuickActionLayoutBound = true;
 }
 
+// Throttled, not debounced, like the focus-mode player observer: danmaku mutate the page nonstop, and a debounce
+// would never run. A call while one is pending joins it.
 function schedulePlayerAiQuickActionSync(delayMs = 120) {
   if (state.playerAiQuickActionSyncTimer) {
-    window.clearTimeout(state.playerAiQuickActionSyncTimer);
+    return;
   }
   state.playerAiQuickActionSyncTimer = window.setTimeout(() => {
     state.playerAiQuickActionSyncTimer = 0;
@@ -3253,8 +3189,8 @@ function syncPlayerAiQuickActionButton() {
     button.id = "mdg-player-ai-quick-action";
     button.type = "button";
     button.className = "mdg-player-ai-quick-action";
-    button.title = "AI 总结";
-    button.setAttribute("aria-label", "AI 总结");
+    button.title = AI_SUMMARY;
+    button.setAttribute("aria-label", AI_SUMMARY);
     button.innerHTML = buildPlayerAiQuickActionIconSvg();
     button.addEventListener("click", handlePlayerAiQuickActionClick, true);
     button.__mdgOwned = true;
@@ -3267,7 +3203,6 @@ function syncPlayerAiQuickActionButton() {
     playerHost.appendChild(wrap);
   }
   bindPlayerAiQuickActionCursorSync(wrap);
-  syncPlayerAiQuickActionVisuals(button);
 }
 
 function removePlayerAiQuickActionButton() {
@@ -3278,41 +3213,36 @@ function removePlayerAiQuickActionButton() {
   document.getElementById("mdg-player-ai-quick-action")?.closest(".mdg-player-ai-wrap")?.remove();
 }
 
+// Bound once per player host (the wrap is rebuilt and moved): the listeners act on the wrap the host holds now.
 function bindPlayerAiQuickActionCursorSync(wrap) {
-  if (!(wrap instanceof HTMLElement)) {
+  const host = wrap.parentElement;
+  if (!host || host.__mdgPlayerAiCursorBound) {
     return;
   }
-  const host = wrap.parentElement instanceof HTMLElement ? wrap.parentElement : null;
-  if (!host || wrap.__mdgPlayerAiCursorHost === host) {
-    return;
-  }
-  const hideForIdle = () => {
-    state.playerAiQuickActionCursorHideTimer = 0;
-    wrap.classList.remove("is-active");
-  };
-  const showForCursorActivity = () => {
-    if (!wrap.isConnected || state.readingViewOpen || isReaderMode()) {
-      wrap.classList.remove("is-active");
-      return;
-    }
-    wrap.classList.add("is-active");
-    if (state.playerAiQuickActionCursorHideTimer) {
-      window.clearTimeout(state.playerAiQuickActionCursorHideTimer);
-    }
-    state.playerAiQuickActionCursorHideTimer = window.setTimeout(hideForIdle, 1900);
+  const currentWrap = () => {
+    const node = document.getElementById("mdg-player-ai-quick-action")?.closest(".mdg-player-ai-wrap");
+    return node?.parentElement === host ? node : null;
   };
   const hideImmediately = () => {
-    if (state.playerAiQuickActionCursorHideTimer) {
-      window.clearTimeout(state.playerAiQuickActionCursorHideTimer);
-      state.playerAiQuickActionCursorHideTimer = 0;
+    window.clearTimeout(state.playerAiQuickActionCursorHideTimer);
+    state.playerAiQuickActionCursorHideTimer = 0;
+    currentWrap()?.classList.remove("is-active");
+  };
+  const showForCursorActivity = () => {
+    const node = currentWrap();
+    if (!node || state.readingViewOpen || isReaderMode()) {
+      node?.classList.remove("is-active");
+      return;
     }
-    wrap.classList.remove("is-active");
+    node.classList.add("is-active");
+    window.clearTimeout(state.playerAiQuickActionCursorHideTimer);
+    state.playerAiQuickActionCursorHideTimer = window.setTimeout(hideImmediately, 1900);
   };
   host.addEventListener("mousemove", showForCursorActivity, { passive: true });
   host.addEventListener("mouseenter", showForCursorActivity, { passive: true });
   host.addEventListener("mouseleave", hideImmediately, { passive: true });
   host.addEventListener("pointermove", showForCursorActivity, { passive: true });
-  wrap.__mdgPlayerAiCursorHost = host;
+  host.__mdgPlayerAiCursorBound = true;
 }
 
 function hasPlayerSubtitleControl() {
@@ -3369,22 +3299,6 @@ function buildPlayerAiQuickActionIconSvg() {
   `;
 }
 
-function syncPlayerAiQuickActionVisuals(button) {
-  if (!(button instanceof HTMLElement)) {
-    return;
-  }
-  const wrap = button.parentElement instanceof HTMLElement ? button.parentElement : null;
-  const hitSize = 36;
-  const iconSize = 24;
-  const baseColor = "#f6f7f8";
-  [wrap, button].filter(Boolean).forEach((node) => {
-    node.style.setProperty("--mdg-player-ai-action-hit-size", `${hitSize}px`);
-    node.style.setProperty("--mdg-player-ai-action-color", baseColor);
-    node.style.setProperty("--mdg-player-ai-action-hover-color", baseColor);
-  });
-  button.style.setProperty("--mdg-player-ai-action-icon-size", `${iconSize}px`);
-}
-
 // The player ✦ and 专注模式's AI 总结 (source reader): the background opens the side panel on this video. The
 // background checks the ✦ AI 按钮 setting (one check for every sender) and answers why when it is off. A failure is red
 // on the page, not setMessage: that is the popup's status line, which would show it long after, maybe over another
@@ -3392,7 +3306,7 @@ function syncPlayerAiQuickActionVisuals(button) {
 async function askSidepanel(source) {
   try {
     const resp = await sendRuntimeMessage({ type: "player-ai-quick-action", ...(source && { source }), contextRef: viewerContextRef() });
-    if (!resp?.ok) throw new Error(resp?.error || MdgErrors.TEXT.unknown);
+    if (!resp?.ok) throw MdgErrors.fromResp(resp);
     return true;
   } catch (error) {
     setReadingNotice(MdgErrors.reloaded(error) ? MdgErrors.TEXT.reloaded : `${MdgErrors.TEXT.sidepanelOpenFailed}：${getErrorMessage(error)}`, { error: true });
@@ -3688,7 +3602,7 @@ function scrollReadingTranscriptItemIntoView(node) {
   }
 
   const transcriptList = byId(ids.readingTranscriptList);
-  const inlineHost = document.getElementById("mdg-reading-inline-host");
+  const inlineHost = document.getElementById(ids.readingInlineHost);
   const listRect = transcriptList.getBoundingClientRect();
   const itemRect = node.getBoundingClientRect();
   if (!(listRect.height > 0) || !(itemRect.height > 0)) {
@@ -3723,9 +3637,11 @@ function scrollReadingTranscriptItemIntoView(node) {
 function jumpReadingTarget(seconds) {
   const video = bindReadingViewVideo();
   if (!video) {
-    setReadingNotice(NO_PLAYER);
+    setReadingNotice(NO_PLAYER, { error: true });
     return;
   }
+  // A jump that works answers the last one that found no player.
+  if (byId(ids.readingStatus).textContent === NO_PLAYER) setReadingNotice("");
 
   state.readingManualScrollPauseUntil = 0;
   state.readingNextScrollBehavior = "auto";
@@ -3753,7 +3669,7 @@ function onReadingChapterClick(event) {
 
 function onReadingTranscriptClick(event) {
   if (event.target.closest(".mdg-reading-retry")) {
-    settledClip(true).catch((error) => setReadingNotice(`${MdgErrors.TEXT.videoReadFailed}：${fetchErrorText(error)}`, { error: true }));
+    settledClip(true).catch(readerReadFailed);
     return;
   }
   const target = event.target.closest(".mdg-reading-item");
@@ -3842,7 +3758,7 @@ function siteIo() {
     readPlayer: async () => {
       const resp = await sendRuntimeMessage({ type: "yt-player-response" });
       if (!resp?.ok) {
-        throw new Error(toReadableText(resp?.error, "player read failed"));
+        throw MdgErrors.fromResp(resp, "读取 YouTube 播放器失败");
       }
       return resp.data;
     },
@@ -3867,8 +3783,16 @@ function siteIo() {
 // there; then captions are switched on (off first when already on, since only
 // the on-click fetches), the token is read from the request the observer
 // delivers, and the button is left as found. The token goes nowhere but
-// youtube.com timedtext URLs.
-async function ytCapturePot(videoId) {
+// youtube.com timedtext URLs. Captures queue up: two reads toggling the button at once would each take the other's
+// click for the state they found and leave captions flipped.
+let potQueue = Promise.resolve();
+function ytCapturePot(videoId) {
+  const run = potQueue.then(() => capturePot(videoId));
+  potQueue = run.catch(() => {});
+  return run;
+}
+
+async function capturePot(videoId) {
   let pot = MdgSites.ytPotFromUrls(performance.getEntriesByType("resource").map((entry) => entry.name), videoId);
   const button = document.querySelector("#movie_player .ytp-subtitles-button");
   if (pot || !button) {
@@ -3963,7 +3887,7 @@ function toReadableText(value, fallback = "") {
 
 // A failed fetch in the user's words: a dropped connection is named (fetch's English TypeError becomes TEXT.netDown);
 // codes with their own words (THROTTLED, 62004) read as elsewhere, any other
-// error keeps its own message (the background's 「B站请求失败 HTTP 403」, the page's 「请求失败：403」).
+// error keeps its own message (「B站请求失败 HTTP 403」 from the background or the page, httpError).
 // getErrorMessage keeps the raw text with the code for logs and retry checks.
 function fetchErrorText(error) {
   if (/failed to fetch|networkerror|load failed/i.test(toReadableText(error?.message, ""))) {
@@ -3984,49 +3908,30 @@ function getErrorMessage(error, fallback = MdgErrors.TEXT.unknown) {
   return toReadableText(error, fallback);
 }
 
-function sendRuntimeMessage(message) {
-  return new Promise((resolve, reject) => {
-    try {
-      chrome.runtime.sendMessage(message, (resp) => {
-        if (chrome.runtime.lastError) {
-          reject(new Error(chrome.runtime.lastError.message));
-          return;
-        }
-        resolve(resp);
-      });
-    } catch (error) {
-      reject(error);
-    }
-  });
+// MV3's promise form; async turns the synchronous throw of a reloaded extension into a rejection too.
+async function sendRuntimeMessage(message) {
+  return chrome.runtime.sendMessage(message);
 }
 
-function requestOpenOptions() {
-  sendRuntimeMessage({ type: "open-options" })
-    .then((resp) => {
-      if (!resp?.ok) {
-        setMessage(`打开设置失败：${toReadableText(resp?.error, MdgErrors.TEXT.unknown)}`);
-      }
-    })
-    .catch((error) => {
-      if (MdgErrors.reloaded(error)) {
-        setMessage(MdgErrors.TEXT.reloaded);
-        return;
-      }
-      setMessage(`打开设置失败：${getErrorMessage(error)}`);
-    });
+// Red on the page, not the popup's status line: the popup has closed by now (the 该笔记已存在 dialog took the focus).
+async function requestOpenOptions() {
+  try {
+    const resp = await sendRuntimeMessage({ type: "open-options" });
+    if (!resp?.ok) throw MdgErrors.fromResp(resp);
+  } catch (error) {
+    setReadingNotice(MdgErrors.reloaded(error) ? MdgErrors.TEXT.reloaded : `打开设置失败：${getErrorMessage(error)}`, { error: true });
+  }
 }
 
+// Rejects when the background does not answer: a read or a 写入 Obsidian must not go on with the defaults (another
+// note format, another folder) as if they were the user's.
 async function getSettings() {
   const hasAiProvider = await loadHasAiProvider();
-  try {
-    const response = await sendRuntimeMessage({ type: "get-settings" });
-    if (!response?.ok) {
-      return { ...DEFAULT_SETTINGS, hasAiProvider };
-    }
-    return { ...DEFAULT_SETTINGS, ...(response.settings || {}), hasAiProvider };
-  } catch (error) {
-    return { ...DEFAULT_SETTINGS, hasAiProvider };
+  const response = await sendRuntimeMessage({ type: "get-settings" });
+  if (!response?.ok) {
+    throw MdgErrors.fromResp(response, "读取设置失败");
   }
+  return { ...DEFAULT_SETTINGS, ...(response.settings || {}), hasAiProvider };
 }
 
 // The player's AI button waits for a platform so it does not sit on every video unasked; get-settings does not carry
@@ -4087,7 +3992,7 @@ async function retryAsync(task, retries = 1, delayMs = 180) {
       if (attempt >= retries) {
         throw error;
       }
-      const backoffDelay = Math.min(delayMs * Math.pow(2, attempt - 1), 5000);
+      const backoffDelay = Math.min(delayMs * 2 ** attempt, 5000);
       logInfo(`[MDG] retrying after ${backoffDelay}ms, attempt ${attempt + 1}/${retries}`, {
         error: getErrorMessage(error),
         code: error.code
@@ -4098,31 +4003,17 @@ async function retryAsync(task, retries = 1, delayMs = 180) {
   throw lastError || new Error("Unknown retry error");
 }
 
+// An HTTP answer by its status: only a server error may pass on a retry (403, 404 stay what they are). Without one, a
+// dropped connection or a timeout: the background's NETWORK, or the words fetch and fetchOk throw.
 function isRetryableNetworkError(error) {
-  if (error?.status === 429) {
-    return false;
+  if (error?.status) {
+    return error.status >= 500;
   }
-  const message = getErrorMessage(error, "").toLowerCase();
-  if (!message) {
-    return false;
-  }
-
-  if (message.includes("http ")) {
+  if (error?.code === "NETWORK") {
     return true;
   }
-
-  return (
-    message.includes("请求失败") ||
-    message.includes("failed to fetch") ||
-    message.includes("fetch failed") ||
-    message.includes("networkerror") ||
-    message.includes("net::") ||
-    message.includes("background fetch failed") ||
-    message.includes("timeout") ||
-    message.includes("超时") ||
-    message.includes(MdgErrors.TEXT.netDown) ||
-    message.includes("timed out")
-  );
+  const message = getErrorMessage(error, "").toLowerCase();
+  return ["failed to fetch", "fetch failed", "networkerror", "net::", "timeout", "timed out", "超时", MdgErrors.TEXT.netDown].some((words) => message.includes(words));
 }
 
 async function sleep(ms) {
@@ -4158,10 +4049,11 @@ async function fetchOk(url, init) {
   return response;
 }
 
+// In the background's words for the same failure (triageBiliJson's 「B站请求失败 HTTP 403」), named after the site.
 function httpError(status) {
-  const error = new Error(`请求失败：${status}`);
-  error.status = status;
-  return error;
+  const site = currentSite()?.label || "";
+  const who = /[A-Za-z]$/.test(site) ? `${site} ` : site;
+  return Object.assign(new Error(`${who}请求失败 HTTP ${status}`), { status });
 }
 
 async function fetchJsonInBackground(url) {
@@ -4169,7 +4061,7 @@ async function fetchJsonInBackground(url) {
     const resp = await sendRuntimeMessage({ type: "fetch-json", url });
     if (!resp?.ok) {
       // code: THROTTLED (412) and NETWORK, as triageBiliGetJson says them; status: 429 waits in pageSubtitleSite.
-      throw Object.assign(new Error(toReadableText(resp?.error, "Background fetch failed")), { status: resp?.status, code: resp?.code });
+      throw Object.assign(MdgErrors.fromResp(resp, "后台请求失败"), { status: resp?.status, code: resp?.code });
     }
     return resp.data;
   } catch (error) {
@@ -4223,9 +4115,11 @@ function rebuildDerivedContent() {
 // Without subtitles the comments are most of the note, so they are fetched
 // regardless of includeHotCommentsInNote.
 // Read for the video of the run it started in; a newer run (the video changed) fills its own.
+// A failed comment read is said in the popup's status (commentsFailure, readDoneText); the note goes without them.
 async function refreshDerivedContent() {
   const runId = state.fetchRunId;
   let hotComments = state.hotComments;
+  let commentsFailure = "";
   if (state.settings?.includeHotCommentsInNote || state.subtitleFetchState === "empty") {
     const shouldFetchComments = !Array.isArray(hotComments) || hotComments.length === 0;
     if (shouldFetchComments) {
@@ -4233,6 +4127,7 @@ async function refreshDerivedContent() {
         hotComments = await fetchHotComments();
       } catch (error) {
         hotComments = [];
+        commentsFailure = failureReason(error);
         logWarn("[MDG] failed to fetch hot comments for note export", error);
       }
     }
@@ -4242,7 +4137,11 @@ async function refreshDerivedContent() {
   if (runId !== state.fetchRunId) {
     return;
   }
-  Object.assign(state, { hotComments, aiTurns, triageExtras });
+  // Two overlapping refreshes of one video: comments one of them got are not replaced by the other's failure.
+  if (hotComments.length || !state.hotComments?.length) {
+    Object.assign(state, { hotComments, commentsFailure });
+  }
+  Object.assign(state, { aiTurns, triageExtras });
   rebuildDerivedContent();
 }
 }

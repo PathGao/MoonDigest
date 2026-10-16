@@ -69,7 +69,6 @@ const ALLOW = [
   ["history/history.js", 'aria-hidden="true" disabled>删除 AI 对话', "看不见的占位（aria-hidden、tabindex=-1），只为对齐，不是控件"],
   // 4a. 待修 lines wait for their fix (Cn / An: the 2026-10-16 scan); new ones fail.
   ["background.js", 'new Error(resp?.error || "读取当前页面失败")', "待修：C321、A39"],
-  ["content.js", "throw new Error(resp?.error || MdgErrors.TEXT.unknown);", "待修（扫描未列）"],
   ["popup.js", "${MdgErrors.TEXT.obsidianFailed}：${resp?.error", "待修（扫描未列）"],
   ["popup.js", "${MdgErrors.TEXT.readerStartFailed}：${resp?.error", "待修（扫描未列）"],
   ["popup.js", "${MdgErrors.TEXT.subtitleSwitchFailed}：${resp?.error", "待修（扫描未列）"],
@@ -82,8 +81,6 @@ const ALLOW = [
   ["sidepanel-state.js", 'String(event.error || "读取当前页面失败")', "例外：纯状态模块，event.error 是外壳 catch 到的错误文字，不是回复；兜底那句见 C321"],
   ["triage/triage.js", 'a.error || "分析失败"', "例外：存下的分析记录（没有 code），不是回复"],
   // 4b
-  ["content.js", '"player read failed"', "待修：C132"],
-  ["content.js", '"Background fetch failed"', "待修：C132"],
   ["content.js", "new Error(`Missing node: ${id}`)", "例外：页面少了 id 是代码错，不是用户能遇到的（冒烟核对页面脚本查找的 id）"],
   ["content.js", 'new Error("Stale refresh run")', "例外：作废信号，带 code STALE_RUN，isStaleRunError 认出后丢掉，不显示"],
   ["content.js", 'new Error("Unknown retry error")', "例外：到不了，retryAsync 的循环每条路都 return 或 throw"],
