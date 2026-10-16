@@ -116,6 +116,10 @@ const chatOn = (context) => {
   show(video);
   assert.strictEqual(await ctx.loadContextState({ silent: true }), "followed");
   assert.strictEqual(view().context.videoId, "BV1GJ411x7h7");
+  // A39: a failed video read is said as on the popup and in 专注模式: 「读取视频失败：原因」.
+  answer = async () => ({ ok: false, error: "读取当前分 P 失败" });
+  assert.strictEqual(await ctx.loadContextState({ silent: true }), false);
+  assert.strictEqual(view().live.error, "读取视频失败：读取当前分 P 失败");
 
   {
     // Neither gate of sendMessage reaches the request (chrome.runtime.connect is not stubbed and would throw).

@@ -506,7 +506,8 @@ async function readContextState({ refresh = false, silent = false, follow = fals
   if (superseded()) return contextLoad;
 
   const ok = Boolean(resp?.ok && resp.payload);
-  const effects = await act({ type: "CONTEXT_ARRIVED", payload: ok ? resp.payload : null, error: ok ? "" : MdgErrors.text(resp, "读取当前页面失败"), follow });
+  // A web page always answers; only reading a video fails, said as the popup and 专注模式 say it.
+  const effects = await act({ type: "CONTEXT_ARRIVED", payload: ok ? resp.payload : null, error: ok ? "" : `${MdgErrors.TEXT.videoReadFailed}：${MdgErrors.text(resp)}`, follow });
   if (!ok) {
     updateContextChip();
     if (!silent && !state.view().bound) {
