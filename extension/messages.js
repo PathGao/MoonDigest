@@ -87,10 +87,10 @@
     "triage-settings-save": { from: ["triage/fav-ai.js", "triage/fav-page.js"], to: TRIAGE_BG, request: [], open: "any key of triage-bg.js's TRIAGE_SETTINGS_DEFAULTS", response: data },
     "triage-seen-sync": { from: ["badges.js", "triage/fav-folders.js"], to: TRIAGE_BG, request: ["force"], response: data },
     "triage-seen-done": { from: [TRIAGE_BG], to: "triage/fav-page.js", request: ["error"], response: [] },
-    "triage-obsidian-check": { from: ["triage/fav-page.js"], to: TRIAGE_BG, request: [], response: data },
-    "triage-build-note": { from: ["triage/fav-page.js"], to: TRIAGE_BG, request: ["bvid"], response: data },
-    "triage-write-note": { from: ["triage/fav-page.js"], to: TRIAGE_BG, request: ["bvid", "title", "overwrite"], response: data },
-    "triage-export": { from: ["triage/fav-page.js"], to: TRIAGE_BG, request: ["filename", "markdown"], response: data },
+    "triage-obsidian-check": { from: ["triage/fav-export.js"], to: TRIAGE_BG, request: [], response: data },
+    "triage-build-note": { from: ["triage/fav-export.js"], to: TRIAGE_BG, request: ["bvid"], response: data },
+    "triage-write-note": { from: ["triage/fav-export.js"], to: TRIAGE_BG, request: ["bvid", "title", "overwrite"], response: data },
+    "triage-export": { from: ["triage/fav-export.js"], to: TRIAGE_BG, request: ["filename", "markdown"], response: data },
 
     // 分拣台 关注 (answers are { ok, data })
     "follow-sync": { from: FOLLOW, to: FOLLOW_BG, request: [], response: data },
