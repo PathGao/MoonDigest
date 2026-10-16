@@ -218,10 +218,10 @@ const golden = {
       "## 热门评论",
       "",
       "1. 观众A（赞 120）",
-      "讲得很清楚",
+      "   讲得很清楚",
       "",
       "2. 匿名（赞 3）",
-      "mark"
+      "   mark"
     ]
   },
   "noSubtitle": {
@@ -267,10 +267,10 @@ const golden = {
       "## 热门评论",
       "",
       "1. 观众A（赞 120）",
-      "讲得很清楚",
+      "   讲得很清楚",
       "",
       "2. 匿名（赞 3）",
-      "mark"
+      "   mark"
     ]
   }
 };
@@ -334,7 +334,7 @@ assert.deepStrictEqual(section.split("\n"), [
   "",
   "### 问：总结一下",
   "",
-  "#### 要点",
+  "##### 要点",
   "",
   "- 01:09 第一点",
   "",
@@ -386,11 +386,15 @@ assert.strictEqual(N.upsertAiSection(halfMarked, newSection), `${halfMarked}\n${
 assert.strictEqual(N.upsertAiSection(`${halfMarked}\n${newSection}\n`, section), `${halfMarked}\n${section}\n`);
 
 // pickConversation: exact part first, then the video without a part; newest wins; other videos never match.
-const conv = (contextKey, updatedAt) => ({ contextKey, updatedAt, messages });
-const convs = [conv("video:bilibili:BV1|", 1), conv("video:bilibili:BV1|c2", 5), conv("video:bilibili:BV1|c1", 3), conv("video:youtube:BV1|", 9)];
+const conv = (contextKey, updatedAt, pageIndex) => ({ contextKey, updatedAt, messages, ...(pageIndex && { contextRef: { pageIndex } }) });
+const convs = [conv("video:bilibili:BV1|", 1), conv("video:bilibili:BV1|c2", 5, 2), conv("video:bilibili:BV1|c1", 3), conv("video:youtube:BV1|", 9)];
 assert.strictEqual(N.pickConversation(convs, { site: "bilibili", videoId: "BV1", cid: "c1" }).updatedAt, 3);
 assert.strictEqual(N.pickConversation(convs, { site: "bilibili", videoId: "BV1", cid: "c9" }).updatedAt, 1, "unknown part falls back to the partless conversation");
-assert.strictEqual(N.pickConversation(convs, { site: "bilibili", videoId: "BV1" }).updatedAt, 5, "no part → newest of any part");
+// C191: a ref without the cid takes its own part's newest, never P2's (the side panel never shows P2's on P1).
+assert.strictEqual(N.pickConversation(convs, { site: "bilibili", videoId: "BV1" }).updatedAt, 3, "no cid → newest of the same part");
+assert.strictEqual(N.pickConversation(convs, { site: "bilibili", videoId: "BV1", pageIndex: 2 }).updatedAt, 5);
+// C192: the exact part wins over a newer conversation saved without one.
+assert.strictEqual(N.pickConversation([...convs, conv("video:bilibili:BV1|", 8)], { site: "bilibili", videoId: "BV1", cid: "c1" }).updatedAt, 3);
 assert.strictEqual(N.pickConversation(convs, { site: "bilibili", videoId: "BV2" }), null);
 assert.strictEqual(N.pickConversation(convs, { site: "youtube", videoId: "" }), null);
 // AI conversation note (side panel 保存对话 / history page): moved out of sidepanel.js byte for byte.
@@ -399,7 +403,7 @@ const aiFile = N.buildAiConversationFilename(aiContext);
 assert.strictEqual(aiFile, "【AI笔记】视频_标题.md");
 assert.strictEqual(
   N.buildAiConversationMarkdown({ context: aiContext, turns: [{ prompt: "# 问一", answer: "答一" }, { prompt: "问二", answer: "答二" }], filename: aiFile, sourcePath: "Clip/视频.md" }),
-  `---\ntitle: "【AI笔记】视频_标题"\nsource_title: "视频]标题"\nsource: "[[Clip/视频]]"\nurl: "https://www.bilibili.com/video/BV1GJ411x7h7/"\nauthor: "UP主"\ncreated: "${ctx.MdgSites.formatLocalDate()}"\ntags: [ai_note]\n---\n\n来源：[[Clip/视频|视频\\]标题]]\n\n## 问一\n\n答一\n\n## 问二\n\n答二\n`
+  `---\ntitle: "【AI笔记】视频_标题"\nsource_title: "视频]标题"\nsource: "[[Clip/视频]]"\nurl: "https://www.bilibili.com/video/BV1GJ411x7h7/"\nauthor: "UP主"\ncreated: "${ctx.MdgSites.formatLocalDate()}"\ntags: [ai_note]\n---\n\n来源：[[Clip/视频|视频］标题]]\n\n## 问一\n\n答一\n\n## 问二\n\n答二\n`
 );
 assert.ok(N.buildAiConversationMarkdown({ context: {}, turns: [], filename: "x.md" }).includes("来源：当前视频"), "no source path → no dangling link");
 // Triage summary block (triage notes and history-page notes)
@@ -467,4 +471,49 @@ assert.deepStrictEqual([...N.noteTags({ userTags: ["学 习"] }, { tags: "" })],
 assert.deepStrictEqual([...N.noteTags({}, { tags: "MoonDigest, a" })], ["MoonDigest", "a"]);
 assert.ok(/tags: MdgNote\.noteTags\(/.test(fs.readFileSync(path.join(__dirname, "content.js"), "utf8")), "the popup payload's tags are the note's");
 assert.ok(!/payload\.tags \|\| "MoonDigest"/.test(fs.readFileSync(path.join(__dirname, "popup.js"), "utf8")), "the popup shows no default of its own");
+// ---- 2026-10-16 scan, group c7 ----
+{
+  const md = (meta, b, settings = baseSettings) => N.buildMarkdown(meta, b, settings, null, CREATED);
+  const timed = [{ from: 1.001, to: 3, content: "一" }, { from: 65, to: 70, content: "二" }];
+  // C186: the popup's subtitle box shows the TXT, not the note's `00:00` code spans.
+  assert.strictEqual(N.buildSubtitlePreview(timed, { includeTimestampInBody: true }), "00:01 一\n01:05 二");
+  // C187: 笔记标签 splits at a Chinese comma too.
+  assert.deepStrictEqual([...N.noteTags({}, { tags: "学习，视频, AI" })], ["学习", "视频", "AI"]);
+  // C188: without subtitles the note names only what follows.
+  const bare = { ...bili, chapters: [], description: "", hotComments: [] };
+  assert.ok(md(bare, []).includes("> 视频没有字幕。\n"), md(bare, []));
+  assert.ok(md({ ...bare, description: "简介" }, []).includes("> 视频没有字幕，以下为简介。"));
+  assert.ok(md({ ...bare, hotComments: comments }, []).includes("> 视频没有字幕，以下为热门评论。"));
+  // C189: a <think> mentioned mid-answer keeps the rest; an answer still thinking shows nothing.
+  assert.deepStrictEqual([N.stripThinkBlocks("用 <think> 标签包住推理，后面照常"), N.stripThinkBlocks("<think>还在想")], ["用 <think> 标签包住推理，后面照常", ""]);
+  // C190, C195: every heading level moves down, capped at six; an answer's # sits under its ### question.
+  assert.strictEqual(N.normalizeMarkdownForSectionPaste("## a\n#### b\n###### c"), "#### a\n###### b\n###### c");
+  const deep = N.buildAiSection([{ prompt: "问", answer: N.buildConversationTurns([{ role: "user", content: "问" }, { role: "assistant", content: "# 大\n## 小" }])[0].answer }]);
+  assert.ok(deep.includes("### 问：问\n\n#### 大\n##### 小"), deep);
+  // C193: the empty-prompt heading is spelled like the section.
+  assert.ok(N.buildAiSection([{ prompt: " ", answer: "x" }]).includes("### 问：AI 问答"));
+  // C201: a comment's own lines stay inside its list item.
+  assert.ok(md({ ...bili, hotComments: [{ uname: "甲", like: 1, message: "第一行\n- 不是列表\n\n# 不是标题" }] }, [], baseSettings).includes("1. 甲（赞 1）\n   第一行\n   - 不是列表\n\n   # 不是标题"));
+  // C202: a key that YAML would read as a list item is left out.
+  const props = (key) => md(bili, body, { ...baseSettings, fixedFrontmatterProperties: [{ key, type: "text", value: "5" }] });
+  assert.deepStrictEqual([props("- 评分").includes("评分"), props("评分").includes('\n评分: "5"\n')], [false, true]);
+  // C203: {{video_tags}}, offered beside the fields, has the video's tags.
+  assert.ok(md(bili, body, { ...baseSettings, fixedFrontmatterProperties: [{ key: "标签", type: "list", value: "{{video_tags}}" }] }).includes('\n标签: ["科技", "AI"]\n'));
+  // C204, C217: a folder drops what a file name drops, and never climbs out with . or ..
+  assert.strictEqual(N.resolveFolderTemplate("../a/./{{author}}", { author: "UP#[1]^" }, CREATED), "a/UP 1");
+  // C206, C207: subtitles before the first chapter open the section; two chapters starting together share no line.
+  const chap = (chapters) => md({ ...bili, chapters }, [{ from: 0, to: 5, content: "开头" }, ...body.slice(2)]);
+  const one = chap([{ from: 60, to: 0, title: "甲" }, { from: 60, to: 0, title: "乙" }, { from: 100, to: 0, title: "丙" }]);
+  assert.ok(one.includes("## 字幕\n\n`00:00` 开头\n\n### 甲 `01:00`\n\n`01:05` 第一件事是\n\n### 丙 `01:40`\n\n`02:10` 最后总结一下") && !one.includes("其他片段"), one);
+  // C210: SRT milliseconds are rounded, not floored.
+  assert.strictEqual(N.formatTimestamp(1.001, true), "00:00:01,001");
+  // C211: a blank title falls back to the video id.
+  assert.strictEqual(N.buildNoteFilename({ title: " ", videoId: "BV9" }, { includeDateInFilename: false }), "BV9.md");
+  // C212: other control characters become \xNN in YAML.
+  assert.strictEqual(N.escapeYaml("a\u0007b"), "a\\x07b");
+  // C213-C215: inline code blocks keep their text, #### is a heading, and code spans are left unformatted.
+  assert.strictEqual(N.renderMarkdown("看 ```x = 1``` 这里"), "<p>看 <code>x = 1</code> 这里</p>");
+  assert.strictEqual(N.renderMarkdown("#### 四级\n##### 五级"), "<h6>四级</h6><h6>五级</h6>");
+  assert.strictEqual(N.renderMarkdown("`**a** [b](https://x)` **c**"), "<p><code>**a** [b](https://x)</code> <strong>c</strong></p>");
+}
 console.log("note selftest ok");

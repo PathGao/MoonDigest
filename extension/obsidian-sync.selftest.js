@@ -14,7 +14,8 @@ const log = [];
 const server = http.createServer((req, res) => {
   // The cover image, from B站 in real life.
   if (req.url.startsWith("/img/")) return res.writeHead(200, { "Content-Type": "image/jpeg" }).end("jpg");
-  // The API root (probeObsidian); notApi: another service on that address.
+  // The API root (probeObsidian); notApi: another service on that address, "json" one that answers JSON.
+  if (req.url === "/" && notApi === "json") return res.writeHead(200, { "Content-Type": "application/json" }).end('{"status":"ok"}');
   if (req.url === "/") return notApi ? res.writeHead(200, { "Content-Type": "text/html" }).end("<html>") : res.writeHead(200, { "Content-Type": "application/json" }).end(JSON.stringify({ service: "Obsidian Local REST API", authenticated: true }));
   const file = decodeURIComponent(req.url.replace(/^\/vault\//, ""));
   log.push(`${req.method} ${file}`);
@@ -102,6 +103,9 @@ const write = (extra) => send({ type: "write-video-note", ...extra });
   assert.deepStrictEqual(resp, { ok: true, path: notePath, kind: "ai", text: `已更新 AI 问答：${notePath}`, title: "T" });
   assert.ok(vault.get(notePath).includes("你好（我改的）") && vault.get(notePath).includes("### 问：二") && !vault.get(notePath).includes("### 问：一"));
   assert.deepStrictEqual([log.splice(0), builds], [[`GET ${notePath}`, `PUT ${notePath}`], 0]);
+  // C220: the same conversation again changes nothing and says so.
+  resp = await write({ ref: bili, conversation: conversation("二"), mode: "ai" });
+  assert.deepStrictEqual([resp.kind, resp.text, log.splice(0)], ["unchanged", `AI 问答没有变化：${notePath}`, [`GET ${notePath}`]]);
 
   // full: the note rewritten in one PUT (the cover is already there).
   resp = await write({ ref: bili, conversation: conversation("三"), mode: "full" });
@@ -145,6 +149,9 @@ const write = (extra) => send({ type: "write-video-note", ...extra });
   assert.deepStrictEqual([resp.kind, resp.text], ["conversation", "已写入 Obsidian：N/bilibili/【AI笔记】T.md（视频已失效，只写了对话）"]);
   resp = await send({ type: "triage-write-note", bvid: "BV9", overwrite: false });
   assert.deepStrictEqual(resp, { ok: false, error: "啥都木有", code: -404 });
+  // C219: the same for a recorded note: 整篇覆盖 cannot rebuild it, so the conversation is its own note.
+  resp = await write({ ref: bili, conversation: conversation("q"), mode: "full" });
+  assert.deepStrictEqual([resp.kind, resp.path], ["conversation", "N/bilibili/【AI笔记】T.md"]);
   gone = false;
 
   // 逐个视频笔记 never asks: without overwrite an existing note keeps its body (its AI 问答 follows); with it, rewritten.
@@ -200,17 +207,24 @@ const write = (extra) => send({ type: "write-video-note", ...extra });
   assert.strictEqual(resp.text, "Obsidian 里的视频笔记已不存在，未写入");
   assert.ok(!fs.readFileSync(path.join(__dirname, "sidepanel.js"), "utf8").includes("已不存在"), "sidepanel.js words a sync result itself");
 
-  // A26: 测试连接 passes only when the address answers in JSON, as the Local REST API does.
+  // A26: 测试连接 passes only when the address answers the Local REST API's JSON, which names its service (F4).
   assert.deepStrictEqual({ ...(await ctx.testObsidianConnection(baseUrl, "k")) }, { ok: true, service: "Obsidian Local REST API" });
-  notApi = true;
-  assert.deepStrictEqual({ ...(await ctx.testObsidianConnection(baseUrl, "k")) }, { ok: false, error: E.obsidianNotApi, code: "OBSIDIAN" });
+  for (notApi of [true, "json"]) assert.deepStrictEqual({ ...(await ctx.testObsidianConnection(baseUrl, "k")) }, { ok: false, error: E.obsidianNotApi, code: "OBSIDIAN" }, notApi);
   notApi = false;
+
+  // C217: . and .. never take a request out of the vault folder.
+  assert.strictEqual(ctx.vaultEndpoint({ baseUrl: "http://h/" }, "../a/./b.md"), "http://h/vault/a/b.md");
 
   // Obsidian unusable, in MdgErrors' words: not enabled or set up and a refused key are OBSIDIAN (去设置).
   local.obsidianApiKey = "wrong";
   assert.deepStrictEqual(await write({ ref: bili }), { ok: false, error: E.obsidianKey, code: "OBSIDIAN" });
   local.obsidianApiKey = "";
   assert.deepStrictEqual(await write({ ref: bili }), { ok: false, error: E.obsidianUnset, code: "OBSIDIAN" });
+  // C221: auto-sync says it too, as a manual write does; only Obsidian turned off is silent.
+  assert.deepStrictEqual(await send({ type: "sync-video-note-ai", ref: bili, conversation: conversation("七") }), { ok: false, error: E.obsidianUnset, code: "OBSIDIAN" });
+  sync.obsidianEnabled = false;
+  assert.deepStrictEqual(await send({ type: "sync-video-note-ai", ref: bili, conversation: conversation("七") }), { ok: true, path: "" });
+  sync.obsidianEnabled = true;
   local.obsidianApiKey = "k";
   sync.obsidianEnabled = false;
   assert.strictEqual((await write({ ref: bili })).code, "OBSIDIAN");

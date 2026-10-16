@@ -16,6 +16,7 @@ let obsidianEnabled = false;
 const selected = new Set();
 const writing = new Set(); // entry keys with a 写入 Obsidian in flight
 const unfolded = new Set(); // entry keys whose one-line AI summary is shown in full
+const expanded = new Set(); // entry keys whose 问答 are open, kept while a search hides the entry
 let reloadTimer = 0;
 let editing = null; // { id, draft } while a 备注 is open; storage reloads wait until it closes
 let reloadPending = false;
@@ -37,21 +38,25 @@ function groupByVideo(items) {
   const groups = [...byKey].map(([key, convs]) => {
     convs.sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
     const latest = convs.reduce((a, b) => ((b.updatedAt || 0) > (a.updatedAt || 0) ? b : a));
-    const ref = latest.contextRef || {};
+    // Read as the side panel reads a saved conversation: an old one keeps its video from contextSnapshot or its own fields.
+    const ref = MdgSites.contextRef(latest.contextRef || latest.contextSnapshot || { ...latest, title: latest.contextTitle });
     const context = { ...ref, title: ref.title || latest.contextTitle || latest.title, url: latest.contextUrl || ref.url || "" };
     return { key, convs, context, title: latest.title || context.title || "历史对话", updatedAt: latest.updatedAt || 0 };
   });
-  // The triage analysis and note are per video (the analysis summarizes P1), so they join only the P1 entry;
-  // without one they are their own entry. Note ids are bvids or YouTube videoIds; only bvids start with BV.
+  // The note is per video, so it joins every part's entry, as the side panel shows it on every part; the analysis
+  // summarizes P1, so it joins only the P1 entry. Without a P1 entry the analysis is its own entry, and so is a note
+  // without any entry. Note ids are bvids (BV and 10 more, 12 in all) or YouTube videoIds (11).
   for (const bvid of new Set([...Object.keys(analyses), ...Object.keys(notes)])) {
     const analysis = analyses[bvid];
     const note = notes[bvid];
-    const site = /^BV/i.test(bvid) ? "bilibili" : "youtube";
+    const site = /^BV[0-9A-Za-z]{10}$/.test(bvid) ? "bilibili" : "youtube";
     const context = { site, videoId: bvid, title: triageTitles[bvid] || bvid, url: MdgSites.SITES[site].canonicalUrl(bvid, 1), isVideoContext: true };
     const key = MdgSites.buildContextKey(context);
-    const host = groups.find((g) => MdgSites.buildContextKey({ ...g.context, cid: "" }) === key && (Number(g.context.pageIndex) || 1) === 1);
-    if (host) Object.assign(host, { analysis, note });
-    else groups.push({ key, convs: [], context, title: context.title, updatedAt: Math.max(analysis?.analyzedAt || 0, note?.updatedAt || 0), analysis, note });
+    const parts = groups.filter((g) => MdgSites.buildContextKey({ ...g.context, cid: "" }) === key);
+    for (const g of parts) g.note = note;
+    const host = parts.find((g) => (Number(g.context.pageIndex) || 1) === 1);
+    if (host) host.analysis = analysis;
+    else if (analysis || !parts.length) groups.push({ key, convs: [], context, title: context.title, updatedAt: Math.max(analysis?.analyzedAt || 0, note?.updatedAt || 0), analysis, note });
   }
   return groups.sort((a, b) => b.updatedAt - a.updatedAt);
 }
@@ -76,15 +81,15 @@ function visibleGroups() {
 // cut off with an ellipsis until clicked.
 function renderSummary(g) {
   const lines = MdgNote.buildTriageSummary(g.analysis).split("\n").filter(Boolean);
-  const verdict = lines.find((l) => l.startsWith("AI 判断："));
+  const verdict = lines.find((l) => l.startsWith(MdgNote.VERDICT_LINE));
   const rest = lines.filter((l) => l !== verdict).map((l) => esc(l.replace(/^(> |- )/, ""))).join(" · ");
-  const head = verdict ? `<b>AI 判断</b> ${esc(verdict.slice(6))}` : "";
+  const head = verdict ? `<b>AI 判断</b> ${esc(verdict.slice(MdgNote.VERDICT_LINE.length))}` : "";
   const open = unfolded.has(g.key);
   return `<button type="button" class="entry-summary${open ? " open" : ""}" data-act="summary" aria-expanded="${open}">${head}${head && rest ? " · " : ""}<span class="entry-points">${rest}</span></button>`;
 }
 
-// The 备注 belongs to the video and shows on its P1 entry, like grouping joins it.
-const noteIdOf = (g) => (g.context.videoId && (Number(g.context.pageIndex) || 1) === 1 ? g.context.videoId : "");
+// The 备注 belongs to the video: every part's entry shows and edits the same one, like grouping joins it.
+const noteIdOf = (g) => g.context.videoId || "";
 
 function renderNote(g) {
   const id = noteIdOf(g);
@@ -99,10 +104,14 @@ async function closeNote() {
   if (!editing) return;
   const { id, draft } = editing;
   editing = null;
-  if (await MdgLimits.saveVideoNote(id, draft)) {
-    if (draft.trim()) notes[id] = { text: draft, updatedAt: Date.now() };
-    else delete notes[id];
-    setStatus(draft.trim() ? "备注已保存" : "备注已删除");
+  try {
+    if (await MdgLimits.saveVideoNote(id, draft)) {
+      if (draft.trim()) notes[id] = { text: draft, updatedAt: Date.now() };
+      else delete notes[id];
+      setStatus(draft.trim() ? "备注已保存" : "备注已删除");
+    }
+  } catch (error) {
+    setStatus(`保存备注失败：${error?.message || MdgErrors.TEXT.unknown}`, true);
   }
   const redraw = reloadPending ? load : render;
   reloadPending = false;
@@ -121,11 +130,13 @@ function renderConversation(conv, index, total) {
 function render() {
   const groups = visibleGroups();
   const allGroups = groupByVideo(conversations);
-  els.count.textContent = `${allGroups.length} 个视频 · 对话 ${conversations.length}/${MdgLimits.AI_CONVERSATIONS}`;
+  // Records of web pages are not videos: counted on their own.
+  const videos = allGroups.filter((g) => g.context.videoId).length;
+  const pages = allGroups.length - videos;
+  els.count.textContent = `${videos} 个视频${pages ? `、${pages} 个网页` : ""} · 对话 ${conversations.length}/${MdgLimits.AI_CONVERSATIONS}`;
   // A search keeps hidden selections, like the 分拣台; only a video that is gone leaves the selection.
   for (const key of [...selected]) if (!allGroups.some((g) => g.key === key)) selected.delete(key);
-  // Storage changes re-render the list while the user reads it: keep expanded entries and the scroll.
-  const open = new Set([...els.list.querySelectorAll(".entry details[open]")].map((d) => d.closest(".entry").dataset.key));
+  // Storage changes re-render the list while the user reads it: keep expanded entries (expanded) and the scroll.
   const scrollY = window.scrollY;
   const active = document.activeElement?.matches?.("[data-note]") ? document.activeElement : null;
   const caret = active ? [active.selectionStart, active.selectionEnd] : null;
@@ -156,7 +167,7 @@ function render() {
           <div class="entry-body">
             ${g.analysis ? renderSummary(g) : ""}
             ${renderNote(g)}
-            ${g.convs.length ? `<details${open.has(g.key) ? " open" : ""}><summary>查看 ${turnCount} 轮问答</summary>${g.convs.map((c, i) => renderConversation(c, i, g.convs.length)).join("")}</details>` : ""}
+            ${g.convs.length ? `<details${expanded.has(g.key) ? " open" : ""}><summary>查看 ${turnCount} 轮问答</summary>${g.convs.map((c, i) => renderConversation(c, i, g.convs.length)).join("")}</details>` : ""}
           </div>
         </article>`;
       }).join("")
@@ -233,8 +244,12 @@ function deletableKeys(keys) {
 async function deleteGroups(keys) {
   keys = deletableKeys(keys);
   if (!keys.length || !confirm(`删除 ${keys.length} 个视频的全部 AI 对话？删除后不能恢复。`)) return;
-  const current = (await chrome.storage.local.get(KEY))[KEY] || [];
-  await chrome.storage.local.set({ [KEY]: current.filter((c) => !keys.includes(c?.contextKey || c?.id)) });
+  try {
+    const current = (await chrome.storage.local.get(KEY))[KEY] || [];
+    await chrome.storage.local.set({ [KEY]: current.filter((c) => !keys.includes(c?.contextKey || c?.id)) });
+  } catch (error) {
+    return setStatus(`删除失败：${error?.message || MdgErrors.TEXT.unknown}`, true);
+  }
   keys.forEach((key) => selected.delete(key));
   setStatus(`已删除 ${keys.length} 个视频的 AI 对话`);
 }
@@ -260,13 +275,17 @@ async function saveToObsidian(group) {
   setStatus(MdgErrors.TEXT.obsidianWriting);
   render();
   try {
-    const newest = group.convs.reduce((a, b) => ((b.updatedAt || 0) > (a.updatedAt || 0) ? b : a), group.convs[0]);
-    const request = { type: "write-video-note", ref: group.context, conversation: { messages: newest?.messages || [] } };
-    let resp = await chrome.runtime.sendMessage(request);
+    // Built again after the dialog: a reply saved while it was open goes in too.
+    const request = () => {
+      const g = groupByVideo(conversations).find((x) => x.key === group.key) || group;
+      const newest = g.convs.reduce((a, b) => ((b.updatedAt || 0) > (a.updatedAt || 0) ? b : a), g.convs[0]);
+      return { type: "write-video-note", ref: g.context, conversation: { messages: newest?.messages || [] } };
+    };
+    let resp = await chrome.runtime.sendMessage(request());
     if (resp?.ok && resp.ask) {
       const mode = await MdgOverwriteDialog.choose(resp.path, { hasAiSection: resp.hasAiSection, fullReason: resp.fullReason });
       if (!mode) return setStatus(MdgErrors.TEXT.obsidianCancelled);
-      resp = await chrome.runtime.sendMessage({ ...request, mode });
+      resp = await chrome.runtime.sendMessage({ ...request(), mode });
     }
     if (!resp?.ok) throw MdgErrors.fromResp(resp, MdgErrors.TEXT.obsidianWriteFailed);
     setStatus(resp.text);
@@ -309,13 +328,19 @@ els.list.addEventListener("click", (event) => {
   else if (act === "ask" && group) {
     // The side panel continues the video's latest conversation, the same request triage's 问 AI sends.
     MdgLimits.askSidepanel({ tabId: OWN_TAB?.id, contextRef: group.context });
-    setStatus("正在打开侧边栏…");
+    const opening = "正在打开侧边栏…";
+    setStatus(opening);
     chrome.sidePanel.open({ tabId: OWN_TAB?.id }).then(
-      () => els.status.textContent === "正在打开侧边栏…" && setStatus(""),
+      () => els.status.textContent === opening && setStatus(""),
       (error) => setStatus(`${MdgErrors.TEXT.sidepanelOpenFailed}：${error.message}`, true)
     );
   }
 });
+// toggle does not bubble: caught on the way down.
+els.list.addEventListener("toggle", (event) => {
+  const key = event.target.closest?.(".entry")?.dataset.key;
+  if (key) event.target.open ? expanded.add(key) : expanded.delete(key);
+}, true);
 els.list.addEventListener("input", (event) => {
   if (editing && event.target.matches("[data-note]")) editing.draft = event.target.value;
 });
@@ -339,7 +364,11 @@ els.bulkDelete.addEventListener("click", () => void deleteGroups(shownPicks()));
 // AI conversations only: triage analyses and notes are other features' data and stay.
 els.clearAll.addEventListener("click", async () => {
   if (!confirm("清空全部 AI 对话？删除后不能恢复。")) return;
-  await chrome.storage.local.set({ [KEY]: [] });
+  try {
+    await chrome.storage.local.set({ [KEY]: [] });
+  } catch (error) {
+    return setStatus(`删除失败：${error?.message || MdgErrors.TEXT.unknown}`, true);
+  }
   // Entries left with an AI 总结 or a 备注 stay selected; render drops the ones that left the list.
   setStatus("已清空全部 AI 对话");
 });

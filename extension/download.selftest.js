@@ -20,6 +20,7 @@ const document = {
       full: { attrs: {}, setAttribute(k, v) { this.attrs[k] = v; }, removeAttribute(k) { delete this.attrs[k]; } },
       querySelector: (sel) => ({ code: d.code, '[value="full"]': d.full })[sel] || null,
       addEventListener: (t, f) => (listeners[t] ||= []).push(f),
+      fire: (t, target) => (listeners[t] || []).forEach((f) => f({ target: target === "self" ? d : target })),
       showModal() { d.open = true; },
       close(v) { d.open = false; d.returnValue = v; (listeners.close || []).forEach((f) => f()); },
       remove() {}
@@ -59,6 +60,15 @@ const last = () => dialogs[dialogs.length - 1];
   D.choose("c.md").then(() => {});
   assert.strictEqual(text(last()), "该笔记已存在 整篇覆盖会替换全部内容： 整篇覆盖 取消", "a note without an AI 问答 section");
   last().close("");
+
+  // C150: a click outside closes it; a selection dragged from the box out to the backdrop does not.
+  const picked = D.choose("f.md");
+  last().fire("pointerdown", {});
+  last().fire("click", "self");
+  assert.ok(last().open, "drag out of the box");
+  last().fire("pointerdown", "self");
+  last().fire("click", "self");
+  assert.strictEqual(await picked, "");
 
   // The video page cannot use this dialog (a content script on a B站 page) but says the same words.
   const content = read("content.js");
