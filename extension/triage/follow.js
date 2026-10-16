@@ -11,7 +11,8 @@ import "./triage.js"; // runs first: it sets up the page and globalThis.MoonTria
 const DAY = 86400;
 // -404 / -626: the account is gone for good; it has no videos to wait for.
 const GONE_CODES = [-404, -626];
-const STATUS = [["", "全部"], ["active", "活跃"], ["slow", "慢更"], ["dead", "断更"], ["stale", "待查"], ["none", "没投过稿"], ["unchecked", "未查"]];
+const ALL = "全部"; // row 3's first button, the sidebar's first item and 已出分拣范围's first tab
+const STATUS = [["", ALL], ["active", "活跃"], ["slow", "慢更"], ["dead", "断更"], ["stale", "待查"], ["none", "没投过稿"], ["unchecked", "未查"]];
 
 // The newest post we know of, in seconds: the video feed (re-read on every sync) first, then the UP's own videos
 // (follow_content, fetched once for people the feed did not show). 0 = none known.
@@ -97,11 +98,18 @@ const groupsOf = (mid, D) => [...(D.list?.special?.[mid] ? [SPECIAL] : []), ...(
 const inGroupId = (mid, D, id) => (id === 0 ? !groupsOf(mid, D).some((x) => x > 0) : groupsOf(mid, D).includes(id));
 const inGroup = (mid, D, side) => inGroupId(mid, D, groupId(side));
 const groupName = (id, D) => (id === 0 ? "默认分组" : id === SPECIAL ? "特别关注" : (D.groups || []).find((g) => g.id === id)?.name || "");
+// An UP's 关注分组 by name, as its card says them: ★ 特别关注 is a flag on top of the groups, so with none of your own it
+// is in 默认分组 too. Groups deleted since are left out.
+const groupNames = (gids, D) => [...gids.filter((id) => id === SPECIAL), ...(gids.some((id) => id > 0) ? gids.filter((id) => id > 0) : [0])].map((id) => groupName(id, D)).filter(Boolean);
+// How many followed UP 主 a group has on B站, the 已注销 and 投稿已清空 too (the sidebar's count leaves them out).
+const groupMembers = (D, id) => (D.list?.list || []).filter((m) => inGroupId(m, D, id)).length;
 // Every left-column id: the sidebar is scope only (tags are row 3 and row 4).
 const sideIds = (D) => ["all", "g:0", `g:${SPECIAL}`, ...(D.groups || []).map((g) => `g:${g.id}`), "out"];
 
 // 已出分拣范围, as 收藏夹's: why an UP left the list, its row-2 tab. gone = 已取消关注 (a record, no longer followed);
 // closed and cleared are still followed on B站 but have nothing to sort: the account is gone, or no video is left.
+// Where an UP was unfollowed (follow_unfollowed's source): row 3's buttons, its card and the 刷新 result.
+const SOURCE = { bili: "在 B站取消关注", app: "在分拣台取消关注" };
 const OUT_KINDS = [["gone", "已取消关注"], ["closed", "已注销"], ["cleared", "投稿已清空"]];
 const outKind = (u) => (u.gone ? "gone" : u.closed ? "closed" : u.cleared ? "cleared" : "");
 
@@ -149,16 +157,23 @@ function sideMids(D, rows, side) {
   return list;
 }
 
+// Search as 收藏夹's: the words between spaces, each somewhere in the text, any case.
+const searchWords = (q) => String(q || "").toLowerCase().split(/\s+/).filter(Boolean);
+const hasWords = (text, words) => {
+  const t = text.toLowerCase();
+  return words.every((w) => t.includes(w));
+};
+
 // What the list shows: f = { side, q, sort, dir, kind (已出分拣范围's tab), source: "" | "bili" | "app" (已取消关注), and row 3: status,
 // tagState, recent (Set while 「AI 刚打的」 is on), recentAll (the whole batch, for its count); row 4: tags }.
 // Row 3's groups AND together and each counts with its own pick left out: counts[status], tagged / untagged, recent,
 // source[bili | app] (已取消关注's row 3 group), "" (row 3 cleared) and tags[id] (row 4's picks left out). Search and the
 // sidebar apply to all.
 function visibleUps(D, rows, f) {
-  const q = String(f.q || "").trim().toLowerCase();
+  const words = searchWords(f.q);
   const base = sideMids(D, rows, f.side).filter((m) => {
     const u = rows.get(m);
-    return (!q || `${u.name}\n${u.sign}\n${u.zone}`.toLowerCase().includes(q)) && (!f.kind || outKind(u) === f.kind);
+    return hasWords(`${u.name}\n${u.sign}\n${u.zone}`, words) && (!f.kind || outKind(u) === f.kind);
   });
   const pass = (m, skip = "") => {
     const u = rows.get(m);
@@ -229,10 +244,7 @@ function feedMatch(it, D, side) {
   return true;
 }
 // A feed video under f = { side, q, tagState, tags } (rows 3 and 4 go by the video's UP); skip as in tagPass.
-const feedPass = (it, D, f, skip = "") => {
-  const q = String(f.q || "").trim().toLowerCase();
-  return feedMatch(it, D, f.side) && (!q || `${it.title}\n${it.name}`.toLowerCase().includes(q)) && tagPass(liveTags(it.mid, D), f, skip);
-};
+const feedPass = (it, D, f, skip = "") => feedMatch(it, D, f.side) && hasWords(`${it.title}\n${it.name}`, searchWords(f.q)) && tagPass(liveTags(it.mid, D), f, skip);
 // Row 3's counts for 视频投稿, as visibleUps's: "" (row 3 cleared), tagged / untagged (by the UP), tags[id].
 function feedCounts(items, D, f) {
   const c = { "": 0, tagged: 0, untagged: 0, tags: {} };
@@ -303,7 +315,7 @@ function aiRequests(mids, cfg, instruction, tags, allowRemove) {
 }
 // Why the days cannot be saved, or "" (empty or invalid boxes fall back to the defaults, as everywhere).
 function settingsProblem(slow, dead) {
-  return UI.numSetting("deadDays", dead) > UI.numSetting("slowDays", slow) ? "" : "断更天数要比慢更大";
+  return UI.numSetting("deadDays", dead) > UI.numSetting("slowDays", slow) ? "" : "断更的天数要比慢更的天数大";
 }
 // 断更 is at least a day more than 慢更.
 function normDays(slow, dead) {
@@ -332,6 +344,22 @@ function favUpMid(up, rows) {
 }
 // The UP of a video 关注 plays: from 视频投稿 (feed items), else an UP card's recent titles; "" when neither lists it.
 const playingMid = (bvid, feed, rows) => feed?.find((x) => x.bvid === bvid)?.mid || [...rows.values()].find((u) => u.titles.some((v) => v.bvid === bvid))?.mid || "";
+// The 更新状态 刷新 fills in: the UP 主 of all of 关注 (刷新 checks them all, whatever is searched or filtered) whose last
+// post is not known yet.
+function unknownLast(D, rows) {
+  const c = { unchecked: 0, stale: 0 };
+  for (const m of sideMids(D, rows, "all")) if (rows.get(m).status in c) c[rows.get(m).status]++;
+  return c;
+}
+// The UP 主 among mids whose videos were not read yet (an UP read with none, 没投过稿, was), for AI 打标签's scope line.
+const aiBare = (mids, rows) => mids.filter((m) => ["unchecked", "stale"].includes(rows.get(m)?.status)).length;
+// As 收藏夹's aiRoomHint: what the AI may use and make this run, by the tags it may use (not switched off) and room.
+function aiRoomHint(tags, excluded, room) {
+  const usable = tags.filter((t) => !excluded.has(t.id)).length;
+  if (!usable && tags.length) return room ? `已有标签都不给 AI 用，AI 只会新建标签（这次最多 ${room} 个），你确认后才创建。` : "已有标签都不给 AI 用，新建上限是 0，AI 打不了标签。";
+  if (room) return `AI 这次最多新建 ${room} 个标签，你确认后才创建。`;
+  return !usable ? "新建上限是 0，AI 打不了标签。" : usable < tags.length ? "AI 只会用没点掉的已有标签。" : "AI 只会用已有标签。";
+}
 // PURE-END
 
 // ---------- page ----------
@@ -349,6 +377,17 @@ const AI_HISTORY_KEY = "follow_ai_history";
 const STATUS_TEXT = Object.fromEntries(STATUS);
 const STATUS_BADGE = { active: "keep", slow: "unsure", dead: "drop", stale: "unsure low", none: "none", unchecked: "none" };
 const PHASE = { list: "读取关注列表", feed: "读取视频投稿", arc: "查投稿" };
+const TAB = { ups: "UP 主", feed: "视频投稿" };
+const NO_DATA = "还没有关注数据";
+const STOP_SYNC = "暂停刷新";
+const SPACE_TIP = "在分拣台里打开空间";
+const EMPTY_GROUP = "这个分组没有 UP 主";
+const GROUPS_TITLE = "分组管理";
+const NEW_GROUP_NAME = `新分组名称（最多 ${GROUP_NAME_MAX} 个字）`;
+const starLabel = (on) => (on ? "设为特别关注" : "取消特别关注");
+const tagUpLabel = (name) => `给 ${name} 打 UP 标签`;
+const unfollowSel = (n) => `取消关注选中的 ${n} 个`;
+const FEED_RUN = "follow-feed"; // 视频投稿's wait for B站限流 in runs
 const DRY_PAGES = 3; // the feed stops loading by itself after this many pages in a row without a video for the picked item
 const FEED_KEEP_MS = 3 * 60 * 1000; // as the background's cache; older lists start over
 const space = (mid) => `https://space.bilibili.com/${mid}`;
@@ -380,7 +419,7 @@ const F = {
   tagState: "", // row 3: "" | "untagged" | "tagged" (in 视频投稿 the video's UP)
   tags: new Set(), // row 4: tag ids, AND; both tabs
   loaded: false,
-  feed: null, // { items, order, offset, hasMore, loading, error, errorCode, wait, dry, at }; order: 随机's (feedOrdered); wait: B站限流, waiting "follow-feed" out
+  feed: null, // { items, order, offset, hasMore, loading, error, errorCode, wait, dry, at }; order: 随机's (feedOrdered); wait: B站限流, waiting FEED_RUN out
   viewing: "",
   viewingMid: "", // the playing video's UP
   hover: "", // the 视频投稿 card under the mouse (bvid), for T
@@ -402,7 +441,7 @@ main.innerHTML = `
   </div>
   <div class="tabrow">
     <nav id="fwTabs" class="tabs fw-tabs" role="tablist" aria-label="关注"></nav>
-    <span class="row-tools" role="toolbar" aria-label="关注的操作">${UI.searchBox("fwQ", "fwQCount", "在「关注」· UP 主里搜")}${UI.rowButtons({
+    <span class="row-tools" role="toolbar" aria-label="关注的操作">${UI.searchBox("fwQ", "fwQCount", "在「关注」 · UP 主里搜")}${UI.rowButtons({
       activityId: "fwActivity", refreshId: "fwRefreshBtn", refreshLabel: "从 B站刷新关注", refreshTitle: "读取关注列表和视频投稿，再逐个查询视频投稿里没有的 UP 主",
       exportId: "fwExportBtn", menuId: "fwExport",
       menuHtml: UI.menuItem('data-fw="csv" aria-label="下载 UP 主表格 CSV"', "UP 主表格 (CSV)", CSV_HINT) + "<hr>" + UI.BACKUP_ITEM,
@@ -465,17 +504,32 @@ const write = T.store;
 // A batch confirm's list, as 收藏夹's.
 const names = (mids) => UI.confirmList(mids.map(nameOf));
 
-async function setTagMap(map) {
-  D.map = map;
-  derive();
-  await write({ follow_tag_map: map });
+// follow_tags and follow_tag_map are written by B站 pages (badges.js) and follow-bg.js too, and D catches up only on the
+// redraw a second later: a change applies to what storage holds now, one at a time. Resolves { prev, next }.
+let tagWrites = Promise.resolve();
+function updateStored(key, empty, change) {
+  const run = tagWrites.then(async () => {
+    const prev = (await chrome.storage.local.get(key))[key] || empty;
+    const next = change(prev);
+    await write({ [key]: next });
+    return { prev, next };
+  });
+  tagWrites = run.catch(() => {});
+  return run;
 }
-async function saveTags(tags) {
-  D.tags = tags;
+async function setTagMap(change) {
+  const r = await updateStored("follow_tag_map", {}, change);
+  D.map = r.next;
   derive();
-  await write({ follow_tags: tags });
+  return r;
 }
-const changeTags = (mids, add, remove) => setTagMap(withTags(D.map, mids, add, remove));
+async function saveTags(change) {
+  const r = await updateStored("follow_tags", [], change);
+  D.tags = r.next;
+  derive();
+  return r;
+}
+const changeTags = (mids, add, remove) => setTagMap((map) => withTags(map, mids, add, remove));
 // 关注's undo steps live in triage.js (S.modeUndo, apart from 收藏夹's): U in 关注 undoes only these.
 function pushTagUndo(before, label, { ask = null, created = [], recentAt = 0 } = {}) {
   T.pushUndo({
@@ -484,11 +538,10 @@ function pushTagUndo(before, label, { ask = null, created = [], recentAt = 0 } =
     ask,
     undo: async () => {
       const followed = new Set(following());
-      const map = restoreTags(D.map, before, new Set(D.tags.map((t) => t.id)), followed);
       const gone = Object.keys(before).filter((m) => !followed.has(m)).length;
-      await setTagMap(map);
+      const { next: map } = await setTagMap((m) => restoreTags(m, before, new Set(D.tags.map((t) => t.id)), followed));
       const used = new Set(Object.values(map).flat());
-      if (created.some((id) => !used.has(id))) await saveTags(D.tags.filter((t) => !created.includes(t.id) || used.has(t.id)));
+      if (created.some((id) => !used.has(id))) await saveTags((tags) => tags.filter((t) => !created.includes(t.id) || used.has(t.id)));
       if (recentAt && D.recent?.at === recentAt) {
         D.recent = null;
         F.recentFilter = false;
@@ -499,8 +552,8 @@ function pushTagUndo(before, label, { ask = null, created = [], recentAt = 0 } =
     }
   });
 }
-function newTag(name) {
-  return { id: MdgTagCore.newTagId("ft"), name, color: UI.nextTagColor(D.tags), rule: "" };
+function newTag(name, tags) {
+  return { id: MdgTagCore.newTagId("ft"), name, color: UI.nextTagColor(tags), rule: "" };
 }
 
 // ---------- mode ----------
@@ -516,16 +569,17 @@ async function setMode(mode, save = true) {
   for (const b of document.querySelectorAll("#modeSwitch [data-mode]")) b.setAttribute("aria-pressed", String(b.dataset.mode === mode));
   if (save) saveView();
   if (on) await ensureLoaded();
+  if (on) feedOnEnter();
   // One feed page (cached a few minutes in the worker) brings posts made since the last 刷新 into 最后投稿.
   if (on) send({ type: "follow-feed", offset: "" }).catch(() => {});
   if (on) render();
-  else renderLogin();
   headSync(); // the rows as drawn: re-measure the full height, still without animation
 }
 function setTab(tab) {
   TagPicker.close();
   if (T.viewing()) T.closeViewer();
   if (tab !== F.tab) F.sel.clear(); // a selection belongs to its tab (switching the sidebar keeps it)
+  if (tab === "feed" && tab !== F.tab) feedOnEnter();
   F.tab = tab;
   E.q.value = tab === "feed" ? F.fq : F.q;
   saveView();
@@ -539,7 +593,7 @@ function render() {
   if (F.mode !== "follow") return renderViewerUp();
   // Say what the box searches, as 收藏夹: where (the sidebar item or row 4's tags) · what (更新状态 or the tab).
   const where = F.side === "out" ? "已出分拣范围" : [F.side !== "all" && sideLabel(F.side), ...[...F.tags].map((id) => tagOf(id)?.name)].filter(Boolean).join("、") || "关注";
-  const what = F.tab === "feed" ? "视频投稿" : F.side === "out" ? Object.fromEntries([["", "全部"], ...OUT_KINDS])[F.kind] : F.status ? STATUS_TEXT[F.status] : "UP 主";
+  const what = F.tab === "feed" ? TAB.feed : F.side === "out" ? Object.fromEntries([["", ALL], ...OUT_KINDS])[F.kind] : F.status ? STATUS_TEXT[F.status] : TAB.ups;
   UI.setSearchScope(E.q, `在「${where}」 · ${what}里搜`);
   renderSide();
   renderHead();
@@ -550,7 +604,7 @@ function render() {
 }
 
 // The sidebar is scope only: 全部 · B站's 关注分组 (默认分组, ★ 特别关注, your own) · 已出分拣范围 (tags are rows 3 and 4).
-const sideLabel = (id) => (id === "all" ? "全部" : id === "out" ? "已出分拣范围" : groupName(groupId(id), D));
+const sideLabel = (id) => (id === "all" ? ALL : id === "out" ? "已出分拣范围" : groupName(groupId(id), D));
 const sideCount = (id) => sideMids(D, rows, id).length;
 // The sort the list and its control use: 已出分拣范围's own, else the UP 主 list's.
 const sortState = () => (F.side === "out" ? F.outSort : F);
@@ -560,7 +614,7 @@ function renderSide() {
   const item = (id) => UI.sideItem({ attrs: `data-side="${esc(id)}"`, label: sideLabel(id), count: sideCount(id), on: F.side === id, pre: id === `g:${SPECIAL}` ? STAR : "" });
   const ids = sideIds(D);
   side.innerHTML = `<div class="side-head">关注分组</div><div class="folder-list">${ids.slice(0, -1).map(item).join("")}</div>
-    <button type="button" class="quiet side-manage" data-fw="groups" title="新建、改名或删除 B站 的关注分组">分组管理</button>
+    <button type="button" class="quiet side-manage" data-fw="groups" title="新建、改名或删除 B站 的关注分组">${GROUPS_TITLE}</button>
     ${sideCount("out") || F.side === "out" ? `<hr>${item("out").replace("<button ", `<button title="${OUT_TIP}" `)}` : ""}${UI.sideFoot({ settingsAttrs: 'data-fw="settings" aria-label="关注设置"', settingsLabel: "关注设置" })}`;
   sideSlot.innerHTML = sideSelect();
 }
@@ -568,12 +622,12 @@ function renderSide() {
 // A sync takes minutes, so like 粗看 / 细看 it also leads row 3's right end as the primary button, with its count.
 const runSlot = () => {
   const j = D.jobs || {};
-  return `<span id="fwRunSlot">${j.running ? `<button type="button" class="primary" data-fw-stop aria-label="暂停刷新">暂停刷新${j.total ? ` ${j.done || 0}/${j.total}` : ""}</button>` : ""}</span>`;
+  return `<span id="fwRunSlot">${j.running ? `<button type="button" class="primary" data-fw-stop aria-label="${STOP_SYNC}">${STOP_SYNC}${j.total ? ` ${j.done || 0}/${j.total}` : ""}</button>` : ""}</span>`;
 };
 // The progress pill, as in 收藏夹 (runs' table): while the sync job runs it takes 刷新's place (progress, the B站限流
 // countdown, 暂停刷新, the word row 3 uses); otherwise a B站 write (停止), then AI 打标签 running or waiting to be confirmed (查看).
 const PILL = ["sync", "follow-write", "follow-ai", "proposal"];
-const PILL_BTN = { sync: { attrs: "data-fw-stop", label: "暂停刷新" }, "follow-write": { attrs: "data-fw-busystop", label: "停止" }, "follow-ai": { attrs: 'data-fw="ai"', label: "查看" }, proposal: { attrs: 'data-fw="ai"', label: "查看" } };
+const PILL_BTN = { sync: { attrs: "data-fw-stop", label: STOP_SYNC }, "follow-write": { attrs: "data-fw-busystop", label: "停止" }, "follow-ai": { attrs: 'data-fw="ai"', label: "查看" }, proposal: { attrs: 'data-fw="ai"', label: "查看" } };
 function renderSync() {
   const j = D.jobs || {};
   const slot = $("fwRunSlot");
@@ -600,9 +654,9 @@ function renderSyncChanges() {
   if (!c.added.length && !c.removed.length && !posted.length) return UI.setSync(SYNC, null);
   const names = (mids) => mids.map((m) => D.people?.[m]?.name || m);
   UI.setSync(SYNC, {
-    label: [`新关注 +${c.added.length} · 取消关注 −${c.removed.length}`, posted.length && `UP 回归 +${posted.length}`].filter(Boolean).join(" · "),
-    text: [`刷新结果：新关注 ${c.added.length} · 在 B站取消关注 ${c.removed.length}`, posted.length && `UP 回归 ${posted.length}`].filter(Boolean).join(" · "),
-    sections: [["新关注", names(c.added)], ["在 B站取消关注", names(c.removed)], ...(posted.length ? [["UP 回归：原本投稿已清空、现在又能看到视频", names(posted)]] : [])]
+    label: [`已刷新 +${c.added.length} −${c.removed.length}`, posted.length && `UP 回归 +${posted.length}`].filter(Boolean).join(" · "),
+    text: [`刷新结果：新关注 ${c.added.length} · ${SOURCE.bili} ${c.removed.length}`, posted.length && `UP 回归 ${posted.length}`].filter(Boolean).join(" · "),
+    sections: [["新关注", names(c.added)], [SOURCE.bili, names(c.removed)], ...(posted.length ? [["UP 回归：原本投稿已清空、现在又能看到视频", names(posted)]] : [])]
   });
 }
 
@@ -621,10 +675,12 @@ function renderAiState() {
 // Not logged in (the last refresh or the 视频投稿 page said so): the same 去登录 banner as 收藏夹. Shown once per error,
 // so 关闭 sticks until the next one.
 let loginSeen = "";
+// Leaving 关注 leaves the banner: B站's login is the same for 收藏夹, which may have shown it too.
 function renderLogin() {
+  if (F.mode !== "follow") return;
   const j = D.jobs || {};
   const login = (code) => MdgErrors.action(code) === "login"; // follow-bg.js reports B站's -101 as NOT_LOGGED_IN
-  const err = F.mode !== "follow" ? "" : !j.running && login(j.errorCode) ? j.error : login(F.feed?.errorCode) ? F.feed.error : "";
+  const err = !j.running && login(j.errorCode) ? j.error : login(F.feed?.errorCode) ? F.feed.error : "";
   if (err !== loginSeen) T.loginBanner(Boolean(err));
   loginSeen = err;
 }
@@ -638,26 +694,27 @@ function renderHead() {
   renderLogin();
   E.meta.innerHTML = out
     ? UI.headMeta([...OUT_KINDS.map(([k, label]) => [sideMids(D, rows, "out").filter((m) => outKind(rows.get(m)) === k).length, label]).filter(([n]) => n).map(([n, label]) => `${n} 个${label}`), `不在关注分拣里了，标签都还留着，${UI.CLEAN_BACKUP.meta}`])
-    : UI.headMeta([D.list ? UI.syncedText(at * 1000) : "还没有关注数据"], err);
+    : UI.headMeta([D.list ? UI.syncedText(at * 1000) : NO_DATA], err);
   main.querySelector('[data-fw="bili"]').hidden = out;
   // 导出 → UP 主表格: nothing to put in it before the first refresh.
   const csv = $("fwExport").querySelector('[data-fw="csv"]');
-  csv.querySelector("small").textContent = D.list ? CSV_HINT : "还没有关注数据，先刷新";
-  UI.setReason(csv, D.list ? "" : "还没有关注数据，先刷新");
+  const noCsv = D.list ? "" : `${NO_DATA}，先刷新`;
+  csv.querySelector("small").textContent = noCsv || CSV_HINT;
+  UI.setReason(csv, noCsv);
   renderSync();
   renderSyncChanges();
 }
 
 function renderTabs() {
   const tab = (key, label, n) =>
-    `<button type="button" role="tab" data-fwtab="${key}" aria-selected="${F.tab === key}">${label}${n == null ? "" : `<span class="count">${n}</span>`}</button>`;
+    `<button type="button" role="tab" data-fwtab="${key}" aria-selected="${F.tab === key}"${n == null ? "" : ` aria-label="${label} ${n}"`}>${label}${n == null ? "" : `<span class="count">${n}</span>`}</button>`;
   // 已出分拣范围 has no 视频投稿; its tabs are why the UP 主 left (outKind), 全部 first.
   if (F.side === "out") {
     const all = sideMids(D, rows, "out");
-    E.tabs.innerHTML = UI.kindTabs("data-fwkind", [["", "全部"], ...OUT_KINDS].map(([k, label]) => [k, label, k ? all.filter((m) => outKind(rows.get(m)) === k).length : all.length]), F.kind);
+    E.tabs.innerHTML = UI.kindTabs("data-fwkind", [["", ALL], ...OUT_KINDS].map(([k, label]) => [k, label, k ? all.filter((m) => outKind(rows.get(m)) === k).length : all.length]), F.kind);
     return;
   }
-  E.tabs.innerHTML = tab("ups", "UP 主", sideCount("all")) + tab("feed", "视频投稿");
+  E.tabs.innerHTML = tab("ups", TAB.ups, sideCount("all")) + tab("feed", TAB.feed);
 }
 
 // The left column as a select with the same counts, for widths without the sidebar (in the top bar, see sideSlot).
@@ -672,7 +729,7 @@ const tagStateGroup = (counts, prefix = "") =>
 function stateRowUps(counts) {
   const anyOn = F.status || F.tagState || F.recentFilter;
   const out = [
-    UI.stateGroup("全部", UI.filterBtn("data-fw-all", "全部", counts[""], !anyOn)),
+    UI.stateGroup(ALL, UI.filterBtn("data-fw-all", ALL, counts[""], !anyOn)),
     UI.stateGroup("更新状态", STATUS.slice(1).map(([id, label]) => UI.filterBtn(`data-status="${id}"${id === "stale" ? ` title="慢更或断更 · 待查：${cfg.slowDays} 天里没在视频投稿里出现，查完投稿才知道是哪种"` : ""}`, label, counts[id] || 0, F.status === id)).join("")),
     tagStateGroup(counts)
   ];
@@ -698,8 +755,8 @@ function renderUps() {
   for (const m of [...F.sel]) if (!rows.has(m)) F.sel.delete(m);
   // 已出分拣范围's row 3: 全部 | 在哪取消关注 (on 全部 and 已取消关注) | 未打标签 已打标签.
   const seg = out
-    ? [UI.stateGroup("全部", UI.filterBtn("data-fw-all", "全部", counts[""], !F.source && !F.tagState)),
-      (F.kind === "" || F.kind === "gone") && UI.stateGroup("在哪取消关注", [["bili", "在 B站取消关注"], ["app", "在分拣台取消关注"]].map(([id, label]) => UI.filterBtn(`data-source="${id}"`, label, counts.source[id], F.source === id)).join("")),
+    ? [UI.stateGroup(ALL, UI.filterBtn("data-fw-all", ALL, counts[""], !F.source && !F.tagState)),
+      (F.kind === "" || F.kind === "gone") && UI.stateGroup("在哪取消关注", Object.entries(SOURCE).map(([id, label]) => UI.filterBtn(`data-source="${id}"`, label, counts.source[id], F.source === id)).join("")),
       tagStateGroup(counts)].filter(Boolean).join("")
     : stateRowUps(counts);
   // 全选 heads the right-hand buttons, as in 收藏夹: it acts on the UP 主 listed now. 已出分拣范围 adds 清理, as 收藏夹's.
@@ -712,11 +769,11 @@ function renderUps() {
   E.sort.hidden = !out && !D.list;
   E.sort.innerHTML = UI.sortControl({ sorts: out ? OUT_SORTS : SORTS, sort: so.sort, dir: so.dir, words: dirLabel(so.sort, so.dir), selectAttr: 'data-fw="sort"', dirAttr: 'data-fw="dir"' });
   E.qCount.textContent = UI.resultCount(F.q.trim() || filtersOn(), list.length);
-  const hint = hintHtml(counts);
+  const hint = hintHtml();
   const scroll = E.list.scrollTop;
   let body;
   if (!D.list && !out) body = emptyHtml();
-  else if (!list.length) body = `<p class="empty">${UI.noMatch(F.q, filtersOn(), "UP 主") || (out && !F.kind ? "没有已出分拣范围的 UP 主" : F.side.startsWith("g:") ? "这个分组没有 UP 主" : "这里没有 UP 主")}</p>`;
+  else if (!list.length) body = `<p class="empty">${UI.noMatch(F.q, filtersOn(), "UP 主") || (out && !F.kind ? "没有已出分拣范围的 UP 主" : F.side.startsWith("g:") ? EMPTY_GROUP : "这里没有 UP 主")}</p>`;
   else body = list.map(upCard).join("");
   E.list.className = "fw-list";
   E.list.innerHTML = hint + body;
@@ -745,19 +802,20 @@ function cleanBtn(list) {
 function emptyHtml() {
   const j = D.jobs || {};
   const act = j.running ? `<p class="muted" aria-busy="true">刷新中…读到就显示在这里</p>` : UI.refreshEmpty('data-fw="sync" class="primary"');
-  return UI.emptyState("还没有关注数据", "读取关注列表和视频投稿，按最后投稿时间分为活跃、慢更、断更；视频投稿里没有的 UP 主再逐个查询。只读，不改 B站。", act);
+  return UI.emptyState(NO_DATA, "读取关注列表和视频投稿，按最后投稿时间分为活跃、慢更、断更；视频投稿里没有的 UP 主再逐个查询。只读，不改 B站。", act);
 }
 
 // Why some 更新状态 are missing, with the job's live state or the button that fills them in.
-function hintHtml(counts) {
+function hintHtml() {
   if (!D.list || F.side === "out") return "";
   const parts = [];
   if (D.list.complete === false && !D.jobs?.running) parts.push(`<p class="fw-hint warn">这次关注列表没读全，没有把任何人记成已取消关注。下次刷新会再读。</p>`);
-  const open = (counts.unchecked || 0) + (counts.stale || 0);
+  const counts = unknownLast(D, rows);
+  const open = counts.unchecked + counts.stale;
   if (open) {
     const running = D.jobs?.running;
     const stale = counts.stale ? `「待查」= ${cfg.slowDays} 天里没在视频投稿里出现，查完投稿才分得清慢更还是断更。` : "";
-    const act = running ? `<span class="muted" aria-busy="true">正在查，状态边查边更新</span>` : `<button type="button" data-fw="sync">查投稿时间（约 ${Math.max(1, Math.ceil(open / 60))} 分钟）</button>`;
+    const act = running ? `<span class="muted" aria-busy="true">正在查，状态边查边更新</span>` : `<button type="button" data-fw="sync">${MdgErrors.LABEL.refresh}（约 ${Math.max(1, Math.ceil(open / 60))} 分钟）</button>`;
     parts.push(`<p class="fw-hint">${open} 个 UP 主还不知道最后投稿时间。${stale}${act}</p>`);
   }
   return parts.join("");
@@ -775,19 +833,19 @@ function upCard(mid) {
     esc(u.zone),
     u.last ? `最后投稿 ${UI.agoHtml(u.last, now)}` : u.status === "stale" && !u.gone ? esc(`${cfg.slowDays} 天以上没投稿`) : "",
     u.count && `${u.count} 个视频`,
-    u.fans != null ? `粉丝 ${esc(fmtCount(u.fans))}` : F.sort === "fans" && !u.gone ? "粉丝数未查" : "",
+    u.fans != null ? `粉丝 ${esc(fmtCount(u.fans))}` : sortState().sort === "fans" && !u.gone ? "粉丝数未查" : "",
     !u.gone && u.followed && `关注于 ${UI.agoHtml(u.followed, now)}`
   ].filter(Boolean);
   // As 收藏夹's 已出分拣范围 cards: why it left, on its own line.
   const kind = outKind(u);
-  const left = kind === "gone" ? `${esc(UI.dayText((u.gone.at || now) * 1000))} ${u.gone.source === "bili" ? "在 B站取消关注" : "在分拣台取消关注"}`
+  const left = kind === "gone" ? `${esc(UI.dayText((u.gone.at || now) * 1000))} ${SOURCE[u.gone.source === "bili" ? "bili" : "app"]}`
     : kind === "closed" ? "账号已注销"
     : kind === "cleared" ? `投稿已清空：一个视频都看不到了，以前的视频播放过 ${esc(fmtCount(D.content[mid].views))} 次`
     : "";
   // Its 关注分组, as 收藏夹's 原在「A」: where the unfollowed were (records from before groups were kept have none), where
   // the still followed are. Groups deleted since are left out; none of your own is 默认分组.
   const gids = kind === "gone" ? u.gone.groups : kind ? groupsOf(mid, D) : null;
-  const gnames = gids ? (gids.length ? gids.map((id) => groupName(id, D)).filter(Boolean) : ["默认分组"]) : [];
+  const gnames = gids ? groupNames(gids, D) : [];
   const origin = UI.originChip(kind === "gone" ? "原在" : "在", gnames);
   const chips = u.tagIds.map(tagOf).map((t) => u.gone
     ? `<span class="chip" style="--c:${esc(t.color)}">${esc(t.name)}</span>`
@@ -802,12 +860,12 @@ function upCard(mid) {
     ? `<button type="button" data-refollow="${esc(mid)}" aria-label="重新关注 ${esc(u.name)}"${busy}>重新关注</button><button type="button" class="danger" data-clean="${esc(mid)}" aria-label="清理 ${esc(u.name)}"${busy}>清理</button>`
     : kind
     ? `<button type="button" class="danger" data-unfollow="${esc(mid)}" aria-label="取消关注 ${esc(u.name)}"${busy}>取消关注</button>`
-    : `<button type="button" class="star${u.special ? " on" : ""}" data-star="${esc(mid)}" aria-pressed="${u.special}" aria-label="${u.special ? "取消特别关注" : "设为特别关注"} ${esc(u.name)}"${UI.reasonAttrs(busyWhy(), `${u.special ? "取消特别关注" : "设为特别关注"}（改 B站）`)}>${u.special ? "★" : "☆"}</button>`;
+    : `<button type="button" class="star${u.special ? " on" : ""}" data-star="${esc(mid)}" aria-pressed="${u.special}" aria-label="${starLabel(!u.special)} ${esc(u.name)}"${UI.reasonAttrs(busyWhy(), `${starLabel(!u.special)}（改 B站）`)}>${u.special ? "★" : "☆"}</button>`;
   const playing = F.viewing && (F.viewing === upView(mid) || u.titles.some((v) => v.bvid === F.viewing));
   return `<article class="card fw-up${sel ? " selected" : ""}${playing ? " playing" : ""}${F.cur === mid ? " focused" : ""}" data-mid="${esc(mid)}" aria-label="${esc(u.name)}">
     <a class="fw-avatar" href="${space(mid)}" target="_blank" rel="noopener" tabindex="-1" aria-hidden="true">${u.face ? `<img src="${esc(img(u.face, "96w_96h_1c"))}" alt="" loading="lazy" referrerpolicy="no-referrer">` : ""}</a>
     <div class="card-body">
-      <div class="fw-name-row"><a class="fw-name" href="${space(mid)}" data-space="${esc(mid)}" target="_blank" rel="noopener" title="在分拣台里打开空间">${esc(u.name)}</a>${kind ? "" : checking() === mid ? '<span class="badge running" aria-busy="true">查投稿中…</span>' : `<span class="badge ${STATUS_BADGE[u.status]}">${STATUS_TEXT[u.status]}</span>`}${u.ov ? `<span class="meta fw-ov" title="${esc(u.ov)}">${esc(u.ov)}</span>` : ""}</div>
+      <div class="fw-name-row"><a class="fw-name" href="${space(mid)}" data-space="${esc(mid)}" target="_blank" rel="noopener" title="${SPACE_TIP}">${esc(u.name)}</a>${kind ? "" : checking() === mid ? '<span class="badge running" aria-busy="true">查投稿中…</span>' : `<span class="badge ${STATUS_BADGE[u.status]}">${STATUS_TEXT[u.status]}</span>`}${u.ov ? `<span class="meta fw-ov" title="${esc(u.ov)}">${esc(u.ov)}</span>` : ""}</div>
       ${left ? `<div class="left-row">${origin}${left}</div>` : ""}
       ${meta.length ? `<div class="meta">${meta.join(" · ")}</div>` : ""}
       ${u.sign ? `<div class="fw-sign" title="${esc(u.sign)}">${esc(u.sign)}</div>` : ""}
@@ -845,11 +903,11 @@ function renderSel() {
   const k = pool.length;
   const gone = pool.filter((m) => rows.get(m)?.gone).length;
   const acts = (none) => F.side === "out"
-    ? btn("refollow", `重新关注选中的 ${gone || k} 个`, busy || none || (!gone && "选中的都还关注着")) + btn("unfollow", `取消关注选中的 ${k - gone || k} 个`, busy || none || (k === gone && "选中的都已取消关注"), "danger")
+    ? btn("refollow", `重新关注选中的 ${gone || k} 个`, busy || none || (!gone && "选中的都还关注着")) + btn("unfollow", unfollowSel(k - gone || k), busy || none || (k === gone && "选中的都已取消关注"), "danger")
     : btn("pick-sel", "标签…", none) +
-      btn("move-sel", `移动选中的 ${k} 个到分组…`, busy || none || (groupId(F.side) == null && "先在分组列表里选一个分组：「全部」里不知道从哪个分组移走")) +
+      btn("move-sel", `移动选中的 ${k} 个到分组…`, busy || none || (groupId(F.side) == null && `先在分组列表里选一个分组：「${ALL}」里不知道从哪个分组移走`)) +
       btn("copy-sel", `复制选中的 ${k} 个到分组…`, busy || none) +
-      btn("unfollow", `取消关注选中的 ${k} 个`, busy || none, "danger");
+      btn("unfollow", unfollowSel(k), busy || none, "danger");
   E.sel.innerHTML = UI.selbar({ label: "选中的 UP 主", n, hidden, clearAttrs: 'data-fw="select-none"', acts });
 }
 
@@ -858,8 +916,12 @@ const freshFeed = () => ({ items: [], offset: "", hasMore: true, loading: false,
 
 // What the 视频投稿 list and its counts go by.
 const feedF = () => ({ side: F.side, q: F.fq, tagState: F.tagState, tags: F.tags });
+// Coming back to 视频投稿 (the tab or the mode) after FEED_KEEP_MS starts it over; a redraw meanwhile keeps the pages loaded.
+function feedOnEnter() {
+  if (F.feed && !F.feed.loading && Date.now() - F.feed.at > FEED_KEEP_MS) F.feed = null;
+}
 function renderFeed() {
-  if (!F.feed || (!F.feed.loading && Date.now() - F.feed.at > FEED_KEEP_MS)) F.feed = freshFeed();
+  F.feed ||= freshFeed();
   const ord = feedOrdered(F.feed.items, F.fsort, F.feed.order);
   F.feed.order = ord.order;
   const items = ord.items;
@@ -871,7 +933,7 @@ function renderFeed() {
   // Row 3: 全部 | UP 未打标签 UP 已打标签; no count before the first page arrives. Row 4 counts videos. No 全选 here.
   const c = feedCounts(items, D, feedF());
   const n = (k) => (items.length ? c[k] : null);
-  E.bar.innerHTML = UI.labeledRow("状态", UI.stateGroup("全部", UI.filterBtn("data-fw-all", "全部", n(""), !F.tagState)) + tagStateGroup({ tagged: n("tagged"), untagged: n("untagged") }, "UP "));
+  E.bar.innerHTML = UI.labeledRow("状态", UI.stateGroup(ALL, UI.filterBtn("data-fw-all", ALL, n(""), !F.tagState)) + tagStateGroup({ tagged: n("tagged"), untagged: n("untagged") }, "UP "));
   E.barR.innerHTML = runSlot();
   E.tagRow.innerHTML = UI.labeledRow("标签", tagRowHtml(c.tags));
   const list = feedList(items, D, feedF(), pick.keep);
@@ -886,7 +948,7 @@ function renderFeed() {
   if (!items.length && F.feed.hasMore && !F.feed.loading && !F.feed.error && !F.feed.wait) more();
 }
 
-const addBtn = (mid, name) => UI.tagPlusBtn(`data-pick="${esc(mid)}"`, `给 ${name} 打 UP 标签`);
+const addBtn = (mid, name) => UI.tagPlusBtn(`data-pick="${esc(mid)}"`, tagUpLabel(name));
 
 // The viewer's 「UP 标签」 line: the playing video's UP, its tags, + 标签 (the same picker as the cards). In 关注 it is
 // the only line and T tags this UP; in 收藏夹 it sits under 「视频标签」, where T tags the video, and shows only for an
@@ -910,7 +972,7 @@ function renderViewerUp() {
   const ids = u ? u.tagIds : liveTags(mid, D);
   const chips = ids.map(tagOf).map((t) => `<span class="chip" style="--c:${esc(t.color)}"${u?.gone ? "" : ` data-pick="${esc(mid)}"`}>${esc(t.name)}</span>`).join("");
   const pre = `${face ? `<img src="${esc(img(face, "48w_48h_1c"))}" alt="" referrerpolicy="no-referrer">` : ""}<a class="name" href="${space(mid)}" target="_blank" rel="noopener">${esc(name)}</a>`;
-  vline.innerHTML = UI.viewerLine({ label: "UP 标签", pre, chips, plus: !u?.gone && { attrs: `data-pick="${esc(mid)}"`, label: `给 ${name} 打 UP 标签`, key: follow } });
+  vline.innerHTML = UI.viewerLine({ label: "UP 标签", pre, chips, plus: !u?.gone && { attrs: `data-pick="${esc(mid)}"`, label: tagUpLabel(name), key: follow } });
 }
 // B站's autoplay moved the player on (triage.js showViewing): the pink card, this line and T follow the new video.
 T.setViewerHook(() => {
@@ -930,7 +992,7 @@ function feedCard(it) {
     <a class="cover-wrap" href="${esc(video(it.bvid))}" data-play="${esc(it.bvid)}" tabindex="-1" aria-hidden="true">${it.cover ? `<img class="cover" src="${esc(img(it.cover, "480w_270h_1c"))}" alt="" loading="lazy" referrerpolicy="no-referrer">` : ""}<span class="cover-dur">${it.duration ? esc(fmtDuration(it.duration)) : ""}</span></a>
     <div class="fw-video-body">
       <a class="title" href="${esc(video(it.bvid))}" data-play="${esc(it.bvid)}" title="${esc(it.title)}" aria-label="播放 ${esc(it.title)}">${esc(it.title)}</a>
-      <div class="meta fw-video-meta"><a class="fw-up-link" href="${space(it.mid)}" data-space="${esc(it.mid)}" title="在分拣台里打开空间" target="_blank" rel="noopener">${it.face ? `<img src="${esc(img(it.face, "48w_48h_1c"))}" alt="" loading="lazy" referrerpolicy="no-referrer">` : ""}<span>${esc(it.name)}</span></a>${UI.agoHtml(it.at, nowSec())}${it.play ? `<span>▶ ${esc(fmtCount(it.play))}</span>` : ""}</div>
+      <div class="meta fw-video-meta"><a class="fw-up-link" href="${space(it.mid)}" data-space="${esc(it.mid)}" title="${SPACE_TIP}" target="_blank" rel="noopener">${it.face ? `<img src="${esc(img(it.face, "48w_48h_1c"))}" alt="" loading="lazy" referrerpolicy="no-referrer">` : ""}<span>${esc(it.name)}</span></a>${UI.agoHtml(it.at, nowSec())}${it.play ? `<span>▶ ${esc(fmtCount(it.play))}</span>` : ""}</div>
       <div class="chips">${chips}${addBtn(it.mid, it.name)}</div>
     </div>
   </article>`;
@@ -948,7 +1010,7 @@ function renderFoot(n = feedList(F.feed.items, D, feedF(), null).length) {
   // Stuck, as the sync's amber pill with the red ⚠ and the countdown: B站限流 (then more() tries again by itself), or the
   // background holding its queue (risk control, a dropped connection) while this page waits for a page.
   const hold = f.loading && F.hold?.until > nowSec() ? F.hold : null;
-  const stuck = f.wait ? runs.get("follow-feed")?.wait || UI.BILI_STUCK : hold && UI.waitText(holdLabel(hold), Math.ceil(hold.until - nowSec()));
+  const stuck = f.wait ? runs.get(FEED_RUN)?.wait || UI.BILI_STUCK : hold && UI.waitText(holdLabel(hold), Math.ceil(hold.until - nowSec()));
   if (stuck) {
     foot.innerHTML = `<p>${esc(reach)}</p><span class="activity" role="status"></span>`;
     return UI.setActivity(foot.lastChild, { text: stuck, stuck: true });
@@ -956,7 +1018,7 @@ function renderFoot(n = feedList(F.feed.items, D, feedF(), null).length) {
   let text;
   if (f.error) text = f.error;
   else if (f.loading) text = f.items.length ? `${reach}正在加载更早的…` : "正在读关注的人的新视频…";
-  else if (!n && f.items.length) text = `${where || (F.fq.trim() ? "已加载的视频里没有匹配搜索的。" : filtersOn() ? "已加载的视频里没有符合筛选的。" : "这里的 UP 主最近没发视频。")}${reach}`;
+  else if (!n && f.items.length) text = `${where || (UI.noMatch(F.fq, filtersOn(), "视频") || "这里的 UP 主最近没发视频") + "。"}${reach}`;
   else if (!f.hasMore) text = f.items.length ? `${reach}B站 只提供到这里。` : "关注的人最近都没发视频。";
   else text = reach;
   const stopped = !n || f.dry >= DRY_PAGES;
@@ -979,7 +1041,7 @@ function observeFoot() {
 async function waitFeed(f) {
   const here = () => F.feed === f;
   f.wait = true;
-  await runs.wait("follow-feed", runs.hold({ code: "THROTTLED" }), here);
+  await runs.wait(FEED_RUN, runs.hold({ code: "THROTTLED" }), here);
   f.wait = false;
   if (here()) more();
 }
@@ -999,7 +1061,7 @@ async function more({ byHand = false } = {}) {
   if (r.code === "THROTTLED") waitFeed(f);
   else if (!r.ok) {
     f.errorCode = r.code;
-    f.error = MdgErrors.action(r.code) === "login" ? MdgErrors.TEXT.biliLogin : `读取失败：${r.error || MdgErrors.TEXT.unknown}`;
+    f.error = MdgErrors.action(r.code) === "login" ? MdgErrors.TEXT.biliLogin : `读取失败：${MdgErrors.text(r)}`;
   }
   else {
     const { items, add } = mergeFeed(f.items, r.data.items || []);
@@ -1060,7 +1122,7 @@ runs.put("proposal", () => AI.proposal && { text: UI.AI_TAGS_PENDING });
 // never blocks them.
 const W = MdgWrites.create({ runs, lane: "follow-write", send, line: (p) => `${p.name}中 ${p.done}/${p.total}` });
 // calls = the requests, each with the mids it changes (a relation request one UP, a group request up to 20).
-// Returns how many UP 主 went through. Its progress shows in the row's progress pill, as a 收藏夹 batch does, with 停止.
+// Returns how many UP 主 went through: the ones a group request left out (B站 took the rest) are not counted. Its progress shows in the row's progress pill, as a 收藏夹 batch does, with 停止.
 // UI.FOLLOW_WRITE_GAP_MS between requests. B站限流 (THROTTLED): the pill counts down, then the same request
 // goes again; 停止 ends the run there, keeping what went through (and its undo).
 const perUp = (mids, msg) => mids.map((mid) => msg(mid));
@@ -1071,12 +1133,14 @@ const perUp = (mids, msg) => mids.map((mid) => msg(mid));
 async function relationRun(calls, label, { quiet = false, skipped = [], lost = [] } = {}) {
   const chunks = calls.map((c) => ({ msg: c, keys: c.mids || [c.mid], folders: [], gap: UI.FOLLOW_WRITE_GAP_MS }));
   const ran = new Set();
+  let out = 0;
   const running = W.run("follow-write", label, {
     verb: label,
     chunks,
     onChunk(c, r) {
       const left = r?.data?.skipped || [];
       skipped.push(...left);
+      out += left.length;
       if (r?.data?.groupsError) lost.push({ mid: c.msg.mid, error: r.data.groupsError });
       for (const mid of c.keys) if (!left.some((x) => x.mid === mid)) ran.add(mid);
       renderSel();
@@ -1086,14 +1150,15 @@ async function relationRun(calls, label, { quiet = false, skipped = [], lost = [
   render();
   const r = await running;
   if (r.busy) return toast(UI.busyText(r.busy)), 0;
-  if (r.stopped) toast(`已停止${label}：完成 ${r.done} 个，未完成 ${r.total - r.done} 个`);
-  else if (r.error || r.done < r.total) toast(`${label}第 ${r.done + 1} 个时出错：${r.error || MdgErrors.TEXT.unknown}${r.done ? `（前 ${r.done} 个已完成）` : ""}`, true);
-  else if (!quiet) toast(`已${label} ${r.done} 个`);
+  const done = r.done - out;
+  if (r.stopped) toast(`已停止${label}：完成 ${done} 个，未完成 ${r.total - r.done} 个`);
+  else if (r.error || r.done < r.total) toast(`${label}第 ${r.done + 1} 个时出错：${MdgErrors.text(r)}${r.done ? `（前 ${r.done} 个已完成）` : ""}`, true);
+  else if (!quiet) toast(`已${label} ${done} 个`);
   await load();
   const listed = new Set(sideMids(D, rows, F.side).filter((m) => !F.kind || F.side !== "out" || outKind(rows.get(m)) === F.kind));
   for (const m of ran) if (!listed.has(m)) F.sel.delete(m);
   render();
-  return r.done;
+  return done;
 }
 
 async function unfollow(mids) {
@@ -1116,7 +1181,8 @@ async function clean(mids) {
 }
 
 // U on a B站 write: done = the UP 主 it went through for, back() = the requests that reverse it, built when U is pressed.
-// Undoing 2+ asks first (ask). A reversal that fails says why itself (relationRun's toast), so the step then returns "".
+// Undoing 2+ asks first (ask). A reversal that fails says why itself (relationRun's toast), so the step then returns "";
+// one B站 went through but left UP 主 out of says which.
 // groups marks the 关注分组 steps, dropped when a group is deleted. undone: the toast after it, when 「已撤销：label…」 reads badly.
 // As 收藏夹's write steps, U refuses while a 关注 write runs (blocked), before any confirm.
 function pushWriteUndo(done, { label, backLabel, back, ask = null, groups = false, undone = "" }) {
@@ -1128,7 +1194,9 @@ function pushWriteUndo(done, { label, backLabel, back, ask = null, groups = fals
     undo: async () => {
       const calls = back();
       const want = calls.reduce((n, c) => n + (c.mids || [c.mid]).length, 0);
-      const n = await relationRun(calls, backLabel, { quiet: true });
+      const skipped = [];
+      const n = await relationRun(calls, backLabel, { quiet: true, skipped });
+      if (skipped.length && n + skipped.length === want) return `${backLabel}：${skipped.length} 个 UP 主 B站 没改（${upName(skipped[0].mid)}：${skipped[0].error}），其余已撤销`;
       return n < want ? "" : undone || `已撤销：${label}${done.length > 1 ? ` ${done.length} 个` : `「${upName(done[0])}」`}`;
     }
   });
@@ -1197,7 +1265,7 @@ async function regroup(mids, want, label) {
 // A card's ★: 特别关注 is group -10, so it is a single move with no confirm and U.
 async function starOne(mid) {
   const on = !rows.get(mid).special;
-  const label = on ? "设为特别关注" : "取消特别关注";
+  const label = starLabel(on);
   const { done } = await regroup([mid], (m) => regrouped(groupsOf(m, D), on ? null : SPECIAL, on ? SPECIAL : 0), label);
   if (done.length) toast(`已${label}「${upName(mid)}」 · U 撤销`);
 }
@@ -1216,7 +1284,7 @@ async function moveOrCopy(mids, how) {
     label: "目标分组",
     options: groupTargets(D, from, how).map(([id, name]) => [String(id), `${name} (${sideCount(`g:${id}`)})`]),
     newText: "新建分组…",
-    newPlaceholder: `新分组名称（最多 ${GROUP_NAME_MAX} 个字）`,
+    newPlaceholder: NEW_GROUP_NAME,
     newMax: GROUP_NAME_MAX,
     how: move ? (from === 0 ? "放进自己建的分组后，就不在默认分组里了。" : `从「${groupName(from, D)}」移走。`) : "原来的分组里也留着。",
     note: (v) => (v === String(SPECIAL) ? `${move && from === 0 ? "还留在默认分组里：特别关注只是多一个标记。" : ""}特别关注的 UP 主发视频，手机 B站会推送。` : v === "0" ? "不在别的分组的会回到默认分组，还关注着。" : "")
@@ -1240,8 +1308,10 @@ async function moveOrCopy(mids, how) {
 }
 
 // 分组管理: 标签管理's dialog (tag-dialogs.js) with B站's groups. 新建 and 改名 at once on B站 (改名 undoable with U);
-// 删除 always asks, says where the members go, and has no U.
+// 删除 always asks, says where the members go, and has no U. While a 关注 batch writes B站 they wait, as the other B站
+// writes do: a batch moving UP 主 into a group deleted meanwhile would end with an undo step for a group that is gone.
 async function createGroup(name) {
+  if (W.busy()) return void toast(busyWhy());
   const why = groupNameError(name);
   if (why) return void toast(why, true);
   const r = await send({ type: "follow-group-create", name: name.trim() });
@@ -1257,6 +1327,7 @@ const groupNameError = (name, self = null) => {
 async function renameGroup(g, name, undo = false) {
   name = String(name ?? "").trim();
   if (name === g.name) return true;
+  if (W.busy()) return toast(busyWhy()), false;
   const why = groupNameError(name, g.id);
   if (why) return toast(why, true), false;
   const r = await send({ type: "follow-group-rename", id: g.id, name });
@@ -1274,14 +1345,16 @@ async function renameGroup(g, name, undo = false) {
   return true;
 }
 async function deleteGroup(g) {
-  const n = sideCount(`g:${g.id}`);
+  if (W.busy()) return toast(busyWhy());
+  const n = groupMembers(D, g.id);
   const ok = await askConfirm(
     `在 B站删除分组「${g.name}」？`,
-    `<p>${n ? `里面的 ${n} 个 UP 主还关注着，不在别的分组的会回到「默认分组」。` : "这个分组里没有 UP 主。"}</p><p class="dialog-hint">删除后不能按 U 撤销，要用的话得重新建分组、再把人放进去。</p>`,
+    `<p>${n ? `里面的 ${n} 个 UP 主还关注着，不在别的分组的会回到「默认分组」。` : `${EMPTY_GROUP}。`}</p><p class="dialog-hint">删除后不能按 U 撤销，要用的话得重新建分组、再把人放进去。</p>`,
     "删除分组",
     { danger: true }
   );
   if (!ok) return;
+  if (W.busy()) return toast(busyWhy()); // a batch started while the dialog was open
   const r = await send({ type: "follow-group-delete", id: g.id });
   if (!r.ok) return toast(`删除分组失败：${r.error}`, true);
   // Moves into or out of it undone now would ask B站 about a group that is gone.
@@ -1292,7 +1365,7 @@ async function deleteGroup(g) {
 }
 const manageGroups = {
   who: "UP 主",
-  text: { title: "分组管理", saved: "新建、改名和删除立即在 B站 生效。", newName: `新分组名称（最多 ${GROUP_NAME_MAX} 个字）`, newMax: GROUP_NAME_MAX, add: "新建", addLabel: "新建分组" },
+  text: { title: GROUPS_TITLE, saved: "新建、改名和删除立即在 B站 生效。", newName: NEW_GROUP_NAME, newMax: GROUP_NAME_MAX, add: "新建", addLabel: "新建分组" },
   hint: () => "这里就是 B站 的关注分组。特别关注和默认分组是 B站 固定的，不能改名或删除；要把人放进分组，选中后用选中栏的「移动选中的 N 个到分组…」「复制选中的 N 个到分组…」。",
   tags: () => D.groups,
   count: (id) => sideCount(`g:${id}`),
@@ -1310,15 +1383,16 @@ const manageGroups = {
 // ---------- dialogs ----------
 
 // ----- 刷新, 导出, 关注设置 -----
-const refresh = $("fwRefreshBtn");
-refresh.addEventListener("click", async () => {
-  refresh.disabled = true;
+// 刷新 from row 2, the empty state or the hint above the list: btn stays off until the background answers.
+async function startSync(btn) {
+  btn.disabled = true;
   const r = await send({ type: "follow-sync" });
   if (!r.ok) {
-    toast(r.error || "刷新没开始", true);
-    refresh.disabled = false;
+    toast(MdgErrors.text(r, "刷新没开始"), true);
+    btn.disabled = false;
   }
-});
+}
+$("fwRefreshBtn").addEventListener("click", (e) => startSync(e.currentTarget));
 // 暂停 is on the pill and, as 暂停刷新, at row 3's right end (#fwBarR): both are inside #followMain.
 main.addEventListener("click", (e) => {
   if (e.target.closest("[data-fw-stop]")) send({ type: "follow-sync-stop" });
@@ -1326,7 +1400,7 @@ main.addEventListener("click", (e) => {
 });
 // The UP 主 table: built from what the page already has. 完整备份 is triage.js's ([data-backup]).
 function upCsv() {
-  const head = ["UP 主", "mid", "主页", "标签", "更新状态", "最后投稿", "粉丝数", "关注于", "特别关注", "签名"];
+  const head = ["UP 主", "mid", "主页", "标签", "更新状态", "最后投稿", "粉丝数", SORTS.follow, "特别关注", "签名"];
   const out = [head, ...following().map((m) => rows.get(m)).filter(Boolean).map((u) => [u.name, u.mid, space(u.mid), u.tagIds.map((id) => tagOf(id)?.name).filter(Boolean).join("、"), STATUS_TEXT[u.status] || "", u.last ? fmtDate(u.last) : "", u.fans ?? "", u.followed ? fmtDate(u.followed) : "", u.special ? "是" : "", u.sign])];
   return UI.toCsv(out);
 }
@@ -1403,10 +1477,8 @@ const openManage = () => TagDialogs.manage.open(manageTags);
 async function addTag(name) {
   name = cleanTagName(name);
   if (!name) return null;
-  const old = D.tags.find((t) => t.name === name);
-  if (old) return old;
-  const t = newTag(name);
-  await saveTags([...D.tags, t]);
+  let t = null;
+  await saveTags((tags) => (t = tags.find((x) => x.name === name)) ? tags : [...tags, (t = newTag(name, tags))]);
   return t;
 }
 // A rename, rule or color edit from 标签管理 (shared.js editedTag, as 收藏夹's saveTagEdit).
@@ -1414,7 +1486,7 @@ async function editTag(old, field, value) {
   const { tag, why } = UI.editedTag(old, field, value, D.tags.filter((x) => x.id !== old.id));
   if (why) toast(why, true);
   if (!tag) return false;
-  await saveTags(D.tags.map((x) => (x.id === old.id ? tag : x)));
+  await saveTags((tags) => tags.map((x) => (x.id === old.id ? tag : x)));
   render();
   return true;
 }
@@ -1423,8 +1495,8 @@ async function deleteTag(id) {
   const n = following().filter((m) => rows.get(m)?.tagIds.includes(id)).length;
   // The confirm dialog is a second modal; the tag dialog stays open under it.
   if (!(await askConfirm(...UI.deleteTagAsk(t, n, "UP 主"), "删除", { danger: true }))) return;
-  await setTagMap(UI.withoutTag(D.map, id));
-  await saveTags(D.tags.filter((x) => x.id !== id));
+  await setTagMap((map) => UI.withoutTag(map, id));
+  await saveTags((tags) => tags.filter((x) => x.id !== id));
   // As 收藏夹: tag steps undone now would work on a tag that is gone.
   T.dropModeUndo((step) => step.tags);
   F.tags.delete(id);
@@ -1461,11 +1533,9 @@ async function pickClosed(changes) {
   pick.anchor = "";
   pick.keep = null;
   // One close is one save and one undo step, as 收藏夹's picker.
-  let map = D.map;
-  for (const c of changes) map = withTags(map, [c.key], c.add, c.remove);
   if (changes.length) {
-    const before = tagsOf(D.map, changes.map((c) => c.key));
-    await setTagMap(map);
+    const { prev } = await setTagMap((map) => changes.reduce((m, c) => withTags(m, [c.key], c.add, c.remove), map));
+    const before = tagsOf(prev, changes.map((c) => c.key));
     pushTagUndo(before, "标签修改", { ask: changes.length > 1 ? UI.undoAsk("tags", changes.length, "UP 主") : null });
   }
   if (F.mode !== "follow") return renderViewerUp();
@@ -1552,18 +1622,10 @@ async function openAi() {
 }
 function aiScopeText(scope) {
   const mids = aiScopeMids(scope);
-  const bare = mids.filter((m) => !rows.get(m)?.titles.length && !rows.get(m)?.zone).length;
+  const bare = aiBare(mids, rows);
   return mids.length
     ? `${mids.length} 个 UP 主${bare ? `，其中 ${bare} 个还没查投稿，AI 只能看名字和签名` : ""}。分 ${Math.ceil(mids.length / AI.settings.batchSize)} 批发送`
     : "作用范围里没有 UP 主";
-}
-// As 收藏夹's aiRoomHint: with every tag switched off, AI can only make new ones, or none.
-function aiRoomHint() {
-  const room = AI.settings.newTagMax;
-  const noneUsable = D.tags.length > 0 && D.tags.every((t) => AI.excluded.has(t.id));
-  return noneUsable
-    ? room ? `已有标签都不给 AI 用，AI 只会新建标签（这次最多 ${room} 个），你确认后才创建。` : "已有标签都不给 AI 用，新建上限是 0，AI 打不了标签。"
-    : room ? `AI 这次最多新建 ${room} 个标签，你确认后才创建。` : "AI 只会用已有标签。";
 }
 const aiTags = {
   who: "UP 主",
@@ -1578,7 +1640,7 @@ const aiTags = {
   ],
   scopeText: aiScopeText,
   room: () => AI.settings.newTagMax,
-  roomHint: () => `${aiRoomHint()}<br>每批数量、间隔和新建上限在「关注设置」里改。`,
+  roomHint: () => `${aiRoomHint(D.tags, AI.excluded, AI.settings.newTagMax)}<br>每批数量、间隔和新建上限在「关注设置」里改。`,
   blocked: () => aiBlocked(F.tab, F.side),
   history: () => AI.history,
   allowRemove: () => AI.settings.allowRemove,
@@ -1631,7 +1693,13 @@ async function runAi({ instruction, scope, allowRemove }) {
     progress: (text) => (progress(text), renderSync())
   });
   renderAiState();
-  const { proposal, errors } = await running;
+  let { proposal, errors } = await running;
+  // A tag deleted during the run is still named by the batches before it: dropped as a stored one is (derive), as 收藏夹's.
+  if (proposal && !UI.aiProposalOk(proposal, tagOf)) {
+    proposal = null;
+    errors.push("运行期间删除了建议用到的标签，请重新运行");
+    progress(errors.at(-1));
+  }
   setAiProposal(proposal);
 
   renderAiState();
@@ -1647,25 +1715,30 @@ async function applyAi() {
   const had = new Set(D.tags.map((t) => t.id));
   const idFor = {};
   for (const t of p.newTags) if (t.checked && cleanTagName(t.name)) idFor[t.key] = (await addTag(t.name))?.id;
-  const changes = UI.aiChanges(p, D.map, new Set(following()), (key) => idFor[key]);
-  const before = tagsOf(D.map, changes.map(([mid]) => mid));
   const created = Object.values(idFor).filter((id) => id && !had.has(id));
-  const map = { ...D.map };
-  for (const [mid, , after] of changes) {
-    if (after.length) map[mid] = after;
-    else delete map[mid];
-  }
   setAiProposal(null);
-  // This batch replaces the last one; the list shows it to look over.
-  const recent = changes.length ? { at: Date.now(), mids: changes.map(([mid]) => mid) } : D.recent;
-  D.recent = recent;
-  F.recentFilter = Boolean(changes.length);
-  await setTagMap(map);
-  if (changes.length) await write({ follow_ai_recent: recent });
+  let changes = [];
+  const { prev } = await setTagMap((cur) => {
+    changes = UI.aiChanges(p, cur, new Set(following()), (key) => idFor[key]);
+    const map = { ...cur };
+    for (const [mid, , after] of changes) {
+      if (after.length) map[mid] = after;
+      else delete map[mid];
+    }
+    return map;
+  });
   const n = changes.length;
-  if (n || created.length) pushTagUndo(before, `AI 打标签（${n} 个 UP 主）`, { ask: n > 1 ? UI.undoAsk("ai", n, "UP 主") : null, created, recentAt: n ? recent.at : 0 });
+  const before = tagsOf(prev, changes.map(([mid]) => mid));
+  // This batch replaces the last one; the list shows it to look over.
+  F.recentFilter = n > 0;
+  if (n) {
+    D.recent = { at: Date.now(), mids: changes.map(([mid]) => mid) };
+    await write({ follow_ai_recent: D.recent });
+  }
+  if (n || created.length) pushTagUndo(before, `AI 打标签（${n} 个 UP 主）`, { ask: n > 1 ? UI.undoAsk("ai", n, "UP 主") : null, created, recentAt: n ? D.recent.at : 0 });
   render();
-  toast(UI.aiApplied(n, "UP 主"));
+  // Only new tags: no UP 主 changed, so the list stays as it was.
+  toast(n ? UI.aiApplied(n, "UP 主") : created.length ? `已新建 ${created.length} 个标签，没有 UP 主的标签要改 · U 撤销` : "AI 建议里没有要改的标签");
 }
 
 // ---------- events ----------
@@ -1770,9 +1843,9 @@ main.addEventListener("click", async (e) => {
   const untag = t.closest("[data-untag]");
   if (untag) {
     const mid = untag.closest("[data-mid]").dataset.mid;
-    const before = tagsOf(D.map, [mid]);
     const name = tagOf(untag.dataset.untag)?.name;
-    await changeTags([mid], [], [untag.dataset.untag]);
+    const { prev } = await changeTags([mid], [], [untag.dataset.untag]);
+    const before = tagsOf(prev, [mid]);
     pushTagUndo(before, `去掉「${name}」`);
     toast(`已去掉「${name}」· U 撤销`);
     return render();
@@ -1792,14 +1865,8 @@ main.addEventListener("click", async (e) => {
   if (re) return W.busy() ? toast(busyWhy()) : refollow([re.dataset.refollow]);
   const act = t.closest("[data-fw]")?.dataset.fw;
   if (!act || t.closest("select")) return;
-  if (act === "sync") {
-    t.closest("button").disabled = true;
-    const r = await send({ type: "follow-sync" });
-    if (!r.ok) {
-      toast(r.error || "刷新没开始", true);
-      t.closest("button").disabled = false;
-    }
-  } else if (act === "dir") {
+  if (act === "sync") startSync(t.closest("button"));
+  else if (act === "dir") {
     const so = sortState();
     so.dir = so.dir === "asc" ? "desc" : "asc";
     saveView();
@@ -1947,23 +2014,20 @@ async function followHash() {
   const tag = params.get("tag");
   const up = params.get("up");
   if (F.mode !== "follow") await setMode("follow");
-  if (up) {
-    const side = rows.has(up) && outKind(rows.get(up)) ? "out" : "all";
+  // Both clear what could hide the card or the tag's UP 主: the 视频投稿 tab, the search and rows 3 and 4. The tag becomes
+  // row 4's only pick over all of 关注 (an unknown id → nothing picked).
+  if (up || tag) {
+    const side = !tag && rows.has(up) && outKind(rows.get(up)) ? "out" : "all";
     // Into or out of 已出分拣范围 clears the selection, as the sidebar does.
     if (side === "out" || F.side === "out") freshScope(side);
+    if (tag) F.sel.clear();
     F.tab = "ups";
     F.side = side;
+    if (F.feed) F.feed.dry = 0; // as pickSide
     F.status = F.tagState = F.source = F.kind = F.q = "";
     E.q.value = "";
     F.recentFilter = false;
-    F.tags = new Set();
-  }
-  // The tag becomes row 4's only pick over all of 关注 (an unknown id → nothing picked).
-  if (tag) {
-    F.side = "all";
-    F.status = F.tagState = "";
-    F.tags = new Set(D.tags.some((x) => x.id === tag) ? [tag] : []);
-    F.sel.clear();
+    F.tags = new Set(tag && D.tags.some((x) => x.id === tag) ? [tag] : []);
   }
   derive();
   render();

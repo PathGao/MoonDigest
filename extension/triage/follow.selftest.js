@@ -15,7 +15,7 @@ vm.runInContext(fs.readFileSync(path.join(__dirname, "../errors.js"), "utf8"), c
 vm.runInContext(fs.readFileSync(path.join(__dirname, "../tag-core.js"), "utf8"), ctx);
 vm.runInContext(fs.readFileSync(path.join(__dirname, "../settings.js"), "utf8"), ctx);
 vm.runInContext(fs.readFileSync(path.join(__dirname, "shared.js"), "utf8"), ctx);
-vm.runInContext(`const UI = globalThis.TriageUi;\n${pure}\n;Object.assign(globalThis, { syncFinished, dirLabel, followAiSettings, aiRequests, normDays, settingsProblem, followStatus, withFeedInProgress, lastPostOf, recentTitles, upRow, visibleUps, mergeFeed, shuffled, feedOrdered, feedMatch, sideIds, feedList, feedLeaving, withTags, stepIn, tagsOf, restoreTags, feedCounts, STATUS, viewRecord, latestBvid, favUpMid, aiBlocked, withAllowRemove, groupsOf, regrouped, groupCalls, groupTargets, groupName, groupMoveLabel, outKind });`, ctx);
+vm.runInContext(`const UI = globalThis.TriageUi;\n${pure}\n;Object.assign(globalThis, { syncFinished, dirLabel, followAiSettings, aiRequests, normDays, settingsProblem, followStatus, withFeedInProgress, lastPostOf, recentTitles, upRow, visibleUps, mergeFeed, shuffled, feedOrdered, feedMatch, sideIds, feedList, feedLeaving, withTags, stepIn, tagsOf, restoreTags, feedCounts, STATUS, viewRecord, latestBvid, favUpMid, aiBlocked, withAllowRemove, groupsOf, regrouped, groupCalls, groupTargets, groupName, groupMoveLabel, outKind, groupNames, groupMembers, unknownLast, aiBare, aiRoomHint, feedPass });`, ctx);
 const t = ctx;
 const plain = (v) => JSON.parse(JSON.stringify(v));
 
@@ -248,11 +248,11 @@ const base = () => ({ list: null, last: null, content: {}, people: {}, tags: [],
   assert.deepStrictEqual(plain(t.normDays("-5", "x")), { followSlowDays: 90, followDeadDays: 365 }, "negative or not a number is the default");
   assert.deepStrictEqual(plain(t.normDays("90", "-5")), { followSlowDays: 90, followDeadDays: 365 }, "a negative 断更 is the default, not 慢更 + 1");
   assert.deepStrictEqual(plain(t.normDays("5000", "3")), { followSlowDays: 3650, followDeadDays: 3651 }, "断更 stays a day past 慢更");
-  assert.strictEqual(t.settingsProblem("90", "90"), "断更天数要比慢更大");
-  assert.strictEqual(t.settingsProblem("120", "60"), "断更天数要比慢更大");
+  assert.strictEqual(t.settingsProblem("90", "90"), "断更的天数要比慢更的天数大");
+  assert.strictEqual(t.settingsProblem("120", "60"), "断更的天数要比慢更的天数大");
   assert.strictEqual(t.settingsProblem("", ""), "");
   assert.strictEqual(t.settingsProblem("30", "200"), "");
-  assert.deepStrictEqual([t.settingsProblem("abc", "200"), t.settingsProblem("400", "x")], ["", "断更天数要比慢更大"], "not a number: its default");
+  assert.deepStrictEqual([t.settingsProblem("abc", "200"), t.settingsProblem("400", "x")], ["", "断更的天数要比慢更的天数大"], "not a number: its default");
 }
 
 assert.deepStrictEqual([t.dirLabel("last", "desc"), t.dirLabel("follow", "asc"), t.dirLabel("fans", "desc"), t.dirLabel("fans", "asc")], ["新→旧", "旧→新", "从多到少", "从少到多"]);
@@ -326,13 +326,13 @@ assert.deepStrictEqual([t.dirLabel("last", "desc"), t.dirLabel("follow", "asc"),
     })
   };
   const T = { hold: () => null };
-  const run = new Function("env", "MdgRuns", "MdgWrites", "UI", "T", `const { F } = env; const D = {}; const AI = {}; const PHASE = {}; const nowSec = () => env.clock / 1000;
+  const run = new Function("env", "MdgRuns", "MdgWrites", "UI", "T", "MdgErrors", `const { F } = env; const D = {}; const AI = {}; const PHASE = {}; const nowSec = () => env.clock / 1000;
     const send = async (c) => (env.sent.push(c.mid), env.answers.shift() || { ok: true });
     const toast = (m) => env.toasts.push(m); const load = async () => {}; const rows = new Map(); const sideMids = () => []; const outKind = () => ""; const render = () => {}; const renderSel = () => {}; const renderFoot = () => {};
     let runs;
     const renderSync = () => { const w = runs?.get("follow-write")?.wait; env.waiting = Boolean(w); if (w) env.waits.push(runs.pill(["follow-write"]).text); if (env.sent.length >= env.stopAfter) (env.stopAfter = Infinity), W.stop(); };
     ${code.replace("const runs = ", "runs = ")}; return { relationRun, W, runs };`);
-  const fns = run(env, MdgRuns, ctx.MdgWrites, t.TriageUi, T);
+  const fns = run(env, MdgRuns, ctx.MdgWrites, t.TriageUi, T, ctx.MdgErrors);
   const calls = ["1", "2", "3"].map((mid) => ({ mid }));
   env.answers = [{ ok: true }, { ok: false, code: "THROTTLED" }, { ok: true }, { ok: true }];
   assert.strictEqual(await fns.relationRun(calls, "取消关注"), 3);
@@ -350,6 +350,11 @@ assert.deepStrictEqual([t.dirLabel("last", "desc"), t.dirLabel("follow", "asc"),
   Object.assign(env, { sent: [], toasts: [], stopAfter: Infinity, answers: [{ ok: true }, { ok: false, error: "-352" }] });
   assert.strictEqual(await fns.relationRun(calls, "重新关注"), 1);
   assert.deepStrictEqual([env.toasts, fns.W.busy()], [["重新关注第 2 个时出错：-352（前 1 个已完成）"], ""]);
+  // A group request B站 took but for some UP 主 (data.skipped): they are not counted as done, also not for U.
+  Object.assign(env, { sent: [], toasts: [], answers: [{ ok: true, data: { skipped: [{ mid: "b", error: "账号已注销" }] } }] });
+  const skipped = [];
+  assert.strictEqual(await fns.relationRun([{ mids: ["a", "b", "c"] }], "移到「X」", { skipped }), 2);
+  assert.deepStrictEqual([env.toasts, skipped.map((x) => x.mid)], [["已移到「X」 2 个"], ["b"]]);
   assert.ok(!/过一会儿再试/.test(source), "no 「过一会儿再试」 without a countdown");
   assert.ok(!/F\.busy/.test(source), "the write running is W's, not page state");
 })().catch((e) => {
@@ -379,7 +384,7 @@ assert.deepStrictEqual([t.dirLabel("last", "desc"), t.dirLabel("follow", "asc"),
 assert.ok(/if \(!\/\^follow\(&\|\$\)\/\.test\(h\)\) return false;\s*history\.replaceState\(null, "", location\.pathname \+ location\.search\);/.test(source), "followHash drops the hash");
 
 // #follow&up=<mid> (the B站 tag picker's button) clears what could hide the card, then makes it current.
-assert.ok(/if \(up\) \{\s*const side = rows\.has\(up\) && outKind\(rows\.get\(up\)\) \? "out" : "all";[\s\S]*?F\.side = side;\s*F\.status = F\.tagState = F\.source = F\.kind = F\.q = "";[\s\S]*?F\.tags = new Set\(\);\s*\}/.test(source), "followHash clears the filters for up");
+assert.ok(/if \(up \|\| tag\) \{\s*const side = !tag && rows\.has\(up\) && outKind\(rows\.get\(up\)\) \? "out" : "all";[\s\S]*?F\.tab = "ups";\s*F\.side = side;[\s\S]*?F\.status = F\.tagState = F\.source = F\.kind = F\.q = "";[\s\S]*?F\.tags = new Set\(tag && /.test(source), "followHash clears the filters for up and tag");
 assert.ok(/render\(\);\s*if \(up\) \{\s*setCur\(up, false\);\s*E\.list\.querySelector\("\.fw-up\.focused"\)\?\.scrollIntoView\(\{ block: "center" \}\);/.test(source), "followHash makes the UP current, centered");
 
 // 标签… on 2+ UP 主 is one step that asks before U, with 收藏夹's words (shared.js undoAsk).
@@ -409,7 +414,7 @@ assert.ok(source.includes(`pushTagUndo(before, "标签修改", { ask: changes.le
   assert.ok(mc.includes("const label = groupMoveLabel(move ? from : null, to, move, D);") && mc.includes("放进自己建的分组后，就不在默认分组里了。"), "toast and U use the add words");
   assert.ok(/note: \(v\) => \(v === String\(SPECIAL\) \? `\$\{move && from === 0 \? "还留在默认分组里/.test(mc), "the dialog says 特别关注 keeps them in 默认分组");
   const del = fn("deleteGroup");
-  assert.ok(/askConfirm\([\s\S]*?\);\s*if \(!ok\) return;\s*const r = await send\(\{ type: "follow-group-delete"/.test(del) && del.includes("默认分组") && del.includes("不能按 U 撤销") && del.includes("T.dropModeUndo((step) => step.groups)"), "删除: confirm first, members → 默认分组, no U");
+  assert.ok(/askConfirm\([\s\S]*?\);\s*if \(!ok\) return;\s*if \(W\.busy\(\)\)[^\n]*\n\s*const r = await send\(\{ type: "follow-group-delete"/.test(del) && del.includes("默认分组") && del.includes("不能按 U 撤销") && del.includes("T.dropModeUndo((step) => step.groups)"), "删除: confirm first, members → 默认分组, no U");
   assert.ok(/T\.pushUndo\(\{\s*kind: "mode",\s*groups: true,\s*undo: async \(\) => \(\(await renameGroup\(\{ id: g\.id, name \}, old, true\)\)/.test(fn("renameGroup")), "改名: U renames back");
   assert.ok(!/follow-special|data-fw="special-|side-note|只读，在 B站 改/.test(source), "no 特别关注 toggle of its own, no read-only note");
 }
@@ -503,7 +508,7 @@ console.log("follow selftest: all passed");
 // ----- wording written once (H3, H6, H7) -----
 {
   // The sync pill's button says what row 3's says: 暂停刷新, as 收藏夹's pill says 暂停粗看.
-  assert.ok(source.includes('sync: { attrs: "data-fw-stop", label: "暂停刷新" }'), "pill says 暂停刷新");
+  assert.ok(source.includes('sync: { attrs: "data-fw-stop", label: STOP_SYNC }') && source.includes('const STOP_SYNC = "暂停刷新";'), "pill says 暂停刷新");
   // The CSV hint and the group-name cap each have one constant.
   for (const s of ["名字、标签、更新状态、最后投稿、粉丝数", "最多 16 个字", "> 16", '"16"', "newMax: 16"]) assert.strictEqual(source.split(s).length - 1, s === "名字、标签、更新状态、最后投稿、粉丝数" ? 1 : 0, s);
 }
@@ -903,6 +908,114 @@ const p0Throttled = () => vm.runInContext("MdgErrors.TEXT.biliThrottled", ctx);
     E.q.value = "视频";
     p.FW.pickSide("out");
     assert.deepStrictEqual([F.tab, E.q.value], ["ups", "甲"]);
+  }
+})().catch((e) => {
+  console.error(e);
+  process.exit(1);
+});
+
+// ----- 2026-10-16 scan, c3 -----
+// Search as 收藏夹's (C413, C415): each word between spaces somewhere, any order and case.
+{
+  const D = base();
+  D.list = { list: ["1", "2"] };
+  D.people = { 1: { name: "硬核科普", sign: "讲 Physics" }, 2: { name: "科普君" } };
+  const rows = new Map(D.list.list.map((m) => [m, t.upRow(m, D, now, { slowDays: 90, deadDays: 365 })]));
+  const v = (q) => plain(t.visibleUps(D, rows, { side: "all", q })).list;
+  assert.deepStrictEqual([v("physics 硬核"), v("科普  "), v("科普 游戏")], [["1"], ["1", "2"], []]);
+  const it = { mid: "1", title: "相对论入门", name: "硬核科普" };
+  assert.deepStrictEqual([t.feedPass(it, D, { side: "all", q: "硬核 入门" }), t.feedPass(it, D, { side: "all", q: "硬核入门" })], [true, false], "视频投稿 the same");
+}
+// The card's 关注分组 (C436, C437): ★ only is also 默认分组; a deleted group is left out.
+{
+  const D = { groups: [{ id: 5, name: "数码" }] };
+  assert.deepStrictEqual(plain([t.groupNames([-10], D), t.groupNames([], D), t.groupNames([-10, 5, 7], D)]), [["特别关注", "默认分组"], ["默认分组"], ["特别关注", "数码"]]);
+  // 删除分组's count (C454): every followed member, the 已注销 too.
+  const E = { list: { list: ["1", "2", "3"], groups: { 1: [5], 2: [5], 3: [6] } } };
+  assert.strictEqual(t.groupMembers(E, 5), 2);
+}
+// 「N 个 UP 主还不知道最后投稿时间」 counts all of 关注 (C432); AI's 「还没查投稿」 leaves out the read ones (C459).
+{
+  const D = base();
+  D.list = { list: ["a", "b", "c", "d"] };
+  D.last = { since: ago(95), map: { a: ago(1) } };
+  D.content = { c: { code: 0, count: 0, v: [] }, d: { code: -352 } };
+  D.people = { b: {}, c: {}, d: {} };
+  const rows = new Map(D.list.list.map((m) => [m, t.upRow(m, D, now, { slowDays: 90, deadDays: 365 })]));
+  assert.deepStrictEqual(plain(t.unknownLast(D, rows)), { unchecked: 0, stale: 2 });
+  assert.strictEqual(t.aiBare(["a", "b", "c", "d"], rows), 2, "没投过稿 (c) was read");
+}
+// The AI dialog's room line (C462).
+{
+  const tags = [{ id: "x" }, { id: "y" }];
+  assert.strictEqual(t.aiRoomHint(tags, new Set(["x"]), 0), "AI 只会用没点掉的已有标签。");
+  assert.strictEqual(t.aiRoomHint([], new Set(), 0), "新建上限是 0，AI 打不了标签。", "no tags and no room: nothing to tag with");
+  assert.strictEqual(t.aiRoomHint(tags, new Set(), 0), "AI 只会用已有标签。");
+}
+// Page code run with stubs: the slice between two markers of follow.js.
+const slice = (from, to) => source.slice(source.indexOf(from), source.indexOf(to, source.indexOf(from)));
+(async () => {
+  // F2 / C464: a tag deleted while AI 打标签 runs drops the proposal at the end, as 收藏夹's does.
+  {
+    const code = slice("async function runAi(", "\n}\n") + "\n}";
+    const env = { proposal: "unset", toasts: [], progress: [] };
+    const D = { tags: [{ id: "t1", name: "科普" }, { id: "t2", name: "游戏" }], map: {} };
+    const T = {
+      store() {},
+      async runAiBatches() {
+        D.tags = D.tags.filter((x) => x.id !== "t2"); // deleted in 标签管理 meanwhile
+        return { proposal: { rows: [{ add: ["id:t2"], remove: [] }], newTags: [] }, errors: [] };
+      }
+    };
+    const UI = { ...t.TriageUi, aiHistoryAdd: (h) => h };
+    const runAi = new Function("env", "D", "T", "UI", `const AI = { excluded: new Set(), settings: { batchSize: 10, intervalSec: 1, newTagMax: 0 }, history: [] };
+      const aiScopeMids = () => ["1"]; const aiRunning = () => false; const AI_HISTORY_KEY = "k"; const runs = {}; const aiTags = {};
+      const TagDialogs = { ai: { progress: (a, text) => env.progress.push(text), isOpen: () => false, render() {} } };
+      const tagOf = (id) => D.tags.find((x) => x.id === id); const aiRequests = () => ({ batches: [{}], intervalMs: 0 });
+      const setAiProposal = (p) => (env.proposal = p); const renderAiState = () => {}; const renderSync = () => {}; const toast = (m) => env.toasts.push(m);
+      ${code}; return runAi;`)(env, D, T, UI);
+    await runAi({ instruction: "x", scope: "filter", allowRemove: false });
+    assert.strictEqual(env.proposal, null, "the proposal naming the deleted tag is not kept");
+    assert.deepStrictEqual(env.progress, ["运行期间删除了建议用到的标签，请重新运行"]);
+  }
+  // C420: a tag change applies to what storage holds now (badges.js may have written since D was read), one at a time.
+  {
+    const code = slice("let tagWrites", "const changeTags");
+    const store = { follow_tag_map: { b: ["t9"] }, follow_tags: [] };
+    const chrome = { storage: { local: { get: async (k) => ({ [k]: store[k] }) } } };
+    const write = async (o) => (await new Promise((r) => setImmediate(r)), Object.assign(store, o), true);
+    const D = { map: {} }; // stale: does not have b's tag yet
+    const fns = new Function("chrome", "write", "D", `const derive = () => {}; ${code}; return { setTagMap };`)(chrome, write, D);
+    const [one] = await Promise.all([fns.setTagMap((m) => ({ ...m, a: ["t1"] })), fns.setTagMap((m) => ({ ...m, c: ["t2"] }))]);
+    assert.deepStrictEqual(plain(store.follow_tag_map), { b: ["t9"], a: ["t1"], c: ["t2"] }, "neither write loses the other's or badges.js's");
+    assert.deepStrictEqual(plain(one.prev), { b: ["t9"] });
+    assert.strictEqual(D.map, store.follow_tag_map);
+  }
+  // C455 / C456: 删除分组 waits for a running 关注 batch, so no undo step is left for a group that is gone.
+  {
+    const code = slice("async function deleteGroup(", "\n}\n") + "\n}";
+    const env = { sent: [], toasts: [], busy: "移到「数码」还在跑，等它完成", asked: 0 };
+    const deleteGroup = new Function("env", `const W = { busy: () => env.busy }; const busyWhy = () => env.busy; const toast = (m) => env.toasts.push(m);
+      const askConfirm = async () => (env.asked++, true); const send = async (m) => (env.sent.push(m.type), { ok: true }); const D = {}; const groupMembers = () => 0;
+      const EMPTY_GROUP = ""; const T = { dropModeUndo() {} }; const load = async () => {}; const render = () => {};
+      ${code}; return deleteGroup;`)(env);
+    await deleteGroup({ id: 5, name: "数码" });
+    assert.deepStrictEqual([env.sent, env.asked, env.toasts], [[], 0, [env.busy]]);
+    env.busy = "";
+    await deleteGroup({ id: 5, name: "数码" });
+    assert.deepStrictEqual(env.sent, ["follow-group-delete"]);
+  }
+  // C425: leaving 关注 leaves the 去登录 banner, which 收藏夹 may show for the same B站 login.
+  {
+    const code = slice("let loginSeen", "\nfunction renderHead(");
+    const env = { calls: [] };
+    const F = { mode: "follow", feed: null };
+    const renderLogin = new Function("env", "F", "MdgErrors", `const D = { jobs: { errorCode: "NOT_LOGGED_IN", error: "未登录" } }; const T = { loginBanner: (on) => env.calls.push(on) };
+      ${code}; return renderLogin;`)(env, F, ctx.MdgErrors);
+    renderLogin();
+    F.mode = "fav";
+    renderLogin();
+    assert.deepStrictEqual(env.calls, [true], "not hidden on leaving 关注");
   }
 })().catch((e) => {
   console.error(e);
