@@ -299,6 +299,7 @@ assert.strictEqual(UI.aiTagsFailed("x"), "AI 打标签没有成功：x");
   UI.mergeAiBatch(p, { assignments: { c: { add: ["美食"], remove: ["科普"] } } }, opts);
   assert.deepStrictEqual(plain(p.newTags).map((x) => x.name), ["美食", "旅行"], "new tags past maxNewTags are kept");
   assert.deepStrictEqual(plain(p.caps), { "": 1 }, "the cap the review page compares against");
+  assert.deepStrictEqual(plain(p.excludedHits), ["游戏"], "an add naming a turned-off tag is dropped and listed; a remove of it is not listed");
   assert.deepStrictEqual(plain(p.rows), [
     { id: "a", add: ["new:美食"], remove: [] },
     { id: "b", add: ["new:旅行"], remove: [] },

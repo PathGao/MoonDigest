@@ -621,7 +621,8 @@
 
   // ---------- AI 打标签: the proposal and what it changes, the same in both modes ----------
   // p = { newTags: [{ key, name, checked }], rows: [{ id, add: ["id:<tag id>" | "new:<key>"], remove: [tag id] }], notes,
-  // errors, caps: folder ("" outside 所有收藏夹) → that folder's maxNewTags }; a row's id is a bvid in 收藏夹, a mid in 关注. opts = { tags: the mode's tags (by name; 收藏夹 passes the
+  // errors, caps: folder ("" outside 所有收藏夹) → that folder's maxNewTags, excludedHits: names the AI used that are
+  // tags the user turned off for it (never sent, so it may well make them up) }; a row's id is a bvid in 收藏夹, a mid in 关注. opts = { tags: the mode's tags (by name; 收藏夹 passes the
   // folder's), map: row id → tag ids, maxNewTags, excluded: Set of names, scope: Set of the row ids this run sent,
   // newTagFolder: 所有收藏夹 only, the folder this batch's new tags go into; one proposal then holds several folders' new
   // tags, each folder's apart (key "<folder>/<name>", .folder) }. New tags past maxNewTags are kept: the review page says
@@ -638,7 +639,12 @@
       p.newTags.push(t);
       return t;
     };
-    const blocked = (name) => opts.excluded?.has(name);
+    const blocked = (name) => {
+      if (!opts.excluded?.has(name)) return false;
+      p.excludedHits ??= [];
+      if (!p.excludedHits.includes(name)) p.excludedHits.push(name);
+      return true;
+    };
     for (const raw of data?.newTags || []) {
       const name = String(raw ?? "").trim();
       if (name && !blocked(name) && !existing(name) && !proposed(name)) addNew(name);
@@ -661,7 +667,7 @@
       }
       const remove = (a?.remove || [])
         .map((n) => existing(String(n ?? "").trim()))
-        .filter((t) => t && !blocked(t.name) && current.includes(t.id))
+        .filter((t) => t && !opts.excluded?.has(t.name) && current.includes(t.id))
         .map((t) => t.id);
       if (!add.length && !remove.length) continue;
       const row = p.rows.find((r) => r.id === id);

@@ -202,7 +202,7 @@
     const who = sp(a.who);
     const live = a.live();
     $("aiNotes").innerHTML = p.errors.map((e) => `<p class="fail-text">${esc(e)}</p>`).join("") + p.notes.map((n) => `<p class="muted">AI 说明：${esc(n)}</p>`).join("") +
-      overCapLines(p).map((l) => `<p class="dialog-hint warn">${esc(l)}</p>`).join("");
+      [...overCapLines(p), ...(p.excludedHits?.length ? [`AI 想用的「${p.excludedHits.join("」「")}」是你点掉的标签，没有采用。`] : [])].map((l) => `<p class="dialog-hint warn">${esc(l)}</p>`).join("");
     $("aiNewTagsHead").hidden = !p.newTags.length;
     $("aiNewTags").innerHTML = p.newTags
       .map((t, i) => {
