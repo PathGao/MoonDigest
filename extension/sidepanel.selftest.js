@@ -701,7 +701,7 @@ const chatOn = (context) => {
     ctx.showConversationContextNotice = (text, ms, opts) => notices.push([text, Boolean(opts?.error)]);
     ctx.navigator.clipboard = { writeText: async () => { throw new Error(""); } };
     await ctx.copyMarkdown("x");
-    assert.strictEqual(ctx.getErrorMessage(new Error("")), "未知错误");
+    assert.strictEqual(ctx.MdgErrors.messageOf(new Error("")), "未知错误");
     // C350: a reply's 复制 Markdown says 已复制 Markdown, like the export menu's.
     ctx.navigator.clipboard = { writeText: async () => {} };
     await ctx.copyMarkdown("x");
