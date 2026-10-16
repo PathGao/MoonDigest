@@ -7,6 +7,7 @@ const path = require("path");
 const vm = require("vm");
 const http = require("http");
 const assert = require("assert");
+const PS = require("./page-sources.selftest.js");
 
 const vault = new Map();
 let notApi = false;
@@ -205,7 +206,7 @@ const write = (extra) => send({ type: "write-video-note", ...extra });
   assert.deepStrictEqual([resp.exists, "video:youtube:y1|" in local[PATHS], vault.has("N/youtube/Y.md")], [false, false, false]);
   // L10: the gone note is worded here too; the side panel only shows text.
   assert.strictEqual(resp.text, "Obsidian 里的视频笔记已不存在，未写入");
-  assert.ok(!fs.readFileSync(path.join(__dirname, "sidepanel.js"), "utf8").includes("已不存在"), "sidepanel.js words a sync result itself");
+  assert.ok(!PS.text(PS.own("sidepanel.html")).includes("已不存在"), "the side panel words a sync result itself");
 
   // A26: 测试连接 passes only when the address answers the Local REST API's JSON, which names its service (F4).
   assert.deepStrictEqual({ ...(await ctx.testObsidianConnection(baseUrl, "k")) }, { ok: true, service: "Obsidian Local REST API" });

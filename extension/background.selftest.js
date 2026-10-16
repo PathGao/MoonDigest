@@ -4,6 +4,7 @@ const fs = require("fs");
 const path = require("path");
 const vm = require("vm");
 const assert = require("assert");
+const PS = require("./page-sources.selftest.js");
 
 let onConnect;
 const onMessage = [];
@@ -29,7 +30,7 @@ vm.runInContext("STREAM_TIMEOUT_MS.first = 60; STREAM_TIMEOUT_MS.idle = 60;", ct
 {
   const intro = `简介前${ctx.TriageUi.INTRO_CHARS}字`;
   assert.ok(vm.runInContext("TRIAGE_TITLE_PROMPT", ctx).includes(intro) && vm.runInContext("TRIAGE_AI_UNIT.header", ctx).includes(intro));
-  assert.doesNotMatch(fs.readFileSync(path.join(__dirname, "triage/triage-bg.js"), "utf8"), /简介前\d|≤\d+字、不含逗号/, "a prompt writes a limit itself");
+  assert.doesNotMatch(PS.text(PS.own("background.js")), /简介前\d|≤\d+字、不含逗号/, "a prompt writes a limit itself");
 }
 
 const sse = (delta) => new TextEncoder().encode(`data: ${JSON.stringify({ choices: [{ delta }] })}\n\n`);
@@ -684,7 +685,7 @@ process.on("exit", (code) => {
     ictx.chrome.runtime.getURL = (p) => `chrome-extension://x/${p}`;
     assert.ok((await new Promise((resolve) => onMessage.forEach((fn) => fn({ type: "history-open" }, {}, resolve)))).ok);
     assert.deepStrictEqual(opened, ["chrome-extension://x/history/history.html"]);
-    for (const f of ["popup.js", "sidepanel.js", "content.js", "background.js"]) assert.ok(!/forceRefresh|message\.force\b|"popup-refresh", force\b/.test(fs.readFileSync(path.join(__dirname, f), "utf8")), `${f}: the refresh flag is named refresh`);
+    for (const f of PS.pageCode) assert.ok(!/forceRefresh|message\.force\b|"popup-refresh", force\b/.test(PS.read(f)), `${f}: the refresh flag is named refresh`);
     for (const f of ["popup.js", "sidepanel.js", "options.js"]) assert.ok(fs.readFileSync(path.join(__dirname, f), "utf8").includes('"history-open"'), `${f} opens 视频记录 by history-open`);
   }
 

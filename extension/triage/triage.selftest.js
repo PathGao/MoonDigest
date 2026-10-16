@@ -4,6 +4,7 @@ const fs = require("fs");
 const path = require("path");
 const vm = require("vm");
 const assert = require("assert");
+const PS = require("../page-sources.selftest.js");
 
 // triage.js is a DOM page module; drop the dev-mock import and init(), stub the DOM, and expose S/K.
 // Drops the page entry points. Startup is scripts/smoke.mjs's job.
@@ -13,8 +14,8 @@ const source = fs
   .replace(/^init\(\);$/m, "");
 assert.ok(!/await import|^init\(\);$/m.test(source), "harness strips the page entry points");
 // 优先看, then 播放列表, was renamed 待播: no page text or README still says an old name ("YouTube 播放列表" in the README is YouTube's own).
-for (const f of ["triage.html", "triage.js", "triage-core.js", "follow.js", "shared.js", "../options.html", "../options.js", "../sidepanel.html", "../sidepanel.js", "../popup.html", "../popup.js", "../content.js", "../badges.js", "../../README.md"]) {
-  const text = fs.readFileSync(path.join(__dirname, f), "utf8").replaceAll("YouTube 播放列表", "");
+for (const f of [...PS.pageCode, "triage/shared.js", "triage/triage.html", "options.html", "sidepanel.html", "popup.html", "../README.md"]) {
+  const text = PS.read(f).replaceAll("YouTube 播放列表", "");
   for (const old of ["优先看", "播放列表"]) assert.ok(!text.includes(old), `${f} still says ${old}`);
 }
 
@@ -3403,8 +3404,8 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
       const viewer = html.slice(html.indexOf('<aside id="viewer"'), html.indexOf("</aside>", html.indexOf('<aside id="viewer"')));
       assert.ok(viewer && !/viewer-head|viewerTitle|viewerFocusBtn|viewerTabBtn|专注模式|在 B站打开/.test(viewer), "no top bar in the player");
       // No 已看，下一个 either: the 待播 panel's 移除 and 清空 take videos out.
-      for (const f of ["triage.html", "triage.js", "follow.css", "../../README.md"]) {
-        assert.ok(!/已看，下一个|viewerNextBtn|viewerBasket|basketDoneAndNext/.test(fs.readFileSync(path.join(__dirname, f), "utf8")), `${f} still has 已看，下一个`);
+      for (const f of ["triage/triage.html", ...PS.triage, "triage/follow.css", "../README.md"]) {
+        assert.ok(!/已看，下一个|viewerNextBtn|viewerBasket|basketDoneAndNext/.test(PS.read(f)), `${f} still has 已看，下一个`);
       }
       assert.ok(!/viewer-head/.test(fs.readFileSync(path.join(__dirname, "triage.css"), "utf8")), "no top bar CSS");
       assert.ok(/<\/aside>\s*<!--[^>]*-->\s*<button id="viewerCloseBtn" type="button" class="viewer-close" aria-label="关闭播放（Esc）" title="关闭播放（Esc）">×<\/button>/.test(html), "× right after #viewer, labeled");

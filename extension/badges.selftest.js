@@ -3,6 +3,7 @@ const fs = require("fs");
 const path = require("path");
 const vm = require("vm");
 const assert = require("assert");
+const PS = require("./page-sources.selftest.js");
 
 // The scripts the manifest's badges.js entry injects, in its order, read from it so the test cannot load a different set.
 const badgesEntry = JSON.parse(fs.readFileSync(path.join(__dirname, "manifest.json"), "utf8")).content_scripts.find((c) => c.js.at(-1) === "badges.js").js;
@@ -29,8 +30,8 @@ assert.deepStrictEqual(plain(B.seenConfig({ seenShow: "mark", seenThreshold: 0, 
 // settings.js's normalizeSeenThreshold: MdgSettings.intIn's rule (TriageUi.intIn is the same function).
 assert.deepStrictEqual([-5, "", null, "x", 0.4, 1, 42.6, 150].map((v) => B.seenConfig({ seenThreshold: v }).threshold), [80, 80, 80, 80, 80, 1, 43, 100]);
 assert.deepStrictEqual([B.seenWords(100, false), B.seenWords(85, true), B.seenWords(40, false)], ["✓ 看完了", "✓ 看到 85%", "看到 40%"]);
-for (const f of ["badges.js", "triage/triage.js", "options.js"]) {
-  const src = fs.readFileSync(path.join(__dirname, f), "utf8");
+for (const f of PS.pageCode) {
+  const src = PS.read(f);
   assert.ok(!src.includes('seenShow: "off"') && !src.includes("✓ 看完了") && !/seenShow === "both"/.test(src), `${f} keeps its own 观看进度 defaults or words`);
 }
 

@@ -3,6 +3,7 @@ const fs = require("fs");
 const path = require("path");
 const vm = require("vm");
 const assert = require("assert");
+const PS = require("./page-sources.selftest.js");
 
 const ctx = vm.createContext({ console });
 for (const f of ["errors.js", "limits.js"]) vm.runInContext(fs.readFileSync(path.join(__dirname, f), "utf8"), ctx);
@@ -148,8 +149,8 @@ for (const file of sources) {
   await Promise.all([L.saveVideoNote("BV4", "四"), L.saveVideoNote("BV5", "五")]);
   area.set = slowSet;
   assert.deepStrictEqual([area.data.triage_notes.BV4?.text, area.data.triage_notes.BV5?.text], ["四", "五"], "concurrent saves keep both");
-  for (const f of ["sidepanel.js", "history/history.js", "triage/triage.js"]) {
-    const src = fs.readFileSync(path.join(__dirname, f), "utf8");
+  for (const [f, files] of [["sidepanel.html", PS.own("sidepanel.html")], ["history/history.html", PS.own("history/history.html")], ["triage/triage.html", PS.triage]]) {
+    const src = PS.text(files);
     assert.ok(src.includes("MdgLimits.saveVideoNote(") && !/set\(\{ \[(NOTES_STORAGE_KEY|NOTES_KEY)\]|storeSet\(K\.notes, S\.notes\)/.test(src), `${f} saves a note its own way`);
   }
 

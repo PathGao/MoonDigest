@@ -5,6 +5,7 @@ const fs = require("fs");
 const path = require("path");
 const vm = require("vm");
 const assert = require("assert");
+const PS = require("./page-sources.selftest.js");
 
 const ctx = vm.createContext({ URL, URLSearchParams, console });
 vm.runInContext(fs.readFileSync(path.join(__dirname, "common.js"), "utf8"), ctx);
@@ -470,7 +471,7 @@ assert.ok(N.renderMarkdown("[x](javascript:alert(1))").includes('href="#"'), "on
 assert.deepStrictEqual([...N.noteTags({ userTags: ["学 习"] }, { tags: "" })], ["学_习"]);
 assert.deepStrictEqual([...N.noteTags({}, { tags: "MoonDigest, a" })], ["MoonDigest", "a"]);
 assert.ok(/tags: MdgNote\.noteTags\(/.test(fs.readFileSync(path.join(__dirname, "content.js"), "utf8")), "the popup payload's tags are the note's");
-assert.ok(!/payload\.tags \|\| "MoonDigest"/.test(fs.readFileSync(path.join(__dirname, "popup.js"), "utf8")), "the popup shows no default of its own");
+assert.ok(!/payload\.tags \|\| "MoonDigest"/.test(PS.text(PS.own("popup.html"))), "the popup shows no default of its own");
 // ---- 2026-10-16 scan, group c7 ----
 {
   const md = (meta, b, settings = baseSettings) => N.buildMarkdown(meta, b, settings, null, CREATED);

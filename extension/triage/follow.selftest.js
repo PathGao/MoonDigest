@@ -4,6 +4,7 @@ const fs = require("fs");
 const path = require("path");
 const vm = require("vm");
 const assert = require("assert");
+const PS = require("../page-sources.selftest.js");
 
 // follow.js is a page module; lift only its pure block (between the PURE markers).
 const source = fs.readFileSync(path.join(__dirname, "follow.js"), "utf8");
@@ -304,7 +305,7 @@ assert.deepStrictEqual([t.dirLabel("last", "desc"), t.dirLabel("follow", "asc"),
 {
   assert.ok(!/addEventListener\("keydown"/.test(source), "follow.js has no page-wide keydown listener");
   assert.ok(source.includes("T.setModeKeys("), "follow.js registers its keys");
-  assert.ok(!/fw[A-Z]/.test(fs.readFileSync(path.join(__dirname, "triage.js"), "utf8")), "triage.js names no 关注 element");
+  assert.ok(!/fw[A-Z]/.test(PS.text(PS.favorites)), "收藏夹 names no 关注 element");
 }
 
 // G5 / L2 / A5: 关注's B站 writes are a second writes.js adapter on 关注's own runs: one by one with a gap, on B站限流 the
@@ -498,8 +499,8 @@ assert.ok(/async setAllowRemove\(on\) \{\s*const next = withAllowRemove\(await a
 
 // The 关注 tab is 视频投稿 (we read only B站's video posts, which B站 itself calls 视频投稿): no page text says 动态.
 // Comments may; B站 page scripts outside triage/ talk about B站's own 动态 page.
-for (const f of ["triage.html", "triage.js", "triage-core.js", "follow.js", "follow-bg.js", "shared.js", "tag-picker.js", "tag-dialogs.js"]) {
-  const text = fs.readFileSync(path.join(__dirname, f), "utf8").replace(/<!--[\s\S]*?-->/g, "").replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:])\/\/[^\n]*/g, "$1");
+for (const f of ["triage/triage.html", ...PS.triage, "triage/follow-bg.js", "triage/shared.js"]) {
+  const text = PS.read(f).replace(/<!--[\s\S]*?-->/g, "").replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:])\/\/[^\n]*/g, "$1");
   assert.ok(!text.includes("动态"), `${f} still says 动态 to the user`);
 }
 

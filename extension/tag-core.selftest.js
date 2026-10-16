@@ -4,6 +4,7 @@ const fs = require("fs");
 const path = require("path");
 const vm = require("vm");
 const assert = require("assert");
+const PS = require("./page-sources.selftest.js");
 
 const read = (f) => fs.readFileSync(path.join(__dirname, f), "utf8");
 const ctx = vm.createContext({});
@@ -28,7 +29,7 @@ assert.deepStrictEqual(V({ invalid: true }), { verdict: "drop", reason: "视频�
 assert.deepStrictEqual(V({ invalid: true, analysis: { status: "done", verdict: "keep", reason: "好" } }), { verdict: "drop", reason: "视频已失效。AI 原理由：好", stage: 2 });
 
 // No second copy of the palette, the name rule or the id recipe outside tag-core.js.
-for (const f of ["badges.js", "triage/shared.js", "triage/follow.js", "triage/triage.js", "triage/triage-bg.js", "note.js"]) {
+for (const f of [...PS.triage, ...PS.own("background.js"), "badges.js", "triage/shared.js", "note.js"]) {
   const src = read(f);
   assert.ok(!/keep:\s*"值得留"/.test(src), `${f} names the verdicts itself`);
   assert.ok(!src.includes('"#da86c3"'), `${f} has its own tag palette`);
@@ -38,7 +39,7 @@ for (const f of ["badges.js", "triage/shared.js", "triage/follow.js", "triage/tr
 
 // A tag name's cap is TAG_NAME_MAX alone: cleanTagName cuts there and every name box (B站 page, picker, dialogs) reads it.
 assert.strictEqual(T.cleanTagName("一".repeat(30)).length, T.TAG_NAME_MAX);
-for (const f of ["badges.js", "triage/triage.html", "triage/shared.js", "triage/tag-dialogs.js", "triage/tag-picker.js", "triage/follow.js", "triage/triage.js"]) {
+for (const f of [...PS.pageCode, "triage/triage.html", "triage/shared.js"]) {
   assert.ok(!/maxlength="12"|maxLength = 12|newMax: 12/i.test(read(f)), `${f} writes the tag name cap itself`);
 }
 

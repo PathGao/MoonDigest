@@ -3,6 +3,7 @@ const fs = require("fs");
 const path = require("path");
 const vm = require("vm");
 const assert = require("assert");
+const PS = require("../page-sources.selftest.js");
 
 const ctx = vm.createContext({ TextEncoder, URL, URLSearchParams, console, setTimeout, clearTimeout, AbortController });
 // The worker's own load order: every file background.js importScripts, up to triage-bg.js.
@@ -125,8 +126,7 @@ assert.strictEqual(t.triageMaxTokens("command", 30, off), 2800);
 assert.strictEqual(t.triageMaxTokens("command", 30, on), 9400);
 assert.strictEqual(t.triageMaxTokens("command", 30, { ...off, triageTitleMaxTokens: 5000 }), 5000);
 // K7: 自动 is written once, TriageUi.autoMaxTokens; the settings dialog's hints show the same numbers.
-for (const f of ["triage-bg.js", "triage.js"]) {
-  const src = fs.readFileSync(path.join(__dirname, f), "utf8");
+for (const [f, src] of [["triage-bg.js", PS.read("triage/triage-bg.js")], ["收藏夹", PS.text(PS.favorites)]]) {
   assert.ok(/autoMaxTokens\(/.test(src) && !/\d+ \* \w+ \+ \d+|\? 8000 : 1000/.test(src), `${f} writes the output limit's 自动 itself`);
 }
 
@@ -248,7 +248,7 @@ assert.throws(() => t.triageParseCommand('{"new_tags":[', cmdItems, cmdTags, {})
   // A partial answer cut at the limit is AI_TRUNCATED too (调大输出上限), not 回复不完整.
   t.fetch = async () => ({ ok: true, status: 200, json: async () => ({ choices: [{ message: { content: '[{"i":1,"verdict":"keep"' }, finish_reason: "length" }] }) });
   await assert.rejects(t.triageChat([], 100), (e) => e.code === "AI_TRUNCATED");
-  assert.ok(!/截断\/\.test|includes\("截断"\)/.test(fs.readFileSync(path.join(__dirname, "triage.js"), "utf8")), "triage.js matches 截断 by its words; use the code AI_TRUNCATED");
+  assert.ok(!/截断\/\.test|includes\("截断"\)/.test(PS.text(PS.triage)), "分拣台 matches 截断 by its words; use the code AI_TRUNCATED");
   // A dropped B站 connection says 网络断了, without fetch's English.
   t.fetch = async () => {
     throw new TypeError("Failed to fetch");
@@ -341,7 +341,7 @@ assert.throws(() => t.triageParseCommand('{"new_tags":[', cmdItems, cmdTags, {})
   await vm.runInContext("TRIAGE_HANDLERS", ctx)["triage-settings-save"]({ type: "triage-settings-save", triageAiBatchSize: 12 });
   assert.deepStrictEqual(JSON.parse(JSON.stringify(savedPatch)), { triageAiBatchSize: 12 });
   // The pages read and write it only through these messages.
-  for (const file of ["triage.js", "follow.js"]) assert.ok(!/storage\.sync\.(get|set)\([^)]*triageAiBatchSize/.test(fs.readFileSync(path.join(__dirname, file), "utf8")), `${file} reads or writes triageAiBatchSize itself`);
+  for (const file of PS.triage) assert.ok(!/storage\.sync\.(get|set)\([^)]*triageAiBatchSize/.test(PS.read(file)), `${file} reads or writes triageAiBatchSize itself`);
   // 输出上限: 200–32000, and 0 (自动) is the default, so empty, negative and below 200 are 自动.
   const capsWith = async (v) => {
     t.chrome = { storage: { sync: { get: async (d) => ({ ...d, triageTitleMaxTokens: v, triageAnalyzeMaxTokens: v }) } } };

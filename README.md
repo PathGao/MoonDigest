@@ -265,7 +265,7 @@ extension/
 
 自检（用 `/usr/local/bin/node`，Node 24；`node` 指向 bun 套壳或 v26 时有几个会卡住或报错）：
 
-`load-order.selftest.js` 检查每个页面、每组内容脚本和后台 `importScripts` 的加载顺序：定义全局对象的文件要排在用到它的文件前面，引用的脚本都要存在，`common.js` 排第一。
+`load-order.selftest.js` 检查每个页面、每组内容脚本和后台 `importScripts` 的加载顺序：定义全局对象的文件要排在用到它的文件前面，引用的脚本都要存在，`common.js` 排第一。运行环境和各自加载的脚本由 `page-sources.selftest.js` 列出；按页面查代码的测试和约定检查从它取文件清单，不按文件名读，代码换到同一页面的另一个文件也照样查得到。
 
 `conventions.selftest.js` 检查开关取值、存储键名、灰掉写原因、回复的错误经 `MdgErrors.text` 显示、共享记录经各自的串行写入函数读改写这几条约定；`wording.selftest.js` 检查界面文字：文字表里的话别处不再写一份、同一句话不在两个页面各写一份、不用术语表里「不用」的词；`messages.selftest.js` 核对消息清单 `messages.js`（每条消息谁发、谁接、带哪些字段）和代码一致。这几个是读源码的约定检查，不是行为测试。规则和允许清单怎么加见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)。
 

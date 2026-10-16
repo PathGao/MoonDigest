@@ -61,7 +61,8 @@ for (const [fn, key] of [["normalizeReaderFontScale", "readerFontScale"], ["norm
   assert.strictEqual(S[fn](undefined), S.DEFAULTS[key], `${fn} falls back to the default`);
   assert.strictEqual(S[fn](S.DEFAULTS[key]), S.DEFAULTS[key]);
 }
-const sources = ["background.js", "content.js", "options.js", "popup.js", "sidepanel.js", "note.js", "history/history.js", "triage/triage.js", "triage/triage-bg.js"];
+// Every page's, the worker's and the content scripts' own code, and the note builder they share.
+const sources = [...require("./page-sources.selftest.js").pageCode, "note.js"];
 // 专注模式's legal values: READER_OPTIONS alone; every default is one of them; content.js steps and cycles through it,
 // and reads 字间距 only from its own setting.
 for (const [key, list] of Object.entries(S.READER_OPTIONS)) assert.ok(list.includes(S.DEFAULTS[key]), key);
@@ -73,7 +74,7 @@ assert.ok(!/readerLetterSpacing \?\? \w+\?\.readerLineHeight/.test(read("content
 // 观看进度's legal values: SEEN_SHOW alone; seenOn is the one test of 开 (background, settings page, triage-bg).
 assert.deepStrictEqual(["bar", "both", "x", undefined, "off"].map(S.normalizeSeenShow), ["bar", "both", "off", "off", "off"]);
 assert.deepStrictEqual(["mark", "x", "off"].map(S.seenOn), [true, false, false]);
-for (const file of [...sources, "bili-surfaces.js", "badges.js"]) assert.ok(!/\["bar", "mark", "both"\]/.test(read(file)), `${file} lists seenShow's values itself`);
+for (const file of [...sources, "bili-surfaces.js"]) assert.ok(!/\["bar", "mark", "both"\]/.test(read(file)), `${file} lists seenShow's values itself`);
 // G6: the B站 page's switches and 观看进度 read through normalizeSwitches / seenOn, not tests of their own.
 assert.ok(!/SETTING\] (===|!==) (true|false)/.test(read("badges.js")), "badges.js reads a switch itself; use MdgSettings.normalizeSwitches");
 assert.ok(!/v\.seenShow ===/.test(read("bili-surfaces.js")), "bili-surfaces.js tests seenShow itself; use MdgSettings.seenOn");
@@ -85,7 +86,7 @@ for (const file of ["content.js", "note.js"]) {
 assert.ok(!/reading(Theme|FontScale|LetterSpacing|LineHeight|ContentWidth|ChapterVisible): ("[a-z]+"|true|false),/.test(read("content.js")), "content.js copies 专注模式's defaults; use DEFAULTS");
 // I3: the cover look likewise: SEEN_STYLES alone, the default from DEFAULTS; nobody tests for "veil" itself.
 assert.deepStrictEqual(["veil", "badge", "x", undefined].map(S.normalizeSeenStyle), ["veil", "badge", S.DEFAULTS.seenStyle, S.DEFAULTS.seenStyle]);
-for (const file of [...sources, "bili-surfaces.js", "badges.js"]) assert.ok(!/=== "veil"/.test(read(file)), `${file} tests seenStyle's values itself`);
+for (const file of [...sources, "bili-surfaces.js"]) assert.ok(!/=== "veil"/.test(read(file)), `${file} tests seenStyle's values itself`);
 
 // 看到多少算看完了: SEEN_THRESHOLD is its range and default (DEFAULTS reads it); intIn's rule.
 const { min, max, def } = S.SEEN_THRESHOLD;
