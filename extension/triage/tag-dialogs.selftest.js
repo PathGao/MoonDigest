@@ -43,7 +43,7 @@ for (const f of ["../errors.js", "../typing.js", "../tag-core.js", "../settings.
 const D = ctx.TagDialogs;
 const wait = () => new Promise((r) => setTimeout(r, 5));
 
-// The two modes' adapters, as triage.js and follow.js hand them over: only the unit, the limits and the data differ.
+// The two modes' adapters, as 收藏夹 (fav-*.js) and follow.js hand them over: only the unit, the limits and the data differ.
 function adapters(who) {
   const tags = [{ id: "a", name: "科普", color: "#111" }];
   const calls = [];

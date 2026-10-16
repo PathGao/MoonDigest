@@ -4,7 +4,7 @@
 // Data comes from follow-bg.js through follow_* storage and the follow-* messages (the message list is in follow-bg.js's header).
 // Tags live only in this extension (follow_tags / follow_tag_map). B站 writes: 取消关注, 重新关注 and the 关注分组 (新建, 改名,
 // 删除, 移到 / 复制到, ★ 特别关注 which is group -10), see DESIGN 产品决策 · 改 B站 的操作和撤销 for what asks first and what U undoes.
-import "./triage.js"; // runs first: it sets up the page and globalThis.MoonTriage (viewer, toast, confirm dialog)
+import "./triage.js"; // runs first: it starts 收藏夹 (fav-*.js), which gives globalThis.MoonTriage (viewer, toast, confirm dialog)
 
 // 关注's pure functions: follow-core.js (FollowCore), loaded before this module.
 const {
@@ -186,7 +186,7 @@ async function saveTags(change) {
   return r;
 }
 const changeTags = (mids, add, remove) => setTagMap((map) => withTags(map, mids, add, remove));
-// 关注's undo steps live in triage.js (S.modeUndo, apart from 收藏夹's): U in 关注 undoes only these.
+// 关注's undo steps live in fav-*.js (S.modeUndo, apart from 收藏夹's): U in 关注 undoes only these.
 function pushTagUndo(before, label, { ask = null, created = [], recentAt = 0 } = {}) {
   T.pushUndo({
     kind: "mode",
@@ -622,7 +622,7 @@ function renderViewerUp() {
   const pre = `${face ? `<img src="${esc(img(face, "48w_48h_1c"))}" alt="" referrerpolicy="no-referrer">` : ""}<a class="name" href="${space(mid)}" target="_blank" rel="noopener">${esc(name)}</a>`;
   vline.innerHTML = UI.viewerLine({ label: "UP 标签", pre, chips, plus: !u?.gone && { attrs: `data-pick="${esc(mid)}"`, label: MdgErrors.upTagTitle(name), key: follow } });
 }
-// B站's autoplay moved the player on (triage.js showViewing): the pink card, this line and T follow the new video.
+// B站's autoplay moved the player on (收藏夹's showViewing, fav-*.js): the pink card, this line and T follow the new video.
 T.setViewerHook(() => {
   const b = T.viewing();
   if (F.mode !== "follow" || !b || b === F.viewing) return renderViewerUp();
@@ -1046,14 +1046,14 @@ main.addEventListener("click", (e) => {
   if (e.target.closest("[data-fw-stop]")) send({ type: "follow-sync-stop" });
   if (e.target.closest("[data-fw-busystop]")) W.stop();
 });
-// The UP 主 table: built from what the page already has. 完整备份 is triage.js's ([data-backup]).
+// The UP 主 table: built from what the page already has. 完整备份 is 收藏夹's ([data-backup], fav-*.js).
 function upCsv() {
   const head = ["UP 主", "mid", "主页", "标签", "更新状态", "最后投稿", "粉丝数", SORTS.follow, "特别关注", "签名"];
   const out = [head, ...following().map((m) => rows.get(m)).filter(Boolean).map((u) => [u.name, u.mid, space(u.mid), u.tagIds.map((id) => tagOf(id)?.name).filter(Boolean).join("、"), STATUS_TEXT[u.status] || "", u.last ? fmtDate(u.last) : "", u.fans ?? "", u.followed ? fmtDate(u.followed) : "", u.special ? "是" : "", u.sign])];
   return UI.toCsv(out);
 }
 $("fwExport").addEventListener("click", (e) => e.target.closest("button") && $("fwExport").hidePopover());
-// The markup is in triage.html beside 收藏夹设置; triage.js fills the shared rows' names (UI.fillSetRows).
+// The markup is in triage.html beside 收藏夹设置; 收藏夹 (fav-*.js) fills the shared rows' names (UI.fillSetRows).
 const settingsDialog = $("fwSettingsDialog");
 settingsDialog.querySelector("[data-open-options]").addEventListener("click", T.openOptions);
 
@@ -1204,7 +1204,7 @@ function tagByKey() {
 // A modal dialog (confirm, settings, the modal picker) owns the keys; the popover does not.
 const modalOpen = () => Boolean(document.querySelector("dialog[open]:not(.tp-pop)"));
 const NAV = { j: 1, ArrowDown: 1, k: -1, ArrowUp: -1 };
-// 关注's keys, from triage.js's one keydown handler (typing and IME already left out) and its one listener for the
+// 关注's keys, from 收藏夹's one keydown handler (onKey; typing and IME already left out) and its one listener for the
 // player's T / Esc.
 function followKey(key) {
   if (modalOpen()) return false;
@@ -1330,7 +1330,7 @@ async function runAi({ instruction, scope, allowRemove }) {
   const tags = D.tags.filter((t) => !excluded.has(t.name)).map((t) => ({ name: t.name, rule: t.rule || "" }));
   const opts = { tags: D.tags, map: D.map, maxNewTags: AI.settings.newTagMax, excluded, scope: new Set(mids) };
   const { batches, intervalMs } = aiRequests(mids, AI.settings, instruction, tags, allowRemove);
-  // The same run loop as 收藏夹 (triage.js), on 关注's runs; each batch gets what is left of the run's new-tag cap.
+  // The same run loop as 收藏夹 (fav-*.js), on 关注's runs; each batch gets what is left of the run's new-tag cap.
   const running = T.runAiBatches({
     R: runs,
     job: "follow-ai",

@@ -9,12 +9,12 @@
 //   response  the top-level fields besides ok / error / code (documentation: not checked)
 //   builder   "file:function" that builds the payload; its returned object has exactly the fields in payload
 //   open      the request is an open set of keys, with why; its fields are not checked
-// triage.js's sendRaw adds aiProviderId (the side panel's platform pick) to every triage-* and follow-* message; it is
+// 收藏夹's sendRaw (fav-*.js) adds aiProviderId (the side panel's platform pick) to every triage-* and follow-* message; it is
 // listed where the handler reads it.
 (() => {
   const TRIAGE_BG = "triage/triage-bg.js";
   const FOLLOW_BG = "triage/follow-bg.js";
-  const TRIAGE = ["triage/triage.js"];
+  const TRIAGE = ["triage/fav-page.js"];
   const FOLLOW = ["triage/follow.js"];
   // follow-core.js builds these requests (groupCalls, aiRequests); follow.js sends what it built.
   const FOLLOW_CORE = ["triage/follow-core.js"];
@@ -34,7 +34,7 @@
     "ai-providers-test": { from: ["options.js"], to: "background.js", request: ["providerId", "baseUrl", "apiKey", "model", "requiresKey"], response: [] },
 
     // Pages and tabs
-    "open-options": { from: ["content.js", "popup.js", "triage/triage.js"], to: "background.js", request: [], response: [] },
+    "open-options": { from: ["content.js", "popup.js", "triage/fav-page.js"], to: "background.js", request: [], response: [] },
     "history-open": { from: ["options.js", "popup.js", "sidepanel.js"], to: "background.js", request: [], response: [] },
     "triage-open": { from: ["badges.js", "options.js", "popup.js"], to: TRIAGE_BG, request: ["hash"], response: data },
     "ensure-reader-content": { from: ["popup.js"], to: "background.js", request: ["tabId"], response: [] },
@@ -72,7 +72,7 @@
     // 分拣台 收藏夹 (answers are { ok, data })
     "triage-folders": { from: TRIAGE, to: TRIAGE_BG, request: [], response: data },
     "triage-folder-items": { from: TRIAGE, to: TRIAGE_BG, request: ["mediaId", "known"], response: data },
-    "triage-folder-page": { from: [TRIAGE_BG], to: "triage/triage.js", request: ["mediaId", "page"], response: [] },
+    "triage-folder-page": { from: [TRIAGE_BG], to: "triage/fav-page.js", request: ["mediaId", "page"], response: [] },
     "triage-folder-ids": { from: TRIAGE, to: TRIAGE_BG, request: ["mediaId"], response: data },
     "triage-fav-where": { from: TRIAGE, to: TRIAGE_BG, request: ["aid", "mid"], response: data },
     "triage-folder-create": { from: TRIAGE, to: TRIAGE_BG, request: ["title", "privacy"], response: data },
@@ -87,7 +87,7 @@
     "triage-settings-get": { from: [...TRIAGE, ...FOLLOW], to: TRIAGE_BG, request: ["aiProviderId"], response: data },
     "triage-settings-save": { from: TRIAGE, to: TRIAGE_BG, request: [], open: "any key of triage-bg.js's TRIAGE_SETTINGS_DEFAULTS", response: data },
     "triage-seen-sync": { from: ["badges.js", ...TRIAGE], to: TRIAGE_BG, request: ["force"], response: data },
-    "triage-seen-done": { from: [TRIAGE_BG], to: "triage/triage.js", request: ["error"], response: [] },
+    "triage-seen-done": { from: [TRIAGE_BG], to: "triage/fav-page.js", request: ["error"], response: [] },
     "triage-obsidian-check": { from: TRIAGE, to: TRIAGE_BG, request: [], response: data },
     "triage-build-note": { from: TRIAGE, to: TRIAGE_BG, request: ["bvid"], response: data },
     "triage-write-note": { from: TRIAGE, to: TRIAGE_BG, request: ["bvid", "title", "overwrite"], response: data },
@@ -107,6 +107,6 @@
 
     // The 分拣台 player frame (viewer-frame.js, a content script in B站's page) to the 分拣台 page: window.postMessage
     "mdg-viewer-key": { from: ["triage/viewer-frame.js"], to: "triage/shared.js", request: ["key"], response: [] },
-    "mdg-viewer-video": { from: ["triage/viewer-frame.js"], to: "triage/triage.js", request: ["bvid"], response: [] }
+    "mdg-viewer-video": { from: ["triage/viewer-frame.js"], to: "triage/fav-page.js", request: ["bvid"], response: [] }
   });
 })();

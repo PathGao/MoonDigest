@@ -1,4 +1,4 @@
-// What the 分拣台's two modes (triage.js 收藏夹, follow.js 关注) draw the same way, so they cannot drift apart.
+// What the 分拣台's two modes (fav-*.js 收藏夹, follow.js 关注) draw the same way, so they cannot drift apart.
 // A plain script loaded before both modules (and by the settings page and the worker, which call only the pure parts).
 // Most of it returns HTML, text or a comparator. What touches the DOM it is given: bindSearch, setReason, askTransfer,
 // setActivity, setSync, bindSync, fillSetRows, fillNumHints, clampNumber(s) and headFold (which also reads and writes

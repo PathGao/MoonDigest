@@ -1,6 +1,6 @@
-// 收藏夹's pure functions (triage.js is the page): the stored records' shapes (已出分拣范围, 所有收藏夹, the cached
+// 收藏夹's pure functions (fav-*.js are the page): the stored records' shapes (已出分拣范围, 所有收藏夹, the cached
 // lists) and the 摘录 / zip export helpers. They compute only from their arguments: no DOM, chrome.*, page state or
-// timers. triage.html loads this before triage.js; triage.selftest.js loads it from there.
+// timers. triage.html loads this before fav-*.js; triage.selftest.js loads it from there.
 (() => {
   // A listed video counts as favorited again after our 取消收藏 only when Bilibili's favorite time (seconds) is not older
   // than it: a list fetched before the 取消收藏, or lagging behind it, still holds the video with its old time. No favTime

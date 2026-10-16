@@ -65,7 +65,7 @@ if (require.main === module) {
   assert.deepStrictEqual(own("popup.html"), ["popup.js"]);
   assert.deepStrictEqual(own("content.js"), ["content.js"], "both content.js entries are one runtime");
   assert.ok(own("background.js").includes("triage/follow-bg.js") && !own("background.js").includes("triage/shared.js"));
-  assert.ok(favorites.includes("triage/triage.js") && follow.includes("triage/follow.js") && !favorites.includes("triage/shared.js"));
+  assert.ok(favorites.includes("triage/fav-page.js") && follow.includes("triage/follow.js") && !favorites.includes("triage/shared.js"));
   assert.ok(bothModes.every((f) => own("triage/triage.html").includes(f)), "bothModes names files the page loads");
   console.log("page-sources selftest ok");
 }
