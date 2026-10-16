@@ -78,7 +78,7 @@ const ALLOW = [
   // 5a
   ["triage/triage-bg.js", "[triageNotes]: notes, triage_notes_migrated: true", "例外：一次性迁移（triage_notes_migrated），扩展更新时跑一次，只补还没有的条目"],
   // 5b
-  ["triage/follow-bg.js", "chrome.storage.local.set({ follow_hold: hold })", "例外：只写不读，follow_hold 只由 followHold 整个换掉，不依赖读到的旧值"]
+  ["triage/follow-bg.js", "chrome.storage.local.set(MdgLimits.followFull({ hold }))", "例外：只写不读，follow_hold 只由 followHold 整个换掉，不依赖读到的旧值"]
 ];
 // Each line covers exactly one hit: a second line like it is a new case and needs its own reason.
 const used = ALLOW.map(() => 0);
@@ -173,14 +173,12 @@ const ALIASES = { "content.js": { readingChapterVisible: "readerChapterVisible" 
       }
     }
   }
-  const shared = [...loose].filter(([s, e]) => e.files.size > 1 && !s.startsWith("follow_"));
+  const shared = [...loose].filter(([, e]) => e.files.size > 1);
   section(
     "2b. 不在 KEYS、却有不止一个文件读写的存储键",
     shared.flatMap(([s, e]) => [`「${s}」 ${[...e.files].join(", ")}`, ...e.at.map((x) => `    ${x}`)]),
     "any"
   );
-  const follow = [...loose].filter(([s, e]) => e.files.size > 1 && s.startsWith("follow_"));
-  section("2b'. 已知例外 follow_*（ARCHITECTURE：拆 follow 时再收）", follow.map(([s, e]) => `「${s}」 ${[...e.files].join(", ")}`));
   const single = [...loose].filter(([, e]) => e.files.size === 1).map(([s, e]) => `${s} (${[...e.files][0]})`);
   section("2b''. 只一个文件用的键（允许，只列名字）", [single.join("  ")].filter(Boolean));
 }
@@ -270,7 +268,8 @@ const ALIASES = { "content.js": { readingChapterVisible: "readerChapterVisible" 
   }
   section("5a. 整份写视频备注（该用 MdgLimits.saveVideoNote）", hits, "allow");
 
-  // 5b. follow-bg.js writes its follow_* keys through followUpdate (its queue in the worker; ARCHITECTURE).
+  // 5b. follow-bg.js writes its follow_* keys through followUpdate (its queue in the worker; ARCHITECTURE). A write names
+  // them through MdgLimits (KEYS.follow, followFull, followPrefix); a follow_ literal is 2a's.
   const f = "triage/follow-bg.js";
   const text = lines[f].join("\n");
   const def = text.indexOf("function followUpdate(");
@@ -279,7 +278,7 @@ const ALIASES = { "content.js": { readingChapterVisible: "readerChapterVisible" 
   const raw = [];
   for (const m of text.matchAll(/chrome\.storage\.local\.(?:set|remove)\(/g)) {
     const open = m.index + m[0].length - 1;
-    if ((m.index > body[0] && m.index < body[1]) || !/follow_/.test(text.slice(open, closeOf(text, open)))) continue;
+    if ((m.index > body[0] && m.index < body[1]) || !/\bfollowFull\(|KEYS\.follow(Prefix\b|\()|follow_/.test(text.slice(open, closeOf(text, open)))) continue;
     raw.push(hitAt(f, text.slice(0, m.index).split("\n").length - 1));
   }
   section("5b. follow-bg.js 不经 followUpdate 写 follow_* 键", raw, "allow");

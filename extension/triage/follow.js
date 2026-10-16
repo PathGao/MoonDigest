@@ -24,10 +24,11 @@ const { esc, fmtDate, fmtAgo, fmtDuration, fmtCount, cleanTagName, plainClick, i
 // What 导出 → UP 主表格 holds; B站 caps a group name at 16 characters.
 const CSV_HINT = "名字、标签、更新状态、最后投稿、粉丝数";
 const { GROUP_NAME_MAX } = TriageUi;
-const KEYS = ["follow_list", "follow_people", "follow_last", "follow_last_wip", "follow_content", "follow_tags", "follow_tag_map", "follow_unfollowed", "follow_jobs", "follow_ai_recent", "follow_stats", "follow_groups"];
-const VIEW_KEY = "follow_view"; // { mode: "fav" | "follow", tab: "ups" | "feed", sort, dir, fsort, side }
+// The follow_* keys the page draws from, by short name (MdgLimits.KEYS.follow).
+const KEYS = ["list", "people", "last", "last_wip", "content", "tags", "tag_map", "unfollowed", "jobs", "ai_recent", "stats", "groups"];
+const VIEW_KEY = MdgLimits.KEYS.follow("view"); // { mode: "fav" | "follow", tab: "ups" | "feed", sort, dir, fsort, side }
 const saveView = () => T.store({ [VIEW_KEY]: viewRecord(F) });
-const AI_HISTORY_KEY = "follow_ai_history";
+const AI_HISTORY_KEY = MdgLimits.KEYS.follow("ai_history");
 const STATUS_TEXT = Object.fromEntries(STATUS);
 const STATUS_BADGE = { active: "keep", slow: "unsure", dead: "drop", stale: "unsure low", none: "none", unchecked: "none" };
 const PHASE = { list: "读取关注列表", feed: "读取视频投稿", arc: "查投稿" };
@@ -119,24 +120,24 @@ $("folderSelect").after(sideSlot);
 
 // ---------- data ----------
 async function load() {
-  const got = await chrome.storage.local.get([...KEYS, "follow_ai_proposal", "follow_hold"]);
+  const got = await MdgLimits.followGet([...KEYS, "ai_proposal", "hold"]);
   D = {
-    list: got.follow_list || null,
-    people: got.follow_people || {},
-    last: withFeedInProgress(got.follow_last, got.follow_last_wip),
-    content: got.follow_content || {},
-    tags: got.follow_tags || [],
-    map: got.follow_tag_map || {},
-    gone: got.follow_unfollowed || {},
-    jobs: got.follow_jobs || {},
-    recent: got.follow_ai_recent || null,
-    stats: got.follow_stats || {},
-    groups: got.follow_groups || []
+    list: got.list || null,
+    people: got.people || {},
+    last: withFeedInProgress(got.last, got.last_wip),
+    content: got.content || {},
+    tags: got.tags || [],
+    map: got.tag_map || {},
+    gone: got.unfollowed || {},
+    jobs: got.jobs || {},
+    recent: got.ai_recent || null,
+    stats: got.stats || {},
+    groups: got.groups || []
   };
   // A pause that began before this page opened: storage.onChanged keeps it from here on.
-  F.hold = got.follow_hold || null;
+  F.hold = got.hold || null;
   // An AI 打标签 proposal waiting for 应用 survives a reload; the one in memory (maybe edited on the review page) wins.
-  if (!AI.proposal && !aiRunning()) AI.proposal = got.follow_ai_proposal || null;
+  if (!AI.proposal && !aiRunning()) AI.proposal = got.ai_proposal || null;
   derive();
 }
 // 关注's data, read once: on entering 关注, or for the 收藏夹 player's 「UP 标签」 line. F.loaded holds the read.
@@ -162,24 +163,24 @@ const names = (mids) => UI.confirmList(mids.map(nameOf));
 // follow_tags and follow_tag_map are written by B站 pages (badges.js) and follow-bg.js too, and D catches up only on the
 // redraw a second later: a change applies to what storage holds now, one at a time. Resolves { prev, next }.
 let tagWrites = Promise.resolve();
-function updateStored(key, empty, change) {
+function updateStored(name, empty, change) {
   const run = tagWrites.then(async () => {
-    const prev = (await chrome.storage.local.get(key))[key] || empty;
+    const prev = (await MdgLimits.followGet([name]))[name] || empty;
     const next = change(prev);
-    await write({ [key]: next });
+    await write(MdgLimits.followFull({ [name]: next }));
     return { prev, next };
   });
   tagWrites = run.catch(() => {});
   return run;
 }
 async function setTagMap(change) {
-  const r = await updateStored("follow_tag_map", {}, change);
+  const r = await updateStored("tag_map", {}, change);
   D.map = r.next;
   derive();
   return r;
 }
 async function saveTags(change) {
-  const r = await updateStored("follow_tags", [], change);
+  const r = await updateStored("tags", [], change);
   D.tags = r.next;
   derive();
   return r;
@@ -200,7 +201,7 @@ function pushTagUndo(before, label, { ask = null, created = [], recentAt = 0 } =
       if (recentAt && D.recent?.at === recentAt) {
         D.recent = null;
         F.recentFilter = false;
-        await chrome.storage.local.remove("follow_ai_recent");
+        await chrome.storage.local.remove(MdgLimits.KEYS.follow("ai_recent"));
       }
       render();
       return `已撤销：${label}${gone ? `（${gone} 个已取消关注，标签没改）` : ""}`;
@@ -1058,11 +1059,11 @@ settingsDialog.querySelector("[data-open-options]").addEventListener("click", T.
 
 // follow_ai_settings, seeded from the 收藏夹 values on first use and stored then.
 async function aiSettings() {
-  const own = (await chrome.storage.sync.get("follow_ai_settings")).follow_ai_settings;
+  const own = (await MdgLimits.followGet(["ai_settings"], chrome.storage.sync)).ai_settings;
   const triage = own ? null : await send({ type: "triage-settings-get" });
   const { value, seed } = followAiSettings(own, triage?.ok ? triage.data : null);
   // Not stored (sync quota, …): the copied values still work this time, and the next use tries again.
-  if (seed) await chrome.storage.sync.set({ follow_ai_settings: seed }).catch((e) => toast(`${MdgErrors.TEXT.settingsSaveFailed}：${e.message}`, true));
+  if (seed) await chrome.storage.sync.set(MdgLimits.followFull({ ai_settings: seed })).catch((e) => toast(`${MdgErrors.TEXT.settingsSaveFailed}：${e.message}`, true));
   return value;
 }
 async function openSettings() {
@@ -1093,7 +1094,7 @@ settingsDialog.addEventListener("close", async () => {
   // followSlowDays / followDeadDays keep their keys, so values set on the old settings-page section carry over.
   const days = normDays($("fwSlowInput").value, $("fwDeadInput").value);
   try {
-    await chrome.storage.sync.set({ follow_ai_settings: ai, ...days });
+    await chrome.storage.sync.set({ ...MdgLimits.followFull({ ai_settings: ai }), ...days });
   } catch (e) {
     return toast(`${MdgErrors.TEXT.settingsSaveFailed}：${e.message}`, true);
   }
@@ -1250,8 +1251,8 @@ const AI = { proposal: null, excluded: new Set(), settings: {}, history: [] };
 const aiRunning = () => Boolean(runs.get("follow-ai"));
 function setAiProposal(p) {
   AI.proposal = p;
-  if (p) write({ follow_ai_proposal: p });
-  else chrome.storage.local.remove("follow_ai_proposal");
+  if (p) write(MdgLimits.followFull({ ai_proposal: p }));
+  else chrome.storage.local.remove(MdgLimits.KEYS.follow("ai_proposal"));
 }
 
 // The AI tags only UP 主 still followed.
@@ -1295,7 +1296,7 @@ const aiTags = {
   async setAllowRemove(on) {
     const next = withAllowRemove(await aiSettings(), on);
     try {
-      await chrome.storage.sync.set({ follow_ai_settings: next });
+      await chrome.storage.sync.set(MdgLimits.followFull({ ai_settings: next }));
     } catch (e) {
       toast(`${MdgErrors.TEXT.settingsSaveFailed}：${e.message}`, true);
       return false;
@@ -1380,7 +1381,7 @@ async function applyAi() {
   F.recentFilter = n > 0;
   if (n) {
     D.recent = { at: Date.now(), mids: changes.map(([mid]) => mid) };
-    await write({ follow_ai_recent: D.recent });
+    await write(MdgLimits.followFull({ ai_recent: D.recent }));
   }
   if (n || created.length) pushTagUndo(before, `AI 打标签（${n} 个 UP 主）`, { ask: n > 1 ? UI.undoAsk("ai", n, WHO) : null, created, recentAt: n ? D.recent.at : 0 });
   render();
@@ -1533,7 +1534,7 @@ main.addEventListener("click", async (e) => {
   } else if (act === "recent-done") {
     F.recentFilter = false;
     D.recent = null;
-    await chrome.storage.local.remove("follow_ai_recent");
+    await chrome.storage.local.remove(MdgLimits.KEYS.follow("ai_recent"));
     render();
   } else if (act === "more") more({ byHand: true });
   else if (act === "select-all") {
@@ -1602,18 +1603,19 @@ chrome.storage.onChanged.addListener((changes, area) => {
     if (F.loaded) derive();
     return render();
   }
-  if (area === "local" && changes.follow_hold) F.hold = changes.follow_hold.newValue || null;
+  const fc = MdgLimits.followShort(changes);
+  if (area === "local" && fc.hold) F.hold = fc.hold.newValue || null;
   if (area !== "local" || !F.loaded) return;
-  if (syncFinished(changes.follow_jobs?.oldValue, changes.follow_jobs?.newValue)) {
+  if (syncFinished(fc.jobs?.oldValue, fc.jobs?.newValue)) {
     F.feed = null;
     if (F.mode === "follow" && F.tab === "feed") render();
   }
-  const keys = Object.keys(changes).filter((k) => KEYS.includes(k));
+  const keys = Object.keys(fc).filter((k) => KEYS.includes(k));
   if (!keys.length) return;
-  if (keys.every((k) => k === "follow_jobs")) {
+  if (keys.every((k) => k === "jobs")) {
     const was = checking();
     const running = Boolean(D.jobs?.running);
-    D.jobs = changes.follow_jobs.newValue || {};
+    D.jobs = fc.jobs.newValue || {};
     if (F.mode === "follow") renderHead();
     // A run starting or ending changes the hint above the list, and the 查投稿中… card moves on: redraw the list for them.
     if (F.mode === "follow" && F.tab === "ups" && (!D.list || checking() !== was || running !== Boolean(D.jobs.running))) renderUps();

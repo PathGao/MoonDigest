@@ -371,7 +371,7 @@ assert.deepStrictEqual([t.dirLabel("last", "desc"), t.dirLabel("follow", "asc"),
   assert.ok(t.syncFinished({ running: true, finishedAt: null }, { running: false, finishedAt: 5 }));
   assert.ok(!t.syncFinished({ finishedAt: 5 }, { finishedAt: 5, beat: 6 }), "a tick of the same job is not a finish");
   assert.ok(!t.syncFinished({ running: true }, { running: false, hold: null }), "stopped (no finishedAt) is not a finish");
-  assert.ok(/if \(syncFinished\(changes\.follow_jobs\?\.oldValue, changes\.follow_jobs\?\.newValue\)\) \{\s*F\.feed = null;/.test(source), "the page drops F.feed on it");
+  assert.ok(/if \(syncFinished\(fc\.jobs\?\.oldValue, fc\.jobs\?\.newValue\)\) \{\s*F\.feed = null;/.test(source), "the page drops F.feed on it");
 }
 
 // The deep link's hash is dropped once read: the same tag clicked again changes the hash again (the worker sets it), and a
@@ -416,7 +416,7 @@ assert.ok(source.includes(`pushTagUndo(before, "标签修改", { ask: changes.le
 
 // 关注设置 and the AI settings it seeds: a failed chrome.storage.sync.set says so, as 收藏夹设置 does.
 assert.strictEqual((source.match(/chrome\.storage\.sync\.set\(/g) || []).length, 3);
-assert.ok(/\.set\(\{ follow_ai_settings: seed \}\)\.catch\(\(e\) => toast\(`\$\{MdgErrors\.TEXT\.settingsSaveFailed\}：/.test(source) && /try \{\s*await chrome\.storage\.sync\.set\(\{ follow_ai_settings: ai, \.\.\.days \}\);\s*\} catch \(e\) \{\s*return toast\(`\$\{MdgErrors\.TEXT\.settingsSaveFailed\}：/.test(source), "both writes catch");
+assert.ok(/\.set\(MdgLimits\.followFull\(\{ ai_settings: seed \}\)\)\.catch\(\(e\) => toast\(`\$\{MdgErrors\.TEXT\.settingsSaveFailed\}：/.test(source) && /try \{\s*await chrome\.storage\.sync\.set\(\{ \.\.\.MdgLimits\.followFull\(\{ ai_settings: ai \}\), \.\.\.days \}\);\s*\} catch \(e\) \{\s*return toast\(`\$\{MdgErrors\.TEXT\.settingsSaveFailed\}：/.test(source), "both writes catch");
 
 // The player's T / Esc reach 关注 through triage.js's one message listener (modeKeys), as page keys do.
 assert.ok(!/addEventListener\("message"/.test(source), "follow.js has no message listener of its own");
@@ -489,7 +489,7 @@ assert.ok(t.aiBlocked("feed", "all") && t.aiBlocked("ups", "out"), "视频投稿
 }
 // B15: 「允许 AI 去掉已有标签」 is kept in follow_ai_settings, as 收藏夹 keeps its own.
 assert.deepStrictEqual(plain(t.withAllowRemove({ batchSize: 10, intervalSec: 2, newTagMax: 1, allowRemove: false }, true)), { batchSize: 10, intervalSec: 2, newTagMax: 1, allowRemove: true });
-assert.ok(/async setAllowRemove\(on\) \{\s*const next = withAllowRemove\(await aiSettings\(\), on\);\s*try \{\s*await chrome\.storage\.sync\.set\(\{ follow_ai_settings: next \}\);/.test(source), "the AI dialog's switch saves");
+assert.ok(/async setAllowRemove\(on\) \{\s*const next = withAllowRemove\(await aiSettings\(\), on\);\s*try \{\s*await chrome\.storage\.sync\.set\(MdgLimits\.followFull\(\{ ai_settings: next \}\)\);/.test(source), "the AI dialog's switch saves");
 
 // The 关注 tab is 视频投稿 (we read only B站's video posts, which B站 itself calls 视频投稿): no page text says 动态.
 // Comments may; B站 page scripts outside triage/ talk about B站's own 动态 page.
@@ -989,10 +989,14 @@ const slice = (from, to) => source.slice(source.indexOf(from), source.indexOf(to
   {
     const code = slice("let tagWrites", "const changeTags");
     const store = { follow_tag_map: { b: ["t9"] }, follow_tags: [] };
-    const chrome = { storage: { local: { get: async (k) => ({ [k]: store[k] }) } } };
+    const chrome = { storage: { local: { get: async (keys) => Object.fromEntries(keys.map((k) => [k, store[k]])) } } };
     const write = async (o) => (await new Promise((r) => setImmediate(r)), Object.assign(store, o), true);
     const D = { map: {} }; // stale: does not have b's tag yet
-    const fns = new Function("chrome", "write", "D", `const derive = () => {}; ${code}; return { setTagMap };`)(chrome, write, D);
+    // limits.js against this storage: the page reads and writes the key through MdgLimits.followGet / followFull.
+    const lim = vm.createContext({ chrome });
+    lim.globalThis = lim;
+    vm.runInContext(fs.readFileSync(path.join(__dirname, "../limits.js"), "utf8"), lim);
+    const fns = new Function("chrome", "write", "D", "MdgLimits", `const derive = () => {}; ${code}; return { setTagMap };`)(chrome, write, D, lim.MdgLimits);
     const [one] = await Promise.all([fns.setTagMap((m) => ({ ...m, a: ["t1"] })), fns.setTagMap((m) => ({ ...m, c: ["t2"] }))]);
     assert.deepStrictEqual(plain(store.follow_tag_map), { b: ["t9"], a: ["t1"], c: ["t2"] }, "neither write loses the other's or badges.js's");
     assert.deepStrictEqual(plain(one.prev), { b: ["t9"] });

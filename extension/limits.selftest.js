@@ -56,7 +56,7 @@ assert.deepStrictEqual(
 const names = Object.values(L.KEYS).filter((v) => typeof v === "string");
 // Renaming one loses the data stored under it.
 assert.deepStrictEqual([...names].sort(), [
-  "aiProviderKeys", "aiProviders", "mdg_ai_conversations_v1", "mdg_ai_selected_provider", "mdg_obsidian_note_paths_v1", "mdg_player_ai_quick_action_v1", "mdg_subtitle_cache_",
+  "aiProviderKeys", "aiProviders", "follow_", "mdg_ai_conversations_v1", "mdg_ai_selected_provider", "mdg_obsidian_note_paths_v1", "mdg_player_ai_quick_action_v1", "mdg_subtitle_cache_",
   "seen_", "triage_analysis_", "triage_basket", "triage_decisions_", "triage_folder_criteria", "triage_included_folders", "triage_kept", "triage_notes", "triage_removed",
   "triage_seen_meta", "triage_simplified_v1", "triage_snapshot_", "triage_tags", "triage_title_", "triage_video_tags"
 ]);
@@ -65,6 +65,10 @@ assert.strictEqual(L.KEYS.triageAnalysis("BV1"), "triage_analysis_BV1");
 assert.strictEqual(L.KEYS.triageTitle("BV1"), "triage_title_BV1");
 assert.strictEqual(L.KEYS.triageSnapshot(7), "triage_snapshot_7");
 assert.strictEqual(L.KEYS.seen("BV1"), "seen_BV1");
+// 关注's keys by short name, both ways; followShort keeps only follow_* keys.
+assert.strictEqual(L.KEYS.follow("tag_map"), "follow_tag_map");
+assert.deepStrictEqual({ ...L.followFull({ list: 1, last_wip: undefined }) }, { follow_list: 1, follow_last_wip: undefined });
+assert.deepStrictEqual({ ...L.followShort({ follow_list: 1, follow_tag_map: 2, triage_notes: 3 }) }, { list: 1, tag_map: 2 });
 const sources = [];
 const walk = (dir) => {
   for (const entry of fs.readdirSync(path.join(__dirname, dir), { withFileTypes: true })) {

@@ -182,10 +182,10 @@
   let upWrites = Promise.resolve();
   function saveUpTag(local, mid, op) {
     const write = async () => {
-      const got = await local.get(["follow_tags", "follow_tag_map"]);
-      const r = applyUpTag(got.follow_tags, got.follow_tag_map, mid, op);
+      const got = await MdgLimits.followGet(["tags", "tag_map"], local);
+      const r = applyUpTag(got.tags, got.tag_map, mid, op);
       if (!r) return null;
-      await local.set(r.tags !== got.follow_tags ? { follow_tags: r.tags, follow_tag_map: r.map } : { follow_tag_map: r.map });
+      await local.set(MdgLimits.followFull(r.tags !== got.tags ? { tags: r.tags, tag_map: r.map } : { tag_map: r.map }));
       return r;
     };
     const done = upWrites.then(write);
@@ -382,7 +382,7 @@
 
   async function whoIs() {
     if (who) return who;
-    const people = (await chrome.storage.local.get("follow_people")).follow_people || {};
+    const people = (await MdgLimits.followGet(["people"])).people || {};
     return (who = whoIndex(people, up.followed.size ? [...up.followed] : Object.keys(up.map)));
   }
 
@@ -768,9 +768,9 @@ input { box-sizing: border-box; width: 100%; margin: 0; padding: 4px 8px; border
   }
 
   async function loadUps() {
-    const got = await chrome.storage.local.get(["follow_tags", "follow_tag_map", "follow_list"]);
-    const list = got.follow_list?.list;
-    up = { tags: Array.isArray(got.follow_tags) ? got.follow_tags : [], map: got.follow_tag_map || {}, followed: new Set(Array.isArray(list) ? list.map(String) : []) };
+    const got = await MdgLimits.followGet(["tags", "tag_map", "list"]);
+    const list = got.list?.list;
+    up = { tags: Array.isArray(got.tags) ? got.tags : [], map: got.tag_map || {}, followed: new Set(Array.isArray(list) ? list.map(String) : []) };
     who = null;
     // Tags to show, or followed UPs to offer 「+ UP 标签」 for, and the setting 「在 B站页面显示 UP 标签」 on.
     upHas = (up.tags.length > 0 && Object.values(up.map).some((ids) => ids?.length)) || up.followed.size > 0;
@@ -1166,8 +1166,9 @@ input { box-sizing: border-box; width: 100%; margin: 0; padding: 4px 8px; border
 
   chrome.storage.onChanged.addListener((changes, area) => {
     if (superseded) return;
-    if (area === "local" && (changes.follow_tags || changes.follow_tag_map || changes.follow_list)) loadUps().catch(() => {});
-    else if (area === "local" && changes.follow_people && upOn) {
+    const fc = MdgLimits.followShort(changes);
+    if (area === "local" && (fc.tags || fc.tag_map || fc.list)) loadUps().catch(() => {});
+    else if (area === "local" && fc.people && upOn) {
       who = null;
       schedule();
     }
