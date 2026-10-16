@@ -192,7 +192,8 @@
     const a = ai;
     const who = sp(a.who);
     const live = a.live();
-    $("aiNotes").innerHTML = p.errors.map((e) => `<p class="fail-text">${esc(e)}</p>`).join("") + p.notes.map((n) => `<p class="muted">AI 说明：${esc(n)}</p>`).join("");
+    $("aiNotes").innerHTML = p.errors.map((e) => `<p class="fail-text">${esc(e)}</p>`).join("") + p.notes.map((n) => `<p class="muted">AI 说明：${esc(n)}</p>`).join("") +
+      (p.dropped?.length ? `<p class="muted">超出新建上限、没建的标签：${esc(p.dropped.join("、"))}。只用到它们的视频这次没打上。</p>` : "");
     $("aiNewTagsHead").hidden = !p.newTags.length;
     $("aiNewTags").innerHTML = p.newTags
       .map((t, i) => {

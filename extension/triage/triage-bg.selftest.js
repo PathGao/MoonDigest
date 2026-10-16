@@ -172,6 +172,7 @@ const cmdOut =
   '{"i":3,"add":["化学"],"remove":[]},{"i":4,"add":[],"remove":[],"reason":"无"},{"i":9,"add":["AI"]},{"i":2,"add":["旧"]}],"note":"已打标签"}\n``` 以上';
 assert.deepStrictEqual(plain(t.triageParseCommand(cmdOut, cmdItems, cmdTags, { maxNewTags: 2, allowRemove: true })), {
   newTags: ["数学", "物理力学"],
+  droppedNewTags: ["化学"],
   assignments: {
     BV2: { add: ["数学", "编程"], remove: [] },
     BV1: { add: ["物理力学"], remove: ["旧"] }
@@ -181,6 +182,7 @@ assert.deepStrictEqual(plain(t.triageParseCommand(cmdOut, cmdItems, cmdTags, { m
 assert.deepStrictEqual(plain(t.triageParseCommand('{"items":[{"i":2,"verdict":"keep","reason":"x"}]}', cmdItems, cmdTags)).assignments, {}, "a verdict-only item is no change");
 assert.deepStrictEqual(plain(t.triageParseCommand(cmdOut, cmdItems, cmdTags, { maxNewTags: 0, allowRemove: true })), {
   newTags: [],
+  droppedNewTags: ["数学", "物理力学", "化学"],
   assignments: {
     BV2: { add: ["编程"], remove: [] },
     BV1: { add: [], remove: ["旧"] }
@@ -192,7 +194,7 @@ assert.strictEqual(plain(t.triageParseCommand(cmdOut, cmdItems, cmdTags)).newTag
 assert.ok(Object.values(plain(t.triageParseCommand(cmdOut, cmdItems, cmdTags)).assignments).every((a) => !a.remove.length), "removals dropped by default");
 assert.ok(cmdMsgs[0].content.includes("不能去掉视频已有的标签"), "the default prompt forbids removals");
 assert.ok(t.triageBuildCommandMessages({ instruction: "x", tags: [], items: [], allowRemove: true })[0].content.includes("remove 只能填该视频"), "allowRemove lets it remove");
-assert.deepStrictEqual(plain(t.triageParseCommand('{"items":[]}', cmdItems, cmdTags, {})), { newTags: [], assignments: {}, note: "" });
+assert.deepStrictEqual(plain(t.triageParseCommand('{"items":[]}', cmdItems, cmdTags, {})), { newTags: [], droppedNewTags: [], assignments: {}, note: "" });
 assert.throws(() => t.triageParseCommand("抱歉，没法处理", cmdItems, cmdTags, {}), /格式不对/);
 assert.throws(() => t.triageParseCommand('{"new_tags":[', cmdItems, cmdTags, {}), /回复不完整/);
 
