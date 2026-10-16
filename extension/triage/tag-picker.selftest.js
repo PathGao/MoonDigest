@@ -105,9 +105,13 @@ const key = (k, o = {}) => fire(dlg, "keydown", { key: k, target: input, ...o })
   P.open(opts());
   input.value = "游";
   assert.strictEqual(key("1").prevented, 0, "1 goes into the filter");
+  // Spaces alone filter nothing and the rows keep their numbers: the digit ticks, as they say.
+  input.value = "  ";
+  assert.strictEqual(key("1").prevented, 1, "1 ticks while the filter is only spaces");
   input.value = "";
   assert.strictEqual(key("9").prevented, 0);
   assert.strictEqual(key("2", { metaKey: true }).prevented, 0, "⌘2 is the browser's");
+  key("1");
   P.close();
   assert.deepStrictEqual(saved.splice(0), [[]], "closing without a tick saves nothing");
 

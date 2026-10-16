@@ -24,6 +24,7 @@ assert.strictEqual(sized["收藏夹列表缓存"], "3 个收藏夹，约 2.8 MB"
 assert.strictEqual(sized["已出分拣范围"], "4 个视频");
 assert.strictEqual(sized["备注"], "5 条");
 assert.strictEqual(sized["本地数据合计"], "约 1 KB");
+assert.strictEqual(L.describe({ folderSnapshots: 0, folderSnapshotSize: 0 }).find((row) => row.label === "收藏夹列表缓存").usage, "0 个收藏夹，约 0 KB", "nothing stored is 0 KB, not 1");
 // 观看进度: the caps triage-bg.js applies, in the row and in the options page's hint (filled from SEEN_LIMITS_TEXT).
 assert.strictEqual(L.describe({ seen: 8 }).find((row) => row.label === "观看进度").usage, `8 / ${L.SEEN_MAX} 个视频`);
 assert.strictEqual(L.SEEN_LIMITS_TEXT, "最多 10 分钟一次，留最近 1 年、最多 5000 个");
@@ -108,6 +109,7 @@ for (const name of badgesCopies) assert.ok(fs.readFileSync(path.join(__dirname, 
     triage_tags: [], mdg_ai_conversations_v1: [{ id: "old" }], mdg_subtitle_cache_BV1_9_id_7: { raw: 1 },
     mdg_obsidian_note_paths_v1: { a: 2 }, boc_player_ai_quick_action_v1: { q: 1 }
   }, "copied, the newer mdg_ value kept, the failed one left under its old name");
+  assert.deepStrictEqual([...(await L.storageKeys({ get: async (k) => (k === null ? { a: 1, b: 2 } : {}) }))], ["a", "b"], "no getKeys (Chrome < 130): every key from get(null)");
   const after = JSON.stringify(local.data);
   local.set = async (o) => Object.assign(local.data, o);
   await L.migrateRenamedKeys(local);
@@ -144,6 +146,12 @@ for (const name of badgesCopies) assert.ok(fs.readFileSync(path.join(__dirname, 
   assert.strictEqual(await L.saveVideoNote("BV3", "新的"), true);
   assert.strictEqual(await L.saveVideoNote("BV1", "  "), true);
   assert.deepStrictEqual(Object.fromEntries(Object.entries(area.data.triage_notes).map(([b, n]) => [b, n.text])), { BV2: "别处的", BV3: "新的" });
+  // Two saves at once (two cards' notes) each read after the other wrote: both notes stay.
+  const slowSet = area.set;
+  area.set = async (o) => (await new Promise((r) => setTimeout(r, 5)), slowSet(o));
+  await Promise.all([L.saveVideoNote("BV4", "四"), L.saveVideoNote("BV5", "五")]);
+  area.set = slowSet;
+  assert.deepStrictEqual([area.data.triage_notes.BV4?.text, area.data.triage_notes.BV5?.text], ["四", "五"], "concurrent saves keep both");
   for (const f of ["sidepanel.js", "history/history.js", "triage/triage.js"]) {
     const src = fs.readFileSync(path.join(__dirname, f), "utf8");
     assert.ok(src.includes("MdgLimits.saveVideoNote(") && !/set\(\{ \[(NOTES_STORAGE_KEY|NOTES_KEY)\]|storeSet\(K\.notes, S\.notes\)/.test(src), `${f} saves a note its own way`);

@@ -18,13 +18,13 @@
     const m = Math.floor((sec % 3600) / 60);
     return (sec >= 3600 ? `${Math.floor(sec / 3600)}:${pad(m)}` : m) + `:${pad(sec % 60)}`;
   }
-  // 「3 天前」 style ages, both in seconds; under a day is 今天.
+  // 「3 天前」 style ages, both in seconds, by calendar day as dayText counts them: 今天 is today's date, not 24 hours.
   function fmtAgo(sec, now = Date.now() / 1000) {
-    const d = Math.floor((now - sec) / 86400);
+    const d = Math.round((new Date(now * 1000).setHours(0, 0, 0, 0) - new Date(sec * 1000).setHours(0, 0, 0, 0)) / 86400000);
     if (d < 1) return "今天";
     if (d < 31) return `${d} 天前`;
-    if (d < 365) return `${Math.floor(d / 30)} 个月前`;
-    return `${Math.floor(d / 365)} 年前`;
+    if (d < 360) return `${Math.floor(d / 30)} 个月前`;
+    return `${Math.max(1, Math.floor(d / 365))} 年前`;
   }
   // A card's time: relative, the date on hover.
   const agoHtml = (sec, now) => `<time title="${fmtDate(sec)}">${fmtAgo(sec, now)}</time>`;
@@ -53,9 +53,11 @@
     else for (const x of ids.slice(Math.min(a, b), Math.max(a, b) + 1)) sel.add(x);
     return id;
   }
+  // B站's image URLs come as http://, https:// or protocol-relative //: always https (the pages and the worker).
+  const https = (u) => String(u || "").replace(/^(https?:)?\/\//, "https://");
   // hdslb images: https and a small webp copy (size like "480w_270h_1c"); other URLs as they are.
   const img = (u, size) => {
-    const s = String(u || "").replace(/^(https?:)?\/\//, "https://");
+    const s = https(u);
     return /hdslb\.com\//.test(s) && !s.includes("@") ? `${s}@${size}.webp` : s;
   };
   // Spreadsheets run a cell that starts with = + - @ (or tab/CR) as a formula; a leading ' keeps it text.
@@ -146,8 +148,11 @@
   const labeledRow = (label, html) => `<span class="row-label">${esc(label)}</span>${html}`;
   // Row 3 (both modes): one group of state pills; the CSS splits groups by a thin rule and wraps them whole.
   const stateGroup = (label, html, cls = "") => `<span class="seg${cls}" role="group" aria-label="${esc(label)}">${html}</span>`;
+  // 「AI 刚打的」: the filter of the items the last applied AI 打标签 changed, and what to do with them.
+  const AI_RECENT = "AI 刚打的";
+  const AI_RECENT_CHECK = "在卡片上逐个看，不对的按 T 改";
   // 「AI 刚打的」's ×: stop marking them, tags stay.
-  const AI_RECENT_X = (attrs) => `<button type="button" class="ai-recent-x" ${attrs} aria-label="不再标出「AI 刚打的」，标签不变" title="不再标出，标签不变">×</button>`;
+  const AI_RECENT_X = (attrs) => `<button type="button" class="ai-recent-x" ${attrs} aria-label="不再标出「${AI_RECENT}」，标签不变" title="不再标出，标签不变">×</button>`;
 
   // The search box's behavior, both modes: it filters as you type (bindLive, IME-safe); Esc clears it, and on an empty
   // box gives the keys back to the cards (J / K work again).
@@ -269,10 +274,11 @@
   // picked: the selected ones listed now (all of them when filters hide every one, as the selection bar's buttons; the
   // dialog's 运行 then says HIDDEN_ALL); the dialog opens on 选中, so the button says how many, as 粗看's does.
   // It stays in row 4: the selection bar has no AI 打标签 of its own.
+  const TAG_MANAGE = "标签管理";
   const tagButtons = ({ manageAttrs, aiAttrs, running = false, pending = false, manageReason = "", aiReason = "", noTags = false, picked = 0 }) => {
     const state = running ? " · 运行中" : pending ? " · 待确认" : "";
     const ai = `AI 打标签${picked && !state && !aiReason ? `选中的 ${picked} 个` : ""}`;
-    return `<span class="tags-acts"><button type="button" class="act-btn" ${manageAttrs}${noTags && !manageReason ? ' aria-label="标签管理（还没有自定义标签）"' : ""}${reasonAttrs(manageReason)}>标签管理${noTags && !manageReason ? WARN_DOT : ""}</button><button type="button" class="act-btn" ${aiAttrs} aria-label="${ai} (I)"${reasonAttrs(aiReason)}>${AI_SPARK}${ai}${esc(state)}</button></span>`;
+    return `<span class="tags-acts"><button type="button" class="act-btn" ${manageAttrs}${noTags && !manageReason ? ` aria-label="${TAG_MANAGE}（还没有自定义标签）"` : ""}${reasonAttrs(manageReason)}>${TAG_MANAGE}${noTags && !manageReason ? WARN_DOT : ""}</button><button type="button" class="act-btn" ${aiAttrs} aria-label="${ai} (I)"${reasonAttrs(aiReason)}>${AI_SPARK}${ai}${esc(state)}</button></span>`;
   };
 
   // Row 3's 全选: a checkbox drawn as a button, for what is listed now (n, of which picked are selected). Unchecked or
@@ -306,6 +312,7 @@
   // how (the hint under it, "" hides it), note(value) (html of the amber line for that target, "" hides it) }.
   // Resolves { how, target: { id } | { create, privacy } }, or null when cancelled.
   let transferNote = null;
+  const TRANSFER_VERB = { copy: "复制", move: "移动", add: "收藏" };
   function askTransfer(o) {
     const $ = (id) => document.getElementById(id);
     const dlg = $("transferDialog");
@@ -316,14 +323,17 @@
       name.addEventListener("keydown", (e) => {
         if (!MdgTyping.composing(e) && e.key === "Enter") e.preventDefault();
       });
+      // Spaces alone are no name: the form refuses them like an empty one (the close would take "" for no new folder).
+      name.pattern = ".*\\S.*";
     }
     $("transferTitle").textContent = o.title;
+    dlg.setAttribute("aria-label", o.title);
     $("transferBody").innerHTML = o.list;
     $("transferLabel").textContent = o.label;
     for (const b of dlg.querySelectorAll("button[value=copy], button[value=move], button[value=add]")) {
       b.hidden = !o.hows.includes(b.value);
       b.classList.toggle("primary", b.value === o.hows.at(-1));
-      b.textContent = `${{ copy: "复制", move: "移动", add: "收藏" }[b.value]} ${o.n} 个`;
+      b.textContent = `${TRANSFER_VERB[b.value]} ${o.n} 个`;
       b.setAttribute("aria-label", b.textContent);
     }
     $("transferHow").textContent = o.how || "";
@@ -380,8 +390,9 @@
   const tagsWord = (who) => (who === "UP 主" ? " UP 标签" : `${sp(who)}标签`);
   // The delete confirm's title and body.
   const deleteTagAsk = (t, n, who) => [`删除标签「${t.name}」？`, `<p>将从 ${n} 个${sp(who)}上去掉这个标签，无法撤销。</p>`];
-  // A batch confirm's list: the first 10 names, then 「等 N 个」.
-  const confirmList = (names) => `<ul>${names.slice(0, 10).map((n) => `<li>${esc(n)}</li>`).join("")}</ul>${names.length > 10 ? `<p>等 ${names.length} 个</p>` : ""}`;
+  // A batch confirm's list: the first CONFIRM_NAMES names, then 「等 N 个」.
+  const CONFIRM_NAMES = 10;
+  const confirmList = (names) => `<ul>${names.slice(0, CONFIRM_NAMES).map((n) => `<li>${esc(n)}</li>`).join("")}</ul>${names.length > CONFIRM_NAMES ? `<p>等 ${names.length} 个</p>` : ""}`;
   // The tag picker's title: 「给「名字」打视频标签 / 打 UP 标签」 (a name alone does not say which), or for several
   // 「给选中的 N 个视频打标签」.
   const pickTitle = (n, name, who) => (n > 1 ? `给选中的 ${n} 个${sp(who)}打标签` : `给「${name}」打${tagsWord(who)}`);
@@ -410,6 +421,14 @@
     const rule = String(value ?? "").trim().slice(0, TAG_RULE_MAX);
     return { tag: rule ? { ...rest, rule } : rest };
   }
+  // An UP's newest UP_RECENT titles, newest first and one per title: the video feed's (follow_last.v) and its own videos'
+  // (follow_content, read fine). The card shows them and the AI 打标签 reads them.
+  const UP_RECENT = 3;
+  function upTitles(feed, content) {
+    const all = [...(feed || []), ...(content?.code === 0 ? content.v || [] : [])].sort((a, b) => (b.c || 0) - (a.c || 0));
+    const seen = new Set();
+    return all.filter((v) => v.t && !seen.has(v.t) && seen.add(v.t)).slice(0, UP_RECENT);
+  }
   // A tag map ({ key: [tag ids] }) without one tag; a key left with none drops out.
   function withoutTag(map, id) {
     const out = {};
@@ -431,8 +450,8 @@
   // Row 3's 「✦ AI 刚打的」 and its ×, while there are some (n) or it is on; "" otherwise.
   function aiRecentChip({ attrs, xAttrs, n, on, who }) {
     if (!n && !on) return "";
-    const tip = `最近一次 AI 打标签改动的${sp(who)}，在卡片上逐个看，不对的按 T 改。\n${AI_RECENT_RULES.map((r) => `· ${r}`).join("\n")}\n${aiRecentUndo(who)}`;
-    return stateGroup("AI 刚打的", filterBtn(`${attrs} title="${esc(tip)}"`, "AI 刚打的", n, on, AI_SPARK) + AI_RECENT_X(xAttrs), " ai-recent");
+    const tip = `最近一次 AI 打标签改动的${sp(who)}，${AI_RECENT_CHECK}。\n${AI_RECENT_RULES.map((r) => `· ${r}`).join("\n")}\n${aiRecentUndo(who)}`;
+    return stateGroup(AI_RECENT, filterBtn(`${attrs} title="${esc(tip)}"`, AI_RECENT, n, on, AI_SPARK) + AI_RECENT_X(xAttrs), " ai-recent");
   }
   // One row of 标签管理: color, name, the line for the AI, how many carry it, 删除. Edits save on change.
   const tagRowHtml = (t, { count, who }) => `<div class="tag-row" data-id="${esc(t.id)}">
@@ -581,11 +600,11 @@
         if (!name || blocked(name)) continue;
         const t = existing(name);
         if (t) {
-          if (!current.includes(t.id)) add.push(`id:${t.id}`);
+          if (!current.includes(t.id)) add.push(aiRef.id(t.id));
           continue;
         }
         const nt = proposed(name) || addNew(name);
-        if (nt) add.push(`new:${nt.key}`);
+        if (nt) add.push(aiRef.new(nt.key));
       }
       const remove = (a?.remove || [])
         .map((n) => existing(String(n ?? "").trim()))
@@ -599,6 +618,13 @@
       } else p.rows.push({ id, add, remove });
     }
   }
+  // An AI 打标签 proposal names the tags a row adds as "id:<tag id>" (an existing tag) or "new:<key>" (one it proposes).
+  const aiRef = {
+    id: (id) => `id:${id}`,
+    new: (key) => `new:${key}`,
+    idOf: (ref) => (ref.startsWith("id:") ? ref.slice(3) : ""),
+    keyOf: (ref) => (ref.startsWith("new:") ? ref.slice(4) : "")
+  };
   // [id, before, after] for every row that changes its tags. live.has(id): the video is still in the folder, the UP still
   // followed (others keep their tags). idOf(key) is a new tag's id; an unchecked new tag adds nothing.
   function aiChanges(p, map, live, idOf) {
@@ -608,8 +634,8 @@
       const before = map[r.id] || [];
       const ids = new Set(before);
       for (const ref of r.add) {
-        const key = ref.slice(4);
-        const id = ref.startsWith("id:") ? ref.slice(3) : p.newTags.find((t) => t.key === key)?.checked && idOf(key);
+        const key = aiRef.keyOf(ref);
+        const id = aiRef.idOf(ref) || (p.newTags.find((t) => t.key === key)?.checked && idOf(key));
         if (id) ids.add(id);
       }
       for (const id of r.remove) ids.delete(id);
@@ -620,18 +646,18 @@
   }
   // A saved AI 打标签 proposal still fits the data when every existing tag it adds or removes is still there (hasTag(id));
   // one naming a deleted tag is dropped, not applied.
-  const aiProposalOk = (p, hasTag) => Array.isArray(p?.rows) && Array.isArray(p.newTags) && p.rows.every((r) => r.add.every((ref) => !ref.startsWith("id:") || hasTag(ref.slice(3))) && r.remove.every(hasTag));
+  const aiProposalOk = (p, hasTag) => Array.isArray(p?.rows) && Array.isArray(p.newTags) && p.rows.every((r) => r.add.every((ref) => !aiRef.idOf(ref) || hasTag(aiRef.idOf(ref))) && r.remove.every(hasTag));
   // Before 应用: a new tag stands in as "new:key", or as the same-name tag in tags (of its folder, when it has one) that
   // creating it would return; a cleared name adds nothing.
   function previewId(p, key, tags) {
     const nt = p.newTags.find((t) => t.key === key);
     const name = cleanTagName(nt?.name);
-    return name && (tags.find((t) => t.name === name && (!nt.folder || t.folder === nt.folder))?.id || `new:${key}`);
+    return name && (tags.find((t) => t.name === name && (!nt.folder || t.folder === nt.folder))?.id || aiRef.new(key));
   }
   // The confirm page sums the changes up per tag ("+ 科普 12"); the items are judged afterwards on their cards.
   // nameOf(id) names an existing tag.
   function aiTally(p, changes, nameOf) {
-    const name = (id) => (id.startsWith("new:") ? cleanTagName(p.newTags.find((t) => t.key === id.slice(4))?.name) : nameOf(id)) || "";
+    const name = (id) => (aiRef.keyOf(id) ? cleanTagName(p.newTags.find((t) => t.key === aiRef.keyOf(id))?.name) : nameOf(id)) || "";
     const tally = new Map();
     for (const [, before, after] of changes) {
       const rows = after.filter((id) => !before.includes(id)).map((id) => ["add", `+ ${name(id)}`])
@@ -705,14 +731,15 @@
       measure(true);
       main.classList.toggle("head-instant", false);
     };
+    // Not read: unfolded, as on a first visit.
     chrome.storage.local.get(HEAD_FOLD_KEY).then((r) => {
       folded = r?.[HEAD_FOLD_KEY] || {};
       instant();
-    });
+    }, instant);
     // follow.js's setMode calls it right after switching body.follow-mode (clicks, the view restored on load, deep
     // links), so the new mode's fold shows in the same frame instead of animating in after a ResizeObserver round.
     return instant;
   }
 
-  globalThis.TriageUi = { esc, pad, dayText, fmtDate, fmtAgo, agoHtml, setSearchScope, confirmList, pickTitle, fmtDuration, fmtCount, cleanTagName, plainClick, cardPlayClick, cardPickClick, pickCard, img, toCsv, cardTagChip, syncedText, headMeta, titleHtml, AI_SPARK, byValue, dirWords, sortControl, filterBtn, labeledRow, tagFilterChip, kindTabs, originChip, stateGroup, aiRecentChip, searchBox, bindSearch, resultCount, rowButtons, menuItem, BACKUP_ITEM, CLEAN_BACKUP, reasonAttrs, setReason, WARN_DOT, selectAllState, selectAllBox, toggleAll, setActivity, BILI_STUCK, waitText, BILI_HOLD_MS, WRITE_STOPPING, busyText, syncPill, setSync, bindSync, tagButtons, sideFoot, actBtn, cleanBtn, HIDDEN_ALL, selbar, askTransfer, sideItem, emptyState, refreshEmpty, noMatch, fillSetRows, fillNumHints, NUM_SETTINGS, TITLES_PER_REQUEST, INTRO_CHARS, DEEP_COMMENTS, autoMaxTokens, numSetting, clampNumber, intIn, clampNumbers, mergeAiBatch, aiChanges, aiProposalOk, previewId, aiTally, nextTagColor, TAG_RULE_MAX, AI_TAGS_PENDING, tagNameError, deleteTagAsk, editedTag, withoutTag, undoAsk, tagRowHtml, sp, tagsWord, AI_RECENT_RULES, aiRecentUndo, tagPlusBtn, viewerLine, viewerKeyFrom, headFold, FOLLOW_WRITE_GAP_MS, AI_TAGS_DONE, aiTagsFailed, aiApplied, aiHistoryAdd, GROUP_NAME_MAX, groupNameError };
+  globalThis.TriageUi = { https, UP_RECENT, upTitles, AI_RECENT, AI_RECENT_CHECK, aiRef, esc, pad, dayText, fmtDate, fmtAgo, agoHtml, setSearchScope, confirmList, pickTitle, fmtDuration, fmtCount, cleanTagName, plainClick, cardPlayClick, cardPickClick, pickCard, img, toCsv, cardTagChip, syncedText, headMeta, titleHtml, AI_SPARK, byValue, dirWords, sortControl, filterBtn, labeledRow, tagFilterChip, kindTabs, originChip, stateGroup, aiRecentChip, searchBox, bindSearch, resultCount, rowButtons, menuItem, BACKUP_ITEM, CLEAN_BACKUP, reasonAttrs, setReason, WARN_DOT, selectAllState, selectAllBox, toggleAll, setActivity, BILI_STUCK, waitText, BILI_HOLD_MS, WRITE_STOPPING, busyText, syncPill, setSync, bindSync, tagButtons, sideFoot, actBtn, cleanBtn, HIDDEN_ALL, selbar, askTransfer, sideItem, emptyState, refreshEmpty, noMatch, fillSetRows, fillNumHints, NUM_SETTINGS, TITLES_PER_REQUEST, INTRO_CHARS, DEEP_COMMENTS, autoMaxTokens, numSetting, clampNumber, intIn, clampNumbers, mergeAiBatch, aiChanges, aiProposalOk, previewId, aiTally, nextTagColor, TAG_RULE_MAX, AI_TAGS_PENDING, tagNameError, deleteTagAsk, editedTag, withoutTag, undoAsk, tagRowHtml, sp, tagsWord, AI_RECENT_RULES, aiRecentUndo, tagPlusBtn, viewerLine, viewerKeyFrom, headFold, FOLLOW_WRITE_GAP_MS, AI_TAGS_DONE, aiTagsFailed, aiApplied, aiHistoryAdd, GROUP_NAME_MAX, groupNameError };
 })();

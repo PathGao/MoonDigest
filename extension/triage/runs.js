@@ -86,7 +86,8 @@
             if ((v !== "retry" && v !== "wait") || !alive()) break;
           }
           if (v === "stop") {
-            error = x.error || "";
+            // Never without words: that would read as the user's 停止 (stopped is "no error").
+            error = MdgErrors.text(x);
             code = x.code || "";
             break;
           }

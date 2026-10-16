@@ -255,7 +255,7 @@
       if (it._i === 2) return { ok: false, error: "字幕获取失败：网络超时" };
       if (it._i === 8 && !throttledOnce.has("truncate")) {
         throttledOnce.add("truncate");
-        return { ok: false, error: "模型输出被截断（max_tokens 不足）" };
+        return { ok: false, error: "模型输出被截断", code: "AI_TRUNCATED" };
       }
       if (it._i === 3 && !throttledOnce.has(bvid)) {
         throttledOnce.add(bvid);

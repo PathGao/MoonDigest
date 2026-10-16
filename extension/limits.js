@@ -73,10 +73,13 @@
   const OLD_PREFIX = "boc_";
   const renamedKey = (key) => (key.startsWith(OLD_PREFIX) ? `mdg_${key.slice(OLD_PREFIX.length)}` : "");
 
+  // Every key of a chrome.storage area: getKeys is Chrome 130+, the manifest sets no minimum, so older ones read it all.
+  const storageKeys = async (area) => (await area.getKeys?.()) ?? Object.keys((await area.get(null)) || {});
+
   // Moves each old key to its new name, one key at a time: copy only when the new key is absent (newer data wins),
   // remove the old key only after the copy is written. A failed write leaves the old key for the next run. Idempotent.
   async function migrateRenamedKeys(area) {
-    const keys = (await area.getKeys?.()) ?? Object.keys((await area.get(null)) || {});
+    const keys = await storageKeys(area);
     const present = new Set(keys);
     for (const old of keys.filter(renamedKey)) {
       try {
@@ -107,14 +110,23 @@
   // One 视频备注 saved by read-modify-write (the side panel, 视频记录 and 分拣台): a fresh read, only this entry changed,
   // written back, so a note another page saved meanwhile is kept. Blank text deletes it; the stored text writes nothing.
   // set writes the whole map (the 分拣台 passes its own, to know the echo). Resolves true when it wrote.
-  async function saveVideoNote(id, text, set = (notes) => chrome.storage.local.set({ [KEYS.triageNotes]: notes })) {
-    const notes = { ...(await chrome.storage.local.get(KEYS.triageNotes))[KEYS.triageNotes] };
-    const next = String(text ?? "").trim() ? String(text) : "";
-    if ((notes[id]?.text || "") === next) return false;
-    if (next) notes[id] = { text: next, updatedAt: Date.now() };
-    else delete notes[id];
-    await set(notes);
-    return true;
+  // Saves run one at a time, or two would read the same map and the later write drop the other's note: in this page by
+  // a chain, across the extension's pages by a Web Lock (they share one origin).
+  let noteQueue = Promise.resolve();
+  function saveVideoNote(id, text, set = (notes) => chrome.storage.local.set({ [KEYS.triageNotes]: notes })) {
+    const once = async () => {
+      const notes = { ...(await chrome.storage.local.get(KEYS.triageNotes))[KEYS.triageNotes] };
+      const next = String(text ?? "").trim() ? String(text) : "";
+      if ((notes[id]?.text || "") === next) return false;
+      if (next) notes[id] = { text: next, updatedAt: Date.now() };
+      else delete notes[id];
+      await set(notes);
+      return true;
+    };
+    const locked = () => (globalThis.navigator?.locks ? navigator.locks.request("mdg-video-notes", once) : once());
+    const done = noteQueue.then(locked);
+    noteQueue = done.catch(() => {});
+    return done;
   }
 
   // Asks the side panel to open a video's AI chat (KEYS.playerAiQuickAction): the one shape every sender writes (the
@@ -167,7 +179,7 @@
   const chars = (value) => `${value.toLocaleString("en-US")} 字`;
   const size = (value) => {
     if (value == null) return "–";
-    if (value < 1024 * 1024) return `${Math.max(1, Math.round(value / 1024))} KB`;
+    if (value < 1024 * 1024) return `${value && Math.max(1, Math.round(value / 1024))} KB`;
     return `${(value / 1024 / 1024).toFixed(1)} MB`;
   };
 
@@ -188,7 +200,7 @@
       {
         label: "AI 每次请求读的字幕",
         usage: `最多 ${chars(AI_SUBTITLE_MAX_CHARS)}`,
-        rule: "侧边栏和分拣台细看都按这个上限读。更长的字幕按行均匀抽样，侧边栏会提示。"
+        rule: "侧边栏和分拣台细看都按这个上限读。更长的字幕按行均匀抽取，侧边栏会提示。"
       },
       {
         label: "AI 每次请求带的历史",
@@ -208,7 +220,7 @@
       {
         label: "已出分拣范围",
         usage: `${count(usage.triageRemoved)} 个视频`,
-        rule: "不自动删。在分拣台的「已出分拣范围」里查看、导出和清理。"
+        rule: "收藏夹里离开分拣范围的视频，不含关注的 UP 主。不自动删。在分拣台的「已出分拣范围」里查看、导出和清理。"
       },
       {
         label: "备注",
@@ -223,7 +235,7 @@
       {
         label: "本地数据合计",
         usage: `约 ${size(usage.totalSize)}`,
-        rule: "这些数据和设置、其他记录，都存在这台电脑的浏览器里。"
+        rule: "这些数据和其他记录都存在这台电脑的浏览器里。设置存在 Chrome 的同步存储里，不算在内。"
       }
     ];
   }
@@ -246,6 +258,7 @@
     describe,
     sampleAiSubtitle,
     migrateRenamedKeys,
+    storageKeys,
     migrateRenamedLocalStorage,
     saveVideoNote,
     askSidepanel

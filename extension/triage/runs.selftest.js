@@ -89,6 +89,9 @@ const line = (d, t, stopping) => `跑 ${d}/${t}${stopping ? " 停" : ""}`;
     const { runs, log } = setup();
     const r = await runs.run("j", { total: 2, line, next: steps([{ id: 1 }, { id: 2 }]), act: sender(log, [{ ok: false, code: "THROTTLED" }, { ok: true }, { ok: false, error: "网络错误" }]) });
     assert.deepStrictEqual(r, { done: 1, failed: 0, total: 2, stopped: false, error: "网络错误", code: "" });
+    // A stop without words is a failure, not the user's 停止.
+    const quiet = await runs.run("q", { total: 1, line, next: steps([{ id: 1 }]), act: sender(log, [{ ok: false }]) });
+    assert.deepStrictEqual([quiet.stopped, quiet.error], [false, MdgErrors.TEXT.unknown]);
   }
 
   // A countdown keeps the run's line, count and bar: 「‹line› · B站限流卡住，1:30 后重试」, amber, ticking down.

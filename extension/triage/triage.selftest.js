@@ -1807,6 +1807,11 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     assert.deepStrictEqual(plain(t.updateRemoved(back.removed, back.left, [item(1)], [], new Set(), 8, null, B).removed.BV1.from), [{ id: "B", title: "乙", at: 8 }]);
     // A hidden (still in the id list) video is marked so, with its origin.
     assert.deepStrictEqual(plain(t.updateRemoved({}, {}, [item(4)], [], new Set(), 9, ["BV4"], A).removed), { BV4: { item: item(4), at: 9, from: [{ id: "A", title: "甲", at: 9 }], hidden: true } });
+    // It leaves the id list later (unfavorited): no longer marked hidden; an id list not read changes nothing.
+    const hid = t.updateRemoved({}, {}, [item(4)], [], new Set(), 9, ["BV4"], A).removed;
+    assert.strictEqual(t.updateRemoved(hid, {}, [], [], new Set(), 10, [], A).removed.BV4.hidden, undefined);
+    assert.strictEqual(t.updateRemoved(hid, {}, [], [], new Set(), 10, null, A).removed.BV4.hidden, true);
+    assert.strictEqual(t.mdLinkText("a\\b[c]"), "a\\\\b\\[c\\]", "a backslash is escaped too");
     // Moved out of triage: the source folder is the origin (after its trail); from 已出分拣范围 itself the origin is kept.
     const moved = t.moveToRemoved({}, { BV1: { A: { title: "甲", at: 2 } } }, [item(1), item(3)], new Set(["BV3"]), B, 7, { id: "Z", title: "外" });
     assert.deepStrictEqual(plain(moved), { removed: { BV1: { item: item(1), at: 7, movedTo: { id: "Z", title: "外" }, from: [{ id: "A", title: "甲", at: 2 }, { id: "B", title: "乙", at: 7 }] } }, left: {} });

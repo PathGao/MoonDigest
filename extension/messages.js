@@ -24,7 +24,7 @@
     "get-settings": { from: ["content.js", "history/history.js", "options.js", "popup.js", "sidepanel.js"], to: "background.js", request: [], response: ["settings"] },
     "save-settings": { from: ["content.js", "options.js", "sidepanel.js"], to: "background.js", request: ["settings"], response: ["field"] },
     "settings-export": { from: ["options.js"], to: "background.js", request: [], response: ["file"] },
-    "settings-import": { from: ["options.js"], to: "background.js", request: ["file"], response: ["file"] },
+    "settings-import": { from: ["options.js"], to: "background.js", request: ["file"], response: [] },
     "test-obsidian-connection": { from: ["options.js"], to: "background.js", request: ["baseUrl", "apiKey"], response: ["service"] },
     "ai-providers-list": { from: ["options.js", "sidepanel.js"], to: "background.js", request: [], response: ["providers"] },
     "ai-providers-save": { from: ["options.js"], to: "background.js", request: ["providers"], response: ["providers"] },

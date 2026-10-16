@@ -94,8 +94,7 @@ const ALLOW = [
   ["triage/triage.js", "[K.notes]: S.notes", "待修：C577（清理整份写回页面里缓存的备注）"],
   ["triage/triage-bg.js", "[triageNotes]: notes, triage_notes_migrated: true", "例外：一次性迁移（triage_notes_migrated），扩展更新时跑一次，只补还没有的条目"],
   // 5b
-  ["triage/follow-bg.js", "chrome.storage.local.set({ follow_hold: hold })", "例外：只写不读，follow_hold 只由 followHold 整个换掉，不依赖读到的旧值"],
-  ["triage/follow-bg.js", 'remove("follow_last_wip")', "待修：A41"]
+  ["triage/follow-bg.js", "chrome.storage.local.set({ follow_hold: hold })", "例外：只写不读，follow_hold 只由 followHold 整个换掉，不依赖读到的旧值"]
 ];
 // Each line covers exactly one hit: a second line like it is a new case and needs its own reason.
 const used = ALLOW.map(() => 0);

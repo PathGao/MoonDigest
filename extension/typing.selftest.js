@@ -20,6 +20,11 @@ const node = (tag, extra = {}) => ({ closest: (s) => (s.split(", ").includes(tag
 assert.ok(T.typingIn({ target: node("input") }));
 assert.ok(T.typingIn({ target: node("div", { isContentEditable: true }) }));
 assert.ok(!T.typingIn({ target: node("button") }));
+// A focused checkbox (a toggle just clicked) keeps Space / Enter, every other key is a shortcut again.
+const box = { tagName: "INPUT", type: "checkbox", closest() { return this; } };
+assert.ok(!T.typingIn({ target: box, key: "j" }), "a letter on a checkbox is the page's");
+assert.ok(T.typingIn({ target: box, key: " " }) && T.typingIn({ target: box, key: "Enter" }));
+assert.ok(T.typingIn({ target: { tagName: "INPUT", type: "text", closest() { return this; } }, key: "j" }));
 // A shadow-root text field: the event is retargeted to the host, composedPath()[0] is the field.
 assert.ok(T.typingIn({ target: node("div"), composedPath: () => [node("textarea"), node("div")] }));
 

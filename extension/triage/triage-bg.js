@@ -4,12 +4,13 @@
 
 // ===== 纯函数 =====
 
+const TRIAGE_BAD_REPLY = "AI 回复格式不对";
 // 从模型输出里取第一个完整的 {...} 或 [...]（去掉 ``` 围栏，跳过字符串里的括号）
 function triageExtractJson(content, open) {
   const close = open === "[" ? "]" : "}";
   const s = String(content || "").replace(/```(?:json)?/gi, "");
   const start = s.indexOf(open);
-  if (start < 0) throw new Error("AI 回复格式不对");
+  if (start < 0) throw new Error(TRIAGE_BAD_REPLY);
   let depth = 0, inStr = false, esc = false, end = -1;
   for (let i = start; i < s.length; i++) {
     const ch = s[i];
@@ -25,7 +26,7 @@ function triageExtractJson(content, open) {
   try {
     return JSON.parse(s.slice(start, end + 1));
   } catch {
-    throw new Error("AI 回复格式不对");
+    throw new Error(TRIAGE_BAD_REPLY);
   }
 }
 
@@ -55,6 +56,9 @@ function triageTagLines(tags) {
     .filter(Boolean);
 }
 
+// 细看的要点数：提示词里的格式和解析出的条数都按它。
+const TRIAGE_POINTS = 3;
+const triagePointNames = Array.from({ length: TRIAGE_POINTS }, (_, i) => `要点${i + 1}`);
 function triageParseLlm(content) {
   const obj = triageExtractJson(content, "{");
   const oneLiner = String(obj.one_liner ?? obj.oneLiner ?? "").trim();
@@ -62,8 +66,8 @@ function triageParseLlm(content) {
   const points = (Array.isArray(obj.points) ? obj.points : [])
     .map((p) => String(p ?? "").trim())
     .filter(Boolean)
-    .slice(0, 3);
-  while (points.length < 3) points.push("");
+    .slice(0, TRIAGE_POINTS);
+  while (points.length < TRIAGE_POINTS) points.push("");
   return { oneLiner, points, verdict: triageVerdict(obj.verdict), reason: String(obj.reason ?? "").trim() };
 }
 
@@ -90,10 +94,10 @@ function triageParseTitleBatch(content, items) {
 
 function triageTitleLine(item, n) {
   const clean = (s) => String(s ?? "").replace(/[|\r\n]+/g, " ").trim();
-  return `${n}|${clean(item.title)}|${clean(item.upper)}|${TriageUi.fmtDuration(item.duration)}|${TriageUi.fmtDate(item.pubdate)}|${clean(item.intro).slice(0, TriageUi.INTRO_CHARS)}`;
+  return `${n}|${clean(item.title)}|${clean(item.upper)}|${Number(item.duration) ? TriageUi.fmtDuration(item.duration) : ""}|${TriageUi.fmtDate(item.pubdate)}|${clean(item.intro).slice(0, TriageUi.INTRO_CHARS)}`;
 }
 
-// 序号|标题|UP|时长|简介前 INTRO_CHARS 字|现有标签|一句话|要点1；要点2；要点3（没有的字段留空）
+// 序号|标题|UP|时长|简介前 INTRO_CHARS 字|现有标签|一句话|要点（；分隔）（没有的字段留空）
 function triageCommandLine(item, n) {
   const clean = (s) => String(s ?? "").replace(/[|\r\n]+/g, " ").trim();
   const list = (a) => (Array.isArray(a) ? a.map(clean).filter(Boolean) : []);
@@ -102,7 +106,7 @@ function triageCommandLine(item, n) {
 
 // 批量打标签的提案只改标签：add 只留已有标签或本次新建的标签（至多 maxNewTags 个），remove 只留视频现有标签且要 allowRemove；
 // 其他字段（如 verdict）一律丢弃，无改动的视频不返回
-function triageParseCommand(content, items, tags, { maxNewTags = 5, allowRemove = false } = {}) {
+function triageParseCommand(content, items, tags, { maxNewTags = TriageUi.numSetting("newTagMax"), allowRemove = false } = {}) {
   const obj = triageExtractJson(content, "{");
   const existing = new Set(triageTagNames(tags));
   const newTags = [];
@@ -147,7 +151,7 @@ const TRIAGE_VERDICT_TEXT = [
 const TRIAGE_SYSTEM_PROMPT = [
   "你是 B站收藏夹分拣助手。根据给出的视频信息总结视频，并按这个收藏夹的用途判断值得留还是可清理。",
   "只输出严格 JSON，不要任何其他文字、不要代码块：",
-  '{"one_liner": "一句话说清视频讲了什么，≤40字", "points": ["要点1", "要点2", "要点3"], "verdict": "keep|drop|unsure", "reason": "判断理由，≤30字"}',
+  `{"one_liner": "一句话说清视频讲了什么，≤40字", "points": [${triagePointNames.map((p) => `"${p}"`).join(", ")}], "verdict": "keep|drop|unsure", "reason": "判断理由，≤30字"}`,
   TRIAGE_VERDICT_TEXT,
   "信息太少无法判断时（只有标题简介且简介很短）选 unsure。"
 ].join("\n");
@@ -206,16 +210,18 @@ const TRIAGE_AI_UNIT = {
   intro: "你是 B站收藏整理助手，按用户指令给视频打标签、做分类。",
   noun: "视频",
   basis: "- 有“一句话”和“要点”的视频以它们为主要依据，它们比标题可靠得多。",
-  header: `视频列表，每行格式：序号|标题|UP主|时长|简介前${TriageUi.INTRO_CHARS}字|现有标签|一句话|要点1；要点2；要点3（没有的字段留空）：`,
+  header: `视频列表，每行格式：序号|标题|UP主|时长|简介前${TriageUi.INTRO_CHARS}字|现有标签|一句话|${triagePointNames.join("；")}（没有的字段留空）：`,
   line: triageCommandLine
 };
-function triageBuildCommandMessages({ instruction, tags, items, maxNewTags = 5, allowRemove = false, unit = TRIAGE_AI_UNIT }) {
+// The user's instruction sits between these two lines; the system prompt names them.
+const TRIAGE_INSTRUCTION_MARKS = ["<<<指令>>>", "<<<指令结束>>>"];
+function triageBuildCommandMessages({ instruction, tags, items, maxNewTags = TriageUi.numSetting("newTagMax"), allowRemove = false, unit = TRIAGE_AI_UNIT }) {
   const lines = triageTagLines(tags);
   const { noun } = unit;
   const example = `{"new_tags": ["标签名"], "items": [{"i": 序号, "add": ["标签"], "remove": ["标签"]}], "note": "≤60字"}`;
   const system = [
     unit.intro,
-    "用户指令写在 <<<指令>>> 和 <<<指令结束>>> 之间，它就是本次任务的要求。",
+    `用户指令写在 ${TRIAGE_INSTRUCTION_MARKS.join(" 和 ")} 之间，它就是本次任务的要求。`,
     "规则：",
     "- add 只能用已有标签名，或本次 new_tags 里列出的新标签名。",
     maxNewTags > 0
@@ -233,7 +239,8 @@ function triageBuildCommandMessages({ instruction, tags, items, maxNewTags = 5, 
     "已有标签（每行一个，格式：名称：说明，没有说明只写名称）：",
     ...(lines.length ? lines : ["（无）"])
   ].join("\n");
-  const user = ["<<<指令>>>", String(instruction ?? "").trim(), "<<<指令结束>>>", "", unit.header, ...items.map((it, idx) => unit.line(it, idx + 1))].join("\n");
+  const [open, close] = TRIAGE_INSTRUCTION_MARKS;
+  const user = [open, String(instruction ?? "").trim(), close, "", unit.header, ...items.map((it, idx) => unit.line(it, idx + 1))].join("\n");
   return [
     { role: "system", content: system },
     { role: "user", content: user }
@@ -250,7 +257,8 @@ function triageError(error, code) {
 // HTTP 429 (sites.js biliJson, the video page's channel, reads them the same). follow-bg.js uses the same set.
 const BILI_RISK_CODES = MdgSites.BILI_RISK_CODES;
 async function triageBiliJson(res) {
-  if (!res.ok) throw Object.assign(triageError(`B站请求失败 HTTP ${res.status}`, res.status === 412 || res.status === 429 ? "THROTTLED" : undefined), { status: res.status });
+  const throttled = res.status === 412 || res.status === 429;
+  if (!res.ok) throw Object.assign(throttled ? triageError(MdgErrors.TEXT.biliThrottled, "THROTTLED") : triageError(`B站请求失败 HTTP ${res.status}`), { status: res.status });
   try {
     return await res.json();
   } catch {
@@ -259,11 +267,17 @@ async function triageBiliJson(res) {
 }
 
 // -101 (and a missing bili_jct or nav's isLogin) is NOT_LOGGED_IN, which the page answers with its 去登录 banner.
-// follow-bg.js maps its -101 with it too.
 const triageNotLoggedIn = () => triageError(MdgErrors.TEXT.biliLogin, "NOT_LOGGED_IN");
+// A B站 answer whose code is not 0, as the error both modes throw: -101 NOT_LOGGED_IN, risk control THROTTLED, any other
+// 「what code：message」. keep (关注's reads, follow-bg.js followCodeError) keeps B站's number as the code, which tells a
+// closed account from a passing failure; 收藏夹's leave it off (a write refused for one item is no stop).
+function triageCodeError(json, what = "B站返回 ", keep = false) {
+  if (json.code === -101) return triageNotLoggedIn();
+  if (BILI_RISK_CODES.has(json.code)) return triageError(MdgErrors.TEXT.biliThrottled, "THROTTLED");
+  return triageError(`${what}${json.code}：${json.message || ""}`, keep ? json.code : undefined);
+}
 function triageBiliData(json) {
-  if (json.code === -101) throw triageNotLoggedIn();
-  if (json.code !== 0) throw triageError(`B站返回 ${json.code}：${json.message}`, BILI_RISK_CODES.has(json.code) ? "THROTTLED" : undefined);
+  if (json.code !== 0) throw triageCodeError(json);
   return json.data;
 }
 
@@ -294,8 +308,11 @@ async function triageBiliFetch(url, init = {}) {
   }
 }
 
+// B站's site and API origins, for the worker's requests, their Referer and the cookie.
+const TRIAGE_BILI_WEB = "https://www.bilibili.com";
+const TRIAGE_BILI_API = "https://api.bilibili.com";
 // What a B站 page's own requests send; from the worker fetch would send no referrer.
-const TRIAGE_BILI_GET = { cache: "no-store", referrer: "https://www.bilibili.com/", referrerPolicy: "strict-origin-when-cross-origin" };
+const TRIAGE_BILI_GET = { cache: "no-store", referrer: `${TRIAGE_BILI_WEB}/`, referrerPolicy: "strict-origin-when-cross-origin" };
 
 // GET → the whole JSON, whatever its code. url may be an async function (WBI: signed again on every try).
 // Without pace (收藏夹) it is one try; the caller backs off on THROTTLED. pace (关注's long syncs) =
@@ -331,16 +348,16 @@ async function triageBiliGet(url) {
 }
 
 async function triageBiliPost(path, fields) {
-  const cookie = await chrome.cookies.get({ url: "https://www.bilibili.com", name: "bili_jct" });
+  const cookie = await chrome.cookies.get({ url: TRIAGE_BILI_WEB, name: "bili_jct" });
   if (!cookie?.value) throw triageNotLoggedIn();
   // A write is tried once. Without an answer B站 may or may not have done it, so callers keep their state as before
   // (no count change, no undo step) and the message says to look.
-  const json = await triageBiliFetch(`https://api.bilibili.com${path}`, {
+  const json = await triageBiliFetch(`${TRIAGE_BILI_API}${path}`, {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body: triageForm({ ...fields, csrf: cookie.value })
   }).catch((e) => {
-    throw e.code === "NETWORK" ? triageError("网络超时或断开：不确定 B站 是否已改，刷新后看一下", "NETWORK") : e;
+    throw e.code === "NETWORK" ? triageError(`${e.message}：不确定 B站 是否已改，刷新后看一下`, "NETWORK") : e;
   });
   return triageBiliData(json);
 }
@@ -349,9 +366,11 @@ async function triageBiliPost(path, fields) {
 // reads turn risk control into THROTTLED themselves, as for the video page.
 const TRIAGE_BILI_IO = { signWbi: true, fetchJson: (url) => triageBiliGetJson(url) };
 
-// nav 未登录时 code=-101，triageBiliGet 会当错误抛出，所以只查 HTTP 与 JSON，由 triageMid 判断登录
+// nav 未登录时 code=-101，triageBiliGet 会当错误抛出，所以只查 HTTP 与 JSON，由 triageMid 判断登录；风控码是限流，不是未登录。
 async function triageNav() {
-  return (await triageBiliGetJson("https://api.bilibili.com/x/web-interface/nav")).data || {};
+  const json = await triageBiliGetJson(`${TRIAGE_BILI_API}/x/web-interface/nav`);
+  if (BILI_RISK_CODES.has(json.code)) throw triageCodeError(json);
+  return json.data || {};
 }
 
 async function triageMid() {
@@ -365,7 +384,7 @@ const TRIAGE_TOVIEW = "toview";
 
 // The whole 稍后再看 list in one request (the paged toview/web endpoint is only for the site's own page).
 async function triageToviewList() {
-  const data = await triageBiliGet("https://api.bilibili.com/x/v2/history/toview");
+  const data = await triageBiliGet(`${TRIAGE_BILI_API}/x/v2/history/toview`);
   return data?.list || [];
 }
 
@@ -427,7 +446,7 @@ function seenSync({ force }) {
 // 关 drops the stored history (up to SEEN_MAX keys) once any read in flight has written; turning it back on reads afresh.
 async function seenClear() {
   await seenRun?.catch(() => {});
-  const keys = (await chrome.storage.local.getKeys()).filter((k) => k.startsWith(SEEN_PREFIX));
+  const keys = (await MdgLimits.storageKeys(chrome.storage.local)).filter((k) => k.startsWith(SEEN_PREFIX));
   await chrome.storage.local.remove([...keys, SEEN_META]);
 }
 
@@ -457,7 +476,7 @@ async function seenSyncOnce(force, started) {
         // Turned 关 mid-read: stop before the next page (seenClear is waiting for this run to drop what was read).
         if (!(await seenOn())) return { stopped: "off", pages: ran };
       }
-      const data = await triageBiliGet(`https://api.bilibili.com/x/web-interface/history/cursor?ps=30&max=${cursor.max}&view_at=${cursor.view_at}&business=${cursor.business}`);
+      const data = await triageBiliGet(`${TRIAGE_BILI_API}/x/web-interface/history/cursor?ps=30&max=${cursor.max}&view_at=${cursor.view_at}&business=${cursor.business}`);
       ran++;
       pages++;
       const list = data?.list || [];
@@ -485,7 +504,7 @@ async function seenSyncOnce(force, started) {
   }
   let dropped = 0;
   if (now - (meta.prunedAt || 0) > SEEN_PRUNE_GAP_MS) {
-    const all = (await chrome.storage.local.getKeys()).filter((k) => k.startsWith(SEEN_PREFIX));
+    const all = (await MdgLimits.storageKeys(chrome.storage.local)).filter((k) => k.startsWith(SEEN_PREFIX));
     const got = await chrome.storage.local.get([...all, MdgLimits.KEYS.triageIncludedFolders]);
     const snaps = await chrome.storage.local.get((got[MdgLimits.KEYS.triageIncludedFolders] || []).map(MdgLimits.KEYS.triageSnapshot));
     const keep = new Set(Object.values(snaps).flatMap((s) => s?.bvids || []));
@@ -500,7 +519,7 @@ async function seenSyncOnce(force, started) {
 // type 2 = video, the only type triage-folder-items keeps.
 async function triageFolderIds(mediaId) {
   if (mediaId === TRIAGE_TOVIEW) return (await triageToviewList()).map((m) => m.bvid);
-  const data = await triageBiliGet(`https://api.bilibili.com/x/v3/fav/resource/ids?media_id=${mediaId}&platform=web`);
+  const data = await triageBiliGet(`${TRIAGE_BILI_API}/x/v3/fav/resource/ids?media_id=${mediaId}&platform=web`);
   return (data || []).filter((m) => m.type === 2).map((m) => m.bvid || m.bv_id);
 }
 
@@ -509,19 +528,19 @@ async function triageCreatedFolders() {
   const mid = await triageMid();
   const list = [];
   for (let pn = 1; pn <= 20; pn++) {
-    const data = await triageBiliGet(`https://api.bilibili.com/x/v3/fav/folder/created/list?up_mid=${mid}&pn=${pn}&ps=50`);
+    const data = await triageBiliGet(`${TRIAGE_BILI_API}/x/v3/fav/folder/created/list?up_mid=${mid}&pn=${pn}&ps=50`);
     list.push(...(data?.list || []));
     if (!data?.has_more || !data.list?.length) break;
   }
   // A failed read is not a deleted 稍后再看: toviewUnread tells the page to keep its data and read it next time.
-  const toview = await triageBiliGet("https://api.bilibili.com/x/v2/history/toview/web?pn=1&ps=1&viewed=0").catch(() => null);
+  const toview = await triageBiliGet(`${TRIAGE_BILI_API}/x/v2/history/toview/web?pn=1&ps=1&viewed=0`).catch(() => null);
   return {
     mid,
     ...(toview ? {} : { toviewUnread: true }),
     folders: [
       // 稍后再看 has no folder cover of its own: use the newest unwatched video's cover, like a folder's first video.
-      ...(toview ? [{ id: TRIAGE_TOVIEW, title: "稍后再看", count: toview.count || 0, ...(toview.list?.[0]?.pic ? { cover: String(toview.list[0].pic).replace(/^http:\/\//, "https://") } : {}) }] : []),
-      ...list.map((f) => ({ id: f.id, title: f.title, count: f.media_count, cover: String(f.cover || "").replace(/^http:\/\//, "https://") }))
+      ...(toview ? [{ id: TRIAGE_TOVIEW, title: "稍后再看", count: toview.count || 0, ...(toview.list?.[0]?.pic ? { cover: TriageUi.https(toview.list[0].pic) } : {}) }] : []),
+      ...list.map((f) => ({ id: f.id, title: f.title, count: f.media_count, cover: TriageUi.https(f.cover) }))
     ]
   };
 }
@@ -633,7 +652,7 @@ function triageAiBodyError(json) {
   if (!json?.error) return null;
   const detail = typeof json.error === "string" ? json.error : json.error.message || JSON.stringify(json.error);
   if (AI_QUOTA_RE.test(detail) || AI_RATE_RE.test(detail)) return triageAiHttpError(429, detail);
-  return triageError(/[\u4e00-\u9fff]/.test(detail) ? `AI 平台返回错误：${detail}` : "AI 平台返回错误");
+  return triageError(/[\u4e00-\u9fff]/.test(detail) ? `AI 平台出错：${detail}` : "AI 平台出错");
 }
 
 // A non-stream reply's JSON (triageChat, 测试连接's probeAiChatCompletion): not JSON, or an error in the body, throws.
@@ -892,7 +911,7 @@ const TRIAGE_HANDLERS = {
       if (pn > 1) await new Promise((r) => setTimeout(r, 300));
       let data;
       try {
-        data = await triageBiliGet(`https://api.bilibili.com/x/v3/fav/resource/list?media_id=${mediaId}&ps=40&pn=${pn}`);
+        data = await triageBiliGet(`${TRIAGE_BILI_API}/x/v3/fav/resource/list?media_id=${mediaId}&ps=40&pn=${pn}`);
       } catch (e) {
         // Keep what earlier pages returned; the page must not treat a partial list as the whole folder.
         if (pn === 1) throw e;
@@ -941,7 +960,7 @@ const TRIAGE_HANDLERS = {
   "triage-fav-where": async ({ aid, mid: known }) => {
     if (!aid) throw triageError("缺少 aid");
     const mid = known || (await triageMid());
-    const data = await triageBiliGet(`https://api.bilibili.com/x/v3/fav/folder/created/list-all?up_mid=${mid}&type=2&rid=${aid}`);
+    const data = await triageBiliGet(`${TRIAGE_BILI_API}/x/v3/fav/folder/created/list-all?up_mid=${mid}&type=2&rid=${aid}`);
     return { mid, folders: (data?.list || []).filter((f) => f.fav_state === 1).map((f) => ({ id: String(f.id), title: f.title })) };
   },
 
@@ -1069,12 +1088,12 @@ function triageRegisterDnr() {
           action: {
             type: "modifyHeaders",
             requestHeaders: [
-              { header: "Referer", operation: "set", value: "https://www.bilibili.com/" },
-              { header: "Origin", operation: "set", value: "https://www.bilibili.com" }
+              { header: "Referer", operation: "set", value: `${TRIAGE_BILI_WEB}/` },
+              { header: "Origin", operation: "set", value: TRIAGE_BILI_WEB }
             ]
           },
           condition: {
-            requestDomains: ["api.bilibili.com"],
+            requestDomains: [new URL(TRIAGE_BILI_API).host],
             tabIds: [chrome.tabs.TAB_ID_NONE],
             resourceTypes: ["xmlhttprequest", "other"]
           }

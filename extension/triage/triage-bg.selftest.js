@@ -69,7 +69,7 @@ assert.strictEqual(
   t.triageTitleLine({ title: "a|b\nc", upper: "UP", duration: 125, pubdate: new Date(2024, 4, 30, 12).getTime() / 1000, intro: "简".repeat(150) }, 3),
   `3|a b c|UP|2:05|2024-05-30|${"简".repeat(120)}`
 );
-assert.strictEqual(t.triageTitleLine({ title: "T", upper: "U", duration: 0, intro: "" }, 1), "1|T|U|0:00||", "no publish date leaves its field empty");
+assert.strictEqual(t.triageTitleLine({ title: "T", upper: "U", duration: 0, intro: "" }, 1), "1|T|U|||", "no publish date or duration leaves its field empty, not 0:00");
 // An hour and up reads 1:15:00, as on the cards (the old copy here wrote 75:00).
 assert.strictEqual(t.triageTitleLine({ title: "T", upper: "U", duration: 75 * 60 }, 1).split("|")[3], "1:15:00");
 assert.strictEqual(t.triageCommandLine({ title: "T", duration: 75 * 60 + 5 }, 1).split("|")[3], "1:15:05");
@@ -364,7 +364,10 @@ assert.throws(() => t.triageParseCommand('{"new_tags":[', cmdItems, cmdTags, {})
     await assert.rejects(t.triageBiliGet("https://api.test"), (e) => e.code === "THROTTLED", String(code));
   }
   t.fetch = async () => ({ ok: false, status: 412, json: async () => ({}) });
-  await assert.rejects(t.triageBiliPost("/x", {}), (e) => e.code === "THROTTLED");
+  await assert.rejects(t.triageBiliPost("/x", {}), (e) => e.code === "THROTTLED" && e.message === t.MdgErrors.TEXT.biliThrottled, "a write's 412 says 限流, not HTTP 412");
+  // nav under risk control is 限流, not 未登录.
+  t.fetch = jsonRes({ code: -352, message: "风控" });
+  await assert.rejects(t.triageMid(), (e) => e.code === "THROTTLED");
   // HTTP 429 is risk control too, as in sites.js biliJson.
   t.fetch = async () => ({ ok: false, status: 429, json: async () => ({}) });
   await assert.rejects(t.triageBiliGet("https://api.test"), (e) => e.code === "THROTTLED" && e.status === 429);
@@ -391,7 +394,7 @@ assert.throws(() => t.triageParseCommand('{"new_tags":[', cmdItems, cmdTags, {})
   // A write that gets no answer is not tried again and says the outcome is unknown.
   let posts = 0;
   t.fetch = () => (posts++, new Promise(() => {}));
-  await assert.rejects(within(t.triageBiliPost("/x", {})), (e) => e.code === "NETWORK" && /不确定 B站 是否已改/.test(e.message));
+  await assert.rejects(within(t.triageBiliPost("/x", {})), (e) => e.code === "NETWORK" && /^网络断了：[0-9.]+ 秒没有回应：不确定 B站 是否已改/.test(e.message), "says which: no answer in time");
   assert.strictEqual(posts, 1, "a write is sent once");
   vm.runInContext("TRIAGE_BILI_CFG.timeoutMs = 30000", ctx);
 
@@ -405,7 +408,7 @@ assert.throws(() => t.triageParseCommand('{"new_tags":[', cmdItems, cmdTags, {})
   const partial = await folderItems({ mediaId: 1 });
   assert.deepStrictEqual([...partial.items.map((it) => it.bvid)], ["BV1", "BV2"]);
   assert.strictEqual(partial.partial.page, 2);
-  assert.match(partial.partial.error, /-352/);
+  assert.strictEqual(partial.partial.error, t.MdgErrors.TEXT.biliThrottled, "risk control in a B站 answer says 限流, not 「B站返回 -352」");
   t.fetch = jsonRes({ code: -352, message: "风控" });
   await assert.rejects(folderItems({ mediaId: 1 }), (e) => e.code === "THROTTLED");
   t.fetch = jsonRes({ code: 0, data: { medias: [media(3)], has_more: false } });
@@ -725,7 +728,7 @@ assert.throws(() => t.triageParseCommand('{"new_tags":[', cmdItems, cmdTags, {})
       assert.strictEqual(u.pathname, "/x/v3/fav/folder/created/list");
       const pn = Number(u.searchParams.get("pn"));
       pages.push(pn);
-      const list = pn === 1 ? [{ id: 1, title: "甲", media_count: 4, cover: "http://i0.hdslb.com/a.jpg" }] : [{ id: 2, title: "乙", media_count: 1, cover: "" }];
+      const list = pn === 1 ? [{ id: 1, title: "甲", media_count: 4, cover: "//i0.hdslb.com/a.jpg" }] : [{ id: 2, title: "乙", media_count: 1, cover: "" }];
       return { ok: true, status: 200, json: async () => ({ code: 0, data: { list, has_more: pn === 1 } }) };
     };
     const r = plain(await H["triage-folders"]());
@@ -768,10 +771,10 @@ assert.throws(() => t.triageParseCommand('{"new_tags":[', cmdItems, cmdTags, {})
       storage: {
         sync: { get: async (d) => ({ ...d, ...sync }) },
         local: {
-          get: async (k) => Object.fromEntries([].concat(k).filter((x) => x in st).map((x) => [x, structuredClone(st[x])])),
+          get: async (k) => (k === null ? structuredClone(st) : Object.fromEntries([].concat(k).filter((x) => x in st).map((x) => [x, structuredClone(st[x])]))),
           set: async (o) => Object.assign(st, structuredClone(o)),
-          remove: async (keys) => [].concat(keys).forEach((x) => delete st[x]),
-          getKeys: async () => Object.keys(st)
+          remove: async (keys) => [].concat(keys).forEach((x) => delete st[x])
+          // No getKeys: Chrome before 130 has none, reading every key by get(null).
         }
       }
     };
@@ -849,6 +852,11 @@ assert.throws(() => t.triageParseCommand('{"new_tags":[', cmdItems, cmdTags, {})
     await run;
     assert.deepStrictEqual([plain(st.seen_BVh), ended], [[10, T + 350], ["triage-seen-done"]]);
     t.fetch = realFetch;
+    // 关 drops every seen_ key, on a Chrome without getKeys too.
+    const keep = { ...st };
+    await t.seenClear();
+    assert.ok(!Object.keys(st).some((k) => k.startsWith("seen_")) && Object.keys(keep).some((k) => k.startsWith("seen_")), "seenClear drops the history");
+    Object.assign(st, keep);
     // C14: 观看进度 turned 关 mid-read stops it before the next page (README: 选「关」就不读).
     t.setTimeout = (f, ms) => realTimeout(f, ms === 5000 ? 0 : ms);
     const n = urls.length;

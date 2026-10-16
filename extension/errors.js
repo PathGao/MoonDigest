@@ -13,7 +13,7 @@
     obsidianUnset: "请先在设置页填写 Obsidian Local REST API 地址和 API Key",
     obsidianKey: "Obsidian 的 API Key 无效或未授权",
     obsidianDown: "连不上 Obsidian，请确认它已打开并启用了 Local REST API",
-    obsidianOff: "Obsidian 写入未启用",
+    obsidianOff: "写入 Obsidian 未启用",
     // HTTP 404 from the Local REST API: the address points somewhere else (a wrong path or port).
     obsidianNotFound: "Obsidian Local REST API 地址不对（HTTP 404）",
     // 取消 in the 该笔记已存在 dialog: the page sent no second write-video-note, so nothing was written.
@@ -46,7 +46,7 @@
     // A side panel reply that ended without one word of answer (only thinking, or nothing); the panel offers 重试.
     aiEmpty: "AI 平台没有返回回答",
     // A write to Obsidian that failed without the background saying why (video page, side panel, history page).
-    obsidianWriteFailed: "Local API 写入失败",
+    obsidianWriteFailed: "Local REST API 写入失败",
     // Any failed write to Obsidian, on every entry (popup, video page, side panel, 视频记录, 分拣台); 「：原因」 follows.
     obsidianFailed: "写入 Obsidian 失败",
     // A dropped connection (fetch's TypeError): the video page, 分拣台's B站 requests, 关注's paused refresh.
