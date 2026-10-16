@@ -124,7 +124,7 @@ function bindEvents() {
     const prepResp = await sendToContent({ type: "popup-get-state" }).catch((error) => ({ ok: false, error: error.message }));
     if (!prepResp?.ok) {
       setBusy(el.readingViewBtn, false);
-      setStatus(prepResp?.error || MdgErrors.TEXT.reloadRetry, true);
+      setStatus(MdgErrors.text(prepResp, MdgErrors.TEXT.reloadRetry), true);
       return;
     }
 
