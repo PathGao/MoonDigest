@@ -1,15 +1,20 @@
 // /usr/local/bin/node extension/conventions.selftest.js
-// Three conventions the audits kept finding broken, as checks over the shipped source (AGENTS「用检查代替反复扫描」).
+// Conventions the audits kept finding broken, as checks over the shipped source (AGENTS「用检查代替反复扫描」).
 // It matches public contracts: setting keys (MdgSettings.DEFAULTS), storage key names (MdgLimits.KEYS), the disabled
-// attribute and the reason helpers' names.
+// attribute and the reason helpers' names, a reply's error field, and the serial writers (MdgLimits.saveVideoNote,
+// follow-bg.js's followUpdate).
 //   1. Switches (DEFAULTS' booleans) take their value only through MdgSettings.normalizeSwitches / DEFAULTS.
 //   2. Storage key names are written once, in MdgLimits.KEYS (ARCHITECTURE: 存储键名只写一份).
 //   3. A disabled control says why (DESIGN: 按钮灰掉要写原因), through MdgErrors.setReason / TriageUi.reasonAttrs / actBtn.
-// Fails on any hit of 1, 2a, 2b, 3c and 3d. 3a and 3b fail on a hit that is not in ALLOW below, and on an ALLOW line that
-// matches no hit (its reason no longer holds). Sections marked (允许) only list.
+//   4. A reply's words reach the page through MdgErrors.text / fromResp (a. no `x.error || "兜底"` of its own), and a
+//      thrown Error has Chinese words (b. no English-only Error that e.message would show).
+//   5. A shared record is read-modified-written through its module's serial writer: 视频备注 only through
+//      MdgLimits.saveVideoNote (a), follow-bg.js's follow_* keys only through followUpdate (b).
+// Fails on any hit of 1, 2a, 2b, 3c and 3d. 3a, 3b, 4 and 5 fail on a hit that is not in ALLOW below, and on an ALLOW
+// line that matches no hit (its reason no longer holds). Sections marked (允许) only list.
 // Scanned: extension/**/*.js and *.html. Not scanned: *.selftest.js, every dev/ folder and dev-sidepanel/ (mocks, the
 // build script and its generated index.html), *.mjs, messages.js (the message list, messages.selftest.js), and per check
-// the file that owns the convention (settings.js, limits.js, the helpers' own bodies).
+// the file that owns the convention (settings.js, limits.js, errors.js, the helpers' own bodies).
 const fs = require("fs");
 const path = require("path");
 const vm = require("vm");
@@ -29,6 +34,8 @@ const lines = Object.fromEntries(files.map((f) => [f, read(f).split("\n")]));
 const isComment = (line) => /^\s*(\/\/|\*|\/\*|<!--)/.test(line);
 const at = (f, i) => `${f}:${i + 1}  ${lines[f][i].trim().slice(0, 160)}`;
 const hitAt = (f, i, tag = "") => ({ f, i, text: at(f, i) + tag });
+// The index of the bracket that closes the one at i (strings skipped). Set in 2b, used by 4 and 5.
+let closeOf;
 
 const load = (file, name) => {
   const ctx = vm.createContext({ console });
@@ -39,7 +46,7 @@ const load = (file, name) => {
 const S = load("settings.js", "MdgSettings");
 const L = load("limits.js", "MdgLimits");
 
-// 3a / 3b: a control turned off without setReason, and why that one is right. file + a snippet of its line.
+// 3a, 3b, 4, 5: a hit that stays, and why: file + a snippet of its line + the reason (例外, or 待修 with the scan's id).
 const ALLOW = [
   // The control itself says why: its only option is the reason.
   ["content.js", "select.disabled = true;", "专注模式的字幕下拉框：唯一一项就是 noTrackText() 的原因（写在同一行）"],
@@ -61,12 +68,55 @@ const ALLOW = [
   ["content.js", "button.disabled = true;", "播放器 ✦ 点下到侧边栏打开之间防连点，finally 打开"],
   ["sidepanel.js", "copyBtn.disabled = true;", "复制后 0.5 秒的「已复制」反馈"],
   // 3b
-  ["history/history.js", 'aria-hidden="true" disabled>删除 AI 对话', "看不见的占位（aria-hidden、tabindex=-1），只为对齐，不是控件"]
+  ["history/history.js", 'aria-hidden="true" disabled>删除 AI 对话', "看不见的占位（aria-hidden、tabindex=-1），只为对齐，不是控件"],
+  // 4a. 待修 lines wait for their fix (Cn / An: the 2026-10-16 scan); new ones fail.
+  ["background.js", 'new Error(resp?.error || "读取当前页面失败")', "待修：C321、A39"],
+  ["content.js", "throw new Error(resp?.error || MdgErrors.TEXT.unknown);", "待修（扫描未列）"],
+  ["options.js", "`导出失败：${resp?.error || MdgErrors.TEXT.unknown}`", "待修（扫描未列）"],
+  ["options.js", "`导入失败：${resp?.error || MdgErrors.TEXT.unknown}`", "待修（扫描未列）"],
+  ["options.js", 'setStatus(resp?.error || "保存失败", true);', "待修：C238"],
+  ["options.js", "已保存，但 AI 平台保存失败：${aiResp?.error", "待修：C243"],
+  ["options.js", "`失败：${resp?.error || MdgErrors.TEXT.unknown}`", "待修（扫描未列）"],
+  ["popup.js", "${MdgErrors.TEXT.obsidianFailed}：${resp?.error", "待修（扫描未列）"],
+  ["popup.js", 'prepResp?.error || "当前网页不支持，或刷新网页后重试"', "待修：C289、C298"],
+  ["popup.js", "${MdgErrors.TEXT.readerStartFailed}：${resp?.error", "待修（扫描未列）"],
+  ["popup.js", "${MdgErrors.TEXT.subtitleSwitchFailed}：${resp?.error", "待修（扫描未列）"],
+  ["popup.js", "${MdgErrors.TEXT.sidepanelOpenFailed}：${resp?.error", "待修（扫描未列）"],
+  ["popup.js", "resp?.error || NOT_VIDEO_PAGE", "待修（扫描未列）"],
+  ["popup.js", "resp?.error || MdgErrors.TEXT.reloaded", "待修（扫描未列）"],
+  ["sidepanel.js", "error: msg.error || MdgErrors.TEXT.unknown, code: msg.code", "待修（扫描未列）"],
+  ["sidepanel.js", 'response?.error || "视频时间跳转失败"', "待修：C359、C361"],
+  ["triage/follow.js", "`读取失败：${r.error || MdgErrors.TEXT.unknown}`", "待修（扫描未列）"],
+  ["triage/follow.js", "个时出错：${r.error || MdgErrors.TEXT.unknown}", "待修（扫描未列）"],
+  ["triage/follow.js", 'toast(r.error || "刷新没开始", true);', "待修（扫描未列）：同步没开始"],
+  ["triage/follow.js", 'toast(r.error || "刷新没开始", true);', "待修（扫描未列）：空状态的刷新，同上"],
+  ["triage/triage.js", 'r.error || "分析失败"', "待修（扫描未列）"],
+  ["sidepanel-state.js", 'String(event.error || "读取当前页面失败")', "例外：纯状态模块，event.error 是外壳 catch 到的错误文字，不是回复；兜底那句见 C321"],
+  ["triage/triage.js", 'a.error || "分析失败"', "例外：存下的分析记录（没有 code），不是回复"],
+  // 4b
+  ["content.js", '"player read failed"', "待修：C132"],
+  ["content.js", '"Background fetch failed"', "待修：C132"],
+  ["content.js", "new Error(`Missing node: ${id}`)", "例外：页面少了 id 是代码错，不是用户能遇到的（冒烟核对页面脚本查找的 id）"],
+  ["content.js", 'new Error("Stale refresh run")', "例外：作废信号，带 code STALE_RUN，isStaleRunError 认出后丢掉，不显示"],
+  ["content.js", 'new Error("Unknown retry error")', "例外：到不了，retryAsync 的循环每条路都 return 或 throw"],
+  ["obsidian.js", "new Error(`cover HTTP ${image.status}`)", "例外：同一函数 catch 住，只 console.warn，笔记保留远程封面地址"],
+  ["sidepanel-state.js", "new Error(`unknown event ${event.type}`)", "例外：未知事件类型是代码错，不是用户能遇到的"],
+  ["sites.js", 'new Error("no wbi_img")', "例外：biliWbiQuery 吞掉它，follow-bg.js 的 followWbiData 换成「拿不到 WBI 签名密钥」"],
+  // 5a
+  ["triage/triage.js", "[K.notes]: S.notes", "待修：C577（清理整份写回页面里缓存的备注）"],
+  ["triage/triage-bg.js", "[triageNotes]: notes, triage_notes_migrated: true", "例外：一次性迁移（triage_notes_migrated），扩展更新时跑一次，只补还没有的条目"],
+  // 5b
+  ["triage/follow-bg.js", "chrome.storage.local.set({ follow_hold: hold })", "例外：只写不读，follow_hold 只由 followHold 整个换掉，不依赖读到的旧值"],
+  ["triage/follow-bg.js", 'set({ [end ? "follow_last" : "follow_last_wip"]: last })', "待修：A41"],
+  ["triage/follow-bg.js", 'remove("follow_last_wip")', "待修：A41"]
 ];
 // Each line covers exactly one hit: a second line like it is a new case and needs its own reason.
 const used = ALLOW.map(() => 0);
 const allowed = (hit) => {
-  const i = ALLOW.findIndex(([f, snippet]) => hit.f === f && lines[f][hit.i].includes(snippet));
+  const fits = ([f, snippet]) => hit.f === f && lines[f][hit.i].includes(snippet);
+  // Two hits with the same line take two ALLOW lines: each takes the first one not used yet.
+  let i = ALLOW.findIndex((a, j) => fits(a) && !used[j]);
+  if (i < 0) i = ALLOW.findIndex(fits);
   if (i >= 0) used[i]++;
   return i >= 0 && used[i] === 1;
 };
@@ -132,7 +182,7 @@ const ALIASES = { "content.js": { readingChapterVisible: "readerChapterVisible" 
   section("2a'. 允许的拷贝（badges.js，limits.selftest 的 badgesCopies 核对）", copies);
 
   // 2b looks only where a string is a storage key: the arguments of chrome.storage.*.get / set / remove and startsWith.
-  const closeOf = (t, i) => {
+  closeOf = (t, i) => {
     let depth = 0;
     for (let j = i; j < t.length; j++) {
       const c = t[j];
@@ -209,6 +259,66 @@ const ALIASES = { "content.js": { readingChapterVisible: "readerChapterVisible" 
   section("3b. 模板 / HTML 里的 disabled 没写 title", bare, "allow");
   section("3c. 手写 title + aria-description（该用 reasonAttrs / setReason）", handRolled, "any");
   section("3d. 只写了 title、没写 aria-description", titleOnly, "any");
+}
+
+// 4. A background reply's words on a page: through MdgErrors.text / fromResp (ARCHITECTURE: 页面怎么显示一个错误只写一份),
+// which turn a code into the user's words (NOT_LOGGED_IN, THROTTLED, 62004) before the reply's own error.
+{
+  const CJK = /[一-鿿]/;
+  const shownFallback = /\.error\s*(?:\|\||\?\?)\s*(?:(["'`])(?:(?!\1).)*[一-鿿]|(?:MdgErrors\.)?TEXT\.\w|[A-Z][A-Z0-9_]{2,}\b)/;
+  const raw = [];
+  const english = [];
+  for (const f of files.filter((f) => f.endsWith(".js") && f !== "errors.js")) {
+    const text = lines[f].map((l) => (isComment(l) ? "" : l)).join("\n");
+    lines[f].forEach((line, i) => {
+      if (!isComment(line) && shownFallback.test(line)) raw.push(hitAt(f, i));
+    });
+    // 4b. Words in a thrown Error that has no 汉字: Chrome's or a library's English reaches the page through e.message.
+    for (const m of text.matchAll(/new Error\(/g)) {
+      const open = m.index + m[0].length - 1;
+      const args = text.slice(open, closeOf(text, open) + 1);
+      const words = [...args.matchAll(/(["'`])((?:(?!\1)[^\\]|\\.)*)\1/g)].map((x) => x[2]);
+      if (words.some((w) => /[A-Za-z]{2}/.test(w) && !CJK.test(w))) english.push(hitAt(f, text.slice(0, m.index).split("\n").length - 1));
+    }
+  }
+  section("4a. 回复的 error 自己兜底显示（该用 MdgErrors.text(resp, 兜底)）", raw, "allow");
+  section("4b. 抛出的 Error 只有英文（会经 e.message 显示给用户）", english, "allow");
+}
+
+// 5. Read-modify-writes of a shared record go through the module's one serial writer, or a write made in between is lost.
+{
+  // 5a. 视频备注 (MdgLimits.KEYS.triageNotes) is written only by MdgLimits.saveVideoNote (ARCHITECTURE). A file's names for
+  // the key: X = …KEYS.triageNotes, { triageNotes: X } or { triageNotes } from KEYS, and obj.p where p: …KEYS.triageNotes.
+  const hits = [];
+  for (const f of files.filter((f) => f.endsWith(".js") && f !== "limits.js")) {
+    const text = lines[f].map((l) => (isComment(l) ? "" : l)).join("\n");
+    const names = ["(?:MdgLimits\\.)?KEYS\\.triageNotes"];
+    for (const m of text.matchAll(/(?:const|let|var)\s+([\w$]+)\s*=\s*(?:MdgLimits\.)?KEYS\.triageNotes\b/g)) names.push(`\\b${m[1]}`);
+    for (const m of text.matchAll(/\{([^{}]*)\}\s*=\s*(?:MdgLimits\.)?KEYS\b/g)) {
+      const own = /\btriageNotes\b(?:\s*:\s*([\w$]+))?/.exec(m[1]);
+      if (own) names.push(`\\b${own[1] || "triageNotes"}`);
+    }
+    for (const m of text.matchAll(/([\w$]+)\s*:\s*(?:MdgLimits\.)?KEYS\.triageNotes\b/g)) names.push(`[\\w$]+\\.${m[1]}`);
+    const write = new RegExp(`\\[\\s*(?:${names.join("|")})\\s*\\]\\s*:`);
+    lines[f].forEach((line, i) => {
+      if (!isComment(line) && write.test(line)) hits.push(hitAt(f, i));
+    });
+  }
+  section("5a. 整份写视频备注（该用 MdgLimits.saveVideoNote）", hits, "allow");
+
+  // 5b. follow-bg.js writes its follow_* keys through followUpdate (its queue in the worker; ARCHITECTURE).
+  const f = "triage/follow-bg.js";
+  const text = lines[f].join("\n");
+  const def = text.indexOf("function followUpdate(");
+  if (def < 0) throw new Error(`${f} has no followUpdate: update check 5b`);
+  const body = [def, closeOf(text, text.indexOf("{", def))];
+  const raw = [];
+  for (const m of text.matchAll(/chrome\.storage\.local\.(?:set|remove)\(/g)) {
+    const open = m.index + m[0].length - 1;
+    if ((m.index > body[0] && m.index < body[1]) || !/follow_/.test(text.slice(open, closeOf(text, open)))) continue;
+    raw.push(hitAt(f, text.slice(0, m.index).split("\n").length - 1));
+  }
+  section("5b. follow-bg.js 不经 followUpdate 写 follow_* 键", raw, "allow");
 }
 
 let failed = 0;
