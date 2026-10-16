@@ -30,8 +30,6 @@ let onVideoPage = true;
 // Only for when get-settings fails.
 const DEFAULT_SETTINGS = MdgSettings.DEFAULTS;
 const setDisabledReason = MdgErrors.setReason;
-// The note's file-name rule (Obsidian's forbidden characters), for every file the popup downloads.
-const { sanitizeFileName } = MdgSites;
 // After 专注模式 or the side panel opened: long enough for the status to show before the popup closes.
 const CLOSE_DELAY_MS = 80;
 
@@ -94,7 +92,7 @@ function bindEvents() {
       setStatus(payload.subtitleMissing || MdgErrors.subtitleMissing(), true);
       return;
     }
-    const safeTitle = sanitizeFileName(payload.title || "video-subtitle");
+    const safeTitle = MdgCommon.fileName(payload.title, "video-subtitle");
     MdgDownload.text(`${safeTitle}.${format}`, content, "text/plain;charset=utf-8");
     setStatus(`已下载 ${format.toUpperCase()}`);
   });
@@ -182,12 +180,12 @@ function bindEvents() {
 
   el.triageBtn.addEventListener("click", async () => {
     const r = await sendToRuntime({ type: "triage-open" }).catch(() => null);
-    if (!r?.ok) await chrome.tabs.create({ url: chrome.runtime.getURL("triage/triage.html") });
+    if (!r?.ok) await chrome.tabs.create({ url: chrome.runtime.getURL(MdgCommon.PAGES.triage) });
     window.close();
   });
   el.historyBtn.addEventListener("click", async () => {
     const r = await sendToRuntime({ type: "history-open" }).catch(() => null);
-    if (!r?.ok) await chrome.tabs.create({ url: chrome.runtime.getURL("history/history.html") });
+    if (!r?.ok) await chrome.tabs.create({ url: chrome.runtime.getURL(MdgCommon.PAGES.history) });
     window.close();
   });
 }
@@ -236,7 +234,7 @@ function render(payload, { preserveStatus = false } = {}) {
 
   setText(el.propTitle, payload.title || "-");
   setText(el.propUrl, payload.url || "-");
-  setText(el.propCreated, MdgDownload.dateStamp());
+  setText(el.propCreated, MdgCommon.localDate());
   setText(el.propTags, payload.tags || "-");
   el.propTitle.title = payload.title || "";
   setText(el.videoTitle, payload.title);

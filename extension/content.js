@@ -3840,12 +3840,8 @@ function currentRef() {
   return { site: state.site, id: state.videoId, part: { index: state.pageIndex, cid: state.cid }, url: cleanVideoUrl() };
 }
 
-function cleanVideoUrl(href = location.href) {
-  const site = currentSite();
-  if (site && state.videoId && site.id === state.site) {
-    return site.canonicalUrl(state.videoId, state.pageCount > 1 ? state.pageIndex : 1);
-  }
-  return MdgSites.cleanUrl(href);
+function cleanVideoUrl() {
+  return MdgSites.videoUrl({ ...state, url: location.href });
 }
 
 

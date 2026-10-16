@@ -15,14 +15,8 @@
     return;
   }
 
-  // Small helpers note.js and the popup share (the popup does not load note.js): the local day as 2026-10-09 (ms or a
-  // Date), a file name with Obsidian's forbidden characters replaced (so wiki links to a note resolve), and an error
-  // reason without its trailing punctuation (so the sentence after it joins cleanly).
-  function formatLocalDate(value = Date.now()) {
-    const date = new Date(value);
-    return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
-  }
-  const sanitizeFileName = (value) => String(value || "subtitle").replace(/[\\/:*?"<>|#^[\]]/g, "_").replace(/\s+/g, " ").trim().slice(0, 120);
+  const { localDate, parseTimestamp, parseCount, SUBTITLE_LANGS } = MdgCommon;
+  // An error reason without its trailing punctuation (so the sentence after it joins cleanly), for note.js and the popup.
   const trimReason = (text) => String(text ?? "").replace(/[。.！!；;，,\s]+$/u, "");
 
   function parseUrl(url) {
@@ -47,15 +41,6 @@
       return `https:${text}`;
     }
     return text.replace(/^http:\/\//, "https://");
-  }
-
-  // -1 for anything that is not h:mm:ss digits, an empty text or segment included (Number("") is 0).
-  function parseTimestamp(text) {
-    const parts = String(text ?? "").split(":");
-    if (parts.some((item) => !/^\s*\d+\s*$/.test(item))) {
-      return -1;
-    }
-    return parts.reduce((total, item) => total * 60 + Number(item), 0);
   }
 
   // "00:00 Intro" / "1:02:03 - Topic" lines in a description become chapters.
@@ -116,11 +101,8 @@
 
   const KIND_ORDER = { manual: 0, auto: 1, ai: 1, translated: 2 };
 
-  // Targets of the youtubeSubtitleLang setting besides "auto".
-  const SUBTITLE_LANG_NAMES = { "zh-Hans": "简体中文", "zh-Hant": "繁體中文", en: "English", ja: "日本語" };
-
   function normalizeSubtitleLang(value) {
-    return SUBTITLE_LANG_NAMES[value] ? value : "auto";
+    return SUBTITLE_LANGS[value] ? value : "auto";
   }
 
   function langMatches(lang, target) {
@@ -137,7 +119,7 @@
   // moves its language to the front.
   function rankTracks(tracks, target = "auto") {
     // Under "auto" a machine translation is only offered, never the default.
-    const misses = (track) => Number(SUBTITLE_LANG_NAMES[target] ? !langMatches(track.lang, target) : track.kind === "translated");
+    const misses = (track) => Number(SUBTITLE_LANGS[target] ? !langMatches(track.lang, target) : track.kind === "translated");
     return [...(tracks || [])].sort((a, b) => {
       const targetGap = misses(a) - misses(b);
       if (targetGap !== 0) return targetGap;
@@ -435,7 +417,7 @@
         title: String(view.title || ""),
         author: String(view.owner?.name || ""),
         authorUrl: view.owner?.mid ? `https://space.bilibili.com/${view.owner.mid}` : "",
-        uploadDate: pubdate > 0 ? formatLocalDate(pubdate * 1000) : "",
+        uploadDate: pubdate > 0 ? localDate(pubdate * 1000) : "",
         description: String(view.desc || ""),
         tname: String(view.tname || ""),
         duration: Number(page?.duration || view.duration || 0) || 0,
@@ -636,7 +618,7 @@
 
   // Innertube call from the page, with the user's cookies and the headers the
   // watch page itself sends. hl is pinned to English so counts arrive as
-  // "1.2K", which ytParseCount reads exactly.
+  // "1.2K", which parseCount reads exactly.
   function ytPost(io, endpoint, { context = {}, ...body }, clientName = "WEB") {
     const config = ytReadPageConfig(io.doc);
     const { id, client } = YT_CLIENTS[clientName];
@@ -890,7 +872,7 @@
   // not consulted: it never lists zh-Hans, which works. Manual sources first.
   // Under "auto" a video without any Chinese track is offered zh-Hans.
   function ytWithTranslation(tracks, target) {
-    const auto = !SUBTITLE_LANG_NAMES[target];
+    const auto = !SUBTITLE_LANGS[target];
     const lang = auto ? "zh-Hans" : target;
     if (tracks.some((track) => langMatches(track.lang, lang) || (auto && langMatches(track.lang, "zh-Hant")))) {
       return tracks;
@@ -906,20 +888,12 @@
       {
         id: `${source.id}>${lang}`,
         lang,
-        label: `${SUBTITLE_LANG_NAMES[lang]}（机器翻译，自${source.label}）`,
+        label: `${SUBTITLE_LANGS[lang]}（机器翻译，自${source.label}）`,
         url: ytCaptionUrl(source.url, { tlang: lang }),
         kind: "translated",
         isDefault: false
       }
     ];
-  }
-
-  const YT_COUNT_UNITS = { k: 1e3, m: 1e6, b: 1e9, 千: 1e3, 万: 1e4, 萬: 1e4, 亿: 1e8, 億: 1e8 };
-
-  // "322K", "1.2M", "1,234", "1.2万" -> number; anything else -> 0.
-  function ytParseCount(text) {
-    const match = String(text || "").replace(/,/g, "").match(/(\d+(?:\.\d+)?)\s*([kmb千万萬亿億])?/i);
-    return match ? Math.round(Number(match[1]) * (YT_COUNT_UNITS[String(match[2] || "").toLowerCase()] || 1)) : 0;
   }
 
   function ytWalk(node, visit) {
@@ -1059,14 +1033,14 @@
         if (entity) {
           return {
             uname: ytText(entity.author?.displayName),
-            like: ytParseCount(entity.toolbar?.likeCountNotliked || entity.toolbar?.likeCountA11y),
+            like: parseCount(entity.toolbar?.likeCountNotliked || entity.toolbar?.likeCountA11y),
             message: ytText(entity.properties?.content?.content)
           };
         }
         const legacy = thread.comment?.commentRenderer;
         return {
           uname: ytText(legacy?.authorText),
-          like: ytParseCount(ytText(legacy?.voteCount)),
+          like: parseCount(ytText(legacy?.voteCount)),
           message: ytText(legacy?.contentText)
         };
       })
@@ -1449,6 +1423,15 @@
     return parseRef(url)?.url || String(url || "");
   }
 
+  // A video context's link (a saved note's url, a conversation's): its part's plain page, without reader mode or
+  // tracking params. Site and id fall back to the url's; the part counts unless pageCount says the video has one.
+  function videoUrl({ site, videoId, pageIndex, pageCount, url } = {}) {
+    const link = String(url || "").trim();
+    const entry = SITES[site] || matchSite(link);
+    const id = String(videoId || parseRef(link)?.id || "").trim();
+    return entry && id ? entry.canonicalUrl(id, Number(pageCount) === 1 ? 1 : pageIndex) : link;
+  }
+
   function isAllowedFetchUrl(url) {
     const parsed = parseUrl(url);
     if (!parsed || parsed.protocol !== "https:") {
@@ -1492,14 +1475,13 @@
     matchSite,
     parseRef,
     cleanUrl,
+    videoUrl,
     isAllowedFetchUrl,
     buildContextKey,
     contextRef,
     isBiliVideoGone,
     BILI_RISK_CODES,
     cleanComment,
-    formatLocalDate,
-    sanitizeFileName,
     trimReason,
     rankTracks,
     normalizeSubtitleLang,

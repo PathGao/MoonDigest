@@ -24,8 +24,7 @@
 
   // chrome.storage.local key names more than one file uses, written only here; storageUsage counts the capped ones.
   // Never change a value: the user's data is stored under it (the one rename, in 3.6, ships with migrateRenamedKeys below). A key built at run time has a function beside its prefix.
-  // limits.selftest.js fails when a name here is written in another file. badges.js does not load this file and keeps
-  // its own copies of the names it reads, which the selftest checks against KEYS.
+  // limits.selftest.js fails when a name here is written in another file.
   const ANALYSIS = "triage_analysis_";
   const TITLE = "triage_title_";
   const SNAPSHOT = "triage_snapshot_";
@@ -61,7 +60,7 @@
     triageSimplified: "triage_simplified_v1",
     // The AI platforms' API keys (local, never in sync or the settings file): the background, the side panel follows it.
     aiApiKeys: "aiProviderKeys",
-    // 观看进度: seen_<bvid> → [percent, view_at s], written by the background's history read; badges.js copies the prefix.
+    // 观看进度: seen_<bvid> → [percent, view_at s], written by the background's history read.
     seenPrefix: SEEN,
     seen: (bvid) => `${SEEN}${bvid}`,
     // The AI platform picked at the top of the side panel, in the extension pages' localStorage (not chrome.storage):

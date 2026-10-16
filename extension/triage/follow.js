@@ -385,7 +385,6 @@ const EMPTY_GROUP = "这个分组没有 UP 主";
 const GROUPS_TITLE = "分组管理";
 const NEW_GROUP_NAME = `新分组名称（最多 ${GROUP_NAME_MAX} 个字）`;
 const starLabel = (on) => (on ? "设为特别关注" : "取消特别关注");
-const tagUpLabel = (name) => `给 ${name} 打 UP 标签`;
 const unfollowSel = (n) => `取消关注选中的 ${n} 个`;
 const FEED_RUN = "follow-feed"; // 视频投稿's wait for B站限流 in runs
 const DRY_PAGES = 3; // the feed stops loading by itself after this many pages in a row without a video for the picked item
@@ -948,7 +947,7 @@ function renderFeed() {
   if (!items.length && F.feed.hasMore && !F.feed.loading && !F.feed.error && !F.feed.wait) more();
 }
 
-const addBtn = (mid, name) => UI.tagPlusBtn(`data-pick="${esc(mid)}"`, tagUpLabel(name));
+const addBtn = (mid, name) => UI.tagPlusBtn(`data-pick="${esc(mid)}"`, MdgErrors.upTagTitle(name));
 
 // The viewer's 「UP 标签」 line: the playing video's UP, its tags, + 标签 (the same picker as the cards). In 关注 it is
 // the only line and T tags this UP; in 收藏夹 it sits under 「视频标签」, where T tags the video, and shows only for an
@@ -972,7 +971,7 @@ function renderViewerUp() {
   const ids = u ? u.tagIds : liveTags(mid, D);
   const chips = ids.map(tagOf).map((t) => `<span class="chip" style="--c:${esc(t.color)}"${u?.gone ? "" : ` data-pick="${esc(mid)}"`}>${esc(t.name)}</span>`).join("");
   const pre = `${face ? `<img src="${esc(img(face, "48w_48h_1c"))}" alt="" referrerpolicy="no-referrer">` : ""}<a class="name" href="${space(mid)}" target="_blank" rel="noopener">${esc(name)}</a>`;
-  vline.innerHTML = UI.viewerLine({ label: "UP 标签", pre, chips, plus: !u?.gone && { attrs: `data-pick="${esc(mid)}"`, label: tagUpLabel(name), key: follow } });
+  vline.innerHTML = UI.viewerLine({ label: "UP 标签", pre, chips, plus: !u?.gone && { attrs: `data-pick="${esc(mid)}"`, label: MdgErrors.upTagTitle(name), key: follow } });
 }
 // B站's autoplay moved the player on (triage.js showViewing): the pink card, this line and T follow the new video.
 T.setViewerHook(() => {
@@ -1879,7 +1878,7 @@ main.addEventListener("click", async (e) => {
   else if (act === "tags") openManage();
   else if (act === "settings") openSettings();
   else if (act === "bili") window.open("https://space.bilibili.com/", "_blank", "noopener");
-  else if (act === "csv") MdgDownload.text(`MoonDigest-关注-${MdgDownload.dateStamp()}.csv`, upCsv(), "text/csv;charset=utf-8");
+  else if (act === "csv") MdgDownload.text(`MoonDigest-关注-${MdgCommon.localDate()}.csv`, upCsv(), "text/csv;charset=utf-8");
   else if (act === "recent") {
     F.recentFilter = !F.recentFilter;
     render();

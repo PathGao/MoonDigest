@@ -102,18 +102,6 @@ function followDiff(cur, fresh, unf, tagMap, live, startedAt, at) {
 // 一个人当时所在的分组 id：-10 特别关注在前，再是自己建的；空 = 默认分组。取关记录里存这个，重新关注时放回。
 const followGroupsOf = (fl, m) => [...(fl?.special?.[m] ? [FOLLOW_SPECIAL] : []), ...(fl?.groups?.[m] || [])];
 
-// 动态里的播放数是文字："2505"、"12.5万"、"1.2亿"。
-function followCount(v) {
-  const s = String(v ?? "");
-  const n = parseFloat(s) || 0;
-  return Math.round(s.includes("亿") ? n * 1e8 : s.includes("万") ? n * 1e4 : n);
-}
-
-// "12:34" / "1:02:03" → 秒
-function followDuration(text) {
-  return String(text || "").split(":").reduce((s, p) => s * 60 + (Number(p) || 0), 0);
-}
-
 // feed/all 的一条动态 → 视频，不是投稿视频的返回 null。
 function followFeedItem(it) {
   const a = it?.modules?.module_dynamic?.major?.archive;
@@ -124,8 +112,8 @@ function followFeedItem(it) {
     aid: String(a.aid ?? ""),
     title: a.title || "",
     cover: TriageUi.https(a.cover),
-    duration: followDuration(a.duration_text),
-    play: followCount(a.stat?.play),
+    duration: Math.max(0, MdgCommon.parseTimestamp(a.duration_text)),
+    play: MdgCommon.parseCount(a.stat?.play),
     mid: String(au.mid ?? ""),
     name: au.name || "",
     face: au.face || "",

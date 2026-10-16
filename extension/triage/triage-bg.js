@@ -855,7 +855,7 @@ async function triageMigrateNotes() {
 // hash: a deep link into 关注, `follow&tag=<id>` (on that tag) or `follow&up=<mid>` (on that UP's card, what a Bilibili
 // page's UP tag picker sends); an open triage tab gets it as a hash change.
 async function triageOpenPage(hash) {
-  const page = chrome.runtime.getURL("triage/triage.html");
+  const page = chrome.runtime.getURL(MdgCommon.PAGES.triage);
   const url = /^follow(?:&tag=[\w%.~-]+|&up=\d+)?$/.test(hash || "") ? `${page}#${hash}` : page;
   return focusOrOpenPage(page, url);
 }

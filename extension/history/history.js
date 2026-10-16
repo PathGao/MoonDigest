@@ -262,7 +262,7 @@ function downloadGroups(groups) {
     MdgDownload.text(notes[0].filename, notes[0].content);
   } else {
     const body = notes.map((n) => `# ${n.filename.replace(/\.md$/i, "")}\n\n${n.content.replace(/^---\n([\s\S]*?)\n---\n/, "```yaml\n$1\n```\n")}`);
-    MdgDownload.text(`MoonDigest视频记录-${MdgDownload.dateStamp()}.md`, body.join("\n\n"));
+    MdgDownload.text(`MoonDigest视频记录-${MdgCommon.localDate()}.md`, body.join("\n\n"));
   }
   setStatus(`已下载 ${groups.length} 个视频的记录`);
 }

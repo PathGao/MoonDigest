@@ -52,7 +52,6 @@ assert.deepStrictEqual(
 );
 
 // Storage key names: each KEYS name is written only in limits.js. Selftests and dev mocks may seed their own.
-// badges.js does not load limits.js and keeps copies of the names it reads; they must stay KEYS names.
 const names = Object.values(L.KEYS).filter((v) => typeof v === "string");
 // Renaming one loses the data stored under it.
 assert.deepStrictEqual([...names].sort(), [
@@ -65,15 +64,13 @@ assert.strictEqual(L.KEYS.triageAnalysis("BV1"), "triage_analysis_BV1");
 assert.strictEqual(L.KEYS.triageTitle("BV1"), "triage_title_BV1");
 assert.strictEqual(L.KEYS.triageSnapshot(7), "triage_snapshot_7");
 assert.strictEqual(L.KEYS.seen("BV1"), "seen_BV1");
-const badgesCopies = ["seen_", "triage_tags", "triage_video_tags", "triage_title_", "triage_analysis_", "triage_snapshot_", "triage_kept", "triage_decisions_"];
-for (const name of badgesCopies) assert.ok(names.includes(name), `badges.js reads ${name}, which KEYS no longer has`);
 const sources = [];
 const walk = (dir) => {
   for (const entry of fs.readdirSync(path.join(__dirname, dir), { withFileTypes: true })) {
     const rel = path.join(dir, entry.name);
     if (entry.isDirectory()) {
       if (!/^dev/.test(entry.name)) walk(rel);
-    } else if (entry.name.endsWith(".js") && !entry.name.endsWith(".selftest.js") && !["limits.js", "badges.js"].includes(rel)) sources.push(rel);
+    } else if (entry.name.endsWith(".js") && !entry.name.endsWith(".selftest.js") && rel !== "limits.js") sources.push(rel);
   }
 };
 walk(".");
@@ -86,7 +83,6 @@ for (const file of sources) {
     assert.ok(!written.test(text), `${file} writes the storage key ${name} itself; use MdgLimits.KEYS`);
   }
 }
-for (const name of badgesCopies) assert.ok(fs.readFileSync(path.join(__dirname, "badges.js"), "utf8").includes(name));
 
 // The boc_* → mdg_* rename: copy, never overwrite newer data, keep the old key when the write fails, rerun is a no-op.
 (async () => {

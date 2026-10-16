@@ -123,10 +123,6 @@
     return String(s).replace(/[[\]\\]/g, "\\$&");
   }
 
-  function safeNoteName(name) {
-    return String(name).replace(/[\\/:*?"<>|#^[\]]/g, "_").trim() || "收藏夹";
-  }
-
   const oneLine = (s) => String(s ?? "").replace(/\s+/g, " ").trim();
   // A relative link inside the zip; <> keeps spaces in the filename (note filenames never hold < or >).
   const mdLink = (path, title) => `[${oneLine(title).replace(/[[\]\\]/g, "\\$&") || path}](<${path}>)`;
@@ -172,5 +168,5 @@
     return out;
   }
 
-  globalThis.TriageCore = { refavorited, mergeFolderItems, updateRemoved, moveToRemoved, inferFrom, forgetLeft, noteLeft, keepInvalidInfo, idsChanged, mergeHead, unfavOnly, mdLinkText, safeNoteName, oneLine, mdLink, wikiLink, zipStored };
+  globalThis.TriageCore = { refavorited, mergeFolderItems, updateRemoved, moveToRemoved, inferFrom, forgetLeft, noteLeft, keepInvalidInfo, idsChanged, mergeHead, unfavOnly, mdLinkText, oneLine, mdLink, wikiLink, zipStored };
 })();

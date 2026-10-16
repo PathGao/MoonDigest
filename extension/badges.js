@@ -1,16 +1,10 @@
 // Read-only triage marks on Bilibili pages. Videos without triage data get zero DOM changes.
 (() => {
   const { VERDICTS, verdictOf, INVALID } = globalThis.MdgTagCore;
-  const ACTION = { keep: "已保留", unfav: "已取消收藏" };
+  const { TEXT, LABEL, upTagTitle } = MdgErrors;
+  const K = MdgLimits.KEYS;
+  const ACTION = { keep: LABEL.kept, unfav: LABEL.unfaved };
   const STAGE = [INVALID, "标题粗看", "字幕细看"];
-  // Storage names this script reads (copies of MdgLimits.KEYS: it does not load limits.js; limits.selftest.js checks).
-  const KEPT = "triage_kept";
-  const DECISIONS_PREFIX = "triage_decisions_";
-  const TAGS = "triage_tags";
-  const VIDEO_TAGS = "triage_video_tags";
-  const SNAPSHOT_PREFIX = "triage_snapshot_";
-  const TITLE_PREFIX = "triage_title_";
-  const ANALYSIS_PREFIX = "triage_analysis_";
   const BVID_RE = /(?:\/video\/|[?&]bvid=)(BV[0-9A-Za-z]{10})/;
 
   function bvidFromHref(href) {
@@ -64,10 +58,10 @@
   function mergeDecisions(got) {
     const unfav = {};
     for (const [k, v] of Object.entries(got || {})) {
-      if (!k.startsWith(DECISIONS_PREFIX)) continue;
+      if (!k.startsWith(K.triageDecisionsPrefix)) continue;
       for (const [b, d] of Object.entries(v || {})) if (!unfav[b] || (d?.at || 0) > (unfav[b].at || 0)) unfav[b] = d;
     }
-    return { ...got?.[KEPT], ...unfav };
+    return { ...got?.[K.triageKept], ...unfav };
   }
 
   // ---- UP tags (follow_tags / follow_tag_map from the triage page's 关注 mode) next to an author's name ----
@@ -258,7 +252,6 @@
   const VERDICT_SETTING = "showBiliVerdicts";
   // 观看进度 on covers has its own setting (设置页「观看进度」, off by default); it or the triage marks turn the page scan on.
   const { SEEN_DEFAULTS, seenConfig, seenWords } = globalThis.MdgSurfaces;
-  const SEEN_PREFIX = "seen_"; // MdgLimits.KEYS.seenPrefix (this script does not load limits.js; limits.selftest.js checks)
   let triageOn = false;
   let lineOn = { verdict: false, vtags: true }; // the video page's line: the AI 判断 and 视频标签 switches
   let seenCfg = seenConfig(SEEN_DEFAULTS);
@@ -270,7 +263,7 @@
   const bvidOf = (el) => bvidFromHref(el.getAttribute("href")) || el.dataset.key || "";
   // Keys that every video's info depends on; a per-video title or analysis only redraws that video. Only a favorites
   // page reads a snapshot, and only its own folder's: the 分拣台 saves other folders' snapshots often.
-  const isSharedKey = (k) => k === TAGS || k === VIDEO_TAGS || k === KEPT || k.startsWith(DECISIONS_PREFIX) || (!!favFid() && k === `${SNAPSHOT_PREFIX}${favFid()}`);
+  const isSharedKey = (k) => k === K.triageTags || k === K.triageVideoTags || k === K.triageKept || k.startsWith(K.triageDecisionsPrefix) || (!!favFid() && k === K.triageSnapshot(favFid()));
 
   const cache = new Map(); // bvid -> info | null
   let shared = null;
@@ -442,8 +435,6 @@
 
   const LOCAL_ONLY = "只存在 MoonDigest 里，不改 B站";
   const UP_TIP = `UP 标签 · ${LOCAL_ONLY}`;
-  // The 「+ UP 标签」 button's name and the picker's title.
-  const pickTitle = (name) => `给「${name}」打 UP 标签`;
   // Every tag as a chip, then a 「+N」 that fitBoxes shows when they don't all fit; hovering or focusing it lists them all.
   function appendChips(box, list, cls) {
     for (const t of list) {
@@ -482,7 +473,7 @@
       const open = pick?.spot === spot;
       if (open) pick.add = add;
       add.setAttribute("aria-expanded", String(open));
-      add.setAttribute("aria-label", pickTitle(name));
+      add.setAttribute("aria-label", upTagTitle(name));
       add.title = `打 UP 标签 · ${LOCAL_ONLY}`;
       add.textContent = "+ UP 标签";
       box.append(add);
@@ -623,7 +614,7 @@ input { box-sizing: border-box; width: 100%; margin: 0; padding: 4px 8px; border
     const panel = document.createElement("div");
     panel.className = isDark(box) ? "pick dark" : "pick";
     panel.setAttribute("role", "dialog");
-    panel.setAttribute("aria-label", pickTitle(add.dataset.name));
+    panel.setAttribute("aria-label", upTagTitle(add.dataset.name));
     root.append(style, panel);
     // Typing a tag name must not reach page hotkeys (the player's space, arrows).
     for (const t of ["keydown", "keyup", "keypress"]) host.addEventListener(t, (e) => e.stopPropagation());
@@ -664,10 +655,10 @@ input { box-sizing: border-box; width: 100%; margin: 0; padding: 4px 8px; border
       if (text != null) n.textContent = text;
       return n;
     };
-    const head = el("div", "h", pickTitle(pick.add.dataset.name));
+    const head = el("div", "h", upTagTitle(pick.add.dataset.name));
     // The extension reloaded under this page: storage and messages no longer reach it.
     if (!chrome.runtime?.id) {
-      pick.panel.replaceChildren(head, el("div", "empty", "扩展刚刚更新，请刷新网页"));
+      pick.panel.replaceChildren(head, el("div", "empty", TEXT.reloaded));
       return placePick();
     }
     const was = pick.root.activeElement;
@@ -694,7 +685,7 @@ input { box-sizing: border-box; width: 100%; margin: 0; padding: 4px 8px; border
       input.type = "text";
       input.maxLength = globalThis.MdgTagCore.TAG_NAME_MAX;
       input.placeholder = "标签名，回车新建";
-      input.setAttribute("aria-label", "新标签名");
+      input.setAttribute("aria-label", LABEL.newTagName);
       more.append(input);
     } else {
       const b = el("button", "opt");
@@ -804,29 +795,29 @@ input { box-sizing: border-box; width: 100%; margin: 0; padding: 4px 8px; border
       // A favorites page shows its own folder's decisions; elsewhere every folder's decisions are merged.
       // getKeys is Chrome 130+; before that only 保留 shows outside a favorites page.
       const all = fid ? [] : (await chrome.storage.local.getKeys?.()) || [];
-      const decisionKeys = [KEPT, ...(fid ? [`${DECISIONS_PREFIX}${fid}`] : all.filter((k) => k.startsWith(DECISIONS_PREFIX)))];
+      const decisionKeys = [K.triageKept, ...(fid ? [K.triageDecisions(fid)] : all.filter((k) => k.startsWith(K.triageDecisionsPrefix)))];
       // 已失效 comes from the folder's snapshot, so only a favorites page knows it: reading every folder's snapshot (its
       // whole item list) on every B站 page costs too much, and invalid videos are mostly met in favorites.
-      const snapshot = fid ? `${SNAPSHOT_PREFIX}${fid}` : "";
-      const got = await chrome.storage.local.get([TAGS, VIDEO_TAGS, ...decisionKeys, ...(snapshot ? [snapshot] : [])]);
+      const snapshot = fid ? K.triageSnapshot(fid) : "";
+      const got = await chrome.storage.local.get([K.triageTags, K.triageVideoTags, ...decisionKeys, ...(snapshot ? [snapshot] : [])]);
       if (g !== gen) return;
       sharedFid = fid;
-      shared = { tags: got[TAGS], videoTags: got[VIDEO_TAGS] || {}, decisions: mergeDecisions(got), invalid: new Set(got[snapshot]?.invalid || []) };
+      shared = { tags: got[K.triageTags], videoTags: got[K.triageVideoTags] || {}, decisions: mergeDecisions(got), invalid: new Set(got[snapshot]?.invalid || []) };
       cache.clear();
     }
     const anchors = findAll(SEL);
     const here = pageBvid();
     const want = new Set(anchors.map((a) => bvidFromHref(a.getAttribute("href"))).concat(here).filter((b) => b && !cache.has(b)));
     if (want.size) {
-      const keys = [...want].flatMap((b) => [`${TITLE_PREFIX}${b}`, `${ANALYSIS_PREFIX}${b}`]);
+      const keys = [...want].flatMap((b) => [K.triageTitle(b), K.triageAnalysis(b)]);
       const got = await chrome.storage.local.get(keys);
       if (g !== gen) return;
       for (const b of want) {
         cache.set(
           b,
           badgeInfo({
-            title: got[`${TITLE_PREFIX}${b}`],
-            analysis: got[`${ANALYSIS_PREFIX}${b}`],
+            title: got[K.triageTitle(b)],
+            analysis: got[K.triageAnalysis(b)],
             invalid: shared.invalid.has(b),
             tagIds: shared.videoTags[b],
             tags: shared.tags,
@@ -846,9 +837,9 @@ input { box-sizing: border-box; width: 100%; margin: 0; padding: 4px 8px; border
   async function loadSeen(g) {
     const want = [...new Set(findAll(COVERS).map(bvidOf).filter((b) => b && !seenCache.has(b)))];
     if (!want.length) return;
-    const got = await chrome.storage.local.get(want.map((b) => `${SEEN_PREFIX}${b}`));
+    const got = await chrome.storage.local.get(want.map(K.seen));
     if (g !== gen) return;
-    for (const b of want) seenCache.set(b, got[`${SEEN_PREFIX}${b}`]?.[0] || 0);
+    for (const b of want) seenCache.set(b, got[K.seen(b)]?.[0] || 0);
   }
 
   // The progress bar (Bilibili's own look) on a cover link, and once 看完了 the corner tag or the veil.
@@ -1179,8 +1170,8 @@ input { box-sizing: border-box; width: 100%; margin: 0; padding: 4px 8px; border
       schedule();
     }
     if (area === "sync" && Object.keys(SYNC_DEFAULTS).some((k) => k in changes)) readSettings();
-    if (area === "local" && enabled && Object.keys(changes).some((k) => k.startsWith(SEEN_PREFIX))) {
-      for (const k of Object.keys(changes)) if (k.startsWith(SEEN_PREFIX)) seenCache.delete(k.slice(SEEN_PREFIX.length));
+    if (area === "local" && enabled && Object.keys(changes).some((k) => k.startsWith(K.seenPrefix))) {
+      for (const k of Object.keys(changes)) if (k.startsWith(K.seenPrefix)) seenCache.delete(k.slice(K.seenPrefix.length));
       gen++;
       schedule();
     }

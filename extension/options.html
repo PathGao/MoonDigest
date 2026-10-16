@@ -56,10 +56,6 @@
             <div class="ctl">
               <select id="youtubeSubtitleLang">
                 <option value="auto">自动（中文优先）</option>
-                <option value="zh-Hans">简体中文</option>
-                <option value="zh-Hant">繁體中文</option>
-                <option value="en">English</option>
-                <option value="ja">日本語</option>
               </select>
             </div>
           </div>
@@ -218,7 +214,7 @@
 
       <section class="sec" id="triage" data-name="分拣台">
         <div class="sec-head">
-          <h2>B站分拣台</h2>
+          <h2 data-text="triage">B站分拣台</h2>
           <p>仅 B站。批量粗看、细看收藏夹里的视频，判断哪些值得留；整理关注的 UP 主。</p>
           <a class="jump" href="./triage/triage.html" target="_blank">打开B站分拣台 ↗</a>
         </div>
@@ -359,6 +355,7 @@
       </div>
     </div>
 
+    <script src="./common.js"></script>
     <script src="./limits.js"></script>
     <script src="./settings.js"></script>
     <script src="./errors.js"></script>
