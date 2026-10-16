@@ -28,29 +28,12 @@
 
 
 
-  function buildSubtitlePreview(body, settings) {
-    const compactWithHours = shouldShowHoursInSubtitle(body);
-    return (body || [])
-      .map((item) => {
-        const text = String(item?.content || "").trim();
-        if (!text) {
-          return "";
-        }
-        if (settings.includeTimestampInBody) {
-          return `\`${formatCompactTimestamp(item.from, compactWithHours)}\` ${text}`;
-        }
-        return text;
-      })
-      .filter(Boolean)
-      .join("\n");
-  }
-
   // The tags a note carries: the 笔记标签 setting, then meta.userTags (the 分拣台 tags; Obsidian tags take letters,
   // digits, _ - / only, so anything else becomes _). The popup's 详情 shows these, not the setting.
   function noteTags(meta, settings) {
     return [
       ...new Set([
-        ...String(settings?.tags || "").split(",").map((item) => item.trim()),
+        ...parseFrontmatterArrayItems(settings?.tags),
         ...(meta?.userTags || []).map((name) => String(name).trim().replace(/[^\p{L}\p{N}_\-/]+/gu, "_"))
       ])
     ].filter(Boolean);
@@ -91,8 +74,13 @@
       lines.push(embedIframe, "");
     }
     const hasSubtitles = subtitleSectionLines.length > 0;
+    const hotCommentLines = buildHotCommentLines(
+      on.includeHotCommentsInNote || !hasSubtitles ? meta?.hotComments || [] : []
+    );
     if (!hasSubtitles) {
-      lines.push(`> ${MdgErrors.subtitleMissing(meta)}，以下为简介与热门评论。`, "");
+      // Names only what the note goes on to show.
+      const follows = [intro && "简介", hotCommentLines.length && "热门评论"].filter(Boolean).join("与");
+      lines.push(`> ${MdgErrors.subtitleMissing(meta)}${follows ? `，以下为${follows}` : ""}。`, "");
     }
     pushOptionalLines(lines, noteSections.before_intro);
 
@@ -111,9 +99,6 @@
       lines.push("## 字幕", "", ...subtitleSectionLines, "");
     }
 
-    const hotCommentLines = buildHotCommentLines(
-      on.includeHotCommentsInNote || !hasSubtitles ? meta?.hotComments || [] : []
-    );
     if (hotCommentLines.length > 0) {
       lines.push("## 热门评论", "", ...hotCommentLines);
     }
@@ -131,7 +116,8 @@
   function stripThinkBlocks(text) {
     return String(text || "")
       .replace(/<think\b[^>]*>[\s\S]*?<\/think>/gi, "")
-      .replace(/<think\b[^>]*>[\s\S]*$/gi, "")
+      // An unclosed block only when the answer starts with it (still thinking); a <think> mentioned mid-answer stays.
+      .replace(/^\s*<think\b[^>]*>[\s\S]*$/i, "")
       .replace(/<\/think>/gi, "")
       .replace(/^\s*<\/?think\b[^>]*>\s*$/gim, "")
       .trim();
@@ -180,13 +166,14 @@
         return;
       }
       const pasteLine = unwrapTimestampInlineCode(line);
-      const headingMatch = pasteLine.match(/^(\s*)(#{1,3})(\s+.*)$/);
+      const headingMatch = pasteLine.match(/^(\s*)(#{1,6})(\s+.*)$/);
       if (!headingMatch) {
         normalized.push(pasteLine);
         return;
       }
       const [, indent, hashes, suffix] = headingMatch;
-      normalized.push(`${indent}${"#".repeat(hashes.length + shift)}${suffix}`);
+      // Markdown stops at six levels: deeper ones stay at six, under their parent.
+      normalized.push(`${indent}${"#".repeat(Math.min(6, hashes.length + shift))}${suffix}`);
     });
 
     return normalized.join("\n");
@@ -217,29 +204,34 @@
     return turns;
   }
 
-  // The newest saved conversation for this video. Bilibili parts have their own cid; a conversation
-  // without one (saved before cid was recorded) still matches the video.
-  function pickConversation(conversations, { site = "", videoId = "", cid = "" } = {}) {
+  // The newest saved conversation for this video part. Bilibili parts have their own cid: the exact key wins. Without
+  // it (a conversation saved before cid was recorded, or a ref that knows only the BV) the part number decides, so P1
+  // never takes P2's conversation, as in the side panel.
+  function pickConversation(conversations, { site = "", videoId = "", cid = "", pageIndex = 1 } = {}) {
     const key = MdgSites.buildContextKey({ site, videoId, cid });
     if (!key) {
       return null;
     }
     const prefix = key.slice(0, key.indexOf("|") + 1);
-    const candidates = (Array.isArray(conversations) ? conversations : [])
-      .filter((item) => item?.contextKey === key || (cid && item?.contextKey === prefix) || (!cid && String(item?.contextKey || "").startsWith(prefix)))
-      .sort((a, b) => (Number(b?.updatedAt) || 0) - (Number(a?.updatedAt) || 0));
-    return candidates[0] || null;
+    const page = Number(pageIndex) || 1;
+    const all = Array.isArray(conversations) ? conversations : [];
+    const newest = (list) => list.sort((a, b) => (Number(b?.updatedAt) || 0) - (Number(a?.updatedAt) || 0))[0] || null;
+    return (
+      (cid && newest(all.filter((item) => item?.contextKey === key))) ||
+      newest(all.filter((item) => String(item?.contextKey || "").startsWith(prefix) && (!cid || item.contextKey === prefix) && (Number(item.contextRef?.pageIndex) || 1) === page))
+    );
   }
 
   function sanitizeMarkdownHeadingText(value) {
     return String(value || "")
       .replace(/\s+/g, " ")
       .replace(/^#+\s*/, "")
-      .trim() || "AI问答";
+      .trim() || "AI 问答";
   }
 
   function buildAiTurnLines(turns) {
-    return (Array.isArray(turns) ? turns : []).flatMap((turn) => [`### 问：${sanitizeMarkdownHeadingText(turn.prompt)}`, "", String(turn.answer || "").trim(), ""]);
+    // The answers came shifted for a ## section; under the ### question they go one level deeper.
+    return (Array.isArray(turns) ? turns : []).flatMap((turn) => [`### 问：${sanitizeMarkdownHeadingText(turn.prompt)}`, "", normalizeMarkdownForSectionPaste(String(turn.answer || "").trim(), 1), ""]);
   }
 
   // "" when there is nothing to write, so callers can test for a section.
@@ -270,7 +262,7 @@
   // Standalone AI notes from side panel conversations. context: a conversation's video ref
   // ({ title, url, site, videoId, author }). sourcePath: the video note's vault path, or "" when unknown.
   function aiSourceTitle(context) {
-    return String(context?.title || "当前视频").trim() || "当前视频";
+    return String(context?.title || "").trim() || "当前视频";
   }
 
   // Multi-P videos: each part's conversation is its own note, named and linked by part.
@@ -281,20 +273,19 @@
   function buildAiConversationFilename(context) {
     const part = aiPartIndex(context);
     const partSuffix = part > 1 || Number(context?.pageCount) > 1 ? ` P${part}` : "";
-    const baseName = sanitizeFileName(`【AI笔记】${aiSourceTitle(context)}${partSuffix}`);
-    return `${baseName || "【AI笔记】当前视频"}.md`;
+    return `${sanitizeFileName(`【AI笔记】${aiSourceTitle(context)}${partSuffix}`)}.md`;
   }
 
-  function escapeWikiLinkTarget(value) {
-    return String(value || "").replace(/\]/g, "\\]");
-  }
+  // A wiki link's shown text: Obsidian has no escape inside [[…]], so brackets become their full-width forms. The
+  // target is a vault path, whose names never hold them (sanitizeFileName, sanitizeFolderTemplateValue).
+  const wikiLinkText = (value) => String(value || "").replace(/\[/g, "［").replace(/\]/g, "］");
 
   // source: a wiki link to the video note (path without .md), so the AI note sits under it in the graph.
   // Body line: link the real video note when its path is known, else name the video without a dangling link.
   function sourceBodyLine(sourcePath, sourceTitle) {
     const target = String(sourcePath || "").replace(/\.md$/i, "");
     return target
-      ? `来源：[[${escapeWikiLinkTarget(target)}|${escapeWikiLinkTarget(sourceTitle)}]]`
+      ? `来源：[[${target}|${wikiLinkText(sourceTitle)}]]`
       : `来源：${sourceTitle}`;
   }
 
@@ -336,7 +327,9 @@
     return `${lines.join("\n").trim()}\n`;
   }
 
-  // The triage page's per-video analysis (triage_analysis_<bvid>) as Markdown; "" until it is done.
+  // The triage page's per-video analysis (triage_analysis_<bvid>) as Markdown; "" until it is done. Its last line starts
+  // with VERDICT_LINE (视频记录 reads it back).
+  const VERDICT_LINE = "AI 判断：";
   function buildTriageSummary(analysis) {
     if (analysis?.status !== "done") {
       return "";
@@ -347,7 +340,7 @@
     if (points.length) lines.push(...points.map((p) => `- ${p}`), "");
     // A done analysis always has a verdict: one left from the old custom tiers reads 拿不准, as on 分拣台 and B站 pages.
     const { verdict } = MdgTagCore.verdictOf({ analysis });
-    lines.push(`AI 判断：${MdgTagCore.VERDICTS[verdict]}${analysis.reason ? `，${analysis.reason}` : ""}`);
+    lines.push(`${VERDICT_LINE}${MdgTagCore.VERDICTS[verdict]}${analysis.reason ? `，${analysis.reason}` : ""}`);
     return lines.join("\n").trim();
   }
 
@@ -396,9 +389,10 @@
       return [];
     }
 
+    // The comment is indented into its list item, so its own lines (「- 」「# 」, blank lines) stay its text.
     return items.flatMap((item, index) => [
       `${index + 1}. ${item.uname}（赞 ${item.like}）`,
-      item.message,
+      ...item.message.split("\n").map((line) => (line.trim() ? `   ${line}` : "")),
       ""
     ]).slice(0, -1);
   }
@@ -460,7 +454,8 @@
   }
 
   function getFixedFrontmatterPropertyLines(settings, templateContext = {}) {
-    const customPropertyKeyPattern = /^[\p{L}\p{N}_\-\s]+$/u;
+    // Starts with a letter, digit or _: a key like 「- 评分」 would read as a YAML list item and break the block.
+    const customPropertyKeyPattern = /^[\p{L}\p{N}_][\p{L}\p{N}_\-\s]*$/u;
     const systemFields = new Set(FRONTMATTER_FIELDS);
     const rows = Array.isArray(settings?.fixedFrontmatterProperties) ? settings.fixedFrontmatterProperties : [];
     const seenKeys = new Set();
@@ -507,13 +502,15 @@
       created: String(created || "").trim(),
       tags: String(tagsCsv || "").trim(),
       tags_csv: String(tagsCsv || "").trim(),
-      tags_yaml: String(tagsYaml || "").trim()
+      tags_yaml: String(tagsYaml || "").trim(),
+      video_tags: (meta?.videoTags || []).map((tag) => String(tag).trim()).filter(Boolean).join(", ")
     };
   }
 
   function sanitizeFolderTemplateValue(value) {
     return String(value || "")
-      .replace(/[\/\\:*?"<>|]/g, " ")
+      // The characters sanitizeFileName drops, so a folder never breaks the wiki links to its notes.
+      .replace(/[\/\\:*?"<>|#^[\]]/g, " ")
       .replace(/\s+/g, " ")
       .trim();
   }
@@ -535,20 +532,17 @@
       return "";
     }
 
-    const allowedKeys = new Set(["created", "upload_date", "author", "site", "id", "video_id"]);
     const context = buildFolderTemplateContext(meta, created);
     const resolved = String(normalized).replace(/\{\{\s*([a-zA-Z0-9_]+)\s*\}\}/g, (_match, rawKey) => {
       const key = String(rawKey || "").trim().toLowerCase();
-      if (!allowedKeys.has(key)) {
-        return "";
-      }
-      return context[key] || "";
+      return Object.hasOwn(context, key) ? context[key] : "";
     });
 
+    // . and .. would climb out of the vault folder the user named.
     return resolved
       .split("/")
       .map((segment) => sanitizeFolderTemplateValue(segment))
-      .filter(Boolean)
+      .filter((segment) => segment && segment !== "." && segment !== "..")
       .join("/");
   }
 
@@ -684,18 +678,32 @@
     const lines = [];
     const usedIndexes = new Set();
 
+    // Subtitles before the first chapter open the section, in time order, under no chapter heading.
+    const firstStart = Number(chapterItems[0].from || 0) || 0;
+    subtitleItems.filter((item) => (Number(item.from || 0) || 0) + 0.001 < firstStart).forEach((item) => {
+      usedIndexes.add(item._index);
+      lines.push(formatSubtitleLine(item, settings, withHours));
+    });
+    if (lines.length) {
+      lines.push("");
+    }
+
     chapterItems.forEach((chapter, idx) => {
       const start = Number(chapter.from || 0) || 0;
-      const next = chapterItems[idx + 1];
+      // Chapters that start together: the first one ends where a later start is; each subtitle goes in one chapter.
+      const next = chapterItems.slice(idx + 1).find((item) => Number(item.from) > start);
       const chapterTo = Number(chapter.to || 0) || 0;
       let end = Infinity;
-      if (next && Number(next.from) > start) {
+      if (next) {
         end = Number(next.from);
       } else if (chapterTo > start) {
         end = chapterTo;
       }
 
       const sectionItems = subtitleItems.filter((item) => {
+        if (usedIndexes.has(item._index)) {
+          return false;
+        }
         const from = Number(item.from || 0) || 0;
         const inStart = from + 0.001 >= start;
         const inEnd = end === Infinity ? true : from < end;
@@ -823,7 +831,8 @@
 
   function formatTimestamp(seconds, forSrt = false) {
     const safe = Number(seconds) || 0;
-    const msTotal = Math.max(0, Math.floor(safe * 1000));
+    // Rounded: 1.001 * 1000 is 1000.9999999999999, which floor would make a millisecond early.
+    const msTotal = Math.max(0, Math.round(safe * 1000));
     const hour = Math.floor(msTotal / 3600000);
     const minute = Math.floor((msTotal % 3600000) / 60000);
     const second = Math.floor((msTotal % 60000) / 1000);
@@ -848,7 +857,8 @@
       baseParts.push(created);
     }
 
-    baseParts.push(meta.title || meta.videoId || "video-subtitle");
+    // sanitizeFileName keeps a non-blank name non-blank, so this is the one fallback.
+    baseParts.push(String(meta.title || "").trim() || meta.videoId || "video-subtitle");
 
     if (Number(meta.pageCount) > 1) {
       baseParts.push(`P${Number(meta.pageIndex) > 0 ? Number(meta.pageIndex) : 1}`);
@@ -858,8 +868,7 @@
       }
     }
 
-    const baseName = sanitizeFileName(baseParts.filter(Boolean).join("-"));
-    return `${baseName || "video-subtitle"}.md`;
+    return `${sanitizeFileName(baseParts.filter(Boolean).join("-"))}.md`;
   }
 
   // Where a video's note and a conversation's own note go when no path is recorded (obsidian.js): the folder template,
@@ -877,7 +886,9 @@
 
 
   function escapeYaml(value) {
-    return String(value).replaceAll("\\", "\\\\").replaceAll('"', '\\"').replaceAll("\n", "\\n").replaceAll("\r", "\\r").replaceAll("\t", "\\t");
+    // YAML's double-quoted scalars take no raw control characters: the others become \xNN.
+    return String(value).replaceAll("\\", "\\\\").replaceAll('"', '\\"').replaceAll("\n", "\\n").replaceAll("\r", "\\r").replaceAll("\t", "\\t")
+      .replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g, (c) => `\\x${c.charCodeAt(0).toString(16).padStart(2, "0")}`);
   }
 
   // Chat-answer Markdown to HTML for the side panel and the history page. HTML is escaped first,
@@ -960,11 +971,11 @@
         continue;
       }
 
-      const heading = line.match(/^(#{1,3})\s+(.+)$/);
+      const heading = line.match(/^(#{1,6})\s+(.+)$/);
       if (heading) {
         flushPara();
         closeList();
-        const level = heading[1].length + 2;
+        const level = Math.min(6, heading[1].length + 2);
         out.push(`<h${level}>${renderInline(heading[2])}</h${level}>`);
         continue;
       }
@@ -1027,18 +1038,22 @@
 
     flushPara();
     closeList();
-    return out.join("");
+    // A code block that shares its line with text is shown inline.
+    return out.join("").replace(/\u0001MDG_CODE_(\d+)\u0001/g, (_, n) => `<code>${codeBlocks[Number(n)]}</code>`);
   }
 
+  // Code spans are set aside first, so the bold, italic and link rules never reach inside them.
   function renderInline(text) {
+    const spans = [];
     return text
-      .replace(/`([^`]+)`/g, (_, c) => (isTimestampOnlyInlineCode(c) ? c : `<code>${c}</code>`))
+      .replace(/`([^`]+)`/g, (_, c) => (isTimestampOnlyInlineCode(c) ? c : `\u0002${spans.push(`<code>${c}</code>`) - 1}\u0002`))
       .replace(/\*\*([^*\n]+)\*\*/g, (_, c) => `<strong>${c}</strong>`)
       .replace(/(^|[^*])\*([^*\n]+)\*(?!\*)/g, (_, pre, c) => `${pre}<em>${c}</em>`)
       .replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, (_, t, u) => {
         const safeUrl = /^(https?:|mailto:|#)/i.test(u) ? u : "#";
         return `<a href="${safeUrl}" target="_blank" rel="noopener noreferrer">${t}</a>`;
-      });
+      })
+      .replace(/\u0002(\d+)\u0002/g, (_, n) => spans[Number(n)]);
   }
 
   // The warning shown with a subtitle whose time range does not match the video (validateSubtitleByDuration's result).
@@ -1092,6 +1107,7 @@
     buildAiConversationFilename,
     buildAiConversationMarkdown,
     buildTriageSummary,
+    VERDICT_LINE,
     withTriageSummary,
     triageExtras,
     triageExtrasKeys,
@@ -1099,7 +1115,8 @@
     resolveFolderTemplate,
     videoNotePath,
     conversationNotePath,
-    buildSubtitlePreview,
+    // The popup's subtitle box shows the TXT the user downloads.
+    buildSubtitlePreview: buildTxt,
     buildSrt,
     buildTxt,
     shouldShowHoursInNote,

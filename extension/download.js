@@ -52,8 +52,12 @@
     </form>`;
     dialog.querySelector("code").textContent = String(filepath || "");
     if (fullReason) MdgErrors.setReason(dialog.querySelector('[value="full"]'), fullReason);
+    // A click outside is a press and a release both on the backdrop: a text selection dragged out of the box ends
+    // with a click on the dialog too, and must not close it.
+    let downOutside = false;
+    dialog.addEventListener("pointerdown", (event) => (downOutside = event.target === dialog));
     dialog.addEventListener("click", (event) => {
-      if (event.target === dialog) {
+      if (downOutside && event.target === dialog) {
         dialog.close("");
       }
     });

@@ -201,6 +201,73 @@ for (const f of scripts) vm.runInContext(fs.readFileSync(f, "utf8"), ctx);
   await act("ask");
   assert.deepStrictEqual([els.status.textContent, red], ["打开侧边栏失败：没有窗口", true]);
 
+  // ---- 2026-10-16 scan, group c7 ----
+  {
+    const reload = async () => (onChanged({ mdg_ai_conversations_v1: {} }, "local"), await wait(350));
+    const entry = (key) => html.split("<article").find((a) => a.includes(`data-key="${key}"`)) || "";
+    const on = async (key, name, extra = {}) => {
+      const t = { dataset: { act: name }, ...extra, closest: (sel) => (sel === ".entry" ? { dataset: { key } } : t) };
+      (L.list.click || []).forEach((f) => f({ target: t }));
+      await wait(20);
+    };
+    const qa = (q, a) => [{ role: "user", content: q }, { role: "assistant", content: a }];
+    const BV = "BV1abcdefghi";
+    const p2Key = `video:bilibili:${BV}|c2`;
+    const before = store.mdg_ai_conversations_v1;
+    store.mdg_ai_conversations_v1 = [
+      ...before,
+      { id: "p2", contextKey: p2Key, title: "视频-P2", contextRef: { site: "bilibili", videoId: BV, cid: "c2", pageIndex: 2, title: "视频" }, createdAt: 2, updatedAt: 2, messages: qa("问", "答") },
+      // C156: saved before contextRef, its video only in contextSnapshot.
+      { id: "old", contextKey: "video:bilibili:BV1oldoldold|", title: "旧对话", contextSnapshot: { bvid: "BV1oldoldold", title: "旧视频" }, createdAt: 1, updatedAt: 1, messages: qa("旧问", "旧答") }
+    ];
+    store[NOTES] = { [BV]: { text: "整个视频的备注", updatedAt: 1 }, BVabcdefghi: { text: "油管备注", updatedAt: 1 } };
+    await reload();
+    // C159, C161: P2's entry shows the video's 备注 and copies it, and no entry of its own is added for it.
+    assert.ok(entry(p2Key).includes("整个视频的备注") && entry(p2Key).includes('data-act="note"'), entry(p2Key));
+    assert.strictEqual(html.split(BV).length - 1, entry(p2Key).split(BV).length - 1, "one entry for the video");
+    ctx.navigator.clipboard.writeText = async (text) => (copied = text);
+    await on(p2Key, "copy");
+    assert.ok(copied.includes("## 我的备注\n\n整个视频的备注"), copied);
+    // C158: an 11-character YouTube id that starts with BV is YouTube's.
+    assert.ok(html.includes("https://www.youtube.com/watch?v=BVabcdefghi"), html);
+    // C156: the old conversation is still its video: 继续问 is on.
+    assert.ok(entry("video:bilibili:BV1oldoldold|") && !entry("video:bilibili:BV1oldoldold|").includes("data-no-video"));
+    // C166: web pages are not counted as videos.
+    assert.ok(els.count.textContent.startsWith("3 个视频、2 个网页 · "), els.count.textContent);
+    // C167: an opened entry stays open while a search hides it.
+    (L.list.toggle || []).forEach((f) => f({ target: { open: true, closest: () => ({ dataset: { key: p2Key } }) } }));
+    await search("没有这个");
+    await search("");
+    assert.ok(entry(p2Key).includes("<details open>"), entry(p2Key));
+    // C165, C173: a failed save or delete says so in red.
+    ctx.chrome.storage.local.set = async () => { throw new Error("存储已满"); };
+    await on(p2Key, "note");
+    (L.list.input || []).forEach((f) => f({ target: { value: "新备注", matches: (sel) => sel === "[data-note]" } }));
+    (L.list.keydown || []).forEach((f) => f({ key: "Enter", target: { matches: (sel) => sel === "[data-note]" }, preventDefault() {} }));
+    await wait(20);
+    assert.deepStrictEqual([els.status.textContent, red], ["保存备注失败：存储已满", true]);
+    ctx.confirm = () => true;
+    await on(p2Key, "delete");
+    assert.deepStrictEqual([els.status.textContent, red], ["删除失败：存储已满", true]);
+    els.status.textContent = "";
+    for (const f of L.clearAll.click) await f({});
+    assert.deepStrictEqual([els.status.textContent, red], ["删除失败：存储已满", true]);
+    ctx.chrome.storage.local.set = async () => {};
+    // C174: a reply saved while the 该笔记已存在 dialog is open is in the write.
+    sent.length = 0;
+    ctx.MdgOverwriteDialog = {
+      choose: async () => {
+        store.mdg_ai_conversations_v1 = store.mdg_ai_conversations_v1.map((c) => (c.id === "p2" ? { ...c, updatedAt: 3, messages: [...c.messages, ...qa("再问", "新回答")] } : c));
+        await reload();
+        return "ai";
+      }
+    };
+    await on(p2Key, "obsidian");
+    await wait(450);
+    assert.deepStrictEqual(sent.map((m) => m.conversation.messages.length), [2, 4]);
+  }
+
+
   // B7: several entries download as one file dated by the local day, not UTC.
   const saved = [];
   ctx.MdgDownload = { ...ctx.MdgDownload, text: (name) => saved.push(name) };

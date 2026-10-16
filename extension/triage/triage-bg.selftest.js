@@ -34,7 +34,7 @@ assert.throws(() => t.obsidianConfig({ obsidianEnabled: true, obsidianApiBaseUrl
 {
   t.getMergedSettings = async () => ({ obsidianEnabled: true, obsidianApiBaseUrl: "http://127.0.0.1:27123", obsidianApiKey: "k" });
   t.OBSIDIAN_TIMEOUT_MS = 1000;
-  const check = (status) => ((t.fetchWithTimeout = async () => ({ ok: status < 300, status, json: async () => ({}) })), t.triageObsidianCheck().then(() => "ok", (e) => e.code ?? e.message));
+  const check = (status) => ((t.fetchWithTimeout = async () => ({ ok: status < 300, status, json: async () => ({ service: "Obsidian Local REST API" }) })), t.triageObsidianCheck().then(() => "ok", (e) => e.code ?? e.message));
   (async () => {
     const codes = [];
     for (const status of [401, 403, 404, 500, 200]) codes.push(await check(status));
