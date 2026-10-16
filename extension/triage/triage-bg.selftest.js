@@ -47,20 +47,20 @@ assert.throws(() => t.obsidianConfig({ obsidianEnabled: true, obsidianApiBaseUrl
 }
 
 
-// LLM parse: fixed three classes; ids in any case or the Chinese names; anything else is unsure.
+// LLM parse: fixed three classes; ids in any case or the Chinese names; anything else fails the video, not 拿不准.
 const good = t.triageParseLlm('```json\n{"one_liner":"讲 X","points":["1","2","3"],"verdict":"keep","reason":"有方法","tags":["AI"]}\n```');
 assert.deepStrictEqual(plain(good), { oneLiner: "讲 X", points: ["1", "2", "3"], verdict: "keep", reason: "有方法" }, "tags in the answer are ignored");
 const dirty = t.triageParseLlm('好的，结果如下：{"one_liner":"含 } 括号","points":["a","b","c","d"],"verdict":"DROP","reason":"r"} 以上');
 assert.strictEqual(dirty.oneLiner, "含 } 括号");
 assert.strictEqual(dirty.points.length, 3);
 assert.strictEqual(dirty.verdict, "drop");
-const thin = t.triageParseLlm('{"one_liner":"x","points":["only"],"verdict":"maybe"}');
+const thin = t.triageParseLlm('{"one_liner":"x","points":["only"],"verdict":"unsure"}');
 assert.deepStrictEqual([...thin.points], ["only", "", ""]);
-assert.strictEqual(thin.verdict, "unsure");
 assert.strictEqual(thin.reason, "");
+assert.throws(() => t.triageParseLlm('{"one_liner":"x","verdict":"maybe"}'), /AI 给的判断看不懂：「maybe」/);
 assert.strictEqual(t.triageParseLlm('{"one_liner":"x","verdict":"可清理"}').verdict, "drop", "the Chinese name maps to its id");
 assert.strictEqual(t.triageParseLlm('{"one_liner":"x","verdict":"可以删"}').verdict, "drop", "the old name still maps");
-assert.strictEqual(t.triageParseLlm('{"one_liner":"x"}').verdict, "unsure");
+assert.throws(() => t.triageParseLlm('{"one_liner":"x"}'), /AI 回复缺少判断/);
 assert.throws(() => t.triageParseLlm('{"one_liner":"x","points":["a"'), /回复不完整/);
 assert.throws(() => t.triageParseLlm("没有 JSON"), /格式不对/);
 assert.throws(() => t.triageParseLlm('{"points":[]}'), /缺少一句话总结/);
@@ -87,9 +87,9 @@ const batch = plain(t.triageParseTitleBatch(
     '{"i":1,"verdict":"what","reason":"看不出","confidence":"medium"},{"i":9,"verdict":"drop"}]\n```',
   items
 ));
-assert.deepStrictEqual(batch.BV2, { verdict: "keep", reason: "教程 [实用]", confidence: "high" });
-assert.deepStrictEqual(batch.BV1, { verdict: "unsure", reason: "看不出", confidence: "low" });
-assert.ok(!("BV3" in batch), "a video the AI left out has no result, so the page fails it (可重试) instead of 拿不准");
+assert.deepStrictEqual(batch.results.BV2, { verdict: "keep", reason: "教程 [实用]", confidence: "high" });
+assert.deepStrictEqual(batch.failed, { BV1: "AI 给的判断看不懂：「what」" }, "an unknown verdict fails the video with why, not 拿不准");
+assert.ok(!("BV1" in batch.results) && !("BV3" in batch.results), "a video the AI left out has no result, so the page fails it (可重试) instead of 拿不准");
 assert.throws(() => t.triageParseTitleBatch('[{"i":1,"verdict":"keep"', items), /回复不完整/);
 
 const TITLE_PROMPT = vm.runInContext("TRIAGE_TITLE_PROMPT", ctx);

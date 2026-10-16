@@ -30,15 +30,17 @@ function triageExtractJson(content, open) {
   }
 }
 
-// AI 判断固定三档。模型答 id（不分大小写）或中文名（含改名前的旧名）都认，其他一律算拿不准。
+// AI 判断固定三档。模型答 id（不分大小写）或中文名（含改名前的旧名）都认；别的不当成拿不准，返回 ""，
+// 这个视频算分析失败（可重试），不进入下一步。
 const TRIAGE_VERDICT_ALIASES = { 留: "keep", 可以删: "drop", 待定: "unsure" };
 function triageVerdict(v) {
   const s = String(v ?? "").trim();
   const id = s.toLowerCase();
   const names = MdgTagCore.VERDICTS;
   if (names[id]) return id;
-  return Object.keys(names).find((k) => names[k] === s) || TRIAGE_VERDICT_ALIASES[s] || "unsure";
+  return Object.keys(names).find((k) => names[k] === s) || TRIAGE_VERDICT_ALIASES[s] || "";
 }
+const triageBadVerdict = (v) => (String(v ?? "").trim() ? `AI 给的判断看不懂：「${String(v).trim()}」` : "AI 回复缺少判断");
 
 // tags 是标签名列表，或 [{ name, rule }]
 function triageTagNames(tags) {
@@ -68,10 +70,13 @@ function triageParseLlm(content) {
     .filter(Boolean)
     .slice(0, TRIAGE_POINTS);
   while (points.length < TRIAGE_POINTS) points.push("");
-  return { oneLiner, points, verdict: triageVerdict(obj.verdict), reason: String(obj.reason ?? "").trim() };
+  const verdict = triageVerdict(obj.verdict);
+  if (!verdict) throw new Error(triageBadVerdict(obj.verdict));
+  return { oneLiner, points, verdict, reason: String(obj.reason ?? "").trim() };
 }
 
-// items 与发给模型的序号一一对应（序号从 1 开始）。AI 漏掉的视频不在结果里，页面按分析失败处理（可重试）
+// items 与发给模型的序号一一对应（序号从 1 开始）。AI 漏掉的视频不在结果里，判断看不懂的在 failed 里写原因，
+// 页面都按分析失败处理（可重试）
 function triageParseTitleBatch(content, items) {
   const arr = triageExtractJson(content, "[");
   const byIndex = new Map();
@@ -80,16 +85,19 @@ function triageParseTitleBatch(content, items) {
     if (Number.isInteger(i) && !byIndex.has(i)) byIndex.set(i, r);
   }
   const results = {};
+  const failed = {};
   items.forEach((item, idx) => {
     const r = byIndex.get(idx + 1);
     if (!r) return;
+    const verdict = triageVerdict(r.verdict);
+    if (!verdict) return void (failed[item.bvid] = triageBadVerdict(r.verdict));
     results[item.bvid] = {
-      verdict: triageVerdict(r.verdict),
+      verdict,
       reason: String(r.reason ?? "").trim(),
       confidence: String(r.confidence || "").trim().toLowerCase() === "high" ? "high" : "low"
     };
   });
-  return results;
+  return { results, failed };
 }
 
 function triageTitleLine(item, n) {
@@ -749,7 +757,7 @@ async function triageClassifyTitles({ items, criteria, folder, aiProviderId }) {
     ai.triageThinking,
     aiProviderId
   );
-  const parsed = triageParseTitleBatch(content, list);
+  const { results: parsed, failed } = triageParseTitleBatch(content, list);
   const analyzedAt = Date.now();
   // 结果记下当时的判断标准，标准改了页面才认得出哪些要重新粗看
   const results = {};
@@ -759,7 +767,7 @@ async function triageClassifyTitles({ items, criteria, folder, aiProviderId }) {
     toStore[MdgLimits.KEYS.triageTitle(bvid)] = { ...results[bvid], model, analyzedAt };
   }
   await chrome.storage.local.set(toStore);
-  return { results };
+  return { results, failed };
 }
 
 // 协作打标签：只返回提案，不缓存。新建标签至多 maxNewTags 个（收藏夹剩余名额与分拣设置里 AI 新建上限取小）
