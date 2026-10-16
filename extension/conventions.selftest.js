@@ -71,11 +71,6 @@ const ALLOW = [
   // 4a. 待修 lines wait for their fix (Cn / An: the 2026-10-16 scan); new ones fail.
   ["background.js", 'new Error(resp?.error || "读取当前页面失败")', "待修：C321、A39"],
   ["content.js", "throw new Error(resp?.error || MdgErrors.TEXT.unknown);", "待修（扫描未列）"],
-  ["options.js", "`导出失败：${resp?.error || MdgErrors.TEXT.unknown}`", "待修（扫描未列）"],
-  ["options.js", "`导入失败：${resp?.error || MdgErrors.TEXT.unknown}`", "待修（扫描未列）"],
-  ["options.js", 'setStatus(resp?.error || "保存失败", true);', "待修：C238"],
-  ["options.js", "已保存，但 AI 平台保存失败：${aiResp?.error", "待修：C243"],
-  ["options.js", "`失败：${resp?.error || MdgErrors.TEXT.unknown}`", "待修（扫描未列）"],
   ["popup.js", "${MdgErrors.TEXT.obsidianFailed}：${resp?.error", "待修（扫描未列）"],
   ["popup.js", "${MdgErrors.TEXT.readerStartFailed}：${resp?.error", "待修（扫描未列）"],
   ["popup.js", "${MdgErrors.TEXT.subtitleSwitchFailed}：${resp?.error", "待修（扫描未列）"],
