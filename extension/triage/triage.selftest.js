@@ -971,6 +971,12 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     handlers["triage-classify-titles"] = () => (++n === 1 ? { ok: false, code: "AI_TIMEOUT", error: "超时" } : { ok: true, data: { results: { BV950: { verdict: "keep" } } } });
     await t.runStage1([item(950)]);
     assert.strictEqual(n, 2);
+    // An unknown verdict fails the card with why; it does not become 拿不准 or move to 粗看完成.
+    delete t.S.titleRes.BV950;
+    handlers["triage-classify-titles"] = () => ({ ok: true, data: { results: {}, failed: { BV950: "AI 给的判断看不懂：「maybe」" } } });
+    await t.runStage1([item(950)]);
+    assert.deepStrictEqual([t.S.titleRes.BV950, t.S.coarseFailed.get("BV950")], [undefined, "AI 给的判断看不懂：「maybe」"]);
+    t.S.coarseFailed.delete("BV950");
 
     Object.assign(t, { sleepWhile: realSleep, renderStatus: realStatus });
     delete t.S.titleRes.BV950;

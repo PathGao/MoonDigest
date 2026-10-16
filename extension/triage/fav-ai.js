@@ -66,7 +66,7 @@ async function runStage1(list = stage1Pending(), redo = false) {
       const results = r.data?.results || {};
       for (const it of batch) {
         if (results[it.bvid]) S.titleRes[it.bvid] = { criteria: crit, ...results[it.bvid] };
-        else S.coarseFailed.set(it.bvid, r.ok ? "AI 回复里没有这个视频" : MdgErrors.text(r));
+        else S.coarseFailed.set(it.bvid, r.ok ? r.data?.failed?.[it.bvid] || "AI 回复里没有这个视频" : MdgErrors.text(r));
       }
       // A redone card keeps its old 粗看, as a redone 细看 keeps its old result.
       if (!r.ok && batch.some((it) => VERDICTS[S.titleRes[it.bvid]?.verdict])) toast(`重新粗看失败，保留原来的结果：${r.error}`, true);
