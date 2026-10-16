@@ -103,7 +103,7 @@ for (const f of scripts) vm.runInContext(fs.readFileSync(path.join(__dirname, f)
 vm.runInContext(`${source}\n;globalThis.state = state;`, ctx);
 const t = ctx;
 // Real versions of what some tests stub, for the tests that need the real flow.
-const real = Object.fromEntries(["checkUrlChange", "resetClipState", "computeCurrentClipSignature", "refreshClip", "settledClip"].map((k) => [k, t[k]]));
+const real = Object.fromEntries(["checkUrlChange", "resetClipState", "computeCurrentClipSignature", "refreshClip", "settledClip", "getSettings", "refreshDerivedContent", "retryAsync", "runRefreshClip", "ensureReaderPlayerMounted", "maybeRefreshReaderSubtitleInBackground"].map((k) => [k, t[k]]));
 const realRenderReadingView = t.renderReadingView;
 // Untrusted text (titles, UP names, comments, AI replies, tag names, paths) stays text: no tag of its own, no way out of
 // a quoted attribute.
@@ -586,7 +586,7 @@ const settle = async () => {
     {
       const was = Object.fromEntries(["subtitleFetchState", "subtitles"].map((k) => [k, state[k]]));
       state.subtitles = [];
-      for (const [phase, words] of [["loading", "正在加载字幕…"], ["error", t.MdgErrors.TEXT.videoReadFailed]]) {
+      for (const [phase, words] of [["loading", t.MdgErrors.TEXT.subtitleReading], ["error", t.MdgErrors.TEXT.videoReadFailed]]) {
         state.subtitleFetchState = phase;
         const select = {};
         t.renderSubtitleOptions(select);
@@ -864,6 +864,257 @@ const settle = async () => {
     assert.match(select.innerHTML, /^<option value="u1"/, "a loaded track: no placeholder");
     assert.match(select.innerHTML, /value="u2"[^>]* selected>/);
     Object.assign(state, saved);
+  }
+
+  // The 2026-10-16 scan, group c2 (C67–C146): one assertion per behavior fix.
+  {
+    const touched = ["setReadingNotice", "setStatus", "sendRuntimeMessage", "getSettings", "refreshDerivedContent", "confirmOverwriteNote", "computeCurrentClipSignature", "settledClip", "waitForVideoMetadata", "getRuntimeVideoElement", "findReaderPlayerHost", "dismissReaderMiniPlayer", "normalizeReaderPlayerContainer", "bindReadingViewVideo", "bindReaderPlayerControlsHover", "bindReaderLayout", "layoutReaderPlayerHost", "cleanupReaderPlayerHostNode", "setReaderPlayerControlsVisible", "hasReaderPlayerControlsIssue", "getReaderPlayerControlsState", "seekVideo", "updateReaderFollowState", "byId", "fetchHotComments", "loadAiTurns", "loadTriageExtras", "currentSite", "retryAsync", "sleep", "MdgSites", "setTimeout", "clearTimeout", "history"];
+    const saved = Object.fromEntries(touched.map((k) => [k, t[k]]));
+    const savedState = Object.fromEntries(Object.entries(Object.getOwnPropertyDescriptors(state)).filter(([, d]) => "value" in d).map(([k, d]) => [k, d.value]));
+    const notices = [];
+    t.setReadingNotice = (m, o) => notices.push([m, Boolean(o?.error)]);
+    t.computeCurrentClipSignature = real.computeCurrentClipSignature;
+
+    // C67: only the first copy takes mdg_reader from the URL the page loaded with; one injected later does not reopen it.
+    {
+      const [de, perf] = [t.document.documentElement, t.performance];
+      const attrs = new Set();
+      t.document.documentElement = { hasAttribute: (k) => attrs.has(k), setAttribute: (k) => attrs.add(k) };
+      t.performance = { getEntriesByType: (type) => (type === "navigation" ? [{ name: `${t.location.href}?mdg_reader=1` }] : []) };
+      assert.deepStrictEqual([t.readerEntryRequested(), t.readerEntryRequested()], [true, false]);
+      [t.document.documentElement, t.performance] = [de, perf];
+    }
+    // C71: a copy standing down in focus mode reloads into focus mode, with mdg_reader back in the address.
+    {
+      let to = "";
+      t.location.replace = (u) => (to = u);
+      state.readerPhase = "open";
+      t.standDown();
+      assert.strictEqual(new URL(to).searchParams.get("mdg_reader"), "1");
+      Object.assign(state, { superseded: false, readerPhase: "off" });
+      delete t.location.replace;
+    }
+    // C81: rewriting the address (focus mode's close) leaves a video change the URL watcher has not seen for it to see.
+    {
+      t.history = { state: null, replaceState() {} };
+      state.currentClipSignature = "bilibili|BV_old|1|";
+      t.replaceReaderModeUrl("https://www.bilibili.com/video/BV1xx411c7mD/");
+      assert.strictEqual(state.currentClipSignature, "bilibili|BV_old|1|");
+    }
+    // C86: two quick subtitle picks; the first loads last and does not replace the second.
+    {
+      const loaded = (url) => gate({ track: { url, label: url }, body: [{ from: 0, to: 1, content: url }] });
+      const gates = { a: loaded("a"), b: loaded("b") };
+      t.MdgSites = { ...saved.MdgSites, loadFirstTrack: (site, [track]) => gates[track.url].promise };
+      t.refreshDerivedContent = async () => {};
+      Object.assign(state, { readerPhase: "off", subtitles: [{ url: "a", label: "A" }, { url: "b", label: "B" }] });
+      const picks = [t.switchSubtitle("a"), t.switchSubtitle("b")];
+      gates.b.open();
+      await settle();
+      gates.a.open();
+      await Promise.all(picks);
+      assert.strictEqual(state.selectedSubtitleUrl, "b");
+      t.MdgSites = saved.MdgSites;
+    }
+    // C90: 写入 Obsidian turned off meanwhile answers the popup; C91: 取消 in the dialog says so on the page.
+    {
+      const settings = { ...vm.runInContext("DEFAULT_SETTINGS", ctx), obsidianEnabled: false };
+      t.getSettings = async () => settings;
+      assert.deepStrictEqual({ ...(await t.sendToObsidian()) }, { ok: false, text: t.MdgErrors.TEXT.obsidianOff });
+      settings.obsidianEnabled = true;
+      Object.assign(t, {
+        refreshDerivedContent: async () => (state.markdown = "# A"),
+        sendRuntimeMessage: async () => ({ ok: true, ask: true, path: "p.md" }),
+        confirmOverwriteNote: async () => ""
+      });
+      notices.splice(0);
+      await t.sendToObsidian();
+      assert.deepStrictEqual(notices, [[t.MdgErrors.TEXT.obsidianCancelled, false]]);
+    }
+    // C101: focus mode's background read that fails after focus mode closed says nothing on the page.
+    {
+      t.waitForVideoMetadata = async () => {};
+      t.settledClip = async () => Promise.reject(new Error("网络断了"));
+      for (const closeFirst of [true, false]) {
+        notices.splice(0);
+        Object.assign(state, { readerPhase: "open", subtitleBody: [] });
+        t.maybeRefreshReaderSubtitleInBackground();
+        if (closeFirst) state.readerPhase = "off";
+        await settle();
+        assert.strictEqual(notices.length, closeFirst ? 0 : 1, `closed first: ${closeFirst}`);
+      }
+    }
+    // C104: closed while the mount waits for the mini player to go: the page's player is left alone.
+    {
+      let normalized = 0;
+      const host = { classList: { add() {} } };
+      const video = { removeAttribute() {}, setAttribute() {}, closest: () => null };
+      Object.assign(t, {
+        getRuntimeVideoElement: () => video,
+        findReaderPlayerHost: () => host,
+        dismissReaderMiniPlayer: () => true,
+        normalizeReaderPlayerContainer: () => normalized++,
+        bindReadingViewVideo() {},
+        bindReaderPlayerControlsHover() {},
+        bindReaderLayout() {},
+        layoutReaderPlayerHost() {},
+        cleanupReaderPlayerHostNode() {}
+      });
+      state.readerPhase = "entering";
+      const mounting = real.ensureReaderPlayerMounted();
+      state.readerPhase = "off";
+      assert.deepStrictEqual([await mounting, normalized], [false, 0]);
+    }
+    // C107, C108: focus mode's info panel says the video is being read, or that the read failed, not 没有简介.
+    {
+      const nodes = {};
+      t.byId = (id) => (nodes[id] ||= { innerHTML: "", hidden: false, classList: { add() {}, remove() {}, toggle() {} } });
+      Object.assign(state, { meta: null, title: "", author: "", uploadDate: "", pageCount: 0, description: "" });
+      for (const [fetchState, meta, words] of [["loading", null, "正在读取视频信息…"], ["error", null, t.MdgErrors.TEXT.videoReadFailed], ["ready", {}, "当前视频没有简介。"]]) {
+        Object.assign(state, { subtitleFetchState: fetchState, meta });
+        t.renderReadingInfoPanel();
+        const ids = vm.runInContext("ids", ctx);
+        assert.ok(nodes[ids.readingInfoDescription].innerHTML.includes(words), `${fetchState}: ${nodes[ids.readingInfoDescription].innerHTML}`);
+        if (!meta) assert.ok(nodes[ids.readingInfoSummary].innerHTML.includes(words), `${fetchState}: the summary`);
+      }
+      t.byId = saved.byId;
+    }
+    // C111: a focus-mode look that did not save says so.
+    {
+      notices.splice(0);
+      t.sendRuntimeMessage = async () => ({ ok: false, error: "存不下" });
+      await t.persistReaderSettings();
+      assert.deepStrictEqual(notices, [[`${t.MdgErrors.TEXT.settingsSaveFailed}：存不下`, true]]);
+    }
+    // C78: focus mode's look changing does not rebuild the note; a note setting does.
+    {
+      let rebuilt = 0;
+      t.getSettings = async () => ({});
+      t.refreshDerivedContent = async () => rebuilt++;
+      state.markdown = "# A";
+      for (const changes of [{ readerTheme: { newValue: "dark" } }, { includeHotCommentsInNote: { newValue: true } }]) {
+        listeners.storage.forEach((f) => f(changes, "sync"));
+        await settle();
+      }
+      assert.strictEqual(rebuilt, 1);
+    }
+    // C123: the control bar is not forced on a host that was replaced during the retry wait.
+    {
+      let forced = 0;
+      Object.assign(t, { hasReaderPlayerControlsIssue: () => true, setReaderPlayerControlsVisible: () => forced++, getReaderPlayerControlsState: () => ({ nodes: [] }) });
+      Object.assign(state, { readerPhase: "open", readingPlayerHost: "A" });
+      const recovering = t.ensureReaderPlayerControlsRecovered("A");
+      state.readingPlayerHost = "B";
+      assert.deepStrictEqual([await recovering, forced], [false, 1]);
+      state.readerPhase = "off";
+    }
+    // C125: the player ✦'s sync is throttled: a call while one waits joins it instead of putting it off.
+    {
+      const timers = [];
+      let cleared = 0;
+      Object.assign(t, { setTimeout: (f) => timers.push(f), clearTimeout: () => cleared++ });
+      state.playerAiQuickActionSyncTimer = 0;
+      t.schedulePlayerAiQuickActionSync();
+      t.schedulePlayerAiQuickActionSync();
+      Object.assign(t, { setTimeout: saved.setTimeout, clearTimeout: saved.clearTimeout });
+      assert.deepStrictEqual([timers.length, cleared], [1, 0]);
+      state.playerAiQuickActionSyncTimer = 0;
+    }
+    // C129: a rebuilt ✦ wrap on the same player host adds no second set of cursor listeners.
+    {
+      t.HTMLElement = Object;
+      let bound = 0;
+      const host = { addEventListener: () => bound++ };
+      t.bindPlayerAiQuickActionCursorSync({ parentElement: host });
+      t.bindPlayerAiQuickActionCursorSync({ parentElement: host });
+      assert.strictEqual(bound, 4);
+      delete t.HTMLElement;
+    }
+    // C131: a time point without a player is red, and the next jump that works clears it.
+    {
+      notices.splice(0);
+      t.bindReadingViewVideo = () => null;
+      t.jumpReadingTarget(3);
+      Object.assign(t, { bindReadingViewVideo: () => ({}), seekVideo() {}, updateReaderFollowState() {}, byId: () => ({ textContent: vm.runInContext("NO_PLAYER", ctx) }) });
+      t.jumpReadingTarget(3);
+      assert.deepStrictEqual(notices, [[vm.runInContext("NO_PLAYER", ctx), true], ["", false]]);
+      t.byId = saved.byId;
+    }
+    // C133: two YouTube reads capturing the PO token take turns: each finds the captions button as the page had it.
+    {
+      let pressed = false;
+      const reads = [];
+      const button = { getAttribute: () => (reads.push(pressed), String(pressed)), click: () => (pressed = !pressed) };
+      const query = t.document.querySelector;
+      t.document.querySelector = (q) => (q.includes("ytp-subtitles-button") ? button : null);
+      t.PerformanceObserver = class { observe() {} disconnect() {} };
+      await Promise.all([t.ytCapturePot("v1"), t.ytCapturePot("v1")]);
+      assert.deepStrictEqual([reads, pressed], [[false, false], false]);
+      t.document.querySelector = query;
+      delete t.PerformanceObserver;
+    }
+    // C137: settings the background did not give stop the read or the write instead of using the defaults.
+    {
+      t.sendRuntimeMessage = async () => ({ ok: false, error: "后台没回" });
+      await assert.rejects(real.getSettings(), /后台没回/);
+      t.sendRuntimeMessage = async () => undefined;
+      await assert.rejects(real.getSettings(), /读取设置失败/);
+    }
+    // C140, C141: the first retry waits the full delay, and an HTTP 4xx answer is not retried.
+    {
+      const waits = [];
+      t.sleep = async (ms) => waits.push(ms);
+      const tries = async (error) => {
+        let n = 0;
+        await real.retryAsync(async () => {
+          n++;
+          throw error;
+        }, 2, 100).catch(() => {});
+        return n;
+      };
+      assert.strictEqual(await tries(new TypeError("Failed to fetch")), 3);
+      assert.deepStrictEqual(waits, [100, 200]);
+      assert.strictEqual(await tries(Object.assign(new Error("B站请求失败 HTTP 404"), { status: 404 })), 1, "404");
+      assert.strictEqual(await tries(Object.assign(new Error("B站请求失败 HTTP 503"), { status: 503 })), 3, "503");
+    }
+    // C145: a failed comment read is said in the popup's status; C146: an overlapping read's failure keeps the comments
+    // the other one got.
+    {
+      Object.assign(t, { loadAiTurns: async () => [], loadTriageExtras: async () => null });
+      Object.assign(state, { settings: { includeHotCommentsInNote: true }, hotComments: [], subtitleFetchState: "ready" });
+      t.fetchHotComments = async () => Promise.reject(Object.assign(new Error(t.MdgErrors.TEXT.biliThrottled), { code: "THROTTLED" }));
+      await real.refreshDerivedContent();
+      assert.ok(t.readDoneText().startsWith(`评论读取失败：${t.MdgErrors.TEXT.biliThrottled}。`), t.readDoneText());
+      const ok = gate([{ uname: "a", message: "好" }]);
+      let fail;
+      const failing = new Promise((_, reject) => (fail = reject));
+      const answers = [ok.promise, failing];
+      Object.assign(state, { hotComments: [], commentsFailure: "" });
+      t.fetchHotComments = () => answers.shift();
+      const both = [real.refreshDerivedContent(), real.refreshDerivedContent()];
+      ok.open();
+      await settle();
+      fail(new Error("网络断了"));
+      await Promise.all(both);
+      assert.deepStrictEqual([state.hotComments.length, state.commentsFailure], [1, ""]);
+    }
+    // C84: a video whose duration nobody knows is read like on every other entry, without the duration check.
+    {
+      Object.assign(t, { getSettings: async () => ({}), retryAsync: (f) => f(), refreshDerivedContent: async () => {}, getRuntimeVideoElement: () => null });
+      t.currentSite = () => ({
+        id: "x",
+        parseRef: () => ({ site: "bilibili", id: "BV_D" }),
+        readDom: () => ({}),
+        fetchMeta: async () => ({ duration: 0, title: "D" }),
+        fetchTracks: async () => ((listed = true), { tracks: [] })
+      });
+      let listed = false;
+      await real.runRefreshClip();
+      assert.deepStrictEqual([listed, state.subtitleFailure, state.subtitleFetchState], [true, "", "empty"]);
+    }
+
+    Object.assign(t, saved);
+    Object.assign(state, savedState);
   }
 
   console.log("content selftest: all passed");
