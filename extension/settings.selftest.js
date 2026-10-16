@@ -100,6 +100,8 @@ for (const t of texts) {
 assert.deepStrictEqual([...S.normalizeAiPresetPrompts([" a ", "", "a", 5, null, ...Array.from({ length: 20 }, (_, i) => `q${i}`)])].slice(0, 3), ["a", "5", "q0"]);
 assert.strictEqual(S.normalizeAiPresetPrompts(Array.from({ length: 20 }, (_, i) => `q${i}`)).length, S.MAX_PRESET_PROMPTS);
 assert.deepStrictEqual([...S.normalizeAiPresetPrompts("a")], []);
+// C235: the settings page and note.js read a stored note field alike: the old "bvid", spaces or not, is video_id.
+assert.deepStrictEqual(["bvid", " bvid ", " title", "bvid2"].map(S.normalizeFrontmatterField), ["video_id", "video_id", "title", "bvid2"]);
 for (const name of ["normalizeAiPresetPrompts", "normalizeApiKey", "normalizeDownloadFormat", "normalizePlayerAiQuickPrompt", "normalizeFixedPropertyType", "normalizeFixedPropertyValue", "isFixedPropertyRowEffectivelyEmpty", "normalizeFixedFrontmatterProperties", "normalizeNoteSectionPosition", "normalizeNotePlaceholderSections", "normalizeReaderTheme"]) {
   for (const file of sources) assert.ok(!new RegExp(`function ${name}\\(`).test(read(file)), `${file} defines ${name} again`);
 }

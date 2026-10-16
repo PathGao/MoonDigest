@@ -1734,7 +1734,7 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   Object.assign(store, { triage_tags: [{ id: "t1", name: "AI", color: "#1" }], triage_video_tags: { BVa: ["t1"] }, triage_decisions_7: {} });
   syncStore.triageCriteria = "全局标准";
   assert.deepStrictEqual(plain(await t.loadTagsAndCriteria()), { tags: [{ id: "t1", name: "AI", color: "#1" }], videoTags: { BVa: ["t1"] }, folderCriteria: { 7: "全局标准" } });
-  assert.ok(!("triageCriteria" in syncStore), "the migrated sync criteria is dropped");
+  assert.strictEqual(syncStore.triageCriteria, "全局标准", "C563: the migrated sync criteria stays for computers not updated yet");
   assert.strictEqual(store.triage_simplified_v1, true);
   syncStore.triageCriteria = "后来改的";
   store.triage_folder_criteria = { 7: "我改的" };

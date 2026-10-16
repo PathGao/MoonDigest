@@ -42,5 +42,11 @@
   // The youtubeSubtitleLang setting's targets besides "auto", with their names (the settings page lists them).
   const SUBTITLE_LANGS = Object.freeze({ "zh-Hans": "简体中文", "zh-Hant": "繁體中文", en: "English", ja: "日本語" });
 
-  globalThis.MdgCommon = Object.freeze({ localDate, fileName, parseTimestamp, parseCount, PAGES, SUBTITLE_LANGS });
+  // The video page address's query parameter that asks for 专注模式 (=1): the popup's 新标签页 sets it, content.js reads
+  // and strips it, and puts it back to reload into 专注模式.
+  const READER_PARAM = "mdg_reader";
+  // The side panel's chat port (chrome.runtime.connect): sidepanel.js opens it, background.js answers it.
+  const CHAT_PORT = "sidepanel-chat";
+
+  globalThis.MdgCommon = Object.freeze({ localDate, fileName, parseTimestamp, parseCount, PAGES, SUBTITLE_LANGS, READER_PARAM, CHAT_PORT });
 })();

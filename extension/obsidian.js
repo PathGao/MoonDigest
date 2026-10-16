@@ -21,7 +21,7 @@ const NEEDS_PAGE = "整篇覆盖要先打开视频页";
 function obsidianError(e) {
   if (e?.status === 401 || e?.status === 403) return obsidianCoded(MdgErrors.TEXT.obsidianKey, "OBSIDIAN");
   if (e?.status === 404) return obsidianCoded(MdgErrors.TEXT.obsidianNotFound, "OBSIDIAN");
-  if (e?.status === 408 || e?.name === "TypeError") return obsidianCoded(MdgErrors.TEXT.obsidianDown, "OBSIDIAN_DOWN");
+  if (e?.status === MdgErrors.TIMEOUT_STATUS || e?.name === "TypeError") return obsidianCoded(MdgErrors.TEXT.obsidianDown, "OBSIDIAN_DOWN");
   return e?.status ? new Error(`Obsidian 返回 HTTP ${e.status}`) : e;
 }
 

@@ -22,7 +22,8 @@
   // The same caps in words: the 数据与存储 row and the 观看进度 hint on the options page.
   const SEEN_LIMITS_TEXT = `最多 ${SEEN_GAP_MS / 60000} 分钟一次，留最近 ${SEEN_KEEP_DAYS % 365 ? `${SEEN_KEEP_DAYS} 天` : `${SEEN_KEEP_DAYS / 365} 年`}、最多 ${SEEN_MAX} 个`;
 
-  // chrome.storage.local key names more than one file uses, written only here; storageUsage counts the capped ones.
+  // chrome.storage key names more than one file uses (local unless marked sync), written only here; storageUsage counts
+  // the capped ones.
   // Never change a value: the user's data is stored under it (the one rename, in 3.6, ships with migrateRenamedKeys below). A key built at run time has a function beside its prefix.
   // limits.selftest.js fails when a name here is written in another file.
   const ANALYSIS = "triage_analysis_";
@@ -58,6 +59,8 @@
     triageIncludedFolders: "triage_included_folders",
     triageFolderCriteria: "triage_folder_criteria",
     triageSimplified: "triage_simplified_v1",
+    // The AI platforms (chrome.storage.sync, without keys): the background writes them, the video page and side panel follow.
+    aiProviderList: "aiProviders",
     // The AI platforms' API keys (local, never in sync or the settings file): the background, the side panel follows it.
     aiApiKeys: "aiProviderKeys",
     // 观看进度: seen_<bvid> → [percent, view_at s], written by the background's history read.

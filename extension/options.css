@@ -610,6 +610,13 @@ details.adv[open] > summary::before {
   color: var(--danger);
 }
 
+.ai-provider-warn {
+  grid-column: 2 / -1;
+  margin: -2px 0 0;
+  color: var(--warn);
+  font-size: var(--fs-sm);
+}
+
 .ai-later {
   margin: 6px 0 14px;
   color: var(--muted);
@@ -989,7 +996,8 @@ table.marks input:disabled {
     display: none;
   }
 
-  .ai-provider-status {
+  .ai-provider-status,
+  .ai-provider-warn {
     grid-column: 1 / -1;
   }
 

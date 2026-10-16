@@ -203,12 +203,14 @@ process.on("exit", (code) => {
   await init();
   assert.strictEqual(JSON.stringify(oldUser), once);
 
+  // C13: a fresh install writes no defaults into sync (only the Obsidian switch's one-time migration); reading fills
+  // them in, so a default changed later reaches everyone who never set it.
   const fresh = {};
   init = install(fresh);
   await init();
-  assert.deepStrictEqual(fresh.aiPresetPrompts, [...ctx.MdgSettings.DEFAULTS.aiPresetPrompts]);
-  assert.strictEqual(fresh.playerAiQuickPrompt, ctx.MdgSettings.DEFAULTS.playerAiQuickPrompt);
-  assert.ok(!("aiInitialQuickPrompts" in fresh));
+  assert.deepStrictEqual(fresh, { obsidianEnabled: false });
+  const read = await ctx.getMergedSettings();
+  assert.deepStrictEqual([[...read.aiPresetPrompts], read.playerAiQuickPrompt], [[...ctx.MdgSettings.DEFAULTS.aiPresetPrompts], ctx.MdgSettings.DEFAULTS.playerAiQuickPrompt]);
 
   // Saving a partial payload (the options page has no reading-view controls) keeps every key it omits.
   const stored = { readerTheme: "dark", readerFontScale: "l", aiPresetPrompts: ["a"] };
@@ -554,6 +556,11 @@ process.on("exit", (code) => {
   ctx.chrome = { storage: { sync: area({}), local: { ...area(dead), getKeys: async () => Object.keys(dead) } } };
   await ctx.removeDeadStorageKeys();
   assert.deepStrictEqual(Object.keys(dead), ["triage_basket"]);
+  // C563: the old global 判断标准 stays in sync after this computer migrated it; another one may not have updated yet.
+  const syncLeft = { triageCriteria: "全局", readerChapterVisibility: "x" };
+  ctx.chrome = { storage: { sync: area(syncLeft), local: { ...area({ triage_simplified_v1: true }), getKeys: async () => ["triage_simplified_v1"] } } };
+  await ctx.removeDeadStorageKeys();
+  assert.deepStrictEqual(syncLeft, { triageCriteria: "全局" });
 
   // Settings file: everything in sync (收藏夹 and 关注 included), never a key, even one an older version left in sync.
   const exportSync = { noteFolder: "X", triageFineBatchSize: 20, follow_ai_settings: { batchSize: 7 }, aiProviders: [{ id: "p", apiKey: "sk-old" }], obsidianApiKey: "leak" };
@@ -564,7 +571,7 @@ process.on("exit", (code) => {
   assert.ok(!/sk|leak|"k"/.test(JSON.stringify(file)), "no keys in the file");
   assert.deepStrictEqual(file.local, { triage_included_folders: ["11", "toview"], triage_folder_criteria: { 11: "只留菜谱" } }, "the 分拣台's folder choice and 判断标准; no sort, no data");
 
-  // Import replaces every setting, migrates an older file's keys, fills defaults, and leaves local keys alone.
+  // Import replaces every setting, migrates an older file's keys, writes no defaults, and leaves local keys alone.
   const importSync = { noteFolder: "Y", stray: 1 };
   const importLocal = { obsidianApiKey: "k2", aiProviderKeys: { q: "sk2" } };
   ctx.chrome = { storage: { sync: area(importSync), local: area(importLocal) } };
@@ -575,7 +582,8 @@ process.on("exit", (code) => {
   assert.deepStrictEqual([importSync.noteFolder, importSync.triageFineBatchSize, importSync.follow_ai_settings], ["X", 20, { batchSize: 7 }]);
   assert.ok(!("stray" in importSync) && !("aiInitialQuickPrompts" in importSync) && !("obsidianApiKey" in importSync));
   assert.ok(importSync.aiPresetPrompts.includes("旧"));
-  assert.strictEqual(importSync.seenThreshold, 80);
+  assert.ok(!("seenThreshold" in importSync), "a setting the file lacks is not written");
+  assert.strictEqual((await ctx.getMergedSettings()).seenThreshold, 80, "and reads as its default");
   assert.deepStrictEqual(importLocal, { obsidianApiKey: "k2", aiProviderKeys: { q: "sk2" }, triage_included_folders: ["11", "toview"], triage_folder_criteria: { 11: "只留菜谱" } });
   // A file from before the folder choice was exported leaves the current choice.
   importLocal.triage_included_folders = ["7"];

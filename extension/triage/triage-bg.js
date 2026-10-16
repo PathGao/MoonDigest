@@ -258,7 +258,7 @@ function triageError(error, code) {
 const BILI_RISK_CODES = MdgSites.BILI_RISK_CODES;
 async function triageBiliJson(res) {
   const throttled = res.status === 412 || res.status === 429;
-  if (!res.ok) throw Object.assign(throttled ? triageError(MdgErrors.TEXT.biliThrottled, "THROTTLED") : triageError(`B站请求失败 HTTP ${res.status}`), { status: res.status });
+  if (!res.ok) throw Object.assign(throttled ? triageError(MdgErrors.TEXT.biliThrottled, MdgErrors.CODE.THROTTLED) : triageError(`B站请求失败 HTTP ${res.status}`), { status: res.status });
   try {
     return await res.json();
   } catch {
@@ -273,7 +273,7 @@ const triageNotLoggedIn = () => triageError(MdgErrors.TEXT.biliLogin, "NOT_LOGGE
 // closed account from a passing failure; 收藏夹's leave it off (a write refused for one item is no stop).
 function triageCodeError(json, what = "B站返回 ", keep = false) {
   if (json.code === -101) return triageNotLoggedIn();
-  if (BILI_RISK_CODES.has(json.code)) return triageError(MdgErrors.TEXT.biliThrottled, "THROTTLED");
+  if (BILI_RISK_CODES.has(json.code)) return triageError(MdgErrors.TEXT.biliThrottled, MdgErrors.CODE.THROTTLED);
   return triageError(`${what}${json.code}：${json.message || ""}`, keep ? json.code : undefined);
 }
 function triageBiliData(json) {
@@ -334,10 +334,10 @@ async function triageBiliGetJson(url, pace) {
         strike--;
         continue;
       }
-      if (e.code !== "THROTTLED") throw e;
+      if (e.code !== MdgErrors.CODE.THROTTLED) throw e;
     }
     if (json && !(pace && BILI_RISK_CODES.has(json.code))) return json;
-    if (strike >= pace.cfg.strikes) throw triageError(MdgErrors.TEXT.biliThrottled, "THROTTLED");
+    if (strike >= pace.cfg.strikes) throw triageError(MdgErrors.TEXT.biliThrottled, MdgErrors.CODE.THROTTLED);
     if (typeof url === "function") MdgSites.biliWbiReset();
     pace.hold(pace.cfg.backoffMs, "throttled");
   }
@@ -499,7 +499,7 @@ async function seenSyncOnce(force, started) {
   } catch (e) {
     // Risk control: stop and stay away for SEEN_BACKOFF_MS from now (not from the start of a read that ran minutes);
     // never retry in a loop. What was read stays, `resume` too.
-    if (e.code === "THROTTLED") await chrome.storage.local.set({ [SEEN_META]: { ...meta, backoffUntil: Date.now() + SEEN_BACKOFF_MS } });
+    if (e.code === MdgErrors.CODE.THROTTLED) await chrome.storage.local.set({ [SEEN_META]: { ...meta, backoffUntil: Date.now() + SEEN_BACKOFF_MS } });
     throw e;
   }
   let dropped = 0;
@@ -633,7 +633,7 @@ function triageAiHttpError(status, detail = "") {
   if (status === 402 || (status === 429 && AI_QUOTA_RE.test(text) && !AI_RATE_RE.test(text))) {
     return triageError("AI 平台余额不足或额度已用完，请充值或换一个平台", "AI_QUOTA");
   }
-  if (status === 404) return triageError("AI 平台找不到这个接口或模型，请检查接口地址和模型名", "AI_SETUP");
+  if (status === 404) return triageError("AI 平台找不到这个接口或模型，请检查接口地址和模型名", MdgErrors.CODE.AI_SETUP);
   if (status === 429) return triageError("AI 平台限流", "AI_THROTTLED");
   return triageError(`AI 平台出错（HTTP ${status}）`);
 }
@@ -670,8 +670,8 @@ async function triageAiJson(res) {
 // 测试连接 (testAiConnection) and 分拣台 (triageChat) check only here, in one set of words. The codes offer 去设置, and
 // 分拣台 stops at the first one instead of failing every video. null when the platform can be asked.
 function aiProviderProblem(provider, apiKey) {
-  if (!String(provider?.baseUrl || "").trim()) return { code: "AI_SETUP", text: "AI 平台的接口地址没填" };
-  if (!String(provider?.model || "").trim()) return { code: "AI_SETUP", text: "AI 平台的模型名没填" };
+  if (!String(provider?.baseUrl || "").trim()) return { code: MdgErrors.CODE.AI_SETUP, text: "AI 平台的接口地址没填" };
+  if (!String(provider?.model || "").trim()) return { code: MdgErrors.CODE.AI_SETUP, text: "AI 平台的模型名没填" };
   if (provider.requiresKey !== false && !String(apiKey || "").trim()) return { code: "AI_AUTH", text: "AI 平台的 API Key 没填" };
   return null;
 }
@@ -691,16 +691,12 @@ const TRIAGE_AI_TIMEOUT_MS = { normal: 120000, thinking: 240000 };
 // unset or no longer enabled, the first enabled one, as in the side panel.
 async function triageChat(messages, maxTokens, thinking = false, providerId = "") {
   const provider = await triageProvider(providerId);
-  if (!provider) throw triageError(MdgErrors.TEXT.aiNone, "AI_SETUP");
+  if (!provider) throw triageError(MdgErrors.TEXT.aiNone, MdgErrors.CODE.AI_SETUP);
   const apiKey = (await loadAiProviderKeys())[provider.id];
   const problem = aiProviderProblem(provider, apiKey);
   if (problem) throw triageError(problem.text, problem.code);
-  const headers = { "Content-Type": "application/json" };
-  if (apiKey) headers.Authorization = `Bearer ${apiKey}`;
   const { baseUrl } = provider; // normalized by loadAiProviders
   const body = { model: provider.model, stream: false, temperature: 0.3, max_tokens: maxTokens, messages };
-  // 思考 token 计入 max_tokens；默认关（DeepSeek 实测 30 标题 3s/815 token，开则约 19s/4579 token）
-  if (supportsThinkingToggle(baseUrl)) body.thinking = { type: thinking ? "enabled" : "disabled" };
 
   const ms = TRIAGE_AI_TIMEOUT_MS[thinking ? "thinking" : "normal"];
   const controller = new AbortController();
@@ -713,12 +709,8 @@ async function triageChat(messages, maxTokens, thinking = false, providerId = ""
     }, ms);
   });
   const request = async () => {
-    const res = await fetch(`${baseUrl}/chat/completions`, {
-      method: "POST",
-      headers,
-      body: JSON.stringify(body),
-      signal: controller.signal
-    }).catch(async () => {
+    // 思考 token 计入 max_tokens；默认关（DeepSeek 实测 30 标题 3s/815 token，开则约 19s/4579 token）
+    const res = await postChat({ baseUrl, apiKey, signal: controller.signal, thinking }, body).catch(async () => {
       throw await aiFetchError(baseUrl);
     });
     if (!res.ok) throw triageAiHttpError(res.status, await res.text().catch(() => ""));
@@ -869,6 +861,12 @@ async function focusOrOpenPage(page, url = page) {
   await chrome.windows.update(open.windowId, { focused: true });
 }
 
+// The ids a page's message carries, as B站 takes them: digits (a number or a string), or 稍后再看 for a folder. Nothing
+// else reaches a write's form fields (resources joins aids into "aid:2,…") or a URL.
+const triageNumId = (v) => (typeof v === "number" || typeof v === "string") && /^\d+$/.test(String(v));
+const triageFolderId = (v) => v === TRIAGE_TOVIEW || triageNumId(v);
+const triageAids = (v) => (Array.isArray(v) && v.every(triageNumId) ? v : []);
+
 const TRIAGE_HANDLERS = {
   "triage-open": (msg) => triageOpenPage(msg?.hash),
   "triage-write-note": (msg) => triageWriteNote(msg),
@@ -883,7 +881,7 @@ const TRIAGE_HANDLERS = {
   // With known (the cached bvids), it stops after the first page with nothing new and returns only those pages as head:
   // the list is newest first, so a page of known videos means the rest is in the cache too.
   "triage-folder-items": async ({ mediaId, known }) => {
-    if (!mediaId) throw triageError("缺少 mediaId");
+    if (!triageFolderId(mediaId)) throw triageError("缺少 mediaId");
     if (mediaId === TRIAGE_TOVIEW) {
       const items = (await triageToviewList()).map((m) => ({
         bvid: m.bvid,
@@ -951,15 +949,15 @@ const TRIAGE_HANDLERS = {
 
   // Every video id of a folder in one request, no paging; 所有收藏夹 compares it with the cached list.
   "triage-folder-ids": async ({ mediaId }) => {
-    if (!mediaId) throw triageError("缺少 mediaId");
+    if (!triageFolderId(mediaId)) throw triageError("缺少 mediaId");
     return { bvids: await triageFolderIds(mediaId) };
   },
 
   // Which of the user's folders hold this video (Bilibili's own 收藏 dialog asks the same): one request per video, no
   // folder's contents are read. The page passes back the mid of its first answer, so one check asks nav once.
   "triage-fav-where": async ({ aid, mid: known }) => {
-    if (!aid) throw triageError("缺少 aid");
-    const mid = known || (await triageMid());
+    if (!triageNumId(aid)) throw triageError("缺少 aid");
+    const mid = triageNumId(known) ? known : await triageMid();
     const data = await triageBiliGet(`${TRIAGE_BILI_API}/x/v3/fav/folder/created/list-all?up_mid=${mid}&type=2&rid=${aid}`);
     return { mid, folders: (data?.list || []).filter((f) => f.fav_state === 1).map((f) => ({ id: String(f.id), title: f.title })) };
   },
@@ -983,8 +981,8 @@ const TRIAGE_HANDLERS = {
   },
 
   "triage-unfav": async ({ mediaId, aids }) => {
-    const list = Array.isArray(aids) ? aids : [];
-    if (!mediaId || !list.length) throw triageError("缺少 mediaId 或 aids");
+    const list = triageAids(aids);
+    if (!triageFolderId(mediaId) || !list.length) throw triageError("缺少 mediaId 或 aids");
     if (mediaId === TRIAGE_TOVIEW) {
       for (const aid of list) await triageBiliPost("/x/v2/history/toview/del", { aid });
       return { done: list.length };
@@ -998,7 +996,7 @@ const TRIAGE_HANDLERS = {
   },
 
   "triage-refav": async ({ mediaId, aid }) => {
-    if (!mediaId || !aid) throw triageError("缺少 mediaId 或 aid");
+    if (!triageFolderId(mediaId) || !triageNumId(aid)) throw triageError("缺少 mediaId 或 aid");
     if (mediaId === TRIAGE_TOVIEW) {
       await triageBiliPost("/x/v2/history/toview/add", { aid });
       return {};
@@ -1010,8 +1008,8 @@ const TRIAGE_HANDLERS = {
   // 移动 / 复制 to another folder (never 稍后再看); without from, just 收藏 into it (videos from 已出分拣范围).
   // From 稍后再看 or nowhere there is no batch endpoint: add one by one, then remove.
   "triage-transfer": async ({ from, to, aids, move }) => {
-    const list = Array.isArray(aids) ? aids : [];
-    if (!to || to === TRIAGE_TOVIEW || String(from) === String(to) || !list.length) throw triageError("缺少目标或 aids");
+    const list = triageAids(aids);
+    if (!triageNumId(to) || (from && !triageFolderId(from)) || String(from) === String(to) || !list.length) throw triageError("缺少目标或 aids");
     if (!from || from === TRIAGE_TOVIEW) {
       for (const aid of list) {
         await triageBiliPost("/x/v3/fav/resource/deal", { rid: aid, type: 2, add_media_ids: to, del_media_ids: "" });

@@ -145,7 +145,7 @@ function stepReader(event) {
 
 function hasReaderParam(url) {
   try {
-    return new URL(url).searchParams.get("mdg_reader") === "1";
+    return new URL(url).searchParams.get(MdgCommon.READER_PARAM) === "1";
   } catch {
     return false;
   }
@@ -164,7 +164,7 @@ function readerEntryRequested() {
 function stripReaderModeUrl(url = location.href) {
   try {
     const parsed = new URL(url);
-    parsed.searchParams.delete("mdg_reader");
+    parsed.searchParams.delete(MdgCommon.READER_PARAM);
     return parsed.toString();
   } catch {
     return url;
@@ -365,7 +365,7 @@ function standDown() {
   // (put back: YouTube drops it from the address soon after load).
   if (state.readerMode || state.readingViewOpen) {
     const url = new URL(location.href);
-    url.searchParams.set("mdg_reader", "1");
+    url.searchParams.set(MdgCommon.READER_PARAM, "1");
     location.replace(url.href);
     return;
   }
@@ -588,7 +588,7 @@ function bindSettingsWatcher() {
     // Any setting (sync keys of MdgSettings.DEFAULTS) or the AI platforms. Note settings (附带热门评论, 笔记属性, 笔记标签…)
     // shape the note: the popup copies and downloads state.markdown and the side panel builds from state.settings, so
     // both rebuild here, like 写入 Obsidian, which builds with the settings of the moment.
-    const changed = areaName === "sync" && Object.keys(changes).some((k) => k === "aiProviders" || Object.hasOwn(MdgSettings.DEFAULTS, k));
+    const changed = areaName === "sync" && Object.keys(changes).some((k) => k === MdgLimits.KEYS.aiProviderList || Object.hasOwn(MdgSettings.DEFAULTS, k));
     if (!changed) {
       return;
     }
@@ -1075,7 +1075,7 @@ async function runRefreshClip() {
     const reason = failureReason(error);
     // Only the subtitle step failed: keep the video info and degrade to the no-subtitle state. A limit is no subtitle
     // failure: it fails the read like the side panel and 逐个视频笔记 do, so no note says it and 重试 reads it all again.
-    if (metaLoaded && !isLimitError(error)) {
+    if (metaLoaded && !MdgSites.isLimit(error)) {
       try {
         await showNoSubtitleState(runId, { failure: reason });
       } catch (degradeError) {
@@ -1128,7 +1128,7 @@ function pageSubtitleSite(site, runId) {
       ensureRunActive(runId);
       return site.fetchRaw(track, io).catch((error) => {
         // B站's 429 is THROTTLED already (sites.js biliJson), as on every other entry.
-        throw error?.status === 429 && error.code !== "THROTTLED" ? Object.assign(new Error("字幕接口限流（429），稍后再试"), { status: 429 }) : error;
+        throw error?.status === 429 && error.code !== MdgErrors.CODE.THROTTLED ? Object.assign(new Error("字幕接口限流（429），稍后再试"), { status: 429 }) : error;
       });
     }
   };
@@ -3934,7 +3934,7 @@ async function getSettings() {
 // the platform list. The focus-mode one always shows: opening focus mode is already asking to read the video.
 async function loadHasAiProvider() {
   try {
-    const { aiProviders } = await chrome.storage.sync.get({ aiProviders: [] });
+    const { [MdgLimits.KEYS.aiProviderList]: aiProviders } = await chrome.storage.sync.get({ [MdgLimits.KEYS.aiProviderList]: [] });
     return Array.isArray(aiProviders) && aiProviders.some((p) => p?.id && p.enabled !== false);
   } catch {
     return false;
@@ -3966,9 +3966,6 @@ function isStaleRunError(error) {
   return error?.code === "STALE_RUN";
 }
 
-// A limit, as MdgSites.loadSubtitle counts one: B站 risk control (every B站 read says THROTTLED through sites.js's biliJson)
-// or HTTP 429. Retrying at once only digs deeper, so it is never retried, and it fails the read (runRefreshClip).
-const isLimitError = (error) => error?.code === "THROTTLED" || error?.status === 429;
 
 async function retryAsync(task, retries = 1, delayMs = 180) {
   let lastError = null;
@@ -3977,7 +3974,8 @@ async function retryAsync(task, retries = 1, delayMs = 180) {
       return await task();
     } catch (error) {
       lastError = error;
-      if (isLimitError(error)) {
+      // A limit (MdgSites.isLimit): retrying at once only digs deeper, and it fails the read (runRefreshClip).
+      if (MdgSites.isLimit(error)) {
         throw error;
       }
       const isNetworkError = isRetryableNetworkError(error);

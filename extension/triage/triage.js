@@ -1023,7 +1023,8 @@ function coverHtml(it) {
   return `<a class="cover-wrap${seen ? " seen" : ""}" href="${esc(videoUrl(it.bvid))}" tabindex="-1" aria-hidden="true">${pic}${tag}${dur}${mark}${p ? `<span class="seen-bar" title="${label}"><i style="width:${Math.max(p, 2)}%"></i></span>` : ""}</a>`;
 }
 
-// Runs simplifyMigration once (flag key), then drops the sync criteria it read.
+// Runs simplifyMigration once (flag key). The sync criteria it read stays: another computer that has not updated yet
+// reads it.
 async function loadTagsAndCriteria() {
   const got = await chrome.storage.local.get([K.tags, K.videoTags, K.folderCriteria, K.simplified]);
   if (got[K.simplified]) return { tags: got[K.tags] || [], videoTags: got[K.videoTags] || {}, folderCriteria: got[K.folderCriteria] || {} };
@@ -1038,7 +1039,6 @@ async function loadTagsAndCriteria() {
     folderCriteria: got[K.folderCriteria]
   });
   await chrome.storage.local.set({ [K.tags]: out.tags, [K.videoTags]: out.videoTags, [K.folderCriteria]: out.folderCriteria, [K.simplified]: true });
-  await chrome.storage.sync.remove("triageCriteria");
   return out;
 }
 
