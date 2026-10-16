@@ -68,8 +68,6 @@ const ALLOW = [
   ["history/history.js", 'aria-hidden="true" disabled>删除 AI 对话', "看不见的占位（aria-hidden、tabindex=-1），只为对齐，不是控件"],
   // 4a. 待修 lines wait for their fix (Cn / An: the 2026-10-16 scan); new ones fail.
   ["background.js", 'new Error(resp?.error || "读取当前页面失败")', "待修：C321、A39"],
-  ["triage/triage.js", 'r.error || "分析失败"', "待修（扫描未列）"],
-  ["triage/triage.js", 'a.error || "分析失败"', "例外：存下的分析记录（没有 code），不是回复"],
   // 4b
   ["content.js", "new Error(`Missing node: ${id}`)", "例外：页面少了 id 是代码错，不是用户能遇到的（冒烟核对页面脚本查找的 id）"],
   ["content.js", 'new Error("Stale refresh run")', "例外：作废信号，带 code STALE_RUN，isStaleRunError 认出后丢掉，不显示"],
@@ -78,7 +76,6 @@ const ALLOW = [
   ["sidepanel-state.js", "new Error(`unknown event ${event.type}`)", "例外：未知事件类型是代码错，不是用户能遇到的"],
   ["sites.js", 'new Error("no wbi_img")', "例外：biliWbiQuery 吞掉它，follow-bg.js 的 followWbiData 换成「拿不到 WBI 签名密钥」"],
   // 5a
-  ["triage/triage.js", "[K.notes]: S.notes", "待修：C577（清理整份写回页面里缓存的备注）"],
   ["triage/triage-bg.js", "[triageNotes]: notes, triage_notes_migrated: true", "例外：一次性迁移（triage_notes_migrated），扩展更新时跑一次，只补还没有的条目"],
   // 5b
   ["triage/follow-bg.js", "chrome.storage.local.set({ follow_hold: hold })", "例外：只写不读，follow_hold 只由 followHold 整个换掉，不依赖读到的旧值"]

@@ -163,6 +163,36 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     delete ctx.localStorage;
     await t.sendRaw({ type: "ai-pick-test" });
     assert.deepStrictEqual(last(), { type: "ai-pick-test" }, "nothing picked: nothing sent");
+    // C548: Chrome's English lastError never becomes the page's error words.
+    ctx.chrome.runtime.lastError = { message: "Could not establish connection. Receiving end does not exist." };
+    const warn = console.warn;
+    console.warn = () => {};
+    const r = await t.sendRaw({ type: "ai-pick-test" });
+    console.warn = warn;
+    ctx.chrome.runtime.lastError = undefined;
+    assert.deepStrictEqual(plain(r), { ok: false, error: "后台无响应" });
+  }
+  // C549: a failed write is toasted once while writes keep failing, and again once one succeeded in between.
+  {
+    const set = ctx.chrome.storage.local.set;
+    const err = console.error;
+    const failing = async () => { throw new Error("QUOTA_BYTES quota exceeded"); };
+    const fails = () => toasts.filter((m) => m.startsWith("保存失败")).length;
+    const before = fails();
+    console.error = () => {};
+    ctx.chrome.storage.local.set = failing;
+    await t.store({ x: 1 });
+    await t.store({ x: 1 });
+    const once = fails() - before;
+    ctx.chrome.storage.local.set = set;
+    await t.store({ x: 1 });
+    ctx.chrome.storage.local.set = failing;
+    await t.store({ x: 1 });
+    ctx.chrome.storage.local.set = set;
+    console.error = err;
+    assert.strictEqual(once, 1, "once while it keeps failing");
+    assert.strictEqual(fails() - before, 2, "again after a write succeeded");
+    delete store.x;
   }
   // B8: a batch unfavorite runs to the end after another folder opens, every chunk recorded under its folder, aid and
   // title included; the other folder gets no undo entry, only a toast naming the folder.
@@ -303,7 +333,7 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     await t.fav.unfavMany(five);
     assert.deepStrictEqual(plain(tv), [[1071], [1072], [1072], [1073], [1074]]);
     assert.deepStrictEqual(Object.keys(store[t.K.decisions("toview")]), ["BV71", "BV72", "BV73"]);
-    assert.strictEqual(toasts.at(-1), "批量取消收藏失败（已完成 3 个）：网络错误 · U 撤销已完成的");
+    assert.strictEqual(toasts.at(-1), "批量取消收藏中断（已完成 3 个）：网络错误 · U 撤销已完成的");
     const back = [];
     handlers["triage-refav"] = (m) => (back.push(m.aid), { ok: true });
     await t.undo();
@@ -506,7 +536,7 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
       await t.fav.unfavMany(again);
       handlers["triage-refav"] = (m) => (m.aid === 1064 ? { ok: false, error: "网络错误" } : (away && openFake("E", []), { ok: true }));
       await t.undo();
-      const want = away ? ["「所有收藏夹」撤销中断（剩余 1 个在各收藏夹的最近取消收藏里）：网络错误", 0] : ["撤销中断（剩余 1 个可再按 U 重试）：网络错误", 1];
+      const want = away ? ["「所有收藏夹」撤销中断（已重新收藏 1 个，剩余 1 个在各收藏夹的最近取消收藏里）：网络错误", 0] : ["撤销中断（已重新收藏 1 个，剩余 1 个可再按 U 重试）：网络错误", 1];
       assert.deepStrictEqual([toasts.at(-1), t.S.undo.length], want, away ? "elsewhere: told only" : "here: U again");
     }
     // No folder checked: the dialog's button is off and says why; it is on again for the next dialog.
@@ -903,6 +933,19 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     Object.assign(t, { sleepWhile: realSleep, renderStatus: realStatus });
     delete t.S.titleRes.BV950;
     for (const job of ["stage1", "group"]) await vm.runInContext("runs", ctx).run(job, { line: () => "", next: () => null }); // drops their finished lines
+  {
+    const keep = { mediaId: t.S.mediaId, items: t.S.items, itemMap: t.S.itemMap, decisions: t.S.decisions, titleRes: t.S.titleRes, analyses: t.S.analyses };
+    openFake("T553", [item(553)]);
+    t.S.titleRes = { BV553: { verdict: "unsure" } };
+    t.S.analyses = {};
+    const analyze = handlers["triage-analyze"];
+    handlers["triage-analyze"] = () => ({ ok: false, code: "AI_TRUNCATED", error: "模型输出被截断" });
+    t.startGroup(["BV553"]);
+    while (t.S.group) await new Promise(setImmediate);
+    handlers["triage-analyze"] = analyze;
+    assert.ok(t.el.bannerText.textContent.includes("调大细看输出上限"), t.el.bannerText.textContent);
+    Object.assign(t.S, keep);
+  }
   }
   assert.strictEqual(t.activityState(), null, "nothing running hides the pill");
   // 观看进度: pages read while this page waits on the read; B站 risk control shows the wait, and 刷新 during it says so.
@@ -939,6 +982,12 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   t.S.analyses = { BV203: { status: "done", verdict: "keep", criteria: "旧标准" }, BV204: { status: "done", verdict: "keep", criteria: "新标准" } };
   assert.deepStrictEqual(plain(t.staleCoarse().map((it) => it.bvid)), ["BV200"]);
   assert.deepStrictEqual(plain(t.staleFine().map((it) => it.bvid)), ["BV203"]);
+  // C546: an invalid video can never be 细看'd again, so it is not offered for the redo.
+  t.S.itemMap.get("BV206").invalid = true;
+  t.S.analyses.BV206 = { status: "done", verdict: "keep", criteria: "旧标准" };
+  assert.deepStrictEqual(plain(t.staleFine().map((it) => it.bvid)), ["BV203"], "invalid stays out of 按新标准重新细看");
+  delete t.S.itemMap.get("BV206").invalid;
+  delete t.S.analyses.BV206;
   t.S.tab = "fine";
   t.renderListHeader(t.visibleItems());
   // G10: the redo button counts only what is listed; filtered out, it stays, disabled, and says why.
@@ -1001,7 +1050,7 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     triage_notes: { BVa: { text: "n", updatedAt: 1 } }, triage_notes_migrated: true,
     triage_snapshot_7: { bvids: ["BVa"] }, triage_decisions_7: { BVa: { action: "keep" } },
     triage_title_BVa: { verdict: "keep" }, triage_analysis_BVa: { status: "done" },
-    triage_tab: "all", aiProviderKeys: { x: "sk-live-1" }, obsidianApiKey: "secret-token"
+    triage_tab: "all", aiProviderKeys: { x: "sk-live-1" }, obsidianApiKey: "secret-token", triage_ai_command_history: ["按主题分"]
   });
   t.S.folders = t.S.allFolders = [{ id: 7, title: "夹" }];
   Object.assign(t.S.settings, { triageCoarseBatchSize: 5000, triageFineBatchSize: 7 });
@@ -1016,6 +1065,7 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   assert.ok(!("schemes" in backup) && !("folderScheme" in backup) && !/"old"/.test(JSON.stringify(backup)), "old scheme keys are not exported");
   assert.deepStrictEqual([backup.titleResults, backup.analyses], [{ BVa: { verdict: "keep" } }, { BVa: { status: "done" } }]);
   assert.deepStrictEqual(backup.notes, { BVa: { text: "n", updatedAt: 1 } });
+  assert.deepStrictEqual(backup.aiHistory, ["按主题分"], "C664: AI 打标签's instructions, as 关注's");
   assert.ok(!/sk-live-1|secret-token|triage_tab|migrated|simplified/.test(JSON.stringify(backup)), "no secrets or unrelated keys");
 
   // Old custom-tier results: a 粗看 one counts as not classified, a done 细看 one as 待定.
@@ -1441,10 +1491,10 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     assert.deepStrictEqual([asked, t.S.undo.length, t.S.decisions.BV730?.action], [["撤销批量保留？"], 1, "keep"], "declined: the step stays");
     yes = true;
     await t.undo();
-    assert.deepStrictEqual([asked.length, t.S.undo.length, t.S.decisions.BV730, toasts.at(-1)], [2, 0, undefined, "已撤销批量保留 2 个"]);
+    assert.deepStrictEqual([asked.length, t.S.undo.length, t.S.decisions.BV730, toasts.at(-1)], [2, 0, undefined, "已撤销：批量保留 2 个"]);
     vm.runInContext("batchKeep", ctx)([t.S.itemMap.get("BV730")]);
     await t.undo();
-    assert.ok(asked.length === 2 && toasts.at(-1).startsWith("已撤销：取消保留《"), "one video: no question");
+    assert.ok(asked.length === 2 && toasts.at(-1).startsWith("已撤销：保留《"), "one video: no question");
     t.askConfirm = saved;
   }
 
@@ -1942,6 +1992,7 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   Object.assign(store, { triage_analysis_BV1: {}, triage_title_BV1: {}, triage_analysis_BV5: {} });
   Object.assign(store, { triage_decisions_A: { BV1: { action: "unfav" }, BV5: { action: "unfav" } }, triage_decisions_B: { BV1: { action: "unfav" } } });
   Object.assign(t.S, { notes: { BV1: { text: "n" }, BV5: { text: "m" } }, videoTags: { BV1: ["t"] }, kept: { BV1: { action: "keep" } }, basket: [{ bvid: "BV1" }, { bvid: "BV5" }] });
+  store[t.K.notes] = structuredClone(t.S.notes);
   handlers["triage-folder-ids"] = () => ({ ok: true, data: { bvids: [] } });
   await t.openRemoved();
   assert.deepStrictEqual(plain(t.S.items.map((it) => it.bvid)), ["BV1"]);
@@ -2449,6 +2500,8 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     assert.strictEqual(t.el.bannerText.textContent.endsWith("关闭思考"), thinkingToggle, "only a platform with the thinking switch is told to turn it off");
   }
   t.S.settings.thinkingToggle = false;
+  // C553: a cut 细看 answer names 细看's own limit; 粗看 and AI 打标签 share 粗看's.
+  assert.ok(t.el.bannerText.textContent.includes("调大粗看输出上限"), t.el.bannerText.textContent);
   t.el.banner.hidden = true;
   openFake("all", []);
   assert.strictEqual(t.activityState().text, "字幕细看完成 2 个", "back in its folder, the newest finished line shows (细看 ran after 粗看)");
@@ -2475,6 +2528,19 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   assert.deepStrictEqual([itemCalls.length, t.S.loadAll.queue.length], [1, 0], "one head request, no full load queued");
   assert.strictEqual(t.S.loadAll.lists["6"].items[0].bvid, "BV5");
   assert.strictEqual(store.triage_snapshot_6.ids[0], "BV5");
+  // C581: the difference read hitting B站's limit waits and checks again, never falling back to a full load.
+  {
+    const snap = structuredClone(store.triage_snapshot_6);
+    handlers["triage-folder-ids"] = () => ({ ok: true, data: { bvids: ["BV581", ...snap.ids] } });
+    let n = 0;
+    handlers["triage-folder-items"] = (m) => (itemCalls.push(m.known), ++n === 1 ? { ok: false, code: "THROTTLED", error: "412" } : { ok: true, data: { items: [item(581)], info: { intro: "" }, head: true } });
+    itemCalls.length = 0;
+    t.S.loadAll = { lists: { 6: { items: snap.items, ids: snap.ids, at: 0 } }, check: ["6"], checkTotal: 1, queue: [], paused: false, running: false, error: "", partial: 0 };
+    await t.runLoadAll(t.S.folderToken);
+    assert.ok(itemCalls.length === 2 && itemCalls.every(Boolean), "two difference reads, no full one");
+    assert.strictEqual(t.S.loadAll.lists["6"].items[0].bvid, "BV581");
+    store.triage_snapshot_6 = snap;
+  }
 
   // F12: loading 所有收藏夹 shows in the pill with counts; a B站 limit waits with the amber countdown and goes on.
   {
@@ -2544,7 +2610,7 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   assert.ok(!t.el.folderHead.innerHTML.includes("fail-text") && /今天 \d\d:\d\d 刷新过/.test(t.el.folderHead.innerHTML), t.el.folderHead.innerHTML);
   assert.ok(Date.now() - store[t.K.readAt].M < 1000, "a reopened page still says when");
 
-  // A12/A13: a folder with nothing listed whose read failed says so on every redraw, not 「这个收藏夹是空的」, until a read gets through.
+  // A12/A13: a folder with nothing listed whose read failed says so on every redraw, not 「这个收藏夹没有视频」, until a read gets through.
   {
     openFake("E", []);
     t.S.tab = "none";
@@ -2553,12 +2619,12 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     await t.syncFolder({ force: true });
     t.el.list.innerHTML = "";
     t.renderList();
-    assert.ok(t.el.list.innerHTML.includes("无法读取这个收藏夹") && t.el.list.innerHTML.includes("网络断了") && !t.el.list.innerHTML.includes("这个收藏夹是空的"), t.el.list.innerHTML);
+    assert.ok(t.el.list.innerHTML.includes("无法读取这个收藏夹") && t.el.list.innerHTML.includes("网络断了") && !t.el.list.innerHTML.includes("这个收藏夹没有视频"), t.el.list.innerHTML);
     handlers["triage-folder-items"] = () => ({ ok: true, data: { items: [], ids: [], info: { intro: "" } } });
     Object.assign(t.S, { syncing: false, lastSyncAt: 0 });
     await t.syncFolder({ force: true });
     t.renderList();
-    assert.ok(t.el.list.innerHTML.includes("这个收藏夹是空的"), t.el.list.innerHTML);
+    assert.ok(t.el.list.innerHTML.includes("这个收藏夹没有视频"), t.el.list.innerHTML);
     openFake("M", [item(40)]);
   }
 
@@ -2688,10 +2754,12 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     t.renderListHeader(t.visibleItems());
     assert.ok((t.el.listHeader.innerHTML + t.el.favSel.innerHTML).includes("清理选中的 1 个") && !(t.el.listHeader.innerHTML + t.el.favSel.innerHTML).includes("清理这 2 个"), "清理 takes the selection");
     const adds = [];
-    handlers["triage-transfer"] = (m) => (adds.push([m.from, m.to, m.move, m.aids.length]), { ok: true });
+    const busy = [];
+    handlers["triage-transfer"] = (m) => (busy.push(t.fav.state().busy), adds.push([m.from, m.to, m.move, m.aids.length]), { ok: true });
     t.askTransfer = async () => ({ how: "add", target: { id: "2" } });
     await t.fav.transfer(t.S.items.slice());
     assert.deepStrictEqual(adds, [["", "2", false, 1], ["", "2", false, 1]], "one video per request");
+    assert.strictEqual(busy[0], "收藏", "C625: others wait on 「收藏还在跑」, not 移动/复制");
     assert.deepStrictEqual(plain(store[t.K.removed]), {});
     assert.deepStrictEqual(plain(store[t.K.snapshot("2")].items.slice(0, 2)), [item(961), item(960)]);
     assert.strictEqual(toasts.at(-1), "已收藏 2 个到「目标」");
@@ -3074,6 +3142,22 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     ctx.window.addEventListener = realWin;
     const fire = (n, type, e) => (L[n][type] || []).forEach((f) => f(e));
 
+    // C671: saving 收藏夹设置 redraws, so row 3 shows the new batch sizes.
+    {
+      const was = { render: t.render, allFolders: t.S.allFolders };
+      let drawn = 0;
+      t.render = () => drawn++;
+      t.S.allFolders = [];
+      t.el.settingsDialog.returnValue = "save";
+      handlers["triage-settings-save"] = () => ({ ok: true });
+      fire("settingsDialog", "close");
+      for (let i = 0; i < 5; i++) await new Promise(setImmediate);
+      assert.ok(drawn > 0, "redrawn after the save");
+      Object.assign(t, { render: was.render });
+      t.S.allFolders = was.allFolders;
+      delete handlers["triage-settings-save"];
+    }
+
     // The selection bar's slot (outside stagebar) sends its clicks to the same handler.
     assert.strictEqual(L.favSel?.click?.length, 1);
     // 全选 sits in listHeader inside stagebar: one click bubbles through both and selects once, not on and off again.
@@ -3225,7 +3309,7 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
       const undoing = t.undo();
       await pressStop(refavs);
       await undoing;
-      assert.deepStrictEqual([Object.keys(store[t.K.decisions("toview")]), toasts.at(-1), t.S.undo.length], [["BV92"], "已停止撤销（已重新收藏 1 个，剩余 1 个可再按 U 撤销）", 1]);
+      assert.deepStrictEqual([Object.keys(store[t.K.decisions("toview")]), toasts.at(-1), t.S.undo.length], [["BV92"], "已停止撤销：完成 1 个，未完成 1 个，可再按 U 撤销", 1]);
       await t.undo();
       assert.deepStrictEqual([store[t.K.decisions("toview")], toasts.at(-1)], [{}, "已重新收藏 1 个"]);
       // 移动 / 复制 stopped: the ones copied stay, and it says how far it got.
@@ -3367,6 +3451,11 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
       assert.ok(stuck?.stuck && stuck.act === "write" && stuck.text === "写入笔记 1/3 · B站限流卡住，0:01 后重试" && stuck.total === 3, JSON.stringify(stuck));
 
       assert.strictEqual(t.S.write.text, "逐个视频笔记完成：写入 3 篇");
+      // C661: the vault's index failing is said apart, not counted as a failed note.
+      handlers["triage-export"] = () => ({ ok: false, error: "网络断了" });
+      await t.runWrite();
+      assert.strictEqual(t.S.write.text, "逐个视频笔记完成：写入 3 篇 · 索引写入失败：网络断了");
+      handlers["triage-export"] = () => ({ ok: true, data: { path: "甲.md" } });
 
       // A note written without its subtitle, or with one that may not match, is listed with the warning, in amber.
       calls = [];
@@ -3390,6 +3479,10 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
       assert.deepStrictEqual(calls, ["BV801", "BV802"], "a closed Obsidian ends the run");
       assert.ok(!t.S.write.text && t.el.writeSettingsBtn.hidden === true, "no 去设置 in the dialog");
       assert.ok(t.el.bannerText.textContent.startsWith("写入 Obsidian 失败：连不上") && t.el.bannerBtn.hidden === true, "the banner has only its ×");
+      // C663: reopened after Obsidian stopped it, the dialog still says how far it got.
+      const said = t.el.writeProgress.textContent;
+      t.openWrite();
+      assert.ok(said && t.el.writeProgress.textContent === said, said);
 
       calls = [];
       check = { ok: false, code: "OBSIDIAN", error: "请先在设置页填写 Obsidian Local REST API 地址和 API Key" };
@@ -3432,7 +3525,15 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
       // A scope with nothing to write: copy, download and write are off and say why.
       openFake("W", []);
       t.renderWriteScope();
-      for (const b of ["writeCopyBtn", "writeMdBtn", "writeRunBtn"]) assert.ok(t.el[b].disabled && t.el[b].title === "这个范围里没有能写的视频", b);
+      for (const b of ["writeCopyBtn", "writeMdBtn", "writeRunBtn"]) assert.ok(t.el[b].disabled && t.el[b].title === "作用范围里没有视频", b);
+      // C659: changing the scope while 摘录 is being written into Obsidian leaves that busy button off.
+      openFake("W", [item(659)]);
+      t.setBusy(t.el.writeRunBtn, "写入中…");
+      t.renderWriteScope();
+      assert.ok(t.el.writeRunBtn.disabled, "busy stays off");
+      t.setBusy(t.el.writeRunBtn, "");
+      t.renderWriteScope();
+      assert.ok(!t.el.writeRunBtn.disabled, "on again once done");
       delete t.navigator;
       openFake("A", []);
       delete t.document.body;
@@ -3708,7 +3809,7 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     t.S.mediaId = "removed";
     assert.strictEqual(t.aiTagReason(), "标签按收藏夹分开，先打开一个具体收藏夹");
     openFake("E", []);
-    assert.strictEqual(t.aiTagReason(), "这里没有视频");
+    assert.strictEqual(t.aiTagReason(), "这个收藏夹没有视频");
     const aiRun = hang("ai");
     assert.strictEqual(t.aiTagReason(), "", "while it runs it opens the progress");
     await aiRun();
@@ -3753,6 +3854,105 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     Object.assign(t.S, { tags: [], videoTags: {} });
   }
 
+  // C567: a folder deleted on B站 is retired under the name its list was saved with, not its number.
+  {
+    const backup = structuredClone(store);
+    const keep = { allFolders: t.S.allFolders, folders: t.S.folders, included: t.S.included };
+    for (const k of Object.keys(store)) if (k.startsWith("triage_snapshot_")) delete store[k];
+    Object.assign(t.S, { allFolders: [{ id: 77, title: "旧夹" }, { id: 1, title: "夹1" }], folders: [{ id: 1, title: "夹1" }], included: ["1"] });
+    await t.saveSnapshot("77", [item(567)]);
+    t.S.allFolders = [{ id: 1, title: "夹1" }];
+    await t.retireUnchosenFolders();
+    assert.deepStrictEqual(plain(store[t.K.removed].BV567.from.map((f) => f.title)), ["旧夹"], JSON.stringify(store[t.K.removed].BV567));
+    for (const k of Object.keys(store)) delete store[k];
+    Object.assign(store, backup);
+    Object.assign(t.S, keep);
+  }
+
+  // C568: the first load keeps every folder for someone who triaged before, 稍后再看 too when its read failed.
+  // C570: reloading the folder list keeps an AI setup banner.
+  {
+    const backup = structuredClone(store);
+    const keep = { allFolders: t.S.allFolders, folders: t.S.folders, included: t.S.included, toviewUnread: t.S.toviewUnread };
+    delete store[t.K.included];
+    store.triage_snapshot_toview = { bvids: [] };
+    Object.assign(t.S, { allFolders: [{ id: 1, title: "夹1" }], toviewUnread: true });
+    assert.deepStrictEqual(plain(await t.loadIncluded()), ["1", "toview"]);
+    t.el.banner.dataset.kind = "ai";
+    t.el.banner.hidden = false;
+    const folders = handlers["triage-folders"];
+    handlers["triage-folders"] = () => ({ ok: true, data: { folders: [], toviewUnread: false } });
+    await t.loadFolders();
+    handlers["triage-folders"] = folders;
+    assert.strictEqual(t.el.banner.hidden, false, "the AI banner stays");
+    t.el.banner.hidden = true;
+    t.el.banner.dataset.kind = "";
+    for (const k of Object.keys(store)) delete store[k];
+    Object.assign(store, backup);
+    Object.assign(t.S, keep);
+  }
+
+  // C572 / C627: an invalid video copied or moved into a folder is in its cached list's invalid ids, as a read would put it.
+  {
+    await t.patchSnapshotNow("C627", { add: [{ ...item(627), invalid: true }, item(628)] }, true);
+    assert.deepStrictEqual(plain(store[t.K.snapshot("C627")].invalid), ["BV627"]);
+    delete store[t.K.snapshot("C627")];
+  }
+
+  // C577: 清理 deletes its videos' notes one by one, keeping a note another page saved after this page read them.
+  {
+    openFake("removed", [{ ...item(577), inFolder: null }]);
+    store[t.K.notes] = { BV577: { text: "删", updatedAt: 1 }, BV578: { text: "侧边栏刚存的", updatedAt: 2 } };
+    t.S.notes = { BV577: { text: "删", updatedAt: 1 } };
+    await t.cleanRemoved([t.S.items[0]]);
+    assert.deepStrictEqual(plain(store[t.K.notes]), { BV578: { text: "侧边栏刚存的", updatedAt: 2 } });
+    delete store[t.K.notes];
+    t.S.notes = {};
+  }
+
+  // C578: the stored AI results that could not be read say so; their cards would otherwise just read 未分析.
+  {
+    openFake("C578", [item(578)]);
+    const get = handlers["triage-title-get"];
+    handlers["triage-title-get"] = () => ({ ok: false, error: "后台无响应" });
+    await t.loadResults(t.S.folderToken);
+    handlers["triage-title-get"] = get;
+    assert.strictEqual(toasts.at(-1), "读取已有的 AI 判断失败：后台无响应");
+  }
+
+  // C646: stopped before any batch answered: no 「只有已完成批次的建议」.
+  {
+    const R = vm.runInContext("runs", ctx);
+    handlers["test-ai-646"] = () => (R.stop("ai646"), { ok: false, error: "AI 回复格式不对" });
+    const { proposal, errors } = await t.runAiBatches({ job: "ai646", total: 3, request: () => ({ type: "test-ai-646" }), merge() {}, intervalMs: 0, progress() {} });
+    assert.ok(!proposal && errors.at(-1) === "已手动停止，还没有批次完成", JSON.stringify(errors));
+  }
+
+  // C648: in 所有收藏夹, a scope whose videos are in no chosen folder sends nothing and records no instruction.
+  {
+    const keep = { folders: t.S.folders, aiHistory: t.S.aiHistory, tab: t.S.tab };
+    openFake("all", [{ ...item(648), folders: [] }]);
+    Object.assign(t.S, { folders: [{ id: "1", title: "夹1" }], aiHistory: [], tab: "read" });
+    const before = sent.length;
+    await t.runAiCommand({ instruction: "分类", scope: "filter", allowRemove: false });
+    assert.ok(!sent.slice(before).some((m) => m.type === "triage-ai-command") && !t.S.aiHistory.length);
+    Object.assign(t.S, keep);
+  }
+
+  // C650: a checked new tag that could not be made (the folder is at its cap) is named in the toast.
+  {
+    const keep = { tags: t.S.tags, videoTags: t.S.videoTags, limit: t.S.settings.triageTagLimit };
+    openFake("C650", [item(650)]);
+    Object.assign(t.S, { tags: [{ id: "x650", name: "旧", color: "#111", folder: "C650" }], videoTags: {} });
+    t.S.settings.triageTagLimit = 1;
+    t.S.ai.proposals.C650 = { newTags: [{ key: "k", name: "新", checked: true }], rows: [{ id: "BV650", add: ["new:k", "id:x650"], remove: [] }], notes: [], errors: [] };
+    t.applyAiProposal();
+    assert.ok(toasts.at(-1).includes("新标签「新」没建成"), toasts.at(-1));
+    assert.deepStrictEqual(plain(t.S.videoTags.BV650), ["x650"]);
+    t.S.settings.triageTagLimit = keep.limit;
+    Object.assign(t.S, { tags: keep.tags, videoTags: keep.videoTags, undo: [] });
+  }
+
   console.log("triage selftest: all passed");
 })().catch((e) => {
   console.error(e);
@@ -3769,6 +3969,145 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   assert.match(folderThumb("toview", ""), /toview-thumb[^>]*><svg/);
   assert.doesNotMatch(folderThumb("toview", ""), /--h:/);
   assert.match(folderThumb("toview", "https://i1.hdslb.com/t.jpg"), /<img src="https:\/\/i1\.hdslb\.com\/t\.jpg"/);
+}
+
+// C559: this page's own write comes back as an event and is skipped; a write of an unchanged value fires none, so later
+// another tab's write of that same value is taken, not swallowed as this page's echo.
+{
+  const keep = t.S.aiRecent;
+  const D = vm.runInContext("Date", ctx);
+  const now = D.now;
+  t.storeSet(t.K.aiRecent, { F: { at: 1, bvids: ["a"] } });
+  t.S.aiRecent = { mine: true };
+  t.followShared({ [t.K.aiRecent]: { newValue: { F: { at: 1, bvids: ["a"] } } } });
+  assert.deepStrictEqual(plain(t.S.aiRecent), { mine: true }, "the echo is skipped");
+  t.storeSet(t.K.aiRecent, { F: { at: 2, bvids: ["b"] } }); // say storage already held it: no event
+  const later = now() + 5000;
+  D.now = () => later;
+  t.followShared({ [t.K.aiRecent]: { newValue: { F: { at: 2, bvids: ["b"] } } } });
+  D.now = now;
+  assert.deepStrictEqual(plain(t.S.aiRecent), { F: { at: 2, bvids: ["b"] } }, "another tab's write of the same value later is taken");
+  t.S.aiRecent = keep;
+}
+
+// C562: the cover's progress bar names the same words as its tag (100% reads 看完了, not 看到 100%).
+{
+  const [cfg, pct] = [t.S.seenCfg, t.S.seenPct];
+  t.S.seenCfg = t.MdgSurfaces.seenConfig({ seenShow: "both", seenThreshold: 90 });
+  t.S.seenPct = { BV562: [100, 1], BV563: [40, 1] };
+  assert.ok(t.coverHtml(item(562)).includes('class="seen-bar" title="✓ 看完了"'), t.coverHtml(item(562)));
+  assert.ok(t.coverHtml(item(563)).includes('class="seen-bar" title="看到 40%"'));
+  [t.S.seenCfg, t.S.seenPct] = [cfg, pct];
+}
+
+// C565: 稍后再看 kept through a failed read only while it is ticked; unticked it leaves like any unticked folder.
+{
+  const keep = { folders: t.S.folders, included: t.S.included, toviewUnread: t.S.toviewUnread };
+  Object.assign(t.S, { folders: [{ id: 1 }], toviewUnread: true, included: ["1"] });
+  assert.deepStrictEqual(plain(t.chosenOtherIds()), ["1"], "unticked 稍后再看 does not count");
+  t.S.included = ["1", "toview"];
+  assert.deepStrictEqual(plain(t.chosenOtherIds()), ["1", "toview"], "ticked, it counts until the next read");
+  Object.assign(t.S, keep);
+}
+
+// C585 / C586: the 刷新 notice's summary and detail name each group once.
+{
+  const setSync = t.TriageUi.setSync;
+  let got = null;
+  t.TriageUi.setSync = (els, v) => (got = v);
+  t.showSyncNotice({ added: [{ title: "甲" }, { title: "乙", from: "removed" }], removed: ["丙"], invalid: [], restored: [] });
+  t.TriageUi.setSync = setSync;
+  assert.strictEqual(got.text, "刷新结果：新增 1 · 来自其他收藏夹 1 · 已在B站移除 1 · 已失效 0");
+  assert.deepStrictEqual(plain(got.sections), [["新增", ["甲"]], ["来自其他收藏夹", ["乙（原在已出分拣范围）"]], ["已在B站移除", ["丙"]], ["已失效", []], ["恢复（在B站重新收藏）", []]]);
+}
+
+// C587: a 刷新 still reading the folder just left does not show as this folder's.
+{
+  const keep = { syncing: t.S.syncing, token: t.S.folderToken };
+  t.S.syncing = t.S.folderToken = 587;
+  assert.ok(String(t.activityState()?.text).startsWith("刷新中…"), "this folder's");
+  t.S.folderToken++;
+  assert.ok(!String(t.activityState()?.text).startsWith("刷新中…"), "the folder left's");
+  Object.assign(t.S, { syncing: keep.syncing, folderToken: keep.token });
+}
+
+// C593: 保留选中的 N 个 leaves out the selected videos a running batch 取消收藏 is about to write.
+{
+  const keep = { mediaId: t.S.mediaId, items: t.S.items, itemMap: t.S.itemMap, decisions: t.S.decisions, tab: t.S.tab, selected: t.S.selected, titleRes: t.S.titleRes };
+  openFake("C593", [item(593), item(594)]);
+  Object.assign(t.S, { tab: "none", titleRes: {}, selected: new Set(["BV593", "BV594"]) });
+  const W = vm.runInContext("W", ctx);
+  const pending = W.pending;
+  W.pending = (b) => (b === "BV593" ? "取消收藏" : "");
+  const list = t.batchList(null).map((it) => it.bvid);
+  W.pending = pending;
+  assert.deepStrictEqual(plain(list), ["BV594"]);
+  Object.assign(t.S, keep);
+}
+
+// C595: 字幕细看 with every waiting card hidden by the AI-class chip says the filter hides them.
+{
+  const keep = { mediaId: t.S.mediaId, items: t.S.items, itemMap: t.S.itemMap, decisions: t.S.decisions, tab: t.S.tab, selected: t.S.selected, titleRes: t.S.titleRes, analyses: t.S.analyses, cf: t.S.classFilter.coarse };
+  openFake("C595", [item(595)]);
+  Object.assign(t.S, { tab: "coarse", titleRes: { BV595: { verdict: "keep", confidence: "high" } }, analyses: {}, selected: new Set() });
+  t.S.classFilter.coarse = "drop";
+  t.renderListHeader(t.visibleItems());
+  assert.ok((t.el.listHeader.innerHTML + t.el.favSel.innerHTML).includes("当前筛选下没有要细看的视频"));
+  t.S.classFilter.coarse = keep.cf;
+  Object.assign(t.S, keep);
+}
+
+// C660: two notes whose names differ only in case get separate files in the zip.
+assert.deepStrictEqual(plain(t.zipNotes("夹", [{ filename: "Go.md", markdown: "" }, { filename: "go.md", markdown: "" }], "夹").map((f) => f.name)), ["夹.md", "Go.md", "go (2).md"]);
+
+// C674: 收藏夹设置 with no folder list says why: not read yet, the read failed, or B站 has none.
+{
+  const keep = { allFolders: t.S.allFolders, foldersRead: t.S.foldersRead };
+  t.S.allFolders = [];
+  handlers["triage-settings-get"] = () => ({ ok: false });
+  for (const [read, says] of [[null, "收藏夹列表还没加载"], ["网络断了", "读取收藏夹失败：网络断了"], ["", "没有找到收藏夹"]]) {
+    t.S.foldersRead = read;
+    t.openSettings();
+    assert.ok(t.el.folderToggles.innerHTML.includes(says), t.el.folderToggles.innerHTML);
+  }
+  delete handlers["triage-settings-get"];
+  Object.assign(t.S, keep);
+}
+
+// C675: a video opened over a playing one keeps the first one's folders for the re-read on close.
+{
+  const keep = { mediaId: t.S.mediaId, viewing: t.S.viewing, viewer: t.S.viewer, quickSync: t.quickSync };
+  let synced = 0;
+  t.quickSync = () => synced++;
+  t.S.mediaId = "F675";
+  Object.assign(t.S, { viewing: "BV675", viewer: { item: item(675), folders: ["F675"] } });
+  t.openViewer(item(676));
+  t.S.viewer = null; // the second video is in no chosen folder
+  t.closeViewer();
+  assert.strictEqual(synced, 1, "the first video's folder is re-read");
+  Object.assign(t.S, { mediaId: keep.mediaId, viewing: keep.viewing, viewer: keep.viewer });
+  t.quickSync = keep.quickSync;
+}
+
+// C557 / C600: 已出分拣范围's kind is its tab: an empty one names the kind, not a filter; its 导出 reason names the view.
+{
+  const keep = { mediaId: t.S.mediaId, items: t.S.items, itemMap: t.S.itemMap, decisions: t.S.decisions, tab: t.S.tab };
+  const list = t.el.list;
+  t.el.list = { innerHTML: "", querySelectorAll: () => [], scrollTop: 0 };
+  openFake("removed", [{ ...item(557), inFolder: null }]);
+  t.S.tab = "read";
+  t.S.kindFilter = "invalid";
+  t.renderList();
+  assert.ok(t.el.list.innerHTML.includes("没有已失效的视频"), t.el.list.innerHTML);
+  t.S.kindFilter = "";
+  openFake("removed", []);
+  t.renderSort();
+  assert.strictEqual(t.el.csvBtn.title, "已出分拣范围里没有视频");
+  openFake("all", []);
+  t.renderSort();
+  assert.strictEqual(t.el.csvBtn.title, "勾选的收藏夹里都没有视频");
+  t.el.list = list;
+  Object.assign(t.S, keep);
 }
 
 // A card shows the video's title, UP, cover, the AI's words and the user's note as text.
@@ -3790,3 +4129,17 @@ t.el.banner.hidden = true;
 t.MoonTriage.send({ type: "test-login" }).then((r) => {
   assert.ok(r.code === "NOT_LOGGED_IN" && t.el.banner.hidden === false && t.el.banner.dataset.kind === "login" && t.el.bannerBtn.textContent === "去登录", "去登录 banner");
 });
+
+// C558: a start that throws (here: the bare stand-in list cannot take listeners) says so in the list, not a blank page.
+{
+  const list = t.el.list;
+  const box = { innerHTML: "" };
+  const err = console.error;
+  t.el.list = box;
+  console.error = () => {};
+  t.init().then(() => {
+    console.error = err;
+    t.el.list = list;
+    assert.ok(box.innerHTML.includes("分拣台启动失败"), box.innerHTML);
+  });
+}
