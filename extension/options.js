@@ -534,7 +534,9 @@ function renderSavedState() {
   const aiReady = providers.length > 0;
   elements.noAiNote.hidden = aiReady;
   setPill(elements.aiPill, aiReady, aiReady ? providers[0].name : "未配置");
-  setPill(elements.aiSectionPill, aiReady, aiReady ? `已配置 ${providers.length} 个平台` : "没配也能用");
+  // Only a configured section gets a pill; without one the section itself says what to add.
+  elements.aiSectionPill.hidden = !aiReady;
+  if (aiReady) setPill(elements.aiSectionPill, true, `已配置 ${providers.length} 个平台`);
 
   const { obsidianEnabled, obsidianApiKey } = savedForm.payload;
   const obsidianConnected = obsidianTest?.ok && obsidianTest.target === obsidianTarget(savedForm.payload);
