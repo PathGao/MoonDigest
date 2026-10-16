@@ -29,14 +29,11 @@ const K = {
   lastFolder: "triage_last_folder",
   tags: KEYS.triageTags, // [{ id, name, color, folder, rule? }]: folder is the mediaId the tag belongs to; rule is the one line the AI follows
   folderCriteria: KEYS.triageFolderCriteria, // { [mediaId]: 判断标准 }
-  simplified: KEYS.triageSimplified,
-  tagsByFolder: "triage_tags_by_folder_v1",
   videoTags: KEYS.triageVideoTags,
   basket: KEYS.triageBasket,
   notes: KEYS.triageNotes,
   decisions: KEYS.triageDecisions, // 取消收藏 only: it changes one Bilibili folder
   kept: KEYS.triageKept, // { [bvid]: { action: "keep", at } }: 保留 belongs to the video, so it shows in every folder
-  keptMigrated: "triage_kept_v1",
   removed: KEYS.triageRemoved, // { [bvid]: { item, at, movedTo?, hidden?, inFolder?: { id, title } | null, from?: [{ id, title, at }] } }: videos that left every folder, kept until the user cleans them
   left: "triage_left", // { [bvid]: { [folderId]: { title, at } } }: folders a video left while still in another chosen one; becomes the record's from
   included: KEYS.triageIncludedFolders, // [mediaId]: the folders the user chose; only these are listed and read
@@ -71,82 +68,10 @@ const TOVIEW = "toview"; // 稍后再看, listed by triage-bg as one more folder
 // The ids are the badge color classes too.
 const { VERDICTS } = MdgTagCore;
 
-// One-time fold of the global 判断标准 (sync triageCriteria, released since v1.2.0) into per-folder 判断标准, and a clean
-// tag list (pure). Each folder seen in triage gets the global criteria when non-empty; folders never opened in triage
-// start empty. Tags: same name → the first id wins and video tags are remapped to it.
-function simplifyMigration({ tags, videoTags, criteria, folderIds = [], folderCriteria }) {
-  const vt = videoTags || {};
-  const candidates = Array.isArray(tags) ? tags : [];
-  const out = [];
-  const remap = {};
-  for (const t of candidates) {
-    const name = String(t?.name ?? "").trim();
-    if (!name || !t.id || out.some((x) => x.id === t.id)) continue;
-    const kept = out.find((x) => x.name === name);
-    if (kept) remap[t.id] = kept.id;
-    else out.push({ id: t.id, name, color: t.color || UI.nextTagColor(out) });
-  }
-  const nextVideoTags = Object.fromEntries(Object.entries(vt).map(([b, ids]) => [b, [...new Set(ids.map((id) => remap[id] || id))]]));
-  const crit = {};
-  const text = String(criteria || "").trim();
-  if (text) for (const f of new Set(folderIds.map(String))) crit[f] = text;
-  return { tags: out, videoTags: nextVideoTags, folderCriteria: { ...crit, ...folderCriteria } };
-}
-
 const newTagId = () => MdgTagCore.newTagId("t");
-
-// One-time move of the global tags into folders (pure). folders = [{ id, bvids }], chosen first. A tag without a folder
-// goes to the folder its videos are in; used in several, the first keeps it and each other gets a copy (new id), and
-// each video points to the copy of every folder it is in. Unused (or used only outside these folders) → fallback;
-// without a fallback the tag stays unplaced.
-function tagsByFolderMigration({ tags = [], videoTags = {}, folders = [], fallback = "" }) {
-  const folderOf = {};
-  for (const f of folders) for (const b of f.bvids || []) (folderOf[b] ||= []).push(String(f.id));
-  const copies = {}; // { [old id]: { [folder]: id } }
-  const out = [];
-  for (const t of tags) {
-    if (t.folder) {
-      out.push(t);
-      continue;
-    }
-    const users = Object.keys(videoTags).filter((b) => videoTags[b].includes(t.id));
-    const used = folders.map((f) => String(f.id)).filter((f) => users.some((b) => folderOf[b]?.includes(f)));
-    if (!used.length) {
-      out.push(fallback ? { ...t, folder: fallback } : t);
-      continue;
-    }
-    copies[t.id] = {};
-    used.forEach((f, i) => {
-      const id = i ? newTagId() : t.id;
-      copies[t.id][f] = id;
-      out.push({ ...t, id, folder: f });
-    });
-  }
-  const remap = (b, id) => {
-    const mine = copies[id] ? (folderOf[b] || []).map((f) => copies[id][f]).filter(Boolean) : [];
-    return mine.length ? mine : [id];
-  };
-  const nextVideoTags = Object.fromEntries(Object.entries(videoTags).map(([b, ids]) => [b, [...new Set(ids.flatMap((id) => remap(b, id)))]]));
-  return { tags: out, videoTags: nextVideoTags };
-}
 
 // The stored records' shapes and the export helpers (pure) live in triage-core.js.
 const { refavorited, mergeFolderItems, updateRemoved, moveToRemoved, inferFrom, forgetLeft, noteLeft, keepInvalidInfo, idsChanged, mergeHead, unfavOnly, mdLinkText, oneLine, mdLink, wikiLink, zipStored } = TriageCore;
-
-// One-time split (pure): 保留 moves out of every triage_decisions_<folder> into one list, the newest per video winning.
-function splitKept(all) {
-  const kept = { ...(all[K.kept] || {}) };
-  const folders = {};
-  for (const [k, d] of Object.entries(all)) {
-    if (!k.startsWith(KEYS.triageDecisionsPrefix)) continue;
-    folders[k] = {};
-    for (const [b, v] of Object.entries(d || {})) {
-      if (v?.action !== "keep") folders[k][b] = v;
-      else if (!((kept[b]?.at || 0) >= (v.at || 0))) kept[b] = v;
-    }
-  }
-  return { kept, folders };
-}
 
 // 收藏夹设置's number settings: [stored key, TriageUi.NUM_SETTINGS kind, its input in the dialog].
 const NUM_FIELDS = [
@@ -812,7 +737,7 @@ globalThis.MoonTriage = {
   undo, pushUndo, dropModeUndo: (drop) => (S.modeUndo = S.modeUndo.filter((e) => !drop(e))), help: () => el.helpDialog.showModal(), setModeKeys: (fn) => (modeKeys = fn), setViewerHook: (fn) => (viewerHook = fn)
 };
 
-// A failed start (a migration's storage write, say) says so in the list instead of leaving the page blank.
+// A failed start (a storage read, say) says so in the list instead of leaving the page blank.
 async function init() {
   try {
     await start();
@@ -828,8 +753,8 @@ async function start() {
   // Read up front: sidePanel.open must run inside the click's user gesture, before any await.
   chrome.tabs.getCurrent().then((tab) => (ownTabId = tab?.id));
   const [{ tags, videoTags, folderCriteria }, kept, basket, notes, settingsResp, aiHistory, aiRecent, sortBy, readAt, aiProposals] = await Promise.all([
-    loadTagsAndCriteria().then(async (r) => ({ ...r, ...(await loadTagsByFolder(r)) })),
-    loadKept(),
+    loadTagsAndCriteria(),
+    storeGet(K.kept, {}),
     storeGet(K.basket, []),
     storeGet(K.notes, {}),
     send({ type: "triage-settings-get" }),
@@ -1030,50 +955,9 @@ function coverHtml(it) {
   return `<a class="cover-wrap${seen ? " seen" : ""}" href="${esc(videoUrl(it.bvid))}" tabindex="-1" aria-hidden="true">${pic}${tag}${dur}${mark}${p ? `<span class="seen-bar" title="${label}"><i style="width:${Math.max(p, 2)}%"></i></span>` : ""}</a>`;
 }
 
-// Runs simplifyMigration once (flag key). The sync criteria it read stays: another computer that has not updated yet
-// reads it.
 async function loadTagsAndCriteria() {
-  const got = await chrome.storage.local.get([K.tags, K.videoTags, K.folderCriteria, K.simplified]);
-  if (got[K.simplified]) return { tags: got[K.tags] || [], videoTags: got[K.videoTags] || {}, folderCriteria: got[K.folderCriteria] || {} };
-  const keys = (await chrome.storage.local.getKeys?.()) ?? Object.keys((await chrome.storage.local.get(null)) || {});
-  const folderIds = keys.map((k) => /^triage_(?:snapshot|decisions)_(.+)$/.exec(k)?.[1]).filter(Boolean);
-  const { triageCriteria } = await chrome.storage.sync.get({ triageCriteria: "" });
-  const out = simplifyMigration({
-    tags: got[K.tags],
-    videoTags: got[K.videoTags],
-    criteria: triageCriteria,
-    folderIds,
-    folderCriteria: got[K.folderCriteria]
-  });
-  await chrome.storage.local.set({ [K.tags]: out.tags, [K.videoTags]: out.videoTags, [K.folderCriteria]: out.folderCriteria, [K.simplified]: true });
-  return out;
-}
-
-// Runs tagsByFolderMigration until every tag has a folder (flag key), from the cached folder lists.
-async function loadTagsByFolder({ tags, videoTags }) {
-  if (await storeGet(K.tagsByFolder, false)) return { tags, videoTags };
-  const keys = ((await chrome.storage.local.getKeys?.()) ?? Object.keys((await chrome.storage.local.get(null)) || {})).filter((k) => k.startsWith(KEYS.triageSnapshotPrefix));
-  const got = await chrome.storage.local.get([K.included, K.lastFolder, ...keys]);
-  const included = (got[K.included] || []).map(String);
-  const cached = keys.map((k) => k.slice(KEYS.triageSnapshotPrefix.length));
-  const ids = [...new Set([...included.filter((id) => cached.includes(id)), ...cached])];
-  const out = tagsByFolderMigration({
-    tags,
-    videoTags,
-    folders: ids.map((id) => ({ id, bvids: got[K.snapshot(id)]?.bvids || [] })),
-    fallback: String(got[K.lastFolder] || included[0] || "")
-  });
-  const done = out.tags.every((t) => t.folder);
-  await chrome.storage.local.set({ [K.tags]: out.tags, [K.videoTags]: out.videoTags, ...(done ? { [K.tagsByFolder]: true } : {}) });
-  return out;
-}
-
-async function loadKept() {
-  const got = await chrome.storage.local.get([K.kept, K.keptMigrated]);
-  if (got[K.keptMigrated]) return got[K.kept] || {};
-  const { kept, folders } = splitKept((await chrome.storage.local.get(null)) || {});
-  await chrome.storage.local.set({ ...folders, [K.kept]: kept, [K.keptMigrated]: true });
-  return kept;
+  const got = await chrome.storage.local.get([K.tags, K.videoTags, K.folderCriteria]);
+  return { tags: got[K.tags] || [], videoTags: got[K.videoTags] || {}, folderCriteria: got[K.folderCriteria] || {} };
 }
 
 // The chosen folders other than exceptId, the ones whose cached lists keep a video out of 已出分拣范围. 稍后再看 missing

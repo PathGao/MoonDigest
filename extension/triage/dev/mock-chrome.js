@@ -12,11 +12,10 @@
     obsidianApiKey: "secret-token",
     // Per-video notes (triage_notes): one seeded so a filled note shows without typing.
     triage_notes: { BV1mock0001: { text: "第 3 节的重构步骤可以直接套到自己的项目", updatedAt: Date.now() } },
-    // Pre-v2.0 global tags (two named AI工程) and sync triageCriteria, so the page's one-time migration has something to fold:
-    // t-ai2 merges into t-ai, and every folder seen in triage gets the global criteria.
-    triage_tags: [{ id: "t-ai", name: "AI工程", color: "#da86c3" }, { id: "t-tool", name: "工具", color: "#298287" }, { id: "t-math", name: "数学", color: "#dc6d2d" }, { id: "t-ai2", name: "AI工程", color: "#3590a0" }],
-    triage_decisions_1001: {},
-    triage_video_tags: { BV1mock0001: ["t-ai"], BV1mock0040: ["t-math", "t-ai2"] }
+    // 稍后-AI's tags and 判断标准.
+    triage_tags: [{ id: "t-ai", name: "AI工程", color: "#da86c3", folder: "1001" }, { id: "t-tool", name: "工具", color: "#298287", folder: "1001" }, { id: "t-math", name: "数学", color: "#dc6d2d", folder: "1001" }],
+    triage_folder_criteria: { 1001: "只留 AI 工程实践的深度内容，资讯可清理" },
+    triage_video_tags: { BV1mock0001: ["t-ai"], BV1mock0040: ["t-math", "t-ai"] }
   };
   function makeArea(data) {
     return {
@@ -109,7 +108,7 @@
 
   // ?demo swaps in the README screenshot data: B站-style titles and covers, every step filled, tags, 待播, notes and
   // watch progress (seenShow 进度条和看完了标记). Nothing here is a real account's data.
-  const demoSync = { triageCriteria: "只留 AI 工程实践的深度内容，资讯可清理" };
+  const demoSync = {};
   if (/[?&]demo\b/.test(location.search)) {
     const day = 86400000;
     const now = Date.now();
@@ -170,9 +169,6 @@
     title(ps, "unsure", "标题信息不足，需要读字幕");
     const tag = (id, name, color) => ({ id, name, color, folder: "2001" });
     Object.assign(store, {
-      triage_simplified_v1: true,
-      triage_tags_by_folder_v1: true,
-      triage_kept_v1: true,
       triage_included_folders: ["2001", "2002", "2003"],
       triage_last_folder: 2001,
       triage_folder_criteria: { 2001: "只留能跟着做的教程和讲透原理的内容；资讯、带货、标题党可清理" },
