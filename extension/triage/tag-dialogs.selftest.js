@@ -220,14 +220,19 @@ function adapters(who) {
     assert.strictEqual(nodes.aiApplyBtn.textContent, `应用到 2 个${unit}`);
     assert.ok(nodes.aiReviewHint.textContent.includes(`这些${unit}，在卡片上逐个看`) && nodes.aiNewTags.innerHTML.includes(`用在 1 个${unit}`));
     assert.ok(nodes.aiRows.innerHTML.includes("+ 新 <b>1</b>") && nodes.aiRows.innerHTML.includes("+ 科普 <b>1</b>"), nodes.aiRows.innerHTML);
-    // Nothing to apply: 应用 is off and says why.
+    // Nothing to apply: 应用 is off and says why. A48/A49: unticked or left proposals are not 「AI 没有提出改动」.
     ai.p.newTags[0].checked = false;
     ai.p.rows = [];
     D.ai.render(ai);
-    assert.ok(nodes.aiApplyBtn.disabled && nodes.aiApplyBtn.title === "AI 没有提出改动", `${who}: 应用 says why`);
+    assert.ok(nodes.aiApplyBtn.disabled && nodes.aiApplyBtn.title === "没有可应用的改动" && nodes.aiRows.innerHTML.includes("没有可应用的改动"), `${who}: 应用 says why`);
+    const proposed = ai.p;
+    ai.p = { newTags: [], rows: [], notes: [], errors: [] };
+    D.ai.render(ai);
+    assert.ok(nodes.aiApplyBtn.disabled && nodes.aiApplyBtn.title === "AI 没有提出改动" && nodes.aiRows.innerHTML.includes("AI 没有提出改动"), `${who}: the AI proposed nothing`);
+    ai.p = proposed;
     ai.p.newTags[0].checked = true;
     D.ai.render(ai);
-    assert.ok(!nodes.aiApplyBtn.disabled);
+    assert.ok(!nodes.aiApplyBtn.disabled && nodes.aiRows.innerHTML.includes("应用只创建新标签"), nodes.aiRows.innerHTML);
     await fire("aiTagDialog", "click", { target: target("#aiApplyBtn", { id: "aiApplyBtn" }) });
     await wait();
     assert.ok(!nodes.aiTagDialog.open && calls.at(-1)[0] === "apply");

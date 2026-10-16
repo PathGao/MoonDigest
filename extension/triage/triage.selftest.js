@@ -1743,6 +1743,18 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   assert.deepStrictEqual(plain(shared.folders), ["A", "B"]);
   assert.ok(!("BV7" in store[t.K.decisions("B")]));
   assert.deepStrictEqual(plain(shared.left), [], "undo clears the left folder");
+  // A56: U that gets it back into 甲 but not 乙 shows it in 甲 and keeps 乙 for the next U.
+  {
+    t.pickUnfavFolders = async () => ["A", "B"];
+    await t.fav.unfav("BV7");
+    assert.deepStrictEqual([plain(shared.folders), t.S.decisions.BV7?.action], [[], "unfav"]);
+    handlers["triage-refav"] = ({ mediaId }) => (mediaId === "B" ? { ok: false, error: "网络错误" } : { ok: true });
+    await t.undo();
+    assert.deepStrictEqual([plain(shared.folders), plain(shared.left), t.S.decisions.BV7, toasts.at(-1)], [["A"], ["B"], undefined, "撤销中断（可再按 U 重试）：网络错误"]);
+    handlers["triage-refav"] = () => ({ ok: true });
+    await t.undo();
+    assert.deepStrictEqual([plain(shared.folders), plain(shared.left), plain(store[t.K.decisions("B")])], [["A", "B"], [], {}]);
+  }
   Object.assign(t.S, savedTags);
 
   // 保留 belongs to the video: the one-time split moves every folder's keeps into triage_kept, newest first.
@@ -2126,6 +2138,51 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     t.S.settings.triageAiRemoveTags = false;
   }
 
+  // A54: a 核对 that fails after another opening writes nothing into that opening's check.
+  {
+    openFake("removed", [item(620)]);
+    t.S.removedCheck = { error: "" };
+    const token = t.S.folderToken;
+    handlers["triage-fav-where"] = () => {
+      t.S.folderToken++;
+      t.S.removedCheck = { error: "" };
+      return { ok: false, error: "网络断了" };
+    };
+    await t.checkWhere(token);
+    assert.strictEqual(t.S.removedCheck.error, "");
+    delete handlers["triage-fav-where"];
+    t.S.removedCheck = null;
+  }
+  // A55: 清理's confirm shows a title as text.
+  {
+    const realAsk = t.askConfirm;
+    let body = "";
+    t.askConfirm = async (_, b) => ((body = b), false);
+    await t.cleanRemoved([{ ...item(621), title: XSS[0] }]);
+    t.askConfirm = realAsk;
+    assertInert(body, "清理");
+  }
+  // A14: each batch is told what is left of the run's new-tag cap. A57: a tag deleted mid-run drops the proposal naming it.
+  {
+    openFake("K", [item(611), item(612)]);
+    Object.assign(t.S, { tags: [{ id: "b", name: "留", color: "#222", folder: "K" }], videoTags: {}, aiHistory: [], tab: "read" });
+    Object.assign(t.S.settings, { triageAiBatchSize: 1, triageIntervalSec: 0, triageAiNewTagMax: 2 });
+    const maxes = [];
+    handlers["triage-ai-command"] = (m) => (maxes.push(m.maxNewTags), { ok: true, data: { newTags: [`新${maxes.length}`], assignments: { [m.items[0].bvid]: { add: [`新${maxes.length}`] } } } });
+    await t.runAiCommand({ instruction: "分", scope: "filter", allowRemove: false });
+    assert.deepStrictEqual(maxes, [2, 1]);
+    t.S.ai.proposals = {};
+    let calls = 0;
+    handlers["triage-ai-command"] = async (m) => {
+      if (++calls === 2) await t.deleteTag("b");
+      return { ok: true, data: { assignments: { [m.items[0].bvid]: { add: ["留"] } } } };
+    };
+    toasts.length = 0;
+    await t.runAiCommand({ instruction: "分", scope: "filter", allowRemove: false });
+    assert.ok(!t.S.ai.proposals.K && toasts.some((x) => x.includes("删除了建议用到的标签")), toasts.join("|"));
+    Object.assign(t.S, { tags: [], videoTags: {} });
+  }
+
   // G1: while a notes export or a B站 batch write runs, closing or reloading the page asks first.
   {
     const leave = () => {
@@ -2294,12 +2351,12 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   // F5: both steps tell another folder the same way how they ended, paused or stopped on an error too.
   {
     const oft = vm.runInContext("otherFolderToast", ctx);
-    oft({ mediaId: "K" }, "字幕细看", { done: 1, stopped: true, error: "" });
+    oft({ mediaId: "K" }, "字幕细看", { done: 2, failed: 1, stopped: true, error: "" });
     assert.strictEqual(toasts.at(-1), "「夹K」字幕细看已暂停，完成 1 个");
-    oft({ mediaId: "K" }, "标题粗看", { done: 0, stopped: false, error: "API Key 不对" });
+    oft({ mediaId: "K" }, "标题粗看", { done: 0, failed: 0, stopped: false, error: "API Key 不对" });
     assert.strictEqual(toasts.at(-1), "「夹K」标题粗看出错停下，完成 0 个");
     const n = toasts.length;
-    oft({ mediaId: "L" }, "标题粗看", { done: 3, stopped: false, error: "" });
+    oft({ mediaId: "L" }, "标题粗看", { done: 3, failed: 0, stopped: false, error: "" });
     assert.strictEqual(toasts.length, n, "in its own folder the pill says it");
   }
   assert.strictEqual(t.el.banner.hidden, false, "a finished run leaves a banner that is not about AI");
@@ -2481,6 +2538,24 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   t.renderFolderHead();
   assert.ok(!t.el.folderHead.innerHTML.includes("fail-text") && /今天 \d\d:\d\d 刷新过/.test(t.el.folderHead.innerHTML), t.el.folderHead.innerHTML);
   assert.ok(Date.now() - store[t.K.readAt].M < 1000, "a reopened page still says when");
+
+  // A12/A13: a folder with nothing listed whose read failed says so on every redraw, not 「这个收藏夹是空的」, until a read gets through.
+  {
+    openFake("E", []);
+    t.S.tab = "none";
+    handlers["triage-folder-items"] = () => ({ ok: false, error: "网络断了" });
+    Object.assign(t.S, { syncing: false, lastSyncAt: 0 });
+    await t.syncFolder({ force: true });
+    t.el.list.innerHTML = "";
+    t.renderList();
+    assert.ok(t.el.list.innerHTML.includes("无法读取这个收藏夹") && t.el.list.innerHTML.includes("网络断了") && !t.el.list.innerHTML.includes("这个收藏夹是空的"), t.el.list.innerHTML);
+    handlers["triage-folder-items"] = () => ({ ok: true, data: { items: [], ids: [], info: { intro: "" } } });
+    Object.assign(t.S, { syncing: false, lastSyncAt: 0 });
+    await t.syncFolder({ force: true });
+    t.renderList();
+    assert.ok(t.el.list.innerHTML.includes("这个收藏夹是空的"), t.el.list.innerHTML);
+    openFake("M", [item(40)]);
+  }
 
   // R1: another triage tab's write to a shared list replaces this page's copy, so the next write here keeps it. This
   // page's own writes echo back too, and an older echo arriving after a newer edit is skipped.
