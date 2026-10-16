@@ -144,7 +144,12 @@
     uploadDate: "发布日期",
     exportDate: "导出日期",
     // Opens the 备注 box (side panel, 视频记录, 分拣台).
-    noteAdd: "✎ 备注"
+    noteAdd: "✎ 备注",
+    // The settings page's custom AI platform, and the name a platform stored without one gets (background.js).
+    customAi: "自定义",
+    // A B站 video deleted or hidden: the error of every read (sites.js, not B站's own words) and the verdict's reason
+    // (tag-core.js). A name, so the sentences around it (侧边栏, notes) may say it too.
+    videoGone: "视频已失效"
   });
 
   // How long a B站 / YouTube read waits for an answer: the background's B站 channel (triage-bg.js triageBiliFetch,
@@ -190,6 +195,11 @@
     THROTTLED: { text: TEXT.biliThrottled },
     62004: { text: TEXT.biliReviewing }
   });
+
+  // The table's codes by name, for the files that write or compare one (CODE.THROTTLED, not "THROTTLED").
+  const CODE = Object.freeze(Object.fromEntries(Object.keys(CODES).filter((k) => /^[A-Z_]+$/.test(k)).map((k) => [k, k])));
+  // The HTTP status a timed-out request carries (background.js fetchWithTimeout); obsidianError reads it as OBSIDIAN_DOWN.
+  const TIMEOUT_STATUS = 408;
 
   const action = (code) => CODES[code]?.action || "none";
 
@@ -238,5 +248,5 @@
     else node.removeAttribute("aria-description");
   }
 
-  globalThis.MdgErrors = Object.freeze({ TEXT, LABEL, action, text, fromResp, grantOrigin, reloaded, escapeHtml, setReason, subtitleMissing, aiTimeout, aiStalled, upTagTitle, noAccess, NET_TIMEOUT_MS, netTimeout });
+  globalThis.MdgErrors = Object.freeze({ TEXT, LABEL, action, text, fromResp, grantOrigin, reloaded, escapeHtml, setReason, subtitleMissing, aiTimeout, aiStalled, upTagTitle, noAccess, NET_TIMEOUT_MS, netTimeout, CODE, TIMEOUT_STATUS });
 })();

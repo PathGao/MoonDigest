@@ -82,6 +82,8 @@
   const MAX_NOTE_SECTIONS = 5;
   const MAX_PRESET_PROMPTS = 12;
 
+  // A note field as stored: "bvid" was video_id's name before the site registry (the settings page and note.js both read it).
+  const normalizeFrontmatterField = (value) => text(value).replace(/^bvid$/, "video_id");
   const normalizeApiKey = (value) => text(value).replace(/^Bearer\s+/i, "").trim();
   const normalizeDownloadFormat = (value) => (value === "txt" ? "txt" : "srt");
   const normalizePlayerAiQuickPrompt = (value) => text(value);
@@ -178,6 +180,7 @@
     normalizeSwitches,
     normalizeSeenThreshold,
     normalizeApiKey,
+    normalizeFrontmatterField,
     normalizeDownloadFormat,
     normalizePlayerAiQuickPrompt,
     normalizeAiPresetPrompts,

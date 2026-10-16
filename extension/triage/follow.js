@@ -1041,7 +1041,7 @@ function observeFoot() {
 async function waitFeed(f) {
   const here = () => F.feed === f;
   f.wait = true;
-  await runs.wait(FEED_RUN, runs.hold({ code: "THROTTLED" }), here);
+  await runs.wait(FEED_RUN, runs.hold({ code: MdgErrors.CODE.THROTTLED }), here);
   f.wait = false;
   if (here()) more();
 }
@@ -1058,7 +1058,7 @@ async function more({ byHand = false } = {}) {
   const r = await send({ type: "follow-feed", offset: f.offset }).finally(() => clearInterval(tick));
   f.loading = false;
   if (F.feed !== f) return;
-  if (r.code === "THROTTLED") waitFeed(f);
+  if (r.code === MdgErrors.CODE.THROTTLED) waitFeed(f);
   else if (!r.ok) {
     f.errorCode = r.code;
     f.error = MdgErrors.action(r.code) === "login" ? MdgErrors.TEXT.biliLogin : `读取失败：${MdgErrors.text(r)}`;
@@ -1103,7 +1103,7 @@ const runs = MdgRuns.create({
     renderSync();
     if (F.feed?.wait) renderFoot();
   },
-  hold: (r) => (r.code === "THROTTLED" ? { ms: UI.BILI_HOLD_MS, label: UI.BILI_STUCK } : T.hold(r))
+  hold: (r) => (r.code === MdgErrors.CODE.THROTTLED ? { ms: UI.BILI_HOLD_MS, label: UI.BILI_STUCK } : T.hold(r))
 });
 // The background's queue pause (follow_jobs.hold, follow_hold) in words.
 const holdLabel = (h) => (h.why === "throttled" ? UI.BILI_STUCK : MdgErrors.TEXT.netDown);

@@ -9,8 +9,8 @@ const ctx = vm.createContext({ TextEncoder, URL, URLSearchParams, console, setTi
 const bg = fs.readFileSync(path.join(__dirname, "../background.js"), "utf8");
 const order = [...bg.matchAll(/importScripts\(([^)]*)\)/g)].flatMap((m) => m[1].match(/"[^"]+"/g).map((f) => JSON.parse(f)));
 for (const file of order.slice(0, order.indexOf("triage/triage-bg.js") + 1)) vm.runInContext(fs.readFileSync(path.join(__dirname, "..", file), "utf8"), ctx);
-// background.js owns supportsThinkingToggle; lift just that function.
-for (const name of ["supportsThinkingToggle"]) {
+// background.js owns supportsThinkingToggle and postChat; lift just those.
+for (const name of ["supportsThinkingToggle", "postChat"]) {
   const at = bg.indexOf(`function ${name}(`);
   vm.runInContext(bg.slice(at, bg.indexOf("\n}\n", at) + 2), ctx);
 }
@@ -581,9 +581,10 @@ assert.throws(() => t.triageParseCommand('{"new_tags":[', cmdItems, cmdTags, {})
   const buildNote = () => t.triageBuildNote("BVa", {});
   routes = { ...baseRoutes(), "/x/player/wbi/v2": { code: -352, message: "风控" }, "/x/player/v2": { code: -352, message: "风控" } };
   await assert.rejects(buildNote(), (e) => e.code === "THROTTLED");
-  // A deleted video rejects with Bilibili's code, which the pages read as gone; a throttled view does not.
+  // A deleted video rejects with Bilibili's code, which the pages read as gone, in the project's words (C369); a
+  // throttled view does not.
   routes = { ...baseRoutes(), "/view/detail": { code: -404, message: "啥都木有" }, "/web-interface/view?": { code: -404, message: "啥都木有" } };
-  await assert.rejects(buildNote(), (e) => e.code === -404 && e.message === "啥都木有" && t.MdgSites.isBiliVideoGone(e.code));
+  await assert.rejects(buildNote(), (e) => e.code === -404 && e.message === "视频已失效" && t.MdgSites.isBiliVideoGone(e.code));
   routes = { ...baseRoutes(), "/view/detail": { code: -352, message: "风控" }, "/web-interface/view?": { code: -352, message: "风控" } };
   await assert.rejects(buildNote(), (e) => e.code === "THROTTLED" && !t.MdgSites.isBiliVideoGone(e.code));
   routes = { ...baseRoutes(), [subUrl]: Object.assign(new Error("HTTP 403"), { status: 403 }) };
@@ -706,6 +707,15 @@ assert.throws(() => t.triageParseCommand('{"new_tags":[', cmdItems, cmdTags, {})
     assert.deepStrictEqual(calls.splice(0).map((c) => c[0]), ["/x/v3/fav/resource/deal", "/x/v3/fav/resource/deal"]);
     await assert.rejects(H["triage-transfer"]({ from: "1", to: "toview", aids: [10], move: true }), /缺少目标/);
     await assert.rejects(H["triage-transfer"]({ from: "1", to: "1", aids: [10], move: true }), /缺少目标/);
+    // C528: an id that is not digits never reaches B站's form fields (an aid "10:2,99" would add a resource).
+    const sentBefore = calls.length;
+    await assert.rejects(H["triage-transfer"]({ from: "1", to: "2", aids: ["10:2,99"], move: false }), /缺少目标/);
+    await assert.rejects(H["triage-transfer"]({ from: { x: 1 }, to: "2", aids: [10], move: false }), /缺少目标/);
+    await assert.rejects(H["triage-unfav"]({ mediaId: "1", aids: [10, "11,12"] }), /缺少 mediaId 或 aids/);
+    await assert.rejects(H["triage-unfav"]({ mediaId: ["1"], aids: [10] }), /缺少 mediaId 或 aids/);
+    await assert.rejects(H["triage-refav"]({ mediaId: "1", aid: "10&x=1" }), /缺少 mediaId 或 aid/);
+    await assert.rejects(H["triage-fav-where"]({ aid: true }), /缺少 aid/);
+    assert.strictEqual(calls.length, sentBefore, "nothing was sent");
     assert.deepStrictEqual(plain(await H["triage-folder-create"]({ title: " 新夹 ", privacy: true })), { id: 42, title: "新夹" });
     assert.deepStrictEqual(calls.pop(), ["/x/v3/fav/folder/add", { title: "新夹", intro: "", privacy: "1", cover: "", csrf: "csrf" }]);
     await assert.rejects(H["triage-folder-create"]({ title: "  " }), /不能为空/);

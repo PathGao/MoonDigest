@@ -3,7 +3,9 @@ const DEFAULT_SETTINGS = { ...MdgSettings.DEFAULTS, ...MdgSettings.LOCAL_DEFAULT
 const { escapeHtml } = MdgErrors;
 
 const CUSTOM_PROPERTY_KEY_PATTERN = /^[\p{L}\p{N}_\-\s]+$/u;
-const FRONTMATTER_TEMPLATE_TOKEN_RE = /\{\{\s*([a-zA-Z0-9_]+)\s*\}\}/;
+// The {{名称}} a typed 自定属性 may be, whole (note.js buildFrontmatterTemplateContext fills them): anything else does not
+// read as that type and note.js leaves the property out of the note. A 复选框 takes none.
+const TYPED_PROPERTY_VARS = { number: ["duration", "cid"], date: ["upload_date", "created"], checkbox: [] };
 const FRONTMATTER_DATE_VALUE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const FIXED_PROPERTY_TYPE_LABELS = { text: "文本", number: "数字", checkbox: "复选框", list: "列表", date: "日期" };
 // An AI platform row's boxes, by the names its 测试连接 reason and the save check give them.
@@ -18,7 +20,7 @@ const AI_PRESETS = [
   { id: "moonshot",      name: "Moonshot",    baseUrl: "https://api.moonshot.cn/v1", model: "kimi-k2.6", requiresKey: true },
   { id: "openrouter",    name: "OpenRouter",  baseUrl: "https://openrouter.ai/api/v1", model: "~google/gemini-flash-latest", requiresKey: true },
   { id: "ollama",        name: "Ollama (本地)", baseUrl: "http://localhost:11434/v1", model: "", requiresKey: false },
-  { id: "custom",        name: "自定义",      baseUrl: "", model: "", requiresKey: true }
+  { id: "custom",        name: MdgErrors.LABEL.customAi, baseUrl: "", model: "", requiresKey: true }
 ];
 
 const elements = {
@@ -125,7 +127,7 @@ function init() {
   elements.seenThreshold.addEventListener("change", () => TriageUi.clampNumber(elements.seenThreshold));
   // Range and 「默认 N」 from settings.js, like the 分拣台's number boxes.
   const { min, max, def } = MdgSettings.SEEN_THRESHOLD;
-  Object.assign(elements.seenThreshold, { min, max, placeholder: `默认 ${def}` });
+  TriageUi.numBox(elements.seenThreshold, min, max, def);
   TriageUi.fillNumHints(document);
   // 观看进度's caps, as the 数据与存储 table states them (limits.js).
   for (const node of document.querySelectorAll("[data-seen-limits]")) node.textContent = MdgLimits.SEEN_LIMITS_TEXT;
@@ -313,8 +315,7 @@ async function loadSettings() {
   syncSeenRows();
   syncBiliMarks();
   elements.enableDebugLogs.checked = settings.enableDebugLogs;
-  // "bvid" was the field name before the site registry.
-  const selectedFields = new Set((settings.frontmatterFields || DEFAULT_SETTINGS.frontmatterFields).map((field) => (field === "bvid" ? "video_id" : field)));
+  const selectedFields = new Set((settings.frontmatterFields || DEFAULT_SETTINGS.frontmatterFields).map(MdgSettings.normalizeFrontmatterField));
   elements.frontmatterFields.forEach((checkbox) => {
     checkbox.checked = selectedFields.has(checkbox.value);
   });
@@ -949,29 +950,31 @@ function validateFixedFrontmatterProperties(items) {
     if (!CUSTOM_PROPERTY_KEY_PATTERN.test(key)) {
       return keyError("属性名只能包含文字、数字、空格、下划线和短横线");
     }
-    const hasTemplateToken = containsFrontmatterTemplateToken(valueText);
+    const token = /^\{\{\s*([a-zA-Z0-9_]+)\s*\}\}$/.exec(valueText)?.[1];
+    const typedVar = Boolean(token) && (TYPED_PROPERTY_VARS[type] || []).includes(token);
+    const orVars = (TYPED_PROPERTY_VARS[type] || []).map((name) => `{{${name}}}`).join("、");
 
     if (type === "number") {
       if (!valueText) {
         return valueError("请填写数字类型的属性值");
       }
-      if (!hasTemplateToken && !Number.isFinite(Number(valueText))) {
-        return valueError("数字类型的属性值必须是有效数字");
+      if (!typedVar && !Number.isFinite(Number(valueText))) {
+        return valueError(`数字类型的属性值必须是有效数字，或 ${orVars}`);
       }
     } else if (type === "checkbox") {
       if (!valueText) {
         return valueError("请填写复选框类型的属性值");
       }
       const normalizedCheckboxValue = valueText.toLowerCase();
-      if (!hasTemplateToken && normalizedCheckboxValue !== "true" && normalizedCheckboxValue !== "false") {
+      if (normalizedCheckboxValue !== "true" && normalizedCheckboxValue !== "false") {
         return valueError("复选框类型的属性值只能填写 true 或 false");
       }
     } else if (type === "date") {
       if (!valueText) {
         return valueError("请填写日期类型的属性值");
       }
-      if (!hasTemplateToken && !isCalendarDate(valueText)) {
-        return valueError("日期类型请填写存在的日期 YYYY-MM-DD，或使用 {{upload_date}} 这类变量");
+      if (!typedVar && !isCalendarDate(valueText)) {
+        return valueError(`日期类型请填写存在的日期 YYYY-MM-DD，或 ${orVars}`);
       }
     } else if (!valueText) {
       return valueError("请填写自定属性的属性值");
@@ -1006,10 +1009,6 @@ function clearNoteSectionErrors() {
     node.hidden = true;
     node.textContent = "";
   });
-}
-
-function containsFrontmatterTemplateToken(value) {
-  return FRONTMATTER_TEMPLATE_TOKEN_RE.test(String(value || "").trim());
 }
 
 // YYYY-MM-DD naming a day that exists (2026-02-30 does not).
@@ -1199,6 +1198,25 @@ function updateAiProvidersEmptyState() {
   elements.aiPromptsLater.hidden = hasRows;
 }
 
+// An AI platform address that sends the API Key in clear text over the internet: http:// to a public host. Saving it is
+// allowed (a user may run an encrypted tunnel); the row only warns. Not warned: this computer and the local network,
+// 100.64.0.0/10 and *.ts.net (Tailscale-style encrypted networks), a host name without a dot, IPv6 loopback and private.
+const PLAIN_HTTP_WARNING = "这个地址不是 https，Key 会明文发出，确认这条线路是加密的再用";
+function plainHttpWarning(url) {
+  let host;
+  try {
+    const parsed = new URL(String(url || "").trim());
+    if (parsed.protocol !== "http:") return "";
+    host = parsed.hostname.toLowerCase();
+  } catch {
+    return "";
+  }
+  const [a, b] = host.split(".").map(Number);
+  const privateV4 = /^\d+\.\d+\.\d+\.\d+$/.test(host) && (a === 127 || a === 10 || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168) || (a === 100 && b >= 64 && b <= 127));
+  const local = host.startsWith("[") ? /^\[(::1\]|f[cd]|fe[89ab])/.test(host) : !host.includes(".") || /\.(local|ts\.net)$/.test(host) || privateV4;
+  return local ? "" : PLAIN_HTTP_WARNING;
+}
+
 function generateAiProviderId() {
   return `p_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`;
 }
@@ -1232,6 +1250,7 @@ function addAiProviderRow(item = {}) {
     <button type="button" class="ai-provider-remove">
       ${TRASH_ICON}
     </button>
+    <p class="ai-provider-warn" hidden></p>
     <p class="ai-provider-status" hidden></p>
   `;
 
@@ -1251,6 +1270,7 @@ function addAiProviderRow(item = {}) {
     row.dataset.currentPresetId = next.id;
     syncKey();
     syncTest();
+    syncWarn();
     hideStatus();
   });
 
@@ -1274,6 +1294,13 @@ function addAiProviderRow(item = {}) {
 
   // Long addresses end in an ellipsis; hovering shows the whole one.
   const baseUrlInput = row.querySelector(".ai-provider-baseurl");
+  const warnNode = row.querySelector(".ai-provider-warn");
+  const syncWarn = () => {
+    warnNode.textContent = plainHttpWarning(baseUrlInput.value);
+    warnNode.hidden = !warnNode.textContent;
+  };
+  syncWarn();
+  baseUrlInput.addEventListener("input", syncWarn);
   baseUrlInput.addEventListener("mouseenter", () => {
     baseUrlInput.title = baseUrlInput.value;
   });

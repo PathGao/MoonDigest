@@ -1,7 +1,7 @@
 // Every message between the extension's contexts, in one list: chrome.runtime / chrome.tabs messages and the 分拣台
 // player frame's postMessage. Loaded nowhere at runtime; messages.selftest.js holds the code to it (every type sent is
 // here and handled, the fields a sender passes are listed, the listed fields are read by the handler, a builder returns
-// exactly the listed payload). Not here: the side panel's chat port (sidepanel-chat: { action: "chat" | "stop" } in,
+// exactly the listed payload). Not here: the side panel's chat port (MdgCommon.CHAT_PORT: { action: "chat" | "stop" } in,
 // token / notice / done / stopped / error out), which background.js and sidepanel.js own between them.
 //   from      the files that send it
 //   to        the file whose listener answers it

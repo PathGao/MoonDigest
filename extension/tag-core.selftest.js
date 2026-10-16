@@ -7,7 +7,8 @@ const assert = require("assert");
 
 const read = (f) => fs.readFileSync(path.join(__dirname, f), "utf8");
 const ctx = vm.createContext({});
-vm.runInContext(read("tag-core.js"), ctx);
+ctx.globalThis = ctx;
+for (const f of ["errors.js", "tag-core.js"]) vm.runInContext(read(f), ctx);
 const T = ctx.MdgTagCore;
 
 assert.strictEqual(T.cleanTagName(" 学，习、ab,c "), "学习abc");

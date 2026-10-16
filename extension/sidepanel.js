@@ -229,7 +229,7 @@ function bindEvents() {
   chrome.storage.onChanged.addListener((changes, areaName) => {
     if (
       (areaName === "sync" &&
-        (changes.aiProviders ||
+        (changes[MdgLimits.KEYS.aiProviderList] ||
           changes.aiSystemPrompt ||
           changes.playerAiQuickPrompt ||
           changes.aiPresetPrompts ||
@@ -1486,7 +1486,7 @@ async function sendMessage(prompt, onStart = null) {
 
   appendUserMessage(text);
   const stream = {
-    port: chrome.runtime.connect({ name: "sidepanel-chat" }),
+    port: chrome.runtime.connect({ name: MdgCommon.CHAT_PORT }),
     node: appendAssistantPlaceholder(),
     prompt: text,
     raw: "",

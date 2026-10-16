@@ -193,7 +193,7 @@ const FETCH_TIMEOUT_MS = 15000;
 async function fetchWithTimeout(url, options = {}, ms = FETCH_TIMEOUT_MS) {
   const timedOut = (error) => {
     if (error?.name !== "TimeoutError") return error;
-    return Object.assign(new Error(`请求超时：${ms / 1000} 秒没有响应`), { status: 408 });
+    return Object.assign(new Error(`请求超时：${ms / 1000} 秒没有响应`), { status: MdgErrors.TIMEOUT_STATUS });
   };
   let res;
   try {
@@ -450,7 +450,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       if (!MdgSites.matchSite(parsed.href)) {
         throw new Error(MdgErrors.TEXT.notVideoPage);
       }
-      parsed.searchParams.set("mdg_reader", "1");
+      parsed.searchParams.set(MdgCommon.READER_PARAM, "1");
       readerUrl = parsed.toString();
     } catch (error) {
       sendResponse({ ok: false, error: error.message || "专注模式的地址无效" });
@@ -559,7 +559,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 });
 
 chrome.runtime.onConnect.addListener((port) => {
-  if (!port || port.name !== "sidepanel-chat") {
+  if (!port || port.name !== MdgCommon.CHAT_PORT) {
     return;
   }
 
@@ -614,7 +614,7 @@ chrome.runtime.onConnect.addListener((port) => {
       const providers = await loadAiProviders();
       const provider = providers.find((p) => p.id === msg.providerId);
       if (!provider) {
-        port.postMessage({ type: "error", error: "没找到选中的 AI 平台", code: "AI_SETUP" });
+        port.postMessage({ type: "error", error: "没找到选中的 AI 平台", code: MdgErrors.CODE.AI_SETUP });
         clearActiveRequestState();
         return;
       }
@@ -644,15 +644,15 @@ chrome.runtime.onConnect.addListener((port) => {
   });
 });
 
+// Install and update migrate old keys only. Defaults are never written to sync: every reader fills them in
+// (getMergedSettings, sync.get(DEFAULTS)), so a changed default reaches everyone who never set that setting.
 async function initializeSettingsStorage() {
-  // Read before defaults are written: a missing toggle means an upgrade from before it existed.
+  // A missing toggle means an upgrade from before it existed (or a fresh install, which has no key).
   const { obsidianEnabled: storedObsidianEnabled } = await chrome.storage.sync.get("obsidianEnabled");
   await migrateInitialQuickPrompts();
   await removeDeadStorageKeys();
-  const syncCurrent = await chrome.storage.sync.get(MdgSettings.DEFAULTS);
   const localCurrent = await chrome.storage.local.get(MdgSettings.LOCAL_DEFAULTS);
 
-  await chrome.storage.sync.set({ ...MdgSettings.DEFAULTS, ...syncCurrent });
   await chrome.storage.local.set({
     obsidianApiKey: MdgSettings.normalizeApiKey(localCurrent.obsidianApiKey)
   });
@@ -664,15 +664,13 @@ async function initializeSettingsStorage() {
 }
 
 // Keys no code reads any more; removing absent keys is a no-op, so this reruns on every install/update.
-// triageCriteria waits for triage's one-time migration (triage_simplified_v1), which drops it itself. The scheme keys and
-// triage_excluded_folders only ever existed in pre-release v2.0 builds.
+// The scheme keys and triage_excluded_folders only ever existed in pre-release v2.0 builds. Sync's triageCriteria stays
+// after triage's migration: another computer that has not updated yet still reads it.
 async function removeDeadStorageKeys() {
   const keys = (await chrome.storage.local.getKeys?.()) ?? Object.keys((await chrome.storage.local.get(null)) || {});
-  const simplified = MdgLimits.KEYS.triageSimplified;
-  const migrated = (await chrome.storage.local.get(simplified))[simplified];
   const dead = ["triage_tab", "triage_read_verdict", "triage_tag_presets", "triage_schemes_migrated", "triage_watched", "triage_schemes", "triage_folder_scheme", "triage_excluded_folders"];
   await chrome.storage.local.remove(keys.filter((k) => dead.includes(k) || k.startsWith("triage_verdict_override_")));
-  await chrome.storage.sync.remove(["triageExportFolder", "readerChapterVisibility", ...(migrated ? ["triageCriteria"] : [])]);
+  await chrome.storage.sync.remove(["triageExportFolder", "readerChapterVisibility"]);
 }
 
 // aiInitialQuickPrompts (empty-panel chips) merged into aiPresetPrompts, the single follow-up list.
@@ -763,7 +761,7 @@ const LOCAL_SETTING_KEYS = [FOLDERS_KEY, CRITERIA_KEY];
 // API keys stay on this machine (chrome.storage.local): neither the settings file nor sync carries one, whether the
 // settings come from sync (export) or from a file (import), and a platform's own apiKey goes too.
 function withoutApiKeys({ obsidianApiKey, [AI_PROVIDER_KEYS_STORAGE]: keys, ...settings }) {
-  if (Array.isArray(settings.aiProviders)) settings.aiProviders = settings.aiProviders.map((p) => (p && typeof p === "object" ? (({ apiKey, ...rest }) => rest)(p) : p));
+  if (Array.isArray(settings[AI_PROVIDERS])) settings[AI_PROVIDERS] = settings[AI_PROVIDERS].map((p) => (p && typeof p === "object" ? (({ apiKey, ...rest }) => rest)(p) : p));
   return settings;
 }
 
@@ -782,7 +780,7 @@ async function exportSettings() {
 }
 
 // Replaces every setting with the file's. Set first, then remove the rest, so a failed write (sync quota) changes nothing;
-// initializeSettingsStorage then migrates an older file's keys and fills in what it lacks. A file without the folder
+// initializeSettingsStorage then migrates an older file's keys; what it lacks reads as the default. A file without the folder
 // choice or the 判断标准 (older than them) leaves the current ones.
 async function importSettings(file) {
   const isMap = (v) => Boolean(v) && typeof v === "object" && !Array.isArray(v);
@@ -818,7 +816,7 @@ function normalizeAiSystemPrompt(value) {
 
 // ===== AI 模型平台存储 =====
 
-const AI_PROVIDER_KEYS_STORAGE = MdgLimits.KEYS.aiApiKeys;
+const { aiApiKeys: AI_PROVIDER_KEYS_STORAGE, aiProviderList: AI_PROVIDERS } = MdgLimits.KEYS;
 
 // An AI platform's address as requests use it: no spaces, no trailing slashes.
 const trimBaseUrl = (url) => String(url || "").trim().replace(/\/+$/, "");
@@ -830,7 +828,7 @@ function normalizeAiProvider(item) {
   return {
     id,
     presetId: String(item.presetId || "custom"),
-    name: String(item.name || "自定义").trim() || "自定义",
+    name: String(item.name || "").trim() || MdgErrors.LABEL.customAi,
     baseUrl: trimBaseUrl(item.baseUrl),
     model: String(item.model || "").trim(),
     temperature: typeof item.temperature === "number" ? item.temperature : 0.7,
@@ -841,10 +839,10 @@ function normalizeAiProvider(item) {
 
 async function loadAiProviders() {
   const [syncData, keys] = await Promise.all([
-    chrome.storage.sync.get(["aiProviders"]),
+    chrome.storage.sync.get(AI_PROVIDERS),
     loadAiProviderKeys()
   ]);
-  const list = Array.isArray(syncData.aiProviders) ? syncData.aiProviders : [];
+  const list = Array.isArray(syncData[AI_PROVIDERS]) ? syncData[AI_PROVIDERS] : [];
   return list
     .map(normalizeAiProvider)
     .filter(Boolean)
@@ -879,7 +877,7 @@ async function writeAiProviders(items) {
     }
   }
   await Promise.all([
-    chrome.storage.sync.set({ aiProviders: nextList }),
+    chrome.storage.sync.set({ [AI_PROVIDERS]: nextList }),
     chrome.storage.local.set({ [AI_PROVIDER_KEYS_STORAGE]: keys })
   ]);
   return nextList.map((p) => ({ ...p, hasSavedKey: Boolean(keys[p.id]) }));
@@ -890,7 +888,7 @@ function deleteAiProvider(providerId) {
   return serialAiProviders(async () => {
     const list = await loadAiProviders();
     const next = list.filter((p) => p.id !== providerId);
-    await chrome.storage.sync.set({ aiProviders: next.map(({ hasSavedKey, ...p }) => p) });
+    await chrome.storage.sync.set({ [AI_PROVIDERS]: next.map(({ hasSavedKey, ...p }) => p) });
     const keys = await loadAiProviderKeys();
     if (keys && providerId in keys) {
       delete keys[providerId];
@@ -1038,6 +1036,17 @@ function supportsThinkingToggle(baseUrl) {
   return /^https?:\/\/(api\.deepseek\.com|open\.bigmodel\.cn|api\.z\.ai|api\.moonshot\.(cn|ai))(\/|:|$)/i.test(String(baseUrl || ""));
 }
 
+// The one OpenAI-compatible request every AI call sends (the side panel's streamChat, 测试连接, 分拣台's triageChat): POST
+// to chat/completions with the key as Bearer. Thinking is off unless asked, on the platforms that think by default.
+function postChat({ baseUrl, apiKey, signal, thinking = false }, body) {
+  return fetch(`${baseUrl}/chat/completions`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...(apiKey && { Authorization: `Bearer ${apiKey}` }) },
+    signal,
+    body: JSON.stringify({ ...body, ...(supportsThinkingToggle(baseUrl) && { thinking: { type: thinking ? "enabled" : "disabled" } }) })
+  });
+}
+
 // Remote hosts are optional permissions since 1.2.0, so an upgraded install may lack its AI provider's origin.
 // Answered with code AI_ACCESS; the side panel and the settings page read the origin back (MdgErrors.grantOrigin) to offer 授权.
 async function hostPermissionError(url) {
@@ -1065,26 +1074,10 @@ async function streamChat({ provider, context, userPrompt, history, port, signal
     port.postMessage({ type: "notice", text: notices.join("；") });
   }
 
-  const headers = { "Content-Type": "application/json" };
-  if (provider.apiKey) {
-    headers["Authorization"] = `Bearer ${provider.apiKey}`;
-  }
-
   let response;
   try {
-    response = await fetch(`${baseUrl}/chat/completions`, {
-      method: "POST",
-      headers,
-      signal,
-      body: JSON.stringify({
-        model: provider.model,
-        messages,
-        stream: true,
-        temperature: provider.temperature,
-        // Newer fast models think by default; the side panel never asked for it.
-        ...(supportsThinkingToggle(baseUrl) && { thinking: { type: "disabled" } })
-      })
-    });
+    // Newer fast models think by default; the side panel never asks for it.
+    response = await postChat({ baseUrl, apiKey: provider.apiKey, signal }, { model: provider.model, messages, stream: true, temperature: provider.temperature });
   } catch (e) {
     if (signal?.aborted) {
       postStreamAbort(port, getAbortMeta?.());
@@ -1150,28 +1143,11 @@ async function testAiConnection({ baseUrl, apiKey, model, requiresKey }) {
 }
 
 async function probeAiChatCompletion({ baseUrl, apiKey, model }) {
-  const requestHeaders = { Accept: "application/json", "Content-Type": "application/json" };
-  if (apiKey) {
-    requestHeaders.Authorization = `Bearer ${apiKey}`;
-  }
-
   let response;
   const signal = AbortSignal.timeout(AI_TEST_TIMEOUT_MS);
   const timedOut = { ok: false, error: MdgErrors.aiTimeout(AI_TEST_TIMEOUT_MS), code: "AI_TIMEOUT" };
   try {
-    response = await fetch(`${baseUrl}/chat/completions`, {
-      method: "POST",
-      headers: requestHeaders,
-      signal,
-      body: JSON.stringify({
-        model,
-        stream: false,
-        temperature: 0,
-        max_tokens: 1,
-        messages: [{ role: "user", content: "ping" }],
-        ...(supportsThinkingToggle(baseUrl) && { thinking: { type: "disabled" } })
-      })
-    });
+    response = await postChat({ baseUrl, apiKey, signal }, { model, stream: false, temperature: 0, max_tokens: 1, messages: [{ role: "user", content: "ping" }] });
   } catch (error) {
     if (error?.name === "TimeoutError") return timedOut;
     const err = await aiFetchError(baseUrl);

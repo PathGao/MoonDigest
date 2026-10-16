@@ -205,7 +205,7 @@
   const BILI_TITLE = "h1.video-title"; // the video page's title
 
   function biliApiError(payload, fallback) {
-    const error = new Error(String(payload?.message || fallback));
+    const error = new Error(isBiliVideoGone(payload?.code) ? MdgErrors.LABEL.videoGone : String(payload?.message || fallback));
     error.code = payload?.code;
     // Negative codes are usually transient (risk codes never get here: biliJson throws THROTTLED first); a deleted
     // video's -404 never comes back.
@@ -226,14 +226,14 @@
   // background's triageBiliGetJson): HTTP 412 (risk control's HTML page, as status), HTTP 429, a BILI_RISK_CODES answer,
   // or an io that already said THROTTLED, all become one THROTTLED error in MdgErrors.TEXT.biliThrottled's words. The
   // HTTP status stays on it (the video page waits once on a subtitle file's 429).
-  const biliThrottled = () => Object.assign(new Error(MdgErrors.TEXT.biliThrottled), { code: "THROTTLED" });
+  const biliThrottled = () => Object.assign(new Error(MdgErrors.TEXT.biliThrottled), { code: MdgErrors.CODE.THROTTLED });
   async function biliJson(io, url) {
     let json;
     try {
       json = await io.fetchJson(url);
     } catch (error) {
       const status = error?.status;
-      throw status === 412 || status === 429 || error?.code === "THROTTLED" ? Object.assign(biliThrottled(), status && { status }) : error;
+      throw status === 412 || status === 429 || error?.code === MdgErrors.CODE.THROTTLED ? Object.assign(biliThrottled(), status && { status }) : error;
     }
     if (BILI_RISK_CODES.has(json?.code)) throw biliThrottled();
     return json;
@@ -379,7 +379,7 @@
     async fetchMeta(ref, io) {
       // view/detail failing falls back to view, unless B站 is limiting: then a second request only digs deeper.
       let payload = await biliJson(io, `${BILI_API}/x/web-interface/view/detail?bvid=${encodeURIComponent(ref.id)}`).catch((error) => {
-        if (error.code === "THROTTLED") throw error;
+        if (error.code === MdgErrors.CODE.THROTTLED) throw error;
         return null;
       });
       let view = payload?.code === 0 ? payload.data?.View : null;
@@ -492,7 +492,7 @@
           biliWbiReset();
         }
         // Throttling must reach the caller: under risk control player/v2 tends to answer with no tracks.
-        if (requests.length < 2 || primaryError?.code === "THROTTLED") {
+        if (requests.length < 2 || primaryError?.code === MdgErrors.CODE.THROTTLED) {
           throw primaryError;
         }
         return load(requests[1]);
@@ -1310,9 +1310,9 @@
     return raw;
   }
 
-  // What stops a subtitle read instead of moving on: B站 risk control (THROTTLED) or HTTP 429. Every track and the
-  // list hit the same host, so trying more only extends the limit.
-  const isLimit = (error) => error?.code === "THROTTLED" || error?.status === 429;
+  // What stops a subtitle read instead of moving on, and what the video page never retries: B站 risk control
+  // (THROTTLED) or HTTP 429. Every track and the list hit the same host, so trying more only extends the limit.
+  const isLimit = (error) => error?.code === MdgErrors.CODE.THROTTLED || error?.status === 429;
   const settle = (promise) => promise.then((value) => ({ value }), (error) => ({ error }));
   const noStep = (promise) => promise;
 
@@ -1480,6 +1480,7 @@
     buildContextKey,
     contextRef,
     isBiliVideoGone,
+    isLimit,
     BILI_RISK_CODES,
     cleanComment,
     trimReason,

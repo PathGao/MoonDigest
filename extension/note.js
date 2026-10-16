@@ -433,8 +433,7 @@
     const allowed = new Set(FRONTMATTER_FIELDS);
     const unique = [];
     raw.forEach((item) => {
-      // "bvid" was the field name before the site registry.
-      const key = String(item || "").trim().replace(/^bvid$/, "video_id");
+      const key = S.normalizeFrontmatterField(item);
       if (!key || !allowed.has(key) || unique.includes(key)) {
         return;
       }

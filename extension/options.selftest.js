@@ -92,7 +92,7 @@ assert.ok(/button\.setAttribute\("aria-busy"[^\n]*\n  \}\n  if \(!active\) syncO
 // 看多少算看完了 is parsed by settings.js's normalizeSeenThreshold (settings.selftest.js); the box's range and 「默认 N」
 // come from SEEN_THRESHOLD (J15).
 assert.ok(source.includes("seenThreshold: MdgSettings.normalizeSeenThreshold(elements.seenThreshold.value),"), "options.js parses 看多少算看完了 with normalizeSeenThreshold");
-assert.ok(source.includes("const { min, max, def } = MdgSettings.SEEN_THRESHOLD;") && source.includes("placeholder: `默认 ${def}`"), "seenThreshold's box reads SEEN_THRESHOLD");
+assert.ok(source.includes("const { min, max, def } = MdgSettings.SEEN_THRESHOLD;") && source.includes("TriageUi.numBox(elements.seenThreshold, min, max, def);"), "seenThreshold's box reads SEEN_THRESHOLD");
 
 // The box behaves like the 分拣台's: a change or a save clamps it with TriageUi.clampNumber (above max is max, invalid is
 // cleared under 「默认 N」), never writes the default back into it.
@@ -130,7 +130,7 @@ assert.ok(!/seenThreshold\.value = String\((readFormPayload\(\)|payload)\.seenTh
   const parts = {};
   const row = { ...stub(), querySelector: (sel) => (parts[sel] ||= stub()), querySelectorAll: () => [] };
   const page = vm.createContext({ URL, MdgErrors: ctx.MdgErrors, escapeHtml: ctx.MdgErrors.escapeHtml, AI_PRESETS: [{ id: "custom", name: "自定义", baseUrl: "", model: "" }], document: { createElement: () => row }, elements: { aiProvidersList: { appendChild() {} } }, updateAiProvidersEmptyState() {} });
-  vm.runInContext([constant("TRASH_ICON"), constant("AI_FIELD"), fn("addAiProviderRow"), fn("apiKeyPlaceholder"), fn("generateAiProviderId"), fn("savedKeyApplies"), fn("urlOrigin")].join("\n"), page);
+  vm.runInContext([constant("TRASH_ICON"), constant("AI_FIELD"), fn("addAiProviderRow"), constant("PLAIN_HTTP_WARNING"), fn("plainHttpWarning"), fn("apiKeyPlaceholder"), fn("generateAiProviderId"), fn("savedKeyApplies"), fn("urlOrigin")].join("\n"), page);
   page.addAiProviderRow({});
   const test = parts[".ai-provider-test"];
   const type = (sel, v) => ((parts[sel].value = v), parts[sel].L.input.forEach((f) => f()));
@@ -139,6 +139,12 @@ assert.ok(!/seenThreshold\.value = String\((readFormPayload\(\)|payload)\.seenTh
   assert.deepStrictEqual([test.disabled, test.title], [true, "先填模型"]);
   type(".ai-provider-model", "m");
   assert.deepStrictEqual([test.disabled, test.title, test.attrs["aria-description"]], [false, "用这一行的地址、模型和 Key 向 AI 发一条测试消息", undefined]);
+  // C280: the row warns under a public http:// address as it is typed, and stops when it is https again.
+  const warn = parts[".ai-provider-warn"];
+  type(".ai-provider-baseurl", "http://api.example.com/v1");
+  assert.deepStrictEqual([warn.hidden, warn.textContent], [false, "这个地址不是 https，Key 会明文发出，确认这条线路是加密的再用"]);
+  type(".ai-provider-baseurl", "https://api.example.com/v1");
+  assert.strictEqual(warn.hidden, true);
 }
 
 // A28: Obsidian's 测试连接 stays disabled while a test or a save runs, whatever is typed; it comes back when it ends.
@@ -199,7 +205,7 @@ assert.ok(!/seenThreshold\.value = String\((readFormPayload\(\)|payload)\.seenTh
     chrome: { permissions: { request: async () => true } },
     sendRuntimeMessage: (m) => (sent.push(m), new Promise((r) => (answer = r)))
   });
-  vm.runInContext([constant("TRASH_ICON"), constant("AI_FIELD"), fn("addAiProviderRow"), fn("apiKeyPlaceholder"), fn("generateAiProviderId"), fn("savedKeyApplies"), fn("urlOrigin"), fn("collectAiProviders"), fn("hostPermissionPattern"), fn("showAiProviderStatus"), `async ${fn("testAiProviderRow")}`].join("\n"), page);
+  vm.runInContext([constant("TRASH_ICON"), constant("AI_FIELD"), fn("addAiProviderRow"), constant("PLAIN_HTTP_WARNING"), fn("plainHttpWarning"), fn("apiKeyPlaceholder"), fn("generateAiProviderId"), fn("savedKeyApplies"), fn("urlOrigin"), fn("collectAiProviders"), fn("hostPermissionPattern"), fn("showAiProviderStatus"), `async ${fn("testAiProviderRow")}`].join("\n"), page);
   page.addAiProviderRow({ id: "p1", presetId: "deepseek", baseUrl: "https://api.deepseek.com/v1", model: "deepseek-flash", hasSavedKey: true });
   parts[".ai-provider-preset"].value = "deepseek";
   const type = (sel, v) => ((parts[sel].value = v), parts[sel].L.input.forEach((f) => f()));
@@ -233,7 +239,7 @@ assert.ok(!/seenThreshold\.value = String\((readFormPayload\(\)|payload)\.seenTh
     return { parts, querySelector: (sel) => parts[sel] };
   };
   const page = vm.createContext({ MdgSettings: ctx.MdgSettings, elements: { frontmatterFields: [{ value: "title" }] } });
-  vm.runInContext([constant("CUSTOM_PROPERTY_KEY_PATTERN"), constant("FRONTMATTER_TEMPLATE_TOKEN_RE"), constant("FRONTMATTER_DATE_VALUE_RE"), fn("validateFixedFrontmatterProperties"), fn("containsFrontmatterTemplateToken"), fn("isCalendarDate")].join("\n"), page);
+  vm.runInContext([constant("CUSTOM_PROPERTY_KEY_PATTERN"), constant("TYPED_PROPERTY_VARS"), constant("FRONTMATTER_DATE_VALUE_RE"), fn("validateFixedFrontmatterProperties"), fn("isCalendarDate")].join("\n"), page);
   const check = (key, type, value) => {
     const r = row();
     const v = page.validateFixedFrontmatterProperties([{ key, type, value, row: r }]);
@@ -247,6 +253,23 @@ assert.ok(!/seenThreshold\.value = String\((readFormPayload\(\)|payload)\.seenTh
   assert.deepStrictEqual(check("日期", "date", "2026-13-01").slice(0, 2), [false, "value"]);
   assert.strictEqual(check("日期", "date", "2028-02-29")[0], true);
   assert.strictEqual(check("日期", "date", "{{upload_date}}")[0], true);
+  // C255: a typed property takes only the variables that read as its type; note.js would drop any other from the note.
+  for (const [type, value, ok] of [["date", "{{ created }}", true], ["date", "{{title}}", false], ["date", "{{upload_date}}x", false], ["number", "{{duration}}", true], ["number", "{{author}}", false], ["checkbox", "{{title}}", false], ["text", "{{nope}}", true]]) {
+    assert.strictEqual(check("属性", type, value)[0], ok, `${type} ${value}`);
+  }
+  assert.strictEqual(check("评分", "number", "{{title}}")[2], "数字类型的属性值必须是有效数字，或 {{duration}}、{{cid}}");
+}
+
+// C280: a public http:// address only warns (the Key goes out in clear text); local, private, Tailscale-style and
+// dotless hosts do not, and neither does https.
+{
+  const page = vm.createContext({ URL });
+  vm.runInContext([constant("PLAIN_HTTP_WARNING"), fn("plainHttpWarning")].join("\n"), page);
+  const quiet = ["https://api.openai.com/v1", "http://localhost:11434/v1", "http://127.0.0.2:8080", "http://10.0.0.5/v1", "http://172.16.1.1", "http://172.31.9.9", "http://192.168.1.2:11434/v1", "http://nas.local/v1", "http://100.64.0.1", "http://100.127.255.254", "http://box.tail1234.ts.net/v1", "http://ollama:11434/v1", "http://[::1]:11434/v1", "http://[fd12::1]/v1", "http://[fe80::1]/v1", "", "not a url"];
+  for (const url of quiet) assert.strictEqual(page.plainHttpWarning(url), "", url);
+  for (const url of ["http://api.example.com/v1", "http://8.8.8.8/v1", "http://172.32.0.1", "http://100.128.0.1", "http://192.169.0.1", "http://[2001:db8::1]/v1", " HTTP://Example.com "]) {
+    assert.strictEqual(page.plainHttpWarning(url), "这个地址不是 https，Key 会明文发出，确认这条线路是加密的再用", url);
+  }
 }
 
 // C278, F1: a platform error points at its row and box.
@@ -318,7 +341,7 @@ assert.ok(!/seenThreshold\.value = String\((readFormPayload\(\)|payload)\.seenTh
     document: { createElement: () => row }, elements: { aiProvidersList: { appendChild() {} } },
     updateAiProvidersEmptyState() {}, updateSavedProviders() {}, sendRuntimeMessage: async () => reply()
   });
-  vm.runInContext([constant("TRASH_ICON"), constant("AI_FIELD"), fn("addAiProviderRow"), fn("apiKeyPlaceholder"), fn("generateAiProviderId"), fn("savedKeyApplies"), fn("urlOrigin"), fn("showAiProviderStatus")].join("\n"), page);
+  vm.runInContext([constant("TRASH_ICON"), constant("AI_FIELD"), fn("addAiProviderRow"), constant("PLAIN_HTTP_WARNING"), fn("plainHttpWarning"), fn("apiKeyPlaceholder"), fn("generateAiProviderId"), fn("savedKeyApplies"), fn("urlOrigin"), fn("showAiProviderStatus")].join("\n"), page);
   page.addAiProviderRow({ id: "p1" });
   const del = parts[".ai-provider-remove"];
   const status = parts[".ai-provider-status"];

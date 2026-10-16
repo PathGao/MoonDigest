@@ -20,7 +20,7 @@
   // The AI's three fixed classes; the ids are also CSS color classes.
   const VERDICTS = Object.freeze({ keep: "值得留", drop: "可清理", unsure: "拿不准" });
   // The reason an invalid video is 可清理, and B站 pages' name for that step.
-  const INVALID = "视频已失效";
+  const INVALID = MdgErrors.LABEL.videoGone;
   // A video's verdict, the same on 分拣台 and B站 pages: a done 细看 (an unknown verdict counts as 拿不准) over the 粗看
   // result (one with an unknown verdict, left from the old custom tiers, counts as not classified, so 粗看 can run
   // again). An invalid video is 可清理 whatever the AI said, but keeps the AI's reason and step after the 已失效 note.
