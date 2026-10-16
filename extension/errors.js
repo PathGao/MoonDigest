@@ -82,7 +82,9 @@
     obsidianNotApi: "这个地址不是 Obsidian Local REST API",
     // The page's copy of the extension does not answer or plays the wrong video (popup, 专注模式, YouTube's player);
     // alone or after 「原因，」.
-    reloadRetry: "请刷新网页后重试"
+    reloadRetry: "请刷新网页后重试",
+    // 视频记录 and the settings page's AI platform row; followed by 「：原因」.
+    deleteFailed: "删除失败"
   });
 
   // Names of controls and pages that recur across pages (DESIGN 术语表). A name also appears inside sentences

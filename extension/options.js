@@ -1312,7 +1312,7 @@ function addAiProviderRow(item = {}) {
     const resp = await sendRuntimeMessage({ type: "ai-providers-delete", providerId: row.dataset.providerId }).catch((error) => ({ ok: false, error: error.message }));
     if (!resp?.ok) {
       disarm();
-      showAiProviderStatus(statusNode, `删除失败：${MdgErrors.text(resp)}`, true);
+      showAiProviderStatus(statusNode, `${MdgErrors.TEXT.deleteFailed}：${MdgErrors.text(resp)}`, true);
       return;
     }
     row.remove();

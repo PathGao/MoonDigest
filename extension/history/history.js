@@ -248,7 +248,7 @@ async function deleteGroups(keys) {
     const current = (await chrome.storage.local.get(KEY))[KEY] || [];
     await chrome.storage.local.set({ [KEY]: current.filter((c) => !keys.includes(c?.contextKey || c?.id)) });
   } catch (error) {
-    return setStatus(`删除失败：${error?.message || MdgErrors.TEXT.unknown}`, true);
+    return setStatus(`${MdgErrors.TEXT.deleteFailed}：${error?.message || MdgErrors.TEXT.unknown}`, true);
   }
   keys.forEach((key) => selected.delete(key));
   setStatus(`已删除 ${keys.length} 个视频的 AI 对话`);
@@ -367,7 +367,7 @@ els.clearAll.addEventListener("click", async () => {
   try {
     await chrome.storage.local.set({ [KEY]: [] });
   } catch (error) {
-    return setStatus(`删除失败：${error?.message || MdgErrors.TEXT.unknown}`, true);
+    return setStatus(`${MdgErrors.TEXT.deleteFailed}：${error?.message || MdgErrors.TEXT.unknown}`, true);
   }
   // Entries left with an AI 总结 or a 备注 stay selected; render drops the ones that left the list.
   setStatus("已清空全部 AI 对话");
