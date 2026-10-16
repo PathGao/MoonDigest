@@ -7,7 +7,7 @@ const assert = require("assert");
 // options.js runs init() against the page DOM; lift only the functions under test. Startup is scripts/smoke.mjs's job.
 const source = fs.readFileSync(path.join(__dirname, "options.js"), "utf8");
 const fn = (name) => source.slice(source.indexOf(`function ${name}(`), source.indexOf("\n}\n", source.indexOf(`function ${name}(`)) + 2);
-const ctx = vm.createContext({ URL, elements: {}, validateNoteExtras: () => ({ ok: true }) });
+const ctx = vm.createContext({ URL, busyButton: null, elements: {}, validateNoteExtras: () => ({ ok: true }) });
 vm.runInContext([fn("validateSettings"), fn("hostPermissionPattern"), fn("droppedFolders")].join("\n"), ctx);
 
 // [::1] is not in manifest host_permissions: Obsidian rejects it, AI platforms ask for it like any other host.
@@ -104,8 +104,8 @@ assert.ok(!/seenThreshold\.value = String\((readFormPayload\(\)|payload)\.seenTh
   };
   const parts = {};
   const row = { ...stub(), querySelector: (sel) => (parts[sel] ||= stub()), querySelectorAll: () => [] };
-  const page = vm.createContext({ MdgErrors: ctx.MdgErrors, escapeHtml: ctx.MdgErrors.escapeHtml, AI_PRESETS: [{ id: "custom", name: "自定义", baseUrl: "", model: "" }], document: { createElement: () => row }, elements: { aiProvidersList: { appendChild() {} } }, updateAiProvidersEmptyState() {} });
-  vm.runInContext([fn("addAiProviderRow"), fn("apiKeyPlaceholder"), fn("generateAiProviderId")].join("\n"), page);
+  const page = vm.createContext({ URL, MdgErrors: ctx.MdgErrors, escapeHtml: ctx.MdgErrors.escapeHtml, AI_PRESETS: [{ id: "custom", name: "自定义", baseUrl: "", model: "" }], document: { createElement: () => row }, elements: { aiProvidersList: { appendChild() {} } }, updateAiProvidersEmptyState() {} });
+  vm.runInContext([fn("addAiProviderRow"), fn("apiKeyPlaceholder"), fn("generateAiProviderId"), fn("savedKeyApplies"), fn("urlOrigin")].join("\n"), page);
   page.addAiProviderRow({});
   const test = parts[".ai-provider-test"];
   const type = (sel, v) => ((parts[sel].value = v), parts[sel].L.input.forEach((f) => f()));
@@ -115,6 +115,88 @@ assert.ok(!/seenThreshold\.value = String\((readFormPayload\(\)|payload)\.seenTh
   type(".ai-provider-model", "m");
   assert.deepStrictEqual([test.disabled, test.title, test.attrs["aria-description"]], [false, "用这一行的地址、模型和 Key 向 AI 发一条测试消息", undefined]);
 }
+
+// A28: Obsidian's 测试连接 stays disabled while a test or a save runs, whatever is typed; it comes back when it ends.
+{
+  const btn = () => ({ setAttribute() {}, removeAttribute() {} });
+  const page = vm.createContext({ MdgErrors: ctx.MdgErrors, busyButton: null, elements: { saveBtn: btn(), testConnectionBtn: btn(), obsidianApiBaseUrl: { value: "http://127.0.0.1:27123" }, obsidianApiKey: { value: "" } } });
+  vm.runInContext([fn("setBusy"), fn("syncObsidianTest")].join("\n"), page);
+  page.setBusy(page.elements.testConnectionBtn);
+  page.elements.obsidianApiKey.value = "new key";
+  page.syncObsidianTest();
+  assert.deepStrictEqual([page.elements.testConnectionBtn.disabled, page.elements.testConnectionBtn.textContent], [true, "测试中…"]);
+  page.setBusy(null);
+  assert.deepStrictEqual([page.elements.testConnectionBtn.disabled, page.elements.testConnectionBtn.textContent], [false, "测试连接"]);
+}
+
+// A3, A4: when the settings or the AI platform list cannot be read, the page says so, shows no values and offers no save
+// (savedForm stays unset, so no edit counts as unsaved).
+(async () => {
+  for (const fail of ["get-settings", "ai-providers-list", "throw"]) {
+    const log = [];
+    const main = {};
+    const page = vm.createContext({
+      MdgErrors: ctx.MdgErrors, DEFAULT_SETTINGS: { obsidianApiKey: "" },
+      document: { querySelector: (sel) => (sel === "main" ? main : null) },
+      setStatus: (text, isError) => log.push([text, isError]),
+      markSaved: () => log.push("markSaved"),
+      renderStorageLimits: async () => log.push("render"),
+      sendRuntimeMessage: async (m) => {
+        if (fail === "throw") throw new Error("Could not establish connection");
+        return m.type === fail ? { ok: false, error: "读取失败" } : { ok: true, settings: {}, providers: [] };
+      }
+    });
+    vm.runInContext([`async ${fn("loadSettings")}`, `async ${fn("getSettings")}`, `async ${fn("loadAiProviders")}`].join("\n"), page);
+    // Only the failure path is set up here: had it gone on to fill the form, the missing elements would throw.
+    await page.loadSettings().catch(() => {});
+    const reason = fail === "throw" ? "Could not establish connection" : "读取失败";
+    assert.deepStrictEqual([main.inert, log], [true, [[`读取设置失败，请刷新页面重试：${reason}`, true]]], fail);
+  }
+})().catch((e) => (console.error(e), process.exit(1)));
+
+// A5, A29: an AI platform row with a saved Key.
+(async () => {
+  const stub = () => {
+    const attrs = {};
+    const L = {};
+    return { value: "", hidden: false, attrs, L, dataset: {}, classList: { add() {}, remove() {}, contains: () => false }, setAttribute: (k, v) => (attrs[k] = v), removeAttribute: (k) => delete attrs[k], addEventListener: (t, f) => ((L[t] ||= []).push(f)), querySelector: () => null };
+  };
+  const parts = {};
+  const row = { ...stub(), querySelector: (sel) => (parts[sel] ||= stub()), querySelectorAll: () => [] };
+  const sent = [];
+  let answer;
+  const page = vm.createContext({
+    URL, MdgErrors: ctx.MdgErrors, escapeHtml: ctx.MdgErrors.escapeHtml, hasUnsavedChanges: false,
+    AI_PRESETS: [{ id: "deepseek", name: "DeepSeek", baseUrl: "https://api.deepseek.com/v1", model: "deepseek-flash", requiresKey: true }, { id: "custom", name: "自定义", baseUrl: "", model: "", requiresKey: true }],
+    document: { createElement: () => row },
+    elements: { aiProvidersList: { appendChild() {}, querySelectorAll: () => [row] } },
+    updateAiProvidersEmptyState() {},
+    chrome: { permissions: { request: async () => true } },
+    sendRuntimeMessage: (m) => (sent.push(m), new Promise((r) => (answer = r)))
+  });
+  vm.runInContext([fn("addAiProviderRow"), fn("apiKeyPlaceholder"), fn("generateAiProviderId"), fn("savedKeyApplies"), fn("urlOrigin"), fn("collectAiProviders"), fn("hostPermissionPattern"), fn("showAiProviderStatus"), `async ${fn("testAiProviderRow")}`].join("\n"), page);
+  page.addAiProviderRow({ id: "p1", presetId: "deepseek", baseUrl: "https://api.deepseek.com/v1", model: "deepseek-flash", hasSavedKey: true });
+  parts[".ai-provider-preset"].value = "deepseek";
+  const type = (sel, v) => ((parts[sel].value = v), parts[sel].L.input.forEach((f) => f()));
+  type(".ai-provider-baseurl", "https://api.deepseek.com/v2");
+  assert.strictEqual(page.collectAiProviders()[0].hasSavedKey, true, "another path on the same host keeps the Key");
+
+  // A5: pointed at another host, the saved Key is not counted (save asks for one) and 测试连接 does not use it.
+  parts[".ai-provider-preset"].value = "custom";
+  type(".ai-provider-baseurl", "https://api.example.com/v1");
+  assert.deepStrictEqual([page.collectAiProviders()[0].hasSavedKey, parts[".ai-provider-apikey"].placeholder, parts[".keytag"].hidden], [false, "必填", true]);
+  const test = parts[".ai-provider-test"];
+  const pending = test.L.click[0]();
+  await new Promise((r) => setTimeout(r));
+  assert.deepStrictEqual([sent.length, sent[0]?.providerId], [1, ""], "the old platform's Key is not looked up for the new host");
+
+  // A29: typing while the test runs does not enable 测试连接 again.
+  type(".ai-provider-model", "other-model");
+  assert.strictEqual(test.disabled, true, "stays disabled while the test runs");
+  answer({ ok: true });
+  await pending;
+  assert.strictEqual(test.disabled, false, "enabled again when it answers");
+})().catch((e) => (console.error(e), process.exit(1)));
 
 // E1: 测试连接 for an address not saved yet asks for its host permission in the click, before anything is awaited, then
 // tests; declined, the status says so with 授权, which asks again and tests.
@@ -135,7 +217,7 @@ assert.ok(!/seenThreshold\.value = String\((readFormPayload\(\)|payload)\.seenTh
     sendRuntimeMessage: async (m) => (log.push(`test ${m.baseUrl}`), { ok: true })
   });
   vm.runInContext(fs.readFileSync(path.join(__dirname, "errors.js"), "utf8"), page);
-  vm.runInContext([fn("hostPermissionPattern"), fn("showAiProviderStatus"), `async ${fn("testAiProviderRow")}`].join("\n"), page);
+  vm.runInContext([fn("hostPermissionPattern"), fn("showAiProviderStatus"), fn("savedKeyApplies"), fn("urlOrigin"), `async ${fn("testAiProviderRow")}`].join("\n"), page);
   // L4: the declined permission carries its code, as the background's does.
   const replies = [];
   const realText = page.MdgErrors.text;
