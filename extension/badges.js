@@ -1,8 +1,16 @@
 // Read-only triage marks on Bilibili pages. Videos without triage data get zero DOM changes.
 (() => {
-  const { VERDICTS, verdictOf } = globalThis.MdgTagCore;
+  const { VERDICTS, verdictOf, INVALID } = globalThis.MdgTagCore;
   const ACTION = { keep: "已保留", unfav: "已取消收藏" };
-  const STAGE = ["视频已失效", "标题粗看", "字幕细看"];
+  const STAGE = [INVALID, "标题粗看", "字幕细看"];
+  // Storage names this script reads (copies of MdgLimits.KEYS: it does not load limits.js; limits.selftest.js checks).
+  const KEPT = "triage_kept";
+  const DECISIONS_PREFIX = "triage_decisions_";
+  const TAGS = "triage_tags";
+  const VIDEO_TAGS = "triage_video_tags";
+  const SNAPSHOT_PREFIX = "triage_snapshot_";
+  const TITLE_PREFIX = "triage_title_";
+  const ANALYSIS_PREFIX = "triage_analysis_";
   const BVID_RE = /(?:\/video\/|[?&]bvid=)(BV[0-9A-Za-z]{10})/;
 
   function bvidFromHref(href) {
@@ -25,17 +33,9 @@
 
     // AI classes carry an 「AI」 marker; the user's own decision never does.
     const label = action ? ACTION[action] : v ? `AI ${name}` : "";
-    const aria = [
-      "MoonDigest 分拣",
-      action && ACTION[action],
-      v && `AI 判断 ${name}（${STAGE[v.stage]}${v.low ? "，低置信" : ""}）`,
-      userTags.length && `视频标签：${userTags.map((t) => t.name).join("、")}`
-    ]
-      .filter(Boolean)
-      .join("，");
-    return {
+    const info = {
       label,
-      aria,
+      aria: "",
       verdict: v ? v.verdict : "",
       stage: v?.stage || 0,
       low: Boolean(v?.low),
@@ -45,17 +45,29 @@
       points: done ? (analysis.points || []).map(String).filter(Boolean) : [],
       tags: userTags
     };
+    info.aria = ariaOf(info, userTags);
+    return info;
   }
+  // What a mark reads aloud: the decision and the verdict it shows, and the tags it shows.
+  const ariaOf = ({ action, verdict, stage, low }, tags) =>
+    [
+      "MoonDigest 分拣",
+      action && ACTION[action],
+      verdict && `AI 判断 ${VERDICTS[verdict]}（${STAGE[stage]}${low ? "，低置信" : ""}）`,
+      tags.length && `视频标签：${tags.map((t) => t.name).join("、")}`
+    ]
+      .filter(Boolean)
+      .join("，");
 
-  // Merges every triage_decisions_<folder> (取消收藏) and triage_kept (保留, one list for all folders) in `got`;
-  // a video decided more than once shows its latest decision.
+  // Merges triage_kept (保留, one list for all folders) and every triage_decisions_<folder> (取消收藏) in `got`. As on
+  // the 分拣台, a folder's 取消收藏 wins over 保留; a video taken out of several folders shows the latest.
   function mergeDecisions(got) {
-    const out = {};
+    const unfav = {};
     for (const [k, v] of Object.entries(got || {})) {
-      if (!k.startsWith("triage_decisions_") && k !== "triage_kept") continue;
-      for (const [b, d] of Object.entries(v || {})) if (!out[b] || (d?.at || 0) > (out[b].at || 0)) out[b] = d;
+      if (!k.startsWith(DECISIONS_PREFIX)) continue;
+      for (const [b, d] of Object.entries(v || {})) if (!unfav[b] || (d?.at || 0) > (unfav[b].at || 0)) unfav[b] = d;
     }
-    return out;
+    return { ...got?.[KEPT], ...unfav };
   }
 
   // ---- UP tags (follow_tags / follow_tag_map from the triage page's 关注 mode) next to an author's name ----
@@ -168,20 +180,26 @@
     else delete map[mid];
     return { tags, map, id };
   }
-  // Reads both keys fresh (the triage page may have written since) and writes back only what changed.
-  async function saveUpTag(local, mid, op) {
-    const got = await local.get(["follow_tags", "follow_tag_map"]);
-    const r = applyUpTag(got.follow_tags, got.follow_tag_map, mid, op);
-    if (!r) return null;
-    await local.set(r.tags !== got.follow_tags ? { follow_tags: r.tags, follow_tag_map: r.map } : { follow_tag_map: r.map });
-    return r;
+  // Reads both keys fresh (the triage page may have written since) and writes back only what changed. Writes from this
+  // page queue, so a second click never reads before the first one's write lands.
+  // ponytail: the queue is per page; a 分拣台 write between this read and write can still be lost (no storage lock).
+  let upWrites = Promise.resolve();
+  function saveUpTag(local, mid, op) {
+    const write = async () => {
+      const got = await local.get(["follow_tags", "follow_tag_map"]);
+      const r = applyUpTag(got.follow_tags, got.follow_tag_map, mid, op);
+      if (!r) return null;
+      await local.set(r.tags !== got.follow_tags ? { follow_tags: r.tags, follow_tag_map: r.map } : { follow_tag_map: r.map });
+      return r;
+    };
+    const done = upWrites.then(write);
+    upWrites = done.catch(() => {});
+    return done;
   }
 
   // What each kind of B站 page shows: bili-surfaces.js, loaded first (manifest).
   const { SURFACES } = globalThis.MdgSurfaces;
-  // "" in the 分拣台's own player, which already shows both tag lines above it.
-  function surfaceOf({ host = "", path = "", search = "", viewer = false } = {}) {
-    if (viewer) return "";
+  function surfaceOf({ host = "", path = "", search = "" } = {}) {
     const page = new URLSearchParams(search).get("page") || ""; // BewlyCat's pages
     if (page === "Favorites" || (host === "space.bilibili.com" && /^\/\d+\/favlist/.test(path))) return "fav";
     if (page === "History" || /^\/(?:history|account\/history)(?:\/|$)/.test(path)) return "history";
@@ -207,7 +225,7 @@
     const tags = vtags ? info.tags : [];
     const label = verdict ? info.label : "";
     if (!label && !tags.length) return null;
-    const aria = label ? info.aria : `MoonDigest 分拣，视频标签：${tags.map((t) => t.name).join("、")}`;
+    const aria = ariaOf(label ? info : {}, tags);
     return { info: { ...info, label, aria }, tags, text: verdict ? info.oneLiner || info.reason : "" };
   }
 
@@ -252,7 +270,7 @@
   const bvidOf = (el) => bvidFromHref(el.getAttribute("href")) || el.dataset.key || "";
   // Keys that every video's info depends on; a per-video title or analysis only redraws that video. Only a favorites
   // page reads a snapshot, and only its own folder's: the 分拣台 saves other folders' snapshots often.
-  const isSharedKey = (k) => k === "triage_tags" || k === "triage_video_tags" || k === "triage_kept" || k.startsWith("triage_decisions_") || (!!favFid() && k === `triage_snapshot_${favFid()}`);
+  const isSharedKey = (k) => k === TAGS || k === VIDEO_TAGS || k === KEPT || k.startsWith(DECISIONS_PREFIX) || (!!favFid() && k === `${SNAPSHOT_PREFIX}${favFid()}`);
 
   const cache = new Map(); // bvid -> info | null
   let shared = null;
@@ -292,7 +310,8 @@
   }
 
   // badges.css hides BewlyCat's own watch progress while ours is on.
-  const markBewly = () => document.getElementById("bewly")?.toggleAttribute("data-mdg-seen", seenCfg.on);
+  const SEEN_ATTR = "data-mdg-seen"; // badges.css hides BewlyCat's progress under it
+  const markBewly = () => document.getElementById("bewly")?.toggleAttribute(SEEN_ATTR, seenCfg.on);
 
   const favFid = () => (surface === "fav" ? new URLSearchParams(location.search).get("fid") || "" : "");
   // In-page navigation (a space page's tabs, BewlyCat's ?page=) changes the page without a reload, and its DOM changes
@@ -310,11 +329,14 @@
   const pageBvid = () => (/^\/(?:video|list)\//.test(location.pathname) ? bvidFromHref(location.pathname + location.search) : "");
 
   // ponytail: rescans at most every 400ms; the video page's danmaku layer mutates constantly and this caps that cost.
+  // An extension disabled or removed injects no fresh copy (standDown): this one stops on its own.
   function schedule() {
     if (!enabled || timer) return;
+    if (!chrome.runtime?.id) return standDown();
     timer = setTimeout(() => {
       timer = 0;
-      const go = () => run().catch(() => {});
+      // Switched off or stood down while waiting for idle time: nothing to run, nothing to re-hook.
+      const go = () => enabled && run().catch(() => {});
       window.requestIdleCallback ? requestIdleCallback(go, { timeout: 600 }) : go();
     }, 400);
   }
@@ -394,7 +416,7 @@
     if (owner) for (const el of findAll(OWNER_SEL)) spots.push([el, owner, surface === "space" ? rules.nick : rules.fav]);
     const nameEls = findAll(NAME_SEL);
     const idx = nameEls.length ? await whoIs() : null;
-    if (!enabled) return; // stood down (or switched off) while reading
+    if (!enabled || !upOn) return; // stood down, or the marks or the UP tags switched off, while reading
     const byEl = new Map(nameEls.map((el) => [el, nameMid(el, idx)]));
     for (const [el, mid] of byEl) spots.push([el, mid, ruleFor(el)]);
     const writes = spots.map(([spot, mid, rule, name]) => upChip(spot, mid, rule, name));
@@ -418,6 +440,10 @@
     };
   }
 
+  const LOCAL_ONLY = "只存在 MoonDigest 里，不改 B站";
+  const UP_TIP = `UP 标签 · ${LOCAL_ONLY}`;
+  // The 「+ UP 标签」 button's name and the picker's title.
+  const pickTitle = (name) => `给「${name}」打 UP 标签`;
   // Every tag as a chip, then a 「+N」 that fitBoxes shows when they don't all fit; hovering or focusing it lists them all.
   function appendChips(box, list, cls) {
     for (const t of list) {
@@ -443,7 +469,7 @@
     box.className = `mdg-ups${list.length ? "" : " mdg-ups-empty"}${plus ? ` mdg-plus-${plus}` : ""}${spot.classList?.contains("up-detail-top") ? " mdg-ups-line" : ""}`;
     box.dataset.mid = mid;
     box.dataset.key = key;
-    box.title = "UP 标签 · 只存在 MoonDigest 里，不改 B站";
+    box.title = UP_TIP;
     appendChips(box, list, "mdg-up");
     if (plus) {
       const add = document.createElement("span");
@@ -456,8 +482,8 @@
       const open = pick?.spot === spot;
       if (open) pick.add = add;
       add.setAttribute("aria-expanded", String(open));
-      add.setAttribute("aria-label", `给 ${name} 打 UP 标签`);
-      add.title = "打 UP 标签 · 只存在 MoonDigest 里，不改 B站";
+      add.setAttribute("aria-label", pickTitle(name));
+      add.title = `打 UP 标签 · ${LOCAL_ONLY}`;
       add.textContent = "+ UP 标签";
       box.append(add);
     }
@@ -484,9 +510,9 @@
       const hide = upHidden(mids[i], sel, up.map);
       return hide !== it.classList.contains("mdg-up-hide") ? () => it.classList.toggle("mdg-up-hide", hide) : null;
     });
-    // No UP tags yet: only the 「+」s, no bar.
-    if (!up.tags.length) return writes;
     const bar = document.querySelector(".mdg-upbar");
+    // No UP tags (yet, or the last one deleted): only the 「+」s, no bar.
+    if (!up.tags.length) return bar ? [...writes, () => bar.remove()] : writes;
     const key = `${sel}|${up.tags.map((t) => `${t.id}:${t.name}:${t.color}:${counts[t.id]}`).join(",")}|${counts[""]}`;
     if (bar?.dataset.key !== key || bar.nextElementSibling !== list) writes.push(() => {
       bar?.remove();
@@ -501,11 +527,8 @@
     bar.dataset.key = key;
     bar.setAttribute("role", "toolbar");
     bar.setAttribute("aria-label", "MoonDigest UP 标签筛选");
-    bar.title = "UP 标签 · 只存在 MoonDigest 里，不改 B站";
-    const brand = document.createElement("span");
-    brand.className = "mdg-brand";
-    brand.textContent = "MoonDigest";
-    bar.append(brand);
+    bar.title = UP_TIP;
+    bar.append(brandEl());
     for (const t of [{ id: "", name: "全部" }, ...up.tags]) {
       const b = document.createElement("button");
       b.type = "button";
@@ -532,8 +555,8 @@
 
   function clearUps() {
     closePick(false);
-    resizes?.disconnect();
     findAll(".mdg-ups, .mdg-upbar").forEach((n) => n.remove());
+    refitAll();
     document.querySelectorAll(".mdg-up-hide").forEach((n) => n.classList.remove("mdg-up-hide"));
   }
 
@@ -600,7 +623,7 @@ input { box-sizing: border-box; width: 100%; margin: 0; padding: 4px 8px; border
     const panel = document.createElement("div");
     panel.className = isDark(box) ? "pick dark" : "pick";
     panel.setAttribute("role", "dialog");
-    panel.setAttribute("aria-label", `给「${add.dataset.name}」打 UP 标签`);
+    panel.setAttribute("aria-label", pickTitle(add.dataset.name));
     root.append(style, panel);
     // Typing a tag name must not reach page hotkeys (the player's space, arrows).
     for (const t of ["keydown", "keyup", "keypress"]) host.addEventListener(t, (e) => e.stopPropagation());
@@ -641,14 +664,14 @@ input { box-sizing: border-box; width: 100%; margin: 0; padding: 4px 8px; border
       if (text != null) n.textContent = text;
       return n;
     };
-    const head = el("div", "h", `给「${pick.add.dataset.name}」打 UP 标签`);
+    const head = el("div", "h", pickTitle(pick.add.dataset.name));
     // The extension reloaded under this page: storage and messages no longer reach it.
     if (!chrome.runtime?.id) {
       pick.panel.replaceChildren(head, el("div", "empty", "扩展刚刚更新，请刷新网页"));
       return placePick();
     }
     const was = pick.root.activeElement;
-    const focus = pick.focus ?? (was?.dataset?.id || (was?.classList?.contains("opt") ? "new" : was ? "input" : null));
+    const focus = pick.focus ?? (was?.dataset?.id || (was?.classList?.contains("go") ? "go" : was?.classList?.contains("opt") ? "new" : was ? "input" : null));
     pick.focus = null;
     const rows = pickRows(pick.mid, up.tags, up.map);
     const list = el("div", "list");
@@ -683,19 +706,19 @@ input { box-sizing: border-box; width: 100%; margin: 0; padding: 4px 8px; border
     // The chips no longer open the 分拣台; this is the one way there from a B站 page.
     const go = el("button", "go", "在分拣台「关注」里打开这个 UP ↗");
     go.type = "button";
-    pick.panel.replaceChildren(head, list, more, go, el("div", "foot", "只存在 MoonDigest 里，不改 B站 · Esc 关闭"));
+    pick.panel.replaceChildren(head, list, more, go, el("div", "foot", `${LOCAL_ONLY} · Esc 关闭`));
     placePick();
-    const again = focus === "input" || focus === "new" ? more.firstChild : [...pickFocusables()].find((b) => b.dataset.id === focus);
+    const again = focus === "go" ? go : focus === "input" || focus === "new" ? more.firstChild : [...pickFocusables()].find((b) => b.dataset.id === focus);
     if (focus) (again || pickFocusables()[0])?.focus();
   }
 
   // Under the 「+」 where it was when opened (it moves as chips are added), above it when there is no room below.
-  function placePick() {
-    const r = pick.rect;
-    const w = pick.panel.offsetWidth || 270;
-    const h = pick.panel.offsetHeight || 0;
-    pick.panel.style.left = `${Math.max(8, Math.min(r.left, innerWidth - w - 8))}px`;
-    pick.panel.style.top = `${r.bottom + 6 + h > innerHeight - 8 ? Math.max(8, r.top - h - 6) : r.bottom + 6}px`;
+  const placePick = () => placeUnder(pick.panel, pick.rect, pick.panel.offsetWidth || 270);
+  // A fixed popover 6px under `r`, or above it when there is no room below, 8px inside the window.
+  function placeUnder(node, r, w = node.offsetWidth) {
+    const h = node.offsetHeight || 0;
+    node.style.left = `${Math.max(8, Math.min(r.left, innerWidth - w - 8))}px`;
+    node.style.top = `${r.bottom + 6 + h > innerHeight - 8 ? Math.max(8, r.top - h - 6) : r.bottom + 6}px`;
   }
 
   const pickFocusables = () => (pick ? pick.panel.querySelectorAll(".opt, input, .go") : []);
@@ -781,29 +804,29 @@ input { box-sizing: border-box; width: 100%; margin: 0; padding: 4px 8px; border
       // A favorites page shows its own folder's decisions; elsewhere every folder's decisions are merged.
       // getKeys is Chrome 130+; before that only 保留 shows outside a favorites page.
       const all = fid ? [] : (await chrome.storage.local.getKeys?.()) || [];
-      const decisionKeys = ["triage_kept", ...(fid ? [`triage_decisions_${fid}`] : all.filter((k) => k.startsWith("triage_decisions_")))];
+      const decisionKeys = [KEPT, ...(fid ? [`${DECISIONS_PREFIX}${fid}`] : all.filter((k) => k.startsWith(DECISIONS_PREFIX)))];
       // 已失效 comes from the folder's snapshot, so only a favorites page knows it: reading every folder's snapshot (its
       // whole item list) on every B站 page costs too much, and invalid videos are mostly met in favorites.
-      const snapshot = fid ? `triage_snapshot_${fid}` : "";
-      const got = await chrome.storage.local.get(["triage_tags", "triage_video_tags", ...decisionKeys, ...(snapshot ? [snapshot] : [])]);
+      const snapshot = fid ? `${SNAPSHOT_PREFIX}${fid}` : "";
+      const got = await chrome.storage.local.get([TAGS, VIDEO_TAGS, ...decisionKeys, ...(snapshot ? [snapshot] : [])]);
       if (g !== gen) return;
       sharedFid = fid;
-      shared = { tags: got.triage_tags, videoTags: got.triage_video_tags || {}, decisions: mergeDecisions(got), invalid: new Set(got[snapshot]?.invalid || []) };
+      shared = { tags: got[TAGS], videoTags: got[VIDEO_TAGS] || {}, decisions: mergeDecisions(got), invalid: new Set(got[snapshot]?.invalid || []) };
       cache.clear();
     }
     const anchors = findAll(SEL);
     const here = pageBvid();
     const want = new Set(anchors.map((a) => bvidFromHref(a.getAttribute("href"))).concat(here).filter((b) => b && !cache.has(b)));
     if (want.size) {
-      const keys = [...want].flatMap((b) => [`triage_title_${b}`, `triage_analysis_${b}`]);
+      const keys = [...want].flatMap((b) => [`${TITLE_PREFIX}${b}`, `${ANALYSIS_PREFIX}${b}`]);
       const got = await chrome.storage.local.get(keys);
       if (g !== gen) return;
       for (const b of want) {
         cache.set(
           b,
           badgeInfo({
-            title: got[`triage_title_${b}`],
-            analysis: got[`triage_analysis_${b}`],
+            title: got[`${TITLE_PREFIX}${b}`],
+            analysis: got[`${ANALYSIS_PREFIX}${b}`],
             invalid: shared.invalid.has(b),
             tagIds: shared.videoTags[b],
             tags: shared.tags,
@@ -922,6 +945,8 @@ input { box-sizing: border-box; width: 100%; margin: 0; padding: 4px 8px; border
     return box || null;
   }
 
+  const brandEl = () => Object.assign(document.createElement("span"), { className: "mdg-brand", textContent: "MoonDigest" });
+
   function badgeEl(info, bvid, tags) {
     const el = document.createElement("span");
     el.className = "mdg-badge";
@@ -996,6 +1021,11 @@ input { box-sizing: border-box; width: 100%; margin: 0; padding: 4px 8px; border
   // ponytail: observed containers are only released by clearMarks/clearUps (disconnect); a long-lived feed keeps a few
   // hundred detached nodes alive until then.
   let refitFrame = 0;
+  // Drops every observed container; the boxes left (the other feature's) are fitted and observed again on the next run.
+  function refitAll() {
+    resizes?.disconnect();
+    findAll(".mdg-badge, .mdg-ups").forEach((b) => delete b.dataset.fit);
+  }
   const resizes = typeof ResizeObserver === "function" ? new ResizeObserver(() => {
     if (refitFrame) return;
     refitFrame = requestAnimationFrame(() => {
@@ -1017,10 +1047,7 @@ input { box-sizing: border-box; width: 100%; margin: 0; padding: 4px 8px; border
     const line = document.createElement("div");
     line.className = "mdg-line";
     line.dataset.bvid = bvid;
-    const brand = document.createElement("span");
-    brand.className = "mdg-brand";
-    brand.textContent = "MoonDigest";
-    line.append(brand, badgeEl(parts.info, bvid, parts.tags));
+    line.append(brandEl(), badgeEl(parts.info, bvid, parts.tags));
     const text = parts.text;
     if (text) {
       const s = document.createElement("span");
@@ -1057,11 +1084,7 @@ input { box-sizing: border-box; width: 100%; margin: 0; padding: 4px 8px; border
     pop ||= Object.assign(document.createElement("div"), { className: "mdg-pop", role: "tooltip" });
     pop.replaceChildren(...rows);
     document.body.append(pop);
-    const r = at.getBoundingClientRect();
-    const w = pop.offsetWidth;
-    const h = pop.offsetHeight;
-    pop.style.left = `${Math.max(8, Math.min(r.left, innerWidth - w - 8))}px`;
-    pop.style.top = `${r.bottom + 6 + h > innerHeight ? Math.max(8, r.top - h - 6) : r.bottom + 6}px`;
+    placeUnder(pop, at.getBoundingClientRect());
   }
 
   const hidePop = () => pop?.remove();
@@ -1081,8 +1104,9 @@ input { box-sizing: border-box; width: 100%; margin: 0; padding: 4px 8px; border
 
   function clearMarks() {
     hidePop();
-    resizes?.disconnect();
-    findAll(".mdg-badge, .mdg-line, .mdg-seen").forEach((n) => n.remove());
+    // The 分拣台's player finds no cards (findAll), but has the line under the title.
+    [...findAll(".mdg-badge, .mdg-seen"), ...document.querySelectorAll(".mdg-line")].forEach((n) => n.remove());
+    refitAll();
     findAll(".mdg-seen-host").forEach((n) => n.classList.remove("mdg-seen-host"));
   }
 
@@ -1154,7 +1178,7 @@ input { box-sizing: border-box; width: 100%; margin: 0; padding: 4px 8px; border
       who = null;
       schedule();
     }
-    if (area === "sync" && (SETTING in changes || VERDICT_SETTING in changes || UP_SETTING in changes || "biliMarksOff" in changes || Object.keys(SEEN_DEFAULTS).some((k) => k in changes))) readSettings();
+    if (area === "sync" && Object.keys(SYNC_DEFAULTS).some((k) => k in changes)) readSettings();
     if (area === "local" && enabled && Object.keys(changes).some((k) => k.startsWith(SEEN_PREFIX))) {
       for (const k of Object.keys(changes)) if (k.startsWith(SEEN_PREFIX)) seenCache.delete(k.slice(SEEN_PREFIX.length));
       gen++;
@@ -1171,7 +1195,7 @@ input { box-sizing: border-box; width: 100%; margin: 0; padding: 4px 8px; border
       gen++;
       for (const b of changed) {
         cache.delete(b);
-        findAll(`.mdg-badge[data-bvid="${b}"], .mdg-line[data-bvid="${b}"]`).forEach((n) => n.remove());
+        [...findAll(`.mdg-badge[data-bvid="${b}"]`), ...document.querySelectorAll(`.mdg-line[data-bvid="${b}"]`)].forEach((n) => n.remove());
       }
       schedule();
     }
@@ -1182,7 +1206,7 @@ input { box-sizing: border-box; width: 100%; margin: 0; padding: 4px 8px; border
     superseded = true;
     gen++; // an in-flight scan drops its reads
     setEnabled(false);
-    document.getElementById("bewly")?.removeAttribute("data-mdg-seen");
+    document.getElementById("bewly")?.removeAttribute(SEEN_ATTR);
     bewlyRoot()?.querySelector("link[data-mdg]")?.remove();
   }
   document.dispatchEvent(new Event("mdg-badges-superseded"));

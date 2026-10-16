@@ -238,7 +238,6 @@ const DUPLICATES = [
   ["自定义", "background.js options.js", "待修：C18"],
   ["已保留", "badges.js triage/triage.js", "待修：C32"],
   ["已取消收藏", "badges.js triage/triage.js", "待修：C32"],
-  ["视频已失效", "badges.js tag-core.js", "待修：C34"],
   ["标题粗看", "badges.js triage/triage.js", "待修：C34（badges.js 同一张 STAGE 表）"],
   ["字幕细看", "badges.js triage/triage.js", "待修：C34（badges.js 同一张 STAGE 表）"],
   ["UP 标签", "bili-surfaces.js triage/follow.js triage/shared.js", "待修：C55、C443"],

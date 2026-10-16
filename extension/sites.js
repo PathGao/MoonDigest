@@ -49,12 +49,13 @@
     return text.replace(/^http:\/\//, "https://");
   }
 
+  // -1 for anything that is not h:mm:ss digits, an empty text or segment included (Number("") is 0).
   function parseTimestamp(text) {
-    const parts = String(text).split(":").map((item) => Number(item));
-    if (parts.some((item) => !Number.isFinite(item))) {
+    const parts = String(text ?? "").split(":");
+    if (parts.some((item) => !/^\s*\d+\s*$/.test(item))) {
       return -1;
     }
-    return parts.reduce((total, item) => total * 60 + item, 0);
+    return parts.reduce((total, item) => total * 60 + Number(item), 0);
   }
 
   // "00:00 Intro" / "1:02:03 - Topic" lines in a description become chapters.
@@ -62,7 +63,8 @@
     const lines = String(description || "").split(/\r?\n/);
     const chapters = [];
     lines.forEach((line) => {
-      const match = line.match(/^\s*[\[(]?((?:\d{1,2}:)?\d{1,2}:\d{2})[\])]?\s*[-–—:|]?\s*(.+?)\s*$/);
+      // (?!:?\d): the whole time, so a bare 1:02:03 is not read as 1:02 titled 「03」.
+      const match = line.match(/^\s*[\[(]?((?:\d{1,2}:)?\d{1,2}:\d{2})(?!:?\d)[\])]?\s*[-–—:|]?\s*(.+?)\s*$/);
       if (!match) {
         return;
       }
@@ -218,12 +220,14 @@
   // ---------------------------------------------------------------- Bilibili
 
   const BILI_API = "https://api.bilibili.com";
+  const BILI_TITLE = "h1.video-title"; // the video page's title
 
   function biliApiError(payload, fallback) {
     const error = new Error(String(payload?.message || fallback));
     error.code = payload?.code;
-    // Negative codes are usually transient (risk codes never get here: biliJson throws THROTTLED first).
-    error.retryable = typeof payload?.code === "number" && payload.code < 0;
+    // Negative codes are usually transient (risk codes never get here: biliJson throws THROTTLED first); a deleted
+    // video's -404 never comes back.
+    error.retryable = typeof payload?.code === "number" && payload.code < 0 && !isBiliVideoGone(payload.code);
     return error;
   }
 
@@ -484,11 +488,14 @@
             };
           })
           .filter((item) => item.url);
+        const points = Array.isArray(data.view_points) ? data.view_points : [];
+        // Milliseconds or seconds is one choice for the whole response: a value past a day means milliseconds.
+        const ms = points.some((item) => [item?.from ?? item?.start, item?.to ?? item?.end].some((v) => Number(v) > 60 * 60 * 24));
         const chapters = normalizeChapters(
-          (Array.isArray(data.view_points) ? data.view_points : []).map((item) => ({
+          points.map((item) => ({
             title: String(item?.content || item?.title || "").trim(),
-            from: biliChapterTime(item?.from ?? item?.start),
-            to: biliChapterTime(item?.to ?? item?.end)
+            from: biliChapterTime(item?.from ?? item?.start, ms),
+            to: biliChapterTime(item?.to ?? item?.end, ms)
           }))
         );
         // Bilibili hides every subtitle from a request it sees as logged out.
@@ -536,7 +543,7 @@
     readDom(doc) {
       return {
         title:
-          readText(doc, "h1.video-title") ||
+          readText(doc, BILI_TITLE) ||
           readMetaContent(doc, 'meta[property="og:title"]') ||
           String(doc?.title || "").replace(/_哔哩哔哩_bilibili/i, "").trim(),
         author: readText(doc, ".up-name") || readMetaContent(doc, 'meta[name="author"]'),
@@ -554,8 +561,8 @@
       controls: [".bpx-player-control-wrap", ".bpx-player-control-mask", ".bpx-player-control-entity"],
       noCursorClass: "bpx-state-no-cursor",
       sendingBar: ".bpx-player-sending-bar",
-      title: ["h1.video-title"],
-      keepRoots: ["#bilibili-player", ".bpx-player-container", ".bpx-player-video-area", ".bpx-player-primary-area", "h1.video-title", ".video-info-detail", ".video-info-meta", ".video-data"],
+      title: [BILI_TITLE],
+      keepRoots: ["#bilibili-player", ".bpx-player-container", ".bpx-player-video-area", ".bpx-player-primary-area", BILI_TITLE, ".video-info-detail", ".video-info-meta", ".video-data"],
       noise: [".strip-ad-inner", ".inside-wrp", ".inside-bg", ".hinter-msg", ".slide", ".cover.b-img", ".cover.b-img.sleepy", ".b-img.clickable", "[class*='activity']", "[class*='adcard']"],
       cards: ["article", "li", ".card-box", ".video-page-card-small", ".video-page-special-card-small", ".feed-card", ".bili-video-card"],
       ignoredVideo: [".ad-report", "[class*='ad-report']", ".video-page-card-small", ".video-page-special-card-small", ".feed-card", ".bili-video-card"],
@@ -564,13 +571,12 @@
     }
   };
 
-  function biliChapterTime(value) {
+  function biliChapterTime(value, ms) {
     const num = Number(value);
     if (!Number.isFinite(num) || num < 0) {
       return 0;
     }
-    // Some responses carry milliseconds.
-    return num > 60 * 60 * 24 ? num / 1000 : num;
+    return ms ? num / 1000 : num;
   }
 
   // ----------------------------------------------------------------- YouTube
@@ -665,11 +671,11 @@
   // client. fetchMeta starts a load and clears it.
   let ytPlayer = { id: "", responses: {}, pot: null, resolved: false };
 
+  // A read still running for an earlier video gets a cache of its own, so it never wipes the current video's.
   function ytPlayerCache(ref, fresh = false) {
-    if (fresh || ytPlayer.id !== ref.id) {
-      ytPlayer = { id: ref.id, responses: {}, pot: null, resolved: false };
-    }
-    return ytPlayer;
+    const blank = () => ({ id: ref.id, responses: {}, pot: null, resolved: false });
+    if (fresh || !ytPlayer.id) ytPlayer = blank();
+    return ytPlayer.id === ref.id ? ytPlayer : blank();
   }
 
   // WEB prefers the page player's own response: signed in and already loaded.
@@ -788,7 +794,7 @@
     }
     // The video has captions, but every track needs a PO token and the page player gave none.
     if (ytCaptionTracks(cache.responses.WEB).length) {
-      throw new Error("没拿到 YouTube 字幕令牌");
+      throw new Error("YouTube 拒绝了字幕请求");
     }
     return [];
   }
@@ -809,7 +815,7 @@
     return String(text).replace(/&(#x[0-9a-f]+|#\d+|amp|lt|gt|quot|apos|nbsp);/gi, (whole, body) => {
       if (body[0] === "#") {
         const code = body[1] === "x" || body[1] === "X" ? parseInt(body.slice(2), 16) : parseInt(body.slice(1), 10);
-        return Number.isFinite(code) ? String.fromCodePoint(code) : whole;
+        return Number.isFinite(code) && code <= 0x10ffff ? String.fromCodePoint(code) : whole;
       }
       return XML_ENTITIES[body.toLowerCase()] ?? whole;
     });
@@ -1281,7 +1287,7 @@
     const id = String(subtitleId || "").trim();
     const urlKey = trackUrlKey(subtitleUrl);
     const source = id ? `id_${id}` : urlKey ? `url_${urlKey}` : `lang_${String(lang || "").trim().toLowerCase() || "unknown"}`;
-    return `${MdgLimits.KEYS.subtitleCachePrefix}${videoId}_${cid}_${source}`;
+    return `${MdgLimits.KEYS.subtitleCachePrefix}${videoId}_${cid ?? ""}_${source}`;
   }
 
   async function loadSubtitleCache(key) {

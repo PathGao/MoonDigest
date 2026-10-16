@@ -32,6 +32,8 @@ const DEFAULT_SETTINGS = MdgSettings.DEFAULTS;
 const setDisabledReason = MdgErrors.setReason;
 // The note's file-name rule (Obsidian's forbidden characters), for every file the popup downloads.
 const { sanitizeFileName } = MdgSites;
+// After 专注模式 or the side panel opened: long enough for the status to show before the popup closes.
+const CLOSE_DELAY_MS = 80;
 
 
 init().catch((error) => {
@@ -68,7 +70,8 @@ function bindEvents() {
 
   el.copyBtn.addEventListener("click", async () => {
     const payload = await ensurePayload();
-    if (!payload?.markdown) {
+    if (!payload) return; // the status says why the page did not answer
+    if (!payload.markdown) {
       setStatus(MdgErrors.TEXT.noNoteYet, true);
       return;
     }
@@ -82,12 +85,13 @@ function bindEvents() {
 
   el.downloadBtn.addEventListener("click", async () => {
     const payload = await ensurePayload();
+    if (!payload) return;
     const settings = await getSettingsFromRuntime();
     const format = MdgSettings.normalizeDownloadFormat(settings.downloadFormat);
     const content =
-      format === "txt" ? payload?.txt || payload?.subtitlePreview || "" : payload?.srt || "";
+      format === "txt" ? payload.txt || payload.subtitlePreview || "" : payload.srt || "";
     if (!content) {
-      setStatus(payload?.subtitleMissing || MdgErrors.subtitleMissing(), true);
+      setStatus(payload.subtitleMissing || MdgErrors.subtitleMissing(), true);
       return;
     }
     const safeTitle = sanitizeFileName(payload.title || "video-subtitle");
@@ -97,7 +101,8 @@ function bindEvents() {
 
   el.mdBtn.addEventListener("click", async () => {
     const payload = await ensurePayload();
-    if (!payload?.markdown) {
+    if (!payload) return;
+    if (!payload.markdown) {
       setStatus(MdgErrors.TEXT.noNoteYet, true);
       return;
     }
@@ -111,7 +116,7 @@ function bindEvents() {
     setBusy(el.sendBtn, true, MdgErrors.TEXT.writing);
     const resp = await sendToContent({ type: "popup-send-obsidian" }).finally(() => setBusy(el.sendBtn, false));
     // The page answers with the result's words (text); without them the message never reached it.
-    const text = resp?.text || (resp?.ok ? "" : `${MdgErrors.TEXT.obsidianFailed}：${resp?.error || MdgErrors.TEXT.unknown}`);
+    const text = resp?.text || (resp?.ok ? "" : `${MdgErrors.TEXT.obsidianFailed}：${MdgErrors.text(resp)}`);
     if (text) setStatus(text, !resp?.ok);
     render(resp?.payload || latestPayload, { preserveStatus: Boolean(text) });
   });
@@ -124,7 +129,7 @@ function bindEvents() {
     const prepResp = await sendToContent({ type: "popup-get-state" }).catch((error) => ({ ok: false, error: error.message }));
     if (!prepResp?.ok) {
       setBusy(el.readingViewBtn, false);
-      setStatus(MdgErrors.text(prepResp, MdgErrors.TEXT.reloadRetry), true);
+      setStatus(`${MdgErrors.TEXT.readerStartFailed}：${MdgErrors.text(prepResp, MdgErrors.TEXT.reloadRetry)}`, true);
       return;
     }
 
@@ -135,11 +140,11 @@ function bindEvents() {
     }).catch((error) => ({ ok: false, error: error.message }));
     setBusy(el.readingViewBtn, false);
     if (!resp?.ok) {
-      setStatus(`${MdgErrors.TEXT.readerStartFailed}：${resp?.error || MdgErrors.TEXT.unknown}`, true);
+      setStatus(`${MdgErrors.TEXT.readerStartFailed}：${MdgErrors.text(resp)}`, true);
       return;
     }
     setStatus("专注模式已打开");
-    window.setTimeout(() => window.close(), 80);
+    window.setTimeout(() => window.close(), CLOSE_DELAY_MS);
   });
 
   el.subtitleSelect.addEventListener("change", async (event) => {
@@ -151,7 +156,7 @@ function bindEvents() {
     setStatus("正在切换字幕…", false, true);
     const resp = await sendToContent({ type: "popup-select-subtitle", url });
     if (!resp?.ok) {
-      setStatus(`${MdgErrors.TEXT.subtitleSwitchFailed}：${resp?.error || MdgErrors.TEXT.unknown}`, true);
+      setStatus(`${MdgErrors.TEXT.subtitleSwitchFailed}：${MdgErrors.text(resp)}`, true);
     }
     render(resp?.payload || latestPayload, { preserveStatus: !resp?.ok });
   });
@@ -169,10 +174,10 @@ function bindEvents() {
     const resp = await sendToRuntime({ type: "player-ai-quick-action", tabId: tab.id, source: "popup" }).catch((error) => ({ ok: false, error: error.message }));
     if (!resp?.ok) {
       setBusy(el.summaryBtn, false);
-      setStatus(`${MdgErrors.TEXT.sidepanelOpenFailed}：${resp?.error || MdgErrors.TEXT.unknown}`, true);
+      setStatus(`${MdgErrors.TEXT.sidepanelOpenFailed}：${MdgErrors.text(resp)}`, true);
       return;
     }
-    window.setTimeout(() => window.close(), 80);
+    window.setTimeout(() => window.close(), CLOSE_DELAY_MS);
   });
 
   el.triageBtn.addEventListener("click", async () => {
@@ -193,8 +198,8 @@ async function refreshFromTab(force = false) {
   const resp = await sendToContent({ type: "popup-refresh", refresh: force }).finally(() => setBusy(el.refreshBtn, false));
   el.refreshBtn.classList.toggle("is-error", !resp?.ok);
   if (!resp?.ok) {
-    const errorText = resp?.error || NOT_VIDEO_PAGE;
-    setStatus(`${MdgErrors.TEXT.videoReadFailed}：${errorText}`, true);
+    // init() already turned non-video pages away: a reply without words is no 不是视频页.
+    setStatus(`${MdgErrors.TEXT.videoReadFailed}：${MdgErrors.text(resp)}`, true);
     render(resp?.payload || latestPayload, { preserveStatus: true });
     return;
   }
@@ -208,6 +213,8 @@ async function ensurePayload() {
   const resp = await sendToContent({ type: "popup-get-state" });
   if (resp?.ok && resp.payload) {
     latestPayload = resp.payload;
+  } else if (!resp?.ok) {
+    setStatus(MdgErrors.text(resp, MdgErrors.TEXT.reloadRetry), true);
   }
   return latestPayload;
 }
@@ -317,8 +324,10 @@ async function getActiveTab() {
 async function sendToContent(message) {
   const tab = await getActiveTab();
   const tabId = tab?.id || null;
+  // An answer like any other failure: every caller shows it and ends its busy state.
   if (!tabId) {
-    throw new Error(MdgErrors.TEXT.noTab);
+    setStatus(MdgErrors.TEXT.noTab, true);
+    return { ok: false, error: MdgErrors.TEXT.noTab, payload: latestPayload };
   }
 
   try {
@@ -340,17 +349,15 @@ async function sendToContent(message) {
   }
 }
 
+// Chrome's own messaging errors (no content script, the page closed the port, the tab went away) are English and all
+// mean the page's copy of the extension did not answer; our own reasons pass through.
 function normalizeContentErrorMessage(error) {
-  const message = String(error?.message || "").trim();
-  if (message.includes("Could not establish connection. Receiving end does not exist.")) {
-    return MdgErrors.TEXT.reloadRetry;
-  }
-  return message || MdgErrors.TEXT.unknown;
+  if (error?.chrome) return MdgErrors.TEXT.reloadRetry;
+  return String(error?.message || "").trim() || MdgErrors.TEXT.unknown;
 }
 
 function shouldRetryAfterInjection(error) {
-  const message = String(error?.message || "");
-  return message.includes("Could not establish connection. Receiving end does not exist.");
+  return String(error?.message || "").includes("Could not establish connection. Receiving end does not exist.");
 }
 
 function isSupportedSubtitlePage(url) {
@@ -360,7 +367,7 @@ function isSupportedSubtitlePage(url) {
 async function ensureContentScriptReady(tabId) {
   const resp = await chrome.runtime.sendMessage({ type: "ensure-reader-content", tabId });
   if (!resp?.ok) {
-    throw new Error(resp?.error || MdgErrors.TEXT.reloaded);
+    throw MdgErrors.fromResp(resp, MdgErrors.TEXT.reloaded);
   }
 }
 
@@ -368,7 +375,7 @@ async function sendMessageToTab(tabId, message) {
   return new Promise((resolve, reject) => {
     chrome.tabs.sendMessage(tabId, message, (resp) => {
       if (chrome.runtime.lastError) {
-        reject(new Error(chrome.runtime.lastError.message));
+        reject(Object.assign(new Error(chrome.runtime.lastError.message), { chrome: true }));
         return;
       }
       resolve(resp);
