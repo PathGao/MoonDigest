@@ -41,7 +41,7 @@ function groupByVideo(items) {
     // Read as the side panel reads a saved conversation: an old one keeps its video from contextSnapshot or its own fields.
     const ref = MdgSites.contextRef(latest.contextRef || latest.contextSnapshot || { ...latest, title: latest.contextTitle });
     const context = { ...ref, title: ref.title || latest.contextTitle || latest.title, url: latest.contextUrl || ref.url || "" };
-    return { key, convs, context, title: latest.title || context.title || "历史对话", updatedAt: latest.updatedAt || 0 };
+    return { key, convs, context, title: latest.title || context.title || MdgErrors.TEXT.untitledVideo, updatedAt: latest.updatedAt || 0 };
   });
   // The note is per video, so it joins every part's entry, as the side panel shows it on every part; the analysis
   // summarizes P1, so it joins only the P1 entry. Without a P1 entry the analysis is its own entry, and so is a note
@@ -83,7 +83,7 @@ function renderSummary(g) {
   const lines = MdgNote.buildTriageSummary(g.analysis).split("\n").filter(Boolean);
   const verdict = lines.find((l) => l.startsWith(MdgNote.VERDICT_LINE));
   const rest = lines.filter((l) => l !== verdict).map((l) => esc(l.replace(/^(> |- )/, ""))).join(" · ");
-  const head = verdict ? `<b>AI 判断</b> ${esc(verdict.slice(MdgNote.VERDICT_LINE.length))}` : "";
+  const head = verdict ? `<b>${MdgErrors.LABEL.aiVerdict}</b> ${esc(verdict.slice(MdgNote.VERDICT_LINE.length))}` : "";
   const open = unfolded.has(g.key);
   return `<button type="button" class="entry-summary${open ? " open" : ""}" data-act="summary" aria-expanded="${open}">${head}${head && rest ? " · " : ""}<span class="entry-points">${rest}</span></button>`;
 }
@@ -93,8 +93,8 @@ const noteIdOf = (g) => g.context.videoId || "";
 
 function renderNote(g) {
   const id = noteIdOf(g);
-  if (id && editing?.id === id) return `<textarea class="entry-note-edit" name="entryNote" data-note rows="2" placeholder="一句话备注，回车保存" aria-label="备注">${esc(editing.draft)}</textarea>`;
-  if (!g.note) return id ? `<button type="button" class="note-add" data-act="note">✎ 备注</button>` : "";
+  if (id && editing?.id === id) return `<textarea class="entry-note-edit" name="entryNote" data-note rows="2" placeholder="${MdgErrors.TEXT.notePlaceholder}" aria-label="备注">${esc(editing.draft)}</textarea>`;
+  if (!g.note) return id ? `<button type="button" class="note-add" data-act="note">${MdgErrors.LABEL.noteAdd}</button>` : "";
   const body = `<b>备注</b> ${esc(g.note.text.trim())}`;
   return id ? `<button type="button" class="entry-note" data-act="note" title="点击编辑备注">${body}</button>` : `<div class="entry-note">${body}</div>`;
 }
@@ -190,8 +190,8 @@ function syncBulk(groups = visibleGroups()) {
   const picked = groups.filter((g) => selected.has(g.key)).length;
   els.selectAll.checked = groups.length > 0 && picked === groups.length;
   els.selectAll.indeterminate = picked > 0 && picked < groups.length;
-  els.selectAllLabel.textContent = groups.length ? `全选 ${groups.length} 个` : "全选";
-  setReason(els.selectAll, groups.length ? "" : "这里没有列出视频");
+  els.selectAllLabel.textContent = groups.length ? `${MdgErrors.LABEL.selectAll} ${groups.length} 个` : MdgErrors.LABEL.selectAll;
+  setReason(els.selectAll, groups.length ? "" : MdgErrors.TEXT.noVideosListed);
   // The bulk buttons act on the listed selected videos and say how many (「选中的 N 个」); when every selected one is
   // hidden by the search they say all of them and are disabled with HIDDEN_ALL, as on the 分拣台.
   const shown = shownPicks(groups);
@@ -328,7 +328,7 @@ els.list.addEventListener("click", (event) => {
   else if (act === "ask" && group) {
     // The side panel continues the video's latest conversation, the same request triage's 问 AI sends.
     MdgLimits.askSidepanel({ tabId: OWN_TAB?.id, contextRef: group.context });
-    const opening = "正在打开侧边栏…";
+    const opening = MdgErrors.TEXT.sidepanelOpening;
     setStatus(opening);
     chrome.sidePanel.open({ tabId: OWN_TAB?.id }).then(
       () => els.status.textContent === opening && setStatus(""),

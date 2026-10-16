@@ -227,7 +227,7 @@ for (const f of scripts) vm.runInContext(fs.readFileSync(f, "utf8"), ctx);
     assert.strictEqual(html.split(BV).length - 1, entry(p2Key).split(BV).length - 1, "one entry for the video");
     ctx.navigator.clipboard.writeText = async (text) => (copied = text);
     await on(p2Key, "copy");
-    assert.ok(copied.includes("## 我的备注\n\n整个视频的备注"), copied);
+    assert.ok(copied.includes("## 备注\n\n整个视频的备注"), copied);
     // C158: an 11-character YouTube id that starts with BV is YouTube's.
     assert.ok(html.includes("https://www.youtube.com/watch?v=BVabcdefghi"), html);
     // C156: the old conversation is still its video: 继续问 is on.

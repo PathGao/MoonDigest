@@ -36,7 +36,7 @@ const CLOSE_DELAY_MS = 80;
 
 init().catch((error) => {
   console.error(error);
-  setStatus(`初始化失败：${error.message}`, true);
+  setStatus(`${MdgErrors.TEXT.initFailed}：${error.message}`, true);
 });
 
 async function init() {
@@ -165,7 +165,7 @@ function bindEvents() {
 
   el.summaryBtn.addEventListener("click", async () => {
     const tab = await getActiveTab();
-    setStatus("正在打开侧边栏…", false, true);
+    setStatus(MdgErrors.TEXT.sidepanelOpening, false, true);
     setBusy(el.summaryBtn, true, "打开中…");
     // Same path as the player AI button: background opens the side panel and queues the request; the panel shows the
     // video's conversation when it has one, else fills the one-click prompt.
@@ -191,7 +191,7 @@ function bindEvents() {
 }
 
 async function refreshFromTab(force = false) {
-  setStatus("正在读取视频…", false, true);
+  setStatus(MdgErrors.TEXT.videoReading, false, true);
   setBusy(el.refreshBtn, true);
   const resp = await sendToContent({ type: "popup-refresh", refresh: force }).finally(() => setBusy(el.refreshBtn, false));
   el.refreshBtn.classList.toggle("is-error", !resp?.ok);

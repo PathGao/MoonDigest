@@ -280,8 +280,8 @@
   // Row 3's 全选: a checkbox drawn as a button, for what is listed now (n, of which picked are selected). Unchecked or
   // mixed: a click selects them all; checked: it deselects them. Selections hidden by filters are not its business.
   const selectAllState = (n, picked) => (!n || !picked ? "false" : picked >= n ? "true" : "mixed");
-  const selectAllBox = (attrs, n, picked) =>
-    `<button type="button" role="checkbox" class="act-btn sel-all" ${attrs} aria-checked="${selectAllState(n, picked)}"${reasonAttrs(n ? "" : "这里没有列出可选的")}><span class="box" aria-hidden="true"></span>全选${n ? ` ${n} 个` : ""}</button>`;
+  const selectAllBox = (attrs, n, picked, empty) =>
+    `<button type="button" role="checkbox" class="act-btn sel-all" ${attrs} aria-checked="${selectAllState(n, picked)}"${reasonAttrs(n ? "" : empty)}><span class="box" aria-hidden="true"></span>${MdgErrors.LABEL.selectAll}${n ? ` ${n} 个` : ""}</button>`;
   // The click: every listed id selected → deselect them, else select them all (sel is a Set, changed in place).
   function toggleAll(ids, sel) {
     const every = ids.every((id) => sel.has(id));

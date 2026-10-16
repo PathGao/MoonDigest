@@ -335,7 +335,7 @@
   }
 
   // The 分拣台 data a video's note carries, read the same way by every note writer: the AI 总结 (per bvid; it
-  // summarizes P1, so B站 P1 only), 我的备注 (per video id, any site) and the 分拣 tags (B站, every part).
+  // summarizes P1, so B站 P1 only), 备注 (per video id, any site) and the 分拣 tags (B站, every part).
   // triageExtrasKeys names the storage keys to read; triageExtras picks from what was read.
   const isBiliP1 = ({ site, pageIndex }) => site === "bilibili" && !(Number(pageIndex) > 1);
   function triageExtrasKeys({ site, videoId, pageIndex }) {
@@ -365,7 +365,7 @@
   function withTriageSummary(markdown, analysis, note) {
     const summary = buildTriageSummary(analysis);
     const mine = String(note || "").trim();
-    const block = [summary && `## AI 总结\n\n${summary}`, mine && `## 我的备注\n\n${mine}`].filter(Boolean).join("\n\n");
+    const block = [summary && `## AI 总结\n\n${summary}`, mine && `## 备注\n\n${mine}`].filter(Boolean).join("\n\n");
     if (!block) {
       return markdown;
     }

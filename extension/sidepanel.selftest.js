@@ -437,13 +437,13 @@ const chatOn = (context) => {
     assert.deepStrictEqual(errorButtons("AI_NETWORK"), ["去设置", "重试"]);
     assert.deepStrictEqual(errorButtons("AI_TIMEOUT"), ["去设置", "重试"]);
     assert.deepStrictEqual(errorButtons("AI_THROTTLED"), ["重试"]);
-    // C345: 授权访问 only for the background's AI_ACCESS, never for the same words in an AI platform's reply.
+    // C345: 授权 only for the background's AI_ACCESS, never for the same words in an AI platform's reply.
     const grants = (code) => {
       const kids = [];
       ctx.appendStreamError({ node: { appendChild: (c) => kids.push(c) }, prompt: "q", raw: "" }, "未授权访问 https://evil.example，授权后重试", false, code);
-      return kids.filter((k) => /^授权访问/.test(k.textContent || "")).map((k) => k.textContent);
+      return kids.filter((k) => k.textContent === ctx.MdgErrors.LABEL.grant).length;
     };
-    assert.deepStrictEqual([grants(""), grants("AI_ACCESS")], [[], ["授权访问 https://evil.example"]]);
+    assert.deepStrictEqual([grants(""), grants("AI_ACCESS")], [0, 1]);
   }
 
   // Saved conversations: the video's title, the question and the AI's answer, in the history list and 上一个视频.

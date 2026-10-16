@@ -54,7 +54,7 @@ const ALLOW = [
   ["popup.js", "el.subtitleSelect.disabled = true;", "弹窗字幕下拉框：唯一一项就是 subtitleMissing 的原因"],
   ["sidepanel.js", "els.modelSelect.disabled = true;", "侧边栏平台下拉框：唯一一项就是 TEXT.aiNone"],
   ["sidepanel.js", "els.contextChip.disabled = true;", "上下文胶囊读取失败：胶囊上写着「读取失败」"],
-  ["sidepanel.js", "els.contextChip.disabled = !String(context.url", "上下文胶囊只是跳到视频地址：没有地址时胶囊上写着「加载中…」或「未知视频」"],
+  ["sidepanel.js", "els.contextChip.disabled = !String(context.url", "上下文胶囊只是跳到视频地址：没有地址时胶囊上写着「正在加载…」或「未知视频」"],
   ["triage/triage.js", "o.disabled = !c;", "<option>：选项文字写着「· 0 个」"],
   // In flight: the control shows it is busy (busy words / aria-busy) and turns back on when the request ends.
   ["options.js", "button.disabled = Boolean(active);", "保存和测试连接互等：在跑的那个写「保存中…」「测试中…」并 aria-busy"],
@@ -68,7 +68,6 @@ const ALLOW = [
   // 3b
   ["history/history.js", 'aria-hidden="true" disabled>删除 AI 对话', "看不见的占位（aria-hidden、tabindex=-1），只为对齐，不是控件"],
   // 4a. 待修 lines wait for their fix (Cn / An: the 2026-10-16 scan); new ones fail.
-  ["background.js", 'new Error(resp?.error || "读取当前页面失败")', "待修：C321、A39"],
   // 4b
   ["content.js", "new Error(`Missing node: ${id}`)", "例外：页面少了 id 是代码错，不是用户能遇到的（冒烟核对页面脚本查找的 id）"],
   ["content.js", 'new Error("Stale refresh run")', "例外：作废信号，带 code STALE_RUN，isStaleRunError 认出后丢掉，不显示"],

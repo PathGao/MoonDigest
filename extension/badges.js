@@ -47,7 +47,7 @@
     [
       "MoonDigest 分拣",
       action && ACTION[action],
-      verdict && `AI 判断 ${VERDICTS[verdict]}（${STAGE[stage]}${low ? "，低置信" : ""}）`,
+      verdict && `${LABEL.aiVerdict} ${VERDICTS[verdict]}（${STAGE[stage]}${low ? "，低置信" : ""}）`,
       tags.length && `视频标签：${tags.map((t) => t.name).join("、")}`
     ]
       .filter(Boolean)

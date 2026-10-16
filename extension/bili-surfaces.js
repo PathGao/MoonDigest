@@ -27,12 +27,13 @@
     video: "视频页的推荐和播放列表",
     owner: "视频页 UP 名字",
     fav: "收藏夹页",
-    later: "稍后再看",
+    later: MdgErrors.LABEL.watchLater,
     history: "历史",
     nick: "UP 空间的 UP 名字",
     space: "UP 空间的视频卡"
   };
-  const COLS = { verdict: "AI 判断", vtags: "视频标签", ups: "UP 标签", plus: "「+ UP 标签」", seen: "观看进度" };
+  const { LABEL } = MdgErrors;
+  const COLS = { verdict: LABEL.aiVerdict, vtags: LABEL.videoTags, ups: "UP 标签", plus: "「+ UP 标签」", seen: LABEL.seen };
   // Which cells a surface offers; the others are not for the user to turn on.
   function allowed(key, col) {
     const r = SURFACES[key];
@@ -65,7 +66,7 @@
     return { on: MdgSettings.seenOn(show), bar, mark, threshold: MdgSettings.normalizeSeenThreshold(v.seenThreshold), style: MdgSettings.normalizeSeenStyle(v.seenStyle) };
   }
   // 100% reads 看完了, otherwise 看到 N%; ✓ (and the strong look) means it counts as 看完了.
-  const seenWords = (p, done) => (p >= 100 ? "✓ 看完了" : done ? `✓ 看到 ${p}%` : `看到 ${p}%`);
+  const seenWords = (p, done) => (p >= 100 ? MdgErrors.LABEL.seenDone : done ? `✓ 看到 ${p}%` : `看到 ${p}%`);
 
   globalThis.MdgSurfaces = { SURFACES, ROWS, COLS, allowed, normalizeOff, rulesWith, SEEN_DEFAULTS, seenConfig, seenWords };
 })();

@@ -634,7 +634,7 @@ assert.throws(() => t.triageParseCommand('{"new_tags":[', cmdItems, cmdTags, {})
   store.triage_basket = [{ bvid: "BVa", note: "篮子里的旧笔记" }];
   store.triage_notes = { BVa: { text: "视频笔记", updatedAt: 1 } };
   const noted = (await buildNote()).markdown;
-  assert.ok(noted.includes("## 我的备注\n\n视频笔记") && !noted.includes("篮子里的旧笔记"));
+  assert.ok(noted.includes("## 备注\n\n视频笔记") && !noted.includes("篮子里的旧笔记"));
   // The 分拣 tags go into the note's tags, read the same way as on the video page (MdgNote.triageExtras).
   store.triage_tags = [{ id: "t1", name: "好看" }];
   store.triage_video_tags = { BVa: ["t1", "t1"] };

@@ -14,7 +14,7 @@
       <input id="search" type="search" placeholder="搜索标题、AI 总结、备注或对话内容" aria-label="搜索标题、AI 总结、备注或对话内容" />
     </header>
     <div class="bulkbar">
-      <label><input id="selectAll" type="checkbox" /> <span id="selectAllLabel">全选</span></label>
+      <label><input id="selectAll" type="checkbox" /> <span id="selectAllLabel" data-text="selectAll">全选</span></label>
       <button id="bulkMd" type="button" disabled>下载选中的 .md</button>
       <span id="status" class="status" role="status"></span>
       <span class="destructive">
@@ -22,11 +22,11 @@
         <button id="clearAll" type="button" class="danger" disabled>清空全部 AI 对话</button>
       </span>
     </div>
-    <main id="list" class="list"><p class="empty">正在加载…</p></main>
+    <main id="list" class="list"><p class="empty" data-text="loading">正在加载…</p></main>
 
     <script src="../common.js"></script>
-    <script src="../limits.js"></script>
     <script src="../errors.js"></script>
+    <script src="../limits.js"></script>
     <script src="../settings.js"></script>
     <script src="../typing.js"></script>
     <script src="../sites.js"></script>

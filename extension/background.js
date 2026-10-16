@@ -1,5 +1,5 @@
 // Shared modules must load before the top-level code below reads them (e.g. MdgLimits).
-importScripts("common.js", "limits.js", "errors.js", "settings.js", "sites.js", "tag-core.js", "note.js", "triage/shared.js");
+importScripts("common.js", "errors.js", "limits.js", "settings.js", "sites.js", "tag-core.js", "note.js", "triage/shared.js");
 
 // Side panel stream watchdog: "first" until any SSE chunk arrives (reasoning chunks count), then "idle" between chunks.
 const STREAM_TIMEOUT_MS = { first: 90000, idle: 60000 };
@@ -171,7 +171,7 @@ async function getAiSidepanelState(tabId, { refresh = false, frameId = 0, videoI
     throw new Error(PAGE_SILENT_RETRY);
   });
   if (!resp?.ok || !resp.payload) {
-    throw Object.assign(new Error(resp?.error || "读取当前页面失败"), resp?.code != null ? { code: resp.code } : {});
+    throw Object.assign(new Error(MdgErrors.text(resp, "读取当前页面失败")), resp?.code != null ? { code: resp.code } : {});
   }
   return { ...resp.payload, url: MdgSites.videoUrl(resp.payload), isVideoContext: true };
 }
@@ -414,7 +414,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       .then(async (settings) => {
         // The setting hides the player button (no source); the popup's and 专注模式's AI 总结 are always available.
         if (!["popup", "reader"].includes(message.source) && !settings.enablePlayerAiQuickAction) {
-          throw new Error("✦ AI 按钮未开启");
+          throw new Error("✦ AI 总结按钮未开启");
         }
         await openPromise;
         // From 分拣台's viewer frame: the tab is 分拣台, so the panel takes the video by reference like 问 AI, and
@@ -731,7 +731,7 @@ async function getMergedSettings() {
 // chrome.storage.sync keeps at most 8 KB per setting (its key plus its JSON, in UTF-8 bytes; QUOTA_BYTES_PER_ITEM):
 // about 2700 汉字. Past it Chrome refuses the whole save in English without naming the setting, so it is checked first.
 const SYNC_ITEM_BYTES = 8192;
-const SYNC_ITEM_NAMES = { aiSystemPrompt: "系统提示词", playerAiQuickPrompt: "AI 总结要求", aiPresetPrompts: "快捷追问", fixedFrontmatterProperties: "自定属性", notePlaceholderSections: "正文附加段落" };
+const SYNC_ITEM_NAMES = Object.fromEntries(["aiSystemPrompt", "playerAiQuickPrompt", "aiPresetPrompts", "fixedFrontmatterProperties", "notePlaceholderSections"].map((k) => [k, MdgErrors.LABEL[k]]));
 const oversizedSyncItem = (payload) => Object.keys(payload).find((k) => k.length + new TextEncoder().encode(JSON.stringify(payload[k])).length > SYNC_ITEM_BYTES) || "";
 // Saving and importing both check before sync.set.
 function checkSyncItems(payload) {

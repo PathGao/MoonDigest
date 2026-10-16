@@ -416,8 +416,8 @@ assert.strictEqual(
 assert.strictEqual(N.withTriageSummary("## 简介\n\nhi", { status: "done", verdict: "drop" }), "## AI 总结\n\nAI 判断：可清理\n\n## 简介\n\nhi");
 assert.strictEqual(N.withTriageSummary(front, { status: "error" }), front);
 assert.strictEqual(N.withTriageSummary(front, undefined), front);
-assert.strictEqual(N.withTriageSummary("## 简介", { status: "done", verdict: "drop" }, " 我的话 "), "## AI 总结\n\nAI 判断：可清理\n\n## 我的备注\n\n我的话\n\n## 简介");
-assert.strictEqual(N.withTriageSummary(front, undefined, "n"), "---\ntitle: \"x\"\n---\n\n## 我的备注\n\nn\n\n![cover](u)\n\n## 简介\n\nhi");
+assert.strictEqual(N.withTriageSummary("## 简介", { status: "done", verdict: "drop" }, " 我的话 "), "## AI 总结\n\nAI 判断：可清理\n\n## 备注\n\n我的话\n\n## 简介");
+assert.strictEqual(N.withTriageSummary(front, undefined, "n"), "---\ntitle: \"x\"\n---\n\n## 备注\n\nn\n\n![cover](u)\n\n## 简介\n\nhi");
 assert.strictEqual(N.withTriageSummary(front, undefined, "  "), front);
 
 // One read of the 分拣台 extras for every note writer: the summary only on B站 P1, the note on any site and part,

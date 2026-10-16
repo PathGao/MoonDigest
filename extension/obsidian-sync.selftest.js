@@ -123,7 +123,7 @@ const write = (extra) => send({ type: "write-video-note", ...extra });
   // YouTube without its page: no note can be built, so the conversation is its own note, linking the video note.
   const yt = { site: "youtube", videoId: "y1", pageIndex: 1, title: "Y", url: "https://www.youtube.com/watch?v=y1" };
   resp = await write({ ref: yt, conversation: conversation("q") });
-  assert.deepStrictEqual([resp.kind, resp.path, resp.text], ["conversation", "N/youtube/【AI笔记】Y.md", "已写入 Obsidian：N/youtube/【AI笔记】Y.md（单独的对话笔记）"]);
+  assert.deepStrictEqual([resp.kind, resp.path, resp.text], ["conversation", "N/youtube/【AI笔记】Y.md", "已写入 Obsidian：N/youtube/【AI笔记】Y.md（单独的 AI 笔记）"]);
   assert.ok(vault.get(resp.path).includes("[[N/youtube/Y|Y]]") && vault.get(resp.path).includes("## q"));
   // The video page open: its note, its cover, and the result starts with its subtitle state (G3) as for a built note.
   resp = await write({ ref: yt, conversation: conversation("q"), page: { markdown: "# 页面笔记", cover: "", warning: "字幕抓取失败：网络断了。" } });

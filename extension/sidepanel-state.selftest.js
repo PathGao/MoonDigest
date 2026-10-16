@@ -342,10 +342,10 @@ function panel({ tab = video("BV1aa"), list = [] } = {}) {
   assert.strictEqual(p.view().context.title, "");
 }
 
-// C305, C308: a conversation keeps its video's whole title; one without a title is 未知视频, saved or loaded.
+// C305, C308: a conversation keeps its video's whole title; one without a title is 无标题视频, saved or loaded.
 {
   const p = panel({ tab: null, list: [saved("dash", video("BV1d1", { title: "上集 - 下集" })), saved("none", video("BV1d2", { title: "" }))] });
-  assert.deepStrictEqual(p.view().saved.map((c) => c.title).sort(), ["上集 - 下集", "未知视频"]);
+  assert.deepStrictEqual(p.view().saved.map((c) => c.title).sort(), ["上集 - 下集", ctx.MdgErrors.TEXT.untitledVideo]);
 }
 
 // C328: a page lookup that can never answer (the video is gone) is settled, so the next open does not ask again.

@@ -165,7 +165,7 @@ const settle = async () => {
     await settle();
     state.fetchRunId++;
     body.open();
-    await assert.rejects(switching, (e) => e.message === "视频已切换，请刷新");
+    await assert.rejects(switching, (e) => e.message === "视频已切换，请刷新网页后重试");
     assert.deepStrictEqual(state.subtitleBody, [], "the new video keeps an empty body");
   }
 
@@ -615,7 +615,7 @@ const settle = async () => {
     const popupSelect = (url) => new Promise((resolve) => listeners.message.forEach((f) => f({ type: "popup-select-subtitle", url }, {}, resolve)));
     state.subtitles = [{ id: ".zh", url: "u1" }];
     const gone = await popupSelect("old-video-track");
-    assert.deepStrictEqual([gone.ok, gone.error, loads], [false, "视频已切换，请刷新", 0], "F4");
+    assert.deepStrictEqual([gone.ok, gone.error, loads], [false, "视频已切换，请刷新网页后重试", 0], "F4");
     // F4 again in focus mode: the dropdown goes back to what is shown.
     let redrawn = 0;
     t.renderReadingSubtitleSelect = () => redrawn++;

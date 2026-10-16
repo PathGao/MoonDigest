@@ -97,7 +97,7 @@ let previousVideoBarSignature = "";
 
 init().catch((err) => {
   console.error(err);
-  resetConversationView(`初始化失败：${escapeHtml(err?.message || err)}`);
+  resetConversationView(`${MdgErrors.TEXT.initFailed}：${escapeHtml(err?.message || err)}`);
 });
 
 async function init() {
@@ -591,7 +591,7 @@ function updateContextChip() {
     return;
   }
 
-  const shortTitle = context.title || (context.pending ? "加载中…" : "未知视频");
+  const shortTitle = context.title || (context.pending ? MdgErrors.TEXT.loading : context.url ? MdgErrors.TEXT.untitledVideo : "未知视频");
   setContextChipText(shortTitle, context.isVideoContext === false ? "" : context.author);
   els.contextChip.classList.toggle("is-mismatch", mismatch);
   els.contextChip.title = context.url
@@ -724,7 +724,7 @@ function renderSuggestions() {
   }
   // The intro and the one-click summary as the main action; the preset chips sit above the input (renderFollowups).
   const prompt = aiPrefs.playerAiQuickPrompt;
-  suggestionsNode.innerHTML = `<p class="sp-empty-intro">${escapeHtml(introText())}</p>${prompt ? `<button type="button" class="sp-summary-btn" data-act="summary" title="${escapeHtml(prompt)}">${AI_SPARK}AI 总结</button>` : ""}`;
+  suggestionsNode.innerHTML = `<p class="sp-empty-intro">${escapeHtml(introText())}</p>${prompt ? `<button type="button" class="sp-summary-btn" data-act="summary" title="${escapeHtml(prompt)}">${AI_SPARK}${MdgErrors.LABEL.aiSummary}</button>` : ""}`;
   suggestionsNode.querySelector(".sp-summary-btn")?.addEventListener("click", () => fillPrompt(prompt));
   syncSummaryButton();
   void act({ type: "SUMMARY_SHOWN", prompt });
@@ -1107,7 +1107,7 @@ function renderPreviousVideoBar() {
   if (isCurrent) {
     return;
   }
-  const title = conversation.contextTitle || conversation.title || "未知视频";
+  const title = conversation.contextTitle || conversation.title || MdgErrors.TEXT.untitledVideo;
   const messagesHtml = previousVideoExpanded
     ? conversation.messages
         .map((message) =>
@@ -1654,7 +1654,7 @@ function appendStreamError({ node, prompt, raw }, error, saved, code = "") {
     const grant = document.createElement("button");
     grant.type = "button";
     grant.className = "sp-chip sp-grant-btn";
-    grant.textContent = `授权访问 ${access.origin}`;
+    grant.textContent = MdgErrors.LABEL.grant;
     grant.addEventListener("click", async () => {
       if (await access.request()) {
         err.textContent = "已授权，请重新发送";

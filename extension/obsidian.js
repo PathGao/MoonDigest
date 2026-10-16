@@ -10,7 +10,7 @@ const obsidianWritten = (path) => `已写入 Obsidian：${path}`;
 // updated false: the section was already the same, nothing was written.
 const aiSectionResult = (path, updated) => (updated ? `已更新 AI 问答：${path}` : `AI 问答没有变化：${path}`);
 // Why a conversation went to its own note, after the path.
-const OWN_NOTE = "（单独的对话笔记）";
+const OWN_NOTE = "（单独的 AI 笔记）";
 // A recorded note without its open page cannot be rebuilt whole: the dialog disables 整篇覆盖 with this.
 const NEEDS_PAGE = "整篇覆盖要先打开视频页";
 
