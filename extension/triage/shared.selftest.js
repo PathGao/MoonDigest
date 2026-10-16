@@ -297,19 +297,20 @@ assert.strictEqual(UI.aiTagsFailed("x"), "AI 打标签没有成功：x");
   const p = { newTags: [], rows: [], notes: [], errors: [] };
   UI.mergeAiBatch(p, { newTags: ["美食", "旅行"], assignments: { a: { add: ["科普", "美食"], remove: [] }, b: { add: ["旅行"], remove: ["游戏"] }, c: { add: ["游戏", "科普"] }, z: { add: ["科普"] } }, note: "n1" }, opts);
   UI.mergeAiBatch(p, { assignments: { c: { add: ["美食"], remove: ["科普"] } } }, opts);
-  assert.deepStrictEqual(plain(p.newTags).map((x) => x.name), ["美食"], "new tags capped at maxNewTags");
+  assert.deepStrictEqual(plain(p.newTags).map((x) => x.name), ["美食", "旅行"], "new tags past maxNewTags are kept");
+  assert.deepStrictEqual(plain(p.caps), { "": 1 }, "the cap the review page compares against");
+  assert.deepStrictEqual(plain(p.excludedHits), ["游戏"], "an add naming a turned-off tag is dropped and listed; a remove of it is not listed");
   assert.deepStrictEqual(plain(p.rows), [
     { id: "a", add: ["new:美食"], remove: [] },
+    { id: "b", add: ["new:旅行"], remove: [] },
     { id: "c", add: ["id:t1", "new:美食"], remove: [] }
   ], "existing tag on a → nothing; excluded 游戏 never added or removed; out-of-scope z dropped; batches merge per UP");
   assert.deepStrictEqual(p.notes, ["n1"]);
-  UI.mergeAiBatch(p, { droppedNewTags: ["电影", "旅行"], assignments: {} }, opts);
-  assert.deepStrictEqual(plain(p.dropped), ["旅行", "电影"], "names past the cap, here or in the parser, are listed once for the review page");
   const follow = new Set(["a", "b"]); // c was unfollowed while the proposal was open
   const ch = plain(UI.aiChanges(p, map, follow, (key) => `new-${key}`));
-  assert.deepStrictEqual(ch, [["a", ["t1"], ["t1", "new-美食"]]], "an unfollowed UP gets nothing");
+  assert.deepStrictEqual(ch, [["a", ["t1"], ["t1", "new-美食"]], ["b", ["t2"], ["t2", "new-旅行"]]], "an unfollowed UP gets nothing");
   p.newTags[0].checked = false;
-  assert.deepStrictEqual(plain(UI.aiChanges(p, map, follow, (key) => `new-${key}`)), [], "an unchecked new tag adds nothing");
+  assert.deepStrictEqual(plain(UI.aiChanges(p, map, follow, (key) => `new-${key}`)).map((c) => c[0]), ["b"], "an unchecked new tag adds nothing");
   p.newTags[0].checked = true;
   const tally = plain(UI.aiTally(p, [["a", ["t1"], ["t1", "n"]], ["b", ["t1"], ["n"]], ["c", ["t2"], ["t2", "n"]]], (id) => ({ t1: "科普", t2: "游戏", n: "美食" })[id]));
   assert.deepStrictEqual(tally, [{ cls: "add", text: "+ 美食", n: 3 }, { cls: "remove", text: "− 科普", n: 1 }]);
@@ -322,7 +323,8 @@ assert.strictEqual(UI.aiTagsFailed("x"), "AI 打标签没有成功：x");
   const base = { map: {}, maxNewTags: 1, scope: new Set(["v"]) };
   UI.mergeAiBatch(p, { newTags: ["科普", "多余"], assignments: { v: { add: ["科普"] } } }, { ...base, tags: [], newTagFolder: "A" });
   UI.mergeAiBatch(p, { newTags: ["科普"], assignments: { v: { add: ["科普"] } } }, { ...base, tags: [], newTagFolder: "B" });
-  assert.deepStrictEqual(plain(p.newTags), [{ key: "A/科普", name: "科普", checked: true, folder: "A" }, { key: "B/科普", name: "科普", checked: true, folder: "B" }]);
+  assert.deepStrictEqual(plain(p.newTags), [{ key: "A/科普", name: "科普", checked: true, folder: "A" }, { key: "A/多余", name: "多余", checked: true, folder: "A" }, { key: "B/科普", name: "科普", checked: true, folder: "B" }]);
+  assert.deepStrictEqual(plain(p.caps), { A: 1, B: 1 });
   assert.deepStrictEqual(plain(p.rows), [{ id: "v", add: ["new:A/科普", "new:B/科普"], remove: [] }]);
   const tags = [{ id: "b1", name: "科普", folder: "B" }];
   assert.deepStrictEqual([UI.previewId(p, "A/科普", tags), UI.previewId(p, "B/科普", tags)], ["new:A/科普", "b1"]);

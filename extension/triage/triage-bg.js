@@ -104,17 +104,15 @@ function triageCommandLine(item, n) {
   return [n, clean(item.title), clean(item.upper), Number(item.duration) ? TriageUi.fmtDuration(item.duration) : "", clean(item.intro).slice(0, TriageUi.INTRO_CHARS), list(item.currentTags).join("、"), clean(item.oneLiner), list(item.points).join("；")].join("|");
 }
 
-// 批量打标签的提案只改标签：add 只留已有标签或本次新建的标签（至多 maxNewTags 个，多出的名字放进 droppedNewTags），
-// remove 只留视频现有标签且要 allowRemove；其他字段（如 verdict）一律丢弃，无改动的视频不返回
-function triageParseCommand(content, items, tags, { maxNewTags = TriageUi.numSetting("newTagMax"), allowRemove = false } = {}) {
+// 批量打标签的提案只改标签：add 只留已有标签或本次新建的标签，remove 只留视频现有标签且要 allowRemove；
+// 其他字段（如 verdict）一律丢弃，无改动的视频不返回。新建个数不在这里砍：超出上限的由检查页提示，用户自己取舍
+function triageParseCommand(content, items, tags, { allowRemove = false } = {}) {
   const obj = triageExtractJson(content, "{");
   const existing = new Set(triageTagNames(tags));
   const newTags = [];
-  const droppedNewTags = [];
   for (const t of Array.isArray(obj.new_tags) ? obj.new_tags : []) {
     const name = TriageUi.cleanTagName(t && typeof t === "object" ? t.name : t);
-    if (!name || existing.has(name) || newTags.includes(name) || droppedNewTags.includes(name)) continue;
-    (newTags.length < maxNewTags ? newTags : droppedNewTags).push(name);
+    if (name && !existing.has(name) && !newTags.includes(name)) newTags.push(name);
   }
   const valid = new Set([...existing, ...newTags]);
   const byIndex = new Map();
@@ -134,7 +132,7 @@ function triageParseCommand(content, items, tags, { maxNewTags = TriageUi.numSet
     };
     if (a.add.length || a.remove.length) assignments[item.bvid] = a;
   });
-  return { newTags, droppedNewTags, assignments, note: String(obj.note ?? "").trim() };
+  return { newTags, assignments, note: String(obj.note ?? "").trim() };
 }
 
 function triageForm(obj) {

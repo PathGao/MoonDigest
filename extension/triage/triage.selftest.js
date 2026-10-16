@@ -1170,17 +1170,18 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   assert.ok(["移动/复制选中的 1 个", "保留选中的 1 个", "取消收藏选中的 1 个"].every((x) => (t.el.listHeader.innerHTML + t.el.favSel.innerHTML).includes(x)), "未分析 offers every selection action");
   t.S.selected.clear();
 
-  // 批量打标签 proposals: new tags only by name, at most 5; a verdict in the reply changes nothing.
+  // 批量打标签 proposals: new tags only by name, all kept past the cap of 5; a verdict in the reply changes nothing.
   openFake("K", [item(600), item(601)]);
   Object.assign(t.S, { tags: [{ id: "a", name: "旧", color: "#111", folder: "K" }, { id: "o", name: "别处", color: "#222", folder: "L" }], videoTags: {}, titleRes: { BV600: { verdict: "drop", confidence: "high" } } });
   const prop = { newTags: [], rows: [], notes: [], errors: [] };
   t.TriageUi.mergeAiBatch(prop, { newTags: ["n1", "n2", "旧", "n3", "n4", "n5", "n6"], assignments: { BV600: { add: ["n1", "旧"], verdict: "keep" }, BV601: { verdict: "t-must" } } }, { tags: t.viewTags(), map: t.S.videoTags, maxNewTags: 5, scope: new Set(["BV600", "BV601"]) });
-  assert.deepStrictEqual(plain(prop.newTags.map((x) => x.name)), ["n1", "n2", "n3", "n4", "n5"]);
+  assert.deepStrictEqual(plain(prop.newTags.map((x) => x.name)), ["n1", "n2", "n3", "n4", "n5", "n6"]);
   assert.deepStrictEqual(plain(prop.rows), [{ id: "BV600", add: ["new:n1", "id:a"], remove: [] }]);
   t.S.ai.proposal = prop;
   t.applyAiProposal();
-  assert.deepStrictEqual(plain(t.S.tags.map((x) => x.name)), ["旧", "别处", "n1", "n2", "n3", "n4", "n5"]);
+  assert.deepStrictEqual(plain(t.S.tags.map((x) => x.name)), ["旧", "别处", "n1", "n2", "n3", "n4", "n5", "n6"]);
   assert.ok(t.S.tags.slice(2).every((x) => Object.keys(x).join() === "id,name,color,folder" && x.folder === "K"), "new tags belong to the open folder, no rule");
+  t.S.tags = t.S.tags.filter((x) => x.name !== "n6"); // the cap tests below count from 6 tags in K
   assert.strictEqual(t.verdictOf(item(600)).verdict, "drop", "批量打标签 never changes the verdict");
 
   // 管理: a rule is saved trimmed and capped at 80, an empty one removed; 批量打 sends { name, rule } for every tag.
@@ -1509,7 +1510,7 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   Object.assign(t.S, { tags: t.S.tags.filter((x) => x.folder !== "K" || !/^g[ab]$|^C$/.test(x.name === "C" ? "C" : x.id)), videoTags: {}, aiRecent: {} });
 
   // A batch counts only the videos whose tags change: not a cleared new-tag name, a tag the user added since, or a
-  // new tag refused at the cap.
+  // new tag unticked on the review page.
   openFake("K", [item(720), item(721), item(722), item(723)]);
   Object.assign(t.S, { tags: [{ id: "na", name: "A", color: "#1", folder: "K" }, { id: "nb", name: "B", color: "#2", folder: "K" }], videoTags: { BV721: ["na"], BV722: ["nb"] }, aiRecent: {} });
   t.S.ai.proposal = { newTags: [{ key: "E", name: "  ", checked: true }, { key: "F", name: "F", checked: true }], notes: [], errors: [], rows: [
@@ -1519,10 +1520,9 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     { id: "BV723", add: ["new:F"], remove: [] }] };
   assert.strictEqual(preview(t.S.ai.proposal).changes.length, 2, "no-op rows are not counted");
   assert.deepStrictEqual(plain(preview(t.S.ai.proposal).tally), ["+ A 1", "+ F 1"], "no entry for a cleared name");
-  t.S.settings.triageTagLimit = 2;
+  t.S.ai.proposal.newTags[1].checked = false;
   toasts.length = 0;
   t.applyAiProposal();
-  t.S.settings.triageTagLimit = 10;
   const batchA = t.S.undo.at(-1);
   assert.deepStrictEqual(plain([t.S.aiRecent.K.bvids, batchA.kind, batchA.ask]), [["BV722"], "aiApply", null], "only BV722 changed: one video, so U does not ask");
   assert.ok(toasts.some((x) => x.includes("1 个视频")), toasts.join());
@@ -3948,7 +3948,7 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     Object.assign(t.S, keep);
   }
 
-  // C650: a checked new tag that could not be made (the folder is at its cap) is named in the toast.
+  // A checked new tag is made even when the folder is at its tag cap: the user confirmed it on the review page.
   {
     const keep = { tags: t.S.tags, videoTags: t.S.videoTags, limit: t.S.settings.triageTagLimit };
     openFake("C650", [item(650)]);
@@ -3956,8 +3956,9 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     t.S.settings.triageTagLimit = 1;
     t.S.ai.proposals.C650 = { newTags: [{ key: "k", name: "新", checked: true }], rows: [{ id: "BV650", add: ["new:k", "id:x650"], remove: [] }], notes: [], errors: [] };
     t.applyAiProposal();
-    assert.ok(toasts.at(-1).includes("新标签「新」没建成"), toasts.at(-1));
-    assert.deepStrictEqual(plain(t.S.videoTags.BV650), ["x650"]);
+    const made = t.S.tags.find((x) => x.name === "新");
+    assert.ok(made && made.folder === "C650", "past the folder's cap");
+    assert.deepStrictEqual(plain(t.S.videoTags.BV650), [made.id, "x650"].sort((a, b) => plain(t.S.videoTags.BV650).indexOf(a) - plain(t.S.videoTags.BV650).indexOf(b)));
     t.S.settings.triageTagLimit = keep.limit;
     Object.assign(t.S, { tags: keep.tags, videoTags: keep.videoTags, undo: [] });
   }

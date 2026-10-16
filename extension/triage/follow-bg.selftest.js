@@ -693,13 +693,13 @@ const runSync = async () => {
     assert.deepStrictEqual(rules(sent.messages[0].content), rules(video), "video and UP prompts share their rule lines");
     assert.ok(rules(video).length > 6);
     assert.strictEqual(sent.thinking, false);
-    assert.deepStrictEqual(r.newTags, ["动画", "x1", "x2", "x3", "x4"], "new-tag cap 5");
+    assert.deepStrictEqual(r.newTags, ["动画", "x1", "x2", "x3", "x4", "x5"], "new tags past the cap are kept for the review page");
     assert.deepStrictEqual(r.assignments, { 1: { add: ["硬核"], remove: [] }, 2: { add: ["动画"], remove: [] } }, "unknown tags and removes dropped; 99 not followed");
     const chat = t.triageChat;
     t.triageChat = async (...a) => (await chat(...a), { content: '{"new_tags":["新"],"items":[{"i":1,"add":["新"],"remove":["硬核"]}],"note":"n"}' });
     const r2 = plain(await ask({ instruction: "x", mids: ["2"], maxNewTags: 0, allowRemove: true }));
     assert.ok(sent.messages[0].content.includes("这次不能新建标签") && sent.messages[0].content.includes("remove 只能填"));
-    assert.deepStrictEqual(r2, { newTags: [], droppedNewTags: ["新"], assignments: { 2: { add: [], remove: ["硬核"] } }, note: "n" }, "remove only when allowed, no new tags at 0");
+    assert.deepStrictEqual(r2, { newTags: ["新"], assignments: { 2: { add: ["新"], remove: ["硬核"] } }, note: "n" }, "remove only when allowed; a new tag at cap 0 is still kept");
     // K10: triageAiCommand reads maxNewTags as the newTagMax setting: not a number is its default, above max is max.
     await ask({ instruction: "x", mids: ["2"], maxNewTags: "x" });
     assert.ok(sent.messages[0].content.includes(`至多 ${t.TriageUi.NUM_SETTINGS.newTagMax[2]} 个`), "invalid maxNewTags is newTagMax's default");
