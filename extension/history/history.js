@@ -20,6 +20,9 @@ let reloadTimer = 0;
 let editing = null; // { id, draft } while a 备注 is open; storage reloads wait until it closes
 let reloadPending = false;
 let rendering = false;
+let pressing = false; // a pointer is down: redrawing now would replace the control it is pressing
+document.addEventListener("pointerdown", () => (pressing = true), true);
+for (const type of ["pointerup", "pointercancel"]) document.addEventListener(type, () => (pressing = false), true);
 
 const esc = MdgErrors.escapeHtml;
 const formatTime = (value) => new Date(Number(value) || 0).toLocaleString("zh-CN", { hour12: false, year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" });
@@ -101,10 +104,11 @@ async function closeNote() {
     else delete notes[id];
     setStatus(draft.trim() ? "备注已保存" : "备注已删除");
   }
-  if (reloadPending) {
-    reloadPending = false;
-    await load();
-  } else render();
+  const redraw = reloadPending ? load : render;
+  reloadPending = false;
+  // Closed by pressing another control (focusout on pointerdown): redraw after its click, which a new list would swallow.
+  if (pressing) document.addEventListener("pointerup", () => setTimeout(redraw), { once: true });
+  else await redraw();
 }
 
 function renderConversation(conv, index, total) {
@@ -187,8 +191,9 @@ function syncBulk(groups = visibleGroups()) {
   const del = deletableKeys(shown.length ? shown : [...selected]).length;
   els.bulkDelete.textContent = del ? `删除选中的 ${del} 个的 AI 对话` : "删除选中的 AI 对话";
   setReason(els.bulkMd, none);
-  // Only AI conversations are deleted here; a video's AI 总结 and 备注 belong to the 分拣台, whose 清理 removes them.
-  setReason(els.bulkDelete, none || (del ? "" : "选中的视频没有 AI 对话，它们的 AI 总结和备注在分拣台清理"), del < n ? `选中的 ${n} 个里，${n - del} 个没有 AI 对话，删除后会留下；它们的 AI 总结和备注在分拣台清理` : "");
+  // Only AI conversations are deleted here. A YouTube video's 备注 is not on the 分拣台 (B站 收藏夹 only),
+  // so the reason names no other place.
+  setReason(els.bulkDelete, none || (del ? "" : "选中的视频没有 AI 对话"), del < n ? `选中的 ${n} 个里，${n - del} 个没有 AI 对话，删除后会留下` : "");
   setReason(els.clearAll, conversations.length ? "" : "还没有 AI 对话");
 }
 
@@ -259,7 +264,7 @@ async function saveToObsidian(group) {
     const request = { type: "write-video-note", ref: group.context, conversation: { messages: newest?.messages || [] } };
     let resp = await chrome.runtime.sendMessage(request);
     if (resp?.ok && resp.ask) {
-      const mode = await MdgOverwriteDialog.choose(resp.path, { hasAiSection: resp.hasAiSection });
+      const mode = await MdgOverwriteDialog.choose(resp.path, { hasAiSection: resp.hasAiSection, fullReason: resp.fullReason });
       if (!mode) return setStatus(MdgErrors.TEXT.obsidianCancelled);
       resp = await chrome.runtime.sendMessage({ ...request, mode });
     }

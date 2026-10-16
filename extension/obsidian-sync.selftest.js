@@ -9,10 +9,13 @@ const http = require("http");
 const assert = require("assert");
 
 const vault = new Map();
+let notApi = false;
 const log = [];
 const server = http.createServer((req, res) => {
   // The cover image, from B站 in real life.
   if (req.url.startsWith("/img/")) return res.writeHead(200, { "Content-Type": "image/jpeg" }).end("jpg");
+  // The API root (probeObsidian); notApi: another service on that address.
+  if (req.url === "/") return notApi ? res.writeHead(200, { "Content-Type": "text/html" }).end("<html>") : res.writeHead(200, { "Content-Type": "application/json" }).end(JSON.stringify({ service: "Obsidian Local REST API", authenticated: true }));
   const file = decodeURIComponent(req.url.replace(/^\/vault\//, ""));
   log.push(`${req.method} ${file}`);
   if (req.headers.authorization !== "Bearer k") return res.writeHead(401).end();
@@ -122,6 +125,15 @@ const write = (extra) => send({ type: "write-video-note", ...extra });
   resp = await write({ ref: yt, conversation: conversation("q"), page: { markdown: "# 页面笔记", cover: "", warning: "字幕抓取失败：网络断了。" } });
   assert.deepStrictEqual([resp.kind, resp.path, resp.text], ["full", "N/youtube/Y.md", "字幕抓取失败：网络断了。已写入 Obsidian：N/youtube/Y.md"]);
   assert.ok(vault.get("N/youtube/Y.md").startsWith("# 页面笔记") && vault.get("N/youtube/Y.md").includes("### 问：q"));
+  // A2: the page closed again, the recorded note is asked about, not passed by for a conversation note; 只更新 AI 问答
+  // works without the page, 整篇覆盖 says it needs it.
+  resp = await write({ ref: yt, conversation: conversation("r") });
+  assert.deepStrictEqual(resp, { ok: true, ask: true, path: "N/youtube/Y.md", hasAiSection: true, fullReason: "整篇覆盖要先打开视频页" });
+  resp = await write({ ref: yt, conversation: conversation("r"), mode: "ai" });
+  assert.deepStrictEqual([resp.kind, resp.path], ["ai", "N/youtube/Y.md"]);
+  assert.ok(vault.get("N/youtube/Y.md").startsWith("# 页面笔记") && vault.get("N/youtube/Y.md").includes("### 问：r"));
+  resp = await write({ ref: yt, conversation: conversation("r"), mode: "full" });
+  assert.deepStrictEqual(resp, { ok: false, error: "整篇覆盖要先打开视频页" });
   // An empty body never reaches the vault: a video that changed mid-write must not blank its note.
   log.splice(0);
   resp = await write({ ref: { ...yt, videoId: "y2", title: "Y2" }, page: { markdown: " \n", cover: "" } });
@@ -177,11 +189,22 @@ const write = (extra) => send({ type: "write-video-note", ...extra });
   resp = await send({ type: "sync-video-note-ai", ref: { ...bili, videoId: "BV2" }, conversation: conversation("五") });
   assert.deepStrictEqual([resp, log.splice(0)], [{ ok: true, path: "" }, []]);
   vault.delete("N/youtube/Y.md");
+  // A27: at a wrong address every note 404s; that is the address, and the recorded path is kept.
+  sync.obsidianApiBaseUrl = `${baseUrl}/x`;
+  resp = await send({ type: "sync-video-note-ai", ref: yt, conversation: conversation("五") });
+  assert.deepStrictEqual([resp, "video:youtube:y1|" in local[PATHS]], [{ ok: false, error: E.obsidianNotFound, code: "OBSIDIAN" }, true]);
+  sync.obsidianApiBaseUrl = baseUrl;
   resp = await send({ type: "sync-video-note-ai", ref: yt, conversation: conversation("五") });
   assert.deepStrictEqual([resp.exists, "video:youtube:y1|" in local[PATHS], vault.has("N/youtube/Y.md")], [false, false, false]);
   // L10: the gone note is worded here too; the side panel only shows text.
   assert.strictEqual(resp.text, "Obsidian 里的视频笔记已不存在，未写入");
   assert.ok(!fs.readFileSync(path.join(__dirname, "sidepanel.js"), "utf8").includes("已不存在"), "sidepanel.js words a sync result itself");
+
+  // A26: 测试连接 passes only when the address answers in JSON, as the Local REST API does.
+  assert.deepStrictEqual({ ...(await ctx.testObsidianConnection(baseUrl, "k")) }, { ok: true, service: "Obsidian Local REST API" });
+  notApi = true;
+  assert.deepStrictEqual({ ...(await ctx.testObsidianConnection(baseUrl, "k")) }, { ok: false, error: E.obsidianNotApi, code: "OBSIDIAN" });
+  notApi = false;
 
   // Obsidian unusable, in MdgErrors' words: not enabled or set up and a refused key are OBSIDIAN (去设置).
   local.obsidianApiKey = "wrong";

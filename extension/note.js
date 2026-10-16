@@ -252,11 +252,12 @@
   }
 
   // Replaces the marked section of an existing note, or appends one; bytes outside the markers
-  // are untouched, and running it twice with the same section yields the same note.
+  // are untouched, and running it twice with the same section yields the same note. The end marker pairs with the
+  // nearest start before it: a start left behind by a deleted end must not swallow the user's text up to the next end.
   function upsertAiSection(note, section) {
     const text = String(note || "");
-    const start = text.indexOf(AI_SECTION_START);
-    const end = start >= 0 ? text.indexOf(AI_SECTION_END, start + AI_SECTION_START.length) : -1;
+    const end = text.indexOf(AI_SECTION_END);
+    const start = end >= 0 ? text.lastIndexOf(AI_SECTION_START, end) : -1;
     if (start >= 0 && end >= 0) {
       return `${text.slice(0, start)}${section}${text.slice(end + AI_SECTION_END.length)}`;
     }
@@ -885,14 +886,14 @@
     let escaped = escapeHtml(stripThinkBlocks(text));
     const codeBlocks = [];
     escaped = escaped.replace(/```([\s\S]*?)```/g, (_, code) => {
-      codeBlocks.push(code);
+      // The fence's first line is its language (```python), not code.
+      codeBlocks.push(code.includes("\n") ? code.replace(/^[^\n]*\n/, "") : code);
       return `\u0001MDG_CODE_${codeBlocks.length - 1}\u0001`;
     });
 
     const lines = escaped.split("\n");
     const out = [];
     let listType = "";
-    let listStartNumber = 1;
     let paraBuf = [];
 
     const flushPara = () => {
@@ -907,15 +908,14 @@
       }
       out.push(listType === "ul" ? "</ul>" : "</ol>");
       listType = "";
-      listStartNumber = 1;
     };
+    // As in CommonMark, only an ordered list's first number counts: later items continue it whatever they say.
     const openList = (nextType, startNumber = 1) => {
-      if (listType === nextType && (nextType !== "ol" || listStartNumber === startNumber)) {
+      if (listType === nextType) {
         return;
       }
       closeList();
       listType = nextType;
-      listStartNumber = nextType === "ol" ? startNumber : 1;
       if (nextType === "ul") {
         out.push("<ul>");
         return;

@@ -17,7 +17,8 @@ const document = {
       returnValue: "",
       innerHTML: "",
       code: { textContent: "" },
-      querySelector: (sel) => (sel === "code" ? d.code : null),
+      full: { attrs: {}, setAttribute(k, v) { this.attrs[k] = v; }, removeAttribute(k) { delete this.attrs[k]; } },
+      querySelector: (sel) => ({ code: d.code, '[value="full"]': d.full })[sel] || null,
       addEventListener: (t, f) => (listeners[t] ||= []).push(f),
       showModal() { d.open = true; },
       close(v) { d.open = false; d.returnValue = v; (listeners.close || []).forEach((f) => f()); },
@@ -48,6 +49,13 @@ const last = () => dialogs[dialogs.length - 1];
   assert.match(last().innerHTML, /<button value="" autofocus>取消/);
   last().close("full");
   assert.strictEqual(await second, "full");
+  // A2: no open video page to rebuild the note from: 整篇覆盖 is disabled and says why; 只更新 AI 问答 stays.
+  D.choose("d.md", { hasAiSection: true, fullReason: "整篇覆盖要先打开视频页" });
+  assert.deepStrictEqual([last().full.disabled, last().full.title, last().full.attrs["aria-description"]], [true, "整篇覆盖要先打开视频页", "整篇覆盖要先打开视频页"]);
+  assert.match(last().innerHTML, /value="ai" autofocus/);
+  D.choose("e.md", { hasAiSection: true });
+  assert.ok(!last().full.disabled, "with the page, 整篇覆盖 stays usable");
+  last().close("");
   D.choose("c.md").then(() => {});
   assert.strictEqual(text(last()), "该笔记已存在 整篇覆盖会替换全部内容： 整篇覆盖 取消", "a note without an AI 问答 section");
   last().close("");
