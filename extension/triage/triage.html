@@ -101,7 +101,7 @@
         <section class="set-group">
           <div class="set-head">
             <h3 id="settingsFoldersHeading">参与分拣的收藏夹</h3>
-            <button type="button" class="quiet" data-folders-all aria-label="全选收藏夹">全选</button><button type="button" class="quiet" data-folders-none aria-label="全不选收藏夹">全不选</button>
+            <button type="button" class="quiet" data-folders-all aria-label="全选收藏夹" data-text="selectAll">全选</button><button type="button" class="quiet" data-folders-none aria-label="全不选收藏夹">全不选</button>
           </div>
           <p class="dialog-hint">只读取勾选的。B站新建的默认不勾，B站上不受影响。</p>
           <div id="folderToggles" class="folder-toggles"></div>
@@ -133,7 +133,7 @@
         </div>
         </div>
         <div class="dialog-actions">
-          <button id="openOptionsBtn" type="button" class="link" aria-label="打开设置页">打开设置页</button>
+          <button id="openOptionsBtn" type="button" class="link" aria-label="打开设置页" data-text="openSettings">打开设置页</button>
           <span class="spacer"></span>
           <button value="cancel" type="submit" formnovalidate aria-label="取消">取消</button>
           <button value="save" type="submit" class="primary" aria-label="保存设置">保存</button>
@@ -174,7 +174,7 @@
         </div>
         <p id="fwSettingsError" class="form-error" role="alert" hidden></p>
         <div class="dialog-actions">
-          <button type="button" class="link" data-open-options aria-label="打开设置页">打开设置页</button>
+          <button type="button" class="link" data-open-options aria-label="打开设置页" data-text="openSettings">打开设置页</button>
           <span class="spacer"></span>
           <button value="cancel" type="submit" formnovalidate aria-label="取消">取消</button>
           <button value="save" type="submit" class="primary" aria-label="保存设置">保存</button>
@@ -402,8 +402,8 @@
     </dialog>
 
     <script src="../common.js"></script>
-    <script src="../limits.js"></script>
     <script src="../errors.js"></script>
+    <script src="../limits.js"></script>
     <script src="../typing.js"></script>
     <script src="../download.js"></script>
     <script src="../tag-core.js"></script>

@@ -399,8 +399,8 @@ for (const [file, fns] of [["triage.js", ["mergeAiBatch", "aiChanges"]], ["follo
   assert.deepStrictEqual([UI.selectAllState(3, 0), UI.selectAllState(3, 1), UI.selectAllState(3, 3), UI.selectAllState(0, 0)], ["false", "mixed", "true", "false"]);
   const box = UI.selectAllBox('data-x="all"', 3, 1);
   assert.ok(box.includes('role="checkbox"') && box.includes('aria-checked="mixed"') && box.includes("全选 3 个") && !box.includes("disabled"), box);
-  const none = UI.selectAllBox('data-x="all"', 0, 0);
-  assert.ok(none.includes(">全选</button>") && none.includes('disabled title="这里没有列出可选的" aria-description="这里没有列出可选的"'), none);
+  const none = UI.selectAllBox('data-x="all"', 0, 0, "这里没有列出 UP 主");
+  assert.ok(none.includes(">全选</button>") && none.includes('disabled title="这里没有列出 UP 主" aria-description="这里没有列出 UP 主"'), none);
   const sel = new Set(["hidden", "a"]);
   UI.toggleAll(["a", "b"], sel);
   assert.deepStrictEqual([...sel].sort(), ["a", "b", "hidden"], "some selected → all listed selected");

@@ -382,6 +382,7 @@ const NO_DATA = "还没有关注数据";
 const STOP_SYNC = "暂停刷新";
 const SPACE_TIP = "在分拣台里打开空间";
 const EMPTY_GROUP = "这个分组没有 UP 主";
+const NO_UPS_LISTED = "这里没有列出 UP 主"; // 全选 and 清理 with nothing listed
 const GROUPS_TITLE = "分组管理";
 const NEW_GROUP_NAME = `新分组名称（最多 ${GROUP_NAME_MAX} 个字）`;
 const starLabel = (on) => (on ? "设为特别关注" : "取消特别关注");
@@ -761,7 +762,7 @@ function renderUps() {
   // 全选 heads the right-hand buttons, as in 收藏夹: it acts on the UP 主 listed now. 已出分拣范围 adds 清理, as 收藏夹's.
   const shows = Boolean(D.list || out);
   E.bar.innerHTML = shows ? UI.labeledRow("状态", seg) : "";
-  E.barR.innerHTML = shows ? UI.selectAllBox('data-fw="select-all"', list.length, list.filter((m) => F.sel.has(m)).length) + (out ? cleanBtn(list) : "") + runSlot() : "";
+  E.barR.innerHTML = shows ? UI.selectAllBox('data-fw="select-all"', list.length, list.filter((m) => F.sel.has(m)).length, NO_UPS_LISTED) + (out ? cleanBtn(list) : "") + runSlot() : "";
   E.tagRow.innerHTML = UI.labeledRow("标签", tagRowHtml(counts.tags));
   E.tools.hidden = !D.list && !out;
   const so = sortState();
@@ -794,7 +795,7 @@ function cleanBtn(list) {
   const shownSel = list.filter((m) => F.sel.has(m)).length;
   // All of it hidden, or none of it cleanable: the count is the selection's (listed, else all of it), disabled with why.
   const n = picked ? mids.length || shownSel || F.sel.size : mids.length;
-  const why = !list.length ? "这里没有列出 UP 主" : !mids.length ? "还关注着的先取消关注，再清理" : "";
+  const why = !list.length ? NO_UPS_LISTED : !mids.length ? "还关注着的先取消关注，再清理" : "";
   return UI.cleanBtn('data-fw="clean"', { picked: F.sel.size, shown: shownSel, n, busy: busyWhy(), why });
 }
 

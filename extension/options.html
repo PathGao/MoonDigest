@@ -17,7 +17,7 @@
         <a href="#basic"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M7 13h4M13 13h4M7 16h10"/></svg><span class="lbl">读字幕</span><span class="dot" hidden></span></a>
         <a href="#note"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9zM14 3v6h6M8 14h8M8 17h5"/></svg><span class="lbl">笔记格式</span><span class="dot" hidden></span></a>
         <a href="#ai"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l2 5 5 2-5 2-2 5-2-5-5-2 5-2z"/></svg><span class="lbl">AI 平台</span><span class="dot" hidden></span><span id="aiPill" class="pill off">未配置</span></a>
-        <a href="#seen"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg><span class="lbl">观看进度</span><span class="dot" hidden></span></a>
+        <a href="#seen"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg><span class="lbl" data-text="seen">观看进度</span><span class="dot" hidden></span></a>
         <a href="#triage"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg><span class="lbl">分拣台</span><span class="dot" hidden></span></a>
         <a href="#obsidian"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 3l8 2 4 8-4 8H8l-4-8z"/></svg><span class="lbl">Obsidian</span><span class="dot" hidden></span><span id="obsidianPill" class="pill off">关</span></a>
         <a href="#data"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v14c0 1.7 3.6 3 8 3s8-1.3 8-3V5M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3"/></svg><span class="lbl">数据与存储</span><span class="dot" hidden></span></a>
@@ -27,7 +27,7 @@
     <main>
       <p id="hostPermissionBanner" class="perm" role="alert" hidden>
         <span id="hostPermissionText"></span>
-        <button id="hostPermissionBtn" class="sm" type="button">授权</button>
+        <button id="hostPermissionBtn" class="sm" type="button" data-text="grant">授权</button>
       </p>
 
       <p id="noAiNote" class="noai" hidden>不配 AI 也能用：读字幕、下载字幕、专注模式、导出笔记<span class="obsidian-only">、写入 Obsidian</span>、手动分拣。<br>配了 AI，再多出 ✦ AI 总结、问答和分拣台的粗看细看。</p>
@@ -108,15 +108,15 @@
                   <tr><td><label><input type="checkbox" name="frontmatterField" value="duration" /> <span class="mono">duration</span></label></td><td class="rule">时长（秒）</td></tr>
                   <tr><td><label><input type="checkbox" name="frontmatterField" value="cover" /> <span class="mono">cover</span></label></td><td class="rule">封面图地址</td></tr>
                   <tr><td><label><input type="checkbox" name="frontmatterField" value="video_tags" /> <span class="mono">video_tags</span></label></td><td class="rule">视频自带的标签</td></tr>
-                  <tr><td><label><input type="checkbox" name="frontmatterField" value="upload_date" /> <span class="mono">upload_date</span></label></td><td class="rule">发布日期</td></tr>
+                  <tr><td><label><input type="checkbox" name="frontmatterField" value="upload_date" /> <span class="mono">upload_date</span></label></td><td class="rule" data-text="uploadDate">发布日期</td></tr>
                   <tr><td><label><input type="checkbox" name="frontmatterField" value="subtitle_lang" /> <span class="mono">subtitle_lang</span></label></td><td class="rule">字幕语言</td></tr>
-                  <tr><td><label><input type="checkbox" name="frontmatterField" value="created" /> <span class="mono">created</span></label></td><td class="rule">导出日期</td></tr>
+                  <tr><td><label><input type="checkbox" name="frontmatterField" value="created" /> <span class="mono">created</span></label></td><td class="rule" data-text="exportDate">导出日期</td></tr>
                   <tr><td><label><input type="checkbox" name="frontmatterField" value="tags" /> <span class="mono">tags</span></label></td><td class="rule">默认标签和分拣台给视频打的标签</td></tr>
                 </tbody>
               </table>
             </div>
             <div class="row wide">
-              <div class="lab"><span class="name">自定属性</span><p class="hint">名字和值你自己定，每篇都带，如 <code>类型: 视频</code>。值里可用上表的 <code>{{名称}}</code>，如 <code>来源: {{site}}</code>。</p></div>
+              <div class="lab"><span class="name" data-text="fixedFrontmatterProperties">自定属性</span><p class="hint">名字和值你自己定，每篇都带，如 <code>类型: 视频</code>。值里可用上表的 <code>{{名称}}</code>，如 <code>来源: {{site}}</code>。</p></div>
               <div class="ctl">
                 <div id="fixedPropertiesList" class="fixed-properties-list"></div>
                 <p id="fixedPropertiesEmpty" class="empty">还没有自定属性</p>
@@ -124,7 +124,7 @@
               </div>
             </div>
             <div class="row wide">
-              <div class="lab"><span class="name">正文附加段落</span><p class="hint">在正文里加一个空标题，如「## 我的想法」，留给自己写。可放在简介、章节或字幕前，最多 <span data-hint-num="noteSections"></span> 段。</p></div>
+              <div class="lab"><span class="name" data-text="notePlaceholderSections">正文附加段落</span><p class="hint">在正文里加一个空标题，如「## 我的想法」，留给自己写。可放在简介、章节或字幕前，最多 <span data-hint-num="noteSections"></span> 段。</p></div>
               <div class="ctl">
                 <div id="noteSectionsList" class="note-sections-list"></div>
                 <p id="noteSectionsEmpty" class="empty">还没有附加段落</p>
@@ -149,31 +149,31 @@
             <div id="aiProvidersList" class="ai-providers-list"></div>
             <button id="addAiProviderBtn" class="add" type="button">+ 添加平台</button>
           </div>
-          <p id="aiPromptsLater" class="ai-later">加好平台后，这里会出现系统提示词、AI 总结要求、播放器上的 ✦ AI 按钮和快捷追问。</p>
+          <p id="aiPromptsLater" class="ai-later">加好平台后，这里会出现系统提示词、AI 总结要求、播放器上的 ✦ AI 总结按钮和快捷追问。</p>
           <div id="aiPromptRows">
             <div class="row wide">
-              <div class="lab"><label class="name" for="aiSystemPrompt">系统提示词</label><p class="hint">每次回答都遵守的规则：语言、长短、时间戳格式。总结格式写在「AI 总结要求」里。</p></div>
+              <div class="lab"><label class="name" for="aiSystemPrompt" data-text="aiSystemPrompt">系统提示词</label><p class="hint">每次回答都遵守的规则：语言、长短、时间戳格式。总结格式写在「AI 总结要求」里。</p></div>
               <div class="ctl"><textarea id="aiSystemPrompt" rows="7" placeholder="例如：用中文回答；尽量简洁；引用内容时带时间戳。"></textarea></div>
             </div>
             <div class="row wide">
-              <div class="lab"><label class="name" for="playerAiQuickPrompt">AI 总结要求</label><p class="hint">点「✦ AI 总结」时把这句填进侧边栏输入框，由你点发送。留空时只打开侧边栏。</p></div>
+              <div class="lab"><label class="name" for="playerAiQuickPrompt" data-text="playerAiQuickPrompt">AI 总结要求</label><p class="hint">点「✦ AI 总结」时把这句填进侧边栏输入框，由你点发送。留空时只打开侧边栏。</p></div>
               <div class="ctl"><textarea id="playerAiQuickPrompt" rows="2" placeholder="例如：整理这期视频的内容，输出结构化总结。"></textarea></div>
             </div>
             <div class="row">
-              <div class="lab"><label class="name" for="enablePlayerAiQuickAction">在播放器上显示 ✦ AI 按钮</label></div>
+              <div class="lab"><label class="name" for="enablePlayerAiQuickAction">在播放器上显示 ✦ AI 总结按钮</label></div>
               <div class="ctl"><input id="enablePlayerAiQuickAction" type="checkbox" class="switch" /></div>
             </div>
             <div class="row wide">
-              <div class="lab"><label class="name" for="aiPresetPrompts">快捷追问</label><p class="hint">有回答后出现在侧边栏里，点一下就发。每行一条，最多 <span data-hint-num="presetPrompts"></span> 条。侧边栏「管理快捷追问」里也能改。</p></div>
+              <div class="lab"><label class="name" for="aiPresetPrompts" data-text="aiPresetPrompts">快捷追问</label><p class="hint">有回答后出现在侧边栏里，点一下就发。每行一条，最多 <span data-hint-num="presetPrompts"></span> 条。侧边栏「管理快捷追问」里也能改。</p></div>
               <div class="ctl"><textarea id="aiPresetPrompts" rows="4"></textarea></div>
             </div>
           </div>
         </div>
       </section>
 
-      <section class="sec" id="seen" data-name="观看进度">
+      <section class="sec" id="seen" data-name="观看进度" data-text="seen">
         <div class="sec-head">
-          <h2>观看进度</h2>
+          <h2 data-text="seen">观看进度</h2>
           <p>仅 B站。</p>
         </div>
         <div class="rows">
@@ -203,7 +203,7 @@
           </div>
           <div class="row wide seen-demo" id="seenDemo">
             <div class="covers" aria-hidden="true">
-              <figure><div class="cover c1"><span class="seen-tag">✓ 看完了</span><i style="width: 100%"></i></div><figcaption>看到 100%</figcaption></figure>
+              <figure><div class="cover c1"><span class="seen-tag" data-text="seenDone">✓ 看完了</span><i style="width: 100%"></i></div><figcaption>看到 100%</figcaption></figure>
               <figure data-seen-at="full"><div class="cover c2"><span class="seen-tag">✓ 看到 80%</span><i style="width: 80%"></i></div><figcaption>达到设定比例</figcaption></figure>
               <figure data-seen-at="half"><div class="cover c3"><span class="seen-tag faint-tag">看到 40%</span><i style="width: 40%"></i></div><figcaption>没到比例，淡色</figcaption></figure>
             </div>
@@ -294,8 +294,8 @@
                 <div class="vars">
                   <button class="var" type="button" data-var="{{site}}" title="网站：bilibili / youtube"><span class="mono">{{site}}</span>网站</button>
                   <button class="var" type="button" data-var="{{author}}" title="UP 主或频道"><span class="mono">{{author}}</span>UP 主或频道</button>
-                  <button class="var" type="button" data-var="{{created}}" title="导出日期"><span class="mono">{{created}}</span>导出日期</button>
-                  <button class="var" type="button" data-var="{{upload_date}}" title="发布日期"><span class="mono">{{upload_date}}</span>发布日期</button>
+                  <button class="var" type="button" data-var="{{created}}" title="导出日期" data-text="exportDate"><span class="mono">{{created}}</span><span data-text="exportDate">导出日期</span></button>
+                  <button class="var" type="button" data-var="{{upload_date}}" title="发布日期" data-text="uploadDate"><span class="mono">{{upload_date}}</span><span data-text="uploadDate">发布日期</span></button>
                   <button class="var" type="button" data-var="{{video_id}}" title="视频号：BV 号或 YouTube ID"><span class="mono">{{video_id}}</span>视频号</button>
                 </div>
               </div>
@@ -356,9 +356,9 @@
     </div>
 
     <script src="./common.js"></script>
+    <script src="./errors.js"></script>
     <script src="./limits.js"></script>
     <script src="./settings.js"></script>
-    <script src="./errors.js"></script>
     <script src="./download.js"></script>
     <script src="./bili-surfaces.js"></script>
     <script src="./typing.js"></script>

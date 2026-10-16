@@ -84,7 +84,21 @@
     // alone or after 「原因，」.
     reloadRetry: "请刷新网页后重试",
     // 视频记录 and the settings page's AI platform row; followed by 「：原因」.
-    deleteFailed: "删除失败"
+    deleteFailed: "删除失败",
+    // Waiting for the first data: 视频记录's list, the side panel's chip.
+    loading: "正在加载…",
+    // A known video without a title (视频记录, the side panel's conversations). 未知视频 is only the side panel's chip
+    // with no video at all (DESIGN 术语表).
+    untitledVideo: "无标题视频",
+    // The 备注 box (side panel, 视频记录, 分拣台).
+    notePlaceholder: "一句话备注，回车保存",
+    // 全选 and 清理 with nothing listed (收藏夹, 视频记录); 关注 says 这里没有列出 UP 主.
+    noVideosListed: "这里没有列出视频",
+    sidepanelOpening: "正在打开侧边栏…",
+    // The popup or the side panel did not start; followed by 「：原因」.
+    initFailed: "初始化失败",
+    // The popup and the video page while the video's info is read.
+    videoReading: "正在读取视频信息…"
   });
 
   // Names of controls and pages that recur across pages (DESIGN 术语表). A name also appears inside sentences
@@ -103,7 +117,34 @@
     unfaved: "已取消收藏",
     // The new-tag box of every tag picker and dialog.
     newTagName: "新标签名称",
-    triage: "B站分拣台"
+    triage: "B站分拣台",
+    // The player's ✦ button and 专注模式's; the settings page names its switch after it.
+    aiSummary: "AI 总结",
+    readingView: "专注模式",
+    // The settings section, its storage row, B站 pages' column and 分拣台's run.
+    seen: "观看进度",
+    // 100% on a cover (B站 pages) and the settings page's sample.
+    seenDone: "✓ 看完了",
+    // Asks Chrome for an AI platform's origin (settings page, side panel, 分拣台); the sentence beside it names it.
+    grant: "授权",
+    openSettings: "打开设置页",
+    selectAll: "全选",
+    // Settings the background names when one is too long to save (SYNC_ITEM_NAMES).
+    aiSystemPrompt: "系统提示词",
+    playerAiQuickPrompt: "AI 总结要求",
+    aiPresetPrompts: "快捷追问",
+    fixedFrontmatterProperties: "自定属性",
+    notePlaceholderSections: "正文附加段落",
+    // B站's own list: a B站 page's row and 分拣台's folder.
+    watchLater: "稍后再看",
+    // B站 pages' columns, 视频记录 and the 收藏夹 CSV.
+    aiVerdict: "AI 判断",
+    videoTags: "视频标签",
+    // Note properties: 专注模式's info line, the settings page, the popup's 详情.
+    uploadDate: "发布日期",
+    exportDate: "导出日期",
+    // Opens the 备注 box (side panel, 视频记录, 分拣台).
+    noteAdd: "✎ 备注"
   });
 
   // How long a B站 / YouTube read waits for an answer: the background's B站 channel (triage-bg.js triageBiliFetch,

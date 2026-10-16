@@ -13,7 +13,7 @@ const MDG_VERSION = chrome.runtime.getManifest().version;
 // In 分拣台's viewer the tab is 分拣台 itself: the side panel takes the video by reference, not from the tab.
 const IN_VIEWER = window !== window.top;
 // A subtitle picked from a list the page has since replaced with another video's.
-const VIDEO_SWITCHED = "视频已切换，请刷新";
+const VIDEO_SWITCHED = `视频已切换，${MdgErrors.TEXT.reloadRetry}`;
 // A jump to a time point (the side panel, 专注模式) on a page without a player to drive.
 const NO_PLAYER = "当前页面没有找到可联动的视频播放器。";
 globalThis.__MDG_CONTENT_SCRIPT_LOADED__ = MDG_VERSION;
@@ -320,10 +320,10 @@ const READER_KEEP = "data-mdg-reader-keep";
 const READER_HIDDEN = "data-mdg-reader-hidden";
 // A player host hidden until it is mounted (content.css).
 const READER_FADING = "data-mdg-reader-fading";
-const AI_SUMMARY = "AI 总结";
-const READER_NAME = "专注模式";
+const AI_SUMMARY = MdgErrors.LABEL.aiSummary;
+const READER_NAME = MdgErrors.LABEL.readingView;
 const PLAYER_WAIT = "正在等待视频播放器就绪…";
-const META_READING = "正在读取视频信息…";
+const META_READING = MdgErrors.TEXT.videoReading;
 // A subtitle track without a label or language, in the dropdown and focus mode's info line.
 const UNNAMED_SUBTITLE = "未命名字幕";
 // How long a click or drag in focus mode's lists keeps the transcript from following the video.
@@ -2076,7 +2076,7 @@ function buildReadingSummaryItems() {
     items.push({ label: "作者", value: state.author });
   }
   if (state.uploadDate) {
-    items.push({ label: "发布日期", value: state.uploadDate });
+    items.push({ label: MdgErrors.LABEL.uploadDate, value: state.uploadDate });
   }
   if (pageLabel()) {
     items.push({ label: "分 P", value: pageLabel() });
@@ -3300,7 +3300,7 @@ function buildPlayerAiQuickActionIconSvg() {
 }
 
 // The player ✦ and 专注模式's AI 总结 (source reader): the background opens the side panel on this video. The
-// background checks the ✦ AI 按钮 setting (one check for every sender) and answers why when it is off. A failure is red
+// background checks the ✦ AI 总结按钮 setting (one check for every sender) and answers why when it is off. A failure is red
 // on the page, not setMessage: that is the popup's status line, which would show it long after, maybe over another
 // video. Resolves whether the panel opened.
 async function askSidepanel(source) {
@@ -4080,7 +4080,7 @@ async function loadAiTurns() {
   }
 }
 
-// The 分拣台 summary, the video's 我的备注 and its 分拣 tags, so this note matches what 分拣台 writes for the video.
+// The 分拣台 summary, the video's 备注 and its 分拣 tags, so this note matches what 分拣台 writes for the video.
 async function loadTriageExtras() {
   if (!state.videoId) {
     return null;

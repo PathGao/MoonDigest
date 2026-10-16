@@ -666,10 +666,10 @@ process.on("exit", (code) => {
     sentTo.length = 0;
     await new Promise((resolve) => onMessage.forEach((fn) => fn({ type: "ai-sidepanel-get-state", tabId: 7, frameId: 3, videoId: "BV1xx411c7mD", refresh: true }, {}, resolve)));
     assert.strictEqual(sentTo[0][1].refresh, true);
-    // The ✦ AI 按钮 switch stops only the player button (no source); 专注模式 (reader) and the popup still open AI 总结.
+    // The ✦ AI 总结按钮 switch stops only the player button (no source); 专注模式 (reader) and the popup still open AI 总结.
     ictx.getMergedSettings = async () => ({ enablePlayerAiQuickAction: false, playerAiQuickPrompt: "" });
     const quick = (source) => new Promise((resolve) => onMessage.forEach((fn) => fn({ type: "player-ai-quick-action", ...(source && { source }) }, { tab: { id: 7 } }, resolve)));
-    assert.deepStrictEqual([(await quick()).error, (await quick("reader")).ok, (await quick("popup")).ok], ["✦ AI 按钮未开启", true, true]);
+    assert.deepStrictEqual([(await quick()).error, (await quick("reader")).ok, (await quick("popup")).ok], ["✦ AI 总结按钮未开启", true, true]);
     // 视频记录 opens through the same one-tab rule as 分拣台.
     const opened = [];
     ictx.focusOrOpenPage = async (page) => opened.push(page);

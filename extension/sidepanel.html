@@ -9,9 +9,9 @@
   </head>
   <body>
     <header class="sp-header">
-      <button type="button" class="sp-context-chip" id="spContextChip" title="" aria-live="polite"><span class="sp-context-title">加载中…</span><span class="sp-context-meta" hidden></span></button>
+      <button type="button" class="sp-context-chip" id="spContextChip" title="" aria-live="polite"><span class="sp-context-title" data-text="loading">正在加载…</span><span class="sp-context-meta" hidden></span></button>
       <select id="spModelSelect" class="sp-model-select" aria-label="选择 AI 平台"></select>
-      <button id="spSettingsBtn" type="button" class="sp-icon-btn" title="打开设置页" aria-label="打开设置页">
+      <button id="spSettingsBtn" type="button" class="sp-icon-btn" title="打开设置页" aria-label="打开设置页" data-text="openSettings">
         <svg viewBox="0 0 24 24" focusable="false" aria-hidden="true">
           <path d="M9.671 4.136a2.34 2.34 0 0 1 4.659 0 2.34 2.34 0 0 0 3.319 1.915 2.34 2.34 0 0 1 2.33 4.033 2.34 2.34 0 0 0 0 3.831 2.34 2.34 0 0 1-2.33 4.033 2.34 2.34 0 0 0-3.319 1.915 2.34 2.34 0 0 1-4.659 0 2.34 2.34 0 0 0-3.32-1.915 2.34 2.34 0 0 1-2.33-4.033 2.34 2.34 0 0 0 0-3.831A2.34 2.34 0 0 1 6.35 6.051a2.34 2.34 0 0 0 3.319-1.915"></path>
           <circle cx="12" cy="12" r="3"></circle>
@@ -21,8 +21,8 @@
     <section id="spPreviousVideo" class="sp-prev" hidden></section>
     <main class="sp-messages" id="spMessages">
       <section id="spNote" class="sp-note" hidden>
-        <button id="spNoteToggle" type="button" class="sp-note-toggle is-empty" title="这个视频的备注，和分拣台卡片上的备注是同一份"><span class="sp-note-label"><span class="sp-note-add">✎ 备注</span><span class="sp-note-head">✎ 备注</span></span><span id="spNoteText" class="sp-note-text"></span></button>
-        <textarea id="spNoteInput" class="sp-note-input" rows="2" placeholder="一句话备注，回车保存" aria-label="备注" hidden></textarea>
+        <button id="spNoteToggle" type="button" class="sp-note-toggle is-empty" title="这个视频的备注，和分拣台卡片上的备注是同一份"><span class="sp-note-label"><span class="sp-note-add" data-text="noteAdd">✎ 备注</span><span class="sp-note-head" data-text="noteAdd">✎ 备注</span></span><span id="spNoteText" class="sp-note-text"></span></button>
+        <textarea id="spNoteInput" class="sp-note-input" rows="2" placeholder="一句话备注，回车保存" aria-label="备注" hidden data-text="notePlaceholder"></textarea>
       </section>
       <div class="sp-center-error" aria-busy="true" data-text="subtitleReading">正在读取视频字幕…</div>
       <div class="sp-suggestions" id="spSuggestions"></div>
@@ -93,8 +93,8 @@
       </div>
     </footer>
     <script src="./common.js"></script>
-    <script src="./limits.js"></script>
     <script src="./errors.js"></script>
+    <script src="./limits.js"></script>
     <script src="./settings.js"></script>
     <script src="./typing.js"></script>
     <script src="./sites.js"></script>

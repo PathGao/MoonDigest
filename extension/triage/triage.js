@@ -252,7 +252,7 @@ runs.put("sync", () => ownSync() && { text: `刷新中…${pageText(S.mediaId)}`
 runs.put("proposal", () => S.ai.proposal && { text: UI.AI_TAGS_PENDING });
 runs.put("aiOther", () => otherAiFolder() && { text: `「${folderName(otherAiFolder())}」的${UI.AI_TAGS_PENDING}` });
 // 观看进度's 30-minute pause on B站 risk control comes from the background (triage_seen_meta); tick() redraws it.
-runs.put("seen", () => S.seenCfg.on && S.seenRead.until > Date.now() && { text: "观看进度", wait: { until: S.seenRead.until, label: THROTTLES.THROTTLED.label } });
+runs.put("seen", () => S.seenCfg.on && S.seenRead.until > Date.now() && { text: MdgErrors.LABEL.seen, wait: { until: S.seenRead.until, label: THROTTLES.THROTTLED.label } });
 runs.put("seenRead", () => S.seenCfg.on && S.seenRead.busy && S.seenRead.pages && { text: `读观看进度… 已读 ${S.seenRead.pages} 页` });
 // The pill's button per job: [data-head, label, label while it stops, why it is off then (it waits for the step in
 // flight)]. Row 3's 暂停粗看 / 暂停细看 and the pill's line while pausing use the same words.
@@ -524,7 +524,7 @@ function handleAiError(error, code = "", limit = "粗看") {
   const text = String(error || "AI 调用失败");
   const access = MdgErrors.grantOrigin(text);
   if (access) {
-    showBanner(text, `授权访问 ${access.origin}`, async () => {
+    showBanner(text, MdgErrors.LABEL.grant, async () => {
       if (await access.request()) {
         el.banner.hidden = true;
         toast("已授权，请重试");
@@ -2150,7 +2150,7 @@ function renderListHeader(list) {
     html = "";
     // Its progress is in the pill (activityState); a failure stays here.
     if (c?.error) html += `<span class="fail-text">${esc(c.error)}</span>`;
-    html += UI.cleanBtn(`data-head="${picked ? "clean-selected" : "clean-removed"}"`, { picked, shown: sel, n: picked ? sel || picked : list.length, busy: favBusyReason(), why: list.length ? "" : "这里没有列出视频" });
+    html += UI.cleanBtn(`data-head="${picked ? "clean-selected" : "clean-removed"}"`, { picked, shown: sel, n: picked ? sel || picked : list.length, busy: favBusyReason(), why: list.length ? "" : MdgErrors.TEXT.noVideosListed });
   } else if (t === "read") {
     // 阅览 mixes 粗看 guesses with 细看 conclusions, so no class-wide batch here: only the selection.
     html = "";
@@ -2164,7 +2164,7 @@ function renderListHeader(list) {
     (S.mediaId !== REMOVED ? batchBtn("unfav", "", none) : "");
   // 全选 heads the right-hand buttons, so row 3's chips coming and going never move it. It acts on what is listed, in
   // 所有收藏夹 too (across its folders).
-  html = UI.selectAllBox('data-head="select-all"', list.length, sel) + (all ? loadAllLine() : "") + html;
+  html = UI.selectAllBox('data-head="select-all"', list.length, sel, MdgErrors.TEXT.noVideosListed) + (all ? loadAllLine() : "") + html;
   el.classFilter.innerHTML = UI.labeledRow("状态", stateRowHtml(t));
   el.listHeader.innerHTML = `<div class="step-actions">${html}</div>`;
   // Its own slot outside the header's rows, so a folded header never hides it.
@@ -2325,7 +2325,7 @@ function cardHtml(it, expanded, mark) {
   const note = S.notes[b]?.text || "";
   const noteHtml =
     note || S.noteOpen.has(b)
-      ? `<textarea class="note" name="videoNote" data-note rows="1" placeholder="一句话备注，回车保存" aria-label="备注">${esc(note)}</textarea>`
+      ? `<textarea class="note" name="videoNote" data-note rows="1" placeholder="${MdgErrors.TEXT.notePlaceholder}" aria-label="备注">${esc(note)}</textarea>`
       : "";
   const failed = v.failed
     ? `<span class="fail-text">${ANALYSIS_FAILED}：${esc(v.failed)}</span><button type="button" data-act="retry" aria-label="重试分析"${UI.reasonAttrs(aiBusyReason())}>${AI_SPARK}${MdgErrors.LABEL.retry}</button>`
@@ -2352,7 +2352,7 @@ function cardHtml(it, expanded, mark) {
       ${noteHtml}
       <div class="card-foot">
         ${decision ? `<span class="badge ${decision.action === "keep" ? "keep" : "drop"}">${ACTION_LABEL[decision.action]}</span>` : ""}
-        ${noteHtml ? "" : `<button type="button" class="quiet note-add" data-act="note" aria-label="添加备注">✎ 备注</button>`}
+        ${noteHtml ? "" : `<button type="button" class="quiet note-add" data-act="note" aria-label="添加备注">${MdgErrors.LABEL.noteAdd}</button>`}
         <span class="spacer"></span>
         <div class="actions">
           ${removed ? `<span class="pair">
@@ -3152,7 +3152,7 @@ function renderViewerTags() {
       .filter((t) => t && (!v.folders || v.folders.includes(t.folder)))
       .map((t) => `<span class="chip" style="--c:${esc(t.color)}"${edit ? " data-vtag" : ""}>${esc(t.name)}</span>`)
       .join("");
-    el.viewerTags.innerHTML = UI.viewerLine({ label: "视频标签", chips, plus: edit && { attrs: "data-vtag", label: "打视频标签" } });
+    el.viewerTags.innerHTML = UI.viewerLine({ label: MdgErrors.LABEL.videoTags, chips, plus: edit && { attrs: "data-vtag", label: "打视频标签" } });
   }
   viewerHook?.();
 }
@@ -4136,7 +4136,7 @@ async function buildBackup() {
 
 function buildCsv() {
   const title = folderTitle();
-  const header = ["收藏夹", "BV 号", "标题", "UP 主", "时长", "链接", "封面", "发布时间", "收藏时间", "简介", "AI 判断", "判断来源", "理由", "一句话", "要点", "标签", "备注", "我的处理", "处理时间", "是否失效", "原在", "离开原因"];
+  const header = ["收藏夹", "BV 号", "标题", "UP 主", "时长", "链接", "封面", "发布时间", "收藏时间", "简介", MdgErrors.LABEL.aiVerdict, "判断来源", "理由", "一句话", "要点", "标签", "备注", "我的处理", "处理时间", "是否失效", "原在", "离开原因"];
   const rows = [header];
   for (const it of S.items) {
     const v = verdictOf(it);

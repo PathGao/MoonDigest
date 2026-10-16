@@ -5,7 +5,7 @@ const vm = require("vm");
 const assert = require("assert");
 
 const ctx = vm.createContext({ console });
-vm.runInContext(fs.readFileSync(path.join(__dirname, "limits.js"), "utf8"), ctx);
+for (const f of ["errors.js", "limits.js"]) vm.runInContext(fs.readFileSync(path.join(__dirname, f), "utf8"), ctx);
 const L = ctx.MdgLimits;
 
 // The options page renders describe(); each cap it states must be the one the code enforces.
@@ -158,7 +158,7 @@ for (const file of sources) {
   const req = area.data.mdg_player_ai_quick_action_v1;
   assert.ok(req.id && req.tabId === 3 && req.prompt === "" && req.createdAt > 0 && req.contextRef.videoId === "BV1" && req.frameId === 0);
   for (const f of sources) assert.ok(!/KEYS\.playerAiQuickAction\]:/.test(fs.readFileSync(path.join(__dirname, f), "utf8")), `${f} builds the side panel request itself`);
-  const offText = "✦ AI 按钮未开启";
+  const offText = "✦ AI 总结按钮未开启";
   assert.deepStrictEqual(sources.filter((f) => fs.readFileSync(path.join(__dirname, f), "utf8").includes(offText)), ["background.js"], "the ✦ setting is checked once");
 
   console.log("limits selftest ok");

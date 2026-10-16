@@ -227,7 +227,7 @@
         rule: "不自动删。在侧边栏、分拣台或视频记录页里修改。"
       },
       {
-        label: "观看进度",
+        label: MdgErrors.LABEL.seen,
         usage: `${count(usage.seen)} / ${SEEN_MAX} 个视频`,
         rule: `「封面显示」不是「关」时读 B站历史记录，${SEEN_LIMITS_TEXT}，勾选收藏夹里的视频不删。选「关」时全部删掉。`
       },

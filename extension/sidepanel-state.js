@@ -140,7 +140,7 @@
 
   // The video's whole title (two videos named alike before a 「 - 」 stay apart); the part suffix is drawn from the context.
   function extractConversationBaseTitle(title) {
-    return String(title || "").trim().replace(/-P\d+$/i, "").trim() || "未知视频";
+    return String(title || "").trim().replace(/-P\d+$/i, "").trim() || MdgErrors.TEXT.untitledVideo;
   }
 
   function appendConversationPageSuffix(title, context) {

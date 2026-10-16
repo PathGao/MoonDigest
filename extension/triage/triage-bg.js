@@ -539,7 +539,7 @@ async function triageCreatedFolders() {
     ...(toview ? {} : { toviewUnread: true }),
     folders: [
       // 稍后再看 has no folder cover of its own: use the newest unwatched video's cover, like a folder's first video.
-      ...(toview ? [{ id: TRIAGE_TOVIEW, title: "稍后再看", count: toview.count || 0, ...(toview.list?.[0]?.pic ? { cover: TriageUi.https(toview.list[0].pic) } : {}) }] : []),
+      ...(toview ? [{ id: TRIAGE_TOVIEW, title: MdgErrors.LABEL.watchLater, count: toview.count || 0, ...(toview.list?.[0]?.pic ? { cover: TriageUi.https(toview.list[0].pic) } : {}) }] : []),
       ...list.map((f) => ({ id: f.id, title: f.title, count: f.media_count, cover: TriageUi.https(f.cover) }))
     ]
   };
@@ -902,7 +902,7 @@ const TRIAGE_HANDLERS = {
         // 播放量 comes with the list; no extra request.
         play: Number.isFinite(m.stat?.view) ? m.stat.view : undefined
       }));
-      return { items, ids: items.map((it) => it.bvid), info: { title: "稍后再看", intro: "" } };
+      return { items, ids: items.map((it) => it.bvid), info: { title: MdgErrors.LABEL.watchLater, intro: "" } };
     }
     const items = [];
     let info = null;

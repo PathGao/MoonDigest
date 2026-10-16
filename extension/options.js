@@ -1367,7 +1367,7 @@ async function testAiProviderRow(row, sync) {
     const grant = document.createElement("button");
     grant.type = "button";
     grant.className = "sm";
-    grant.textContent = "授权";
+    grant.textContent = MdgErrors.LABEL.grant;
     grant.addEventListener("click", async () => {
       if (await access.request()) await testAiProviderRow(row, sync);
     });
