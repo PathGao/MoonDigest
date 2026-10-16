@@ -14,6 +14,13 @@ vm.runInContext(read("errors.js"), ctx);
 vm.runInContext(read("errors.js"), ctx); // re-injection keeps the first copy
 const E = ctx.MdgErrors;
 
+// messageOf: what a caught error shows the user. A known code gives the table's sentence, never the code itself.
+assert.strictEqual(E.messageOf(Object.assign(new Error("HTTP 412"), { code: "THROTTLED" })), E.TEXT.biliThrottled);
+assert.strictEqual(E.messageOf(Object.assign(new Error("Local REST API 写入失败"), { code: "SOMETHING_ELSE" })), "Local REST API 写入失败");
+assert.strictEqual(E.messageOf(Object.assign(new Error(""), { code: "SOMETHING_ELSE" })), E.TEXT.unknown, "an unknown code alone is not shown");
+assert.strictEqual(E.messageOf("  读取失败  "), "读取失败");
+assert.strictEqual(E.messageOf(null, "兜底"), "兜底");
+
 (async () => {
   assert.strictEqual(E.action("AI_AUTH"), "settings");
   assert.strictEqual(E.action("OBSIDIAN"), "settings");

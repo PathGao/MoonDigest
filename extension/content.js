@@ -497,7 +497,7 @@ function bindRuntimeEvents() {
       sendToObsidian()
         .then((result) => sendResponse({ ok: true, ...result, payload: getPopupPayload() }))
         .catch((error) =>
-          sendResponse({ ok: false, error: getErrorMessage(error), payload: getPopupPayload() })
+          sendResponse({ ok: false, error: MdgErrors.messageOf(error), payload: getPopupPayload() })
         );
       return true;
     }
@@ -1325,7 +1325,7 @@ async function sendToObsidian() {
     }
     // Not set up or a wrong key: the settings page. A closed Obsidian only gets the red line.
     if (error.action === "settings") requestOpenOptions();
-    return { ...report(`${MdgErrors.TEXT.obsidianFailed}：${getErrorMessage(error)}`, false), error: getErrorMessage(error), code: error.cause?.code };
+    return { ...report(`${MdgErrors.TEXT.obsidianFailed}：${MdgErrors.messageOf(error)}`, false), error: MdgErrors.messageOf(error), code: error.cause?.code };
   }
 }
 
@@ -1434,7 +1434,7 @@ function cleanupReaderFloatingArtifacts(playerHost = state.readingPlayerHost) {
 // Every entry into 专注模式 (the URL, a SPA video change, the popup): a failure is red on the page, the same sentence.
 function startReaderMode() {
   enterReaderMode().catch((error) => {
-    setReadingNotice(`${MdgErrors.TEXT.readerStartFailed}：${getErrorMessage(error)}`, { error: true });
+    setReadingNotice(`${MdgErrors.TEXT.readerStartFailed}：${MdgErrors.messageOf(error)}`, { error: true });
   });
 }
 
@@ -2103,7 +2103,7 @@ async function persistReaderSettings() {
     const resp = await sendRuntimeMessage({ type: "save-settings", settings });
     if (!resp?.ok) throw MdgErrors.fromResp(resp);
   } catch (error) {
-    setReadingNotice(MdgErrors.reloaded(error) ? MdgErrors.TEXT.reloaded : `${MdgErrors.TEXT.settingsSaveFailed}：${getErrorMessage(error)}`, { error: true });
+    setReadingNotice(MdgErrors.reloaded(error) ? MdgErrors.TEXT.reloaded : `${MdgErrors.TEXT.settingsSaveFailed}：${MdgErrors.messageOf(error)}`, { error: true });
   }
 }
 
@@ -3309,7 +3309,7 @@ async function askSidepanel(source) {
     if (!resp?.ok) throw MdgErrors.fromResp(resp);
     return true;
   } catch (error) {
-    setReadingNotice(MdgErrors.reloaded(error) ? MdgErrors.TEXT.reloaded : `${MdgErrors.TEXT.sidepanelOpenFailed}：${getErrorMessage(error)}`, { error: true });
+    setReadingNotice(MdgErrors.reloaded(error) ? MdgErrors.TEXT.reloaded : `${MdgErrors.TEXT.sidepanelOpenFailed}：${MdgErrors.messageOf(error)}`, { error: true });
     return false;
   }
 }
@@ -3884,15 +3884,15 @@ function toReadableText(value, fallback = "") {
 // A failed fetch in the user's words: a dropped connection is named (fetch's English TypeError becomes TEXT.netDown);
 // codes with their own words (THROTTLED, 62004) read as elsewhere, any other
 // error keeps its own message (「B站请求失败 HTTP 403」 from the background or the page, httpError).
-// getErrorMessage keeps the raw text with the code for logs and retry checks.
 function fetchErrorText(error) {
   if (/failed to fetch|networkerror|load failed/i.test(toReadableText(error?.message, ""))) {
     return MdgErrors.TEXT.netDown;
   }
-  return MdgErrors.text({ error: toReadableText(error?.message, ""), code: error?.code }, getErrorMessage(error));
+  return MdgErrors.messageOf(error);
 }
 
-function getErrorMessage(error, fallback = MdgErrors.TEXT.unknown) {
+// For logs and retry checks only: the raw message with its code. The page shows MdgErrors.messageOf.
+function rawErrorText(error, fallback = MdgErrors.TEXT.unknown) {
   const code = toReadableText(error?.code, "");
   const message = toReadableText(error?.message, "");
   if (message) {
@@ -3915,7 +3915,7 @@ async function requestOpenOptions() {
     const resp = await sendRuntimeMessage({ type: "open-options" });
     if (!resp?.ok) throw MdgErrors.fromResp(resp);
   } catch (error) {
-    setReadingNotice(MdgErrors.reloaded(error) ? MdgErrors.TEXT.reloaded : `${MdgErrors.TEXT.settingsOpenFailed}：${getErrorMessage(error)}`, { error: true });
+    setReadingNotice(MdgErrors.reloaded(error) ? MdgErrors.TEXT.reloaded : `${MdgErrors.TEXT.settingsOpenFailed}：${MdgErrors.messageOf(error)}`, { error: true });
   }
 }
 
@@ -3988,7 +3988,7 @@ async function retryAsync(task, retries = 1, delayMs = 180) {
       }
       const backoffDelay = Math.min(delayMs * 2 ** attempt, 5000);
       logInfo(`[MDG] retrying after ${backoffDelay}ms, attempt ${attempt + 1}/${retries}`, {
-        error: getErrorMessage(error),
+        error: rawErrorText(error),
         code: error.code
       });
       await sleep(backoffDelay);
@@ -4006,7 +4006,7 @@ function isRetryableNetworkError(error) {
   if (error?.code === "NETWORK") {
     return true;
   }
-  const message = getErrorMessage(error, "").toLowerCase();
+  const message = rawErrorText(error, "").toLowerCase();
   return ["failed to fetch", "fetch failed", "networkerror", "net::", "timeout", "timed out", "超时", MdgErrors.TEXT.netDown].some((words) => message.includes(words));
 }
 

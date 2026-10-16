@@ -221,6 +221,11 @@
   }
 
   // The reply as an Error to throw; error.action says which button the catch shows, error.cause is the reply.
+  // A caught error (or a plain string) in the user's words: a known code's sentence, else its message, else fallback.
+  // Codes and English internals never reach the page as they are (content.js keeps rawErrorText for logs).
+  const messageOf = (error, fallback = TEXT.unknown) =>
+    typeof error === "string" ? error.trim() || fallback : text({ error: error?.message, code: error?.code }, fallback);
+
   const fromResp = (resp, fallback) => Object.assign(new Error(text(resp, fallback), { cause: resp }), { action: action(resp?.code) });
 
   // An AI provider's origin the extension may not reach yet (host permissions are optional): the background's
@@ -259,5 +264,5 @@
     else node.removeAttribute("aria-description");
   }
 
-  globalThis.MdgErrors = Object.freeze({ TEXT, LABEL, action, text, fromResp, grantOrigin, reloaded, escapeHtml, setReason, subtitleMissing, aiTimeout, aiStalled, upTagTitle, noAccess, NET_TIMEOUT_MS, netTimeout, CODE, TIMEOUT_STATUS });
+  globalThis.MdgErrors = Object.freeze({ TEXT, LABEL, action, text, messageOf, fromResp, grantOrigin, reloaded, escapeHtml, setReason, subtitleMissing, aiTimeout, aiStalled, upTagTitle, noAccess, NET_TIMEOUT_MS, netTimeout, CODE, TIMEOUT_STATUS });
 })();

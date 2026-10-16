@@ -1830,13 +1830,13 @@ async function autoSyncConversation(conversationId) {
   } catch (error) {
     // Not set up or a wrong key: 去设置 before 重试, like a manual write; a closed Obsidian gets 重试 only.
     const settings = error?.action === "settings" ? () => chrome.runtime.openOptionsPage() : null;
-    showSyncStatus(`${MdgErrors.TEXT.obsidianFailed}：${getErrorMessage(error)}`, { retry: () => autoSyncConversation(conversationId), settings, error: true });
+    showSyncStatus(`${MdgErrors.TEXT.obsidianFailed}：${MdgErrors.messageOf(error)}`, { retry: () => autoSyncConversation(conversationId), settings, error: true });
   }
 }
 
 // A failed manual write is red; a wrong key opens the settings page, as for 未配置 (a closed Obsidian does not).
 function showObsidianFailure(error) {
-  showConversationContextNotice(`${MdgErrors.TEXT.obsidianFailed}：${getErrorMessage(error)}`, NOTICE_LONG_MS, { error: true });
+  showConversationContextNotice(`${MdgErrors.TEXT.obsidianFailed}：${MdgErrors.messageOf(error)}`, NOTICE_LONG_MS, { error: true });
   if (error?.action === "settings") chrome.runtime.openOptionsPage?.();
 }
 
@@ -1872,7 +1872,7 @@ async function downloadCurrentConversation() {
     const note = await buildCurrentConversationNote();
     if (note) MdgDownload.text(note.filename, note.content);
   } catch (error) {
-    showConversationContextNotice(`下载失败：${getErrorMessage(error)}`, NOTICE_MS, { error: true });
+    showConversationContextNotice(`下载失败：${MdgErrors.messageOf(error)}`, NOTICE_MS, { error: true });
   }
 }
 
@@ -1881,7 +1881,7 @@ async function copyCurrentConversationMarkdown() {
     const note = await buildCurrentConversationNote();
     if (note) await copyMarkdown(note.content);
   } catch (error) {
-    showConversationContextNotice(`${MdgErrors.TEXT.copyFailed}：${getErrorMessage(error)}`, NOTICE_MS, { error: true });
+    showConversationContextNotice(`${MdgErrors.TEXT.copyFailed}：${MdgErrors.messageOf(error)}`, NOTICE_MS, { error: true });
   }
 }
 
@@ -1891,7 +1891,7 @@ async function copyMarkdown(text) {
     await navigator.clipboard.writeText(text);
     showConversationContextNotice(MdgErrors.TEXT.copied, NOTICE_SHORT_MS);
   } catch (error) {
-    showConversationContextNotice(`${MdgErrors.TEXT.copyFailed}：${getErrorMessage(error, MdgErrors.TEXT.noClipboard)}`, NOTICE_MS, { error: true });
+    showConversationContextNotice(`${MdgErrors.TEXT.copyFailed}：${MdgErrors.messageOf(error, MdgErrors.TEXT.noClipboard)}`, NOTICE_MS, { error: true });
   }
 }
 
@@ -1951,10 +1951,6 @@ async function openPageNote(ref) {
 }
 
 // A caught error's words: its message (or the string thrown), else fallback; never 「{}」 for an Error without words.
-function getErrorMessage(error, fallback = MdgErrors.TEXT.unknown) {
-  return String((typeof error === "string" ? error : error?.message) || "").trim() || fallback;
-}
-
 function linkifyAssistantTimestamps(root) {
   if (!root) {
     return;
@@ -2052,7 +2048,7 @@ async function jumpToAssistantTimestamp(seconds, label) {
     busy.remove();
   } catch (error) {
     if (seq !== jumpSeq) return;
-    showConversationContextNotice(inTriage ? "先在分拣台里播放这个视频，再点时间" : `时间跳转失败：${getErrorMessage(error)}`, NOTICE_MS, { error: true });
+    showConversationContextNotice(inTriage ? "先在分拣台里播放这个视频，再点时间" : `时间跳转失败：${MdgErrors.messageOf(error)}`, NOTICE_MS, { error: true });
   }
 }
 
