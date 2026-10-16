@@ -248,7 +248,7 @@ const DUPLICATES = [
   ["一句话备注，回车保存", "history/history.js sidepanel.html triage/triage.js", "待修：C163、C164"],
   ["这里没有列出视频", "history/history.js triage/triage.js", "待修：C170"],
   ["正在打开侧边栏…", "history/history.js popup.js", "待修：C175、C176、C292"],
-  ["已出分拣范围", "limits.js triage/follow.js triage/triage.js", "待修：C582"],
+  ["已出分拣范围", "limits.js triage/follow.js triage/triage.js", "待修：C582（triage.js 已收成 REMOVED_NAME 一处，limits.js 的说明和 follow.js 还各写一份）"],
   ["B站分拣台", "options.html triage/triage.html", "待修：C283"],
   ["停止中", "sidepanel.js triage/follow.js triage/tag-dialogs.js triage/triage.js", "待修：C497"],
   ["读取关注列表", "triage/follow-bg.js triage/follow.js", "待修：C394"],

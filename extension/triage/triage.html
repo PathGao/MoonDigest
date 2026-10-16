@@ -16,7 +16,7 @@
         <!-- 收藏夹 | 关注: follow.js owns the switch and the 关注 mode (body.follow-mode). -->
         <span id="modeSwitch" class="seg mode-switch" role="group" aria-label="分拣什么"><button type="button" data-mode="fav" aria-pressed="true">收藏夹</button><button type="button" data-mode="follow" aria-pressed="false">关注</button></span>
         <!-- The select holds the open folder (every reader and writer keeps using it); the sidebar list is drawn from its options. -->
-        <select id="folderSelect" class="folder-select" aria-label="选择收藏夹"></select>
+        <select id="folderSelect" class="folder-select" aria-label="当前收藏夹"></select>
         <button id="helpBtn" type="button" class="help-btn" title="帮助和快捷键 (?)" aria-label="帮助 (?)">?</button>
       </header>
 
@@ -41,7 +41,7 @@
           <div class="folder-head">
             <div class="folder-info">
               <div id="folderHead" class="folder-name"></div>
-              <button id="biliBtn" type="button" class="link bili-link" aria-label="在 B站打开当前收藏夹（所有收藏夹时打开个人主页）" hidden>在 B站打开 ↗</button>
+              <button id="biliBtn" type="button" class="link bili-link" aria-label="在 B站打开当前收藏夹（所有收藏夹时打开 B站主页）" hidden>在 B站打开 ↗</button>
               <!-- The 已刷新 pill and its notice, from shared.js (as in 关注). -->
               <span id="favSync"></span>
             </div>
@@ -94,7 +94,7 @@
 
     <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
 
-    <dialog id="settingsDialog" aria-label="收藏夹设置">
+    <dialog id="settingsDialog" aria-labelledby="settingsHeading">
       <form method="dialog">
         <h2 id="settingsHeading">收藏夹设置</h2>
         <div class="settings-cols">
@@ -105,7 +105,7 @@
           </div>
           <p class="dialog-hint">只读取勾选的。B站新建的默认不勾，B站上不受影响。</p>
           <div id="folderToggles" class="folder-toggles"></div>
-          <p id="settingsFirstRunHint" class="dialog-hint" hidden>AI 参数一般不用改，以后点「收藏夹设置」可以再调。</p>
+          <p id="settingsFirstRunHint" class="dialog-hint" hidden>请求和 AI 参数一般不用改，以后点「收藏夹设置」可以再调。</p>
         </section>
         <!-- The first open only asks for folders; this part shows from 收藏夹设置. -->
         <div id="settingsAi" class="settings-ai">
@@ -118,7 +118,7 @@
             </div>
           </section>
           <section class="set-group">
-            <h3>AI 参数</h3>
+            <h3>请求和 AI 参数</h3>
             <p class="dialog-hint">一般不用改。AI 平台在设置页，判断标准点「判断标准」按钮改。</p>
             <div class="set-card">
               <div class="set-row" data-set-row="interval"><input id="intervalInput" type="number" data-num="interval" step="1" /></div>
@@ -153,7 +153,7 @@
               <div class="set-row"><div><label class="name" for="fwDeadInput">多少天没投稿算断更</label><p class="hint">要比慢更的天数大。</p></div><input id="fwDeadInput" type="number" data-num="deadDays" step="1" /></div>
             </div>
           </section>
-          <!-- Grouped as 收藏夹设置: 标签, then AI 参数. -->
+          <!-- Grouped as 收藏夹设置: 标签, then 请求和 AI 参数 (请求间隔 paces the B站 reads too). -->
           <div class="settings-ai">
             <section class="set-group">
               <h3>标签</h3>
@@ -163,7 +163,7 @@
               </div>
             </section>
             <section class="set-group">
-              <h3>AI 参数</h3>
+              <h3>请求和 AI 参数</h3>
               <p class="dialog-hint">一般不用改。AI 平台在设置页。</p>
               <div class="set-card">
                 <div class="set-row" data-set-row="interval"><input id="fwIntervalInput" type="number" data-num="interval" step="1" /></div>
@@ -189,7 +189,7 @@
           <label for="writeScope">范围</label>
           <select id="writeScope">
             <option value="filter">当前筛选</option>
-            <option value="selected">选中 (X)</option>
+            <option value="selected">选中</option>
             <option value="all">整个收藏夹</option>
           </select>
           <label for="writeFormat">格式</label>
@@ -258,7 +258,7 @@
         <p class="tp-note dialog-meta"></p>
         <input id="tagPickerInput" name="tagQuery" class="tp-input" type="text" placeholder="输入筛选，或输入新名称后回车新建" aria-label="筛选或新建标签" autocomplete="off" />
         <ul class="picker-list" role="listbox" aria-label="标签"></ul>
-        <p class="dialog-meta tp-keys">↑↓ 选择 · 回车 勾选或新建 · 1–9 勾选 · Esc 关闭并保存</p>
+        <p class="dialog-meta tp-keys">↑↓ 选择 · 回车 勾选、取消或新建 · 1–9 勾选或取消第几个 · Esc 关闭并保存</p>
         <div class="dialog-actions"><span class="spacer"></span><button type="submit" class="primary">完成</button></div>
       </form>
     </dialog>
@@ -342,7 +342,7 @@
         <!-- 关注 mode shows its own two columns instead (body.follow-mode). -->
         <div class="stack follow-help">
         <h2>关注</h2>
-        <p class="dialog-hint"><strong>UP 主</strong>：「状态」行按更新状态（活跃、慢更、断更、待查…）和有没有标签筛，「标签」行按你的标签筛，分组列表只管范围（全部、特别关注、B站 分组、已出分拣范围）。「已出分拣范围」里是取消关注的、已注销的和投稿已清空的 UP 主，可以重新关注、取消关注或清理。选中后可以批量打标签、移到分组、复制到分组（含特别关注）或取消关注。</p>
+        <p class="dialog-hint"><strong>UP 主</strong>：「状态」行按更新状态（活跃、慢更、断更、待查…）和有没有标签筛，「标签」行按你的标签筛，分组列表只管范围（全部、默认分组、特别关注、自己建的分组、已出分拣范围）。「已出分拣范围」里是取消关注的、已注销的和投稿已清空的 UP 主，可以重新关注、取消关注或清理。选中后可以批量打标签、移到分组、复制到分组（含特别关注）或取消关注。</p>
         <p class="dialog-hint"><strong>视频投稿</strong>：关注的人新发的视频（不含图文和转发），「状态」行和「标签」行按 UP 主的标签筛。点视频在内置播放框里播放。</p>
         <p class="dialog-hint"><strong>改 B站 的操作</strong>：卡片上的 ★、单个「重新关注」、单个移到或复制到分组和分组改名不问，按 U 撤销；批量移到或复制到分组、批量重新关注和取消关注先问你，其中移到、复制和重新关注能按 U 撤销，撤销前也先问；删除分组也先问。取消关注一个也要问，因为重新关注后原来的关注时间就没了。</p>
         <p class="dialog-hint">标签只存在 MoonDigest 里，不改 B站。标签在「标签管理」里改，「✦ AI 打标签」让 AI 按一句话给一批 UP 主打标签。</p>
@@ -358,7 +358,7 @@
           <dt><kbd>I</kbd></dt><dd>AI 打标签（UP 主页签）</dd>
           <dt><kbd>1</kbd>–<kbd>9</kbd></dt><dd>打标签时勾选或去掉第几个标签</dd>
           <dt><kbd>Esc</kbd></dt><dd>关闭打标签（并保存）或内置播放框</dd>
-          <dt><kbd>U</kbd></dt><dd>撤销关注里的上一步：标签修改、AI 打标签、特别关注、重新关注、移到或复制到分组、分组改名（改了多个的先问你）</dd>
+          <dt><kbd>U</kbd></dt><dd>撤销关注里的上一步：标签修改、AI 打标签、特别关注、重新关注、移到或复制到分组、分组改名（改了多个 UP 主的先问你）</dd>
           <dt><kbd>/</kbd></dt><dd>搜索（Esc 清空）</dd>
           <dt><kbd>?</kbd></dt><dd>显示本帮助</dd>
         </dl>
@@ -384,14 +384,14 @@
           <dt><kbd>K</kbd><kbd>↑</kbd></dt><dd>上一个</dd>
           <dt><kbd>D</kbd></dt><dd>取消收藏</dd>
           <dt><kbd>S</kbd></dt><dd>保留</dd>
-          <dt><kbd>T</kbd></dt><dd>打标签（在内置播放框里按 T 给正在播放的视频打）；打标签时 1–9 勾选第几个，Esc 关闭并保存</dd>
+          <dt><kbd>T</kbd></dt><dd>打标签（在内置播放框里按 T 给正在播放的视频打）；打标签时 1–9 勾选或取消第几个，Esc 关闭并保存</dd>
           <dt><kbd>E</kbd></dt><dd>加入待播 / 从待播移除</dd>
           <dt><kbd>Q</kbd></dt><dd>问 AI（在侧边栏打开这个视频）</dd>
           <dt><kbd>X</kbd></dt><dd>选中 / 取消选中，和点卡片一样（点标题是播放）。Shift 点选中一段，Esc 清空。选中的视频可以批量处理，处理后选中不变，只有因此离开这一页的才不再选中；「状态」行的「全选 N 个」一次勾上当前列出的，再点一次取消</dd>
           <dt><kbd>O</kbd><kbd>Enter</kbd></dt><dd>在内置播放框里播放（Esc 关闭）</dd>
           <dt><kbd>I</kbd></dt><dd>AI 打标签</dd>
           <dt><kbd>/</kbd></dt><dd>搜索（Esc 清空）</dd>
-          <dt><kbd>U</kbd></dt><dd>撤销上一步（改了多个视频的会先问你）</dd>
+          <dt><kbd>U</kbd></dt><dd>撤销上一步（改了多个视频的先问你）</dd>
           <dt><kbd>?</kbd></dt><dd>显示本帮助</dd>
         </dl>
         <p class="dialog-hint">「已出分拣范围」里卡片键只有 E、Q、X、O / Enter 可用，U 照常撤销上一步；点卡片选中，选中后可收藏到任一收藏夹或只清理选中的。</p>
