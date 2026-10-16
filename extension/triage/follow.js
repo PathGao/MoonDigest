@@ -1387,7 +1387,7 @@ function upCsv() {
 $("fwExport").addEventListener("click", (e) => e.target.closest("button") && $("fwExport").hidePopover());
 // The markup is in triage.html beside 收藏夹设置; triage.js fills the shared rows' names (UI.fillSetRows).
 const settingsDialog = $("fwSettingsDialog");
-settingsDialog.querySelector("[data-open-options]").addEventListener("click", () => send({ type: "open-options" }));
+settingsDialog.querySelector("[data-open-options]").addEventListener("click", T.openOptions);
 
 // follow_ai_settings, seeded from the 收藏夹 values on first use and stored then.
 async function aiSettings() {

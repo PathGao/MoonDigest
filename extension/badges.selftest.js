@@ -84,11 +84,12 @@ assert.strictEqual(badgeInfo({ title: { verdict: "bogus" } }), null, "unknown ve
 
 assert.strictEqual(badgeInfo({ title: { verdict: "t-must", confidence: "high" } }), null, "old custom-tier verdicts are not a mark");
 assert.strictEqual(badgeInfo({ title: { verdict: "unsure" } }).verdict, "unsure");
-// An invalid video is 可清理 like on the triage page, analysed or not.
+// An invalid video is 可清理 like on the triage page, analysed or not; one the AI never judged says 已失效, without 「AI」.
 assert.deepStrictEqual(
-  [badgeInfo({ invalid: true }).label, badgeInfo({ invalid: true }).aria],
-  ["AI 可清理", "MoonDigest 分拣，AI 判断 可清理（视频已失效）"]
+  [badgeInfo({ invalid: true }).verdict, badgeInfo({ invalid: true }).label, badgeInfo({ invalid: true }).aria],
+  ["drop", "已失效", "MoonDigest 分拣，已失效"]
 );
+assert.strictEqual(badgeInfo({ invalid: true, title: { verdict: "keep", reason: "好", confidence: "high" } }).label, "AI 可清理", "judged by the AI: still AI 可清理");
 assert.deepStrictEqual(plain(badgeInfo({ invalid: true, title: { verdict: "keep", reason: "好", confidence: "high" } })).reason, "视频已失效。AI 原理由：好");
 assert.strictEqual(badgeInfo({ analysis: { status: "done", verdict: "t-must" } }).label, "AI 拿不准", "a done 细看 with an old verdict reads as 待定, like the triage page");
 
@@ -100,6 +101,15 @@ const merged = mergeDecisions({
   triage_video_tags: { BV1: ["t1"] }
 });
 assert.deepStrictEqual(plain(merged), { BV1: { action: "unfav", at: 3 }, BV2: { action: "unfav", at: 9 }, BV3: { action: "keep", at: 1 } });
+// C39: off a favorites page, a latest 取消收藏 that left the video in another chosen folder is not shown (保留 then
+// shows); a later one that took it out of the last folder is; records without the field show as before.
+const left = {
+  triage_kept: { BV1: { action: "keep", at: 1 } },
+  triage_decisions_a: { BV1: { action: "unfav", at: 3, elsewhere: true }, BV2: { action: "unfav", at: 2, elsewhere: true } },
+  triage_decisions_b: { BV2: { action: "unfav", at: 5 }, BV3: { action: "unfav", at: 1 } }
+};
+assert.deepStrictEqual(plain(mergeDecisions(left)), { BV1: { action: "keep", at: 1 }, BV2: { action: "unfav", at: 5 }, BV3: { action: "unfav", at: 1 } });
+assert.strictEqual(mergeDecisions({ triage_decisions_a: left.triage_decisions_a }, true).BV1.action, "unfav", "its own favorites page shows it");
 
 
 // ---- UP tags: author link -> mid, where the chip lands ----
@@ -844,12 +854,12 @@ async function surfacePages() {
   assert.strictEqual((await nickPage(["nick.ups"])).doc.querySelectorAll(".mdg-ups").length, 0, "the nickname's own cell off: no tags");
   assert.strictEqual(fav.doc.querySelectorAll(".mdg-ups").length, 0, "收藏夹 page: no UP tags");
 
-  // 收藏夹 page with AI 判断 on: a video the folder's snapshot lists as 已失效 shows 可清理, as on the 分拣台.
+  // 收藏夹 page with AI 判断 on: a video the folder's snapshot lists as 已失效 is marked 可清理 (shown as 已失效: no AI result).
   store.triage_snapshot_5 = { invalid: ["BV1GJ411x7h7"] };
   const card = h("a", { href: "//www.bilibili.com/video/BV1GJ411x7h7", class: "title" }, "已失效视频");
   const favMarks = await page({ hostname: "space.bilibili.com", pathname: "/9/favlist", search: "?fid=5" }, h("body", {}, h("div", {}, card)), false, { showBiliTriageBadges: true, showBiliVerdicts: true });
   assert.ok(favMarks.reads.some((k) => [].concat(k).includes("triage_snapshot_5")), "the folder's snapshot is read");
-  assert.deepStrictEqual(favMarks.doc.querySelectorAll(".mdg-v").map((v) => [v.className, v.textContent]), [["mdg-v mdg-drop", "AI 可清理"]]);
+  assert.deepStrictEqual(favMarks.doc.querySelectorAll(".mdg-v").map((v) => [v.className, v.textContent]), [["mdg-v mdg-drop", "已失效"]]);
   // Another folder's snapshot changing (the 分拣台 loading 所有收藏夹) leaves the marks alone; this folder's redraws them.
   const snapReads = () => favMarks.reads.filter((k) => [].concat(k).includes("triage_snapshot_5")).length;
   const readsBefore = snapReads();

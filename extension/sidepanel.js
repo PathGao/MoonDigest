@@ -617,7 +617,7 @@ async function openCurrentContextUrl() {
     return;
   }
   try {
-    const sameVideo = doesTabMatchContextUrl(tab.url || "", targetUrl);
+    const sameVideo = doesTabMatchContextUrl(tab.url || "", targetUrl, state.view().live.context);
     if (!sameVideo) {
       await chrome.tabs.update(tab.id, { url: targetUrl });
       await waitForTabComplete(tab.id);
@@ -950,8 +950,16 @@ async function hydrateConversationPageMetadata() {
   await saveConversations();
 }
 
+// Merged by entry into a fresh read (SidepanelState.mergeSaved), so a conversation 视频记录 deleted is not written back.
+// A failed write leaves the created and deleted ids for the next save.
 async function saveConversations() {
-  await chrome.storage.local.set({ [CONVERSATIONS_STORAGE_KEY]: state.view().saved });
+  let written = null;
+  await MdgLimits.updateConversations((stored) => {
+    const { saved, unsaved } = state.view();
+    written = unsaved;
+    return SidepanelState.mergeSaved(stored, saved, unsaved);
+  });
+  state.dispatch({ type: "SAVED_WRITTEN", ...written });
   renderHistoryList();
 }
 
@@ -1161,7 +1169,7 @@ function handlePreviousVideoBarClick(event) {
 async function openPreviousVideoUrl(url) {
   const targetUrl = String(url || "").trim();
   const tab = await getActiveTab().catch(() => null);
-  if (!targetUrl || !tab?.id || doesTabMatchContextUrl(tab.url || "", targetUrl)) {
+  if (!targetUrl || !tab?.id || doesTabMatchContextUrl(tab.url || "", targetUrl, state.view().live.context)) {
     return;
   }
   await chrome.tabs.update(tab.id, { url: targetUrl }).catch(() => null);
@@ -1934,7 +1942,7 @@ async function saveCurrentConversationToObsidian() {
 async function openPageNote(ref) {
   const tab = await getActiveTab();
   const { live } = state.view();
-  if (!ref.videoId || !tab?.id || !live.context || !doesTabMatchContextUrl(live.tabUrl, ref.url)) {
+  if (!ref.videoId || !tab?.id || !live.context || !doesTabMatchContextUrl(live.tabUrl, ref.url, live.context)) {
     return undefined;
   }
   const resp = await sendMessageToActiveTab(tab.id, { type: "popup-refresh" }, 1).catch(() => null);
@@ -2028,7 +2036,7 @@ async function jumpToAssistantTimestamp(seconds, label) {
   // 分拣台 is an extension page: only its viewer frame playing this video seeks, and the tab stays put.
   const inTriage = String(tab.url || "").startsWith(chrome.runtime.getURL("triage/"));
   try {
-    if (!inTriage && !doesTabMatchContextUrl(tab.url || "", targetUrl)) {
+    if (!inTriage && !doesTabMatchContextUrl(tab.url || "", targetUrl, state.view().live.context)) {
       await chrome.tabs.update(tab.id, { url: targetUrl });
       await waitForTabComplete(tab.id);
     }

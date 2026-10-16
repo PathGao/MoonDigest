@@ -172,6 +172,15 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     ctx.chrome.runtime.lastError = undefined;
     assert.deepStrictEqual(plain(r), { ok: false, error: "后台无响应" });
   }
+  // C135: 去设置 that could not open the settings page says why, as the video page does; one that opened says nothing.
+  {
+    const before = toasts.length;
+    handlers["open-options"] = () => ({ ok: true });
+    await t.MoonTriage.openOptions();
+    handlers["open-options"] = () => ({ ok: false, error: "没有权限" });
+    await t.MoonTriage.openOptions();
+    assert.deepStrictEqual(toasts.slice(before), [`${t.MdgErrors.TEXT.settingsOpenFailed}：没有权限`]);
+  }
   // C549: a failed write is toasted once while writes keep failing, and again once one succeeded in between.
   {
     const set = ctx.chrome.storage.local.set;
@@ -477,6 +486,33 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     t.S.undo = [];
   }
 
+  // C39: a 取消收藏 that leaves the video in another chosen folder (by its cached list, 稍后再看 aside) records elsewhere,
+  // so B站 pages other than a favorites page leave 已取消收藏 off; checked against the folder it started in, even when
+  // another folder opens while B站 answers.
+  {
+    const savedFolders = t.S.folders;
+    t.S.folders = [{ id: "E", title: "夹E" }, { id: "F", title: "夹F" }, { id: "toview", title: "稍后再看" }];
+    store[t.K.snapshot("E")] = { bvids: [] };
+    store[t.K.snapshot("F")] = { bvids: ["BV71", "BV73"] };
+    store[t.K.snapshot("toview")] = { bvids: ["BV72"] };
+    const vids = [item(70), item(71), item(72), item(73)];
+    openFake("E", vids);
+    handlers["triage-unfav"] = () => (openFake("F", []), { ok: true });
+    await t.fav.unfav("BV71");
+    openFake("E", vids);
+    handlers["triage-unfav"] = () => ({ ok: true });
+    await t.fav.unfav("BV70");
+    const rec = store[t.K.decisions("E")];
+    assert.deepStrictEqual([rec.BV70.elsewhere, rec.BV71.elsewhere], [undefined, true], "single, and switched away mid-request");
+    const savedAsk = t.askConfirm;
+    t.askConfirm = async () => true;
+    await t.fav.unfavMany([vids[2], vids[3]]);
+    t.askConfirm = savedAsk;
+    const recs = store[t.K.decisions("E")];
+    assert.deepStrictEqual([recs.BV72.elsewhere, recs.BV73.elsewhere], [undefined, true], "batch; 稍后再看 is no favorite");
+    for (const id of ["E", "F", "toview"]) delete store[t.K.snapshot(id)], delete store[t.K.decisions(id)];
+    t.S.folders = savedFolders;
+  }
   // 所有收藏夹: batch 取消收藏 asks which folders (each with its count), then goes folder by folder, naming it; a video
   // leaves each checked folder it is in, and the view only once it is in none. One U puts it back in every one.
   {
@@ -501,6 +537,9 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     assert.deepStrictEqual(plain(vids.map((it) => it.folders)), [[], [], ["W3"]]);
     assert.deepStrictEqual(plain(Object.keys(t.S.decisions)), ["BV60", "BV61"], "out of every folder: 处理完成");
     assert.deepStrictEqual([Object.keys(store[t.K.decisions("W1")]), Object.keys(store[t.K.decisions("W2")])], [["BV60", "BV61"], ["BV61", "BV62"]]);
+    // C39: W1's BV61 and W2's BV62 left the video in a chosen folder (W2, W3); W2's BV61 was its last.
+    const els = (f, b) => store[t.K.decisions(f)][b].elsewhere;
+    assert.deepStrictEqual([els("W1", "BV60"), els("W1", "BV61"), els("W2", "BV61"), els("W2", "BV62")], [undefined, true, undefined, true]);
     const refav = [];
     const pills = [];
     handlers["triage-refav"] = (m) => (refav.push([m.mediaId, m.aid]), pills.push([t.activityState().text, t.fav.state().busy, t.fav.state().writing(m.mediaId)]), { ok: true });
@@ -3160,6 +3199,17 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     vm.runInContext("bindEvents()", ctx);
     ctx.window.addEventListener = realWin;
     const fire = (n, type, e) => (L[n][type] || []).forEach((f) => f(e));
+    // C676: clicks a button as drawn in html, found by its words: the click handlers on path (the element and those it
+    // bubbles through) get its data-* values, as the page's [data-head] lookup reads them.
+    const press = (html, words, path) => {
+      const btn = [...html.matchAll(/<button\b([^>]*)>([\s\S]*?)<\/button>/g)].find(([, attrs, inner]) => /\bdata-head=/.test(attrs) && inner.replace(/<[^>]*>/g, "").includes(words));
+      assert.ok(btn, `no drawn button says ${words}: ${html}`);
+      const dataset = Object.fromEntries([...btn[1].matchAll(/\bdata-([\w-]+)="([^"]*)"/g)].map(([, k, v]) => [k, v]));
+      const e = { target: { closest: (sel) => (sel === "[data-head]" ? { dataset } : null) } };
+      for (const n of path) (L[n]?.click || []).forEach((f) => f(e));
+    };
+    // Row 3 as drawn now; its clicks bubble through stagebar.
+    const pressRow3 = (words) => (t.renderListHeader(t.visibleItems()), press(t.el.listHeader.innerHTML, words, ["listHeader", "stagebar"]));
 
     // C671: saving 收藏夹设置 redraws, so row 3 shows the new batch sizes.
     {
@@ -3185,8 +3235,7 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
       const was = { tab: t.S.tab, query: t.S.query };
       Object.assign(t.S, { tab: "read", query: "" });
       t.S.selected.clear();
-      const e = { target: { closest: (sel) => (sel === "[data-head]" ? { dataset: { head: "select-all" } } : null) } };
-      for (const n of ["listHeader", "stagebar"]) (L[n]?.click || []).forEach((f) => f(e));
+      pressRow3("全选");
       assert.deepStrictEqual(plain([...t.S.selected]), ["BV1", "BV2"], "one click on 全选 selects all");
       t.S.selected.clear();
       Object.assign(t.S, was);
@@ -3199,21 +3248,17 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
       const titles = [];
       const realStart = t.startJudging;
       t.startJudging = async (title) => titles.push(title);
-      const head = (act) => {
-        const e = { target: { closest: (sel) => (sel === "[data-head]" ? { dataset: { head: act } } : null) } };
-        for (const n of ["listHeader", "stagebar"]) (L[n]?.click || []).forEach((f) => f(e));
-      };
       Object.assign(t.S, { tab: "none", query: "", titleRes: {}, analyses: {}, folderCriteria: { A: "新" } });
       t.S.selected.clear();
-      head("stage1");
+      pressRow3("标题粗看下一批 3 个");
       const old = { verdict: "unsure", criteria: "旧" };
       Object.assign(t.S, { tab: "coarse", titleRes: { BV1: old, BV2: old, BV3: { ...old, criteria: "新" } } });
       t.S.selected = new Set(["BV1"]);
-      head("group");
-      head("redo-coarse");
+      pressRow3("字幕细看选中的 1 个");
+      pressRow3("按新标准重新粗看选中的 1 个");
       Object.assign(t.S, { tab: "fine", analyses: { BV3: { status: "done", verdict: "keep", criteria: "旧" } } });
       t.S.selected.clear();
-      head("redo-fine");
+      pressRow3("按新标准重新细看下一批 1 个");
       assert.deepStrictEqual(titles, ["标题粗看下一批 3 个", "字幕细看选中的 1 个", "按新标准重新粗看选中的 1 个", "按新标准重新细看下一批 1 个"]);
       t.startJudging = realStart;
       t.S.selected.clear();
@@ -3228,8 +3273,7 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
       t.S.selected = new Set(["BV1", "BV2"]);
       let release;
       handlers["triage-analyze"] = ({ bvid }) => new Promise((r) => (release = () => r({ ok: true, data: { bvid, status: "done", verdict: "keep" } })));
-      const e = { target: { closest: (sel) => (sel === "[data-head]" ? { dataset: { head: "group" } } : null) } };
-      for (const n of ["listHeader", "stagebar"]) (L[n]?.click || []).forEach((f) => f(e));
+      pressRow3("字幕细看选中的 2 个");
       await new Promise((r) => setImmediate(r));
       assert.ok(t.S.group && t.S.selected.has("BV1") && t.S.selected.has("BV2"), "the batch stays selected while it runs");
       vm.runInContext("runs", ctx).stop("group");
@@ -3312,7 +3356,8 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
       const pressStop = async (h) => {
         for (let i = 0; i < 500 && !h.inFlight; i++) await new Promise((r) => setTimeout(r, 2));
         assert.deepStrictEqual([t.activityState().act, t.activityState().actLabel], ["fav", "停止"]);
-        fire("activity", "click", { target: { closest: (sel) => (sel === "[data-head]" ? { dataset: { head: "fav" } } : null) } });
+        t.renderStatus();
+        press(t.el.activity.innerHTML, "停止", ["activity"]);
         assert.deepStrictEqual([t.activityState().actLabel, t.activityState().stopping], ["停止中", true]);
         t.renderStatus();
         assert.ok(t.el.activity.innerHTML.includes('aria-label="停止中" disabled title="当前这一批做完就停止"'), t.el.activity.innerHTML);

@@ -92,8 +92,8 @@ function bindEvents() {
       setStatus(payload.subtitleMissing || MdgErrors.subtitleMissing(), true);
       return;
     }
-    const safeTitle = MdgCommon.fileName(payload.title, "video-subtitle");
-    MdgDownload.text(`${safeTitle}.${format}`, content, "text/plain;charset=utf-8");
+    // Named like the note (date prefix setting, 分 P), only the extension differs.
+    MdgDownload.text(payload.filename.replace(/\.md$/, `.${format}`), content, "text/plain;charset=utf-8");
     setStatus(`已下载 ${format.toUpperCase()}`);
   });
 
@@ -160,7 +160,8 @@ function bindEvents() {
   });
 
   el.settingsBtn.addEventListener("click", async () => {
-    await sendToRuntime({ type: "open-options" });
+    const resp = await sendToRuntime({ type: "open-options" }).catch((error) => ({ ok: false, error: error.message }));
+    if (!resp?.ok) setStatus(`${MdgErrors.TEXT.settingsOpenFailed}：${MdgErrors.text(resp)}`, true);
   });
 
   el.summaryBtn.addEventListener("click", async () => {

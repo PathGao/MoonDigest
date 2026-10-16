@@ -60,6 +60,10 @@ assert.match(ctx.el.subtitleSelect.innerHTML, /^<option value="u1"[^>]* selected
   ctx.MdgDownload = { ...ctx.MdgDownload, text: (name) => saved.push(name) };
   await ctx.el.mdBtn.on.click();
   assert.deepStrictEqual(saved, ["2026-10-14-标题-P2-第二集.md"]);
+  // C287: 下载字幕 takes the same name (srt is the default format).
+  ctx.ensurePayload = async () => ({ title: "标题", srt: "1", filename: "2026-10-14-标题-P2-第二集.md" });
+  await ctx.el.downloadBtn.on.click();
+  assert.deepStrictEqual(saved, ["2026-10-14-标题-P2-第二集.md", "2026-10-14-标题-P2-第二集.srt"]);
 })().catch((e) => (console.error(e), process.exit(1)));
 
 // B1: opening on a web page reads nothing: no 抓取失败, the status says why, and 刷新 is disabled with that reason.
@@ -149,6 +153,10 @@ setTimeout(() =>
     ctx.getActiveTab = async () => ({ id: 1, url: "https://example.com/" });
     ctx.chrome = { runtime: {}, tabs: { sendMessage: (id, m, cb) => ((ctx.chrome.runtime.lastError = { message: "The message port closed before a response was received." }), cb(), delete ctx.chrome.runtime.lastError) } };
     assert.strictEqual((await ctx.sendToContent({ type: "popup-get-state" })).error, T.reloadRetry);
+    // C135: ⚙ that could not open the settings page says so, as the video page does.
+    ctx.sendToRuntime = async () => ({ ok: false, error: "没有权限" });
+    await ctx.el.settingsBtn.on.click();
+    assert.strictEqual(ctx.el.status.textContent, `${T.settingsOpenFailed}：没有权限`);
     console.log("popup selftest: all passed");
   })().catch((e) => (console.error(e), process.exit(1)))
 );

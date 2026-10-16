@@ -3915,7 +3915,7 @@ async function requestOpenOptions() {
     const resp = await sendRuntimeMessage({ type: "open-options" });
     if (!resp?.ok) throw MdgErrors.fromResp(resp);
   } catch (error) {
-    setReadingNotice(MdgErrors.reloaded(error) ? MdgErrors.TEXT.reloaded : `打开设置失败：${getErrorMessage(error)}`, { error: true });
+    setReadingNotice(MdgErrors.reloaded(error) ? MdgErrors.TEXT.reloaded : `${MdgErrors.TEXT.settingsOpenFailed}：${getErrorMessage(error)}`, { error: true });
   }
 }
 

@@ -98,7 +98,9 @@
     // The popup or the side panel did not start; followed by 「：原因」.
     initFailed: "初始化失败",
     // The popup and the video page while the video's info is read.
-    videoReading: "正在读取视频信息…"
+    videoReading: "正在读取视频信息…",
+    // 去设置 / ⚙ that could not open the settings page (video page, popup, 分拣台); followed by 「：原因」.
+    settingsOpenFailed: "打开设置失败"
   });
 
   // Names of controls and pages that recur across pages (DESIGN 术语表). A name also appears inside sentences
@@ -154,7 +156,9 @@
     stop: "停止",
     stopping: "停止中",
     // A job the user stopped (分拣台's toasts and status lines; 关注's background names its stop error so).
-    stopped: "已停止"
+    stopped: "已停止",
+    // A B站 page's mark on an invalid video the AI never judged (no 「AI」: it is the snapshot's fact, not a verdict).
+    invalid: "已失效"
   });
 
   // How long a B站 / YouTube read waits for an answer: the background's B站 channel (triage-bg.js triageBiliFetch,

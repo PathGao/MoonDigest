@@ -356,4 +356,42 @@ function panel({ tab = video("BV1aa"), list = [] } = {}) {
   assert.deepStrictEqual([S.needsConversationPageHydration(p.view().saved[0]), p.view().saved[0].title], [false, "t-BV1gn"]);
 }
 
+{
+  // C304: a watch-later page names the part by oid, not ?p=, in the tab URL and in the payload's url; the payload's
+  // pageIndex (and its cid for the tab URL) places it.
+  const wl = (n) => `https://www.bilibili.com/list/watchlater?bvid=BV1ww&oid=c${n}`;
+  const part = (n) => video("BV1ww", { url: wl(n), cid: `c${n}`, pageIndex: n, pageCount: 3 });
+  const p = panel({ tab: null });
+  p.load(part(2), { follow: true });
+  p.ask("q", "a");
+  assert.strictEqual(p.view().mismatch, false, "P2 asked on its own page");
+  p.load(part(3));
+  assert.deepStrictEqual([p.view().id !== "", p.view().mismatch], [true, true], "not following: P2's conversation is not the tab's P3");
+  p.load(part(3), { follow: true });
+  assert.deepStrictEqual([p.view().id, p.view().context.pageIndex], ["", 3], "following: P3 is another video");
+  assert.strictEqual(S.doesTabMatchContextUrl(wl(3), "https://www.bilibili.com/video/BV1ww/?p=3", part(3)), true, "the tab's payload places the part");
+  assert.strictEqual(S.doesTabMatchContextUrl(wl(3), "https://www.bilibili.com/video/BV1ww/?p=3", part(2)), false, "another part's payload does not");
+}
+
+{
+  // C329: a save merges by entry into the stored list. Kept: each entry's newer version, what this page created; gone:
+  // what this page deleted, and what only this page still has because another page (视频记录) deleted it.
+  const c = (id, updatedAt) => ({ ...saved(id, video(`BV1${id}`)), updatedAt });
+  const ids = (list) => [...list].map((x) => `${x.id}@${x.updatedAt}`).sort();
+  const merged = S.mergeSaved([c("a", 1), c("b", 1), c("o", 5)], [c("a", 2), c("b", 1), c("o", 3), c("x", 1), c("n", 1)], { created: new Set(["n"]), deleted: new Set(["b"]) });
+  assert.deepStrictEqual(ids(merged), ["a@2", "n@1", "o@5"]);
+  // Through the panel: a stored change read before this page wrote its new conversation or a delete keeps both.
+  const p = panel({ tab: null, list: [c("a", 1), c("b", 1)] });
+  p.load(video("BV1nn"), { follow: true });
+  p.ask("q", "a");
+  const mine = p.view().id;
+  p.dispatch({ type: "DELETED", id: "b" });
+  p.dispatch({ type: "SAVED_CHANGED", list: [c("a", 1), c("b", 1)] });
+  assert.deepStrictEqual(ids(p.view().saved).map((x) => x.split("@")[0]).sort(), ["a", mine].sort(), "not written yet: kept, and still deleted");
+  assert.deepStrictEqual([[...p.view().unsaved.created], [...p.view().unsaved.deleted]], [[mine], ["b"]]);
+  p.dispatch({ type: "SAVED_WRITTEN", created: new Set([mine]), deleted: new Set(["b"]) });
+  p.dispatch({ type: "SAVED_CHANGED", list: [c("a", 1)] });
+  assert.deepStrictEqual(ids(p.view().saved).map((x) => x.split("@")[0]), ["a"], "written, then deleted on 视频记录: gone here too");
+}
+
 console.log("sidepanel-state selftest: all passed");

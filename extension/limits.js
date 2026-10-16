@@ -131,6 +131,20 @@
     return done;
   }
 
+  // The AI conversation list (KEYS.aiConversations) changed by read-modify-write, one change at a time across pages like
+  // saveVideoNote: the side panel and 视频记录 both write it, and a whole list written from an older read would bring back
+  // what the other deleted. edit(stored list) returns the list to write.
+  let conversationQueue = Promise.resolve();
+  function updateConversations(edit) {
+    const once = async () => {
+      const list = (await chrome.storage.local.get(KEYS.aiConversations))[KEYS.aiConversations];
+      await chrome.storage.local.set({ [KEYS.aiConversations]: edit(Array.isArray(list) ? list : []) });
+    };
+    const done = conversationQueue.then(() => (globalThis.navigator?.locks ? navigator.locks.request("mdg-ai-conversations", once) : once()));
+    conversationQueue = done.catch(() => {});
+    return done;
+  }
+
   // Asks the side panel to open a video's AI chat (KEYS.playerAiQuickAction): the one shape every sender writes (the
   // player ✦ and popup via the background, 分拣台 and 视频记录). The side panel drops a request older than 15 s by createdAt.
   function askSidepanel({ tabId, prompt = "", contextRef = null, frameId = 0 }) {
@@ -263,6 +277,7 @@
     storageKeys,
     migrateRenamedLocalStorage,
     saveVideoNote,
+    updateConversations,
     askSidepanel
   });
 })();

@@ -245,8 +245,7 @@ async function deleteGroups(keys) {
   keys = deletableKeys(keys);
   if (!keys.length || !confirm(`删除 ${keys.length} 个视频的全部 AI 对话？删除后不能恢复。`)) return;
   try {
-    const current = (await chrome.storage.local.get(KEY))[KEY] || [];
-    await chrome.storage.local.set({ [KEY]: current.filter((c) => !keys.includes(c?.contextKey || c?.id)) });
+    await MdgLimits.updateConversations((current) => current.filter((c) => !keys.includes(c?.contextKey || c?.id)));
   } catch (error) {
     return setStatus(`${MdgErrors.TEXT.deleteFailed}：${error?.message || MdgErrors.TEXT.unknown}`, true);
   }
@@ -365,7 +364,7 @@ els.bulkDelete.addEventListener("click", () => void deleteGroups(shownPicks()));
 els.clearAll.addEventListener("click", async () => {
   if (!confirm("清空全部 AI 对话？删除后不能恢复。")) return;
   try {
-    await chrome.storage.local.set({ [KEY]: [] });
+    await MdgLimits.updateConversations(() => []);
   } catch (error) {
     return setStatus(`${MdgErrors.TEXT.deleteFailed}：${error?.message || MdgErrors.TEXT.unknown}`, true);
   }
