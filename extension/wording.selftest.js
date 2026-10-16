@@ -154,14 +154,12 @@ for (const [table, name] of [[TEXT, "TEXT"], [LABEL, "LABEL"]]) {
 }
 for (const m of marks) if (!(m.key in TABLE)) found.use.push(`${m.file}:${m.line} data-text="${m.key}" is not in MdgErrors.TEXT / LABEL`);
 
-// (b) written once. badges.js runs on B站 pages without errors.js, so it keeps word-for-word copies of these.
-const BADGES_COPIES = ["reloaded"];
-for (const key of BADGES_COPIES) assert.ok(segments["badges.js"].some((x) => x.s === TABLE[key]), `badges.js no longer shows TEXT.${key} word for word`);
+// (b) written once.
 for (const f of files.filter((f) => f !== "errors.js")) {
   for (const { s, line, mark } of segments[f]) {
     for (const [key, value] of Object.entries(TABLE)) {
       const hit = key in TEXT ? s.includes(value) : s === value;
-      if (!hit || (f === "badges.js" && BADGES_COPIES.includes(key))) continue;
+      if (!hit) continue;
       if (mark === key && s === value) continue;
       found.copy.push(`${f}:${line} writes 「${value}」 itself; use ${key in TEXT ? "TEXT" : "LABEL"}.${key}${f.endsWith(".html") ? ` or data-text="${key}"` : ""}`);
     }
@@ -236,11 +234,9 @@ const DUPLICATES = [
   ["只更新 AI 问答", "content.js download.js", "例外：同上，「该笔记已存在」确认框的两份"],
   ["账号已注销", "triage/follow-bg.js triage/follow.js", "例外：follow-bg.js 里的是 B站 给注销账号的占位名（接口数据，按它认人），follow.js 显示的状态名恰好同字"],
   ["自定义", "background.js options.js", "待修：C18"],
-  ["已保留", "badges.js triage/triage.js", "待修：C32"],
-  ["已取消收藏", "badges.js triage/triage.js", "待修：C32"],
   ["标题粗看", "badges.js triage/triage.js", "待修：C34（badges.js 同一张 STAGE 表）"],
   ["字幕细看", "badges.js triage/triage.js", "待修：C34（badges.js 同一张 STAGE 表）"],
-  ["UP 标签", "bili-surfaces.js triage/follow.js triage/shared.js", "待修：C55、C443"],
+  ["UP 标签", "bili-surfaces.js triage/follow.js triage/shared.js", "待修：C55"],
   ["观看进度", "bili-surfaces.js limits.js options.html triage/triage.js", "待修：C183"],
   ["专注模式", "content.js popup.html", "待修：C79"],
   ["AI 总结", "content.js popup.html", "待修：C79、C128、C282"],
@@ -249,7 +245,6 @@ const DUPLICATES = [
   ["这里没有列出视频", "history/history.js triage/triage.js", "待修：C170"],
   ["正在打开侧边栏…", "history/history.js popup.js", "待修：C175、C176、C292"],
   ["已出分拣范围", "limits.js triage/follow.js triage/triage.js", "待修：C582（triage.js 已收成 REMOVED_NAME 一处，limits.js 的说明和 follow.js 还各写一份）"],
-  ["B站分拣台", "options.html triage/triage.html", "待修：C283"],
   ["停止中", "sidepanel.js triage/follow.js triage/tag-dialogs.js triage/triage.js", "待修：C497"],
   ["读取关注列表", "triage/follow-bg.js triage/follow.js", "待修：C394"],
   ["已停止", "triage/follow-bg.js triage/triage.js", "待修：C402"],
@@ -264,9 +259,6 @@ const DUPLICATES = [
   ["✓ 看完了", "bili-surfaces.js options.html", "待修（扫描未列）：设置页的示意图照抄 B站页面上的标记文字"],
   ["发布日期", "content.js options.html", "待修（扫描未列）：专注模式信息栏和设置页属性说明各写一份"],
   ["✎ 备注", "history/history.js sidepanel.html triage/triage.js", "待修（扫描未列）：视频记录、侧边栏和分拣台的备注按钮各写一份"],
-  ["简体中文", "options.html sites.js", "待修（扫描未列）：sites.js 的字幕语言名和设置页语言下拉各写一份"],
-  ["繁體中文", "options.html sites.js", "待修（扫描未列）：同上"],
-  ["日本語", "options.html sites.js", "待修（扫描未列）：同上"],
   ["初始化失败：", "popup.js sidepanel.js", "待修：C284"],
   ["授权访问", "sidepanel.js triage/triage.js", "待修：C346"],
   ["打开设置页", "sidepanel.html triage/triage.html", "待修：C315（收进 LABEL 要连 triage.html 一起改）"],

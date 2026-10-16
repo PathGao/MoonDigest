@@ -7,11 +7,7 @@
   const esc = MdgErrors.escapeHtml;
   const pad = (n) => String(n).padStart(2, "0");
   // pubdate and friends are seconds since the epoch: 2026-10-08, "" without one.
-  function fmtDate(sec) {
-    if (!sec) return "";
-    const d = new Date(sec * 1000);
-    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
-  }
+  const fmtDate = (sec) => (sec ? MdgCommon.localDate(sec * 1000) : "");
   // Seconds as 9:47, 1:15:00 from an hour up (minutes padded only after hours).
   function fmtDuration(sec) {
     sec = Math.max(0, Math.floor(Number(sec) || 0));
@@ -395,7 +391,7 @@
   const confirmList = (names) => `<ul>${names.slice(0, CONFIRM_NAMES).map((n) => `<li>${esc(n)}</li>`).join("")}</ul>${names.length > CONFIRM_NAMES ? `<p>等 ${names.length} 个</p>` : ""}`;
   // The tag picker's title: 「给「名字」打视频标签 / 打 UP 标签」 (a name alone does not say which), or for several
   // 「给选中的 N 个视频打标签」.
-  const pickTitle = (n, name, who) => (n > 1 ? `给选中的 ${n} 个${sp(who)}打标签` : `给「${name}」打${tagsWord(who)}`);
+  const pickTitle = (n, name, who) => (n > 1 ? `给选中的 ${n} 个${sp(who)}打标签` : who === "UP 主" ? MdgErrors.upTagTitle(name) : `给「${name}」打${tagsWord(who)}`);
   // U on a step that changed n ≥ 2 items asks this first: kind is tags (one 标签… save), ai (one applied AI 打标签) or
   // keep (one batch 保留).
   const UNDO_ASK = {

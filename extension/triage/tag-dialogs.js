@@ -15,7 +15,7 @@
   // tag | null, edit(t, field, value) → saved?, remove(t) }; all may be async but addReason.
   // 分组管理 also passes text: { title, saved (what saves at once), newName, newMax, add, addLabel } and row(t, count)
   // (its row html).
-  const TAG_TEXT = { title: "标签管理", saved: "改名、颜色、说明和删除立即保存。", newName: "新标签名称", newMax: MdgTagCore.TAG_NAME_MAX, add: "添加", addLabel: "添加标签" };
+  const TAG_TEXT = { title: "标签管理", saved: "改名、颜色、说明和删除立即保存。", newName: MdgErrors.LABEL.newTagName, newMax: MdgTagCore.TAG_NAME_MAX, add: "添加", addLabel: "添加标签" };
   let man = null;
   const rows = $("tagsRows");
   const newInput = $("newTagInput");

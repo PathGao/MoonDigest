@@ -79,6 +79,8 @@ const elements = {
   obsidianTestResult: document.getElementById("obsidianTestResult"),
   filenameSample: document.getElementById("filenameSample")
 };
+// The languages after 自动 are MdgCommon.SUBTITLE_LANGS, the targets the subtitle choice matches.
+elements.youtubeSubtitleLang.append(...Object.entries(MdgCommon.SUBTITLE_LANGS).map(([value, name]) => new Option(name, value)));
 
 // Form state keys that are not an element id, mapped to the element whose section they belong to.
 const STATE_KEY_NODES = {
@@ -162,7 +164,7 @@ function init() {
   elements.obsidianApiKey.addEventListener("input", syncObsidianKeyTag);
   for (const box of [elements.obsidianApiBaseUrl, elements.obsidianApiKey]) box.addEventListener("input", syncObsidianTest);
   // Focuses an open triage or 视频记录 tab instead of a second one.
-  for (const [page, type] of [["triage/triage.html", "triage-open"], ["history/history.html", "history-open"]]) {
+  for (const [page, type] of [[MdgCommon.PAGES.triage, "triage-open"], [MdgCommon.PAGES.history, "history-open"]]) {
     document.querySelector(`a.jump[href$="${page}"]`)?.addEventListener("click", async (event) => {
       event.preventDefault();
       const r = await chrome.runtime.sendMessage({ type }).catch(() => null);
@@ -176,7 +178,7 @@ function init() {
       elements.noteFolder.dispatchEvent(new Event("input", { bubbles: true }));
     });
   });
-  elements.filenameSample.textContent = `${MdgDownload.dateStamp()}-视频标题.md`;
+  elements.filenameSample.textContent = `${MdgCommon.localDate()}-视频标题.md`;
   trackCurrentSection();
 }
 
@@ -212,7 +214,7 @@ function trackCurrentSection() {
 async function exportSettingsFile() {
   const resp = await sendRuntimeMessage({ type: "settings-export" }).catch((e) => ({ error: e.message }));
   if (!resp?.ok) return setStatus(`导出失败：${MdgErrors.text(resp)}`, true);
-  MdgDownload.text(`MoonDigest设置-${MdgDownload.dateStamp()}.json`, JSON.stringify(resp.file, null, 2), "application/json");
+  MdgDownload.text(`MoonDigest设置-${MdgCommon.localDate()}.json`, JSON.stringify(resp.file, null, 2), "application/json");
   setStatus(hasUnsavedChanges ? "已导出已保存的设置，未保存的修改不在文件里" : "已导出设置");
 }
 

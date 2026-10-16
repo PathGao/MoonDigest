@@ -5,6 +5,7 @@ const vm = require("vm");
 const assert = require("assert");
 
 const ctx = vm.createContext({ setTimeout, clearTimeout });
+vm.runInContext(fs.readFileSync(path.join(__dirname, "../common.js"), "utf8"), ctx);
 vm.runInContext(fs.readFileSync(path.join(__dirname, "../limits.js"), "utf8"), ctx);
 vm.runInContext(fs.readFileSync(path.join(__dirname, "../errors.js"), "utf8"), ctx);
 vm.runInContext(fs.readFileSync(path.join(__dirname, "../typing.js"), "utf8"), ctx);

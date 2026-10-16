@@ -7,7 +7,7 @@ const assert = require("assert");
 
 const ctx = vm.createContext({ console, URL });
 ctx.globalThis = ctx;
-for (const f of ["limits.js", "errors.js", "sites.js", "sidepanel-state.js"]) vm.runInContext(fs.readFileSync(path.join(__dirname, f), "utf8"), ctx);
+for (const f of ["common.js", "limits.js", "errors.js", "sites.js", "sidepanel-state.js"]) vm.runInContext(fs.readFileSync(path.join(__dirname, f), "utf8"), ctx);
 const S = ctx.SidepanelState;
 const plain = (value) => JSON.parse(JSON.stringify(value));
 const types = (effects) => [...effects].map((e) => e.type);

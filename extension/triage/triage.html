@@ -12,7 +12,7 @@
     <div class="app">
       <!-- Top bar: only what both modes share (brand, mode switch, the narrow-width folder or tag select, 帮助). -->
       <header class="topbar">
-        <div class="brand"><span class="brand-mark" aria-hidden="true"></span>B站分拣台</div>
+        <div class="brand" data-text="triage"><span class="brand-mark" aria-hidden="true"></span>B站分拣台</div>
         <!-- 收藏夹 | 关注: follow.js owns the switch and the 关注 mode (body.follow-mode). -->
         <span id="modeSwitch" class="seg mode-switch" role="group" aria-label="分拣什么"><button type="button" data-mode="fav" aria-pressed="true">收藏夹</button><button type="button" data-mode="follow" aria-pressed="false">关注</button></span>
         <!-- The select holds the open folder (every reader and writer keeps using it); the sidebar list is drawn from its options. -->
@@ -284,7 +284,7 @@
           <p id="tagManageHint" class="dialog-hint"></p>
           <div id="tagsRows" class="tag-rows"></div>
           <div class="tag-add">
-            <input id="newTagInput" type="text" placeholder="新标签名称" aria-label="新标签名称" autocomplete="off" />
+            <input id="newTagInput" type="text" placeholder="新标签名称" aria-label="新标签名称" autocomplete="off" data-text="newTagName" />
             <button id="addTagBtn" type="button" aria-label="添加标签">添加</button>
           </div>
           <div class="dialog-actions">
@@ -401,6 +401,7 @@
       </form>
     </dialog>
 
+    <script src="../common.js"></script>
     <script src="../limits.js"></script>
     <script src="../errors.js"></script>
     <script src="../typing.js"></script>

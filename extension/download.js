@@ -1,5 +1,5 @@
-// Extension-page helpers (need document): saving text as a file, the date in export file names (dateStamp), and the
-// 该笔记已存在 dialog of the side panel and 视频记录 (the video page draws its own copy: content.js confirmOverwriteNote).
+// Extension-page helpers (need document): saving text as a file, and the 该笔记已存在 dialog of the side panel and
+// 视频记录 (the video page draws its own copy: content.js confirmOverwriteNote).
 (() => {
   if (globalThis.MdgDownload) {
     return;
@@ -16,15 +16,7 @@
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
 
-  // The date in every exported file name, by the local day (toISOString's UTC day is yesterday before 8:00 in UTC+8):
-  // 2026-10-14, or 2026-10-14-0730 for exports made several times a day.
-  function dateStamp(d = new Date(), withTime = false) {
-    const pad = (n) => String(n).padStart(2, "0");
-    const day = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
-    return withTime ? `${day}-${pad(d.getHours())}${pad(d.getMinutes())}` : day;
-  }
-
-  globalThis.MdgDownload = Object.freeze({ text, dateStamp });
+  globalThis.MdgDownload = Object.freeze({ text });
 })();
 
 (() => {

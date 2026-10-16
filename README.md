@@ -251,7 +251,8 @@ extension/
 ├── bili-surfaces.js 每种 B站页面显示哪些标记，观看进度的读法和文案（标记和分拣台共用）
 ├── tag-core.js     标签规则和 AI 结论，分拣台、B站页面、笔记共用
 ├── typing.js       输入法组字和输入框里的按键判断，各页面共用
-├── download.js     扩展页面的下载文件、导出文件名里的日期、「该笔记已存在」选择
+├── download.js     扩展页面的下载文件、「该笔记已存在」选择
+├── common.js       处处都用的纯函数和常量（日期、文件名、时间和计数解析、页面路径），每处最先加载
 ├── limits.js       各类数据的上限，和设置页「数据与存储」共用
 ├── errors.js       页面怎么显示错误：共用的错误文案、错误码对应的按钮
 ├── settings.js     设置的默认值，和几个页面共用的设置整理函数
@@ -264,7 +265,7 @@ extension/
 
 自检（用 `/usr/local/bin/node`，Node 24；`node` 指向 bun 套壳或 v26 时有几个会卡住或报错）：
 
-`load-order.selftest.js` 检查每个页面、每组内容脚本和后台 `importScripts` 的加载顺序：定义全局对象的文件要排在用到它的文件前面，引用的脚本都要存在。
+`load-order.selftest.js` 检查每个页面、每组内容脚本和后台 `importScripts` 的加载顺序：定义全局对象的文件要排在用到它的文件前面，引用的脚本都要存在，`common.js` 排第一。
 
 `conventions.selftest.js` 检查开关取值、存储键名、灰掉写原因、回复的错误经 `MdgErrors.text` 显示、共享记录经各自的串行写入函数读改写这几条约定；`wording.selftest.js` 检查界面文字：文字表里的话别处不再写一份、同一句话不在两个页面各写一份、不用术语表里「不用」的词；`messages.selftest.js` 核对消息清单 `messages.js`（每条消息谁发、谁接、带哪些字段）和代码一致。这几个是读源码的约定检查，不是行为测试。规则和允许清单怎么加见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)。
 

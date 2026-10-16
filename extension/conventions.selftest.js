@@ -10,7 +10,8 @@
 //      thrown Error has Chinese words (b. no English-only Error that e.message would show).
 //   5. A shared record is read-modified-written through its module's serial writer: 视频备注 only through
 //      MdgLimits.saveVideoNote (a), follow-bg.js's follow_* keys only through followUpdate (b).
-// Fails on any hit of 1, 2a, 2b, 3c and 3d. 3a, 3b, 4 and 5 fail on a hit that is not in ALLOW below, and on an ALLOW
+//   6. Page paths and the file-name rule are MdgCommon's (ARCHITECTURE: common.js).
+// Fails on any hit of 1, 2a, 2b, 3c, 3d and 6. 3a, 3b, 4 and 5 fail on a hit that is not in ALLOW below, and on an ALLOW
 // line that matches no hit (its reason no longer holds). Sections marked (允许) only list.
 // Scanned: extension/**/*.js and *.html. Not scanned: *.selftest.js, every dev/ folder and dev-sidepanel/ (mocks, the
 // build script and its generated index.html), *.mjs, messages.js (the message list, messages.selftest.js), and per check
@@ -131,25 +132,19 @@ const ALIASES = { "content.js": { readingChapterVisible: "readerChapterVisible" 
 {
   const values = Object.values(L.KEYS).filter((v) => typeof v === "string");
   const prefixes = values.filter((v) => v.endsWith("_"));
-  const badgesCopies = JSON.parse(
-    /const badgesCopies = (\[[^\]]*\])/.exec(read("limits.selftest.js"))[1].replace(/'/g, '"')
-  );
   // A quoted literal's leading word, up to its closing quote or a ${.
   const literals = (text) => [...text.matchAll(/(["'`])([A-Za-z0-9_]+)(?=\1|\$\{)/g)].map((m) => m[2]);
   const inKeys = (s) => values.includes(s) || prefixes.some((p) => s.startsWith(p));
   const hits = [];
-  const copies = [];
   for (const f of files.filter((f) => f !== "limits.js")) {
     lines[f].forEach((line, i) => {
       if (isComment(line)) return;
       for (const s of literals(line)) {
-        if (!inKeys(s)) continue;
-        (f === "badges.js" && badgesCopies.some((c) => s === c || (c.endsWith("_") && s.startsWith(c))) ? copies : hits).push(at(f, i));
+        if (inKeys(s)) hits.push(at(f, i));
       }
     });
   }
   section("2a. KEYS 里的键名在 limits.js 以外又写成字符串", hits, "any");
-  section("2a'. 允许的拷贝（badges.js，limits.selftest 的 badgesCopies 核对）", copies);
 
   // 2b looks only where a string is a storage key: the arguments of chrome.storage.*.get / set / remove and startsWith.
   closeOf = (t, i) => {
@@ -289,6 +284,20 @@ const ALIASES = { "content.js": { readingChapterVisible: "readerChapterVisible" 
     raw.push(hitAt(f, text.slice(0, m.index).split("\n").length - 1));
   }
   section("5b. follow-bg.js 不经 followUpdate 写 follow_* 键", raw, "allow");
+}
+
+// 6. What common.js holds is not written again: an extension page's path for getURL (MdgCommon.PAGES; a page's own
+// <a href> is relative to it) and the file-name rule (MdgCommon.fileName: a replace of Obsidian's characters by _).
+{
+  const hits = [];
+  for (const f of files.filter((f) => f.endsWith(".js") && f !== "common.js")) {
+    lines[f].forEach((line, i) => {
+      if (isComment(line)) return;
+      if (/["'`](triage\/triage|history\/history)\.html["'`]/.test(line)) hits.push(at(f, i) + "  （MdgCommon.PAGES）");
+      if (/\.replace\(\/\[[^\]]*:\*\?"<>\|[^/]*\/g,\s*"_"\)/.test(line)) hits.push(at(f, i) + "  （MdgCommon.fileName）");
+    });
+  }
+  section("6. common.js 里有的又写一份", hits, "any");
 }
 
 let failed = 0;

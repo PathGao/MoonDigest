@@ -752,6 +752,8 @@ const p0Throttled = () => vm.runInContext("MdgErrors.TEXT.biliThrottled", ctx);
     const { F, E } = p.FW;
     // J10: row 4's chip says what it lists.
     assert.ok(E.tagRow.innerHTML.includes('title="可多选：只显示同时带有所选标签的 UP 主"'), E.tagRow.innerHTML);
+    // C443: a card's 「+ 标签」 is named as the B站 page's and the picker's title (MdgErrors.upTagTitle), with 「」.
+    assert.ok(/data-pick="u1" aria-label="给「[^"」]+」打 UP 标签"/.test(E.list.innerHTML), E.list.innerHTML);
     F.side = "g:-10";
     p.FW.render();
     assert.ok(E.list.innerHTML.includes("这个分组没有 UP 主"), E.list.innerHTML);

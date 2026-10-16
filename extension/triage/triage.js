@@ -128,7 +128,7 @@ function tagsByFolderMigration({ tags = [], videoTags = {}, folders = [], fallba
 }
 
 // The stored records' shapes and the export helpers (pure) live in triage-core.js.
-const { refavorited, mergeFolderItems, updateRemoved, moveToRemoved, inferFrom, forgetLeft, noteLeft, keepInvalidInfo, idsChanged, mergeHead, unfavOnly, mdLinkText, safeNoteName, oneLine, mdLink, wikiLink, zipStored } = TriageCore;
+const { refavorited, mergeFolderItems, updateRemoved, moveToRemoved, inferFrom, forgetLeft, noteLeft, keepInvalidInfo, idsChanged, mergeHead, unfavOnly, mdLinkText, oneLine, mdLink, wikiLink, zipStored } = TriageCore;
 
 // One-time split (pure): 保留 moves out of every triage_decisions_<folder> into one list, the newest per video winning.
 function splitKept(all) {
@@ -402,7 +402,7 @@ function serialStore(fn) {
   return run;
 }
 
-const stamp = (d = new Date(), withTime = true) => MdgDownload.dateStamp(d, withTime);
+const stamp = (d = new Date(), withTime = true) => MdgCommon.localDate(d, withTime);
 function fmtTime(ts) {
   if (!ts) return "";
   const d = new Date(ts);
@@ -616,10 +616,10 @@ function hasAllTags(videoIds, selectedIds, nameOf) {
 
 // Why a video is in 已出分拣范围: "invalid" (also invalid in a folder), "out" (still in a folder that is not chosen), "unfav"
 // (in no folder), "" until checked. inFolder, once looked up, outranks where a 移动 here sent it.
-const KINDS = [["unfav", "已取消收藏"], ["out", "在未勾选收藏夹"], ["invalid", "已失效"]];
+const KINDS = [["unfav", MdgErrors.LABEL.unfaved], ["out", "在未勾选收藏夹"], ["invalid", "已失效"]];
 const KIND_NAME = Object.fromEntries(KINDS);
 // A decided card's badge and the 已保留 chip.
-const ACTION_LABEL = { unfav: KIND_NAME.unfav, keep: "已保留" };
+const ACTION_LABEL = { unfav: KIND_NAME.unfav, keep: MdgErrors.LABEL.kept };
 function kindOf(it) {
   if (it.invalid || it.hidden) return "invalid";
   const at = it.inFolder !== undefined ? it.inFolder : it.movedTo;
@@ -2733,7 +2733,7 @@ const fav = {
       tell(`已从 ${Object.keys(gone).length} 个收藏夹取消收藏，可在各收藏夹的${RECENT_UNFAV}里${REFAV}`, `，已完成的可在各收藏夹的${RECENT_UNFAV}里${REFAV}`);
     } else if (done && S.mediaId === mediaId) {
       pushUndo(unfavManyStep(mediaId, list.slice(0, done).map(({ bvid, aid }) => ({ bvid, aid }))));
-      tell(`已取消收藏 ${done} 个${UNDO}`, `${UNDO}已完成的`);
+      tell(`${KIND_NAME.unfav} ${done} 个${UNDO}`, `${UNDO}已完成的`);
     } else if (done) {
       // Elsewhere they are saved under their folder and listed in its 最近取消收藏, where they can be re-favorited.
       tell(`「${folderName(mediaId)}」已取消收藏 ${done} 个，可在它的${RECENT_UNFAV}里${REFAV}`, `，已完成的可在它的${RECENT_UNFAV}里${REFAV}`);
@@ -4023,7 +4023,7 @@ async function runWrite(md = false) {
       return (index = { index: true, n: 0, gap: 0 });
     },
     act(s) {
-      if (s.index) return send({ type: "triage-export", filename: `${safeNoteName(title)}.md`, markdown: indexMarkdown(written, wikiLink, title) });
+      if (s.index) return send({ type: "triage-export", filename: `${MdgCommon.fileName(title, "收藏夹")}.md`, markdown: indexMarkdown(written, wikiLink, title) });
       el.writeProgress.textContent = `${verb} ${s.i + 1}/${items.length}：${s.it.title}`;
       return send(md ? { type: "triage-build-note", bvid: s.it.bvid } : { type: "triage-write-note", bvid: s.it.bvid, title: s.it.title, overwrite });
     },
@@ -4051,7 +4051,7 @@ async function runWrite(md = false) {
   const run = await running;
   if (run.error) obsidian = { error: run.error, code: run.code };
   if (md && written.length) {
-    const base = safeNoteName(title);
+    const base = MdgCommon.fileName(title, "收藏夹");
     indexPath = `${base}.zip`;
     MdgDownload.text(indexPath, zipStored(zipNotes(base, written, title)), "application/zip");
   }
@@ -4444,8 +4444,7 @@ function bindEvents() {
     }
   });
   el.csvBtn.addEventListener("click", () => {
-    const title = folderTitle().replace(/[\\/:*?"<>|]/g, "_");
-    MdgDownload.text(`MoonDigest-${title}-${stamp(new Date(), false)}.csv`, buildCsv(), "text/csv;charset=utf-8");
+    MdgDownload.text(`MoonDigest-${MdgCommon.fileName(folderTitle())}-${stamp(new Date(), false)}.csv`, buildCsv(), "text/csv;charset=utf-8");
   });
   el.helpBtn.addEventListener("click", () => el.helpDialog.showModal());
   // A download leaves the page as it was, so the 导出 menu would stay open over it.

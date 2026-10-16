@@ -20,7 +20,7 @@
   // Every field a note can carry; DEFAULT_FRONTMATTER_FIELDS is the subset on by default.
   const FRONTMATTER_FIELDS = [...DEFAULT_FRONTMATTER_FIELDS, "video_tags"];
 
-  const { formatLocalDate, sanitizeFileName } = MdgSites;
+  const { localDate, fileName } = MdgCommon;
 
   function normalizeHotComments(comments) {
     return Array.isArray(comments) ? comments.map(MdgSites.cleanComment).filter((item) => item.message).slice(0, MdgLimits.HOT_COMMENTS) : [];
@@ -39,7 +39,7 @@
     ].filter(Boolean);
   }
 
-  function buildMarkdown(meta, body, settings, ref, created = formatLocalDate()) {
+  function buildMarkdown(meta, body, settings, ref, created = localDate()) {
     // The on/off settings as MdgSettings reads them (a missing one is its default).
     const on = MdgSettings.normalizeSwitches(settings);
     const url = String(ref?.url || "");
@@ -273,11 +273,11 @@
   function buildAiConversationFilename(context) {
     const part = aiPartIndex(context);
     const partSuffix = part > 1 || Number(context?.pageCount) > 1 ? ` P${part}` : "";
-    return `${sanitizeFileName(`【AI笔记】${aiSourceTitle(context)}${partSuffix}`)}.md`;
+    return `${fileName(`【AI笔记】${aiSourceTitle(context)}${partSuffix}`)}.md`;
   }
 
   // A wiki link's shown text: Obsidian has no escape inside [[…]], so brackets become their full-width forms. The
-  // target is a vault path, whose names never hold them (sanitizeFileName, sanitizeFolderTemplateValue).
+  // target is a vault path, whose names never hold them (fileName, sanitizeFolderTemplateValue).
   const wikiLinkText = (value) => String(value || "").replace(/\[/g, "［").replace(/\]/g, "］");
 
   // source: a wiki link to the video note (path without .md), so the AI note sits under it in the graph.
@@ -294,25 +294,15 @@
     return target ? `source: "[[${escapeYaml(target)}]]"` : "";
   }
 
-  function cleanVideoUrl(context) {
-    const url = String(context?.url || "").trim();
-    const site = MdgSites.SITES[context?.site] || MdgSites.matchSite(url);
-    const videoId = String(context?.videoId || MdgSites.parseRef(url)?.id || "").trim();
-    if (site && videoId) {
-      return site.canonicalUrl(videoId, aiPartIndex(context));
-    }
-    return url;
-  }
-
   function buildAiNoteFrontmatter({ context, filename, sourcePath }) {
     return [
       "---",
       `title: "${escapeYaml(filename.replace(/\.md$/i, ""))}"`,
       `source_title: "${escapeYaml(aiSourceTitle(context))}"`,
       sourceFrontmatterLine(sourcePath),
-      `url: "${escapeYaml(cleanVideoUrl(context))}"`,
+      `url: "${escapeYaml(MdgSites.videoUrl(context || {}))}"`,
       context?.author ? `author: "${escapeYaml(context.author)}"` : "",
-      `created: "${formatLocalDate()}"`,
+      `created: "${localDate()}"`,
       `tags: [ai_note]`,
       "---"
     ].filter(Boolean);
@@ -509,13 +499,13 @@
 
   function sanitizeFolderTemplateValue(value) {
     return String(value || "")
-      // The characters sanitizeFileName drops, so a folder never breaks the wiki links to its notes.
+      // The characters fileName drops, so a folder never breaks the wiki links to its notes.
       .replace(/[\/\\:*?"<>|#^[\]]/g, " ")
       .replace(/\s+/g, " ")
       .trim();
   }
 
-  function buildFolderTemplateContext(meta, created = formatLocalDate()) {
+  function buildFolderTemplateContext(meta, created = localDate()) {
     return {
       created: sanitizeFolderTemplateValue(created),
       upload_date: sanitizeFolderTemplateValue(meta?.uploadDate || ""),
@@ -526,7 +516,7 @@
     };
   }
 
-  function resolveFolderTemplate(template, meta, created = formatLocalDate()) {
+  function resolveFolderTemplate(template, meta, created = localDate()) {
     const normalized = normalizeFolder(template);
     if (!normalized) {
       return "";
@@ -850,14 +840,14 @@
 
 
 
-  function buildNoteFilename(meta, settings, created = formatLocalDate()) {
+  function buildNoteFilename(meta, settings, created = localDate()) {
     const baseParts = [];
 
     if (MdgSettings.normalizeSwitches(settings).includeDateInFilename) {
       baseParts.push(created);
     }
 
-    // sanitizeFileName keeps a non-blank name non-blank, so this is the one fallback.
+    // fileName keeps a non-blank name non-blank, so this is the one fallback.
     baseParts.push(String(meta.title || "").trim() || meta.videoId || "video-subtitle");
 
     if (Number(meta.pageCount) > 1) {
@@ -868,7 +858,7 @@
       }
     }
 
-    return `${sanitizeFileName(baseParts.filter(Boolean).join("-"))}.md`;
+    return `${fileName(baseParts.filter(Boolean).join("-"))}.md`;
   }
 
   // Where a video's note and a conversation's own note go when no path is recorded (obsidian.js): the folder template,

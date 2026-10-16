@@ -120,6 +120,10 @@ const runSync = async () => {
     const it = t.followFeedItem(dyn(5, "BV5", 999));
     assert.deepStrictEqual(plain(it), { bvid: "BV5", aid: "1", title: "T-BV5", cover: "https://c", duration: 3723, play: 15000, mid: "5", name: "UP5", face: "", at: 999 });
     assert.strictEqual(t.followFeedItem({ modules: { module_dynamic: { major: { type: "MAJOR_TYPE_UGC_SEASON" } } } }), null);
+    // C383, C385: MdgCommon's parsers. "1,234" is 1234 (not 1), a malformed time is 0 (not 12:3x read as 12 minutes).
+    const odd = dyn(5, "BV6", 999);
+    Object.assign(odd.modules.module_dynamic.major.archive, { duration_text: "12:3x", stat: { play: "1,234" } });
+    assert.deepStrictEqual([t.followFeedItem(odd).duration, t.followFeedItem(odd).play], [0, 1234]);
     const last = t.followFoldFeed({ since: 1000, map: {}, v: {} }, [1, 2, 3, 4].map((n) => t.followFeedItem(dyn(5, `BV${n}`, 900 - n))));
     assert.strictEqual(last.map[5], 899);
     assert.strictEqual(last.since, 896);

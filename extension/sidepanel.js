@@ -169,7 +169,7 @@ function bindEvents() {
   document.querySelector(".sp-history-manage")?.addEventListener("click", async (event) => {
     event.preventDefault();
     const r = await sendRuntimeMessage({ type: "history-open" }).catch(() => null);
-    if (!r?.ok) chrome.tabs.create({ url: chrome.runtime.getURL("history/history.html") });
+    if (!r?.ok) chrome.tabs.create({ url: chrome.runtime.getURL(MdgCommon.PAGES.history) });
   });
   els.exportBtn.addEventListener("click", toggleExportPopover);
   // Each export action closes the menu; the action itself is bound below.
@@ -1326,14 +1326,10 @@ function buildConversationTitleDisplay(title, maxChars = 22) {
   return { main: cutTitle(String(match[1] || "").trim(), Math.max(maxChars - reservedChars, 8)), suffix };
 }
 
+// 2026-10-14 07:30, local time.
 function formatConversationTimestamp(value) {
   const date = new Date(Number(value) || Date.now());
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
-  const hours = String(date.getHours()).padStart(2, "0");
-  const minutes = String(date.getMinutes()).padStart(2, "0");
-  return `${year}-${month}-${day} ${hours}:${minutes}`;
+  return `${MdgCommon.localDate(date)} ${date.toTimeString().slice(0, 5)}`;
 }
 
 async function ensureCurrentContextForSend() {
@@ -1986,7 +1982,7 @@ function linkifyAssistantTimestamps(root) {
         fragment.append(document.createTextNode(text.slice(lastIndex, match.index)));
       }
       const timestamp = match[0];
-      const seconds = parseTimestampToSeconds(timestamp);
+      const seconds = MdgCommon.parseTimestamp(timestamp);
       const button = document.createElement("button");
       button.type = "button";
       button.className = "sp-timestamp-link";
@@ -2006,23 +2002,6 @@ function linkifyAssistantTimestamps(root) {
     }
     node.replaceWith(fragment);
   });
-}
-
-function parseTimestampToSeconds(value) {
-  const parts = String(value || "")
-    .trim()
-    .split(":")
-    .map((item) => Number(item));
-  if (!parts.length || parts.some((item) => !Number.isFinite(item) || item < 0)) {
-    return 0;
-  }
-  if (parts.length === 3) {
-    return parts[0] * 3600 + parts[1] * 60 + parts[2];
-  }
-  if (parts.length === 2) {
-    return parts[0] * 60 + parts[1];
-  }
-  return 0;
 }
 
 // A newer click takes over: an older jump still loading the page neither seeks nor says anything.

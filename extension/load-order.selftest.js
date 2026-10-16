@@ -1,6 +1,7 @@
 // /usr/local/bin/node extension/load-order.selftest.js
 // Every runtime (each manifest content_scripts entry, the worker's importScripts chain, every extension page) loads
-// the file that defines a global before any file that reads it, and every script it names exists.
+// the file that defines a global before any file that reads it, and every script it names exists. common.js is first
+// everywhere, so a file may use MdgCommon without checking which runtime loads it.
 const fs = require("fs");
 const path = require("path");
 const assert = require("assert");
@@ -21,7 +22,7 @@ walk(".");
 // Globals: whatever a file publishes as globalThis.X = ...
 const definedBy = {};
 for (const f of files) for (const m of read(f).matchAll(/globalThis\.([A-Z]\w+)\s*=/g)) definedBy[m[1]] ??= f;
-for (const g of ["MdgLimits", "MdgErrors", "MdgSettings", "MdgSites", "MdgTagCore", "MdgSurfaces", "MdgNote", "MdgTyping", "MdgDownload", "MdgOverwriteDialog", "TriageUi", "TriageCore", "MoonTriage", "TagPicker", "TagDialogs"]) {
+for (const g of ["MdgCommon", "MdgLimits", "MdgErrors", "MdgSettings", "MdgSites", "MdgTagCore", "MdgSurfaces", "MdgNote", "MdgTyping", "MdgDownload", "MdgOverwriteDialog", "TriageUi", "TriageCore", "MoonTriage", "TagPicker", "TagDialogs"]) {
   assert.ok(definedBy[g], `no file defines ${g}`);
 }
 const code = (f) => read(f).replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:"'`\\])\/\/.*$/gm, "$1");
@@ -42,6 +43,7 @@ assert.ok(runtimes.length >= 11, `found ${runtimes.length} runtimes`);
 const exempt = new Set(["background importScripts|triage/shared.js|MdgTyping"]);
 let checked = 0;
 for (const [where, list] of runtimes) {
+  assert.strictEqual(list[0], "common.js", `${where} loads common.js first`);
   list.forEach((f, i) => {
     assert.ok(fs.existsSync(path.join(__dirname, f)), `${where} loads ${f}, which does not exist`);
     for (const g of usesOf(f).filter((g) => !exempt.has(`${where}|${f}|${g}`))) {

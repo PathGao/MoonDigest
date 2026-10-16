@@ -1,5 +1,5 @@
 // Shared modules must load before the top-level code below reads them (e.g. MdgLimits).
-importScripts("limits.js", "errors.js", "settings.js", "sites.js", "tag-core.js", "note.js", "triage/shared.js");
+importScripts("common.js", "limits.js", "errors.js", "settings.js", "sites.js", "tag-core.js", "note.js", "triage/shared.js");
 
 // Side panel stream watchdog: "first" until any SSE chunk arrives (reasoning chunks count), then "idle" between chunks.
 const STREAM_TIMEOUT_MS = { first: 90000, idle: 60000 };
@@ -173,14 +173,7 @@ async function getAiSidepanelState(tabId, { refresh = false, frameId = 0, videoI
   if (!resp?.ok || !resp.payload) {
     throw Object.assign(new Error(resp?.error || "读取当前页面失败"), resp?.code != null ? { code: resp.code } : {});
   }
-  return { ...resp.payload, url: canonicalVideoUrl(resp.payload), isVideoContext: true };
-}
-
-// The content script reports location.href, which can carry reader mode (mdg_reader) and tracking params;
-// a conversation saved from this context must link the plain video page.
-function canonicalVideoUrl({ site, videoId, pageIndex, pageCount, url }) {
-  const entry = MdgSites.SITES[site];
-  return entry && videoId ? entry.canonicalUrl(videoId, pageCount > 1 ? pageIndex : 1) : MdgSites.cleanUrl(url);
+  return { ...resp.payload, url: MdgSites.videoUrl(resp.payload), isVideoContext: true };
 }
 
 async function openAiSidepanelForTab(tabId) {
@@ -282,7 +275,7 @@ async function resolveAiSidepanelContext(contextRef) {
   // The same note the video page sends (content.js buildSidepanelContext), with the fields its state carries.
   const noteMeta = { ...MdgNote.noteMetaOf({ site: site.id, videoId: videoRef.id, meta, bundle, track }), title };
   const subtitleLang = noteMeta.selectedSubtitleLang;
-  const noteRef = { site: site.id, id: videoRef.id, part: { index: meta.pageIndex || 1, cid: meta.cid }, url: canonicalVideoUrl({ ...meta, site: site.id, videoId: videoRef.id }) };
+  const noteRef = { site: site.id, id: videoRef.id, part: { index: meta.pageIndex || 1, cid: meta.cid }, url: MdgSites.videoUrl({ ...meta, site: site.id, videoId: videoRef.id }) };
   return {
     title,
     url: noteRef.url,
@@ -329,7 +322,7 @@ async function resolveAiSidepanelPageRef(contextRef) {
   const meta = await site.fetchMeta(videoRef, TRIAGE_BILI_IO);
   return {
     ...fallback,
-    url: canonicalVideoUrl({ ...meta, site: site.id, videoId: videoRef.id }),
+    url: MdgSites.videoUrl({ ...meta, site: site.id, videoId: videoRef.id }),
     cid: String(meta.cid || ref.cid || ""),
     pageIndex: meta.pageIndex || ref.pageIndex,
     pageCount: meta.pageCount || 0,
@@ -392,7 +385,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
   // 视频记录, as 分拣台 (triage-open): the popup, the side panel and the settings page focus an open one.
   if (message.type === "history-open") {
-    focusOrOpenPage(chrome.runtime.getURL("history/history.html"))
+    focusOrOpenPage(chrome.runtime.getURL(MdgCommon.PAGES.history))
       .then(() => sendResponse({ ok: true }))
       .catch((error) => sendResponse({ ok: false, error: error.message }));
     return true;

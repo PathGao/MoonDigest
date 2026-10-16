@@ -18,7 +18,7 @@ const chrome = {
 };
 const ctx = vm.createContext({ URL, URLSearchParams, TextEncoder, console, chrome });
 // Manifest order: limits.js and errors.js before sites.js.
-for (const file of ["limits.js", "errors.js", "sites.js"]) vm.runInContext(fs.readFileSync(path.join(__dirname, file), "utf8"), ctx);
+for (const file of ["common.js", "limits.js", "errors.js", "sites.js"]) vm.runInContext(fs.readFileSync(path.join(__dirname, file), "utf8"), ctx);
 const S = ctx.MdgSites;
 // vm objects have a foreign Object prototype, so compare by value.
 const eq = (actual, expected) => assert.deepStrictEqual(JSON.parse(JSON.stringify(actual)), expected);
@@ -709,15 +709,28 @@ async function ytComments(next, byContinuation) {
   for (const f of fs.readdirSync(__dirname).filter((f) => f.endsWith(".js") && !f.endsWith(".selftest.js") && f !== "sites.js")) {
     assert.ok(!/"匿名"|slice\(0, 500\)/.test(fs.readFileSync(path.join(__dirname, f), "utf8")), `${f} cleans comments itself`);
   }
-  // Date, file name and reason helpers: one copy here (note.js, the popup and content.js read them); durations are TriageUi.fmtDuration.
-  assert.strictEqual(ctx.MdgSites.sanitizeFileName("第1集 #AI [合集] ^x|y"), "第1集 _AI _合集_ _x_y");
+  // The reason helper: one copy here (note.js, the popup and content.js read it); durations are TriageUi.fmtDuration.
   assert.strictEqual(ctx.MdgSites.trimReason("网络断了。 "), "网络断了");
   for (const f of ["note.js", "popup.js", "content.js", "sidepanel.js", "background.js", "history/history.js", "obsidian.js"]) {
     const src = fs.readFileSync(path.join(__dirname, f), "utf8");
-    assert.ok(!/function (formatLocalDate|sanitizeFileName|formatDuration)\(/.test(src) && !src.includes("[。.！!；;，,\\s]+$"), `${f} writes a shared helper itself`);
-    assert.ok(!src.includes(`[\\\\/:*?"<>|#^[\\]]`), `${f} cleans a file name itself; use MdgSites.sanitizeFileName`);
+    assert.ok(!/function formatDuration\(/.test(src) && !src.includes("[。.！!；;，,\\s]+$"), `${f} writes a shared helper itself`);
   }
   assert.strictEqual(fs.readFileSync(path.join(__dirname, "content.js"), "utf8").split("没有找到可联动的视频播放器").length, 2, "content.js writes the no-player sentence once");
+  // C199: one context → link (notes, saved conversations, the video page). The part counts unless pageCount says one
+  // part: a conversation saved without pageCount keeps its P2 (as note.js did), a single-part video drops a stray ?p=
+  // (as the background and the video page did). Reader mode and tracking params never stay.
+  const bv = "https://www.bilibili.com/video/BV1xx411c7mD/";
+  eq(
+    [
+      S.videoUrl({ site: "bilibili", videoId: "BV1xx411c7mD", pageIndex: 2 }),
+      S.videoUrl({ site: "bilibili", videoId: "BV1xx411c7mD", pageIndex: 3, pageCount: 1 }),
+      S.videoUrl({ site: "bilibili", videoId: "BV1xx411c7mD", pageIndex: 2, pageCount: 4 }),
+      S.videoUrl({ url: `${bv}?p=2&mdg_reader=1&spm_id_from=x`, pageIndex: 2 }),
+      S.videoUrl({ site: "youtube", videoId: "dQw4w9WgXcQ", pageIndex: 2, url: "https://www.youtube.com/watch?v=dQw4w9WgXcQ&t=9" }),
+      S.videoUrl({ url: " https://example.com/a " })
+    ],
+    [`${bv}?p=2`, bv, `${bv}?p=2`, `${bv}?p=2`, "https://www.youtube.com/watch?v=dQw4w9WgXcQ", "https://example.com/a"]
+  );
   // L8: a video context's fields have one shape (the background, the side panel's conversations and placeholders).
   eq(S.contextRef({ bvid: "BV1xx411c7mD", pageIndex: "2", title: " T " }), {
     title: "T", url: "", author: "", uploadDate: "", site: "bilibili", videoId: "BV1xx411c7mD", cid: "", aid: "", pageIndex: 2, pageCount: 0,

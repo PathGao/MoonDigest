@@ -97,7 +97,13 @@
     toSettings: "去设置",
     retry: "重试",
     refresh: "刷新",
-    history: "视频记录"
+    history: "视频记录",
+    // A video's decision on a B站 page's mark and on the 分拣台's card.
+    kept: "已保留",
+    unfaved: "已取消收藏",
+    // The new-tag box of every tag picker and dialog.
+    newTagName: "新标签名称",
+    triage: "B站分拣台"
   });
 
   // How long a B站 / YouTube read waits for an answer: the background's B站 channel (triage-bg.js triageBiliFetch,
@@ -109,6 +115,8 @@
   const aiTimeout = (ms) => `AI 平台 ${ms / 1000} 秒没有回应`;
   // AI_STALLED: a side panel reply that stopped midway for ms. Only 重试 helps (no 去设置: the platform did answer).
   const aiStalled = (ms) => `回复中断：${ms / 1000} 秒没有新内容`;
+  // The 「+ UP 标签」 button's name and the UP tag picker's title (B站 pages, 关注).
+  const upTagTitle = (name) => `给「${name}」打 UP 标签`;
 
   // Why a reader has no subtitle: the one sentence of every entry (video page, 专注模式, popup, side panel, the AI's
   // context, 分拣台, notes), without a full stop. subtitleNeedLogin is its own state (B站 hides subtitles from a
@@ -165,12 +173,12 @@
   }
 
   // What chrome.runtime calls throw in a content script whose extension was reloaded (badges.js checks
-  // chrome.runtime.id instead and copies TEXT.reloaded; errors.selftest.js keeps the copy equal).
+  // chrome.runtime.id instead).
   const reloaded = (error) => /Extension context invalidated/.test(String(error?.message || ""));
 
   // Text into markup, in element content and in quoted attributes: the one copy every page, the video page and 分拣台
   // (TriageUi.esc) build HTML with. Titles, UP names, comments, AI replies and tag names all pass through it.
-  // badges.js does not load this file: it builds its DOM with textContent.
+  // badges.js builds its DOM with textContent and does not need it.
   const escapeHtml = (value) =>
     String(value ?? "")
       .replaceAll("&", "&amp;")
@@ -189,5 +197,5 @@
     else node.removeAttribute("aria-description");
   }
 
-  globalThis.MdgErrors = Object.freeze({ TEXT, LABEL, action, text, fromResp, grantOrigin, reloaded, escapeHtml, setReason, subtitleMissing, aiTimeout, aiStalled, noAccess, NET_TIMEOUT_MS, netTimeout });
+  globalThis.MdgErrors = Object.freeze({ TEXT, LABEL, action, text, fromResp, grantOrigin, reloaded, escapeHtml, setReason, subtitleMissing, aiTimeout, aiStalled, upTagTitle, noAccess, NET_TIMEOUT_MS, netTimeout });
 })();
