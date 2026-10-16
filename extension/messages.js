@@ -64,7 +64,7 @@
     "ai-sidepanel-resolve-page-ref": { from: ["sidepanel.js"], to: "background.js", request: ["contextRef"], response: ["payload"] },
 
     // Obsidian (obsidian.js, the one writer)
-    "write-video-note": { from: ["content.js", "history/history.js", "sidepanel.js"], to: "obsidian.js", request: ["ref", "mode", "conversation", "page"], response: ["ask", "path", "hasAiSection", "kind", "text", "title"] },
+    "write-video-note": { from: ["content.js", "history/history.js", "sidepanel.js"], to: "obsidian.js", request: ["ref", "mode", "conversation", "page"], response: ["ask", "path", "hasAiSection", "fullReason", "kind", "text", "title"] },
     "sync-video-note-ai": { from: ["sidepanel.js"], to: "obsidian.js", request: ["ref", "conversation"], response: ["path", "exists", "updated", "text"] },
 
     // 分拣台 收藏夹 (answers are { ok, data })

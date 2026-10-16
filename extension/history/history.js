@@ -264,7 +264,7 @@ async function saveToObsidian(group) {
     const request = { type: "write-video-note", ref: group.context, conversation: { messages: newest?.messages || [] } };
     let resp = await chrome.runtime.sendMessage(request);
     if (resp?.ok && resp.ask) {
-      const mode = await MdgOverwriteDialog.choose(resp.path, { hasAiSection: resp.hasAiSection });
+      const mode = await MdgOverwriteDialog.choose(resp.path, { hasAiSection: resp.hasAiSection, fullReason: resp.fullReason });
       if (!mode) return setStatus(MdgErrors.TEXT.obsidianCancelled);
       resp = await chrome.runtime.sendMessage({ ...request, mode });
     }

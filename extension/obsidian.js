@@ -8,6 +8,8 @@ const obsidianCoded = (text, code) => Object.assign(new Error(text), { code });
 const obsidianWritten = (path) => `已写入 Obsidian：${path}`;
 // After only the AI 问答 section was replaced (writeVideoNote's ai mode, syncVideoNoteAi); the side panel shows it.
 const aiSectionUpdated = (path) => `已更新 AI 问答：${path}`;
+// A recorded note without its open page cannot be rebuilt whole: the dialog disables 整篇覆盖 with this.
+const NEEDS_PAGE = "整篇覆盖要先打开视频页";
 
 // Every Obsidian failure in the user's words. Code OBSIDIAN (not enabled, not set up, wrong key, an address that
 // answers 404) or OBSIDIAN_DOWN (closed, plugin off, nothing listening; 408 is fetchWithTimeout's timeout) fails every
@@ -160,7 +162,7 @@ async function linkCoverInVault(vault, filepath, content, cover) {
 // MdgNote.noteSubtitleWarning, which the result starts with as for a note built here). mode: left out, an existing note is
 // not touched and the answer is ask; "full" writes the whole note; "ai" replaces only the AI 问答 section of an existing
 // note and writes a missing one whole.
-// Resolves { ask: true, path, hasAiSection } or { path, kind: full | ai | unchanged | conversation, text, title }.
+// Resolves { ask: true, path, hasAiSection, fullReason? } (fullReason: why 整篇覆盖 is off) or { path, kind: full | ai | unchanged | conversation, text, title }.
 async function writeVideoNote({ ref: input, mode, conversation, page }) {
   const settings = await getMergedSettings();
   const vault = obsidianConfig(settings);
@@ -218,7 +220,7 @@ async function writeVideoNote({ ref: input, mode, conversation, page }) {
     const recorded = section && paths[key]?.path;
     const note = recorded ? await readVaultNote(vault, recorded) : null;
     target = note?.exists
-      ? { video: true, path: recorded, note, body: async () => { throw new Error("整篇覆盖要先打开视频页"); } }
+      ? { video: true, path: recorded, note, fullReason: NEEDS_PAGE, body: async () => { throw new Error(NEEDS_PAGE); } }
       : standalone("（单独的对话笔记）", computedPath());
   }
 
@@ -227,7 +229,7 @@ async function writeVideoNote({ ref: input, mode, conversation, page }) {
   const title = () => built?.meta.title || ref.title;
   const existing = target.note || (await readVaultNote(vault, path));
   if (existing.exists && !mode) {
-    return { ask: true, path, ...(target.video && { hasAiSection: Boolean(section) }) };
+    return { ask: true, path, ...(target.video && { hasAiSection: Boolean(section) }), ...(target.fullReason && { fullReason: target.fullReason }) };
   }
   if (target.video && existing.exists && mode === "ai") {
     // Only the AI 问答 section changes: the rest of the note, subtitle warning included, stays as written before.

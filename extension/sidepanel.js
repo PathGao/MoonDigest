@@ -1804,7 +1804,7 @@ async function saveCurrentConversationToObsidian() {
     const request = { type: "write-video-note", ref, conversation: { messages }, page: await openPageNote(ref) };
     let resp = await sendRuntimeMessage(request);
     if (resp?.ok && resp.ask) {
-      const mode = await MdgOverwriteDialog.choose(resp.path, { hasAiSection: resp.hasAiSection });
+      const mode = await MdgOverwriteDialog.choose(resp.path, { hasAiSection: resp.hasAiSection, fullReason: resp.fullReason });
       if (!mode) {
         showConversationContextNotice(MdgErrors.TEXT.obsidianCancelled, 2200);
         return;

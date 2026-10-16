@@ -35,8 +35,9 @@
   // The video page's overwrite choice (content.js confirmOverwriteNote, same words) for extension pages, shown when
   // write-video-note answers ask. Resolves the mode to send again, "full" or "ai", or "" (取消, Esc, a click outside). hasAiSection true offers 只更新 AI 问答; false says why it is
   // missing; left out (a note with no AI 问答 section, such as a conversation note) offers only 整篇覆盖.
-  // 整篇覆盖 never sits next to the focused default button. A second dialog answers the first with 取消.
-  function choose(filepath, { hasAiSection } = {}) {
+  // 整篇覆盖 never sits next to the focused default button. A second dialog answers the first with 取消. fullReason: why
+  // 整篇覆盖 cannot be done (no open video page to rebuild the note from); it is disabled with it.
+  function choose(filepath, { hasAiSection, fullReason } = {}) {
     document.querySelector("dialog.mdg-overwrite[open]")?.close("");
     const dialog = document.createElement("dialog");
     dialog.className = "mdg-overwrite";
@@ -50,6 +51,7 @@
       </div>
     </form>`;
     dialog.querySelector("code").textContent = String(filepath || "");
+    if (fullReason) MdgErrors.setReason(dialog.querySelector('[value="full"]'), fullReason);
     dialog.addEventListener("click", (event) => {
       if (event.target === dialog) {
         dialog.close("");

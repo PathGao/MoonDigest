@@ -166,8 +166,8 @@ for (const f of scripts) vm.runInContext(fs.readFileSync(f, "utf8"), ctx);
   // the mode, and the background's words; 取消 sends nothing again and says so, not red.
   const sent = [];
   let choice = "";
-  ctx.chrome.runtime.sendMessage = async (m) => (sent.push(m), m.mode ? { ok: true, path: "p.md", kind: "full", text: "已写入 Obsidian：p.md" } : { ok: true, ask: true, path: "p.md", hasAiSection: true });
-  ctx.MdgOverwriteDialog = { choose: async (p, opts) => (p === "p.md" && opts.hasAiSection ? choice : "wrong") };
+  ctx.chrome.runtime.sendMessage = async (m) => (sent.push(m), m.mode ? { ok: true, path: "p.md", kind: "full", text: "已写入 Obsidian：p.md" } : { ok: true, ask: true, path: "p.md", hasAiSection: true, fullReason: "整篇覆盖要先打开视频页" });
+  ctx.MdgOverwriteDialog = { choose: async (p, opts) => (p === "p.md" && opts.hasAiSection && opts.fullReason === "整篇覆盖要先打开视频页" ? choice : "wrong") };
   let red = null;
   els.status.classList = { toggle: (c, on) => c === "is-error" && (red = on) };
   const target = { dataset: { act: "obsidian" }, closest: (s) => (s === ".entry" ? { dataset: { key: "a" } } : target) };

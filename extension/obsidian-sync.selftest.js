@@ -128,7 +128,7 @@ const write = (extra) => send({ type: "write-video-note", ...extra });
   // A2: the page closed again, the recorded note is asked about, not passed by for a conversation note; 只更新 AI 问答
   // works without the page, 整篇覆盖 says it needs it.
   resp = await write({ ref: yt, conversation: conversation("r") });
-  assert.deepStrictEqual(resp, { ok: true, ask: true, path: "N/youtube/Y.md", hasAiSection: true });
+  assert.deepStrictEqual(resp, { ok: true, ask: true, path: "N/youtube/Y.md", hasAiSection: true, fullReason: "整篇覆盖要先打开视频页" });
   resp = await write({ ref: yt, conversation: conversation("r"), mode: "ai" });
   assert.deepStrictEqual([resp.kind, resp.path], ["ai", "N/youtube/Y.md"]);
   assert.ok(vault.get("N/youtube/Y.md").startsWith("# 页面笔记") && vault.get("N/youtube/Y.md").includes("### 问：r"));
