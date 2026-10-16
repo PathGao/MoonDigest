@@ -88,7 +88,7 @@ const batch = plain(t.triageParseTitleBatch(
 ));
 assert.deepStrictEqual(batch.BV2, { verdict: "keep", reason: "教程 [实用]", confidence: "high" });
 assert.deepStrictEqual(batch.BV1, { verdict: "unsure", reason: "看不出", confidence: "low" });
-assert.deepStrictEqual(batch.BV3, { verdict: "unsure", reason: "AI 未返回", confidence: "low" });
+assert.ok(!("BV3" in batch), "a video the AI left out has no result, so the page fails it (可重试) instead of 拿不准");
 assert.throws(() => t.triageParseTitleBatch('[{"i":1,"verdict":"keep"', items), /回复不完整/);
 
 const TITLE_PROMPT = vm.runInContext("TRIAGE_TITLE_PROMPT", ctx);
@@ -245,6 +245,9 @@ assert.throws(() => t.triageParseCommand('{"new_tags":[', cmdItems, cmdTags, {})
   // K7: an answer cut at the output limit has its own code; 分拣台 matches the code, not the words.
   t.fetch = async () => ({ ok: true, status: 200, text: async () => JSON.stringify({ choices: [{ message: { content: "" }, finish_reason: "length" }] }), json: async () => ({ choices: [{ message: { content: "" }, finish_reason: "length" }] }) });
   await assert.rejects(t.triageChat([], 100), (e) => e.code === "AI_TRUNCATED" && e.message === "模型输出被截断");
+  // A partial answer cut at the limit is AI_TRUNCATED too (调大输出上限), not 回复不完整.
+  t.fetch = async () => ({ ok: true, status: 200, json: async () => ({ choices: [{ message: { content: '[{"i":1,"verdict":"keep"' }, finish_reason: "length" }] }) });
+  await assert.rejects(t.triageChat([], 100), (e) => e.code === "AI_TRUNCATED");
   assert.ok(!/截断\/\.test|includes\("截断"\)/.test(fs.readFileSync(path.join(__dirname, "triage.js"), "utf8")), "triage.js matches 截断 by its words; use the code AI_TRUNCATED");
   // A dropped B站 connection says 网络断了, without fetch's English.
   t.fetch = async () => {
@@ -362,6 +365,9 @@ assert.throws(() => t.triageParseCommand('{"new_tags":[', cmdItems, cmdTags, {})
   }
   t.fetch = async () => ({ ok: false, status: 412, json: async () => ({}) });
   await assert.rejects(t.triageBiliPost("/x", {}), (e) => e.code === "THROTTLED");
+  // HTTP 429 is risk control too, as in sites.js biliJson.
+  t.fetch = async () => ({ ok: false, status: 429, json: async () => ({}) });
+  await assert.rejects(t.triageBiliGet("https://api.test"), (e) => e.code === "THROTTLED" && e.status === 429);
   // N5: a write after the login expired is NOT_LOGGED_IN (the page shows 去登录), with a plain message.
   t.fetch = jsonRes({ code: -101, message: "账号未登录" });
   await assert.rejects(t.triageBiliPost("/x", {}), (e) => e.code === "NOT_LOGGED_IN" && e.message === t.MdgErrors.TEXT.biliLogin);
@@ -377,6 +383,11 @@ assert.throws(() => t.triageParseCommand('{"new_tags":[', cmdItems, cmdTags, {})
   const within = (p) => Promise.race([p, new Promise((_, reject) => setTimeout(() => reject(new Error("hangs")), 500))]);
   await assert.rejects(within(t.triageBiliGet("https://api.test")), (e) => e.code === "NETWORK" && /没有回应/.test(e.message));
   await assert.rejects(within(t.triageNav()), (e) => e.code === "NETWORK");
+  // Headers in, body never: the same timeout ends it and aborts the request.
+  let signal = null;
+  t.fetch = async (url, init) => ((signal = init.signal), { ok: true, status: 200, json: () => new Promise(() => {}) });
+  await assert.rejects(within(t.triageBiliGet("https://api.test")), (e) => e.code === "NETWORK" && /没有回应/.test(e.message));
+  assert.ok(signal.aborted, "the request is aborted");
   // A write that gets no answer is not tried again and says the outcome is unknown.
   let posts = 0;
   t.fetch = () => (posts++, new Promise(() => {}));
@@ -856,11 +867,11 @@ assert.throws(() => t.triageParseCommand('{"new_tags":[', cmdItems, cmdTags, {})
     let listener = null;
     const realChrome = t.chrome;
     t.chrome = { runtime: { onMessage: { addListener: (f) => (listener = f) } } };
-    const L = t.triageListen("x-", { "x-ok": (m) => ({ got: m.n }), "x-fail": () => Promise.reject(t.triageError("坏了", "THROTTLED")) });
-    t.chrome = realChrome;
+    const L = t.triageListen("x-", { "x-ok": (m) => ({ got: m.n }), "x-web": () => "web", "x-fail": () => Promise.reject(t.triageError("坏了", "THROTTLED")) }, ["x-web"]);
+    t.chrome = { ...realChrome, runtime: { ...realChrome?.runtime, getURL: (p) => `chrome-extension://me/${p}` } };
     assert.strictEqual(L, listener, "registers the listener it returns");
-    const ask = (message) => new Promise((resolve) => {
-      const kept = L(message, {}, resolve);
+    const ask = (message, url = "chrome-extension://me/triage/triage.html") => new Promise((resolve) => {
+      const kept = L(message, { id: "me", url }, resolve);
       if (kept === false) setTimeout(() => resolve("unanswered"), 0);
     });
     assert.deepStrictEqual(plain(await ask({ type: "x-ok", n: 3 })), { ok: true, data: { got: 3 } });
@@ -868,6 +879,11 @@ assert.throws(() => t.triageParseCommand('{"new_tags":[', cmdItems, cmdTags, {})
     assert.deepStrictEqual(plain(await ask({ type: "x-none" })), { ok: false, error: "未知消息类型 x-none" });
     assert.strictEqual(await ask({ type: "y-ok" }), "unanswered", "other prefixes are left to other listeners");
     assert.strictEqual(await ask({}), "unanswered");
+    // A content script in a web page gets only its own types (A53).
+    const web = "https://www.bilibili.com/video/BV1";
+    assert.deepStrictEqual(plain(await ask({ type: "x-ok", n: 1 }, web)), { ok: false, error: "网页不能发送 x-ok" });
+    assert.deepStrictEqual(plain(await ask({ type: "x-web" }, web)), { ok: true, data: "web" });
+    t.chrome = realChrome;
   }
 
 console.log("triage-bg selftest: all passed");

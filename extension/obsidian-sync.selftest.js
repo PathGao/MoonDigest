@@ -43,7 +43,7 @@ const area = (store) => ({
 const onMessageListeners = [];
 const noop = new Proxy(function () {}, { get: () => noop, apply: () => noop });
 const chrome = {
-  runtime: { onInstalled: { addListener() {} }, onStartup: { addListener() {} }, onConnect: { addListener() {} }, onMessage: { addListener: (fn) => onMessageListeners.push(fn) }, getManifest: () => JSON.parse(fs.readFileSync(path.join(__dirname, "manifest.json"), "utf8")) },
+  runtime: { onInstalled: { addListener() {} }, onStartup: { addListener() {} }, onConnect: { addListener() {} }, onMessage: { addListener: (fn) => onMessageListeners.push(fn) }, getURL: (p) => `chrome-extension://mdg/${p}`, getManifest: () => JSON.parse(fs.readFileSync(path.join(__dirname, "manifest.json"), "utf8")) },
   storage: { local: area(local), sync: area(sync), onChanged: { addListener() {} } },
   permissions: noop,
   tabs: noop,
@@ -59,8 +59,8 @@ const N = ctx.MdgNote;
 const E = ctx.MdgErrors.TEXT;
 const PATHS = ctx.MdgLimits.KEYS.obsidianNotePaths;
 // Responses are vm-realm objects, so they come back through JSON for deepStrictEqual.
-// Like Chrome, every listener sees the message and only one answers.
-const send = (message) => new Promise((resolve) => onMessageListeners.forEach((fn) => fn(message, {}, (resp) => resolve(JSON.parse(JSON.stringify(resp))))));
+// Like Chrome, every listener sees the message and only one answers. The sender is the 分拣台 page.
+const send = (message) => new Promise((resolve) => onMessageListeners.forEach((fn) => fn(message, { url: "chrome-extension://mdg/triage/triage.html" }, (resp) => resolve(JSON.parse(JSON.stringify(resp))))));
 const write = (extra) => send({ type: "write-video-note", ...extra });
 
 (async () => {
