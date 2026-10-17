@@ -77,7 +77,13 @@ let sendPending = false;
 let suggestionsNode = null;
 // The AI settings as get-settings returns them; MdgSettings.DEFAULTS until then or when it fails.
 let aiPrefs = aiPrefsOf(MdgSettings.DEFAULTS);
-let shouldAutoScrollMessages = true;
+// The question just sent here, held at the top of the panel while its reply grows below it (the turn anchor of
+// assistant-ui's turnAnchor="top"): { epoch, node, top }, top being where it was last scrolled to. The spacer after the
+// reply makes the room to scroll it up there and shrinks to nothing once the reply fills the panel. Nothing follows the
+// reply down; the reader scrolls. Until they do, something growing above it (the note card a first save shows) scrolls
+// it back up; top is null once they have.
+let turnAnchor = null;
+const turnSpacer = document.createElement("div");
 let liveContextSyncTimer = 0;
 let streamSlowNoticeTimer = 0;
 let streamSlowNotice = null;
@@ -124,9 +130,21 @@ function bindEvents() {
     autosizeInput();
     syncSummaryButton();
   });
-  els.messages.addEventListener("scroll", () => {
-    shouldAutoScrollMessages = isMessagesNearBottom();
-  });
+  turnSpacer.className = "sp-turn-spacer";
+  turnSpacer.setAttribute("aria-hidden", "true");
+  // The reply streaming, its end notes and a resized panel all change the room needed: one sizing per frame.
+  let spacerFrame = 0;
+  const resizeSpacer = () => {
+    spacerFrame ||= window.requestAnimationFrame(() => {
+      spacerFrame = 0;
+      syncTurnSpacer();
+    });
+  };
+  new ResizeObserver(resizeSpacer).observe(els.messages);
+  new MutationObserver(resizeSpacer).observe(els.messages, { childList: true, subtree: true, characterData: true });
+  for (const type of ["wheel", "touchmove", "keydown", "pointerdown"]) {
+    els.messages.addEventListener(type, () => turnAnchor && (turnAnchor.top = null), { passive: true });
+  }
   els.settingsBtn.addEventListener("click", () => chrome.runtime.openOptionsPage());
   els.contextChip.addEventListener("animationend", () => els.contextChip.classList.remove("is-switched"));
   els.contextChip.addEventListener("click", () => {
@@ -680,8 +698,8 @@ function resetConversationView(stateHtml = "", { retry = false } = {}) {
   renderSuggestions();
   renderPresetPrompts();
   renderFollowups();
-  shouldAutoScrollMessages = true;
-  scrollToBottom(true);
+  turnAnchor = null;
+  scrollToBottom();
 }
 
 // What the AI will read: the intro says so when there are no subtitles (background.js tells the AI the same).
@@ -1283,6 +1301,9 @@ function clearMessages() {
 
 function renderConversationMessages() {
   updateSidepanelLayoutState();
+  // How far the reader scrolled from the anchored question, kept across the redraw. Before they scroll it is 0, also
+  // while the scroll to it is still under way (the first save of a new conversation redraws right after sending).
+  const pastAnchor = turnAnchor?.top === null && turnAnchor.node.isConnected ? els.messages.scrollTop - turnAnchorTop() : 0;
   clearMessages();
   suggestionsNode = null;
   const { messages, nonVideo, unanswered } = state.view();
@@ -1292,7 +1313,7 @@ function renderConversationMessages() {
   }
   messages.forEach((message) => {
     if (message.role === "user") {
-      appendUserMessage(message.content, false);
+      appendUserMessage(message.content);
       return;
     }
     const node = document.createElement("div");
@@ -1301,7 +1322,7 @@ function renderConversationMessages() {
     els.messages.appendChild(node);
   });
   if (unanswered) {
-    appendUserMessage(unanswered.prompt, false);
+    appendUserMessage(unanswered.prompt);
     const node = document.createElement("div");
     node.className = "sp-msg sp-msg-assistant";
     els.messages.appendChild(node);
@@ -1312,8 +1333,16 @@ function renderConversationMessages() {
     showConversationContextError(failed);
   }
   renderFollowups();
-  shouldAutoScrollMessages = true;
-  scrollToBottom(true);
+  // Drawn again in place (another window saved it, a reply ended into it): the question sent here stays where it was.
+  const question = [...els.messages.querySelectorAll(".sp-msg-user")].pop();
+  if (turnAnchor?.epoch === state.view().epoch && question) {
+    turnAnchor.node = question;
+    syncTurnSpacer();
+    els.messages.scrollTo({ top: turnAnchorTop() + pastAnchor, behavior: "instant" });
+    return;
+  }
+  turnAnchor = null;
+  scrollToBottom();
 }
 
 // Cut by characters, not UTF-16 units, so an emoji is never split in two.
@@ -1492,7 +1521,7 @@ async function sendMessage(prompt, onStart = null) {
   suggestionsNode = null;
   removeCenteredState();
 
-  appendUserMessage(text);
+  turnAnchor = { epoch: state.view().epoch, node: appendUserMessage(text), top: -Infinity };
   const stream = {
     port: chrome.runtime.connect({ name: MdgCommon.CHAT_PORT }),
     node: appendAssistantPlaceholder(),
@@ -1546,15 +1575,12 @@ async function sendMessage(prompt, onStart = null) {
   });
 }
 
-function appendUserMessage(text, shouldScroll = true) {
+function appendUserMessage(text) {
   const node = document.createElement("div");
   node.className = "sp-msg sp-msg-user";
   node.textContent = text;
   els.messages.appendChild(node);
-  if (shouldScroll) {
-    shouldAutoScrollMessages = true;
-    scrollToBottom(true);
-  }
+  return node;
 }
 
 function appendAssistantPlaceholder() {
@@ -1564,8 +1590,7 @@ function appendAssistantPlaceholder() {
   cursor.className = "sp-msg-cursor";
   node.appendChild(cursor);
   els.messages.appendChild(node);
-  shouldAutoScrollMessages = true;
-  scrollToBottom(true);
+  syncTurnSpacer();
   return node;
 }
 
@@ -1580,7 +1605,6 @@ function scheduleStreamRender(stream) {
       return;
     }
     stream.node.innerHTML = renderMarkdown(stream.raw) + '<span class="sp-msg-cursor"></span>';
-    scrollToBottom();
   });
 }
 
@@ -1635,7 +1659,6 @@ function endStream(stream, { stopped = "", error = "", code = "" } = {}) {
     renderConversationMessages();
   }
   els.input.focus();
-  scrollToBottom();
 }
 
 // How a reply ended, under it: 已停止生成, the background's notice, the error with its buttons.
@@ -2131,16 +2154,40 @@ function removeConversationContextNotice() {
   els.messages.querySelectorAll(".sp-context-notice").forEach((node) => node.remove());
 }
 
-function isMessagesNearBottom(threshold = 56) {
-  const { scrollTop, scrollHeight, clientHeight } = els.messages;
-  return scrollHeight - (scrollTop + clientHeight) <= threshold;
+function scrollToBottom() {
+  els.messages.scrollTop = els.messages.scrollHeight;
 }
 
-function scrollToBottom(force = false) {
-  if (!force && !shouldAutoScrollMessages) {
+// Where the panel scrolls to put the anchored question at its top. A question taller than a third of the panel shows
+// only its last third, so the reply still starts in view.
+function turnAnchorTop() {
+  const { node } = turnAnchor;
+  const top = offsetInMessages(node) - parseFloat(getComputedStyle(els.messages).paddingTop);
+  return top + Math.max(0, node.offsetHeight - els.messages.clientHeight / 3);
+}
+
+// A node's top in the scrolled content of the messages box.
+function offsetInMessages(node) {
+  return node.getBoundingClientRect().top - els.messages.getBoundingClientRect().top + els.messages.scrollTop;
+}
+
+// Room after the reply, enough to scroll the anchored question to the top, and no more.
+function syncTurnSpacer() {
+  if (!turnAnchor?.node?.isConnected) {
+    turnSpacer.remove();
     return;
   }
-  els.messages.scrollTop = els.messages.scrollHeight;
+  if (els.messages.lastElementChild !== turnSpacer) {
+    els.messages.append(turnSpacer);
+  }
+  const top = turnAnchorTop();
+  // Where the content ends is where the spacer starts: scrollHeight never goes below the box's height.
+  const content = offsetInMessages(turnSpacer) + parseFloat(getComputedStyle(els.messages).paddingBottom);
+  turnSpacer.style.height = `${Math.max(0, Math.ceil(top + els.messages.clientHeight - content))}px`;
+  if (turnAnchor.top !== null && Math.abs(top - turnAnchor.top) > 1) {
+    turnAnchor.top = top;
+    els.messages.scrollTop = top;
+  }
 }
 
 async function getActiveTab() {
