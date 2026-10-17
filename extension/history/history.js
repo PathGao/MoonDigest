@@ -127,6 +127,9 @@ function renderConversation(conv, index, total) {
   return `${total > 1 ? `<p class="conv-sep">对话 ${index + 1} · ${esc(formatTime(conv.updatedAt))}</p>` : ""}${turns}`;
 }
 
+// An entry by its key, without building a selector from the key (it is a contextKey or a saved id).
+const entryOf = (key) => [...els.list.querySelectorAll(".entry")].find((e) => e.dataset.key === key);
+
 function render() {
   const groups = visibleGroups();
   const allGroups = groupByVideo(conversations);
@@ -137,9 +140,15 @@ function render() {
   // A search keeps hidden selections, like the 分拣台; only a video that is gone leaves the selection.
   for (const key of [...selected]) if (!allGroups.some((g) => g.key === key)) selected.delete(key);
   // Storage changes re-render the list while the user reads it: keep expanded entries (expanded) and the scroll.
+  // New entries land above the one being read, so the first entry in view keeps its offset (by its key, not scrollY).
   const scrollY = window.scrollY;
+  const top = [...els.list.querySelectorAll(".entry")].find((e) => e.getBoundingClientRect().bottom > 0);
+  const anchor = top && { key: top.dataset.key, offset: top.getBoundingClientRect().top };
   const active = document.activeElement?.matches?.("[data-note]") ? document.activeElement : null;
   const caret = active ? [active.selectionStart, active.selectionEnd] : null;
+  // A focused control is replaced too: the new list gives focus back to the same entry's same control.
+  const act = document.activeElement?.dataset?.act;
+  const actKey = act && document.activeElement.closest(".entry")?.dataset.key;
   rendering = true;
   els.list.innerHTML = groups.length
     ? groups.map((g) => {
@@ -179,8 +188,10 @@ function render() {
   if (textarea) {
     textarea.focus();
     textarea.setSelectionRange(...(caret || [textarea.value.length, textarea.value.length]));
-  }
-  window.scrollTo(0, scrollY);
+  } else if (actKey) entryOf(actKey)?.querySelector(`[data-act="${act}"]`)?.focus({ preventScroll: true });
+  const again = anchor && entryOf(anchor.key);
+  if (again) window.scrollBy(0, again.getBoundingClientRect().top - anchor.offset);
+  else window.scrollTo(0, scrollY);
   syncBulk(groups);
 }
 
@@ -240,17 +251,27 @@ function deletableKeys(keys) {
   return keys.filter((key) => withConvs.has(key));
 }
 
-// Reads storage again before writing so a reply the side panel saved meanwhile is kept.
+// Drops the conversations from the list at once, then writes. The write reads storage again so a reply the side panel
+// saved meanwhile is kept; if it fails, the list (and the selection) is read back from storage and the line says so.
+async function removeConversations(keep, done, unselect = []) {
+  const picked = new Set(selected);
+  unselect.forEach((key) => selected.delete(key));
+  conversations = conversations.filter(keep);
+  render();
+  try {
+    await MdgLimits.updateConversations((current) => current.filter(keep));
+  } catch (error) {
+    picked.forEach((key) => selected.add(key));
+    await load();
+    return setStatus(`${MdgErrors.TEXT.deleteFailed}：${error?.message || MdgErrors.TEXT.unknown}`, true);
+  }
+  setStatus(done);
+}
+
 async function deleteGroups(keys) {
   keys = deletableKeys(keys);
   if (!keys.length || !confirm(`删除 ${keys.length} 个视频的全部 AI 对话？删除后不能恢复。`)) return;
-  try {
-    await MdgLimits.updateConversations((current) => current.filter((c) => !keys.includes(c?.contextKey || c?.id)));
-  } catch (error) {
-    return setStatus(`${MdgErrors.TEXT.deleteFailed}：${error?.message || MdgErrors.TEXT.unknown}`, true);
-  }
-  keys.forEach((key) => selected.delete(key));
-  setStatus(`已删除 ${keys.length} 个视频的 AI 对话`);
+  await removeConversations((c) => !keys.includes(c?.contextKey || c?.id), `已删除 ${keys.length} 个视频的 AI 对话`, keys);
 }
 
 // Several videos go into one file like the triage batch export: one save prompt, frontmatter
@@ -363,13 +384,8 @@ els.bulkDelete.addEventListener("click", () => void deleteGroups(shownPicks()));
 // AI conversations only: triage analyses and notes are other features' data and stay.
 els.clearAll.addEventListener("click", async () => {
   if (!confirm("清空全部 AI 对话？删除后不能恢复。")) return;
-  try {
-    await MdgLimits.updateConversations(() => []);
-  } catch (error) {
-    return setStatus(`${MdgErrors.TEXT.deleteFailed}：${error?.message || MdgErrors.TEXT.unknown}`, true);
-  }
   // Entries left with an AI 总结 or a 备注 stay selected; render drops the ones that left the list.
-  setStatus("已清空全部 AI 对话");
+  await removeConversations(() => false, "已清空全部 AI 对话");
 });
 chrome.storage.onChanged.addListener((changes, area) => {
   // Triage analyses arrive in bursts; one reload per burst.

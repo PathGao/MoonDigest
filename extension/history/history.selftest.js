@@ -268,6 +268,65 @@ for (const f of scripts) vm.runInContext(fs.readFileSync(f, "utf8"), ctx);
   }
 
 
+  // T8: the list as laid out: entries 100px tall from y=50, each found by its data-key in the html.
+  {
+    const win = ctx.window;
+    win.scrollY = 0;
+    win.scrollTo = (x, y) => (win.scrollY = y);
+    win.scrollBy = (x, y) => (win.scrollY += y);
+    const realQsa = els.list.querySelectorAll;
+    els.list.querySelectorAll = (sel) =>
+      sel !== ".entry" ? [] : [...html.matchAll(/data-key="([^"]*)"/g)].map((m, i) => ({
+        dataset: { key: m[1].replace(/&amp;/g, "&") },
+        getBoundingClientRect: () => ({ top: 50 + i * 100 - win.scrollY, bottom: 150 + i * 100 - win.scrollY })
+      }));
+    const keys = () => els.list.querySelectorAll(".entry").map((e) => e.dataset.key);
+    const firstInView = () => els.list.querySelectorAll(".entry").find((e) => e.getBoundingClientRect().bottom > 0);
+    const reload = async () => (onChanged({ mdg_ai_conversations_v1: {} }, "local"), await wait(350));
+    // (a) A conversation saved in the background lands on top: the entry being read stays where it was.
+    win.scrollY = 270;
+    const read = firstInView();
+    const at = read.getBoundingClientRect().top;
+    store.mdg_ai_conversations_v1 = [...store.mdg_ai_conversations_v1, { ...conv("new", "新对话"), createdAt: 9e12, updatedAt: 9e12 }];
+    await reload();
+    assert.strictEqual(keys()[0], "new", "the new entry is on top");
+    assert.deepStrictEqual([firstInView().dataset.key, firstInView().getBoundingClientRect().top, win.scrollY], [read.dataset.key, at, 370]);
+    // (b) The focused 展开 of an entry keeps the focus once the list is rebuilt.
+    const focused = [];
+    const realQsa2 = els.list.querySelectorAll;
+    els.list.querySelectorAll = (sel) => realQsa2(sel).map((e) => ({ ...e, querySelector: (q) => ({ focus: (o) => focused.push(JSON.stringify([e.dataset.key, q, o])) }) }));
+    ctx.document.activeElement = { dataset: { act: "summary" }, closest: (sel) => (sel === ".entry" ? { dataset: { key: "b" } } : null) };
+    await reload();
+    ctx.document.activeElement = null;
+    assert.deepStrictEqual(focused, [JSON.stringify(["b", '[data-act="summary"]', { preventScroll: true }])]);
+    els.list.querySelectorAll = realQsa;
+    // (c) 删除 takes the entry off the list before the write ends; a failed write brings it back, still selected, in red.
+    let settle;
+    ctx.chrome.storage.local.set = () => new Promise((ok, fail) => (settle = { ok, fail }));
+    const del = { dataset: { act: "delete" }, closest: (sel) => (sel === ".entry" ? { dataset: { key: "new" } } : del) };
+    pick("new", true);
+    L.list.click.forEach((f) => f({ target: del }));
+    await wait(20);
+    assert.ok(!html.includes('data-key="new"') && settle, "gone while the write runs");
+    settle.fail(new Error("存储已满"));
+    await wait(20);
+    assert.ok(html.includes('data-key="new"') && /data-key="new">\s*<input[^>]*checked/.test(html), "back and still selected");
+    assert.deepStrictEqual([els.status.textContent, red], ["删除失败：存储已满", true]);
+    L.list.click.forEach((f) => f({ target: del }));
+    await wait(20);
+    settle.ok();
+    await wait(20);
+    assert.ok(!html.includes('data-key="new"') && els.status.textContent === "已删除 1 个视频的 AI 对话");
+    // 清空全部 too: the list is empty before the write ends.
+    for (const f of L.clearAll.click) void f({});
+    await wait(20);
+    assert.ok(!html.includes('data-act="delete"'), "no conversation left while the write runs");
+    settle.ok();
+    await wait(20);
+    ctx.chrome.storage.local.set = async () => {};
+  }
+
+
   // B7: several entries download as one file dated by the local day, not UTC.
   const saved = [];
   ctx.MdgDownload = { ...ctx.MdgDownload, text: (name) => saved.push(name) };
