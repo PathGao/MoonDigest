@@ -3592,16 +3592,17 @@ function setActiveReadingItems(subtitleIndex, chapterIndex, shouldScroll = false
   state.readingActiveChapterIndex = chapterIndex;
 }
 
+// Only the rail scrolls, sideways: scrollIntoView would scroll the page too.
 function scrollReadingRailItemIntoView(node) {
-  if (!node) {
+  const rail = byId(ids.readingChapterList);
+  const railRect = rail.getBoundingClientRect();
+  const rect = node.getBoundingClientRect();
+  const delta = rect.left < railRect.left ? rect.left - railRect.left : rect.right > railRect.right ? rect.right - railRect.right : 0;
+  if (!delta) {
     return;
   }
   guardProgrammaticScroll(600);
-  node.scrollIntoView({
-    behavior: "smooth",
-    block: "nearest",
-    inline: "nearest"
-  });
+  rail.scrollTo({ left: rail.scrollLeft + delta, behavior: "smooth" });
 }
 
 function scrollReadingTranscriptItemIntoView(node) {
@@ -3613,8 +3614,8 @@ function scrollReadingTranscriptItemIntoView(node) {
   const inlineHost = document.getElementById(ids.readingInlineHost);
   const listRect = transcriptList.getBoundingClientRect();
   const itemRect = node.getBoundingClientRect();
+  // Not laid out (hidden): nothing to scroll to.
   if (!(listRect.height > 0) || !(itemRect.height > 0)) {
-    scrollReadingRailItemIntoView(node);
     return;
   }
 

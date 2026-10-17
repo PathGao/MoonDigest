@@ -310,6 +310,20 @@ const settle = async () => {
     t.noteManualReaderInteraction = prev;
   }
 
+  // V7: a new chapter scrolls the chapter rail sideways only, never the page.
+  {
+    const prev = t.byId;
+    const calls = [];
+    const rail = { scrollLeft: 50, getBoundingClientRect: () => ({ left: 0, right: 300 }), scrollTo: (o) => calls.push(o) };
+    t.byId = () => rail;
+    const chapter = (left) => ({ getBoundingClientRect: () => ({ left, right: left + 100 }), scrollIntoView: () => calls.push("page") });
+    t.scrollReadingRailItemIntoView(chapter(100));
+    t.scrollReadingRailItemIntoView(chapter(250));
+    t.scrollReadingRailItemIntoView(chapter(-30));
+    assert.strictEqual(JSON.stringify(calls), JSON.stringify([{ left: 100, behavior: "smooth" }, { left: 20, behavior: "smooth" }]));
+    t.byId = prev;
+  }
+
   // A4: a jump from a 专注模式 subtitle row or chapter keeps a paused video paused, like the side panel's timestamps.
   {
     const prev = t.bindReadingViewVideo;
