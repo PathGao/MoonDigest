@@ -2224,10 +2224,13 @@ function showConversationContextNotice(message, autoHideMs = 0, { error = false 
   removeConversationContextNotice();
   const notice = document.createElement("div");
   notice.className = "sp-context-notice";
-  notice.classList.toggle("is-error", error);
-  notice.textContent = String(message || "").trim();
+  const body = document.createElement("div");
+  body.className = "sp-context-notice-body";
+  body.classList.toggle("is-error", error);
+  body.textContent = String(message || "").trim();
   // Notices that stay up are the 正在… ones; they get the shared spinner.
-  notice.setAttribute("aria-busy", String(!(autoHideMs > 0)));
+  body.setAttribute("aria-busy", String(!(autoHideMs > 0)));
+  notice.append(body);
   els.messages.prepend(notice);
   if (autoHideMs > 0) {
     window.setTimeout(() => notice.remove(), autoHideMs);

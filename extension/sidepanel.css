@@ -804,12 +804,18 @@ body:has(#spInput:not(:placeholder-shown)) .sp-summary-btn {
   line-height: 1.65;
 }
 
+/* Floats over the top of the messages without taking room: the sticky line has no height (its margin takes back the
+   .sp-messages gap), and its body hangs below it. */
 .sp-context-notice {
   align-self: stretch;
   position: sticky;
   top: 0;
   z-index: 1;
-  margin-bottom: 2px;
+  height: 0;
+  margin-bottom: -14px;
+}
+
+.sp-context-notice-body {
   padding: 7px 10px;
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
@@ -821,12 +827,12 @@ body:has(#spInput:not(:placeholder-shown)) .sp-summary-btn {
   backdrop-filter: blur(8px);
 }
 
-.sp-context-notice.is-error,
+.sp-context-notice-body.is-error,
 .sp-sync-status.is-error {
   color: var(--danger);
 }
 
-.sp-context-notice.is-error {
+.sp-context-notice-body.is-error {
   border-color: var(--danger-border);
   background: var(--danger-bg);
 }
