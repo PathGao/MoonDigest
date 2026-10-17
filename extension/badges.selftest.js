@@ -266,6 +266,7 @@ assert.strictEqual(fitCount([], 60, { fixed: [50] }), 0, "no chips: the verdict 
 // A tiny DOM: enough for the selectors badges.js uses (tag, .class, #id, [attr*="x"], descendant).
 class Node_ {
   constructor() { this.parentNode = null; }
+  get parentElement() { return this.parentNode?.nodeType === 1 ? this.parentNode : null; }
   get nextSibling() { const k = this.parentNode?.childNodes; return k ? k[k.indexOf(this) + 1] || null : null; }
   get previousSibling() { const k = this.parentNode?.childNodes; return k ? k[k.indexOf(this) - 1] || null : null; }
   after(n) { n.remove(); n.parentNode = this.parentNode; this.parentNode.childNodes.splice(this.parentNode.childNodes.indexOf(this) + 1, 0, n); muts.n++; }
@@ -294,6 +295,7 @@ class El extends Node_ {
   getAttribute(k) { return this.attrs[k] ?? null; }
   setAttribute(k, v) { this.attrs[k] = String(v); }
   append(...ns) { for (const n of ns) { const x = typeof n === "string" ? new Text_(n) : n; x.parentNode = this; this.childNodes.push(x); } }
+  prepend(n) { n.remove(); n.parentNode = this; this.childNodes.unshift(n); muts.n++; }
   addEventListener(t, f) { (this.listeners[t] ||= []).push(f); }
   removeEventListener(t, f) { const l = this.listeners[t]; if (l?.includes(f)) l.splice(l.indexOf(f), 1); }
   dispatchEvent(e) { for (const f of [...(this.listeners[e.type] || [])]) f(e); }
@@ -378,10 +380,11 @@ assert.ok(!biliSaysSeen(h("a", {}, h("div", { class: "bili-cover-card__stats" },
     sessionStorage: { getItem: (k) => session[k] ?? null, setItem: (k, v) => (session[k] = String(v)) },
     MutationObserver: class { observe() {} disconnect() {} },
     ResizeObserver: class { constructor(f) { resized.push(f); } observe() {} disconnect() {} },
-    requestAnimationFrame: (f) => setTimeout(f, 0),
     getComputedStyle: () => ({ columnGap: "3px", paddingLeft: "0px", paddingRight: "0px", position: "static", textIndent: "0px" }),
     setTimeout: (f) => setTimeout(f, 0),
     clearTimeout,
+    requestAnimationFrame: (f) => setTimeout(f, 0),
+    cancelAnimationFrame: clearTimeout,
     console,
     URLSearchParams,
     Event,
@@ -524,6 +527,7 @@ assert.ok(!biliSaysSeen(h("a", {}, h("div", { class: "bili-cover-card__stats" },
   await plusPage();
   await surfacePages();
   await reloadedCopy();
+  await incremental();
   console.log("badges selftest ok");
 })().catch((e) => {
   console.error(e);
@@ -563,6 +567,8 @@ async function plusPage() {
     MutationObserver: class { observe() {} disconnect() {} },
     setTimeout: (f) => setTimeout(f, 0),
     clearTimeout,
+    requestAnimationFrame: (f) => setTimeout(f, 0),
+    cancelAnimationFrame: clearTimeout,
     console,
     URLSearchParams,
     Event,
@@ -776,6 +782,8 @@ async function surfacePages() {
       MutationObserver: class { constructor(f) { win.mutate = f; } observe() {} disconnect() {} },
       setTimeout: (f) => setTimeout(f, 0),
       clearTimeout,
+      requestAnimationFrame: (f) => setTimeout(f, 0),
+      cancelAnimationFrame: clearTimeout,
       console,
       URLSearchParams,
     Event,
@@ -843,7 +851,7 @@ async function surfacePages() {
 
   // In-page navigation to a 收藏夹 page (no reload, only DOM changes): the card's UP tags go under the new page's rules.
   home.win.location = { hostname: "space.bilibili.com", pathname: "/9/favlist", search: "?fid=5" };
-  home.win.mutate();
+  home.win.mutate([{ type: "childList", target: home.doc.querySelector("body"), addedNodes: [h("div")], removedNodes: [] }]);
   await new Promise((r) => setTimeout(r, 30));
   assert.strictEqual(boxAfter(onCard), null, "in-page navigation to 收藏夹: the page type is recomputed, no UP tags");
 
@@ -935,6 +943,8 @@ async function reloadedCopy() {
       MutationObserver: class { constructor(f) { copy.mutate = f; } observe() { copy.observing = true; } disconnect() { copy.observing = false; } },
       setTimeout: (f) => setTimeout(f, 0),
       clearTimeout,
+      requestAnimationFrame: (f) => setTimeout(f, 0),
+      cancelAnimationFrame: clearTimeout,
       console,
       URLSearchParams,
       Event,
@@ -965,12 +975,116 @@ async function reloadedCopy() {
 
   // The old copy no longer reacts to page changes or storage changes.
   const reads = old.reads;
-  doc.querySelector("body").append(h("a", { href: "//space.bilibili.com/1" }, h("span", { class: "bili-video-card__info--author" }, "甲")));
-  old.mutate();
+  const added = h("a", { href: "//space.bilibili.com/1" }, h("span", { class: "bili-video-card__info--author" }, "甲"));
+  doc.querySelector("body").append(added);
+  const record = [{ type: "childList", target: doc.querySelector("body"), addedNodes: [added], removedNodes: [] }];
+  old.mutate(record);
   old.listen.forEach((f) => f({ follow_tag_map: {} }, "local"));
   await settle();
   assert.strictEqual(old.reads, reads, "the old copy reads nothing more");
-  fresh.mutate();
+  fresh.mutate(record);
   await settle();
   assert.deepStrictEqual(shown(), ["新", "新"], "the fresh copy marks the new card");
+}
+
+// ---- what a page change costs: an added card is marked in the next frame from memory; the player's danmaku, nothing ----
+async function incremental() {
+  const BV = "BV1GJ411x7h7";
+  const store = {
+    [`triage_analysis_${BV}`]: { status: "done", verdict: "keep", reason: "干货", oneLiner: "讲 Rust 所有权" },
+    triage_analysis_BV1xx411c7mD: { status: "done", verdict: "drop", reason: "过时", oneLiner: "旧教程" }
+  };
+  const dm = h("div", { class: "bpx-player-row-dm-wrap" });
+  const recs = h("div", { class: "rec-list" });
+  const body = h("body", {}, h("div", { class: "video-info-meta" }), h("div", { id: "bilibili-player" }, dm), recs);
+  const walker = (root) => {
+    const texts = [];
+    const walk = (n) => n.childNodes.forEach((k) => (k.nodeType === 3 ? k.data.trim() && texts.push(k) : walk(k)));
+    walk(root);
+    return { nextNode: () => texts.shift() || null };
+  };
+  const doc = Object.assign(h("html", {}, body), { getElementById: () => null, createElement: (t) => h(t), createTreeWalker: walker, hidden: false });
+  doc.documentElement = doc;
+  const reads = [];
+  const listen = [];
+  let frames = 0;
+  let mutate;
+  const win = {
+    document: doc,
+    location: { hostname: "www.bilibili.com", pathname: `/video/${BV}`, search: "" },
+    sessionStorage: { getItem: () => null, setItem() {} },
+    MutationObserver: class { constructor(f) { mutate = f; } observe() {} disconnect() {} },
+    setTimeout: (f) => setTimeout(f, 0),
+    clearTimeout,
+    requestAnimationFrame: (f) => (frames++, setTimeout(f, 0)),
+    cancelAnimationFrame: clearTimeout,
+    NodeFilter: { SHOW_TEXT: 4 },
+    console,
+    URLSearchParams,
+    Event,
+    getComputedStyle: () => ({ columnGap: "3px", paddingLeft: "0px", paddingRight: "0px", position: "static", textIndent: "0px", display: "block", color: "" }),
+    chrome: {
+      runtime: { id: "x", sendMessage: async () => {}, getURL: (p) => p },
+      storage: {
+        sync: { get: async (d) => ({ ...d, showBiliVerdicts: true }) },
+        local: {
+          get: async (k) => (reads.push(k), Object.fromEntries([].concat(k).map((x) => [x, store[x]]))),
+          getKeys: async () => Object.keys(store)
+        },
+        onChanged: { addListener: (f) => listen.push(f) }
+      }
+    }
+  };
+  win.window = win;
+  win.top = win;
+  vm.runInContext(badgesJs, vm.createContext(win));
+  const settle = () => new Promise((r) => setTimeout(r, 30));
+  const tick = () => new Promise((r) => setTimeout(r, 0));
+  await settle();
+  assert.match(doc.querySelector(".mdg-line")?.textContent || "", /讲 Rust 所有权/, "the line under the title on start");
+  const add = (parent, node) => (parent.append(node), mutate([{ type: "childList", target: parent, addedNodes: [node], removedNodes: [] }]));
+  const card = (bvid) => h("a", { href: `//www.bilibili.com/video/${bvid}` }, h("div", { class: "title" }, "视频标题"));
+
+  // The player's danmaku: no frame asked for, nothing looked at.
+  const before = [frames, reads.length];
+  for (let i = 0; i < 50; i++) add(dm, h("div", { class: "bili-danmaku-x-dm" }, "弹幕"));
+  await settle();
+  assert.deepStrictEqual([frames, reads.length], before, "danmaku mutations: no scan");
+
+  // A card added with its result in storage: one read for it, marked once it lands.
+  const late = card("BV1xx411c7mD");
+  add(recs, late);
+  await settle();
+  assert.match(late.querySelector(".mdg-badge")?.textContent || "", /AI 可清理/);
+  // The same video again, and one with nothing stored: marked (or left alone) in the next frame, no read at all.
+  const n = reads.length;
+  const again = card("BV1xx411c7mD");
+  const plain = card("BV1eS4y157Ey");
+  add(recs, again);
+  add(recs, plain);
+  await tick();
+  assert.match(again.querySelector(".mdg-badge")?.textContent || "", /AI 可清理/, "an added card is marked in the next frame");
+  assert.strictEqual(plain.querySelector(".mdg-badge"), null, "a video with no stored result: no mark");
+  assert.strictEqual(reads.length, n, "both from memory: no storage read");
+  // Our own writes queue nothing.
+  const f = frames;
+  mutate([{ type: "childList", target: again.querySelector(".title"), addedNodes: [again.querySelector(".mdg-badge")], removedNodes: [] }]);
+  assert.strictEqual(frames, f, "our own mark added: no frame");
+
+  // A hidden tab keeps no queue; shown again, one look at the whole page.
+  doc.hidden = true;
+  const hiddenCard = card("BV1xx411c7mD");
+  add(recs, hiddenCard);
+  await settle();
+  assert.deepStrictEqual([frames, hiddenCard.querySelector(".mdg-badge")], [f, null], "hidden: no frame");
+  doc.hidden = false;
+  doc.dispatchEvent({ type: "visibilitychange" });
+  await tick();
+  assert.ok(hiddenCard.querySelector(".mdg-badge"), "visible again: marked in the first frame");
+
+  // A stored result for a video that had none: the key list follows storage, the video is read and marked.
+  store.triage_analysis_BV1eS4y157Ey = { status: "done", verdict: "keep", reason: "好", oneLiner: "新的" };
+  listen.forEach((l) => l({ triage_analysis_BV1eS4y157Ey: { newValue: store.triage_analysis_BV1eS4y157Ey } }, "local"));
+  await settle();
+  assert.match(plain.querySelector(".mdg-badge")?.textContent || "", /AI 值得留/);
 }
