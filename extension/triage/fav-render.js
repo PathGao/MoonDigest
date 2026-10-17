@@ -421,7 +421,7 @@ function renderList() {
   // Background progress re-renders the list; keep a note being typed in focus.
   const typing = document.activeElement?.closest?.("[data-note]");
   const caret = typing && [typing.closest(".card").dataset.bvid, typing.selectionStart, typing.selectionEnd];
-  const scroll = el.list.scrollTop;
+  const restore = UI.keepScroll(el.list, ".card[data-bvid]");
   el.list.innerHTML =
     list
       .map((it, i) => {
@@ -429,7 +429,7 @@ function renderList() {
         return head + cardHtml(it, expanded, marked.has(it.bvid) ? word : "");
       })
       .join("") + recent;
-  el.list.scrollTop = scroll;
+  restore();
   if (caret) {
     const box = el.list.querySelector(`.card[data-bvid="${CSS.escape(caret[0])}"] [data-note]`);
     box?.focus();

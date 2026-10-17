@@ -27,6 +27,28 @@ const plain = (v) => JSON.parse(JSON.stringify(v));
 const XSS = ["<img src=x onerror=alert(1)>", `"'><script>alert(1)</script>`];
 const assertInert = (html, where) => assert.ok(!/<img src=x|<script|"'>/i.test(html) && /&lt;|&#60;/.test(html), `${where}: ${html}`);
 
+// T3: a whole-list redraw keeps the first card in view at its place, not the pixel offset: a card added above (a 刷新
+// put a new favorite first) or gone leaves the cards under the eye where they were. At the top it stays at the top.
+{
+  const list = { scrollTop: 250, keys: [], getBoundingClientRect: () => ({ top: 0, bottom: 300 }) };
+  list.querySelectorAll = () => list.keys.map((k, i) => ({ dataset: { bvid: k }, getBoundingClientRect: () => ({ top: i * 100 - list.scrollTop, bottom: i * 100 + 100 - list.scrollTop }) }));
+  const redraw = (before, after, top) => {
+    list.keys = before;
+    list.scrollTop = top;
+    const restore = UI.keepScroll(list, ".card");
+    list.keys = after;
+    list.scrollTop = 0; // innerHTML may reset it
+    restore();
+    return list.scrollTop;
+  };
+  const keys = ["a", "b", "c", "d", "e"];
+  assert.strictEqual(redraw(keys, ["new", ...keys], 250), 350, "c, half under the top edge, stays half under it");
+  assert.strictEqual(redraw(keys, ["a", "c", "d", "e"], 250), 150, "b gone above: c stays put");
+  assert.strictEqual(redraw(keys, ["a", "b", "d", "e"], 250), 150, "c itself gone: d, the next one in view, stays put");
+  assert.strictEqual(redraw(keys, ["x", "y", "z"], 250), 250, "none left: the old offset");
+  assert.strictEqual(redraw(keys, ["new", ...keys], 0), 0, "at the top: stays at the top, the new card shows");
+}
+
 // The header fold on a fake page: only its toggle folds and unfolds (no scroll or focus listener), each mode keeps its
 // own state in storage and gets it back on a reload; rows that grow while folded are measured again on unfolding.
 {

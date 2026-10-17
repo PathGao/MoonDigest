@@ -418,14 +418,14 @@ function renderUps() {
   E.sort.innerHTML = UI.sortControl({ sorts: out ? OUT_SORTS : SORTS, sort: so.sort, dir: so.dir, words: dirLabel(so.sort, so.dir), selectAttr: 'data-fw="sort"', dirAttr: 'data-fw="dir"' });
   E.qCount.textContent = UI.resultCount(F.q.trim() || filtersOn(), list.length);
   const hint = hintHtml();
-  const scroll = E.list.scrollTop;
+  const restore = UI.keepScroll(E.list, ".fw-up[data-mid]");
   let body;
   if (!D.list && !out) body = emptyHtml();
   else if (!list.length) body = `<p class="empty">${UI.noMatch(F.q, filtersOn(), WHO) || (out && !F.kind ? "没有已出分拣范围的 UP 主" : F.side.startsWith("g:") ? EMPTY_GROUP : "这里没有 UP 主")}</p>`;
   else body = list.map(upCard).join("");
   E.list.className = "fw-list";
   E.list.innerHTML = hint + body;
-  E.list.scrollTop = scroll;
+  restore();
   renderSel();
 }
 
@@ -586,10 +586,10 @@ function renderFeed() {
   E.tagRow.innerHTML = UI.labeledRow("标签", tagRowHtml(c.tags));
   const list = feedList(items, D, feedF(), pick.keep);
   E.qCount.textContent = UI.resultCount(F.fq.trim() || filtersOn(), list.length);
-  const scroll = E.list.scrollTop;
+  const restore = UI.keepScroll(E.list, ".fw-video[data-bvid]");
   E.list.className = "fw-list fw-feed";
   E.list.innerHTML = `<div class="fw-grid">${list.map(feedCard).join("")}</div><div class="fw-foot" id="fwFoot"></div>`;
-  E.list.scrollTop = scroll;
+  restore();
   E.sel.innerHTML = "";
   renderFoot(list.length);
   observeFoot();
