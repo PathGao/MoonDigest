@@ -167,7 +167,7 @@ function panel({ tab = video("BV1aa"), list = [] } = {}) {
   const d = panel({ list: [saved("x", video("BV1aa"))] });
   assert.strictEqual(d.view().id, "x");
   d.ask("q");
-  assert.deepStrictEqual(types(d.dispatch({ type: "DELETED", id: "x" })), ["dropStream", "clearDraft", "save"]);
+  assert.deepStrictEqual(types(d.dispatch({ type: "DELETED", id: "x" })), ["dropStream", "draft", "save"]);
   assert.deepStrictEqual([d.view().id, d.view().streaming, d.view().saved.length], ["", false, 0]);
   // Deleting another one while streaming leaves the reply alone.
   const e = panel({ list: [saved("x", video("BV1aa")), saved("y", video("BV1yy"))] });
@@ -188,8 +188,8 @@ function panel({ tab = video("BV1aa"), list = [] } = {}) {
 
 // ---- the draft ----
 {
-  // The input draft belongs to the conversation: cleared whenever the target changes, kept within one conversation.
-  const has = (effects) => effects.some((e) => e.type === "clearDraft");
+  // The input draft belongs to the conversation: put away and brought back whenever the target changes, kept within one.
+  const has = (effects) => effects.some((e) => e.type === "draft");
   const p = panel({ list: [saved("h1", video("BV1h1")), saved("h2", video("BV1h2"))] });
   assert.ok(has(p.dispatch({ type: "OPEN", id: "h1" })), "open another");
   assert.ok(!has(p.dispatch({ type: "OPEN", id: "h1" })), "the same conversation again");
@@ -198,9 +198,18 @@ function panel({ tab = video("BV1aa"), list = [] } = {}) {
   p.dispatch({ type: "OPEN", id: "h2" });
   assert.ok(has(p.dispatch({ type: "DELETED", id: "h2" })), "delete the shown one");
   assert.ok(!has(p.load(video("BV1bb"))), "a load that changes nothing");
-  // AI 总结 replaces it with the prompt: cleared first, then filled.
+  // Each conversation keeps its own: a saved one by its id, the video's unsaved new one by the video. Away to another
+  // video and back puts it back (autoplay moving on must not lose a half-typed question).
+  const keys = (effects) => plain(effects.filter((e) => e.type === "draft").map((e) => [e.from, e.to]));
+  const r = panel({ list: [saved("h1", video("BV1h1"))] });
+  r.load(video("BV1aa"));
+  const [[a, b]] = keys(r.load(video("BV1bb"), { follow: true }));
+  assert.ok(a && b && a !== b, "the two videos have their own drafts");
+  assert.deepStrictEqual(keys(r.load(video("BV1aa"), { follow: true })), [[b, a]], "back on the first video, its draft returns");
+  assert.deepStrictEqual(keys(r.dispatch({ type: "OPEN", id: "h1" })), [[a, "h1"]]);
+  // AI 总结 shows the video's conversation, its draft back; the prompt then fills only an empty input (fillPrompt).
   const q = panel();
-  assert.deepStrictEqual(types(q.dispatch({ type: "SUMMARY", prompt: "总结" })), ["hidePopovers", "clearDraft", "fill"]);
+  assert.deepStrictEqual(types(q.dispatch({ type: "SUMMARY", prompt: "总结" })), ["hidePopovers", "draft", "fill"]);
 }
 
 // ---- contexts: pending placeholders, resolving, the one rule for a conversation's own context ----
@@ -238,20 +247,20 @@ function panel({ tab = video("BV1aa"), list = [] } = {}) {
   // conversation bound to the video, pending until it resolves, gets the prompt after the resolve.
   const ref = S.buildConversationContextRef(video("BV1zz"));
   const p = panel({ tab: { url: "chrome-extension://x/triage/triage.html", title: "分拣台", isVideoContext: false } });
-  assert.deepStrictEqual(types(p.dispatch({ type: "SUMMARY", prompt: "总结", ref })), ["clearDraft", "resolve", "fill"]);
+  assert.deepStrictEqual(types(p.dispatch({ type: "SUMMARY", prompt: "总结", ref })), ["draft", "resolve", "fill"]);
   assert.deepStrictEqual([p.view().id, p.view().pinned.contextUrl, p.view().context.pending, p.view().nonVideo], ["", v("BV1zz"), true, false]);
   const q = panel({ tab: web, list: [saved("z", video("BV1zz"))] });
-  assert.deepStrictEqual(types(q.dispatch({ type: "SUMMARY", prompt: "总结", ref })), ["clearDraft", "resolve"]);
+  assert.deepStrictEqual(types(q.dispatch({ type: "SUMMARY", prompt: "总结", ref })), ["draft", "resolve"]);
   assert.strictEqual(q.view().id, "z");
   // The unified rule: the reference is the tab's own video, so its live context is used and nothing resolves.
   const r = panel({ tab: video("BV1zz") });
-  assert.deepStrictEqual(types(r.dispatch({ type: "SUMMARY", prompt: "总结", ref })), ["clearDraft", "fill"]);
+  assert.deepStrictEqual(types(r.dispatch({ type: "SUMMARY", prompt: "总结", ref })), ["draft", "fill"]);
   assert.strictEqual(r.view().context.subtitleMarkdown, "s");
   // Without a reference: the tab's video with a saved conversation opens it; without one a new conversation gets the
   // prompt; an empty prompt only focuses the input.
   const s = panel({ list: [saved("a", video("BV1aa"))] });
   s.dispatch({ type: "NEW" });
-  assert.deepStrictEqual(types(s.dispatch({ type: "SUMMARY", prompt: "总结" })), ["clearDraft"]);
+  assert.deepStrictEqual(types(s.dispatch({ type: "SUMMARY", prompt: "总结" })), ["draft"]);
   assert.strictEqual(s.view().id, "a");
   assert.deepStrictEqual(plain(panel().dispatch({ type: "SUMMARY", prompt: " " })), [{ type: "focus" }]);
 }
@@ -282,7 +291,7 @@ function panel({ tab = video("BV1aa"), list = [] } = {}) {
   // The history page deleted the shown conversation: a fresh one; with a reply in flight it is left to save it again.
   const p = panel({ list: [saved("a", video("BV1aa"))] });
   const list = p.view().saved;
-  assert.deepStrictEqual(types(p.dispatch({ type: "SAVED_CHANGED", list: [], previous: list })), ["clearDraft"]);
+  assert.deepStrictEqual(types(p.dispatch({ type: "SAVED_CHANGED", list: [], previous: list })), ["draft"]);
   assert.strictEqual(p.view().id, "");
   const q = panel({ list: [saved("a", video("BV1aa"))] });
   q.ask("q");

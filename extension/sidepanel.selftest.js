@@ -55,6 +55,8 @@ const scripts = [...fs.readFileSync(path.join(__dirname, "sidepanel.html"), "utf
 assert.strictEqual(scripts.pop(), path.join(__dirname, "sidepanel.js"), "sidepanel.js loads last");
 for (const f of scripts) vm.runInContext(fs.readFileSync(f, "utf8"), ctx);
 vm.runInContext(source, ctx);
+// The input starts empty, as in the page: switching conversations reads what is typed in it.
+vm.runInContext('els.input.value = ""', ctx);
 const state = vm.runInContext("state", ctx);
 const view = () => state.view();
 const realRenderHistoryList = ctx.renderHistoryList;

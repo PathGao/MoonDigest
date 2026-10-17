@@ -214,7 +214,7 @@
       saved: [],
       unsaved: { created: new Set(), deleted: new Set() }
     };
-    return { dispatch: (event) => dispatch(s, event), view: () => view(s) };
+    return { dispatch: (event) => dispatchAround(s, event), view: () => view(s) };
   }
 
   // The context the panel shows is never stored: a conversation with its own context shows that (loaded, or a pending
@@ -283,8 +283,9 @@
     };
   }
 
-  // The only place the shown conversation changes. Another conversation starts with an empty input (the draft belongs to
-  // the conversation); a reply still running here is dropped, so callers that keep it detach it first.
+  // The only place the shown conversation changes. The draft belongs to the conversation: another one puts the input's
+  // text away under the one left and brings back its own (the draft effect, filled in by dispatchAround). A reply still
+  // running here is dropped, so callers that keep it detach it first.
   function setConv(s, conversation = null) {
     const effects = [];
     if (s.streaming) {
@@ -292,7 +293,7 @@
       effects.push({ type: "dropStream" });
     }
     if (!conversation?.id || conversation.id !== s.conv.id) {
-      effects.push({ type: "clearDraft" });
+      effects.push({ type: "draft" });
     }
     s.conv = { id: "", pinned: null, messages: [], resolved: null, failed: false, epoch: s.conv.epoch + 1, fillEpoch: -1, unanswered: null };
     if (conversation) {
@@ -309,6 +310,24 @@
       };
       s.conv.messages = conversation.messages.map((m) => ({ role: m.role, content: String(m.content || "") }));
       if (fitsLive(s)) s.conv.resolved = { ...s.live.context };
+    }
+    return effects;
+  }
+
+  // A saved conversation's draft goes by its id; an unsaved one is the video's new conversation, so by the video's part
+  // URL (its context key gains the cid only once the payload loads).
+  function draftKey(s) {
+    return s.conv.id || shownPartUrl(s);
+  }
+
+  // The draft effect names the conversation left and the one shown, read around the whole event: following another
+  // video moves the tab's context before the conversation changes. The same key on both sides is a new conversation
+  // replacing the video's unsaved one, which starts empty.
+  function dispatchAround(s, event) {
+    const from = draftKey(s);
+    const effects = dispatch(s, event);
+    for (const effect of effects) {
+      if (effect.type === "draft") Object.assign(effect, { from, to: draftKey(s) });
     }
     return effects;
   }
