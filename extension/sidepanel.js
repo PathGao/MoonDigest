@@ -662,6 +662,8 @@ async function openCurrentContextUrl() {
 }
 
 function renderInitialState() {
+  // A question waiting for its video stands in for the empty state, which comes back if it is not sent.
+  if (waiting()) return;
   updateSidepanelLayoutState();
   const { context, messages, unanswered } = state.view();
   // A conversation stays readable without a platform; sending then says why (the model select and 快捷追问 too).
@@ -773,7 +775,7 @@ function suggestionsContent() {
 // read is in. AI 总结 is offered (SUMMARY_SHOWN) at every call: the fill is per conversation, not per drawing.
 function renderSuggestions() {
   const node = suggestionsNode;
-  if (!node) {
+  if (!node || waiting()) {
     return;
   }
   renderFollowups();
@@ -1419,8 +1421,9 @@ function formatConversationTimestamp(value) {
 
 async function ensureCurrentContextForSend() {
   if (state.view().pinned) {
+    const notice = state.view().resolved ? null : showConversationContextNotice("正在加载原视频信息…");
     await loadContextState({ refresh: false, silent: true }).catch(() => null);
-    return hydratePinnedConversationContext();
+    return hydratePinnedConversationContext({ notice });
   }
   const loadingNotice = state.view().context?.pending ? showConversationContextNotice("正在加载视频信息…") : null;
   const ok = await loadContextState({ refresh: false, silent: true });
@@ -1511,9 +1514,16 @@ async function resolveConversationContext(contextRef) {
   return sendRuntimeMessage({ type: "ai-sidepanel-resolve-context", contextRef });
 }
 
+// The question sent while its video's content still loads ({ epoch }): drawn at once, so a passive redraw of its
+// conversation meanwhile (a tab event, a settings change) is skipped, and another window's save is drawn after it.
+let waitingTurn = null;
+const waiting = () => waitingTurn?.epoch === state.view().epoch;
+
 // prompt: a 快捷追问 or 重试 sends it without touching the input box; without it the box's text is sent and cleared.
-// onStart runs once the question is surely sent (重试 takes the failed turn away only then).
-async function sendMessage(prompt, onStart = null) {
+// The question shows at once at the top and its reply's cursor under it; replaces (重试's failed turn) and the empty state
+// are hidden meanwhile. onStart runs once the question is surely sent (重试 takes the failed turn away only then). Not
+// sent (the video did not load, the conversation changed), the question goes and what it hid comes back.
+async function sendMessage(prompt, { onStart = null, replaces = [] } = {}) {
   const typed = prompt === undefined;
   const text = String(typed ? els.input.value : prompt).trim();
   // sendPending closes the window while the context loads, when a second Enter or chip click would send twice.
@@ -1544,23 +1554,35 @@ async function sendMessage(prompt, onStart = null) {
     els.input.value = "";
     autosizeInput();
   }
+  const hidden = [suggestionsNode, ...els.messages.querySelectorAll(".sp-center-error"), ...replaces].filter((node) => node && !node.hidden);
+  for (const node of hidden) node.hidden = true;
+  const question = appendUserMessage(text);
+  turnAnchor = { epoch, node: question, top: -Infinity };
+  const reply = appendAssistantPlaceholder();
+  waitingTurn = { epoch };
   sendPending = true;
   let hasContext = false;
   try {
     hasContext = await ensureCurrentContextForSend();
   } finally {
     sendPending = false;
+    waitingTurn = null;
   }
   // Another conversation now (the tab moved to another video, another was opened): the question was not asked there.
-  if (!hasContext || activeStream || state.view().epoch !== epoch) {
-    unsent();
-    return;
-  }
-  // The tab may have left the video while the context loaded, or a saved video no longer resolves to one.
+  // Nor when the tab left the video while the context loaded, or a saved video no longer resolves to one.
+  const here = hasContext && !activeStream && state.view().epoch === epoch;
   const context = state.view().context;
-  if (!context.isVideoContext) {
+  if (!here || !context.isVideoContext) {
+    question.remove();
+    reply.remove();
+    if (turnAnchor?.node === question) turnAnchor = null;
+    for (const node of hidden) node.hidden = false;
     unsent();
-    showConversationContextError(NON_VIDEO_CONTEXT_MESSAGE);
+    if (here) showConversationContextError(NON_VIDEO_CONTEXT_MESSAGE);
+    if (redrawAfterStream && state.view().epoch === epoch) {
+      redrawAfterStream = false;
+      renderConversationMessages();
+    }
     return;
   }
 
@@ -1569,10 +1591,9 @@ async function sendMessage(prompt, onStart = null) {
   suggestionsNode = null;
   removeCenteredState();
 
-  turnAnchor = { epoch: state.view().epoch, node: appendUserMessage(text), top: -Infinity };
   const stream = {
     port: chrome.runtime.connect({ name: MdgCommon.CHAT_PORT }),
-    node: appendAssistantPlaceholder(),
+    node: reply,
     prompt: text,
     raw: "",
     notice: "",
@@ -1675,7 +1696,7 @@ async function finishDetachedStream({ conversationId, promptIndex, prompt, raw }
 }
 
 function redrawConversation() {
-  if (activeStream) redrawAfterStream = true;
+  if (activeStream || waiting()) redrawAfterStream = true;
   else renderConversationMessages();
 }
 
@@ -1759,12 +1780,14 @@ function appendStreamError({ node, prompt, raw }, error, saved, code = "") {
   // Only once the resend starts: one that stops before (the video no longer loads) keeps the failed turn.
   retry.addEventListener("click", () => {
     if (activeStream || sendPending) return;
-    void sendMessage(prompt, () => {
-      state.dispatch({ type: "RETRY", prompt, raw, saved });
-      if (node.previousElementSibling?.classList.contains("sp-msg-user")) {
-        node.previousElementSibling.remove();
+    const question = node.previousElementSibling?.classList.contains("sp-msg-user") ? node.previousElementSibling : null;
+    const turn = [question, node].filter(Boolean);
+    void sendMessage(prompt, {
+      replaces: turn,
+      onStart: () => {
+        state.dispatch({ type: "RETRY", prompt, raw, saved });
+        for (const item of turn) item.remove();
       }
-      node.remove();
     });
   });
   node.appendChild(retry);

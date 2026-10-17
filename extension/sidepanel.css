@@ -414,6 +414,11 @@ body {
   scroll-behavior: smooth;
 }
 
+/* What a question waiting for its video hides (the empty state, 重试's failed turn), back if it is not sent. */
+.sp-messages > [hidden] {
+  display: none;
+}
+
 /* Room for the question just sent to scroll to the top (sidepanel.js turnAnchor); sized by script, so never squeezed. */
 .sp-turn-spacer {
   flex-shrink: 0;
