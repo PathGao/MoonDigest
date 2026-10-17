@@ -109,7 +109,8 @@ const state = {
   playerAiQuickActionSubmitting: false,
   playerAiQuickActionSuppressedUntil: 0,
   readingDocumentClickBound: false,
-  readingManualScrollPauseUntil: 0,
+  readingFollowPaused: false,
+  readingLastInputAt: 0,
   readingProgrammaticScrollUntil: 0,
   statusText: "准备就绪，点击「刷新」开始。",
   messageText: "",
@@ -306,6 +307,7 @@ const ids = {
   readingMeta: "mdg-reading-meta",
   readingChapterList: "mdg-reading-chapters",
   readingTranscriptList: "mdg-reading-transcript",
+  readingFollowResumeBtn: "mdg-reading-follow-resume",
   readingTranscriptTailSpacer: "mdg-reading-tail-spacer",
   // In the page's DOM, next to its player: the transcript column focus mode moves there.
   readingInlineHost: "mdg-reading-inline-host"
@@ -326,8 +328,8 @@ const PLAYER_WAIT = "正在等待视频播放器就绪…";
 const META_READING = MdgErrors.TEXT.videoReading;
 // A subtitle track without a label or language, in the dropdown and focus mode's info line.
 const UNNAMED_SUBTITLE = "未命名字幕";
-// How long a click or drag in focus mode's lists keeps the transcript from following the video.
-const MANUAL_PAUSE_MS = 3500;
+// How long the reader leaves the transcript alone, the playing line in view, before following resumes by itself.
+const READER_FOLLOW_IDLE_MS = 1000;
 // Between two tries to mount the player after focus mode opened without one.
 const PLAYER_RETRY_MS = 500;
 // Smaller than this is a thumbnail or a preview, not the player.
@@ -545,7 +547,7 @@ function bindRuntimeEvents() {
       }
       const nextTime = seekVideo(video, seconds);
       if (state.readingViewOpen) {
-        state.readingManualScrollPauseUntil = 0;
+        state.readingFollowPaused = false;
         state.readingNextScrollBehavior = "auto";
         updateReaderFollowState();
         syncReadingViewPlayback(true);
@@ -680,6 +682,7 @@ function buildUiHtml() {
           </div>
 
           <section class="mdg-reading-main">
+            <div class="mdg-reading-follow-hint">跟随已停<button id="${ids.readingFollowResumeBtn}" type="button">回到当前</button></div>
             <div id="${ids.readingTranscriptList}" class="mdg-reading-transcript"></div>
           </section>
         </section>
@@ -706,7 +709,7 @@ function bindUiEvents() {
   readingAutoScroll.addEventListener("change", (event) => {
     state.readingAutoScroll = Boolean(event.target.checked);
     if (state.readingAutoScroll) {
-      state.readingManualScrollPauseUntil = 0;
+      state.readingFollowPaused = false;
       syncReadingViewPlayback(true);
     }
     updateReaderFollowState();
@@ -767,17 +770,14 @@ function bindUiEvents() {
     state.readingDocumentClickBound = true;
   }
 
-  const handleReaderManualScroll = () => {
-    if (Date.now() <= state.readingProgrammaticScrollUntil) {
-      return;
-    }
-    noteManualReaderInteraction();
-  };
-  transcriptList.addEventListener("scroll", handleReaderManualScroll);
-  transcriptList.addEventListener("wheel", handleReaderManualScroll, { passive: true });
-  chapterList.addEventListener("wheel", handleReaderManualScroll, { passive: true });
-  chapterList.addEventListener("pointerdown", () => noteManualReaderInteraction(MANUAL_PAUSE_MS));
-  transcriptList.addEventListener("pointerdown", () => noteManualReaderInteraction(MANUAL_PAUSE_MS));
+  bindReaderManualScroll(transcriptList);
+  bindReaderManualScroll(chapterList);
+  chapterList.addEventListener("pointerdown", () => noteManualReaderInteraction());
+  transcriptList.addEventListener("pointerdown", () => noteManualReaderInteraction());
+  byId(ids.readingFollowResumeBtn).addEventListener("click", () => {
+    state.readingFollowPaused = false;
+    syncReadingViewPlayback(true);
+  });
   byId(ids.readingStatus).addEventListener("click", () => setReadingNotice(""));
   // The popup's request, from 专注模式 (source reader): it works even when the player button is turned off.
   byId(ids.readingAiBtn).addEventListener("click", () => {
@@ -792,6 +792,22 @@ function bindUiEvents() {
   });
 }
 
+// Wheel, touch and keys are always the reader's. A bare scroll event may be our own, so it counts only outside the
+// programmatic scroll's window.
+function bindReaderManualScroll(node) {
+  node.addEventListener("scroll", () => {
+    if (Date.now() > state.readingProgrammaticScrollUntil) noteManualReaderInteraction();
+  });
+  for (const type of ["wheel", "touchstart", "keydown"]) {
+    node.addEventListener(type, () => noteManualReaderInteraction(), { passive: true });
+  }
+}
+
+// Our own scroll's scroll events are ignored until then. Overlapping scrolls keep the later end.
+function guardProgrammaticScroll(ms) {
+  state.readingProgrammaticScrollUntil = Math.max(state.readingProgrammaticScrollUntil, Date.now() + ms);
+}
+
 function startUrlWatcher() {
   if (state.urlWatcherStarted) {
     return;
@@ -799,7 +815,9 @@ function startUrlWatcher() {
   state.urlWatcherStarted = true;
 
   window.setInterval(checkUrlChange, 1200);
-  // YouTube navigates in place; its event beats the interval by up to a second.
+  // Both sites navigate in place (B站's next part or next 稍后再看 video too); the Navigation API sees each URL change
+  // at once, the interval is the fallback. YouTube's own event comes when its page has switched.
+  window.navigation?.addEventListener("currententrychange", checkUrlChange);
   document.addEventListener("yt-navigate-finish", checkUrlChange);
 }
 
@@ -822,7 +840,11 @@ function checkUrlChange() {
   // Invalidate the previous video's run so nothing waiting on it gets its subtitles.
   state.fetchRunId++;
   state.refreshPromise = null;
+  const prev = { id: state.videoId, title: state.title };
   resetClipState();
+  // Another part of the same video keeps its title until the info is read. The page's own title is not used: at this
+  // point it may still be the last video's (B站 updates it later, YouTube's og:title not at all).
+  if (MdgSites.parseRef(nextUrl)?.id === prev.id) state.title = prev.title;
   const shouldEnterReaderMode = hasReaderParam(nextUrl);
   if (!state.readingViewOpen && shouldEnterReaderMode) {
     markReaderMode();
@@ -831,13 +853,8 @@ function checkUrlChange() {
   }
   if (state.readingViewOpen || shouldEnterReaderMode) {
     setReadingNotice("");
-    const runId = state.fetchRunId;
-    waitForVideoMetadata().then(() => {
-      if (runId !== state.fetchRunId) {
-        return;
-      }
-      refreshClip().catch(readerReadFailed);
-    });
+    // Not waiting for the player: the video's info and duration come from the site (sites.js fetchMeta).
+    refreshClip().catch(readerReadFailed);
   }
   // Out of 专注模式 nothing is read here: the next entry that asks (popup, side panel, player ✦) reads it via settledClip.
 }
@@ -928,7 +945,7 @@ function buildSidepanelContext() {
 }
 
 // The tab's current video, settled: every entry point (popup, side panel, player ✦, focus mode) reads it here.
-// It first takes up a URL change the 1.2 s watcher has not seen yet, so nothing returns the old video or races a second
+// It first takes up a URL change the URL watcher has not seen yet, so nothing returns the old video or races a second
 // fetch. It joins the run in flight, or starts one when forced or nothing is loaded. A run the video change
 // superseded is never the answer: it waits for the run that replaced it, or starts one for the current video.
 // Rejects with the current video's failure.
@@ -1026,6 +1043,9 @@ async function runRefreshClip() {
     state.cid = meta.cid || "";
     // Without a duration the subtitle is not checked against one, as on every other entry (sites.js).
     state.videoDuration = Number(meta.duration) > 0 ? Number(meta.duration) : readRuntimeVideoDuration();
+    if (state.readingViewOpen) {
+      renderReadingView();
+    }
 
     logInfo("[MDG] resolved video ids", {
       url: location.href,
@@ -1060,12 +1080,6 @@ async function runRefreshClip() {
     }
     logInfo("[MDG] selected subtitle track", { id: found.track.id, lang: found.track.lang, label: found.track.label });
     await showSubtitle(found, runId);
-    if (state.readingViewOpen) {
-      moveReadingMainInline();
-      renderReadingView();
-      startReaderPlayerObserver();
-      syncReadingViewPlayback(true);
-    }
     setStatus(state.subtitleWarning + readDoneText());
   } catch (error) {
     // A newer run (the video changed) owns the state now: an old video's late failure must not reset or mark it.
@@ -1143,13 +1157,16 @@ async function showSubtitle({ track, body, mismatch }, runId) {
   state.subtitleBody = body;
   state.subtitleWarning = mismatch ? subtitleMismatchWarning(mismatch) : "";
   state.subtitleFetchState = "ready";
-  await refreshDerivedContent();
-  ensureRunActive(runId);
+  // Only the note waits for the hot comments: the transcript shows as soon as it is here.
   if (state.readingViewOpen) {
+    moveReadingMainInline();
     renderReadingView();
+    startReaderPlayerObserver();
     syncReadingViewPlayback(true);
     setReadingNotice(state.subtitleWarning);
   }
+  await refreshDerivedContent();
+  ensureRunActive(runId);
 }
 
 // The popup's and focus mode's subtitle pickers. Only a track of the video shown: the list may belong to a video the
@@ -1542,14 +1559,8 @@ function maybeRefreshReaderSubtitleInBackground() {
   if (state.subtitleBody.length) {
     return;
   }
-  const runId = state.fetchRunId;
-  waitForVideoMetadata().then(() => {
-    if (runId !== state.fetchRunId) {
-      return;
-    }
-    // Joins a read in flight or reads a video not read yet; a video already read without subtitles is not reread.
-    settledClip(false).catch(readerReadFailed);
-  });
+  // Joins a read in flight or reads a video not read yet; a video already read without subtitles is not reread.
+  settledClip(false).catch(readerReadFailed);
 }
 
 // A read focus mode started (entry, video change, 重试) failed: red in focus mode, nothing once it has closed.
@@ -1557,20 +1568,6 @@ function readerReadFailed(error) {
   if (state.readingViewOpen && !isStaleRunError(error)) {
     setReadingNotice(`${MdgErrors.TEXT.videoReadFailed}：${fetchErrorText(error)}`, { error: true });
   }
-}
-
-function waitForVideoMetadata(timeoutMs = 5000) {
-  return new Promise((resolve) => {
-    const start = Date.now();
-    const check = () => {
-      if (readRuntimeVideoDuration() > 0 || Date.now() - start >= timeoutMs) {
-        resolve();
-        return;
-      }
-      window.setTimeout(check, 150);
-    };
-    check();
-  });
 }
 
 function syncReaderModeAfterMount() {
@@ -1705,7 +1702,7 @@ function closeReadingView() {
   stepReader("close");
   setReadingNotice("");
   state.readingSettingsExpanded = false;
-  state.readingManualScrollPauseUntil = 0;
+  state.readingFollowPaused = false;
   state.readingProgrammaticScrollUntil = 0;
   state.readingNextScrollBehavior = "smooth";
   if (state.readingPlayerRetryTimer) {
@@ -2530,14 +2527,7 @@ function moveReadingMainInline() {
   }
 
   if (!inlineHost.dataset.mdgScrollBound) {
-    const handleInlineHostManualScroll = () => {
-      if (Date.now() <= state.readingProgrammaticScrollUntil) {
-        return;
-      }
-      noteManualReaderInteraction();
-    };
-    inlineHost.addEventListener("scroll", handleInlineHostManualScroll);
-    inlineHost.addEventListener("wheel", handleInlineHostManualScroll, { passive: true });
+    bindReaderManualScroll(inlineHost);
     inlineHost.dataset.mdgScrollBound = "1";
   }
 
@@ -3506,6 +3496,8 @@ function syncReadingViewPlayback(forceScroll = false) {
   const changed =
     subtitleIndex !== state.readingActiveSubtitleIndex ||
     chapterIndex !== state.readingActiveChapterIndex;
+  // Checked every tick, so the hint goes as soon as following may resume, not at the next line.
+  readerFollowHeld();
   updateReaderFollowState();
   if (changed || forceScroll) {
     setActiveReadingItems(subtitleIndex, chapterIndex, true);
@@ -3566,7 +3558,7 @@ function setActiveReadingItems(subtitleIndex, chapterIndex, shouldScroll = false
   }
 
   if (shouldScroll && state.readingAutoScroll) {
-    if (Date.now() < state.readingManualScrollPauseUntil) {
+    if (readerFollowHeld()) {
       updateReaderFollowState();
       state.readingActiveSubtitleIndex = subtitleIndex;
       state.readingActiveChapterIndex = chapterIndex;
@@ -3584,16 +3576,17 @@ function setActiveReadingItems(subtitleIndex, chapterIndex, shouldScroll = false
   state.readingActiveChapterIndex = chapterIndex;
 }
 
+// Only the rail scrolls, sideways: scrollIntoView would scroll the page too.
 function scrollReadingRailItemIntoView(node) {
-  if (!node) {
+  const rail = byId(ids.readingChapterList);
+  const railRect = rail.getBoundingClientRect();
+  const rect = node.getBoundingClientRect();
+  const delta = rect.left < railRect.left ? rect.left - railRect.left : rect.right > railRect.right ? rect.right - railRect.right : 0;
+  if (!delta) {
     return;
   }
-  state.readingProgrammaticScrollUntil = Date.now() + 600;
-  node.scrollIntoView({
-    behavior: "smooth",
-    block: "nearest",
-    inline: "nearest"
-  });
+  guardProgrammaticScroll(600);
+  rail.scrollTo({ left: rail.scrollLeft + delta, behavior: "smooth" });
 }
 
 function scrollReadingTranscriptItemIntoView(node) {
@@ -3605,13 +3598,13 @@ function scrollReadingTranscriptItemIntoView(node) {
   const inlineHost = document.getElementById(ids.readingInlineHost);
   const listRect = transcriptList.getBoundingClientRect();
   const itemRect = node.getBoundingClientRect();
+  // Not laid out (hidden): nothing to scroll to.
   if (!(listRect.height > 0) || !(itemRect.height > 0)) {
-    scrollReadingRailItemIntoView(node);
     return;
   }
 
   const behavior = state.readingNextScrollBehavior === "auto" ? "auto" : "smooth";
-  state.readingProgrammaticScrollUntil = Date.now() + (behavior === "auto" ? 120 : 800);
+  guardProgrammaticScroll(behavior === "auto" ? 120 : 800);
   state.readingNextScrollBehavior = "smooth";
   if (inlineHost && inlineHost.scrollHeight > inlineHost.clientHeight + 8) {
     const hostRect = inlineHost.getBoundingClientRect();
@@ -3643,7 +3636,7 @@ function jumpReadingTarget(seconds) {
   // A jump that works answers the last one that found no player.
   if (byId(ids.readingStatus).textContent === NO_PLAYER) setReadingNotice("");
 
-  state.readingManualScrollPauseUntil = 0;
+  state.readingFollowPaused = false;
   state.readingNextScrollBehavior = "auto";
   updateReaderFollowState();
   seekVideo(video, seconds);
@@ -3683,13 +3676,40 @@ function onReadingTranscriptClick(event) {
   jumpReadingTarget(target.dataset.seconds);
 }
 
-function noteManualReaderInteraction(durationMs = 3000) {
-  if (!state.readingAutoScroll) {
-    updateReaderFollowState();
-    return;
+function noteManualReaderInteraction() {
+  if (state.readingAutoScroll) {
+    state.readingFollowPaused = true;
+    state.readingLastInputAt = Date.now();
   }
-  state.readingManualScrollPauseUntil = Date.now() + durationMs;
   updateReaderFollowState();
+}
+
+// Once the reader scrolls, clicks or types in focus mode's lists, the transcript stops following the video. It
+// follows again by itself only when the playing line is back in view (scrolled back to, or caught up with), the
+// reader has left the lists alone for a moment and no text is selected there; a jump or 回到当前 resumes it at once.
+// No timeout: the reader may read back for minutes, and the hint offers 回到当前.
+function readerFollowHeld() {
+  if (!state.readingFollowPaused) {
+    return false;
+  }
+  const selection = window.getSelection?.();
+  const selecting = selection && !selection.isCollapsed && byId(ids.readingTranscriptList).contains(selection.anchorNode);
+  if (selecting || Date.now() - state.readingLastInputAt < READER_FOLLOW_IDLE_MS || !readingActiveLineInView()) {
+    return true;
+  }
+  state.readingFollowPaused = false;
+  return false;
+}
+
+function readingActiveLineInView() {
+  const node = byId(ids.readingTranscriptList).querySelector(".mdg-reading-item.is-active");
+  const rect = node?.getBoundingClientRect();
+  if (!(rect?.height > 0)) {
+    return false;
+  }
+  const host = document.getElementById(ids.readingInlineHost);
+  const box = host && host.scrollHeight > host.clientHeight + 8 ? host.getBoundingClientRect() : { top: 0, bottom: window.innerHeight };
+  return rect.top >= box.top && rect.bottom <= box.bottom;
 }
 
 function updateReaderFollowState() {
@@ -3697,8 +3717,8 @@ function updateReaderFollowState() {
   if (!readingView) {
     return;
   }
-  // A paused video gets no playback ticks to clear the hint, so it is not shown while paused; the scroll guard still holds.
-  const manual = Date.now() < state.readingManualScrollPauseUntil && !state.readingVideoEl?.paused;
+  // Following only moves a playing video's transcript, so the hint waits for playback.
+  const manual = state.readingFollowPaused && !state.readingVideoEl?.paused;
   const mode = !state.readingAutoScroll ? "off" : manual ? "manual" : "auto";
   if (readingView.getAttribute("data-mdg-reader-follow") !== mode) {
     readingView.setAttribute("data-mdg-reader-follow", mode);

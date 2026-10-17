@@ -219,57 +219,87 @@ const settle = async () => {
     Object.assign(t, saved);
   }
 
-  // G4: a refresh waiting for the player's metadata is dropped when the video changed during the wait.
+  // V6: a video change in 专注模式 reads the new video at once, without waiting for the player to report a duration.
+  // Until its info is read the title is the same video's for another part, else none (the page may still show the last one).
+  // Entering 专注模式 joins the read in flight or reads a video not read yet; it never forces a reread of a video
+  // already read without subtitles. Only 刷新 does.
   {
-    const refreshed = [];
-    t.settledClip = t.refreshClip = async () => refreshed.push(state.fetchRunId);
-    let meta = gate();
-    t.waitForVideoMetadata = () => meta.promise;
+    const prev = Object.fromEntries(["settledClip", "refreshClip", "ensureUiReady", "enforceNormalPageStateIfNeeded", "resetClipState", "computeCurrentClipSignature"].map((k) => [k, t[k]]));
+    const forces = [];
+    t.settledClip = async (force) => forces.push(force);
     state.subtitleBody = [];
     t.maybeRefreshReaderSubtitleInBackground();
-    state.fetchRunId++;
-    meta.open();
-    await settle();
-    assert.deepStrictEqual(refreshed, [], "background refresh after a change");
-    meta = gate();
-    t.maybeRefreshReaderSubtitleInBackground();
-    meta.open();
-    await settle();
-    assert.strictEqual(refreshed.length, 1, "without a change it refreshes");
+    assert.deepStrictEqual(forces, [false], "entering 专注模式 reads at once and does not force a reread");
 
-    // The URL watcher's own wait, in focus mode: a second navigation during it wins.
-    refreshed.length = 0;
-    for (const f of ["ensureUiReady", "enforceNormalPageStateIfNeeded", "resetClipState"]) t[f] = () => {};
+    const refreshed = [];
+    t.refreshClip = async () => refreshed.push(state.title);
+    for (const f of ["ensureUiReady", "enforceNormalPageStateIfNeeded"]) t[f] = () => {};
+    t.resetClipState = () => Object.assign(state, { videoId: "", title: "" });
     let sig = 0;
     t.computeCurrentClipSignature = () => `clip${++sig}`;
     t.stepReader("mark");
     t.stepReader("enter");
-    meta = gate();
-    t.checkUrlChange();
-    const second = gate();
-    t.waitForVideoMetadata = () => second.promise;
-    t.checkUrlChange();
-    meta.open();
-    await settle();
-    assert.deepStrictEqual(refreshed, [], "the first navigation's wait gives way");
-    second.open();
-    await settle();
-    assert.strictEqual(refreshed.length, 1);
+    for (const id of ["BV1GJ411x7h7", "BV1xx411c7mD"]) {
+      Object.assign(state, { videoId: "BV1GJ411x7h7", title: "A" });
+      t.location.href = `https://www.bilibili.com/video/${id}/?p=2`;
+      t.checkUrlChange();
+    }
+    assert.deepStrictEqual(refreshed, ["A", ""], "read at once, with the title it has");
     t.stepReader("close");
+    t.location.href = "https://www.bilibili.com/video/BV1GJ411x7h7/";
+    Object.assign(t, prev);
   }
 
-  // A3: entering 专注模式 joins the read in flight or reads a video not read yet; it never forces a reread of a video
-  // already read without subtitles. Only 刷新 does.
+  // V2: 专注模式 shows the transcript once it is here; only the note waits for the hot comments.
   {
-    const prev = [t.settledClip, t.waitForVideoMetadata];
-    const forces = [];
-    t.settledClip = async (force) => forces.push(force);
-    t.waitForVideoMetadata = async () => {};
-    state.subtitleBody = [];
-    t.maybeRefreshReaderSubtitleInBackground();
-    await settle();
-    assert.deepStrictEqual(forces, [false], "entering 专注模式 does not force a reread");
-    [t.settledClip, t.waitForVideoMetadata] = prev;
+    const prev = Object.fromEntries(["refreshDerivedContent", "renderReadingView", "moveReadingMainInline", "startReaderPlayerObserver"].map((k) => [k, t[k]]));
+    const comments = gate();
+    let drawn = 0;
+    Object.assign(t, { refreshDerivedContent: () => comments.promise, renderReadingView: () => drawn++, moveReadingMainInline() {}, startReaderPlayerObserver() {} });
+    t.stepReader("mark");
+    t.stepReader("enter");
+    const shown = t.showSubtitle({ track: { url: "u", lang: "zh" }, body: [{ from: 0, to: 1, content: "x" }] }, state.fetchRunId);
+    assert.strictEqual(drawn, 1, "drawn before the comments are read");
+    comments.open();
+    await shown;
+    t.stepReader("close");
+    Object.assign(t, prev);
+  }
+
+  // V3: right after our own scroll, only a bare scroll event is taken for ours; wheel, touch and keys are the reader's.
+  // A shorter scroll started meanwhile does not cut the window short.
+  {
+    const prev = t.noteManualReaderInteraction;
+    const seen = [];
+    const on = {};
+    t.noteManualReaderInteraction = () => seen.push("manual");
+    t.bindReaderManualScroll({ addEventListener: (type, f) => (on[type] = f) });
+    state.readingProgrammaticScrollUntil = 0;
+    t.guardProgrammaticScroll(800);
+    t.guardProgrammaticScroll(120);
+    assert.ok(state.readingProgrammaticScrollUntil > Date.now() + 500, "the longer window holds");
+    on.scroll();
+    assert.deepStrictEqual(seen, [], "our own scroll is not the reader's");
+    for (const type of ["wheel", "touchstart", "keydown"]) on[type]();
+    assert.strictEqual(seen.length, 3, "input inside the window still counts");
+    state.readingProgrammaticScrollUntil = 0;
+    on.scroll();
+    assert.strictEqual(seen.length, 4, "a scroll after the window counts");
+    t.noteManualReaderInteraction = prev;
+  }
+
+  // V7: a new chapter scrolls the chapter rail sideways only, never the page.
+  {
+    const prev = t.byId;
+    const calls = [];
+    const rail = { scrollLeft: 50, getBoundingClientRect: () => ({ left: 0, right: 300 }), scrollTo: (o) => calls.push(o) };
+    t.byId = () => rail;
+    const chapter = (left) => ({ getBoundingClientRect: () => ({ left, right: left + 100 }), scrollIntoView: () => calls.push("page") });
+    t.scrollReadingRailItemIntoView(chapter(100));
+    t.scrollReadingRailItemIntoView(chapter(250));
+    t.scrollReadingRailItemIntoView(chapter(-30));
+    assert.strictEqual(JSON.stringify(calls), JSON.stringify([{ left: 100, behavior: "smooth" }, { left: 20, behavior: "smooth" }]));
+    t.byId = prev;
   }
 
   // A4: a jump from a 专注模式 subtitle row or chapter keeps a paused video paused, like the side panel's timestamps.
@@ -492,23 +522,38 @@ const settle = async () => {
     t.stepReader("close");
   }
 
-  // 跟随已停 shows after a manual scroll only while playing: a paused video sends no ticks to clear it. The scroll guard holds either way.
+  // 跟随已停 shows after a manual scroll only while playing. Following stays off while the reader is away from the
+  // playing line, however long; it resumes once the line is back in view and the reader has let go, or at 回到当前.
   {
     const attrs = {};
     const view = { getAttribute: (k) => attrs[k], setAttribute: (k, v) => (attrs[k] = v) };
-    const realGet = t.document.getElementById;
+    const prev = [t.document.getElementById, t.readingActiveLineInView];
     t.document.getElementById = () => view;
+    let inView = false;
+    t.readingActiveLineInView = () => inView;
     state.readingAutoScroll = true;
     state.readingVideoEl = { paused: true };
     t.noteManualReaderInteraction();
-    assert.ok(state.readingManualScrollPauseUntil > Date.now(), "the guard is set while paused");
+    assert.ok(state.readingFollowPaused, "paused while the video is paused too");
     assert.strictEqual(attrs["data-mdg-reader-follow"], "auto", "no hint while paused");
     state.readingVideoEl.paused = false;
     t.updateReaderFollowState();
-    assert.strictEqual(attrs["data-mdg-reader-follow"], "manual", "the hint shows once playing within the guard");
-    t.document.getElementById = realGet;
+    assert.strictEqual(attrs["data-mdg-reader-follow"], "manual", "the hint shows once playing");
+    state.readingLastInputAt = Date.now() - 600000;
+    assert.strictEqual(t.readerFollowHeld(), true, "reading back for ten minutes is not cut short");
+    inView = true;
+    state.readingLastInputAt = Date.now();
+    assert.strictEqual(t.readerFollowHeld(), true, "not while the reader is still at it");
+    state.readingLastInputAt = Date.now() - 2000;
+    assert.strictEqual(t.readerFollowHeld(), false, "back in view and let go: following resumes");
+    t.updateReaderFollowState();
+    assert.strictEqual(attrs["data-mdg-reader-follow"], "auto");
+    state.readingAutoScroll = false;
+    t.noteManualReaderInteraction();
+    assert.strictEqual(state.readingFollowPaused, false, "with 跟随 off nothing pauses");
+    state.readingAutoScroll = true;
+    [t.document.getElementById, t.readingActiveLineInView] = prev;
     state.readingVideoEl = null;
-    state.readingManualScrollPauseUntil = 0;
   }
 
   // The page's reads under the shared subtitle step (which tracks, in what order, what counts as a limit is
@@ -868,7 +913,7 @@ const settle = async () => {
 
   // The 2026-10-16 scan, group c2 (C67–C146): one assertion per behavior fix.
   {
-    const touched = ["setReadingNotice", "setStatus", "sendRuntimeMessage", "getSettings", "refreshDerivedContent", "confirmOverwriteNote", "computeCurrentClipSignature", "settledClip", "waitForVideoMetadata", "getRuntimeVideoElement", "findReaderPlayerHost", "dismissReaderMiniPlayer", "normalizeReaderPlayerContainer", "bindReadingViewVideo", "bindReaderPlayerControlsHover", "bindReaderLayout", "layoutReaderPlayerHost", "cleanupReaderPlayerHostNode", "setReaderPlayerControlsVisible", "hasReaderPlayerControlsIssue", "getReaderPlayerControlsState", "seekVideo", "updateReaderFollowState", "byId", "fetchHotComments", "loadAiTurns", "loadTriageExtras", "currentSite", "retryAsync", "sleep", "MdgSites", "setTimeout", "clearTimeout", "history"];
+    const touched = ["setReadingNotice", "setStatus", "sendRuntimeMessage", "getSettings", "refreshDerivedContent", "confirmOverwriteNote", "computeCurrentClipSignature", "settledClip", "getRuntimeVideoElement", "findReaderPlayerHost", "dismissReaderMiniPlayer", "normalizeReaderPlayerContainer", "bindReadingViewVideo", "bindReaderPlayerControlsHover", "bindReaderLayout", "layoutReaderPlayerHost", "cleanupReaderPlayerHostNode", "setReaderPlayerControlsVisible", "hasReaderPlayerControlsIssue", "getReaderPlayerControlsState", "seekVideo", "updateReaderFollowState", "byId", "fetchHotComments", "loadAiTurns", "loadTriageExtras", "currentSite", "retryAsync", "sleep", "MdgSites", "setTimeout", "clearTimeout", "history"];
     const saved = Object.fromEntries(touched.map((k) => [k, t[k]]));
     const savedState = Object.fromEntries(Object.entries(Object.getOwnPropertyDescriptors(state)).filter(([, d]) => "value" in d).map(([k, d]) => [k, d.value]));
     const notices = [];
@@ -933,7 +978,6 @@ const settle = async () => {
     }
     // C101: focus mode's background read that fails after focus mode closed says nothing on the page.
     {
-      t.waitForVideoMetadata = async () => {};
       t.settledClip = async () => Promise.reject(new Error("网络断了"));
       for (const closeFirst of [true, false]) {
         notices.splice(0);

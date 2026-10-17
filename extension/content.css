@@ -850,13 +850,18 @@ body[data-mdg-reader-mode="1"] .mdg-reading-main {
   pointer-events: auto;
 }
 
+body[data-mdg-reader-mode="1"] .mdg-reading-follow-hint {
+  display: none;
+}
+
 /* The transcript column lives in #mdg-reading-inline-host, outside #mdg-reading-view, hence :has(). */
-body[data-mdg-reader-mode="1"]:has(#mdg-reading-view[data-mdg-reader-follow="manual"]) .mdg-reading-main::before {
-  content: "跟随已停";
+body[data-mdg-reader-mode="1"]:has(#mdg-reading-view[data-mdg-reader-follow="manual"]) .mdg-reading-follow-hint {
   position: sticky;
   top: 6px;
   z-index: 4;
-  display: block;
+  display: flex;
+  align-items: center;
+  gap: 6px;
   width: fit-content;
   height: 20px;
   margin: 0 8px -20px auto;
@@ -867,7 +872,15 @@ body[data-mdg-reader-mode="1"]:has(#mdg-reading-view[data-mdg-reader-follow="man
   font-weight: 500;
   line-height: 20px;
   color: var(--mdg-faint);
-  pointer-events: none;
+}
+
+body[data-mdg-reader-mode="1"] .mdg-reading-follow-hint button {
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  color: var(--mdg-accent);
+  cursor: pointer;
 }
 
 body[data-mdg-reader-mode="1"] .mdg-reading-transcript {
