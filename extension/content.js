@@ -767,15 +767,8 @@ function bindUiEvents() {
     state.readingDocumentClickBound = true;
   }
 
-  const handleReaderManualScroll = () => {
-    if (Date.now() <= state.readingProgrammaticScrollUntil) {
-      return;
-    }
-    noteManualReaderInteraction();
-  };
-  transcriptList.addEventListener("scroll", handleReaderManualScroll);
-  transcriptList.addEventListener("wheel", handleReaderManualScroll, { passive: true });
-  chapterList.addEventListener("wheel", handleReaderManualScroll, { passive: true });
+  bindReaderManualScroll(transcriptList);
+  bindReaderManualScroll(chapterList);
   chapterList.addEventListener("pointerdown", () => noteManualReaderInteraction(MANUAL_PAUSE_MS));
   transcriptList.addEventListener("pointerdown", () => noteManualReaderInteraction(MANUAL_PAUSE_MS));
   byId(ids.readingStatus).addEventListener("click", () => setReadingNotice(""));
@@ -790,6 +783,22 @@ function bindUiEvents() {
       stopReadingViewSync();
     }
   });
+}
+
+// Wheel, touch and keys are always the reader's. A bare scroll event may be our own, so it counts only outside the
+// programmatic scroll's window.
+function bindReaderManualScroll(node) {
+  node.addEventListener("scroll", () => {
+    if (Date.now() > state.readingProgrammaticScrollUntil) noteManualReaderInteraction();
+  });
+  for (const type of ["wheel", "touchstart", "keydown"]) {
+    node.addEventListener(type, () => noteManualReaderInteraction(), { passive: true });
+  }
+}
+
+// Our own scroll's scroll events are ignored until then. Overlapping scrolls keep the later end.
+function guardProgrammaticScroll(ms) {
+  state.readingProgrammaticScrollUntil = Math.max(state.readingProgrammaticScrollUntil, Date.now() + ms);
 }
 
 function startUrlWatcher() {
@@ -2527,14 +2536,7 @@ function moveReadingMainInline() {
   }
 
   if (!inlineHost.dataset.mdgScrollBound) {
-    const handleInlineHostManualScroll = () => {
-      if (Date.now() <= state.readingProgrammaticScrollUntil) {
-        return;
-      }
-      noteManualReaderInteraction();
-    };
-    inlineHost.addEventListener("scroll", handleInlineHostManualScroll);
-    inlineHost.addEventListener("wheel", handleInlineHostManualScroll, { passive: true });
+    bindReaderManualScroll(inlineHost);
     inlineHost.dataset.mdgScrollBound = "1";
   }
 
@@ -3585,7 +3587,7 @@ function scrollReadingRailItemIntoView(node) {
   if (!node) {
     return;
   }
-  state.readingProgrammaticScrollUntil = Date.now() + 600;
+  guardProgrammaticScroll(600);
   node.scrollIntoView({
     behavior: "smooth",
     block: "nearest",
@@ -3608,7 +3610,7 @@ function scrollReadingTranscriptItemIntoView(node) {
   }
 
   const behavior = state.readingNextScrollBehavior === "auto" ? "auto" : "smooth";
-  state.readingProgrammaticScrollUntil = Date.now() + (behavior === "auto" ? 120 : 800);
+  guardProgrammaticScroll(behavior === "auto" ? 120 : 800);
   state.readingNextScrollBehavior = "smooth";
   if (inlineHost && inlineHost.scrollHeight > inlineHost.clientHeight + 8) {
     const hostRect = inlineHost.getBoundingClientRect();

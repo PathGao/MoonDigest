@@ -288,6 +288,28 @@ const settle = async () => {
     Object.assign(t, prev);
   }
 
+  // V3: right after our own scroll, only a bare scroll event is taken for ours; wheel, touch and keys are the reader's.
+  // A shorter scroll started meanwhile does not cut the window short.
+  {
+    const prev = t.noteManualReaderInteraction;
+    const seen = [];
+    const on = {};
+    t.noteManualReaderInteraction = () => seen.push("manual");
+    t.bindReaderManualScroll({ addEventListener: (type, f) => (on[type] = f) });
+    state.readingProgrammaticScrollUntil = 0;
+    t.guardProgrammaticScroll(800);
+    t.guardProgrammaticScroll(120);
+    assert.ok(state.readingProgrammaticScrollUntil > Date.now() + 500, "the longer window holds");
+    on.scroll();
+    assert.deepStrictEqual(seen, [], "our own scroll is not the reader's");
+    for (const type of ["wheel", "touchstart", "keydown"]) on[type]();
+    assert.strictEqual(seen.length, 3, "input inside the window still counts");
+    state.readingProgrammaticScrollUntil = 0;
+    on.scroll();
+    assert.strictEqual(seen.length, 4, "a scroll after the window counts");
+    t.noteManualReaderInteraction = prev;
+  }
+
   // A4: a jump from a 专注模式 subtitle row or chapter keeps a paused video paused, like the side panel's timestamps.
   {
     const prev = t.bindReadingViewVideo;
