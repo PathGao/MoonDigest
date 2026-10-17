@@ -43,7 +43,8 @@
   function buildTabVideoPlaceholder(tab, ref, shown) {
     const title = String(tab.title || "").replace(/_哔哩哔哩_bilibili$| - YouTube$/, "").trim();
     return {
-      ...buildContextPlaceholder({ site: ref.site, videoId: ref.id, url: ref.url, pageIndex: ref.part?.index || 1 }, true),
+      // A watch-later URL's oid is the part's cid: it finds that part's conversation before the payload names its pageIndex.
+      ...buildContextPlaceholder({ site: ref.site, videoId: ref.id, cid: ref.part?.oid, url: ref.url, pageIndex: ref.part?.index || 1 }, true),
       // Right after an in-page navigation the tab can still carry the previous video's title; the parts of one video share it.
       title: title === shown?.title && shown?.videoId !== ref.id ? "" : title
     };
@@ -171,8 +172,9 @@
   // the conversation), lastVideoUrl (the tab's video when a load last took or watched it), hasContext (a context was
   // read before; false on the panel's first load).
   // ev: stage "tab" (only the tab URL is known yet) or "payload" (the full context came back); toUrl (the tab's video,
-  // "" when it is not one); oid (a watch-later URL names the part by oid, not ?p=, so only the payload can place it);
-  // follow (a tab event asked to follow); keyChanged (payload: the tab's context is not the shown one).
+  // "" when it is not one); oid (a watch-later URL names the part by oid, not ?p=, so only the payload can place it
+  // among the shown video's parts; another video follows at once); follow (a tab event asked to follow); keyChanged
+  // (payload: the tab's context is not the shown one); fillsShown (payload: the shown context is its placeholder).
   // action: "follow" (show the tab's video: its latest conversation or a fresh one), "keep" (the conversation holds its
   // context), "adopt" (the unbound conversation takes the payload), "none" (tab stage: wait for the payload).
   // Videos compare by URL (site, id, part). Following only leaves a conversation that belongs to the video just played,
@@ -180,11 +182,13 @@
   // An unbound conversation on another video follows whichever load saw the change, so every entry ends alike; the panel's
   // first load only adopts, without the AI 总结 fill. lastVideoUrl moves when the panel takes the tab's video or a follow
   // load watches it, never on a load that leaves a bound conversation in place.
-  function decideFollow({ shownUrl, hasMessages, bound, lastVideoUrl, hasContext }, { stage, toUrl, oid, follow, keyChanged }) {
+  function decideFollow({ shownUrl, hasMessages, bound, lastVideoUrl, hasContext }, { stage, toUrl, oid, follow, keyChanged, fillsShown }) {
     const same = doesTabMatchContextUrl;
-    const candidate = Boolean(toUrl) && (hasMessages ? Boolean(lastVideoUrl) && !same(toUrl, lastVideoUrl) && same(shownUrl, lastVideoUrl) : !same(toUrl, shownUrl));
+    const candidate = Boolean(toUrl) && !fillsShown && (hasMessages ? Boolean(lastVideoUrl) && !same(toUrl, lastVideoUrl) && same(shownUrl, lastVideoUrl) : !same(toUrl, shownUrl));
     if (stage === "tab") {
-      return follow && hasContext && !oid && candidate ? { action: "follow", lastVideoUrl: toUrl } : { action: "none", lastVideoUrl };
+      const otherVideo = (url) => MdgSites.parseRef(url)?.id !== MdgSites.parseRef(toUrl)?.id;
+      const placed = !oid || (otherVideo(shownUrl) && otherVideo(lastVideoUrl));
+      return follow && hasContext && placed && candidate ? { action: "follow", lastVideoUrl: toUrl } : { action: "none", lastVideoUrl };
     }
     const taken = toUrl || lastVideoUrl;
     if (!hasContext) return { action: "adopt", lastVideoUrl: taken };
@@ -472,9 +476,10 @@
         const key = buildContextKey(payload);
         const before = snapshot(s);
         const keyChanged = contextKeyChanges(s, payload);
+        const fillsShown = Boolean(shown(s)?.pending && key === shownKey(s));
         s.live = { ...s.live, context: payload, key, error: "" };
         const toUrl = payload.isVideoContext !== false && MdgSites.buildContextKey(buildConversationContextRef(payload)) ? partUrl(payload) : "";
-        const decision = decideFollow(before, { stage: "payload", toUrl, follow: event.follow, keyChanged });
+        const decision = decideFollow(before, { stage: "payload", toUrl, follow: event.follow, keyChanged, fillsShown });
         s.live.lastVideoUrl = decision.lastVideoUrl;
         if (decision.action === "follow") {
           return follow(s, payload);
