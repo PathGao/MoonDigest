@@ -371,7 +371,10 @@ async function refreshProvidersAndPrefsAfterExternalChange() {
     return;
   }
   renderHistoryList();
-  renderInitialState();
+  // A conversation draws nothing from these settings (the select, 快捷追问 and the Obsidian item are drawn above); only
+  // the empty state does, and it is drawn again only if it changed.
+  const { messages, unanswered } = state.view();
+  if (!messages.length && !unanswered) renderInitialState();
 }
 
 async function consumePendingPlayerAiQuickAction() {
@@ -706,6 +709,7 @@ function resetConversationView(stateHtml = "", { retry = false } = {}) {
     return;
   }
   emptyStateShown = shown;
+  drawnEpoch = -1;
   clearMessages();
   if (stateHtml) {
     const stateNode = document.createElement("div");
@@ -1349,11 +1353,16 @@ function clearMessages() {
   els.messages.replaceChildren(els.note);
 }
 
+// The conversation drawn in the messages (its epoch), -1 for the empty state: drawn again, it keeps the reader's place.
+let drawnEpoch = -1;
+
 function renderConversationMessages() {
   updateSidepanelLayoutState();
   // How far the reader scrolled from the anchored question, kept across the redraw. Before they scroll it is 0, also
   // while the scroll to it is still under way (the first save of a new conversation redraws right after sending).
   const pastAnchor = turnAnchor?.top === null && turnAnchor.node.isConnected ? els.messages.scrollTop - turnAnchorTop() : 0;
+  const { epoch } = state.view();
+  const keptTop = drawnEpoch === epoch ? els.messages.scrollTop : null;
   clearMessages();
   suggestionsNode = null;
   const { messages, nonVideo, unanswered } = state.view();
@@ -1383,16 +1392,19 @@ function renderConversationMessages() {
     showConversationContextError(failed);
   }
   renderFollowups();
-  // Drawn again in place (another window saved it, a reply ended into it): the question sent here stays where it was.
+  drawnEpoch = epoch;
+  // Drawn again in place (another window saved it, a reply ended into it): the question sent here stays where it was,
+  // and without one the reader stays where they read. Another conversation opens at its end.
   const question = [...els.messages.querySelectorAll(".sp-msg-user")].pop();
-  if (turnAnchor?.epoch === state.view().epoch && question) {
+  if (turnAnchor?.epoch === epoch && question) {
     turnAnchor.node = question;
     syncTurnSpacer();
     els.messages.scrollTo({ top: turnAnchorTop() + pastAnchor, behavior: "instant" });
     return;
   }
   turnAnchor = null;
-  scrollToBottom();
+  if (keptTop === null) scrollToBottom();
+  else els.messages.scrollTo({ top: keptTop, behavior: "instant" });
 }
 
 // Cut by characters, not UTF-16 units, so an emoji is never split in two.
