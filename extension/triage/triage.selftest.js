@@ -44,6 +44,7 @@ const ctx = vm.createContext({
   structuredClone,
   TextEncoder,
   TagDialogs,
+  CSS: { escape: (x) => x },
   __TRIAGE_THROTTLE_MS: 30, // B站限流 waits this long here, not 10 minutes
   __TRIAGE_SETTLE_MS: 40, // a written folder settles this fast here, not in 3 s
   setTimeout: (f) => setImmediate(f),
@@ -4129,6 +4130,21 @@ assert.deepStrictEqual(plain(t.zipNotes("夹", [{ filename: "Go.md", markdown: "
   assert.strictEqual(synced, 1, "the first video's folder is re-read");
   Object.assign(t.S, { mediaId: keep.mediaId, viewing: keep.viewing, viewer: keep.viewer });
   t.quickSync = keep.quickSync;
+}
+
+// T2: opening or closing the player re-lays the list; the card playing (or that was) is scrolled back into view.
+{
+  const keep = { list: t.el.list, viewing: t.S.viewing, viewer: t.S.viewer, quickSync: t.quickSync };
+  const shown = [];
+  t.el.list = { querySelector: (sel) => ({ scrollIntoView: (o) => shown.push([sel, o.block]) }), querySelectorAll: () => [] };
+  t.quickSync = () => {};
+  t.S.viewing = "";
+  t.openViewer(item(1));
+  t.closeViewer();
+  assert.deepStrictEqual(shown, [[".playing", "nearest"], ['.card[data-bvid="BV1"]', "nearest"]]);
+  Object.assign(t.S, { viewing: keep.viewing, viewer: keep.viewer });
+  Object.assign(t, { quickSync: keep.quickSync });
+  t.el.list = keep.list;
 }
 
 // C557 / C600: 已出分拣范围's kind is its tab: an empty one names the kind, not a filter; its 导出 reason names the view.

@@ -731,7 +731,6 @@ function play(bvid) {
   F.viewingMid = playingMid(bvid, F.feed?.items, rows);
   T.openViewer({ bvid, title: it.title || it.t });
   render();
-  E.list.querySelector(`[data-bvid="${CSS.escape(bvid)}"]`)?.scrollIntoView({ block: "nearest" });
 }
 
 // An UP's space in the player, as a video plays there: F.viewing is "up:<mid>", so T and the line above the player are this UP's.
@@ -1633,12 +1632,16 @@ setInterval(() => {
   if (F.mode === "follow" && D.jobs?.running && D.jobs.hold?.until) renderHead();
 }, 1000);
 
-// Leaving the viewer (× or Esc) clears the playing mark.
+// Leaving the viewer (× or Esc) clears the playing mark. Opening or closing it re-lays the list, as in 收藏夹: the card
+// playing (or that was, else the current one) is brought back into view.
 new MutationObserver(() => {
+  const card = F.mode === "follow" ? E.list.querySelector(".playing") || E.list.querySelector(".focused") : null;
+  const sel = card?.dataset.mid ? `[data-mid="${CSS.escape(card.dataset.mid)}"]` : card?.dataset.bvid ? `[data-bvid="${CSS.escape(card.dataset.bvid)}"]` : "";
   if (F.viewing && !T.viewing()) {
     F.viewing = "";
     render();
   }
+  if (sel) E.list.querySelector(sel)?.scrollIntoView({ block: "nearest" });
 }).observe($("viewer"), { attributes: true, attributeFilter: ["hidden"] });
 
 const [{ [VIEW_KEY]: view }, days] = await Promise.all([

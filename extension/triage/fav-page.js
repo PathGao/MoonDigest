@@ -654,6 +654,13 @@ function openViewer(it) {
   el.viewer.hidden = false;
   el.main.classList.add("viewing");
   showViewing(it.bvid);
+  revealCard(".playing");
+}
+
+// Opening or closing the player re-lays the list (the sidebar hides, the cards narrow), so the scroll offset points
+// elsewhere: the card playing (or that was) is brought back into view. 关注 does the same for its list (follow.js).
+function revealCard(sel) {
+  if (!followMode()) el.list.querySelector(sel)?.scrollIntoView({ block: "nearest" });
 }
 
 // The folders of videos played earlier in this viewer (B站's autoplay moved on): closing refreshes them too.
@@ -696,12 +703,14 @@ function setBasketOpen(open) {
 function closeViewer() {
   if (!S.viewing) return;
   const home = [...(S.viewer?.folders || []), ...viewerPast];
+  const was = S.viewing ? `.card[data-bvid="${CSS.escape(S.viewing)}"]` : ".focused";
   S.viewing = "";
   S.viewer = null;
   el.viewerFrame.src = "about:blank";
   el.viewer.hidden = true;
   el.main.classList.remove("viewing");
   render();
+  revealCard(was);
   if (inFolderView() && !followMode() && home.includes(String(S.mediaId))) quickSync({ force: true });
 }
 
