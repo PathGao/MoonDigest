@@ -65,10 +65,13 @@ function panel({ tab = video("BV1aa"), list = [] } = {}) {
     ["non-follow load does not advance", { ...history, lastVideoUrl: v("BV1hh") }, { toUrl: v("BV1ff"), follow: false }, "keep", v("BV1hh")]
   ];
   for (const [name, state, ev, action, last] of table) assert.deepStrictEqual(at(state, ev), { action, lastVideoUrl: last }, name);
-  // The tab stage acts on the tab URL alone, except a watch-later part (named by oid) and the first load.
+  // The tab stage acts on the tab URL alone, except another part of the same video on a watch-later page (named by
+  // oid) and the first load.
   const tab = (state, ev) => plain(S.decideFollow(state, { stage: "tab", follow: true, oid: false, ...ev }));
   assert.deepStrictEqual(tab(fresh, { toUrl: v("BV1aa") }), { action: "follow", lastVideoUrl: v("BV1aa") });
-  assert.deepStrictEqual(tab(fresh, { toUrl: v("BV1aa"), oid: true }), { action: "none", lastVideoUrl: "" }, "oid");
+  assert.deepStrictEqual(tab(fresh, { toUrl: v("BV1aa"), oid: true }), { action: "follow", lastVideoUrl: v("BV1aa") }, "oid, another video");
+  const onAa = { ...fresh, shownUrl: v("BV1aa"), lastVideoUrl: v("BV1aa") };
+  assert.deepStrictEqual(tab(onAa, { toUrl: `${v("BV1aa")}?p=2`, oid: true }), { action: "none", lastVideoUrl: v("BV1aa") }, "oid, same video");
   assert.deepStrictEqual(tab({ ...fresh, hasContext: false }, { toUrl: v("BV1aa") }), { action: "none", lastVideoUrl: "" }, "first load");
   assert.deepStrictEqual(tab(fresh, { toUrl: v("BV1aa"), follow: false }), { action: "none", lastVideoUrl: "" }, "not a tab event");
 }
@@ -371,6 +374,25 @@ function panel({ tab = video("BV1aa"), list = [] } = {}) {
   assert.deepStrictEqual([p.view().id, p.view().context.pageIndex], ["", 3], "following: P3 is another video");
   assert.strictEqual(S.doesTabMatchContextUrl(wl(3), "https://www.bilibili.com/video/BV1ww/?p=3", part(3)), true, "the tab's payload places the part");
   assert.strictEqual(S.doesTabMatchContextUrl(wl(3), "https://www.bilibili.com/video/BV1ww/?p=3", part(2)), false, "another part's payload does not");
+}
+
+{
+  // A watch-later page on another video follows from the tab URL: oid is the part's cid, so the placeholder finds that
+  // part's conversation, and its payload fills the placeholder without a second follow.
+  const wl = (n) => `https://www.bilibili.com/list/watchlater?bvid=BV1ww&oid=c${n}`;
+  const part = (n) => video("BV1ww", { url: wl(n), cid: `c${n}`, pageIndex: n, pageCount: 3 });
+  const p = panel({ list: [saved("p2", part(2))] });
+  const tabRead = (n) => p.dispatch({ type: "TAB_READ", tab: { url: wl(n), title: "t-BV1ww" }, follow: true });
+  const arrived = (n) => p.dispatch({ type: "CONTEXT_ARRIVED", payload: part(n), follow: true });
+  assert.ok(types(tabRead(3)).includes("followed"), "follows before the payload");
+  assert.deepStrictEqual([p.view().id, p.view().context.videoId, p.view().context.pending], ["", "BV1ww", true]);
+  assert.ok(!types(arrived(3)).includes("followed"), "P3's payload fills the placeholder");
+  assert.deepStrictEqual([p.view().id, p.view().context.pageIndex, Boolean(p.view().context.pending)], ["", 3, false]);
+  p.load(video("BV1aa"), { follow: true });
+  assert.ok(types(tabRead(2)).includes("followed"));
+  assert.strictEqual(p.view().id, "p2", "P2's conversation, found by oid");
+  assert.ok(!types(arrived(2)).includes("followed"));
+  assert.strictEqual(p.view().id, "p2");
 }
 
 {
