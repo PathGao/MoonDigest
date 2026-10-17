@@ -78,8 +78,10 @@ let suggestionsNode = null;
 // The AI settings as get-settings returns them; MdgSettings.DEFAULTS until then or when it fails.
 let aiPrefs = aiPrefsOf(MdgSettings.DEFAULTS);
 // The question just sent here, held at the top of the panel while its reply grows below it (the turn anchor of
-// assistant-ui's turnAnchor="top"): { epoch, node }. The spacer after the reply makes the room to scroll it up there and
-// shrinks to nothing once the reply fills the panel. Nothing follows the reply down; the reader scrolls.
+// assistant-ui's turnAnchor="top"): { epoch, node, top }, top being where it was last scrolled to. The spacer after the
+// reply makes the room to scroll it up there and shrinks to nothing once the reply fills the panel. Nothing follows the
+// reply down; the reader scrolls. Until they do, something growing above it (the note card a first save shows) scrolls
+// it back up; top is null once they have.
 let turnAnchor = null;
 const turnSpacer = document.createElement("div");
 let liveContextSyncTimer = 0;
@@ -140,6 +142,9 @@ function bindEvents() {
   };
   new ResizeObserver(resizeSpacer).observe(els.messages);
   new MutationObserver(resizeSpacer).observe(els.messages, { childList: true, subtree: true, characterData: true });
+  for (const type of ["wheel", "touchmove", "keydown", "pointerdown"]) {
+    els.messages.addEventListener(type, () => turnAnchor && (turnAnchor.top = null), { passive: true });
+  }
   els.settingsBtn.addEventListener("click", () => chrome.runtime.openOptionsPage());
   els.contextChip.addEventListener("animationend", () => els.contextChip.classList.remove("is-switched"));
   els.contextChip.addEventListener("click", () => {
@@ -1515,7 +1520,7 @@ async function sendMessage(prompt, onStart = null) {
   suggestionsNode = null;
   removeCenteredState();
 
-  turnAnchor = { epoch: state.view().epoch, node: appendUserMessage(text) };
+  turnAnchor = { epoch: state.view().epoch, node: appendUserMessage(text), top: -Infinity };
   const stream = {
     port: chrome.runtime.connect({ name: MdgCommon.CHAT_PORT }),
     node: appendAssistantPlaceholder(),
@@ -1585,7 +1590,6 @@ function appendAssistantPlaceholder() {
   node.appendChild(cursor);
   els.messages.appendChild(node);
   syncTurnSpacer();
-  els.messages.scrollTop = turnAnchorTop();
   return node;
 }
 
@@ -2171,8 +2175,13 @@ function syncTurnSpacer() {
   if (els.messages.lastElementChild !== turnSpacer) {
     els.messages.append(turnSpacer);
   }
+  const top = turnAnchorTop();
   const content = els.messages.scrollHeight - turnSpacer.offsetHeight;
-  turnSpacer.style.height = `${Math.max(0, Math.ceil(turnAnchorTop() + els.messages.clientHeight - content))}px`;
+  turnSpacer.style.height = `${Math.max(0, Math.ceil(top + els.messages.clientHeight - content))}px`;
+  if (turnAnchor.top !== null && Math.abs(top - turnAnchor.top) > 1) {
+    turnAnchor.top = top;
+    els.messages.scrollTop = top;
+  }
 }
 
 async function getActiveTab() {
