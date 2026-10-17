@@ -2213,6 +2213,61 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     assert.strictEqual(t.S.folderCriteria[2], "只留教程");
   }
 
+  // T5: the page opens from the folder list last read: the last folder shows its snapshot before B站's list is back, and
+  // that list (the same folders) leaves the folder open as it was. Ticking another folder does not reopen it either.
+  // 稍后再看 shows its snapshot first too, then reads its list.
+  {
+    const keep = { allFolders: t.S.allFolders, folders: t.S.folders, mediaId: t.S.mediaId, tab: t.S.tab };
+    const flush = async () => { for (let i = 0; i < 30; i++) await new Promise(setImmediate); };
+    for (const k of Object.keys(store)) delete store[k];
+    const folders = [{ id: 1, title: "甲", count: 2 }, { id: 2, title: "乙", count: 1 }];
+    Object.assign(store, {
+      triage_included_folders: ["1"],
+      triage_last_folder: "1",
+      triage_snapshot_1: { bvids: ["BV1", "BV2"], ids: ["BV1", "BV2"], items: [item(1), item(2)], intro: "" },
+      triage_snapshot_2: { bvids: ["BV3"], ids: ["BV3"], items: [item(3)], intro: "" }
+    });
+    handlers["triage-folder-ids"] = ({ mediaId }) => ({ ok: true, data: { bvids: store[t.K.snapshot(mediaId)]?.bvids || [] } });
+    handlers["triage-folders"] = () => ({ ok: true, data: { mid: 7, folders } });
+    t.S.allFolders = [];
+    t.S.mediaId = "";
+    await t.loadFolders();
+    assert.deepStrictEqual(plain(store[t.K.folderList]), { mid: 7, folders }, "B站's list is kept for the next open");
+    let answer;
+    handlers["triage-folders"] = () => new Promise((res) => (answer = res));
+    t.S.allFolders = [];
+    t.S.mediaId = "";
+    const loading = t.loadFolders();
+    await flush();
+    assert.deepStrictEqual(plain([t.S.mediaId, t.S.items.map((it) => it.bvid)]), ["1", ["BV1", "BV2"]], "the last folder's snapshot, before B站's list");
+    t.S.selected.add("BV2");
+    t.S.tab = "done";
+    answer({ ok: true, data: { mid: 7, folders } });
+    await loading;
+    assert.deepStrictEqual([t.S.mediaId, [...t.S.selected], t.S.tab], ["1", ["BV2"], "done"], "the same list leaves the folder open as it was");
+    handlers["triage-folders"] = () => ({ ok: true, data: { mid: 7, folders } });
+    store.triage_included_folders = ["1", "2"];
+    await t.applyIncluded(["1", "2"]);
+    assert.deepStrictEqual([t.S.mediaId, [...t.S.selected], t.S.tab, t.S.folders.length], ["1", ["BV2"], "done", 2], "ticking a folder keeps the open one");
+    // 稍后再看: its snapshot first, then its list.
+    store.triage_snapshot_toview = { bvids: ["BV5"], items: [item(5)] };
+    const stub = t.syncFolder;
+    t.syncFolder = realSync;
+    let list;
+    handlers["triage-folder-items"] = () => new Promise((res) => (list = res));
+    const opening = t.openFolder("toview");
+    await flush();
+    assert.deepStrictEqual(plain(t.S.items.map((it) => it.bvid)), ["BV5"], "稍后再看's snapshot first");
+    list({ ok: true, data: { items: [item(5), item(6)] } });
+    await opening;
+    await flush();
+    assert.deepStrictEqual(plain(t.S.items.map((it) => it.bvid).sort()), ["BV5", "BV6"], "then what B站 lists");
+    delete handlers["triage-folder-items"];
+    t.syncFolder = stub;
+    t.S.selected.clear();
+    Object.assign(t.S, keep);
+  }
+
   // A tag greyed out in 批量打 is nowhere in what the AI gets; a reply that still adds, creates or removes it is dropped.
   {
     openFake("K", [item(610)]);

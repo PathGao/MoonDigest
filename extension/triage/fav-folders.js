@@ -146,32 +146,49 @@ function pageText(mediaId) {
 }
 const loadingHtml = () => `<p class="empty">正在加载收藏夹…${pageText(S.mediaId)}</p>`;
 
+// The folder list opens from the last one read (K.folderList) while B站's is read again: the last folder shows its
+// snapshot at once. B站's list then only updates the folder select, and the folder open stays (its tab, filters and
+// selection with it) while it is still chosen; 所有收藏夹 and 已出分拣范围 reopen when the chosen folders changed.
 async function loadFolders() {
   // An AI setup banner stays until a run gets through (DESIGN), whatever reloads the folder list.
   if (el.banner.dataset.kind !== "ai") el.banner.hidden = true;
-  el.list.innerHTML = `<p class="empty">正在加载收藏夹列表…</p>`;
-  const r = await send({ type: "triage-folders" });
+  const reading = send({ type: "triage-folders" });
+  const cached = !S.allFolders.length && (await storeGet(K.folderList, null));
+  if (cached?.folders) await showFolders(cached, false);
+  else if (!S.mediaId) el.list.innerHTML = `<p class="empty">正在加载收藏夹列表…</p>`;
+  const r = await reading;
   if (!r.ok) {
     S.foldersRead = MdgErrors.text(r);
     if (MdgErrors.action(r.code) !== "login") showBanner(`读取收藏夹失败：${S.foldersRead}`, MdgErrors.LABEL.retry, loadFolders); // send() showed 去登录
-    el.list.innerHTML = `<p class="empty">无法读取收藏夹</p>`;
+    if (!S.mediaId) el.list.innerHTML = `<p class="empty">无法读取收藏夹</p>`;
     return;
   }
   S.foldersRead = "";
-  S.allFolders = r.data.folders || [];
-  S.toviewUnread = Boolean(r.data.toviewUnread);
-  S.mid = r.data.mid;
+  // A list missing 稍后再看 (its read failed) is not kept: the next open would lose it until B站 answered.
+  if (!r.data.toviewUnread) storeSet(K.folderList, { mid: r.data.mid, folders: r.data.folders || [] });
+  await showFolders(r.data, true);
+}
+
+// The folder list ({ mid, folders, toviewUnread? }) into the page; fresh: B站's own, which alone retires folders gone
+// from it and says 稍后再看 was not read. Opens a folder when none is open, or when the one open is no longer chosen.
+async function showFolders(data, fresh) {
+  const before = S.folders.map((f) => String(f.id)).join();
+  S.allFolders = data.folders || [];
+  S.toviewUnread = Boolean(data.toviewUnread);
+  S.mid = data.mid;
   S.included = (await loadIncluded()).map(String);
   // Its data stays (retireUnchosenFolders keeps it); say so, amber like any reminder that blocks nothing.
-  if (S.toviewUnread && S.included.includes(TOVIEW)) showBanner("稍后再看这次没读到，点「重试」再读一次", MdgErrors.LABEL.retry, loadFolders, "toview");
+  if (fresh && S.toviewUnread && S.included.includes(TOVIEW)) showBanner("稍后再看这次没读到，点「重试」再读一次", MdgErrors.LABEL.retry, loadFolders, "toview");
   S.folders = S.allFolders.filter((f) => S.included.includes(String(f.id)));
-  await retireUnchosenFolders();
+  if (fresh) await retireUnchosenFolders();
   S.removedCount = Object.keys(await storeGet(K.removed, {})).length;
   // 所有收藏夹 leads and 已出分拣范围 closes the list; renderTop keeps their labels and visibility current.
   el.folderSelect.innerHTML =
     `<option value="${ALL}" title="把所有收藏夹合在一起看和搜索。第一次要逐个加载，收藏夹多时需要几分钟；之后只核对变化，很快">所有收藏夹</option><hr />` +
     S.folders.map((f) => `<option value="${esc(f.id)}"${f.cover ? ` data-cover="${esc(f.cover)}"` : ""}>${esc(f.title)} (${esc(f.count)})</option>`).join("") +
     `<hr /><option value="${REMOVED}" title="不在你勾选的收藏夹里、但 MoonDigest 还留着信息的视频：取消收藏的、在没勾选的收藏夹里的、已失效的">${REMOVED_NAME}</option>`;
+  const open = String(S.mediaId || "");
+  if (open) el.folderSelect.value = open;
   renderTop();
   if (!S.folders.length) {
     el.list.innerHTML = S.allFolders.length
@@ -181,6 +198,9 @@ async function loadFolders() {
       : `<p class="empty">${NO_FOLDERS}</p>`;
     return;
   }
+  const changed = S.folders.map((f) => String(f.id)).join() !== before;
+  if (open === ALL || open === REMOVED) return changed ? openFolder(open) : undefined;
+  if (open && S.folders.some((f) => String(f.id) === open)) return render();
   // Back to the last real folder, else the first (默认收藏夹); 所有收藏夹 is slow to load, so it never opens by itself.
   const last = String(await storeGet(K.lastFolder, ""));
   const pick = String((S.folders.find((f) => String(f.id) === last) || S.folders[0]).id);
@@ -230,17 +250,18 @@ async function openFolder(mediaId) {
 }
 
 // A folder with a cached list shows it at once; one light id request then decides whether it needs a full sync.
-// 稍后再看 is read in one request anyway, and its watch progress goes stale, so it always syncs.
 async function openCached(token) {
   const mediaId = S.mediaId;
-  if (mediaId === TOVIEW) return false;
+  const toview = mediaId === TOVIEW;
   const snap = await storeGet(K.snapshot(mediaId), null);
-  // Snapshots from before the intro was cached sync once, so the AI is not told an empty intro.
-  if (token !== S.folderToken || !snap?.items || snap.intro === undefined) return false;
-  S.folderIntro[mediaId] = snap.intro;
+  // Snapshots from before the intro was cached sync once, so the AI is not told an empty intro (稍后再看 has none).
+  if (token !== S.folderToken || !snap?.items || (!toview && snap.intro === undefined)) return false;
+  if (!toview) S.folderIntro[mediaId] = snap.intro;
   setItems([...snap.items]);
   if (!(await loadResults(token))) return false;
-  checkCached(token, snap);
+  // 稍后再看 is read in one request anyway, and its watch progress goes stale: it always syncs, behind its snapshot.
+  if (toview) syncFolder({ force: true });
+  else checkCached(token, snap);
   return true;
 }
 
