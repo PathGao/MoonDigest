@@ -235,6 +235,7 @@
   if (typeof chrome === "undefined" || !chrome.storage?.local || typeof document === "undefined") return;
   // The 分拣台's player (viewer-frame.js): a video gets only the line under its title, its AI 判断 as the switch says and
   // no 视频标签 (the line above the player has them); an UP's space gets nothing.
+  // viewer-frame.js sets it at document_start, before this script runs (it comes first in the manifest).
   const viewer = document.documentElement.getAttribute?.("data-mdg-viewer");
   if (viewer === "space") return;
   const lineOnly = viewer != null;
@@ -348,6 +349,8 @@
   // navigation, when the tab comes back into view and when more than MAX nodes piled up; data changes do it too,
   // throttled (schedule). ----
   // The player's own nodes (danmaku, progress, subtitles) change every frame and hold nothing that is marked.
+  // ponytail: a video link B站 adds inside the player is marked only by a whole-page look; watch its mutations if the
+  // player starts holding marked links.
   const QUIET = "#bilibili-player, .bpx-player-container";
   const MAX = 100;
   const pending = new Set();
@@ -361,13 +364,13 @@
       full = true;
     } else pending.add(n);
   }
+  // A hidden tab runs no frames: keep no detached nodes around, look at the whole page once it shows (onVisible).
+  function whenShown() {
+    pending.clear();
+    full = true;
+  }
   function onMutations(records) {
-    // A hidden tab runs no frames: keep no detached nodes around, look at the whole page once it shows (onVisible).
-    if (document.hidden) {
-      pending.clear();
-      full = true;
-      return;
-    }
+    if (document.hidden) return whenShown();
     for (const r of records) {
       const t = r.target;
       if ((t.nodeType === 1 ? t : t.parentElement)?.closest?.(QUIET)) continue;
@@ -395,7 +398,7 @@
   function flush() {
     frame = 0;
     if (!enabled) return;
-    if (document.hidden) return onMutations([]);
+    if (document.hidden) return whenShown();
     const roots = full ? null : [...pending].filter((n) => n.isConnected);
     pending.clear();
     full = false;
@@ -894,6 +897,8 @@ input { box-sizing: border-box; width: 100%; margin: 0; padding: 4px 8px; border
     if (g !== gen) return;
     const anchors = scanned(SEL);
     const want = [...new Set(anchors.map((a) => bvidFromHref(a.getAttribute("href"))).concat(here))].filter((b) => b && !known(b));
+    // ponytail: a card whose video has results of its own, off that video's favorites page, waits for this read and is
+    // marked a frame or two after it appears; preloading every result would read megabytes on every page.
     if (want.length) {
       const got = await chrome.storage.local.get(want.flatMap((b) => [K.triageTitle(b), K.triageAnalysis(b)]));
       if (g !== gen) return;
