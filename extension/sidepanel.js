@@ -1301,8 +1301,9 @@ function clearMessages() {
 
 function renderConversationMessages() {
   updateSidepanelLayoutState();
-  // How far the reader is from the anchored question, kept across the redraw.
-  const pastAnchor = turnAnchor?.node?.isConnected ? els.messages.scrollTop - turnAnchorTop() : 0;
+  // How far the reader scrolled from the anchored question, kept across the redraw. Before they scroll it is 0, also
+  // while the scroll to it is still under way (the first save of a new conversation redraws right after sending).
+  const pastAnchor = turnAnchor?.top === null && turnAnchor.node.isConnected ? els.messages.scrollTop - turnAnchorTop() : 0;
   clearMessages();
   suggestionsNode = null;
   const { messages, nonVideo, unanswered } = state.view();
