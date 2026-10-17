@@ -101,6 +101,12 @@ let obsidianWriting = false;
 // get-settings failed: the defaults stand in for the 快捷追问, so changing them would save the defaults over the user's.
 let settingsReadFailed = false;
 let initCompleted = false;
+// What a context load waits for before it places the tab's video (init's reads: the saved conversations it may restore,
+// the platforms the empty state depends on). The context itself is asked for meanwhile.
+let initReads = null;
+let contextLoadSeq = 0;
+let contextLoad = null;
+let contextLoadFollow = false;
 let previousVideoExpanded = false;
 let previousVideoBarSignature = "";
 
@@ -111,11 +117,13 @@ init().catch((err) => {
 
 async function init() {
   bindEvents();
-  await loadProvidersAndPrefs();
-  await loadSavedConversations();
-  await loadPreviousVideoConversationId();
+  // The tab's video shows from its URL (its saved conversation, or a placeholder) as soon as these are read; its
+  // subtitles and comments, read meanwhile, fill it in.
+  initReads = Promise.all([loadProvidersAndPrefs(), loadSavedConversations(), loadPreviousVideoConversationId()]);
   await loadContextState();
-  renderInitialState();
+  // A conversation was drawn when it was shown; the empty state shows what the payload brought.
+  if (state.view().bound) updateContextChip();
+  else renderInitialState();
   autosizeInput();
   initCompleted = true;
   await consumePendingPlayerAiQuickAction();
@@ -493,6 +501,10 @@ async function runEffect(effect) {
       return setPreviousVideoConversation(effect.id);
     case "followed":
       return flashContextChip();
+    case "placed":
+      // The tab URL's video in the empty conversation, before its subtitles load.
+      updateContextChip();
+      return renderInitialState();
     case "hidePopovers":
       hidePresetPopover();
       return hideHistoryPopover();
@@ -523,10 +535,8 @@ function releaseActiveStream({ type, conversationId, promptIndex }) {
 }
 
 // Tab switches and sends overlap their loads; only the newest one writes the context, and an older caller gets the
-// newest one's result. A follow asked for by a superseded load carries over to the newer one.
-let contextLoadSeq = 0;
-let contextLoad = null;
-let contextLoadFollow = false;
+// newest one's result (contextLoadSeq, contextLoad and contextLoadFollow are declared above init, which loads at once).
+// A follow asked for by a superseded load carries over to the newer one.
 function loadContextState(opts = {}) {
   const seq = ++contextLoadSeq;
   contextLoadFollow ||= Boolean(opts.follow);
@@ -542,6 +552,9 @@ function loadContextState(opts = {}) {
 async function readContextState({ refresh = false, silent = false, follow = false }, superseded) {
   const tab = await getActiveTab();
   if (superseded()) return contextLoad;
+  const request = tab?.id ? sendRuntimeMessage({ type: "ai-sidepanel-get-state", tabId: tab.id, refresh }).catch((error) => ({ ok: false, error: error.message })) : null;
+  await initReads?.catch(() => {});
+  if (superseded()) return contextLoad;
   const atTab = await act({ type: "TAB_READ", tab: tab?.id ? { url: tab.url, title: tab.title } : null, follow });
   const followed = atTab.some((effect) => effect.type === "followed");
   if (!tab?.id) {
@@ -552,11 +565,7 @@ async function readContextState({ refresh = false, silent = false, follow = fals
     return false;
   }
 
-  const resp = await sendRuntimeMessage({
-    type: "ai-sidepanel-get-state",
-    tabId: tab.id,
-    refresh
-  }).catch((error) => ({ ok: false, error: error.message }));
+  const resp = await request;
   if (superseded()) return contextLoad;
 
   const ok = Boolean(resp?.ok && resp.payload);
