@@ -2162,8 +2162,9 @@ function removeConversationContextNotice() {
   els.messages.querySelectorAll(".sp-context-notice").forEach((node) => node.remove());
 }
 
+// Instant: a redraw starts from the top, and the smooth scrolling sidepanel.css sets would run down the whole conversation.
 function scrollToBottom() {
-  els.messages.scrollTop = els.messages.scrollHeight;
+  els.messages.scrollTo({ top: els.messages.scrollHeight, behavior: "instant" });
 }
 
 // Where the panel scrolls to put the anchored question at its top. A question taller than a third of the panel shows
