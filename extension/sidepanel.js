@@ -1580,7 +1580,6 @@ function scheduleStreamRender(stream) {
       return;
     }
     stream.node.innerHTML = renderMarkdown(stream.raw) + '<span class="sp-msg-cursor"></span>';
-    scrollToBottom();
   });
 }
 
@@ -1635,7 +1634,6 @@ function endStream(stream, { stopped = "", error = "", code = "" } = {}) {
     renderConversationMessages();
   }
   els.input.focus();
-  scrollToBottom();
 }
 
 // How a reply ended, under it: 已停止生成, the background's notice, the error with its buttons.
