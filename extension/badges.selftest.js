@@ -987,7 +987,7 @@ async function reloadedCopy() {
   assert.deepStrictEqual(shown(), ["新", "新"], "the fresh copy marks the new card");
 }
 
-// ---- what a page change costs: an added card is marked in the next frame from memory; the player's danmaku, nothing ----
+// ---- what a page change costs: an added card is marked in the observer's callback from memory; the danmaku, nothing ----
 async function incremental() {
   const BV = "BV1GJ411x7h7";
   const store = {
@@ -996,7 +996,8 @@ async function incremental() {
   };
   const dm = h("div", { class: "bpx-player-row-dm-wrap" });
   const recs = h("div", { class: "rec-list" });
-  const body = h("body", {}, h("div", { class: "video-info-meta" }), h("div", { id: "bilibili-player" }, dm), recs);
+  const info = h("div", { class: "video-info-container" }, h("h1", { class: "video-title" }, "标题"), h("div", { class: "video-info-meta" }));
+  const body = h("body", {}, info, h("div", { id: "bilibili-player" }, dm), recs);
   const walker = (root) => {
     const texts = [];
     const walk = (n) => n.childNodes.forEach((k) => (k.nodeType === 3 ? k.data.trim() && texts.push(k) : walk(k)));
@@ -1062,10 +1063,30 @@ async function incremental() {
   const plain = card("BV1eS4y157Ey");
   add(recs, again);
   add(recs, plain);
-  await tick();
-  assert.match(again.querySelector(".mdg-badge")?.textContent || "", /AI 可清理/, "an added card is marked in the next frame");
+  assert.match(again.querySelector(".mdg-badge")?.textContent || "", /AI 可清理/, "an added card is marked in the observer's callback, before paint");
   assert.strictEqual(plain.querySelector(".mdg-badge"), null, "a video with no stored result: no mark");
   assert.strictEqual(reads.length, n, "both from memory: no storage read");
+  // B站 rebuilds the title block (hydration): the line is back in the same callback, after the new meta row.
+  const info2 = h("div", { class: "video-info-container" }, h("h1", { class: "video-title" }, "标题"), h("div", { class: "video-info-meta" }));
+  body.childNodes.splice(body.childNodes.indexOf(info), 1, info2);
+  info.parentNode = null;
+  info2.parentNode = body;
+  mutate([{ type: "childList", target: body, addedNodes: [info2], removedNodes: [info] }]);
+  assert.strictEqual(info2.querySelector(".video-info-meta").nextSibling?.classList.contains("mdg-line"), true, "title block replaced: the line back in the same callback");
+  // B站 takes out only our line: back in the same callback too.
+  const line = info2.querySelector(".mdg-line");
+  line.remove();
+  mutate([{ type: "childList", target: info2, addedNodes: [], removedNodes: [line] }]);
+  assert.ok(info2.querySelector(".mdg-line"), "our line removed by the page: back in the same callback");
+  // A card re-rendered (its title node replaced, our badge with it): marked again in the same callback.
+  const title = again.querySelector(".title");
+  const title2 = h("div", { class: "title" }, "视频标题");
+  again.childNodes.splice(again.childNodes.indexOf(title), 1, title2);
+  title.parentNode = null;
+  title2.parentNode = again;
+  mutate([{ type: "childList", target: again, addedNodes: [title2], removedNodes: [title] }]);
+  assert.match(again.querySelector(".mdg-badge")?.textContent || "", /AI 可清理/, "a re-rendered card: its badge back in the same callback");
+  assert.strictEqual(reads.length, n, "all from memory");
   // Our own writes queue nothing.
   const f = frames;
   mutate([{ type: "childList", target: again.querySelector(".title"), addedNodes: [again.querySelector(".mdg-badge")], removedNodes: [] }]);
