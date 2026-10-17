@@ -91,6 +91,9 @@ let streamFirstTokenReceived = false;
 // A redraw asked for while a reply streams (a detached reply ended into this conversation, another window saved it):
 // done when that reply ends, so the answer it brought shows.
 let redrawAfterStream = false;
+// What was typed in the input for each conversation left, by sidepanel-state.js's draftKey; back in it when it is shown
+// again. Kept only while the panel is open.
+const drafts = new Map();
 // Reading the AI platforms failed: why, said where 没有启用的 AI 平台 would be (it is not that).
 let providersError = "";
 // A 写入 Obsidian in flight: a second one would open a second overwrite dialog. Its button says so (syncExportButtons).
@@ -472,10 +475,15 @@ async function runEffect(effect) {
       return saveConversations();
     case "autoSync":
       return scheduleAutoSync(effect.id);
-    case "clearDraft":
-      els.input.value = "";
+    case "draft": {
+      const typed = els.input.value.trim() ? els.input.value : "";
+      drafts.delete(effect.from);
+      if (typed && effect.from !== effect.to) drafts.set(effect.from, typed);
+      els.input.value = drafts.get(effect.to) || "";
+      drafts.delete(effect.to);
       syncSummaryButton();
       return autosizeInput();
+    }
     case "fill":
       return fillPrompt(effect.prompt);
     case "focus":
