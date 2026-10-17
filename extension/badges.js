@@ -342,8 +342,11 @@
   const pageBvid = () => (/^\/(?:video|list)\//.test(location.pathname) ? bvidFromHref(location.pathname + location.search) : "");
 
   // ---- When to look: the nodes a page change added are marked in the MutationObserver callback itself, which runs
-  // before the browser paints, from what is already in memory; a mark B站 takes out with its own re-render (the video
-  // page rebuilds its title block while it hydrates) is back in the same callback. The whole page is looked at, in
+  // before the browser paints, from what is already in memory; a mark B站 takes out with its own re-render is back in
+  // the same callback. The video page's title block is one: our line, there before Vue hydrates the block, makes
+  // hydration throw the block away and draw it anew once, about 2s in (without the line it is never replaced). Adding
+  // the line only after hydration would spare that, but a content script cannot tell when hydration ends, and adding
+  // it late is what pushed the player down. The whole page is looked at, in
   // the next animation frame, at start, after in-page navigation, when the tab comes back into view and when more
   // than MAX nodes piled up in one callback (the parser at document_start); data changes do it too, throttled
   // (schedule). ----
