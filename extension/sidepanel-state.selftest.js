@@ -207,6 +207,10 @@ function panel({ tab = video("BV1aa"), list = [] } = {}) {
   assert.ok(a && b && a !== b, "the two videos have their own drafts");
   assert.deepStrictEqual(keys(r.load(video("BV1aa"), { follow: true })), [[b, a]], "back on the first video, its draft returns");
   assert.deepStrictEqual(keys(r.dispatch({ type: "OPEN", id: "h1" })), [[a, "h1"]]);
+  // Following to a video with a saved conversation is one move, though the panel passes a new one on the way.
+  const t = panel({ list: [saved("h1", video("BV1h1"))] });
+  t.load(video("BV1aa"));
+  assert.deepStrictEqual(keys(t.load(video("BV1h1"), { follow: true })).map(([, to]) => to), ["h1"]);
   // AI 总结 shows the video's conversation, its draft back; the prompt then fills only an empty input (fillPrompt).
   const q = panel();
   assert.deepStrictEqual(types(q.dispatch({ type: "SUMMARY", prompt: "总结" })), ["hidePopovers", "draft", "fill"]);

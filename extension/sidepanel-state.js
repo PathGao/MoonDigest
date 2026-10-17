@@ -321,15 +321,16 @@
   }
 
   // The draft effect names the conversation left and the one shown, read around the whole event: following another
-  // video moves the tab's context before the conversation changes. The same key on both sides is a new conversation
-  // replacing the video's unsaved one, which starts empty.
+  // video moves the tab's context before the conversation changes, and one event can change the conversation twice
+  // (a placeholder, then the video's saved one), which is still one move. The same key on both sides is a new
+  // conversation replacing the video's unsaved one, which starts empty.
   function dispatchAround(s, event) {
     const from = draftKey(s);
     const effects = dispatch(s, event);
-    for (const effect of effects) {
-      if (effect.type === "draft") Object.assign(effect, { from, to: draftKey(s) });
-    }
-    return effects;
+    const first = effects.findIndex((effect) => effect.type === "draft");
+    if (first < 0) return effects;
+    effects[first] = { type: "draft", from, to: draftKey(s) };
+    return effects.filter((effect, i) => effect.type !== "draft" || i === first);
   }
 
   function resolveIfNeeded(s, silent) {
