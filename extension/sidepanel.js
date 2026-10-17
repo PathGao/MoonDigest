@@ -1739,7 +1739,8 @@ function endStream(stream, { stopped = "", error = "", code = "" } = {}) {
     redrawAfterStream = false;
     renderConversationMessages();
   }
-  els.input.focus();
+  // Back to the question box, unless the reader is typing elsewhere meanwhile (the note, a 快捷追问 being added).
+  if (!document.activeElement?.matches("input, textarea, select, [contenteditable]")) els.input.focus();
 }
 
 // How a reply ended, under it: 已停止生成, the background's notice, the error with its buttons.
