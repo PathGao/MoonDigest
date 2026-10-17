@@ -277,8 +277,6 @@
   let keyEpoch = 0; // bumped on every local change, so a getKeys answer that raced one is dropped
   let enabled = false;
   let timer = 0;
-  let running = false;
-  let again = false;
   let pop = null;
   let gen = 0; // bumped when triage data changes so an in-flight scan drops its stale reads
   let superseded = false; // a fresh copy took over (standDown)
@@ -294,9 +292,8 @@
     const list = [...document.querySelectorAll(sel)];
     return r ? list.concat([...r.querySelectorAll(sel)]) : list;
   };
-  // What run() looks at: the queued nodes (each one, what it holds and the match it sits in), or the whole page.
-  let scope = null;
-  const scanned = (sel) => {
+  // What a run looks at: the queued nodes (each one, what it holds and the match it sits in), or null for the whole page.
+  const scanned = (scope, sel) => {
     if (!scope || lineOnly) return findAll(sel);
     const out = new Set();
     for (const r of scope) {
@@ -344,10 +341,12 @@
   // The video a player page shows: /video/BV… or, on the 稍后再看 / 收藏夹 player (/list/…), ?bvid= (surfaceOf's "video").
   const pageBvid = () => (/^\/(?:video|list)\//.test(location.pathname) ? bvidFromHref(location.pathname + location.search) : "");
 
-  // ---- When to look: the nodes a page change added are queued and marked in the next animation frame, before the
-  // browser paints them, from what is already in memory. The whole page is looked at once at start, after in-page
-  // navigation, when the tab comes back into view and when more than MAX nodes piled up; data changes do it too,
-  // throttled (schedule). ----
+  // ---- When to look: the nodes a page change added are marked in the MutationObserver callback itself, which runs
+  // before the browser paints, from what is already in memory; a mark B站 takes out with its own re-render (the video
+  // page rebuilds its title block while it hydrates) is back in the same callback. The whole page is looked at, in
+  // the next animation frame, at start, after in-page navigation, when the tab comes back into view and when more
+  // than MAX nodes piled up in one callback (the parser at document_start); data changes do it too, throttled
+  // (schedule). ----
   // The player's own nodes (danmaku, progress, subtitles) change every frame and hold nothing that is marked.
   // ponytail: a video link B站 adds inside the player is marked only by a whole-page look; watch its mutations if the
   // player starts holding marked links.
@@ -380,13 +379,19 @@
       }
       const added = [...r.addedNodes];
       const removed = [...r.removedNodes];
-      // Our own writes: nothing new to mark.
-      if (added.every(ours) && removed.every(ours)) continue;
+      // Our own marks added: nothing new. A mark removed may be B站's doing, so its parent is looked at again (after
+      // our own removals that finds nothing to write).
+      if (!removed.length && added.every(ours)) continue;
       for (const n of added) if (n.nodeType === 1 && !ours(n)) want(n);
       // New text in an existing node, or a mark of ours taken out by the page: the parent is looked at again.
       if (t.nodeType === 1 && (added.some((n) => n.nodeType !== 1) || removed.some(ours))) want(t);
     }
-    if (full || pending.size) soon();
+    if (full) soon();
+    else if (pending.size && enabled) {
+      const roots = [...pending].filter((n) => n.isConnected);
+      pending.clear();
+      run(roots).catch(() => {});
+    }
   }
   const onVisible = () => !document.hidden && (full || pending.size) && soon();
   // An extension disabled or removed injects no fresh copy (standDown): this one stops on its own.
@@ -418,32 +423,20 @@
     soon();
   };
 
-  // Marks `roots` (null: the whole page). Without a storage read to wait for, it runs to the end synchronously, so a
-  // frame's queued nodes are drawn before that frame paints.
+  // Marks `roots` (null: the whole page). Without a storage read to wait for, it runs to the end synchronously.
+  // Runs may overlap (one waits for a read while the next callback marks new nodes from memory): each one reads the
+  // DOM and writes it in one synchronous step, and every write checks what is already there.
   async function run(roots = null) {
-    if (running) {
-      if (roots) roots.forEach(want);
-      else full = true;
-      again = true;
-      return;
-    }
-    running = true;
-    try {
-      const g = gen;
-      const nav = followNav();
-      const hooked = hookBewly();
-      scope = nav || hooked ? null : roots;
-      if (upOn) await markUps();
-      if (triageOn || seenCfg.on) await markVideos(g);
-      fitBoxes(findAll(".mdg-badge, .mdg-ups").filter((b) => !b.dataset.fit));
-    } finally {
-      scope = null;
-      running = false;
-      if (again) {
-        again = false;
-        soon();
-      }
-    }
+    const g = gen;
+    const nav = followNav();
+    const hooked = hookBewly();
+    const scope = nav || hooked ? null : roots;
+    // The line under the title first, from memory: it never waits for the cards' or the UP names' reads.
+    const here = pageBvid();
+    if (triageOn && cache.has(here)) markVideoLine(here);
+    if (upOn) await markUps(scope);
+    if (triageOn || seenCfg.on) await markVideos(g, scope);
+    fitBoxes(findAll(".mdg-badge, .mdg-ups").filter((b) => !b.dataset.fit));
   }
 
   // ---- UP tags: chips after author names, the 「+」 tag picker, and the tag filter bar on the 动态 page ----
@@ -483,10 +476,10 @@
     return resolveMid({ data, face, name: el.textContent }, idx);
   }
 
-  async function markUps() {
+  async function markUps(scope) {
     const owner = pageOwner();
     const spots = [];
-    for (const a of scanned(UP_SEL)) {
+    for (const a of scanned(scope, UP_SEL)) {
       const mid = midFromHref(a.getAttribute("href"));
       // On a space page the owner's own links (its video cards) would all say the same thing; the nickname carries it.
       const spot = mid && mid !== owner ? spotIn(a) : null;
@@ -496,8 +489,8 @@
       spots.push(row ? [row, mid, rules.owner, spot.textContent] : [spot, mid, ruleFor(a)]);
     }
     // The nickname only on the space's own pages: its 收藏夹 page shows no UP tags.
-    if (owner) for (const el of scanned(OWNER_SEL)) spots.push([el, owner, surface === "space" ? rules.nick : rules.fav]);
-    const nameEls = scanned(NAME_SEL);
+    if (owner) for (const el of scanned(scope, OWNER_SEL)) spots.push([el, owner, surface === "space" ? rules.nick : rules.fav]);
+    const nameEls = scanned(scope, NAME_SEL);
     // The 动态 page reads follow_people up front, so the cards it loads later are matched in the frame they appear.
     const idx = nameEls.length || surface === "feed" ? who || (await whoIs()) : null;
     if (!enabled || !upOn) return; // stood down, or the marks or the UP tags switched off, while reading
@@ -874,8 +867,8 @@ input { box-sizing: border-box; width: 100%; margin: 0; padding: 4px 8px; border
     rescan();
   }
 
-  async function markVideos(g) {
-    const covers = scanned(COVERS);
+  async function markVideos(g, scope) {
+    const covers = scanned(scope, COVERS);
     const here = pageBvid();
     // Most Bilibili iframes hold no video link: nothing to mark, so no storage reads. The top frame reads at once,
     // links or not: its cards come later (B站 draws them after its own requests), and are then marked from memory.
@@ -895,7 +888,7 @@ input { box-sizing: border-box; width: 100%; margin: 0; padding: 4px 8px; border
     }
     if (!shared || fid !== sharedFid) await loadShared(fid, g);
     if (g !== gen) return;
-    const anchors = scanned(SEL);
+    const anchors = scanned(scope, SEL);
     const want = [...new Set(anchors.map((a) => bvidFromHref(a.getAttribute("href"))).concat(here))].filter((b) => b && !known(b));
     // ponytail: a card whose video has results of its own, off that video's favorites page, waits for this read and is
     // marked a frame or two after it appears; preloading every result would read megabytes on every page.
